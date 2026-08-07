@@ -45,36 +45,31 @@ _load_dotenv_result = load_dotenv(_project_root / ".env")
 # ---------------------------------------------------------------------------
 
 def _strip_markdown_fence(text: str) -> str:
-    """Layer 1: 移除 ```json ... ``` 包裹。"""
+    """移除markdown围栏"""
     text = text.strip()
     # 精确匹配：```json\n...\n```
     if text.startswith("```") and text.endswith("```"):
-        # 去掉开头的 ``` 及可能的语言标记
         first_newline = text.find("\n")
         if first_newline != -1:
-            text = text[first_newline + 1:]
+            text = text[first_newline + 1:] # ```json*```
         else:
-            text = text[3:]  # 没有换行？直接去掉 ```
+            text = text[3:]  # ```*```
         text = text[: text.rfind("```")].strip()
     return text
 
 
 def _extract_json_substring(text: str) -> str:
-    """Layer 2: 找到第一个 { 到最后一个 } 的区间。"""
+    """{}花括号匹配"""
     start = text.find("{")
     end = text.rfind("}")
     if start == -1 or end == -1 or start >= end:
-        return text  # 找不到花括号，原样返回让 json.loads 报错
+        return text  # 失败，返回原信息，尽管true也是正常json
     return text[start:end + 1]
 
 
 def _repair_common_json_errors(text: str) -> str:
-    """Layer 4: 修复常见 JSON 语法错误。
-
-    这里的每一项修复都是"宁可错杀不可放过"的安全操作——
-    只处理高置信度的模式。
-    """
-    # 移除尾部逗号（"key": "value",} → "key": "value"}）
+    """其他修复"""
+    # 移除尾部逗号
     text = re.sub(r",\s*(\}|\])", r"\1", text)
 
     # 单行 // 注释 → 移除
@@ -99,19 +94,16 @@ def extract_json(response_text: str) -> dict[str, Any]:
     errors: list[str] = []
     original = response_text
 
-    # Layer 1: 去 markdown 代码块
     cleaned = _strip_markdown_fence(response_text)
-
-    # Layer 2: 提取 JSON 子串
     cleaned = _extract_json_substring(cleaned)
 
-    # Layer 3: 直接解析
+    # 一次解析
     try:
         return json.loads(cleaned)
     except json.JSONDecodeError as e:
         errors.append(f"clean parse: {e}")
 
-    # Layer 4: 修复常见错误后重试
+    # 静态修复后二次解析
     repaired = _repair_common_json_errors(cleaned)
     if repaired != cleaned:
         try:

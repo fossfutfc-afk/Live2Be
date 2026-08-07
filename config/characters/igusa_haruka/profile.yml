@@ -1,4 +1,4 @@
-is_official-character: true
+is_official_character: true
 
 name:
   - IMP_most_called_name: 伊草 遥香
@@ -12,6 +12,7 @@ name:
 
 gender: 女
 age: 15
+birthday: 5/13
 height: 157
 weight: 轻
 
