@@ -1,0 +1,6 @@
+ign
+.vscode/
+.env
+*.exe
+CLAUDE.md
+resources/*
