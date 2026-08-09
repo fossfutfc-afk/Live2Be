@@ -4,3 +4,6 @@ ign
 *.exe
 CLAUDE.md
 resources/*
+__pycache__/
+data/sessions/
+*.pyc
