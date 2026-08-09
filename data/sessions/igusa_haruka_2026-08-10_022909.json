@@ -1,0 +1,15 @@
+{
+  "character_id": "igusa_haruka",
+  "character_name": "伊草 遥香",
+  "created_at": "2026-08-10T02:29:09.787936",
+  "messages": [
+    {
+      "role": "user",
+      "content": "遥香，你好呀，好久没见了，你的杂草们怎么样了呀"
+    },
+    {
+      "role": "assistant",
+      "content": "[伊草 遥香: ]啊，sensei，你还记得我的杂草们…\n[伊草 遥香: ]它们都挺好的，我每天都会去给它们浇水，\n[伊草 遥香: ]虽然都是些不起眼的小草…但看着它们一天天长大，我真的很开心…"
+    }
+  ]
+}

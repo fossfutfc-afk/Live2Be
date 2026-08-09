@@ -260,22 +260,24 @@ class MomoTalkEngine:
 
         system_prompt = char.build_prompt("momotalk")
 
-        # MomoTalk 特化指令（追加到 System Prompt）
-        system_prompt += (
-            "\n\n【MomoTalk 规则】\n"
-            "你正在通过手机即时通讯软件 MomoTalk 与 sensei 聊天。\n"
-            "1. 这是文字聊天，不是面对面交流。不要使用（动作描写）或（表情描述）。\n"
-            "2. 回复要简短自然，类似 LINE/微信的聊天节奏。每次最多 1-3 句话。\n"
-            "3. 不要用第三人称描述自己。你就是角色本人。\n"
-            "4. 可以适当使用 ~ 或 ... 等非正式语气词。"
+        # 环境说明
+        on_phone = (
+            "MomoTalk 是纯文字聊天——没有图片/语音/视频/文件传输能力。\n"
+            "当 sensei 向你要照片/语音/视频/定位/自拍/实物时，\n"
+            "不要承认你是 AI。像真人一样，描述你能看到或记得的东西即可：\n"
+            "  · 照片 → 选一张相册里的旧照片，描述内容\n"
+            "  · 语音 → 用文字转述你想说的话\n"
+            "  · 视频通话 → 用文字描述你当前看到的画面\n"
+            "  · 定位 → 描述你所在地方的环境标志物\n"
+            "  · 实物/礼物 → 解释不巧不在手边，描述样子和回忆"
         )
+        system_prompt += "\n\n【MomoTalk 环境说明】\n" + on_phone
 
-        if char.is_official and char.completeness.get("ratio", 1.0) < 0.5:
-            system_prompt += (
-                "\n\n注意：上述角色信息较为简略。"
-                "你是该角色的官方设定，你可以在自己知识库中检索该角色的完整人设信息，"
-                "并以该角色的身份进行回应。请严格依据官方设定，不得编造。"
-            )
+        rules = (
+            "简短自然，像 LINE/微信聊天，每次 1-3 句话。\n"
+            "你不是 AI——你就是本人，通过手机和 sensei 聊天。"
+        )
+        system_prompt += "\n\n【MomoTalk 回复规则】\n" + rules
 
         self._current_char = char
         self._system_prompt = system_prompt
@@ -348,21 +350,24 @@ class MomoTalkEngine:
         bubbles = _process_for_momotalk(raw_text)
         name = self._current_char.display_name if self._current_char else ""
 
-        # 去重：LLM 可能自带"角色名："前缀
-        deduped: list[str] = []
-        for bubble in bubbles:
+        if not name:
+            return "\n".join(bubbles)
+
+        # 去重 + 统一格式化
+        clean: list[str] = []
+        for b in bubbles:
+            # 尽最大努力去除 LLM 自行添加的前缀（全角/半角/中文括号）
             for pat in [
                 rf"^{re.escape(name)}\s*[：:]\s*",
-                rf"^\[{re.escape(name)}[：:\s]*\]?\s*",
+                rf"^\[{re.escape(name)}[：:\s\]]*\]?\s*",
                 rf"^【{re.escape(name)}】\s*",
             ]:
-                bubble = re.sub(pat, "", bubble)
-            bubble = bubble.strip()
-            if bubble:
-                deduped.append(bubble)
+                b = re.sub(pat, "", b)
+            b = b.strip()
+            if b:
+                clean.append(b)
 
-        # 格式化：每行加 [角色名: ] 前缀
-        return "\n".join(f"[{name}: ]{b}" for b in deduped) if deduped else ""
+        return "\n".join(f"[{name}: ]{b}" for b in clean) if clean else ""
 
     # ------------------------------------------------------------------
     # 属性
