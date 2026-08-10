@@ -94,11 +94,11 @@ def _chat_loop(engine: MomoTalkEngine) -> LoopResult:
 
         # ── 正常对话 ──
         try:
+            import time
             print()  # 换行，准备输出角色回复
             for bubble, delay in engine.send_message_stream(user_input):
-                from core.streaming import simulate_typing
-                simulate_typing(bubble, delay)
-                print()  # 每个气泡后换行
+                time.sleep(delay)
+                print(bubble)
             print()  # 回复结束，额外空行
         except Exception as e:
             print(f"\n[系统] LLM 调用失败: {e}")

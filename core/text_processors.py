@@ -47,12 +47,11 @@ def _split_for_momotalk(text: str, max_chars: int = MMT_MAX_CHUNK_CHARS) -> list
     if not text:
         return [text]
 
+    # 英文句尾标点 → 中文（先归一化，再合并省略号）
+    text = text.replace(".", "。").replace("!", "！").replace("?", "？")
     # 合并连续句点为省略号，防止切碎
-    text = re.sub(r"[.．。]{2,}", "…", text)
+    text = re.sub(r"[。．]{2,}", "…", text)
     text = re.sub(r"…{2,}", "…", text)
-    text = text.strip()
-    if not text:
-        return [text]
 
     strong = _strong_split(text)
     if len(strong) <= 1 and len(text) <= max_chars:
