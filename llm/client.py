@@ -63,7 +63,7 @@ def _extract_json_substring(text: str) -> str:
     start = text.find("{")
     end = text.rfind("}")
     if start == -1 or end == -1 or start >= end:
-        return text  # 失败，返回原信息，尽管true也是正常json
+        return text  # 失败，返回原信息，尽管形如true也是正常json
     return text[start:end + 1]
 
 
@@ -133,7 +133,7 @@ class LLMClient:
     自动从 .env 读取配置：
         LLM_API_KEY  — API 密钥（必需）
         LLM_BASE_URL — API 地址（默认 https://api.deepseek.com/v1）
-        LLM_MODEL    — 模型名（默认 deepseek-chat）
+        LLM_MODEL    — 模型名（默认 deepseek-v4-flash）
 
     也可在构造时覆盖：
         client = LLMClient(api_key="sk-...", base_url="...", model="...")
@@ -149,7 +149,7 @@ class LLMClient:
     ):
         self.api_key = api_key or os.getenv("LLM_API_KEY", "")
         self.base_url = (base_url or os.getenv("LLM_BASE_URL", "https://api.deepseek.com/v1")).rstrip("/")
-        self.model = model or os.getenv("LLM_MODEL", "deepseek-chat")
+        self.model = model or os.getenv("LLM_MODEL", "deepseek-v4-flash")
         self.timeout = timeout
         self.max_retries = max_retries
 
