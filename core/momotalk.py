@@ -169,7 +169,7 @@ class MomoTalkEngine:
         return processed
 
     def send_message_stream(self, user_input: str):
-        """流式模式：yield 每个完整气泡（带延迟信息）。
+        """流式模式（MomoTalk）：yield 格式化气泡 + 延迟。
 
         用法:
             for bubble, delay in engine.send_message_stream(user_input):
@@ -178,7 +178,7 @@ class MomoTalkEngine:
         if self._current_char is None:
             raise RuntimeError("尚未开始会话")
 
-        from core.streaming import LineBuffer, TypingDelay
+        from core.display import MomoTalkOutput
 
         messages = self.llm.format_messages(
             system_prompt=self._system_prompt,
@@ -186,31 +186,75 @@ class MomoTalkEngine:
             history=self._history if self._history else None,
         )
 
-        lb = LineBuffer()
-        TypingDelay.reset()
-        full_text = ""
         name = self._current_char.display_name if self._current_char else ""
+        display = MomoTalkOutput(_process_for_momotalk, name)
 
+        full_text = ""
         for token in self.llm.chat_stream(messages, temperature=0.8, max_tokens=512):
             full_text += token
-            for bubble in lb.feed(token):
-                for b in _process_for_momotalk(bubble):
-                    yield f"[{name}]: {b}", TypingDelay.for_bubble(b)
+            yield from display.feed(token)
 
-        # 流结束，把残留走精切 + 输入历史
-        remaining = lb.flush()
-        if remaining:
-            for b in _process_for_momotalk(remaining):
-                yield f"[{name}]: {b}", TypingDelay.for_bubble(b)
+        yield from display.flush()
 
         processed = self._process_reply(full_text)
         self._history.append({"role": "user", "content": user_input})
         self._history.append({"role": "assistant", "content": processed})
         self._trim_history()
 
+    def send_message_vn_stream(self, user_input: str):
+        """羁绊剧情流式模式。
+
+        与 MomoTalk 不同：不去括号、不断句、不加前缀。
+        流结束后按双换行分割段落，yield (paragraph_text, is_last) 元组。
+
+        UI 层负责：逐字打字动画 + Enter 推进到下一段。
+
+        用法:
+            for paragraph, is_last in engine.send_message_vn_stream(user_input):
+                vn_show_paragraph(paragraph, is_last)
+        """
+        if self._current_char is None:
+            raise RuntimeError("尚未开始会话")
+
+        from core.display import BondStoryOutput
+
+        messages = self.llm.format_messages(
+            system_prompt=self._system_prompt,
+            user_message=user_input,
+            history=self._history if self._history else None,
+        )
+
+        display = BondStoryOutput()
+
+        full_text = ""
+        for token in self.llm.chat_stream(messages, temperature=0.8, max_tokens=1024):
+            full_text += token
+            display.feed(token)
+
+        paragraphs = display.flush()
+        for i, para in enumerate(paragraphs):
+            yield para, i == len(paragraphs) - 1
+
+        self._history.append({"role": "user", "content": user_input})
+        self._history.append({"role": "assistant", "content": full_text})
+        self._trim_history()
+
     # ------------------------------------------------------------------
     # 钩子：输出处理（子类可覆盖）
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _strip_name_prefix(text: str, name: str) -> str:
+        """去掉文本开头可能存在的角色名前缀（LLM 有时会自己输出 [名字]: xxx）。"""
+        if not name:
+            return text
+        for pat in [
+            rf"^{re.escape(name)}\s*[：:]\s*",
+            rf"^\[{re.escape(name)}[：:\s\]]*\]?\s*",
+            rf"^【{re.escape(name)}】\s*",
+        ]:
+            text = re.sub(pat, "", text)
+        return text.strip()
 
     def _process_reply(self, raw_text: str) -> str:
         """MomoTalk 格式处理：去动作括号 + 断句 + 加角色名前缀。"""
@@ -222,13 +266,7 @@ class MomoTalkEngine:
 
         clean: list[str] = []
         for b in bubbles:
-            for pat in [
-                rf"^{re.escape(name)}\s*[：:]\s*",
-                rf"^\[{re.escape(name)}[：:\s\]]*\]?\s*",
-                rf"^【{re.escape(name)}】\s*",
-            ]:
-                b = re.sub(pat, "", b)
-            b = b.strip()
+            b = self._strip_name_prefix(b, name)
             if b:
                 clean.append(b)
 

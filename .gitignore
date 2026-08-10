@@ -6,3 +6,4 @@ CLAUDE.md
 resources/*
 __pycache__/
 data/sessions/
+data/basic/
