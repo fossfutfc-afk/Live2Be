@@ -2,18 +2,11 @@
 MomoTalk 对话引擎 — 角色聊天会话管理。
 
 MomoTalk 与羁绊剧情的区别:
-    - MomoTalk = 手机聊天界面, 无动作描写, 短消息, 对标准标点分词输出
+    - MomoTalk = 手机聊天界面, 无动作描写, 短消息, 标点分词输出
     - 羁绊剧情 = 视觉小说, 允许动作描写 (括号), 长对白
-    - 本模块中的 _strip_action_brackets() / _split_for_momotalk()
-      是 MomoTalk 特化处理器; 羁绊剧情不使用它们。
 
 用法:
     from core.momotalk import MomoTalkEngine, Session
-
-    engine = MomoTalkEngine("config/characters", client)
-    engine.start_session("igusa_haruka")
-    reply = engine.send_message("你好")          # 自动处理 → MomoTalk 格式
-    engine.save_session()
 """
 
 from __future__ import annotations
@@ -27,175 +20,12 @@ from pathlib import Path
 
 from llm.client import LLMClient
 from parsing.dynamic_character_parser import CharacterLoader, DynamicCharacter
+from core.text_processors import _process_for_momotalk
 
 logger = logging.getLogger(__name__)
 
-# ============================================================================
-# 配置常量
-# ============================================================================
-
 MAX_HISTORY_ROUNDS = 20
 SESSION_DIR = Path("data/sessions")
-
-# MomoTalk 消息长度阈值（字符数）。超过此值认为消息过长，用标点断句
-MMT_MAX_CHUNK_CHARS = 30   # 手机气泡约 30 字一行，更激进的断句
-MMT_MIN_CHUNK_CHARS = 4    # 短音节词（"嗯。"、"啊..."）可独立成行
-
-# ============================================================================
-# MomoTalk 特化处理器
-# ============================================================================
-
-
-def _strip_action_brackets(text: str) -> str:
-    """Processor 1: 去除括号内的动作描写。
-
-    MomoTalk 是手机聊天——没有"（低头）（小声）"这种舞台指示。
-
-    匹配中文全角括号（...）和英文半角括号(...)。
-    使用非贪婪匹配正确处理嵌套括号。
-    """
-    # 用循环处理，因为 re.sub 无法可靠处理嵌套
-    # 策略：反复去除最内层括号，直到没有括号为止
-    prev = None
-    while prev != text:
-        prev = text
-        text = re.sub(r"（[^（）]*）", "", text)
-        text = re.sub(r"\([^()]*\)", "", text)
-    return text.strip()
-
-
-def _split_for_momotalk(text: str, max_chars: int = MMT_MAX_CHUNK_CHARS) -> list[str]:
-    """Processor 2: 按标点断句，模拟手机聊天气泡。
-
-    手机聊天的自然节奏:
-        - 句号/问号/感叹号 → 强断点
-        - 逗号/分号 → 弱断点（语气停顿，可合并）
-        - "…"省略号不参与断句
-    """
-    text = text.strip()
-    if not text:
-        return [text]
-
-    # 预处理: 合并连续英文句点为省略号 "…"，防止 "..." 被切碎
-    # 也合并连续的中文省略号 "……" → "…"
-    text = re.sub(r"[.．。]{2,}", "…", text)
-    text = re.sub(r"…{2,}", "…", text)
-    # 去掉没意义的纯标点碎片
-    text = text.strip()
-
-    if not text:
-        return [text]
-
-    # 在强断点（。！？!?…）处切分。标点留在句子末尾。
-    strong = _strong_split(text)
-
-    if len(strong) <= 1 and len(text) <= max_chars:
-        return [text if text else strong]
-
-    # 过滤掉纯标点碎片（"。"、"！"、"…" 单独出现不算）
-    strong = [s for s in strong if _has_content(s)]
-    if not strong:
-        return [text]
-
-    chunks: list[str] = []
-    for segment in strong:
-        if len(segment) <= max_chars:
-            chunks.append(segment)
-        else:
-            chunks.extend(_split_at_weak_breaks(segment, max_chars))
-
-    return _merge_short_chunks(chunks, max_chars)
-
-
-def _split_at_weak_breaks(text: str, max_chars: int) -> list[str]:
-    """在逗号/分号等弱标点处拆分超长句。"""
-    # 去掉英文句号切分（避免 "..." 被切成碎片）
-    parts = re.split(r"(?<=[，、,;；；])", text)
-    parts = [p.strip() for p in parts if p.strip()]
-    if not parts:
-        return [text]
-
-    out: list[str] = []
-    buf = ""
-    for part in parts:
-        # 极短 part 独立（"但、" "嗯……" 这种）
-        if len(part) <= MMT_MIN_CHUNK_CHARS:
-            if buf:
-                out.append(buf.strip())
-                buf = ""
-            out.append(part)
-            continue
-
-        if len(buf) + len(part) <= max_chars:
-            buf += part
-        else:
-            if buf:
-                out.append(buf.strip())
-            # 单 part 超长 → 硬截
-            if len(part) > max_chars:
-                out.append(part[:max_chars])
-            else:
-                buf = part
-    if buf:
-        out.append(buf.strip())
-    return out if out else [text]
-
-
-def _merge_short_chunks(chunks: list[str], max_chars: int) -> list[str]:
-    """合并过短的相邻 chunk，但保留独立短音节。
-
-    规则:
-        - "嗯。" "啊..." "谢谢" 等极短句（≤4字）→ 可独立存在
-        - 其他短句 → 合并到相邻 chunk
-    """
-    if len(chunks) <= 1:
-        return chunks
-    merged: list[str] = []
-    buf = ""
-    for c in chunks:
-        # 极短句独立
-        if len(c) <= MMT_MIN_CHUNK_CHARS:
-            if buf:
-                merged.append(buf.strip())
-                buf = ""
-            merged.append(c)
-            continue
-        if len(buf) + len(c) <= max_chars:
-            buf += c
-        else:
-            if buf:
-                merged.append(buf.strip())
-            buf = c
-    if buf:
-        merged.append(buf.strip())
-    return merged if merged else chunks
-
-
-def _process_for_momotalk(text: str) -> list[str]:
-    """MomoTalk 纯文本处理器。
-    1. 去动作括号
-    2. 按标点断句
-    3. 返回聊天气泡列表 (无格式化，格式化是 UI 层的职责)
-    可用于 MomoTalk 以及未来需要同样处理器的场景。
-    """
-    text = _strip_action_brackets(text)
-    return _split_for_momotalk(text)
-
-
-# ---------------------------------------------------------------------------
-# 分词辅助
-# ---------------------------------------------------------------------------
-
-def _strong_split(text: str) -> list[str]:
-    """在强断点（。！？!?…）处切分。"""
-    parts = re.split(r"(?<=[。！？!?…])", text)
-    return [p.strip() for p in parts if p.strip() and p not in (".", ":")]
-
-
-def _has_content(text: str) -> bool:
-    """检查片段是否有实际文字内容（非纯标点/空格）。"""
-    cleaned = re.sub(r"[\s\.…。！？!?,，、;；：:（）()\"'\"\"]", "", text)
-    return len(cleaned) > 0
 
 
 # ============================================================================
@@ -257,10 +87,8 @@ class MomoTalkEngine:
 
     def start_session(self, character_id: str) -> str:
         char = self.char_loader.load(character_id)
-
         system_prompt = char.build_prompt("momotalk")
 
-        # 环境说明
         on_phone = (
             "MomoTalk 是纯文字聊天——没有图片/语音/视频/文件传输能力。\n"
             "当 sensei 向你要照片/语音/视频/定位/自拍/实物时，\n"
@@ -332,7 +160,6 @@ class MomoTalkEngine:
         if not isinstance(raw_reply, str):
             raw_reply = str(raw_reply)
 
-        # 子类可覆盖此方法更换处理器
         processed = self._process_reply(raw_reply)
 
         self._history.append({"role": "user", "content": user_input})
@@ -353,10 +180,8 @@ class MomoTalkEngine:
         if not name:
             return "\n".join(bubbles)
 
-        # 去重 + 统一格式化
         clean: list[str] = []
         for b in bubbles:
-            # 尽最大努力去除 LLM 自行添加的前缀（全角/半角/中文括号）
             for pat in [
                 rf"^{re.escape(name)}\s*[：:]\s*",
                 rf"^\[{re.escape(name)}[：:\s\]]*\]?\s*",
