@@ -194,7 +194,8 @@ class MomoTalkEngine:
         for token in self.llm.chat_stream(messages, temperature=0.8, max_tokens=512):
             full_text += token
             for bubble in lb.feed(token):
-                yield f"[{name}]: {bubble}", TypingDelay.for_bubble(bubble)
+                for b in _process_for_momotalk(bubble):
+                    yield f"[{name}]: {b}", TypingDelay.for_bubble(b)
 
         # 流结束，把残留走精切 + 输入历史
         remaining = lb.flush()
