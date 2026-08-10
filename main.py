@@ -94,8 +94,12 @@ def _chat_loop(engine: MomoTalkEngine) -> LoopResult:
 
         # ── 正常对话 ──
         try:
-            reply = engine.send_message(user_input)
-            print(f"\n{reply}\n")
+            print()  # 换行，准备输出角色回复
+            for bubble, delay in engine.send_message_stream(user_input):
+                from core.streaming import simulate_typing
+                simulate_typing(bubble, delay)
+                print()  # 每个气泡后换行
+            print()  # 回复结束，额外空行
         except Exception as e:
             print(f"\n[系统] LLM 调用失败: {e}")
             print("[系统] 请检查网络连接和 API Key。输入 /exit 退出。\n")

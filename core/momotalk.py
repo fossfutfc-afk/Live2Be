@@ -189,17 +189,18 @@ class MomoTalkEngine:
         lb = LineBuffer()
         TypingDelay.reset()
         full_text = ""
+        name = self._current_char.display_name if self._current_char else ""
 
         for token in self.llm.chat_stream(messages, temperature=0.8, max_tokens=512):
             full_text += token
             for bubble in lb.feed(token):
-                yield bubble, TypingDelay.for_bubble(bubble)
+                yield f"[{name}]: {bubble}", TypingDelay.for_bubble(bubble)
 
         # 流结束，把残留走精切 + 输入历史
         remaining = lb.flush()
         if remaining:
             for b in _process_for_momotalk(remaining):
-                yield b, TypingDelay.for_bubble(b)
+                yield f"[{name}]: {b}", TypingDelay.for_bubble(b)
 
         processed = self._process_reply(full_text)
         self._history.append({"role": "user", "content": user_input})
@@ -230,7 +231,7 @@ class MomoTalkEngine:
             if b:
                 clean.append(b)
 
-        return "\n".join(f"[{name}: ]{b}" for b in clean) if clean else ""
+        return "\n".join(f"[{name}]: {b}" for b in clean) if clean else ""
 
     # ------------------------------------------------------------------
     # 属性
