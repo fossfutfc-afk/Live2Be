@@ -146,7 +146,7 @@ class MomoTalkEngine:
     # ------------------------------------------------------------------
 
     def send_message(self, user_input: str) -> str:
-        """发送玩家消息，返回 MomoTalk 格式的角色回复。"""
+        """批次模式：等 LLM 完整回复后一次性返回。"""
         if self._current_char is None:
             raise RuntimeError("尚未开始会话")
 
@@ -167,6 +167,44 @@ class MomoTalkEngine:
         self._trim_history()
 
         return processed
+
+    def send_message_stream(self, user_input: str):
+        """流式模式：yield 每个完整气泡（带延迟信息）。
+
+        用法:
+            for bubble, delay in engine.send_message_stream(user_input):
+                simulate_typing(bubble, delay)
+        """
+        if self._current_char is None:
+            raise RuntimeError("尚未开始会话")
+
+        from core.streaming import LineBuffer, TypingDelay
+
+        messages = self.llm.format_messages(
+            system_prompt=self._system_prompt,
+            user_message=user_input,
+            history=self._history if self._history else None,
+        )
+
+        lb = LineBuffer()
+        TypingDelay.reset()
+        full_text = ""
+
+        for token in self.llm.chat_stream(messages, temperature=0.8, max_tokens=512):
+            full_text += token
+            for bubble in lb.feed(token):
+                yield bubble, TypingDelay.for_bubble(bubble)
+
+        # 流结束，把残留走精切 + 输入历史
+        remaining = lb.flush()
+        if remaining:
+            for b in _process_for_momotalk(remaining):
+                yield b, TypingDelay.for_bubble(b)
+
+        processed = self._process_reply(full_text)
+        self._history.append({"role": "user", "content": user_input})
+        self._history.append({"role": "assistant", "content": processed})
+        self._trim_history()
 
     # ------------------------------------------------------------------
     # 钩子：输出处理（子类可覆盖）

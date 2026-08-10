@@ -15,6 +15,7 @@ LLM API Client — OpenAI-compatible Chat Completions 封装。
 
 from __future__ import annotations
 
+import json
 import os
 import time
 from pathlib import Path
@@ -83,19 +84,7 @@ class LLMClient:
         response_format: str = "text",
         extra_body: dict[str, Any] | None = None,
     ) -> str | dict[str, Any]:
-        """发送 chat completion 请求。
-
-        Args:
-            messages:        [{"role": "system", "content": "..."}, ...]
-            model:           模型名（默认构造时指定的模型）
-            temperature:     0.0-2.0
-            max_tokens:      最大输出 token
-            response_format: "text" | "json_object"
-            extra_body:      额外请求体字段
-
-        Returns:
-            str (text) 或 dict (json_object)
-        """
+        """发送 chat completion 请求（批次模式）。"""
         effective_model = model or self.model
 
         payload = _build_payload(
@@ -119,6 +108,50 @@ class LLMClient:
                 extra_body=extra_body,
             )
         return raw_text
+
+    def chat_stream(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        model: str | None = None,
+        temperature: float = 0.8,
+        max_tokens: int = 512,
+    ):
+        """流式 chat completion — yield 每个 token 的文本增量。
+
+        用法:
+            for chunk in client.chat_stream(messages):
+                print(chunk, end="", flush=True)
+        """
+        effective_model = model or self.model
+
+        payload = {
+            "model": effective_model,
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "stream": True,
+        }
+
+        with self._http.stream("POST", "/chat/completions", json=payload) as resp:
+            if resp.status_code != 200:
+                raise httpx.HTTPStatusError(
+                    f"LLM API error {resp.status_code}: {resp.text[:500]}",
+                    request=resp.request,
+                    response=resp,
+                )
+            for line in resp.iter_lines():
+                if line.startswith("data: "):
+                    data = line[6:]
+                    if data == "[DONE]":
+                        break
+                    try:
+                        delta = json.loads(data)["choices"][0].get("delta", {})
+                        content = delta.get("content", "")
+                        if content:
+                            yield content
+                    except (json.JSONDecodeError, KeyError, IndexError):
+                        continue
 
     @staticmethod
     def format_messages(

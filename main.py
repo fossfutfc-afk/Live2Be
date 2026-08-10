@@ -95,7 +95,6 @@ def _chat_loop(engine: MomoTalkEngine) -> LoopResult:
         # ── 正常对话 ──
         try:
             reply = engine.send_message(user_input)
-            # reply 已经包含 [角色名: ] 前缀和换行，直接输出
             print(f"\n{reply}\n")
         except Exception as e:
             print(f"\n[系统] LLM 调用失败: {e}")

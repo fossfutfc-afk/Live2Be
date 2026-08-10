@@ -15,7 +15,7 @@ import re
 
 # MomoTalk 消息长度阈值（字符数）
 MMT_MAX_CHUNK_CHARS = 30
-MMT_MIN_CHUNK_CHARS = 4
+MMT_MIN_CHUNK_CHARS = 5
 
 
 # ---------------------------------------------------------------------------
