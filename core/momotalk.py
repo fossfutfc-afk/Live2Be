@@ -19,7 +19,7 @@ from pathlib import Path
 
 from llm.client import LLMClient
 from parsing.dynamic_character_parser import CharacterLoader, DynamicCharacter
-from core.text_processors import _process_for_momotalk, strip_name_prefix
+from core.text_processors import _process_for_momotalk, format_momotalk_reply
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +28,7 @@ SESSION_DIR = Path("data/sessions")
 
 
 # ============================================================================
-# 会话数据结构
+# 会话数据结构辅助类，反正就堆在一起了
 # ============================================================================
 
 
@@ -102,7 +102,7 @@ class MomoTalkEngine:
 
         rules = (
             "简短自然，像 LINE/微信聊天，每次 1-3 句话。\n"
-            "你不是 AI——你就是本人，通过手机和 sensei 聊天。"
+            "你不是 AI——你就是角色本人，通过手机和 sensei 聊天。"
         )
         system_prompt += "\n\n【MomoTalk 回复规则】\n" + rules
 
@@ -200,63 +200,14 @@ class MomoTalkEngine:
         self._history.append({"role": "assistant", "content": processed})
         self._trim_history()
 
-    def send_message_vn_stream(self, user_input: str):
-        """羁绊剧情流式模式。
-
-        与 MomoTalk 不同：不去括号、不断句、不加前缀。
-        流结束后按双换行分割段落，yield (paragraph_text, is_last) 元组。
-
-        UI 层负责：逐字打字动画 + Enter 推进到下一段。
-
-        用法:
-            for paragraph, is_last in engine.send_message_vn_stream(user_input):
-                vn_show_paragraph(paragraph, is_last)
-        """
-        if self._current_char is None:
-            raise RuntimeError("尚未开始会话")
-
-        from core.display import BondStoryOutput
-
-        messages = self.llm.format_messages(
-            system_prompt=self._system_prompt,
-            user_message=user_input,
-            history=self._history if self._history else None,
-        )
-
-        display = BondStoryOutput()
-
-        full_text = ""
-        for token in self.llm.chat_stream(messages, temperature=0.8, max_tokens=1024):
-            full_text += token
-            display.feed(token)
-
-        paragraphs = display.flush()
-        for i, para in enumerate(paragraphs):
-            yield para, i == len(paragraphs) - 1
-
-        self._history.append({"role": "user", "content": user_input})
-        self._history.append({"role": "assistant", "content": full_text})
-        self._trim_history()
-
     # ------------------------------------------------------------------
     # 钩子：输出处理（子类可覆盖）
     # ------------------------------------------------------------------
 
     def _process_reply(self, raw_text: str) -> str:
-        """MomoTalk 格式处理：去动作括号 + 断句 + 加角色名前缀。"""
-        bubbles = _process_for_momotalk(raw_text)
+        """委托给 text_processors.format_momotalk_reply。"""
         name = self._current_char.display_name if self._current_char else ""
-
-        if not name:
-            return "\n".join(bubbles)
-
-        clean: list[str] = []
-        for b in bubbles:
-            b = strip_name_prefix(b, name)
-            if b:
-                clean.append(b)
-
-        return "\n".join(f"[{name}]: {b}" for b in clean) if clean else ""
+        return format_momotalk_reply(raw_text, name)
 
     # ------------------------------------------------------------------
     # 属性

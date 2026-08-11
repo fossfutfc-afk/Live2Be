@@ -156,7 +156,8 @@ def _has_content(text: str) -> bool:
 # 名字前缀处理 — MomoTalk / 羁绊剧情 共用
 #
 #   strip_name_prefix()        去重 LLM 自发输出的角色名前缀     [通用]
-#   format_momotalk_bubble()   加标准 [名字]: 前缀（MomoTalk 用） [MomoTalk]
+#   format_momotalk_bubble()   单气泡格式化                      [MomoTalk]
+#   format_momotalk_reply()    全文格式化（多气泡 join）           [MomoTalk]
 # ============================================================================
 
 def strip_name_prefix(text: str, name: str) -> str:
@@ -179,9 +180,25 @@ def strip_name_prefix(text: str, name: str) -> str:
 
 
 def format_momotalk_bubble(text: str, name: str) -> str:
-    """去重名字前缀 + 加标准 [名字]: text 格式。
+    """单气泡：去重名字前缀 + 加标准 [名字]: text 格式。
 
-    MomoTalk 专用。羁绊剧情应使用 strip_name_prefix() 后自行决定格式。
+    MomoTalk 专用。
     """
     clean = strip_name_prefix(text, name)
     return f"[{name}]: {clean}" if clean else ""
+
+
+def format_momotalk_reply(raw_text: str, name: str) -> str:
+    """全文格式化：去括号 + 断句 + 去重前缀 + [名字]: 前缀 + 换行 join。
+
+    MomoTalk 批次模式 / 历史存储专用。
+    """
+    bubbles = _process_for_momotalk(raw_text)
+    if not name:
+        return "\n".join(bubbles)
+    clean: list[str] = []
+    for b in bubbles:
+        b = strip_name_prefix(b, name)
+        if b:
+            clean.append(f"[{name}]: {b}")
+    return "\n".join(clean)
