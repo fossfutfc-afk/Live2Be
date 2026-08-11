@@ -13,14 +13,13 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
 from llm.client import LLMClient
 from parsing.dynamic_character_parser import CharacterLoader, DynamicCharacter
-from core.text_processors import _process_for_momotalk
+from core.text_processors import _process_for_momotalk, strip_name_prefix
 
 logger = logging.getLogger(__name__)
 
@@ -243,19 +242,6 @@ class MomoTalkEngine:
     # 钩子：输出处理（子类可覆盖）
     # ------------------------------------------------------------------
 
-    @staticmethod
-    def _strip_name_prefix(text: str, name: str) -> str:
-        """去掉文本开头可能存在的角色名前缀（LLM 有时会自己输出 [名字]: xxx）。"""
-        if not name:
-            return text
-        for pat in [
-            rf"^{re.escape(name)}\s*[：:]\s*",
-            rf"^\[{re.escape(name)}[：:\s\]]*\]?\s*",
-            rf"^【{re.escape(name)}】\s*",
-        ]:
-            text = re.sub(pat, "", text)
-        return text.strip()
-
     def _process_reply(self, raw_text: str) -> str:
         """MomoTalk 格式处理：去动作括号 + 断句 + 加角色名前缀。"""
         bubbles = _process_for_momotalk(raw_text)
@@ -266,7 +252,7 @@ class MomoTalkEngine:
 
         clean: list[str] = []
         for b in bubbles:
-            b = self._strip_name_prefix(b, name)
+            b = strip_name_prefix(b, name)
             if b:
                 clean.append(b)
 

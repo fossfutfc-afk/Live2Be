@@ -17,6 +17,7 @@ import re
 from collections.abc import Callable
 
 from core.streaming import LineBuffer, TypingDelay
+from core.text_processors import format_momotalk_bubble
 
 
 # ============================================================================
@@ -52,7 +53,7 @@ class MomoTalkOutput:
         """喂入 SSE token，yield (formatted_bubble, delay_seconds)。"""
         for bubble in self._lb.feed(token):
             for processed in self._processor(bubble):
-                formatted = self._format_bubble(processed)
+                formatted = format_momotalk_bubble(processed, self._name)
                 if formatted:
                     yield formatted, TypingDelay.for_bubble(formatted)
 
@@ -61,30 +62,9 @@ class MomoTalkOutput:
         remaining = self._lb.flush()
         if remaining:
             for processed in self._processor(remaining):
-                formatted = self._format_bubble(processed)
+                formatted = format_momotalk_bubble(processed, self._name)
                 if formatted:
                     yield formatted, TypingDelay.for_bubble(formatted)
-
-    # ------------------------------------------------------------------
-    # 内部
-    # ------------------------------------------------------------------
-
-    def _format_bubble(self, text: str) -> str:
-        """去掉 LLM 可能自带的名字前缀，加上标准前缀 [name]: text。"""
-        b = self._strip_name_prefix(text)
-        return f"[{self._name}]: {b}" if b else ""
-
-    def _strip_name_prefix(self, text: str) -> str:
-        """去掉文本开头可能存在的角色名前缀。"""
-        if not self._name:
-            return text
-        for pat in [
-            rf"^{re.escape(self._name)}\s*[：:]\s*",
-            rf"^\[{re.escape(self._name)}[：:\s\]]*\]?\s*",
-            rf"^【{re.escape(self._name)}】\s*",
-        ]:
-            text = re.sub(pat, "", text)
-        return text.strip()
 
 
 # ============================================================================

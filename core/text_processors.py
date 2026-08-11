@@ -3,10 +3,13 @@
 纯函数组，不依赖 LLM / 角色 / 会话状态。
 可直接用于 MomoTalk，也可被羁绊剧情复用（仅 _strip_action_brackets）。
 
+以下所有方法几乎都服从于中文文本，英文文本需要另给逻辑。
+
 公开 API:
     _strip_action_brackets(text)          → str
     _split_for_momotalk(text, max_chars)  → list[str]
     _process_for_momotalk(text)           → list[str]
+    strip_name_prefix(text, name)         → str
 """
 
 from __future__ import annotations
@@ -14,7 +17,7 @@ from __future__ import annotations
 import re
 
 # MomoTalk 消息长度阈值（字符数）
-MMT_MAX_CHUNK_CHARS = 30
+MMT_MAX_CHUNK_CHARS = 25
 MMT_MIN_CHUNK_CHARS = 5
 
 
@@ -27,6 +30,8 @@ def _strip_action_brackets(text: str) -> str:
 
     MomoTalk 是手机聊天——没有"（低头）（小声）"这种舞台指示。
     循环去除最内层括号，正确处理嵌套。
+
+    假如之后有那种喜欢在聊天里发括号的人设...那等我改逻辑吧...
     """
     prev = None
     while prev != text:
@@ -145,3 +150,38 @@ def _has_content(text: str) -> bool:
     """检查片段是否有实际文字内容（非纯标点/空格）。"""
     cleaned = re.sub(r"[\s\.…。！？!?,，、;；：:（）()\"'\"\"]", "", text)
     return len(cleaned) > 0
+
+
+# ============================================================================
+# 名字前缀处理 — MomoTalk / 羁绊剧情 共用
+#
+#   strip_name_prefix()        去重 LLM 自发输出的角色名前缀     [通用]
+#   format_momotalk_bubble()   加标准 [名字]: 前缀（MomoTalk 用） [MomoTalk]
+# ============================================================================
+
+def strip_name_prefix(text: str, name: str) -> str:
+    """去掉文本开头可能存在的角色名前缀。
+
+    LLM 偶尔会自发输出 "[角色名]: xxx" 或 "角色名: xxx"，
+    调用方在用自己格式加前缀之前，应先调此函数去重。
+
+    MomoTalk / 羁绊剧情 通用。
+    """
+    if not name:
+        return text
+    for pat in [
+        rf"^{re.escape(name)}\s*[：:]\s*",
+        rf"^\[{re.escape(name)}[：:\s\]]*\]?\s*",
+        rf"^【{re.escape(name)}】\s*",
+    ]:
+        text = re.sub(pat, "", text)
+    return text.strip()
+
+
+def format_momotalk_bubble(text: str, name: str) -> str:
+    """去重名字前缀 + 加标准 [名字]: text 格式。
+
+    MomoTalk 专用。羁绊剧情应使用 strip_name_prefix() 后自行决定格式。
+    """
+    clean = strip_name_prefix(text, name)
+    return f"[{name}]: {clean}" if clean else ""
