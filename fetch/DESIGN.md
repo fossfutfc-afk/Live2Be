@@ -52,9 +52,8 @@ AI 只能请求写 `config/characters/<id>/*.yml` 和 `interperson.json`。
 ## 12. 实现顺序
 1 包结构/CLI；2 会话与约束；3 LLM Bridge 与输出契约；4 SourceFetcher；5 校验与写入；6 审批和目录分支；7 Mock 测试；8 文档示例。
 ## 13. 待确认
-1 是否复用主项目 `llm/client.py`？
-2 v1 是否必须实现网页搜索，还是只支持用户给 URL？
-3 `interperson.json` 是否由 AI 推断生成提案？
-4 会话持久化是否必须？
-5 角色 ID 由用户指定还是 AI 生成？
-6 是否允许 CLI 把现有角色文件内容读出来给 AI？
+1 是否复用主项目 `llm/client.py`？yes
+2 v1 是否必须实现网页搜索，还是只支持用户给 URL？默认萌娘百科，kivowiki,BAfandomwiki即可
+3 `interperson.json` 是否由 AI 推断生成提案？可以，但必须谨慎，宁缺勿错
+4 角色 ID 由用户指定还是 AI 生成？假如是OC用户指定，否则统一英文全名全小写如igusa_haruka
+
