@@ -5,21 +5,29 @@
     主项目（运行时表情/背景切换）与辅助项目（角色配置写入）共用同一套机制，
     各自通过 ActionRegistry 注册自己的动作。本文件只含外壳，不含任何具体动作。
 
+动作域（domain）:
+    动作按域分门别类，域之间完全隔离，便于修改/扩展/调用/阅读:
+        IDEActionRegistry   "ide"   辅助项目（写配置文件）
+        MMTActionRegistry   "mmt"   MomoTalk 运行时（未来 agent：模拟手机操作）
+        StoryActionRegistry "story" 羁绊剧情运行时（表情/背景切换）
+    域标签烙进 AgentAction.domain，动作名无需前缀、在域内保持简短。
+
 审批策略（决定动作如何被处理）:
     APPROVAL_REQUIRED  写动作，用户批准后才执行（辅助项目写配置文件）
     APPROVAL_AUTO      规则校验通过即执行（主项目运行时切换表情/背景）
     APPROVAL_NEVER     只读/抓取，直接执行（fetch_url 等）
 
 用法（以辅助项目为例）:
-    from llm.contract import ActionRegistry, ActionSpec, APPROVAL_REQUIRED
+    from llm.contract import IDEActionRegistry, ActionSpec, APPROVAL_REQUIRED
 
     def parse_create_character(payload: dict) -> dict:
         # 白名单规范化：只保留允许字段并转换类型；结构错误抛 ContractError
         ...  # 见 fetch/ 项目实际实现
         return clean_payload
 
-    registry = ActionRegistry()
-    registry.register(ActionSpec("create_character", parse_create_character, APPROVAL_REQUIRED))
+    registry = IDEActionRegistry()   # 辅助项目动作域
+    registry.register(ActionSpec("create_character", parse_create_character,
+                                 APPROVAL_REQUIRED, evidence=True))  # 写动作需证据
 
     action, result = parse_action_text(registry, llm_response_text)
     if result.is_valid:
@@ -34,6 +42,8 @@
     - 解析分两层：结构错误抛 ContractError（硬错误）；校验错误进 ValidationResult（软拒绝）。
     - payload 一律经过动作自身的 parse_payload 白名单规范化——丢弃未知字段，
       防止 LLM 往 payload 塞任意内容。
+    - sources/basis 仅对 evidence=True 的动作启用并强制来源非空；非 evidence 动作
+      （主项目运行时等）LLM schema 不含这两个字段，违规返回也会被丢弃。
 """
 
 from __future__ import annotations
@@ -49,6 +59,17 @@ from typing import Any, Callable
 APPROVAL_REQUIRED = "required"   # 写动作：用户批准后才执行
 APPROVAL_AUTO     = "auto"       # 规则校验通过即执行（主项目运行时）
 APPROVAL_NEVER    = "never"      # 只读/抓取：直接执行
+
+# ============================================================================
+# 动作域（domain）— 分门别类，域之间隔离
+# ============================================================================
+
+# ide   辅助项目（配置写入）
+# mmt   MomoTalk 运行时（未来 agent：模拟发图/打电话/定位等手机操作）
+# story 羁绊剧情运行时（表情/背景切换）
+DOMAIN_IDE = "ide"
+DOMAIN_MMT = "mmt"
+DOMAIN_STORY = "story"
 
 # ============================================================================
 # 通用约束
@@ -110,15 +131,17 @@ class AgentAction:
     """
 
     action: str
+    domain: str = ""                    # 动作域: ide / mmt / story（见 DOMAIN_* 常量）
     approval: str = ""                  # 审批策略，注册时从 ActionSpec 拷入
     summary: str = ""
     payload: dict[str, Any] = field(default_factory=dict)
-    sources: tuple[str, ...] = ()   # 事实依据（网页 URL 等）
-    basis: tuple[str, ...] = ()     # 决策依据（用户指示/铁律）
+    sources: tuple[str, ...] = ()   # 事实依据（仅 evidence 动作启用，否则恒为空）
+    basis: tuple[str, ...] = ()     # 决策依据（仅 evidence 动作启用，否则恒为空）
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "action": self.action,
+            "domain": self.domain,
             "approval": self.approval,
             "summary": self.summary,
             "payload": dict(self.payload),
@@ -128,9 +151,15 @@ class AgentAction:
 
 
 class ActionSpec:
-    """单个动作类型的注册规格。"""
+    """单个动作类型的注册规格。
 
-    __slots__ = ("name", "parse_payload", "approval", "validate")
+    evidence 开关决定该动作是否需要证据字段（sources/basis）:
+        - True  写动作（辅助项目）：LLM schema 含 sources/basis，sources 强制非空
+        - False 运行时动作（主项目剧情）：LLM schema 不含这两个字段，
+                AI 即便违规返回也会被解析时静默丢弃——避免 AI 为填依据而编造内容
+    """
+
+    __slots__ = ("name", "parse_payload", "approval", "validate", "evidence")
 
     def __init__(
         self,
@@ -138,6 +167,8 @@ class ActionSpec:
         parse_payload: Callable[[dict[str, Any]], dict[str, Any]],
         approval: str,
         validate: Callable[[dict[str, Any]], ValidationResult] | None = None,
+        *,
+        evidence: bool = False,
     ):
         """
         Args:
@@ -145,20 +176,26 @@ class ActionSpec:
             parse_payload: 白名单规范化 + 结构转换；结构错误抛 ContractError
             approval: APPROVAL_REQUIRED / AUTO / NEVER 之一
             validate: 可选软校验；返回 ValidationResult，错误即拒绝
+            evidence: 是否需要 sources/basis 证据字段（默认 False）
         """
         self.name = name
         self.parse_payload = parse_payload
         self.approval = approval
         self.validate = validate
+        self.evidence = evidence
 
 
 class ActionRegistry:
     """动作注册表：LLM 输出（dict）→ (AgentAction, ValidationResult)。
 
     纯外壳，不包含任何具体动作——由各项目注册自己的动作集。
+    每个注册表实例属于一个域（domain），parse 出的 AgentAction 烙上该域标签。
     """
 
-    def __init__(self) -> None:
+    def __init__(self, domain: str = ""):
+        if not isinstance(domain, str) or not domain.strip():
+            raise ValueError("domain 必须是非空字符串")
+        self.domain = domain
         self._specs: dict[str, ActionSpec] = {}
 
     def register(self, spec: ActionSpec) -> None:
@@ -200,8 +237,16 @@ class ActionRegistry:
         elif len(summary) > MAX_SUMMARY_LENGTH:
             errors.append(f"summary 超过 {MAX_SUMMARY_LENGTH} 字符")
 
-        sources = _normalize_str_list(raw.get("sources", []), "sources", MAX_SOURCE_COUNT, errors)
-        basis = _normalize_str_list(raw.get("basis", []), "basis", MAX_BASIS_COUNT, errors)
+        # ---- 证据字段（仅 evidence 动作启用）----
+        if spec.evidence:
+            sources = _normalize_str_list(raw.get("sources", []), "sources", MAX_SOURCE_COUNT, errors)
+            basis = _normalize_str_list(raw.get("basis", []), "basis", MAX_BASIS_COUNT, errors)
+            if not sources:
+                errors.append("该动作需要 sources（事实依据，宁缺勿错）")
+        else:
+            # 非 evidence 动作：忽略并丢弃 AI 返回的证据字段，防止编造
+            sources = ()
+            basis = ()
 
         # ---- payload 解析（结构错误 → 异常 → 收集为错误）----
         payload_raw = raw.get("payload")
@@ -227,12 +272,38 @@ class ActionRegistry:
 
         return AgentAction(
             action=name,
+            domain=self.domain,
             approval=spec.approval,
             summary=summary,
             payload=payload,
             sources=sources,
             basis=basis,
         ), result
+
+
+# ============================================================================
+# 三个具名动作域 — 分门别类，各自独立注册/扩展
+# ============================================================================
+
+class IDEActionRegistry(ActionRegistry):
+    """辅助项目动作域：写配置文件，写动作默认需证据 + 用户审批。"""
+
+    def __init__(self) -> None:
+        super().__init__(DOMAIN_IDE)
+
+
+class MMTActionRegistry(ActionRegistry):
+    """MomoTalk 动作域：运行时模拟手机操作（未来 agent 板块）。"""
+
+    def __init__(self) -> None:
+        super().__init__(DOMAIN_MMT)
+
+
+class StoryActionRegistry(ActionRegistry):
+    """羁绊剧情动作域：运行时表情/背景切换。"""
+
+    def __init__(self) -> None:
+        super().__init__(DOMAIN_STORY)
 
 
 # ============================================================================
