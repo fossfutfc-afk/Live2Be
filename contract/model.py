@@ -11,6 +11,8 @@ from dataclasses import dataclass, field
 from typing import Any
 
 
+
+
 class ContractError(ValueError):
     """契约解析失败（结构层面硬错误）。
 
