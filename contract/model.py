@@ -55,6 +55,7 @@ class AgentAction:
     domain: str = ""                    # 动作域: ide / mmt / story（见 DOMAIN_* 常量）
     approval: str = ""                  # 审批策略，注册时从 ActionSpec 拷入
     summary: str = ""
+    reply: str = ""                     # AI 对用户的话（完整回复/解释, 可选）
     payload: dict[str, Any] = field(default_factory=dict)
     sources: tuple[str, ...] = ()   # 事实依据（仅声明了 sources 的动作启用）
     basis: tuple[str, ...] = ()     # 决策依据（仅声明了 basis 的动作启用）
@@ -70,6 +71,7 @@ class AgentAction:
             "domain": self.domain,
             "approval": self.approval,
             "summary": self.summary,
+            "reply": self.reply,
             "payload": dict(self.payload),
             "sources": list(self.sources),
             "basis": list(self.basis),
@@ -86,6 +88,7 @@ class AgentAction:
             domain=str(raw.get("domain", "")),
             approval=str(raw.get("approval", "")),
             summary=str(raw.get("summary", "")),
+            reply=str(raw.get("reply", "")),
             payload=dict(raw.get("payload") or {}),
             sources=tuple(str(s) for s in (raw.get("sources") or [])),
             basis=tuple(str(b) for b in (raw.get("basis") or [])),

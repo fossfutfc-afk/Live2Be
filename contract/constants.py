@@ -36,11 +36,13 @@ MAX_ID_LENGTH = 64
 
 # 外壳字段上限
 MAX_SUMMARY_LENGTH = 500
+MAX_REPLY_LENGTH = 2000
 MAX_SOURCE_COUNT = 20
 MAX_BASIS_COUNT = 20
 
 # 外壳字段全集 — LLM 可见的外壳字段均来自此集合。
-ALL_SHELL_FIELDS = frozenset({"action", "summary", "payload", "sources", "basis"})
+# reply = AI 对用户的话（给用户看的完整回复/解释, 与 summary 的一句话说不同）。
+ALL_SHELL_FIELDS = frozenset({"action", "summary", "payload", "sources", "basis", "reply"})
 
 # 运行时动作常用的最小外壳字段集（无证据字段）。
 # Story / MMT 动作注册时传这个，AI 的 schema 里就不会出现 sources/basis。

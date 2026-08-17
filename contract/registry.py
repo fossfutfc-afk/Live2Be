@@ -12,7 +12,7 @@ from typing import Any
 
 from contract.constants import (
     DOMAIN_IDE, DOMAIN_MMT, DOMAIN_STORY,
-    MAX_BASIS_COUNT, MAX_SOURCE_COUNT, MAX_SUMMARY_LENGTH,
+    MAX_BASIS_COUNT, MAX_REPLY_LENGTH, MAX_SOURCE_COUNT, MAX_SUMMARY_LENGTH,
 )
 from contract.model import AgentAction, ContractError, ValidationResult
 from contract.spec import ActionSpec
@@ -89,6 +89,15 @@ class ActionRegistry:
             elif len(summary) > MAX_SUMMARY_LENGTH:
                 errors.append(f"summary 超过 {MAX_SUMMARY_LENGTH} 字符")
 
+        reply = ""
+        if "reply" in spec.prompt_fields:
+            reply = raw.get("reply", "")
+            if not isinstance(reply, str):
+                errors.append("reply 必须是字符串")
+                reply = ""
+            elif len(reply) > MAX_REPLY_LENGTH:
+                errors.append(f"reply 超过 {MAX_REPLY_LENGTH} 字符")
+
         if "sources" in spec.prompt_fields:
             sources = _normalize_str_list(
                 raw.get("sources", []), "sources", MAX_SOURCE_COUNT, errors
@@ -135,6 +144,7 @@ class ActionRegistry:
             domain=self.domain,
             approval=spec.approval,
             summary=summary,
+            reply=reply,
             payload=payload,
             sources=sources,
             basis=basis,

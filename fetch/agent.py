@@ -18,6 +18,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
@@ -31,6 +32,29 @@ from fetch.executor import ExecError, Executor
 MAX_STEPS = 12          # 单轮 agent 最大动作步数（防死循环）
 HISTORY_MAX = 30        # 跨轮记忆条数上限（去掉 system 后）
 TEMP = 0.4              # 动作决策用较低温度, 减少随机
+
+# IDE agent 默认用推理模型（v4-flash），配合大 max_tokens 容纳 reasoning_content。
+# 推理模型会把 max_tokens 分给"思考"与"内容"两部分——max_tokens 太小会导致
+# reasoning 吃光预算、content 为空（实测复现）。非推理模型（如 deepseek-chat 别名）
+# 可不依赖大 max_tokens，但依赖其不在官方模型列表、不保证长期可用。
+# 可用环境变量 IDE_LLM_MODEL 覆盖。
+IDE_MODEL = os.getenv("IDE_LLM_MODEL", "deepseek-v4-flash")
+
+# 角色写作系统提示词（参照 config/characters/igusa_haruka 的高质量结构）
+_GUIDE_PATH = Path(__file__).resolve().parent / "prompts" / "character_writer.md"
+
+
+def _load_guide() -> str:
+    try:
+        return _GUIDE_PATH.read_text(encoding="utf-8")
+    except OSError:
+        return (
+            "你是 Live2Be 的角色资料撰写助手。创建角色时先 fetch_url 查资料, "
+            "按 REQ~/SIG~/无前缀/null 约定产出五件套 YAML, 字段要具体充实。"
+        )
+
+
+_GUIDE = _load_guide()
 
 
 class IDEAgent:
@@ -79,7 +103,7 @@ class IDEAgent:
         for step in range(MAX_STEPS):
             try:
                 response = self.llm.chat(
-                    messages, temperature=TEMP, max_tokens=1024,
+                    messages, model=IDE_MODEL, temperature=TEMP, max_tokens=16384,
                     response_format="json_object",
                 )
             except Exception as e:
@@ -103,6 +127,7 @@ class IDEAgent:
                 "action": action.action if action else None,
                 "approval": action.approval if action else None,
                 "summary": action.summary if action else "",
+                "reply": action.reply if action else "",
                 "payload": action.payload if action else None,
             })
             if not result.is_valid:
@@ -114,6 +139,10 @@ class IDEAgent:
                     ),
                 })
                 continue
+
+            # AI 对用户的话（任何动作的 reply 都展示）
+            if action.reply:
+                print(f"\n[AI] {action.reply}")
 
             # 写动作 → 审批
             if action.approval == APPROVAL_REQUIRED:
@@ -213,15 +242,12 @@ class IDEAgent:
     def _system_prompt(self) -> str:
         schema = build_schema(self.registry)
         return (
-            "你是 Live2Be 的角色资料撰写助手。用户用自然语言描述需求"
-            "（创建/修改角色、人际关系等），你必须以动作 JSON 形式执行，"
-            "而不是自由回答。\n\n"
-            "规则:\n"
-            "1. 需要资料时先 fetch_url 查阅（默认萌娘百科 / kivowiki / "
-            "BAfandomwiki），不要凭空编造。\n"
-            "2. 写动作需要完整依据（sources 为网页 URL, basis 为用户明确需求），"
-            "宁缺勿错。\n"
-            "3. 一次只输出一个动作；全部完成后输出 done。\n\n"
+            _GUIDE
+            + "\n\n# 动作执行规则\n"
+            "1. 一次只输出一个动作 JSON；动作之间按流程衔接（查资料 → 写动作 → done）。\n"
+            "2. 写动作需要完整依据：sources 为网页 URL, basis 为用户明确需求, 宁缺勿错。\n"
+            "3. 每次动作都用 reply 字段向用户简要说明你基于什么资料、准备怎么写。\n"
+            "4. 全部完成后输出 done。\n\n"
             "可用动作 schema:\n" + schema
         )
 
