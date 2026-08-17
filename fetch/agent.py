@@ -24,7 +24,6 @@ from typing import Any
 from contract import (
     APPROVAL_REQUIRED,
     build_schema,
-    parse_action_text,
 )
 from fetch.actions import build_ide_registry
 from fetch.executor import ExecError, Executor
@@ -78,13 +77,23 @@ class IDEAgent:
         messages.append({"role": "user", "content": user_input})
 
         for step in range(MAX_STEPS):
-            response = self.llm.chat(
-                messages, temperature=TEMP, max_tokens=1024,
-                response_format="json_object",
-            )
-            messages.append({"role": "assistant", "content": response})
+            try:
+                response = self.llm.chat(
+                    messages, temperature=TEMP, max_tokens=1024,
+                    response_format="json_object",
+                )
+            except Exception as e:
+                # client.chat(json_object) 失败：网络错误 / JSON 修正重试耗尽
+                messages.append({
+                    "role": "user",
+                    "content": f"LLM 调用失败: {e}\n请重试。",
+                })
+                continue
+            # client.chat(json_object) 已内置 JSON 清洗与修正重试, 返回 dict。
+            # 直接用 registry.parse 契约解析, 不走 parse_action_text（那是给原始文本的）。
+            messages.append({"role": "assistant", "content": str(response)})
 
-            action, result = parse_action_text(self.registry, response)
+            action, result = self.registry.parse(response)
             self.trace.append({
                 "step": step,
                 "llm_response": response,
@@ -94,6 +103,7 @@ class IDEAgent:
                 "action": action.action if action else None,
                 "approval": action.approval if action else None,
                 "summary": action.summary if action else "",
+                "payload": action.payload if action else None,
             })
             if not result.is_valid:
                 messages.append({
