@@ -79,6 +79,9 @@ UPDATE_MODES = frozenset({MODE_MERGE, MODE_OVERWRITE})
 # 抓取文本长度上限（防超长响应撑爆上下文）
 MAX_FETCH_CHARS = 50000
 
+# IDE 只读/收尾动作的外壳字段：运行时最小集 + reply（AI 对用户的话）
+IDE_RUNTIME_FIELDS = RUNTIME_SHELL_FIELDS | frozenset({"reply"})
+
 
 # ============================================================================
 # 文件类型校验器（per-file validator）
@@ -398,9 +401,10 @@ def build_ide_registry() -> IDEActionRegistry:
         "fetch_url",
         parse_fetch_url,
         APPROVAL_NEVER,
-        prompt_fields=RUNTIME_SHELL_FIELDS,  # 只读动作: 不需要 sources/basis
+        prompt_fields=IDE_RUNTIME_FIELDS,  # 只读动作: 无 sources/basis, 但支持 reply
         payload_schema=(
-            "url: 要抓取的网页完整 URL（http/https）\n"
+            "url: 要抓取的网页完整 URL（http/https）。"
+            "萌娘百科默认 https://zh.moegirl.org.cn/（zh.moegirl.cn 等已失效）\n"
             "max_chars: 可选, 限制返回文本最大字符数（1-50000, 默认由执行层决定）"
         ),
     ))
@@ -408,7 +412,7 @@ def build_ide_registry() -> IDEActionRegistry:
         "done",
         parse_done,
         APPROVAL_NEVER,
-        prompt_fields=RUNTIME_SHELL_FIELDS,
+        prompt_fields=IDE_RUNTIME_FIELDS,
         payload_schema=(
             "message: 可选, 给用户的一句话补充说明（留空即默认'等待用户'）"
         ),

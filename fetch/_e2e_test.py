@@ -34,6 +34,8 @@ def render_trace(agent: IDEAgent) -> list[str]:
         if t.get("action"):
             md.append(f"- 动作: **{t['action']}**  (审批: `{t['approval']}`)")
             md.append(f"- summary: {t['summary']}")
+            if t.get("reply"):
+                md.append(f"- reply: {t['reply']}")
             if t.get("payload"):
                 md.append("- payload:")
                 md.append("```json")
