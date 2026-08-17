@@ -30,7 +30,7 @@ import httpx
 import yaml
 
 from contract import AgentAction
-from fetch.actions import MODE_MERGE
+from fetch.actions.common import MODE_MERGE
 
 # 配置路径（相对项目根）
 CHARACTERS_DIR = "config/characters"
