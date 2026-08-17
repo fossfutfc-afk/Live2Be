@@ -293,6 +293,16 @@ class Executor:
                 lines.append(f"~ {name}: {o} → {n}")
             else:
                 lines.append(f"  {name}: {n}   (不变)")
+        # 新增熟悉度3（故知）须显式告知用户确认——AI 推断加码可以, 但要用户拍板
+        new_f3 = sorted(
+            n for n, w in new_rel.items()
+            if w == 3 and old_rel.get(n) != 3
+        )
+        if new_f3:
+            lines.append(
+                f"⚠️ 新增熟悉度3(故知): {', '.join(new_f3)} — "
+                "程度很高, 请确认资料/用户依据属实"
+            )
         return "\n".join(lines)
 
 

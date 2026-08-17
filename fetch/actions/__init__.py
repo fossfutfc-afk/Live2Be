@@ -97,7 +97,12 @@ def build_ide_registry() -> IDEActionRegistry:
             "character_id: 要更新的角色 id（interperson.json 的外层 key）\n"
             "relations: 该角色的**完整关系快照**（整体替换, 不是增量）:\n"
             "      {关系角色id: 权重int}, 如 {'rikuhachima_aru': 2, ...}\n"
-            "      想删掉某关系就在快照中去掉; 新增关系必须有依据"
+            "      想删掉某关系就在快照中去掉; 新增关系必须有依据\n"
+            "权重语义（熟悉程度 = 访问层级; knowledge 基本不跨学生共享）:\n"
+            "      1=萍水相逢, 只见对方 profile\n"
+            "      2=社团/队友/同事, profile+personality; 社团成员默认 2\n"
+            "      3=故知/青梅竹马/老对手, 再加 experience; 很难达到,\n"
+            "        允许 AI 基于资料推断加码到 3, 但执行层会对新增3显式提醒用户确认"
         ),
     ))
     registry.register(ActionSpec(

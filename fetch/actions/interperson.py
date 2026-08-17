@@ -1,5 +1,12 @@
 """人际关系动作 — update_interperson（全量快照 + 角色粒度替换）。
 
+权重语义（熟悉程度 = 访问层级; knowledge 基本不被学生间共享）:
+    1  萍水相逢      profile
+    2  社团/队友     profile + personality          ← 社团成员默认
+    3  故知/青梅竹马  profile + personality + experience   ← 很难达到,
+                                                           AI 可基于资料推断加码到 3
+    超出 1-3 无定义语义 → 硬错误（宁缺勿错）。
+
 新增关系的依据硬校验（宁缺勿错）不在此处——它需要读现有 interperson.json
 对比出"新增"关系，属于执行层职责。契约层只做结构 + 不依赖文件系统的软检查。
 """
@@ -48,9 +55,16 @@ def validate_update_interperson(payload: dict[str, Any]) -> ValidationResult:
     warnings: list[str] = []
 
     for name, weight in payload["relations"].items():
-        if weight < 1 or weight > 5:
+        if weight < 1 or weight > 3:
+            errors.append(
+                f"关系 {name} 权重 {weight} 超出语义范围 1-3"
+                "(1=萍水相逢/只见profile 2=社团成员/加personality "
+                "3=故知/再加experience)，无定义语义"
+            )
+        elif weight == 3:
             warnings.append(
-                f"关系 {name} 权重 {weight} 超出常见范围 1-5，请确认是否有意"
+                f"关系 {name} 熟悉度 3（故知）程度很高，"
+                "请确认有资料/用户依据（宁缺勿错）"
             )
 
     return ValidationResult(tuple(errors), tuple(warnings))
