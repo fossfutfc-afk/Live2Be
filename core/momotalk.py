@@ -19,7 +19,7 @@ from pathlib import Path
 
 from llm.client import LLMClient
 from parsing.dynamic_character_parser import CharacterLoader, DynamicCharacter
-from core.text_processors import _process_for_momotalk, format_momotalk_reply
+from ui.text_processors import _process_for_momotalk, format_momotalk_reply
 
 logger = logging.getLogger(__name__)
 
@@ -177,7 +177,7 @@ class MomoTalkEngine:
         if self._current_char is None:
             raise RuntimeError("尚未开始会话")
 
-        from core.display import MomoTalkOutput
+        from ui.display import MomoTalkOutput
 
         messages = self.llm.format_messages(
             system_prompt=self._system_prompt,
