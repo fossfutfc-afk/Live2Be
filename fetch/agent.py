@@ -155,8 +155,8 @@ class IDEAgent:
                 msg = action.summary or action.payload.get("message", "完成")
                 print(f"\n[AI] {msg}")
                 break
-            if action.action == "fetch_url":
-                self._handle_fetch(action, messages)
+            if action.action in ("fetch_url", "search"):
+                self._handle_tool(action, messages)
                 continue
 
         # 跨轮记忆（去掉 system, 截断）
@@ -215,24 +215,26 @@ class IDEAgent:
             })
         return False
 
-    def _handle_fetch(self, action, messages: list[dict]) -> None:
-        """抓取网页 → 回灌给 LLM 继续推理。"""
+    def _handle_tool(self, action, messages: list[dict]) -> None:
+        """只读工具（search / fetch_url）→ 结果回灌给 LLM 继续推理。"""
+        name = action.action
+        label = action.payload.get("url") or action.payload.get("query") or name
         try:
             result = self.executor.execute(action)
-            print(f"[抓取 {action.payload['url']}] 已获取 {len(result.message)} 字符")
-            self.trace.append({"event": "fetch", "url": action.payload["url"],
+            print(f"[{name} {label}] 已获取 {len(result.message)} 字符")
+            self.trace.append({"event": name, "label": label,
                                "chars": len(result.message)})
             messages.append({
                 "role": "user",
-                "content": f"[网页资料 {action.payload['url']}]\n{result.message}",
+                "content": f"[{name} 结果 {label}]\n{result.message}",
             })
         except ExecError as e:
-            print(f"[抓取失败] {e}")
-            self.trace.append({"event": "fetch_error", "url": action.payload["url"],
+            print(f"[{name}失败] {e}")
+            self.trace.append({"event": f"{name}_error", "label": label,
                                "error": str(e)})
             messages.append({
                 "role": "user",
-                "content": f"抓取失败: {e}",
+                "content": f"{name} 失败: {e}",
             })
 
     # ------------------------------------------------------------------

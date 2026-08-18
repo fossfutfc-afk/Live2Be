@@ -9,6 +9,7 @@
     create_character    新建角色目录（files 子集, 至少 profile.yml）
     update_character    改已有角色（mode: merge / overwrite, files 子集）
     update_interperson  人际关系（全量快照 + 角色粒度替换, 非增量）
+    search              搜索资料页 URL（只读, APPROVAL_NEVER, 结果回灌给 LLM）
     fetch_url           抓取网页资料（只读, APPROVAL_NEVER, 结果回灌给 LLM）
     done                收尾动作（LLM 声明本轮结束 / 等待用户）
 
@@ -23,16 +24,19 @@ update_interperson 语义:
     interperson.json 中的条目，其他角色条目不动。新增关系的依据硬校验
     （宁缺勿错）在执行层完成（读现有文件对比"新增"），契约层不做。
 
+search 语义:
+    只读工具动作——从关键词出发找资料页 URL（MediaWiki opensearch, 默认萌百）。
+    与 fetch_url 互补: search 定位 → fetch_url 抓正文。结果回灌给 LLM。
+
 fetch_url 语义:
-    只读工具动作——LLM 需要资料时请求抓取, 结果由执行层回灌给 LLM 继续推理。
+    只读工具动作——LLM 需要资料时请求抓取已知 URL, 结果由执行层回灌给 LLM 继续推理。
     默认资料来源: 萌娘百科 `https://zh.moegirl.org.cn/`（已验证可用）。
     契约层只校验请求结构；抓取与回灌是执行层职责。
 
 TODO（未来 session）:
-    1. search    搜索接口（DESIGN.md 预留, 先不实现）
-    2. 快速写接口  用户显式指定目录, 对**仅 .yml** 做快速写/overwrite——
+    1. 快速写接口  用户显式指定目录, 对**仅 .yml** 做快速写/overwrite——
        受限后门: 路径由用户显式给 + 文件名后缀白名单（.yml）, 不做语义校验
-    3. 跨文件键冲突检测: 主项目合并顺序 profile→…→typical, 先加载优先
+    2. 跨文件键冲突检测: 主项目合并顺序 profile→…→typical, 先加载优先
        （profile 赢）。顶层 key 跨文件重复 → warning（主项目语义明确, 不阻断）
 """
 
@@ -57,6 +61,7 @@ from fetch.actions.interperson import (
     validate_update_interperson,
 )
 from fetch.actions.net import parse_done, parse_fetch_url
+from fetch.actions.search import parse_search
 
 
 def build_ide_registry() -> IDEActionRegistry:
@@ -103,6 +108,19 @@ def build_ide_registry() -> IDEActionRegistry:
             "      2=社团/队友/同事, profile+personality; 社团成员默认 2\n"
             "      3=故知/青梅竹马/老对手, 再加 experience; 很难达到,\n"
             "        允许 AI 基于资料推断加码到 3, 但执行层会对新增3显式提醒用户确认"
+        ),
+    ))
+    registry.register(ActionSpec(
+        "search",
+        parse_search,
+        APPROVAL_NEVER,
+        prompt_fields=IDE_RUNTIME_FIELDS,  # 只读动作: 无 sources/basis, 但支持 reply
+        payload_schema=(
+            "query: 搜索关键词（非空）\n"
+            "source: 可选, 资料站别名 'moegirl'(默认)/'fandom' 或任意 "
+            "MediaWiki base URL\n"
+            "max_results: 可选, 返回条数（1-10, 默认 5）\n"
+            "用途: 找资料页 URL, 拿到后通常再 fetch_url 抓正文"
         ),
     ))
     registry.register(ActionSpec(

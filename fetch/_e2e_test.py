@@ -56,9 +56,9 @@ def render_trace(agent: IDEAgent) -> list[str]:
             md.append(f"- 审批决策: **{t['choice']}**")
             if t.get("exec_ok") is not None:
                 md.append(f"- 执行结果: {'✅' if t['exec_ok'] else '❌'} {t.get('message', '')}")
-        if t.get("event") == "fetch":
-            md.append(f"- 抓取: `{t['url']}` → {t['chars']} 字符, 已回灌给 LLM")
-        if t.get("event") in ("plan_error", "fetch_error"):
+        if t.get("event") in ("fetch_url", "search"):
+            md.append(f"- {t['event']}: `{t['label']}` → {t['chars']} 字符, 已回灌给 LLM")
+        if t.get("event") in ("plan_error", "fetch_url_error", "search_error"):
             md.append(f"- ⚠️ {t['event']}: {t['error']}")
         md.append("")
     return md
