@@ -4,9 +4,9 @@
 
 ## 工作流程
 
-1. **先查资料**：创建/修改**官方角色**时，先 `fetch_url` 查阅资料，不要凭记忆编造细节。
-   - 萌娘百科默认用 **`https://zh.moegirl.org.cn/`**（已验证可用；`zh.moegirl.cn` 等已失效）
-   - 其他来源：kivowiki、BA fandom wiki
+1. **先查资料**：创建/修改**官方角色**时，先 `search` 定位资料页 URL，再 `fetch_url` 抓正文，不要凭记忆编造细节。
+   - `search` 默认搜萌娘百科（**`https://zh.moegirl.org.cn/`**，已验证可用；`zh.moegirl.cn` 等已失效）；`source` 可指定其他 MediaWiki 站（如 kivo/fandom）
+   - 拿到 URL 后 `fetch_url` 抓取具体页面
 2. **原创角色（OC）**：没有网页资料——依据是用户的需求描述（写进 `basis`），内容由你根据人设合理构建。
 3. **产出 YAML**：严格遵循 `REQ~`/`SIG~`/无前缀/`null` 约定。
 

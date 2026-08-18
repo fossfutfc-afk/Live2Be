@@ -41,11 +41,11 @@ files = sorted(p.name for p in kayoko.glob("*.yml")) if kayoko.exists() else []
 print("RESULT 落盘文件:", files, flush=True)
 print("trace:", [(t.get("action"), t.get("event", ""), t.get("parse_valid")) for t in agent.trace], flush=True)
 for t in agent.trace:
-    if t.get("event") == "fetch":
-        print(f"  fetch: {t['url']} → {t['chars']} 字符", flush=True)
+    if t.get("event") in ("fetch_url", "search"):
+        print(f"  {t['event']}: {t['label']} → {t['chars']} 字符", flush=True)
     if t.get("event") == "decision":
         print(f"  审批: {t['choice']} exec_ok={t.get('exec_ok')}", flush=True)
-    if t.get("event") in ("plan_error", "fetch_error"):
+    if t.get("event") in ("plan_error", "fetch_url_error", "search_error"):
         print(f"  ⚠️ {t['event']}: {t.get('error','')[:80]}", flush=True)
 
 profile = kayoko / "profile.yml"

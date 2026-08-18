@@ -25,12 +25,14 @@ from dataclasses import dataclass, field
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 import yaml
 
 from contract import AgentAction
 from fetch.actions.common import MODE_MERGE
+from fetch.actions.search import WIKI_ALIASES
 
 # 配置路径（相对项目根）
 CHARACTERS_DIR = "config/characters"
@@ -205,6 +207,52 @@ class Executor:
         updated = dict(current)
         updated[char_id] = new
         return updated
+
+    # ==================================================================
+    # search
+    # ==================================================================
+
+    def _execute_search(self, action: AgentAction) -> ExecResult:
+        """MediaWiki opensearch 搜索 → 返回 标题+简介+URL 清单（回灌给 LLM）。
+
+        source 为 WIKI_ALIASES 别名或任意 MediaWiki base URL；返回格式:
+        [query, [titles], [descriptions], [urls]]。
+        """
+        query = action.payload["query"]
+        source = action.payload["source"]
+        max_results = action.payload["max_results"]
+        base = WIKI_ALIASES.get(source, source.rstrip("/"))
+        search_url = (
+            f"{base}/api.php?action=opensearch"
+            f"&search={quote(query)}&limit={max_results}&namespace=0&format=json"
+        )
+        try:
+            resp = httpx.get(
+                search_url,
+                timeout=_HTTP_TIMEOUT,
+                follow_redirects=True,
+                headers={"User-Agent": _USER_AGENT},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+        except (httpx.HTTPError, ValueError) as e:
+            raise ExecError(f"搜索失败 {search_url}: {e}") from e
+
+        try:
+            titles, descs, urls = data[1], data[2], data[3]
+        except (IndexError, TypeError) as e:
+            raise ExecError(f"{source} 返回了无法解析的搜索结果") from e
+
+        if not titles:
+            raise ExecError(
+                f"在 {source} 未找到关于 {query!r} 的结果，试试换关键词或换 source"
+            )
+
+        lines = [f"[搜索结果] {source}（{query}, {len(titles)} 条）:"]
+        for i, (title, url) in enumerate(zip(titles, urls), 1):
+            desc = descs[i - 1] if i - 1 < len(descs) else ""
+            lines.append(f"{i}. {title} — {desc[:200]}\n   {url}")
+        return ExecResult(ok=True, message="\n".join(lines))
 
     # ==================================================================
     # fetch_url
