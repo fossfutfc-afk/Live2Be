@@ -12,6 +12,8 @@ import yaml
 
 from contract import RUNTIME_SHELL_FIELDS, ContractError, ValidationResult
 
+from fetch.conflicts import find_top_level_conflicts, format_conflicts
+
 # 角色五件套（与主项目 parsing.dynamic_character_parser._CHARACTER_FILES 对齐）
 CHARACTER_FILES = (
     "profile.yml",
@@ -104,10 +106,12 @@ def _parse_files(files: Any, *, require_nonempty: bool) -> dict[str, str]:
 
 
 def _validate_files_content(payload: dict, require_complete: bool) -> ValidationResult:
-    """共享内容校验：解析每个文件的 YAML 并按类型分派校验器。"""
+    """共享内容校验：解析每个文件的 YAML → 跨文件键冲突检测 → per-file 校验。"""
     errors: list[str] = []
     warnings: list[str] = []
 
+    # 1. 解析全部文件（同时收集顶层 key 供跨文件检测）
+    parsed: dict[str, dict] = {}
     for name, content in payload["files"].items():
         try:
             yml = yaml.safe_load(content)
@@ -118,11 +122,13 @@ def _validate_files_content(payload: dict, require_complete: bool) -> Validation
         if not isinstance(yml, dict):
             errors.append(f"{name} 必须解析为对象（dict），不能是 null/空/列表")
             continue
+        parsed[name] = yml
 
+    # 2. 跨文件键冲突检测（A3）：主项目先加载优先（profile 赢）, 重复 → warning
+    warnings.extend(format_conflicts(find_top_level_conflicts(parsed)))
+
+    # 3. per-file 校验器
+    for name, yml in parsed.items():
         _FILE_VALIDATORS[name](yml, payload, errors, warnings, require_complete)
-
-        # TODO(后续): 跨文件键冲突检测——主项目合并顺序 profile→…→typical,
-        # 先加载优先（profile 赢）。顶层 key 跨文件重复 → warning 提示是否
-        # 有意的覆盖。当前不实现，仅占位标注。
 
     return ValidationResult(tuple(errors), tuple(warnings))
