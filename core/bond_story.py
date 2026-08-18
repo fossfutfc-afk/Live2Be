@@ -71,7 +71,7 @@ class BondStoryEngine:
         if self._current_char is None:
             raise RuntimeError("尚未开始会话")
 
-        from core.display import BondStoryOutput
+        from ui.display import BondStoryOutput
 
         messages = self.llm.format_messages(
             system_prompt=self._system_prompt,
