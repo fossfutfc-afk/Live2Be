@@ -43,28 +43,29 @@ class MomoTalkOutput:
         self._lb = LineBuffer()
         self._processor = text_processor
         self._name = name
-        TypingDelay.reset()
+        self._delay = TypingDelay()
 
     # ------------------------------------------------------------------
     # 公共 API
     # ------------------------------------------------------------------
 
+    def _publish(self, text: str):
+        """渲染一条文本 → (气泡, 延迟) 序列。feed/flush 共用。"""
+        for processed in self._processor(text):
+            formatted = format_momotalk_bubble(processed, self._name)
+            if formatted:
+                yield formatted, self._delay.for_bubble(formatted)
+
     def feed(self, token: str):
         """喂入 SSE token，yield (formatted_bubble, delay_seconds)。"""
         for bubble in self._lb.feed(token):
-            for processed in self._processor(bubble):
-                formatted = format_momotalk_bubble(processed, self._name)
-                if formatted:
-                    yield formatted, TypingDelay.for_bubble(formatted)
+            yield from self._publish(bubble)
 
     def flush(self):
         """流结束，处理 LineBuffer 残留文本。yield (formatted_bubble, delay_seconds)。"""
         remaining = self._lb.flush()
         if remaining:
-            for processed in self._processor(remaining):
-                formatted = format_momotalk_bubble(processed, self._name)
-                if formatted:
-                    yield formatted, TypingDelay.for_bubble(formatted)
+            yield from self._publish(remaining)
 
 
 # ============================================================================
