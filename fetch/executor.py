@@ -31,8 +31,9 @@ import httpx
 import yaml
 
 from contract import AgentAction
-from fetch.actions.common import MODE_MERGE
+from fetch.actions.common import CHARACTER_FILES, MODE_MERGE
 from fetch.actions.search import WIKI_ALIASES
+from parsing.dynamic_character_parser import get_completeness, get_display_name
 
 # 配置路径（相对项目根）
 CHARACTERS_DIR = "config/characters"
@@ -278,6 +279,77 @@ class Executor:
         return ExecResult(ok=True, message=text[:max_chars])
 
     # ==================================================================
+    # view_character
+    # ==================================================================
+
+    def _execute_view_character(self, action: AgentAction) -> ExecResult:
+        """查看角色现状——结果回灌给 LLM, 供"补全/完善"决策。
+
+        不带 file → 五件套清单（每个文件 已存在(字符数)/缺失）+ 显示名 + 完整度;
+        带 file → 该文件全文 +（profile 的）缺失 SIG/REQ 清单。
+        只读, 不落盘; 解析失败的文件照常展示, 只是不提供完整度。
+        """
+        char_id = action.payload["character_id"]
+        char_dir = self._char_dir(action)
+        if not char_dir.is_dir():
+            raise ExecError(f"角色不存在: {char_id}")
+
+        file = action.payload.get("file")
+        if file:
+            return self._view_one_file(char_dir, file)
+
+        lines = [f"[角色 {char_id} 五件套现状]"]
+        for name in CHARACTER_FILES:
+            path = char_dir / name
+            if path.exists():
+                size = len(path.read_text(encoding="utf-8"))
+                lines.append(f"  {name}: 已存在 ({size} 字符)")
+            else:
+                lines.append(f"  {name}: 缺失")
+        info = self._completeness_info(char_dir / "profile.yml")
+        if info:
+            lines.append(info)
+        lines.append("提示: 缺什么就写什么（update_character mode=merge, 一次一个文件）")
+        return ExecResult(ok=True, message="\n".join(lines))
+
+    def _view_one_file(self, char_dir: Path, file: str) -> ExecResult:
+        """单文件视图：全文 +（profile 的）缺失 SIG/REQ 清单。"""
+        path = char_dir / file
+        if not path.exists():
+            raise ExecError(f"文件不存在: {char_dir.name}/{file}")
+        content = path.read_text(encoding="utf-8").rstrip("\n")
+        lines = [f"[角色 {char_dir.name}/{file} 现状]", content or "(空文件)"]
+        info = self._completeness_info(path)
+        if info:
+            lines.append(info)
+        return ExecResult(ok=True, message="\n".join(lines))
+
+    def _completeness_info(self, path: Path) -> str:
+        """profile.yml 的显示名 + 完整度 / 缺失 SIG·REQ（剥前缀后补回字面量）。
+
+        非 profile 或解析失败 → 空串。
+        """
+        if path.name != "profile.yml":
+            return ""
+        data = _safe_load_yaml(path)
+        if not data:
+            return ""
+        comp = get_completeness(data)
+        info = (
+            f"显示名: {get_display_name(data)}   "
+            f"完整度 {comp['score']}/{comp['total_sig']} ({comp['ratio']:.0%})"
+        )
+        if comp["missing_sig"]:
+            info += "  缺失 SIG: " + ", ".join(
+                "SIG~" + k for k in sorted(comp["missing_sig"])
+            )
+        if comp["missing_req"]:
+            info += "  缺失 REQ: " + ", ".join(
+                "REQ~" + k for k in sorted(comp["missing_req"])
+            )
+        return info
+
+    # ==================================================================
     # 内部工具
     # ==================================================================
 
@@ -361,6 +433,21 @@ class Executor:
 def _load_yaml_dict(path: Path) -> dict:
     data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     return data if isinstance(data, dict) else {}
+
+
+def _safe_load_yaml(path: Path) -> dict | None:
+    """读 YAML, 缺失/解析失败/非对象 → None。
+
+    view_character 是只读工具, 不能因某个文件坏了而整段失败——照常展示内容,
+    只是不算完整度。
+    """
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except OSError:
+        return None
+    except yaml.YAMLError:
+        return None
+    return data if isinstance(data, dict) else None
 
 
 def _load_yaml_str(text: str) -> dict:

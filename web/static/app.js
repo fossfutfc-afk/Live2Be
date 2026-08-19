@@ -153,8 +153,9 @@ function showQuestion(evt) {
     buttons.push(b);
     actions.appendChild(b);
   };
-  make("✓ 读取范例", "btn-ok", "approve");
+  make("✓ 读取", "btn-ok", "approve");
   make("✗ 跳过", "btn-no", "reject");
+  make("◼ 不再询问", "btn-abort", "skip");
   card.appendChild(actions);
 
   let timer = null;

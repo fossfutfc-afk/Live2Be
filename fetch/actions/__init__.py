@@ -11,6 +11,7 @@
     update_interperson  人际关系（全量快照 + 角色粒度替换, 非增量）
     search              搜索资料页 URL（只读, APPROVAL_NEVER, 结果回灌给 LLM）
     fetch_url           抓取网页资料（只读, APPROVAL_NEVER, 结果回灌给 LLM）
+    view_character      查看角色现状（只读, APPROVAL_NEVER, 结果回灌给 LLM）
     done                收尾动作（LLM 声明本轮结束 / 等待用户）
 
 mode 语义（update_character）:
@@ -62,6 +63,7 @@ from fetch.actions.interperson import (
 )
 from fetch.actions.net import parse_done, parse_fetch_url
 from fetch.actions.search import parse_search
+from fetch.actions.view import parse_view_character
 
 
 def build_ide_registry() -> IDEActionRegistry:
@@ -133,6 +135,18 @@ def build_ide_registry() -> IDEActionRegistry:
             "url: 要抓取的网页完整 URL（http/https）。"
             "萌娘百科默认 https://zh.moegirl.org.cn/（zh.moegirl.cn 等已失效）\n"
             "max_chars: 可选, 限制返回文本最大字符数（1-50000, 默认由执行层决定）"
+        ),
+    ))
+    registry.register(ActionSpec(
+        "view_character",
+        parse_view_character,
+        APPROVAL_NEVER,
+        prompt_fields=IDE_RUNTIME_FIELDS,  # 只读动作: 无 sources/basis, 但支持 reply
+        payload_schema=(
+            "character_id: 要查看的角色 id\n"
+            "file: 可选, 只看某文件（五件套之一）; 缺省列出五件套现状:\n"
+            "      每个文件 已存在(字符数)/缺失 + profile 显示名与完整度\n"
+            "用途: 用户要求\"补全/完善某角色\"时先调用, 摸清缺哪些文件再动手"
         ),
     ))
     registry.register(ActionSpec(

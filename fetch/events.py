@@ -64,8 +64,10 @@ class AgentEvent:
 # 回调类型
 # ---------------------------------------------------------------------------
 
-#: 审批决策（GUI / CLI 统一的归一化结果）
-ApprovalDecision = Literal["approve", "reject", "abort"]
+#: 审批决策（GUI / CLI 统一的归一化结果）。
+#: "skip" 仅用于 ASK_USER 轻量提问（如范例询问的"不再询问"）；
+#: 写动作审批拿到 skip 时按 reject 处理（拒绝执行, 不落盘）。
+ApprovalDecision = Literal["approve", "reject", "abort", "skip"]
 
 #: 事件输出回调: emit(event)
 EmitFn = Callable[[AgentEvent], None]
