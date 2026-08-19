@@ -45,7 +45,17 @@
 
 ## 字段约定
 
-- `REQ~` 必填：缺失会导致角色加载失败。核心 REQ~ 字段必须填。
+**`REQ~` / `SIG~` 是 YAML 键的字面前缀字面量**——直接写进 key，不是概念标记。示例（profile.yml）：
+
+```yaml
+REQ~most_called_name: 伊草 遥香
+SIG~age: 15
+school: 格黑娜学园
+unknown_field: null
+```
+
+- `REQ~` 必填：缺失会导致角色加载失败。**代码级必需**：profile.yml 必须含非空
+  `REQ~most_called_name`（界面显示名，主项目 `get_display_name` 的依赖）；其余 REQ~ 字段也要填。
 - `SIG~` 重要：构成角色核心形象，缺失明显降低完成度。**尽量多填**。
 - 无前缀：普通字段，可选但推荐填写。
 - `null`：合法占位（该板块不适用 / 暂缺）。

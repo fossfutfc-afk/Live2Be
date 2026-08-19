@@ -76,8 +76,9 @@ def build_ide_registry() -> IDEActionRegistry:
             "character_id: 小写英文全名+下划线, 如 igusa_haruka\n"
             "files: 对象, 键 ∈ {profile.yml, personality.yml, knowledge.yml, "
             "experience.yml, typical.yml};\n"
-            "      profile.yml 必填且须含非空 REQ~most_called_name;\n"
-            "      遵循 REQ~/SIG~/无前缀/null 字段约定"
+            "      profile.yml 必填且须含非空 REQ~most_called_name（REQ~ 是键前缀字面量,\n"
+            "      直接写 `REQ~most_called_name: 名字` 到 YAML; 该键是界面显示名的代码级依赖）;\n"
+            "      遵循 REQ~/SIG~/无前缀/null 约定（前缀字面量写进键名）"
         ),
     ))
     registry.register(ActionSpec(
