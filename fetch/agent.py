@@ -69,6 +69,8 @@ def _load_guide() -> str:
         return (
             "你是 Live2Be 的角色资料撰写助手。创建角色时先 fetch_url 查资料, "
             "按 REQ~/SIG~/无前缀/null 约定产出五件套 YAML, 字段要具体充实。"
+            "REQ~/SIG~ 是键前缀字面量（直接写进 YAML 键名）；"
+            "profile.yml 必须含非空 REQ~most_called_name（界面显示名）。"
         )
 
 
@@ -187,6 +189,8 @@ class IDEAgent:
                     "content": (
                         f"动作无效: {'; '.join(result.errors)}\n"
                         "请严格按 schema 重新输出单个动作 JSON。"
+                        "若错误涉及 YAML 字段约定（REQ~/SIG~ 前缀、必填键），"
+                        "按系统提示『字段约定』的示例，把前缀字面量写进键名。"
                     ),
                 })
                 continue

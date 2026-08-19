@@ -57,7 +57,11 @@ def _validate_profile(yml: dict, payload: dict, errors: list[str], warnings: lis
 
     name = yml.get("REQ~most_called_name", "")
     if not isinstance(name, str) or not name.strip():
-        errors.append("profile.yml 必须包含非空 REQ~most_called_name（界面显示名）")
+        errors.append(
+            "profile.yml 必须包含非空 REQ~most_called_name（界面显示名）——"
+            "REQ~ 是必填键的前缀字面量，直接写 `REQ~most_called_name: 名字` 到 profile.yml；"
+            "该键是主项目显示名（get_display_name）的代码级依赖，缺失会致角色加载失败"
+        )
     else:
         payload["display_name"] = name.strip()
 
