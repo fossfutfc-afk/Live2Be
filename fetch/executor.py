@@ -5,7 +5,10 @@
 
     plan(action)    写动作的写前预览——读现有文件、计算最终内容、生成 diff。
                     抛 ExecError 表示不可执行（附原因, 供 agent 回灌给 LLM）。
-    execute(action) 批准后落盘 / 抓取。幂等——重新计算最终内容, 不依赖 plan。
+    execute(action) 批准后落盘 / 抓取。默认幂等——重新计算最终内容。
+                    写动作可传回 plan 复用其 execute_state（如 update_character
+                    merge 已算好的最终内容）: 省一次 YAML round-trip, 且落盘内容
+                    与展示给用户的 diff 严格一致。
 
 agent loop 流程: LLM 动作 → 契约解析 → plan(生成 diff) → 用户审批 → execute。
 
@@ -85,11 +88,17 @@ class Executor:
             return Plan(action=action.action, summary=action.summary, diff="")
         return handler(action)
 
-    def execute(self, action: AgentAction) -> ExecResult:
-        """批准后落盘 / 抓取。抛 ExecError 表示执行失败。"""
+    def execute(self, action: AgentAction, plan: Plan | None = None) -> ExecResult:
+        """批准后落盘 / 抓取。抛 ExecError 表示执行失败。
+
+        plan 可选——仅 update_character 复用（merge 已算好的最终内容,
+        与展示的 diff 一致）; 不传 plan 或非 update_character → 幂等重算。
+        """
         handler = getattr(self, f"_execute_{action.action}", None)
         if handler is None:
             raise ExecError(f"未知执行动作: {action.action}")
+        if plan is not None and action.action == "update_character":
+            return handler(action, plan)
         return handler(action)
 
     # ==================================================================
@@ -132,13 +141,19 @@ class Executor:
             action=action.action,
             summary=action.summary,
             diff=self._diff_updated_files(char_dir, files),
+            # 最终内容缓存进 execute_state——execute 复用则无需重算
+            execute_state={"files": files},
         )
 
-    def _execute_update_character(self, action: AgentAction) -> ExecResult:
+    def _execute_update_character(self, action: AgentAction,
+                                  plan: Plan | None = None) -> ExecResult:
         char_dir = self._char_dir(action)
         if not char_dir.exists():
             raise ExecError(f"角色目录不存在: {char_dir}")
-        files = self._resolve_update_files(action, char_dir)
+        if plan is not None and "files" in plan.execute_state:
+            files = plan.execute_state["files"]
+        else:
+            files = self._resolve_update_files(action, char_dir)
         for name, content in files.items():
             (char_dir / name).write_text(content, encoding="utf-8")
         return ExecResult(
@@ -348,6 +363,44 @@ class Executor:
                 "REQ~" + k for k in sorted(comp["missing_req"])
             )
         return info
+
+    # ==================================================================
+    # view_interperson
+    # ==================================================================
+
+    def _execute_view_interperson(self, action: AgentAction) -> ExecResult:
+        """查看 interperson.json 现状——结果回灌给 LLM, 供"改/补关系"决策。
+
+        不带 character_id → 列出有记录的每个角色及关系（内联, interperson 天然很小）;
+        带 character_id → 该角色完整关系（{关系角色id: 权重}）。
+        只读, 不落盘; 无记录角色 → ExecError。
+        """
+        current = self._load_interperson()
+        char_id = action.payload.get("character_id")
+        if char_id:
+            rel = current.get(char_id)
+            if rel is None:
+                raise ExecError(f"角色无关系记录: {char_id}")
+            lines = [f"[角色 {char_id} 关系现状]"]
+            for name in sorted(rel):
+                lines.append(f"  {name}: {rel[name]}")
+            lines.append("权重语义: 1=萍水相逢/只见profile  2=社团成员/加personality  "
+                         "3=故知/再加experience")
+            lines.append("提示: update_interperson 是全量快照替换——新增关系须附依据"
+                         "(sources/basis), 并带上想保留的现有关系")
+            return ExecResult(ok=True, message="\n".join(lines))
+
+        lines = [f"[interperson 现状] {len(current)} 个角色有记录"]
+        for cid in sorted(current):
+            rel = current[cid]
+            if rel:
+                inline = "  ".join(f"{n}({w})" for n, w in sorted(rel.items()))
+                lines.append(f"  {cid} ({len(rel)}): {inline}")
+            else:
+                lines.append(f"  {cid}: (空)")
+        lines.append("提示: 看某角色完整关系用 view_interperson(character_id=...); "
+                     "改关系前先看清现状再 update_interperson")
+        return ExecResult(ok=True, message="\n".join(lines))
 
     # ==================================================================
     # 内部工具

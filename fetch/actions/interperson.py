@@ -68,3 +68,19 @@ def validate_update_interperson(payload: dict[str, Any]) -> ValidationResult:
             )
 
     return ValidationResult(tuple(errors), tuple(warnings))
+
+
+def parse_view_interperson(payload: dict[str, Any]) -> dict[str, Any]:
+    """结构白名单校验（硬错误, 抛 ContractError）。只读, 结果回灌 LLM。
+
+    character_id 可选——缺省列出全部有关系的角色, 带则只看该角色的完整关系。
+    """
+    clean: dict[str, Any] = {}
+    char_id = payload.get("character_id")
+    if char_id is not None:
+        if not is_valid_identifier(char_id):
+            raise ContractError(
+                f"character_id 必须匹配 [a-z0-9_]+ 且 ≤64 字符: {char_id!r}"
+            )
+        clean["character_id"] = char_id
+    return clean
