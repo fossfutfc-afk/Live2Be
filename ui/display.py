@@ -152,6 +152,7 @@ class IDEOutput:
         PENDING_APPROVAL {"summary", "diff", "action"}   + 顶层 approval_id
         DECISION         {"choice": "reject" | "abort"}
         EXEC_RESULT      {"ok": bool, "message"}
+        COMMAND_RESULT   {"text", "terminal"}   # /view /edit 本地命令输出
         TOOL_START       {"name", "label"}
         TOOL_RESULT      {"name", "label", "chars"}
         TOOL_ERROR       {"name", "label", "error"}
@@ -199,6 +200,9 @@ class IDEOutput:
             if data.get("ok"):
                 return f"[已执行] {data.get('message', '')}"
             return f"[执行失败] {data.get('message', '')}"
+        if kind == "COMMAND_RESULT":
+            text = data.get("text", "")
+            return f"\n[命令]\n{text}" if text else ""
         if kind == "TOOL_RESULT":
             return (
                 f"[{data.get('name', '')} {data.get('label', '')}] "
