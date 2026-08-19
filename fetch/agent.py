@@ -14,6 +14,10 @@
           │     拒绝/失败 → 回灌 → 继续
           ├─ fetch_url → executor 抓取 → 结果回灌 → 继续
           └─ done → 收尾, 控制权交回用户
+
+输出经 emit 回调、审批经 ask 回调:
+    CLI 默认实现复刻 print/input（输出逐字节不变），
+    GUI 注入队列实现（见 fetch.events + ui.IDEOutput）。
 """
 
 from __future__ import annotations
@@ -27,7 +31,15 @@ from contract import (
     build_schema,
 )
 from fetch.actions import build_ide_registry
+from fetch.events import (
+    AgentEvent,
+    AgentEventKind,
+    ApprovalDecision,
+    AskFn,
+    EmitFn,
+)
 from fetch.executor import ExecError, Executor
+from ui.display import IDEOutput
 
 MAX_STEPS = 12          # 单轮 agent 最大动作步数（防死循环）
 HISTORY_MAX = 30        # 跨轮记忆条数上限（去掉 system 后）
@@ -39,6 +51,12 @@ TEMP = 0.4              # 动作决策用较低温度, 减少随机
 # 可不依赖大 max_tokens，但依赖其不在官方模型列表、不保证长期可用。
 # 可用环境变量 IDE_LLM_MODEL 覆盖。
 IDE_MODEL = os.getenv("IDE_LLM_MODEL", "deepseek-v4-flash")
+
+# CLI 审批提示（与历史 input 逐字节一致）
+APPROVAL_PROMPT = "\n批准? [y=执行 / n=拒绝 / q=中止本轮] "
+
+# 展示侧规范化器（无状态纯函数, 模块级单例即可）
+_IDE_OUTPUT = IDEOutput()
 
 # 角色写作系统提示词（参照 config/characters/igusa_haruka 的高质量结构）
 _GUIDE_PATH = Path(__file__).resolve().parent / "prompts" / "character_writer.md"
@@ -60,13 +78,41 @@ _GUIDE = _load_guide()
 class IDEAgent:
     """IDE 撰写 agent。llm: 兼容主项目 llm.client.LLMClient 的对象。"""
 
-    def __init__(self, llm: Any, root: str | Path = "."):
+    def __init__(self, llm: Any, root: str | Path = ".",
+                 *, emit: EmitFn | None = None, ask: AskFn | None = None):
         self.llm = llm
         self.registry = build_ide_registry()
         self.executor = Executor(root)
         self.history: list[dict[str, str]] = []
         # 调试/测试用的逐步记录（每次动作交换一条）
         self.trace: list[dict[str, Any]] = []
+        # 输出/审批回调：默认 = CLI（逐字节复刻现有 print/input）
+        self._emit = emit or self._default_emit
+        self._ask = ask or self._default_ask
+        self._approval_seq = 0  # 审批实例计数器（GUI 用 approval_id 关联决策）
+
+    # ------------------------------------------------------------------
+    # 默认回调（CLI）——注入 emit/ask 后, 输出与现状逐字节一致
+    # ------------------------------------------------------------------
+
+    def _default_emit(self, evt: AgentEvent) -> None:
+        """CLI 默认输出：IDEOutput 渲染 → print。
+
+        GUI-only 事件（THINKING 等）text 为空串, 直接跳过。
+        """
+        item = _IDE_OUTPUT.render(evt.to_dict())
+        if item.text:
+            print(item.text)
+
+    def _default_ask(self, approval_id: str, prompt: str) -> ApprovalDecision:
+        """CLI 默认审批：阻塞 input → approve/reject/abort。"""
+        del approval_id  # CLI 单审批流, 无需区分实例
+        choice = input(prompt).strip().lower()
+        if choice in ("q", "quit"):
+            return "abort"
+        if choice in ("y", "yes"):
+            return "approve"
+        return "reject"
 
     # ------------------------------------------------------------------
     # CLI 主循环
@@ -101,6 +147,7 @@ class IDEAgent:
         messages.append({"role": "user", "content": user_input})
 
         for step in range(MAX_STEPS):
+            self._emit(AgentEvent(AgentEventKind.THINKING, step, {}))
             try:
                 response = self.llm.chat(
                     messages, model=IDE_MODEL, temperature=TEMP, max_tokens=16384,
@@ -108,6 +155,7 @@ class IDEAgent:
                 )
             except Exception as e:
                 # client.chat(json_object) 失败：网络错误 / JSON 修正重试耗尽
+                self._emit(AgentEvent(AgentEventKind.LLM_ERROR, step, {"error": str(e)}))
                 messages.append({
                     "role": "user",
                     "content": f"LLM 调用失败: {e}\n请重试。",
@@ -131,6 +179,9 @@ class IDEAgent:
                 "payload": action.payload if action else None,
             })
             if not result.is_valid:
+                self._emit(AgentEvent(
+                    AgentEventKind.INVALID_ACTION, step, {"errors": list(result.errors)},
+                ))
                 messages.append({
                     "role": "user",
                     "content": (
@@ -142,21 +193,23 @@ class IDEAgent:
 
             # AI 对用户的话（任何动作的 reply 都展示）
             if action.reply:
-                print(f"\n[AI] {action.reply}")
+                self._emit(AgentEvent(
+                    AgentEventKind.AI_MESSAGE, step, {"message": action.reply},
+                ))
 
             # 写动作 → 审批
             if action.approval == APPROVAL_REQUIRED:
-                if self._handle_write(action, messages):
+                if self._handle_write(action, messages, step):
                     break
                 continue
 
             # 只读/收尾动作
             if action.action == "done":
                 msg = action.summary or action.payload.get("message", "完成")
-                print(f"\n[AI] {msg}")
+                self._emit(AgentEvent(AgentEventKind.DONE, step, {"message": msg}))
                 break
             if action.action in ("fetch_url", "search"):
-                self._handle_tool(action, messages)
+                self._handle_tool(action, messages, step)
                 continue
 
         # 跨轮记忆（去掉 system, 截断）
@@ -166,11 +219,12 @@ class IDEAgent:
     # 动作处理
     # ------------------------------------------------------------------
 
-    def _handle_write(self, action, messages: list[dict]) -> bool:
+    def _handle_write(self, action, messages: list[dict], step: int) -> bool:
         """写动作审批。返回 True = 中止本轮（用户主动退出）。"""
         try:
             plan = self.executor.plan(action)
         except ExecError as e:
+            self._emit(AgentEvent(AgentEventKind.PLAN_ERROR, step, {"error": str(e)}))
             messages.append({
                 "role": "user",
                 "content": f"无法执行: {e}\n请调整后重新输出动作。",
@@ -178,20 +232,27 @@ class IDEAgent:
             self.trace.append({"event": "plan_error", "error": str(e)})
             return False
 
-        print(f"\n[AI 提议] {action.summary}")
-        print(plan.diff)
+        # 发起审批：approval_id 供 GUI 把 /api/approve 决策关联回本次提案
+        self._approval_seq += 1
+        approval_id = f"approval-{self._approval_seq}"
+        self._emit(AgentEvent(
+            AgentEventKind.PENDING_APPROVAL, step,
+            {"summary": action.summary, "diff": plan.diff, "action": action.to_dict()},
+            approval_id=approval_id,
+        ))
         self.trace.append({"event": "plan", "diff": plan.diff})
 
-        choice = input("\n批准? [y=执行 / n=拒绝 / q=中止本轮] ").strip().lower()
-        if choice in ("q", "quit"):
-            print("[已中止本轮]")
+        decision = self._ask(approval_id, APPROVAL_PROMPT)
+        if decision == "abort":
+            self._emit(AgentEvent(AgentEventKind.ABORTED, step, {}))
             self.trace.append({"event": "decision", "choice": "abort"})
             return True
 
-        if choice in ("y", "yes"):
+        if decision == "approve":
             try:
                 result = self.executor.execute(action)
-                print(f"[已执行] {result.message}")
+                self._emit(AgentEvent(AgentEventKind.EXEC_RESULT, step,
+                                      {"ok": True, "message": result.message}))
                 self.trace.append({"event": "decision", "choice": "approved",
                                    "exec_ok": True, "message": result.message})
                 messages.append({
@@ -199,7 +260,8 @@ class IDEAgent:
                     "content": f"动作已执行: {result.message}",
                 })
             except ExecError as e:
-                print(f"[执行失败] {e}")
+                self._emit(AgentEvent(AgentEventKind.EXEC_RESULT, step,
+                                      {"ok": False, "message": str(e)}))
                 self.trace.append({"event": "decision", "choice": "approved",
                                    "exec_ok": False, "message": str(e)})
                 messages.append({
@@ -207,7 +269,7 @@ class IDEAgent:
                     "content": f"执行失败: {e}",
                 })
         else:
-            print("[已拒绝]")
+            self._emit(AgentEvent(AgentEventKind.DECISION, step, {"choice": "reject"}))
             self.trace.append({"event": "decision", "choice": "rejected"})
             messages.append({
                 "role": "user",
@@ -215,13 +277,17 @@ class IDEAgent:
             })
         return False
 
-    def _handle_tool(self, action, messages: list[dict]) -> None:
+    def _handle_tool(self, action, messages: list[dict], step: int) -> None:
         """只读工具（search / fetch_url）→ 结果回灌给 LLM 继续推理。"""
         name = action.action
         label = action.payload.get("url") or action.payload.get("query") or name
+        self._emit(AgentEvent(AgentEventKind.TOOL_START, step,
+                              {"name": name, "label": label}))
         try:
             result = self.executor.execute(action)
-            print(f"[{name} {label}] 已获取 {len(result.message)} 字符")
+            self._emit(AgentEvent(AgentEventKind.TOOL_RESULT, step,
+                                  {"name": name, "label": label,
+                                   "chars": len(result.message)}))
             self.trace.append({"event": name, "label": label,
                                "chars": len(result.message)})
             messages.append({
@@ -229,7 +295,8 @@ class IDEAgent:
                 "content": f"[{name} 结果 {label}]\n{result.message}",
             })
         except ExecError as e:
-            print(f"[{name}失败] {e}")
+            self._emit(AgentEvent(AgentEventKind.TOOL_ERROR, step,
+                                  {"name": name, "label": label, "error": str(e)}))
             self.trace.append({"event": f"{name}_error", "label": label,
                                "error": str(e)})
             messages.append({

@@ -15,6 +15,8 @@ TypingDelay:
         for bubble in lb.feed(token):
             typing_animation(bubble, delay.for_bubble(bubble))
     final = lb.flush()
+
+BTW，这个名字取得其实不太对，真实的stream在client.py里实现
 """
 
 from __future__ import annotations
@@ -49,17 +51,37 @@ class LineBuffer:
         self._pending_punct: str = ""
 
     def feed(self, text: str) -> list[str]:
-        """喂入一个 token 片段；返回已完成的句子列表。"""
+        """喂入一个 token 片段；返回已完成的句子列表。
+
+        切句点 = "断点标点运行 + 紧跟着非标点字符"。尾部若止于标点运行
+        （可能是连续标点还在来），推迟切句，等下一个非标点字符或 flush
+        确认运行已结束——保证 "！！" 这类连续标点永远整体留在同一句。
+        """
         self._buf += text
 
         # 还没有断点标点 → 继续累积, 不切
         if not _BREAK_PUNCT.search(self._buf):
             return []
 
-        # 找最后一个断点位置, 之前的部分整体切走
+        # 找最后一个"已确认"的切句点：标点运行紧跟着非标点字符。
+        # 尾部若止于标点运行（可能还有连续标点没来），不切，等下个字符/flush。
         last_break = 0
-        for m in _BREAK_PUNCT.finditer(self._buf):
-            last_break = m.end()
+        n = len(self._buf)
+        i = 0
+        while i < n:
+            if self._buf[i] in _BREAK_CHARS:
+                j = i
+                while j < n and self._buf[j] in _BREAK_CHARS:
+                    j += 1
+                if j < n:          # 运行后面还有非标点 → 运行已结束, 可切
+                    last_break = j
+                i = j
+            else:
+                i += 1
+
+        if not last_break:
+            return []              # 还没有已确认的句子边界 → 继续累积
+
         complete = self._buf[:last_break]
         self._buf = self._buf[last_break:]
 

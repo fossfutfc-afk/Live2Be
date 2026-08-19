@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable
+from dataclasses import dataclass, field
 
 from ui.streaming import LineBuffer, TypingDelay
 from ui.text_processors import format_momotalk_bubble
@@ -114,3 +115,97 @@ class BondStoryOutput:
             return []
         paragraphs = re.split(r"\n{2,}", text)
         return [p.strip() for p in paragraphs if p.strip()]
+
+
+# ============================================================================
+# IDE agent 显示策略
+# ============================================================================
+
+@dataclass(frozen=True)
+class IDEDisplayItem:
+    """IDE agent 事件的显示单元。
+
+    text — CLI 直接 print 的渲染文本（与现状逐字节一致；无 CLI 表示时为空串）
+    data — GUI/SSE 的结构化载荷（前端按 kind 渲染）
+    kind — 事件类别（与 AgentEventKind 同名，GUI 用它分发）
+    """
+
+    kind: str
+    text: str
+    data: dict = field(default_factory=dict)
+
+
+class IDEOutput:
+    """IDE agent 事件流 → 统一显示单元（第三种展示策略）。
+
+    无状态纯函数：render(event) → IDEDisplayItem，恒有返回。
+    event 是 AgentEvent.to_dict() 的产物（fetch/events.py 定义），本类只认
+    kind / data / approval_id / step 四个键——不 import fetch.events，
+    ui/ 保持零引擎依赖。
+
+    CLI 无文本的事件（THINKING / TOOL_START / INVALID_ACTION / LLM_ERROR /
+    PLAN_ERROR）text 为空串：CLI emit 侧跳过空文本，保证 python -m fetch.agent
+    的输出与现状逐字节一致；GUI 侧按 kind 正常渲染这些状态。
+
+    render 契约（event.data 的键）:
+        AI_MESSAGE       {"message"}
+        PENDING_APPROVAL {"summary", "diff", "action"}   + 顶层 approval_id
+        DECISION         {"choice": "reject" | "abort"}
+        EXEC_RESULT      {"ok": bool, "message"}
+        TOOL_START       {"name", "label"}
+        TOOL_RESULT      {"name", "label", "chars"}
+        TOOL_ERROR       {"name", "label", "error"}
+        DONE             {"message"}
+        THINKING / INVALID_ACTION / LLM_ERROR / PLAN_ERROR / ABORTED  无载荷
+
+    用法（Phase 2 emit 回调注入）:
+        item = ide_output.render(event.to_dict())
+        if item.text:
+            print(item.text)          # CLI
+        hub.publish(item.data)        # GUI → SSE
+    """
+
+    #: 无 CLI 文本的事件——GUI 才渲染
+    _GUI_ONLY = frozenset({
+        "THINKING", "TOOL_START", "INVALID_ACTION", "LLM_ERROR", "PLAN_ERROR",
+    })
+
+    def render(self, event: dict) -> IDEDisplayItem:
+        kind = event.get("kind", "")
+        data = dict(event.get("data") or {})
+        if kind == "PENDING_APPROVAL":
+            data["approval_id"] = event.get("approval_id") or data.get("approval_id")
+        return IDEDisplayItem(kind=kind, text=self._render_text(kind, data), data=data)
+
+    # ------------------------------------------------------------------
+    # 内部：CLI 文本渲染（逐字节复刻 fetch/agent.py 现有 print）
+    # ------------------------------------------------------------------
+
+    def _render_text(self, kind: str, data: dict) -> str:
+        if kind == "AI_MESSAGE":
+            return f"\n[AI] {data.get('message', '')}"
+        if kind == "PENDING_APPROVAL":
+            return (
+                f"\n[AI 提议] {data.get('summary', '')}\n"
+                f"{data.get('diff', '')}"
+            )
+        if kind == "DECISION":
+            if data.get("choice") == "abort":
+                return "[已中止本轮]"
+            return "[已拒绝]"  # reject 及未知 choice
+        if kind == "ABORTED":
+            return "[已中止本轮]"
+        if kind == "EXEC_RESULT":
+            if data.get("ok"):
+                return f"[已执行] {data.get('message', '')}"
+            return f"[执行失败] {data.get('message', '')}"
+        if kind == "TOOL_RESULT":
+            return (
+                f"[{data.get('name', '')} {data.get('label', '')}] "
+                f"已获取 {data.get('chars', 0)} 字符"
+            )
+        if kind == "TOOL_ERROR":
+            return f"[{data.get('name', '')}失败] {data.get('error', '')}"
+        if kind == "DONE":
+            return f"\n[AI] {data.get('message', '')}"
+        return ""  # _GUI_ONLY 事件 / 未知 kind
