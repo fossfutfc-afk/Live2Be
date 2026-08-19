@@ -193,6 +193,29 @@ def _t_text_processors():
     assert format_momotalk_reply("你好。", "遥花") == "[遥花]: 你好。"
 
 
+@check("text_processors 连续强标点不丢（！！ 引擎冒烟回归）")
+def _t_text_strong_punct_block():
+    # 修复前 _strong_split 拆成 ["...呢！", "！"]，_has_content 丢掉 "！"
+    assert _process_for_momotalk(
+        "今天天气真不错呢！！我们一起去天台吧。"
+    ) == ["今天天气真不错呢！！我们一起去天台吧。"]
+
+
+@check("text_processors 段首标点块不丢（！！我们...）")
+def _t_text_leading_punct_block():
+    assert _process_for_momotalk("！！我们一起去天台吧。") == ["！！我们一起去天台吧。"]
+
+
+@check("text_processors 混合标点块不丢（？！）")
+def _t_text_mixed_punct_block():
+    assert _process_for_momotalk("你疯了吗？！") == ["你疯了吗？！"]
+
+
+@check("text_processors 全标点文本兜底不丢（！！！）")
+def _t_text_all_punct():
+    assert _process_for_momotalk("！！！") == ["！！！"]
+
+
 # ============================================================================
 # 集成
 # ============================================================================
