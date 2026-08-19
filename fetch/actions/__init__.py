@@ -12,6 +12,7 @@
     search              搜索资料页 URL（只读, APPROVAL_NEVER, 结果回灌给 LLM）
     fetch_url           抓取网页资料（只读, APPROVAL_NEVER, 结果回灌给 LLM）
     view_character      查看角色现状（只读, APPROVAL_NEVER, 结果回灌给 LLM）
+    view_interperson    查看关系现状（只读, APPROVAL_NEVER, 结果回灌给 LLM）
     done                收尾动作（LLM 声明本轮结束 / 等待用户）
 
 mode 语义（update_character）:
@@ -59,6 +60,7 @@ from fetch.actions.character import (
 )
 from fetch.actions.interperson import (
     parse_update_interperson,
+    parse_view_interperson,
     validate_update_interperson,
 )
 from fetch.actions.net import parse_done, parse_fetch_url
@@ -147,6 +149,18 @@ def build_ide_registry() -> IDEActionRegistry:
             "file: 可选, 只看某文件（五件套之一）; 缺省列出五件套现状:\n"
             "      每个文件 已存在(字符数)/缺失 + profile 显示名与完整度\n"
             "用途: 用户要求\"补全/完善某角色\"时先调用, 摸清缺哪些文件再动手"
+        ),
+    ))
+    registry.register(ActionSpec(
+        "view_interperson",
+        parse_view_interperson,
+        APPROVAL_NEVER,
+        prompt_fields=IDE_RUNTIME_FIELDS,  # 只读动作: 无 sources/basis, 但支持 reply
+        payload_schema=(
+            "character_id: 可选, 只看某角色的完整关系（{关系角色id: 权重}）;\n"
+            "      缺省列出全部有关系的角色及关系\n"
+            "用途: 改/补 interperson 前先调用, 看清现状再 update_interperson"
+            "（它是全量快照替换, 须带上想保留的现有关系）"
         ),
     ))
     registry.register(ActionSpec(

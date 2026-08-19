@@ -343,7 +343,8 @@ class IDEAgent:
                 msg = action.summary or action.payload.get("message", "完成")
                 self._emit(AgentEvent(AgentEventKind.DONE, step, {"message": msg}))
                 break
-            if action.action in ("fetch_url", "search", "view_character"):
+            if action.action in ("fetch_url", "search", "view_character",
+                                 "view_interperson"):
                 self._handle_tool(action, messages, step)
                 continue
 
@@ -427,7 +428,7 @@ class IDEAgent:
 
         if decision == "approve":
             try:
-                result = self.executor.execute(action)
+                result = self.executor.execute(action, plan=plan)
                 self._emit(AgentEvent(AgentEventKind.EXEC_RESULT, step,
                                       {"ok": True, "message": result.message}))
                 self.trace.append({"event": "decision", "choice": "approved",

@@ -1,20 +1,23 @@
 # -*- coding: utf-8 -*-
-"""fetch/ view_character（只读查看角色现状）回归测试。
+"""fetch/ 只读查看动作（view_character / view_interperson）回归测试。
 
 覆盖:
-    契约解析     registry.parse(view_character) 结构白名单（非法 id/file 拒绝）
-    执行层       Executor._execute_view_character 清单/单文件两种输出 + 完整度
-    agent 链路   LLM 先 view_character → 摸清缺失 → 补写缺失文件 → done
+    契约解析     registry.parse 结构白名单（非法 id/file 拒绝）
+    执行层       清单/单目标两种输出 + 完整度 + merge 复用（execute 传回 plan）
+    agent 链路   LLM 先查看现状 → 补写缺失 → done
 
 用法: python fetch/_view_test.py   （项目根环境, 推荐 live2be env）
 """
+import json
 import sys
 import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from contract import ContractError, AgentAction, DOMAIN_IDE, APPROVAL_NEVER
+from contract import (
+    ContractError, AgentAction, DOMAIN_IDE, APPROVAL_NEVER, APPROVAL_REQUIRED,
+)
 from fetch.actions import build_ide_registry
 from fetch.executor import ExecError, Executor
 
@@ -39,6 +42,21 @@ def _action(char_id: str = "stub", file: str | None = None) -> AgentAction:
         payload["file"] = file
     return AgentAction(action="view_character", domain=DOMAIN_IDE,
                        approval=APPROVAL_NEVER, payload=payload)
+
+
+def _interperson_action(char_id: str | None = None) -> AgentAction:
+    payload: dict[str, str] = {}
+    if char_id:
+        payload["character_id"] = char_id
+    return AgentAction(action="view_interperson", domain=DOMAIN_IDE,
+                       approval=APPROVAL_NEVER, payload=payload)
+
+
+def _seed_interperson(root: Path, data: dict) -> Path:
+    p = root / "config" / "settings" / "relation" / "interperson.json"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    return p
 
 
 # ============================================================================
@@ -216,12 +234,148 @@ def test_agent_view_then_complete():
     print("agent 链路(查看→补全) PASS")
 
 
+# ============================================================================
+# view_interperson: 契约解析 + 执行层 + agent 链路
+# ============================================================================
+
+def test_parse_view_interperson():
+    reg = build_ide_registry()
+
+    act, result = reg.parse({"action": "view_interperson", "reply": "看看关系。",
+                             "payload": {}})
+    assert result.is_valid and act is not None
+    assert act.action == "view_interperson" and act.approval == "never"
+    assert act.payload == {} and act.reply == "看看关系。"
+
+    act2, r2 = reg.parse({"action": "view_interperson",
+                          "payload": {"character_id": "stub"}})
+    assert r2.is_valid and act2.payload == {"character_id": "stub"}
+
+    _, bad = reg.parse({"action": "view_interperson",
+                        "payload": {"character_id": "伊草 遥香"}})
+    assert not bad.is_valid and any("character_id" in e for e in bad.errors)
+    print("view_interperson 契约解析 PASS")
+
+
+def test_exec_view_interperson_list():
+    root = Path(tempfile.mkdtemp())
+    _seed_interperson(root, {
+        "stub": {"player": 2, "asagi_mutsuki": 3},
+        "other": {"player": 1},
+    })
+    res = Executor(root).execute(_interperson_action())
+    assert res.ok
+    assert "2 个角色有记录" in res.message
+    assert "stub (2)" in res.message and "asagi_mutsuki(3)" in res.message
+    assert "other (1)" in res.message and "player(1)" in res.message
+    print("view_interperson 清单模式 PASS")
+
+
+def test_exec_view_interperson_single():
+    root = Path(tempfile.mkdtemp())
+    _seed_interperson(root, {"stub": {"player": 2, "asagi_mutsuki": 3}})
+    res = Executor(root).execute(_interperson_action("stub"))
+    assert res.ok
+    assert "asagi_mutsuki: 3" in res.message
+    assert "player: 2" in res.message
+    assert "全量快照替换" in res.message
+    print("view_interperson 单角色模式 PASS")
+
+
+def test_exec_view_interperson_missing():
+    root = Path(tempfile.mkdtemp())
+    _seed_interperson(root, {"stub": {}})
+    try:
+        Executor(root).execute(_interperson_action("nobody"))
+    except ExecError as e:
+        assert "无关系记录" in str(e)
+    else:
+        raise AssertionError("无记录角色应抛 ExecError")
+    print("view_interperson 错误路径 PASS")
+
+
+def test_exec_merge_reuse():
+    """plan 算好的 merge 最终内容, execute 传回 plan 复用, 不重算。"""
+    root = Path(tempfile.mkdtemp())
+    _seed(root)
+    ex = Executor(root)
+    u = AgentAction(action="update_character", domain=DOMAIN_IDE,
+                    approval=APPROVAL_REQUIRED,
+                    payload={"character_id": "stub", "mode": "merge",
+                             "files": {"profile.yml": "SIG~birthday: 5/13\n"}})
+
+    calls = {"n": 0}
+    orig = Executor._resolve_update_files
+    def counting(self, action, char_dir):
+        calls["n"] += 1
+        return orig(self, action, char_dir)
+    Executor._resolve_update_files = counting
+    try:
+        plan = ex.plan(u)
+        assert calls["n"] == 1
+        res = ex.execute(u, plan=plan)
+        assert res.ok and "stub" in res.message
+        assert calls["n"] == 1, "execute 复用 plan, 不应重算 merge"
+        # 幂等兜底: 不带 plan 仍能正常执行（重新计算）
+        res2 = ex.execute(u)
+        assert res2.ok and calls["n"] == 2
+    finally:
+        Executor._resolve_update_files = orig
+
+    text = (root / "config" / "characters" / "stub" / "profile.yml").read_text(encoding="utf-8")
+    assert "SIG~birthday: 5/13" in text
+    assert "REQ~most_called_name: 伊草 遥香" in text   # merge 保留原有字段
+    print("executor merge 复用 PASS")
+
+
+def test_agent_view_interperson_then_update():
+    """LLM 先 view_interperson 摸清现状 → 带上现状补新关系 → done。"""
+    root = Path(tempfile.mkdtemp())
+    _seed(root)
+    _seed_interperson(root, {"stub": {"asagi_mutsuki": 2}})
+
+    rec = Recorder(["approve"])
+    from fetch.agent import IDEAgent
+
+    ui = {
+        "action": "update_interperson", "summary": "补 player 关系",
+        "reply": "现状看清了, 补一个 player。",
+        "payload": {"character_id": "stub",
+                    "relations": {"asagi_mutsuki": 2, "player": 2}},  # 全量快照
+        "basis": ["用户要求"],
+    }
+    # 注意: update_interperson 不在范例门(_WRITE_ACTIONS)里, 不会被弹掉重生成
+    agent = IDEAgent(StubLLM([
+        {"action": "view_interperson", "reply": "让我看看现状。", "payload": {}},
+        ui, {"action": "done", "summary": "已补关系", "reply": "补完了。",
+             "payload": {"message": "已补关系"}},
+    ]), root=root, emit=rec.emit, ask=rec.ask)
+    agent.agent_turn("给 stub 补一个 player 的关系")
+
+    kinds = rec.kinds()
+    assert "TOOL_START" in kinds and "TOOL_RESULT" in kinds, kinds
+    ts = rec.find("TOOL_START")[0]
+    assert ts.data["name"] == "view_interperson"
+    assert kinds[-1] == "DONE" and kinds.count("DONE") == 1
+    assert any(t.get("event") == "view_interperson" for t in agent.trace)
+
+    cur = json.loads(
+        (root / "config" / "settings" / "relation" / "interperson.json")
+        .read_text(encoding="utf-8"))
+    assert cur["stub"] == {"asagi_mutsuki": 2, "player": 2}
+    print("agent 链路(查看关系→补关系) PASS")
+
+
 def main() -> None:
     tests = [
         test_parse,
         test_exec_list, test_exec_list_missing_sig, test_exec_single_file,
         test_exec_errors,
         test_agent_view_then_complete,
+        test_parse_view_interperson,
+        test_exec_view_interperson_list, test_exec_view_interperson_single,
+        test_exec_view_interperson_missing, test_exec_merge_reuse,
+        test_agent_view_interperson_then_update,
     ]
     failed = 0
     for fn in tests:

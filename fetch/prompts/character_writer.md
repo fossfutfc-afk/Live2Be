@@ -16,6 +16,9 @@
    **先 `view_character`** 查看该角色现状（五件套哪些已存在、缺失，profile 完整度），
    只写**缺失**的文件（`update_character` mode=merge，一次一个文件）——
    不重复已存在的内容，不缺漏缺失的；拿不准时先 `view_character` 再动手。
+6. **改/补关系（update_interperson）**：动手前**先 `view_interperson`** 看现状——
+   `update_interperson` 是**全量快照替换**，提交时必须带上想保留的现有关系，
+   否则会静默删掉；**新增**关系须附依据（`sources`/`basis`），宁缺勿错。
 
 ## 工作范围（由用户决定）
 
