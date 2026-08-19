@@ -1,6 +1,8 @@
 # Live2Be IDE Agent 端到端测试报告
 
 - 日期: 2026-08-17T19:25:43
+- 注: 2026-08-19 起，契约层 `_normalize_str_list` 对裸字符串 basis 自动包为单元素列表（机器侧容错，配合 schema 类型提示），
+  本报告第 14 行的『basis 必须是列表』错误在机器侧被吸收；历史记录保留不改。
 - LLM: `deepseek-v4-flash` @ `https://api.deepseek.com/v1`
 - 隔离工作目录: `C:\Users\johnf\AppData\Local\Temp\live2be_e2e_mg7w8bid`（不污染真实 config）
 

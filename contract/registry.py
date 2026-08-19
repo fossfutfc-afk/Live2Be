@@ -204,9 +204,16 @@ def parse_action_text(
 def _normalize_str_list(
     raw: Any, label: str, limit: int, errors: list[str]
 ) -> tuple[str, ...]:
-    """规范化字符串列表字段（sources/basis）。非法的项被丢弃并记录错误。"""
+    """规范化字符串列表字段（sources/basis）。非法的项被丢弃并记录错误。
+
+    机器侧容错（与 schema 提示的『列表』类型约定配套）：
+    LLM 偶发把单值写成裸字符串（如 basis: "用户要求整理"），语义无损，
+    自动包成单元素列表再走常规校验——宁缺勿错但不过度拒绝。
+    """
     if raw is None:
         return ()
+    if isinstance(raw, str):
+        raw = [raw]
     if not isinstance(raw, list):
         errors.append(f"{label} 必须是列表")
         return ()
