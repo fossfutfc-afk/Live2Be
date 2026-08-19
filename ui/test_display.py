@@ -162,22 +162,22 @@ def _t_typing_reset():
 
 @check("MomoTalkOutput feed 气泡 + 去括号 + 延迟")
 def _t_momotalk_feed():
-    d = MomoTalkOutput(_process_for_momotalk, "遥花")
+    d = MomoTalkOutput(_process_for_momotalk, "遥香")
     # "你好。" 有已确认句界 → 立即切出; 尾部 "今天天气不错呢！" 扣住, flush 取回
     out = list(d.feed("（轻笑）你好。今天天气不错呢！"))
-    assert out == [("[遥花]: 你好。", 0.0)], f"得 {out!r}"
+    assert out == [("[遥香]: 你好。", 0.0)], f"得 {out!r}"
     out2 = list(d.flush())
-    assert out2[0][0] == "[遥花]: 今天天气不错呢！", f"得 {out2[0][0]!r}"
+    assert out2[0][0] == "[遥香]: 今天天气不错呢！", f"得 {out2[0][0]!r}"
     assert out2[0][1] > 0.0
 
 
 @check("MomoTalkOutput flush 取回遗留")
 def _t_momotalk_flush():
-    d = MomoTalkOutput(_process_for_momotalk, "遥花")
+    d = MomoTalkOutput(_process_for_momotalk, "遥香")
     out = list(d.feed("你好。还没说完"))
-    assert out == [("[遥花]: 你好。", 0.0)]
+    assert out == [("[遥香]: 你好。", 0.0)]
     out2 = list(d.flush())
-    assert out2[0][0] == "[遥花]: 还没说完"
+    assert out2[0][0] == "[遥香]: 还没说完"
 
 
 @check("MomoTalkOutput 实例独立（各自首句零延迟）")
@@ -210,8 +210,8 @@ def _t_bondstory():
 @check("text_processors 去括号 + 断句 + 前缀")
 def _t_text_processors():
     assert _process_for_momotalk("（轻笑）嗨。") == ["嗨。"]
-    assert strip_name_prefix("[遥花]: 你好", "遥花") == "你好"
-    assert format_momotalk_reply("你好。", "遥花") == "[遥花]: 你好。"
+    assert strip_name_prefix("[遥香]: 你好", "遥香") == "你好"
+    assert format_momotalk_reply("你好。", "遥香") == "[遥香]: 你好。"
 
 
 @check("text_processors 连续强标点不丢（！！ 引擎冒烟回归）")
@@ -283,8 +283,8 @@ def _t_ide_exec():
 @check("IDEOutput TOOL_RESULT / TOOL_ERROR")
 def _t_ide_tool():
     out = IDEOutput()
-    item = out.render({"kind": "TOOL_RESULT", "data": {"name": "search", "label": "伊草遥花", "chars": 321}})
-    assert item.text == "[search 伊草遥花] 已获取 321 字符", f"得 {item.text!r}"
+    item = out.render({"kind": "TOOL_RESULT", "data": {"name": "search", "label": "伊草遥香", "chars": 321}})
+    assert item.text == "[search 伊草遥香] 已获取 321 字符", f"得 {item.text!r}"
     item = out.render({"kind": "TOOL_ERROR", "data": {"name": "fetch_url", "label": "http://x", "error": "超时"}})
     assert item.text == "[fetch_url失败] 超时", f"得 {item.text!r}"
 
