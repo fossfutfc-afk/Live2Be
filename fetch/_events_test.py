@@ -19,7 +19,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from fetch.agent import APPROVAL_PROMPT, IDEAgent
+from fetch.agent import APPROVAL_PROMPT, EXAMPLE_ASK_PROMPT, IDEAgent
 from fetch.events import AgentEvent, AgentEventKind
 
 
@@ -41,7 +41,11 @@ class StubLLM:
 
 
 class Recorder:
-    """收集 emit 事件 + 回放 ask 决策。"""
+    """收集 emit 事件 + 回放 ask 决策。
+
+    ask 有两种合法提示: 写动作审批(APPROVAL_PROMPT) 与 范例询问(EXAMPLE_ASK_PROMPT)。
+    decisions 按出现顺序消费——写流程里第一个决策总是范例询问的。
+    """
 
     def __init__(self, decisions):
         self.events: list[AgentEvent] = []
@@ -53,7 +57,8 @@ class Recorder:
 
     def ask(self, approval_id: str, prompt: str):
         self.asks.append((approval_id, prompt))
-        assert prompt == APPROVAL_PROMPT, f"ask 提示变了: {prompt!r}"
+        assert prompt in (APPROVAL_PROMPT, EXAMPLE_ASK_PROMPT), \
+            f"ask 提示变了: {prompt!r}"
         assert self.decisions, "stub ask 决策用尽"
         return self.decisions.pop(0)
 
@@ -92,21 +97,30 @@ def done_msg(message: str = "角色已创建") -> dict:
 
 def test_approve_flow() -> None:
     tmp = Path(tempfile.mkdtemp())
-    rec = Recorder(["approve"])
-    agent = IDEAgent(StubLLM([cc(), done_msg()]), root=tmp, emit=rec.emit, ask=rec.ask)
+    # 决策[0]=范例询问(同意→重跑本轮), 决策[1]=写动作审批
+    rec = Recorder(["approve", "approve"])
+    agent = IDEAgent(StubLLM([cc(), cc(), done_msg()]), root=tmp,
+                     emit=rec.emit, ask=rec.ask)
     agent.agent_turn("创建测试角色")
 
+    # 首轮 reply 在范例询问前不展示（gate 在 emit reply 之前 continue 重跑）
     assert rec.kinds() == [
+        "THINKING", "ASK_USER",
         "THINKING", "AI_MESSAGE", "PENDING_APPROVAL", "EXEC_RESULT",
         "THINKING", "AI_MESSAGE", "DONE",
     ], rec.kinds()
+    assert agent._example_enabled is True        # 同意 → 范例已启用
+    assert rec.find(AgentEventKind.ASK_USER)[0].data["prompt"] == EXAMPLE_ASK_PROMPT
 
     pa = rec.find(AgentEventKind.PENDING_APPROVAL)[0]
-    assert pa.approval_id == "approval-1"
+    assert pa.approval_id == "approval-2"        # example-1 用掉序号 1
     assert pa.data["summary"] == "创建测试角色"
     assert "diff" in pa.data and "action" in pa.data
 
-    assert rec.asks == [("approval-1", APPROVAL_PROMPT)]
+    assert rec.asks == [
+        ("example-1", EXAMPLE_ASK_PROMPT),
+        ("approval-2", APPROVAL_PROMPT),
+    ]
 
     ex = rec.find(AgentEventKind.EXEC_RESULT)[0]
     assert ex.data["ok"] is True and ex.data["message"]
@@ -126,11 +140,13 @@ def test_approve_flow() -> None:
 
 def test_reject_flow() -> None:
     tmp = Path(tempfile.mkdtemp())
-    rec = Recorder(["reject"])
-    agent = IDEAgent(StubLLM([cc(), done_msg()]), root=tmp, emit=rec.emit, ask=rec.ask)
+    rec = Recorder(["approve", "reject"])       # 范例同意, 写动作拒绝
+    agent = IDEAgent(StubLLM([cc(), cc(), done_msg()]), root=tmp,
+                     emit=rec.emit, ask=rec.ask)
     agent.agent_turn("创建测试角色")
 
     assert rec.kinds() == [
+        "THINKING", "ASK_USER",
         "THINKING", "AI_MESSAGE", "PENDING_APPROVAL", "DECISION",
         "THINKING", "AI_MESSAGE", "DONE",
     ], rec.kinds()
@@ -145,15 +161,38 @@ def test_reject_flow() -> None:
 
 def test_abort_flow() -> None:
     tmp = Path(tempfile.mkdtemp())
-    rec = Recorder(["abort"])
-    agent = IDEAgent(StubLLM([cc()]), root=tmp, emit=rec.emit, ask=rec.ask)
+    rec = Recorder(["approve", "abort"])        # 范例同意, 写动作中止
+    agent = IDEAgent(StubLLM([cc(), cc()]), root=tmp,
+                     emit=rec.emit, ask=rec.ask)
     agent.agent_turn("创建测试角色")
 
-    assert rec.kinds() == ["THINKING", "AI_MESSAGE", "PENDING_APPROVAL", "ABORTED"], rec.kinds()
+    assert rec.kinds() == [
+        "THINKING", "ASK_USER",
+        "THINKING", "AI_MESSAGE", "PENDING_APPROVAL", "ABORTED",
+    ], rec.kinds()
     assert rec.find(AgentEventKind.ABORTED)[0].data == {}
     assert any(t.get("event") == "decision" and t.get("choice") == "abort"
                for t in agent.trace)
     print("abort 路径 PASS")
+
+
+def test_example_question_skip() -> None:
+    """范例询问拒绝/超时 → 跳过且不启用, 写动作照常进行（本轮只问一次）。"""
+    tmp = Path(tempfile.mkdtemp())
+    rec = Recorder(["reject", "approve"])       # 范例拒绝, 写动作批准
+    agent = IDEAgent(StubLLM([cc(), done_msg()]), root=tmp,
+                     emit=rec.emit, ask=rec.ask)
+    agent.agent_turn("创建测试角色")
+
+    # 跳过 → 不重跑: 首轮 reply 保留, 无第二次 THINKING
+    assert rec.kinds() == [
+        "THINKING", "ASK_USER", "AI_MESSAGE", "PENDING_APPROVAL", "EXEC_RESULT",
+        "THINKING", "AI_MESSAGE", "DONE",
+    ], rec.kinds()
+    assert agent._example_enabled is False
+    assert agent._example_asked is True
+    assert (tmp / "config" / "characters" / "stub_test" / "profile.yml").exists()
+    print("范例询问跳过路径 PASS")
 
 
 def test_invalid_flow() -> None:
@@ -199,6 +238,7 @@ def test_cli_ask() -> None:
 def main() -> None:
     tests = [
         test_approve_flow, test_reject_flow, test_abort_flow,
+        test_example_question_skip,
         test_invalid_flow, test_cli_byte_compat, test_cli_ask,
     ]
     for fn in tests:

@@ -46,6 +46,11 @@ MAX_STEPS = 12          # 单轮 agent 最大动作步数（防死循环）
 HISTORY_MAX = 30        # 跨轮记忆条数上限（去掉 system 后）
 TEMP = 0.4              # 动作决策用较低温度, 减少随机
 
+# 写动作——触发"是否读取高质量范例"的首次询问
+_WRITE_ACTIONS = ("create_character", "update_character")
+# 范例询问文案（ask 桥里展示; approve=加载, reject/abort=跳过）
+EXAMPLE_ASK_PROMPT = "是否读取高质量范例（伊草遥香五件套）以提高写作质量? [y=读取 / n=跳过] "
+
 # IDE agent 默认用推理模型（v4-flash），配合大 max_tokens 容纳 reasoning_content。
 # 推理模型会把 max_tokens 分给"思考"与"内容"两部分——max_tokens 太小会导致
 # reasoning 吃光预算、content 为空（实测复现）。非推理模型（如 deepseek-chat 别名）
@@ -61,6 +66,8 @@ _IDE_OUTPUT = IDEOutput()
 
 # 角色写作系统提示词（参照 config/characters/igusa_haruka 的高质量结构）
 _GUIDE_PATH = Path(__file__).resolve().parent / "prompts" / "character_writer.md"
+# 高质量范例：igusa_haruka（伊草遥香）手写五件套——规范参照, 逐字节保真自 config/
+_EXAMPLE_PATH = Path(__file__).resolve().parent / "prompts" / "character_example.md"
 
 
 def _load_guide() -> str:
@@ -75,7 +82,16 @@ def _load_guide() -> str:
         )
 
 
+def _load_example() -> str:
+    """范例文件可选——缺失时系统提示不附带, agent 照常工作。"""
+    try:
+        return _EXAMPLE_PATH.read_text(encoding="utf-8")
+    except OSError:
+        return ""
+
+
 _GUIDE = _load_guide()
+_EXAMPLE = _load_example()
 
 
 class IDEAgent:
@@ -87,6 +103,9 @@ class IDEAgent:
         self.registry = build_ide_registry()
         self.executor = Executor(root)
         self.history: list[dict[str, str]] = []
+        # 高质量范例：默认不加载（省 token）; 首次写动作时询问, 同意才启用
+        self._example_enabled = False
+        self._example_asked = False
         # 调试/测试用的逐步记录（每次动作交换一条）
         self.trace: list[dict[str, Any]] = []
         # 输出/审批回调：默认 = CLI（逐字节复刻现有 print/input）
@@ -221,6 +240,17 @@ class IDEAgent:
             messages.append({"role": "assistant", "content": str(response)})
 
             action, result = self.registry.parse(response)
+
+            # —— 首次写动作: 询问是否读取高质量范例 ——
+            # 同意 → 启用范例、刷新 system、丢弃这条没看范例的回复、重跑本轮;
+            # 拒绝/超时 → 跳过, 本轮及后续都不再问（_example_asked 已置位）。
+            if (result.is_valid and action is not None
+                    and action.action in _WRITE_ACTIONS
+                    and not self._example_asked and self._ask_example(step)):
+                messages[0]["content"] = self._system_prompt()
+                messages.pop()
+                continue
+
             self.trace.append({
                 "step": step,
                 "llm_response": response,
@@ -275,6 +305,27 @@ class IDEAgent:
     # ------------------------------------------------------------------
     # 动作处理
     # ------------------------------------------------------------------
+
+    def _ask_example(self, step: int) -> bool:
+        """首次写动作时问用户是否读取高质量范例。
+
+        Returns:
+            True = 已启用范例（调用方需刷新 system prompt 并重跑本轮）。
+        """
+        self._example_asked = True      # 无论结果, 只问一次
+        if self._example_enabled:
+            return True
+        self._approval_seq += 1
+        approval_id = f"example-{self._approval_seq}"
+        self._emit(AgentEvent(
+            AgentEventKind.ASK_USER, step, {"prompt": EXAMPLE_ASK_PROMPT},
+            approval_id=approval_id,
+        ))
+        decision = self._ask(approval_id, EXAMPLE_ASK_PROMPT)
+        if decision == "approve":
+            self._example_enabled = True
+            return True
+        return False                    # reject / abort(超时) → 跳过
 
     def _handle_write(self, action, messages: list[dict], step: int) -> bool:
         """写动作审批。返回 True = 中止本轮（用户主动退出）。"""
@@ -367,8 +418,11 @@ class IDEAgent:
 
     def _system_prompt(self) -> str:
         schema = build_schema(self.registry)
+        # 范例只在用户同意后注入（省 token）; 文件缺失时即使启用也退化为空
+        example_block = f"\n\n{_EXAMPLE}" if (self._example_enabled and _EXAMPLE) else ""
         return (
             _GUIDE
+            + example_block
             + "\n\n# 动作执行规则\n"
             "1. 一次只输出一个动作 JSON；动作之间按流程衔接（查资料 → 写动作 → done）。\n"
             "2. 写动作需要完整依据：sources 为网页 URL, basis 为用户明确需求, 宁缺勿错。\n"

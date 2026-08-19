@@ -136,6 +136,52 @@ function showProposal(evt) {
   scrollBottom();
 }
 
+// ---- 轻量提问（ASK_USER） ----
+function showQuestion(evt) {
+  const d = evt.data || {};
+  const card = el("div", "proposal question");
+  card.appendChild(el("div", "proposal-title", d.prompt || "确认"));
+
+  const note = el("div", "proposal-note");
+  card.appendChild(note);
+
+  const actions = el("div", "proposal-actions");
+  const buttons = [];
+  const make = (label, cls, decision) => {
+    const b = el("button", cls, label);
+    b.onclick = () => decide(pending ? pending.approval_id : null, decision);
+    buttons.push(b);
+    actions.appendChild(b);
+  };
+  make("✓ 读取范例", "btn-ok", "approve");
+  make("✗ 跳过", "btn-no", "reject");
+  card.appendChild(actions);
+
+  let timer = null;
+  if (autoChk.checked) {
+    const delay = parseFloat(autoDelayLabel.textContent) || 2;
+    note.textContent = delay + " 秒后自动读取范例…";
+    note.dataset.done = "自动决策流程已结束";
+    const start = Date.now();
+    timer = setInterval(() => {
+      const left = delay - (Date.now() - start) / 1000;
+      if (left <= 0) {
+        clearInterval(timer);
+        note.textContent = "正在自动决策…";
+      } else {
+        note.textContent = left.toFixed(1) + " 秒后自动读取范例…";
+      }
+    }, 100);
+  } else {
+    note.textContent = "等待你的决定";
+    note.dataset.done = "";
+  }
+
+  pending = { approval_id: evt.approval_id, buttons, timer, note };
+  stream.appendChild(card);
+  scrollBottom();
+}
+
 // ---- 事件分发 ----
 function handle(evt) {
   const k = evt.kind;
@@ -143,6 +189,10 @@ function handle(evt) {
   switch (k) {
     case "THINKING":
       setStatus("busy", "思考中…");
+      break;
+    case "ASK_USER":
+      showQuestion(evt);
+      setStatus("approval", "等待决定");
       break;
     case "AI_MESSAGE":
       appendBubble(d.message, "ai");

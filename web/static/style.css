@@ -109,6 +109,8 @@ body { display: flex; flex-direction: column; }
   width: 100%;
 }
 .proposal-title { font-weight: 600; color: var(--text); margin-bottom: 8px; }
+/* 轻量提问（ASK_USER）区别于写动作提案 */
+.proposal.question { border-color: var(--warn); }
 .diff {
   background: #0d1117;
   border: 1px solid var(--border);
