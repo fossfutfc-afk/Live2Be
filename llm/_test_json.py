@@ -42,6 +42,26 @@ def test_chinese():
     r = extract_json('```json\n{"羁绊触发": true, "理由": "好感度足够"}\n```')
     assert r == {"羁绊触发": True, "理由": "好感度足够"}, r
 
+@test("python dict literal (single quotes)")
+def test_python_dict_literal():
+    r = extract_json("{'action': 'done', 'payload': {'msg': '好'}, 'n': None, 'ok': True}")
+    assert r == {"action": "done", "payload": {"msg": "好"}, "n": None, "ok": True}, r
+
+@test("python dict literal with escaped newlines")
+def test_python_dict_literal_multiline():
+    r = extract_json("{'action': 'update_character', 'payload': {'files': "
+                     "{'experience.yml': 'SIG~self:\\n - regular:\\n - 1: >\\n 无月跑来玩'}}}")
+    assert r["action"] == "update_character"
+    assert "SIG~self:" in r["payload"]["files"]["experience.yml"], r
+
+@test("python dict literal with RAW newlines in string")
+def test_python_dict_literal_raw_newlines():
+    r = extract_json("{'action': 'update_character', 'payload': {'files': "
+                     "{'experience.yml': 'SIG~self:\n - regular:\n - 1: >\n 无月跑来玩'}}}")
+    assert r["action"] == "update_character"
+    assert "SIG~self:" in r["payload"]["files"]["experience.yml"], r
+    assert "\n" in r["payload"]["files"]["experience.yml"]   # 换行被还原成真实换行
+
 # --- run ---
 passed = 0
 for name, fn in tests:
