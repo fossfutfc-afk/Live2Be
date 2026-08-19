@@ -62,7 +62,7 @@ def _split_for_momotalk(text: str, max_chars: int = MMT_MAX_CHUNK_CHARS) -> list
     if len(strong) <= 1 and len(text) <= max_chars:
         return [text if text else strong]
 
-    strong = [s for s in strong if _has_content(s)]
+    strong = _merge_punct_segments(strong)
     if not strong:
         return [text]
 
@@ -86,9 +86,52 @@ def _process_for_momotalk(text: str) -> list[str]:
 # ---------------------------------------------------------------------------
 
 def _strong_split(text: str) -> list[str]:
-    """在强断点（。！？!?…）处切分。"""
-    parts = re.split(r"(?<=[。！？!?…])", text)
-    return [p.strip() for p in parts if p.strip() and p not in (".", ":")]
+    """在强断点（。！？!?…）处切分。
+
+    连续强标点（！！、？！、…）看成一个整体块——只在块的最后一位
+    标点后切分，保证 "你好！！" 不被拆成 ["你好！", "！"]。
+    纯标点段（段首标点块）不在这里丢弃，留给 _merge_punct_segments 处理。
+    """
+    segments: list[str] = []
+    buf = ""
+    prev_strong = False
+    for ch in text:
+        if ch in "。！？!?…":
+            buf += ch
+            prev_strong = True
+        else:
+            if prev_strong:  # 标点块刚结束 → 结算上一段
+                if buf.strip() and buf.strip() not in (".", ":"):
+                    segments.append(buf.strip())
+                buf = ""
+            prev_strong = False
+            buf += ch
+    if buf.strip() and buf.strip() not in (".", ":"):
+        segments.append(buf.strip())
+    return segments
+
+
+def _merge_punct_segments(segments: list[str]) -> list[str]:
+    """把纯标点段合并进相邻文本段，宁缺勿错——不丢字符。
+
+    仅在标点块位于段首时出现（如 "！！我们一起去天台吧。" →
+    _strong_split 产出 ["！！", "我们一起去天台吧。"]）。
+    旧逻辑用 _has_content 过滤会直接丢掉 "！！"，这里改为贴回下一个文本段。
+    """
+    out: list[str] = []
+    pending = ""
+    for seg in segments:
+        if _has_content(seg):
+            out.append(pending + seg)
+            pending = ""
+        else:
+            pending += seg
+    if pending:
+        if out:
+            out[-1] += pending  # 尾部纯标点（理论上少见）贴回上一段
+        else:
+            out.append(pending)  # 全文本都是标点
+    return out
 
 
 def _split_at_weak_breaks(text: str, max_chars: int) -> list[str]:
