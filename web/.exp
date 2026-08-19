@@ -1,0 +1,30 @@
+# web/ — IDE agent Web GUI（FastAPI + SSE + vanilla JS）
+
+给 fetch/ 的 IDE agent 套 Web 壳。设计依据: web/DESIGN.md（端点契约/并发模型/决策记录）。
+
+## 文件
+
+| 文件 | 用途 |
+|------|------|
+| `DESIGN.md`   | 设计文档（唯一依据） |
+| `hub.py`      | EventHub: 线程安全事件缓冲 + channel 隔离 + 每连接游标 |
+| `runner.py`   | AgentRunner: 单 IDEAgent + turn 串行化 + ask 桥 + auto-approve |
+| `mock.py`     | IDE_MOCK=1 的 StubLLM（关键字→动作胶水, 临时目录落盘） |
+| `app.py`      | FastAPI 路由 + lifespan 装配（mock 开关） |
+| `__main__.py` | python -m web → uvicorn 启动 |
+| `static/`     | 前端: index.html / app.js（EventSource + fetch）/ style.css |
+| `_server_test.py` | 服务端回归（hub/runner/app, 不依赖浏览器） |
+
+## 运行
+
+```bash
+python -m web                   # 真实 LLM（需 API key）
+IDE_MOCK=1 python -m web        # mock 流程, 不烧 API
+WEB_PORT=9000 python -m web     # 换端口（默认 8000, 127.0.0.1）
+```
+
+## 架构
+
+worker 线程跑 agent_turn → hub.publish(channel, evt) → SSE 每 50ms 轮询游标推送。
+审批是 ask 桥: decision_q 轮询 + auto-approve 取消窗口 + ASK_TIMEOUT→abort 护栏。
+多标签页共享单 agent + 全局事件流（DESIGN §2.2）, 不做会话隔离。
