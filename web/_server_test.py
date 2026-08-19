@@ -219,6 +219,75 @@ def test_sse_stream():
     print("SSE 生成器输出 PASS")
 
 
+# ============================================================================
+# 本地命令（/view /edit）走 runner 路由, 不碰 LLM
+# ============================================================================
+
+def _seed_char(root: Path, name: str) -> Path:
+    """在 runner 的执行层 root 下种一个角色, 返回其 profile.yml 路径。"""
+    char_dir = Path(root) / "config" / "characters" / name
+    char_dir.mkdir(parents=True)
+    profile = char_dir / "profile.yml"
+    profile.write_text(
+        "REQ~most_called_name: 伊草 遥香\nREQ~is_official_character: true\n"
+        "SIG~age: 15\nSIG~club: 真相调查部\n",
+        encoding="utf-8",
+    )
+    return profile
+
+
+def test_command_view():
+    hub = HUBS.get("cmd1")
+    runner = _mk_runner(MockLLM(), hub, "cmd1")
+    _seed_char(runner.agent.executor.root, "stub")
+
+    assert runner.start_turn("/view stub")
+    _wait(lambda: not runner.busy, timeout=5)
+    cmd_events = [e for e in hub.snapshot(0)[0] if e["kind"] == "COMMAND_RESULT"]
+    assert cmd_events, "应发出 COMMAND_RESULT"
+    assert "五件套" in cmd_events[-1]["data"]["text"]
+    assert cmd_events[-1]["data"]["terminal"] is True
+    # 全程零 LLM 事件
+    kinds = _kinds(hub)
+    assert "THINKING" not in kinds and "DONE" not in kinds
+    print("web /view 路由 PASS")
+
+
+def test_command_edit():
+    hub = HUBS.get("cmd2")
+    runner = _mk_runner(MockLLM(), hub, "cmd2")
+    profile = _seed_char(runner.agent.executor.root, "stub")
+
+    assert runner.start_turn("/edit stub/profile.yml SIG~age: 16")
+    # 走审批卡: 等 PENDING_APPROVAL → 批准
+    _wait(lambda: any(e["kind"] == "PENDING_APPROVAL" for e in hub.snapshot(0)[0]), timeout=5)
+    pa = next(e for e in hub.snapshot(0)[0] if e["kind"] == "PENDING_APPROVAL")
+    assert "本地编辑 stub/profile.yml" in pa["data"]["summary"]
+    runner.submit_decision(pa["approval_id"], "approve")
+
+    _wait(lambda: not runner.busy, timeout=10)
+    kinds = _kinds(hub)
+    assert "EXEC_RESULT" in kinds, f"批准后应执行, 得 {kinds}"
+    assert "COMMAND_RESULT" in kinds, f"命令终态应复位 busy, 得 {kinds}"
+    assert "SIG~age: 16" in profile.read_text(encoding="utf-8")
+    assert "伊草 遥香" in profile.read_text(encoding="utf-8")  # 未提及字段保留
+    print("web /edit 路由 PASS")
+
+
+def test_command_unknown():
+    hub = HUBS.get("cmd3")
+    runner = _mk_runner(MockLLM(), hub, "cmd3")
+    _seed_char(runner.agent.executor.root, "stub")
+
+    assert runner.start_turn("/veiw stub")
+    _wait(lambda: not runner.busy, timeout=5)
+    cmd_events = [e for e in hub.snapshot(0)[0] if e["kind"] == "COMMAND_RESULT"]
+    assert cmd_events and "未知命令" in cmd_events[-1]["data"]["text"]
+    # 不回灌 LLM: 零 THINKING/DONE
+    assert "THINKING" not in _kinds(hub)
+    print("web 未知命令提示 PASS")
+
+
 def main() -> None:
     tests = [
         test_hub_cursor,
@@ -228,6 +297,9 @@ def main() -> None:
         test_reject_then_timeout_abort,
         test_app_endpoints,
         test_sse_stream,
+        test_command_view,
+        test_command_edit,
+        test_command_unknown,
     ]
     failed = 0
     for fn in tests:

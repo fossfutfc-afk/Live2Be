@@ -32,6 +32,7 @@ class AgentEventKind(StrEnum):
     EXEC_RESULT = "EXEC_RESULT"
     DONE = "DONE"
     ABORTED = "ABORTED"
+    COMMAND_RESULT = "COMMAND_RESULT"   # /view /edit 的展示输出（web 侧直接发裸 dict）
 
 
 @dataclass(frozen=True)

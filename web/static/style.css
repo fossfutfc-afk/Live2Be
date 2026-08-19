@@ -135,6 +135,65 @@ body { display: flex; flex-direction: column; }
 .btn-no    { background: var(--no); }
 .btn-abort { background: var(--warn); }
 
+/* ---- 命令输出（/view /edit 结果） ---- */
+.command-output {
+  align-self: flex-start;
+  max-width: 100%;
+  background: #0d1117;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  font: 12px/1.6 "Cascadia Code", Consolas, "Microsoft YaHei", monospace;
+  overflow-x: auto;
+  white-space: pre;
+  color: #c9d1d9;
+}
+
+/* ---- /edit 粘贴弹窗 ---- */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+}
+.modal {
+  width: min(560px, 92vw);
+  background: var(--panel);
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.modal-title { font-weight: 600; color: var(--text); }
+.modal-textarea {
+  width: 100%;
+  min-height: 160px;
+  resize: vertical;
+  background: #0d1117;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font: 12px/1.6 "Cascadia Code", Consolas, "Microsoft YaHei", monospace;
+  padding: 8px 10px;
+  outline: none;
+}
+.modal-textarea:focus { border-color: var(--accent); }
+.modal-actions { display: flex; gap: 8px; }
+.modal-actions button {
+  flex: 1;
+  padding: 7px 0;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  font-size: 13px;
+  color: #fff;
+}
+
 /* ---- 输入栏 ---- */
 .inputbar {
   display: flex;

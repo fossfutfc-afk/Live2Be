@@ -185,6 +185,17 @@ function handle(evt) {
     case "PLAN_ERROR":
       appendStatus("[" + k + "] " + (d.error || (d.errors || []).join("; ")), "fail");
       break;
+    case "COMMAND_RESULT":
+      disableCard();
+      if (d.text) {
+        stream.appendChild(el("pre", "command-output", d.text));
+        scrollBottom();
+      }
+      if (d.terminal) {
+        setBusy(false);
+        setStatus("idle", "空闲");
+      }
+      break;
     default:
       console.log("[event]", k, evt);
   }
@@ -200,6 +211,36 @@ es.onmessage = (msg) => {
   handle(evt);
 };
 
+// ---- /edit 多行粘贴弹窗 ----
+function openPatchModal(original) {
+  return new Promise((resolve) => {
+    const overlay = el("div", "modal-overlay");
+    const box = el("div", "modal");
+    box.appendChild(el("div", "modal-title", "粘贴 YAML 补丁（/edit）"));
+    const ta = el("textarea", "modal-textarea");
+    ta.placeholder = "逐行输入, 如:\nSIG~age: 16\nclub: 格黑娜学园";
+    box.appendChild(ta);
+    const actions = el("div", "modal-actions");
+    const ok = el("button", "btn-ok", "应用补丁");
+    const cancel = el("button", "btn-no", "取消");
+    ok.onclick = () => {
+      overlay.remove();
+      resolve(original + "\n" + ta.value.trim());
+    };
+    cancel.onclick = () => { overlay.remove(); resolve(null); };
+    actions.appendChild(ok);
+    actions.appendChild(cancel);
+    box.appendChild(actions);
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+    ta.focus();
+    ta.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) ok.click();
+      if (e.key === "Escape") cancel.click();
+    });
+  });
+}
+
 // ---- 发送 ----
 async function sendTurn() {
   const text = input.value.trim();
@@ -212,11 +253,21 @@ async function sendTurn() {
   input.value = "";
   appendBubble(text, "user");
   setBusy(true);
+  // /edit 无行内补丁（整条命令不含 ":"）→ 弹粘贴框, 组装成多行命令串
+  let payload = text;
+  if (/^\/edit\b/.test(text) && !text.includes(":")) {
+    payload = await openPatchModal(text);
+    if (payload === null) {
+      setBusy(false);
+      setStatus("idle", "空闲");
+      return;
+    }
+  }
   try {
     const resp = await fetch("/api/turn", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: text }),
+      body: JSON.stringify({ message: payload }),
     });
     if (resp.status === 409) {
       appendStatus("[409] 上一轮还没结束", "warn");

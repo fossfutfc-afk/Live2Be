@@ -15,6 +15,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from fetch import commands
 from fetch.agent import IDEAgent
 from fetch.events import ApprovalDecision
 from web.hub import EventHub, HUBS
@@ -85,6 +86,8 @@ class AgentRunner:
 
     def _run_turn(self, message: str) -> None:
         try:
+            if self._dispatch_command(message):
+                return
             self.agent.agent_turn(message)
         except Exception as e:  # noqa: BLE001 — 兜底: 任何异常都不能挂死锁
             self.hub.publish({
@@ -94,6 +97,101 @@ class AgentRunner:
         finally:
             self._busy = False
             self._lock.release()
+
+    # ------------------------------------------------------------------
+    # 本地命令路由（/view /edit）——与 CLI 共享 fetch.commands 纯逻辑
+    # ------------------------------------------------------------------
+
+    def _dispatch_command(self, message: str) -> bool:
+        """返回 True = 已按本地命令处理（不再走 LLM）。"""
+        try:
+            cmd = commands.parse_cmd(message)
+        except commands.CmdError as e:
+            self._publish_command(f"[命令错误] {e}")
+            return True
+        if cmd is None:
+            if message.lstrip().startswith("/"):
+                # 未知命令/错别字（如 /veiw）→ 提示, 不回灌 LLM 烧 token
+                self._publish_command(
+                    "未知命令——可用: /view <角色>[/<文件>]  "
+                    "/edit <角色>/<文件> 键: 值"
+                )
+                return True
+            return False
+        if cmd.verb == "view":
+            try:
+                text = commands.cmd_view(self.agent.executor.root, cmd)
+            except commands.CmdError as e:
+                text = f"[命令错误] {e}"
+            self._publish_command(text)
+            return True
+        if cmd.verb == "edit":
+            self._run_edit_command(cmd)
+            return True
+        return False
+
+    def _publish_command(self, text: str) -> None:
+        """命令的终态事件: 前端渲染 text 并复位 busy（terminal=True）。"""
+        self.hub.publish({
+            "kind": "COMMAND_RESULT", "step": 0,
+            "data": {"text": text, "terminal": True}, "approval_id": None,
+        })
+
+    def _run_edit_command(self, cmd: commands.Cmd) -> None:
+        """/edit 复用现有审批卡 + ask 桥（零并行 UI）: PENDING → 决策 → EXEC。"""
+        if not cmd.snippet:
+            self._publish_command(
+                "补丁为空——请用行内 `键: 值` 或多行粘贴。\n"
+                "例: /edit igusa_haruka/profile.yml SIG~age: 16"
+            )
+            return
+        try:
+            diff, action = commands.cmd_edit_plan(
+                self.agent.executor.root, cmd, cmd.snippet
+            )
+        except commands.CmdError as e:
+            self._publish_command(f"[命令错误] {e}")
+            return
+        if not diff.strip() or "[无变化]" in diff:
+            self._publish_command("无变化（补丁与现有内容一致）。")
+            return
+
+        # 发起审批: approval_id 复用 agent 计数, 与 AI 写动作的提案不冲突
+        self.agent._approval_seq += 1
+        approval_id = f"approval-{self.agent._approval_seq}"
+        self.hub.publish({
+            "kind": "PENDING_APPROVAL", "step": 0,
+            "data": {"summary": f"本地编辑 {cmd.char_id}/{cmd.file}",
+                     "diff": diff, "action": action.to_dict()},
+            "approval_id": approval_id,
+        })
+
+        decision = self._ask(approval_id, "本地编辑")
+        if decision == "approve":
+            try:
+                message = commands.cmd_edit_execute(self.agent.executor.root, action)
+            except commands.CmdError as e:
+                self.hub.publish({
+                    "kind": "EXEC_RESULT", "step": 0,
+                    "data": {"ok": False, "message": str(e)}, "approval_id": None,
+                })
+                self._publish_command("")
+                return
+            self.hub.publish({
+                "kind": "EXEC_RESULT", "step": 0,
+                "data": {"ok": True, "message": message}, "approval_id": None,
+            })
+        elif decision == "reject":
+            self.hub.publish({
+                "kind": "DECISION", "step": 0,
+                "data": {"choice": "reject"}, "approval_id": None,
+            })
+        else:  # abort
+            self.hub.publish({
+                "kind": "ABORTED", "step": 0, "data": {}, "approval_id": None,
+            })
+            return  # ABORTED 前端已复位 busy, 无需 terminal 事件
+        self._publish_command("")
 
     # ------------------------------------------------------------------
     # emit / ask 桥

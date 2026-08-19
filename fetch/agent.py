@@ -30,6 +30,7 @@ from contract import (
     APPROVAL_REQUIRED,
     build_schema,
 )
+from fetch import commands
 from fetch.actions import build_ide_registry
 from fetch.events import (
     AgentEvent,
@@ -124,7 +125,7 @@ class IDEAgent:
         """命令行交互入口。"""
         print("═" * 46)
         print("  Live2Be IDE — 角色资料撰写助手")
-        print("  用自然语言描述需求; /exit 退出")
+        print("  用自然语言描述需求; /view /edit 本地命令; /exit 退出")
         print("═" * 46)
         while True:
             try:
@@ -136,7 +137,59 @@ class IDEAgent:
                 continue
             if user_input in ("/exit", "exit", "退出"):
                 break
+            if user_input.startswith("/"):
+                self._run_command(user_input)
+                continue
             self.agent_turn(user_input)
+
+    # ------------------------------------------------------------------
+    # 本地命令（/view /edit）——确定性操作, 不走 LLM
+    # ------------------------------------------------------------------
+
+    def _run_command(self, text: str) -> None:
+        try:
+            cmd = commands.parse_cmd(text)
+        except commands.CmdError as e:
+            print(f"[命令] {e}")
+            return
+        if cmd is None:
+            print("[命令] 未知命令——可用: /view <角色>[/<文件>]  /edit <角色>/<文件> 键: 值  /exit")
+            return
+        try:
+            if cmd.verb == "view":
+                print(commands.cmd_view(self.executor.root, cmd))
+            elif cmd.verb == "edit":
+                self._run_edit(cmd)
+        except commands.CmdError as e:
+            print(f"[命令] {e}")
+
+    def _run_edit(self, cmd: commands.Cmd) -> None:
+        snippet = cmd.snippet or self._paste_yaml()
+        diff, action = commands.cmd_edit_plan(self.executor.root, cmd, snippet)
+        if not diff.strip() or "[无变化]" in diff:
+            print("[命令] 无变化（补丁与现有内容一致）。")
+            return
+        print(diff)
+        choice = input("\n应用上面的 diff? [y=应用 / n=放弃] ").strip().lower()
+        if choice not in ("y", "yes"):
+            print("[命令] 已放弃。")
+            return
+        print(f"[命令] {commands.cmd_edit_execute(self.executor.root, action)}")
+
+    def _paste_yaml(self) -> str:
+        """多行 YAML 补丁粘贴: 空行结束, Ctrl-D/Ctrl-C 取消。"""
+        print("粘贴 YAML 补丁（空行结束, Ctrl-D 取消）:")
+        lines = []
+        try:
+            while True:
+                line = input()
+                if not line.strip():
+                    break
+                lines.append(line)
+        except (EOFError, KeyboardInterrupt):
+            print()
+            raise commands.CmdError("已取消")
+        return "\n".join(lines)
 
     # ------------------------------------------------------------------
     # 单轮 agent 循环
