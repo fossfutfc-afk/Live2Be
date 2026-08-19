@@ -33,6 +33,7 @@ class AgentEventKind(StrEnum):
     DONE = "DONE"
     ABORTED = "ABORTED"
     COMMAND_RESULT = "COMMAND_RESULT"   # /view /edit 的展示输出（web 侧直接发裸 dict）
+    ASK_USER = "ASK_USER"               # 轻量提问（如是否读取范例）; 答案复用 ask 桥
 
 
 @dataclass(frozen=True)

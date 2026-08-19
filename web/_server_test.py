@@ -110,6 +110,9 @@ def test_auto_approve():
     assert "EXEC_RESULT" in kinds, f"自动批准应执行, 得 {kinds}"
     assert "DONE" in kinds, f"应正常完成, 得 {kinds}"
     assert "ABORTED" not in kinds
+    # 首次写动作的范例询问也被 auto-approve 自动放行
+    assert "ASK_USER" in kinds, f"应出现范例询问, 得 {kinds}"
+    assert runner.agent._example_enabled is True
     print("auto-approve 全流程 PASS")
 
 
@@ -117,18 +120,24 @@ def test_decision_approve():
     hub = HUBS.get("r3")
     runner = _mk_runner(MockLLM(), hub, "r3")
     assert runner.start_turn("创建")
+    # 首次写动作 → 先出范例询问(ASK_USER), 批准后才进入写审批
+    _wait(lambda: any(e["kind"] == "ASK_USER" for e in hub.snapshot(0)[0]), timeout=5)
+    q = next(e for e in hub.snapshot(0)[0] if e["kind"] == "ASK_USER")
+    assert q["approval_id"].startswith("example-")
+    runner.submit_decision(q["approval_id"], "approve")
     _wait(lambda: any(e["kind"] == "PENDING_APPROVAL" for e in hub.snapshot(0)[0]), timeout=5)
     pa = next(e for e in hub.snapshot(0)[0] if e["kind"] == "PENDING_APPROVAL")
     runner.submit_decision(pa["approval_id"], "approve")
     _wait(lambda: not runner.busy, timeout=10)
     assert "EXEC_RESULT" in _kinds(hub)
     assert "DONE" in _kinds(hub)
+    assert runner.agent._example_enabled is True
     print("手动批准 PASS")
 
 
 def test_reject_then_timeout_abort():
     hub = HUBS.get("r4")
-    # 拒绝 → LLM 重试 → 第二次 ask 无人决策 → 超时 abort
+    # 范例询问超时(1s, 视为跳过) → 写审批拒绝 → LLM 重试 → 第二次 ask 无人决策 → 超时 abort
     runner = _mk_runner(MockLLM(), hub, "r4", ask_timeout=1.0)
     assert runner.start_turn("创建")
     _wait(lambda: any(e["kind"] == "PENDING_APPROVAL" for e in hub.snapshot(0)[0]), timeout=5)
@@ -136,9 +145,46 @@ def test_reject_then_timeout_abort():
     runner.submit_decision(pa["approval_id"], "reject")
     _wait(lambda: not runner.busy, timeout=10)
     kinds = _kinds(hub)
+    assert "ASK_USER" in kinds, f"应出范例询问, 得 {kinds}"
     assert "DECISION" in kinds, f"应发出拒绝 DECISION, 得 {kinds}"
     assert "ABORTED" in kinds, f"第二次 ask 超时应 abort, 得 {kinds}"
+    assert runner.agent._example_enabled is False   # 超时=跳过, 不启用
+    assert runner.agent._example_asked is True      # 但只问一次
     print("拒绝→重试→超时中止 PASS")
+
+
+def test_example_question():
+    # 批准路径: 同意读取 → 范例启用, 重跑本轮后正常写
+    hub = HUBS.get("ex1")
+    runner = _mk_runner(MockLLM(), hub, "ex1")
+    assert runner.start_turn("创建")
+    _wait(lambda: any(e["kind"] == "ASK_USER" for e in hub.snapshot(0)[0]), timeout=5)
+    q = next(e for e in hub.snapshot(0)[0] if e["kind"] == "ASK_USER")
+    runner.submit_decision(q["approval_id"], "approve")
+    _wait(lambda: runner.agent._example_enabled, timeout=5)
+    _wait(lambda: any(e["kind"] == "PENDING_APPROVAL" for e in hub.snapshot(0)[0]), timeout=5)
+    pa = next(e for e in hub.snapshot(0)[0] if e["kind"] == "PENDING_APPROVAL")
+    runner.submit_decision(pa["approval_id"], "approve")
+    _wait(lambda: not runner.busy, timeout=10)
+    assert runner.agent._example_enabled is True
+    assert runner.agent._example_asked is True
+    assert "DONE" in _kinds(hub)
+
+    # 跳过路径: 拒绝 → 不启用, 但 _example_asked=True（本轮只问一次）
+    hub2 = HUBS.get("ex2")
+    runner2 = _mk_runner(MockLLM(), hub2, "ex2")
+    assert runner2.start_turn("创建")
+    _wait(lambda: any(e["kind"] == "ASK_USER" for e in hub2.snapshot(0)[0]), timeout=5)
+    q2 = next(e for e in hub2.snapshot(0)[0] if e["kind"] == "ASK_USER")
+    runner2.submit_decision(q2["approval_id"], "reject")
+    _wait(lambda: any(e["kind"] == "PENDING_APPROVAL" for e in hub2.snapshot(0)[0]), timeout=5)
+    pa2 = next(e for e in hub2.snapshot(0)[0] if e["kind"] == "PENDING_APPROVAL")
+    runner2.submit_decision(pa2["approval_id"], "approve")
+    _wait(lambda: not runner2.busy, timeout=10)
+    assert runner2.agent._example_enabled is False
+    assert runner2.agent._example_asked is True
+    assert "DONE" in _kinds(hub2)
+    print("范例询问(批准/跳过) PASS")
 
 
 # ============================================================================
@@ -212,6 +258,7 @@ def test_sse_stream():
     joined = "\n".join(result["lines"])
     assert "data: " in joined
     assert '"kind": "THINKING"' in joined
+    assert '"kind": "ASK_USER"' in joined
     assert '"kind": "PENDING_APPROVAL"' in joined
     assert '"kind": "EXEC_RESULT"' in joined
     assert '"kind": "DONE"' in joined
@@ -295,6 +342,7 @@ def main() -> None:
         test_auto_approve,
         test_decision_approve,
         test_reject_then_timeout_abort,
+        test_example_question,
         test_app_endpoints,
         test_sse_stream,
         test_command_view,

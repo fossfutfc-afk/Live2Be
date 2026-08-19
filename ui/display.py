@@ -153,6 +153,7 @@ class IDEOutput:
         DECISION         {"choice": "reject" | "abort"}
         EXEC_RESULT      {"ok": bool, "message"}
         COMMAND_RESULT   {"text", "terminal"}   # /view /edit 本地命令输出
+        ASK_USER         {"prompt"}             # 轻量提问; 顶层 approval_id 关联答案
         TOOL_START       {"name", "label"}
         TOOL_RESULT      {"name", "label", "chars"}
         TOOL_ERROR       {"name", "label", "error"}
@@ -166,9 +167,10 @@ class IDEOutput:
         hub.publish(item.data)        # GUI → SSE
     """
 
-    #: 无 CLI 文本的事件——GUI 才渲染
+    #: 无 CLI 文本的事件——GUI 才渲染（ASK_USER 的提问文本走 ask 回调的 input 提示）
     _GUI_ONLY = frozenset({
         "THINKING", "TOOL_START", "INVALID_ACTION", "LLM_ERROR", "PLAN_ERROR",
+        "ASK_USER",
     })
 
     def render(self, event: dict) -> IDEDisplayItem:
