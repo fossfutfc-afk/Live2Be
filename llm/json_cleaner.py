@@ -16,6 +16,7 @@ LLM 不听话的常见表现:
 
 from __future__ import annotations
 
+import ast
 import json
 import re
 from typing import Any
@@ -50,6 +51,25 @@ def extract_json(response_text: str) -> dict[str, Any]:
             return json.loads(repaired)
         except json.JSONDecodeError as e:
             errors.append(f"repaired parse: {e}")
+
+    # LLM 偶发输出 Python dict 字面量（单引号键/值、True/False/None）——json.loads 只认双引号。
+    # ast.literal_eval 只解析字面量、不执行代码（安全）。Python 单引号串不能含裸换行,
+    # 所以对每个候选再试一次"把字符串内裸换行转义为 \n"的版本。
+    candidates = []
+    for c in (cleaned, repaired):
+        candidates.append(c)
+        escaped = _escape_newlines_in_strings(c)
+        if escaped != c:
+            candidates.append(escaped)
+    for candidate in dict.fromkeys(candidates):  # 去重保序
+        try:
+            value = ast.literal_eval(candidate)
+        except (SyntaxError, ValueError) as e:
+            errors.append(f"literal_eval: {e}")
+            continue
+        if isinstance(value, dict):
+            return value
+        errors.append(f"literal_eval: 顶层非 dict ({type(value).__name__})")
 
     raise ValueError(
         f"JSON extraction failed after {len(errors)} attempts.\n"
@@ -93,3 +113,35 @@ def _repair_common_json_errors(text: str) -> str:
     text = re.sub(r",\s*(\}|\])", r"\1", text)   # 尾部逗号
     text = re.sub(r"//[^\n]*", "", text)         # 单行注释
     return text
+
+
+def _escape_newlines_in_strings(text: str) -> str:
+    """把字符串字面量内部的裸换行转义为 \\n（Python 单引号/双引号串不允许裸换行）。
+
+    LLM 输出 Python dict 时可能把多行内容直接写在 '...' 里（如 experience.yml 的多段文本），
+    ast.literal_eval 会报 unterminated string literal。本函数用引号状态机定位字符串内部,
+    只转义字符串内的换行, 不碰结构空白（如逗号/冒号后的换行）。
+    """
+    out: list[str] = []
+    quote: str | None = None     # "'" / '"' / None
+    escaped = False
+    for ch in text:
+        if quote:
+            if escaped:
+                out.append(ch)
+                escaped = False
+            elif ch == "\\":
+                out.append(ch)
+                escaped = True
+            elif ch == quote:
+                out.append(ch)
+                quote = None
+            elif ch == "\n":
+                out.append("\\n")          # 裸换行 → 转义
+            else:
+                out.append(ch)
+        else:
+            if ch in ("'", '"'):
+                quote = ch
+            out.append(ch)
+    return "".join(out)
