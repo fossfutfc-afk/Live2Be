@@ -7,3 +7,6 @@ resources/*
 __pycache__/
 data/sessions/
 data/basic/
+
+# 个人工具（逆向非官方接口 + 素材版权属官方）——仅本地保留, 不提交公开
+tools/
