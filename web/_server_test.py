@@ -112,7 +112,7 @@ def test_auto_approve():
     assert "ABORTED" not in kinds
     # 首次写动作的范例询问也被 auto-approve 自动放行
     assert "ASK_USER" in kinds, f"应出现范例询问, 得 {kinds}"
-    assert runner.agent._example_enabled is True
+    assert "profile.yml" in runner.agent._example_loaded
     print("auto-approve 全流程 PASS")
 
 
@@ -131,7 +131,7 @@ def test_decision_approve():
     _wait(lambda: not runner.busy, timeout=10)
     assert "EXEC_RESULT" in _kinds(hub)
     assert "DONE" in _kinds(hub)
-    assert runner.agent._example_enabled is True
+    assert "profile.yml" in runner.agent._example_loaded
     print("手动批准 PASS")
 
 
@@ -148,8 +148,8 @@ def test_reject_then_timeout_abort():
     assert "ASK_USER" in kinds, f"应出范例询问, 得 {kinds}"
     assert "DECISION" in kinds, f"应发出拒绝 DECISION, 得 {kinds}"
     assert "ABORTED" in kinds, f"第二次 ask 超时应 abort, 得 {kinds}"
-    assert runner.agent._example_enabled is False   # 超时=跳过, 不启用
-    assert runner.agent._example_asked is True      # 但只问一次
+    assert not runner.agent._example_loaded          # 超时=跳过, 不加载
+    assert "profile.yml" in runner.agent._example_asked_turn   # 但本轮只问一次
     print("拒绝→重试→超时中止 PASS")
 
 
@@ -161,16 +161,16 @@ def test_example_question():
     _wait(lambda: any(e["kind"] == "ASK_USER" for e in hub.snapshot(0)[0]), timeout=5)
     q = next(e for e in hub.snapshot(0)[0] if e["kind"] == "ASK_USER")
     runner.submit_decision(q["approval_id"], "approve")
-    _wait(lambda: runner.agent._example_enabled, timeout=5)
+    _wait(lambda: "profile.yml" in runner.agent._example_loaded, timeout=5)
     _wait(lambda: any(e["kind"] == "PENDING_APPROVAL" for e in hub.snapshot(0)[0]), timeout=5)
     pa = next(e for e in hub.snapshot(0)[0] if e["kind"] == "PENDING_APPROVAL")
     runner.submit_decision(pa["approval_id"], "approve")
     _wait(lambda: not runner.busy, timeout=10)
-    assert runner.agent._example_enabled is True
-    assert runner.agent._example_asked is True
+    assert "profile.yml" in runner.agent._example_loaded
+    assert "profile.yml" in runner.agent._example_asked_turn
     assert "DONE" in _kinds(hub)
 
-    # 跳过路径: 拒绝 → 不启用, 但 _example_asked=True（本轮只问一次）
+    # 跳过路径: 拒绝 → 不加载, 但 _example_asked_turn 已记录（本轮不再问）
     hub2 = HUBS.get("ex2")
     runner2 = _mk_runner(MockLLM(), hub2, "ex2")
     assert runner2.start_turn("创建")
@@ -181,8 +181,8 @@ def test_example_question():
     pa2 = next(e for e in hub2.snapshot(0)[0] if e["kind"] == "PENDING_APPROVAL")
     runner2.submit_decision(pa2["approval_id"], "approve")
     _wait(lambda: not runner2.busy, timeout=10)
-    assert runner2.agent._example_enabled is False
-    assert runner2.agent._example_asked is True
+    assert not runner2.agent._example_loaded
+    assert "profile.yml" in runner2.agent._example_asked_turn
     assert "DONE" in _kinds(hub2)
     print("范例询问(批准/跳过) PASS")
 

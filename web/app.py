@@ -26,7 +26,8 @@ STATIC_DIR = Path(__file__).resolve().parent / "static"
 SSE_POLL = 0.05
 SSE_HEARTBEAT = 15.0
 
-_DECISIONS = {"approve", "reject", "abort"}
+#: 合法决策。skip 仅供 ASK_USER 轻量提问（如范例询问的"不再询问"）。
+_DECISIONS = {"approve", "reject", "abort", "skip"}
 
 
 # ---------------------------------------------------------------------------

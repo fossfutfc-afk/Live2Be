@@ -46,10 +46,18 @@ MAX_STEPS = 12          # 单轮 agent 最大动作步数（防死循环）
 HISTORY_MAX = 30        # 跨轮记忆条数上限（去掉 system 后）
 TEMP = 0.4              # 动作决策用较低温度, 减少随机
 
-# 写动作——触发"是否读取高质量范例"的首次询问
+# 写动作——触发"是否读取高质量范例板块"的询问
 _WRITE_ACTIONS = ("create_character", "update_character")
-# 范例询问文案（ask 桥里展示; approve=加载, reject/abort=跳过）
-EXAMPLE_ASK_PROMPT = "是否读取高质量范例（伊草遥香五件套）以提高写作质量? [y=读取 / n=跳过] "
+
+
+def _example_ask_prompt(file_name: str) -> str:
+    """按文件粒度的范例询问文案（ask 桥里展示）。
+
+    approve=读取该板块, reject=本次跳过（下次该文件被写时仍会问）,
+    skip(不再询问)=本会话不再问该文件。
+    """
+    return (f"是否读取 {file_name} 的高质量范例板块（伊草遥香）"
+            "以提高写作质量? [y=读取 / n=跳过 / d=不再询问] ")
 
 # IDE agent 默认用推理模型（v4-flash），配合大 max_tokens 容纳 reasoning_content。
 # 推理模型会把 max_tokens 分给"思考"与"内容"两部分——max_tokens 太小会导致
@@ -82,16 +90,45 @@ def _load_guide() -> str:
         )
 
 
-def _load_example() -> str:
-    """范例文件可选——缺失时系统提示不附带, agent 照常工作。"""
+#: 五件套板块名（与 character_example.md 的 `## <file>.yml` 标题对应; 顺序即注入顺序）
+_EXAMPLE_SECTION_ORDER = (
+    "profile.yml", "personality.yml", "knowledge.yml",
+    "experience.yml", "typical.yml",
+)
+
+
+def _split_example_sections(text: str) -> dict[str, str]:
+    """把范例文本按 `## <file>.yml` 标题切成独立板块。
+
+    标题行形如 "## profile.yml — 外貌与基础信息"。
+    """
+    lines = text.splitlines()
+    markers: list[tuple[int, str]] = []
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.startswith("## "):
+            name = stripped[3:].split(" ", 1)[0].strip()
+            if name.endswith(".yml"):
+                markers.append((i, name))
+    sections: dict[str, str] = {}
+    for idx, (start, name) in enumerate(markers):
+        end = markers[idx + 1][0] if idx + 1 < len(markers) else len(lines)
+        body = "\n".join(lines[start:end]).strip()
+        if body:
+            sections[name] = body
+    return sections
+
+
+def _load_example_sections() -> dict[str, str]:
+    """范例文件可选——缺失时返回空 dict, agent 照常工作。"""
     try:
-        return _EXAMPLE_PATH.read_text(encoding="utf-8")
+        return _split_example_sections(_EXAMPLE_PATH.read_text(encoding="utf-8"))
     except OSError:
-        return ""
+        return {}
 
 
 _GUIDE = _load_guide()
-_EXAMPLE = _load_example()
+_EXAMPLE_SECTIONS = _load_example_sections()
 
 
 class IDEAgent:
@@ -103,9 +140,13 @@ class IDEAgent:
         self.registry = build_ide_registry()
         self.executor = Executor(root)
         self.history: list[dict[str, str]] = []
-        # 高质量范例：默认不加载（省 token）; 首次写动作时询问, 同意才启用
-        self._example_enabled = False
-        self._example_asked = False
+        # 高质量范例按文件粒度加载（省 token）:
+        #   _example_loaded      已读取的板块（注入 system prompt）
+        #   _example_suppressed  "不再询问"的板块（本会话不再问）
+        #   _example_asked_turn  本轮 agent_turn 已问过的板块（防重跑时重复问）
+        self._example_loaded: set[str] = set()
+        self._example_suppressed: set[str] = set()
+        self._example_asked_turn: set[str] = set()
         # 调试/测试用的逐步记录（每次动作交换一条）
         self.trace: list[dict[str, Any]] = []
         # 输出/审批回调：默认 = CLI（逐字节复刻现有 print/input）
@@ -127,13 +168,19 @@ class IDEAgent:
             print(item.text)
 
     def _default_ask(self, approval_id: str, prompt: str) -> ApprovalDecision:
-        """CLI 默认审批：阻塞 input → approve/reject/abort。"""
+        """CLI 默认审批：阻塞 input → approve/reject/abort/skip。
+
+        skip(不再询问) 仅范例询问等 ASK_USER 场景有意义;
+        写动作审批收到 skip 时按 reject 处理。
+        """
         del approval_id  # CLI 单审批流, 无需区分实例
         choice = input(prompt).strip().lower()
         if choice in ("q", "quit"):
             return "abort"
         if choice in ("y", "yes"):
             return "approve"
+        if choice in ("d", "dont", "dont_ask", "no_ask"):
+            return "skip"
         return "reject"
 
     # ------------------------------------------------------------------
@@ -216,6 +263,7 @@ class IDEAgent:
 
     def agent_turn(self, user_input: str) -> None:
         """一轮 agent 对话：LLM 动作循环, 直到 done / 达到步数上限。"""
+        self._example_asked_turn = set()    # 每轮重置: 拒绝过的文件下轮仍会再问
         messages = [{"role": "system", "content": self._system_prompt()}]
         messages.extend(self.history)
         messages.append({"role": "user", "content": user_input})
@@ -241,12 +289,12 @@ class IDEAgent:
 
             action, result = self.registry.parse(response)
 
-            # —— 首次写动作: 询问是否读取高质量范例 ——
-            # 同意 → 启用范例、刷新 system、丢弃这条没看范例的回复、重跑本轮;
-            # 拒绝/超时 → 跳过, 本轮及后续都不再问（_example_asked 已置位）。
+            # —— 写动作: 按文件询问是否读取对应范例板块 ——
+            # 有板块被读取 → 刷新 system、丢弃这条没看范例的回复、重跑本轮;
+            # 全部跳过/不再询问 → 不重跑, 直接进入审批。
             if (result.is_valid and action is not None
                     and action.action in _WRITE_ACTIONS
-                    and not self._example_asked and self._ask_example(step)):
+                    and self._ask_example_for_files(step, action.payload["files"])):
                 messages[0]["content"] = self._system_prompt()
                 messages.pop()
                 continue
@@ -295,7 +343,7 @@ class IDEAgent:
                 msg = action.summary or action.payload.get("message", "完成")
                 self._emit(AgentEvent(AgentEventKind.DONE, step, {"message": msg}))
                 break
-            if action.action in ("fetch_url", "search"):
+            if action.action in ("fetch_url", "search", "view_character"):
                 self._handle_tool(action, messages, step)
                 continue
 
@@ -306,26 +354,47 @@ class IDEAgent:
     # 动作处理
     # ------------------------------------------------------------------
 
-    def _ask_example(self, step: int) -> bool:
-        """首次写动作时问用户是否读取高质量范例。
+    def _ask_example_for_files(self, step: int, files: dict[str, Any]) -> bool:
+        """写动作涉及文件的高质量范例询问（按文件粒度）。
+
+        只问该动作实际要写的、且本会话还没定论的板块文件:
+            approve(读取)  → 该文件板块注入 system prompt（调用方需重跑本轮）
+            reject(跳过)   → 本次跳过; 下次该文件被写时仍会问
+            skip(不再询问) → 本会话不再问该文件
+            abort(超时)    → 视同跳过
+        本轮重跑时已问过的文件不再问（_example_asked_turn 防重复）。
 
         Returns:
-            True = 已启用范例（调用方需刷新 system prompt 并重跑本轮）。
+            True = 有板块被读取（调用方需刷新 system prompt 并重跑本轮）。
         """
-        self._example_asked = True      # 无论结果, 只问一次
-        if self._example_enabled:
-            return True
-        self._approval_seq += 1
-        approval_id = f"example-{self._approval_seq}"
-        self._emit(AgentEvent(
-            AgentEventKind.ASK_USER, step, {"prompt": EXAMPLE_ASK_PROMPT},
-            approval_id=approval_id,
-        ))
-        decision = self._ask(approval_id, EXAMPLE_ASK_PROMPT)
-        if decision == "approve":
-            self._example_enabled = True
-            return True
-        return False                    # reject / abort(超时) → 跳过
+        relevant = [
+            name for name in files
+            if name in _EXAMPLE_SECTIONS
+            and name not in self._example_loaded
+            and name not in self._example_suppressed
+            and name not in self._example_asked_turn
+        ]
+        if not relevant:
+            return False
+        loaded_any = False
+        for name in relevant:
+            prompt = _example_ask_prompt(name)
+            self._example_asked_turn.add(name)      # 无论结果, 本轮只问一次
+            self._approval_seq += 1
+            approval_id = f"example-{self._approval_seq}"
+            self._emit(AgentEvent(
+                AgentEventKind.ASK_USER, step,
+                {"prompt": prompt, "file": name},
+                approval_id=approval_id,
+            ))
+            decision = self._ask(approval_id, prompt)
+            if decision == "approve":
+                self._example_loaded.add(name)
+                loaded_any = True
+            elif decision == "skip":
+                self._example_suppressed.add(name)
+            # reject / abort(超时) → 本次跳过, 下次再问
+        return loaded_any
 
     def _handle_write(self, action, messages: list[dict], step: int) -> bool:
         """写动作审批。返回 True = 中止本轮（用户主动退出）。"""
@@ -416,10 +485,23 @@ class IDEAgent:
     # System Prompt
     # ------------------------------------------------------------------
 
+    def _example_block(self) -> str:
+        """已读取（同意注入）的范例板块, 按固定顺序拼接。无则空串。"""
+        blocks = [
+            section
+            for name in _EXAMPLE_SECTION_ORDER
+            if name in self._example_loaded
+            for section in [_EXAMPLE_SECTIONS.get(name)]
+            if section
+        ]
+        if not blocks:
+            return ""
+        return "\n\n" + "\n\n".join(blocks)
+
     def _system_prompt(self) -> str:
         schema = build_schema(self.registry)
-        # 范例只在用户同意后注入（省 token）; 文件缺失时即使启用也退化为空
-        example_block = f"\n\n{_EXAMPLE}" if (self._example_enabled and _EXAMPLE) else ""
+        # 范例按板块注入（省 token）——只注入用户同意读取的文件板块
+        example_block = self._example_block()
         return (
             _GUIDE
             + example_block
