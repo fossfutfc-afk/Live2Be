@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Live2Be IDE — 角色撰写助手</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <h1>Live2Be IDE <span class="sub">角色撰写助手</span></h1>
+    <div class="topbar-right">
+      <span class="status">
+        <span class="dot" id="status-dot" data-state="connecting"></span>
+        <span id="status-text">连接中…</span>
+      </span>
+      <label class="auto-toggle" title="提议发出后无人点击, 窗口结束自动批准">
+        <input type="checkbox" id="auto-approve">
+        <span>自动批准 (<span id="auto-delay-label">2</span>s)</span>
+      </label>
+    </div>
+  </header>
+
+  <main id="stream">
+    <div class="hint" id="hint">
+      用自然语言描述角色撰写需求, 例如「为遥花补齐 profile.yml」。
+      写动作会先展示 diff, 你批准后才落盘。输入 <b>/clear</b> 清屏。
+    </div>
+  </main>
+
+  <footer class="inputbar">
+    <input id="input" type="text"
+           placeholder="描述需求…" autocomplete="off" disabled>
+    <button id="send" disabled>发送</button>
+  </footer>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
