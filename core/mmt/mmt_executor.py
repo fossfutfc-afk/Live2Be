@@ -1,31 +1,36 @@
 """MMT 执行层 — 按 approval=auto 执行动作，reply 承载对白。
 
 契约层只解析动作（纯结构校验, 不碰文件系统/运行时）；执行层负责动作的
-实际执行——读角色资料、模拟媒体发送、剧情触发。每个动作成功返回
+实际执行——读角色资料、模拟媒体发送、羁绊触发判定。每个动作成功返回
 ExecResult(ok=True, message=回灌给 LLM 的内容)；不可执行抛 MmtExecError
 （message 同样回灌给 LLM 修正, 而不是崩溃）。
 
-动作执行:
+动作执行（对应 core/mmt/mmt_actions.py 的动作集）:
     mmt_chat                 对白已在 action.reply——执行仅确认, 正常回复核心路径
-    mmt_inspect_character    读目标角色资料, 按 interperson 权重限制访问层级
-                             （1=只见 profile, 2=+personality, 3=+experience）
-    mmt_send_media           图片发送占位——媒体存储/查库/生成管线未接入,
-                             仅回灌确认信息（用户已确认后续细化, 先保证回复流程）
-    mmt_trigger_bond_story   羁绊剧情内容系统未实现 → 拒绝触发, 回灌纠正 LLM
+    mmt_inspect_character    深挖后备: 按 interperson 权重分级读目标资料
+                             （自检拒绝 / 无记录拒绝 / 1=profile 2=+personality 3=+experience）
+    mmt_send_media           图片发送占位——媒体管线未接入, 仅回灌确认
+    mmt_trigger_bond_story   bool 触发判定——算法好感度门槛 + LLM 决策,
+                             true 切换羁绊剧情模式, false 拒绝继续聊
+
+信息架构（v2 五层认知, 与 mmt_actions 一致）:
+    L0 自我层 / L1 人际层（自表条目注入, self_entry_to_prompt）/ L2 硬知识 / L3 深挖层。
+    inspect 是 L3 的门控入口: 无记录=素不相识 → 拒绝, LLM 用知识回答公开信息。
 
 设计决策:
-    - 执行器持有会话当前角色（set_current_character）, inspect 用它查
-      interperson 里 self→target 的权重决定访问层级。
-    - 访问层级逻辑（load_interperson / resolve_access_level）当前内联在
-      本文件——待 core/parsing/relation_parser.py 落地后移入。
-    - 错误统一走 MmtExecError（Live2BeError 子类, __str__ 自动产出
-      [mmt_executor.py][MmtExecError][message]）, 由调用方捕获回灌。
-    - 与 IDE 执行器同一范式: 成功返回 ExecResult, 失败抛域异常。
+    - 执行器持有会话当前角色（set_current_character）, inspect/trigger 依赖它。
+    - 自检防护（双重）: 本文件抛 MmtExecError 代码级报错 + mmt_actions schema 提示。
+    - 无记录≠不认识: 无记录=素不相识（可耳闻）, inspect 拒绝但可凭知识回答。
+    - 自表条目注入: self_entry_to_prompt 生成 L1 注入文本, 由 momotalk 拼进 system prompt。
+    - 触发 bool: 算法好感度（_affection_score, 规划中）+ LLM 决策; 好感度未达门槛拒绝。
+    - 人际层工具（load_interperson / resolve_access_level / self_entry_to_prompt）
+      当前内联在本文件, 待 core/parsing/relation_parser.py 落地后移入。
+    - 错误统一走 MmtExecError（Live2BeError 子类）, 由调用方捕获回灌。
 
 TODO（后续 session）:
-    - core/parsing/relation_parser.py: 移入 load_interperson / resolve_access_level
+    - core/parsing/relation_parser.py: 移入人际层工具
+    - core/affection.py: _affection_score 接入真实好感度系统, 门槛生效
     - 媒体管线（存储/查库/LLM 生成）落地后替换 _execute_mmt_send_media 的占位
-    - 羁绊剧情内容系统（story_parser）落地后实现 _execute_mmt_trigger_bond_story
 """
 
 from __future__ import annotations
@@ -62,7 +67,7 @@ class ExecResult:
 
 
 # ============================================================================
-# 访问层级（待 relation_parser.py 落地后移入）
+# 人际层工具（待 relation_parser.py 落地后移入）
 # ============================================================================
 
 def load_interperson(path: str | Path) -> dict:
@@ -87,15 +92,35 @@ def resolve_access_level(interperson: dict, self_id: str, target_id: str) -> int
     """interperson 权重 → 访问层级。
 
     权重语义（与 IDE 文档一致）:
-        1 = 萍水相逢      → 只见 profile
-        2 = 社团/队友     → + personality
-        3 = 故知/青梅竹马 → + experience
-    无记录 / 权重非法 → 1（默认只可见 profile, "查不到的角色视为不认识"）。
+        1 = 萍水相逢（见过几次/交手/共事）→ 只见 profile
+        2 = 社团/队友                      → + personality
+        3 = 故知/青梅竹马                  → + experience
+    无记录 / 权重非法 → 0（素不相识: 可耳闻但无私人交集, inspect 拒绝）。
     """
     weight = interperson.get(self_id, {}).get(target_id)
     if isinstance(weight, int) and 1 <= weight <= 3:
         return weight
-    return 1
+    return 0
+
+
+def self_entry_to_prompt(interperson: dict, self_id: str) -> str:
+    """L1 人际层注入: 提取 self 的 interperson 条目, 渲染为 prompt 文本。
+
+    解决两个问题: 键值映射（LLM 用准确 id 查资料, 无需猜）+ 关系感知
+    （权重即关系信息, 回答「认不认识」问题时直接可用）。
+
+    Returns:
+        注入文本; self 无条目 → 空串（调用方跳过注入）。
+    """
+    entry = interperson.get(self_id)
+    if not isinstance(entry, dict) or not entry:
+        return ""
+    items = ", ".join(f"{k}: {w}" for k, w in sorted(entry.items()))
+    return (
+        "你的关系记录: {" + items + "}\n"
+        "含义: 键=角色id（查资料时用）, 值=熟悉程度（1=萍水相逢 2=社团/队友 3=故知）; "
+        "未列出的角色=素不相识, 但你可能听说过其公开信息"
+    )
 
 
 # ============================================================================
@@ -109,12 +134,15 @@ class MmtExecutor:
         self,
         characters_root: str | Path,
         interperson_path: str | Path | None = None,
+        affection_threshold: int = 0,
     ):
         self.char_loader = CharacterLoader(characters_root)
         self.interperson_path = (
             Path(interperson_path) if interperson_path
             else Path(DEFAULT_INTERPERSON_PATH)
         )
+        # 羁绊触发好感度门槛（affection.py 规划中, 默认 0 = 仅 LLM 决策）
+        self.affection_threshold = affection_threshold
         self.current_char: DynamicCharacter | None = None
 
     # ------------------------------------------------------------------
@@ -122,7 +150,7 @@ class MmtExecutor:
     # ------------------------------------------------------------------
 
     def set_current_character(self, char: DynamicCharacter | None) -> None:
-        """设置会话当前角色（inspect 用它查 self→target 的权重）。"""
+        """设置会话当前角色（inspect/trigger 依赖它）。"""
         self.current_char = char
 
     # ------------------------------------------------------------------
@@ -154,7 +182,7 @@ class MmtExecutor:
         return ExecResult(ok=True, message="已回复")
 
     # ==================================================================
-    # mmt_inspect_character — 查角色资料（访问层级限制）
+    # mmt_inspect_character — 深挖后备: 查角色私密资料（权重分级）
     # ==================================================================
 
     def _execute_mmt_inspect_character(self, action: AgentAction) -> ExecResult:
@@ -162,17 +190,30 @@ class MmtExecutor:
             raise MmtExecError("尚未进入会话, 无法查角色资料")
 
         target_id = action.payload["character_id"]
+        self_id = self.current_char.character_id
+
+        # 自检防护（代码级报错, 配合 mmt_actions schema 提示双重防线）
+        if target_id == self_id:
+            raise MmtExecError(
+                "目标角色是你自己——你完全了解自己, 完整资料已在你的角色设定中, 不要查自己"
+            )
+
         try:
             char = self.char_loader.load(target_id)
         except FileNotFoundError:
             raise MmtExecError(
-                f"角色不存在: {target_id}——请使用已建档角色"
+                f"角色不存在: {target_id}——请使用已建档角色, 不要查玩家或胡编的名字"
             ) from None
 
         interperson = load_interperson(self.interperson_path)
-        level = resolve_access_level(
-            interperson, self.current_char.character_id, target_id
-        )
+        level = resolve_access_level(interperson, self_id, target_id)
+
+        # 无记录≠不认识: 素不相识 → 拒绝查私密资料, 用知识回答公开信息
+        if level == 0:
+            raise MmtExecError(
+                f"{char.display_name} 与你素不相识（无关系记录）——基于公开信息和你的知识"
+                "回答其基本信息即可, 无法查其私密资料"
+            )
 
         merged = dict(char.profile)
         if level >= 2:
@@ -183,10 +224,7 @@ class MmtExecutor:
         data = yaml_to_prompt(merged, f"角色 {char.display_name} 资料")
         return ExecResult(
             ok=True,
-            message=(
-                f"[已查阅 {target_id} 资料, 访问层级 {level}/3]\n"
-                f"{data}"
-            ),
+            message=f"[已查阅 {target_id} 资料, 访问层级 {level}/3]\n{data}",
         )
 
     # ==================================================================
@@ -213,12 +251,33 @@ class MmtExecutor:
         return ExecResult(ok=True, message=message)
 
     # ==================================================================
-    # mmt_trigger_bond_story — 触发羁绊剧情（剧情系统未实现）
+    # mmt_trigger_bond_story — bool 触发判定（好感度门槛 + LLM 决策）
     # ==================================================================
 
     def _execute_mmt_trigger_bond_story(self, action: AgentAction) -> ExecResult:
-        story_id = action.payload["story_id"]
-        raise MmtExecError(
-            f"羁绊剧情 {story_id} 无法触发——剧情内容系统尚未实现, "
-            "请勿触发; 正常对话即可"
+        if self.current_char is None:
+            raise MmtExecError("尚未进入会话, 无法触发羁绊剧情")
+
+        # 算法好感度门槛（_affection_score 规划中, 当前恒 0 放行 = 仅 LLM 决策）
+        if self._affection_score() < self.affection_threshold:
+            raise MmtExecError(
+                "羁绊剧情暂不触发——好感度未达门槛; 继续聊天积累感情即可"
+            )
+
+        reason = action.payload["reason"]
+        suffix = f"（理由: {reason}）" if reason else ""
+        return ExecResult(
+            ok=True,
+            message=f"羁绊剧情触发成功{suffix}——切换到羁绊剧情模式",
         )
+
+    # ==================================================================
+    # 内部
+    # ==================================================================
+
+    def _affection_score(self) -> int:
+        """当前好感度（算法层, 规划中）。
+
+        TODO: core/affection.py 落地后接入真实好感度系统, 门槛校验才真正生效。
+        """
+        return 0

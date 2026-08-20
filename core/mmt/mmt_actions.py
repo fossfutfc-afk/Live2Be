@@ -35,7 +35,7 @@ TODO（后续 session）:
     - core/parsing/relation_parser.py: 自表条目注入函数 + 访问层级
       （当前逻辑内联在 mmt_executor.py, 待移入）
     - knowledge.yml 拆分 人际/硬知识 两个 section（L1/L2 分层, 轻量选项 A）
-    - mmt_executor.py: 自检守卫 / 无记录拒绝 / send_media 媒体管线 / trigger 好感度门槛
+    - mmt_executor.py: 自检守卫 / 无记录拒绝 / trigger 好感度门槛已完成; send_media 媒体管线待接入
 """
 
 from __future__ import annotations
