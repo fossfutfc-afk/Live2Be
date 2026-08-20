@@ -247,6 +247,21 @@ def _t_text_all_punct():
 
 import random  # noqa: E402
 
+def _is_subsplit(text: str, chunks: list[str]) -> bool:
+    """chunks 依次是 text 的连续子串、位置递增（跳过切分处被丢弃的逗号）。
+
+    宁缺勿错的验证: 每个块必须原样出现在原文里、按顺序、不重排;
+    切分处被丢弃的逗号允许出现在块与块之间的缝隙里。
+    """
+    pos = 0
+    for c in chunks:
+        i = text.find(c, pos)
+        if i == -1:
+            return False
+        pos = i + len(c)
+    return True
+
+
 @check("split_reply_chunks 短句 → 单块")
 def _t_chunks_short():
     assert split_reply_chunks("嗯嗯好的") == ["嗯嗯好的"]
@@ -265,13 +280,35 @@ def _t_chunks_lossless():
     for t in cases:
         rng = random.Random(7)
         chunks = split_reply_chunks(t, rng=rng)
-        assert "".join(chunks) == t, f"丢字: 输入={t!r} 得={chunks!r}"
+        assert _is_subsplit(t, chunks), f"丢字/乱序: 输入={t!r} 得={chunks!r}"
         assert all(c for c in chunks), f"空块: {chunks!r}"
+
+
+@check("split_reply_chunks 逗号处切分丢逗号（千夏长句场景）")
+def _t_chunks_comma_drop():
+    t = "我想先确认一下您的身体状况，最近看您似乎总是很忙的样子，没问题吗？"
+    chunks = split_reply_chunks(t, rng=random.Random(1))
+    assert chunks == [
+        "我想先确认一下您的身体状况",     # 14字 ≥10 必切, 丢逗号
+        "最近看您似乎总是很忙的样子",     # 14字 ≥10 必切, 丢逗号
+        "没问题吗？",                     # 强断点必切
+    ], chunks
+
+
+@check("split_reply_chunks 短块不切, 逗号留在块内（老师，场景）")
+def _t_chunks_short_keep():
+    t = "老师，如果是有关于风纪委员会职权范围内的事务，您可以直说。"
+    chunks = split_reply_chunks(t, rng=random.Random(1))
+    assert chunks == [
+        "老师，如果是有关于风纪委员会职权范围内的事务",  # "老师，"2字<6不切, 逗号保留
+        "您可以直说。",                                 # 强断点必切
+    ], chunks
 
 
 @check("split_reply_chunks 长无标点句切成多块（字数+随机数）")
 def _t_chunks_long_split():
-    long = "今天天气很好我们一起去天台吧我想和你说说话明天见"
+    # 40 字无标点 > max_chars=30 → 必须切块; 硬切后尾部 10 字 > 4, 不会并回
+    long = "今天天气真的很好我们一起去天台吹吹风散散心看看风景吧我想和你说说话明天见记得早点休息"
     for seed in range(5):
         rng = random.Random(seed)
         chunks = split_reply_chunks(long, rng=rng)
@@ -281,7 +318,7 @@ def _t_chunks_long_split():
 
 @check("split_reply_chunks 同种子确定性")
 def _t_chunks_deterministic():
-    t = "今天天气很好我们一起去天台吧我想和你说说话明天见"
+    t = "今天天气真的很好我们一起去天台吹吹风散散心看看风景吧我想和你说说话明天见记得早点休息"
     a = split_reply_chunks(t, rng=random.Random(42))
     b = split_reply_chunks(t, rng=random.Random(42))
     assert a == b, f"{a!r} != {b!r}"
