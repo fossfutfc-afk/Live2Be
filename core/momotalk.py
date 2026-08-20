@@ -341,6 +341,15 @@ class MomoTalkEngine:
         return self._current_char
 
     @property
+    def player_name(self) -> str:
+        """玩家称呼（注入 system prompt; 会话开始前设置才生效）。"""
+        return self._player_name
+
+    @player_name.setter
+    def player_name(self, value: str | None) -> None:
+        self._player_name = (value or "").strip()
+
+    @property
     def _char_id(self) -> str:
         return self._current_char.character_id if self._current_char else ""
 
