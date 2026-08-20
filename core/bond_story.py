@@ -16,7 +16,9 @@ from pathlib import Path
 
 from errors import err
 from llm.client import LLMClient
+from llm.prompts import load_prompt
 from parsing.dynamic_character_parser import CharacterLoader, DynamicCharacter
+from parsing.world_parser import DEFAULT_WORLD_PATH, load_world, world_to_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -45,12 +47,12 @@ class BondStoryEngine:
         char = self.char_loader.load(character_id)
         system_prompt = char.build_prompt("bond_story")
 
-        rules = (
-            "你正在与 sensei 进行面对面的交流。\n"
-            "可以包含动作描写（用括号标注），可以有多段落的长对白。\n"
-            "你不是 AI——你就是角色本人。"
-        )
-        system_prompt += "\n\n【羁绊剧情 回复规则】\n" + rules
+        # 世界观（common + system 档）注入——角色理应知道的世界常识 + 安全边界
+        world_chunk = world_to_prompt(load_world(DEFAULT_WORLD_PATH))
+        if world_chunk:
+            system_prompt += "\n\n" + world_chunk
+
+        system_prompt += "\n\n" + load_prompt("bond_story_rules")
 
         self._current_char = char
         self._system_prompt = system_prompt

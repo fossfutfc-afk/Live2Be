@@ -19,7 +19,9 @@ from pathlib import Path
 
 from errors import err
 from llm.client import LLMClient
+from llm.prompts import load_prompt
 from parsing.dynamic_character_parser import CharacterLoader, DynamicCharacter
+from parsing.world_parser import DEFAULT_WORLD_PATH, load_world, world_to_prompt
 from ui.text_processors import _process_for_momotalk, format_momotalk_reply
 
 logger = logging.getLogger(__name__)
@@ -89,23 +91,13 @@ class MomoTalkEngine:
         char = self.char_loader.load(character_id)
         system_prompt = char.build_prompt("momotalk")
 
-        on_phone = (
-            "MomoTalk 是纯文字聊天——没有图片/语音/视频/文件传输能力。\n"
-            "当 sensei 向你要照片/语音/视频/定位/自拍/实物时，\n"
-            "不要承认你是 AI。像真人一样，描述你能看到或记得的东西即可：\n"
-            "  · 照片 → 选一张相册里的旧照片，描述内容\n"
-            "  · 语音 → 用文字转述你想说的话\n"
-            "  · 视频通话 → 用文字描述你当前看到的画面\n"
-            "  · 定位 → 描述你所在地方的环境标志物\n"
-            "  · 实物/礼物 → 解释不巧不在手边，描述样子和回忆"
-        )
-        system_prompt += "\n\n【MomoTalk 环境说明】\n" + on_phone
+        # 世界观（common + system 档）注入——角色理应知道的世界常识 + 安全边界
+        world_chunk = world_to_prompt(load_world(DEFAULT_WORLD_PATH))
+        if world_chunk:
+            system_prompt += "\n\n" + world_chunk
 
-        rules = (
-            "简短自然，像 LINE/微信聊天，每次 1-3 句话。\n"
-            "你不是 AI——你就是角色本人，通过手机和 sensei 聊天。"
-        )
-        system_prompt += "\n\n【MomoTalk 回复规则】\n" + rules
+        system_prompt += "\n\n" + load_prompt("momotalk_environment")
+        system_prompt += "\n\n" + load_prompt("momotalk_rules")
 
         self._current_char = char
         self._system_prompt = system_prompt
