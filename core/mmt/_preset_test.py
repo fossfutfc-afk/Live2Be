@@ -4,7 +4,7 @@
 覆盖:
   - 玩家名读写: 默认 sensei（缺失/null/空/损坏）/ 往返 / 已设置不询问
   - JSON 安全: null/true/false/引号/换行 等恶意输入不崩 JSON, 原样往返
-  - 名字校验: 角色名冲突（陆八魔阿露/伊草遥香）、保留词（null/true/false）
+  - 名字校验: 角色名允许（彩蛋兜住）、保留词（null/true/false）、超长、符号
   - /name 命令: 合法改 / 非法拒绝 / 无参不修改
   - 交互改名 set_player_name: 拒绝→重询 / 留空取消
   - engine 玩家称呼注入
@@ -28,6 +28,7 @@ from core.mmt.mmt_preset import (
     handle_command,
     has_player_name,
     load_player_name,
+    name_confirm,
     save_player_name,
     set_player_name,
 )
@@ -155,26 +156,33 @@ def _t_json_safety():
 
 
 # ----------------------------------------------------------------------------
-# 名字校验 — 角色名冲突 / 保留词 / 超长
+# 名字校验 — 角色名允许 / 保留词 / 超长 / 符号
 # ----------------------------------------------------------------------------
 
-def _t_char_name_conflict():
-    eng = _engine()
-    for bad in ["陆八魔阿露", "伊草遥香", "浅黄 睦月", "陆八魔阿露 "] :
-        assert _name_problem(bad, eng) is not None, f"{bad!r} 应判为角色名冲突"
-    for ok in ["小明", "sensei", "老师", "sensei酱"]:
-        assert _name_problem(ok, eng) is None, f"{ok!r} 不应判为冲突"
+def _t_char_name_allowed():
+    """角色名不再禁止（取角色名由 name_confirm 彩蛋兜住）。"""
+    for ok in ["陆八魔阿露", "伊草遥香", "浅黄 睦月", "陆八魔阿露 ",
+               "小明", "sensei", "老师", "sensei酱"]:
+        assert _name_problem(ok) is None, f"{ok!r} 应允许"
 
 
 def _t_reserved_words():
-    eng = _engine()
     for bad in ["null", "true", "false"]:
-        assert _name_problem(bad, eng) is not None, f"{bad!r} 应判为保留词"
+        assert _name_problem(bad) is not None, f"{bad!r} 应判为保留词"
 
 
 def _t_too_long():
-    eng = _engine()
-    assert _name_problem("长" * 21, eng) is not None, "超长应拒绝"
+    assert _name_problem("长" * 21) is not None, "超长应拒绝"
+
+
+def _t_symbols():
+    for ok in ["小明", "sensei", "老师", "遥香酱", "ひろ", "カヨコ",
+               "sensei_01", "星野 爱", "星野·爱"]:
+        assert _name_problem(ok) is None, f"{ok!r} 不应判为非法"
+    for bad in ["小☆明", "😊", 'a"b', "a<b", "a[b", "a\\b",
+                "a​b",  # 零宽空格（肉眼不可见）
+                "你好，", "a.b"]:
+        assert _name_problem(bad) is not None, f"{bad!r} 应判为含非法符号"
 
 
 # ----------------------------------------------------------------------------
@@ -200,7 +208,9 @@ def _t_ensure_prompts_and_saves():
     p = _tmp_json()
     mmt_preset.PLAYER_JSON = p
     try:
-        name = ensure_player_name(_engine(), input_fn=lambda _: "小明")
+        # 取名 → 确认(y) → 保存
+        answers = iter(["小明", "y"])
+        name = ensure_player_name(_engine(), input_fn=lambda _: next(answers))
         assert name == "小明" and load_player_name() == "小明"
         # 再调一次 → 已设置, 不再询问
         name2 = ensure_player_name(_engine(), input_fn=lambda _: "不应被调用")
@@ -219,13 +229,13 @@ def _t_ensure_blank_defaults_sensei():
         mmt_preset.PLAYER_JSON = old
 
 
-def _t_ensure_rejects_char_name():
-    """首次取名输角色名 → 拒绝并重询 → 合法名通过。"""
+def _t_ensure_rejects_bad():
+    """首次取名输保留词 → 拒绝并重询 → 合法名通过。"""
     old = mmt_preset.PLAYER_JSON
     p = _tmp_json()
     mmt_preset.PLAYER_JSON = p
     try:
-        answers = iter(["陆八魔阿露", "小明"])
+        answers = iter(["null", "小明", "y"])
         name = ensure_player_name(_engine(), input_fn=lambda _: next(answers))
         assert name == "小明" and load_player_name() == "小明"
     finally:
@@ -241,15 +251,38 @@ def _t_set_player_name_interactive():
     p = _tmp_json()
     mmt_preset.PLAYER_JSON = p
     try:
-        answers = iter(["陆八魔阿露", "小明"])
+        answers = iter(["null", "小明", "y"])
         name = set_player_name(_engine(), input_fn=lambda _: next(answers))
-        assert name == "小明", "角色名应被拒, 重询后存合法名"
+        assert name == "小明", "保留词应被拒, 重询后存合法名"
         # 留空取消 → 保持原名
         before = load_player_name()
         name2 = set_player_name(_engine(), input_fn=lambda _: "")
         assert name2 == before and load_player_name() == before
     finally:
         mmt_preset.PLAYER_JSON = old
+
+
+# ----------------------------------------------------------------------------
+# name_confirm — 彩蛋 / 常规确认（依赖真实 config/eggs/namegg.json）
+# ----------------------------------------------------------------------------
+
+def _t_name_confirm_easter_egg():
+    """名字命中 namegg.json 正则（角色昵称"阿露"/完整名"陆八魔阿露"）→ 弹彩蛋, 直接接受。"""
+    for egg in ["阿露", "陆八魔阿露"]:
+        asked = []
+        assert name_confirm(egg, input_fn=lambda _: asked.append(1) or "x") is True
+        assert not asked, f"{egg!r} 命中彩蛋不应再询问确认"
+
+
+def _t_name_confirm_regular():
+    """未命中 → 常规确认: y 接受 / n 拒绝 / EOF 接受。"""
+    assert name_confirm("小明", input_fn=lambda _: "y") is True
+    assert name_confirm("小明", input_fn=lambda _: "n") is False
+
+    def _eof(_):
+        raise EOFError
+
+    assert name_confirm("小明", input_fn=_eof) is True
 
 
 # ----------------------------------------------------------------------------
@@ -275,10 +308,11 @@ def _t_cmd_name_rejects():
     p = _tmp_json()
     mmt_preset.PLAYER_JSON = p
     try:
-        assert handle_command("/name 陆八魔阿露", _engine()) is None
-        assert load_player_name() == "sensei", "角色名不应被保存"
         assert handle_command("/name null", _engine()) is None
         assert load_player_name() == "sensei", "保留词不应被保存"
+        # 角色名已允许（LLM 不知道玩家自取名, 由 name_confirm 彩蛋兜住）
+        assert handle_command("/name 陆八魔阿露", _engine()) is None
+        assert load_player_name() == "陆八魔阿露", "角色名应允许"
     finally:
         mmt_preset.PLAYER_JSON = old
 
@@ -317,16 +351,19 @@ def main() -> None:
     check("save/load 往返 + has_player_name", _t_set_roundtrip)
     check("损坏文件 → sensei", _t_corrupt)
     check("JSON 安全: null/true/引号/换行 原样往返", _t_json_safety)
-    check("校验: 角色名冲突拒绝", _t_char_name_conflict)
+    check("校验: 角色名允许（彩蛋兜住）", _t_char_name_allowed)
     check("校验: 保留词拒绝", _t_reserved_words)
     check("校验: 超长拒绝", _t_too_long)
+    check("校验: 符号白名单（文字/数字/_·〜～ 空格 vs 引号/emoji/零宽）", _t_symbols)
     check("ensure: 已设置不询问", _t_ensure_already_set_no_prompt)
     check("ensure: 首次询问并保存", _t_ensure_prompts_and_saves)
     check("ensure: 留空默认 sensei", _t_ensure_blank_defaults_sensei)
-    check("ensure: 角色名拒绝重询", _t_ensure_rejects_char_name)
+    check("ensure: 保留词拒绝重询", _t_ensure_rejects_bad)
     check("set_player_name: 拒绝重询 + 留空取消", _t_set_player_name_interactive)
+    check("name_confirm: 命中角色名彩蛋直接接受", _t_name_confirm_easter_egg)
+    check("name_confirm: 常规确认 y/n/EOF", _t_name_confirm_regular)
     check("/name 改称呼", _t_cmd_name)
-    check("/name 拒绝角色名/保留词", _t_cmd_name_rejects)
+    check("/name 拒绝保留词/允许角色名", _t_cmd_name_rejects)
     check("未知命令继续", _t_cmd_unknown_returns_none)
     check("engine 玩家称呼注入", _t_engine_inject)
     print("=" * 46)
