@@ -156,7 +156,7 @@ GUI 里 `/edit` 可以只写 `/edit <角色>/<文件>`，会弹出粘贴框让�
 | `create_character` | 新建角色（至少 profile.yml） | 需批准 |
 | `update_character` | 改角色（merge 字段级合并 / overwrite 覆盖） | 需批准 |
 | `update_interperson` | 改人际关系（全量快照替换） | 需批准 |
-| `search` | 搜资料页 URL（默认萌娘百科） | 直接执行 |
+| `search` | 搜资料页 URL（默认萌娘百科；别名/繁体字自动处理，自动用已建角色 profile 的别名重试；新角色可传 `aliases` 一次提交多个候选词） | 直接执行 |
 | `fetch_url` | 抓网页资料（结果回灌给 AI） | 直接执行 |
 | `view_character` | 查看角色现状（五件套清单 / 单文件全文 + 完整度），供「补全」决策 | 直接执行 |
 | `view_interperson` | 查看关系现状（全部角色清单 / 单角色完整关系），供「改关系」决策 | 直接执行 |

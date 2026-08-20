@@ -24,6 +24,9 @@ WIKI_ALIASES = {
 DEFAULT_MAX_RESULTS = 5
 MAX_RESULTS_LIMIT = 10
 
+# AI 一次 search 最多提交的候选词数（新角色自动索引覆盖不到时用）
+MAX_ALIASES = 5
+
 
 def parse_search(payload: dict[str, Any]) -> dict[str, Any]:
     """结构白名单校验（硬错误, 抛 ContractError）。"""
@@ -44,6 +47,17 @@ def parse_search(payload: dict[str, Any]) -> dict[str, Any]:
             f"或合法的 http(s) MediaWiki base URL: {source!r}"
         )
     clean["source"] = source
+
+    aliases = payload.get("aliases")
+    if aliases:
+        if not isinstance(aliases, list) or not all(
+            isinstance(a, str) and a.strip() for a in aliases
+        ):
+            raise ContractError("aliases 必须是字符串数组, 每一项非空")
+        cleaned_aliases = [a.strip() for a in aliases]
+        if len(cleaned_aliases) > MAX_ALIASES:
+            raise ContractError(f"aliases 最多 {MAX_ALIASES} 个候选词")
+        clean["aliases"] = cleaned_aliases
 
     max_results = payload.get("max_results", DEFAULT_MAX_RESULTS)
     if isinstance(max_results, bool) or not isinstance(max_results, int):

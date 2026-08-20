@@ -231,44 +231,72 @@ class Executor:
     def _execute_search(self, action: AgentAction) -> ExecResult:
         """MediaWiki opensearch 搜索 → 返回 标题+简介+URL 清单（回灌给 LLM）。
 
-        source 为 WIKI_ALIASES 别名或任意 MediaWiki base URL；返回格式:
-        [query, [titles], [descriptions], [urls]]。
+        多候选尝试（解决别名/繁体/日文名搜不到）:
+            原查询 → 别名索引命中规范标题 → 简体变体(zhconv)，
+        逐个 opensearch, 首个非空即返回。全空 → ExecError 列出已尝试项 +
+        换词建议, 供 LLM 修正而不是用同样的词反复重试。
+        source 为 WIKI_ALIASES 别名或任意 MediaWiki base URL。
         """
         query = action.payload["query"]
         source = action.payload["source"]
         max_results = action.payload["max_results"]
+        aliases = action.payload.get("aliases", [])
         base = WIKI_ALIASES.get(source, source.rstrip("/"))
-        search_url = (
-            f"{base}/api.php?action=opensearch"
-            f"&search={quote(query)}&limit={max_results}&namespace=0&format=json"
+
+        tried: list[str] = []
+        for q in self._search_attempts(query, aliases):
+            tried.append(q)
+            titles, descs, urls = _opensearch(base, q, max_results)
+            if titles:
+                lines = [f"[搜索结果] {source}（{query}, {len(titles)} 条）:"]
+                for i, (title, url) in enumerate(zip(titles, urls), 1):
+                    desc = descs[i - 1] if i - 1 < len(descs) else ""
+                    lines.append(f"{i}. {title} — {desc[:200]}\n   {url}")
+                return ExecResult(ok=True, message="\n".join(lines))
+
+        raise ExecError(
+            f"在 {source} 未找到关于 {query!r} 的结果"
+            f"（已尝试: {', '.join(tried)}）。\n"
+            "试试: 简体全名（如 伊草遥香）/ 别名（如 地雷妹）/ 日文名 / "
+            "其他译名，或换 source。不要用同样的词反复重试。"
         )
-        try:
-            resp = httpx.get(
-                search_url,
-                timeout=_HTTP_TIMEOUT,
-                follow_redirects=True,
-                headers={"User-Agent": _USER_AGENT},
-            )
-            resp.raise_for_status()
-            data = resp.json()
-        except (httpx.HTTPError, ValueError) as e:
-            raise ExecError(f"搜索失败 {search_url}: {e}") from e
 
-        try:
-            titles, descs, urls = data[1], data[2], data[3]
-        except (IndexError, TypeError) as e:
-            raise ExecError(f"{source} 返回了无法解析的搜索结果") from e
+    def _search_attempts(
+        self, query: str, aliases: list[str] | tuple[str, ...] = ()
+    ) -> list[str]:
+        """候选查询序列（去重保序）。
 
-        if not titles:
-            raise ExecError(
-                f"在 {source} 未找到关于 {query!r} 的结果，试试换关键词或换 source"
-            )
+        每个种子词（原查询 + AI 提交的 aliases）分别展开:
+            种子本身 → 索引命中规范标题 → 简体变体(zhconv)。
+        aliases 用于**新角色**（自动索引尚无条目）: AI 凭自身知识把
+        别名/日文名/其他译名一次放进 search 调用, 执行层逐个尝试,
+        避免"搜不到→再试"的多次 LLM 往返。宁缺勿错: 候选词是 LLM
+        显式提交的（可见于 trace/diff）, 不是代码臆造。
+        """
+        from fetch.search_index import build_alias_index, normalize_query
 
-        lines = [f"[搜索结果] {source}（{query}, {len(titles)} 条）:"]
-        for i, (title, url) in enumerate(zip(titles, urls), 1):
-            desc = descs[i - 1] if i - 1 < len(descs) else ""
-            lines.append(f"{i}. {title} — {desc[:200]}\n   {url}")
-        return ExecResult(ok=True, message="\n".join(lines))
+        index = build_alias_index(self.root)
+        attempts: list[str] = []
+        seen: set[str] = set()
+
+        def add(q: str) -> None:
+            q = q.strip()
+            if q and q not in seen:
+                seen.add(q)
+                attempts.append(q)
+
+        for seed in (query, *aliases):
+            add(seed)
+            for title in sorted(index.get(normalize_query(seed), ())):
+                add(title)
+            try:
+                from zhconv import convert
+                simp = convert(seed, "zh-cn")
+            except ImportError:  # zhconv 未装 → 跳过简体会话（萌娘百科自带繁→简归一）
+                simp = seed
+            if simp != seed:
+                add(simp)
+        return attempts
 
     # ==================================================================
     # fetch_url
@@ -506,6 +534,34 @@ def _safe_load_yaml(path: Path) -> dict | None:
 def _load_yaml_str(text: str) -> dict:
     data = yaml.safe_load(text) or {}
     return data if isinstance(data, dict) else {}
+
+
+def _opensearch(base: str, query: str, limit: int) -> tuple[list[str], list[str], list[str]]:
+    """MediaWiki opensearch → (titles, descs, urls)。网络/解析失败抛 ExecError。
+
+    独立模块级函数便于测试 monkeypatch（_execute_search 的多候选尝试按此注入）。
+    """
+    url = (
+        f"{base}/api.php?action=opensearch"
+        f"&search={quote(query)}&limit={limit}&namespace=0&format=json"
+    )
+    try:
+        resp = httpx.get(
+            url,
+            timeout=_HTTP_TIMEOUT,
+            follow_redirects=True,
+            headers={"User-Agent": _USER_AGENT},
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    except (httpx.HTTPError, ValueError) as e:
+        raise ExecError(f"搜索失败 {url}: {e}") from e
+
+    try:
+        titles, descs, urls = data[1], data[2], data[3]
+    except (IndexError, TypeError) as e:
+        raise ExecError(f"{base} 返回了无法解析的搜索结果") from e
+    return list(titles), list(descs), list(urls)
 
 
 def _extract_html_text(html: str) -> str:

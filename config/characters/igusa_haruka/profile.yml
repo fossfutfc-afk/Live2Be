@@ -1,4 +1,3 @@
-# 约定，前缀：XXX~，具体字段：snake_case，包含REQ~，SIG~
 REQ~is_official_character: true
 
 REQ~most_called_name: 伊草 遥香
