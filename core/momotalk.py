@@ -142,12 +142,14 @@ class MomoTalkEngine:
         characters_root: str | Path,
         llm_client: LLMClient,
         interperson_path: str | Path | None = None,
+        player_name: str | None = None,
     ):
         self.char_loader = CharacterLoader(characters_root)
         self.llm = llm_client
         self.registry = build_mmt_registry()
         self.executor = MmtExecutor(characters_root, interperson_path)
 
+        self._player_name = (player_name or "").strip()   # 玩家称呼（可选, 注入 system prompt）
         self._current_char: DynamicCharacter | None = None
         self._system_prompt: str = ""
         self._history: list[dict[str, str]] = []
@@ -174,6 +176,9 @@ class MomoTalkEngine:
         entry = self_entry_to_prompt(interperson, char.character_id)
         if entry:
             sp += "\n\n" + entry
+
+        if self._player_name:                        # 玩家称呼: 角色该知道怎么叫玩家
+            sp += f"\n\n玩家称呼（你的对话对象）: {self._player_name}"
 
         sp += "\n\n" + load_prompt("momotalk_environment")
         sp += "\n\n" + load_prompt("momotalk_rules")
