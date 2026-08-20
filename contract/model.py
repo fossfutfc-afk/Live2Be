@@ -10,14 +10,17 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from errors import Live2BeError
 
 
-
-class ContractError(ValueError):
+class ContractError(Live2BeError, ValueError):
     """契约解析失败（结构层面硬错误）。
 
     由 ActionSpec.parse_payload 抛出——字段类型错误、白名单之外、
     跨字段条件不满足等"无法进入 AgentAction"的结构错误走这条路径。
+
+    多继承 ValueError：__str__ 由 Live2BeError 产出 [model.py][ContractError][info]，
+    同时保留 except ValueError 的既有捕获语义。
     """
 
 

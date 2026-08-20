@@ -45,6 +45,8 @@ from typing import Any
 
 import yaml
 
+from errors import err
+
 logger = logging.getLogger(__name__)
 
 # ============================================================================
@@ -68,13 +70,13 @@ def load_yaml_file(path: str | Path) -> dict[str, Any]:
     """
     path = Path(path)
     if not path.exists():
-        raise FileNotFoundError(f"档案不存在: {path}")
+        raise FileNotFoundError(err("NotFound", f"档案不存在: {path}"))
 
     with open(path, "r", encoding="utf-8") as fh:
         data = yaml.safe_load(fh)
 
     if not isinstance(data, dict):
-        raise ValueError(f"{path.name} 内容不是有效 YAML dict")
+        raise ValueError(err("InvalidYaml", f"{path.name} 内容不是有效 YAML dict"))
 
     return data
 
@@ -383,7 +385,7 @@ class DynamicCharacter:
             sections.append(yaml_to_prompt(merged, "角色概要"))
 
         else:
-            raise ValueError(f"Unknown mode: {mode}")
+            raise ValueError(err("UnknownMode", f"Unknown mode: {mode}"))
 
         return "\n\n".join(s.strip() for s in sections if s.strip())
 
@@ -448,10 +450,11 @@ class CharacterLoader:
         """
         char_dir = self.root / character_id
         if not char_dir.is_dir():
-            raise FileNotFoundError(
+            raise FileNotFoundError(err(
+                "NotFound",
                 f"角色目录不存在: {char_dir}\n"
-                f"可用角色: {list(self.list_characters().keys())}"
-            )
+                f"可用角色: {list(self.list_characters().keys())}",
+            ))
 
         # 加载 5 个文件（profile 必需，其余可选）
         loaded: dict[str, dict[str, Any]] = {}
@@ -468,9 +471,10 @@ class CharacterLoader:
 
         profile = loaded.get("profile", {})
         if not profile:
-            raise FileNotFoundError(
-                f"[{character_id}] profile.yml 不存在，无法加载角色"
-            )
+            raise FileNotFoundError(err(
+                "NotFound",
+                f"[{character_id}] profile.yml 不存在，无法加载角色",
+            ))
 
         # 合并全部数据（profile 优先，避免 key 冲突时的覆盖）
         merged: dict[str, Any] = {}

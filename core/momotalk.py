@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
+from errors import err
 from llm.client import LLMClient
 from parsing.dynamic_character_parser import CharacterLoader, DynamicCharacter
 from ui.text_processors import _process_for_momotalk, format_momotalk_reply
@@ -147,7 +148,7 @@ class MomoTalkEngine:
     def send_message(self, user_input: str) -> str:
         """批次模式：等 LLM 完整回复后一次性返回。"""
         if self._current_char is None:
-            raise RuntimeError("尚未开始会话")
+            raise RuntimeError(err("NotInSession", "尚未开始会话"))
 
         messages = self.llm.format_messages(
             system_prompt=self._system_prompt,
@@ -175,7 +176,7 @@ class MomoTalkEngine:
                 simulate_typing(bubble, delay)
         """
         if self._current_char is None:
-            raise RuntimeError("尚未开始会话")
+            raise RuntimeError(err("NotInSession", "尚未开始会话"))
 
         from ui.display import MomoTalkOutput
 

@@ -21,6 +21,8 @@ import json
 import re
 from typing import Any
 
+from errors import err
+
 
 def extract_json(response_text: str) -> dict[str, Any]:
     """完整的 JSON 提取管道。
@@ -71,15 +73,16 @@ def extract_json(response_text: str) -> dict[str, Any]:
             return value
         errors.append(f"literal_eval: 顶层非 dict ({type(value).__name__})")
 
-    raise ValueError(
+    raise ValueError(err(
+        "JsonExtract",
         f"JSON extraction failed after {len(errors)} attempts.\n"
         f"--- raw response (first 500 chars) ---\n"
         f"{original[:500]}\n"
         f"--- cleaned (first 500 chars) ---\n"
         f"{cleaned[:500]}\n"
         f"--- errors ---\n"
-        f"{chr(10).join(errors)}"
-    )
+        f"{chr(10).join(errors)}",
+    ))
 
 
 # ---------------------------------------------------------------------------

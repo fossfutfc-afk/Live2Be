@@ -33,6 +33,7 @@ from urllib.parse import quote
 import httpx
 import yaml
 
+from errors import Live2BeError
 from contract import AgentAction
 from fetch.actions.common import CHARACTER_FILES, MODE_MERGE
 from fetch.actions.search import WIKI_ALIASES
@@ -48,8 +49,11 @@ _HTTP_TIMEOUT = 15.0
 _USER_AGENT = "Live2Be/0.1 (+local agent; character-data fetcher)"
 
 
-class ExecError(Exception):
-    """执行层拒绝/失败。message 供 agent 回灌给 LLM 修正。"""
+class ExecError(Live2BeError):
+    """执行层拒绝/失败。message 供 agent 回灌给 LLM 修正。
+
+    __str__ 自动产出 [executor.py][ExecError][message]。
+    """
 
 
 @dataclass

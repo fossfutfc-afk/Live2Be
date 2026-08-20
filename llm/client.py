@@ -25,6 +25,7 @@ import certifi
 import httpx
 from dotenv import load_dotenv
 
+from errors import err
 from llm.json_cleaner import extract_json
 
 # Windows + conda SSL 证书修复
@@ -57,9 +58,10 @@ class LLMClient:
         self.max_retries = max_retries
 
         if not self.api_key:
-            raise ValueError(
-                "LLM_API_KEY not set. 请在 .env 中设置或通过 LLMClient(api_key=...) 传入"
-            )
+            raise ValueError(err(
+                "ConfigError",
+                "LLM_API_KEY not set. 请在 .env 中设置或通过 LLMClient(api_key=...) 传入",
+            ))
 
         self._http = httpx.Client(
             base_url=self.base_url,
@@ -136,7 +138,7 @@ class LLMClient:
         with self._http.stream("POST", "/chat/completions", json=payload) as resp:
             if resp.status_code != 200:
                 raise httpx.HTTPStatusError(
-                    f"LLM API error {resp.status_code}: {resp.text[:500]}",
+                    err("LLMAPI", f"LLM API error {resp.status_code}: {resp.text[:500]}"),
                     request=resp.request,
                     response=resp,
                 )
@@ -226,7 +228,7 @@ class LLMClient:
                 )
                 raw_text = self._request_with_retry(payload)
 
-        raise ValueError(f"JSON correction failed after {max_json_retries} total attempts")
+        raise ValueError(err("JsonCorrection", f"JSON correction failed after {max_json_retries} total attempts"))
 
     # ------------------------------------------------------------------
     # 内部: HTTP
@@ -260,7 +262,7 @@ class LLMClient:
                 continue
 
             raise httpx.HTTPStatusError(
-                f"LLM API error {resp.status_code}: {resp.text[:500]}",
+                err("LLMAPI", f"LLM API error {resp.status_code}: {resp.text[:500]}"),
                 request=resp.request,
                 response=resp,
             )
@@ -316,10 +318,11 @@ def _parse_chat_response(body: dict[str, Any]) -> str:
     try:
         return body["choices"][0]["message"]["content"]
     except (KeyError, IndexError, TypeError) as e:
-        raise ValueError(
+        raise ValueError(err(
+            "BadResponse",
             f"Failed to parse response body. "
-            f"Expected choices[0].message.content. Got keys: {list(body.keys())}"
-        ) from e
+            f"Expected choices[0].message.content. Got keys: {list(body.keys())}",
+        )) from e
 
 
 def _parse_retry_after(response: httpx.Response) -> float:

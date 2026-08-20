@@ -14,6 +14,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
+from errors import err
 from contract.constants import ALL_SHELL_FIELDS
 from contract.model import ValidationResult
 
@@ -55,7 +56,7 @@ class ActionSpec:
             payload_schema: 给 LLM 看的 payload 字段描述（build_schema 输出用）
         """
         if not isinstance(name, str) or not name.strip():
-            raise ValueError("动作名必须是非空字符串")
+            raise ValueError(err("BadName", "动作名必须是非空字符串"))
         self.name = name
         self.parse_payload = parse_payload
         self.approval = approval
@@ -65,9 +66,9 @@ class ActionSpec:
         )
         invalid = self.prompt_fields - ALL_SHELL_FIELDS
         if invalid:
-            raise ValueError(f"未知外壳字段: {sorted(invalid)}")
+            raise ValueError(err("UnknownField", f"未知外壳字段: {sorted(invalid)}"))
         if "action" not in self.prompt_fields:
-            raise ValueError("prompt_fields 必须包含 action")
+            raise ValueError(err("MissingActionField", "prompt_fields 必须包含 action"))
         self.payload_schema = payload_schema
 
     @property
