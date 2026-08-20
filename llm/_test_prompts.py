@@ -26,7 +26,7 @@ def check(name: str, fn) -> None:
 
 def test_load_momotalk_rules():
     text = load_prompt("momotalk_rules")
-    assert text.startswith("【MomoTalk 回复规则】"), text
+    assert text.startswith("【MomoTalk 行为规则】"), text
     assert "简短自然" in text
     assert "聊天。" in text
 
