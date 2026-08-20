@@ -6,6 +6,7 @@
                                     命令指令模块（/save /back /help /history
                                     /char /name /exit）
     load_player_name / save_player_name / ensure_player_name / set_player_name
+    name_confirm                         取名确认 / 角色名彩蛋
                                     玩家名系统
 
 玩家名系统:
@@ -15,13 +16,21 @@
     菜单 [N] 或 /name 可随时查看/修改, 下次会话生效（system prompt 的玩家称呼
     在会话开始定）。
 
-名字校验（避免 RP 崩 / 序列化混淆）:
-    - 角色名冲突: 名字规范化（去空白）后与已建档角色显示名相等 → 拒绝
-      （如 "陆八魔阿露"、"伊草遥香"——取角色名会把对话搞混）
+名字校验（防序列化混淆 / 显示异常）:
     - 保留词: null / true / false → 拒绝（序列化语义混淆）
     - 超长: >20 字 → 拒绝
+    - 符号白名单: 只允许文字/数字/_·ー〜～/空格, 其余符号拒绝
+      （引号/尖括号/方括号/emoji/零宽/控制符, 防气泡格式破坏与 prompt 污染）
+    角色名不再禁止——LLM 不知道玩家自取的名字, 名字与角色相近反而像人类
+    操作; 取角色名由 name_confirm 彩蛋兜住, 不是 RP 崩。
     即使绕开校验直接写 JSON（如手工改文件）, json.dumps 保证存储安全:
     null/true/引号/换行 都作为普通字符串存取, 不会崩掉 JSON。
+
+取名确认 / 彩蛋（name_confirm）:
+    校验通过后进入确认环节。config/eggs/namegg.json = {正则: [回复,...]},
+    任一正则命中玩家名（如取了角色昵称"阿露"）→ 随机弹一条该角色彩蛋
+    （直接接受）; 未命中 → 常规确认「名字是『xx』吗?」。
+    namegg.json 缺失/损坏 → 打印错误后降级为常规确认, 不阻塞改名。
 
 用法:
     from core.mmt.mmt_preset import (
@@ -32,10 +41,14 @@
 from __future__ import annotations
 
 import json
+import random
+import re
+import unicodedata
 from enum import Enum
 from pathlib import Path
 
 from core.momotalk import MomoTalkEngine
+from errors import err
 
 # 玩家名存储（cwd 相对项目根, 与 SESSION_DIR 同惯例）
 PLAYER_JSON = Path("data/basic/player.json")
@@ -137,24 +150,90 @@ def save_player_name(name: str) -> None:
     )
 
 
-def _norm_name(name: str) -> str:
-    """规范化: 去全部空白（'伊草 遥香' → '伊草遥香'）。"""
-    return "".join(str(name).split())
+# 名字允许的字符: 文字/数字/下划线 + 少量昵称符号 + 空格（其余一律拒绝）。
+# 白名单式（宁缺勿错）——奇形怪状的符号不用逐个列举, 白名单之外全拒。
+_ALLOWED_CATEGORIES = frozenset({"Lu", "Ll", "Lt", "Lm", "Lo", "Nd", "Pc"})
+#   Lu/Ll/Lt/Lm/Lo = 字母（含汉字/假名/谚文/注音）; Nd = 数字; Pc = 下划线
+_ALLOWED_EXTRA = frozenset("·ー〜～ ")
+#   · 间隔号（星野·爱） ー 长音符（アイシー） 〜～ 波形昵称符  空格（星野 爱）
 
 
-def _name_problem(name: str, engine: MomoTalkEngine) -> str | None:
-    """名字校验: 返回问题描述; None = 可用。"""
+def _bad_char(name: str) -> str | None:
+    """返回第一个不允许的字符; 全合法则 None。
+
+    被拒的典型: 引号/反斜杠（JSON 混淆）、尖括号/反引号（渲染解析）、
+    方括号（[名字]: 气泡格式冲突）、emoji/特殊符号（奇形怪状）、
+    零宽字符/控制符（显示异常、肉眼不可见）。
+    """
+    for ch in name:
+        if ch in _ALLOWED_EXTRA:
+            continue
+        if unicodedata.category(ch) in _ALLOWED_CATEGORIES:
+            continue
+        return ch
+    return None
+
+
+def _name_problem(name: str) -> str | None:
+    """名字校验: 返回问题描述; None = 可用。
+
+    角色名不再禁止（曾用 engine 比对角色显示名, 已移除）——LLM 不知道
+    玩家自取的名字, 名字与角色相近反而像人类操作; 取角色名由 name_confirm
+    的正则彩蛋兜住（config/eggs/namegg.json）。
+    """
     if len(name) > MAX_NAME_LEN:
         return f"名字太长（≤{MAX_NAME_LEN} 字）"
     if name in RESERVED_WORDS:
         return f"『{name}』是保留词, 不能用作名字"
-    norm = _norm_name(name)
-    if norm:
-        for display in engine.char_loader.list_characters().values():
-            if norm == _norm_name(display):
-                return (f"『{display}』是已有角色的名字——"
-                        "取角色名会把对话搞混")
+    bad = _bad_char(name)
+    if bad is not None:
+        return f"名字含不允许的符号『{bad}』"
     return None
+
+
+# ============================================================================
+# 取名确认 / 角色名彩蛋（config/eggs/namegg.json）
+# ============================================================================
+
+def _load_namegg() -> dict:
+    """读 config/eggs/namegg.json（角色名彩蛋数据）。缺失/损坏抛 err 异常。
+
+    格式: {正则: [回复1, 回复2, ...]}; 任一正则命中玩家名 → 随机一条彩蛋。
+    """
+    path = Path("config/eggs/namegg.json")
+    if not path.exists():
+        raise FileNotFoundError(err("NotFound", f"档案不存在: {path}"))
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        raise ValueError(err("InvalidJson", f"{path.name} 读取失败: {e}")) from e
+    if not isinstance(data, dict):
+        raise ValueError(err("InvalidJson", f"{path.name} 内容不是有效 Json dict"))
+    return data
+
+
+def name_confirm(name: str, input_fn=input) -> bool:
+    """取名确认/彩蛋环节。返回是否接受这个名字（True=调用方保存）。
+
+    读 config/eggs/namegg.json: 任一正则命中玩家名 → 随机打印该角色的
+    一条彩蛋回复（取角色昵称「阿露」或完整名「陆八魔阿露」都算——
+    角色名已不再禁止）; 未命中 → 常规确认问句。
+    彩蛋配置缺失/损坏 → 打印错误后降级为常规确认（不阻塞改名流程）。
+    """
+    try:
+        data = _load_namegg()
+    except (FileNotFoundError, ValueError) as e:
+        print(f"[系统] 彩蛋配置异常: {e}")
+        data = {}
+    for pattern, replies in data.items():
+        if re.search(pattern, name):
+            print(f"[彩蛋] {random.choice(replies)}")
+            return True
+    try:
+        answer = input_fn(f"名字是『{name}』吗？(y/n): ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        return True
+    return answer in ("y", "yes", "是", "")
 
 
 def set_player_name(engine: MomoTalkEngine, input_fn=input) -> str:
@@ -173,9 +252,12 @@ def set_player_name(engine: MomoTalkEngine, input_fn=input) -> str:
         if not name:
             print("[系统] 未修改。")
             return load_player_name()
-        problem = _name_problem(name, engine)
+        problem = _name_problem(name)
         if problem:
             print(f"[系统] {problem}，请换个名字。")
+            continue
+        if not name_confirm(name, input_fn=input_fn):
+            print("[系统] 已取消，名字未修改。")
             continue
         save_player_name(name)
         print(f"[系统] 已保存，角色将称呼你为: {name}")
@@ -200,9 +282,12 @@ def ensure_player_name(engine: MomoTalkEngine, input_fn=input) -> str:
         if not name:
             name = DEFAULT_PLAYER_NAME
             break
-        problem = _name_problem(name, engine)
+        problem = _name_problem(name)
         if problem:
             print(f"[系统] {problem}，请换个名字。")
+            continue
+        if not name_confirm(name, input_fn=input_fn):
+            print("[系统] 好的，重新取名。")
             continue
         break
     save_player_name(name)
@@ -295,7 +380,7 @@ def handle_command(raw: str, engine: MomoTalkEngine) -> LoopResult | None:
         if not new_name:
             print(f"[系统] 当前称呼: {load_player_name()}。用法: /name 新名字")
             return None
-        problem = _name_problem(new_name, engine)
+        problem = _name_problem(new_name)
         if problem:
             print(f"[系统] {problem}")
             return None
