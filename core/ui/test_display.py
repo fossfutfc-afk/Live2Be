@@ -8,6 +8,9 @@
                     BondStoryOutput 段落分割
                     IDEOutput 事件 → 显示单元 / CLI 文本复刻 / GUI no-op
     text_processors 去括号 / 断句 / 前缀格式化
+                    字数+随机数切块 split_reply_chunks（宁缺勿错不丢字）
+    streaming       非流式步骤 DisplayStep / chunk_typing_time / simulate_steps
+    display         非流式 publish_reply（切块 + "…"等待指示 + 气泡交替）
     集成            import core.ui + core.momotalk + core.bond_story
 
 用法: python core/ui/test_display.py   （需项目根环境, 推荐 live2be env）
@@ -26,6 +29,7 @@ from core.ui import (
     TypingDelay,
     _process_for_momotalk,
     format_momotalk_reply,
+    split_reply_chunks,
     strip_name_prefix,
 )
 
@@ -235,6 +239,121 @@ def _t_text_mixed_punct_block():
 @check("text_processors 全标点文本兜底不丢（！！！）")
 def _t_text_all_punct():
     assert _process_for_momotalk("！！！") == ["！！！"]
+
+
+# ============================================================================
+# 字数+随机数切块（非流式回复）
+# ============================================================================
+
+import random  # noqa: E402
+
+@check("split_reply_chunks 短句 → 单块")
+def _t_chunks_short():
+    assert split_reply_chunks("嗯嗯好的") == ["嗯嗯好的"]
+    assert split_reply_chunks("") == []
+
+
+@check("split_reply_chunks 宁缺勿错不丢字（含标点/括号/长无标点句）")
+def _t_chunks_lossless():
+    cases = [
+        "（轻笑）你好。今天天气不错呢！",
+        "今天谢谢你帮我！要不要一起去喝奶茶？",
+        "今天天气很好我们一起去天台吧我想和你说说话明天见",
+        "我们去天台吧，顺便买杯奶茶。今天心情真的很好呢！",
+        "嗯。嗯。好！",
+    ]
+    for t in cases:
+        rng = random.Random(7)
+        chunks = split_reply_chunks(t, rng=rng)
+        assert "".join(chunks) == t, f"丢字: 输入={t!r} 得={chunks!r}"
+        assert all(c for c in chunks), f"空块: {chunks!r}"
+
+
+@check("split_reply_chunks 长无标点句切成多块（字数+随机数）")
+def _t_chunks_long_split():
+    long = "今天天气很好我们一起去天台吧我想和你说说话明天见"
+    for seed in range(5):
+        rng = random.Random(seed)
+        chunks = split_reply_chunks(long, rng=rng)
+        assert len(chunks) >= 2, f"seed {seed}: 应切成多块 {chunks!r}"
+        assert "".join(chunks) == long
+
+
+@check("split_reply_chunks 同种子确定性")
+def _t_chunks_deterministic():
+    t = "今天天气很好我们一起去天台吧我想和你说说话明天见"
+    a = split_reply_chunks(t, rng=random.Random(42))
+    b = split_reply_chunks(t, rng=random.Random(42))
+    assert a == b, f"{a!r} != {b!r}"
+
+
+@check("split_reply_chunks 标点边界优先（完整短句不硬拆）")
+def _t_chunks_punct_first():
+    # 每条都是完整短句且 ≤ max_chars → 全部整块保留
+    t = "今天谢谢你帮我！要不要一起去喝奶茶？"
+    assert split_reply_chunks(t, rng=random.Random(1)) == [
+        "今天谢谢你帮我！",
+        "要不要一起去喝奶茶？",
+    ]
+
+
+@check("split_reply_chunks 换行视为消息边界")
+def _t_chunks_newline():
+    t = "第一句。\n第二句"
+    chunks = split_reply_chunks(t)
+    assert "".join(chunks) == "第一句。第二句", chunks
+
+
+# ============================================================================
+# 非流式显示步骤（DisplayStep / 打字时长 / publish_reply）
+# ============================================================================
+
+from core.ui.display import MomoTalkOutput  # noqa: E402
+from core.ui.streaming import DisplayStep, chunk_typing_time  # noqa: E402
+
+@check("chunk_typing_time 恒正 + 长句时长更长（字数+随机数）")
+def _t_typing_time():
+    rng = random.Random(3)
+    assert chunk_typing_time("今天", rng) > 0
+    assert chunk_typing_time("短", rng) < chunk_typing_time("今天天气很好我们一起去", rng)
+
+
+@check("publish_reply 打字指示→气泡 交替, 首步 typing")
+def _t_publish_reply_alternate():
+    d = MomoTalkOutput(_process_for_momotalk, "遥香")
+    steps = d.publish_reply("（轻笑）今天谢谢你！要不要一起喝奶茶？")
+    assert steps and steps[0].typing and steps[0].text == "…"
+    # typing 与真实气泡严格交替
+    assert [s.typing for s in steps] == [True, False, True, False]
+    # 气泡文本拼接(去前缀) == 去括号后的完整回复（宁缺勿错）
+    bubbles = "".join(s.text.replace("[遥香]: ", "") for s in steps if not s.typing)
+    assert bubbles == "今天谢谢你！要不要一起喝奶茶？", bubbles
+    # 每个气泡都带前缀
+    assert all(s.text.startswith("[遥香]: ") for s in steps if not s.typing)
+
+
+@check("publish_reply 空回复 / 纯动作括号 → 空步骤")
+def _t_publish_reply_empty():
+    assert MomoTalkOutput(_process_for_momotalk, "A").publish_reply("") == []
+    assert MomoTalkOutput(_process_for_momotalk, "A").publish_reply("（摇头）") == []
+    assert MomoTalkOutput(_process_for_momotalk, "A").publish_reply("   ") == []
+
+
+@check("simulate_steps 打字指示被气泡覆盖（CLI 渲染）")
+def _t_simulate_steps():
+    import io  # noqa: PLC0415
+    from unittest.mock import patch  # noqa: PLC0415
+    from core.ui.streaming import simulate_steps  # noqa: PLC0415
+
+    steps = [
+        DisplayStep("…", 0.5, typing=True),
+        DisplayStep("[遥香]: 你好", 0.0),
+    ]
+    buf = io.StringIO()
+    with patch("time.sleep"), patch("sys.stdout", buf):
+        simulate_steps(steps)
+    out = buf.getvalue()
+    assert "…" in out and "[遥香]: 你好" in out, out
 
 
 # ============================================================================

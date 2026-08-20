@@ -17,8 +17,12 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
-from core.ui.streaming import LineBuffer, TypingDelay
-from core.ui.text_processors import format_momotalk_bubble
+from core.ui.streaming import DisplayStep, LineBuffer, TypingDelay, chunk_typing_time
+from core.ui.text_processors import (
+    _strip_action_brackets,
+    format_momotalk_bubble,
+    split_reply_chunks,
+)
 
 
 # ============================================================================
@@ -67,6 +71,25 @@ class MomoTalkOutput:
         remaining = self._lb.flush()
         if remaining:
             yield from self._publish(remaining)
+
+    def publish_reply(self, reply: str) -> list[DisplayStep]:
+        """非流式: 完整回复 → 显示步骤序列（全 JSON 动作 loop 用）。
+
+        去括号 → 字数+随机数切块（split_reply_chunks）→ 每块前插"…"
+        打字指示（delay = 该块打字时长）→ 气泡步骤。返回步骤列表, 由 UI
+        依序渲染（CLI 用 simulate_steps; GUI 动画自取 typing 标志）。
+        """
+        text = _strip_action_brackets(reply).strip()
+        if not text:
+            return []
+        steps: list[DisplayStep] = []
+        for chunk in split_reply_chunks(text):
+            formatted = format_momotalk_bubble(chunk, self._name)
+            if not formatted:
+                continue
+            steps.append(DisplayStep("…", chunk_typing_time(chunk), typing=True))
+            steps.append(DisplayStep(formatted, 0.0))
+        return steps
 
 
 # ============================================================================

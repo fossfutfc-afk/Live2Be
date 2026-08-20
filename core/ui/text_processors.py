@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import random
 import re
 
 # MomoTalk 消息长度阈值（字符数）
@@ -52,11 +53,7 @@ def _split_for_momotalk(text: str, max_chars: int = MMT_MAX_CHUNK_CHARS) -> list
     if not text:
         return [text]
 
-    # 英文句尾标点 → 中文（先归一化，再合并省略号）
-    text = text.replace(".", "。").replace("!", "！").replace("?", "？")
-    # 合并连续句点为省略号，防止切碎
-    text = re.sub(r"[。．]{2,}", "…", text)
-    text = re.sub(r"…{2,}", "…", text)
+    text = _normalize_momotalk(text)
 
     strong = _strong_split(text)
     if len(strong) <= 1 and len(text) <= max_chars:
@@ -81,9 +78,61 @@ def _process_for_momotalk(text: str) -> list[str]:
     return _split_for_momotalk(_strip_action_brackets(text))
 
 
+def split_reply_chunks(
+    text: str,
+    min_chars: int = 6,
+    max_chars: int = 18,
+    rng=None,
+) -> list[str]:
+    """字数+随机数切块 — 完整回复 → MomoTalk 显示气泡块列表。
+
+    策略:
+      1) 强标点（。！？…）切成原子句（标点贴回, 复用 _strong_split 语义）
+      2) 每块目标长度独立重掷 ∈ [min_chars, max_chars]; 原子句超过最大块长 →
+         在弱断点（，、,;；）处切, 无弱断点则按目标长度硬切
+      3) 过短碎片合并进邻块（复用 _merge_short_chunks）
+
+    宁缺勿错: 块拼接 == 输入文本, 标点/字符一个不丢。
+    与 _split_for_momotalk 的区别: 它固定 max_chars=25 且用于既有路径;
+    本函数每块目标随机化, 供非流式回复（全 JSON 动作 loop）逐块输出。
+    """
+    rng = rng or random
+    text = _normalize_momotalk(text)
+    text = text.strip()
+    if not text:
+        return []
+
+    if "\n" in text:
+        # 换行 = 消息边界: 先按行拆, 逐行切块, 跨行不合并（气泡内不含换行）
+        chunks: list[str] = []
+        for line in text.split("\n"):
+            line = line.strip()
+            if line:
+                chunks.extend(split_reply_chunks(line, min_chars, max_chars, rng))
+        return chunks
+
+    atoms = _merge_punct_segments(_strong_split(text))
+    chunks: list[str] = []
+    for atom in atoms:
+        if len(atom) <= max_chars:
+            # 完整短句 → 整块, 不拆（标点已决定自然边界）
+            chunks.append(atom)
+            continue
+        chunks.extend(_split_long_atom(atom, min_chars, max_chars, rng))
+    return chunks
+
+
 # ---------------------------------------------------------------------------
 # 内部
 # ---------------------------------------------------------------------------
+
+def _normalize_momotalk(text: str) -> str:
+    """断句前的归一化: 英文句尾标点→中文 + 合并连续句点为省略号。"""
+    text = text.replace(".", "。").replace("!", "！").replace("?", "？")
+    text = re.sub(r"[。．]{2,}", "…", text)
+    text = re.sub(r"…{2,}", "…", text)
+    return text
+
 
 def _strong_split(text: str) -> list[str]:
     """在强断点（。！？!?…）处切分。
@@ -163,6 +212,59 @@ def _split_at_weak_breaks(text: str, max_chars: int) -> list[str]:
     if buf:
         out.append(buf.strip())
     return out if out else [text]
+
+
+_WEAK_PUNCT = "，、,;；"
+_FRAGMENT_MAX = 4   # 尾部碎片阈值: ≤4 字的硬切碎片并入上一块
+
+
+def _last_weak_break(text: str) -> int | None:
+    """text 内最后一个弱断点下标（不含开头位, 避免块首孤立标点）; 无则 None。"""
+    for i in range(len(text) - 1, 0, -1):
+        if text[i] in _WEAK_PUNCT:
+            return i
+    return None
+
+
+def _split_long_atom(
+    atom: str,
+    min_chars: int,
+    max_chars: int,
+    rng,
+) -> list[str]:
+    """把超过 max_chars 的原子句切成若干块（字数+随机数）。
+
+    累积到目标长度 → 优先在块内最后一个弱断点（位置 ≥ min_chars）收口;
+    无合适弱断点 → 按目标长度硬切（孤立弱断点并入上一块, 不留在块首）。
+    每块产出 ≥ min_chars; 尾部碎片（≤4 字）并入上一块, 避免碎泡。
+    """
+    parts: list[str] = []
+    buf = ""
+    target = rng.randint(min_chars, max_chars)
+    for ch in atom:
+        buf += ch
+        if len(buf) < target:
+            continue
+        cut = _last_weak_break(buf)
+        if cut is not None and cut >= min_chars:
+            parts.append(buf[: cut + 1])   # 含弱断点
+            buf = buf[cut + 1:]
+        else:
+            # 无合适弱断点 → 按目标长度硬切
+            hard = len(buf)
+            if buf[0] in _WEAK_PUNCT and parts:
+                parts[-1] += buf[0]        # 孤立弱断点并入上一块, 不留在块首
+                buf = buf[1:]
+                hard -= 1
+            parts.append(buf[:hard])
+            buf = buf[hard:]
+        target = rng.randint(min_chars, max_chars)
+    if buf:
+        if len(buf) <= _FRAGMENT_MAX and parts:
+            parts[-1] += buf               # 尾部碎片并入上一块
+        else:
+            parts.append(buf)
+    return parts
 
 
 def _merge_short_chunks(chunks: list[str], max_chars: int) -> list[str]:
