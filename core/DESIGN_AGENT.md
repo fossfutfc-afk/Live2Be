@@ -3,6 +3,14 @@
 > 狀態：設計階段，待實現。
 > 目標：LLM 輸出純文本對白 → 算法層分析情感 → 程序查映射表切換立繪/背景。
 
+> **與 MMT 契约动作化的关系**：本文的「LLM 輸出純文本對白」前提在 MMT 全 JSON
+> 动作化後會調整——LLM 每輪輸出單個**動作 JSON**（chat），對白承載在 `AgentAction.reply`
+> 字段。情感/立繪層（本文 EmotionClassifier / SpriteMapper / ExpressionController）
+> 仍保持「算法做導演」：對 `reply` 文本做分類 → 查映射表切換，**不新增 emotion/sprite
+> 動作**（v1 動作集 = chat / inspect_character / send_media / trigger_bond_story，
+> 见 [../contract/DESIGN.md](../contract/DESIGN.md) §8）。本文的 Phase D 改為消費
+> `action.reply` 而非 `send_message()` 的返回。
+
 ---
 
 ## 一、設計原則

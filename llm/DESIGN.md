@@ -163,15 +163,33 @@ LOCAL_LLM_MODEL=qwen2.5:7b
 llm/
 ├── DESIGN.md       ← 本文件
 ├── client.py       ← 主 LLM 客户端
-└── prompts/        ← Prompt 模板（后续填充）
-    └── .gitkeep
+├── json_cleaner.py ← JSON 清洗管道（§2.2 的 Layer 1-4）
+└── prompts/        ← Prompt 仓库（长篇 prompt 统一为 md，不内嵌在代码里）
+    ├── __init__.py     ← load_prompt(name) 加载入口（缺失抛 FileNotFoundError 并列出可用清单）
+    ├── momotalk_environment.md  ← 【MomoTalk 环境说明】（on_phone 文本）
+    ├── momotalk_rules.md        ← 【MomoTalk 回复规则】
+    ├── bond_story_rules.md      ← 【羁绊剧情 回复规则】
+    └── behavior_rules.md        ← 【回复要求】（parsing/dynamic_character_parser 用）
 ```
+
+> **Prompt 仓库**：长篇 prompt 从代码迁移为 md 文件（项目地基之一，见 CLAUDE.md 3.1.7）。
+> 内容逐字节保留原内嵌文本；`load_prompt()` 统一加载，便于人工修改与 review。
+> 错误消息走统一格式 `[xxx.py][errtype][errinfo]`（根级 errors.py）。
 
 ---
 
-## 五、待定 / 未来扩展
+## 五、状态与待定
 
-- [ ] 流式响应 (`stream=True`)：MomoTalk 的"正在输入..."效果
+### 已实现
+
+- [x] 流式响应：`stream=True`（MomoTalk "正在输入..."效果）
+- [x] JSON 清洗管道（§2.2 Layer 1-4）
+- [x] Prompt 仓库 `llm/prompts/`（load_prompt 加载 md）
+
+### 待定 / 未来扩展
+
 - [ ] Token 计数：在发送前估算 token 用量，超出时压缩历史
 - [ ] 多 API Key 负载均衡：当单 Key 限流时自动切换
-- [ ] Function Calling / Tool Use：用于羁绊触发等需要 LLM 主动调用的场景
+- [ ] Function Calling / Tool Use：**已由契约层部分覆盖**——`contract/` 提供
+      动作注册 + 解析（LLM 输出单动作 JSON），替代原生 function calling
+      （见 [../contract/DESIGN.md](../contract/DESIGN.md)）。MMT 动作化是其首次运行时落地。
