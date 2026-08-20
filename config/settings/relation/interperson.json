@@ -20,5 +20,41 @@
         "igusa_haruka": 2,
         "jindai_saori": 2,
         "ajitani_hifumi": 1
+    },
+    "sorasaki_hina": {
+        "amau_ako": 2,
+        "ginkyou_iori": 2,
+        "hinomiya_chinatsu": 2,
+        "igusa_haruka": 1,
+        "rikuhachima_aru": 1,
+        "asagi_mutsuki": 1,
+        "onikata_kayoko": 1
+    },
+    "amau_ako": {
+        "sorasaki_hina": 2,
+        "ginkyou_iori": 2,
+        "hinomiya_chinatsu": 2,
+        "rikuhachima_aru": 1,
+        "asagi_mutsuki": 1,
+        "onikata_kayoko": 1,
+        "igusa_haruka": 1
+    },
+    "ginkyou_iori": {
+        "sorasaki_hina": 2,
+        "amau_ako": 2,
+        "hinomiya_chinatsu": 2,
+        "rikuhachima_aru": 1,
+        "asagi_mutsuki": 1,
+        "onikata_kayoko": 1,
+        "igusa_haruka": 1
+    },
+    "hinomiya_chinatsu": {
+        "sorasaki_hina": 2,
+        "amau_ako": 2,
+        "ginkyou_iori": 2,
+        "rikuhachima_aru": 1,
+        "asagi_mutsuki": 1,
+        "onikata_kayoko": 1,
+        "igusa_haruka": 1
     }
 }

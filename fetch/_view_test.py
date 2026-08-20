@@ -283,15 +283,14 @@ def test_exec_view_interperson_single():
 
 
 def test_exec_view_interperson_missing():
+    """无记录角色 → 空状态提示（供直接写全量快照）, 不再报错。"""
     root = Path(tempfile.mkdtemp())
     _seed_interperson(root, {"stub": {}})
-    try:
-        Executor(root).execute(_interperson_action("nobody"))
-    except ExecError as e:
-        assert "无关系记录" in str(e)
-    else:
-        raise AssertionError("无记录角色应抛 ExecError")
-    print("view_interperson 错误路径 PASS")
+    res = Executor(root).execute(_interperson_action("nobody"))
+    assert res.ok
+    assert "暂无关系记录" in res.message
+    assert "全量快照" in res.message
+    print("view_interperson 无记录→空状态 PASS")
 
 
 def test_exec_merge_reuse():

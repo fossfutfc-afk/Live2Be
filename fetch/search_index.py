@@ -53,6 +53,23 @@ def _name_pieces(field_value: str) -> list[str]:
     return pieces
 
 
+def _field_pieces(field_value: object) -> list[str]:
+    """名字字段 → 别名片段列表。兼容两种写法:
+        - 字符串（逗号/顿号分隔, 老 profile 风格）: "遥香，瑶香"
+        - 字符串列表（AI 写入风格）: ['空崎阳奈', '大可爱', ...]
+    其他类型（int/None/嵌套）→ 空列表, 宁缺勿错。
+    """
+    if isinstance(field_value, str):
+        return _name_pieces(field_value)
+    if isinstance(field_value, list):
+        pieces: list[str] = []
+        for item in field_value:
+            if isinstance(item, str) and item.strip():
+                pieces.extend(_name_pieces(item))
+        return pieces
+    return []
+
+
 def _load_yaml_dict(path: Path) -> dict[str, Any] | None:
     """读 profile YAML, 缺失/解析失败/非对象 → None（宁缺勿错）。"""
     try:
@@ -93,9 +110,7 @@ def build_alias_index(root: str | Path) -> dict[str, set[str]]:
         # 名字字段 → 每个片段都是该角色的别名
         for field in (display, data.get("en_name"), data.get("jp_name"),
                       data.get("other_names")):
-            if not isinstance(field, str) or not field.strip():
-                continue
-            for piece in _name_pieces(field):
+            for piece in _field_pieces(field):
                 key = normalize_query(piece)
                 if key:
                     index.setdefault(key, set()).add(canonical)
