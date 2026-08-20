@@ -46,6 +46,7 @@ from typing import Any
 import yaml
 
 from errors import err
+from llm.prompts import load_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -390,12 +391,8 @@ class DynamicCharacter:
         return "\n\n".join(s.strip() for s in sections if s.strip())
 
 
-_BEHAVIOR_RULES = """【回复要求】
-1. 你必须严格按照上述角色设定进行回复，不得脱离人设（OOC）。
-2. 用角色的口癖和说话方式。你是角色本人，不是旁白，不要用第三人称描述自己。
-3. 可以适当使用括号描述动作或表情，例如（低头）（小声）。
-4. 回复长度控制在2-4句话，不要一次说太多。保持自然聊天节奏。
-5. 对话对象是 sensei（老师），你对 sensei 的称呼是 sensei 或 老师。"""
+#: 行为规则（长篇 prompt → llm/prompts/behavior_rules.md）
+_BEHAVIOR_RULES = load_prompt("behavior_rules")
 
 
 class CharacterLoader:
