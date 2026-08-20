@@ -122,10 +122,16 @@ def build_ide_registry() -> IDEActionRegistry:
         prompt_fields=IDE_RUNTIME_FIELDS,  # 只读动作: 无 sources/basis, 但支持 reply
         payload_schema=(
             "query: 搜索关键词（非空）\n"
+            "aliases: 可选, 候选词数组（最多 5 个）——新角色/自动别名索引\n"
+            "      覆盖不到时, 把你知道的别名/日文名/其他译名一次填进来,\n"
+            "      执行层逐个尝试, 避免多次往返; 已建角色自动用 profile\n"
+            "      别名重试, 无需手动填\n"
             "source: 可选, 资料站别名 'moegirl'(默认)/'fandom' 或任意 "
             "MediaWiki base URL\n"
             "max_results: 可选, 返回条数（1-10, 默认 5）\n"
-            "用途: 找资料页 URL, 拿到后通常再 fetch_url 抓正文"
+            "用途: 找资料页 URL, 拿到后通常再 fetch_url 抓正文\n"
+            "注意: 执行层会自动处理角色别名/繁体字（多候选尝试）; 搜不到时\n"
+            "      换简体全名/别名/日文名, 不要用同样的词反复重试"
         ),
     ))
     registry.register(ActionSpec(
