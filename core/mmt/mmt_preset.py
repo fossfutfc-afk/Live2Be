@@ -5,14 +5,23 @@
     handle_command / print_history / print_char_info / HELP_TEXT
                                     命令指令模块（/save /back /help /history
                                     /char /name /exit）
-    load_player_name / save_player_name / ensure_player_name
+    load_player_name / save_player_name / ensure_player_name / set_player_name
                                     玩家名系统
 
 玩家名系统:
     data/basic/player.json = {"player_name": "<名字> | null"}
     player_name 为 null / 缺失 / 空 → 默认 "sensei"。
     ensure_player_name 只在首次（null/缺失）时询问并保存; 已设置则直接返回。
-    /name 命令可随时改, 下次会话生效（system prompt 的玩家称呼在会话开始定）。
+    菜单 [N] 或 /name 可随时查看/修改, 下次会话生效（system prompt 的玩家称呼
+    在会话开始定）。
+
+名字校验（避免 RP 崩 / 序列化混淆）:
+    - 角色名冲突: 名字规范化（去空白）后与已建档角色显示名相等 → 拒绝
+      （如 "陆八魔阿露"、"伊草遥香"——取角色名会把对话搞混）
+    - 保留词: null / true / false → 拒绝（序列化语义混淆）
+    - 超长: >20 字 → 拒绝
+    即使绕开校验直接写 JSON（如手工改文件）, json.dumps 保证存储安全:
+    null/true/引号/换行 都作为普通字符串存取, 不会崩掉 JSON。
 
 用法:
     from core.mmt.mmt_preset import (
@@ -31,6 +40,9 @@ from core.momotalk import MomoTalkEngine
 # 玩家名存储（cwd 相对项目根, 与 SESSION_DIR 同惯例）
 PLAYER_JSON = Path("data/basic/player.json")
 DEFAULT_PLAYER_NAME = "sensei"
+MAX_NAME_LEN = 20
+# 序列化语义保留词: 直接禁用, 避免与 JSON null/布尔 混淆
+RESERVED_WORDS = frozenset({"null", "true", "false"})
 
 
 class LoopResult(Enum):
@@ -42,8 +54,12 @@ class LoopResult(Enum):
 # 角色选择 — 哪个角色参与对话
 # ============================================================================
 
-def select_character(engine: MomoTalkEngine) -> str | None:
-    """展示角色列表并让用户选择。返回角色 ID 或 None（退出）。"""
+def select_character(engine: MomoTalkEngine, input_fn=input) -> str | None:
+    """展示角色列表并让用户选择。返回角色 ID 或 None（退出）。
+
+    菜单含 [N] 玩家名入口（输入/更改, 改完重绘菜单）。
+    Ctrl-D / Ctrl-C → 退出。
+    """
     chars = engine.char_loader.list_characters()
 
     if not chars:
@@ -52,28 +68,34 @@ def select_character(engine: MomoTalkEngine) -> str | None:
         input("\n按 Enter 退出...")
         return None
 
-    print("\n" + "═" * 40)
-    print("          MomoTalk — 角色选择")
-    print("═" * 40)
-
     ids = list(chars.keys())
-    for i, char_id in enumerate(ids, 1):
-        print(f"  [{i}] {chars[char_id]}")
-
-    print(f"  [0] 退出")
-    print()
-
     while True:
-        choice = input("选择角色 (数字): ").strip()
+        print("\n" + "═" * 40)
+        print("          MomoTalk — 角色选择")
+        print("═" * 40)
+        for i, char_id in enumerate(ids, 1):
+            print(f"  [{i}] {chars[char_id]}")
+        print(f"  [N] 玩家名（当前: {load_player_name()}）")
+        print(f"  [0] 退出")
+        print()
+
+        try:
+            choice = input_fn("选择角色 (数字 / N=玩家名 / 0=退出): ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print("\n[系统] 退出。")
+            return None
         if choice == "0":
             return None
+        if choice.lower() == "n":
+            set_player_name(engine, input_fn=input_fn)
+            continue                    # 名字可能已变, 重绘菜单
         try:
             idx = int(choice) - 1
             if 0 <= idx < len(ids):
                 return ids[idx]
-            print(f"请输入 1-{len(ids)} 之间的数字，或 0 退出。")
+            print(f"请输入 1-{len(ids)} 之间的数字、N 或 0。")
         except ValueError:
-            print("请输入数字。")
+            print("请输入数字、N 或 0。")
 
 
 # ============================================================================
@@ -90,7 +112,10 @@ def _read_player_data() -> dict:
 
 
 def load_player_name() -> str:
-    """玩家名; player_name 为 null/缺失/空 → 默认 sensei。"""
+    """玩家名; player_name 为 null/缺失/空 → 默认 sensei。
+
+    字符串 "null"/"true"/引号 等照常返回（它们是名字, 不是 JSON 语义值）。
+    """
     name = _read_player_data().get("player_name")
     if isinstance(name, str) and name.strip():
         return name.strip()
@@ -104,7 +129,7 @@ def has_player_name() -> bool:
 
 
 def save_player_name(name: str) -> None:
-    """写 data/basic/player.json。"""
+    """写 data/basic/player.json。json.dumps 保证任意输入安全转义。"""
     PLAYER_JSON.parent.mkdir(parents=True, exist_ok=True)
     PLAYER_JSON.write_text(
         json.dumps({"player_name": name}, ensure_ascii=False, indent=2),
@@ -112,15 +137,74 @@ def save_player_name(name: str) -> None:
     )
 
 
-def ensure_player_name(input_fn=input) -> str:
+def _norm_name(name: str) -> str:
+    """规范化: 去全部空白（'伊草 遥香' → '伊草遥香'）。"""
+    return "".join(str(name).split())
+
+
+def _name_problem(name: str, engine: MomoTalkEngine) -> str | None:
+    """名字校验: 返回问题描述; None = 可用。"""
+    if len(name) > MAX_NAME_LEN:
+        return f"名字太长（≤{MAX_NAME_LEN} 字）"
+    if name in RESERVED_WORDS:
+        return f"『{name}』是保留词, 不能用作名字"
+    norm = _norm_name(name)
+    if norm:
+        for display in engine.char_loader.list_characters().values():
+            if norm == _norm_name(display):
+                return (f"『{display}』是已有角色的名字——"
+                        "取角色名会把对话搞混")
+    return None
+
+
+def set_player_name(engine: MomoTalkEngine, input_fn=input) -> str:
+    """交互式输入/更改玩家名（菜单 N 入口）。留空取消; 校验通过才保存。
+
+    Ctrl-D / Ctrl-C → 取消（保持原名）。
+    """
+    while True:
+        try:
+            name = input_fn(
+                f"你的名字（当前: {load_player_name()}，留空取消）: "
+            ).strip()
+        except (EOFError, KeyboardInterrupt):
+            print("\n[系统] 已取消。")
+            return load_player_name()
+        if not name:
+            print("[系统] 未修改。")
+            return load_player_name()
+        problem = _name_problem(name, engine)
+        if problem:
+            print(f"[系统] {problem}，请换个名字。")
+            continue
+        save_player_name(name)
+        print(f"[系统] 已保存，角色将称呼你为: {name}")
+        return name
+
+
+def ensure_player_name(engine: MomoTalkEngine, input_fn=input) -> str:
     """首次运行设置玩家名: 未设置时询问并保存, 已设置直接返回。
 
-    留空 → 默认 sensei。返回解析后的名字。
+    留空 / Ctrl-D → 默认 sensei; 校验失败（角色名/保留词）→ 重新询问。
     """
     if has_player_name():
         return load_player_name()
     print("\n[系统] 首次对话——你希望角色怎么称呼你？（留空默认 sensei）")
-    name = input_fn("你的名字: ").strip() or DEFAULT_PLAYER_NAME
+    while True:
+        try:
+            name = input_fn("你的名字: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            name = DEFAULT_PLAYER_NAME
+            print(f"\n[系统] 已采用默认称呼: {DEFAULT_PLAYER_NAME}")
+            break
+        if not name:
+            name = DEFAULT_PLAYER_NAME
+            break
+        problem = _name_problem(name, engine)
+        if problem:
+            print(f"[系统] {problem}，请换个名字。")
+            continue
+        break
     save_player_name(name)
     print(f"[系统] 已保存，角色将称呼你为: {name}\n")
     return name
@@ -210,6 +294,10 @@ def handle_command(raw: str, engine: MomoTalkEngine) -> LoopResult | None:
         new_name = rest[len(cmd):].strip()
         if not new_name:
             print(f"[系统] 当前称呼: {load_player_name()}。用法: /name 新名字")
+            return None
+        problem = _name_problem(new_name, engine)
+        if problem:
+            print(f"[系统] {problem}")
             return None
         save_player_name(new_name)
         print(f"[系统] 称呼已改为: {new_name}（下次会话生效）")
