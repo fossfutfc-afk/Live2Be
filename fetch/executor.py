@@ -401,14 +401,18 @@ class Executor:
 
         不带 character_id → 列出有记录的每个角色及关系（内联, interperson 天然很小）;
         带 character_id → 该角色完整关系（{关系角色id: 权重}）。
-        只读, 不落盘; 无记录角色 → ExecError。
+        只读, 不落盘; 无记录角色 → 空状态提示（供"改/补关系"决策: 直接写全量快照）。
         """
         current = self._load_interperson()
         char_id = action.payload.get("character_id")
         if char_id:
             rel = current.get(char_id)
             if rel is None:
-                raise ExecError(f"角色无关系记录: {char_id}")
+                return ExecResult(ok=True, message=(
+                    f"[角色 {char_id} 关系现状] 暂无关系记录——"
+                    "可直接用 update_interperson 写入全量快照（新增关系须附依据）。\n"
+                    "权重语义: 1=萍水相逢/只见profile  2=社团成员/加personality  "
+                    "3=故知/再加experience"))
             lines = [f"[角色 {char_id} 关系现状]"]
             for name in sorted(rel):
                 lines.append(f"  {name}: {rel[name]}")

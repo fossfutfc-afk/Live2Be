@@ -129,6 +129,29 @@ def test_parse_search_aliases():
 # executor._search_attempts
 # ============================================================================
 
+def test_build_alias_index_list_other_names():
+    """AI 写的 other_names 是 YAML 列表（['空崎阳奈','大可爱',...]）→ 也要进索引。"""
+    root = Path(tempfile.mkdtemp())
+    d = root / "config" / "characters" / "sorasaki_hina"
+    d.mkdir(parents=True)
+    (d / "profile.yml").write_text(
+        "REQ~most_called_name: 空崎 日奈\n"
+        "REQ~is_official_character: true\n"
+        "other_names:\n"
+        "  - 空崎阳奈\n"
+        "  - 大可爱\n"
+        "  - 委员长\n",
+        encoding="utf-8",
+    )
+    index = build_alias_index(root)
+    assert index["大可爱"] == {"空崎日奈"}
+    assert index["空崎阳奈"] == {"空崎日奈"}
+    assert index["委员长"] == {"空崎日奈"}
+    ex = Executor(root)
+    assert ex._search_attempts("大可爱") == ["大可爱", "空崎日奈"]
+    print("build_alias_index 列表形式 other_names PASS")
+
+
 def test_search_attempts():
     root = _seed_chars()
     ex = Executor(root)
@@ -279,6 +302,7 @@ def test_live_opensearch():
 def main() -> None:
     tests = [
         test_normalize_query, test_build_alias_index,
+        test_build_alias_index_list_other_names,
         test_parse_search_aliases,
         test_search_attempts, test_search_attempts_with_aliases,
         test_execute_first_hit, test_execute_traditional_hits_simplified,
