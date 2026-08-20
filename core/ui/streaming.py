@@ -23,7 +23,9 @@ from __future__ import annotations
 
 import random
 import re
+import sys
 import time
+from dataclasses import dataclass
 
 # ---------------------------------------------------------------------------
 # LineBuffer
@@ -156,6 +158,64 @@ class TypingDelay:
     def reset(self) -> None:
         """重置首句标记（新对话时调用）。"""
         self._first = True
+
+
+# ---------------------------------------------------------------------------
+# 非流式输出步骤（全 JSON 动作 loop 用）— 字数+随机数逐块 + "…"等待指示
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class DisplayStep:
+    """MMT 输出的一个显示步骤。
+
+    typing=True → 打字指示器（UI 渲染为"对方正在输入…", text 为省略号样式）
+    typing=False → 真实气泡（text 已格式化, 带 [名字]: 前缀）
+    delay: 此步骤应停留的秒数（指示器 = 该块打字时长; 气泡 = 展示停顿）。
+    """
+
+    text: str
+    delay: float
+    typing: bool = False
+
+
+# 打字节奏（毫秒）
+_TICK_CHAR_MS_MIN = 80    # 每字延迟下界
+_TICK_CHAR_MS_MAX = 200   # 每字延迟上界（随机抖动）
+_TICK_PAUSE_MS = 200      # 每块基础停顿
+
+
+def chunk_typing_time(chunk: str, rng=None) -> float:
+    """该块气泡的打字时长（秒）: 字数 × 每字随机延迟 + 基础停顿。
+
+    这就是"根据字数+随机数"——短句快、长句慢, 每字延迟在范围内抖动,
+    让打字节奏不机械。
+    """
+    rng = rng or random
+    per_char = rng.uniform(_TICK_CHAR_MS_MIN, _TICK_CHAR_MS_MAX) / 1000.0
+    return len(chunk) * per_char + _TICK_PAUSE_MS / 1000.0
+
+
+def simulate_steps(steps: list[DisplayStep]) -> None:
+    """CLI 预览: 依序渲染显示步骤。
+
+    打字步骤在同一行输出"…"并等待; 气泡步骤用回车覆盖掉"…"再输出气泡
+    （模拟手机: 等待指示被真实消息替换）。
+    """
+    last_typing_len = 0
+    for s in steps:
+        if s.typing:
+            last_typing_len = len(s.text)
+            sys.stdout.write(s.text)
+            sys.stdout.flush()
+            time.sleep(s.delay)
+        else:
+            sys.stdout.write("\r" + s.text)
+            if last_typing_len:
+                sys.stdout.write(" " * last_typing_len)
+            sys.stdout.write("\n")
+            sys.stdout.flush()
+            last_typing_len = 0
+            time.sleep(s.delay)
 
 
 # ---------------------------------------------------------------------------
