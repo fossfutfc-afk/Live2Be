@@ -124,7 +124,8 @@ prompt_fields / payload_schema）。Python 端是唯一执行引擎，但定义�
 ## 8. 下一步（MMT 动作化）
 
 - `core/parsing/relation_parser.py`：interperson 扁平权重表 → 权重→访问层级映射
-- `core/mmt_actions.py`：`build_mmt_registry()` 注册 4 个动作
-  `chat / inspect_character / send_media / trigger_bond_story`
-- `core/mmt_executor.py`：按 approval=auto 执行动作，reply 承载对白
-- `core/momotalk.py` 改造为全 JSON agent loop，历史格式同步清理
+- `core/mmt/mmt_actions.py`：`build_mmt_registry()` 注册 4 个动作（动作名带 `mmt_` 前缀）
+  `mmt_chat / mmt_inspect_character / mmt_send_media / mmt_trigger_bond_story`；
+  MMT 禁发视频（media_type 白名单仅 `image`），图片先查库后生成
+- `core/mmt/mmt_executor.py`：按 approval=auto 执行动作，reply 承载对白
+- `core/momotalk.py` 改造为全 JSON agent loop，历史格式同步清理（每轮至少记动作名）
