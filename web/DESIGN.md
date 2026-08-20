@@ -1,6 +1,7 @@
 # Live2Be IDE Agent Web GUI — 设计文档
 
-> 状态：设计定稿（2026-08-19），待实现。本文件是 web/ 包实现的唯一依据。
+> 状态：**已实现**（2026-08-20）。本文档保留为实现期的唯一设计依据；
+> 回归见 `web/_server_test.py`（mock 模式全链路：批准/拒绝/中止/409/auto-approve）。
 
 ## 1. 背景与目标
 
@@ -34,6 +35,8 @@ web/
   hub.py           # EventHub：线程安全事件缓冲 + 订阅者游标 + channel
   runner.py        # AgentRunner：单 IDEAgent + turn 串行化 + ask 桥 + auto-approve
   app.py           # FastAPI：路由 + lifespan + mock 开关
+  mock.py          # StubLLM（IDE_MOCK=1 时的 mock 模式）
+  _server_test.py  # 回归测试（mock 模式全链路）
   __main__.py      # python -m web → uvicorn.run(app)
   static/
     index.html
@@ -214,9 +217,9 @@ StreamingResponse(event_stream(), media_type="text/event-stream", headers={
 
 ## 11. 实现顺序
 
-1. `hub.py`（纯线程安全缓冲，可单测）
-2. `runner.py`（AgentRunner：turn 串行化 + ask 桥 + auto-approve）
-3. `app.py` + `__main__.py`（FastAPI 路由 + mock 开关）
-4. `static/`（index.html / app.js / style.css）
-5. 全链路验证：mock 模式走通 批准/拒绝/中止/409/auto-approve/重连
-6. 真实 LLM 冒烟（一次简单 OC 创建）
+1. [x] `hub.py`（纯线程安全缓冲，可单测）
+2. [x] `runner.py`（AgentRunner：turn 串行化 + ask 桥 + auto-approve）
+3. [x] `app.py` + `__main__.py`（FastAPI 路由 + mock 开关）
+4. [x] `static/`（index.html / app.js / style.css）
+5. [x] 全链路验证：mock 模式走通 批准/拒绝/中止/409/auto-approve/重连（`_server_test.py`）
+6. [~] 真实 LLM 冒烟（一次简单 OC 创建）——IDE_CLI 已冒烟，GUI 侧随 IDE 使用验证

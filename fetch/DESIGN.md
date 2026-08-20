@@ -1,4 +1,9 @@
 # IDE-Resources 设计文档 v0.1
+
+> **⚠️ 已过时（superseded）**：本文是早期 `ide_resources` 设计稿 v0.1，包 `ide_resources`
+> 已不存在。当前实现演进为 `fetch/` 子项目（`IDEAgent` + 契约层动作 + CLI/Web GUI），
+> **以 [fetch/README.md](README.md) 为准**。本文保留作为设计决策的历史参考。
+
 > 状态：等待 review。
 > 范围：纯 CLI；只做单角色目录撰写；不抓图片/背景/L2D 资源。
 
