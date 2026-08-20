@@ -6,7 +6,7 @@
     system  元规则/安全边界  → 注入（恋爱合法、暴力血腥需求直接叫停）
 
 用法:
-    from parsing.world_parser import load_world, world_to_prompt
+    from core.parsing.world_parser import load_world, world_to_prompt
 
     world = load_world("config/settings/world/overview.yml")
     chunk = world_to_prompt(world)        # common + system

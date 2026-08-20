@@ -20,9 +20,9 @@ from pathlib import Path
 from errors import err
 from llm.client import LLMClient
 from llm.prompts import load_prompt
-from parsing.dynamic_character_parser import CharacterLoader, DynamicCharacter
-from parsing.world_parser import DEFAULT_WORLD_PATH, load_world, world_to_prompt
-from ui.text_processors import _process_for_momotalk, format_momotalk_reply
+from core.parsing.dynamic_character_parser import CharacterLoader, DynamicCharacter
+from core.parsing.world_parser import DEFAULT_WORLD_PATH, load_world, world_to_prompt
+from core.ui.text_processors import _process_for_momotalk, format_momotalk_reply
 
 logger = logging.getLogger(__name__)
 
@@ -170,7 +170,7 @@ class MomoTalkEngine:
         if self._current_char is None:
             raise RuntimeError(err("NotInSession", "尚未开始会话"))
 
-        from ui.display import MomoTalkOutput
+        from core.ui.display import MomoTalkOutput
 
         messages = self.llm.format_messages(
             system_prompt=self._system_prompt,

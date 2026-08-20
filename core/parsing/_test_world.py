@@ -6,9 +6,9 @@ import sys
 import tempfile
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-from parsing.world_parser import load_world, world_to_prompt
+from core.parsing.world_parser import load_world, world_to_prompt
 
 PASS = 0
 FAIL = 0
@@ -94,7 +94,7 @@ def test_non_list_tier_raises():
 
 
 def test_real_overview_loads():
-    root = Path(__file__).resolve().parent.parent
+    root = Path(__file__).resolve().parent.parent.parent
     world = load_world(root / "config" / "settings" / "world" / "overview.yml")
     assert world.common and world.system
     assert "基沃托斯" in world_to_prompt(world)

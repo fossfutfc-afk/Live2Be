@@ -17,8 +17,8 @@ from pathlib import Path
 from errors import err
 from llm.client import LLMClient
 from llm.prompts import load_prompt
-from parsing.dynamic_character_parser import CharacterLoader, DynamicCharacter
-from parsing.world_parser import DEFAULT_WORLD_PATH, load_world, world_to_prompt
+from core.parsing.dynamic_character_parser import CharacterLoader, DynamicCharacter
+from core.parsing.world_parser import DEFAULT_WORLD_PATH, load_world, world_to_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -74,7 +74,7 @@ class BondStoryEngine:
         if self._current_char is None:
             raise RuntimeError(err("NotInSession", "尚未开始会话"))
 
-        from ui.display import BondStoryOutput
+        from core.ui.display import BondStoryOutput
 
         messages = self.llm.format_messages(
             system_prompt=self._system_prompt,

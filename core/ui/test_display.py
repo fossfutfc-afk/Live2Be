@@ -8,16 +8,16 @@
                     BondStoryOutput 段落分割
                     IDEOutput 事件 → 显示单元 / CLI 文本复刻 / GUI no-op
     text_processors 去括号 / 断句 / 前缀格式化
-    集成            import ui + core.momotalk + core.bond_story
+    集成            import core.ui + core.momotalk + core.bond_story
 
-用法: python ui/test_display.py   （需项目根环境, 推荐 live2be env）
+用法: python core/ui/test_display.py   （需项目根环境, 推荐 live2be env）
 """
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-from ui import (
+from core.ui import (
     BondStoryOutput,
     IDEDisplayItem,
     IDEOutput,
