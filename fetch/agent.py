@@ -40,6 +40,7 @@ from fetch.events import (
     EmitFn,
 )
 from fetch.executor import ExecError, Executor
+from llm.feedback import feedback
 from core.ui.display import IDEOutput
 
 MAX_STEPS = 12          # 单轮 agent 最大动作步数（防死循环）
@@ -278,10 +279,7 @@ class IDEAgent:
             except Exception as e:
                 # client.chat(json_object) 失败：网络错误 / JSON 修正重试耗尽
                 self._emit(AgentEvent(AgentEventKind.LLM_ERROR, step, {"error": str(e)}))
-                messages.append({
-                    "role": "user",
-                    "content": f"LLM 调用失败: {e}\n请重试。",
-                })
+                feedback(messages, f"LLM 调用失败: {e}\n请重试。")
                 continue
             # client.chat(json_object) 已内置 JSON 清洗与修正重试, 返回 dict。
             # 直接用 registry.parse 契约解析, 不走 parse_action_text（那是给原始文本的）。
@@ -315,15 +313,13 @@ class IDEAgent:
                 self._emit(AgentEvent(
                     AgentEventKind.INVALID_ACTION, step, {"errors": list(result.errors)},
                 ))
-                messages.append({
-                    "role": "user",
-                    "content": (
-                        f"动作无效: {'; '.join(result.errors)}\n"
-                        "请严格按 schema 重新输出单个动作 JSON。"
-                        "若错误涉及 YAML 字段约定（REQ~/SIG~ 前缀、必填键），"
-                        "按系统提示『字段约定』的示例，把前缀字面量写进键名。"
-                    ),
-                })
+                feedback(
+                    messages,
+                    f"动作无效: {'; '.join(result.errors)}",
+                    "请严格按 schema 重新输出单个动作 JSON。"
+                    "若错误涉及 YAML 字段约定（REQ~/SIG~ 前缀、必填键），"
+                    "按系统提示『字段约定』的示例，把前缀字面量写进键名。",
+                )
                 continue
 
             # AI 对用户的话（任何动作的 reply 都展示）
@@ -403,10 +399,7 @@ class IDEAgent:
             plan = self.executor.plan(action)
         except ExecError as e:
             self._emit(AgentEvent(AgentEventKind.PLAN_ERROR, step, {"error": str(e)}))
-            messages.append({
-                "role": "user",
-                "content": f"无法执行: {e}\n请调整后重新输出动作。",
-            })
+            feedback(messages, f"无法执行: {e}", "请调整后重新输出动作。")
             self.trace.append({"event": "plan_error", "error": str(e)})
             return False
 
@@ -433,26 +426,17 @@ class IDEAgent:
                                       {"ok": True, "message": result.message}))
                 self.trace.append({"event": "decision", "choice": "approved",
                                    "exec_ok": True, "message": result.message})
-                messages.append({
-                    "role": "user",
-                    "content": f"动作已执行: {result.message}",
-                })
+                feedback(messages, f"动作已执行: {result.message}")
             except ExecError as e:
                 self._emit(AgentEvent(AgentEventKind.EXEC_RESULT, step,
                                       {"ok": False, "message": str(e)}))
                 self.trace.append({"event": "decision", "choice": "approved",
                                    "exec_ok": False, "message": str(e)})
-                messages.append({
-                    "role": "user",
-                    "content": f"执行失败: {e}",
-                })
+                feedback(messages, f"执行失败: {e}")
         else:
             self._emit(AgentEvent(AgentEventKind.DECISION, step, {"choice": "reject"}))
             self.trace.append({"event": "decision", "choice": "rejected"})
-            messages.append({
-                "role": "user",
-                "content": "用户拒绝了该动作。请按用户反馈调整后再输出。",
-            })
+            feedback(messages, "用户拒绝了该动作。请按用户反馈调整后再输出。")
         return False
 
     def _handle_tool(self, action, messages: list[dict], step: int) -> None:
