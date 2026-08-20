@@ -7,7 +7,7 @@
   - 名字校验: 角色名允许（彩蛋兜住）、保留词（null/true/false）、超长、符号
   - /name 命令: 合法改 / 非法拒绝 / 无参不修改
   - 交互改名 set_player_name: 拒绝→重询 / 留空取消
-  - engine 玩家称呼注入
+  - 玩家名只系统显示, 不注入 system prompt（学生不直呼玩家名）
 
 用临时 PLAYER_JSON（monkeypatch 模块常量）避免污染 data/basic/player.json。
 用法: python core/mmt/_preset_test.py   （项目根, live2be env）
@@ -196,7 +196,7 @@ def _t_ensure_already_set_no_prompt():
     try:
         save_player_name("遥香酱")
         answered = []
-        name = ensure_player_name(_engine(), input_fn=lambda _: answered.append(1) or "坏")
+        name = ensure_player_name(input_fn=lambda _: answered.append(1) or "坏")
         assert name == "遥香酱", "已设置不应询问"
         assert not answered, f"不应触发输入: {answered}"
     finally:
@@ -210,10 +210,10 @@ def _t_ensure_prompts_and_saves():
     try:
         # 取名 → 确认(y) → 保存
         answers = iter(["小明", "y"])
-        name = ensure_player_name(_engine(), input_fn=lambda _: next(answers))
+        name = ensure_player_name(input_fn=lambda _: next(answers))
         assert name == "小明" and load_player_name() == "小明"
         # 再调一次 → 已设置, 不再询问
-        name2 = ensure_player_name(_engine(), input_fn=lambda _: "不应被调用")
+        name2 = ensure_player_name(input_fn=lambda _: "不应被调用")
         assert name2 == "小明"
     finally:
         mmt_preset.PLAYER_JSON = old
@@ -224,7 +224,7 @@ def _t_ensure_blank_defaults_sensei():
     p = _tmp_json()
     mmt_preset.PLAYER_JSON = p
     try:
-        assert ensure_player_name(_engine(), input_fn=lambda _: "  ") == "sensei"
+        assert ensure_player_name(input_fn=lambda _: "  ") == "sensei"
     finally:
         mmt_preset.PLAYER_JSON = old
 
@@ -236,7 +236,7 @@ def _t_ensure_rejects_bad():
     mmt_preset.PLAYER_JSON = p
     try:
         answers = iter(["null", "小明", "y"])
-        name = ensure_player_name(_engine(), input_fn=lambda _: next(answers))
+        name = ensure_player_name(input_fn=lambda _: next(answers))
         assert name == "小明" and load_player_name() == "小明"
     finally:
         mmt_preset.PLAYER_JSON = old
@@ -252,11 +252,11 @@ def _t_set_player_name_interactive():
     mmt_preset.PLAYER_JSON = p
     try:
         answers = iter(["null", "小明", "y"])
-        name = set_player_name(_engine(), input_fn=lambda _: next(answers))
+        name = set_player_name(input_fn=lambda _: next(answers))
         assert name == "小明", "保留词应被拒, 重询后存合法名"
         # 留空取消 → 保持原名
         before = load_player_name()
-        name2 = set_player_name(_engine(), input_fn=lambda _: "")
+        name2 = set_player_name(input_fn=lambda _: "")
         assert name2 == before and load_player_name() == before
     finally:
         mmt_preset.PLAYER_JSON = old
@@ -272,6 +272,13 @@ def _t_name_confirm_easter_egg():
         asked = []
         assert name_confirm(egg, input_fn=lambda _: asked.append(1) or "x") is True
         assert not asked, f"{egg!r} 命中彩蛋不应再询问确认"
+
+
+def _t_name_confirm_easter_egg_case():
+    """英文 pattern 大小写不敏感（全大写 IGUSA_HARUKA 应命中小写 pattern）。"""
+    asked = []
+    assert name_confirm("IGUSA_HARUKA", input_fn=lambda _: asked.append(1) or "x") is True
+    assert not asked, "英文 pattern 应大小写不敏感"
 
 
 def _t_name_confirm_regular():
@@ -322,25 +329,18 @@ def _t_cmd_unknown_returns_none():
 
 
 # ----------------------------------------------------------------------------
-# engine 玩家称呼注入
+# 玩家名不注入 system prompt（仅系统显示）
 # ----------------------------------------------------------------------------
 
-def _t_engine_inject():
+def _t_no_player_name_inject():
+    """玩家名只系统显示, 不注入 system prompt（学生不会直呼玩家自定义名）。"""
     from core.momotalk import MomoTalkEngine
 
-    engine = MomoTalkEngine(CHARACTERS, StubLLM(), player_name="小明")
+    engine = MomoTalkEngine(CHARACTERS, StubLLM())
     engine.start_session("igusa_haruka")
-    assert "玩家称呼（你的对话对象）: 小明" in engine._system_prompt, "应注入玩家称呼"
-    # setter 后注入（start_session 前设置才生效）
-    engine2 = MomoTalkEngine(CHARACTERS, StubLLM())
-    engine2.player_name = "老师"
-    engine2.start_session("igusa_haruka")
-    assert "玩家称呼（你的对话对象）: 老师" in engine2._system_prompt, "setter 应生效"
-    # 不传 player_name → 不注入
-    engine3 = MomoTalkEngine(CHARACTERS, StubLLM())
-    engine3.start_session("igusa_haruka")
-    assert "玩家称呼" not in engine3._system_prompt, "默认不应注入"
-    print("    engine 注入: 构造注入 / setter 注入 / 默认无注入")
+    assert "玩家称呼" not in engine._system_prompt, "不应注入玩家称呼"
+    assert "小明" not in engine._system_prompt, "自定义名不应进 LLM context"
+    print("    system prompt 无玩家名注入")
 
 
 def main() -> None:
@@ -361,11 +361,12 @@ def main() -> None:
     check("ensure: 保留词拒绝重询", _t_ensure_rejects_bad)
     check("set_player_name: 拒绝重询 + 留空取消", _t_set_player_name_interactive)
     check("name_confirm: 命中角色名彩蛋直接接受", _t_name_confirm_easter_egg)
+    check("name_confirm: 英文 pattern 大小写不敏感", _t_name_confirm_easter_egg_case)
     check("name_confirm: 常规确认 y/n/EOF", _t_name_confirm_regular)
     check("/name 改称呼", _t_cmd_name)
     check("/name 拒绝保留词/允许角色名", _t_cmd_name_rejects)
     check("未知命令继续", _t_cmd_unknown_returns_none)
-    check("engine 玩家称呼注入", _t_engine_inject)
+    check("玩家名不注入 system prompt", _t_no_player_name_inject)
     print("=" * 46)
     if FAIL:
         print(f"结果: {PASS} PASS / {FAIL} FAIL")

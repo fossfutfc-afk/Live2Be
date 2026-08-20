@@ -89,10 +89,9 @@ def main() -> None:
         input("\n按 Enter 退出...")
         sys.exit(1)
 
-    # 先建引擎（校验角色重名需要引擎的角色清单）, 取名后再设玩家称呼
     engine = MomoTalkEngine("config/characters", client)
-    player_name = ensure_player_name(engine)    # 首次运行询问玩家名（null → sensei）
-    engine.player_name = player_name            # start_session 前设置才注入 system prompt
+    # 玩家名只系统显示（提示符/再见语）, 不注入 system prompt——学生不会直呼自定义名
+    player_name = ensure_player_name()          # 首次运行询问玩家名（null → sensei）
 
     while True:
         char_id = select_character(engine)

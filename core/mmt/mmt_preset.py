@@ -13,8 +13,8 @@
     data/basic/player.json = {"player_name": "<名字> | null"}
     player_name 为 null / 缺失 / 空 → 默认 "sensei"。
     ensure_player_name 只在首次（null/缺失）时询问并保存; 已设置则直接返回。
-    菜单 [N] 或 /name 可随时查看/修改, 下次会话生效（system prompt 的玩家称呼
-    在会话开始定）。
+    菜单 [N] 或 /name 可随时查看/修改。名字只做系统显示（终端提示符 / 菜单 /
+    存档标识）——不注入 system prompt, 学生不会直呼玩家自定义名, 一直称呼"老师"。
 
 名字校验（防序列化混淆 / 显示异常）:
     - 保留词: null / true / false → 拒绝（序列化语义混淆）
@@ -100,7 +100,7 @@ def select_character(engine: MomoTalkEngine, input_fn=input) -> str | None:
         if choice == "0":
             return None
         if choice.lower() == "n":
-            set_player_name(engine, input_fn=input_fn)
+            set_player_name(input_fn=input_fn)
             continue                    # 名字可能已变, 重绘菜单
         try:
             idx = int(choice) - 1
@@ -217,7 +217,8 @@ def name_confirm(name: str, input_fn=input) -> bool:
 
     读 config/eggs/namegg.json: 任一正则命中玩家名 → 随机打印该角色的
     一条彩蛋回复（取角色昵称「阿露」或完整名「陆八魔阿露」都算——
-    角色名已不再禁止）; 未命中 → 常规确认问句。
+    角色名已不再禁止; 英文 pattern 大小写不敏感, 如 IGUSA_HARUKA 也命中
+    igusa_haruka）; 未命中 → 常规确认问句。
     彩蛋配置缺失/损坏 → 打印错误后降级为常规确认（不阻塞改名流程）。
     """
     try:
@@ -226,7 +227,7 @@ def name_confirm(name: str, input_fn=input) -> bool:
         print(f"[系统] 彩蛋配置异常: {e}")
         data = {}
     for pattern, replies in data.items():
-        if re.search(pattern, name):
+        if re.search(pattern, name, re.IGNORECASE):
             print(f"[彩蛋] {random.choice(replies)}")
             return True
     try:
@@ -236,9 +237,11 @@ def name_confirm(name: str, input_fn=input) -> bool:
     return answer in ("y", "yes", "是", "")
 
 
-def set_player_name(engine: MomoTalkEngine, input_fn=input) -> str:
+def set_player_name(input_fn=input) -> str:
     """交互式输入/更改玩家名（菜单 N 入口）。留空取消; 校验通过才保存。
 
+    名字只存 data/basic/player.json 供系统显示（终端提示符/菜单/再见语）,
+    不注入 system prompt——学生不会直呼玩家自定义名（一直称呼"老师"）。
     Ctrl-D / Ctrl-C → 取消（保持原名）。
     """
     while True:
@@ -264,10 +267,11 @@ def set_player_name(engine: MomoTalkEngine, input_fn=input) -> str:
         return name
 
 
-def ensure_player_name(engine: MomoTalkEngine, input_fn=input) -> str:
+def ensure_player_name(input_fn=input) -> str:
     """首次运行设置玩家名: 未设置时询问并保存, 已设置直接返回。
 
-    留空 / Ctrl-D → 默认 sensei; 校验失败（角色名/保留词）→ 重新询问。
+    名字只做系统显示（见 set_player_name）, 不注入 LLM context。
+    留空 / Ctrl-D → 默认 sensei; 校验失败（保留词/超长/符号）→ 重新询问。
     """
     if has_player_name():
         return load_player_name()
@@ -305,7 +309,7 @@ HELP_TEXT = """
   /save     保存当前对话
   /history  显示对话历史摘要
   /char     显示当前角色信息
-  /name     查看/修改你的称呼（下次会话生效）
+  /name     查看/修改你的称呼（仅系统显示, 不进对话）
   /back     保存并返回角色选择
   /exit     保存并退出程序
 """
@@ -385,7 +389,7 @@ def handle_command(raw: str, engine: MomoTalkEngine) -> LoopResult | None:
             print(f"[系统] {problem}")
             return None
         save_player_name(new_name)
-        print(f"[系统] 称呼已改为: {new_name}（下次会话生效）")
+        print(f"[系统] 称呼已改为: {new_name}（终端提示符即刻生效）")
         return None
 
     print(f"[系统] 未知命令: /{cmd}。输入 /help 查看可用命令。")

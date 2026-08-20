@@ -142,14 +142,12 @@ class MomoTalkEngine:
         characters_root: str | Path,
         llm_client: LLMClient,
         interperson_path: str | Path | None = None,
-        player_name: str | None = None,
     ):
         self.char_loader = CharacterLoader(characters_root)
         self.llm = llm_client
         self.registry = build_mmt_registry()
         self.executor = MmtExecutor(characters_root, interperson_path)
 
-        self._player_name = (player_name or "").strip()   # 玩家称呼（可选, 注入 system prompt）
         self._current_char: DynamicCharacter | None = None
         self._system_prompt: str = ""
         self._history: list[dict[str, str]] = []
@@ -177,9 +175,8 @@ class MomoTalkEngine:
         if entry:
             sp += "\n\n" + entry
 
-        if self._player_name:                        # 玩家称呼: 角色该知道怎么叫玩家
-            sp += f"\n\n玩家称呼（你的对话对象）: {self._player_name}"
-
+        # 玩家名不注入 system prompt——学生不会直呼玩家自定义名（一直称呼"老师"）。
+        # 名字只做系统显示（终端提示符 / 菜单 / 存档标识）, 见 mmt_preset 玩家名系统。
         sp += "\n\n" + load_prompt("momotalk_environment")
         sp += "\n\n" + load_prompt("momotalk_rules")
         sp += "\n\n可用动作 schema:\n" + build_schema(self.registry)
@@ -339,15 +336,6 @@ class MomoTalkEngine:
     @property
     def current_character(self) -> DynamicCharacter | None:
         return self._current_char
-
-    @property
-    def player_name(self) -> str:
-        """玩家称呼（注入 system prompt; 会话开始前设置才生效）。"""
-        return self._player_name
-
-    @player_name.setter
-    def player_name(self, value: str | None) -> None:
-        self._player_name = (value or "").strip()
 
     @property
     def _char_id(self) -> str:
