@@ -267,18 +267,29 @@ def _t_set_player_name_interactive():
 # ----------------------------------------------------------------------------
 
 def _t_name_confirm_easter_egg():
-    """名字命中 namegg.json 正则（角色昵称"阿露"/完整名"陆八魔阿露"）→ 弹彩蛋, 直接接受。"""
+    """名字命中 namegg.json 正则（"阿露"/"陆八魔阿露"）→ 打印彩蛋台词 + 确认环节照旧。"""
+    from contextlib import redirect_stdout
+    from io import StringIO
+
     for egg in ["阿露", "陆八魔阿露"]:
-        asked = []
-        assert name_confirm(egg, input_fn=lambda _: asked.append(1) or "x") is True
-        assert not asked, f"{egg!r} 命中彩蛋不应再询问确认"
+        buf, asked = StringIO(), []
+        with redirect_stdout(buf):
+            ok = name_confirm(egg, input_fn=lambda _: asked.append(1) or "y")
+        assert ok is True, f"{egg!r} 彩蛋后输 y 应接受"
+        assert asked, f"{egg!r} 彩蛋后仍应进入确认环节"
+        assert "[彩蛋]" in buf.getvalue(), f"{egg!r} 应打印彩蛋台词"
 
 
 def _t_name_confirm_easter_egg_case():
-    """英文 pattern 大小写不敏感（全大写 IGUSA_HARUKA 应命中小写 pattern）。"""
-    asked = []
-    assert name_confirm("IGUSA_HARUKA", input_fn=lambda _: asked.append(1) or "x") is True
-    assert not asked, "英文 pattern 应大小写不敏感"
+    """英文 pattern 大小写不敏感（全大写 IGUSA_HARUKA 应命中并打印彩蛋）。"""
+    from contextlib import redirect_stdout
+    from io import StringIO
+
+    buf = StringIO()
+    with redirect_stdout(buf):
+        ok = name_confirm("IGUSA_HARUKA", input_fn=lambda _: "y")
+    assert ok is True, "彩蛋后输 y 应接受"
+    assert "[彩蛋]" in buf.getvalue(), "英文 pattern 应大小写不敏感地命中"
 
 
 def _t_name_confirm_regular():
@@ -360,7 +371,7 @@ def main() -> None:
     check("ensure: 留空默认 sensei", _t_ensure_blank_defaults_sensei)
     check("ensure: 保留词拒绝重询", _t_ensure_rejects_bad)
     check("set_player_name: 拒绝重询 + 留空取消", _t_set_player_name_interactive)
-    check("name_confirm: 命中角色名彩蛋直接接受", _t_name_confirm_easter_egg)
+    check("name_confirm: 命中彩蛋弹台词 + 确认照旧", _t_name_confirm_easter_egg)
     check("name_confirm: 英文 pattern 大小写不敏感", _t_name_confirm_easter_egg_case)
     check("name_confirm: 常规确认 y/n/EOF", _t_name_confirm_regular)
     check("/name 改称呼", _t_cmd_name)
