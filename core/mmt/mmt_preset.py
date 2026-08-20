@@ -228,8 +228,7 @@ def name_confirm(name: str, input_fn=input) -> bool:
         data = {}
     for pattern, replies in data.items():
         if re.search(pattern, name, re.IGNORECASE):
-            print(f"[彩蛋] {random.choice(replies)}")
-            return True
+            print(f"[???] {random.choice(replies)}")
     try:
         answer = input_fn(f"名字是『{name}』吗？(y/n): ").strip().lower()
     except (EOFError, KeyboardInterrupt):

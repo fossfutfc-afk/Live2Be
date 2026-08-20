@@ -90,13 +90,14 @@ def main() -> None:
         sys.exit(1)
 
     engine = MomoTalkEngine("config/characters", client)
-    # 玩家名只系统显示（提示符/再见语）, 不注入 system prompt——学生不会直呼自定义名
-    player_name = ensure_player_name()          # 首次运行询问玩家名（null → sensei）
+    # 玩家名只系统显示（提示符/再见语都实时读 player.json, 不缓存局部变量——
+    # 菜单 [N] 改名后即刻生效）, 不注入 system prompt——学生不会直呼自定义名
+    ensure_player_name()                        # 首次运行询问玩家名（null → sensei）
 
     while True:
         char_id = select_character(engine)
         if char_id is None:
-            print(f"\n[系统] 再见，{player_name}。")
+            print(f"\n[系统] 再见，{load_player_name()}。")
             break
 
         try:
@@ -111,7 +112,7 @@ def main() -> None:
 
         result = _chat_loop(engine)
         if result == LoopResult.EXIT:
-            print(f"\n[系统] 再见，{player_name}。")
+            print(f"\n[系统] 再见，{load_player_name()}。")
             break
         # result == LoopResult.BACK → 回到角色选择继续循环
 
