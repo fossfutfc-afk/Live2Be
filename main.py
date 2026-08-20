@@ -13,6 +13,7 @@ from pathlib import Path
 
 from llm.client import LLMClient
 from core.momotalk import MomoTalkEngine
+from core.ui.streaming import simulate_steps
 
 # ---------------------------------------------------------------------------
 # 对话循环结果
@@ -92,16 +93,16 @@ def _chat_loop(engine: MomoTalkEngine) -> LoopResult:
                 return action
             continue
 
-        # ── 正常对话 ──
+        # ── 正常对话（全 JSON 动作 loop）──
         try:
-            import time
             print()  # 换行，准备输出角色回复
-            for bubble, delay in engine.send_message_stream(user_input):
-                time.sleep(delay)
-                print(bubble)
+            result = engine.agent_turn(user_input)
+            simulate_steps(result.steps)          # …打字指示 + 气泡, 依序渲染
+            if result.bond_story:
+                print(f"\n[系统] 与 {display_name} 进入了羁绊剧情时刻……")
             print()  # 回复结束，额外空行
         except Exception as e:
-            print(f"\n[系统] LLM 调用失败: {e}")
+            print(f"\n[系统] 对话失败: {e}")
             print("[系统] 请检查网络连接和 API Key。输入 /exit 退出。\n")
 
     # 正常退出 → 自动保存

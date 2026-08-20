@@ -1,12 +1,14 @@
 # -*- coding: utf-8 -*-
-"""引擎冒烟 — 验证 text_processors 修复后 MomoTalk 三条输出路径无损。
+"""引擎冒烟 — 验证全 JSON 动作 loop 的五条输出路径。
 
-batch  : send_message           → format_momotalk_reply 完整处理
-stream : send_message_stream    → 逐 token feed 气泡 + flush 遗留
-history: resume_session          → 历史回放渲染无损
+chat   : agent_turn(chat 动作)   → …打字指示 + 气泡, 拼回不丢字
+inspect: inspect(静默) → 结果回灌 → chat(可见) → 历史只记可见输出
+纠错   : parse 无效 / 执行拒绝（自检）→ feedback 回灌 → LLM 修正重试
+trigger: trigger 成功 → bond_story=True → 历史记动作名
+history: resume_session 回放 + 继续对话不丢历史
 
-用 stub LLM（不碰 API）喂入含连续标点的回复，断言"去前缀后拼回 == 原文"。
-用法: python ui/_engine_smoke.py   （需项目根环境, 推荐 live2be env）
+用 ScriptedLLM（不碰 API）按调用顺序喂预设动作 dict，断言回灌内容。
+用法: python core/ui/_engine_smoke.py   （需项目根环境, 推荐 live2be env）
 """
 import sys
 from pathlib import Path
@@ -14,11 +16,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from core.momotalk import MomoTalkEngine
-from core.parsing.dynamic_character_parser import CharacterLoader  # noqa: F401
-from core.ui.text_processors import strip_name_prefix
+from core.ui.text_processors import _strip_action_brackets, strip_name_prefix
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 CHARACTER = "igusa_haruka"
+INSPECT_TARGET = "rikuhachima_aru"   # interperson: igusa_haruka→aru 权重 2 → inspect 可成功
 
 # 含连续标点 + 动作括号的高危文本（回归: 修前会丢 "！" 或全标点段）
 REPLY = "（轻笑）今天天气真不错呢！！我们一起去天台吧？？"
@@ -38,12 +40,26 @@ def check(name: str, fn) -> None:
         print(f"  FAIL {name}: {type(e).__name__}: {e}")
 
 
-class StubLLM:
-    """最小 LLMClient 兼容面：format_messages / chat / chat_stream。"""
+# ----------------------------------------------------------------------------
+# ScriptedLLM — 按调用顺序返回预设动作 dict, 记录每次调用的 messages 快照
+# ----------------------------------------------------------------------------
 
-    def __init__(self, reply: str):
-        self._reply = reply
-        self.calls = 0
+class ScriptedLLM:
+    """脚本化 LLMClient 兼容面: chat(json_object) 依次返回预设动作 dict。
+
+    snapshots[i] = 第 i 次调用时的 messages 副本（含 system + 历史 + 回灌修正）,
+    供断言"回灌内容确实送回了 LLM"。
+    """
+
+    def __init__(self, *scripts):
+        self._scripts = list(scripts)
+        self.snapshots: list[list[dict]] = []
+
+    def chat(self, messages, temperature=0.8, max_tokens=4096, response_format="text"):
+        self.snapshots.append([dict(m) for m in messages])
+        if not self._scripts:
+            raise RuntimeError("ScriptedLLM 脚本耗尽: 预设回复已用完")
+        return self._scripts.pop(0)
 
     def format_messages(self, *, system_prompt, user_message, history=None):
         msgs = [{"role": "system", "content": system_prompt}]
@@ -51,52 +67,113 @@ class StubLLM:
         msgs.append({"role": "user", "content": user_message})
         return msgs
 
-    def chat(self, messages, temperature=0.8, max_tokens=512, response_format="text"):
-        self.calls += 1
-        return self._reply
 
-    def chat_stream(self, messages, temperature=0.8, max_tokens=512):
-        self.calls += 1
-        # 逐 token 喂（含标点单独成 token 的极端切法, 打穿 LineBuffer）
-        for ch in self._reply:
-            yield ch
-
-
-def _engine() -> MomoTalkEngine:
-    engine = MomoTalkEngine(ROOT / "config" / "characters", StubLLM(REPLY))
+def _engine(*scripts: dict) -> MomoTalkEngine:
+    engine = MomoTalkEngine(ROOT / "config" / "characters", ScriptedLLM(*scripts))
     engine.start_session(CHARACTER)
     return engine
 
 
+CHAT = {"action": "mmt_chat", "reply": "今天天气真不错呢！！我们一起去天台吧？？", "payload": {}}
+CHAT_BRACKET = {"action": "mmt_chat", "reply": REPLY, "payload": {}}
+
+
 # ----------------------------------------------------------------------------
-# batch: send_message 一次返回
+# chat: 一次 mmt_chat 动作 → 步骤拼回不丢字 + 历史记动作名
 # ----------------------------------------------------------------------------
 
-def _t_batch():
-    engine = _engine()
-    processed = engine.send_message("我们去天台吧？")
+def _t_chat():
+    engine = _engine(CHAT)
+    result = engine.agent_turn("我们去天台吧？")
+    assert result.ok and result.action == "mmt_chat" and not result.bond_story
     name = engine.current_character.display_name
-    body = strip_name_prefix(processed, name)
-    # 动作括号会被 _process_reply 保留（format_momotalk_reply 不去括号），断言不丢字
-    assert body.count("！") == 2 and body.count("？") == 2, f"标点丢失: {body!r}"
-    assert "天台" in body, body
-    print(f"    batch: {body!r}")
+    joined = "".join(strip_name_prefix(s.text, name) for s in result.steps if not s.typing)
+    assert joined == result.reply, f"显示丢字: {joined!r} != {result.reply!r}"
+    h = engine.history
+    assert len(h) == 2, f"历史条数 {len(h)}"
+    assert h[1]["content"] == f"[mmt_chat] {result.reply}"
+    print(f"    chat: {result.reply!r} → {len(result.steps)} 步骤")
 
 
 # ----------------------------------------------------------------------------
-# stream: 逐 token 气泡 + flush 遗留, 拼回无损
+# chat + 动作括号: 显示剥离括号, 历史保留原文（宁缺勿错, 不丢舞台指示）
 # ----------------------------------------------------------------------------
 
-def _t_stream():
-    engine = _engine()
+def _t_chat_bracket():
+    engine = _engine(CHAT_BRACKET)
+    result = engine.agent_turn("我们去天台吧？")
     name = engine.current_character.display_name
-    bubbles: list[str] = []
-    for bubble, _delay in engine.send_message_stream("我们去天台吧？"):
-        bubbles.append(bubble)
-    joined = "".join(strip_name_prefix(b, name) for b in bubbles)
-    # 动作括号在 momotalk 处理中被剥离, 其余应逐字无损
-    assert joined == "今天天气真不错呢！！我们一起去天台吧？？", f"流式丢字: {joined!r}"
-    print(f"    stream {len(bubbles)}泡: {joined!r}")
+    shown = "".join(strip_name_prefix(s.text, name) for s in result.steps if not s.typing)
+    assert shown == _strip_action_brackets(result.reply), f"括号剥离不符: {shown!r}"
+    assert "轻笑" not in shown, "显示不应含动作括号内容"
+    assert "轻笑" in engine.history[1]["content"], "历史应保留原文舞台指示"
+    print(f"    chat_bracket: 显示去括号, 历史留原文 → {shown!r}")
+
+
+# ----------------------------------------------------------------------------
+# inspect → chat: inspect 静默成功, 结果回灌 LLM, 历史只记可见输出
+# ----------------------------------------------------------------------------
+
+def _t_inspect_then_chat():
+    inspect = {"action": "mmt_inspect_character", "payload": {"character_id": INSPECT_TARGET}}
+    engine = _engine(inspect, CHAT)
+    result = engine.agent_turn("那个便利屋68的社长是个什么样的角色？")
+    assert result.action == "mmt_chat"
+    trace = engine.trace
+    assert len(trace) == 2, f"轨迹应含 inspect + chat 两步: {trace}"
+    assert trace[0]["action"] == "mmt_inspect_character"
+    assert trace[1]["action"] == "mmt_chat"
+    # inspect 结果回灌到了 LLM（第二次调用的最后一条 user）
+    fed = engine.llm.snapshots[1][-1]["content"]
+    assert fed.startswith(f"[已查阅 {INSPECT_TARGET} 资料"), f"回灌内容不符: {fed[:60]!r}"
+    # 历史只有用户可见输出（inspect 静默不入历史）
+    h = engine.history
+    assert len(h) == 2 and h[1]["content"].startswith("[mmt_chat]")
+    print(f"    inspect→chat: 轨迹 2 步, 回灌 {len(fed)} 字符, 历史仅可见输出")
+
+
+# ----------------------------------------------------------------------------
+# parse 无效: feedback 回灌 → LLM 修正重试
+# ----------------------------------------------------------------------------
+
+def _t_parse_error_retry():
+    bad = {"action": "mmt_teleport", "payload": {}}
+    engine = _engine(bad, CHAT)
+    result = engine.agent_turn("我们去天台吧？")
+    assert result.action == "mmt_chat"
+    fed = engine.llm.snapshots[1][-1]["content"]
+    assert "动作无效" in fed and "未知动作" in fed, f"回灌不符: {fed!r}"
+    print(f"    parse_error: 回灌 {len(fed)} 字符 → LLM 修正重试成功")
+
+
+# ----------------------------------------------------------------------------
+# 执行拒绝（自检守卫）: MmtExecError 回灌 → LLM 修正重试
+# ----------------------------------------------------------------------------
+
+def _t_exec_error_retry():
+    self_inspect = {"action": "mmt_inspect_character", "payload": {"character_id": CHARACTER}}
+    engine = _engine(self_inspect, CHAT)
+    result = engine.agent_turn("我是什么样的人？")
+    assert result.action == "mmt_chat"
+    fed = engine.llm.snapshots[1][-1]["content"]
+    assert "不要查自己" in fed, f"自检回灌不符: {fed!r}"
+    print(f"    exec_error(自检): 回灌 {len(fed)} 字符 → LLM 修正重试成功")
+
+
+# ----------------------------------------------------------------------------
+# trigger: 成功 → bond_story=True → 历史记动作名
+# ----------------------------------------------------------------------------
+
+def _t_trigger():
+    trig = {"action": "mmt_trigger_bond_story", "payload": {"reason": "气氛到了"},
+            "reply": "遥香有件事想和你说……"}
+    engine = _engine(trig)
+    result = engine.agent_turn("我们今天做了好多事啊")
+    assert result.bond_story, "trigger 成功应置 bond_story=True"
+    assert result.action == "mmt_trigger_bond_story"
+    h = engine.history
+    assert h[1]["content"].startswith("[mmt_trigger_bond_story]"), h[1]["content"]
+    print(f"    trigger: bond_story=True → {h[1]['content']!r}")
 
 
 # ----------------------------------------------------------------------------
@@ -111,32 +188,37 @@ def _t_history():
         character_name="测试",
         history=[
             {"role": "user", "content": "之前说的"},
-            {"role": "assistant", "content": "好呀！！"},
+            {"role": "assistant", "content": "[mmt_chat] 好呀！"},
         ],
     )
     path = ROOT / "data" / "sessions" / "_smoke_session.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     session.to_json(path)
     try:
-        engine = _engine()
+        engine = MomoTalkEngine(ROOT / "config" / "characters", ScriptedLLM(CHAT))
         restored = engine.resume_session(path)
         assert len(restored.history) == 2, f"历史条数 {len(restored.history)}"
         assert engine.history_length == 2
-        # 恢复后继续对话, 历史前缀仍在（不会因 _process 问题丢消息）
-        processed = engine.send_message("继续说")
-        assert engine.history_length >= 4, f"继续对话后历史 {engine.history_length}"
+        # 恢复后继续对话, 历史前缀仍在（不会因 loop 丢消息）
+        result = engine.agent_turn("继续说")
+        assert result.action == "mmt_chat"
+        assert engine.history_length == 4, f"继续对话后历史 {engine.history_length}"
         assert "之前说的" in engine.history[0]["content"]
-        assert processed
+        assert engine.history[2]["content"] == "继续说"
         print(f"    history: 恢复 2 条 → 续聊 {engine.history_length} 条")
     finally:
         path.unlink(missing_ok=True)
 
 
 def main() -> None:
-    print(f"引擎冒烟（{CHARACTER} / stub LLM）")
+    print(f"引擎冒烟（{CHARACTER} / ScriptedLLM 全 JSON loop）")
     print("=" * 46)
-    check("batch 输出无损", _t_batch)
-    check("stream 逐 token 无损", _t_stream)
+    check("chat 步骤拼回无损", _t_chat)
+    check("chat 括号: 显示去括号/历史留原文", _t_chat_bracket)
+    check("inspect→chat 静默回灌", _t_inspect_then_chat)
+    check("parse 无效回灌重试", _t_parse_error_retry)
+    check("执行拒绝(自检)回灌重试", _t_exec_error_retry)
+    check("trigger→bond_story", _t_trigger)
     check("history 恢复 + 续聊无损", _t_history)
     print("=" * 46)
     if FAIL:
