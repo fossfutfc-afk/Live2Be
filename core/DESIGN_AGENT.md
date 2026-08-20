@@ -223,7 +223,7 @@ main.py:
 ### 不需要修改
 
 - `llm/client.py` — LLM 仍然輸出純文本
-- `parsing/dynamic_character_parser.py` — `SIG~expression_overrides` 只是透傳，已有機制直接支持
+- `core/parsing/dynamic_character_parser.py` — `SIG~expression_overrides` 只是透傳，已有機制直接支持
 - git commits: `da4d406 dynamic cp` ~ `40b6a87 gitignore`
 
 ---

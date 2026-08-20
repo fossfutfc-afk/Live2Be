@@ -183,7 +183,7 @@ Live2Be/
 ├── config/settings/relation/interperson.json ← 关系权重表
 ├── fetch/                                   ← IDE agent 引擎（命令层/动作/提示词）
 ├── web/                                     ← GUI 服务（FastAPI + 单页前端）
-├── ui/                                      ← 展示层（聊天/剧情显示策略）
+├── core/                                    ← 核心引擎（含 parsing 解析层 / ui 展示层 / mmt 动作化工作区）
 ├── contract/                                ← 动作契约（字段白名单/校验）
 └── data/                                    ← 运行时数据
 ```

@@ -24,7 +24,7 @@ from errors import Live2BeError
 from contract import APPROVAL_REQUIRED, AgentAction, DOMAIN_IDE, is_valid_identifier
 from fetch.actions.common import CHARACTER_FILE_SET, CHARACTER_FILES, MODE_MERGE
 from fetch.executor import ExecError, Executor
-from parsing.dynamic_character_parser import get_completeness, get_display_name
+from core.parsing.dynamic_character_parser import get_completeness, get_display_name
 
 #: 命令可用动词（其余 /xxx 交给上层: /exit 退出, /clear 清屏等）
 _COMMANDS = frozenset({"view", "edit"})

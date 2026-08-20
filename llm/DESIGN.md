@@ -169,7 +169,7 @@ llm/
     ├── momotalk_environment.md  ← 【MomoTalk 环境说明】（on_phone 文本）
     ├── momotalk_rules.md        ← 【MomoTalk 回复规则】
     ├── bond_story_rules.md      ← 【羁绊剧情 回复规则】
-    └── behavior_rules.md        ← 【回复要求】（parsing/dynamic_character_parser 用）
+    └── behavior_rules.md        ← 【回复要求】（core/parsing/dynamic_character_parser 用）
 ```
 
 > **Prompt 仓库**：长篇 prompt 从代码迁移为 md 文件（项目地基之一，见 CLAUDE.md 3.1.7）。

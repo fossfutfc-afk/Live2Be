@@ -123,7 +123,7 @@ prompt_fields / payload_schema）。Python 端是唯一执行引擎，但定义�
 
 ## 8. 下一步（MMT 动作化）
 
-- `parsing/relation_parser.py`：interperson 扁平权重表 → 权重→访问层级映射
+- `core/parsing/relation_parser.py`：interperson 扁平权重表 → 权重→访问层级映射
 - `core/mmt_actions.py`：`build_mmt_registry()` 注册 4 个动作
   `chat / inspect_character / send_media / trigger_bond_story`
 - `core/mmt_executor.py`：按 approval=auto 执行动作，reply 承载对白

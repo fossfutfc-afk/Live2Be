@@ -16,7 +16,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from parsing.dynamic_character_parser import get_display_name
+from core.parsing.dynamic_character_parser import get_display_name
 
 # 别名切分符: 中英文逗号 / 顿号 / 分号 / 斜杠
 _NAME_SPLIT_RE = re.compile(r"[,，、;；/｜|]")

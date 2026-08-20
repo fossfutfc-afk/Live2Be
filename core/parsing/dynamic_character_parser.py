@@ -26,7 +26,7 @@
        三层以上的嵌套在 Prompt 中缩进过深。建议此类内容保持 ≤2 层嵌套。
 
 用法:
-    from parsing.dynamic_character_parser import CharacterLoader
+    from core.parsing.dynamic_character_parser import CharacterLoader
 
     loader = CharacterLoader("config/characters")
     chars = loader.list_characters()          # {"igusa_haruka": "伊草 遥香"}

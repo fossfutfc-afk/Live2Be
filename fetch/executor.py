@@ -37,7 +37,7 @@ from errors import Live2BeError
 from contract import AgentAction
 from fetch.actions.common import CHARACTER_FILES, MODE_MERGE
 from fetch.actions.search import WIKI_ALIASES
-from parsing.dynamic_character_parser import get_completeness, get_display_name
+from core.parsing.dynamic_character_parser import get_completeness, get_display_name
 
 # 配置路径（相对项目根）
 CHARACTERS_DIR = "config/characters"

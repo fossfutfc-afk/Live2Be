@@ -10,9 +10,9 @@
 
 from __future__ import annotations
 
-from ui.display import BondStoryOutput, IDEDisplayItem, IDEOutput, MomoTalkOutput
-from ui.streaming import LineBuffer, TypingDelay, simulate_typing
-from ui.text_processors import (
+from core.ui.display import BondStoryOutput, IDEDisplayItem, IDEOutput, MomoTalkOutput
+from core.ui.streaming import LineBuffer, TypingDelay, simulate_typing
+from core.ui.text_processors import (
     _process_for_momotalk,
     _split_for_momotalk,
     _strip_action_brackets,

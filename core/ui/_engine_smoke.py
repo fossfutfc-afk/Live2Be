@@ -11,13 +11,13 @@ history: resume_session          → 历史回放渲染无损
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from core.momotalk import MomoTalkEngine
-from parsing.dynamic_character_parser import CharacterLoader  # noqa: F401
-from ui.text_processors import strip_name_prefix
+from core.parsing.dynamic_character_parser import CharacterLoader  # noqa: F401
+from core.ui.text_processors import strip_name_prefix
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(__file__).resolve().parent.parent.parent
 CHARACTER = "igusa_haruka"
 
 # 含连续标点 + 动作括号的高危文本（回归: 修前会丢 "！" 或全标点段）
