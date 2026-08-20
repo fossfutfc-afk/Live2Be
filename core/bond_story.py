@@ -14,6 +14,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+from errors import err
 from llm.client import LLMClient
 from parsing.dynamic_character_parser import CharacterLoader, DynamicCharacter
 
@@ -69,7 +70,7 @@ class BondStoryEngine:
         UI 层负责逐字打字动画 + Enter 推进到下一段。
         """
         if self._current_char is None:
-            raise RuntimeError("尚未开始会话")
+            raise RuntimeError(err("NotInSession", "尚未开始会话"))
 
         from ui.display import BondStoryOutput
 

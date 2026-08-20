@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from errors import err
 from contract.constants import (
     DOMAIN_IDE, DOMAIN_MMT, DOMAIN_STORY,
     MAX_BASIS_COUNT, MAX_REPLY_LENGTH, MAX_SOURCE_COUNT, MAX_SUMMARY_LENGTH,
@@ -29,7 +30,7 @@ class ActionRegistry:
 
     def __init__(self, domain: str = ""):
         if not isinstance(domain, str) or not domain.strip():
-            raise ValueError("domain 必须是非空字符串")
+            raise ValueError(err("BadDomain", "domain 必须是非空字符串"))
         self.domain = domain
         self._specs: dict[str, ActionSpec] = {}
 
@@ -40,7 +41,7 @@ class ActionRegistry:
     def register(self, spec: ActionSpec) -> None:
         """注册一个动作类型。同名重复注册抛错。"""
         if spec.name in self._specs:
-            raise ValueError(f"动作已注册: {spec.name}")
+            raise ValueError(err("DuplicateAction", f"动作已注册: {spec.name}"))
         self._specs[spec.name] = spec
 
     def spec(self, name: str) -> ActionSpec | None:

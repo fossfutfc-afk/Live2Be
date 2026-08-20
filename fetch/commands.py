@@ -20,6 +20,7 @@ from typing import Any
 
 import yaml
 
+from errors import Live2BeError
 from contract import APPROVAL_REQUIRED, AgentAction, DOMAIN_IDE, is_valid_identifier
 from fetch.actions.common import CHARACTER_FILE_SET, CHARACTER_FILES, MODE_MERGE
 from fetch.executor import ExecError, Executor
@@ -29,8 +30,11 @@ from parsing.dynamic_character_parser import get_completeness, get_display_name
 _COMMANDS = frozenset({"view", "edit"})
 
 
-class CmdError(Exception):
-    """命令层拒绝/失败（直接给用户看原因, 不触发审批）。"""
+class CmdError(Live2BeError):
+    """命令层拒绝/失败（直接给用户看原因, 不触发审批）。
+
+    __str__ 自动产出 [commands.py][CmdError][message]。
+    """
 
 
 @dataclass(frozen=True)
