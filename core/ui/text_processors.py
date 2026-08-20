@@ -81,24 +81,28 @@ def _process_for_momotalk(text: str) -> list[str]:
 def split_reply_chunks(
     text: str,
     min_chars: int = 6,
-    max_chars: int = 18,
+    max_chars: int = 30,
     rng=None,
 ) -> list[str]:
     """字数+随机数切块 — 完整回复 → MomoTalk 显示气泡块列表。
 
-    策略:
-      1) 强标点（。！？…）切成原子句（标点贴回, 复用 _strong_split 语义）
-      2) 每块目标长度独立重掷 ∈ [min_chars, max_chars]; 原子句超过最大块长 →
-         在弱断点（，、,;；）处切, 无弱断点则按目标长度硬切
-      3) 过短碎片合并进邻块（复用 _merge_short_chunks）
+    语义（遇标点分条; 不分条则标点留在块内, 保持连贯）:
+      1) 强断点 。！？ → 必切, 标点保留块尾（一句话一条消息）
+      2) 省略号 … → 可分可不分, 切则保留（欲言又止, 独立一条也自然）
+      3) 逗号/顿号/分号 ，、,;； → 可分可不分, 切则**丢掉标点**
+         （分条消息本身就是停顿, 块尾不再挂逗号）
+      4) 切不切由「当前块长 ≥ 随机阈值 ∈ [min_chars, min_chars+4]」决定:
+         块 ≤5 字（如"老师，"）→ 不切, 逗号留在块内;
+         块 ≥10 字 → 必切; 中间段有弹性, 模拟真人发消息节奏
+      5) 硬上限 max_chars: 无标点长文字累积到上限强制切
+      6) 尾部 ≤4 字硬切碎片并入上一块
 
-    宁缺勿错: 块拼接 == 输入文本, 标点/字符一个不丢。
-    与 _split_for_momotalk 的区别: 它固定 max_chars=25 且用于既有路径;
-    本函数每块目标随机化, 供非流式回复（全 JSON 动作 loop）逐块输出。
+    宁缺勿错: 除「切分处被丢弃的那个逗号」外, 块拼接 == 原文, 不丢字。
+    与 _split_for_momotalk 的区别: 它固定 max_chars=25 且保留逗号, 用于既有路径;
+    本函数供非流式回复（全 JSON 动作 loop）逐块输出。
     """
     rng = rng or random
-    text = _normalize_momotalk(text)
-    text = text.strip()
+    text = _normalize_momotalk(text).strip()
     if not text:
         return []
 
@@ -111,14 +115,32 @@ def split_reply_chunks(
                 chunks.extend(split_reply_chunks(line, min_chars, max_chars, rng))
         return chunks
 
-    atoms = _merge_punct_segments(_strong_split(text))
     chunks: list[str] = []
-    for atom in atoms:
-        if len(atom) <= max_chars:
-            # 完整短句 → 整块, 不拆（标点已决定自然边界）
-            chunks.append(atom)
-            continue
-        chunks.extend(_split_long_atom(atom, min_chars, max_chars, rng))
+    buf = ""
+    for ch in text:
+        buf += ch
+        if ch in "。！？!?":
+            chunks.append(buf)                 # 必切, 标点保留
+            buf = ""
+        elif ch in "…":
+            if len(buf) >= rng.randint(min_chars, min_chars + 4):
+                chunks.append(buf)             # 切, 省略号保留
+                buf = ""
+            # else: 省略号留在块内, 继续
+        elif ch in _WEAK_PUNCT:
+            if len(buf) >= rng.randint(min_chars, min_chars + 4):
+                chunks.append(buf[:-1])        # 切, 丢逗号
+                buf = ""
+            # else: 逗号留在块内, 继续
+        else:
+            if len(buf) >= max_chars:
+                chunks.append(buf)             # 无标点硬切
+                buf = ""
+    if buf:
+        if len(buf) <= _FRAGMENT_MAX and chunks:
+            chunks[-1] += buf                  # 尾部碎片并入上一块
+        else:
+            chunks.append(buf)
     return chunks
 
 
@@ -216,55 +238,6 @@ def _split_at_weak_breaks(text: str, max_chars: int) -> list[str]:
 
 _WEAK_PUNCT = "，、,;；"
 _FRAGMENT_MAX = 4   # 尾部碎片阈值: ≤4 字的硬切碎片并入上一块
-
-
-def _last_weak_break(text: str) -> int | None:
-    """text 内最后一个弱断点下标（不含开头位, 避免块首孤立标点）; 无则 None。"""
-    for i in range(len(text) - 1, 0, -1):
-        if text[i] in _WEAK_PUNCT:
-            return i
-    return None
-
-
-def _split_long_atom(
-    atom: str,
-    min_chars: int,
-    max_chars: int,
-    rng,
-) -> list[str]:
-    """把超过 max_chars 的原子句切成若干块（字数+随机数）。
-
-    累积到目标长度 → 优先在块内最后一个弱断点（位置 ≥ min_chars）收口;
-    无合适弱断点 → 按目标长度硬切（孤立弱断点并入上一块, 不留在块首）。
-    每块产出 ≥ min_chars; 尾部碎片（≤4 字）并入上一块, 避免碎泡。
-    """
-    parts: list[str] = []
-    buf = ""
-    target = rng.randint(min_chars, max_chars)
-    for ch in atom:
-        buf += ch
-        if len(buf) < target:
-            continue
-        cut = _last_weak_break(buf)
-        if cut is not None and cut >= min_chars:
-            parts.append(buf[: cut + 1])   # 含弱断点
-            buf = buf[cut + 1:]
-        else:
-            # 无合适弱断点 → 按目标长度硬切
-            hard = len(buf)
-            if buf[0] in _WEAK_PUNCT and parts:
-                parts[-1] += buf[0]        # 孤立弱断点并入上一块, 不留在块首
-                buf = buf[1:]
-                hard -= 1
-            parts.append(buf[:hard])
-            buf = buf[hard:]
-        target = rng.randint(min_chars, max_chars)
-    if buf:
-        if len(buf) <= _FRAGMENT_MAX and parts:
-            parts[-1] += buf               # 尾部碎片并入上一块
-        else:
-            parts.append(buf)
-    return parts
 
 
 def _merge_short_chunks(chunks: list[str], max_chars: int) -> list[str]:
