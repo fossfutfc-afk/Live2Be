@@ -43,6 +43,7 @@ from llm.client import LLMClient
 from llm.prompts import load_prompt
 from llm.feedback import feedback
 from contract import AgentAction, build_schema
+from core.bond_progress import BondProgress
 from core.mmt.mmt_actions import build_mmt_registry
 from core.mmt.mmt_executor import (
     ExecResult,
@@ -142,11 +143,21 @@ class MomoTalkEngine:
         characters_root: str | Path,
         llm_client: LLMClient,
         interperson_path: str | Path | None = None,
+        affection_threshold: int = 5,
+        bond_progress: BondProgress | None = None,
     ):
         self.char_loader = CharacterLoader(characters_root)
         self.llm = llm_client
         self.registry = build_mmt_registry()
-        self.executor = MmtExecutor(characters_root, interperson_path)
+        # 羁绊触发门槛（默认 5 轮, 用户确认: 轮数门槛非情绪数值）; 传入同一实例
+        # 供 executor 读轮数 + 本引擎记录轮数, 保证门槛/记录一致
+        self.bond_progress = bond_progress or BondProgress()
+        self.executor = MmtExecutor(
+            characters_root,
+            interperson_path,
+            affection_threshold=affection_threshold,
+            bond_progress=self.bond_progress,
+        )
 
         self._current_char: DynamicCharacter | None = None
         self._system_prompt: str = ""
@@ -222,7 +233,13 @@ class MomoTalkEngine:
     # 公共 API — 对话（全 JSON 动作 loop）
     # ------------------------------------------------------------------
 
-    def agent_turn(self, user_input: str) -> TurnResult:
+    def agent_turn(
+        self,
+        user_input: str,
+        *,
+        system_note: str | None = None,
+        record_input: bool = True,
+    ) -> TurnResult:
         """一轮 agent 对话：LLM 动作循环, 直到用户可见输出 / 羁绊触发。
 
         循环内:
@@ -232,6 +249,11 @@ class MomoTalkEngine:
             → mmt_chat / mmt_send_media / mmt_trigger_bond_story 结束本轮
 
         步数耗尽仍未产出可见回复 → 抛 MmtLoopError（调用方展示/重试）。
+
+        system_note: 本轮额外系统注记（只进 LLM context, 不入历史）——用于
+            羁绊剧情结束后的手机收尾（core/ui/vn_cli.wrapup_after_vn）。
+        record_input: False 时不把 user_input 记入历史——自动收尾等系统触发轮
+            没有真实玩家输入, 不污染历史（只记 assistant 回复）。
         """
         if self._current_char is None:
             raise RuntimeError(err("NotInSession", "尚未开始会话"))
@@ -239,6 +261,10 @@ class MomoTalkEngine:
         self._trace = []
         messages = [{"role": "system", "content": self._system_prompt}]
         messages.extend(self._history)
+        # 羁绊进度参考（软门槛）: 轮数注入 LLM 作判断依据, 不入历史
+        messages.append({"role": "system", "content": self._bond_progress_note()})
+        if system_note:
+            messages.append({"role": "system", "content": system_note})
         messages.append({"role": "user", "content": user_input})
 
         for step in range(MAX_STEPS):
@@ -289,7 +315,7 @@ class MomoTalkEngine:
                 continue
 
             # 5) 用户可见输出 → 结束本轮
-            return self._finish_turn(action, exec_result, user_input)
+            return self._finish_turn(action, exec_result, user_input, record_input)
 
         raise MmtLoopError(f"单轮动作循环超过 {MAX_STEPS} 步仍未产出可见回复")
 
@@ -298,7 +324,8 @@ class MomoTalkEngine:
     # ------------------------------------------------------------------
 
     def _finish_turn(
-        self, action: AgentAction, exec_result: ExecResult, user_input: str
+        self, action: AgentAction, exec_result: ExecResult, user_input: str,
+        record_input: bool = True,
     ) -> TurnResult:
         """终结动作 → 渲染显示步骤 + 存档历史 + 组装 TurnResult。"""
         reply = (action.reply or "").strip()
@@ -307,13 +334,20 @@ class MomoTalkEngine:
         display = MomoTalkOutput(_process_for_momotalk, self._current_char.display_name)
         steps = display.publish_reply(reply)
 
-        # 历史: 每轮至少记动作名 + reply（可追溯 agent 干了什么）
-        self._history.append({"role": "user", "content": user_input})
+        # 历史: 每轮至少记动作名 + reply（可追溯 agent 干了什么）;
+        # record_input=False（自动收尾等系统轮）不记假 user 消息, 只记回复
+        if record_input:
+            self._history.append({"role": "user", "content": user_input})
         self._history.append({
             "role": "assistant",
             "content": f"[{action.action}] {reply}" if reply else f"[{action.action}]",
         })
         self._trim_history()
+
+        # 每完成一轮可见输出 → 该角色羁绊轮数 +1（触发轮本身不计门槛前置,
+        # 语义=「已积累的轮数」; 落盘跨会话累计, 见 core/bond_progress.py）
+        if self._current_char is not None:
+            self.bond_progress.record_turn(self._current_char.character_id)
 
         return TurnResult(
             ok=True,
@@ -322,6 +356,22 @@ class MomoTalkEngine:
             action=action.action,
             payload=action.payload,
             bond_story=(action.action == "mmt_trigger_bond_story"),
+        )
+
+    def _bond_progress_note(self) -> str:
+        """本轮羁绊进度参考注记（注入 LLM context, 不入历史）。
+
+        软门槛（2026-08-21 用户确认）: 轮数只是参考——AI 有最终裁决权,
+        剧情确有需要（如老师有急事）可提前触发; 程序只在首条消息兜底
+        （见 mmt_executor._execute_mmt_trigger_bond_story）。
+        """
+        rounds = self.bond_progress.rounds(self._char_id) if self._current_char else 0
+        threshold = self.executor.affection_threshold
+        return (
+            f"羁绊进度参考: 与该角色已累计对话 {rounds} 轮。"
+            f"一般建议至少积累 {threshold} 轮后再考虑触发羁绊剧情; "
+            "但轮数仅供参考——若剧情确有需要（如老师有急事、气氛已到）, "
+            "可不受轮数限制提前触发 mmt_trigger_bond_story。"
         )
 
     def _trim_history(self) -> None:

@@ -21,6 +21,7 @@ from core.mmt.mmt_preset import (
     select_character,
 )
 from core.ui.streaming import simulate_steps
+from core.ui.vn_cli import run_bond_story_vn, wrapup_after_vn
 
 
 # ---------------------------------------------------------------------------
@@ -62,6 +63,9 @@ def _chat_loop(engine: MomoTalkEngine) -> LoopResult:
             simulate_steps(result.steps)          # …打字指示 + 气泡, 依序渲染
             if result.bond_story:
                 print(f"\n[系统] 与 {display_name} 进入了羁绊剧情时刻……")
+                completed = run_bond_story_vn(engine)   # VN 循环; 【完】/b 退出后回到正常对话
+                if completed:
+                    wrapup_after_vn(engine)   # 剧情走到【完】→ AI 就剧情在手机上回几段话
             print()  # 回复结束，额外空行
         except Exception as e:
             print(f"\n[系统] 对话失败: {e}")

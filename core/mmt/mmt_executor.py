@@ -10,8 +10,8 @@ ExecResult(ok=True, message=回灌给 LLM 的内容)；不可执行抛 MmtExecEr
     mmt_inspect_character    深挖后备: 按 interperson 权重分级读目标资料
                              （自检拒绝 / 无记录拒绝 / 1=profile 2=+personality 3=+experience）
     mmt_send_media           图片发送占位——媒体管线未接入, 仅回灌确认
-    mmt_trigger_bond_story   bool 触发判定——算法好感度门槛 + LLM 决策,
-                             true 切换羁绊剧情模式, false 拒绝继续聊
+    mmt_trigger_bond_story   触发判定——软门槛（轮数参考注入 LLM, AI 有裁决权）,
+                             程序只兜底首条消息; true 切换羁绊剧情模式
 
 信息架构（v2 五层认知, 与 mmt_actions 一致）:
     L0 自我层 / L1 人际层（自表条目注入, self_entry_to_prompt）/ L2 硬知识 / L3 深挖层。
@@ -22,15 +22,16 @@ ExecResult(ok=True, message=回灌给 LLM 的内容)；不可执行抛 MmtExecEr
     - 自检防护（双重）: 本文件抛 MmtExecError 代码级报错 + mmt_actions schema 提示。
     - 无记录≠不认识: 无记录=素不相识（可耳闻）, inspect 拒绝但可凭知识回答。
     - 自表条目注入: self_entry_to_prompt 生成 L1 注入文本, 由 momotalk 拼进 system prompt。
-    - 触发 bool: 算法好感度（_affection_score, 规划中）+ LLM 决策; 好感度未达门槛拒绝。
+    - 触发 bool: 轮数参考（_affection_score, 已接入 bond_progress）+ LLM 决策;
+      软门槛——AI 可提前触发（老师有急事等剧情需要）, 程序只兜底首条消息（0 轮）。
     - 人际层工具（load_interperson / resolve_access_level / self_entry_to_prompt）
       当前内联在本文件, 待 core/parsing/relation_parser.py 落地后移入。
     - 错误统一走 MmtExecError（Live2BeError 子类）, 由调用方捕获回灌。
 
 TODO（后续 session）:
     - core/parsing/relation_parser.py: 移入人际层工具
-    - core/affection.py: _affection_score 接入真实好感度系统, 门槛生效
     - 媒体管线（存储/查库/LLM 生成）落地后替换 _execute_mmt_send_media 的占位
+      （羁绊触发门槛已接入 core/bond_progress.py 轮数, 2026-08-21）
 """
 
 from __future__ import annotations
@@ -41,6 +42,7 @@ from pathlib import Path
 
 from errors import Live2BeError
 from contract import AgentAction, DOMAIN_MMT
+from core.bond_progress import BondProgress
 from core.parsing.dynamic_character_parser import (
     CharacterLoader,
     DynamicCharacter,
@@ -134,15 +136,18 @@ class MmtExecutor:
         self,
         characters_root: str | Path,
         interperson_path: str | Path | None = None,
-        affection_threshold: int = 0,
+        affection_threshold: int = 5,
+        bond_progress: BondProgress | None = None,
     ):
         self.char_loader = CharacterLoader(characters_root)
         self.interperson_path = (
             Path(interperson_path) if interperson_path
             else Path(DEFAULT_INTERPERSON_PATH)
         )
-        # 羁绊触发好感度门槛（affection.py 规划中, 默认 0 = 仅 LLM 决策）
+        # 羁绊触发参考轮数（默认 5）——软门槛: 注入 LLM 作参考建议, 不硬拦截;
+        # 程序只在首条消息（0 轮）兜底拒绝。见 core/bond_progress.py。
         self.affection_threshold = affection_threshold
+        self.bond_progress = bond_progress or BondProgress()
         self.current_char: DynamicCharacter | None = None
 
     # ------------------------------------------------------------------
@@ -258,10 +263,14 @@ class MmtExecutor:
         if self.current_char is None:
             raise MmtExecError("尚未进入会话, 无法触发羁绊剧情")
 
-        # 算法好感度门槛（_affection_score 规划中, 当前恒 0 放行 = 仅 LLM 决策）
-        if self._affection_score() < self.affection_threshold:
+        # 软门槛（2026-08-21 用户确认）: 轮数只是参考——已由 momotalk 每轮注入
+        # 「羁绊进度参考」注记, AI 有最终裁决权, 剧情需要可提前触发。
+        # 程序只兜底极端: 门槛开启且首条消息（0 轮）→ 拒绝, 刚认识就进剧情不合理。
+        score = self._affection_score()
+        if self.affection_threshold > 0 and score < 1:
             raise MmtExecError(
-                "羁绊剧情暂不触发——好感度未达门槛; 继续聊天积累感情即可"
+                f"羁绊剧情暂不触发——你们才刚刚开始交谈（已 {score} 轮）; "
+                "先聊几句, 让故事自然发展"
             )
 
         reason = action.payload["reason"]
@@ -276,8 +285,11 @@ class MmtExecutor:
     # ==================================================================
 
     def _affection_score(self) -> int:
-        """当前好感度（算法层, 规划中）。
+        """当前羁绊进度 = 与该角色的累计对话轮数。
 
-        TODO: core/affection.py 落地后接入真实好感度系统, 门槛校验才真正生效。
+        方法名保留历史命名; 实际读 core/bond_progress.py 的轮数（客观计数,
+        非情绪数值）。无当前角色 → 0。门槛校验读它真实生效。
         """
-        return 0
+        if self.current_char is None:
+            return 0
+        return self.bond_progress.rounds(self.current_char.character_id)
