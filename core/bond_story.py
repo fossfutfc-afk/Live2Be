@@ -5,11 +5,14 @@
     - 不断句（段落为单位，非气泡）
     - 不加 [名字]: 前缀（UI 层单独显示角色名）
 
-VN 场景结构（收敛多分支, 2026-08-21 用户确认）:
-    每场景 = 叙事段落 + 可选的【选择】选项块 + 可选的【完】收尾。
-    选项收敛到同一主线——无论玩家选哪个, 剧情走向同一结局, 只影响
-    紧接着的对白语气/细节（减轻 LLM 维护发散状态的负担）。
-    bond_story_rules.md 约束 LLM 按此格式输出; _parse_scene 解析。
+场景契约（2026-08-22 JSON 契约化, 用户拍板）:
+    每场景 = 单个 story_scene 动作 JSON: {paragraphs: [str], choices: [str], is_end: bool}。
+    LLM 直接输出场景 JSON——contract.py 既规范输出也规范处理; 选项收敛到同一主线
+    （无论选哪个, 剧情走向同一结局, 只影响紧接着的对白语气/细节）。
+    BondScene 是契约解析后的程序侧结构; to_dict/from_dict 是序列化唯一路径——
+    **一个解析器两用**: 运行时解析 LLM 输出 + 读存档 json[] 回放（DESIGN_BOND_STORY.md）。
+    双空格/【选择】/【完】等自由文本标记解析已删除——结构由 JSON 字段强制。
+    行为规则在 llm/prompts/bond_story_rules.md; 契约 schema 由 build_schema 注入。
 
 用法:
     from core.bond_story import BondStoryEngine
@@ -22,13 +25,16 @@ VN 场景结构（收敛多分支, 2026-08-21 用户确认）:
 
 from __future__ import annotations
 
+import json
 import logging
-import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from core.common import err
+from contract import build_schema
+from core.common import Live2BeError, err
+from core.story_actions import MAX_SCENE_RETRIES, build_story_registry
 from llm.client import LLMClient
+from llm.feedback import feedback
 from llm.prompts import load_prompt
 from core.parsing.dynamic_character_parser import CharacterLoader, DynamicCharacter
 from core.parsing.world_parser import DEFAULT_WORLD_PATH, load_world, world_to_prompt
@@ -38,18 +44,43 @@ logger = logging.getLogger(__name__)
 MAX_HISTORY_ROUNDS = 20
 
 
+class SceneLoopError(Live2BeError):
+    """单场景语义校验超过 MAX_SCENE_RETRIES 仍未通过（循环必须终结, 宁缺勿错）。"""
+
+
 @dataclass
 class BondScene:
-    """一个羁绊剧情场景的解析产物。
+    """一个羁绊剧情场景（story_scene 契约解析后的程序侧结构）。
 
-    paragraphs — 叙事段落（不含【选择】/【完】标记段）
+    paragraphs — 叙事段落（数组一项一段）
     choices    — 选项列表（空 = 无选项; 有选项时玩家选一个, 喂回下一场景）
-    is_end     — 是否剧情结束（出现【完】）
+    is_end     — 是否剧情结束（契约 is_end=true）
     """
 
     paragraphs: list[str] = field(default_factory=list)
     choices: list[str] = field(default_factory=list)
     is_end: bool = False
+
+    def to_dict(self) -> dict:
+        """序列化为存档/契约同构 dict（回放读档的反向）。"""
+        return {
+            "paragraphs": list(self.paragraphs),
+            "choices": list(self.choices),
+            "is_end": bool(self.is_end),
+        }
+
+    @classmethod
+    def from_dict(cls, raw: dict | None) -> "BondScene":
+        """宽松解析 dict → BondScene（运行时契约解析与回放读档同一条路径）。
+
+        逐字段 .get 容错 + 过滤非 str 项 + is_end 缺省 False——宁缺勿错,
+        坏数据不 raise, 只降级为空场景。
+        """
+        if not isinstance(raw, dict):
+            return cls()
+        paras = [p for p in raw.get("paragraphs", []) if isinstance(p, str)]
+        choices = [c for c in raw.get("choices", []) if isinstance(c, str)]
+        return cls(paragraphs=paras, choices=choices, is_end=bool(raw.get("is_end", False)))
 
 
 class BondStoryEngine:
@@ -62,6 +93,7 @@ class BondStoryEngine:
     def __init__(self, characters_root: str | Path, llm_client: LLMClient):
         self.char_loader = CharacterLoader(characters_root)
         self.llm = llm_client
+        self.registry = build_story_registry()
         self._current_char: DynamicCharacter | None = None
         self._system_prompt: str = ""
         self._history: list[dict[str, str]] = []
@@ -80,6 +112,8 @@ class BondStoryEngine:
             system_prompt += "\n\n" + world_chunk
 
         system_prompt += "\n\n" + load_prompt("bond_story_rules")
+        # 场景契约 schema（story_scene 动作）——momotalk 同款注入, LLM 看到字段约束
+        system_prompt += "\n\n可用动作 schema:\n" + build_schema(self.registry)
 
         self._current_char = char
         self._system_prompt = system_prompt
@@ -92,56 +126,23 @@ class BondStoryEngine:
     # 对话
     # ------------------------------------------------------------------
 
-    def send_vn_stream(self, user_input: str):
-        """流式模式：yield (paragraph_text, is_last) 元组。
-
-        与 MomoTalk 不同：不去括号、不断句、不加前缀。
-        UI 层负责逐字打字动画 + Enter 推进到下一段。
-        """
-        if self._current_char is None:
-            raise RuntimeError(err("NotInSession", "尚未开始会话"))
-
-        from core.ui.display import BondStoryOutput
-
-        messages = self.llm.format_messages(
-            system_prompt=self._system_prompt,
-            user_message=user_input,
-            history=self._history if self._history else None,
-        )
-
-        display = BondStoryOutput()
-
-        full_text = ""
-        for token in self.llm.chat_stream(messages, temperature=0.8, max_tokens=1024):
-            full_text += token
-            display.feed(token)
-
-        paragraphs = display.flush()
-        for i, para in enumerate(paragraphs):
-            yield para, i == len(paragraphs) - 1
-
-        self._history.append({"role": "user", "content": user_input})
-        self._history.append({"role": "assistant", "content": full_text})
-        self._trim_history()
-
     def send_vn_scene(
         self,
         user_input: str,
-        max_tokens: int = 1024,
+        max_tokens: int = 1536,
         system_note: str | None = None,
     ) -> BondScene:
         """结构化场景 API：单次 LLM 调用 → BondScene（段落 + 选项 + 是否结束）。
 
-        与 send_vn_stream 的区别: 解析【选择】选项块与【完】收尾标记,
-        返回可驱动的结构（VN CLI 靠它出选项、判定剧情结束）。
+        LLM 直接输出 story_scene 契约 JSON（json_object 模式, 内部已有 3 次语法
+        自纠错）; 外层再做语义校验重试（registry.parse 无效 → feedback 回灌,
+        最多 MAX_SCENE_RETRIES 次）, 耗尽抛 SceneLoopError（宁缺勿错: 循环必须终结）。
 
         system_note: 本轮系统注记（只进 context 不入历史, 最近位置最醒目）——
         双层收尾机制用: 轮数提醒 / 达上限建议收尾。None = 不注入。
         """
         if self._current_char is None:
             raise RuntimeError(err("NotInSession", "尚未开始会话"))
-
-        from core.ui.display import BondStoryOutput
 
         if system_note:
             # 手动组装: system + history + system_note(最近) + user
@@ -157,67 +158,36 @@ class BondStoryEngine:
                 history=self._history if self._history else None,
             )
 
-        display = BondStoryOutput()
-        full_text = ""
-        for token in self.llm.chat_stream(messages, temperature=0.8, max_tokens=max_tokens):
-            full_text += token
-            display.feed(token)
+        for attempt in range(MAX_SCENE_RETRIES):
+            try:
+                response = self.llm.chat(
+                    messages, temperature=0.8, max_tokens=max_tokens,
+                    response_format="json_object",
+                )
+            except Exception as e:
+                logger.warning("LLM 调用失败（第 %d 次）: %s", attempt, e)
+                feedback(messages, f"LLM 调用失败: {e}\n请重试。")
+                continue
+            messages.append({"role": "assistant", "content": str(response)})
 
-        scene = self._parse_scene(full_text)
+            action, result = self.registry.parse(response)
+            if result.is_valid:
+                break
+            feedback(
+                messages,
+                f"动作无效: {'; '.join(result.errors)}",
+                "请严格按 schema 重新输出单个 story_scene 动作 JSON。",
+            )
+        else:
+            raise SceneLoopError(
+                f"单场景语义校验超过 {MAX_SCENE_RETRIES} 次仍未通过"
+            )
 
         self._history.append({"role": "user", "content": user_input})
-        self._history.append({"role": "assistant", "content": full_text})
+        self._history.append({"role": "assistant", "content": json.dumps(
+            action.payload, ensure_ascii=False, separators=(",", ":"))})
         self._trim_history()
-        return scene
-
-    # ------------------------------------------------------------------
-    # 场景解析
-    # ------------------------------------------------------------------
-
-    @staticmethod
-    def _parse_scene(text: str) -> BondScene:
-        """纯函数: 流式文本 → BondScene。
-
-        逐行容错解析（2026-08-22 重写）: 模型分隔段落的换行不一致
-        （\n\n、\n、'  \\n' 都出现过），按双换行切段会让【选择】/【完】
-        标记被埋进叙事段里永远检测不到——改为逐行识别标记:
-          - 行「【完】」→ is_end
-          - 行「【选择】」→ 进入选项模式, 后续「数字. xxx」行为选项
-          - 其余 → 叙事行, 空行/标记行=段落边界（叙事行跨行并入同段）
-        """
-        scene = BondScene()
-        paragraphs: list[list[str]] = [[]]
-        in_choices = False
-
-        for raw_line in text.split("\n"):
-            line = raw_line.strip()
-            if not line:
-                if paragraphs[-1]:
-                    paragraphs.append([])      # 空行 = 段落边界
-                continue
-            if line == "【完】":
-                in_choices = False
-                if paragraphs[-1]:
-                    paragraphs.append([])
-                scene.is_end = True
-                continue
-            if line == "【选择】":
-                in_choices = True
-                if paragraphs[-1]:
-                    paragraphs.append([])
-                continue
-            m = re.match(r"^(\d{1,2})[.、．]\s*(.+)$", line)
-            if in_choices and m:
-                scene.choices.append(m.group(2).strip())
-                continue
-            if in_choices:
-                in_choices = False             # 选项块后接叙事 → 退出选项模式
-                if paragraphs[-1]:
-                    paragraphs.append([])
-            paragraphs[-1].append(line)
-
-        scene.paragraphs = ["\n".join(p) for p in paragraphs if p]
-        return scene
+        return BondScene.from_dict(action.payload)
 
     # ------------------------------------------------------------------
     # 属性

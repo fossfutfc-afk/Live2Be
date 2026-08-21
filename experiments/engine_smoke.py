@@ -238,34 +238,33 @@ def _t_trigger_threshold():
 
 
 # ----------------------------------------------------------------------------
-# bond_scene: _parse_scene 纯函数 — 段落 / 选项 / 【完】结构
+# bond_scene: BondScene.to_dict/from_dict 往返 — 段落 / 选项 / is_end 结构
 # ----------------------------------------------------------------------------
 
 def _t_bond_scene():
-    from core.bond_story import BondStoryEngine
+    from core.bond_story import BondScene
 
-    text = (
-        "遥香坐在天台边缘，风吹过她的发梢。\n"
-        "（她抬头看向你，欲言又止）\n\n"
-        "【选择】\n"
-        "1. 陪她坐一会儿\n"
-        "2. 问她怎么了\n\n"
-        "（她微微一笑，靠在你肩上）\n\n"
-        "【完】"
-    )
-    scene = BondStoryEngine._parse_scene(text)
+    scene = BondScene.from_dict({
+        "paragraphs": ["遥香坐在天台边缘……", "（她微微一笑，靠在你肩上）"],
+        "choices": ["陪她坐一会儿", "问她怎么了"],
+        "is_end": True,
+    })
     assert len(scene.paragraphs) == 2, f"段落数 {len(scene.paragraphs)}"
-    assert scene.paragraphs[0].startswith("遥香坐在天台边缘"), scene.paragraphs[0]
-    assert scene.paragraphs[1].startswith("（她微微一笑"), scene.paragraphs[1]
     assert scene.choices == ["陪她坐一会儿", "问她怎么了"], scene.choices
     assert scene.is_end
-    print(f"    bond_scene: {len(scene.paragraphs)} 段 + {len(scene.choices)} 选项 + 【完】")
+    back = BondScene.from_dict(scene.to_dict())
+    assert back == scene, "to_dict/from_dict 往返应相等"
+    print(f"    bond_scene: {len(scene.paragraphs)} 段 + {len(scene.choices)} 选项 + is_end")
 
-    # 无选项无完: 纯段落场景（自由输入推进路径）
-    plain = BondStoryEngine._parse_scene("她静静地看着你。")
+    # 宽松容错: 缺字段 / 混入非 str / 无 is_end → 降级不 raise
+    plain = BondScene.from_dict({"paragraphs": ["她静静地看着你。"]})
     assert plain.paragraphs == ["她静静地看着你。"]
     assert not plain.choices and not plain.is_end
-    print("    bond_scene: 纯段落场景 → 无选项无完")
+    robust = BondScene.from_dict({"paragraphs": ["好", 42, None], "choices": ["A", 1]})
+    assert robust.paragraphs == ["好"] and robust.choices == ["A"], robust
+    empty = BondScene.from_dict(None)
+    assert not empty.paragraphs and not empty.is_end
+    print("    bond_scene: 纯段落场景 + 坏数据降级（宁缺勿错）")
 
 
 # ----------------------------------------------------------------------------
