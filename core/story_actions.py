@@ -1,23 +1,28 @@
 """STORY 域动作 — 羁绊剧情（Bond Story）场景契约。
 
-动作集（v1, 单一动作 APPROVAL_AUTO）:
-    story_scene   一个剧情场景（叙事段落 + 选项 + 是否收尾）
+动作集（v2, 双动作全部 APPROVAL_AUTO）:
+    story_scene   中段场景（叙事段落 + 选项, is_end 隐含 False）
+    story_end     收尾场景（叙事段落, 无选项, is_end 隐含 True）
 
 与 MMT 域的关系: momotalk 用 mmt_ 动作在手机聊天里决策; 切进羁绊剧情后,
-VN 每场景就是一条 story_scene——纯输出契约, 程序不执行任何副作用,
-只解析 → 渲染 → 存档。契约 JSON 的副产物是存档 json[]（一解析器两用:
-运行时解析 LLM 输出 + 读存档回放）, 见 core/DESIGN_BOND_STORY.md。
+VN 每场景就是一条 story_scene 或 story_end——纯输出契约, 程序不执行任何
+副作用, 只解析 → 渲染 → 存档。契约 JSON 的副产物是存档 json[]（一解析器
+两用: 运行时解析 LLM 输出 + 读存档回放）, 见 core/DESIGN_BOND_STORY.md。
 
-设计决策:
+设计决策（v2 双核升级, 2026-08-22 用户拍板）:
+    - **动作集拆分**: 收尾成为一等动作 story_end, 结构上保证「收尾必无选项」
+      ——is_end 不再由字段携带, 而由动作类型推导（story_scene 隐含 False,
+      story_end 隐含 True）。删 validate 软校验钩子, 跨字段一致性成为结构性
+      保证。story_end 的 payload 带非空 choices 会被 parse 硬拒绝（含 nudge
+      「请改用 story_scene」）。
+    - **残留 is_end 迁移容错**: story_scene 里残留的 is_end 字段被白名单静默
+      丢弃（当作中段继续, 双层兜底照常兜住）——宁缺勿错不过度拒绝。
     - prompt_fields = {action, payload}——无 summary: 场景自身即完整输出,
       让 LLM 额外写一句话说明是纯浪费 token。
-    - payload = {paragraphs, choices, is_end}, 与 core/bond_story.BondScene
-      一一对应; parse_payload 只做机器侧容错 + 类型硬校验（抛 ContractError）,
-      跨字段一致性（is_end=true 时 choices 必须为空）走软校验 validate 钩子。
+    - payload 与 core/bond_story.BondScene 一一对应; parse_payload 只做机器侧
+      容错 + 类型硬校验（抛 ContractError）。
     - 机器侧容错（仿 registry._normalize_str_list）: LLM 偶发把单段写成裸字符串
       自动包成单元素列表; choices 超 3 截断——宁缺勿错但不过度拒绝。
-    - is_end 是唯一的收尾信号（替代旧文本标记【完】）——模型不再需要在自由
-      文本里夹特殊标记, 结构由 JSON 字段强制。
 
 注意: 绑定故事规则的长 prompt 在 llm/prompts/bond_story_rules.md, 这里只管 schema。
 """
@@ -31,22 +36,20 @@ from contract import (
     ActionSpec,
     APPROVAL_AUTO,
     ContractError,
-    ValidationResult,
 )
 
 # 选项数量上限（收敛分支: 至多 3 个, 全部收敛同一主线）
 MAX_SCENE_CHOICES = 3
 
-# 单场景语义校验最大重试次数（llm.chat(json_object) 内部另有 3 次语法自纠错）
+# 单场景解析/执行最大重试次数（llm.chat(json_object) 内部另有 3 次语法自纠错）
 MAX_SCENE_RETRIES = 3
 
 
-def parse_story_scene(payload: dict[str, Any]) -> dict[str, Any]:
-    """story_scene payload 白名单校验 + 机器侧容错（硬错误抛 ContractError）。
+def _parse_paragraphs(payload: dict[str, Any]) -> list[str]:
+    """必填 paragraphs 白名单校验 + 机器侧容错（硬错误抛 ContractError）。
 
-    返回 {paragraphs: [str], choices: [str], is_end: bool}。
+    Returns: 至少 1 个非空段落组成的列表（strip 后的干净 str）。
     """
-    # ---- paragraphs: 必填, 至少 1 个非空段落 ----
     raw_paras = payload.get("paragraphs")
     if isinstance(raw_paras, str):
         raw_paras = [raw_paras]          # 单段裸字符串 → 包成单元素列表
@@ -58,8 +61,14 @@ def parse_story_scene(payload: dict[str, Any]) -> dict[str, Any]:
             paragraphs.append(p.strip())
     if not paragraphs:
         raise ContractError("paragraphs 至少需要一个非空段落")
+    return paragraphs
 
-    # ---- choices: 可选, 字符串数组, 超上限截断（宁缺勿错不过度拒绝）----
+
+def _parse_choices(payload: dict[str, Any]) -> list[str]:
+    """可选 choices 白名单校验 + 机器侧容错（硬错误抛 ContractError）。
+
+    Returns: strip 后的干净 str 列表, 截断到 MAX_SCENE_CHOICES。
+    """
     raw_choices = payload.get("choices", [])
     if isinstance(raw_choices, str):
         raw_choices = [raw_choices]
@@ -71,23 +80,43 @@ def parse_story_scene(payload: dict[str, Any]) -> dict[str, Any]:
     for c in raw_choices:
         if isinstance(c, str) and c.strip():
             choices.append(c.strip())
-    choices = choices[:MAX_SCENE_CHOICES]
-
-    # ---- is_end: bool（接受 int 0/1 强转）----
-    is_end = payload.get("is_end", False)
-    if isinstance(is_end, int) and is_end in (0, 1):
-        is_end = bool(is_end)
-    if not isinstance(is_end, bool):
-        raise ContractError("is_end 必须是布尔值")
-
-    return {"paragraphs": paragraphs, "choices": choices, "is_end": is_end}
+    return choices[:MAX_SCENE_CHOICES]
 
 
-def validate_story_scene(payload: dict[str, Any]) -> ValidationResult:
-    """软校验（跨字段一致性）: 收尾场景不再出选项。"""
-    if payload.get("is_end") and payload.get("choices"):
-        return ValidationResult(errors=("is_end=true 时 choices 必须为空数组（收尾场景不再出选项）",))
-    return ValidationResult()
+def parse_story_scene(payload: dict[str, Any]) -> dict[str, Any]:
+    """story_scene payload 白名单校验 + 机器侧容错（硬错误抛 ContractError）。
+
+    返回 {paragraphs: [str], choices: [str]}——is_end 由动作类型推导
+    （story_scene 隐含 False）。残留 is_end 字段被白名单静默丢弃（迁移容错:
+    旧习惯模型仍输出 is_end 也当中段继续, 双层兜底照常兜住）。
+    """
+    paragraphs = _parse_paragraphs(payload)
+    choices = _parse_choices(payload)
+    return {"paragraphs": paragraphs, "choices": choices}
+
+
+def parse_story_end(payload: dict[str, Any]) -> dict[str, Any]:
+    """story_end payload 白名单校验 + 机器侧容错（硬错误抛 ContractError）。
+
+    返回 {paragraphs: [str]}——收尾无选项由动作类型结构性保证
+    （story_end 隐含 is_end=True）。**非空 choices 硬拒绝**（含 nudge 措辞
+    「请改用 story_scene」）; 空/缺省 choices 静默忽略。
+    """
+    paragraphs = _parse_paragraphs(payload)
+
+    raw_choices = payload.get("choices")
+    if raw_choices is None:
+        return {"paragraphs": paragraphs}
+    if isinstance(raw_choices, str):
+        raw_choices = [raw_choices]
+    if not isinstance(raw_choices, list):
+        raise ContractError("choices 必须是字符串数组（或单个字符串）")
+    if any(isinstance(c, str) and c.strip() for c in raw_choices):
+        raise ContractError(
+            "story_end 是收尾场景, 不出选项——choices 必须为空。"
+            "若剧情尚未到结尾, 请改用 story_scene 动作继续。"
+        )
+    return {"paragraphs": paragraphs}
 
 
 def build_story_registry() -> StoryActionRegistry:
@@ -98,9 +127,8 @@ def build_story_registry() -> StoryActionRegistry:
         parse_story_scene,
         APPROVAL_AUTO,
         prompt_fields=frozenset({"action", "payload"}),
-        validate=validate_story_scene,
         payload_schema=(
-            "payload 字段（story_scene 场景参数）:\n"
+            "payload 字段（story_scene 中段场景参数）:\n"
             "  paragraphs: 必填, 字符串数组——本场景的叙事段落列表。每项一个段落, 可含\n"
             "      动作描写（括号标注）, 可含长对白; 至少 1 段（空数组会被拒绝）。\n"
             "      段落之间不用手工加分隔符——数组天然分隔。\n"
@@ -108,12 +136,25 @@ def build_story_registry() -> StoryActionRegistry:
             "      不提供选项, sensei 将自由输入一句话推进）。选项要有分歧感、让 sensei\n"
             "      有参与感, 但必须收敛到同一主线——无论选哪个, 剧情都走向同一结局, 只\n"
             "      影响紧接着的对白语气与细节, 不要因选项分裂出不同剧情线。\n"
-            "  is_end: 布尔——是否结束剧情。**只在剧情走到自然结尾时**（约定达成、感情\n"
-            "      升温到位、道别告别、夜色收场等这一幕告一段落的时刻）才设 true, 且此时\n"
-            "      choices 必须为空数组 [], paragraphs 应为收尾段落。宁可及早收尾, 也不要\n"
-            "      无限续写新场景。其余情况一律 false。\n"
-            "约束: is_end=true 时 choices 必须为 []。字符串一律双引号。\n"
-            "      每次只输出一个 story_scene 动作。"
+            "约束: story_scene 是**中段场景**——剧情尚未结束, 不要在本动作里表达收尾\n"
+            "      （收尾用 story_end 动作）。字符串一律双引号。\n"
+            "      每次只输出一个动作。"
+        ),
+    ))
+    registry.register(ActionSpec(
+        "story_end",
+        parse_story_end,
+        APPROVAL_AUTO,
+        prompt_fields=frozenset({"action", "payload"}),
+        payload_schema=(
+            "payload 字段（story_end 收尾场景参数）:\n"
+            "  paragraphs: 必填, 字符串数组——收尾段落。剧情到了自然结尾时（约定达成、\n"
+            "      感情升温到位、道别告别、夜色收场等这一幕告一段落的时刻）使用本动作; \n"
+            "      至少 1 段（空数组会被拒绝）。\n"
+            "约束: story_end 是**收尾场景**——输出后剧情结束, 不再有选项、不再开新场景。\n"
+            "      choices 必须为空（结构上收尾无选项, 传非空会被拒绝）。宁可及早收尾, \n"
+            "      也不要无限续写新场景。字符串一律双引号。\n"
+            "      每次只输出一个动作。"
         ),
     ))
     return registry

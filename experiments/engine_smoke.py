@@ -268,6 +268,36 @@ def _t_bond_scene():
 
 
 # ----------------------------------------------------------------------------
+# story_executor: 双动作 story_scene→story_end, is_end 动作推导 + 引擎 trace
+# ----------------------------------------------------------------------------
+
+def _t_story_executor():
+    from core.bond_story import BondStoryEngine
+    from core.story_executor import StoryExecutor
+
+    scene = {"action": "story_scene", "payload": {
+        "paragraphs": ["遥香坐在天台边缘……"],
+        "choices": ["陪她坐一会儿", "问她怎么了"]}}
+    end = {"action": "story_end", "payload": {
+        "paragraphs": ["她笑了，靠在你肩上。今晚，谢谢你。"]}}
+    vn = BondStoryEngine(ROOT / "config" / "characters", ScriptedLLM(scene, end))
+    vn.start_session(CHARACTER)
+    assert isinstance(vn.executor, StoryExecutor), "引擎应持有 StoryExecutor（双核）"
+
+    s1 = vn.send_vn_scene("（开场）")
+    assert not s1.is_end and s1.choices == ["陪她坐一会儿", "问她怎么了"], s1
+    assert vn.trace[-1]["action"] == "story_scene" and vn.trace[-1]["exec_ok"] is True
+
+    s2 = vn.send_vn_scene("陪她坐一会儿")
+    assert s2.is_end, "story_end 动作应推导 is_end=True"
+    assert not s2.choices and s2.paragraphs == ["她笑了，靠在你肩上。今晚，谢谢你。"]
+    t = vn.trace
+    assert t[-1]["action"] == "story_end"
+    assert t[-1]["exec_message"] == "收尾场景已就绪, 剧情将结束"
+    print("    story_executor: story_scene→story_end, is_end 推导 + trace 2 场")
+
+
+# ----------------------------------------------------------------------------
 # history: resume_session 回放 + 继续对话不丢历史
 # ----------------------------------------------------------------------------
 
@@ -312,6 +342,7 @@ def main() -> None:
     check("trigger→bond_story", _t_trigger)
     check("trigger 轮数门槛(拒/过)", _t_trigger_threshold)
     check("bond_scene 解析(段/选项/完)", _t_bond_scene)
+    check("story 双动作 scene→end 推导+trace", _t_story_executor)
     check("history 恢复 + 续聊无损", _t_history)
     print("=" * 46)
     if FAIL:

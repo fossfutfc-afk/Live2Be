@@ -1,8 +1,8 @@
 """羁绊剧情 VN CLI — 段落渲染 + 选项交互 + 收敛分支循环 + 存档/回放。
 
 main.py 在 result.bond_story 触发后调用 run_bond_story_vn:
-    进入 VN 模式 → 逐场景推剧情（story_scene 契约 JSON）→ 玩家选选项 / 自由输入推进
-    → is_end 或 b 退出 → 回到 MomoTalk 正常对话。
+    进入 VN 模式 → 逐场景推剧情（story_scene/story_end 契约 JSON）→ 玩家选选项 / 自由输入推进
+    → story_end 收尾或 b 退出 → 回到 MomoTalk 正常对话。
     每场经 BondStorySave 原子落盘 data/saves/（一解析器两用: 存档可只读回放）。
 
 UI 行为:
@@ -140,10 +140,10 @@ def run_bond_story_vn(
     每场经 recorder（BondStorySave）原子落盘 data/saves/——契约 JSON 副产物,
     存档可被 replay_bond_story 只读回放（一解析器两用）。
 
-    双层收尾兜底（模型可能迟迟不把 is_end 设为 true）:
+    双层收尾兜底（模型可能迟迟不改用 story_end 动作收尾）:
         第 remind_rounds 场 → 注入系统注记「已推进 N 轮, 剩余约 M 轮」,
                               引导 AI 开始向结尾收束;
-        第 end_rounds   场 → 注入系统注记「已达篇幅上限, 本轮务必 is_end=true」;
+        第 end_rounds   场 → 注入系统注记「已达篇幅上限, 本轮务必改用 story_end 收尾」;
         超过 end_rounds+2 场仍不结束 → 程序兜底收尾（循环必须终结, 宁缺勿错）。
     生产默认 30/50; 调试可传 15/22（实验脚本与单测用）。
     max_tokens 透传给 send_vn_scene（长段落场景可调高）;
@@ -185,12 +185,12 @@ def run_bond_story_vn(
             system_note = (
                 f"（系统）剧情已推进 {i} 轮，剩余约 {end_rounds - i} 轮。"
                 "请开始把剧情向结尾收束——感情到位、约定达成、道别告别的时刻"
-                "就把 is_end 设为 true 结束剧情，不要再开新场景。"
+                "就改用 story_end 动作收尾结束剧情，不要再开新场景。"
             )
         elif i == end_rounds:
             system_note = (
-                "（系统）已达剧情篇幅上限。本轮请务必以 is_end=true 结束剧情，"
-                "不再输出选项（choices 留空数组）。"
+                "（系统）已达剧情篇幅上限。本轮请务必改用 story_end 动作收尾"
+                "结束剧情——收尾场景只有 paragraphs，不再输出选项。"
             )
 
         try:
