@@ -1,8 +1,9 @@
-"""羁绊剧情 VN CLI — 段落渲染 + 选项交互 + 收敛分支循环。
+"""羁绊剧情 VN CLI — 段落渲染 + 选项交互 + 收敛分支循环 + 存档/回放。
 
 main.py 在 result.bond_story 触发后调用 run_bond_story_vn:
-    进入 VN 模式 → 逐场景推剧情 → 玩家选选项 / 自由输入推进
-    → 【完】或 b 退出 → 回到 MomoTalk 正常对话。
+    进入 VN 模式 → 逐场景推剧情（story_scene 契约 JSON）→ 玩家选选项 / 自由输入推进
+    → is_end 或 b 退出 → 回到 MomoTalk 正常对话。
+    每场经 BondStorySave 原子落盘 data/saves/（一解析器两用: 存档可只读回放）。
 
 UI 行为:
     - 每段逐字打字（任意键跳过动画直接显示全文）
@@ -16,12 +17,16 @@ char_ms 可注入（测试传 0 跳过打字动画）。
 
 from __future__ import annotations
 
+import logging
 import sys
 import time
 
 from core.momotalk import MomoTalkEngine
-from core.bond_story import BondScene, BondStoryEngine
+from core.bond_story import BondScene, BondStoryEngine, SceneLoopError
+from core.bond_story_save import BondStorySave, load_save
 from core.ui.streaming import simulate_steps
+
+logger = logging.getLogger(__name__)
 
 # 打字节奏（毫秒/字）; 测试传 char_ms=0 跳过动画
 _PARA_CHAR_MS = 40
@@ -124,25 +129,29 @@ def run_bond_story_vn(
     char_ms: int = _PARA_CHAR_MS,
     remind_rounds: int = 30,
     end_rounds: int = 50,
-    max_tokens: int = 1024,
+    max_tokens: int = 1536,
     seed: str | None = None,
+    recorder: BondStorySave | None = None,
 ) -> bool:
-    """羁绊剧情 VN 模式：触发后进入, 【完】或 b 退出后回到 MomoTalk。
+    """羁绊剧情 VN 模式：触发后进入, is_end 或 b 退出后回到 MomoTalk。
 
     构造独立 BondStoryEngine（复用引擎的 char_loader.root + llm），
     首个种子 = 触发动作的 reason（有则旁白引述, 无则固定开篇语）。
+    每场经 recorder（BondStorySave）原子落盘 data/saves/——契约 JSON 副产物,
+    存档可被 replay_bond_story 只读回放（一解析器两用）。
 
-    双层收尾兜底（模型可能迟迟不输出【完】, 见 bond_story_rules 已知限制）:
+    双层收尾兜底（模型可能迟迟不把 is_end 设为 true）:
         第 remind_rounds 场 → 注入系统注记「已推进 N 轮, 剩余约 M 轮」,
                               引导 AI 开始向结尾收束;
-        第 end_rounds   场 → 注入系统注记「已达篇幅上限, 本轮务必【完】」;
-        超过 end_rounds+2 场仍未【完】 → 程序兜底收尾（循环必须终结, 宁缺勿错）。
+        第 end_rounds   场 → 注入系统注记「已达篇幅上限, 本轮务必 is_end=true」;
+        超过 end_rounds+2 场仍不结束 → 程序兜底收尾（循环必须终结, 宁缺勿错）。
     生产默认 30/50; 调试可传 15/22（实验脚本与单测用）。
     max_tokens 透传给 send_vn_scene（长段落场景可调高）;
-    seed 覆盖开篇语（默认从触发 reason 引述, 无则固定开篇）。
+    seed 覆盖开篇语（默认从触发 reason 引述, 无则固定开篇）;
+    recorder 注入存档器（None 时自动建, 建失败降级为不记录——写失败不阻断 VN）。
 
     Returns:
-        True  = 剧情走到【完】自然结束 / 程序兜底收尾（调用方可做手机收尾 wrapup_after_vn）
+        True  = 剧情 is_end 自然结束 / 程序兜底收尾（调用方可做手机收尾 wrapup_after_vn）
         False = 玩家 b / Ctrl-D 提前退出
     """
     char = engine.current_character
@@ -156,9 +165,16 @@ def run_bond_story_vn(
     print(f"  ── 羁绊剧情: {char.display_name} ──")
     print("═" * 40)
 
+    reason = _trigger_reason(engine)
     if seed is None:
-        reason = _trigger_reason(engine)
         seed = f"（旁白）基于「{reason}」……" if reason else "（旁白）故事开始了……"
+
+    if recorder is None:
+        try:
+            recorder = BondStorySave(char.character_id, char.display_name, reason)
+        except Exception as e:
+            logger.warning("存档创建失败, 本次不记录: %s", e)
+            recorder = None
 
     completed = False
     user_input = seed
@@ -169,26 +185,101 @@ def run_bond_story_vn(
             system_note = (
                 f"（系统）剧情已推进 {i} 轮，剩余约 {end_rounds - i} 轮。"
                 "请开始把剧情向结尾收束——感情到位、约定达成、道别告别的时刻"
-                "就用【完】结束剧情，不要再开新场景。"
+                "就把 is_end 设为 true 结束剧情，不要再开新场景。"
             )
         elif i == end_rounds:
             system_note = (
-                "（系统）已达剧情篇幅上限。本轮请务必以【完】结束剧情，"
-                "不再输出【选择】选项块。"
+                "（系统）已达剧情篇幅上限。本轮请务必以 is_end=true 结束剧情，"
+                "不再输出选项（choices 留空数组）。"
             )
-        scene = vn.send_vn_scene(user_input, max_tokens=max_tokens, system_note=system_note)
+
+        try:
+            scene = vn.send_vn_scene(user_input, max_tokens=max_tokens, system_note=system_note)
+        except (SceneLoopError, ValueError) as e:
+            # 模型连语义校验都过不了 → 中断收场（宁缺勿错, 循环必须终结）
+            print(f"[系统] 剧情生成失败: {e}")
+            closing = BondScene(paragraphs=["（这一章的羁绊剧情就此中断收场。）"], is_end=True)
+            _type_paragraph(closing.paragraphs[0], char_ms)
+            print("\n── 羁绊剧情结束 ──")
+            if recorder:
+                try:
+                    recorder.append(closing, None, user_input)
+                    recorder.finish(ended=True)
+                except Exception as ex:
+                    logger.warning("存档写入失败: %s", ex)
+            completed = True
+            break
+
         choice = simulate_vn_scene(scene, input_fn=input_fn, char_ms=char_ms)
-        if choice is None:                # 退出 / 【完】结束
-            completed = scene.is_end      # 区分: 【完】=剧情走到结尾; b=玩家退出
+        if recorder:
+            try:
+                recorder.append(scene, picked=choice, input_text=user_input)
+            except Exception as e:
+                logger.warning("存档写入失败, 跳过本轮: %s", e)
+
+        if choice is None:                # 退出 / is_end 结束
+            completed = scene.is_end      # 区分: is_end=剧情走到结尾; b=玩家退出
+            if recorder:
+                try:
+                    recorder.finish(ended=scene.is_end)
+                except Exception as e:
+                    logger.warning("存档收尾写入失败: %s", e)
             break
         user_input = choice
     else:
-        # for 循环耗尽 = 模型仍不肯【完】 → 程序兜底收尾（循环必须终结）
-        _type_paragraph("（夜色渐深，这一章的羁绊剧情就此落下帷幕。）", char_ms)
+        # for 循环耗尽 = 模型仍不 is_end → 程序兜底收尾（循环必须终结）
+        closing = BondScene(paragraphs=["（夜色渐深，这一章的羁绊剧情就此落下帷幕。）"], is_end=True)
+        _type_paragraph(closing.paragraphs[0], char_ms)
         print("\n── 羁绊剧情结束 ──")
+        if recorder:
+            try:
+                recorder.append(closing, None, user_input)
+                recorder.finish(ended=True)
+            except Exception as e:
+                logger.warning("存档写入失败: %s", e)
         completed = True
     print("[系统] 已退出羁绊剧情, 回到 MomoTalk。")
     return completed
+
+
+# ---------------------------------------------------------------------------
+# 只读回放（无 LLM, 纯渲染存档 scenes[]）
+# ---------------------------------------------------------------------------
+
+def _replay_scene(scene: BondScene, picked: str | None, char_ms: int = _PARA_CHAR_MS) -> None:
+    """渲染一个回放场景: 段落 + 选项（▶ 高亮当时选择）+ 结束语。"""
+    for para in scene.paragraphs:
+        _type_paragraph(para, char_ms)
+    if scene.choices:
+        print("\n")
+        for i, choice in enumerate(scene.choices, 1):
+            mark = "▶" if choice == picked else " "
+            print(f"  [{i}] {mark} {choice}")
+        if picked in scene.choices:
+            print("      ↑ 你当时的选择")
+    if scene.is_end:
+        print("\n── 羁绊剧情结束（回放）──")
+
+
+def replay_bond_story(save_path: str | Path, char_ms: int = _PARA_CHAR_MS) -> bool:
+    """只读回放一份羁绊剧情存档（无 LLM 调用, 纯渲染）。
+
+    Returns:
+        True  = 存档读取成功并完整回放
+        False = 存档缺失/损坏（宁缺勿错, 不崩）
+    """
+    data = load_save(save_path)
+    if not data:
+        print(f"[系统] 无法读取存档: {save_path}")
+        return False
+    name = data.get("character_name") or data.get("character_id") or "?"
+    status = "" if data.get("ended") else "（未完成）"
+    print(f"── 回放羁绊剧情: {name} {status}──")
+    if data.get("trigger_reason"):
+        print(f"起因: {data['trigger_reason']}")
+    for rec in data.get("scenes", []):
+        _replay_scene(BondScene.from_dict(rec), rec.get("picked"), char_ms)
+    return True
 
 
 def wrapup_after_vn(engine: MomoTalkEngine, reason: str = "") -> None:
