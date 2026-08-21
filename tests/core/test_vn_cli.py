@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
-"""VN CLI 单测 — story_scene 契约 JSON + 存档 + 只读回放。
+"""VN CLI 单测 — story_scene/story_end 双动作契约 + 双核（parse+exec）+ 存档 + 只读回放。
 
 send_vn_scene      : ScriptedLLM（chat 返回契约 dict）→ BondScene 结构正确 + 记紧凑 JSON 历史
-                    + 无效动作 feedback 回灌重试 + 3 次无效抛 SceneLoopError
-run_bond_story_vn  : fake input_fn 模拟「选选项 → 推进 → is_end 退出」闭环
+                    + 无效动作/执行拒绝 feedback 回灌重试 + 3 次失败抛 SceneLoopError
+                    + trace 逐轮留痕（attempt/parse/exec）
+run_bond_story_vn  : fake input_fn 模拟「选选项 → 推进 → story_end 收尾」闭环
                     + 无选项自由输入路径 + b 退出路径; 每场经 recorder 原子落盘
 双层兜底            : 15 场提醒 / 22 场上限注记 / 24 场程序兜底收尾（调试值）
 replay_bond_story  : 读存档纯渲染, ▶ 高亮当时选择
@@ -24,6 +25,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 from core.momotalk import MomoTalkEngine
 from core.bond_story import BondScene, BondStoryEngine, SceneLoopError
 from core.bond_story_save import BondStorySave
+from core.story_executor import StoryExecError, StoryExecutor
 from core.ui.vn_cli import (
     run_bond_story_vn,
     simulate_vn_scene,
@@ -71,15 +73,15 @@ def _engine(llm) -> MomoTalkEngine:
     return engine
 
 
-# story_scene 契约动作（与 bond_story_rules.md few-shot 同构）
+# story_scene/story_end 契约动作（与 bond_story_rules.md few-shot 同构）
 SCENE_A = {"action": "story_scene", "payload": {
-    "paragraphs": ["段落一。"], "choices": ["选A", "选B"], "is_end": False}}
-SCENE_END = {"action": "story_scene", "payload": {
-    "paragraphs": ["收尾了。"], "choices": [], "is_end": True}}
+    "paragraphs": ["段落一。"], "choices": ["选A", "选B"]}}
+STORY_END = {"action": "story_end", "payload": {
+    "paragraphs": ["收尾了。"]}}
 
 
 # ----------------------------------------------------------------------------
-# send_vn_scene: story_scene 契约 → BondScene 结构 + 紧凑 JSON 历史
+# send_vn_scene: story_scene/story_end 契约 → BondScene 结构 + 紧凑 JSON 历史
 # ----------------------------------------------------------------------------
 
 def test_send_vn_scene():
@@ -90,18 +92,19 @@ def test_send_vn_scene():
     assert scene.choices == ["选A", "选B"], scene.choices
     assert not scene.is_end
     assert vn.history_length == 2, f"send_vn_scene 应记 2 条历史: {vn.history_length}"
-    # 历史存紧凑 JSON（中文完好, 无空格分隔符）
+    # 历史存紧凑 JSON（中文完好, 无空格分隔符; story_scene 无 is_end——动作类型推导）
     hist = json.loads(vn.history[-1]["content"])
     assert hist["paragraphs"] == ["段落一。"] and hist["choices"] == ["选A", "选B"]
-    print(f"    send_vn_scene: 1 段 + 2 选项, 历史紧凑 JSON 中文完好, {vn.history_length} 条")
+    assert "is_end" not in hist, f"story_scene 历史不应含 is_end: {hist}"
+    print(f"    send_vn_scene: 1 段 + 2 选项, 历史紧凑 JSON 中文完好无 is_end, {vn.history_length} 条")
 
-    # 完场景
-    vn2 = BondStoryEngine(ROOT / "config" / "characters", ScriptedLLM(SCENE_END))
+    # 收尾场景（story_end 动作 → is_end 推导为 true）
+    vn2 = BondStoryEngine(ROOT / "config" / "characters", ScriptedLLM(STORY_END))
     vn2.start_session(CHARACTER)
     scene2 = vn2.send_vn_scene("继续")
     assert scene2.is_end and scene2.paragraphs == ["收尾了。"], scene2
     assert not scene2.choices
-    print("    send_vn_scene: is_end=true → 收尾场景, 无选项")
+    print("    send_vn_scene: story_end 动作 → 收尾场景, 无选项")
 
 
 # ----------------------------------------------------------------------------
@@ -145,9 +148,9 @@ def test_simulate_vn_scene():
 
 def test_run_vn_choice_flow():
     scene1 = {"action": "story_scene", "payload": {
-        "paragraphs": ["遥香在天台等你。"], "choices": ["走过去", "喊她名字"], "is_end": False}}
+        "paragraphs": ["遥香在天台等你。"], "choices": ["走过去", "喊她名字"]}}
     with tempfile.TemporaryDirectory() as d:
-        engine = _engine(ScriptedLLM(scene1, SCENE_END))
+        engine = _engine(ScriptedLLM(scene1, STORY_END))
         recorder = BondStorySave(CHARACTER, save_dir=d)
         calls = {"n": 0}
 
@@ -171,9 +174,9 @@ def test_run_vn_choice_flow():
 
 def test_run_vn_free_input():
     scene1 = {"action": "story_scene", "payload": {
-        "paragraphs": ["遥香静静地看着你。"], "choices": [], "is_end": False}}
+        "paragraphs": ["遥香静静地看着你。"], "choices": []}}
     with tempfile.TemporaryDirectory() as d:
-        engine = _engine(ScriptedLLM(scene1, SCENE_END))
+        engine = _engine(ScriptedLLM(scene1, STORY_END))
         recorder = BondStorySave(CHARACTER, save_dir=d)
         seq = ["（继续）"]
 
@@ -194,7 +197,7 @@ def test_run_vn_free_input():
 
 def test_run_vn_early_exit():
     scene1 = {"action": "story_scene", "payload": {
-        "paragraphs": ["遥香看着你，欲言又止。"], "choices": [], "is_end": False}}
+        "paragraphs": ["遥香看着你，欲言又止。"], "choices": []}}
     with tempfile.TemporaryDirectory() as d:
         engine = _engine(ScriptedLLM(scene1))
         recorder = BondStorySave(CHARACTER, save_dir=d)
@@ -211,9 +214,9 @@ def test_run_vn_early_exit():
 # ----------------------------------------------------------------------------
 
 def _scenes(n: int, start: int = 1) -> list[dict]:
-    """n 个带选项的未结束 story_scene（永远不把 is_end 设 true）。"""
+    """n 个带选项的未结束 story_scene（永远不用 story_end 收尾）。"""
     return [{"action": "story_scene", "payload": {
-        "paragraphs": [f"场景{i}。"], "choices": ["继续", "换种方式"], "is_end": False}}
+        "paragraphs": [f"场景{i}。"], "choices": ["继续", "换种方式"]}}
         for i in range(start, start + n)]
 
 
@@ -241,8 +244,8 @@ def test_run_vn_two_layer_force():
 
 def test_run_vn_remind_then_natural_end():
     """模型 17 场自然 is_end → 只吃到 15 场提醒, 不走上限注记与硬兜底。"""
-    end = {"action": "story_scene", "payload": {
-        "paragraphs": ["收尾了。"], "choices": [], "is_end": True}}
+    end = {"action": "story_end", "payload": {
+        "paragraphs": ["收尾了。"]}}
     llm = ScriptedLLM(*_scenes(16), end)
     with tempfile.TemporaryDirectory() as d:
         engine = _engine(llm)
@@ -289,6 +292,85 @@ def test_send_vn_scene_loop_exhausted():
     with pytest.raises(SceneLoopError):
         vn.send_vn_scene("（开场）")
     print("    send_vn_scene 耗尽: 3 次无效 → SceneLoopError（宁缺勿错）")
+
+
+# ----------------------------------------------------------------------------
+# 双核执行层: story_end 空段落 parse 拒绝 / exec 拒绝回灌 / exec 耗尽 / trace
+# ----------------------------------------------------------------------------
+
+def test_story_end_empty_paragraphs_rejected():
+    """story_end 空 paragraphs → parse ContractError → feedback 回灌 → LLM 修正重试。"""
+    bad = {"action": "story_end", "payload": {"paragraphs": []}}
+    llm = ScriptedLLM(bad, STORY_END)
+    vn = BondStoryEngine(ROOT / "config" / "characters", llm)
+    vn.start_session(CHARACTER)
+    scene = vn.send_vn_scene("继续")
+    assert scene.is_end and scene.paragraphs == ["收尾了。"], scene
+    fb = llm.snapshots[1][-1]["content"]
+    assert "动作无效" in fb and "paragraphs" in fb, fb
+    print("    story_end 空段落: parse ContractError → 回灌修正重试成功")
+
+
+def test_story_exec_reject_retry():
+    """StoryExecError → feedback 回灌 → LLM 修正重试成功（双核执行层拦截）。"""
+
+    class RejectingExecutor(StoryExecutor):
+        """executor stub: 第一次 story_end 抛 StoryExecError, 之后正常。"""
+        def __init__(self):
+            super().__init__()
+            self.rejected = 0
+        def execute(self, action):
+            if action.action == "story_end" and self.rejected == 0:
+                self.rejected += 1
+                raise StoryExecError("收尾场景暂不可执行——请重试")
+            return super().execute(action)
+
+    llm = ScriptedLLM(STORY_END, STORY_END)
+    vn = BondStoryEngine(ROOT / "config" / "characters", llm)
+    vn.start_session(CHARACTER)
+    vn.executor = RejectingExecutor()
+    scene = vn.send_vn_scene("继续")
+    assert scene.is_end, "StoryExecError 回灌重试后应成功"
+    fb = llm.snapshots[1][-1]["content"]
+    assert "暂不可执行" in fb, fb
+    print("    story_exec 拒绝: StoryExecError → 回灌修正重试成功")
+
+
+def test_story_exec_exhaustion_raises_scene_loop():
+    """executor 连续拒 3 次 → SceneLoopError（语义扩展: 解析或执行任一失败超限）。"""
+
+    class AlwaysReject(StoryExecutor):
+        def execute(self, action):
+            raise StoryExecError("总是拒绝")
+
+    vn = BondStoryEngine(ROOT / "config" / "characters",
+                         ScriptedLLM(STORY_END, STORY_END, STORY_END))
+    vn.start_session(CHARACTER)
+    vn.executor = AlwaysReject()
+    with pytest.raises(SceneLoopError):
+        vn.send_vn_scene("继续")
+    print("    story_exec 耗尽: exec 拒 3 次 → SceneLoopError（循环必须终结）")
+
+
+def test_trace_records_attempts():
+    """trace 逐轮留痕: 1 次 parse 失败 + 1 次成功, attempt/parse/exec 字段齐全。"""
+    bad = {"action": "mmt_teleport", "payload": {}}
+    llm = ScriptedLLM(bad, SCENE_A)
+    vn = BondStoryEngine(ROOT / "config" / "characters", llm)
+    vn.start_session(CHARACTER)
+    vn.send_vn_scene("（开场）")
+    trace = vn.trace
+    assert len(trace) == 2, f"1 次解析失败 + 1 次成功: {len(trace)}"
+    # 第一次: parse 失败, 无 exec 字段
+    assert trace[0]["attempt"] == 0 and trace[0]["action"] is None
+    assert trace[0]["parse_valid"] is False and trace[0]["parse_errors"]
+    assert "exec_ok" not in trace[0], "parse 失败轮不应有 exec 字段"
+    # 第二次: parse 成功 + exec 成功
+    assert trace[1]["attempt"] == 1 and trace[1]["action"] == "story_scene"
+    assert trace[1]["parse_valid"] is True and not trace[1]["parse_errors"]
+    assert trace[1]["exec_ok"] is True and trace[1]["exec_message"] == "中段场景已就绪"
+    assert trace[1]["payload"]["paragraphs"] == ["段落一。"]
+    print("    trace: 1 失败 + 1 成功, attempt/parse/exec 字段齐全")
 
 
 # ----------------------------------------------------------------------------
