@@ -62,7 +62,7 @@ RESERVED_WORDS = frozenset({"null", "true", "false"})
 ACCEPT_NAMING = "AC~"
 REJECT_NAMING = "RJ~"
 # 回复肯定列表
-ACCEPT_REPLIES = ("y", "yes", "是", "", "t", "true")
+ACCEPT_REPLIES = ("y", "yes", "是", "", "t", "true", "1")
 
 class LoopResult(Enum):
     EXIT = "exit"          # 退出程序
