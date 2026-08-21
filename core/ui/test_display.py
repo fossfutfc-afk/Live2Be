@@ -341,6 +341,25 @@ def _t_chunks_newline():
     assert "".join(chunks) == "第一句。第二句", chunks
 
 
+@check("split_reply_chunks 孤立强标点并入上一块（…？/！！/单独成行）")
+def _t_chunks_orphan_punct():
+    # 省略号切点后接 "？": 强标点不再孤立成一条 "？"
+    assert split_reply_chunks("今晚能不能借我点钱买泡面…？") == \
+        ["今晚能不能借我点钱买泡面…？"]
+    # 连续强标点: 不再产出孤立的 "！"
+    assert split_reply_chunks("今天天气真不错呢！！我们一起去天台吧？？") == [
+        "今天天气真不错呢！！",
+        "我们一起去天台吧？？",
+    ]
+    # LLM 把 "？" 单独成行: 纯标点行并入上一行（有内容的行仍是消息边界）
+    assert split_reply_chunks("今晚能不能借我点钱买泡面…\n？") == \
+        ["今晚能不能借我点钱买泡面…？"]
+    assert split_reply_chunks("第一句。\n第二句") == ["第一句。", "第二句"]
+    # 纯标点块仍是独立行: 并入前块后 join 不丢字
+    t = "真的吗！？"
+    assert "".join(split_reply_chunks(t)) == t, split_reply_chunks(t)
+
+
 # ============================================================================
 # 非流式显示步骤（DisplayStep / 打字时长 / publish_reply）
 # ============================================================================

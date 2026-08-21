@@ -107,13 +107,14 @@ def split_reply_chunks(
         return []
 
     if "\n" in text:
-        # 换行 = 消息边界: 先按行拆, 逐行切块, 跨行不合并（气泡内不含换行）
+        # 换行 = 消息边界: 先按行拆, 逐行切块, 跨行不合并（气泡内不含换行）。
+        # 但纯强标点行（如 LLM 把 "？" 单独成行）不是一条消息——并入上一行。
         chunks: list[str] = []
         for line in text.split("\n"):
             line = line.strip()
             if line:
                 chunks.extend(split_reply_chunks(line, min_chars, max_chars, rng))
-        return chunks
+        return _merge_punct_only(chunks)
 
     chunks: list[str] = []
     buf = ""
@@ -141,7 +142,7 @@ def split_reply_chunks(
             chunks[-1] += buf                  # 尾部碎片并入上一块
         else:
             chunks.append(buf)
-    return chunks
+    return _merge_punct_only(chunks)           # 孤立强标点块并入上一块
 
 
 # ---------------------------------------------------------------------------
@@ -238,6 +239,32 @@ def _split_at_weak_breaks(text: str, max_chars: int) -> list[str]:
 
 _WEAK_PUNCT = "，、,;；"
 _FRAGMENT_MAX = 4   # 尾部碎片阈值: ≤4 字的硬切碎片并入上一块
+
+# 强断点集合（split_reply_chunks 的必切标点 + 省略号）——纯标点块判定用
+_PURE_PUNCT = frozenset("。！？!?…")
+
+
+def _is_punct_only(text: str) -> bool:
+    """是否为纯强标点串（无文字内容）。"""
+    return bool(text) and all(ch in _PURE_PUNCT for ch in text)
+
+
+def _merge_punct_only(chunks: list[str]) -> list[str]:
+    """孤立强标点碎片并入上一块（宁缺勿错, 不丢字）。
+
+    强断点「必切」可能留下纯标点孤块:
+      - 连续强标点: "你好！！" → "你好！"+"！"
+      - 省略号切点后接强标点 / LLM 把"？"单独成行: "泡面…"+"？"
+    纯标点块（≤2 个强标点）若有前块就贴回——避免 "？" 单字一条消息
+    （断句异常感）。有内容的行仍是独立消息（换行边界不破）。
+    """
+    out: list[str] = []
+    for c in chunks:
+        if out and _is_punct_only(c) and len(c) <= 2:
+            out[-1] += c
+        else:
+            out.append(c)
+    return out
 
 
 def _merge_short_chunks(chunks: list[str], max_chars: int) -> list[str]:
