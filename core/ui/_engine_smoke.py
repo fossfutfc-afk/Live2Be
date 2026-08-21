@@ -68,8 +68,21 @@ class ScriptedLLM:
         return msgs
 
 
-def _engine(*scripts: dict) -> MomoTalkEngine:
-    engine = MomoTalkEngine(ROOT / "config" / "characters", ScriptedLLM(*scripts))
+def _engine(
+    *scripts: dict,
+    threshold: int = 0,
+    progress=None,
+) -> MomoTalkEngine:
+    """构造引擎。默认 threshold=0（不加门槛, 保现有用例语义）;
+    progress 可注入（门槛测试用临时 BondProgress, 不污染 data/basic/）。"""
+    from core.bond_progress import BondProgress
+
+    engine = MomoTalkEngine(
+        ROOT / "config" / "characters",
+        ScriptedLLM(*scripts),
+        affection_threshold=threshold,
+        bond_progress=progress or BondProgress(),
+    )
     engine.start_session(CHARACTER)
     return engine
 
@@ -177,6 +190,85 @@ def _t_trigger():
 
 
 # ----------------------------------------------------------------------------
+# trigger 门槛: 轮数 < threshold → MmtExecError 回灌含「轮」; 达标 → 触发成功
+# ----------------------------------------------------------------------------
+
+def _t_trigger_threshold():
+    import tempfile
+    from pathlib import Path
+
+    from core.bond_progress import BondProgress
+
+    trig = {"action": "mmt_trigger_bond_story", "payload": {"reason": "气氛到了"}}
+    chat = {"action": "mmt_chat", "reply": "嗯……我们还没到那一步吧。", "payload": {}}
+
+    # 软门槛·兜底: 门槛开启且首条消息（0 轮）→ 程序兜底拒绝 → 回灌 → LLM 转普通聊天
+    with tempfile.TemporaryDirectory() as d:
+        progress = BondProgress(Path(d) / "bp.json")
+        engine = _engine(trig, chat, threshold=5, progress=progress)
+        result = engine.agent_turn("今天我们聊了很多")
+        assert result.action == "mmt_chat", f"首条消息不应触发: {result.action}"
+        assert not result.bond_story
+        fed = engine.llm.snapshots[1][-1]["content"]
+        assert "轮" in fed, f"兜底回灌应含「轮」: {fed!r}"
+        # 轮数参考注记已注入 LLM context（软门槛的依据）
+        assert any("羁绊进度参考" in m["content"] for m in engine.llm.snapshots[0]), \
+            "应注入羁绊进度参考注记"
+        print(f"    trigger_threshold(兜底): 0 轮 → 回灌 {len(fed)} 字符 → 转普通聊天")
+
+    # 软门槛·提前: 轮数 2 < 5, 但 AI 裁决剧情需要 → 允许提前触发
+    with tempfile.TemporaryDirectory() as d:
+        progress = BondProgress(Path(d) / "bp.json")
+        for _ in range(2):
+            progress.record_turn(CHARACTER)
+        engine = _engine(trig, threshold=5, progress=progress)
+        result = engine.agent_turn("（触发尝试，气氛已到）")
+        assert result.bond_story, "软门槛: 轮数不足但 AI 裁决 → 应触发成功"
+        print("    trigger_threshold(提前): 轮数 2 < 5 → AI 裁决触发成功")
+
+    # 达标: 轮数 5 ≥ 门槛 5 → 触发成功
+    with tempfile.TemporaryDirectory() as d:
+        progress = BondProgress(Path(d) / "bp.json")
+        for _ in range(5):
+            progress.record_turn(CHARACTER)
+        engine = _engine(trig, threshold=5, progress=progress)
+        result = engine.agent_turn("现在我们够熟了吧")
+        assert result.bond_story, "轮数达标应触发成功"
+        print("    trigger_threshold(达标): 轮数 5 ≥ 5 → bond_story=True")
+
+
+# ----------------------------------------------------------------------------
+# bond_scene: _parse_scene 纯函数 — 段落 / 选项 / 【完】结构
+# ----------------------------------------------------------------------------
+
+def _t_bond_scene():
+    from core.bond_story import BondStoryEngine
+
+    text = (
+        "遥香坐在天台边缘，风吹过她的发梢。\n"
+        "（她抬头看向你，欲言又止）\n\n"
+        "【选择】\n"
+        "1. 陪她坐一会儿\n"
+        "2. 问她怎么了\n\n"
+        "（她微微一笑，靠在你肩上）\n\n"
+        "【完】"
+    )
+    scene = BondStoryEngine._parse_scene(text)
+    assert len(scene.paragraphs) == 2, f"段落数 {len(scene.paragraphs)}"
+    assert scene.paragraphs[0].startswith("遥香坐在天台边缘"), scene.paragraphs[0]
+    assert scene.paragraphs[1].startswith("（她微微一笑"), scene.paragraphs[1]
+    assert scene.choices == ["陪她坐一会儿", "问她怎么了"], scene.choices
+    assert scene.is_end
+    print(f"    bond_scene: {len(scene.paragraphs)} 段 + {len(scene.choices)} 选项 + 【完】")
+
+    # 无选项无完: 纯段落场景（自由输入推进路径）
+    plain = BondStoryEngine._parse_scene("她静静地看着你。")
+    assert plain.paragraphs == ["她静静地看着你。"]
+    assert not plain.choices and not plain.is_end
+    print("    bond_scene: 纯段落场景 → 无选项无完")
+
+
+# ----------------------------------------------------------------------------
 # history: resume_session 回放 + 继续对话不丢历史
 # ----------------------------------------------------------------------------
 
@@ -219,6 +311,8 @@ def main() -> None:
     check("parse 无效回灌重试", _t_parse_error_retry)
     check("执行拒绝(自检)回灌重试", _t_exec_error_retry)
     check("trigger→bond_story", _t_trigger)
+    check("trigger 轮数门槛(拒/过)", _t_trigger_threshold)
+    check("bond_scene 解析(段/选项/完)", _t_bond_scene)
     check("history 恢复 + 续聊无损", _t_history)
     print("=" * 46)
     if FAIL:
