@@ -50,7 +50,7 @@ from enum import Enum
 from pathlib import Path
 
 from core.momotalk import MomoTalkEngine
-from errors import err
+from core.common import err
 
 # 玩家名存储（cwd 相对项目根, 与 SESSION_DIR 同惯例）
 PLAYER_JSON = Path("data/basic/player.json")

@@ -162,12 +162,12 @@ class IDEOutput:
     """IDE agent 事件流 → 统一显示单元（第三种展示策略）。
 
     无状态纯函数：render(event) → IDEDisplayItem，恒有返回。
-    event 是 AgentEvent.to_dict() 的产物（fetch/events.py 定义），本类只认
-    kind / data / approval_id / step 四个键——不 import fetch.events，
+    event 是 AgentEvent.to_dict() 的产物（ide/ide_events.py 定义），本类只认
+    kind / data / approval_id / step 四个键——不 import ide.ide_events，
     ui/ 保持零引擎依赖。
 
     CLI 无文本的事件（THINKING / TOOL_START / INVALID_ACTION / LLM_ERROR /
-    PLAN_ERROR）text 为空串：CLI emit 侧跳过空文本，保证 python -m fetch.agent
+    PLAN_ERROR）text 为空串：CLI emit 侧跳过空文本，保证 python -m ide.ide_agent
     的输出与现状逐字节一致；GUI 侧按 kind 正常渲染这些状态。
 
     render 契约（event.data 的键）:
@@ -204,7 +204,7 @@ class IDEOutput:
         return IDEDisplayItem(kind=kind, text=self._render_text(kind, data), data=data)
 
     # ------------------------------------------------------------------
-    # 内部：CLI 文本渲染（逐字节复刻 fetch/agent.py 现有 print）
+    # 内部：CLI 文本渲染（逐字节复刻 ide/ide_agent.py 现有 print）
     # ------------------------------------------------------------------
 
     def _render_text(self, kind: str, data: dict) -> str:

@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from errors import err
+from core.common import err
 
 #: 本包目录 = md 文件所在目录
 _PROMPTS_DIR = Path(__file__).resolve().parent

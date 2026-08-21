@@ -21,7 +21,7 @@ import json
 import re
 from typing import Any
 
-from errors import err
+from core.common import err
 
 
 def extract_json(response_text: str) -> dict[str, Any]:

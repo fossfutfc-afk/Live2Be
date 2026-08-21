@@ -25,7 +25,7 @@ import certifi
 import httpx
 from dotenv import load_dotenv
 
-from errors import err
+from core.common import err
 from llm.json_cleaner import extract_json
 
 # Windows + conda SSL 证书修复

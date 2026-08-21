@@ -1,6 +1,6 @@
 """contract — 契约层（动作注册 / 校验 / 渲染）。
 
-namespace package 转正式包：集中 re-export 公共 API，供 fetch/ 子项目
+namespace package 转正式包：集中 re-export 公共 API，供 ide/ 子项目
 `from contract import ...` 直接消费。
 
 各子模块内部一律用 `contract.xxx` 完整路径互导，不依赖本 __init__ 的执行顺序。

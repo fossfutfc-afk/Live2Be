@@ -1,6 +1,6 @@
 # web/ — IDE agent Web GUI（FastAPI + SSE + vanilla JS）
 
-给 fetch/ 的 IDE agent 套 Web 壳。设计依据: web/DESIGN.md（端点契约/并发模型/决策记录）。
+给 ide/ 的 IDE agent 套 Web 壳。设计依据: web/DESIGN.md（端点契约/并发模型/决策记录）。
 
 ## 文件
 
@@ -13,7 +13,7 @@
 | `app.py`      | FastAPI 路由 + lifespan 装配（mock 开关） |
 | `__main__.py` | python -m web → uvicorn 启动 |
 | `static/`     | 前端: index.html / app.js（EventSource + fetch）/ style.css |
-| `_server_test.py` | 服务端回归（hub/runner/app, 不依赖浏览器） |
+| `_server_test.py` | 服务端回归（hub/runner/app, 不依赖浏览器）——已移至 tests/web/test_server.py |
 
 ## 运行
 

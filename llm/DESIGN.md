@@ -176,7 +176,7 @@ llm/
 
 > **Prompt 仓库**：长篇 prompt 从代码迁移为 md 文件（项目地基之一，见 CLAUDE.md 3.1.7）。
 > 内容逐字节保留原内嵌文本；`load_prompt()` 统一加载，便于人工修改与 review。
-> 错误消息走统一格式 `[xxx.py][errtype][errinfo]`（根级 errors.py）。
+> 错误消息走统一格式 `[xxx.py][errtype][errinfo]`（core/common/errors.py）。
 
 ---
 

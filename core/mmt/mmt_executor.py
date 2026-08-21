@@ -40,7 +40,7 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
-from errors import Live2BeError
+from core.common import Live2BeError
 from contract import AgentAction, DOMAIN_MMT
 from core.bond_progress import BondProgress
 from core.parsing.dynamic_character_parser import (
@@ -49,7 +49,7 @@ from core.parsing.dynamic_character_parser import (
     yaml_to_prompt,
 )
 
-# interperson.json 默认路径（相对项目根, 与 fetch/executor.py 一致）
+# interperson.json 默认路径（相对项目根, 与 ide/ide_executor.py 一致）
 DEFAULT_INTERPERSON_PATH = "config/settings/relation/interperson.json"
 
 

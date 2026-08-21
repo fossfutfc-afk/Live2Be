@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from errors import err
+from core.common import err
 from contract.constants import (
     DOMAIN_IDE, DOMAIN_MMT, DOMAIN_STORY,
     MAX_BASIS_COUNT, MAX_REPLY_LENGTH, MAX_SOURCE_COUNT, MAX_SUMMARY_LENGTH,

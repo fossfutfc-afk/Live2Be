@@ -1,0 +1,5 @@
+# Live2Be 开发/测试依赖
+# 安装: pip install -r requirements-dev.txt
+# 运行全部测试: python -m pytest
+-r requirements.txt
+pytest>=8.0
