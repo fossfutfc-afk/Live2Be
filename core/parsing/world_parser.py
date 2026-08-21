@@ -21,7 +21,7 @@ from pathlib import Path
 
 import yaml
 
-from errors import err
+from core.common import err
 
 #: 默认路径（相对项目根, 与 main.py 的启动方式一致）
 DEFAULT_WORLD_PATH = "config/settings/world/overview.yml"

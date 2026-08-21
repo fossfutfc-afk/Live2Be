@@ -96,7 +96,7 @@ SIG 字段构成角色核心形象。**SIG 太少 → 完整度低 → 运行期
 ```bash
 cd /d/MYCODE/Live2Be
 conda activate live2be
-python -m fetch.agent
+python -m ide.ide_agent
 ```
 
 ### 工作流
@@ -181,7 +181,7 @@ Live2Be/
 ├── entrance/                                ← 本手册 + 双击启动脚本
 ├── config/characters/{角色id}/               ← 五件套 YAML（AI 写到这里）
 ├── config/settings/relation/interperson.json ← 关系权重表
-├── fetch/                                   ← IDE agent 引擎（命令层/动作/提示词）
+├── ide/                                     ← IDE agent 引擎（命令层/动作/提示词）
 ├── web/                                     ← GUI 服务（FastAPI + 单页前端）
 ├── core/                                    ← 核心引擎（含 parsing 解析层 / ui 展示层 / mmt 动作化工作区）
 ├── contract/                                ← 动作契约（字段白名单/校验）

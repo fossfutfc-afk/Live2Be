@@ -13,7 +13,7 @@ call "%~dp0\_env.bat"
 echo [Live2Be] Starting IDE CLI...
 echo [Live2Be] Type /exit (or Ctrl-C) to quit.
 
-"%LIVE2BE_PY%" -m fetch.agent
+"%LIVE2BE_PY%" -m ide.ide_agent
 
 echo.
 echo [Live2Be] Exited.

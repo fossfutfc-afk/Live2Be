@@ -11,7 +11,7 @@ import os
 import sys
 from pathlib import Path
 
-# 项目根入 sys.path（web/ 下的相对 import 依赖 contract/ fetch/ ui/ 等）
+# 项目根入 sys.path（web/ 下的相对 import 依赖 contract/ ide/ ui/ 等）
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 

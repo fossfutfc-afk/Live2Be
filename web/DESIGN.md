@@ -5,14 +5,14 @@
 
 ## 1. 背景与目标
 
-fetch/ 子项目的 IDE 角色撰写 agent（`IDEAgent`）目前是纯 CLI：阻塞 `input()` 审批、`print()` 输出、一轮跑到底。目标是给 IDE agent 配一个 Web GUI（fastapi + SSE + 纯 vanilla JS 单页）。
+ide/ 子项目的 IDE 角色撰写 agent（`IDEAgent`）目前是纯 CLI：阻塞 `input()` 审批、`print()` 输出、一轮跑到底。目标是给 IDE agent 配一个 Web GUI（fastapi + SSE + 纯 vanilla JS 单页）。
 
 **范围硬约束**：
 - 只做 IDE agent 的 GUI；主项目 MomoTalk / Bond Story 不动。
-- GUI 只是壳——**契约层 contract/、执行层 fetch/executor、agent 循环一行不改**。
+- GUI 只是壳——**契约层 contract/、执行层 ide/ide_executor、agent 循环一行不改**。
 - 不引入前端构建链（无 npm/vite，纯原生 JS）。
 
-**Phase 2 已完成的前置**：`IDEAgent` 已改为 emit/ask 回调驱动（[fetch/agent.py](../fetch/agent.py)），CLI 默认回调逐字节复刻历史输出。GUI 只需要注入**队列实现的回调**，事件模型 `fetch/events.py` 已定义好全部 `AgentEventKind`。
+**Phase 2 已完成的前置**：`IDEAgent` 已改为 emit/ask 回调驱动（[ide/ide_agent.py](../ide/ide_agent.py)），CLI 默认回调逐字节复刻历史输出。GUI 只需要注入**队列实现的回调**，事件模型 `ide/ide_events.py` 已定义好全部 `AgentEventKind`。
 
 ## 2. 决策记录（讨论结论）
 
@@ -148,7 +148,7 @@ StreamingResponse(event_stream(), media_type="text/event-stream", headers={
 
 ## 6. 事件 → UI 映射
 
-`AgentEventKind`（[fetch/events.py](../fetch/events.py)）→ 前端渲染：
+`AgentEventKind`（[ide/ide_events.py](../ide/ide_events.py)）→ 前端渲染：
 
 | kind | UI 元素 |
 |---|---|
@@ -194,7 +194,7 @@ StreamingResponse(event_stream(), media_type="text/event-stream", headers={
 
 ## 8. mock 模式
 
-`IDE_MOCK=1` 环境变量启动时，`app.py` 用 StubLLM（复用 fetch/_events_test 的脚本模式）替代 `LLMClient`，固定产出：
+`IDE_MOCK=1` 环境变量启动时，`app.py` 用 StubLLM（复用 tests/ide/test_events.py 的脚本模式）替代 `LLMClient`，固定产出：
 `THINKING → AI_MESSAGE → PENDING_APPROVAL → (审批) → EXEC_RESULT → THINKING → AI_MESSAGE → DONE`。
 
 前端对 mock 无感知。便于无 API 成本验证 UI 全部交互路径（批准/拒绝/中止/409/auto-approve/重连）。

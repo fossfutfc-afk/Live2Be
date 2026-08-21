@@ -1,13 +1,17 @@
-ign
 .vscode/
 .env
 *.exe
 CLAUDE.md
 resources/*
 __pycache__/
+.pytest_cache/
+.tmp/
+.testtmp/
+pytest-cache-files-*
 data/sessions/
 data/basic/
 
 # 个人工具（逆向非官方接口 + 素材版权属官方）——仅本地保留, 不提交公开
+# 例外: imgdesc.py/.cmd/.md（本地识图工具, 无逆向/版权问题）经 git mv 显式入库, 仍被跟踪
 tools/
 ASKYOURSELF.yml

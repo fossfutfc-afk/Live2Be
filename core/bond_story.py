@@ -26,7 +26,7 @@ import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from errors import err
+from core.common import err
 from llm.client import LLMClient
 from llm.prompts import load_prompt
 from core.parsing.dynamic_character_parser import CharacterLoader, DynamicCharacter

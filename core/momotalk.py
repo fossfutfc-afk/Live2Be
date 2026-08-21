@@ -38,7 +38,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
-from errors import Live2BeError, err
+from core.common import Live2BeError, err
 from llm.client import LLMClient
 from llm.prompts import load_prompt
 from llm.feedback import feedback

@@ -8,7 +8,7 @@
 
 ## 1. 为什么需要契约层
 
-没有契约层时，每个域（fetch/IDE、未来的 momotalk、羁绊剧情）都要各自实现：
+没有契约层时，每个域（IDE（ide 域）、未来的 momotalk、羁绊剧情）都要各自实现：
 - 告诉 LLM 能输出什么（prompt / schema）
 - 解析 LLM 原始输出为可执行对象
 - 校验字段类型、长度、取值白名单
@@ -31,7 +31,7 @@ contract/
 
 依赖方向：`schema → registry → spec → model/constants`。各子模块内部一律用
 `contract.xxx` 完整路径互导，不依赖 `__init__` 的执行顺序。
-唯一外部依赖：根级 `errors.py`（`Live2BeError` / `err()`，统一错误格式）。
+唯一外部依赖：`core/common/errors.py`（`Live2BeError` / `err()`，统一错误格式）。
 
 ## 3. 核心机制：ActionSpec 单一真源
 
@@ -82,7 +82,7 @@ LLM 原始响应文本
                           │
                           ├── 审批：required → 用户批准；auto/never → 直接
                           ▼
-                      调用方按 approval 执行（fetch/agent.py 的 execute 流程）
+                      调用方按 approval 执行（ide/ide_agent.py 的 execute 流程）
 ```
 
 - `AgentAction.to_dict()/from_dict()` 是 Python ↔ JS 的对称 JSON wire format
@@ -100,7 +100,7 @@ LLM 原始响应文本
 
 | 注册表 | domain | 用途 | 状态 |
 |--------|--------|------|------|
-| `IDEActionRegistry` | `ide` | 辅助项目：写配置（写动作默认需证据 + 用户审批） | **已使用**（fetch/actions/build_ide_registry） |
+| `IDEActionRegistry` | `ide` | 辅助项目：写配置（写动作默认需证据 + 用户审批） | **已使用**（ide/actions/build_ide_registry） |
 | `MMTActionRegistry` | `mmt` | MomoTalk 运行时：模拟手机操作 | **规划**（下一步动作化） |
 | `StoryActionRegistry` | `story` | 羁绊剧情运行时：表情/背景切换 | 规划 |
 
@@ -118,7 +118,7 @@ prompt_fields / payload_schema）。Python 端是唯一执行引擎，但定义�
 - **errors**：`ContractError(Live2BeError, ValueError)` 多继承 ValueError，
   保留既有 `except ValueError` 捕获语义；`__str__` 输出 `[model.py][ContractError][info]`。
 - **llm.json_cleaner**：`parse_action_text` 依赖其 `extract_json` 从原始文本提取 JSON。
-- **fetch/agent.py**：`client.chat(response_format="json_object")` 返回 dict 时直接
+- **ide/ide_agent.py**：`client.chat(response_format="json_object")` 返回 dict 时直接
   `registry.parse(response)`，不走 `parse_action_text`（那是对原始文本的入口）。
 
 ## 8. 下一步（MMT 动作化）

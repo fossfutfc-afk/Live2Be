@@ -15,9 +15,9 @@ import time
 from pathlib import Path
 from typing import Any
 
-from fetch import commands
-from fetch.agent import IDEAgent
-from fetch.events import ApprovalDecision
+from ide import ide_commands
+from ide.ide_agent import IDEAgent
+from ide.ide_events import ApprovalDecision
 from web.hub import EventHub, HUBS
 
 #: ask 桥默认超时（秒）——页面被关/无人响应时 worker 不永久占锁
@@ -99,14 +99,14 @@ class AgentRunner:
             self._lock.release()
 
     # ------------------------------------------------------------------
-    # 本地命令路由（/view /edit）——与 CLI 共享 fetch.commands 纯逻辑
+    # 本地命令路由（/view /edit）——与 CLI 共享 ide.ide_commands 纯逻辑
     # ------------------------------------------------------------------
 
     def _dispatch_command(self, message: str) -> bool:
         """返回 True = 已按本地命令处理（不再走 LLM）。"""
         try:
-            cmd = commands.parse_cmd(message)
-        except commands.CmdError as e:
+            cmd = ide_commands.parse_cmd(message)
+        except ide_commands.CmdError as e:
             self._publish_command(f"[命令错误] {e}")
             return True
         if cmd is None:
@@ -120,8 +120,8 @@ class AgentRunner:
             return False
         if cmd.verb == "view":
             try:
-                text = commands.cmd_view(self.agent.executor.root, cmd)
-            except commands.CmdError as e:
+                text = ide_commands.cmd_view(self.agent.executor.root, cmd)
+            except ide_commands.CmdError as e:
                 text = f"[命令错误] {e}"
             self._publish_command(text)
             return True
@@ -137,7 +137,7 @@ class AgentRunner:
             "data": {"text": text, "terminal": True}, "approval_id": None,
         })
 
-    def _run_edit_command(self, cmd: commands.Cmd) -> None:
+    def _run_edit_command(self, cmd: ide_commands.Cmd) -> None:
         """/edit 复用现有审批卡 + ask 桥（零并行 UI）: PENDING → 决策 → EXEC。"""
         if not cmd.snippet:
             self._publish_command(
@@ -146,10 +146,10 @@ class AgentRunner:
             )
             return
         try:
-            diff, action = commands.cmd_edit_plan(
+            diff, action = ide_commands.cmd_edit_plan(
                 self.agent.executor.root, cmd, cmd.snippet
             )
-        except commands.CmdError as e:
+        except ide_commands.CmdError as e:
             self._publish_command(f"[命令错误] {e}")
             return
         if not diff.strip() or "[无变化]" in diff:
@@ -169,8 +169,8 @@ class AgentRunner:
         decision = self._ask(approval_id, "本地编辑")
         if decision == "approve":
             try:
-                message = commands.cmd_edit_execute(self.agent.executor.root, action)
-            except commands.CmdError as e:
+                message = ide_commands.cmd_edit_execute(self.agent.executor.root, action)
+            except ide_commands.CmdError as e:
                 self.hub.publish({
                     "kind": "EXEC_RESULT", "step": 0,
                     "data": {"ok": False, "message": str(e)}, "approval_id": None,
