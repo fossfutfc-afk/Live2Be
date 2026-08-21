@@ -122,14 +122,27 @@ def run_bond_story_vn(
     engine: MomoTalkEngine,
     input_fn=input,
     char_ms: int = _PARA_CHAR_MS,
+    remind_rounds: int = 30,
+    end_rounds: int = 50,
+    max_tokens: int = 1024,
+    seed: str | None = None,
 ) -> bool:
     """羁绊剧情 VN 模式：触发后进入, 【完】或 b 退出后回到 MomoTalk。
 
     构造独立 BondStoryEngine（复用引擎的 char_loader.root + llm），
     首个种子 = 触发动作的 reason（有则旁白引述, 无则固定开篇语）。
 
+    双层收尾兜底（模型可能迟迟不输出【完】, 见 bond_story_rules 已知限制）:
+        第 remind_rounds 场 → 注入系统注记「已推进 N 轮, 剩余约 M 轮」,
+                              引导 AI 开始向结尾收束;
+        第 end_rounds   场 → 注入系统注记「已达篇幅上限, 本轮务必【完】」;
+        超过 end_rounds+2 场仍未【完】 → 程序兜底收尾（循环必须终结, 宁缺勿错）。
+    生产默认 30/50; 调试可传 15/22（实验脚本与单测用）。
+    max_tokens 透传给 send_vn_scene（长段落场景可调高）;
+    seed 覆盖开篇语（默认从触发 reason 引述, 无则固定开篇）。
+
     Returns:
-        True  = 剧情走到【完】自然结束（调用方可做手机收尾 wrapup_after_vn）
+        True  = 剧情走到【完】自然结束 / 程序兜底收尾（调用方可做手机收尾 wrapup_after_vn）
         False = 玩家 b / Ctrl-D 提前退出
     """
     char = engine.current_character
@@ -143,21 +156,37 @@ def run_bond_story_vn(
     print(f"  ── 羁绊剧情: {char.display_name} ──")
     print("═" * 40)
 
-    reason = _trigger_reason(engine)
-    if reason:
-        seed = f"（旁白）基于「{reason}」……"
-    else:
-        seed = "（旁白）故事开始了……"
+    if seed is None:
+        reason = _trigger_reason(engine)
+        seed = f"（旁白）基于「{reason}」……" if reason else "（旁白）故事开始了……"
 
     completed = False
     user_input = seed
-    while True:
-        scene = vn.send_vn_scene(user_input)
+    force_after = end_rounds + 2          # 建议收尾后再留 2 场余量, 超限硬兜底
+    for i in range(1, force_after + 1):
+        system_note = None
+        if i == remind_rounds:
+            system_note = (
+                f"（系统）剧情已推进 {i} 轮，剩余约 {end_rounds - i} 轮。"
+                "请开始把剧情向结尾收束——感情到位、约定达成、道别告别的时刻"
+                "就用【完】结束剧情，不要再开新场景。"
+            )
+        elif i == end_rounds:
+            system_note = (
+                "（系统）已达剧情篇幅上限。本轮请务必以【完】结束剧情，"
+                "不再输出【选择】选项块。"
+            )
+        scene = vn.send_vn_scene(user_input, max_tokens=max_tokens, system_note=system_note)
         choice = simulate_vn_scene(scene, input_fn=input_fn, char_ms=char_ms)
         if choice is None:                # 退出 / 【完】结束
             completed = scene.is_end      # 区分: 【完】=剧情走到结尾; b=玩家退出
             break
         user_input = choice
+    else:
+        # for 循环耗尽 = 模型仍不肯【完】 → 程序兜底收尾（循环必须终结）
+        _type_paragraph("（夜色渐深，这一章的羁绊剧情就此落下帷幕。）", char_ms)
+        print("\n── 羁绊剧情结束 ──")
+        completed = True
     print("[系统] 已退出羁绊剧情, 回到 MomoTalk。")
     return completed
 

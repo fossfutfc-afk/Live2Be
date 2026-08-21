@@ -23,6 +23,7 @@ VN 场景结构（收敛多分支, 2026-08-21 用户确认）:
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -123,26 +124,42 @@ class BondStoryEngine:
         self._history.append({"role": "assistant", "content": full_text})
         self._trim_history()
 
-    def send_vn_scene(self, user_input: str) -> BondScene:
+    def send_vn_scene(
+        self,
+        user_input: str,
+        max_tokens: int = 1024,
+        system_note: str | None = None,
+    ) -> BondScene:
         """结构化场景 API：单次 LLM 调用 → BondScene（段落 + 选项 + 是否结束）。
 
         与 send_vn_stream 的区别: 解析【选择】选项块与【完】收尾标记,
         返回可驱动的结构（VN CLI 靠它出选项、判定剧情结束）。
+
+        system_note: 本轮系统注记（只进 context 不入历史, 最近位置最醒目）——
+        双层收尾机制用: 轮数提醒 / 达上限建议收尾。None = 不注入。
         """
         if self._current_char is None:
             raise RuntimeError(err("NotInSession", "尚未开始会话"))
 
         from core.ui.display import BondStoryOutput
 
-        messages = self.llm.format_messages(
-            system_prompt=self._system_prompt,
-            user_message=user_input,
-            history=self._history if self._history else None,
-        )
+        if system_note:
+            # 手动组装: system + history + system_note(最近) + user
+            messages = [{"role": "system", "content": self._system_prompt}]
+            if self._history:
+                messages.extend(self._history)
+            messages.append({"role": "system", "content": system_note})
+            messages.append({"role": "user", "content": user_input})
+        else:
+            messages = self.llm.format_messages(
+                system_prompt=self._system_prompt,
+                user_message=user_input,
+                history=self._history if self._history else None,
+            )
 
         display = BondStoryOutput()
         full_text = ""
-        for token in self.llm.chat_stream(messages, temperature=0.8, max_tokens=1024):
+        for token in self.llm.chat_stream(messages, temperature=0.8, max_tokens=max_tokens):
             full_text += token
             display.feed(token)
 
@@ -161,30 +178,45 @@ class BondStoryEngine:
     def _parse_scene(text: str) -> BondScene:
         """纯函数: 流式文本 → BondScene。
 
-        按双换行切段; 段为【完】→ is_end; 段以【选择】开头 → 后续非空行
-        剥「数字.」前缀为选项; 其余 → paragraphs。无匹配标记的段照常进段落。
+        逐行容错解析（2026-08-22 重写）: 模型分隔段落的换行不一致
+        （\n\n、\n、'  \\n' 都出现过），按双换行切段会让【选择】/【完】
+        标记被埋进叙事段里永远检测不到——改为逐行识别标记:
+          - 行「【完】」→ is_end
+          - 行「【选择】」→ 进入选项模式, 后续「数字. xxx」行为选项
+          - 其余 → 叙事行, 空行/标记行=段落边界（叙事行跨行并入同段）
         """
         scene = BondScene()
-        for raw_para in text.split("\n\n"):
-            para = raw_para.strip()
-            if not para:
+        paragraphs: list[list[str]] = [[]]
+        in_choices = False
+
+        for raw_line in text.split("\n"):
+            line = raw_line.strip()
+            if not line:
+                if paragraphs[-1]:
+                    paragraphs.append([])      # 空行 = 段落边界
                 continue
-            if para == "【完】":
+            if line == "【完】":
+                in_choices = False
+                if paragraphs[-1]:
+                    paragraphs.append([])
                 scene.is_end = True
                 continue
-            if para.startswith("【选择】"):
-                for line in para.split("\n")[1:]:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    # 剥「1. xxx」编号前缀, 保留选项文本
-                    cleaned = line
-                    if len(line) > 1 and line[0].isdigit() and line[1] in "。.、":
-                        cleaned = line[2:].strip()
-                    if cleaned:
-                        scene.choices.append(cleaned)
+            if line == "【选择】":
+                in_choices = True
+                if paragraphs[-1]:
+                    paragraphs.append([])
                 continue
-            scene.paragraphs.append(para)
+            m = re.match(r"^(\d{1,2})[.、．]\s*(.+)$", line)
+            if in_choices and m:
+                scene.choices.append(m.group(2).strip())
+                continue
+            if in_choices:
+                in_choices = False             # 选项块后接叙事 → 退出选项模式
+                if paragraphs[-1]:
+                    paragraphs.append([])
+            paragraphs[-1].append(line)
+
+        scene.paragraphs = ["\n".join(p) for p in paragraphs if p]
         return scene
 
     # ------------------------------------------------------------------

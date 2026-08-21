@@ -44,6 +44,7 @@ class StreamLLM:
 
     def __init__(self, *texts: str):
         self._texts = list(texts)
+        self.seen_notes: list[list[str]] = []   # 每次调用注入的系统注记（无 = []）
 
     def format_messages(self, *, system_prompt, user_message, history=None):
         msgs = [{"role": "system", "content": system_prompt}]
@@ -55,6 +56,10 @@ class StreamLLM:
         if not self._texts:
             raise RuntimeError("StreamLLM 脚本耗尽")
         text = self._texts.pop(0)
+        # 注记 = 第一个 system（主 prompt）之后的 system 消息（history 无 system）
+        self.seen_notes.append(
+            [m["content"] for m in messages[1:] if m["role"] == "system"]
+        )
         for ch in text:
             yield ch
 
@@ -107,6 +112,30 @@ def test_send_vn_scene():
     scene2 = vn2.send_vn_scene("继续")
     assert scene2.is_end and scene2.paragraphs == ["收尾了。"]
     print("    send_vn_scene: 【完】→ is_end=True")
+
+
+# ----------------------------------------------------------------------------
+# _parse_scene 容错: 模型分隔段落的换行不一致（\n\n / \n / '  \n' 都出现过）
+# ----------------------------------------------------------------------------
+
+def test_parse_scene_robust():
+    # 模型实际风格: 行尾两空格 + 单换行分隔, 标记被埋 → 旧解析器永远检测不到
+    text = ("（听到邀请）她一愣。  \n"
+            "（偷偷瞄一眼）不是我想单独吃饭哦。  \n"
+            "【选择】\n1. 笑着点头\n2. 故意逗她")
+    scene = BondStoryEngine._parse_scene(text)
+    assert scene.paragraphs == ["（听到邀请）她一愣。\n（偷偷瞄一眼）不是我想单独吃饭哦。"], scene.paragraphs
+    assert scene.choices == ["笑着点头", "故意逗她"], scene.choices
+    assert not scene.is_end
+
+    # 单换行 + 【完】无空行 → 仍能识别结束
+    scene2 = BondStoryEngine._parse_scene("她笑了。\n【完】")
+    assert scene2.is_end and scene2.paragraphs == ["她笑了。"]
+
+    # 全角顿号 / 句点编号 → 也能剥前缀
+    scene3 = BondStoryEngine._parse_scene("【选择】\n1．走过去\n2、喊她")
+    assert scene3.choices == ["走过去", "喊她"], scene3.choices
+    print("    _parse_scene 容错: '  \\n'/单换行/全角编号 → 选项与【完】均检出")
 
 
 # ----------------------------------------------------------------------------
@@ -171,6 +200,46 @@ def test_run_vn_early_exit():
     completed = run_bond_story_vn(engine, input_fn=lambda p: "b", char_ms=0)
     assert completed is False, "b 提前退出应返回 completed=False"
     print("    run_vn(提前退出): 输入 b → 立即回 MomoTalk")
+
+
+# ----------------------------------------------------------------------------
+# run_bond_story_vn 双层收尾兜底（调试值 15 提醒 / 22 建议收尾 / 24 硬兜底）
+# ----------------------------------------------------------------------------
+
+def _scenes(n: int, start: int = 1) -> list[str]:
+    """n 个带【选择】的未结束场景（永远不输出【完】）。"""
+    return [f"场景{i}。\n\n【选择】\n1. 继续\n2. 换种方式" for i in range(start, start + n)]
+
+
+def test_run_vn_two_layer_force():
+    """模型 24 轮仍不【完】→ 第15场提醒、第22场建议收尾、第24场程序兜底收尾。"""
+    llm = StreamLLM(*_scenes(24))
+    engine = _engine(llm)
+    completed = run_bond_story_vn(engine, input_fn=lambda p: "1", char_ms=0,
+                                  remind_rounds=15, end_rounds=22)
+    assert completed is True, "模型 24 轮不【完】→ 程序兜底应 completed=True"
+    notes = llm.seen_notes
+    assert len(notes) == 24, f"应跑满 24 场: {len(notes)}"
+    assert all(not n for n in notes[:14]), "前 14 场不应注入注记"
+    assert len(notes[14]) == 1 and "剩余约 7 轮" in notes[14][0], notes[14]
+    assert all(not n for n in notes[15:21]), "16~21 场不应注入注记"
+    assert len(notes[21]) == 1 and "已达剧情篇幅上限" in notes[21][0], notes[21]
+    assert all(not n for n in notes[22:]), "23~24 场（硬兜底余量）不应注入注记"
+    print("    双层兜底: 15场提醒/22场上限注记, 24场程序兜底 completed=True")
+
+
+def test_run_vn_remind_then_natural_end():
+    """模型 17 场自然【完】→ 只吃到 15 场提醒, 不走上限注记与硬兜底。"""
+    llm = StreamLLM(*_scenes(16), "收尾了。\n\n【完】")
+    engine = _engine(llm)
+    completed = run_bond_story_vn(engine, input_fn=lambda p: "1", char_ms=0,
+                                  remind_rounds=15, end_rounds=22)
+    assert completed is True, "自然【完】应 completed=True"
+    notes = llm.seen_notes
+    assert len(notes) == 17, f"应跑 17 场: {len(notes)}"
+    assert len(notes[14]) == 1 and "剩余约 7 轮" in notes[14][0], notes[14]
+    assert all(not n for n in notes[:14] + notes[15:]), "只应在 15 场注入一次提醒"
+    print("    双层兜底: 15场提醒后第17场自然【完】, 无上限注记/硬兜底")
 
 
 # ----------------------------------------------------------------------------
