@@ -277,7 +277,7 @@ def _t_name_confirm_easter_egg():
             ok = name_confirm(egg, input_fn=lambda _: asked.append(1) or "y")
         assert ok is True, f"{egg!r} 彩蛋后输 y 应接受"
         assert asked, f"{egg!r} 彩蛋后仍应进入确认环节"
-        assert "[彩蛋]" in buf.getvalue(), f"{egg!r} 应打印彩蛋台词"
+        assert "[???]" in buf.getvalue(), f"{egg!r} 应打印彩蛋台词"
 
 
 def _t_name_confirm_easter_egg_case():
@@ -289,7 +289,68 @@ def _t_name_confirm_easter_egg_case():
     with redirect_stdout(buf):
         ok = name_confirm("IGUSA_HARUKA", input_fn=lambda _: "y")
     assert ok is True, "彩蛋后输 y 应接受"
-    assert "[彩蛋]" in buf.getvalue(), "英文 pattern 应大小写不敏感地命中"
+    assert "[???]" in buf.getvalue(), "英文 pattern 应大小写不敏感地命中"
+
+
+def _t_egg_pattern_matches():
+    """别名匹配: 英文整词 / 中文子串 / 大小写不敏感。"""
+    from core.mmt.mmt_preset import _egg_pattern_matches
+
+    # 整词: aru 是 koharu 的子串（a-r-u）, 但非独立词, 不应命中
+    assert not _egg_pattern_matches("aru", "koharu"), "aru 不应命中 koharu"
+    assert not _egg_pattern_matches("haruka", "koharu"), "haruka 不应命中 koharu"
+    assert not _egg_pattern_matches("haruka", "igusa_haruka_x"), "整词不命中带后缀"
+    # 单独英文命中 / 大小写
+    assert _egg_pattern_matches("aru", "aru")
+    assert _egg_pattern_matches("aru", "ARU"), "英文应大小写不敏感"
+    assert _egg_pattern_matches("igusa_haruka|haruka", "igusa_haruka")
+    assert _egg_pattern_matches("haruka", "haruka酱"), "整词后接中文仍命中"
+    # 中文/假名子串
+    assert _egg_pattern_matches("阿露|aru", "陆八魔阿露")
+    assert _egg_pattern_matches("阿露", "阿露酱")
+    assert _egg_pattern_matches("アル", "陸八魔アル")
+
+
+def _t_name_confirm_sign():
+    """彩蛋回复前缀: RJ~ 玩笑拒绝(去前缀, 只给 n/n) / AC~ 接受 / 无前缀普通。"""
+    from contextlib import redirect_stdout
+    from io import StringIO
+
+    old_load = mmt_preset._load_namegg
+    try:
+        # RJ~ → 弹台词(去前缀) + 只给 (n/n) + 无论选什么都拒绝
+        mmt_preset._load_namegg = lambda: {"小明": ["RJ~ 这个名字会带来灾难!"]}
+        prompts = []
+
+        def _fake_input(prompt):
+            prompts.append(prompt)
+            return "y"
+
+        buf = StringIO()
+        with redirect_stdout(buf):
+            ok = name_confirm("小明", input_fn=_fake_input)
+        assert ok is False, "RJ~ 应拒绝"
+        assert "这个名字会带来灾难!" in buf.getvalue()
+        assert "RJ~" not in buf.getvalue(), "RJ~ 台词应去掉前缀"
+        assert prompts and "(n/n)" in prompts[0], "RJ~ 应只给 (n/n) 选项"
+
+        # AC~ → 弹台词(去前缀) + 常规确认
+        mmt_preset._load_namegg = lambda: {"小明": ["AC~ 这个名字很好。"]}
+        buf = StringIO()
+        with redirect_stdout(buf):
+            ok = name_confirm("小明", input_fn=lambda _: "y")
+        assert ok is True, "AC~ 输 y 应接受"
+        assert "这个名字很好。" in buf.getvalue()
+        assert "AC~" not in buf.getvalue(), "AC~ 台词应去掉前缀"
+
+        # 无前缀 → 普通彩蛋 + 常规确认
+        mmt_preset._load_namegg = lambda: {"小明": ["普普通通。"]}
+        buf = StringIO()
+        with redirect_stdout(buf):
+            ok = name_confirm("小明", input_fn=lambda _: "n")
+        assert ok is False, "无前缀输 n 应拒绝"
+    finally:
+        mmt_preset._load_namegg = old_load
 
 
 def _t_name_confirm_regular():
@@ -371,8 +432,10 @@ def main() -> None:
     check("ensure: 留空默认 sensei", _t_ensure_blank_defaults_sensei)
     check("ensure: 保留词拒绝重询", _t_ensure_rejects_bad)
     check("set_player_name: 拒绝重询 + 留空取消", _t_set_player_name_interactive)
+    check("彩蛋别名: 英文整词/中文子串/大小写", _t_egg_pattern_matches)
     check("name_confirm: 命中彩蛋弹台词 + 确认照旧", _t_name_confirm_easter_egg)
     check("name_confirm: 英文 pattern 大小写不敏感", _t_name_confirm_easter_egg_case)
+    check("name_confirm: 前缀 RJ~/AC~/无前缀", _t_name_confirm_sign)
     check("name_confirm: 常规确认 y/n/EOF", _t_name_confirm_regular)
     check("/name 改称呼", _t_cmd_name)
     check("/name 拒绝保留词/允许角色名", _t_cmd_name_rejects)

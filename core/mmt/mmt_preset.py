@@ -28,8 +28,10 @@
 
 取名确认 / 彩蛋（name_confirm）:
     校验通过后进入确认环节。config/eggs/namegg.json = {正则: [回复,...]},
-    任一正则命中玩家名（如取了角色昵称"阿露"）→ 随机弹一条该角色彩蛋
-    （直接接受）; 未命中 → 常规确认「名字是『xx』吗?」。
+    任一别名命中玩家名（如取了角色昵称"阿露"）→ 随机弹一条该角色彩蛋台词,
+    然后常规 y/n 确认。回复可带前缀控制动作: RJ~ 玩笑式拒绝（只给 (n/n)
+    选项, 无论选什么都拒绝）; AC~ 接受。英文别名整词匹配（koharu 不误命中
+    aru）, 中文/假名子串匹配。未命中 → 常规确认「名字是『xx』吗?」。
     namegg.json 缺失/损坏 → 打印错误后降级为常规确认, 不阻塞改名。
 
 用法:
@@ -56,7 +58,11 @@ DEFAULT_PLAYER_NAME = "sensei"
 MAX_NAME_LEN = 20
 # 序列化语义保留词: 直接禁用, 避免与 JSON null/布尔 混淆
 RESERVED_WORDS = frozenset({"null", "true", "false"})
-
+# 名字彩蛋动作
+ACCEPT_NAMING = "AC~"
+REJECT_NAMING = "RJ~"
+# 回复肯定列表
+ACCEPT_REPLIES = ("y", "yes", "是", "", "t", "true")
 
 class LoopResult(Enum):
     EXIT = "exit"          # 退出程序
@@ -212,13 +218,45 @@ def _load_namegg() -> dict:
     return data
 
 
+def _is_ascii(s: str) -> bool:
+    """纯 ASCII 判定（英文 ID/昵称别名用整词匹配）。"""
+    return all(ord(c) < 128 for c in s)
+
+
+def _egg_pattern_matches(pattern: str, name: str) -> bool:
+    """namegg 别名匹配: key 按 | 切分, 任一别名命中即 True。
+
+    纯 ASCII 别名（英文 ID/昵称如 aru/haruka/igusa_haruka）**整词匹配**——
+    防止短名误命中: aru 是 koharu 的子串（a-r-u）, 但玩家输入 koharu 想的是
+    小春不是阿露; 边界用 ASCII 词字符 [A-Za-z0-9_]（**不用 \\w**——它含汉字,
+    会让 "haruka酱" 里酱算词字符导致不命中）。
+    中文/假名别名保持子串匹配: 「阿露」命中「陆八魔阿露」「阿露酱」。
+    英文大小写不敏感（re.IGNORECASE）。
+    """
+    for alt in pattern.split("|"):
+        alt = alt.strip()
+        if not alt:
+            continue
+        if _is_ascii(alt):
+            if re.search(rf"(?<![A-Za-z0-9_]){re.escape(alt)}(?![A-Za-z0-9_])",
+                         name, re.IGNORECASE):
+                return True
+        elif alt in name:
+            return True
+    return False
+
+
 def name_confirm(name: str, input_fn=input) -> bool:
     """取名确认/彩蛋环节。返回是否接受这个名字（True=调用方保存）。
 
-    读 config/eggs/namegg.json: 任一正则命中玩家名 → 随机打印该角色的
-    一条彩蛋回复（取角色昵称「阿露」或完整名「陆八魔阿露」都算——
-    角色名已不再禁止; 英文 pattern 大小写不敏感, 如 IGUSA_HARUKA 也命中
-    igusa_haruka）; 未命中 → 常规确认问句。
+    读 config/eggs/namegg.json: 任一别名命中玩家名 → 打印该角色的彩蛋台词。
+    彩蛋回复可带前缀控制动作:
+      RJ~  玩笑式拒绝 → 弹台词 + 只给 (n/n) 选项, 无论玩家选什么都拒绝
+      AC~  该角色接受 → 弹台词后常规 y/n 确认
+      无前缀  普通彩蛋 → 弹台词后常规 y/n 确认
+    未命中 → 常规确认「名字是『xx』吗?」。
+    英文别名整词匹配（koharu 不再误命中 aru）; 中文/假名子串匹配;
+    英文大小写不敏感。多条命中只弹第一条。
     彩蛋配置缺失/损坏 → 打印错误后降级为常规确认（不阻塞改名流程）。
     """
     try:
@@ -227,13 +265,33 @@ def name_confirm(name: str, input_fn=input) -> bool:
         print(f"[系统] 彩蛋配置异常: {e}")
         data = {}
     for pattern, replies in data.items():
-        if re.search(pattern, name, re.IGNORECASE):
-            print(f"[???] {random.choice(replies)}")
+        if not _egg_pattern_matches(pattern, name):
+            continue
+        if not replies:
+            break
+        raw = random.choice(replies)
+        sign, text = raw[:3], raw[3:]       # 前缀超出切片安全, 短回复走普通分支
+        if sign == REJECT_NAMING:
+            print(f"[???] {text}")
+            try:
+                input_fn(f"名字是『{name}』吗？(n/n): ").strip().lower()
+            except (EOFError, KeyboardInterrupt):
+                pass
+            return False                    # 玩笑式拒绝: 只有否, 永远不接受
+        print(f"[???] {text if sign == ACCEPT_NAMING else raw}")
+        try:
+            answer = input_fn(f"名字是『{name}』吗？(y/n): ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            return True
+        return answer in ACCEPT_REPLIES
+    # 未命中彩蛋 → 常规确认
     try:
         answer = input_fn(f"名字是『{name}』吗？(y/n): ").strip().lower()
     except (EOFError, KeyboardInterrupt):
         return True
-    return answer in ("y", "yes", "是", "")
+    return answer in ACCEPT_REPLIES
+
+
 
 
 def set_player_name(input_fn=input) -> str:
@@ -268,9 +326,6 @@ def set_player_name(input_fn=input) -> str:
 
 def ensure_player_name(input_fn=input) -> str:
     """首次运行设置玩家名: 未设置时询问并保存, 已设置直接返回。
-
-    名字只做系统显示（见 set_player_name）, 不注入 LLM context。
-    留空 / Ctrl-D → 默认 sensei; 校验失败（保留词/超长/符号）→ 重新询问。
     """
     if has_player_name():
         return load_player_name()
