@@ -1,0 +1,536 @@
+import { Rectangle } from '../../../../maths/shapes/Rectangle.mjs';
+import { warn } from '../../../../utils/logging/warn.mjs';
+import { CanvasSource } from '../../shared/texture/sources/CanvasSource.mjs';
+import { CLEAR } from '../const.mjs';
+import { GlRenderTarget } from '../GlRenderTarget.mjs';
+
+"use strict";
+class GlRenderTargetAdaptor {
+  constructor() {
+    this._clearColorCache = [0, 0, 0, 0];
+    this._viewPortCache = new Rectangle();
+    /**
+     * The framebuffer currently bound to `gl.FRAMEBUFFER`, used to skip a redundant `bindFramebuffer`
+     * when re-binding the same target. `undefined` means "unknown" (force a real bind). All framebuffer
+     * binding must go through {@link bindFramebuffer} to keep this coherent; {@link resetState} marks
+     * it unknown when external GL code may have changed the binding.
+     */
+    this._boundFramebuffer = void 0;
+  }
+  init(renderer, renderTargetSystem) {
+    this._renderer = renderer;
+    this._renderTargetSystem = renderTargetSystem;
+    renderer.runners.contextChange.add(this);
+  }
+  contextChange() {
+    this._clearColorCache = [0, 0, 0, 0];
+    this._viewPortCache = new Rectangle();
+    this._boundFramebuffer = void 0;
+    const gl = this._renderer.gl;
+    this._drawBuffersCache = [];
+    for (let i = 1; i <= 16; i++) {
+      this._drawBuffersCache[i] = Array.from({ length: i }, (_, j) => gl.COLOR_ATTACHMENT0 + j);
+    }
+  }
+  copyToTexture(sourceRenderSurfaceTexture, destinationTexture, originSrc, size, originDest) {
+    const renderTargetSystem = this._renderTargetSystem;
+    const renderer = this._renderer;
+    const glRenderTarget = renderTargetSystem.getGpuRenderTarget(sourceRenderSurfaceTexture);
+    const gl = renderer.gl;
+    this.finishRenderPass(sourceRenderSurfaceTexture);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, glRenderTarget.resolveTargetFramebuffer);
+    this._boundFramebuffer = glRenderTarget.resolveTargetFramebuffer;
+    renderer.texture.bind(destinationTexture, 0);
+    gl.copyTexSubImage2D(
+      gl.TEXTURE_2D,
+      0,
+      originDest.x,
+      originDest.y,
+      originSrc.x,
+      originSrc.y,
+      size.width,
+      size.height
+    );
+    return destinationTexture;
+  }
+  copyDepthTexture(source, destination, originSrc, size, originDest) {
+    const renderTargetSystem = this._renderTargetSystem;
+    const gl = this._renderer.gl;
+    this.finishRenderPass(source);
+    const destinationRenderTarget = renderTargetSystem.getRenderTarget(destination);
+    const srcGl = renderTargetSystem.getGpuRenderTarget(source);
+    const dstGl = renderTargetSystem.getGpuRenderTarget(destinationRenderTarget);
+    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, srcGl.framebuffer);
+    gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, dstGl.framebuffer);
+    this._boundFramebuffer = void 0;
+    gl.blitFramebuffer(
+      originSrc.x,
+      originSrc.y,
+      originSrc.x + size.width,
+      originSrc.y + size.height,
+      originDest.x,
+      originDest.y,
+      originDest.x + size.width,
+      originDest.y + size.height,
+      gl.DEPTH_BUFFER_BIT,
+      gl.NEAREST
+    );
+  }
+  startRenderPass(renderTarget, clear = true, clearColor, viewport, mipLevel = 0, layer = 0) {
+    const renderTargetSystem = this._renderTargetSystem;
+    const gpuRenderTarget = renderTargetSystem.getGpuRenderTarget(renderTarget);
+    if (layer !== 0 && this._renderer.context.webGLVersion < 2) {
+      throw new Error("[RenderTargetSystem] Rendering to array layers requires WebGL2.");
+    }
+    if (mipLevel > 0) {
+      if (gpuRenderTarget.msaa) {
+        throw new Error("[RenderTargetSystem] Rendering to mip levels is not supported with MSAA render targets.");
+      }
+      if (this._renderer.context.webGLVersion < 2) {
+        throw new Error("[RenderTargetSystem] Rendering to mip levels requires WebGL2.");
+      }
+    }
+    renderTarget.colorAttachments.forEach((attachment) => {
+      this._renderer.texture.unbind(attachment.texture);
+    });
+    const gl = this._renderer.gl;
+    this.bindFramebuffer(gpuRenderTarget.framebuffer);
+    if (!renderTarget.isRoot && renderTarget.colorAttachments.length > 0 && (gpuRenderTarget._attachedMipLevel !== mipLevel || gpuRenderTarget._attachedLayer !== layer)) {
+      renderTarget.colorAttachments.forEach((attachment, i) => {
+        const colorTexture = attachment.texture;
+        const glSource = this._renderer.texture.getGlSource(colorTexture);
+        if (glSource.target === gl.TEXTURE_2D) {
+          if (layer !== 0) {
+            throw new Error("[RenderTargetSystem] layer must be 0 when rendering to 2D textures in WebGL.");
+          }
+          gl.framebufferTexture2D(
+            gl.FRAMEBUFFER,
+            gl.COLOR_ATTACHMENT0 + i,
+            gl.TEXTURE_2D,
+            glSource.texture,
+            mipLevel
+          );
+        } else if (glSource.target === gl.TEXTURE_2D_ARRAY) {
+          if (this._renderer.context.webGLVersion < 2) {
+            throw new Error("[RenderTargetSystem] Rendering to 2D array textures requires WebGL2.");
+          }
+          gl.framebufferTextureLayer(
+            gl.FRAMEBUFFER,
+            gl.COLOR_ATTACHMENT0 + i,
+            glSource.texture,
+            mipLevel,
+            layer
+          );
+        } else if (glSource.target === gl.TEXTURE_CUBE_MAP) {
+          if (layer < 0 || layer > 5) {
+            throw new Error("[RenderTargetSystem] Cube map layer must be between 0 and 5.");
+          }
+          gl.framebufferTexture2D(
+            gl.FRAMEBUFFER,
+            gl.COLOR_ATTACHMENT0 + i,
+            gl.TEXTURE_CUBE_MAP_POSITIVE_X + layer,
+            glSource.texture,
+            mipLevel
+          );
+        } else {
+          throw new Error("[RenderTargetSystem] Unsupported texture target for render-to-layer in WebGL.");
+        }
+      });
+      gpuRenderTarget._attachedMipLevel = mipLevel;
+      gpuRenderTarget._attachedLayer = layer;
+    }
+    if (gpuRenderTarget.framebuffer) {
+      if (renderTarget.depthStencilAttachment) {
+        this._attachDepthStencilTexture(renderTarget, mipLevel, layer);
+      } else if (!gpuRenderTarget.depthStencilRenderBuffer && (renderTarget.stencil || renderTarget.depth)) {
+        this._initStencil(gpuRenderTarget);
+      }
+    }
+    if (renderTarget.colorAttachments.length > 1) {
+      this._setDrawBuffers(renderTarget, gl);
+    }
+    let viewPortY = viewport.y;
+    if (renderTarget.isRoot) {
+      viewPortY = renderTarget.pixelHeight - viewport.height - viewport.y;
+    }
+    const viewPortCache = this._viewPortCache;
+    if (viewPortCache.x !== viewport.x || viewPortCache.y !== viewPortY || viewPortCache.width !== viewport.width || viewPortCache.height !== viewport.height) {
+      viewPortCache.x = viewport.x;
+      viewPortCache.y = viewPortY;
+      viewPortCache.width = viewport.width;
+      viewPortCache.height = viewport.height;
+      gl.viewport(
+        viewport.x,
+        viewPortY,
+        viewport.width,
+        viewport.height
+      );
+    }
+    this.clear(renderTarget, clear, clearColor);
+  }
+  finishRenderPass(renderTarget) {
+    const renderTargetSystem = this._renderTargetSystem;
+    const glRenderTarget = renderTargetSystem.getGpuRenderTarget(renderTarget);
+    if (!glRenderTarget.msaa || renderTarget.colorAttachments.length === 0) return;
+    const gl = this._renderer.gl;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, glRenderTarget.resolveTargetFramebuffer);
+    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, glRenderTarget.framebuffer);
+    gl.blitFramebuffer(
+      0,
+      0,
+      glRenderTarget.width,
+      glRenderTarget.height,
+      0,
+      0,
+      glRenderTarget.width,
+      glRenderTarget.height,
+      gl.COLOR_BUFFER_BIT,
+      gl.NEAREST
+    );
+    gl.bindFramebuffer(gl.FRAMEBUFFER, glRenderTarget.framebuffer);
+    this._boundFramebuffer = glRenderTarget.framebuffer;
+  }
+  initGpuRenderTarget(renderTarget) {
+    const renderer = this._renderer;
+    const gl = renderer.gl;
+    const glRenderTarget = new GlRenderTarget();
+    glRenderTarget._attachedMipLevel = 0;
+    glRenderTarget._attachedLayer = 0;
+    const colorTexture = renderTarget.colorTexture;
+    if (colorTexture instanceof CanvasSource) {
+      this._renderer.context.ensureCanvasSize(colorTexture.resource);
+      glRenderTarget.framebuffer = null;
+      return glRenderTarget;
+    }
+    glRenderTarget.width = renderTarget.pixelWidth;
+    glRenderTarget.height = renderTarget.pixelHeight;
+    if (renderTarget.colorAttachments.length === 0) {
+      this._initDepth(renderTarget, glRenderTarget);
+    } else {
+      this._initColor(renderTarget, glRenderTarget);
+    }
+    if (renderTarget.depthStencilAttachment) {
+      this._attachDepthStencilTexture(renderTarget, 0, 0);
+    }
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    this._boundFramebuffer = null;
+    return glRenderTarget;
+  }
+  destroyGpuRenderTarget(gpuRenderTarget) {
+    const gl = this._renderer.gl;
+    if (gpuRenderTarget.framebuffer) {
+      gl.deleteFramebuffer(gpuRenderTarget.framebuffer);
+      gpuRenderTarget.framebuffer = null;
+    }
+    if (gpuRenderTarget.resolveTargetFramebuffer) {
+      gl.deleteFramebuffer(gpuRenderTarget.resolveTargetFramebuffer);
+      gpuRenderTarget.resolveTargetFramebuffer = null;
+    }
+    if (gpuRenderTarget.depthStencilRenderBuffer) {
+      gl.deleteRenderbuffer(gpuRenderTarget.depthStencilRenderBuffer);
+      gpuRenderTarget.depthStencilRenderBuffer = null;
+    }
+    gpuRenderTarget.msaaRenderBuffer.forEach((renderBuffer) => {
+      gl.deleteRenderbuffer(renderBuffer);
+    });
+    gpuRenderTarget.msaaRenderBuffer = null;
+  }
+  clear(renderTarget, clear, clearColor, _viewport, _mipLevel = 0, layer = 0) {
+    if (!clear) return;
+    if (layer !== 0) {
+      throw new Error("[RenderTargetSystem] Clearing array layers is not supported in WebGL renderer.");
+    }
+    const renderTargetSystem = this._renderTargetSystem;
+    if (typeof clear === "boolean") {
+      clear = clear ? CLEAR.ALL : CLEAR.NONE;
+    }
+    if (renderTarget.colorAttachments.length === 0) {
+      clear &= ~CLEAR.COLOR;
+      if (!clear) return;
+    }
+    const gl = this._renderer.gl;
+    const forceDepthMask = !!(clear & CLEAR.DEPTH) && !this._renderer.state.depthMaskEnabled;
+    if (clear & CLEAR.COLOR) {
+      clearColor ?? (clearColor = renderTargetSystem.defaultClearColor);
+      const clearColorCache = this._clearColorCache;
+      const clearColorArray = clearColor;
+      if (clearColorCache[0] !== clearColorArray[0] || clearColorCache[1] !== clearColorArray[1] || clearColorCache[2] !== clearColorArray[2] || clearColorCache[3] !== clearColorArray[3]) {
+        clearColorCache[0] = clearColorArray[0];
+        clearColorCache[1] = clearColorArray[1];
+        clearColorCache[2] = clearColorArray[2];
+        clearColorCache[3] = clearColorArray[3];
+        gl.clearColor(clearColorArray[0], clearColorArray[1], clearColorArray[2], clearColorArray[3]);
+      }
+    }
+    if (forceDepthMask) gl.depthMask(true);
+    gl.clear(clear);
+    if (forceDepthMask) gl.depthMask(false);
+  }
+  resizeGpuRenderTarget(renderTarget) {
+    if (renderTarget.isRoot) return;
+    const glRenderTarget = this._renderTargetSystem.getGpuRenderTarget(renderTarget);
+    glRenderTarget.width = renderTarget.pixelWidth;
+    glRenderTarget.height = renderTarget.pixelHeight;
+    if (renderTarget.colorAttachments.length > 0) {
+      this._resizeColor(renderTarget, glRenderTarget);
+    }
+    if (glRenderTarget.depthStencilRenderBuffer) {
+      this._resizeStencil(glRenderTarget);
+    }
+    this._boundFramebuffer = void 0;
+  }
+  _initColor(renderTarget, glRenderTarget) {
+    const renderer = this._renderer;
+    const gl = renderer.gl;
+    const resolveTargetFramebuffer = gl.createFramebuffer();
+    glRenderTarget.resolveTargetFramebuffer = resolveTargetFramebuffer;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, resolveTargetFramebuffer);
+    const colorAttachments = renderTarget.colorAttachments;
+    colorAttachments.forEach((colorAttachment, i) => {
+      const source = colorAttachment.texture;
+      if (source.antialias) {
+        if (renderer.context.supports.msaa) {
+          glRenderTarget.msaa = true;
+        } else {
+          warn("[RenderTexture] Antialiasing on textures is not supported in WebGL1");
+        }
+      }
+      renderer.texture.bindSource(source, 0);
+      const glSource = renderer.texture.getGlSource(source);
+      const glTexture = glSource.texture;
+      if (glSource.target === gl.TEXTURE_2D) {
+        gl.framebufferTexture2D(
+          gl.FRAMEBUFFER,
+          gl.COLOR_ATTACHMENT0 + i,
+          gl.TEXTURE_2D,
+          glTexture,
+          0
+        );
+      } else if (glSource.target === gl.TEXTURE_2D_ARRAY) {
+        if (renderer.context.webGLVersion < 2) {
+          throw new Error("[RenderTargetSystem] TEXTURE_2D_ARRAY requires WebGL2.");
+        }
+        gl.framebufferTextureLayer(
+          gl.FRAMEBUFFER,
+          gl.COLOR_ATTACHMENT0 + i,
+          glTexture,
+          0,
+          0
+        );
+      } else if (glSource.target === gl.TEXTURE_CUBE_MAP) {
+        gl.framebufferTexture2D(
+          gl.FRAMEBUFFER,
+          gl.COLOR_ATTACHMENT0 + i,
+          gl.TEXTURE_CUBE_MAP_POSITIVE_X,
+          glTexture,
+          0
+        );
+      } else {
+        throw new Error("[RenderTargetSystem] Unsupported texture target for framebuffer attachment.");
+      }
+    });
+    if (glRenderTarget.msaa) {
+      const viewFramebuffer = gl.createFramebuffer();
+      glRenderTarget.framebuffer = viewFramebuffer;
+      gl.bindFramebuffer(gl.FRAMEBUFFER, viewFramebuffer);
+      renderTarget.colorAttachments.forEach((_, i) => {
+        const msaaRenderBuffer = gl.createRenderbuffer();
+        glRenderTarget.msaaRenderBuffer[i] = msaaRenderBuffer;
+      });
+    } else {
+      glRenderTarget.framebuffer = resolveTargetFramebuffer;
+    }
+    this._resizeColor(renderTarget, glRenderTarget);
+  }
+  _initDepth(_renderTarget, glRenderTarget) {
+    const renderer = this._renderer;
+    if (renderer.context.webGLVersion < 2) {
+      throw new Error("[RenderTargetSystem] Depth-only render targets require WebGL2.");
+    }
+    const gl = renderer.gl;
+    const framebuffer = gl.createFramebuffer();
+    glRenderTarget.resolveTargetFramebuffer = framebuffer;
+    glRenderTarget.framebuffer = framebuffer;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
+    gl.drawBuffers([gl.NONE]);
+    gl.readBuffer(gl.NONE);
+  }
+  _resizeColor(renderTarget, glRenderTarget) {
+    const source = renderTarget.colorAttachments[0].texture;
+    glRenderTarget._attachedMipLevel = 0;
+    glRenderTarget._attachedLayer = 0;
+    renderTarget.colorAttachments.forEach((colorAttachment, i) => {
+      if (i === 0) return;
+      colorAttachment.texture.resize(source.width, source.height, source._resolution);
+    });
+    if (glRenderTarget.msaa) {
+      const renderer = this._renderer;
+      const gl = renderer.gl;
+      const viewFramebuffer = glRenderTarget.framebuffer;
+      gl.bindFramebuffer(gl.FRAMEBUFFER, viewFramebuffer);
+      renderTarget.colorAttachments.forEach((colorAttachment, i) => {
+        const source2 = colorAttachment.texture;
+        renderer.texture.bindSource(source2, 0);
+        const glSource = renderer.texture.getGlSource(source2);
+        const glInternalFormat = glSource.internalFormat;
+        const msaaRenderBuffer = glRenderTarget.msaaRenderBuffer[i];
+        gl.bindRenderbuffer(
+          gl.RENDERBUFFER,
+          msaaRenderBuffer
+        );
+        gl.renderbufferStorageMultisample(
+          gl.RENDERBUFFER,
+          4,
+          glInternalFormat,
+          source2.pixelWidth,
+          source2.pixelHeight
+        );
+        gl.framebufferRenderbuffer(
+          gl.FRAMEBUFFER,
+          gl.COLOR_ATTACHMENT0 + i,
+          gl.RENDERBUFFER,
+          msaaRenderBuffer
+        );
+      });
+    }
+  }
+  _attachDepthStencilTexture(renderTarget, mipLevel, layer) {
+    const renderer = this._renderer;
+    const gl = renderer.gl;
+    const source = renderTarget.depthStencilAttachment.texture;
+    const glSource = renderer.texture.getGlSource(source);
+    const glTexture = glSource.texture;
+    const format = source.format;
+    let attachment;
+    if (format === "depth24plus-stencil8" || format === "depth32float-stencil8") {
+      attachment = gl.DEPTH_STENCIL_ATTACHMENT;
+    } else if (format === "stencil8") {
+      attachment = gl.STENCIL_ATTACHMENT;
+    } else {
+      attachment = gl.DEPTH_ATTACHMENT;
+    }
+    if (glSource.target === gl.TEXTURE_2D) {
+      gl.framebufferTexture2D(
+        gl.FRAMEBUFFER,
+        attachment,
+        gl.TEXTURE_2D,
+        glTexture,
+        mipLevel
+      );
+    } else if (glSource.target === gl.TEXTURE_2D_ARRAY) {
+      gl.framebufferTextureLayer(
+        gl.FRAMEBUFFER,
+        attachment,
+        glTexture,
+        mipLevel,
+        layer
+      );
+    } else if (glSource.target === gl.TEXTURE_CUBE_MAP) {
+      gl.framebufferTexture2D(
+        gl.FRAMEBUFFER,
+        attachment,
+        gl.TEXTURE_CUBE_MAP_POSITIVE_X + layer,
+        glTexture,
+        mipLevel
+      );
+    }
+  }
+  _initStencil(glRenderTarget) {
+    if (glRenderTarget.framebuffer === null) return;
+    const gl = this._renderer.gl;
+    const depthStencilRenderBuffer = gl.createRenderbuffer();
+    glRenderTarget.depthStencilRenderBuffer = depthStencilRenderBuffer;
+    gl.bindRenderbuffer(
+      gl.RENDERBUFFER,
+      depthStencilRenderBuffer
+    );
+    gl.framebufferRenderbuffer(
+      gl.FRAMEBUFFER,
+      gl.DEPTH_STENCIL_ATTACHMENT,
+      gl.RENDERBUFFER,
+      depthStencilRenderBuffer
+    );
+    this._resizeStencil(glRenderTarget);
+  }
+  _resizeStencil(glRenderTarget) {
+    const gl = this._renderer.gl;
+    gl.bindRenderbuffer(
+      gl.RENDERBUFFER,
+      glRenderTarget.depthStencilRenderBuffer
+    );
+    if (glRenderTarget.msaa) {
+      gl.renderbufferStorageMultisample(
+        gl.RENDERBUFFER,
+        4,
+        gl.DEPTH24_STENCIL8,
+        glRenderTarget.width,
+        glRenderTarget.height
+      );
+    } else {
+      gl.renderbufferStorage(
+        gl.RENDERBUFFER,
+        this._renderer.context.webGLVersion === 2 ? gl.DEPTH24_STENCIL8 : gl.DEPTH_STENCIL,
+        glRenderTarget.width,
+        glRenderTarget.height
+      );
+    }
+  }
+  prerender(renderTarget) {
+    if (renderTarget.colorAttachments.length === 0) return;
+    const resource = renderTarget.colorAttachments[0].texture.resource;
+    if (this._renderer.context.multiView && CanvasSource.test(resource)) {
+      this._renderer.context.ensureCanvasSize(resource);
+    }
+  }
+  postrender(renderTarget) {
+    if (!this._renderer.context.multiView || renderTarget.colorAttachments.length === 0) return;
+    const colorTexture = renderTarget.colorAttachments[0].texture;
+    if (CanvasSource.test(colorTexture.resource)) {
+      const contextCanvas = this._renderer.context.canvas;
+      const canvasSource = colorTexture;
+      canvasSource.context2D.drawImage(
+        contextCanvas,
+        0,
+        canvasSource.pixelHeight - contextCanvas.height
+      );
+    }
+  }
+  _setDrawBuffers(renderTarget, gl) {
+    const count = renderTarget.colorAttachments.length;
+    const bufferArray = this._drawBuffersCache[count];
+    if (this._renderer.context.webGLVersion === 1) {
+      const ext = this._renderer.context.extensions.drawBuffers;
+      if (!ext) {
+        warn("[RenderTexture] This WebGL1 context does not support rendering to multiple targets");
+      } else {
+        ext.drawBuffersWEBGL(bufferArray);
+      }
+    } else {
+      gl.drawBuffers(bufferArray);
+    }
+  }
+  /**
+   * Forget the GL-call caches (framebuffer binding, viewport, clear color) so the next pass
+   * re-applies them. Called via the renderer's `resetState` runner when external GL code may
+   * have changed state behind our back.
+   */
+  resetState() {
+    this._boundFramebuffer = void 0;
+    this._viewPortCache = new Rectangle();
+    this._clearColorCache = [0, 0, 0, 0];
+  }
+  /**
+   * Binds a framebuffer to `gl.FRAMEBUFFER`, skipping the call when it is already bound.
+   * The single blessed way to bind a framebuffer — keeps {@link _boundFramebuffer} coherent.
+   * @param framebuffer - the framebuffer to bind
+   * @internal
+   */
+  bindFramebuffer(framebuffer) {
+    if (this._boundFramebuffer === framebuffer) return;
+    this._boundFramebuffer = framebuffer;
+    this._renderer.gl.bindFramebuffer(this._renderer.gl.FRAMEBUFFER, framebuffer);
+  }
+}
+
+export { GlRenderTargetAdaptor };
+//# sourceMappingURL=GlRenderTargetAdaptor.mjs.map

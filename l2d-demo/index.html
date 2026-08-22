@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<title>Live2Be — Spine 实验（haruka_spr 4.2.33）</title>
+<style>
+  html,body{margin:0;height:100%;background:#111;overflow:hidden;font-family:system-ui}
+  #panel{position:fixed;top:12px;left:12px;background:rgba(0,0,0,.72);color:#eee;
+         padding:12px 16px;border-radius:10px;font-size:13px;max-width:320px;line-height:1.5}
+  #panel h1{font-size:15px;margin:0 0 6px}
+  #status{color:#8cf;margin-bottom:6px}
+  #anims{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+  #anims button{background:#2a7a4a;border:0;color:#fff;padding:5px 10px;border-radius:5px;cursor:pointer;font-size:12px}
+  #anims button:hover{background:#37b06a}
+  #err{color:#ff9;white-space:pre-wrap;word-break:break-all}
+</style>
+</head>
+<body>
+<div id="panel">
+  <h1>Spine 实验 — <code>haruka_spr</code> (4.2.33)</h1>
+  <div id="status">加载中…</div>
+  <div id="anims"></div>
+  <div id="err"></div>
+</div>
+<script type="module" src="/main.js"></script>
+</body>
+</html>
