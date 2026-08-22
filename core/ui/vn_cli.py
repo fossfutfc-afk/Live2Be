@@ -20,6 +20,7 @@ from __future__ import annotations
 import logging
 import sys
 import time
+from pathlib import Path
 
 from core.momotalk import MomoTalkEngine
 from core.bond_story import BondScene, BondStoryEngine, SceneLoopError
@@ -185,11 +186,12 @@ def run_bond_story_vn(
             system_note = (
                 f"（系统）剧情已推进 {i} 轮，剩余约 {end_rounds - i} 轮。"
                 "请开始把剧情向结尾收束——感情到位、约定达成、道别告别的时刻"
-                "就改用 story_end 动作收尾结束剧情，不要再开新场景。"
+                "就改用 story_end 动作收尾结束剧情，不要再开新场景"
+                "不过也谨记这只是中段提示，你并不需要匆匆结尾，但是建议开始铺垫"
             )
         elif i == end_rounds:
             system_note = (
-                "（系统）已达剧情篇幅上限。本轮请务必改用 story_end 动作收尾"
+                "（系统）已达剧情篇幅上限。本轮请改用 story_end 动作收尾"
                 "结束剧情——收尾场景只有 paragraphs，不再输出选项。"
             )
 

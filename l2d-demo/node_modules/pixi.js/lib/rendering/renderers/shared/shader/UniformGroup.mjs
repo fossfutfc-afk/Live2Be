@@ -1,0 +1,124 @@
+import EventEmitter from 'eventemitter3';
+import { uid } from '../../../../utils/data/uid.mjs';
+import { createIdFromString } from '../utils/createIdFromString.mjs';
+import { UNIFORM_TYPES_MAP, UNIFORM_TYPES_VALUES } from './types.mjs';
+import { getDefaultUniformValue } from './utils/getDefaultUniformValue.mjs';
+
+"use strict";
+const _UniformGroup = class _UniformGroup extends EventEmitter {
+  /**
+   * Create a new Uniform group
+   * @param uniformStructures - The structures of the uniform group
+   * @param options - The optional parameters of this uniform group
+   */
+  constructor(uniformStructures, options) {
+    super();
+    /**
+     * used internally to know if a uniform group was used in the last render pass
+     * @internal
+     */
+    this._touched = 0;
+    /** a unique id for this uniform group used through the renderer */
+    this.uid = uid("uniform");
+    /**
+     * a resource type, used to identify how to handle it when its in a bind group / shader resource
+     * @internal
+     */
+    this._resourceType = "uniformGroup";
+    /**
+     * the resource id used internally by the renderer to build bind group keys
+     * @internal
+     */
+    this._resourceId = uid("resource");
+    /** used ito identify if this is a uniform group */
+    this.isUniformGroup = true;
+    /**
+     * used to flag if this Uniform groups data is different from what it has stored in its buffer / on the GPU
+     * @internal
+     */
+    this._dirtyId = 0;
+    // implementing the interface - UniformGroup are not destroyed
+    this.destroyed = false;
+    options = { ..._UniformGroup.defaultOptions, ...options };
+    this.uniformStructures = uniformStructures;
+    const uniforms = {};
+    for (const i in uniformStructures) {
+      const uniformData = uniformStructures[i];
+      uniformData.name = i;
+      uniformData.size = uniformData.size ?? 1;
+      if (!UNIFORM_TYPES_MAP[uniformData.type]) {
+        const arrayMatch = uniformData.type.match(/^array<(\w+(?:<\w+>)?),\s*(\d+)>$/);
+        if (arrayMatch) {
+          const [, innerType, size] = arrayMatch;
+          throw new Error(
+            `Uniform type ${uniformData.type} is not supported. Use type: '${innerType}', size: ${size} instead.`
+          );
+        }
+        throw new Error(`Uniform type ${uniformData.type} is not supported. Supported uniform types are: ${UNIFORM_TYPES_VALUES.join(", ")}`);
+      }
+      uniformData.value ?? (uniformData.value = getDefaultUniformValue(uniformData.type, uniformData.size));
+      uniforms[i] = uniformData.value;
+    }
+    this.uniforms = uniforms;
+    this._dirtyId = 1;
+    this.ubo = options.ubo;
+    this.isStatic = options.isStatic;
+    this._signature = createIdFromString(Object.keys(uniforms).map(
+      (i) => `${i}-${uniformStructures[i].type}`
+    ).join("-"), "uniform-group");
+  }
+  /**
+   * an underlying buffer that will be uploaded to the GPU when using this UniformGroup.
+   * It is created lazily by the renderer's ubo system on first use.
+   */
+  get buffer() {
+    return this._buffer;
+  }
+  set buffer(value) {
+    if (this._buffer === value) return;
+    this._buffer?.off("change", this.onBufferChange, this);
+    this._buffer = value;
+    value?.on("change", this.onBufferChange, this);
+  }
+  /**
+   * The GC tracks this group's underlying buffer, not the group itself — a GC stamp on the
+   * group (see BindGroup._touch) must land on the buffer, or the GC collects it while
+   * cached bind groups still reference it.
+   * @internal
+   */
+  get _gcLastUsed() {
+    return this._buffer?._gcLastUsed ?? -1;
+  }
+  set _gcLastUsed(value) {
+    if (this._buffer) this._buffer._gcLastUsed = value;
+  }
+  /**
+   * Bind group keys are built from this group's _resourceId, not the buffer's — so when the
+   * buffer re-keys (it resized, or the GC unloaded its GPU copy), this group must re-key too,
+   * or cached GPUBindGroups keep referencing the destroyed GPU buffer.
+   */
+  onBufferChange() {
+    this._resourceId = uid("resource");
+    this.emit("change", this);
+  }
+  /** Call this if you want the uniform groups data to be uploaded to the GPU only useful if `isStatic` is true. */
+  update() {
+    this._dirtyId++;
+  }
+};
+/**
+ * emits when the underlying buffer needs to be re-bound (it resized or was unloaded),
+ * letting cached bind groups know they must rebuild
+ * @event change
+ */
+/** The default options used by the uniform group. */
+_UniformGroup.defaultOptions = {
+  /** if true the UniformGroup is handled as an Uniform buffer object. */
+  ubo: false,
+  /** if true, then you are responsible for when the data is uploaded to the GPU by calling `update()` */
+  isStatic: false
+};
+let UniformGroup = _UniformGroup;
+
+export { UniformGroup };
+//# sourceMappingURL=UniformGroup.mjs.map
