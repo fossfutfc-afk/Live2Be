@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""MediaCatalog — assets/ 媒体查库总入口（纯数据, 一次扫描建索引）。
+"""MediaCatalog — assets/ 媒体查库总入口（纯数据, 背景全量 + 差分按角色懒加载）。
 
 查询（宁缺勿错: 未知 id / 缺资产 → None / 空列表, 不抛异常; 仅构造时 assets 根缺失抛 MediaError）:
     background(scene_id, variant=None)  → 背景（命名派生, 变体白名单切分）
@@ -38,7 +38,10 @@ class MediaCatalog:
             raise MediaError(f"assets 根不存在: {self.assets_root}")
         self._backgrounds: dict[str, list[BackgroundMedia]] = {}
         self._sprites: dict[str, dict[str, SpriteMedia]] = {}
-        self._scan()
+        self._scanned_chars: set[str] = set()
+        # 背景全量（构造时）: 数据驱动必须扫才能知道有哪些场景, 且便宜（620 场景）;
+        # 差分按角色懒加载（VN 单角色, 首次 query 才扫该角色并缓存, 宁缺勿错）.
+        self._scan_backgrounds()
 
     # ------------------------------------------------------------------
     # 查询: 背景
@@ -73,15 +76,18 @@ class MediaCatalog:
     # ------------------------------------------------------------------
 
     def sprite(self, char_id: str, emotion: str) -> SpriteMedia | None:
-        """查角色差分。emotion 白名单 = manifest sprites 键。查不到 → None。"""
+        """查角色差分。emotion 白名单 = manifest sprites 键。查不到 → None。首次查该角色才扫描。"""
+        self._ensure_character(char_id)
         return self._sprites.get(char_id, {}).get(emotion)
 
     def sprite_emotions(self, char_id: str) -> list[str]:
-        """角色已登记情绪（给 ② 播放协议 parse 白名单 / 导演 prompt）。"""
+        """角色已登记情绪（给 ② 播放协议 parse 白名单 / 导演 prompt）。首次查该角色才扫描。"""
+        self._ensure_character(char_id)
         return sorted(self._sprites.get(char_id, {}))
 
     def has_sprite(self, char_id: str, emotion: str) -> bool:
-        return self.sprite(char_id, emotion) is not None
+        self._ensure_character(char_id)
+        return emotion in self._sprites.get(char_id, {})
 
     def has_background(self, scene_id: str, variant: str | None = None) -> bool:
         return self.background(scene_id, variant) is not None
@@ -89,10 +95,6 @@ class MediaCatalog:
     # ------------------------------------------------------------------
     # 内部: 扫描
     # ------------------------------------------------------------------
-
-    def _scan(self) -> None:
-        self._scan_backgrounds()
-        self._scan_sprites()
 
     def _scan_backgrounds(self) -> None:
         bg_root = self.assets_root / "background"
@@ -105,25 +107,28 @@ class MediaCatalog:
                     BackgroundMedia(scene, p, variant)
                 )
 
-    def _scan_sprites(self) -> None:
-        ill = self.assets_root / "illustration"
-        if not ill.is_dir():
+    def _ensure_character(self, char_id: str) -> None:
+        """角色差分懒加载: 首次 query 该角色才扫描, 之后 O(1)（含不存在角色的空缓存）。"""
+        if char_id in self._scanned_chars:
             return
-        for char_dir in sorted(ill.iterdir()):
-            if not char_dir.is_dir() or char_dir.name.startswith("_"):
-                continue
-            char_id = char_dir.name
-            man = load_character_manifest(char_dir)
-            packs = find_spine_packs(char_dir / "spine")
-            pref = man["spine"]
-            pack = packs.get(pref) or (packs.get(Path(pref).name) if pref else None)
-            emotions: dict[str, SpriteMedia] = {}
-            for emotion, rel in man["sprites"].items():
-                static = char_dir / rel
-                emotions[emotion] = SpriteMedia(
-                    emotion=emotion,
-                    static_path=static if static.is_file() else None,
-                    spine=pack,
-                )
-            if emotions:
-                self._sprites[char_id] = emotions
+        self._scan_character(char_id)
+        self._scanned_chars.add(char_id)
+
+    def _scan_character(self, char_id: str) -> None:
+        char_dir = self.assets_root / "illustration" / char_id
+        if not char_dir.is_dir():
+            return
+        man = load_character_manifest(char_dir)
+        packs = find_spine_packs(char_dir / "spine")
+        pref = man["spine"]
+        pack = packs.get(pref) or (packs.get(Path(pref).name) if pref else None)
+        emotions: dict[str, SpriteMedia] = {}
+        for emotion, rel in man["sprites"].items():
+            static = char_dir / rel
+            emotions[emotion] = SpriteMedia(
+                emotion=emotion,
+                static_path=static if static.is_file() else None,
+                spine=pack,
+            )
+        if emotions:
+            self._sprites[char_id] = emotions
