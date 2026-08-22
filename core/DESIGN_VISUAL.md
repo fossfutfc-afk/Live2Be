@@ -61,7 +61,7 @@ Bond Story VN 目前是纯文本（段落 + 选项）。视觉层 = 让每个场
 ### ① core/media/ — 查库（纯数据，背景全量 + 差分按角色懒加载）
 - `background.py`：命名派生（`BG_` 前缀 + 变体白名单 + camel→snake），零 manifest。已核实 1089 张 jpg 全带 `BG_` 前缀。
 - `sprites.py`：diff/spine 登记（atlas 区名解析、SpinePack 三件套识别）。
-- `manifest.py`：`assets/illustration/{char}/_media.yml`——情绪→png 映射，**情绪白名单真源**；缺失/损坏降级 `{}`。
+- `manifest.py`：`assets/illustration/{char}/_media.yml`——情绪→png 映射，**情绪白名单真源**；缺失/损坏降级 `{}`。**2026-08 起真源改为 `emotions.yml`**（作者已改名；键=情绪名 id、值=diff/ 路径、注释=示范，见 DESIGN_VISUAL_PROTOCOL.md §4/§8，catalog 待接 emotions.yml）。
 - `catalog.py`：`MediaCatalog`，`sprite()/background()/sprite_emotions()/background_scenes()`；构造时 assets 根缺失才抛错，查询永不抛。**加载策略**：背景构造时全量（数据驱动必须扫、便宜，且导演需完整场景白名单）；差分首次 query 该角色才扫并缓存（VN 单角色，且某个角色素材损坏只影响它自己，宁缺勿错）。
 - 现成资产：背景 1089 jpg（可派生）；差分 `haruka_spr_01~06`（人工确认 01→nomal…06→shout）；spine 导出 4 包（haruka_spr/_HD/_Steam、Haruka_home）。
 
@@ -97,7 +97,7 @@ Bond Story VN 目前是纯文本（段落 + 选项）。视觉层 = 让每个场
 ## 6. 文件清单
 - `core/media/{__init__,catalog,background,sprites,manifest}.py`
 - `tests/core/test_media.py`
-- `assets/illustration/igusa_haruka/_media.yml`（种子 manifest）
+- `assets/illustration/igusa_haruka/emotions.yml`（情绪词表；作者 2026-08 由 `_media.yml` 改名，键=情绪 id + 示范注释）
 - ②：`core/director/{__init__,state,fallback,prompt,llm,director}.py` + `tests/core/test_director.py`
 - `llm/prompts/director_rules.md`（导演角色/输出格式/少样本）
 - `assets/_director_whitelist.json`（导演背景常用集合，可编辑）

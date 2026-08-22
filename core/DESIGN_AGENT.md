@@ -1,6 +1,11 @@
 # Agent 層 — 結構化輸出與情感驅動視覺切換
 
-> 狀態：設計階段，待實現。
+> **⚠️ 已过时（superseded）**：本文是「算法做导演」早期方案（EmotionClassifier 从文本分类
+> → 查映射表切表情）。已被 **视觉意图协议**（[DESIGN_VISUAL_PROTOCOL.md](DESIGN_VISUAL_PROTOCOL.md)）
+> 取代——主 LLM 直接输出 per-beat emotion 意图（封闭词表），导演只做 1:N 仲裁，不再从文本猜。
+> 本文保留作设计决策历史参考。
+>
+> 狀態：~~設計階段，待實現~~（见上方 superseded）。
 > 目標：LLM 輸出純文本對白 → 算法層分析情感 → 程序查映射表切換立繪/背景。
 
 > **與 MMT 契约动作化的关系**：本文的「LLM 輸出純文本對白」前提在 MMT 全 JSON

@@ -101,8 +101,8 @@ LLM 原始响应文本
 | 注册表 | domain | 用途 | 状态 |
 |--------|--------|------|------|
 | `IDEActionRegistry` | `ide` | 辅助项目：写配置（写动作默认需证据 + 用户审批） | **已使用**（ide/actions/build_ide_registry） |
-| `MMTActionRegistry` | `mmt` | MomoTalk 运行时：模拟手机操作 | **规划**（下一步动作化） |
-| `StoryActionRegistry` | `story` | 羁绊剧情运行时：表情/背景切换 | 规划 |
+| `MMTActionRegistry` | `mmt` | MomoTalk 运行时：模拟手机操作 | **已使用**（core/mmt/mmt_actions.py） |
+| `StoryActionRegistry` | `story` | 羁绊剧情运行时：场景动作（story_scene/story_end） | **已使用**（core/story_actions.py） |
 
 各注册表实例只属于一个域，`parse()` 出的 AgentAction 烙上域标签——域之间隔离，
 各自独立注册/扩展。
@@ -121,11 +121,16 @@ prompt_fields / payload_schema）。Python 端是唯一执行引擎，但定义�
 - **ide/ide_agent.py**：`client.chat(response_format="json_object")` 返回 dict 时直接
   `registry.parse(response)`，不走 `parse_action_text`（那是对原始文本的入口）。
 
-## 8. 下一步（MMT 动作化）
+## 8. 实现状态（已全部落地）
 
-- `core/parsing/relation_parser.py`：interperson 扁平权重表 → 权重→访问层级映射
-- `core/mmt/mmt_actions.py`：`build_mmt_registry()` 注册 4 个动作（动作名带 `mmt_` 前缀）
-  `mmt_chat / mmt_inspect_character / mmt_send_media / mmt_trigger_bond_story`；
-  MMT 禁发视频（media_type 白名单仅 `image`），图片先查库后生成
-- `core/mmt/mmt_executor.py`：按 approval=auto 执行动作，reply 承载对白
-- `core/momotalk.py` 改造为全 JSON agent loop，历史格式同步清理（每轮至少记动作名）
+- `core/mmt/mmt_actions.py`：`build_mmt_registry()` 注册 4 个动作（`mmt_chat / mmt_inspect_character
+  / mmt_send_media / mmt_trigger_bond_story`）；MMT 禁发视频（media_type 白名单仅 `image`）
+- `core/mmt/mmt_executor.py`：`MmtExecutor` 按 approval=auto 执行动作，reply 承载对白
+- `core/momotalk.py`：全 JSON agent loop + `_trace`
+- `core/story_actions.py` + `core/story_executor.py`：羁绊剧情 story_scene/story_end 双动作
+  + `StoryExecutor` 执行层（双核 loop，见 DESIGN_BOND_STORY.md）
+
+## 9. 下一步（Story 契约演进）
+
+- `story_scene/story_end` payload 加可选 `beats: [{text, emotion}]` + `place`（视觉意图协议，
+  见 [core/DESIGN_VISUAL_PROTOCOL.md](../core/DESIGN_VISUAL_PROTOCOL.md) §3，设计定稿待实现）
