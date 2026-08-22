@@ -494,7 +494,7 @@ def test_ide_unknown():
 
 @check("集成 import: ui + core.momotalk + core.bond_story")
 def test_integration_import():
-    import core.bond_story  # noqa: F401
+    import core.bond.bond_story  # noqa: F401
     import core.momotalk    # noqa: F401
 
 

@@ -75,7 +75,7 @@ def _engine(
 ) -> MomoTalkEngine:
     """构造引擎。默认 threshold=0（不加门槛, 保现有用例语义）;
     progress 可注入（门槛测试用临时 BondProgress, 不污染 data/basic/）。"""
-    from core.bond_progress import BondProgress
+    from core.bond.bond_progress import BondProgress
 
     engine = MomoTalkEngine(
         ROOT / "config" / "characters",
@@ -197,7 +197,7 @@ def _t_trigger_threshold():
     import tempfile
     from pathlib import Path
 
-    from core.bond_progress import BondProgress
+    from core.bond.bond_progress import BondProgress
 
     trig = {"action": "mmt_trigger_bond_story", "payload": {"reason": "气氛到了"}}
     chat = {"action": "mmt_chat", "reply": "嗯……我们还没到那一步吧。", "payload": {}}
@@ -242,7 +242,7 @@ def _t_trigger_threshold():
 # ----------------------------------------------------------------------------
 
 def _t_bond_scene():
-    from core.bond_story import BondScene
+    from core.bond.bond_story import BondScene
 
     scene = BondScene.from_dict({
         "paragraphs": ["遥香坐在天台边缘……", "（她微微一笑，靠在你肩上）"],
@@ -272,8 +272,8 @@ def _t_bond_scene():
 # ----------------------------------------------------------------------------
 
 def _t_story_executor():
-    from core.bond_story import BondStoryEngine
-    from core.story_executor import StoryExecutor
+    from core.bond.bond_story import BondStoryEngine
+    from core.bond.bond_executor import StoryExecutor
 
     scene = {"action": "story_scene", "payload": {
         "paragraphs": ["遥香坐在天台边缘……"],
@@ -304,7 +304,7 @@ def _t_story_executor():
 def _t_director():
     import json as _json
 
-    from core.bond_story import BondStoryEngine
+    from core.bond.bond_story import BondStoryEngine
     from core.director import Director, DirectorSuggestion
     from core.media import MediaCatalog
 

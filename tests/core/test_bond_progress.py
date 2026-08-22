@@ -10,7 +10,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-from core.bond_progress import BondProgress
+from core.bond.bond_progress import BondProgress
 
 PASS = 0
 FAIL = 0

@@ -23,9 +23,9 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from core.momotalk import MomoTalkEngine
-from core.bond_story import BondScene, BondStoryEngine, SceneLoopError
-from core.bond_story_save import BondStorySave
-from core.story_executor import StoryExecError, StoryExecutor
+from core.bond.bond_story import BondScene, BondStoryEngine, SceneLoopError
+from core.bond.bond_save import BondStorySave
+from core.bond.bond_executor import StoryExecError, StoryExecutor
 from core.ui.vn_cli import (
     run_bond_story_vn,
     simulate_vn_scene,
@@ -397,7 +397,7 @@ def test_replay_bond_story(capsys):
 # ----------------------------------------------------------------------------
 
 def test_wrapup_after_vn():
-    from core.bond_progress import BondProgress
+    from core.bond.bond_progress import BondProgress
     from core.ui.vn_cli import wrapup_after_vn
 
     trig = {"action": "mmt_trigger_bond_story", "payload": {"reason": "气氛到了"}}

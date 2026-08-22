@@ -13,7 +13,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from core.bond_story_save import list_saves, load_save
+from core.bond.bond_save import list_saves, load_save
 from core.ui.vn_cli import replay_bond_story
 
 

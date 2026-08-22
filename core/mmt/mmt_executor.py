@@ -31,7 +31,7 @@ ExecResult(ok=True, message=回灌给 LLM 的内容)；不可执行抛 MmtExecEr
 TODO（后续 session）:
     - core/parsing/relation_parser.py: 移入人际层工具
     - 媒体管线（存储/查库/LLM 生成）落地后替换 _execute_mmt_send_media 的占位
-      （羁绊触发门槛已接入 core/bond_progress.py 轮数, 2026-08-21）
+      （羁绊触发门槛已接入 core/bond/bond_progress.py 轮数, 2026-08-21）
 """
 
 from __future__ import annotations
@@ -42,7 +42,7 @@ from pathlib import Path
 
 from core.common import Live2BeError
 from contract import AgentAction, DOMAIN_MMT
-from core.bond_progress import BondProgress
+from core.bond.bond_progress import BondProgress
 from core.parsing.dynamic_character_parser import (
     CharacterLoader,
     DynamicCharacter,
@@ -145,7 +145,7 @@ class MmtExecutor:
             else Path(DEFAULT_INTERPERSON_PATH)
         )
         # 羁绊触发参考轮数（默认 5）——软门槛: 注入 LLM 作参考建议, 不硬拦截;
-        # 程序只在首条消息（0 轮）兜底拒绝。见 core/bond_progress.py。
+        # 程序只在首条消息（0 轮）兜底拒绝。见 core/bond/bond_progress.py。
         self.affection_threshold = affection_threshold
         self.bond_progress = bond_progress or BondProgress()
         self.current_char: DynamicCharacter | None = None
@@ -287,7 +287,7 @@ class MmtExecutor:
     def _affection_score(self) -> int:
         """当前羁绊进度 = 与该角色的累计对话轮数。
 
-        方法名保留历史命名; 实际读 core/bond_progress.py 的轮数（客观计数,
+        方法名保留历史命名; 实际读 core/bond/bond_progress.py 的轮数（客观计数,
         非情绪数值）。无当前角色 → 0。门槛校验读它真实生效。
         """
         if self.current_char is None:

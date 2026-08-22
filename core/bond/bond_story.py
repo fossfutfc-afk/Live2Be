@@ -11,8 +11,8 @@
     False, story_end 隐含 True; 收尾成为一等动作, 结构上保证「收尾必无选项」。
     LLM 直接输出场景 JSON——contract.py 既规范输出也规范处理; 选项收敛到同一主线
     （无论选哪个, 剧情走向同一结局, 只影响紧接着的对白语气/细节）。
-    双核（镜像 momotalk）: contract 层 core/story_actions.py（build_story_registry）
-    + 执行层 core/story_executor.py（StoryExecutor/StoryExecError）, 引擎记 trace。
+    双核（镜像 momotalk）: contract 层 core/bond/bond_actions.py（build_story_registry）
+    + 执行层 core/bond/bond_executor.py（StoryExecutor/StoryExecError）, 引擎记 trace。
     BondScene 是契约解析后的程序侧结构; to_dict/from_dict 是序列化唯一路径——
     **一解析器两用**: 运行时 from_action（动作类型推导 is_end）+ 读存档 json[] 回放
     from_dict（存档显式 is_end）（DESIGN_BOND_STORY.md）。
@@ -20,7 +20,7 @@
     行为规则在 llm/prompts/bond_story_rules.md; 契约 schema 由 build_schema 注入。
 
 用法:
-    from core.bond_story import BondStoryEngine
+    from core.bond.bond_story import BondStoryEngine
     vn = BondStoryEngine(characters_root, llm_client)
     vn.start_session("igusa_haruka")
     scene = vn.send_vn_scene("（开场）")
@@ -37,8 +37,8 @@ from pathlib import Path
 
 from contract import AgentAction, build_schema
 from core.common import Live2BeError, err
-from core.story_actions import MAX_SCENE_RETRIES, build_story_registry
-from core.story_executor import StoryExecError, StoryExecutor
+from core.bond.bond_actions import MAX_SCENE_RETRIES, build_story_registry
+from core.bond.bond_executor import StoryExecError, StoryExecutor
 from llm.client import LLMClient
 from llm.feedback import feedback
 from llm.prompts import load_prompt

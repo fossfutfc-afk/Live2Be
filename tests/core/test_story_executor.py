@@ -17,14 +17,14 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from contract import AgentAction, APPROVAL_AUTO, ContractError, DOMAIN_MMT, DOMAIN_STORY
-from core.bond_story import BondScene
-from core.story_actions import (
+from core.bond.bond_story import BondScene
+from core.bond.bond_actions import (
     MAX_SCENE_CHOICES,
     build_story_registry,
     parse_story_end,
     parse_story_scene,
 )
-from core.story_executor import StoryExecError, StoryExecutor
+from core.bond.bond_executor import StoryExecError, StoryExecutor
 
 
 def _action(action: str, payload: dict) -> AgentAction:
