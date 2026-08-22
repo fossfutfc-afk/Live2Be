@@ -27,7 +27,9 @@ main.py                 入口（MomoTalk CLI）
 config/                 静态配置：characters/ 角色五件套 · settings/ 关系+世界观 · stories/ 剧本(空)
 contract/               【地基】契约层：ActionSpec 单源真值驱动 schema/校验/渲染
 core/                   核心引擎：momotalk(聊天) · bond_story(VN) · bond_progress(羁绊轮数)
-                        common/ 全局错误格式(errors.py) · parsing/ 解析层 · mmt/ MMT 动作集 · ui/ 展示层
+                        common/ 错误格式 · parsing/ 解析层 · mmt/ MMT 动作集 · ui/ 展示层
+                        media/ 媒体查库(MediaCatalog) · director/ 视觉导演(②)
+                        story_actions/story_executor (Story 双动作 + 执行层)
 ide/                    IDE agent 引擎（原 fetch/，2026 重构改名）
 llm/                    LLM 客户端 + json 清洗 + prompts 仓库
 web/                    Web GUI 壳（FastAPI + SSE，当前服务 ide 域）
@@ -35,7 +37,7 @@ tests/                  自动化测试（pytest，按域分子目录）
 experiments/            实验脚本 + 运行记录（非核心，手工运行）
 entrance/               启动脚本 + 使用手册
 tools/                  开发者工具（fetch_kivo 等，gitignore 不入库）
-resources/              立绘素材（diff/ 静态差分 · spine/ 骨骼动画 · possession/ 物品）
+assets/                 静态资源（曾名 resources/）：illustration/{char}/diff+emotions.yml · background/ · _director_whitelist.json
 data/                   运行时数据（sessions 对话 · basic 玩家名/羁绊轮数，gitignore）
 ```
 
@@ -57,5 +59,8 @@ python -m pytest                      # 全部离线测试（~150 个）
 | [contract/DESIGN.md](contract/DESIGN.md) | 契约层设计（ActionSpec / 审批策略 / 数据流） |
 | [ide/README.md](ide/README.md) | IDE agent 快速上手 |
 | [web/DESIGN.md](web/DESIGN.md) | Web GUI 设计（SSE 并发 / 审批桥） |
-| [core/DESIGN_AGENT.md](core/DESIGN_AGENT.md) | 角色表现层设计（情感→立绘，待实现） |
+| [core/DESIGN_BOND_STORY.md](core/DESIGN_BOND_STORY.md) | 羁绊剧情引擎（story_scene/story_end 双动作 + 执行层） |
+| [core/DESIGN_VISUAL.md](core/DESIGN_VISUAL.md) | ② 视觉导演设计（已实现：导演定 sprite/background） |
+| [core/DESIGN_VISUAL_PROTOCOL.md](core/DESIGN_VISUAL_PROTOCOL.md) | 视觉意图协议（emotion/place 意图 + 情绪词表，设计定稿待实现） |
+| [core/DESIGN_AGENT.md](core/DESIGN_AGENT.md) | ⚠️ 已过时（算法做导演早期方案，被视觉意图协议取代，历史参考） |
 | 各目录 `.exp` | 目录级说明（人类 + LLM 共读） |

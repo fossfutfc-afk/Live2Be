@@ -168,10 +168,10 @@ llm/
     ├── __init__.py     ← load_prompt(name) 加载入口（缺失抛 FileNotFoundError 并列出可用清单）
     ├── momotalk_environment.md  ← 【MomoTalk 环境说明】（on_phone 文本）
     ├── momotalk_rules.md        ← 【MomoTalk 回复规则】
-    ├── bond_story_rules.md      ← 【羁绊剧情 回复规则】（收敛分支 VN 场景结构:
-    │                               叙事段落(空行分隔) + 【选择】选项块(至多3, 收敛同主线)
-    │                               + 【完】收尾; core/bond_story.py _parse_scene 解析）
-    └── behavior_rules.md        ← 【回复要求】（core/parsing/dynamic_character_parser 用）
+    ├── bond_story_rules.md      ← 【羁绊剧情 回复规则】（story_scene/story_end 双动作 few-shot;
+    │                               契约 JSON 由 contract/ 校验, 非文本解析）
+    ├── behavior_rules.md        ← 【回复要求】（core/parsing/dynamic_character_parser 用）
+    └── director_rules.md        ← 【视觉导演 输出规则】（core/director 导演 LLM 少样本）
 ```
 
 > **Prompt 仓库**：长篇 prompt 从代码迁移为 md 文件（项目地基之一，见 CLAUDE.md 3.1.7）。
@@ -187,8 +187,9 @@ llm/
 - [x] 流式响应：`stream=True`（MomoTalk "正在输入..."效果）
 - [x] JSON 清洗管道（§2.2 Layer 1-4）
 - [x] Prompt 仓库 `llm/prompts/`（load_prompt 加载 md）
-- [x] 羁绊剧情 VN 场景结构（bond_story_rules.md: 段落 + 【选择】收敛选项 + 【完】收尾,
-      由 core/bond_story.py 解析为 BondScene）
+- [x] 羁绊剧情双动作契约（bond_story_rules.md: story_scene/story_end few-shot,
+      由 core/bond_story.py 双核 loop 消费, 见 core/DESIGN_BOND_STORY.md）
+- [x] 视觉导演规则（director_rules.md: core/director 导演 LLM 少样本, 见 core/DESIGN_VISUAL.md）
 
 ### 待定 / 未来扩展
 
