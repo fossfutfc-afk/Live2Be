@@ -1,10 +1,13 @@
 # -*- coding: utf-8 -*-
-"""core/director 单测 — 视觉导演全路径。
+"""core/director 单测 — v2 视觉导演（意图查表驱动, DESIGN_VISUAL_PROTOCOL.md）。
 
-fallback:  infer_sprite 关键词/优先级/白名单过滤
-catalog:   background_dirs / background_scenes_in_dir（背景目录分层数据源）
-Director:  正则模式 / stub LLM 直给 / 背景分层两段流 / 状态保持 / nudge / 收尾提示
-           人设注入 / LLM 连续失败禁用 / 引擎集成（BondScene 带视觉字段, 历史不含）
+fallback:  infer_sprite 关键词/优先级/白名单过滤（beats 缺失兜底用）
+Director:  beats[].emotion 查表映射（1:1）/ 词表外延续 / 拍内延续
+           place 背景查表（合法 / 非法 / 缺失保持）
+           beats 缺失 → 旧链（正则 → 保持 → 默认）
+           last_beat_sprites 暴露 / 引擎集成（BondScene 携带 beats+beat_sprites+place）
+v1 退役项（导演 LLM 大空间选择 / nudge / 人设注入 / 背景目录分层）不再测试——
+   情感判断归主 LLM, 导演只查表; 导演 LLM 仅在 1:N 拍板时上场（本轮无数据）。
 
 运行: python -m pytest tests/core/test_director.py
 """
@@ -17,8 +20,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from core.bond.bond_story import BondStoryEngine
-from core.director import Director, VisualState, infer_sprite, load_common_whitelist
-from core.director.llm import DirectorLLMError, DirectorSuggestion
+from core.director import Director, VisualState, infer_sprite
 from core.media import MediaCatalog
 
 ROOT = Path(__file__).resolve().parent.parent.parent
@@ -61,29 +63,8 @@ def _cat(tmp_path) -> MediaCatalog:
     return MediaCatalog(_make_assets(tmp_path))
 
 
-def _director(tmp_path, llm=None, **kw) -> Director:
-    return Director(
-        _cat(tmp_path), _CHARACTER,
-        persona="角色概要: 自卑敏感", rules="RULES", llm=llm, **kw)
-
-
-class StubLLM:
-    """记录每次 prompt + 按序循环返回预设建议; 预设为异常则抛出（降级路径）。"""
-
-    def __init__(self, *responses):
-        self._responses = list(responses)
-        self._i = 0
-        self.prompts: list[str] = []
-
-    def suggest(self, prompt):
-        self.prompts.append(prompt)
-        if not self._responses:
-            raise DirectorLLMError("脚本耗尽")
-        r = self._responses[self._i % len(self._responses)]
-        self._i += 1
-        if isinstance(r, Exception):
-            raise r
-        return r
+def _director(tmp_path, **kw) -> Director:
+    return Director(_cat(tmp_path), _CHARACTER, **kw)
 
 
 class _MainLLM:
@@ -103,7 +84,7 @@ class _MainLLM:
 
 
 # ----------------------------------------------------------------------------
-# fallback: infer_sprite（正则表情推断）
+# fallback: infer_sprite（beats 缺失时正则兜底）
 # ----------------------------------------------------------------------------
 
 _EMOTIONS = ["nomal", "respond", "smile", "embarass", "serious", "shout"]
@@ -135,188 +116,104 @@ def test_visual_state_defaults():
 
 
 # ----------------------------------------------------------------------------
-# catalog: 背景目录分层数据源
+# v2: beats 意图查表映射（1:1 + 词表外延续 + 拍内延续）
 # ----------------------------------------------------------------------------
 
-def test_catalog_dir_layer(tmp_path):
-    c = _cat(tmp_path)
-    assert c.background_dirs() == ["BG_Class", "BG_Gehenna"]
-    assert c.background_scenes_in_dir("BG_Class") == ["class_room", "class_stairs"]
-    assert c.background_scenes_in_dir("BG_Gehenna") == ["gehenna_campus", "gehenna_street"]
-    assert c.background_scenes_in_dir("Nope") == []
-    print("    catalog: background_dirs / scenes_in_dir（目录分层两段数据源）")
-
-
-def test_load_common_whitelist_missing(tmp_path):
-    assert load_common_whitelist(tmp_path / "nope.json") == {"scenes": [], "dirs": []}
-    print("    load_common_whitelist: 缺失 → 空（宁缺勿错）")
-
-
-# ----------------------------------------------------------------------------
-# Director: 无导演 LLM（纯正则模式）
-# ----------------------------------------------------------------------------
-
-def test_director_regex_mode_no_llm(tmp_path):
+def test_visual_for_beats_map_1to1(tmp_path):
     d = _director(tmp_path)
-    s1 = d.visual_for("她脸红了，慌乱地低下头")
-    assert s1.sprite == "embarass"
-    assert s1.background == "neutral"          # 无导演 LLM → 背景冷启动默认
-    s2 = d.visual_for("天气不错，树叶沙沙作响")  # 无情绪词 → 状态保持
-    assert s2.sprite == "embarass"
-    s3 = d.visual_for("她拍桌怒吼道：过分！")   # 正则当驱动器, 逐场可变
-    assert s3.sprite == "shout"
-    print("    regex 模式: 逐场正则推断 + 无情绪词保持 + 背景默认 neutral")
+    vs = d.visual_for([{"text": "她笑了", "emotion": "smile"}], place="class_room")
+    assert vs.sprite == "smile"                      # 1:1 查表（合法 → 直接用）
+    assert vs.background == "class_room"             # place 合法 → 直接用
+    assert d.last_beat_sprites == ["smile"]
+    print("    beats 查表: 合法 emotion → sprite; place 合法 → background")
+
+
+def test_visual_for_beats_unknown_continues(tmp_path):
+    d = _director(tmp_path)
+    # 冷启动 + 词表外 emotion → 默认 nomal（协议 §11 静默兜底）
+    vs = d.visual_for([{"text": "t", "emotion": "angry"}])
+    assert vs.sprite == "nomal"
+    # 拍内延续: 合法后接词表外/空 → 延续上一拍
+    vs2 = d.visual_for([
+        {"text": "a", "emotion": "smile"},
+        {"text": "b", "emotion": "angry"},           # 词表外 → 延续 smile
+        {"text": "c", "emotion": "  "},              # 空 emotion → 延续 smile
+    ])
+    assert vs2.sprite == "smile"
+    assert d.last_beat_sprites == ["smile", "smile", "smile"]
+    print("    beats 词表外/空: 延续上一拍/默认, 静默不拒绝")
+
+
+def test_visual_for_beats_scene_sprite_is_last(tmp_path):
+    d = _director(tmp_path)
+    vs = d.visual_for([
+        {"text": "a", "emotion": "embarass"},
+        {"text": "b", "emotion": "shout"},
+    ])
+    assert vs.sprite == "shout"                       # 场景主表情 = 最后一拍
+    assert d.last_beat_sprites == ["embarass", "shout"]
+    print("    beats: 场景主表情 = 最后一拍有效映射")
 
 
 # ----------------------------------------------------------------------------
-# Director: stub LLM 主驱动
+# v2: place 背景（合法 / 非法 / 缺失保持）
 # ----------------------------------------------------------------------------
 
-def test_director_llm_direct(tmp_path):
-    stub = StubLLM(DirectorSuggestion(sprite="smile", background="class_room"))
-    d = _director(tmp_path, llm=stub, common={"scenes": ["class_room"], "dirs": []})
-    vs = d.visual_for("段落")
-    assert vs.sprite == "smile" and vs.background == "class_room"
-    assert "class_room" in stub.prompts[0]     # 常用场景直给进 prompt
-    print("    LLM 直给: 合法 sprite + 合法 scene_id → 直接应用")
-
-
-def test_director_llm_invalid_falls_back(tmp_path):
-    # 非法 sprite / 非法背景 → 冷启动降级（正则 + 默认）
-    stub = StubLLM(DirectorSuggestion(sprite="angry", background="nope_room"))
-    d = _director(tmp_path, llm=stub, common={"scenes": [], "dirs": []})
-    vs = d.visual_for("她脸红了")
-    assert vs.sprite == "embarass"             # 非法 → 正则（冷启动）
-    assert vs.background == "neutral"          # 非法 → 默认
-    print("    LLM 非法输出: 静默降级, 不进主 LLM retry（宁缺勿错）")
-
-
-def test_director_llm_hold_no_regex_thrash(tmp_path):
-    # 有导演 LLM + 已有状态 → 导演非法时保持, 不跑正则（防抖动）
-    stub = StubLLM(
-        DirectorSuggestion(sprite="smile", background="class_room"),  # 场1 合法
-        DirectorSuggestion(sprite="angry", background="keep"),        # 场2 非法 → 保持
-    )
-    d = _director(tmp_path, llm=stub, common={"scenes": [], "dirs": []})
-    s1 = d.visual_for("她脸红了")
-    assert s1.sprite == "smile"
-    s2 = d.visual_for("她怒吼道：过分！")       # 正则会猜 shout, 但应保持 smile
-    assert s2.sprite == "smile"
-    print("    LLM 非法 + 已有状态: 状态保持, 正则不盖过导演选择")
-
-
-def test_director_background_drill(tmp_path):
-    # 导演选目录 → 第二段给目录内容拍板
-    stub = StubLLM(
-        DirectorSuggestion(sprite=None, background="BG_Gehenna"),
-        DirectorSuggestion(background="gehenna_street"),
-    )
-    d = _director(tmp_path, llm=stub, common={"scenes": [], "dirs": ["BG_Gehenna"]})
-    vs = d.visual_for("她走在格赫娜的街道上")
-    assert vs.background == "gehenna_street"
-    assert "gehenna_campus" in stub.prompts[1]   # 第二段 prompt 含目录内场景
-    assert "gehenna_street" in stub.prompts[1]
-    print("    LLM 背景分层: 选目录 → 第二段拍板场景")
-
-
-def test_director_background_drill_fail_holds(tmp_path):
-    # 目录内拍板非法 → 保持上一场
-    stub = StubLLM(
-        DirectorSuggestion(background="class_room"),
-        DirectorSuggestion(background="BG_Gehenna"),
-        DirectorSuggestion(background="invalid_room"),
-    )
-    d = _director(tmp_path, llm=stub, common={"scenes": [], "dirs": ["BG_Gehenna"]})
-    assert d.visual_for("a").background == "class_room"
-    assert d.visual_for("b").background == "class_room"   # 拍板失败 → 保持
-    print("    LLM 背景分层: 拍板非法 → 保持（宁缺勿错）")
-
-
-def test_director_background_keep(tmp_path):
-    stub = StubLLM(
-        DirectorSuggestion(sprite=None, background="class_room"),
-        DirectorSuggestion(sprite=None, background="keep"),
-        DirectorSuggestion(sprite=None, background=None),
-    )
-    d = _director(tmp_path, llm=stub, common={"scenes": [], "dirs": []})
-    assert d.visual_for("a").background == "class_room"
-    assert d.visual_for("b").background == "class_room"   # keep → 保持
-    assert d.visual_for("c").background == "class_room"   # null → 保持
-    print("    LLM 背景: keep/null → 状态保持")
+def test_visual_for_place_validation(tmp_path):
+    d = _director(tmp_path)
+    # 合法 place → 用
+    assert d.visual_for([], place="class_room").background == "class_room"
+    # 非法 place → 保持上一场（静默降级）
+    assert d.visual_for([], place="nope_room").background == "class_room"
+    # 缺失 place → 保持上一场
+    assert d.visual_for([], place=None).background == "class_room"
+    # 冷启动（无上一场）非法 place → 默认 neutral
+    d.reset()
+    assert d.visual_for([], place="nope_room").background == "neutral"
+    print("    place: 合法用 / 非法·缺失保持 / 冷启动非法默认（静默降级）")
 
 
 # ----------------------------------------------------------------------------
-# nudge / 收尾提示 / 人设注入
+# v2: beats 缺失（纯文本模式）→ 旧链（正则 → 保持 → 默认）
 # ----------------------------------------------------------------------------
 
-def test_director_nudge_after_holds(tmp_path):
-    stub = StubLLM(DirectorSuggestion(sprite="nomal", background="keep"))
-    d = _director(tmp_path, llm=stub, common={"scenes": [], "dirs": []})
-    for i in range(5):
-        d.visual_for(f"场{i + 1}")
-    nudges = ["表情已连续保持" in p for p in stub.prompts]
-    assert nudges == [False, False, False, False, True], nudges
-    # 场5 prompt 里的场数准确（保持 3 场后注记）
-    assert "已连续保持 3 场" in stub.prompts[4]
-    print("    nudge: 保持 ≥3 场后注记出现, 场数准确")
-
-
-def test_director_end_hint(tmp_path):
-    stub = StubLLM(DirectorSuggestion(sprite=None, background=None))
-    d = _director(tmp_path, llm=stub, common={"scenes": [], "dirs": []})
-    d.visual_for("a")
-    d.visual_for("收尾了", is_end=True)
-    assert "收尾" in stub.prompts[1]
-    print("    end: 收尾场景给导演提示（不强制 nomal）")
-
-
-def test_director_persona_injected(tmp_path):
-    stub = StubLLM(DirectorSuggestion(sprite=None, background=None))
-    d = _director(tmp_path, llm=stub, common={"scenes": [], "dirs": []})
-    d.visual_for("a")
-    assert "自卑敏感" in stub.prompts[0]       # 人设注入 → sprite 贴合角色
-    print("    persona: 角色概要注入导演 prompt（7B 人设把握缓解）")
+def test_visual_for_legacy_regex_when_no_beats(tmp_path):
+    d = _director(tmp_path)
+    # beats 缺失 → 正则当驱动器（旧链保留, 纯文本兼容）
+    vs = d.visual_for(None, text="她脸红了，低下头")
+    assert vs.sprite == "embarass"
+    assert d.last_beat_sprites == []                  # 无 beats → 无 per-beat 映射
+    # 无情绪词 → 状态保持
+    vs2 = d.visual_for(None, text="天气不错，树叶沙沙作响")
+    assert vs2.sprite == "embarass"
+    print("    beats 缺失: 正则逐场推断 + 无情绪词保持（VN 照跑）")
 
 
 # ----------------------------------------------------------------------------
-# 宁缺勿错: LLM 连续失败禁用
+# 引擎集成: BondScene 携带 beats + beat_sprites + place（导演输出不进主 LLM 历史）
 # ----------------------------------------------------------------------------
 
-def test_director_llm_down_disables(tmp_path):
-    class Failing:
-        def __init__(self):
-            self.calls = 0
-
-        def suggest(self, prompt):
-            self.calls += 1
-            raise DirectorLLMError("boom")
-
-    stub = Failing()
-    d = _director(tmp_path, llm=stub, common={"scenes": [], "dirs": []})
-    for txt in ("她脸红了", "她怒吼", "她笑了"):
-        d.visual_for(txt)
-    assert stub.calls == 2                     # 第 2 次失败后禁用, 第 3 场不再调
-    assert d.visual_for("她笑了").sprite == "smile"   # 降级正则仍可用
-    print("    LLM down: 连续 2 次失败禁用, 降级正则 VN 照跑")
-
-
-# ----------------------------------------------------------------------------
-# 引擎集成: BondScene 携带视觉字段
-# ----------------------------------------------------------------------------
-
-def test_engine_attaches_visuals(tmp_path):
+def test_engine_beats_attach(tmp_path):
     main = _MainLLM({"action": "story_scene", "payload": {
-        "paragraphs": ["她脸红了。"], "choices": []}})
-    stub = StubLLM(DirectorSuggestion(sprite="embarass", background="class_room"))
-    d = _director(tmp_path, llm=stub, common={"scenes": ["class_room"], "dirs": []})
+        "paragraphs": ["她脸红了。"],
+        "beats": [{"text": "她脸红了", "emotion": "embarass"},
+                  {"text": "对不起", "emotion": "smile"}],
+        "place": "class_room",
+        "choices": [],
+    }})
+    d = _director(tmp_path)
     vn = BondStoryEngine(ROOT / "config" / "characters", main, director=d)
     vn.start_session(_CHARACTER)
     scene = vn.send_vn_scene("（开场）")
-    assert scene.sprite == "embarass" and scene.background == "class_room"
-    assert scene.to_dict()["sprite"] == "embarass"          # 存档可见
-    hist = json.loads(vn.history[-1]["content"])            # 历史是契约 payload
-    assert "sprite" not in hist and "background" not in hist  # 导演不污染主 LLM 历史
-    print("    engine: 导演视觉字段合并进 BondScene; 历史不含视觉字段")
+    assert scene.sprite == "smile"                    # 场景主表情 = 最后一拍
+    assert scene.beat_sprites == ["embarass", "smile"]
+    assert scene.background == "class_room"
+    assert scene.place == "class_room"
+    dct = scene.to_dict()
+    assert dct["beat_sprites"] == ["embarass", "smile"]   # 存档可见
+    hist = json.loads(vn.history[-1]["content"])
+    assert "beat_sprites" not in hist                 # 导演输出不进主 LLM 历史（单向）
+    print("    engine: beats→beat_sprites+place 合并进 BondScene; 历史不含视觉字段")
 
 
 def test_engine_no_director_pure_text(tmp_path):
@@ -326,5 +223,6 @@ def test_engine_no_director_pure_text(tmp_path):
     vn.start_session(_CHARACTER)
     scene = vn.send_vn_scene("x")
     assert scene.sprite is None and scene.background is None
-    assert "sprite" not in scene.to_dict()
+    assert not scene.beat_sprites
+    assert "sprite" not in scene.to_dict() and "beat_sprites" not in scene.to_dict()
     print("    engine: 无导演 → 纯文本模式, 无视觉字段")

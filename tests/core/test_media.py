@@ -15,7 +15,14 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-from core.media import MediaCatalog, MediaError
+from core.media import (
+    MediaCatalog,
+    MediaError,
+    build_emotion_injection,
+    build_place_injection,
+    load_emotion_lexicon,
+    load_place_lexicon,
+)
 from core.media.background import derive_background
 from core.media.manifest import load_character_manifest
 from core.media.sprites import atlas_regions, find_spine_packs
@@ -291,3 +298,64 @@ def test_media_error_on_missing_root(tmp_path):
     with pytest.raises(MediaError):
         MediaCatalog(tmp_path / "nope")
     print("    MediaCatalog: assets 根缺失 → MediaError")
+
+
+# ----------------------------------------------------------------------------
+# emotion_lexicon: emotions.yml 逐行解析（键 + 示范注释 + eg[键] 例句）→ 注入文本
+# ----------------------------------------------------------------------------
+
+_LEXICON_YML = """# 情绪词表
+emotions:
+  nomal: diff/haruka_spr_00.png   # 默认态
+  eyes_closed: diff/haruka_spr_10.png  # 闭眼认错
+  # eg[eyes_closed]: 对不起...我又做错了...
+  shout_2: diff/haruka_spr_11.png # 坚定喊话
+  # eg[shout_2]: 老师说什么就是什么!
+  # eg[幽灵键]: 应被忽略（键不存在）
+"""
+
+
+def test_lexicon_parses_keys_comment_and_eg(tmp_path):
+    ch = tmp_path / "char"
+    ch.mkdir()
+    (ch / "emotions.yml").write_text(_LEXICON_YML, encoding="utf-8")
+    lex = load_emotion_lexicon(ch)
+    assert set(lex) == {"nomal", "eyes_closed", "shout_2"}, set(lex)
+    assert lex["nomal"]["path"] == "diff/haruka_spr_00.png"
+    assert lex["nomal"]["comment"] == "默认态"
+    # eg[键名] 显式归键（不依赖位置）; 幽灵键忽略
+    assert lex["eyes_closed"]["eg"] == "对不起...我又做错了..."
+    assert lex["shout_2"]["eg"] == "老师说什么就是什么!"
+    assert "幽灵键" not in lex
+    print("    lexicon: 键/路径/注释/eg[键] 归属（eg 不依赖紧跟）")
+
+
+def test_lexicon_missing_or_corrupt(tmp_path):
+    assert load_emotion_lexicon(tmp_path) == {}
+    ch = tmp_path / "c"
+    ch.mkdir()
+    (ch / "emotions.yml").write_text("emotions: [坏格式: [", encoding="utf-8")
+    assert load_emotion_lexicon(ch) == {}
+    print("    lexicon: 缺失/损坏 → {}（宁缺勿错）")
+
+
+def test_emotion_injection_build(tmp_path):
+    ch = tmp_path / "char"
+    ch.mkdir()
+    (ch / "emotions.yml").write_text(_LEXICON_YML, encoding="utf-8")
+    inj = build_emotion_injection(ch)
+    assert "【表情标注词表】" in inj and "词表外的情绪不要标" in inj
+    assert "nomal: 默认态" in inj
+    assert "eg: 老师说什么就是什么!" in inj
+    # 无词表 → 空串（调用方跳过注入）
+    assert build_emotion_injection(tmp_path / "nope") == ""
+    print("    injection: 注入文本含键+示范+eg; 无词表 → 空串")
+
+
+def test_place_lexicon_from_whitelist():
+    # 真实 _director_whitelist.json 的 common_scenes（30 个地点语义）
+    places = load_place_lexicon()
+    assert places and "class_room" in places and "ramen_ya" in places
+    inj = build_place_injection()
+    assert "【地点标注词表】" in inj and "class_room" in inj
+    print("    place: 词表来自 _director_whitelist.common_scenes; 缺失 → []/空串")
