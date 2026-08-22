@@ -298,6 +298,47 @@ def _t_story_executor():
 
 
 # ----------------------------------------------------------------------------
+# director: 导演组件 → BondScene 视觉字段 + 历史不含（不污染主 LLM 契约）
+# ----------------------------------------------------------------------------
+
+def _t_director():
+    import json as _json
+
+    from core.bond_story import BondStoryEngine
+    from core.director import Director, DirectorSuggestion
+    from core.media import MediaCatalog
+
+    class DirStub:
+        def __init__(self):
+            self.prompts: list[str] = []
+
+        def suggest(self, prompt):
+            self.prompts.append(prompt)
+            return DirectorSuggestion(sprite="embarass", background="class_room")
+
+    scene = {"action": "story_scene", "payload": {
+        "paragraphs": ["她脸红了，低下头。"], "choices": []}}
+    director = Director(
+        MediaCatalog(), CHARACTER,
+        persona="角色概要: 自卑敏感", rules="RULES",
+        llm=DirStub(), common={"scenes": ["class_room"], "dirs": []})
+    vn = BondStoryEngine(
+        ROOT / "config" / "characters", ScriptedLLM(scene), director=director)
+    vn.start_session(CHARACTER)
+    s = vn.send_vn_scene("（开场）")
+    assert s.sprite == "embarass" and s.background == "class_room", s
+    assert "sprite" not in _json.loads(vn.history[-1]["content"]), "历史应无视觉字段"
+    print(f"    director: sprite={s.sprite} background={s.background} 历史不含视觉字段")
+
+    # 纯文本模式（无导演注入）
+    vn2 = BondStoryEngine(ROOT / "config" / "characters", ScriptedLLM(scene))
+    vn2.start_session(CHARACTER)
+    s2 = vn2.send_vn_scene("（开场）")
+    assert s2.sprite is None and s2.background is None
+    print("    director: 无导演 → 纯文本, 无视觉字段")
+
+
+# ----------------------------------------------------------------------------
 # history: resume_session 回放 + 继续对话不丢历史
 # ----------------------------------------------------------------------------
 
@@ -343,6 +384,7 @@ def main() -> None:
     check("trigger 轮数门槛(拒/过)", _t_trigger_threshold)
     check("bond_scene 解析(段/选项/完)", _t_bond_scene)
     check("story 双动作 scene→end 推导+trace", _t_story_executor)
+    check("导演组件 BondScene 视觉字段", _t_director)
     check("history 恢复 + 续聊无损", _t_history)
     print("=" * 46)
     if FAIL:

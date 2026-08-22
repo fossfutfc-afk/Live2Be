@@ -75,7 +75,11 @@ class BondStorySave:
         self._flush()                      # 构造即写骨架（崩溃也留痕）
 
     def append(self, scene: BondScene, picked: str | None, input_text: str) -> None:
-        """记一场（picked = 玩家裁决: 选项文本 / 自由输入 / None）。"""
+        """记一场（picked = 玩家裁决: 选项文本 / 自由输入 / None）。
+
+        视觉字段（导演层 sprite/background）一并落盘, 回放可还原视觉标签;
+        纯文本模式（None）→ 落 null, 与旧档兼容。
+        """
         self._records.append({
             "seq": len(self._records) + 1,
             "input": input_text,
@@ -83,6 +87,8 @@ class BondStorySave:
             "choices": list(scene.choices),
             "picked": picked,
             "is_end": bool(scene.is_end),
+            "sprite": scene.sprite,
+            "background": scene.background,
         })
         self._flush()
 
