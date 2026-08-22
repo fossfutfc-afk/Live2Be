@@ -68,12 +68,12 @@
 
 ```yaml
 emotions:
-  库呼呼: diff/aru_spr_01.png     # 阿露招牌笑（得意）
-  哼:     diff/aru_spr_02.png     # 傲娇嘴硬
-  炸毛:   diff/aru_spr_03.png     # 生气
-  慌张:   diff/aru_spr_04.png
-  脸红:   diff/aru_spr_05.png     # 害羞
-  平静:   diff/aru_spr_06.png     # 默认
+  giggle: diff/aru_spr_01.png     # 阿露招牌笑（得意）
+  hmph:   diff/aru_spr_02.png     # 傲娇嘴硬
+  angry:  diff/aru_spr_03.png     # 生气
+  panic:  diff/aru_spr_04.png
+  blush:  diff/aru_spr_05.png     # 害羞
+  calm:   diff/aru_spr_06.png     # 默认
 ```
 
 ## 5. place 词表（per 世界）
@@ -114,8 +114,8 @@ emotions:
 ```yaml
 # 例：AI 生成拥抱表情后的 emotions.yml
 emotions:
-  拥抱: diff/aru_hug.png          # AI 生成, 2026-08
-  库呼呼: diff/aru_spr_01.png
+  hug: diff/aru_hug.png           # AI 生成, 2026-08
+  giggle: diff/aru_spr_01.png
   ...
 ```
 

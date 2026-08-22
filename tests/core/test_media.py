@@ -116,8 +116,8 @@ def test_find_spine_packs_empty(tmp_path):
 
 _VALID_MANIFEST = """
 emotions:
-  正常: diff/haruka_spr_01.png   # 默认态
-  微笑: diff/haruka_spr_03.png   # 眯眼开心
+  nomal: diff/haruka_spr_01.png   # 默认态
+  smile: diff/haruka_spr_03.png   # 眯眼开心
 spine: haruka_spr
 """
 
@@ -125,8 +125,8 @@ spine: haruka_spr
 def test_load_manifest_valid(tmp_path):
     (tmp_path / "emotions.yml").write_text(_VALID_MANIFEST, encoding="utf-8")
     m = load_character_manifest(tmp_path)
-    assert m["sprites"]["正常"] == "diff/haruka_spr_01.png"
-    assert m["sprites"]["微笑"] == "diff/haruka_spr_03.png"
+    assert m["sprites"]["nomal"] == "diff/haruka_spr_01.png"
+    assert m["sprites"]["smile"] == "diff/haruka_spr_03.png"
     assert m["spine"] == "haruka_spr"
     print("    manifest: 合法解析")
 
