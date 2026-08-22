@@ -83,30 +83,75 @@ def _parse_choices(payload: dict[str, Any]) -> list[str]:
     return choices[:MAX_SCENE_CHOICES]
 
 
+def _parse_beats(payload: dict[str, Any]) -> list[dict]:
+    """可选 beats 白名单校验（视觉意图协议 §3, 向后兼容: 缺失 → []）。
+
+    beats: [{text: str, emotion: str}] —— 每拍的情绪标注（per-beat）。
+    结构错误（非数组/项非对象/字段非 str）→ ContractError（格式问题回灌）;
+    emotion 空串 → 保留该项（下游视为缺失, 走降级, 宁缺勿错不拒绝）。
+    """
+    raw = payload.get("beats")
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        raise ContractError("beats 必须是数组（每项 {text, emotion}）")
+    beats: list[dict] = []
+    for b in raw:
+        if not isinstance(b, dict):
+            raise ContractError("beats 每项必须是对象 {text, emotion}")
+        text = b.get("text")
+        emotion = b.get("emotion")
+        if not isinstance(text, str) or not isinstance(emotion, str):
+            raise ContractError("beats 每项需要 text(字符串) 和 emotion(字符串)")
+        beats.append({"text": text, "emotion": emotion.strip()})
+    return beats
+
+
+def _parse_place(payload: dict[str, Any]) -> str | None:
+    """可选 place 白名单校验（协议 §5: 场景级地点, 不切省略）。缺失 → None。
+
+    只做类型校验; 是否合法 scene_id 由引擎/导演层判（非法 → 静默降级, 不进 retry）。
+    """
+    raw = payload.get("place")
+    if raw is None:
+        return None
+    if not isinstance(raw, str) or not raw.strip():
+        raise ContractError("place 必须是字符串")
+    return raw.strip()
+
+
 def parse_story_scene(payload: dict[str, Any]) -> dict[str, Any]:
     """story_scene payload 白名单校验 + 机器侧容错（硬错误抛 ContractError）。
 
-    返回 {paragraphs: [str], choices: [str]}——is_end 由动作类型推导
-    （story_scene 隐含 False）。残留 is_end 字段被白名单静默丢弃（迁移容错:
-    旧习惯模型仍输出 is_end 也当中段继续, 双层兜底照常兜住）。
+    返回 {paragraphs: [str], choices: [str], beats: [dict], place: str|None}——
+    is_end 由动作类型推导（story_scene 隐含 False）。残留 is_end 字段被白名单静默
+    丢弃（迁移容错: 旧习惯模型仍输出 is_end 也当中段继续, 双层兜底照常兜住）。
+    beats/place 可选（协议 §3）: 缺失 → []/None, 纯文本模式照跑。
     """
     paragraphs = _parse_paragraphs(payload)
     choices = _parse_choices(payload)
-    return {"paragraphs": paragraphs, "choices": choices}
+    beats = _parse_beats(payload)
+    place = _parse_place(payload)
+    result: dict[str, Any] = {"paragraphs": paragraphs, "choices": choices}
+    if beats:
+        result["beats"] = beats
+    if place is not None:
+        result["place"] = place
+    return result
 
 
 def parse_story_end(payload: dict[str, Any]) -> dict[str, Any]:
     """story_end payload 白名单校验 + 机器侧容错（硬错误抛 ContractError）。
 
-    返回 {paragraphs: [str]}——收尾无选项由动作类型结构性保证
-    （story_end 隐含 is_end=True）。**非空 choices 硬拒绝**（含 nudge 措辞
-    「请改用 story_scene」）; 空/缺省 choices 静默忽略。
+    返回 {paragraphs: [str], beats: [dict], place: str|None}——收尾无选项由动作类型
+    结构性保证（story_end 隐含 is_end=True）。**非空 choices 硬拒绝**（含 nudge 措辞
+    「请改用 story_scene」）; 空/缺省 choices 静默忽略。beats/place 可选（同 story_scene）。
     """
     paragraphs = _parse_paragraphs(payload)
 
     raw_choices = payload.get("choices")
     if raw_choices is None:
-        return {"paragraphs": paragraphs}
+        return _end_result(paragraphs, payload)
     if isinstance(raw_choices, str):
         raw_choices = [raw_choices]
     if not isinstance(raw_choices, list):
@@ -116,7 +161,19 @@ def parse_story_end(payload: dict[str, Any]) -> dict[str, Any]:
             "story_end 是收尾场景, 不出选项——choices 必须为空。"
             "若剧情尚未到结尾, 请改用 story_scene 动作继续。"
         )
-    return {"paragraphs": paragraphs}
+    return _end_result(paragraphs, payload)
+
+
+def _end_result(paragraphs: list[str], payload: dict[str, Any]) -> dict[str, Any]:
+    """story_end 结果组装: paragraphs 必含; beats/place 可选仅在出现时存在。"""
+    result: dict[str, Any] = {"paragraphs": paragraphs}
+    beats = _parse_beats(payload)
+    if beats:
+        result["beats"] = beats
+    place = _parse_place(payload)
+    if place is not None:
+        result["place"] = place
+    return result
 
 
 def build_story_registry() -> StoryActionRegistry:
@@ -136,6 +193,11 @@ def build_story_registry() -> StoryActionRegistry:
             "      不提供选项, sensei 将自由输入一句话推进）。选项要有分歧感、让 sensei\n"
             "      有参与感, 但必须收敛到同一主线——无论选哪个, 剧情都走向同一结局, 只\n"
             "      影响紧接着的对白语气与细节, 不要因选项分裂出不同剧情线。\n"
+            "  beats: 可选, 数组——每拍的情绪标注（视觉意图, 按节奏给表情）:\n"
+            "      [{text: 该拍文本, emotion: 表情词表内的情绪名}]。词表外的情绪不要\n"
+            "      标（会被忽略）; 不想细分可省略整个 beats。\n"
+            "  place: 可选, 字符串——本场地点（从地点词表选）。只有场景切换时才标,\n"
+            "      地点不变省略（保持上一场）。\n"
             "约束: story_scene 是**中段场景**——剧情尚未结束, 不要在本动作里表达收尾\n"
             "      （收尾用 story_end 动作）。字符串一律双引号。\n"
             "      每次只输出一个动作。"
@@ -151,6 +213,8 @@ def build_story_registry() -> StoryActionRegistry:
             "  paragraphs: 必填, 字符串数组——收尾段落。剧情到了自然结尾时（约定达成、\n"
             "      感情升温到位、道别告别、夜色收场等这一幕告一段落的时刻）使用本动作; \n"
             "      至少 1 段（空数组会被拒绝）。\n"
+            "  beats: 可选, 数组——同 story_scene（每拍 {text, emotion}, 收尾也可标注）\n"
+            "  place: 可选, 字符串——同 story_scene（场景切换才标）\n"
             "约束: story_end 是**收尾场景**——输出后剧情结束, 不再有选项、不再开新场景。\n"
             "      choices 必须为空（结构上收尾无选项, 传非空会被拒绝）。宁可及早收尾, \n"
             "      也不要无限续写新场景。字符串一律双引号。\n"

@@ -25,7 +25,7 @@ from pathlib import Path
 from core.momotalk import MomoTalkEngine
 from core.bond.bond_story import BondScene, BondStoryEngine, SceneLoopError
 from core.bond.bond_save import BondStorySave, load_save
-from core.director import DirectorLLM, build_director
+from core.director import build_director
 from core.ui.streaming import simulate_steps
 
 logger = logging.getLogger(__name__)
@@ -81,9 +81,16 @@ def _type_paragraph(text: str, char_ms: int = _PARA_CHAR_MS) -> None:
 
 def _print_visual(scene: BondScene) -> None:
     """CLI 视觉标签（导演层字段; 纯文本模式无字段 → 不打印）。"""
-    if scene.sprite is None and scene.background is None:
+    if scene.sprite is None and scene.background is None and not scene.beat_sprites:
         return
-    print(f"[表情 {scene.sprite or '-'}] [背景 {scene.background or '-'}]")
+    parts = []
+    if scene.sprite is not None:
+        parts.append(f"[表情 {scene.sprite or '-'}]")
+    if scene.background is not None:
+        parts.append(f"[背景 {scene.background or '-'}]")
+    if scene.beat_sprites:
+        parts.append("[拍 " + " ".join(s or "-" for s in scene.beat_sprites) + "]")
+    print(" ".join(parts))
 
 
 def simulate_vn_scene(
@@ -134,12 +141,13 @@ def simulate_vn_scene(
 # ---------------------------------------------------------------------------
 
 def _build_director(char, reason: str):
-    """构建视觉导演（人设 + 触发原因注入）; 任何失败 → None（本次 VN 纯文本模式）。
+    """构建视觉导演（v2 纯查表模式, 无辅助 LLM; 任何失败 → None 纯文本）。
 
-    本地导演 LLM 缺失/挂了不影响 VN——调用失败自动降级正则+默认（宁缺勿错）。
+    情感由主 LLM 意图（beats[].emotion）给出, 导演只查表映射（1:1）+ 词表外延续;
+    背景/音乐等未来非情感决策若需语义仲裁, 直接用 llm/client.py 的 LLMClient。
     """
     try:
-        return build_director(char, trigger_reason=reason, llm=DirectorLLM())
+        return build_director(char)
     except Exception as e:
         logger.warning("视觉导演构建失败, 本次 VN 纯文本模式: %s", e)
         return None

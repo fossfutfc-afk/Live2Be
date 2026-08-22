@@ -143,3 +143,64 @@ def test_from_action_derives_is_end():
         _action("story_end", {"paragraphs": ["好", 42, None]}))
     assert robust.paragraphs == ["好"] and robust.is_end
     print("    from_action: is_end 由动作类型推导, 滤非 str")
+
+
+# ----------------------------------------------------------------------------
+# beats / place（视觉意图协议 §3/§5: 可选, 向后兼容）
+# ----------------------------------------------------------------------------
+
+def test_parse_beats_place_optional_and_clean():
+    # 不带 beats/place → payload 干净（无该键, 向后兼容）
+    a, r = _parse("story_scene", {"paragraphs": ["一段。"]})
+    assert r.is_valid
+    assert "beats" not in a.payload and "place" not in a.payload
+    # 带 beats/place → 解析并保留
+    a, r = _parse("story_scene", {
+        "paragraphs": ["她脸红了。"],
+        "beats": [{"text": "她脸红了，低下头", "emotion": "embarass"}],
+        "place": "class_room",
+    })
+    assert r.is_valid
+    assert a.payload["beats"] == [{"text": "她脸红了，低下头", "emotion": "embarass"}]
+    assert a.payload["place"] == "class_room"
+    print("    beats/place: 可选（缺省干净）/ 出现则解析")
+
+
+def test_parse_beats_place_contract_errors():
+    # beats 非数组 / 项非对象 / 字段非 str → ContractError（registry 收集为错误）
+    for bad in (
+        {"paragraphs": ["x"], "beats": "not-list"},
+        {"paragraphs": ["x"], "beats": [42]},
+        {"paragraphs": ["x"], "beats": [{"text": "t"}]},        # 缺 emotion
+        {"paragraphs": ["x"], "beats": [{"emotion": "e"}]},     # 缺 text
+        {"paragraphs": ["x"], "beats": [{"text": 42, "emotion": "e"}]},
+        {"paragraphs": ["x"], "place": 42},
+    ):
+        a, r = _parse("story_scene", bad)
+        assert a is None and not r.is_valid, bad
+    # 空 emotion → 宽容保留（下游降级, 宁缺勿错不拒绝）
+    a, r = _parse("story_scene", {
+        "paragraphs": ["x"], "beats": [{"text": "t", "emotion": "  "}]})
+    assert r.is_valid and a.payload["beats"] == [{"text": "t", "emotion": ""}]
+    print("    beats/place: 结构错误 ContractError; 空 emotion 宽容保留")
+
+
+def test_story_end_beats_place_and_scene_carry():
+    # story_end 也支持 beats/place
+    a, r = _parse("story_end", {
+        "paragraphs": ["收尾了。"],
+        "beats": [{"text": "她笑了", "emotion": "smile"}],
+        "place": "rooftop",
+    })
+    assert r.is_valid
+    assert a.payload["beats"] and a.payload["place"] == "rooftop"
+    # BondScene.from_action 携带 beats/place（含 to_dict/from_dict 往返）
+    scene = BondScene.from_action(a)
+    assert scene.beats == [{"text": "她笑了", "emotion": "smile"}]
+    assert scene.place == "rooftop"
+    rt = BondScene.from_dict(scene.to_dict())
+    assert rt.beats == scene.beats and rt.place == scene.place
+    # 纯文本（无 beats/place）→ to_dict 省略（旧档兼容）
+    plain = BondScene.from_action(_action("story_scene", {"paragraphs": ["p"]}))
+    assert "beats" not in plain.to_dict() and "place" not in plain.to_dict()
+    print("    story_end beats/place + BondScene 携带/往返/旧档省略")

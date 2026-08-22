@@ -39,6 +39,7 @@ from contract import AgentAction, build_schema
 from core.common import Live2BeError, err
 from core.bond.bond_actions import MAX_SCENE_RETRIES, build_story_registry
 from core.bond.bond_executor import StoryExecError, StoryExecutor
+from core.media.emotion_lexicon import build_emotion_injection, build_place_injection
 from llm.client import LLMClient
 from llm.feedback import feedback
 from llm.prompts import load_prompt
@@ -63,6 +64,10 @@ class BondScene:
     is_end     — 是否剧情结束（契约 is_end=true）
     sprite     — 导演层视觉字段（表情, 情绪白名单值; None = 纯文本模式）
     background — 导演层视觉字段（背景 scene_id; None = 纯文本模式）
+    beats      — 主 LLM 意图字段（[{text, emotion}] per-beat 情绪, 协议 §3; 空 = 未标注）
+    beat_sprites — 导演映射结果（与 beats 对齐: 每拍 emotion → sprite; 词表外延续;
+                  空 = 无 beats/纯文本模式）
+    place      — 主 LLM 意图字段（场景级地点 scene_id, 协议 §5; None = 未标注/保持）
     """
 
     paragraphs: list[str] = field(default_factory=list)
@@ -70,11 +75,14 @@ class BondScene:
     is_end: bool = False
     sprite: str | None = None
     background: str | None = None
+    beats: list[dict] = field(default_factory=list)
+    beat_sprites: list[str] = field(default_factory=list)
+    place: str | None = None
 
     def to_dict(self) -> dict:
         """序列化为存档/契约同构 dict（回放读档的反向）。
 
-        视觉字段 None（纯文本模式）→ 省略, 不污染存档（旧档兼容）。
+        视觉/意图字段空值（None / 空列表）→ 省略, 不污染存档（旧档兼容）。
         """
         d = {
             "paragraphs": list(self.paragraphs),
@@ -85,6 +93,12 @@ class BondScene:
             d["sprite"] = self.sprite
         if self.background is not None:
             d["background"] = self.background
+        if self.beats:
+            d["beats"] = [dict(b) for b in self.beats]
+        if self.beat_sprites:
+            d["beat_sprites"] = list(self.beat_sprites)
+        if self.place is not None:
+            d["place"] = self.place
         return d
 
     @classmethod
@@ -100,12 +114,21 @@ class BondScene:
         choices = [c for c in raw.get("choices", []) if isinstance(c, str)]
         sprite = raw.get("sprite")
         background = raw.get("background")
+        beats = [b for b in raw.get("beats", [])
+                 if isinstance(b, dict)
+                 and isinstance(b.get("text"), str)
+                 and isinstance(b.get("emotion"), str)]
+        beat_sprites = [s for s in raw.get("beat_sprites", []) if isinstance(s, str)]
+        place = raw.get("place")
         return cls(
             paragraphs=paras,
             choices=choices,
             is_end=bool(raw.get("is_end", False)),
             sprite=sprite if isinstance(sprite, str) else None,
             background=background if isinstance(background, str) else None,
+            beats=beats,
+            beat_sprites=beat_sprites,
+            place=place if isinstance(place, str) else None,
         )
 
     @classmethod
@@ -120,6 +143,11 @@ class BondScene:
             paragraphs=[p for p in payload.get("paragraphs", []) if isinstance(p, str)],
             choices=[c for c in payload.get("choices", []) if isinstance(c, str)],
             is_end=(action.action == "story_end"),
+            beats=[b for b in payload.get("beats", [])
+                   if isinstance(b, dict)
+                   and isinstance(b.get("text"), str)
+                   and isinstance(b.get("emotion"), str)],
+            place=payload.get("place") if isinstance(payload.get("place"), str) else None,
         )
 
 
@@ -163,6 +191,14 @@ class BondStoryEngine:
         system_prompt += "\n\n" + load_prompt("bond_story_rules")
         # 场景契约 schema（story_scene 动作）——momotalk 同款注入, LLM 看到字段约束
         system_prompt += "\n\n可用动作 schema:\n" + build_schema(self.registry)
+        # 视觉意图协议 §11: 开场喂一遍当前角色表情词表 + 世界地点词表（few-shot 示范）
+        # 词表缺失/损坏 → 注入空串跳过, VN 纯文本照跑（宁缺勿错）
+        lex_inj = build_emotion_injection(self.char_loader.root / char.character_id)
+        if lex_inj:
+            system_prompt += "\n\n" + lex_inj
+        place_inj = build_place_injection()
+        if place_inj:
+            system_prompt += "\n\n" + place_inj
 
         self._current_char = char
         self._system_prompt = system_prompt
@@ -265,11 +301,14 @@ class BondStoryEngine:
         self._trim_history()
         scene = BondScene.from_action(action)
         if self.director is not None:
-            # 视觉导演: 每场定 sprite/background → 合并进 BondScene（CLI/存档/回放可见）
+            # 视觉导演（v2 意图消费）: beats[].emotion + place → per-beat sprite + 背景
+            # beats 缺失（纯文本模式）→ 旧链（正则/保持/默认）, VN 照跑
             vs = self.director.visual_for(
-                "\n".join(scene.paragraphs), is_end=scene.is_end)
+                scene.beats, place=scene.place,
+                text="\n".join(scene.paragraphs), is_end=scene.is_end)
             scene.sprite = vs.sprite
             scene.background = vs.background
+            scene.beat_sprites = self.director.last_beat_sprites
         return scene
 
     # ------------------------------------------------------------------

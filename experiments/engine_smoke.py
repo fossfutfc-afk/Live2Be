@@ -305,28 +305,25 @@ def _t_director():
     import json as _json
 
     from core.bond.bond_story import BondStoryEngine
-    from core.director import Director, DirectorSuggestion
+    from core.director import Director
     from core.media import MediaCatalog
 
-    class DirStub:
-        def __init__(self):
-            self.prompts: list[str] = []
-
-        def suggest(self, prompt):
-            self.prompts.append(prompt)
-            return DirectorSuggestion(sprite="embarass", background="class_room")
-
     scene = {"action": "story_scene", "payload": {
-        "paragraphs": ["她脸红了，低下头。"], "choices": []}}
-    director = Director(
-        MediaCatalog(), CHARACTER,
-        persona="角色概要: 自卑敏感", rules="RULES",
-        llm=DirStub(), common={"scenes": ["class_room"], "dirs": []})
+        "paragraphs": ["她脸红了，低下头。"],
+        "beats": [{"text": "她脸红了", "emotion": "embarass"},
+                  {"text": "对不起…", "emotion": "smile"}],
+        "place": "class_room",
+        "choices": []}}
+    director = Director(MediaCatalog(), CHARACTER)
     vn = BondStoryEngine(
         ROOT / "config" / "characters", ScriptedLLM(scene), director=director)
     vn.start_session(CHARACTER)
     s = vn.send_vn_scene("（开场）")
-    assert s.sprite == "embarass" and s.background == "class_room", s
+    assert s.sprite == "smile" and s.background == "class_room", s
+    assert s.beat_sprites == ["embarass", "smile"], s
+    assert s.place == "class_room"
+    hist = _json.loads(vn.history[-1]["content"])
+    assert "beat_sprites" not in hist, "导演输出不进主 LLM 历史（单向）"
     assert "sprite" not in _json.loads(vn.history[-1]["content"]), "历史应无视觉字段"
     print(f"    director: sprite={s.sprite} background={s.background} 历史不含视觉字段")
 
