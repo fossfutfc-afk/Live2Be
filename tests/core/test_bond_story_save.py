@@ -14,8 +14,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-from core.bond_story import BondScene
-from core.bond_story_save import BondStorySave, DEFAULT_SAVE_DIR, load_save, list_saves
+from core.bond.bond_story import BondScene
+from core.bond.bond_save import BondStorySave, DEFAULT_SAVE_DIR, load_save, list_saves
 
 
 def _recorder(save_dir, char_id="igusa_haruka", **kw) -> BondStorySave:

@@ -43,7 +43,7 @@ from llm.client import LLMClient
 from llm.prompts import load_prompt
 from llm.feedback import feedback
 from contract import AgentAction, build_schema
-from core.bond_progress import BondProgress
+from core.bond.bond_progress import BondProgress
 from core.mmt.mmt_actions import build_mmt_registry
 from core.mmt.mmt_executor import (
     ExecResult,
@@ -345,7 +345,7 @@ class MomoTalkEngine:
         self._trim_history()
 
         # 每完成一轮可见输出 → 该角色羁绊轮数 +1（触发轮本身不计门槛前置,
-        # 语义=「已积累的轮数」; 落盘跨会话累计, 见 core/bond_progress.py）
+        # 语义=「已积累的轮数」; 落盘跨会话累计, 见 core/bond/bond_progress.py）
         if self._current_char is not None:
             self.bond_progress.record_turn(self._current_char.character_id)
 

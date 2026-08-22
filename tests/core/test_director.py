@@ -16,7 +16,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-from core.bond_story import BondStoryEngine
+from core.bond.bond_story import BondStoryEngine
 from core.director import Director, VisualState, infer_sprite, load_common_whitelist
 from core.director.llm import DirectorLLMError, DirectorSuggestion
 from core.media import MediaCatalog

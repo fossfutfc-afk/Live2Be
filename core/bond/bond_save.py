@@ -13,7 +13,7 @@
     - 写失败不抛给调用方（VN 主循环 try 包裹, 降级为不记录）
 
 用法:
-    from core.bond_story_save import BondStorySave, load_save, list_saves
+    from core.bond.bond_save import BondStorySave, load_save, list_saves
     rec = BondStorySave(char_id, char_name, reason)
     rec.append(scene, picked="选项A", input_text="（旁白）……")
     rec.finish(ended=True)
@@ -28,7 +28,7 @@ import tempfile
 from datetime import datetime
 from pathlib import Path
 
-from core.bond_story import BondScene
+from core.bond.bond_story import BondScene
 
 DEFAULT_SAVE_DIR = Path("data/saves")
 

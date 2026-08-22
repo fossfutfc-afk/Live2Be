@@ -12,7 +12,7 @@
       提前触发; 程序只在首条消息（0 轮）兜底拒绝。
 
 用法:
-    from core.bond_progress import BondProgress
+    from core.bond.bond_progress import BondProgress
     progress = BondProgress()
     progress.record_turn("igusa_haruka")     # 每完成一轮对话
     progress.rounds("igusa_haruka")          # → 该角色累计轮数
