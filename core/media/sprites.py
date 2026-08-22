@@ -2,7 +2,7 @@
 """差分/spine 资源查库 — 语义情绪 → 静态 png / spine 导出。
 
 角色资源布局（assets/illustration/{char}/）:
-    diff/       静态差分 png（文件名无语义, 情绪映射在 _media.yml manifest）
+    diff/       静态差分 png（文件名无语义, 情绪映射在 emotions.yml 词表）
     spine/      spine 导出目录（haruka_spr/{skel,atlas,png}; atlas 区名即语义）
     possession/ 物品图（不参与 sprite 查询）
     l2d/ other/ 占位（空目录自然忽略）

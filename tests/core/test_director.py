@@ -44,8 +44,8 @@ def _make_assets(tmp_path):
     (ch / "diff").mkdir(parents=True)
     for i in range(1, 7):
         (ch / "diff" / f"haruka_spr_0{i}.png").write_bytes(b"png")
-    (ch / "_media.yml").write_text(
-        "sprites:\n"
+    (ch / "emotions.yml").write_text(
+        "emotions:\n"
         "  nomal: diff/haruka_spr_01.png\n"
         "  respond: diff/haruka_spr_02.png\n"
         "  smile: diff/haruka_spr_03.png\n"

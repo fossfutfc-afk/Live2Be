@@ -115,24 +115,25 @@ def test_find_spine_packs_empty(tmp_path):
 # ----------------------------------------------------------------------------
 
 _VALID_MANIFEST = """
-sprites:
-  nomal: diff/haruka_spr_01.png
-  smile: diff/haruka_spr_03.png
+emotions:
+  正常: diff/haruka_spr_01.png   # 默认态
+  微笑: diff/haruka_spr_03.png   # 眯眼开心
 spine: haruka_spr
 """
 
 
 def test_load_manifest_valid(tmp_path):
-    (tmp_path / "_media.yml").write_text(_VALID_MANIFEST, encoding="utf-8")
+    (tmp_path / "emotions.yml").write_text(_VALID_MANIFEST, encoding="utf-8")
     m = load_character_manifest(tmp_path)
-    assert m["sprites"]["nomal"] == "diff/haruka_spr_01.png"
+    assert m["sprites"]["正常"] == "diff/haruka_spr_01.png"
+    assert m["sprites"]["微笑"] == "diff/haruka_spr_03.png"
     assert m["spine"] == "haruka_spr"
     print("    manifest: 合法解析")
 
 
 def test_load_manifest_missing_or_corrupt(tmp_path):
     assert load_character_manifest(tmp_path)["sprites"] == {}
-    (tmp_path / "_media.yml").write_text("sprites: [坏格式: [", encoding="utf-8")
+    (tmp_path / "emotions.yml").write_text("emotions: [坏格式: [", encoding="utf-8")
     m = load_character_manifest(tmp_path)
     assert m["sprites"] == {} and m["spine"] is None
     print("    manifest: 缺失/损坏 → 空, 不崩")
@@ -167,8 +168,8 @@ def _make_assets(tmp_path):
     (sp / "haruka_spr.skel").write_bytes(b"x")
     (sp / "haruka_spr.atlas").write_text(_FAKE_ATLAS, encoding="utf-8")
     (sp / "haruka_spr.png").write_bytes(b"x")
-    (ch / "_media.yml").write_text(
-        "sprites:\n"
+    (ch / "emotions.yml").write_text(
+        "emotions:\n"
         "  nomal: diff/haruka_spr_01.png\n"
         "  respond: diff/haruka_spr_02.png\n"
         "  smile: diff/haruka_spr_03.png\n"
@@ -268,8 +269,8 @@ def test_sprite_lazy_loads_on_first_query(tmp_path):
     root = _make_assets(tmp_path)
     c = MediaCatalog(root)                       # 构造时只扫背景, 不扫角色
     ch = root / "illustration" / "igusa_haruka"
-    (ch / "_media.yml").write_text(              # 构造后改 manifest
-        "sprites:\n  smug: diff/haruka_spr_04.png\n", encoding="utf-8")
+    (ch / "emotions.yml").write_text(             # 构造后改词表
+        "emotions:\n  smug: diff/haruka_spr_04.png\n", encoding="utf-8")
     assert c.sprite_emotions("igusa_haruka") == ["smug"]  # 首次 query 才扫 → 读到新 manifest
     print("    sprite: 懒加载——构造后改 manifest, 首次 query 生效")
 
@@ -278,8 +279,8 @@ def test_sprite_static_missing_still_registered(tmp_path):
     root = _make_assets(tmp_path)
     # 改 manifest 指向不存在的文件 → 仍登记, 但 static_path 降级 None
     ch = root / "illustration" / "igusa_haruka"
-    (ch / "_media.yml").write_text(
-        "sprites:\n  smile: diff/missing.png\nspine: haruka_spr\n", encoding="utf-8")
+    (ch / "emotions.yml").write_text(
+        "emotions:\n  smile: diff/missing.png\nspine: haruka_spr\n", encoding="utf-8")
     c = MediaCatalog(root)
     s = c.sprite("igusa_haruka", "smile")
     assert s is not None and s.static_path is None and s.spine is not None
