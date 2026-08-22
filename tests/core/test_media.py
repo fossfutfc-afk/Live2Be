@@ -264,6 +264,16 @@ def test_has_sprite_and_background(tmp_path):
     print("    has_sprite / has_background: 布尔辅助")
 
 
+def test_sprite_lazy_loads_on_first_query(tmp_path):
+    root = _make_assets(tmp_path)
+    c = MediaCatalog(root)                       # 构造时只扫背景, 不扫角色
+    ch = root / "illustration" / "igusa_haruka"
+    (ch / "_media.yml").write_text(              # 构造后改 manifest
+        "sprites:\n  smug: diff/haruka_spr_04.png\n", encoding="utf-8")
+    assert c.sprite_emotions("igusa_haruka") == ["smug"]  # 首次 query 才扫 → 读到新 manifest
+    print("    sprite: 懒加载——构造后改 manifest, 首次 query 生效")
+
+
 def test_sprite_static_missing_still_registered(tmp_path):
     root = _make_assets(tmp_path)
     # 改 manifest 指向不存在的文件 → 仍登记, 但 static_path 降级 None
