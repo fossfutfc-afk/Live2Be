@@ -61,19 +61,31 @@ class BondScene:
     paragraphs — 叙事段落（数组一项一段）
     choices    — 选项列表（空 = 无选项; 有选项时玩家选一个, 喂回下一场景）
     is_end     — 是否剧情结束（契约 is_end=true）
+    sprite     — 导演层视觉字段（表情, 情绪白名单值; None = 纯文本模式）
+    background — 导演层视觉字段（背景 scene_id; None = 纯文本模式）
     """
 
     paragraphs: list[str] = field(default_factory=list)
     choices: list[str] = field(default_factory=list)
     is_end: bool = False
+    sprite: str | None = None
+    background: str | None = None
 
     def to_dict(self) -> dict:
-        """序列化为存档/契约同构 dict（回放读档的反向）。"""
-        return {
+        """序列化为存档/契约同构 dict（回放读档的反向）。
+
+        视觉字段 None（纯文本模式）→ 省略, 不污染存档（旧档兼容）。
+        """
+        d = {
             "paragraphs": list(self.paragraphs),
             "choices": list(self.choices),
             "is_end": bool(self.is_end),
         }
+        if self.sprite is not None:
+            d["sprite"] = self.sprite
+        if self.background is not None:
+            d["background"] = self.background
+        return d
 
     @classmethod
     def from_dict(cls, raw: dict | None) -> "BondScene":
@@ -86,7 +98,15 @@ class BondScene:
             return cls()
         paras = [p for p in raw.get("paragraphs", []) if isinstance(p, str)]
         choices = [c for c in raw.get("choices", []) if isinstance(c, str)]
-        return cls(paragraphs=paras, choices=choices, is_end=bool(raw.get("is_end", False)))
+        sprite = raw.get("sprite")
+        background = raw.get("background")
+        return cls(
+            paragraphs=paras,
+            choices=choices,
+            is_end=bool(raw.get("is_end", False)),
+            sprite=sprite if isinstance(sprite, str) else None,
+            background=background if isinstance(background, str) else None,
+        )
 
     @classmethod
     def from_action(cls, action: "AgentAction") -> "BondScene":
@@ -110,11 +130,18 @@ class BondStoryEngine:
     但输出策略不同：段落分割、不去括号、不加名字前缀。
     """
 
-    def __init__(self, characters_root: str | Path, llm_client: LLMClient):
+    def __init__(
+        self,
+        characters_root: str | Path,
+        llm_client: LLMClient,
+        *,
+        director=None,
+    ):
         self.char_loader = CharacterLoader(characters_root)
         self.llm = llm_client
         self.registry = build_story_registry()
         self.executor = StoryExecutor()
+        self.director = director          # 视觉导演（可注入; None = 纯文本模式）
         self._current_char: DynamicCharacter | None = None
         self._system_prompt: str = ""
         self._history: list[dict[str, str]] = []
@@ -141,6 +168,8 @@ class BondStoryEngine:
         self._system_prompt = system_prompt
         self._history = []
         self._trace = []
+        if self.director is not None:
+            self.director.reset()        # 新会话清空视觉记忆与 nudge 计数
 
         logger.info("新羁绊剧情会话: %s (%s)", character_id, char.display_name)
         return char.display_name
@@ -234,7 +263,14 @@ class BondStoryEngine:
         self._history.append({"role": "assistant", "content": json.dumps(
             action.payload, ensure_ascii=False, separators=(",", ":"))})
         self._trim_history()
-        return BondScene.from_action(action)
+        scene = BondScene.from_action(action)
+        if self.director is not None:
+            # 视觉导演: 每场定 sprite/background → 合并进 BondScene（CLI/存档/回放可见）
+            vs = self.director.visual_for(
+                "\n".join(scene.paragraphs), is_end=scene.is_end)
+            scene.sprite = vs.sprite
+            scene.background = vs.background
+        return scene
 
     # ------------------------------------------------------------------
     # 属性

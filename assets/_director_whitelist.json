@@ -1,0 +1,22 @@
+{
+  "common_scenes": [
+    "class_room", "class_corridor", "class_stairs",
+    "school_front_gate", "school_ground", "school_rooftop",
+    "school_cafeteria", "school_cafeteria_chaos", "campus",
+    "gehenna_campus", "gehenna_corridor", "gehenna_class_room",
+    "gehenna_club_room", "gehenna_street", "gehenna_student_council",
+    "ramen_ya", "yakinikuya", "karaoke",
+    "fastfood_restaurant", "family_restaurant", "convenience_store",
+    "shopping_district", "shopping_mall", "park",
+    "playground", "library", "student_room",
+    "dormitory", "kitchen", "beachside", "onsen"
+  ],
+  "common_dirs": [
+    "BG_Class", "BG_School", "BG_Gehenna", "BG_Campus",
+    "BG_Conven", "BG_Shopping", "BG_Library", "BG_Park_",
+    "BG_Playground", "BG_Rooftop", "BG_Beach", "BG_Onsen",
+    "BG_Yakinikuya", "BG_FoodCartRamen", "BG_Dormitory", "BG_StudentRoom",
+    "BG_Kitchen", "BG_CityDowntown", "BG_Market", "BG_FamilyRestaurant",
+    "BG_FastfoodRestaurant", "BG_Tatami", "BG_Subway"
+  ]
+}

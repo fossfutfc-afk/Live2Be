@@ -25,6 +25,7 @@ from pathlib import Path
 from core.momotalk import MomoTalkEngine
 from core.bond_story import BondScene, BondStoryEngine, SceneLoopError
 from core.bond_story_save import BondStorySave, load_save
+from core.director import DirectorLLM, build_director
 from core.ui.streaming import simulate_steps
 
 logger = logging.getLogger(__name__)
@@ -78,18 +79,26 @@ def _type_paragraph(text: str, char_ms: int = _PARA_CHAR_MS) -> None:
 # 单场景渲染
 # ---------------------------------------------------------------------------
 
+def _print_visual(scene: BondScene) -> None:
+    """CLI 视觉标签（导演层字段; 纯文本模式无字段 → 不打印）。"""
+    if scene.sprite is None and scene.background is None:
+        return
+    print(f"[表情 {scene.sprite or '-'}] [背景 {scene.background or '-'}]")
+
+
 def simulate_vn_scene(
     scene: BondScene,
     input_fn=input,
     char_ms: int = _PARA_CHAR_MS,
 ) -> str | None:
-    """渲染一个场景（段落 + 选项/收尾）, 返回下一场景的用户输入。
+    """渲染一个场景（视觉标签 + 段落 + 选项/收尾）, 返回下一场景的用户输入。
 
     Returns:
         有选项 → 玩家选择的选项文本（喂回下一场景）
         无选项 → 玩家自由输入的一句话
         b / Ctrl-D / 【完】 → None（退出 VN 回 MomoTalk）
     """
+    _print_visual(scene)
     for para in scene.paragraphs:
         _type_paragraph(para, char_ms)
 
@@ -123,6 +132,18 @@ def simulate_vn_scene(
 # ---------------------------------------------------------------------------
 # VN 主循环
 # ---------------------------------------------------------------------------
+
+def _build_director(char, reason: str):
+    """构建视觉导演（人设 + 触发原因注入）; 任何失败 → None（本次 VN 纯文本模式）。
+
+    本地导演 LLM 缺失/挂了不影响 VN——调用失败自动降级正则+默认（宁缺勿错）。
+    """
+    try:
+        return build_director(char, trigger_reason=reason, llm=DirectorLLM())
+    except Exception as e:
+        logger.warning("视觉导演构建失败, 本次 VN 纯文本模式: %s", e)
+        return None
+
 
 def run_bond_story_vn(
     engine: MomoTalkEngine,
@@ -159,14 +180,15 @@ def run_bond_story_vn(
     if char is None:
         return False
 
-    vn = BondStoryEngine(engine.char_loader.root, engine.llm)
+    reason = _trigger_reason(engine)
+    vn = BondStoryEngine(
+        engine.char_loader.root, engine.llm, director=_build_director(char, reason))
     vn.start_session(char.character_id)
 
     print("\n" + "═" * 40)
     print(f"  ── 羁绊剧情: {char.display_name} ──")
     print("═" * 40)
 
-    reason = _trigger_reason(engine)
     if seed is None:
         seed = f"（旁白）基于「{reason}」……" if reason else "（旁白）故事开始了……"
 
@@ -249,7 +271,8 @@ def run_bond_story_vn(
 # ---------------------------------------------------------------------------
 
 def _replay_scene(scene: BondScene, picked: str | None, char_ms: int = _PARA_CHAR_MS) -> None:
-    """渲染一个回放场景: 段落 + 选项（▶ 高亮当时选择）+ 结束语。"""
+    """渲染一个回放场景: 视觉标签 + 段落 + 选项（▶ 高亮当时选择）+ 结束语。"""
+    _print_visual(scene)
     for para in scene.paragraphs:
         _type_paragraph(para, char_ms)
     if scene.choices:

@@ -65,13 +65,27 @@ Bond Story VN 目前是纯文本（段落 + 选项）。视觉层 = 让每个场
 - `catalog.py`：`MediaCatalog`，`sprite()/background()/sprite_emotions()/background_scenes()`；构造时 assets 根缺失才抛错，查询永不抛。**加载策略**：背景构造时全量（数据驱动必须扫、便宜，且导演需完整场景白名单）；差分首次 query 该角色才扫并缓存（VN 单角色，且某个角色素材损坏只影响它自己，宁缺勿错）。
 - 现成资产：背景 1089 jpg（可派生）；差分 `haruka_spr_01~06`（人工确认 01→nomal…06→shout）；spine 导出 4 包（haruka_spr/_HD/_Steam、Haruka_home）。
 
-### ② 导演组件（实现时定 core/director/ 或 core/visual.py）
-- `VisualState{sprite, background}`（视觉记忆，engine 持有）。
-- Director 接口：`visual_for(text, state) -> {sprite?, background?}`——LLM 实现 + 保持/正则/默认 fallback 链。
-- 引擎集成：`send_vn_scene` 每场后调导演 → 白名单校验 → 合并进 BondScene（新增 `sprite`/`background` 字段）。
-- CLI：`simulate_vn_scene` print `[表情 smile] [背景 class_room]`；回放同理。
-- 测试：假导演 stub + 正则 fallback + 白名单校验 + nudge（≥3 场）+ 收尾提示 + 宁缺勿错路径。
-- 导演 prompt：`llm/prompts/director_rules.md`（封闭词表白名单 + 少样本 + 视觉状态输入格式）。
+### ② 导演组件（core/director/，已实现）
+- `VisualState{sprite, background}`（视觉记忆，engine 持有；冷启动 nomal/neutral）。
+- `Director.visual_for(text, is_end)`——复合决策链 + 背景目录分层**两段流**。
+- **背景分层**（用户拍板 2026-08-22）：第一层给「常用集合」`assets/_director_whitelist.json`
+  （`common_scenes` 快速路径直给 + `common_dirs` 目录粗选）→ 导演输出 scene_id（直用）/
+  目录名（第二层给该目录内场景清单拍板）/ keep·null（保持）。目录数据源 `background_dirs()` /
+  `background_scenes_in_dir()`（懒扫单目录）。
+- **人设注入**：persona = `char.build_prompt("trigger")`（profile + brief_traits 极简）——
+  缓解「7B 把握不好人设 → sprite 质量低」。导演 rules 里明确「同一情绪不同性格表现不同」。
+- **决策链**（宁缺勿错，失败**不进主 LLM retry**）：
+  - 表情：导演(合法) > 正则（导演不可用当驱动器逐场 / 可用仅冷启动防抖动）> 保持 > 默认 nomal
+  - 背景：导演 scene_id(合法) > 目录分层拍板 > 保持 > 默认 neutral；背景**无正则**、**不参与 nudge**
+- **nudge**：同一表情保持 ≥3 场 → 导演 system 注记「已连续保持 N 场，有起伏请在接下来的场景换」。
+- **收尾**：不强制 nomal（微笑收尾常见），只提示「收尾表情由你自然选择」。
+- **LLM 降级**：连续 2 次 `DirectorLLMError` → 本轮禁用导演 LLM，降级正则+默认，VN 照跑。
+- **导演 LLM**：`core/director/llm.py` 薄封装（Qwen2.5-7B，LM Studio localhost:1234/v1，
+  json_object，temperature 0.3 → 分类式稳定；失败抛 DirectorLLMError 由上层降级）。
+- 引擎集成：`send_vn_scene` 每场后 `director.visual_for(段落拼接, is_end)` → 白名单校验 →
+  合并进 BondScene（新增 `sprite`/`background` 字段；主 LLM 契约与历史**零改动**）。
+- CLI：`simulate_vn_scene` / 回放 print `[表情 smile] [背景 class_room]`；存档落 sprite/background
+  （纯文本模式省略，旧档兼容）。
 
 ### ③ web 渲染面（未来）
 - `channel=roleplay` 新频道，worker 跑 BondStoryEngine → SSE scene 事件（含 sprite/background）→ 前端渲染。
@@ -84,10 +98,14 @@ Bond Story VN 目前是纯文本（段落 + 选项）。视觉层 = 让每个场
 - `core/media/{__init__,catalog,background,sprites,manifest}.py`
 - `tests/core/test_media.py`
 - `assets/illustration/igusa_haruka/_media.yml`（种子 manifest）
-- ②：导演组件 + `llm/prompts/director_rules.md` + BondScene 加字段 + vn_cli print
+- ②：`core/director/{__init__,state,fallback,prompt,llm,director}.py` + `tests/core/test_director.py`
+- `llm/prompts/director_rules.md`（导演角色/输出格式/少样本）
+- `assets/_director_whitelist.json`（导演背景常用集合，可编辑）
+- `experiments/engine_smoke.py` 导演用例
 - 本文档即设计依据（① 不再单开 DESIGN_MEDIA.md）
 
 ## 7. 验证
-1. `python -m pytest -q -p no:cacheprovider` 全绿（含新增 media/director 测试）。
-2. 引擎冒烟：假导演 + 正则 fallback 跑 VN，BondScene 带 sprite/background，CLI 打印。
-3. 实机（风险点）：本地小模型当导演，观察其输出 JSON 可靠率；不良 → 回主分支。
+1. `python -m pytest -q -p no:cacheprovider` 全绿（含 media/director 测试）。
+2. `python experiments/engine_smoke.py`：导演组件用例（BondScene 视觉字段 + 历史不含）。
+3. 实机（风险点）：本地 Qwen2.5-7B 当导演，观察（a）输出 JSON 可靠率（b）背景分层命中率
+   （常用集合/目录名是否选得对）（c）**sprite 是否贴合人设**（人设注入缓解）。不良 → 回主分支。

@@ -71,6 +71,28 @@ class MediaCatalog:
         """全部已登记场景 id。"""
         return sorted(self._backgrounds)
 
+    def background_dirs(self) -> list[str]:
+        """assets/background/ 下目录名清单（② 导演背景分层第一层: 目录粗选）。"""
+        bg_root = self.assets_root / "background"
+        if not bg_root.is_dir():
+            return []
+        return sorted(p.name for p in bg_root.iterdir() if p.is_dir())
+
+    def background_scenes_in_dir(self, dir_name: str) -> list[str]:
+        """某目录内已派生的 scene_id 清单（② 导演分层第二层: 目录内拍板）。
+
+        懒扫描该目录（按需、便宜）; 目录不存在/无图 → []（宁缺勿错）。
+        """
+        d = self.assets_root / "background" / dir_name
+        if not d.is_dir():
+            return []
+        seen: set[str] = set()
+        for p in d.iterdir():
+            if p.is_file() and p.suffix.lower() in _IMAGE_EXTS:
+                scene, _ = derive_background(p.stem)
+                seen.add(scene)
+        return sorted(seen)
+
     # ------------------------------------------------------------------
     # 查询: 差分
     # ------------------------------------------------------------------
