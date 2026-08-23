@@ -30,6 +30,7 @@ from contract.registry import (
     ActionRegistry,
     IDEActionRegistry,
     MMTActionRegistry,
+    MemorialActionRegistry,
     StoryActionRegistry,
     parse_action_text,
 )
@@ -57,6 +58,7 @@ __all__ = [
     "ActionRegistry",
     "IDEActionRegistry",
     "MMTActionRegistry",
+    "MemorialActionRegistry",
     "StoryActionRegistry",
     "parse_action_text",
     "build_schema",

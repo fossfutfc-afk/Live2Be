@@ -28,7 +28,7 @@
   "paragraphs": [
     {"text": "（她正站在窗边，听到声音回过头来）", "emotion": "nomal"},
     {"text": "啊，老师……你来得正好。", "emotion": "respond"},
-    {"text": "（她像是想到什么，脸微微泛红，声音低了下去）", "emotion": "embarass"},
+    {"text": "（她像是想到什么，脸微微泛红，声音低了下去）", "emotion": "embarrass"},
     {"text": "那个……有些话，我一直想找机会跟你说。", "emotion": "serious"}
   ],
   "choices": ["走过去，在她身边坐下", "笑着说：说吧，我在听"]

@@ -25,7 +25,9 @@ from core.momotalk import MomoTalkEngine
 from core.session import SessionStore
 from core.ui.vn_cli import run_bond_story_vn, wrapup_after_vn
 
-CHAR = "igusa_haruka"          # 目前唯一有 emotions.yml 的角色
+CHAR = sys.argv[1] if len(sys.argv) > 1 else "igusa_haruka"
+# 默认 igusa_haruka; 可传参覆盖: python experiments/e2e_smoke.py <char_id>
+# （需该角色有 emotions.yml; 目前: igusa_haruka / rikuhachima_aru / onikata_kayoko / asagi_mutsuki）
 ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -80,7 +82,7 @@ def main() -> None:
                   ">  真实引擎中触发由 LLM 决定——mmt_trigger_bond_story 动作独占一轮, 轮数仅软门槛）")
         md.append("")
 
-    reason = "老师约遥香放学后见面聊聊"
+    reason = f"老师约{char.display_name}放学后见面聊聊"
     buf = io.StringIO()
     try:
         with redirect_stdout(buf):

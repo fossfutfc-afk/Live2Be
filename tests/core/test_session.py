@@ -148,7 +148,7 @@ def test_event_roundtrip_and_parse():
         {"seq": 1, "ts": "2026-08-23T15:02:11", "type": "mmt", "subtype": "mmt_chat",
          "payload": {"player": "你好", "reply": "啊、老师…"}},
         {"seq": 2, "ts": "2026-08-23T15:04:12", "type": "bond", "subtype": "story_scene",
-         "payload": {"paragraphs": ["她脸红了。"], "beats": [{"text": "x", "emotion": "embarass"}],
+         "payload": {"paragraphs": ["她脸红了。"], "beats": [{"text": "x", "emotion": "embarrass"}],
                      "picked": "别紧张"}},
         {"seq": 3, "ts": "2026-08-23T15:05:00", "type": "l2d", "subtype": "generate",
          "payload": {"image": "gallery/x.png", "scene_ref": 2}},   # 引用式最小
