@@ -168,12 +168,12 @@ def build_story_registry() -> StoryActionRegistry:
         prompt_fields=frozenset({"action", "payload"}),
         payload_schema=(
             "payload 字段（story_scene 中段场景参数）:\n"
-            "  paragraphs: 必填, 数组——每项 {text, emotion?}:\n"
-            "      text: 段落文本（可含动作描写（括号标注）/长对白）; 至少 1 段\n"
-            "      emotion: 可选, 表情词表内的情绪名（见【表情标注词表】）——\n"
-            "          **不填 = 延续上一段表情**（首段不填 = 默认）\n"
-            "          **建议多变表情**: 选择表情也是角色人设的体现（什么场合什么表情）,\n"
-            "          情绪有变化就标, 不要连续多段一个表情\n"
+            "  paragraphs: 必填, 数组——每项 {text, emotion}:\n"
+            "      text: 一个情绪单元（一句对白 或 一个动作描写; 情绪一致的多句可合并;\n"
+            "          动作描写单独成单元, 不塞进对白单元）; 至少 1 单元\n"
+            "      emotion: 必填, 表情词表内的情绪名（见【表情标注词表】）——\n"
+            "          **每个情绪单元都必须标 emotion, 不要省略、不要留空**\n"
+            "          情绪连续就合并成一个单元; 情绪一变就切新单元并标新 emotion\n"
             "  choices: 数组——给 sensei 的选项文本列表（1~3 个）。可省略（缺省 = 本场景\n"
             "      不提供选项, sensei 将自由输入一句话推进）。选项要有分歧感、让 sensei\n"
             "      有参与感, 但必须收敛到同一主线——无论选哪个, 剧情都走向同一结局, 只\n"
@@ -192,7 +192,7 @@ def build_story_registry() -> StoryActionRegistry:
         prompt_fields=frozenset({"action", "payload"}),
         payload_schema=(
             "payload 字段（story_end 收尾场景参数）:\n"
-            "  paragraphs: 必填, 数组——同 story_scene（每项 {text, emotion?}, 收尾也可标注情绪）\n"
+            "  paragraphs: 必填, 数组——同 story_scene（每项 {text, emotion}, 每单元必填 emotion）\n"
             "  place: 可选, 字符串——同 story_scene（场景切换才标）\n"
             "约束: story_end 是**收尾场景**——输出后剧情结束, 不再有选项、不再开新场景。\n"
             "      choices 必须为空（结构上收尾无选项, 传非空会被拒绝）。宁可及早收尾, \n"

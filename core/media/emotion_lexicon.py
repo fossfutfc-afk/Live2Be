@@ -102,7 +102,7 @@ def build_emotion_injection(char_dir: Path) -> str:
         return ""
     lines = [
         "【表情标注词表】（仅当前角色）",
-        "给每个动作拍 beats[].text 标注 emotion 时，只从下面选；词表外的情绪不要标（标了会被忽略）。",
+        "给每个情绪单元标注 emotion 时，只从下面选；词表外的情绪不要标（标了会被忽略）。",
     ]
     for key, item in lex.items():          # 保持作者文件顺序（默认态在前）
         line = f"  {key}: {item['comment']}" if item["comment"] else f"  {key}"
