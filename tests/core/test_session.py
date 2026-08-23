@@ -305,7 +305,7 @@ def test_render_timeline_brain():
 def test_store_create_and_append(tmp_path):
     st = SessionStore(tmp_path)
     meta = st.create("igusa_haruka", "伊草 遥香")
-    assert meta.type == "mmt" and meta.character_id == "igusa_haruka"
+    assert meta.type == "conversation" and meta.character_id == "igusa_haruka"
     assert meta.session_id, "应生成 session_id"
     # create 已写 meta + session_start marker
     assert (st.session_dir("igusa_haruka", meta.session_id) / "meta.json").exists()
@@ -324,26 +324,29 @@ def test_store_create_and_append(tmp_path):
     print("    store: create + seq 递增 + 重启续 seq")
 
 
-def test_store_open_vn_and_status(tmp_path):
+def test_store_enter_vn_and_status(tmp_path):
     st = SessionStore(tmp_path)
     root = st.create("igusa_haruka")
-    vn = st.open_vn("igusa_haruka", root.session_id, reason="邀约")
-    assert vn.type == "bond"
-    st.append_event("igusa_haruka", vn.session_id,
+    assert root.type == "conversation"
+    sid = st.enter_vn("igusa_haruka", root.session_id, reason="邀约")
+    assert sid == root.session_id
+    st.append_event("igusa_haruka", sid,
                     make_event("bond", "story_scene", {"paragraphs": ["她脸红了。"]}))
-    st.append_marker("igusa_haruka", vn.session_id, "vn_state", {"round": 1, "seed": "继续"})
-    st.update_session_progress("igusa_haruka", vn.session_id, 2)
-    # 中断（未 finish）→ resume 推导 in_vn
-    r = st.resume("igusa_haruka", vn.session_id)
-    assert r["meta"].type == "bond"
+    st.append_marker("igusa_haruka", sid, "vn_state", {"round": 1, "seed": "继续"})
+    st.update_session_progress("igusa_haruka", sid, 2)
+    # 中断（未 finish）→ resume 推导 in_vn（同会话单流）
+    r = st.resume("igusa_haruka", sid)
+    assert r["meta"].type == "conversation"
     assert r["status"]["in_vn"] is True
-    assert r["status"]["parent_session_id"] == root.session_id
+    assert r["status"]["parent_session_id"] is None     # 单流无 parent
     assert r["status"]["vn_state"]["round"] == 1
-    # session progress 落盘
+    # 单目录: mmt/bond 事件同文件（session_start + vn_enter + bond + vn_state）
+    evs = st.events("igusa_haruka", sid)
+    assert [e.subtype for e in evs] == ["session_start", "vn_enter", "story_scene", "vn_state"]
     import json as _json
-    prog = _json.loads((st.progress_path("igusa_haruka", vn.session_id)).read_text(encoding="utf-8"))
+    prog = _json.loads((st.progress_path("igusa_haruka", sid)).read_text(encoding="utf-8"))
     assert prog["rounds"] == 2
-    print("    store: open_vn（parent/ven_enter）+ resume 推导 in_vn + progress 落盘")
+    print("    store: enter_vn（单流）+ resume 推导 in_vn + 同文件事件 + progress 落盘")
 
 
 def test_store_finish_and_list_open(tmp_path):

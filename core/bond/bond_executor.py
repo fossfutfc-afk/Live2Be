@@ -4,10 +4,10 @@
 纯输出契约——VN 每场景就是一条 story_scene/story_end, 程序不执行媒体/立绘等
 副作用, 执行器只确认「场景已就绪」供引擎记 trace 留痕。
 
-存档分工（用户拍板, 2026-08-22）:
-    executor 只管校验 + trace; save 落盘由 core/ui/vn_cli.py 的 BondStorySave
-    recorder 处理——picked=玩家选择在场景渲染后才得知, 只有 vn_cli 掌握。
-    历史记录由 core/bond_story.BondStoryEngine 负责。见 core/DESIGN_BOND_STORY.md。
+存档分工（用户拍板, 2026-08-22; 2026-08-24 单流修订）:
+    executor 只管校验 + trace; 落盘由 core/ui/vn_cli.py 统一 append 进事件流
+    （type=bond 事件含 input/picked）——picked=玩家选择在场景渲染后才得知,
+    只有 vn_cli 掌握。历史记录由 core/bond_story.BondStoryEngine 负责。
 
 设计决策:
     - 守卫极简（宁缺勿错、不过度拒绝）: 空 paragraphs 已在 parse 层 ContractError

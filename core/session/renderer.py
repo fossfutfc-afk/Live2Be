@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """事件流派生视图 — 喂 LLM / 回放过滤 / 状态推导 / brain 时间线。
 
 设计（core/DESIGN_SAVE.md §4.2/§4.6/§六）: **events.jsonl 是唯一真源**,
@@ -7,7 +7,7 @@
     render_events     → [{role, content}]（恢复/继续喂 LLM; 与引擎 history 格式一致:
                         mmt = "[动作名] 回复", bond = 紧凑 payload JSON）
     filter_bond       → type=bond 事件（回放源; 消费方转 BondScene, 本模块不 import bond 防循环）
-    session_status    → {ended, in_vn, parent_session_id, vn_state}（marker 推导, 无状态机）
+    session_status    → {ended, in_vn, parent_session_id, vn_state}（marker 推导, 无状态机; parent 恒 None, 单流兼容）
     render_timeline   → 叙事时间线文本（brain 消化, 含板块标签）
 
 事件 payload 约定（引擎接入时遵守）:
@@ -80,7 +80,7 @@ def session_status(events: list[Event]) -> dict[str, Any]:
     Returns:
         ended              — 有 session_end marker
         in_vn              — 最后 vn_enter 之后无 vn_exit/session_end
-        parent_session_id  — 最近 vn_enter.payload.parent_session_id
+        parent_session_id  — 恒 None（2026-08-24 单流无子会话, 保留字段兼容）
         vn_state           — 最后一个 vn_state marker 的 VNState.to_dict()（None = 无）
     """
     ms = [e for e in events if e.is_marker]

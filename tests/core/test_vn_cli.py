@@ -1,16 +1,15 @@
 # -*- coding: utf-8 -*-
-"""VN CLI 单测 — story_scene/story_end 双动作契约 + 双核（parse+exec）+ 存档 + 只读回放。
+"""VN CLI 单测 — story_scene/story_end 双动作契约 + 双核（parse+exec）+ 事件流存档。
 
 send_vn_scene      : ScriptedLLM（chat 返回契约 dict）→ BondScene 结构正确 + 记紧凑 JSON 历史
                     + 无效动作/执行拒绝 feedback 回灌重试 + 3 次失败抛 SceneLoopError
                     + trace 逐轮留痕（attempt/parse/exec）
 run_bond_story_vn  : fake input_fn 模拟「选选项 → 推进 → story_end 收尾」闭环
-                    + 无选项自由输入路径 + b 退出路径; 每场经 recorder 原子落盘
+                    + 无选项自由输入路径 + b 退出路径; 每场 append type=bond 事件进事件流
 双层兜底            : 15 场提醒 / 22 场上限注记 / 24 场程序兜底收尾（调试值）
-replay_bond_story  : 读存档纯渲染, ▶ 高亮当时选择
 wrapup_after_vn    : 剧情结束后的手机收尾（不变）
 
-全部用 ScriptedLLM（不碰 API）; recorder 一律注入 tmp 目录（不污染 data/）。
+全部用 ScriptedLLM（不碰 API）; 存档验证走 SessionStore 事件流（tmp_path, 不污染 data/）。
 运行: python -m pytest tests/core/test_vn_cli.py
 """
 import json
@@ -24,13 +23,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from core.momotalk import MomoTalkEngine
 from core.bond.bond_story import BondScene, BondStoryEngine, SceneLoopError
-from core.bond.bond_save import BondStorySave
 from core.bond.bond_executor import StoryExecError, StoryExecutor
-from core.ui.vn_cli import (
-    run_bond_story_vn,
-    simulate_vn_scene,
-    replay_bond_story,
-)
+from core.session import SessionStore
+from core.ui.vn_cli import run_bond_story_vn, simulate_vn_scene
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 CHARACTER = "igusa_haruka"
@@ -71,6 +66,15 @@ def _engine(llm) -> MomoTalkEngine:
     engine = MomoTalkEngine(ROOT / "config" / "characters", llm)
     engine.start_session(CHARACTER)
     return engine
+
+
+def _store_engine(llm, tmp_path) -> tuple[MomoTalkEngine, SessionStore, str]:
+    """引擎 + 事件流会话（enter_vn 单流, 存档验证用）。"""
+    st = SessionStore(tmp_path)
+    engine = _engine(llm)
+    root = st.create(CHARACTER)
+    engine.attach_session(root.session_id)
+    return engine, st, root.session_id
 
 
 # story_scene/story_end 契约动作（与 bond_story_rules.md few-shot 同构）
@@ -143,70 +147,66 @@ def test_simulate_vn_scene():
 
 
 # ----------------------------------------------------------------------------
-# run_bond_story_vn: 选项 → 推进 → is_end 退出, 全程 fake input_fn + 存档
+# run_bond_story_vn: 选项 → 推进 → is_end 退出, 全程 fake input_fn + 事件流存档
 # ----------------------------------------------------------------------------
 
-def test_run_vn_choice_flow():
+def test_run_vn_choice_flow(tmp_path):
     scene1 = {"action": "story_scene", "payload": {
         "paragraphs": [{"text": "遥香在天台等你。"}], "choices": ["走过去", "喊她名字"]}}
-    with tempfile.TemporaryDirectory() as d:
-        engine = _engine(ScriptedLLM(scene1, STORY_END))
-        recorder = BondStorySave(CHARACTER, save_dir=d)
-        calls = {"n": 0}
+    engine, st, sid = _store_engine(ScriptedLLM(scene1, STORY_END), tmp_path)
+    calls = {"n": 0}
 
-        def fake_input(prompt=""):
-            calls["n"] += 1
-            return "1"
+    def fake_input(prompt=""):
+        calls["n"] += 1
+        return "1"
 
-        completed = run_bond_story_vn(engine, input_fn=fake_input, char_ms=0,
-                                      recorder=recorder)
-        assert calls["n"] == 1, f"应只出一次选择: {calls['n']}"
-        assert completed is True, "走到 is_end 应返回 completed=True"
-        data = json.loads(Path(recorder.path).read_text(encoding="utf-8"))
-        assert data["ended"] is True and len(data["scenes"]) == 2, data
-        assert data["scenes"][0]["picked"] == "走过去"
-    print("    run_vn(选项): 选 1 → 推进 → is_end 退出, 存档 2 场 ended=True")
+    completed = run_bond_story_vn(engine, input_fn=fake_input, char_ms=0, store=st)
+    assert calls["n"] == 1, f"应只出一次选择: {calls['n']}"
+    assert completed is True, "走到 is_end 应返回 completed=True"
+    evs = st.events(CHARACTER, sid)
+    scene_ev = [e for e in evs if e.subtype == "story_scene"][0]
+    assert scene_ev.payload["picked"] == "走过去", scene_ev.payload
+    print("    run_vn(选项): 选 1 → 推进 → is_end 退出, 事件流 picked 落盘")
 
 
 # ----------------------------------------------------------------------------
 # run_bond_story_vn: 无选项自由输入推进 → is_end 退出
 # ----------------------------------------------------------------------------
 
-def test_run_vn_free_input():
+def test_run_vn_free_input(tmp_path):
     scene1 = {"action": "story_scene", "payload": {
         "paragraphs": [{"text": "遥香静静地看着你。"}], "choices": []}}
-    with tempfile.TemporaryDirectory() as d:
-        engine = _engine(ScriptedLLM(scene1, STORY_END))
-        recorder = BondStorySave(CHARACTER, save_dir=d)
-        seq = ["（继续）"]
+    engine, st, sid = _store_engine(ScriptedLLM(scene1, STORY_END), tmp_path)
+    seq = ["（继续）"]
 
-        def fake_input(prompt=""):
-            return seq.pop(0) if seq else "b"
+    def fake_input(prompt=""):
+        return seq.pop(0) if seq else "b"
 
-        run_bond_story_vn(engine, input_fn=fake_input, char_ms=0, recorder=recorder)
-        assert not seq, "自由输入推进后应到 is_end 退出, 不再需要输入"
-        data = json.loads(Path(recorder.path).read_text(encoding="utf-8"))
-        assert data["ended"] is True and len(data["scenes"]) == 2, data
-        assert data["scenes"][0]["picked"] == "（继续）"
-    print("    run_vn(自由输入): 无选项 → 输入推进 → is_end 退出, 存档 picked 记输入")
+    run_bond_story_vn(engine, input_fn=fake_input, char_ms=0, store=st)
+    assert not seq, "自由输入推进后应到 is_end 退出, 不再需要输入"
+    evs = st.events(CHARACTER, sid)
+    scene_ev = [e for e in evs if e.subtype == "story_scene"][0]
+    assert scene_ev.payload["picked"] == "（继续）", scene_ev.payload
+    print("    run_vn(自由输入): 无选项 → 输入推进 → is_end 退出, 事件流 picked 记输入")
 
 
 # ----------------------------------------------------------------------------
-# run_bond_story_vn: b 提前退出回 MomoTalk（存档 ended=False）
+# run_bond_story_vn: b 提前退出回 MomoTalk（vn_exit + session_end{ended:false}）
 # ----------------------------------------------------------------------------
 
-def test_run_vn_early_exit():
+def test_run_vn_early_exit(tmp_path):
+    from core.session.events import M_SESSION_END, M_VN_EXIT
     scene1 = {"action": "story_scene", "payload": {
         "paragraphs": [{"text": "遥香看着你，欲言又止。"}], "choices": []}}
-    with tempfile.TemporaryDirectory() as d:
-        engine = _engine(ScriptedLLM(scene1))
-        recorder = BondStorySave(CHARACTER, save_dir=d)
-        completed = run_bond_story_vn(engine, input_fn=lambda p: "b", char_ms=0,
-                                      recorder=recorder)
-        assert completed is False, "b 提前退出应返回 completed=False"
-        data = json.loads(Path(recorder.path).read_text(encoding="utf-8"))
-        assert data["ended"] is False and len(data["scenes"]) == 1, data
-    print("    run_vn(提前退出): 输入 b → 立即回 MomoTalk, 存档 ended=False")
+    engine, st, sid = _store_engine(ScriptedLLM(scene1), tmp_path)
+    completed = run_bond_story_vn(engine, input_fn=lambda p: "b", char_ms=0, store=st)
+    assert completed is False, "b 提前退出应返回 completed=False"
+    evs = st.events(CHARACTER, sid)
+    subs = [e.subtype for e in evs]
+    assert M_VN_EXIT in subs and M_SESSION_END in subs, "统一收尾: vn_exit + session_end"
+    end_ev = [e for e in evs if e.subtype == M_SESSION_END][0]
+    assert end_ev.payload["ended"] is False, end_ev.payload
+    print("    run_vn(提前退出): 输入 b → 立即回 MomoTalk, 统一收尾 ended=False")
 
 
 # ----------------------------------------------------------------------------
@@ -220,45 +220,42 @@ def _scenes(n: int, start: int = 1) -> list[dict]:
         for i in range(start, start + n)]
 
 
-def test_run_vn_two_layer_force():
+def test_run_vn_two_layer_force(tmp_path):
     """模型 24 轮仍不 is_end → 第15场提醒、第22场上限注记、第24场程序兜底收尾。"""
     llm = ScriptedLLM(*_scenes(24))
-    with tempfile.TemporaryDirectory() as d:
-        engine = _engine(llm)
-        recorder = BondStorySave(CHARACTER, save_dir=d)
-        completed = run_bond_story_vn(engine, input_fn=lambda p: "1", char_ms=0,
-                                      remind_rounds=15, end_rounds=22, recorder=recorder)
-        assert completed is True, "模型 24 轮不 is_end → 程序兜底应 completed=True"
-        notes = _seen_notes(llm)
-        assert len(notes) == 24, f"应跑满 24 场: {len(notes)}"
-        assert all(not n for n in notes[:14]), "前 14 场不应注入注记"
-        assert len(notes[14]) == 1 and "剩余约 7 轮" in notes[14][0], notes[14]
-        assert all(not n for n in notes[15:21]), "16~21 场不应注入注记"
-        assert len(notes[21]) == 1 and "已达剧情篇幅上限" in notes[21][0], notes[21]
-        assert all(not n for n in notes[22:]), "23~24 场（硬兜底余量）不应注入注记"
-        data = json.loads(Path(recorder.path).read_text(encoding="utf-8"))
-        assert data["ended"] is True, data
-        assert len(data["scenes"]) == 25, f"24 真实 + 1 兜底收尾: {len(data['scenes'])}"
+    engine, st, sid = _store_engine(llm, tmp_path)
+    completed = run_bond_story_vn(engine, input_fn=lambda p: "1", char_ms=0,
+                                  remind_rounds=15, end_rounds=22, store=st)
+    assert completed is True, "模型 24 轮不 is_end → 程序兜底应 completed=True"
+    notes = _seen_notes(llm)
+    assert len(notes) == 24, f"应跑满 24 场: {len(notes)}"
+    assert all(not n for n in notes[:14]), "前 14 场不应注入注记"
+    assert len(notes[14]) == 1 and "剩余约 7 轮" in notes[14][0], notes[14]
+    assert all(not n for n in notes[15:21]), "16~21 场不应注入注记"
+    assert len(notes[21]) == 1 and "已达剧情篇幅上限" in notes[21][0], notes[21]
+    assert all(not n for n in notes[22:]), "23~24 场（硬兜底余量）不应注入注记"
+    evs = st.events(CHARACTER, sid)
+    bond_n = [e for e in evs if e.type == "bond"]
+    assert len(bond_n) == 25, f"24 真实 + 1 兜底收尾: {len(bond_n)}"
     print("    双层兜底: 15场提醒/22场上限注记, 24场程序兜底 completed=True")
 
 
-def test_run_vn_remind_then_natural_end():
+def test_run_vn_remind_then_natural_end(tmp_path):
     """模型 17 场自然 is_end → 只吃到 15 场提醒, 不走上限注记与硬兜底。"""
     end = {"action": "story_end", "payload": {
         "paragraphs": [{"text": "收尾了。"}]}}
     llm = ScriptedLLM(*_scenes(16), end)
-    with tempfile.TemporaryDirectory() as d:
-        engine = _engine(llm)
-        recorder = BondStorySave(CHARACTER, save_dir=d)
-        completed = run_bond_story_vn(engine, input_fn=lambda p: "1", char_ms=0,
-                                      remind_rounds=15, end_rounds=22, recorder=recorder)
-        assert completed is True, "自然 is_end 应 completed=True"
-        notes = _seen_notes(llm)
-        assert len(notes) == 17, f"应跑 17 场: {len(notes)}"
-        assert len(notes[14]) == 1 and "剩余约 7 轮" in notes[14][0], notes[14]
-        assert all(not n for n in notes[:14] + notes[15:]), "只应在 15 场注入一次提醒"
-        data = json.loads(Path(recorder.path).read_text(encoding="utf-8"))
-        assert data["ended"] is True and len(data["scenes"]) == 17, data
+    engine, st, sid = _store_engine(llm, tmp_path)
+    completed = run_bond_story_vn(engine, input_fn=lambda p: "1", char_ms=0,
+                                  remind_rounds=15, end_rounds=22, store=st)
+    assert completed is True, "自然 is_end 应 completed=True"
+    notes = _seen_notes(llm)
+    assert len(notes) == 17, f"应跑 17 场: {len(notes)}"
+    assert len(notes[14]) == 1 and "剩余约 7 轮" in notes[14][0], notes[14]
+    assert all(not n for n in notes[:14] + notes[15:]), "只应在 15 场注入一次提醒"
+    evs = st.events(CHARACTER, sid)
+    bond_n = [e for e in evs if e.type == "bond"]
+    assert len(bond_n) == 17, bond_n
     print("    双层兜底: 15场提醒后第17场自然 is_end, 无上限注记/硬兜底")
 
 
@@ -374,25 +371,6 @@ def test_trace_records_attempts():
 
 
 # ----------------------------------------------------------------------------
-# replay_bond_story: 读存档纯渲染, ▶ 高亮当时选择, 收尾标注
-# ----------------------------------------------------------------------------
-
-def test_replay_bond_story(capsys):
-    with tempfile.TemporaryDirectory() as d:
-        rec = BondStorySave(CHARACTER, "伊草 遥香", "天台谈心", save_dir=d)
-        rec.append(BondScene(paragraphs=[{"text": "她看着你。"}], choices=["陪她", "问她"], is_end=False),
-                   picked="陪她", input_text="（旁白）……")
-        rec.append(BondScene(paragraphs=[{"text": "她笑了。"}], is_end=True), picked=None, input_text="陪她")
-        ok = replay_bond_story(rec.path, char_ms=0)
-        assert ok, "有效存档回放应返回 True"
-        out = capsys.readouterr().out
-        assert "她看着你。" in out and "她笑了。" in out, out
-        assert "▶ 陪她" in out, "当时选择应以 ▶ 高亮"
-        assert "（回放）" in out, "收尾应标注回放结束"
-    print("    replay_bond_story: 段落 + ▶ 当时选择 + 回放收尾, 无 LLM 纯渲染")
-
-
-# ----------------------------------------------------------------------------
 # wrapup_after_vn: 剧情结束后的手机收尾（agent_turn 走 ScriptedLLM.chat）
 # ----------------------------------------------------------------------------
 
@@ -428,35 +406,25 @@ def test_wrapup_after_vn():
 
 
 # ----------------------------------------------------------------------------
-# 事件流接入: run_bond_story_vn + store → 子会话 open_vn + bond 事件 + vn_state + 收尾
+# 事件流接入: run_bond_story_vn + store → 单流 enter_vn + bond 事件 + vn_state + 收尾
 # ----------------------------------------------------------------------------
 
 def test_vn_event_stream(tmp_path):
-    from core.session import SessionStore
     from core.session.events import M_SESSION_END, M_SESSION_START, M_VN_ENTER, M_VN_EXIT, M_VN_STATE
     from core.session.renderer import session_status
 
     st = SessionStore(tmp_path)
     llm = ScriptedLLM(SCENE_A, STORY_END)
-    engine = MomoTalkEngine(ROOT / "config" / "characters", llm)
-    engine.start_session(CHARACTER)
-    root = st.create(CHARACTER)                 # MMT 根会话（main 层行为）
+    engine = _engine(llm)
+    root = st.create(CHARACTER)                 # 单事件流会话（main 层行为）
     engine.attach_session(root.session_id)
-    with tempfile.TemporaryDirectory() as d:    # recorder 注入 tmp, 不污染真实 data
-        recorder = BondStorySave(CHARACTER, "测试", "x", save_dir=Path(d))
-        completed = run_bond_story_vn(
-            engine, input_fn=lambda p: "1", char_ms=0,
-            remind_rounds=15, end_rounds=22, recorder=recorder, store=st)
+    completed = run_bond_story_vn(
+        engine, input_fn=lambda p: "1", char_ms=0,
+        remind_rounds=15, end_rounds=22, store=st)
     assert completed
 
-    # 找 bond 子会话（open_vn 创建, meta.type=bond）
-    bond = None
-    for p in (tmp_path / CHARACTER / "sessions").iterdir():
-        meta = st.meta(CHARACTER, p.name)
-        if meta.type == "bond":
-            bond = meta
-    assert bond is not None, "应有 bond 子会话"
-    evs = st.events(CHARACTER, bond.session_id)
+    # 单事件流: 根会话即全部（enter_vn 无子会话, mmt+bond 同文件）
+    evs = st.events(CHARACTER, root.session_id)
     subs = [e.subtype for e in evs]
     assert subs[:2] == [M_SESSION_START, M_VN_ENTER], subs
     assert "story_scene" in subs and "story_end" in subs
@@ -466,10 +434,10 @@ def test_vn_event_stream(tmp_path):
     assert scene_ev.payload["input"].startswith("（旁白）")
     assert scene_ev.payload["picked"] == "选A"
     assert scene_ev.payload["paragraphs"] == [{"text": "段落一。"}]
-    # vn_enter 的 parent = MMT 根会话
+    # vn_enter 单流无 parent
     enter = [e for e in evs if e.subtype == M_VN_ENTER][0]
-    assert enter.payload["parent_session_id"] == root.session_id
+    assert "parent_session_id" not in enter.payload
     # 状态推导: 收尾（vn_exit + session_end）→ ended
     st2 = session_status(evs)
     assert st2["ended"] is True and st2["in_vn"] is False
-    print("    vn-store: open_vn + bond 事件(input/picked) + vn_state + vn_exit/session_end")
+    print("    vn-store: enter_vn 单流 + bond 事件(input/picked) + vn_state + vn_exit/session_end")

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """SessionStore — 会话生命周期（core/DESIGN_SAVE.md §五/§六）。
 
-create / open_vn / append_event / append_marker / update_session_progress /
+create / enter_vn / append_event / append_marker / update_session_progress /
 finish / list_open / resume（读路径）。
 
 路径（角色根目录, §三）:
@@ -33,7 +33,7 @@ from core.session.events import (
     parse_events,
 )
 from core.session.io import append_jsonl, atomic_write_json, read_jsonl
-from core.session.models import TYPE_BOND, TYPE_CONVERSATION, TYPE_MMT, SessionMeta
+from core.session.models import TYPE_CONVERSATION, SessionMeta
 from core.session.renderer import session_status
 
 DEFAULT_DATA_ROOT = Path("data")
@@ -90,28 +90,6 @@ class SessionStore:
         )
         self._write_meta(char_id, meta)
         self.append_marker(char_id, session_id, M_SESSION_START)
-        return meta
-
-    def open_vn(
-        self,
-        char_id: str,
-        parent_session_id: str,
-        reason: str = "",
-        char_name: str = "",
-    ) -> SessionMeta:
-        """新建 bond 子会话: meta(type=bond) + session_start + vn_enter{parent, reason}。"""
-        session_id = _new_session_id()
-        meta = SessionMeta(
-            session_id=session_id,
-            type=TYPE_BOND,
-            character_id=char_id,
-            character_name=char_name,
-            created_at=datetime.now().isoformat(),
-        )
-        self._write_meta(char_id, meta)
-        self.append_marker(char_id, session_id, M_SESSION_START)
-        self.append_marker(char_id, session_id, M_VN_ENTER,
-                           {"parent_session_id": parent_session_id, "reason": reason})
         return meta
 
     def enter_vn(self, char_id: str, session_id: str, reason: str = "") -> str:

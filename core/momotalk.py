@@ -212,13 +212,6 @@ class MomoTalkEngine:
         logger.info("新会话: %s (%s)", character_id, char.display_name)
         return char.display_name
 
-    def resume_session(self, session_path: str | Path) -> Session:
-        session = Session.from_json(Path(session_path))
-        self.start_session(session.character_id)
-        self._history = session.history
-        logger.info("恢复会话: %s (%d 条历史)", session.character_id, len(session.history))
-        return session
-
     def save_session(self, path: str | Path | None = None) -> Path:
         if path is None:
             # 角色根目录（DESIGN_SAVE.md §三）: data/{char_id}/sessions/{char}_{ts}.json

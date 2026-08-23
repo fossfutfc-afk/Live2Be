@@ -6,7 +6,7 @@
     bond 契约（paragraphs 内联 emotion / place）→ BondScene → para_emotions
     导演（place → background 查表）
     vn_cli run_bond_story_vn（段落渲染 + [表情] 标注 + 选项）
-    事件流存档（root MMT 会话 + bond 子会话 open_vn/events/markers）
+    事件流存档（单会话 enter_vn: mmt/bond 事件同文件）
     wrapup 手机收尾
 
 用法: python experiments/e2e_smoke.py

@@ -336,40 +336,6 @@ def _t_director():
     print("    director: 无导演 → 纯文本, 无视觉字段")
 
 
-# ----------------------------------------------------------------------------
-# history: resume_session 回放 + 继续对话不丢历史
-# ----------------------------------------------------------------------------
-
-def _t_history():
-    from core.momotalk import Session
-
-    session = Session(
-        character_id=CHARACTER,
-        character_name="测试",
-        history=[
-            {"role": "user", "content": "之前说的"},
-            {"role": "assistant", "content": "[mmt_chat] 好呀！"},
-        ],
-    )
-    path = ROOT / "data" / "sessions" / "_smoke_session.json"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    session.to_json(path)
-    try:
-        engine = MomoTalkEngine(ROOT / "config" / "characters", ScriptedLLM(CHAT))
-        restored = engine.resume_session(path)
-        assert len(restored.history) == 2, f"历史条数 {len(restored.history)}"
-        assert engine.history_length == 2
-        # 恢复后继续对话, 历史前缀仍在（不会因 loop 丢消息）
-        result = engine.agent_turn("继续说")
-        assert result.action == "mmt_chat"
-        assert engine.history_length == 4, f"继续对话后历史 {engine.history_length}"
-        assert "之前说的" in engine.history[0]["content"]
-        assert engine.history[2]["content"] == "继续说"
-        print(f"    history: 恢复 2 条 → 续聊 {engine.history_length} 条")
-    finally:
-        path.unlink(missing_ok=True)
-
-
 def main() -> None:
     print(f"引擎冒烟（{CHARACTER} / ScriptedLLM 全 JSON loop）")
     print("=" * 46)
@@ -383,7 +349,6 @@ def main() -> None:
     check("bond_scene 解析(段/选项/完)", _t_bond_scene)
     check("story 双动作 scene→end 推导+trace", _t_story_executor)
     check("导演组件 BondScene 视觉字段", _t_director)
-    check("history 恢复 + 续聊无损", _t_history)
     print("=" * 46)
     if FAIL:
         print(f"结果: {PASS} PASS / {FAIL} FAIL")
