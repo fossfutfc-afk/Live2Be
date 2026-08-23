@@ -77,7 +77,7 @@ class BondStorySave:
     def append(self, scene: BondScene, picked: str | None, input_text: str) -> None:
         """记一场（picked = 玩家裁决: 选项文本 / 自由输入 / None）。
 
-        视觉字段（导演层 sprite/background）与意图字段（beats/place）一并落盘,
+        视觉字段（导演层 background/audio）与意图字段（beats/place）一并落盘,
         回放可还原视觉/意图标签; 纯文本模式（None/空）→ 落 null/空, 与旧档兼容。
         """
         record = {
@@ -87,8 +87,8 @@ class BondStorySave:
             "choices": list(scene.choices),
             "picked": picked,
             "is_end": bool(scene.is_end),
-            "sprite": scene.sprite,
             "background": scene.background,
+            "audio": scene.audio,
         }
         if scene.beats:
             record["beats"] = [dict(b) for b in scene.beats]

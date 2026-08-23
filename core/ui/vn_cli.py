@@ -80,16 +80,18 @@ def _type_paragraph(text: str, char_ms: int = _PARA_CHAR_MS) -> None:
 # ---------------------------------------------------------------------------
 
 def _print_visual(scene: BondScene) -> None:
-    """CLI 视觉标签（导演层字段; 纯文本模式无字段 → 不打印）。"""
-    if scene.sprite is None and scene.background is None and not scene.beat_sprites:
+    """CLI 视觉标签（导演层背景/音频 + 主 LLM 意图表情, 纯文本模式无字段 → 不打印）。"""
+    if scene.background is None and scene.audio is None and not scene.beats:
         return
     parts = []
-    if scene.sprite is not None:
-        parts.append(f"[表情 {scene.sprite or '-'}]")
     if scene.background is not None:
         parts.append(f"[背景 {scene.background or '-'}]")
-    if scene.beat_sprites:
-        parts.append("[拍 " + " ".join(s or "-" for s in scene.beat_sprites) + "]")
+    if scene.audio is not None:
+        parts.append(f"[音频 {scene.audio}]")
+    # 表情不经导演: 直接从主 LLM 意图 beats[].emotion 打印（渲染端查 emotions.yml 拿图）
+    if scene.beats:
+        emos = [b.get("emotion", "") or "-" for b in scene.beats if isinstance(b, dict)]
+        parts.append("[表情 " + " ".join(emos) + "]")
     print(" ".join(parts))
 
 
