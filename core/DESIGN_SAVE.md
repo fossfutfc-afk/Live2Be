@@ -38,15 +38,27 @@
 
 ---
 
-## 三、存储布局
+## 三、存储布局（按角色根目录，2026-08-23 升级定稿）
+
+**原则：每角色一个根目录**——会话、AI 生成内容、远期记忆全归位（用户决策：
+"按角色名分门别类"；未来 AI 生成 2D 场景的图 + 文字成对存角色 gallery 下）。
 
 ```
-data/sessions/
-  {session_id}/                  # session_id = {char_id}_{YYYYMMDD_HHMMSS}_{rand4}
-    meta.json                    # 小而稳：schema_version / type / 状态机 / 关联
-    history.jsonl                # LLM 上下文消息（append-only）
-    scenes.jsonl                 # bond 叙事记录（逐场 append，回放/画廊源）
-    vn_state.json                # VN 专用运行状态——仅 VN 进行中写（state==paused 时存在）
+data/
+  basic/                          # 全局（仅跨角色数据）
+    player.json                   # 玩家名等
+  {char_id}/                      # ★ 每角色一个根（igusa_haruka / rikuhachima_aru / …）
+    progress.json                 # 羁绊进度（按角色, 替代全局 bond_progress.json）
+    sessions/
+      {session_id}/               # 一次完整互动 = 一个会话目录
+        meta.json                 # 小而稳：schema_version / type / 状态机 / 关联
+        history.jsonl             # LLM 上下文消息（append-only）
+        scenes.jsonl              # bond 叙事记录（逐场 append，回放/画廊源）
+        vn_state.json             # VN 恢复点——仅 VN 进行中写（state==paused 时存在）
+    gallery/                      # AI 生成 2D 场景（图 + 文字信息成对, §4.5）
+      {scene_id}.png              # 生成图
+      {scene_id}.json             # 文字信息（prompt / 场景描述 / 来源会话 / 时间戳）
+    brain/                        # Virtual Brain（远期规划, 按角色隔离）
 ```
 
 | 文件 | 职责 | 写入方式 | 中断语义 |
@@ -55,6 +67,8 @@ data/sessions/
 | `history.jsonl` | LLM 上下文 | `open("a")` 每轮一行 JSON | 行级原子（单行 <4KB 安全）；读时行级 try/except 丢弃坏行 |
 | `scenes.jsonl` | 叙事记录 | 同上逐场 append | 同上；丢弃最后半行（最多丢半场） |
 | `vn_state.json` | VN 恢复点 | 原子写，每场 VN 轮更新 | 同上；旧 vn_state 仍可恢复（最多回退一场） |
+| `progress.json` | 羁绊轮数（按角色） | 原子写（低频） | 原子替换，永不半写 |
+| `gallery/{scene_id}.json` | 生成图元数据 | 原子写（生成一次） | 原子替换；png 先落盘再写 json 或反之（§4.5） |
 
 ---
 
@@ -65,7 +79,7 @@ data/sessions/
 ```jsonc
 {
   "schema_version": 1,
-  "session_id": "igusa_haruka_20260823_143022_ab12",
+  "session_id": "20260823_143022_ab12",   // 角色目录内唯一: {YYYYMMDD_HHMMSS}_{rand4}（char 由目录隔离）
   "type": "momotalk",              // momotalk | bond_story
   "character_id": "igusa_haruka",
   "character_name": "伊草 遥香",
@@ -112,6 +126,29 @@ data/sessions/
   "visual": {"background": "class_room", "audio": null},  // 导演 VisualState.to_dict()
   "scenes_flushed": 12             // scenes.jsonl 已写场数（对齐校验）
 }
+```
+
+### 4.5 gallery / progress.json（角色目录扩展, 2026-08-23 新增）
+
+**gallery — AI 生成 2D 场景（图 + 文字信息成对）**：
+```jsonc
+// data/{char_id}/gallery/{scene_id}.json  ← 与 {scene_id}.png 同名成对
+{
+  "scene_id": "20260823_150412_cd34",
+  "character_id": "igusa_haruka",
+  "prompt": "遥香在天台上, 晚风, 微笑…",     // 生图 prompt（可复现）
+  "description": "（场景描述: 情感氛围/构图）",
+  "source_session": "20260823_143022_ab12",  // 来源会话（可回溯 scenes.jsonl）
+  "created_at": "2026-08-23T15:04:12.654321"
+}
+```
+- 写入顺序约定：**先原子写 json（元数据）再落 png**（或反之）——`list_gallery` 只认"json+png 都存在的成对"，半套视为写入中断，可重试
+- 未来生图管线（Phase 4）按此格式写；本设计只定 schema，不实现生图
+
+**progress.json — 羁绊进度（按角色）**：
+```jsonc
+// data/{char_id}/progress.json —— 替代全局 data/basic/bond_progress.json（迁移见 §八）
+{ "rounds": 84, "updated_at": "2026-08-23T15:02:11.654321" }
 ```
 
 ---
@@ -217,10 +254,11 @@ wrapup_after_vn(parent_session_id):
 
 ## 八、兼容与迁移（v0 旧档）
 
-- 新读路径：目录存在 `meta.json` = v1 会话
+- 新读路径：`data/{char_id}/sessions/{session_id}/meta.json` 存在 = v1 会话
 - 旧档识别：`data/saves/bond_story_*.json`（单文件 scenes[]）→ **只读回放**（`replay_bond_story` 读路径保留），不迁移写入
 - `data/sessions/{char}_{ts}.json` 旧 MMT 档 → 只读（resume 旧逻辑保留），新写走 v1
-- 迁移函数 `migrate_v0(path) -> SessionStore` 仅对"确实要续玩"的旧档做（v0 MMT 档可直接升级：包成目录 + meta + history.jsonl）
+- 迁移函数 `migrate_v0(path) -> SessionStore` 仅对"确实要续玩"的旧档做（v0 MMT 档可直接升级：包成角色目录 + meta + history.jsonl）
+- **`data/basic/bond_progress.json`（全局聚合）→ 迁移为 `data/{char_id}/progress.json`**：读路径兼容（查不到角色文件时回退全局旧档），新写按角色落盘；`BondProgress` 类改按角色路径读写
 
 ---
 
@@ -233,6 +271,7 @@ core/session/
   __init__.py        # re-export
   store.py           # SessionStore: create / open_vn / append_history / append_scene /
                      #   update_vn_state / finish / list_open / resume（读路径）
+                     #   所有路径参数化 data_root（默认 data/）, 内部拼 data/{char_id}/sessions/…
   models.py          # SessionMeta / VNState dataclass + to_dict/from_dict（容错）
   io.py              # atomic_write_json / append_jsonl / read_jsonl（行级容错）
 ```
@@ -243,8 +282,10 @@ core/session/
 |------|------|
 | `core/momotalk.py` | `save_session/resume_session` 改走 SessionStore（保留旧函数签名兼容）；agent_turn 末尾 append history |
 | `core/bond/bond_save.py` | `BondStorySave` 改为写 scenes.jsonl + 子会话 meta；保留 `load_save/list_saves` 旧接口（读旧档） |
+| `core/bond/bond_progress.py` | `BondProgress` 读写改按角色 `data/{char_id}/progress.json`（回退全局旧档） |
 | `core/ui/vn_cli.py` | `run_bond_story_vn` 接入子会话（round/seed/visual 落 vn_state.json）；`replay_bond_story` 支持 scenes.jsonl |
 | `main.py` / `mmt_preset.py` | 恢复入口：`list_open()` → 手动选择 → resume |
+| `core/media/gallery.py`（新增, Phase 4 前仅建骨架） | `list_gallery(char_id)` 只认 json+png 成对；生图管线接入时再扩展 |
 
 ### 测试（tests/core/test_session.py）
 
