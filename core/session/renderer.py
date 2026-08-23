@@ -22,6 +22,8 @@ import json
 from typing import Any
 
 from core.session.events import (
+    M_MEMORIAL_ENTER,
+    M_MEMORIAL_EXIT,
     M_SESSION_END,
     M_SESSION_START,
     M_VN_ENTER,
@@ -80,6 +82,8 @@ def session_status(events: list[Event]) -> dict[str, Any]:
     Returns:
         ended              — 有 session_end marker
         in_vn              — 最后 vn_enter 之后无 vn_exit/session_end
+        in_memorial        — 纪念子模式中（§4.7）: 最后 memorial_enter 之后
+                             无 memorial_exit/session_end
         parent_session_id  — 恒 None（2026-08-24 单流无子会话, 保留字段兼容）
         vn_state           — 最后一个 vn_state marker 的 VNState.to_dict()（None = 无）
     """
@@ -96,6 +100,14 @@ def session_status(events: list[Event]) -> dict[str, Any]:
         p = ms[last].payload.get("parent_session_id")
         parent_session_id = p if isinstance(p, str) and p else None
 
+    # 纪念子模式状态（§4.7: enter 后 exit 前, 中断恢复据此 resume 到纪念场景）
+    in_memorial = False
+    m_enter_idxs = [i for i, m in enumerate(ms) if m.subtype == M_MEMORIAL_ENTER]
+    if m_enter_idxs:
+        last = m_enter_idxs[-1]
+        in_memorial = not any(
+            m.subtype in (M_MEMORIAL_EXIT, M_SESSION_END) for m in ms[last + 1:])
+
     vn_state: dict | None = None
     for m in reversed(ms):
         if m.subtype == M_VN_STATE:
@@ -105,6 +117,7 @@ def session_status(events: list[Event]) -> dict[str, Any]:
     return {
         "ended": ended,
         "in_vn": in_vn,
+        "in_memorial": in_memorial,
         "parent_session_id": parent_session_id,
         "vn_state": vn_state,
     }
@@ -131,5 +144,7 @@ def render_timeline(events: list[Event], *, max_paragraph_chars: int = 120) -> s
                 text = text[:max_paragraph_chars] + "…"
             lines.append(f"{label} {text}")
         elif e.type == TYPE_L2D:
-            lines.append(f"{label} 生成: {e.payload.get('image', '?')}")
+            imgs = e.payload.get("images", [])
+            img = imgs[0] if isinstance(imgs, list) and imgs else "?"
+            lines.append(f"{label} 生成: {img}")
     return "\n".join(lines)

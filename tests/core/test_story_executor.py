@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
-"""STORY 契约/执行层单测 — 双动作 story_scene/story_end + StoryExecutor。
+"""STORY 契约/执行层单测 — 三动作 story_scene/story_end/memorial_enter + StoryExecutor。
 
 parse_story_scene : 段落 {text, emotion?}（2026-08-23 情绪内联, 删 beats）/ 单串容错 /
                     choices 截断 / 残留 is_end 静默丢弃 / 空段落 ContractError
 parse_story_end   : 非空 choices 硬拒绝（结构「收尾无选项」落点, nudge 改用 story_scene）
-build_story_registry : 两动作, 全 APPROVAL_AUTO, 无 validate, prompt_fields={action,payload}
+parse_memorial_enter : prompt 必填 + 场景内容（§4.7, 纪念子模式进入动作, 属 story 域）
+build_story_registry : 三动作, 全 APPROVAL_AUTO, 无 validate, prompt_fields={action,payload}
 StoryExecutor     : 域分派 / mmt 域拒绝 / 未知动作拒绝
 BondScene.from_action : is_end 由动作类型推导; paragraphs 结构兼容
 para_emotions     : 逐段 emotion, 缺省延续（纯确定性, 零语义判断）
@@ -119,16 +120,16 @@ def test_parse_story_end_empty_or_missing_choices_ok():
 # build_story_registry: 双动作 AUTO / 无 validate / prompt_fields
 # ----------------------------------------------------------------------------
 
-def test_registry_two_actions_auto_no_validate():
+def test_registry_actions_auto_no_validate():
     reg = build_story_registry()
-    assert reg.action_names() == ["story_end", "story_scene"], reg.action_names()
-    for name in ("story_scene", "story_end"):
+    assert reg.action_names() == ["memorial_enter", "story_end", "story_scene"], reg.action_names()
+    for name in ("story_scene", "story_end", "memorial_enter"):
         spec = reg.spec(name)
         assert spec.approval == APPROVAL_AUTO, name
         assert spec.validate is None, f"{name} 不应有 validate 钩子（结构性保证）"
         assert spec.prompt_fields == frozenset({"action", "payload"}), name
         assert spec.payload_schema, f"{name} 应有 payload_schema"
-    print("    registry: 两动作 AUTO / 无 validate / prompt_fields={action,payload}")
+    print("    registry: 三动作 AUTO / 无 validate / prompt_fields={action,payload}")
 
 
 # ----------------------------------------------------------------------------

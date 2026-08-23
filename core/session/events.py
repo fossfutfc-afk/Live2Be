@@ -38,10 +38,13 @@ M_SESSION_START = "session_start"
 M_VN_ENTER = "vn_enter"       # payload: {parent_session_id, reason?}
 M_VN_EXIT = "vn_exit"
 M_VN_STATE = "vn_state"       # payload: VNState.to_dict()（round/seed/visual…）
+M_MEMORIAL_ENTER = "memorial_enter"  # ★ 进入纪念子模式（§4.7）payload: {reason?}
+M_MEMORIAL_EXIT = "memorial_exit"    # ★ 退出纪念, 回 bond
 M_SESSION_END = "session_end"  # payload: {ended: true}
 
 MARKER_SUBTYPES: tuple[str, ...] = (
-    M_SESSION_START, M_VN_ENTER, M_VN_EXIT, M_VN_STATE, M_SESSION_END,
+    M_SESSION_START, M_VN_ENTER, M_VN_EXIT, M_VN_STATE,
+    M_MEMORIAL_ENTER, M_MEMORIAL_EXIT, M_SESSION_END,
 )
 
 
