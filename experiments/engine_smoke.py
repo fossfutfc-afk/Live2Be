@@ -319,19 +319,20 @@ def _t_director():
         ROOT / "config" / "characters", ScriptedLLM(scene), director=director)
     vn.start_session(CHARACTER)
     s = vn.send_vn_scene("（开场）")
-    assert s.sprite == "smile" and s.background == "class_room", s
-    assert s.beat_sprites == ["embarass", "smile"], s
+    assert s.background == "class_room", s
+    assert s.audio is None, s                          # 占位恒 None
+    assert s.beats == [{"text": "她脸红了", "emotion": "embarass"},
+                       {"text": "对不起…", "emotion": "smile"}], s
     assert s.place == "class_room"
     hist = _json.loads(vn.history[-1]["content"])
-    assert "beat_sprites" not in hist, "导演输出不进主 LLM 历史（单向）"
-    assert "sprite" not in _json.loads(vn.history[-1]["content"]), "历史应无视觉字段"
-    print(f"    director: sprite={s.sprite} background={s.background} 历史不含视觉字段")
+    assert "background" not in hist and "audio" not in hist, "导演输出不进主 LLM 历史（单向）"
+    print(f"    director: background={s.background} audio={s.audio} 历史不含导演字段")
 
     # 纯文本模式（无导演注入）
     vn2 = BondStoryEngine(ROOT / "config" / "characters", ScriptedLLM(scene))
     vn2.start_session(CHARACTER)
     s2 = vn2.send_vn_scene("（开场）")
-    assert s2.sprite is None and s2.background is None
+    assert s2.background is None and s2.audio is None
     print("    director: 无导演 → 纯文本, 无视觉字段")
 
 
