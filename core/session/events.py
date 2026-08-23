@@ -7,13 +7,13 @@ Event 骨架: {seq, ts, type, subtype, payload}
     payload — 板块固定 schema（文档定档; 解析层宽松, 字段级校验留给消费方/渲染器）
 
 marker subtype（状态标记, 替代状态机, §5.1）:
-    session_start / vn_enter{parent_session_id, reason} / vn_exit /
+    session_start / vn_enter{reason} / vn_exit /
     vn_state{round, seed, visual} / session_end{ended}
 
 解析策略（宁缺勿错 + 复现能力）:
     - 骨架字段坏（seq 非 int / ts 空 / type 不在白名单 / subtype 空）→ 该事件丢弃
     - payload 非 dict → 视为空 dict（宽容, 不拒绝）
-    - to_dict/from_dict 往返无损（复现; l2d 引用式最小 {image, scene_ref}, 定档后再收紧）
+    - to_dict/from_dict 往返无损（复现; l2d 引用式最小 {paragraphs, choices, images}, 定档后再收紧）
 """
 
 from __future__ import annotations

@@ -6,29 +6,27 @@
     bond_actions.py   契约: build_story_registry（story_scene / story_end 双动作）
     bond_executor.py  执行层: StoryExecutor / StoryExecError
     bond_progress.py  羁绊进度: BondProgress（对话轮数）
-    bond_save.py      存档: BondStorySave / load_save / list_saves
+    memorial_actions.py 纪念域契约: build_memorial_registry（memorial_generate）
 
 契约层的域名为 story（DOMAIN_STORY, 动作 story_scene/story_end）——文件名用 bond_
-前缀统一, 与引擎概念一致; LLM 契约仍叫 story_*。
+前缀统一, 与引擎概念一致; LLM 契约仍叫 story_*。纪念域独立域名 DOMAIN_MEMORIAL。
 """
 
 from __future__ import annotations
 
 from core.bond.bond_story import BondScene, BondStoryEngine, SceneLoopError
 from core.bond.bond_progress import BondProgress
-from core.bond.bond_save import BondStorySave, load_save, list_saves
 from core.bond.bond_executor import StoryExecError, StoryExecutor
 from core.bond.bond_actions import build_story_registry
+from core.bond.memorial_actions import build_memorial_registry
 
 __all__ = [
     "BondScene",
     "BondStoryEngine",
     "SceneLoopError",
     "BondProgress",
-    "BondStorySave",
-    "load_save",
-    "list_saves",
     "StoryExecError",
     "StoryExecutor",
     "build_story_registry",
+    "build_memorial_registry",
 ]
