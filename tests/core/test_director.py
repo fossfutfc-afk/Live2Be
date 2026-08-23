@@ -50,7 +50,7 @@ def _make_assets(tmp_path):
         "  nomal: diff/haruka_spr_01.png\n"
         "  respond: diff/haruka_spr_02.png\n"
         "  smile: diff/haruka_spr_03.png\n"
-        "  embarass: diff/haruka_spr_04.png\n"
+        "  embarrass: diff/haruka_spr_04.png\n"
         "  serious: diff/haruka_spr_05.png\n"
         "  shout: diff/haruka_spr_06.png\n",
         encoding="utf-8",
@@ -140,7 +140,7 @@ def test_director_reset_and_build(tmp_path):
 
 def test_engine_attaches_background_audio(tmp_path):
     main = _MainLLM({"action": "story_scene", "payload": {
-        "paragraphs": [{"text": "她脸红了。", "emotion": "embarass"}],
+        "paragraphs": [{"text": "她脸红了。", "emotion": "embarrass"}],
         "place": "class_room",
         "choices": [],
     }})
@@ -150,7 +150,7 @@ def test_engine_attaches_background_audio(tmp_path):
     scene = vn.send_vn_scene("（开场）")
     assert scene.background == "class_room"
     assert scene.audio is None                           # 占位
-    assert scene.paragraphs == [{"text": "她脸红了。", "emotion": "embarass"}]
+    assert scene.paragraphs == [{"text": "她脸红了。", "emotion": "embarrass"}]
     assert scene.place == "class_room"
     dct = scene.to_dict()
     assert dct["background"] == "class_room"             # 存档可见

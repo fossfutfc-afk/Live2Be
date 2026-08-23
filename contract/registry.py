@@ -12,7 +12,7 @@ from typing import Any
 
 from core.common import err
 from contract.constants import (
-    DOMAIN_IDE, DOMAIN_MMT, DOMAIN_STORY,
+    DOMAIN_IDE, DOMAIN_MEMORIAL, DOMAIN_MMT, DOMAIN_STORY,
     MAX_BASIS_COUNT, MAX_REPLY_LENGTH, MAX_SOURCE_COUNT, MAX_SUMMARY_LENGTH,
 )
 from contract.model import AgentAction, ContractError, ValidationResult
@@ -175,6 +175,13 @@ class StoryActionRegistry(ActionRegistry):
 
     def __init__(self) -> None:
         super().__init__(DOMAIN_STORY)
+
+
+class MemorialActionRegistry(ActionRegistry):
+    """纪念立绘动作域：bond 剧情中的纪念瞬间（独立 registry, 2026-08-24）。"""
+
+    def __init__(self) -> None:
+        super().__init__(DOMAIN_MEMORIAL)
 
 
 # ============================================================================

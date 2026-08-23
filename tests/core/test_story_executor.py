@@ -204,11 +204,11 @@ def test_para_emotions_inherit():
     # 中途变化 + 尾段缺省延续
     s = BondScene.from_action(_action("story_scene", {
         "paragraphs": [
-            {"text": "a", "emotion": "embarass"},
+            {"text": "a", "emotion": "embarrass"},
             {"text": "b", "emotion": "giggle"},
             {"text": "c"},
         ]}))
-    assert s.para_emotions() == ["embarass", "giggle", "giggle"]
+    assert s.para_emotions() == ["embarrass", "giggle", "giggle"]
     # 旧 str 段落（兼容）→ 默认
     s = BondScene.from_dict({"paragraphs": ["x", "y"]})
     assert s.para_emotions() == ["nomal", "nomal"]

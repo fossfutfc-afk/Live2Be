@@ -18,6 +18,7 @@ from typing import Any
 #: 会话类型（= 会话内主导事件板块, 与 events.py 的板块命名统一）
 TYPE_MMT = "mmt"
 TYPE_BOND = "bond"
+TYPE_CONVERSATION = "conversation"   # ★ 2026-08-24: 单事件流会话（mmt+bond+l2d 全板块一目录）
 
 
 def now_iso() -> str:
@@ -51,7 +52,7 @@ class SessionMeta:
 
     schema_version: int = 1
     session_id: str = ""
-    type: str = TYPE_MMT                # momotalk | bond_story（创建时确定, 索引缓存）
+    type: str = TYPE_CONVERSATION      # conversation（单流 2026-08-24）; 旧 mmt/bond 值兼容读取
     character_id: str = ""
     character_name: str = ""
     created_at: str = ""

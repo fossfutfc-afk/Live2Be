@@ -180,7 +180,7 @@ def _make_assets(tmp_path):
         "  nomal: diff/haruka_spr_01.png\n"
         "  respond: diff/haruka_spr_02.png\n"
         "  smile: diff/haruka_spr_03.png\n"
-        "  embarass: diff/haruka_spr_04.png\n"
+        "  embarrass: diff/haruka_spr_04.png\n"
         "  serious: diff/haruka_spr_05.png\n"
         "  shout: diff/haruka_spr_06.png\n"
         "spine: haruka_spr\n",
@@ -257,7 +257,7 @@ def test_sprite_lookup(tmp_path):
 def test_sprite_emotions_whitelist(tmp_path):
     c = _catalog(tmp_path)
     assert c.sprite_emotions("igusa_haruka") == [
-        "embarass", "nomal", "respond", "serious", "shout", "smile",
+        "embarrass", "nomal", "respond", "serious", "shout", "smile",
     ]
     assert c.sprite_emotions("no_man") == []
     print("    sprite_emotions: 情绪白名单（供 ② prompt/parse）")

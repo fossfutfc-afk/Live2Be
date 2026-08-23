@@ -33,7 +33,7 @@ from core.session.events import (
     parse_events,
 )
 from core.session.io import append_jsonl, atomic_write_json, read_jsonl
-from core.session.models import TYPE_BOND, TYPE_MMT, SessionMeta
+from core.session.models import TYPE_BOND, TYPE_CONVERSATION, TYPE_MMT, SessionMeta
 from core.session.renderer import session_status
 
 DEFAULT_DATA_ROOT = Path("data")
@@ -79,11 +79,11 @@ class SessionStore:
     # ------------------------------------------------------------------
 
     def create(self, char_id: str, char_name: str = "") -> SessionMeta:
-        """新建 MMT 根会话: 写 meta（纯索引）+ append marker session_start。"""
+        """新建会话（单事件流）: 写 meta(type=conversation) + append marker session_start。"""
         session_id = _new_session_id()
         meta = SessionMeta(
             session_id=session_id,
-            type=TYPE_MMT,
+            type=TYPE_CONVERSATION,
             character_id=char_id,
             character_name=char_name,
             created_at=datetime.now().isoformat(),
@@ -113,6 +113,17 @@ class SessionStore:
         self.append_marker(char_id, session_id, M_VN_ENTER,
                            {"parent_session_id": parent_session_id, "reason": reason})
         return meta
+
+    def enter_vn(self, char_id: str, session_id: str, reason: str = "") -> str:
+        """MMT → VN: 当前会话 append vn_enter marker（单事件流, DESIGN_SAVE §5.3）。
+
+        2026-08-24 存储整合: 替代 open_vn 子会话——不建目录、不写 meta、
+        不 append session_start; 后续 bond 事件/vn_state/vn_exit/session_end
+        全部 append 到同一 events.jsonl。返回 session_id（与入参相同, 调用方继续用）。
+        """
+        payload = {"reason": reason} if reason else None
+        self.append_marker(char_id, session_id, M_VN_ENTER, payload)
+        return session_id
 
     def finish(self, char_id: str, session_id: str, ended: bool = True) -> Event:
         """会话收尾: append marker session_end{ended}（没写 = 中断, 零成本表达）。"""
