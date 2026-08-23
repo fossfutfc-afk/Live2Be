@@ -28,8 +28,11 @@
 ## 短期（体验闭环）
 
 - [ ] **web VN 播放器**：web 加角色扮演频道（hub.channel 已预留），渲染背景+表情+选项
-- [ ] **生图管线（Phase 4）**：纪念时刻判定 + SD1.5 本地生图（.env 已注释调用方式）；
-      gallery 写入（图+json 成对）；L2D 板块定档（events 的 l2d payload 引用式最小已定）
+- [x] **生图接口（llm/image_gen.py）**：ImageGenerator 懒加载 SD1.5（diffusers+CUDA, RTX 5070 实测 15 步 2s）；
+      .env 读 IMAGE_MODEL_PATH/IMAGE_OUTPUT_DIR（默认 D:\by-user\fossf\AI\...）; seed 固定可复现;
+      返回 Path = l2d 事件资产引用; 真机验证抓出 1 bug（from_pretrained 后缺 pipe.to(device) → CPU/seed CUDA 不匹配）已修 ✅ 237/237
+- [ ] **生图管线（Phase 4 剩余）**：纪念时刻判定（LLM 评估）→ 调 ImageGenerator → l2d 事件 + gallery 写入；
+      L2D 板块定档（events 的 l2d payload 引用式最小已定）
 - [ ] **brain digest**：session 结束后 events → 叙事时间线 → LLM 总结 → wiki.json 增量
 
 ## 中期（蓝图）

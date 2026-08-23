@@ -75,8 +75,9 @@ def main() -> None:
     md.append("## 二、羁绊剧情（VN）")
     md.append("")
     if not triggered:
-        print("\n=== LLM 未在 3 轮内自然触发 → 程序强制进入羁绊剧情 ===")
-        md.append("> （LLM 未在 3 轮内自然触发 mmt_trigger_bond_story, 程序强制进入 VN）")
+        print("\n=== 测试捷径: 3 轮内 LLM 未自然触发 → 脚本强制进入 VN（真实引擎由 LLM 触发）===")
+        md.append("> （测试捷径: 为覆盖 VN 板块, 脚本在 LLM 未自然触发时强制进入;\n"
+                  ">  真实引擎中触发由 LLM 决定——mmt_trigger_bond_story 动作独占一轮, 轮数仅软门槛）")
         md.append("")
 
     reason = "老师约遥香放学后见面聊聊"
