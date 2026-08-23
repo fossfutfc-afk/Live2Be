@@ -13,6 +13,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
+ROOT = Path(__file__).resolve().parent.parent.parent
+
 from core.session import (
     TYPE_BOND,
     TYPE_MMT,
@@ -30,11 +32,19 @@ from core.session.events import (
     M_SESSION_END,
     M_SESSION_START,
     M_VN_ENTER,
+    M_VN_EXIT,
     M_VN_STATE,
     make_event,
     marker,
     parse_events,
 )
+from core.session.renderer import (
+    filter_bond,
+    render_events,
+    render_timeline,
+    session_status,
+)
+from core.session.store import SessionStore
 
 
 # ----------------------------------------------------------------------------
@@ -180,3 +190,248 @@ def test_marker_construction():
     mmt = make_event("mmt", "mmt_chat", {"player": "hi"}, seq=2)
     assert mmt.to_dict()["seq"] == 2
     print("    events: marker 构造（start/enter/state/end）+ make_event")
+
+
+# ----------------------------------------------------------------------------
+# renderer: 事件流 → LLM 消息 / 回放过滤 / 状态推导 / brain 时间线
+# ----------------------------------------------------------------------------
+
+def _session_events():
+    """典型会话: MMT 3 动作（同轮）→ VN 进 → bond 2 场 → 收尾。"""
+    return [
+        marker(M_SESSION_START, seq=1),
+        make_event("mmt", "mmt_chat", {"player": "老师你看！", "reply": "啊、好看吧？"}, seq=2),
+        make_event("mmt", "mmt_send_media", {"player": "", "reply": "",
+                                             "media_type": "image", "image": "天台"}, seq=3),
+        make_event("mmt", "mmt_chat", {"player": "", "reply": "是我拍的…"}, seq=4),
+        marker(M_VN_ENTER, {"parent_session_id": "root_1", "reason": "邀约"}, seq=5),
+        make_event("bond", "story_scene",
+                   {"input": "（旁白）基于「邀约」…", "paragraphs": ["她红着脸。"],
+                    "picked": "别紧张"}, seq=6),
+        marker(M_VN_STATE, {"round": 1, "seed": "别紧张"}, seq=7),
+        make_event("bond", "story_end",
+                   {"input": "别紧张", "paragraphs": ["她笑了。"]}, seq=8),
+        marker(M_VN_EXIT, seq=9),
+        marker(M_SESSION_END, {"ended": True}, seq=10),
+    ]
+
+
+def test_render_events_messages():
+    evs = parse_events([e.to_dict() for e in _session_events()])
+    msgs = render_events(evs)
+    # MMT 3 动作: 只有第一个带 player → 1 条 user; 3 条 assistant（含无 reply 的 send_media）
+    assert msgs[0] == {"role": "user", "content": "老师你看！"}
+    assert msgs[1] == {"role": "assistant", "content": "[mmt_chat] 啊、好看吧？"}
+    assert msgs[2] == {"role": "assistant", "content": "[mmt_send_media]"}
+    assert msgs[3] == {"role": "assistant", "content": "[mmt_chat] 是我拍的…"}
+    # bond: input → user + 紧凑 JSON assistant（与引擎历史一致）
+    assert msgs[4]["role"] == "user" and "旁白" in msgs[4]["content"]
+    import json as _json
+    parsed = _json.loads(msgs[5]["content"])
+    assert parsed["paragraphs"] == ["她红着脸。"]
+    # 第二个 bond 的 input=上一场 picked
+    assert msgs[6] == {"role": "user", "content": "别紧张"}
+    # marker/l2d 不产生消息
+    assert all(m["role"] in ("user", "assistant") for m in msgs)
+    assert len(msgs) == 8
+    print("    render_events: mmt 同轮去重 + bond 紧凑 JSON + marker/l2d 跳过")
+
+
+def test_render_events_roundtrip_with_engine_format():
+    """渲染结果与引擎 history 格式一致（恢复 = start_session + 塞回 render 消息）。"""
+    evs = parse_events([e.to_dict() for e in _session_events()])
+    msgs = render_events(evs)
+    # mmt 历史格式: "[mmt_chat] 回复"（momotalk._finish_turn_list 同款）
+    assert msgs[1]["content"].startswith("[mmt_chat] ")
+    # bond 历史格式: 紧凑 payload JSON（bond_story.send_vn_scene 同款, separators=(",",":")）
+    import json as _json
+    assert " " not in msgs[5]["content"], "bond assistant 应为紧凑 JSON（无空格分隔）"
+    _json.loads(msgs[5]["content"])
+    print("    render_events: 与引擎 history 格式一致（恢复零转换）")
+
+
+def test_filter_bond_and_status():
+    evs = parse_events([e.to_dict() for e in _session_events()])
+    bonds = filter_bond(evs)
+    assert len(bonds) == 2 and all(e.type == "bond" for e in bonds)
+    st = session_status(evs)
+    assert st["ended"] is True
+    assert st["in_vn"] is False              # vn_exit 后 → 不在 VN
+    assert st["parent_session_id"] == "root_1"
+    assert st["vn_state"]["round"] == 1      # 取最后一个 vn_state marker（调用方结合 in_vn 判断）
+    print("    filter_bond + session_status: 结束态推导")
+
+
+def test_session_status_interrupted_vn():
+    """中断（无 session_end）: 无标记即中断; 崩溃在 VN 中 → in_vn=True + vn_state。"""
+    evs = parse_events([e.to_dict() for e in [
+        marker(M_SESSION_START, seq=1),
+        marker(M_VN_ENTER, {"parent_session_id": "root_1"}, seq=2),
+        make_event("bond", "story_scene", {"paragraphs": ["x"]}, seq=3),
+        marker(M_VN_STATE, {"round": 5, "seed": "继续吧", "visual": {"background": "rooftop"}}, seq=4),
+    ]])
+    st = session_status(evs)
+    assert st["ended"] is False              # 无 session_end = 中断
+    assert st["in_vn"] is True               # 崩溃在 VN 中
+    assert st["parent_session_id"] == "root_1"
+    assert st["vn_state"] is not None and st["vn_state"]["round"] == 5
+    assert st["vn_state"]["visual"] == {"background": "rooftop"}
+    # 纯 MMT 会话（无 vn_enter）
+    st2 = session_status(parse_events([
+        marker(M_SESSION_START, seq=1),
+        make_event("mmt", "mmt_chat", {"player": "hi", "reply": "嗯"}, seq=2)]))
+    assert st2["in_vn"] is False and st2["parent_session_id"] is None
+    print("    session_status: 中断=VN 中推导（in_vn + vn_state 取最后）")
+
+
+def test_render_timeline_brain():
+    evs = parse_events([e.to_dict() for e in _session_events()])
+    tl = render_timeline(evs)
+    assert "【MMT对话】" in tl and "【羁绊剧情】" in tl
+    assert "玩家: 老师你看！" in tl and "角色: 是我拍的…" in tl
+    assert "她红着脸。" in tl
+    assert "【L2D生成】" not in tl           # 本会话无 l2d
+    # 截断
+    long = [make_event("bond", "story_scene", {"paragraphs": ["长" * 300]}, seq=1)]
+    tl2 = render_timeline(long, max_paragraph_chars=50)
+    assert len(tl2) < 100 and "…" in tl2
+    print("    render_timeline: 板块标签 + 段落截断（brain 消化输入）")
+
+
+# ----------------------------------------------------------------------------
+# store: 会话生命周期（create/open_vn/append/finish/list_open/resume）
+# ----------------------------------------------------------------------------
+
+def test_store_create_and_append(tmp_path):
+    st = SessionStore(tmp_path)
+    meta = st.create("igusa_haruka", "伊草 遥香")
+    assert meta.type == "mmt" and meta.character_id == "igusa_haruka"
+    assert meta.session_id, "应生成 session_id"
+    # create 已写 meta + session_start marker
+    assert (st.session_dir("igusa_haruka", meta.session_id) / "meta.json").exists()
+    evs = st.events("igusa_haruka", meta.session_id)
+    assert len(evs) == 1 and evs[0].subtype == "session_start" and evs[0].seq == 1
+    # append seq 递增
+    e1 = st.append_event("igusa_haruka", meta.session_id,
+                         make_event("mmt", "mmt_chat", {"player": "hi", "reply": "嗯"}))
+    e2 = st.append_marker("igusa_haruka", meta.session_id, "vn_state", {"round": 1})
+    assert e1.seq == 2 and e2.seq == 3
+    # 新 store 实例（模拟重启）→ 从文件恢复 seq
+    st2 = SessionStore(tmp_path)
+    e3 = st2.append_event("igusa_haruka", meta.session_id,
+                          make_event("mmt", "mmt_chat", {"reply": "继续"}))
+    assert e3.seq == 4, "重启后 seq 应从文件续"
+    print("    store: create + seq 递增 + 重启续 seq")
+
+
+def test_store_open_vn_and_status(tmp_path):
+    st = SessionStore(tmp_path)
+    root = st.create("igusa_haruka")
+    vn = st.open_vn("igusa_haruka", root.session_id, reason="邀约")
+    assert vn.type == "bond"
+    st.append_event("igusa_haruka", vn.session_id,
+                    make_event("bond", "story_scene", {"paragraphs": ["她脸红了。"]}))
+    st.append_marker("igusa_haruka", vn.session_id, "vn_state", {"round": 1, "seed": "继续"})
+    st.update_session_progress("igusa_haruka", vn.session_id, 2)
+    # 中断（未 finish）→ resume 推导 in_vn
+    r = st.resume("igusa_haruka", vn.session_id)
+    assert r["meta"].type == "bond"
+    assert r["status"]["in_vn"] is True
+    assert r["status"]["parent_session_id"] == root.session_id
+    assert r["status"]["vn_state"]["round"] == 1
+    # session progress 落盘
+    import json as _json
+    prog = _json.loads((st.progress_path("igusa_haruka", vn.session_id)).read_text(encoding="utf-8"))
+    assert prog["rounds"] == 2
+    print("    store: open_vn（parent/ven_enter）+ resume 推导 in_vn + progress 落盘")
+
+
+def test_store_finish_and_list_open(tmp_path):
+    st = SessionStore(tmp_path)
+    a = st.create("igusa_haruka")
+    b = st.create("rikuhachima_aru")
+    st.finish("igusa_haruka", a.session_id, ended=True)   # a 结束
+    # list_open: 只列未结束（b）
+    opens = st.list_open()
+    assert [m.session_id for m in opens] == [b.session_id]
+    # 全部结束 → 空
+    st.finish("rikuhachima_aru", b.session_id)
+    assert st.list_open() == []
+    # finish 后 resume 推导 ended
+    r = st.resume("igusa_haruka", a.session_id)
+    assert r["status"]["ended"] is True
+    print("    store: finish(session_end) + list_open 过滤未结束")
+
+
+def test_store_meta_tolerance(tmp_path):
+    st = SessionStore(tmp_path)
+    assert st.meta("no_char", "no_such_id").session_id == ""     # 缺失 → 空 meta
+    assert st.events("no_char", "no_such_id") == []              # 缺失 → 空事件
+    print("    store: 缺失 meta/events → 空（宁缺勿错）")
+
+
+# ----------------------------------------------------------------------------
+# 引擎接入: momotalk agent_turn → 落 mmt 事件（同轮去重）+ session progress
+# ----------------------------------------------------------------------------
+
+def test_engine_mmt_records_events(tmp_path):
+    from core.bond.bond_progress import BondProgress
+    from core.momotalk import MomoTalkEngine
+
+    class LLM:
+        def chat(self, messages, **kw):
+            return {"actions": [
+                {"action": "mmt_chat", "reply": "第一句", "payload": {}},
+                {"action": "mmt_send_media", "reply": "",
+                 "payload": {"media_type": "image", "image": "天台夕阳"}},
+                {"action": "mmt_chat", "reply": "第二句", "payload": {}},
+            ]}
+
+        def format_messages(self, **kw):
+            return []
+
+    st = SessionStore(tmp_path)
+    engine = MomoTalkEngine(ROOT / "config" / "characters", LLM(),
+                            bond_progress=BondProgress(data_root=tmp_path), store=st)
+    engine.start_session("igusa_haruka")
+    meta = st.create("igusa_haruka")
+    engine.attach_session(meta.session_id)
+    r = engine.agent_turn("你好呀")
+
+    evs = st.events("igusa_haruka", meta.session_id)
+    assert [e.subtype for e in evs] == [
+        "session_start", "mmt_chat", "mmt_send_media", "mmt_chat"]
+    assert evs[1].payload["player"] == "你好呀"        # 第一个动作带 player
+    assert "player" not in evs[2].payload              # 后续动作不带（render 去重约定）
+    assert evs[2].payload["image"] == "天台夕阳"        # 干净动作字段保留
+    assert evs[3].payload["reply"] == "第二句"
+    # session progress = 该会话轮数（列表整体一轮）
+    import json as _json
+    prog = _json.loads(st.progress_path("igusa_haruka", meta.session_id).read_text(encoding="utf-8"))
+    assert prog["rounds"] == 1
+    # render 回读: 同轮多动作只有 1 条 user
+    msgs = render_events(st.events("igusa_haruka", meta.session_id))
+    assert sum(1 for m in msgs if m["role"] == "user") == 1
+    assert msgs[1]["content"] == "[mmt_chat] 第一句"
+    print("    engine-mmt: 落 mmt 事件（同轮去重）+ session progress + render 回读")
+
+
+def test_engine_mmt_no_store_no_events(tmp_path):
+    """store 未注入 → 不落事件（向后兼容, 现有引擎行为不变）。"""
+    from core.bond.bond_progress import BondProgress
+    from core.momotalk import MomoTalkEngine
+
+    class LLM:
+        def chat(self, messages, **kw):
+            return {"actions": [{"action": "mmt_chat", "reply": "嗯", "payload": {}}]}
+
+        def format_messages(self, **kw):
+            return []
+
+    engine = MomoTalkEngine(ROOT / "config" / "characters", LLM(),
+                            bond_progress=BondProgress(data_root=tmp_path))  # 无 store
+    engine.start_session("igusa_haruka")
+    engine.agent_turn("hi")
+    # 无 store → 不产生会话目录/事件（仅 BondProgress 写 progress.json, 正常）
+    assert not (tmp_path / "igusa_haruka" / "sessions").exists()
+    print("    engine-mmt: 无 store → 零事件（兼容）")

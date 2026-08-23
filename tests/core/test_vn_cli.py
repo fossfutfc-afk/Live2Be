@@ -425,3 +425,51 @@ def test_wrapup_after_vn():
         note = llm.snapshots[1][-2]["content"]
         assert "羁绊剧情" in note and "收尾" in note and "气氛到了" in note, note
         print("    wrapup_after_vn: 收尾 +1 历史(仅 assistant), 注记引述起因, 回几段话")
+
+
+# ----------------------------------------------------------------------------
+# 事件流接入: run_bond_story_vn + store → 子会话 open_vn + bond 事件 + vn_state + 收尾
+# ----------------------------------------------------------------------------
+
+def test_vn_event_stream(tmp_path):
+    from core.session import SessionStore
+    from core.session.events import M_SESSION_END, M_SESSION_START, M_VN_ENTER, M_VN_EXIT, M_VN_STATE
+    from core.session.renderer import session_status
+
+    st = SessionStore(tmp_path)
+    llm = ScriptedLLM(SCENE_A, STORY_END)
+    engine = MomoTalkEngine(ROOT / "config" / "characters", llm)
+    engine.start_session(CHARACTER)
+    root = st.create(CHARACTER)                 # MMT 根会话（main 层行为）
+    engine.attach_session(root.session_id)
+    with tempfile.TemporaryDirectory() as d:    # recorder 注入 tmp, 不污染真实 data
+        recorder = BondStorySave(CHARACTER, "测试", "x", save_dir=Path(d))
+        completed = run_bond_story_vn(
+            engine, input_fn=lambda p: "1", char_ms=0,
+            remind_rounds=15, end_rounds=22, recorder=recorder, store=st)
+    assert completed
+
+    # 找 bond 子会话（open_vn 创建, meta.type=bond）
+    bond = None
+    for p in (tmp_path / CHARACTER / "sessions").iterdir():
+        meta = st.meta(CHARACTER, p.name)
+        if meta.type == "bond":
+            bond = meta
+    assert bond is not None, "应有 bond 子会话"
+    evs = st.events(CHARACTER, bond.session_id)
+    subs = [e.subtype for e in evs]
+    assert subs[:2] == [M_SESSION_START, M_VN_ENTER], subs
+    assert "story_scene" in subs and "story_end" in subs
+    assert M_VN_STATE in subs and M_VN_EXIT in subs and M_SESSION_END in subs
+    # bond 事件含 input（本场触发输入）+ picked（玩家裁决）
+    scene_ev = [e for e in evs if e.subtype == "story_scene"][0]
+    assert scene_ev.payload["input"].startswith("（旁白）")
+    assert scene_ev.payload["picked"] == "选A"
+    assert scene_ev.payload["paragraphs"] == ["段落一。"]
+    # vn_enter 的 parent = MMT 根会话
+    enter = [e for e in evs if e.subtype == M_VN_ENTER][0]
+    assert enter.payload["parent_session_id"] == root.session_id
+    # 状态推导: 收尾（vn_exit + session_end）→ ended
+    st2 = session_status(evs)
+    assert st2["ended"] is True and st2["in_vn"] is False
+    print("    vn-store: open_vn + bond 事件(input/picked) + vn_state + vn_exit/session_end")
