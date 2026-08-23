@@ -6,7 +6,8 @@
     BondScene.from_dict 逐条解析渲染——**一解析器两用**。
 
 设计:
-    - 路径 data/saves/bond_story_{char_id}_{YYYY-MM-DD_HHMMSS}.json（沿用 sessions 命名）
+    - 路径 data/{char_id}/sessions/bond_story_{char_id}_{YYYY-MM-DD_HHMMSS}.json
+      （角色根目录, DESIGN_SAVE.md §三, 2026-08-23 布局升级; v1 会话目录待 store.py）
     - **逐场 append + 原子写**（tempfile 同目录 + os.replace）——中途崩溃也保留下半段
     - finish(ended) 标收尾状态: 【完】/程序兜底 = ended true; b 提前退出 = ended false
     - 读档宁缺勿错: 坏文件/非 dict → {} 不 raise; scenes 只留 dict 项
@@ -30,7 +31,13 @@ from pathlib import Path
 
 from core.bond.bond_story import BondScene
 
-DEFAULT_SAVE_DIR = Path("data/saves")
+# 数据根（cwd 相对项目根）; 存档目录 = data/{char_id}/sessions/
+DEFAULT_DATA_ROOT = Path("data")
+
+
+def _session_dir(char_id: str, data_root: str | Path = DEFAULT_DATA_ROOT) -> Path:
+    """角色会话目录（MMT 档与 bond 档同处, 命名区分）。"""
+    return Path(data_root) / char_id / "sessions"
 
 
 def _atomic_write_json(path: Path, data: dict) -> None:
@@ -60,11 +67,14 @@ class BondStorySave:
         character_id: str,
         character_name: str = "",
         trigger_reason: str = "",
-        save_dir: str | Path = DEFAULT_SAVE_DIR,
+        save_dir: str | Path | None = None,
     ):
+        # 默认角色会话目录 data/{char_id}/sessions/（DESIGN_SAVE.md §三）;
+        # 显式 save_dir 注入（测试/实验用临时目录）
         self.character_id = character_id
         self._character_name = character_name
-        self.path = Path(save_dir) / (
+        base = Path(save_dir) if save_dir is not None else _session_dir(character_id)
+        self.path = base / (
             f"bond_story_{character_id}_"
             f"{datetime.now():%Y-%m-%d_%H%M%S}.json"
         )
@@ -125,7 +135,25 @@ def load_save(path: str | Path) -> dict:
     return data
 
 
-def list_saves(char_id: str | None = None, save_dir: str | Path = DEFAULT_SAVE_DIR) -> list[Path]:
-    """列出可用存档（按文件名排序; char_id 过滤）。"""
-    pattern = f"bond_story_{char_id}_*.json" if char_id else "bond_story_*.json"
-    return sorted(Path(save_dir).glob(pattern))
+def list_saves(
+    char_id: str | None = None,
+    save_dir: str | Path | None = None,
+) -> list[Path]:
+    """列出可用 bond 存档（按文件名排序）。
+
+    char_id 指定 → data/{char_id}/sessions/bond_story_*.json;
+    char_id 缺省 → 扫全部角色目录 data/*/sessions/bond_story_*.json;
+    save_dir 显式注入（测试/实验）→ 只扫该目录。
+    """
+    if save_dir is not None:
+        roots = [Path(save_dir)]
+    elif char_id is not None:
+        roots = [_session_dir(char_id)]
+    else:
+        roots = sorted(Path(DEFAULT_DATA_ROOT).glob("*/sessions"))
+    paths: list[Path] = []
+    for root in roots:
+        if root.is_dir():
+            pattern = f"bond_story_{char_id}_*.json" if char_id else "bond_story_*.json"
+            paths.extend(sorted(root.glob(pattern)))
+    return paths

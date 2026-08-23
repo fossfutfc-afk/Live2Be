@@ -74,7 +74,7 @@ def _engine(
     progress=None,
 ) -> MomoTalkEngine:
     """构造引擎。默认 threshold=0（不加门槛, 保现有用例语义）;
-    progress 可注入（门槛测试用临时 BondProgress, 不污染 data/basic/）。"""
+    progress 可注入（门槛测试用临时 BondProgress, 不污染 data/{char_id}/progress.json）。"""
     from core.bond.bond_progress import BondProgress
 
     engine = MomoTalkEngine(

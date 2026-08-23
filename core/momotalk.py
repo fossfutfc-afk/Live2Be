@@ -61,7 +61,7 @@ from core.ui.text_processors import _process_for_momotalk
 logger = logging.getLogger(__name__)
 
 MAX_HISTORY_ROUNDS = 20
-SESSION_DIR = Path("data/sessions")
+# 会话存档走角色根目录（DESIGN_SAVE.md §三）: data/{char_id}/sessions/
 
 # agent loop 参数
 MAX_STEPS = 6          # 单轮动作步数上限（含 inspect 静默轮）
@@ -210,9 +210,11 @@ class MomoTalkEngine:
 
     def save_session(self, path: str | Path | None = None) -> Path:
         if path is None:
-            SESSION_DIR.mkdir(parents=True, exist_ok=True)
+            # 角色根目录（DESIGN_SAVE.md §三）: data/{char_id}/sessions/{char}_{ts}.json
+            char_dir = Path("data") / self._char_id / "sessions"
+            char_dir.mkdir(parents=True, exist_ok=True)
             ts = datetime.now().strftime("%Y-%m-%d_%H%M%S")
-            path = SESSION_DIR / f"{self._char_id}_{ts}.json"
+            path = char_dir / f"{self._char_id}_{ts}.json"
         Session(
             character_id=self._char_id,
             character_name=self._current_char.display_name if self._current_char else "",

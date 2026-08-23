@@ -23,7 +23,7 @@ def main() -> None:
     else:
         saves = list_saves()
         if not saves:
-            print("没有找到任何羁绊剧情存档（data/saves/bond_story_*.json）。")
+            print("没有找到任何羁绊剧情存档（data/{char_id}/sessions/bond_story_*.json）。")
             sys.exit(1)
         save_path = saves[-1]                     # 最近一份
         print(f"自动取最近存档: {save_path}")

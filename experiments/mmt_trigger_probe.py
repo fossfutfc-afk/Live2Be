@@ -52,7 +52,7 @@ HISTORY = [
 
 def build_messages():
     engine = MomoTalkEngine(ROOT / "config" / "characters", StubLLM(),
-                            bond_progress=BondProgress(ROOT / "data" / "basic" / "_probe_bp.json"))
+                            bond_progress=BondProgress(data_root=ROOT / "data" / "_probe"))
     engine.start_session(CHAR)
     progress = engine.bond_progress
     for _ in range(6):            # 预积累 6 轮（对应真实 session）

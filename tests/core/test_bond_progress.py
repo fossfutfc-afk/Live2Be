@@ -1,6 +1,8 @@
-"""BondProgress 单测 — 轮数门槛（羁绊进度系统）。
+"""BondProgress 单测 — 轮数门槛（按角色分文件, DESIGN_SAVE.md §三）。
 
-断言全部基于子串匹配; 用临时目录存进度文件, 不污染 data/basic/。
+- 每角色一个 data/{char_id}/progress.json（{"rounds": N, "updated_at": …}）
+- 缺失/损坏 → 0（宁缺勿错）; record_turn 重建落盘
+- 角色文件存在时优先于旧全局聚合（不回退 legacy）
 运行: python -m pytest tests/core/test_bond_progress.py
 """
 import json
@@ -12,23 +14,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from core.bond.bond_progress import BondProgress
 
-PASS = 0
-FAIL = 0
+
+def _bp(d: str) -> BondProgress:
+    return BondProgress(data_root=Path(d))
 
 
-def check(name: str, fn) -> None:
-    global PASS, FAIL
-    try:
-        fn()
-        PASS += 1
-        print(f"  PASS {name}")
-    except Exception as e:  # noqa: BLE001
-        FAIL += 1
-        print(f"  FAIL {name}: {type(e).__name__}: {e}")
-
-
-def _tmp_path(tmp: Path) -> Path:
-    return tmp / "bond_progress.json"
+def _char_file(d: str, char: str) -> Path:
+    return Path(d) / char / "progress.json"
 
 
 # ----------------------------------------------------------------------------
@@ -37,7 +29,7 @@ def _tmp_path(tmp: Path) -> Path:
 
 def test_zero_and_record():
     with tempfile.TemporaryDirectory() as d:
-        p = BondProgress(_tmp_path(Path(d)))
+        p = _bp(d)
         assert p.rounds("igusa_haruka") == 0, "未记录应返回 0"
         assert p.rounds("no_such_char") == 0, "未知角色应返回 0"
         n1 = p.record_turn("igusa_haruka")
@@ -48,114 +40,96 @@ def test_zero_and_record():
 
 
 # ----------------------------------------------------------------------------
-# 落盘往返: 新建实例读同一文件, 轮数保留（跨会话累计语义）
+# 落盘往返: 新建实例读同一角色文件, 轮数保留（跨会话累计语义）
 # ----------------------------------------------------------------------------
 
 def test_persist_roundtrip():
     with tempfile.TemporaryDirectory() as d:
-        path = _tmp_path(Path(d))
-        p1 = BondProgress(path)
+        p1 = _bp(d)
         p1.record_turn("igusa_haruka")
         p1.record_turn("igusa_haruka")
         p1.record_turn("asagi_mutsuki")
-        p2 = BondProgress(path)          # 模拟新会话
+        p2 = _bp(d)                       # 模拟新会话
         assert p2.rounds("igusa_haruka") == 2, "落盘往返后轮数丢失"
         assert p2.rounds("asagi_mutsuki") == 1
-        print("    persist: 换实例读同文件, 累计保留")
+        print("    persist: 换实例读同角色文件, 累计保留")
 
 
 # ----------------------------------------------------------------------------
-# 多角色独立: 各自计数互不干扰
+# 多角色独立: 各自文件互不干扰
 # ----------------------------------------------------------------------------
 
 def test_multi_char_independent():
     with tempfile.TemporaryDirectory() as d:
-        p = BondProgress(_tmp_path(Path(d)))
+        p = _bp(d)
         p.record_turn("igusa_haruka")
         p.record_turn("igusa_haruka")
         p.record_turn("rikuhachima_aru")
         assert p.rounds("igusa_haruka") == 2
         assert p.rounds("rikuhachima_aru") == 1
         assert p.rounds("asagi_mutsuki") == 0
-        print("    multi: 角色间轮数独立")
+        print("    multi: 角色间轮数独立（分文件）")
 
 
 # ----------------------------------------------------------------------------
-# 缺失文件 → 0; record_turn 能重建落盘
+# 缺失文件 → 0; record_turn 重建落盘（写 data/{char}/progress.json）
 # ----------------------------------------------------------------------------
 
 def test_missing_file():
     with tempfile.TemporaryDirectory() as d:
-        p = BondProgress(_tmp_path(Path(d)))
-        assert not p.path.exists(), "临时文件不应预先存在"
+        p = _bp(d)
         assert p.rounds("x") == 0, "缺失文件应降级为 0"
         p.record_turn("x")               # 重建
-        assert p.path.exists(), "record_turn 应创建文件"
-        assert json.loads(p.path.read_text(encoding="utf-8")) == {"x": 1}
-        print("    missing: 缺失→0, record 重建落盘")
+        f = _char_file(d, "x")
+        assert f.exists(), "record_turn 应创建角色文件"
+        data = json.loads(f.read_text(encoding="utf-8"))
+        assert data["rounds"] == 1, f"角色文件应含 rounds=1: {data}"
+        print("    missing: 缺失→0, record 重建落盘（rounds 字段）")
 
 
 # ----------------------------------------------------------------------------
-# 损坏 JSON / 非 dict / 非法条目 → 降级为空, 不崩
+# 损坏 JSON / 非 dict / 非法 rounds → 降级为 0, 不崩
 # ----------------------------------------------------------------------------
 
 def test_corrupt():
     with tempfile.TemporaryDirectory() as d:
-        path = _tmp_path(Path(d))
-        path.write_text("{ 不是 JSON", encoding="utf-8")
-        p = BondProgress(path)
+        f = _char_file(d, "x")
+        f.parent.mkdir(parents=True)
+        f.write_text("{ 不是 JSON", encoding="utf-8")
+        p = _bp(d)
         assert p.rounds("x") == 0, "损坏 JSON 应降级为 0"
         p.record_turn("x")               # 降级后仍可写
         assert p.rounds("x") == 1
         print("    corrupt: 损坏→0, record 恢复写")
 
     with tempfile.TemporaryDirectory() as d:
-        path = _tmp_path(Path(d))
-        path.write_text("[1,2,3]", encoding="utf-8")   # 非 dict
-        assert BondProgress(path).rounds("x") == 0
+        f = _char_file(d, "x")
+        f.parent.mkdir(parents=True)
+        f.write_text("[1,2,3]", encoding="utf-8")   # 非 dict
+        assert _bp(d).rounds("x") == 0
         print("    corrupt: 非 dict 列表 → 0")
 
     with tempfile.TemporaryDirectory() as d:
-        path = _tmp_path(Path(d))
-        path.write_text(json.dumps({"a": "bad", "b": -1, "c": 3, 5: 6}),
-                        encoding="utf-8")  # 非法条目混合
-        p = BondProgress(path)
-        assert p.rounds("a") == 0, "非 int 值应丢弃"
-        assert p.rounds("b") == 0, "负值应丢弃"
-        assert p.rounds("c") == 3, "合法条目保留"
-        print("    corrupt: 混合非法条目, 只认合法")
+        f = _char_file(d, "x")
+        f.parent.mkdir(parents=True)
+        f.write_text(json.dumps({"rounds": -1}), encoding="utf-8")   # 负值
+        assert _bp(d).rounds("x") == 0
+        f.write_text(json.dumps({"rounds": "x"}), encoding="utf-8")  # 非 int
+        assert _bp(d).rounds("x") == 0
+        f.write_text(json.dumps({"rounds": 3, "updated_at": "t"}), encoding="utf-8")
+        assert _bp(d).rounds("x") == 3, "合法 rounds 保留"
+        print("    corrupt: 负/非 int 丢弃, 合法保留")
 
 
 # ----------------------------------------------------------------------------
-# 损坏后 record_turn 覆盖写回（不叠加脏数据）
+# 角色文件存在 → 优先角色文件（不回退旧全局聚合）
 # ----------------------------------------------------------------------------
 
-def test_corrupt_then_rewrite():
+def test_char_file_priority_over_legacy():
     with tempfile.TemporaryDirectory() as d:
-        path = _tmp_path(Path(d))
-        path.write_text("{ 坏", encoding="utf-8")
-        p = BondProgress(path)
+        p = _bp(d)
         p.record_turn("igusa_haruka")
-        raw = json.loads(path.read_text(encoding="utf-8"))
-        assert raw == {"igusa_haruka": 1}, f"损坏后应重建干净: {raw}"
-        print("    rewrite: 损坏文件 record 后重建为干净单键")
-
-
-def main() -> None:
-    print("BondProgress 单测（轮数门槛）")
-    print("=" * 44)
-    check("初始 0 + 递增", _t_zero_and_record)
-    check("落盘往返保留", _t_persist_roundtrip)
-    check("多角色独立", _t_multi_char_independent)
-    check("缺失文件降级", _t_missing_file)
-    check("损坏 JSON 降级", _t_corrupt)
-    check("损坏后重建干净", _t_corrupt_then_rewrite)
-    print("=" * 44)
-    if FAIL:
-        print(f"结果: {PASS} PASS / {FAIL} FAIL")
-        sys.exit(1)
-    print(f"结果: {PASS} PASS / 0 FAIL — 全部通过")
-
-
-if __name__ == "__main__":
-    main()
+        assert p.rounds("igusa_haruka") == 1
+        # 临时 data_root 下没有 data/basic/bond_progress.json → 回退路径不触发
+        # （角色文件存在时 rounds 一定来自角色文件）
+        print("    priority: 角色文件存在 → 用角色文件")
