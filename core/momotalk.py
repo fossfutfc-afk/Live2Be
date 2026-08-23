@@ -2,10 +2,10 @@
 MomoTalk 对话引擎 — 全 JSON 动作 agent loop。
 
 每轮对话（agent_turn）:
-    用户输入 → LLM 输出单个动作 JSON（mmt_ 前缀）→ registry.parse 契约解析
-    → 执行器执行（MmtExecError 回灌修正）→ 静默动作（inspect）结果回灌 LLM
-    继续推理, 直到产生用户可见输出（mmt_chat / mmt_send_media）或触发羁绊
-    剧情（mmt_trigger_bond_story）才结束本轮。
+    用户输入 → LLM 输出**动作列表** JSON（{"actions": [动作1, 动作2, ...]}, mmt_ 前缀）
+    → 列表解析（inspect 不进列表 / trigger 独占）→ 全量 parse（原子）→ 顺序执行
+    → 全部成功 → 渲染全部步骤（混合节奏"说话→发图→说话"）+ 记历史（每动作一条）
+    → 触发羁绊剧情（mmt_trigger_bond_story, 独占一轮）才切换模式。
 
 历史格式（每轮至少记动作名 + reply, 可追溯 agent 干了什么）:
     user:      用户说的话
@@ -116,8 +116,9 @@ class TurnResult:
 
     steps      — 显示步骤序列（…打字指示 + 气泡）, 由 UI 依序渲染
     reply      — 完整对白（不含名字前缀, 历史存档用; 可能为空）
-    action     — 终止动作名（mmt_chat / mmt_send_media / mmt_trigger_bond_story）
-    payload    — 终止动作的干净 payload（GUI 可渲染媒体等）
+    action     — 最后一个动作名（mmt_chat / mmt_send_media / mmt_trigger_bond_story）
+    payload    — 最后一个动作的干净 payload（GUI 可渲染媒体等）
+    actions    — 动作列表视图 [{action, reply, payload}]（GUI 依序渲染媒体/切换, 2026-08-23）
     bond_story — True = 触发羁绊剧情成功, 调用方应切换到羁绊剧情模式
     error      — ok=False 时的原因（预留; 当前异常走 MmtLoopError）
     """
@@ -126,6 +127,7 @@ class TurnResult:
     reply: str = ""
     action: str = ""
     payload: dict = field(default_factory=dict)
+    actions: list[dict] = field(default_factory=list)
     bond_story: bool = False
     error: str = ""
 
@@ -190,7 +192,8 @@ class MomoTalkEngine:
         # 名字只做系统显示（终端提示符 / 菜单 / 存档标识）, 见 mmt_preset 玩家名系统。
         sp += "\n\n" + load_prompt("momotalk_environment")
         sp += "\n\n" + load_prompt("momotalk_rules")
-        sp += "\n\n可用动作 schema:\n" + build_schema(self.registry)
+        # MMT 域用动作列表格式（2026-08-23 定稿: 混合节奏 "说话→发图→说话"）
+        sp += "\n\n可用动作 schema:\n" + build_schema(self.registry, action_list=True)
 
         self._current_char = char
         self._system_prompt = sp
@@ -242,20 +245,20 @@ class MomoTalkEngine:
         system_note: str | None = None,
         record_input: bool = True,
     ) -> TurnResult:
-        """一轮 agent 对话：LLM 动作循环, 直到用户可见输出 / 羁绊触发。
+        """一轮 agent 对话：LLM 输出**动作列表**, 逐动作执行, 直到用户可见输出。
 
-        循环内:
-            LLM 决策（json_object）→ registry.parse 契约解析
-            → 解析无效 / 执行不可行（MmtExecError）→ feedback 回灌修正, 重试
-            → mmt_inspect_character 结果回灌 LLM 继续推理（静默, 玩家不可见）
-            → mmt_chat / mmt_send_media / mmt_trigger_bond_story 结束本轮
+        动作列表（2026-08-23 定稿, schema/rules 已切）: LLM 一次返回
+        {"actions": [动作1, 动作2, ...]}——按序执行, 实现"说话→发图→说话"
+        的混合节奏（每动作 reply 由 text_processor 各自切分渲染）。
 
-        步数耗尽仍未产出可见回复 → 抛 MmtLoopError（调用方展示/重试）。
+        循环内（MAX_STEPS 步）:
+            LLM 决策（json_object）→ 列表解析（含约束: inspect 不进列表 /
+                trigger 独占一轮）→ **全量 parse（原子: 任一无效 → 整列表回灌）**
+            → 顺序执行（执行失败 → 该动作 feedback, 本轮重试, 已执行副作用保留）
+            → 全部成功 → 渲染所有步骤 + 记历史（每动作一条）+ 轮数 +1（列表整体算一轮）
 
-        system_note: 本轮额外系统注记（只进 LLM context, 不入历史）——用于
-            羁绊剧情结束后的手机收尾（core/ui/vn_cli.wrapup_after_vn）。
-        record_input: False 时不把 user_input 记入历史——自动收尾等系统触发轮
-            没有真实玩家输入, 不污染历史（只记 assistant 回复）。
+        system_note: 本轮额外系统注记（只进 LLM context, 不入历史）。
+        record_input: False 时不把 user_input 记入历史（自动收尾等系统触发轮）。
         """
         if self._current_char is None:
             raise RuntimeError(err("NotInSession", "尚未开始会话"))
@@ -282,42 +285,61 @@ class MomoTalkEngine:
                 continue
             messages.append({"role": "assistant", "content": str(response)})
 
-            # 2) 契约解析
-            action, result = self.registry.parse(response)
-            self._trace.append({
-                "step": step,
-                "action": action.action if action else None,
-                "summary": action.summary if action else "",
-                "reply": action.reply if action else "",
-                "payload": action.payload if action else None,
-                "parse_valid": result.is_valid,
-                "parse_errors": list(result.errors),
-            })
-            if not result.is_valid:
-                feedback(
-                    messages,
-                    f"动作无效: {'; '.join(result.errors)}",
-                    "请严格按 schema 重新输出单个 mmt 动作 JSON。",
-                )
+            # 2) 列表解析（结构 + 约束违规 → feedback 整列表重试）
+            raw_actions = self._parse_action_list(response, messages)
+            if raw_actions is None:
                 continue
 
-            # 3) 执行（不可执行 → 回灌修正）
-            try:
-                exec_result = self.executor.execute(action)
-            except MmtExecError as e:
-                self._trace[-1]["exec_message"] = str(e)
-                feedback(messages, str(e))
+            # 3) 全量 parse（原子: 任一无效 → 整列表回灌, 不执行任何动作）
+            parsed: list[AgentAction] = []
+            parse_ok = True
+            for raw in raw_actions:
+                action, result = self.registry.parse(raw)
+                self._trace.append({
+                    "step": step,
+                    "action": action.action if action else None,
+                    "summary": action.summary if action else "",
+                    "reply": action.reply if action else "",
+                    "payload": action.payload if action else None,
+                    "parse_valid": result.is_valid,
+                    "parse_errors": list(result.errors),
+                })
+                if not result.is_valid:
+                    parse_ok = False
+                    feedback(
+                        messages,
+                        f"动作无效: {'; '.join(result.errors)}",
+                        "请严格按 schema 重新输出动作列表（所有动作都必须有效）。",
+                    )
+                    break
+                parsed.append(action)
+            if not parse_ok:
                 continue
-            self._trace[-1]["exec_ok"] = exec_result.ok
-            self._trace[-1]["exec_message"] = exec_result.message
 
-            # 4) 静默动作: inspect 结果回灌 LLM, 玩家不可见, 继续推理
-            if action.action == "mmt_inspect_character":
-                messages.append({"role": "user", "content": exec_result.message})
+            # 4) 顺序执行（执行失败 → 该动作 feedback, 本轮重试）
+            exec_results: list[ExecResult] = []
+            exec_ok = True
+            for i, action in enumerate(parsed):
+                try:
+                    exec_result = self.executor.execute(action)
+                except MmtExecError as e:
+                    self._trace[-1]["exec_message"] = str(e)
+                    feedback(messages, str(e))
+                    exec_ok = False
+                    break
+                self._trace[-1]["exec_ok"] = exec_result.ok
+                self._trace[-1]["exec_message"] = exec_result.message
+                if not exec_result.ok:
+                    feedback(messages, exec_result.message)
+                    exec_ok = False
+                    break
+                exec_results.append(exec_result)
+            if not exec_ok:
                 continue
 
-            # 5) 用户可见输出 → 结束本轮
-            return self._finish_turn(action, exec_result, user_input, record_input)
+            # 5) 全部成功 → 渲染全部步骤 + 历史 + TurnResult
+            return self._finish_turn_list(
+                parsed, exec_results, user_input, record_input)
 
         raise MmtLoopError(f"单轮动作循环超过 {MAX_STEPS} 步仍未产出可见回复")
 
@@ -325,39 +347,93 @@ class MomoTalkEngine:
     # 内部
     # ------------------------------------------------------------------
 
-    def _finish_turn(
-        self, action: AgentAction, exec_result: ExecResult, user_input: str,
+    def _parse_action_list(self, response, messages: list[dict]) -> list[dict] | None:
+        """解析 LLM 返回 → 动作列表（{"actions": [...]}）。
+
+        结构错误 / 约束违规（inspect 混入 / trigger 不独占）→ feedback 并返回 None
+        （整列表重试, 原子性）。动作字段级校验在 registry.parse（全量 parse）。
+        """
+        if not isinstance(response, dict):
+            feedback(messages, "输出必须是 JSON 对象: {\"actions\": [动作1, 动作2, ...]}")
+            return None
+        raw_actions = response.get("actions")
+        if not isinstance(raw_actions, list) or not raw_actions:
+            feedback(messages, "actions 必须是数组（至少一个动作）")
+            return None
+        # 约束: inspect 是静默推理轮（查完回灌继续）, 不能混入列表
+        if any(isinstance(a, dict) and a.get("action") == "mmt_inspect_character"
+               for a in raw_actions):
+            feedback(messages, "mmt_inspect_character 不能混入 actions 列表——它是静默推理轮, "
+                               "需要单独输出一轮（查完回灌给你后继续说话）")
+            return None
+        # 约束: trigger 是模式切换, 必须独占一轮
+        if len(raw_actions) > 1 and any(
+                isinstance(a, dict) and a.get("action") == "mmt_trigger_bond_story"
+                for a in raw_actions):
+            feedback(messages, "mmt_trigger_bond_story 必须独占一轮（模式切换, 之后不再是手机消息）"
+                               "——请单独输出它, 不要与其他动作混合")
+            return None
+        return raw_actions
+
+    def _finish_turn_list(
+        self,
+        actions: list[AgentAction],
+        exec_results: list[ExecResult],
+        user_input: str,
         record_input: bool = True,
     ) -> TurnResult:
-        """终结动作 → 渲染显示步骤 + 存档历史 + 组装 TurnResult。"""
-        reply = (action.reply or "").strip()
+        """动作列表全部成功 → 渲染显示步骤 + 存档历史 + 组装 TurnResult。
 
-        # 显示步骤: …打字指示 + 气泡（对白逐块; 无对白 → 空, 媒体由 GUI 用 payload 渲染）
+        列表整体算一轮对话（用户一句输入 → LLM 一次返回 → N 个动作）:
+            - 轮数只 +1 一次
+            - 历史: 每动作一条 assistant 消息（对齐事件流: 每动作一事件）
+            - steps: 每动作的 reply 气泡块拼接（媒体由 GUI 用 TurnResult.actions 渲染）
+            - actions: [{action, reply, payload}] —— GUI 依序渲染媒体/切换
+            - action/payload: 列表最后一个动作（兼容现有 GUI/调用方）
+            - bond_story: 列表含 mmt_trigger_bond_story
+        """
         display = MomoTalkOutput(_process_for_momotalk, self._current_char.display_name)
-        steps = display.publish_reply(reply)
+        steps: list[DisplayStep] = []
+        reply_blocks: list[str] = []
+        actions_view: list[dict] = []
+
+        for action, _exec in zip(actions, exec_results):
+            reply = (action.reply or "").strip()
+            if reply:
+                reply_blocks.append(reply)
+                steps.extend(display.publish_reply(reply))
+            actions_view.append({
+                "action": action.action,
+                "reply": reply,
+                "payload": dict(action.payload),
+            })
 
         # 历史: 每轮至少记动作名 + reply（可追溯 agent 干了什么）;
         # record_input=False（自动收尾等系统轮）不记假 user 消息, 只记回复
         if record_input:
             self._history.append({"role": "user", "content": user_input})
-        self._history.append({
-            "role": "assistant",
-            "content": f"[{action.action}] {reply}" if reply else f"[{action.action}]",
-        })
+        for action in actions:
+            reply = (action.reply or "").strip()
+            self._history.append({
+                "role": "assistant",
+                "content": f"[{action.action}] {reply}" if reply else f"[{action.action}]",
+            })
         self._trim_history()
 
-        # 每完成一轮可见输出 → 该角色羁绊轮数 +1（触发轮本身不计门槛前置,
-        # 语义=「已积累的轮数」; 落盘跨会话累计, 见 core/bond/bond_progress.py）
+        # 列表整体算一轮 → 轮数 +1 一次（落盘跨会话累计）
         if self._current_char is not None:
             self.bond_progress.record_turn(self._current_char.character_id)
 
+        last = actions[-1]
+        last_reply = (last.reply or "").strip()
         return TurnResult(
             ok=True,
             steps=steps,
-            reply=reply,
-            action=action.action,
-            payload=action.payload,
-            bond_story=(action.action == "mmt_trigger_bond_story"),
+            reply="\n".join(reply_blocks),
+            action=last.action,
+            payload=dict(last.payload),
+            bond_story=any(a.action == "mmt_trigger_bond_story" for a in actions),
+            actions=actions_view,
         )
 
     def _bond_progress_note(self) -> str:

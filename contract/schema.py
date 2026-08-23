@@ -31,8 +31,13 @@ _APPROVAL_NOTES = {
 }
 
 
-def build_schema(registry: ActionRegistry) -> str:
-    """生成该域给 LLM 的动作 schema（输入层裁剪）。"""
+def build_schema(registry: ActionRegistry, *, action_list: bool = False) -> str:
+    """生成该域给 LLM 的动作 schema（输入层裁剪）。
+
+    action_list=True（MMT 域, 2026-08-23 定稿）: 输出"动作列表"格式——
+    AI 可一次返回多个动作实现"说话→发图→说话"的混合节奏（text_processor
+    逐动作切分渲染）。其他域（story/IDE）保持单动作输出。
+    """
     names = registry.action_names()
     if not names:
         return "（该动作域尚未注册任何动作）"
@@ -41,7 +46,15 @@ def build_schema(registry: ActionRegistry) -> str:
     for name in names:
         union |= set(registry.spec(name).prompt_fields)
 
-    lines = ["你必须以单个 JSON 对象输出一个动作。", ""]
+    if action_list:
+        lines = [
+            "你必须以单个 JSON 对象输出一个动作列表（按顺序执行并渲染）:",
+            '    {"actions": [动作1, 动作2, ...]}',
+            "每个动作的字段如下。",
+            "",
+        ]
+    else:
+        lines = ["你必须以单个 JSON 对象输出一个动作。", ""]
     lines.append("外壳字段:")
     for f in sorted(union):
         desc = _SHELL_FIELD_DESCRIPTIONS.get(f, "")
@@ -58,7 +71,15 @@ def build_schema(registry: ActionRegistry) -> str:
         else:
             lines.append("      payload: （未提供描述）")
     lines.append("")
-    lines.append('格式示例: {"action": "<动作名>", "summary": "一句话说明", "payload": {...}}')
+    if action_list:
+        lines.append(
+            '格式示例: {"actions": [{"action": "<动作名>", "summary": "一句话说明", '
+            '"payload": {...}}, ...]}'
+        )
+        lines.append("动作按列表顺序依次执行; mmt_trigger_bond_story 必须独占一轮（模式切换）;")
+        lines.append("mmt_inspect_character 不能混入列表（静默推理轮, 单独输出一轮）。")
+    else:
+        lines.append('格式示例: {"action": "<动作名>", "summary": "一句话说明", "payload": {...}}')
     return "\n".join(lines)
 
 

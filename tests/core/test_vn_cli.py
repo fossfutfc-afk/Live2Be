@@ -400,12 +400,15 @@ def test_wrapup_after_vn():
     from core.bond.bond_progress import BondProgress
     from core.ui.vn_cli import wrapup_after_vn
 
-    trig = {"action": "mmt_trigger_bond_story", "payload": {"reason": "气氛到了"}}
-    wrap = {"action": "mmt_chat",
-            "reply": "今天去了天台……我很开心。下次再一起吧！", "payload": {}}
+    # 动作列表格式（2026-08-23: MMT 输出 {"actions": [...]}）
+    trig = {"actions": [
+        {"action": "mmt_trigger_bond_story", "payload": {"reason": "气氛到了"}}]}
+    wrap = {"actions": [
+        {"action": "mmt_chat",
+         "reply": "今天去了天台……我很开心。下次再一起吧！", "payload": {}}]}
 
     with tempfile.TemporaryDirectory() as d:
-        progress = BondProgress(Path(d) / "bp.json")
+        progress = BondProgress(data_root=Path(d))
         progress.record_turn(CHARACTER)          # 预积累 1 轮, 满足软门槛兜底
         llm = ScriptedLLM(trig, wrap)
         engine = MomoTalkEngine(ROOT / "config" / "characters", llm,
