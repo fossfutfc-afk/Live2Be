@@ -3,7 +3,7 @@
 main.py 在 result.bond_story 触发后调用 run_bond_story_vn:
     进入 VN 模式 → 逐场景推剧情（story_scene/story_end 契约 JSON）→ 玩家选选项 / 自由输入推进
     → story_end 收尾或 b 退出 → 回到 MomoTalk 正常对话。
-    每场经 BondStorySave 原子落盘 data/saves/（一解析器两用: 存档可只读回放）。
+    每场经 BondStorySave 原子落盘 data/{char_id}/sessions/（一解析器两用: 存档可只读回放）。
 
 UI 行为:
     - 每段逐字打字（任意键跳过动画直接显示全文）
@@ -169,7 +169,7 @@ def run_bond_story_vn(
 
     构造独立 BondStoryEngine（复用引擎的 char_loader.root + llm），
     首个种子 = 触发动作的 reason（有则旁白引述, 无则固定开篇语）。
-    每场经 recorder（BondStorySave）原子落盘 data/saves/——契约 JSON 副产物,
+    每场经 recorder（BondStorySave）原子落盘 data/{char_id}/sessions/——契约 JSON 副产物,
     存档可被 replay_bond_story 只读回放（一解析器两用）。
 
     双层收尾兜底（模型可能迟迟不改用 story_end 动作收尾）:

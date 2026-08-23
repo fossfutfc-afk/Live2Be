@@ -14,9 +14,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from core.session import (
-    STATE_ACTIVE,
-    STATE_ENDED,
-    STATE_PAUSED,
     TYPE_BOND,
     TYPE_MMT,
     SessionMeta,
@@ -25,6 +22,18 @@ from core.session import (
     append_jsonls,
     atomic_write_json,
     read_jsonl,
+)
+from core.session.events import (
+    TYPE_L2D,
+    TYPE_MARKER,
+    Event,
+    M_SESSION_END,
+    M_SESSION_START,
+    M_VN_ENTER,
+    M_VN_STATE,
+    make_event,
+    marker,
+    parse_events,
 )
 
 
@@ -79,47 +88,95 @@ def test_read_jsonl_tolerates_bad_lines(tmp_path):
 
 def test_session_meta_roundtrip():
     meta = SessionMeta(
-        session_id="igusa_haruka_20260823_143022_ab12",
+        session_id="20260823_143022_ab12",
         type=TYPE_BOND,
         character_id="igusa_haruka",
         character_name="伊草 遥香",
-        state=STATE_PAUSED,
-        parent_session_id="igusa_haruka_20260823_140000_zz99",
-        trigger_reason="老师约我放学后见面",
+        created_at="2026-08-23T14:30:22.123456",
     )
     rt = SessionMeta.from_dict(meta.to_dict())
     assert rt.session_id == meta.session_id
-    assert rt.type == TYPE_BOND and rt.state == STATE_PAUSED
-    assert rt.parent_session_id == meta.parent_session_id
+    assert rt.type == TYPE_BOND
     assert rt.character_name == "伊草 遥香"
-    assert rt.is_open, "paused 应算未结束（可恢复）"
-    print("    models: SessionMeta 往返（含 parent 关联 + 中文名）")
+    assert rt.created_at == meta.created_at
+    # 纯索引: 无状态字段（状态由 events marker 推导）
+    assert "state" not in meta.to_dict() and "parent_session_id" not in meta.to_dict()
+    print("    models: SessionMeta 往返（纯索引, 无状态机字段）")
 
 
 def test_session_meta_defaults_and_tolerance():
-    assert SessionMeta().is_open                      # 默认 active
-    assert not SessionMeta(state=STATE_ENDED).is_open
     # 坏字段 → 默认, 不 raise
-    meta = SessionMeta.from_dict({"state": 42, "parent_session_id": 99, "type": None})
-    assert meta.state == STATE_ACTIVE
-    assert meta.parent_session_id is None
+    meta = SessionMeta.from_dict({"type": 42, "character_id": None, "session_id": 99})
     assert meta.type == TYPE_MMT
+    assert meta.character_id == ""
+    assert meta.session_id == ""
     assert SessionMeta.from_dict(None).session_id == ""
     # to_dict 只含非空字段（小文件原则）
     d = SessionMeta().to_dict()
-    assert "character_name" not in d and "trigger_reason" not in d
+    assert "character_name" not in d
     print("    models: 默认值 + 坏字段降级 + to_dict 省略空字段")
 
 
 def test_vn_state_roundtrip():
     vs = VNState(round=12, seed="都点吧，今天我请客。", completed=False,
-                 force_after=32, visual={"background": "class_room", "audio": None},
-                 scenes_flushed=12)
+                 force_after=32, visual={"background": "class_room", "audio": None})
     rt = VNState.from_dict(vs.to_dict())
     assert rt.round == 12 and rt.seed == vs.seed
     assert rt.visual == {"background": "class_room", "audio": None}
-    assert rt.scenes_flushed == 12
     # 坏字段降级
     bad = VNState.from_dict({"round": "x", "force_after": None})
     assert bad.round == 1 and bad.force_after == 32
     print("    models: VNState 往返 + 坏字段降级")
+
+
+# ----------------------------------------------------------------------------
+# events: 事件骨架往返 / 坏骨架丢弃 / marker 构造 / l2d 引用式
+# ----------------------------------------------------------------------------
+
+def test_event_roundtrip_and_parse():
+    rows = [
+        {"seq": 1, "ts": "2026-08-23T15:02:11", "type": "mmt", "subtype": "mmt_chat",
+         "payload": {"player": "你好", "reply": "啊、老师…"}},
+        {"seq": 2, "ts": "2026-08-23T15:04:12", "type": "bond", "subtype": "story_scene",
+         "payload": {"paragraphs": ["她脸红了。"], "beats": [{"text": "x", "emotion": "embarass"}],
+                     "picked": "别紧张"}},
+        {"seq": 3, "ts": "2026-08-23T15:05:00", "type": "l2d", "subtype": "generate",
+         "payload": {"image": "gallery/x.png", "scene_ref": 2}},   # 引用式最小
+    ]
+    evs = parse_events(rows)
+    assert len(evs) == 3
+    # 往返无损（复现）
+    rt = parse_events([e.to_dict() for e in evs])
+    assert [e.to_dict() for e in rt] == [e.to_dict() for e in evs]
+    assert evs[2].type == TYPE_L2D and evs[2].payload["image"] == "gallery/x.png"
+    print("    events: 三板块往返无损 + l2d 引用式最小")
+
+
+def test_event_bad_skeleton_dropped():
+    bad_rows = [
+        {"seq": "x", "ts": "t", "type": "mmt", "subtype": "a"},      # seq 非 int
+        {"seq": 2, "ts": "", "type": "mmt", "subtype": "a"},         # ts 空
+        {"seq": 3, "ts": "t", "type": "unknown", "subtype": "a"},    # type 不在白名单
+        {"seq": 4, "ts": "t", "type": "mmt", "subtype": ""},         # subtype 空
+        {"seq": 5, "ts": "t", "type": "mmt", "subtype": "a",
+         "payload": [1, 2]},                                          # payload 非 dict → 空
+        None,
+    ]
+    evs = parse_events(bad_rows)
+    assert len(evs) == 1 and evs[0].payload == {}
+    print("    events: 坏骨架丢弃, payload 非 dict 宽容为空")
+
+
+def test_marker_construction():
+    start = marker(M_SESSION_START, seq=1)
+    assert start.type == TYPE_MARKER and start.subtype == M_SESSION_START
+    enter = marker(M_VN_ENTER, {"parent_session_id": "abc", "reason": "邀约"}, seq=2)
+    assert enter.payload["parent_session_id"] == "abc"
+    st = marker(M_VN_STATE, VNState(round=3, seed="s").to_dict(), seq=5)
+    assert st.payload["round"] == 3
+    end = marker(M_SESSION_END, {"ended": True}, seq=9)
+    assert end.payload["ended"] is True
+    # make_event 一般事件
+    mmt = make_event("mmt", "mmt_chat", {"player": "hi"}, seq=2)
+    assert mmt.to_dict()["seq"] == 2
+    print("    events: marker 构造（start/enter/state/end）+ make_event")

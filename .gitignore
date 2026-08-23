@@ -8,9 +8,7 @@ __pycache__/
 .tmp/
 .testtmp/
 pytest-cache-files-*
-data/sessions/
-data/basic/
-data/saves/
+data/
 assets/*
 
 # 个人工具（逆向非官方接口 + 素材版权属官方）——仅本地保留, 不提交公开

@@ -15,7 +15,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from core.bond.bond_story import BondScene
-from core.bond.bond_save import BondStorySave, DEFAULT_SAVE_DIR, load_save, list_saves
+from core.bond.bond_save import BondStorySave, DEFAULT_DATA_ROOT, load_save, list_saves
 
 
 def _recorder(save_dir, char_id="igusa_haruka", **kw) -> BondStorySave:
@@ -109,6 +109,6 @@ def test_list_saves_order_and_filter():
     print("    list_saves: 排序 + char_id 过滤")
 
 
-def test_default_save_dir_constant():
-    assert DEFAULT_SAVE_DIR == Path("data/saves"), DEFAULT_SAVE_DIR
-    print("    默认存档目录: data/saves（.gitignore 已忽略）")
+def test_default_data_root_constant():
+    assert DEFAULT_DATA_ROOT == Path("data"), DEFAULT_DATA_ROOT
+    print("    默认数据根: data（角色目录 = data/{char_id}/sessions/, .gitignore 已忽略）")
