@@ -75,9 +75,9 @@ def _engine(llm) -> MomoTalkEngine:
 
 # story_scene/story_end 契约动作（与 bond_story_rules.md few-shot 同构）
 SCENE_A = {"action": "story_scene", "payload": {
-    "paragraphs": ["段落一。"], "choices": ["选A", "选B"]}}
+    "paragraphs": [{"text": "段落一。"}], "choices": ["选A", "选B"]}}
 STORY_END = {"action": "story_end", "payload": {
-    "paragraphs": ["收尾了。"]}}
+    "paragraphs": [{"text": "收尾了。"}]}}
 
 
 # ----------------------------------------------------------------------------
@@ -88,13 +88,13 @@ def test_send_vn_scene():
     vn = BondStoryEngine(ROOT / "config" / "characters", ScriptedLLM(SCENE_A))
     vn.start_session(CHARACTER)
     scene = vn.send_vn_scene("（开场）")
-    assert scene.paragraphs == ["段落一。"], scene.paragraphs
+    assert scene.paragraphs == [{"text": "段落一。"}], scene.paragraphs
     assert scene.choices == ["选A", "选B"], scene.choices
     assert not scene.is_end
     assert vn.history_length == 2, f"send_vn_scene 应记 2 条历史: {vn.history_length}"
     # 历史存紧凑 JSON（中文完好, 无空格分隔符; story_scene 无 is_end——动作类型推导）
     hist = json.loads(vn.history[-1]["content"])
-    assert hist["paragraphs"] == ["段落一。"] and hist["choices"] == ["选A", "选B"]
+    assert hist["paragraphs"] == [{"text": "段落一。"}] and hist["choices"] == ["选A", "选B"]
     assert "is_end" not in hist, f"story_scene 历史不应含 is_end: {hist}"
     print(f"    send_vn_scene: 1 段 + 2 选项, 历史紧凑 JSON 中文完好无 is_end, {vn.history_length} 条")
 
@@ -102,7 +102,7 @@ def test_send_vn_scene():
     vn2 = BondStoryEngine(ROOT / "config" / "characters", ScriptedLLM(STORY_END))
     vn2.start_session(CHARACTER)
     scene2 = vn2.send_vn_scene("继续")
-    assert scene2.is_end and scene2.paragraphs == ["收尾了。"], scene2
+    assert scene2.is_end and scene2.paragraphs == [{"text": "收尾了。"}], scene2
     assert not scene2.choices
     print("    send_vn_scene: story_end 动作 → 收尾场景, 无选项")
 
@@ -113,16 +113,16 @@ def test_send_vn_scene():
 
 def test_bondscene_roundtrip():
     scene = BondScene.from_dict({
-        "paragraphs": ["一段。", "二段。"], "choices": ["A", "B"], "is_end": True})
+        "paragraphs": [{"text": "一段。"}, {"text": "二段。"}], "choices": ["A", "B"], "is_end": True})
     back = BondScene.from_dict(scene.to_dict())
     assert back == scene, "to_dict/from_dict 往返应相等"
 
     # 宽松: 缺字段 / 混非 str / 无 is_end → 降级不 raise
     plain = BondScene.from_dict({"paragraphs": ["她静静地看着你。"]})
-    assert plain.paragraphs == ["她静静地看着你。"]
+    assert plain.paragraphs == [{"text": "她静静地看着你。"}]
     assert not plain.choices and not plain.is_end
     robust = BondScene.from_dict({"paragraphs": ["好", 42, None], "choices": ["A", 1]})
-    assert robust.paragraphs == ["好"] and robust.choices == ["A"], robust
+    assert robust.paragraphs == [{"text": "好"}] and robust.choices == ["A"], robust
     empty = BondScene.from_dict(None)
     assert not empty.paragraphs and not empty.is_end
     print("    bondscene_roundtrip: 往返相等 + 缺字段/坏数据降级（宁缺勿错）")
@@ -133,11 +133,11 @@ def test_bondscene_roundtrip():
 # ----------------------------------------------------------------------------
 
 def test_simulate_vn_scene():
-    scene = BondScene(paragraphs=["（她在等你）"], choices=["走过去", "喊她"])
+    scene = BondScene(paragraphs=[{"text": "（她在等你）"}], choices=["走过去", "喊她"])
     picked = simulate_vn_scene(scene, input_fn=lambda p: "2", char_ms=0)
     assert picked == "喊她", f"选 2 应返回第 2 个选项: {picked!r}"
 
-    end = BondScene(paragraphs=["再见。"], is_end=True)
+    end = BondScene(paragraphs=[{"text": "再见。"}], is_end=True)
     assert simulate_vn_scene(end, input_fn=lambda p: "1", char_ms=0) is None
     print("    simulate_vn_scene: 选 2→'喊她'; is_end→None")
 
@@ -148,7 +148,7 @@ def test_simulate_vn_scene():
 
 def test_run_vn_choice_flow():
     scene1 = {"action": "story_scene", "payload": {
-        "paragraphs": ["遥香在天台等你。"], "choices": ["走过去", "喊她名字"]}}
+        "paragraphs": [{"text": "遥香在天台等你。"}], "choices": ["走过去", "喊她名字"]}}
     with tempfile.TemporaryDirectory() as d:
         engine = _engine(ScriptedLLM(scene1, STORY_END))
         recorder = BondStorySave(CHARACTER, save_dir=d)
@@ -174,7 +174,7 @@ def test_run_vn_choice_flow():
 
 def test_run_vn_free_input():
     scene1 = {"action": "story_scene", "payload": {
-        "paragraphs": ["遥香静静地看着你。"], "choices": []}}
+        "paragraphs": [{"text": "遥香静静地看着你。"}], "choices": []}}
     with tempfile.TemporaryDirectory() as d:
         engine = _engine(ScriptedLLM(scene1, STORY_END))
         recorder = BondStorySave(CHARACTER, save_dir=d)
@@ -197,7 +197,7 @@ def test_run_vn_free_input():
 
 def test_run_vn_early_exit():
     scene1 = {"action": "story_scene", "payload": {
-        "paragraphs": ["遥香看着你，欲言又止。"], "choices": []}}
+        "paragraphs": [{"text": "遥香看着你，欲言又止。"}], "choices": []}}
     with tempfile.TemporaryDirectory() as d:
         engine = _engine(ScriptedLLM(scene1))
         recorder = BondStorySave(CHARACTER, save_dir=d)
@@ -216,7 +216,7 @@ def test_run_vn_early_exit():
 def _scenes(n: int, start: int = 1) -> list[dict]:
     """n 个带选项的未结束 story_scene（永远不用 story_end 收尾）。"""
     return [{"action": "story_scene", "payload": {
-        "paragraphs": [f"场景{i}。"], "choices": ["继续", "换种方式"]}}
+        "paragraphs": [{"text": f"场景{i}。"}], "choices": ["继续", "换种方式"]}}
         for i in range(start, start + n)]
 
 
@@ -245,7 +245,7 @@ def test_run_vn_two_layer_force():
 def test_run_vn_remind_then_natural_end():
     """模型 17 场自然 is_end → 只吃到 15 场提醒, 不走上限注记与硬兜底。"""
     end = {"action": "story_end", "payload": {
-        "paragraphs": ["收尾了。"]}}
+        "paragraphs": [{"text": "收尾了。"}]}}
     llm = ScriptedLLM(*_scenes(16), end)
     with tempfile.TemporaryDirectory() as d:
         engine = _engine(llm)
@@ -272,7 +272,7 @@ def test_send_vn_scene_invalid_retry():
     vn = BondStoryEngine(ROOT / "config" / "characters", llm)
     vn.start_session(CHARACTER)
     scene = vn.send_vn_scene("（开场）")
-    assert scene.paragraphs == ["段落一。"], scene.paragraphs
+    assert scene.paragraphs == [{"text": "段落一。"}], scene.paragraphs
     # 第一次调用无效 → feedback 回灌（第二次调用的最后一条 user）
     fb = llm.snapshots[1][-1]["content"]
     assert "动作无效" in fb and "未知动作" in fb, fb
@@ -305,7 +305,7 @@ def test_story_end_empty_paragraphs_rejected():
     vn = BondStoryEngine(ROOT / "config" / "characters", llm)
     vn.start_session(CHARACTER)
     scene = vn.send_vn_scene("继续")
-    assert scene.is_end and scene.paragraphs == ["收尾了。"], scene
+    assert scene.is_end and scene.paragraphs == [{"text": "收尾了。"}], scene
     fb = llm.snapshots[1][-1]["content"]
     assert "动作无效" in fb and "paragraphs" in fb, fb
     print("    story_end 空段落: parse ContractError → 回灌修正重试成功")
@@ -369,7 +369,7 @@ def test_trace_records_attempts():
     assert trace[1]["attempt"] == 1 and trace[1]["action"] == "story_scene"
     assert trace[1]["parse_valid"] is True and not trace[1]["parse_errors"]
     assert trace[1]["exec_ok"] is True and trace[1]["exec_message"] == "中段场景已就绪"
-    assert trace[1]["payload"]["paragraphs"] == ["段落一。"]
+    assert trace[1]["payload"]["paragraphs"] == [{"text": "段落一。"}]
     print("    trace: 1 失败 + 1 成功, attempt/parse/exec 字段齐全")
 
 
@@ -380,9 +380,9 @@ def test_trace_records_attempts():
 def test_replay_bond_story(capsys):
     with tempfile.TemporaryDirectory() as d:
         rec = BondStorySave(CHARACTER, "伊草 遥香", "天台谈心", save_dir=d)
-        rec.append(BondScene(paragraphs=["她看着你。"], choices=["陪她", "问她"], is_end=False),
+        rec.append(BondScene(paragraphs=[{"text": "她看着你。"}], choices=["陪她", "问她"], is_end=False),
                    picked="陪她", input_text="（旁白）……")
-        rec.append(BondScene(paragraphs=["她笑了。"], is_end=True), picked=None, input_text="陪她")
+        rec.append(BondScene(paragraphs=[{"text": "她笑了。"}], is_end=True), picked=None, input_text="陪她")
         ok = replay_bond_story(rec.path, char_ms=0)
         assert ok, "有效存档回放应返回 True"
         out = capsys.readouterr().out
@@ -465,7 +465,7 @@ def test_vn_event_stream(tmp_path):
     scene_ev = [e for e in evs if e.subtype == "story_scene"][0]
     assert scene_ev.payload["input"].startswith("（旁白）")
     assert scene_ev.payload["picked"] == "选A"
-    assert scene_ev.payload["paragraphs"] == ["段落一。"]
+    assert scene_ev.payload["paragraphs"] == [{"text": "段落一。"}]
     # vn_enter 的 parent = MMT 根会话
     enter = [e for e in evs if e.subtype == M_VN_ENTER][0]
     assert enter.payload["parent_session_id"] == root.session_id

@@ -38,7 +38,7 @@ def test_append_finish_roundtrip():
         assert len(data["scenes"]) == 2
         s0, s1 = data["scenes"]
         assert s0["seq"] == 1 and s0["picked"] == "陪她"
-        assert s0["paragraphs"] == ["她看着你。"] and s0["choices"] == ["陪她", "问她"]
+        assert s0["paragraphs"] == [{"text": "她看着你。"}] and s0["choices"] == ["陪她", "问她"]
         assert s0["is_end"] is False
         assert s1["seq"] == 2 and s1["is_end"] is True
         assert s1["input"] == "陪她"

@@ -1,4 +1,4 @@
-"""羁绊剧情引擎 — 视觉小说模式对话。
+﻿"""羁绊剧情引擎 — 视觉小说模式对话。
 
 与 MomoTalk 的区别:
     - 不去括号（允许动作描写）
@@ -59,21 +59,20 @@ class SceneLoopError(Live2BeError):
 class BondScene:
     """一个羁绊剧情场景（story_scene 契约解析后的程序侧结构）。
 
-    paragraphs — 叙事段落（数组一项一段）
+    paragraphs — 叙事段落（每项 {text, emotion?}: text=段落文本, emotion=可选表情词表键;
+                  2026-08-23 架构定稿: 情绪内联进段落, 删 beats——emotion 缺省 = 延续上一段）
     choices    — 选项列表（空 = 无选项; 有选项时玩家选一个, 喂回下一场景）
     is_end     — 是否剧情结束（契约 is_end=true）
     background — 导演层视觉字段（背景 scene_id; None = 纯文本模式）
     audio      — 导演层音频字段（占位; 当前恒 None, 未来背景/音乐仲裁填）
-    beats      — 主 LLM 意图字段（[{text, emotion}] per-beat 情绪, 协议 §3; 空 = 未标注）
     place      — 主 LLM 意图字段（场景级地点 scene_id, 协议 §5; None = 未标注/保持）
     """
 
-    paragraphs: list[str] = field(default_factory=list)
+    paragraphs: list[dict] = field(default_factory=list)   # [{text, emotion?}]
     choices: list[str] = field(default_factory=list)
     is_end: bool = False
     background: str | None = None
     audio: str | None = None
-    beats: list[dict] = field(default_factory=list)
     place: str | None = None
 
     def to_dict(self) -> dict:
@@ -82,7 +81,8 @@ class BondScene:
         视觉/意图字段空值（None / 空列表）→ 省略, 不污染存档（旧档兼容）。
         """
         d = {
-            "paragraphs": list(self.paragraphs),
+            "paragraphs": [dict(p) if isinstance(p, dict) else {"text": p}
+                           for p in self.paragraphs],
             "choices": list(self.choices),
             "is_end": bool(self.is_end),
         }
@@ -90,8 +90,6 @@ class BondScene:
             d["background"] = self.background
         if self.audio is not None:
             d["audio"] = self.audio
-        if self.beats:
-            d["beats"] = [dict(b) for b in self.beats]
         if self.place is not None:
             d["place"] = self.place
         return d
@@ -100,19 +98,26 @@ class BondScene:
     def from_dict(cls, raw: dict | None) -> "BondScene":
         """宽松解析 dict → BondScene（运行时契约解析与回放读档同一条路径）。
 
-        逐字段 .get 容错 + 过滤非 str 项 + is_end 缺省 False——宁缺勿错,
-        坏数据不 raise, 只降级为空场景。
+        逐字段 .get 容错 + 过滤坏项 + is_end 缺省 False——宁缺勿错,
+        坏数据不 raise, 只降级为空场景。paragraphs 兼容 str（旧档）与 {text, emotion?}。
         """
         if not isinstance(raw, dict):
             return cls()
-        paras = [p for p in raw.get("paragraphs", []) if isinstance(p, str)]
+        paras: list[dict] = []
+        for p in raw.get("paragraphs", []):
+            if isinstance(p, str) and p.strip():
+                paras.append({"text": p.strip()})
+            elif isinstance(p, dict):
+                text = p.get("text")
+                if isinstance(text, str) and text.strip():
+                    item: dict = {"text": text.strip()}
+                    emotion = p.get("emotion")
+                    if isinstance(emotion, str) and emotion.strip():
+                        item["emotion"] = emotion.strip()
+                    paras.append(item)
         choices = [c for c in raw.get("choices", []) if isinstance(c, str)]
         background = raw.get("background")
         audio = raw.get("audio")
-        beats = [b for b in raw.get("beats", [])
-                 if isinstance(b, dict)
-                 and isinstance(b.get("text"), str)
-                 and isinstance(b.get("emotion"), str)]
         place = raw.get("place")
         return cls(
             paragraphs=paras,
@@ -120,7 +125,6 @@ class BondScene:
             is_end=bool(raw.get("is_end", False)),
             background=background if isinstance(background, str) else None,
             audio=audio if isinstance(audio, str) else None,
-            beats=beats,
             place=place if isinstance(place, str) else None,
         )
 
@@ -132,16 +136,35 @@ class BondScene:
         parse 白名单（干净字段）, 仍逐字段容错（宁缺勿错）——坏数据降级为空场景。
         """
         payload = action.payload
+        paras: list[dict] = []
+        for p in payload.get("paragraphs", []):
+            if isinstance(p, dict):
+                item = dict(p)
+                if item.get("text"):
+                    paras.append(item)
         return cls(
-            paragraphs=[p for p in payload.get("paragraphs", []) if isinstance(p, str)],
+            paragraphs=paras,
             choices=[c for c in payload.get("choices", []) if isinstance(c, str)],
             is_end=(action.action == "story_end"),
-            beats=[b for b in payload.get("beats", [])
-                   if isinstance(b, dict)
-                   and isinstance(b.get("text"), str)
-                   and isinstance(b.get("emotion"), str)],
             place=payload.get("place") if isinstance(payload.get("place"), str) else None,
         )
+
+    def para_emotions(self, default: str = "nomal") -> list[str]:
+        """逐段表情（per-para sprite, 2026-08-23 架构定稿）。
+
+        情绪内联进 paragraphs（{text, emotion?}）——**AI 在写文本的同一时刻标注**
+        （只有它知道语义）; 算法只做**确定性延续**: emotion → 用; 无 → 继承上一段;
+        首段无 → default。零语义判断, 零算法猜测。
+        渲染端逐段用 emotion 查 emotions.yml（catalog.sprite）拿图（表情不经导演）。
+        """
+        out: list[str] = []
+        current = default
+        for p in self.paragraphs:
+            emotion = p.get("emotion") if isinstance(p, dict) else ""
+            if emotion:
+                current = emotion
+            out.append(current)
+        return out
 
 
 class BondStoryEngine:
@@ -186,7 +209,9 @@ class BondStoryEngine:
         system_prompt += "\n\n可用动作 schema:\n" + build_schema(self.registry)
         # 视觉意图协议 §11: 开场喂一遍当前角色表情词表 + 世界地点词表（few-shot 示范）
         # 词表缺失/损坏 → 注入空串跳过, VN 纯文本照跑（宁缺勿错）
-        lex_inj = build_emotion_injection(self.char_loader.root / char.character_id)
+        # 注意: emotions.yml 在 assets/illustration/{char_id}/, 不在 config/characters/
+        _assets = Path(__file__).resolve().parent.parent.parent / "assets"
+        lex_inj = build_emotion_injection(_assets / "illustration" / char.character_id)
         if lex_inj:
             system_prompt += "\n\n" + lex_inj
         place_inj = build_place_injection()
@@ -295,7 +320,7 @@ class BondStoryEngine:
         scene = BondScene.from_action(action)
         if self.director is not None:
             # 视觉导演（v2）: place 意图 → background + audio 占位
-            # 表情不经导演——渲染端直接从 beats[].emotion 查 emotions.yml（catalog.sprite）
+            # 表情不经导演——渲染端从段落内联 emotion 查 emotions.yml（catalog.sprite）
             vs = self.director.visual_for(scene.place, is_end=scene.is_end)
             scene.background = vs.background
             scene.audio = vs.audio
