@@ -54,6 +54,8 @@ from core.mmt.mmt_executor import (
 )
 from core.parsing.dynamic_character_parser import CharacterLoader, DynamicCharacter
 from core.parsing.world_parser import DEFAULT_WORLD_PATH, load_world, world_to_prompt
+from core.session import SessionStore
+from core.session.events import make_event
 from core.ui.display import MomoTalkOutput
 from core.ui.streaming import DisplayStep
 from core.ui.text_processors import _process_for_momotalk
@@ -147,6 +149,7 @@ class MomoTalkEngine:
         interperson_path: str | Path | None = None,
         affection_threshold: int = 5,
         bond_progress: BondProgress | None = None,
+        store: SessionStore | None = None,
     ):
         self.char_loader = CharacterLoader(characters_root)
         self.llm = llm_client
@@ -160,6 +163,11 @@ class MomoTalkEngine:
             affection_threshold=affection_threshold,
             bond_progress=self.bond_progress,
         )
+        # 事件流存档（DESIGN_SAVE.md §4）: store 注入 + attach_session 后,
+        # 每轮 agent_turn 落 mmt 事件 + 会话内轮数; None = 不记录（向后兼容）
+        self._store = store
+        self._session_id: str = ""
+        self._session_rounds: int = 0
 
         self._current_char: DynamicCharacter | None = None
         self._system_prompt: str = ""
@@ -227,12 +235,22 @@ class MomoTalkEngine:
         logger.info("会话已保存: %s (%d 条消息)", path, len(self._history))
         return Path(path)
 
+    def attach_session(self, session_id: str) -> None:
+        """绑定事件流会话（DESIGN_SAVE.md §4）: main 层 store.create 后调用。
+
+        绑定后每轮 agent_turn 落 mmt 事件 + 会话内轮数（store 已注入）。
+        """
+        self._session_id = session_id
+        self._session_rounds = 0
+
     def clear(self) -> None:
         self._current_char = None
         self._system_prompt = ""
         self._history = []
         self._trace = []
         self.executor.set_current_character(None)
+        self._session_id = ""
+        self._session_rounds = 0
 
     # ------------------------------------------------------------------
     # 公共 API — 对话（全 JSON 动作 loop）
@@ -424,6 +442,10 @@ class MomoTalkEngine:
         if self._current_char is not None:
             self.bond_progress.record_turn(self._current_char.character_id)
 
+        # 事件流落盘（store 注入 + attach_session 后）: 每动作一条事件,
+        # 同轮第一个动作带 player（render_events 去重约定, DESIGN_SAVE.md §4.2）
+        self._record_events(actions, user_input, record_input)
+
         last = actions[-1]
         last_reply = (last.reply or "").strip()
         return TurnResult(
@@ -435,6 +457,31 @@ class MomoTalkEngine:
             bond_story=any(a.action == "mmt_trigger_bond_story" for a in actions),
             actions=actions_view,
         )
+
+    def _record_events(
+        self, actions: list[AgentAction], user_input: str, record_input: bool,
+    ) -> None:
+        """mmt 事件流落盘（DESIGN_SAVE.md §4.2）: 每动作一条 type=mmt 事件。
+
+        同轮第一个动作带 player（后续空 → render_events 不重复 user 消息）;
+        payload = 干净动作字段 + reply; 写失败静默降级（不阻断对话）。
+        """
+        if self._store is None or not self._session_id:
+            return
+        char_id = self._current_char.character_id if self._current_char else ""
+        try:
+            for i, action in enumerate(actions):
+                payload = dict(action.payload)
+                payload["reply"] = (action.reply or "").strip()
+                if i == 0 and record_input:
+                    payload["player"] = user_input
+                self._store.append_event(
+                    char_id, self._session_id, make_event("mmt", action.action, payload))
+            self._session_rounds += 1
+            self._store.update_session_progress(
+                char_id, self._session_id, self._session_rounds)
+        except Exception as e:                      # 宁缺勿错: 存档失败不阻断对话
+            logger.warning("事件流落盘失败, 本轮不记录: %s", e)
 
     def _bond_progress_note(self) -> str:
         """本轮羁绊进度参考注记（注入 LLM context, 不入历史）。

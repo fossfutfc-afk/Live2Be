@@ -26,6 +26,8 @@ from core.momotalk import MomoTalkEngine
 from core.bond.bond_story import BondScene, BondStoryEngine, SceneLoopError
 from core.bond.bond_save import BondStorySave, load_save
 from core.director import build_director
+from core.session import SessionStore
+from core.session.events import M_VN_EXIT, M_VN_STATE, make_event
 from core.ui.streaming import simulate_steps
 
 logger = logging.getLogger(__name__)
@@ -164,13 +166,17 @@ def run_bond_story_vn(
     max_tokens: int = 1536,
     seed: str | None = None,
     recorder: BondStorySave | None = None,
+    store: SessionStore | None = None,
 ) -> bool:
     """羁绊剧情 VN 模式：触发后进入, is_end 或 b 退出后回到 MomoTalk。
 
     构造独立 BondStoryEngine（复用引擎的 char_loader.root + llm），
     首个种子 = 触发动作的 reason（有则旁白引述, 无则固定开篇语）。
-    每场经 recorder（BondStorySave）原子落盘 data/{char_id}/sessions/——契约 JSON 副产物,
-    存档可被 replay_bond_story 只读回放（一解析器两用）。
+    recorder（BondStorySave）原子落盘单文件——契约 JSON 副产物, 可被
+    replay_bond_story 只读回放（一解析器两用, v0 兼容）。
+    store（SessionStore）注入时: 落**事件流**（DESIGN_SAVE.md §4）——open_vn
+    建 bond 子会话（parent=MMT 根会话）, 每场 append type=bond 事件 + vn_state
+    marker（恢复点）, 结束时 vn_exit + session_end。写失败静默降级不阻断 VN。
 
     双层收尾兜底（模型可能迟迟不改用 story_end 动作收尾）:
         第 remind_rounds 场 → 注入系统注记「已推进 N 轮, 剩余约 M 轮」,
@@ -179,8 +185,7 @@ def run_bond_story_vn(
         超过 end_rounds+2 场仍不结束 → 程序兜底收尾（循环必须终结, 宁缺勿错）。
     生产默认 30/50; 调试可传 15/22（实验脚本与单测用）。
     max_tokens 透传给 send_vn_scene（长段落场景可调高）;
-    seed 覆盖开篇语（默认从触发 reason 引述, 无则固定开篇）;
-    recorder 注入存档器（None 时自动建, 建失败降级为不记录——写失败不阻断 VN）。
+    seed 覆盖开篇语（默认从触发 reason 引述, 无则固定开篇）。
 
     Returns:
         True  = 剧情 is_end 自然结束 / 程序兜底收尾（调用方可做手机收尾 wrapup_after_vn）
@@ -208,6 +213,16 @@ def run_bond_story_vn(
         except Exception as e:
             logger.warning("存档创建失败, 本次不记录: %s", e)
             recorder = None
+
+    # 事件流子会话（DESIGN_SAVE.md §5.3）: parent = MMT 根会话 session_id
+    vn_meta = None
+    if store is not None:
+        try:
+            vn_meta = store.open_vn(
+                char.character_id, engine._session_id, reason, char.display_name)
+        except Exception as e:
+            logger.warning("事件流子会话创建失败, 本次 VN 不落事件流: %s", e)
+            vn_meta = None
 
     completed = False
     user_input = seed
@@ -251,6 +266,21 @@ def run_bond_story_vn(
             except Exception as e:
                 logger.warning("存档写入失败, 跳过本轮: %s", e)
 
+        # 事件流（store 注入时）: type=bond 事件（input=本场触发输入, picked=玩家裁决）
+        # + vn_state marker（恢复点: round/seed/visual）
+        if store is not None and vn_meta is not None:
+            try:
+                store.append_event(char.character_id, vn_meta.session_id, make_event(
+                    "bond",
+                    "story_end" if scene.is_end else "story_scene",
+                    {**scene.to_dict(), "input": user_input, "picked": choice},
+                ))
+                visual = vn.director.state.to_dict() if vn.director is not None else {}
+                store.append_marker(char.character_id, vn_meta.session_id, M_VN_STATE, {
+                    "round": i, "seed": choice or "", "visual": visual})
+            except Exception as e:
+                logger.warning("事件流写入失败, 跳过本轮: %s", e)
+
         if choice is None:                # 退出 / is_end 结束
             completed = scene.is_end      # 区分: is_end=剧情走到结尾; b=玩家退出
             if recorder:
@@ -273,6 +303,15 @@ def run_bond_story_vn(
                 logger.warning("存档写入失败: %s", e)
         completed = True
     print("[系统] 已退出羁绊剧情, 回到 MomoTalk。")
+
+    # 事件流收尾（统一, 无论哪条路径）: vn_exit + session_end（没写 = 中断）
+    if store is not None and vn_meta is not None:
+        try:
+            store.append_marker(char.character_id, vn_meta.session_id, M_VN_EXIT)
+            store.finish(char.character_id, vn_meta.session_id, ended=completed)
+        except Exception as e:
+            logger.warning("事件流收尾失败: %s", e)
+
     return completed
 
 
