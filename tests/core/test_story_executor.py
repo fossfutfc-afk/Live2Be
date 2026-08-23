@@ -1,11 +1,13 @@
 # -*- coding: utf-8 -*-
 """STORY 契约/执行层单测 — 双动作 story_scene/story_end + StoryExecutor。
 
-parse_story_scene : 单串容错 / choices 截断 / 残留 is_end 静默丢弃 / 空段落 ContractError
+parse_story_scene : 段落 {text, emotion?}（2026-08-23 情绪内联, 删 beats）/ 单串容错 /
+                    choices 截断 / 残留 is_end 静默丢弃 / 空段落 ContractError
 parse_story_end   : 非空 choices 硬拒绝（结构「收尾无选项」落点, nudge 改用 story_scene）
 build_story_registry : 两动作, 全 APPROVAL_AUTO, 无 validate, prompt_fields={action,payload}
 StoryExecutor     : 域分派 / mmt 域拒绝 / 未知动作拒绝
-BondScene.from_action : is_end 由动作类型推导（story_scene False / story_end True）
+BondScene.from_action : is_end 由动作类型推导; paragraphs 结构兼容
+para_emotions     : 逐段 emotion, 缺省延续（纯确定性, 零语义判断）
 
 运行: python -m pytest tests/core/test_story_executor.py
 """
@@ -38,15 +40,29 @@ def _parse(action: str, payload: dict):
 
 
 # ----------------------------------------------------------------------------
-# parse_story_scene: 机器侧容错 + 残留 is_end 静默丢弃
+# parse_story_scene: 段落 {text, emotion?} + 机器侧容错 + 残留 is_end 静默丢弃
 # ----------------------------------------------------------------------------
 
-def test_parse_story_scene_single_string_tolerance():
-    a, r = _parse("story_scene", {"paragraphs": "单段", "choices": "单选"})
+def test_parse_story_scene_paragraphs_inline_emotion():
+    a, r = _parse("story_scene", {
+        "paragraphs": [
+            {"text": "啊...我是不是又做错什么了", "emotion": "panic"},
+            {"text": "对不起..."},
+            {"text": "啊..没关系吗..欸嘿嘿", "emotion": "smile"},
+        ],
+    })
     assert r.is_valid and a is not None
-    assert a.payload["paragraphs"] == ["单段"]
+    assert a.payload["paragraphs"] == [
+        {"text": "啊...我是不是又做错什么了", "emotion": "panic"},
+        {"text": "对不起..."},
+        {"text": "啊..没关系吗..欸嘿嘿", "emotion": "smile"},
+    ]
+    # 旧习惯模型: 裸字符串段落 → 包成 {"text": ...}（兼容）
+    a, r = _parse("story_scene", {"paragraphs": "单段", "choices": "单选"})
+    assert r.is_valid
+    assert a.payload["paragraphs"] == [{"text": "单段"}]
     assert a.payload["choices"] == ["单选"]
-    print("    parse_story_scene: 单串 → 单元素列表容错")
+    print("    parse_story_scene: 段落 {text, emotion?} 内联 + 单串容错")
 
 
 def test_parse_story_scene_truncate_and_is_end_dropped():
@@ -67,10 +83,15 @@ def test_parse_story_scene_contract_error():
         parse_story_scene({"paragraphs": "   "})
     with pytest.raises(ContractError):
         parse_story_scene({"paragraphs": "一段。", "choices": 42})
+    # 段落结构错误（text 非 str）→ ContractError; emotion 非 str → 宽容忽略
+    with pytest.raises(ContractError):
+        parse_story_scene({"paragraphs": [{"text": 42}]})
+    a, r = _parse("story_scene", {"paragraphs": [{"text": "x", "emotion": 42}]})
+    assert r.is_valid and a.payload["paragraphs"] == [{"text": "x"}]
     # registry 层: ContractError 被收集为解析错误, 不 raise
     a, r = _parse("story_scene", {"paragraphs": []})
     assert a is None and not r.is_valid and "paragraphs" in r.errors[0]
-    print("    parse_story_scene: 空段落/坏 choices → ContractError（registry 收集为错误）")
+    print("    parse_story_scene: 空段落/坏结构/坏 choices → ContractError")
 
 
 # ----------------------------------------------------------------------------
@@ -81,7 +102,6 @@ def test_parse_story_end_rejects_nonempty_choices():
     a, r = _parse("story_end", {"paragraphs": ["收尾了。"], "choices": ["继续"]})
     assert a is None and not r.is_valid
     assert "story_scene" in r.errors[0], "拒绝理由应 nudge 改用 story_scene"
-    # 直接调 parse 函数也是 ContractError
     with pytest.raises(ContractError):
         parse_story_end({"paragraphs": ["收尾了。"], "choices": ["继续"]})
     print("    parse_story_end: 非空 choices 硬拒绝（nudge 改用 story_scene）")
@@ -89,9 +109,9 @@ def test_parse_story_end_rejects_nonempty_choices():
 
 def test_parse_story_end_empty_or_missing_choices_ok():
     a, r = _parse("story_end", {"paragraphs": ["收尾了。"]})
-    assert r.is_valid and a.payload == {"paragraphs": ["收尾了。"]}
+    assert r.is_valid and a.payload == {"paragraphs": [{"text": "收尾了。"}]}
     a, r = _parse("story_end", {"paragraphs": ["收尾了。"], "choices": []})
-    assert r.is_valid and a.payload == {"paragraphs": ["收尾了。"]}
+    assert r.is_valid and a.payload == {"paragraphs": [{"text": "收尾了。"}]}
     print("    parse_story_end: 空/缺省 choices 静默忽略, payload 干净")
 
 
@@ -119,88 +139,77 @@ def test_executor_dispatch_and_reject():
     ex = StoryExecutor()
     assert ex.execute(_action("story_scene", {})).ok
     assert ex.execute(_action("story_end", {})).message == "收尾场景已就绪, 剧情将结束"
-    # mmt 域拒绝（域隔离）
     with pytest.raises(StoryExecError):
         ex.execute(AgentAction(action="mmt_chat", domain=DOMAIN_MMT))
-    # 未知动作拒绝
     with pytest.raises(StoryExecError):
         ex.execute(_action("story_reflect", {}))
     print("    executor: 域分派 / mmt 域拒绝 / 未知动作拒绝")
 
 
 # ----------------------------------------------------------------------------
-# BondScene.from_action: is_end 由动作类型推导
+# BondScene.from_action: is_end 推导 + paragraphs 结构 + place
 # ----------------------------------------------------------------------------
 
 def test_from_action_derives_is_end():
     scene = BondScene.from_action(
-        _action("story_scene", {"paragraphs": ["中段"], "choices": ["A"]}))
+        _action("story_scene", {"paragraphs": [{"text": "中段"}], "choices": ["A"]}))
     assert not scene.is_end and scene.choices == ["A"]
-    end = BondScene.from_action(_action("story_end", {"paragraphs": ["收尾"]}))
+    end = BondScene.from_action(_action("story_end", {"paragraphs": [{"text": "收尾"}]}))
     assert end.is_end and not end.choices
-    # 滤非 str（宁缺勿错）
+    # 坏段落（非 dict / 空 text）→ 滤掉（宁缺勿错）
     robust = BondScene.from_action(
-        _action("story_end", {"paragraphs": ["好", 42, None]}))
-    assert robust.paragraphs == ["好"] and robust.is_end
-    print("    from_action: is_end 由动作类型推导, 滤非 str")
+        _action("story_end", {"paragraphs": [{"text": "好"}, 42, {"text": ""}]}))
+    assert robust.paragraphs == [{"text": "好"}] and robust.is_end
+    print("    from_action: is_end 推导 + 坏段落滤除")
 
 
-# ----------------------------------------------------------------------------
-# beats / place（视觉意图协议 §3/§5: 可选, 向后兼容）
-# ----------------------------------------------------------------------------
-
-def test_parse_beats_place_optional_and_clean():
-    # 不带 beats/place → payload 干净（无该键, 向后兼容）
-    a, r = _parse("story_scene", {"paragraphs": ["一段。"]})
-    assert r.is_valid
-    assert "beats" not in a.payload and "place" not in a.payload
-    # 带 beats/place → 解析并保留
-    a, r = _parse("story_scene", {
-        "paragraphs": ["她脸红了。"],
-        "beats": [{"text": "她脸红了，低下头", "emotion": "embarass"}],
-        "place": "class_room",
-    })
-    assert r.is_valid
-    assert a.payload["beats"] == [{"text": "她脸红了，低下头", "emotion": "embarass"}]
-    assert a.payload["place"] == "class_room"
-    print("    beats/place: 可选（缺省干净）/ 出现则解析")
-
-
-def test_parse_beats_place_contract_errors():
-    # beats 非数组 / 项非对象 / 字段非 str → ContractError（registry 收集为错误）
-    for bad in (
-        {"paragraphs": ["x"], "beats": "not-list"},
-        {"paragraphs": ["x"], "beats": [42]},
-        {"paragraphs": ["x"], "beats": [{"text": "t"}]},        # 缺 emotion
-        {"paragraphs": ["x"], "beats": [{"emotion": "e"}]},     # 缺 text
-        {"paragraphs": ["x"], "beats": [{"text": 42, "emotion": "e"}]},
-        {"paragraphs": ["x"], "place": 42},
-    ):
-        a, r = _parse("story_scene", bad)
-        assert a is None and not r.is_valid, bad
-    # 空 emotion → 宽容保留（下游降级, 宁缺勿错不拒绝）
-    a, r = _parse("story_scene", {
-        "paragraphs": ["x"], "beats": [{"text": "t", "emotion": "  "}]})
-    assert r.is_valid and a.payload["beats"] == [{"text": "t", "emotion": ""}]
-    print("    beats/place: 结构错误 ContractError; 空 emotion 宽容保留")
-
-
-def test_story_end_beats_place_and_scene_carry():
-    # story_end 也支持 beats/place
+def test_story_end_place_and_scene_carry():
+    # story_end 也支持 place; paragraphs emotion 内联携带
     a, r = _parse("story_end", {
-        "paragraphs": ["收尾了。"],
-        "beats": [{"text": "她笑了", "emotion": "smile"}],
+        "paragraphs": [{"text": "她笑了", "emotion": "smile"}],
         "place": "rooftop",
     })
     assert r.is_valid
-    assert a.payload["beats"] and a.payload["place"] == "rooftop"
-    # BondScene.from_action 携带 beats/place（含 to_dict/from_dict 往返）
+    assert a.payload["paragraphs"] == [{"text": "她笑了", "emotion": "smile"}]
+    assert a.payload["place"] == "rooftop"
+    # BondScene 携带（含 to_dict/from_dict 往返）
     scene = BondScene.from_action(a)
-    assert scene.beats == [{"text": "她笑了", "emotion": "smile"}]
+    assert scene.paragraphs == [{"text": "她笑了", "emotion": "smile"}]
     assert scene.place == "rooftop"
     rt = BondScene.from_dict(scene.to_dict())
-    assert rt.beats == scene.beats and rt.place == scene.place
-    # 纯文本（无 beats/place）→ to_dict 省略（旧档兼容）
-    plain = BondScene.from_action(_action("story_scene", {"paragraphs": ["p"]}))
-    assert "beats" not in plain.to_dict() and "place" not in plain.to_dict()
-    print("    story_end beats/place + BondScene 携带/往返/旧档省略")
+    assert rt.paragraphs == scene.paragraphs and rt.place == scene.place
+    # 纯文本（无 emotion/place）→ to_dict 省略 place（旧档兼容）
+    plain = BondScene.from_action(_action("story_scene", {"paragraphs": [{"text": "p"}]}))
+    assert "place" not in plain.to_dict()
+    print("    story_end place + BondScene paragraphs 携带/往返")
+
+
+# ----------------------------------------------------------------------------
+# para_emotions: 逐段 emotion, 缺省延续（纯确定性, 零语义判断）
+# ----------------------------------------------------------------------------
+
+def test_para_emotions_inherit():
+    # 无 emotion → 每段默认
+    s = BondScene.from_action(_action("story_scene", {
+        "paragraphs": [{"text": "a"}, {"text": "b"}]}))
+    assert s.para_emotions() == ["nomal", "nomal"]
+    # 段1 标 emotion → 后续缺省延续（慌乱 → 开心 例子）
+    s = BondScene.from_action(_action("story_scene", {
+        "paragraphs": [
+            {"text": "啊...我是不是又做错什么了", "emotion": "panic"},
+            {"text": "对不起..."},
+            {"text": "啊..没关系吗..欸嘿嘿", "emotion": "smile"},
+        ]}))
+    assert s.para_emotions() == ["panic", "panic", "smile"]
+    # 中途变化 + 尾段缺省延续
+    s = BondScene.from_action(_action("story_scene", {
+        "paragraphs": [
+            {"text": "a", "emotion": "embarass"},
+            {"text": "b", "emotion": "giggle"},
+            {"text": "c"},
+        ]}))
+    assert s.para_emotions() == ["embarass", "giggle", "giggle"]
+    # 旧 str 段落（兼容）→ 默认
+    s = BondScene.from_dict({"paragraphs": ["x", "y"]})
+    assert s.para_emotions() == ["nomal", "nomal"]
+    print("    para_emotions: 显式 emotion + 缺省延续（零语义判断）")

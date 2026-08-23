@@ -140,8 +140,7 @@ def test_director_reset_and_build(tmp_path):
 
 def test_engine_attaches_background_audio(tmp_path):
     main = _MainLLM({"action": "story_scene", "payload": {
-        "paragraphs": ["她脸红了。"],
-        "beats": [{"text": "她脸红了", "emotion": "embarass"}],
+        "paragraphs": [{"text": "她脸红了。", "emotion": "embarass"}],
         "place": "class_room",
         "choices": [],
     }})
@@ -151,7 +150,7 @@ def test_engine_attaches_background_audio(tmp_path):
     scene = vn.send_vn_scene("（开场）")
     assert scene.background == "class_room"
     assert scene.audio is None                           # 占位
-    assert scene.beats == [{"text": "她脸红了", "emotion": "embarass"}]
+    assert scene.paragraphs == [{"text": "她脸红了。", "emotion": "embarass"}]
     assert scene.place == "class_room"
     dct = scene.to_dict()
     assert dct["background"] == "class_room"             # 存档可见
@@ -163,11 +162,11 @@ def test_engine_attaches_background_audio(tmp_path):
 
 def test_engine_no_director_pure_text(tmp_path):
     main = _MainLLM({"action": "story_scene", "payload": {
-        "paragraphs": ["纯文本。"], "choices": []}})
+        "paragraphs": [{"text": "纯文本。"}], "choices": []}})
     vn = BondStoryEngine(ROOT / "config" / "characters", main)  # director=None
     vn.start_session(_CHARACTER)
     scene = vn.send_vn_scene("x")
     assert scene.background is None and scene.audio is None
-    assert not scene.beats
+    assert scene.paragraphs == [{"text": "纯文本。"}]     # 无 emotion → 纯文本段落
     assert "background" not in scene.to_dict() and "audio" not in scene.to_dict()
     print("    engine: 无导演 → 纯文本模式, 无视觉字段")

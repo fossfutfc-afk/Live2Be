@@ -1,4 +1,4 @@
-"""羁绊剧情 VN CLI — 段落渲染 + 选项交互 + 收敛分支循环 + 存档/回放。
+﻿"""羁绊剧情 VN CLI — 段落渲染 + 选项交互 + 收敛分支循环 + 存档/回放。
 
 main.py 在 result.bond_story 触发后调用 run_bond_story_vn:
     进入 VN 模式 → 逐场景推剧情（story_scene/story_end 契约 JSON）→ 玩家选选项 / 自由输入推进
@@ -82,18 +82,17 @@ def _type_paragraph(text: str, char_ms: int = _PARA_CHAR_MS) -> None:
 # ---------------------------------------------------------------------------
 
 def _print_visual(scene: BondScene) -> None:
-    """CLI 视觉标签（导演层背景/音频 + 主 LLM 意图表情, 纯文本模式无字段 → 不打印）。"""
-    if scene.background is None and scene.audio is None and not scene.beats:
+    """CLI 视觉标签（导演层背景/音频; 纯文本模式无字段 → 不打印）。
+
+    表情不在此汇总——改由 simulate_vn_scene 逐段标注（per-para sprite）。
+    """
+    if scene.background is None and scene.audio is None:
         return
     parts = []
     if scene.background is not None:
         parts.append(f"[背景 {scene.background or '-'}]")
     if scene.audio is not None:
         parts.append(f"[音频 {scene.audio}]")
-    # 表情不经导演: 直接从主 LLM 意图 beats[].emotion 打印（渲染端查 emotions.yml 拿图）
-    if scene.beats:
-        emos = [b.get("emotion", "") or "-" for b in scene.beats if isinstance(b, dict)]
-        parts.append("[表情 " + " ".join(emos) + "]")
     print(" ".join(parts))
 
 
@@ -110,8 +109,14 @@ def simulate_vn_scene(
         b / Ctrl-D / 【完】 → None（退出 VN 回 MomoTalk）
     """
     _print_visual(scene)
+    # per-para sprite（架构定稿: 情绪内联进 paragraphs {text, emotion?}）——
+    # 段落显式带 emotion 才标注; 延续的段静默（渲染端默认/继承表情）
     for para in scene.paragraphs:
-        _type_paragraph(para, char_ms)
+        emotion = para.get("emotion") if isinstance(para, dict) else ""
+        if emotion:
+            print(f"[表情 {emotion}]")
+        text = para.get("text", "") if isinstance(para, dict) else str(para)
+        _type_paragraph(text, char_ms)
 
     if scene.is_end:
         print("\n── 羁绊剧情结束 ──")
@@ -147,7 +152,7 @@ def simulate_vn_scene(
 def _build_director(char, reason: str):
     """构建视觉导演（v2 纯查表模式, 无辅助 LLM; 任何失败 → None 纯文本）。
 
-    情感由主 LLM 意图（beats[].emotion）给出, 导演只查表映射（1:1）+ 词表外延续;
+    情感由主 LLM 在段落内联 emotion 给出, 导演只做 place→背景查表;
     背景/音乐等未来非情感决策若需语义仲裁, 直接用 llm/client.py 的 LLMClient。
     """
     try:
@@ -247,7 +252,7 @@ def run_bond_story_vn(
         except (SceneLoopError, ValueError) as e:
             # 模型连语义校验都过不了 → 中断收场（宁缺勿错, 循环必须终结）
             print(f"[系统] 剧情生成失败: {e}")
-            closing = BondScene(paragraphs=["（这一章的羁绊剧情就此中断收场。）"], is_end=True)
+            closing = BondScene(paragraphs=[{"text": "（这一章的羁绊剧情就此中断收场。）"}], is_end=True)
             _type_paragraph(closing.paragraphs[0], char_ms)
             print("\n── 羁绊剧情结束 ──")
             if recorder:
@@ -292,7 +297,7 @@ def run_bond_story_vn(
         user_input = choice
     else:
         # for 循环耗尽 = 模型仍不 is_end → 程序兜底收尾（循环必须终结）
-        closing = BondScene(paragraphs=["（夜色渐深，这一章的羁绊剧情就此落下帷幕。）"], is_end=True)
+        closing = BondScene(paragraphs=[{"text": "（夜色渐深，这一章的羁绊剧情就此落下帷幕。）"}], is_end=True)
         _type_paragraph(closing.paragraphs[0], char_ms)
         print("\n── 羁绊剧情结束 ──")
         if recorder:
@@ -323,7 +328,11 @@ def _replay_scene(scene: BondScene, picked: str | None, char_ms: int = _PARA_CHA
     """渲染一个回放场景: 视觉标签 + 段落 + 选项（▶ 高亮当时选择）+ 结束语。"""
     _print_visual(scene)
     for para in scene.paragraphs:
-        _type_paragraph(para, char_ms)
+        emotion = para.get("emotion") if isinstance(para, dict) else ""
+        if emotion:
+            print(f"[表情 {emotion}]")
+        text = para.get("text", "") if isinstance(para, dict) else str(para)
+        _type_paragraph(text, char_ms)
     if scene.choices:
         print("\n")
         for i, choice in enumerate(scene.choices, 1):

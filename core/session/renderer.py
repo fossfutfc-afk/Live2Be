@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """事件流派生视图 — 喂 LLM / 回放过滤 / 状态推导 / brain 时间线。
 
 设计（core/DESIGN_SAVE.md §4.2/§4.6/§六）: **events.jsonl 是唯一真源**,
@@ -13,7 +13,7 @@
 事件 payload 约定（引擎接入时遵守）:
     mmt 事件:   {player, reply, ...} —— 同轮动作列表只有**第一个动作**带 player
                 （同轮后续动作 player 空, render 自然去重; 2026-08-23 定稿）
-    bond 事件:  {input, paragraphs, choices, picked, beats, place, ...} —— input=本场触发输入
+    bond 事件:  {input, paragraphs(含内联 emotion), choices, picked, place, ...} —— input=本场触发输入
 """
 
 from __future__ import annotations
@@ -68,7 +68,6 @@ def render_events(events: list[Event]) -> list[dict[str, str]]:
                 e.payload, ensure_ascii=False, separators=(",", ":"))})
         # marker / l2d → 跳过（l2d 是资产引用, 恢复时无需告知 LLM）
     return out
-
 
 def filter_bond(events: list[Event]) -> list[Event]:
     """过滤 type=bond 事件（回放源; 消费方逐条 BondScene.from_dict(payload) 渲染）。"""
@@ -126,7 +125,8 @@ def render_timeline(events: list[Event], *, max_paragraph_chars: int = 120) -> s
                 lines.append(f"{label} 角色: {reply}")
         elif e.type == TYPE_BOND:
             paras = e.payload.get("paragraphs", [])
-            text = " / ".join(str(p) for p in paras)
+            texts = [p.get("text", "") if isinstance(p, dict) else str(p) for p in paras]
+            text = " / ".join(texts)
             if len(text) > max_paragraph_chars:
                 text = text[:max_paragraph_chars] + "…"
             lines.append(f"{label} {text}")
