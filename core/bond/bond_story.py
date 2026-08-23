@@ -1,4 +1,4 @@
-﻿"""羁绊剧情引擎 — 视觉小说模式对话。
+"""羁绊剧情引擎 — 视觉小说模式对话。
 
 与 MomoTalk 的区别:
     - 不去括号（允许动作描写）
@@ -39,6 +39,7 @@ from contract import AgentAction, build_schema
 from core.common import Live2BeError, err
 from core.bond.bond_actions import MAX_SCENE_RETRIES, build_story_registry
 from core.bond.bond_executor import StoryExecError, StoryExecutor
+from core.bond.memorial_actions import build_memorial_registry
 from core.media.emotion_lexicon import build_emotion_injection, build_place_injection
 from llm.client import LLMClient
 from llm.feedback import feedback
@@ -66,6 +67,9 @@ class BondScene:
     background — 导演层视觉字段（背景 scene_id; None = 纯文本模式）
     audio      — 导演层音频字段（占位; 当前恒 None, 未来背景/音乐仲裁填）
     place      — 主 LLM 意图字段（场景级地点 scene_id, 协议 §5; None = 未标注/保持）
+    memorial_prompt — memorial_enter 轮: 生图场景总结（非空 = 本场是纪念进入轮）;
+                      仅运行时标记, **不进 to_dict/from_dict 序列化**（立绘走 l2d 事件）
+    memorial_exit   — memorial_exit 轮: 纪念模式收尾（过渡文字）; 同上仅运行时标记
     """
 
     paragraphs: list[dict] = field(default_factory=list)   # [{text, emotion?}]
@@ -74,6 +78,8 @@ class BondScene:
     background: str | None = None
     audio: str | None = None
     place: str | None = None
+    memorial_prompt: str = ""
+    memorial_exit: bool = False
 
     def to_dict(self) -> dict:
         """序列化为存档/契约同构 dict（回放读档的反向）。
@@ -134,20 +140,31 @@ class BondScene:
 
         story_scene 隐含 is_end=False; story_end 隐含 is_end=True。payload 已过
         parse 白名单（干净字段）, 仍逐字段容错（宁缺勿错）——坏数据降级为空场景。
+        memorial_enter → memorial_prompt（生图总结）; memorial_exit → memorial_exit
+        标记（过渡文字; paragraphs 兼容纯字符串, exit 的 parse 输出是 [str]）。
         """
         payload = action.payload
         paras: list[dict] = []
         for p in payload.get("paragraphs", []):
-            if isinstance(p, dict):
+            if isinstance(p, str) and p.strip():
+                paras.append({"text": p.strip()})
+            elif isinstance(p, dict):
                 item = dict(p)
                 if item.get("text"):
                     paras.append(item)
-        return cls(
+        scene = cls(
             paragraphs=paras,
             choices=[c for c in payload.get("choices", []) if isinstance(c, str)],
             is_end=(action.action == "story_end"),
             place=payload.get("place") if isinstance(payload.get("place"), str) else None,
         )
+        if action.action == "memorial_enter":
+            prompt = payload.get("prompt")
+            if isinstance(prompt, str):
+                scene.memorial_prompt = prompt
+        elif action.action == "memorial_exit":
+            scene.memorial_exit = True
+        return scene
 
     def para_emotions(self, default: str = "nomal") -> list[str]:
         """逐段表情（per-para sprite, 2026-08-23 架构定稿）。
@@ -184,12 +201,15 @@ class BondStoryEngine:
         self.char_loader = CharacterLoader(characters_root)
         self.llm = llm_client
         self.registry = build_story_registry()
+        self.memorial_registry = build_memorial_registry()
         self.executor = StoryExecutor()
         self.director = director          # 视觉导演（可注入; None = 纯文本模式）
         self._current_char: DynamicCharacter | None = None
         self._system_prompt: str = ""
         self._history: list[dict[str, str]] = []
         self._trace: list[dict] = []      # 最近一次 send_vn_scene 的动作轨迹（追溯/调试）
+        self._in_memorial = False         # 纪念子模式状态（enter 后 True, exit 后 False, §4.7）
+        self._memorial_used = False       # 一段剧情至多 1 次 memorial（enter 已用 = True）
 
     # ------------------------------------------------------------------
     # 会话生命周期
@@ -222,6 +242,8 @@ class BondStoryEngine:
         self._system_prompt = system_prompt
         self._history = []
         self._trace = []
+        self._in_memorial = False
+        self._memorial_used = False
         if self.director is not None:
             self.director.reset()        # 新会话清空视觉记忆与 nudge 计数
 
@@ -279,8 +301,16 @@ class BondStoryEngine:
                 continue
             messages.append({"role": "assistant", "content": str(response)})
 
-            # 1) 契约解析（动作无效 → 回灌修正）
-            action, result = self.registry.parse(response)
+            # 1) 契约解析（story 域优先, 未知动作名再试 memorial 域——双 registry）
+            #    按**动作名归属**分流（不能按 parse 结果: parse 失败 = 动作有效但 payload
+            #    非法, 仍应留在本域反馈具体错误, 而不是误判"未知动作"）
+            if isinstance(response, dict) and self.registry.spec(
+                    response.get("action", "")) is not None:
+                action, result = self.registry.parse(response)
+            elif isinstance(response, dict):
+                action, result = self.memorial_registry.parse(response)
+            else:
+                action, result = self.registry.parse(response)
             self._trace.append({
                 "attempt": attempt,
                 "action": action.action if action else None,
@@ -294,7 +324,31 @@ class BondStoryEngine:
                 feedback(
                     messages,
                     f"动作无效: {'; '.join(result.errors)}",
-                    "请严格按 schema 重新输出单个 story_scene 或 story_end 动作 JSON。",
+                    "请严格按 schema 重新输出可用动作 JSON（story_scene / story_end / "
+                    "memorial_enter / memorial_exit）。",
+                )
+                continue
+
+            # 1.5) 纪念子模式状态机约束（§4.7: enter 独占一轮含全部内容, 纪念模式内只许 exit）
+            if action.action == "memorial_exit" and not self._in_memorial:
+                feedback(
+                    messages,
+                    "动作无效: 当前不在纪念模式, memorial_exit 不可用。",
+                    "请继续输出 story_scene 或 story_end。",
+                )
+                continue
+            if action.action != "memorial_exit" and self._in_memorial:
+                feedback(
+                    messages,
+                    "动作无效: 当前处于纪念模式, 只能输出 memorial_exit 回到 bond。",
+                    "请输出 memorial_exit 动作（可选过渡文字）。",
+                )
+                continue
+            if action.action == "memorial_enter" and self._memorial_used:
+                feedback(
+                    messages,
+                    "动作无效: 一段剧情至多一次纪念, 已使用过。",
+                    "请继续输出 story_scene 或 story_end。",
                 )
                 continue
 
@@ -312,6 +366,13 @@ class BondStoryEngine:
             raise SceneLoopError(
                 f"单场景解析或执行超过 {MAX_SCENE_RETRIES} 次仍未通过"
             )
+
+        # 纪念子模式状态更新（enter → 进入; exit → 回 bond）
+        if action.action == "memorial_enter":
+            self._in_memorial = True
+            self._memorial_used = True
+        elif action.action == "memorial_exit":
+            self._in_memorial = False
 
         self._history.append({"role": "user", "content": user_input})
         self._history.append({"role": "assistant", "content": json.dumps(
@@ -333,6 +394,16 @@ class BondStoryEngine:
     @property
     def current_character(self) -> DynamicCharacter | None:
         return self._current_char
+
+    @property
+    def in_memorial(self) -> bool:
+        """是否处于纪念子模式（enter 后 True, exit 后 False——vn_cli 据此分支渲染）。"""
+        return self._in_memorial
+
+    def memorial_exit_schema(self) -> str:
+        """memorial 域 schema 文本（进入纪念模式后, vn_cli 作 system_note 注入
+        给 LLM——本场可输出动作的 JSON 写法, §4.7）。"""
+        return build_schema(self.memorial_registry)
 
     @property
     def history(self) -> list[dict[str, str]]:

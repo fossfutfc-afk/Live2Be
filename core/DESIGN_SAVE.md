@@ -110,8 +110,8 @@ data/
  "payload":{"paragraphs":[{"text":"…","emotion":"embarrass"}],"choices":["…"],"is_end":false,
             "background":"class_room","input":"…","picked":"…"}}
 
-// L2D 板块（type=l2d）—— 一次纪念立绘生成（memorial_generate 动作的产物, §4.7）
-{"seq":3,"ts":"2026-08-24T15:05:00.000000","type":"l2d","subtype":"memorial_generate",
+// L2D 板块（type=l2d）—— 纪念立绘（memorial_enter 进入子模式时的产物, §4.7）
+{"seq":3,"ts":"2026-08-24T15:05:00.000000","type":"l2d","subtype":"memorial_enter",
  "payload":{"paragraphs":["（煽情文字…）"],"choices":["…"],"images":["gallery/xxx.png"]}}
 ```
 
@@ -119,7 +119,7 @@ data/
 - `seq` — 会话内全局递增（重放/rewind 定位点）
 - `ts` — 时间戳
 - `type` — **板块**: `mmt` | `bond` | `l2d` | `marker`（预留 `official_story`）
-- `subtype` — 动作名（mmt_chat / story_scene / memorial_generate / vn_state …）; 新板块只加 subtype
+- `subtype` — 动作名（mmt_chat / story_scene / memorial_enter / memorial_exit / vn_state …）; 新板块只加 subtype
 - `payload` — 板块固定 schema（mmt: operation/player/reply; bond: BondScene + input/picked;
   l2d: paragraphs/choices/images; marker: 见下）
 
@@ -131,12 +131,17 @@ data/
 {"seq":20,"type":"marker","subtype":"vn_exit"}                              // VN 结束回 MMT
 {"seq":25,"type":"marker","subtype":"vn_state",                             // VN 恢复点（每场 VN 轮 append）
  "payload":{"round":12,"seed":"都点吧,今天我请客。","visual":{"background":"class_room"}}}
+{"seq":30,"type":"marker","subtype":"memorial_enter",                       // ★ 进入纪念子模式（§4.7）
+ "payload":{"reason":"湖边告白"}}
+{"seq":33,"type":"marker","subtype":"memorial_exit"}                        // ★ 退出纪念, 回 bond
 {"seq":40,"type":"marker","subtype":"session_end","payload":{"ended":true}} // 会话收尾
 ```
 状态推导（恢复时扫描 markers）:
 - **VN 进行中**: 有 `vn_enter` 且无其后 `vn_exit`/`session_end`（同一文件内, 天然成立）
+- **纪念子模式中**: 有 `memorial_enter` 且无其后 `memorial_exit`/`session_end`（§4.7）
 - **自然结束 vs 中断**: 有 `session_end` = 结束; **没有 = 中断**（崩溃时标记写不出去）
 - **VN 恢复点**: 最后一个 `vn_state.payload`
+- **纪念恢复点**: 最后 marker 是 `memorial_enter` → resume 到纪念场景
 - **对话含 L2D**: 有 `type=l2d` 事件（列表/画廊标记用）
 
 **派生视图（渲染器实时生成, 不落盘）**:
@@ -204,73 +209,64 @@ data/
 检索:  远期 RAG 从角色级 wiki + 会话级 brain 检索 → 注入 system prompt
 ```
 
-### 4.7 纪念立绘动作（memorial_generate, 2026-08-24 设计定稿）
+### 4.7 纪念子模式（memorial, 2026-08-24 定稿: 状态机 enter/exit）
 
-**动机**：羁绊剧情的关键瞬间（约定达成/感情升温/道别）值得生成纪念立绘。
-**由主 LLM 在剧情中拍板**——不设分数阈值、不设本地模型判定，LLM 觉得"这一刻有纪念
-意义"就直接输出动作（与 emotion 同哲学：语义判断归写剧情的主 LLM）。
+**定位**：memorial 是 bond 剧情中的**子模式**（状态），不是字段、不是单动作——
+有明确的进入/退出（begin/end），架构与 mmt→bond 同构：
 
-**动作**：`memorial_generate`（memorial 域动作，**独立 registry** `build_memorial_registry()`，
-与 mmt 域 / story 域并列——不混入 story registry；2026-08-24 用户拍板）。
-
-**独占一轮**：与 mmt_trigger_bond_story 同理——`memorial_generate` 独立动作、独占一轮。
-LLM 输出 memorial_generate → 引擎展示预生成的纪念立绘 → 下一轮继续 story_scene/story_end。
-
-**预判式生图（2026-08-24 用户决策）**：
 ```
-mmt_trigger_bond_story 执行成功后（VN 开场前）:
-  → LLM 预判一轮: {will_trigger: bool, prompt: str}
-     （输入: 触发 reason + 角色人设; 判断"这剧情有没有值得纪念的瞬间"+ 生图场景总结）
-  → 无论 will_trigger 与否: 后台线程加载生图 pipe（预热, 首次 ~12s 不阻塞玩家）
-  → will_trigger=true: 直接用预判 prompt 后台生图 → gallery 落盘
-     （玩家读开场/选选项期间完成, 剧情到纪念节点零等待）
-  → 预判 false 但剧情中 LLM 仍想触发: pipe 已预热, 当场生图仅 ~2s, 可接受
+mmt ──mmt_trigger_bond_story──▶ bond ──memorial_enter──▶ memorial ──memorial_exit──▶ bond
 ```
-- 分支收敛保证预判可靠：story_scene 选项收敛同一主线 → 纪念节点不依赖玩家选择
-- 分工：主 LLM 给信息（预判场景总结 + 剧情中煽情文字），本地生图模型执行
 
-**动作 payload（只有文字和选项, 简单 contract）**：
+**示范（遥香）**：老师邀请遥香去高级餐厅 →（trigger bond）遥香因紧张毁掉浪漫夜晚，
+哭着跑出去 →（memorial_enter）湖边，sensei 说"接受这样的她正是自己该做的" →
+（memorial_exit）遥香和老师蹲路边吃路边摊 →（回 MMT）遥香表示感谢。
+
+**为什么是状态机而非可选字段**（2026-08-24 复盘）:
+- 字段可填可不填 → LLM 必然偷懒（emotion 可选已实证）；独占动作逼 LLM **谨慎决策**
+- memorial 是一段有 begin/end 的子剧情——字段表达不了状态边界
+  （恢复/渲染/频率控制全依赖"当前是否在纪念模式"）
+
+**动作**（memorial 域, 独立 registry `build_memorial_registry()`）:
+
+`memorial_enter`（独占一轮, 谨慎决策进入纪念时刻）:
 ```jsonc
-{"action": "memorial_generate", "payload": {
-  "paragraphs": ["（煽情文字：此刻的定格……）"],   // 必填: 纪念瞬间的煽情文字
-  "choices": ["选项1", "选项2"]                    // 可选: 给 sensei 的回应
+{"action": "memorial_enter", "payload": {
+  "prompt": "湖边, 黑发少女含泪抬头, 月光, 拥抱, 唯美构图",  // 必填: 生图场景总结（当场写, 与剧情一致）
+  "paragraphs": ["（纪念场景的煽情文字=本场剧情内容）", "…"],  // 必填
+  "choices": ["…"]                                           // 可选
 }}
 ```
-- **要求煽情**: 这是值得生成纪念立绘的时刻, 文字要配得上它——定格感、余韵、
-  让 sensei 心头一紧的瞬间, 而不是平淡的叙述
-- 生图 prompt 不在本动作（由剧情前预判环节承担）——contract 保持最简, 省时省力
+- 执行: pipe 已预热（trigger 后后台加载）→ 生图 ~2s（渲染显示"加载中"）→
+  gallery 落盘 → append l2d 事件 {paragraphs, choices, images} + marker memorial_enter
+  → 渲染纪念场景（文字 + 立绘 + 选项）
 
-**执行流程**（memorial 双核 loop, parse 成功后）:
+`memorial_exit`（独占一轮, 回到 bond）:
+```jsonc
+{"action": "memorial_exit", "payload": {
+  "paragraphs": ["（从纪念时刻回到日常的过渡文字, 可空）"]    // 可选
+}}
 ```
-memorial registry.parse(memorial_generate) → MemorialExecutor.execute
-  → 关联预生成的图（预判 will_trigger=true 时; 否则当场生图: pipe 已预热 ~2s）
-  → 落 gallery/{scene_id}.png + {scene_id}.json（§4.5 格式）
-  → append type=l2d 事件
-  → 生图失败 → 降级: 不阻断剧情, 不落 l2d 事件, 该轮按"无副作用"收场（宁缺勿错）
-```
+- 执行: append marker memorial_exit → 之后 LLM 继续 story_scene/story_end（bond 模式）
 
-**l2d 事件**（进统一事件流, subtype=动作名）:
+**marker 状态**（对齐 vn_enter/vn_exit）:
+- `memorial_enter` / `memorial_exit` marker → `session_status` 推导 `in_memorial`
+- 中断恢复: 最后 marker 是 memorial_enter → resume 到纪念场景
+
+**l2d 事件**（进统一事件流, subtype=memorial_enter）:
 ```jsonl
-{"seq":N,"ts":"...","type":"l2d","subtype":"memorial_generate",
- "payload":{"paragraphs":["（煽情文字…）"],"choices":["…"],"images":["gallery/xxx.png","gallery/yyy.png"]}}
+{"seq":N,"ts":"...","type":"l2d","subtype":"memorial_enter",
+ "payload":{"paragraphs":["（煽情文字…）"],"choices":["…"],"images":["gallery/xxx.png"]}}
 ```
-- 字段: `paragraphs/choices` 来自动作（LLM）; `images` 由引擎填（LLM 不用管）
-- **images 数组**: 一场 memorial 可多张图（2026-08-24 用户决策）——每张图一个
-  `gallery/{scene_id}` 文件对（§4.5, 各自 prompt 可复现）, 事件只带引用数组;
-  单张时也是数组（1 元素）
-- prompt 不落事件——在各自 gallery json 里
-- 无 description/scene_ref/prompt（触发时机从事件流顺序天然可判, 画廊文字即 paragraphs）
+- `images` 数组: 一场可多张（每张一个 gallery 文件对, 各自 prompt 可复现）; 单张也数组
+- prompt 不落事件（在 gallery json）; 无 description/scene_ref
 
-**频率约束**（防刷屏）:
-- prompt 引导：只在"真正有纪念意义的时刻"触发（约定/告白/道别/重大转折），
-  不要每个场景都来一张
-- **每场 VN 至多 1 张，定死**（2026-08-24 用户拍板，不可配置）——超出 → 执行层静默拒绝 + 下轮注记
-- 生图本地执行（免费但 ~2s/张），频率约束主要护叙事节奏
+**频率约束**: **一段 bond 剧情至多 1 次 memorial**（2026-08-24 用户拍板, 后续
+  memorial_enter 被引擎静默拒绝 + 下轮注记）——情感高潮通常一次, 防刷屏
 
-**LLM 是否知道结果**：**单向**——生图是给玩家的资产，结果不回灌 LLM 历史
-（防"揣摩生图"自我强化，与 place 同理：视觉细节对叙事无增益，纯烧 token）
+**单向**: 生图结果不回灌 LLM 历史（防"揣摩生图"自我强化, 与 place 同理）
 
-**approval**：`APPROVAL_AUTO`（本地生图, 无 API 成本, 无需审批）
+**approval**: `APPROVAL_AUTO`（本地生图, 无 API 成本, 无需审批）
 
 ---
 
@@ -282,8 +278,12 @@ memorial registry.parse(memorial_generate) → MemorialExecutor.execute
 session_start ──► MMT 轮（append mmt 事件）
    │  mmt_trigger_bond_story → append marker vn_enter{reason}
    ▼
-VN 轮（append bond 事件 + vn_state marker 每场）──► vn_exit ──► 回 MMT
-   │  （VN 中 LLM 输出 memorial_generate → append l2d 事件, 剧情继续）
+VN 轮（append bond 事件 + vn_state marker 每场）
+   │  VN 中 LLM 输出 memorial_enter → append l2d 事件（立绘+煽情文字）
+   │    + marker memorial_enter（进入纪念子模式）──► 纪念场景（渲染文字+图+选项）
+   │  memorial_exit → append marker memorial_exit ──► 回 bond（story_scene 继续）
+   ▼
+vn_exit ──► 回 MMT
    ▼
 session_end{ended:true}（自然收尾 / 程序兜底 / 玩家退出）
 中断 = 崩溃/断连时 session_end 写不出去——无标记即中断（§4.2 推导）
@@ -313,7 +313,8 @@ mmt_trigger_bond_story 执行成功时:
 每场 send_vn_scene 后:
   events.jsonl append 一个 type=bond 事件（paragraphs 内联 emotion + input/picked）
   events.jsonl append marker vn_state（round/seed/visual —— 恢复点, 取最后一个）
-  若该场 LLM 输出 memorial_generate: append type=l2d 事件（§4.7）
+  若该场 LLM 输出 memorial_enter: append l2d 事件（立绘+煽情文字）+ marker memorial_enter（进入子模式, §4.7）
+  若该场 LLM 输出 memorial_exit: append marker memorial_exit（回 bond, 后续继续 story_scene）
 ```
 
 ### 5.5 VN 结束（自然收尾 / 程序兜底 / b 退出）
@@ -419,15 +420,16 @@ LLM 是 stateless 的，上下文从事件流派生，状态从 marker 推导。
 - 单流: mmt + bond + l2d + marker 同一 events.jsonl, seq 全局递增
 - 中断恢复: 坏行丢弃、vn_state 恢复（回退一场）
 - renderer: render_events 板块混排、filter_bond / filter_l2d、rewind
-- memorial: memorial_generate parse/执行（mock ImageGenerator）/失败降级/每场 1 张上限
+- memorial: memorial_enter/exit 状态机（parse/执行/mock ImageGenerator）/失败降级/一段至多 1 次 enter
 - 旧档删除后: 无兼容路径, 相关测试删除
 
 ---
 
 ## 十、未决事项（实现前确认）
 
-1. ~~memorial 每场上限~~ → **已定（2026-08-24）**：每场 VN 至多 1 张，定死，不可配置
-2. ~~独占一轮 vs 内联字段~~ → **已定（2026-08-24）**：独占一轮，独立动作 `memorial_generate` + 独立 registry
+1. ~~memorial 每场上限~~ → **已定（2026-08-24）**：一段 bond 剧情至多 1 次 memorial（后续 enter 拒绝 + 注记）
+2. ~~预判式 / 独占动作 / 内联字段~~ → **已定（2026-08-24）**：子模式状态机 `memorial_enter` / `memorial_exit`
+   （显式独占动作逼 LLM 谨慎决策 + begin/end 状态边界; 预判式废弃——预判不知剧情, prompt 与剧情脱节）
 3. **事件流保留策略**：全量保留 + brain 消化后延迟归档（既有决策, 保留）
 4. **jsonl 行大小**：bond 段落很长（max_tokens 1536+），单行可能 >4KB——append 原子性
    在 Windows 上仍"单次 write 系统调用"，风险低；若实测不稳再退化"小块写入 + 行尾校验"

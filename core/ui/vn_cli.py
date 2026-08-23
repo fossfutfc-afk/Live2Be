@@ -19,15 +19,24 @@ from __future__ import annotations
 
 import logging
 import sys
+import threading
 import time
 from pathlib import Path
 
 from core.momotalk import MomoTalkEngine
 from core.bond.bond_story import BondScene, BondStoryEngine, SceneLoopError
 from core.director import build_director
+from core.media.gallery import GalleryStore
 from core.session import SessionStore
-from core.session.events import M_VN_EXIT, M_VN_STATE, make_event
+from core.session.events import (
+    M_MEMORIAL_ENTER,
+    M_MEMORIAL_EXIT,
+    M_VN_EXIT,
+    M_VN_STATE,
+    make_event,
+)
 from core.ui.streaming import simulate_steps
+from llm.image_gen import ImageGenerator
 
 logger = logging.getLogger(__name__)
 
@@ -170,6 +179,9 @@ def run_bond_story_vn(
     max_tokens: int = 1536,
     seed: str | None = None,
     store: SessionStore | None = None,
+    image_gen: ImageGenerator | None = None,
+    gallery: GalleryStore | None = None,
+    memorial_seed: int | None = None,
 ) -> bool:
     """羁绊剧情 VN 模式：触发后进入, is_end 或 b 退出后回到 MomoTalk。
 
@@ -178,6 +190,14 @@ def run_bond_story_vn(
     store（SessionStore）注入时: 落**事件流**（DESIGN_SAVE.md §4）——enter_vn
     同会话 append vn_enter（单事件流, 无子会话）, 每场 append type=bond 事件 +
     vn_state marker（恢复点）, 结束时 vn_exit + session_end。写失败静默降级不阻断 VN。
+
+    纪念子模式（§4.7, 2026-08-24）:
+        image_gen（ImageGenerator）注入时: 开场后台预热生图 pipe（首次 ~12s 不阻塞）;
+        LLM 输出 memorial_enter → 当场生图（已预热 ~2s, 显示「生成中」）→ gallery 落盘
+        → l2d 事件 + marker memorial_enter; 下一轮 system_note 注入 memorial_exit
+        schema（纪念模式内只许 exit）; exit 轮 → marker memorial_exit 回 bond。
+        image_gen=None → 纪念场景纯文字渲染（测试/无 GPU 环境）。
+        gallery（GalleryStore）可注入（默认 data/）; memorial_seed 固定 → 立绘可复现。
 
     双层收尾兜底（模型可能迟迟不改用 story_end 动作收尾）:
         第 remind_rounds 场 → 注入系统注记「已推进 N 轮, 剩余约 M 轮」,
@@ -218,12 +238,25 @@ def run_bond_story_vn(
             logger.warning("事件流 vn_enter 写入失败, 本次 VN 不落事件流: %s", e)
             vn_sid = None
 
+    # 纪念立绘: trigger 后立即后台预热生图 pipe（首次 ~12s 不阻塞玩家; enter 轮当场仅 ~2s）
+    if image_gen is not None:
+        threading.Thread(target=image_gen.warmup, daemon=True).start()
+    gallery_store = gallery if gallery is not None else GalleryStore()
+
     completed = False
     user_input = seed
     force_after = end_rounds + 2          # 建议收尾后再留 2 场余量, 超限硬兜底
     for i in range(1, force_after + 1):
         system_note = None
-        if i == remind_rounds:
+        if vn.in_memorial:
+            # 纪念子模式（§4.7）: 本场只输出 memorial_exit——临时注入 exit schema
+            # （纪念模式只有 1 轮: enter 独占一轮含全部内容 → 下一轮 exit 回 bond）
+            system_note = (
+                "（系统）当前处于**纪念模式**——纪念场景已结束, 本场请输出"
+                " memorial_exit 动作回到 bond（可选过渡文字, 不要输出其他动作）。\n"
+                f"可用动作 schema:\n{vn.memorial_exit_schema()}"
+            )
+        elif i == remind_rounds:
             system_note = (
                 f"（系统）剧情已推进 {i} 轮，剩余约 {end_rounds - i} 轮。"
                 "请开始把剧情向结尾收束——感情到位、约定达成、道别告别的时刻"
@@ -255,17 +288,50 @@ def run_bond_story_vn(
             completed = True
             break
 
+        # 纪念进入轮（§4.7）: 生图（pipe 已预热 → ~2s, 显示加载中）→ gallery 落盘
+        # 生图失败 → 降级纯文字, 不阻断剧情（宁缺勿错）
+        memorial_images: list[str] = []
+        if scene.memorial_prompt and image_gen is not None:
+            print("[纪念立绘 生成中…]", flush=True)
+            try:
+                png = image_gen.generate(scene.memorial_prompt, seed=memorial_seed)
+                sid = gallery_store.write(
+                    char.character_id, scene.memorial_prompt, vn_sid or "", png)
+                memorial_images = [str(gallery_store.png_path(char.character_id, sid))]
+                print(f"[纪念立绘] {memorial_images[0]}", flush=True)
+            except Exception as e:
+                logger.warning("纪念立绘生成失败, 本场降级为纯文字: %s", e)
+                memorial_images = []
+
         choice = simulate_vn_scene(scene, input_fn=input_fn, char_ms=char_ms)
 
         # 事件流（store 注入时）: type=bond 事件（input=本场触发输入, picked=玩家裁决）
-        # + vn_state marker（恢复点: round/seed/visual）
+        # + 纪念 marker/l2d 事件（§4.7）+ vn_state marker（恢复点: round/seed/visual）
         if store is not None and vn_sid is not None:
             try:
+                if scene.memorial_exit:
+                    sub = "memorial_exit"
+                elif scene.memorial_prompt:
+                    sub = "memorial_enter"
+                else:
+                    sub = "story_end" if scene.is_end else "story_scene"
                 store.append_event(char.character_id, vn_sid, make_event(
-                    "bond",
-                    "story_end" if scene.is_end else "story_scene",
+                    "bond", sub,
                     {**scene.to_dict(), "input": user_input, "picked": choice},
                 ))
+                # 纪念子模式 marker + l2d 事件（立绘资产; 生图失败 → 无 l2d 事件, 剧情照走）
+                if scene.memorial_prompt:
+                    store.append_marker(char.character_id, vn_sid, M_MEMORIAL_ENTER,
+                                        {"reason": reason})
+                    if memorial_images:
+                        store.append_event(char.character_id, vn_sid, make_event(
+                            "l2d", "memorial_enter",
+                            {"paragraphs": [p.get("text", "") for p in scene.paragraphs
+                                            if isinstance(p, dict)],
+                             "choices": scene.choices,
+                             "images": memorial_images}))
+                elif scene.memorial_exit:
+                    store.append_marker(char.character_id, vn_sid, M_MEMORIAL_EXIT)
                 visual = vn.director.state.to_dict() if vn.director is not None else {}
                 store.append_marker(char.character_id, vn_sid, M_VN_STATE, {
                     "round": i, "seed": choice or "", "visual": visual})

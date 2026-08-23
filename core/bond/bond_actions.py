@@ -1,8 +1,10 @@
 """STORY 域动作 — 羁绊剧情（Bond Story）场景契约。
 
-动作集（v2, 双动作全部 APPROVAL_AUTO）:
-    story_scene   中段场景（叙事段落 + 选项, is_end 隐含 False）
-    story_end     收尾场景（叙事段落, 无选项, is_end 隐含 True）
+动作集（v3, 全部 APPROVAL_AUTO）:
+    story_scene     中段场景（叙事段落 + 选项, is_end 隐含 False）
+    story_end       收尾场景（叙事段落, 无选项, is_end 隐含 True）
+    memorial_enter  进入纪念子模式（§4.7: 生图 prompt + 煽情文字, 独占一轮）——
+                    切换动作归发出方域（仿 mmt_trigger_bond_story 属 mmt 域）
 
 与 MMT 域的关系: momotalk 用 mmt_ 动作在手机聊天里决策; 切进羁绊剧情后,
 VN 每场景就是一条 story_scene 或 story_end——纯输出契约, 程序不执行任何
@@ -158,6 +160,36 @@ def _end_result(paragraphs: list[dict], payload: dict[str, Any]) -> dict[str, An
     return result
 
 
+def parse_memorial_enter(payload: dict[str, Any]) -> dict[str, Any]:
+    """memorial_enter payload 白名单校验 + 机器侧容错（进入纪念子模式, §4.7）。
+
+    返回 {prompt: str, paragraphs: [{text, emotion?}], choices: [str], place: str|None}:
+        prompt     必填: 生图场景总结（当场写, 与剧情一致——角色外观+场景+氛围+构图, 精炼）
+        paragraphs 必填: 纪念场景的煽情文字（同 story_scene 格式——本场剧情内容）
+        choices    可选: 给 sensei 的回应（同 story_scene）
+        place      可选: 本场地点（同 story_scene, 场景切换才标）
+
+    切换动作归**发出方域**（bond 剧情中输出 → 属 story 域; 仿 mmt_trigger_bond_story
+    属 mmt 域）——纪念模式内的收尾动作 memorial_exit 才归 memorial 域。
+    """
+    raw_prompt = payload.get("prompt")
+    if not isinstance(raw_prompt, str) or not raw_prompt.strip():
+        raise ContractError(
+            "prompt 必填——生图场景总结（角色外观+场景+氛围+构图, 精炼, 当场写与剧情一致）"
+        )
+    paragraphs = _parse_paragraphs(payload)
+    choices = _parse_choices(payload)
+    place = _parse_place(payload)
+    result: dict[str, Any] = {
+        "prompt": raw_prompt.strip(),
+        "paragraphs": paragraphs,
+        "choices": choices,
+    }
+    if place is not None:
+        result["place"] = place
+    return result
+
+
 def build_story_registry() -> StoryActionRegistry:
     """构建注册了全部 story 动作的注册表（动作名 story_ 前缀）。"""
     registry = StoryActionRegistry()
@@ -198,6 +230,25 @@ def build_story_registry() -> StoryActionRegistry:
             "      choices 必须为空（结构上收尾无选项, 传非空会被拒绝）。宁可及早收尾, \n"
             "      也不要无限续写新场景。字符串一律双引号。\n"
             "      每次只输出一个动作。"
+        ),
+    ))
+    registry.register(ActionSpec(
+        "memorial_enter",
+        parse_memorial_enter,
+        APPROVAL_AUTO,
+        prompt_fields=frozenset({"action", "payload"}),
+        payload_schema=(
+            "payload 字段（memorial_enter 进入纪念子模式参数）:\n"
+            "  prompt: 必填, 字符串——纪念立绘的生图场景总结（角色外观+场景+氛围+构图; \n"
+            "      **精炼**: 只留关键视觉词, 长描述会被生图模型截断丢尾）\n"
+            "  paragraphs: 必填, 数组——纪念场景的煽情文字, 同 story_scene 格式\n"
+            "      （每项 {text, emotion}, 每单元必填 emotion; 这是本场剧情内容）\n"
+            "  choices: 可选, 数组——同 story_scene（1~3 个; 缺省 = sensei 自由输入）\n"
+            "  place: 可选, 字符串——同 story_scene（场景切换才标）\n"
+            "约束: memorial_enter 是**进入纪念时刻**的专属动作——这是剧情的决定时刻, 只\n"
+            "      在该真正值得纪念的场景使用（约定/告白/道别/重大转折）, 一段剧情至多\n"
+            "      一次（重复会被引擎拒绝）。输出后本场生成纪念立绘。文字要煽情, 配得上\n"
+            "      这个时刻。字符串一律双引号。每次只输出一个动作。"
         ),
     ))
     return registry

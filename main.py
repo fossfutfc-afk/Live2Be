@@ -12,6 +12,7 @@ import logging
 import sys
 
 from llm.client import LLMClient
+from llm.image_gen import ImageGenerator
 from core.momotalk import MomoTalkEngine
 from core.mmt.mmt_preset import (
     LoopResult,
@@ -63,7 +64,7 @@ def _chat_loop(engine: MomoTalkEngine) -> LoopResult:
             simulate_steps(result.steps)          # …打字指示 + 气泡, 依序渲染
             if result.bond_story:
                 print(f"\n[系统] 与 {display_name} 进入了羁绊剧情时刻……")
-                completed = run_bond_story_vn(engine)   # VN 循环; 【完】/b 退出后回到正常对话
+                completed = run_bond_story_vn(engine, image_gen=ImageGenerator())  # VN 循环; 【完】/b 退出后回到正常对话
                 if completed:
                     wrapup_after_vn(engine)   # 剧情走到【完】→ AI 就剧情在手机上回几段话
             print()  # 回复结束，额外空行

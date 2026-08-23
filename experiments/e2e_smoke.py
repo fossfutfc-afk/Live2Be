@@ -21,6 +21,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from llm.client import LLMClient
+from llm.image_gen import ImageGenerator
 from core.momotalk import MomoTalkEngine
 from core.session import SessionStore
 from core.ui.vn_cli import run_bond_story_vn, wrapup_after_vn
@@ -88,7 +89,8 @@ def main() -> None:
         with redirect_stdout(buf):
             completed = run_bond_story_vn(
                 engine, input_fn=_auto_input, char_ms=0,
-                remind_rounds=5, end_rounds=8, store=store)
+                remind_rounds=5, end_rounds=8, store=store,
+                image_gen=ImageGenerator())   # 真实生图: memorial_enter 轮生成纪念立绘 → data/{char}/gallery/
         print(buf.getvalue())
         md.append("```")
         md.append(buf.getvalue().rstrip("\n"))
