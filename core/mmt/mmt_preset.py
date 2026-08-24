@@ -61,6 +61,7 @@ RESERVED_WORDS = frozenset({"null", "true", "false"})
 # 名字彩蛋动作
 ACCEPT_NAMING = "AC~"
 REJECT_NAMING = "RJ~"
+SYSTEM_NAMING = "ER~"    # 系统级（超强人工智能体等非角色存在）: 弹窗提示, 不真正阻止
 # 回复肯定列表
 ACCEPT_REPLIES = ("y", "yes", "是", "", "t", "true", "1")
 
@@ -278,7 +279,7 @@ def name_confirm(name: str, input_fn=input) -> bool:
             except (EOFError, KeyboardInterrupt):
                 pass
             return False                    # 玩笑式拒绝: 只有否, 永远不接受
-        print(f"[???] {text if sign == ACCEPT_NAMING else raw}")
+        print(f"[???] {text if sign in (ACCEPT_NAMING, SYSTEM_NAMING) else raw}")
         try:
             answer = input_fn(f"名字是『{name}』吗？(y/n): ").strip().lower()
         except (EOFError, KeyboardInterrupt):
@@ -290,6 +291,51 @@ def name_confirm(name: str, input_fn=input) -> bool:
     except (EOFError, KeyboardInterrupt):
         return True
     return answer in ACCEPT_REPLIES
+
+
+def egg_kind(egg: str | None) -> str:
+    """彩蛋前缀类型（GUI/CLI 共用判定——阻止/允许取名）:
+
+        accept  AC~    允许取名（弹台词后正常保存）
+        reject  RJ~    阻止取名（玩笑式拒绝——不保存）
+        system  ER~    阻止取名（系统级——弹窗提示, 不保存）
+        plain   无前缀  普通彩蛋（允许取名）
+        未知前缀 → plain（未来: SP~ surprise 只弹窗不阻止 / FT~ fatal 宕机, 到时再加）
+    """
+    if not egg:
+        return "plain"
+    if egg.startswith(ACCEPT_NAMING):
+        return "accept"
+    if egg.startswith(REJECT_NAMING):
+        return "reject"
+    if egg.startswith(SYSTEM_NAMING):
+        return "system"
+    return "plain"
+
+
+def egg_reply_for(name: str) -> str | None:
+    """名字命中 namegg.json → 返回彩蛋台词（含 AC~/RJ~ 前缀）; 未命中 → None。
+
+    非 CLI 版彩蛋查询（GUI 登录页用）: 只返回台词文本, 不交互——
+    前缀语义由调用方决定（RJ~ 玩笑拒绝 / AC~ 接受 / 无前缀普通）。
+    多条命中只弹第一条; 配置缺失/损坏 → None（降级, 不阻塞）。
+    """
+    try:
+        data = _load_namegg()
+    except (FileNotFoundError, ValueError) as e:
+        print(f"[系统] 彩蛋配置异常: {e}")
+        return None
+    for pattern, replies in data.items():
+        if not _egg_pattern_matches(pattern, name):
+            continue
+        if not replies:
+            break
+        raw = random.choice(replies)
+        sign, text = raw[:3], raw[3:]
+        if sign == REJECT_NAMING or sign == ACCEPT_NAMING:
+            return raw                    # 带前缀原样返回（调用方解析）
+        return raw
+    return None
 
 
 
