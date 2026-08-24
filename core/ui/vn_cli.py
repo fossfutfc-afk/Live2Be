@@ -36,7 +36,7 @@ from core.session.events import (
     make_event,
 )
 from core.ui.streaming import simulate_steps
-from llm.image_gen import ImageGenerator
+from llm.image_gen import ImageGenerator, collect_ref_images
 
 logger = logging.getLogger(__name__)
 
@@ -288,13 +288,17 @@ def run_bond_story_vn(
             completed = True
             break
 
-        # 纪念进入轮（§4.7）: 生图（pipe 已预热 → ~2s, 显示加载中）→ gallery 落盘
+        # 纪念进入轮（§4.7）: 生图（APIYI 秒级 / 本地预热后 ~2s, 显示加载中）→ gallery 落盘
+        # ref 图 = collect_ref_images（sprite_* 角色 → style_* 画风 → 其余 配饰, 顺序固定）
         # 生图失败 → 降级纯文字, 不阻断剧情（宁缺勿错）
         memorial_images: list[str] = []
         if scene.memorial_prompt and image_gen is not None:
             print("[纪念立绘 生成中…]", flush=True)
             try:
-                png = image_gen.generate(scene.memorial_prompt, seed=memorial_seed)
+                png = image_gen.generate(
+                    scene.memorial_prompt, seed=memorial_seed,
+                    ref_images=collect_ref_images(char.character_id),
+                    character_name=char.display_name)
                 sid = gallery_store.write(
                     char.character_id, scene.memorial_prompt, vn_sid or "", png)
                 memorial_images = [str(gallery_store.png_path(char.character_id, sid))]
