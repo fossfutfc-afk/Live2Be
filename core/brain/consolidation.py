@@ -33,6 +33,8 @@ from core.session import SessionStore
 from core.session.renderer import render_timeline
 from core.brain.hippocampus import WikiStore
 from core.brain.recall import recall_related
+from core.common.errors import err
+from contract import build_digest_schema
 from llm.prompts import load_prompt
 
 logger = logging.getLogger(__name__)
@@ -81,14 +83,15 @@ def digest_session(
     if not new_events:
         return wiki                       # 无新增 → 旧 wiki（0 次 LLM 调用）
 
-    # 输入: 新增时间线 + 视觉记忆 + 联想（轻量召回 + 随机摘段）+ 已有记忆概要
+    # 输入: 新增时间线 + 视觉记忆 + 联想（轻量召回 + 双通道回忆）+ 已有记忆概要
     timeline = render_timeline(new_events)
     visuals = _collect_visual_prompts(new_events)
     recalled = recall_related(wiki, timeline)
-    random_seg = _random_segment(events, digested_seq) if use_random_recall else None
+    random_seg = _random_segment(events, digested_seq, wiki) if use_random_recall else None
     user_msg = _build_user_message(timeline, visuals, recalled, random_seg, wiki)
 
-    system = load_prompt("digest")
+    # 契约渲染: digest.md 的 {{output_schema}} 占位 ← build_digest_schema（单源真值）
+    system = load_prompt("digest").replace("{{output_schema}}", build_digest_schema())
     try:
         resp = llm.chat(
             [
@@ -99,13 +102,14 @@ def digest_session(
             max_tokens=max_tokens,
             response_format="json_object",
         )
-    except Exception as e:                           # noqa: BLE001 — 失败降级
-        logger.warning("digest LLM 调用失败, 跳过本会话: %s", e)
+    except Exception as e:                           # noqa: BLE001 — 失败降级（err 格式, 不阻断）
+        logger.warning(err("DigestFailed", f"LLM 调用失败, 跳过本会话: {e}"))
         return None
 
     cleaned = _clean_output(resp)
     if cleaned is None:
-        logger.warning("digest 输出无效（非 dict/无有效条目）, 跳过本会话: %s", session_id)
+        logger.warning(err("DigestFailed",
+                           f"输出无效（非 dict/无有效条目）, 跳过本会话: {session_id}"))
         return None
 
     # 增量合并: 旧条目保留 + 新条目（同 content 去重, importance 取高）
@@ -114,8 +118,8 @@ def digest_session(
     merged["updated_at"] = datetime.now().isoformat()
     try:
         ws.save(char_id, session_id, merged)
-    except Exception as e:                           # noqa: BLE001 — 落盘失败降级
-        logger.warning("digest 落盘失败: %s", e)
+    except Exception as e:                           # noqa: BLE001 — 落盘失败降级（err 格式）
+        logger.warning(err("DigestFailed", f"落盘失败: {e}"))
         return None
     return merged
 
@@ -278,7 +282,11 @@ def _merge_relations(existing: list, new: list) -> list:
 
 
 def _clean_output(resp) -> dict | None:
-    """校验/清洗 LLM 输出（坏字段丢弃, 宁缺勿错）。非 dict → None。"""
+    """校验/清洗 LLM 输出（坏字段丢弃, 宁缺勿错）。非 dict → None。
+
+    结构边界对齐契约 build_digest_schema（contract/schema.py, 单源真值）;
+    本函数是内容净化（importance clamp / tags 过滤 / 空 content 丢弃）。
+    """
     if not isinstance(resp, dict):
         return None
     summary = resp.get("summary", "")

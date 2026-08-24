@@ -102,3 +102,27 @@ def export_definitions(registry: ActionRegistry) -> dict[str, Any]:
         "domain": registry.domain,
         "actions": actions,
     }
+
+
+def build_digest_schema() -> str:
+    """digest 输出的 JSON 结构描述（数据 schema, 单源真值）。
+
+    与动作契约不同: 这不是动作（无执行语义）, 是**数据产出** schema——
+    Brain digest（core/brain/consolidation.py）的 LLM 输出格式。
+    digest.md 的 `{{output_schema}}` 占位由此渲染——改字段只改这一处,
+    prompt 描述与校验结构同步（DESIGN_BRAIN.md §4）。
+
+    边界: 本函数管"结构/类型/边界"; 内容净化（importance clamp / tags 过滤 /
+    空 content 丢弃）是清洗业务规则, 在 consolidation._clean_output 实现。
+    """
+    lines = [
+        "输出 JSON（不要任何解释文字）:",
+        '    {"summary": "...", "facts": [...], "beliefs": [...], "relations": [...]}',
+        "字段说明:",
+        "  - summary: 一句话主线（str, 整体视角, 不是只写新增）",
+        "  - facts: 关键事实列表, 每项 {content: str, importance: 0~1 数字, tags: 可选 1~3 关键词}",
+        "  - beliefs: 抽象信念列表, 每项 {content: str, importance: 0~1 数字}",
+        "  - relations: 关系变化列表, 每项 {subject: str, object: str, relation: str, note: 可选 str}",
+        "没有值得记的内容 → 对应字段输出空数组（合法）。",
+    ]
+    return "\n".join(lines)
