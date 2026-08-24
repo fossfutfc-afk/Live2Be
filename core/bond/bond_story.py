@@ -197,6 +197,7 @@ class BondStoryEngine:
         llm_client: LLMClient,
         *,
         director=None,
+        brain_segment: str = "",
     ):
         self.char_loader = CharacterLoader(characters_root)
         self.llm = llm_client
@@ -204,6 +205,7 @@ class BondStoryEngine:
         self.memorial_registry = build_memorial_registry()
         self.executor = StoryExecutor()
         self.director = director          # 视觉导演（可注入; None = 纯文本模式）
+        self._brain_segment = brain_segment   # Brain 记忆段（DESIGN_BRAIN.md）: VN 开场注入
         self._current_char: DynamicCharacter | None = None
         self._system_prompt: str = ""
         self._history: list[dict[str, str]] = []
@@ -237,6 +239,10 @@ class BondStoryEngine:
         place_inj = build_place_injection()
         if place_inj:
             system_prompt += "\n\n" + place_inj
+        # Brain 记忆段（DESIGN_BRAIN.md）: 本世界线 wiki 第一人称注入——
+        # 角色在 VN 中也记得这个世界线前面的事（vn_cli 恢复场景传入; 空 = 不注入）
+        if self._brain_segment:
+            system_prompt += "\n\n" + self._brain_segment
 
         self._current_char = char
         self._system_prompt = system_prompt

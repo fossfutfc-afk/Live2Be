@@ -217,8 +217,22 @@ def run_bond_story_vn(
         return False
 
     reason = _trigger_reason(engine)
+    # Brain 记忆段（DESIGN_BRAIN.md）: 本世界线 wiki 第一人称注入——
+    # VN 中角色记得这个世界线前面的事（resume 过则有 digest 产物; 空 → 零注入, 平行世界）。
+    # 读失败静默跳过（不阻断 VN）。
+    brain_segment = ""
+    try:
+        store_ = store if store is not None else engine._store
+        if store_ is not None and engine._session_id:
+            from core.brain.hippocampus import WikiStore
+            from core.brain.recall import build_brain_injection
+            wiki = WikiStore(store_.data_root).load(char.character_id, engine._session_id)
+            brain_segment = build_brain_injection(wiki, char_name=char.display_name)
+    except Exception:                                # noqa: BLE001
+        brain_segment = ""
     vn = BondStoryEngine(
-        engine.char_loader.root, engine.llm, director=_build_director(char, reason))
+        engine.char_loader.root, engine.llm,
+        director=_build_director(char, reason), brain_segment=brain_segment)
     vn.start_session(char.character_id)
 
     print("\n" + "═" * 40)
