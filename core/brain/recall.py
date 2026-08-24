@@ -1,20 +1,21 @@
 # -*- coding: utf-8 -*-
-"""回忆（recall）— 检索注入（Brain 模块, DESIGN_BRAIN.md §4）。
+"""回忆（recall）— 检索注入（Brain 算法, DESIGN_BRAIN.md）。
 
 对应脑科学: 回忆/提取（recall）——把存储的记忆在需要时"想起来"并表达出来。
-本项目即: 把角色级 wiki 渲染成 system prompt 的【角色记忆】段, 随五层卡一起注入。
+本项目即: 把**本 session 的 wiki**（digest 产物）渲染成 prompt 的【角色记忆】段,
+加载/恢复 session 时注入——角色记得"这个世界线"前面的事。
 
-**视角包装（v2.1 决策）**: 存储是第三人称（wiki 条目中性事实, 归并/检索靠 content
-精确匹配, 人称统一才稳定）; **注入时转第一人称**——char_name 出现在条目里就替换
-成"我"（"遥香第一次觉得被需要" → "我第一次觉得被需要"）, summary → "我记得那段
-日子…"。依据: Perspective-Bounded Memory（arXiv 2606.25632）+ SillyTavern 实践 +
-自我参照效应——角色视角的记忆注入比旁观者视角更贴角色认同。
+**视角包装（v2.1 决策）**: wiki 条目是第三人称（中性事实, digest 输出稳定）;
+**注入时转第一人称**——char_name 出现在条目里就替换成"我"（"遥香第一次觉得被
+需要" → "我第一次觉得被需要"）, summary → "我记得那段日子…"。依据:
+Perspective-Bounded Memory（arXiv 2606.25632）+ 自我参照效应——角色视角的记忆
+注入比旁观者视角更贴角色认同。
 
 注入量控: importance 降序 → 截断（facts/beliefs/relations 各自上限）; 空 wiki → ""。
 
 用法:
     from core.brain.recall import build_brain_injection
-    wiki = WikiStore().load_char_wiki("igusa_haruka")
+    wiki = WikiStore().load("igusa_haruka", session_id)
     seg = build_brain_injection(wiki, char_name="遥香")   # 非空才追加进 system prompt
 """
 

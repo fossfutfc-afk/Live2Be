@@ -1,20 +1,18 @@
 # -*- coding: utf-8 -*-
-"""Brain 模块（角色记忆, DESIGN_BRAIN.md）——记忆生命周期: 存储/巩固/再巩固/回忆。
+"""Brain 算法（角色记忆, DESIGN_BRAIN.md）——**算法不是跨 session 实体**。
+
+每个 session 是平行世界: 各自的 events.jsonl（真源）→ brain 算法 → 各自唯一的
+wiki（sessions/{id}/brain/wiki.json）。另一个世界线的成长与本 session 无关——
+无角色级 wiki、无归并、无迁移。
 
 术语（脑科学对应）:
-    hippocampus.py      海马体 — 记忆存储（WikiStore 双层级 + 归并 + 哈希）
-    consolidation.py    记忆巩固 — 睡眠整合（digest_session）
-    reconsolidation.py  记忆再巩固 — 记忆修订（migrate_wiki）
-    recall.py           回忆 — 检索注入（build_brain_injection）
+    hippocampus.py      海马体 — session wiki 读写
+    consolidation.py    记忆巩固 — digest（events.jsonl → 本 session 的 wiki）
+    recall.py           回忆 — 注入（本 session 的 wiki → prompt 段）
 """
 
 from __future__ import annotations
 
-from core.brain.hippocampus import (
-    SCHEMA_VERSION,
-    WikiStore,
-    compute_character_hash,
-)
+from core.brain.hippocampus import SCHEMA_VERSION, WikiStore
 from core.brain.consolidation import digest_session
-from core.brain.reconsolidation import migrate_wiki
 from core.brain.recall import build_brain_injection

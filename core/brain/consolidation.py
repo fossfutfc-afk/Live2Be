@@ -1,19 +1,20 @@
 # -*- coding: utf-8 -*-
-"""记忆巩固（consolidation）— 睡眠整合（Brain 模块, DESIGN_BRAIN.md §1/§2）。
+"""记忆巩固（consolidation）— 睡眠整合（Brain 算法, DESIGN_BRAIN.md）。
 
 对应脑科学: 记忆巩固（memory consolidation）——睡眠中把新经历整合进长期记忆。
-本项目即: 会话退出后, 把该会话事件流（episodic）+ 视觉记忆（gallery prompts）
-喂给主 LLM 一次调用, 提炼出 facts/beliefs/relations, 落盘会话级 wiki 并归并进
-角色级 wiki（DESIGN_BRAIN.md §3）。
+本项目即: **brain 是算法**——加载 session 时, 把该 session 的 events.jsonl
+（episodic）+ 视觉记忆（gallery prompts）喂给主 LLM 一次调用, 提炼出
+facts/beliefs/relations, 生成**该 session 自己的 wiki**（平行世界, 无跨 session
+归并/迁移）。
 
-触发: 会话退出路径（main.py / mmt_preset）——每个会话一次（非每轮, 控成本）。
+触发: 加载/恢复 session 时（resume 注入用）——不是每轮, 控成本。
 失败: 静默降级（logger.warning + return None, 不阻断主流程——wiki 是派生视图,
        events.jsonl 唯一真源, 可重算）。
 
 用法:
     from core.brain.consolidation import digest_session
     wiki = digest_session(llm, data_root, "igusa_haruka", session_id)
-    # 成功 → 会话级 wiki dict（已双层级落盘）; 空会话/失败 → None
+    # 成功 → 本 session 的 wiki dict（已落盘）; 空会话/失败 → None
 """
 
 from __future__ import annotations
@@ -23,14 +24,9 @@ import logging
 from datetime import datetime
 from pathlib import Path
 
-from core.common import err
 from core.session import SessionStore
 from core.session.renderer import render_timeline
-from core.brain.hippocampus import (
-    WikiStore,
-    compute_character_hash,
-    _empty_session_wiki,
-)
+from core.brain.hippocampus import WikiStore, _empty_wiki
 from llm.prompts import load_prompt
 
 logger = logging.getLogger(__name__)
@@ -50,10 +46,13 @@ def digest_session(
     temperature: float = 0.3,
     max_tokens: int = 1024,
 ) -> dict | None:
-    """记忆巩固: 会话事件流 + 视觉记忆 → 主 LLM 提炼 → wiki 双层级落盘。
+    """记忆巩固: 本 session 事件流 + 视觉记忆 → 主 LLM 提炼 → 本 session 的 wiki。
+
+    brain 是算法: 输入本 session 的 events.jsonl, 输出该 session 自己的 wiki
+    （平行世界, 无跨 session 归并）。加载 session 时调用（resume 注入用）。
 
     Returns:
-        会话级 wiki dict（已 save_session_wiki + 归并进角色级）;
+        本 session 的 wiki dict（已落盘 sessions/{id}/brain/wiki.json）;
         空会话（无内容事件）/ LLM 失败 / 输出无效 → None（宁缺勿错, 不阻断）。
     """
     store = SessionStore(data_root)
@@ -90,18 +89,12 @@ def digest_session(
         logger.warning("digest 输出无效（非 dict/无有效条目）, 跳过本会话: %s", session_id)
         return None
 
-    # 会话级 wiki（character_hash = 本会话副本哈希; 无副本 → 空）
-    cards_dir = Path(data_root) / char_id / "sessions" / session_id / "cards"
-    card_hash = compute_character_hash(list(cards_dir.glob("*.yml"))) if cards_dir.is_dir() else ""
-    wiki = _empty_session_wiki(session_id, character_hash=card_hash)
+    # 本 session 的 wiki 落盘
+    wiki = _empty_wiki(session_id)
     wiki.update(cleaned)
     wiki["updated_at"] = datetime.now().isoformat()
-
-    # 双层级落盘: 会话级 + 归并进角色级
     try:
-        ws.save_session_wiki(char_id, session_id, wiki)
-        merged = ws.merge_char_wiki(char_id, wiki)
-        ws.save_char_wiki(char_id, merged)
+        ws.save(char_id, session_id, wiki)
     except Exception as e:                           # noqa: BLE001 — 落盘失败降级
         logger.warning("digest 落盘失败: %s", e)
         return None
