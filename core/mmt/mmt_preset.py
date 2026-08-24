@@ -61,7 +61,9 @@ RESERVED_WORDS = frozenset({"null", "true", "false"})
 # 名字彩蛋动作
 ACCEPT_NAMING = "AC~"
 REJECT_NAMING = "RJ~"
-SYSTEM_NAMING = "ER~"    # 系统级（超强人工智能体等非角色存在）: 弹窗提示, 不真正阻止
+SYSTEM_NAMING = "ER~"    # 系统级（超强人工智能体等非角色存在）: 弹窗提示, 且阻止
+SURPRISE_NAMING = "SP~"  # 弹窗吓人但是不阻止
+FATAL_NAMING = "FT~"     # 看起来没问题，但是一点确定直接ERROR404
 # 回复肯定列表
 ACCEPT_REPLIES = ("y", "yes", "是", "", "t", "true", "1")
 
