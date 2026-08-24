@@ -1,47 +1,58 @@
 # -*- coding: utf-8 -*-
-"""生图接口 — 本地 SD 模型调用封装（llm/ 板块, 支持 SD1.5 + SDXL + IP-Adapter 参考图）。
+"""生图接口 — APIYI（Gemini 图像/nano banana, 推荐）+ 本地 diffusers（fallback）。
 
-与 LLMClient 同风格：从 .env 读配置、构造时可覆盖、统一 err() 错误格式。
-**懒加载**：diffusers/torch 在首次 generate 才 import + 加载模型（pipe 加载
-SD1.5 ~10s / SDXL ~15s），import 本模块不触发。
+**双后端（2026-08-24）**:
+    1. APIYI（Gemini 协议, 推荐）: 配了 IMAGE_API_KEY 即启用——多图 ref
+       （角色/画风/配饰）+ 中文场景指令原生支持, 秒级出图（对比本地 SD 20 分钟）。
+       协议: POST {base}/{api_version}/models/{model}:generateContent
+       （Google GenAI SDK 风格; parts: inline_data 多图 + text 指令）。
+    2. 本地 diffusers（SD1.5/SDXL + IP-Adapter）: 未配 IMAGE_API_KEY 时兜底
+       （能力弱: 中文 prompt 是噪声、无画风参考、8G 显存极慢——不建议日常用）。
 
-**模型自动识别**（按 model_index.json）:
-    - 含 text_encoder_2 → SDXL（StableDiffusionXLPipeline, 原生 1024）
-    - 否则 → SD1.5（StableDiffusionPipeline, 512）
-SDXL 下自动: fp16 + enable_model_cpu_offload（8G 显存跑 1024）+ VAE slicing/tiling
-+ 动漫质量标签前缀（masterpiece, best quality, anime style）+ 默认动漫 negative。
-SD1.5 保持原行为（512, 无自动前缀/negative, 兼容旧调用）。
+配置（.env, 均可构造时覆盖）:
+    IMAGE_API_KEY        APIYI key（有值 → 走 APIYI 后端）
+    IMAGE_API_BASE_URL   默认 https://api.apiyi.com
+    IMAGE_MODEL          默认 gemini-3.1-flash-lite-image（Nano Banana 2 Lite）
+    IMAGE_API_VERSION    默认 v1beta
+    IMAGE_MODEL_PATH     本地 diffusers 模型目录（仅 fallback 用）
+    IMAGE_OUTPUT_DIR     生成图输出目录（默认 D:\\by-user\\fossf\\AI\\output）
+    IMAGE_IP_ADAPTER_PATH IP-Adapter 模型目录（仅本地 SDXL fallback 用）
 
-**IP-Adapter（角色参考图一致性, 2026-08-24）**:
-    generate(ref_images=[...]) → 首次加载 ip-adapter-plus_sdxl_vit-h（本地
-    h94/IP-Adapter 结构, 含 CLIP-ViT-H image encoder）→ 生成时 ip_adapter_image
-    注入角色外观特征（ref 三张图: 立绘/光环/官方 L2D）。仅 SDXL 支持
-    （SD1.5 传 ref_images → 忽略并 warning）。
-
-配置（.env，均可构造时覆盖）:
-    IMAGE_MODEL_PATH       本地 SD 模型目录（默认 SD1.5 路径; 指向 SDXL 目录即自动切换）
-    IMAGE_OUTPUT_DIR       生成图输出目录（默认 D:\\by-user\\fossf\\AI\\output）
-    IMAGE_IP_ADAPTER_PATH  IP-Adapter 模型目录（默认 D:\\by-user\\fossf\\AI\\models\\IP-Adapter）
+**ref 命名约定（喂图顺序固定: 角色 → 画风 → 配饰）**:
+    assets/illustration/{char_id}/ref/
+        sprite_*.png     角色本体（可多张）
+        style_*.png      画风示例（可多张）
+        其余 png         配饰（光环/随身物品, 物品名即可, 如 halo.png）
+    collect_ref_images(char_id) 按此分组排序返回。
 
 用法:
-    from llm.image_gen import ImageGenerator
-    gen = ImageGenerator()   # 默认 SD1.5
-    gen2 = ImageGenerator(model_path=r"D:\by-user\fossf\AI\models\animagine-xl-4.0")
-    path = gen2.generate("purple hair girl, weeds, sunset, anime style", seed=42,
-                         ref_images=[r"assets\illustration\igusa_haruka\ref\haruka_spr_00.png",
-                                     r"assets\illustration\igusa_haruka\ref\Haruka_Original_Halo.png"])
+    from llm.image_gen import ImageGenerator, collect_ref_images
+    gen = ImageGenerator()                       # 配了 IMAGE_API_KEY → APIYI
+    refs = collect_ref_images("igusa_haruka")
+    path = gen.generate("她在湖边微笑，眼角带一滴泪，黄昏暖光，晚风拂过鬓发",
+                        ref_images=refs, character_name="伊草 遥香")
 """
 from __future__ import annotations
 
+import base64
+import json
 import logging
 import os
 import threading
+import urllib.error
+import urllib.request
 from datetime import datetime
 from pathlib import Path
+
+from dotenv import load_dotenv
 
 from core.common import err
 
 logger = logging.getLogger(__name__)
+
+#: 项目根（llm/image_gen.py → Live2Be）; .env 模块级加载（同 llm/client.py 模式）
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+load_dotenv(_PROJECT_ROOT / ".env")
 
 # 默认路径（.env 注释的既有约定; 无变量时兜底）
 _DEFAULT_MODEL = r"D:\by-user\fossf\AI\models\AI-ModelScope\stable-diffusion-v1-5"
@@ -64,12 +75,28 @@ _IP_ADAPTER_SUBFOLDER = "sdxl_models"
 _IP_ADAPTER_ENCODER_FOLDER = "models/image_encoder"
 _IP_ADAPTER_SCALE = 0.6          # ref 图特征强度（0.5~0.8; 太低角色不像, 太高构图被锁死）
 
+#: APIYI 固定框架（引擎侧拼接, 不依赖 LLM 每次写）——角色/画风/配饰三个锚点 + 质量要求
+_APIYI_FRAME = """你是一位插画师，请根据以下参考图与要求生成一张图片。
+
+【图1 角色本体】图1是角色"{name}"的本体参考图。必须严格保持她的外观特征
+（发色/瞳色/发型/服装/标志物）——不要改动角色外观，不要擅自换装。
+
+【图2 画风参考】图2是画风参考。整体绘画风格、上色方式、线条质感都按图2执行。
+
+【图3 配饰参考】图3是角色标志性配饰（光环/随身物品）。按图3的形状与颜色绘制，
+位置正确（如头顶上方），半透明发光质感。
+
+【场景指令】
+{scene}
+
+【质量要求】高质量精细绘制，日系动画风格，构图完整，人物表情自然，情绪到位。"""
+
 
 class ImageGenerator:
-    """本地 SD 生图客户端（懒加载 pipe, 单例复用; SD1.5/SDXL 自动识别 + IP-Adapter）。
+    """生图客户端（APIYI Gemini 后端为主; 未配 key → 本地 diffusers fallback）。
 
-    构造不加载模型——首次 generate()/warmup() 才 import torch/diffusers 并
-    from_pretrained（pipe 可复用, 多次生成只加载一次）。
+    APIYI 模式: 构造即就绪（无模型加载）, generate() 走 HTTP。秒级出图。
+    本地模式: 懒加载 pipe（首次 generate/warmup 才 import torch/diffusers）。
     """
 
     def __init__(
@@ -79,7 +106,16 @@ class ImageGenerator:
         device: str = "auto",
         offline: bool = True,
         ip_adapter_path: str | Path | None = None,
+        api_key: str | None = None,
     ):
+        # ---- APIYI（Gemini 图像）后端配置 ----
+        # api_key: None=读 .env; ""=强制本地 diffusers（测试用）; 非空=APIYI
+        self._api_key = api_key if api_key is not None else os.getenv("IMAGE_API_KEY", "")
+        self.api_base_url = os.getenv("IMAGE_API_BASE_URL", "https://api.apiyi.com")
+        self.api_model = os.getenv("IMAGE_MODEL", "gemini-3.1-flash-lite-image")
+        self.api_version = os.getenv("IMAGE_API_VERSION", "v1beta")
+
+        # ---- 本地 diffusers fallback 配置 ----
         self.model_path = Path(
             model_path or os.getenv("IMAGE_MODEL_PATH", _DEFAULT_MODEL))
         self.output_dir = Path(
@@ -94,6 +130,11 @@ class ImageGenerator:
         self._default_size = 512        # 原生分辨率（SDXL=1024, SD1.5=512）
         self._ip_loaded = False         # IP-Adapter 已加载（ref 首次需要时加载）
         self._lock = threading.Lock()   # pipe/ip-adapter 懒加载并发安全（预热线程 + 生成）
+
+    @property
+    def is_api_mode(self) -> bool:
+        """是否走 APIYI 后端（配了 IMAGE_API_KEY）。"""
+        return bool(self._api_key)
 
     # ------------------------------------------------------------------
     # 懒加载
@@ -232,21 +273,32 @@ class ImageGenerator:
         steps: int = 20,
         seed: int | None = None,
         ref_images: list[str | Path] | None = None,
+        character_name: str = "角色",
     ) -> Path:
         """生成一张图并保存到输出目录, 返回文件路径（l2d 事件的资产引用）。
 
-        height/width 缺省 → 按模型原生分辨率（SDXL 1024 / SD1.5 512）。
-        negative_prompt 缺省 → SDXL 用默认动漫 negative; SD1.5 保持 None（原行为）。
-        SDXL 自动加动漫质量前缀（masterpiece, best quality, anime style）。
-        ref_images（IP-Adapter 参考图, 仅 SDXL）→ 注入角色外观特征（角色一致性）。
+        APIYI 模式（配了 IMAGE_API_KEY）:
+            prompt = **中文场景指令**（场景/光线/情感/构图, 不写角色外观——ref 图锚定）;
+            ref_images = collect_ref_images(char_id)（角色→画风→配饰顺序）;
+            character_name 注入固定框架（"图1是角色 X 的本体参考图"）。
+            内部拼固定框架 + 多图 parts → generateContent → 落盘。
 
-        seed 固定 → 可复现（同 prompt 同 seed 同图）; None = 随机。
-        文件名: gen_{ts}_{seed}.png（seed 为 None 时用 4 位随机后缀）。
+        本地 diffusers 模式（fallback）:
+            height/width 缺省 → 模型原生分辨率（SDXL 1024 / SD1.5 512）;
+            SDXL 自动加动漫质量前缀 + 默认 negative; ref_images 走 IP-Adapter。
+
+        seed 固定 → 可复现（仅本地模式; APIYI 无 seed 概念）。
+        文件名: gen_{ts}_{seed}.png（APIYI 用 _apiyi 后缀）。
         """
-        import torch  # noqa: PLC0415 — 与 _load_pipe 同层懒加载
-
         if not prompt.strip():
             raise ValueError(err("ImageGen", "prompt 不能为空"))
+
+        # ---- APIYI 后端（推荐）----
+        if self.is_api_mode:
+            return self._generate_apiyi(prompt, ref_images, character_name)
+
+        # ---- 本地 diffusers fallback ----
+        import torch  # noqa: PLC0415 — 与 _load_pipe 同层懒加载
 
         pipe = self._load_pipe()
 
@@ -293,7 +345,90 @@ class ImageGenerator:
         img.save(out)
         return out
 
+    # ------------------------------------------------------------------
+    # APIYI（Gemini 图像）后端
+    # ------------------------------------------------------------------
+
+    def _generate_apiyi(
+        self,
+        scene_prompt: str,
+        ref_images: list[str | Path] | None,
+        character_name: str,
+    ) -> Path:
+        """APIYI generateContent: 多图 parts（ref 角色/画风/配饰）+ 固定框架 + 场景指令。
+
+        请求/响应格式（单点测试验证 2026-08-24）:
+            POST {base}/{version}/models/{model}:generateContent
+            body: {"contents":[{"parts":[{inline_data 图…},{text 指令}]}],
+                   "generationConfig":{"responseModalities":["IMAGE"]}}
+            响应: candidates[0].content.parts[].inlineData.data（base64）
+        失败 → 明确报错（宁缺勿错, 不静默）。
+        """
+        parts: list[dict] = []
+        for p in ref_images or []:
+            path = Path(p)
+            mime = "image/png" if path.suffix.lower() == ".png" else "image/jpeg"
+            parts.append({"inline_data": {
+                "mime_type": mime,
+                "data": base64.b64encode(path.read_bytes()).decode()}})
+        parts.append({"text": _APIYI_FRAME.format(name=character_name, scene=scene_prompt)})
+
+        body = {
+            "contents": [{"parts": parts}],
+            "generationConfig": {"responseModalities": ["IMAGE"]},
+        }
+        url = (f"{self.api_base_url}/{self.api_version}"
+               f"/models/{self.api_model}:generateContent")
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(body).encode(),
+            headers={"Content-Type": "application/json", "x-goog-api-key": self._api_key},
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=180) as r:
+                resp = json.loads(r.read().decode())
+        except urllib.error.HTTPError as e:
+            detail = e.read().decode("utf-8", "replace")[:300]
+            raise RuntimeError(err(
+                "ImageGen", f"APIYI 请求失败 HTTP {e.code}: {detail}")) from e
+        except Exception as e:                           # noqa: BLE001
+            raise RuntimeError(err("ImageGen", f"APIYI 请求失败: {e}")) from e
+
+        for part in (resp.get("candidates") or [{}])[0].get("content", {}).get("parts", []):
+            data = part.get("inlineData") or part.get("inline_data") or {}
+            b64 = data.get("data")
+            if b64:
+                img_bytes = base64.b64decode(b64)
+                self.output_dir.mkdir(parents=True, exist_ok=True)
+                out = self.output_dir / f"gen_{datetime.now():%Y%m%d_%H%M%S}_apiyi.png"
+                out.write_bytes(img_bytes)
+                return out
+        raise RuntimeError(err("ImageGen", f"响应无图片输出: {str(resp)[:300]}"))
+
     # 便捷属性（懒加载入口, 测试断言用）
     @property
     def pipe(self):
         return self._pipe
+
+
+# ---------------------------------------------------------------------------
+# ref 图分组（命名约定: 角色 → 画风 → 配饰, 喂图顺序固定）
+# ---------------------------------------------------------------------------
+
+def collect_ref_images(char_id: str, assets_root: str | Path | None = None) -> list[Path]:
+    """按 ref 命名约定分组取图, 顺序固定: sprite_*(角色) → style_*(画风) → 其余(配饰)。
+
+    路径: assets/illustration/{char_id}/ref/（缺失 → 空列表, 调用方降级纯文本）。
+    配饰组 = 非 sprite_/style_ 前缀的 png（物品名即可, 如 halo.png）——换配饰
+    直接放文件, 不用改名。
+    """
+    base = Path(assets_root) if assets_root else (
+        Path(__file__).resolve().parent.parent / "assets")
+    ref_dir = base / "illustration" / char_id / "ref"
+    if not ref_dir.is_dir():
+        return []
+    role = sorted(ref_dir.glob("sprite_*.png"))
+    style = sorted(ref_dir.glob("style_*.png"))
+    accessory = sorted(p for p in ref_dir.glob("*.png")
+                       if not p.name.startswith(("sprite_", "style_")))
+    return role + style + accessory

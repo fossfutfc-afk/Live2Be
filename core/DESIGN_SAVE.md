@@ -232,14 +232,13 @@ mmt ──mmt_trigger_bond_story──▶ bond ──memorial_enter──▶ mem
 `memorial_enter`（独占一轮, 谨慎决策进入纪念时刻）:
 ```jsonc
 {"action": "memorial_enter", "payload": {
-  "prompt": "湖边, 黑发少女含泪抬头, 月光, 拥抱, 唯美构图",  // 必填: 生图场景总结（当场写, 与剧情一致）
+  "prompt": "她在湖边微笑，眼角带着一滴泪，黄昏暖光，晚风吹起鬓发，中景半身",  // 必填: 中文场景指令（场景/光线/情感/构图）
   "paragraphs": ["（纪念场景的煽情文字=本场剧情内容）", "…"],  // 必填
   "choices": ["…"]                                           // 可选
 }}
 ```
-- 执行: pipe 已预热（trigger 后后台加载）→ 生图 ~2s（渲染显示"加载中"）→
-  gallery 落盘 → append l2d 事件 {paragraphs, choices, images} + marker memorial_enter
-  → 渲染纪念场景（文字 + 立绘 + 选项）
+- 执行: APIYI 生图（见下「生图后端」）→ gallery 落盘 → append l2d 事件
+  {paragraphs, choices, images} + marker memorial_enter → 渲染纪念场景（文字 + 立绘 + 选项）
 
 `memorial_exit`（独占一轮, 回到 bond）:
 ```jsonc
@@ -261,12 +260,35 @@ mmt ──mmt_trigger_bond_story──▶ bond ──memorial_enter──▶ mem
 - `images` 数组: 一场可多张（每张一个 gallery 文件对, 各自 prompt 可复现）; 单张也数组
 - prompt 不落事件（在 gallery json）; 无 description/scene_ref
 
+**生图后端（2026-08-24: APIYI Gemini 图像为主, 本地 diffusers 兜底）**:
+- **APIYI**（推荐）: .env 配 `IMAGE_API_KEY` → `ImageGenerator` 走
+  `generateContent`（Google GenAI SDK 协议, `{base}/{api_version}/models/{model}:generateContent`）,
+  多图 ref + 中文指令, 秒级出图（对比本地 SD 20 分钟）。
+- **ref 命名约定**（`assets/illustration/{char_id}/ref/`, 喂图顺序固定）:
+  ```
+  sprite_*.png    角色本体（可多张）
+  style_*.png     画风示例（可多张）
+  其余 png        配饰（光环/随身物品, 物品名即可, 如 halo.png）
+  ```
+  `collect_ref_images(char_id)` 按 **角色→画风→配饰** 分组排序返回。
+- **提示词三段式**: 固定框架（引擎拼接: 图1角色锚定 / 图2画风锚定 / 图3配饰锚定 /
+  质量要求——不依赖 LLM 每次写）+ 变化部分 = `memorial_enter.prompt`（**中文场景指令**,
+  只写场景/光线/情感/构图; 角色外观由 ref 图锚定, 写了反而冲突）。
+- 本地 diffusers（SD1.5/SDXL + IP-Adapter）: 未配 `IMAGE_API_KEY` 时兜底
+  （中文 prompt 是噪声、无画风参考、8G 显存极慢——不建议日常用）。
+
 **频率约束**: **一段 bond 剧情至多 1 次 memorial**（2026-08-24 用户拍板, 后续
   memorial_enter 被引擎静默拒绝 + 下轮注记）——情感高潮通常一次, 防刷屏
 
 **单向**: 生图结果不回灌 LLM 历史（防"揣摩生图"自我强化, 与 place 同理）
 
-**approval**: `APPROVAL_AUTO`（本地生图, 无 API 成本, 无需审批）
+**approval**: `APPROVAL_AUTO`（APIYI 按次计费 $0.025/次（Nano Banana 2 Lite）, 无需审批）
+
+**已知限制 / 未来项**:
+- **立绘竖版**: 当前输出为竖版（APIYI 默认比例）——横屏展示适配（aspectRatio 参数,
+  如 16:9）**留到 web 前端阶段**（2026-08-24 用户拍板, CLI 阶段不处理）
+- **光环 ref 有效**: 遥香的光环（断裂三角结构）需配饰图锚定——其余角色不传光环
+  参数也能出, 但遥香必须传（2026-08-24 实测验证）
 
 ---
 

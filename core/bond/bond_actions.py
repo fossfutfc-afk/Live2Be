@@ -239,9 +239,9 @@ def build_story_registry() -> StoryActionRegistry:
         prompt_fields=frozenset({"action", "payload"}),
         payload_schema=(
             "payload 字段（memorial_enter 进入纪念子模式参数）:\n"
-            "  prompt: 必填, 字符串——纪念立绘的生图场景总结（角色外观+场景+氛围+构图;\n"
-            "      **必须用英文**: 本地生图模型只识别英文, 中文会被当成噪声、画面完全\n"
-            "      跑偏; **精炼**: 只留关键视觉词, 长描述会被生图模型截断丢尾）\n"
+            "  prompt: 必填, 字符串——**中文场景指令**（场景/时间/光线/情感/构图, 如\n"
+            "      \"她在湖边微笑，眼角带着一滴泪，黄昏暖光，晚风吹起鬓发，中景半身\"）——\n"
+            "      角色外观/画风/配饰不用写（引擎自动附角色参考图锚定, 2026-08-24）\n"
             "  paragraphs: 必填, 数组——纪念场景的煽情文字, 同 story_scene 格式\n"
             "      （每项 {text, emotion}, 每单元必填 emotion; 这是本场剧情内容）\n"
             "  choices: 可选, 数组——同 story_scene（1~3 个; 缺省 = sensei 自由输入）\n"

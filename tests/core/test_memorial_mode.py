@@ -194,10 +194,14 @@ def test_run_vn_memorial_flow(tmp_path):
             self.png = png
             self.warmed = 0
             self.used = 0
+            self.last_prompt = ""
+            self.last_refs: list = []
         def warmup(self):
             self.warmed += 1
-        def generate(self, prompt, seed=None):
+        def generate(self, prompt, seed=None, ref_images=None, character_name="角色"):
             self.used += 1
+            self.last_prompt = prompt
+            self.last_refs = list(ref_images or [])
             return self.png
 
     fake_png = tmp_path / "fake.png"

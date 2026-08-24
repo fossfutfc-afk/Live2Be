@@ -21,8 +21,11 @@ def test_lazy_load_pipe_is_none():
 
 
 def test_missing_model_dir_raises_clear_error():
-    """模型目录不存在 → 明确报错（宁缺勿错）, 且不残留半加载状态。"""
-    gen = ImageGenerator(model_path="D:/__no_such_sd_model__")
+    """模型目录不存在 → 明确报错（宁缺勿错）, 且不残留半加载状态。
+
+    api_key="" 强制本地 diffusers 模式（.env 配了 IMAGE_API_KEY 时默认走 APIYI）。
+    """
+    gen = ImageGenerator(model_path="D:/__no_such_sd_model__", api_key="")
     with pytest.raises(RuntimeError) as ei:
         gen.generate("test prompt")
     msg = str(ei.value)
@@ -34,7 +37,7 @@ def test_missing_model_dir_raises_clear_error():
 
 def test_empty_prompt_rejected():
     """空 prompt → ValueError。"""
-    gen = ImageGenerator(model_path="D:/__no_such_sd_model__")
+    gen = ImageGenerator(model_path="D:/__no_such_sd_model__", api_key="")
     with pytest.raises(ValueError):
         gen.generate("   ")
     print("    error: 空 prompt 拒绝")
