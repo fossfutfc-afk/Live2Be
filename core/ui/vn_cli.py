@@ -272,6 +272,24 @@ def run_bond_story_vn(
     force_after = end_rounds + 2          # 建议收尾后再留 2 场余量, 超限硬兜底
     for i in range(1, force_after + 1):
         system_note = None
+        # 随机事件（soft, 低频惊喜）: 记忆突然浮现——只在开场（第一场）触发,
+        # 双通道回忆 → "你突然想起…"（不要求 AI 反馈, 自然流露即可）
+        if i == 1 and store_ is not None and engine._session_id:
+            try:
+                from core.random_events import fire_event
+                from core.brain.hippocampus import WikiStore
+                wiki = WikiStore(store_.data_root).load(char.character_id, engine._session_id)
+                events = SessionStore(store_.data_root).events(
+                    char.character_id, engine._session_id)
+                flash = fire_event("memory_flash", {
+                    "events": events,
+                    "wiki": wiki,
+                    "digested_seq": wiki.get("digested_seq", 0),
+                })
+                if flash:
+                    system_note = flash
+            except Exception:                                # noqa: BLE001 — 静默跳过
+                system_note = None
         if vn.in_memorial:
             # 纪念子模式（§4.7）: 本场只输出 memorial_exit——临时注入 exit schema
             # （纪念模式只有 1 轮: enter 独占一轮含全部内容 → 下一轮 exit 回 bond）

@@ -181,6 +181,7 @@ class MomoTalkEngine:
         self._system_prompt: str = ""
         self._history: list[dict[str, str]] = []
         self._trace: list[dict] = []      # 最近一轮的完整动作轨迹（追溯/调试）
+        self._random_cooldowns: dict = {}  # 随机事件冷却状态（per 引擎实例, 不跨会话串）
 
     # ------------------------------------------------------------------
     # 公共 API — 会话生命周期
@@ -348,6 +349,14 @@ class MomoTalkEngine:
         messages.append({"role": "system", "content": self._bond_progress_note()})
         if system_note:
             messages.append({"role": "system", "content": system_note})
+        # 随机事件（概率性, soft——低频惊喜）: 角色想说话（只进 LLM context）
+        if self._store is not None:          # 事件流会话才有轮数/冷却语境
+            from core.random_events import fire_event
+            rand_note = fire_event(
+                "want_to_speak",
+                {"round": self._session_rounds, "_cooldowns": self._random_cooldowns})
+            if rand_note:
+                messages.append({"role": "system", "content": rand_note})
         messages.append({"role": "user", "content": user_input})
 
         for step in range(MAX_STEPS):

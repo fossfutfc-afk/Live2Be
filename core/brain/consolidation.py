@@ -99,7 +99,7 @@ def digest_session(
     timeline = render_timeline(new_events)
     visuals = _collect_visual_prompts(new_events)
     recalled = recall_related(wiki, timeline)
-    random_seg = (_random_segment(events, digested_seq, wiki, recall_opts=recall_opts)
+    random_seg = (random_recall_segment(events, digested_seq, wiki, recall_opts=recall_opts)
                   if use_random_recall else None)
     user_msg = _build_user_message(timeline, visuals, recalled, random_seg,
                                    wiki, character_prompt)
@@ -192,8 +192,8 @@ def _build_user_message(timeline: str, visuals: list[str],
     return "\n\n".join(parts)
 
 
-def _random_segment(events, digested_seq: int, wiki: dict | None = None,
-                    rng=None, recall_opts: dict | None = None) -> str | None:
+def random_recall_segment(events, digested_seq: int, wiki: dict | None = None,
+                          rng=None, recall_opts: dict | None = None) -> str | None:
     """双通道回忆摘段（DESIGN_BRAIN.md §3.1）: 情感保底 + 遗忘曲线。
 
     回忆概率 = 时间衰减 × 情感/重要性:
