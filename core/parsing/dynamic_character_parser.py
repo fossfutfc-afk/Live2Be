@@ -356,6 +356,8 @@ class DynamicCharacter:
     is_official: bool = True
     completeness: dict[str, Any] = field(default_factory=dict)
     missing_req: list[str] = field(default_factory=list)
+    # 剧情基调（personality.story_tone, 对话生成层注入——"最一开始告诉 AI"）
+    story_tone: str = ""
 
     def build_prompt(self, mode: str = "momotalk") -> str:
         """根据模式构建 System Prompt。
@@ -498,11 +500,16 @@ class CharacterLoader:
 
         completeness_full = get_completeness(merged)
 
+        # 剧情基调（personality 的 SIG~story_tone; 缺失 → 空, 调用方用默认）
+        personality_data = loaded.get("personality", {})
+        tone = personality_data.get("SIG~story_tone", "")
+        story_tone = tone.strip() if isinstance(tone, str) else ""
+
         return DynamicCharacter(
             character_id=character_id,
             raw=merged,
             profile=profile,
-            personality=loaded.get("personality", {}),
+            personality=personality_data,
             knowledge=loaded.get("knowledge", {}),
             experience=loaded.get("experience", {}),
             typical=loaded.get("typical", {}),
@@ -510,6 +517,7 @@ class CharacterLoader:
             is_official=official,
             completeness=completeness_full,
             missing_req=missing_req,
+            story_tone=story_tone,
         )
 
     # ------------------------------------------------------------------
