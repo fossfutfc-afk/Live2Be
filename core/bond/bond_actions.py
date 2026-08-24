@@ -51,10 +51,11 @@ def _parse_paragraphs(payload: dict[str, Any]) -> list[dict]:
     """必填 paragraphs 白名单校验 + 机器侧容错（硬错误抛 ContractError）。
 
     每项（2026-08-23 架构定稿: 情绪内联, 删 beats）:
-        {"text": 段落文本, "emotion": 可选表情词表键}——emotion 缺省 = 延续上一段
+        {"text": 段落文本, "emotion": 可选表情词表键, "inner": 可选内心独白}
+        ——emotion 缺省 = 延续上一段; inner（A 版内心戏, 低频惊喜）缺省 = 无
     兼容旧输入: 裸字符串 str → 包成 {"text": str}（旧习惯模型不崩）。
 
-    Returns: 至少 1 个 {text, emotion?} 组成的列表（strip 后）。
+    Returns: 至少 1 个 {text, emotion?, inner?} 组成的列表（strip 后）。
     """
     raw_paras = payload.get("paragraphs")
     if isinstance(raw_paras, str):
@@ -72,6 +73,9 @@ def _parse_paragraphs(payload: dict[str, Any]) -> list[dict]:
                 emotion = p.get("emotion")
                 if isinstance(emotion, str) and emotion.strip():
                     item["emotion"] = emotion.strip()
+                inner = p.get("inner")
+                if isinstance(inner, str) and inner.strip():
+                    item["inner"] = inner.strip()
                 paragraphs.append(item)
     if not paragraphs:
         raise ContractError("paragraphs 至少需要一个非空段落")
@@ -200,12 +204,15 @@ def build_story_registry() -> StoryActionRegistry:
         prompt_fields=frozenset({"action", "payload"}),
         payload_schema=(
             "payload 字段（story_scene 中段场景参数）:\n"
-            "  paragraphs: 必填, 数组——每项 {text, emotion}:\n"
+            "  paragraphs: 必填, 数组——每项 {text, emotion, inner?}:\n"
             "      text: 一个情绪单元（一句对白 或 一个动作描写; 情绪一致的多句可合并;\n"
             "          动作描写单独成单元, 不塞进对白单元）; 至少 1 单元\n"
             "      emotion: 必填, 表情词表内的情绪名（见【表情标注词表】）——\n"
             "          **每个情绪单元都必须标 emotion, 不要省略、不要留空**\n"
             "          情绪连续就合并成一个单元; 情绪一变就切新单元并标新 emotion\n"
+            "      inner: 可选, 字符串——**内心独白**（角色没说出口的心理活动, 屏幕变黑\n"
+            "          单独展示）。低频惊喜: 只在情感的关键时刻写（遥香的自卑、阿露的逞强\n"
+            "          心理这类）; 不必每场都有, 没有就省略, 不要为了写而写\n"
             "  choices: 数组——给 sensei 的选项文本列表（1~3 个）。可省略（缺省 = 本场景\n"
             "      不提供选项, sensei 将自由输入一句话推进）。选项要有分歧感、让 sensei\n"
             "      有参与感, 但必须收敛到同一主线——无论选哪个, 剧情都走向同一结局, 只\n"
@@ -224,7 +231,7 @@ def build_story_registry() -> StoryActionRegistry:
         prompt_fields=frozenset({"action", "payload"}),
         payload_schema=(
             "payload 字段（story_end 收尾场景参数）:\n"
-            "  paragraphs: 必填, 数组——同 story_scene（每项 {text, emotion}, 每单元必填 emotion）\n"
+            "  paragraphs: 必填, 数组——同 story_scene（每项 {text, emotion}, 每单元必填 emotion; inner 可选同 story_scene）\n"
             "  place: 可选, 字符串——同 story_scene（场景切换才标）\n"
             "约束: story_end 是**收尾场景**——输出后剧情结束, 不再有选项、不再开新场景。\n"
             "      choices 必须为空（结构上收尾无选项, 传非空会被拒绝）。宁可及早收尾, \n"
@@ -242,7 +249,7 @@ def build_story_registry() -> StoryActionRegistry:
             "  prompt: 必填, 字符串——**中文场景指令**（场景/时间/光线/情感/构图, 如\n"
             "      \"她在湖边微笑，眼角带着一滴泪，黄昏暖光，晚风吹起鬓发，中景半身\"）——\n"
             "      角色外观/画风/配饰不用写（引擎自动附角色参考图锚定, 2026-08-24）\n"
-            "  paragraphs: 必填, 数组——纪念场景的煽情文字, 同 story_scene 格式\n"
+            "  paragraphs: 必填, 数组——纪念场景的煽情文字, 同 story_scene 格式（inner 可选同 story_scene）\n"
             "      （每项 {text, emotion}, 每单元必填 emotion; 这是本场剧情内容）\n"
             "  choices: 可选, 数组——同 story_scene（1~3 个; 缺省 = sensei 自由输入）\n"
             "  place: 可选, 字符串——同 story_scene（场景切换才标）\n"
