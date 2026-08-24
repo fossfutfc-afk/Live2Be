@@ -17,3 +17,4 @@ from core.brain.hippocampus import (
 )
 from core.brain.consolidation import digest_session
 from core.brain.reconsolidation import migrate_wiki
+from core.brain.recall import build_brain_injection
