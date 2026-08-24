@@ -119,11 +119,21 @@ def simulate_vn_scene(
     _print_visual(scene)
     # per-para sprite（架构定稿: 情绪内联进 paragraphs {text, emotion?}）——
     # 段落显式带 emotion 才标注; 延续的段静默（渲染端默认/继承表情）
+    # inner（A 版内心戏, 低频惊喜）: 段落带 inner → 屏幕变黑（CLI 近似: 分隔 + 淡标记）
+    #   单独展示角色没说出口的心理活动, 再回到台词
     for para in scene.paragraphs:
-        emotion = para.get("emotion") if isinstance(para, dict) else ""
-        if emotion:
-            print(f"[表情 {emotion}]")
-        text = para.get("text", "") if isinstance(para, dict) else str(para)
+        if isinstance(para, dict):
+            inner = para.get("inner")
+            if isinstance(inner, str) and inner.strip():
+                print("\n" + "·" * 36 + "  (内心)  " + "·" * 36)
+                _type_paragraph(inner.strip(), char_ms)
+                print("\n" + "·" * 36 + "  (回到现实)  " + "·" * 36)
+            emotion = para.get("emotion")
+            if emotion:
+                print(f"[表情 {emotion}]")
+            text = para.get("text", "")
+        else:
+            text = str(para)
         _type_paragraph(text, char_ms)
 
     if scene.is_end:
