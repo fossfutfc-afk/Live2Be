@@ -164,16 +164,61 @@ def _build_user_message(timeline: str, visuals: list[str],
     return "\n\n".join(parts)
 
 
-def _random_segment(events, digested_seq: int, rng=None) -> str | None:
-    """随机摘段（联想插曲, DESIGN_BRAIN.md §3B）: 从已 digest 的历史事件随机选 1 段剧情原文。
+def _random_segment(events, digested_seq: int, wiki: dict | None = None,
+                    rng=None) -> str | None:
+    """双通道回忆摘段（DESIGN_BRAIN.md §3.1）: 情感保底 + 遗忘曲线。
 
-    戏剧性/意外联想——"越复杂越像人类"; 若与新增无关, digest.md 指示 LLM 忽略。
+    回忆概率 = 时间衰减 × 情感/重要性:
+    - 珍贵通道（30%）: wiki 高 importance 条目——**永不衰减（保底）**,
+      初遇/告白/约定都在这里（玩家执着的记忆永存）; wiki 无高 importance → None
+    - 日常通道（70%）: 历史事件按对数正态(年龄)加权摘原文——遗忘曲线
+      （近期高峰 + 长尾, 偶尔想起很久以前）; "越复杂越像人类"
+
+    参数（per 角色可配, 呼应 CLAUDE.md §3.2.3 衰减系数设计）:
+        precious_ratio=0.3      珍贵通道概率（情感重的角色调高）
+        importance_threshold=0.8 importance 门槛
+        mu=0.0 / sigma=1.5      对数正态位置/尺度（衰减快慢; 天然呆角色 σ 大）
     """
+    precious_ratio = 0.3
+    importance_threshold = 0.8
+    mu, sigma = 0.0, 1.5
+    if (rng or random).random() < precious_ratio:
+        return _precious_recall(wiki, importance_threshold)
+    return _daily_recall(events, digested_seq, mu, sigma, rng)
+
+
+def _precious_recall(wiki: dict | None, threshold: float) -> str | None:
+    """珍贵通道: importance ≥ 阈值的条目, importance 加权选 1 条（情感保底）。"""
+    if not wiki:
+        return None
+    precious = [
+        e for e in wiki.get("facts", []) + wiki.get("beliefs", [])
+        if isinstance(e, dict)
+        and float(e.get("importance", 0) or 0) >= threshold
+        and isinstance(e.get("content", ""), str) and e["content"]
+    ]
+    if not precious:
+        return None
+    weights = [max(float(e.get("importance", 0.5) or 0.5), 0.1) for e in precious]
+    e = random.choices(precious, weights=weights, k=1)[0]
+    return f"（重要回忆）{e['content']}"
+
+
+def _daily_recall(events, digested_seq: int, mu: float, sigma: float,
+                  rng=None) -> str | None:
+    """日常通道: 历史事件按对数正态(年龄)加权摘 1 段原文（遗忘曲线）。"""
+    import math
     hist = [e for e in events
             if e.seq <= digested_seq and not e.is_marker and e.type in ("mmt", "bond")]
     if not hist:
         return None
-    e = (rng or random).choice(hist)
+    weights = []
+    for e in hist:
+        age = max(digested_seq - e.seq, 0)           # 0 = 最新
+        x = math.log(age + 1)                        # 对数年龄（避免 log 0）
+        w = math.exp(-((x - mu) ** 2) / (2 * sigma * sigma)) / (age + 1)
+        weights.append(max(w, 1e-9))
+    e = (rng or random).choices(hist, weights=weights, k=1)[0]
     if e.type == "mmt":
         return (f"（旧日片段）玩家: {e.payload.get('player', '')}"
                 f"｜角色: {e.payload.get('reply', '')}")
