@@ -453,6 +453,8 @@ def test_engine_resume_rebuilds_history(tmp_path):
         def __init__(self, *scripts):
             self._s = list(scripts)
         def chat(self, messages, **kw):
+            if "记忆巩固" in messages[0]["content"]:      # digest 调用 → 空消化
+                return {"summary": "", "facts": [], "beliefs": [], "relations": []}
             if not self._s:
                 raise RuntimeError("脚本耗尽")
             return self._s.pop(0)

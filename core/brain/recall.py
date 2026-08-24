@@ -95,3 +95,30 @@ def _me(text: str, char_name: str) -> str:
     if not char_name or not text:
         return text
     return text.replace(char_name, "我")
+
+
+def recall_related(wiki: dict, new_text: str, limit: int = 3) -> list[str]:
+    """轻量召回（联想 digest 用, DESIGN_BRAIN.md §3）: 从旧 wiki 条目按 tags 匹配新增剧情。
+
+    新增剧情文本里出现某条旧记忆的 tags 关键词 → 该旧记忆"被想起"（相关联想）。
+    人倾向于想起和当前事情紧密相连的东西——tags 命中即轻量相关性（零依赖,
+    RAG embedding 是 Phase 2 的升级）。
+
+    Returns: 被想起的旧记忆文本列表（facts/beliefs content + relations 描述）, 截断 limit。
+    """
+    recalled: list[str] = []
+    for e in wiki.get("facts", []) + wiki.get("beliefs", []):
+        if not isinstance(e, dict):
+            continue
+        tags = e.get("tags", []) or []
+        content = e.get("content", "")
+        hit = any(isinstance(t, str) and t and t in new_text for t in tags)
+        if hit and isinstance(content, str) and content:
+            recalled.append(content)
+    for r in wiki.get("relations", []):
+        if not isinstance(r, dict):
+            continue
+        obj = r.get("object", "")
+        if isinstance(obj, str) and obj and obj in new_text:
+            recalled.append(f"和{obj}的关系: {r.get('relation', '')}")
+    return recalled[:limit]
