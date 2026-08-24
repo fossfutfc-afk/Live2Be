@@ -57,6 +57,8 @@ from core.parsing.world_parser import DEFAULT_WORLD_PATH, load_world, world_to_p
 from core.session import SessionStore
 from core.session.events import make_event
 from core.session.renderer import render_events
+from core.brain.consolidation import digest_session
+from core.brain.recall import build_brain_injection
 from core.ui.display import MomoTalkOutput
 from core.ui.streaming import DisplayStep
 from core.ui.text_processors import _process_for_momotalk
@@ -237,6 +239,25 @@ class MomoTalkEngine:
         self._session_id = session_id
         self._session_rounds = 0
 
+    def _inject_brain(self, character_id: str, session_id: str) -> None:
+        """Brain 接线（DESIGN_BRAIN.md v3.1）: 恢复时 digest 本 session 事件流 → wiki → 注入。
+
+        平行世界: 新 session（start_session）零注入——只有恢复（resume）时,
+        角色记得"这个世界线"前面的事（增量 digest: 无新增 → 0 次 LLM 调用）。
+        失败静默降级（digest/注入异常不阻断恢复）。
+        """
+        try:
+            wiki = digest_session(self.llm, self._store.data_root, character_id, session_id)
+        except Exception as e:                           # noqa: BLE001
+            logger.warning("digest 失败, 跳过记忆注入: %s", e)
+            return
+        if not wiki:
+            return
+        char_name = self._current_char.display_name if self._current_char else ""
+        seg = build_brain_injection(wiki, char_name=char_name)
+        if seg:
+            self._system_prompt += "\n\n" + seg
+
     def resume_session(self, character_id: str, session_id: str) -> dict:
         """从事件流恢复会话（DESIGN_SAVE.md §4.2/§六）: 重建 system + history, 继续 MMT。
 
@@ -254,6 +275,8 @@ class MomoTalkEngine:
         if status["ended"]:
             raise RuntimeError(err("ResumeRejected", "会话已结束, 不能恢复"))
         self.start_session(character_id)                  # 重建 system（人设/世界观/schema）
+        if self._store is not None:                       # Brain（DESIGN_BRAIN.md v3.1）:
+            self._inject_brain(character_id, session_id)  # 恢复时消化 + 注入本世界线记忆
         history = render_events(data["events"])           # 事件流 → LLM 消息（同格式）
         self._history = history[-(MAX_HISTORY_ROUNDS * 2):]
         self.attach_session(session_id)

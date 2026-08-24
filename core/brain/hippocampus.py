@@ -41,6 +41,7 @@ def _empty_wiki(conversation_id: str) -> dict:
     return {
         "schema_version": SCHEMA_VERSION,
         "conversation_id": conversation_id,
+        "digested_seq": 0,                  # 增量: 上次消化到的最大事件 seq（v3.1）
         "summary": "",
         "facts": [],
         "beliefs": [],
@@ -83,8 +84,10 @@ class WikiStore:
 
     @staticmethod
     def _fill_defaults(wiki: dict, session_id: str) -> dict:
-        for key in ("schema_version", "summary", "facts", "beliefs", "relations"):
+        for key in ("schema_version", "digested_seq", "summary",
+                    "facts", "beliefs", "relations"):
             wiki.setdefault(key, SCHEMA_VERSION if key == "schema_version"
+                            else 0 if key == "digested_seq"
                             else "" if key == "summary" else [])
         wiki.setdefault("conversation_id", session_id)
         wiki.setdefault("updated_at", _now_iso())
