@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Live2Be</title>
+<link rel="stylesheet" href="/static/gui.css">
+<link rel="stylesheet" href="/static/main.css">
+</head>
+<body>
+<!-- menu 背景轮播层（BA 大版本图按序播放, 淡入淡出） -->
+<div id="bg-layer" aria-hidden="true"></div>
+<div id="bg-dim" aria-hidden="true"></div>
+
+<main id="app" class="login">
+  <!-- 登录视图 -->
+  <section id="view-login">
+    <div class="logo-box">
+      <img id="logo-img" src="/assets/menu/logo/Live2Be_ba-style@nulla.top.png"
+           alt="Live2Be">
+    </div>
+    <p class="subtitle">基沃托斯的日常，从这里开始</p>
+
+    <!-- 名字输入（页面内面板; 彩蛋才弹窗） -->
+    <div id="panel-name" class="panel">
+      <p id="welcome-line" class="hint hidden"></p>
+      <p class="hint">你希望学生们怎么称呼你？（留空 = sensei）</p>
+      <div class="row">
+        <input id="input-name" type="text" maxlength="32" placeholder="输入名字"
+               autocomplete="off">
+        <button id="btn-ok">确定</button>
+      </div>
+      <p id="msg-error" class="error hidden"></p>
+    </div>
+
+    <!-- 彩蛋展示（普通彩蛋内嵌; ER 系统级彩蛋 → alert 弹窗） -->
+    <div id="egg-box" class="egg hidden"></div>
+    <button id="btn-enter" class="hidden">进入主界面</button>
+  </section>
+
+  <!-- 主界面（M2: 三按钮, 功能未实现） -->
+  <section id="view-main" class="main hidden">
+    <div id="main-bg" aria-hidden="true"></div>
+    <div id="main-dim" aria-hidden="true"></div>
+    <div class="main-content">
+      <div class="main-logo">
+        <img src="/assets/menu/logo/Live2Be_ba-style@nulla.top.png" alt="Live2Be">
+      </div>
+      <p class="main-name">老师 · <span id="main-name"></span></p>
+      <div class="menu-buttons">
+        <button class="menu-btn" id="btn-settings">设 置</button>
+        <button class="menu-btn primary" id="btn-mmt">手机 MMT</button>
+        <button class="menu-btn" id="btn-playback">回 放</button>
+      </div>
+      <button id="btn-back-login" class="link">返回登录</button>
+    </div>
+  </section>
+</main>
+
+<script src="/static/gui.js"></script>
+<script src="/static/main.js"></script>
+</body>
+</html>
