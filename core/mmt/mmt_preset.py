@@ -383,6 +383,48 @@ def print_history(engine: MomoTalkEngine) -> None:
     print("─" * 60 + "\n")
 
 
+def _cmd_resume(engine: MomoTalkEngine) -> None:
+    """/resume: 列出未结束会话 → 选择 → 恢复继续聊天（事件流, DESIGN_SAVE.md §六）。
+
+    恢复 = 重建 system + history（render_events 同格式回灌）→ 继续 MMT。
+    中断在 VN/纪念 → 仍恢复 MMT 上下文, 可重新触发 bond（现场恢复后续支持）。
+    """
+    store = engine._store
+    if store is None:
+        print("[系统] 未绑定事件流存储（main 层应注入 SessionStore）")
+        return
+    opens = store.list_open()
+    if not opens:
+        print("[系统] 没有未结束的会话。")
+        return
+    print("[系统] 未结束的会话（可恢复）:")
+    for i, m in enumerate(opens, 1):
+        status = store.resume(m.character_id, m.session_id)["status"]
+        where = ("纪念中" if status["in_memorial"]
+                 else "VN 中" if status["in_vn"] else "MMT")
+        print(f"  [{i}] {m.character_name or m.character_id} ｜ "
+              f"{m.created_at[:16] if m.created_at else '?'} ｜ {where}")
+    try:
+        raw = input("选择要恢复的会话（回车取消）: ").strip()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return
+    if not raw.isdigit() or not (1 <= int(raw) <= len(opens)):
+        print("[系统] 已取消。")
+        return
+    m = opens[int(raw) - 1]
+    try:
+        info = engine.resume_session(m.character_id, m.session_id)
+    except Exception as e:                       # noqa: BLE001
+        print(f"[系统] 恢复失败: {e}")
+        return
+    where = ("纪念模式" if info["status"]["in_memorial"]
+             else "VN" if info["status"]["in_vn"] else "MMT")
+    print(f"[系统] 已恢复会话（{info['display_name']}, 中断于 {where}, "
+          f"上下文 {info['history_len']} 条）——继续聊天。\n"
+          f"（若中断于 {where} 剧情, 可输入 /resume 重新查看; 剧情现场恢复后续支持）")
+
+
 def print_char_info(engine: MomoTalkEngine) -> None:
     """显示当前角色信息。"""
     char = engine.current_character
@@ -430,6 +472,10 @@ def handle_command(raw: str, engine: MomoTalkEngine) -> LoopResult | None:
 
     if cmd == "char":
         print_char_info(engine)
+        return None
+
+    if cmd == "resume":
+        _cmd_resume(engine)
         return None
 
     if cmd == "name":

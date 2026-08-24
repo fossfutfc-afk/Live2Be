@@ -438,3 +438,69 @@ def test_engine_mmt_no_store_no_events(tmp_path):
     # 无 store → 不产生会话目录/事件（仅 BondProgress 写 progress.json, 正常）
     assert not (tmp_path / "igusa_haruka" / "sessions").exists()
     print("    engine-mmt: 无 store → 零事件（兼容）")
+
+
+# ----------------------------------------------------------------------------
+# 事件流恢复入口（store.resume + engine.resume_session, DESIGN_SAVE.md §六）
+# ----------------------------------------------------------------------------
+
+def test_engine_resume_rebuilds_history(tmp_path):
+    """中断会话 resume: 重建 history（render_events 同格式）→ 继续聊天续写同一会话。"""
+    from core.momotalk import MomoTalkEngine
+    from core.session import SessionStore
+
+    class Scripted:
+        def __init__(self, *scripts):
+            self._s = list(scripts)
+        def chat(self, messages, **kw):
+            if not self._s:
+                raise RuntimeError("脚本耗尽")
+            return self._s.pop(0)
+        def format_messages(self, **kw):
+            return []
+
+    st = SessionStore(tmp_path)
+    chat1 = {"actions": [{"action": "mmt_chat", "reply": "你好呀", "payload": {}}]}
+    engine = MomoTalkEngine(ROOT / "config" / "characters", Scripted(chat1), store=st)
+    engine.start_session("igusa_haruka")
+    root = st.create("igusa_haruka", "遥香")
+    engine.attach_session(root.session_id)
+    engine.agent_turn("你好")                     # 1 轮; 不 finish = 中断
+
+    chat2 = {"actions": [{"action": "mmt_chat", "reply": "继续呀", "payload": {}}]}
+    engine2 = MomoTalkEngine(ROOT / "config" / "characters", Scripted(chat2), store=st)
+    info = engine2.resume_session("igusa_haruka", root.session_id)
+    assert info["status"]["ended"] is False
+    assert info["history_len"] == 2, info
+    assert engine2.history[0] == {"role": "user", "content": "你好"}
+    assert "[mmt_chat]" in engine2.history[1]["content"]
+
+    r = engine2.agent_turn("继续聊聊")
+    assert r.ok
+    evs = st.events("igusa_haruka", root.session_id)
+    assert len(evs) == 3, [e.subtype for e in evs]   # session_start + 2 个 mmt_chat
+    print("    resume: 重建 history + 继续聊天 + 事件流续写同一会话")
+
+
+def test_engine_resume_rejects_ended(tmp_path):
+    import pytest
+    from core.momotalk import MomoTalkEngine
+    from core.session import SessionStore
+
+    class LLM:
+        def chat(self, messages, **kw):
+            return {"actions": [{"action": "mmt_chat", "reply": "嗯", "payload": {}}]}
+        def format_messages(self, **kw):
+            return []
+
+    st = SessionStore(tmp_path)
+    engine = MomoTalkEngine(ROOT / "config" / "characters", LLM(), store=st)
+    engine.start_session("igusa_haruka")
+    root = st.create("igusa_haruka", "遥香")
+    engine.attach_session(root.session_id)
+    engine.agent_turn("你好")
+    st.finish("igusa_haruka", root.session_id, ended=True)   # 正常收尾
+    engine2 = MomoTalkEngine(ROOT / "config" / "characters", LLM(), store=st)
+    with pytest.raises(RuntimeError):
+        engine2.resume_session("igusa_haruka", root.session_id)
+    print("    resume: ended 会话拒绝恢复")
