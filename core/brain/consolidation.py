@@ -46,6 +46,14 @@ _MAX_TAGS = 5
 #: digest LLM 调用重试上限（防偶发空响应/坏 JSON; 耗尽 → 降级 None）
 MAX_DIGEST_RETRIES = 3
 
+#: 双通道回忆参数（DESIGN_BRAIN.md §3.1; per 角色可配——digest_session 透出）
+RECALL_DEFAULTS: dict = {
+    "precious_ratio": 0.3,        # 珍贵通道概率（情感重的角色调高）
+    "importance_threshold": 0.8,  # 珍贵记忆 importance 门槛
+    "mu": 0.0,                    # 对数正态位置（多久前的事最容易想起）
+    "sigma": 1.5,                 # 对数正态尺度（衰减快慢; 天然呆角色 σ 大）
+}
+
 
 def digest_session(
     llm,
@@ -57,6 +65,7 @@ def digest_session(
     max_tokens: int = 2048,
     use_random_recall: bool = True,
     character_prompt: str = "",
+    recall_opts: dict | None = None,
 ) -> dict | None:
     """增量 + 联想 digest: 本 session 新增事件 → 主 LLM 提炼 → 合并进本 session 的 wiki。
 
@@ -90,7 +99,8 @@ def digest_session(
     timeline = render_timeline(new_events)
     visuals = _collect_visual_prompts(new_events)
     recalled = recall_related(wiki, timeline)
-    random_seg = _random_segment(events, digested_seq, wiki) if use_random_recall else None
+    random_seg = (_random_segment(events, digested_seq, wiki, recall_opts=recall_opts)
+                  if use_random_recall else None)
     user_msg = _build_user_message(timeline, visuals, recalled, random_seg,
                                    wiki, character_prompt)
 
@@ -183,7 +193,7 @@ def _build_user_message(timeline: str, visuals: list[str],
 
 
 def _random_segment(events, digested_seq: int, wiki: dict | None = None,
-                    rng=None) -> str | None:
+                    rng=None, recall_opts: dict | None = None) -> str | None:
     """双通道回忆摘段（DESIGN_BRAIN.md §3.1）: 情感保底 + 遗忘曲线。
 
     回忆概率 = 时间衰减 × 情感/重要性:
@@ -192,17 +202,13 @@ def _random_segment(events, digested_seq: int, wiki: dict | None = None,
     - 日常通道（70%）: 历史事件按对数正态(年龄)加权摘原文——遗忘曲线
       （近期高峰 + 长尾, 偶尔想起很久以前）; "越复杂越像人类"
 
-    参数（per 角色可配, 呼应 CLAUDE.md §3.2.3 衰减系数设计）:
-        precious_ratio=0.3      珍贵通道概率（情感重的角色调高）
-        importance_threshold=0.8 importance 门槛
-        mu=0.0 / sigma=1.5      对数正态位置/尺度（衰减快慢; 天然呆角色 σ 大）
+    recall_opts: 覆盖 RECALL_DEFAULTS（per 角色可配, 呼应 CLAUDE.md §3.2.3
+    衰减系数设计）——precious_ratio / importance_threshold / mu / sigma。
     """
-    precious_ratio = 0.3
-    importance_threshold = 0.8
-    mu, sigma = 0.0, 1.5
-    if (rng or random).random() < precious_ratio:
-        return _precious_recall(wiki, importance_threshold)
-    return _daily_recall(events, digested_seq, mu, sigma, rng)
+    opts = {**RECALL_DEFAULTS, **(recall_opts or {})}
+    if (rng or random).random() < opts["precious_ratio"]:
+        return _precious_recall(wiki, opts["importance_threshold"])
+    return _daily_recall(events, digested_seq, opts["mu"], opts["sigma"], rng)
 
 
 def _precious_recall(wiki: dict | None, threshold: float) -> str | None:
