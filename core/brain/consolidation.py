@@ -43,6 +43,8 @@ logger = logging.getLogger(__name__)
 _IMP_MIN, _IMP_MAX = 0.0, 1.0
 #: tags 上限（防膨胀）
 _MAX_TAGS = 5
+#: digest LLM 调用重试上限（防偶发空响应/坏 JSON; 耗尽 → 降级 None）
+MAX_DIGEST_RETRIES = 3
 
 
 def digest_session(
@@ -52,8 +54,9 @@ def digest_session(
     session_id: str,
     *,
     temperature: float = 0.3,
-    max_tokens: int = 1024,
+    max_tokens: int = 2048,
     use_random_recall: bool = True,
+    character_prompt: str = "",
 ) -> dict | None:
     """增量 + 联想 digest: 本 session 新增事件 → 主 LLM 提炼 → 合并进本 session 的 wiki。
 
@@ -83,27 +86,36 @@ def digest_session(
     if not new_events:
         return wiki                       # 无新增 → 旧 wiki（0 次 LLM 调用）
 
-    # 输入: 新增时间线 + 视觉记忆 + 联想（轻量召回 + 双通道回忆）+ 已有记忆概要
+    # 输入: 新增时间线 + 视觉记忆 + 联想（轻量召回 + 双通道回忆）+ 人设锚点 + 已有记忆概要
     timeline = render_timeline(new_events)
     visuals = _collect_visual_prompts(new_events)
     recalled = recall_related(wiki, timeline)
     random_seg = _random_segment(events, digested_seq, wiki) if use_random_recall else None
-    user_msg = _build_user_message(timeline, visuals, recalled, random_seg, wiki)
+    user_msg = _build_user_message(timeline, visuals, recalled, random_seg,
+                                   wiki, character_prompt)
 
     # 契约渲染: digest.md 的 {{output_schema}} 占位 ← build_digest_schema（单源真值）
     system = load_prompt("digest").replace("{{output_schema}}", build_digest_schema())
-    try:
-        resp = llm.chat(
-            [
-                {"role": "system", "content": system},
-                {"role": "user", "content": user_msg},
-            ],
-            temperature=temperature,
-            max_tokens=max_tokens,
-            response_format="json_object",
-        )
-    except Exception as e:                           # noqa: BLE001 — 失败降级（err 格式, 不阻断）
-        logger.warning(err("DigestFailed", f"LLM 调用失败, 跳过本会话: {e}"))
+    resp = None
+    last_err: Exception | None = None
+    for attempt in range(MAX_DIGEST_RETRIES):
+        try:
+            resp = llm.chat(
+                [
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user_msg},
+                ],
+                temperature=temperature,
+                max_tokens=max_tokens,
+                response_format="json_object",
+            )
+            break
+        except Exception as e:                       # noqa: BLE001 — 重试, 耗尽后降级
+            last_err = e
+            logger.warning(err("DigestFailed",
+                               f"LLM 调用失败（第 {attempt + 1}/{MAX_DIGEST_RETRIES} 次）: {e}"))
+    if resp is None:
+        logger.warning(err("DigestFailed", f"重试耗尽, 跳过本会话: {last_err}"))
         return None
 
     cleaned = _clean_output(resp)
@@ -150,8 +162,8 @@ def _collect_visual_prompts(events) -> list[str]:
 
 def _build_user_message(timeline: str, visuals: list[str],
                         recalled: list[str], random_seg: str | None,
-                        wiki: dict) -> str:
-    """组装 digest 输入（v3.1: 新增 + 视觉记忆 + 联想旧记忆 + 已有记忆概要）。"""
+                        wiki: dict, character_prompt: str = "") -> str:
+    """组装 digest 输入（v3.2: 新增 + 视觉记忆 + 联想 + 人设锚点 + 已有记忆概要）。"""
     parts = [f"【本段新增互动（上次整理之后的部分）】\n{timeline}"]
     if visuals:
         parts.append("【本段生成的画面描述（视觉记忆）】\n" +
@@ -161,6 +173,8 @@ def _build_user_message(timeline: str, visuals: list[str],
                      "\n".join(f"- {r}" for r in recalled))
     if random_seg:
         parts.append(f"【偶然想起的旧日片段】\n{random_seg}")
+    if character_prompt:
+        parts.append(f"【角色人设（锚点）】\n{character_prompt}")
     summary = wiki.get("summary", "")
     parts.append("【你已有的记忆（summary）】\n" +
                  (summary if isinstance(summary, str) and summary.strip()

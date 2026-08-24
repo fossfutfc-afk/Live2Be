@@ -37,6 +37,7 @@ from pathlib import Path
 
 from contract import AgentAction, build_schema
 from core.common import Live2BeError, err
+from core.common.tone import load_story_tone
 from core.bond.bond_actions import MAX_SCENE_RETRIES, build_story_registry
 from core.bond.bond_executor import StoryExecError, StoryExecutor
 from core.bond.memorial_actions import build_memorial_registry
@@ -225,6 +226,10 @@ class BondStoryEngine:
         world_chunk = world_to_prompt(load_world(DEFAULT_WORLD_PATH))
         if world_chunk:
             system_prompt += "\n\n" + world_chunk
+
+        # 剧情基调（对话生成层, "最一开始告诉 AI"）: per 角色写在五件套
+        # （personality.yml 的 SIG~story_tone）——VN 是剧情生成的主场, 基调开场定
+        system_prompt += "\n\n【本角色剧情基调】\n" + load_story_tone(char)
 
         system_prompt += "\n\n" + load_prompt("bond_story_rules")
         # 场景契约 schema（story_scene 动作）——momotalk 同款注入, LLM 看到字段约束

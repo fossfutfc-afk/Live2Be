@@ -39,6 +39,7 @@ from datetime import datetime
 from pathlib import Path
 
 from core.common import Live2BeError, err
+from core.common.tone import load_story_tone
 from llm.client import LLMClient
 from llm.prompts import load_prompt
 from llm.feedback import feedback
@@ -52,7 +53,11 @@ from core.mmt.mmt_executor import (
     load_interperson,
     self_entry_to_prompt,
 )
-from core.parsing.dynamic_character_parser import CharacterLoader, DynamicCharacter
+from core.parsing.dynamic_character_parser import (
+    CharacterLoader,
+    DynamicCharacter,
+    yaml_to_prompt,
+)
 from core.parsing.world_parser import DEFAULT_WORLD_PATH, load_world, world_to_prompt
 from core.session import SessionStore
 from core.session.events import make_event
@@ -190,6 +195,11 @@ class MomoTalkEngine:
         if world_chunk:                              # 世界观（common + system 档）
             sp += "\n\n" + world_chunk
 
+        # 剧情基调（对话生成层, "最一开始告诉 AI", DESIGN_BRAIN.md §0）:
+        # per 角色写在五件套（personality.yml 的 SIG~story_tone）——AI 从卡学角色,
+        # 基调也从卡来。digest 是事后提炼救不了基调——生成的剧情必须一开始就符合角色类型。
+        sp += "\n\n【本角色剧情基调】\n" + load_story_tone(char)
+
         try:                                         # L1 人际层: 自表条目注入（键值+权重）
             interperson = load_interperson(self.executor.interperson_path)
         except MmtExecError as e:                    # 文件损坏 → 跳过注入, 不挡会话启动
@@ -246,8 +256,15 @@ class MomoTalkEngine:
         角色记得"这个世界线"前面的事（增量 digest: 无新增 → 0 次 LLM 调用）。
         失败静默降级（digest/注入异常不阻断恢复）。
         """
+        # 人设锚点（digest 的事实基准——防 LLM 脑补/强行升华, digest.md 规则 6/7）
+        anchor = ""
+        if self._current_char is not None:
+            anchor = yaml_to_prompt(
+                {**self._current_char.personality, **self._current_char.knowledge},
+                "角色人设（锚点）")
         try:
-            wiki = digest_session(self.llm, self._store.data_root, character_id, session_id)
+            wiki = digest_session(self.llm, self._store.data_root, character_id, session_id,
+                                  character_prompt=anchor)
         except Exception as e:                           # noqa: BLE001
             logger.warning("digest 失败, 跳过记忆注入: %s", e)
             return
