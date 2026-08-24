@@ -14,6 +14,7 @@ import sys
 from llm.client import LLMClient
 from llm.image_gen import ImageGenerator
 from core.momotalk import MomoTalkEngine
+from core.session import SessionStore
 from core.mmt.mmt_preset import (
     LoopResult,
     ensure_player_name,
@@ -94,7 +95,7 @@ def main() -> None:
         input("\n按 Enter 退出...")
         sys.exit(1)
 
-    engine = MomoTalkEngine("config/characters", client)
+    engine = MomoTalkEngine("config/characters", client, store=SessionStore())
     # 玩家名只系统显示（提示符/再见语都实时读 player.json, 不缓存局部变量——
     # 菜单 [N] 改名后即刻生效）, 不注入 system prompt——学生不会直呼自定义名
     ensure_player_name()                        # 首次运行询问玩家名（null → sensei）
@@ -107,6 +108,9 @@ def main() -> None:
 
         try:
             name = engine.start_session(char_id)
+            # 事件流会话（保存/恢复, DESIGN_SAVE.md §4）: 每角色新对话 = 新会话
+            root = engine._store.create(char_id, name)
+            engine.attach_session(root.session_id)
             print(f"\n[系统] 正在与 {name} 对话...")
             comp = engine.current_character.completeness
             print(f"[系统] 信息完整度: {comp['ratio']:.0%}")
@@ -114,6 +118,14 @@ def main() -> None:
             print(f"\n[系统] 加载角色失败: {e}")
             input("\n按 Enter 继续...")
             continue
+
+        # 提示未结束会话（/resume 查看全部）
+        try:
+            opens = engine._store.list_open()
+            if opens:
+                print(f"[系统] 有 {len(opens)} 个未结束会话（输入 /resume 可恢复）")
+        except Exception:
+            pass
 
         result = _chat_loop(engine)
         if result == LoopResult.EXIT:

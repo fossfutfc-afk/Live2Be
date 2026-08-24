@@ -56,6 +56,7 @@ from core.parsing.dynamic_character_parser import CharacterLoader, DynamicCharac
 from core.parsing.world_parser import DEFAULT_WORLD_PATH, load_world, world_to_prompt
 from core.session import SessionStore
 from core.session.events import make_event
+from core.session.renderer import render_events
 from core.ui.display import MomoTalkOutput
 from core.ui.streaming import DisplayStep
 from core.ui.text_processors import _process_for_momotalk
@@ -235,6 +236,32 @@ class MomoTalkEngine:
         """
         self._session_id = session_id
         self._session_rounds = 0
+
+    def resume_session(self, character_id: str, session_id: str) -> dict:
+        """从事件流恢复会话（DESIGN_SAVE.md §4.2/§六）: 重建 system + history, 继续 MMT。
+
+        store.resume → events → render_events（mmt 事件 → user/assistant 对,
+        与引擎 history 同格式 `[动作名] 回复`）→ 灌入 _history → attach_session。
+        ended 会话拒绝恢复（宁缺勿错）; in_vn/in_memorial 中断 → 仍恢复 MMT 上下文
+        （VN/纪念中断的现场恢复后续支持, 玩家可重新触发 bond）。
+
+        Returns: {"status": dict, "history_len": int, "display_name": str}
+        """
+        if self._store is None:
+            raise RuntimeError(err("NotBound", "未绑定事件流存储, 无法恢复会话"))
+        data = self._store.resume(character_id, session_id)
+        status = data["status"]
+        if status["ended"]:
+            raise RuntimeError(err("ResumeRejected", "会话已结束, 不能恢复"))
+        self.start_session(character_id)                  # 重建 system（人设/世界观/schema）
+        history = render_events(data["events"])           # 事件流 → LLM 消息（同格式）
+        self._history = history[-(MAX_HISTORY_ROUNDS * 2):]
+        self.attach_session(session_id)
+        return {
+            "status": status,
+            "history_len": len(self._history),
+            "display_name": self._current_char.display_name if self._current_char else "",
+        }
 
     def clear(self) -> None:
         self._current_char = None
