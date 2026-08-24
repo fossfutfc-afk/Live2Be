@@ -16,3 +16,4 @@ from core.brain.hippocampus import (
     compute_character_hash,
 )
 from core.brain.consolidation import digest_session
+from core.brain.reconsolidation import migrate_wiki
