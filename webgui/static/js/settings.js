@@ -1,7 +1,8 @@
 // Live2Be 设置页（简略版）——读写 settings.toml 存档（引擎仍读 env, 后端调试用）
 "use strict";
 
-const $ = (id) => document.getElementById(id);
+// 注意: 不重复声明 $ —— gui.js 已声明全局 const $（普通 script 共享全局作用域,
+// 重复 const 声明会抛 SyntaxError 导致本文件不执行）
 
 // 输入框 id 映射 → 配置路径（[section][key]）
 const FIELDS = [

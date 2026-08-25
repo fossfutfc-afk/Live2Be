@@ -30,11 +30,13 @@ async function startBgLoop() {
   if (!_bgImages.length) return;
   const layer = $("bg-layer");
   const preload = (src) => { const im = new Image(); im.src = src; };
-  _bgImages.forEach(preload);
+  // 只预加载前 2 张——避免 47 张并发下载拖垮首屏（刷新才正常的老毛病）
+  _bgImages.slice(0, 2).forEach(preload);
   layer.style.backgroundImage = `url("${_bgImages[0]}")`;
   setBgPan(Math.random() < 0.5);
   _bgTimer = setInterval(() => {
     _bgIdx = (_bgIdx + 5) % _bgImages.length;
+    preload(_bgImages[(_bgIdx + 1) % _bgImages.length]);   // 提前预加载下一张
     layer.style.opacity = 0;
     setTimeout(() => {
       layer.style.backgroundImage = `url("${_bgImages[_bgIdx]}")`;

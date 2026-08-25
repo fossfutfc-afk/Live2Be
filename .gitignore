@@ -1,5 +1,6 @@
 .vscode/
 .env
+settings.toml
 *.exe
 CLAUDE.md
 resources/*
