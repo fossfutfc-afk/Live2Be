@@ -42,8 +42,7 @@ from core.bond.bond_actions import MAX_SCENE_RETRIES, build_story_registry
 from core.bond.bond_executor import StoryExecError, StoryExecutor
 from core.bond.memorial_actions import build_memorial_registry
 from core.media.emotion_lexicon import build_emotion_injection, build_place_injection
-from llm.client import LLMClient
-from llm.feedback import feedback
+from llm.client import LLMClient, feedback
 from llm.prompts import load_prompt
 from core.parsing.dynamic_character_parser import CharacterLoader, DynamicCharacter
 from core.parsing.world_parser import DEFAULT_WORLD_PATH, load_world, world_to_prompt

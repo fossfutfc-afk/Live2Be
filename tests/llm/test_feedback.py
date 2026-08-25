@@ -2,7 +2,7 @@
 
 运行: python -m pytest tests/llm/test_feedback.py
 """
-from llm.feedback import feedback
+from llm.client import feedback
 
 tests = []
 

@@ -27,10 +27,11 @@ TYPE_MMT = "mmt"
 TYPE_BOND = "bond"
 TYPE_L2D = "l2d"
 TYPE_MARKER = "marker"
+TYPE_AFFECTION = "affection"   # 好感变化（digest 产出; 未来行为加好感同板块, subtype=行为名）
 TYPE_OFFICIAL = "official_story"
 
 EVENT_TYPES: tuple[str, ...] = (
-    TYPE_MMT, TYPE_BOND, TYPE_L2D, TYPE_MARKER, TYPE_OFFICIAL,
+    TYPE_MMT, TYPE_BOND, TYPE_L2D, TYPE_MARKER, TYPE_AFFECTION, TYPE_OFFICIAL,
 )
 
 #: marker subtype（状态标记）

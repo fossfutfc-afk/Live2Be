@@ -40,7 +40,7 @@ from ide.ide_events import (
     EmitFn,
 )
 from ide.ide_executor import ExecError, Executor
-from llm.feedback import feedback
+from llm.client import feedback
 from core.ui.display import IDEOutput
 
 MAX_STEPS = 12          # 单轮 agent 最大动作步数（防死循环）

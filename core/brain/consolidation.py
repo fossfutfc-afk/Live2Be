@@ -29,11 +29,12 @@ import random
 from datetime import datetime
 from pathlib import Path
 
-from core.session import SessionStore
+from core.session import SessionStore, make_event
 from core.session.renderer import render_timeline
 from core.brain.hippocampus import WikiStore
 from core.brain.recall import recall_related
 from core.common.errors import err
+from core.affection import Affection
 from contract import build_digest_schema
 from llm.prompts import load_prompt
 
@@ -90,8 +91,10 @@ def digest_session(
     wiki = ws.load(char_id, session_id)
     digested_seq = int(wiki.get("digested_seq", 0) or 0)
 
-    # 增量: 只提炼 seq > digested_seq 的新增内容事件（marker 不算新增, 但 seq 推进）
-    new_events = [e for e in events if e.seq > digested_seq and not e.is_marker]
+    # 增量: 只提炼 seq > digested_seq 的新增内容事件（marker 不算新增, 但 seq 推进）;
+    # affection 事件也不进 digest 输入（好感变化不是互动——digest 只喂互动/记忆）
+    new_events = [e for e in events
+                  if e.seq > digested_seq and not e.is_marker and e.type != "affection"]
     if not new_events:
         return wiki                       # 无新增 → 旧 wiki（0 次 LLM 调用）
 
@@ -136,7 +139,33 @@ def digest_session(
 
     # 增量合并: 旧条目保留 + 新条目（同 content 去重, importance 取高）
     merged = _merge_new(wiki, cleaned)
-    merged["digested_seq"] = max(e.seq for e in events)   # 推进到最新 seq（含 marker）
+    # 好感度（v3.3）: AI 只回 0~100 的 delta 分（不知当前值）→ 幂等写 affection 事件
+    # （真源, append-only）→ 再更新 wiki 缓存。好感是隐藏数值（不显示在 CLI——
+    # MMT 列表/排序消费; rewind 由事件流累计支持）。
+    # 幂等键 = 本段互动的 max seq（interact_max）——affection 事件自身的 seq 会
+    # 漂移（写入后成为新 max）, 不能作键; 重复 digest 同区间时 interact_max 不变。
+    interact_max = max((e.seq for e in new_events), default=0)
+    target_seq = max(e.seq for e in events)   # 水位推进（含 marker/affection）
+    aff = Affection.from_dict(wiki.get("affection") or {})
+    exp_delta = int(cleaned.get("affection_exp_delta", 0) or 0)
+    already = any(
+        e.type == "affection"
+        and int(e.payload.get("digested_seq", 0) or 0) >= interact_max
+        for e in events
+    )
+    if exp_delta > 0 and not already:
+        aff.add_exp(exp_delta)
+        # 先写事件（真源）——中断在事件后/wiki 前 → 下次 digest 幂等跳过, 只补 wiki
+        try:
+            store.append_event(char_id, session_id, make_event(
+                "affection", "digest",
+                {"delta": exp_delta, "exp_after": aff.exp, "level_after": aff.level,
+                 "digested_seq": interact_max},
+            ))
+        except Exception as e:                     # noqa: BLE001 — 事件写入失败 → 降级
+            logger.warning(err("DigestFailed", f"affection 事件写入失败: {e}"))
+    merged["affection"] = aff.to_dict()
+    merged["digested_seq"] = target_seq
     merged["updated_at"] = datetime.now().isoformat()
     try:
         ws.save(char_id, session_id, merged)
@@ -313,11 +342,19 @@ def _clean_output(resp) -> dict | None:
     facts = _clean_entries(resp.get("facts"))
     beliefs = _clean_entries(resp.get("beliefs"))
     relations = _clean_relations(resp.get("relations"))
-    if not (facts or beliefs or relations) and not (isinstance(summary, str) and summary.strip()):
-        return None                       # 全空 → 视为无效（或合法空？——防御: 落空模板）
+    # 好感 exp 增量: 非负 int（坏值 → 0, 宽容）
+    try:
+        exp_delta = max(0, int(resp.get("affection_exp_delta", 0)))
+    except (TypeError, ValueError):
+        exp_delta = 0
+    if (not (facts or beliefs or relations)
+            and not (isinstance(summary, str) and summary.strip())
+            and exp_delta <= 0):
+        return None                       # 全空且无好感变化 → 视为无效（防御: 落空模板）
     out: dict = {"facts": facts, "beliefs": beliefs, "relations": relations}
     if isinstance(summary, str) and summary.strip():
         out["summary"] = summary.strip()
+    out["affection_exp_delta"] = exp_delta
     return out
 
 

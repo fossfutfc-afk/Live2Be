@@ -40,9 +40,8 @@ from pathlib import Path
 
 from core.common import Live2BeError, err
 from core.common.tone import load_story_tone
-from llm.client import LLMClient
+from llm.client import LLMClient, feedback
 from llm.prompts import load_prompt
-from llm.feedback import feedback
 from contract import AgentAction, build_schema
 from core.bond.bond_progress import BondProgress
 from core.mmt.mmt_actions import build_mmt_registry

@@ -50,7 +50,7 @@ class SessionStore:
 
     def __init__(self, data_root: str | Path = DEFAULT_DATA_ROOT):
         self.data_root = Path(data_root)
-        self._seqs: dict[str, int] = {}      # session_id → 已分配最大 seq（单写者）
+        # 注: seq 分配不再用实例缓存（跨实例不同步会重复分配 seq, 见 append_event）
 
     # ------------------------------------------------------------------
     # 路径
@@ -112,13 +112,13 @@ class SessionStore:
     # ------------------------------------------------------------------
 
     def append_event(self, char_id: str, session_id: str, event: Event) -> Event:
-        """append 一个事件（seq 自动分配: 实例缓存递增; 首次从文件算最大 seq）。"""
-        if session_id not in self._seqs:
-            evs = parse_events(read_jsonl(self.events_path(char_id, session_id)))
-            self._seqs[session_id] = max((e.seq for e in evs), default=0)
-        self._seqs[session_id] += 1
+        """append 一个事件（seq 自动分配: 每次从文件重算 max——实例缓存会跨实例
+        不同步（digest 内部新建 store 与调用方 store 是两个实例, 缓存会重复分配
+        seq）, 文件小/append 低频, 正确性优先。"""
+        evs = parse_events(read_jsonl(self.events_path(char_id, session_id)))
+        seq = max((e.seq for e in evs), default=0) + 1
         ev = Event(
-            seq=self._seqs[session_id],
+            seq=seq,
             ts=event.ts or datetime.now().isoformat(),
             type=event.type,
             subtype=event.subtype,
