@@ -49,12 +49,23 @@ function renderEgg(egg) {
   if (!egg) { box.classList.add("hidden"); return; }
   let prefix = "";
   let text = egg;
-  if (egg.startsWith("AC~") || egg.startsWith("RJ~") || egg.startsWith("ER~")) {
+  if (egg.startsWith("AC~") || egg.startsWith("RJ~") || egg.startsWith("ER~")
+      || egg.startsWith("SP~") || egg.startsWith("FT~")) {
     prefix = egg.slice(0, 3);
     text = egg.slice(3);
   }
+  if (prefix === "FT~") {
+    // 致命: 假装系统宕机——跳转伪 404 页
+    location.href = "/err404";
+    return;
+  }
   if (prefix === "ER~") {
-    // 系统级彩蛋（超强人工智能体等）: 直接 alert 弹窗——突兀的系统感
+    // 系统级（超强人工智能体等）: alert 弹窗——突兀的系统感
+    alert(`【???】${text}`);
+    return;
+  }
+  if (prefix === "SP~") {
+    // 惊喜: 弹窗吓人但不阻止——alert 后照常保存成功
     alert(`【???】${text}`);
     return;
   }

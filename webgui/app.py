@@ -20,6 +20,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from core.mmt.mmt_preset import (
+    egg_allows,
     egg_kind,
     egg_reply_for,
     has_player_name,
@@ -47,6 +48,12 @@ class NameIn(BaseModel):
 async def index() -> FileResponse:
     """登录页。"""
     return FileResponse(STATIC_DIR / "index.html")
+
+
+@app.get("/err404")
+async def err404() -> FileResponse:
+    """伪 404 故障页——FT~（致命）彩蛋触发: 假装系统宕机。"""
+    return FileResponse(STATIC_DIR / "err404.html")
 
 
 @app.get("/api/menu")
@@ -79,8 +86,10 @@ async def api_get_name() -> dict:
 async def api_set_name(body: NameIn) -> dict:
     """保存玩家名 + 返回 namegg 彩蛋（如有）。
 
-    namegg 彩蛋回复带前缀: AC~ 接受 / RJ~ 玩笑拒绝 / 无前缀 普通。
-    彩蛋是"惊喜展示"——RJ~ 也只是娱乐（GUI 不真的拒绝, 名字照样保存）。
+    彩蛋前缀两大类（egg_allows）:
+      给取   AC~ / SP~ / 无前缀 → 保存名字, 彩蛋照常展示
+      不给取 RJ~ / ER~ → 不保存, 前端提示换名
+      致命   FT~ → 不保存, 前端跳伪 404（假装系统宕机）
     """
     name = body.name.strip()
     if not name:
@@ -89,8 +98,8 @@ async def api_set_name(body: NameIn) -> dict:
         raise HTTPException(status_code=400, detail=f"名字最长 {MAX_NAME_LEN} 字")
     egg = egg_reply_for(name)
     kind = egg_kind(egg)
-    if kind in ("reject", "system"):
-        # RJ~/ER~ 阻止取名: 不保存, 前端提示换名（彩蛋照常展示）
+    if not egg_allows(egg):
+        # RJ~/ER~/FT~ 不给取: 不保存; 前端按 kind 分流（fatal → 伪 404）
         return {"ok": False, "rejected": True, "kind": kind, "egg": egg}
     save_player_name(name)
     return {

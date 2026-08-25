@@ -274,14 +274,17 @@ def name_confirm(name: str, input_fn=input) -> bool:
             break
         raw = random.choice(replies)
         sign, text = raw[:3], raw[3:]       # 前缀超出切片安全, 短回复走普通分支
-        if sign == REJECT_NAMING:
+        if sign in (REJECT_NAMING, SYSTEM_NAMING, FATAL_NAMING):
+            # 不给取（RJ~ 玩笑拒绝 / ER~ 系统级 / FT~ 致命）:
+            # 统一剥前缀播放彩蛋话语切片 + 只给 (n/n)——永远不接受
             print(f"[???] {text}")
             try:
                 input_fn(f"名字是『{name}』吗？(n/n): ").strip().lower()
             except (EOFError, KeyboardInterrupt):
                 pass
-            return False                    # 玩笑式拒绝: 只有否, 永远不接受
-        print(f"[???] {text if sign in (ACCEPT_NAMING, SYSTEM_NAMING) else raw}")
+            return False
+        # 给取（AC~ / SP~ / 无前缀）: 统一剥前缀播放切片 + 常规 y/n 确认
+        print(f"[???] {text}")
         try:
             answer = input_fn(f"名字是『{name}』吗？(y/n): ").strip().lower()
         except (EOFError, KeyboardInterrupt):
@@ -296,23 +299,34 @@ def name_confirm(name: str, input_fn=input) -> bool:
 
 
 def egg_kind(egg: str | None) -> str:
-    """彩蛋前缀类型（GUI/CLI 共用判定——阻止/允许取名）:
+    """彩蛋前缀类型（GUI/CLI 共用判定）:
 
-        accept  AC~    允许取名（弹台词后正常保存）
-        reject  RJ~    阻止取名（玩笑式拒绝——不保存）
-        system  ER~    阻止取名（系统级——弹窗提示, 不保存）
-        plain   无前缀  普通彩蛋（允许取名）
-        未知前缀 → plain（未来: SP~ surprise 只弹窗不阻止 / FT~ fatal 宕机, 到时再加）
+        accept   AC~   允许取名（弹台词后正常保存）
+        surprise SP~   惊喜——只弹窗不阻止（给取）
+        reject   RJ~   阻止取名（玩笑式拒绝——不给取）
+        system   ER~   阻止取名（系统级——弹窗提示, 不给取）
+        fatal    FT~   致命——直接宕机（GUI 触发伪 404, 不给取）
+        plain    无前缀 普通彩蛋（给取）
+        未知前缀 → plain（宽容: 未来新前缀默认给取, 不误伤）
     """
     if not egg:
         return "plain"
     if egg.startswith(ACCEPT_NAMING):
         return "accept"
+    if egg.startswith(SURPRISE_NAMING):
+        return "surprise"
     if egg.startswith(REJECT_NAMING):
         return "reject"
     if egg.startswith(SYSTEM_NAMING):
         return "system"
+    if egg.startswith(FATAL_NAMING):
+        return "fatal"
     return "plain"
+
+
+def egg_allows(egg: str | None) -> bool:
+    """两大类判定: 给取 True（accept/surprise/plain）/ 不给取 False（reject/system/fatal）。"""
+    return egg_kind(egg) in ("accept", "surprise", "plain")
 
 
 def egg_reply_for(name: str) -> str | None:

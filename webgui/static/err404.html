@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>404 — SYSTEM FAILURE</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #05080f;
+    color: #ff4d4d;
+    font-family: Consolas, "Courier New", monospace;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    overflow: hidden;
+  }
+  .wrap { padding: 2rem; max-width: 640px; }
+  .code {
+    font-size: 6rem;
+    font-weight: bold;
+    letter-spacing: 0.1em;
+    text-shadow: 0 0 40px rgba(255, 77, 77, 0.5);
+    animation: flicker 3s infinite;
+  }
+  @keyframes flicker {
+    0%, 92%, 100% { opacity: 1; }
+    93% { opacity: 0.4; }
+    95% { opacity: 1; }
+    97% { opacity: 0.6; }
+  }
+  .msg {
+    margin-top: 1.2rem;
+    color: #c9d4e8;
+    font-size: 1.1rem;
+    line-height: 1.8;
+  }
+  .err-line {
+    margin-top: 1rem;
+    color: #6b7c99;
+    font-size: 0.9rem;
+    word-break: break-all;
+  }
+  .hint {
+    margin-top: 2rem;
+    color: #8899bb;
+    font-size: 0.95rem;
+  }
+  .hint a { color: #ff8080; }
+  .cursor { animation: blink 1s step-end infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="code">ERROR 404<span class="cursor">_</span></div>
+  <div class="msg">
+    系统发生了未知异常。<br>
+    这个名字似乎触发了<b>不该被触发的存在</b>。
+  </div>
+  <div class="err-line">
+    Traceback: namegg.ft → SYSTEM_FAILURE → Kernel Panic
+  </div>
+  <div class="hint">
+    <a href="/">返回登录</a> · 或者……换一个名字试试？
+  </div>
+</div>
+</body>
+</html>
