@@ -16,8 +16,14 @@ MENU_DIR = ROOT / "assets" / "menu"
 
 @router.get("/")
 async def index() -> FileResponse:
-    """登录页。"""
-    return FileResponse(STATIC_DIR / "index.html")
+    """登录页。
+
+    Cache-Control: no-cache——HTML 永不缓存（防止浏览器用旧 HTML 引用已
+    404 的旧 JS 路径, 导致按钮失效/必刷新才正常）。
+    """
+    return FileResponse(STATIC_DIR / "index.html", headers={
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+    })
 
 
 @router.get("/err404")

@@ -52,8 +52,9 @@ from pathlib import Path
 from core.momotalk import MomoTalkEngine
 from core.common import err
 
-# 玩家名存储（cwd 相对项目根, 与 SESSION_DIR 同惯例）
-PLAYER_JSON = Path("data/basic/player.json")
+# 玩家名存储——项目根绝对路径（cwd 无关: uvicorn/IDE 从任意目录启动也能读写）
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+PLAYER_JSON = _PROJECT_ROOT / "data" / "basic" / "player.json"
 DEFAULT_PLAYER_NAME = "sensei"
 MAX_NAME_LEN = 20
 # 序列化语义保留词: 直接禁用, 避免与 JSON null/布尔 混淆
@@ -209,7 +210,7 @@ def _load_namegg() -> dict:
 
     格式: {正则: [回复1, 回复2, ...]}; 任一正则命中玩家名 → 随机一条彩蛋。
     """
-    path = Path("config/eggs/namegg.json")
+    path = _PROJECT_ROOT / "config" / "eggs" / "namegg.json"
     if not path.exists():
         raise FileNotFoundError(err("NotFound", f"档案不存在: {path}"))
     try:

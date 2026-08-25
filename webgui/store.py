@@ -28,7 +28,8 @@ from core.common.errors import err
 logger = logging.getLogger(__name__)
 
 #: settings.toml 位置（项目根——与 .env 并列, 用户容易找到）
-SETTINGS_PATH = Path(__file__).resolve().parent.parent.parent / "settings.toml"
+#: 注意层级: webgui/store.py → parent=webgui → parent.parent=Live2Be（项目根）
+SETTINGS_PATH = Path(__file__).resolve().parent.parent / "settings.toml"
 
 #: 默认配置（缺失/损坏 → 兜底; 与 .env 同名变量对应）
 DEFAULTS: dict = {
