@@ -4,8 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Live2Be</title>
-<link rel="stylesheet" href="/static/gui.css">
-<link rel="stylesheet" href="/static/main.css">
+<link rel="stylesheet" href="/static/css/gui.css">
+<link rel="stylesheet" href="/static/css/main.css">
+<link rel="stylesheet" href="/static/css/settings.css">
 </head>
 <body>
 <!-- menu 背景轮播层（BA 大版本图按序播放, 淡入淡出） -->
@@ -55,9 +56,31 @@
       <button id="btn-back-login" class="link">返回登录</button>
     </div>
   </section>
+
+  <!-- 设置视图（简略版: settings.toml 存档; 引擎仍读 env） -->
+  <section id="view-settings" class="settings hidden">
+    <h1 class="logo small">设 置</h1>
+    <div class="panel">
+      <h3>LLM（对话 / 剧情）</h3>
+      <label>API Key <input id="set-llm-key" type="password" placeholder="留空 = 不变"></label>
+      <label>Base URL <input id="set-llm-base" type="text" placeholder="https://api.deepseek.com"></label>
+      <label>Model <input id="set-llm-model" type="text" placeholder="deepseek-chat"></label>
+    </div>
+    <div class="panel">
+      <h3>生图</h3>
+      <label>API Key <input id="set-img-key" type="password" placeholder="留空 = 不变"></label>
+      <label>Base URL <input id="set-img-base" type="text" placeholder="https://api.apiyi.com"></label>
+    </div>
+    <div class="row">
+      <button id="btn-save-settings">保 存</button>
+      <button id="btn-back-main" class="link">返回主界面</button>
+    </div>
+    <p id="settings-msg" class="error hidden"></p>
+  </section>
 </main>
 
-<script src="/static/gui.js"></script>
-<script src="/static/main.js"></script>
+<script src="/static/js/gui.js"></script>
+<script src="/static/js/main.js"></script>
+<script src="/static/js/settings.js"></script>
 </body>
 </html>
