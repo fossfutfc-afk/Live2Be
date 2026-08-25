@@ -15,17 +15,20 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
-from webgui.routers import menu, name, settings
+from webgui.routers import menu, mmt, name, settings
 
 ROOT = Path(__file__).resolve().parent.parent
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 MENU_DIR = ROOT / "assets" / "menu"
+ILLUS_DIR = ROOT / "assets" / "illustration"
 
 app = FastAPI(title="Live2Be")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 app.mount("/assets/menu", StaticFiles(directory=MENU_DIR), name="menu")
+app.mount("/assets/illustration", StaticFiles(directory=ILLUS_DIR), name="illus")
 
 # 路由注册（每域独立文件——铺路: 未来加域只加 import + include_router）
 app.include_router(menu.router)
 app.include_router(name.router)
 app.include_router(settings.router)
+app.include_router(mmt.router)

@@ -7,6 +7,7 @@
 <link rel="stylesheet" href="/static/css/gui.css">
 <link rel="stylesheet" href="/static/css/main.css">
 <link rel="stylesheet" href="/static/css/settings.css">
+<link rel="stylesheet" href="/static/css/mmt.css">
 </head>
 <body>
 <!-- menu 背景轮播层（BA 大版本图按序播放, 淡入淡出） -->
@@ -78,11 +79,33 @@
     </div>
     <p id="settings-msg" class="error hidden"></p>
   </section>
+
+  <!-- MMT 界面（M3: 成员列表 + 聊天空白——纯 UI, 逻辑后写） -->
+  <section id="view-mmt" class="mmt hidden">
+    <header class="mmt-header">
+      <span class="mmt-title">桃信</span>
+      <button id="mmt-back" class="link">返回</button>
+    </header>
+    <div class="mmt-body">
+      <aside class="mmt-side">
+        <div class="mmt-tabs">
+          <span class="active">成员</span><span>未读</span>
+        </div>
+        <div class="mmt-list" id="mmt-list">
+          <p class="mmt-loading">加载中…</p>
+        </div>
+      </aside>
+      <div class="mmt-chat" id="mmt-chat">
+        <p class="mmt-empty">请选择成员。</p>
+      </div>
+    </div>
+  </section>
 </main>
 
 <script src="/static/js/gui.js"></script>
 <script src="/static/js/main.js"></script>
 <script src="/static/js/settings.js"></script>
+<script src="/static/js/mmt.js"></script>
 </body>
 </html>
 

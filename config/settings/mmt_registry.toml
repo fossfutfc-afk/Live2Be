@@ -1,0 +1,39 @@
+# MMT 白名单——作者维护: 只有这里列出的角色显示在桃信列表。
+#   项目约定: 便于机器读取的用 toml（settings / mmt_registry）;
+#             人审查方便的用 yaml（五件套 / emotion）。
+#   id    = config/characters/{id} 目录名（路径由它派生, 不重复存）
+#   state = active(正式) | experiment(半成品——显示但可标注/试玩)
+#   bio   = 社交媒体个人简介（MTM 主页/列表的"个性签名"——一句话人设,
+#           如"#成长中"; 五件套没有此概念, 必须写在这里）
+#   顺序  = 列表显示顺序
+#   生日: 不在 toml 存——profile.yml 的 SIG~birthday 兜底读（toml 想覆盖再加 birthday 字段）
+#
+# 现有角色 id（8 个）: amau_ako  asagi_mutsuki  ginkyou_iori
+#   hinomiya_chinatsu  igusa_haruka  onikata_kayoko
+#   rikuhachima_aru  sorasaki_hina
+# 有 idle 头像（diff/*Idle*）的: 便利屋68四人（下面前 4 条）——diff 里
+#   有活跃表情 + emotion.yml 才完整; 缺的标 experiment 待补。
+
+[[characters]]
+id = "igusa_haruka"
+state = "active"
+bio = "请多多关照"
+birthday = "5/13"
+
+[[characters]]
+id = "rikuhachima_aru"
+state = "experiment"
+bio = "什么问题都能为您解决!"
+birthday = "3/17"
+
+[[characters]]
+id = "onikata_kayoko"
+state = "experiment"
+bio = "不经常上桃信"
+birthday = "3/17"
+
+[[characters]]
+id = "asagi_mutsuki"
+state = "experiment"
+bio = "有没有什么有趣的事呢~"
+birthday = "7/29"

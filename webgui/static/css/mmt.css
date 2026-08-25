@@ -1,0 +1,90 @@
+/* Live2Be MMT 界面（仿 BA 桃信——成员列表 + 聊天空白; 纯 UI, 逻辑后写） */
+.mmt {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  color: var(--text);
+}
+
+/* 顶部栏 */
+.mmt-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.6rem 1rem;
+  background: linear-gradient(135deg, #e91e63, #ff5f8f);   /* 桃信粉 */
+  box-shadow: 0 2px 12px rgba(233, 30, 99, 0.35);
+}
+.mmt-title {
+  color: #fff;
+  font-weight: bold;
+  font-size: 1.1rem;
+  letter-spacing: 0.15em;
+}
+.mmt-header .link { color: #fff; margin: 0; }
+
+/* 主体: 左成员列表 + 右聊天 */
+.mmt-body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+.mmt-side {
+  width: 340px;
+  background: #2c3550;    /* 灰蓝边栏 */
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid rgba(255,255,255,0.08);
+}
+.mmt-tabs {
+  display: flex;
+  gap: 1.2rem;
+  padding: 0.7rem 1rem;
+  border-bottom: 1px solid rgba(255,255,255,0.1);
+}
+.mmt-tabs span { color: #8a94ad; cursor: pointer; font-size: 0.95rem; }
+.mmt-tabs span.active { color: #fff; font-weight: bold; }
+.mmt-tabs span.active::after {
+  content: "";
+  display: block;
+  height: 2px;
+  background: #ff5f8f;
+  margin-top: 0.2rem;
+  border-radius: 1px;
+}
+
+.mmt-list { flex: 1; overflow-y: auto; }
+.mmt-loading { color: #8a94ad; padding: 1rem; }
+
+/* 成员条目 */
+.mmt-item {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.6rem 0.9rem;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.mmt-item:hover { background: rgba(255,255,255,0.06); }
+.mmt-item.selected { background: rgba(79,195,247,0.12); }
+
+.mmt-avatar { width: 46px; height: 46px; border-radius: 50%; object-fit: cover; flex: none; }
+.mmt-avatar.anim { object-fit: contain; background: #1a2036; }
+
+.mmt-item-meta { flex: 1; min-width: 0; }
+.mmt-item-name { color: #eef; font-size: 0.95rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mmt-item-bio { color: #8a94ad; font-size: 0.78rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 0.15rem; }
+.mmt-item-heart { color: #ff8fab; font-size: 1rem; }
+.mmt-item-heart .val { color: #8a94ad; font-size: 0.85rem; margin-left: 0.2rem; }
+
+/* 右侧聊天（占位: 逻辑后写） */
+.mmt-chat {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #1c2233;
+}
+.mmt-empty { color: #6b7c99; font-size: 1rem; }
