@@ -11,6 +11,6 @@ function wireMenuButton(id, label, onClick) {
 
 document.addEventListener("DOMContentLoaded", () => {
   wireMenuButton("btn-settings", "设置", () => show("view-settings"));
-  wireMenuButton("btn-mmt", "手机MMT");
+  wireMenuButton("btn-mmt", "手机MMT", () => show("view-mmt"));
   wireMenuButton("btn-playback", "回放");
 });
