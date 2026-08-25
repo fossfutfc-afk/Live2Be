@@ -80,23 +80,47 @@
     <p id="settings-msg" class="error hidden"></p>
   </section>
 
-  <!-- MMT 界面（M3: 成员列表 + 聊天空白——纯 UI, 逻辑后写） -->
+  <!-- MMT 界面（M3.5: 顶部横幅 + 左模式栏 + 右侧按模式渲染; 聊天逻辑后写） -->
   <section id="view-mmt" class="mmt hidden">
     <header class="mmt-header">
-      <span class="mmt-title">桃信</span>
+      <span class="mmt-title">🍑 MomoTalk</span>
       <button id="mmt-back" class="link">返回</button>
     </header>
     <div class="mmt-body">
-      <aside class="mmt-side">
-        <div class="mmt-tabs">
-          <span class="active">成员</span><span>未读</span>
-        </div>
-        <div class="mmt-list" id="mmt-list">
-          <p class="mmt-loading">加载中…</p>
-        </div>
+      <aside class="mmt-mode">
+        <button class="mode-btn active" data-mode="profile">资料</button>
+        <button class="mode-btn" data-mode="chat">对话</button>
+        <!-- 未来: 论坛 -->
       </aside>
-      <div class="mmt-chat" id="mmt-chat">
-        <p class="mmt-empty">请选择成员。</p>
+      <div class="mmt-main">
+        <!-- 资料模式（角色卡: 圆头像+名字+生日+bio+好感; 独立排序） -->
+        <div id="mmt-profile" class="mmt-pane">
+          <div class="mmt-pane-head">
+            <span class="mmt-pane-title">成员资料</span>
+            <div class="mmt-sort">
+              <button class="sort-btn active" data-sort="affection">好感</button>
+              <button class="sort-btn" data-sort="birthday">生日</button>
+              <button class="sort-btn" data-sort="name">名字</button>
+            </div>
+          </div>
+          <div class="mmt-list" id="mmt-profile-list"><p class="mmt-loading">加载中…</p></div>
+        </div>
+        <!-- 对话模式（成员列表 + 聊天窗口） -->
+        <div id="mmt-chat" class="mmt-pane hidden">
+          <div class="mmt-pane-head">
+            <span class="mmt-pane-title">成员</span>
+            <div class="mmt-sort">
+              <button class="sort-btn active" data-sort="recent">最新</button>
+              <button class="sort-btn" data-sort="affection">好感</button>
+            </div>
+          </div>
+          <div class="mmt-chat-body">
+            <div class="mmt-list" id="mmt-chat-list"><p class="mmt-loading">加载中…</p></div>
+            <div class="mmt-chat-window" id="mmt-chat-window">
+              <p class="mmt-empty">请选择成员。</p>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   </section>

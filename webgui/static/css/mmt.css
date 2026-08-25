@@ -1,4 +1,4 @@
-/* Live2Be MMT 界面（仿 BA 桃信——成员列表 + 聊天空白; 纯 UI, 逻辑后写） */
+/* Live2Be MMT 界面（粉色基调 · 顶部横幅 + 左模式栏 + 右侧按模式渲染） */
 .mmt {
   position: fixed;
   inset: 0;
@@ -7,84 +7,127 @@
   color: var(--text);
 }
 
-/* 顶部栏 */
+/* 顶部横幅（粉色 + 🍑） */
 .mmt-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0.6rem 1rem;
-  background: linear-gradient(135deg, #e91e63, #ff5f8f);   /* 桃信粉 */
-  box-shadow: 0 2px 12px rgba(233, 30, 99, 0.35);
+  padding: 0.7rem 1.2rem;
+  background: linear-gradient(135deg, #f48fb1, #ff5f8f, #f06292);  /* 粉色基调 */
+  box-shadow: 0 2px 14px rgba(233, 30, 99, 0.4);
+  z-index: 2;
 }
 .mmt-title {
   color: #fff;
   font-weight: bold;
-  font-size: 1.1rem;
-  letter-spacing: 0.15em;
+  font-size: 1.25rem;
+  letter-spacing: 0.12em;
+  text-shadow: 0 1px 3px rgba(0,0,0,0.25);
 }
-.mmt-header .link { color: #fff; margin: 0; }
+.mmt-header .link { color: #fff; margin: 0; text-shadow: 0 1px 2px rgba(0,0,0,0.2); }
 
-/* 主体: 左成员列表 + 右聊天 */
-.mmt-body {
-  flex: 1;
-  display: flex;
-  min-height: 0;
-}
+/* 主体: 左模式栏 + 右主区 */
+.mmt-body { flex: 1; display: flex; min-height: 0; }
 
-.mmt-side {
-  width: 340px;
-  background: #2c3550;    /* 灰蓝边栏 */
+/* 左模式栏（竖排按钮） */
+.mmt-mode {
+  width: 72px;
+  background: #3a2a38;      /* 深粉紫 */
   display: flex;
   flex-direction: column;
+  align-items: stretch;
+  padding: 0.8rem 0.5rem;
+  gap: 0.6rem;
   border-right: 1px solid rgba(255,255,255,0.08);
 }
-.mmt-tabs {
-  display: flex;
-  gap: 1.2rem;
-  padding: 0.7rem 1rem;
-  border-bottom: 1px solid rgba(255,255,255,0.1);
+.mode-btn {
+  background: transparent;
+  border: none;
+  color: #b89aa8;
+  font-size: 0.95rem;
+  padding: 0.7rem 0;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.15s;
+  letter-spacing: 0.1em;
 }
-.mmt-tabs span { color: #8a94ad; cursor: pointer; font-size: 0.95rem; }
-.mmt-tabs span.active { color: #fff; font-weight: bold; }
-.mmt-tabs span.active::after {
-  content: "";
-  display: block;
-  height: 2px;
-  background: #ff5f8f;
-  margin-top: 0.2rem;
-  border-radius: 1px;
+.mode-btn:hover { background: rgba(255,255,255,0.08); color: #ffd3e2; }
+.mode-btn.active {
+  background: linear-gradient(135deg, #ff5f8f, #f06292);
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(233,30,99,0.35);
 }
 
-.mmt-list { flex: 1; overflow-y: auto; }
-.mmt-loading { color: #8a94ad; padding: 1rem; }
+/* 右主区 */
+.mmt-main { flex: 1; display: flex; flex-direction: column; min-width: 0; background: #2a2030; }
+.mmt-pane { flex: 1; display: flex; flex-direction: column; min-height: 0; }
 
-/* 成员条目 */
-.mmt-item {
+/* 栏头部（标题 + 排序——各模式独立排序） */
+.mmt-pane-head {
   display: flex;
   align-items: center;
-  gap: 0.7rem;
-  padding: 0.6rem 0.9rem;
+  justify-content: space-between;
+  padding: 0.6rem 1rem;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+.mmt-pane-title { color: #ffd3e2; font-weight: bold; font-size: 0.95rem; letter-spacing: 0.1em; }
+.mmt-sort { display: flex; gap: 0.4rem; }
+.sort-btn {
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.15);
+  color: #c9a8b6;
+  padding: 0.25rem 0.7rem;
+  border-radius: 12px;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.sort-btn:hover { background: rgba(255,255,255,0.15); }
+.sort-btn.active {
+  background: #ff5f8f;
+  border-color: #ff5f8f;
+  color: #fff;
+}
+
+/* 列表（资料模式: 卡片; 对话模式: 条目） */
+.mmt-list { flex: 1; overflow-y: auto; padding: 0.4rem 0; }
+.mmt-loading { color: #b89aa8; padding: 1rem; font-size: 0.9rem; }
+
+/* 资料模式卡片（BA 圆头像 + 名字 + 生日 + bio + ❤） */
+.mmt-profile-card {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  padding: 0.7rem 1rem;
+  margin: 0.3rem 0.6rem;
+  border-radius: 14px;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.06);
   cursor: pointer;
   transition: background 0.15s;
 }
-.mmt-item:hover { background: rgba(255,255,255,0.06); }
-.mmt-item.selected { background: rgba(79,195,247,0.12); }
+.mmt-profile-card:hover { background: rgba(255,95,143,0.12); }
+.mmt-profile-card.selected { background: rgba(255,95,143,0.18); border-color: rgba(255,95,143,0.4); }
 
-.mmt-avatar { width: 46px; height: 46px; border-radius: 50%; object-fit: cover; flex: none; }
-.mmt-avatar.anim { object-fit: contain; background: #1a2036; }
+.mmt-avatar { width: 52px; height: 52px; border-radius: 50%; object-fit: cover; flex: none; }
+.mmt-avatar.rounded { border-radius: 50%; }   /* diff 兜底图圆形裁剪 */
 
 .mmt-item-meta { flex: 1; min-width: 0; }
-.mmt-item-name { color: #eef; font-size: 0.95rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.mmt-item-bio { color: #8a94ad; font-size: 0.78rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 0.15rem; }
-.mmt-item-heart { color: #ff8fab; font-size: 1rem; }
-.mmt-item-heart .val { color: #8a94ad; font-size: 0.85rem; margin-left: 0.2rem; }
+.mmt-item-name { color: #ffeef4; font-size: 0.95rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mmt-item-bio { color: #b89aa8; font-size: 0.78rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 0.15rem; }
+.mmt-item-sub { color: #9d7f8f; font-size: 0.75rem; margin-top: 0.1rem; }
 
-/* 右侧聊天（占位: 逻辑后写） */
-.mmt-chat {
+.mmt-item-heart { color: #ff8fab; font-size: 1rem; flex: none; text-align: center; }
+.mmt-item-heart .val { color: #ffd3e2; font-size: 0.9rem; margin-left: 0.2rem; font-weight: bold; }
+
+/* 对话模式: 左列表 + 右聊天窗 */
+.mmt-chat-body { flex: 1; display: flex; min-height: 0; }
+#mmt-chat-list { flex: 0 0 300px; border-right: 1px solid rgba(255,255,255,0.08); }
+#mmt-chat-window {
   flex: 1;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #1c2233;
+  min-width: 0;
 }
-.mmt-empty { color: #6b7c99; font-size: 1rem; }
+.mmt-empty { color: #9d7f8f; font-size: 1rem; }

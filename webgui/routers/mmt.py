@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
-"""MMT 路由（M3: 成员列表 + 头像——纯 UI 数据, 聊天逻辑后写）。
+"""MMT 路由（成员列表 + 头像 + 好感 + 排序）。
 
-角色来源 = mmt_registry.toml 白名单（作者维护）——只显示白名单内的角色,
-按白名单顺序; 头像从 assets/illustration/{id}/diff/*Idle* 取（png <img> / webm <video>）。
+角色来源 = mmt_registry.toml 白名单（作者维护）——只显示白名单内的角色, 按白名单
+顺序; 头像从 assets/illustration/{id}/diff/*Idle* 取（png <img> / webm <video>）。
+好感 = 事件流真源累计（load_affection_from_events）→ per-char 聚合（best_affection,
+"你和她最好的那一次"）; 排序 = core/mmt/ranking.py（最新活跃 / 好感, ?sort= 切换）。
 """
 from __future__ import annotations
 
@@ -10,8 +12,11 @@ from pathlib import Path
 
 from fastapi import APIRouter
 
+from core.affection import load_affection_from_events
 from core.common.mmt_registry import load_mmt_registry
+from core.mmt.ranking import SORT_MODES, best_affection, sort_characters
 from core.parsing.dynamic_character_parser import CharacterLoader
+from core.session import SessionStore
 
 router = APIRouter()
 
@@ -19,39 +24,51 @@ ROOT = Path(__file__).resolve().parent.parent.parent
 CHAR_ROOT = ROOT / "config" / "characters"
 ILLUS_ROOT = ROOT / "assets" / "illustration"
 
-# 头像文件名规律: {char缩写}_spr_Idle_01.{png,webm}（glob 通配, 大小写宽容）
-_IDLE_GLOB = "*[Ii]dle*"
+# 头像优先级:
+#   1) assets/illustration/{id}/mmt/*.png —— BA 圆形头像渲染图（作者放; 目前仅遥香）
+#   2) diff/*Idle*.png —— 兜底（前端圆形裁剪）; 不用 webm（动图, 用户弃用）
+_MMT_GLOB = "*.png"
+_IDLE_GLOB = "*[Ii]dle*.png"
 
 
 def _find_avatar(cid: str) -> tuple[str, str]:
-    """找角色 idle 头像 → (url, type); 无 → ("", "")。png 优先, webm 兜底。"""
+    """找角色头像 → (url, type); 无 → ("", "")。type: mmt(BA圆头像) | png(diff兜底)。"""
+    mmt_dir = ILLUS_ROOT / cid / "mmt"
+    if mmt_dir.is_dir():
+        for f in sorted(mmt_dir.glob(_MMT_GLOB)):
+            return f"/assets/illustration/{cid}/mmt/{f.name}", "mmt"
     ill = ILLUS_ROOT / cid / "diff"
-    if not ill.is_dir():
-        return "", ""
-    avatar, avatar_type = "", "png"
-    for f in sorted(ill.glob(_IDLE_GLOB)):
-        suffix = f.suffix.lower()
-        if suffix == ".png" and not avatar:
-            avatar, avatar_type = f"/assets/illustration/{cid}/diff/{f.name}", "png"
-        elif suffix == ".webm" and not avatar:
-            avatar, avatar_type = f"/assets/illustration/{cid}/diff/{f.name}", "webm"
-        if avatar and avatar_type == "png":
-            break
-    return avatar, avatar_type
+    if ill.is_dir():
+        for f in sorted(ill.glob(_IDLE_GLOB)):
+            return f"/assets/illustration/{cid}/diff/{f.name}", "png"
+    return "", ""
+
+
+def _session_ids(store: SessionStore, cid: str) -> list[str]:
+    """该角色所有 session id（按目录名——id 含时间戳, 倒序 = 新→旧）。"""
+    d = store.sessions_dir(cid)
+    if not d.is_dir():
+        return []
+    return sorted((p.name for p in d.iterdir() if p.is_dir()), reverse=True)
 
 
 @router.get("/api/mmt/characters")
-async def mmt_characters() -> dict:
-    """白名单角色的列表（id + 显示名 + 头像 + state + bio + birthday）。
+async def mmt_characters(sort: str = "recent") -> dict:
+    """白名单角色的列表（id + 显示名 + 头像 + state + bio + birthday + affection）。
 
+    ?sort=recent（默认, 最新活跃）| affection（好感, per-char 最高 session 倒序）。
     白名单为空 → []; 白名单角色若无头像 → 跳过（头像缺失意味着 diff 未配置）。
     birthday: toml 是**显示真源**（作者维护）; toml 未填 → profile SIG~birthday 兜底。
+    affection: 事件流真源累计（digest 写的好感事件）→ best_affection 聚合。
     """
     registry = load_mmt_registry()
     if not registry:
-        return {"characters": [], "registry_empty": True}
+        return {"characters": [], "registry_empty": True, "sort": sort}
     loader = CharacterLoader(CHAR_ROOT)
     names = loader.list_characters()
+    store = SessionStore(ROOT / "data")
+    recent_map: dict[str, str] = {}
+    affection_map: dict[str, dict] = {}
     chars: list[dict] = []
     for entry in registry:
         cid, state = entry["id"], entry["state"]
@@ -67,6 +84,22 @@ async def mmt_characters() -> dict:
                     birthday = bd.strip()
             except Exception:             # noqa: BLE001 — 角色卡异常 → 生日空, 不挡列表
                 pass
+        # 好感 + 最近活跃: 枚举该角色 session, 事件流累计好感 + 取最新互动时间
+        sess_affs: list[dict | None] = []
+        recent_ts = ""
+        for sid in _session_ids(store, cid):
+            evs = store.events(cid, sid)
+            if not evs:
+                continue
+            sess_affs.append(load_affection_from_events(evs))
+            last_ts = evs[-1].ts or ""
+            if last_ts > recent_ts:
+                recent_ts = last_ts
+        aff = best_affection(sess_affs)
+        if aff:
+            affection_map[cid] = aff
+        if recent_ts:
+            recent_map[cid] = recent_ts
         chars.append({
             "id": cid,
             "name": names.get(cid, cid),
@@ -75,5 +108,8 @@ async def mmt_characters() -> dict:
             "state": state,
             "bio": bio,
             "birthday": birthday,
+            "affection": aff,
         })
-    return {"characters": chars, "registry_empty": False}
+    mode = sort if sort in SORT_MODES else "recent"
+    chars = sort_characters(chars, mode=mode, recent=recent_map, affection=affection_map)
+    return {"characters": chars, "registry_empty": False, "sort": mode}
