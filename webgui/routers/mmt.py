@@ -45,7 +45,7 @@ async def mmt_characters() -> dict:
     """白名单角色的列表（id + 显示名 + 头像 + state + bio + birthday）。
 
     白名单为空 → []; 白名单角色若无头像 → 跳过（头像缺失意味着 diff 未配置）。
-    birthday: toml 无此字段（单来源避免双份）→ profile.yml 的 SIG~birthday 兜底。
+    birthday: toml 是**显示真源**（作者维护）; toml 未填 → profile SIG~birthday 兜底。
     """
     registry = load_mmt_registry()
     if not registry:
@@ -54,18 +54,19 @@ async def mmt_characters() -> dict:
     names = loader.list_characters()
     chars: list[dict] = []
     for entry in registry:
-        cid, state, bio = entry["id"], entry["state"], entry["bio"]
+        cid, state = entry["id"], entry["state"]
+        bio, birthday = entry["bio"], entry["birthday"]
         avatar, avatar_type = _find_avatar(cid)
         if not avatar:
             continue                     # 无头像 → 跳过（diff 未配）
-        birthday = ""
-        try:
-            char = loader.load(cid)
-            bd = char.profile.get("SIG~birthday", "")
-            if isinstance(bd, str) and bd.strip():
-                birthday = bd.strip()
-        except Exception:                 # noqa: BLE001 — 角色卡异常 → 生日空, 不挡列表
-            pass
+        if not birthday:                 # toml 未填显示生日 → profile 兜底（AI 用那份）
+            try:
+                char = loader.load(cid)
+                bd = char.profile.get("SIG~birthday", "")
+                if isinstance(bd, str) and bd.strip():
+                    birthday = bd.strip()
+            except Exception:             # noqa: BLE001 — 角色卡异常 → 生日空, 不挡列表
+                pass
         chars.append({
             "id": cid,
             "name": names.get(cid, cid),

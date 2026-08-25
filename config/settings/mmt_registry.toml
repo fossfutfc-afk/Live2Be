@@ -5,8 +5,10 @@
 #   state = active(正式) | experiment(半成品——显示但可标注/试玩)
 #   bio   = 社交媒体个人简介（MTM 主页/列表的"个性签名"——一句话人设,
 #           如"#成长中"; 五件套没有此概念, 必须写在这里）
+#   birthday = 显示用生日（MMT 主页展示）——显示真源在这里;
+#            profile.yml 的 SIG~birthday 是给 AI 的（玩家提起时有日期概念）,
+#            两者分工不同, 作者人工保持一致
 #   顺序  = 列表显示顺序
-#   生日: 不在 toml 存——profile.yml 的 SIG~birthday 兜底读（toml 想覆盖再加 birthday 字段）
 #
 # 现有角色 id（8 个）: amau_ako  asagi_mutsuki  ginkyou_iori
 #   hinomiya_chinatsu  igusa_haruka  onikata_kayoko
@@ -24,7 +26,7 @@ birthday = "5/13"
 id = "rikuhachima_aru"
 state = "experiment"
 bio = "什么问题都能为您解决!"
-birthday = "3/17"
+birthday = "3/12"
 
 [[characters]]
 id = "onikata_kayoko"
