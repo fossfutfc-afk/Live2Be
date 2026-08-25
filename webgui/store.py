@@ -35,12 +35,13 @@ SETTINGS_PATH = Path(__file__).resolve().parent.parent / "settings.toml"
 DEFAULTS: dict = {
     "llm": {
         "api_key": "",
-        "base_url": "https://api.deepseek.com",
-        "model": "deepseek-chat",
+        "base_url": "https://api.deepseek.com/v1",
+        "model": "deepseek-v4-flash",
     },
     "image": {
         "api_key": "",
         "base_url": "https://api.apiyi.com",
+        "model": "gemini-3.1-flash-lite-image"
     },
 }
 
