@@ -23,10 +23,12 @@ REGISTRY_PATH = (
 
 
 def load_mmt_registry() -> list[dict]:
-    """读白名单 → [{id, state, bio}]（按文件顺序）; 缺文件/损坏 → []。
+    """读白名单 → [{id, state, bio, birthday}]（按文件顺序）; 缺文件/损坏 → []。
 
     state: active(正式) | experiment(半成品——显示但可标注)。
     bio: 社交媒体个人简介（MMT 展示; 五件套无此概念, 作者在 toml 填）。
+    birthday: **显示用生日**（MMT 主页展示——显示真源在 toml; profile 的
+      SIG~birthday 是给 AI 的日期概念, 两者分工不同, 作者人工保持一致）。
     只保留带 id 的合法条目; 未知字段忽略（宽容）。
     """
     if not REGISTRY_PATH.is_file():
@@ -45,9 +47,11 @@ def load_mmt_registry() -> list[dict]:
             continue
         state = c.get("state", "active")
         bio = c.get("bio", "")
+        birthday = c.get("birthday", "")
         entries.append({
             "id": cid,
             "state": state if state in ("active", "experiment") else "active",
             "bio": bio if isinstance(bio, str) else "",
+            "birthday": birthday if isinstance(birthday, str) else "",
         })
     return entries
