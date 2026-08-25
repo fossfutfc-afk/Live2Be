@@ -11,6 +11,7 @@ const FIELDS = [
   ["llm", "model", "set-llm-model", false],
   ["image", "api_key", "set-img-key", true],
   ["image", "base_url", "set-img-base", false],
+  ["image", "model", "set-img-model", false]
 ];
 
 async function loadSettings() {
