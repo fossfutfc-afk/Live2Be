@@ -161,10 +161,12 @@ def task_status(char_id: str, session_id: str) -> dict:
 # 事件查询（轮询）
 # ---------------------------------------------------------------------------
 
-def render_chat_events(events) -> list[dict]:
-    """事件流 → 气泡列表 [{side: player|char, text, seq, subtype?}]。
+def render_chat_events(events, display_name: str = "") -> list[dict]:
+    """事件流 → 气泡列表 [{kind?, side, text, seq, subtype?}]。
 
-    复用 CLI 的文本处理（core/ui/text_processors）: 角色回复去动作括号 →
+    kind="bond_entry"（入口渲染）: mmt_trigger_bond_story 事件 → BA 风格粉色
+    横幅"进入 xx 的羁绊剧情"（display_name 缺失用"羁绊"）。
+    其余: 复用 CLI 的文本处理（core/ui/text_processors）——角色回复去动作括号 →
     split_reply_chunks 字数+随机切块（模拟真人一条条发消息）——每个 chunk 一个
     气泡。玩家消息不切（原样）。rng 用事件 seq 作种子（同一条回复每次切块一致,
     历史重放稳定; 不同事件切块不同, 保留"真人节奏"的随机感）。
@@ -172,6 +174,11 @@ def render_chat_events(events) -> list[dict]:
     bubbles: list[dict] = []
     for e in events:
         if getattr(e, "type", None) != "mmt":
+            continue
+        if e.subtype == "mmt_trigger_bond_story":
+            name = display_name or "羁绊"
+            bubbles.append({"kind": "bond_entry",
+                            "text": f"进入 {name} 的羁绊剧情", "seq": e.seq})
             continue
         player = (e.payload.get("player") or "").strip()
         reply = (e.payload.get("reply") or "").strip()
@@ -187,16 +194,17 @@ def render_chat_events(events) -> list[dict]:
     return bubbles
 
 
-def events_after(char_id: str, session_id: str, since: int = 0) -> dict:
+def events_after(char_id: str, session_id: str, since: int = 0,
+                 display_name: str = "") -> dict:
     """轮询: seq > since 的 mmt 事件（渲染成气泡）+ 最新 seq + 任务状态。
 
-    since=0 → 全量（打开聊天窗时拉历史）。
+    since=0 → 全量（打开聊天窗时拉历史）。display_name 供 bond_entry 横幅。
     """
     events = _store.events(char_id, session_id)
     new_events = [e for e in events if e.seq > since]
     status = task_status(char_id, session_id)
     return {
-        "bubbles": render_chat_events(new_events),
+        "bubbles": render_chat_events(new_events, display_name),
         "last_seq": max((e.seq for e in events), default=0),
         "running": bool(status.get("busy")),   # busy = 正在跑 or 队列有 pending
         "error": status.get("error", ""),
