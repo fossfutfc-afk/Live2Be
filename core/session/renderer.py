@@ -36,6 +36,7 @@ from core.session.events import (
     Event,
 )
 from core.session.models import VNState
+from core.ui.text_processors import _strip_action_brackets, split_reply_chunks
 
 #: brain 时间线的板块标签
 _LABELS: dict[str, str] = {
@@ -60,8 +61,16 @@ def render_events(events: list[Event]) -> list[dict[str, str]]:
             reply = e.payload.get("reply", "")
             if isinstance(player, str) and player:
                 out.append({"role": "user", "content": player})
-            content = f"[{e.subtype}] {reply}" if reply else f"[{e.subtype}]"
-            out.append({"role": "assistant", "content": content})
+            # 切片回灌: 角色回复去括号 → split_reply_chunks 切块（模拟逐条消息,
+            # 让 LLM 看到的上下文更贴近真实聊天, 把握语境）; 只第一块带动作名前缀
+            text = _strip_action_brackets(reply).strip() if isinstance(reply, str) else ""
+            chunks = split_reply_chunks(text) if text else []
+            if chunks:
+                for i, chunk in enumerate(chunks):
+                    prefix = f"[{e.subtype}] " if i == 0 else ""
+                    out.append({"role": "assistant", "content": f"{prefix}{chunk}"})
+            else:
+                out.append({"role": "assistant", "content": f"[{e.subtype}]"})
         elif e.type == TYPE_BOND:
             inp = e.payload.get("input", "")
             if isinstance(inp, str) and inp:

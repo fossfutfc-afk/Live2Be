@@ -65,7 +65,7 @@ from core.brain.consolidation import digest_session
 from core.brain.recall import build_brain_injection
 from core.ui.display import MomoTalkOutput
 from core.ui.streaming import DisplayStep
-from core.ui.text_processors import _process_for_momotalk
+from core.ui.text_processors import _process_for_momotalk, _strip_action_brackets, split_reply_chunks
 
 logger = logging.getLogger(__name__)
 
@@ -496,14 +496,22 @@ class MomoTalkEngine:
 
         # 历史: 每轮至少记动作名 + reply（可追溯 agent 干了什么）;
         # record_input=False（自动收尾等系统轮）不记假 user 消息, 只记回复
+        # 切片回灌（与 render_events 一致）: reply 去括号 + 切块, 只第一块带动作名
         if record_input:
             self._history.append({"role": "user", "content": user_input})
         for action in actions:
             reply = (action.reply or "").strip()
-            self._history.append({
-                "role": "assistant",
-                "content": f"[{action.action}] {reply}" if reply else f"[{action.action}]",
-            })
+            text = _strip_action_brackets(reply).strip()
+            chunks = split_reply_chunks(text) if text else []
+            if chunks:
+                for i, chunk in enumerate(chunks):
+                    prefix = f"[{action.action}] " if i == 0 else ""
+                    self._history.append({"role": "assistant", "content": f"{prefix}{chunk}"})
+            else:
+                self._history.append({
+                    "role": "assistant",
+                    "content": f"[{action.action}]",
+                })
         self._trim_history()
 
         # 列表整体算一轮 → 轮数 +1 一次（落盘跨会话累计）
