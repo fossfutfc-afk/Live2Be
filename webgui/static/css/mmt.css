@@ -195,19 +195,16 @@
   color: #fff;
   border-bottom-right-radius: 4px;
 }
-/* 微信式发送失败（感叹号 + 重发/删除菜单） */
-.mmt-msg.failed {
-  align-self: flex-end;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.mmt-msg.failed .mmt-bubble.player {
-  opacity: 0.75;                          /* 未送达: 半透明 */
+/* 微信式发送失败（感叹号 absolute 在气泡左侧外——不占流, 无布局抖动） */
+.mmt-bubble.player.failed {
+  opacity: 0.75;                            /* 未送达: 半透明 */
+  position: relative;
 }
 .mmt-fail-mark {
-  flex: none;
-  order: -1;                                /* 感叹号在气泡【左侧】（微信同款） */
+  position: absolute;
+  left: -28px;                              /* 气泡左侧外面 */
+  top: 50%;
+  transform: translateY(-50%);
   width: 20px; height: 20px;
   border-radius: 50%;
   background: #ff3b30;
@@ -222,8 +219,9 @@
 }
 .mmt-fail-menu {
   position: absolute;
-  margin-top: 34px;
-  right: 0;
+  right: calc(100% + 30px);                 /* 在感叹号左侧水平弹出（不压底部角落） */
+  top: 50%;
+  transform: translateY(-50%);
   background: #fff;
   border: 1px solid #f0e0e6;
   border-radius: 10px;
@@ -232,6 +230,7 @@
   display: flex;
   gap: 4px;
   z-index: 20;
+  white-space: nowrap;
 }
 .mmt-fail-act {
   border: none;
