@@ -22,7 +22,6 @@ from pathlib import Path
 
 from core.momotalk import MomoTalkEngine
 from core.session import SessionStore
-from core.session.events import make_event
 from core.ui.text_processors import _strip_action_brackets, split_reply_chunks
 from llm.client import LLMClient
 
@@ -132,8 +131,9 @@ def chat_async(char_id: str, session_id: str, text: str) -> dict:
 def _worker(char_id: str, session_id: str) -> None:
     """worker: 串行消费输入队列（同 char 锁 + 单 worker 保证串行）。
 
-    单个 agent_turn 失败不退出 worker（队列剩余消息继续处理）; 失败时补落
-    玩家消息（回复失败也存档玩家的话——重开不丢; reply 空 = 无假回复污染）。
+    单个 agent_turn 失败不退出 worker（队列剩余消息继续处理）。失败不落库
+    （微信语义: 发不出去的消息不存档——前端感叹号 + 重发/删除; 重发成功
+    才有一条 player 事件）。
     """
     key = (char_id, session_id)
     try:
@@ -150,14 +150,6 @@ def _worker(char_id: str, session_id: str) -> None:
                 except Exception as e:            # noqa: BLE001 — LLM 失败/循环超限
                     logger.warning("agent_turn 失败 (%s/%s): %s", char_id, session_id, e)
                     _tasks[key] = {"running": False, "error": str(e)}
-                    # 补落玩家消息（本轮的 player 事件）——重开聊天窗不丢;
-                    # reply 空串 = 没有假回复（存档不被污染）
-                    try:
-                        _store.append_event(char_id, session_id, make_event(
-                            "mmt", "mmt_chat", {"player": text, "reply": ""}))
-                    except Exception as e2:       # noqa: BLE001 — 补录失败静默
-                        logger.warning("失败消息补录失败 (%s/%s): %s",
-                                       char_id, session_id, e2)
     finally:
         _worker_running[key] = False
 
