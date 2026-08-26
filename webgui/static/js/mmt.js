@@ -167,12 +167,29 @@ function renderBubble(b) {
   scrollBubbles();
 }
 
-// 逐块冒出: 历史(stream=false)一次性; 新回复(stream=true)第一块立即, 后续块间隔
+// 渲染规则: 历史(stream=false)一次性批量渲染（fragment + 无动画 + 一次滚动,
+// 避免逐个 append + N 个入场动画压渲染——"载入存档慢"的根因）;
+// 新回复(stream=true)逐块冒出（第一块立即=TTFT, 后续块间隔 + 入场动画）
 async function renderBubbles(bubbles, { stream = false } = {}) {
+  const box = $("mmt-bubbles");
+  if (!box) return;
+  if (!stream) {
+    const frag = document.createDocumentFragment();
+    for (const b of bubbles) {
+      const div = document.createElement("div");
+      div.className = "mmt-bubble " + (b.side === "player" ? "player" : "char");
+      div.style.animation = "none";          // 历史无入场动画
+      div.textContent = b.text;
+      frag.appendChild(div);
+    }
+    box.appendChild(frag);
+    scrollBubbles();                          // 一次滚动
+    return;
+  }
   for (let i = 0; i < bubbles.length; i++) {
-    renderBubble(bubbles[i]);
-    if (stream && i > 0) {
-      await sleep(BUBBLE_GAP_MS);         // 第一块 TTFT, 后续块等待间隔
+    renderBubble(bubbles[i]);                 // 新回复保留入场动画 + 逐块
+    if (i > 0) {
+      await sleep(BUBBLE_GAP_MS);             // 第一块 TTFT, 后续块等待间隔
     }
   }
 }
