@@ -154,13 +154,23 @@ def _worker(char_id: str, session_id: str) -> None:
                 try:
                     _tasks[key] = {"running": True, "error": ""}
                     engine = _engine(char_id)
+                    # 引擎状态兜底: reset_engines（设置页保存）后引擎实例被清空,
+                    # 前端已打开的聊天窗仍可发消息——current_char 失效会 NotInSession
+                    # → 自动重新 open_session（resume/新线）重建会话状态
+                    if engine._current_char is None or engine._session_id != session_id:
+                        try:
+                            open_session(char_id)
+                        except Exception as e2:   # noqa: BLE001 — 重建失败走原路径报错
+                            logger.warning("会话状态重建失败 (%s): %s", char_id, e2)
+                        engine = _engine(char_id)
                     result = engine.agent_turn(text)
                     # result.bond_story=True → vn_enter marker 已落; M3 阶段前端占位
                     _tasks[key] = {"running": False, "error": "",
                                    "bond_story": bool(result.bond_story)}
                 except Exception as e:            # noqa: BLE001 — LLM 失败/循环超限
                     logger.warning("agent_turn 失败 (%s/%s): %s", char_id, session_id, e)
-                    _tasks[key] = {"running": False, "error": str(e)}
+                    _tasks[key] = {"running": False, "error": str(e),
+                                   "failed_text": text}   # 前端转感叹号（微信式）
     finally:
         _worker_running[key] = False
 
@@ -226,4 +236,7 @@ def events_after(char_id: str, session_id: str, since: int = 0,
         "running": bool(status.get("busy")),   # busy = 正在跑 or 队列有 pending
         "error": status.get("error", ""),
         "bond_story": bool(status.get("bond_story")),
+        # 微信式失败: worker 异步失败时标记哪条消息没送达（前端转感叹号 + 重发/删除）
+        "failed": {"text": status["failed_text"], "error": status["error"]}
+        if status.get("failed_text") else None,
     }

@@ -263,6 +263,29 @@ function renderFailedBubble(text) {
   scrollBubbles();
 }
 
+// 把指定文本的玩家气泡转成"失败态"（感叹号 + 可重发/删除）——异步失败时调用
+function markFailedBubble(text, errMsg) {
+  const box = $("mmt-bubbles");
+  if (!box) return;
+  const bubbles = Array.from(box.querySelectorAll(".mmt-bubble.player"));
+  const target = bubbles.reverse().find((b) => b.textContent === text);
+  if (!target) return;                       // 找不到（重开过）→ 放弃标记
+  const wrap = document.createElement("div");
+  wrap.className = "mmt-msg failed";
+  target.replaceWith(wrap);
+  wrap.appendChild(target);
+  const mark = document.createElement("span");
+  mark.className = "mmt-fail-mark";
+  mark.textContent = "!";
+  mark.title = "发送失败" + (errMsg ? "：" + errMsg : "") + "（点击重发或删除）";
+  mark.addEventListener("click", (e) => {
+    e.stopPropagation();
+    showFailMenu(mark, text, wrap);
+  });
+  wrap.appendChild(mark);
+  scrollBubbles();
+}
+
 function showFailMenu(mark, text, wrap) {
   const old = wrap.querySelector(".mmt-fail-menu");
   if (old) { old.remove(); return; }
@@ -372,10 +395,11 @@ async function pollLoop() {
       _polling = false;
       break;
     }
-    if (data.error) {
+    if (data.failed) {
       hideTyping();
-      renderError("回复失败: " + data.error);
       _polling = false;
+      // 微信式失败: 把对应文本的玩家气泡转感叹号（可重发/删除）——错误信息进 title
+      markFailedBubble(data.failed.text, data.failed.error);
       break;
     }
     if (data.bubbles && data.bubbles.length) {
