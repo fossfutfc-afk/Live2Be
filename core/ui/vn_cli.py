@@ -415,15 +415,29 @@ def run_bond_story_vn(
     return completed
 
 
-def wrapup_after_vn(engine: MomoTalkEngine, reason: str = "") -> None:
+def wrapup_after_vn(engine: MomoTalkEngine, reason: str = "",
+                    pending_check=None) -> None:
     """羁绊剧情【完】后的手机收尾: 自动触发一轮, AI 就这段剧情回几段话。
 
     系统注记只进 LLM context（agent_turn system_note + record_input=False）,
     历史只记 assistant 回复——不污染假 user 消息。一轮可见回复后结束,
     等玩家下一句（「结束一轮」）。收尾失败不阻塞聊天（宁缺勿错, 打印降级）。
+
+    收尾结束后: engine.async_digest() —— 【digest 唯一触发点】bond 剧情闭环,
+    完整段（mmt+bond）异步消化（提炼 + 好感结算, 后台不阻塞玩家）。
+
+    pending_check（GUI 插嘴处理）: 若调用方提供且返回 True（玩家已有消息在
+    排队——bond 刚结束瞬间手快发了消息）, 跳过收尾轮——玩家已表达"我要
+    说话", 收尾话省略（省一次 LLM 调用 + 不错位）。CLI 同步输入天然无法
+    插嘴, 不传。收尾轮【生成期间】的插嘴由调用方排队（收尾话照常显示,
+    插嘴回复随后, LLM 上下文自然衔接）。
     """
     char = engine.current_character
+    if pending_check is not None and pending_check():
+        engine.async_digest()             # 剧情已闭环, 照常消化
+        return
     if char is None:
+        engine.async_digest()
         return
     if not reason:
         reason = _trigger_reason(engine)      # 注记引述起因（引擎 trace 还在）
@@ -439,6 +453,7 @@ def wrapup_after_vn(engine: MomoTalkEngine, reason: str = "") -> None:
         simulate_steps(result.steps)
     except Exception as e:
         print(f"[系统] 羁绊剧情收尾回复失败: {e}")
+    engine.async_digest()                 # 收尾成功与否都消化（bond 已闭环）
 
 
 def _trigger_reason(engine: MomoTalkEngine) -> str:

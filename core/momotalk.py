@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -62,6 +63,7 @@ from core.session import SessionStore
 from core.session.events import make_event
 from core.session.renderer import render_events
 from core.brain.consolidation import digest_session
+from core.brain.hippocampus import WikiStore
 from core.brain.recall import build_brain_injection
 from core.ui.display import MomoTalkOutput
 from core.ui.streaming import DisplayStep
@@ -181,6 +183,7 @@ class MomoTalkEngine:
         self._history: list[dict[str, str]] = []
         self._trace: list[dict] = []      # 最近一轮的完整动作轨迹（追溯/调试）
         self._random_cooldowns: dict = {}  # 随机事件冷却状态（per 引擎实例, 不跨会话串）
+        self._digest_lock = threading.Lock()  # 同引擎 digest 串行（async_digest 后台线程）
 
     # ------------------------------------------------------------------
     # 公共 API — 会话生命周期
@@ -249,12 +252,15 @@ class MomoTalkEngine:
         self._session_id = session_id
         self._session_rounds = 0
 
-    def _inject_brain(self, character_id: str, session_id: str) -> None:
-        """Brain 接线（DESIGN_BRAIN.md v3.1）: 恢复时 digest 本 session 事件流 → wiki → 注入。
+    def _inject_brain(self, character_id: str, session_id: str, *, digest: bool = False) -> None:
+        """Brain 接线（DESIGN_BRAIN.md v3.1）: 注入本 session 的 wiki → system prompt。
 
-        平行世界: 新 session（start_session）零注入——只有恢复（resume）时,
-        角色记得"这个世界线"前面的事（增量 digest: 无新增 → 0 次 LLM 调用）。
-        失败静默降级（digest/注入异常不阻断恢复）。
+        digest=False（恢复时）: 只读已有 wiki 注入（不调 LLM）——digest 只在
+        bond 剧情闭环后调用（见 async_digest）, 中断的剧情/纯 MMT 对话不提炼
+        （wiki 只反映完整剧情段, story_end 为段边界）。
+        digest=True（bond 结束后, 后台）: 先 digest_session（提炼新增剧情 + 好感）
+        再注入——注入只对当前引擎实例生效, 后台线程消化后下次 resume 生效。
+        失败静默降级（digest/读取异常不阻断）。
         """
         # 人设锚点（digest 的事实基准——防 LLM 脑补/强行升华, digest.md 规则 6/7）
         anchor = ""
@@ -262,18 +268,51 @@ class MomoTalkEngine:
             anchor = yaml_to_prompt(
                 {**self._current_char.personality, **self._current_char.knowledge},
                 "角色人设（锚点）")
-        try:
-            wiki = digest_session(self.llm, self._store.data_root, character_id, session_id,
-                                  character_prompt=anchor)
-        except Exception as e:                           # noqa: BLE001
-            logger.warning("digest 失败, 跳过记忆注入: %s", e)
-            return
+        wiki: dict | None = None
+        if digest:
+            try:
+                wiki = digest_session(self.llm, self._store.data_root, character_id,
+                                      session_id, character_prompt=anchor)
+            except Exception as e:                       # noqa: BLE001
+                logger.warning("digest 失败, 跳过记忆注入: %s", e)
+                return
+        else:
+            try:
+                wiki = WikiStore(self._store.data_root).load(character_id, session_id)
+            except Exception as e:                       # noqa: BLE001
+                logger.warning("读取 brain 失败, 跳过记忆注入: %s", e)
+                return
         if not wiki:
             return
         char_name = self._current_char.display_name if self._current_char else ""
         seg = build_brain_injection(wiki, char_name=char_name)
         if seg:
             self._system_prompt += "\n\n" + seg
+
+    def async_digest(self) -> None:
+        """异步消化本会话未消化事件（后台线程, 不阻塞对话/UI）。
+
+        【唯一触发点】bond 剧情闭环后（vn_exit 收尾完成）——语义完整段
+        （mmt 对话 + bond 剧情一起消化）, 绝不截断; 中断的剧情不处理。
+        digest 增量幂等（digested_seq 推进）——失败/跳过零损失, 无其他触发点
+        （resume 只注入不消化）。
+        """
+        if self._store is None or not self._session_id:
+            return
+        char_id = self._current_char.character_id if self._current_char else ""
+        if not char_id:
+            return
+        threading.Thread(
+            target=self._run_digest, args=(char_id, self._session_id), daemon=True,
+        ).start()
+
+    def _run_digest(self, char_id: str, session_id: str) -> None:
+        """后台线程: digest（同引擎串行锁）→ 提炼 + 好感结算（写 affection 事件）。"""
+        try:
+            with self._digest_lock:
+                self._inject_brain(char_id, session_id, digest=True)
+        except Exception as e:                           # noqa: BLE001
+            logger.warning("异步 digest 失败 (%s/%s): %s", char_id, session_id, e)
 
     def resume_session(self, character_id: str, session_id: str) -> dict:
         """从事件流恢复会话（DESIGN_SAVE.md §4.2/§六）: 重建 system + history, 继续 MMT。
@@ -293,7 +332,8 @@ class MomoTalkEngine:
             raise RuntimeError(err("ResumeRejected", "会话已结束, 不能恢复"))
         self.start_session(character_id)                  # 重建 system（人设/世界观/schema）
         if self._store is not None:                       # Brain（DESIGN_BRAIN.md v3.1）:
-            self._inject_brain(character_id, session_id)  # 恢复时消化 + 注入本世界线记忆
+            self._inject_brain(character_id, session_id)  # 恢复时只注入已有 wiki（不消化——
+                                                          # digest 只在 bond 剧情闭环后, async_digest）
         history = render_events(data["events"])           # 事件流 → LLM 消息（同格式）
         self._history = history[-(MAX_HISTORY_ROUNDS * 2):]
         self.attach_session(session_id)
