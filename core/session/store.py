@@ -36,7 +36,9 @@ from core.session.io import append_jsonl, atomic_write_json, read_jsonl
 from core.session.models import TYPE_CONVERSATION, SessionMeta
 from core.session.renderer import session_status
 
-DEFAULT_DATA_ROOT = Path("data")
+#: 数据根（项目根绝对, cwd 无关——uvicorn/IDE 从任意目录启动）
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+DEFAULT_DATA_ROOT = _PROJECT_ROOT / "data"
 
 
 def _new_session_id() -> str:

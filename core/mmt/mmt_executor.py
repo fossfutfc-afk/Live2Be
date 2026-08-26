@@ -49,8 +49,9 @@ from core.parsing.dynamic_character_parser import (
     yaml_to_prompt,
 )
 
-# interperson.json 默认路径（相对项目根, 与 ide/ide_executor.py 一致）
-DEFAULT_INTERPERSON_PATH = "config/settings/relation/interperson.json"
+# interperson.json 默认路径（项目根绝对, cwd 无关——uvicorn/IDE 从任意目录启动）
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+DEFAULT_INTERPERSON_PATH = _PROJECT_ROOT / "config" / "settings" / "relation" / "interperson.json"
 
 
 class MmtExecError(Live2BeError):
