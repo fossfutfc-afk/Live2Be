@@ -65,6 +65,17 @@ def _lock(char_id: str) -> threading.Lock:
     return _locks[char_id]
 
 
+def reset_engines() -> None:
+    """清空引擎实例 + 锁缓存（设置变更后调用——下次 _engine() 按新配置重建）。
+
+    引擎构造时 LLMClient 已把 settings.toml 的 key/base_url 写死（含 Authorization
+    header）——改配置后不重建则旧实例继续用旧 key（假 key 时期创建的实例改 key
+    不生效）。设置路由保存成功后调用本函数。
+    """
+    _engines.clear()
+    _locks.clear()
+
+
 # ---------------------------------------------------------------------------
 # 会话生命周期
 # ---------------------------------------------------------------------------
