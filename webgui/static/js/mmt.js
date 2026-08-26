@@ -236,17 +236,85 @@ function renderError(msg) {
   scrollBubbles();
 }
 
-// 统一失败处理: 移除乐观玩家气泡（消息未入库, 避免幽灵气泡）+ 错误气泡 + 回填输入框
-function failSend(text, msg) {
-  hideTyping();
+// ---------------------------------------------------------------------------
+// 微信式发送失败（感叹号 + 重发/删除）
+// ---------------------------------------------------------------------------
+
+// 发送失败 → 玩家气泡保留 + 红色感叹号（点击 → 重发/删除菜单）
+function renderFailedBubble(text) {
   const box = $("mmt-bubbles");
-  const last = box ? box.lastElementChild : null;
-  if (last && last.classList.contains("player")) last.remove();
-  renderError(msg);
-  const input = $("mmt-input");
-  if (input) {
-    input.value = text;           // 回填, 重发方便
-    input.focus();
+  if (!box) return;
+  const wrap = document.createElement("div");
+  wrap.className = "mmt-msg failed";
+  const bubble = document.createElement("div");
+  bubble.className = "mmt-bubble player";
+  bubble.textContent = text;
+  const mark = document.createElement("span");
+  mark.className = "mmt-fail-mark";
+  mark.textContent = "!";
+  mark.title = "发送失败，点击重发或删除";
+  mark.addEventListener("click", (e) => {
+    e.stopPropagation();
+    showFailMenu(mark, text, wrap);
+  });
+  wrap.appendChild(bubble);
+  wrap.appendChild(mark);
+  box.appendChild(wrap);
+  scrollBubbles();
+}
+
+function showFailMenu(mark, text, wrap) {
+  const old = wrap.querySelector(".mmt-fail-menu");
+  if (old) { old.remove(); return; }
+  const menu = document.createElement("div");
+  menu.className = "mmt-fail-menu";
+  const retry = document.createElement("button");
+  retry.textContent = "重发";
+  retry.className = "mmt-fail-act";
+  retry.onclick = () => {
+    menu.remove();
+    retryFailedMessage(text, wrap);
+  };
+  const del = document.createElement("button");
+  del.textContent = "删除";
+  del.className = "mmt-fail-act danger";
+  del.onclick = () => {
+    menu.remove();
+    wrap.remove();               // 本地删除（未入库, 重开也没有）
+  };
+  menu.append(retry, del);
+  wrap.appendChild(menu);
+}
+
+// 重发: 气泡恢复正常态（移除感叹号）→ 调 chat → 轮询拿角色回复
+async function retryFailedMessage(text, wrap) {
+  wrap.classList.remove("failed");
+  const mark = wrap.querySelector(".mmt-fail-mark");
+  if (mark) mark.remove();
+  const menu = wrap.querySelector(".mmt-fail-menu");
+  if (menu) menu.remove();
+  showTyping();
+  let res, data;
+  try {
+    res = await fetch("/api/mmt/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ char_id: _chatChar, session_id: _chatSession, text }),
+    });
+    data = await res.json();
+  } catch (e) {
+    wrap.classList.add("failed");
+    renderError("重发失败（网络错误: " + e.message + "）");
+    return;
+  }
+  if (!res.ok || !data.accepted) {
+    wrap.classList.add("failed");
+    renderError(data.detail || data.reason || "重发失败");
+    return;
+  }
+  if (!_polling) {
+    _polling = true;
+    pollLoop();                             // 重发成功 → 轮询角色回复
   }
 }
 
@@ -273,11 +341,15 @@ async function sendMessage() {
     });
     data = await res.json();
   } catch (e) {
-    failSend(text, "发送失败（网络错误: " + e.message + "）");
+    hideTyping();
+    renderFailedBubble(text);      // 微信式: 气泡保留 + 感叹号（可重发/删除）
+    renderError("发送失败（网络错误: " + e.message + "）");
     return;
   }
   if (!res.ok || !data.accepted) {
-    failSend(text, data.detail || data.reason || "发送失败");
+    hideTyping();
+    renderFailedBubble(text);
+    renderError(data.detail || data.reason || "发送失败");
     return;
   }
   if (!_polling) {

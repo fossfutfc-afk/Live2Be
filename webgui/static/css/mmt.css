@@ -195,6 +195,55 @@
   color: #fff;
   border-bottom-right-radius: 4px;
 }
+/* 微信式发送失败（感叹号 + 重发/删除菜单） */
+.mmt-msg.failed {
+  align-self: flex-end;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.mmt-msg.failed .mmt-bubble.player {
+  opacity: 0.75;                          /* 未送达: 半透明 */
+}
+.mmt-fail-mark {
+  flex: none;
+  width: 20px; height: 20px;
+  border-radius: 50%;
+  background: #ff3b30;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 20px;
+  text-align: center;
+  cursor: pointer;
+  user-select: none;
+  box-shadow: 0 1px 4px rgba(255, 59, 48, 0.4);
+}
+.mmt-fail-menu {
+  position: absolute;
+  margin-top: 34px;
+  right: 0;
+  background: #fff;
+  border: 1px solid #f0e0e6;
+  border-radius: 10px;
+  box-shadow: 0 4px 14px rgba(91, 66, 80, 0.18);
+  padding: 4px;
+  display: flex;
+  gap: 4px;
+  z-index: 20;
+}
+.mmt-fail-act {
+  border: none;
+  background: transparent;
+  color: #5b4250;
+  font-size: 0.82rem;
+  padding: 5px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.mmt-fail-act:hover { background: #fff0f5; }
+.mmt-fail-act.danger { color: #e74c3c; }
+.mmt-fail-act.danger:hover { background: #fff0f0; }
 .mmt-bubble.error {
   align-self: center;
   background: #fff0f0;
