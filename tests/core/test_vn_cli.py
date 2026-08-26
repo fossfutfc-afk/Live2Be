@@ -396,9 +396,12 @@ def test_wrapup_after_vn():
         assert result.bond_story, "第 2 轮触发应成功（软门槛）"
         assert engine.history_length == 2
         wrapup_after_vn(engine)
-        # 收尾只记 assistant（record_input=False, 不污染假 user 消息）
-        assert engine.history_length == 3, f"收尾应 +1 条历史: {engine.history_length}"
-        assert engine.history[-1]["content"].startswith("[mmt_chat]")
+        # 收尾只记 assistant（record_input=False, 不污染假 user 消息）;
+        # 回复会被切片成多条（split_reply_chunks）→ 只断言 ≥3 且内容完整
+        assert engine.history_length >= 3, f"收尾应 +至少 1 条历史: {engine.history_length}"
+        wrap_tail = engine.history[2:]
+        assert any(h["content"].startswith("[mmt_chat]") for h in wrap_tail)
+        assert "下次再一起吧" in "".join(h["content"] for h in wrap_tail)
         # 收尾注记注入（第二次 chat 调用: 倒数第 2 = 系统注记, 倒数第 1 = user）
         note = llm.snapshots[1][-2]["content"]
         assert "羁绊剧情" in note and "收尾" in note and "气氛到了" in note, note
