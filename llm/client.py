@@ -296,7 +296,7 @@ def _build_payload(
         _ensure_json_instruction(messages)
 
     if extra_body:
-        payload["extra_body"] = extra_body
+        payload.update(extra_body)   # 展开成顶层字段（此前误嵌套, 无调用点未暴露）
 
     return payload
 
