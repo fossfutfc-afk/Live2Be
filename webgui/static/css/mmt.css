@@ -207,6 +207,7 @@
 }
 .mmt-fail-mark {
   flex: none;
+  order: -1;                                /* 感叹号在气泡【左侧】（微信同款） */
   width: 20px; height: 20px;
   border-radius: 50%;
   background: #ff3b30;

@@ -21,9 +21,9 @@ async function loadSettings() {
       const val = (data[section] || {})[key] || "";
       const el = $(elId);
       if (masked) {
-        // key 字段: 打码值直接填 value（text 类型明文显示 "****last4"——
-        // 前星后明, 正常颜色待在框里, 不是 placeholder 浅色; 聚焦不消失）。
-        // 保存时打码值发回 → 后端 is_masked 识别 → 不改 key（留空保存 = 保持不变）
+        // key 字段（password）: value 填打码值（掩码显示——"****last4" 变星）;
+        // 改 key = Ctrl+A 全选删除后输入（避免在打码值后拼接）; 保存打码值发回
+        // → is_masked 识别 → 不改 key
         el.value = val;
         el.placeholder = val ? "" : "未设置（留空 = 用 .env 的 key）";
       } else {

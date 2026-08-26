@@ -335,6 +335,9 @@ async function retryFailedMessage(text, wrap) {
     renderError(data.detail || data.reason || "重发失败");
     return;
   }
+  // 成功 → 解包: 把 player 气泡从 wrap 里提出来（wrap 是 flex 容器, 移除 failed
+  // 后失去 align-self 会变成普通 div 左对齐 → 气泡"瞬移到左侧学生区"）
+  wrap.replaceWith(wrap.firstChild);
   if (!_polling) {
     _polling = true;
     pollLoop();                             // 重发成功 → 轮询角色回复
