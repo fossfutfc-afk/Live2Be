@@ -47,11 +47,16 @@ def _find_avatar(cid: str) -> tuple[str, str]:
 
 
 def _session_ids(store: SessionStore, cid: str) -> list[str]:
-    """该角色所有 session id（按目录名——id 含时间戳, 倒序 = 新→旧）。"""
-    d = store.sessions_dir(cid)
+    """该角色在【当前世界】的角色线 id（v2: 每角色一条线——读 meta.json）。
+
+    旧版枚举 sessions/ 子目录; v2 世界内每角色一条线（characters/{cid}/）——
+    返回线的 id（meta.session_id, 无则空列表）。
+    """
+    d = store.char_dir(cid)
     if not d.is_dir():
         return []
-    return sorted((p.name for p in d.iterdir() if p.is_dir()), reverse=True)
+    meta = store.meta(cid)
+    return [meta.session_id] if meta.session_id else []
 
 
 @router.get("/api/mmt/characters")

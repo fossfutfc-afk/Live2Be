@@ -1,16 +1,22 @@
 # -*- coding: utf-8 -*-
-"""SessionStore — 会话生命周期（core/DESIGN_SAVE.md §五/§六）。
+"""SessionStore — 世界（周目）顶层 + 角色线存储（v2, docs/world_model_evolution.md）。
 
-create / enter_vn / append_event / append_marker / update_session_progress /
-finish / list_open / resume（读路径）。
+**v2 路径（平行世界顶层, 世界上限 WORLD_LIMIT 个槽位）**:
+    data/worlds/{world_id}/world.json                      （世界 meta: created_at/active）
+    data/worlds/{world_id}/characters/{char_id}/events.jsonl（角色线事件流, 唯一真源）
+    data/worlds/{world_id}/characters/{char_id}/wiki.json   （digest 产物, brain 派生）
+    data/worlds/{world_id}/characters/{char_id}/meta.json   （线状态: 轮数等）
+    data/worlds/{world_id}/snapshots/s_xxx/…                （存档点 = 森林时点快照, 未来）
 
-路径（角色根目录, §三）:
-    data/{char_id}/sessions/{session_id}/meta.json     （纯索引, 创建时写一次）
-    data/{char_id}/sessions/{session_id}/events.jsonl  （事件流唯一真源）
-    data/{char_id}/sessions/{session_id}/progress.json （会话内轮数）
+**与 v1 的关系（渐进迁移）**: 类名 SessionStore 与方法签名（char_id, session_id）
+保留——调用方零改动; session_id 语义 = 世界内角色线 id, **不再参与路径**
+（每角色一条事件流直接挂角色目录）。v1 旧数据已归档 data/archive/。
 
-seq 分配: 实例缓存（首次 append 从文件算最大 seq, 之后递增）——**单写者假设**
-（单进程 CLI; 未来 web 多会话各自写自己的目录, 天然隔离）。
+**世界管理**: 槽位 world1/world2/world3（固定编号, created_at 记录真实时间）;
+创建第三个之后拒绝新建（数据安全优先, 玩家手动删/归档）。active 标记在
+world.json——切换器（M2）读它; 默认 active_world() = world1（或唯一存在的世界）。
+
+seq 分配: 每次 append 从文件重算 max（跨实例安全, 文件小/低频, 正确性优先）。
 
 状态: 无状态机——ended/in_vn 由 events 的 marker 推导（renderer.session_status）。
 """
@@ -40,83 +46,175 @@ from core.session.renderer import session_status
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 DEFAULT_DATA_ROOT = _PROJECT_ROOT / "data"
 
+#: 平行世界上限（槽位数）
+WORLD_LIMIT = 3
 
-def _new_session_id() -> str:
-    """角色目录内唯一: {YYYYMMDD_HHMMSS}_{rand4}。"""
+#: 默认世界（active_world 兜底）
+DEFAULT_WORLD = "world1"
+
+
+def _new_line_id() -> str:
+    """角色线 id（v2: 每世界每角色一条线——保留时间戳风格, 兼容 v1 工具/测试）。"""
     rand4 = "".join(random.choice(string.hexdigits.lower()) for _ in range(4))
     return f"{datetime.now():%Y%m%d_%H%M%S}_{rand4}"
 
 
 class SessionStore:
-    """会话生命周期管理器（路径参数化 data_root, 默认 data/）。"""
+    """世界（周目）+ 角色线存储管理器（路径参数化 data_root, 默认 data/）。"""
 
-    def __init__(self, data_root: str | Path = DEFAULT_DATA_ROOT):
+    def __init__(self, data_root: str | Path = DEFAULT_DATA_ROOT,
+                 world_id: str | None = None):
         self.data_root = Path(data_root)
-        # 注: seq 分配不再用实例缓存（跨实例不同步会重复分配 seq, 见 append_event）
+        self.world_id = world_id or DEFAULT_WORLD  # 当前世界槽位（调用方可覆盖）
 
     # ------------------------------------------------------------------
-    # 路径
+    # 路径（v2: worlds/{world}/characters/{char}/…）
     # ------------------------------------------------------------------
 
-    def char_dir(self, char_id: str) -> Path:
-        return self.data_root / char_id
+    def worlds_root(self) -> Path:
+        return self.data_root / "worlds"
 
+    def world_dir(self, world_id: str | None = None) -> Path:
+        return self.worlds_root() / (world_id or self.world_id)
+
+    def world_meta_path(self, world_id: str | None = None) -> Path:
+        return self.world_dir(world_id) / "world.json"
+
+    def characters_dir(self, world_id: str | None = None) -> Path:
+        return self.world_dir(world_id) / "characters"
+
+    def char_dir(self, char_id: str, world_id: str | None = None) -> Path:
+        return self.characters_dir(world_id) / char_id
+
+    # v1 兼容路径方法（session_id 不再参与路径——每角色一条线）
     def sessions_dir(self, char_id: str) -> Path:
-        return self.char_dir(char_id) / "sessions"
+        return self.char_dir(char_id)
 
-    def session_dir(self, char_id: str, session_id: str) -> Path:
-        return self.sessions_dir(char_id) / session_id
+    def session_dir(self, char_id: str, session_id: str = "") -> Path:
+        return self.char_dir(char_id)
 
-    def meta_path(self, char_id: str, session_id: str) -> Path:
-        return self.session_dir(char_id, session_id) / "meta.json"
+    def meta_path(self, char_id: str, session_id: str = "") -> Path:
+        return self.char_dir(char_id) / "meta.json"
 
-    def events_path(self, char_id: str, session_id: str) -> Path:
-        return self.session_dir(char_id, session_id) / "events.jsonl"
+    def events_path(self, char_id: str, session_id: str = "") -> Path:
+        return self.char_dir(char_id) / "events.jsonl"
 
-    def progress_path(self, char_id: str, session_id: str) -> Path:
-        return self.session_dir(char_id, session_id) / "progress.json"
+    def progress_path(self, char_id: str, session_id: str = "") -> Path:
+        return self.char_dir(char_id) / "progress.json"
+
+    def snapshots_dir(self, world_id: str | None = None) -> Path:
+        """存档点目录（v2: 森林时点快照, 阶段 8/10——全量复制, 节点自包含）。"""
+        return self.world_dir(world_id) / "snapshots"
 
     # ------------------------------------------------------------------
-    # 生命周期
+    # 世界管理（周目, 上限 WORLD_LIMIT）
+    # ------------------------------------------------------------------
+
+    def list_worlds(self) -> list[str]:
+        """枚举已有世界槽位（worlds/ 下含 world.json 的目录, 按槽位序）。"""
+        root = self.worlds_root()
+        if not root.is_dir():
+            return []
+        return sorted(
+            (p.name for p in root.iterdir()
+             if p.is_dir() and (p / "world.json").is_file()))
+
+    def world_meta(self, world_id: str | None = None) -> dict:
+        """读世界 meta（缺失 → {id, created_at: '', active: False}, 宁缺勿错）。"""
+        p = self.world_meta_path(world_id)
+        try:
+            data = json.loads(p.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                return data
+        except (OSError, ValueError):
+            pass
+        return {"id": world_id or self.world_id, "created_at": "", "active": False}
+
+    def create_world(self, name: str = "") -> str:
+        """新建平行世界（槽位 world1..world{N}, 上限 WORLD_LIMIT——满了拒绝）。
+
+        槽位编号: 找最小可用空位（world1 优先）; created_at 记录真实创建时间。
+        active 标记: 新世界默认非 active（切换由 M2 世界切换器负责）。
+        """
+        root = self.worlds_root()
+        root.mkdir(parents=True, exist_ok=True)
+        existing = {p.name for p in root.iterdir() if p.is_dir()}
+        for i in range(1, WORLD_LIMIT + 1):
+            wid = f"world{i}"
+            if wid not in existing:
+                meta = {
+                    "id": wid,
+                    "name": name,
+                    "created_at": datetime.now().isoformat(),
+                    "active": False,
+                }
+                d = root / wid
+                d.mkdir(parents=True, exist_ok=True)
+                (d / "characters").mkdir(exist_ok=True)
+                atomic_write_json(self.world_meta_path(wid), meta)
+                return wid
+        raise RuntimeError(
+            f"平行世界上限 {WORLD_LIMIT} 个已满——请先归档/删除一个世界再新建"
+        )
+
+    def active_world(self) -> str:
+        """当前活跃世界（world.json active=True; 无 → 唯一世界; 无世界 → world1）。"""
+        worlds = self.list_worlds()
+        if not worlds:
+            return DEFAULT_WORLD
+        for wid in worlds:
+            if self.world_meta(wid).get("active"):
+                return wid
+        return worlds[0]
+
+    # ------------------------------------------------------------------
+    # 角色线生命周期（方法签名保留 v1——session_id 不再参与路径）
     # ------------------------------------------------------------------
 
     def create(self, char_id: str, char_name: str = "") -> SessionMeta:
-        """新建会话（单事件流）: 写 meta(type=conversation) + append marker session_start。"""
-        session_id = _new_session_id()
+        """新建角色线（v2: 懒创建——世界/角色目录 + meta.json + session_start marker）。
+
+        每世界每角色一条线——重复调用返回同一线（不建新目录, 事件流持续 append）。
+        """
+        d = self.char_dir(char_id)
+        d.mkdir(parents=True, exist_ok=True)
+        meta_path = self.meta_path(char_id)
+        if meta_path.is_file():
+            meta = SessionMeta.from_dict(self._read_json(meta_path))
+            if meta.session_id:
+                return meta
+        line_id = _new_line_id()
         meta = SessionMeta(
-            session_id=session_id,
+            session_id=line_id,
             type=TYPE_CONVERSATION,
             character_id=char_id,
             character_name=char_name,
             created_at=datetime.now().isoformat(),
         )
-        self._write_meta(char_id, meta)
-        self.append_marker(char_id, session_id, M_SESSION_START)
+        atomic_write_json(meta_path, meta.to_dict())
+        self.append_marker(char_id, line_id, M_SESSION_START)
         return meta
 
-    def enter_vn(self, char_id: str, session_id: str, reason: str = "") -> str:
-        """MMT → VN: 当前会话 append vn_enter marker（单事件流, DESIGN_SAVE §5.3）。
-
-        2026-08-24 存储整合: 替代 open_vn 子会话——不建目录、不写 meta、
-        不 append session_start; 后续 bond 事件/vn_state/vn_exit/session_end
-        全部 append 到同一 events.jsonl。返回 session_id（与入参相同, 调用方继续用）。
-        """
+    def enter_vn(self, char_id: str, session_id: str = "", reason: str = "") -> str:
+        """MMT → VN: 角色线 append vn_enter marker（单事件流, 无子会话）。"""
         payload = {"reason": reason} if reason else None
         self.append_marker(char_id, session_id, M_VN_ENTER, payload)
         return session_id
 
-    def finish(self, char_id: str, session_id: str, ended: bool = True) -> Event:
-        """会话收尾: append marker session_end{ended}（没写 = 中断, 零成本表达）。"""
+    def finish(self, char_id: str, session_id: str = "", ended: bool = True) -> Event:
+        """对话段收尾: append marker session_end{ended}（没写 = 中断, 零成本表达）。"""
         return self.append_marker(char_id, session_id, M_SESSION_END, {"ended": ended})
 
     # ------------------------------------------------------------------
     # 事件
     # ------------------------------------------------------------------
 
-    def append_event(self, char_id: str, session_id: str, event: Event) -> Event:
-        """append 一个事件（seq 自动分配: 每次从文件重算 max——实例缓存会跨实例
-        不同步（digest 内部新建 store 与调用方 store 是两个实例, 缓存会重复分配
-        seq）, 文件小/append 低频, 正确性优先。"""
+    def append_event(self, char_id: str, session_id: str = "", event: Event | None = None,
+                     **kwargs) -> Event:
+        """append 一个事件（seq 每次从文件重算 max——跨实例安全, 正确性优先）。"""
+        if event is None:
+            event = make_event(kwargs.pop("type", "mmt"), kwargs.pop("subtype", "mmt_chat"),
+                               kwargs.pop("payload", {}))
         evs = parse_events(read_jsonl(self.events_path(char_id, session_id)))
         seq = max((e.seq for e in evs), default=0) + 1
         ev = Event(
@@ -126,18 +224,23 @@ class SessionStore:
             subtype=event.subtype,
             payload=dict(event.payload),
         )
-        append_jsonl(self.events_path(char_id, session_id), ev.to_dict())
+        p = self.events_path(char_id, session_id)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        append_jsonl(p, ev.to_dict())
         return ev
 
     def append_marker(
-        self, char_id: str, session_id: str, subtype: str, payload: dict | None = None,
+        self, char_id: str, session_id: str = "", subtype: str = "",
+        payload: dict | None = None,
     ) -> Event:
         """append 一个 marker 事件（状态标记）。"""
         return self.append_event(char_id, session_id, marker(subtype, payload))
 
-    def update_session_progress(self, char_id: str, session_id: str, rounds: int) -> None:
-        """写会话内轮数（data/{char}/sessions/{sid}/progress.json, 展示用）。"""
-        atomic_write_json(self.progress_path(char_id, session_id), {
+    def update_session_progress(self, char_id: str, session_id: str = "", rounds: int = 0) -> None:
+        """写角色线轮数（char_dir/progress.json, 展示用）。"""
+        p = self.progress_path(char_id, session_id)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        atomic_write_json(p, {
             "rounds": rounds,
             "updated_at": datetime.now().isoformat(),
         })
@@ -146,16 +249,16 @@ class SessionStore:
     # 读路径
     # ------------------------------------------------------------------
 
-    def meta(self, char_id: str, session_id: str) -> SessionMeta:
-        """读 meta.json（缺失 → 空 SessionMeta, 宁缺勿错）。"""
+    def meta(self, char_id: str, session_id: str = "") -> SessionMeta:
+        """读角色线 meta.json（缺失 → 空 SessionMeta, 宁缺勿错）。"""
         return SessionMeta.from_dict(self._read_json(self.meta_path(char_id, session_id)))
 
-    def events(self, char_id: str, session_id: str) -> list[Event]:
-        """读 events.jsonl（行级容错, 坏骨架事件丢弃）。"""
+    def events(self, char_id: str, session_id: str = "") -> list[Event]:
+        """读角色线 events.jsonl（行级容错, 坏骨架事件丢弃）。"""
         return parse_events(read_jsonl(self.events_path(char_id, session_id)))
 
-    def resume(self, char_id: str, session_id: str) -> dict:
-        """恢复读路径: {meta, events, status}（调用方用 render_events + session_status 重建引擎）。"""
+    def resume(self, char_id: str, session_id: str = "") -> dict:
+        """恢复读路径: {meta, events, status}（调用方用 render_events + session_status 重建）。"""
         evs = self.events(char_id, session_id)
         return {
             "meta": self.meta(char_id, session_id),
@@ -164,12 +267,12 @@ class SessionStore:
         }
 
     def list_open(self) -> list[SessionMeta]:
-        """列出全部未结束会话（无 session_end marker, 按 created_at 倒序）。
-
-        扫 data/*/sessions/*/meta.json; 每会话读 events 判 ended（本地会话少, 可接受）。
-        """
+        """列出当前世界全部未结束角色线（无 session_end marker, 按 created_at 倒序）。"""
         out: list[SessionMeta] = []
-        for meta_path in sorted(self.data_root.glob("*/sessions/*/meta.json")):
+        chars = self.characters_dir()
+        if not chars.is_dir():
+            return []
+        for meta_path in sorted(chars.glob("*/meta.json")):
             meta = SessionMeta.from_dict(self._read_json(meta_path))
             if not meta.session_id:
                 continue
@@ -185,13 +288,9 @@ class SessionStore:
     # 内部
     # ------------------------------------------------------------------
 
-    def _write_meta(self, char_id: str, meta: SessionMeta) -> None:
-        atomic_write_json(self.meta_path(char_id, meta.session_id), meta.to_dict())
-
-    @staticmethod
-    def _read_json(path: Path) -> dict | None:
+    def _read_json(self, path: Path) -> dict:
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
-            return data if isinstance(data, dict) else None
+            return data if isinstance(data, dict) else {}
         except (OSError, ValueError):
-            return None
+            return {}
