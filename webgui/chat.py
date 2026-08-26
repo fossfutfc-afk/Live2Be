@@ -16,11 +16,13 @@
 from __future__ import annotations
 
 import logging
+import random
 import threading
 from pathlib import Path
 
 from core.momotalk import MomoTalkEngine
 from core.session import SessionStore
+from core.ui.text_processors import _strip_action_brackets, split_reply_chunks
 from llm.client import LLMClient
 
 logger = logging.getLogger(__name__)
@@ -38,8 +40,10 @@ INTERPERSON_PATH = ROOT / "config" / "settings" / "relation" / "interperson.json
 _store = SessionStore(DATA_ROOT)
 _engines: dict[str, MomoTalkEngine] = {}
 _locks: dict[str, threading.Lock] = {}
-# 后台任务状态: (char_id, session_id) → {"running": bool, "error": str}
+# 后台任务状态 + 输入队列（排队连发）: (char_id, session_id) → ...
 _tasks: dict[tuple[str, str], dict] = {}
+_queues: dict[tuple[str, str], list[str]] = {}
+_worker_running: dict[tuple[str, str], bool] = {}
 
 
 def _engine(char_id: str) -> MomoTalkEngine:
@@ -108,40 +112,49 @@ def new_world(char_id: str) -> dict:
 # ---------------------------------------------------------------------------
 
 def chat_async(char_id: str, session_id: str, text: str) -> dict:
-    """发起一轮对话（后台线程跑 agent_turn, 立即返回）。
+    """发起一轮对话（入队, worker 串行消费, 立即返回）。
 
-    同 char 串行锁: 若该角色正在回复中 → 拒绝（前端也应禁用输入）。
-    Returns: {accepted: bool, reason?: str}
+    排队语义: 玩家连发多条 → 依次入队, worker 逐条跑 agent_turn（同 char 锁串行）;
+    后面的 agent_turn 会看到前一条的完整上下文（LLM 综合回复, 见 momotalk_rules
+    的"连续消息/插嘴"提示——不必逐条机械回应）。
+    Returns: {accepted: bool, queued: bool}
     """
     key = (char_id, session_id)
-    if _tasks.get(key, {}).get("running"):
-        return {"accepted": False, "reason": "正在回复中"}
-    _tasks[key] = {"running": True, "error": ""}
-    threading.Thread(
-        target=_run_turn, args=(char_id, session_id, text), daemon=True,
-    ).start()
-    return {"accepted": True}
+    _queues.setdefault(key, []).append(text)
+    if _worker_running.get(key):
+        return {"accepted": True, "queued": True}
+    _worker_running[key] = True
+    threading.Thread(target=_worker, args=(char_id, session_id), daemon=True).start()
+    return {"accepted": True, "queued": False}
 
 
-def _run_turn(char_id: str, session_id: str, text: str) -> None:
-    """后台: agent_turn（锁内串行）→ 落事件流（引擎自动）→ 更新任务状态。"""
+def _worker(char_id: str, session_id: str) -> None:
+    """worker: 串行消费输入队列（同 char 锁 + 单 worker 保证串行）。"""
     key = (char_id, session_id)
     try:
         with _lock(char_id):
-            engine = _engine(char_id)
-            result = engine.agent_turn(text)
-            # result.bond_story=True → vn_enter marker 已落（executor）; M3 阶段
-            # 前端占位, 这里只标记（in_vn 状态由事件流 session_status 推导）
-            _tasks[key] = {"running": False, "error": "",
-                           "bond_story": bool(result.bond_story)}
+            while _queues.get(key):
+                text = _queues[key].pop(0)
+                _tasks[key] = {"running": True, "error": ""}
+                engine = _engine(char_id)
+                result = engine.agent_turn(text)
+                # result.bond_story=True → vn_enter marker 已落; M3 阶段前端占位
+                _tasks[key] = {"running": False, "error": "",
+                               "bond_story": bool(result.bond_story)}
     except Exception as e:                        # noqa: BLE001 — LLM 失败/循环超限
         logger.warning("agent_turn 失败 (%s/%s): %s", char_id, session_id, e)
         _tasks[key] = {"running": False, "error": str(e)}
+    finally:
+        _worker_running[key] = False
 
 
 def task_status(char_id: str, session_id: str) -> dict:
-    """查询后台任务状态（前端轮询: 是否还在回复 / 是否出错 / 是否触发 bond）。"""
-    return _tasks.get((char_id, session_id), {"running": False, "error": ""})
+    """查询后台任务状态（前端轮询: busy=还在处理 or 队列有 pending / 出错 / bond）。"""
+    key = (char_id, session_id)
+    st = dict(_tasks.get(key, {"running": False, "error": ""}))
+    st["busy"] = bool(st.get("running")) or bool(_queues.get(key)) \
+        or _worker_running.get(key, False)
+    return st
 
 
 # ---------------------------------------------------------------------------
@@ -149,10 +162,12 @@ def task_status(char_id: str, session_id: str) -> dict:
 # ---------------------------------------------------------------------------
 
 def render_chat_events(events) -> list[dict]:
-    """事件流 → 气泡列表 [{side: player|char, text, seq, type?}]。
+    """事件流 → 气泡列表 [{side: player|char, text, seq, subtype?}]。
 
-    mmt 事件 payload: player（同轮首条, 玩家消息）+ reply（角色回复）。
-    一个事件可能同时有 player 和 reply（同轮）→ 各成一气泡。
+    复用 CLI 的文本处理（core/ui/text_processors）: 角色回复去动作括号 →
+    split_reply_chunks 字数+随机切块（模拟真人一条条发消息）——每个 chunk 一个
+    气泡。玩家消息不切（原样）。rng 用事件 seq 作种子（同一条回复每次切块一致,
+    历史重放稳定; 不同事件切块不同, 保留"真人节奏"的随机感）。
     """
     bubbles: list[dict] = []
     for e in events:
@@ -163,8 +178,12 @@ def render_chat_events(events) -> list[dict]:
         if player:
             bubbles.append({"side": "player", "text": player, "seq": e.seq})
         if reply:
-            bubbles.append({"side": "char", "text": reply, "seq": e.seq,
-                            "subtype": e.subtype})
+            text = _strip_action_brackets(reply).strip()
+            if text:
+                rng = random.Random(e.seq)          # 确定性种子（历史重放稳定）
+                for chunk in split_reply_chunks(text, rng=rng):
+                    bubbles.append({"side": "char", "text": chunk,
+                                    "seq": e.seq, "subtype": e.subtype})
     return bubbles
 
 
@@ -179,7 +198,7 @@ def events_after(char_id: str, session_id: str, since: int = 0) -> dict:
     return {
         "bubbles": render_chat_events(new_events),
         "last_seq": max((e.seq for e in events), default=0),
-        "running": bool(status.get("running")),
+        "running": bool(status.get("busy")),   # busy = 正在跑 or 队列有 pending
         "error": status.get("error", ""),
         "bond_story": bool(status.get("bond_story")),
     }
