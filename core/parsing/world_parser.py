@@ -23,8 +23,11 @@ import yaml
 
 from core.common import err
 
-#: 默认路径（相对项目根, 与 main.py 的启动方式一致）
-DEFAULT_WORLD_PATH = "config/settings/world/overview.yml"
+#: 项目根（绝对路径——uvicorn/IDE 从任意 CWD 启动都能找到 config/）
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+
+#: 默认路径（项目根绝对, cwd 无关）
+DEFAULT_WORLD_PATH = _PROJECT_ROOT / "config" / "settings" / "world" / "overview.yml"
 
 #: 三档（顺序即渲染顺序）
 _TIERS = ("common", "hidden", "system")

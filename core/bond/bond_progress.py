@@ -29,10 +29,11 @@ import json
 from datetime import datetime
 from pathlib import Path
 
-# 数据根（cwd 相对项目根, 与 player.json 同惯例; 角色目录 = data/{char_id}/）
-DEFAULT_DATA_ROOT = Path("data")
+# 数据根（项目根绝对, cwd 无关——uvicorn/IDE 从任意目录启动; 角色目录 = data/{char_id}/）
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+DEFAULT_DATA_ROOT = _PROJECT_ROOT / "data"
 # 旧全局聚合（迁移期回退; 已归档 .legacy.json 仍可读）
-_LEGACY_GLOBAL_PATH = Path("data/basic/bond_progress.json")
+_LEGACY_GLOBAL_PATH = _PROJECT_ROOT / "data" / "basic" / "bond_progress.json"
 
 
 class BondProgress:
