@@ -238,56 +238,49 @@ function renderError(msg) {
 
 // ---------------------------------------------------------------------------
 // 微信式发送失败（感叹号 + 重发/删除）
+// 设计: 不包 wrap 容器——感叹号 absolute 定位在气泡左侧外（不占流 →
+// 失败/成功切换只改气泡 class + 增删感叹号元素, 气泡位置不变, 无拉长/瞬移）
 // ---------------------------------------------------------------------------
 
-// 发送失败 → 玩家气泡保留 + 红色感叹号（点击 → 重发/删除菜单）
+// 发送失败（同步路径）→ 渲染玩家气泡 + failed + 感叹号
 function renderFailedBubble(text) {
   const box = $("mmt-bubbles");
   if (!box) return;
-  const wrap = document.createElement("div");
-  wrap.className = "mmt-msg failed";
   const bubble = document.createElement("div");
-  bubble.className = "mmt-bubble player";
+  bubble.className = "mmt-bubble player failed";
   bubble.textContent = text;
-  const mark = document.createElement("span");
-  mark.className = "mmt-fail-mark";
-  mark.textContent = "!";
-  mark.title = "发送失败，点击重发或删除";
-  mark.addEventListener("click", (e) => {
-    e.stopPropagation();
-    showFailMenu(mark, text, wrap);
-  });
-  wrap.appendChild(bubble);
-  wrap.appendChild(mark);
-  box.appendChild(wrap);
+  box.appendChild(bubble);
+  attachFailMark(bubble, text, "发送失败");
   scrollBubbles();
 }
 
-// 把指定文本的玩家气泡转成"失败态"（感叹号 + 可重发/删除）——异步失败时调用
+// 异步失败 → 把对应文本的玩家气泡转失败态（找不到/已失败 → 放弃）
 function markFailedBubble(text, errMsg) {
   const box = $("mmt-bubbles");
   if (!box) return;
   const bubbles = Array.from(box.querySelectorAll(".mmt-bubble.player"));
   const target = bubbles.reverse().find((b) => b.textContent === text);
-  if (!target) return;                       // 找不到（重开过）→ 放弃标记
-  const wrap = document.createElement("div");
-  wrap.className = "mmt-msg failed";
-  target.replaceWith(wrap);
-  wrap.appendChild(target);
-  const mark = document.createElement("span");
-  mark.className = "mmt-fail-mark";
-  mark.textContent = "!";
-  mark.title = "发送失败" + (errMsg ? "：" + errMsg : "") + "（点击重发或删除）";
-  mark.addEventListener("click", (e) => {
-    e.stopPropagation();
-    showFailMenu(mark, text, wrap);
-  });
-  wrap.appendChild(mark);
+  if (!target || target.classList.contains("failed")) return;
+  target.classList.add("failed");
+  attachFailMark(target, text, "发送失败" + (errMsg ? "：" + errMsg : ""));
   scrollBubbles();
 }
 
-function showFailMenu(mark, text, wrap) {
-  const old = wrap.querySelector(".mmt-fail-menu");
+// 给气泡挂感叹号（absolute 定位在气泡左侧外）
+function attachFailMark(bubble, text, tip) {
+  const mark = document.createElement("span");
+  mark.className = "mmt-fail-mark";
+  mark.textContent = "!";
+  mark.title = tip + "（点击重发或删除）";
+  mark.addEventListener("click", (e) => {
+    e.stopPropagation();
+    showFailMenu(mark, text, bubble);
+  });
+  bubble.appendChild(mark);
+}
+
+function showFailMenu(mark, text, bubble) {
+  const old = bubble.querySelector(".mmt-fail-menu");
   if (old) { old.remove(); return; }
   const menu = document.createElement("div");
   menu.className = "mmt-fail-menu";
@@ -296,25 +289,25 @@ function showFailMenu(mark, text, wrap) {
   retry.className = "mmt-fail-act";
   retry.onclick = () => {
     menu.remove();
-    retryFailedMessage(text, wrap);
+    retryFailedMessage(text, bubble);
   };
   const del = document.createElement("button");
   del.textContent = "删除";
   del.className = "mmt-fail-act danger";
   del.onclick = () => {
     menu.remove();
-    wrap.remove();               // 本地删除（未入库, 重开也没有）
+    bubble.remove();               // 本地删除（未入库, 重开也没有）
   };
   menu.append(retry, del);
-  wrap.appendChild(menu);
+  bubble.appendChild(menu);
 }
 
-// 重发: 气泡恢复正常态（移除感叹号）→ 调 chat → 轮询拿角色回复
-async function retryFailedMessage(text, wrap) {
-  wrap.classList.remove("failed");
-  const mark = wrap.querySelector(".mmt-fail-mark");
+// 重发: 气泡恢复正常（移除 failed + 感叹号——气泡本身不动, 无布局抖动）
+async function retryFailedMessage(text, bubble) {
+  bubble.classList.remove("failed");
+  const mark = bubble.querySelector(".mmt-fail-mark");
   if (mark) mark.remove();
-  const menu = wrap.querySelector(".mmt-fail-menu");
+  const menu = bubble.querySelector(".mmt-fail-menu");
   if (menu) menu.remove();
   showTyping();
   let res, data;
@@ -326,18 +319,17 @@ async function retryFailedMessage(text, wrap) {
     });
     data = await res.json();
   } catch (e) {
-    wrap.classList.add("failed");
+    bubble.classList.add("failed");
+    attachFailMark(bubble, text, "重发失败（网络错误: " + e.message + "）");
     renderError("重发失败（网络错误: " + e.message + "）");
     return;
   }
   if (!res.ok || !data.accepted) {
-    wrap.classList.add("failed");
+    bubble.classList.add("failed");
+    attachFailMark(bubble, text, "重发失败");
     renderError(data.detail || data.reason || "重发失败");
     return;
   }
-  // 成功 → 解包: 把 player 气泡从 wrap 里提出来（wrap 是 flex 容器, 移除 failed
-  // 后失去 align-self 会变成普通 div 左对齐 → 气泡"瞬移到左侧学生区"）
-  wrap.replaceWith(wrap.firstChild);
   if (!_polling) {
     _polling = true;
     pollLoop();                             // 重发成功 → 轮询角色回复
