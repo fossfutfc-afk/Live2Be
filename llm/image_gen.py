@@ -109,10 +109,31 @@ class ImageGenerator:
         api_key: str | None = None,
     ):
         # ---- APIYI（Gemini 图像）后端配置 ----
-        # api_key: None=读 .env; ""=强制本地 diffusers（测试用）; 非空=APIYI
-        self._api_key = api_key if api_key is not None else os.getenv("IMAGE_API_KEY", "")
-        self.api_base_url = os.getenv("IMAGE_API_BASE_URL", "https://api.apiyi.com")
-        self.api_model = os.getenv("IMAGE_MODEL", "gemini-3.1-flash-lite-image")
+        # 优先级: 构造参数 > settings.toml [image]（GUI 设置页, 非空字段）> .env
+        # api_key: None=自动读取; ""=强制本地 diffusers（测试用）; 非空=APIYI
+        cfg = {}
+        try:
+            _root = Path(__file__).resolve().parents[1]
+            _st = _root / "settings.toml"
+            if _st.is_file():
+                import tomllib
+                _data = tomllib.loads(_st.read_text(encoding="utf-8"))
+                cfg = _data.get("image", {}) if isinstance(_data, dict) else {}
+        except (OSError, ValueError, ImportError):
+            cfg = {}
+        self._api_key = (
+            api_key if api_key is not None
+            else str(cfg.get("api_key") or "").strip()
+            or os.getenv("IMAGE_API_KEY", "")
+        )
+        self.api_base_url = (
+            str(cfg.get("base_url") or "").strip()
+            or os.getenv("IMAGE_API_BASE_URL", "https://api.apiyi.com")
+        )
+        self.api_model = (
+            str(cfg.get("model") or "").strip()
+            or os.getenv("IMAGE_MODEL", "gemini-3.1-flash-lite-image")
+        )
         self.api_version = os.getenv("IMAGE_API_VERSION", "v1beta")
 
         # ---- 本地 diffusers fallback 配置 ----

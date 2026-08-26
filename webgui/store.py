@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
 """GUI 配置存储（settings.toml）— 与路由分离的配置层。
 
-**定位**: 仅 GUI 设置页的读写存档。引擎（llm/image_gen）**仍从 .env 读**——
-本文件是给未来接入留的桩: 引擎接入时改为"settings.toml 非空字段优先, .env 兜底"。
+**定位**: GUI 设置页的读写存档——**引擎已接入**: llm/client.py（LLMClient）
+与 llm/image_gen.py（ImageGenerator）读配置时「settings.toml 非空字段优先,
+.env 兜底」（优先级: 构造参数 > settings.toml > .env > 默认）。GUI 设置页
+改 key/base_url/model 立即生效。
 
 文件: 项目根 settings.toml（gitignore, 与 .env 并列——运行时用户配置）。
 

@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """设置路由 — GUI 配置存档（settings.toml）读写。
 
-注意: 引擎仍从 .env 读（后端调试用）——settings.toml 是 GUI 的设置存档,
-引擎接入时改 store.load_settings 的优先级（见 webgui/store.py docstring）。
+引擎已接入: llm/client.py 与 llm/image_gen.py 读配置时 settings.toml 非空
+字段优先, .env 兜底——GUI 设置页改 key/base_url/model 立即生效。
 """
 from __future__ import annotations
 
