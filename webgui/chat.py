@@ -203,6 +203,19 @@ def render_chat_events(events, display_name: str = "") -> list[dict]:
         if getattr(e, "type", None) != "mmt":
             continue
         if e.subtype == "mmt_trigger_bond_story":
+            # 触发轮完整渲染（原 bug: continue 吞掉 player+reply——"不声不响"+重进消失）:
+            # 玩家消息 → AI 触发回复（当面对白, 切块）→ 粉色横幅
+            player = (e.payload.get("player") or "").strip()
+            reply = (e.payload.get("reply") or "").strip()
+            if player:
+                bubbles.append({"side": "player", "text": player, "seq": e.seq})
+            if reply:
+                text = _strip_action_brackets(reply).strip()
+                if text:
+                    rng = random.Random(e.seq)
+                    for chunk in split_reply_chunks(text, rng=rng):
+                        bubbles.append({"side": "char", "text": chunk,
+                                        "seq": e.seq, "subtype": e.subtype})
             name = display_name or "羁绊"
             bubbles.append({"kind": "bond_entry",
                             "text": f"进入 {name} 的羁绊剧情", "seq": e.seq})

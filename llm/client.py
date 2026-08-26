@@ -61,6 +61,9 @@ class LLMClient:
 
     配置优先级: 构造参数 > settings.toml（GUI 设置页, 非空字段）> .env > 默认。
     从 settings.toml [llm] 读 api_key/base_url/model（空字段跳过 → .env 兜底）。
+
+    思维链: self.last_reasoning = 最近一次 chat() 的 reasoning_content
+    （DeepSeek reasoner/v4 系列返回; deepseek-chat 不返回 → None）。
     """
 
     def __init__(
@@ -86,6 +89,7 @@ class LLMClient:
         )
         self.timeout = timeout
         self.max_retries = max_retries
+        self.last_reasoning: str | None = None   # 最近一次 chat 的思维链（无 → None）
 
         if not self.api_key:
             raise ValueError(err(
@@ -116,7 +120,12 @@ class LLMClient:
         response_format: str = "text",
         extra_body: dict[str, Any] | None = None,
     ) -> str | dict[str, Any]:
-        """发送 chat completion 请求（批次模式）。"""
+        """发送 chat completion 请求（批次模式）。
+
+        思维链捕获（DeepSeek reasoner/v4 系列返回 reasoning_content）: 每次调用后
+        self.last_reasoning = 最近一次响应的思考过程（无 → None）。模型无关——
+        deepseek-chat 不返回则为 None。调用方（引擎 trace / CLI debug）可读。
+        """
         effective_model = model or self.model
 
         payload = _build_payload(
@@ -129,6 +138,7 @@ class LLMClient:
         )
 
         raw_text = self._request_with_retry(payload)
+        self.last_reasoning = _LAST_REASONING    # 模块级捕获 → 实例可读
 
         if response_format == "json_object":
             return self._extract_json_with_llm_correction(
@@ -353,9 +363,17 @@ def _ensure_json_instruction(messages: list[dict[str, str]]) -> None:
             })
 
 
+#: 最近一次响应的思维链（模块级——_parse_chat_response 设置, chat() 同步到实例）
+_LAST_REASONING: str | None = None
+
+
 def _parse_chat_response(body: dict[str, Any]) -> str:
+    global _LAST_REASONING
     try:
-        return body["choices"][0]["message"]["content"]
+        msg = body["choices"][0]["message"]
+        # 思维链捕获: DeepSeek reasoner/v4 系列返回 reasoning_content（chat 无 → 清空）
+        _LAST_REASONING = msg.get("reasoning_content") or None
+        return msg.get("content", "")
     except (KeyError, IndexError, TypeError) as e:
         raise ValueError(err(
             "BadResponse",

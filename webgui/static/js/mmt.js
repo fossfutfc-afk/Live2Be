@@ -162,6 +162,8 @@ async function openChat(charId, name) {
   `;
   renderBubbles(data.bubbles || []);      // 历史气泡一次性渲染（不逐块）
   scrollBubbles();
+  if (data.in_vn) lockChat();             // 重进 in_vn 会话 → 锁定输入（剧情中）
+  else unlockChat();
   $("mmt-send").addEventListener("click", sendMessage);
   $("mmt-input").addEventListener("keydown", (e) => { if (e.key === "Enter") sendMessage(); });
   $("mmt-input").focus();
@@ -176,7 +178,21 @@ function renderBubble(b) {
       : (b.side === "player" ? "player" : "char"));
   div.textContent = b.text;
   box.appendChild(div);
+  if (b.kind === "bond_entry") lockChat();   // 进入羁绊剧情 → 锁定输入, 不许插嘴
   scrollBubbles();
+}
+
+// 羁绊剧情锁定: 触发后输入框禁用（VN 模式中不许插嘴; vn_exit 后 unlockChat）
+function lockChat() {
+  const input = $("mmt-input"), send = $("mmt-send");
+  if (input) { input.disabled = true; input.placeholder = "羁绊剧情进行中…"; }
+  if (send) send.disabled = true;
+}
+
+function unlockChat() {
+  const input = $("mmt-input"), send = $("mmt-send");
+  if (input) { input.disabled = false; input.placeholder = "输入消息…"; }
+  if (send) send.disabled = false;
 }
 
 // 渲染规则: 历史(stream=false)一次性批量渲染（fragment + 无动画 + 一次滚动,
@@ -195,6 +211,7 @@ async function renderBubbles(bubbles, { stream = false } = {}) {
       div.style.animation = "none";          // 历史无入场动画
       div.textContent = b.text;
       frag.appendChild(div);
+      if (b.kind === "bond_entry") lockChat();  // 历史含触发 → 剧情中, 锁定
     }
     box.appendChild(frag);
     scrollBubbles();                          // 一次滚动
