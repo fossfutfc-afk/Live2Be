@@ -9,7 +9,7 @@ from __future__ import annotations
 from fastapi import APIRouter
 from pydantic import BaseModel
 
-from webgui import store
+from webgui import chat, store
 
 router = APIRouter()
 
@@ -33,7 +33,11 @@ async def get_settings() -> dict:
 
 @router.post("/api/settings")
 async def post_settings(body: SettingsIn) -> dict:
-    """合并保存（api_key 留空/打码标记 = 不改）; 只保留已知分组/字段。"""
+    """合并保存（api_key 留空/打码标记 = 不改）; 只保留已知分组/字段。
+
+    保存后重建引擎实例（chat.reset_engines）——LLMClient 构造时 key 已写死,
+    不重建则旧实例继续用旧 key（假 key 时期创建的实例改 key 不生效）。
+    """
     current = store.load_settings()
     for section in ("llm", "image"):
         incoming = getattr(body, section, None)
@@ -45,4 +49,5 @@ async def post_settings(body: SettingsIn) -> dict:
                     continue                  # 空/打码 → 不改 key
             current[section][key] = val
     store.save_settings(current)
+    chat.reset_engines()                      # 配置变更 → 引擎按新配置重建
     return {"ok": True}
