@@ -21,11 +21,11 @@ async function loadSettings() {
       const val = (data[section] || {})[key] || "";
       const el = $(elId);
       if (masked) {
-        // key 字段: 输入框留空 + placeholder 显示打码值（password 框会把打码文字
-        // 遮蔽成点, 无法辨认）——placeholder 露出后 4 位, 留空保存 = 不改 key
+        // key 字段: 输入框留空 + placeholder 显示打码值（后端格式 "****last4",
+        // 前面打星尾部可辨认——直接显示; 留空保存 = 不改 key）
         el.value = "";
         el.placeholder = val
-          ? "已设置 ****" + val.slice(-4) + "（留空 = 保持不变）"
+          ? val + "（留空 = 保持不变）"
           : "未设置（留空 = 用 .env 的 key）";
       } else {
         el.value = val;

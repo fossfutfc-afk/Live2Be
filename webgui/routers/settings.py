@@ -23,7 +23,7 @@ class SettingsIn(BaseModel):
 
 @router.get("/api/settings")
 async def get_settings() -> JSONResponse:
-    """返回当前配置（api_key 打码——'已设置 ****last4'）。
+    """返回当前配置（api_key 打码——'****last4', 前面打星尾部可辨认）。
 
     响应加 Cache-Control: no-store——无缓存头时浏览器可能启发式缓存旧响应
     （改 key 后刷新仍显示旧值——"假 key 又回来了"的错觉）。
