@@ -10,13 +10,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
 
 from core.affection import load_affection_from_events
 from core.common.mmt_registry import load_mmt_registry
 from core.mmt.ranking import SORT_MODES, best_affection, sort_characters
 from core.parsing.dynamic_character_parser import CharacterLoader
 from core.session import SessionStore
+from webgui import chat
 
 router = APIRouter()
 
@@ -113,3 +115,36 @@ async def mmt_characters(sort: str = "recent") -> dict:
     mode = sort if sort in SORT_MODES else "recent"
     chars = sort_characters(chars, mode=mode, recent=recent_map, affection=affection_map)
     return {"characters": chars, "registry_empty": False, "sort": mode}
+
+
+# ---------------------------------------------------------------------------
+# 聊天（M3: 会话 + 后台任务 + 轮询——接 webgui/chat.py）
+# ---------------------------------------------------------------------------
+
+class ChatIn(BaseModel):
+    char_id: str
+    session_id: str
+    text: str
+
+
+@router.get("/api/mmt/session")
+async def mmt_session(char_id: str) -> dict:
+    """打开某角色的会话（恢复进行中 or 新开世界线）+ 拉历史气泡。"""
+    opened = chat.open_session(char_id)
+    events = chat.events_after(char_id, opened["session_id"], 0)
+    return {**opened, "bubbles": events["bubbles"], "last_seq": events["last_seq"]}
+
+
+@router.post("/api/mmt/chat")
+async def mmt_chat(body: ChatIn) -> dict:
+    """发起一轮对话（后台线程跑 agent_turn, 立即返回; 结果落事件流, 轮询拉取）。"""
+    text = body.text.strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="消息不能为空")
+    return chat.chat_async(body.char_id, body.session_id, text)
+
+
+@router.get("/api/mmt/events")
+async def mmt_events(char_id: str, session_id: str, since: int = 0) -> dict:
+    """轮询: seq > since 的新气泡 + 最新 seq + 任务状态（回复中/出错/触发 bond）。"""
+    return chat.events_after(char_id, session_id, since)
