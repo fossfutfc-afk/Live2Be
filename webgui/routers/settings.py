@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from webgui import chat, store
@@ -21,14 +22,18 @@ class SettingsIn(BaseModel):
 
 
 @router.get("/api/settings")
-async def get_settings() -> dict:
-    """返回当前配置（api_key 打码——'已设置 ****last4'）。"""
+async def get_settings() -> JSONResponse:
+    """返回当前配置（api_key 打码——'已设置 ****last4'）。
+
+    响应加 Cache-Control: no-store——无缓存头时浏览器可能启发式缓存旧响应
+    （改 key 后刷新仍显示旧值——"假 key 又回来了"的错觉）。
+    """
     data = store.load_settings()
     for section in data:
         key = data[section].get("api_key", "")
         if key:
             data[section]["api_key"] = store.mask_api_key(key)
-    return data
+    return JSONResponse(content=data, headers={"Cache-Control": "no-store"})
 
 
 @router.post("/api/settings")

@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
 """画廊 — AI 生成 2D 场景（图 + 文字信息成对, DESIGN_SAVE.md §4.5）。
 
-路径: data/{char_id}/gallery/{scene_id}.png + {scene_id}.json
-    scene_id = {YYYYMMDD_HHMMSS}_{rand4}（角色目录内唯一, 与 session_id 同风格）
+路径（v2）: data/gallery/{char_id}/{scene_id}.png + {scene_id}.json
+    —— 立绘是【画作资产】（跨世界保留, 索引 json 标注 source_world/source_session）;
+    scene_id = {YYYYMMDD_HHMMSS}_{rand4}
 
 骨架职责（memorial 管线接入前的最小可用面）:
     write(char_id, prompt, source_session, png, description=None) -> scene_id
@@ -41,11 +42,11 @@ class GalleryStore:
         self.data_root = Path(data_root)
 
     # ------------------------------------------------------------------
-    # 路径
+    # 路径（v2: data/gallery/{char_id}/——跨世界资产）
     # ------------------------------------------------------------------
 
     def gallery_dir(self, char_id: str) -> Path:
-        return self.data_root / char_id / "gallery"
+        return self.data_root / "gallery" / char_id
 
     def png_path(self, char_id: str, scene_id: str) -> Path:
         return self.gallery_dir(char_id) / f"{scene_id}.png"

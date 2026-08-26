@@ -51,17 +51,24 @@ def _empty_wiki(conversation_id: str) -> dict:
 
 
 class WikiStore:
-    """session wiki 存储（海马体）: 单会话读写（平行世界, 无跨 session 概念）。"""
+    """角色线 wiki 存储（海马体）: 单线读写（v2: 世界内每角色一条线）。
 
-    def __init__(self, data_root: str | Path = DEFAULT_DATA_ROOT):
+    路径: data/worlds/{world}/characters/{char_id}/wiki.json——与 SessionStore 的
+    char_dir 对齐; session_id 参数保留兼容（不再参与路径）。
+    """
+
+    def __init__(self, data_root: str | Path = DEFAULT_DATA_ROOT,
+                 world_id: str = "world1"):
         self.data_root = Path(data_root)
+        self.world_id = world_id
 
     # ------------------------------------------------------------------
     # 路径 / 读写
     # ------------------------------------------------------------------
 
-    def wiki_path(self, char_id: str, session_id: str) -> Path:
-        return self.data_root / char_id / "sessions" / session_id / "brain" / "wiki.json"
+    def wiki_path(self, char_id: str, session_id: str = "") -> Path:
+        return (self.data_root / "worlds" / self.world_id / "characters"
+                / char_id / "wiki.json")
 
     def load(self, char_id: str, session_id: str) -> dict:
         """读本 session 的 wiki（缺失/坏 json → 空模板, 宁缺勿错）。"""
