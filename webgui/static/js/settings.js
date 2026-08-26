@@ -1,4 +1,4 @@
-// Live2Be 设置页（简略版）——读写 settings.toml 存档（引擎仍读 env, 后端调试用）
+// Live2Be 设置页（简略版）——读写 settings.toml（引擎非空字段优先, .env 兜底）
 "use strict";
 
 // 注意: 不重复声明 $ —— gui.js 已声明全局 const $（普通 script 共享全局作用域,
@@ -19,7 +19,17 @@ async function loadSettings() {
     const data = await (await fetch("/api/settings")).json();
     for (const [section, key, elId, masked] of FIELDS) {
       const val = (data[section] || {})[key] || "";
-      $(elId).value = masked ? val : val;   // 打码值原样填入（POST 时识别"已设置 ****"不改）
+      const el = $(elId);
+      if (masked) {
+        // key 字段: 输入框留空 + placeholder 显示打码值（password 框会把打码文字
+        // 遮蔽成点, 无法辨认）——placeholder 露出后 4 位, 留空保存 = 不改 key
+        el.value = "";
+        el.placeholder = val
+          ? "已设置 ****" + val.slice(-4) + "（留空 = 保持不变）"
+          : "未设置（留空 = 用 .env 的 key）";
+      } else {
+        el.value = val;
+      }
     }
   } catch (e) {
     $("settings-msg").textContent = "设置加载失败: " + e;
@@ -31,7 +41,7 @@ async function saveSettings() {
   const payload = {};
   for (const [section, key, elId] of FIELDS) {
     const val = $(elId).value.trim();
-    if (!val) continue;                       // 空 = 不变
+    if (!val) continue;                       // 空 = 不变（key 打码值不填输入框了）
     payload[section] = payload[section] || {};
     payload[section][key] = val;
   }
@@ -41,8 +51,11 @@ async function saveSettings() {
     body: JSON.stringify(payload),
   });
   const data = await res.json();
-  $("settings-msg").textContent = data.ok ? "已保存（引擎仍从 .env 读取, 存档生效待接入）" : "保存失败";
+  $("settings-msg").textContent = data.ok
+    ? "已保存（立即生效——引擎按 settings.toml 非空字段优先）"
+    : "保存失败";
   $("settings-msg").classList.remove("hidden");
+  loadSettings();                             // 刷新打码显示（新 key 后 4 位）
 }
 
 document.addEventListener("DOMContentLoaded", () => {

@@ -281,6 +281,15 @@ class LLMClient:
             if resp.status_code == 200:
                 return _parse_chat_response(resp.json())
 
+            # 认证/权限错误（401/403）: 配置错误, 重试无意义——立即抛（假 key /
+            # key 失效时玩家秒得感叹号, 不再 6 步 × 指数退避转圈 1~2 分钟）
+            if resp.status_code in (401, 403):
+                raise httpx.HTTPStatusError(
+                    err("LLMAuth", f"API 认证失败 {resp.status_code}: {resp.text[:200]}"),
+                    request=resp.request,
+                    response=resp,
+                )
+
             if resp.status_code == 429:
                 retry_after = _parse_retry_after(resp)
                 if attempt < self.max_retries:
