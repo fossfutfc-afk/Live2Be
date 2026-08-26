@@ -133,7 +133,17 @@ async function openChat(charId, name) {
   _chatChar = charId;
   _chatName = name;
   // 打开会话（恢复进行中 or 新开世界线）+ 拉历史
-  const data = await (await fetch(`/api/mmt/session?char_id=${charId}`)).json();
+  let data;
+  try {
+    data = await (await fetch(`/api/mmt/session?char_id=${charId}`)).json();
+  } catch (e) {
+    const win = $("mmt-chat-window");
+    if (win) {
+      win.classList.add("has-chat");
+      win.innerHTML = `<div class="mmt-chat-error">打开会话失败（网络错误: ${e.message}）</div>`;
+    }
+    return;
+  }
   _chatSession = data.session_id;
   _lastSeq = data.last_seq || 0;
   _chatName = data.display_name || name;
@@ -221,9 +231,23 @@ function renderError(msg) {
   if (!box) return;
   const d = document.createElement("div");
   d.className = "mmt-bubble error";
-  d.textContent = "（回复失败: " + msg + "，请重发）";
+  d.textContent = "（" + msg + "）";
   box.appendChild(d);
   scrollBubbles();
+}
+
+// 统一失败处理: 移除乐观玩家气泡（消息未入库, 避免幽灵气泡）+ 错误气泡 + 回填输入框
+function failSend(text, msg) {
+  hideTyping();
+  const box = $("mmt-bubbles");
+  const last = box ? box.lastElementChild : null;
+  if (last && last.classList.contains("player")) last.remove();
+  renderError(msg);
+  const input = $("mmt-input");
+  if (input) {
+    input.value = text;           // 回填, 重发方便
+    input.focus();
+  }
 }
 
 function setInputEnabled(on) {
@@ -240,15 +264,20 @@ async function sendMessage() {
   input.value = "";
   renderBubble({ side: "player", text });   // 玩家气泡立即上屏（允许连发, 不锁输入）
   showTyping();                             // 打字指示
-  const res = await fetch("/api/mmt/chat", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ char_id: _chatChar, session_id: _chatSession, text }),
-  });
-  const data = await res.json();
+  let res, data;
+  try {
+    res = await fetch("/api/mmt/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ char_id: _chatChar, session_id: _chatSession, text }),
+    });
+    data = await res.json();
+  } catch (e) {
+    failSend(text, "发送失败（网络错误: " + e.message + "）");
+    return;
+  }
   if (!res.ok || !data.accepted) {
-    hideTyping();
-    renderError(data.detail || data.reason || "发送失败");
+    failSend(text, data.detail || data.reason || "发送失败");
     return;
   }
   if (!_polling) {
@@ -260,12 +289,20 @@ async function sendMessage() {
 async function pollLoop() {
   while (_polling) {
     await sleep(POLL_MS);
-    const data = await (await fetch(
-      `/api/mmt/events?char_id=${_chatChar}&session_id=${_chatSession}&since=${_lastSeq}`,
-    )).json();
+    let data;
+    try {
+      data = await (await fetch(
+        `/api/mmt/events?char_id=${_chatChar}&session_id=${_chatSession}&since=${_lastSeq}`,
+      )).json();
+    } catch (e) {
+      hideTyping();
+      renderError("轮询失败（网络错误: " + e.message + "）");
+      _polling = false;
+      break;
+    }
     if (data.error) {
       hideTyping();
-      renderError(data.error);
+      renderError("回复失败: " + data.error);
       _polling = false;
       break;
     }

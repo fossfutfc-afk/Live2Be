@@ -202,6 +202,17 @@
   color: #c0392b;
   font-size: 0.82rem;
 }
+/* 聊天窗级错误（打开会话失败等——无气泡容器时） */
+.mmt-chat-error {
+  padding: 1rem;
+  text-align: center;
+  color: #c0392b;
+  font-size: 0.85rem;
+  background: #fff0f0;
+  border: 1px dashed #ffb3b3;
+  border-radius: 10px;
+  margin: 1rem;
+}
 /* 羁绊剧情入口（BA 风格粉色横幅） */
 .mmt-bubble.bond-entry {
   align-self: center;
