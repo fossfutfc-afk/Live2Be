@@ -48,7 +48,8 @@ DEFAULTS: dict = {
 }
 
 #: api_key 打码标记（GET 返回用; POST 收到此标记 = 不改 key）
-MASK_PREFIX = "已设置 ****"
+#: 格式: "****" + 后 4 位（如 "****a8a7"——前面打星, 尾部可辨认）
+MASK_PREFIX = "****"
 
 
 def load_settings() -> dict:
@@ -87,7 +88,7 @@ def save_settings(data: dict) -> None:
 
 
 def mask_api_key(api_key: str) -> str:
-    """打码: 非空 → '已设置 ****last4'; 空 → 空串。"""
+    """打码: 非空 → '****' + 后 4 位（如 '****a8a7'）; 空 → 空串。"""
     if not api_key:
         return ""
     tail = api_key[-4:] if len(api_key) > 4 else api_key
