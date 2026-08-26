@@ -272,7 +272,10 @@ async function pollLoop() {
     if (data.bubbles && data.bubbles.length) {
       hideTyping();
       _lastSeq = data.last_seq;
-      await renderBubbles(data.bubbles, { stream: true });  // 逐块冒出
+      // 增量轮询: 跳过 player 气泡（sendMessage 已乐观渲染, 避免重复渲染;
+      // 全量加载 openChat(since=0) 仍渲染 player——历史重建需要）
+      const renderable = data.bubbles.filter((b) => b.side !== "player");
+      await renderBubbles(renderable, { stream: true });  // 逐块冒出
     }
     if (!data.running) {
       hideTyping();
