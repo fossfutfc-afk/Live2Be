@@ -35,12 +35,32 @@ os.environ["SSL_CERT_FILE"] = certifi.where()
 _project_root = Path(__file__).resolve().parents[1]
 _load_dotenv_result = load_dotenv(_project_root / ".env")
 
+#: settings.toml 位置（项目根——GUI 设置页存档; 非空字段优先于 .env）
+_SETTINGS_PATH = _project_root / "settings.toml"
+
+
+def _settings_toml() -> dict:
+    """读项目根 settings.toml → dict（缺失/损坏 → {}, 不阻塞）。
+
+    GUI 设置页保存的运行时配置（webgui/store.py 同源）。结构:
+        [llm]   {api_key, base_url, model}
+        [image] {api_key, base_url, model}
+    """
+    if not _SETTINGS_PATH.is_file():
+        return {}
+    try:
+        import tomllib
+        data = tomllib.loads(_SETTINGS_PATH.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError, ImportError):
+        return {}
+
 
 class LLMClient:
     """OpenAI-compatible Chat Completions 客户端。
 
-    从 .env 读取 LLM_API_KEY / LLM_BASE_URL / LLM_MODEL，
-    构造时可逐一覆盖。
+    配置优先级: 构造参数 > settings.toml（GUI 设置页, 非空字段）> .env > 默认。
+    从 settings.toml [llm] 读 api_key/base_url/model（空字段跳过 → .env 兜底）。
     """
 
     def __init__(
@@ -51,9 +71,19 @@ class LLMClient:
         timeout: float = 60.0,
         max_retries: int = 3,
     ):
-        self.api_key = api_key or os.getenv("LLM_API_KEY", "")
-        self.base_url = (base_url or os.getenv("LLM_BASE_URL", "https://api.deepseek.com/v1")).rstrip("/")
-        self.model = model or os.getenv("LLM_MODEL", "deepseek-v4-flash")
+        cfg = _settings_toml().get("llm", {}) or {}
+        self.api_key = (
+            api_key or str(cfg.get("api_key") or "").strip()
+            or os.getenv("LLM_API_KEY", "")
+        )
+        self.base_url = (
+            base_url or str(cfg.get("base_url") or "").strip()
+            or os.getenv("LLM_BASE_URL", "https://api.deepseek.com/v1")
+        ).rstrip("/")
+        self.model = (
+            model or str(cfg.get("model") or "").strip()
+            or os.getenv("LLM_MODEL", "deepseek-v4-flash")
+        )
         self.timeout = timeout
         self.max_retries = max_retries
 
