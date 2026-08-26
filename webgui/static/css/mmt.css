@@ -145,3 +145,109 @@
   background: #fff;
 }
 .mmt-empty { color: #c9a3b2; font-size: 1rem; }
+
+/* 聊天窗内部（选中学生后 JS 填充: head + bubbles + input） */
+#mmt-chat-window.has-chat {
+  align-items: stretch;
+  justify-content: stretch;
+  flex-direction: column;
+}
+.mmt-chat-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.7rem 1rem;
+  border-bottom: 1px solid #f0d9e2;
+  background: #fff;
+}
+.mmt-chat-name { color: #d6336c; font-weight: bold; font-size: 1rem; letter-spacing: 0.05em; }
+
+/* 气泡区 */
+.mmt-bubbles {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  background: #fff5f8;
+}
+.mmt-bubble {
+  max-width: 72%;
+  padding: 0.55rem 0.8rem;
+  border-radius: 14px;
+  font-size: 0.92rem;
+  line-height: 1.5;
+  word-break: break-word;
+  animation: bubble-in 0.2s ease-out;
+}
+.mmt-bubble.char {
+  align-self: flex-start;
+  background: #fff;
+  border: 1px solid #f5d8e2;
+  color: #5b4250;
+  border-bottom-left-radius: 4px;
+}
+.mmt-bubble.player {
+  align-self: flex-end;
+  background: #ff5f8f;
+  color: #fff;
+  border-bottom-right-radius: 4px;
+}
+.mmt-bubble.error {
+  align-self: center;
+  background: #fff0f0;
+  border: 1px dashed #ffb3b3;
+  color: #c0392b;
+  font-size: 0.82rem;
+}
+@keyframes bubble-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* 打字指示（三点） */
+.mmt-bubble.typing { display: flex; gap: 4px; padding: 0.7rem 0.9rem; }
+.mmt-bubble.typing .dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: #f5a8c0;
+  animation: typing-bounce 1s infinite;
+}
+.mmt-bubble.typing .dot:nth-child(2) { animation-delay: 0.15s; }
+.mmt-bubble.typing .dot:nth-child(3) { animation-delay: 0.3s; }
+@keyframes typing-bounce {
+  0%, 60%, 100% { transform: translateY(0); }
+  30% { transform: translateY(-5px); }
+}
+
+/* 输入区 */
+.mmt-chat-input {
+  flex: none;
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.7rem 1rem;
+  border-top: 1px solid #f0d9e2;
+  background: #fff;
+}
+.mmt-chat-input input {
+  flex: 1;
+  padding: 0.55rem 0.8rem;
+  border: 1px solid #f0c9d6;
+  border-radius: 20px;
+  font-size: 0.9rem;
+  outline: none;
+  color: #5b4250;
+}
+.mmt-chat-input input:focus { border-color: #ff5f8f; }
+.mmt-chat-input input:disabled { background: #faf0f4; }
+.mmt-chat-input button {
+  padding: 0.55rem 1.2rem;
+  border: none;
+  border-radius: 20px;
+  background: #ff5f8f;
+  color: #fff;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+.mmt-chat-input button:disabled { background: #f5c0d2; cursor: default; }

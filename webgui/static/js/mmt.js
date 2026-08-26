@@ -109,12 +109,158 @@ function selectChatChar(id, name) {
   document.querySelectorAll("#mmt-chat-list .mmt-item").forEach((x) => x.classList.remove("selected"));
   const el = document.querySelector(`#mmt-chat-list .mmt-item[data-id="${id}"]`);
   if (el) el.classList.add("selected");
-  // 聊天窗口占位（逻辑后写: 连引擎、气泡、进 VN）
-  $("mmt-chat-window").innerHTML = `
-    <div class="mmt-chat-box">
-      <h3>与 ${name} 的对话</h3>
-      <p class="mmt-empty">（聊天逻辑建设中——后续接入引擎）</p>
-    </div>`;
+  openChat(id, name);
+}
+
+// ---------------------------------------------------------------------------
+// 聊天窗（会话 + 发送 + 轮询 + 逐块冒出渲染）
+// 渲染规则: 角色回复【一小块一小块直接冒出】——第一块立即(TTFT), 后续块间隔冒出,
+//           模拟"对方一句一句发消息"的真实聊天感。
+// ---------------------------------------------------------------------------
+
+let _chatChar = "";        // 当前聊天角色 id
+let _chatSession = "";     // session_id
+let _chatName = "";        // 显示名
+let _lastSeq = 0;          // 已渲染的最后 seq
+let _polling = false;      // 是否在轮询回复中
+
+const POLL_MS = 1000;          // 轮询间隔
+const BUBBLE_GAP_MS = 600;     // 逐块冒出间隔（第一块 TTFT 立即, 后续块此间隔）
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+async function openChat(charId, name) {
+  _polling = false;                       // 停止旧轮询
+  _chatChar = charId;
+  _chatName = name;
+  // 打开会话（恢复进行中 or 新开世界线）+ 拉历史
+  const data = await (await fetch(`/api/mmt/session?char_id=${charId}`)).json();
+  _chatSession = data.session_id;
+  _lastSeq = data.last_seq || 0;
+  _chatName = data.display_name || name;
+  // 聊天窗结构
+  const win = $("mmt-chat-window");
+  win.classList.add("has-chat");
+  win.innerHTML = `
+    <div class="mmt-chat-head">
+      <span class="mmt-chat-name">${_chatName}</span>
+    </div>
+    <div class="mmt-bubbles" id="mmt-bubbles"></div>
+    <div class="mmt-chat-input">
+      <input id="mmt-input" type="text" maxlength="500" placeholder="输入消息…" autocomplete="off">
+      <button id="mmt-send">发送</button>
+    </div>
+  `;
+  renderBubbles(data.bubbles || []);      // 历史气泡一次性渲染（不逐块）
+  scrollBubbles();
+  $("mmt-send").addEventListener("click", sendMessage);
+  $("mmt-input").addEventListener("keydown", (e) => { if (e.key === "Enter") sendMessage(); });
+  $("mmt-input").focus();
+}
+
+function renderBubble(b) {
+  const box = $("mmt-bubbles");
+  if (!box) return;
+  const div = document.createElement("div");
+  div.className = "mmt-bubble " + (b.side === "player" ? "player" : "char");
+  div.textContent = b.text;
+  box.appendChild(div);
+  scrollBubbles();
+}
+
+// 逐块冒出: 历史(stream=false)一次性; 新回复(stream=true)第一块立即, 后续块间隔
+async function renderBubbles(bubbles, { stream = false } = {}) {
+  for (let i = 0; i < bubbles.length; i++) {
+    renderBubble(bubbles[i]);
+    if (stream && i > 0) {
+      await sleep(BUBBLE_GAP_MS);         // 第一块 TTFT, 后续块等待间隔
+    }
+  }
+}
+
+function scrollBubbles() {
+  const box = $("mmt-bubbles");
+  if (box) box.scrollTop = box.scrollHeight;
+}
+
+function showTyping() {
+  const box = $("mmt-bubbles");
+  if (!box || $("mmt-typing")) return;
+  const t = document.createElement("div");
+  t.className = "mmt-bubble char typing";
+  t.id = "mmt-typing";
+  t.innerHTML = '<span class="dot"></span><span class="dot"></span><span class="dot"></span>';
+  box.appendChild(t);
+  scrollBubbles();
+}
+
+function hideTyping() { $("mmt-typing")?.remove(); }
+
+function renderError(msg) {
+  const box = $("mmt-bubbles");
+  if (!box) return;
+  const d = document.createElement("div");
+  d.className = "mmt-bubble error";
+  d.textContent = "（回复失败: " + msg + "，请重发）";
+  box.appendChild(d);
+  scrollBubbles();
+}
+
+function setInputEnabled(on) {
+  const input = $("mmt-input"), send = $("mmt-send");
+  if (input) input.disabled = !on;
+  if (send) send.disabled = !on;
+  if (on && input) input.focus();
+}
+
+async function sendMessage() {
+  const input = $("mmt-input");
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = "";
+  renderBubble({ side: "player", text });   // 玩家气泡立即上屏（允许连发, 不锁输入）
+  showTyping();                             // 打字指示
+  const res = await fetch("/api/mmt/chat", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ char_id: _chatChar, session_id: _chatSession, text }),
+  });
+  const data = await res.json();
+  if (!res.ok || !data.accepted) {
+    hideTyping();
+    renderError(data.detail || data.reason || "发送失败");
+    return;
+  }
+  if (!_polling) {
+    _polling = true;
+    pollLoop();                             // 已在轮询则复用, 不重复启动
+  }
+}
+
+async function pollLoop() {
+  while (_polling) {
+    await sleep(POLL_MS);
+    const data = await (await fetch(
+      `/api/mmt/events?char_id=${_chatChar}&session_id=${_chatSession}&since=${_lastSeq}`,
+    )).json();
+    if (data.error) {
+      hideTyping();
+      renderError(data.error);
+      _polling = false;
+      break;
+    }
+    if (data.bubbles && data.bubbles.length) {
+      hideTyping();
+      _lastSeq = data.last_seq;
+      await renderBubbles(data.bubbles, { stream: true });  // 逐块冒出
+    }
+    if (!data.running) {
+      hideTyping();
+      _polling = false;
+      break;
+    }
+    showTyping();                           // 还在处理（或排队）, 保持打字指示
+  }
+  setInputEnabled(true);
 }
 
 // ---------------------------------------------------------------------------
