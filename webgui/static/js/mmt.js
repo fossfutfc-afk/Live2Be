@@ -161,7 +161,9 @@ function renderBubble(b) {
   const box = $("mmt-bubbles");
   if (!box) return;
   const div = document.createElement("div");
-  div.className = "mmt-bubble " + (b.side === "player" ? "player" : "char");
+  div.className = "mmt-bubble " + (
+    b.kind === "bond_entry" ? "bond-entry"
+      : (b.side === "player" ? "player" : "char"));
   div.textContent = b.text;
   box.appendChild(div);
   scrollBubbles();
@@ -177,7 +179,9 @@ async function renderBubbles(bubbles, { stream = false } = {}) {
     const frag = document.createDocumentFragment();
     for (const b of bubbles) {
       const div = document.createElement("div");
-      div.className = "mmt-bubble " + (b.side === "player" ? "player" : "char");
+      div.className = "mmt-bubble " + (
+        b.kind === "bond_entry" ? "bond-entry"
+          : (b.side === "player" ? "player" : "char"));
       div.style.animation = "none";          // 历史无入场动画
       div.textContent = b.text;
       frag.appendChild(div);

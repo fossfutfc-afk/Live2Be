@@ -127,11 +127,20 @@ class ChatIn(BaseModel):
     text: str
 
 
+def _display_name(cid: str) -> str:
+    """角色显示名（入口横幅"进入 xx 的羁绊剧情"用）; 找不到 → 原 id。"""
+    try:
+        names = CharacterLoader(CHAR_ROOT).list_characters()
+        return names.get(cid, cid)
+    except Exception:                    # noqa: BLE001 — 角色卡异常 → id 兜底
+        return cid
+
+
 @router.get("/api/mmt/session")
 async def mmt_session(char_id: str) -> dict:
     """打开某角色的会话（恢复进行中 or 新开世界线）+ 拉历史气泡。"""
     opened = chat.open_session(char_id)
-    events = chat.events_after(char_id, opened["session_id"], 0)
+    events = chat.events_after(char_id, opened["session_id"], 0, _display_name(char_id))
     return {**opened, "bubbles": events["bubbles"], "last_seq": events["last_seq"]}
 
 
@@ -147,4 +156,4 @@ async def mmt_chat(body: ChatIn) -> dict:
 @router.get("/api/mmt/events")
 async def mmt_events(char_id: str, session_id: str, since: int = 0) -> dict:
     """轮询: seq > since 的新气泡 + 最新 seq + 任务状态（回复中/出错/触发 bond）。"""
-    return chat.events_after(char_id, session_id, since)
+    return chat.events_after(char_id, session_id, since, _display_name(char_id))
