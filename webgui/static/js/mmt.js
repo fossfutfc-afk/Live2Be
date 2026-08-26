@@ -160,10 +160,11 @@ async function openChat(charId, name) {
       <button id="mmt-send">发送</button>
     </div>
   `;
-  renderBubbles(data.bubbles || []);      // 历史气泡一次性渲染（不逐块）
+  renderBubbles(data.bubbles || []);      // 历史气泡一次性渲染（不逐块; 含 bond_entry → 锁定）
   scrollBubbles();
   if (data.in_vn) lockChat();             // 重进 in_vn 会话 → 锁定输入（剧情中）
-  else unlockChat();
+  // 注意: 不主动 unlockChat——历史渲染的 bond_entry 已锁定; 正常会话输入框
+  // 默认可用（openChat 重建了聊天窗）; 切换角色时 win.innerHTML 重建也默认可用
   $("mmt-send").addEventListener("click", sendMessage);
   $("mmt-input").addEventListener("keydown", (e) => { if (e.key === "Enter") sendMessage(); });
   $("mmt-input").focus();

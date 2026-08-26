@@ -198,6 +198,7 @@ class BondStoryEngine:
         *,
         director=None,
         brain_segment: str = "",
+        character_names: list[str] | None = None,
     ):
         self.char_loader = CharacterLoader(characters_root)
         self.llm = llm_client
@@ -206,6 +207,8 @@ class BondStoryEngine:
         self.executor = StoryExecutor()
         self.director = director          # 视觉导演（可注入; None = 纯文本模式）
         self._brain_segment = brain_segment   # Brain 记忆段（DESIGN_BRAIN.md）: VN 开场注入
+        # 称呼名单（分饰多角预留, 同 momotalk）: None = 单人（当前角色 display_name）
+        self._character_names = list(character_names) if character_names else None
         self._current_char: DynamicCharacter | None = None
         self._system_prompt: str = ""
         self._history: list[dict[str, str]] = []
@@ -230,7 +233,10 @@ class BondStoryEngine:
         # （personality.yml 的 SIG~story_tone）——VN 是剧情生成的主场, 基调开场定
         system_prompt += "\n\n【本角色剧情基调】\n" + load_story_tone(char)
 
-        system_prompt += "\n\n" + load_prompt("bond_story_rules")
+        # 称呼注入（同 momotalk——强化身份认知; list 为分饰多角预留）+ 剧情规则
+        names = self._character_names or [char.display_name]
+        greeting = "你好，" + " / ".join(names) + "——以下是你的剧情行为规则，请严格遵守："
+        system_prompt += "\n\n" + greeting + "\n\n" + load_prompt("bond_story_rules")
         # 场景契约 schema（story_scene 动作）——momotalk 同款注入, LLM 看到字段约束
         system_prompt += "\n\n可用动作 schema:\n" + build_schema(self.registry)
         # 视觉意图协议 §11: 开场喂一遍当前角色表情词表 + 世界地点词表（few-shot 示范）

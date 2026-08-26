@@ -159,10 +159,14 @@ class MomoTalkEngine:
         affection_threshold: int = 5,
         bond_progress: BondProgress | None = None,
         store: SessionStore | None = None,
+        character_names: list[str] | None = None,
     ):
         self.char_loader = CharacterLoader(characters_root)
         self.llm = llm_client
         self.registry = build_mmt_registry()
+        # 称呼名单（分饰多角预留）: None = 单人（默认当前角色 display_name）;
+        # 未来一个 LLM 扮演多角色时注入多个名字（"你好，A / B / C——以下是行为规则…"）
+        self._character_names = list(character_names) if character_names else None
         # 羁绊触发门槛（默认 5 轮, 用户确认: 轮数门槛非情绪数值）; 传入同一实例
         # 供 executor 读轮数 + 本引擎记录轮数, 保证门槛/记录一致
         self.bond_progress = bond_progress or BondProgress()
@@ -215,7 +219,11 @@ class MomoTalkEngine:
         # 玩家名不注入 system prompt——学生不会直呼玩家自定义名（一直称呼"老师"）。
         # 名字只做系统显示（终端提示符 / 菜单 / 存档标识）, 见 mmt_preset 玩家名系统。
         sp += "\n\n" + load_prompt("momotalk_environment")
-        sp += "\n\n" + load_prompt("momotalk_rules")
+        # 称呼注入（强化角色身份认知; list 为一人分饰多角预留——多角色时
+        # 调用方传 character_names=["A","B"] → "你好，A / B——以下是你的行为规则…"）
+        names = self._character_names or [char.display_name]
+        greeting = "你好，" + " / ".join(names) + "——以下是你的行为规则，请严格遵守："
+        sp += "\n\n" + greeting + "\n\n" + load_prompt("momotalk_rules")
         # MMT 域用动作列表格式（2026-08-23 定稿: 混合节奏 "说话→发图→说话"）
         sp += "\n\n可用动作 schema:\n" + build_schema(self.registry, action_list=True)
 
