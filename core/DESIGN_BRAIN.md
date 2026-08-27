@@ -12,7 +12,7 @@
 | **搭积木论证**（为什么 digest 而非纯回灌） | 纯事件流回灌 = LLM 每次从基座重新搭积木（断连一次重搭一次, 搭成什么样没保证, 水平不行）; wiki = "之前搭好的基础", 每次从基础上继续搭一块——这才是人的成长过程 |
 | **平行世界**（brain 是什么） | 每个 session 是独立世界线, 角色有自己的成长（本 session 的 wiki 控制）; 另一个世界线的成长与本 session 无关——brain 是**算法**（方法论共享, 记忆私有） |
 | **联想记忆**（digest 的升级） | 人的成长 = 新旧经历的碰撞: "今天和女朋友约会" + "想起小时候的孤独" → 综合出"我从孤独走向被爱"——跨事件的联系才长出深层信念, 孤立摘要产不出。**越复杂越像人类** |
-| **情感保底**（双通道回忆） | 回忆概率 = 时间衰减 × 情感/重要性。纯遗忘曲线丢情感维度——玩家对"初次相遇"极执着, 高 importance 记忆（初遇/告白/约定）必须**永存**: 珍贵通道保底 + 日常通道对数正态衰减 |
+| **情感保底**（双通道回忆） | 回忆概率 = 时间衰减 × 情感/重要性。纯遗忘曲线丢情感维度——玩家对"初次相遇"极执着, 高 significance 记忆（初遇/告白/约定）必须**永存**: 珍贵通道保底 + 日常通道对数正态衰减 |
 | **视觉记忆**（生图 prompt 即视觉记忆） | memorial 生图时主 LLM 亲笔写的 prompt 就是画面文字化——无需视觉 LLM 转述（"看图说话"反而脱离剧情上下文） |
 | **第一人称注入**（视角） | 第三人称存储（digest 稳定）→ 注入时转第一人称（"我记得…"）——角色视角比旁观者视角更贴角色认同（Perspective-Bounded Memory, arXiv 2606.25632） |
 
@@ -41,7 +41,7 @@ sessions/{id}/brain/wiki.json（本 session 的 wiki; 含 digested_seq）
 - digest_session: 读 events（便宜, ms 级）→ `new_events = seq > digested_seq`
   - 无新增 → 直接返回旧 wiki（**0 次 LLM 调用**）
   - 有新增 → 只提炼新增部分; 输入附旧 wiki 概要作上下文（"已有记忆, 只提炼新增/变化"）
-- LLM 输出**新增条目** → 引擎合并进旧 wiki（同 content 去重, importance 取高）→ 更新 digested_seq
+- LLM 输出**新增条目** → 引擎合并进旧 wiki（同 content 去重, significance 取高）→ 更新 digested_seq
 - 收益: 省 token（只处理新增）、**旧记忆稳定**（不重写, 只在旧基础上追加——同一世界线的时间推进, "搭积木"）; 同 session 重复恢复不重复花钱
 - 注: 这是**同一 session 内**的增量合并（同一世界线）, 不是跨 session 归并——平行世界语义不变
 
@@ -67,10 +67,10 @@ C. RAG 回忆（Phase 2）: embedding 检索与新增语义相关的旧事件（
 
 ```
 每次 digest 的回忆摘段:
-┌─ 珍贵通道（30% 概率, 可调）: 从 wiki 高 importance 条目选（importance ≥ 0.8
+┌─ 珍贵通道（30% 概率, 可调）: 从 wiki 高 significance 条目选（significance ≥ 0.8
 │   或 top-3）→ **永不衰减（保底）**
-│   → 初遇/告白/约定都在这里——digest 时 LLM 已标 importance, 零新成本;
-│     玩家执着的记忆 = 高 importance 记忆永存
+│   → 初遇/告白/约定都在这里——digest 时 LLM 已标 significance, 零新成本;
+│     玩家执着的记忆 = 高 significance 记忆永存
 │
 └─ 日常通道（70%）: 对数正态加权摘历史事件原文（遗忘曲线）
     → 近期高峰 + 长尾（偶尔想起很久以前）——日常质感, 越复杂越像人类
@@ -81,7 +81,7 @@ C. RAG 回忆（Phase 2）: embedding 检索与新增语义相关的旧事件（
 | 参数 | 默认 | 含义 |
 |---|---|---|
 | `precious_ratio` | 0.3 | 珍贵通道概率（情感重的角色调高） |
-| `importance_threshold` | 0.8 | 什么算"珍贵记忆"（importance 门槛） |
+| `significance_threshold` | 0.8 | 什么算"珍贵记忆"（significance 门槛） |
 | `sigma` | 1.5 | 日常通道衰减快慢（天然呆角色 σ 大, 回忆更飘忽） |
 | `mu` | 0 | 对数正态峰值位置（多久前的事最容易想起） |
 
@@ -97,21 +97,25 @@ digest.md 规则新增: "你突然想起了一些旧事——如果与当前经�
   "conversation_id": "20260824_143022_ab12",
   "digested_seq": 87,                    // 增量: 上次消化到的事件 seq（v3.1）
   "summary": "天台夜谈: 老师陪遥香看杂草, 遥香开始相信自己被需要",
-  "facts":    [{"content": "老师说以后常来陪她看杂草", "importance": 0.8, "tags": ["老师", "杂草"]}],
-  "beliefs":  [{"content": "遥香第一次觉得自己被需要", "importance": 0.9}],
+  "facts":    [{"content": "老师说以后常来陪她看杂草", "significance": 0.8, "tags": ["老师", "杂草"]}],
+  "beliefs":  [{"content": "遥香第一次觉得自己被需要", "significance": 0.9}],
   "relations":[{"subject": "遥香", "object": "老师", "relation": "信任加深", "note": "约定常来陪她"}],
   "updated_at": "2026-08-24T15:30:00.000000"
 }
 ```
 
-- 条目 = 自然语言 content + 元数据（importance 排序 / tags 检索）——结构化 = 可检索
+- 条目 = 自然语言 content + 元数据（**significance 0~1 记忆显著性**排序 / tags 检索）
+  = 结构化可检索; 旧字段 importance 读时兼容（significance 缺失取 importance）
+- **significance 与 affection_exp_delta 正交**（DESIGN_SEGMENT.md §4）:
+  affection = 好感（情感价）; significance = 记忆深刻度——悲伤剧情可高 significance
+  低 affection, 分开判断不合并
 - digest 输出规则: 提炼而非记录; 只写会记住/影响行为的; 视觉记忆可提炼成画面事实;
   预设经历（experience）已知晓不重复提炼; 矛盾保留
 
 ## 5. 注入（recall, 第一人称视角包装）
 
 - 第三人称存储 → 注入时转第一人称: char_name 替换为"我", summary → "我记得那段日子…"
-- 量控: importance 降序截断（facts 10 / beliefs 5 / relations 5）; 空 wiki → ""
+- 量控: significance 降序截断（facts 10 / beliefs 5 / relations 5）; 空 wiki → ""
 
 ## 6. 模块（core/brain/ = 纯算法, 3 个文件）
 

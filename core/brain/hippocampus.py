@@ -8,8 +8,9 @@ events.jsonl 生成（加载 session 时调算法 → 生成/更新本 session �
 
 结构（schema_version 2）:
     {conversation_id, summary, facts[], beliefs[], relations[], updated_at}
-    facts[{content, importance, tags}] / beliefs[{content, importance}]
+    facts[{content, significance, tags}] / beliefs[{content, significance}]
     / relations[{subject, object, relation, note}]
+    significance = 记忆显著性 0~1（旧字段 importance, 读时兼容）
 
 用法:
     from core.brain.hippocampus import WikiStore

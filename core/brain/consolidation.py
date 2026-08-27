@@ -8,7 +8,7 @@
 wiki**（平行世界, 无跨 session 归并/迁移）。
 
 增量（v3.1）: wiki 记 digested_seq——无新增事件 → 0 次 LLM 调用直接返回旧 wiki;
-只有新增才提炼, 输出新增条目 → 引擎合并（同 content 去重, importance 取高）。
+只有新增才提炼, 输出新增条目 → 引擎合并（同 content 去重, significance 取高）。
 联想（v3.1）: 新旧碰撞出成长——"今天约会 + 想起儿时孤独 → 从孤独走向被爱"。
 
 触发: 加载/恢复 session 时（resume 注入用）——不是每轮, 控成本。
@@ -49,10 +49,10 @@ MAX_DIGEST_RETRIES = 3
 
 #: 双通道回忆参数（DESIGN_BRAIN.md §3.1; per 角色可配——digest_session 透出）
 RECALL_DEFAULTS: dict = {
-    "precious_ratio": 0.3,        # 珍贵通道概率（情感重的角色调高）
-    "importance_threshold": 0.8,  # 珍贵记忆 importance 门槛
-    "mu": 0.0,                    # 对数正态位置（多久前的事最容易想起）
-    "sigma": 1.5,                 # 对数正态尺度（衰减快慢; 天然呆角色 σ 大）
+    "precious_ratio": 0.3,           # 珍贵通道概率（情感重的角色调高）
+    "significance_threshold": 0.8,   # 珍贵记忆 significance 门槛（旧名 importance_threshold）
+    "mu": 0.0,                       # 对数正态位置（多久前的事最容易想起）
+    "sigma": 1.5,                    # 对数正态尺度（衰减快慢; 天然呆角色 σ 大）
 }
 
 
@@ -137,7 +137,7 @@ def digest_session(
                            f"输出无效（非 dict/无有效条目）, 跳过本会话: {session_id}"))
         return None
 
-    # 增量合并: 旧条目保留 + 新条目（同 content 去重, importance 取高）
+    # 增量合并: 旧条目保留 + 新条目（同 content 去重, significance 取高）
     merged = _merge_new(wiki, cleaned)
     # 好感度（v3.3）: AI 只回 0~100 的 delta 分（不知当前值）→ 幂等写 affection 事件
     # （真源, append-only）→ 再更新 wiki 缓存。好感是隐藏数值（不显示在 CLI——
@@ -225,34 +225,40 @@ def random_recall_segment(events, digested_seq: int, wiki: dict | None = None,
                           rng=None, recall_opts: dict | None = None) -> str | None:
     """双通道回忆摘段（DESIGN_BRAIN.md §3.1）: 情感保底 + 遗忘曲线。
 
-    回忆概率 = 时间衰减 × 情感/重要性:
-    - 珍贵通道（30%）: wiki 高 importance 条目——**永不衰减（保底）**,
-      初遇/告白/约定都在这里（玩家执着的记忆永存）; wiki 无高 importance → None
+    回忆概率 = 时间衰减 × 情感/显著性:
+    - 珍贵通道（30%）: wiki 高 significance 条目——**永不衰减（保底）**,
+      初遇/告白/约定都在这里（玩家执着的记忆永存）; wiki 无高 significance → None
     - 日常通道（70%）: 历史事件按对数正态(年龄)加权摘原文——遗忘曲线
       （近期高峰 + 长尾, 偶尔想起很久以前）; "越复杂越像人类"
 
     recall_opts: 覆盖 RECALL_DEFAULTS（per 角色可配, 呼应 CLAUDE.md §3.2.3
-    衰减系数设计）——precious_ratio / importance_threshold / mu / sigma。
+    衰减系数设计）——precious_ratio / significance_threshold / mu / sigma。
     """
     opts = {**RECALL_DEFAULTS, **(recall_opts or {})}
     if (rng or random).random() < opts["precious_ratio"]:
-        return _precious_recall(wiki, opts["importance_threshold"])
+        return _precious_recall(wiki, opts["significance_threshold"])
     return _daily_recall(events, digested_seq, opts["mu"], opts["sigma"], rng)
 
 
 def _precious_recall(wiki: dict | None, threshold: float) -> str | None:
-    """珍贵通道: importance ≥ 阈值的条目, importance 加权选 1 条（情感保底）。"""
+    """珍贵通道: significance ≥ 阈值的条目, significance 加权选 1 条（情感保底）。
+
+    旧 wiki 的 importance 字段读时兼容（significance 缺失取 importance）。
+    """
     if not wiki:
         return None
     precious = [
         e for e in wiki.get("facts", []) + wiki.get("beliefs", [])
         if isinstance(e, dict)
-        and float(e.get("importance", 0) or 0) >= threshold
+        and float(e.get("significance", e.get("importance", 0)) or 0) >= threshold
         and isinstance(e.get("content", ""), str) and e["content"]
     ]
     if not precious:
         return None
-    weights = [max(float(e.get("importance", 0.5) or 0.5), 0.1) for e in precious]
+    weights = [
+        max(float(e.get("significance", e.get("importance", 0.5)) or 0.5), 0.1)
+        for e in precious
+    ]
     e = random.choices(precious, weights=weights, k=1)[0]
     return f"（重要回忆）{e['content']}"
 
@@ -282,7 +288,7 @@ def _daily_recall(events, digested_seq: int, mu: float, sigma: float,
 
 
 def _merge_new(old: dict, cleaned: dict) -> dict:
-    """增量合并: 旧条目保留 + 新条目（同 content 去重, importance 取高, tags union）。
+    """增量合并: 旧条目保留 + 新条目（同 content 去重, significance 取高, tags union）。
 
     同一世界线的时间推进——旧积木不动, 往上加新块（"搭积木"）。
     """
@@ -297,7 +303,7 @@ def _merge_new(old: dict, cleaned: dict) -> dict:
 
 
 def _merge_entries(existing: list, new: list) -> list:
-    """facts/beliefs 合并: content 精确去重, importance 取 max, tags union。"""
+    """facts/beliefs 合并: content 精确去重, significance 取 max, tags union。"""
     by_content: dict[str, dict] = {}
     for e in list(existing) + list(new):
         if not isinstance(e, dict):
@@ -309,8 +315,10 @@ def _merge_entries(existing: list, new: list) -> list:
         if cur is None:
             by_content[content] = dict(e)
         else:
-            cur["importance"] = max(
-                float(cur.get("importance", 0) or 0), float(e.get("importance", 0) or 0))
+            # 旧 wiki 曾用 importance——读时兼容（significance 缺失取 importance）
+            a = float(cur.get("significance", cur.get("importance", 0)) or 0)
+            b = float(e.get("significance", e.get("importance", 0)) or 0)
+            cur["significance"] = max(a, b)
             tags = set(cur.get("tags", []) or []) | set(e.get("tags", []) or [])
             if tags:
                 cur["tags"] = sorted(t for t in tags if isinstance(t, str))
@@ -334,7 +342,7 @@ def _clean_output(resp) -> dict | None:
     """校验/清洗 LLM 输出（坏字段丢弃, 宁缺勿错）。非 dict → None。
 
     结构边界对齐契约 build_digest_schema（contract/schema.py, 单源真值）;
-    本函数是内容净化（importance clamp / tags 过滤 / 空 content 丢弃）。
+    本函数是内容净化（significance clamp / tags 过滤 / 空 content 丢弃）。
     """
     if not isinstance(resp, dict):
         return None
@@ -359,7 +367,7 @@ def _clean_output(resp) -> dict | None:
 
 
 def _clean_entries(raw) -> list[dict]:
-    """facts/beliefs 清洗: content 非空 str, importance clamp 0~1, tags 过滤截断。"""
+    """facts/beliefs 清洗: content 非空 str, significance clamp 0~1, tags 过滤截断。"""
     out: list[dict] = []
     for e in raw or []:
         if not isinstance(e, dict):
@@ -369,9 +377,12 @@ def _clean_entries(raw) -> list[dict]:
             continue
         item: dict = {"content": content.strip()}
         try:
-            item["importance"] = max(_IMP_MIN, min(_IMP_MAX, float(e.get("importance", 0.5))))
+            # significance（记忆显著性, 0~1）——旧 wiki 曾用 importance, 读时兼容
+            item["significance"] = max(
+                _IMP_MIN, min(_IMP_MAX,
+                              float(e.get("significance", e.get("importance", 0.5)))))
         except (TypeError, ValueError):
-            item["importance"] = 0.5
+            item["significance"] = 0.5
         tags = [t.strip() for t in e.get("tags", []) if isinstance(t, str) and t.strip()]
         if tags:
             item["tags"] = tags[:_MAX_TAGS]
