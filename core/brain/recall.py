@@ -11,7 +11,7 @@
 Perspective-Bounded Memory（arXiv 2606.25632）+ 自我参照效应——角色视角的记忆
 注入比旁观者视角更贴角色认同。
 
-注入量控: importance 降序 → 截断（facts/beliefs/relations 各自上限）; 空 wiki → ""。
+注入量控: significance 降序 → 截断（facts/beliefs/relations 各自上限）; 空 wiki → ""。
 
 用法:
     from core.brain.recall import build_brain_injection
@@ -21,7 +21,7 @@ Perspective-Bounded Memory（arXiv 2606.25632）+ 自我参照效应——角色
 
 from __future__ import annotations
 
-#: 注入上限（importance 降序截断——token 控量）
+#: 注入上限（significance 降序截断——token 控量）
 _MAX_FACTS = 10
 _MAX_BELIEFS = 5
 _MAX_RELATIONS = 5
@@ -38,7 +38,7 @@ def build_brain_injection(
     """角色级 wiki → 第一人称记忆段（空 wiki → ""，零注入）。
 
     char_name: 条目里出现的角色叫法（display_name 或其常用简称）——替换为"我"。
-    条目顺序: importance 降序后截断。
+    条目顺序: significance 降序后截断。。
     """
     summary = wiki.get("summary", "")
     facts = _top(wiki.get("facts", []), max_facts)
@@ -77,10 +77,10 @@ def build_brain_injection(
 # ---------------------------------------------------------------------------
 
 def _top(entries, limit: int):
-    """importance 降序截断（importance 缺失按 0 排末尾）。"""
+    """significance 降序截断（缺失按 0 排末尾; 旧 wiki importance 兼容）。"""
     scored = sorted(
         (e for e in entries if isinstance(e, dict)),
-        key=lambda e: float(e.get("importance", 0) or 0),
+        key=lambda e: float(e.get("significance", e.get("importance", 0)) or 0),
         reverse=True,
     )
     return scored[:limit]
