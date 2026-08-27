@@ -133,7 +133,15 @@ def session_status(events: list[Event]) -> dict[str, Any]:
 
 
 def render_timeline(events: list[Event], *, max_paragraph_chars: int = 120) -> str:
-    """事件流 → 叙事时间线文本（brain 消化输入, §4.6; 含板块标签, 段落截断）。"""
+    """事件流 → 叙事时间线文本（brain 消化输入, §4.6; 含板块标签, 段落截断）。
+
+    设计（2026-08-27 修正）:
+    - **每事件一行**（行号 = 事件序号, 1 起）——digest 的 index.position 按行号
+      引用: LLM 顺序阅读天然理解"第几个事件", 不需要也不应该感知真实 seq
+      （引擎负责 position → 真实 seq 映射, 权威）。
+    - **紧凑文本, 非 jsonl**——省 token（无 JSON 键名/结构开销）; 叙事流不被
+      数据结构打断（角色扮演语境, 不 rigid）。
+    """
     lines: list[str] = []
     for e in events:
         if e.is_marker:
@@ -142,9 +150,10 @@ def render_timeline(events: list[Event], *, max_paragraph_chars: int = 120) -> s
         if e.type == TYPE_MMT:
             player = e.payload.get("player", "")
             reply = e.payload.get("reply", "")
-            lines.append(f"{label} 玩家: {player or '—'}")
+            parts = [f"玩家: {player or '—'}"]
             if reply:
-                lines.append(f"{label} 角色: {reply}")
+                parts.append(f"角色: {reply}")
+            lines.append(f"{label} {' / '.join(parts)}")
         elif e.type == TYPE_BOND:
             paras = e.payload.get("paragraphs", [])
             texts = [p.get("text", "") if isinstance(p, dict) else str(p) for p in paras]

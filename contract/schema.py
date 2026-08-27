@@ -117,12 +117,13 @@ def build_digest_schema() -> str:
     """
     lines = [
         "输出 JSON（不要任何解释文字）:",
-        '    {"summary": "...", "facts": [...], "beliefs": [...], "relations": [...], "affection_exp_delta": 0}',
+        '    {"summary": "...", "facts": [...], "beliefs": [...], "relations": [...], "index": [...], "affection_exp_delta": 0}',
         "字段说明:",
         "  - summary: 一句话主线（str, 整体视角, 不是只写新增）",
         "  - facts: 关键事实列表, 每项 {content: str, significance: 0~1 数字, tags: 可选 1~3 关键词}",
         "  - beliefs: 抽象信念列表, 每项 {content: str, significance: 0~1 数字}",
         "  - relations: 关系变化列表, 每项 {subject: str, object: str, relation: str, note: 可选 str}",
+        "  - index: 原文索引列表（可选）, 每项 {snippet: str 值得记住的原文摘录, significance: 0~1 数字, topic: str 关键词}",
         "  - affection_exp_delta: 本段互动让角色对玩家好感增加的分数（int 0~100; 无变化 → 0）",
         "没有值得记的内容 → 对应字段输出空数组（合法）。",
     ]
