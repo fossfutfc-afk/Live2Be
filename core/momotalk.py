@@ -71,7 +71,11 @@ from core.ui.text_processors import _process_for_momotalk, _strip_action_bracket
 
 logger = logging.getLogger(__name__)
 
-MAX_HISTORY_ROUNDS = 20
+#: 滑动窗口默认轮数（每轮 = user+assistant 2 条消息; 40 轮 = 80 条消息）。
+#: 玩家可配（引擎构造参数 history_rounds 传入; 设置页接入见 docs/DESIGN_MEMORY.md Step 1）
+DEFAULT_HISTORY_ROUNDS = 40
+# 兼容旧名（历史引用）
+MAX_HISTORY_ROUNDS = DEFAULT_HISTORY_ROUNDS
 # 会话存档走角色根目录（DESIGN_SAVE.md §三）: data/{char_id}/sessions/
 
 # agent loop 参数
@@ -160,10 +164,13 @@ class MomoTalkEngine:
         bond_progress: BondProgress | None = None,
         store: SessionStore | None = None,
         character_names: list[str] | None = None,
+        history_rounds: int = DEFAULT_HISTORY_ROUNDS,
     ):
         self.char_loader = CharacterLoader(characters_root)
         self.llm = llm_client
         self.registry = build_mmt_registry()
+        # 滑动窗口（轮数, 每轮 2 条消息）——玩家可配（docs/DESIGN_MEMORY.md Step 1）
+        self._history_rounds = max(1, int(history_rounds))
         # 称呼名单（分饰多角预留）: None = 单人（默认当前角色 display_name）;
         # 未来一个 LLM 扮演多角色时注入多个名字（"你好，A / B / C——以下是行为规则…"）
         self._character_names = list(character_names) if character_names else None
@@ -343,7 +350,7 @@ class MomoTalkEngine:
             self._inject_brain(character_id, session_id)  # 恢复时只注入已有 wiki（不消化——
                                                           # digest 只在 bond 剧情闭环后, async_digest）
         history = render_events(data["events"])           # 事件流 → LLM 消息（同格式）
-        self._history = history[-(MAX_HISTORY_ROUNDS * 2):]
+        self._history = history[-(self._history_rounds * 2):]
         self.attach_session(session_id)
         return {
             "status": status,
@@ -624,7 +631,7 @@ class MomoTalkEngine:
         )
 
     def _trim_history(self) -> None:
-        max_messages = MAX_HISTORY_ROUNDS * 2
+        max_messages = self._history_rounds * 2
         if len(self._history) > max_messages:
             self._history = self._history[-max_messages:]
 

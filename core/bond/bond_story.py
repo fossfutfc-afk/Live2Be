@@ -49,7 +49,10 @@ from core.parsing.world_parser import DEFAULT_WORLD_PATH, load_world, world_to_p
 
 logger = logging.getLogger(__name__)
 
-MAX_HISTORY_ROUNDS = 20
+#: 滑动窗口默认轮数（同 momotalk——40 轮 = 80 条消息; 构造参数 history_rounds 可配）
+DEFAULT_HISTORY_ROUNDS = 40
+# 兼容旧名
+MAX_HISTORY_ROUNDS = DEFAULT_HISTORY_ROUNDS
 
 
 class SceneLoopError(Live2BeError):
@@ -199,6 +202,7 @@ class BondStoryEngine:
         director=None,
         brain_segment: str = "",
         character_names: list[str] | None = None,
+        history_rounds: int = DEFAULT_HISTORY_ROUNDS,
     ):
         self.char_loader = CharacterLoader(characters_root)
         self.llm = llm_client
@@ -207,6 +211,7 @@ class BondStoryEngine:
         self.executor = StoryExecutor()
         self.director = director          # 视觉导演（可注入; None = 纯文本模式）
         self._brain_segment = brain_segment   # Brain 记忆段（DESIGN_BRAIN.md）: VN 开场注入
+        self._history_rounds = max(1, int(history_rounds))  # 滑动窗口（轮数, 玩家可配）
         # 称呼名单（分饰多角预留, 同 momotalk）: None = 单人（当前角色 display_name）
         self._character_names = list(character_names) if character_names else None
         self._current_char: DynamicCharacter | None = None
@@ -439,6 +444,6 @@ class BondStoryEngine:
     # ------------------------------------------------------------------
 
     def _trim_history(self) -> None:
-        max_messages = MAX_HISTORY_ROUNDS * 2
+        max_messages = self._history_rounds * 2
         if len(self._history) > max_messages:
             self._history = self._history[-max_messages:]
