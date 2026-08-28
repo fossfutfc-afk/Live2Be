@@ -140,6 +140,9 @@ def render_timeline(events: list[Event], *, max_paragraph_chars: int = 120) -> s
       （原文回捞未来走 embedding（DESIGN_MEMORY.md Step 3 废弃记录）, 不需要行号引用）。
     - **紧凑文本, 非 jsonl**——省 token（无 JSON 键名/结构开销）; 叙事流不被
       数据结构打断（角色扮演语境, 不 rigid）。
+    - **表情标注（2026-08-28 收敛）**: bond 段落显式带 emotion → 段落后 ` (emotion)`——
+      digest 提炼时"她当时的表情/反应"是难忘细节的原料（人设感记忆, 不 OOC 靠记忆不靠状态）;
+      缺省段不标注（契约语义: 缺省 = 延续上一段, 见 digest.md 输入说明）。
     """
     lines: list[str] = []
     for e in events:
@@ -155,7 +158,16 @@ def render_timeline(events: list[Event], *, max_paragraph_chars: int = 120) -> s
             lines.append(f"{label} {' / '.join(parts)}")
         elif e.type == TYPE_BOND:
             paras = e.payload.get("paragraphs", [])
-            texts = [p.get("text", "") if isinstance(p, dict) else str(p) for p in paras]
+            texts = []
+            for p in paras:
+                t = p.get("text", "") if isinstance(p, dict) else str(p)
+                if not isinstance(t, str) or not t:
+                    continue
+                emo = p.get("emotion") if isinstance(p, dict) else None
+                if isinstance(emo, str) and emo.strip():
+                    texts.append(f"{t} ({emo.strip()})")
+                else:
+                    texts.append(t)
             text = " / ".join(texts)
             if len(text) > max_paragraph_chars:
                 text = text[:max_paragraph_chars] + "…"

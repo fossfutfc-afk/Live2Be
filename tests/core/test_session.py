@@ -295,7 +295,15 @@ def test_render_timeline_brain():
     long = [make_event("bond", "story_scene", {"paragraphs": ["长" * 300]}, seq=1)]
     tl2 = render_timeline(long, max_paragraph_chars=50)
     assert len(tl2) < 100 and "…" in tl2
-    print("    render_timeline: 板块标签 + 段落截断（brain 消化输入）")
+    # 表情标注（2026-08-28）: 段落显式带 emotion → 段落后 (emotion); 缺省段不标注
+    with_emo = [make_event("bond", "story_scene", {
+        "paragraphs": [{"text": "她低头笑了。", "emotion": "smile"},
+                       {"text": "（沉默片刻）"}],
+    }, seq=1)]
+    tl3 = render_timeline(with_emo)
+    assert "她低头笑了。 (smile)" in tl3
+    assert "（沉默片刻）" in tl3 and " (smile)" not in tl3.split("（沉默片刻）")[1]
+    print("    render_timeline: 板块标签 + 段落截断 + 表情标注（brain 消化输入）")
 
 
 # ----------------------------------------------------------------------------
