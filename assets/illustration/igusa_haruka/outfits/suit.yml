@@ -1,0 +1,21 @@
+# 遥香 · 西服（官方 CH0249）——仅表情包（无身体包）
+#
+# spine 包动画名（已验证 v4.2.33）: 00~11, 99, Eye_Close_01, Idle_01
+#   ⚠️ 无 12（panic_2）/ 13（outburst）——西服没有这两个表情, 不声明
+# 无 body → 播放器无身体层（说话/待机动画缺失, 只出表情脸）——M4 双包落地前接受
+label: 西服
+spine: CH0249_spr
+emotions:
+  nomal: 01
+  respond: 02
+  smile: 03
+  giggle: 09
+  embarrass: 04
+  eyes_closed: 10
+  serious: 05
+  shout: 06
+  shout_2: 11
+  panic: 07
+  expectant: 08
+  pensive: 99
+  # panic_2（12）/ outburst（13）: 西服无此表情

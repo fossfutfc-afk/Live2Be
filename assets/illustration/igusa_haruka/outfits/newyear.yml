@@ -1,0 +1,24 @@
+# 遥香 · 新春（官方 CH0087）——全套（身体包 + 表情包）
+#
+# spine 包动画名（已验证 v4.2.33）: 00~12, 99, Eye_Close_01, Idle_01
+#   ⚠️ 无 13（outburst 失控瞪眼）——新春装没有该表情, 不声明（渲染端静默保持）
+# diff 静态图不存在（变体只有 spine 资产）——资源 ID 投影的 diff 路径缺失,
+# 渲染端优先 spine 播放器, 无 spine 时保持上一张（宁缺勿错）
+label: 新春
+spine: CH0087_spr
+body: CH0087_home
+emotions:
+  nomal: 01
+  respond: 02
+  smile: 03
+  giggle: 09
+  embarrass: 04
+  eyes_closed: 10
+  serious: 05
+  shout: 06
+  shout_2: 11
+  panic: 07
+  panic_2: 12
+  expectant: 08
+  pensive: 99
+  # outburst（13）: 新春装无此表情
