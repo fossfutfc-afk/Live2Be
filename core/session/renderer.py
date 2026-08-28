@@ -136,9 +136,8 @@ def render_timeline(events: list[Event], *, max_paragraph_chars: int = 120) -> s
     """事件流 → 叙事时间线文本（brain 消化输入, §4.6; 含板块标签, 段落截断）。
 
     设计（2026-08-27 修正）:
-    - **每事件一行**（行号 = 事件序号, 1 起）——digest 的 index.position 按行号
-      引用: LLM 顺序阅读天然理解"第几个事件", 不需要也不应该感知真实 seq
-      （引擎负责 position → 真实 seq 映射, 权威）。
+    - **每事件一行**——紧凑叙事流: LLM 顺序阅读, 事件顺序即叙事顺序
+      （原文回捞未来走 embedding（DESIGN_MEMORY.md Step 3 废弃记录）, 不需要行号引用）。
     - **紧凑文本, 非 jsonl**——省 token（无 JSON 键名/结构开销）; 叙事流不被
       数据结构打断（角色扮演语境, 不 rigid）。
     """

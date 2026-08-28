@@ -56,13 +56,14 @@ data/
         progress.json             # 该会话内聊天轮数（展示用）
         brain/                    # 该会话的消化产物（digest 产出, 远期; §4.6）
           wiki.json               # 本会话记忆总结（成长/关系变化片段）
-          index.jsonl             # 本会话记忆定位条目（海马体索引, 远期）
+          index.jsonl             # （已废弃: 初代 snippet 索引 2026-08-28 裁决删除——
+                                  #   原文回捞未来走 embedding, 见 docs/DESIGN_MEMORY.md Step 3）
     gallery/                      # AI 生成 2D 场景（图 + 文字信息成对, §4.5）
       {scene_id}.png              # 生成图
       {scene_id}.json             # 文字信息（prompt / 场景描述 / 来源会话 / 时间戳）
     brain/                        # 角色级记忆汇总（§4.6）
       wiki.json                   # 跨会话 LLM WIKI（digest 归并各会话产物）
-      index/                      # RAG 索引（远期）
+      index/                      # RAG 索引（远期——embedding 向量回捞, 非初代 snippet 方案）
 ```
 
 | 文件 | 职责 | 写入方式 | 中断语义 |

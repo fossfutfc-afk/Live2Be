@@ -47,10 +47,9 @@ wiki 注入（第一人称 recall）✅ · 中断剧情不消化 ✅
 | 方向 | 状态 | 说明 |
 |---|---|---|
 | 好感度分层打分（MMT 0~10 / bond 30~100） | 🔧 | 防 MMT 闲聊刷好感——统一 0~100 的细化 |
-| digest 契约加 importance 分（0-10） | 🔧 | DESIGN_MEMORY.md Step 2——LLM 顺手打, 检索/驱逐地基 |
-| 索引检索（digest 时建索引条目） | 🔧 | Step 3——触发机制 a/b/c 未拍板 |
-| 回忆注入（"你突然想起…"） | 🔧 | Step 4——对话顺序保持 |
-| 重要性驱逐（Generative Agents 式） | 🔧 | Step 5——依赖 Step 2+3 |
+| digest significance 分（0~1）消费（检索/驱逐排序） | 🔧 | DESIGN_MEMORY.md Step 2——分已实现（旧名 importance）, 消费未写 |
+| 回忆注入（"你突然想起…"） | 🔧 | Step 4——对话顺序保持, 依赖 embedding 回捞 |
+| 重要性驱逐（Generative Agents 式） | 🔧 | Step 5——依赖 embedding（驱逐不丢的前提是原文可回捞） |
 | 联想 digest（新旧碰撞出成长） | 🔧 | DESIGN_BRAIN.md §3——双通道回忆（珍贵保底 + 遗忘曲线） |
 | RAG 回忆（embedding 检索旧事件） | 📋 | DESIGN_BRAIN.md Phase 2——本地 nomic embedding, numpy 余弦即可 |
 | 并行/并发 digest（多角色 + 玩家输入优先） | 🔧 | 已讨论（LLM 串行锁 + 可让路/放弃） |
