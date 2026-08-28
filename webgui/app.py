@@ -19,7 +19,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from starlette.staticfiles import StaticFiles
 
-from webgui.routers import menu, mmt, name, settings
+from webgui.routers import menu, mmt, name, settings, spine
 
 ROOT = Path(__file__).resolve().parent.parent
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -46,3 +46,4 @@ app.include_router(menu.router)
 app.include_router(name.router)
 app.include_router(settings.router)
 app.include_router(mmt.router)
+app.include_router(spine.router)

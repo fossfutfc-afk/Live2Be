@@ -4,6 +4,15 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Live2Be</title>
+<!-- vendor 裸导入映射: pixi.js 官方自包含 ESM bundle（spine-pixi-v8 的 esm bundle
+     内联了 spine-core, 唯一外部依赖即 pixi.js; import map 让浏览器无需打包工具链） -->
+<script type="importmap">
+{
+  "imports": {
+    "pixi.js": "/static/vendor/pixi.min.mjs"
+  }
+}
+</script>
 <link rel="stylesheet" href="/static/css/gui.css">
 <link rel="stylesheet" href="/static/css/main.css">
 <link rel="stylesheet" href="/static/css/settings.css">
