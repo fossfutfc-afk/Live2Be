@@ -26,7 +26,6 @@ from __future__ import annotations
 import json
 import logging
 import random
-import re
 from datetime import datetime
 from pathlib import Path
 
@@ -100,8 +99,7 @@ def digest_session(
         return wiki                       # 无新增 → 旧 wiki（0 次 LLM 调用）
 
     # 输入: 新增时间线 + 视觉记忆 + 联想（轻量召回 + 双通道回忆）+ 人设锚点 + 已有记忆概要
-    # 时间线每事件一行——index.position 按行号引用（LLM 顺序阅读, 不感知真实 seq;
-    # 引擎在此映射 position → 真实 seq, 权威）
+    # 时间线每事件一行（紧凑叙事文本, 非 jsonl——省 token; 事件顺序即叙事顺序）
     timeline = render_timeline(new_events)
     visuals = _collect_visual_prompts(new_events)
     recalled = recall_related(wiki, timeline)
@@ -134,7 +132,7 @@ def digest_session(
         logger.warning(err("DigestFailed", f"重试耗尽, 跳过本会话: {last_err}"))
         return None
 
-    cleaned = _clean_output(resp, valid_events=new_events)
+    cleaned = _clean_output(resp)
     if cleaned is None:
         logger.warning(err("DigestFailed",
                            f"输出无效（非 dict/无有效条目）, 跳过本会话: {session_id}"))
@@ -299,7 +297,6 @@ def _merge_new(old: dict, cleaned: dict) -> dict:
     merged["facts"] = _merge_entries(old.get("facts", []), cleaned.get("facts", []))
     merged["beliefs"] = _merge_entries(old.get("beliefs", []), cleaned.get("beliefs", []))
     merged["relations"] = _merge_relations(old.get("relations", []), cleaned.get("relations", []))
-    merged["index"] = _merge_index(old.get("index", []), cleaned.get("index", []))
     s = cleaned.get("summary", "")
     if isinstance(s, str) and s.strip():
         merged["summary"] = s.strip()
@@ -329,31 +326,6 @@ def _merge_entries(existing: list, new: list) -> list:
     return list(by_content.values())
 
 
-def _merge_index(existing: list, new: list) -> list:
-    """index 合并: 按 seq 去重, significance 取高, topic 更新为新值（同段重复索引合并）。"""
-    by_seq: dict[int, dict] = {}
-    for e in list(existing) + list(new):
-        if not isinstance(e, dict):
-            continue
-        try:
-            seq = int(e.get("seq", -1))
-        except (TypeError, ValueError):
-            continue
-        if seq < 0:
-            continue
-        cur = by_seq.get(seq)
-        if cur is None:
-            by_seq[seq] = dict(e)
-        else:
-            a = float(cur.get("significance", 0) or 0)
-            b = float(e.get("significance", 0) or 0)
-            cur["significance"] = max(a, b)
-            t = e.get("topic", "")
-            if isinstance(t, str) and t.strip():
-                cur["topic"] = t.strip()
-    return list(by_seq.values())
-
-
 def _merge_relations(existing: list, new: list) -> list:
     """relations 合并: (subject,object,relation) 去重, note 取新（后者覆盖）。"""
     by_key: dict[tuple, dict] = {}
@@ -367,14 +339,11 @@ def _merge_relations(existing: list, new: list) -> list:
     return list(by_key.values())
 
 
-def _clean_output(resp, valid_events=None) -> dict | None:
+def _clean_output(resp) -> dict | None:
     """校验/清洗 LLM 输出（坏字段丢弃, 宁缺勿错）。非 dict → None。
 
     结构边界对齐契约 build_digest_schema（contract/schema.py, 单源真值）;
-    本函数是内容净化（significance clamp / tags 过滤 / index position 映射 / 空 content 丢弃）。
-
-    valid_events: 本段新增事件列表（时间线顺序）——index.position 按行号引用,
-    引擎映射为真实 seq（LLM 不感知 seq——防编造/错位; 越界 position 丢弃）。
+    本函数是内容净化（significance clamp / tags 过滤 / 空 content 丢弃）。
     """
     if not isinstance(resp, dict):
         return None
@@ -382,133 +351,20 @@ def _clean_output(resp, valid_events=None) -> dict | None:
     facts = _clean_entries(resp.get("facts"))
     beliefs = _clean_entries(resp.get("beliefs"))
     relations = _clean_relations(resp.get("relations"))
-    index = _clean_index(resp.get("index"), valid_events)
     # 好感 exp 增量: 非负 int（坏值 → 0, 宽容）
     try:
         exp_delta = max(0, int(resp.get("affection_exp_delta", 0)))
     except (TypeError, ValueError):
         exp_delta = 0
-    if (not (facts or beliefs or relations or index)
+    if (not (facts or beliefs or relations)
             and not (isinstance(summary, str) and summary.strip())
             and exp_delta <= 0):
         return None                       # 全空且无好感变化 → 视为无效（防御: 落空模板）
     out: dict = {"facts": facts, "beliefs": beliefs, "relations": relations}
-    if index:
-        out["index"] = index
     if isinstance(summary, str) and summary.strip():
         out["summary"] = summary.strip()
     out["affection_exp_delta"] = exp_delta
     return out
-
-
-def _clean_index(raw, valid_events) -> list[dict]:
-    """index 清洗: snippet 非空 + significance clamp + **引擎定位（失败即丢弃）**。
-
-    index = 原文索引（DESIGN_SEGMENT.md §5 / DESIGN_MEMORY.md Step 3）:
-    运行时回捞"值得记住的原文"的依据——本轮只建索引不消费（调用/注入未来扩展）。
-
-    职责划分（2026-08-27 定稿——用户: 无 seq 的 index 是白设计）:
-    - LLM 只输出语义内容 {snippet, significance, topic}——**snippet 必须逐字
-      摘录原文**（digest.md 规则 12 强约束）——不输出任何位置/序号
-    - 引擎把 snippet 匹配到事件（_match_index_seq）存真实 seq
-    - **匹配失败 → 丢弃该条目（宁缺勿错）**——绝不存 snippet-only:
-      没有 seq 的 index = 回捞不了原文 = 和 wiki 提炼条目冗余 = 白设计
-    - 保证: wiki.index 里每个条目都有 seq——回捞永远取权威原文
-    """
-    out: list[dict] = []
-    for e in raw or []:
-        if not isinstance(e, dict):
-            continue
-        snippet = e.get("snippet", "")
-        if not isinstance(snippet, str) or not snippet.strip():
-            continue
-        topic = e.get("topic", "")
-        if not isinstance(topic, str) or not topic.strip():
-            continue
-        try:
-            sig = max(_IMP_MIN, min(_IMP_MAX, float(e.get("significance", 0.5))))
-        except (TypeError, ValueError):
-            sig = 0.5
-        seq = _match_index_seq(snippet.strip(), valid_events)
-        if seq is None:
-            continue                       # 匹配失败 → 丢弃（宁缺勿错）
-        out.append({"seq": seq, "snippet": snippet.strip(),
-                    "significance": sig, "topic": topic.strip()})
-    return out
-
-
-def _match_index_seq(snippet: str, valid_events) -> int | None:
-    """snippet → 事件定位（纯引擎算法, 无 LLM 协助）: 两层匹配 + 唯一性 + 长度约束。
-
-    层1 事件全文（player+reply 拼接）: snippet 覆盖【完整来回】（双方对话）;
-    层2 分段（player / reply / bond 全文）: snippet 是【单方子句】;
-    双向子串（带长度差约束）:
-      snippet ∈ 文本（精确——摘录是文本的一部分）;
-      文本 ∈ snippet 仅当长度差 ≤ 4（容忍 LLM 尾部加语气词/省略号——
-      "好呀老地方等你" ∈ "好呀老地方等你吧"）——**防止跨事件长 snippet
-      误命中**（"天台见…我们走吧" 长 snippet, 单事件文本是子串但差太多 → 拒）;
-    唯一性: 恰好 1 个事件命中才接受——0 命中或 2+ 命中（重复台词歧义）→ None;
-    最小长度: 规范化后 < 3 字 → None（太短不是"摘录"——泛词到处命中 = 误定位）。
-
-    返回真实事件 seq（index 条目 100% 可回捞原文——无 seq 的 index 是白设计）。
-    """
-    if not snippet or not valid_events:
-        return None
-    sn = _norm_text(snippet)
-    if len(sn) < _MIN_SNIPPET_LEN:
-        return None
-    hits: list[int] = []
-    for e in valid_events:
-        full = _norm_text(_event_full_text(e))
-        if full and (sn in full or _sub_rev(full, sn)):
-            hits.append(e.seq)
-            continue
-        for part in _event_parts(e):
-            t = _norm_text(part)
-            if t and (sn in t or _sub_rev(t, sn)):
-                hits.append(e.seq)
-                break
-    if len(hits) == 1:
-        return hits[0]
-    return None                       # 0 命中 / 歧义（多命中）→ 丢弃
-
-
-_MIN_SNIPPET_LEN = 3                 # 规范化后最小长度（太短不是摘录, 泛词误定位）
-
-
-def _sub_rev(text: str, sn: str) -> bool:
-    """反向子串（文本 ∈ snippet）——仅容忍尾部语气词级改动（长度差 ≤ 2:
-    "好呀老地方等你" ∈ "好呀老地方等你吧"; "我们走吧" 级跨事件摘录 → 拒）。"""
-    return (len(sn) >= 4 and len(sn) - len(text) <= 2 and text in sn)
-
-
-def _event_full_text(e) -> str:
-    """事件全文（mmt: player+reply 拼接——完整来回; bond/l2d 同段落）。"""
-    if e.type == "mmt":
-        p = e.payload.get("player", "")
-        r = e.payload.get("reply", "")
-        return f"{p} {r}"
-    parts = _event_parts(e)
-    return " ".join(parts)
-
-
-def _norm_text(s: str) -> str:
-    """匹配用规范化: 去空白/标点/语气符号（LLM 摘录常加省略号/语气词）。"""
-    return re.sub(r"[\s，。！？、…～~,\.!?\u2014]", "", s or "")
-
-
-def _event_parts(e) -> list[str]:
-    """事件的可匹配段落（mmt 分 player/reply——互不打断子串; bond 全文合并）。"""
-    if e.type == "mmt":
-        parts = [e.payload.get("player", ""), e.payload.get("reply", "")]
-        return [p for p in parts if isinstance(p, str) and p]
-    if e.type == "bond":
-        paras = e.payload.get("paragraphs", [])
-        texts = [p.get("text", "") if isinstance(p, dict) else str(p) for p in paras]
-        return [" ".join(t for t in texts if isinstance(t, str))]
-    if e.type == "l2d":
-        return [" ".join(str(i) for i in e.payload.get("images", []) or [])]
-    return []
 
 
 def _clean_entries(raw) -> list[dict]:
