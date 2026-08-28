@@ -34,27 +34,16 @@ def _player() -> SpritePlayer:
 
 
 def _derive_emotion_map(char_id: str) -> dict[str, str]:
-    """情绪词表 → 动画名（机械推导, 不做存在性判断——前端校验）。"""
+    """情绪词表 → 动画名（manifest 双投影派生: 资源 ID / 路径 stem 推导——前端校验存在性）。"""
     player = _player()
     emotions = player.emotions(char_id)
     if not emotions:
         return {}
-    pack = None
-    for e in emotions:
-        media = player.sprite(char_id, e)
-        if media and media.spine:
-            pack = media.spine
-            break
-    if pack is None:
-        return {}
-    prefix = f"{pack.name}_"
     mapping: dict[str, str] = {}
     for e in emotions:
         media = player.sprite(char_id, e)
-        if media is None or media.static_path is None:
-            continue
-        stem = media.static_path.stem
-        mapping[e] = stem[len(prefix):] if stem.startswith(prefix) else stem
+        if media and media.anim:
+            mapping[e] = media.anim
     return mapping
 
 

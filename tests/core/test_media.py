@@ -147,6 +147,84 @@ def test_load_manifest_missing_or_corrupt(tmp_path):
 
 
 # ----------------------------------------------------------------------------
+# manifest 双投影（2026-08-28）: 资源 ID ↔ diff 路径 + spine 动画名
+# ----------------------------------------------------------------------------
+
+def test_manifest_dual_projection_resource_id(tmp_path):
+    """新格式: 值 = 资源 ID（无 / 无扩展名）→ diff 模板拼接 + 动画名 = ID。"""
+    (tmp_path / "emotions.yml").write_text(
+        "spine: haruka_spr\n"
+        "emotions:\n"
+        "  nomal: 01\n"
+        "  giggle: 09\n"
+        "  pensive: 99\n"
+        "  custom: custom/my_own.png\n",   # 自绘图: 显式路径形态
+        encoding="utf-8",
+    )
+    m = load_character_manifest(tmp_path)
+    assert m["sprites"]["nomal"] == "diff/haruka_spr_01.png"
+    assert m["sprites"]["giggle"] == "diff/haruka_spr_09.png"
+    assert m["sprites"]["pensive"] == "diff/haruka_spr_99.png"
+    assert m["animations"]["nomal"] == "01"
+    assert m["animations"]["giggle"] == "09"
+    assert m["animations"]["pensive"] == "99"
+    # 显式路径: 原样 + 无 spine 投影（纯静态图）
+    assert m["sprites"]["custom"] == "custom/my_own.png"
+    assert m["animations"]["custom"] is None
+    print("    manifest: 资源 ID 双投影（diff 拼接 + 动画名）")
+
+
+def test_manifest_dual_projection_yaml_octal(tmp_path):
+    """YAML 1.1 八进制坑: "01"→int 1 前导零丢失——必须补零回 2 位。"""
+    (tmp_path / "emotions.yml").write_text(
+        "spine: haruka_spr\n"
+        "emotions:\n"
+        "  nomal: 01\n"
+        "  smile: 03\n"
+        "  shout_2: 11\n",
+        encoding="utf-8",
+    )
+    m = load_character_manifest(tmp_path)
+    assert m["sprites"]["nomal"] == "diff/haruka_spr_01.png", m["sprites"]
+    assert m["sprites"]["smile"] == "diff/haruka_spr_03.png"
+    assert m["sprites"]["shout_2"] == "diff/haruka_spr_11.png"
+    assert m["animations"]["nomal"] == "01"
+    print("    manifest: YAML 八进制补零（01→'01'）")
+
+
+def test_manifest_dual_projection_old_path(tmp_path):
+    """旧格式兼容: 值 = diff 路径 → 原样 + stem 去前缀推导动画名。"""
+    (tmp_path / "emotions.yml").write_text(
+        "spine: haruka_spr\n"
+        "emotions:\n"
+        "  nomal: diff/haruka_spr_01.png\n"
+        "  custom: custom/my_own.png\n",   # 无前缀 → 动画 None（纯静态图）
+        encoding="utf-8",
+    )
+    m = load_character_manifest(tmp_path)
+    assert m["sprites"]["nomal"] == "diff/haruka_spr_01.png"
+    assert m["animations"]["nomal"] == "01"
+    assert m["sprites"]["custom"] == "custom/my_own.png"
+    assert m["animations"]["custom"] is None
+    print("    manifest: 旧路径格式兼容（stem 推导动画名）")
+
+
+def test_manifest_dual_projection_no_spine(tmp_path):
+    """无 spine 字段（纯静态图角色）: 资源 ID 形态无模板可拼 → 原样 + 无动画。"""
+    (tmp_path / "emotions.yml").write_text(
+        "emotions:\n"
+        "  nomal: 01\n"
+        "  smile: diff/aru_spr_03.png\n",
+        encoding="utf-8",
+    )
+    m = load_character_manifest(tmp_path)
+    assert m["sprites"]["nomal"] == "01"      # 无 spine → 保留 ID（无资源, 渲染端静默）
+    assert m["animations"]["nomal"] is None
+    assert m["animations"]["smile"] is None   # 无 spine → 路径形态也不推导
+    print("    manifest: 无 spine → 无模板/无动画（纯静态图降级）")
+
+
+# ----------------------------------------------------------------------------
 # 假 assets 树
 # ----------------------------------------------------------------------------
 

@@ -29,10 +29,12 @@ class SpinePack:
 
 @dataclass(frozen=True)
 class SpriteMedia:
-    """一条差分资源。static_path=静态 png（v1 CSS fade）, spine=可选 spine 导出（v2 渲染器）。"""
+    """一条差分资源。static_path=静态 png（v1 CSS fade）, spine=可选 spine 导出（v2 渲染器）,
+    anim=双投影派生的 spine 动画名（manifest 资源 ID → 动画; None = 纯静态图, 播放器降级 diff）。"""
     emotion: str
     static_path: Path | None = None
     spine: SpinePack | None = None
+    anim: str | None = None
 
 
 def atlas_regions(atlas_path: Path) -> tuple[str, ...]:

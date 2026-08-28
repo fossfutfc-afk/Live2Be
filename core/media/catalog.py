@@ -151,6 +151,7 @@ class MediaCatalog:
                 emotion=emotion,
                 static_path=static if static.is_file() else None,
                 spine=pack,
+                anim=man["animations"].get(emotion),
             )
         if emotions:
             self._sprites[char_id] = emotions
