@@ -5,7 +5,9 @@ main.py 在 result.bond_story 触发后调用 run_bond_story_vn:
     → story_end 收尾或 b 退出 → 回到 MomoTalk 正常对话。
     每场 append type=bond 事件进事件流（DESIGN_SAVE.md §4.2）; 回放从事件流过滤。
 
-UI 行为:
+UI 行为（渲染收编 renderer/, 2026-08-28 M1 迁移）:
+    - 渲染统一走 renderer 管线（DESIGN_RENDERER.md）: RenderScene.from_live(BondScene)
+      → Renderer.render → renderer/cli.py 渲染（背景标签/表情标注/特效符号/打字机）
     - 每段逐字打字（任意键跳过动画直接显示全文）
     - 有选项 → 打印 1..N, 玩家输入编号选择
     - 无选项 → 玩家自由输入一句话推进
@@ -18,9 +20,7 @@ char_ms 可注入（测试传 0 跳过打字动画）。
 from __future__ import annotations
 
 import logging
-import sys
 import threading
-import time
 from pathlib import Path
 
 from core.momotalk import MomoTalkEngine
@@ -37,130 +37,38 @@ from core.session.events import (
 )
 from core.ui.streaming import simulate_steps
 from llm.image_gen import ImageGenerator, collect_ref_images
+from renderer import RenderScene, Renderer
+from renderer.cli import PARA_CHAR_MS, read_choice, read_free_input, render_scene
 
 logger = logging.getLogger(__name__)
 
-# 打字节奏（毫秒/字）; 测试传 char_ms=0 跳过动画
-_PARA_CHAR_MS = 40
-
 
 # ---------------------------------------------------------------------------
-# 打字渲染
+# 单场景渲染（委托 renderer 管线——背景/表情/特效/打字/选项全部收编）
 # ---------------------------------------------------------------------------
-
-def _kbhit() -> bool:
-    """是否有点击任意键（Windows 用 msvcrt; 其他平台无法阻塞探测 → False）。"""
-    try:
-        import msvcrt
-        return bool(msvcrt.kbhit())
-    except ImportError:
-        return False
-
-
-def _drain_input() -> None:
-    """清空键盘缓冲——跳过动画时按下的 Enter 不能污染下一个 input()。"""
-    try:
-        import msvcrt
-        while msvcrt.kbhit():
-            msvcrt.getch()
-    except ImportError:
-        pass
-
-
-def _type_paragraph(text: str, char_ms: int = _PARA_CHAR_MS) -> None:
-    """逐字打字渲染一段; char_ms<=0 直接全文, 打字期间任意键跳过。"""
-    if char_ms <= 0:
-        print(text, end="", flush=True)
-        print()
-        return
-    printed = 0
-    for ch in text:
-        print(ch, end="", flush=True)
-        printed += 1
-        if _kbhit():                      # 跳过动画 → 补全剩余文本
-            _drain_input()
-            print(text[printed:], end="", flush=True)
-            break
-        time.sleep(char_ms / 1000.0)
-    print()  # 段落结束换行
-
-
-# ---------------------------------------------------------------------------
-# 单场景渲染
-# ---------------------------------------------------------------------------
-
-def _print_visual(scene: BondScene) -> None:
-    """CLI 视觉标签（导演层背景/音频; 纯文本模式无字段 → 不打印）。
-
-    表情不在此汇总——改由 simulate_vn_scene 逐段标注（per-para sprite）。
-    """
-    if scene.background is None and scene.audio is None:
-        return
-    parts = []
-    if scene.background is not None:
-        parts.append(f"[背景 {scene.background or '-'}]")
-    if scene.audio is not None:
-        parts.append(f"[音频 {scene.audio}]")
-    print(" ".join(parts))
-
 
 def simulate_vn_scene(
     scene: BondScene,
     input_fn=input,
-    char_ms: int = _PARA_CHAR_MS,
+    char_ms: int = PARA_CHAR_MS,
+    renderer: Renderer | None = None,
 ) -> str | None:
-    """渲染一个场景（视觉标签 + 段落 + 选项/收尾）, 返回下一场景的用户输入。
+    """渲染一个场景（视觉标签 + 段落 + 特效 + 选项/收尾）, 返回下一场景的用户输入。
 
-    Returns:
-        有选项 → 玩家选择的选项文本（喂回下一场景）
-        无选项 → 玩家自由输入的一句话
-        b / Ctrl-D / 【完】 → None（退出 VN 回 MomoTalk）
+    renderer: 由 run_bond_story_vn 构建一次注入（真实资产查库）;
+    None → 懒构建空角色渲染器（无词表/无角色特效覆盖——测试与直接调用路径,
+    背景/表情/全局特效照常）。
     """
-    _print_visual(scene)
-    # per-para sprite（架构定稿: 情绪内联进 paragraphs {text, emotion?}）——
-    # 段落显式带 emotion 才标注; 延续的段静默（渲染端默认/继承表情）
-    # inner（A 版内心戏, 低频惊喜）: 段落带 inner → 屏幕变黑（CLI 近似: 分隔 + 淡标记）
-    #   单独展示角色没说出口的心理活动, 再回到台词
-    for para in scene.paragraphs:
-        if isinstance(para, dict):
-            inner = para.get("inner")
-            if isinstance(inner, str) and inner.strip():
-                print("\n" + "·" * 36 + "  (内心)  " + "·" * 36)
-                _type_paragraph(inner.strip(), char_ms)
-                print("\n" + "·" * 36 + "  (回到现实)  " + "·" * 36)
-            emotion = para.get("emotion")
-            if emotion:
-                print(f"[表情 {emotion}]")
-            text = para.get("text", "")
-        else:
-            text = str(para)
-        _type_paragraph(text, char_ms)
+    if renderer is None:
+        renderer = Renderer("")
+    out = renderer.render(RenderScene.from_live(scene))
+    render_scene(out, char_ms=char_ms)
 
     if scene.is_end:
-        print("\n── 羁绊剧情结束 ──")
         return None
-
     if scene.choices:
-        print("\n")
-        for i, choice in enumerate(scene.choices, 1):
-            print(f"  [{i}] {choice}")
-        print("  [b] 退出")
-        while True:
-            try:
-                raw = input_fn("选择: ").strip()
-            except (EOFError, KeyboardInterrupt):
-                return None
-            if raw.lower() == "b":
-                return None
-            if raw.isdigit() and 1 <= int(raw) <= len(scene.choices):
-                return scene.choices[int(raw) - 1]
-            print("  无效选择, 请再试")
-    else:
-        try:
-            raw = input_fn("（输入一句话推进剧情, b 退出）: ").strip()
-        except (EOFError, KeyboardInterrupt):
-            return None
-        return None if raw.lower() == "b" else raw
+        return read_choice(scene.choices, input_fn=input_fn)
+    return read_free_input(input_fn=input_fn)
 
 
 # ---------------------------------------------------------------------------
@@ -183,7 +91,7 @@ def _build_director(char, reason: str):
 def run_bond_story_vn(
     engine: MomoTalkEngine,
     input_fn=input,
-    char_ms: int = _PARA_CHAR_MS,
+    char_ms: int = PARA_CHAR_MS,
     remind_rounds: int = 30,
     end_rounds: int = 50,
     max_tokens: int = 1536,
@@ -244,6 +152,9 @@ def run_bond_story_vn(
         engine.char_loader.root, engine.llm,
         director=_build_director(char, reason), brain_segment=brain_segment)
     vn.start_session(char.character_id)
+
+    # 渲染器（M1 收编）: 本场 VN 共用——背景查库/差分意图/特效/打字/选项全部走 renderer 管线
+    renderer = Renderer(char.character_id)
 
     print("\n" + "═" * 40)
     print(f"  ── 羁绊剧情: {char.display_name} ──")
@@ -317,8 +228,7 @@ def run_bond_story_vn(
             # 模型连语义校验都过不了 → 中断收场（宁缺勿错, 循环必须终结）
             print(f"[系统] 剧情生成失败: {e}")
             closing = BondScene(paragraphs=[{"text": "（这一章的羁绊剧情就此中断收场。）"}], is_end=True)
-            _type_paragraph(closing.paragraphs[0], char_ms)
-            print("\n── 羁绊剧情结束 ──")
+            render_scene(renderer.render(RenderScene.from_live(closing)), char_ms=char_ms)
             # 事件流: 中断收尾也落 closing 场景（事件流完整, 回放不缺最后一场）
             if store is not None and vn_sid is not None:
                 try:
@@ -349,7 +259,8 @@ def run_bond_story_vn(
                 logger.warning("纪念立绘生成失败, 本场降级为纯文字: %s", e)
                 memorial_images = []
 
-        choice = simulate_vn_scene(scene, input_fn=input_fn, char_ms=char_ms)
+        choice = simulate_vn_scene(scene, input_fn=input_fn, char_ms=char_ms,
+                                   renderer=renderer)
 
         # 事件流（store 注入时）: type=bond 事件（input=本场触发输入, picked=玩家裁决）
         # + 纪念 marker/l2d 事件（§4.7）+ vn_state marker（恢复点: round/seed/visual）
@@ -391,8 +302,7 @@ def run_bond_story_vn(
     else:
         # for 循环耗尽 = 模型仍不 is_end → 程序兜底收尾（循环必须终结）
         closing = BondScene(paragraphs=[{"text": "（夜色渐深，这一章的羁绊剧情就此落下帷幕。）"}], is_end=True)
-        _type_paragraph(closing.paragraphs[0], char_ms)
-        print("\n── 羁绊剧情结束 ──")
+        render_scene(renderer.render(RenderScene.from_live(closing)), char_ms=char_ms)
         # 事件流: 程序兜底收尾也落 closing 场景（事件流完整, 回放不缺最后一场）
         if store is not None and vn_sid is not None:
             try:

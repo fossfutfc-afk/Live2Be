@@ -18,8 +18,8 @@ import time
 
 from renderer.core import RenderOutput
 
-#: 打字节奏（毫秒/字）; 测试传 char_ms=0 跳过动画
-_PARA_CHAR_MS = 40
+#: 打字节奏（毫秒/字）; 测试传 char_ms=0 跳过动画（公开——vn_cli 签名默认引用）
+PARA_CHAR_MS = 40
 
 #: 特效符号（CLI 降级——文本流不破坏; 未知特效 → ✨ 通用符号）
 _FX_SYMBOLS = {
@@ -54,7 +54,7 @@ def _drain_input() -> None:
         pass
 
 
-def type_paragraph(text: str, char_ms: int = _PARA_CHAR_MS) -> None:
+def type_paragraph(text: str, char_ms: int = PARA_CHAR_MS) -> None:
     """逐字打字渲染一段; char_ms<=0 直接全文, 打字期间任意键跳过。"""
     if char_ms <= 0:
         print(text, end="", flush=True)
@@ -86,7 +86,7 @@ def _print_visual(output: RenderOutput) -> None:
         print(f"[背景 {bg.scene_id}]")
 
 
-def render_scene(output: RenderOutput, *, char_ms: int = _PARA_CHAR_MS) -> None:
+def render_scene(output: RenderOutput, *, char_ms: int = PARA_CHAR_MS) -> None:
     """渲染一个场景到终端（视觉标签 + 段落 + 特效 + 选项/收尾）。
 
     选项与输入交互不在本函数——调用方按 output.choices 自行决定交互方式
