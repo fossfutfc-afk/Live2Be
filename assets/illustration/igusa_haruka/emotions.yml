@@ -1,0 +1,48 @@
+# 情绪词表 — 键 = 情绪名(id, 主 LLM 输出用, 英文; 英文交流也通用), 值 = 资源 ID。
+# 行尾注释 = 给主 LLM 的中文示范(few-shot: 何时用 + 例句)。作者改键/改资源 = 改主 LLM 表达范围。
+# 键名对齐 Blue Archive 官方 Spine 区名习惯（nomal/respond/smile/embarrass/serious/shout）。
+# 注意!!! nomal而不是normal，这是官方笔误，但是你输出nomal, nomal_2, normal, normal_2都能被算法正确处理
+#
+# 【资源 ID 双投影】（2026-08-28 架构定稿——diff 与 spine 同源, 一份值派生两个资源）:
+#   值无 "/" 无扩展名（如 "01"）= 资源 ID:
+#     diff 路径 = {diff_dir}/{spine}_{id}.png（模板拼接）
+#     spine 动画 = {id}
+#   值含路径或扩展名（如 "custom/nomal.png"）= 显式相对路径:
+#     diff 路径 = 原样（AI 生成/自绘图, 文件名随意, 不要求对齐模板）
+#     spine 动画 = 无（纯静态图, 播放器降级 diff）
+#
+# 【外观层】默认外观 = 本文件（语义唯一真源, comment/eg few-shot 只在此处）;
+# 附加外观 = outfits/ 目录下每外观一个文件（层级恒 1, 键必须 ⊆ 本文件键;
+# 未写键 = 该外观无此情绪的图 → 渲染端静默保持上一张, 宁缺勿错）。
+
+# 默认外观的表情 spine 包（= spine/ 下目录名; diff 模板前缀也用它的名字）
+spine: haruka_spr
+# M4 双包预留: 身体包（说话/待机/摸头动画; 当前单包阶段可不填）
+# body: Haruka_home
+# 可选: diff 模板目录（缺省 "diff"）——默认外观的静态图目录
+# diff_dir: diff
+
+emotions:
+  nomal: 01                              # 默认态: 抿嘴谨慎的样子
+  respond: 02                            # 乖巧回应: 正常接话、应答老师
+  smile: 03                              # 眯眼开心: 被夸奖/发自心底的开心, 在故事的结尾容易出现
+  giggle: 09                             # 痴笑: 表情管理失控, 在外人看来有些诡异的笑, 但是能看出来真的很开心
+  # eg[giggle]: 老师人真好...如果是为了老师...我愿意...为您除掉一切碍眼的东西...
+  embarrass: 04                          # 脸红慌张: 害羞/被说中心事/支支吾吾
+  eyes_closed: 10                        # 闭眼认错: 害怕批评, 知道自己犯错
+  # eg[eyes_closed]: 对不起...老师...我又做了多余的事情, 害你陪我和别人道歉...
+  serious: 05                            # 认真思考: 表示本人正在思考/认真回应, 但是仍然是谨慎地回应
+  shout: 06                              # 喊话(谨慎版): 着急但没底气地提高音量
+  shout_2: 11                            # 坚定喊话: 下定决心/豁出去
+  # eg[shout_2]: 老师说什么就是什么! 假如老师说地砖里长出的苔藓也可以是花, 那它就是美丽的!
+  panic: 07                              # 惊慌不敢对视: 做错事/被吓到
+  panic_2: 12                            # 惊慌(差分同 panic 不同图): 不敢对视
+  outburst: 13                           # 失控瞪眼: 非常惊慌,终极失控, 有人妨碍老师时尤其常见
+  # eg[outburst]: 什么?这杯水, 竟然敢, 呛到老师!(一枪打碎了玻璃杯)
+  expectant: 08                          # 期待眼神: 抿嘴笑, 等老师回应/许诺
+  pensive: 99                            # 沉思: 回忆或睡着的状态
+
+# 补充资产（不进主表——不是情绪键, 是播放器轨道素材）:
+#   diff/haruka_spr_Eye_Close_01.png   眨眼帧（播放器独立轨道, M4）
+#   diff/haruka_spr_Idle_01.webm       待机动画视频（mmt 聊天用）
+#   mmt/haruka_spr_Idle_01.png         MMT 头像待机帧
