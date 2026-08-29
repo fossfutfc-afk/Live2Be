@@ -19,9 +19,34 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from core.media.catalog import MediaCatalog
 from webgui import bond
 
 router = APIRouter()
+
+# 背景查库（懒单例——MediaCatalog 构造扫背景 ~百 ms）
+_BG_CATALOG: MediaCatalog | None = None
+
+
+def _catalog() -> MediaCatalog:
+    global _BG_CATALOG
+    if _BG_CATALOG is None:
+        _BG_CATALOG = MediaCatalog()
+    return _BG_CATALOG
+
+
+def _resolve_background(scene: dict | None) -> dict | None:
+    """场景 dict 附带 background_url（scene_id → 静态文件 URL; 无背景 → 保持 None）。"""
+    if not scene:
+        return None
+    scene = dict(scene)
+    sid = scene.get("background")
+    if sid:
+        media = _catalog().background(sid)
+        if media is not None:
+            rel = media.path.relative_to(_catalog().assets_root)
+            scene["background_url"] = f"/assets/{rel.as_posix()}"
+    return scene
 
 
 class BondStartIn(BaseModel):
@@ -60,9 +85,11 @@ async def bond_turn(body: BondTurnIn) -> dict:
 
 @router.get("/api/bond/status")
 async def bond_status(char_id: str, session_id: str) -> dict:
-    """轮询生成状态 + 最新场景。"""
+    """轮询生成状态 + 最新场景（附带 background_url 供前端渲染）。"""
     try:
-        return bond.bond_status(char_id, session_id)
+        st = bond.bond_status(char_id, session_id)
+        st["scene"] = _resolve_background(st.get("scene"))
+        return st
     except Exception as e:                     # noqa: BLE001
         raise HTTPException(status_code=500, detail=f"bond status 失败: {e}")
 
