@@ -213,15 +213,33 @@ def bond_turn(char_id: str, session_id: str, text: str) -> dict:
 
 
 def bond_status(char_id: str, session_id: str) -> dict:
-    """轮询: 生成状态 + 最新场景（前端按 round 去重）+ 终结标记。"""
+    """轮询: 生成状态 + 最新场景（前端按 round 去重）+ 终结标记 + 名字牌信息。"""
     state = _state(char_id, session_id)
+    role = _role_info(char_id)
     return {
         "busy": state.busy,
         "round": state.round,
         "scene": state.scene,
         "error": state.error,
         "completed": state.completed,
+        "name": role["name"],
+        "club": role["club"],
     }
+
+
+def _role_info(char_id: str) -> dict:
+    """当前角色显示屏信息 {name, club}——前端名字牌（官方: 名字 + 便利屋68）。"""
+    try:
+        ch = chat._engine(char_id).current_character
+        if ch is not None:
+            club = ch.profile.get("club") or ch.profile.get("SIG~club") or ""
+            return {
+                "name": ch.display_name or char_id,
+                "club": str(club).split("（")[0].split("(")[0].strip(),
+            }
+    except Exception:                                # noqa: BLE001 — 取不到降级用 id
+        pass
+    return {"name": char_id, "club": ""}
 
 
 def bond_finish(char_id: str, session_id: str) -> dict:

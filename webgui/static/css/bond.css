@@ -1,20 +1,19 @@
-/* Live2Be 羁绊剧情 VN 视图 — 全屏遮罩（在 MMT 之上）
-   布局: 背景层(cover) → 顶部标题 → 立绘舞台(上部 62%) → 下部文字区 + 交互区
-   图片参数: 背景 object-fit: cover（全屏不变形）; 立绘由 SpinePlayer.fit('contain')
-   按骨骼 bounds 自适应舞台（完整可见）; resolution 走 devicePixelRatio（retina） */
+/* Live2Be 羁绊剧情 VN 视图 — 对齐官方 bond story 布局（2026-08-29 视觉版对照）:
+   背景(cover 全屏 + 底部暗渐) → 立绘(透明浮层, 中央偏左) → 左下名字+社团+分隔线
+   → 下部对话文本(逐字输出) + 选项 → 右上 自动/菜单 按钮(占位) → 右下 继续三角。
+   图片参数: 背景 object-fit: cover 全屏不变形; 立绘由 SpinePlayer.fit('contain')
+   按骨骼 bounds 自适应舞台（完整可见）; resolution 走 devicePixelRatio（retina）。 */
 #view-bond.bond {
   position: fixed;
   inset: 0;
   z-index: 50;                    /* 在 MMT(fixed) 之上 */
-  display: flex;
-  flex-direction: column;
   overflow: hidden;
   background: #1a1220;            /* 兜底深色（无背景图时） */
   color: #f5e8ef;
   font-family: system-ui;
 }
 
-/* 背景层（cover 全屏; 淡入切换） */
+/* 背景层（cover 全屏; 淡入; 底部暗渐交给 .bond-shade） */
 .bond-bg {
   position: absolute;
   inset: 0;
@@ -24,90 +23,133 @@
   animation: bond-bg-in 0.6s ease-out forwards;
   z-index: 0;
 }
-@keyframes bond-bg-in { from { opacity: 0; } to { opacity: 0.9; } }
+@keyframes bond-bg-in { from { opacity: 0; } to { opacity: 1; } }
 
-/* 顶部标题 */
-.bond-head {
-  position: relative;
-  z-index: 3;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0.8rem 1.4rem;
-  background: linear-gradient(180deg, rgba(10, 6, 14, 0.85), rgba(10, 6, 14, 0));
-}
-.bond-name { font-size: 1.15rem; font-weight: 700; letter-spacing: 0.08em; color: #ffd3e2; }
-.bond-tag {
-  font-size: 0.75rem;
-  color: #ff9ec3;
-  border: 1px solid rgba(255, 158, 195, 0.5);
-  padding: 0.2rem 0.7rem;
-  border-radius: 12px;
-  letter-spacing: 0.15em;
+/* 可读性暗渐（底部深, 顶部轻微）——保证名字/对话浮在立绘上仍清晰 */
+.bond-shade {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(180deg,
+      rgba(8, 4, 12, 0.35) 0%,
+      rgba(8, 4, 12, 0) 24%,
+      rgba(8, 4, 12, 0) 52%,
+      rgba(8, 4, 12, 0.58) 78%,
+      rgba(8, 4, 12, 0.86) 100%);
 }
 
-/* 立绘舞台（上部; SpinePlayer 挂载于此——canvas 撑满, fit 管缩放） */
+/* 立绘舞台: 透明浮层, 中央偏左（占左 56% 宽 × 上 88% 高; fit contain 完整可见） */
 .bond-stage {
-  position: relative;
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 56%;
+  height: 88vh;
   z-index: 1;
-  width: 100%;
-  height: 62vh;                   /* 立绘区 = 视图上部 62%（与文字区 38% 分界） */
-  min-height: 260px;
-  flex: none;
+  pointer-events: none;            /* 立绘不挡交互（点立绘不跳字） */
 }
 .bond-stage canvas { display: block; width: 100%; height: 100%; }
 
-/* 下部: 文字区 + 交互区（渐变遮罩承接背景, 文字可读） */
-.bond-bottom {
-  position: relative;
+/* 右上角: 自动/菜单 胶囊按钮（占位, 功能以后再实现——disabled 灰显） */
+.bond-topbar {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  z-index: 3;
+  display: flex;
+  gap: 0.5rem;
+}
+.bond-topbtn {
+  padding: 0.4rem 1.1rem;
+  border: none;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.92);
+  color: #444;
+  font-size: 0.85rem;
+  letter-spacing: 0.05em;
+  cursor: default;
+  opacity: 0.85;
+}
+
+/* 左下: 角色名 + 社团 + 分隔线（官方名字牌——名字大号白字, 社团小号蓝字） */
+.bond-nameplate {
+  display: flex;
+  align-items: baseline;
+  gap: 0.7rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.28);  /* 名字下方分隔线 */
+  animation: bond-name-in 0.4s ease-out;
+}
+@keyframes bond-name-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+.bond-name {
+  font-size: 1.7rem;
+  font-weight: 700;
+  color: #ffffff;
+  letter-spacing: 0.06em;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.7);
+}
+.bond-club {
+  font-size: 0.95rem;
+  color: #9bb8ff;                  /* 官方社团名——蓝紫色 */
+  letter-spacing: 0.04em;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
+}
+
+/* 下部对话块: 名字牌 → 对话文本(逐字) → 选项; 底部对齐, 浮在画面上（暗渐保证可读） */
+.bond-dialogue {
+  position: absolute;
+  left: 1.5rem;
+  right: 1.5rem;
+  bottom: 3.2vh;
   z-index: 2;
-  flex: 1;
-  min-height: 0;
   display: flex;
   flex-direction: column;
-  justify-content: flex-end;
-  padding: 0.8rem 1.6rem 1.4rem;
-  background: linear-gradient(180deg, rgba(10, 6, 14, 0) 0%, rgba(10, 6, 14, 0.72) 30%, rgba(10, 6, 14, 0.92) 100%);
+  gap: 0.8rem;
+  max-height: 50vh;
+  min-height: 0;
 }
-
-/* 段落（依次淡入——动画延迟由 JS 设置） */
-.bond-text { display: flex; flex-direction: column; gap: 0.5rem; overflow-y: auto; max-height: 34vh; }
+.bond-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  max-height: 34vh;
+  overflow-y: auto;
+}
 .bond-para {
-  font-size: 1.02rem;
-  line-height: 1.75;
-  color: #fdf3f8;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
-  opacity: 0;
-  animation: bond-para-in 0.35s ease-out forwards;
+  font-size: 1.08rem;
+  line-height: 1.85;
+  color: #fdf4f9;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.85), 0 0 8px rgba(0, 0, 0, 0.45);
+  white-space: pre-wrap;           /* 保留段落内换行（多段逐字时） */
 }
-@keyframes bond-para-in {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
-}
+/* 正在输出的当前段（打字机）——淡入, 其余段照常 */
+.bond-para.done { opacity: 1; }
 
-/* 交互区 */
+/* 交互区（选项 / 自由输入 / 收尾） */
 .bond-choices {
   display: flex;
   flex-wrap: wrap;
   gap: 0.7rem;
-  margin-top: 1rem;
+  margin-top: 1.1rem;
   min-height: 2.6rem;
   align-items: center;
 }
 .bond-choice {
-  padding: 0.6rem 1.4rem;
-  border: 1px solid rgba(255, 158, 195, 0.65);
-  border-radius: 22px;
-  background: rgba(60, 20, 40, 0.55);
-  color: #ffe3ee;
-  font-size: 0.95rem;
+  padding: 0.6rem 1.5rem;
+  border: 1px solid rgba(255, 190, 130, 0.7);   /* 官方选项——暖色描边 */
+  border-radius: 24px;
+  background: rgba(30, 18, 24, 0.55);
+  color: #ffe9d6;
+  font-size: 0.98rem;
   cursor: pointer;
   transition: all 0.15s;
 }
 .bond-choice:hover {
-  background: #ff5f8f;
-  border-color: #ff5f8f;
-  color: #fff;
+  background: #ffe9d6;
+  border-color: #ffe9d6;
+  color: #4a1a10;
   transform: translateY(-1px);
 }
 
@@ -115,28 +157,28 @@
 .bond-free input {
   flex: 1;
   padding: 0.6rem 1rem;
-  border: 1px solid rgba(255, 158, 195, 0.5);
+  border: 1px solid rgba(255, 190, 130, 0.5);
   border-radius: 20px;
-  background: rgba(20, 10, 18, 0.7);
+  background: rgba(18, 10, 14, 0.72);
   color: #fff;
-  font-size: 0.95rem;
+  font-size: 0.98rem;
   outline: none;
 }
-.bond-free input:focus { border-color: #ff5f8f; }
+.bond-free input:focus { border-color: #ffb273; }
 .bond-free button {
   padding: 0.6rem 1.3rem;
   border: none;
   border-radius: 20px;
-  background: #ff5f8f;
-  color: #fff;
-  font-size: 0.95rem;
+  background: #ffb273;
+  color: #4a1a10;
+  font-size: 0.98rem;
   cursor: pointer;
 }
 
 .bond-end {
   width: 100%;
   text-align: center;
-  color: #ff9ec3;
+  color: #ffd9ac;
   letter-spacing: 0.2em;
   font-size: 0.95rem;
 }
@@ -144,8 +186,28 @@
 .bond-loading { display: flex; gap: 5px; padding: 0.4rem; }
 .bond-loading .dot {
   width: 8px; height: 8px; border-radius: 50%;
-  background: #ff9ec3;
+  background: #ffd9ac;
   animation: typing-bounce 1s infinite;
 }
 .bond-loading .dot:nth-child(2) { animation-delay: 0.15s; }
 .bond-loading .dot:nth-child(3) { animation-delay: 0.3s; }
+
+/* 右下: 继续提示三角（点击跳过当前逐字; 打字完成/无选项时也亮） */
+.bond-continue {
+  position: absolute;
+  right: 2.4rem;
+  bottom: 1.7rem;
+  z-index: 2;
+  color: #4ab6ff;                  /* 官方——蓝色小三角 */
+  font-size: 1.5rem;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s;
+  animation: bond-continue-bob 1.2s ease-in-out infinite;
+}
+.bond-continue.show { opacity: 1; pointer-events: auto; }
+@keyframes bond-continue-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(4px); } }
+
+@keyframes typing-bounce { 0%, 60%, 100% { transform: none; } 30% { transform: translateY(-4px); } }

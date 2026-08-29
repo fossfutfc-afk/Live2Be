@@ -57,15 +57,21 @@
   <!-- 羁绊剧情 VN 视图（DOM 与 index.html 的 view-bond 完全一致——bond.js 按 id 操作） -->
   <section id="view-bond" class="bond hidden" aria-label="羁绊剧情">
     <div id="bond-bg" class="bond-bg" aria-hidden="true"></div>
-    <div class="bond-head">
-      <span id="bond-name" class="bond-name"></span>
-      <span class="bond-tag">羁绊剧情 · 演示</span>
-    </div>
+    <div id="bond-shade" class="bond-shade" aria-hidden="true"></div>
     <div id="bond-stage" class="bond-stage" aria-hidden="true"></div>
-    <div class="bond-bottom">
+    <div class="bond-topbar">
+      <button class="bond-topbtn" type="button" disabled>自动</button>
+      <button class="bond-topbtn" type="button" disabled>菜单</button>
+    </div>
+    <div class="bond-dialogue">
+      <div class="bond-nameplate">
+        <span id="bond-name" class="bond-name"></span>
+        <span id="bond-club" class="bond-club"></span>
+      </div>
       <div id="bond-text" class="bond-text"></div>
       <div id="bond-choices" class="bond-choices"></div>
     </div>
+    <div id="bond-continue" class="bond-continue" aria-hidden="true">▾</div>
   </section>
 
 <script src="/static/js/bond.js" type="module"></script>
