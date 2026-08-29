@@ -79,14 +79,25 @@ export class SpinePlayer extends EventTarget {
     this._autoFit = opts.autoFit ?? this._opts.autoFit ?? true;
     try {
       const app = new Application();
-      await app.init({
-        background: opts.background ?? this._opts.background ?? 'transparent',
+      const bg = opts.background ?? this._opts.background;
+      const appOpts = {
         antialias: opts.antialias ?? this._opts.antialias ?? true,
         // resolution 必须显式给: 缺省时 pixi view.resolution 为 undefined,
         // resize 内部 canvas.width = 宽 × undefined = NaN → canvas 变 0x0 画不出任何东西
         resolution: opts.resolution ?? this._opts.resolution ?? 1,
         autoDensity: true,
-      });
+      };
+      if (bg === undefined || bg === 'transparent') {
+        // 透明背景（VN 场景: 立绘浮在背景图之上）。
+        // 实测（pixi v8 该版本）: background:'transparent' / {r,g,b,a:0} / '#0000'
+        // 都不会让 canvas 透明——clear 仍是不透明黑（toDataURL alpha=255 黑块,
+        // 盖住下层场景图）。必须显式 backgroundAlpha: 0 才真正透明。
+        appOpts.background = 0x000000;
+        appOpts.backgroundAlpha = 0;
+      } else {
+        appOpts.background = bg;
+      }
+      await app.init(appOpts);
       this._app = app;
       container.appendChild(app.canvas);
       // 立即同步一次容器尺寸——不依赖 ResizeObserver 首帧回调（headless/首挂载可能缺失）
