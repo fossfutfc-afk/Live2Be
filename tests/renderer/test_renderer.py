@@ -47,7 +47,8 @@ def _make_assets(tmp_path):
         d.mkdir(parents=True, exist_ok=True)   # 可重复调用（同构测试建两次）
         for f in files:
             (d / f).write_bytes(b"img")
-    ch = root / "illustration" / "igusa_haruka"
+    # 角色（板块结构: {char}/default/ 为默认外观）
+    ch = root / "illustration" / "igusa_haruka" / "default"
     (ch / "diff").mkdir(parents=True, exist_ok=True)
     for i in range(1, 7):
         (ch / "diff" / f"haruka_spr_0{i}.png").write_bytes(b"png")

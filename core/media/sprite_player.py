@@ -27,9 +27,10 @@ class SpritePlayer:
     # API 1: diff 静态差分播放（直接播放 diff/ 图）
     # ------------------------------------------------------------------
 
-    def play_diff(self, char_id: str, emotion: str) -> SpriteMedia | None:
+    def play_diff(self, char_id: str, emotion: str,
+                  outfit: str = "default") -> SpriteMedia | None:
         """emotions.yml 查 emotion → 静态差分图（缺失 → None, 调用方保持上一张）。"""
-        media = self._catalog.sprite(char_id, emotion)
+        media = self._catalog.sprite(char_id, emotion, outfit)
         if media is None or media.static_path is None:
             return None
         return media
@@ -38,9 +39,10 @@ class SpritePlayer:
     # API 2: spine 骨骼动画播放（未来——spine/ 目录资产）
     # ------------------------------------------------------------------
 
-    def play_spine(self, char_id: str, emotion: str) -> SpinePack | None:
-        """查该角色优先 spine 导出包（缺失 → None, 调用方降级到 play_diff）。"""
-        media = self._catalog.sprite(char_id, emotion)
+    def play_spine(self, char_id: str, emotion: str,
+                   outfit: str = "default") -> SpinePack | None:
+        """查该外观优先 spine 导出包（缺失 → None, 调用方降级到 play_diff）。"""
+        media = self._catalog.sprite(char_id, emotion, outfit)
         if media is None or media.spine is None:
             return None
         return media.spine
@@ -49,10 +51,11 @@ class SpritePlayer:
     # 辅助
     # ------------------------------------------------------------------
 
-    def sprite(self, char_id: str, emotion: str) -> SpriteMedia | None:
+    def sprite(self, char_id: str, emotion: str,
+               outfit: str = "default") -> SpriteMedia | None:
         """原始查询（含 spine 的完整媒体; 调用方自取 static_path/spine）。"""
-        return self._catalog.sprite(char_id, emotion)
+        return self._catalog.sprite(char_id, emotion, outfit)
 
-    def emotions(self, char_id: str) -> list[str]:
-        """角色词表白名单（供 GUI 校验/降级决策）。"""
-        return self._catalog.sprite_emotions(char_id)
+    def emotions(self, char_id: str, outfit: str = "default") -> list[str]:
+        """外观词表白名单（供 GUI 校验/降级决策）。"""
+        return self._catalog.sprite_emotions(char_id, outfit)

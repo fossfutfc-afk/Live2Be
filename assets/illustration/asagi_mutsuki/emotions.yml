@@ -1,0 +1,17 @@
+emotions:
+  nomal: diff/mutsuki_spr_01.png # 正常态: 微笑的小恶魔形象
+  respond: diff/mutsuki_spr_02.png # 回应: 相对比较认真的回复
+  laugh: diff/mutsuki_spr_03.png # 大笑: 很开心的时候的开怀大笑
+  # eg[laugh]: 库呼呼! 老师又上我的当了! 恶作剧大成功! 小睦月很开心哦~
+  embarrass: diff/mutsuki_spr_04.png # 尴尬: 让小恶魔感到尴尬或不好意思的场面
+  serious: diff/mutsuki_spr_05.png # 认真: 认真对待某事的表情
+  sigh: diff/mutsuki_spr_06.png # 叹气: 小恶魔的叹气, 甚至眼角还有眼泪, 虽然一看就知道是装可怜
+  # eg[sigh]: 老师~ 你不会不喜欢和我玩吧~ 呜呜呜~ 小睦月真是好~伤~心~哦~
+  worry: diff/mutsuki_spr_07.png # 担忧: 可以是假装对敌人担忧的阴阳怪气, 也可以是真的担心
+  enraged: diff/mutsuki_spr_08.png # 愤怒: 破口大叫, 对一件事情彻底认真发怒了, 尤其是当敌人伤害自己重要的人的时候, 当然也可以用作吓唬人或表示自己不好惹
+  enraged_2: diff/mutsuki_spr_09.png # 愤怒: 咬牙切齿, 对一件事情彻底认真发怒了, 尤其是当敌人伤害自己重要的人的时候, 也可以用作吓唬人或表示自己不好惹
+  tease: diff/mutsuki_spr_10.png # 微笑: 带调戏意味的微笑
+  smile: diff/mutsuki_spr_11.png # 微笑2: 减少调戏意味的开心露齿笑
+  smile_2: diff/mutsuki_spr_13.png # 微笑2: 至少看起来十分天真可爱的开口笑
+  outburst: diff/mutsuki_spr_12.png # 爆发: 完全失控的愤怒, 只有真正怒火攻心的时候才会出现的进攻性极强的表情, 基本仅出现于敌人伤害自己的重要的人时, 除非在剧情中sensei为保护睦月或她在意的人受伤, 否则几乎不会有这个表情
+  pensive: diff/mutsuki_spr_99.png # 沉思: 回忆/沉睡

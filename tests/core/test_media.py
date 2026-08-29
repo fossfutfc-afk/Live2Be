@@ -243,8 +243,8 @@ def _make_assets(tmp_path):
         for f in files:
             (d / f).write_bytes(b"img")
     (bg / ".py").write_text("import os")  # 脚本残留 → 排除
-    # 角色
-    ch = root / "illustration" / "igusa_haruka"
+    # 角色（板块结构 2026-08-28: 每外观一个自包含目录 {char}/{outfit}/, 缺省 default）
+    ch = root / "illustration" / "igusa_haruka" / "default"
     (ch / "diff").mkdir(parents=True)
     for i in range(1, 7):
         (ch / "diff" / f"haruka_spr_0{i}.png").write_bytes(b"png")
@@ -262,6 +262,19 @@ def _make_assets(tmp_path):
         "  serious: diff/haruka_spr_05.png\n"
         "  shout: diff/haruka_spr_06.png\n"
         "spine: haruka_spr\n",
+        encoding="utf-8",
+    )
+    # 附加外观（板块: 独立目录 + 自己的 emotions.yml）
+    extra = root / "illustration" / "igusa_haruka" / "newyear"
+    (extra / "spine" / "ny_spr").mkdir(parents=True)
+    (extra / "spine" / "ny_spr" / "ny_spr.skel").write_bytes(b"x")
+    (extra / "spine" / "ny_spr" / "ny_spr.atlas").write_text(_FAKE_ATLAS, encoding="utf-8")
+    (extra / "spine" / "ny_spr" / "ny_spr.png").write_bytes(b"x")
+    (extra / "emotions.yml").write_text(
+        "spine: ny_spr\n"
+        "emotions:\n"
+        "  nomal: 01\n"
+        "  smile: 03\n",
         encoding="utf-8",
     )
     # 无 manifest 的角色 → 空
@@ -350,10 +363,29 @@ def test_has_sprite_and_background(tmp_path):
     print("    has_sprite / has_background: 布尔辅助")
 
 
+def test_sprite_outfit_parallel_dirs(tmp_path):
+    """板块结构（2026-08-28）: 外观 = 独立目录; default 缺省, 附加外观按 id 查。"""
+    c = _catalog(tmp_path)
+    # default 缺省
+    s = c.sprite("igusa_haruka", "nomal")
+    assert s is not None and s.spine.name == "haruka_spr"
+    # 附加外观 newyear（资源 ID 双投影: diff/ny_spr_01.png 不存在 → static None, spine 有）
+    s2 = c.sprite("igusa_haruka", "nomal", outfit="newyear")
+    assert s2 is not None
+    assert s2.spine is not None and s2.spine.name == "ny_spr"
+    assert s2.anim == "01"
+    assert s2.static_path is None            # 变体无 diff 图 → 播放器走 spine
+    assert c.sprite("igusa_haruka", "giggle", outfit="newyear") is None  # 未声明键
+    assert c.sprite_emotions("igusa_haruka", "newyear") == ["nomal", "smile"]
+    # 不存在的外观 → 空（宁缺勿错）
+    assert c.sprite("igusa_haruka", "nomal", outfit="nope") is None
+    print("    sprite: 板块并行目录（default 缺省 / newyear 独立 / 未知外观空）")
+
+
 def test_sprite_lazy_loads_on_first_query(tmp_path):
     root = _make_assets(tmp_path)
     c = MediaCatalog(root)                       # 构造时只扫背景, 不扫角色
-    ch = root / "illustration" / "igusa_haruka"
+    ch = root / "illustration" / "igusa_haruka" / "default"
     (ch / "emotions.yml").write_text(             # 构造后改词表
         "emotions:\n  smug: diff/haruka_spr_04.png\n", encoding="utf-8")
     assert c.sprite_emotions("igusa_haruka") == ["smug"]  # 首次 query 才扫 → 读到新 manifest
@@ -363,7 +395,7 @@ def test_sprite_lazy_loads_on_first_query(tmp_path):
 def test_sprite_static_missing_still_registered(tmp_path):
     root = _make_assets(tmp_path)
     # 改 manifest 指向不存在的文件 → 仍登记, 但 static_path 降级 None
-    ch = root / "illustration" / "igusa_haruka"
+    ch = root / "illustration" / "igusa_haruka" / "default"
     (ch / "emotions.yml").write_text(
         "emotions:\n  smile: diff/missing.png\nspine: haruka_spr\n", encoding="utf-8")
     c = MediaCatalog(root)

@@ -37,10 +37,10 @@ class MediaCatalog:
         if not self.assets_root.is_dir():
             raise MediaError(f"assets 根不存在: {self.assets_root}")
         self._backgrounds: dict[str, list[BackgroundMedia]] = {}
-        self._sprites: dict[str, dict[str, SpriteMedia]] = {}
-        self._scanned_chars: set[str] = set()
+        self._sprites: dict[tuple[str, str], dict[str, SpriteMedia]] = {}
+        self._scanned_chars: set[tuple[str, str]] = set()
         # 背景全量（构造时）: 数据驱动必须扫才能知道有哪些场景, 且便宜（620 场景）;
-        # 差分按角色懒加载（VN 单角色, 首次 query 才扫该角色并缓存, 宁缺勿错）.
+        # 差分按角色×外观懒加载（VN 单角色, 首次 query 才扫该外观并缓存, 宁缺勿错）.
         self._scan_backgrounds()
 
     # ------------------------------------------------------------------
@@ -94,22 +94,26 @@ class MediaCatalog:
         return sorted(seen)
 
     # ------------------------------------------------------------------
-    # 查询: 差分
+    # 查询: 差分（板块结构 2026-08-28: 每外观一个自包含目录 {char}/{outfit}/,
+    # 有 emotions.yml 的目录 = 外观; 缺省 outfit="default"）
     # ------------------------------------------------------------------
 
-    def sprite(self, char_id: str, emotion: str) -> SpriteMedia | None:
-        """查角色差分。emotion 白名单 = manifest sprites 键。查不到 → None。首次查该角色才扫描。"""
-        self._ensure_character(char_id)
-        return self._sprites.get(char_id, {}).get(emotion)
+    def sprite(self, char_id: str, emotion: str,
+               outfit: str = "default") -> SpriteMedia | None:
+        """查角色差分。emotion 白名单 = manifest sprites 键。查不到 → None。首次查该外观才扫描。"""
+        self._ensure_character(char_id, outfit)
+        return self._sprites.get((char_id, outfit), {}).get(emotion)
 
-    def sprite_emotions(self, char_id: str) -> list[str]:
-        """角色已登记情绪（给 ② 播放协议 parse 白名单 / 导演 prompt）。首次查该角色才扫描。"""
-        self._ensure_character(char_id)
-        return sorted(self._sprites.get(char_id, {}))
+    def sprite_emotions(self, char_id: str,
+                        outfit: str = "default") -> list[str]:
+        """外观已登记情绪（给 ② 播放协议 parse 白名单 / 导演 prompt）。首次查该外观才扫描。"""
+        self._ensure_character(char_id, outfit)
+        return sorted(self._sprites.get((char_id, outfit), {}))
 
-    def has_sprite(self, char_id: str, emotion: str) -> bool:
-        self._ensure_character(char_id)
-        return emotion in self._sprites.get(char_id, {})
+    def has_sprite(self, char_id: str, emotion: str,
+                   outfit: str = "default") -> bool:
+        self._ensure_character(char_id, outfit)
+        return emotion in self._sprites.get((char_id, outfit), {})
 
     def has_background(self, scene_id: str, variant: str | None = None) -> bool:
         return self.background(scene_id, variant) is not None
@@ -129,15 +133,16 @@ class MediaCatalog:
                     BackgroundMedia(scene, p, variant)
                 )
 
-    def _ensure_character(self, char_id: str) -> None:
-        """角色差分懒加载: 首次 query 该角色才扫描, 之后 O(1)（含不存在角色的空缓存）。"""
-        if char_id in self._scanned_chars:
+    def _ensure_character(self, char_id: str, outfit: str = "default") -> None:
+        """外观懒加载: 首次 query 该角色外观才扫描, 之后 O(1)（含不存在外观的空缓存）。"""
+        key = (char_id, outfit)
+        if key in self._scanned_chars:
             return
-        self._scan_character(char_id)
-        self._scanned_chars.add(char_id)
+        self._scan_character(char_id, outfit)
+        self._scanned_chars.add(key)
 
-    def _scan_character(self, char_id: str) -> None:
-        char_dir = self.assets_root / "illustration" / char_id
+    def _scan_character(self, char_id: str, outfit: str = "default") -> None:
+        char_dir = self.assets_root / "illustration" / char_id / outfit
         if not char_dir.is_dir():
             return
         man = load_character_manifest(char_dir)
@@ -154,4 +159,4 @@ class MediaCatalog:
                 anim=man["animations"].get(emotion),
             )
         if emotions:
-            self._sprites[char_id] = emotions
+            self._sprites[(char_id, outfit)] = emotions
