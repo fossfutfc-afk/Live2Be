@@ -11,13 +11,19 @@ __pycache__/
 pytest-cache-files-*
 data/
 assets/*
-# 配置文件例外入库（资产 png/skel/atlas 保持忽略——版权素材本地化;
-# emotions.yml（情绪词表真源）+ outfits/*.yml（换装声明）是配置, 丢了项目就崩）
+!assets/_director_whitelist.json
+# 配置文件例外入库（版权素材 png/skel/atlas/ogg 保持忽略——本地化;
+# emotions.yml（情绪词表真源）是配置, 丢了项目就崩）
+# 分层规则: 忽略内容但放行目录（被忽略目录内的文件无法用 ! 放行, 故逐层放行）
 !assets/illustration/
+assets/illustration/*
+!assets/illustration/.md
+!assets/illustration/.py
 !assets/illustration/*/
-!assets/illustration/*/emotions.yml
-!assets/illustration/*/outfits/
-!assets/illustration/*/outfits/*.yml
+assets/illustration/*/*
+!assets/illustration/*/*/
+assets/illustration/*/*/*
+!assets/illustration/*/*/emotions.yml
 
 # 个人工具（逆向非官方接口 + 素材版权属官方）——仅本地保留, 不提交公开
 # 例外: imgdesc.py/.cmd/.md（本地识图工具, 无逆向/版权问题）经 git mv 显式入库, 仍被跟踪
