@@ -139,15 +139,24 @@
        舞台 + 下部文字区/选项; 结束回 MMT 保留聊天窗状态） -->
   <section id="view-bond" class="bond hidden" aria-label="羁绊剧情">
     <div id="bond-bg" class="bond-bg" aria-hidden="true"></div>
-    <div class="bond-head">
-      <span id="bond-name" class="bond-name"></span>
-      <span class="bond-tag">羁绊剧情</span>
-    </div>
+    <div id="bond-shade" class="bond-shade" aria-hidden="true"></div>
     <div id="bond-stage" class="bond-stage" aria-hidden="true"></div>
-    <div class="bond-bottom">
+    <!-- 右上角: 自动/菜单（占位, 功能以后再实现） -->
+    <div class="bond-topbar">
+      <button class="bond-topbtn" type="button" disabled>自动</button>
+      <button class="bond-topbtn" type="button" disabled>菜单</button>
+    </div>
+    <!-- 下部对话块: 名字牌 → 对话文本(逐字) → 选项（底部对齐, 浮在画面上） -->
+    <div class="bond-dialogue">
+      <div class="bond-nameplate">
+        <span id="bond-name" class="bond-name"></span>
+        <span id="bond-club" class="bond-club"></span>
+      </div>
       <div id="bond-text" class="bond-text"></div>
       <div id="bond-choices" class="bond-choices"></div>
     </div>
+    <!-- 右下: 继续提示（点击跳过逐字） -->
+    <div id="bond-continue" class="bond-continue" aria-hidden="true">▾</div>
   </section>
 </main>
 

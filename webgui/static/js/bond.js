@@ -1,13 +1,17 @@
 // Live2Be 羁绊剧情 VN 视图 — 后端 /api/bond/* 状态机的浏览器消费端。
 // 流程: mmt 轮询收到 bond_story → enter() → 轮询 status → 渲染场景（背景/立绘/
-// 打字机/选项）→ 玩家裁决 → turn → 下一场 → is_end → finish → 回 MMT。
+// 打字机文字/选项）→ 玩家裁决 → turn → 下一场 → is_end → finish → 回 MMT。
 //
-// 图片大小参数（审查重点, 2026-08-29）:
+// 布局（对齐官方 bond story, 2026-08-29 视觉版对照）:
+//   背景 cover 全屏 + 底部暗渐 → 立绘透明浮层(中央偏左) → 左下名字+社团+分隔线
+//   → 下部对话文本(逐字打字机) + 选项 → 右上 自动/菜单 占位 → 右下 继续三角(跳过打字)。
+//
+// 图片大小参数:
 //   - SpinePlayer: resolution = devicePixelRatio（retina 清晰, autoDensity 保证 CSS 尺寸）;
 //     fit('contain') 按骨骼 bounds 自适应容器（完整可见, 不裁切）
 //   - 背景: CSS object-fit: cover 全屏铺满（不变形）
-//   - 舞台: 立绘区 = 视图上部 62%（滚动/缩放全由 SpinePlayer.fit 管）; 文字区 = 下部
-//   - 容器尺寸固定由 CSS 保证（避免 0×0; SpinePlayer 内部 ResizeObserver 跟随）
+//   - 立绘舞台: 左 56% 宽 × 上 88% 高（透明浮层中央偏左）; 容器尺寸由 CSS 固定,
+//     防 0×0（SpinePlayer 内部 ResizeObserver 跟随）
 "use strict";
 
 import { createSpinePlayer } from "./spine-player.js";
@@ -16,7 +20,9 @@ const $ = (id) => document.getElementById(id);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const BOND_POLL_MS = 700;       // status 轮询间隔（LLM 秒级, 不用太快）
-const PARA_GAP_MS = 320;        // 段落依次出现间隔
+const PARA_GAP_MS = 320;        // 段与段之间停顿
+const CHAR_MS = 42;             // 打字机基准（每字）
+const PUNCT_MS = 150;           // 标点停顿（，。！？…；：等）
 const END_HOLD_MS = 1600;       // 收尾场景停留后自动 finish
 
 const BondVN = (() => {
@@ -28,12 +34,19 @@ const BondVN = (() => {
   let busy = false;             // 场景切换中（防双击）
   let finished = false;         // 已 finish（防重复收尾）
 
+  // 打字机状态（renderScene → typeOut → 打完 → showInteraction）
+  let typeTimer = null;
+  let typeParas = [];
+  let typeSeg = 0;
+  let typeOnDone = null;
+  let typeBoxEl = null;
+
   // ---------------------------------------------------------------------------
   // 公开: 进入 VN（mmt.js 收到 bond_story 或重进 in_vn 会话时调用）
   // ---------------------------------------------------------------------------
 
   async function enter(cid, sid, nm) {
-    charId = cid; sessionId = sid; name = nm;
+    charId = cid; sessionId = sid; name = nm || cid;
     finished = false; busy = false; seenRound = 0; gotScene = false;
     // 换角色/重进: 销毁旧立绘（spine 包/情绪映射是 per 角色的——不重建会残留上一位）
     if (player) {
@@ -41,6 +54,7 @@ const BondVN = (() => {
       player = null;
       playerMeta = null;
     }
+    stopTyping();
     showView();
     await initSpine();
     try {
@@ -63,6 +77,7 @@ const BondVN = (() => {
 
   function exit() {
     // 回 MMT: 隐藏 VN 视图（聊天窗原样保留）→ 解锁输入 + 重启轮询（拉 wrapup 收尾话）
+    stopTyping();
     $("view-bond").classList.add("hidden");
     if (window.MMT && typeof window.MMT.unlockChat === "function") {
       window.MMT.unlockChat();
@@ -95,7 +110,7 @@ const BondVN = (() => {
   }
 
   // ---------------------------------------------------------------------------
-  // 轮询 status → 场景就绪 → 渲染
+  // 轮询 status → 场景就绪 → 渲染（status 附带 name/club → 名字牌）
   // ---------------------------------------------------------------------------
 
   async function waitScene() {
@@ -109,6 +124,9 @@ const BondVN = (() => {
         showError("轮询失败: " + e.message);
         return;
       }
+      // 名字牌（官方: 名字 + 社团）——status 返回, 覆盖 enter 传入的兜底 name
+      if (st.name) $("bond-name").textContent = st.name;
+      if (st.club !== undefined) $("bond-club").textContent = st.club;
       if (st.busy) continue;
       if (st.error && !st.scene) {
         showError("剧情生成失败: " + st.error);
@@ -126,11 +144,12 @@ const BondVN = (() => {
   }
 
   // ---------------------------------------------------------------------------
-  // 场景渲染: 背景 → 段落（打字机 + 立绘 emotion）→ 选项/自由输入/收尾
+  // 场景渲染: 背景 → 打字机（逐字输出 + 段首切立绘表情）→ 打完 → 选项/输入/收尾
   // ---------------------------------------------------------------------------
 
   function renderScene(scene) {
     busy = false;
+    stopTyping();
     // 背景（scene_id → background_url; 无 → 保持当前/默认黑）
     const bg = $("bond-bg");
     if (scene.background_url) {
@@ -139,22 +158,19 @@ const BondVN = (() => {
       bg.style.backgroundImage = "";
     }
 
-    // 段落（依次出现; 每段显式 emotion → 立绘切换; 缺省 = 延续, 静默）
     const box = $("bond-text");
-    box.innerHTML = "";
-    const paras = scene.paragraphs || [];
-    paras.forEach((p, i) => {
-      const div = document.createElement("div");
-      div.className = "bond-para";
-      div.textContent = typeof p === "string" ? p : (p.text || "");
-      div.style.animationDelay = `${i * PARA_GAP_MS}ms`;
-      box.appendChild(div);
-      if (player && p && p.emotion) player.setEmotion(p.emotion);
-    });
-
-    // 交互区: 选项 / 自由输入 / 收尾
     const choiceBox = $("bond-choices");
     choiceBox.innerHTML = "";
+    hideContinue();
+    typeOut(box, scene.paragraphs || [], () => {
+      hideContinue();
+      showInteraction(scene);
+    });
+    showContinue();                              // 打字中亮起 → 点击跳过
+  }
+
+  function showInteraction(scene) {
+    const choiceBox = $("bond-choices");
     if (scene.is_end) {
       const done = document.createElement("div");
       done.className = "bond-end";
@@ -191,9 +207,95 @@ const BondVN = (() => {
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // 打字机: 逐字逐段（段首切 emotion）; 打完回调; 继续三角可补全跳过
+  // ---------------------------------------------------------------------------
+
+  function typeOut(box, paras, onDone) {
+    stopTyping();
+    box.innerHTML = "";
+    typeParas = paras;
+    typeSeg = 0;
+    typeOnDone = onDone;
+    typeBoxEl = box;
+    writePara();
+  }
+
+  function _paraText(p) {
+    return typeof p === "string" ? p : (p.text || "");
+  }
+
+  function writePara() {
+    const p = typeParas[typeSeg];
+    if (!p) { return finishType(); }
+    // 段首切立绘表情（缺省 = 延续上一段, 静默）
+    if (player && p && p.emotion) player.setEmotion(p.emotion);
+    const div = document.createElement("div");
+    div.className = "bond-para";
+    typeBoxEl.appendChild(div);
+    const t = _paraText(p);
+    let i = 0;
+    const step = () => {
+      if (i < t.length) {
+        div.textContent = t.slice(0, i + 1);
+        const ch = t[i];
+        i++;
+        const pause = /[，。！？…、；：—-]/.test(ch) ? PUNCT_MS : CHAR_MS;
+        typeTimer = setTimeout(step, pause);
+      } else {
+        // 段完成 → 停顿后下一段
+        typeTimer = setTimeout(() => {
+          typeSeg++;
+          if (typeSeg < typeParas.length) writePara();
+          else finishType();
+        }, PARA_GAP_MS);
+      }
+    };
+    step();
+  }
+
+  function finishType() {
+    // 先取回调再清——stopTyping() 会把 typeOnDone 置 null, 若先清再读则 cb 恒为 null,
+    // showInteraction（选项/收尾）永不触发。这是 2026-08-29 修复的顺序坑。
+    const cb = typeOnDone;
+    typeOnDone = null;
+    stopTyping();
+    if (cb) cb();
+  }
+
+  function skipType() {
+    // 继续三角: 补全所有段落文本立即显示 + 完成（跳过剩余打字）
+    if (!typeBoxEl) return;
+    stopTyping();
+    typeBoxEl.innerHTML = "";
+    typeParas.forEach((p) => {
+      const div = document.createElement("div");
+      div.className = "bond-para";
+      div.textContent = _paraText(p);
+      typeBoxEl.appendChild(div);
+      if (player && p && p.emotion) player.setEmotion(p.emotion);
+    });
+    typeSeg = typeParas.length;
+    finishType();
+  }
+
+  function stopTyping() {
+    if (typeTimer) { clearTimeout(typeTimer); typeTimer = null; }
+    typeBoxEl = null;
+    typeOnDone = null;
+  }
+
+  // 继续三角（右下）: 点击跳过打字
+  function bindContinue() {
+    $("bond-continue").addEventListener("click", skipType);
+  }
+  function showContinue() { $("bond-continue").classList.add("show"); $("bond-continue").setAttribute("aria-hidden", "false"); }
+  function hideContinue() { $("bond-continue").classList.remove("show"); $("bond-continue").setAttribute("aria-hidden", "true"); }
+
   async function submit(text) {
     if (busy) return;
     busy = true;
+    stopTyping();
     try {
       const res = await fetch("/api/bond/turn", {
         method: "POST",
@@ -213,6 +315,7 @@ const BondVN = (() => {
     }
     $("bond-text").innerHTML = "";
     $("bond-choices").innerHTML = "";
+    hideContinue();
     $("bond-choices").appendChild(loadingDots());
     await waitScene();
   }
@@ -239,15 +342,16 @@ const BondVN = (() => {
   function showView() {
     const v = $("view-bond");
     v.classList.remove("hidden");
-    $("bond-name").textContent = name;
+    $("bond-name").textContent = name;   // 兜底（status 会再覆盖 name/club）
     $("bond-bg").style.backgroundImage = "";
     $("bond-text").innerHTML = "";
     $("bond-choices").innerHTML = "";
-    // 舞台尺寸: CSS 固定（62% 视高）——fit 由 SpinePlayer 管; 强制一次 reflow
+    hideContinue();
+    // 舞台尺寸: CSS 固定（左 56% × 上 88vh）——fit 由 SpinePlayer 管; 强制一次 reflow
     // 防首帧 0×0（ResizeObserver 首帧可能缺失）
     const stage = $("bond-stage");
     if (stage && stage.clientWidth === 0) {
-      stage.style.height = (window.innerHeight * 0.62) + "px";
+      stage.style.height = (window.innerHeight * 0.88) + "px";
     }
   }
 
@@ -265,6 +369,8 @@ const BondVN = (() => {
     div.textContent = "（" + msg + "）";
     box.appendChild(div);
   }
+
+  bindContinue();
 
   // ---------------------------------------------------------------------------
 
