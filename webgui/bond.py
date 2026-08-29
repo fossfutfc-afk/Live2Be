@@ -50,12 +50,48 @@ _FORCE_AFTER = _END_ROUNDS + 2
 #: 程序兜底 closing 文案（错误收场 / 超限收场）
 _CLOSING_TEXT = "（夜色渐深，这一章的羁绊剧情就此落下帷幕。）"
 
+#: 演示模式预设剧本（不调 LLM——前端 VN 体验/联调用; 3 场: 选项 → 选项 → is_end,
+#: 覆盖背景切换/emotion 变化/收尾。BondScene 契约格式, 键用最新词表名）
+DEMO_SCRIPT: list[dict] = [
+    {
+        "background": "class_room",
+        "paragraphs": [
+            {"text": "（演示·第 1 场）放学后的教室，夕阳把窗框的影子拉得很长。",
+             "emotion": "nomal"},
+            {"text": "「老师……那个……今天可以一起走回家吗？」她低着头，手指绞着衣角。",
+             "emotion": "embarrassed"},
+        ],
+        "choices": ["「当然可以。」", "「我还有点事，改天吧。」"],
+    },
+    {
+        "background": "wildhunt_street",
+        "paragraphs": [
+            {"text": "（演示·第 2 场）晚风拂过发梢，她悄悄靠近了些，脚步轻快。",
+             "emotion": "smile"},
+            {"text": "「老师，下次……下次还能像这样一起走吗？」她抬头，目光期待。",
+             "emotion": "expectant"},
+        ],
+        "choices": ["「嗯，约定好了。」", "「看你表现咯。」"],
+    },
+    {
+        "background": "gehenna_campus",
+        "paragraphs": [
+            {"text": "（演示·第 3 场）路灯下，她用力地点了点头，眼睛弯成月牙。",
+             "emotion": "smile"},
+            {"text": "「……嗯！那、那说好了！老师明天见！」她小跑着回头挥手。",
+             "emotion": "giggle"},
+        ],
+        "is_end": True,
+    },
+]
+
 
 @dataclass
 class BondState:
     """一场羁绊剧情的驱动状态（per (char_id, session_id) 内存态）。"""
 
     vn: BondStoryEngine | None = None
+    demo: list[dict] | None = None      # 演示模式: 预设剧本（不调 LLM）; None = 真实引擎
     round: int = 0                      # 已生成场景数（系统注记 / 前端轮询去重）
     busy: bool = False                  # 场景生成中（LLM 秒级, 后台线程）
     scene_obj: BondScene | None = None  # 当前展示场景（运行时对象, 含 memorial 标记）
@@ -89,10 +125,10 @@ def _store():
 def bond_start(char_id: str, session_id: str) -> dict:
     """进入羁绊剧情: 构造引擎 + vn_enter marker + 后台生成首场。
 
-    幂等: 已有进行中的 bond 状态 → 返回现状（前端重进不重建）。
+    幂等: 已有进行中的 bond 状态（真实引擎或演示剧本）→ 返回现状（前端重进不重建）。
     """
     state = _state(char_id, session_id)
-    if state.vn is not None:
+    if state.vn is not None or state.demo is not None:
         return {"accepted": True, "busy": state.busy, "resumed": True}
     if state.busy:
         return {"accepted": False, "busy": True, "error": "正在生成首场"}
@@ -131,10 +167,36 @@ def bond_start(char_id: str, session_id: str) -> dict:
     return {"accepted": True, "busy": True, "resumed": False}
 
 
+def bond_start_demo(char_id: str, session_id: str) -> dict:
+    """演示模式: 预设剧本驱动（DEMO_SCRIPT, 不调 LLM）——前端 VN 体验/联调用。
+
+    状态机照走（start/turn/status/finish 同链路）: 事件流落库、wrapup 用预设
+    收尾话、跳过 digest。幂等同真实路径; 已完结（completed）→ 重置重玩。
+    """
+    state = _state(char_id, session_id)
+    if state.completed and (state.vn is not None or state.demo is not None):
+        # 重玩: 清状态重来（事件流追加新剧情——旧剧情已 session_end, 语义隔离）
+        _bonds.pop((char_id, session_id), None)
+        state = _state(char_id, session_id)
+    if state.vn is not None or state.demo is not None:
+        return {"accepted": True, "busy": state.busy, "resumed": True}
+    if state.busy:
+        return {"accepted": False, "busy": True, "error": "正在生成首场"}
+
+    state.demo = list(DEMO_SCRIPT)         # 副本（pop 消费不污染常量）
+    state.reason = "（演示）"
+    try:
+        _store().enter_vn(char_id, session_id, state.reason)
+    except Exception as e:                           # noqa: BLE001 — 写失败降级不阻断
+        logger.warning("事件流 vn_enter 写入失败: %s", e)
+    _generate(state, char_id, session_id, "（演示开始）")
+    return {"accepted": True, "busy": True, "resumed": False}
+
+
 def bond_turn(char_id: str, session_id: str, text: str) -> dict:
     """玩家裁决（选项文本 / 自由输入）→ 补录上一场事件 → 后台生成下一场。"""
     state = _state(char_id, session_id)
-    if state.vn is None:
+    if state.vn is None and state.demo is None:
         return {"accepted": False, "error": "剧情未开始"}
     if state.busy:
         return {"accepted": False, "busy": True, "error": "剧情生成中"}
@@ -165,7 +227,7 @@ def bond_status(char_id: str, session_id: str) -> dict:
 def bond_finish(char_id: str, session_id: str) -> dict:
     """剧情终结收尾: 补录最后场景 + vn_exit + session_end + wrapup + digest。"""
     state = _state(char_id, session_id)
-    if state.vn is None:
+    if state.vn is None and state.demo is None:
         return {"completed": False, "error": "剧情未开始"}
     if state.busy:
         return {"completed": False, "busy": True, "error": "剧情生成中"}
@@ -194,7 +256,10 @@ def bond_finish(char_id: str, session_id: str) -> dict:
 # ---------------------------------------------------------------------------
 
 def _generate(state: BondState, char_id: str, session_id: str, user_input: str) -> None:
-    """后台线程: send_vn_scene 生成下一场 → 更新 state（场景/事件/兜底）。"""
+    """后台线程: 生成下一场 → 更新 state（场景/事件/兜底）。
+
+    真实模式: send_vn_scene（LLM）; 演示模式: DEMO_SCRIPT 预设场景逐个弹出。
+    """
     state.busy = True
     state.error = ""
 
@@ -202,12 +267,19 @@ def _generate(state: BondState, char_id: str, session_id: str, user_input: str) 
         try:
             with chat._lock(char_id):
                 state.round += 1
-                scene = state.vn.send_vn_scene(
-                    user_input, system_note=_system_note(state))
-                if state.round > _FORCE_AFTER and not scene.is_end:
-                    # 超限强制收尾（CLI force_after 语义——剧情必须终结）
-                    scene = BondScene(
-                        paragraphs=[{"text": _CLOSING_TEXT}], is_end=True)
+                if state.demo is not None:
+                    # 演示模式: 弹预设场景; 剧本耗尽 → closing 收尾（剧情必须终结）
+                    scene_dict = state.demo.pop(0) if state.demo else None
+                    scene = (BondScene.from_dict(scene_dict) if scene_dict
+                             else BondScene(paragraphs=[{"text": _CLOSING_TEXT}],
+                                            is_end=True))
+                else:
+                    scene = state.vn.send_vn_scene(
+                        user_input, system_note=_system_note(state))
+                    if state.round > _FORCE_AFTER and not scene.is_end:
+                        # 超限强制收尾（CLI force_after 语义——剧情必须终结）
+                        scene = BondScene(
+                            paragraphs=[{"text": _CLOSING_TEXT}], is_end=True)
                 state.scene_obj = scene
                 state.scene = scene.to_dict()
                 state.scene_input = user_input
@@ -264,7 +336,8 @@ def _log_scene_meta(state: BondState, char_id: str, session_id: str,
         elif scene.memorial_exit:
             _store().append_marker(char_id, session_id, M_MEMORIAL_EXIT)
         vn = state.vn
-        visual = vn.director.state.to_dict() if vn.director is not None else {}
+        visual = (vn.director.state.to_dict()
+                  if vn is not None and vn.director is not None else {})
         _store().append_marker(char_id, session_id, M_VN_STATE, {
             "round": state.round, "seed": state.scene_input, "visual": visual})
     except Exception as e:                           # noqa: BLE001 — 写失败降级不阻断
@@ -274,7 +347,7 @@ def _log_scene_meta(state: BondState, char_id: str, session_id: str,
 def _system_note(state: BondState) -> str | None:
     """本轮系统注记（只进 context 不入历史）: 纪念模式 / 收尾提醒 / 上限建议。"""
     vn = state.vn
-    if vn.in_memorial:
+    if vn is not None and vn.in_memorial:
         return (
             "（系统）当前处于**纪念模式**——纪念场景已结束, 本场请输出"
             " memorial_exit 动作回到 bond（可选过渡文字, 不要输出其他动作）。\n"
@@ -301,7 +374,17 @@ def _wrapup(char_id: str, session_id: str, reason: str) -> None:
     收尾话 = agent_turn（system_note 注入, record_input=False——不落假 player 事件,
     只落 assistant 回复）; 前端轮询 events_after 自然拉到收尾气泡。
     收尾结束后 async_digest（bond 闭环, 提炼 + 好感结算）。
+    演示模式（state.demo）: 预设收尾话落 mmt 事件, 跳过 agent_turn 和 digest（不调 LLM）。
     """
+    state = _state(char_id, session_id)
+    if state.demo is not None:
+        try:
+            _store().append_event(char_id, session_id, make_event(
+                "mmt", "mmt_chat",
+                {"player": "", "reply": "（演示收尾）今晚的剧情，我会一直记在心里……"}))
+        except Exception as e:                       # noqa: BLE001
+            logger.warning("演示收尾话写入失败: %s", e)
+        return
     engine = chat._engine(char_id)
     char = engine.current_character
     if char is None:

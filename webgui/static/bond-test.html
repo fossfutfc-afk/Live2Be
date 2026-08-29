@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Live2Be — 羁绊剧情演示（预设剧本）</title>
+<!-- 与 index.html 相同的 vendor 裸导入映射（bond.js → spine-player.js → pixi.js） -->
+<script type="importmap">
+{
+  "imports": {
+    "pixi.js": "/static/vendor/pixi.min.mjs"
+  }
+}
+</script>
+<link rel="stylesheet" href="/static/css/bond.css">
+<style>
+  /* 演示页辅助（角色选择面板——VN 视图本身用 bond.css） */
+  html, body { margin: 0; height: 100%; background: #1a1220; font-family: system-ui; }
+  #demo-panel {
+    position: fixed; inset: 0; z-index: 60;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 1rem; color: #f5e8ef;
+  }
+  #demo-panel.hidden { display: none; }
+  #demo-panel h2 { color: #ffd3e2; letter-spacing: 0.1em; margin: 0; }
+  #demo-panel select {
+    padding: 0.5rem 1rem; border-radius: 10px; border: 1px solid rgba(255,158,195,.5);
+    background: #2a1a28; color: #fff; font-size: 1rem; min-width: 200px;
+  }
+  #demo-panel button {
+    padding: 0.7rem 2rem; border: none; border-radius: 22px;
+    background: #ff5f8f; color: #fff; font-size: 1rem; cursor: pointer;
+  }
+  #demo-panel button:hover { background: #ff7aa3; }
+  .demo-hint { color: #b89aa8; font-size: 0.85rem; max-width: 420px; text-align: center; line-height: 1.6; }
+  .demo-hint code { color: #ff9ec3; }
+</style>
+</head>
+<body>
+  <!-- 角色选择面板 -->
+  <div id="demo-panel">
+    <h2>羁绊剧情 · 演示模式</h2>
+    <select id="demo-char">
+      <option value="igusa_haruka">伊草 遥香</option>
+      <option value="rikuhachima_aru">陆八魔 阿露</option>
+      <option value="asagi_mutsuki">浅黄 睦月</option>
+      <option value="onikata_kayoko">鬼方 佳代子</option>
+    </select>
+    <button id="demo-start">进入剧情</button>
+    <p class="demo-hint">
+      预设 3 场剧本（<code>DEMO_SCRIPT</code>, 不调 LLM）:
+      选项 ×2 → 收尾 → 自动回 MMT 视图（wrapup 收尾话 + 好感事件落库）。
+      立绘 = SpinePlayer（<code>/api/spine</code>）; 背景 = <code>/assets/background</code>。
+    </p>
+  </div>
+
+  <!-- 羁绊剧情 VN 视图（DOM 与 index.html 的 view-bond 完全一致——bond.js 按 id 操作） -->
+  <section id="view-bond" class="bond hidden" aria-label="羁绊剧情">
+    <div id="bond-bg" class="bond-bg" aria-hidden="true"></div>
+    <div class="bond-head">
+      <span id="bond-name" class="bond-name"></span>
+      <span class="bond-tag">羁绊剧情 · 演示</span>
+    </div>
+    <div id="bond-stage" class="bond-stage" aria-hidden="true"></div>
+    <div class="bond-bottom">
+      <div id="bond-text" class="bond-text"></div>
+      <div id="bond-choices" class="bond-choices"></div>
+    </div>
+  </section>
+
+<script src="/static/js/bond.js" type="module"></script>
+<script type="module">
+  // 演示页入口: 打开会话 → 准备 demo 剧本（不调 LLM）→ BondVN.enter（复用完整 VN 视图）
+  const panel = document.getElementById("demo-panel");
+  const sel = document.getElementById("demo-char");
+  const bondView = document.getElementById("view-bond");
+
+  // VN 结束（view-bond 隐藏）→ 回面板（可再玩）
+  new MutationObserver(() => {
+    if (bondView.classList.contains("hidden")) panel.classList.remove("hidden");
+  }).observe(bondView, { attributes: true, attributeFilter: ["class"] });
+
+  document.getElementById("demo-start").addEventListener("click", async () => {
+    const cid = sel.value;
+    try {
+      // 打开会话（每角色单线——复用/新建; display_name 供标题）
+      const sess = await (await fetch(`/api/mmt/session?char_id=${cid}`)).json();
+      // 准备 demo 剧本（后台生成首场; 已完结 → 自动重置重玩）
+      const r = await (await fetch("/api/bond/demo", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ char_id: cid, session_id: sess.session_id }),
+      })).json();
+      if (!r.accepted) { alert("演示启动失败: " + (r.error || "未知")); return; }
+      // 进入 VN（start 幂等 resumed → 轮询拿到 demo 首场; 结束后 exit 自动回面板）
+      panel.classList.add("hidden");
+      window.BondVN.enter(cid, sess.session_id, sess.display_name || cid);
+    } catch (e) {
+      alert("演示启动失败（网络错误: " + e.message + "）");
+    }
+  });
+</script>
+</body>
+</html>

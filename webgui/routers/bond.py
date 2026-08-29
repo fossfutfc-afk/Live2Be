@@ -74,6 +74,15 @@ async def bond_start(body: BondStartIn) -> dict:
         raise HTTPException(status_code=500, detail=f"bond start 失败: {e}")
 
 
+@router.post("/api/bond/demo")
+async def bond_demo(body: BondStartIn) -> dict:
+    """演示模式: 预设剧本驱动（不调 LLM——前端 VN 体验/联调用）。"""
+    try:
+        return bond.bond_start_demo(body.char_id, body.session_id)
+    except Exception as e:                     # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"bond demo 失败: {e}")
+
+
 @router.post("/api/bond/turn")
 async def bond_turn(body: BondTurnIn) -> dict:
     """玩家裁决 → 下一场（后台生成, 轮询 status 取场景）。"""
