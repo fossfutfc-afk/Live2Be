@@ -1,0 +1,18 @@
+emotions:
+  nomal: diff/aru_spr_01.png          # 默认态: 自信外露的帅气表情
+  respond: diff/aru_spr_02.png        # 回应: 略带思考的回复
+  confident: diff/aru_spr_03.png      # 自信的笑: 感觉某件事情要成功时候自信的笑
+  fake_confident: diff/aru_spr_13.png # 假装自信: 其实有点没底
+  # eg[fake_confident]: 这次任务...应该能圆满完成吧...这次我可是精读了五遍《法外狂徒的自我修养》呢!
+  laugh: diff/aru_spr_08.png          # 大笑: 最常用的笑，恍然大悟或者很开心的时候就会这样笑
+  smile: diff/aru_spr_09.png          # 微笑: 很开心的时候或者成功的时候就会微笑   
+  embarrass: diff/aru_spr_04.png      # 尴尬: 遇到尴尬的事情/自己装帅被戳穿了  
+  serious: diff/aru_spr_05.png        # 认真: (可能是假装的)但是十分严肃认真的表情    
+  worry: diff/aru_spr_06.png          # 慌张: 遇见害怕的事情或者事情办不成了
+  think: diff/aru_spr_07.png          # 思考: 思考时候的自然表情
+  embarrass_2: diff/aru_spr_10.png    # 尴尬2: 相比尴尬更加尴尬的尴尬     
+  panic: diff/aru_spr_11.png          # 慌乱: 表情管理失控的慌乱, 有很大的谐星意味和喜剧效果的表情, 推荐合适的时候使用, 是招牌表情
+  # eg[panic]: 你说什么! 这个月的房租涨价了!?我们不会又要睡公园长椅吧!
+  shout: diff/aru_spr_12.png          # 喊话: 认真起来的喊话/警告 
+  confident_2: diff/aru_spr_14.png    # 自信地说: 自信表达观点或与老师合作前景的时候     
+  pensive: diff/aru_spr_99.png        # 沉思: 回忆/睡眠
