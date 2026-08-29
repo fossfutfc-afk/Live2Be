@@ -18,26 +18,55 @@ from pathlib import Path
 
 import yaml
 
-#: 全局默认特效表（emotion → 特效列表; 未列出 = 无特效）
+#: 全局默认特效表（emotion → 特效列表; 未列出 = 无特效）。
+#: 覆盖 4 角色实际词表键的语义归类（2026-08-29 扩表——按情绪语义, 非精确角色）:
+#:   开心系: smile/smile_2/happy/joy/giggle/laugh/tease → sparkle
+#:   害羞系: embarrass/embarrass_2/embarrassed/shy      → blush + notes
+#:   愤怒系: angry/rage/enraged/enraged_2/outburst      → anger（outburst 加 bang）
+#:   低落系: sad/cry/depressed/depressed_2              → raindrop
+#:   惊慌系: panic/panic_2/surprise/shock               → bang + sweat
+#:   喊话系: shout/shout_2/strive                       → anger
+#:   不安系: worry/nervous                              → sweat
+#:   平静系: nomal/serious/confident/fake_confident/think/pensive/sigh/eyes_closed → 无
 _GLOBAL_EFFECTS: dict[str, list[str]] = {
     "smile": ["sparkle"],              # 微笑冒星星
+    "smile_2": ["sparkle"],
     "happy": ["sparkle"],
     "joy": ["sparkle"],
     "giggle": ["sparkle"],
+    "laugh": ["sparkle"],              # 开怀大笑
+    "tease": ["sparkle"],              # 捉弄（恶作剧得逞）
     "embarrass": ["blush", "notes"],   # 害羞: 脸红 + 音符
+    "embarrass_2": ["blush", "notes"],
+    "embarrassed": ["blush", "notes"],  # 遥香键名（2026-08-29 作者改词）
     "shy": ["blush", "notes"],
     "angry": ["anger"],                # 怒气符号
     "rage": ["anger"],
+    "enraged": ["anger"],
+    "enraged_2": ["anger"],
     "sad": ["raindrop"],               # 雨点/泪滴
     "cry": ["raindrop"],
+    "depressed": ["raindrop"],         # 遥香键名（惊慌/低落）
+    "depressed_2": ["raindrop"],
     "surprise": ["bang"],              # 惊叹号
     "shock": ["bang"],
     "love": ["heart"],                 # 爱心飘浮
     "panic": ["bang", "sweat"],
     "panic_2": ["bang", "sweat"],
     "outburst": ["bang", "anger"],
+    "shout": ["anger"],                # 喊话
+    "shout_2": ["anger"],
+    "strive": ["anger"],               # 遥香键名（坚定喊话）
+    "worry": ["sweat"],                # 担忧
+    "nervous": ["sweat"],              # 紧张
     "serious": [],                     # 平静无特效
     "nomal": [],                       # 默认无特效
+    "confident": [],                   # 自信（平静）
+    "fake_confident": [],              # 强装自信（平静）
+    "think": [],                       # 思考
+    "pensive": [],                     # 沉思
+    "sigh": [],                        # 叹气（平静）
+    "eyes_closed": [],                 # 闭眼
 }
 
 

@@ -1,0 +1,151 @@
+/* Live2Be 羁绊剧情 VN 视图 — 全屏遮罩（在 MMT 之上）
+   布局: 背景层(cover) → 顶部标题 → 立绘舞台(上部 62%) → 下部文字区 + 交互区
+   图片参数: 背景 object-fit: cover（全屏不变形）; 立绘由 SpinePlayer.fit('contain')
+   按骨骼 bounds 自适应舞台（完整可见）; resolution 走 devicePixelRatio（retina） */
+#view-bond.bond {
+  position: fixed;
+  inset: 0;
+  z-index: 50;                    /* 在 MMT(fixed) 之上 */
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: #1a1220;            /* 兜底深色（无背景图时） */
+  color: #f5e8ef;
+  font-family: system-ui;
+}
+
+/* 背景层（cover 全屏; 淡入切换） */
+.bond-bg {
+  position: absolute;
+  inset: 0;
+  background-size: cover;
+  background-position: center;
+  opacity: 0;
+  animation: bond-bg-in 0.6s ease-out forwards;
+  z-index: 0;
+}
+@keyframes bond-bg-in { from { opacity: 0; } to { opacity: 0.9; } }
+
+/* 顶部标题 */
+.bond-head {
+  position: relative;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.8rem 1.4rem;
+  background: linear-gradient(180deg, rgba(10, 6, 14, 0.85), rgba(10, 6, 14, 0));
+}
+.bond-name { font-size: 1.15rem; font-weight: 700; letter-spacing: 0.08em; color: #ffd3e2; }
+.bond-tag {
+  font-size: 0.75rem;
+  color: #ff9ec3;
+  border: 1px solid rgba(255, 158, 195, 0.5);
+  padding: 0.2rem 0.7rem;
+  border-radius: 12px;
+  letter-spacing: 0.15em;
+}
+
+/* 立绘舞台（上部; SpinePlayer 挂载于此——canvas 撑满, fit 管缩放） */
+.bond-stage {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  height: 62vh;                   /* 立绘区 = 视图上部 62%（与文字区 38% 分界） */
+  min-height: 260px;
+  flex: none;
+}
+.bond-stage canvas { display: block; width: 100%; height: 100%; }
+
+/* 下部: 文字区 + 交互区（渐变遮罩承接背景, 文字可读） */
+.bond-bottom {
+  position: relative;
+  z-index: 2;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  padding: 0.8rem 1.6rem 1.4rem;
+  background: linear-gradient(180deg, rgba(10, 6, 14, 0) 0%, rgba(10, 6, 14, 0.72) 30%, rgba(10, 6, 14, 0.92) 100%);
+}
+
+/* 段落（依次淡入——动画延迟由 JS 设置） */
+.bond-text { display: flex; flex-direction: column; gap: 0.5rem; overflow-y: auto; max-height: 34vh; }
+.bond-para {
+  font-size: 1.02rem;
+  line-height: 1.75;
+  color: #fdf3f8;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+  opacity: 0;
+  animation: bond-para-in 0.35s ease-out forwards;
+}
+@keyframes bond-para-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* 交互区 */
+.bond-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.7rem;
+  margin-top: 1rem;
+  min-height: 2.6rem;
+  align-items: center;
+}
+.bond-choice {
+  padding: 0.6rem 1.4rem;
+  border: 1px solid rgba(255, 158, 195, 0.65);
+  border-radius: 22px;
+  background: rgba(60, 20, 40, 0.55);
+  color: #ffe3ee;
+  font-size: 0.95rem;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.bond-choice:hover {
+  background: #ff5f8f;
+  border-color: #ff5f8f;
+  color: #fff;
+  transform: translateY(-1px);
+}
+
+.bond-free { display: flex; gap: 0.6rem; width: 100%; }
+.bond-free input {
+  flex: 1;
+  padding: 0.6rem 1rem;
+  border: 1px solid rgba(255, 158, 195, 0.5);
+  border-radius: 20px;
+  background: rgba(20, 10, 18, 0.7);
+  color: #fff;
+  font-size: 0.95rem;
+  outline: none;
+}
+.bond-free input:focus { border-color: #ff5f8f; }
+.bond-free button {
+  padding: 0.6rem 1.3rem;
+  border: none;
+  border-radius: 20px;
+  background: #ff5f8f;
+  color: #fff;
+  font-size: 0.95rem;
+  cursor: pointer;
+}
+
+.bond-end {
+  width: 100%;
+  text-align: center;
+  color: #ff9ec3;
+  letter-spacing: 0.2em;
+  font-size: 0.95rem;
+}
+.bond-error { color: #ffb3b3; font-size: 0.85rem; }
+.bond-loading { display: flex; gap: 5px; padding: 0.4rem; }
+.bond-loading .dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: #ff9ec3;
+  animation: typing-bounce 1s infinite;
+}
+.bond-loading .dot:nth-child(2) { animation-delay: 0.15s; }
+.bond-loading .dot:nth-child(3) { animation-delay: 0.3s; }

@@ -17,6 +17,7 @@
 <link rel="stylesheet" href="/static/css/main.css">
 <link rel="stylesheet" href="/static/css/settings.css">
 <link rel="stylesheet" href="/static/css/mmt.css">
+<link rel="stylesheet" href="/static/css/bond.css">
 </head>
 <body>
 <!-- menu 背景轮播层（BA 大版本图按序播放, 淡入淡出） -->
@@ -133,12 +134,28 @@
       </div>
     </div>
   </section>
+
+  <!-- 羁绊剧情 VN 视图（全屏遮罩——在 MMT 之上; 背景 cover + SpinePlayer 立绘
+       舞台 + 下部文字区/选项; 结束回 MMT 保留聊天窗状态） -->
+  <section id="view-bond" class="bond hidden" aria-label="羁绊剧情">
+    <div id="bond-bg" class="bond-bg" aria-hidden="true"></div>
+    <div class="bond-head">
+      <span id="bond-name" class="bond-name"></span>
+      <span class="bond-tag">羁绊剧情</span>
+    </div>
+    <div id="bond-stage" class="bond-stage" aria-hidden="true"></div>
+    <div class="bond-bottom">
+      <div id="bond-text" class="bond-text"></div>
+      <div id="bond-choices" class="bond-choices"></div>
+    </div>
+  </section>
 </main>
 
 <script src="/static/js/gui.js"></script>
 <script src="/static/js/main.js"></script>
 <script src="/static/js/settings.js"></script>
 <script src="/static/js/mmt.js"></script>
+<script type="module" src="/static/js/bond.js"></script>
 </body>
 </html>
 

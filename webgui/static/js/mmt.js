@@ -162,7 +162,12 @@ async function openChat(charId, name) {
   `;
   renderBubbles(data.bubbles || []);      // 历史气泡一次性渲染（不逐块; 含 bond_entry → 锁定）
   scrollBubbles();
-  if (data.in_vn) lockChat();             // 重进 in_vn 会话 → 锁定输入（剧情中）
+  if (data.in_vn) {
+    // 重进 in_vn 会话 → 进入 VN 视图（后端 start 幂等: 内存态在 → 继续;
+    // 服务重启态丢 → 从事件流重建场景（M3 回放前: 重新从 seed 开始））
+    lockChat();
+    window.BondVN.enter(charId, data.session_id, _chatName);
+  }
   // 注意: 不主动 unlockChat——历史渲染的 bond_entry 已锁定; 正常会话输入框
   // 默认可用（openChat 重建了聊天窗）; 切换角色时 win.innerHTML 重建也默认可用
   $("mmt-send").addEventListener("click", sendMessage);
@@ -423,6 +428,13 @@ async function pollLoop() {
       const renderable = data.bubbles.filter((b) => b.side !== "player");
       await renderBubbles(renderable, { stream: true });  // 逐块冒出
     }
+    // 羁绊剧情触发（触发轮气泡已渲染, 含 bond_entry 横幅 + lockChat）→ 接管 VN 视图
+    if (data.bond_story) {
+      hideTyping();
+      _polling = false;
+      window.BondVN.enter(_chatChar, _chatSession, _chatName);
+      return;
+    }
     if (!data.running) {
       hideTyping();
       _polling = false;
@@ -432,6 +444,17 @@ async function pollLoop() {
   }
   setInputEnabled(true);
 }
+
+// 重启轮询（BondVN 收尾后调用——拉 wrapup 收尾话 + 后续聊天回复）
+function resumePolling() {
+  if (!_polling) {
+    _polling = true;
+    pollLoop();
+  }
+}
+
+// 暴露给 BondVN（羁绊剧情视图）: VN 结束后解锁输入 + 重启轮询
+window.MMT = { unlockChat, resumePolling };
 
 // ---------------------------------------------------------------------------
 // 排序（前端独立排序逻辑——资料: 好感/生日/名字; 对话: 后端 sort 参数）

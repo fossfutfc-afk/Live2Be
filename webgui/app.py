@@ -25,6 +25,7 @@ ROOT = Path(__file__).resolve().parent.parent
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 MENU_DIR = ROOT / "assets" / "menu"
 ILLUS_DIR = ROOT / "assets" / "illustration"
+BG_DIR = ROOT / "assets" / "background"
 
 
 class NoCacheStaticFiles(StaticFiles):
@@ -40,6 +41,7 @@ app = FastAPI(title="Live2Be")
 app.mount("/static", NoCacheStaticFiles(directory=STATIC_DIR), name="static")
 app.mount("/assets/menu", NoCacheStaticFiles(directory=MENU_DIR), name="menu")
 app.mount("/assets/illustration", NoCacheStaticFiles(directory=ILLUS_DIR), name="illus")
+app.mount("/assets/background", NoCacheStaticFiles(directory=BG_DIR), name="bg")
 
 # 路由注册（每域独立文件——铺路: 未来加域只加 import + include_router）
 app.include_router(menu.router)
