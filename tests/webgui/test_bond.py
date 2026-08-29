@@ -184,6 +184,82 @@ def test_bond_start_idempotent_and_guards(tmp_path):
 
 
 # ----------------------------------------------------------------------------
+# 演示模式: 预设剧本驱动（不调 LLM）——前端 VN 体验/联调用
+# ----------------------------------------------------------------------------
+
+def test_bond_demo_full_flow(tmp_path):
+    """demo: start_demo → 3 场预设剧本（选项→选项→is_end）→ finish（预设收尾话）。"""
+    engine, st, sid, llm = _setup(tmp_path, MMT_REPLY)   # 剧本不耗 LLM 脚本
+    try:
+        r = bond.bond_start_demo(CHARACTER, sid)
+        assert r["accepted"] and r["busy"]
+        st1 = _wait_status(CHARACTER, sid)
+        assert st1["round"] == 1 and not st1["completed"]
+        assert st1["scene"]["background"] == "class_room"
+        assert st1["scene"]["paragraphs"][1]["emotion"] == "embarrassed"
+
+        bond.bond_turn(CHARACTER, sid, "「当然可以。」")
+        st2 = _wait_status(CHARACTER, sid)
+        assert st2["round"] == 2 and st2["scene"]["background"] == "wildhunt_street"
+        assert not st2["completed"]
+
+        bond.bond_turn(CHARACTER, sid, "「嗯，约定好了。」")
+        st3 = _wait_status(CHARACTER, sid)
+        assert st3["round"] == 3 and st3["completed"]
+        assert st3["scene"]["is_end"] is True
+        assert st3["scene"]["paragraphs"][-1]["emotion"] == "giggle"
+
+        assert bond.bond_finish(CHARACTER, sid)["completed"] is True
+
+        # 事件流: 3 场 bond + 收尾 marker + 预设收尾话（无 digest——跳过 LLM）
+        evs = st.events(CHARACTER, sid)
+        subs = [e.subtype for e in evs if e.type == "bond"]
+        assert subs == ["story_scene", "story_scene", "story_end"], subs
+        assert ("marker", "vn_exit") in [(e.type, e.subtype) for e in evs]
+        assert ("marker", "session_end") in [(e.type, e.subtype) for e in evs]
+        # 玩家裁决落库（picked）
+        scs = [e for e in evs if e.subtype == "story_scene"]
+        assert scs[0].payload["picked"] == "「当然可以。」", scs[0].payload
+        assert scs[1].payload["picked"] == "「嗯，约定好了。」"
+        # 预设收尾话（后台线程, 轮询等待）
+        deadline = time.time() + 10.0
+        while time.time() < deadline:
+            if any("演示收尾" in (e.payload.get("reply") or "")
+                   for e in st.events(CHARACTER, sid)):
+                break
+            time.sleep(0.05)
+        assert any("演示收尾" in (e.payload.get("reply") or "")
+                   for e in st.events(CHARACTER, sid))
+        print("    bond demo: 3 场预设剧本 → finish → 事件流完整 + 预设收尾话（零 LLM 调用）")
+    finally:
+        _cleanup()
+
+
+def test_bond_demo_replay_resets(tmp_path):
+    """demo 重玩: completed 后再次 start_demo → 重置重来（新剧情从第 1 场开始）。"""
+    engine, st, sid, llm = _setup(tmp_path, MMT_REPLY)
+    try:
+        bond.bond_start_demo(CHARACTER, sid)
+        _wait_status(CHARACTER, sid)
+        bond.bond_turn(CHARACTER, sid, "x")
+        _wait_status(CHARACTER, sid)
+        bond.bond_turn(CHARACTER, sid, "x")
+        st3 = _wait_status(CHARACTER, sid)
+        assert st3["completed"]
+        bond.bond_finish(CHARACTER, sid)
+
+        # 重玩: 状态重置 → 首场 round=1（新剧情）
+        r = bond.bond_start_demo(CHARACTER, sid)
+        assert r["accepted"] and not r.get("resumed")
+        st_new = _wait_status(CHARACTER, sid)
+        assert st_new["round"] == 1 and not st_new["completed"]
+        assert st_new["scene"]["background"] == "class_room"
+        print("    bond demo: completed 后重玩 → 重置重来（round 归 1）")
+    finally:
+        _cleanup()
+
+
+# ----------------------------------------------------------------------------
 # 失败降级: LLM 一直坏 → closing 场景 + completed（剧情必须终结）
 # ----------------------------------------------------------------------------
 
