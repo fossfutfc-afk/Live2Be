@@ -177,6 +177,9 @@ def bond_finish(char_id: str, session_id: str) -> dict:
         _store().finish(char_id, session_id, ended=True)
     except Exception as e:                           # noqa: BLE001 — 收尾写失败降级
         logger.warning("事件流收尾失败: %s", e)
+    # 清任务状态（bond_story 标记）——否则 events_after 一直返回 True,
+    # 前端 VN 结束后重启轮询会再次误入剧情视图（wrapup 的 mmt 任务随后覆盖）
+    chat._tasks.pop((char_id, session_id), None)
 
     # wrapup 收尾（agent_turn 收尾话 → mmt 事件, 前端轮询拉到）→ async_digest
     # （digest 唯一触发点: bond 闭环——后台线程, 不阻塞响应）
