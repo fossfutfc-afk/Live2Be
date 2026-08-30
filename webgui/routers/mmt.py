@@ -34,15 +34,22 @@ _IDLE_GLOB = "*[Ii]dle*.png"
 
 
 def _find_avatar(cid: str) -> tuple[str, str]:
-    """找角色头像 → (url, type); 无 → ("", "")。type: mmt(BA圆头像) | png(diff兜底)。"""
-    mmt_dir = ILLUS_ROOT / cid / "mmt"
-    if mmt_dir.is_dir():
-        for f in sorted(mmt_dir.glob(_MMT_GLOB)):
-            return f"/assets/illustration/{cid}/mmt/{f.name}", "mmt"
-    ill = ILLUS_ROOT / cid / "diff"
-    if ill.is_dir():
-        for f in sorted(ill.glob(_IDLE_GLOB)):
-            return f"/assets/illustration/{cid}/diff/{f.name}", "png"
+    """找角色头像 → (url, type); 无 → ("", "")。type: mmt(BA圆头像) | png(diff兜底)。
+
+    板块化（2026-08-28）: 资产在 {char}/{outfit}/（default 为默认外观）;
+    旧平铺 {char}/mmt、{char}/diff 兼容兜底。
+    """
+    for base in (ILLUS_ROOT / cid / "default", ILLUS_ROOT / cid):
+        mmt_dir = base / "mmt"
+        if mmt_dir.is_dir():
+            for f in sorted(mmt_dir.glob(_MMT_GLOB)):
+                rel = f.relative_to(ILLUS_ROOT)
+                return f"/assets/illustration/{rel.as_posix()}", "mmt"
+        diff_dir = base / "diff"
+        if diff_dir.is_dir():
+            for f in sorted(diff_dir.glob(_IDLE_GLOB)):
+                rel = f.relative_to(ILLUS_ROOT)
+                return f"/assets/illustration/{rel.as_posix()}", "png"
     return "", ""
 
 
