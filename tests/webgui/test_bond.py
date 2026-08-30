@@ -291,3 +291,32 @@ def test_bond_scene_error_falls_back_to_closing(tmp_path):
         print("    bond 失败降级: LLM 全挂 → closing 场景 + completed + finish 收尾")
     finally:
         _cleanup()
+
+
+# ----------------------------------------------------------------------------
+# 场景附带前端渲染信息: 段落 fx（emotion → 特效符号, EffectResolver 单源）
+# ----------------------------------------------------------------------------
+
+def test_bond_scene_fx_resolution():
+    """_resolve_scene: 段落 emotion → fx 列表（角色表→全局表→空）; 无 emotion/坏数据跳过。"""
+    from webgui.routers.bond import _resolve_scene
+
+    scene = {
+        "paragraphs": [
+            {"text": "a", "emotion": "nomal"},                # nomal → 无特效
+            {"text": "b", "emotion": "embarrassed"},          # 遥香键 → blush+notes
+            {"text": "c", "emotion": "outburst"},             # 失控 → bang+anger
+            {"text": "d"},                                    # 无 emotion → 无 fx
+            "plain",                                          # 字符串段落 → 跳过
+        ],
+        "choices": [],
+    }
+    out = _resolve_scene(scene, CHARACTER)
+    assert out["paragraphs"][0].get("fx") is None
+    assert out["paragraphs"][1]["fx"] == ["blush", "notes"]
+    assert out["paragraphs"][2]["fx"] == ["bang", "anger"]
+    assert "fx" not in out["paragraphs"][3]
+    assert "fx" not in out["paragraphs"][4]
+    # 空/坏输入降级
+    assert _resolve_scene(None, CHARACTER) is None
+    print("    scene fx: emotion → 特效符号（embarrassed→blush+notes, outburst→bang+anger）")

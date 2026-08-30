@@ -25,6 +25,20 @@ const CHAR_MS = 42;             // 打字机基准（每字）
 const PUNCT_MS = 150;           // 标点停顿（，。！？…；：等）
 const END_HOLD_MS = 1600;       // 收尾场景停留后自动 finish
 
+// 特效符号表（fx 名 → 符号 + 颜色; 与后端 renderer/effects.py 的 fx 键一致）:
+// 官方 BA 的"冒爱心/音符/惊叹"是 UI 层粒子——我们用 Unicode 符号 + CSS 浮动动画实现
+// （零素材成本, 跨平台字体渲染; 符号可随时换 emoji/SVG, 映射只改这一处）。
+const FX_SYMBOLS = {
+  sparkle:  { sym: "✦", color: "#ffe9a8" },   // 开心闪光（白金色四角星）
+  heart:    { sym: "♥", color: "#ff7aa2" },   // 爱心（官方粉心）
+  notes:    { sym: "♪", color: "#bfe0ff" },   // 音符（官方蓝紫音符）
+  bang:     { sym: "❗", color: "#ffd166" },   // 惊叹号
+  anger:    { sym: "💢", color: "#ff8a8a" },   // 怒纹
+  raindrop: { sym: "💧", color: "#9cc4ff" },   // 低落/泪滴
+  sweat:    { sym: "💦", color: "#b8e2ff" },   // 汗
+  blush:    { sym: "❥", color: "#ffb3c6" },   // 脸红（轻粉心; 主体脸红由立绘差分表达）
+};
+
 const BondVN = (() => {
   let charId = "", sessionId = "", name = "";
   let seenRound = 0;            // 已渲染的 round（status 幂等去重）
@@ -269,8 +283,9 @@ const BondVN = (() => {
   function writePara() {
     const p = typeParas[typeSeg];
     if (!p) { return finishType(); }
-    // 段首切立绘表情（缺省 = 延续上一段, 静默）
+    // 段首切立绘表情（缺省 = 延续上一段, 静默）+ 触发情绪特效（立绘头顶浮现符号）
     if (player && p && p.emotion) player.setEmotion(p.emotion);
+    if (p && p.fx && p.fx.length) showFx(p.fx);
     const div = document.createElement("div");
     div.className = "bond-para";
     typeBoxEl.appendChild(div);
@@ -293,6 +308,32 @@ const BondVN = (() => {
       }
     };
     step();
+  }
+
+  // 情绪特效: 立绘头顶浮现符号（官方 UI 层粒子——浮起 + 淡出 + 左右飘散）。
+  // 布局: 特效层绝对定位在立绘舞台内; 符号随机散布在角色头顶上方区域。
+  function showFx(fxList) {
+    const stage = $("bond-stage");
+    if (!stage) return;
+    stage.querySelectorAll(".bond-fx").forEach((el) => el.remove());  // 旧特效清场
+    const layer = document.createElement("div");
+    layer.className = "bond-fx";
+    fxList.forEach((name) => {
+      const def = FX_SYMBOLS[name];
+      if (!def) return;
+      for (let k = 0; k < 2; k++) {
+        const s = document.createElement("span");
+        s.className = "bond-fx-sym";
+        s.textContent = def.sym;
+        s.style.color = def.color;
+        s.style.left = (26 + Math.random() * 44) + "%";     // 头顶水平散布（角色居中）
+        s.style.top = (6 + Math.random() * 16) + "%";       // 头顶上方高度
+        s.style.fontSize = (1.1 + Math.random() * 0.6) + "rem";
+        s.style.animationDelay = (Math.random() * 0.35).toFixed(2) + "s";
+        layer.appendChild(s);
+      }
+    });
+    stage.appendChild(layer);
   }
 
   function finishType() {
