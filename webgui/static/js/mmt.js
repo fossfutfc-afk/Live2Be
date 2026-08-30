@@ -204,6 +204,11 @@ async function openChat(charId, name) {
     // 服务重启态丢 → 从事件流重建场景（M3 回放前: 重新从 seed 开始））
     lockChat();
     window.BondVN.enter(charId, data.session_id, _chatName);
+  } else {
+    // 2026-08-30 修复: 历史渲染的 bond_entry 无条件 lockChat——但 bond_entry
+    // 也可能来自**已结束**的剧情（vn_exit 已落, 事件流保留）→ 重开聊天窗会
+    // 锁死输入, 该角色无法继续对话。会话不在 VN 中 → 解锁。
+    unlockChat();
   }
   // 注意: 不主动 unlockChat——历史渲染的 bond_entry 已锁定; 正常会话输入框
   // 默认可用（openChat 重建了聊天窗）; 切换角色时 win.innerHTML 重建也默认可用
@@ -266,20 +271,6 @@ async function renderBubbles(bubbles, { stream = false } = {}) {
     if (i > 0) {
       await sleep(BUBBLE_GAP_MS);             // 第一块 TTFT, 后续块等待间隔
     }
-  }
-}
-
-// 分块渲染单条角色回复（对齐 publish_reply 语义）: 多块时每块前显示
-// "对方正在输入…"（按字数延迟 = chunk_typing_time）→ 出气泡; 单块直接出
-// （TTFT 已充当自然延迟——TypingDelay 首句零延迟同款语义）。
-async function renderChunkedReply(b) {
-  const chunks = splitReplyChunks(b.text);
-  if (chunks.length <= 1) { renderBubble(b); return; }
-  for (const chunk of chunks) {
-    showTyping();
-    await sleep(chunkTypingTime(chunk) * 1000);
-    hideTyping();
-    renderBubble({ side: "char", text: chunk });
   }
 }
 
@@ -467,10 +458,20 @@ async function pollLoop() {
       _lastSeq = data.last_seq;
       // 增量轮询: 跳过 player 气泡（sendMessage 已乐观渲染, 避免重复渲染;
       // 全量加载 openChat(since=0) 仍渲染 player——历史重建需要）
+      // 分块节奏（对齐 publish_reply）: 后端已按 split_reply_chunks 切块（每条
+      // 事件一块）→ 第一条直接出（TTFT/生成等待已充当自然延迟）, 后续每块前
+      // "对方正在输入…" + 按字数延迟（chunk_typing_time）——"不同段根据字数
+      // 多少 bubble 等待"（2026-08-30 修复: 之前逐条直接渲染, 块间零延迟）
       const renderable = data.bubbles.filter((b) => b.side !== "player");
-      for (const b of renderable) {
+      for (let i = 0; i < renderable.length; i++) {
+        const b = renderable[i];
         if (b.kind === "bond_entry") { renderBubble(b); continue; }
-        await renderChunkedReply(b);       // 分块打字节奏（对齐 publish_reply）
+        if (i > 0) {
+          showTyping();
+          await sleep(chunkTypingTime(b.text) * 1000);
+          hideTyping();
+        }
+        renderBubble(b);
       }
       scrollBubbles();
     }
