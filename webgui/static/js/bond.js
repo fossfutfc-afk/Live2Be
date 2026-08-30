@@ -97,10 +97,14 @@ const BondVN = (() => {
       playerMeta = await res.json();
       if (!player) {
         // 图片大小: resolution = devicePixelRatio（retina 清晰）; autoFit 由
-        // SpinePlayer 内部 ResizeObserver + fit('contain') 保证完整可见
+        // SpinePlayer 内部 ResizeObserver + fit 保证;
+        // fitScale 1.9 + fitAlign 'top' = 官方构图（立绘放大正中央, 顶部对齐屏顶,
+        // 下半延伸出屏 → 半身取景, 头到腰）
         player = await createSpinePlayer($("bond-stage"), playerMeta.pack, {
           emotionMap: playerMeta.emotions,
           autoFit: true,
+          fitScale: 1.9,
+          fitAlign: "top",
           resolution: window.devicePixelRatio || 1,
         });
       }

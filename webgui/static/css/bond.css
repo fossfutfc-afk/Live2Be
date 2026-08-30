@@ -40,13 +40,13 @@
       rgba(8, 4, 12, 0.86) 100%);
 }
 
-/* 立绘舞台: 透明浮层, 中央偏左（占左 56% 宽 × 上 88% 高; fit contain 完整可见） */
+/* 立绘舞台: 透明浮层, 全屏居中（fitScale 1.9 放大 → 官方半身构图, 下半出屏） */
 .bond-stage {
   position: absolute;
   left: 0;
   top: 0;
-  width: 56%;
-  height: 88vh;
+  width: 100%;
+  height: 100%;
   z-index: 1;
   pointer-events: none;            /* 立绘不挡交互（点立绘不跳字） */
 }
@@ -153,7 +153,10 @@
   box-shadow: 0 3px 14px rgba(0, 0, 0, 0.35);
   cursor: pointer;
   transition: all 0.16s;
-  clip-path: polygon(0 0, 100% 0, 96% 100%, 4% 100%);   /* 轻微斜切（官方横条样式） */
+  /* 官方选项 = 偏向长方形的平行四边形: 上下边等长且平行, 整体小角度倾斜
+     （polygon 四点: 左上/右上/右下/左下——上边略短于下边会让上下边不平行;
+      这里上下边等长: 上边 [2.5%,0]→[97.5%,0], 下边 [0,100%]→[100%,100%], 倾斜 2.5%） */
+  clip-path: polygon(2.5% 0, 97.5% 0, 100% 100%, 0 100%);
 }
 .bond-choice:nth-child(2) { margin-left: 2.2rem; right: -1.1rem; }   /* 多选错位叠放 */
 .bond-choice:nth-child(3) { margin-left: -1.1rem; }
