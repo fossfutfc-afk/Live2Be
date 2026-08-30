@@ -514,3 +514,36 @@ def test_engine_resume_rejects_ended(tmp_path):
     with pytest.raises(RuntimeError):
         engine2.resume_session("igusa_haruka", root.session_id)
     print("    resume: ended 会话拒绝恢复")
+
+
+def test_engine_resume_history_window(tmp_path):
+    """resume 时 AI 同样只拿到滑动窗口（40 轮 = 80 条消息）——与实时 _trim_history 一致。
+
+    造 60 轮 mmt 事件（远超窗口）→ resume → history 应截断为最近 40 轮。
+    """
+    from core.momotalk import MomoTalkEngine
+    from core.session import SessionStore
+    from core.session.events import make_event
+
+    class Scripted:
+        def chat(self, messages, **kw):
+            if "记忆巩固" in messages[0]["content"]:      # digest 分支（resume 不触发, 防御）
+                return {"summary": "（空）", "facts": [], "beliefs": [],
+                        "relations": [], "affection_exp_delta": 0}
+            return {"actions": [{"action": "mmt_chat", "reply": "嗯嗯", "payload": {}}]}
+        def format_messages(self, **kw):
+            return []
+
+    st = SessionStore(tmp_path)
+    root = st.create("igusa_haruka", "遥香")
+    for i in range(60):                                   # 60 轮 = 120 条消息, 远超 40 轮窗口
+        st.append_event("igusa_haruka", root.session_id,
+                        make_event("mmt", "mmt_chat", {"player": f"p{i}", "reply": f"r{i}"}))
+
+    engine = MomoTalkEngine(ROOT / "config" / "characters", Scripted(), store=st)
+    info = engine.resume_session("igusa_haruka", root.session_id)
+    assert info["history_len"] == 40 * 2, info            # 40 轮 × 2 条（player + assistant）
+    assert engine.history[0]["content"] == "p20", engine.history[0]   # 窗口起点 = 第 21 轮
+    assert engine.history[-2]["content"] == "p59", engine.history[-2] # 窗口终点 = 最新
+    assert engine.history[1]["role"] == "assistant"
+    print("    resume 窗口: 60 轮事件 → 只取最近 40 轮（80 条）, 与实时 _trim_history 一致")
