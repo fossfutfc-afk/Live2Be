@@ -131,6 +131,12 @@ def test_parse_story_scene_branches():
     # 无 choices（纯叙事板块）→ 不需要 branches
     a, r = _parse("story_scene", {"paragraphs": [{"text": "纯叙事。", "emotion": "nomal"}]})
     assert r.is_valid and "branches" not in a.payload
+    # 分支段落与正文同一道强制: 缺 emotion → ContractError（AI 不遵守表情的契约兜底）
+    a, r = _parse("story_scene", {
+        "paragraphs": [{"text": "正文。", "emotion": "nomal"}],
+        "choices": ["A"],
+        "branches": {"A": [{"text": "分支忘了标表情。"}]}})
+    assert a is None and not r.is_valid and "emotion" in r.errors[0], r.errors
     # BondScene 往返（branches 序列化/回放）——用带 branches 的场景（不走契约解析）
     scene = BondScene.from_action(_action("story_scene", {
         "paragraphs": [{"text": "正文。", "emotion": "nomal"}],
