@@ -57,8 +57,9 @@ export class SpinePlayer extends EventTarget {
     this._animSet = new Set();   // skel 动画名集合（play 校验用）
     this._loaded = false;
     this._autoFit = true;
-    this._fitScale = 1;          // fit 后放大系数（>1 = 半身取景: 立绘放大, 下半出屏）
-    this._fitAlign = 'center';   // fit 垂直对齐: center（立绘中心对容器中心）/ top（顶部对容器顶=半身）
+    this._fitScale = 1;          // fit 后放大系数（默认 1 = 完整可见原大小）
+    this._fitShift = 0;          // fit 后整体下移（屏高 × 比例）——官方构图: 原大小下移,
+                                  // 下半身刻意移出屏幕外（不是放大裁切）
     this._flipped = false;
     this._alpha = 1;
     this._info = null;
@@ -80,7 +81,7 @@ export class SpinePlayer extends EventTarget {
     this._container = container;
     this._autoFit = opts.autoFit ?? this._opts.autoFit ?? true;
     this._fitScale = opts.fitScale ?? this._opts.fitScale ?? 1;
-    this._fitAlign = opts.fitAlign ?? this._opts.fitAlign ?? 'center';
+    this._fitShift = opts.fitShift ?? this._opts.fitShift ?? 0;
     try {
       const app = new Application();
       const bg = opts.background ?? this._opts.background;
@@ -264,8 +265,9 @@ export class SpinePlayer extends EventTarget {
    * 用 spine-core 的 SkeletonBounds（纯骨骼数据, 不依赖 pixi transform/渲染状态）。
    * @param {'contain'|'cover'} [mode] 缺省 contain（完整可见）
    * @param {number} [padding] 边距像素
-   * @note fitScale（构造/mount 时传入, >1 = 半身取景）: contain/cover 算出的基础
-   *   缩放再乘系数——立绘放大且仍以容器中心对齐, 下半部分溢出视口 = 官方半身构图。
+   * @note fitScale（构造/mount 时传入, 默认 1）: contain/cover 基础缩放再乘系数。
+   * @note fitShift（构造/mount 时传入, 0~0.3）: fit 后整体下移（屏高 × 比例）——
+   *   官方构图: 立绘保持原大小, 下移让下半身刻意移出屏幕外（不是放大裁切）。
    */
   fit(mode = 'contain', padding = 0) {
     if (!this._app || !this._spine) return;
@@ -285,16 +287,14 @@ export class SpinePlayer extends EventTarget {
     let s = mode === 'cover'
       ? Math.max(availW / b.width, availH / b.height)
       : Math.min(availW / b.width, availH / b.height);
-    s *= this._fitScale;                     // 半身取景放大（默认 1）
+    s *= this._fitScale;                     // 放大系数（默认 1）
     // flipX 用 scale.x 负号, 缩放时保留符号
     const sx = this._flipped ? -Math.abs(s) : Math.abs(s);
     this._spine.scale.set(sx, Math.abs(s));
     // 水平: bounds 中心对齐容器中心（角色正中央）
     const px = (cw - b.width * s) / 2 - b.x * s;
-    // 垂直: center = 立绘中心对齐容器中心; top = 立绘顶部对齐容器顶（半身取景——
-    // 放大后下半延伸出屏, 显示头到腰, 对齐官方构图）
-    const baseY = (ch - b.height * s) / 2 - b.y * s;
-    const py = this._fitAlign === 'top' ? -b.y * s : baseY;
+    // 垂直: 先居中, 再整体下移（fitShift × 屏高——脚部出屏, 官方构图）
+    const py = (ch - b.height * s) / 2 - b.y * s + ch * this._fitShift;
     this._spine.position.set(px, py);
     this._emit('fit', { mode, scale: s });
   }
