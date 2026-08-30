@@ -73,7 +73,7 @@
   100% { opacity: 0; transform: translateY(-34px) scale(0.75); }
 }
 
-/* 右上角: 自动/菜单 胶囊按钮（占位, 功能以后再实现——disabled 灰显） */
+/* 右上角: 自动/菜单 按钮（占位, 功能以后再实现——disabled 灰显; 平行四边形同选项） */
 .bond-topbar {
   position: absolute;
   top: 1rem;
@@ -83,15 +83,18 @@
   gap: 0.5rem;
 }
 .bond-topbtn {
-  padding: 0.4rem 1.1rem;
+  padding: 0.4rem 1.3rem;
   border: none;
-  border-radius: 18px;
-  background: rgba(255, 255, 255, 0.92);
-  color: #444;
+  border-radius: 0;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(232, 238, 248, 0.9));
+  color: #3a3f52;
   font-size: 0.85rem;
   letter-spacing: 0.05em;
   cursor: default;
-  opacity: 0.85;
+  opacity: 0.9;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  /* 平行四边形（与选项同款: 上下边等长平行, 整体小角度倾斜） */
+  clip-path: polygon(2.5% 0, 100% 0, 97.5% 100%, 0 100%);
 }
 
 /* 左下: 角色名 + 社团 + 分隔线（官方名字牌——名字大号白字, 社团小号蓝字） */
@@ -135,7 +138,9 @@
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
-  max-height: 34vh;
+  /* 纯静态: 固定 3 行文字位（1.08rem × 1.85 ≈ 2rem/行 × 3 + 缓冲）——
+     文字到第二/三行时分隔线不上移（布局不扩展）; 超出滚动, 不撑布局 */
+  height: 6.6rem;
   overflow-y: auto;
 }
 .bond-para {
