@@ -20,7 +20,9 @@
 
 from __future__ import annotations
 
+import json
 import logging
+import re
 
 from llm.prompts import load_prompt
 
@@ -70,32 +72,48 @@ def annotate_emotions(
         "\n".join(f"{i + 1}: {s}" for i, s in enumerate(sentences)),
     )
     try:
-        resp = llm.chat(
+        # text 模式（非 json_object）: 输出是纯数组, json_object 的自纠错会
+        # 拉长等待——标注是低价值重试（失败只影响表情精度）, 快速失败快速兜底
+        raw = llm.chat(
             [
                 {"role": "system", "content": system},
                 {"role": "user", "content": "请输出上述每句的情绪标签数组。"},
             ],
             temperature=0.2,
             max_tokens=max_tokens,
-            response_format="json_object",
         )
     except Exception as e:                     # noqa: BLE001 — 标注失败静默降级
         logger.warning("emotion 标注调用失败（兜底延续）: %s", e)
         return None
 
-    if isinstance(resp, dict) and isinstance(resp.get("tags"), list):
-        raw = resp["tags"]
-    elif isinstance(resp, dict) and len(resp) == 1:
-        raw = next(iter(resp.values()))        # 兼容 {"labels": [...]} 等单键包装
-    elif isinstance(resp, list):
-        raw = resp
-    else:
-        raw = None
-    tags = _clean_tags(raw, len(sentences), lexicon)
+    tags = _clean_tags(_extract_array(raw), len(sentences), lexicon)
     if tags is None:
         logger.warning("emotion 标注输出非法（兜底延续）: %r", raw)
         return None
     return tags
+
+
+def _extract_array(raw: object) -> object:
+    """text 模式输出 → 数组（去 markdown 围栏/首尾杂讯）; 无法解析 → None。"""
+    if isinstance(raw, list):
+        return raw
+    if not isinstance(raw, str):
+        return None
+    text = raw.strip()
+    if text.startswith("```"):
+        text = re.sub(r"^```[a-zA-Z]*\n?", "", text)
+        text = re.sub(r"\n?```$", "", text)
+    try:
+        return json.loads(text)
+    except ValueError:
+        # 提取第一个 [...] 段（LLM 偶尔前后加解释）
+        m = re.search(r"\[[^\]]*\]", text)
+        if m:
+            try:
+                return json.loads(m.group(0))
+            except ValueError:
+                return None
+        return None
 
 
 def fill_missing_emotions(

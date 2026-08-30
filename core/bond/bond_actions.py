@@ -272,12 +272,11 @@ def build_story_registry() -> StoryActionRegistry:
         prompt_fields=frozenset({"action", "payload"}),
         payload_schema=(
             "payload 字段（story_scene 中段场景参数）:\n"
-            "  paragraphs: 必填, 数组——每项 {text, emotion, inner?}:\n"
+            "  paragraphs: 必填, 数组——每项 {text, emotion?, inner?}:\n"
             "      text: 一个情绪单元（**一句话**——一句对白 或 一个动作描写;\n"
             "          句子要短: 旁白 15~40 字只说一件事, 对白一句一段）; 至少 1 单元\n"
-            "      emotion: 必填, 表情词表内的情绪名（见【表情标注词表】）——\n"
-            "          **每个情绪单元都必须标 emotion, 不要省略、不要留空**\n"
-            "          情绪一变就切新单元并标新 emotion\n"
+            "      emotion: **可选**——系统自动标注（独立标注层补标, 你不用管;\n"
+            "          带了也行, 系统优先用你的）\n"
             "      inner: 可选, 字符串——**内心独白**（角色没说出口的心理活动, 屏幕变黑\n"
             "          单独展示）。低频惊喜: 只在情感的关键时刻写（遥香的自卑、阿露的逞强\n"
             "          心理这类）; 不必每场都有, 没有就省略, 不要为了写而写\n"
@@ -285,8 +284,8 @@ def build_story_registry() -> StoryActionRegistry:
             "      必须同时提供 branches**（见下）; 纯叙事板块可省略 choices\n"
             "      （缺省 = 本板块不提供选项, sensei 读完点继续）\n"
             "  branches: dict——**同响应分支内容**（板块契约 2026-08-30）: 键 = choices\n"
-            "      里的选项文本, 值 = 该选项对应的段落数组（每项同 paragraphs: 一句话 +\n"
-            "      必填 emotion）。老师选了这个选项后**立即看到**这段内容（零等待）——\n"
+            "      里的选项文本, 值 = 该选项对应的段落数组（每项同 paragraphs）。\n"
+            "      老师选了这个选项后**立即看到**这段内容（零等待）——\n"
             "      是选项引发的即时反应（1~3 句）, 不是新板块。**有 choices 必须带\n"
             "      branches, 键与 choices 完全一致**; 纯叙事板块不需要\n"
             "  place: 可选, 字符串——本场地点（从地点词表选）。只有场景切换时才标,\n"
@@ -303,7 +302,7 @@ def build_story_registry() -> StoryActionRegistry:
         prompt_fields=frozenset({"action", "payload"}),
         payload_schema=(
             "payload 字段（story_end 收尾场景参数）:\n"
-            "  paragraphs: 必填, 数组——同 story_scene（每项 {text, emotion}, 每单元必填 emotion; inner 可选同 story_scene）\n"
+            "  paragraphs: 必填, 数组——同 story_scene（每项 {text, emotion?}, emotion 可选, 系统自动标注; inner 可选同 story_scene）\n"
             "  place: 可选, 字符串——同 story_scene（场景切换才标）\n"
             "约束: story_end 是**收尾场景**——输出后剧情结束, 不再有选项、不再开新场景。\n"
             "      choices 必须为空（结构上收尾无选项, 传非空会被拒绝）。宁可及早收尾, \n"
