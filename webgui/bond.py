@@ -54,6 +54,7 @@ _CLOSING_TEXT = "（夜色渐深，这一章的羁绊剧情就此落下帷幕。
 #: 覆盖背景切换/emotion 变化/收尾。BondScene 契约格式, 键用最新词表名）
 DEMO_SCRIPT: list[dict] = [
     {
+        "title": "放学后的约定",        # 章节标题 → 开场标题面板（对齐官方"预先应对"样式）
         "background": "class_room",
         "paragraphs": [
             {"text": "（演示·第 1 场）放学后的教室，夕阳把窗框的影子拉得很长。",
@@ -74,12 +75,10 @@ DEMO_SCRIPT: list[dict] = [
         "choices": ["「嗯，约定好了。」", "「看你表现咯。」"],
     },
     {
-        "background": "gehenna_campus",
+        # 结束余韵（官方 bond story 结束样式）: 无背景 → 黑屏 + 一句旁白 + 右下三角
         "paragraphs": [
-            {"text": "（演示·第 3 场）路灯下，她用力地点了点头，眼睛弯成月牙。",
-             "emotion": "smile"},
-            {"text": "「……嗯！那、那说好了！老师明天见！」她小跑着回头挥手。",
-             "emotion": "giggle"},
+            {"text": "（目送她走远后，我站在原地——这个普通的傍晚，好像变得格外温柔。）",
+             "emotion": "pensive"},
         ],
         "is_end": True,
     },

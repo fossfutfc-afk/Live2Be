@@ -127,29 +127,39 @@
 /* 正在输出的当前段（打字机）——淡入, 其余段照常 */
 .bond-para.done { opacity: 1; }
 
-/* 交互区（选项 / 自由输入 / 收尾） */
+/* 交互区（画面中上部——官方 VN 选项: 白色大横条, 居中对齐, 多选错落叠放） */
 .bond-choices {
+  position: absolute;
+  left: 50%;
+  top: 40%;                       /* 画面中上部（立绘前） */
+  transform: translateX(-50%);
+  z-index: 2;
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.7rem;
-  margin-top: 1.1rem;
-  min-height: 2.6rem;
+  flex-direction: column;
   align-items: center;
+  gap: 0.9rem;
+  max-width: 78%;
 }
 .bond-choice {
-  padding: 0.6rem 1.5rem;
-  border: 1px solid rgba(255, 190, 130, 0.7);   /* 官方选项——暖色描边 */
-  border-radius: 24px;
-  background: rgba(30, 18, 24, 0.55);
-  color: #ffe9d6;
-  font-size: 0.98rem;
+  width: 100%;
+  min-width: 360px;
+  padding: 0.8rem 1.8rem;
+  border: none;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.97), rgba(232, 238, 248, 0.9));
+  color: #3a3f52;
+  font-size: 1.06rem;
+  text-align: center;
+  letter-spacing: 0.02em;
+  box-shadow: 0 3px 14px rgba(0, 0, 0, 0.35);
   cursor: pointer;
-  transition: all 0.15s;
+  transition: all 0.16s;
+  clip-path: polygon(0 0, 100% 0, 96% 100%, 4% 100%);   /* 轻微斜切（官方横条样式） */
 }
+.bond-choice:nth-child(2) { margin-left: 2.2rem; right: -1.1rem; }   /* 多选错位叠放 */
+.bond-choice:nth-child(3) { margin-left: -1.1rem; }
 .bond-choice:hover {
-  background: #ffe9d6;
-  border-color: #ffe9d6;
-  color: #4a1a10;
+  background: #ffffff;
+  color: #1e4a8c;
   transform: translateY(-1px);
 }
 
@@ -211,3 +221,62 @@
 @keyframes bond-continue-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(4px); } }
 
 @keyframes typing-bounce { 0%, 60%, 100% { transform: none; } 30% { transform: translateY(-4px); } }
+
+/* 通用隐藏（bond 域）——名字牌 is_end 隐藏 / 标题面板切显 */
+.bond .hidden { display: none !important; }
+
+/* 章节标题面板（开场: 模糊背景 + 白色横条 + 深蓝大字——对齐官方"预先应对"） */
+.bond-title {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  overflow: hidden;
+  cursor: pointer;
+}
+.bond-title-bg {
+  position: absolute;
+  inset: -28px;                    /* blur 边缘溢出 */
+  background-size: cover;
+  background-position: center;
+  filter: blur(18px) brightness(0.82);
+  transform: scale(1.08);
+}
+.bond-title-frame {
+  position: absolute;
+  inset: 11% 5.5%;
+  border: 1px solid rgba(255, 255, 255, 0.45);
+}
+.bond-title-frame::before,          /* 左上角 L 装饰 */
+.bond-title-frame::after {          /* 右下角 L 装饰 */
+  content: "";
+  position: absolute;
+  width: 26px; height: 26px;
+  border: 2px solid rgba(255, 255, 255, 0.85);
+}
+.bond-title-frame::before { top: -2px; left: -2px; border-right: none; border-bottom: none; }
+.bond-title-frame::after { bottom: -2px; right: -2px; border-left: none; border-top: none; }
+.bond-title-bar {
+  position: absolute;
+  left: 50%;
+  top: 44%;
+  transform: translate(-50%, -50%);
+  width: 56%;
+  padding: 1.2rem 2rem;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.97), rgba(222, 231, 246, 0.9));
+  box-shadow: 0 5px 28px rgba(0, 0, 0, 0.45);
+  text-align: center;
+}
+.bond-title-text {
+  font-size: 2.2rem;
+  font-weight: 700;
+  color: #3d4d80;                  /* 官方标题深蓝 */
+  letter-spacing: 0.14em;
+}
+/* 标题面板淡入 */
+.bond-title:not(.hidden) { animation: bond-title-in 0.45s ease-out; }
+@keyframes bond-title-in { from { opacity: 0; } to { opacity: 1; } }
+
+/* title-active: 章节标题屏期间整个背景+立绘虚化（官方"预先应对"——只留中央标题条清晰） */
+.bond.title-active .bond-bg,
+.bond.title-active .bond-stage { filter: blur(20px) brightness(0.85); }
+.bond.title-active .bond-stage { transform: scale(1.06); }   /* 防 blur 边缘露黑 */

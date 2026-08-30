@@ -207,7 +207,8 @@ def test_bond_demo_full_flow(tmp_path):
         st3 = _wait_status(CHARACTER, sid)
         assert st3["round"] == 3 and st3["completed"]
         assert st3["scene"]["is_end"] is True
-        assert st3["scene"]["paragraphs"][-1]["emotion"] == "giggle"
+        assert st3["scene"]["paragraphs"][-1]["emotion"] == "pensive"
+        assert "background" not in st3["scene"]      # 结束余韵无背景 → 黑屏
 
         assert bond.bond_finish(CHARACTER, sid)["completed"] is True
 
