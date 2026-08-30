@@ -126,6 +126,43 @@ let _polling = false;      // 是否在轮询回复中
 
 const POLL_MS = 1000;          // 轮询间隔
 const BUBBLE_GAP_MS = 600;     // 逐块冒出间隔（第一块 TTFT 立即, 后续块此间隔）
+
+// ── 分块打字节奏（2026-08-30: 复刻 core/ui/streaming.py + text_processors.py 的
+// publish_reply 语义——webgui 未消费 TurnResult.steps 的补位）─────────────
+// split_reply_chunks（字数+随机数切块）: 强断点。！？必切; 逗号/省略号按
+// 随机阈值 6~10 字切（丢逗号）; 硬上限 30 字; 尾部 ≤4 字碎片并入上一块。
+// chunk_typing_time: 块字数 × 每字随机 80~200ms + 200ms 基础停顿。
+const MMT_CHUNK_MAX = 30;
+const MMT_CHUNK_FRAGMENT = 4;
+
+function splitReplyChunks(text) {
+  const chunks = [];
+  let buf = "";
+  const threshold = () => 6 + Math.floor(Math.random() * 5);   // 6~10
+  for (const ch of text) {
+    buf += ch;
+    if ("。！？!?".includes(ch)) { chunks.push(buf); buf = ""; }
+    else if (ch === "…") {
+      if (buf.length >= threshold()) { chunks.push(buf); buf = ""; }
+    } else if ("，、,;；".includes(ch)) {
+      if (buf.length >= threshold()) { chunks.push(buf.slice(0, -1)); buf = ""; }
+    } else if (buf.length >= MMT_CHUNK_MAX) { chunks.push(buf); buf = ""; }
+  }
+  if (buf) {
+    if (buf.length <= MMT_CHUNK_FRAGMENT && chunks.length) {
+      chunks[chunks.length - 1] += buf;         // 尾部碎片并入上一块
+    } else {
+      chunks.push(buf);
+    }
+  }
+  return chunks.filter(Boolean);
+}
+
+// 该块打字时长（秒）: 字数 × 每字随机延迟 + 基础停顿（对齐 chunk_typing_time）
+function chunkTypingTime(chunk) {
+  const perChar = (80 + Math.random() * 120) / 1000;   // 80~200ms
+  return chunk.length * perChar + 0.2;
+}
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function openChat(charId, name) {
@@ -186,6 +223,7 @@ function renderBubble(b) {
   box.appendChild(div);
   if (b.kind === "bond_entry") lockChat();   // 进入羁绊剧情 → 锁定输入, 不许插嘴
   scrollBubbles();
+  return div;
 }
 
 // 羁绊剧情锁定: 触发后输入框禁用（VN 模式中不许插嘴; vn_exit 后 unlockChat）
@@ -228,6 +266,20 @@ async function renderBubbles(bubbles, { stream = false } = {}) {
     if (i > 0) {
       await sleep(BUBBLE_GAP_MS);             // 第一块 TTFT, 后续块等待间隔
     }
+  }
+}
+
+// 分块渲染单条角色回复（对齐 publish_reply 语义）: 多块时每块前显示
+// "对方正在输入…"（按字数延迟 = chunk_typing_time）→ 出气泡; 单块直接出
+// （TTFT 已充当自然延迟——TypingDelay 首句零延迟同款语义）。
+async function renderChunkedReply(b) {
+  const chunks = splitReplyChunks(b.text);
+  if (chunks.length <= 1) { renderBubble(b); return; }
+  for (const chunk of chunks) {
+    showTyping();
+    await sleep(chunkTypingTime(chunk) * 1000);
+    hideTyping();
+    renderBubble({ side: "char", text: chunk });
   }
 }
 
@@ -416,7 +468,11 @@ async function pollLoop() {
       // 增量轮询: 跳过 player 气泡（sendMessage 已乐观渲染, 避免重复渲染;
       // 全量加载 openChat(since=0) 仍渲染 player——历史重建需要）
       const renderable = data.bubbles.filter((b) => b.side !== "player");
-      await renderBubbles(renderable, { stream: true });  // 逐块冒出
+      for (const b of renderable) {
+        if (b.kind === "bond_entry") { renderBubble(b); continue; }
+        await renderChunkedReply(b);       // 分块打字节奏（对齐 publish_reply）
+      }
+      scrollBubbles();
     }
     // 羁绊剧情触发（触发轮气泡已渲染, 含 bond_entry 横幅 + lockChat）→ 接管 VN 视图
     if (data.bond_story) {
