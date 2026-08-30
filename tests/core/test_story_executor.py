@@ -78,32 +78,28 @@ def test_parse_story_scene_paragraphs_inline_emotion():
 
 
 def test_parse_story_scene_sentence_split():
-    """2026-08-30 断句（Storyloom 借鉴: 旁白 15~40 字一句一段）: LLM 长段 →
-    按句末标点切分（每句一个单元, emotion 继承首句）; 省略号不是切分点。"""
+    """2026-08-30 一句一段硬校验（对齐"每一句话都伴随表情变化"）:
+    段落含 >1 个句末标点 → ContractError（多句压一段 = 一个 emotion 字段, 粒度粗）;
+    省略号是语气停顿不算句末; 单句（可含逗号分句）通过。"""
+    # 多句压一段 → 打回（feedback 提示拆段, 不再机器切分继承——表情粒度名存实亡）
     a, r = _parse("story_scene", {"paragraphs": [
         {"text": "她站在窗边。风把她的发梢吹起来。她回头看了你一眼。",
          "emotion": "smile"}]})
-    assert r.is_valid
-    assert a.payload["paragraphs"] == [
-        {"text": "她站在窗边。", "emotion": "smile"},
-        {"text": "风把她的发梢吹起来。", "emotion": "smile"},
-        {"text": "她回头看了你一眼。", "emotion": "smile"},
-    ]
-    # 省略号是语气停顿不是句末——"老师……我这种人……"不应被切碎
+    assert a is None and not r.is_valid and "一句话" in r.errors[0], r.errors
+    # 省略号是语气停顿不是句末——"老师……我这种人……"可通过（0 个句末标点）
     a2, r2 = _parse("story_scene", {"paragraphs": [
         {"text": "老师……我这种人……也可以吗？", "emotion": "embarrass"}]})
     assert r2.is_valid
-    assert len(a2.payload["paragraphs"]) == 1, a2.payload
+    assert len(a2.payload["paragraphs"]) == 1
     assert a2.payload["paragraphs"][0]["text"] == "老师……我这种人……也可以吗？"
-    # 感叹号/问号同样切分; 无标点 → 原样单段
+    # 单句（含逗号分句）通过; 感叹号/问号同样算句末（"好耶！"后不能再接句）
     a3, r3 = _parse("story_scene", {"paragraphs": [
-        {"text": "好耶！我们出发吧？走走走。", "emotion": "happy"}]})
-    assert r3.is_valid
-    assert [p["text"] for p in a3.payload["paragraphs"]] == ["好耶！", "我们出发吧？", "走走走。"]
+        {"text": "她站在窗边，风把她的发梢吹起来。", "emotion": "smile"}]})
+    assert r3.is_valid and len(a3.payload["paragraphs"]) == 1
     a4, r4 = _parse("story_scene", {"paragraphs": [
-        {"text": "无标点的长文本", "emotion": "nomal"}]})
-    assert r4.is_valid and len(a4.payload["paragraphs"]) == 1
-    print("    parse_story_scene: 按句切分（。！？；）+ 省略号保留 + emotion 继承")
+        {"text": "好耶！我们出发吧？", "emotion": "happy"}]})
+    assert a4 is None and not r4.is_valid
+    print("    parse_story_scene: 一句一段硬校验（多句标点打回/省略号不算/逗号分句通过）")
 
 
 def test_parse_story_scene_branches():
@@ -112,12 +108,13 @@ def test_parse_story_scene_branches():
     a, r = _parse("story_scene", {
         "paragraphs": [{"text": "x", "emotion": "nomal"}], "choices": ["A"]})
     assert a is None and not r.is_valid and "branches" in r.errors[0]
-    # 正常: branches 解析 + 键对齐（只取 choices 的键）+ 切分/emotion 继承
+    # 正常: branches 解析 + 键对齐（只取 choices 的键）+ 一句一段硬校验
     a, r = _parse("story_scene", {
         "paragraphs": [{"text": "正文。", "emotion": "nomal"}],
         "choices": ["A", "B"],
         "branches": {
-            "A": [{"text": "分支A。第二句也在这。", "emotion": "smile"}],
+            "A": [{"text": "分支A。", "emotion": "smile"},
+                  {"text": "第二句也在这。", "emotion": "smile"}],
             "B": "单段分支",
             "C": [{"text": "非选项键被忽略", "emotion": "nomal"}],
         }})
@@ -128,6 +125,12 @@ def test_parse_story_scene_branches():
         {"text": "第二句也在这。", "emotion": "smile"},
     ]
     assert a.payload["branches"]["B"] == [{"text": "单段分支"}]
+    # 分支段落同样一句一段硬校验: 多句压一段 → 打回
+    a, r = _parse("story_scene", {
+        "paragraphs": [{"text": "正文。", "emotion": "nomal"}],
+        "choices": ["A"],
+        "branches": {"A": [{"text": "分支一。分支二。", "emotion": "smile"}]}})
+    assert a is None and not r.is_valid and "一句话" in r.errors[0]
     # 无 choices（纯叙事板块）→ 不需要 branches
     a, r = _parse("story_scene", {"paragraphs": [{"text": "纯叙事。", "emotion": "nomal"}]})
     assert r.is_valid and "branches" not in a.payload
