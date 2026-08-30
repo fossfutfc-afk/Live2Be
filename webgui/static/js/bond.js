@@ -21,9 +21,14 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const BOND_POLL_MS = 700;       // status 轮询间隔（LLM 秒级, 不用太快）
 const PARA_GAP_MS = 320;        // 段与段之间停顿
-const CHAR_MS = 42;             // 打字机基准（每字）
-const PUNCT_MS = 150;           // 标点停顿（，。！？…；：等）
 const END_HOLD_MS = 1600;       // 收尾场景停留后自动 finish
+
+// 打字速度档位（菜单"打字速度"切换——逐字基准与标点停顿）
+const SPEEDS = [
+  { label: "慢", char: 70, punct: 240 },
+  { label: "中", char: 42, punct: 150 },
+  { label: "快", char: 22, punct: 80 },
+];
 
 // 特效符号表（fx 名 → 符号 + 颜色; 与后端 renderer/effects.py 的 fx 键一致）:
 // 官方 BA 的"冒爱心/音符/惊叹"是 UI 层粒子——我们用 Unicode 符号 + CSS 浮动动画实现
@@ -49,6 +54,10 @@ const BondVN = (() => {
   let finished = false;         // 已 finish（防重复收尾）
   let autoOn = false;           // 自动模式（右上"自动"按钮: 黄 = 开）
   let autoTimer = null;         // 自动推进倒计时（打字完 3s 自动下一段/自动选第 1 个选项; 玩家介入 → 取消）
+  let menuOpen = false;         // 菜单面板打开中（打开时空格/点击不触发跳过）
+  let speedIdx = 1;             // 打字速度档（0 慢 / 1 中 / 2 快）
+  let typeCharMs = SPEEDS[1].char, typePunctMs = SPEEDS[1].punct;
+  let historyLog = [];          // 对话记录（每场 {round, paras}——菜单"对话记录"）
 
   // 打字机状态（renderScene → typeOut → 打完 → showInteraction）
   let typeTimer = null;
@@ -65,7 +74,10 @@ const BondVN = (() => {
   async function enter(cid, sid, nm) {
     charId = cid; sessionId = sid; name = nm || cid;
     finished = false; busy = false; seenRound = 0; gotScene = false;
+    historyLog = [];
+    speedIdx = 1; typeCharMs = SPEEDS[1].char; typePunctMs = SPEEDS[1].punct;
     setAuto(false);               // 重置自动模式
+    toggleMenu(false);            // 重置菜单（含绑定守卫状态）
     bindSkip();                   // 空格/Enter/点空白 → 快速跳出整段文字
     // 换角色/重进: 销毁旧立绘（spine 包/情绪映射是 per 角色的——不重建会残留上一位）
     if (player) {
@@ -100,6 +112,7 @@ const BondVN = (() => {
     clearAutoTimer();
     unbindSkip();
     setAuto(false);
+    toggleMenu(false);
     $("view-bond").classList.add("hidden");
     if (window.MMT && typeof window.MMT.unlockChat === "function") {
       window.MMT.unlockChat();
@@ -196,6 +209,8 @@ const BondVN = (() => {
     const choiceBox = $("bond-choices");
     choiceBox.innerHTML = "";
     hideContinue();
+    // 对话记录（菜单"对话记录"数据源）
+    historyLog.push({ round: seenRound, paras: scene.paragraphs || [] });
     // 章节标题面板（可选: scene.title —— 如"预先应对"）→ 展示后进入逐字
     if (scene.title) {
       await showTitle(scene.title, scene.background_url);
@@ -282,9 +297,10 @@ const BondVN = (() => {
 
   function setAuto(on) {
     autoOn = !!on;
-    const btn = document.querySelector(".bond-topbtn");
+    const btn = document.querySelector("#bond-auto");
     if (btn) btn.classList.toggle("active", autoOn);
     if (!autoOn) clearAutoTimer();
+    updateMenuLabels();           // 菜单打开时同步"自动播放"标签
   }
 
   function toggleAuto() {
@@ -344,7 +360,7 @@ const BondVN = (() => {
         div.textContent = t.slice(0, i + 1);
         const ch = t[i];
         i++;
-        const pause = /[，。！？…、；：—-]/.test(ch) ? PUNCT_MS : CHAR_MS;
+        const pause = /[，。！？…、；：—-]/.test(ch) ? typePunctMs : typeCharMs;
         typeTimer = setTimeout(step, pause);
       } else {
         // 段完成 → 停顿后下一段
@@ -433,6 +449,7 @@ const BondVN = (() => {
   // is_end 场景: 空格/Enter/点击 = 直接收尾 finish。
 
   function onKey(e) {
+    if (menuOpen) return;               // 菜单打开时空格/Enter 不跳过（不冲突）
     if (e.key !== " " && e.key !== "Enter") return;
     const t = e.target;
     if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
@@ -442,6 +459,7 @@ const BondVN = (() => {
   }
 
   function onClick(e) {
+    if (menuOpen) return;               // 菜单打开时点击不跳过（菜单项已处理）
     if (e.target.closest(".bond-choice, .bond-topbtn, .bond-free, #bond-continue, #bond-title")) return;
     if (sceneIsEnd) finish();
     else skipType();
@@ -457,10 +475,96 @@ const BondVN = (() => {
     $("view-bond").removeEventListener("click", onClick);
   }
 
-  // 右上角: 自动（切换黄态）/ 菜单（占位, 功能以后再实现）
+  // ── 菜单（右上"菜单": 对话记录 / 打字速度 / 自动播放 / 结束剧情）─────────
+  // 菜单打开时: 空格/Enter/点击空白不触发跳过（menuOpen 守卫, 不冲突）。
+
+  function toggleMenu(open) {
+    const m = $("bond-menu");
+    menuOpen = !!open;
+    if (open) {
+      m.classList.remove("hidden");
+      updateMenuLabels();
+      showMenuMain();
+    } else {
+      m.classList.add("hidden");
+    }
+  }
+
+  function showMenuMain() {
+    $("bond-menu-main").classList.remove("hidden");
+    $("bond-menu-history").classList.add("hidden");
+  }
+
+  function updateMenuLabels() {
+    const autoItem = document.querySelector('.bond-menu-item[data-act="auto"]');
+    if (autoItem) autoItem.textContent = "自动播放：" + (autoOn ? "开" : "关");
+    const speedItem = document.querySelector('.bond-menu-item[data-act="speed"]');
+    if (speedItem) speedItem.textContent = "打字速度：" + SPEEDS[speedIdx].label;
+  }
+
+  function applySpeed() {
+    typeCharMs = SPEEDS[speedIdx].char;
+    typePunctMs = SPEEDS[speedIdx].punct;
+  }
+
+  function renderHistory() {
+    const list = $("bond-history-list");
+    list.innerHTML = "";
+    if (!historyLog.length) {
+      list.textContent = "（暂无记录）";
+    } else {
+      historyLog.forEach((h, i) => {
+        const text = h.paras
+          .map((p) => (typeof p === "string" ? p : (p.text || "")))
+          .filter(Boolean)
+          .join("\n");
+        const div = document.createElement("div");
+        const inner = document.createElement("div");
+        inner.textContent = text;
+        div.innerHTML = `<div class="bond-history-round">— 第 ${i + 1} 场 —</div>`;
+        div.appendChild(inner);
+        list.appendChild(div);
+      });
+    }
+    $("bond-menu-main").classList.add("hidden");
+    $("bond-menu-history").classList.remove("hidden");
+  }
+
+  function onMenuAction(act) {
+    switch (act) {
+      case "history": renderHistory(); break;
+      case "speed":
+        speedIdx = (speedIdx + 1) % SPEEDS.length;
+        applySpeed();
+        updateMenuLabels();
+        break;
+      case "auto":
+        setAuto(!autoOn);
+        updateMenuLabels();
+        break;
+      case "end":
+        toggleMenu(false);
+        finish();                  // 完整收尾（事件流 vn_exit + wrapup + digest）
+        break;
+      case "back": showMenuMain(); break;
+      case "close": default: toggleMenu(false); break;
+    }
+  }
+
+  // 右上角: 自动（切换黄态）/ 菜单（面板）
   function bindTopbar() {
-    const btns = document.querySelectorAll(".bond-topbtn");
-    if (btns[0]) btns[0].addEventListener("click", toggleAuto);
+    const auto = document.getElementById("bond-auto");
+    const menu = document.getElementById("bond-menubtn");
+    if (auto) auto.addEventListener("click", toggleAuto);
+    if (menu) menu.addEventListener("click", () => toggleMenu(true));
+  }
+
+  // 菜单面板内点击（事件委托）
+  function bindMenu() {
+    $("bond-menu").addEventListener("click", (e) => {
+      const item = e.target.closest(".bond-menu-item");
+      if (item) onMenuAction(item.dataset.act);
+    });
   }
 
   async function submit(text) {
@@ -551,6 +655,7 @@ const BondVN = (() => {
 
   bindContinue();
   bindTopbar();
+  bindMenu();
 
   // ---------------------------------------------------------------------------
 

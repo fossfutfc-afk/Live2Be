@@ -141,10 +141,10 @@
     <div id="bond-bg" class="bond-bg" aria-hidden="true"></div>
     <div id="bond-shade" class="bond-shade" aria-hidden="true"></div>
     <div id="bond-stage" class="bond-stage" aria-hidden="true"></div>
-    <!-- 右上角: 自动/菜单（占位, 功能以后再实现） -->
+    <!-- 右上角: 自动 / 菜单 -->
     <div class="bond-topbar">
       <button id="bond-auto" class="bond-topbtn" type="button">自动</button>
-      <button class="bond-topbtn" type="button" disabled>菜单</button>
+      <button id="bond-menubtn" class="bond-topbtn" type="button">菜单</button>
     </div>
     <!-- 下部对话块: 名字牌 → 对话文本(逐字)（底部对齐, 浮在画面上） -->
     <div class="bond-dialogue">
@@ -163,6 +163,24 @@
       <div class="bond-title-bg"></div>
       <div class="bond-title-frame"></div>
       <div class="bond-title-bar"><span id="bond-title-text" class="bond-title-text"></span></div>
+    </div>
+    <!-- 菜单面板（右上"菜单": 对话记录 / 打字速度 / 自动播放 / 结束剧情） -->
+    <div id="bond-menu" class="bond-menu hidden" aria-hidden="true">
+      <div class="bond-menu-panel">
+        <div class="bond-menu-title">菜单</div>
+        <div id="bond-menu-main" class="bond-menu-main">
+          <button class="bond-menu-item" data-act="history">对话记录</button>
+          <button class="bond-menu-item" data-act="speed">打字速度：中</button>
+          <button class="bond-menu-item" data-act="auto">自动播放：关</button>
+          <button class="bond-menu-item bond-menu-danger" data-act="end">结束剧情</button>
+          <button class="bond-menu-item bond-menu-close" data-act="close">关闭</button>
+        </div>
+        <div id="bond-menu-history" class="bond-menu-history hidden">
+          <div class="bond-menu-subtitle">对话记录</div>
+          <div id="bond-history-list" class="bond-history-list"></div>
+          <button class="bond-menu-item bond-menu-close" data-act="back">返回</button>
+        </div>
+      </div>
     </div>
   </section>
 </main>
