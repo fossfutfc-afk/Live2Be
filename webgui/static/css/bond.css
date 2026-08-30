@@ -182,8 +182,7 @@
      左右斜边平行——不是梯形 */
   clip-path: polygon(2.5% 0, 100% 0, 97.5% 100%, 0 100%);
 }
-.bond-choice:nth-child(2) { left: 2.4rem; }        /* 多选错落叠放（官方样式, 纯视觉偏移） */
-.bond-choice:nth-child(3) { left: -1.2rem; }
+/* 多选项: 不做水平错位——所有平行四边形的中线在同一直线上（垂直居中对齐） */
 .bond-choice:hover {
   background: #ffffff;
   color: #1e4a8c;
