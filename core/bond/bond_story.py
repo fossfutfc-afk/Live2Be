@@ -39,9 +39,14 @@ from contract import AgentAction, build_schema
 from core.common import Live2BeError, err
 from core.common.tone import load_story_tone
 from core.bond.bond_actions import MAX_SCENE_RETRIES, build_story_registry
+from core.bond.emotion_annotate import annotate_emotions
 from core.bond.bond_executor import StoryExecError, StoryExecutor
 from core.bond.memorial_actions import build_memorial_registry
-from core.media.emotion_lexicon import build_emotion_injection, build_place_injection
+from core.media.emotion_lexicon import (
+    build_emotion_injection,
+    build_place_injection,
+    load_emotion_lexicon,
+)
 from llm.client import LLMClient, feedback
 from llm.prompts import load_prompt
 from core.parsing.dynamic_character_parser import CharacterLoader, DynamicCharacter
@@ -252,6 +257,8 @@ class BondStoryEngine:
         self._trace: list[dict] = []      # 最近一次 send_vn_scene 的动作轨迹（追溯/调试）
         self._in_memorial = False         # 纪念子模式状态（enter 后 True, exit 后 False, §4.7）
         self._memorial_used = False       # 一段剧情至多 1 次 memorial（enter 已用 = True）
+        self._lexicon_keys: list[str] = []     # 两遍式 C: 角色词表键（标注层用）
+        self._lexicon_hint: str = ""           # 词表注入文本（few-shot 示范, 标注 prompt 用）
 
     # ------------------------------------------------------------------
     # 会话生命周期
@@ -278,9 +285,11 @@ class BondStoryEngine:
         system_prompt += "\n\n可用动作 schema:\n" + build_schema(self.registry)
         # 视觉意图协议 §11: 开场喂一遍当前角色表情词表 + 世界地点词表（few-shot 示范）
         # 词表缺失/损坏 → 注入空串跳过, VN 纯文本照跑（宁缺勿错）
-        # 注意: emotions.yml 在 assets/illustration/{char_id}/, 不在 config/characters/
+        # 注意: emotions.yml 在 assets/illustration/{char_id}/default/（catalog 同款
+        # outfit="default" 路径——2026-08-31 修复: 之前缺 default 段, 词表从未注入）
         _assets = Path(__file__).resolve().parent.parent.parent / "assets"
-        lex_inj = build_emotion_injection(_assets / "illustration" / char.character_id)
+        _char_asset_dir = _assets / "illustration" / char.character_id / "default"
+        lex_inj = build_emotion_injection(_char_asset_dir)
         if lex_inj:
             system_prompt += "\n\n" + lex_inj
         place_inj = build_place_injection()
@@ -292,6 +301,10 @@ class BondStoryEngine:
             system_prompt += "\n\n" + self._brain_segment
 
         self._current_char = char
+        # 两遍式 C: 角色词表键 + 注入文本（标注层用; 缺词表 → 空, 骨架不补标）
+        _lex = load_emotion_lexicon(_char_asset_dir)
+        self._lexicon_keys = list(_lex.keys())
+        self._lexicon_hint = lex_inj or ""
         self._system_prompt = system_prompt
         self._history = []
         self._trace = []
@@ -432,6 +445,31 @@ class BondStoryEngine:
             action.payload, ensure_ascii=False, separators=(",", ":"))})
         self._trim_history()
         scene = BondScene.from_action(action)
+        # 两遍式 C（2026-08-31）: 骨架段落缺 emotion → 批量标注补标（生成与
+        # 情绪解耦——生成不背 emotion 负担, 校验零重试; 失败静默兜底延续）。
+        # 正文 + branches 段落统一处理; 标注调用在预生成/后台线程内, 延迟被掩盖。
+        # memorial_exit 跳过（过渡文字是纯字符串旁白, 无表情承载——不标, 前端延续）。
+        if self._lexicon_keys and not scene.memorial_exit:
+            try:
+                from core.bond.emotion_annotate import fill_missing_emotions
+
+                fill_missing_emotions(
+                    scene.paragraphs,
+                    annotator=lambda sents, keys, hint: annotate_emotions(
+                        self.llm, sents, keys, hint),
+                    lexicon_keys=self._lexicon_keys,
+                    lexicon_hint=self._lexicon_hint,
+                )
+                for branch in scene.branches.values():
+                    fill_missing_emotions(
+                        branch,
+                        annotator=lambda sents, keys, hint: annotate_emotions(
+                            self.llm, sents, keys, hint),
+                        lexicon_keys=self._lexicon_keys,
+                        lexicon_hint=self._lexicon_hint,
+                    )
+            except Exception as e:             # noqa: BLE001 — 标注异常不阻断剧情
+                logger.warning("emotion 标注异常（兜底延续）: %s", e)
         if self.director is not None:
             # 视觉导演（v2）: place 意图 → background + audio 占位
             # 表情不经导演——渲染端从段落内联 emotion 查 emotions.yml（catalog.sprite）
