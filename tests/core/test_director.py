@@ -162,11 +162,11 @@ def test_engine_attaches_background_audio(tmp_path):
 
 def test_engine_no_director_pure_text(tmp_path):
     main = _MainLLM({"action": "story_scene", "payload": {
-        "paragraphs": [{"text": "纯文本。"}], "choices": []}})
+        "paragraphs": [{"text": "纯文本。", "emotion": "nomal"}], "choices": []}})
     vn = BondStoryEngine(ROOT / "config" / "characters", main)  # director=None
     vn.start_session(_CHARACTER)
     scene = vn.send_vn_scene("x")
     assert scene.background is None and scene.audio is None
-    assert scene.paragraphs == [{"text": "纯文本。"}]     # 无 emotion → 纯文本段落
+    assert scene.paragraphs == [{"text": "纯文本。", "emotion": "nomal"}]  # 契约 emotion 必填
     assert "background" not in scene.to_dict() and "audio" not in scene.to_dict()
     print("    engine: 无导演 → 纯文本模式, 无视觉字段")

@@ -270,24 +270,22 @@ const BondVN = (() => {
       // 自动模式: 打字完成后 3s 自动选第一个选项（玩家手动介入 → 取消）
       if (autoOn) scheduleAutoChoice(scene.choices);
     } else {
-      // 自由输入推进（自动模式不伪造玩家输入——宁缺勿错, 需玩家输入）
+      // 纯叙事场（无选项）: "点击继续"推进——输入固定"（继续）", 后端 Storyloom
+      // 式预生成已就绪 → 衔接零等待（2026-08-30 替代自由输入框: 纯叙事场不需要
+      // 玩家打字, 读完全自动继续; 想自由发挥的场次由 LLM 给选项承载）
       const wrap = document.createElement("div");
       wrap.className = "bond-free";
-      const input = document.createElement("input");
-      input.type = "text";
-      input.maxLength = 200;
-      input.placeholder = "输入一句话推进剧情…（Enter 发送）";
       const btn = document.createElement("button");
-      btn.textContent = "推进";
-      const send = () => {
-        const t = input.value.trim();
-        if (t) submit(t);
-      };
-      btn.addEventListener("click", send);
-      input.addEventListener("keydown", (e) => { if (e.key === "Enter") send(); });
-      wrap.append(input, btn);
+      btn.className = "bond-continue-btn";       // 不与 #bond-continue（继续三角）撞名
+      btn.textContent = "▼ 继续";
+      btn.addEventListener("click", () => {
+        clearAutoTimer();            // 玩家手动继续 → 取消自动倒计时（不冲突）
+        submit("（继续）");
+      });
+      wrap.appendChild(btn);
       choiceBox.appendChild(wrap);
-      input.focus();
+      // 自动模式: 3s 后自动继续（纯叙事场输入固定"（继续）"——不是伪造玩家话, 安全）
+      if (autoOn) scheduleAutoContinue();
     }
   }
 
@@ -323,6 +321,15 @@ const BondVN = (() => {
     autoTimer = setTimeout(() => {
       autoTimer = null;
       if (choices && choices.length) submit(choices[0]);
+    }, 3000);
+  }
+
+  // 纯叙事场自动继续（3s）——输入固定"（继续）", 不伪造玩家话（2026-08-30）
+  function scheduleAutoContinue() {
+    clearAutoTimer();
+    autoTimer = setTimeout(() => {
+      autoTimer = null;
+      if (autoOn) submit("（继续）");
     }, 3000);
   }
 

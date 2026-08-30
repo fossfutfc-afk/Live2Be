@@ -24,12 +24,17 @@ from webgui import bond, chat
 ROOT = Path(__file__).resolve().parent.parent.parent
 CHARACTER = "igusa_haruka"
 
-# 契约动作（与 test_vn_cli.py 同构）
+# 契约动作（与 test_vn_cli.py 同构; 2026-08-30 契约强化: emotion 必填 + 按句切分）
 SCENE_A = {"action": "story_scene", "payload": {
-    "paragraphs": [{"text": "段落一。"}, {"text": "段落二。", "emotion": "smile"}],
+    "paragraphs": [{"text": "段落一。", "emotion": "nomal"},
+                   {"text": "段落二。", "emotion": "smile"}],
     "choices": ["选A", "选B"]}}
 STORY_END = {"action": "story_end", "payload": {
-    "paragraphs": [{"text": "收尾了。"}]}}
+    "paragraphs": [{"text": "收尾了。", "emotion": "nomal"}]}}
+# 纯叙事场（无 choices）——2026-08-30: 契约语义改为"整段剧情 2~3 次选择,
+# 其余场次纯叙事推进（无 choices, 前端点击继续, 后端预生成零等待衔接）"
+NARRATIVE = {"action": "story_scene", "payload": {
+    "paragraphs": [{"text": "纯叙事场。", "emotion": "nomal"}]}}
 MMT_TRIGGER = {"actions": [{"action": "mmt_trigger_bond_story",
                             "reply": "嗯…我们走吧", "payload": {"reason": "邀约"}}]}
 MMT_REPLY = {"actions": [{"action": "mmt_chat", "reply": "嗯，今晚很开心。", "payload": {}}]}
@@ -206,7 +211,7 @@ def test_bond_start_idempotent_and_guards(tmp_path):
 # ----------------------------------------------------------------------------
 
 def test_bond_demo_full_flow(tmp_path):
-    """demo: start_demo → 3 场预设剧本（选项→选项→is_end）→ finish（预设收尾话）。"""
+    """demo: start_demo → 3 场预设剧本（选项→纯叙事→is_end）→ finish（预设收尾话）。"""
     engine, st, sid, llm = _setup(tmp_path, MMT_REPLY)   # 剧本不耗 LLM 脚本
     try:
         r = bond.bond_start_demo(CHARACTER, sid)
@@ -215,13 +220,16 @@ def test_bond_demo_full_flow(tmp_path):
         assert st1["round"] == 1 and not st1["completed"]
         assert st1["scene"]["background"] == "class_room"
         assert st1["scene"]["paragraphs"][1]["emotion"] == "embarrassed"
+        assert st1["scene"]["choices"]                     # 场 1 有选项
 
         bond.bond_turn(CHARACTER, sid, "「当然可以。」")
         st2 = _wait_status(CHARACTER, sid)
         assert st2["round"] == 2 and st2["scene"]["background"] == "wildhunt_street"
         assert not st2["completed"]
+        assert st2["scene"]["choices"] == []               # 场 2 纯叙事（无选项→继续按钮）
 
-        bond.bond_turn(CHARACTER, sid, "「嗯，约定好了。」")
+        # 纯叙事场点"（继续）"推进（demo 无预生成——即时弹出收尾场）
+        bond.bond_turn(CHARACTER, sid, "（继续）")
         st3 = _wait_status(CHARACTER, sid)
         assert st3["round"] == 3 and st3["completed"]
         assert st3["scene"]["is_end"] is True
@@ -236,10 +244,10 @@ def test_bond_demo_full_flow(tmp_path):
         assert subs == ["story_scene", "story_scene", "story_end"], subs
         assert ("marker", "vn_exit") in [(e.type, e.subtype) for e in evs]
         assert ("marker", "session_end") in [(e.type, e.subtype) for e in evs]
-        # 玩家裁决落库（picked）
+        # 玩家裁决落库（picked）: 场 1 选项; 场 2 纯叙事 → picked=None
         scs = [e for e in evs if e.subtype == "story_scene"]
         assert scs[0].payload["picked"] == "「当然可以。」", scs[0].payload
-        assert scs[1].payload["picked"] == "「嗯，约定好了。」"
+        assert scs[1].payload["picked"] is None, scs[1].payload
         # 预设收尾话（后台线程, 轮询等待）
         deadline = time.time() + 10.0
         while time.time() < deadline:
@@ -249,7 +257,7 @@ def test_bond_demo_full_flow(tmp_path):
             time.sleep(0.05)
         assert any("演示收尾" in (e.payload.get("reply") or "")
                    for e in st.events(CHARACTER, sid))
-        print("    bond demo: 3 场预设剧本 → finish → 事件流完整 + 预设收尾话（零 LLM 调用）")
+        print("    bond demo: 3 场预设剧本（选项→纯叙事→is_end）→ finish → 事件流完整 + 预设收尾话（零 LLM 调用）")
     finally:
         _cleanup()
 
@@ -338,3 +346,89 @@ def test_bond_scene_fx_resolution():
     # 空/坏输入降级
     assert _resolve_scene(None, CHARACTER) is None
     print("    scene fx: emotion → 特效符号（embarrassed→blush+notes, outburst→bang+anger）")
+
+
+# ----------------------------------------------------------------------------
+# Storyloom bridge 式预生成: 纯叙事场（无 choices）渲染完 → 后台预生成下一场;
+# 玩家点"（继续）" → 直接消费（零等待, 不再调 LLM）
+# ----------------------------------------------------------------------------
+
+def test_bond_pregenerate_narrative_flow(tmp_path):
+    from core.session.events import make_event
+    engine, st, sid, llm = _setup(tmp_path, SCENE_A, NARRATIVE, STORY_END)
+    try:
+        bond.bond_start(CHARACTER, sid)
+        st1 = _wait_status(CHARACTER, sid)
+        assert st1["scene"]["choices"] == ["选A", "选B"]       # 首场带选项 → 不预生成
+
+        # 选 A → 第 2 场（纯叙事, 无选项）——生成完自动触发预生成（第 3 场"（继续）"）
+        r2 = bond.bond_turn(CHARACTER, sid, "选A")
+        assert r2["accepted"]
+        st2 = _wait_status(CHARACTER, sid)
+        assert st2["scene"]["choices"] == []                    # 纯叙事场
+        # 等预生成完成（后台线程）——脚本 STORY_END 已被预生成消费
+        deadline = time.time() + 10.0
+        while time.time() < deadline:
+            if not bond.bond_status(CHARACTER, sid)["busy"]:
+                break
+            time.sleep(0.05)
+        assert not bond.bond_status(CHARACTER, sid)["busy"], "预生成应已完成"
+
+        # 点继续 → 直接消费预生成（immediate: pregen=True, busy=False, 不调 LLM）
+        r3 = bond.bond_turn(CHARACTER, sid, "（继续）")
+        assert r3["accepted"] and r3.get("pregen") and not r3["busy"], r3
+        st3 = bond.bond_status(CHARACTER, sid)
+        assert st3["completed"] and st3["scene"]["is_end"], st3
+        assert st3["scene"]["paragraphs"][0]["text"] == "收尾了。"
+
+        # finish: 补录收尾场（第 3 场）+ wrapup——脚本已耗尽 → agent_turn 失败 →
+        # 本地兜底收尾话落库（保证结束回 MMT 必见结语, 不再"强硬回 MMT"）
+        r4 = bond.bond_finish(CHARACTER, sid)
+        assert r4["completed"] is True
+        deadline = time.time() + 10.0
+        while time.time() < deadline:
+            evs = st.events(CHARACTER, sid)
+            if any(e.type == "mmt" and "今晚的事" in (e.payload.get("reply") or "")
+                   for e in evs):
+                break
+            time.sleep(0.05)
+        assert any(e.type == "mmt" and "今晚的事" in (e.payload.get("reply") or "")
+                   for e in st.events(CHARACTER, sid)), "兜底收尾话应落库"
+
+        # 事件流: 场1(picked=选A) + 场2(picked=None) + 场3(is_end, picked=None)
+        evs = st.events(CHARACTER, sid)
+        bond_evs = [e for e in evs if e.type == "bond"]
+        assert len(bond_evs) == 3, [e.subtype for e in bond_evs]
+        assert bond_evs[0].payload["picked"] == "选A", bond_evs[0].payload
+        assert bond_evs[1].payload["picked"] is None, bond_evs[1].payload
+        assert bond_evs[2].payload["picked"] is None and bond_evs[2].payload["is_end"]
+        print("    bond 预生成: 纯叙事场渲染完 → 后台预生成下一场 → 继续零等待消费 + 兜底收尾")
+    finally:
+        _cleanup()
+
+
+# ----------------------------------------------------------------------------
+# _system_note: 选项配额 + 表情单一提醒（LLM 每场给选项 / 整场一个表情的软约束）
+# ----------------------------------------------------------------------------
+
+def test_system_note_quota_and_emotion_hints():
+    from types import SimpleNamespace
+    from webgui.bond import BondState, _system_note
+
+    vn = SimpleNamespace(in_memorial=False)
+    # 配额: 已用 3/3 → 上限注记（后续场次省略 choices）
+    st = BondState(vn=vn, choices_used=3)
+    note = _system_note(st) or ""
+    assert "配额上限" in note and "3/3" in note, note
+    # 已用 1/3 → 少给提示
+    st2 = BondState(vn=vn, choices_used=1)
+    assert "2" in (_system_note(st2) or ""), _system_note(st2)
+    # 表情单一: ≥3 个单元全同 → 提醒
+    st3 = BondState(vn=vn, prev_emotions=["nomal", "nomal", "nomal"])
+    assert "同一 emotion" in (_system_note(st3) or ""), _system_note(st3)
+    # 有变化 → 不提醒; 干净状态 → 无注记
+    st4 = BondState(vn=vn, prev_emotions=["nomal", "smile"])
+    assert "同一 emotion" not in (_system_note(st4) or "")
+    st5 = BondState(vn=vn)
+    assert _system_note(st5) is None
+    print("    system_note: 选项配额（3/3 上限 / 少给提示）+ 表情单一提醒")
