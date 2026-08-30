@@ -33,8 +33,10 @@ STORY_END = {"action": "story_end", "payload": {
 MMT_TRIGGER = {"actions": [{"action": "mmt_trigger_bond_story",
                             "reply": "嗯…我们走吧", "payload": {"reason": "邀约"}}]}
 MMT_REPLY = {"actions": [{"action": "mmt_chat", "reply": "嗯，今晚很开心。", "payload": {}}]}
-EMPTY_DIGEST = {"summary": "", "facts": [], "beliefs": [], "relations": [],
-                "affection_exp_delta": 0}
+# 空消化桩: summary 非空（否则 consolidation 校验"无有效条目"跳过）;
+# affection_exp_delta=5 → 触发好感事件落库（delta=0 不写事件——好感无变化无需记录）
+EMPTY_DIGEST = {"summary": "（本段互动无特别重要内容）", "facts": [], "beliefs": [],
+                "relations": [], "affection_exp_delta": 5}
 
 
 class ScriptedLLM:
@@ -150,7 +152,23 @@ def test_bond_full_flow(tmp_path):
             time.sleep(0.05)
         assert any(e.type == "mmt" and "开心" in (e.payload.get("reply") or "")
                    for e in st.events(CHARACTER, sid)), "wrapup 收尾话应落 mmt 事件"
-        print("    bond 全流程: start→turn→finish, 事件流 vn_enter/bond×2/marker/vn_exit/session_end + wrapup 收尾")
+
+        # digest 闭环（async_digest 后台线程, 轮询等待）: 好感事件落库
+        # （delta=0 也落——幂等键 digested_seq 记录消化水位; digest 输入含收尾话）
+        deadline = time.time() + 10.0
+        aff = None
+        while time.time() < deadline:
+            affs = [e for e in st.events(CHARACTER, sid)
+                    if e.type == "affection" and e.subtype == "digest"]
+            if affs:
+                aff = affs[-1]
+                break
+            time.sleep(0.05)
+        assert aff is not None, "digest 后应落 affection 事件（好感结算）"
+        assert int(aff.payload.get("digested_seq", 0)) > 0, aff.payload
+        print(f"    bond digest: affection 事件落库 digested_seq={aff.payload.get('digested_seq')} "
+              f"delta={aff.payload.get('delta')}")
+        print("    bond 全流程: start→turn→finish, 事件流 vn_enter/bond×2/marker/vn_exit/session_end + wrapup 收尾 + digest 好感")
     finally:
         _cleanup()
 
