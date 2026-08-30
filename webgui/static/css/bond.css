@@ -52,6 +52,27 @@
 }
 .bond-stage canvas { display: block; width: 100%; height: 100%; }
 
+/* 情绪特效层（官方 UI 层粒子——立绘头顶浮现符号: 浮起+淡出+飘散） */
+.bond-fx {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  overflow: hidden;
+}
+.bond-fx-sym {
+  position: absolute;
+  text-shadow: 0 0 8px currentColor, 0 0 16px rgba(0, 0, 0, 0.25);
+  opacity: 0;
+  animation: bond-fx-float 1.7s ease-out forwards;
+}
+@keyframes bond-fx-float {
+  0%   { opacity: 0; transform: translateY(12px) scale(0.6); }
+  25%  { opacity: 1; transform: translateY(2px) scale(1.15); }
+  70%  { opacity: 0.9; transform: translateY(-20px) scale(1); }
+  100% { opacity: 0; transform: translateY(-34px) scale(0.75); }
+}
+
 /* 右上角: 自动/菜单 胶囊按钮（占位, 功能以后再实现——disabled 灰显） */
 .bond-topbar {
   position: absolute;

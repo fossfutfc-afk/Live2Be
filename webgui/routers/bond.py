@@ -16,16 +16,21 @@ POST /api/bond/finish  终结收尾（补录 + vn_exit + session_end + wrapup + 
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from core.media.catalog import MediaCatalog
+from renderer.effects import EffectResolver
 from webgui import bond
 
 router = APIRouter()
 
 # 背景查库（懒单例——MediaCatalog 构造扫背景 ~百 ms）
 _BG_CATALOG: MediaCatalog | None = None
+# 特效解算器（per 角色懒缓存——角色表 assets/illustration/{char}/effects.yml + 全局表）
+_FX_RESOLVERS: dict[str, EffectResolver] = {}
 
 
 def _catalog() -> MediaCatalog:
@@ -35,8 +40,21 @@ def _catalog() -> MediaCatalog:
     return _BG_CATALOG
 
 
-def _resolve_background(scene: dict | None) -> dict | None:
-    """场景 dict 附带 background_url（scene_id → 静态文件 URL; 无背景 → 保持 None）。"""
+def _fx_resolver(char_id: str) -> EffectResolver:
+    global _FX_RESOLVERS
+    r = _FX_RESOLVERS.get(char_id)
+    if r is None:
+        r = EffectResolver(Path("assets/illustration") / char_id)
+        _FX_RESOLVERS[char_id] = r
+    return r
+
+
+def _resolve_scene(scene: dict | None, char_id: str) -> dict | None:
+    """场景 dict 附带前端渲染信息:
+    background_url — scene_id → 静态文件 URL（无背景 → 保持 None, 黑屏余韵）
+    paragraphs[].fx — emotion → 特效符号列表（EffectResolver 单源: 角色表→全局表→空;
+                      前端 VN 立绘头顶浮现——官方冒爱心/音符/惊叹等 UI 层特效）。
+    """
     if not scene:
         return None
     scene = dict(scene)
@@ -46,6 +64,15 @@ def _resolve_background(scene: dict | None) -> dict | None:
         if media is not None:
             rel = media.path.relative_to(_catalog().assets_root)
             scene["background_url"] = f"/assets/{rel.as_posix()}"
+    paras = scene.get("paragraphs")
+    if isinstance(paras, list):
+        for p in paras:
+            if isinstance(p, dict):
+                e = p.get("emotion")
+                if isinstance(e, str) and e.strip():
+                    fx = _fx_resolver(char_id).effects_for(e)
+                    if fx:
+                        p["fx"] = fx
     return scene
 
 
@@ -94,10 +121,10 @@ async def bond_turn(body: BondTurnIn) -> dict:
 
 @router.get("/api/bond/status")
 async def bond_status(char_id: str, session_id: str) -> dict:
-    """轮询生成状态 + 最新场景（附带 background_url 供前端渲染）。"""
+    """轮询生成状态 + 最新场景（附带 background_url / 段落 fx 供前端渲染）。"""
     try:
         st = bond.bond_status(char_id, session_id)
-        st["scene"] = _resolve_background(st.get("scene"))
+        st["scene"] = _resolve_scene(st.get("scene"), char_id)
         return st
     except Exception as e:                     # noqa: BLE001
         raise HTTPException(status_code=500, detail=f"bond status 失败: {e}")
