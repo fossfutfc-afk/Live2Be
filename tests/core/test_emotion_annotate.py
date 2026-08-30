@@ -43,7 +43,7 @@ def _annos(*scripts):
 # ----------------------------------------------------------------------------
 
 def test_annotate_normal():
-    llm, tags = _annos({"tags": ["nomal", "smile", "embarrassed"]})
+    llm, tags = _annos(["nomal", "smile", "embarrassed"])
     assert llm.calls == 1
     assert tags == ["nomal", "smile", "embarrassed"]
     # prompt 组装: 词表 + 句子行号都在
@@ -55,13 +55,13 @@ def test_annotate_normal():
 
 def test_annotate_invalid_output_fallback():
     # 长度不齐 → None（调用方兜底）
-    _, tags = _annos({"tags": ["nomal", "smile"]})
+    _, tags = _annos(["nomal", "smile"])
     assert tags is None
     # 词表外 → None
-    _, tags = _annos({"tags": ["nomal", "angry_xyz", "embarrassed"]})
+    _, tags = _annos(["nomal", "angry_xyz", "embarrassed"])
     assert tags is None
     # 非数组 → None
-    _, tags = _annos({"labels": "nomal"})
+    _, tags = _annos("nomal")
     assert tags is None
     print("    annotate: 非法输出（长度/词表外/非数组）→ None 兜底")
 
@@ -150,8 +150,8 @@ def test_engine_skeleton_annotated():
 
     class ScriptedLLM:
         def __init__(self):
-            self._scripts = [skeleton, {"tags": ["nomal", "embarrassed"]},
-                             {"tags": ["expectant"]}, {"tags": ["smile"]}]
+            self._scripts = [skeleton, ["nomal", "embarrassed"],
+                             ["expectant"], ["smile"]]
         def chat(self, messages, **kw):
             if not self._scripts:
                 raise RuntimeError("脚本耗尽")
