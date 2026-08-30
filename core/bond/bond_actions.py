@@ -31,6 +31,7 @@ VN 每场景就是一条 story_scene 或 story_end——纯输出契约, 程序�
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from contract import (
@@ -47,15 +48,36 @@ MAX_SCENE_CHOICES = 3
 MAX_SCENE_RETRIES = 3
 
 
+# 句末标点（引擎按句切分——每句一个单元, 对齐"一句一段"的 VN 断句节奏）。
+# 注意: 不含省略号"…"——省略号是语气停顿不是句末（"老师……我这种人……"不应被切碎）
+_SENTENCE_END = re.compile(r"(?<=[。！？；])")
+# 煽情值封顶 / 单次增长（2026-08-30: 情感尺度控制——从日常逐步解锁情感场景）
+EMOTIVE_STEP = 15
+
+
+def _split_sentences(text: str) -> list[str]:
+    """按句末标点切分（保留标点）——LLM 输出长段 → 每句一个单元（宁缺勿错兜底）。
+
+    无标点的文本 → 原样单段。标点后无内容（结尾）不产生空段。
+    """
+    parts = _SENTENCE_END.split(text)
+    return [p.strip() for p in parts if p.strip()]
+
+
 def _parse_paragraphs(payload: dict[str, Any]) -> list[dict]:
     """必填 paragraphs 白名单校验 + 机器侧容错（硬错误抛 ContractError）。
 
-    每项（2026-08-23 架构定稿: 情绪内联, 删 beats）:
-        {"text": 段落文本, "emotion": 可选表情词表键, "inner": 可选内心独白}
-        ——emotion 缺省 = 延续上一段; inner（A 版内心戏, 低频惊喜）缺省 = 无
-    兼容旧输入: 裸字符串 str → 包成 {"text": str}（旧习惯模型不崩）。
+    每项（2026-08-23 架构定稿: 情绪内联, 删 beats; 2026-08-30 强化）:
+        {"text": 段落文本, "emotion": 必填表情词表键, "inner": 可选内心独白}
+        ——emotion 必填（缺 → ContractError → feedback 重试）: 之前"缺省延续"
+        让 LLM 省略 emotion → 表情变化极少（真实运行只变过 1 次）; 强制标注后
+        每单元都切表情。
+        句子切分: 文本按句末标点（。！？…；）切成多段（每句一段, emotion/inner
+        继承首句）——对齐 VN"一句一段"断句, 即使 LLM 把多句合并成一个大单元。
+    兼容旧输入: 裸字符串 str → 包成 {"text": str}（旧习惯模型不崩; 无 emotion
+    旧档兼容——渲染延续语义保留给字符串段落）。
 
-    Returns: 至少 1 个 {text, emotion?, inner?} 组成的列表（strip 后）。
+    Returns: 至少 1 个 {text, emotion?, inner?} 组成的列表（strip 后, 已切分）。
     """
     raw_paras = payload.get("paragraphs")
     if isinstance(raw_paras, str):
@@ -69,14 +91,18 @@ def _parse_paragraphs(payload: dict[str, Any]) -> list[dict]:
         elif isinstance(p, dict):
             text = p.get("text")
             if isinstance(text, str) and text.strip():
-                item: dict[str, Any] = {"text": text.strip()}
                 emotion = p.get("emotion")
-                if isinstance(emotion, str) and emotion.strip():
-                    item["emotion"] = emotion.strip()
+                if not (isinstance(emotion, str) and emotion.strip()):
+                    raise ContractError(
+                        "paragraphs 每项必须带 emotion（表情词表键）——"
+                        "每单元标注当前情绪, 情绪一变就切新单元")
                 inner = p.get("inner")
-                if isinstance(inner, str) and inner.strip():
-                    item["inner"] = inner.strip()
-                paragraphs.append(item)
+                inner_s = inner.strip() if isinstance(inner, str) else ""
+                for i, sent in enumerate(_split_sentences(text.strip())):
+                    item: dict[str, Any] = {"text": sent, "emotion": emotion.strip()}
+                    if i == 0 and inner_s:
+                        item["inner"] = inner_s     # 内心独白挂首句（低频惊喜）
+                    paragraphs.append(item)
     if not paragraphs:
         raise ContractError("paragraphs 至少需要一个非空段落")
     return paragraphs

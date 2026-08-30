@@ -72,7 +72,8 @@ DEMO_SCRIPT: list[dict] = [
             {"text": "「老师，下次……下次还能像这样一起走吗？」她抬头，目光期待。",
              "emotion": "expectant"},
         ],
-        "choices": ["「嗯，约定好了。」", "「看你表现咯。」"],
+        # 纯叙事场（无 choices）——2026-08-30 契约语义: 整段剧情 2~3 次选择,
+        # 其余场次纯叙事推进（前端"继续"按钮, 后端预生成零等待衔接）
     },
     {
         # 结束余韵（官方 bond story 结束样式）: 无背景 → 黑屏 + 一句旁白 + 右下三角
@@ -100,6 +101,16 @@ class BondState:
     error: str = ""
     completed: bool = False             # 剧情已终结（is_end / 致命错误）→ 前端调 finish
     reason: str = ""
+    # Storyloom bridge 式预生成（2026-08-30）: 纯叙事场（无 choices）渲染完成即
+    # 提前生成下一场（输入固定"（继续）"）——玩家点继续时已就绪, 体感零等待
+    pregen_obj: BondScene | None = None
+    pregen_scene: dict | None = None
+    pregen_input: str = ""
+    # 选项配额（整段剧情 2~3 次选择——LLM 每场给选项的疲劳问题）: 已用计数,
+    # 注入 system_note 提醒; 预生成场景的 choices 同样计入
+    choices_used: int = 0
+    # 上一场 emotion 序列（单一检测: 全场同一 emotion → 下一场 system_note 提醒 LLM）
+    prev_emotions: list[str] = field(default_factory=list)
 
 
 _bonds: dict[tuple[str, str], BondState] = {}
@@ -193,7 +204,12 @@ def bond_start_demo(char_id: str, session_id: str) -> dict:
 
 
 def bond_turn(char_id: str, session_id: str, text: str) -> dict:
-    """玩家裁决（选项文本 / 自由输入）→ 补录上一场事件 → 后台生成下一场。"""
+    """玩家裁决（选项文本 / 自由输入 / 点击继续）→ 补录上一场事件 → 衔接下一场。
+
+    预生成消费（Storyloom bridge 式）: 纯叙事场（无 choices）点"（继续）"时,
+    下一场已提前生成（state.pregen）→ 直接衔接, 零等待; 预生成失败降级为
+    正常生成路径（不阻断剧情）。
+    """
     state = _state(char_id, session_id)
     if state.vn is None and state.demo is None:
         return {"accepted": False, "error": "剧情未开始"}
@@ -205,8 +221,30 @@ def bond_turn(char_id: str, session_id: str, text: str) -> dict:
     if not text:
         return {"accepted": False, "error": "输入不能为空"}
 
-    # append-only 事件流: 当前展示场景在玩家裁决时落库（带 picked）
-    _log_scene(state, char_id, session_id, picked=text)
+    if text == "（继续）" and state.pregen_scene is not None:
+        # 预生成就绪 → 补录当前场 → 提升预生成场景为当前场 → 链式预生成
+        _log_scene(state, char_id, session_id, picked=None)
+        state.scene_obj = state.pregen_obj
+        state.scene = state.pregen_scene
+        state.scene_input = state.pregen_input
+        state.scene_logged = False
+        state.pregen_obj = None
+        state.pregen_scene = None
+        state.pregen_input = ""
+        state.round += 1
+        if state.scene_obj is not None and state.scene_obj.is_end:
+            state.completed = True
+        _log_scene_meta(state, char_id, session_id, state.scene_obj)
+        # 链式: 新场景若是纯叙事（无 choices 未收尾）→ 继续预生成下一场
+        if (state.scene_obj is not None
+                and not state.scene_obj.choices and not state.scene_obj.is_end):
+            _pregenerate(state, char_id, session_id)
+        return {"accepted": True, "busy": state.busy, "pregen": True}
+
+    # append-only 事件流: 当前展示场景在玩家裁决时落库（带 picked）;
+    # 纯叙事场的"（继续）"是推进指令不是内容裁决 → picked=None（与预生成消费一致）
+    _log_scene(state, char_id, session_id,
+               picked=None if text == "（继续）" else text)
     _generate(state, char_id, session_id, text)
     return {"accepted": True, "busy": True}
 
@@ -303,6 +341,11 @@ def _generate(state: BondState, char_id: str, session_id: str, user_input: str) 
                 state.scene_logged = False
                 if scene.is_end:
                     state.completed = True
+                # 选项配额 / 表情统计（供下一场 system_note 参考）
+                if scene.choices:
+                    state.choices_used += 1
+                state.prev_emotions = [p.get("emotion", "") for p in scene.paragraphs
+                                       if isinstance(p, dict)]
                 _log_scene_meta(state, char_id, session_id, scene)
         except (SceneLoopError, ValueError) as e:
             # 模型连语义校验都过不了 → 中断收场（宁缺勿错, 剧情必须终结）
@@ -313,6 +356,52 @@ def _generate(state: BondState, char_id: str, session_id: str, user_input: str) 
             state.scene = closing.to_dict()
             state.scene_logged = False
             state.completed = True
+        finally:
+            state.busy = False
+            # Storyloom bridge 式预生成（2026-08-30）: 主生成完成后（busy 已清零）
+            # 才触发——纯叙事场（无 choices 未收尾）提前生成下一场, 玩家点"继续"
+            # 时已就绪, 体感零等待。放 finally 而非 success 分支: success 分支里
+            # busy 仍为 True, _pregenerate 守卫会误判"生成中"而跳过（真实踩坑）。
+            if (state.demo is None and state.pregen_scene is None
+                    and not state.completed
+                    and state.scene_obj is not None
+                    and not state.scene_obj.choices
+                    and not state.scene_obj.is_end):
+                _pregenerate(state, char_id, session_id)
+
+    threading.Thread(target=run, daemon=True).start()
+
+
+def _pregenerate(state: BondState, char_id: str, session_id: str) -> None:
+    """Storyloom bridge 式预生成: 纯叙事场（无 choices）渲染完成即提前生成下一场。
+
+    输入固定"（继续）"——玩家点继续时已就绪, 体感零等待; 生成失败降级
+    （清 pregen, 玩家点击时走正常生成路径, 不阻断剧情）。预生成场景同样计入
+    选项配额/表情统计（供后续 system_note 参考）。演示模式不预生成（即时弹出）。
+    """
+    if state.busy or state.pregen_scene is not None or state.demo is not None:
+        return
+    if state.vn is None:
+        return
+    state.busy = True
+
+    def run():
+        try:
+            with chat._lock(char_id):
+                scene = state.vn.send_vn_scene(
+                    "（继续）", system_note=_system_note(state))
+                state.pregen_obj = scene
+                state.pregen_scene = scene.to_dict()
+                state.pregen_input = "（继续）"
+                if scene.choices:
+                    state.choices_used += 1
+                state.prev_emotions = [p.get("emotion", "") for p in scene.paragraphs
+                                       if isinstance(p, dict)]
+        except Exception as e:                     # noqa: BLE001 — 预生成失败降级
+            logger.warning("bond 预生成失败（降级为点击时再生成）: %s", e)
+            state.pregen_obj = None
+            state.pregen_scene = None
+            state.pregen_input = ""
         finally:
             state.busy = False
 
@@ -362,7 +451,8 @@ def _log_scene_meta(state: BondState, char_id: str, session_id: str,
 
 
 def _system_note(state: BondState) -> str | None:
-    """本轮系统注记（只进 context 不入历史）: 纪念模式 / 收尾提醒 / 上限建议。"""
+    """本轮系统注记（只进 context 不入历史）: 纪念模式 / 选项配额 / 表情单一提醒 /
+    收尾提醒 / 上限建议。多条聚合为多行（每条一行）。"""
     vn = state.vn
     if vn is not None and vn.in_memorial:
         return (
@@ -370,19 +460,38 @@ def _system_note(state: BondState) -> str | None:
             " memorial_exit 动作回到 bond（可选过渡文字, 不要输出其他动作）。\n"
             f"可用动作 schema:\n{vn.memorial_exit_schema()}"
         )
+    notes: list[str] = []
+    # 选项配额（整段剧情 2~3 次——每场给选项的疲劳问题）: 已用 X/3
+    if state.choices_used >= 3:
+        notes.append(
+            f"（系统）本段剧情已用 {state.choices_used}/3 个选项——已到配额上限,"
+            "后续场次一律省略 choices（纯叙事推进, 系统自动衔接下一场）。"
+        )
+    elif state.choices_used >= 1:
+        notes.append(
+            f"（系统）本段剧情已用 {state.choices_used}/3 个选项——尽量少给,"
+            f"只在真正需要老师表态的关键时刻再给（最多还能给 {3 - state.choices_used} 个）。"
+        )
+    # 表情单一提醒（上一场 ≥3 个单元但 emotion 全同 → 提示 LLM 情绪变化）
+    uniq = {e for e in state.prev_emotions if e}
+    if len(state.prev_emotions) >= 3 and len(uniq) <= 1:
+        notes.append(
+            "（系统）上一场所有单元都是同一 emotion——若剧情有情绪起伏,"
+            "请随情绪变化切换 emotion 并切新单元（不要整场一个表情）。"
+        )
     if state.round == _REMIND_ROUNDS:
-        return (
+        notes.append(
             f"（系统）剧情已推进 {state.round} 轮，剩余约 {_END_ROUNDS - state.round} 轮。"
             "请开始把剧情向结尾收束——感情到位、约定达成、道别告别的时刻"
             "就改用 story_end 动作收尾结束剧情，不要再开新场景"
             "不过也谨记这只是中段提示，你并不需要匆匆结尾，但是建议开始铺垫"
         )
     if state.round == _END_ROUNDS:
-        return (
+        notes.append(
             "（系统）已达剧情篇幅上限。本轮请改用 story_end 动作收尾"
             "结束剧情——收尾场景只有 paragraphs，不再输出选项。"
         )
-    return None
+    return "\n".join(notes) if notes else None
 
 
 def _wrapup(char_id: str, session_id: str, reason: str) -> None:
@@ -419,4 +528,12 @@ def _wrapup(char_id: str, session_id: str, reason: str) -> None:
             engine.agent_turn("（自动收尾）", system_note=note, record_input=False)
     except Exception as e:                           # noqa: BLE001 — 收尾失败不阻塞
         logger.warning("羁绊剧情收尾回复失败: %s", e)
+        # 兜底收尾话（2026-08-30）: LLM 收尾失败 → 本地预设结语落库——保证
+        # 结束回 MMT 时玩家一定看得到结语（之前失败时静默, "强硬回 MMT"）
+        try:
+            _store().append_event(char_id, session_id, make_event(
+                "mmt", "mmt_chat",
+                {"player": "", "reply": "（今晚的事……我会好好记住的。老师，谢谢你。）"}))
+        except Exception as e2:                      # noqa: BLE001
+            logger.warning("兜底收尾话写入失败: %s", e2)
     engine.async_digest()                 # 收尾成功与否都消化（bond 已闭环）

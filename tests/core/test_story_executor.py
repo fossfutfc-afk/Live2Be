@@ -48,22 +48,58 @@ def test_parse_story_scene_paragraphs_inline_emotion():
     a, r = _parse("story_scene", {
         "paragraphs": [
             {"text": "啊...我是不是又做错什么了", "emotion": "panic"},
-            {"text": "对不起..."},
+            {"text": "对不起...", "emotion": "panic"},
             {"text": "啊..没关系吗..欸嘿嘿", "emotion": "smile"},
         ],
     })
     assert r.is_valid and a is not None
     assert a.payload["paragraphs"] == [
         {"text": "啊...我是不是又做错什么了", "emotion": "panic"},
-        {"text": "对不起..."},
+        {"text": "对不起...", "emotion": "panic"},
         {"text": "啊..没关系吗..欸嘿嘿", "emotion": "smile"},
     ]
-    # 旧习惯模型: 裸字符串段落 → 包成 {"text": ...}（兼容）
+    # 2026-08-30 契约强化: emotion 必填——省略 → ContractError
+    # （LLM 省略 emotion → 表情变化极少的根因; 强制标注 + feedback 回灌重试）
+    a2, r2 = _parse("story_scene", {
+        "paragraphs": [{"text": "我忘记标表情了", "emotion": "smile"},
+                       {"text": "这行没标"}],
+    })
+    assert a2 is None and not r2.is_valid and "emotion" in r2.errors[0]
+    # 旧习惯模型: 裸字符串段落 → 包成 {"text": ...}（兼容, 不强制）
     a, r = _parse("story_scene", {"paragraphs": "单段", "choices": "单选"})
     assert r.is_valid
     assert a.payload["paragraphs"] == [{"text": "单段"}]
     assert a.payload["choices"] == ["单选"]
-    print("    parse_story_scene: 段落 {text, emotion?} 内联 + 单串容错")
+    print("    parse_story_scene: 段落 {text, emotion} 必填 + 缺省 ContractError + 单串容错")
+
+
+def test_parse_story_scene_sentence_split():
+    """2026-08-30 断句（Storyloom 借鉴: 旁白 15~40 字一句一段）: LLM 长段 →
+    按句末标点切分（每句一个单元, emotion 继承首句）; 省略号不是切分点。"""
+    a, r = _parse("story_scene", {"paragraphs": [
+        {"text": "她站在窗边。风把她的发梢吹起来。她回头看了你一眼。",
+         "emotion": "smile"}]})
+    assert r.is_valid
+    assert a.payload["paragraphs"] == [
+        {"text": "她站在窗边。", "emotion": "smile"},
+        {"text": "风把她的发梢吹起来。", "emotion": "smile"},
+        {"text": "她回头看了你一眼。", "emotion": "smile"},
+    ]
+    # 省略号是语气停顿不是句末——"老师……我这种人……"不应被切碎
+    a2, r2 = _parse("story_scene", {"paragraphs": [
+        {"text": "老师……我这种人……也可以吗？", "emotion": "embarrass"}]})
+    assert r2.is_valid
+    assert len(a2.payload["paragraphs"]) == 1, a2.payload
+    assert a2.payload["paragraphs"][0]["text"] == "老师……我这种人……也可以吗？"
+    # 感叹号/问号同样切分; 无标点 → 原样单段
+    a3, r3 = _parse("story_scene", {"paragraphs": [
+        {"text": "好耶！我们出发吧？走走走。", "emotion": "happy"}]})
+    assert r3.is_valid
+    assert [p["text"] for p in a3.payload["paragraphs"]] == ["好耶！", "我们出发吧？", "走走走。"]
+    a4, r4 = _parse("story_scene", {"paragraphs": [
+        {"text": "无标点的长文本", "emotion": "nomal"}]})
+    assert r4.is_valid and len(a4.payload["paragraphs"]) == 1
+    print("    parse_story_scene: 按句切分（。！？；）+ 省略号保留 + emotion 继承")
 
 
 def test_parse_story_scene_truncate_and_is_end_dropped():
@@ -84,11 +120,14 @@ def test_parse_story_scene_contract_error():
         parse_story_scene({"paragraphs": "   "})
     with pytest.raises(ContractError):
         parse_story_scene({"paragraphs": "一段。", "choices": 42})
-    # 段落结构错误（text 非 str）→ ContractError; emotion 非 str → 宽容忽略
+    # 段落结构错误（text 非 str）→ ContractError; emotion 非 str/缺失 → ContractError
+    # （2026-08-30 契约强化: emotion 必填且为字符串——省略是表情变化极少的根因）
     with pytest.raises(ContractError):
         parse_story_scene({"paragraphs": [{"text": 42}]})
-    a, r = _parse("story_scene", {"paragraphs": [{"text": "x", "emotion": 42}]})
-    assert r.is_valid and a.payload["paragraphs"] == [{"text": "x"}]
+    with pytest.raises(ContractError):
+        parse_story_scene({"paragraphs": [{"text": "x", "emotion": 42}]})
+    with pytest.raises(ContractError):
+        parse_story_scene({"paragraphs": [{"text": "x"}]})
     # registry 层: ContractError 被收集为解析错误, 不 raise
     a, r = _parse("story_scene", {"paragraphs": []})
     assert a is None and not r.is_valid and "paragraphs" in r.errors[0]

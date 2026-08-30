@@ -259,6 +259,26 @@
   font-size: 0.98rem;
   cursor: pointer;
 }
+/* 纯叙事场"继续"按钮（2026-08-30: 无选项场次点击推进——后端预生成已就绪零等待;
+   平行四边形风格与选项横条一致, 但更小更淡——它是推进动作不是决策。
+   命名 bond-continue-btn: 不与 #bond-continue（右下继续三角）撞名） */
+.bond-free .bond-continue-btn {
+  margin: 0 auto;
+  padding: 0.55rem 2.2rem;
+  border-radius: 0;
+  background: rgba(255, 255, 255, 0.92);
+  color: #3a3f52;
+  font-weight: bold;
+  letter-spacing: 0.06em;
+  clip-path: polygon(4% 0, 100% 0, 96% 100%, 0 100%);
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.3);
+  transition: all 0.16s;
+}
+.bond-free .bond-continue-btn:hover {
+  background: #ffffff;
+  color: #1e4a8c;
+  transform: translateY(-1px);
+}
 
 .bond-end {
   width: 100%;
