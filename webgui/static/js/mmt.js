@@ -265,18 +265,6 @@ function renderError(msg) {
 // 失败/成功切换只改气泡 class + 增删感叹号元素, 气泡位置不变, 无拉长/瞬移）
 // ---------------------------------------------------------------------------
 
-// 发送失败（同步路径）→ 渲染玩家气泡 + failed + 感叹号
-function renderFailedBubble(text) {
-  const box = $("mmt-bubbles");
-  if (!box) return;
-  const bubble = document.createElement("div");
-  bubble.className = "mmt-bubble player failed";
-  bubble.textContent = text;
-  box.appendChild(bubble);
-  attachFailMark(bubble, text, "发送失败");
-  scrollBubbles();
-}
-
 // 异步失败 → 把对应文本的玩家气泡转失败态（找不到/已失败 → 放弃）
 function markFailedBubble(text, errMsg) {
   const box = $("mmt-bubbles");
@@ -383,13 +371,15 @@ async function sendMessage() {
     data = await res.json();
   } catch (e) {
     hideTyping();
-    renderFailedBubble(text);      // 微信式: 气泡保留 + 感叹号（可重发/删除）
+    // 转态不新建（与异步失败路径 markFailedBubble 一致）——修复 2026-08-30 重复 bug:
+    // 之前用 renderFailedBubble 再渲染一条 → 同文本两条气泡（乐观 + 失败标记）
+    markFailedBubble(text, e.message);
     renderError("发送失败（网络错误: " + e.message + "）");
     return;
   }
   if (!res.ok || !data.accepted) {
     hideTyping();
-    renderFailedBubble(text);
+    markFailedBubble(text, data.detail || data.reason || "发送失败");
     renderError(data.detail || data.reason || "发送失败");
     return;
   }
