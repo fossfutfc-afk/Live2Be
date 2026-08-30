@@ -96,6 +96,12 @@
   /* 平行四边形（与选项同款: 上下边等长平行, 整体小角度倾斜） */
   clip-path: polygon(2.5% 0, 100% 0, 97.5% 100%, 0 100%);
 }
+/* 自动模式激活（黄）: 一段对话打完 3s 自动推进/自动选第 1 个选项 */
+.bond-topbtn.active {
+  background: linear-gradient(180deg, #ffd977, #ffc93c);
+  color: #5a3a00;
+  opacity: 1;
+}
 
 /* 左下: 角色名 + 社团 + 分隔线（官方名字牌——名字大号白字, 社团小号蓝字） */
 .bond-nameplate {
