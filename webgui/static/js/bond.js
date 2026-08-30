@@ -112,12 +112,12 @@ const BondVN = (() => {
       if (!player) {
         // 图片大小: resolution = devicePixelRatio（retina 清晰）; autoFit 由
         // SpinePlayer 内部 ResizeObserver + fit 保证;
-        // fitShift 0.09 = 官方构图（立绘保持完整大小居中, 整体下移 9% 屏高,
-        // 下半身刻意移出屏幕外——不是放大裁切）
+        // fitShift 0.15 = 官方构图（立绘完整大小居中, 整体下移 15% 屏高,
+        // 小腿以下刻意移出屏幕外——不是放大裁切）
         player = await createSpinePlayer($("bond-stage"), playerMeta.pack, {
           emotionMap: playerMeta.emotions,
           autoFit: true,
-          fitShift: 0.09,
+          fitShift: 0.15,
           resolution: window.devicePixelRatio || 1,
         });
       }
