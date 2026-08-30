@@ -2,7 +2,33 @@
    背景(cover 全屏 + 底部暗渐) → 立绘(透明浮层, 中央偏左) → 左下名字+社团+分隔线
    → 下部对话文本(逐字输出) + 选项 → 右上 自动/菜单 按钮(占位) → 右下 继续三角。
    图片参数: 背景 object-fit: cover 全屏不变形; 立绘由 SpinePlayer.fit('contain')
-   按骨骼 bounds 自适应舞台（完整可见）; resolution 走 devicePixelRatio（retina）。 */
+   按骨骼 bounds 自适应舞台（完整可见）; resolution 走 devicePixelRatio（retina）。
+
+   字体（2026-08-29 官方字体落地）: BA 官方 UI 主字体 = M PLUS Rounded 1c
+   （开源 OFL 圆体——数字/英文/日文假名/标点还原; 本地化 latin 子集 ~22KB/字重）;
+   中文 fallback: 幼圆（Windows 自带圆体）/ Yuanti SC（macOS）/ 苹方 / 微软雅黑。
+   替换方法: 换字体 = 改下面 font-family 栈 + @font-face（或删掉 @font-face 走系统字体）。 */
+
+/* M PLUS Rounded 1c（本地化, OFL 1.1 许可——BA 官方 UI 主字体） */
+@font-face {
+  font-family: "M PLUS Rounded 1c";
+  src: url("/static/vendor/fonts/mplus-rounded-latin-400-normal.woff2") format("woff2");
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: "M PLUS Rounded 1c";
+  src: url("/static/vendor/fonts/mplus-rounded-latin-700-normal.woff2") format("woff2");
+  font-weight: 700;
+  font-display: swap;
+}
+@font-face {
+  font-family: "M PLUS Rounded 1c";
+  src: url("/static/vendor/fonts/mplus-rounded-latin-900-normal.woff2") format("woff2");
+  font-weight: 900;
+  font-display: swap;
+}
+
 #view-bond.bond {
   position: fixed;
   inset: 0;
@@ -10,7 +36,8 @@
   overflow: hidden;
   background: #1a1220;            /* 兜底深色（无背景图时） */
   color: #f5e8ef;
-  font-family: system-ui;
+  font-family: "M PLUS Rounded 1c", "幼圆", "Yuanti SC", "PingFang SC",
+               "Microsoft YaHei", sans-serif;
 }
 
 /* 背景层（cover 全屏; 淡入; 底部暗渐交给 .bond-shade） */
@@ -86,7 +113,7 @@
   gap: 0.45rem;
 }
 .bond-topbtn {
-  padding: 0.32rem 1.05rem;
+  padding: 0.6rem 1.95rem;
   border: none;
   border-radius: 0;
   background: linear-gradient(180deg, #ffffff, #eef1f6);
@@ -178,7 +205,7 @@
   flex-direction: column;
   align-items: stretch;           /* 所有子项拉伸到容器宽 */
   width: fit-content;             /* 容器宽 = 最长子项（最长横条决定全体长度） */
-  min-width: 300px;               /* 下限: 太短的选项也有基本长度 */
+  min-width: 600px;               /* 下限: 太短的选项也有基本长度 */
   max-width: 78%;                 /* 上限: 超长文本不撑爆屏幕 */
   gap: 0.9rem;
 }
