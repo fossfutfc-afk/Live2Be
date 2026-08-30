@@ -127,7 +127,8 @@
 /* 正在输出的当前段（打字机）——淡入, 其余段照常 */
 .bond-para.done { opacity: 1; }
 
-/* 交互区（画面中上部——官方 VN 选项: 白色大横条, 居中对齐, 多选错落叠放） */
+/* 交互区（画面中上部——官方 VN 选项: 白色大横条, 所有选项等宽 = 最长项决定;
+   平行四边形: 上下边等长平行, 整体小角度倾斜） */
 .bond-choices {
   position: absolute;
   left: 50%;
@@ -136,14 +137,16 @@
   z-index: 2;
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: stretch;           /* 所有子项拉伸到容器宽 */
+  width: fit-content;             /* 容器宽 = 最长子项（最长横条决定全体长度） */
+  min-width: 300px;               /* 下限: 太短的选项也有基本长度 */
+  max-width: 78%;                 /* 上限: 超长文本不撑爆屏幕 */
   gap: 0.9rem;
-  max-width: 78%;
 }
 .bond-choice {
-  width: 100%;
-  min-width: 360px;
-  padding: 0.8rem 1.8rem;
+  position: relative;             /* left 偏移用（不影响布局宽度——等宽不被破坏） */
+  width: auto;
+  padding: 0.8rem 2rem;
   border: none;
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.97), rgba(232, 238, 248, 0.9));
   color: #3a3f52;
@@ -153,13 +156,13 @@
   box-shadow: 0 3px 14px rgba(0, 0, 0, 0.35);
   cursor: pointer;
   transition: all 0.16s;
-  /* 官方选项 = 偏向长方形的平行四边形: 上下边等长且平行, 整体小角度倾斜
-     （polygon 四点: 左上/右上/右下/左下——上边略短于下边会让上下边不平行;
-      这里上下边等长: 上边 [2.5%,0]→[97.5%,0], 下边 [0,100%]→[100%,100%], 倾斜 2.5%） */
-  clip-path: polygon(2.5% 0, 97.5% 0, 100% 100%, 0 100%);
+  /* 平行四边形（上下边等长平行, 整体倾斜）:
+     上边 [2.5%,0]→[100%,0] 与 下边 [0,100%]→[97.5%,100%] 均宽 97.5%,
+     左右斜边平行——不是梯形 */
+  clip-path: polygon(2.5% 0, 100% 0, 97.5% 100%, 0 100%);
 }
-.bond-choice:nth-child(2) { margin-left: 2.2rem; right: -1.1rem; }   /* 多选错位叠放 */
-.bond-choice:nth-child(3) { margin-left: -1.1rem; }
+.bond-choice:nth-child(2) { left: 2.4rem; }        /* 多选错落叠放（官方样式, 纯视觉偏移） */
+.bond-choice:nth-child(3) { left: -1.2rem; }
 .bond-choice:hover {
   background: #ffffff;
   color: #1e4a8c;
