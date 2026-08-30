@@ -58,14 +58,15 @@ def test_parse_story_scene_paragraphs_inline_emotion():
         {"text": "对不起...", "emotion": "panic"},
         {"text": "啊..没关系吗..欸嘿嘿", "emotion": "smile"},
     ]
-    # 2026-08-30 契约强化: emotion 必填——省略 → ContractError
-    # （LLM 省略 emotion → 表情变化极少的根因; 强制标注 + feedback 回灌重试）
+    # 2026-08-31 两遍式 C: emotion 从必填降为**可选**（骨架模式）——省略不再
+    # ContractError（生成不背 emotion 负担; 缺省段落由标注层批量补标）
     a2, r2 = _parse("story_scene", {
         "paragraphs": [{"text": "我忘记标表情了", "emotion": "smile"},
                        {"text": "这行没标"}],
     })
-    assert a2 is None and not r2.is_valid and "emotion" in r2.errors[0]
-    # 旧习惯模型: 裸字符串段落 → 包成 {"text": ...}（兼容, 不强制）;
+    assert r2.is_valid and a2 is not None
+    assert "emotion" not in a2.payload["paragraphs"][1], a2.payload["paragraphs"]
+    # 旧习惯模型: 裸字符串段落 → 包成 {"text": ...}（兼容）;
     # 有 choices 时必须带 branches（板块契约）——单串 choices 也触发强制
     a, r = _parse("story_scene", {
         "paragraphs": "单段", "choices": "单选",
@@ -74,7 +75,7 @@ def test_parse_story_scene_paragraphs_inline_emotion():
     assert a.payload["paragraphs"] == [{"text": "单段"}]
     assert a.payload["choices"] == ["单选"]
     assert a.payload["branches"] == {"单选": [{"text": "分支段"}]}
-    print("    parse_story_scene: 段落 {text, emotion} 必填 + 缺省 ContractError + 单串容错")
+    print("    parse_story_scene: 段落 emotion 可选（骨架, 标注层补标）+ 单串容错")
 
 
 def test_parse_story_scene_sentence_split():
@@ -134,12 +135,13 @@ def test_parse_story_scene_branches():
     # 无 choices（纯叙事板块）→ 不需要 branches
     a, r = _parse("story_scene", {"paragraphs": [{"text": "纯叙事。", "emotion": "nomal"}]})
     assert r.is_valid and "branches" not in a.payload
-    # 分支段落与正文同一道强制: 缺 emotion → ContractError（AI 不遵守表情的契约兜底）
+    # 2026-08-31 两遍式 C: 分支段落缺 emotion → 通过（骨架模式, 标注层补标）
     a, r = _parse("story_scene", {
         "paragraphs": [{"text": "正文。", "emotion": "nomal"}],
         "choices": ["A"],
         "branches": {"A": [{"text": "分支忘了标表情。"}]}})
-    assert a is None and not r.is_valid and "emotion" in r.errors[0], r.errors
+    assert r.is_valid
+    assert "emotion" not in a.payload["branches"]["A"][0]
     # BondScene 往返（branches 序列化/回放）——用带 branches 的场景（不走契约解析）
     scene = BondScene.from_action(_action("story_scene", {
         "paragraphs": [{"text": "正文。", "emotion": "nomal"}],
@@ -176,18 +178,18 @@ def test_parse_story_scene_contract_error():
         parse_story_scene({"paragraphs": "   "})
     with pytest.raises(ContractError):
         parse_story_scene({"paragraphs": "一段。", "choices": 42})
-    # 段落结构错误（text 非 str）→ ContractError; emotion 非 str/缺失 → ContractError
-    # （2026-08-30 契约强化: emotion 必填且为字符串——省略是表情变化极少的根因）
+    # 段落结构错误（text 非 str）→ ContractError; 2026-08-31 两遍式 C:
+    # emotion 可选（骨架模式）——非 str/缺失不再打回（标注层负责补标）
     with pytest.raises(ContractError):
         parse_story_scene({"paragraphs": [{"text": 42}]})
-    with pytest.raises(ContractError):
-        parse_story_scene({"paragraphs": [{"text": "x", "emotion": 42}]})
-    with pytest.raises(ContractError):
-        parse_story_scene({"paragraphs": [{"text": "x"}]})
+    a, r = _parse("story_scene", {"paragraphs": [{"text": "x", "emotion": 42}]})
+    assert r.is_valid and "emotion" not in a.payload["paragraphs"][0]
+    a, r = _parse("story_scene", {"paragraphs": [{"text": "x"}]})
+    assert r.is_valid and "emotion" not in a.payload["paragraphs"][0]
     # registry 层: ContractError 被收集为解析错误, 不 raise
     a, r = _parse("story_scene", {"paragraphs": []})
     assert a is None and not r.is_valid and "paragraphs" in r.errors[0]
-    print("    parse_story_scene: 空段落/坏结构/坏 choices → ContractError")
+    print("    parse_story_scene: 空段落/坏结构/坏 choices → ContractError; emotion 可选")
 
 
 # ----------------------------------------------------------------------------

@@ -69,16 +69,15 @@ def _split_sentences(text: str) -> list[str]:
 def _parse_paragraphs(payload: dict[str, Any]) -> list[dict]:
     """必填 paragraphs 白名单校验 + 机器侧容错（硬错误抛 ContractError）。
 
-    每项（2026-08-23 架构定稿: 情绪内联, 删 beats; 2026-08-30 强化×2）:
-        {"text": 段落文本, "emotion": 必填表情词表键, "inner": 可选内心独白}
-        ——emotion 必填（缺 → ContractError → feedback 重试）: 之前"缺省延续"
-        让 LLM 省略 emotion → 表情变化极少（真实运行只变过 1 次）; 强制标注后
-        每单元都切表情。
-        ——一句一段硬校验: 段落含 >1 个句末标点（。！？；）→ ContractError
-        （多句压一段 = 一个 emotion 字段, 表情粒度粗——切分继承名存实亡;
-        强制 LLM 按句拆段、每句标 emotion, 保证"每一句话都伴随表情变化"）。
-    兼容旧输入: 裸字符串 str → 包成 {"text": str}（旧习惯模型不崩; 无 emotion
-    旧档兼容——渲染延续语义保留给字符串段落; 字符串段落不做一句一段校验）。
+    每项（2026-08-23 架构定稿: 情绪内联; 2026-08-30 强化×2; 2026-08-31 两遍式）:
+        {"text": 段落文本, "emotion": 可选表情词表键, "inner": 可选内心独白}
+        ——emotion 2026-08-31 起**可选**（两遍式 C: 生成骨架与情绪标注解耦）:
+        生成时 LLM 不背 emotion 负担（长输出注意力分散 → 缺漏 → 全量重试的
+        死结解除）; 缺省段落由独立标注层批量补标（core/bond/emotion_annotate.py）。
+        契约只保留结构校验（一句一段）——emotion 不再打回。
+        ——一句一段硬校验保留: 段落含 >1 个句末标点（。！？；）→ ContractError
+        （多句压一段 = 显示粒度粗; 分段是骨架的结构义务, 与 emotion 无关）。
+    兼容旧输入: 裸字符串 str → 包成 {"text": str}（旧习惯模型不崩）。
 
     Returns: 至少 1 个 {text, emotion?, inner?} 组成的列表（strip 后）。
     """
@@ -94,22 +93,18 @@ def _parse_paragraphs(payload: dict[str, Any]) -> list[dict]:
         elif isinstance(p, dict):
             text = p.get("text")
             if isinstance(text, str) and text.strip():
-                emotion = p.get("emotion")
-                if not (isinstance(emotion, str) and emotion.strip()):
-                    raise ContractError(
-                        "paragraphs 每项必须带 emotion（表情词表键）——"
-                        "每单元标注当前情绪, 情绪一变就切新单元")
                 if len(_SENTENCE_END.findall(text)) > 1:
                     raise ContractError(
                         "paragraphs 每个单元只能是一句话（以句号/感叹号/问号结尾）——"
                         "当前单元含多个句末标点: " + text[:40] + "……"
-                        "请把多句拆成多个 paragraphs 单元, 每句分别标注 emotion"
-                        "（保证每一句话都伴随表情变化）")
+                        "请把多句拆成多个 paragraphs 单元")
+                item: dict[str, Any] = {"text": text.strip()}
+                emotion = p.get("emotion")
+                if isinstance(emotion, str) and emotion.strip():
+                    item["emotion"] = emotion.strip()
                 inner = p.get("inner")
-                inner_s = inner.strip() if isinstance(inner, str) else ""
-                item: dict[str, Any] = {"text": text.strip(), "emotion": emotion.strip()}
-                if inner_s:
-                    item["inner"] = inner_s     # 内心独白挂本句（低频惊喜）
+                if isinstance(inner, str) and inner.strip():
+                    item["inner"] = inner.strip()
                 paragraphs.append(item)
     if not paragraphs:
         raise ContractError("paragraphs 至少需要一个非空段落")
