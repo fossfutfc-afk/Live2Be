@@ -40,6 +40,7 @@ const BondVN = (() => {
   let typeSeg = 0;
   let typeOnDone = null;
   let typeBoxEl = null;
+  let sceneIsEnd = false;           // 当前场景是否 is_end（continue 三角分派: 结束→finish）
 
   // ---------------------------------------------------------------------------
   // 公开: 进入 VN（mmt.js 收到 bond_story 或重进 in_vn 会话时调用）
@@ -147,21 +148,32 @@ const BondVN = (() => {
   // 场景渲染: 背景 → 打字机（逐字输出 + 段首切立绘表情）→ 打完 → 选项/输入/收尾
   // ---------------------------------------------------------------------------
 
-  function renderScene(scene) {
+  async function renderScene(scene) {
     busy = false;
     stopTyping();
-    // 背景（scene_id → background_url; 无 → 保持当前/默认黑）
+    sceneIsEnd = !!scene.is_end;
+    // 背景（scene_id → background_url; is_end 无背景 → 清空显示默认黑屏——官方结束样式）
     const bg = $("bond-bg");
     if (scene.background_url) {
       bg.style.backgroundImage = `url("${scene.background_url}")`;
     } else if (!scene.background) {
       bg.style.backgroundImage = "";
     }
+    // 名字牌: is_end（旁白余韵, 无角色名）→ 隐藏
+    const np = document.querySelector(".bond-nameplate");
+    if (np) np.classList.toggle("hidden", !!scene.is_end);
+    // 立绘: is_end 且无背景（黑屏余韵, 角色已离场）→ 隐藏; 否则显示
+    const stage = $("bond-stage");
+    if (stage) stage.classList.toggle("hidden", !!scene.is_end && !scene.background);
 
     const box = $("bond-text");
     const choiceBox = $("bond-choices");
     choiceBox.innerHTML = "";
     hideContinue();
+    // 章节标题面板（可选: scene.title —— 如"预先应对"）→ 展示后进入逐字
+    if (scene.title) {
+      await showTitle(scene.title, scene.background_url);
+    }
     typeOut(box, scene.paragraphs || [], () => {
       hideContinue();
       showInteraction(scene);
@@ -169,13 +181,39 @@ const BondVN = (() => {
     showContinue();                              // 打字中亮起 → 点击跳过
   }
 
+  async function showTitle(title, bgUrl) {
+    const t = $("bond-title");
+    const v = $("view-bond");
+    $("bond-title-text").textContent = title;
+    // 模糊背景层用当前场景背景（或无背景 → 深色兜底）
+    document.querySelector(".bond-title-bg").style.backgroundImage =
+      bgUrl ? `url("${bgUrl}")` : "";
+    t.classList.remove("hidden");
+    // 官方标题屏: 隐藏名字牌 + 模糊背景/立绘（整个画面虚化, 只留中央标题条清晰）
+    document.querySelector(".bond-nameplate").classList.add("hidden");
+    v.classList.add("title-active");
+    // 点击跳过 / 2.4s 自动继续
+    await new Promise((res) => {
+      let done = false;
+      const fin = () => {
+        if (done) return;
+        done = true;
+        t.classList.add("hidden");
+        v.classList.remove("title-active");
+        // 名字牌恢复（is_end 时 renderScene 会再隐藏）
+        document.querySelector(".bond-nameplate").classList.remove("hidden");
+        res();
+      };
+      t.addEventListener("click", fin, { once: true });
+      setTimeout(fin, 2400);
+    });
+  }
+
   function showInteraction(scene) {
     const choiceBox = $("bond-choices");
     if (scene.is_end) {
-      const done = document.createElement("div");
-      done.className = "bond-end";
-      done.textContent = "── 羁绊剧情结束 ──";
-      choiceBox.appendChild(done);
+      // 官方结束样式: 黑屏余韵——无"结束"横幅, 右下三角亮（点击 finish 或自动兜底）
+      showContinue();
       setTimeout(() => finish(), END_HOLD_MS);
     } else if (scene.choices && scene.choices.length) {
       scene.choices.forEach((c) => {
@@ -285,9 +323,12 @@ const BondVN = (() => {
     typeOnDone = null;
   }
 
-  // 继续三角（右下）: 点击跳过打字
+  // 继续三角（右下）: 打字中 = 跳过打字; is_end = 点击收尾 finish
   function bindContinue() {
-    $("bond-continue").addEventListener("click", skipType);
+    $("bond-continue").addEventListener("click", () => {
+      if (sceneIsEnd) finish();
+      else skipType();
+    });
   }
   function showContinue() { $("bond-continue").classList.add("show"); $("bond-continue").setAttribute("aria-hidden", "false"); }
   function hideContinue() { $("bond-continue").classList.remove("show"); $("bond-continue").setAttribute("aria-hidden", "true"); }
@@ -347,6 +388,13 @@ const BondVN = (() => {
     $("bond-text").innerHTML = "";
     $("bond-choices").innerHTML = "";
     hideContinue();
+    $("bond-title").classList.add("hidden");
+    v.classList.remove("title-active");
+    // 新场景默认显示名字牌（is_end 时 renderScene 隐藏）; 立绘默认显示
+    const np = document.querySelector(".bond-nameplate");
+    if (np) np.classList.remove("hidden");
+    const stg = $("bond-stage");
+    if (stg) stg.classList.remove("hidden");
     // 舞台尺寸: CSS 固定（左 56% × 上 88vh）——fit 由 SpinePlayer 管; 强制一次 reflow
     // 防首帧 0×0（ResizeObserver 首帧可能缺失）
     const stage = $("bond-stage");

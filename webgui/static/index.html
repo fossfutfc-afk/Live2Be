@@ -146,17 +146,24 @@
       <button class="bond-topbtn" type="button" disabled>自动</button>
       <button class="bond-topbtn" type="button" disabled>菜单</button>
     </div>
-    <!-- 下部对话块: 名字牌 → 对话文本(逐字) → 选项（底部对齐, 浮在画面上） -->
+    <!-- 下部对话块: 名字牌 → 对话文本(逐字)（底部对齐, 浮在画面上） -->
     <div class="bond-dialogue">
       <div class="bond-nameplate">
         <span id="bond-name" class="bond-name"></span>
         <span id="bond-club" class="bond-club"></span>
       </div>
       <div id="bond-text" class="bond-text"></div>
-      <div id="bond-choices" class="bond-choices"></div>
     </div>
-    <!-- 右下: 继续提示（点击跳过逐字） -->
+    <!-- 选项（画面中上部白色横条, 独立于对话块——官方 VN 选项样式） -->
+    <div id="bond-choices" class="bond-choices"></div>
+    <!-- 右下: 继续提示（点击跳过逐字 / 剧情结束点击收尾） -->
     <div id="bond-continue" class="bond-continue" aria-hidden="true">▾</div>
+    <!-- 章节标题面板（开场: 模糊背景 + 白色横条 + 深蓝大字, 如"预先应对"） -->
+    <div id="bond-title" class="bond-title hidden" aria-hidden="true">
+      <div class="bond-title-bg"></div>
+      <div class="bond-title-frame"></div>
+      <div class="bond-title-bar"><span id="bond-title-text" class="bond-title-text"></span></div>
+    </div>
   </section>
 </main>
 

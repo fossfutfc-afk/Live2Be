@@ -81,6 +81,7 @@ class BondScene:
     background: str | None = None
     audio: str | None = None
     place: str | None = None
+    title: str | None = None        # 章节标题（如"预先应对"）——开场标题面板; None = 不显示
     memorial_prompt: str = ""
     memorial_exit: bool = False
 
@@ -101,6 +102,8 @@ class BondScene:
             d["audio"] = self.audio
         if self.place is not None:
             d["place"] = self.place
+        if self.title:
+            d["title"] = self.title
         return d
 
     @classmethod
@@ -128,6 +131,7 @@ class BondScene:
         background = raw.get("background")
         audio = raw.get("audio")
         place = raw.get("place")
+        title = raw.get("title")
         return cls(
             paragraphs=paras,
             choices=choices,
@@ -135,6 +139,7 @@ class BondScene:
             background=background if isinstance(background, str) else None,
             audio=audio if isinstance(audio, str) else None,
             place=place if isinstance(place, str) else None,
+            title=title if isinstance(title, str) and title.strip() else None,
         )
 
     @classmethod
