@@ -69,17 +69,19 @@ def _split_sentences(text: str) -> list[str]:
 def _parse_paragraphs(payload: dict[str, Any]) -> list[dict]:
     """必填 paragraphs 白名单校验 + 机器侧容错（硬错误抛 ContractError）。
 
-    每项（2026-08-23 架构定稿: 情绪内联; 2026-08-30 强化×2; 2026-08-31 两遍式）:
+    每项（2026-08-23 架构定稿: 情绪内联; 2026-08-30 一句一段; 2026-08-31 两遍式×2）:
         {"text": 段落文本, "emotion": 可选表情词表键, "inner": 可选内心独白}
-        ——emotion 2026-08-31 起**可选**（两遍式 C: 生成骨架与情绪标注解耦）:
-        生成时 LLM 不背 emotion 负担（长输出注意力分散 → 缺漏 → 全量重试的
-        死结解除）; 缺省段落由独立标注层批量补标（core/bond/emotion_annotate.py）。
-        契约只保留结构校验（一句一段）——emotion 不再打回。
-        ——一句一段硬校验保留: 段落含 >1 个句末标点（。！？；）→ ContractError
-        （多句压一段 = 显示粒度粗; 分段是骨架的结构义务, 与 emotion 无关）。
+        ——emotion 可选（两遍式 C: 生成骨架与情绪标注解耦——缺省段落由标注层
+        批量补标, 契约不再打回）。
+        ——一句一段软化（两遍式 C 实测定版）: 多句段落**不再打回**, 引擎按
+        句末标点切分（_split_sentences）→ 每句一段; 标注层对切分后的每句
+        独立标注——切分不再"继承表情"（旧问题: 切分+单 emotion = 粒度粗）,
+        每句独立标注 = 粒度仍到句。骨架生成的结构失败源只剩 JSON 格式,
+        重试率趋零（真实测试: 场 1 契约重试 1, 场 2 多句长段 3 次耗尽中断——
+        实测定版后不再发生）。
     兼容旧输入: 裸字符串 str → 包成 {"text": str}（旧习惯模型不崩）。
 
-    Returns: 至少 1 个 {text, emotion?, inner?} 组成的列表（strip 后）。
+    Returns: 至少 1 个 {text, emotion?, inner?} 组成的列表（strip 后, 已切分）。
     """
     raw_paras = payload.get("paragraphs")
     if isinstance(raw_paras, str):
@@ -93,19 +95,16 @@ def _parse_paragraphs(payload: dict[str, Any]) -> list[dict]:
         elif isinstance(p, dict):
             text = p.get("text")
             if isinstance(text, str) and text.strip():
-                if len(_SENTENCE_END.findall(text)) > 1:
-                    raise ContractError(
-                        "paragraphs 每个单元只能是一句话（以句号/感叹号/问号结尾）——"
-                        "当前单元含多个句末标点: " + text[:40] + "……"
-                        "请把多句拆成多个 paragraphs 单元")
-                item: dict[str, Any] = {"text": text.strip()}
                 emotion = p.get("emotion")
-                if isinstance(emotion, str) and emotion.strip():
-                    item["emotion"] = emotion.strip()
                 inner = p.get("inner")
-                if isinstance(inner, str) and inner.strip():
-                    item["inner"] = inner.strip()
-                paragraphs.append(item)
+                inner_s = inner.strip() if isinstance(inner, str) else ""
+                for i, sent in enumerate(_split_sentences(text.strip())):
+                    item: dict[str, Any] = {"text": sent}
+                    if isinstance(emotion, str) and emotion.strip():
+                        item["emotion"] = emotion.strip()
+                    if i == 0 and inner_s:
+                        item["inner"] = inner_s     # 内心独白挂首句（低频惊喜）
+                    paragraphs.append(item)
     if not paragraphs:
         raise ContractError("paragraphs 至少需要一个非空段落")
     return paragraphs
