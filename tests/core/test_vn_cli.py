@@ -80,7 +80,9 @@ def _store_engine(llm, tmp_path) -> tuple[MomoTalkEngine, SessionStore, str]:
 # story_scene/story_end 契约动作（与 bond_story_rules.md few-shot 同构;
 # 2026-08-30 契约强化: emotion 必填 + 按句切分）
 SCENE_A = {"action": "story_scene", "payload": {
-    "paragraphs": [{"text": "段落一。", "emotion": "nomal"}], "choices": ["选A", "选B"]}}
+    "paragraphs": [{"text": "段落一。", "emotion": "nomal"}], "choices": ["选A", "选B"],
+    "branches": {"选A": [{"text": "分支一。", "emotion": "nomal"}],
+                 "选B": [{"text": "分支二。", "emotion": "smile"}]}}}
 STORY_END = {"action": "story_end", "payload": {
     "paragraphs": [{"text": "收尾了。", "emotion": "nomal"}]}}
 
@@ -153,7 +155,9 @@ def test_simulate_vn_scene():
 
 def test_run_vn_choice_flow(tmp_path):
     scene1 = {"action": "story_scene", "payload": {
-        "paragraphs": [{"text": "遥香在天台等你。", "emotion": "nomal"}], "choices": ["走过去", "喊她名字"]}}
+        "paragraphs": [{"text": "遥香在天台等你。", "emotion": "nomal"}], "choices": ["走过去", "喊她名字"],
+        "branches": {"走过去": [{"text": "她眼睛一亮。", "emotion": "smile"}],
+                     "喊她名字": [{"text": "她转过头来。", "emotion": "respond"}]}}}
     engine, st, sid = _store_engine(ScriptedLLM(scene1, STORY_END), tmp_path)
     calls = {"n": 0}
 
@@ -217,7 +221,9 @@ def test_run_vn_early_exit(tmp_path):
 def _scenes(n: int, start: int = 1) -> list[dict]:
     """n 个带选项的未结束 story_scene（永远不用 story_end 收尾）。"""
     return [{"action": "story_scene", "payload": {
-        "paragraphs": [{"text": f"场景{i}。", "emotion": "nomal"}], "choices": ["继续", "换种方式"]}}
+        "paragraphs": [{"text": f"场景{i}。", "emotion": "nomal"}], "choices": ["继续", "换种方式"],
+        "branches": {"继续": [{"text": "继续分支。", "emotion": "nomal"}],
+                     "换种方式": [{"text": "换分支。", "emotion": "smile"}]}}}
         for i in range(start, start + n)]
 
 

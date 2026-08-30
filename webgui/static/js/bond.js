@@ -579,21 +579,37 @@ const BondVN = (() => {
     busy = true;
     clearAutoTimer();             // 推进 → 自动倒计时作废（防自动+手动双提交）
     stopTyping();
+    let data;
     try {
-      const res = await fetch("/api/bond/turn", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ char_id: charId, session_id: sessionId, text }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.accepted) {
-        showError(data.detail || data.error || "剧情推进失败");
-        busy = false;
-        return;
+      for (;;) {
+        const res = await fetch("/api/bond/turn", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ char_id: charId, session_id: sessionId, text }),
+        });
+        data = await res.json();
+        if (data.busy) {          // 生成中（预生成未就绪）→ 等待后自动重试, 不报错
+          await sleep(BOND_POLL_MS);
+          continue;
+        }
+        if (!res.ok || !data.accepted) {
+          showError(data.detail || data.error || "剧情推进失败");
+          busy = false;
+          return;
+        }
+        break;
       }
     } catch (e) {
       showError("剧情推进失败（网络错误: " + e.message + "）");
       busy = false;
+      return;
+    }
+    if (data.scene) {
+      // 分支消费（板块契约）: turn 直接返回分支内容 → 零等待渲染, 不经轮询
+      $("bond-text").innerHTML = "";
+      $("bond-choices").innerHTML = "";
+      hideContinue();
+      renderScene(data.scene);
       return;
     }
     $("bond-text").innerHTML = "";

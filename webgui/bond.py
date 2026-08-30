@@ -63,6 +63,17 @@ DEMO_SCRIPT: list[dict] = [
              "emotion": "embarrassed"},
         ],
         "choices": ["「当然可以。」", "「我还有点事，改天吧。」"],
+        # 同响应分支（板块契约）: 选完立即展示——零等待
+        "branches": {
+            "「当然可以。」": [
+                {"text": "（她眼睛一下子亮了起来，用力点头）", "emotion": "happy"},
+                {"text": "「嗯！那、那说好了哦……！」", "emotion": "embarrassed"},
+            ],
+            "「我还有点事，改天吧。」": [
+                {"text": "（她愣了愣，随即笑着摆摆手）", "emotion": "smile"},
+                {"text": "「嗯……那老师，改天一定要约我哦。」", "emotion": "expectant"},
+            ],
+        },
     },
     {
         "background": "wildhunt_street",
@@ -240,6 +251,27 @@ def bond_turn(char_id: str, session_id: str, text: str) -> dict:
                 and not state.scene_obj.choices and not state.scene_obj.is_end):
             _pregenerate(state, char_id, session_id)
         return {"accepted": True, "busy": state.busy, "pregen": True}
+
+    # 分支消费（板块契约 2026-08-30）: 选项带同响应分支 → 立即展示分支内容
+    # （零等待——分支已在场景响应里, 无需再调 LLM; 返回 scene 由前端直接渲染）
+    # + 分支播放时预生成下一板块（输入固定"（继续）"）——读完点继续零等待
+    if (state.scene_obj is not None and state.scene_obj.branches
+            and text in state.scene_obj.branches):
+        branch = state.scene_obj.branches[text]
+        _log_scene(state, char_id, session_id, picked=text)   # 场景（含 branches）落库
+        state.scene_obj = BondScene(
+            paragraphs=branch,
+            background=state.scene_obj.background,
+            place=state.scene_obj.place,
+        )
+        state.scene = state.scene_obj.to_dict()
+        state.scene_logged = True    # 分支是场景一部分（已随场景落库）——继续时不重复落
+        state.prev_emotions = [p.get("emotion", "") for p in branch
+                               if isinstance(p, dict)]
+        # 分支播放时预生成下一板块（choices_used 已在场景生成时计过, 这里不加）
+        _pregenerate(state, char_id, session_id)
+        return {"accepted": True, "busy": state.busy, "branch": True,
+                "scene": state.scene}
 
     # append-only 事件流: 当前展示场景在玩家裁决时落库（带 picked）;
     # 纯叙事场的"（继续）"是推进指令不是内容裁决 → picked=None（与预生成消费一致）
