@@ -65,11 +65,15 @@ def test_parse_story_scene_paragraphs_inline_emotion():
                        {"text": "这行没标"}],
     })
     assert a2 is None and not r2.is_valid and "emotion" in r2.errors[0]
-    # 旧习惯模型: 裸字符串段落 → 包成 {"text": ...}（兼容, 不强制）
-    a, r = _parse("story_scene", {"paragraphs": "单段", "choices": "单选"})
+    # 旧习惯模型: 裸字符串段落 → 包成 {"text": ...}（兼容, 不强制）;
+    # 有 choices 时必须带 branches（板块契约）——单串 choices 也触发强制
+    a, r = _parse("story_scene", {
+        "paragraphs": "单段", "choices": "单选",
+        "branches": {"单选": "分支段"}})
     assert r.is_valid
     assert a.payload["paragraphs"] == [{"text": "单段"}]
     assert a.payload["choices"] == ["单选"]
+    assert a.payload["branches"] == {"单选": [{"text": "分支段"}]}
     print("    parse_story_scene: 段落 {text, emotion} 必填 + 缺省 ContractError + 单串容错")
 
 
@@ -102,15 +106,58 @@ def test_parse_story_scene_sentence_split():
     print("    parse_story_scene: 按句切分（。！？；）+ 省略号保留 + emotion 继承")
 
 
+def test_parse_story_scene_branches():
+    """2026-08-30 板块契约: branches 同响应分支（有 choices 必带; 键对齐; 段落同校验）。"""
+    # 有 choices 无 branches → ContractError（防 LLM 省略——memorial 教训）
+    a, r = _parse("story_scene", {
+        "paragraphs": [{"text": "x", "emotion": "nomal"}], "choices": ["A"]})
+    assert a is None and not r.is_valid and "branches" in r.errors[0]
+    # 正常: branches 解析 + 键对齐（只取 choices 的键）+ 切分/emotion 继承
+    a, r = _parse("story_scene", {
+        "paragraphs": [{"text": "正文。", "emotion": "nomal"}],
+        "choices": ["A", "B"],
+        "branches": {
+            "A": [{"text": "分支A。第二句也在这。", "emotion": "smile"}],
+            "B": "单段分支",
+            "C": [{"text": "非选项键被忽略", "emotion": "nomal"}],
+        }})
+    assert r.is_valid
+    assert list(a.payload["branches"].keys()) == ["A", "B"], a.payload["branches"]
+    assert a.payload["branches"]["A"] == [
+        {"text": "分支A。", "emotion": "smile"},
+        {"text": "第二句也在这。", "emotion": "smile"},
+    ]
+    assert a.payload["branches"]["B"] == [{"text": "单段分支"}]
+    # 无 choices（纯叙事板块）→ 不需要 branches
+    a, r = _parse("story_scene", {"paragraphs": [{"text": "纯叙事。", "emotion": "nomal"}]})
+    assert r.is_valid and "branches" not in a.payload
+    # BondScene 往返（branches 序列化/回放）——用带 branches 的场景（不走契约解析）
+    scene = BondScene.from_action(_action("story_scene", {
+        "paragraphs": [{"text": "正文。", "emotion": "nomal"}],
+        "choices": ["A", "B"],
+        "branches": {"A": [{"text": "分支A。", "emotion": "smile"}]}}))
+    assert "A" in scene.branches
+    rt = BondScene.from_dict(scene.to_dict())
+    assert rt.branches["A"] == [{"text": "分支A。", "emotion": "smile"}]
+    print("    parse_story_scene: branches（有 choices 必带/键对齐/切分继承/往返）")
+
+
 def test_parse_story_scene_truncate_and_is_end_dropped():
     a, r = _parse("story_scene", {
         "paragraphs": ["一段。"], "is_end": True,
         "choices": ["1", "2", "3", "4", "5"],
+        "branches": {"1": [{"text": "b1", "emotion": "nomal"}],
+                     "2": [{"text": "b2", "emotion": "nomal"}],
+                     "3": [{"text": "b3", "emotion": "nomal"}],
+                     "4": [{"text": "b4", "emotion": "nomal"}],
+                     "5": [{"text": "b5", "emotion": "nomal"}]},
     })
     assert r.is_valid
     assert len(a.payload["choices"]) == MAX_SCENE_CHOICES, a.payload
+    # branches 键与截断后的 choices 对齐（4/5 被丢弃）
+    assert list(a.payload["branches"].keys()) == ["1", "2", "3"], a.payload["branches"]
     assert "is_end" not in a.payload, "story_scene 残留 is_end 应静默丢弃（迁移容错）"
-    print("    parse_story_scene: choices 截断 + 残留 is_end 丢弃")
+    print("    parse_story_scene: choices 截断 + branches 键对齐 + 残留 is_end 丢弃")
 
 
 def test_parse_story_scene_contract_error():

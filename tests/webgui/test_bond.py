@@ -28,7 +28,9 @@ CHARACTER = "igusa_haruka"
 SCENE_A = {"action": "story_scene", "payload": {
     "paragraphs": [{"text": "段落一。", "emotion": "nomal"},
                    {"text": "段落二。", "emotion": "smile"}],
-    "choices": ["选A", "选B"]}}
+    "choices": ["选A", "选B"],
+    "branches": {"选A": [{"text": "分支一。", "emotion": "nomal"}],
+                 "选B": [{"text": "分支二。", "emotion": "smile"}]}}}
 STORY_END = {"action": "story_end", "payload": {
     "paragraphs": [{"text": "收尾了。", "emotion": "nomal"}]}}
 # 纯叙事场（无 choices）——2026-08-30: 契约语义改为"整段剧情 2~3 次选择,
@@ -113,9 +115,15 @@ def test_bond_full_flow(tmp_path):
         assert scene1["choices"] == ["选A", "选B"]
         assert not st1["completed"]
 
-        # turn: 玩家选 A → 补录首场 + 生成收尾场
+        # turn: 玩家选 A → 分支消费（同响应, 零等待——分支已在场景里, 不占轮次）
+        # → 点继续 → 生成收尾场
         r2 = bond.bond_turn(CHARACTER, sid, "选A")
-        assert r2["accepted"] and r2["busy"]
+        assert r2["accepted"] and r2.get("branch") and r2["scene"] is not None
+        assert r2["scene"]["paragraphs"][0]["text"] == "分支一。"
+        st1b = bond.bond_status(CHARACTER, sid)
+        assert st1b["round"] == 1, "分支是场景一部分, 不占轮次"
+        r2b = bond.bond_turn(CHARACTER, sid, "（继续）")
+        assert r2b["accepted"]
         st2 = _wait_status(CHARACTER, sid)
         assert st2["round"] == 2
         assert st2["scene"]["paragraphs"][0]["text"] == "收尾了。"
@@ -191,10 +199,12 @@ def test_bond_start_idempotent_and_guards(tmp_path):
         r = bond.bond_start(CHARACTER, sid)
         assert r["accepted"] and r.get("resumed") is True
 
-        # 剧情结束后 turn 被拒（应调 finish）
-        bond.bond_turn(CHARACTER, sid, "选A")
+        # 剧情结束后 turn 被拒（应调 finish）——先分支消费, 再继续到收尾场
+        r2 = bond.bond_turn(CHARACTER, sid, "选A")         # 分支消费（同响应）
+        assert r2.get("branch")
+        bond.bond_turn(CHARACTER, sid, "（继续）")          # 分支播完 → 生成收尾场
         _wait_status(CHARACTER, sid)
-        r3 = bond.bond_turn(CHARACTER, sid, "选A")   # 已 completed → 拒绝
+        r3 = bond.bond_turn(CHARACTER, sid, "选A")         # 已 completed → 拒绝
         assert not r3["accepted"] and r3.get("completed") is True
 
         # 未开始: 另一个 session → turn/finish 拒绝
@@ -223,6 +233,12 @@ def test_bond_demo_full_flow(tmp_path):
         assert st1["scene"]["choices"]                     # 场 1 有选项
 
         bond.bond_turn(CHARACTER, sid, "「当然可以。」")
+        # 分支消费（同响应）: round 不变, scene = 分支内容（零等待展示）
+        st1b = bond.bond_status(CHARACTER, sid)
+        assert st1b["round"] == 1 and not st1b["completed"]
+        assert "亮了起来" in st1b["scene"]["paragraphs"][0]["text"], st1b["scene"]
+        # 分支播完 → 点继续 → 场 2（纯叙事, 无选项）
+        bond.bond_turn(CHARACTER, sid, "（继续）")
         st2 = _wait_status(CHARACTER, sid)
         assert st2["round"] == 2 and st2["scene"]["background"] == "wildhunt_street"
         assert not st2["completed"]
@@ -361,9 +377,11 @@ def test_bond_pregenerate_narrative_flow(tmp_path):
         st1 = _wait_status(CHARACTER, sid)
         assert st1["scene"]["choices"] == ["选A", "选B"]       # 首场带选项 → 不预生成
 
-        # 选 A → 第 2 场（纯叙事, 无选项）——生成完自动触发预生成（第 3 场"（继续）"）
+        # 选 A → 分支消费（同响应零等待）→ 点继续 → 第 2 场（纯叙事, 无选项）
+        # ——生成完自动触发预生成（第 3 场"（继续）"）
         r2 = bond.bond_turn(CHARACTER, sid, "选A")
-        assert r2["accepted"]
+        assert r2["accepted"] and r2.get("branch"), r2
+        assert bond.bond_turn(CHARACTER, sid, "（继续）")["accepted"]
         st2 = _wait_status(CHARACTER, sid)
         assert st2["scene"]["choices"] == []                    # 纯叙事场
         # 等预生成完成（后台线程）——脚本 STORY_END 已被预生成消费

@@ -30,7 +30,9 @@ ENTER = {"action": "memorial_enter", "payload": {
 EXIT = {"action": "memorial_exit", "payload": {
     "paragraphs": "遥香吸了吸鼻子, 破涕为笑。"}}
 SCENE = {"action": "story_scene", "payload": {
-    "paragraphs": [{"text": "她们蹲在路边摊前。", "emotion": "smile"}], "choices": ["一起吃"]}}
+    "paragraphs": [{"text": "她们蹲在路边摊前。", "emotion": "smile"}],
+    "choices": ["一起吃"],
+    "branches": {"一起吃": [{"text": "她递来一串章鱼烧。", "emotion": "smile"}]}}}
 STORY_END = {"action": "story_end", "payload": {
     "paragraphs": [{"text": "（夜色里, 她的影子终于不再躲闪。）", "emotion": "smile"}]}}
 

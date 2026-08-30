@@ -77,6 +77,9 @@ class BondScene:
 
     paragraphs: list[dict] = field(default_factory=list)   # [{text, emotion?}]
     choices: list[str] = field(default_factory=list)
+    # 板块契约（2026-08-30）: 同响应分支内容 {选项文本: [段落…]}——玩家选该选项后
+    # 立即展示（零等待, Storyloom <choice>+<branch> 模式）; 空 = 无分支
+    branches: dict[str, list] = field(default_factory=dict)
     is_end: bool = False
     background: str | None = None
     audio: str | None = None
@@ -96,6 +99,10 @@ class BondScene:
             "choices": list(self.choices),
             "is_end": bool(self.is_end),
         }
+        if self.branches:
+            d["branches"] = {
+                k: [dict(p) if isinstance(p, dict) else {"text": p} for p in v]
+                for k, v in self.branches.items()}
         if self.background is not None:
             d["background"] = self.background
         if self.audio is not None:
@@ -128,6 +135,24 @@ class BondScene:
                         item["emotion"] = emotion.strip()
                     paras.append(item)
         choices = [c for c in raw.get("choices", []) if isinstance(c, str)]
+        branches: dict[str, list] = {}
+        for k, v in (raw.get("branches") or {}).items():
+            if not isinstance(k, str):
+                continue
+            branch_paras: list[dict] = []      # 独立变量名——不能复用 paras
+            for p in v if isinstance(v, list) else []:
+                if isinstance(p, str) and p.strip():
+                    branch_paras.append({"text": p.strip()})
+                elif isinstance(p, dict):
+                    text = p.get("text")
+                    if isinstance(text, str) and text.strip():
+                        item: dict = {"text": text.strip()}
+                        emo = p.get("emotion")
+                        if isinstance(emo, str) and emo.strip():
+                            item["emotion"] = emo.strip()
+                        branch_paras.append(item)
+            if branch_paras:
+                branches[k] = branch_paras
         background = raw.get("background")
         audio = raw.get("audio")
         place = raw.get("place")
@@ -135,6 +160,7 @@ class BondScene:
         return cls(
             paragraphs=paras,
             choices=choices,
+            branches=branches,
             is_end=bool(raw.get("is_end", False)),
             background=background if isinstance(background, str) else None,
             audio=audio if isinstance(audio, str) else None,
@@ -163,6 +189,7 @@ class BondScene:
         scene = cls(
             paragraphs=paras,
             choices=[c for c in payload.get("choices", []) if isinstance(c, str)],
+            branches=payload.get("branches") or {},
             is_end=(action.action == "story_end"),
             place=payload.get("place") if isinstance(payload.get("place"), str) else None,
         )

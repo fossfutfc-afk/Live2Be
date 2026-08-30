@@ -140,18 +140,58 @@ def _parse_place(payload: dict[str, Any]) -> str | None:
     return raw.strip()
 
 
+def _parse_branches(payload: dict[str, Any], choices: list[str]) -> dict[str, list]:
+    """可选 branches 白名单校验（2026-08-30 板块契约: 同响应分支内容）。
+
+    branches = {选项文本: [段落…]}——玩家选该选项后**立即展示**的内容（零等待,
+    Storyloom <choice>+<branch> 同响应模式）。每个分支段落复用 _parse_paragraphs
+    （emotion 必填 + 按句切分）。约束:
+      - branches 必须是 dict; 键 = choices 里的选项文本（只取 choices 中的键）
+      - 键对应的值必须是段落数组（str 或 {text, emotion}——同 paragraphs 容错）
+      - **有 choices 时必须带 branches**（用户方案核心: 分支同响应才零等待——
+        缺失 → ContractError → feedback 提示, 防 LLM 省略, memorial 教训）
+      - story_end 无 choices → 不需要 branches
+    """
+    raw = payload.get("branches")
+    if raw is None:
+        if choices:
+            raise ContractError(
+                "story_scene 带 choices 时必须同时提供 branches（dict: 选项文本 → "
+                "该选项对应的段落数组）——玩家选完立即展示分支内容, 零等待。"
+                "例: \"branches\": {\"走过去\": [{\"text\": \"…\", \"emotion\": \"…\"}]}")
+        return {}
+    if not isinstance(raw, dict):
+        raise ContractError("branches 必须是 dict（选项文本 → 段落数组）")
+    branches: dict[str, list] = {}
+    for choice in choices:                       # 只取 choices 里的键（对齐）
+        val = raw.get(choice)
+        if val is None:
+            continue
+        if isinstance(val, str):
+            val = [val]
+        if not isinstance(val, list):
+            raise ContractError(f"branches[{choice}] 必须是段落数组（或单段字符串）")
+        branches[choice] = _parse_paragraphs({"paragraphs": val})
+    return branches
+
+
 def parse_story_scene(payload: dict[str, Any]) -> dict[str, Any]:
     """story_scene payload 白名单校验 + 机器侧容错（硬错误抛 ContractError）。
 
-    返回 {paragraphs: [{text, emotion?}], choices: [str], place: str|None}——
-    is_end 由动作类型推导（story_scene 隐含 False）。残留 is_end 字段被白名单静默
-    丢弃（迁移容错: 旧习惯模型仍输出 is_end 也当中段继续, 双层兜底照常兜住）。
-    旧 beats 字段静默忽略（2026-08-23 情绪内联进 paragraphs, 兼容旧输出）。
+    返回 {paragraphs: [{text, emotion?}], choices: [str], branches: {choice: [段]},
+    place: str|None}——is_end 由动作类型推导（story_scene 隐含 False）。残留 is_end
+    字段被白名单静默丢弃（迁移容错: 旧习惯模型仍输出 is_end 也当中段继续, 双层兜底
+    照常兜住）。旧 beats 字段静默忽略（2026-08-23 情绪内联进 paragraphs, 兼容旧输出）。
+    branches（2026-08-30 板块契约）: 有 choices 时必须带——同响应分支内容, 选完
+    零等待; 无 choices（纯叙事场）不需要。
     """
     paragraphs = _parse_paragraphs(payload)
     choices = _parse_choices(payload)
+    branches = _parse_branches(payload, choices)
     place = _parse_place(payload)
     result: dict[str, Any] = {"paragraphs": paragraphs, "choices": choices}
+    if branches:
+        result["branches"] = branches
     if place is not None:
         result["place"] = place
     return result
@@ -231,18 +271,22 @@ def build_story_registry() -> StoryActionRegistry:
         payload_schema=(
             "payload 字段（story_scene 中段场景参数）:\n"
             "  paragraphs: 必填, 数组——每项 {text, emotion, inner?}:\n"
-            "      text: 一个情绪单元（一句对白 或 一个动作描写; 情绪一致的多句可合并;\n"
-            "          动作描写单独成单元, 不塞进对白单元）; 至少 1 单元\n"
+            "      text: 一个情绪单元（**一句话**——一句对白 或 一个动作描写;\n"
+            "          句子要短: 旁白 15~40 字只说一件事, 对白一句一段）; 至少 1 单元\n"
             "      emotion: 必填, 表情词表内的情绪名（见【表情标注词表】）——\n"
             "          **每个情绪单元都必须标 emotion, 不要省略、不要留空**\n"
-            "          情绪连续就合并成一个单元; 情绪一变就切新单元并标新 emotion\n"
+            "          情绪一变就切新单元并标新 emotion\n"
             "      inner: 可选, 字符串——**内心独白**（角色没说出口的心理活动, 屏幕变黑\n"
             "          单独展示）。低频惊喜: 只在情感的关键时刻写（遥香的自卑、阿露的逞强\n"
             "          心理这类）; 不必每场都有, 没有就省略, 不要为了写而写\n"
-            "  choices: 数组——给 sensei 的选项文本列表（1~3 个）。可省略（缺省 = 本场景\n"
-            "      不提供选项, sensei 将自由输入一句话推进）。选项要有分歧感、让 sensei\n"
-            "      有参与感, 但必须收敛到同一主线——无论选哪个, 剧情都走向同一结局, 只\n"
-            "      影响紧接着的对白语气与细节, 不要因选项分裂出不同剧情线。\n"
+            "  choices: 数组——给 sensei 的选项文本列表（1~3 个）。**带 choices 时\n"
+            "      必须同时提供 branches**（见下）; 纯叙事板块可省略 choices\n"
+            "      （缺省 = 本板块不提供选项, sensei 读完点继续）\n"
+            "  branches: dict——**同响应分支内容**（板块契约 2026-08-30）: 键 = choices\n"
+            "      里的选项文本, 值 = 该选项对应的段落数组（每项同 paragraphs: 一句话 +\n"
+            "      必填 emotion）。老师选了这个选项后**立即看到**这段内容（零等待）——\n"
+            "      是选项引发的即时反应（1~3 句）, 不是新板块。**有 choices 必须带\n"
+            "      branches, 键与 choices 完全一致**; 纯叙事板块不需要\n"
             "  place: 可选, 字符串——本场地点（从地点词表选）。只有场景切换时才标,\n"
             "      地点不变省略（保持上一场）。\n"
             "约束: story_scene 是**中段场景**——剧情尚未结束, 不要在本动作里表达收尾\n"
