@@ -47,6 +47,8 @@ const BondVN = (() => {
   let playerMeta = null;        // /api/spine 元信息 {pack, emotions}
   let busy = false;             // 场景切换中（防双击）
   let finished = false;         // 已 finish（防重复收尾）
+  let autoOn = false;           // 自动模式（右上"自动"按钮: 黄 = 开）
+  let autoTimer = null;         // 自动推进倒计时（打字完 3s 自动下一段/自动选第 1 个选项; 玩家介入 → 取消）
 
   // 打字机状态（renderScene → typeOut → 打完 → showInteraction）
   let typeTimer = null;
@@ -63,6 +65,8 @@ const BondVN = (() => {
   async function enter(cid, sid, nm) {
     charId = cid; sessionId = sid; name = nm || cid;
     finished = false; busy = false; seenRound = 0; gotScene = false;
+    setAuto(false);               // 重置自动模式
+    bindSkip();                   // 空格/Enter/点空白 → 快速跳出整段文字
     // 换角色/重进: 销毁旧立绘（spine 包/情绪映射是 per 角色的——不重建会残留上一位）
     if (player) {
       try { player.destroy(); } catch (e) { /* 尽力而为 */ }
@@ -93,6 +97,9 @@ const BondVN = (() => {
   function exit() {
     // 回 MMT: 隐藏 VN 视图（聊天窗原样保留）→ 解锁输入 + 重启轮询（拉 wrapup 收尾话）
     stopTyping();
+    clearAutoTimer();
+    unbindSkip();
+    setAuto(false);
     $("view-bond").classList.add("hidden");
     if (window.MMT && typeof window.MMT.unlockChat === "function") {
       window.MMT.unlockChat();
@@ -117,7 +124,8 @@ const BondVN = (() => {
         player = await createSpinePlayer($("bond-stage"), playerMeta.pack, {
           emotionMap: playerMeta.emotions,
           autoFit: true,
-          fitShift: 0.15,
+          fitShift: 0.36,
+          fitScale: 1.5,
           resolution: window.devicePixelRatio || 1,
         });
       }
@@ -167,6 +175,7 @@ const BondVN = (() => {
 
   async function renderScene(scene) {
     busy = false;
+    clearAutoTimer();             // 新场景开始 → 旧自动倒计时作废
     stopTyping();
     sceneIsEnd = !!scene.is_end;
     // 背景（scene_id → background_url; is_end 无背景 → 清空显示默认黑屏——官方结束样式）
@@ -237,11 +246,16 @@ const BondVN = (() => {
         const btn = document.createElement("button");
         btn.className = "bond-choice";
         btn.textContent = c;
-        btn.addEventListener("click", () => submit(c));
+        btn.addEventListener("click", () => {
+          clearAutoTimer();              // 玩家手动选择 → 取消自动倒计时（不冲突）
+          submit(c);
+        });
         choiceBox.appendChild(btn);
       });
+      // 自动模式: 打字完成后 3s 自动选第一个选项（玩家手动介入 → 取消）
+      if (autoOn) scheduleAutoChoice(scene.choices);
     } else {
-      // 自由输入推进
+      // 自由输入推进（自动模式不伪造玩家输入——宁缺勿错, 需玩家输入）
       const wrap = document.createElement("div");
       wrap.className = "bond-free";
       const input = document.createElement("input");
@@ -260,6 +274,40 @@ const BondVN = (() => {
       choiceBox.appendChild(wrap);
       input.focus();
     }
+  }
+
+  // ── 自动模式（右上"自动"按钮: 黄 = 开）─────────────────────────────
+  // 一段对话打字完成后 3s 自动推进（有选项 → 自动选第 1 个; is_end 走原自动兜底）。
+  // 玩家手动操作（点选项/自由输入/跳过）优先——倒计时取消, 不冲突。
+
+  function setAuto(on) {
+    autoOn = !!on;
+    const btn = document.querySelector(".bond-topbtn");
+    if (btn) btn.classList.toggle("active", autoOn);
+    if (!autoOn) clearAutoTimer();
+  }
+
+  function toggleAuto() {
+    setAuto(!autoOn);
+    if (autoOn) {
+      // 已显示的选项立即进入 3s 自动选择（无需等下一场）
+      const choiceBox = $("bond-choices");
+      const btns = [...choiceBox.querySelectorAll(".bond-choice")];
+      const texts = btns.map((b) => b.textContent);
+      if (btns.length) scheduleAutoChoice(texts);
+    }
+  }
+
+  function clearAutoTimer() {
+    if (autoTimer) { clearTimeout(autoTimer); autoTimer = null; }
+  }
+
+  function scheduleAutoChoice(choices) {
+    clearAutoTimer();
+    autoTimer = setTimeout(() => {
+      autoTimer = null;
+      if (choices && choices.length) submit(choices[0]);
+    }, 3000);
   }
 
   // ---------------------------------------------------------------------------
@@ -346,15 +394,18 @@ const BondVN = (() => {
   }
 
   function skipType() {
-    // 继续三角: 补全所有段落文本立即显示 + 完成（跳过剩余打字）
+    // 快速跳出（空格/Enter/点击空白/继续三角）: 补全所有段落立即显示 + 完成。
+    // 注意: 先取 box 引用再清 timer——stopTyping() 会把 typeBoxEl 置 null,
+    // 若先清再用 innerHTML 会 TypeError（2026-08-29 修复的顺序坑, 与 finishType 同款）。
     if (!typeBoxEl) return;
-    stopTyping();
-    typeBoxEl.innerHTML = "";
+    const box = typeBoxEl;
+    if (typeTimer) { clearTimeout(typeTimer); typeTimer = null; }
+    box.innerHTML = "";
     typeParas.forEach((p) => {
       const div = document.createElement("div");
       div.className = "bond-para";
       div.textContent = _paraText(p);
-      typeBoxEl.appendChild(div);
+      box.appendChild(div);
       if (player && p && p.emotion) player.setEmotion(p.emotion);
     });
     typeSeg = typeParas.length;
@@ -377,9 +428,45 @@ const BondVN = (() => {
   function showContinue() { $("bond-continue").classList.add("show"); $("bond-continue").setAttribute("aria-hidden", "false"); }
   function hideContinue() { $("bond-continue").classList.remove("show"); $("bond-continue").setAttribute("aria-hidden", "true"); }
 
+  // ── 快速跳出: 空格 / Enter / 点空白 → 整段文字立即显示（不逐字）──────────
+  // 交互元素（选项/自由输入/右上按钮/继续三角/标题面板）不触发跳过——不冲突。
+  // is_end 场景: 空格/Enter/点击 = 直接收尾 finish。
+
+  function onKey(e) {
+    if (e.key !== " " && e.key !== "Enter") return;
+    const t = e.target;
+    if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+    e.preventDefault();
+    if (sceneIsEnd) finish();
+    else skipType();
+  }
+
+  function onClick(e) {
+    if (e.target.closest(".bond-choice, .bond-topbtn, .bond-free, #bond-continue, #bond-title")) return;
+    if (sceneIsEnd) finish();
+    else skipType();
+  }
+
+  function bindSkip() {
+    window.addEventListener("keydown", onKey);
+    $("view-bond").addEventListener("click", onClick);
+  }
+
+  function unbindSkip() {
+    window.removeEventListener("keydown", onKey);
+    $("view-bond").removeEventListener("click", onClick);
+  }
+
+  // 右上角: 自动（切换黄态）/ 菜单（占位, 功能以后再实现）
+  function bindTopbar() {
+    const btns = document.querySelectorAll(".bond-topbtn");
+    if (btns[0]) btns[0].addEventListener("click", toggleAuto);
+  }
+
   async function submit(text) {
     if (busy) return;
     busy = true;
+    clearAutoTimer();             // 推进 → 自动倒计时作废（防自动+手动双提交）
     stopTyping();
     try {
       const res = await fetch("/api/bond/turn", {
@@ -463,6 +550,7 @@ const BondVN = (() => {
   }
 
   bindContinue();
+  bindTopbar();
 
   // ---------------------------------------------------------------------------
 
