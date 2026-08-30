@@ -450,3 +450,110 @@ def test_system_note_quota_and_emotion_hints():
     st5 = BondState(vn=vn)
     assert _system_note(st5) is None
     print("    system_note: 选项配额（3/3 上限 / 少给提示）+ 表情单一提醒")
+
+
+# ----------------------------------------------------------------------------
+# 两遍式 C 异步标注: 骨架先显示（emotion 解析挪出玩家等待）→ 标注队列补标 →
+# emo_version++ → 前端补切表情; 竞态: 场景被推进 → 标注结果丢弃
+# ----------------------------------------------------------------------------
+
+def test_bond_async_annotate(tmp_path):
+    """骨架（缺 emotion）→ 主生成立即返回（等待=骨架）→ 异步标注补标 → scene 更新。"""
+    skeleton = {"action": "story_scene", "payload": {
+        "paragraphs": [{"text": "她站在窗边。", "emotion": "nomal"},
+                       {"text": "老师来了！"}],      # 缺 emotion → 触发标注
+        "choices": ["选A", "选B"],
+        "branches": {"选A": [{"text": "分支一。"}],
+                     "选B": [{"text": "分支二。", "emotion": "smile"}]}}}
+    engine, st, sid, llm = _setup(tmp_path, skeleton, '["smile"]',
+                                  '["expectant"]')
+    try:
+        bond.bond_start(CHARACTER, sid)
+        st1 = _wait_status(CHARACTER, sid)          # 主生成完成（骨架, busy=False）
+        # 标注队列补标（后台线程）→ 轮询 emo_version 变化 + scene emotion 补齐
+        # （桩标注即时完成, 不要求中间态; 中间态由竞态测试的 GatedLLM 覆盖）
+        deadline = time.time() + 10.0
+        while time.time() < deadline:
+            s = bond.bond_status(CHARACTER, sid)
+            if s["emo_version"] > st1.get("emo_version", 0) \
+                    and s["scene"]["paragraphs"][1].get("emotion"):
+                break
+            time.sleep(0.05)
+        s2 = bond.bond_status(CHARACTER, sid)
+        assert s2["scene"]["paragraphs"][1]["emotion"] == "smile", s2["scene"]
+        # branches 补标（第二个标注调用）
+        while time.time() < deadline:
+            s = bond.bond_status(CHARACTER, sid)
+            if s["scene"]["branches"]["选A"][0].get("emotion"):
+                break
+            time.sleep(0.05)
+        assert bond.bond_status(CHARACTER, sid)["scene"]["branches"]["选A"][0]["emotion"] == "expectant"
+        print("    bond 异步标注: 骨架先显示（等待=生成）→ 队列补标 emo_version++ → 正文/branches 补齐")
+    finally:
+        _cleanup()
+
+
+def test_bond_async_annotate_discard_on_replace(tmp_path):
+    """竞态（用户重点）: 标注完成前场景被推进（替换）→ 标注结果丢弃, 不污染新场景。
+
+    时序: 骨架1（缺 emotion）→ 标注线程阻塞在标注调用 → 玩家选 → 骨架2 生成
+    （scene_obj 替换）→ 释放标注 → 写回检查发现对象已非当前 → 丢弃。
+    """
+    import threading as _th
+
+    gate = _th.Event()                             # 标注调用阻塞闸门
+    released = {"n": 0}
+
+    class GatedLLM:
+        """骨架顺序输出; 标注调用（user 消息含'情绪标签'）阻塞等闸门。"""
+        def __init__(self, *scripts):
+            self._scripts = list(scripts)
+        def chat(self, messages, **kw):
+            user = messages[-1]["content"] if messages else ""
+            if "情绪标签" in user:                    # 标注调用（识别 user 消息）
+                gate.wait(timeout=10)
+                released["n"] += 1
+                return '["nomal", "smile"]'
+            if not self._scripts:
+                raise RuntimeError("脚本耗尽")
+            return self._scripts.pop(0)
+        def format_messages(self, *, system_prompt, user_message, history=None):
+            msgs = [{"role": "system", "content": system_prompt}]
+            msgs.extend(history or [])
+            msgs.append({"role": "user", "content": user_message})
+            return msgs
+
+    sk1 = {"action": "story_scene", "payload": {
+        "paragraphs": [{"text": "第一场。", "emotion": "nomal"}, {"text": "缺标。"}],
+        "choices": ["继续走"],
+        "branches": {"继续走": [{"text": "分支。", "emotion": "nomal"}]}}}
+    sk2 = {"action": "story_scene", "payload": {
+        "paragraphs": [{"text": "第二场。", "emotion": "smile"}]}}
+    engine, st, sid, _llm = _setup(tmp_path)
+    chat._engines[CHARACTER] = engine
+    llm = GatedLLM(sk1, sk2)
+    engine.llm = llm
+    try:
+        bond.bond_start(CHARACTER, sid)
+        _wait_status(CHARACTER, sid)               # 骨架1 就绪, 标注线程已阻塞在闸门
+        # 等标注线程确实进入阻塞（gate 有等待者）
+        deadline = time.time() + 5.0
+        while time.time() < deadline and not gate._cond._waiters:
+            time.sleep(0.02)
+        bond.bond_turn(CHARACTER, sid, "继续走")    # 分支消费（scene_obj → 分支场景）
+        _wait_status(CHARACTER, sid)               # 等分支触发的预生成完成（busy=False）
+        r = bond.bond_turn(CHARACTER, sid, "（继续）")   # 消费预生成 → scene_obj = 骨架2
+        assert r["accepted"], r
+        _wait_status(CHARACTER, sid)
+        # 释放标注 → 写回检查（scene_obj 已非骨架1 → 丢弃）
+        gate.set()
+        deadline = time.time() + 5.0
+        while time.time() < deadline and released["n"] < 1:
+            time.sleep(0.05)
+        s = bond.bond_status(CHARACTER, sid)
+        # 新场景段落不被骨架1 的标注污染（丢弃生效）:
+        # 骨架1 标注 tags=["nomal","smile"]——若污染, 新场景 [0] 会被改掉
+        assert s["scene"]["paragraphs"][0]["emotion"] == "smile", s["scene"]
+        print("    bond 异步标注竞态: 场景推进后标注写回被丢弃（不污染新场景）")
+    finally:
+        _cleanup()

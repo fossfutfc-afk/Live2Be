@@ -48,6 +48,7 @@ const BondVN = (() => {
   let charId = "", sessionId = "", name = "";
   let seenRound = 0;            // 已渲染的 round（status 幂等去重）
   let gotScene = false;         // 本轮 enter 是否已渲染过场景
+  let seenEmo = -1;             // 已应用的 emo_version（异步标注补标感知）
   let player = null;            // SpinePlayer（无 spine 资产 → null, 纯文字）
   let playerMeta = null;        // /api/spine 元信息 {pack, emotions}
   let busy = false;             // 场景切换中（防双击）
@@ -171,15 +172,33 @@ const BondVN = (() => {
         showError("剧情生成失败: " + st.error);
         return;
       }
+      // 异步标注补标（两遍式 C）: emo_version 变化 → 已显示段落补切立绘表情
+      // （不重置打字机——只切表情; 文本段落不动）。新场景渲染时同步版本,
+      // 避免对旧段落误切（时序: round 优先, emo_version 次之）。
       if (st.scene && (!gotScene || st.round !== seenRound)) {
         gotScene = true;
         seenRound = st.round;
+        seenEmo = (st.emo_version !== undefined) ? st.emo_version : -1;
         renderScene(st.scene);
+      } else if (st.emo_version !== undefined && st.emo_version !== seenEmo) {
+        seenEmo = st.emo_version;
+        if (st.scene) applyEmotions(st.scene);
       }
       if (st.completed) return;                  // is_end 场景已渲染 → 等自动 finish
       if (!st.scene && st.error) return;
       return;                                    // 场景已取（或异常）→ 结束本轮轮询
     }
+  }
+
+  // 异步标注补标: 场景已显示, emotion 就绪 → 对已渲染段落逐段补切立绘表情
+  // （段落文本不变, 只切表情——两遍式 C 的"标注与显示并行"收尾）
+  function applyEmotions(scene) {
+    if (!player) return;
+    const paras = scene.paragraphs || [];
+    const divs = document.querySelectorAll("#bond-text .bond-para");
+    paras.forEach((p, i) => {
+      if (divs[i] && p && p.emotion) player.setEmotion(p.emotion);
+    });
   }
 
   // ---------------------------------------------------------------------------

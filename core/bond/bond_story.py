@@ -325,6 +325,7 @@ class BondStoryEngine:
         user_input: str,
         max_tokens: int = 1536,
         system_note: str | None = None,
+        annotate: bool = True,
     ) -> BondScene:
         """结构化场景 API：单次 LLM 调用 → BondScene（段落 + 选项 + 是否结束）。
 
@@ -335,6 +336,9 @@ class BondStoryEngine:
 
         system_note: 本轮系统注记（只进 context 不入历史, 最近位置最醒目）——
         双层收尾机制用: 轮数提醒 / 达上限建议收尾。None = 不注入。
+        annotate: 两遍式 C——True（默认）= 同步标注（骨架缺 emotion → 批量标注
+        补标后返回, CLI/测试用）; False = 只返回骨架（标注由调用方异步执行——
+        webgui 用它把 emotion 解析挪出玩家等待路径, fill_scene_emotions 补标）。
         """
         if self._current_char is None:
             raise RuntimeError(err("NotInSession", "尚未开始会话"))
@@ -447,27 +451,11 @@ class BondStoryEngine:
         scene = BondScene.from_action(action)
         # 两遍式 C（2026-08-31）: 骨架段落缺 emotion → 批量标注补标（生成与
         # 情绪解耦——生成不背 emotion 负担, 校验零重试; 失败静默兜底延续）。
-        # 正文 + branches 段落统一处理; 标注调用在预生成/后台线程内, 延迟被掩盖。
+        # 正文 + branches 段落统一处理; annotate=False 时跳过（异步标注, webgui）。
         # memorial_exit 跳过（过渡文字是纯字符串旁白, 无表情承载——不标, 前端延续）。
-        if self._lexicon_keys and not scene.memorial_exit:
+        if annotate and self._lexicon_keys and not scene.memorial_exit:
             try:
-                from core.bond.emotion_annotate import fill_missing_emotions
-
-                fill_missing_emotions(
-                    scene.paragraphs,
-                    annotator=lambda sents, keys, hint: annotate_emotions(
-                        self.llm, sents, keys, hint),
-                    lexicon_keys=self._lexicon_keys,
-                    lexicon_hint=self._lexicon_hint,
-                )
-                for branch in scene.branches.values():
-                    fill_missing_emotions(
-                        branch,
-                        annotator=lambda sents, keys, hint: annotate_emotions(
-                            self.llm, sents, keys, hint),
-                        lexicon_keys=self._lexicon_keys,
-                        lexicon_hint=self._lexicon_hint,
-                    )
+                self.fill_scene_emotions(scene)
             except Exception as e:             # noqa: BLE001 — 标注异常不阻断剧情
                 logger.warning("emotion 标注异常（兜底延续）: %s", e)
         if self.director is not None:
@@ -477,6 +465,27 @@ class BondStoryEngine:
             scene.background = vs.background
             scene.audio = vs.audio
         return scene
+
+    def fill_scene_emotions(self, scene: "BondScene") -> bool:
+        """两遍式 C 标注回填（公共方法, 供异步标注调用）: 骨架段落缺 emotion →
+        批量标注并写回 scene（正文 + branches）。标注失败 → 兜底延续（不 raise）。
+
+        Returns: 是否触发过标注（False = 无词表 / memorial_exit / 无缺漏）。
+        """
+        if not self._lexicon_keys or scene.memorial_exit:
+            return False
+        from core.bond.emotion_annotate import fill_missing_emotions
+
+        annotator = lambda sents, keys, hint: annotate_emotions(  # noqa: E731
+            self.llm, sents, keys, hint)
+        fill_missing_emotions(scene.paragraphs, annotator=annotator,
+                              lexicon_keys=self._lexicon_keys,
+                              lexicon_hint=self._lexicon_hint)
+        for branch in scene.branches.values():
+            fill_missing_emotions(branch, annotator=annotator,
+                                  lexicon_keys=self._lexicon_keys,
+                                  lexicon_hint=self._lexicon_hint)
+        return True
 
     # ------------------------------------------------------------------
     # 属性

@@ -26,6 +26,7 @@ CLI 是同步循环（send_vn_scene → 渲染 → 玩家输入 → 下一场）
 from __future__ import annotations
 
 import logging
+import queue
 import threading
 from dataclasses import dataclass, field
 
@@ -122,6 +123,12 @@ class BondState:
     choices_used: int = 0
     # 上一场 emotion 序列（单一检测: 全场同一 emotion → 下一场 system_note 提醒 LLM）
     prev_emotions: list[str] = field(default_factory=list)
+    # 异步标注（两遍式 C 2026-08-31）: emotion 解析挪出玩家等待路径——
+    # 骨架先显示, 标注队列单 worker 串行补标, 写回经对象身份检查防竞态
+    emo_version: int = 0                       # emotion 补标版本（前端感知补切表情）
+    _anno_queue: "queue.Queue | None" = field(default=None, repr=False)
+    _anno_started: bool = field(default=False, repr=False)
+    _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
 
 _bonds: dict[tuple[str, str], BondState] = {}
@@ -268,6 +275,8 @@ def bond_turn(char_id: str, session_id: str, text: str) -> dict:
         state.scene_logged = True    # 分支是场景一部分（已随场景落库）——继续时不重复落
         state.prev_emotions = [p.get("emotion", "") for p in branch
                                if isinstance(p, dict)]
+        # 分支段落可能是骨架（branches 未标注）→ 入队异步标注（与主场景同队列）
+        _enqueue_annotate(state, state.scene_obj)
         # 分支播放时预生成下一板块（choices_used 已在场景生成时计过, 这里不加）
         _pregenerate(state, char_id, session_id)
         return {"accepted": True, "busy": state.busy, "branch": True,
@@ -282,7 +291,8 @@ def bond_turn(char_id: str, session_id: str, text: str) -> dict:
 
 
 def bond_status(char_id: str, session_id: str) -> dict:
-    """轮询: 生成状态 + 最新场景（前端按 round 去重）+ 终结标记 + 名字牌信息。"""
+    """轮询: 生成状态 + 最新场景（前端按 round 去重）+ 终结标记 + 名字牌信息
+    + emo_version（异步标注补标版本——前端感知后补切已显示段落的立绘表情）。"""
     state = _state(char_id, session_id)
     role = _role_info(char_id)
     return {
@@ -293,6 +303,7 @@ def bond_status(char_id: str, session_id: str) -> dict:
         "completed": state.completed,
         "name": role["name"],
         "club": role["club"],
+        "emo_version": state.emo_version,
     }
 
 
@@ -362,7 +373,7 @@ def _generate(state: BondState, char_id: str, session_id: str, user_input: str) 
                                             is_end=True))
                 else:
                     scene = state.vn.send_vn_scene(
-                        user_input, system_note=_system_note(state))
+                        user_input, system_note=_system_note(state), annotate=False)
                     if state.round > _FORCE_AFTER and not scene.is_end:
                         # 超限强制收尾（CLI force_after 语义——剧情必须终结）
                         scene = BondScene(
@@ -379,6 +390,8 @@ def _generate(state: BondState, char_id: str, session_id: str, user_input: str) 
                 state.prev_emotions = [p.get("emotion", "") for p in scene.paragraphs
                                        if isinstance(p, dict)]
                 _log_scene_meta(state, char_id, session_id, scene)
+                # 两遍式 C 异步标注: 骨架先显示, emotion 解析入队补标（不阻塞玩家）
+                _enqueue_annotate(state, scene)
         except (SceneLoopError, ValueError) as e:
             # 模型连语义校验都过不了 → 中断收场（宁缺勿错, 剧情必须终结）
             logger.warning("bond 场景生成失败 (%s/%s): %s", char_id, session_id, e)
@@ -421,7 +434,7 @@ def _pregenerate(state: BondState, char_id: str, session_id: str) -> None:
         try:
             with chat._lock(char_id):
                 scene = state.vn.send_vn_scene(
-                    "（继续）", system_note=_system_note(state))
+                    "（继续）", system_note=_system_note(state), annotate=False)
                 state.pregen_obj = scene
                 state.pregen_scene = scene.to_dict()
                 state.pregen_input = "（继续）"
@@ -429,6 +442,8 @@ def _pregenerate(state: BondState, char_id: str, session_id: str) -> None:
                     state.choices_used += 1
                 state.prev_emotions = [p.get("emotion", "") for p in scene.paragraphs
                                        if isinstance(p, dict)]
+                # 预生成场景同样异步标注（与主场景同一队列串行, 玩家消费时表情就绪）
+                _enqueue_annotate(state, scene)
         except Exception as e:                     # noqa: BLE001 — 预生成失败降级
             logger.warning("bond 预生成失败（降级为点击时再生成）: %s", e)
             state.pregen_obj = None
@@ -438,6 +453,54 @@ def _pregenerate(state: BondState, char_id: str, session_id: str) -> None:
             state.busy = False
 
     threading.Thread(target=run, daemon=True).start()
+
+
+def _enqueue_annotate(state: BondState, scene: BondScene) -> None:
+    """场景入队异步标注（两遍式 C: emotion 解析挪出玩家等待路径）。
+
+    骨架先显示 → 标注队列单 worker 串行补标（标注 LLM 调用不持 chat._lock——
+    并发 API 调用可接受; 写回持短锁 + 对象身份检查——场景已被替换则丢弃,
+    异步线程绝不覆盖比它新的状态）。
+    """
+    if state.demo is not None or state.vn is None:
+        return
+    if not state.vn._lexicon_keys:
+        return                                      # 无词表 → 无需标注
+    if not any(not p.get("emotion") for p in scene.paragraphs
+               if isinstance(p, dict)):
+        return                                      # 骨架已全带 emotion → 跳过
+    if state._anno_queue is None:
+        state._anno_queue = queue.Queue()
+    state._anno_queue.put(scene)
+    if not state._anno_started:
+        state._anno_started = True
+        threading.Thread(target=_anno_worker, args=(state,), daemon=True).start()
+
+
+def _anno_worker(state: BondState) -> None:
+    """标注队列单 worker: 串行补标场景（正文 + branches）, 写回带防竞态检查。
+
+    写回规则: scene_obj 仍是 state.scene_obj（当前展示）或 state.pregen_obj
+    （预生成待消费）→ 序列化更新 + emo_version++（前端补切表情）;
+    否则（场景已被推进/替换）→ 丢弃（标注结果作废, 不污染新场景）。
+    """
+    while True:
+        scene = state._anno_queue.get()
+        if scene is None:
+            break
+        try:
+            state.vn.fill_scene_emotions(scene)     # 标注 LLM（不持锁）
+        except Exception as e:                       # noqa: BLE001 — 标注失败兜底
+            logger.warning("bond 异步标注失败（兜底延续）: %s", e)
+        with state._lock:
+            if state.scene_obj is scene:
+                state.scene = scene.to_dict()
+                state.emo_version += 1
+            elif state.pregen_obj is scene:
+                state.pregen_scene = scene.to_dict()
+                state.emo_version += 1
+            # 已被替换/消费后又被推进 → 丢弃（异步不覆盖新状态）
+        state._anno_queue.task_done()
 
 
 def _log_scene(state: BondState, char_id: str, session_id: str, picked) -> None:
