@@ -24,7 +24,8 @@ Live2Be IDE 是角色资料撰写助手：用自然语言告诉 AI 要做什么�
 
 ## 二、五件套与 interperson 简述
 
-每个角色一个目录 `config/characters/{角色id}/`，放五个 YAML 文件（**五件套**），按"信息深度"分层：
+每个角色一个目录 `config/characters/{角色id}/`，放五个 YAML 文件（**五件套**，IDE 产出）
+＋ 一个可选的**扮演手册** `script.yml`（作者手写，IDE 不产出），按"信息深度"分层：
 
 | 文件 | 层级 | 内容 |
 |---|---|---|
@@ -33,6 +34,7 @@ Live2Be IDE 是角色资料撰写助手：用自然语言告诉 AI 要做什么�
 | `knowledge.yml` | L3 独有知识 | 认识谁、技能、重要物品、敌对势力 |
 | `experience.yml` | L4 预设经历 | 与玩家的过往经历（→ Virtual Brain 初始化） |
 | `typical.yml` | L5 校准样本 | 口头禅、说话方式、Q&A 范例 |
+| `script.yml` | 扮演手册（2026-09 新增） | `SIG~main_tone` 剧情基调 / `SIG~mmt_tone` MMT 风格 / `SIG~bond_tone` 羁绊剧情建议——运行时注入各域 system prompt（缺省不注入） |
 
 另有一个**关系表**（不在角色目录里）：`config/settings/relation/interperson.json`，记录角色之间"认识多深"（权重 = 熟悉程度 = 访问层级）：
 
@@ -73,6 +75,7 @@ SIG 字段构成角色核心形象。**SIG 太少 → 完整度低 → 运行期
 | `knowledge.yml` | `friends`、`technique`、`possession` |
 | `experience.yml` | `self` |
 | `typical.yml` | `frequent_phrases` |
+| `script.yml` | `SIG~main_tone`、`SIG~mmt_tone`、`SIG~bond_tone`（作者手写） |
 
 - **无前缀字段**：普通字段，可选但推荐填写（如 `en_name`、`school`、`halo`、`behavior`）
 - **`null`**：合法占位（该板块暂缺）

@@ -1,6 +1,9 @@
 # Live2Be Brain 算法设计（digest → session wiki → 注入）
 
 > 2026-08-24 定稿 v3.1（v3 后加入"联想 digest"）。
+> 2026-09-02 修订（以代码为准）: digest 触发点钉死 = **bond 剧情闭环**
+> （`async_digest` 唯一触发点; resume 只注入不消化, 中断剧情不消化）;
+> 角色文件 = **六文件**（五件套 + script.yml 扮演手册）。
 > **brain 是算法, 不是跨 session 实体**——每个 session 是平行世界, 各自的
 > events.jsonl（真源）→ brain 算法 → 各自唯一的 wiki。另一个世界线的成长与
 > 本 session 无关: 无角色级 wiki、无归并、无迁移。
@@ -20,7 +23,7 @@
 
 ```
 events.jsonl（本 session 真源, 已有 ✅）
-      │  加载/恢复 session 时
+      │  bond 剧情闭环后（async_digest —— 唯一触发点, 见 §9）
       ▼
 digest（主 LLM 一次调用; llm/prompts/digest.md）
       │  输入:
@@ -32,7 +35,11 @@ sessions/{id}/brain/wiki.json（本 session 的 wiki; 含 digested_seq）
       │
       ▼
 注入（recall）: wiki → 【角色记忆】段（第一人称）→ system prompt
-      └─ 恢复时角色记得本世界线前面的事; 新 session（新世界线）零注入
+      三个注入时机（2026-09-02 补全, 以代码为准）:
+      ① MMT resume（重进进行中会话）: 只注入已有 wiki（不消化）
+      ② Bond 开场: brain_segment 注入——VN 中角色记得本世界线前面的事
+      ③ async_digest 后: 新 wiki 立即注入当前引擎实例（下次对话生效）
+      新 session（新世界线）零注入
 ```
 
 ## 2. 增量 digest（digested_seq）
@@ -129,7 +136,7 @@ llm/prompts/
   digest.md             # digest 规则（增量/联想/提炼 facts/beliefs/relations）
 ```
 
-**experience 定位**: raw material 直接给 AI 读（五件套 build_prompt 静态注入,
+**experience 定位**: raw material 直接给 AI 读（六文件 build_prompt 静态注入,
 不进 wiki）——author 静态设定 vs 运行时动态记忆, 混来源污染控制边界。
 
 ## 7. 路线图
@@ -138,7 +145,7 @@ llm/prompts/
 |---|---|
 | **Phase 1（当前）** | 增量 digest（digested_seq）+ 轻量召回（旧 wiki 关键词匹配）+ 随机摘段（可选）+ 注入 + 接线 |
 | Phase 2 | **RAG 回忆法**: embedding 检索相关旧事件（本地 nomic embedding）——联想升级 |
-| 远期（不做） | 五件套动态增长（LLM 改 profile 等核心文件——废案, 无前车之鉴）; 副本时间胶囊/配额 |
+| 远期（不做） | 六文件动态增长（LLM 改 profile 等核心文件——废案, 无前车之鉴）; 副本时间胶囊/配额 |
 
 ## 8. embedding/RAG 实现说明（Phase 2 前置, 用户只需做一件事）
 
@@ -156,5 +163,7 @@ llm/prompts/
 
 - **events.jsonl 唯一真源**: wiki 是派生视图（可删可重算, 原子写）
 - **digest 不阻断主流程**: 失败静默降级（None）
-- **平行世界**: 无跨 session 归并/迁移/角色级 wiki; 新 session 从五件套重新开始
-- **频率**: 加载/恢复 session 时 digest（非每轮, 控成本）; 增量保证重复恢复零重复成本
+- **平行世界**: 无跨 session 归并/迁移/角色级 wiki; 新 session 从六文件
+  （五件套 + script.yml 扮演手册）重新开始
+- **频率**: digest 唯一触发点 = bond 剧情闭环（async_digest——仅完整剧情
+  completed=True, 中断剧情不消化）; resume 只注入不消化; 增量保证重复恢复零重复成本

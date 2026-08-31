@@ -54,15 +54,16 @@ data/
         meta.json                 # 纯索引：schema_version / type / char / created_at（§4.1）
         events.jsonl              # ★ 事件流唯一真源：mmt + bond + l2d + marker 同一文件, seq 统一递增（§4.2）
         progress.json             # 该会话内聊天轮数（展示用）
-        brain/                    # 该会话的消化产物（digest 产出, 远期; §4.6）
-          wiki.json               # 本会话记忆总结（成长/关系变化片段）
+        brain/                    # 该会话的消化产物（digest 产出, 已实现; §4.6）
+          wiki.json               # 本会话记忆总结（facts/beliefs/relations + affection）
           index.jsonl             # （已废弃: 初代 snippet 索引 2026-08-28 裁决删除——
                                   #   原文回捞未来走 embedding, 见 docs/DESIGN_MEMORY.md Step 3）
     gallery/                      # AI 生成 2D 场景（图 + 文字信息成对, §4.5）
       {scene_id}.png              # 生成图
       {scene_id}.json             # 文字信息（prompt / 场景描述 / 来源会话 / 时间戳）
-    brain/                        # 角色级记忆汇总（§4.6）
-      wiki.json                   # 跨会话 LLM WIKI（digest 归并各会话产物）
+    brain/                        # （废弃: 早期"角色级归并"设计——平行世界语义下
+                                  #   无角色级 wiki, 见 §4.6 修订注记; 目录不再创建）
+      wiki.json                   # 跨会话 LLM WIKI（digest 归并各会话产物）※ 已废弃
       index/                      # RAG 索引（远期——embedding 向量回捞, 非初代 snippet 方案）
 ```
 
@@ -74,7 +75,7 @@ data/
 | `progress.json`（角色根） | 聚合总轮数 | 原子写（低频） | 原子替换，永不半写 |
 | `gallery/{scene_id}.json` | 生成图元数据 | 原子写（生成一次） | 原子替换；png 与 json 成对（§4.5） |
 | `sessions/{id}/brain/wiki.json` | 会话消化产物 | 原子写（消化一次） | 原子替换；旧值仍可读 |
-| `brain/wiki.json`（角色根） | 角色级汇总 | 原子写（每次归并） | 原子替换；旧 wiki 仍可读 |
+| `brain/wiki.json`（角色根） | 角色级汇总 ※ 已废弃（平行世界, 无归并——DESIGN_BRAIN.md v3.1） | — | — |
 
 ---
 
@@ -174,41 +175,41 @@ data/
 { "rounds": 84, "updated_at": "2026-08-24T15:02:11.654321" }
 ```
 
-### 4.6 brain（双层级, 2026-08-24 修订）
+### 4.6 brain（2026-09-02 修订: 以代码为准——单层级 per-session wiki, 平行世界）
 
-**层级 1 — 会话级（每对话一份消化产物）**：
+> ⚠️ **早期"双层级"设计（会话级 + 角色级归并）已废弃**——DESIGN_BRAIN.md v3.1 定稿:
+> brain 是**算法**, 不是跨 session 实体; 每个 session 是独立世界线, **无角色级 wiki、
+> 无归并、无迁移**。本小节只保留当前实现。
+
+**当前实现（core/brain/, 单层级 per-session wiki）**：
 ```jsonc
 // data/{char_id}/sessions/{conversation_id}/brain/wiki.json
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "conversation_id": "20260824_143022_ab12",
-  "summary": "天台夜谈: 遥香对老师信任加深…",     // 本对话的叙事总结
-  "growth": ["学会主动道歉"],
-  "relationship": {"affection": "上升", "key_events": ["天台夜谈"]},
+  "digested_seq": 87,                    // 增量: 上次消化到的事件 seq（v3.1）
+  "summary": "天台夜谈: 遥香对老师信任加深…",
+  "facts":    [{"content": "老师说以后常来陪她看杂草", "significance": 0.8, "tags": ["老师", "杂草"]}],
+  "beliefs":  [{"content": "遥香第一次觉得自己被需要", "significance": 0.9}],
+  "relations":[{"subject": "遥香", "object": "老师", "relation": "信任加深", "note": "约定常来陪她"}],
+  "affection": {"exp": 120, "level": 3},  // digest 好感结算缓存（真源 = affection 事件）
   "updated_at": "2026-08-24T15:30:00.000000"
 }
 ```
-**层级 2 — 角色级（跨对话汇总, 常驻注入/检索用）**：
-```jsonc
-// data/{char_id}/brain/wiki.json
-{
-  "schema_version": 1,
-  "character_id": "igusa_haruka",
-  "summary": "遥香近期主线: 天台夜谈后对老师信任加深…",
-  "growth": ["学会主动道歉", "不再完全否定自己"],
-  "relationship": {"affection": "上升", "key_events": ["天台夜谈", "拆弹事件"]},
-  "updated_at": "2026-08-24T15:30:00.000000",
-  "digested_through_ts": "2026-08-24T15:30:00.000000"   // 增量: 只消化更晚结束的会话
-}
-```
 
-**brain 消化流程（每个会话结束后触发）**:
+**digest 流程（bond 剧情闭环后触发——async_digest, 唯一触发点）**:
 ```
-输入:  该会话 events → render_timeline（含板块标签）
-处理:  主 LLM 消化 → 输出会话级 wiki（层级 1）→ 归并进角色级 wiki（层级 2）
-产出:  sessions/{id}/brain/wiki.json（本对话）+ brain/wiki.json（角色汇总）
-检索:  远期 RAG 从角色级 wiki + 会话级 brain 检索 → 注入 system prompt
-```
+触发:  本段 bond 闭环（vn_exit completed → finish → _wrapup → engine.async_digest）
+输入:  seq > digested_seq 的全部事件（增量; 天然含本段 trigger mmt + 本段 bond
+       + 上一段 finish 余韵——见 core/DESIGN_SEGMENT.md §3）;
+       marker/affection 事件不计提炼内容（只推进水位）
+处理:  主 LLM 提炼 → facts/beliefs/relations 增量合并（同 content 去重,
+       significance 取高）→ affection_exp_delta 幂等写 affection 事件
+       → 更新 digested_seq 水位
+产出:  sessions/{id}/brain/wiki.json（本世界线私有——无角色级归并）
+中断:  无闭环（无 story_end）→ 不消化（"中断的剧情不处理"）; 失败静默降级
+       （wiki 是派生视图, events.jsonl 唯一真源, 可重算）
+检索:  远期 RAG 从本 session wiki 检索 → 注入 system prompt（DESIGN_BRAIN.md §8）
 
 ### 4.7 纪念子模式（memorial, 2026-08-24 定稿: 状态机 enter/exit）
 
@@ -347,7 +348,7 @@ wrapup_after_vn:
   同一 events.jsonl append marker vn_exit（回 MMT）
   后续 MMT 轮 append 回同一 events.jsonl
   （VN 期间的上下文不进 MMT 注入段——上下文隔离由渲染器按板块分段, 存储不分家）
-  （会话结束时触发 brain 消化, 见 §4.6）
+  （bond 剧情闭环后触发 brain 消化, 见 §4.6）
 ```
 
 ### 5.6 中断（崩溃/断连）
@@ -428,7 +429,7 @@ LLM 是 stateless 的，上下文从事件流派生，状态从 marker 推导。
 | `core/bond/memorial_executor.py`（新增） | memorial 执行（生图 + gallery + l2d 事件; 失败降级, 每场 1 张上限） |
 | `core/bond/bond_save.py` | `BondStorySave` 退役（旧档删除后, 读路径一并删） |
 | `core/media/gallery.py`（新增骨架） | `list_gallery(char_id)` 只认 json+png 成对; l2d 执行时写入 |
-| `core/brain/`（新增, 远期） | `digest(session)` → 会话级 brain + 角色级 wiki 归并（§4.6） |
+| `core/brain/`（已实现） | `digest_session` → 本 session 的 wiki（§4.6 修订版; 无角色级归并） |
 | `core/session/io.py` | 保留（原子写/append 原样） |
 
 ### 删除动作
