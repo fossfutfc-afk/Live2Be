@@ -386,9 +386,11 @@ def bond_status(char_id: str, session_id: str) -> dict:
         "club": role["club"],
         "emo_version": state.emo_version,
         # 纪念立绘（方案 A）: in_memorial = 纪念模式中（前端保持图背景）;
-        # memorial_img = 图 URL（None = 未就绪/失败 → 纯文字降级）
+        # memorial_img = 图 URL（None = 未就绪/失败 → 纯文字降级）;
+        # memorial_img_busy = 生图中（防重/调试可见）
         "in_memorial": bool(state.vn is not None and state.vn.in_memorial),
         "memorial_img": state.memorial_img or None,
+        "memorial_img_busy": state.memorial_img_busy,
     }
 
 
