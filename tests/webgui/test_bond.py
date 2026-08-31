@@ -92,6 +92,22 @@ def _wait_status(char_id, sid, timeout=10.0):
     raise AssertionError(f"bond 生成超时: {bond.bond_status(char_id, sid)}")
 
 
+def _turn_until_accepted(char_id, sid, text, timeout=10.0):
+    """轮询 turn 直到 accepted（pregen 生成中 busy 拒绝 → 重试）。
+
+    pregen 与玩家点击存在竞态: 分支消费后后台预生成下一场（busy=True）,
+    玩家立刻点击会被拒——全量负载下更明显。轮询重试消除 flake。
+    """
+    deadline = time.time() + timeout
+    r = {"accepted": False}
+    while time.time() < deadline:
+        r = bond.bond_turn(char_id, sid, text)
+        if r.get("accepted"):
+            return r
+        time.sleep(0.05)
+    raise AssertionError(f"turn 一直被拒: {r}")
+
+
 def _cleanup():
     chat._engines.pop(CHARACTER, None)
     chat._store = SessionStore(Path("data"))   # 恢复真实 store（模块级默认）
@@ -122,8 +138,7 @@ def test_bond_full_flow(tmp_path):
         assert r2["scene"]["paragraphs"][0]["text"] == "分支一。"
         st1b = bond.bond_status(CHARACTER, sid)
         assert st1b["round"] == 1, "分支是场景一部分, 不占轮次"
-        r2b = bond.bond_turn(CHARACTER, sid, "（继续）")
-        assert r2b["accepted"]
+        r2b = _turn_until_accepted(CHARACTER, sid, "（继续）")
         st2 = _wait_status(CHARACTER, sid)
         assert st2["round"] == 2
         assert st2["scene"]["paragraphs"][0]["text"] == "收尾了。"
@@ -202,7 +217,7 @@ def test_bond_start_idempotent_and_guards(tmp_path):
         # 剧情结束后 turn 被拒（应调 finish）——先分支消费, 再继续到收尾场
         r2 = bond.bond_turn(CHARACTER, sid, "选A")         # 分支消费（同响应）
         assert r2.get("branch")
-        bond.bond_turn(CHARACTER, sid, "（继续）")          # 分支播完 → 生成收尾场
+        _turn_until_accepted(CHARACTER, sid, "（继续）")    # 分支播完 → 生成收尾场
         _wait_status(CHARACTER, sid)
         r3 = bond.bond_turn(CHARACTER, sid, "选A")         # 已 completed → 拒绝
         assert not r3["accepted"] and r3.get("completed") is True
