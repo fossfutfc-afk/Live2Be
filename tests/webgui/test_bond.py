@@ -691,3 +691,54 @@ def test_bond_memorial_async_image(tmp_path, monkeypatch):
     finally:
         chat._engines.pop(CHARACTER, None)
         chat._store = SessionStore(Path("data"))
+
+
+class FailingImageGen:
+    """生图失败 mock: generate 抛异常——纪念应降级纯文字, 剧情照走。"""
+
+    @property
+    def is_api_mode(self):
+        return True
+
+    def generate(self, prompt, ref_images=None, character_name="角色"):
+        raise RuntimeError("生图 API 超时")
+
+
+def test_bond_memorial_image_failure_degrades(tmp_path, monkeypatch):
+    from webgui import bond as bond_mod
+
+    monkeypatch.setattr(bond_mod, "_image_generator", lambda: FailingImageGen())
+
+    llm = StreamLLM(SCENE_A, MEMORIAL_ENTER)
+    engine = MomoTalkEngine(ROOT / "config" / "characters", llm)
+    engine.start_session(CHARACTER)
+    st = SessionStore(tmp_path)
+    root = st.create(CHARACTER)
+    engine.attach_session(root.session_id)
+    chat._engines[CHARACTER] = engine
+    chat._store = st
+    sid = root.session_id
+    try:
+        bond.bond_start(CHARACTER, sid)
+        _wait_status(CHARACTER, sid)
+        r = bond.bond_turn(CHARACTER, sid, "选A")
+        assert r["accepted"] and r.get("branch"), r
+
+        # pregen（memorial_enter）完成后: in_memorial=True 但图失败 → memorial_img None
+        deadline = time.time() + 10.0
+        while time.time() < deadline:
+            if not bond.bond_status(CHARACTER, sid)["busy"]:
+                break
+            time.sleep(0.05)
+        deadline = time.time() + 5.0
+        while time.time() < deadline:          # 等生图线程失败写回（busy 标志清除）
+            if not bond.bond_status(CHARACTER, sid)["memorial_img_busy"]:
+                break
+            time.sleep(0.05)
+        s = bond.bond_status(CHARACTER, sid)
+        assert s["in_memorial"] is True, s
+        assert s["memorial_img"] is None, s   # 失败 → 纯文字降级（前端无图）
+        print("    bond 纪念立绘失败: 降级纯文字, 剧情照走（memorial_img=None）")
+    finally:
+        chat._engines.pop(CHARACTER, None)
+        chat._store = SessionStore(Path("data"))
