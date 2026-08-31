@@ -52,6 +52,21 @@
 }
 @keyframes bond-bg-in { from { opacity: 0; } to { opacity: 1; } }
 
+/* 纪念立绘层（方案 A 2026-09-01）: 全屏纪念图, 覆盖普通背景（bg 之上/立绘之下——
+   memorial 期间立绘隐藏）; 图就绪 → opacity 静默淡入; 退出 → 淡出露出普通背景。
+   进入 memorial 瞬间普通背景被清空（黑屏兜底）——无加载 UI, 图就绪即淡入。 */
+#bond-memorial {
+  position: absolute;
+  inset: 0;
+  background-size: cover;
+  background-position: center;
+  opacity: 0;
+  transition: opacity 0.8s ease;
+  pointer-events: none;            /* 不挡交互（点击不跳字） */
+  z-index: 1;
+}
+#bond-memorial.on { opacity: 1; }
+
 /* 可读性暗渐（底部深, 顶部轻微）——官方是中性灰蓝黑渐变（非紫黑）;
    文字栏（名字+对话）下方是渐变最暗区, 保证浮在立绘上仍清晰 */
 .bond-shade {

@@ -164,6 +164,9 @@ const BondVN = (() => {
         showError("轮询失败: " + e.message);
         return;
       }
+      // 纪念立绘（方案 A）: 每轮都同步（busy 也同步——图就绪随时淡入;
+      // 图晚到: 进入纪念时黑屏+文字, 图就绪即静默淡入）
+      syncMemorial(st);
       // 名字牌（官方: 名字 + 社团）——status 返回, 覆盖 enter 传入的兜底 name
       if (st.name) $("bond-name").textContent = st.name;
       if (st.club !== undefined) $("bond-club").textContent = st.club;
@@ -180,6 +183,7 @@ const BondVN = (() => {
         seenRound = st.round;
         seenEmo = (st.emo_version !== undefined) ? st.emo_version : -1;
         renderScene(st.scene);
+        syncMemorial(st);          // 渲染后: 清普通背景（黑屏兜底）+ 隐藏立绘
       } else if (st.emo_version !== undefined && st.emo_version !== seenEmo) {
         seenEmo = st.emo_version;
         if (st.scene) applyEmotions(st.scene);
@@ -187,6 +191,33 @@ const BondVN = (() => {
       if (st.completed) return;                  // is_end 场景已渲染 → 等自动 finish
       if (!st.scene && st.error) return;
       return;                                    // 场景已取（或异常）→ 结束本轮轮询
+    }
+  }
+
+  // 纪念立绘同步（方案 A）: in_memorial + memorial_img 就绪 → 淡入全屏图
+  // （进入瞬间普通背景清空 = 黑屏兜底, 无加载 UI——图就绪静默淡入）;
+  // 退出（in_memorial False）→ 淡出纪念层, 露出普通背景。
+  // memorial 期间立绘隐藏（设计定稿: 纪念 = 图 + 文字, 无 spine/emotion/fx）。
+  function syncMemorial(st) {
+    const layer = $("bond-memorial");
+    if (!layer) return;
+    const stage = $("bond-stage");
+    if (st.in_memorial && stage) stage.classList.add("hidden");   // 纪念无立绘
+    if (st.in_memorial) {
+      $("bond-bg").style.backgroundImage = "";                    // 黑屏兜底
+      if (st.memorial_img && layer.dataset.src !== st.memorial_img) {
+        layer.dataset.src = st.memorial_img;
+        layer.style.backgroundImage = `url("${st.memorial_img}")`;
+        layer.classList.add("on");                                // 静默淡入
+      }
+    } else if (layer.classList.contains("on")) {
+      layer.classList.remove("on");                               // 淡出
+      setTimeout(() => {                                          // 过渡后清空防误显
+        if (!layer.classList.contains("on")) {
+          layer.dataset.src = "";
+          layer.style.backgroundImage = "";
+        }
+      }, 1200);
     }
   }
 
@@ -662,6 +693,9 @@ const BondVN = (() => {
     v.classList.remove("hidden");
     $("bond-name").textContent = name;   // 兜底（status 会再覆盖 name/club）
     $("bond-bg").style.backgroundImage = "";
+    // 纪念层清理（上次残留——淡出已完成的图/未淡出的状态）
+    const mem = $("bond-memorial");
+    if (mem) { mem.classList.remove("on"); mem.dataset.src = ""; mem.style.backgroundImage = ""; }
     $("bond-text").innerHTML = "";
     $("bond-choices").innerHTML = "";
     hideContinue();
