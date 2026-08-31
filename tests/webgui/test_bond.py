@@ -9,6 +9,7 @@ ScriptedLLM（不碰 API）:
 与 CLI（test_vn_cli.py）同构的落库格式; 后台线程用轮询等待（sleep 小量）。
 运行: python -m pytest tests/webgui/test_bond.py
 """
+import json
 import sys
 import time
 from pathlib import Path
@@ -572,3 +573,121 @@ def test_bond_async_annotate_discard_on_replace(tmp_path):
         print("    bond 异步标注竞态: 场景推进后标注写回被丢弃（不污染新场景）")
     finally:
         _cleanup()
+
+
+# ----------------------------------------------------------------------------
+# 纪念立绘异步生成（方案 A 2026-09-01）: 流式嗅探到 memorial_enter 的 prompt
+# 定稿 → 后台生图（与 LLM 剩余输出并行）→ 画廊落盘 → bond_status.memorial_img
+# ----------------------------------------------------------------------------
+
+MEMORIAL_ENTER = {"action": "memorial_enter", "payload": {
+    "prompt": "湖边, 黑发少女含泪抬头, 月光",
+    "paragraphs": [{"text": "（她终于抬起头）老师……我这种人……", "emotion": "embarrass"}],
+    "choices": ["抱住她"]}}
+
+
+class StreamLLM:
+    """带 chat_full 的流式 mock（方案 A: chat_full 流式输出触发嗅探回调）。"""
+
+    def __init__(self, *scripts):
+        self._scripts = list(scripts)
+        self.probe_chunks: list[str] = []
+
+    def chat(self, messages, temperature=0.8, max_tokens=4096, response_format="text"):
+        if "记忆巩固" in messages[0]["content"]:       # digest 调用 → 空消化
+            return dict(EMPTY_DIGEST)
+        if not self._scripts:
+            raise RuntimeError("StreamLLM 脚本耗尽")
+        return self._scripts.pop(0)
+
+    def chat_full(self, messages, temperature=0.8, max_tokens=4096,
+                  response_format="text", extra_body=None, on_chunk=None):
+        if "记忆巩固" in messages[0]["content"]:
+            return dict(EMPTY_DIGEST)
+        if not self._scripts:
+            raise RuntimeError("StreamLLM 脚本耗尽")
+        result = self._scripts.pop(0)
+        raw = json.dumps(result, ensure_ascii=False)
+        for i in range(0, len(raw), 11):               # 任意分块模拟 token 流
+            chunk = raw[i:i + 11]
+            if on_chunk is not None:
+                self.probe_chunks.append(chunk)
+                on_chunk(chunk)
+        return result
+
+    def format_messages(self, *, system_prompt, user_message, history=None):
+        msgs = [{"role": "system", "content": system_prompt}]
+        msgs.extend(history or [])
+        msgs.append({"role": "user", "content": user_message})
+        return msgs
+
+
+class FakeImageGen:
+    """fake 生图器: 记录 prompt + 返回假 png（不碰 API）。"""
+
+    def __init__(self, tmp_path: Path):
+        self.tmp = Path(tmp_path)
+        self.prompts: list[str] = []
+
+    @property
+    def is_api_mode(self):
+        return True
+
+    def generate(self, prompt, ref_images=None, character_name="角色"):
+        self.prompts.append(prompt)
+        p = self.tmp / "fake.png"
+        p.write_bytes(b"fake-png-bytes")
+        return p
+
+
+def test_bond_memorial_async_image(tmp_path, monkeypatch):
+    from webgui import bond as bond_mod
+
+    fake = FakeImageGen(tmp_path)
+    monkeypatch.setattr(bond_mod, "_image_generator", lambda: fake)
+
+    llm = StreamLLM(SCENE_A, MEMORIAL_ENTER)
+    engine = MomoTalkEngine(ROOT / "config" / "characters", llm)
+    engine.start_session(CHARACTER)
+    st = SessionStore(tmp_path)
+    root = st.create(CHARACTER)
+    engine.attach_session(root.session_id)
+    chat._engines[CHARACTER] = engine
+    chat._store = st
+    sid = root.session_id
+    try:
+        # 首场（带选项）→ 分支消费（同响应）→ 分支播放时 pregen 触发
+        # → 生成 memorial_enter（流式嗅探）→ 后台生图
+        bond.bond_start(CHARACTER, sid)
+        _wait_status(CHARACTER, sid)
+        r = bond.bond_turn(CHARACTER, sid, "选A")
+        assert r["accepted"] and r.get("branch"), r
+
+        # 等 pregen（memorial_enter 生成）完成 → in_memorial=True（引擎状态机）
+        deadline = time.time() + 10.0
+        while time.time() < deadline:
+            if not bond.bond_status(CHARACTER, sid)["busy"]:
+                break
+            time.sleep(0.05)
+        st1 = bond.bond_status(CHARACTER, sid)
+        assert st1["in_memorial"] is True, st1
+        assert llm.probe_chunks, "流式嗅探应已观察到 token 流"
+
+        # 等生图线程完成 → 图 URL 就绪（gallery 落盘在 tmp data_root）
+        deadline = time.time() + 10.0
+        while time.time() < deadline:
+            if bond.bond_status(CHARACTER, sid)["memorial_img"]:
+                break
+            time.sleep(0.05)
+        st2 = bond.bond_status(CHARACTER, sid)
+        assert st2["memorial_img"].startswith(f"/gallery/{CHARACTER}/"), \
+            st2["memorial_img"]
+        assert fake.prompts == ["湖边, 黑发少女含泪抬头, 月光"], fake.prompts
+        # 画廊成对落盘（png + json）——list 只认成对
+        gdir = tmp_path / "gallery" / CHARACTER
+        assert len(list(gdir.glob("*.png"))) == 1
+        assert len(list(gdir.glob("*.json"))) == 1
+        print("    bond 纪念立绘: 流式嗅探 prompt 定稿即生图 → 画廊落盘 → memorial_img 就绪")
+    finally:
+        chat._engines.pop(CHARACTER, None)
+        chat._store = SessionStore(Path("data"))

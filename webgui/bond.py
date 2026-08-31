@@ -31,6 +31,7 @@ import threading
 from dataclasses import dataclass, field
 
 from core.bond.bond_story import BondScene, BondStoryEngine, SceneLoopError
+from core.media.gallery import GalleryStore
 from core.session.events import (
     M_MEMORIAL_ENTER,
     M_MEMORIAL_EXIT,
@@ -39,6 +40,7 @@ from core.session.events import (
     make_event,
 )
 from core.ui.vn_cli import _build_director, _trigger_reason
+from llm.image_gen import ImageGenerator, collect_ref_images
 from webgui import chat
 
 logger = logging.getLogger(__name__)
@@ -128,6 +130,11 @@ class BondState:
     emo_version: int = 0                       # emotion 补标版本（前端感知补切表情）
     _anno_queue: "queue.Queue | None" = field(default=None, repr=False)
     _anno_started: bool = field(default=False, repr=False)
+    # 纪念立绘异步生成（方案 A 2026-09-01）: 流式嗅探到 memorial_enter 的 prompt
+    # 定稿即后台生图（与 LLM 剩余输出并行）——玩家看到纪念场景时图已就绪, 淡入
+    memorial_img: str = ""                     # 前端 URL（/gallery/{char}/{sid}.png）; 空 = 未就绪/失败
+    memorial_img_ready: bool = False           # 图已落盘可展示
+    memorial_img_busy: bool = False            # 生图中（防重复触发; 重试 attempt 可能重复回调）
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
 
@@ -144,6 +151,79 @@ def _state(char_id: str, session_id: str) -> BondState:
 
 def _store():
     return chat._store
+
+
+#: 生图器懒初始化缓存（首次纪念触发才构造——无 key 环境零开销）
+_image_gen: ImageGenerator | None = None
+
+
+def _image_generator() -> ImageGenerator | None:
+    """懒初始化生图器。未配 IMAGE_API_KEY（非 API 模式）→ None = 纪念降级纯文字。
+
+    webgui 不做本地 diffusers 兜底（20 分钟/张不可接受）——API 模式才启用。
+    """
+    global _image_gen
+    if _image_gen is None:
+        try:
+            _image_gen = ImageGenerator()
+        except Exception as e:                   # noqa: BLE001 — 构造失败降级
+            logger.warning("生图器初始化失败（纪念降级纯文字）: %s", e)
+            return None
+    if not _image_gen.is_api_mode:
+        return None
+    return _image_gen
+
+
+def _memorial_gen(state: BondState, char_id: str, session_id: str,
+                  prompt: str) -> None:
+    """纪念立绘异步生成（方案 A）: generate → 画廊落盘 → 写回 state。
+
+    触发早于契约校验——动作最终可能被拒（频率限制/坏 JSON → 图作废, 接受浪费）。
+    失败降级: 不设置 memorial_img（前端纯文字, 剧情照走）。写回持短锁;
+    场景已推进不影响（前端只在纪念场景显示图）。
+    """
+    try:
+        gen = _image_generator()
+        if gen is None:
+            return                              # 未配 key → 降级纯文字
+        char = chat._engine(char_id).current_character
+        name = char.display_name if char is not None else "角色"
+        png = gen.generate(prompt, ref_images=collect_ref_images(char_id),
+                           character_name=name)
+        sid = GalleryStore(_store().data_root).write(
+            char_id, prompt, session_id, png)
+        with state._lock:
+            state.memorial_img = f"/gallery/{char_id}/{sid}.png"
+            state.memorial_img_ready = True
+    except Exception as e:                       # noqa: BLE001 — 失败降级纯文字
+        logger.warning("纪念立绘生成失败（降级纯文字）: %s", e)
+        with state._lock:
+            state.memorial_img = ""
+            state.memorial_img_ready = False
+    finally:
+        with state._lock:
+            state.memorial_img_busy = False
+
+
+def _make_memorial_cb(state: BondState, char_id: str, session_id: str):
+    """流式嗅探回调: prompt 定稿 → 重置图状态 + 开生图线程（不阻塞 LLM 收集线程）。
+
+    在 LLM 收集线程内被调用（持 chat._lock）——只开线程, 不做重活。
+    防重复: memorial_img_busy 时跳过（重试 attempt 可能再次触发, 第一张作废）。
+    """
+    def cb(prompt: str) -> None:
+        if state.demo is not None:
+            return
+        with state._lock:
+            if state.memorial_img_busy:
+                return
+            state.memorial_img_busy = True
+            state.memorial_img = ""
+            state.memorial_img_ready = False
+        threading.Thread(target=_memorial_gen,
+                         args=(state, char_id, session_id, prompt),
+                         daemon=True).start()
+    return cb
 
 
 # ---------------------------------------------------------------------------
@@ -292,7 +372,8 @@ def bond_turn(char_id: str, session_id: str, text: str) -> dict:
 
 def bond_status(char_id: str, session_id: str) -> dict:
     """轮询: 生成状态 + 最新场景（前端按 round 去重）+ 终结标记 + 名字牌信息
-    + emo_version（异步标注补标版本——前端感知后补切已显示段落的立绘表情）。"""
+    + emo_version（异步标注补标版本——前端感知后补切已显示段落的立绘表情）
+    + memorial（纪念模式标记 + 立绘 URL——前端进纪念淡入图背景, 退出淡出）。"""
     state = _state(char_id, session_id)
     role = _role_info(char_id)
     return {
@@ -304,6 +385,10 @@ def bond_status(char_id: str, session_id: str) -> dict:
         "name": role["name"],
         "club": role["club"],
         "emo_version": state.emo_version,
+        # 纪念立绘（方案 A）: in_memorial = 纪念模式中（前端保持图背景）;
+        # memorial_img = 图 URL（None = 未就绪/失败 → 纯文字降级）
+        "in_memorial": bool(state.vn is not None and state.vn.in_memorial),
+        "memorial_img": state.memorial_img or None,
     }
 
 
@@ -373,7 +458,10 @@ def _generate(state: BondState, char_id: str, session_id: str, user_input: str) 
                                             is_end=True))
                 else:
                     scene = state.vn.send_vn_scene(
-                        user_input, system_note=_system_note(state), annotate=False)
+                        user_input, system_note=_system_note(state), annotate=False,
+                        on_memorial_prompt=_make_memorial_cb(
+                            state, char_id, session_id),
+                    )
                     if state.round > _FORCE_AFTER and not scene.is_end:
                         # 超限强制收尾（CLI force_after 语义——剧情必须终结）
                         scene = BondScene(
@@ -434,7 +522,9 @@ def _pregenerate(state: BondState, char_id: str, session_id: str) -> None:
         try:
             with chat._lock(char_id):
                 scene = state.vn.send_vn_scene(
-                    "（继续）", system_note=_system_note(state), annotate=False)
+                    "（继续）", system_note=_system_note(state), annotate=False,
+                    on_memorial_prompt=_make_memorial_cb(
+                        state, char_id, session_id))
                 state.pregen_obj = scene
                 state.pregen_scene = scene.to_dict()
                 state.pregen_input = "（继续）"
