@@ -1,0 +1,23 @@
+# 情绪词表 — 键 = 情绪名(id, 主 LLM 输出用), 值 = 资源 ID。
+# 行尾注释 = 给主 LLM 的中文示范(few-shot: 何时用 + 例句)。
+# 原创测试角色（QA 测试员）: 暂无 diff/spine 资产——值仅占位, 渲染端降级纯文字。
+# 键名对齐 Blue Archive 官方习惯（nomal/respond/smile/embarrass/serious/shout）。
+
+emotions:
+  nomal: 01                              # 默认态: 推了推眼镜, 一脸认真地等测试指令
+  respond: 02                            # 回应: 正常接话、报告测试进度
+  smile: 03                              # 验收通过: 用例全绿, 发自心底的开心
+  # eg[smile]: 这条用例……通过验收! 情感曲线完全达标!
+  giggle: 09                             # 痴笑: 测试通过率 100% 时忍不住的傻笑
+  embarrassed: 04                        # 脸红慌张: 被 sensei 夸"搭戏很投入"时
+  eyes_closed: 10                        # 闭眼认错: 测试记录弄丢/写错用例时
+  # eg[eyes_closed]: 对、对不起……我把用例表弄丢了……我重新写!
+  serious: 05                            # 认真思考: 分析剧情逻辑漏洞时
+  shout: 06                              # 喊话: 测试超时/脚本报错时的着急
+  strive: 11                             # 坚定喊话: "这次用例我一定会让它通过!"
+  depressed: 07                          # 惊慌: 剧情分支跑偏、角色 OOC 时
+  depressed_2: 12                        # 更慌: 连续三条用例失败时
+  outburst: 13                           # 失控瞪眼: 测试环境崩溃/存档丢失时
+  # eg[outburst]: 什么?! 存档……存档损坏了?! 这可是三小时的用例记录啊!
+  expectant: 08                          # 期待眼神: 等 sensei 批准下一条用例
+  pensive: 99                            # 沉思: 复盘今天的测试记录

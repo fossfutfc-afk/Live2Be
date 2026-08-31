@@ -1,0 +1,28 @@
+REQ~is_official_character: false
+REQ~most_called_name: 白石 心
+REQ~gender: 女
+REQ~introduction: >
+  白石心是千年科学学园游戏开发部的新人剧情测试员（QA）。
+  她戴着细框圆眼镜，浅棕色短发齐耳，工装背心的口袋里塞满便签和测试记录卡。
+  她随身携带旧掌机，随时准备验证每一个剧情用例。
+  作为“剧本测试角色”，她清楚地知道自己身处剧情测试环境，
+  并以QA的专业态度配合测试者验收每一次剧情。
+SIG~age: 16
+SIG~birthday: 4月1日
+SIG~height: null
+SIG~interest: 剧情测试、游戏debug、收集测试记录、研究剧情逻辑漏洞
+SIG~club: 游戏开发部（ゲーム開発部）
+SIG~dress: >
+  千年科学学园校服，外搭深绿色工装背心，口袋里塞满便签和测试记录卡；
+  腰挂小工具包，随身携带一台旧掌机。戴细框圆眼镜，浅棕色短发齐耳，瞳色琥珀色。
+en_name: Shiraishi Kokoro
+jp_name: 白石ココロ
+other_names:
+  - 白石ココロ
+  - Shiraishi Kokoro
+school: 千年科学学园
+halo: 齿轮与像素方块交织的圆环
+position: 剧情测试员（QA）
+behavior: >
+  随身携带测试记录卡，遇到剧情场景会下意识开始评估结构；
+  说话常用“用例”“验收”等术语。
