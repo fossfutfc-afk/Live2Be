@@ -47,11 +47,11 @@ wiki 注入（第一人称 recall）✅ · 中断剧情不消化 ✅
 | 方向 | 状态 | 说明 |
 |---|---|---|
 | 好感度分层打分（MMT 0~10 / bond 30~100） | 🔧 | 防 MMT 闲聊刷好感——统一 0~100 的细化 |
-| digest significance 分（0~1）消费（检索/驱逐排序） | 🔧 | DESIGN_MEMORY.md Step 2——分已实现（旧名 importance）, 消费未写 |
-| 回忆注入（"你突然想起…"） | 🔧 | Step 4——对话顺序保持, 依赖 embedding 回捞 |
-| 重要性驱逐（Generative Agents 式） | 🔧 | Step 5——依赖 embedding（驱逐不丢的前提是原文可回捞） |
-| 联想 digest（新旧碰撞出成长） | 🔧 | DESIGN_BRAIN.md §3——双通道回忆（珍贵保底 + 遗忘曲线） |
-| RAG 回忆（embedding 检索旧事件） | 📋 | DESIGN_BRAIN.md Phase 2——本地 nomic embedding, numpy 余弦即可 |
+| digest significance 分（0~1）消费（检索/驱逐排序） | 🔧 | 根目录 DESIGN_BRAIN.md §9 Step 2——分已实现（旧名 importance）, 消费未写 |
+| 回忆注入（"你突然想起…"） | 🔧 | 根目录 DESIGN_BRAIN.md §9 Step 4——对话顺序保持, 依赖 embedding 回捞 |
+| 重要性驱逐（Generative Agents 式） | 🔧 | 根目录 DESIGN_BRAIN.md §9 Step 5——依赖 embedding（驱逐不丢的前提是原文可回捞） |
+| 联想 digest（新旧碰撞出成长） | 🔧 | 根目录 DESIGN_BRAIN.md §5——双通道回忆（珍贵保底 + 遗忘曲线） |
+| RAG 回忆（embedding 检索旧事件） | 📋 | 根目录 DESIGN_BRAIN.md §10 Phase 2——本地 nomic embedding, numpy 余弦即可 |
 | 并行/并发 digest（多角色 + 玩家输入优先） | 🔧 | 已讨论（LLM 串行锁 + 可让路/放弃） |
 | 好感动画延迟结算（UI: ??? → EXP 动画） | 🔧 | 已讨论——GUI 侧 |
 | 事件流全量保留策略（长积累摘要化/归档） | 🔧 | TODO 技术债——YAGNI 当前可延后 |

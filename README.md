@@ -64,5 +64,5 @@ python -m pytest                      # 全部离线测试（~150 个）
 | [core/DESIGN_BOND_STORY.md](core/DESIGN_BOND_STORY.md) | 羁绊剧情引擎（story_scene/story_end 双动作 + 执行层） |
 | [core/DESIGN_VISUAL.md](core/DESIGN_VISUAL.md) | ② 视觉导演设计（已实现：导演定 sprite/background） |
 | [core/DESIGN_VISUAL_PROTOCOL.md](core/DESIGN_VISUAL_PROTOCOL.md) | 视觉意图协议（emotion/place 意图 + 情绪词表，设计定稿待实现） |
-| [core/DESIGN_AGENT.md](core/DESIGN_AGENT.md) | ⚠️ 已过时（算法做导演早期方案，被视觉意图协议取代，历史参考） |
+| [docs/archive/DESIGN_AGENT.md](docs/archive/DESIGN_AGENT.md) | ⚠️ 已归档（算法做导演早期方案，被视觉意图协议取代，历史参考） |
 | 各目录 `.exp` | 目录级说明（人类 + LLM 共读） |

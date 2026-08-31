@@ -1,7 +1,7 @@
 # Bond Story JSON 契约化 + 双核升级 — 设计文档
 
 状态：已批准（2026-08-22 用户拍板，v1 已实现 + v2 双核升级）。
-关联：contract/DESIGN.md（契约层根基）、llm/DESIGN.md（prompt 仓库）、core/DESIGN_AGENT.md。
+关联：contract/DESIGN.md（契约层根基）、llm/DESIGN.md（prompt 仓库）、docs/archive/DESIGN_AGENT.md（早期方案, 已归档）。
 
 ## 1. 为什么改（背景）
 
