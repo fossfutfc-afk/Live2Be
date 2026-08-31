@@ -262,7 +262,7 @@
   border-radius: 10px;
   margin: 1rem;
 }
-/* 羁绊剧情入口（BA 风格粉色横幅） */
+/* 羁绊剧情入口（BA 风格粉色横幅; 2026-09-01: 可点击进入按钮——点击才进 VN） */
 .mmt-bubble.bond-entry {
   align-self: center;
   background: linear-gradient(135deg, #ff9ec3, #ff6fa7);
@@ -276,6 +276,19 @@
   border-radius: 12px;
   max-width: 88%;
   box-shadow: 0 2px 10px rgba(255, 111, 167, 0.35);
+}
+.mmt-bubble.bond-entry.clickable {
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, filter 0.15s ease;
+}
+.mmt-bubble.bond-entry.clickable:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 16px rgba(255, 111, 167, 0.55);
+  filter: brightness(1.06);
+}
+.mmt-bubble.bond-entry.clickable::after {
+  content: " ▸";
+  font-weight: 700;
 }
 @keyframes bubble-in {
   from { opacity: 0; transform: translateY(6px); }

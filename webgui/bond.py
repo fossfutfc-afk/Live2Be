@@ -234,8 +234,14 @@ def bond_start(char_id: str, session_id: str) -> dict:
     """进入羁绊剧情: 构造引擎 + vn_enter marker + 后台生成首场。
 
     幂等: 已有进行中的 bond 状态（真实引擎或演示剧本）→ 返回现状（前端重进不重建）。
+    已完成（completed）→ 拒绝再进入（粉泡入口点击后由后端裁决——2026-09-01）。
+    中断再进入: 玩家中途退出后重进 → 内存态在（resumed）→ 从中断场景继续,
+    vn 引擎历史完整 → AI 正确衔接（事件流重建是 M3 回放, 服务重启前不做）。
     """
     state = _state(char_id, session_id)
+    if state.completed:
+        return {"accepted": False, "completed": True,
+                "error": "这段羁绊剧情已经完成"}
     if state.vn is not None or state.demo is not None:
         return {"accepted": True, "busy": state.busy, "resumed": True}
     if state.busy:

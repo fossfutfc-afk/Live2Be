@@ -226,6 +226,11 @@ def test_bond_start_idempotent_and_guards(tmp_path):
         r3 = bond.bond_turn(CHARACTER, sid, "选A")         # 已 completed → 拒绝
         assert not r3["accepted"] and r3.get("completed") is True
 
+        # 已完成剧情不可再进入（2026-09-01: 粉泡入口点击由后端裁决拒绝——
+        # 中断可 resumed 续进, 已完成则不可再进）
+        r4 = bond.bond_start(CHARACTER, sid)
+        assert not r4["accepted"] and r4.get("completed") is True, r4
+
         # 未开始: 另一个 session → turn/finish 拒绝
         # （st.create 对同角色幂等返回同一条线——用不存在的 session id 模拟未开始）
         assert not bond.bond_turn(CHARACTER, "no_such_session", "x")["accepted"]
