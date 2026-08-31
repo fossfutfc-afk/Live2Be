@@ -54,6 +54,7 @@ export class SpinePlayer extends EventTarget {
     this._container = null;
     this._resizeObserver = null;
     this._emotionMap = null;     // { emotion: anim } — setEmotion 的映射
+    this._curEmotion = null;     // 当前表情（setEmotion 同值不重播——2026-09-01）
     this._animSet = new Set();   // skel 动画名集合（play 校验用）
     this._loaded = false;
     this._autoFit = true;
@@ -207,6 +208,7 @@ export class SpinePlayer extends EventTarget {
     this._info = null;
     this._animSet = new Set();
     this._emotionMap = null;
+    this._curEmotion = null;
   }
 
   // ── 播放 ──────────────────────────────────────────────────────────────
@@ -243,12 +245,16 @@ export class SpinePlayer extends EventTarget {
   /**
    * 语义层: emotion → anim 映射（load 时注入或 setEmotionMap 设置）→ 播放。
    * 无映射 / 映射动画不存在 → false（保持现状）。
+   * 同值短路（2026-09-01 问题3）: 连续设同一表情 → 不重播动画（返回 true,
+   * 立绘保持——AI 相邻句填同表情时画面不闪）。
    */
   setEmotion(emotion) {
     if (!this._emotionMap) return false;
     const anim = this._emotionMap[emotion];
     if (!anim) return false;
+    if (emotion === this._curEmotion) return true;   // 同值不重播
     if (!this.play(anim, { loop: true })) return false;
+    this._curEmotion = emotion;
     this._emit('emotionchange', { emotion, anim });
     return true;
   }
