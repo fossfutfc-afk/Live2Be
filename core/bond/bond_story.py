@@ -275,9 +275,13 @@ class BondStoryEngine:
         if world_chunk:
             system_prompt += "\n\n" + world_chunk
 
-        # 剧情基调（对话生成层, "最一开始告诉 AI"）: per 角色写在五件套
-        # （personality.yml 的 SIG~story_tone）——VN 是剧情生成的主场, 基调开场定
+        # 剧情基调（对话生成层, "最一开始告诉 AI"）: per 角色写在扮演手册
+        # script.yml 的 SIG~main_tone（旧: personality 的 SIG~story_tone, 兼容）——
+        # VN 是剧情生成的主场, 基调开场定
         system_prompt += "\n\n【本角色剧情基调】\n" + load_story_tone(char)
+        # 扮演手册 bond 建议（script.yml 的 SIG~bond_tone; 缺失 → 不注入, 照旧）
+        if char.bond_tone:
+            system_prompt += "\n\n【本角色羁绊剧情建议】\n" + char.bond_tone
 
         # 称呼注入（同 momotalk——强化身份认知; list 为分饰多角预留）+ 剧情规则
         names = self._character_names or [char.display_name]
