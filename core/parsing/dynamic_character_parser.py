@@ -329,14 +329,27 @@ def _render_node(node: Any, lines: list[str], indent: int) -> None:
 # 多文件合并 + 角色加载器
 # ===========================================================================
 
-# 角色目录下的 5 个文件（profile 必需，其余可选）
+# 角色目录下的 6 个文件（profile 必需，其余可选; script.yml = 扮演手册 2026-09-01）
 _CHARACTER_FILES = [
     "profile.yml",
     "personality.yml",
     "knowledge.yml",
     "experience.yml",
     "typical.yml",
+    "script.yml",
 ]
+
+
+def _first_str(data: dict, key: str) -> str:
+    """键值 → 文本（str 原样; list 逐项换行拼接——手册的 mmt_tone/bond_tone 常为列表）;
+    缺失/坏值 → 空（宁缺勿错, 调用方跳过注入）。"""
+    v = data.get(key, "")
+    if isinstance(v, str):
+        return v.strip()
+    if isinstance(v, list):
+        parts = [str(x).strip().lstrip("- ").strip() for x in v if str(x).strip()]
+        return "\n".join(parts) if parts else ""
+    return ""
 
 
 @dataclass
@@ -350,14 +363,19 @@ class DynamicCharacter:
     knowledge: dict[str, Any] = field(default_factory=dict)
     experience: dict[str, Any] = field(default_factory=dict)
     typical: dict[str, Any] = field(default_factory=dict)
+    script: dict[str, Any] = field(default_factory=dict)  # 扮演手册（可选, 2026-09-01）
 
     # 元数据（加载时计算）
     display_name: str = ""
     is_official: bool = True
     completeness: dict[str, Any] = field(default_factory=dict)
     missing_req: list[str] = field(default_factory=list)
-    # 剧情基调（personality.story_tone, 对话生成层注入——"最一开始告诉 AI"）
+    # 剧情基调（扮演手册 script.yml 的 SIG~main_tone 优先 → 兼容 personality
+    # 的 SIG~story_tone → 空; 对话生成层注入——"最一开始告诉 AI"）
     story_tone: str = ""
+    # 扮演手册分域注入（script.yml 的 SIG~mmt_tone / SIG~bond_tone; 缺失 → 空）
+    mmt_tone: str = ""
+    bond_tone: str = ""
 
     def build_prompt(self, mode: str = "momotalk") -> str:
         """根据模式构建 System Prompt。
@@ -500,10 +518,16 @@ class CharacterLoader:
 
         completeness_full = get_completeness(merged)
 
-        # 剧情基调（personality 的 SIG~story_tone; 缺失 → 空, 调用方用默认）
+        # 剧情基调（扮演手册 script.yml 的 SIG~main_tone 优先 → 兼容 personality
+        # 的 SIG~story_tone → 空; 调用方用默认兜底）
         personality_data = loaded.get("personality", {})
-        tone = personality_data.get("SIG~story_tone", "")
+        script_data = loaded.get("script", {})
+        tone = (script_data.get("SIG~main_tone", "")
+                or personality_data.get("SIG~story_tone", ""))
         story_tone = tone.strip() if isinstance(tone, str) else ""
+        # 扮演手册分域注入（mmt_tone → 聊天; bond_tone → 羁绊剧情）
+        mmt_tone = _first_str(script_data, "SIG~mmt_tone")
+        bond_tone = _first_str(script_data, "SIG~bond_tone")
 
         return DynamicCharacter(
             character_id=character_id,
@@ -513,11 +537,14 @@ class CharacterLoader:
             knowledge=loaded.get("knowledge", {}),
             experience=loaded.get("experience", {}),
             typical=loaded.get("typical", {}),
+            script=script_data,
             display_name=display_name,
             is_official=official,
             completeness=completeness_full,
             missing_req=missing_req,
             story_tone=story_tone,
+            mmt_tone=mmt_tone,
+            bond_tone=bond_tone,
         )
 
     # ------------------------------------------------------------------

@@ -210,9 +210,13 @@ class MomoTalkEngine:
             sp += "\n\n" + world_chunk
 
         # 剧情基调（对话生成层, "最一开始告诉 AI", DESIGN_BRAIN.md §0）:
-        # per 角色写在五件套（personality.yml 的 SIG~story_tone）——AI 从卡学角色,
-        # 基调也从卡来。digest 是事后提炼救不了基调——生成的剧情必须一开始就符合角色类型。
+        # per 角色写在扮演手册 script.yml 的 SIG~main_tone（旧: personality 的
+        # SIG~story_tone, 兼容）——AI 从卡学角色, 基调也从卡来。digest 是事后提炼
+        # 救不了基调——生成的剧情必须一开始就符合角色类型。
         sp += "\n\n【本角色剧情基调】\n" + load_story_tone(char)
+        # 扮演手册 MMT 风格（script.yml 的 SIG~mmt_tone; 缺失 → 不注入, 照旧）
+        if char.mmt_tone:
+            sp += "\n\n【本角色 MMT 风格】\n" + char.mmt_tone
 
         try:                                         # L1 人际层: 自表条目注入（键值+权重）
             interperson = load_interperson(self.executor.interperson_path)
