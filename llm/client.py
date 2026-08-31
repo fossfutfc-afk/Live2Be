@@ -19,7 +19,7 @@ import json
 import os
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import certifi
 import httpx
@@ -151,6 +151,48 @@ class LLMClient:
             )
         return raw_text
 
+    def chat_full(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        model: str | None = None,
+        temperature: float = 0.8,
+        max_tokens: int = 1024,
+        response_format: str = "text",
+        extra_body: dict[str, Any] | None = None,
+        on_chunk: Callable[[str], None] | None = None,
+    ) -> str | dict[str, Any]:
+        """流式 chat completion — 收集完整文本, 返回与 chat 完全一致。
+
+        与 chat 的区别只在传输: SSE 流式（token 逐块到达, on_chunk 每块增量
+        回调——观察者/流式嗅探用）。json_object 时同样走 LLM 自纠错
+        （_extract_json_with_llm_correction, 纠错阶段为非流式请求）。
+        """
+        effective_model = model or self.model
+
+        payload = _build_payload(
+            messages=messages,
+            model=effective_model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            response_format=response_format,
+            extra_body=extra_body,
+            stream=True,
+        )
+        raw_text = self._stream_collect(payload, on_chunk=on_chunk)
+        self.last_reasoning = _LAST_REASONING    # 模块级捕获 → 实例可读
+
+        if response_format == "json_object":
+            return self._extract_json_with_llm_correction(
+                first_attempt=raw_text,
+                messages=messages,
+                model=effective_model,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                extra_body=extra_body,
+            )
+        return raw_text
+
     def chat_stream(
         self,
         messages: list[dict[str, str]],
@@ -158,22 +200,28 @@ class LLMClient:
         model: str | None = None,
         temperature: float = 0.8,
         max_tokens: int = 512,
+        response_format: str = "text",
     ):
         """流式 chat completion — yield 每个 token 的文本增量。
 
         用法:
             for chunk in client.chat_stream(messages):
                 print(chunk, end="", flush=True)
+
+        response_format: "text"（默认）/ "json_object"（同 chat——payload 带
+        response_format, messages 自动补 JSON 指令）。
         """
         effective_model = model or self.model
 
-        payload = {
-            "model": effective_model,
-            "messages": messages,
-            "temperature": temperature,
-            "max_tokens": max_tokens,
-            "stream": True,
-        }
+        payload = _build_payload(
+            messages=messages,
+            model=effective_model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            response_format=response_format,
+            extra_body=None,
+            stream=True,
+        )
 
         with self._http.stream("POST", "/chat/completions", json=payload) as resp:
             if resp.status_code != 200:
@@ -319,6 +367,89 @@ class LLMClient:
         assert last_error is not None
         raise last_error
 
+    def _stream_collect(
+        self,
+        payload: dict[str, Any],
+        on_chunk: Callable[[str], None] | None = None,
+    ) -> str:
+        """流式请求（SSE）— 收集完整文本, 重试语义对齐 _request_with_retry。
+
+        401/403 立即抛（配置错误, 重试无意义）; 429/5xx 指数退避; 超时退避。
+        流式响应顺带捕获 reasoning_content（DeepSeek reasoner/v4 系列）。
+        """
+        last_error: Exception | None = None
+
+        for attempt in range(self.max_retries + 1):
+            try:
+                with self._http.stream("POST", "/chat/completions", json=payload) as resp:
+                    if resp.status_code == 200:
+                        return self._drain_stream(resp, on_chunk)
+
+                    # 认证/权限错误（401/403）: 配置错误, 重试无意义——立即抛
+                    if resp.status_code in (401, 403):
+                        raise httpx.HTTPStatusError(
+                            err("LLMAuth",
+                                f"API 认证失败 {resp.status_code}: {resp.text[:200]}"),
+                            request=resp.request,
+                            response=resp,
+                        )
+
+                    if resp.status_code == 429:
+                        retry_after = _parse_retry_after(resp)
+                        if attempt < self.max_retries:
+                            time.sleep(retry_after if retry_after > 0 else 2 ** attempt)
+                            continue
+
+                    if resp.status_code >= 500 and attempt < self.max_retries:
+                        time.sleep(2 ** attempt)
+                        continue
+
+                    raise httpx.HTTPStatusError(
+                        err("LLMAPI", f"LLM API error {resp.status_code}: {resp.text[:500]}"),
+                        request=resp.request,
+                        response=resp,
+                    )
+            except httpx.TimeoutException as e:
+                last_error = e
+                if attempt < self.max_retries:
+                    time.sleep(2 ** attempt)
+                    continue
+                raise
+
+        assert last_error is not None
+        raise last_error
+
+    @staticmethod
+    def _drain_stream(
+        resp: httpx.Response,
+        on_chunk: Callable[[str], None] | None = None,
+    ) -> str:
+        """SSE 流式响应 → 完整文本（内容增量 + reasoning 增量捕获）。"""
+        global _LAST_REASONING
+        buf: list[str] = []
+        reasoning: list[str] = []
+        for line in resp.iter_lines():
+            if not line.startswith("data: "):
+                continue
+            data = line[6:]
+            if data == "[DONE]":
+                break
+            try:
+                delta = json.loads(data)["choices"][0].get("delta", {})
+            except (json.JSONDecodeError, KeyError, IndexError):
+                continue
+            content = delta.get("content", "")
+            if content:
+                buf.append(content)
+                if on_chunk is not None:
+                    on_chunk(content)
+            rc = delta.get("reasoning_content") or delta.get("reasoning")
+            if rc:
+                reasoning.append(rc)
+        if reasoning:
+            _LAST_REASONING = "".join(reasoning)
+        return "".join(buf)
+
 
 # ---------------------------------------------------------------------------
 # 内部
@@ -331,13 +462,14 @@ def _build_payload(
     max_tokens: int,
     response_format: str,
     extra_body: dict[str, Any] | None,
+    stream: bool = False,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "model": model,
         "messages": messages,
         "temperature": temperature,
         "max_tokens": max_tokens,
-        "stream": False,
+        "stream": stream,
     }
 
     if response_format == "json_object":
