@@ -34,6 +34,7 @@ import json
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Callable
 
 from contract import AgentAction, build_schema
 from core.common import Live2BeError, err
@@ -42,6 +43,7 @@ from core.bond.bond_actions import MAX_SCENE_RETRIES, build_story_registry
 from core.bond.emotion_annotate import annotate_emotions
 from core.bond.bond_executor import StoryExecError, StoryExecutor
 from core.bond.memorial_actions import build_memorial_registry
+from core.bond.stream_probe import MemorialProbe
 from core.media.emotion_lexicon import (
     build_emotion_injection,
     build_place_injection,
@@ -326,6 +328,7 @@ class BondStoryEngine:
         max_tokens: int = 1536,
         system_note: str | None = None,
         annotate: bool = True,
+        on_memorial_prompt: Callable[[str], None] | None = None,
     ) -> BondScene:
         """结构化场景 API：单次 LLM 调用 → BondScene（段落 + 选项 + 是否结束）。
 
@@ -339,6 +342,11 @@ class BondStoryEngine:
         annotate: 两遍式 C——True（默认）= 同步标注（骨架缺 emotion → 批量标注
         补标后返回, CLI/测试用）; False = 只返回骨架（标注由调用方异步执行——
         webgui 用它把 emotion 解析挪出玩家等待路径, fill_scene_emotions 补标）。
+        on_memorial_prompt: 方案 A 流式嗅探钩子（2026-09-01）——LLM 输出流式
+        到达, MemorialProbe 在 memorial_enter 的 prompt 字段值闭合（定稿）时
+        立即回调（生图与 LLM 剩余输出并行）。None = 不嗅探（原同步行为）。
+        注意: 触发时动作尚未通过契约校验（频率限制/坏 JSON 可能打回）——已触发
+        的生图可能作废（调用方接受浪费, 宁缺勿错）。
         """
         if self._current_char is None:
             raise RuntimeError(err("NotInSession", "尚未开始会话"))
@@ -360,11 +368,23 @@ class BondStoryEngine:
             )
 
         for attempt in range(MAX_SCENE_RETRIES):
+            # 方案 A 流式嗅探（每次 attempt 新建——重试是全新输出, 重新嗅探）
+            probe = MemorialProbe(on_memorial_prompt) if on_memorial_prompt else None
             try:
-                response = self.llm.chat(
-                    messages, temperature=0.8, max_tokens=max_tokens,
-                    response_format="json_object",
-                )
+                # 流式优先（chat_full = chat 的流式等价 + on_chunk 观察者）;
+                # 旧 mock LLM（仅实现 chat）自动回退——嗅探随之失效, 行为与改造前一致
+                chat_full = getattr(self.llm, "chat_full", None)
+                if chat_full is not None:
+                    response = chat_full(
+                        messages, temperature=0.8, max_tokens=max_tokens,
+                        response_format="json_object",
+                        on_chunk=probe.feed if probe is not None else None,
+                    )
+                else:
+                    response = self.llm.chat(
+                        messages, temperature=0.8, max_tokens=max_tokens,
+                        response_format="json_object",
+                    )
             except Exception as e:
                 logger.warning("LLM 调用失败（第 %d 次）: %s", attempt, e)
                 feedback(messages, f"LLM 调用失败: {e}\n请重试。")
