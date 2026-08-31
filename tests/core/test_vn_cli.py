@@ -25,6 +25,7 @@ from core.momotalk import MomoTalkEngine
 from core.bond.bond_story import BondScene, BondStoryEngine, SceneLoopError
 from core.bond.bond_executor import StoryExecError, StoryExecutor
 from core.session import SessionStore
+from core.session.events import M_VN_EXIT
 from core.ui.vn_cli import run_bond_story_vn, simulate_vn_scene
 
 ROOT = Path(__file__).resolve().parent.parent.parent
@@ -171,6 +172,9 @@ def test_run_vn_choice_flow(tmp_path):
     evs = st.events(CHARACTER, sid)
     scene_ev = [e for e in evs if e.subtype == "story_scene"][0]
     assert scene_ev.payload["picked"] == "走过去", scene_ev.payload
+    # vn_exit 带剧情完成标志（2026-09-01）: 完整剧情 → completed=True
+    exit_ev = [e for e in evs if e.subtype == M_VN_EXIT][0]
+    assert exit_ev.payload.get("completed") is True, exit_ev.payload
     print("    run_vn(选项): 选 1 → 推进 → is_end 退出, 事件流 picked 落盘")
 
 
@@ -211,6 +215,9 @@ def test_run_vn_early_exit(tmp_path):
     assert M_VN_EXIT in subs and M_SESSION_END in subs, "统一收尾: vn_exit + session_end"
     end_ev = [e for e in evs if e.subtype == M_SESSION_END][0]
     assert end_ev.payload["ended"] is False, end_ev.payload
+    # vn_exit 带剧情完成标志（2026-09-01）: 中途退出 → completed=False
+    exit_ev = [e for e in evs if e.subtype == M_VN_EXIT][0]
+    assert exit_ev.payload.get("completed") is False, exit_ev.payload
     print("    run_vn(提前退出): 输入 b → 立即回 MomoTalk, 统一收尾 ended=False")
 
 
