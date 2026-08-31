@@ -20,7 +20,6 @@ const $ = (id) => document.getElementById(id);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const BOND_POLL_MS = 700;       // status 轮询间隔（LLM 秒级, 不用太快）
-const PARA_GAP_MS = 320;        // 段与段之间停顿
 const END_HOLD_MS = 1600;       // 收尾场景停留后自动 finish
 
 // 打字速度档位（菜单"打字速度"切换——逐字基准与标点停顿）
@@ -67,6 +66,11 @@ const BondVN = (() => {
   let typeOnDone = null;
   let typeBoxEl = null;
   let sceneIsEnd = false;           // 当前场景是否 is_end（continue 三角分派: 结束→finish）
+  // 点击推进制（2026-09-01 问题3）: typeState = "typing"（打字中, X 可补全, 左键无效）
+  // / "waiting"（段完成, 左键推进下一段, X 无效）/ null（交互中）
+  let typeState = null;
+  // 当前立绘表情（段首同值不重播——AI 填同表情时立绘不闪）
+  let curEmotion = "";
 
   // ---------------------------------------------------------------------------
   // 公开: 进入 VN（mmt.js 收到 bond_story 或重进 in_vn 会话时调用）
@@ -221,15 +225,16 @@ const BondVN = (() => {
     }
   }
 
-  // 异步标注补标: 场景已显示, emotion 就绪 → 对已渲染段落逐段补切立绘表情
-  // （段落文本不变, 只切表情——两遍式 C 的"标注与显示并行"收尾）
+  // 异步标注补标: 场景已显示, emotion 就绪 → 对**当前显示段**补切立绘表情
+  // （2026-09-01 替换式渲染: 对话窗只保留当前段——只补当前段; 同值不重播）
   function applyEmotions(scene) {
     if (!player) return;
     const paras = scene.paragraphs || [];
-    const divs = document.querySelectorAll("#bond-text .bond-para");
-    paras.forEach((p, i) => {
-      if (divs[i] && p && p.emotion) player.setEmotion(p.emotion);
-    });
+    const p = paras[typeSeg];
+    if (p && p.emotion && p.emotion !== curEmotion) {
+      player.setEmotion(p.emotion);
+      curEmotion = p.emotion;
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -269,7 +274,8 @@ const BondVN = (() => {
       hideContinue();
       showInteraction(scene);
     });
-    showContinue();                              // 打字中亮起 → 点击跳过
+    // 2026-09-01 点击推进制: 打字中继续三角不亮——段完成时 paraDone 才亮
+    // （提示"点击进入下一段"）; 交互期由 showInteraction 自行管理
   }
 
   async function showTitle(title, bgUrl) {
@@ -283,17 +289,21 @@ const BondVN = (() => {
     // 官方标题屏: 隐藏名字牌 + 模糊背景/立绘（整个画面虚化, 只留中央标题条清晰）
     document.querySelector(".bond-nameplate").classList.add("hidden");
     v.classList.add("title-active");
-    // 点击跳过 / 2.4s 自动继续
+    // 点击跳过 / 2.4s 自动继续（2026-09-01: 隐藏加淡出过渡——fade-out class）
     await new Promise((res) => {
       let done = false;
       const fin = () => {
         if (done) return;
         done = true;
-        t.classList.add("hidden");
-        v.classList.remove("title-active");
-        // 名字牌恢复（is_end 时 renderScene 会再隐藏）
-        document.querySelector(".bond-nameplate").classList.remove("hidden");
-        res();
+        t.classList.add("fade-out");
+        setTimeout(() => {
+          t.classList.add("hidden");
+          t.classList.remove("fade-out");
+          v.classList.remove("title-active");
+          // 名字牌恢复（is_end 时 renderScene 会再隐藏）
+          document.querySelector(".bond-nameplate").classList.remove("hidden");
+          res();
+        }, 400);
       };
       t.addEventListener("click", fin, { once: true });
       setTimeout(fin, 2400);
@@ -401,17 +411,35 @@ const BondVN = (() => {
     return typeof p === "string" ? p : (p.text || "");
   }
 
+  // 段完成统一收尾: 最后一段 → 场景交互; 否则停在段尾等左键/自动（2026-09-01）
+  function paraDone() {
+    typeTimer = null;
+    typeState = "waiting";
+    if (typeSeg >= typeParas.length - 1) {
+      finishType();
+    } else {
+      showContinue();               // 提示"点击进入下一段"
+      scheduleAutoPara();           // 自动模式: 3s 自动推进
+    }
+  }
+
   function writePara() {
     const p = typeParas[typeSeg];
     if (!p) { return finishType(); }
-    // 段首切立绘表情（缺省 = 延续上一段, 静默）+ 触发情绪特效（立绘头顶浮现符号）
-    if (player && p && p.emotion) player.setEmotion(p.emotion);
+    // 替换式渲染（2026-09-01）: 对话窗只保留当前一句——前一句清空, 新段淡入
+    typeBoxEl.innerHTML = "";
+    // 段首切立绘表情（同值不重播——AI 填同表情时立绘保持, 不闪）
+    if (player && p && p.emotion && p.emotion !== curEmotion) {
+      player.setEmotion(p.emotion);
+      curEmotion = p.emotion;
+    }
     if (p && p.fx && p.fx.length) showFx(p.fx);
     const div = document.createElement("div");
     div.className = "bond-para";
     typeBoxEl.appendChild(div);
     const t = _paraText(p);
     let i = 0;
+    typeState = "typing";
     const step = () => {
       if (i < t.length) {
         div.textContent = t.slice(0, i + 1);
@@ -420,15 +448,43 @@ const BondVN = (() => {
         const pause = /[，。！？…、；：—-]/.test(ch) ? typePunctMs : typeCharMs;
         typeTimer = setTimeout(step, pause);
       } else {
-        // 段完成 → 停顿后下一段
-        typeTimer = setTimeout(() => {
-          typeSeg++;
-          if (typeSeg < typeParas.length) writePara();
-          else finishType();
-        }, PARA_GAP_MS);
+        paraDone();                  // 段完成 → 停段尾（不自动连播, 等左键/自动）
       }
     };
     step();
+  }
+
+  // 左键推进（2026-09-01）: 仅"waiting"（段渲染完成）有效——进入下一段
+  // （清空重渲染 + 段首切差分）; 打字中左键 = 无操作（渲染完成是推进的前提）
+  function advance() {
+    if (typeState !== "waiting") return;
+    hideContinue();
+    typeSeg++;
+    writePara();
+  }
+
+  // X 键补全（2026-09-01）: 仅"typing"（打字中）有效——取消打字机, 补齐当前段
+  // 完整文字, 停在段尾（不推进、不重渲染、不变差分——那是左键的行为）;
+  // 段渲染完成时按 X = 无操作
+  function skipCurrent() {
+    if (typeState !== "typing") return;
+    const box = typeBoxEl;
+    if (!box) return;
+    if (typeTimer) { clearTimeout(typeTimer); typeTimer = null; }
+    const p = typeParas[typeSeg];
+    if (!p) return;
+    const div = box.querySelector(".bond-para") || box.firstElementChild;
+    if (div) div.textContent = _paraText(p);
+    paraDone();
+  }
+
+  // 自动模式段级推进: 段完成 + autoOn → 3s 自动进入下一段（玩家介入取消）
+  function scheduleAutoPara() {
+    clearAutoTimer();
+    autoTimer = setTimeout(() => {
+      autoTimer = null;
+      if (autoOn && typeState === "waiting") advance();
+    }, 3000);
   }
 
   // 情绪特效: 立绘头顶浮现符号（官方 UI 层粒子——浮起 + 淡出 + 左右飘散）。
@@ -463,26 +519,8 @@ const BondVN = (() => {
     const cb = typeOnDone;
     typeOnDone = null;
     stopTyping();
+    typeState = null;                 // 交互中（点击推进制: 打字/等待都结束）
     if (cb) cb();
-  }
-
-  function skipType() {
-    // 快速跳出（空格/Enter/点击空白/继续三角）: 补全所有段落立即显示 + 完成。
-    // 注意: 先取 box 引用再清 timer——stopTyping() 会把 typeBoxEl 置 null,
-    // 若先清再用 innerHTML 会 TypeError（2026-08-29 修复的顺序坑, 与 finishType 同款）。
-    if (!typeBoxEl) return;
-    const box = typeBoxEl;
-    if (typeTimer) { clearTimeout(typeTimer); typeTimer = null; }
-    box.innerHTML = "";
-    typeParas.forEach((p) => {
-      const div = document.createElement("div");
-      div.className = "bond-para";
-      div.textContent = _paraText(p);
-      box.appendChild(div);
-      if (player && p && p.emotion) player.setEmotion(p.emotion);
-    });
-    typeSeg = typeParas.length;
-    finishType();
   }
 
   function stopTyping() {
@@ -491,35 +529,37 @@ const BondVN = (() => {
     typeOnDone = null;
   }
 
-  // 继续三角（右下）: 打字中 = 跳过打字; is_end = 点击收尾 finish
+  // 继续三角（右下）: 段完成 = 推进下一段; is_end 段完成 = 点击收尾 finish;
+  // 打字中点击 = 无操作（左键语义, 渲染完成是推进的前提——2026-09-01）
   function bindContinue() {
     $("bond-continue").addEventListener("click", () => {
+      if (typeState === "typing") return;
       if (sceneIsEnd) finish();
-      else skipType();
+      else advance();
     });
   }
   function showContinue() { $("bond-continue").classList.add("show"); $("bond-continue").setAttribute("aria-hidden", "false"); }
   function hideContinue() { $("bond-continue").classList.remove("show"); $("bond-continue").setAttribute("aria-hidden", "true"); }
 
-  // ── 快速跳出: 空格 / Enter / 点空白 → 整段文字立即显示（不逐字）──────────
-  // 交互元素（选项/自由输入/右上按钮/继续三角/标题面板）不触发跳过——不冲突。
-  // is_end 场景: 空格/Enter/点击 = 直接收尾 finish。
+  // ── 快速渲染（2026-09-01 问题3）: 仅 X 键——打字中补全当前段（停段尾）;
+  // 空格/Enter 不绑定（以后再说）。左键推进见 onClick/advance。────────────
+  // 交互元素（选项/自由输入/右上按钮/继续三角/标题面板）不触发——不冲突。
 
   function onKey(e) {
-    if (menuOpen) return;               // 菜单打开时空格/Enter 不跳过（不冲突）
-    if (e.key !== " " && e.key !== "Enter") return;
+    if (menuOpen) return;               // 菜单打开时不响应（不冲突）
+    if (e.key !== "x" && e.key !== "X") return;
     const t = e.target;
     if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
     e.preventDefault();
-    if (sceneIsEnd) finish();
-    else skipType();
+    skipCurrent();                      // 打字中补全; 段完成 = 无操作（函数内判断）
   }
 
   function onClick(e) {
-    if (menuOpen) return;               // 菜单打开时点击不跳过（菜单项已处理）
+    if (menuOpen) return;               // 菜单打开时点击不响应（菜单项已处理）
     if (e.target.closest(".bond-choice, .bond-topbtn, .bond-free, #bond-continue, #bond-title")) return;
+    if (typeState === "typing") return; // 打字中左键没用（渲染完成是推进前提）
     if (sceneIsEnd) finish();
-    else skipType();
+    else advance();
   }
 
   function bindSkip() {
