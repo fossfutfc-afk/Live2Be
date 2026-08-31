@@ -420,7 +420,11 @@ def bond_finish(char_id: str, session_id: str) -> dict:
     # 最后场景（is_end / closing）: 玩家无裁决 → picked=None
     _log_scene(state, char_id, session_id, picked=None)
     try:
-        _store().append_marker(char_id, session_id, M_VN_EXIT)
+        # vn_exit 带剧情完成标志（2026-09-01）: completed = 剧情真正走完
+        # （story_end / 兜底收尾）; False = 玩家中途退出——收尾链据此分支
+        # （中断不脑补收尾话 + 不 digest——记忆只反映完整剧情段）
+        _store().append_marker(char_id, session_id, M_VN_EXIT,
+                               {"completed": state.completed})
         _store().finish(char_id, session_id, ended=True)
     except Exception as e:                           # noqa: BLE001 — 收尾写失败降级
         logger.warning("事件流收尾失败: %s", e)
@@ -428,10 +432,11 @@ def bond_finish(char_id: str, session_id: str) -> dict:
     # 前端 VN 结束后重启轮询会再次误入剧情视图（wrapup 的 mmt 任务随后覆盖）
     chat._tasks.pop((char_id, session_id), None)
 
-    # wrapup 收尾（agent_turn 收尾话 → mmt 事件, 前端轮询拉到）→ async_digest
-    # （digest 唯一触发点: bond 闭环——后台线程, 不阻塞响应）
+    # wrapup 收尾（agent_turn 收尾话 → mmt 事件, 前端轮询拉到）→ 仅在剧情完整
+    # 结束时 digest（中断剧情不提炼——wiki 只反映完整剧情段, 防记忆污染）
     reason = state.reason
-    threading.Thread(target=_wrapup, args=(char_id, session_id, reason),
+    threading.Thread(target=_wrapup,
+                     args=(char_id, session_id, reason, state.completed),
                      daemon=True).start()
     return {"completed": True}
 
@@ -681,12 +686,16 @@ def _system_note(state: BondState) -> str | None:
     return "\n".join(notes) if notes else None
 
 
-def _wrapup(char_id: str, session_id: str, reason: str) -> None:
-    """剧情【完】后的手机收尾: 自动触发一轮, AI 就这段剧情回几段话 + digest。
+def _wrapup(char_id: str, session_id: str, reason: str, completed: bool) -> None:
+    """剧情收尾后的手机收尾: 自动触发一轮, AI 就这段剧情回几段话 + digest。
 
     收尾话 = agent_turn（system_note 注入, record_input=False——不落假 player 事件,
     只落 assistant 回复）; 前端轮询 events_after 自然拉到收尾气泡。
-    收尾结束后 async_digest（bond 闭环, 提炼 + 好感结算）。
+    completed=True（剧情 story_end 自然结束/兜底收尾）: 话术按"完整剧情"收尾 +
+    async_digest（提炼 + 好感结算——digest 唯一触发点）。
+    completed=False（玩家中途退出）: 话术明确"剧情只进行到一半"（防 LLM 脑补
+    未发生的剧情结果）+ **不 digest**（记忆只反映完整剧情段——中断不提炼,
+    未消化的 mmt 留到下次完整剧情段一起消化, 增量幂等）。
     演示模式（state.demo）: 预设收尾话落 mmt 事件, 跳过 agent_turn 和 digest（不调 LLM）。
     """
     state = _state(char_id, session_id)
@@ -701,15 +710,27 @@ def _wrapup(char_id: str, session_id: str, reason: str) -> None:
     engine = chat._engine(char_id)
     char = engine.current_character
     if char is None:
-        engine.async_digest()
+        if completed:
+            engine.async_digest()
         return
     reason_suffix = f"（起因: {reason}）" if reason else ""
-    note = (
-        "（系统）羁绊剧情刚刚结束，你们回到了 MomoTalk 手机聊天。"
-        f"请以{char.display_name}的身份，就刚才这段羁绊剧情{reason_suffix}，"
-        "在手机上回复老师几句话作为收尾——自然、简短、像真实的手机消息。"
-        "只使用 mmt_chat 动作，不要再次触发羁绊剧情。"
-    )
+    if completed:
+        note = (
+            "（系统）羁绊剧情刚刚结束，你们回到了 MomoTalk 手机聊天。"
+            f"请以{char.display_name}的身份，就刚才这段羁绊剧情{reason_suffix}，"
+            "在手机上回复老师几句话作为收尾——自然、简短、像真实的手机消息。"
+            "只使用 mmt_chat 动作，不要再次触发羁绊剧情。"
+        )
+    else:
+        # 中途退出: 剧情只进行到一半——明示中断, 防止 LLM 依据触发起因
+        # 脑补"剧情结果"（实测: 收尾话把未发生的对决总结成"玩得很开心"）
+        note = (
+            "（系统）羁绊剧情**只进行到一半**就中断了——老师中途离开了，"
+            f"你们没有完成这段剧情{reason_suffix}。"
+            f"请以{char.display_name}的身份，在手机上给老师发一条简短的告别消息"
+            "（如「下次再继续」）——**不要总结剧情结果、不要描述没有发生的剧情**。"
+            "只使用 mmt_chat 动作，不要再次触发羁绊剧情。"
+        )
     try:
         with chat._lock(char_id):
             engine.agent_turn("（自动收尾）", system_note=note, record_input=False)
@@ -718,9 +739,14 @@ def _wrapup(char_id: str, session_id: str, reason: str) -> None:
         # 兜底收尾话（2026-08-30）: LLM 收尾失败 → 本地预设结语落库——保证
         # 结束回 MMT 时玩家一定看得到结语（之前失败时静默, "强硬回 MMT"）
         try:
+            if completed:
+                fallback = "（今晚的事……我会好好记住的。老师，谢谢你。）"
+            else:
+                fallback = "（……老师突然就走了。嗯，剧情下次再继续吧。）"
             _store().append_event(char_id, session_id, make_event(
                 "mmt", "mmt_chat",
-                {"player": "", "reply": "（今晚的事……我会好好记住的。老师，谢谢你。）"}))
+                {"player": "", "reply": fallback}))
         except Exception as e2:                      # noqa: BLE001
             logger.warning("兜底收尾话写入失败: %s", e2)
-    engine.async_digest()                 # 收尾成功与否都消化（bond 已闭环）
+    if completed:
+        engine.async_digest()             # 仅完整剧情消化（中断不提炼）

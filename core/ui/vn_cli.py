@@ -315,9 +315,12 @@ def run_bond_story_vn(
     print("[系统] 已退出羁绊剧情, 回到 MomoTalk。")
 
     # 事件流收尾（统一, 无论哪条路径）: vn_exit + session_end（没写 = 中断）
+    # vn_exit 带剧情完成标志（2026-09-01）: completed = 剧情真正走完
+    # （story_end/兜底收尾）; False = 玩家中途退出——收尾链据此分支
     if store is not None and vn_sid is not None:
         try:
-            store.append_marker(char.character_id, vn_sid, M_VN_EXIT)
+            store.append_marker(char.character_id, vn_sid, M_VN_EXIT,
+                                {"completed": completed})
             store.finish(char.character_id, vn_sid, ended=completed)
         except Exception as e:
             logger.warning("事件流收尾失败: %s", e)
@@ -326,15 +329,19 @@ def run_bond_story_vn(
 
 
 def wrapup_after_vn(engine: MomoTalkEngine, reason: str = "",
+                    completed: bool = True,
                     pending_check=None) -> None:
-    """羁绊剧情【完】后的手机收尾: 自动触发一轮, AI 就这段剧情回几段话。
+    """羁绊剧情收尾后的手机收尾: 自动触发一轮, AI 就这段剧情回几段话。
 
     系统注记只进 LLM context（agent_turn system_note + record_input=False）,
     历史只记 assistant 回复——不污染假 user 消息。一轮可见回复后结束,
     等玩家下一句（「结束一轮」）。收尾失败不阻塞聊天（宁缺勿错, 打印降级）。
 
-    收尾结束后: engine.async_digest() —— 【digest 唯一触发点】bond 剧情闭环,
-    完整段（mmt+bond）异步消化（提炼 + 好感结算, 后台不阻塞玩家）。
+    completed=True（剧情 story_end 自然结束/兜底收尾）: 话术按"完整剧情"收尾 +
+    async_digest（【digest 唯一触发点】完整段（mmt+bond）异步消化）;
+    completed=False（玩家中途退出）: 话术明示中断（防 LLM 脑补未发生的剧情
+    结果）+ **不 digest**（记忆只反映完整剧情段——中断不提炼, 未消化的
+    mmt 留到下次完整剧情段一起消化, 增量幂等）。
 
     pending_check（GUI 插嘴处理）: 若调用方提供且返回 True（玩家已有消息在
     排队——bond 刚结束瞬间手快发了消息）, 跳过收尾轮——玩家已表达"我要
@@ -344,26 +351,40 @@ def wrapup_after_vn(engine: MomoTalkEngine, reason: str = "",
     """
     char = engine.current_character
     if pending_check is not None and pending_check():
-        engine.async_digest()             # 剧情已闭环, 照常消化
+        if completed:
+            engine.async_digest()             # 剧情已完整闭环, 照常消化
         return
     if char is None:
-        engine.async_digest()
+        if completed:
+            engine.async_digest()
         return
     if not reason:
         reason = _trigger_reason(engine)      # 注记引述起因（引擎 trace 还在）
     reason_suffix = f"（起因: {reason}）" if reason else ""
-    note = (
-        "（系统）羁绊剧情刚刚结束，你们回到了 MomoTalk 手机聊天。"
-        f"请以{char.display_name}的身份，就刚才这段羁绊剧情{reason_suffix}，"
-        "在手机上回复老师几句话作为收尾——自然、简短、像真实的手机消息。"
-        "只使用 mmt_chat 动作，不要再次触发羁绊剧情。"
-    )
+    if completed:
+        note = (
+            "（系统）羁绊剧情刚刚结束，你们回到了 MomoTalk 手机聊天。"
+            f"请以{char.display_name}的身份，就刚才这段羁绊剧情{reason_suffix}，"
+            "在手机上回复老师几句话作为收尾——自然、简短、像真实的手机消息。"
+            "只使用 mmt_chat 动作，不要再次触发羁绊剧情。"
+        )
+    else:
+        # 中途退出: 剧情只进行到一半——明示中断, 防止 LLM 依据触发起因
+        # 脑补"剧情结果"（实测: 收尾话把未发生的对决总结成"玩得很开心"）
+        note = (
+            "（系统）羁绊剧情**只进行到一半**就中断了——老师中途离开了，"
+            f"你们没有完成这段剧情{reason_suffix}。"
+            f"请以{char.display_name}的身份，在手机上给老师发一条简短的告别消息"
+            "（如「下次再继续」）——**不要总结剧情结果、不要描述没有发生的剧情**。"
+            "只使用 mmt_chat 动作，不要再次触发羁绊剧情。"
+        )
     try:
         result = engine.agent_turn("（自动收尾）", system_note=note, record_input=False)
         simulate_steps(result.steps)
     except Exception as e:
         print(f"[系统] 羁绊剧情收尾回复失败: {e}")
-    engine.async_digest()                 # 收尾成功与否都消化（bond 已闭环）
+    if completed:
+        engine.async_digest()                 # 仅完整剧情消化（中断不提炼）
 
 
 def _trigger_reason(engine: MomoTalkEngine) -> str:

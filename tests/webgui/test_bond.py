@@ -159,6 +159,9 @@ def test_bond_full_flow(tmp_path):
         assert ("marker", "vn_state") in types, types
         assert ("marker", "vn_exit") in types, types
         assert ("marker", "session_end") in types, types
+        # vn_exit 带剧情完成标志（2026-09-01）: 完整剧情 → completed=True
+        exit_ev = [e for e in evs if (e.type, e.subtype) == ("marker", "vn_exit")][0]
+        assert exit_ev.payload.get("completed") is True, exit_ev.payload
         # 事件内容: 首场 input=旁白 seed, picked=选A; 收尾场 picked=None
         sc = [e for e in evs if (e.type, e.subtype) == ("bond", "story_scene")][0]
         assert sc.payload["picked"] == "选A", sc.payload
@@ -739,6 +742,53 @@ def test_bond_memorial_image_failure_degrades(tmp_path, monkeypatch):
         assert s["in_memorial"] is True, s
         assert s["memorial_img"] is None, s   # 失败 → 纯文字降级（前端无图）
         print("    bond 纪念立绘失败: 降级纯文字, 剧情照走（memorial_img=None）")
+    finally:
+        chat._engines.pop(CHARACTER, None)
+        chat._store = SessionStore(Path("data"))
+
+
+# ----------------------------------------------------------------------------
+# 中途退出收尾（2026-09-01）: vn_exit 带 completed 标志; 中断剧情不 digest
+# （实测 bug: 收尾链把未发生的剧情总结成"玩得很开心" + 写进 wiki——记忆污染）
+# ----------------------------------------------------------------------------
+
+def test_bond_midway_finish_no_digest(tmp_path):
+    """中途退出（剧情未 completed）→ vn_exit completed=False + wrapup 收尾话 + 不 digest。"""
+    llm = ScriptedLLM(SCENE_A, MMT_REPLY)
+    engine = MomoTalkEngine(ROOT / "config" / "characters", llm)
+    engine.start_session(CHARACTER)
+    st = SessionStore(tmp_path)
+    root = st.create(CHARACTER)
+    engine.attach_session(root.session_id)
+    chat._engines[CHARACTER] = engine
+    chat._store = st
+    sid = root.session_id
+    try:
+        bond.bond_start(CHARACTER, sid)
+        _wait_status(CHARACTER, sid)              # 首场生成（剧情未走完）
+        assert not bond.bond_status(CHARACTER, sid)["completed"]
+
+        # 玩家中途退出（没选选项）→ finish
+        r = bond.bond_finish(CHARACTER, sid)
+        assert r["completed"] is True
+
+        # vn_exit 带 completed=False（收尾链据此分支）
+        evs = st.events(CHARACTER, sid)
+        exit_ev = [e for e in evs
+                   if (e.type, e.subtype) == ("marker", "vn_exit")][0]
+        assert exit_ev.payload.get("completed") is False, exit_ev.payload
+
+        # wrapup 收尾话（MMT_REPLY 脚本）落库 + **无 digest**（无 affection 事件）
+        deadline = time.time() + 10.0
+        while time.time() < deadline:
+            if any(e.type == "mmt" for e in st.events(CHARACTER, sid)):
+                break
+            time.sleep(0.05)
+        time.sleep(1.5)                            # 留窗口——digest 若误触发应已落 affection
+        affs = [e for e in st.events(CHARACTER, sid)
+                if e.type == "affection" and e.subtype == "digest"]
+        assert not affs, f"中途退出不应 digest（记忆污染）: {affs}"
+        print("    bond 中途退出: vn_exit completed=False + wrapup 收尾话 + 不 digest")
     finally:
         chat._engines.pop(CHARACTER, None)
         chat._store = SessionStore(Path("data"))
