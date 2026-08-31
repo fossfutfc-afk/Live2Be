@@ -342,12 +342,18 @@ _CHARACTER_FILES = [
 
 def _first_str(data: dict, key: str) -> str:
     """键值 → 文本（str 原样; list 逐项换行拼接——手册的 mmt_tone/bond_tone 常为列表）;
-    缺失/坏值 → 空（宁缺勿错, 调用方跳过注入）。"""
+    dict 项（作者写了 `key: value` 格式）→ 值拼接（容错）; 缺失/坏值 → 空。"""
     v = data.get(key, "")
     if isinstance(v, str):
         return v.strip()
     if isinstance(v, list):
-        parts = [str(x).strip().lstrip("- ").strip() for x in v if str(x).strip()]
+        parts: list[str] = []
+        for x in v:
+            if isinstance(x, dict):                 # 容错: 项被 YAML 解析成映射
+                x = " ".join(str(t).strip() for t in x.values())
+            t = str(x).strip().lstrip("- ").strip()
+            if t:
+                parts.append(t)
         return "\n".join(parts) if parts else ""
     return ""
 
