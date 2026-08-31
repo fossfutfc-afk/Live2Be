@@ -1,6 +1,6 @@
 # Live2Be 待办表（2026-08-23 快照）
 
-> 当前分支：visual-director。此表是跨 session 的进度锚点——完成一项就勾掉。
+> 当前分支：feat/two-pass-emotion。此表是跨 session 的进度锚点——完成一项就勾掉。
 
 ## 进行中 / 即将
 
@@ -33,7 +33,8 @@
       返回 Path = l2d 事件资产引用; 真机验证抓出 1 bug（from_pretrained 后缺 pipe.to(device) → CPU/seed CUDA 不匹配）已修 ✅ 237/237
 - [ ] **生图管线（Phase 4 剩余）**：纪念时刻判定（LLM 评估）→ 调 ImageGenerator → l2d 事件 + gallery 写入；
       L2D 板块定档（events 的 l2d payload 引用式最小已定）
-- [ ] **brain digest**：session 结束后 events → 叙事时间线 → LLM 总结 → wiki.json 增量
+- [x] **brain digest**：bond 剧情闭环后（async_digest 唯一触发点）events → 叙事时间线 → LLM 提炼
+      → wiki.json 增量（digested_seq; 平行世界 per-session wiki, 无角色级归并）✅
 
 ## 中期（蓝图）
 

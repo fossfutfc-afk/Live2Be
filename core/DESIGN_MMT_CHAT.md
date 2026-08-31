@@ -25,7 +25,7 @@
    │                                    │ 真实 LLM（动作契约循环/重试/随机事件）
    │                                    ▼
    └────────── 事件流 events.jsonl（append, 唯一真源）◀─ 引擎落库
-                   （digest 恢复时提炼 → wiki + 好感 affection 事件）
+                   （bond 闭环后 digest 提炼 → wiki + 好感 affection 事件）
 ```
 
 ## 3. 已有资产（复用, 不重造）
@@ -34,7 +34,7 @@
 |---|---|---|
 | 引擎 | `core/momotalk.py` `MomoTalkEngine` | `MomoTalkEngine(char_root, llm, store=SessionStore)` |
 | 会话创建 | `store.create(char_id)` → meta | 新世界线 |
-| 会话恢复 | `engine.resume_session(char_id, sid)` | 含 brain digest + 记忆注入（平行世界） |
+| 会话恢复 | `engine.resume_session(char_id, sid)` | 含 brain 记忆注入（resume 只注入不消化, 平行世界——digest 只在 bond 闭环, 见 core/DESIGN_BRAIN.md） |
 | 进行中列表 | `store.list_open()` → [SessionMeta] | 判断"恢复 or 新开" |
 | 一轮对话 | `engine.agent_turn(text)` → TurnResult | `steps/reply/actions/bond_story` |
 | 事件流 | `store.events(char_id, sid)` | 渲染历史 + 轮询新回复 |
@@ -63,7 +63,8 @@
 
 ```
 点学生(对话模式) → 后端查 store.list_open() 里该 char 的进行中会话:
-  - 有 → 自动恢复（resume_session: digest 注入世界线记忆 + 重建历史）→ 继续
+  - 有 → 自动恢复（resume_session: brain 记忆注入 + 重建历史——注入不消化,
+       digest 只在 bond 剧情闭环后）→ 继续
   - 无 → 新开世界线（store.create + engine.start_session + attach_session）
   - 聊天窗顶部「新世界线」按钮 → 显式开新线（旧世界线保留, 可在回放里看到——未来）
 ```
@@ -137,7 +138,7 @@ GET  /api/mmt/events?char_id&session_id&since={seq}
 | 6 | **进行中会话 vs 新开** | §5 决策（自动恢复 + 显式新世界线按钮） |
 | 7 | **VN 中** | 聊天窗禁用 + 占位; vn_enter 已落库（未来 VN 播放器 resume; ended 拒绝恢复已有） |
 | 8 | **同 char 双标签页同时发** | 后端 char 锁串行（第二个排队或 409 提示）——单用户本机, 锁够用 |
-| 9 | **digest 触发时机** | 只在 resume/新世界线注入时（引擎已做）; 聊天进行中不 digest（控成本） |
+| 9 | **digest 触发时机** | 唯一触发点 = bond 剧情闭环（async_digest, 引擎已做）; resume 只注入不消化; 聊天进行中/中断剧情不 digest（控成本 + 防记忆污染） |
 | 10 | **好感刷新** | digest 后 affection 事件落库 → 列表接口实时算（已有）→ 聊天窗顶部❤切回时刷新 |
 | 11 | **随机事件（want_to_speak）** | 引擎 agent_turn 已内置钩子（store 注入后自动）→ GUI 零额外 |
 | 12 | **触发 VN 后玩家想回 MMT** | M3 阶段: VN 播放器未做 → 触发后该会话 in_vn 状态; 列表/聊天窗显示
@@ -152,7 +153,7 @@ player.json（玩家名）: 已有
 会话元数据 meta.json: created_at/ended —— 已有（list_open 用它判"进行中"）
 ```
 - **聊天核心不引入新存储格式**——一切落事件流（引擎已做）
-- 会话结束（未来 VN 播完 vn_exit → finish）→ digest 触发点（resume 时已有）→ 好感更新
+- 会话结束（bond 剧情闭环: vn_exit completed → finish）→ digest 触发点（async_digest, 已实现）→ 好感更新
 
 ## 10. 分步实施（一步一步, 每步可验证）
 

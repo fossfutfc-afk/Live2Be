@@ -7,7 +7,7 @@
 
 模拟"虚拟手机"的 LLM 叙事引擎：在类微信的 **MomoTalk** 里和角色聊天 → 羁绊加深后进入
 **羁绊剧情**（视觉小说模式）→ 关键时刻生成/展示 **L2D 立绘**。角色由五件套 YAML
-人设卡驱动，人际关系由权重表控制信息访问。
+人设卡 ＋ 扮演手册 script.yml 驱动，人际关系由权重表控制信息访问。
 
 ## 三个入口
 
@@ -26,7 +26,7 @@
 
 ```
 main.py                 入口（MomoTalk CLI）
-config/                 静态配置：characters/ 角色五件套 · settings/ 关系+世界观 · stories/ 剧本(空)
+config/                 静态配置：characters/ 角色五件套+扮演手册 · settings/ 关系+世界观 · stories/ 剧本(空)
 contract/               【地基】契约层：ActionSpec 单源真值驱动 schema/校验/渲染
 core/                   核心引擎：momotalk(聊天) · bond_story(VN) · bond_progress(羁绊轮数)
                         common/ 错误格式 · parsing/ 解析层 · mmt/ MMT 动作集 · ui/ 展示层
