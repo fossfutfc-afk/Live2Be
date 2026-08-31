@@ -222,13 +222,45 @@ function renderBubble(b) {
   if (!box) return;
   const div = document.createElement("div");
   div.className = "mmt-bubble " + (
-    b.kind === "bond_entry" ? "bond-entry"
+    b.kind === "bond_entry" ? "bond-entry clickable"
       : (b.side === "player" ? "player" : "char"));
   div.textContent = b.text;
+  // 羁绊剧情入口（2026-09-01）: 粉色横幅 = 进入按钮——点击才进入（后端裁决:
+  // 首进生成 / 中断续进 resumed / 已完成拒绝）; 不自动锁输入（点击进入时才锁）
+  if (b.kind === "bond_entry") {
+    div.addEventListener("click", enterBond);
+    div.setAttribute("role", "button");
+    div.setAttribute("tabindex", "0");
+  }
   box.appendChild(div);
-  if (b.kind === "bond_entry") lockChat();   // 进入羁绊剧情 → 锁定输入, 不许插嘴
   scrollBubbles();
   return div;
+}
+
+// 点击粉泡进入羁绊剧情: POST /api/bond/start 由后端裁决一切——
+//   首进 → accepted（后台生成首场, enter 后 waitScene 拉取）
+//   中断再进 → resumed（内存态在 → 从中断场景继续, AI 衔接）
+//   已完成 → 拒绝（completed:true → 提示, 不可再进入）
+async function enterBond() {
+  if (!_chatChar || !_chatSession) return;
+  let data;
+  try {
+    const res = await fetch("/api/bond/start", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ char_id: _chatChar, session_id: _chatSession }),
+    });
+    data = await res.json();
+  } catch (e) {
+    renderError("进入羁绊剧情失败（网络错误: " + e.message + "）");
+    return;
+  }
+  if (!data.accepted) {
+    renderError(data.error || "无法进入羁绊剧情");
+    return;
+  }
+  lockChat();                                   // 进入 → 锁定输入, 不许插嘴
+  window.BondVN.enter(_chatChar, _chatSession, _chatName);
 }
 
 // 羁绊剧情锁定: 触发后输入框禁用（VN 模式中不许插嘴; vn_exit 后 unlockChat）
@@ -255,12 +287,17 @@ async function renderBubbles(bubbles, { stream = false } = {}) {
     for (const b of bubbles) {
       const div = document.createElement("div");
       div.className = "mmt-bubble " + (
-        b.kind === "bond_entry" ? "bond-entry"
+        b.kind === "bond_entry" ? "bond-entry clickable"
           : (b.side === "player" ? "player" : "char"));
       div.style.animation = "none";          // 历史无入场动画
       div.textContent = b.text;
+      // 历史粉泡同样可点击进入（后端裁决: 进行中 resumed 续进 / 已完成拒绝）
+      if (b.kind === "bond_entry") {
+        div.addEventListener("click", enterBond);
+        div.setAttribute("role", "button");
+        div.setAttribute("tabindex", "0");
+      }
       frag.appendChild(div);
-      if (b.kind === "bond_entry") lockChat();  // 历史含触发 → 剧情中, 锁定
     }
     box.appendChild(frag);
     scrollBubbles();                          // 一次滚动
@@ -475,13 +512,9 @@ async function pollLoop() {
       }
       scrollBubbles();
     }
-    // 羁绊剧情触发（触发轮气泡已渲染, 含 bond_entry 横幅 + lockChat）→ 接管 VN 视图
-    if (data.bond_story) {
-      hideTyping();
-      _polling = false;
-      window.BondVN.enter(_chatChar, _chatSession, _chatName);
-      return;
-    }
+    // 羁绊剧情触发（2026-09-01）: 触发轮只渲染粉色入口气泡（已在 bubbles 循环
+    // 渲染, 含 lockChat→改为点击才进入）——不再自动接管 VN 视图; 玩家点击
+    // 粉泡（enterBond）才进入; 想继续聊天也可以（粉泡常驻等待点击）
     if (!data.running) {
       hideTyping();
       _polling = false;
