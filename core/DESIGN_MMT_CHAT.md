@@ -34,7 +34,7 @@
 |---|---|---|
 | 引擎 | `core/momotalk.py` `MomoTalkEngine` | `MomoTalkEngine(char_root, llm, store=SessionStore)` |
 | 会话创建 | `store.create(char_id)` → meta | 新世界线 |
-| 会话恢复 | `engine.resume_session(char_id, sid)` | 含 brain 记忆注入（resume 只注入不消化, 平行世界——digest 只在 bond 闭环, 见 core/DESIGN_BRAIN.md） |
+| 会话恢复 | `engine.resume_session(char_id, sid)` | 含 brain 记忆注入（resume 只注入不消化, 平行世界——digest 只在 bond 闭环, 见根目录 DESIGN_BRAIN.md） |
 | 进行中列表 | `store.list_open()` → [SessionMeta] | 判断"恢复 or 新开" |
 | 一轮对话 | `engine.agent_turn(text)` → TurnResult | `steps/reply/actions/bond_story` |
 | 事件流 | `store.events(char_id, sid)` | 渲染历史 + 轮询新回复 |
