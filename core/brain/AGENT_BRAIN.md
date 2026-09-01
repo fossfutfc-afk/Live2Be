@@ -31,7 +31,7 @@
 ```jsonc
 // 一行一条（wiki.jsonl）
 {
-  "id": "m_0003",
+  "id": "m0003",
   "kind": "episode",
   "narration": "那天傍晚老师陪我在杂草屋看苔藓，说地砖里长出的苔藓也可以是花",  // 第一人称轻摘要（保留质感, 不升华）
   "verbatim": "「地砖里长出的苔藓也可以是花——就像遥香你。」",                 // 可选: 重要原话（R2 质感锚点）
@@ -43,7 +43,7 @@
   "event_seq": [42, 58],               // 溯源: 事件区间（R6 回滚定位）
   "ts": "2026-09-01T20:00:00",         // 引擎分配（继承事件）
   "source": "digest",                  // digest | seed
-  "links": ["m_0001"],                 // 关联（无向）; 溯源方向约定: belief→支撑它的 episode
+  "links": ["m0001"],                 // 关联（无向）; 溯源方向约定: belief→支撑它的 episode
   "contradictions": []                 // 显式矛盾对（特殊边）
 }
 ```
@@ -63,7 +63,7 @@ significance 强化（被引用记忆升值）。
 
 ```jsonc
 {
-  "id": "e_0002",
+  "id": "e0002",
   "kind": "experience",
   "pattern": "sensei 提到工作繁忙",          // 模式概括（事实性, 不升华）
   "subject": "sensei",                       // 模式主体（玩家口癖时 = player）
@@ -91,7 +91,7 @@ significance 强化（被引用记忆升值）。
 
 ```jsonc
 {
-  "id": "m_0009",
+  "id": "m0009",
   "kind": "belief",
   "subject": "sensei",                 // 认知对象（neuron 的 name; 老师/阿露/自己…）
   "content": "老师是第一个不会嫌弃我的人",  // 抽象信念（升华）
@@ -119,7 +119,7 @@ significance 强化（被引用记忆升值）。
 
 ```jsonc
 {
-  "id": "c_0002",
+  "id": "c0002",
   "kind": "fact",
   "content": "遥香曾因拆炸弹事件对 sensei 建立信任",   // 第三人称（锚点用, 不渲染成角色记忆）
   "tags": ["拆炸弹", "信任"],
@@ -164,7 +164,7 @@ digest 同一套机制）; 动态 digest/组织 pass 永远不产 canon_fact;
 文件: data/worlds/{world}/characters/{char}/wiki.jsonl
 操作: 任何变更（create/revision/seed）→ 读全部 → 改 → 原子整写（atomic_write 同款）
      （规模 ≤ 数千行, 整写毫秒级; 快照 = 复制文件, 与事件流快照语义一致）
-id:   全局递增 m_0001 / c_0001（c_ = 出厂基座）
+id:   全局递增 m0001 / c0001 / e0001（前缀: m=动态(episode/belief/relation), c=出厂基座, e=experience）
 版本: update 不产生新行——直接在原行改 content/字段, 但写 evolution_log 记录
       （{ts, action, id, before, after, reason}——审计 + R6 回滚依据）
 索引: 内存 dict[id→entry] + tags 倒排; embedding 索引 = 派生（M4, numpy, 不落盘）
@@ -218,6 +218,9 @@ wiki 是**派生视图**（可重算可改写）——修订后整写更简单�
         〝「地砖里长出的苔藓也可以是花」〞
 #e0002 [experience, sig 0.70, count 4, links: m0011 m0015 m0020] sensei 提到工作繁忙
         〝「这周又忙成狗了」〞
+#e0007 [experience·关于老师, sig 0.75, count 5, links: m0030 m0033 …] 老师总说「摸鱼」
+        〝「今天也摸鱼」〞      ← player experience: 带【关于老师】标记, 同类判定优先,
+                                  accrue 敏感（口癖必须捕捉, 不被去重/合并掉）
 #m0009 [belief, sig 0.90, links: m0003 m0001] 老师是第一个不会嫌弃我的人
 #c0002 [fact, canon, 只读] 遥香曾因拆炸弹事件对 sensei 建立信任
 
@@ -226,6 +229,7 @@ wiki 是**派生视图**（可重算可改写）——修订后整写更简单�
 - 动作: create / update #id / merge #a #b / link #a→#b / contradict #a #b / accrue #id
 - 每条新 episode 必须: 链接到已有 belief/experience, 或新建 belief/experience 并链接（连接裁定）
 - 护栏: 不得强行升华; 不得修改 canon_fact; belief 必须 links 到支撑 (episode|experience)
+- 【关于老师】的 experience 是重点观察对象——玩家口癖/习惯必须被捕捉（见 §4.4）
 ```
 
 ### 4.2 角色注入视图（喂主剧情 LLM；无 id 无链接；分层排序）
@@ -243,12 +247,19 @@ wiki 是**派生视图**（可重算可改写）——修订后整写更简单�
 我心里渐渐觉得：
 - 对{sensei}：{belief.content}（growth 非空时附: ——{growth}）
 
+老师的事（player experience 强调段, 2026-09-02 用户强调）：
+- 老师总说「摸鱼」（count 5）
+- 老师最近很忙（count 4）
+
 我听说的：
 - {reported_fact 条目}（来源: {source}）
 ```
 
 排序规则：belief 常驻（significance 降序, 上限 5）; episode 按"珍贵档优先 → 最近 ts
 降序", 上限 10; reported_fact 仅当无 observed 同主题时入列。canon_fact 不进本段。
+**【老师的事】段 = subject=player 的 experience 节点（上限 5, count 降序）**——
+它是角色对老师的观察积累（R5 强调点: 口癖/习惯的沉淀）, 独立成段不被普通 episode 淹没,
+md 序列化时固定渲染在 beliefs 之后。
 
 ### 4.3 校验视图（异步校验 lane, M5）
 
@@ -257,6 +268,17 @@ wiki 是**派生视图**（可重算可改写）——修订后整写更简单�
 【待校验片段】（主 LLM 最近一场输出）
 → 校验 LLM: 行为与罗盘冲突? 冲突点 + 证据?（text 模式, 返回结构化标记）
 ```
+
+### 4.4 player experience 强调规则（2026-09-02 用户强调, 贯穿整理与序列化）
+
+1. **LLM 整理侧（组织 pass）**: 时间线中玩家话语行是口癖候选——渲染时高亮
+   （`【玩家原话】`前缀）; subject=player 的 experience 在组织视图带
+   `[关于老师]` 标记; accrue 同类判定对 player subject 更敏感（口癖优先捕捉）
+2. **序列化侧（md/注入）**: 【老师的事】独立段（§4.2）, 固定渲染位置, count 降序
+3. **去重豁免**: subject=player 的 experience 及其 occurrence **永不被内容去重/合并掉**
+   （去重键 = event_seq 的机制保证）; 深度整理（merge）不得合并两个不同 pattern 的
+   player experience
+4. **承载**: 玩家口癖 = experience(pattern="摸鱼", subject="player", examples=[原文…])
 
 ---
 
@@ -343,8 +365,8 @@ consolidation/recall 的对外行为（新代码独立目录 core/brain/wiki_v2/
 | 3 | experience 出厂基座 | ✅ 已拍板: 出厂 digest pass（预设时间线消化, 非独立生成器） | M1 |
 | 4 | 升华/连接裁定 | ✅ 已拍板: 每条新 episode 必须连已有 belief/experience 或新建并链接 | M2 |
 | 5 | 去重规则 | ✅ 已拍板: 去重键 = event_seq（同事件去重/不同事件同类 accrue）; 玩家口癖/习惯永不被内容去重 | M3 |
-| 6 | 深度整理（merge/归类）频率 | 每段轻组织（create/link/update/accrue）+ 每 N=5 段或矛盾检测触发深度整理（待答复） | M3 |
-| 7 | 组织视图 id 格式 | `m0003`（无 # 前缀, 防 LLM 把它当 markdown 标题）（待答复） | M2 |
-| 8 | verbatim 来源 | 段落原文逐字（LLM 复制, 禁止改写）——校验: 与事件流原文模糊匹配（待答复） | M3 |
-| 9 | 玩家画像（R5）落点 | wiki 顶层加 `player_profile` 段（per 世界, 与角色线平级）——**或 = subject=player 的 experience 节点集合**（待答复） | M5 后 |
-| 10 | 校验 lane 的冲突处理 | 记录 + 高频统计 → 提示作者改卡/改罗盘（不自动改）（待答复） | M5 |
+| 6 | 深度整理（merge/归类）频率 | ✅ 已拍板: 每段轻组织（create/link/update/accrue）+ 每 N=5 段或矛盾检测触发深度整理 | M3 |
+| 7 | 组织视图 id 格式 | ✅ 已拍板: `m0003`（无 # 无下划线, 防 LLM 当 markdown 标题） | M2 |
+| 8 | verbatim 来源 | ✅ 已拍板: 段落原文逐字（LLM 复制, 禁止改写）——校验: 与事件流原文模糊匹配 | M3 |
+| 9 | 玩家画像（R5）落点 | ✅ 已拍板: subject=player 的 experience 节点集合（与角色线同构）; **强调规则见 §4.4** | M5 后 |
+| 10 | 校验 lane 的冲突处理 | ⏸ 暂定（记录 + 高频统计 → 提示作者, 不自动改） | M5 |
