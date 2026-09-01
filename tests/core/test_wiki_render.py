@@ -1,0 +1,155 @@
+"""render.py 渲染视图测试（AGENT_BRAIN.md §4 / M2）。
+
+组织视图的节点必须带 id（真实流程由 store.add 分配）——测试用 _ids 助手分配。
+角色视图不依赖 id（渲染中从不出现）。
+"""
+from core.brain.wiki_v2 import BrainNode, make_node
+from core.brain.wiki_v2.render import render_character_view, render_organize_view
+
+
+def _ids(nodes):
+    """按序分配 id（m0001, m0002, …）——模拟 store.add 的分配。"""
+    for i, n in enumerate(nodes, 1):
+        n.id = f"m{i:04d}"
+    return nodes
+
+
+def _ep(narration, sig=0.5, ts="", verbatim="", links=None, epistemic="observed_fact",
+        event_seq=None, observer="igusa_haruka"):
+    kw = dict(narration=narration, significance=sig, ts=ts, observer=observer,
+              epistemic=epistemic)
+    if verbatim:
+        kw["verbatim"] = verbatim
+    if links:
+        kw["links"] = links
+    if event_seq:
+        kw["event_seq"] = event_seq
+    return make_node("episode", **kw)
+
+
+# ---------------------------------------------------------------------------
+# 组织视图
+# ---------------------------------------------------------------------------
+
+def test_organize_view_episode_line():
+    n = _ep("天台夜谈", sig=0.8, verbatim="地砖里长出的苔藓也可以是花",
+            links=["m0009"], event_seq=[42])
+    out = render_organize_view(_ids([n]))
+    assert "m0001 [episode, sig 0.80, links: m0009] 天台夜谈" in out
+    assert "〝「地砖里长出的苔藓也可以是花」〞" in out
+    assert not out.lstrip().startswith("#")        # 决策 #7: 无 # 前缀
+
+
+def test_organize_view_experience_and_player():
+    exp = make_node("experience", pattern="提到工作繁忙", subject="sensei",
+                    significance=0.7, examples=["「这周又忙成狗了」"],
+                    links=["m0011", "m0015", "m0020"], event_seq=[61])
+    pe = make_node("experience", pattern="总说「摸鱼」", subject="player",
+                   significance=0.75, examples=["今天也摸鱼"],
+                   links=["m0030", "m0033"], event_seq=[70])
+    out = render_organize_view(_ids([exp, pe]))
+    # count 由引擎归一 = len(links)（normalize 不变量）
+    assert "m0001 [experience, sig 0.70, count 3, links: m0011 m0015 m0020] 提到工作繁忙" in out
+    assert "〝「「这周又忙成狗了」」〞" not in out            # 已带「」不重复包裹
+    assert "〝「「今天也摸鱼」」〞" not in out
+    assert "〝「今天也摸鱼」〞" in out
+    assert "m0002 [experience·关于老师, sig 0.75, count 2" in out        # §4.4 标记
+
+
+def test_organize_view_fact_belief_relation():
+    fact = make_node("fact", content="遥香曾因拆炸弹事件对 sensei 建立信任",
+                     epistemic="canon_fact", source="experience",
+                     source_key="self.regular.1", significance=0.95)
+    belief = make_node("belief", content="老师是第一个不会嫌弃我的人", subject="sensei",
+                       epistemic="inferred_belief", significance=0.9,
+                       links=["m0001"], event_seq=[42])
+    rel = make_node("relation", subject="igusa_haruka", object="sensei",
+                    relation="信任加深", note="约定常来陪她", event_seq=[42])
+    out = render_organize_view(_ids([fact, belief, rel]))
+    assert "[fact, sig 0.95, canon 只读]" in out
+    assert "[belief, sig 0.90, links: m0001]" in out
+    assert "[relation, sig 0.50] 和sensei：信任加深（约定常来陪她）" in out
+
+
+def test_organize_view_contradiction_marker():
+    a = _ep("雨天散步", event_seq=[1])
+    b = _ep("讨厌下雨", event_seq=[2])
+    b.contradictions = ["m0001"]
+    out = render_organize_view(_ids([a, b]))
+    assert "c: m0001" in out
+
+
+def test_organize_view_timeline_and_empty():
+    n = _ep("x", event_seq=[1])
+    out = render_organize_view(_ids([n]), timeline="（旁白）放学后的教室。")
+    assert out.startswith("【本次新经历】\n（旁白）放学后的教室。")
+    assert "【相关旧记忆（供组织决策）】" in out
+    # 无时间线 / 空节点
+    assert "【本次新经历】" not in render_organize_view(_ids([n]))
+    assert render_organize_view([]) == ""
+
+
+# ---------------------------------------------------------------------------
+# 角色视图
+# ---------------------------------------------------------------------------
+
+def test_character_view_sections_and_first_person():
+    nodes = [
+        _ep("和老师拆炸弹那次，老师没有苛责我", sig=0.95, ts="2026-08-01T10:00:00",
+            verbatim="没关系，我陪你拆完。", event_seq=[1]),
+        _ep("老师带我去吃甜品", sig=0.6, ts="2026-09-01T20:00:00", event_seq=[2]),
+        make_node("belief", content="伊草遥香开始相信自己被需要", subject="sensei",
+                  epistemic="inferred_belief", significance=0.9,
+                  growth="从自卑到被需要", links=["m0001"], event_seq=[1]),
+        make_node("experience", pattern="总说「摸鱼」", subject="player",
+                  significance=0.75, links=["m0002", "m0003", "m0004"], event_seq=[2]),
+        make_node("fact", content="伊草遥香曾因拆炸弹事件对 sensei 建立信任",
+                  epistemic="canon_fact", source="experience",
+                  source_key="self.regular.1", significance=0.95),
+        make_node("fact", content="阿露大人是便利屋68的社长",
+                  epistemic="canon_fact", source="knowledge",
+                  source_key="friends.aru", significance=0.9),
+    ]
+    out = render_character_view(nodes, char_name="伊草遥香",
+                                summary="天台夜谈后，伊草遥香开始相信自己被需要")
+    assert out.startswith("【角色记忆（brain）】")
+    assert "我记得那段日子：天台夜谈后，我开始相信自己被需要" in out
+    assert "我记得的事（珍贵的）：" in out
+    assert "和老师拆炸弹那次，老师没有苛责我（「没关系，我陪你拆完。」）" in out
+    assert "最近的事：\n- 老师带我去吃甜品" in out
+    assert "我心里渐渐觉得：\n- 对sensei：我开始相信自己被需要（——从自卑到被需要）" in out
+    assert "老师的事：\n- 总说「摸鱼」（count 3）" in out
+    assert "久远的记忆：\n- 我曾因拆炸弹事件对 sensei 建立信任" in out
+    assert "我知道的事：\n- 阿露大人是便利屋68的社长" in out
+    # 无 id / 无链接泄漏
+    assert "m0001" not in out and "links" not in out
+
+
+def test_character_view_reported_and_caps():
+    nodes = [
+        _ep("听睦月说阿露昨天又翻车了", sig=0.5, event_seq=[1],
+            epistemic="reported_fact", observer="asagi_mutsuki"),
+        *(_ep(f"日常{i}", sig=0.4, ts=f"2026-09-0{1 + i % 9}T12:00:00",
+              event_seq=[10 + i]) for i in range(12)),
+    ]
+    out = render_character_view(nodes, cap_episodes=10)
+    assert "我听说的：\n- 听睦月说阿露昨天又翻车了（听asagi_mutsuki说的）" in out
+    assert "最近的事：" in out
+    assert out.count("\n- 日常") == 10         # 12 条 observed → cap 10; reported 不进此段
+    # 空段省略
+    out2 = render_character_view([])
+    assert out2 == "【角色记忆（brain）】"
+    assert "我心里渐渐觉得" not in out2
+
+
+def test_character_view_belief_and_player_caps():
+    beliefs = [make_node("belief", content=f"信念{i}", subject="sensei",
+                         epistemic="inferred_belief", significance=0.9 - i * 0.1,
+                         links=["m0001"], event_seq=[1]) for i in range(7)]
+    players = [make_node("experience", pattern=f"口癖{i}", subject="player",
+                         significance=0.6, count=7 - i, links=["m0001"],
+                         event_seq=[1]) for i in range(7)]
+    out = render_character_view([*beliefs, *players], cap_beliefs=5, cap_player=5)
+    assert out.count("\n- 对sensei：信念") == 5
+    assert out.count("（count ") == 5
+    assert "信念5" not in out and "口癖5" not in out       # 超出 cap 的丢弃
