@@ -18,6 +18,8 @@ from core.brain.wiki_v2.nodes import (
     make_node,
 )
 from core.brain.wiki_v2.store import WikiStoreV2
+from core.brain.wiki_v2.evolution import EvolutionLog
+from core.brain.wiki_v2.revise import RevisionResult, apply_revision_package
 
 __all__ = [
     "EPISTEMICS",
@@ -27,4 +29,7 @@ __all__ = [
     "BrainNode",
     "make_node",
     "WikiStoreV2",
+    "EvolutionLog",
+    "RevisionResult",
+    "apply_revision_package",
 ]
