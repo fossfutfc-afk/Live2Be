@@ -22,7 +22,7 @@ core/brain/wiki_v2/                # 独立模块——不动现有 brain/*.py �
 ├── render.py                      # ✅ M2 渲染（组织视图带 id 邻接表 + 角色注入视图分层）
 ├── revise.py                      # ✅ M2 修订契约（校验/原子执行 + evolution_log）
 ├── evolution.py                   # ✅ M2 审计日志（append-only, R6 回滚依据）
-└── recall.py                      # M4 三通道召回 + 一跳扩展
+└── recall.py                      # ✅ M4 三通道召回 + 一跳扩展（embed_fn 注入, tags 降级）
 ```
 
 分工原则: 每文件单一职责, 依赖方向单向（nodes ← store ← revise ← render/recall ← seed）;
@@ -361,15 +361,25 @@ md 序列化时固定渲染在 beliefs 之后。
 
 ---
 
-## 6. 三通道召回（已定, M4 实现）
+## 6. 三通道召回（已定, M4 实现）——2026-09-02 决策修订
 
 ```
 query 构造（组织 pass 用）: 本次新经历时间线全文（非用户输入——digest 场景）
-通道1 相似度: embedding(query) × numpy 余弦 → top-k（k=5）      [M4]
-通道2 珍贵保底: significance ≥ 0.8 且未被通道1命中 → 补 n=2     [M1 即可用]
-通道3 随机摘段: 对数正态(seq-age) 加权抽 1 段                    [已有]
-合并: 去重 → 沿 links 一跳扩展（BFS）→ significance 降序 → 截断 15 条 → 渲染组织视图
+通道1 相似度: embed_fn 注入（批式; 无 embed_fn → 降级 tags 词面匹配）→ top-k（k=5）
+通道2 珍贵保底: significance ≥ 0.8 且未被通道1命中 → 补 n=2
+通道3 随机摘段: 30% 珍贵（sig 加权）/ 70% 对数正态(ts 年龄)加权抽 1 段
+              （数学照搬 legacy random_recall_segment, age = ts 差——wiki_v2 无全局 seq）
+合并: 去重(id) → 沿 links ∪ contradictions 一跳扩展 → significance 降序（暂定）→ 截断 15
 ```
+
+**决策（2026-09-02 拍板）**：
+- **D1 fact 进召回**——不排除任何 kind。用户预设经历 = 作者明示"角色必须记住的"，
+  出厂基座同权参与三通道（sig 0.9 自然进珍贵保底; 组织视图里 canon 只读标记已支持）
+- **D5 一跳扩展含 contradictions 目标**——否则组织视图的 c: 标记悬空, LLM 无法决策 resolve
+- **RAG 后路 = 接口层**：`embed_fn` 批式注入槽即后路（v2 换 ChromaDB/FAISS 只换后端,
+  调用方零改动）; **embedding 派生不落盘**（修订改内容零漂移, 落盘 = 双真源风险,
+  jsonl 不膨胀; 代价 = digest 异步路径毫秒级重算, 可接受）
+- **D2/D3** 确认; **D4** 排序 significance 降序（暂定, 混合打分 α·sim+β·sig+γ·recency 备选）
 
 注入侧（角色视图）不召回——按 §4.2 规则静态分层（主剧情不需要"检索注入",
 那是记忆注入的简化形态; 未来若做"回想注入"再按此三通道）。
