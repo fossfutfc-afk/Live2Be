@@ -20,6 +20,7 @@ from core.brain.wiki_v2.nodes import (
 from core.brain.wiki_v2.store import WikiStoreV2
 from core.brain.wiki_v2.evolution import EvolutionLog
 from core.brain.wiki_v2.revise import RevisionResult, apply_revision_package
+from core.brain.wiki_v2.seed import SeedResult, seed_from_config
 
 __all__ = [
     "EPISTEMICS",
@@ -32,4 +33,6 @@ __all__ = [
     "EvolutionLog",
     "RevisionResult",
     "apply_revision_package",
+    "SeedResult",
+    "seed_from_config",
 ]
