@@ -159,20 +159,33 @@ def test_accrue_counts_by_engine(tmp_path):
                                        "narration": "老师又说忙到深夜", "event_seq": [7],
                                        "links": ["e0001"]}},
         {"action": "accrue", "id": "e0001",
-         "occurrence": {"event_seq": [7], "example": "「这周又忙成狗了」"}},
+         "occurrence": {"episode_ref": "n1", "example": "「这周又忙成狗了」"}},
     ]
     res = apply_revision_package(st, pkg, subgraph_ids=scope)
     assert res.ok, res.errors
     exp = st.get("e0001")
-    assert exp.event_seq == [2, 7]                        # 去重并入
+    assert exp.event_seq == [2, 7]                        # 从证据 episode 继承
     assert exp.links == ["m0003", "m0004"]                # 证据 episode 链入
     assert exp.count == 2                                 # 引擎计数 = len(links)
     assert "「这周又忙成狗了」" in exp.examples
     # accrue 无证据 → 拒绝
     res = apply_revision_package(st, [{"action": "accrue", "id": "e0001",
-                                       "occurrence": {"event_seq": [999]}}],
+                                       "occurrence": {"episode_ref": "nope"}}],
                                  subgraph_ids=scope)
     assert not res.ok and any("证据" in e for e in res.errors)
+
+
+def test_accrue_existing_episode_by_id(tmp_path):
+    st = _store(tmp_path)
+    scope = _scope(st)
+    res = apply_revision_package(st, [{"action": "accrue", "id": "e0001",
+                                       "occurrence": {"episode_id": "m0001",
+                                                      "example": "旧例"}}],
+                                 subgraph_ids=scope)
+    assert res.ok, res.errors
+    exp = st.get("e0001")
+    assert exp.links == ["m0003", "m0001"] and exp.event_seq == [2, 1]
+    assert exp.count == 2
 
 
 def test_ids_outside_subgraph_rejected(tmp_path):

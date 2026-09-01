@@ -132,7 +132,8 @@ def session_status(events: list[Event]) -> dict[str, Any]:
     }
 
 
-def render_timeline(events: list[Event], *, max_paragraph_chars: int = 120) -> str:
+def render_timeline(events: list[Event], *, max_paragraph_chars: int = 120,
+                    include_seq: bool = False) -> str:
     """事件流 → 叙事时间线文本（brain 消化输入, §4.6; 含板块标签, 段落截断）。
 
     设计（2026-08-27 修正）:
@@ -143,12 +144,16 @@ def render_timeline(events: list[Event], *, max_paragraph_chars: int = 120) -> s
     - **表情标注（2026-08-28 收敛）**: bond 段落显式带 emotion → 段落后 ` (emotion)`——
       digest 提炼时"她当时的表情/反应"是难忘细节的原料（人设感记忆, 不 OOC 靠记忆不靠状态）;
       缺省段不标注（契约语义: 缺省 = 延续上一段, 见 digest.md 输入说明）。
+    - **seq 标签（2026-09-02, digest_v2 用）**: include_seq=True 时每行前缀 `[seq N]`——
+      LLM 可复制 seq 作条目 event_seq 溯源（复制不发明; 引擎校验 ⊆ 本段 seq 集）。
     """
     lines: list[str] = []
     for e in events:
         if e.is_marker:
             continue
         label = _LABELS.get(e.type, f"【{e.type}】")
+        if include_seq:
+            label = f"[seq {e.seq}] {label}"
         if e.type == TYPE_MMT:
             player = e.payload.get("player", "")
             reply = e.payload.get("reply", "")

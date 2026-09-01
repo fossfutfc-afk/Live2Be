@@ -35,7 +35,12 @@ from contract.registry import (
     StoryActionRegistry,
     parse_action_text,
 )
-from contract.schema import build_schema, build_digest_schema, export_definitions
+from contract.schema import (
+    build_schema,
+    build_digest_schema,
+    build_digest_schema_v2,
+    export_definitions,
+)
 
 __all__ = [
     "ALL_SHELL_FIELDS",
@@ -65,5 +70,6 @@ __all__ = [
     "parse_action_text",
     "build_schema",
     "build_digest_schema",
+    "build_digest_schema_v2",
     "export_definitions",
 ]

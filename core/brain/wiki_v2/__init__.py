@@ -22,6 +22,7 @@ from core.brain.wiki_v2.evolution import EvolutionLog
 from core.brain.wiki_v2.revise import RevisionResult, apply_revision_package
 from core.brain.wiki_v2.seed import SeedResult, seed_from_config
 from core.brain.wiki_v2.recall import recall_subgraph
+from core.brain.wiki_v2.digest import DigestResult, digest_segment
 
 __all__ = [
     "EPISTEMICS",
@@ -37,4 +38,6 @@ __all__ = [
     "SeedResult",
     "seed_from_config",
     "recall_subgraph",
+    "DigestResult",
+    "digest_segment",
 ]

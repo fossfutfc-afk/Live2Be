@@ -22,7 +22,8 @@ core/brain/wiki_v2/                # 独立模块——不动现有 brain/*.py �
 ├── render.py                      # ✅ M2 渲染（组织视图带 id 邻接表 + 角色注入视图分层）
 ├── revise.py                      # ✅ M2 修订契约（校验/原子执行 + evolution_log）
 ├── evolution.py                   # ✅ M2 审计日志（append-only, R6 回滚依据）
-└── recall.py                      # ✅ M4 三通道召回 + 一跳扩展（embed_fn 注入, tags 降级）
+├── recall.py                      # ✅ M4 三通道召回 + 一跳扩展（embed_fn 注入, tags 降级）
+└── digest.py                      # ✅ M3 digest v2 管线（增量/召回子图/反馈重试/水位/幂等）
 ```
 
 分工原则: 每文件单一职责, 依赖方向单向（nodes ← store ← revise ← render/recall ← seed）;
