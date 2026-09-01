@@ -10,6 +10,25 @@
 
 ---
 
+## 0.1 模块文件布局（多文件分工, 2026-09-02）
+
+```
+core/brain/wiki_v2/                # 独立模块——不动现有 brain/*.py 直到 M 系列切换
+├── AGENT_BRAIN.md                 # 本蓝图
+├── __init__.py                    # 公共导出
+├── nodes.py                       # ✅ M1a 节点数据结构（BrainNode/校验/归一/jsonl 序列化）
+├── store.py                       # ✅ M1b 存储（jsonl/原子整写/id 分配/索引/快照/去重检查）
+├── seed.py                        # M1c 出厂 digest pass（experience/knowledge → fact 条目）
+├── render.py                      # M2 渲染（组织视图带 #id 邻接表 + 角色注入视图分层）
+├── revise.py                      # M2 修订契约（校验/原子执行 + evolution_log）
+└── recall.py                      # M4 三通道召回 + 一跳扩展
+```
+
+分工原则: 每文件单一职责, 依赖方向单向（nodes ← store ← revise ← render/recall ← seed）;
+引擎侧流程在 revise.py 编排（store 只提供原语, 不做修订决策）。
+
+---
+
 ## 0. 目标与验收
 
 **目标**：把 `data/worlds/{world}/characters/{char}/wiki.json` 升级为**图式 wiki**

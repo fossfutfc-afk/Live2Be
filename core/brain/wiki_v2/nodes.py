@@ -80,6 +80,7 @@ class BrainNode:
     source: str = "digest"
     links: list[str] = field(default_factory=list)
     contradictions: list[str] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)   # 出厂基座只允许追加注记（§5 规则 2）
     # ── kind 专属 ──
     narration: str = ""
     verbatim: str = ""
@@ -177,7 +178,7 @@ class BrainNode:
             "epistemic": self.epistemic,
         }
         for f in ("observer", "tags", "segment_id", "event_seq", "ts", "source",
-                  "links", "contradictions", "narration", "verbatim", "pattern",
+                  "links", "contradictions", "notes", "narration", "verbatim", "pattern",
                   "subject", "count", "examples", "content", "growth",
                   "observation", "object", "relation", "note", "source_key"):
             v = getattr(self, f)
@@ -206,6 +207,7 @@ class BrainNode:
         node.source = _str(raw.get("source")) or "digest"
         node.links = _str_list(raw.get("links"))
         node.contradictions = _str_list(raw.get("contradictions"))
+        node.notes = _str_list(raw.get("notes"))
         # kind 专属
         node.narration = _str(raw.get("narration"))
         node.verbatim = _str(raw.get("verbatim"))

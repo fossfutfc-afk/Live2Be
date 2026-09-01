@@ -1,0 +1,184 @@
+"""WikiStore v2 — 图式 wiki 存储（AGENT_BRAIN.md §2 / M1b）。
+
+职责（单一）: jsonl 读写 + 原子整写 + id 分配 + 内存索引 + 快照 + 去重检查。
+不做: 修订契约校验/执行（revise.py）· 渲染（render.py）· 召回（recall.py）·
+      出厂 digest（seed.py）——引擎侧流程在 revise.py 编排。
+
+规则:
+    - 文件: data/worlds/{world}/characters/{char}/wiki.jsonl（一行一条 BrainNode）
+    - 写: 内存操作（add/update/delete/link…）→ save() 原子整写（temp + os.replace）
+    - 护栏: add/update 前过 node.validate()——无效节点拒绝（宁缺勿错, raise）
+    - 去重: find_by_event_seq（(kind, event_seq) 键——同事件重复消化去重）
+    - id: 前缀 + 4 位零填充（m=动态 episode/belief/relation, c=出厂基座, e=experience）
+    - 快照: snapshot_to/restore_from = 整文件复制（R6 存档快照语义）
+"""
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Iterable
+
+from core.brain.wiki_v2.nodes import BrainNode, format_id
+from core.common import err
+from core.session.io import atomic_write_lines, read_jsonl
+
+#: kind → id 前缀（AGENT_BRAIN.md §2）
+_PREFIX = {"fact": "c", "experience": "e",
+           "episode": "m", "belief": "m", "relation": "m"}
+
+#: 节点字段白名单（update patch 只接受这些——防任意字段注入）
+_FIELDS = set(BrainNode.__dataclass_fields__.keys())
+
+
+class WikiStoreV2:
+    """图式 wiki 存储（per 世界线, 单文件 jsonl）。"""
+
+    def __init__(self, data_root: str | Path = "data", *,
+                 world_id: str = "world1", char_id: str = "",
+                 path: str | Path | None = None):
+        self.path = Path(path) if path is not None else (
+            Path(data_root) / "worlds" / world_id / "characters"
+            / char_id / "wiki.jsonl")
+        self._nodes: dict[str, BrainNode] = {}
+        self._load()
+
+    # ------------------------------------------------------------------
+    # 载入 / 查询
+    # ------------------------------------------------------------------
+
+    def _load(self) -> None:
+        for raw in read_jsonl(self.path):
+            node = BrainNode.from_dict(raw)
+            if node.id and not node.validate():      # 坏条目跳过（宁缺勿错）
+                self._nodes[node.id] = node
+
+    def get(self, nid: str) -> BrainNode | None:
+        return self._nodes.get(nid)
+
+    def all(self) -> list[BrainNode]:
+        """全部节点（插入序 = 创建序）。"""
+        return list(self._nodes.values())
+
+    def by_kind(self, kind: str) -> list[BrainNode]:
+        return [n for n in self._nodes.values() if n.kind == kind]
+
+    def find_by_event_seq(self, kind: str, seq: int) -> BrainNode | None:
+        """去重检查（AGENT_BRAIN.md §2）: 同 (kind, event_seq) 已存在 → 该事件已消化。"""
+        for n in self._nodes.values():
+            if n.kind == kind and seq in n.event_seq:
+                return n
+        return None
+
+    def __len__(self) -> int:
+        return len(self._nodes)
+
+    def __contains__(self, nid: str) -> bool:
+        return nid in self._nodes
+
+    # ------------------------------------------------------------------
+    # id 分配
+    # ------------------------------------------------------------------
+
+    def next_id(self, prefix: str) -> str:
+        """下一个 id（扫描现有同前缀最大序号 +1）。"""
+        seq = 0
+        for nid in self._nodes:
+            if nid.startswith(prefix):
+                try:
+                    seq = max(seq, int(nid[len(prefix):]))
+                except ValueError:
+                    continue
+        return format_id(prefix, seq + 1)
+
+    # ------------------------------------------------------------------
+    # 写入（内存; 落盘走 save()——引擎在修订包全量通过后统一 save）
+    # ------------------------------------------------------------------
+
+    def add(self, node: BrainNode) -> str:
+        """新增节点（自动分配 id; 无效节点拒绝）。返回 id。"""
+        if not node.id:
+            node.id = self.next_id(_PREFIX.get(node.kind, "m"))
+        errors = node.validate()
+        if errors:
+            raise ValueError(err("InvalidNode",
+                                 f"{node.kind} 节点无效: {'; '.join(errors)}"))
+        if node.id in self._nodes:
+            raise ValueError(err("DuplicateId", f"节点 id 已存在: {node.id}"))
+        self._nodes[node.id] = node
+        return node.id
+
+    def update(self, nid: str, patch: dict) -> BrainNode:
+        """打补丁更新（patch 键必须是节点字段; 出厂基座只允许 notes 追加）。返回新节点。"""
+        node = self._nodes.get(nid)
+        if node is None:
+            raise KeyError(err("NotFound", f"节点不存在: {nid}"))
+        unknown = set(patch) - _FIELDS
+        if unknown:
+            raise ValueError(err("BadPatch", f"未知字段: {sorted(unknown)}"))
+        if node.is_seed() and set(patch) - {"notes"}:
+            raise ValueError(err("SeedImmutable",
+                                 "出厂基座不可改——只允许 notes 追加（§5 规则 2）"))
+        new = BrainNode.from_dict({**node.to_dict(), **patch})
+        if node.is_seed() and patch.get("notes"):
+            new.notes = node.notes + [str(patch["notes"])]
+        errors = new.validate()
+        if errors:
+            raise ValueError(err("InvalidNode",
+                                 f"更新后节点无效: {'; '.join(errors)}"))
+        self._nodes[nid] = new
+        return new
+
+    def delete(self, nid: str) -> bool:
+        """删除节点（返回是否存在）。共通删除/有损回滚的树内操作（R6）。"""
+        return self._nodes.pop(nid, None) is not None
+
+    # ── 图边原语（虚边操作; 校验在 revise.py 的引用级, 这里只保证存在性） ──
+
+    def add_link(self, a: str, b: str) -> None:
+        """双向 link（无向边; 已存在则幂等）。"""
+        for src, dst in ((a, b), (b, a)):
+            node = self._nodes.get(src)
+            if node is not None and dst not in node.links and dst in self._nodes:
+                node.links.append(dst)
+
+    def remove_link(self, a: str, b: str) -> None:
+        for src, dst in ((a, b), (b, a)):
+            node = self._nodes.get(src)
+            if node is not None and dst in node.links:
+                node.links.remove(dst)
+
+    def add_contradiction(self, a: str, b: str) -> None:
+        """双向 contradiction（已存在则幂等）。"""
+        for src, dst in ((a, b), (b, a)):
+            node = self._nodes.get(src)
+            if node is not None and dst not in node.contradictions and dst in self._nodes:
+                node.contradictions.append(dst)
+
+    def remove_contradiction(self, a: str, b: str) -> None:
+        for src, dst in ((a, b), (b, a)):
+            node = self._nodes.get(src)
+            if node is not None and dst in node.contradictions:
+                node.contradictions.remove(dst)
+
+    # ------------------------------------------------------------------
+    # 持久化 / 快照
+    # ------------------------------------------------------------------
+
+    def save(self) -> None:
+        """原子整写全部节点（temp + os.replace, 绝不半写）。"""
+        atomic_write_lines(self.path, (n.to_json_line() for n in self._nodes.values()))
+
+    def snapshot_to(self, dest: str | Path) -> None:
+        """快照 = 复制当前全部节点到 dest（R6 存档点语义: 自包含）。"""
+        atomic_write_lines(Path(dest), (n.to_json_line() for n in self._nodes.values()))
+
+    def restore_from(self, src: str | Path) -> None:
+        """从快照恢复（替换内存; 调用方随后 save() 落盘）。"""
+        self._nodes = {}
+        for raw in read_jsonl(Path(src)):
+            node = BrainNode.from_dict(raw)
+            if node.id and not node.validate():
+                self._nodes[node.id] = node
+
+    def lines(self) -> Iterable[str]:
+        """当前全部节点的 jsonl 行（调试/审计用）。"""
+        return (n.to_json_line() for n in self._nodes.values())

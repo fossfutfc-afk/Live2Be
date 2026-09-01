@@ -41,6 +41,27 @@ def atomic_write_json(path: str | Path, data: dict, *, indent: int = 2) -> None:
         raise
 
 
+def atomic_write_lines(path: str | Path, lines: Iterable[str]) -> None:
+    """原子写文本行（jsonl 整写用）: temp 同目录 → os.replace, 行尾自动补 \\n。
+
+    与 atomic_write_json 同款中断语义——绝不半写。wiki_v2 整写（AGENT_BRAIN.md §2）。
+    """
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix="._savetmp_", suffix=".jsonl")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            for line in lines:
+                fh.write(line if line.endswith("\n") else line + "\n")
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
 def append_jsonl(path: str | Path, obj: Any) -> None:
     """追加一行 JSON 到 jsonl（open("a") 单行写, 不重写全文件）。"""
     path = Path(path)
