@@ -27,6 +27,13 @@ core/brain/wiki_v2/                # 独立模块——不动现有 brain/*.py �
 分工原则: 每文件单一职责, 依赖方向单向（nodes ← store ← revise ← render/recall ← seed）;
 引擎侧流程在 revise.py 编排（store 只提供原语, 不做修订决策）。
 
+```
+dev 工具（不进运行时依赖, M3 后有真实数据再做）:
+tools/wiki_viz.py  读 wiki.jsonl → mermaid 导出（零依赖, webgui/markdown 渲染）
+                   可选 networkx+matplotlib（requirements-dev）: 度中心性/连通分量
+运行时图操作 = dict 邻接（千级节点 O(1)）——不引入 networkx（双真源风险, 2026-09-02 决策）
+```
+
 ---
 
 ## 0. 目标与验收
