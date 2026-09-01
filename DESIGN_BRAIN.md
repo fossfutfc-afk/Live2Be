@@ -160,6 +160,38 @@ C. RAG 回忆（Phase 2 🔧）: embedding 检索与新增语义相关的旧事�
 **参数（per 角色可配）**: `precious_ratio` 0.3 / `significance_threshold` 0.8 /
 `sigma` 1.5 / `mu` 0——通过 `digest_session(recall_opts=...)` 透出。
 
+### 5.1 组织 pass（修订契约, 🔧 规划 2026-09-02）
+
+纯增量只能"碰撞出新"（联想 digest 已实现）; "糅杂/矛盾/归类"必须修订旧条目——
+组织 pass 与消化合并为**同一次调用**（每段闭环一次, 不新增调用点）:
+
+```
+输入（三通道召回渲染, 见 §5）:
+  【本次新经历】时间线
+  【相关旧记忆（供组织决策）】子图渲染——带 #id + 邻接表（links）:
+    #m3 [belief, sig 0.85, links: m7 m1] 遥香开始相信自己被需要
+  约束: 不得强行升华; 与【角色人设锚点】冲突的修订一律不做
+
+输出（修订契约, 引擎校验后原子执行）:
+  {"revisions": [
+    {"action": "create", "entry": {...}},
+    {"action": "update", "id": "m_0003", "patch": {...}},
+    {"action": "merge",  "ids": ["m_0001", "m_0007"], "into": {...}},
+    {"action": "link",   "from": "m_0003", "to": "m_0010"},
+    {"action": "contradict", "a": "m_0003", "b": "m_0009"}]}
+```
+
+**引擎侧护栏**（代码落点）:
+- **id 校验**: LLM 引用的 #id 必须存在于本次渲染的子图内（契约层 ValidationResult 同款, 防幻觉 id）
+- **原子执行**: revisions 全部通过才写盘; 写 evolution_log（diff 理由, 服务 R6 回滚）
+- **token 预算**: 子图渲染上限（如 15 条）, 超出按 significance 截断——全 wiki 永远不进 prompt
+- **epistemic 护栏**: 见 §7（update 不得把 inferred_belief 改成 canon_fact 等）
+
+**角色视图 vs 组织视图**（同一张图两种渲染）:
+- 组织视图（喂 digest/组织 LLM）: #id + 邻接表, 供修订决策
+- 角色视图（喂主剧情 LLM, 现有 build_brain_injection）: 纯第一人称叙事, 无 id 无链接
+- link 的价值不在"拍平顺序", 在**召回扩展**（三通道召回 + 沿 links 一跳）与**引用决策**（邻接表）
+
 ---
 
 ## 6. digest 输出契约（单源真值）
@@ -210,6 +242,44 @@ C. RAG 回忆（Phase 2 🔧）: embedding 检索与新增语义相关的旧事�
 ---
 
 ## 7. wiki 结构（schema_version 2）✅
+
+> 🔧 **2026-09-02 新增设计（未实现）**: 条目加 `epistemic`（认知类型）+ `observer`（观察者）
+> —— 把"角色认为的"与"世界真相"从 prompt 规则（digest.md 规则 6/7）升级为**数据结构约束**。
+> 对应世界模型"广播落库/信息差"（docs/world_model_evolution.md 阶段 12）。
+
+```jsonc
+// data/worlds/{world_id}/characters/{char_id}/wiki.jsonl  ← 规划: jsonl 逐条（一行一条目）
+{"id": "m_0001", "layer": "episode", "epistemic": "observed_fact", "observer": "igusa_haruka",
+ "content": "老师在杂草屋说：地砖里长出的苔藓也可以是花",
+ "significance": 0.9, "tags": ["老师", "杂草屋"],
+ "segment_id": "s_0003", "event_seq": [42, 58], "ts": "2026-09-01T20:00:00",
+ "source": "digest", "links": []}
+{"id": "m_0002", "layer": "belief", "epistemic": "inferred_belief",
+ "content": "遥香第一次觉得自己在老师眼里很特别",
+ "significance": 0.85, "tags": ["自我肯定"],
+ "segment_id": "s_0003", "event_seq": [42, 58], "ts": "2026-09-01T20:00:00",
+ "source": "digest", "links": ["m_0001"]}
+```
+
+**epistemic 认知类型（规划语义）**:
+
+| 类型 | 含义 | 注入渲染前缀（示例） |
+|---|---|---|
+| `canon_fact` | 世界真相（作者设定——仅出厂基座条目可用, 动态 digest 不得产出） | 只作锚点, 不渲染 |
+| `observed_fact` | 角色亲眼/亲身经历 | "我记得……" |
+| `reported_fact` | 听说的（带 `source`） | "我听说……" |
+| `inferred_belief` | 角色自己推断的认知 | "我总觉得……" |
+| `speculation` | 猜测/不确定 | "我猜……" |
+
+**护栏**（规划）:
+- 动态 digest 只能产出 `observed_fact`（本线亲历）/ `reported_fact` / `inferred_belief`;
+  `canon_fact` 只来自 R3 出厂基座（experience/knowledge 种子）
+- 修订契约（§5.1 组织 pass）中 update 不允许把 `inferred_belief` 改写成 `canon_fact`——认知升级只能经 digest 重新提炼
+- 出厂基座条目的 update 只允许"追加注记", 不允许改原文（平行世界共享出厂设定的保护）
+
+**observer 观察者（规划）**: 广播落库时每条视角记忆标 `observer`（该线角色）;
+多角色同框落地后（DESIGN_MULTI_CHAR）, 以 observer + 虚边（event_id）支撑信息差
+（"谁在场谁知道"; 未在场角色只有 `reported_fact, source=转述者`）。
 
 ```jsonc
 // data/worlds/{world_id}/characters/{char_id}/wiki.json
