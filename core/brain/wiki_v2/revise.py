@@ -49,18 +49,24 @@ def apply_revision_package(
     *,
     subgraph_ids: set[str] | None = None,
     log: EvolutionLog | None = None,
+    dedupe: bool = False,
 ) -> RevisionResult:
     """校验 + 原子执行一个修订包。
 
     subgraph_ids: 本次渲染子图的 id 集（规则 1: 引用的 id 必须在此内; None = 全部节点,
     用于深度整理等全量场景）。created 条目可通过 ref 被包内其他动作引用。
+    dedupe: 对 create 做 (kind, event_seq, 内容) 去重——命中已存在节点 → ref 指向
+    旧 id, 不重复创建（digest 崩溃窗口重跑用: 落盘成功但水位未推进的场景）。
     """
     log = log or EvolutionLog.for_store(store)
     scope = subgraph_ids if subgraph_ids is not None else {n.id for n in store.all()}
     result = RevisionResult(ok=False, pkg=log.next_pkg_id())
 
-    if not isinstance(revisions, list) or not revisions:
-        result.errors.append("revisions 必须是数组（至少一个动作）")
+    if not isinstance(revisions, list):
+        result.errors.append("revisions 必须是数组")
+        return result
+    if not revisions:
+        result.ok = True                    # 空包合法（digest_v2 规则 14: 无值得记的）
         return result
 
     pending_log: list[dict] = []
@@ -80,6 +86,11 @@ def apply_revision_package(
             node, ref, entry_links = _parse_create(raw, scope, ref_map, result)
             if node is None:
                 return fail(f"revisions[{i}] {result.errors[-1]}")
+            if dedupe:
+                dup = _find_duplicate(store, node)
+                if dup is not None:
+                    ref_map[ref] = dup.id          # 幂等: 指向已存在节点
+                    continue
             nid = store.add(node)
             ref_map[ref] = nid
             pending_log.append({"pkg": result.pkg, "action": "create",
@@ -238,7 +249,8 @@ def _apply_accrue(store: WikiStoreV2, raw: dict, scope: set[str],
                   result: RevisionResult, *, pkg: str) -> bool:
     """accrue: 同类事件并入 experience——引擎数 occurrence, 不信任 LLM 的 count。
 
-    必须能解析到 ≥1 条 episode 证据（包内新建或库内已有, 按 event_seq 匹配）;
+    证据 episode 由 occurrence.episode_ref（包内新建的 ref）或 occurrence.episode_id
+    （子图内已有 id）指定——LLM 不猜 event_seq（引擎从 episode 继承, 防幻觉）。
     应用: add_link(exp, episode) + event_seq 去重并入 + example 追加（cap 3）。
     """
     eid = ref_map.get(str(raw.get("id", "")), str(raw.get("id", "")))
@@ -248,21 +260,23 @@ def _apply_accrue(store: WikiStoreV2, raw: dict, scope: set[str],
     exp = store.get(eid)
     if exp is None or exp.kind != "experience":
         return _err(result, f"accrue 目标必须是 experience 节点: {eid}")
-    seqs = [s for s in _as_int_list(occ.get("event_seq")) if s > 0]
-    if not seqs:
-        return _err(result, "accrue 需要非空 event_seq")
-    # 解析证据 episode: 包内新建（按 event_seq 匹配）→ 库内已有
-    created_eps = [n for n in store.all()
-                   if n.kind == "episode" and any(s in n.event_seq for s in seqs)]
-    if not created_eps:
-        return _err(result, "accrue 找不到对应 event_seq 的 episode 证据（同类判定必须指向证据）")
-    for ep in created_eps:
-        store.add_link(eid, ep.id)
-    merged_seq = list(dict.fromkeys(exp.event_seq + seqs))      # 去重保序
+    ep_id = ""
+    if occ.get("episode_ref"):
+        ep_id = ref_map.get(str(occ["episode_ref"]), "")
+    elif occ.get("episode_id"):
+        ep_id = str(occ["episode_id"])
+    ep = store.get(ep_id) if ep_id else None
+    if ep is None or ep.kind != "episode":
+        return _err(result,
+                    "accrue 必须指向 episode 证据（occurrence.episode_ref 包内 ref "
+                    "或 episode_id 子图 id——同类判定必须指向证据）")
+    store.add_link(eid, ep.id)
+    merged_seq = list(dict.fromkeys(exp.event_seq + ep.event_seq))   # 去重保序
     store.update(eid, {"event_seq": merged_seq})
     if occ.get("example"):
         store.update(eid, {"examples": (exp.examples + [str(occ["example"])])[:3]})
-    pending_log.append({"pkg": pkg, "action": "accrue", "id": eid, "event_seq": seqs})
+    pending_log.append({"pkg": pkg, "action": "accrue", "id": eid,
+                        "episode": ep.id, "event_seq": ep.event_seq})
     return True
 
 
@@ -303,6 +317,30 @@ def _connection_rule_violations(store: WikiStoreV2, ref_map: dict) -> list[str]:
     return bad
 
 
+def _find_duplicate(store: WikiStoreV2, node: BrainNode) -> BrainNode | None:
+    """(kind, event_seq 交集, 主文本相同) 去重——digest 崩溃窗口重跑防双写。"""
+    if not node.event_seq:
+        return None
+    main = _main_text(node)
+    for n in store.all():
+        if n.kind != node.kind or not (set(n.event_seq) & set(node.event_seq)):
+            continue
+        if _main_text(n) == main:
+            return n
+    return None
+
+
+def _main_text(node: BrainNode) -> str:
+    """节点主文本（去重比较用）: episode→narration, experience→pattern, 其余→content。"""
+    if node.kind == "episode":
+        return node.narration
+    if node.kind == "experience":
+        return node.pattern
+    if node.kind == "relation":
+        return f"{node.subject}|{node.object}|{node.relation}"
+    return node.content
+
+
 def _err(result: RevisionResult, msg: str) -> bool:
     result.errors.append(msg)
     return False
@@ -312,15 +350,3 @@ def _as_str_list(v: Any) -> list[str]:
     if not isinstance(v, list):
         return []
     return [x for x in v if isinstance(x, str) and x.strip()]
-
-
-def _as_int_list(v: Any) -> list[int]:
-    if not isinstance(v, list):
-        return []
-    out: list[int] = []
-    for x in v:
-        try:
-            out.append(int(x))
-        except (TypeError, ValueError):
-            continue
-    return out

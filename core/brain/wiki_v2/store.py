@@ -19,7 +19,7 @@ from typing import Iterable
 
 from core.brain.wiki_v2.nodes import BrainNode, format_id
 from core.common import err
-from core.session.io import atomic_write_lines, read_jsonl
+from core.session.io import atomic_write_json, atomic_write_lines, read_jsonl
 
 #: kind → id 前缀（AGENT_BRAIN.md §2）
 _PREFIX = {"fact": "c", "experience": "e",
@@ -38,8 +38,34 @@ class WikiStoreV2:
         self.path = Path(path) if path is not None else (
             Path(data_root) / "worlds" / world_id / "characters"
             / char_id / "wiki.jsonl")
+        self.meta_path = self.path.with_name("wiki.meta.json")
+        self.meta: dict = self._load_meta()
         self._nodes: dict[str, BrainNode] = {}
         self._load()
+
+    # ------------------------------------------------------------------
+    # meta（digest 水位等 per 世界线元数据——wiki.meta.json, 原子整写）
+    # ------------------------------------------------------------------
+
+    def _load_meta(self) -> dict:
+        import json
+        try:
+            raw = json.loads(self.meta_path.read_text(encoding="utf-8"))
+            return raw if isinstance(raw, dict) else {}
+        except (OSError, ValueError):
+            return {}
+
+    def save_meta(self) -> None:
+        """原子写 meta（digest 水位推进后调用）。"""
+        atomic_write_json(self.meta_path, self.meta)
+
+    @property
+    def digested_seq(self) -> int:
+        """digest 水位: 已消化的最大事件 seq（0 = 从未消化）。"""
+        try:
+            return int(self.meta.get("digested_seq", 0) or 0)
+        except (TypeError, ValueError):
+            return 0
 
     # ------------------------------------------------------------------
     # 载入 / 查询
