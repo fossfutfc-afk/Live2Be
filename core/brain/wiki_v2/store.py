@@ -124,6 +124,7 @@ class WikiStoreV2:
         if errors:
             raise ValueError(err("InvalidNode",
                                  f"更新后节点无效: {'; '.join(errors)}"))
+        new.normalize()                        # 维护不变量（experience.count = len(links) 等）
         self._nodes[nid] = new
         return new
 
@@ -166,6 +167,22 @@ class WikiStoreV2:
     def save(self) -> None:
         """原子整写全部节点（temp + os.replace, 绝不半写）。"""
         atomic_write_lines(self.path, (n.to_json_line() for n in self._nodes.values()))
+
+    def reload(self) -> None:
+        """丢弃内存改动, 从磁盘重载（磁盘 = 最近一次 save 的提交态）。"""
+        self._nodes = {}
+        self._load()
+
+    def clone_state(self) -> dict[str, BrainNode]:
+        """深拷贝当前节点集（修订包执行前的原子性快照——revise.py 用）。
+
+        节点会被原地铁改（add_link 等）, 所以必须深拷贝而非浅拷贝 dict。
+        """
+        return {nid: BrainNode.from_dict(n.to_dict()) for nid, n in self._nodes.items()}
+
+    def restore_state(self, state: dict[str, BrainNode]) -> None:
+        """恢复内存态（回滚用; 不落盘——调用方决定是否 save）。"""
+        self._nodes = state
 
     def snapshot_to(self, dest: str | Path) -> None:
         """快照 = 复制当前全部节点到 dest（R6 存档点语义: 自包含）。"""
