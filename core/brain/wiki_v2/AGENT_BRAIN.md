@@ -136,17 +136,32 @@ significance 强化（被引用记忆升值）。
 **规则**：canon_fact 只由**出厂 digest pass** 产出（世界线创建时, experience/knowledge
 渲染为预设时间线走一次消化——2026-09-02 用户决策: 种子生成器替换为出厂 digest, 与动态
 digest 同一套机制）; 动态 digest/组织 pass 永远不产 canon_fact;
-注入时只作**锚点/校验基准**，不进【角色记忆】渲染段。
+注入时**渲染为出厂记忆段**（§4.2 久远的记忆/我知道的事——2026-09-02 修正: fact 是
+角色的出厂经历/出厂认知, 她本来就记得/知道, 不是"世界真相"; 世界观另有 overview.yml）;
+同时作**锚点/校验基准**（digest 防脑补）。
+**双注入待处理**（开放项, M5）: MMT 盒A 静态注入已含 experience/knowledge → 与出厂记忆段
+重复; 方案 = 统一注入源（experience/knowledge 不再静态注入, 一律从 wiki 渲染; 静态文件
+保留为作者真源 + 出厂 digest 输入）。
 
 ### 1.5 节点类型总表
 
 | kind | 语义 | epistemic | 谁产 | 支撑规则 |
 |---|---|---|---|---|
-| `fact` | 世界真相（出厂） | canon_fact | 出厂 digest（experience/knowledge） | immutable |
+| `fact` | 出厂经历/出厂认知（作者设定, 角色本来就记得/知道） | canon_fact | 出厂 digest（experience/knowledge） | immutable; 渲染为出厂记忆段 |
 | `episode` | 一次性经历（质感: narration+verbatim） | observed_fact | 动态 digest | 必连 belief 或 experience（连接裁定） |
 | `experience` | 重复模式（count 聚合） | observed_fact | 动态 digest（accrue） | 引擎计数; 口癖 = subject=player |
 | `belief` | 抽象认知（升华） | inferred_belief | 动态 digest | links ≥1（episode\|experience） |
-| `relation` | 关系状态（现有 relations 数组节点化） | observed_fact | 动态 digest | 可被 experience/episode 支撑 |
+| `relation` | **角色间关系状态条目**（非图边! 图边 = links/contradictions 虚边） | observed_fact | 动态 digest | 可被 episode/experience 支撑 |
+
+**图边 vs 节点（2026-09-02 澄清）**——两个维度, 不冲突:
+
+```
+图边（虚边, 引擎图结构, 存于节点字段）:   links / contradictions
+   = 节点之间的结构关系（溯源/关联/矛盾）: m0003 links: m0009（episode 支撑 belief）
+节点内容（被图边引用的实体）:              episode / experience / belief / relation / fact
+relation 节点 ≠ 图边: 它描述"角色间关系状态"（遥香-老师: 信任加深）, 是【内容】;
+  它自己也通过 links 被 episode 支撑（天台夜谈 → 支撑"信任加深"这条关系状态）
+```
 
 ### 1.4 开放问题（M1 动手前拍板）
 
@@ -253,10 +268,18 @@ wiki 是**派生视图**（可重算可改写）——修订后整写更简单�
 
 我听说的：
 - {reported_fact 条目}（来源: {source}）
+
+久远的记忆（出厂经历, fact, experience 派生）：
+- 和老师拆炸弹的那次，第一次有人这样对我
+
+我知道的事（出厂认知, fact, knowledge 派生）：
+- 阿露大人是便利屋68的社长，曾带我逃出霸凌
 ```
 
 排序规则：belief 常驻（significance 降序, 上限 5）; episode 按"珍贵档优先 → 最近 ts
-降序", 上限 10; reported_fact 仅当无 observed 同主题时入列。canon_fact 不进本段。
+降序", 上限 10; reported_fact 仅当无 observed 同主题时入列; **fact 渲染为出厂记忆段**
+（experience 派生 → 久远的记忆, 上限 5; knowledge 派生 → 我知道的事, 上限 5——
+2026-09-02 修正: fact 是角色的出厂记忆, 她本来就记得/知道）。
 **【老师的事】段 = subject=player 的 experience 节点（上限 5, count 降序）**——
 它是角色对老师的观察积累（R5 强调点: 口癖/习惯的沉淀）, 独立成段不被普通 episode 淹没,
 md 序列化时固定渲染在 beliefs 之后。
