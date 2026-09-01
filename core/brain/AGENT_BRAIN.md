@@ -54,7 +54,40 @@
 - `epistemic` 必填，取值见 DESIGN_BRAIN.md §7 表
 - `source=seed` 的条目（出厂基座）**不可 update 原文**（只允许追加注记字段 `notes`）
 
-### 1.2 belief 节点（对应 neuron 的 Abstract；抽象认知，少量）
+### 1.2 experience 节点（重复模式层, 🔧 新增 2026-09-02）
+
+**定位**：相同/同类的事情多次发生 → 聚合为**模式事实**（不是一次性 episode，不是抽象 belief）。
+心理学对应：习惯/统计学习记忆（habit memory）。一石四鸟：聚合重复防节点爆炸 /
+反升华闸门（重复先落事实模式, 拦错误跳升）/ 玩家口癖载体（R5: subject=player）/
+significance 强化（被引用记忆升值）。
+
+```jsonc
+{
+  "id": "e_0002",
+  "kind": "experience",
+  "pattern": "sensei 提到工作繁忙",          // 模式概括（事实性, 不升华）
+  "subject": "sensei",                       // 模式主体（玩家口癖时 = player）
+  "count": 4,                                // ★ 引擎数 links 得出, LLM 不数数（防幻觉计数）
+  "examples": ["「这周又忙成狗了」", "「今天加班, 晚点回你」"],   // verbatim 摘录, 最多 3
+  "tags": ["sensei", "工作"],
+  "significance": 0.7,                       // 随 count 强化: min(0.9, base + 0.05×(count-1))
+  "epistemic": "observed_fact",
+  "observer": "igusa_haruka",
+  "segment_id": null,                        // 跨段聚合, 无单一来源段
+  "event_seq": [61, 78, 92],                 // 全部 occurrence 的溯源（R6 定位）
+  "ts": "<last_ts>",
+  "source": "digest",
+  "links": ["m_0011", "m_0015", "m_0020"],   // 指向支撑它的 episodes; count = len(links)（引擎保证）
+  "contradictions": []
+}
+```
+
+**规则**：
+- 同类判定 = LLM（组织 pass 输出 `accrue` 动作）; count/event_seq/significance 强化 = 引擎
+- **去重键 = event_seq**（同事件重复消化 → 去重; 不同事件同类 → accrue, 永不因内容重复被删）
+- 玩家口癖 = subject=player 的 experience 节点（R5 载体, 合并去重不得触碰——老规矩机制化）
+
+### 1.3 belief 节点（对应 neuron 的 Abstract；抽象认知，少量）
 
 ```jsonc
 {
@@ -77,10 +110,12 @@
 }
 ```
 
-**规则**：belief 的 `links` 必须至少指向 1 条 episode（升华必须有支撑——neuron 规则
-"diary 要么连已有 abstract 要么新开 abstract"的结构化版；无支撑的 belief 被引擎拒绝）。
+**规则**：belief 的 `links` 必须至少指向 1 条（episode | experience）——升华必须有支撑。
+**episode 连接裁定（2026-09-02 用户澄清）**：每条新 episode 必须在
+"链接到已有 belief/experience" 与 "新建 belief/experience（并链接它）" 之间
+**至少选择其一**——强制的是连接决策, 不是内容升华。
 
-### 1.3 fact 节点（出厂基座，canon_fact）
+### 1.4 fact 节点（出厂基座, canon_fact）
 
 ```jsonc
 {
@@ -98,8 +133,20 @@
 }
 ```
 
-**规则**：canon_fact 只由种子生成器产出；动态 digest/组织 pass 永远不产 canon_fact；
+**规则**：canon_fact 只由**出厂 digest pass** 产出（世界线创建时, experience/knowledge
+渲染为预设时间线走一次消化——2026-09-02 用户决策: 种子生成器替换为出厂 digest, 与动态
+digest 同一套机制）; 动态 digest/组织 pass 永远不产 canon_fact;
 注入时只作**锚点/校验基准**，不进【角色记忆】渲染段。
+
+### 1.5 节点类型总表
+
+| kind | 语义 | epistemic | 谁产 | 支撑规则 |
+|---|---|---|---|---|
+| `fact` | 世界真相（出厂） | canon_fact | 出厂 digest（experience/knowledge） | immutable |
+| `episode` | 一次性经历（质感: narration+verbatim） | observed_fact | 动态 digest | 必连 belief 或 experience（连接裁定） |
+| `experience` | 重复模式（count 聚合） | observed_fact | 动态 digest（accrue） | 引擎计数; 口癖 = subject=player |
+| `belief` | 抽象认知（升华） | inferred_belief | 动态 digest | links ≥1（episode\|experience） |
+| `relation` | 关系状态（现有 relations 数组节点化） | observed_fact | 动态 digest | 可被 experience/episode 支撑 |
 
 ### 1.4 开放问题（M1 动手前拍板）
 
@@ -129,9 +176,13 @@ wiki 是**派生视图**（可重算可改写）——修订后整写更简单�
 
 ---
 
-## 3. 构图流程（已定, 三段闭环）
+## 3. 构图流程（已定, 出厂消化 + 三段闭环）
 
 ```
+[Step 0 出厂消化] 世界线创建时（2026-09-02 决策: 种子生成器 → 出厂 digest pass）
+   experience/knowledge → 渲染为"预设时间线" → 走一次消化（无修订/无情感）
+   → 产出 canon_fact 条目（source=experience/knowledge, 带 source_key 溯源到 yml 字段）
+
 [段闭环] events.jsonl 新增事件
    │
    ▼ Step 1 消化+组织（同一 LLM 调用, digest.md v2 扩展）
@@ -142,7 +193,7 @@ wiki 是**派生视图**（可重算可改写）——修订后整写更简单�
    ▼ Step 2 引擎执行（确定性, 全量校验通过才落盘）
    │   ① 新条目: 逐条 schema/词表/epistemic 校验 → 分配 id → 落盘
    │   ② revisions: id 存在性（仅限本次渲染子图内）→ 护栏（epistemic 不可降级/
-   │      canon_fact 不可改/无支撑 belief 拒绝）→ 应用 → evolution_log
+   │      canon_fact 不可改/无支撑 belief 拒绝/accrue 同类判定信任 LLM 但 count 由引擎数）→ 应用 → evolution_log
    │   ③ evidence: 置信度 ≥ 阈值 → 罗盘函数进度增量（带事件溯源）; 否则丢弃
    │   ④ affection: 幂等事件写（现有逻辑不变）
    │
@@ -163,15 +214,18 @@ wiki 是**派生视图**（可重算可改写）——修订后整写更简单�
 （render_timeline 输出…）
 
 【相关旧记忆（供组织决策）】
-#m0003 [episode, sig 0.80, links: m0001] 那天傍晚老师陪我在杂草屋看苔藓…
+#m0003 [episode, sig 0.80, links: m0009] 那天傍晚老师陪我在杂草屋看苔藓…
         〝「地砖里长出的苔藓也可以是花」〞
+#e0002 [experience, sig 0.70, count 4, links: m0011 m0015 m0020] sensei 提到工作繁忙
+        〝「这周又忙成狗了」〞
 #m0009 [belief, sig 0.90, links: m0003 m0001] 老师是第一个不会嫌弃我的人
 #c0002 [fact, canon, 只读] 遥香曾因拆炸弹事件对 sensei 建立信任
 
 【组织动作】
 - 对旧条目用 #id 引用, 不得编造不存在的 id
-- 动作: create / update #id / merge #a #b / link #a→#b / contradict #a #b
-- 护栏: 不得强行升华; 不得修改 canon_fact; belief 必须 links 到支撑 episode
+- 动作: create / update #id / merge #a #b / link #a→#b / contradict #a #b / accrue #id
+- 每条新 episode 必须: 链接到已有 belief/experience, 或新建 belief/experience 并链接（连接裁定）
+- 护栏: 不得强行升华; 不得修改 canon_fact; belief 必须 links 到支撑 (episode|experience)
 ```
 
 ### 4.2 角色注入视图（喂主剧情 LLM；无 id 无链接；分层排序）
@@ -216,7 +270,9 @@ wiki 是**派生视图**（可重算可改写）——修订后整写更简单�
   {"action": "link",      "from": "m0003", "to": "m0010"},
   {"action": "unlink",    "from": "m0003", "to": "m0010"},
   {"action": "contradict","a": "m0003", "b": "m0009"},
-  {"action": "resolve",   "a": "m0003", "b": "m0009"}   // 矛盾消解（可选, 配合 update）
+  {"action": "resolve",   "a": "m0003", "b": "m0009"},   // 矛盾消解（可选, 配合 update）
+  {"action": "accrue",    "id": "e0002",                 // 同类事件并入 experience（2026-09-02）
+   "occurrence": {"event_seq": [61], "example": "「忙得脚不沾地」"}}
 ]}
 ```
 
@@ -226,7 +282,10 @@ wiki 是**派生视图**（可重算可改写）——修订后整写更简单�
 3. `update` 不得改变 `epistemic`（inferred_belief 永远是 inferred_belief）
 4. `create` 的 belief 必须 `links` 非空（无支撑升华拒绝）
 5. `merge` 的 `into` 继承被合并条目的 `links`/`contradictions` 并集, `event_seq` 取并
-6. 原子性：任一违反 → 整包不执行（宁缺勿错）
+6. `accrue`: 同类判定信任 LLM, 但 `count`/`event_seq`/significance 强化由引擎计算
+   （count = len(links), sig = min(0.9, base + 0.05×(count-1))）
+7. **连接裁定**: 本包若无新 episode 满足"links 含 belief/experience 或 新建并链接"→ 整包回灌
+8. 原子性：任一违反 → 整包不执行（宁缺勿错）
 
 ---
 
@@ -264,7 +323,7 @@ narration+verbatim 原样保存（质感优先），只有真正认知变化才�
 
 | M | 内容 | 依赖 | 验收 |
 |---|---|---|---|
-| **M1** | wiki_store v2（jsonl + 原子整写 + id + 索引）; 种子生成器（遥香: experience/knowledge → fact/episode 条目, 手写罗盘 persona_compass 骨架） | 无 | 遥香种子 100% 映射; 读写/快照/校验测试过 |
+| **M1** | wiki_store v2（jsonl + 原子整写 + id + 索引）; **出厂 digest pass**（遥香: experience/knowledge → 预设时间线 → 消化 → canon_fact 条目; 手写罗盘 persona_compass 骨架） | 无 | 遥香出厂条目 100% 映射（source_key 可溯源）; 读写/快照/校验测试过 |
 | **M2** | 组织视图渲染 + 修订契约校验（id 存在性/epistemic/支撑规则）; evolution_log | M1 | 构造修订包样例全过/全拒测试过 |
 | **M3** | digest.md v2 + build_digest_schema v2（entries/revisions/evidence）; consolidation 改造（同调用输出修订） | M2 | 真实 bond 闭环 → 条目+修订落盘; 310 基线不破 |
 | **M4** | 三通道召回（embedding 通道: 本地 nomic, numpy 余弦, 无 embedding 时降级 tags 匹配） | M3 | 组织视图含一跳扩展子图; 无 embedding 环境自动降级 |
@@ -277,12 +336,15 @@ consolidation/recall 的对外行为（新代码独立目录 core/brain/wiki_v2/
 
 ## 9. 开放问题汇总（拍板清单）
 
-| # | 问题 | 建议 | 拍板时机 |
+| # | 问题 | 状态 | 拍板时机 |
 |---|---|---|---|
-| 1 | significance 标度 | 0~1 + ≥0.8 珍贵档（折叠 neuron 的 memo） | M1 |
-| 2 | contradictions 存储 | 先字段后类型化 | M1 |
-| 3 | 深度整理（merge/归类）频率 | 每段轻组织（create/link/update）+ 每 N=5 段或矛盾检测触发深度整理 | M3 |
-| 4 | 组织视图 id 格式 | `m0003`（无 # 前缀, 防 LLM 把它当 markdown 标题） | M2 |
-| 5 | verbatim 来源 | 段落原文逐字（LLM 复制, 禁止改写）——校验: 与事件流原文模糊匹配 | M3 |
-| 6 | 玩家画像（R5）落点 | wiki 顶层加 `player_profile` 段（per 世界, 与角色线平级） | M5 后 |
-| 7 | 校验 lane 的冲突处理 | 记录 + 高频统计 → 提示作者改卡/改罗盘（不自动改） | M5 |
+| 1 | significance 标度 | ✅ 已拍板 2026-09-02: decimal 0~1 + ≥0.8 珍贵档 | M1 |
+| 2 | contradictions 存储 | ✅ 已拍板: 存字段（`contradictions` 数组） | M1 |
+| 3 | experience 出厂基座 | ✅ 已拍板: 出厂 digest pass（预设时间线消化, 非独立生成器） | M1 |
+| 4 | 升华/连接裁定 | ✅ 已拍板: 每条新 episode 必须连已有 belief/experience 或新建并链接 | M2 |
+| 5 | 去重规则 | ✅ 已拍板: 去重键 = event_seq（同事件去重/不同事件同类 accrue）; 玩家口癖/习惯永不被内容去重 | M3 |
+| 6 | 深度整理（merge/归类）频率 | 每段轻组织（create/link/update/accrue）+ 每 N=5 段或矛盾检测触发深度整理（待答复） | M3 |
+| 7 | 组织视图 id 格式 | `m0003`（无 # 前缀, 防 LLM 把它当 markdown 标题）（待答复） | M2 |
+| 8 | verbatim 来源 | 段落原文逐字（LLM 复制, 禁止改写）——校验: 与事件流原文模糊匹配（待答复） | M3 |
+| 9 | 玩家画像（R5）落点 | wiki 顶层加 `player_profile` 段（per 世界, 与角色线平级）——**或 = subject=player 的 experience 节点集合**（待答复） | M5 后 |
+| 10 | 校验 lane 的冲突处理 | 记录 + 高频统计 → 提示作者改卡/改罗盘（不自动改）（待答复） | M5 |
