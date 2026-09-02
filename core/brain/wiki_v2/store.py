@@ -120,9 +120,14 @@ class WikiStoreV2:
     # ------------------------------------------------------------------
 
     def add(self, node: BrainNode) -> str:
-        """新增节点（自动分配 id; 无效节点拒绝）。返回 id。"""
+        """新增节点（自动分配 id; 无效节点拒绝）。返回 id。
+
+        入仓前 normalize——create 路径的 links 可能在构造后才补挂
+        （revise._parse_create）, 不变量（experience.count = len(links)）必须入仓时钉死。
+        """
         if not node.id:
             node.id = self.next_id(_PREFIX.get(node.kind, "m"))
+        node.normalize()
         errors = node.validate()
         if errors:
             raise ValueError(err("InvalidNode",
@@ -174,17 +179,25 @@ class WikiStoreV2:
     # ── 图边原语（虚边操作; 校验在 revise.py 的引用级, 这里只保证存在性） ──
 
     def add_link(self, a: str, b: str) -> None:
-        """双向 link（无向边; 已存在则幂等）。"""
+        """双向 link（无向边; 已存在则幂等）。
+
+        边变化会破坏 experience.count = len(links) 不变量——受影响端点立即刷新
+        （accrue/包内后建节点链入等路径都在这里闭环, audit 恒干净）。
+        """
         for src, dst in ((a, b), (b, a)):
             node = self._nodes.get(src)
             if node is not None and dst not in node.links and dst in self._nodes:
                 node.links.append(dst)
+                if node.kind == "experience":
+                    node.count = len(node.links)
 
     def remove_link(self, a: str, b: str) -> None:
         for src, dst in ((a, b), (b, a)):
             node = self._nodes.get(src)
             if node is not None and dst in node.links:
                 node.links.remove(dst)
+                if node.kind == "experience":
+                    node.count = len(node.links)
 
     def add_contradiction(self, a: str, b: str) -> None:
         """双向 contradiction（已存在则幂等）。"""
