@@ -238,3 +238,35 @@ class WikiStoreV2:
     def lines(self) -> Iterable[str]:
         """当前全部节点的 jsonl 行（调试/审计用）。"""
         return (n.to_json_line() for n in self._nodes.values())
+
+    # ------------------------------------------------------------------
+    # 图不变量审计（图算法正确性确认——冒烟/R6 完整性检查用）
+    # ------------------------------------------------------------------
+
+    def audit(self) -> list[str]:
+        """图不变量审计: 返回违规列表（空 = 干净）。
+
+        检查项（邻接表策略的闭环定义）:
+          - 悬空引用: links/contradictions 目标必须存在（delete 已清入边, 再出现即 bug）
+          - 双向一致: 无向边两端共识（a.links 含 b ⇔ b.links 含 a; contradiction 同款）
+          - count 不变量: experience.count == len(links)（引擎计数, update 后 normalize）
+          - belief 支撑: belief.links ≥ 1（删除路径可能抽走最后支撑——审计检出）
+        """
+        problems: list[str] = []
+        for nid, node in self._nodes.items():
+            for other in node.links + node.contradictions:
+                if other not in self._nodes:
+                    problems.append(f"悬空引用: {nid} → {other}")
+            for other in node.links:
+                if other in self._nodes and nid not in self._nodes[other].links:
+                    problems.append(f"link 非双向: {nid} ↔ {other}")
+            for other in node.contradictions:
+                if other in self._nodes \
+                        and nid not in self._nodes[other].contradictions:
+                    problems.append(f"contradiction 非双向: {nid} ↔ {other}")
+            if node.kind == "experience" and node.count != len(node.links):
+                problems.append(f"count 不变量破坏: {nid} count={node.count} "
+                                f"links={len(node.links)}")
+            if node.kind == "belief" and not node.links:
+                problems.append(f"belief 无支撑链接: {nid}")
+        return problems
