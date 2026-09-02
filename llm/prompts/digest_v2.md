@@ -21,6 +21,38 @@
 输出:
 {{output_schema}}
 
+**输出纪律（最重要——违反会整包被拒/重试）**: 组织完成后**必须输出最终 JSON**
+（以 `{"revisions":` 开头、以 `}` 结束）——不要在思考后直接停止、不要输出空内容、
+不要只描述"我做了什么"。即使觉得"没有值得记的"，也要输出完整的
+`{"revisions": [], "evidence": [], "affection_exp_delta": 0}`。
+JSON 是唯一出口: 决策过程可以想，但**最终答案必须完整落在输出正文里**——
+逐条核对 revisions 数组后，把完整 JSON 写出来，不要省略、不要只说"见上文"。
+
+【输出范例】（照此形状输出，字段按 schema 说明补全）:
+```json
+{
+  "revisions": [
+    {"action": "create", "ref": "n1", "entry": {
+      "kind": "episode",
+      "narration": "老师带我去了甜品店，说我今天很勇敢",
+      "epistemic": "observed_fact",
+      "significance": 0.8,
+      "tags": ["甜品", "夸奖"],
+      "links": ["m0002"]
+    }},
+    {"action": "accrue", "id": "e0001",
+     "occurrence": {"episode_ref": "n1", "example": "「这家店的甜品不错」"}}
+  ],
+  "evidence": [
+    {"function": "fe", "confidence": 0.8, "quote": "老师夸我今天很勇敢"}
+  ],
+  "affection_exp_delta": 25
+}
+```
+注意范例里: 新 episode 用 ref=n1 命名并 links 已有 belief/experience（连接裁定）;
+accrue 用 episode_ref 指向本包新建的 episode; quote 必须逐字来自时间线。
+你的实际输出不要带 ```json 代码块标记, 直接输出 JSON 本体。
+
 提炼规则:
 1. **提炼而非记录**: 事件"老师蹲下陪她看杂草" → 信念"遥香第一次觉得自己被需要"。
    不要把对话原文搬进来（verbatim 除外——那是逐字引用的原话）。
