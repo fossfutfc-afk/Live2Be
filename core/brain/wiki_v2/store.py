@@ -155,8 +155,21 @@ class WikiStoreV2:
         return new
 
     def delete(self, nid: str) -> bool:
-        """删除节点（返回是否存在）。共通删除/有损回滚的树内操作（R6）。"""
-        return self._nodes.pop(nid, None) is not None
+        """删除节点 + 清理入边（返回是否存在）。
+
+        邻接表策略的闭环: 他人 links/contradictions 里指向被删节点的悬空 id
+        一并清除——merge 删源/R6 回滚后不留死引用（组织视图不出现幽灵 id,
+        revise 的"不存在"报错只可能是真幻觉）。
+        """
+        if nid not in self._nodes:
+            return False
+        self._nodes.pop(nid)
+        for node in self._nodes.values():
+            if nid in node.links:
+                node.links.remove(nid)
+            if nid in node.contradictions:
+                node.contradictions.remove(nid)
+        return True
 
     # ── 图边原语（虚边操作; 校验在 revise.py 的引用级, 这里只保证存在性） ──
 

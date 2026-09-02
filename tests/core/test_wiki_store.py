@@ -120,6 +120,23 @@ def test_delete(tmp_path):
     assert "m0001" not in st
 
 
+def test_delete_cleans_inbound_references(tmp_path):
+    """邻接表闭环: 删节点 → 他人 links/contradictions 里的悬空 id 一并清除。"""
+    st = _store(tmp_path)
+    st.add(make_node("episode", narration="hub", event_seq=[1]))
+    st.add(make_node("episode", narration="a", event_seq=[2], links=["m0001"]))
+    st.add(make_node("belief", content="b", epistemic="inferred_belief",
+                     links=["m0001", "m0002"]))
+    st.add_contradiction("m0001", "m0003")
+    assert st.get("m0002").links == ["m0001"]
+    assert st.get("m0003").links == ["m0001", "m0002"]
+    assert st.get("m0001").contradictions == ["m0003"]
+    st.delete("m0001")
+    assert st.get("m0002").links == []                     # 入边清理
+    assert st.get("m0003").links == ["m0002"]              # 只清 m0001
+    assert st.get("m0003").contradictions == []            # 矛盾边也清理
+
+
 def test_snapshot_restore(tmp_path):
     st = _store(tmp_path)
     st.add(make_node("episode", narration="a", event_seq=[1]))
