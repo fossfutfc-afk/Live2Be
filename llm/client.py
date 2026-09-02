@@ -119,12 +119,16 @@ class LLMClient:
         max_tokens: int = 1024,
         response_format: str = "text",
         extra_body: dict[str, Any] | None = None,
+        timeout: float | None = None,
     ) -> str | dict[str, Any]:
         """发送 chat completion 请求（批次模式）。
 
         思维链捕获（DeepSeek reasoner/v4 系列返回 reasoning_content）: 每次调用后
         self.last_reasoning = 最近一次响应的思考过程（无 → None）。模型无关——
         deepseek-chat 不返回则为 None。调用方（引擎 trace / CLI debug）可读。
+
+        timeout: per-call 超时覆盖（None = 构造时的 self.timeout）。后台长任务
+        （digest high 档长考可达 ~2min）用它放宽, 主对话快速失败语义不受影响。
         """
         effective_model = model or self.model
 
@@ -137,7 +141,7 @@ class LLMClient:
             extra_body=extra_body,
         )
 
-        raw_text = self._request_with_retry(payload)
+        raw_text = self._request_with_retry(payload, timeout=timeout)
         self.last_reasoning = _LAST_REASONING    # 模块级捕获 → 实例可读
 
         if response_format == "json_object":
@@ -148,6 +152,7 @@ class LLMClient:
                 temperature=temperature,
                 max_tokens=max_tokens,
                 extra_body=extra_body,
+                timeout=timeout,
             )
         return raw_text
 
@@ -280,6 +285,7 @@ class LLMClient:
         max_tokens: int,
         extra_body: dict[str, Any] | None,
         max_json_retries: int = 3,
+        timeout: float | None = None,
     ) -> dict[str, Any]:
         """尝试解析 JSON；失败时把错误喂回 LLM，最多 N-1 次重试。"""
         raw_text = first_attempt
@@ -314,7 +320,7 @@ class LLMClient:
                     response_format="json_object",
                     extra_body=extra_body,
                 )
-                raw_text = self._request_with_retry(payload)
+                raw_text = self._request_with_retry(payload, timeout=timeout)
 
         raise ValueError(err("JsonCorrection", f"JSON correction failed after {max_json_retries} total attempts"))
 
@@ -322,13 +328,23 @@ class LLMClient:
     # 内部: HTTP
     # ------------------------------------------------------------------
 
-    def _request_with_retry(self, payload: dict[str, Any]) -> str:
-        """发送请求，带指数退避重试。"""
+    def _request_with_retry(self, payload: dict[str, Any],
+                            timeout: float | None = None) -> str:
+        """发送请求，带指数退避重试。
+
+        timeout: per-call 覆盖（None = 构造超时 self.timeout）——后台长任务
+        （digest）放宽; httpx per-request timeout 用 send(timeout=...) 覆盖。
+        """
         last_error: Exception | None = None
 
         for attempt in range(self.max_retries + 1):
             try:
-                resp = self._http.post("/chat/completions", json=payload)
+                if timeout is None:
+                    resp = self._http.post("/chat/completions", json=payload)
+                else:
+                    req = self._http.build_request(
+                        "POST", "/chat/completions", json=payload)
+                    resp = self._http.send(req, timeout=httpx.Timeout(timeout))
             except httpx.TimeoutException as e:
                 last_error = e
                 if attempt < self.max_retries:
