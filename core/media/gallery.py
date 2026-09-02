@@ -1,9 +1,11 @@
 # -*- coding: utf-8 -*-
 """画廊 — AI 生成 2D 场景（图 + 文字信息成对, DESIGN_SAVE.md §4.5）。
 
-路径（v2）: data/gallery/{char_id}/{scene_id}.png + {scene_id}.json
-    —— 立绘是【画作资产】（跨世界保留, 索引 json 标注 source_world/source_session）;
-    scene_id = {YYYYMMDD_HHMMSS}_{rand4}
+路径（2026-09-02 用户拍板: 收进角色目录——原 data/gallery/{char_id} 跨世界
+共用, 分不清 world1/world2 的画作属于哪条线）:
+    {data_root}/worlds/{world_id}/characters/{char_id}/gallery/{scene_id}.png
+    —— 与 events/wiki 同域: 画作是**世界线内**角色的资产, 周目切换整体隔离;
+    scene_id = {YYYYMMDD_HHMMSS}_{rand4}; 元数据记 source_world/source_session。
 
 骨架职责（memorial 管线接入前的最小可用面）:
     write(char_id, prompt, source_session, png, description=None) -> scene_id
@@ -25,6 +27,7 @@ from datetime import datetime
 from pathlib import Path
 
 from core.session.io import atomic_write_json
+from core.session.store import DEFAULT_WORLD
 
 DEFAULT_DATA_ROOT = Path("data")
 
@@ -36,17 +39,20 @@ def _new_scene_id() -> str:
 
 
 class GalleryStore:
-    """画廊存储（路径参数化 data_root, 默认 data/）。"""
+    """画廊存储（路径参数化 data_root, 默认 data/; world_id 默认 world1）。"""
 
-    def __init__(self, data_root: str | Path = DEFAULT_DATA_ROOT):
+    def __init__(self, data_root: str | Path = DEFAULT_DATA_ROOT,
+                 world_id: str | None = None):
         self.data_root = Path(data_root)
+        self.world_id = world_id or DEFAULT_WORLD
 
     # ------------------------------------------------------------------
-    # 路径（v2: data/gallery/{char_id}/——跨世界资产）
+    # 路径（2026-09-02: worlds/{world}/characters/{char}/gallery——世界线内资产）
     # ------------------------------------------------------------------
 
     def gallery_dir(self, char_id: str) -> Path:
-        return self.data_root / "gallery" / char_id
+        return (self.data_root / "worlds" / self.world_id / "characters"
+                / char_id / "gallery")
 
     def png_path(self, char_id: str, scene_id: str) -> Path:
         return self.gallery_dir(char_id) / f"{scene_id}.png"
@@ -86,6 +92,7 @@ class GalleryStore:
         meta: dict = {
             "scene_id": sid,
             "character_id": char_id,
+            "source_world": self.world_id,
             "prompt": prompt,
             "source_session": source_session,
             "created_at": datetime.now().isoformat(),

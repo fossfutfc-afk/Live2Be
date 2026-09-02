@@ -14,9 +14,11 @@
 """
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse, Response
 from starlette.staticfiles import StaticFiles
 
 from webgui.routers import bond, menu, mmt, name, settings, spine
@@ -26,7 +28,10 @@ STATIC_DIR = Path(__file__).resolve().parent / "static"
 MENU_DIR = ROOT / "assets" / "menu"
 ILLUS_DIR = ROOT / "assets" / "illustration"
 BG_DIR = ROOT / "assets" / "background"
-GALLERY_DIR = ROOT / "data" / "gallery"
+DATA_DIR = ROOT / "data"
+
+#: 画廊 scene_id 形态: {YYYYMMDD_HHMMSS}_{hex4}
+_SCENE_RE = re.compile(r"^\d{8}_\d{6}_[0-9a-f]{4}$")
 
 
 class NoCacheStaticFiles(StaticFiles):
@@ -43,9 +48,22 @@ app.mount("/static", NoCacheStaticFiles(directory=STATIC_DIR), name="static")
 app.mount("/assets/menu", NoCacheStaticFiles(directory=MENU_DIR), name="menu")
 app.mount("/assets/illustration", NoCacheStaticFiles(directory=ILLUS_DIR), name="illus")
 app.mount("/assets/background", NoCacheStaticFiles(directory=BG_DIR), name="bg")
-# 纪念立绘（data/gallery/{char_id}/{sid}.png）——目录可能尚未创建（check_dir=False）
-app.mount("/gallery", NoCacheStaticFiles(directory=GALLERY_DIR, check_dir=False),
-          name="gallery")
+
+
+@app.get("/gallery/{world_id}/{char_id}/{scene_id}.png")
+def gallery_png(world_id: str, char_id: str, scene_id: str) -> Response:
+    """纪念立绘取图（2026-09-02: 画廊收进世界线角色目录——
+    worlds/{world}/characters/{char}/gallery/; 动态路由按需读, 不整树静态挂载
+    （防 events.jsonl/wiki 等被静态目录暴露）; 路径严格校验防穿越）。"""
+    if not _SCENE_RE.match(scene_id):
+        raise HTTPException(status_code=404, detail="not found")
+    if not re.match(r"^[a-z0-9_]+$", char_id) or not re.match(r"^[a-z0-9_]+$", world_id):
+        raise HTTPException(status_code=404, detail="not found")
+    png = (DATA_DIR / "worlds" / world_id / "characters" / char_id
+           / "gallery" / f"{scene_id}.png")
+    if not png.is_file():
+        raise HTTPException(status_code=404, detail="not found")
+    return FileResponse(png, headers={"Cache-Control": "no-cache"})
 
 # 路由注册（每域独立文件——铺路: 未来加域只加 import + include_router）
 app.include_router(menu.router)

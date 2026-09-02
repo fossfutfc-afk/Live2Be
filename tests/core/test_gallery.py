@@ -27,19 +27,26 @@ def test_write_creates_pair(tmp_path):
 
 
 def test_write_meta_fields(tmp_path):
-    st = GalleryStore(tmp_path)
+    st = GalleryStore(tmp_path, world_id="world2")
     sid = st.write("igusa_haruka", "天台上的遥香", "sess_1", _fake_png(tmp_path),
                    description="晚风拂过发梢")
     meta = st.get("igusa_haruka", sid)
     assert meta is not None
     assert meta["scene_id"] == sid
     assert meta["character_id"] == "igusa_haruka"
+    assert meta["source_world"] == "world2"       # 世界线内资产标识
     assert meta["prompt"] == "天台上的遥香"
     assert meta["source_session"] == "sess_1"
     assert meta["description"] == "晚风拂过发梢"
     assert meta["created_at"]
     assert Path(meta["png"]).is_file()
-    print("    meta: scene_id/character/prompt/source/description/created_at 齐全")
+    # 路径: worlds/{world}/characters/{char}/gallery（2026-09-02 拍板）
+    assert st.gallery_dir("igusa_haruka") == (
+        tmp_path / "worlds" / "world2" / "characters" / "igusa_haruka" / "gallery")
+    # 世界隔离: world1 下查不到 world2 的图
+    st1 = GalleryStore(tmp_path, world_id="world1")
+    assert st1.list("igusa_haruka") == []
+    print("    meta: scene/char/source_world/prompt/source/description/created_at + 世界隔离")
 
 
 def test_list_only_complete_pairs(tmp_path):
