@@ -71,6 +71,9 @@ def apply_revision_package(
 
     pending_log: list[dict] = []
     ref_map: dict[str, str] = {}
+    # 引用允许集 = 渲染子图 ∪ 包内新建 id（create/merge 产物）——动作可以引用
+    # 本包新建的节点（ref 解析后落此集; 集合可变, merge 产物也加入）
+    allowed = set(scope)
     snapshot = store.clone_state()           # 原子性: 执行前内存快照
 
     def fail(msg: str) -> RevisionResult:
@@ -80,9 +83,16 @@ def apply_revision_package(
 
     try:
         # ── pass 1: create（先建, 建立 ref→id 映射）──
+        create_i = 0
         for i, raw in enumerate(revisions):
             if not isinstance(raw, dict) or raw.get("action") != "create":
                 continue
+            # ref 约定在动作顶层（schema v2）; entry 内层兼容; 缺省 → 包内序号兜底
+            if not (raw.get("ref")
+                    or (isinstance(raw.get("entry"), dict) and raw["entry"].get("ref"))):
+                raw = dict(raw)
+                raw["ref"] = f"n{create_i + 1}"
+            create_i += 1
             node, ref, entry_links = _parse_create(raw, scope, ref_map, result)
             if node is None:
                 return fail(f"revisions[{i}] {result.errors[-1]}")
@@ -90,25 +100,29 @@ def apply_revision_package(
                 dup = _find_duplicate(store, node)
                 if dup is not None:
                     ref_map[ref] = dup.id          # 幂等: 指向已存在节点
+                    allowed.add(dup.id)
                     continue
             nid = store.add(node)
+            allowed.add(nid)
             ref_map[ref] = nid
             pending_log.append({"pkg": result.pkg, "action": "create",
                                 "id": nid, "kind": node.kind})
-            # 链接补挂（entry 里的 links/contradictions 引用, 含 ref）
+            # 链接补挂: entry 的 links/contradictions 已在 _parse_create 解析为
+            # 真实 id——目标 = 子图已有节点或本包已建节点（存在性检查; 曾误用
+            # ref_map 键检查导致链到新建节点时反向边被跳过, 2026-09-02 修复）
             for other in entry_links.get("links", []):
-                if other in scope or other in ref_map:
+                if store.get(other) is not None:
                     store.add_link(nid, other)
             for other in entry_links.get("contradictions", []):
-                if other in scope or other in ref_map:
+                if store.get(other) is not None:
                     store.add_contradiction(nid, other)
 
-        # ── pass 2: 其余动作（id 引用解析 ref）──
+        # ── pass 2: 其余动作（id 引用解析 ref; allowed 允许引用包内新 id）──
         for i, raw in enumerate(revisions):
             if not isinstance(raw, dict) or raw.get("action") == "create":
                 continue
             action = raw.get("action")
-            if not _apply_action(store, raw, scope, ref_map, pending_log,
+            if not _apply_action(store, raw, allowed, ref_map, pending_log,
                                  result, pkg=result.pkg):
                 return fail(f"revisions[{i}] {result.errors[-1]}")
     except Exception as e:                     # noqa: BLE001 — 意外异常同样回滚
@@ -140,8 +154,10 @@ def _parse_create(raw: dict, scope: set[str], ref_map: dict,
         result.errors.append("create 缺少 entry 对象")
         return None, "", {}
     entry = {k: v for k, v in entry.items() if k not in _IGNORED_ON_CREATE}
-    ref = str(entry.pop(_REF_KEY, "")).strip()
-    ref = ref or f"n{len(result.created) + 1}"     # 缺省本地引用名
+    # ref 顶层优先（schema v2 约定）; entry 内层兼容; 调用方已兜底序号, 此处防御
+    ref = str(raw.get("ref") or entry.pop(_REF_KEY, "") or "").strip()
+    if not ref:
+        ref = f"n{len(ref_map) + 1}"
     kind = str(entry.pop("kind", "episode")).strip()
     if kind not in KINDS:
         result.errors.append(f"create 的 kind 非法: {kind!r}")
@@ -204,6 +220,22 @@ def _apply_action(store: WikiStoreV2, raw: dict, scope: set[str],
             return _err(result, "merge 产物必须至少 1 条链接（无孤立节点）")
         merged.ts = datetime.now().isoformat(timespec="seconds")
         new_id = store.add(merged)
+        scope.add(new_id)                    # merge 产物可被包内后续动作引用
+        # 入边重接: 指向源节点的 link/contradiction 改指 merged——合并 = 源被产物
+        # 替代, 图连通性与 belief 支撑不丢（只继承出边会断掉入边的支撑链）
+        for other in store.all():
+            if other.id == new_id or other.id in ids:
+                continue
+            had_link = any(i in other.links for i in ids)
+            had_contr = any(i in other.contradictions for i in ids)
+            if not (had_link or had_contr):
+                continue
+            other.links = [x for x in other.links if x not in ids]
+            other.contradictions = [x for x in other.contradictions if x not in ids]
+            if had_link:
+                store.add_link(new_id, other.id)
+            if had_contr:
+                store.add_contradiction(new_id, other.id)
         for i in ids:
             store.delete(i)
         pending_log.append({"pkg": pkg, "action": "merge",

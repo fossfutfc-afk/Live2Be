@@ -19,6 +19,10 @@ def _store(tmp_path) -> WikiStoreV2:
                      links=["m0002"]))
     st.add(make_node("experience", pattern="提到工作繁忙", subject="sensei",
                      significance=0.7, links=["m0003"], event_seq=[2]))
+    # 真实流程同款: 双向边走 add_link（audit 不变量要求双向共识）
+    st.add_link("m0001", "m0002")
+    st.add_link("m0003", "m0002")
+    st.add_link("e0001", "m0003")
     return st
 
 
@@ -45,9 +49,11 @@ def test_create_and_link_package(tmp_path):
     assert res.ok, res.errors
     assert res.created == {"n1": "m0004", "n2": "m0005"}
     ep = st.get("m0004")
-    assert ep.narration == "老师带我去甜品店" and ep.links == ["m0002"]
+    # 双向语义: n2 链入 n1 → n1.links 含 n2（反向边正确补挂）
+    assert ep.narration == "老师带我去甜品店" and ep.links == ["m0002", "m0005"]
     bel = st.get("m0005")
     assert bel.content == "老师会认真听我说话" and bel.links == ["m0004"]
+    assert st.audit() == []                      # 全链路后图干净
     # evolution log
     entries = _log(st).read()
     assert [e["action"] for e in entries] == ["create", "create"]
@@ -114,7 +120,10 @@ def test_merge_inherits_and_deletes_sources(tmp_path):
     merged = st.get("m0004")
     assert merged is not None and merged.narration == "和老师的两次难忘日常"
     assert merged.event_seq == [1, 2]
-    assert merged.links == ["m0002"]                     # 并集去 self
+    # 出边继承（m0003 原有支撑 m0002）+ 入边重接（e0001 曾指向 m0003 → 改指 merged）
+    assert set(merged.links) == {"m0002", "e0001"}
+    assert st.get("m0002").links == ["m0004"]            # belief 支撑不断链
+    assert st.get("e0001").links == ["m0004"]            # 入边重接
     assert st.get("m0001") is None and st.get("m0003") is None
     entries = _log(st).read()
     assert entries[-1]["action"] == "merge" and entries[-1]["ids"] == ["m0001", "m0003"]
@@ -148,7 +157,7 @@ def test_link_unlink_contradict_resolve(tmp_path):
         {"action": "resolve", "a": "m0001", "b": "m0003"},
     ], subgraph_ids=scope)
     assert ok.ok
-    assert st.get("m0001").links == [] and st.get("m0001").contradictions == []
+    assert st.get("m0001").links == ["m0002"] and st.get("m0001").contradictions == []
 
 
 def test_accrue_counts_by_engine(tmp_path):
