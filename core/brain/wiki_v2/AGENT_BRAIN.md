@@ -320,11 +320,22 @@ apply_revision_package 复用, digest_registry 注册 deep 动作集）。
 
 **reasoning_effort 生产档（2026-09-02 拍板: high）**——digest 质量实验矩阵
 （deepseek-v4-flash thinking, smoke 两最小 unit）:
-| 档 | 结果 | 单 unit 耗时 |
-|---|---|---|
-| low | 5/5 合格——规则全过但组织偏浅 | ~17s（早期 62s 含长考失控） |
-| medium | 1/3——2/3 死在规则校验（引擎防护拦截, 无污染） | 3~6min |
-| high | 2/2——认知深化（unit2 update 而非 add）、evidence 逐字自检、growth 演化细腻 | 118s + 32s |
+
+**实测时间记录（同硬件/prompt 可比; digest 单 unit = Round A+B 两次调用）**:
+| 档 | 单次调用 | digest 单 unit（A+B） | 质量/结果 |
+|---|---|---|---|
+| 默认（无 effort, 早期生产） | median **62s**（reasoning 14k~29k 字符吃光 8192 预算, 2/5 截断） | 整段曾拖到**近半小时**（重试放大） | 3/5 合格; reasoning 常含完整 JSON（写进思维链没吐出来） |
+| low | median **16.7s**（reasoning 1.6k~4k, ~1/10 推理量） | 35s / 15s → 86s / 18s（候选标注启用后输入变大） | 5/5 合格——规则全过但组织偏浅 |
+| medium | — | ~50s ~ 3min 波动（3 次冒烟各 3~6min, 失败重试拖长） | 1/3——2/3 死在规则校验（引擎防护拦截, 无污染） |
+| high | 单次长考上限 300s（client per-call timeout） | **118s**（复杂段）+ **32s**（简单段） | 2/2——认知深化（unit2 update 而非 add）、evidence 逐字自检、growth 演化细腻 |
+
+注: low 早期实验为 N=5×2 对照（默认 vs low）; 冒烟时间含 seed 后两 unit 全链,
+可复现: `python experiments/smoke_digest_v2.py [low|medium|high]`（默认 low）。
+
+**成本权衡提示（记录）**: high 档 ≈ low 档 3~7× 延迟与 reasoning token 消耗——
+digest 是后台异步路径（mmt 每 N=25 轮 / bond 闭环各一次, 不阻塞对话）;
+主对话（mmt/bond 实时）不吃 digest 档（settings 默认档全局注入, 若要分离可
+后续加 per-domain 键）。档位改 settings.toml [llm] reasoning_effort 一处即可。
 
 适配（high 档参数）: **thinking level 参数化**——settings.toml [llm] `reasoning_effort`
 （low|medium|high, 默认 high; 空/缺失 → 不注入=模型默认）——单一配置源:
