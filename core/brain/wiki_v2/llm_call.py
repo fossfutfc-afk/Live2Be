@@ -31,6 +31,7 @@ def llm_chat(
     system: str,
     user_msg: str,
     *,
+    messages: list[dict] | None = None,
     model: str | None = None,
     temperature: float = 0.3,
     max_tokens: int = 8192,
@@ -42,6 +43,8 @@ def llm_chat(
     """单次结构化调用（json_object）: 重试 N 次或撞 deadline。
 
     Args:
+        messages: 完整消息列表（反馈回灌用——同一上下文续调: 编排层追加
+                  assistant 被拒输出 + 引擎错误后传入; None → 由 system+user 组装）
         llm: 兼容 llm.chat(messages, model=, temperature=, max_tokens=,
              response_format=, extra_body=) 的客户端
         deadline: time.monotonic() 绝对截止时刻; None = 不限
@@ -52,14 +55,16 @@ def llm_chat(
         (None, err_str): 重试耗尽 / 撞 deadline
     """
     body = DEFAULT_EXTRA_BODY if extra_body is None else extra_body
+    if messages is None:
+        messages = [{"role": "system", "content": system},
+                    {"role": "user", "content": user_msg}]
     last_err: Exception | None = None
     for attempt in range(max_retries):
         if deadline is not None and time.monotonic() > deadline:
             return None, "LLM 调用撞上时间预算"
         try:
             resp = llm.chat(
-                [{"role": "system", "content": system},
-                 {"role": "user", "content": user_msg}],
+                list(messages),
                 model=model, temperature=temperature, max_tokens=max_tokens,
                 response_format="json_object", extra_body=body)
             return resp, None
