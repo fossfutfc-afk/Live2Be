@@ -146,12 +146,13 @@ def digest_segment(
             parse_fn=digest_registry.parse_round_a, result=result)
         if entries is None:
             return _rollback(store, snapshot, result)
-        episode_ids = _create_episodes(
+        episode_ids, player_ids = _create_a_nodes(
             store, entries, ts=now_ts, segment_id=segment_id,
             event_seq=[interact_max])
 
         # ── Round B: 理解者（引擎候选推荐 + 决策表）──
-        cog_text, local_of = render_cognition_list(store, cap=COGNITION_CAP)
+        cog_text, local_of = render_cognition_list(
+            store, cap=COGNITION_CAP, exclude=set(player_ids))   # 本轮画像条目不进认知列表
         ep_text, high_map = _round_b_material(store, episode_ids, local_of,
                                               embed_fn=embed_fn)
         system_b = load_prompt("digest_v2_round_b").replace(
@@ -250,27 +251,47 @@ def _round_call(
 # 引擎侧: 建节点 / 渲染 / 清洗
 # ---------------------------------------------------------------------------
 
-def _create_episodes(store: WikiStoreV2, entries: list[dict], *, ts: str,
-                     segment_id: str, event_seq: list[int]) -> list[str]:
-    """Round A 条目 → episode 节点（引擎字段归属——确定性归引擎, 防幻觉）。
+def _create_a_nodes(store: WikiStoreV2, entries: list[dict], *, ts: str,
+                    segment_id: str, event_seq: list[int]
+                    ) -> tuple[list[str], list[str]]:
+    """Round A 条目 → 节点（引擎字段归属——确定性归引擎, 防幻觉）。
 
-    4a: 本段 episode 的 event_seq 统一 [interact_max]（段级溯源）; 每段内的
-    逐事件溯源留给时间系统（蓝图 §9 计划）。
+    kind=episode  → episode 节点（段级溯源 event_seq=[interact_max]）
+    kind=experience（玩家画像, MMT 专则）→ subject=player experience 节点:
+        口癖/偏好/一次性个人信息——不进本轮 B（B 只组织 episode）, 下轮起参与认知层
     dedupe: (kind, event_seq, 主文本) 命中已有节点 → 复用 id（崩溃窗口重跑防双写）。
+
+    Returns: (episode_ids, player_ids)——episode_ids 供 B 覆盖检查。
     """
     from core.brain.wiki_v2.revise import _find_duplicate
-    ids: list[str] = []
+    episode_ids: list[str] = []
+    player_ids: list[str] = []
     for ent in entries:
-        node = make_node("episode", **ent)
+        if ent.get("kind") == "experience":
+            node = make_node("experience",
+                             pattern=ent["pattern"], subject=ent.get("subject", "player"),
+                             verbatim=ent.get("verbatim", ""),
+                             tags=ent.get("tags", []),
+                             significance=ent.get("significance", 0.5))
+            node.ts = ts
+            node.segment_id = segment_id
+            node.event_seq = list(event_seq)
+            dup = _find_duplicate(store, node)
+            if dup is not None:
+                player_ids.append(dup.id)
+                continue
+            player_ids.append(store.add(node))
+            continue
+        node = make_node("episode", **{k: v for k, v in ent.items() if k != "kind"})
         node.ts = ts
         node.segment_id = segment_id
         node.event_seq = list(event_seq)
         dup = _find_duplicate(store, node)
         if dup is not None:
-            ids.append(dup.id)
+            episode_ids.append(dup.id)
             continue
-        ids.append(store.add(node))
-    return ids
+        episode_ids.append(store.add(node))
+    return episode_ids, player_ids
 
 
 def _round_b_material(store: WikiStoreV2, episode_ids: list[str],

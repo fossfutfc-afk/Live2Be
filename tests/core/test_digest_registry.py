@@ -99,6 +99,30 @@ def test_round_a_not_dict():
     assert items == [] and not result.is_valid
 
 
+def test_round_a_player_portrait_entry():
+    """MMT 专则: kind=experience（玩家画像）条目——pattern 必填, subject 引擎固定。"""
+    raw = {"episodes": [
+        {"kind": "experience", "pattern": "玩家的生日是 5 月 20 日",
+         "verbatim": "我生日是 5 月 20 日哦", "tags": ["玩家"], "significance": 0.7},
+        {"kind": "experience", "title": "忘了 pattern"},       # 缺 pattern → 拒
+    ]}
+    items, result = digest_registry.parse_round_a(raw)
+    assert not result.is_valid
+    assert any("pattern" in e for e in result.errors)
+    assert len(items) == 1
+    assert items[0]["kind"] == "experience"
+    assert items[0]["subject"] == "player"          # 引擎固定, 不信任 LLM
+    assert items[0]["pattern"].startswith("玩家的生日")
+
+
+def test_round_a_bad_kind_rejected():
+    items, result = digest_registry.parse_round_a({"episodes": [
+        {"kind": "belief", "content": "不是合法形态"},
+    ]})
+    assert not result.is_valid
+    assert any("kind 非法" in e for e in result.errors)
+
+
 # ---------------------------------------------------------------------------
 # Round B parse
 # ---------------------------------------------------------------------------
