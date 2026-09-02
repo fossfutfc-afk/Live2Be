@@ -8,3 +8,4 @@ PyYAML>=6.0
 fastapi>=0.110
 uvicorn>=0.29
 pydantic>=2.6
+jieba>=0.42
