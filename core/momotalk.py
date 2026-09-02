@@ -61,15 +61,25 @@ from core.parsing.dynamic_character_parser import (
 from core.parsing.world_parser import DEFAULT_WORLD_PATH, load_world, world_to_prompt
 from core.session import SessionStore
 from core.session.events import make_event
-from core.session.renderer import render_events
-from core.brain.consolidation import digest_session
-from core.brain.hippocampus import WikiStore
-from core.brain.recall import build_brain_injection
+from core.session.renderer import render_events, session_status
+from core.brain.wiki_v2.digest import digest_segment
+from core.brain.wiki_v2.render import render_character_view
+from core.brain.wiki_v2.seed import seed_from_config
+from core.brain.wiki_v2.store import WikiStoreV2
 from core.ui.display import MomoTalkOutput
 from core.ui.streaming import DisplayStep
 from core.ui.text_processors import _process_for_momotalk, _strip_action_brackets, split_reply_chunks
 
 logger = logging.getLogger(__name__)
+
+
+def _interact_max(events: list, digested_seq: int) -> int:
+    """本段互动 max seq（好感事件幂等键——affection 事件自身的 seq 会漂移,
+    不能作键; 重复 digest 同区间时 interact_max 不变, 同 legacy 语义）。"""
+    return max(
+        (e.seq for e in events
+         if e.seq > digested_seq and not e.is_marker and e.type != "affection"),
+        default=0)
 
 #: 滑动窗口默认轮数（每轮 = user+assistant 2 条消息; 40 轮 = 80 条消息）。
 #: 玩家可配（引擎构造参数 history_rounds 传入; 设置页接入见 docs/DESIGN_MEMORY.md Step 1）
@@ -82,6 +92,10 @@ MAX_HISTORY_ROUNDS = DEFAULT_HISTORY_ROUNDS
 MAX_STEPS = 6          # 单轮动作步数上限（含 inspect 静默轮）
 TEMP = 0.8             # 与旧 send_message 一致
 MMT_MAX_TOKENS = 4096  # 动作 JSON + 对白（推理模型需大 max_tokens, 勿改小）
+
+#: mmt 会话窗口 digest 间隔（蓝图 §3.1: 2026-09-02 用户拍板 N=25——纯 MMT 长聊
+#: 每 N 轮后台消化一次, 节流而非精确窗口; bond 剧情闭环触发不变）
+MMT_DIGEST_INTERVAL = 25
 
 
 class MmtLoopError(Live2BeError):
@@ -167,6 +181,7 @@ class MomoTalkEngine:
         history_rounds: int = DEFAULT_HISTORY_ROUNDS,
     ):
         self.char_loader = CharacterLoader(characters_root)
+        self._characters_root = Path(characters_root)   # seed（出厂 digest）读 config 用
         self.llm = llm_client
         self.registry = build_mmt_registry()
         # 滑动窗口（轮数, 每轮 2 条消息）——玩家可配（docs/DESIGN_MEMORY.md Step 1）
@@ -191,6 +206,7 @@ class MomoTalkEngine:
 
         self._current_char: DynamicCharacter | None = None
         self._system_prompt: str = ""
+        self._brain_injection: str = ""   # 角色记忆注入段（动态拼装; digest 后台原子替换）
         self._history: list[dict[str, str]] = []
         self._trace: list[dict] = []      # 最近一轮的完整动作轨迹（追溯/调试）
         self._random_cooldowns: dict = {}  # 随机事件冷却状态（per 引擎实例, 不跨会话串）
@@ -271,50 +287,74 @@ class MomoTalkEngine:
         self._session_id = session_id
         self._session_rounds = 0
 
-    def _inject_brain(self, character_id: str, session_id: str, *, digest: bool = False) -> None:
-        """Brain 接线（DESIGN_BRAIN.md v3.1）: 注入本 session 的 wiki → system prompt。
+    def _inject_brain(self, character_id: str, session_id: str = "", *,
+                      digest: bool = False) -> None:
+        """Brain 接线（wiki_v2, 2026-09-02 切换）: 注入角色 wiki → 注入段。
 
-        digest=False（恢复时）: 只读已有 wiki 注入（不调 LLM）——digest 只在
-        bond 剧情闭环后调用（见 async_digest）, 中断的剧情/纯 MMT 对话不提炼
-        （wiki 只反映完整剧情段, story_end 为段边界）。
-        digest=True（bond 结束后, 后台）: 先 digest_session（提炼新增剧情 + 好感）
-        再注入——注入只对当前引擎实例生效, 后台线程消化后下次 resume 生效。
-        失败静默降级（digest/读取异常不阻断）。
+        角色记忆 = per-char 单库（wiki.jsonl, 与 events.jsonl 同目录——SessionStore
+        session_id 不参与路径）; 注入段动态拼装（_brain_injection 原子替换）——
+        digest 后台完成后**下一轮自动生效**, 不追加防重复注入, 跨线程零锁。
+
+        digest=False（resume）: 只读注入 + 出厂基座确保（0 LLM, source_key 幂等）。
+        digest=True（async_digest 后台线程, _digest_lock 串行）: 出厂基座 →
+        digest_segment（Round A 记录 + Round B 组织）→ 好感结算
+        （affection 事件, 幂等键 interact_max）→ 注入刷新。
+        失败静默降级——wiki 是派生视图, events.jsonl 唯一真源, 可重算。
         """
-        # 人设锚点（digest 的事实基准——防 LLM 脑补/强行升华, digest.md 规则 6/7）
-        anchor = ""
-        if self._current_char is not None:
-            anchor = yaml_to_prompt(
-                {**self._current_char.personality, **self._current_char.knowledge},
-                "角色人设（锚点）")
-        wiki: dict | None = None
-        if digest:
-            try:
-                wiki = digest_session(self.llm, self._store.data_root, character_id,
-                                      session_id, character_prompt=anchor)
-            except Exception as e:                       # noqa: BLE001
-                logger.warning("digest 失败, 跳过记忆注入: %s", e)
-                return
-        else:
-            try:
-                wiki = WikiStore(self._store.data_root).load(character_id, session_id)
-            except Exception as e:                       # noqa: BLE001
-                logger.warning("读取 brain 失败, 跳过记忆注入: %s", e)
-                return
-        if not wiki:
+        store = self._store
+        if store is None or self._current_char is None:
             return
-        char_name = self._current_char.display_name if self._current_char else ""
-        seg = build_brain_injection(wiki, char_name=char_name)
-        if seg:
-            self._system_prompt += "\n\n" + seg
+        char = self._current_char
+        anchor = yaml_to_prompt(
+            {**char.personality, **char.knowledge}, "角色人设（锚点）")
+        try:
+            wstore = WikiStoreV2(store.data_root, world_id=store.world_id,
+                                 char_id=character_id)
+            # 出厂基座（0 LLM; fact 节点存在 = 已 seed——确定性映射, 幂等）
+            if not any(n.kind == "fact" for n in wstore.all()):
+                seed_from_config(wstore, self._characters_root / character_id)
+            if digest:
+                events = store.events(character_id)
+                interact_max = _interact_max(events, wstore.digested_seq)
+                res = digest_segment(wstore, self.llm, events,
+                                     character_prompt=anchor)
+                if not res.ok:
+                    logger.warning("digest 未完成 (%s): %s", character_id,
+                                   " | ".join(res.errors))
+                elif res.affection_delta > 0 and interact_max:
+                    self._write_affection_event(store, character_id, events,
+                                                interact_max, res.affection_delta)
+            seg = render_character_view(wstore.all(),
+                                        char_name=char.display_name or "")
+            self._brain_injection = seg or ""
+        except Exception as e:                       # noqa: BLE001 — 宁缺勿错
+            logger.warning("brain 注入失败 (%s): %s", character_id, e)
+
+    @staticmethod
+    def _write_affection_event(store: SessionStore, character_id: str,
+                               events: list, interact_max: int, delta: int) -> None:
+        """好感事件写（真源 events.jsonl; 幂等键 interact_max——同 legacy 语义:
+        重复 digest 同区间 → digested_seq 相同 → 已存在则跳过）。"""
+        already = any(
+            e.type == "affection"
+            and int((e.payload or {}).get("digested_seq", 0) or 0) >= interact_max
+            for e in events)
+        if already:
+            return
+        try:
+            store.append_event(character_id, "", make_event(
+                "affection", "digest",
+                {"delta": delta, "digested_seq": interact_max}))
+        except Exception as e:                       # noqa: BLE001 — 写失败降级
+            logger.warning("affection 事件写入失败: %s", e)
 
     def async_digest(self) -> None:
-        """异步消化本会话未消化事件（后台线程, 不阻塞对话/UI）。
+        """异步消化本角色线未消化事件（后台线程, 不阻塞对话/UI）。
 
-        【唯一触发点】bond 剧情闭环后（vn_exit 收尾完成）——语义完整段
-        （mmt 对话 + bond 剧情一起消化）, 绝不截断; 中断的剧情不处理。
-        digest 增量幂等（digested_seq 推进）——失败/跳过零损失, 无其他触发点
-        （resume 只注入不消化）。
+        触发点: ① bond 剧情闭环后（语义完整段, story_end 收尾）;
+        ② mmt 会话每 N=25 轮（蓝图 §3.1, 纯 MMT 长聊窗口消化——节流非精确窗口,
+        剧情中 in_vn/in_memorial 不触发, 由 _maybe_mmt_digest 保护）。
+        digest 增量幂等（digested_seq 推进）——失败/跳过零损失; resume 只注入不消化。
         """
         if self._store is None or not self._session_id:
             return
@@ -324,6 +364,28 @@ class MomoTalkEngine:
         threading.Thread(
             target=self._run_digest, args=(char_id, self._session_id), daemon=True,
         ).start()
+
+    def _maybe_mmt_digest(self) -> None:
+        """mmt 窗口触发检查（每轮落盘后调用; 蓝图 §3.1 N=25）:
+
+        未到窗口 / 剧情中（in_vn/in_memorial——bond 闭环自会消化）→ 不触发。
+        触发 → async_digest（后台; digest 增量, 无新增 0 调用, 撞车锁内空跑无害）。
+        """
+        if self._session_rounds < MMT_DIGEST_INTERVAL:
+            return
+        if self._session_rounds % MMT_DIGEST_INTERVAL != 0:
+            return
+        store = self._store
+        char = self._current_char
+        if store is None or char is None or not self._session_id:
+            return
+        try:
+            st = session_status(store.events(char.character_id))
+        except Exception:                            # noqa: BLE001 — 读失败不触发
+            return
+        if st.get("in_vn") or st.get("in_memorial"):
+            return                                   # 剧情中: bond 闭环自会消化
+        self.async_digest()
 
     def _run_digest(self, char_id: str, session_id: str) -> None:
         """后台线程: digest（同引擎串行锁）→ 提炼 + 好感结算（写 affection 事件）。"""
@@ -350,9 +412,9 @@ class MomoTalkEngine:
         if status["ended"]:
             raise RuntimeError(err("ResumeRejected", "会话已结束, 不能恢复"))
         self.start_session(character_id)                  # 重建 system（人设/世界观/schema）
-        if self._store is not None:                       # Brain（DESIGN_BRAIN.md v3.1）:
+        if self._store is not None:                       # Brain 接线（wiki_v2）:
             self._inject_brain(character_id, session_id)  # 恢复时只注入已有 wiki（不消化——
-                                                          # digest 只在 bond 剧情闭环后, async_digest）
+                                                          # digest 由 async_digest 触发: bond 闭环 / mmt N=25 轮）
         history = render_events(data["events"])           # 事件流 → LLM 消息（同格式）
         self._history = history[-(self._history_rounds * 2):]
         self.attach_session(session_id)
@@ -401,7 +463,11 @@ class MomoTalkEngine:
             raise RuntimeError(err("NotInSession", "尚未开始会话"))
 
         self._trace = []
-        messages = [{"role": "system", "content": self._system_prompt}]
+        brain = (self._brain_injection or "").strip()
+        system = self._system_prompt
+        if brain:
+            system += "\n\n" + brain                   # 注入段动态拼装（digest 后下轮生效）
+        messages = [{"role": "system", "content": system}]
         messages.extend(self._history)
         # 羁绊进度参考（软门槛）: 轮数注入 LLM 作判断依据, 不入历史
         messages.append({"role": "system", "content": self._bond_progress_note()})
@@ -615,6 +681,8 @@ class MomoTalkEngine:
             self._session_rounds += 1
             self._store.update_session_progress(
                 char_id, self._session_id, self._session_rounds)
+            # mmt 会话窗口 digest（蓝图 §3.1: 每 N=25 轮; 内部判定+剧情保护）
+            self._maybe_mmt_digest()
         except Exception as e:                      # 宁缺勿错: 存档失败不阻断对话
             logger.warning("事件流落盘失败, 本轮不记录: %s", e)
 

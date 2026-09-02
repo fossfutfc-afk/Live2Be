@@ -38,14 +38,21 @@ CHARACTER = "igusa_haruka"
 # ----------------------------------------------------------------------------
 
 class ScriptedLLM:
-    """带 chat(json_object) 的脚本化 LLM——agent_turn 与 send_vn_scene 都走它。"""
+    """带 chat(json_object) 的脚本化 LLM——agent_turn 与 send_vn_scene 都走它。
+    两轮 digest（async_digest 后台）自动返回空包, 不消耗脚本。"""
 
     def __init__(self, *scripts: dict):
         self._scripts = list(scripts)
         self.snapshots: list[list[dict]] = []
 
-    def chat(self, messages, temperature=0.8, max_tokens=4096, response_format="text"):
+    def chat(self, messages, temperature=0.8, max_tokens=4096, response_format="text",
+             **kw):
         self.snapshots.append([dict(m) for m in messages])
+        head = messages[0]["content"]
+        if "记录员" in head:                       # digest Round A → 空 episodes
+            return {"episodes": []}
+        if "整理者" in head:                       # digest Round B → 空 decisions
+            return {"decisions": [], "evidence": [], "affection_exp_delta": 0}
         if not self._scripts:
             raise RuntimeError("ScriptedLLM 脚本耗尽")
         return self._scripts.pop(0)
