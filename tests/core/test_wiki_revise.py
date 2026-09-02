@@ -1,11 +1,11 @@
-"""revise.py 修订契约测试（AGENT_BRAIN.md §5 / M2b）。"""
+"""revise.py 修订契约测试（AGENT_BRAIN.md §5 / M2b / 板块 4b 决策执行器）。"""
 import copy
 
 import pytest
 
 from core.brain.wiki_v2 import BrainNode, WikiStoreV2, make_node
 from core.brain.wiki_v2.evolution import EvolutionLog
-from core.brain.wiki_v2.revise import apply_revision_package
+from core.brain.wiki_v2.revise import apply_decisions, apply_revision_package
 
 
 def _store(tmp_path) -> WikiStoreV2:
@@ -232,3 +232,87 @@ def test_failure_writes_no_log_and_reloads(tmp_path):
     after = {n.id: n.to_dict() for n in st.all()}
     assert after == before                                 # 内存回滚到磁盘态
     assert _log(st).read() == []                           # 日志零残留
+
+
+# ============================================================================
+# 板块 4b: apply_decisions（Round B 决策表执行器护栏）
+# ============================================================================
+
+def _ctx_kw():
+    """决策执行的引擎字段（apply_decisions 的 ts/segment_id/event_seq）。"""
+    return {"ts": "2026-09-02T12:00:00", "segment_id": "seg-3", "event_seq": [3]}
+
+
+def _episode(st, narration="老师请我吃甜品"):
+    """决策行引用的 episode 已由 Round A 建好（本测试直接预置）。"""
+    st.add(make_node("episode", narration=narration, event_seq=[3],
+                     ts="2026-09-02T12:00:00", segment_id="seg-3"))
+
+
+def test_decisions_update_adds_history_and_links(tmp_path):
+    st = _store(tmp_path)
+    _episode(st)
+    rows = [
+        {"episode": "m0004", "decision": "update", "target": "u0001",
+         "patch": {"content": "老师会记得我的喜好", "significance": 0.95}},
+    ]
+    created = apply_decisions(st, rows, id_map={"u0001": "m0002"}, **_ctx_kw())
+    assert created == []
+    bel = st.get("m0002")
+    assert bel.content == "老师会记得我的喜好" and bel.significance == 0.95
+    assert bel.history == [{"episode_id": "m0004", "content": "老师会记得我的喜好",
+                            "ts": "2026-09-02T12:00:00"}]
+    assert "m0004" in bel.links and "m0002" in st.get("m0004").links
+
+
+def test_decisions_update_history_not_duplicated_on_rerun(tmp_path):
+    """崩溃窗口重跑: 同 content 重放 → history 不重复追加（幂等）。"""
+    st = _store(tmp_path)
+    _episode(st)
+    rows = [{"episode": "m0004", "decision": "update", "target": "u0001",
+             "patch": {"content": "老师会记得我的喜好"}}]
+    for _ in range(2):
+        apply_decisions(st, rows, id_map={"u0001": "m0002"}, **_ctx_kw())
+    bel = st.get("m0002")
+    assert len(bel.history) == 1
+
+
+def test_decisions_update_patch_outside_whitelist_rejected(tmp_path):
+    """patch 只有引擎字段（links 等）→ 白名单滤空 = 行无操作 → 整包拒。"""
+    st = _store(tmp_path)
+    _episode(st)
+    rows = [{"episode": "m0004", "decision": "update", "target": "u0001",
+             "patch": {"links": ["e0001"]}}]            # parse 能过（非空）但不可执行
+    with pytest.raises(ValueError, match="patch 不含可改字段"):
+        apply_decisions(st, rows, id_map={"u0001": "m0002"}, **_ctx_kw())
+
+
+def test_decisions_add_belief_linked_before_store(tmp_path):
+    """add belief: 引擎归属 epistemic + 先链后入仓（belief 校验 links ≥1）。"""
+    st = _store(tmp_path)
+    _episode(st, narration="老师把猫抱到我腿边")
+    rows = [{"episode": "m0004", "decision": "add", "kind": "belief",
+             "subject": "老师的温柔", "content": "老师会把小猫抱到我腿上", "significance": 0.85}]
+    created = apply_decisions(st, rows, id_map={}, **_ctx_kw())
+    assert created == ["m0005"]                          # belief 与 episode 同 m 前缀
+    bel = st.get("m0005")
+    assert bel.epistemic == "inferred_belief"            # 引擎归属
+    assert bel.links == ["m0004"] and "m0005" in st.get("m0004").links
+    assert st.audit() == []
+
+
+def test_decisions_touch_target_must_be_cognition(tmp_path):
+    """target 解析到 episode（非认知）→ _ensure_cognition 拒（防御兜底）。"""
+    st = _store(tmp_path)
+    _episode(st, narration="天台夜谈二号")
+    rows = [{"episode": "m0004", "decision": "touch", "target": "u0001"}]
+    with pytest.raises(ValueError, match="target 必须是 belief/experience"):
+        apply_decisions(st, rows, id_map={"u0001": "m0001"}, **_ctx_kw())  # m0001 是 episode
+
+
+def test_decisions_empty_rows_noop(tmp_path):
+    st = _store(tmp_path)
+    before = {n.id: n.to_dict() for n in st.all()}
+    assert apply_decisions(st, [], id_map={}, **_ctx_kw()) == []
+    after = {n.id: n.to_dict() for n in st.all()}
+    assert after == before

@@ -88,7 +88,10 @@ def apply_decisions(
             patch = {k: v for k, v in (row.get("patch") or {}).items()
                      if k in _PATCH_FIELDS and v not in (None, "", [], 0)}
             if not patch:
-                continue                        # 空 patch 无操作（parse 已警告级放过）
+                # parse 层只查"patch 非空"; 白名单外的字段（如 links/epistemic）
+                # 在这里被滤空 → 行无操作 = 静默违约, 宁缺勿错: 整包拒
+                raise ValueError(err("BadPatch",
+                                     f"update 的 patch 不含可改字段: {sorted((row.get('patch') or {}).keys())}"))
             history = list(node.history)
             new_content = patch.get("content")
             if isinstance(new_content, str) and new_content.strip() \
@@ -112,6 +115,8 @@ def apply_decisions(
             if kind == "experience" and fields.get("example"):
                 fields["examples"] = [fields.pop("example")]
             node = make_node(kind, **fields)
+            # epistemic 引擎归属（LLM 不产——belief 必须是 inferred_belief, 护栏）
+            node.epistemic = "inferred_belief" if kind == "belief" else "observed_fact"
             node.ts = ts
             if segment_id:
                 node.segment_id = segment_id
@@ -122,13 +127,14 @@ def apply_decisions(
             if dup is not None:
                 store.add_link(ep_id, dup.id)
                 continue
+            node.links = [ep_id]                # belief 校验需 links ≥1——先链后入仓
             errors = node.validate()
             if errors:
                 raise ValueError(err("InvalidNode",
                                      f"add 节点无效: {'; '.join(errors)}"))
             nid = store.add(node)
             created.append(nid)
-            store.add_link(ep_id, nid)          # 链回 episode（支撑链）
+            store.add_link(ep_id, nid)          # ep 侧反向边
             log.append({"pkg": "digest", "action": "add", "episode": ep_id,
                         "id": nid, "kind": kind, "ts": ts})
     return created

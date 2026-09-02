@@ -144,6 +144,82 @@ def test_touch_decision_links_only(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# 冷启动: 无旧记忆 → B 只能 add（belief 路径: epistemic 引擎归属 + 先链后入仓）
+# ---------------------------------------------------------------------------
+
+def test_cold_start_add_belief(tmp_path):
+    st = WikiStoreV2(tmp_path, world_id="world1", char_id="c")   # 空库
+    llm = FakeLLM(
+        _a_episode(narration="老师帮我把杂草搬回了家"),
+        {"decisions": [
+            {"episode": "m0001", "decision": "add", "kind": "belief",
+             "subject": "老师对我的照顾", "content": "老师会记得我随口提过的事",
+             "tags": ["老师"], "significance": 0.85}],
+         "evidence": [], "affection_exp_delta": 10})
+    events = _events(_mmt(3, "x", "杂草我帮你搬"))
+    res = digest_segment(st, llm, events)
+    assert res.ok, res.errors
+    assert res.created == ["m0001"]
+    bel = st.get("m0002")                              # 空库 belief → m0002
+    assert bel.kind == "belief"
+    assert bel.epistemic == "inferred_belief"          # 引擎归属, 非 LLM
+    assert "m0001" in bel.links                        # 先链后入仓（validate 通过）
+    assert "m0002" in st.get("m0001").links            # 反向边
+    # 冷启动 B 输入提示"尚无稳定认知"
+    assert "尚无稳定认知" in llm.calls[1][1]["content"]
+
+
+# ---------------------------------------------------------------------------
+# deadline: 全程时间预算（撞上 → 回滚, 水位不推进）
+# ---------------------------------------------------------------------------
+
+def test_deadline_budget_fails_atomically(tmp_path):
+    st = _seed_store(tmp_path)
+
+    class SlowLLM:
+        def __init__(self, responses):
+            self.responses = list(responses)
+            self.calls = 0
+
+        def chat(self, messages, **kw):
+            import time
+            time.sleep(0.2)                            # 每次调用都超预算
+            self.calls += 1
+            if self.responses:
+                return self.responses.pop(0)
+            raise RuntimeError("responses 耗尽")
+
+    before = {n.id: n.to_dict() for n in st.all()}
+    llm = SlowLLM([_a_episode(), _b_ok()])
+    events = _events(_mmt(3, "x", "y"))
+    res = digest_segment(st, llm, events, deadline_seconds=0.05)
+    assert not res.ok
+    assert any("时间预算" in e for e in res.errors)
+    after = {n.id: n.to_dict() for n in st.all()}
+    assert after == before                              # A 建的节点也回滚
+    assert st.digested_seq == 0
+
+
+def test_budget_check_between_rounds(tmp_path):
+    """A 慢到吞掉预算 → B 的预检直接中止, 不发起 B 调用。"""
+    st = _seed_store(tmp_path)
+    calls = []
+
+    class SlowALM:
+        def chat(self, messages, **kw):
+            import time
+            time.sleep(0.25)                            # A 超预算
+            calls.append(messages)
+            return _a_episode()
+
+    res = digest_segment(st, SlowALM(), _events(_mmt(3, "x", "y")),
+                         deadline_seconds=0.1)
+    assert not res.ok and any("时间预算" in e for e in res.errors)
+    assert len(calls) == 1                              # B 未发起
+    assert st.digested_seq == 0
+
+
+# ---------------------------------------------------------------------------
 # 反馈回灌（feedback 语义: assistant 原文 + 错误, 同一上下文）
 # ---------------------------------------------------------------------------
 
