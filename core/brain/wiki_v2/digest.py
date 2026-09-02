@@ -66,23 +66,28 @@ def digest_segment(
     *,
     character_prompt: str = "",
     visuals: list[str] | None = None,
+    model: str | None = None,
     k_sim: int = 5,
     n_precious: int = 2,
     n_random: int = 1,
     embed_fn: EmbedFn | None = None,
     rng: random.Random | None = None,
     temperature: float = 0.3,
-    max_tokens: int = 2048,
+    max_tokens: int = 4096,
     evidence_threshold: float = EVIDENCE_THRESHOLD,
 ) -> DigestResult:
     """增量 digest: 新事件 → LLM 提炼+组织 → 原子落盘（条目+修订）→ 推进水位。
 
     Args:
         store: 目标世界线的图式 wiki（meta.digested_seq 是水位）
-        llm: 兼容 llm.chat(messages, temperature=, max_tokens=, response_format=) 的客户端
+        llm: 兼容 llm.chat(messages, model=, temperature=, max_tokens=,
+             response_format=) 的客户端
         events: 该世界线完整事件流（Event 列表; 增量由水位切）
         character_prompt: 人设锚点文本（空 → 不注入该段）
         visuals: 视觉记忆 prompt 列表; None → 从事件流 l2d 事件自动收集
+        model: 模型覆盖（None → 客户端默认）。digest 是后台结构化任务——
+               推荐非推理模型（deepseek-chat 类）: 推理模型（v4-flash 类）会
+               随机"思考完不吐 JSON"（finish=stop 但 content 空, 2026-09-02 实测）
     """
     new_events = [e for e in events
                   if e.seq > store.digested_seq
@@ -109,7 +114,8 @@ def digest_segment(
     for round_i in range(MAX_FEEDBACK_RETRIES + 1):
         user_msg = _build_user_message(timeline, visuals, organize,
                                        character_prompt, feedback)
-        resp = _call_llm(llm, system, user_msg, temperature, max_tokens, result)
+        resp = _call_llm(llm, system, user_msg, model, temperature, max_tokens,
+                         result)
         if resp is None:
             return result                               # 调用重试耗尽 → 降级
         result.llm_calls += 1
@@ -144,7 +150,13 @@ def digest_segment(
 
 def _build_user_message(timeline: str, visuals: list[str], organize: str,
                         character_prompt: str, feedback: str) -> str:
-    parts = [f"【本段新增互动】\n{timeline}"]
+    """用户消息。组织视图已内嵌【本次新经历】时间线 → 不重复注入（省 token）。
+
+    子图为空（冷启动）时 organize="" → 单独注入时间线段。
+    """
+    parts: list[str] = []
+    if not organize:
+        parts.append(f"【本段新增互动】\n{timeline}")
     if visuals:
         parts.append("【本段生成的画面描述（视觉记忆）】\n"
                      + "\n".join(f"- {v}" for v in visuals))
@@ -157,8 +169,8 @@ def _build_user_message(timeline: str, visuals: list[str], organize: str,
     return "\n\n".join(parts)
 
 
-def _call_llm(llm, system: str, user_msg: str, temperature: float,
-              max_tokens: int, result: DigestResult):
+def _call_llm(llm, system: str, user_msg: str, model: str | None,
+              temperature: float, max_tokens: int, result: DigestResult):
     """调用 + 重试（异常 → 3 次; 耗尽 → None 降级）。"""
     last_err: Exception | None = None
     for attempt in range(MAX_CALL_RETRIES):
@@ -166,7 +178,7 @@ def _call_llm(llm, system: str, user_msg: str, temperature: float,
             return llm.chat(
                 [{"role": "system", "content": system},
                  {"role": "user", "content": user_msg}],
-                temperature=temperature, max_tokens=max_tokens,
+                model=model, temperature=temperature, max_tokens=max_tokens,
                 response_format="json_object")
         except Exception as e:                           # noqa: BLE001
             last_err = e

@@ -137,6 +137,21 @@ def test_delete_cleans_inbound_references(tmp_path):
     assert st.get("m0003").contradictions == []            # 矛盾边也清理
 
 
+def test_add_link_refreshes_experience_count(tmp_path):
+    """回归: 后建节点链入 experience（add_link 路径）→ count 立即刷新（不变量）。"""
+    st = _store(tmp_path)
+    st.add(make_node("experience", pattern="提到工作繁忙", subject="sensei",
+                     significance=0.7, event_seq=[1]))
+    assert st.get("e0001").count == 0
+    st.add(make_node("episode", narration="老师又说忙", event_seq=[2]))
+    st.add_link("m0002", "e0001")                          # episode 链入 experience
+    exp = st.get("e0001")
+    assert exp.links == ["m0002"] and exp.count == 1
+    st.remove_link("m0002", "e0001")
+    assert st.get("e0001").count == 0
+    assert st.audit() == []
+
+
 def test_snapshot_restore(tmp_path):
     st = _store(tmp_path)
     st.add(make_node("episode", narration="a", event_seq=[1]))
