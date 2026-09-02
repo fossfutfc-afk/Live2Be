@@ -403,8 +403,7 @@ def bond_turn(char_id: str, session_id: str, text: str) -> dict:
         )
         state.scene = state.scene_obj.to_dict()
         state.scene_logged = True    # 分支是场景一部分（已随场景落库）——继续时不重复落
-        state.prev_emotions = [p.get("emotion", "") for p in branch
-                               if isinstance(p, dict)]
+        # prev_emotions 由标注 worker 回填后统一更新（骨架无 emotion, 2026-09-02）
         # 分支段落可能是骨架（branches 未标注）→ 入队异步标注（与主场景同队列）
         _enqueue_annotate(state, state.scene_obj)
         # 分支播放时预生成下一板块（choices_used 已在场景生成时计过, 这里不加）
@@ -539,11 +538,11 @@ def _generate(state: BondState, char_id: str, session_id: str, user_input: str) 
                 state.scene_logged = False
                 if scene.is_end:
                     state.completed = True
-                # 选项配额 / 表情统计（供下一场 system_note 参考）
+                # 选项配额（供下一场 system_note 参考）
                 if scene.choices:
                     state.choices_used += 1
-                state.prev_emotions = [p.get("emotion", "") for p in scene.paragraphs
-                                       if isinstance(p, dict)]
+                # prev_emotions（情绪单调注记）由标注 worker 回填后统一更新——
+                # 骨架无 emotion（2026-09-02）, 生成时取只会得到空列表
                 _log_scene_meta(state, char_id, session_id, scene)
                 # 两遍式 C 异步标注: 骨架先显示, emotion 解析入队补标（不阻塞玩家）
                 _enqueue_annotate(state, scene)
@@ -648,6 +647,9 @@ def _anno_worker(state: BondState) -> None:
     写回规则: scene_obj 仍是 state.scene_obj（当前展示）或 state.pregen_obj
     （预生成待消费）→ 序列化更新 + emo_version++（前端补切表情）;
     否则（场景已被推进/替换）→ 丢弃（标注结果作废, 不污染新场景）。
+    2026-09-02: 骨架 emotion 已移交标注层——回填后同步 prev_emotions
+    （当前展示场景的情绪谱, 供下一场 system_note 防单调; 预生成场景不更新——
+    它尚未展示, prev 语义 = 上一场）。
     """
     while True:
         scene = state._anno_queue.get()
@@ -661,6 +663,9 @@ def _anno_worker(state: BondState) -> None:
             if state.scene_obj is scene:
                 state.scene = scene.to_dict()
                 state.emo_version += 1
+                state.prev_emotions = [p.get("emotion", "")
+                                       for p in scene.paragraphs
+                                       if isinstance(p, dict)]
             elif state.pregen_obj is scene:
                 state.pregen_scene = scene.to_dict()
                 state.emo_version += 1

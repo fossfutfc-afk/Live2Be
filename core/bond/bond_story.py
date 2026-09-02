@@ -56,6 +56,23 @@ from core.parsing.world_parser import DEFAULT_WORLD_PATH, load_world, world_to_p
 
 logger = logging.getLogger(__name__)
 
+
+def _personality_summary(char: "DynamicCharacter") -> str:
+    """标注层角色人设摘要（2026-09-02）: 身份 + personality 行为逻辑要点。
+
+    给 emotion-LLM 作人设化情绪判断基准——"逞强笑着说没事"的角色该标
+    embarrassed/depressed 而非 smile。无 brief_traits → 只给身份（不注 None）。
+    """
+    brief = (char.personality or {}).get("SIG~brief_traits", [])
+    if isinstance(brief, str):
+        brief = [brief]
+    lines = [f"角色: {char.display_name or char.character_id}"]
+    items = [b for b in brief if isinstance(b, str) and b.strip()]
+    if items:
+        lines.append("性格要点（情绪判断参考, 按文本证据标, 不要硬套）:")
+        lines.extend(f"- {b}" for b in items)
+    return "\n".join(lines)
+
 #: 滑动窗口默认轮数（同 momotalk——40 轮 = 80 条消息; 构造参数 history_rounds 可配）
 DEFAULT_HISTORY_ROUNDS = 40
 # 兼容旧名
@@ -261,6 +278,8 @@ class BondStoryEngine:
         self._memorial_used = False       # 一段剧情至多 1 次 memorial（enter 已用 = True）
         self._lexicon_keys: list[str] = []     # 两遍式 C: 角色词表键（标注层用）
         self._lexicon_hint: str = ""           # 词表注入文本（few-shot 示范, 标注 prompt 用）
+        self._character_hint: str = ""         # 角色人设摘要（标注层用, 2026-09-02:
+                                               # 人设化情绪判断基准——逞强笑 ≠ smile）
 
     # ------------------------------------------------------------------
     # 会话生命周期
@@ -311,6 +330,8 @@ class BondStoryEngine:
         _lex = load_emotion_lexicon(_char_asset_dir)
         self._lexicon_keys = list(_lex.keys())
         self._lexicon_hint = lex_inj or ""
+        # 2026-09-02: 角色人设摘要（标注层情绪判断基准——personality 行为逻辑）
+        self._character_hint = _personality_summary(char)
         self._system_prompt = system_prompt
         self._history = []
         self._trace = []
@@ -491,24 +512,31 @@ class BondStoryEngine:
         return scene
 
     def fill_scene_emotions(self, scene: "BondScene") -> bool:
-        """两遍式 C 标注回填（公共方法, 供异步标注调用）: 骨架段落缺 emotion →
-        批量标注并写回 scene（正文 + branches）。标注失败 → 兜底延续（不 raise）。
+        """两遍式 C 标注回填（公共方法, 供异步标注调用）: 骨架段落（emotion 已由
+        契约层丢弃）→ robust 全量标注（二分降级/逐项容错）并写回 scene
+        （正文 + branches; 2026-09-02: 注入角色人设——人设化情绪判断基准）。
+        标注失败 → 兜底延续（不 raise）。
 
         Returns: 是否触发过标注（False = 无词表 / memorial_exit / 无缺漏）。
         """
         if not self._lexicon_keys or scene.memorial_exit:
             return False
-        from core.bond.emotion_annotate import fill_missing_emotions
+        from core.bond.emotion_annotate import (
+            annotate_emotions_smart,
+            fill_missing_emotions,
+        )
 
-        annotator = lambda sents, keys, hint: annotate_emotions(  # noqa: E731
-            self.llm, sents, keys, hint)
+        annotator = lambda sents, keys, hint, char: annotate_emotions_smart(  # noqa: E731
+            self.llm, sents, keys, hint, char)
         fill_missing_emotions(scene.paragraphs, annotator=annotator,
                               lexicon_keys=self._lexicon_keys,
-                              lexicon_hint=self._lexicon_hint)
+                              lexicon_hint=self._lexicon_hint,
+                              character=self._character_hint)
         for branch in scene.branches.values():
             fill_missing_emotions(branch, annotator=annotator,
                                   lexicon_keys=self._lexicon_keys,
-                                  lexicon_hint=self._lexicon_hint)
+                                  lexicon_hint=self._lexicon_hint,
+                                  character=self._character_hint)
         return True
 
     # ------------------------------------------------------------------
