@@ -3,12 +3,11 @@
 digest 唯一的 LLM 触面——所有传输级失败模式收敛一处:
     - 调用重试: 偶发空响应/坏 JSON → 重试 N 次（JsonExtract 等异常）
     - deadline: 撞上时间预算立即放弃（重试放大曾拖垮一次 digest 到近半小时, 2026-09-02）
-    - reasoning_effort: **不在此硬编码**——单一配置源 settings.toml [llm]
-      reasoning_effort（low|medium|high; 空/缺失 → 不注入=模型默认）。
-      解析链: LLMClient 构造时读 settings → default_extra_body; llm_chat 的
-      extra_body=None → 透传 → 客户端注入默认档。显式传 {} 关闭默认。
-      （2026-09-02 实验矩阵: low 5/5 浅 / medium 1/3 / high 2/2 → 默认 high,
-      档位改 settings.toml 一处即可, 无需动代码）
+    - reasoning_effort: **不在此硬编码**——digest 档位真源 llm/task_levels.py
+      形态 "digest"（2026-09-02 集中管理: thinking=high 显式, 不随 settings 全局
+      漂移——实验矩阵 low 5/5 浅 / medium 1/3 / high 2/2 → 拍板 high）。
+      解析链: digest_segment 把 extra_body=None 解析为 task_levels 档位后传本层;
+      本层只透传。显式传 {} 关闭默认。
     - timeout: per-call 超时覆盖透传（后台长考; None → 客户端构造超时）
 
 返回 (resp, err): resp 为 dict（json_object 已解析）或 None; err 非 None = 失败原因
@@ -36,7 +35,7 @@ def llm_chat(
     messages: list[dict] | None = None,
     model: str | None = None,
     temperature: float = 0.3,
-    max_tokens: int = 8192,
+    max_tokens: int | None = None,
     extra_body: dict | None = None,
     deadline: float | None = None,
     max_retries: int = MAX_CALL_RETRIES,
@@ -61,6 +60,9 @@ def llm_chat(
     if messages is None:
         messages = [{"role": "system", "content": system},
                     {"role": "user", "content": user_msg}]
+    if max_tokens is None:                       # 真源: task_levels 形态 digest
+        from llm.task_levels import max_tokens as _tl_mt
+        max_tokens = _tl_mt("digest")
     last_err: Exception | None = None
     for attempt in range(max_retries):
         if deadline is not None and time.monotonic() > deadline:

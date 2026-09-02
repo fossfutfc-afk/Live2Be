@@ -46,6 +46,10 @@ from core.ui.display import IDEOutput
 MAX_STEPS = 12          # 单轮 agent 最大动作步数（防死循环）
 HISTORY_MAX = 30        # 跨轮记忆条数上限（去掉 system 后）
 TEMP = 0.4              # 动作决策用较低温度, 减少随机
+# max_tokens 真源 = llm/task_levels.py 形态 "ide"（16384——长文档任务;
+# 2026-09-02 集中管理; import 放此处避免与下方 import 块纠缠）
+from llm.task_levels import max_tokens as _tl_ide_mt  # noqa: E402
+IDE_MAX_TOKENS = _tl_ide_mt("ide")
 
 # 写动作——触发"是否读取高质量范例板块"的询问
 _WRITE_ACTIONS = ("create_character", "update_character")
@@ -273,7 +277,8 @@ class IDEAgent:
             self._emit(AgentEvent(AgentEventKind.THINKING, step, {}))
             try:
                 response = self.llm.chat(
-                    messages, model=IDE_MODEL, temperature=TEMP, max_tokens=16384,
+                    messages, model=IDE_MODEL, temperature=TEMP,
+                    max_tokens=IDE_MAX_TOKENS,
                     response_format="json_object",
                 )
             except Exception as e:

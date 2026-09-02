@@ -32,11 +32,18 @@ import logging
 import re
 
 from llm.prompts import load_prompt
+from llm.task_levels import extra_body as _tl_extra
+from llm.task_levels import max_tokens as _tl_max_tokens
 
 logger = logging.getLogger("live2be.bond")
 
 #: 标注兜底默认键（词表内没有时也用这个——宁缺勿错不阻断）
 _DEFAULT_EMOTION = "nomal"
+
+
+def _anno_max_tokens(explicit: int | None) -> int:
+    """标注输出上限（None → 真源 task_levels 形态 "emotion"=512; 显式传值覆盖）。"""
+    return _tl_max_tokens("emotion") if explicit is None else explicit
 
 
 def _clean_tags(raw: object, n: int, lexicon: set[str]) -> list[str] | None:
@@ -80,8 +87,9 @@ def _try_batch(
     try:
         # text 模式（非 json_object）: 输出是纯数组, json_object 的自纠错会
         # 拉长等待——标注是低价值重试（失败只影响表情精度）, 快速失败快速降级
-        # extra_body={}（2026-09-02 修复）: 显式关闭全局 high reasoning——
-        # 256 max_tokens 下 thinking 会吃满预算截断, robust 链爆炸成分钟级
+        # thinking/max_tokens 真源 = task_levels 形态 "emotion"（2026-09-02 集中:
+        # off 关闭全局 high reasoning——256 预算下 thinking 截断引发 robust 链爆炸;
+        # max_tokens 512 给长批数组留足余量）
         raw = llm.chat(
             [
                 {"role": "system", "content": system},
@@ -89,7 +97,7 @@ def _try_batch(
             ],
             temperature=0.2,
             max_tokens=max_tokens,
-            extra_body={},
+            extra_body=_tl_extra("emotion"),
         )
     except Exception as e:                     # noqa: BLE001 — 标注失败静默降级
         logger.warning("emotion 标注调用失败（降级）: %s", e)
@@ -117,19 +125,21 @@ def annotate_emotions_smart(
     lexicon_hint: str = "",
     character: str = "",
     *,
-    max_tokens: int = 512,
+    max_tokens: int | None = None,
 ) -> list[str | None]:
     """robust 批量标注: 全量优先 → 失败二分递归 → 逐项容错。
 
     返回与 sentences 同长的 list（str = 词表内标签; None = 该项标注失败,
     调用方延续兜底）。单句也失败 → [None]（不无限递归）。
-    max_tokens 默认 512（2026-09-02: 256 在推理模型上截断风险高——
-    标注调用已显式关 reasoning, 512 给长批数组留足余量）。
+    max_tokens: 输出上限（None → 真源 task_levels 形态 "emotion"=512——
+    2026-09-02 集中管理; thinking 档位 off 由 extra_body 真源注入）。
     """
     if not sentences:
         return []
     if not lexicon_keys:
         return [None] * len(sentences)
+    if max_tokens is None:
+        max_tokens = _anno_max_tokens(None)
 
     tags = _try_batch(llm, sentences, lexicon_keys, lexicon_hint, character,
                       max_tokens=max_tokens)
@@ -154,18 +164,21 @@ def annotate_emotions(
     lexicon_hint: str = "",
     character: str = "",
     *,
-    max_tokens: int = 512,
+    max_tokens: int | None = None,
 ) -> list[str] | None:
     """批量标注（严格兼容版, 单次调用）: 句子列表 → 情绪标签列表（词表内）。
 
     失败（LLM 异常 / 输出非法）→ None（调用方决定兜底——robust 全量回填请用
     annotate_emotions_smart; 本函数保留给协议单测/简单调用）。
     返回 None = 标注不可用; 非 None = 长度与 sentences 一致且全词表内。
+    max_tokens: None → 真源 task_levels 形态 "emotion"（512）。
     """
     if not sentences:
         return []
     if not lexicon_keys:
         return None
+    if max_tokens is None:
+        max_tokens = _anno_max_tokens(None)
     lexicon = set(lexicon_keys)
     system = load_prompt("emotion_annotate").replace(
         "{lexicon}",
@@ -175,7 +188,8 @@ def annotate_emotions(
         "\n".join(f"{i + 1}: {s}" for i, s in enumerate(sentences)),
     ).replace("{character}", character or "（角色信息未注入）")
     try:
-        # text 模式 + 显式关 reasoning（同 _try_batch——标注低价值, 快速失败快速兜底）
+        # text 模式 + 显式关 reasoning（同 _try_batch——标注低价值, 快速失败快速兜底;
+        # thinking 档位真源 = task_levels 形态 "emotion"）
         raw = llm.chat(
             [
                 {"role": "system", "content": system},
@@ -183,7 +197,7 @@ def annotate_emotions(
             ],
             temperature=0.2,
             max_tokens=max_tokens,
-            extra_body={},
+            extra_body=_tl_extra("emotion"),
         )
     except Exception as e:                     # noqa: BLE001 — 标注失败静默降级
         logger.warning("emotion 标注调用失败（兜底延续）: %s", e)

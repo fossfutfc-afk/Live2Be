@@ -50,6 +50,8 @@ from core.common import Live2BeError, err
 from core.common.tone import load_story_tone
 from llm.client import LLMClient, feedback
 from llm.prompts import load_prompt
+from llm.task_levels import extra_body as _task_extra
+from llm.task_levels import max_tokens as task_levels_max_tokens
 from contract import APPROVAL_AUTO, DOMAIN_MMT, AgentAction, build_schema
 from core.bond.bond_progress import BondProgress
 from core.mmt.mmt_actions import build_mmt_registry
@@ -116,7 +118,9 @@ MAX_HISTORY_ROUNDS = DEFAULT_HISTORY_ROUNDS
 # agent loop 参数
 MAX_STEPS = 6          # 单轮动作步数上限（含 inspect 静默轮）
 TEMP = 0.8             # 与旧 send_message 一致
-MMT_MAX_TOKENS = 4096  # 动作 JSON + 对白（推理模型需大 max_tokens, 勿改小）
+# max_tokens 真源 = llm/task_levels.py 形态 "mmt"（4096——动作 JSON + 对白,
+# 推理模型需大 max_tokens, 勿改小; 2026-09-02 集中管理——本别名随真源联动）
+MMT_MAX_TOKENS = task_levels_max_tokens("mmt")
 # 羁绊剧情时机建议线（2026-09-02 v2 用户拍板: 引擎建议不拦截）: 距上次完整剧情
 # ≥ SUGGEST_BOND_ROUNDS 轮 → 每轮注记主动建议发起剧情; 不足 → 只报事实+沉淀,
 # 不拦（紧急场面 LLM 自行判断随时可触发, 见 momotalk_rules 触发专段）
