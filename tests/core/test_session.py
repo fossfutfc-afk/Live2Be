@@ -341,7 +341,7 @@ def test_store_enter_vn_and_status(tmp_path):
     st.append_event("igusa_haruka", sid,
                     make_event("bond", "story_scene", {"paragraphs": ["她脸红了。"]}))
     st.append_marker("igusa_haruka", sid, "vn_state", {"round": 1, "seed": "继续"})
-    st.update_session_progress("igusa_haruka", sid, 2)
+    st.update_session_progress("igusa_haruka", sid, 2)   # 迁移兼容: 旧 API → rounds_since_bond
     # 中断（未 finish）→ resume 推导 in_vn（同会话单流）
     r = st.resume("igusa_haruka", sid)
     assert r["meta"].type == "conversation"
@@ -353,8 +353,10 @@ def test_store_enter_vn_and_status(tmp_path):
     assert [e.subtype for e in evs] == ["session_start", "vn_enter", "story_scene", "vn_state"]
     import json as _json
     prog = _json.loads((st.progress_path("igusa_haruka", sid)).read_text(encoding="utf-8"))
-    assert prog["rounds"] == 2
-    print("    store: enter_vn（单流）+ resume 推导 in_vn + 同文件事件 + progress 落盘")
+    # 2026-09-02: progress 语义 = 距上次 bond 剧情的 MMT 轮数（rounds_since_bond）
+    assert prog["rounds_since_bond"] == 2
+    assert st.read_bond_gap("igusa_haruka") == 2        # 读方法同源
+    print("    store: enter_vn（单流）+ resume 推导 in_vn + 同文件事件 + progress(rounds_since_bond) 落盘")
 
 
 def test_store_finish_and_list_open(tmp_path):
@@ -416,15 +418,15 @@ def test_engine_mmt_records_events(tmp_path):
     assert "player" not in evs[2].payload              # 后续动作不带（render 去重约定）
     assert evs[2].payload["image"] == "天台夕阳"        # 干净动作字段保留
     assert evs[3].payload["reply"] == "第二句"
-    # session progress = 该会话轮数（列表整体一轮）
+    # session progress = 距上次 bond 剧情的轮数（rounds_since_bond, 列表整体一轮）
     import json as _json
     prog = _json.loads(st.progress_path("igusa_haruka", meta.session_id).read_text(encoding="utf-8"))
-    assert prog["rounds"] == 1
+    assert prog["rounds_since_bond"] == 1
     # render 回读: 同轮多动作只有 1 条 user
     msgs = render_events(st.events("igusa_haruka", meta.session_id))
     assert sum(1 for m in msgs if m["role"] == "user") == 1
     assert msgs[1]["content"] == "[mmt_chat] 第一句"
-    print("    engine-mmt: 落 mmt 事件（同轮去重）+ session progress + render 回读")
+    print("    engine-mmt: 落 mmt 事件（同轮去重）+ progress(rounds_since_bond) + render 回读")
 
 
 def test_engine_mmt_no_store_no_events(tmp_path):

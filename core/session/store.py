@@ -237,13 +237,42 @@ class SessionStore:
         return self.append_event(char_id, session_id, marker(subtype, payload))
 
     def update_session_progress(self, char_id: str, session_id: str = "", rounds: int = 0) -> None:
-        """写角色线轮数（char_dir/progress.json, 展示用）。"""
-        p = self.progress_path(char_id, session_id)
+        """[废弃] 写角色线轮数——旧语义（最近会话轮数, 覆盖写, 无人读）。
+        2026-09-02 起由 write_bond_gap 接管（决策字段 = 距上次完整 bond 剧情的
+        MMT 轮数）。保留方法体 = 迁移写 rounds_since_bond（调用方已切新 API）。"""
+        self.write_bond_gap(char_id, rounds)
+
+    # ------------------------------------------------------------------
+    # 距上次 bond 剧情的 MMT 轮数（2026-09-02 决策字段, 用户拍板）
+    # ------------------------------------------------------------------
+
+    def write_bond_gap(self, char_id: str, rounds: int = 0) -> None:
+        """写角色线 progress.json: {rounds_since_bond, updated_at}。
+
+        rounds_since_bond = 距上次**完整** bond 剧情（vn_exit completed=True）
+        的 MMT 轮数——羁绊触发门槛 + 剧情后冷却的一体计数器（持久化,
+        断线/重启继续累计; bond 完整结束清零）。
+        """
+        p = self.progress_path(char_id)
         p.parent.mkdir(parents=True, exist_ok=True)
         atomic_write_json(p, {
-            "rounds": rounds,
+            "rounds_since_bond": max(0, int(rounds)),
             "updated_at": datetime.now().isoformat(),
         })
+
+    def read_bond_gap(self, char_id: str) -> int:
+        """读角色线 progress.json 的 rounds_since_bond。
+
+        旧版文件（仅 rounds 键, 最近会话轮数, 死数据）→ 视为 0（2026-09-02
+        用户拍板: 旧值作废, 新语义从零起算——宁缺勿错）; 缺失/损坏 → 0。
+        """
+        data = self._read_json(self.progress_path(char_id))
+        if not isinstance(data, dict):
+            return 0
+        raw = data.get("rounds_since_bond")
+        if isinstance(raw, (int, float)):
+            return max(0, int(raw))
+        return 0
 
     # ------------------------------------------------------------------
     # 读路径
