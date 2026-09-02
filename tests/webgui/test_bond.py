@@ -41,10 +41,14 @@ NARRATIVE = {"action": "story_scene", "payload": {
 MMT_TRIGGER = {"actions": [{"action": "mmt_trigger_bond_story",
                             "reply": "嗯…我们走吧", "payload": {"reason": "邀约"}}]}
 MMT_REPLY = {"actions": [{"action": "mmt_chat", "reply": "嗯，今晚很开心。", "payload": {}}]}
-# 空消化桩: summary 非空（否则 consolidation 校验"无有效条目"跳过）;
-# affection_exp_delta=5 → 触发好感事件落库（delta=0 不写事件——好感无变化无需记录）
-EMPTY_DIGEST = {"summary": "（本段互动无特别重要内容）", "facts": [], "beliefs": [],
-                "relations": [], "affection_exp_delta": 5}
+# 空消化桩（digest_v2 两轮）: Round A 空 episodes; Round B 空 decisions + 好感 5
+# （affection_exp_delta=5 → 触发好感事件落库; delta=0 不写事件——好感无变化无需记录）
+def _digest_stub(messages):
+    """两轮 digest 的假响应（按 system 首行特征区分 A/B 轮）。"""
+    head = messages[0]["content"]
+    if "记录员" in head:                       # digest_v2_round_a
+        return {"episodes": []}
+    return {"decisions": [], "evidence": [], "affection_exp_delta": 5}   # round_b
 
 
 class ScriptedLLM:
@@ -54,10 +58,11 @@ class ScriptedLLM:
         self._scripts = list(scripts)
         self.snapshots = []
 
-    def chat(self, messages, temperature=0.8, max_tokens=4096, response_format="text"):
+    def chat(self, messages, temperature=0.8, max_tokens=4096, response_format="text",
+             **kw):
         self.snapshots.append([dict(m) for m in messages])
-        if "记忆巩固" in messages[0]["content"]:       # digest 调用 → 空消化
-            return dict(EMPTY_DIGEST)
+        if "记录员" in messages[0]["content"] or "整理者" in messages[0]["content"]:
+            return _digest_stub(messages)              # digest 调用 → 两轮空包
         if not self._scripts:
             raise RuntimeError("ScriptedLLM 脚本耗尽")
         return self._scripts.pop(0)
@@ -601,17 +606,18 @@ class StreamLLM:
         self._scripts = list(scripts)
         self.probe_chunks: list[str] = []
 
-    def chat(self, messages, temperature=0.8, max_tokens=4096, response_format="text"):
-        if "记忆巩固" in messages[0]["content"]:       # digest 调用 → 空消化
-            return dict(EMPTY_DIGEST)
+    def chat(self, messages, temperature=0.8, max_tokens=4096, response_format="text",
+             **kw):
+        if "记录员" in messages[0]["content"] or "整理者" in messages[0]["content"]:
+            return _digest_stub(messages)              # digest 调用 → 两轮空包
         if not self._scripts:
             raise RuntimeError("StreamLLM 脚本耗尽")
         return self._scripts.pop(0)
 
     def chat_full(self, messages, temperature=0.8, max_tokens=4096,
                   response_format="text", extra_body=None, on_chunk=None):
-        if "记忆巩固" in messages[0]["content"]:
-            return dict(EMPTY_DIGEST)
+        if "记录员" in messages[0]["content"] or "整理者" in messages[0]["content"]:
+            return _digest_stub(messages)
         if not self._scripts:
             raise RuntimeError("StreamLLM 脚本耗尽")
         result = self._scripts.pop(0)
