@@ -55,6 +55,8 @@ from core.brain.wiki_v2.revise import apply_decisions
 from core.brain.wiki_v2.store import WikiStoreV2
 from core.session.renderer import render_timeline
 from llm.prompts import load_prompt
+from llm.task_levels import extra_body as _tl_extra
+from llm.task_levels import max_tokens as _tl_max_tokens
 
 logger = logging.getLogger(__name__)
 
@@ -90,7 +92,7 @@ def digest_segment(
     model: str | None = None,
     embed_fn: EmbedFn | None = None,
     temperature: float = 0.3,
-    max_tokens: int = 8192,
+    max_tokens: int | None = None,
     evidence_threshold: float = EVIDENCE_THRESHOLD,
     deadline_seconds: float = 300.0,
     llm_timeout: float | None = None,
@@ -106,15 +108,21 @@ def digest_segment(
         character_prompt: 人设锚点文本（性格+知识两层; 空 → 不注入）
         visuals: 视觉记忆 prompt 列表; None → 从事件流 l2d 事件自动收集
         model: 模型覆盖（None → 客户端默认）
-        extra_body: 请求附加字段。None → 透传 → 客户端注入 settings.toml [llm]
-                   reasoning_effort 默认档（low|medium|high, 2026-09-02 拍板 high——
-                   实验矩阵: low 5/5 合格但浅 / medium 1/3 死在规则校验 / high 2/2
-                   认知深化与逐字校验最佳; 显式传 {} 可关闭默认）
+        max_tokens: 输出上限（None → 真源 llm/task_levels.py 形态 "digest" = 8192,
+            2026-09-02 集中管理）
+        extra_body: 请求附加字段。None → 按真源形态 "digest" 注入（thinking=high——
+            深度认知, 2026-09-02 拍板; 实验矩阵: low 5/5 合格但浅 / medium 1/3 死在
+            规则校验 / high 2/2 认知深化与逐字校验最佳——不随 settings 全局漂移）;
+            显式传（含 {}）→ 调用方覆盖
         deadline_seconds: 全程时间预算（A+B+反馈; high 档长考实测 ~2min,
                    默认 300s——撞上 → 判失败回滚, 水位不推进可重算）
         llm_timeout: per-call 超时覆盖（None = 客户端构造超时; 后台 digest
                    建议 ≥300s——high 档单次长考可超 60s 共享客户端默认）
     """
+    if max_tokens is None:                       # 真源: task_levels 形态 digest
+        max_tokens = _tl_max_tokens("digest")
+    if extra_body is None:                       # 真源档位: digest = high（显式）
+        extra_body = _tl_extra("digest")
     new_events = [e for e in events
                   if e.seq > store.digested_seq
                   and not e.is_marker and e.type != "affection"]

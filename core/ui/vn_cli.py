@@ -95,7 +95,7 @@ def run_bond_story_vn(
     char_ms: int = PARA_CHAR_MS,
     remind_rounds: int = 30,
     end_rounds: int = 50,
-    max_tokens: int = 1536,
+    max_tokens: int | None = None,
     seed: str | None = None,
     store: SessionStore | None = None,
     image_gen: ImageGenerator | None = None,
@@ -124,13 +124,17 @@ def run_bond_story_vn(
         第 end_rounds   场 → 注入系统注记「已达篇幅上限, 本轮务必改用 story_end 收尾」;
         超过 end_rounds+2 场仍不结束 → 程序兜底收尾（循环必须终结, 宁缺勿错）。
     生产默认 30/50; 调试可传 15/22（实验脚本与单测用）。
-    max_tokens 透传给 send_vn_scene（长段落场景可调高）;
+    max_tokens: 输出上限透传 send_vn_scene（None → 真源 llm/task_levels.py 形态
+    "vn_cli" = 1536, 2026-09-02 集中管理; 长段落场景可显式调高）;
     seed 覆盖开篇语（默认从触发 reason 引述, 无则固定开篇）。
 
     Returns:
         True  = 剧情 is_end 自然结束 / 程序兜底收尾（调用方可做手机收尾 wrapup_after_vn）
         False = 玩家 b / Ctrl-D 提前退出
     """
+    if max_tokens is None:
+        from llm.task_levels import max_tokens as _tl_mt
+        max_tokens = _tl_mt("vn_cli")
     char = engine.current_character
     if char is None:
         return False

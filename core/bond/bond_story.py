@@ -51,6 +51,7 @@ from core.media.emotion_lexicon import (
 )
 from llm.client import LLMClient, feedback
 from llm.prompts import load_prompt
+from llm.task_levels import max_tokens as task_levels_max_tokens
 from core.parsing.dynamic_character_parser import CharacterLoader, DynamicCharacter
 from core.parsing.world_parser import DEFAULT_WORLD_PATH, load_world, world_to_prompt
 
@@ -350,12 +351,15 @@ class BondStoryEngine:
     def send_vn_scene(
         self,
         user_input: str,
-        max_tokens: int = 8192,
+        max_tokens: int | None = None,
         system_note: str | None = None,
         annotate: bool = True,
         on_memorial_prompt: Callable[[str], None] | None = None,
     ) -> BondScene:
         """结构化场景 API：单次 LLM 调用 → BondScene（段落 + 选项 + 是否结束）。
+
+        max_tokens: 输出上限（None → 真源 llm/task_levels.py 形态 "bond" = 8192,
+        2026-09-02 集中管理; CLI 等调用方可显式传更小值覆盖）。
 
         LLM 直接输出 story_scene/story_end 契约 JSON（json_object 模式, 内部已有
         3 次语法自纠错）; 外层再做解析/执行重试（双核: registry.parse + executor.
@@ -391,6 +395,8 @@ class BondStoryEngine:
                 user_message=user_input,
                 history=self._history if self._history else None,
             )
+        if max_tokens is None:                       # 真源: task_levels 形态 bond
+            max_tokens = task_levels_max_tokens("bond")
 
         for attempt in range(MAX_SCENE_RETRIES):
             # 方案 A 流式嗅探（每次 attempt 新建——重试是全新输出, 重新嗅探）
