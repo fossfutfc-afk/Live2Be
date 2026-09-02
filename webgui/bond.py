@@ -191,10 +191,11 @@ def _memorial_gen(state: BondState, char_id: str, session_id: str,
         name = char.display_name if char is not None else "角色"
         png = gen.generate(prompt, ref_images=collect_ref_images(char_id),
                            character_name=name)
-        sid = GalleryStore(_store().data_root).write(
+        sid = GalleryStore(_store().data_root, world_id=_store().world_id).write(
             char_id, prompt, session_id, png)
         with state._lock:
-            state.memorial_img = f"/gallery/{char_id}/{sid}.png"
+            state.memorial_img = (
+                f"/gallery/{_store().world_id}/{char_id}/{sid}.png")
             state.memorial_img_ready = True
     except Exception as e:                       # noqa: BLE001 — 失败降级纯文字
         logger.warning("纪念立绘生成失败（降级纯文字）: %s", e)

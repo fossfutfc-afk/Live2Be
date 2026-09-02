@@ -694,11 +694,12 @@ def test_bond_memorial_async_image(tmp_path, monkeypatch):
                 break
             time.sleep(0.05)
         st2 = bond.bond_status(CHARACTER, sid)
-        assert st2["memorial_img"].startswith(f"/gallery/{CHARACTER}/"), \
+        assert st2["memorial_img"].startswith(f"/gallery/world1/{CHARACTER}/"), \
             st2["memorial_img"]
         assert fake.prompts == ["湖边, 黑发少女含泪抬头, 月光"], fake.prompts
-        # 画廊成对落盘（png + json）——list 只认成对
-        gdir = tmp_path / "gallery" / CHARACTER
+        # 画廊成对落盘（png + json, 2026-09-02: 世界线角色目录内）——list 只认成对
+        gdir = (tmp_path / "worlds" / "world1" / "characters"
+                / CHARACTER / "gallery")
         assert len(list(gdir.glob("*.png"))) == 1
         assert len(list(gdir.glob("*.json"))) == 1
         print("    bond 纪念立绘: 流式嗅探 prompt 定稿即生图 → 画廊落盘 → memorial_img 就绪")
