@@ -176,8 +176,12 @@ class BrainNode:
         return (self.kind, tuple(self.event_seq))
 
     def is_seed(self) -> bool:
-        """出厂基座（canon_fact, immutable——update 只允许 notes 追加）。"""
-        return self.kind == "fact" and self.epistemic == "canon_fact"
+        """出厂基座（immutable——update 只允许 notes 追加, 2026-09-02 v2 扩展）:
+        knowledge → fact(canon_fact); experience → 出厂 episode(source=experience,
+        与 bond digest 产物同构的预设记忆——同渲染段同护栏, 见 seed.py v2）。"""
+        if self.kind == "fact" and self.epistemic == "canon_fact":
+            return True
+        return self.kind == "episode" and self.source == "experience"
 
     # ------------------------------------------------------------------
     # 序列化

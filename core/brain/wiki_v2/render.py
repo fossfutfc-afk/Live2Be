@@ -96,6 +96,7 @@ def render_character_view(
     nodes: Iterable[BrainNode],
     *,
     char_name: str = "",
+    char_aliases: tuple[str, ...] = (),
     summary: str = "",
     cap_beliefs: int = 5,
     cap_episodes: int = 10,
@@ -106,8 +107,9 @@ def render_character_view(
     """角色注入视图: 分层排序渲染（§4.2 + 排序规则）, 空段省略。
 
     排序: belief 常驻（sig 降序）; episode 珍贵档优先 → ts 降序（总量 cap_episodes）;
-    player experience count 降序; fact 分 experience/knowledge 两段; reported 仅无同主题时。
-    fact/belief 内容做第一人称转换（char_name → 我）。
+    player experience count 降序; fact(knowledge) 我知道的事 段; reported 仅无同主题时。
+    （2026-09-02 v2: 预设经历已是 episode——"久远的记忆"段只兜底旧库残留 fact。）
+    第一人称转换: char_name + char_aliases（yml 原文多用简称, 如"遥香"）→ 我。
     """
     # 角色视图不依赖 id（渲染中从不出现 id）——直接按 kind/排序处理
     # observed 的 episode 进 珍贵/最近 段; reported_fact 进 我听说的 段（§4.2 排序规则）
@@ -130,60 +132,73 @@ def render_character_view(
 
     blocks: list[str] = ["【角色记忆（brain）】"]
     if summary:
-        blocks.append(f"我记得那段日子：{_me(summary, char_name)}")
+        blocks.append(f"我记得那段日子：{_me(summary, char_name, char_aliases)}")
     precious = [n for n in episodes if n.is_precious]
     recent = [n for n in episodes if not n.is_precious]
     if precious:
         blocks.append("我记得的事（珍贵的）：\n" + "\n".join(
-            _memory_line(n, char_name) for n in precious))
+            _memory_line(n, char_name, char_aliases) for n in precious))
     if recent:
         blocks.append("最近的事：\n" + "\n".join(
-            _memory_line(n, char_name) for n in recent))
+            _memory_line(n, char_name, char_aliases) for n in recent))
     if beliefs:
         blocks.append("我心里渐渐觉得：\n" + "\n".join(
-            _belief_line(n, char_name) for n in beliefs))
+            _belief_line(n, char_name, char_aliases) for n in beliefs))
     if players:
         blocks.append("老师的事：\n" + "\n".join(
-            f"- {_me(n.pattern, char_name)}（count {n.count}）" for n in players))
+            f"- {_me(n.pattern, char_name, char_aliases)}（count {n.count}）"
+            for n in players))
     if reported:
         blocks.append("我听说的：\n" + "\n".join(
-            _reported_line(n, char_name) for n in reported))
+            _reported_line(n, char_name, char_aliases) for n in reported))
     if facts_exp:
         blocks.append("久远的记忆：\n" + "\n".join(
-            f"- {_me(n.content, char_name)}" for n in facts_exp))
+            f"- {_me(n.content, char_name, char_aliases)}" for n in facts_exp))
     if facts_know:
         blocks.append("我知道的事：\n" + "\n".join(
-            f"- {_me(n.content, char_name)}" for n in facts_know))
+            f"- {_me(n.content, char_name, char_aliases)}" for n in facts_know))
     return "\n\n".join(blocks)
 
 
-def _reported_line(node: BrainNode, char_name: str) -> str:
-    line = f"- {_me(node.narration, char_name)}"
+def _reported_line(node: BrainNode, char_name: str,
+                   aliases: tuple[str, ...] = ()) -> str:
+    line = f"- {_me(node.narration, char_name, aliases)}"
     if node.observer:
         line += f"（听{node.observer}说的）"
     return line
 
 
-def _memory_line(node: BrainNode, char_name: str) -> str:
-    line = f"- {_me(node.narration, char_name)}"
+def _memory_line(node: BrainNode, char_name: str,
+                 aliases: tuple[str, ...] = ()) -> str:
+    line = f"- {_me(node.narration, char_name, aliases)}"
     if node.verbatim:
         line += f"（「{node.verbatim}」）"
     return line
 
 
-def _belief_line(node: BrainNode, char_name: str) -> str:
-    content = _me(node.content, char_name)
-    line = f"- 对{_me(node.subject, char_name)}：{content}" if node.subject else f"- {content}"
+def _belief_line(node: BrainNode, char_name: str,
+                 aliases: tuple[str, ...] = ()) -> str:
+    content = _me(node.content, char_name, aliases)
+    line = f"- 对{_me(node.subject, char_name, aliases)}：{content}" \
+        if node.subject else f"- {content}"
     if node.growth:
-        line += f"（——{_me(node.growth, char_name)}）"
+        line += f"（——{_me(node.growth, char_name, aliases)}）"
     return line
 
 
-def _me(text: str, char_name: str) -> str:
-    """第三人称 → 第一人称（同现有 recall._me: 条目里出现的 char_name → 我）。"""
-    if not char_name or not text:
+def _me(text: str, char_name: str, aliases: tuple[str, ...] = ()) -> str:
+    """第三人称 → 第一人称（同现有 recall._me: 条目里出现的 char_name → 我）。
+
+    2026-09-02: 支持简称别名——yml 原文多用简称（"遥香"而非"伊草 遥香"）;
+    先替换长名后替换短名（防子串部分替换）; "她/他"不替换（可能指其他角色）。
+    """
+    if not text:
         return text
-    return text.replace(char_name, "我")
+    names = [n for n in (char_name, *aliases) if n and n.strip()]
+    # 长名优先（短名可能是长名子串）
+    for n in sorted(set(names), key=len, reverse=True):
+        text = text.replace(n, "我")
+    return text
 
 
 # ---------------------------------------------------------------------------
