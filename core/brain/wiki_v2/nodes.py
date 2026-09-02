@@ -1,14 +1,20 @@
 """图式 wiki 节点数据结构（AGENT_BRAIN.md §1）。
 
-5 种节点（kind）:
+4 种节点（kind, 2026-09-02 砍 relation——两参考系统(A-MEM/AgentGal)均无此层,
+信息落 tags/subject; 无生产数据, 窗口期移除）:
     fact       出厂基座（canon_fact, immutable）——experience/knowledge 出厂消化产出
-    episode    一次性经历（第一人称 narration + verbatim 原话, 质感优先不升华）
+    episode    一次性经历（narration 第一人称浓缩 + verbatim 原话; 质感优先不升华）
     experience 重复模式（pattern + count 聚合; subject=player = 玩家口癖, R5 强调点）
-    belief     抽象认知（inferred_belief, links 必须 ≥1 支撑）
-    relation   关系状态（subject/object/relation/note, 由现有 relations 数组节点化）
+    belief     抽象认知（inferred_belief, links 必须 ≥1 支撑; history 记录改写溯源）
 
 通用字段: id / kind / significance / epistemic / observer / tags / segment_id /
           event_seq / ts / source / links / contradictions
+专属字段: episode.title(可选短标题) / belief.subject / belief.growth /
+          belief.observation / belief.history[{episode_id, content, ts}]
+
+observer 语义（2026-09-02 收敛）: 单视角世界线里 observed_fact 的观察者恒为
+角色本人——引擎填 char_id, 不交给 LLM; reported_fact 的 observer = 转述者
+（LLM 判断, 渲染为"听 X 说的"）。
 
 关键规则（引擎侧强制, 此处提供 validate/normalize 支撑）:
     - epistemic: canon_fact | observed_fact | reported_fact | inferred_belief | speculation
@@ -27,8 +33,8 @@ import json
 from dataclasses import dataclass, field
 from typing import Any
 
-#: 节点类型
-KINDS = ("fact", "episode", "experience", "belief", "relation")
+#: 节点类型（relation 已砍, 2026-09-02）
+KINDS = ("fact", "episode", "experience", "belief")
 #: 认知类型（DESIGN_BRAIN.md §7）
 EPISTEMICS = ("canon_fact", "observed_fact", "reported_fact", "inferred_belief", "speculation")
 #: 珍贵档阈值（保底通道 / 对应 neuron 草稿的 memo 档）
@@ -47,7 +53,6 @@ _REQUIRED: dict[str, tuple[str, ...]] = {
     "episode": ("narration",),
     "experience": ("pattern", "subject"),
     "belief": ("content",),
-    "relation": ("subject", "object", "relation"),
 }
 
 
@@ -61,18 +66,18 @@ class BrainNode:
     """一条图式 wiki 节点（宽松 dataclass: 全部字段可缺省, 校验走 validate()）。
 
     按 kind 取用的专属字段:
-        episode:    narration(必填) / verbatim(可选原话)
+        episode:    narration(必填) / verbatim(可选原话) / title(可选短标题 8-16 字)
         experience: pattern(必填) / subject(必填) / count(引擎数 links) / examples(≤3)
         belief:     content(必填) / subject(认知对象, 可空) / growth / observation[]
+                    / history[改写溯源]（2026-09-02: {episode_id, content, ts} 数组）
         fact:       content(必填) / source_key(必填, 溯源到 yml 字段)
-        relation:   subject / object / relation(必填) / note
     """
 
     id: str = ""
     kind: str = "episode"
     significance: float = 0.5
     epistemic: str = "observed_fact"
-    observer: str = ""
+    observer: str = ""          # observed → 角色本人(引擎填); reported → 转述者(LLM)
     tags: list[str] = field(default_factory=list)
     segment_id: str | None = None
     event_seq: list[int] = field(default_factory=list)
@@ -84,6 +89,7 @@ class BrainNode:
     # ── kind 专属 ──
     narration: str = ""
     verbatim: str = ""
+    title: str = ""             # episode 可选短标题（渲染压缩/回放/决策表引用）
     pattern: str = ""
     subject: str = ""
     count: int = 0
@@ -91,9 +97,7 @@ class BrainNode:
     content: str = ""
     growth: str = ""
     observation: list[str] = field(default_factory=list)
-    object: str = ""
-    relation: str = ""
-    note: str = ""
+    history: list[dict] = field(default_factory=list)   # belief 改写溯源（见 docstring）
     source_key: str = ""
 
     # ------------------------------------------------------------------
@@ -120,9 +124,12 @@ class BrainNode:
             errors.append("belief 节点 epistemic 必须是 inferred_belief（认知不伪装成事实）")
         if self.kind == "belief" and not self.links:
             errors.append("belief 必须 links ≥1 条支撑（episode|experience）——无支撑升华拒绝")
-        if self.kind in ("episode", "experience", "relation") \
+        if self.kind in ("episode", "experience") \
                 and self.epistemic not in ("observed_fact", "reported_fact"):
             errors.append(f"{self.kind} 节点 epistemic 只能是 observed_fact/reported_fact")
+        # history 只属于 belief（改写溯源, 引擎写入）
+        if self.history and self.kind != "belief":
+            errors.append("history 字段只属于 belief 节点（改写溯源）")
         # 数量边界
         if len(self.examples) > 3:
             errors.append("experience.examples 最多 3 条")
@@ -153,6 +160,16 @@ class BrainNode:
         return self.significance >= PRECIOUS_THRESHOLD
 
     @property
+    def main_text(self) -> str:
+        """节点主文本（渲染/检索/去重的主内容）: episode→narration, experience→pattern,
+        其余→content。全模块经此取文本——不做逐处 kind 分支。"""
+        if self.kind == "episode":
+            return self.narration
+        if self.kind == "experience":
+            return self.pattern
+        return self.content
+
+    @property
     def is_player_experience(self) -> bool:
         """玩家口癖/习惯节点（R5 强调点, §4.4 去重豁免）。"""
         return self.kind == "experience" and self.subject == PLAYER_SUBJECT
@@ -178,9 +195,9 @@ class BrainNode:
             "epistemic": self.epistemic,
         }
         for f in ("observer", "tags", "segment_id", "event_seq", "ts", "source",
-                  "links", "contradictions", "notes", "narration", "verbatim", "pattern",
-                  "subject", "count", "examples", "content", "growth",
-                  "observation", "object", "relation", "note", "source_key"):
+                  "links", "contradictions", "notes", "narration", "verbatim", "title",
+                  "pattern", "subject", "count", "examples", "content", "growth",
+                  "observation", "history", "source_key"):
             v = getattr(self, f)
             if v in (None, "", [], 0):
                 continue
@@ -211,6 +228,7 @@ class BrainNode:
         # kind 专属
         node.narration = _str(raw.get("narration"))
         node.verbatim = _str(raw.get("verbatim"))
+        node.title = _str(raw.get("title"))
         node.pattern = _str(raw.get("pattern"))
         node.subject = _str(raw.get("subject"))
         node.count = _int(raw.get("count"))
@@ -218,9 +236,7 @@ class BrainNode:
         node.content = _str(raw.get("content"))
         node.growth = _str(raw.get("growth"))
         node.observation = _str_list(raw.get("observation"))
-        node.object = _str(raw.get("object"))
-        node.relation = _str(raw.get("relation"))
-        node.note = _str(raw.get("note"))
+        node.history = _dict_list(raw.get("history"))
         node.source_key = _str(raw.get("source_key"))
         return node
 
@@ -260,6 +276,13 @@ def _str_list(v: Any) -> list[str]:
     if not isinstance(v, list):
         return []
     return [x.strip() for x in v if isinstance(x, str) and x.strip()]
+
+
+def _dict_list(v: Any) -> list[dict]:
+    """history 等 dict 数组的宽松读取（宁缺勿错: 只收 dict, 不收坏项）。"""
+    if not isinstance(v, list):
+        return []
+    return [x for x in v if isinstance(x, dict)]
 
 
 def _int_list(v: Any) -> list[int]:

@@ -56,19 +56,16 @@ def test_organize_view_experience_and_player():
     assert "m0002 [experience·关于老师, sig 0.75, count 2" in out        # §4.4 标记
 
 
-def test_organize_view_fact_belief_relation():
+def test_organize_view_fact_belief():
     fact = make_node("fact", content="遥香曾因拆炸弹事件对 sensei 建立信任",
                      epistemic="canon_fact", source="experience",
                      source_key="self.regular.1", significance=0.95)
     belief = make_node("belief", content="老师是第一个不会嫌弃我的人", subject="sensei",
                        epistemic="inferred_belief", significance=0.9,
                        links=["m0001"], event_seq=[42])
-    rel = make_node("relation", subject="igusa_haruka", object="sensei",
-                    relation="信任加深", note="约定常来陪她", event_seq=[42])
-    out = render_organize_view(_ids([fact, belief, rel]))
+    out = render_organize_view(_ids([fact, belief]))
     assert "[fact, sig 0.95, canon 只读]" in out
     assert "[belief, sig 0.90, links: m0001]" in out
-    assert "[relation, sig 0.50] 和sensei：信任加深（约定常来陪她）" in out
 
 
 def test_organize_view_contradiction_marker():

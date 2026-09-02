@@ -118,17 +118,14 @@ def _tags_hits(nodes: list[BrainNode], query: str, k: int) -> list[BrainNode]:
 
 
 def _embed_text(node: BrainNode) -> str:
-    """节点的可嵌入文本（内容 + 关键词; 与渲染口径一致）。"""
-    if node.kind == "episode":
-        body = node.narration + (" " + node.verbatim if node.verbatim else "")
-    elif node.kind == "experience":
-        body = node.pattern + (" " + " ".join(node.examples) if node.examples else "")
-    elif node.kind == "relation":
-        body = f"和{node.object}：{node.relation}" if node.object else node.relation
-        if node.note:
-            body += f"（{node.note}）"
-    else:                                   # belief / fact
-        body = node.content + (" " + node.growth if node.growth else "")
+    """节点的可嵌入文本（主文本 + 附属 + 关键词; 与渲染口径一致）。"""
+    body = node.main_text
+    if node.kind == "episode" and node.verbatim:
+        body += " " + node.verbatim
+    elif node.kind == "experience" and node.examples:
+        body += " " + " ".join(node.examples)
+    elif node.kind == "belief" and node.growth:
+        body += " " + node.growth
     tags = " ".join(node.tags)
     return f"{body} {tags}".strip()
 

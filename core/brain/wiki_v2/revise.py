@@ -353,24 +353,13 @@ def _find_duplicate(store: WikiStoreV2, node: BrainNode) -> BrainNode | None:
     """(kind, event_seq 交集, 主文本相同) 去重——digest 崩溃窗口重跑防双写。"""
     if not node.event_seq:
         return None
-    main = _main_text(node)
+    main = node.main_text
     for n in store.all():
         if n.kind != node.kind or not (set(n.event_seq) & set(node.event_seq)):
             continue
-        if _main_text(n) == main:
+        if n.main_text == main:
             return n
     return None
-
-
-def _main_text(node: BrainNode) -> str:
-    """节点主文本（去重比较用）: episode→narration, experience→pattern, 其余→content。"""
-    if node.kind == "episode":
-        return node.narration
-    if node.kind == "experience":
-        return node.pattern
-    if node.kind == "relation":
-        return f"{node.subject}|{node.object}|{node.relation}"
-    return node.content
 
 
 def _err(result: RevisionResult, msg: str) -> bool:

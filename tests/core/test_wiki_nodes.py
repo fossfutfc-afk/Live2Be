@@ -95,13 +95,35 @@ def test_experience_and_player_emphasis():
     assert len(many.examples) == 3
 
 
-def test_relation_node():
+def test_relation_kind_removed():
+    """relation kind 已砍（2026-09-02）——构造降级为 episode, 校验报缺 narration。"""
     node = make_node("relation", subject="igusa_haruka", object="sensei",
                      relation="信任加深", note="约定常来陪她", event_seq=[10])
-    assert node.validate() == []
-    assert node.dedup_key() == ("relation", (10,))
-    missing = make_node("relation", subject="a", relation="b")
-    assert any("object" in e for e in missing.validate())
+    assert node.kind == "episode"      # 未知 kind 降级
+    assert any("narration" in e for e in node.validate())
+
+
+def test_title_and_history_fields():
+    # episode.title 可选
+    ep = make_node("episode", narration="公园散步", title="和老师的公园散步")
+    assert ep.validate() == []
+    assert ep.title == "和老师的公园散步"
+    assert ep.main_text == "公园散步"
+    # belief.history 改写溯源
+    bel = make_node("belief", content="老师会认真听我说话", subject="sensei",
+                    epistemic="inferred_belief", links=["m0001"],
+                    history=[{"episode_id": "m0001", "content": "初版", "ts": "t1"}])
+    assert bel.validate() == []
+    assert bel.history[0]["episode_id"] == "m0001"
+    # history 只属于 belief
+    bad = make_node("episode", narration="x", history=[{"content": "y"}])
+    assert any("history" in e for e in bad.validate())
+    # main_text 收敛: episode→narration / experience→pattern / belief/fact→content
+    exp = make_node("experience", pattern="p", subject="s")
+    assert exp.main_text == "p"
+    fact = make_node("fact", content="出厂", epistemic="canon_fact",
+                     source="experience", source_key="k")
+    assert fact.main_text == "出厂"
 
 
 def test_significance_clamp_and_precious():

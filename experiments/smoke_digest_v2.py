@@ -112,28 +112,33 @@ def unit2_events(start: int) -> list:
 
 
 def run_unit(store: WikiStoreV2, llm, events: list, label: str,
-             character_prompt: str) -> bool:
+             character_prompt: str, extra_body: dict | None = None) -> bool:
     """跑一个最小 unit 的 digest; 返回是否成功。"""
+    import time as _time
+    t0 = _time.monotonic()
     report(f"{label}: 事件 {len(events)} 条 (seq {events[0].seq}~{events[-1].seq})")
     try:
         res = digest_segment(
             store, llm, events,
             character_prompt=character_prompt,
             temperature=0.3, max_tokens=8192,
+            extra_body=extra_body,
         )
     except Exception as e:                       # noqa: BLE001
         FAILS.append(f"{label}: digest 异常: {e}")
         report(label, f"❌ digest 异常: {e}")
         return False
+    elapsed = _time.monotonic() - t0
     if not res.ok:
         FAILS.append(f"{label}: digest 失败: {res.errors}")
-        report(label, "❌ digest 失败:\n" + "\n".join(f"- {e}" for e in res.errors))
+        report(label, f"❌ digest 失败（{elapsed:.0f}s）:\n"
+               + "\n".join(f"- {e}" for e in res.errors))
         return False
     kinds = {}
     for n in store.all():
         kinds[n.kind] = kinds.get(n.kind, 0) + 1
     body = [
-        f"✅ ok  llm_calls={res.llm_calls}  好感 +{res.affection_delta}",
+        f"✅ ok  llm_calls={res.llm_calls}  耗时 {elapsed:.0f}s  好感 +{res.affection_delta}",
         f"   新建条目: {res.created or '（无）'}",
         f"   evidence: {res.evidence or '（无）'}",
         f"   库内节点: {kinds}（共 {len(store.all())}）",
@@ -162,12 +167,15 @@ def main() -> int:
     character_prompt = char.build_prompt("bond_story")
 
     llm = LLMClient(timeout=180)
-    # 模型 = 客户端默认（settings.toml/.env, 当前 deepseek-v4-flash, thinking）——
-    # digest 内部自动带 reasoning_effort=low（实验: 5/5 合格、推理降 10×、62s→17s）;
-    # timeout 提到 180s 防单次长考被客户端 60s 掐断
-    ok1 = run_unit(store, llm, unit1_events(10), "Round 1 unit（公园散步）", character_prompt)
+    # 模型 = 客户端默认（settings.toml/.env, 当前 deepseek-v4-flash, thinking）;
+    # reasoning_effort 由调用方显式传（本脚本: medium——比 low 高一档的实验档;
+    # digest 默认 None → low）; timeout 180s 防单次长考被客户端 60s 掐断
+    effort = {"reasoning_effort": "medium"}
+    ok1 = run_unit(store, llm, unit1_events(10), "Round 1 unit（公园散步）",
+                   character_prompt, extra_body=effort)
     if ok1:
-        ok2 = run_unit(store, llm, unit2_events(30), "Round 2 unit（天台夜谈）", character_prompt)
+        ok2 = run_unit(store, llm, unit2_events(30), "Round 2 unit（天台夜谈）",
+                       character_prompt, extra_body=effort)
     else:
         ok2 = False
         FAILS.append("Round 2 跳过（Round 1 失败）")
