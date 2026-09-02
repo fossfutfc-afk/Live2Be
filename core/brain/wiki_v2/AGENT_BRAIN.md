@@ -171,24 +171,22 @@ digest 同一套机制）; 动态 digest/组织 pass 永远不产 canon_fact;
 重复; 方案 = 统一注入源（experience/knowledge 不再静态注入, 一律从 wiki 渲染; 静态文件
 保留为作者真源 + 出厂 digest 输入）。
 
-### 1.5 节点类型总表
+### 1.5 节点类型总表（2026-09-02: 砍 relation——两参考系统(A-MEM/AgentGal)均无此层,
+信息落 tags/subject; 无生产数据窗口期移除）
 
 | kind | 语义 | epistemic | 谁产 | 支撑规则 |
 |---|---|---|---|---|
 | `fact` | 出厂经历/出厂认知（作者设定, 角色本来就记得/知道） | canon_fact | 出厂 digest（experience/knowledge） | immutable; 渲染为出厂记忆段 |
-| `episode` | 一次性经历（质感: narration+verbatim） | observed_fact | 动态 digest | 必连 belief 或 experience（连接裁定） |
+| `episode` | 一次性经历（质感: narration+verbatim; title 可选短标题） | observed_fact | 动态 digest | 必连 belief 或 experience（连接裁定） |
 | `experience` | 重复模式（count 聚合） | observed_fact | 动态 digest（accrue） | 引擎计数; 口癖 = subject=player |
-| `belief` | 抽象认知（升华） | inferred_belief | 动态 digest | links ≥1（episode\|experience） |
-| `relation` | **角色间关系状态条目**（非图边! 图边 = links/contradictions 虚边） | observed_fact | 动态 digest | 可被 episode/experience 支撑 |
+| `belief` | 抽象认知（升华; history 记录改写溯源 {episode_id, content, ts}） | inferred_belief | 动态 digest | links ≥1（episode\|experience） |
 
 **图边 vs 节点（2026-09-02 澄清）**——两个维度, 不冲突:
 
 ```
 图边（虚边, 引擎图结构, 存于节点字段）:   links / contradictions
    = 节点之间的结构关系（溯源/关联/矛盾）: m0003 links: m0009（episode 支撑 belief）
-节点内容（被图边引用的实体）:              episode / experience / belief / relation / fact
-relation 节点 ≠ 图边: 它描述"角色间关系状态"（遥香-老师: 信任加深）, 是【内容】;
-  它自己也通过 links 被 episode 支撑（天台夜谈 → 支撑"信任加深"这条关系状态）
+节点内容（被图边引用的实体）:              episode / experience / belief / fact
 ```
 
 ### 1.4 开放问题（M1 动手前拍板）

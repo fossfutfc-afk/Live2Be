@@ -21,9 +21,8 @@ from core.brain.wiki_v2.nodes import BrainNode, format_id
 from core.common import err
 from core.session.io import atomic_write_json, atomic_write_lines, read_jsonl
 
-#: kind → id 前缀（AGENT_BRAIN.md §2）
-_PREFIX = {"fact": "c", "experience": "e",
-           "episode": "m", "belief": "m", "relation": "m"}
+#: kind → id 前缀（AGENT_BRAIN.md §2; relation 已砍）
+_PREFIX = {"fact": "c", "experience": "e", "episode": "m", "belief": "m"}
 
 #: 节点字段白名单（update patch 只接受这些——防任意字段注入）
 _FIELDS = set(BrainNode.__dataclass_fields__.keys())

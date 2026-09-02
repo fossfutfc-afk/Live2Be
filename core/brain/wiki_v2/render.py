@@ -61,14 +61,11 @@ def _organize_line(node: BrainNode) -> str:
 
 
 def _organize_text(node: BrainNode) -> str:
-    """主文本（按 kind）: narration / pattern / content / 关系描述。"""
+    """主文本（按 kind）: narration / pattern / content。"""
     if node.kind == "episode":
         return node.narration
     if node.kind == "experience":
         return node.pattern
-    if node.kind == "relation":
-        base = f"和{node.object}：{node.relation}" if node.object else node.relation
-        return f"{base}（{node.note}）" if node.note else base
     return node.content
 
 
