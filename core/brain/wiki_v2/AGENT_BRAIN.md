@@ -318,6 +318,19 @@ apply_revision_package 复用, digest_registry 注册 deep 动作集）。
 - legacy core/brain/{consolidation,hippocampus,recall} 保留但**无运行时消费方**
   （仅 experiments/测试/导出引用——最后清理轮次删除）
 
+**reasoning_effort 生产档（2026-09-02 拍板: high）**——digest 质量实验矩阵
+（deepseek-v4-flash thinking, smoke 两最小 unit）:
+| 档 | 结果 | 单 unit 耗时 |
+|---|---|---|
+| low | 5/5 合格——规则全过但组织偏浅 | ~17s（早期 62s 含长考失控） |
+| medium | 1/3——2/3 死在规则校验（引擎防护拦截, 无污染） | 3~6min |
+| high | 2/2——认知深化（unit2 update 而非 add）、evidence 逐字自检、growth 演化细腻 | 118s + 32s |
+
+适配（high 档参数）: llm_call 默认 extra_body={"reasoning_effort":"high"};
+digest deadline_seconds 默认 300s; LLMClient per-call timeout 覆盖
+（momotalk digest 传 300——共享客户端 60s 主对话超时会掐 high 长考,
+主对话快速失败语义不变）; 档位仍可显式覆盖（extra_body={} 关闭）。
+
 ---
 
 ---
