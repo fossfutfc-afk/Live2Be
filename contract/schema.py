@@ -34,10 +34,10 @@ _APPROVAL_NOTES = {
 def build_schema(registry: ActionRegistry, *, action_list: bool = False) -> str:
     """生成该域给 LLM 的动作 schema（输入层裁剪）。
 
-    action_list=True（MMT 域, 2026-08-23 定稿; 2026-09-02 轮级协议）: 输出
-    "动作列表"格式——AI 一次可返回多个动作（真操作）; 对白是轮级默认产物
-    （reply 字段, 见 momotalk rules）, 不在动作里。其他域（story/IDE）保持
-    单动作输出。示例只给结构骨架——外壳字段以各动作声明为准。
+    action_list=True（MMT 域, 2026-09-02 消息流协议）: 输出"消息流"格式——
+    聊天 = 消息序列, text 单元说话 + action 单元操作任意交错（话→图→话）。
+    其他域（story/IDE）保持单动作输出。示例只给结构骨架——外壳字段以各
+    动作声明为准。
     """
     names = registry.action_names()
     if not names:
@@ -49,11 +49,13 @@ def build_schema(registry: ActionRegistry, *, action_list: bool = False) -> str:
 
     if action_list:
         lines = [
-            "你以单个 JSON 对象输出本轮内容（2026-09-02 轮级协议）:",
-            '    {"reply": "角色说的话（可空字符串; 多句连发引擎自动切条）",'
-            ' "actions": [动作1, ...]}',
-            "actions 只放需要程序执行的操作（可空/省略 = 纯说话轮）;",
-            "每个动作的字段如下（动作不含 reply——话一律写轮级 reply）。",
+            "你以单个 JSON 对象输出本轮**消息流**（2026-09-02 协议, 聊天 = 消息序列）:",
+            '    {"messages": [消息1, 消息2, ...]}',
+            "单元类型:",
+            '    {"text": "角色说的话"}              —— text 单元: 说话（任意条数）',
+            '    {"action": "<动作名>", "payload": {...}}  —— action 单元: 需要程序',
+            "        执行的操作（可任意夹在 text 之间——话→图→话 的节奏没问题）",
+            "text 单元不是动作（程序直接渲染为消息气泡）; action 单元字段如下。",
             "",
         ]
     else:
@@ -76,11 +78,14 @@ def build_schema(registry: ActionRegistry, *, action_list: bool = False) -> str:
     lines.append("")
     if action_list:
         lines.append(
-            '轮级示例: {"reply": "老师你看这个！", "actions": '
-            '[{"action": "mmt_send_media", "payload": {"image": "天台拍到的夕阳"}}]}'
+            '消息流示例: {"messages": [{"text": "老师你看这个！"}, '
+            '{"action": "mmt_send_media", "payload": {"image": "天台拍到的夕阳"}}, '
+            '{"text": "是我特意拍的…好看吧？"}]}'
         )
-        lines.append("动作按列表顺序依次执行并渲染; mmt_trigger_bond_story 必须独占一轮（模式切换）;")
-        lines.append("mmt_inspect_character 不能混入列表（静默推理轮, 单独输出一轮）。")
+        lines.append("action 单元按顺序执行并渲染（text 单元直接渲染为气泡）; "
+                     "mmt_trigger_bond_story 独占操作（只能有它一个 action 单元, "
+                     "text 邀约话可放它前面）;")
+        lines.append("mmt_inspect_character 单独一轮（静默推理, 不与 text/其他动作混排）。")
     else:
         lines.append('格式示例: {"action": "<动作名>", "payload": {...}}'
                      '（外壳字段以各动作声明为准）')
