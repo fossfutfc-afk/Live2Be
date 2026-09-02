@@ -159,45 +159,51 @@ const BondVN = (() => {
   // ---------------------------------------------------------------------------
 
   async function waitScene() {
-    for (;;) {
-      await sleep(BOND_POLL_MS);
-      let st;
-      try {
-        st = await (await fetch(
-          `/api/bond/status?char_id=${charId}&session_id=${sessionId}`)).json();
-      } catch (e) {
-        showError("轮询失败: " + e.message);
-        return;
+    try {
+      for (;;) {
+        await sleep(BOND_POLL_MS);
+        let st;
+        try {
+          st = await (await fetch(
+            `/api/bond/status?char_id=${charId}&session_id=${sessionId}`)).json();
+        } catch (e) {
+          showError("轮询失败: " + e.message);
+          return;
+        }
+        // 纪念立绘（方案 A）: 每轮都同步（busy 也同步——图就绪随时淡入;
+        // 图晚到: 进入纪念时黑屏+文字, 图就绪即静默淡入）
+        syncMemorial(st);
+        // 名字牌（官方: 名字 + 社团）——status 返回, 覆盖 enter 传入的兜底 name
+        if (st.name) $("bond-name").textContent = st.name;
+        if (st.club !== undefined) $("bond-club").textContent = st.club;
+        if (st.busy) continue;
+        // 生成失败（2026-09-02 可重试: 上一场保留在屏, 后端给 3 次机会）——
+        // 失败提示 + 重试按钮重新提交同输入; closing 收尾已置 completed → 走渲染
+        if (st.error && !st.completed) {
+          showTurnError(st.error);
+          return;
+        }
+        // 异步标注补标（两遍式 C）: emo_version 变化 → 已显示段落补切立绘表情
+        // （不重置打字机——只切表情; 文本段落不动）。新场景渲染时同步版本,
+        // 避免对旧段落误切（时序: round 优先, emo_version 次之）。
+        if (st.scene && (!gotScene || st.round !== seenRound)) {
+          gotScene = true;
+          seenRound = st.round;
+          seenEmo = (st.emo_version !== undefined) ? st.emo_version : -1;
+          renderScene(st.scene);
+          syncMemorial(st);          // 渲染后: 清普通背景（黑屏兜底）+ 隐藏立绘
+        } else if (st.emo_version !== undefined && st.emo_version !== seenEmo) {
+          seenEmo = st.emo_version;
+          if (st.scene) applyEmotions(st.scene);
+        }
+        if (st.completed) return;                  // is_end 场景已渲染 → 等自动 finish
+        if (!st.scene && st.error) return;
+        return;                                    // 场景已取（或异常）→ 结束本轮轮询
       }
-      // 纪念立绘（方案 A）: 每轮都同步（busy 也同步——图就绪随时淡入;
-      // 图晚到: 进入纪念时黑屏+文字, 图就绪即静默淡入）
-      syncMemorial(st);
-      // 名字牌（官方: 名字 + 社团）——status 返回, 覆盖 enter 传入的兜底 name
-      if (st.name) $("bond-name").textContent = st.name;
-      if (st.club !== undefined) $("bond-club").textContent = st.club;
-      if (st.busy) continue;
-      // 生成失败（2026-09-02 可重试: 上一场保留在屏, 后端给 3 次机会）——
-      // 失败提示 + 重试按钮重新提交同输入; closing 收尾已置 completed → 走渲染
-      if (st.error && !st.completed) {
-        showTurnError(st.error);
-        return;
-      }
-      // 异步标注补标（两遍式 C）: emo_version 变化 → 已显示段落补切立绘表情
-      // （不重置打字机——只切表情; 文本段落不动）。新场景渲染时同步版本,
-      // 避免对旧段落误切（时序: round 优先, emo_version 次之）。
-      if (st.scene && (!gotScene || st.round !== seenRound)) {
-        gotScene = true;
-        seenRound = st.round;
-        seenEmo = (st.emo_version !== undefined) ? st.emo_version : -1;
-        renderScene(st.scene);
-        syncMemorial(st);          // 渲染后: 清普通背景（黑屏兜底）+ 隐藏立绘
-      } else if (st.emo_version !== undefined && st.emo_version !== seenEmo) {
-        seenEmo = st.emo_version;
-        if (st.scene) applyEmotions(st.scene);
-      }
-      if (st.completed) return;                  // is_end 场景已渲染 → 等自动 finish
-      if (!st.scene && st.error) return;
-      return;                                    // 场景已取（或异常）→ 结束本轮轮询
+    } finally {
+      // 2026-09-02: busy 残留 = 点击无反应——等待无论如何结束都解锁
+      // （renderScene 已复位则无副作用; 失败/异常路径不再吞后续点击）
+      busy = false;
     }
   }
 

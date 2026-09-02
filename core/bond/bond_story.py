@@ -350,7 +350,7 @@ class BondStoryEngine:
     def send_vn_scene(
         self,
         user_input: str,
-        max_tokens: int = 1536,
+        max_tokens: int = 8192,
         system_note: str | None = None,
         annotate: bool = True,
         on_memorial_prompt: Callable[[str], None] | None = None,
