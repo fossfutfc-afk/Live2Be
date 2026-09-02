@@ -682,7 +682,11 @@ const BondVN = (() => {
           body: JSON.stringify({ char_id: charId, session_id: sessionId, text }),
         });
         data = await res.json();
-        if (data.busy) {          // 生成中（预生成未就绪）→ 等待后自动重试, 不报错
+        if (data.busy) {          // 生成中 / 情绪标注门控中（2026-09-02）→ 等待后自动重试
+          if (!data.accepted) {   // 门控等待（标注未就绪）→ 显示等待点反馈
+            $("bond-choices").innerHTML = "";
+            $("bond-choices").appendChild(loadingDots());
+          }
           await sleep(BOND_POLL_MS);
           continue;
         }

@@ -94,7 +94,7 @@ def test_fill_missing_normal():
 
     paras = [{"text": "她站在窗边。"}, {"text": "老师来了！"}, {"text": "（她低下头）"}]
     out = fill_missing_emotions(
-        paras, annotator=lambda s, k, h: ["nomal", "smile", "embarrassed"],
+        paras, annotator=lambda s, k, h, c: ["nomal", "smile", "embarrassed"],
         lexicon_keys=["nomal", "smile", "embarrassed"])
     assert out == [
         {"text": "她站在窗边。", "emotion": "nomal"},
@@ -104,7 +104,7 @@ def test_fill_missing_normal():
     # 部分已有 emotion → 只补缺的
     paras2 = [{"text": "a", "emotion": "smile"}, {"text": "b"}, {"text": "c"}]
     out2 = fill_missing_emotions(
-        paras2, annotator=lambda s, k, h: ["embarrassed", "nomal"],
+        paras2, annotator=lambda s, k, h, c: ["embarrassed", "nomal"],
         lexicon_keys=["nomal", "smile", "embarrassed"])
     assert out2[0]["emotion"] == "smile"          # 已有保留
     assert out2[1]["emotion"] == "embarrassed"
@@ -112,7 +112,7 @@ def test_fill_missing_normal():
     # 无缺漏 → 不调用
     paras3 = [{"text": "a", "emotion": "smile"}]
     calls = {"n": 0}
-    fill_missing_emotions(paras3, annotator=lambda s, k, h: calls.__setitem__("n", calls["n"] + 1) or [], lexicon_keys=["nomal"])
+    fill_missing_emotions(paras3, annotator=lambda s, k, h, c: calls.__setitem__("n", calls["n"] + 1) or [], lexicon_keys=["nomal"])
     assert calls["n"] == 0
     print("    fill: 骨架补标（部分缺只补缺, 已有保留, 无缺不调用）")
 
@@ -122,20 +122,125 @@ def test_fill_missing_fallback():
 
     # 标注不可用（None）→ 延续前一句（首句默认 nomal）
     paras = [{"text": "a"}, {"text": "b"}, {"text": "c"}]
-    out = fill_missing_emotions(paras, annotator=lambda s, k, h: None,
+    out = fill_missing_emotions(paras, annotator=lambda s, k, h, c: None,
                                 lexicon_keys=["nomal", "smile"])
     assert [p["emotion"] for p in out] == ["nomal", "nomal", "nomal"]
     # 标注部分非法 → 非法位延续
     paras2 = [{"text": "a"}, {"text": "b"}, {"text": "c"}]
-    out2 = fill_missing_emotions(paras2, annotator=lambda s, k, h: ["smile", "bad_key", "nomal"],
+    out2 = fill_missing_emotions(paras2, annotator=lambda s, k, h, c: ["smile", None, "nomal"],
                                  lexicon_keys=["nomal", "smile"])
     assert [p["emotion"] for p in out2] == ["smile", "smile", "nomal"]  # b 延续 a
     print("    fill: 标注不可用/非法位 → 延续兜底（首句 nomal）")
 
 
 # ----------------------------------------------------------------------------
-# 引擎集成: send_vn_scene 骨架 → 标注 attach（正文 + branches）
+# robust 标注（2026-09-02）: 二分降级 + 逐项容错 + character 注入
 # ----------------------------------------------------------------------------
+
+def test_annotate_smart_binary_split():
+    """全量失败 → 二分递归: 左半成功右半再失败再拆——局部错只牺牲局部。"""
+    from core.bond.emotion_annotate import annotate_emotions_smart
+
+    class SplitLLM:
+        def __init__(self):
+            self.calls: list[int] = []
+        def chat(self, messages, **kw):
+            self.calls.append(0)                       # 每次调用都失败
+            raise RuntimeError("api down")
+
+    llm = SplitLLM()
+    # 4 句全失败 → 递归拆到单句: 1 全量 + 2 半组 + 4 单句 = 7 次调用, 全 None
+    tags = annotate_emotions_smart(llm, ["a", "b", "c", "d"], ["nomal"])
+    assert tags == [None, None, None, None]
+    assert len(llm.calls) == 7, f"1+2+4: {llm.calls}"
+    # 空输入 → [] / 无词表 → 全 None 不调用
+    assert annotate_emotions_smart(llm, [], ["nomal"]) == []
+    assert annotate_emotions_smart(SplitLLM(), ["x"], []) == [None]
+    print("    smart: 全失败 → 二分递归 5 次全 None; 空输入/无词表短路")
+
+
+def test_annotate_smart_partial_recover():
+    """二分降级恢复: 全量坏 → 左右半各自成功（各自一次调用）。"""
+    from core.bond.emotion_annotate import annotate_emotions_smart
+
+    class HalfLLM:
+        def __init__(self):
+            self.n = 0
+        def chat(self, messages, **kw):
+            self.n += 1
+            if self.n == 1:
+                return "[bad"                          # 全量坏（解析失败）
+            return ["nomal", "smile"]                  # 半组成功
+
+    tags = annotate_emotions_smart(HalfLLM(), ["a", "b", "c", "d"], ["nomal", "smile"])
+    assert tags == ["nomal", "smile", "nomal", "smile"], tags
+    print("    smart: 全量坏 → 左右半成功（1 + 2 次调用, 局部恢复）")
+
+
+def test_annotate_smart_per_item_tolerance():
+    """逐项容错: 长度对齐但个别词表外 → 该项 None, 其余保留（不整批弃）。"""
+    from core.bond.emotion_annotate import annotate_emotions_smart
+
+    class OneBadLLM:
+        def chat(self, messages, **kw):
+            return ["smile", "not_in_lexicon", "nomal"]
+
+    tags = annotate_emotions_smart(OneBadLLM(), ["a", "b", "c"], ["nomal", "smile"])
+    assert tags == ["smile", None, "nomal"], tags
+    print("    smart: 词表外单项 → None, 其余保留")
+
+
+def test_annotate_character_injected():
+    """character 人设注入: prompt system 含角色段（标注层人设化判断基准）。"""
+    from core.bond.emotion_annotate import _try_batch
+
+    seen = {}
+
+    class SpyLLM:
+        def chat(self, messages, **kw):
+            seen["system"] = messages[0]["content"]
+            return ["nomal"]
+
+    tags = _try_batch(SpyLLM(), ["她笑着说没事。"], ["nomal", "smile"],
+                      "", "角色: 测试（性格: 逞强, 把错归己）", max_tokens=256)
+    assert tags == ["nomal"]
+    assert "角色: 测试" in seen["system"], seen["system"][:200]
+    assert "逞强" in seen["system"]
+    print("    smart: character 人设段注入标注 prompt")
+
+
+def test_engine_fill_passes_character():
+    """引擎集成: fill_scene_emotions 注入角色人设（_character_hint 非空且含遥香性格）。"""
+    from core.bond.bond_story import BondStoryEngine
+
+    skeleton = {"action": "story_scene", "payload": {
+        "paragraphs": [{"text": "对不起……我又做错了……"}]}}
+
+    class ScriptedLLM:
+        def __init__(self):
+            self.seen_system: str = ""
+            self._scripts = [skeleton]
+        def chat(self, messages, **kw):
+            head = messages[0]["content"]
+            if "情绪标签数组" in (messages[-1]["content"] if len(messages) > 1 else ""):
+                self.seen_system = head
+                return ["depressed"]
+            if not self._scripts:
+                raise RuntimeError("脚本耗尽")
+            return self._scripts.pop(0)
+        def format_messages(self, **kw):
+            return []
+
+    vn = BondStoryEngine(ROOT / "config" / "characters", ScriptedLLM())
+    vn.start_session("igusa_haruka")
+    assert "遥香" in vn._character_hint, vn._character_hint
+    assert "自卑" in vn._character_hint or "胆小" in vn._character_hint, \
+        vn._character_hint
+    scene = vn.send_vn_scene("（开场）")
+    assert scene.paragraphs[0]["emotion"] == "depressed", scene.paragraphs
+    print("    engine: 标注 prompt 带遥香人设（自卑/胆小行为逻辑）")
+
+
 
 def test_engine_skeleton_annotated():
     from core.bond.bond_story import BondStoryEngine
