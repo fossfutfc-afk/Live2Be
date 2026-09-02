@@ -70,17 +70,14 @@ class ScriptedLLM:
 
 def _engine(
     *scripts: dict,
-    threshold: int = 0,
     progress=None,
 ) -> MomoTalkEngine:
-    """构造引擎。默认 threshold=0（不加门槛, 保现有用例语义）;
-    progress 可注入（门槛测试用临时 BondProgress, 不污染 data/{char_id}/progress.json）。"""
+    """构造引擎; progress 可注入（测试用临时 BondProgress, 不污染 data）。"""
     from core.bond.bond_progress import BondProgress
 
     engine = MomoTalkEngine(
         ROOT / "config" / "characters",
         ScriptedLLM(*scripts),
-        affection_threshold=threshold,
         bond_progress=progress or BondProgress(),
     )
     engine.start_session(CHARACTER)
@@ -190,10 +187,10 @@ def _t_trigger():
 
 
 # ----------------------------------------------------------------------------
-# trigger 门槛: 轮数 < threshold → MmtExecError 回灌含「轮」; 达标 → 触发成功
+# trigger 不拦 + 时机建议注记（2026-09-02 v2: 引擎建议不拦截——LLM 全权裁决）
 # ----------------------------------------------------------------------------
 
-def _t_trigger_threshold():
+def _t_trigger_suggestion():
     import tempfile
     from pathlib import Path
 
@@ -202,39 +199,26 @@ def _t_trigger_threshold():
     trig = {"action": "mmt_trigger_bond_story", "payload": {"reason": "气氛到了"}}
     chat = {"action": "mmt_chat", "reply": "嗯……我们还没到那一步吧。", "payload": {}}
 
-    # 软门槛·兜底: 门槛开启且首条消息（0 轮）→ 程序兜底拒绝 → 回灌 → LLM 转普通聊天
+    # v2: 0 轮（刚开场）也**不拦**——LLM 输出 trigger 即放行（紧急剧情无需尬聊等轮数）
     with tempfile.TemporaryDirectory() as d:
         progress = BondProgress(Path(d) / "bp.json")
-        engine = _engine(trig, chat, threshold=5, progress=progress)
-        result = engine.agent_turn("今天我们聊了很多")
-        assert result.action == "mmt_chat", f"首条消息不应触发: {result.action}"
-        assert not result.bond_story
-        fed = engine.llm.snapshots[1][-1]["content"]
-        assert "轮" in fed, f"兜底回灌应含「轮」: {fed!r}"
-        # 轮数参考注记已注入 LLM context（软门槛的依据）
-        assert any("羁绊进度参考" in m["content"] for m in engine.llm.snapshots[0]), \
-            "应注入羁绊进度参考注记"
-        print(f"    trigger_threshold(兜底): 0 轮 → 回灌 {len(fed)} 字符 → 转普通聊天")
+        engine = _engine(trig, chat, progress=progress)
+        result = engine.agent_turn("老师！我这边出事了！")
+        assert result.bond_story, "v2: 引擎不拦节奏——首条消息触发也应放行"
+        print("    trigger(0轮不拦): 首条消息 trigger → bond_story=True（无硬闸）")
 
-    # 软门槛·提前: 轮数 2 < 5, 但 AI 裁决剧情需要 → 允许提前触发
+    # 注记分级: 沉淀期（gap < 6）报事实; 达标（gap ≥ 6）主动建议
     with tempfile.TemporaryDirectory() as d:
         progress = BondProgress(Path(d) / "bp.json")
-        for _ in range(2):
-            progress.record_turn(CHARACTER)
-        engine = _engine(trig, threshold=5, progress=progress)
-        result = engine.agent_turn("（触发尝试，气氛已到）")
-        assert result.bond_story, "软门槛: 轮数不足但 AI 裁决 → 应触发成功"
-        print("    trigger_threshold(提前): 轮数 2 < 5 → AI 裁决触发成功")
-
-    # 达标: 轮数 5 ≥ 门槛 5 → 触发成功
-    with tempfile.TemporaryDirectory() as d:
-        progress = BondProgress(Path(d) / "bp.json")
-        for _ in range(5):
-            progress.record_turn(CHARACTER)
-        engine = _engine(trig, threshold=5, progress=progress)
-        result = engine.agent_turn("现在我们够熟了吧")
-        assert result.bond_story, "轮数达标应触发成功"
-        print("    trigger_threshold(达标): 轮数 5 ≥ 5 → bond_story=True")
+        engine = _engine(trig, chat, progress=progress)
+        engine.agent_turn("闲聊轮")          # 本轮注记 gap=0 → 沉淀文案
+        s0 = "\n".join(m["content"] for m in engine.llm.snapshots[0])
+        assert "沉淀" in s0 and "羁绊进度事实" in s0, s0
+        engine._bond_gap = 6                # 模拟持久计数已到建议线
+        engine.agent_turn("继续聊")          # 本轮注记 → 主动建议
+        s1 = "\n".join(m["content"] for m in engine.llm.snapshots[1])
+        assert "【剧情时机】" in s1 and "主动发起羁绊剧情" in s1, s1
+        print("    trigger注记分级: gap<6 报沉淀事实 / gap≥6 主动建议发起")
 
 
 # ----------------------------------------------------------------------------
@@ -345,7 +329,7 @@ def main() -> None:
     check("parse 无效回灌重试", _t_parse_error_retry)
     check("执行拒绝(自检)回灌重试", _t_exec_error_retry)
     check("trigger→bond_story", _t_trigger)
-    check("trigger 轮数门槛(拒/过)", _t_trigger_threshold)
+    check("trigger 不拦+注记建议", _t_trigger_suggestion)
     check("bond_scene 解析(段/选项/完)", _t_bond_scene)
     check("story 双动作 scene→end 推导+trace", _t_story_executor)
     check("导演组件 BondScene 视觉字段", _t_director)
