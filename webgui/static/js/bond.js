@@ -681,6 +681,10 @@ const BondVN = (() => {
     stopTyping();
     let data;
     try {
+      // 2026-09-02: 重试上限——生成/标注偶发分钟级, 但不应无限静默转圈;
+      // 超限给出明确错误并解锁（玩家可再点一次真正重试）
+      const MAX_TURN_WAIT = 400;          // 400×700ms ≈ 4.6min（覆盖最慢生成）
+      let tries = 0;
       for (;;) {
         const res = await fetch("/api/bond/turn", {
           method: "POST",
@@ -691,7 +695,21 @@ const BondVN = (() => {
         if (data.busy) {          // 生成中 / 情绪标注门控中（2026-09-02）→ 等待后自动重试
           if (!data.accepted) {   // 门控等待（标注未就绪）→ 显示等待点反馈
             $("bond-choices").innerHTML = "";
-            $("bond-choices").appendChild(loadingDots());
+            const dots = loadingDots();
+            $("bond-choices").appendChild(dots);
+            // 后端拒因（情绪标注中/生成中）——小字提示, 别让玩家以为死机
+            if (data.error && !dots.dataset.noteShown) {
+              dots.dataset.noteShown = "1";
+              const note = document.createElement("div");
+              note.className = "bond-wait-note";
+              note.textContent = data.error;
+              $("bond-choices").appendChild(note);
+            }
+          }
+          if (++tries > MAX_TURN_WAIT) {
+            showTurnError("剧情生成时间过长（可能是模型响应慢）——请点下方按钮重试");
+            busy = false;
+            return;
           }
           await sleep(BOND_POLL_MS);
           continue;
