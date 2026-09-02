@@ -35,6 +35,9 @@ OUT = Path("experiments/out/smoke_digest_v2")
 CHAR = "igusa_haruka"
 WORLD = "smoke-world1"
 
+#: digest 全程时间预算（实验放宽——high 档单次长考可能数分钟; 生产默认 150s）
+DEADLINE_SECONDS = 900.0
+
 FAILS: list[str] = []
 
 
@@ -122,6 +125,7 @@ def run_unit(store: WikiStoreV2, llm, events: list, label: str,
             store, llm, events,
             character_prompt=character_prompt,
             temperature=0.3, max_tokens=8192,
+            deadline_seconds=DEADLINE_SECONDS,       # 实验档放宽（high 长考）
             extra_body=extra_body,
         )
     except Exception as e:                       # noqa: BLE001
@@ -166,11 +170,14 @@ def main() -> int:
     char = CharacterLoader("config/characters").load(CHAR)
     character_prompt = char.build_prompt("bond_story")
 
-    llm = LLMClient(timeout=180)
+    llm = LLMClient(timeout=300)
     # 模型 = 客户端默认（settings.toml/.env, 当前 deepseek-v4-flash, thinking）;
-    # reasoning_effort 由调用方显式传（本脚本: medium——比 low 高一档的实验档;
-    # digest 默认 None → low）; timeout 180s 防单次长考被客户端 60s 掐断
-    effort = {"reasoning_effort": "medium"}
+    # reasoning_effort = argv[1]（low|medium|high, 默认 low——digest 生产默认）;
+    # timeout 300s 防 high 档单次长考被掐断
+    import sys as _sys
+    effort_name = _sys.argv[1] if len(_sys.argv) > 1 else "low"
+    effort = {"reasoning_effort": effort_name}
+    report("effort", f"reasoning_effort={effort_name}（low|medium|high）")
     ok1 = run_unit(store, llm, unit1_events(10), "Round 1 unit（公园散步）",
                    character_prompt, extra_body=effort)
     if ok1:
