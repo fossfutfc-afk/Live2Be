@@ -34,6 +34,11 @@ SIGMA = 1.5                 # 对数正态尺度（衰减快慢）
 #: 批式 embedding 后端（RAG 后路）: texts → 等长向量列表
 EmbedFn = Callable[[list[str]], list[list[float]]]
 
+#: 候选推荐标注阈值（板块 5; embed cosine 与关键词分同尺度归一）
+CAND_HIGH = 0.50            # ≥: 疑似同主题——决策必须 touch/update（禁 add）
+CAND_MED = 0.25             # ≥: 可能相关——供参考, 自由决策
+CAND_K = 3                  # 每 episode 最多候选数
+
 
 def recall_subgraph(
     store: WikiStoreV2,
@@ -91,6 +96,84 @@ def recall_subgraph(
 # ---------------------------------------------------------------------------
 # 通道1
 # ---------------------------------------------------------------------------
+
+def recommend_candidates(store: WikiStoreV2, query: str, *,
+                         embed_fn: EmbedFn | None = None,
+                         k: int = CAND_K) -> list[tuple[BrainNode, float]]:
+    """Round B 候选推荐（板块 5）: episode query → 认知候选（相似度降序, k 截断）。
+
+    服务: digest Round B 输入——引擎先把每条新经历与现有稳定认知碰撞,
+    标注【疑似同主题】(≥CAND_HIGH, 决策必须 touch/update) /【可能相关】
+    (≥CAND_MED, 供参考), 收敛 LLM 决策空间（A-MEM/AgentGal 同款"引擎先筛
+    再让 LLM 逐条判定"）。
+
+    只挑稳定认知（belief/experience）——episode 是流水不参与组织, fact 是
+    出厂基座不可被 touch/update（守 revise._ensure_cognition 语义）。
+
+    **RAG 升级接口（2026-09-02 决策）**: embed_fn 即检索后端——未来上
+    ChromaDB/FAISS/rerank 只换 embed_fn 实现（或其内部加向量库/重排）,
+    调用方零改动。embedding 派生不落盘, 每次冷算（内容改动零漂移）。
+    None → 关键词降级（tags∩ + subject 命中 + 正文 2-gram Dice, 保守——
+    宁缺勿错: 不标注比标错好）。
+
+    Returns: [(node, score), ...] 降序, score > 0; 空 query/空认知 → []。
+    """
+    nodes = [n for n in store.all() if n.kind in ("belief", "experience")]
+    query = (query or "").strip()
+    if not nodes or not query:
+        return []
+    if embed_fn is not None:
+        try:
+            vecs = embed_fn([_embed_text(n) for n in nodes])
+            qv = embed_fn([query])[0]
+            scored = sorted(
+                ((_cosine(qv, v), n) for n, v in zip(nodes, vecs) if v),
+                key=lambda t: t[0], reverse=True)
+            return [(n, s) for s, n in scored[:k] if s > 0]
+        except Exception:                       # noqa: BLE001 — 后端故障降级
+            pass
+    return _keyword_candidates(nodes, query, k)
+
+
+def _keyword_candidates(nodes: list[BrainNode], query: str,
+                        k: int) -> list[tuple[BrainNode, float]]:
+    """零依赖降级（保守, 宁缺勿错: 不标注比标错好——假阳性会逼 LLM 错 update）:
+
+    - tags 命中（检索导向, 最强信号）→ 0.6 + 0.1 × (命中数-1)
+    - subject 整体出现在 query（正文点名主题词）→ 0.85
+    - 正文 2-gram Dice（verbatim/近句重现）→ 取原始 Dice（>0.35 才认）
+    取各项最大值; score ≤ 0 → 不推荐。
+    """
+    q2 = _bigrams(query)
+    out: list[tuple[BrainNode, float]] = []
+    for n in nodes:
+        s = 0.0
+        hits = [t for t in n.tags if t and t in query]
+        if hits:
+            s = max(s, 0.6 + 0.1 * (len(hits) - 1))
+        if n.subject and n.subject in query:
+            s = max(s, 0.85)
+        body = n.main_text + (" " + n.growth if n.growth else "")
+        d = _dice(q2, _bigrams(body))
+        if d > 0.35:
+            s = max(s, d)
+        if s > 0:
+            out.append((n, s))
+    out.sort(key=lambda t: (t[1], t[0].significance), reverse=True)
+    return out[:k]
+
+
+def _bigrams(text: str) -> set[str]:
+    """中文无分词下的轻量词元: 去空白后全部相邻 2-gram。"""
+    chars = [c for c in text if not c.isspace()]
+    return {chars[i] + chars[i + 1] for i in range(len(chars) - 1)}
+
+
+def _dice(a: set[str], b: set[str]) -> float:
+    if not a or not b:
+        return 0.0
+    return 2.0 * len(a & b) / (len(a) + len(b))
+
 
 def _similarity_hits(nodes: list[BrainNode], query: str,
                      embed_fn: EmbedFn | None, k: int) -> list[BrainNode]:

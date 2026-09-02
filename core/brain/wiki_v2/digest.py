@@ -43,6 +43,14 @@ from contract.digest_registry import (
 )
 from core.brain.wiki_v2.llm_call import llm_chat
 from core.brain.wiki_v2.nodes import make_node
+from core.brain.wiki_v2.recall import (
+    CAND_HIGH,
+    CAND_MED,
+    CAND_K,
+    EmbedFn,
+    recommend_candidates,
+)
+from core.brain.wiki_v2.render import render_cognition_list
 from core.brain.wiki_v2.revise import apply_decisions
 from core.brain.wiki_v2.store import WikiStoreV2
 from core.session.renderer import render_timeline
@@ -80,6 +88,7 @@ def digest_segment(
     character_prompt: str = "",
     visuals: list[str] | None = None,
     model: str | None = None,
+    embed_fn: EmbedFn | None = None,
     temperature: float = 0.3,
     max_tokens: int = 8192,
     evidence_threshold: float = EVIDENCE_THRESHOLD,
@@ -141,14 +150,16 @@ def digest_segment(
             store, entries, ts=now_ts, segment_id=segment_id,
             event_seq=[interact_max])
 
-        # ── Round B: 理解者 ──
-        cognitions, id_map = _render_cognitions(store, cap=COGNITION_CAP)
+        # ── Round B: 理解者（引擎候选推荐 + 决策表）──
+        cog_text, local_of = render_cognition_list(store, cap=COGNITION_CAP)
+        ep_text, high_map = _round_b_material(store, episode_ids, local_of,
+                                              embed_fn=embed_fn)
         system_b = load_prompt("digest_v2_round_b").replace(
             "{{digest_schema}}", digest_registry.build_schema(PHASE_UNDERSTAND))
         user_b = _join_sections([
-            ("本次新经历", _render_episodes(store, episode_ids)),
+            ("本次新经历（含引擎候选标注）", ep_text),
             ("本段时间线（evidence 的 quote 必须逐字引用这里）", timeline),
-            ("现有认知", cognitions),
+            ("现有认知", cog_text),
             ("角色人设（锚点）", character_prompt),
         ])
         rows, resp_b = _round_call(
@@ -156,12 +167,16 @@ def digest_segment(
             model=model, temperature=temperature, max_tokens=max_tokens,
             extra_body=extra_body, deadline=deadline, label="round_b",
             parse_fn=lambda r: digest_registry.parse_round_b(
-                r, episode_ids=set(episode_ids), target_ids=set(id_map)),
+                r, episode_ids=set(episode_ids),
+                target_ids=set(local_of.values()),      # local_of: real→local, 取 values
+                must_touch=high_map),
             result=result)
         if rows is None:
             return _rollback(store, snapshot, result)
-        apply_decisions(store, rows, id_map=id_map, ts=now_ts,
-                        segment_id=segment_id, event_seq=[interact_max])
+        apply_decisions(store, rows,
+                        id_map={v: k for k, v in local_of.items()},   # local→real
+                        ts=now_ts, segment_id=segment_id,
+                        event_seq=[interact_max])
     except ValueError as e:                              # store 层拒绝 → 回滚
         result.errors.append(str(e))
         return _rollback(store, snapshot, result)
@@ -258,10 +273,22 @@ def _create_episodes(store: WikiStoreV2, entries: list[dict], *, ts: str,
     return ids
 
 
-def _render_episodes(store: WikiStoreV2, ids: list[str]) -> str:
-    """Round B 输入: 新经历摘要（真实 id; title + 正文截断 + 原话）。"""
+def _round_b_material(store: WikiStoreV2, episode_ids: list[str],
+                      local_of: dict[str, str],
+                      embed_fn: EmbedFn | None) -> tuple[str, dict[str, str]]:
+    """Round B 输入: 新经历摘要 + 每条引擎候选标注（板块 5）。
+
+    每条 episode 用 main_text 走 recommend_candidates 与现有认知碰撞:
+        ≥CAND_HIGH  → 标注【疑似同主题】——决策必须 touch/update（禁 add）,
+                      high_map[nid] = 该候选的本地 id（parse 层结构强制）
+        ≥CAND_MED   → 标注【可能相关】——供参考, LLM 自由 touch/update
+    无标注 → 不画蛇添足（LLM 自由 add/组织）。
+
+    Returns: (episodes_text, high_map)。
+    """
     lines: list[str] = []
-    for nid in ids:
+    high_map: dict[str, str] = {}
+    for nid in episode_ids:
         node = store.get(nid)
         if node is None:
             continue
@@ -272,33 +299,24 @@ def _render_episodes(store: WikiStoreV2, ids: list[str]) -> str:
         lines.append(f"{node.id} 「{title}」 {head}")
         if node.verbatim:
             lines.append(f"    原话: {node.verbatim}")
-    return "\n".join(lines) or "（无）"
-
-
-def _render_cognitions(store: WikiStoreV2, cap: int) -> tuple[str, dict[str, str]]:
-    """Round B 输入: 现有认知渲染（本地 id u0001..; 排序: significance 降序）。
-
-    渲染层只挑稳定认知（belief/experience）; episode 是流水不参与组织（B 不修细节）。
-    id_map: 本地 id → 真实 id（执行器解析用; parse 层只认本地 id——防 LLM 猜真实 id）。
-    """
-    nodes = [n for n in store.all() if n.kind in ("belief", "experience")]
-    nodes.sort(key=lambda n: (-n.significance, n.id))
-    lines: list[str] = []
-    id_map: dict[str, str] = {}
-    for i, n in enumerate(nodes[:cap], start=1):
-        local = f"u{i:04d}"
-        id_map[local] = n.id
-        kind_tag = f"[{n.kind}]"
-        body = n.content if n.kind == "belief" else (
-            f"{n.pattern}（次数 {n.count}）" if n.count > 1 else n.pattern)
-        if len(body) > 100:
-            body = body[:100] + "…"
-        sig = f", sig {n.significance:.2f}" if n.is_precious else ""
-        subject = f" 关于 {n.subject}:" if n.subject else ""
-        lines.append(f"{local} {kind_tag}{subject} {body}{sig}")
-    if not lines:
-        return "（尚无稳定认知——这是第一次理解, 直接 add）", id_map
-    return "\n".join(lines), id_map
+        query = f"{node.narration} {node.verbatim}".strip()
+        cands = recommend_candidates(store, query, embed_fn=embed_fn, k=CAND_K)
+        cands = [(c, s) for c, s in cands if c.id in local_of]   # 只标已渲染的
+        highs = [(c, s) for c, s in cands if s >= CAND_HIGH]
+        meds = [(c, s) for c, s in cands if CAND_MED <= s < CAND_HIGH]
+        if highs:
+            top = local_of[highs[0][0].id]
+            high_map[nid] = top
+            ids = " ".join(local_of[c.id] for c, _ in highs)
+            lines.append(
+                f"    → 【疑似同主题】(sim {highs[0][1]:.2f}): {ids}"
+                " —— 与上同主题, decision 只能 touch/update（禁 add 重复）")
+        if meds:
+            ids = " ".join(local_of[c.id] for c, _ in meds)
+            lines.append(
+                f"    → 可能相关(sim {meds[0][1]:.2f}): {ids}"
+                " —— 供参考, 可选 touch/update 或视作无关")
+    return "\n".join(lines) or "（无）", high_map
 
 
 def _join_sections(sections: list[tuple[str, str]]) -> str:

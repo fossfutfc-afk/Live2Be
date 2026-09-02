@@ -298,11 +298,15 @@ class DigestRegistry:
         return out, ValidationResult(tuple(errors), tuple(warnings))
 
     def parse_round_b(self, raw: Any, *, episode_ids: set[str],
-                      target_ids: set[str]) -> tuple[list[dict], ValidationResult]:
+                      target_ids: set[str],
+                      must_touch: dict[str, str] | None = None,
+                      ) -> tuple[list[dict], ValidationResult]:
         """Round B: {"decisions": [...], "evidence": [...], "affection_exp_delta": n}。
 
         episode_ids: 本轮 Round A 产出的真实 episode id 集（引用检查）。
         target_ids: 渲染给 LLM 的认知本地 id 集（u0001..; 引用检查）。
+        must_touch: 引擎候选标注（板块 5）: {episode_id: 疑似同主题候选的本地 id}——
+        这些 episode 的 decision 只能是 touch/update（禁 add 重复, 结构强制）。
         """
         errors: list[str] = []
         warnings: list[str] = []
@@ -327,6 +331,12 @@ class DigestRegistry:
                 continue
             seen.add(ep)
             item: dict = {"episode": ep, "decision": decision}
+            forced = (must_touch or {}).get(ep)
+            if forced and decision == "add":
+                errors.append(
+                    f"decisions[{i}]: episode {ep} 存在疑似同主题候选"
+                    f"（{forced}）——decision 只能是 touch/update（禁 add 同主题重复）")
+                continue
             if decision in ("touch", "update"):
                 target = str(row.get("target", "")).strip()
                 if not target:

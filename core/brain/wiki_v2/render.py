@@ -1,10 +1,12 @@
-"""render.py — 渲染视图（AGENT_BRAIN.md §4 / M2）。
+"""render.py — 渲染视图（AGENT_BRAIN.md §4 / M2 + 板块5）。
 
-同一张图, 两种渲染（视图分工）:
-    组织视图  render_organize_view   —— 喂 digest/组织 LLM
-             带 id + 邻接表 + 层/显著性/矛盾标记, 供修订决策（LLM 按 id 引用）
-    角色视图  render_character_view  —— 喂主剧情 LLM
-             纯第一人称叙事, 无 id 无链接, 分层排序（§4.2 + 排序规则）
+同一张图, 多种渲染（视图分工）:
+    组织视图    render_organize_view    —— 喂 digest/组织 LLM
+               带 id + 邻接表 + 层/显著性/矛盾标记, 供修订决策（LLM 按 id 引用）
+    角色视图    render_character_view   —— 喂主剧情 LLM
+               纯第一人称叙事, 无 id 无链接, 分层排序（§4.2 + 排序规则）
+    认知列表    render_cognition_list   —— Round B 输入（板块5）
+               本地 id u0001.. 渲染（belief/experience, sig 降序）——引擎防 LLM 猜真实 id
 
 格式约定（决策 #7）: id 无 # 无下划线（m0003）——组织视图行首即 id, 防 markdown 标题歧义。
 player experience（§4.4）: 组织视图带 [关于老师] 标记; 角色视图独立【老师的事】段。
@@ -182,3 +184,41 @@ def _me(text: str, char_name: str) -> str:
     if not char_name or not text:
         return text
     return text.replace(char_name, "我")
+
+
+# ---------------------------------------------------------------------------
+# Round B 输入渲染（板块 5: 认知列表 + episode 摘要）
+# ---------------------------------------------------------------------------
+
+def render_cognition_list(store: WikiStoreV2, cap: int = 12
+                          ) -> tuple[str, dict[str, str]]:
+    """Round B 输入: 现有稳定认知渲染（本地 id u0001..; 排序: significance 降序）。
+
+    只挑 belief/experience（episode 是流水不参与组织, fact 是出厂基座不可
+    touch/update）; 渲染层守 _ensure_cognition 语义, 引擎不给 LLM 不可选之物。
+
+    Returns:
+        (text, local_of): local_of = 真实 id → 本地 id（候选标注/执行器解析用;
+        parse 层只认本地 id——防 LLM 猜真实 id）
+    """
+    nodes = [n for n in store.all() if n.kind in ("belief", "experience")]
+    nodes.sort(key=lambda n: (-n.significance, n.id))
+    lines: list[str] = []
+    local_of: dict[str, str] = {}
+    for i, n in enumerate(nodes[:cap], start=1):
+        local = f"u{i:04d}"
+        local_of[n.id] = local
+        body = n.content if n.kind == "belief" else (
+            f"{n.pattern}（次数 {n.count}）" if n.count > 1 else n.pattern)
+        if len(body) > 100:
+            body = body[:100] + "…"
+        sig = f", sig {n.significance:.2f}" if n.is_precious else ""
+        subject = f" 关于 {n.subject}:" if n.subject else ""
+        lines.append(f"{local} {_kind_tag(n)}{subject} {body}{sig}")
+    if not lines:
+        return "（尚无稳定认知——这是第一次理解, 直接 add）", local_of
+    return "\n".join(lines), local_of
+
+
+def _kind_tag(node: BrainNode) -> str:
+    return f"[{node.kind}]"
