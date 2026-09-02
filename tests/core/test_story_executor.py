@@ -53,20 +53,20 @@ def test_parse_story_scene_paragraphs_inline_emotion():
         ],
     })
     assert r.is_valid and a is not None
-    assert a.payload["paragraphs"] == [
-        {"text": "啊...我是不是又做错什么了", "emotion": "panic"},
-        {"text": "对不起...", "emotion": "panic"},
-        {"text": "啊..没关系吗..欸嘿嘿", "emotion": "smile"},
-    ]
-    # 2026-08-31 两遍式 C: emotion 从必填降为**可选**（骨架模式）——省略不再
-    # ContractError（生成不背 emotion 负担; 缺省段落由标注层批量补标）
+    # 2026-09-02 切分权移交定稿: 骨架 emotion 一律丢弃（标注层唯一真源,
+    # 防双源/锚定——生成 LLM 不再背情绪负担）
+    assert all("emotion" not in p for p in a.payload["paragraphs"])
+    assert [p["text"] for p in a.payload["paragraphs"]] == [
+        "啊...我是不是又做错什么了", "对不起...", "啊..没关系吗..欸嘿嘿"]
+    # 骨架缺 emotion（旧两遍式 C 模式）→ 照常合法（标注层全量回填）
     a2, r2 = _parse("story_scene", {
         "paragraphs": [{"text": "我忘记标表情了", "emotion": "smile"},
                        {"text": "这行没标"}],
     })
     assert r2.is_valid and a2 is not None
-    assert "emotion" not in a2.payload["paragraphs"][1], a2.payload["paragraphs"]
-    # 旧习惯模型: 裸字符串段落 → 包成 {"text": ...}（兼容）;
+    assert "emotion" not in a2.payload["paragraphs"][0]
+    assert "emotion" not in a2.payload["paragraphs"][1]
+    # 旧习惯模型: 裸字符串段落 → 当单自然段（兼容）;
     # 有 choices 时必须带 branches（板块契约）——单串 choices 也触发强制
     a, r = _parse("story_scene", {
         "paragraphs": "单段", "choices": "单选",
@@ -75,20 +75,19 @@ def test_parse_story_scene_paragraphs_inline_emotion():
     assert a.payload["paragraphs"] == [{"text": "单段"}]
     assert a.payload["choices"] == ["单选"]
     assert a.payload["branches"] == {"单选": [{"text": "分支段"}]}
-    print("    parse_story_scene: 段落 emotion 可选（骨架, 标注层补标）+ 单串容错")
+    print("    parse_story_scene: 骨架 emotion 丢弃（标注层唯一真源）+ 单串容错")
 
 
 def test_parse_story_scene_sentence_split():
-    """2026-08-31 两遍式实测定版: 多句段落**切分不打回**——每句一段, 标注层
-    对每句独立标注（切分不再继承表情——每句独立标签, 粒度仍到句）;
-    省略号是语气停顿不算句末; 带 emotion 的旧桩切分后每句同 emotion。"""
-    # 多句压一段 → 切分（不再 ContractError——骨架结构失败源只剩 JSON 格式）
+    """2026-09-02 切分权移交: 自然段 → sentence_splitter 切句（块保护/数字点/
+    碎句合并）; 骨架 emotion 丢弃; 省略号是语气停顿不算句末。"""
+    # 多句自然段 → 切分（碎句合并: 5 字首句并入后句）
     a, r = _parse("story_scene", {"paragraphs": [
         {"text": "她站在窗边。风把她的发梢吹起来。她回头看了你一眼。",
          "emotion": "smile"}]})
     assert r.is_valid
     assert [p["text"] for p in a.payload["paragraphs"]] == [
-        "她站在窗边。", "风把她的发梢吹起来。", "她回头看了你一眼。"]
+        "她站在窗边。风把她的发梢吹起来。", "她回头看了你一眼。"]
     # 省略号是语气停顿不是句末——"老师……我这种人……"不切（0 个句末标点）
     a2, r2 = _parse("story_scene", {"paragraphs": [
         {"text": "老师……我这种人……也可以吗？", "emotion": "embarrass"}]})
@@ -102,7 +101,14 @@ def test_parse_story_scene_sentence_split():
     a4, r4 = _parse("story_scene", {"paragraphs": [
         {"text": "她站在窗边，风把她的发梢吹起来。", "emotion": "smile"}]})
     assert r4.is_valid and len(a4.payload["paragraphs"]) == 1
-    print("    parse_story_scene: 多句切分（标注层逐句补标）+ 省略号保留 + 逗号分句不切")
+    # 括号块保护（块内句号不切——LLM 长文本整段输出也能正确切句）
+    a5, r5 = _parse("story_scene", {"paragraphs": [
+        {"text": "（她站在门口，还能听到心跳。她深吸一口气。）「打扰了。」她轻声说。",
+         "emotion": "nervous"}]})
+    assert r5.is_valid
+    assert [p["text"] for p in a5.payload["paragraphs"]] == [
+        "（她站在门口，还能听到心跳。她深吸一口气。）", "「打扰了。」", "她轻声说。"]
+    print("    parse_story_scene: 自然段切句（合并/块保护/数字点）+ 省略号不切")
 
 
 def test_parse_story_scene_branches():
@@ -111,34 +117,35 @@ def test_parse_story_scene_branches():
     a, r = _parse("story_scene", {
         "paragraphs": [{"text": "x", "emotion": "nomal"}], "choices": ["A"]})
     assert a is None and not r.is_valid and "branches" in r.errors[0]
-    # 正常: branches 解析 + 键对齐（只取 choices 的键）+ 一句一段硬校验
+    # 正常: branches 解析 + 键对齐（只取 choices 的键）+ 段落同校验（切分）
     a, r = _parse("story_scene", {
         "paragraphs": [{"text": "正文。", "emotion": "nomal"}],
         "choices": ["A", "B"],
         "branches": {
-            "A": [{"text": "分支A。", "emotion": "smile"},
-                  {"text": "第二句也在这。", "emotion": "smile"}],
+            "A": [{"text": "分支A推开门走了进去。第二句也在这段里。", "emotion": "smile"}],
             "B": "单段分支",
             "C": [{"text": "非选项键被忽略", "emotion": "nomal"}],
         }})
     assert r.is_valid
     assert list(a.payload["branches"].keys()) == ["A", "B"], a.payload["branches"]
     assert a.payload["branches"]["A"] == [
-        {"text": "分支A。", "emotion": "smile"},
-        {"text": "第二句也在这。", "emotion": "smile"},
+        {"text": "分支A推开门走了进去。"},
+        {"text": "第二句也在这段里。"},
     ]
     assert a.payload["branches"]["B"] == [{"text": "单段分支"}]
-    # 分支段落同样切分（多句压一段 → 切, 标注层逐句补标——不打回）
+    # 分支段落同样切分（多句自然段 → 句段, emotion 丢弃——不打回）
     a, r = _parse("story_scene", {
         "paragraphs": [{"text": "正文。", "emotion": "nomal"}],
         "choices": ["A"],
-        "branches": {"A": [{"text": "分支一。分支二。", "emotion": "smile"}]}})
+        "branches": {"A": [{"text": "分支一的分支内容。分支二的分支内容。", "emotion": "smile"}]}})
     assert r.is_valid
-    assert [p["text"] for p in a.payload["branches"]["A"]] == ["分支一。", "分支二。"]
+    assert [p["text"] for p in a.payload["branches"]["A"]] == [
+        "分支一的分支内容。", "分支二的分支内容。"]
+    assert all("emotion" not in p for p in a.payload["branches"]["A"])
     # 无 choices（纯叙事板块）→ 不需要 branches
     a, r = _parse("story_scene", {"paragraphs": [{"text": "纯叙事。", "emotion": "nomal"}]})
     assert r.is_valid and "branches" not in a.payload
-    # 2026-08-31 两遍式 C: 分支段落缺 emotion → 通过（骨架模式, 标注层补标）
+    # 分支段落缺 emotion → 通过（骨架模式, 标注层全量补标）
     a, r = _parse("story_scene", {
         "paragraphs": [{"text": "正文。", "emotion": "nomal"}],
         "choices": ["A"],
@@ -265,17 +272,18 @@ def test_from_action_derives_is_end():
 
 
 def test_story_end_place_and_scene_carry():
-    # story_end 也支持 place; paragraphs emotion 内联携带
+    # story_end 也支持 place; 骨架 emotion 丢弃（标注层唯一真源）
     a, r = _parse("story_end", {
         "paragraphs": [{"text": "她笑了", "emotion": "smile"}],
         "place": "rooftop",
     })
     assert r.is_valid
-    assert a.payload["paragraphs"] == [{"text": "她笑了", "emotion": "smile"}]
+    assert a.payload["paragraphs"] == [{"text": "她笑了"}]
     assert a.payload["place"] == "rooftop"
-    # BondScene 携带（含 to_dict/from_dict 往返）
+    # BondScene 携带（含 to_dict/from_dict 往返; 直接 from_action 不经 parse,
+    # emotion 保留——demo/测试/标注回填场景用）
     scene = BondScene.from_action(a)
-    assert scene.paragraphs == [{"text": "她笑了", "emotion": "smile"}]
+    assert scene.paragraphs == [{"text": "她笑了"}]
     assert scene.place == "rooftop"
     rt = BondScene.from_dict(scene.to_dict())
     assert rt.paragraphs == scene.paragraphs and rt.place == scene.place

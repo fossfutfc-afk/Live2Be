@@ -67,12 +67,18 @@ def _director(tmp_path, **kw) -> Director:
 
 
 class _MainLLM:
-    """引擎集成测试用的主 LLM stub（单动作脚本）。"""
+    """引擎集成测试用的主 LLM stub（单动作脚本; 标注调用返回 nomal 数组）。"""
 
     def __init__(self, script: dict):
         self._script = script
 
     def chat(self, messages, temperature=0.8, max_tokens=4096, response_format="text"):
+        import re as _re
+        head = messages[0]["content"]
+        last = messages[-1]["content"] if len(messages) > 1 else ""
+        if "情绪标签数组" in last:               # emotion 标注 → 全 nomal
+            n = len(_re.findall(r"(?m)^\d+: ", head))
+            return ["nomal"] * max(n, 1)
         return self._script
 
     def format_messages(self, *, system_prompt, user_message, history=None):
@@ -150,7 +156,8 @@ def test_engine_attaches_background_audio(tmp_path):
     scene = vn.send_vn_scene("（开场）")
     assert scene.background == "class_room"
     assert scene.audio is None                           # 占位
-    assert scene.paragraphs == [{"text": "她脸红了。", "emotion": "embarrass"}]
+    # 2026-09-02: 骨架 emotion 丢弃 → 标注层回填（stub 返回 nomal）
+    assert scene.paragraphs == [{"text": "她脸红了。", "emotion": "nomal"}]
     assert scene.place == "class_room"
     dct = scene.to_dict()
     assert dct["background"] == "class_room"             # 存档可见

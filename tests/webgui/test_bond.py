@@ -52,7 +52,9 @@ def _digest_stub(messages):
 
 
 class ScriptedLLM:
-    """带 chat(json_object) 的脚本化 LLM——agent_turn / send_vn_scene / digest 都走它。"""
+    """带 chat(json_object) 的脚本化 LLM——agent_turn / send_vn_scene / digest 都走它。
+    emotion 标注调用（2026-09-02: 骨架 emotion 丢弃 → 异步标注全量回填）自动
+    返回全 nomal 数组（从 system 编号行数推断句数）, 不消耗脚本。"""
 
     def __init__(self, *scripts):
         self._scripts = list(scripts)
@@ -61,7 +63,13 @@ class ScriptedLLM:
     def chat(self, messages, temperature=0.8, max_tokens=4096, response_format="text",
              **kw):
         self.snapshots.append([dict(m) for m in messages])
-        if "记录员" in messages[0]["content"] or "整理者" in messages[0]["content"]:
+        head = messages[0]["content"]
+        last = messages[-1]["content"] if len(messages) > 1 else ""
+        if "情绪标签数组" in last:               # emotion 标注 → 全 nomal
+            import re as _re
+            n = len(_re.findall(r"(?m)^\d+: ", head))
+            return ["nomal"] * max(n, 1)
+        if "记录员" in head or "整理者" in head:
             return _digest_stub(messages)              # digest 调用 → 两轮空包
         if not self._scripts:
             raise RuntimeError("ScriptedLLM 脚本耗尽")
@@ -133,7 +141,8 @@ def test_bond_full_flow(tmp_path):
         assert st1["round"] == 1 and st1["scene"] is not None
         scene1 = st1["scene"]
         assert scene1["paragraphs"][0]["text"] == "段落一。"
-        assert scene1["paragraphs"][1]["emotion"] == "smile"
+        # 2026-09-02: 骨架 emotion 丢弃 → 异步标注回填（stub 返回 nomal）
+        assert scene1["paragraphs"][1]["emotion"] == "nomal"
         assert scene1["choices"] == ["选A", "选B"]
         assert not st1["completed"]
 
@@ -171,7 +180,8 @@ def test_bond_full_flow(tmp_path):
         sc = [e for e in evs if (e.type, e.subtype) == ("bond", "story_scene")][0]
         assert sc.payload["picked"] == "选A", sc.payload
         assert "旁白" in sc.payload["input"], sc.payload
-        assert sc.payload["paragraphs"][1]["emotion"] == "smile"
+        # 落库场景 emotion = 标注回填值（推进门控保证落库前已就绪; stub = nomal）
+        assert sc.payload["paragraphs"][1]["emotion"] == "nomal"
         en = [e for e in evs if (e.type, e.subtype) == ("bond", "story_end")][0]
         assert en.payload["picked"] is None, en.payload
         # 收尾 marker 顺序: vn_exit 在 session_end 前
@@ -517,25 +527,24 @@ def test_bond_async_annotate(tmp_path):
                 break
             time.sleep(0.05)
         s2 = bond.bond_status(CHARACTER, sid)
-        assert s2["scene"]["paragraphs"][1]["emotion"] == "smile", s2["scene"]
+        # 2026-09-02: 骨架 emotion 丢弃 → 标注 stub 全 nomal 回填（补标机制不变）
+        assert s2["scene"]["paragraphs"][1]["emotion"] == "nomal", s2["scene"]
         # branches 补标（第二个标注调用）
         while time.time() < deadline:
             s = bond.bond_status(CHARACTER, sid)
             if s["scene"]["branches"]["选A"][0].get("emotion"):
                 break
             time.sleep(0.05)
-        assert bond.bond_status(CHARACTER, sid)["scene"]["branches"]["选A"][0]["emotion"] == "expectant"
+        assert bond.bond_status(CHARACTER, sid)["scene"]["branches"]["选A"][0]["emotion"] == "nomal"
         print("    bond 异步标注: 骨架先显示（等待=生成）→ 队列补标 emo_version++ → 正文/branches 补齐")
     finally:
         _cleanup()
 
 
-def test_bond_async_annotate_discard_on_replace(tmp_path):
-    """竞态（用户重点）: 标注完成前场景被推进（替换）→ 标注结果丢弃, 不污染新场景。
-
-    时序: 骨架1（缺 emotion）→ 标注线程阻塞在标注调用 → 玩家选 → 骨架2 生成
-    （scene_obj 替换）→ 释放标注 → 写回检查发现对象已非当前 → 丢弃。
-    """
+def test_bond_annotate_gate_blocks_then_releases(tmp_path):
+    """推进门控（2026-09-02, 用户拍板）: 情绪没到位不让点下一轮——标注未完成
+    （闸门阻塞）→ turn 被 busy 拦（前端自动轮询）; 标注完成 → 放行推进。
+    场景推进后的 worker 写回对象检查保留为防御（门控下竞态不可达, 不污染新场景）。"""
     import threading as _th
 
     gate = _th.Event()                             # 标注调用阻塞闸门
@@ -577,21 +586,32 @@ def test_bond_async_annotate_discard_on_replace(tmp_path):
         deadline = time.time() + 5.0
         while time.time() < deadline and not gate._cond._waiters:
             time.sleep(0.02)
-        bond.bond_turn(CHARACTER, sid, "继续走")    # 分支消费（scene_obj → 分支场景）
-        _wait_status(CHARACTER, sid)               # 等分支触发的预生成完成（busy=False）
-        r = bond.bond_turn(CHARACTER, sid, "（继续）")   # 消费预生成 → scene_obj = 骨架2
-        assert r["accepted"], r
-        _wait_status(CHARACTER, sid)
-        # 释放标注 → 写回检查（scene_obj 已非骨架1 → 丢弃）
+        # 推进门控（2026-09-02）: 标注未完成 → 分支选择也被拦（busy 语义,
+        # 前端自动轮询重试）——情绪不到位不推进
+        r = bond.bond_turn(CHARACTER, sid, "继续走")
+        assert not r["accepted"] and r.get("busy") is True, r
+        assert "情绪标注中" in r.get("error", ""), r
+        # 释放标注 → 回填完成 → 重试放行（分支消费）
         gate.set()
+        r2 = _turn_until_accepted(CHARACTER, sid, "继续走")
+        assert r2.get("branch"), r2
+        _wait_status(CHARACTER, sid)               # 分支触发的预生成完成（busy=False）
+        # 场景推进后 worker 写回对象检查（防御: 丢弃不污染——门控下竞态不可达,
+        # 防御保留）。消费预生成 → scene_obj = 骨架2 → 骨架2 自身标注完成
+        r3 = _turn_until_accepted(CHARACTER, sid, "（继续）")
+        assert r3.get("pregen") or r3.get("accepted"), r3
         deadline = time.time() + 5.0
-        while time.time() < deadline and released["n"] < 1:
+        while time.time() < deadline:
+            s = bond.bond_status(CHARACTER, sid)
+            if s["scene"]["paragraphs"] and s["scene"]["paragraphs"][0].get("emotion"):
+                break
             time.sleep(0.05)
         s = bond.bond_status(CHARACTER, sid)
-        # 新场景段落不被骨架1 的标注污染（丢弃生效）:
-        # 骨架1 标注 tags=["nomal","smile"]——若污染, 新场景 [0] 会被改掉
-        assert s["scene"]["paragraphs"][0]["emotion"] == "smile", s["scene"]
-        print("    bond 异步标注竞态: 场景推进后标注写回被丢弃（不污染新场景）")
+        # 新场景段落未被骨架1 的标注污染（对象检查丢弃生效——文本仍是第二场）;
+        # 2026-09-02: 骨架 emotion 丢弃 → 标注返回 2 标签 vs 1 句 → 清洗失败兜底 nomal
+        assert s["scene"]["paragraphs"][0]["text"] == "第二场。", s["scene"]
+        assert s["scene"]["paragraphs"][0]["emotion"] == "nomal", s["scene"]
+        print("    bond 门控: 标注未完成 turn 被拦 → 释放后放行; 写回对象检查防御保留")
     finally:
         _cleanup()
 
@@ -616,7 +636,13 @@ class StreamLLM:
 
     def chat(self, messages, temperature=0.8, max_tokens=4096, response_format="text",
              **kw):
-        if "记录员" in messages[0]["content"] or "整理者" in messages[0]["content"]:
+        head = messages[0]["content"]
+        last = messages[-1]["content"] if len(messages) > 1 else ""
+        if "情绪标签数组" in last:               # emotion 标注 → 全 nomal
+            import re as _re
+            n = len(_re.findall(r"(?m)^\d+: ", head))
+            return ["nomal"] * max(n, 1)
+        if "记录员" in head or "整理者" in head:
             return _digest_stub(messages)              # digest 调用 → 两轮空包
         if not self._scripts:
             raise RuntimeError("StreamLLM 脚本耗尽")
@@ -624,7 +650,13 @@ class StreamLLM:
 
     def chat_full(self, messages, temperature=0.8, max_tokens=4096,
                   response_format="text", extra_body=None, on_chunk=None):
-        if "记录员" in messages[0]["content"] or "整理者" in messages[0]["content"]:
+        head = messages[0]["content"]
+        last = messages[-1]["content"] if len(messages) > 1 else ""
+        if "情绪标签数组" in last:               # 标注调用（chat_full 路径兜底）
+            import re as _re
+            n = len(_re.findall(r"(?m)^\d+: ", head))
+            return ["nomal"] * max(n, 1)
+        if "记录员" in head or "整理者" in head:
             return _digest_stub(messages)
         if not self._scripts:
             raise RuntimeError("StreamLLM 脚本耗尽")
