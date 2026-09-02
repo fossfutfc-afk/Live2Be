@@ -123,3 +123,45 @@ def test_chat_full_stream_401_raises_immediately():
     with pytest.raises(httpx.HTTPStatusError):
         client.chat_full([{"role": "user", "content": "hi"}])
     assert client._http.stream.call_count == 1
+
+
+# ---------------------------------------------------------------------------
+# thinking level（settings.toml [llm] reasoning_effort, 2026-09-02）
+# ---------------------------------------------------------------------------
+
+def _client_with_effort(monkeypatch, effort: str) -> LLMClient:
+    import llm.client as client_mod
+    monkeypatch.setattr(client_mod, "_settings_toml",
+                        lambda: {"llm": {"reasoning_effort": effort}})
+    return LLMClient(api_key="test-key", base_url="https://example.test/v1")
+
+
+def test_effort_parsed_from_settings(monkeypatch):
+    c = _client_with_effort(monkeypatch, "high")
+    assert c.default_extra_body == {"reasoning_effort": "high"}
+    c2 = _client_with_effort(monkeypatch, "")
+    assert c2.default_extra_body == {}                # 空/缺失 → 不注入
+
+
+def test_effort_invalid_ignored(monkeypatch):
+    c = _client_with_effort(monkeypatch, "turbo")
+    assert c.default_extra_body == {}                 # 非法档位忽略（logger 警告）
+
+
+def test_effort_injected_on_chat(monkeypatch):
+    """extra_body=None → settings 默认档注入 payload; 显式 {} 关闭。"""
+    import llm.client as client_mod
+    c = _client_with_effort(monkeypatch, "medium")
+    sent: list[dict] = []
+
+    def fake_request(payload, timeout=None):
+        sent.append(payload)
+        return json.dumps({"ok": 1})
+
+    monkeypatch.setattr(c, "_request_with_retry", fake_request)
+    c.chat([{"role": "user", "content": "hi"}], response_format="text")
+    assert sent[0].get("reasoning_effort") == "medium"
+
+    c.chat([{"role": "user", "content": "hi"}], response_format="text",
+           extra_body={})                              # 显式 {} → 关闭默认
+    assert "reasoning_effort" not in sent[1]

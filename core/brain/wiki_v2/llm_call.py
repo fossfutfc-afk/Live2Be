@@ -3,9 +3,12 @@
 digest 唯一的 LLM 触面——所有传输级失败模式收敛一处:
     - 调用重试: 偶发空响应/坏 JSON → 重试 N 次（JsonExtract 等异常）
     - deadline: 撞上时间预算立即放弃（重试放大曾拖垮一次 digest 到近半小时, 2026-09-02）
-    - reasoning_effort: None → {"reasoning_effort": "high"}（生产默认, 2026-09-02 拍板——
-      实验矩阵 low 5/5(17s/次, 合格但浅) / medium 1/3(规则校验失败) / high 2/2
-      (118s+32s, 认知深化与逐字校验质量最佳) → 默认提档 high; 显式传 {} 可关闭）
+    - reasoning_effort: **不在此硬编码**——单一配置源 settings.toml [llm]
+      reasoning_effort（low|medium|high; 空/缺失 → 不注入=模型默认）。
+      解析链: LLMClient 构造时读 settings → default_extra_body; llm_chat 的
+      extra_body=None → 透传 → 客户端注入默认档。显式传 {} 关闭默认。
+      （2026-09-02 实验矩阵: low 5/5 浅 / medium 1/3 / high 2/2 → 默认 high,
+      档位改 settings.toml 一处即可, 无需动代码）
     - timeout: per-call 超时覆盖透传（后台长考; None → 客户端构造超时）
 
 返回 (resp, err): resp 为 dict（json_object 已解析）或 None; err 非 None = 失败原因
@@ -23,8 +26,6 @@ logger = logging.getLogger(__name__)
 
 #: 调用重试上限（偶发空响应/坏 JSON; 耗尽 → 降级; deadline 优先于次数）
 MAX_CALL_RETRIES = 3
-#: 默认请求附加字段（None → 此默认; 显式传 {} 关闭）——生产默认 high 档
-DEFAULT_EXTRA_BODY: dict[str, str] = {"reasoning_effort": "high"}
 
 
 def llm_chat(
@@ -57,7 +58,6 @@ def llm_chat(
         (resp, None): 成功, resp = 解析后的 dict
         (None, err_str): 重试耗尽 / 撞 deadline
     """
-    body = DEFAULT_EXTRA_BODY if extra_body is None else extra_body
     if messages is None:
         messages = [{"role": "system", "content": system},
                     {"role": "user", "content": user_msg}]
@@ -69,7 +69,7 @@ def llm_chat(
             resp = llm.chat(
                 list(messages),
                 model=model, temperature=temperature, max_tokens=max_tokens,
-                response_format="json_object", extra_body=body, timeout=timeout)
+                response_format="json_object", extra_body=extra_body, timeout=timeout)
             return resp, None
         except Exception as e:                       # noqa: BLE001
             last_err = e

@@ -106,10 +106,10 @@ def digest_segment(
         character_prompt: 人设锚点文本（性格+知识两层; 空 → 不注入）
         visuals: 视觉记忆 prompt 列表; None → 从事件流 l2d 事件自动收集
         model: 模型覆盖（None → 客户端默认）
-        extra_body: 请求附加字段。None → {"reasoning_effort": "high"}——
-                   生产默认 high 档（2026-09-02 实验矩阵: low 5/5 合格但浅(17s/次)、
-                   medium 1/3 死在规则校验、high 2/2 认知深化与逐字校验最佳
-                   (实测单 unit A+B ≈ 2min)——质量优先; 显式传 {} 可关闭）。
+        extra_body: 请求附加字段。None → 透传 → 客户端注入 settings.toml [llm]
+                   reasoning_effort 默认档（low|medium|high, 2026-09-02 拍板 high——
+                   实验矩阵: low 5/5 合格但浅 / medium 1/3 死在规则校验 / high 2/2
+                   认知深化与逐字校验最佳; 显式传 {} 可关闭默认）
         deadline_seconds: 全程时间预算（A+B+反馈; high 档长考实测 ~2min,
                    默认 300s——撞上 → 判失败回滚, 水位不推进可重算）
         llm_timeout: per-call 超时覆盖（None = 客户端构造超时; 后台 digest
