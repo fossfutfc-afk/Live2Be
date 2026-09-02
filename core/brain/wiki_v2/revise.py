@@ -1,16 +1,15 @@
-"""revise.py — 修订契约（AGENT_BRAIN.md §5 / M2b）。
+"""revise.py — 修订执行器（AGENT_BRAIN.md §5 / 板块 4a 扩展）。
 
-职责: 校验 + 原子执行 LLM 输出的修订包（revisions 数组）, 成功时写 evolution_log。
-不做: 渲染（render.py）· 召回（recall.py）· 存储细节（store.py 原语）。
+职责: 图语义执行 + 原子性。两个入口:
+    apply_revision_package   —— 修订包（revisions 数组, ref 机制）: 深度整理轮用
+    apply_decisions          —— Round B 决策表（板块 4a: digest 两轮化的执行器）:
+                                touch/update/add 三类行 → 图操作 + history 溯源
 
-流程（引擎侧）:
-    1. 全量校验（规则 1~8, 见 AGENT_BRAIN.md §5）——任一违反 → 整包拒绝
-    2. 执行（create 先过, 建立 ref→id 映射; 其余按序）——store 原语异常 → reload 回滚
-    3. 包级后检: 连接裁定（规则 7）
-    4. 成功 → evolution_log 落盘（内存暂存, 成功才追加）; 调用方随后 store.save()
+不做: 渲染（render.py）· 召回（recall.py）· LLM 契约校验（contract/digest_registry.py
+parse 层——结构校验在那; 本文件只管执行语义）· 存储细节（store.py 原语）。
 
-原子性: 磁盘文件 = 提交前状态（save 由调用方在成功后执行）——
-执行中任何失败 → store.reload() 丢弃内存改动, 零残留（宁缺勿错）。
+原子性由编排层保证（digest 全程快照, 任一失败 restore_state）; 本文件执行中抛
+ValueError → 编排层回滚（宁缺勿错）。
 """
 from __future__ import annotations
 
@@ -27,6 +26,8 @@ from core.common import err
 _REF_KEY = "ref"
 #: create entry 里引擎忽略的字段（id/ts 由引擎分配——确定性归引擎）
 _IGNORED_ON_CREATE = ("id", "ts")
+#: update.patch 允许的字段（图边/epistemic/history 引擎管理, LLM 不可碰）
+_PATCH_FIELDS = ("subject", "content", "pattern", "significance", "tags", "growth")
 
 
 @dataclass
@@ -42,6 +43,105 @@ class RevisionResult:
 # ---------------------------------------------------------------------------
 # 入口
 # ---------------------------------------------------------------------------
+
+def apply_decisions(
+    store: WikiStoreV2,
+    rows: list[dict],
+    *,
+    id_map: dict[str, str],
+    log: EvolutionLog | None = None,
+    ts: str | None = None,
+    segment_id: str = "",
+    event_seq: list[int] | None = None,
+) -> list[str]:
+    """执行 Round B 决策表（板块 4a）: touch / update / add 行 → 图操作。
+
+    行已过 registry.parse_round_b 结构校验（episode/target 引用、覆盖检查）;
+    本函数只做执行语义:
+        touch  —— add_link(episode → 认知)（不动原文）
+        update —— 部分字段合并（空=保留; patch 白名单）+ content 变更 → history 追加
+                  + 自动链 episode
+        add    —— 新建 belief/experience（引擎字段归属）+ 链回 episode
+
+    Args:
+        id_map: 渲染本地 id（u0001..）→ 真实节点 id
+        ts/segment_id/event_seq: 引擎字段（digest 上下文; add 建节点用）
+
+    Returns: 新建节点 id 列表。执行中抛 ValueError → 编排层快照回滚。
+    """
+    log = log or EvolutionLog.for_store(store)
+    ts = ts or datetime.now().isoformat(timespec="seconds")
+    event_seq = list(event_seq or [])
+    created: list[str] = []
+    for row in rows:
+        ep_id = row["episode"]
+        real = id_map.get(row["target"]) if row.get("target") else None
+        decision = row["decision"]
+        if decision == "touch":
+            _ensure_cognition(store, real)
+            store.add_link(ep_id, real)
+            log.append({"pkg": "digest", "action": "touch", "episode": ep_id,
+                        "target": real, "ts": ts})
+        elif decision == "update":
+            _ensure_cognition(store, real)
+            node = store.get(real)
+            patch = {k: v for k, v in (row.get("patch") or {}).items()
+                     if k in _PATCH_FIELDS and v not in (None, "", [], 0)}
+            if not patch:
+                continue                        # 空 patch 无操作（parse 已警告级放过）
+            history = list(node.history)
+            new_content = patch.get("content")
+            if isinstance(new_content, str) and new_content.strip() \
+                    and new_content.strip() != node.content:
+                history.append({"episode_id": ep_id, "content": new_content.strip(),
+                                "ts": ts})
+            if history != node.history:
+                patch["history"] = history
+            store.update(real, patch)
+            store.add_link(ep_id, real)
+            log.append({"pkg": "digest", "action": "update", "episode": ep_id,
+                        "target": real, "changed": sorted(patch), "ts": ts})
+        else:                                   # add
+            kind = row.get("kind", "belief")
+            fields: dict[str, Any] = {}
+            for f in ("subject", "content", "pattern", "example", "tags",
+                      "significance", "growth"):
+                v = row.get(f)
+                if v not in (None, "", []):
+                    fields[f] = v
+            if kind == "experience" and fields.get("example"):
+                fields["examples"] = [fields.pop("example")]
+            node = make_node(kind, **fields)
+            node.ts = ts
+            if segment_id:
+                node.segment_id = segment_id
+            if event_seq:
+                node.event_seq = list(event_seq)
+            # 崩溃窗口重跑幂等: (kind, event_seq, 主文本) 命中 → 只补链, 不双写
+            dup = _find_duplicate(store, node)
+            if dup is not None:
+                store.add_link(ep_id, dup.id)
+                continue
+            errors = node.validate()
+            if errors:
+                raise ValueError(err("InvalidNode",
+                                     f"add 节点无效: {'; '.join(errors)}"))
+            nid = store.add(node)
+            created.append(nid)
+            store.add_link(ep_id, nid)          # 链回 episode（支撑链）
+            log.append({"pkg": "digest", "action": "add", "episode": ep_id,
+                        "id": nid, "kind": kind, "ts": ts})
+    return created
+
+
+def _ensure_cognition(store: WikiStoreV2, nid: str | None) -> None:
+    """touch/update 的目标必须是 belief/experience 节点（结构保证的兜底）。"""
+    if not nid:
+        raise ValueError(err("BadTarget", "touch/update 缺 target"))
+    node = store.get(nid)
+    if node is None or node.kind not in ("belief", "experience"):
+        raise ValueError(err("BadTarget", f"target 必须是 belief/experience: {nid!r}"))
+
 
 def apply_revision_package(
     store: WikiStoreV2,

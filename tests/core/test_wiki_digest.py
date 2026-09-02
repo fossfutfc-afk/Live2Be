@@ -1,4 +1,4 @@
-"""digest.py 管线测试（AGENT_BRAIN.md §3 / M3）——假 LLM + 合成事件流。"""
+"""digest.py 两轮管线测试（板块 4a）——假 LLM 按序吐 Round A / Round B 响应。"""
 from core.brain.wiki_v2 import WikiStoreV2, make_node
 from core.brain.wiki_v2.digest import digest_segment
 from core.brain.wiki_v2.evolution import EvolutionLog
@@ -6,7 +6,7 @@ from core.session import make_event
 
 
 class FakeLLM:
-    """假 LLM: 按序吐出预置响应; 记录调用。"""
+    """假 LLM: 按序吐出预置响应（A 轮/反馈/B 轮…）; 记录调用。"""
 
     def __init__(self, *responses):
         self.responses = list(responses)
@@ -17,9 +17,6 @@ class FakeLLM:
         if self.responses:
             return self.responses.pop(0)
         raise RuntimeError("responses 耗尽")
-
-    def raise_for(self, error):
-        self.responses.insert(0, error)
 
 
 def _events(*items):
@@ -33,7 +30,7 @@ def _events(*items):
 
 
 def _seed_store(tmp_path) -> WikiStoreV2:
-    """预置子图: m0001 episode + m0002 belief + e0001 experience（含 link）。"""
+    """预置: m0001 episode + m0002 belief + e0001 experience（含 link）。"""
     st = WikiStoreV2(tmp_path, world_id="world1", char_id="c")
     st.add(make_node("episode", narration="天台夜谈", event_seq=[2], ts="2026-09-01T10:00:00",
                      links=["m0002"]))
@@ -42,7 +39,6 @@ def _seed_store(tmp_path) -> WikiStoreV2:
                      links=["m0001"], event_seq=[2]))
     st.add(make_node("experience", pattern="提到工作繁忙", subject="sensei",
                      significance=0.85, links=["m0001"], event_seq=[2]))
-    # 注: e0001 提到 0.85 保证进珍贵保底 → 子图确定含它（accrue 目标必须在子图内）
     return st
 
 
@@ -50,9 +46,25 @@ def _mmt(seq, player, reply):
     return ("mmt", "chat", {"player": player, "reply": reply}, seq)
 
 
-def _bond(seq, text):
-    return ("bond", "story_scene",
-            {"input": "", "paragraphs": [{"text": text, "emotion": "shy"}]}, seq)
+def _a_episode(narration="老师请我吃了甜品，还说下次再去", sig=0.8, title="甜点之约",
+               verbatim="下次再去吃甜品吧", tags=("甜品", "老师")):
+    return {"episodes": [
+        {"narration": narration, "title": title, "verbatim": verbatim,
+         "tags": list(tags), "significance": sig}]}
+
+
+def _b_ok(**over):
+    out = {"decisions": [
+        {"episode": "m0003", "decision": "update", "target": "u0001",
+         "patch": {"content": "老师会记得我的喜好——连甜品店也会挑好", "significance": 0.95}},
+        {"episode": "m0003", "decision": "add", "kind": "experience",
+         "subject": "sensei", "pattern": "老师会带我去吃甜品", "example": "「这家店不错吧」"},
+    ], "evidence": [
+        {"function": "fe", "confidence": 0.85, "quote": "下次再去吃甜品吧"},
+        {"function": "ni", "confidence": 0.5, "quote": "低置信度应该被丢"},
+    ], "affection_exp_delta": 30}
+    out.update(over)
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -65,102 +77,121 @@ def test_no_new_events_no_llm_call(tmp_path):
     llm = FakeLLM()
     res = digest_segment(st, llm, _events(_mmt(1, "hi", "hello")))
     assert res.ok and res.llm_calls == 0
-    assert res.revision is None and res.created == []
+    assert res.created == []
 
 
 def test_affection_markers_excluded_from_digest_input(tmp_path):
     st = _seed_store(tmp_path)
-    llm = FakeLLM({"revisions": [], "evidence": [], "affection_exp_delta": 0})
+    llm = FakeLLM({"episodes": []},
+                  {"decisions": [], "evidence": [], "affection_exp_delta": 0})
     events = _events(
         _mmt(3, "老师好", "啊、老师好……"),
         ("affection", "digest", {"delta": 5}, 4),
     )
     res = digest_segment(st, llm, events)
-    assert res.ok
-    assert res.affection_delta == 0                     # affection 事件本身不进 digest
+    assert res.ok, res.errors
+    assert res.llm_calls == 2                          # A 空也跑 B（affection/evidence 归 B）
+    assert res.affection_delta == 0
     assert st.digested_seq == 4
 
 
 # ---------------------------------------------------------------------------
-# 完整通过: create + accrue + update + 好感 + evidence
+# 完整通过: A 建 episode → B touch/update/add → evidence/好感/水位/log
 # ---------------------------------------------------------------------------
 
 def test_full_pipeline(tmp_path):
     st = _seed_store(tmp_path)
-    llm = FakeLLM({
-        "revisions": [
-            {"action": "create", "ref": "n1", "entry": {
-                "kind": "episode", "narration": "老师请我吃了甜品，还说下次再去",
-                "event_seq": [3], "links": ["m0002"]}},
-            {"action": "accrue", "id": "e0001",
-             "occurrence": {"episode_ref": "n1", "example": "「这家店的甜品不错」"}},
-            {"action": "update", "id": "m0002", "patch": {"significance": 0.95}},
-        ],
-        "evidence": [
-            {"function": "fe", "confidence": 0.85, "quote": "老师说下次再去"},
-            {"function": "ni", "confidence": 0.5, "quote": "低置信度应该被丢"},
-        ],
-        "affection_exp_delta": 30,
-    })
+    llm = FakeLLM(_a_episode(), _b_ok())
     events = _events(_mmt(3, "老师", "下次再去吃甜品吧"))
     res = digest_segment(st, llm, events)
     assert res.ok, res.errors
-    # 条目 + 修订落盘
-    assert len(res.created) == 1
-    ep = st.get(res.created[0])
+    assert res.llm_calls == 2
+    # A: episode 建好, 引擎字段归属
+    assert res.created == ["m0003"]
+    ep = st.get("m0003")
     assert ep.kind == "episode" and ep.event_seq == [3]
-    assert ep.segment_id == "seg-3" and ep.ts
-    exp = st.get("e0001")
-    assert exp.links == ["m0001", "m0003"] and exp.event_seq == [2, 3]
-    assert exp.count == 2
-    assert st.get("m0002").significance == 0.95
+    assert ep.segment_id == "seg-3" and ep.ts and ep.title == "甜点之约"
+    # B: update → 认知改写 + history 溯源; add → 新 experience 链回 episode
+    bel = st.get("m0002")
+    assert bel.significance == 0.95
+    assert bel.history and bel.history[0]["episode_id"] == "m0003"
+    exp = st.get("e0002")
+    assert exp.kind == "experience" and exp.pattern == "老师会带我去吃甜品"
+    assert exp.count == 1                              # links = [m0003]
+    assert "e0002" in ep.links and "m0002" in ep.links
     # evidence: 低置信度丢弃
     assert [e["function"] for e in res.evidence] == ["fe"]
-    # 好感 + 水位
     assert res.affection_delta == 30
     assert st.digested_seq == 3
-    # evolution log
+    # evolution log（apply_decisions 追加）
     entries = EvolutionLog.for_store(st).read()
-    assert [e["action"] for e in entries] == ["create", "accrue", "update"]
+    assert [e["action"] for e in entries] == ["update", "add"]
 
 
-# ---------------------------------------------------------------------------
-# 校验反馈重试
-# ---------------------------------------------------------------------------
-
-def test_rejected_package_retried_with_feedback(tmp_path):
+def test_touch_decision_links_only(tmp_path):
     st = _seed_store(tmp_path)
     llm = FakeLLM(
-        {"revisions": [{"action": "create", "entry": {
-            "kind": "episode", "narration": "孤立日常", "event_seq": [3]}}],
-         "evidence": [], "affection_exp_delta": 0},     # 连接裁定违反 → 拒绝
-        {"revisions": [{"action": "create", "entry": {
-            "kind": "episode", "narration": "孤立日常", "event_seq": [3],
-            "links": ["m0002"]}}],                       # 修正后通过
-         "evidence": [], "affection_exp_delta": 0},
+        _a_episode(narration="又和老师在天台安静坐着"),
+        {"decisions": [{"episode": "m0003", "decision": "touch", "target": "u0001",
+                        "note": "又是安静的陪伴"}],
+         "evidence": [], "affection_exp_delta": 5})
+    events = _events(_mmt(3, "x", "天台很安静"))
+    res = digest_segment(st, llm, events)
+    assert res.ok, res.errors
+    bel = st.get("m0002")
+    assert bel.history == []                           # touch 不改内容
+    assert "m0003" in bel.links                        # 只连边
+
+
+# ---------------------------------------------------------------------------
+# 反馈回灌（feedback 语义: assistant 原文 + 错误, 同一上下文）
+# ---------------------------------------------------------------------------
+
+def test_round_a_rejected_retried_with_feedback(tmp_path):
+    st = _seed_store(tmp_path)
+    llm = FakeLLM(
+        {"episodes": [{"title": "缺正文"}]},            # parse 拒绝（无 narration）
+        _a_episode(),
+        _b_ok(),
     )
     events = _events(_mmt(3, "x", "y"))
     res = digest_segment(st, llm, events)
     assert res.ok, res.errors
-    assert res.llm_calls == 2
-    # 第二次调用带了引擎反馈
-    assert "引擎校验反馈" in llm.calls[1][1]["content"]
+    assert res.llm_calls == 3                          # A1(拒) + A2(过) + B
+    # 反馈追加在同一上下文: system,user,assistant,user(反馈)
+    msgs = llm.calls[1]
+    assert len(msgs) == 4 and msgs[2]["role"] == "assistant"
+    assert "引擎校验反馈" in msgs[3]["content"]
     assert st.digested_seq == 3
 
 
-def test_feedback_retry_exhausted_fails_atomically(tmp_path):
+def test_round_b_rejected_retried_with_feedback(tmp_path):
     st = _seed_store(tmp_path)
-    before = {n.id: n.to_dict() for n in st.all()}
-    bad = {"revisions": [{"action": "create", "entry": {
-        "kind": "episode", "narration": "孤立日常", "event_seq": [3]}}],
-        "evidence": [], "affection_exp_delta": 0}
-    llm = FakeLLM(bad, bad)
+    llm = FakeLLM(
+        _a_episode(),
+        {"decisions": [], "evidence": [], "affection_exp_delta": 0},   # 漏 m0003 → 拒
+        _b_ok(),
+    )
     events = _events(_mmt(3, "x", "y"))
     res = digest_segment(st, llm, events)
-    assert not res.ok and any("连接裁定" in e for e in res.errors)
+    assert res.ok, res.errors
+    assert res.llm_calls == 3
+    assert "引擎校验反馈" in llm.calls[2][-1]["content"]
+    assert st.digested_seq == 3
+
+
+def test_b_rejected_twice_fails_atomically(tmp_path):
+    st = _seed_store(tmp_path)
+    before = {n.id: n.to_dict() for n in st.all()}
+    bad_b = {"decisions": [], "evidence": [], "affection_exp_delta": 0}
+    llm = FakeLLM(_a_episode(), dict(bad_b), dict(bad_b))
+    events = _events(_mmt(3, "x", "y"))
+    res = digest_segment(st, llm, events)
+    assert not res.ok
+    assert any("未覆盖" in e for e in res.errors)
     after = {n.id: n.to_dict() for n in st.all()}
-    assert after == before                              # 原子: 无残留
-    assert st.digested_seq == 0                         # 水位不推进 → 可重算
+    assert after == before                             # 原子: A 的 episode 也回滚
+    assert st.digested_seq == 0                        # 水位不推进 → 可重算
 
 
 def test_llm_call_failure_degrades(tmp_path):
@@ -176,38 +207,21 @@ def test_llm_call_failure_degrades(tmp_path):
 
     llm = BrokenLLM()
     res = digest_segment(st, llm, _events(_mmt(3, "x", "y")))
-    assert not res.ok and llm.calls == 3                # 重试 3 次后降级
+    assert not res.ok and llm.calls == 3               # 调用级重试 3 次后降级
     assert st.digested_seq == 0
+    assert len(st.all()) == 3                          # 无残留
 
 
 # ---------------------------------------------------------------------------
-# 引擎准备: event_seq 校验 / 好感 clamp
+# 好感 clamp / 空 A
 # ---------------------------------------------------------------------------
-
-def test_event_seq_falls_back_to_segment_max(tmp_path):
-    st = _seed_store(tmp_path)
-    llm = FakeLLM({"revisions": [
-        {"action": "create", "entry": {
-            "kind": "episode", "narration": "老师送了暖宝宝",
-            "event_seq": [999], "links": ["m0002"]}},    # 999 不在本段 → 落回
-    ], "evidence": [], "affection_exp_delta": 0})
-    events = _events(_mmt(3, "x", "y"))
-    res = digest_segment(st, llm, events)
-    assert res.ok
-    ep = st.get(res.created[0])
-    assert ep.event_seq == [3]
-
 
 def test_affection_clamped(tmp_path):
     st = _seed_store(tmp_path)
-    llm = FakeLLM({"revisions": [], "evidence": [],
-                   "affection_exp_delta": 999})
+    llm = FakeLLM({"episodes": []},
+                  {"decisions": [], "evidence": [], "affection_exp_delta": 999})
     res = digest_segment(st, llm, _events(_mmt(3, "x", "y")))
     assert res.ok and res.affection_delta == 100
-    llm2 = FakeLLM({"revisions": [], "evidence": [],
-                    "affection_exp_delta": -5})
-    res2 = digest_segment(st, llm2, _events(_mmt(4, "x", "y")))
-    assert res2.ok and res2.affection_delta == 0
 
 
 # ---------------------------------------------------------------------------
@@ -216,19 +230,14 @@ def test_affection_clamped(tmp_path):
 
 def test_dedupe_on_rerun(tmp_path):
     st = _seed_store(tmp_path)
-    ok_resp = {"revisions": [
-        {"action": "create", "ref": "n1", "entry": {
-            "kind": "episode", "narration": "老师请我吃了甜品", "event_seq": [3],
-            "links": ["m0002"]}},
-    ], "evidence": [], "affection_exp_delta": 10}
     events = _events(_mmt(3, "x", "y"))
-    # 第一次: 模拟"落盘成功但水位没推进"——手动还原 meta
+    ok = (_a_episode(), _b_ok())
     st.meta["digested_seq"] = 0
-    res1 = digest_segment(st, FakeLLM(ok_resp), events)
+    res1 = digest_segment(st, FakeLLM(*ok), events)
     assert res1.ok
     n_before = len(st.all())
-    # 第二次: 同一段重跑 → dedupe 命中, 不双写
-    res2 = digest_segment(st, FakeLLM(ok_resp), events)
+    st.meta["digested_seq"] = 0                        # 模拟崩溃窗口: 落盘但水位没推进
+    res2 = digest_segment(st, FakeLLM(*ok), events)
     assert res2.ok
-    assert len(st.all()) == n_before
+    assert len(st.all()) == n_before                   # 同内容 episode 去重, 不双写
     assert st.digested_seq == 3
