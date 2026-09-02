@@ -144,6 +144,65 @@ def test_touch_decision_links_only(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# 板块5: 引擎候选标注（疑似同主题 → 禁 add, 结构强制 + 反馈）
+# ---------------------------------------------------------------------------
+
+def _cat_store(tmp_path) -> WikiStoreV2:
+    """带"猫"tags 的 belief——关键词降级通道下, 猫相关 episode 必被标注。
+
+    id: episode m0001 / belief m0002（A 轮新 episode 顺延 m0003）。
+    """
+    st = WikiStoreV2(tmp_path, world_id="world1", char_id="c")
+    st.add(make_node("episode", narration="喂猫旧事", event_seq=[2]))
+    st.add(make_node("belief", content="老师会记得给猫带猫粮", subject="老师与猫的约定",
+                     epistemic="inferred_belief", significance=0.9, tags=["猫"],
+                     links=["m0001"], event_seq=[2]))
+    return st
+
+
+def test_high_candidate_forces_touch_update_not_add(tmp_path):
+    """B 输入带引擎标注; LLM 仍 add → 整包拒 → 反馈后 touch 通过。"""
+    st = _cat_store(tmp_path)
+    llm = FakeLLM(
+        _a_episode(narration="老师带猫粮来喂猫, 猫绕着我转了两圈"),
+        {"decisions": [
+            {"episode": "m0003", "decision": "add", "kind": "belief",
+             "subject": "猫", "content": "老师会带猫粮来喂猫"},      # 违规: 疑似同主题仍 add
+         ], "evidence": [], "affection_exp_delta": 5},
+        {"decisions": [
+            {"episode": "m0003", "decision": "touch", "target": "u0001"},
+         ], "evidence": [], "affection_exp_delta": 5},
+    )
+    events = _events(_mmt(3, "x", "猫粮带来了"))
+    res = digest_segment(st, llm, events)
+    assert res.ok, res.errors
+    assert res.llm_calls == 3                          # A + B1(拒) + B2
+    # B1 的输入里带了疑似同主题标注; 反馈提到违规原因
+    assert "疑似同主题" in llm.calls[1][1]["content"]
+    assert "疑似同主题" in llm.calls[2][-1]["content"]
+    bel = st.get("m0002")
+    assert bel.history == []                           # touch: 只连边
+    assert "m0003" in bel.links
+
+
+def test_no_candidate_when_unrelated(tmp_path):
+    """无关键词关联 → 无标注 → LLM 自由 add（不触发强制）。"""
+    st = _cat_store(tmp_path)
+    llm = FakeLLM(
+        _a_episode(narration="老师送我一盆新的杂草", tags=("杂草",)),
+        {"decisions": [
+            {"episode": "m0003", "decision": "add", "kind": "belief",
+             "subject": "杂草", "content": "杂草是遥香安心的事物"},
+         ], "evidence": [], "affection_exp_delta": 3})
+    events = _events(_mmt(3, "x", "这盆杂草送给你"))
+    res = digest_segment(st, llm, events)
+    assert res.ok, res.errors
+    assert "疑似同主题" not in llm.calls[1][1]["content"]      # 无标注
+    bel = st.get("m0004")                              # add 成功（m0003 episode + m0004 belief）
+    assert bel.kind == "belief"
+
+
+# ---------------------------------------------------------------------------
 # 冷启动: 无旧记忆 → B 只能 add（belief 路径: epistemic 引擎归属 + 先链后入仓）
 # ---------------------------------------------------------------------------
 

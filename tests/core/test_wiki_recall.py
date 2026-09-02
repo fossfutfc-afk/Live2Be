@@ -1,9 +1,14 @@
-"""recall.py 三通道召回测试（AGENT_BRAIN.md §6 / M4）。"""
+"""recall.py 召回测试（AGENT_BRAIN.md §6 / M4 + 板块5 候选推荐）。"""
 import random
 from datetime import datetime, timedelta
 
 from core.brain.wiki_v2 import BrainNode, WikiStoreV2, make_node
-from core.brain.wiki_v2.recall import recall_subgraph
+from core.brain.wiki_v2.recall import (
+    CAND_HIGH,
+    CAND_MED,
+    recommend_candidates,
+    recall_subgraph,
+)
 
 
 def _ids(nodes):
@@ -186,3 +191,76 @@ def test_result_sorted_by_significance(tmp_path):
     st = _store(tmp_path, nodes)
     out = recall_subgraph(st, query="x", n_precious=0, n_random=0)
     assert [n.id for n in out] == ["m0002", "m0003", "m0001"]
+
+
+# ============================================================================
+# 板块5: recommend_candidates（Round B 候选推荐）
+# ============================================================================
+
+def _cog_store(tmp_path) -> WikiStoreV2:
+    """稳定认知库: 猫粮约定 belief + 摸鱼 experience + episode/fact（不应被候选）。
+
+    id: episode m0001 / belief m0002 / experience e0001 / fact c0001。
+    """
+    st = WikiStoreV2(tmp_path, world_id="world1", char_id="c")
+    st.add(make_node("episode", narration="天台旧事", event_seq=[1]))
+    st.add(make_node("belief", content="老师会记得给猫带猫粮的约定", subject="老师与我的约定",
+                     epistemic="inferred_belief", significance=0.9, tags=["猫", "约定"],
+                     links=["m0001"], event_seq=[1]))
+    st.add(make_node("experience", pattern="老师总说摸鱼", subject="sensei",
+                     significance=0.85, tags=["摸鱼"], links=["m0001"], event_seq=[1]))
+    st.add(make_node("fact", content="遥香喜欢杂草", epistemic="canon_fact",
+                     source="experience", source_key="self.regular.1"))
+    return st
+
+
+def test_candidates_kind_filter_and_embed_path(tmp_path):
+    st = _cog_store(tmp_path)
+
+    # 确定性假 embed: 文本含"猫"→ [1,0], 含"摸鱼"→ [0,1], 其他 → [0.2,0.2]
+    def fake_embed(texts):
+        out = []
+        for t in texts:
+            if "猫" in t:
+                out.append([1.0, 0.0])
+            elif "摸鱼" in t:
+                out.append([0.0, 1.0])
+            else:
+                out.append([0.2, 0.2])
+        return out
+
+    cands = recommend_candidates(st, "老师带着猫粮来喂猫", embed_fn=fake_embed)
+    assert [n.id for n, _ in cands] == ["m0002"]       # 只有 belief（episode/fact 不参与）
+    assert cands[0][1] > CAND_HIGH                     # 疑似同主题档
+
+    cands2 = recommend_candidates(st, "老师又说摸鱼", embed_fn=fake_embed)
+    assert cands2[0][0].id == "e0001" and cands2[0][1] > CAND_HIGH
+
+
+def test_candidates_keyword_fallback(tmp_path):
+    st = _cog_store(tmp_path)
+    # tags 命中（检索导向最强信号）
+    out = recommend_candidates(st, "今天又和老师去喂猫了", embed_fn=None)
+    assert out and out[0][0].id == "m0002"
+    assert out[0][1] >= 0.6
+    # subject 点名 → 高分
+    out2 = recommend_candidates(st, "老师与我的约定我记在心里", embed_fn=None)
+    assert out2 and out2[0][0].id == "m0002" and out2[0][1] == 0.85
+    # 无关 query → 无候选（保守）
+    assert recommend_candidates(st, "今天天气不错适合散步", embed_fn=None) == []
+
+
+def test_candidates_empty_and_cap(tmp_path):
+    st = WikiStoreV2(tmp_path, world_id="world1", char_id="c")
+    assert recommend_candidates(st, "任何", embed_fn=None) == []     # 空库
+    assert recommend_candidates(st, "", embed_fn=None) == []         # 空 query
+
+
+def test_candidates_backend_failure_degrades_to_keyword(tmp_path):
+    st = _cog_store(tmp_path)
+
+    def broken(texts):
+        raise RuntimeError("vector db down")
+
+    out = recommend_candidates(st, "今天又和老师去喂猫了", embed_fn=broken)
+    assert out and out[0][0].id == "m0002"             # 降级到关键词, 不炸

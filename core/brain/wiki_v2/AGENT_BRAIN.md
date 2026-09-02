@@ -506,7 +506,9 @@ wiki_v2 节点目前只有 `ts`（digest 创建时间）——不是事件发生
 **板块进度（2026-09-02 重构）**:
 - 板块1 nodes ✅（relation 砍 / title+history / main_text 收敛）  板块2 digest_registry ✅
 - 板块3 llm_call ✅（传输/策略分层）  板块4 两轮 digest ✅（骨架+执行器护栏+原子+幂等）
-- 板块5 recall 候选推荐（B 轮输入: 引擎按相似度推荐候选认知 + 疑似印证/重复标注）——进行中
+- 板块5 recall 候选推荐 ✅（recommend_candidates: embed_fn 注入=RAG 升级接口,
+  关键词降级保守兜底; B 轮标注 疑似同主题(≥0.5, 禁 add 结构强制)/可能相关(≥0.25);
+  render_cognition_list 本地 id 渲染迁入 render.py）
 - 板块6 深度整理轮（phase=deep: merge/contradict, 每 N=5 段）——预留
 
 **每 M 结束**: 全量 pytest + 提交（feat/two-pass-emotion）; M3 之前不动现有

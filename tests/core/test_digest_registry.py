@@ -173,3 +173,33 @@ def test_round_b_bad_decision_kind():
         raw, episode_ids={"m0001"}, target_ids={"u0001"})
     assert not result.is_valid
     assert any("decision 非法" in e for e in result.errors)
+
+
+# ---------------------------------------------------------------------------
+# must_touch（板块 5: 引擎疑似同主题标注 → 结构强制 touch/update）
+# ---------------------------------------------------------------------------
+
+def test_round_b_must_touch_forbids_add():
+    raw = {"decisions": [
+        {"episode": "m0001", "decision": "add", "kind": "belief",
+         "subject": "s", "content": "又一条同主题认知"},
+    ]}
+    rows, result = digest_registry.parse_round_b(
+        raw, episode_ids={"m0001"}, target_ids={"u0001"},
+        must_touch={"m0001": "u0001"})
+    assert not result.is_valid
+    assert any("疑似同主题" in e and "touch/update" in e for e in result.errors)
+    assert rows == []                                  # 违规行被拒
+
+
+def test_round_b_must_touch_allows_touch_and_update():
+    raw = {"decisions": [
+        {"episode": "m0001", "decision": "touch", "target": "u0001"},
+        {"episode": "m0002", "decision": "update", "target": "u0001",
+         "patch": {"content": "深化后的表述"}},
+    ]}
+    rows, result = digest_registry.parse_round_b(
+        raw, episode_ids={"m0001", "m0002"}, target_ids={"u0001"},
+        must_touch={"m0001": "u0001", "m0002": "u0001"})
+    assert result.is_valid, result.errors
+    assert len(rows) == 2
