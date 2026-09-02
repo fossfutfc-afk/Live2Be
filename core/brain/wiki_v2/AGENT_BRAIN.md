@@ -16,18 +16,23 @@
 core/brain/wiki_v2/                # 独立模块——不动现有 brain/*.py 直到 M 系列切换
 ├── AGENT_BRAIN.md                 # 本蓝图
 ├── __init__.py                    # 公共导出
-├── nodes.py                       # ✅ M1a 节点数据结构（BrainNode/校验/归一/jsonl 序列化）
+├── nodes.py                       # ✅ 板块1 节点数据结构（4 kind; title/history/main_text; relation 已砍）
 ├── store.py                       # ✅ M1b 存储（jsonl/原子整写/id 分配/索引/快照/去重检查）
 ├── seed.py                        # ✅ M1c 出厂 digest pass（experience/knowledge → fact 条目, 确定性映射 v1, 幂等）
 ├── render.py                      # ✅ M2 渲染（组织视图带 id 邻接表 + 角色注入视图分层）
-├── revise.py                      # ✅ M2 修订契约（校验/原子执行 + evolution_log）
+├── revise.py                      # ✅ 板块4 修订执行器（apply_decisions 决策表 + apply_revision_package 深度整理）
 ├── evolution.py                   # ✅ M2 审计日志（append-only, R6 回滚依据）
 ├── recall.py                      # ✅ M4 三通道召回 + 一跳扩展（embed_fn 注入, tags 降级）
-└── digest.py                      # ✅ M3 digest v2 管线（增量/召回子图/反馈重试/水位/幂等）
+├── llm_call.py                    # ✅ 板块3 LLM 调用鲁棒层（重试/deadline/reasoning_effort, digest 唯一 LLM 触面）
+└── digest.py                      # ✅ 板块4 digest v2 两轮管线（A 记录员 + B 理解者决策表, 原子/水位/幂等）
+contract/digest_registry.py        # ✅ 板块2 digest 动作注册表（spec 单源: schema 渲染 + parse 校验）
+llm/prompts/digest_v2_round_a.md   # ✅ Round A prompt（记录员）
+llm/prompts/digest_v2_round_b.md   # ✅ Round B prompt（理解者）
 ```
 
-分工原则: 每文件单一职责, 依赖方向单向（nodes ← store ← revise ← render/recall ← seed）;
-引擎侧流程在 revise.py 编排（store 只提供原语, 不做修订决策）。
+分工原则: 每文件单一职责, 依赖方向单向（nodes ← store ← revise ← render/recall ← digest）;
+契约层在 contract/digest_registry.py（LLM 可见面与 runtime 校验双写合一）;
+引擎侧流程在 digest.py 编排（两轮） + revise.py 执行（store 只提供原语, 不做修订决策）。
 
 ```
 dev 工具（不进运行时依赖, M3 后有真实数据再做）:
@@ -217,32 +222,51 @@ wiki 是**派生视图**（可重算可改写）——修订后整写更简单�
 
 ---
 
-## 3. 构图流程（已定, 出厂消化 + 三段闭环）
+## 3. 构图流程（已定, 出厂消化 + 两轮闭环——2026-09-02 板块4 重构）
 
 ```
 [Step 0 出厂消化] 世界线创建时（2026-09-02 决策: 种子生成器 → 出厂 digest pass）
    experience/knowledge → 渲染为"预设时间线" → 走一次消化（无修订/无情感）
    → 产出 canon_fact 条目（source=experience/knowledge, 带 source_key 溯源到 yml 字段）
 
-[段闭环] events.jsonl 新增事件
+[段闭环] events.jsonl 新增事件 → digest_segment（digest.py, 两轮 + 反馈重试 + 原子）
    │
-   ▼ Step 1 消化+组织（同一 LLM 调用, digest.md v2 扩展）
-   │   输入: 时间线 + 视觉记忆 + 三通道召回子图渲染（组织视图）+ 锚点 + 罗盘触发定义
-   │   输出: {entries: [新条目…], revisions: [修订动作…], evidence: [成长证据…],
-   │         affection_exp_delta: n}
+   ▼ Round A「记录员」（只看新时间线——不注入旧记忆, 防"组织污染记录"）
+   │   输入: 时间线 + 画面记忆 + 人设锚点（性格+知识两层）
+   │   契约: digest_registry.build_schema(record) ← digest_v2_round_a.md
+   │   输出: {episodes: [新经历…]}（parse_round_a 结构校验）
+   │   引擎: 建 episode 节点（内存暂存; 引擎字段归属: ts/segment_id/event_seq;
+   │         dedupe 幂等; 不落盘）
    │
-   ▼ Step 2 引擎执行（确定性, 全量校验通过才落盘）
-   │   ① 新条目: 逐条 schema/词表/epistemic 校验 → 分配 id → 落盘
-   │   ② revisions: id 存在性（仅限本次渲染子图内）→ 护栏（epistemic 不可降级/
-   │      canon_fact 不可改/无支撑 belief 拒绝/accrue 同类判定信任 LLM 但 count 由引擎数）→ 应用 → evolution_log
-   │   ③ evidence: 置信度 ≥ 阈值 → 罗盘函数进度增量（带事件溯源）; 否则丢弃
-   │   ④ affection: 幂等事件写（现有逻辑不变）
+   ▼ Round B「理解者」（新经历 ↔ 现有稳定认知, 决策表）
+   │   输入: 新经历摘要 + 认知渲染（本地 id u0001.., 引擎防猜真实 id）
+   │         + 时间线（evidence quote 逐字引用用）+ 锚点
+   │   契约: digest_registry.build_schema(understand) ← digest_v2_round_b.md
+   │   输出: {decisions: [逐 episode 一行 touch|update|add], evidence, affection_exp_delta}
+   │        parse_round_b: 引用纪律（id 必须 ∈ 渲染列表）+ 覆盖检查（漏 episode 整包拒）
+   │   引擎: apply_decisions（revise.py）——touch=add_link / update=白名单 patch +
+   │         history 溯源 / add=新建+先链后入仓; epistemic 引擎归属
+   │
+   ▼ 提交（确定性, 全量通过才落盘）
+   │   ① evidence: 置信度 ≥ 阈值/quote 非空 → 返回（罗盘应用后置, 无罗盘丢弃）
+   │   ② affection_exp_delta → 幂等事件写（调用方）
+   │   ③ store.save() + 推进 meta.digested_seq + save_meta
+   │   失败（parse/执行/撞 deadline）→ clone_state 快照回滚, 水位不推进 → 可重算
    │
    ▼ Step 3 索引更新 + 注入刷新（下一轮对话/剧情生效）
 ```
 
-**组织 pass 与消化同调用**（不新增调用点）：LLM 一次拿到"新经历 + 旧子图"，同时产
-新条目和修订动作——碰撞端（召回）与输出端（修订）在同一趟里闭合。
+**反馈回灌（feedback 语义, 2026-09-02 采纳 llm.client.feedback）**: 被拒轮把 LLM 自己
+输出追加为 assistant 位 + 引擎错误, 同一上下文重试 1 次——模型能看见自己错在哪。
+
+**深度整理（板块6 预留）**: 每 N=5 段或矛盾检测 → phase=deep 轮（merge/contradict,
+apply_revision_package 复用, digest_registry 注册 deep 动作集）。
+
+**两轮拆分动机**（板块4 复盘）: 旧单轮"记录+组织一包"让 LLM 同时干两类活——组织决策
+依赖的旧记忆子图会污染记录（看到旧 belief 就忍不住升华）; 且 revision 契约的
+"新 episode 必须连接裁定"与"可能确实没值得组织"相互拉扯。拆轮后 A 只记录（质感
+优先不升华）, B 只看认知层（episode 摘要 + belief/experience 列表）做逐条决策——
+结构保证不漏不编（A-MEM 逐条对齐升级 + AgentGal 两轮同构）。
 
 ---
 
@@ -469,15 +493,21 @@ wiki_v2 节点目前只有 `ts`（digest 创建时间）——不是事件发生
 
 ---
 
-## 8. 里程碑（每个 M 含测试, 基线 310 不动）
+## 8. 里程碑（每个 M 含测试, 基线 310 不动; 板块 1~4 已于 2026-09-02 吸收 M1~M3 并重构为两轮 digest——下表 M3 描述已被 §3 两轮图取代, 保留作演进历史）
 
 | M | 内容 | 依赖 | 验收 |
 |---|---|---|---|
 | **M1** | wiki_store v2（jsonl + 原子整写 + id + 索引）; **出厂 digest pass**（遥香: experience/knowledge → 预设时间线 → 消化 → canon_fact 条目; 手写罗盘 persona_compass 骨架） | 无 | 遥香出厂条目 100% 映射（source_key 可溯源）; 读写/快照/校验测试过 |
 | **M2** | 组织视图渲染 + 修订契约校验（id 存在性/epistemic/支撑规则）; evolution_log | M1 | 构造修订包样例全过/全拒测试过 |
-| **M3** | digest.md v2 + build_digest_schema v2（entries/revisions/evidence）; consolidation 改造（同调用输出修订） | M2 | 真实 bond 闭环 → 条目+修订落盘; 310 基线不破 |
+| ~~M3~~ | ~~digest.md v2 + revisions 契约（单轮输出修订）~~ → **板块 4 已重构为两轮**（Round A 记录员 + Round B 理解者决策表, digest_registry 契约, 原子快照, feedback 语义回灌） | M2 | 假 LLM 全链 + 失败矩阵测试过; 真 LLM 冒烟两轮闭环 |
 | **M4** | 三通道召回（embedding 通道: 本地 nomic, numpy 余弦, 无 embedding 时降级 tags 匹配） | M3 | 组织视图含一跳扩展子图; 无 embedding 环境自动降级 |
 | **M5** | 注入改造（§4.2 分层渲染 + 校验 lane 异步 worker 复用 emotion 队列） | M3 | 角色视图无 id 泄漏; 校验 lane 不阻塞主流程 |
+
+**板块进度（2026-09-02 重构）**:
+- 板块1 nodes ✅（relation 砍 / title+history / main_text 收敛）  板块2 digest_registry ✅
+- 板块3 llm_call ✅（传输/策略分层）  板块4 两轮 digest ✅（骨架+执行器护栏+原子+幂等）
+- 板块5 recall 候选推荐（B 轮输入: 引擎按相似度推荐候选认知 + 疑似印证/重复标注）——进行中
+- 板块6 深度整理轮（phase=deep: merge/contradict, 每 N=5 段）——预留
 
 **每 M 结束**: 全量 pytest + 提交（feat/two-pass-emotion）; M3 之前不动现有
 consolidation/recall 的对外行为（新代码独立目录 core/brain/wiki_v2/, 最后切换）。

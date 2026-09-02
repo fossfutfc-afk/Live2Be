@@ -44,9 +44,6 @@ PLAYER_SUBJECT = "player"
 #: 出厂基座 source 取值（fact 节点专用）
 _SEED_SOURCES = ("experience", "knowledge")
 
-#: 动态 digest 允许的 epistemic（DESIGN_BRAIN.md §7 护栏）
-_DYNAMIC_EPISTEMICS = ("observed_fact", "reported_fact", "inferred_belief")
-
 #: 各 kind 的必填字段（validate 用）
 _REQUIRED: dict[str, tuple[str, ...]] = {
     "fact": ("content", "source_key"),

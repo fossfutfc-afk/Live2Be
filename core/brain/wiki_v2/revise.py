@@ -172,7 +172,7 @@ def apply_revision_package(
         result.errors.append("revisions 必须是数组")
         return result
     if not revisions:
-        result.ok = True                    # 空包合法（digest_v2 规则 14: 无值得记的）
+        result.ok = True                    # 空包合法（无值得记的, 深度整理轮同样适用）
         return result
 
     pending_log: list[dict] = []
