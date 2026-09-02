@@ -322,6 +322,13 @@ def run_bond_story_vn(
             store.finish(char.character_id, vn_sid, ended=completed)
         except Exception as e:
             logger.warning("事件流收尾失败: %s", e)
+    # 2026-09-02 用户拍板: 完整剧情结束（vn_exit completed）→ 距上次剧情计数
+    # 清零（触发门槛 + 剧情后冷却一体; 中途退出不清——只有完整演过才值得冷却）
+    if completed and engine is not None:
+        try:
+            engine.bond_completed()
+        except Exception as e:                   # noqa: BLE001 — 清零失败降级
+            logger.warning("bond_gap 清零失败: %s", e)
 
     return completed
 

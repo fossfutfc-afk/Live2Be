@@ -485,6 +485,14 @@ def bond_finish(char_id: str, session_id: str) -> dict:
         _store().append_marker(char_id, session_id, M_VN_EXIT,
                                {"completed": state.completed})
         _store().finish(char_id, session_id, ended=True)
+        # 2026-09-02 用户拍板: 完整剧情结束（vn_exit completed）→ 距上次剧情
+        # 计数清零（触发门槛 + 剧情后冷却一体; 中途退出不清——只有完整演过
+        # 才值得冷却, 见 engine.bond_completed）
+        if state.completed:
+            try:
+                chat._engine(char_id).bond_completed()
+            except Exception as e:               # noqa: BLE001 — 清零失败降级
+                logger.warning("bond_gap 清零失败: %s", e)
     except Exception as e:                           # noqa: BLE001 — 收尾写失败降级
         logger.warning("事件流收尾失败: %s", e)
     # 清任务状态（bond_story 标记）——否则 events_after 一直返回 True,

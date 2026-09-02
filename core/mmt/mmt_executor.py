@@ -137,7 +137,7 @@ class MmtExecutor:
         self,
         characters_root: str | Path,
         interperson_path: str | Path | None = None,
-        affection_threshold: int = 5,
+        affection_threshold: int = 6,
         bond_progress: BondProgress | None = None,
     ):
         self.char_loader = CharacterLoader(characters_root)
@@ -271,14 +271,16 @@ class MmtExecutor:
         if self.current_char is None:
             raise MmtExecError("尚未进入会话, 无法触发羁绊剧情")
 
-        # 软门槛（2026-08-21 用户确认）: 轮数只是参考——已由 momotalk 每轮注入
-        # 「羁绊进度参考」注记, AI 有最终裁决权, 剧情需要可提前触发。
-        # 程序只兜底极端: 门槛开启且首条消息（0 轮）→ 拒绝, 刚认识就进剧情不合理。
+        # 2026-09-02 定稿（用户拍板）: 触发节奏归程序——距上次**完整** bond 剧情
+        # 的 MMT 轮数（_bond_gap, 持久化, 由 momotalk 每轮同步）≥ threshold 才
+        # 放行; 不足 → 硬拒（拒消息回灌, LLM 自然转聊天——不靠话术自觉）。
+        # 刚演完剧情清零 → 冷却 = 门槛本身（防连发/防"演完立刻又主动"）。
+        # 全局累计轮数不再参与判定（只作偏好统计/注记事实）。
         score = self._affection_score()
-        if self.affection_threshold > 0 and score < 1:
+        if self.affection_threshold > 0 and score < self.affection_threshold:
             raise MmtExecError(
-                f"羁绊剧情暂不触发——你们才刚刚开始交谈（已 {score} 轮）; "
-                "先聊几句, 让故事自然发展"
+                f"羁绊剧情暂不触发——距上次剧情才聊 {score} 轮, 系统要求至少 "
+                f"{self.affection_threshold} 轮; 先自然聊几句, 让故事继续发展"
             )
 
         reason = action.payload["reason"]
@@ -293,15 +295,12 @@ class MmtExecutor:
     # ==================================================================
 
     def _affection_score(self) -> int:
-        """触发节奏参考轮数 = min(全局累计, 本段会话轮数)（2026-09-02 修正）。
+        """触发门槛计数 = 距上次完整 bond 剧情的 MMT 轮数（2026-09-02 定稿）。
 
-        原实现只读全局累计（bond_progress）——累计几百轮后, 新会话第 3 轮
-        LLM 就贸然触发（实测: 玩家随口夸奖 → 遥香"我马上过去"）。触发应该
-        跟着"本段相处"走: 会话不足 threshold 轮 → 程序拒绝（feedback 后
-        LLM 通常转为普通聊天, 达成"不主动"）; 玩家真的想见面可以再聊几句。
+        momotalk 每轮同步（set_session_rounds）: 持久 progress.json 的
+        rounds_since_bond（断线/重启继续累计）; 完整剧情结束清零。
         方法名保留历史命名; 无当前角色 → 0。门槛校验读它真实生效。
         """
         if self.current_char is None:
             return 0
-        total = self.bond_progress.rounds(self.current_char.character_id)
-        return min(total, self.session_rounds)
+        return self.session_rounds

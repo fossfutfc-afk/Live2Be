@@ -424,14 +424,14 @@ def test_wrapup_after_vn():
 
     with tempfile.TemporaryDirectory() as d:
         progress = BondProgress(data_root=Path(d))
-        progress.record_turn(CHARACTER)          # 全局累计预积累（2026-09-02: 触发按本段轮数）
+        progress.record_turn(CHARACTER)          # 全局累计（仅偏好统计, 不参与门槛）
         llm = ScriptedLLM(trig, wrap)
         engine = MomoTalkEngine(ROOT / "config" / "characters", llm,
                                 bond_progress=progress)
         engine.start_session(CHARACTER)
-        engine.executor.set_session_rounds(5)    # 本段会话已 5 轮 → 门槛放行
+        engine.executor.set_session_rounds(6)    # 距上次剧情 6 轮 → 门槛放行
         result = engine.agent_turn("今天我们聊了很多")
-        assert result.bond_story, "会话 ≥5 轮后触发应成功（软门槛）"
+        assert result.bond_story, "距上次剧情 ≥6 轮后触发应成功（硬门槛）"
         assert engine.history_length == 2
         wrapup_after_vn(engine)
         # 收尾只记 assistant（record_input=False, 不污染假 user 消息）;
@@ -482,3 +482,90 @@ def test_vn_event_stream(tmp_path):
     st2 = session_status(evs)
     assert st2["ended"] is True and st2["in_vn"] is False
     print("    vn-store: enter_vn 单流 + bond 事件(input/picked) + vn_state + vn_exit/session_end")
+
+
+# ----------------------------------------------------------------------------
+# 触发门槛（2026-09-02 定稿）: 距上次完整 bond 剧情 ≥6 轮（持久 rounds_since_bond）
+# + vn_exit completed 清零 / 中途退出保留
+# ----------------------------------------------------------------------------
+
+_TRIG = {"actions": [
+    {"action": "mmt_trigger_bond_story", "payload": {"reason": "气氛到了"}}]}
+_CHAT = {"actions": [
+    {"action": "mmt_chat", "reply": "嗯……好啊。", "payload": {}}]}
+
+
+def test_trigger_gate_six_rounds():
+    """硬门槛（用户拍板 6 轮）: 距上次剧情 5 轮 → trigger 被拒（feedback 回灌）;
+    6 轮 → 放行。LLM 两次尝试后自然转聊天（不靠话术自觉）。"""
+    llm = ScriptedLLM(_TRIG, _TRIG, _CHAT)
+    engine = _engine(llm)                          # 无 store（attach 不可用 → 手动设门槛）
+    engine.start_session(CHARACTER)
+    engine.executor.set_session_rounds(5)          # 距上次剧情 5 轮
+    r = engine.agent_turn("我们聊了一会儿")
+    assert not r.bond_story, "5 轮应被硬拒（拒绝后 LLM 转聊天）"
+    # 第一次拒绝的 feedback 内容（snapshots[1] 的 user = 拒消息回灌）
+    fb = llm.snapshots[1][-1]["content"]
+    assert "至少 6 轮" in fb, fb
+    # 6 轮放行
+    llm2 = ScriptedLLM(_TRIG)
+    engine2 = _engine(llm2)
+    engine2.executor.set_session_rounds(6)
+    r2 = engine2.agent_turn("我们再聊几句")
+    assert r2.bond_story, "距上次剧情 6 轮 → 触发应放行"
+    print("    trigger 门槛: 5 轮拒（feedback: 至少 6 轮）→ 6 轮放行")
+
+
+def test_bond_gap_persist_and_clear(tmp_path):
+    """rounds_since_bond 持久化 + vn_exit 清零时机（用户拍板）:
+    完整剧情结束（completed）→ 清零; 中途退出 → 保留; 断线重连继续累计。"""
+    # 聊 1 轮 → gap=1; 断线重连（新引擎 attach 同会话）→ gap 仍 1
+    st = SessionStore(tmp_path)
+    llm = ScriptedLLM(_CHAT)
+    engine = MomoTalkEngine(ROOT / "config" / "characters", llm, store=st)
+    engine.start_session(CHARACTER)
+    root = st.create(CHARACTER)
+    engine.attach_session(root.session_id)
+    engine.agent_turn("你好呀")
+    assert st.read_bond_gap(CHARACTER) == 1, st.read_bond_gap(CHARACTER)
+    # 重连（模拟重启: 新引擎实例 attach 同一角色线）→ 不从 0 开始
+    llm2 = ScriptedLLM(_CHAT)
+    engine2 = MomoTalkEngine(ROOT / "config" / "characters", llm2, store=st)
+    engine2.start_session(CHARACTER)
+    engine2.attach_session(root.session_id)
+    assert engine2.executor.session_rounds == 1, "attach 应恢复持久计数"
+    engine2.agent_turn("继续聊")
+    assert st.read_bond_gap(CHARACTER) == 2
+    # 中途退出 bond（b）→ completed=False → gap 保留
+    llm3 = ScriptedLLM(SCENE_A)
+    engine3 = MomoTalkEngine(ROOT / "config" / "characters", llm3, store=st)
+    engine3.start_session(CHARACTER)
+    engine3.attach_session(root.session_id)
+    completed = run_bond_story_vn(engine3, input_fn=lambda p: "b", char_ms=0,
+                                  remind_rounds=15, end_rounds=22, store=st)
+    assert completed is False
+    assert st.read_bond_gap(CHARACTER) == 2, "中途退出不清零（只有完整演过才值得冷却）"
+    # 完整剧情结束 → vn_exit completed → 清零
+    llm4 = ScriptedLLM(SCENE_A, STORY_END)
+    engine4 = MomoTalkEngine(ROOT / "config" / "characters", llm4, store=st)
+    engine4.start_session(CHARACTER)
+    engine4.attach_session(root.session_id)
+    completed4 = run_bond_story_vn(engine4, input_fn=lambda p: "1", char_ms=0,
+                                   remind_rounds=15, end_rounds=22, store=st)
+    assert completed4 is True
+    assert st.read_bond_gap(CHARACTER) == 0, "完整剧情结束 → rounds_since_bond 清零"
+    print("    bond_gap: 持久(断线继续) + 中途退出保留 + vn_exit completed 清零")
+
+
+def test_bond_gap_legacy_migration(tmp_path):
+    """旧 progress.json（仅 rounds 键, 死数据）→ read_bond_gap 视为 0（2026-09-02
+    用户拍板: 旧值作废置 0, 宁缺勿错——新语义从零起算）。"""
+    import json as _json
+    st = SessionStore(tmp_path)
+    root = st.create(CHARACTER)
+    p = st.progress_path(CHARACTER)
+    p.write_text(_json.dumps({"rounds": 42, "updated_at": "2026-01-01"}), encoding="utf-8")
+    assert st.read_bond_gap(CHARACTER) == 0
+    # 缺失/损坏 → 0
+    assert st.read_bond_gap("no_such_char") == 0
+    print("    bond_gap 迁移: 旧 rounds 字段作废置 0; 缺失/损坏 → 0")
