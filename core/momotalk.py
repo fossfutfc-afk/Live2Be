@@ -91,20 +91,46 @@ def _interact_max(events: list, digested_seq: int) -> int:
         default=0)
 
 
+def _name_aliases(profile: dict) -> tuple[str, ...]:
+    """角色称喟别名（第一人称化用——yml 原文多用简称, 2026-09-02）:
+    profile 的 most_called_name / other_names / jp_name / en_name 拆分去重。
+    键兼容带/不带 SIG~ 前缀两种存储形态; 单字/两字全名排除（太长会误伤文本）。
+    """
+    names: list[str] = []
+    for f in ("most_called_name", "other_names", "jp_name", "en_name",
+              "SIG~most_called_name", "SIG~other_names"):
+        v = str((profile or {}).get(f) or "").strip()
+        if not v:
+            continue
+        for part in re.split(r"[，,、/;；]", v):
+            part = part.strip()
+            if part and part not in names and len(part) <= 8:
+                names.append(part)
+    return tuple(names)
+
+
 def load_brain_segment(store: SessionStore, char_id: str, char_name: str = "",
                        characters_root: str | Path | None = None) -> str:
     """角色注入段（wiki_v2, 0 LLM）——bond 开场/剧情引擎共用（webgui.bond/vn_cli）。
 
-    出厂基座确保（空库 seed, source_key 幂等）→ render_character_view 第一人称;
-    失败/空库 → ""（零注入, 平行世界; 读失败静默跳过, 不阻断剧情）。
+    出厂基座确保（空库 seed, source_key 幂等）→ render_character_view 第一人称
+    （全名 + 称喟别名→我; 别名从角色 profile 取）; 失败/空库 → ""
+    （零注入, 平行世界; 读失败静默跳过, 不阻断剧情）。
     """
     try:
         wstore = WikiStoreV2(store.data_root, world_id=store.world_id,
                              char_id=char_id)
-        if characters_root is not None \
-                and not any(n.kind == "fact" for n in wstore.all()):
-            seed_from_config(wstore, Path(characters_root) / char_id)
-        return render_character_view(wstore.all(), char_name=char_name) or ""
+        aliases: tuple[str, ...] = ()
+        if characters_root is not None:
+            try:
+                ch = CharacterLoader(characters_root).load(char_id, strict=False)
+                aliases = _name_aliases(ch.profile)
+            except Exception:                          # noqa: BLE001 — 别名取不到静默
+                pass
+            if not any(n.kind == "fact" for n in wstore.all()):
+                seed_from_config(wstore, Path(characters_root) / char_id)
+        return render_character_view(wstore.all(), char_name=char_name,
+                                     char_aliases=aliases) or ""
     except Exception:                                # noqa: BLE001 — 宁缺勿错
         return ""
 
@@ -391,8 +417,10 @@ class MomoTalkEngine:
                 elif res.affection_delta > 0 and interact_max:
                     self._write_affection_event(store, character_id, events,
                                                 interact_max, res.affection_delta)
-            seg = render_character_view(wstore.all(),
-                                        char_name=char.display_name or "")
+            seg = render_character_view(
+                wstore.all(),
+                char_name=char.display_name or "",
+                char_aliases=_name_aliases(char.profile))
             self._brain_injection = seg or ""
         except Exception as e:                       # noqa: BLE001 — 宁缺勿错
             logger.warning("brain 注入失败 (%s): %s", character_id, e)
