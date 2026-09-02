@@ -339,8 +339,8 @@ def test_bond_scene_error_falls_back_to_closing(tmp_path):
     class BadLLM(ScriptedLLM):
         def chat(self, messages, **kw):
             self.snapshots.append([dict(m) for m in messages])
-            if "记忆巩固" in messages[0]["content"]:
-                return dict(EMPTY_DIGEST)
+            if "记录员" in messages[0]["content"] or "整理者" in messages[0]["content"]:
+                return _digest_stub(messages)
             raise RuntimeError("LLM 挂了")          # 每次调用都炸 → 重试耗尽
     engine, st, sid, _ = _setup(tmp_path, SCENE_A)  # 占位（BadLLM 覆盖）
     chat._engines[CHARACTER] = MomoTalkEngine(ROOT / "config" / "characters",
@@ -350,16 +350,24 @@ def test_bond_scene_error_falls_back_to_closing(tmp_path):
     try:
         bond.bond_start(CHARACTER, sid)
         stt = _wait_status(CHARACTER, sid)
+        # 2026-09-02: 偶发失败不再一败就 closing——首败保留上一场 + error（可重试）
+        assert stt["completed"] is False, stt
+        assert stt["error"], "应有错误信息（前端显示重试按钮）"
+        # 玩家连续重试（每次 turn 重新生成仍失败）→ 超限（MAX_GEN_FAILURES+1）才 closing
+        for _ in range(6):
+            bond.bond_turn(CHARACTER, sid, "（继续）")
+            stt = _wait_status(CHARACTER, sid)
+            if stt["completed"]:
+                break
         assert stt["completed"] is True, stt
         assert stt["scene"]["is_end"] is True, stt["scene"]
         assert "夜色渐深" in stt["scene"]["paragraphs"][0]["text"]
-        assert stt["error"], "应有错误信息"
         # finish 收尾照常（事件流完整）
         assert bond.bond_finish(CHARACTER, sid)["completed"] is True
         evs = st.events(CHARACTER, sid)
         assert ("bond", "story_end") in [(e.type, e.subtype) for e in evs]
         assert ("marker", "session_end") in [(e.type, e.subtype) for e in evs]
-        print("    bond 失败降级: LLM 全挂 → closing 场景 + completed + finish 收尾")
+        print("    bond 失败降级: 首败可重试 → 连续超限才 closing + finish 收尾")
     finally:
         _cleanup()
 

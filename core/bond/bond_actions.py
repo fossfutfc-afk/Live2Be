@@ -107,7 +107,41 @@ def _parse_paragraphs(payload: dict[str, Any]) -> list[dict]:
                     paragraphs.append(item)
     if not paragraphs:
         raise ContractError("paragraphs 至少需要一个非空段落")
-    return paragraphs
+    return _merge_bracket_fragments(paragraphs)
+
+
+#: 孤闭括号/引号（LLM 偶发把 （…）「…」 拆段——schema 已禁, 引擎再兜底）
+_ORPHAN_CLOSE = ("）", "」", ")", '"')
+
+
+def _merge_bracket_fragments(paragraphs: list[dict]) -> list[dict]:
+    """括号碎片净化（2026-09-02 用户反馈: 出现单独一段"）"）: LLM 偶发把
+    （动作描写）或「对白」拆成两段——开括号段 + 孤闭括号段（常见于把 inner
+    塞进括号时的格式幻觉）。规则: 若段落以孤闭括号开头, 且上一段以对应开
+    括号开头且未闭合 → 并入上一段末尾（括号成对, 渲染不出现光秃秃的
+    "）" 成段）。段间 emotion 保留上一段的（碎片段的 emotion 丢弃）。
+    """
+    out: list[dict] = []
+    for p in paragraphs:
+        text = p.get("text", "").strip()
+        if out and text and text[0] in _ORPHAN_CLOSE:
+            prev = out[-1]
+            ptext = prev.get("text", "")
+            # 上一段以开括号开头且同型未闭合 → 补尾
+            opener = "（" if text[0] == "）" else ("「" if text[0] == "」" else None)
+            if opener is not None and ptext.startswith(opener) \
+                    and _closer(opener) not in ptext:
+                prev["text"] = (ptext + text).strip()
+                continue
+            if text[0] == ")" and ptext.startswith("(") and ")" not in ptext:
+                prev["text"] = (ptext + text).strip()
+                continue
+        out.append(dict(p))
+    return out
+
+
+def _closer(opener: str) -> str:
+    return {"（": "）", "「": "」", "(": ")"}.get(opener, opener)
 
 
 def _parse_choices(payload: dict[str, Any]) -> list[str]:
@@ -280,6 +314,9 @@ def build_story_registry() -> StoryActionRegistry:
             "      inner: 可选, 字符串——**内心独白**（角色没说出口的心理活动, 屏幕变黑\n"
             "          单独展示）。低频惊喜: 只在情感的关键时刻写（遥香的自卑、阿露的逞强\n"
             "          心理这类）; 不必每场都有, 没有就省略, 不要为了写而写\n"
+            "      **括号与引号必须成对出现在同一段 text 内**: （动作描写）整段写全,\n"
+            "         禁止把「（」和「）」拆成两段输出; 内心独白只用 inner 字段,\n"
+            "         不要用括号把 inner 包起来; 不要输出单独一行只有 ）或 」 的段落\n"
             "  choices: 数组——给 sensei 的选项文本列表（1~3 个）。**带 choices 时\n"
             "      必须同时提供 branches**（见下）; 纯叙事板块可省略 choices\n"
             "      （缺省 = 本板块不提供选项, sensei 读完点继续）\n"

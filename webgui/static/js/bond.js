@@ -51,6 +51,7 @@ const BondVN = (() => {
   let player = null;            // SpinePlayer（无 spine 资产 → null, 纯文字）
   let playerMeta = null;        // /api/spine 元信息 {pack, emotions}
   let busy = false;             // 场景切换中（防双击）
+  let lastText = "";            // 最近一次提交内容（生成失败重试用, 2026-09-02）
   let finished = false;         // 已 finish（防重复收尾）
   let autoOn = false;           // 自动模式（右上"自动"按钮: 黄 = 开）
   let autoTimer = null;         // 自动推进倒计时（打字完 3s 自动下一段/自动选第 1 个选项; 玩家介入 → 取消）
@@ -175,8 +176,10 @@ const BondVN = (() => {
       if (st.name) $("bond-name").textContent = st.name;
       if (st.club !== undefined) $("bond-club").textContent = st.club;
       if (st.busy) continue;
-      if (st.error && !st.scene) {
-        showError("剧情生成失败: " + st.error);
+      // 生成失败（2026-09-02 可重试: 上一场保留在屏, 后端给 3 次机会）——
+      // 失败提示 + 重试按钮重新提交同输入; closing 收尾已置 completed → 走渲染
+      if (st.error && !st.completed) {
+        showTurnError(st.error);
         return;
       }
       // 异步标注补标（两遍式 C）: emo_version 变化 → 已显示段落补切立绘表情
@@ -667,6 +670,7 @@ const BondVN = (() => {
   async function submit(text) {
     if (busy) return;
     busy = true;
+    lastText = text;              // 失败重试用（2026-09-02）
     clearAutoTimer();             // 推进 → 自动倒计时作废（防自动+手动双提交）
     stopTyping();
     let data;
@@ -683,14 +687,14 @@ const BondVN = (() => {
           continue;
         }
         if (!res.ok || !data.accepted) {
-          showError(data.detail || data.error || "剧情推进失败");
+          showTurnError(data.detail || data.error || "剧情推进失败");
           busy = false;
           return;
         }
         break;
       }
     } catch (e) {
-      showError("剧情推进失败（网络错误: " + e.message + "）");
+      showTurnError("网络错误: " + e.message);
       busy = false;
       return;
     }
@@ -767,6 +771,25 @@ const BondVN = (() => {
     div.className = "bond-error";
     div.textContent = "（" + msg + "）";
     box.appendChild(div);
+  }
+
+  // 生成失败 → 错误提示 + 重试按钮（2026-09-02: 偶发失败不再卡死/终结剧情;
+  // 重试 = 重新提交最近一次输入, 后端重新走 LLM）
+  function showTurnError(msg) {
+    const box = $("bond-choices");
+    box.innerHTML = "";
+    const div = document.createElement("div");
+    div.className = "bond-error";
+    div.textContent = "（剧情生成失败: " + msg + "）";
+    const btn = document.createElement("button");
+    btn.className = "bond-choice bond-retry";
+    btn.textContent = "↻ 重试";
+    btn.addEventListener("click", () => {
+      busy = false;
+      submit(lastText);
+    });
+    box.appendChild(div);
+    box.appendChild(btn);
   }
 
   bindContinue();

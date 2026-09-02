@@ -308,6 +308,7 @@ class MomoTalkEngine:
         """
         self._session_id = session_id
         self._session_rounds = 0
+        self.executor.set_session_rounds(0)     # 触发门槛按本段会话轮数（2026-09-02）
 
     def _inject_brain(self, character_id: str, session_id: str = "", *,
                       digest: bool = False) -> None:
@@ -704,6 +705,7 @@ class MomoTalkEngine:
             self._session_rounds += 1
             self._store.update_session_progress(
                 char_id, self._session_id, self._session_rounds)
+            self.executor.set_session_rounds(self._session_rounds)  # 触发门槛用本段轮数
             # mmt 会话窗口 digest（蓝图 §3.1: 每 N=25 轮; 内部判定+剧情保护）
             self._maybe_mmt_digest()
         except Exception as e:                      # 宁缺勿错: 存档失败不阻断对话
@@ -712,17 +714,20 @@ class MomoTalkEngine:
     def _bond_progress_note(self) -> str:
         """本轮羁绊进度参考注记（注入 LLM context, 不入历史）。
 
-        软门槛（2026-08-21 用户确认）: 轮数只是参考——AI 有最终裁决权,
-        剧情确有需要（如老师有急事）可提前触发; 程序只在首条消息兜底
-        （见 mmt_executor._execute_mmt_trigger_bond_story）。
+        软门槛（2026-08-21 用户确认 + 2026-09-02 修正）: 触发节奏按**本段会话**
+        轮数走（累计轮数高 ≠ 这轮聊几句就该进剧情——实测 3 轮就"我马上过去"
+        太主动）; AI 有最终裁决权, 但只有玩家明确表露想见面/约会的意愿时
+        才考虑提前触发。
         """
-        rounds = self.bond_progress.rounds(self._char_id) if self._current_char else 0
+        total = self.bond_progress.rounds(self._char_id) if self._current_char else 0
+        sess = self._session_rounds
         threshold = self.executor.affection_threshold
         return (
-            f"羁绊进度参考: 与该角色已累计对话 {rounds} 轮。"
-            f"一般建议至少积累 {threshold} 轮后再考虑触发羁绊剧情; "
-            "但轮数仅供参考——若剧情确有需要（如老师有急事、气氛已到）, "
-            "可不受轮数限制提前触发 mmt_trigger_bond_story。"
+            f"羁绊进度参考: 与该角色累计对话 {total} 轮, 本段会话 {sess} 轮。"
+            f"一般建议本段至少聊 {threshold} 轮再考虑触发羁绊剧情——累计轮数高"
+            "不代表刚聊几句就该进剧情, 别太主动; "
+            "除非玩家明确表达想见面/约会的意愿（如直接邀约）, "
+            "否则让对话自然发展。"
         )
 
     def _trim_history(self) -> None:

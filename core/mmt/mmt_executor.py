@@ -150,6 +150,9 @@ class MmtExecutor:
         self.affection_threshold = affection_threshold
         self.bond_progress = bond_progress or BondProgress()
         self.current_char: DynamicCharacter | None = None
+        # 本段会话轮数（2026-09-02: 触发节奏按"本段相处"而非全局累计——
+        # 全局累计几百轮后 LLM 会在新会话第 3 轮就贸然触发; momotalk 每轮同步）
+        self.session_rounds: int = 0
 
     # ------------------------------------------------------------------
     # 会话上下文
@@ -158,6 +161,10 @@ class MmtExecutor:
     def set_current_character(self, char: DynamicCharacter | None) -> None:
         """设置会话当前角色（inspect/trigger 依赖它）。"""
         self.current_char = char
+
+    def set_session_rounds(self, rounds: int) -> None:
+        """同步本段会话轮数（momotalk 每轮落盘后调用——触发门槛判定用）。"""
+        self.session_rounds = max(0, int(rounds))
 
     # ------------------------------------------------------------------
     # 公共 API
@@ -286,11 +293,15 @@ class MmtExecutor:
     # ==================================================================
 
     def _affection_score(self) -> int:
-        """当前羁绊进度 = 与该角色的累计对话轮数。
+        """触发节奏参考轮数 = min(全局累计, 本段会话轮数)（2026-09-02 修正）。
 
-        方法名保留历史命名; 实际读 core/bond/bond_progress.py 的轮数（客观计数,
-        非情绪数值）。无当前角色 → 0。门槛校验读它真实生效。
+        原实现只读全局累计（bond_progress）——累计几百轮后, 新会话第 3 轮
+        LLM 就贸然触发（实测: 玩家随口夸奖 → 遥香"我马上过去"）。触发应该
+        跟着"本段相处"走: 会话不足 threshold 轮 → 程序拒绝（feedback 后
+        LLM 通常转为普通聊天, 达成"不主动"）; 玩家真的想见面可以再聊几句。
+        方法名保留历史命名; 无当前角色 → 0。门槛校验读它真实生效。
         """
         if self.current_char is None:
             return 0
-        return self.bond_progress.rounds(self.current_char.character_id)
+        total = self.bond_progress.rounds(self.current_char.character_id)
+        return min(total, self.session_rounds)
