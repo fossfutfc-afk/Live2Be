@@ -115,6 +115,10 @@ MMT_MAX_TOKENS = 4096  # 动作 JSON + 对白（推理模型需大 max_tokens, �
 #: 每 N 轮后台消化一次, 节流而非精确窗口; bond 剧情闭环触发不变）
 MMT_DIGEST_INTERVAL = 25
 
+#: digest 单次 LLM 调用的超时覆盖（per-call; 共享客户端的 60s 主对话超时会掐掉
+#: high 档长考——digest 是后台任务, 放宽到 5min, 快速失败由 digest deadline 兜底）
+DIGEST_LLM_TIMEOUT = 300.0
+
 
 class MmtLoopError(Live2BeError):
     """MomoTalk agent loop 错误（步数耗尽等）。message 供调用方展示/重试。
@@ -335,7 +339,8 @@ class MomoTalkEngine:
                 events = store.events(character_id)
                 interact_max = _interact_max(events, wstore.digested_seq)
                 res = digest_segment(wstore, self.llm, events,
-                                     character_prompt=anchor)
+                                     character_prompt=anchor,
+                                     llm_timeout=DIGEST_LLM_TIMEOUT)
                 if not res.ok:
                     logger.warning("digest 未完成 (%s): %s", character_id,
                                    " | ".join(res.errors))

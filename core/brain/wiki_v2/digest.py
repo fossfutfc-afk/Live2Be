@@ -92,7 +92,8 @@ def digest_segment(
     temperature: float = 0.3,
     max_tokens: int = 8192,
     evidence_threshold: float = EVIDENCE_THRESHOLD,
-    deadline_seconds: float = 150.0,
+    deadline_seconds: float = 300.0,
+    llm_timeout: float | None = None,
     extra_body: dict | None = None,
 ) -> DigestResult:
     """增量两轮 digest: 新事件 → A 记录 → B 理解 → 原子落盘 → 推进水位。
@@ -105,11 +106,14 @@ def digest_segment(
         character_prompt: 人设锚点文本（性格+知识两层; 空 → 不注入）
         visuals: 视觉记忆 prompt 列表; None → 从事件流 l2d 事件自动收集
         model: 模型覆盖（None → 客户端默认）
-        extra_body: 请求附加字段。None → {"reasoning_effort": "low"}——
-                   推理模型（v4-flash 类）默认长考失控（reasoning 吃光输出预算 →
-                   空输出/截断; 实验 2026-09-02 N=5×2: low 档 5/5 合格、推理降 10×、
-                   62s→17s, 质量保留; medium 档 1/3 死在规则校验）
-        deadline_seconds: 全程时间预算（A+B+反馈）; 撞上 → 判失败回滚
+        extra_body: 请求附加字段。None → {"reasoning_effort": "high"}——
+                   生产默认 high 档（2026-09-02 实验矩阵: low 5/5 合格但浅(17s/次)、
+                   medium 1/3 死在规则校验、high 2/2 认知深化与逐字校验最佳
+                   (实测单 unit A+B ≈ 2min)——质量优先; 显式传 {} 可关闭）。
+        deadline_seconds: 全程时间预算（A+B+反馈; high 档长考实测 ~2min,
+                   默认 300s——撞上 → 判失败回滚, 水位不推进可重算）
+        llm_timeout: per-call 超时覆盖（None = 客户端构造超时; 后台 digest
+                   建议 ≥300s——high 档单次长考可超 60s 共享客户端默认）
     """
     new_events = [e for e in events
                   if e.seq > store.digested_seq
@@ -142,6 +146,7 @@ def digest_segment(
         entries, resp_a = _round_call(
             llm, system_a, user_a,
             model=model, temperature=temperature, max_tokens=max_tokens,
+            llm_timeout=llm_timeout,
             extra_body=extra_body, deadline=deadline, label="round_a",
             parse_fn=digest_registry.parse_round_a, result=result)
         if entries is None:
@@ -166,6 +171,7 @@ def digest_segment(
         rows, resp_b = _round_call(
             llm, system_b, user_b,
             model=model, temperature=temperature, max_tokens=max_tokens,
+            llm_timeout=llm_timeout,
             extra_body=extra_body, deadline=deadline, label="round_b",
             parse_fn=lambda r: digest_registry.parse_round_b(
                 r, episode_ids=set(episode_ids),
@@ -205,6 +211,7 @@ def _round_call(
     model: str | None,
     temperature: float,
     max_tokens: int,
+    llm_timeout: float | None,
     extra_body: dict | None,
     deadline: float,
     label: str,
@@ -222,7 +229,7 @@ def _round_call(
         resp, call_err = llm_chat(llm, system, "", messages=msgs, model=model,
                                   temperature=temperature, max_tokens=max_tokens,
                                   extra_body=extra_body, deadline=deadline,
-                                  label=label)
+                                  timeout=llm_timeout, label=label)
         if resp is None:
             result.errors.append(call_err or "LLM 调用失败")
             return None, None
