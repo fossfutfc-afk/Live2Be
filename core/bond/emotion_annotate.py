@@ -80,6 +80,8 @@ def _try_batch(
     try:
         # text 模式（非 json_object）: 输出是纯数组, json_object 的自纠错会
         # 拉长等待——标注是低价值重试（失败只影响表情精度）, 快速失败快速降级
+        # extra_body={}（2026-09-02 修复）: 显式关闭全局 high reasoning——
+        # 256 max_tokens 下 thinking 会吃满预算截断, robust 链爆炸成分钟级
         raw = llm.chat(
             [
                 {"role": "system", "content": system},
@@ -87,6 +89,7 @@ def _try_batch(
             ],
             temperature=0.2,
             max_tokens=max_tokens,
+            extra_body={},
         )
     except Exception as e:                     # noqa: BLE001 — 标注失败静默降级
         logger.warning("emotion 标注调用失败（降级）: %s", e)
@@ -114,12 +117,14 @@ def annotate_emotions_smart(
     lexicon_hint: str = "",
     character: str = "",
     *,
-    max_tokens: int = 256,
+    max_tokens: int = 512,
 ) -> list[str | None]:
     """robust 批量标注: 全量优先 → 失败二分递归 → 逐项容错。
 
     返回与 sentences 同长的 list（str = 词表内标签; None = 该项标注失败,
     调用方延续兜底）。单句也失败 → [None]（不无限递归）。
+    max_tokens 默认 512（2026-09-02: 256 在推理模型上截断风险高——
+    标注调用已显式关 reasoning, 512 给长批数组留足余量）。
     """
     if not sentences:
         return []
@@ -149,7 +154,7 @@ def annotate_emotions(
     lexicon_hint: str = "",
     character: str = "",
     *,
-    max_tokens: int = 256,
+    max_tokens: int = 512,
 ) -> list[str] | None:
     """批量标注（严格兼容版, 单次调用）: 句子列表 → 情绪标签列表（词表内）。
 
@@ -170,8 +175,7 @@ def annotate_emotions(
         "\n".join(f"{i + 1}: {s}" for i, s in enumerate(sentences)),
     ).replace("{character}", character or "（角色信息未注入）")
     try:
-        # text 模式（非 json_object）: 输出是纯数组, json_object 的自纠错会
-        # 拉长等待——标注是低价值重试（失败只影响表情精度）, 快速失败快速兜底
+        # text 模式 + 显式关 reasoning（同 _try_batch——标注低价值, 快速失败快速兜底）
         raw = llm.chat(
             [
                 {"role": "system", "content": system},
@@ -179,6 +183,7 @@ def annotate_emotions(
             ],
             temperature=0.2,
             max_tokens=max_tokens,
+            extra_body={},
         )
     except Exception as e:                     # noqa: BLE001 — 标注失败静默降级
         logger.warning("emotion 标注调用失败（兜底延续）: %s", e)

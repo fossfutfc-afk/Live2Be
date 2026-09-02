@@ -28,6 +28,7 @@ from __future__ import annotations
 import logging
 import queue
 import threading
+import time
 from dataclasses import dataclass, field
 
 from core.bond.bond_story import BondScene, BondStoryEngine, SceneLoopError
@@ -344,6 +345,18 @@ def _scene_ready_or_busy(state: BondState) -> dict | None:
     return None
 
 
+def _wait_annotated(state: BondState, timeout: float = 8.0) -> None:
+    """同步短等当前场景（scene_obj）标注就绪（2026-09-02 修复: 分支消费等
+    turn 直接返回场景的路径——渲染即表情就绪, 不给前端留 default 残留窗口）。
+
+    标注 worker 独立线程串行, 正常 1~3s（修复后无 reasoning 截断）; 超时返回
+    （worker 卡死时 _fallback_fill 兜底后门控也必达——宁缺勿错不无限等）。
+    """
+    deadline = time.time() + timeout
+    while time.time() < deadline and not _scene_emotions_ready(state):
+        time.sleep(0.05)
+
+
 def bond_turn(char_id: str, session_id: str, text: str) -> dict:
     """玩家裁决（选项文本 / 自由输入 / 点击继续）→ 补录上一场事件 → 衔接下一场。
 
@@ -406,6 +419,11 @@ def bond_turn(char_id: str, session_id: str, text: str) -> dict:
         # prev_emotions 由标注 worker 回填后统一更新（骨架无 emotion, 2026-09-02）
         # 分支段落可能是骨架（branches 未标注）→ 入队异步标注（与主场景同队列）
         _enqueue_annotate(state, state.scene_obj)
+        # 2026-09-02 修复: 分支渲染后前端不轮询 status（turn 直接返回 scene）——
+        # 若返回未标注骨架, 立绘 default 且标注完成无补切通道; 同步短等标注
+        # （修复后标注 ~1-3s, 上限 8s 兜底——标注层失败也有 _fallback_fill 保证就绪）
+        _wait_annotated(state, timeout=8.0)
+        state.scene = state.scene_obj.to_dict()
         # 分支播放时预生成下一板块（choices_used 已在场景生成时计过, 这里不加）
         _pregenerate(state, char_id, session_id)
         return {"accepted": True, "busy": state.busy, "branch": True,
@@ -512,12 +530,18 @@ def bond_finish(char_id: str, session_id: str) -> dict:
 # 内部: 生成 / 落库 / 收尾
 # ---------------------------------------------------------------------------
 
-def _generate(state: BondState, char_id: str, session_id: str, user_input: str) -> None:
+def _generate(state: BondState, char_id: str, session_id: str, user_input: str) -> bool:
     """后台线程: 生成下一场 → 更新 state（场景/事件/兜底）。
 
     真实模式: send_vn_scene（LLM）; 演示模式: DEMO_SCRIPT 预设场景逐个弹出。
+    Returns: 是否启动生成（False = 已有生成在跑——原子抢占失败, 调用方按 busy
+    处理——2026-09-02 修复: 多标签页/前端并发 turn 的竞态, 双生成线程会互相
+    覆盖 scene_obj/round, 造成黑背景/场景错乱）。
     """
-    state.busy = True
+    with state._lock:
+        if state.busy:
+            return False
+        state.busy = True
     state.error = ""
 
     def run():
@@ -593,12 +617,13 @@ def _pregenerate(state: BondState, char_id: str, session_id: str) -> None:
     输入固定"（继续）"——玩家点继续时已就绪, 体感零等待; 生成失败降级
     （清 pregen, 玩家点击时走正常生成路径, 不阻断剧情）。预生成场景同样计入
     选项配额/表情统计（供后续 system_note 参考）。演示模式不预生成（即时弹出）。
+    入口原子抢占（2026-09-02 修复: 与 _generate 同款锁——防并发双启动）。
     """
-    if state.busy or state.pregen_scene is not None or state.demo is not None:
-        return
-    if state.vn is None:
-        return
-    state.busy = True
+    with state._lock:
+        if state.busy or state.pregen_scene is not None \
+                or state.demo is not None or state.vn is None:
+            return
+        state.busy = True
 
     def run():
         try:

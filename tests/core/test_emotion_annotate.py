@@ -21,7 +21,8 @@ class _AnnoLLM:
         self.calls = 0
         self.last_messages = None
 
-    def chat(self, messages, temperature=0.2, max_tokens=256, response_format="json_object"):
+    def chat(self, messages, temperature=0.2, max_tokens=256,
+             response_format="json_object", **kw):
         self.calls += 1
         self.last_messages = [dict(m) for m in messages]
         if not self._s:

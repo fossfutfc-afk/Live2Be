@@ -314,6 +314,8 @@
 }
 .bond-loading .dot:nth-child(2) { animation-delay: 0.15s; }
 .bond-loading .dot:nth-child(3) { animation-delay: 0.3s; }
+/* 生成/标注等待期的后端拒因提示（2026-09-02: 别让玩家以为死机） */
+.bond-wait-note { color: #9fb8c9; font-size: 0.75rem; padding: 0.15rem 0; }
 
 /* 右下: 继续提示三角（点击跳过当前逐字; 打字完成/无选项时也亮） */
 .bond-continue {
