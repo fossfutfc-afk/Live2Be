@@ -249,3 +249,19 @@ def _random_segment(nodes: list[BrainNode],
         w = math.exp(-((x - MU) ** 2) / (2 * SIGMA * SIGMA)) / (age + 1)
         weights.append(max(w, 1e-9))
     return rng.choices(daily, weights=weights, k=1)[0]
+
+
+def random_flash_segment(store: WikiStoreV2,
+                         rng: random.Random | None = None) -> BrainNode | None:
+    """随机浮现段（memory_flash 用, 2026-09-02 切换 wiki_v2）: 从 episode
+    （质感日常, 第一人称本就"我"）双通道随机摘 1 段——"想起一件事"的素材。
+
+    原 legacy random_recall_segment 基于 events 文本摘段; v2 节点层同数学
+    （30% 珍贵 sig 加权 / 70% lognormal ts 年龄）, 语义对齐: 浮现的是
+    "记得的一段经历"（episode）, 不摘 belief/experience（模式不是事件）。
+    空库/无 episode → None（无记忆可浮, 静默跳过）。
+    """
+    rng = rng or random.Random()
+    episodes = [n for n in store.all()
+                if n.kind == "episode" and n.epistemic == "observed_fact"]
+    return _random_segment(episodes, rng)

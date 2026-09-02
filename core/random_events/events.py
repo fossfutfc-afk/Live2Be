@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
 """随机事件实现 — 记忆突然浮现 / 角色自己想说话。
 
-记忆浮现（bond_start）: 双通道回忆（珍贵保底 + 遗忘曲线）——角色在剧情开始前
-  突然想起一件事。**soft**: 不要求 AI 一定做反馈——记忆浮现是情绪底色,
+记忆浮现（bond_start）: 从 wiki_v2 双通道随机摘 1 段 episode（珍贵保底 +
+  遗忘曲线, random_flash_segment）——角色在剧情开始前突然想起一件事。
+  **soft**: 不要求 AI 一定做反馈——记忆浮现是情绪底色,
   "如果合适可以自然流露, 不必刻意提起"（用户定调: 低频惊喜, 不是指令）。
 主动说话（mmt_turn）: 角色有点想和老师说点别的话——soft 倾向, 不是指令。
 """
@@ -11,7 +12,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from core.brain.consolidation import random_recall_segment
 from core.random_events.spec import (
     TRIGGER_BOND_START,
     TRIGGER_MMT_TURN,
@@ -20,20 +20,19 @@ from core.random_events.spec import (
 
 
 def _memory_flash_fire(ctx: dict[str, Any]) -> str | None:
-    """记忆突然浮现: 双通道回忆摘 1 段 → 第一人称"你突然想起…"。
+    """记忆突然浮现: 摘到的 episode 段 → 第一人称"你突然想起…"。
 
-    ctx 需含 events / digested_seq / wiki（bond 开场时引擎从 store 构造）;
-    recall_opts 可选（透传双通道参数）。无记忆可浮（空 session/无 wiki）→ None。
+    ctx 需含 segment（BrainNode, 调用方用 wiki_v2 random_flash_segment 预摘）;
+    无记忆可浮（空库/无 episode）→ None。
     """
-    events = ctx.get("events") or []
-    digested_seq = int(ctx.get("digested_seq", 0) or 0)
-    wiki = ctx.get("wiki")
-    seg = random_recall_segment(events, digested_seq, wiki,
-                                rng=ctx.get("_rng"),
-                                recall_opts=ctx.get("recall_opts"))
-    if not seg:
+    seg = ctx.get("segment")
+    if seg is None:
         return None
-    return (f"（在剧情开始前，你突然想起了一件事：{seg}。"
+    text = (seg.narration if seg.kind == "episode" else seg.main_text) \
+        if hasattr(seg, "kind") else str(seg)
+    if not text:
+        return None
+    return (f"（在剧情开始前，你突然想起了一件事：{text}。"
             "它自然地浮现在心头——如果合适，可以自然地流露；不必刻意提起。）")
 
 
