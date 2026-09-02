@@ -161,9 +161,10 @@ def main() -> int:
     char = CharacterLoader("config/characters").load(CHAR)
     character_prompt = char.build_prompt("bond_story")
 
-    llm = LLMClient(model="deepseek-chat")
-    # 注: digest 用非推理模型（deepseek-chat）——v4-flash 类推理模型会随机
-    # "思考完不吐 JSON"（finish=stop 但 content 空, 2026-09-02 实测复现）
+    llm = LLMClient(timeout=180)
+    # 模型 = 客户端默认（settings.toml/.env, 当前 deepseek-v4-flash, thinking）——
+    # digest 内部自动带 reasoning_effort=low（实验: 5/5 合格、推理降 10×、62s→17s）;
+    # timeout 提到 180s 防单次长考被客户端 60s 掐断
     ok1 = run_unit(store, llm, unit1_events(10), "Round 1 unit（公园散步）", character_prompt)
     if ok1:
         ok2 = run_unit(store, llm, unit2_events(30), "Round 2 unit（天台夜谈）", character_prompt)

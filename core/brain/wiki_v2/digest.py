@@ -73,21 +73,27 @@ def digest_segment(
     embed_fn: EmbedFn | None = None,
     rng: random.Random | None = None,
     temperature: float = 0.3,
-    max_tokens: int = 4096,
+    max_tokens: int = 8192,
     evidence_threshold: float = EVIDENCE_THRESHOLD,
+    deadline_seconds: float = 150.0,
+    extra_body: dict | None = None,
 ) -> DigestResult:
     """增量 digest: 新事件 → LLM 提炼+组织 → 原子落盘（条目+修订）→ 推进水位。
 
     Args:
         store: 目标世界线的图式 wiki（meta.digested_seq 是水位）
         llm: 兼容 llm.chat(messages, model=, temperature=, max_tokens=,
-             response_format=) 的客户端
+             response_format=, extra_body=) 的客户端
         events: 该世界线完整事件流（Event 列表; 增量由水位切）
         character_prompt: 人设锚点文本（空 → 不注入该段）
         visuals: 视觉记忆 prompt 列表; None → 从事件流 l2d 事件自动收集
-        model: 模型覆盖（None → 客户端默认）。digest 是后台结构化任务——
-               推荐非推理模型（deepseek-chat 类）: 推理模型（v4-flash 类）会
-               随机"思考完不吐 JSON"（finish=stop 但 content 空, 2026-09-02 实测）
+        model: 模型覆盖（None → 客户端默认）
+        extra_body: 请求附加字段。None → {"reasoning_effort": "low"}——
+                   推理模型（v4-flash 类）默认长考失控（reasoning 14k~29k 字符,
+                   吃光输出预算 → finish=length 截断, JSON 断在半截; 空输出 +
+                   finish=stop 是另一已知模式, DeepSeek 生态称 reasoning-only
+                   final answer）。实验（2026-09-02, N=5×2）: reasoning_effort=low
+                   后 5/5 合格、推理降 10×、耗时 62s→17s, 质量保留。
     """
     new_events = [e for e in events
                   if e.seq > store.digested_seq
@@ -110,12 +116,21 @@ def digest_segment(
     system = load_prompt("digest_v2").replace(
         "{{output_schema}}", build_digest_schema_v2())
 
+    # 时间预算: 单次 digest 超过 deadline 直接判失败（宁缺勿错, 水位不推进——
+    # 重试放大曾让一次 digest 拖到近半小时, 2026-09-02）
+    import time as _time
+    deadline = _time.monotonic() + deadline_seconds
+
     feedback = ""
     for round_i in range(MAX_FEEDBACK_RETRIES + 1):
+        if _time.monotonic() > deadline:
+            result.errors.append(
+                f"digest 超过 {deadline_seconds:.0f}s 时间预算, 中止（水位不推进, 可重算）")
+            return result
         user_msg = _build_user_message(timeline, visuals, organize,
                                        character_prompt, feedback)
         resp = _call_llm(llm, system, user_msg, model, temperature, max_tokens,
-                         result)
+                         result, deadline, extra_body)
         if resp is None:
             return result                               # 调用重试耗尽 → 降级
         result.llm_calls += 1
@@ -170,16 +185,26 @@ def _build_user_message(timeline: str, visuals: list[str], organize: str,
 
 
 def _call_llm(llm, system: str, user_msg: str, model: str | None,
-              temperature: float, max_tokens: int, result: DigestResult):
-    """调用 + 重试（异常 → 3 次; 耗尽 → None 降级）。"""
+              temperature: float, max_tokens: int, result: DigestResult,
+              deadline: float | None = None, extra_body: dict | None = None):
+    """调用 + 重试（异常 → 3 次或撞 deadline; 耗尽 → None 降级）。
+
+    extra_body: None → {"reasoning_effort": "low"}（见 digest_segment docstring——
+    推理模型长考失控的实测对策; 调用方显式传 {} 可关闭）。
+    """
+    import time as _time
+    body = {"reasoning_effort": "low"} if extra_body is None else extra_body
     last_err: Exception | None = None
     for attempt in range(MAX_CALL_RETRIES):
+        if deadline is not None and _time.monotonic() > deadline:
+            result.errors.append("LLM 调用撞上时间预算")
+            return None
         try:
             return llm.chat(
                 [{"role": "system", "content": system},
                  {"role": "user", "content": user_msg}],
                 model=model, temperature=temperature, max_tokens=max_tokens,
-                response_format="json_object")
+                response_format="json_object", extra_body=body)
         except Exception as e:                           # noqa: BLE001
             last_err = e
             logger.warning(err("DigestFailed",

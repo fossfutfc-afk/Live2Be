@@ -144,10 +144,10 @@ def test_add_link_refreshes_experience_count(tmp_path):
                      significance=0.7, event_seq=[1]))
     assert st.get("e0001").count == 0
     st.add(make_node("episode", narration="老师又说忙", event_seq=[2]))
-    st.add_link("m0002", "e0001")                          # episode 链入 experience
+    st.add_link("m0001", "e0001")                          # episode 链入 experience
     exp = st.get("e0001")
-    assert exp.links == ["m0002"] and exp.count == 1
-    st.remove_link("m0002", "e0001")
+    assert exp.links == ["m0001"] and exp.count == 1
+    st.remove_link("m0001", "e0001")
     assert st.get("e0001").count == 0
     assert st.audit() == []
 
