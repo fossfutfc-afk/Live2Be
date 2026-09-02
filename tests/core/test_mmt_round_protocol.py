@@ -1,12 +1,13 @@
 # -*- coding: utf-8 -*-
-"""MMT 轮级协议单测（2026-09-02 定稿: 说话 = 默认产物, 动作只放真操作）。
+"""MMT 消息流协议单测（2026-09-02 定稿: 聊天 = 消息序列, text 单元说话）。
 
 核心行为:
-    1. 纯说话轮 {"reply": "…"}（无 actions）→ 隐含 mmt_chat 走原管线
-    2. 空轮（无 reply 无 actions）→ feedback 整轮重试
-    3. trigger 新格式: {"reply": 邀约话, "actions": [trigger]} 独占放行
-    4. 旧输出兼容: actions 里混 mmt_chat / 动作带 reply → 并入轮级 reply
-    5. registry 动作集收敛（不含 mmt_chat, 外壳 {action, payload}）
+    1. 纯说话轮 {"messages": [{"text": "…"}]} → 隐含 mmt_chat 走原管线
+    2. 交错节奏: 话 → 发图 → 话（微信式, 旧协议表达不了的顺序）
+    3. 空轮 / 坏单元 → feedback 整轮重试
+    4. trigger 单元独占操作（text 邀约话可前置）; inspect 单独一轮
+    5. 旧协议兼容: reply / actions / mmt_chat 动作 / 动作内 reply → 归一
+    6. registry 动作集收敛（3 真操作, 外壳 {action, payload}）
 """
 import sys
 from pathlib import Path
@@ -47,58 +48,114 @@ def _engine(llm, store=None):
     return engine
 
 
-def test_pure_reply_round():
-    """纯说话轮: 无 actions → reply 包装成隐含 mmt_chat（事件流/历史格式不变）。"""
-    llm = ScriptedLLM({"reply": "嗯……我、我其实很开心的！"})
+def test_pure_text_round():
+    """纯说话轮: 单个 text 单元 → 隐含 mmt_chat（历史格式 [mmt_chat] 不变）。"""
+    llm = ScriptedLLM({"messages": [{"text": "嗯……我、我其实很开心的！"}]})
     engine = _engine(llm)
     r = engine.agent_turn("你好呀")
     assert r.ok and r.action == "mmt_chat"
     assert "很开心" in r.reply
-    assert r.steps and any("很开心" in s.text for s in r.steps)
-    # 历史: [mmt_chat] 前缀（隐含动作, 渲染零改动）
     assert engine.history[-1]["content"].startswith("[mmt_chat]")
-    print("    pure reply 轮: 无 actions → 隐含 mmt_chat, 历史/渲染格式不变")
+    print("    pure text 轮: text 单元 → 隐含 mmt_chat, 历史格式不变")
 
 
-def test_empty_round_feedback_retry():
-    """空轮（无 reply 无 actions）→ feedback → LLM 修正后成功。"""
-    llm = ScriptedLLM({}, {"reply": "刚才卡了一下……老师你说什么？"})
-    engine = _engine(llm)
-    r = engine.agent_turn("在吗")
-    assert r.ok and "刚才卡了一下" in r.reply
-    # feedback 说明了轮级协议（reply/actions 用法）
-    all_text = "\n".join(m["content"] for m in llm.snapshots[1])
-    assert "reply" in all_text and "actions" in all_text, all_text
-    print("    empty round: {} → feedback（协议说明）→ LLM 修正成功")
-
-
-def test_trigger_new_format_exclusive():
-    """trigger 新格式: reply 邀约话 + actions 独占 trigger → 放行切剧情。"""
-    trig = {"reply": "我们当面说吧！",
-            "actions": [{"action": "mmt_trigger_bond_story",
-                         "payload": {"reason": "邀约"}}]}
-    llm = ScriptedLLM(trig)
-    engine = _engine(llm)
-    engine.executor.set_session_rounds(6)            # 门槛 6 放行
-    r = engine.agent_turn("好啊")
-    assert r.bond_story, r
-    assert "当面说吧" in r.reply
-    print("    trigger 新格式: reply 邀约话 + actions 独占 → bond_story=True")
-
-
-def test_legacy_mmt_chat_merged():
-    """旧输出兼容: actions 里混 mmt_chat ×2 → 并入轮级 reply（消息不丢）。"""
-    llm = ScriptedLLM({"actions": [
-        {"action": "mmt_chat", "reply": "第一句", "payload": {}},
-        {"action": "mmt_send_media", "reply": "配图的话",
-         "payload": {"media_type": "image", "image": "天台"}},
-        {"action": "mmt_chat", "reply": "第三句", "payload": {}},
+def test_interleaved_rhythm():
+    """交错节奏（回归: 旧协议"说话→发图→说话"的能力）: text/action 按序执行,
+    事件流顺序 = 消息顺序（mmt_chat, send_media, mmt_chat）。"""
+    from core.session import SessionStore
+    llm = ScriptedLLM({"messages": [
+        {"text": "老师你看这个！"},
+        {"action": "mmt_send_media",
+         "payload": {"media_type": "image", "image": "天台夕阳"}},
+        {"text": "是我特意拍的…好看吧？"},
     ]})
+    st = SessionStore(ROOT / "data")
     engine = _engine(llm)
     r = engine.agent_turn("看看")
     assert r.ok
-    assert "第一句" in r.reply and "配图的话" in r.reply and "第三句" in r.reply
-    print("    legacy 兼容: mmt_chat/动作 reply 并入轮级 reply, 消息不丢")
+    assert [a["action"] for a in r.actions] == \
+        ["mmt_chat", "mmt_send_media", "mmt_chat"], [a["action"] for a in r.actions]
+    print("    交错节奏: 话→图→话 按序执行（消息流顺序即事件流顺序）")
+
+
+def test_empty_and_bad_unit_feedback():
+    """空轮 / 坏单元 → feedback 说明协议 → LLM 修正成功。"""
+    llm = ScriptedLLM({"messages": []},
+                      {"messages": [{"text": "刚才卡了一下……老师你说什么？"}]})
+    engine = _engine(llm)
+    r = engine.agent_turn("在吗")
+    assert r.ok and "刚才卡了一下" in r.reply
+    all_text = "\n".join(m["content"] for m in llm.snapshots[1])
+    assert "messages" in all_text, all_text
+    # 坏单元（既无 text 也无 action）→ feedback
+    llm2 = ScriptedLLM({"messages": [{"foo": 1}]},
+                       {"messages": [{"text": "抱歉刚才消息发坏了"}]})
+    engine2 = _engine(llm2)
+    r2 = engine2.agent_turn("嗯?")
+    assert r2.ok and "发坏了" in r2.reply
+    print("    empty/bad unit: feedback（协议说明）→ 修正成功")
+
+
+def test_trigger_text_before_action():
+    """trigger 单元 + 前置 text 邀约话 → 放行切剧情（门槛 6）。"""
+    trig = {"messages": [
+        {"text": "我们当面说吧！"},
+        {"action": "mmt_trigger_bond_story", "payload": {"reason": "邀约"}},
+    ]}
+    llm = ScriptedLLM(trig)
+    engine = _engine(llm)
+    engine.executor.set_session_rounds(6)
+    r = engine.agent_turn("好啊")
+    assert r.bond_story, r
+    assert "当面说吧" in r.reply
+    # trigger 与其他操作混排 → feedback → LLM 修正（纯 text 轮）
+    llm2 = ScriptedLLM(
+        {"messages": [
+            {"action": "mmt_send_media", "payload": {"image": "x"}},
+            {"action": "mmt_trigger_bond_story", "payload": {"reason": "r"}},
+        ]},
+        {"messages": [{"text": "那个……刚才我发错了"}]})
+    engine2 = _engine(llm2)
+    r2 = engine2.agent_turn("嗨")
+    assert not r2.bond_story and r2.ok
+    assert "发错了" in r2.reply
+    print("    trigger: text 邀约话前置放行; 与其他 action 混排 → 拒 + 修正")
+
+
+def test_inspect_alone():
+    """inspect 单独一轮（静默）: 解析接受（引擎内查完回灌/返回）; 混排 → feedback。"""
+    insp = {"action": "mmt_inspect_character", "payload": {"character_id": "rikuhachima_aru"}}
+    llm = ScriptedLLM({"messages": [insp]})
+    engine = _engine(llm)
+    r = engine.agent_turn("她是个什么样的人")
+    assert r.ok and r.action == "mmt_inspect_character"   # 静默轮: 无可见回复, 解析/执行接受
+    # 混排 text → feedback → LLM 修正（纯 text 轮）
+    llm2 = ScriptedLLM({"messages": [{"text": "问问看"}, insp]},
+                       {"messages": [{"text": "啊……还是算了"}]})
+    engine2 = _engine(llm2)
+    r2 = engine2.agent_turn("在吗")
+    assert r2.ok
+    assert "静默" in "\n".join(m["content"] for m in llm2.snapshots[1])
+    print("    inspect: 单独一轮合法（静默）; 混排 text → feedback + 修正")
+
+
+def test_legacy_formats_merged():
+    """旧协议兼容: reply/actions/mmt_chat 动作/动作内 reply → 归一消息单元。"""
+    # 旧 reply+actions（含 mmt_chat 与动作内 reply）
+    llm = ScriptedLLM({
+        "reply": "开头一句",
+        "actions": [
+            {"action": "mmt_chat", "reply": "中间一句", "payload": {}},
+            {"action": "mmt_send_media", "reply": "配图的话",
+             "payload": {"media_type": "image", "image": "天台"}},
+            {"action": "mmt_chat", "reply": "结尾一句", "payload": {}},
+        ]})
+    engine = _engine(llm)
+    r = engine.agent_turn("看看")
+    assert r.ok
+    assert "开头一句" in r.reply and "中间一句" in r.reply and "配图的话" in r.reply \
+        and "结尾一句" in r.reply
+    print("    legacy 兼容: reply/mm_chat/动作内 reply → 归一消息单元, 消息不丢")
 
 
 def test_registry_actionset_shrunk():
@@ -115,8 +172,9 @@ def test_registry_actionset_shrunk():
 
 
 if __name__ == "__main__":
-    for fn in (test_pure_reply_round, test_empty_round_feedback_retry,
-               test_trigger_new_format_exclusive, test_legacy_mmt_chat_merged,
+    for fn in (test_pure_text_round, test_interleaved_rhythm,
+               test_empty_and_bad_unit_feedback, test_trigger_text_before_action,
+               test_inspect_alone, test_legacy_formats_merged,
                test_registry_actionset_shrunk):
         fn()
-    print("MMT 轮级协议: 全部通过")
+    print("MMT 消息流协议: 全部通过")

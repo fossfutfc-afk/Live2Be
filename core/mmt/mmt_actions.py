@@ -7,10 +7,11 @@
     mmt_send_media           发图片（禁视频; 图片先查资源库, 库内没有才生成）
     mmt_trigger_bond_story   判定进入羁绊剧情（bool 触发器: 轮数门槛 + LLM 决策）
 
-轮级协议（见 momotalk._parse_round）:
-    {"reply": "角色说的话（默认产物, 可空; 多句连发由引擎自动切条）",
-     "actions": [真操作…, 可选]}          —— 动作外壳只有 {action, payload}
-    旧输出兼容: actions 里混入 mmt_chat / 动作带 reply → 解析层并入轮级 reply。
+消息流协议（见 momotalk._parse_messages）:
+    {"messages": [{"text": "话"}, {"action": 真操作, "payload": …}, {"text": "话"}]}
+    —— text 单元说话（不是动作, 引擎渲染为气泡）; action 单元只放需引擎介入的
+    操作, 外壳只有 {action, payload}; 任意交错（话→图→话 微信节奏）。
+    旧输出兼容: reply/actions/mmt_chat 动作 → 解析层归一为消息单元。
 
 信息架构（v2 五层认知）:
     L0 自我层   角色设定（五件套）+ 世界观 → 常驻 system prompt

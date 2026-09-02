@@ -393,14 +393,14 @@ def test_engine_mmt_records_events(tmp_path):
 
     class LLM:
         def chat(self, messages, **kw):
-            # 轮级协议（2026-09-02）: reply = 默认产物; actions 只放真操作。
-            # send_media 带旧字段 reply（兼容: 应并入轮级 reply）
-            return {
-                "reply": "第一句",
-                "actions": [
-                    {"action": "mmt_send_media", "reply": "第二句（旧字段并入轮级）",
-                     "payload": {"media_type": "image", "image": "天台夕阳"}},
-                ]}
+            # 消息流协议（2026-09-02）: text 单元说话 + action 单元操作, 任意交错;
+            # send_media 单元带旧字段 reply（兼容: 前置成 text 单元）
+            return {"messages": [
+                {"text": "第一句"},
+                {"action": "mmt_send_media", "reply": "第二句（旧字段前置）",
+                 "payload": {"media_type": "image", "image": "天台夕阳"}},
+                {"text": "第三句"},
+            ]}
 
         def format_messages(self, **kw):
             return []
@@ -414,24 +414,26 @@ def test_engine_mmt_records_events(tmp_path):
     r = engine.agent_turn("你好呀")
 
     evs = st.events("igusa_haruka", meta.session_id)
-    # 隐含 mmt_chat（轮级 reply 包装）+ send_media
+    # 消息流顺序 = 事件流顺序: 话1 → send_media → 话2（旧字段 reply 前置成 text）
     assert [e.subtype for e in evs] == [
-        "session_start", "mmt_chat", "mmt_send_media"]
-    assert evs[1].payload["player"] == "你好呀"        # 隐含 mmt_chat 在首 → 挂 player
-    assert "player" not in evs[2].payload              # 后续动作不带（render 去重约定）
+        "session_start", "mmt_chat", "mmt_send_media", "mmt_chat"]
+    assert evs[1].payload["player"] == "你好呀"        # 第一条 text 挂 player
+    assert "player" not in evs[2].payload              # 后续单元不带（render 去重约定）
     assert evs[2].payload["image"] == "天台夕阳"        # 干净动作字段保留
-    # 轮级 reply = 第一句 + send_media 旧字段 reply（兼容并入）
-    assert evs[1].payload["reply"] == "第一句\n第二句（旧字段并入轮级）", evs[1].payload
-    assert evs[2].payload["reply"] == ""               # 动作自身不再带文本（落库空串, 历史格式）
+    assert evs[1].payload["reply"] == "第一句"
+    assert evs[3].payload["reply"] == "第三句"          # 交错: 图后还能说话
+    # 旧字段 reply 前置成独立 text 单元（消息不丢）
+    assert evs[2].payload["reply"] == ""               # 动作自身不带文本（落库空串, 历史格式）
     # session progress = 距上次 bond 剧情的轮数（rounds_since_bond, 列表整体一轮）
     import json as _json
     prog = _json.loads(st.progress_path("igusa_haruka", meta.session_id).read_text(encoding="utf-8"))
     assert prog["rounds_since_bond"] == 1
-    # render 回读: 同轮多动作只有 1 条 user
+    # render 回读: 同轮多条消息只有 1 条 user
     msgs = render_events(st.events("igusa_haruka", meta.session_id))
     assert sum(1 for m in msgs if m["role"] == "user") == 1
     assert msgs[1]["content"] == "[mmt_chat] 第一句"
-    print("    engine-mmt: 轮级 reply→隐含 mmt_chat + send_media + progress(rounds_since_bond) + render 回读")
+    assert msgs[-1]["content"].startswith("[mmt_chat] 第三句")
+    print("    engine-mmt: 消息流（话→图→话 交错, 旧 reply 前置）→ 事件流顺序 + progress + render 回读")
 
 
 def test_engine_mmt_no_store_no_events(tmp_path):

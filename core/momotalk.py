@@ -1,19 +1,22 @@
 """
-MomoTalk 对话引擎 — 全 JSON agent loop（轮级协议）。
+MomoTalk 对话引擎 — 全 JSON agent loop（消息流协议）。
 
-每轮对话（agent_turn, 2026-09-02 协议重构——说话不再是动作）:
-    用户输入 → LLM 输出轮级 JSON:
-        {"reply": 角色说的话（默认产物, 可空; 切条渲染由引擎做）,
-         "actions": [真操作…, 可选]}          —— 动作只承载需要引擎介入的操作
-    → 轮级解析（reply 包装成隐含 mmt_chat; inspect 不进列表 / trigger 独占）
-    → 全量 parse（原子）→ 顺序执行 → 全部成功 → 渲染 + 记历史 + 轮数 +1
-    → 触发羁绊剧情（mmt_trigger_bond_story, 独占一轮）才切换模式。
-    旧输出兼容: actions 里混 mmt_chat / 动作带 reply → 并入轮级 reply。
+每轮对话（agent_turn, 2026-09-02 定稿: 聊天 = 消息序列, 说话不是动作）:
+    用户输入 → LLM 输出消息流 JSON:
+        {"messages": [
+            {"text": "话1"},                              # text 单元 = 说话
+            {"action": "mmt_send_media", "payload": …},   # action 单元 = 真操作
+            {"text": "话2"},
+        ]}                            —— 任意交错（话→图→话 微信节奏）
+    → 消息流解析（text 单元包装成隐含 mmt_chat; inspect 独占 / trigger 不与他
+      操作混排）→ action 单元全量 parse（原子）→ 顺序执行 → 渲染 + 记历史
+      + 轮数 +1 → 触发羁绊剧情（trigger 单元）才切换模式。
+    旧协议兼容: {"reply": …} / {"actions": [mmt_chat 动作…]} → 归一为消息单元。
 
 历史格式（每轮至少记动作名 + reply, 可追溯 agent 干了什么）:
     user:      用户说的话
-    assistant: "[mmt_chat] 今天谢谢你！" / "[mmt_send_media] 你看这张！"
-               轮级 reply 记为 [mmt_chat]（隐含动作, 事件流同款, 渲染零改动）
+    assistant: "[mmt_chat] 话1" / "[mmt_send_media] …"（text 单元记为 [mmt_chat],
+               事件流同款, 渲染零改动）
 
 五层认知（与 mmt_actions / mmt_executor 一致）:
     L0 自我层   build_prompt("momotalk") + 世界观（common+system 档）→ 常驻
@@ -507,18 +510,17 @@ class MomoTalkEngine:
         system_note: str | None = None,
         record_input: bool = True,
     ) -> TurnResult:
-        """一轮 agent 对话：LLM 输出轮级 JSON, 逐动作执行, 直到用户可见输出。
+        """一轮 agent 对话：LLM 输出**消息流**, 逐单元执行, 直到用户可见输出。
 
-        轮级协议（2026-09-02 定稿）: LLM 一次返回
-        {"reply": 角色说的话(默认产物, 可空), "actions": [真操作…, 可选]}
-        ——对白不再是动作（说话 = 聊天界面的默认行为）; 动作只承载需要引擎
-        介入的操作（send_media / inspect / trigger）。引擎把轮级 reply 包装成
-        隐含 mmt_chat（事件流/历史/渲染零改动）。旧输出（actions 里混
-        mmt_chat / 动作带 reply）解析层兼容并入轮级 reply。
+        消息流协议（2026-09-02 定稿）: 聊天 = 消息序列, 任意交错——
+        {"messages": [{"text": "话1"}, {"action": 真操作, "payload": …}, {"text": "话2"}]}
+        ——text 单元 = 说话（默认产物, 引擎包装成隐含 mmt_chat, 事件流/历史/
+        渲染零改动）; action 单元只承载需要引擎介入的操作（send_media /
+        inspect / trigger）。旧协议（reply/actions/mm_chat 动作）解析层兼容归一。
 
         循环内（MAX_STEPS 步）:
-            LLM 决策（json_object）→ 轮级解析（reply + 动作; 约束: inspect 不进
-            列表 / trigger 独占一轮）→ **全量 parse（原子: 任一无效 → 整轮回灌）**
+            LLM 决策（json_object）→ 消息流解析（结构 + 约束: inspect 独占 /
+            trigger 不与其他操作混排）→ **全量 parse（原子: 任一无效 → 整轮回灌）**
             → 顺序执行（执行失败 → 该动作 feedback, 本轮重试, 已执行副作用保留）
             → 全部成功 → 渲染所有步骤 + 记历史 + 轮数 +1（列表整体算一轮）
 
@@ -562,32 +564,32 @@ class MomoTalkEngine:
                 continue
             messages.append({"role": "assistant", "content": str(response)})
 
-            # 2) 轮级解析（结构 + 约束违规 → feedback 整轮重试）
-            parsed_round = self._parse_round(response, messages)
-            if parsed_round is None:
+            # 2) 消息流解析（结构 + 约束违规 → feedback 整轮重试）
+            units = self._parse_messages(response, messages)
+            if units is None:
                 continue
-            reply_text, raw_actions = parsed_round
 
-            # 3) 全量 parse（原子: 任一无效 → 整轮回灌, 不执行任何动作）
-            #    轮级 reply = 隐含 mmt_chat（默认产物, 引擎构造, 不经 registry）
+            # 3) 单元 → AgentAction（text 单元 = 隐含 mmt_chat, 不经 registry;
+            #    action 单元全量 parse, 原子: 任一无效 → 整轮回灌, 不执行任何动作）
             parsed: list[AgentAction] = []
             parse_ok = True
-            if reply_text:
-                parsed.append(AgentAction(
-                    action="mmt_chat", domain=DOMAIN_MMT, approval=APPROVAL_AUTO,
-                    reply=reply_text, payload={},
-                ))
-                self._trace.append({
-                    "step": step,
-                    "action": "mmt_chat",
-                    "summary": "",
-                    "reply": reply_text,
-                    "payload": {},
-                    "parse_valid": True,
-                    "parse_errors": [],
-                })
-            for raw in raw_actions:
-                action, result = self.registry.parse(raw)
+            for unit in units:
+                if unit["kind"] == "text":
+                    parsed.append(AgentAction(
+                        action="mmt_chat", domain=DOMAIN_MMT, approval=APPROVAL_AUTO,
+                        reply=unit["text"], payload={},
+                    ))
+                    self._trace.append({
+                        "step": step,
+                        "action": "mmt_chat",
+                        "summary": "",
+                        "reply": unit["text"],
+                        "payload": {},
+                        "parse_valid": True,
+                        "parse_errors": [],
+                    })
+                    continue
+                action, result = self.registry.parse(unit["raw"])
                 self._trace.append({
                     "step": step,
                     "action": action.action if action else None,
@@ -640,63 +642,108 @@ class MomoTalkEngine:
     # 内部
     # ------------------------------------------------------------------
 
-    def _parse_round(self, response, messages: list[dict]):
-        """解析 LLM 轮级返回 → (reply_text, raw_actions) | None。
+    def _parse_messages(self, response, messages: list[dict]):
+        """解析 LLM 轮级返回 → 消息单元列表 | None。
 
-        轮级协议（2026-09-02）: {"reply": str(可空), "actions": [真操作…, 可选]}。
-        兼容旧输出: actions 里的 mmt_chat / 任何动作带的 reply 字段 → 并入轮级
-        reply（动作本身保留/移除——旧 mmt_chat 动作整体并入后移除）。
+        消息流协议（2026-09-02 拍板）: 聊天 = 消息序列, 任意交错:
+            {"messages": [
+                {"text": "话1"},                          # text 单元 = 说话
+                {"action": "mmt_send_media", "payload": …},  # action 单元 = 真操作
+                {"text": "话2"},
+            ]}
+        text 单元不是动作（引擎渲染/落库为 mmt_chat 事件）; action 单元只承载
+        需要引擎介入的操作（payload 校验在 registry.parse）。
+        兼容旧协议: {"reply": …} / {"actions": [动作…]}（含 mmt_chat 动作与
+        动作内 reply 字段）→ 归一为消息单元。
         结构错误 / 空轮 / 约束违规（inspect 混入 / trigger 不独占）→ feedback
-        并返回 None（整轮重试, 原子性）。动作字段级校验在 registry.parse。
+        并返回 None（整轮重试, 原子性）。
         """
         if not isinstance(response, dict):
-            feedback(messages, "输出必须是 JSON 对象: {\"reply\": \"角色说的话\", "
-                               "\"actions\": [动作1, ...]}——对白写 reply, actions 只放需要"
-                               "引擎执行的操作（可省略）")
-            return None
-        reply = response.get("reply", "")
-        if not isinstance(reply, str):
-            feedback(messages, "reply 必须是字符串（角色本轮说的话, 可空字符串）")
-            return None
-        raw_actions = response.get("actions") or []
-        if not isinstance(raw_actions, list):
-            feedback(messages, "actions 必须是数组（可空——纯说话轮不需要）")
+            feedback(messages, "输出必须是 JSON 对象: {\"messages\": [消息1, ...]}——"
+                               "text 单元说话, action 单元执行操作（可任意交错）")
             return None
 
-        # 兼容旧输出（2026-08-23 协议）: mmt_chat 动作 / 动作自带的 reply → 并入轮级
-        kept: list[dict] = []
-        extra: list[str] = []
-        for a in raw_actions:
-            if not isinstance(a, dict):
-                continue                      # 坏项留给 registry.parse 报错
-            if a.get("action") == "mmt_chat":
-                r = a.get("reply", "")
+        # --- 归一: 新旧协议 → 消息单元序列 ---
+        units: list[dict] = []
+        if "messages" in response:
+            raw = response.get("messages")
+            if not isinstance(raw, list) or not raw:
+                feedback(messages, "messages 必须是数组（至少一个 text 或 action 单元）")
+                return None
+            for m in raw:
+                if not isinstance(m, dict):
+                    feedback(messages, f"消息单元必须是 JSON 对象: {m!r}")
+                    return None
+                units.append(m)
+        else:
+            # 旧协议兼容: reply + actions（2026-08-23 版）
+            reply = response.get("reply", "")
+            if not isinstance(reply, str):
+                feedback(messages, "reply 必须是字符串（兼容旧协议字段）")
+                return None
+            raw_actions = response.get("actions") or []
+            if not isinstance(raw_actions, list):
+                feedback(messages, "actions 必须是数组（兼容旧协议字段）")
+                return None
+            for a in raw_actions:
+                if not isinstance(a, dict):
+                    continue                       # 坏项交给后续校验
+                if a.get("action") == "mmt_chat":  # 旧文本动作 → text 单元
+                    r = a.get("reply", "")
+                    if isinstance(r, str) and r.strip():
+                        units.append({"text": r.strip()})
+                    continue
+                r = a.get("reply", "")             # 动作附带话 → 前置 text 单元
                 if isinstance(r, str) and r.strip():
-                    extra.append(r.strip())
-                continue                      # 旧 mmt_chat 动作并入 reply 后移除
-            r = a.get("reply", "")
-            if isinstance(r, str) and r.strip():
-                extra.append(r.strip())
-                a = {k: v for k, v in a.items() if k != "reply"}
-            kept.append(a)
-        if extra:
-            reply = "\n".join([reply.strip(), *extra]).strip()
-        if not reply and not kept:
-            feedback(messages, "本轮既没有 reply 也没有任何动作——至少要说话或做一件事")
+                    units.append({"text": r.strip()})
+                units.append({k: v for k, v in a.items() if k != "reply"})
+            if reply.strip():
+                units.insert(0, {"text": reply.strip()})
+            if not units:
+                feedback(messages, "本轮没有任何消息——至少要说话或做一件事")
+                return None
+
+        # --- 归一后: 统一结构校验 ---
+        normalized: list[dict] = []
+        for m in units:
+            text = m.get("text")
+            action_raw = m.get("action")
+            if isinstance(text, str) and text.strip():
+                normalized.append({"kind": "text", "text": text.strip()})
+                continue
+            if isinstance(action_raw, str) and action_raw.strip():
+                if "payload" in m and not isinstance(m.get("payload"), dict):
+                    feedback(messages, f"动作 {action_raw} 的 payload 必须是对象")
+                    return None
+                normalized.append({"kind": "action",
+                                   "raw": {"action": action_raw,
+                                           "payload": m.get("payload", {})}})
+                continue
+            feedback(messages,
+                     "消息单元无效: 需要 {\"text\": \"话\"} 或 "
+                     "{\"action\": \"动作名\", \"payload\": {...}}——"
+                     + repr(m))
+            return None
+        if not normalized:
+            feedback(messages, "本轮没有任何有效消息——至少要说话或做一件事")
             return None
 
-        # 约束: inspect 是静默推理轮（查完回灌继续）, 不能混入列表
-        if any(a.get("action") == "mmt_inspect_character" for a in kept):
-            feedback(messages, "mmt_inspect_character 不能混入 actions 列表——它是静默推理轮, "
-                               "需要单独输出一轮（查完回灌给你后继续说话）")
+        # 约束: inspect 是静默推理轮（查完回灌继续）——messages 只能有它一个单元
+        actions_n = [u for u in normalized if u["kind"] == "action"]
+        if len(actions_n) == 1 and actions_n[0]["raw"].get("action") == \
+                "mmt_inspect_character" and len(normalized) > 1:
+            feedback(messages, "mmt_inspect_character 是静默推理轮——messages 里只能有它"
+                               "一个单元, 不能夹 text 或其他动作（查完回灌给你后继续说话）")
             return None
-        # 约束: trigger 是模式切换, 必须独占一轮（actions 里只有它; reply 在轮级）
-        if len(kept) > 1 and any(
-                a.get("action") == "mmt_trigger_bond_story" for a in kept):
-            feedback(messages, "mmt_trigger_bond_story 必须独占一轮（模式切换, 之后不再是手机消息）"
-                               "——actions 里只放它一个, 邀约的话写 reply")
+        # 约束: trigger 是模式切换——messages 里不能有其他 action 单元
+        # （text 邀约话可放在它前面: 切换前最后一条手机消息 = 见面的话）
+        if any(u["raw"].get("action") == "mmt_trigger_bond_story"
+               for u in actions_n) and len(actions_n) > 1:
+            feedback(messages, "mmt_trigger_bond_story 必须独占操作（模式切换, 之后不再是手机消息）"
+                               "——messages 里只能有一个 action 单元（trigger）; "
+                               "邀约的见面话可以用 text 单元放在它前面, 但不要再夹发图等其他动作")
             return None
-        return reply, kept
+        return normalized
 
     def _finish_turn_list(
         self,
