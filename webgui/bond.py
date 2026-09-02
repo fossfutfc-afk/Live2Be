@@ -32,6 +32,7 @@ from dataclasses import dataclass, field
 
 from core.bond.bond_story import BondScene, BondStoryEngine, SceneLoopError
 from core.media.gallery import GalleryStore
+from core.momotalk import load_brain_segment
 from core.session.events import (
     M_MEMORIAL_ENTER,
     M_MEMORIAL_EXIT,
@@ -253,15 +254,11 @@ def bond_start(char_id: str, session_id: str) -> dict:
         return {"accepted": False, "error": "会话未打开"}
     reason = _trigger_reason(engine)
 
-    # brain 注入（DESIGN_BRAIN.md）: 世界线 wiki 第一人称——VN 中角色记得前面的事
-    brain_segment = ""
-    try:
-        from core.brain.hippocampus import WikiStore
-        from core.brain.recall import build_brain_injection
-        wiki = WikiStore(_store().data_root).load(char.character_id, session_id)
-        brain_segment = build_brain_injection(wiki, char_name=char.display_name)
-    except Exception:                                # noqa: BLE001 — 注入失败静默跳过
-        brain_segment = ""
+    # brain 注入（DESIGN_BRAIN.md, wiki_v2 2026-09-02 切换）: 世界线 wiki 第一人称——
+    # VN 中角色记得前面的事（出厂基座 0 LLM 确保; 失败静默零注入）
+    brain_segment = load_brain_segment(
+        _store(), char.character_id, char.display_name,
+        characters_root=engine.char_loader.root)
 
     vn = BondStoryEngine(
         engine.char_loader.root, engine.llm,

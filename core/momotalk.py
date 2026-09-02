@@ -81,6 +81,24 @@ def _interact_max(events: list, digested_seq: int) -> int:
          if e.seq > digested_seq and not e.is_marker and e.type != "affection"),
         default=0)
 
+
+def load_brain_segment(store: SessionStore, char_id: str, char_name: str = "",
+                       characters_root: str | Path | None = None) -> str:
+    """角色注入段（wiki_v2, 0 LLM）——bond 开场/剧情引擎共用（webgui.bond/vn_cli）。
+
+    出厂基座确保（空库 seed, source_key 幂等）→ render_character_view 第一人称;
+    失败/空库 → ""（零注入, 平行世界; 读失败静默跳过, 不阻断剧情）。
+    """
+    try:
+        wstore = WikiStoreV2(store.data_root, world_id=store.world_id,
+                             char_id=char_id)
+        if characters_root is not None \
+                and not any(n.kind == "fact" for n in wstore.all()):
+            seed_from_config(wstore, Path(characters_root) / char_id)
+        return render_character_view(wstore.all(), char_name=char_name) or ""
+    except Exception:                                # noqa: BLE001 — 宁缺勿错
+        return ""
+
 #: 滑动窗口默认轮数（每轮 = user+assistant 2 条消息; 40 轮 = 80 条消息）。
 #: 玩家可配（引擎构造参数 history_rounds 传入; 设置页接入见 docs/DESIGN_MEMORY.md Step 1）
 DEFAULT_HISTORY_ROUNDS = 40

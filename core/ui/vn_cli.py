@@ -23,8 +23,9 @@ import logging
 import threading
 from pathlib import Path
 
-from core.momotalk import MomoTalkEngine
+from core.momotalk import MomoTalkEngine, load_brain_segment
 from core.bond.bond_story import BondScene, BondStoryEngine, SceneLoopError
+from core.brain.wiki_v2.store import WikiStoreV2
 from core.director import build_director
 from core.media.gallery import GalleryStore
 from core.session import SessionStore
@@ -135,17 +136,16 @@ def run_bond_story_vn(
         return False
 
     reason = _trigger_reason(engine)
-    # Brain 记忆段（DESIGN_BRAIN.md）: 本世界线 wiki 第一人称注入——
-    # VN 中角色记得这个世界线前面的事（resume 过则有 digest 产物; 空 → 零注入, 平行世界）。
-    # 读失败静默跳过（不阻断 VN）。
+    # Brain 记忆段（DESIGN_BRAIN.md, wiki_v2 2026-09-02 切换）: 本世界线 wiki
+    # 第一人称注入——VN 中角色记得这个世界线前面的事（resume 过则有 digest 产物;
+    # 空 → 零注入, 平行世界）。读失败静默跳过（不阻断 VN）。
     brain_segment = ""
     try:
         store_ = store if store is not None else engine._store
         if store_ is not None and engine._session_id:
-            from core.brain.hippocampus import WikiStore
-            from core.brain.recall import build_brain_injection
-            wiki = WikiStore(store_.data_root).load(char.character_id, engine._session_id)
-            brain_segment = build_brain_injection(wiki, char_name=char.display_name)
+            brain_segment = load_brain_segment(
+                store_, char.character_id, char.display_name,
+                characters_root=engine.char_loader.root)
     except Exception:                                # noqa: BLE001
         brain_segment = ""
     vn = BondStoryEngine(
@@ -184,18 +184,16 @@ def run_bond_story_vn(
     for i in range(1, force_after + 1):
         system_note = None
         # 随机事件（soft, 低频惊喜）: 记忆突然浮现——只在开场（第一场）触发,
-        # 双通道回忆 → "你突然想起…"（不要求 AI 反馈, 自然流露即可）
+        # wiki_v2 双通道随机摘段 → "你突然想起…"（不要求 AI 反馈, 自然流露即可）
         if i == 1 and store_ is not None and engine._session_id:
             try:
+                from core.brain.wiki_v2.recall import random_flash_segment
                 from core.random_events import fire_event
-                from core.brain.hippocampus import WikiStore
-                wiki = WikiStore(store_.data_root).load(char.character_id, engine._session_id)
-                events = SessionStore(store_.data_root).events(
-                    char.character_id, engine._session_id)
+                wstore = WikiStoreV2(store_.data_root, world_id=store_.world_id,
+                                     char_id=char.character_id)
                 flash = fire_event("memory_flash", {
-                    "events": events,
-                    "wiki": wiki,
-                    "digested_seq": wiki.get("digested_seq", 0),
+                    "wstore": wstore,
+                    "segment": random_flash_segment(wstore),
                 })
                 if flash:
                     system_note = flash

@@ -304,6 +304,20 @@ apply_revision_package 复用, digest_registry 注册 deep 动作集）。
 **实现时机**: "digest 接入运行时"板块（async_digest 切 wiki_v2 digest_segment +
 触发器 should_digest_mmt 纯函数 + seed 挂载 + affection 幂等写）——2026-09-02 动工。
 
+**运行时切换状态（2026-09-02 ✅ 完成）**:
+- momotalk `_inject_brain` 重写（legacy digest_session/WikiStore/build_brain_injection
+  退役）: per-char 单库 WikiStoreV2 + 出厂 seed 挂载（0 LLM, source_key 幂等）+
+  digest_segment 两轮 + render_character_view 注入段（`_brain_injection` 原子替换,
+  chat 动态拼装——不追加防重复注入, 跨线程零锁）
+- async_digest 双触发点: bond 剧情闭环（story_end 收尾）+ mmt 每 N=25 轮
+  （`_maybe_mmt_digest`: 轮数判定 + in_vn/in_memorial 保护内聚, 纯函数可单测）
+- 好感结算: digest 返回 affection_delta → 运行时幂等写 affection 事件
+  （幂等键 interact_max, `_interact_max` 助手——真源 events.jsonl）
+- bond/vn_cli 剧情注入 + random_events memory_flash 同步切 wiki_v2
+  （`load_brain_segment` 公共 helper / `random_flash_segment` 双通道随机摘段）
+- legacy core/brain/{consolidation,hippocampus,recall} 保留但**无运行时消费方**
+  （仅 experiments/测试/导出引用——最后清理轮次删除）
+
 ---
 
 ---
