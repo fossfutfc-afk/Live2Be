@@ -53,6 +53,8 @@ _END_ROUNDS = 50
 _FORCE_AFTER = _END_ROUNDS + 2
 #: 程序兜底 closing 文案（错误收场 / 超限收场）
 _CLOSING_TEXT = "（夜色渐深，这一章的羁绊剧情就此落下帷幕。）"
+#: 场景生成连续失败上限（2026-09-02: 偶发 JSON 失败给重试机会, 超限才 closing）
+MAX_GEN_FAILURES = 3
 
 #: 演示模式预设剧本（不调 LLM——前端 VN 体验/联调用; 3 场: 选项 → 选项 → is_end,
 #: 覆盖背景切换/emotion 变化/收尾。BondScene 契约格式, 键用最新词表名）
@@ -116,6 +118,9 @@ class BondState:
     error: str = ""
     completed: bool = False             # 剧情已终结（is_end / 致命错误）→ 前端调 finish
     reason: str = ""
+    # 生成失败重试（2026-09-02: 偶发 JSON 失败不再一败就 closing——前 3 次失败保留
+    # 上一场在屏 + 置 error, 前端显示重试按钮重新生成; 连续超限才 closing 收尾）
+    fail_count: int = 0
     # Storyloom bridge 式预生成（2026-08-30）: 纯叙事场（无 choices）渲染完成即
     # 提前生成下一场（输入固定"（继续）"）——玩家点继续时已就绪, 体感零等待
     pregen_obj: BondScene | None = None
@@ -491,15 +496,23 @@ def _generate(state: BondState, char_id: str, session_id: str, user_input: str) 
                 _log_scene_meta(state, char_id, session_id, scene)
                 # 两遍式 C 异步标注: 骨架先显示, emotion 解析入队补标（不阻塞玩家）
                 _enqueue_annotate(state, scene)
+                state.fail_count = 0           # 生成成功 → 失败计数清零
         except (SceneLoopError, ValueError) as e:
-            # 模型连语义校验都过不了 → 中断收场（宁缺勿错, 剧情必须终结）
-            logger.warning("bond 场景生成失败 (%s/%s): %s", char_id, session_id, e)
+            # 模型连语义校验都过不了 → 偶发失败先给重试机会（2026-09-02:
+            # 一败就 closing 会把偶发 JSON 错误变成"剧情突然结束"——上一场保持
+            # 在屏, error 置位, 前端显示重试按钮重新 submit; 连续 3 次失败才
+            # 中断收场（宁缺勿错, 剧情必须终结））
+            logger.warning("bond 场景生成失败 (%s/%s) 第 %d 次: %s",
+                           char_id, session_id, state.fail_count + 1, e)
             state.error = str(e)
-            closing = BondScene(paragraphs=[{"text": _CLOSING_TEXT}], is_end=True)
-            state.scene_obj = closing
-            state.scene = closing.to_dict()
-            state.scene_logged = False
-            state.completed = True
+            state.fail_count += 1
+            if state.fail_count > MAX_GEN_FAILURES:
+                closing = BondScene(paragraphs=[{"text": _CLOSING_TEXT}],
+                                    is_end=True)
+                state.scene_obj = closing
+                state.scene = closing.to_dict()
+                state.scene_logged = False
+                state.completed = True
         finally:
             state.busy = False
             # Storyloom bridge 式预生成（2026-08-30）: 主生成完成后（busy 已清零）

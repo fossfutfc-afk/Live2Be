@@ -408,13 +408,14 @@ def test_wrapup_after_vn():
 
     with tempfile.TemporaryDirectory() as d:
         progress = BondProgress(data_root=Path(d))
-        progress.record_turn(CHARACTER)          # 预积累 1 轮, 满足软门槛兜底
+        progress.record_turn(CHARACTER)          # 全局累计预积累（2026-09-02: 触发按本段轮数）
         llm = ScriptedLLM(trig, wrap)
         engine = MomoTalkEngine(ROOT / "config" / "characters", llm,
                                 bond_progress=progress)
         engine.start_session(CHARACTER)
+        engine.executor.set_session_rounds(5)    # 本段会话已 5 轮 → 门槛放行
         result = engine.agent_turn("今天我们聊了很多")
-        assert result.bond_story, "第 2 轮触发应成功（软门槛）"
+        assert result.bond_story, "会话 ≥5 轮后触发应成功（软门槛）"
         assert engine.history_length == 2
         wrapup_after_vn(engine)
         # 收尾只记 assistant（record_input=False, 不污染假 user 消息）;
