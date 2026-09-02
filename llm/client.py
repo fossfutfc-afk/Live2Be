@@ -16,6 +16,7 @@ LLM API Client — OpenAI-compatible Chat Completions 封装。
 from __future__ import annotations
 
 import json
+import logging
 import os
 import time
 from pathlib import Path
@@ -27,6 +28,11 @@ from dotenv import load_dotenv
 
 from core.common import err
 from llm.json_cleaner import extract_json
+
+logger = logging.getLogger(__name__)
+
+#: reasoning_effort 合法档位（thinking level 参数, settings.toml [llm]）
+_EFFORT_LEVELS = ("low", "medium", "high")
 
 # Windows + conda SSL 证书修复
 os.environ["SSL_CERT_FILE"] = certifi.where()
@@ -91,6 +97,16 @@ class LLMClient:
         self.max_retries = max_retries
         self.last_reasoning: str | None = None   # 最近一次 chat 的思维链（无 → None）
 
+        # thinking level（settings.toml [llm] reasoning_effort）: 全局默认档位——
+        # extra_body=None 时注入; 显式传 {} 关闭（调用方局部覆盖）。非法值忽略+警告
+        self.default_extra_body: dict[str, Any] = {}
+        effort = str(cfg.get("reasoning_effort") or "").strip().lower()
+        if effort in _EFFORT_LEVELS:
+            self.default_extra_body = {"reasoning_effort": effort}
+        elif effort:
+            logger.warning("settings [llm] reasoning_effort 非法: %r（low|medium|high, 忽略）",
+                           effort)
+
         if not self.api_key:
             raise ValueError(err(
                 "ConfigError",
@@ -105,6 +121,11 @@ class LLMClient:
             },
             timeout=httpx.Timeout(self.timeout),
         )
+
+    def _resolve_extra(self, extra_body: dict[str, Any] | None) -> dict[str, Any]:
+        """extra_body 解析: None → settings 默认档（default_extra_body）;
+        显式 dict（含 {}）→ 原样（调用方局部覆盖/关闭）。"""
+        return dict(self.default_extra_body) if extra_body is None else extra_body
 
     # ------------------------------------------------------------------
     # 公共 API
@@ -130,6 +151,7 @@ class LLMClient:
         timeout: per-call 超时覆盖（None = 构造时的 self.timeout）。后台长任务
         （digest high 档长考可达 ~2min）用它放宽, 主对话快速失败语义不受影响。
         """
+        extra_body = self._resolve_extra(extra_body)   # None → settings 默认档
         effective_model = model or self.model
 
         payload = _build_payload(
@@ -173,6 +195,7 @@ class LLMClient:
         回调——观察者/流式嗅探用）。json_object 时同样走 LLM 自纠错
         （_extract_json_with_llm_correction, 纠错阶段为非流式请求）。
         """
+        extra_body = self._resolve_extra(extra_body)   # None → settings 默认档
         effective_model = model or self.model
 
         payload = _build_payload(
@@ -224,7 +247,7 @@ class LLMClient:
             temperature=temperature,
             max_tokens=max_tokens,
             response_format=response_format,
-            extra_body=None,
+            extra_body=self.default_extra_body or None,   # 全局默认档
             stream=True,
         )
 

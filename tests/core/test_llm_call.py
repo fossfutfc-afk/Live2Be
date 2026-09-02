@@ -1,10 +1,7 @@
-"""llm_call.py 鲁棒层测试（板块 3）——重试/deadline/extra_body 默认。"""
+"""llm_call.py 鲁棒层测试（板块 3）——重试/deadline/timeout 透传/extra_body 语义。"""
 import time
 
-from core.brain.wiki_v2.llm_call import (
-    DEFAULT_EXTRA_BODY,
-    llm_chat,
-)
+from core.brain.wiki_v2.llm_call import llm_chat
 
 
 class FakeLLM:
@@ -25,13 +22,15 @@ class FakeLLM:
         return {"ok": True}
 
 
-def test_success_passthrough_and_default_extra_body():
+def test_success_passthrough_and_extra_body_semantics():
+    """extra_body=None 原样透传（默认档由客户端 settings 注入, llm_call 不硬编码）;
+    显式 dict 原样传给客户端。"""
     llm = FakeLLM(responses=[{"revisions": []}])
     resp, err = llm_chat(llm, "sys", "user")
     assert resp == {"revisions": []} and err is None
     kw = llm.calls[0]
     assert kw["response_format"] == "json_object"
-    assert kw["extra_body"] == DEFAULT_EXTRA_BODY     # None → reasoning_effort=low
+    assert kw["extra_body"] is None                     # None 透传 → 客户端默认档
     assert kw["model"] is None and kw["max_tokens"] == 8192
 
 
@@ -42,8 +41,15 @@ def test_custom_extra_body_and_model():
     assert resp is not None and err is None
     kw = llm.calls[0]
     assert kw["model"] == "deepseek-chat"
-    assert kw["extra_body"] == {}                     # 显式 {} 关闭默认
+    assert kw["extra_body"] == {}                     # 显式 {} 关闭默认（透传）
     assert kw["max_tokens"] == 4096 and kw["temperature"] == 0.5
+
+
+def test_timeout_passthrough():
+    llm = FakeLLM()
+    resp, err = llm_chat(llm, "sys", "user", timeout=300.0)
+    assert resp is not None and err is None
+    assert llm.calls[0]["timeout"] == 300.0
 
 
 def test_retry_until_success():

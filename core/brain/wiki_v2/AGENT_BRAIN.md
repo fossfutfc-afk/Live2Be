@@ -326,10 +326,12 @@ apply_revision_package 复用, digest_registry 注册 deep 动作集）。
 | medium | 1/3——2/3 死在规则校验（引擎防护拦截, 无污染） | 3~6min |
 | high | 2/2——认知深化（unit2 update 而非 add）、evidence 逐字自检、growth 演化细腻 | 118s + 32s |
 
-适配（high 档参数）: llm_call 默认 extra_body={"reasoning_effort":"high"};
-digest deadline_seconds 默认 300s; LLMClient per-call timeout 覆盖
-（momotalk digest 传 300——共享客户端 60s 主对话超时会掐 high 长考,
-主对话快速失败语义不变）; 档位仍可显式覆盖（extra_body={} 关闭）。
+适配（high 档参数）: **thinking level 参数化**——settings.toml [llm] `reasoning_effort`
+（low|medium|high, 默认 high; 空/缺失 → 不注入=模型默认）——单一配置源:
+LLMClient 构造解析 → default_extra_body（extra_body=None 注入, 显式 {} 关闭,
+chat/chat_full/chat_stream 三入口一致）; digest deadline_seconds 默认 300s;
+LLMClient per-call timeout 覆盖（momotalk digest 传 300——共享客户端 60s
+主对话超时会掐 high 长考, 主对话快速失败语义不变）。
 
 ---
 
