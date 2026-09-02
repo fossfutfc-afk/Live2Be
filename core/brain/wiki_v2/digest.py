@@ -26,18 +26,16 @@ from pathlib import Path
 from typing import Any, Callable
 
 from contract import build_digest_schema_v2
+from core.brain.wiki_v2.llm_call import llm_chat
 from core.brain.wiki_v2.recall import EmbedFn, recall_subgraph
 from core.brain.wiki_v2.render import render_organize_view
 from core.brain.wiki_v2.revise import RevisionResult, apply_revision_package
 from core.brain.wiki_v2.store import WikiStoreV2
-from core.common import err
 from core.session.renderer import render_timeline
 from llm.prompts import load_prompt
 
 logger = logging.getLogger(__name__)
 
-#: LLM 调用重试（偶发空响应/坏 JSON; 耗尽 → 降级 None）
-MAX_CALL_RETRIES = 3
 #: 校验反馈重试（修订被拒 → 带错误回灌重试 1 次）
 MAX_FEEDBACK_RETRIES = 1
 #: evidence 置信度阈值（低于 → 丢弃, 宁缺勿错）
@@ -129,9 +127,12 @@ def digest_segment(
             return result
         user_msg = _build_user_message(timeline, visuals, organize,
                                        character_prompt, feedback)
-        resp = _call_llm(llm, system, user_msg, model, temperature, max_tokens,
-                         result, deadline, extra_body)
+        resp, call_err = llm_chat(llm, system, user_msg, model=model,
+                                  temperature=temperature, max_tokens=max_tokens,
+                                  extra_body=extra_body, deadline=deadline,
+                                  label="digest")
         if resp is None:
+            result.errors.append(call_err or "LLM 调用失败")
             return result                               # 调用重试耗尽 → 降级
         result.llm_calls += 1
         if not isinstance(resp, dict):
@@ -182,35 +183,6 @@ def _build_user_message(timeline: str, visuals: list[str], organize: str,
     if feedback:
         parts.append(feedback)
     return "\n\n".join(parts)
-
-
-def _call_llm(llm, system: str, user_msg: str, model: str | None,
-              temperature: float, max_tokens: int, result: DigestResult,
-              deadline: float | None = None, extra_body: dict | None = None):
-    """调用 + 重试（异常 → 3 次或撞 deadline; 耗尽 → None 降级）。
-
-    extra_body: None → {"reasoning_effort": "low"}（见 digest_segment docstring——
-    推理模型长考失控的实测对策; 调用方显式传 {} 可关闭）。
-    """
-    import time as _time
-    body = {"reasoning_effort": "low"} if extra_body is None else extra_body
-    last_err: Exception | None = None
-    for attempt in range(MAX_CALL_RETRIES):
-        if deadline is not None and _time.monotonic() > deadline:
-            result.errors.append("LLM 调用撞上时间预算")
-            return None
-        try:
-            return llm.chat(
-                [{"role": "system", "content": system},
-                 {"role": "user", "content": user_msg}],
-                model=model, temperature=temperature, max_tokens=max_tokens,
-                response_format="json_object", extra_body=body)
-        except Exception as e:                           # noqa: BLE001
-            last_err = e
-            logger.warning(err("DigestFailed",
-                               f"LLM 调用失败（第 {attempt + 1}/{MAX_CALL_RETRIES} 次）: {e}"))
-    result.errors.append(f"LLM 调用重试耗尽: {last_err}")
-    return None
 
 
 def _collect_visual_prompts(events) -> list[str]:
