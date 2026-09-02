@@ -415,7 +415,7 @@ def test_wrapup_after_vn():
     from core.bond.bond_progress import BondProgress
     from core.ui.vn_cli import wrapup_after_vn
 
-    # 动作列表格式（2026-08-23: MMT 输出 {"actions": [...]}）
+    # 动作列表格式（2026-08-23: MMT 输出 {"actions": [...]}——兼容仍解析）
     trig = {"actions": [
         {"action": "mmt_trigger_bond_story", "payload": {"reason": "气氛到了"}}]}
     wrap = {"actions": [
@@ -424,14 +424,13 @@ def test_wrapup_after_vn():
 
     with tempfile.TemporaryDirectory() as d:
         progress = BondProgress(data_root=Path(d))
-        progress.record_turn(CHARACTER)          # 全局累计（仅偏好统计, 不参与门槛）
+        progress.record_turn(CHARACTER)          # 全局累计（仅偏好统计, 不参与节奏）
         llm = ScriptedLLM(trig, wrap)
         engine = MomoTalkEngine(ROOT / "config" / "characters", llm,
                                 bond_progress=progress)
         engine.start_session(CHARACTER)
-        engine.executor.set_session_rounds(6)    # 距上次剧情 6 轮 → 门槛放行
         result = engine.agent_turn("今天我们聊了很多")
-        assert result.bond_story, "距上次剧情 ≥6 轮后触发应成功（硬门槛）"
+        assert result.bond_story, "v2: 引擎不拦节奏——trigger 即放行"
         assert engine.history_length == 2
         wrapup_after_vn(engine)
         # 收尾只记 assistant（record_input=False, 不污染假 user 消息）;
@@ -485,8 +484,8 @@ def test_vn_event_stream(tmp_path):
 
 
 # ----------------------------------------------------------------------------
-# 触发门槛（2026-09-02 定稿）: 距上次完整 bond 剧情 ≥6 轮（持久 rounds_since_bond）
-# + vn_exit completed 清零 / 中途退出保留
+# 触发节奏 v2（2026-09-02 用户复盘）: 引擎**建议不拦截**——轮数无硬闸,
+# LLM 输出 trigger 即放行; 时机靠每轮注记分级建议（gap<6 沉淀事实 / ≥6 主动提示）
 # ----------------------------------------------------------------------------
 
 _TRIG = {"actions": [
@@ -495,30 +494,38 @@ _CHAT = {"actions": [
     {"action": "mmt_chat", "reply": "嗯……好啊。", "payload": {}}]}
 
 
-def test_trigger_gate_six_rounds():
-    """硬门槛（用户拍板 6 轮）: 距上次剧情 5 轮 → trigger 被拒（feedback 回灌）;
-    6 轮 → 放行。LLM 两次尝试后自然转聊天（不靠话术自觉）。"""
-    llm = ScriptedLLM(_TRIG, _TRIG, _CHAT)
-    engine = _engine(llm)                          # 无 store（attach 不可用 → 手动设门槛）
+def test_trigger_no_gate_and_suggestion_notes():
+    """v2 语义: 0 轮 trigger 也放行（不拦——紧急剧情无需尬聊等轮数）;
+    注记分级: 沉淀期报事实, 达建议线（6）主动建议发起。"""
+    # 0 轮（刚开场）→ trigger 直接放行
+    llm = ScriptedLLM(_TRIG)
+    engine = _engine(llm)
     engine.start_session(CHARACTER)
-    engine.executor.set_session_rounds(5)          # 距上次剧情 5 轮
-    r = engine.agent_turn("我们聊了一会儿")
-    assert not r.bond_story, "5 轮应被硬拒（拒绝后 LLM 转聊天）"
-    # 第一次拒绝的 feedback 内容（snapshots[1] 的 user = 拒消息回灌）
-    fb = llm.snapshots[1][-1]["content"]
-    assert "至少 6 轮" in fb, fb
-    # 6 轮放行
-    llm2 = ScriptedLLM(_TRIG)
+    r = engine.agent_turn("老师！我这边有危险，快来！")
+    assert r.bond_story, "v2: 引擎不拦节奏——首条消息 trigger 也应放行"
+    print("    trigger v2: 0 轮放行（无硬闸, 紧急剧情 LLM 全权裁决）")
+
+    # 注记分级: 跑到建议线后建议语出现; 早期是沉淀事实语
+    # （注记在每轮 LLM 调用前注入——第 i 轮注记显示 gap=i-1）
+    chat7 = [_CHAT] * 7
+    llm2 = ScriptedLLM(*chat7)
     engine2 = _engine(llm2)
-    engine2.executor.set_session_rounds(6)
-    r2 = engine2.agent_turn("我们再聊几句")
-    assert r2.bond_story, "距上次剧情 6 轮 → 触发应放行"
-    print("    trigger 门槛: 5 轮拒（feedback: 至少 6 轮）→ 6 轮放行")
+    engine2.start_session(CHARACTER)
+    for i in range(7):
+        engine2.agent_turn(f"闲聊 {i}")
+        sys_note = llm2.snapshots[i][-2]["content"]   # 倒数第2 = 本轮注记
+        if i == 0:
+            assert "沉淀" in sys_note and "羁绊进度事实" in sys_note, sys_note
+            assert "主动发起" not in sys_note, sys_note
+        if i == 6:
+            assert "【剧情时机】" in sys_note and "主动发起羁绊剧情" in sys_note, sys_note
+    print("    trigger 注记分级: gap<6 报沉淀事实 → gap≥6 主动建议（不拦截）")
 
 
 def test_bond_gap_persist_and_clear(tmp_path):
     """rounds_since_bond 持久化 + vn_exit 清零时机（用户拍板）:
-    完整剧情结束（completed）→ 清零; 中途退出 → 保留; 断线重连继续累计。"""
+    完整剧情结束（completed）→ 清零; 中途退出 → 保留; 断线重连继续累计。
+    （v2: 该计数只驱动建议注记, 不再拦截——清零让注记重新报沉淀期）"""
     # 聊 1 轮 → gap=1; 断线重连（新引擎 attach 同会话）→ gap 仍 1
     st = SessionStore(tmp_path)
     llm = ScriptedLLM(_CHAT)
@@ -533,7 +540,7 @@ def test_bond_gap_persist_and_clear(tmp_path):
     engine2 = MomoTalkEngine(ROOT / "config" / "characters", llm2, store=st)
     engine2.start_session(CHARACTER)
     engine2.attach_session(root.session_id)
-    assert engine2.executor.session_rounds == 1, "attach 应恢复持久计数"
+    assert engine2._bond_gap == 1, "attach 应恢复持久计数"
     engine2.agent_turn("继续聊")
     assert st.read_bond_gap(CHARACTER) == 2
     # 中途退出 bond（b）→ completed=False → gap 保留

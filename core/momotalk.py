@@ -117,6 +117,10 @@ MAX_HISTORY_ROUNDS = DEFAULT_HISTORY_ROUNDS
 MAX_STEPS = 6          # 单轮动作步数上限（含 inspect 静默轮）
 TEMP = 0.8             # 与旧 send_message 一致
 MMT_MAX_TOKENS = 4096  # 动作 JSON + 对白（推理模型需大 max_tokens, 勿改小）
+# 羁绊剧情时机建议线（2026-09-02 v2 用户拍板: 引擎建议不拦截）: 距上次完整剧情
+# ≥ SUGGEST_BOND_ROUNDS 轮 → 每轮注记主动建议发起剧情; 不足 → 只报事实+沉淀,
+# 不拦（紧急场面 LLM 自行判断随时可触发, 见 momotalk_rules 触发专段）
+SUGGEST_BOND_ROUNDS = 6
 
 #: mmt 会话窗口 digest 间隔（蓝图 §3.1: 2026-09-02 用户拍板 N=25——纯 MMT 长聊
 #: 每 N 轮后台消化一次, 节流而非精确窗口; bond 剧情闭环触发不变）
@@ -203,7 +207,6 @@ class MomoTalkEngine:
         characters_root: str | Path,
         llm_client: LLMClient,
         interperson_path: str | Path | None = None,
-        affection_threshold: int = 6,
         bond_progress: BondProgress | None = None,
         store: SessionStore | None = None,
         character_names: list[str] | None = None,
@@ -218,24 +221,20 @@ class MomoTalkEngine:
         # 称呼名单（分饰多角预留）: None = 单人（默认当前角色 display_name）;
         # 未来一个 LLM 扮演多角色时注入多个名字（"你好，A / B / C——以下是行为规则…"）
         self._character_names = list(character_names) if character_names else None
-        # 羁绊触发门槛（默认 5 轮, 用户确认: 轮数门槛非情绪数值）; 传入同一实例
-        # 供 executor 读轮数 + 本引擎记录轮数, 保证门槛/记录一致
+        # 全局累计轮数统计（record_turn, 供外部偏好统计/注记——2026-09-02 v2:
+        # 不再参与触发节奏, 节奏建议看 _bond_gap）
         self.bond_progress = bond_progress or BondProgress()
-        self.executor = MmtExecutor(
-            characters_root,
-            interperson_path,
-            affection_threshold=affection_threshold,
-            bond_progress=self.bond_progress,
-        )
+        self.executor = MmtExecutor(characters_root, interperson_path)
         # 事件流存档（DESIGN_SAVE.md §4）: store 注入 + attach_session 后,
         # 每轮 agent_turn 落 mmt 事件 + 会话内轮数; None = 不记录（向后兼容）
         self._store = store
         self._session_id: str = ""
         self._session_rounds: int = 0
-        # 距上次完整 bond 剧情的 MMT 轮数（2026-09-02 决策字段, 用户拍板）:
+        # 距上次完整 bond 剧情的 MMT 轮数（2026-09-02 决策字段）:
         # 持久化在 worlds/{world}/characters/{char}/progress.json（rounds_since_bond,
-        # 断线/重启继续累计）——羁绊触发门槛 + 剧情后冷却一体计数器;
-        # 完整剧情结束（vn_exit completed）清零。无 store → 镜像会话轮数（不持久）。
+        # 断线/重启继续累计）——供**时机建议注记**（v2: 不再是硬门槛, 见
+        # SUGGEST_BOND_ROUNDS / _bond_progress_note）; 完整剧情结束清零。
+        # 无 store → 镜像会话轮数（不持久）。
         self._bond_gap: int = 0
 
         self._current_char: DynamicCharacter | None = None
@@ -332,14 +331,13 @@ class MomoTalkEngine:
                 self._bond_gap = 0
         else:
             self._bond_gap = 0
-        self.executor.set_session_rounds(self._bond_gap)
 
     def bond_completed(self) -> None:
         """完整 bond 剧情结束回调（vn_exit completed=True 收尾链调用, 2026-09-02
-        用户拍板: vn_exit 才清零——只有完整演过的剧情才值得冷却）:
+        用户拍板: vn_exit 才清零——只有完整演过的剧情才重新计时）:
 
-        距上次剧情计数清零（触发门槛与剧情后冷却一体——刚演完必须再聊够
-        threshold 轮才能再触发, 防连发/防"演完立刻又主动"）。
+        距上次剧情计数清零（供时机建议注记重新数; v2 起不是门槛——只是建议线
+        的基准: 演完后注记重新报"沉淀中", 防止 LLM 无节奏连开剧情）。
         """
         if self._current_char is None:
             return
@@ -350,7 +348,6 @@ class MomoTalkEngine:
                 self._store.write_bond_gap(char_id, 0)
             except Exception as e:               # noqa: BLE001 — 写失败降级（内存已清）
                 logger.warning("progress 清零写失败: %s", e)
-        self.executor.set_session_rounds(0)
 
     def _inject_brain(self, character_id: str, session_id: str = "", *,
                       digest: bool = False) -> None:
@@ -806,6 +803,11 @@ class MomoTalkEngine:
         # 同轮第一个动作带 player（render_events 去重约定, DESIGN_SAVE.md §4.2）
         self._record_events(actions, user_input, record_input)
 
+        # 轮数推进（成功一轮 +1）: 时机建议注记的基准（无 store 同样累计）
+        self._advance_round(self._char_id)
+        # mmt 会话窗口 digest（蓝图 §3.1: 每 N=25 轮; 内部判定+剧情保护）
+        self._maybe_mmt_digest()
+
         last = actions[-1]
         last_reply = (last.reply or "").strip()
         return TurnResult(
@@ -825,6 +827,8 @@ class MomoTalkEngine:
 
         同轮第一个动作带 player（后续空 → render_events 不重复 user 消息）;
         payload = 干净动作字段 + reply; 写失败静默降级（不阻断对话）。
+        轮数推进（_session_rounds/_bond_gap）在 _finish_turn_list 统一做——
+        无 store 会话同样累计（供时机注记; store 会话另落盘 progress.json）。
         """
         if self._store is None or not self._session_id:
             return
@@ -837,36 +841,46 @@ class MomoTalkEngine:
                     payload["player"] = user_input
                 self._store.append_event(
                     char_id, self._session_id, make_event("mmt", action.action, payload))
-            self._session_rounds += 1
-            # 触发门槛计数 = 距上次完整 bond 剧情的 MMT 轮数（2026-09-02）:
-            # 持久化 progress.json（断线/重启继续累计）; bond 完整结束清零
-            self._bond_gap += 1
-            try:
-                self._store.write_bond_gap(char_id, self._bond_gap)
-            except Exception as e:               # noqa: BLE001 — 写失败内存继续
-                logger.warning("progress 写失败（内存计数继续）: %s", e)
-            self.executor.set_session_rounds(self._bond_gap)
-            # mmt 会话窗口 digest（蓝图 §3.1: 每 N=25 轮; 内部判定+剧情保护）
-            self._maybe_mmt_digest()
         except Exception as e:                      # 宁缺勿错: 存档失败不阻断对话
             logger.warning("事件流落盘失败, 本轮不记录: %s", e)
 
-    def _bond_progress_note(self) -> str:
-        """本轮羁绊进度参考注记（注入 LLM context, 不入历史）。
+    def _advance_round(self, char_id: str) -> None:
+        """成功一轮后推进计数（2026-09-02 v2）: 距上次完整 bond 剧情 +1。
 
-        2026-09-02 定稿: 触发节奏归**程序**（距上次完整剧情 ≥ threshold 轮才
-        放行——不足会被拒, 拒消息回灌）; LLM 只判断气氛/玩家意愿。这里只报
-        事实, 不再说教/授权（"可提前触发"类话术删除——那是用力过猛的源头）。
+        持久化 progress.json（store 会话, 断线/重启继续累计）; 完整 bond
+        结束清零（bond_completed）——供时机建议注记（建议线 SUGGEST_BOND_ROUNDS）。
+        无 store → 内存镜像（不持久）; 写失败内存继续。
         """
-        total = self.bond_progress.rounds(self._char_id) if self._current_char else 0
+        self._session_rounds += 1
+        self._bond_gap += 1
+        if self._store is None or not char_id:
+            return
+        try:
+            self._store.write_bond_gap(char_id, self._bond_gap)
+        except Exception as e:               # noqa: BLE001 — 写失败内存继续
+            logger.warning("progress 写失败（内存计数继续）: %s", e)
+
+    def _bond_progress_note(self) -> str:
+        """本轮羁绊剧情时机注记（注入 LLM context, 不入历史）。
+
+        2026-09-02 v2（用户复盘拍板: 引擎建议不拦截）——触发节奏是**建议**
+        不是闸门:
+          · 距上次完整剧情 < SUGGEST_BOND_ROUNDS: 报事实 + 沉淀提示（不拦——
+            真遇到非现在不可的紧急场面, LLM 自行判断可提前, 见 rules 触发专段）
+          · ≥ SUGGEST_BOND_ROUNDS: 主动建议——关系铺垫够了, 可找契机发起。
+        LLM 有完整剧情上下文（玩家呼救 vs 闲聊）, 程序只有计数器——硬闸
+        会误伤紧急剧情, 所以引擎只负责"挑时机提示", 裁决权全交 LLM。
+        """
         gap = self._bond_gap
-        sess = self._session_rounds
-        threshold = self.executor.affection_threshold
+        if gap >= SUGGEST_BOND_ROUNDS:
+            return (
+                f"【剧情时机】距上次完整羁绊剧情已 {gap} 轮, 铺垫足够: "
+                "若此刻出现共处契机或情感张力（或 sensei 需要你出面）, "
+                "可以主动发起羁绊剧情（mmt_trigger_bond_story）"
+            )
         return (
-            f"羁绊进度事实: 距上次完整羁绊剧情已聊 {gap} 轮（本次会话 {sess} 轮, "
-            f"与该角色累计 {total} 轮）。系统要求距上次剧情至少 {threshold} 轮才"
-            "允许触发羁绊剧情——不足时 mmt_trigger_bond_story 会被拒绝; "
-            "想推进剧情就自然聊天, 气氛与意愿由你判断。"
+            f"羁绊进度事实: 距上次完整羁绊剧情仅 {gap} 轮, 还在沉淀期——"
+            "不必急着切剧情, 自然聊天就好（真有非现在不可的紧急场面, 你自行判断）"
         )
 
     def _trim_history(self) -> None:

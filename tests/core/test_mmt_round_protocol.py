@@ -97,14 +97,13 @@ def test_empty_and_bad_unit_feedback():
 
 
 def test_trigger_text_before_action():
-    """trigger 单元 + 前置 text 邀约话 → 放行切剧情（门槛 6）。"""
+    """trigger 单元 + 前置 text 邀约话 → 放行切剧情（v2: 无轮数硬闸, 即触即放）。"""
     trig = {"messages": [
         {"text": "我们当面说吧！"},
         {"action": "mmt_trigger_bond_story", "payload": {"reason": "邀约"}},
     ]}
     llm = ScriptedLLM(trig)
     engine = _engine(llm)
-    engine.executor.set_session_rounds(6)
     r = engine.agent_turn("好啊")
     assert r.bond_story, r
     assert "当面说吧" in r.reply

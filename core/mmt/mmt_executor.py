@@ -10,8 +10,9 @@ ExecResult(ok=True, message=回灌给 LLM 的内容)；不可执行抛 MmtExecEr
     mmt_inspect_character    深挖后备: 按 interperson 权重分级读目标资料
                              （自检拒绝 / 无记录拒绝 / 1=profile 2=+personality 3=+experience）
     mmt_send_media           图片发送占位——媒体管线未接入, 仅回灌确认
-    mmt_trigger_bond_story   触发判定——软门槛（轮数参考注入 LLM, AI 有裁决权）,
-                             程序只兜底首条消息; true 切换羁绊剧情模式
+    mmt_trigger_bond_story   触发放行——**引擎不拦节奏**（2026-09-02 v2 用户拍板:
+                             轮数只是建议, 由 momotalk 每轮注记提示时机; 紧急剧情
+                             sensei 遇险等 LLM 自行裁决随时触发）; 放行即切剧情模式
 
 信息架构（v2 五层认知, 与 mmt_actions 一致）:
     L0 自我层 / L1 人际层（自表条目注入, self_entry_to_prompt）/ L2 硬知识 / L3 深挖层。
@@ -22,8 +23,9 @@ ExecResult(ok=True, message=回灌给 LLM 的内容)；不可执行抛 MmtExecEr
     - 自检防护（双重）: 本文件抛 MmtExecError 代码级报错 + mmt_actions schema 提示。
     - 无记录≠不认识: 无记录=素不相识（可耳闻）, inspect 拒绝但可凭知识回答。
     - 自表条目注入: self_entry_to_prompt 生成 L1 注入文本, 由 momotalk 拼进 system prompt。
-    - 触发 bool: 轮数参考（_affection_score, 已接入 bond_progress）+ LLM 决策;
-      软门槛——AI 可提前触发（老师有急事等剧情需要）, 程序只兜底首条消息（0 轮）。
+    - 触发 bool: 引擎建议不拦截（v1 曾硬拒不足 6 轮——2026-09-02 v2 用户复盘
+      否决: 玩家遇险时角色尬聊是硬闸的伪正确; 时机建议由 momotalk._bond_progress_note
+      每轮注入, 触发与否全权交给 LLM 的剧情判断）。
     - 人际层工具（load_interperson / resolve_access_level / self_entry_to_prompt）
       当前内联在本文件, 待 core/parsing/relation_parser.py 落地后移入。
     - 错误统一走 MmtExecError（Live2BeError 子类）, 由调用方捕获回灌。
@@ -31,7 +33,6 @@ ExecResult(ok=True, message=回灌给 LLM 的内容)；不可执行抛 MmtExecEr
 TODO（后续 session）:
     - core/parsing/relation_parser.py: 移入人际层工具
     - 媒体管线（存储/查库/LLM 生成）落地后替换 _execute_mmt_send_media 的占位
-      （羁绊触发门槛已接入 core/bond/bond_progress.py 轮数, 2026-08-21）
 """
 
 from __future__ import annotations
@@ -42,7 +43,6 @@ from pathlib import Path
 
 from core.common import Live2BeError
 from contract import AgentAction, DOMAIN_MMT
-from core.bond.bond_progress import BondProgress
 from core.parsing.dynamic_character_parser import (
     CharacterLoader,
     DynamicCharacter,
@@ -137,22 +137,13 @@ class MmtExecutor:
         self,
         characters_root: str | Path,
         interperson_path: str | Path | None = None,
-        affection_threshold: int = 6,
-        bond_progress: BondProgress | None = None,
     ):
         self.char_loader = CharacterLoader(characters_root)
         self.interperson_path = (
             Path(interperson_path) if interperson_path
             else Path(DEFAULT_INTERPERSON_PATH)
         )
-        # 羁绊触发参考轮数（默认 5）——软门槛: 注入 LLM 作参考建议, 不硬拦截;
-        # 程序只在首条消息（0 轮）兜底拒绝。见 core/bond/bond_progress.py。
-        self.affection_threshold = affection_threshold
-        self.bond_progress = bond_progress or BondProgress()
         self.current_char: DynamicCharacter | None = None
-        # 本段会话轮数（2026-09-02: 触发节奏按"本段相处"而非全局累计——
-        # 全局累计几百轮后 LLM 会在新会话第 3 轮就贸然触发; momotalk 每轮同步）
-        self.session_rounds: int = 0
 
     # ------------------------------------------------------------------
     # 会话上下文
@@ -161,10 +152,6 @@ class MmtExecutor:
     def set_current_character(self, char: DynamicCharacter | None) -> None:
         """设置会话当前角色（inspect/trigger 依赖它）。"""
         self.current_char = char
-
-    def set_session_rounds(self, rounds: int) -> None:
-        """同步本段会话轮数（momotalk 每轮落盘后调用——触发门槛判定用）。"""
-        self.session_rounds = max(0, int(rounds))
 
     # ------------------------------------------------------------------
     # 公共 API
@@ -271,18 +258,10 @@ class MmtExecutor:
         if self.current_char is None:
             raise MmtExecError("尚未进入会话, 无法触发羁绊剧情")
 
-        # 2026-09-02 定稿（用户拍板）: 触发节奏归程序——距上次**完整** bond 剧情
-        # 的 MMT 轮数（_bond_gap, 持久化, 由 momotalk 每轮同步）≥ threshold 才
-        # 放行; 不足 → 硬拒（拒消息回灌, LLM 自然转聊天——不靠话术自觉）。
-        # 刚演完剧情清零 → 冷却 = 门槛本身（防连发/防"演完立刻又主动"）。
-        # 全局累计轮数不再参与判定（只作偏好统计/注记事实）。
-        score = self._affection_score()
-        if self.affection_threshold > 0 and score < self.affection_threshold:
-            raise MmtExecError(
-                f"羁绊剧情暂不触发——距上次剧情才聊 {score} 轮, 系统要求至少 "
-                f"{self.affection_threshold} 轮; 先自然聊几句, 让故事继续发展"
-            )
-
+        # 2026-09-02 v2（用户复盘拍板）: **引擎不拦节奏**——轮数不再是闸门
+        # （玩家遇险时角色尬聊 6 轮是硬拒的伪正确）。时机由 momotalk 每轮注记
+        # 建议（_bond_progress_note: 未满建议线报事实+沉淀, 达标主动提示）;
+        # 触发与否全权交给 LLM 的剧情判断——紧急/危险场面随时可触发。
         reason = action.payload["reason"]
         suffix = f"（理由: {reason}）" if reason else ""
         return ExecResult(
@@ -293,14 +272,3 @@ class MmtExecutor:
     # ==================================================================
     # 内部
     # ==================================================================
-
-    def _affection_score(self) -> int:
-        """触发门槛计数 = 距上次完整 bond 剧情的 MMT 轮数（2026-09-02 定稿）。
-
-        momotalk 每轮同步（set_session_rounds）: 持久 progress.json 的
-        rounds_since_bond（断线/重启继续累计）; 完整剧情结束清零。
-        方法名保留历史命名; 无当前角色 → 0。门槛校验读它真实生效。
-        """
-        if self.current_char is None:
-            return 0
-        return self.session_rounds
