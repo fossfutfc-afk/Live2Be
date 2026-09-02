@@ -1,10 +1,16 @@
 """MMT 域动作 — MomoTalk 运行时（动作名带 mmt_ 前缀）。
 
-动作集（v1, 全部 APPROVAL_AUTO——运行时校验通过即执行）:
-    mmt_chat                 说一句话（对白在 reply 字段, 可选模拟手机操作）
+动作集（v2, 2026-09-02 协议重构——对白不再是动作）:
+    说一句话 = 一轮的**默认产物**（轮级 reply 字段）, 不是动作;
+    动作只承载**需要引擎介入的操作**:
     mmt_inspect_character    深挖后备: 查角色私密资料（静默推理轮, 权重分级）
     mmt_send_media           发图片（禁视频; 图片先查资源库, 库内没有才生成）
-    mmt_trigger_bond_story   判定进入羁绊剧情（bool 触发器: 好感度门槛 + LLM 决策）
+    mmt_trigger_bond_story   判定进入羁绊剧情（bool 触发器: 轮数门槛 + LLM 决策）
+
+轮级协议（见 momotalk._parse_round）:
+    {"reply": "角色说的话（默认产物, 可空; 多句连发由引擎自动切条）",
+     "actions": [真操作…, 可选]}          —— 动作外壳只有 {action, payload}
+    旧输出兼容: actions 里混入 mmt_chat / 动作带 reply → 解析层并入轮级 reply。
 
 信息架构（v2 五层认知）:
     L0 自我层   角色设定（五件套）+ 世界观 → 常驻 system prompt
@@ -20,22 +26,16 @@
 设计决策:
     - mmt_ 前缀: 动作名自带域标识——LLM 输出 / schema 渲染 / 历史记载
       一眼可辨是 MMT 动作, 不依赖额外 domain 字段。
-    - 历史记载: 每轮至少记动作名 + reply（用户可追溯 agent 干了什么）;
-      history 格式在 momotalk 全 JSON 化时一并清理。
+    - 2026-09-02 协议重构: mmt_chat 不再是动作（说话 = 默认产物, 轮级 reply）;
+      summary/operation 移除（MMT 域零消费的死字段）; 动作外壳 = {action, payload}。
+      隐含 mmt_chat 由 momotalk 解析层构造（事件流/历史/渲染零改动）。
     - 禁视频: 项目没有视频生成能力——mmt_send_media 只允许图片,
       media_type 白名单 = {'image'}, 传 video 会被硬性拒绝并回灌给 LLM。
     - 图片管线: 先查资源库（library_id）, 库内没有现成图才按 image 描述生成。
     - 自检防护（双重）: payload_schema 提示禁止查自己 + executor 代码级报错。
-    - 羁绊剧情是 LLM 生成的（返回 BondOutput + 表情/立绘控制）, 不是点选剧本——
-      mmt_trigger_bond_story 只是 bool 触发信号（算法好感度 + LLM 决策）,
-      true 才切换羁绊剧情模式, false 继续聊天。
-    - 外壳字段统一走 RUNTIME_SHELL_FIELDS + reply（运行时动作, 无 sources/basis）。
-
-TODO（后续 session）:
-    - core/parsing/relation_parser.py: 自表条目注入函数 + 访问层级
-      （当前逻辑内联在 mmt_executor.py, 待移入）
-    - knowledge.yml 拆分 人际/硬知识 两个 section（L1/L2 分层, 轻量选项 A）
-    - mmt_executor.py: 自检守卫 / 无记录拒绝 / trigger 好感度门槛已完成; send_media 媒体管线待接入
+    - 羁绊剧情是 LLM 生成的（BondScene + 表情/立绘控制）, 不是点选剧本——
+      mmt_trigger_bond_story 只是触发信号（算法轮数门槛 + LLM 决策）,
+      放行才切换羁绊剧情模式。
 """
 
 from __future__ import annotations
@@ -51,26 +51,12 @@ from contract import (
     is_valid_identifier,
 )
 
-# MMT 运行时外壳字段: 最小集 + reply（对白 / 给用户的话）
-MMT_RUNTIME_FIELDS = RUNTIME_SHELL_FIELDS | frozenset({"reply"})
+# MMT 动作外壳: {action, payload}——对白一律走轮级 reply（2026-09-02）;
+# summary 也不出现在 MMT（IDE 域残留语义, MMT 零消费）
+MMT_RUNTIME_FIELDS = frozenset({"action", "payload"})
 
 # 禁视频: MMT 只允许图片（项目无视频生成能力）
 MMT_MEDIA_TYPES = frozenset({"image"})
-
-
-# ============================================================================
-# mmt_chat — 说一句话
-# ============================================================================
-
-def parse_mmt_chat(payload: dict[str, Any]) -> dict[str, Any]:
-    """结构白名单校验（硬错误, 抛 ContractError）。
-
-    对白在 reply 字段（外壳层校验）。payload 只带可选模拟手机操作。
-    """
-    operation = payload.get("operation", "")
-    if not isinstance(operation, str):
-        raise ContractError("operation 必须是字符串")
-    return {"operation": operation.strip()}
 
 
 # ============================================================================
@@ -99,6 +85,7 @@ def parse_mmt_send_media(payload: dict[str, Any]) -> dict[str, Any]:
 
     禁视频: media_type 白名单只有 'image'——传 video 直接拒绝, 让 LLM 修正。
     图片管线: 先查资源库（library_id）, 库内没有才按 image 描述生成。
+    附带的话走**轮级 reply**（2026-09-02: 动作不再带文本字段）。
     """
     media_type = payload.get("media_type", "image")
     if media_type not in MMT_MEDIA_TYPES:
@@ -131,8 +118,8 @@ def parse_mmt_send_media(payload: dict[str, Any]) -> dict[str, Any]:
 def parse_mmt_trigger_bond_story(payload: dict[str, Any]) -> dict[str, Any]:
     """结构白名单校验（硬错误, 抛 ContractError）。
 
-    羁绊剧情不是点选剧本——它是 LLM 自行的 bool 判定（算法好感度 + LLM 决策）,
-    true 才切换羁绊剧情模式。payload 只带可选触发理由。
+    羁绊剧情不是点选剧本——它是 LLM 自行的触发判定（算法轮数门槛 + LLM 决策）,
+    放行才切换羁绊剧情模式。payload 只带可选触发理由。
     """
     reason = payload.get("reason", "")
     if not isinstance(reason, str):
@@ -145,19 +132,12 @@ def parse_mmt_trigger_bond_story(payload: dict[str, Any]) -> dict[str, Any]:
 # ============================================================================
 
 def build_mmt_registry() -> MMTActionRegistry:
-    """构建注册了全部 MMT 动作的注册表（动作名带 mmt_ 前缀）。"""
+    """构建注册了全部 MMT 动作的注册表（动作名带 mmt_ 前缀）。
+
+    2026-09-02: 不含 mmt_chat——说话是轮级默认产物, 不是动作（旧输出兼容由
+    momotalk 解析层抽取, 引擎构造隐含 mmt_chat 走原管线）。
+    """
     registry = MMTActionRegistry()
-    registry.register(ActionSpec(
-        "mmt_chat",
-        parse_mmt_chat,
-        APPROVAL_AUTO,
-        prompt_fields=MMT_RUNTIME_FIELDS,
-        payload_schema=(
-            "operation: 可选, 模拟手机操作说明（如 '点击气泡' '已读不回'）;\n"
-            "      缺省表示普通文字回复\n"
-            "对白写在 reply 字段（外壳字段, 角色说的话）——这是本动作的核心输出"
-        ),
-    ))
     registry.register(ActionSpec(
         "mmt_inspect_character",
         parse_mmt_inspect_character,
@@ -190,7 +170,7 @@ def build_mmt_registry() -> MMTActionRegistry:
             "      填了且库中命中则直接发这张\n"
             "media_type: 可选, 只能 'image'（MMT 禁发视频——项目没有视频生成能力, "
             "传 video 会被拒绝）\n"
-            "附带的话写在 reply 字段"
+            "附带的话写在轮级 reply 字段（不是本动作的字段）"
         ),
     ))
     registry.register(ActionSpec(
@@ -200,11 +180,12 @@ def build_mmt_registry() -> MMTActionRegistry:
         prompt_fields=MMT_RUNTIME_FIELDS,
         payload_schema=(
             "reason: 可选, 触发理由（你判断此刻关系到了新阶段）——供追溯\n"
-            "用途: 把对话从手机聊天切换到当面相见的羁绊剧情——面对面推进,\n"
-            "      也就是**当你发现手机消息进行不下去的时候**,可以直接线下见面,提出邀约"
-            "      之后一段时间就不再是手机消息了。例: 和老师约好碰面、一起出行、或气氛到位\n"
-            "      时触发; 轮数只是参考, 是否触发由你判断, 不会被引擎拒绝\n"
-            "      （引擎只在刚认识的最初阶段兜底）\n"
+            "用途: 把对话从手机聊天切换到当面相见的羁绊剧情——面对面推进。\n"
+            "      当你判断手机消息进行不下去/共处契机出现时, 可以发起\n"
+            "      邀约的话写轮级 reply（见到老师时说的话——不是告别, 是见面的话）\n"
+            "      本动作只带 reason（触发理由）\n"
+            "[系统] 触发节奏由系统把关: 距上次完整羁绊剧情不足 6 轮会被拒绝\n"
+            "      （当前轮数在每轮的系统注记里）——被拒就继续自然聊天\n"
             "      [系统] 剧情对白/表情/立绘待实现——切换后由程序渲染剧情场景"
         ),
     ))

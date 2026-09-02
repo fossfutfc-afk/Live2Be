@@ -34,9 +34,10 @@ _APPROVAL_NOTES = {
 def build_schema(registry: ActionRegistry, *, action_list: bool = False) -> str:
     """生成该域给 LLM 的动作 schema（输入层裁剪）。
 
-    action_list=True（MMT 域, 2026-08-23 定稿）: 输出"动作列表"格式——
-    AI 可一次返回多个动作实现"说话→发图→说话"的混合节奏（text_processor
-    逐动作切分渲染）。其他域（story/IDE）保持单动作输出。
+    action_list=True（MMT 域, 2026-08-23 定稿; 2026-09-02 轮级协议）: 输出
+    "动作列表"格式——AI 一次可返回多个动作（真操作）; 对白是轮级默认产物
+    （reply 字段, 见 momotalk rules）, 不在动作里。其他域（story/IDE）保持
+    单动作输出。示例只给结构骨架——外壳字段以各动作声明为准。
     """
     names = registry.action_names()
     if not names:
@@ -48,9 +49,11 @@ def build_schema(registry: ActionRegistry, *, action_list: bool = False) -> str:
 
     if action_list:
         lines = [
-            "你必须以单个 JSON 对象输出一个动作列表（按顺序执行并渲染）:",
-            '    {"actions": [动作1, 动作2, ...]}',
-            "每个动作的字段如下。",
+            "你以单个 JSON 对象输出本轮内容（2026-09-02 轮级协议）:",
+            '    {"reply": "角色说的话（可空字符串; 多句连发引擎自动切条）",'
+            ' "actions": [动作1, ...]}',
+            "actions 只放需要程序执行的操作（可空/省略 = 纯说话轮）;",
+            "每个动作的字段如下（动作不含 reply——话一律写轮级 reply）。",
             "",
         ]
     else:
@@ -73,13 +76,14 @@ def build_schema(registry: ActionRegistry, *, action_list: bool = False) -> str:
     lines.append("")
     if action_list:
         lines.append(
-            '格式示例: {"actions": [{"action": "<动作名>", "summary": "一句话说明", '
-            '"payload": {...}}, ...]}'
+            '轮级示例: {"reply": "老师你看这个！", "actions": '
+            '[{"action": "mmt_send_media", "payload": {"image": "天台拍到的夕阳"}}]}'
         )
-        lines.append("动作按列表顺序依次执行; mmt_trigger_bond_story 必须独占一轮（模式切换）;")
+        lines.append("动作按列表顺序依次执行并渲染; mmt_trigger_bond_story 必须独占一轮（模式切换）;")
         lines.append("mmt_inspect_character 不能混入列表（静默推理轮, 单独输出一轮）。")
     else:
-        lines.append('格式示例: {"action": "<动作名>", "summary": "一句话说明", "payload": {...}}')
+        lines.append('格式示例: {"action": "<动作名>", "payload": {...}}'
+                     '（外壳字段以各动作声明为准）')
     return "\n".join(lines)
 
 
