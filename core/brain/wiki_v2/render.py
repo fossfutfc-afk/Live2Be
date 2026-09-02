@@ -190,18 +190,23 @@ def _me(text: str, char_name: str) -> str:
 # Round B 输入渲染（板块 5: 认知列表 + episode 摘要）
 # ---------------------------------------------------------------------------
 
-def render_cognition_list(store: WikiStoreV2, cap: int = 12
+def render_cognition_list(store: WikiStoreV2, cap: int = 12,
+                          exclude: set[str] | None = None
                           ) -> tuple[str, dict[str, str]]:
     """Round B 输入: 现有稳定认知渲染（本地 id u0001..; 排序: significance 降序）。
 
     只挑 belief/experience（episode 是流水不参与组织, fact 是出厂基座不可
     touch/update）; 渲染层守 _ensure_cognition 语义, 引擎不给 LLM 不可选之物。
+    exclude: 本轮 A 刚建的 id 集（player 画像条目——本段产物不进本轮认知列表,
+    B 只组织 episode, 画像留待后续轮次参与组织）。
 
     Returns:
         (text, local_of): local_of = 真实 id → 本地 id（候选标注/执行器解析用;
         parse 层只认本地 id——防 LLM 猜真实 id）
     """
-    nodes = [n for n in store.all() if n.kind in ("belief", "experience")]
+    exclude = exclude or set()
+    nodes = [n for n in store.all()
+             if n.kind in ("belief", "experience") and n.id not in exclude]
     nodes.sort(key=lambda n: (-n.significance, n.id))
     lines: list[str] = []
     local_of: dict[str, str] = {}

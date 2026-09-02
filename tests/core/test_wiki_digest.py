@@ -203,6 +203,42 @@ def test_no_candidate_when_unrelated(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# MMT 专则: 玩家画像条目（kind=experience, subject=player）
+# ---------------------------------------------------------------------------
+
+def test_player_portrait_entry_lands_and_hides_from_round_b(tmp_path):
+    """A 轮画像条目 → subject=player experience 落库; 不进本轮认知列表（B 只组织 episode）。"""
+    st = WikiStoreV2(tmp_path, world_id="world1", char_id="c")
+    llm = FakeLLM(
+        {"episodes": [
+            {"narration": "老师说下周放假带我去看烟火大会, 我紧张得直结巴还是答应了",
+             "title": "烟火大会之约", "verbatim": "下周放假, 一起去看烟火吧",
+             "tags": ["约定", "烟火"], "significance": 0.85},
+            {"kind": "experience", "pattern": "玩家的生日是 5 月 20 日",
+             "verbatim": "我生日是 5 月 20 日哦", "tags": ["玩家生日"],
+             "significance": 0.7},
+        ]},
+        {"decisions": [
+            {"episode": "m0001", "decision": "add", "kind": "belief",
+             "subject": "和老师的约定", "content": "老师会认真对待与我的约定"},
+         ], "evidence": [], "affection_exp_delta": 15})
+    events = _events(_mmt(3, "老师", "下周放假, 一起去看烟火吧"))
+    res = digest_segment(st, llm, events)
+    assert res.ok, res.errors
+    assert res.created == ["m0001"]                    # episode 正常建
+    p = st.get("e0001")                                # 画像条目 → subject=player experience
+    assert p is not None and p.kind == "experience"
+    assert p.subject == "player" and p.pattern.startswith("玩家的生日")
+    assert p.verbatim == "我生日是 5 月 20 日哦"        # 原话直存（无 episode 载体）
+    assert p.event_seq == [3] and p.segment_id == "seg-3"
+    # B 的认知列表不含刚建的画像条目（冷启动提示仍在 = 无认知可组织）
+    b_user = llm.calls[1][1]["content"]
+    assert "玩家的生日" not in b_user
+    assert "尚无稳定认知" in b_user or "u0001" in b_user  # 画像被排除后无旧认知
+    assert "m0001" in b_user                           # episode 摘要正常进 B
+
+
+# ---------------------------------------------------------------------------
 # 冷启动: 无旧记忆 → B 只能 add（belief 路径: epistemic 引擎归属 + 先链后入仓）
 # ---------------------------------------------------------------------------
 

@@ -32,6 +32,9 @@ PHASE_DEEP = "deep"
 #: B 轮决策类型
 DECISIONS = ("touch", "update", "add")
 
+#: 玩家画像条目的 subject 固定值（与 nodes.PLAYER_SUBJECT 对齐, 契约层不依赖 core）
+PLAYER_SUBJECT = "player"
+
 #: 边界（parse 级）
 MAX_EPISODES = 5        # A 轮单包最多 episode 数
 MAX_NARRATION = 300     # narration 单行上限（汉字）
@@ -73,10 +76,15 @@ RECORD_EPISODE = DigestAction(
         " 情绪词堆砌但无情节支撑 → 舍弃。"
     ),
     field_schema=(
-        '    {  // 一条经历, 最多一次输出 5 条 //\n'
-        '      "narration": "…",  // 必填; 单行 ≤300 字; 浓缩不流水账 //\n'
-        '      "title": "…",      // 必填; 8-16 字短标题; 拿不准也给朴素标题 //\n'
-        '      "verbatim": "…",   // 可选; 原话逐字复制, 禁止改写 //\n'
+        '    {  // 一条记录, 最多一次输出 5 条; kind=episode 默认 //\n'
+        '      "kind": "episode",    // "episode"=经历 | "experience"=玩家画像专用\n'
+        '                            //（玩家口癖/偏好/一次性个人信息——pattern 必填,\n'
+        '                            //  subject 不用填, 引擎固定为 player）//\n'
+        '      "narration": "…",  // kind=episode 必填; 单行 ≤300 字; 浓缩不流水账 //\n'
+        '      "pattern": "…",    // kind=experience 必填; 玩家画像句, 如"玩家的生日是\n'
+        '                          // 5 月 20 日""玩家总说摸鱼" //\n'
+        '      "title": "…",      // kind=episode 必填; 8-16 字短标题; 拿不准也给朴素标题 //\n'
+        '      "verbatim": "…",   // 可选; 原话逐字复制（角色或玩家均可）, 禁止改写 //\n'
         '      "tags": ["…"],     // 必填 1-4 个; 检索导向——未来玩家输入/叙事可能出现的词\n'
         '                          //（人名/地点/物品/动作/话题）; 不含时间词; 从最重要排起 //\n'
         '      "significance": 0~1,  // 行为锚点: 0.9+ 改变认知/极深刻（初遇/告白）;\n'
@@ -404,13 +412,45 @@ def _clean_episode(e: Any, i: int) -> tuple[dict | None, list[str], list[str]]:
     for f in ("id", "ts", "event_seq", "segment_id"):
         if f in e:
             warnings.append(f"episodes[{i}] 含引擎字段 {f}——已忽略")
+    kind = str(e.get("kind", "episode")).strip()
+    if kind == "episode":
+        item, errors, warnings = _clean_episode_item(e, i, errors, warnings)
+        if item is not None:
+            item["kind"] = "episode"
+        return item, errors, warnings
+    if kind == "experience":
+        # 玩家画像条目（MMT 专则, 2026-09-02）: pattern 必填, subject 引擎固定 player
+        pattern = e.get("pattern")
+        if not isinstance(pattern, str) or not pattern.strip():
+            return None, [f"episodes[{i}]: kind=experience（玩家画像）必须填 pattern"], []
+        item: dict = {"kind": "experience", "pattern": pattern.strip(),
+                      "subject": PLAYER_SUBJECT}
+        verbatim = e.get("verbatim")
+        if isinstance(verbatim, str) and verbatim.strip():
+            item["verbatim"] = verbatim.strip()     # 画像条目无 episode 载体——原话直接存
+        tags = [t for t in e.get("tags", []) if isinstance(t, str) and t.strip()][:MAX_TAGS]
+        if tags:
+            item["tags"] = tags
+        sig = e.get("significance")
+        try:
+            sig_f = float(sig) if sig is not None else 0.5
+        except (TypeError, ValueError):
+            sig_f = 0.5
+        item["significance"] = max(0.0, min(1.0, sig_f))
+        return item, errors, warnings
+    return None, [f"episodes[{i}].kind 非法: {kind!r}（episode|experience）"], []
+
+
+def _clean_episode_item(e: dict, i: int, errors: list[str], warnings: list[str]
+                        ) -> tuple[dict | None, list[str], list[str]]:
+    """kind=episode 条目的字段清洗（缺 narration 整条丢弃, 宁缺勿错）。"""
     narration = e.get("narration")
     if not isinstance(narration, str) or not narration.strip():
-        return None, [f"episodes[{i}] 缺 narration"], []
+        return None, errors + [f"episodes[{i}] 缺 narration"], warnings
     narration = narration.strip()
     if len(narration) > MAX_NARRATION:
         # 宁缺勿错: 整条丢弃（包已无效 → 反馈重试会让 LLM 重写整包, 截断反而静默改内容）
-        return None, [f"episodes[{i}].narration 超过 {MAX_NARRATION} 字——整条丢弃"], []
+        return None, errors + [f"episodes[{i}].narration 超过 {MAX_NARRATION} 字——整条丢弃"], warnings
     item: dict = {"narration": narration}
     title = e.get("title")
     if isinstance(title, str) and title.strip():
@@ -436,8 +476,7 @@ def _clean_episode(e: Any, i: int) -> tuple[dict | None, list[str], list[str]]:
     if epi == "reported_fact":
         obs = e.get("observer")
         if not (isinstance(obs, str) and obs.strip()):
-            errors.append(f"episodes[{i}]: reported_fact 必须带 observer（转述者）")
-            return None, errors, warnings
+            return None, errors + [f"episodes[{i}]: reported_fact 必须带 observer（转述者）"], warnings
         item["epistemic"] = "reported_fact"
         item["observer"] = obs.strip()
     else:

@@ -270,6 +270,44 @@ apply_revision_package 复用, digest_registry 注册 deep 动作集）。
 
 ---
 
+### 3.1 mmt 会话 digest 策略（2026-09-02 拍板, 用户场景: 长聊不触发剧情/未来纯聊天模式）
+
+**背景**: digest 原唯一触发点 = bond 剧情闭环（story_end 为段边界）——纯 mmt 长聊
+永不消化, 三层损失: ① 约定/玩家分享/角色表露不进 wiki（跨 session 不记得）;
+② **玩家画像 R5 断供**（subject=player 的口癖只在 mmt 出现）; ③ 好感冻结
+（affection 事件只由 digest 写, 纯 mmt 好感不涨）。
+
+**拍板（2026-09-02）**:
+1. **mmt 窗口 digest**: 每 N=25 轮 mmt → 后台 digest（节流而非精确窗口——digest
+   消化触发时刻全部未消化事件, 增量幂等, 撞车 0 新增短路; 锁串行 _digest_lock）
+2. **触发保护**: 剧情中不切段——session_status in_vn / in_memorial → 不触发;
+   bond 剧情中本就有 marker 段边界, mmt 窗口只作用于纯对话区
+3. **空闲超时 T**: 暂缓（无常驻调度器; N 已覆盖长聊主场景; 触发器签名留
+   idle_minutes 位, webgui 常驻 tick 再挂）
+4. **不新增节点 kind**（4 kind 收敛形态; 玩家话语是内容维度不是结构维度）:
+   - 约定/共同互动 → episode（narration 角色视角 + verbatim 玩家原话）
+   - 玩家口癖/偏好/一次性个人信息 → experience subject=player（R5 主通道,
+     蓝图 #9 拍板落点; pattern=画像句, 无需真重复）
+   - **verbatim 语义扩展**: 原话双侧（角色或玩家）, 逐字; 说话者由 narration
+     语境交代——渲染零改动
+5. **约定必记（用户强调）**: MMT 专则第一条——与玩家的约定/共同计划必须进记忆
+   （episode + tags 含"约定"）; 约定重复出现成模式 → experience subject=sensei
+6. **好感结算开放**: mmt digest 同 bond 机制——affection_exp_delta → affection
+   事件（幂等键 interact_max, 真源 events.jsonl）
+7. **注入刷新**: digest 后台完成后**动态拼装注入段**（_brain_injection 字段原子替换,
+   chat 每轮组装 system 时拼接）——不追加防重复注入, 跨线程零锁
+
+**A 轮 MMT 专则**（digest_v2_round_a.md）: mmt 段素材只有对话本身——值得记的 =
+约定/玩家透露/角色内心表露; 寒暄表情不记; 单轮无实质不硬凑。玩家说的话第一人称
+只写角色感受与回应, 玩家原话放 verbatim。
+
+**实现时机**: "digest 接入运行时"板块（async_digest 切 wiki_v2 digest_segment +
+触发器 should_digest_mmt 纯函数 + seed 挂载 + affection 幂等写）——2026-09-02 动工。
+
+---
+
+---
+
 ## 4. 渲染规格（已定）
 
 ### 4.1 组织视图（喂 digest/组织 LLM；带 id + 邻接表）
