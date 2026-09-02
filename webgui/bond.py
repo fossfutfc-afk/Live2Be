@@ -641,6 +641,19 @@ def _enqueue_annotate(state: BondState, scene: BondScene) -> None:
         threading.Thread(target=_anno_worker, args=(state,), daemon=True).start()
 
 
+def _fallback_fill(scene: BondScene) -> None:
+    """标注兜底（2026-09-02）: 空 emotion 段落强制回填 nomal。
+
+    保险网——fill_scene_emotions 正常路径已全量回填/延续（幂等）; 若标注层
+    异常漏网（段落仍无 emotion）→ 强制兜底, 保证推进门控就绪**恒可达**
+    （剧情必须能推进; 失败只影响表情精度, 宁缺勿错）。
+    """
+    for group in [scene.paragraphs, *scene.branches.values()]:
+        for p in group:
+            if isinstance(p, dict) and not (p.get("emotion") or "").strip():
+                p["emotion"] = "nomal"
+
+
 def _anno_worker(state: BondState) -> None:
     """标注队列单 worker: 串行补标场景（正文 + branches）, 写回带防竞态检查。
 
@@ -649,7 +662,8 @@ def _anno_worker(state: BondState) -> None:
     否则（场景已被推进/替换）→ 丢弃（标注结果作废, 不污染新场景）。
     2026-09-02: 骨架 emotion 已移交标注层——回填后同步 prev_emotions
     （当前展示场景的情绪谱, 供下一场 system_note 防单调; 预生成场景不更新——
-    它尚未展示, prev 语义 = 上一场）。
+    它尚未展示, prev 语义 = 上一场）。fill 异常 → _fallback_fill 强制兜底
+    （门控就绪恒可达, 剧情必须能推进）。
     """
     while True:
         scene = state._anno_queue.get()
@@ -659,6 +673,7 @@ def _anno_worker(state: BondState) -> None:
             state.vn.fill_scene_emotions(scene)     # 标注 LLM（不持锁）
         except Exception as e:                       # noqa: BLE001 — 标注失败兜底
             logger.warning("bond 异步标注失败（兜底延续）: %s", e)
+        _fallback_fill(scene)                        # 保险网: 空 emotion 强制 nomal
         with state._lock:
             if state.scene_obj is scene:
                 state.scene = scene.to_dict()
