@@ -53,6 +53,8 @@ _END_ROUNDS = 50
 _FORCE_AFTER = _END_ROUNDS + 2
 #: 程序兜底 closing 文案（错误收场 / 超限收场）
 _CLOSING_TEXT = "（夜色渐深，这一章的羁绊剧情就此落下帷幕。）"
+#: closing 段落（程序文案, 无标注——自带 emotion, 门控恒就绪, 2026-09-02）
+_CLOSING_PARA = [{"text": _CLOSING_TEXT, "emotion": "nomal"}]
 #: 场景生成连续失败上限（2026-09-02: 偶发 JSON 失败给重试机会, 超限才 closing）
 MAX_GEN_FAILURES = 3
 
@@ -310,6 +312,38 @@ def bond_start_demo(char_id: str, session_id: str) -> dict:
     return {"accepted": True, "busy": True, "resumed": False}
 
 
+def _scene_emotions_ready(state: BondState) -> bool:
+    """当前展示场景的 emotion 是否已就绪（2026-09-02 推进门控）。
+
+    骨架 emotion 已移交标注层（全量回填/兜底）——玩家推进前必须等标注完成,
+    否则: ① 立绘表情不到位; ② 场景落库（append-only）会缺 emotion。
+    就绪判定: demo/无词表（无标注能力）→ 恒就绪; 否则当前场景全部段落
+    （含 branches）都有 emotion。
+    """
+    if state.demo is not None or state.vn is None:
+        return True
+    if not state.vn._lexicon_keys:            # 无词表 → 引擎不标注 → 恒就绪
+        return True
+    scene = state.scene_obj
+    if scene is None:
+        return True
+    groups = [scene.paragraphs] + list(scene.branches.values())
+    for group in groups:
+        for p in group:
+            if isinstance(p, dict) and not (p.get("emotion") or "").strip():
+                return False
+    return True
+
+
+def _scene_ready_or_busy(state: BondState) -> dict | None:
+    """门控检查: 未就绪 → 返回 busy 响应（前端已有 busy 轮询重试, 标注 2~5s 内
+    完成/兜底 → 下次重试放行）; 就绪 → None（继续正常 turn 流程）。"""
+    if not _scene_emotions_ready(state):
+        return {"accepted": False, "busy": True,
+                "error": "情绪标注中, 稍后自动继续"}
+    return None
+
+
 def bond_turn(char_id: str, session_id: str, text: str) -> dict:
     """玩家裁决（选项文本 / 自由输入 / 点击继续）→ 补录上一场事件 → 衔接下一场。
 
@@ -327,6 +361,13 @@ def bond_turn(char_id: str, session_id: str, text: str) -> dict:
     text = (text or "").strip()
     if not text:
         return {"accepted": False, "error": "输入不能为空"}
+
+    # 推进门控（2026-09-02）: 当前场景（含分支）emotion 未标注完成 → 不让推进
+    # （情绪不到位不点下一轮——标注 2~5s, 前端 busy 轮询自动放行; 同时保证
+    # 落库场景 emotion 完整: 分支消费/继续/自由输入都在标注就绪后才落库）
+    gate = _scene_ready_or_busy(state)
+    if gate is not None:
+        return gate
 
     if text == "（继续）" and state.pregen_scene is not None:
         # 预生成就绪 → 补录当前场 → 提升预生成场景为当前场 → 链式预生成
@@ -426,6 +467,16 @@ def bond_finish(char_id: str, session_id: str) -> dict:
     if state.busy:
         return {"completed": False, "busy": True, "error": "剧情生成中"}
 
+    # 收尾前等最后场景标注就绪（2026-09-02）——append-only 落库缺 emotion
+    # 不可补; 标注 worker 独立线程, 短等（失败兜底也回填 → 必达; 超时宁缺勿错）
+    if not _scene_emotions_ready(state):
+        deadline = time.time() + 8.0
+        while time.time() < deadline and not _scene_emotions_ready(state):
+            time.sleep(0.05)
+        if not _scene_emotions_ready(state):
+            logger.warning("bond_finish 等待标注超时, 场景可能缺 emotion: %s/%s",
+                           char_id, session_id)
+
     # 最后场景（is_end / closing）: 玩家无裁决 → picked=None
     _log_scene(state, char_id, session_id, picked=None)
     try:
@@ -470,7 +521,7 @@ def _generate(state: BondState, char_id: str, session_id: str, user_input: str) 
                     # 演示模式: 弹预设场景; 剧本耗尽 → closing 收尾（剧情必须终结）
                     scene_dict = state.demo.pop(0) if state.demo else None
                     scene = (BondScene.from_dict(scene_dict) if scene_dict
-                             else BondScene(paragraphs=[{"text": _CLOSING_TEXT}],
+                             else BondScene(paragraphs=list(_CLOSING_PARA),
                                             is_end=True))
                 else:
                     scene = state.vn.send_vn_scene(
@@ -481,7 +532,7 @@ def _generate(state: BondState, char_id: str, session_id: str, user_input: str) 
                     if state.round > _FORCE_AFTER and not scene.is_end:
                         # 超限强制收尾（CLI force_after 语义——剧情必须终结）
                         scene = BondScene(
-                            paragraphs=[{"text": _CLOSING_TEXT}], is_end=True)
+                            paragraphs=list(_CLOSING_PARA), is_end=True)
                 state.scene_obj = scene
                 state.scene = scene.to_dict()
                 state.scene_input = user_input
@@ -507,7 +558,7 @@ def _generate(state: BondState, char_id: str, session_id: str, user_input: str) 
             state.error = str(e)
             state.fail_count += 1
             if state.fail_count > MAX_GEN_FAILURES:
-                closing = BondScene(paragraphs=[{"text": _CLOSING_TEXT}],
+                closing = BondScene(paragraphs=list(_CLOSING_PARA),
                                     is_end=True)
                 state.scene_obj = closing
                 state.scene = closing.to_dict()

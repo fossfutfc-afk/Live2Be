@@ -39,7 +39,9 @@ CHARACTER = "igusa_haruka"
 
 class ScriptedLLM:
     """带 chat(json_object) 的脚本化 LLM——agent_turn 与 send_vn_scene 都走它。
-    两轮 digest（async_digest 后台）自动返回空包, 不消耗脚本。"""
+    两轮 digest（async_digest 后台）自动返回空包, 不消耗脚本。
+    emotion 标注调用（2026-09-02: 骨架 emotion 丢弃 → 标注层全量回填）自动
+    返回同长 nomal 数组——从 system 里的编号行数推断句数, 不消耗脚本。"""
 
     def __init__(self, *scripts: dict):
         self._scripts = list(scripts)
@@ -49,6 +51,11 @@ class ScriptedLLM:
              **kw):
         self.snapshots.append([dict(m) for m in messages])
         head = messages[0]["content"]
+        last = messages[-1]["content"] if len(messages) > 1 else ""
+        if "情绪标签数组" in last:               # emotion 标注 → 全 nomal 数组
+            import re as _re
+            n = len(_re.findall(r"(?m)^\d+: ", head))
+            return ["nomal"] * max(n, 1)
         if "记录员" in head:                       # digest Round A → 空 episodes
             return {"episodes": []}
         if "整理者" in head:                       # digest Round B → 空 decisions
@@ -65,9 +72,16 @@ class ScriptedLLM:
 
 
 def _seen_notes(llm: ScriptedLLM) -> list[list[str]]:
-    """每次 chat 调用的系统注记（= 第一个 system 主 prompt 之后的 system 消息）。"""
-    return [[m["content"] for m in msgs if m["role"] == "system"][1:]
-            for msgs in llm.snapshots]
+    """每次**场景轮** chat 调用的系统注记（= 第一个 system 主 prompt 之后的
+    system 消息）。emotion 标注调用（user 含"情绪标签数组", 2026-09-02 全量
+    回填）不算场景轮, 过滤掉。"""
+    out: list[list[str]] = []
+    for msgs in llm.snapshots:
+        last = msgs[-1]["content"] if len(msgs) > 1 else ""
+        if "情绪标签数组" in last:
+            continue                      # 标注调用不产生场景轮
+        out.append([m["content"] for m in msgs if m["role"] == "system"][1:])
+    return out
 
 
 def _engine(llm) -> MomoTalkEngine:
@@ -107,9 +121,10 @@ def test_send_vn_scene():
     assert scene.choices == ["选A", "选B"], scene.choices
     assert not scene.is_end
     assert vn.history_length == 2, f"send_vn_scene 应记 2 条历史: {vn.history_length}"
-    # 历史存紧凑 JSON（中文完好, 无空格分隔符; story_scene 无 is_end——动作类型推导）
+    # 历史存紧凑 JSON（中文完好, 无空格分隔符; story_scene 无 is_end——动作类型推导;
+    # 2026-09-02: 骨架 emotion 丢弃——历史 payload 无 emotion, 标注层另回填 scene）
     hist = json.loads(vn.history[-1]["content"])
-    assert hist["paragraphs"] == [{"text": "段落一。", "emotion": "nomal"}] and hist["choices"] == ["选A", "选B"]
+    assert hist["paragraphs"] == [{"text": "段落一。"}] and hist["choices"] == ["选A", "选B"]
     assert "is_end" not in hist, f"story_scene 历史不应含 is_end: {hist}"
     print(f"    send_vn_scene: 1 段 + 2 选项, 历史紧凑 JSON 中文完好无 is_end, {vn.history_length} 条")
 
@@ -387,7 +402,8 @@ def test_trace_records_attempts():
     assert trace[1]["attempt"] == 1 and trace[1]["action"] == "story_scene"
     assert trace[1]["parse_valid"] is True and not trace[1]["parse_errors"]
     assert trace[1]["exec_ok"] is True and trace[1]["exec_message"] == "中段场景已就绪"
-    assert trace[1]["payload"]["paragraphs"] == [{"text": "段落一。", "emotion": "nomal"}]
+    # 2026-09-02: 骨架 emotion 丢弃——trace 的 payload 无 emotion（标注层另回填 scene）
+    assert trace[1]["payload"]["paragraphs"] == [{"text": "段落一。"}]
     print("    trace: 1 失败 + 1 成功, attempt/parse/exec 字段齐全")
 
 

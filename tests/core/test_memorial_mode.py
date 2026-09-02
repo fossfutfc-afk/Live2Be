@@ -38,7 +38,9 @@ STORY_END = {"action": "story_end", "payload": {
 
 
 class ScriptedLLM:
-    """chat 兼容面: 按调用顺序返回预设 dict; snapshots 记 messages（断言 feedback）。"""
+    """chat 兼容面: 按调用顺序返回预设 dict; snapshots 记 messages（断言 feedback）。
+    emotion 标注调用（2026-09-02 骨架 emotion 丢弃 → 全量回填）自动返回全 nomal
+    数组（从 system 编号行数推断句数）, 不消耗脚本。"""
 
     def __init__(self, *scripts: dict):
         self._scripts = list(scripts)
@@ -46,6 +48,12 @@ class ScriptedLLM:
 
     def chat(self, messages, temperature=0.8, max_tokens=1536, response_format="text"):
         self.snapshots.append([dict(m) for m in messages])
+        import re as _re
+        head = messages[0]["content"]
+        last = messages[-1]["content"] if len(messages) > 1 else ""
+        if "情绪标签数组" in last:               # emotion 标注 → 全 nomal
+            n = len(_re.findall(r"(?m)^\d+: ", head))
+            return ["nomal"] * max(n, 1)
         if not self._scripts:
             raise RuntimeError("脚本耗尽")
         return self._scripts.pop(0)
@@ -74,15 +82,28 @@ def _store_engine(llm, tmp_path: Path) -> tuple[MomoTalkEngine, SessionStore, st
 
 
 def _last_fb(llm: ScriptedLLM) -> str:
-    """最近一次 chat 调用的最后一条 user 消息（feedback 回灌内容）。"""
-    return llm.snapshots[-1][-1]["content"]
+    """最近一次**场景轮** chat 调用的最后一条 user 消息（feedback 回灌内容）。
+    标注调用（user 含"情绪标签数组"）跳过——它们不是场景轮。"""
+    for msgs in reversed(llm.snapshots):
+        last = msgs[-1]["content"] if len(msgs) > 1 else ""
+        if "情绪标签数组" not in last:
+            return last
+    return ""
+
+
+def _scene_msgs(llm: ScriptedLLM) -> list[list[dict]]:
+    """过滤标注调用后的场景轮 snapshots（标注不算场景轮）。"""
+    return [msgs for msgs in llm.snapshots
+            if "情绪标签数组" not in (msgs[-1]["content"] if len(msgs) > 1 else "")]
 
 
 def test_enter_sets_memorial_prompt():
     vn = _vn(ScriptedLLM(ENTER))
     scene = vn.send_vn_scene("（湖边）")
     assert scene.memorial_prompt == "湖边, 黑发少女含泪抬头, 月光", scene.memorial_prompt
-    assert scene.paragraphs == [{"text": "（她终于抬起头）老师……我这种人……", "emotion": "embarrass"}]
+    # 2026-09-02: 骨架 emotion 丢弃 → 标注层回填（stub 返回 nomal）
+    assert scene.paragraphs == [{"text": "（她终于抬起头）老师……我这种人……",
+                                 "emotion": "nomal"}]
     assert scene.choices == ["抱住她", "陪她坐着"]
     assert not scene.is_end
     assert vn.in_memorial is True, "enter 后应处于纪念模式"
@@ -97,7 +118,7 @@ def test_exit_returns_to_bond():
     assert scene2.paragraphs == [{"text": "遥香吸了吸鼻子, 破涕为笑。"}], scene2.paragraphs
     assert vn.in_memorial is False, "exit 后应回 bond"
     scene3 = vn.send_vn_scene("（继续）")             # 回 bond 后 story_scene 正常
-    assert scene3.paragraphs == [{"text": "她们蹲在路边摊前。", "emotion": "smile"}]
+    assert scene3.paragraphs == [{"text": "她们蹲在路边摊前。", "emotion": "nomal"}]
     assert vn.in_memorial is False
     print("    exit: memorial_exit 标记 + 回 bond + story_scene 继续")
 
@@ -123,7 +144,7 @@ def test_exit_outside_memorial_rejected():
     scene = vn.send_vn_scene("（开场）")
     fb = _last_fb(llm)
     assert "不在纪念模式" in fb, fb
-    assert scene.paragraphs == [{"text": "她们蹲在路边摊前。", "emotion": "smile"}]
+    assert scene.paragraphs == [{"text": "她们蹲在路边摊前。", "emotion": "nomal"}]
     assert scene.memorial_exit is False
     print("    exit 在非纪念模式: 拒绝回灌 → 修正为 story_scene")
 
@@ -150,7 +171,7 @@ def test_enter_after_exit_rejected():
     scene3 = vn.send_vn_scene("（三）")               # 再 enter → 至多一次拒绝
     fb = _last_fb(llm)
     assert "至多一次" in fb, fb
-    assert scene3.paragraphs == [{"text": "她们蹲在路边摊前。", "emotion": "smile"}]
+    assert scene3.paragraphs == [{"text": "她们蹲在路边摊前。", "emotion": "nomal"}]
     assert scene3.memorial_prompt == "", "exit 后的 enter 被拒, 不应再带 prompt"
     print("    exit 后再 enter: 拒绝回灌（至多一次）→ 修正为 story_scene")
 
@@ -226,9 +247,12 @@ def test_run_vn_memorial_flow(tmp_path):
     # 状态机 marker 完整: enter 后 exit
     assert M_MEMORIAL_ENTER in subs and M_MEMORIAL_EXIT in subs
     assert subs.index(M_MEMORIAL_ENTER) < subs.index(M_MEMORIAL_EXIT)
-    # bond 事件: enter 轮 + exit 轮（to_dict 不含 prompt——prompt 在 gallery json）
+    # bond 事件: enter 轮 + exit 轮（to_dict 不含 prompt——prompt 在 gallery json;
+    # 2026-09-02: 落库场景 emotion = 标注回填值（stub nomal）, 文本不变）
     enter_ev = [e for e in evs if e.subtype == "memorial_enter" and e.type == "bond"][0]
-    assert enter_ev.payload["paragraphs"] == ENTER["payload"]["paragraphs"]
+    assert ([p["text"] for p in enter_ev.payload["paragraphs"]]
+            == [p["text"] for p in ENTER["payload"]["paragraphs"]])
+    assert all(p.get("emotion") == "nomal" for p in enter_ev.payload["paragraphs"])
     # l2d 事件: 立绘资产（含场景文字 + 图引用）
     l2d_evs = [e for e in evs if e.type == "l2d"]
     assert len(l2d_evs) == 1, l2d_evs
@@ -255,8 +279,8 @@ def test_run_vn_memorial_exit_note_injected(tmp_path):
     engine, st, _ = _store_engine(llm, tmp_path / "data2")
     run_bond_story_vn(engine, input_fn=lambda p: "1", char_ms=0,
                       remind_rounds=15, end_rounds=22, store=st)
-    # exit 轮（第 3 次 chat）: 最后一个 system 消息 = 纪念模式注记（含 exit schema）
-    exit_msgs = llm.snapshots[2]
+    # exit 轮（第 3 个场景轮）: 最后一个 system 消息 = 纪念模式注记（含 exit schema）
+    exit_msgs = _scene_msgs(llm)[2]
     note = [m["content"] for m in exit_msgs if m["role"] == "system"][-1]
     assert "纪念模式" in note and "memorial_exit" in note, note
     assert "可用动作 schema" in note

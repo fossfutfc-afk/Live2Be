@@ -40,6 +40,7 @@ from contract import (
     APPROVAL_AUTO,
     ContractError,
 )
+from core.bond.sentence_splitter import split_paragraph
 
 # 选项数量上限（收敛分支: 至多 3 个, 全部收敛同一主线）
 MAX_SCENE_CHOICES = 3
@@ -48,100 +49,46 @@ MAX_SCENE_CHOICES = 3
 MAX_SCENE_RETRIES = 3
 
 
-# 句末标点（2026-08-30: 一句一段硬校验——段落含 >1 个句末标点 → 打回重试。
-# 目的: 保证"每一句话都伴随表情变化"——多句压一段 = 一个 emotion 字段,
-# 切分继承表情 = 粒度名存实亡; 强制 LLM 自己按句拆段、每句标 emotion。
-# 省略号不算句末（语气停顿, "老师……我这种人……"不误判））
-_SENTENCE_END = re.compile(r"[。！？；]")
 # 煽情值封顶 / 单次增长（2026-08-30: 情感尺度控制——从日常逐步解锁情感场景）
 EMOTIVE_STEP = 15
-
-
-def _split_sentences(text: str) -> list[str]:
-    """按句末标点切分（保留标点）——句数统计/兼容兜底（校验后不再有多句段）。
-
-    无标点的文本 → 原样单段。标点后无内容（结尾）不产生空段。
-    """
-    parts = re.split(r"(?<=[。！？；])", text)
-    return [p.strip() for p in parts if p.strip()]
 
 
 def _parse_paragraphs(payload: dict[str, Any]) -> list[dict]:
     """必填 paragraphs 白名单校验 + 机器侧容错（硬错误抛 ContractError）。
 
-    每项（2026-08-23 架构定稿: 情绪内联; 2026-08-30 一句一段; 2026-08-31 两遍式×2）:
-        {"text": 段落文本, "emotion": 可选表情词表键, "inner": 可选内心独白}
-        ——emotion 可选（两遍式 C: 生成骨架与情绪标注解耦——缺省段落由标注层
-        批量补标, 契约不再打回）。
-        ——一句一段软化（两遍式 C 实测定版）: 多句段落**不再打回**, 引擎按
-        句末标点切分（_split_sentences）→ 每句一段; 标注层对切分后的每句
-        独立标注——切分不再"继承表情"（旧问题: 切分+单 emotion = 粒度粗）,
-        每句独立标注 = 粒度仍到句。骨架生成的结构失败源只剩 JSON 格式,
-        重试率趋零（真实测试: 场 1 契约重试 1, 场 2 多句长段 3 次耗尽中断——
-        实测定版后不再发生）。
-    兼容旧输入: 裸字符串 str → 包成 {"text": str}（旧习惯模型不崩）。
+    每项（2026-09-02 切分权移交定稿——断句是程序的事, LLM 只写自然段）:
+        {"text": **自然段文本**（可长可短、可含多句/对白/括号动作——引擎
+         sentence_splitter 切成句段: 引号/括号块不拆、数字句点不拆、碎句合并）,
+         "inner": 可选内心独白（创作内容——骨架给, 挂切分后首句）}
+        ——骨架 emotion 一律忽略（标注层唯一真源, 防双源/锚定; 旧输出带
+        emotion 兼容丢弃, 不再逐句复制）。
+    兼容旧输入: 裸字符串 str → 当单自然段（旧习惯模型不崩）。
 
-    Returns: 至少 1 个 {text, emotion?, inner?} 组成的列表（strip 后, 已切分）。
+    Returns: 至少 1 个 {text, inner?} 组成的句段列表（strip 后, 已切分）。
     """
     raw_paras = payload.get("paragraphs")
     if isinstance(raw_paras, str):
         raw_paras = [raw_paras]          # 单段裸字符串 → 包成单元素列表
     if not isinstance(raw_paras, list):
-        raise ContractError("paragraphs 必须是数组（每项 {text, emotion?} 或字符串）")
+        raise ContractError("paragraphs 必须是数组（每项 {text, inner?} 或字符串）")
     paragraphs: list[dict] = []
     for p in raw_paras:
         if isinstance(p, str) and p.strip():
-            paragraphs.append({"text": p.strip()})
+            for sent in split_paragraph(p):
+                paragraphs.append({"text": sent})
         elif isinstance(p, dict):
             text = p.get("text")
             if isinstance(text, str) and text.strip():
-                emotion = p.get("emotion")
                 inner = p.get("inner")
                 inner_s = inner.strip() if isinstance(inner, str) else ""
-                for i, sent in enumerate(_split_sentences(text.strip())):
+                for i, sent in enumerate(split_paragraph(text)):
                     item: dict[str, Any] = {"text": sent}
-                    if isinstance(emotion, str) and emotion.strip():
-                        item["emotion"] = emotion.strip()
                     if i == 0 and inner_s:
                         item["inner"] = inner_s     # 内心独白挂首句（低频惊喜）
                     paragraphs.append(item)
     if not paragraphs:
         raise ContractError("paragraphs 至少需要一个非空段落")
-    return _merge_bracket_fragments(paragraphs)
-
-
-#: 孤闭括号/引号（LLM 偶发把 （…）「…」 拆段——schema 已禁, 引擎再兜底）
-_ORPHAN_CLOSE = ("）", "」", ")", '"')
-
-
-def _merge_bracket_fragments(paragraphs: list[dict]) -> list[dict]:
-    """括号碎片净化（2026-09-02 用户反馈: 出现单独一段"）"）: LLM 偶发把
-    （动作描写）或「对白」拆成两段——开括号段 + 孤闭括号段（常见于把 inner
-    塞进括号时的格式幻觉）。规则: 若段落以孤闭括号开头, 且上一段以对应开
-    括号开头且未闭合 → 并入上一段末尾（括号成对, 渲染不出现光秃秃的
-    "）" 成段）。段间 emotion 保留上一段的（碎片段的 emotion 丢弃）。
-    """
-    out: list[dict] = []
-    for p in paragraphs:
-        text = p.get("text", "").strip()
-        if out and text and text[0] in _ORPHAN_CLOSE:
-            prev = out[-1]
-            ptext = prev.get("text", "")
-            # 上一段以开括号开头且同型未闭合 → 补尾
-            opener = "（" if text[0] == "）" else ("「" if text[0] == "」" else None)
-            if opener is not None and ptext.startswith(opener) \
-                    and _closer(opener) not in ptext:
-                prev["text"] = (ptext + text).strip()
-                continue
-            if text[0] == ")" and ptext.startswith("(") and ")" not in ptext:
-                prev["text"] = (ptext + text).strip()
-                continue
-        out.append(dict(p))
-    return out
-
-
-def _closer(opener: str) -> str:
-    return {"（": "）", "「": "」", "(": ")"}.get(opener, opener)
+    return paragraphs
 
 
 def _parse_choices(payload: dict[str, Any]) -> list[str]:
@@ -306,17 +253,15 @@ def build_story_registry() -> StoryActionRegistry:
         prompt_fields=frozenset({"action", "payload"}),
         payload_schema=(
             "payload 字段（story_scene 中段场景参数）:\n"
-            "  paragraphs: 必填, 数组——每项 {text, emotion?, inner?}:\n"
-            "      text: 一个情绪单元（**一句话**——一句对白 或 一个动作描写;\n"
-            "          句子要短: 旁白 15~40 字只说一件事, 对白一句一段）; 至少 1 单元\n"
-            "      emotion: **可选**——系统自动标注（独立标注层补标, 你不用管;\n"
-            "          带了也行, 系统优先用你的）\n"
+            "  paragraphs: 必填, 数组——每项 {text, inner?}:\n"
+            "      text: **一个自然段**（2026-09-02: 你只管写, 引擎自动断句）——\n"
+            "          可长可短, 可含多句对白与动作（小说式自然书写, 不用数句子、\n"
+            "          不用自己拆段）; 每场 2~5 个自然段, 一段一个节拍;\n"
+            "          引号「」与括号（）内的内容写完整, 别拆开\n"
+            "      emotion: **不要写**——系统自动切句并按句标注表情（写了也忽略）\n"
             "      inner: 可选, 字符串——**内心独白**（角色没说出口的心理活动, 屏幕变黑\n"
             "          单独展示）。低频惊喜: 只在情感的关键时刻写（遥香的自卑、阿露的逞强\n"
             "          心理这类）; 不必每场都有, 没有就省略, 不要为了写而写\n"
-            "      **括号与引号必须成对出现在同一段 text 内**: （动作描写）整段写全,\n"
-            "         禁止把「（」和「）」拆成两段输出; 内心独白只用 inner 字段,\n"
-            "         不要用括号把 inner 包起来; 不要输出单独一行只有 ）或 」 的段落\n"
             "  choices: 数组——给 sensei 的选项文本列表（1~3 个）。**带 choices 时\n"
             "      必须同时提供 branches**（见下）; 纯叙事板块可省略 choices\n"
             "      （缺省 = 本板块不提供选项, sensei 读完点继续）\n"
@@ -339,7 +284,8 @@ def build_story_registry() -> StoryActionRegistry:
         prompt_fields=frozenset({"action", "payload"}),
         payload_schema=(
             "payload 字段（story_end 收尾场景参数）:\n"
-            "  paragraphs: 必填, 数组——同 story_scene（每项 {text, emotion?}, emotion 可选, 系统自动标注; inner 可选同 story_scene）\n"
+            "  paragraphs: 必填, 数组——同 story_scene（每项 {text, inner?}, 自然段语义;\n"
+            "      emotion 不要写——系统自动切句并标注）\n"
             "  place: 可选, 字符串——同 story_scene（场景切换才标）\n"
             "约束: story_end 是**收尾场景**——输出后剧情结束, 不再有选项、不再开新场景。\n"
             "      choices 必须为空（结构上收尾无选项, 传非空会被拒绝）。宁可及早收尾, \n"
@@ -357,8 +303,8 @@ def build_story_registry() -> StoryActionRegistry:
             "  prompt: 必填, 字符串——**中文场景指令**（场景/时间/光线/情感/构图, 如\n"
             "      \"她在湖边微笑，眼角带着一滴泪，黄昏暖光，晚风吹起鬓发，中景半身\"）——\n"
             "      角色外观/画风/配饰不用写（引擎自动附角色参考图锚定, 2026-08-24）\n"
-            "  paragraphs: 必填, 数组——纪念场景的煽情文字, 同 story_scene 格式（inner 可选同 story_scene）\n"
-            "      （每项 {text, emotion}, 每单元必填 emotion; 这是本场剧情内容）\n"
+            "  paragraphs: 必填, 数组——纪念场景的煽情文字, 同 story_scene（自然段语义,\n"
+            "      每项 {text, inner?}; emotion 不要写——系统自动切句并标注; 这是本场剧情内容）\n"
             "  choices: 可选, 数组——同 story_scene（1~3 个; 缺省 = sensei 自由输入）\n"
             "  place: 可选, 字符串——同 story_scene（场景切换才标）\n"
             "约束: memorial_enter 是**进入纪念时刻**的专属动作——这是剧情的决定时刻, 只\n"

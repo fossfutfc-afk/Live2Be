@@ -199,8 +199,9 @@ def test_engine_skeleton_annotate_failure_degrade():
     print("    engine: 标注失败 → 静默兜底（nomal/延续）, 剧情不阻断")
 
 
-def test_engine_inline_emotion_kept():
-    """骨架已带 emotion（旧桩/部分标注）→ 不触发标注调用（直接用）。"""
+def test_engine_inline_emotion_discarded():
+    """2026-09-02 定稿: 骨架自带 emotion（旧桩习惯）→ 契约层**丢弃**, 标注层
+    全量回填（标注层唯一真源——防双源/锚定; 旧输出带 emotion 兼容丢弃）。"""
     from core.bond.bond_story import BondStoryEngine
 
     inline = {"action": "story_scene", "payload": {
@@ -208,17 +209,22 @@ def test_engine_inline_emotion_kept():
                        {"text": "她低下头。", "emotion": "embarrassed"}]}}
 
     class ScriptedLLM:
+        def __init__(self):
+            self._scripts = [inline, ["smile", "embarrassed"]]
         def chat(self, messages, **kw):
-            return inline
+            if not self._scripts:
+                raise RuntimeError("脚本耗尽")
+            return self._scripts.pop(0)
         def format_messages(self, **kw):
             return []
 
     vn = BondStoryEngine(ROOT / "config" / "characters", ScriptedLLM())
     vn.start_session("igusa_haruka")
     scene = vn.send_vn_scene("（开场）")
+    # 标注层回填（值与骨架同——模型自己写的情绪被独立标注确认）
     assert scene.paragraphs[0]["emotion"] == "smile"
     assert scene.paragraphs[1]["emotion"] == "embarrassed"
-    print("    engine: 骨架自带 emotion → 不触发标注（兼容旧桩/旧档）")
+    print("    engine: 骨架自带 emotion → 丢弃后由标注层全量回填（唯一真源）")
 
 
 if __name__ == "__main__":
