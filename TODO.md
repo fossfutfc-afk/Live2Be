@@ -38,13 +38,17 @@
 - [x] 2.5 写 brain_seed.yml: episodes[] + review_notes[]; 已存在拒绝（--force 备份 .bak）
 - [x] 2.6 CLI: --char/--dry/--only 单条重跑/--force; 进度/耗时/汇总提示
 
-**阶段 3 引擎: seed.py**
-- [ ] 3.1 brain_seed.yml 分支: episodes → make_node（title/verbatim 落库; source=experience）
-- [ ] 3.2 无 brain_seed → 原文兜底（现逻辑不动）
-- [ ] 3.3 世界线创建快照: brain_seed/原文 yml → worlds/{w}/characters/{c}/seed_snapshot/
-- [ ] 3.4 幂等/落盘沿用（source_key 判重 + save）
-- [ ] 3.5 world1 遥香重灌（删 wiki → brain_seed 重 seed）+ 渲染抽查
-- [ ] 3.6 momotalk.py 131/407 行 kind=="fact" 残留清理（fact 退役死代码）
+**阶段 3 引擎: seed.py** ✅（1052c56 + 1efdf05）
+- [x] 3.1 brain_seed.yml 分支: episodes → make_node（narration/title/verbatim/sig
+      逐条入档; source=experience 判重键与原文一致——中途补定稿不影响已有世界线）
+- [x] 3.2 无 brain_seed → 原文兜底（现逻辑不动）——角色可玩性永不阻塞
+- [x] 3.3 世界线创建快照: brain_seed/原文 yml + beliefs → worlds/{w}/characters/{c}/
+      seed_snapshot/（首次 created 时写, 幂等不覆盖; 演练: config 模拟修改后快照保持原样）
+- [x] 3.4 幂等/落盘沿用（source_key 判重 + save; created 时 save 根因修复保持）
+- [x] 3.5 world1 遥香/佳代子重灌演练（原文兜底 12/4 条 + 快照写入验证）——
+      **真实 brain_seed 重灌等 5.1 生成定稿后做（5.3）**
+- [x] 3.6 momotalk.py 131/407 行 kind=="fact" 残留清理（恒 False 致每次 seed 空跑
+      → is_seed() 判定; wiki 相关测试回归 21+26 过）
 
 **阶段 4 测试**（设计独立, 不跑全量）
 - [ ] 4.1 brain_seed 分支: 映射/immutable/幂等（test_wiki_seed 新组）
