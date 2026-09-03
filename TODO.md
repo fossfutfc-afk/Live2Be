@@ -50,10 +50,15 @@
 - [x] 3.6 momotalk.py 131/407 行 kind=="fact" 残留清理（恒 False 致每次 seed 空跑
       → is_seed() 判定; wiki 相关测试回归 21+26 过）
 
-**阶段 4 测试**（设计独立, 不跑全量）
-- [ ] 4.1 brain_seed 分支: 映射/immutable/幂等（test_wiki_seed 新组）
-- [ ] 4.2 快照语义: seed_snapshot/ 存在; 删 wiki 用快照重建（config 改动不影响）
-- [ ] 4.3 原文兜底回归; 4.4 工具单测（fake LLM）; 4.5 全量回归
+**阶段 4 测试** ✅（494 passed, +17 新增）
+- [x] 4.1 brain_seed 分支: 全量映射（title/verbatim/sig/evolution 标记）/幂等/immutable/
+      坏条目隔离/解析失败不回退原文（test_wiki_seed.py 追加 4 组）
+- [x] 4.2 快照语义: 首建写入/原文兜底分支/不覆盖/config 改动世界线零变化/
+      新世界线用新版（test_wiki_seed_snapshot.py 新文件 5 组）
+- [x] 4.3 原文兜底回归: wiki 全组 108 过（haruka 真实目录 12 条原文映射不变）
+- [x] 4.4 工具单测: tests/tools/test_seed_digest.py 8 组（fake LLM 注入/组装零占位符/
+      校验硬软/重试跳过/写盘防覆盖 .bak——git add -f 入库, tests/tools 被 ignore）
+- [x] 4.5 全量回归: 494 passed（477 + 17）
 
 **阶段 5 真实执行（遥香）**
 - [ ] 5.1 seed_digest.py --char igusa_haruka → brain_seed.yml 初稿（12 条）
