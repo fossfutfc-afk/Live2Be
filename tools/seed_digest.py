@@ -175,11 +175,12 @@ def adapt_all(client, char_id: str, char_name: str,
 # ---------------------------------------------------------------------------
 
 def validate_entry(entry: dict, source_key: str, aliases: tuple[str, ...],
-                   ) -> tuple[list[str], list[str]]:
+                   original: str = "") -> tuple[list[str], list[str]]:
     """校验单条改编产物。
 
     Returns: (errors, warnings)——errors 非空 = 该条不合格（不写盘, --only 重跑）;
-    warnings = 第三人称自指残留等质量问题（提示, 仍落盘待作者 review）。
+    warnings = 质量问题提示（仍落盘待作者 review）: 第三人称残留 / 多余键 /
+    **句式镜像照抄**（与原文序列相似度 ≥0.6）与 **无浓缩**（v2 规则 2 记忆化重构）。
     """
     errors: list[str] = []
     warnings: list[str] = []
@@ -219,7 +220,28 @@ def validate_entry(entry: dict, source_key: str, aliases: tuple[str, ...],
             warnings.append(
                 f"narration 含角色名（{', '.join(hit)}）——疑似第三人称未转'我'; "
                 f"若为引语内转述可忽略, 请 review")
+
+    # 软校验 v2: 句式镜像照抄 / 无浓缩（规则 2 记忆化重构）
+    if narration and original:
+        ratio, shrink = _copy_metrics(original, narration)
+        if ratio >= 0.6:
+            warnings.append(
+                f"与原文序列相似度 {ratio:.0%}——疑似句式镜像照抄（规则 2 禁止平移式"
+                f"改编）; 确认后 --only {source_key} 重跑")
+        if shrink < 0.1:
+            warnings.append(
+                f"几乎没有浓缩（原文 {len(original)} 字 → 改编 {len(narration)} 字, "
+                f"仅压缩 {shrink:.0%}）——记忆该有取舍, 请 review")
     return errors, warnings
+
+
+def _copy_metrics(original: str, adapted: str) -> tuple[float, float]:
+    """照抄检测指标: (difflib 序列相似度 0-1, 长度压缩率 0-1)。"""
+    from difflib import SequenceMatcher
+    if not original or not adapted:
+        return 0.0, 0.0
+    ratio = SequenceMatcher(None, original, adapted).ratio()
+    return ratio, 1 - len(adapted) / len(original)
 
 
 def char_aliases(char_id: str) -> tuple[str, ...]:
@@ -340,9 +362,11 @@ def main() -> None:
     # 2.4 校验: 硬错误 → 不合格清单; 软警告 → 打印提示（仍落盘, 作者 review）
     ok_entries: list[dict] = []
     bad: list[str] = []
+    orig_map = {sk: text for sk, text in leaves}
     for e in entries:
         sk = str(e.get("source_key") or "?").strip()
-        errors, warnings = validate_entry(e, sk, aliases)
+        errors, warnings = validate_entry(e, sk, aliases,
+                                          original=orig_map.get(sk, ""))
         for w in warnings:
             print(f"  ~ {sk} 软警告: {w}")
         if errors:
