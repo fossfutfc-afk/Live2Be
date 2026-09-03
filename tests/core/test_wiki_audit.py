@@ -16,9 +16,8 @@ def _store(tmp_path) -> WikiStoreV2:
                      links=["m0001"], event_seq=[1]))
     st.add(make_node("experience", pattern="提到工作繁忙", subject="sensei",
                      significance=0.85, links=["m0001"], event_seq=[1]))
-    st.add(make_node("fact", content="出厂经历", epistemic="canon_fact",
-                     source="experience", source_key="self.regular.1",
-                     significance=0.9))
+    st.add(make_node("episode", narration="出厂经历", source="experience",
+                     source_key="self.regular.1", significance=0.9))
     st.add_link("m0001", "m0002")
     st.add_link("m0001", "e0001")
     return st
@@ -112,6 +111,6 @@ def test_refs_unique_by_default(tmp_path):
     ]
     res = apply_revision_package(st, pkg, subgraph_ids=scope)
     assert res.ok, res.errors
-    # n1→第一个 episode(m0003), n2→第二个(m0004); accrue 证据 = n2(天台夜谈, seq 4)
+    # n1→第一个 episode(m0004), n2→第二个(m0005); accrue 证据 = n2(天台夜谈, seq 4)
     exp = st.get("e0001")
-    assert exp.links == ["m0001", "m0004"] and exp.event_seq == [1, 4]
+    assert exp.links == ["m0001", "m0005"] and exp.event_seq == [1, 4]

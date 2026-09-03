@@ -89,20 +89,20 @@ def test_embed_fn_failure_degrades(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# 通道2（珍贵保底, 含出厂 facts——D1）
+# 通道2（珍贵保底——episode 同权参与, fact 已退役）
 # ---------------------------------------------------------------------------
 
-def test_precious_floor_and_facts(tmp_path):
+def test_precious_floor_and_episodes(tmp_path):
     nodes = _ids([
         _ep("日常闲聊", sig=0.5),
         _ep("天台夜谈", sig=0.9),
-        make_node("fact", content="拆炸弹的出厂经历", epistemic="canon_fact",
-                  source="experience", source_key="self.regular.1", significance=0.9),
+        make_node("episode", narration="拆炸弹的出厂经历", source="experience",
+                  source_key="self.regular.1", significance=0.9),
     ])
     st = _store(tmp_path, nodes)
     out = recall_subgraph(st, query="", n_precious=2, n_random=0)
-    assert [n.id for n in out] == ["m0002", "m0003"]     # sig 降序, fact 同权参与
-    assert out[1].kind == "fact"
+    assert [n.id for n in out] == ["m0002", "m0003"]     # sig 降序, 出厂 episode 同权
+    assert out[1].kind == "episode"
 
 
 def test_precious_only_complements_channel1(tmp_path):
@@ -198,9 +198,9 @@ def test_result_sorted_by_significance(tmp_path):
 # ============================================================================
 
 def _cog_store(tmp_path) -> WikiStoreV2:
-    """稳定认知库: 猫粮约定 belief + 摸鱼 experience + episode/fact（不应被候选）。
+    """稳定认知库: 猫粮约定 belief + 摸鱼 experience + 出厂 episode（不应被候选）。
 
-    id: episode m0001 / belief m0002 / experience e0001 / fact c0001。
+    id: episode m0001 / belief m0002 / experience e0001 / 出厂 episode m0003。
     """
     st = WikiStoreV2(tmp_path, world_id="world1", char_id="c")
     st.add(make_node("episode", narration="天台旧事", event_seq=[1]))
@@ -209,8 +209,8 @@ def _cog_store(tmp_path) -> WikiStoreV2:
                      links=["m0001"], event_seq=[1]))
     st.add(make_node("experience", pattern="老师总说摸鱼", subject="sensei",
                      significance=0.85, tags=["摸鱼"], links=["m0001"], event_seq=[1]))
-    st.add(make_node("fact", content="遥香喜欢杂草", epistemic="canon_fact",
-                     source="experience", source_key="self.regular.1"))
+    st.add(make_node("episode", narration="遥香喜欢杂草", source="experience",
+                     source_key="self.regular.1"))
     return st
 
 
@@ -230,7 +230,7 @@ def test_candidates_kind_filter_and_embed_path(tmp_path):
         return out
 
     cands = recommend_candidates(st, "老师带着猫粮来喂猫", embed_fn=fake_embed)
-    assert [n.id for n, _ in cands] == ["m0002"]       # 只有 belief（episode/fact 不参与）
+    assert [n.id for n, _ in cands] == ["m0002"]       # 只有 belief（episode 不参与）
     assert cands[0][1] > CAND_HIGH                     # 疑似同主题档
 
     cands2 = recommend_candidates(st, "老师又说摸鱼", embed_fn=fake_embed)

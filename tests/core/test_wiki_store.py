@@ -29,14 +29,14 @@ def test_add_save_reload_roundtrip(tmp_path):
 
 def test_id_allocation_prefixes(tmp_path):
     st = _store(tmp_path)
-    assert st.add(make_node("fact", content="拆炸弹", epistemic="canon_fact",
-                            source="experience", source_key="self.regular.1")) == "c0001"
-    assert st.add(make_node("episode", narration="x")) == "m0001"
+    assert st.add(make_node("episode", narration="拆炸弹", source="experience",
+                            source_key="self.regular.1")) == "m0001"
+    assert st.add(make_node("episode", narration="x")) == "m0002"
     assert st.add(make_node("experience", pattern="摸鱼", subject="player")) == "e0001"
     assert st.add(make_node("belief", content="y", epistemic="inferred_belief",
-                            links=["m0001"])) == "m0002"
-    assert st.next_id("m") == "m0003"
-    assert st.next_id("c") == "c0002"
+                            links=["m0001"])) == "m0003"
+    assert st.next_id("m") == "m0004"
+    assert st.next_id("e") == "e0002"
     assert format_id("m", 3) == "m0003"
 
 
@@ -47,8 +47,8 @@ def test_add_rejects_invalid_node(tmp_path):
     with pytest.raises(ValueError):
         st.add(make_node("episode"))                            # 缺 narration
     with pytest.raises(ValueError):
-        st.add(make_node("fact", content="x", epistemic="canon_fact",
-                         source="digest", source_key="k"))      # source 错
+        st.add(make_node("episode", narration="x",
+                         epistemic="inferred_belief"))          # 认知不伪装成经历
 
 
 def test_duplicate_id_rejected(tmp_path):
@@ -73,8 +73,8 @@ def test_dedup_find_by_event_seq(tmp_path):
 def test_update_patch_and_unknown_field(tmp_path):
     st = _store(tmp_path)
     st.add(make_node("episode", narration="a", significance=0.5))
-    node = st.update("m0001", {"significance": 0.9, "links": ["c0001"]})
-    assert node.significance == 0.9 and node.links == ["c0001"]
+    node = st.update("m0001", {"significance": 0.9, "links": ["m0002"]})
+    assert node.significance == 0.9 and node.links == ["m0002"]
     with pytest.raises(ValueError):
         st.update("m0001", {"imaginary_field": 1})            # 未知字段拒绝
     with pytest.raises(ValueError):
@@ -83,16 +83,16 @@ def test_update_patch_and_unknown_field(tmp_path):
 
 def test_seed_immutable_notes_only(tmp_path):
     st = _store(tmp_path)
-    st.add(make_node("fact", content="拆炸弹", epistemic="canon_fact",
-                     source="experience", source_key="self.regular.1"))
-    # 只允许 notes 追加
-    node = st.update("c0001", {"notes": "世界线 1 中已被验证"})
+    st.add(make_node("episode", narration="拆炸弹", source="experience",
+                     source_key="self.regular.1"))
+    # 出厂基座（episode source=experience）: 只允许 notes 追加
+    node = st.update("m0001", {"notes": "世界线 1 中已被验证"})
     assert node.notes == ["世界线 1 中已被验证"]
-    node = st.update("c0001", {"notes": "第二次注记"})
+    node = st.update("m0001", {"notes": "第二次注记"})
     assert node.notes == ["世界线 1 中已被验证", "第二次注记"]
     # 其他字段一律拒绝
     with pytest.raises(ValueError):
-        st.update("c0001", {"significance": 0.99})
+        st.update("m0001", {"significance": 0.99})
 
 
 def test_edge_primitives(tmp_path):

@@ -56,15 +56,15 @@ def test_organize_view_experience_and_player():
     assert "m0002 [experience·关于老师, sig 0.75, count 2" in out        # §4.4 标记
 
 
-def test_organize_view_fact_belief():
-    fact = make_node("fact", content="遥香曾因拆炸弹事件对 sensei 建立信任",
-                     epistemic="canon_fact", source="experience",
-                     source_key="self.regular.1", significance=0.95)
+def test_organize_view_seed_episode_belief():
+    seed_ep = make_node("episode", narration="遥香曾因拆炸弹事件对 sensei 建立信任",
+                        source="experience", source_key="self.regular.1",
+                        significance=0.95)
     belief = make_node("belief", content="老师是第一个不会嫌弃我的人", subject="sensei",
                        epistemic="inferred_belief", significance=0.9,
                        links=["m0001"], event_seq=[42])
-    out = render_organize_view(_ids([fact, belief]))
-    assert "[fact, sig 0.95, canon 只读]" in out
+    out = render_organize_view(_ids([seed_ep, belief]))
+    assert "[episode, sig 0.95, canon 只读]" in out      # 出厂 episode 只读标记
     assert "[belief, sig 0.90, links: m0001]" in out
 
 
@@ -100,12 +100,9 @@ def test_character_view_sections_and_first_person():
                   growth="从自卑到被需要", links=["m0001"], event_seq=[1]),
         make_node("experience", pattern="总说「摸鱼」", subject="player",
                   significance=0.75, links=["m0002", "m0003", "m0004"], event_seq=[2]),
-        make_node("fact", content="伊草遥香曾因拆炸弹事件对 sensei 建立信任",
-                  epistemic="canon_fact", source="experience",
-                  source_key="self.regular.1", significance=0.95),
-        make_node("fact", content="阿露大人是便利屋68的社长",
-                  epistemic="canon_fact", source="knowledge",
-                  source_key="friends.aru", significance=0.9),
+        # 出厂 episode（source=experience）→ 独立"久远的记忆"段, 不占运行时窗口
+        make_node("episode", narration="伊草遥香曾因拆炸弹事件对 sensei 建立信任",
+                  source="experience", source_key="self.regular.1", significance=0.95),
     ]
     out = render_character_view(nodes, char_name="伊草遥香",
                                 summary="天台夜谈后，伊草遥香开始相信自己被需要")
@@ -117,7 +114,9 @@ def test_character_view_sections_and_first_person():
     assert "我心里渐渐觉得：\n- 对sensei：我开始相信自己被需要（——从自卑到被需要）" in out
     assert "老师的事：\n- 总说「摸鱼」（count 3）" in out
     assert "久远的记忆：\n- 我曾因拆炸弹事件对 sensei 建立信任" in out
-    assert "我知道的事：\n- 阿露大人是便利屋68的社长" in out
+    # 出厂 episode 不进"珍贵的"段（运行时窗口独占）; knowledge 不再出厂化（无"我知道的事"段）
+    assert out.index("久远的记忆") > out.index("我记得的事（珍贵的）")
+    assert "我知道的事" not in out
     # 无 id / 无链接泄漏
     assert "m0001" not in out and "links" not in out
 
@@ -129,7 +128,7 @@ def test_character_view_reported_and_caps():
         *(_ep(f"日常{i}", sig=0.4, ts=f"2026-09-0{1 + i % 9}T12:00:00",
               event_seq=[10 + i]) for i in range(12)),
     ]
-    out = render_character_view(nodes, cap_episodes=10)
+    out = render_character_view(nodes, cap_recent=10)
     assert "我听说的：\n- 听睦月说阿露昨天又翻车了（听asagi_mutsuki说的）" in out
     assert "最近的事：" in out
     assert out.count("\n- 日常") == 10         # 12 条 observed → cap 10; reported 不进此段

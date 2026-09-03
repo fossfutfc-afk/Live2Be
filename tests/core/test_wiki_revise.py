@@ -95,18 +95,18 @@ def test_update_rules(tmp_path):
                                        "patch": {"epistemic": "observed_fact"}}],
                                  subgraph_ids=scope)
     assert not res.ok and any("epistemic" in e for e in res.errors)
-    # 出厂基座只允许 notes（先造一个 fact）
-    st.add(make_node("fact", content="出厂经历", epistemic="canon_fact",
-                     source="experience", source_key="k", significance=0.9))
-    scope.add("c0001")
-    res = apply_revision_package(st, [{"action": "update", "id": "c0001",
+    # 出厂基座只允许 notes（出厂 episode, source=experience; _store 已占 m0001-3/e0001）
+    st.add(make_node("episode", narration="出厂经历", source="experience",
+                     source_key="k", significance=0.9))
+    scope.add("m0004")
+    res = apply_revision_package(st, [{"action": "update", "id": "m0004",
                                        "patch": {"significance": 1.0}}],
                                  subgraph_ids=scope)
     assert not res.ok and any("出厂基座" in e for e in res.errors)
-    res = apply_revision_package(st, [{"action": "update", "id": "c0001",
+    res = apply_revision_package(st, [{"action": "update", "id": "m0004",
                                        "patch": {"notes": "世界线 1 验证过"}}],
                                  subgraph_ids=scope)
-    assert res.ok and st.get("c0001").notes == ["世界线 1 验证过"]
+    assert res.ok and st.get("m0004").notes == ["世界线 1 验证过"]
 
 
 def test_merge_inherits_and_deletes_sources(tmp_path):
@@ -225,7 +225,7 @@ def test_failure_writes_no_log_and_reloads(tmp_path):
     pkg = [
         {"action": "create", "entry": {"kind": "episode", "narration": "会成功的",
                                        "event_seq": [3], "links": ["m0002"]}},
-        {"action": "update", "id": "m0002", "patch": {"epistemic": "canon_fact"}},
+        {"action": "update", "id": "m0002", "patch": {"epistemic": "speculation"}},
     ]
     res = apply_revision_package(st, pkg, subgraph_ids=_scope(st))
     assert not res.ok

@@ -44,23 +44,20 @@ def test_episode_epistemic_guard():
     assert any("episode 节点 epistemic 只能是 observed_fact/reported_fact" in e for e in errs)
 
 
-def test_fact_canon_rules():
-    # 出厂基座: source=experience + source_key 溯源
-    ok = make_node("fact", content="遥香曾因拆炸弹事件对 sensei 建立信任",
-                   significance=0.95, epistemic="canon_fact",
-                   source="experience", source_key="self.regular.1")
+def test_seed_episode_rules():
+    """出厂基座（fact 退役 2026-09-02）: 出厂 = episode(source=experience) + 溯源。"""
+    ok = make_node("episode", narration="遥香曾因拆炸弹事件对 sensei 建立信任",
+                   significance=0.95, source="experience",
+                   source_key="self.regular.1")
     assert ok.validate() == []
     assert ok.is_seed() is True
-    # 护栏: fact 不能是 observed; source 必须是 experience/knowledge
-    bad_epi = make_node("fact", content="x", epistemic="observed_fact",
-                        source="experience", source_key="k")
-    assert any("canon_fact" in e for e in bad_epi.validate())
-    bad_src = make_node("fact", content="x", epistemic="canon_fact",
-                        source="digest", source_key="k")
-    assert any("fact 节点 source 必须" in e for e in bad_src.validate())
-    # 缺 source_key
-    no_key = make_node("fact", content="x", epistemic="canon_fact", source="knowledge")
-    assert any("source_key" in e for e in no_key.validate())
+    # 护栏: 出厂基座必须有 source=experience（运行时 episode 非 seed）
+    runtime = make_node("episode", narration="x")
+    assert runtime.validate() == []
+    assert runtime.is_seed() is False
+    # episode epistemic 只能是 observed/reported（inferred_belief 拒）
+    bad_epi = make_node("episode", narration="x", epistemic="inferred_belief")
+    assert any("observed_fact/reported_fact" in e for e in bad_epi.validate())
 
 
 def test_belief_requires_support():
@@ -118,12 +115,12 @@ def test_title_and_history_fields():
     # history 只属于 belief
     bad = make_node("episode", narration="x", history=[{"content": "y"}])
     assert any("history" in e for e in bad.validate())
-    # main_text 收敛: episode→narration / experience→pattern / belief/fact→content
+    # main_text 收敛: episode→narration / experience→pattern / belief→content
     exp = make_node("experience", pattern="p", subject="s")
     assert exp.main_text == "p"
-    fact = make_node("fact", content="出厂", epistemic="canon_fact",
-                     source="experience", source_key="k")
-    assert fact.main_text == "出厂"
+    bel = make_node("belief", content="出厂认知", epistemic="inferred_belief",
+                    links=["m0001"])
+    assert bel.main_text == "出厂认知"
 
 
 def test_significance_clamp_and_precious():

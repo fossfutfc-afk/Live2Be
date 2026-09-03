@@ -10,7 +10,8 @@
 
 格式约定（决策 #7）: id 无 # 无下划线（m0003）——组织视图行首即 id, 防 markdown 标题歧义。
 player experience（§4.4）: 组织视图带 [关于老师] 标记; 角色视图独立【老师的事】段。
-fact（出厂记忆, 2026-09-02 修正）: 角色视图渲染为 久远的记忆/我知道的事 两段。
+出厂 episode（2026-09-02 v3）: 角色视图渲染为独立【久远的记忆】段（cap 5 低配常驻）;
+运行时 episode 独占 珍贵/最近 段（玩家羁绊主窗口）——出厂不挤占玩家记忆。
 """
 from __future__ import annotations
 
@@ -43,7 +44,7 @@ def render_organize_view(nodes: Iterable[BrainNode], *, timeline: str = "") -> s
 def _organize_line(node: BrainNode) -> str:
     """一行: `m0003 [episode, sig 0.80, links: m0009, c: m0005] 内容`。
 
-    player experience 的 kind 标签带 [关于老师]; fact 带只读标记。
+    player experience 的 kind 标签带 [关于老师]; 出厂 episode 带只读标记。
     """
     meta = [node.kind]
     if node.is_player_experience:
@@ -55,7 +56,7 @@ def _organize_line(node: BrainNode) -> str:
         meta.append("links: " + " ".join(node.links))
     if node.contradictions:
         meta.append("c: " + " ".join(node.contradictions))
-    if node.kind == "fact":
+    if node.is_seed():
         meta.append("canon 只读")
     head = f"{node.id} [{', '.join(meta)}] {_organize_text(node)}"
     extra = _organize_extra(node)
@@ -98,35 +99,39 @@ def render_character_view(
     char_name: str = "",
     char_aliases: tuple[str, ...] = (),
     summary: str = "",
+    cap_seed_episodes: int = 5,
     cap_beliefs: int = 5,
-    cap_episodes: int = 10,
     cap_player: int = 5,
-    cap_facts: int = 5,
+    cap_recent: int = 6,
     cap_reported: int = 3,
 ) -> str:
-    """角色注入视图: 分层排序渲染（§4.2 + 排序规则）, 空段省略。
+    """角色注入视图: 分层排序渲染（2026-09-02 v3: fact 退役 + 出厂/运行时分层）。
 
-    排序: belief 常驻（sig 降序）; episode 珍贵档优先 → ts 降序（总量 cap_episodes）;
-    player experience count 降序; fact(knowledge) 我知道的事 段; reported 仅无同主题时。
-    （2026-09-02 v2: 预设经历已是 episode——"久远的记忆"段只兜底旧库残留 fact。）
+    分层（出厂记忆低配常驻, 运行时玩家羁绊主窗口——注入预算竞争矛盾定稿）:
+        - 久远的记忆（出厂 episode, source=experience）: cap_seed_episodes 按 sig——
+          角色底色, 少而精; 出厂经历是"游戏开始前的过去", 不该挤占玩家记忆窗口
+        - 我记得的事（珍贵的/最近）: **运行时独占**（玩家羁绊主窗口: 珍贵档 +
+          ts 降序）; 出厂 episode 永不进此段
+        - 我心里渐渐觉得（belief）: 出厂 belief（种子）+ 运行时 digest 产物混排
+          （按 sig; 被玩家剧情 touch/update 的出厂认知自然带着玩家印记演化）
+        - 老师的事（player experience 口癖）: count 降序
+        - 我听说的（reported）: 兜底
+        - knowledge 不再出厂化（世界观知识 = config 档案, system prompt 注入）
     第一人称转换: char_name + char_aliases（yml 原文多用简称, 如"遥香"）→ 我。
     """
     # 角色视图不依赖 id（渲染中从不出现 id）——直接按 kind/排序处理
-    # observed 的 episode 进 珍贵/最近 段; reported_fact 进 我听说的 段（§4.2 排序规则）
+    seed_eps = sorted(
+        (n for n in nodes if n.kind == "episode" and n.source == "experience"),
+        key=lambda n: n.significance, reverse=True)[:cap_seed_episodes]
     episodes = sorted(
-        (n for n in nodes if n.kind == "episode" and n.epistemic == "observed_fact"),
+        (n for n in nodes if n.kind == "episode"
+         and n.epistemic == "observed_fact" and n.source != "experience"),
         key=lambda n: (n.is_precious, n.ts or ""), reverse=True)
-    episodes = episodes[:cap_episodes]
+    episodes = episodes[:cap_recent]
     beliefs = sorted((n for n in nodes if n.kind == "belief"),
                      key=lambda n: n.significance, reverse=True)[:cap_beliefs]
     players = sorted((n for n in nodes if n.is_player_experience),
                      key=lambda n: n.count, reverse=True)[:cap_player]
-    facts_exp = sorted((n for n in nodes if n.kind == "fact"
-                        and n.source == "experience"),
-                       key=lambda n: n.significance, reverse=True)[:cap_facts]
-    facts_know = sorted((n for n in nodes if n.kind == "fact"
-                         and n.source == "knowledge"),
-                        key=lambda n: n.significance, reverse=True)[:cap_facts]
     reported = [n for n in nodes if n.kind == "episode"
                 and n.epistemic == "reported_fact"][:cap_reported]
 
@@ -151,12 +156,9 @@ def render_character_view(
     if reported:
         blocks.append("我听说的：\n" + "\n".join(
             _reported_line(n, char_name, char_aliases) for n in reported))
-    if facts_exp:
+    if seed_eps:
         blocks.append("久远的记忆：\n" + "\n".join(
-            f"- {_me(n.content, char_name, char_aliases)}" for n in facts_exp))
-    if facts_know:
-        blocks.append("我知道的事：\n" + "\n".join(
-            f"- {_me(n.content, char_name, char_aliases)}" for n in facts_know))
+            _memory_line(n, char_name, char_aliases) for n in seed_eps))
     return "\n\n".join(blocks)
 
 
