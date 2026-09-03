@@ -20,13 +20,14 @@
 - [x] 0.4 世界线创建时快照定稿输入进世界线（seed_snapshot/）——回退/重建与 config 解耦
 - [x] 0.5 无 brain_seed 新角色 → 原文兜底（现逻辑）——可玩性永不阻塞
 
-**阶段 1 prompt: llm/prompts/seed_digest.md**（本会话执行中）
-- [ ] 1.1 角色定位: 预设经历改编员（与 Round A 同协议: 第一人称/浓缩/不升华/verbatim 逐字）
-- [ ] 1.2 人设锚段: 角色档案/性格口吻/称谓表（{{占位符}} 文档化, 工具端渲染注入）
-- [ ] 1.3 单条输出规格: source_key/title/narration/verbatim/significance/author_notes
+**阶段 1 prompt: llm/prompts/seed_digest.md** ✅（02460c8, 五连 commit）
+- [x] 1.1 角色定位: 预设经历改编员（与 Round A 同协议: 第一人称/浓缩/不升华/verbatim 逐字）
+- [x] 1.2 人设锚段: 角色档案/性格口吻/称谓表（{{占位符}} 文档化, 工具端渲染注入）
+- [x] 1.3 单条输出规格: source_key/title/narration/verbatim/significance/author_notes
       （author_notes = 剥离的点评句, 空则省略）
-- [ ] 1.4 改编规则: 不增删原文事实/不发明细节/称谓按表/点评句不混入 narration/感受句可留
-- [ ] 1.5 输出纪律: 完整单条 JSON（工具端兼容 {"episodes": [...]} 数组态）, 不要代码块
+- [x] 1.4 改编规则: 不增删原文事实/不发明细节/称谓按表/点评句不混入 narration/感受句可留
+      + 示范对照（同一原文正例）
+- [x] 1.5 输出纪律: 完整单条 JSON（工具端兼容 {"episodes": [...]} 数组态）, 不要代码块
 
 **阶段 2 工具: tools/seed_digest.py**
 - [ ] 2.1 读卡: CharacterLoader 取 profile/personality; experience.yml 叶子（复用 _collect_leaves）
