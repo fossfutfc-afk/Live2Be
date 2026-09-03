@@ -32,3 +32,6 @@ ASKYOURSELF.yml
 
 experiments/out/
 
+
+# pyvis 生成的本地 vis.js 依赖（wiki_viz --html 用 in_line 内联, 不落盘）
+lib/
