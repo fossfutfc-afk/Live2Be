@@ -68,6 +68,28 @@ def render_character_anchor(char_id: str) -> str:
     return "\n\n".join(p for p in parts if p.strip())
 
 
+def render_name_table(char_id: str) -> str:
+    """人物称谓表: knowledge.yml 的 friends 段（剥前缀后 == friends 的 dict）。
+
+    每行 `- {人物key}: {文本}`——文本即人物档案 + 称谓线索（"即陆八魔阿露……
+    尊称她阿露大人"）。LLM 据此按角色口吻称呼人物, 不猜。无 friends → ""。
+    """
+    loader = CharacterLoader(CHARACTERS_ROOT)
+    ch = loader.load(char_id, strict=False)
+    friends: dict | None = None
+    for k, v in ch.knowledge.items():
+        if k.lstrip("REQ~SIG~").lstrip("~") == "friends" and isinstance(v, dict):
+            friends = v
+            break
+    if not friends:
+        return ""
+    lines: list[str] = []
+    for name, desc in friends.items():
+        text = str(desc).strip().replace("\n", " ")
+        lines.append(f"- {name}: {text}")
+    return "\n".join(lines)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="出厂经历改编工具（brain_seed 定稿制）")
     ap.add_argument("--char", required=True, help="角色目录名（config/characters/ 下）")
@@ -85,6 +107,10 @@ def main() -> None:
         print(f"  - {sk}  ({len(text)} 字)  {text[:24].replace(chr(10), ' ')}…")
 
     if args.dry:
+        table = render_name_table(args.char)
+        print(f"\n人设锚: {len(render_character_anchor(args.char))} 字")
+        print(f"称谓表 ({table.count(chr(10)) + 1 if table else 0} 人):")
+        print(table or "（无 friends 段——称谓表为空）")
         return
     # 2.3+ 阶段: 逐条 LLM 改编 → 校验（2.4）→ 写 brain_seed.yml（2.5）
     print("（改编管线 2.3-2.5 未接入——本文件按子阶段增量构建）")
