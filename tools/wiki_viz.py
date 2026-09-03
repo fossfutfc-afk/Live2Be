@@ -71,17 +71,19 @@ def render_png(g, out: Path) -> None:
     from matplotlib import font_manager
 
     # 中文字体（Windows YaHei; 找不到 → 拉丁回退 + 警告）
-    font_ok = False
+    # 注意: nx.draw_networkx_labels 的 font_family 默认 'sans-serif' 且**显式传参
+    # 覆盖 rcParams**——必须把选中的字体名传给 nx（否则中文落 DejaVu 缺字警告）
+    chosen_font = ""
     for name in ("Microsoft YaHei", "SimHei", "PingFang SC", "Noto Sans CJK SC"):
         try:
             font_manager.findfont(name, fallback_to_default=False)
             plt.rcParams["font.family"] = name
-            font_ok = True
+            chosen_font = name
             break
         except Exception:
             continue
-    if not font_ok:
-        print("⚠ 无中文字体——图中文字可能显示为方块（--ascii 可换拼音标签）")
+    if not chosen_font:
+        print("⚠ 无中文字体——图中文字可能显示为方块")
     plt.rcParams["axes.unicode_minus"] = False
 
     pos = _layout(g)
@@ -116,7 +118,8 @@ def render_png(g, out: Path) -> None:
                                edge_color="#e06666", style="dashed", ax=ax)
     labels = {n: f"{n}\n{_short(g.nodes[n]['label'], 18)}"
               for n in g.nodes}
-    nx.draw_networkx_labels(g, pos, labels, font_size=7, ax=ax)
+    nx.draw_networkx_labels(g, pos, labels, font_size=7, ax=ax,
+                            font_family=chosen_font or "sans-serif")
     # 图例
     handles = [plt.Line2D([0], [0], marker="o", color="w", markerfacecolor=st["color"],
                           markersize=11, label=f"{st['label']}（方框 = 出厂基座）"
