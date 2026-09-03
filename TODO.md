@@ -6,6 +6,61 @@
 
 ## 进行中 / 即将
 
+### 出厂定稿管线（brain_seed 定稿制 —— 2026-09-04 设计定稿, 本会话分阶段执行）
+
+> 核心: 出厂经历（experience.yml）= **一次定稿**（LLM 逐条改编 + 作者 review → brain_seed.yml）,
+> seed = 确定性复制; digest（运行时）只处理玩家新记忆。修正了: 出厂改编挂后台 digest 的
+> 短时失忆/双轨 bug（0.1）、批量改编质量差（0.2 逐条）、改编 LLM 无人设锚（0.2 人设注入）、
+> 快照回退需 yml 副本（0.4）、中途改卡语义（0.3/行为热更·记忆重灌）。
+
+**阶段 0 设计定稿** ✅
+- [x] 0.1 出厂 = 一次定稿（brain_seed.yml）; seed = 确定性复制; digest 只处理玩家新记忆
+- [x] 0.2 改编工具逐条调用 + 人设锚注入（profile/personality/称谓表）
+- [x] 0.3 产物 = 初稿, 作者 review 后定稿; 工具防覆盖（--force 重跑）
+- [x] 0.4 世界线创建时快照定稿输入进世界线（seed_snapshot/）——回退/重建与 config 解耦
+- [x] 0.5 无 brain_seed 新角色 → 原文兜底（现逻辑）——可玩性永不阻塞
+
+**阶段 1 prompt: llm/prompts/seed_digest.md**（本会话执行中）
+- [ ] 1.1 角色定位: 预设经历改编员（与 Round A 同协议: 第一人称/浓缩/不升华/verbatim 逐字）
+- [ ] 1.2 人设锚段: 角色档案/性格口吻/称谓表（{{占位符}} 文档化, 工具端渲染注入）
+- [ ] 1.3 单条输出规格: source_key/title/narration/verbatim/significance/author_notes
+      （author_notes = 剥离的点评句, 空则省略）
+- [ ] 1.4 改编规则: 不增删原文事实/不发明细节/称谓按表/点评句不混入 narration/感受句可留
+- [ ] 1.5 输出纪律: 完整单条 JSON（工具端兼容 {"episodes": [...]} 数组态）, 不要代码块
+
+**阶段 2 工具: tools/seed_digest.py**
+- [ ] 2.1 读卡: CharacterLoader 取 profile/personality; experience.yml 叶子（复用 _collect_leaves）
+- [ ] 2.2 称谓表渲染: knowledge.friends → 称谓行（供人设锚注入）
+- [ ] 2.3 逐条 LLM 改编: temp 低/重试 ×2/单条失败记录不阻塞
+- [ ] 2.4 解析校验: source_key 回填/必填非空/sig 0-1/第三人称自指软校验 → 坏条目列清单
+- [ ] 2.5 写 brain_seed.yml: episodes[] + review_notes[]; 已存在拒绝（--force）
+- [ ] 2.6 CLI: --char/--force/单条重跑; 进度/耗时提示
+
+**阶段 3 引擎: seed.py**
+- [ ] 3.1 brain_seed.yml 分支: episodes → make_node（title/verbatim 落库; source=experience）
+- [ ] 3.2 无 brain_seed → 原文兜底（现逻辑不动）
+- [ ] 3.3 世界线创建快照: brain_seed/原文 yml → worlds/{w}/characters/{c}/seed_snapshot/
+- [ ] 3.4 幂等/落盘沿用（source_key 判重 + save）
+- [ ] 3.5 world1 遥香重灌（删 wiki → brain_seed 重 seed）+ 渲染抽查
+- [ ] 3.6 momotalk.py 131/407 行 kind=="fact" 残留清理（fact 退役死代码）
+
+**阶段 4 测试**（设计独立, 不跑全量）
+- [ ] 4.1 brain_seed 分支: 映射/immutable/幂等（test_wiki_seed 新组）
+- [ ] 4.2 快照语义: seed_snapshot/ 存在; 删 wiki 用快照重建（config 改动不影响）
+- [ ] 4.3 原文兜底回归; 4.4 工具单测（fake LLM）; 4.5 全量回归
+
+**阶段 5 真实执行（遥香）**
+- [ ] 5.1 seed_digest.py --char igusa_haruka → brain_seed.yml 初稿（12 条）
+- [ ] 5.2 用户 review/手改（语气/自注/点评句去留）→ 定稿
+- [ ] 5.3 world1 重灌 + 渲染抽查（第一人称/无点评混入）
+- [ ] 5.4 review_notes → 用户写 beliefs.yml（素材已备）
+- [ ] 5.5 组织视图抽查（title/verbatim 展示）
+
+**阶段 6 文档**
+- [ ] 6.1 guidance/experience.md: 写作规范（档案语义/点评句留给 beliefs/改编工具说明）
+- [ ] 6.2 AGENT_BRAIN.md 出厂管线段更新（定稿制 + 快照 + brain_seed 格式）
+- [ ] 6.3 TODO.md 本表勾选
+
 ### 出厂 wiki 闭环（✅ 引擎全部落地, 9558287——剩内容创作）
 
 - [x] **seed v3: beliefs.yml 解析**——出厂认知层（guidance/beliefs.md 已定稿）：
