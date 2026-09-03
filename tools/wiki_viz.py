@@ -102,8 +102,11 @@ def render_html(g, out: Path) -> None:
     大小按 significance。边: 实线箭头 = 支撑 link, 红色虚线 = contradiction。
     """
     from pyvis.network import Network
+    # cdn_resources="in_line": vis.js 内联进 HTML——单文件自包含可移植,
+    # 不生成 lib/ 依赖目录（pyvis 默认 local 会在 cwd 落 lib/, 曾误提交）
     net = Network(height="820px", width="100%", directed=True,
-                  bgcolor="#ffffff", font_color="#333333")
+                  bgcolor="#ffffff", font_color="#333333",
+                  cdn_resources="in_line")
     for nid, d in g.nodes(data=True):
         net.add_node(
             nid, label=_node_label(nid, d).replace("\n", "<br>"),
