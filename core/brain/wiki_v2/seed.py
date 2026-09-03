@@ -1,27 +1,26 @@
 """seed.py — 出厂 digest pass（AGENT_BRAIN.md §3 Step 0 / M1c）。
 
-世界线创建时执行一次: 读 config/characters/{char}/experience.yml + knowledge.yml
+世界线创建时执行一次: 读 config/characters/{char}/experience.yml + beliefs.yml
 **原文（只读, 不做副本）**——2026-09-02 决策:
     - digest 产物本身就是该世界线的出厂快照, 无需再拷 yml;
       config 是作者真源, 运行时零写入
-    - 作者改 config → 只影响新世界线; 旧世界线出厂记忆保持出厂时状态（immutable 语义）
+    - 作者改 config → 只影响新世界线; 旧世界线出厂记忆保持出厂时状态
     - 修复传播走显式 re-seed 维护命令（后续工具, 不自动同步）
 
-v2（2026-09-02 用户拍板: experience 应与 bond story 对等——预设记忆 = 角色
-记得的经历, 不是"我知道的事"）:
-    - experience.yml → **episode 节点**（与运行期 bond digest 产物同构）:
-        kind=episode / epistemic=observed_fact / narration=原文（渲染层 _me()
-        做第一人称转换）/ source=experience / significance 0.9（出厂锚）
-      ——注入渲染进"我记得的事（珍贵的）"段, 与 bond 闭环消化出的记忆同段;
-      belief 由运行期 digest 对真实互动自然组织（出厂单条经历不构成重复模式）
-    - knowledge.yml → fact（canon_fact）不变（"我知道的事"确实是事实）
-    - 出厂基座 immutable 扩展: is_seed = fact(canon_fact) | episode(source=experience)
-    - 旧库迁移: kind=fact & source=experience（v1 残留）→ 删除重建为 episode
-      （幂等判重键 (source, source_key) 不变——干净库直接建, 旧库先迁后建）
-    - **落盘修复（2026-09-02）**: 此前 add 只进内存不 save → wiki.jsonl 恒空 →
-      每次触发都重 seed → evolution.jsonl 重复 append; 现在有变更即 store.save()
+v3（2026-09-02 定稿: 出厂 wiki = **纯记忆**, 出厂与运行时 digest 产物同构）:
+    - experience.yml → **episode**（observed_fact, narration 原文, sig 0.9 出厂锚,
+      immutable——is_seed = episode(source=experience)）
+    - beliefs.yml（可选, guidance/beliefs.md 教学）→ **belief**（inferred_belief,
+      subject/content/links 校验 source_key → 真实 episode id; sig 默认 0.85;
+      出厂 belief **不 immutable**——认知种子, 运行时 digest 的 touch/update 演化）
+    - knowledge.yml **不再出厂化**（fact 退役, 2026-09-02 用户拍板: "我知道的事"
+      是世界观知识 = overview.yml common 语义——config 档案职责: system prompt
+      注入 + interperson 读取; wiki 只存记忆, 世界观知识库中期另立）
+    - 旧库 fact（v1 experience-fact / v2 knowledge-fact）: 加载层自动过滤
+      （kind=fact 已不在 KINDS → validate 拒 → 跳过）, 下次整写 save 自动清除
 
-幂等: 以 (source, source_key) 为键, 已存在则跳过——重复 seed 不产生双份。
+幂等: experience 以 (source, source_key) 判重; belief 以 (source, source_key=
+belief.N) 判重——重复 seed 零新增零日志重复。
 """
 from __future__ import annotations
 
@@ -35,9 +34,16 @@ from core.brain.wiki_v2.nodes import make_node
 from core.brain.wiki_v2.store import WikiStoreV2
 from core.parsing.dynamic_character_parser import load_yaml_file
 
-#: 默认显著性（出厂记忆是角色记忆的锚, 给高值; LLM 重估后置）
-SIG_EXPERIENCE = 0.9      # 预设经历（episode, 珍贵档保底）
-SIG_KNOWLEDGE = 0.7       # 我知道的事（出厂认知）
+
+def _load_yaml_any(path: Path):
+    """通用 yaml 读（beliefs.yml 顶层是 list——load_yaml_file 只收 dict）。"""
+    import yaml
+    with path.open(encoding="utf-8") as fh:
+        return yaml.safe_load(fh)
+
+#: 默认显著性（出厂记忆是角色记忆的锚; LLM 重估后置）
+SIG_EXPERIENCE = 0.9       # 预设经历（episode, 珍贵档保底）
+SIG_BELIEF = 0.85          # 出厂认知（belief 种子; 运行时 touch/update 演化）
 
 _PREFIXES = ("SIG~", "REQ~")
 _SKIP_LEAF = {"true", "false", "null", "none", "~", ""}
@@ -49,7 +55,6 @@ class SeedResult:
 
     created: list[str] = field(default_factory=list)    # 新条目 id
     skipped: list[str] = field(default_factory=list)    # 已存在的 source_key（幂等跳过）
-    migrated: list[str] = field(default_factory=list)   # 旧 v1 fact 迁移删除的 source_key
     errors: list[str] = field(default_factory=list)
     total: int = 0                                      # 本次扫描到的候选数
 
@@ -58,67 +63,60 @@ def seed_from_config(
     store: WikiStoreV2,
     char_dir: str | Path,
 ) -> SeedResult:
-    """出厂消化: experience → episode / knowledge → fact（幂等, 落 evolution_log）。
+    """出厂消化: experience → episode / beliefs.yml → belief（幂等, 落 evolution_log）。
 
     Args:
         store: 目标世界线的 wiki（空库或已有出厂条目的库——后者按 source_key 跳过）
         char_dir: config/characters/{char_id}/ 目录
 
     Returns:
-        SeedResult: 新条目 id / 跳过的 source_key / 迁移数 / 错误
+        SeedResult: 新条目 id / 跳过的 source_key / 错误
     """
     result = SeedResult()
     char_dir = Path(char_dir)
     log = EvolutionLog.for_store(store)
     now = datetime.now().isoformat(timespec="seconds")
 
-    # ── 旧库迁移（v1 残留: experience 曾建模为 fact——v2 语义 = 预设经历 episode）──
-    migrated = _migrate_v1_experience_facts(store, log, now)
-    result.migrated = migrated
-
-    existing = {
+    # ── experience.yml → episode（先建——belief 的 links 解析依赖 episode id）──
+    exp_existing = {
         (n.source, n.source_key)
-        for n in store.all() if n.source_key and (
-            n.kind == "fact" or n.source == "experience")
+        for n in store.all() if n.kind == "episode" and n.source == "experience"
     }
-
-    for source, filename, significance, kind, in (
-        ("experience", "experience.yml", SIG_EXPERIENCE, "episode"),
-        ("knowledge", "knowledge.yml", SIG_KNOWLEDGE, "fact"),
-    ):
-        path = char_dir / filename
-        if not path.exists():
-            result.errors.append(f"{filename} 缺失（跳过）")
-            continue
+    exp_path = char_dir / "experience.yml"
+    if not exp_path.exists():
+        result.errors.append("experience.yml 缺失（跳过）")
+    else:
         try:
-            data = load_yaml_file(path)
+            data = load_yaml_file(exp_path)
         except Exception as e:                            # noqa: BLE001
-            result.errors.append(f"{filename} 解析失败: {e}")
-            continue
-        leaves = _collect_leaves(data)
-        for source_key, text in leaves:
+            result.errors.append(f"experience.yml 解析失败: {e}")
+            data = {}
+        for source_key, text in _collect_leaves(data):
             result.total += 1
-            if (source, source_key) in existing:
-                result.skipped.append(source_key)
+            if ("experience", source_key) in exp_existing:
+                result.skipped.append(f"experience:{source_key}")
                 continue
             node = make_node(
-                kind,
-                content=text if kind == "fact" else "",   # fact 存 content
-                epistemic="canon_fact" if kind == "fact" else "observed_fact",
-                narration=text if kind == "episode" else "",  # episode 存 narration
-                source=source,
+                "episode",
+                narration=text,
+                epistemic="observed_fact",
+                source="experience",
                 source_key=source_key,
-                significance=significance,
+                significance=SIG_EXPERIENCE,
                 ts=now,
             )
             nid = store.add(node)
             result.created.append(nid)
             log.append({"pkg": "seed", "action": "create",
-                        "id": nid, "kind": kind,
-                        "detail": f"{source}:{source_key}"})
-    # 落盘修复（2026-09-02）: seed 是自含写入口——有变更立即 save,
-    # 否则 add 只进内存 → 下次触发重 seed + 日志重复 append
-    if result.created or result.migrated:
+                        "id": nid, "kind": "episode",
+                        "detail": f"experience:{source_key}"})
+
+    # ── beliefs.yml → belief（可选; links 校验 source_key → 真实 episode id）──
+    _seed_beliefs(store, char_dir, log, now, result)
+
+    # 落盘（2026-09-02 根因修复: seed 是自含写入口——有变更立即 save, 否则
+    # add 只进内存 → 下次触发重 seed + evolution 重复 append）
+    if result.created:
         try:
             store.save()
         except Exception as e:                            # noqa: BLE001 — 落盘失败降级
@@ -126,22 +124,85 @@ def seed_from_config(
     return result
 
 
-def _migrate_v1_experience_facts(store: WikiStoreV2, log: EvolutionLog,
-                                 now: str) -> list[str]:
-    """迁移 v1 残留: experience 曾以 fact(canon_fact, source=experience) 建模——
-    v2 语义预设经历 = episode。删除旧 fact（episode 化重建, 语义取代）; 干净库
-    空操作。删的是出厂基座——迁移本身是引擎升级动作, 绕过 immutable 护栏直删。
+def _seed_beliefs(store: WikiStoreV2, char_dir: Path, log: EvolutionLog,
+                  now: str, result: SeedResult) -> None:
+    """beliefs.yml（可选, guidance/beliefs.md）→ belief 节点。
+
+    links 语义引用 experience.yml 的 source_key → 解析为真实 episode id;
+    孤儿引用报错（列出可用键, 不静默）。幂等: source_key=belief.N。
+    出厂 belief 不 immutable——认知种子, 运行时 touch/update 演化（见 nodes.is_seed）。
     """
-    removed: list[str] = []
-    for n in store.all():
-        if n.kind == "fact" and n.source == "experience":
-            store.delete(n.id)
-            removed.append(n.source_key or n.id)
-            log.append({"pkg": "seed", "action": "migrate",
-                        "id": n.id, "kind": "fact",
-                        "detail": f"experience:{n.source_key}（v1 fact → v2 episode）",
-                        "ts": now})
-    return removed
+    path = char_dir / "beliefs.yml"
+    if not path.exists():
+        return
+    try:
+        rows = _load_yaml_any(path)          # 顶层是 list（每个 - 一条 belief）
+    except Exception as e:                   # noqa: BLE001
+        result.errors.append(f"beliefs.yml 解析失败: {e}")
+        return
+    if not isinstance(rows, list):
+        result.errors.append("beliefs.yml 必须是列表（每个 - 一条 belief）")
+        return
+
+    episodes = {n.source_key: n for n in store.all()
+                if n.kind == "episode" and n.source == "experience"}
+    existing = {n.source_key for n in store.all()
+                if n.kind == "belief" and n.source == "beliefs"}
+
+    for i, row in enumerate(rows, start=1):
+        if not isinstance(row, dict):
+            result.errors.append(f"beliefs.yml 第 {i} 条不是对象（跳过）")
+            continue
+        sk = f"belief.{i}"
+        if sk in existing:
+            result.skipped.append(f"beliefs:{sk}")
+            continue
+        subject = str(row.get("subject") or "").strip()
+        content = str(row.get("content") or "").strip()
+        links_raw = row.get("links")
+        if not subject or not content:
+            result.errors.append(f"beliefs.yml 第 {i} 条缺 subject/content（跳过）")
+            continue
+        if not isinstance(links_raw, list) or not links_raw:
+            result.errors.append(
+                f"beliefs.yml 第 {i} 条 links 必须是数组（≥1 条支撑经历）（跳过）")
+            continue
+        links: list[str] = []
+        bad: list[str] = []
+        for ref in links_raw:
+            ref = str(ref).strip()
+            ep = episodes.get(ref)
+            if ep is None:
+                bad.append(ref)
+            elif ep.id not in links:
+                links.append(ep.id)
+        if bad:
+            result.errors.append(
+                f"beliefs.yml 第 {i} 条 links 引用了不存在的经历: {bad}——"
+                f"可用: {sorted(episodes) or '（无——experience.yml 为空）'}")
+            continue
+        sig = row.get("significance")
+        try:
+            sig = float(sig) if sig is not None else SIG_BELIEF
+        except (TypeError, ValueError):
+            sig = SIG_BELIEF
+        node = make_node(
+            "belief",
+            content=content,
+            subject=subject,
+            epistemic="inferred_belief",
+            source="beliefs",
+            source_key=sk,
+            links=links,
+            significance=sig,
+            ts=now,
+        )
+        nid = store.add(node)
+        result.created.append(nid)
+        result.total += 1
+        log.append({"pkg": "seed", "action": "create",
+                    "id": nid, "kind": "belief",
+                    "detail": f"beliefs:{sk}"})
 
 
 # ---------------------------------------------------------------------------

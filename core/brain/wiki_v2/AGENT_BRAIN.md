@@ -16,9 +16,9 @@
 core/brain/wiki_v2/                # 独立模块——不动现有 brain/*.py 直到 M 系列切换
 ├── AGENT_BRAIN.md                 # 本蓝图
 ├── __init__.py                    # 公共导出
-├── nodes.py                       # ✅ 板块1 节点数据结构（4 kind; title/history/main_text; relation 已砍）
+├── nodes.py                       # ✅ 板块1 节点数据结构（3 kind: episode/experience/belief; fact/relation 已砍）
 ├── store.py                       # ✅ M1b 存储（jsonl/原子整写/id 分配/索引/快照/去重检查）
-├── seed.py                        # ✅ M1c 出厂 digest pass（experience/knowledge → fact 条目, 确定性映射 v1, 幂等）
+├── seed.py                        # ✅ M1c 出厂 digest pass v3（experience → episode / beliefs.yml → belief; knowledge 不再出厂化; 幂等+落盘）
 ├── render.py                      # ✅ M2 渲染（组织视图带 id 邻接表 + 角色注入视图分层）
 ├── revise.py                      # ✅ 板块4 修订执行器（apply_decisions 决策表 + apply_revision_package 深度整理）
 ├── evolution.py                   # ✅ M2 审计日志（append-only, R6 回滚依据）
@@ -148,36 +148,35 @@ significance 强化（被引用记忆升值）。
 "链接到已有 belief/experience" 与 "新建 belief/experience（并链接它）" 之间
 **至少选择其一**——强制的是连接决策, 不是内容升华。
 
-### 1.4 fact 节点（出厂基座, canon_fact）
+### 1.4 出厂基座（2026-09-02 v3 定稿: fact 退役——出厂 wiki = 纯记忆）
 
-```jsonc
-{
-  "id": "c0002",
-  "kind": "fact",
-  "content": "遥香曾因拆炸弹事件对 sensei 建立信任",   // 第三人称（锚点用, 不渲染成角色记忆）
-  "tags": ["拆炸弹", "信任"],
-  "significance": 0.95,
-  "epistemic": "canon_fact",
-  "source": "experience",              // experience | knowledge
-  "source_key": "self.regular.1",      // 溯源到 yml 的哪个字段
-  "ts": "<世界线创建时间>",
-  "links": [],
-  "contradictions": []
-}
-```
+出厂与动态 digest 产物**完全同构**（episode + belief; fact/canon_fact 已移除）:
 
-**规则**：canon_fact 只由**出厂 digest pass** 产出（世界线创建时, experience/knowledge
-渲染为预设时间线走一次消化——2026-09-02 用户决策: 种子生成器替换为出厂 digest, 与动态
-digest 同一套机制）; 动态 digest/组织 pass 永远不产 canon_fact;
-注入时**渲染为出厂记忆段**（§4.2 久远的记忆/我知道的事——2026-09-02 修正: fact 是
-角色的出厂经历/出厂认知, 她本来就记得/知道, 不是"世界真相"; 世界观另有 overview.yml）;
-同时作**锚点/校验基准**（digest 防脑补）。
-**双注入待处理**（开放项, M5）: MMT 盒A 静态注入已含 experience/knowledge → 与出厂记忆段
-重复; 方案 = 统一注入源（experience/knowledge 不再静态注入, 一律从 wiki 渲染; 静态文件
-保留为作者真源 + 出厂 digest 输入）。
+- **experience.yml → 出厂 episode**（source="experience", immutable——is_seed）:
+  ```jsonc
+  {
+    "id": "m0001",
+    "kind": "episode",
+    "narration": "不小心错误地给sensei发送了消息……",   // 原文（渲染层 _me 第一人称化）
+    "epistemic": "observed_fact",
+    "source": "experience",
+    "source_key": "self.regular.1",      // 溯源到 yml 的哪个字段
+    "significance": 0.9,
+    "ts": "<世界线创建时间>"
+  }
+  ```
+- **beliefs.yml → 出厂 belief**（subject/content/links 引用 source_key; sig 默认 0.85;
+  **不 immutable**——认知种子, 动态 digest 的 touch/update 挂新经历演化）
+- **knowledge.yml 不再出厂化**: "我知道的事" = 世界观知识（overview.yml common 语义）,
+  config 档案职责——system prompt 注入 + interperson 读取; wiki 只存记忆
+  （世界观知识库中期另立; 旧库 fact 由加载层自动过滤, 下次整写清除）
 
-### 1.5 节点类型总表（2026-09-02: 砍 relation——两参考系统(A-MEM/AgentGal)均无此层,
-信息落 tags/subject; 无生产数据窗口期移除）
+**规则**：出厂 episode immutable（只允许 notes 追加）; 动态 digest/组织 pass 不产
+出厂节点; 注入时出厂 episode 渲染为**久远的记忆**段（§4.2, cap 5 低配常驻——
+出厂是角色底色, 运行时玩家羁绊记忆独占珍贵/最近主窗口）。
+
+### 1.5 节点类型总表（2026-09-02: 砍 relation + fact——记忆 = 经历 + 认知,
+出厂与动态同构）
 
 | kind | 语义 | epistemic | 谁产 | 支撑规则 |
 |---|---|---|---|---|

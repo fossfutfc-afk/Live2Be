@@ -1,11 +1,11 @@
 """图式 wiki 节点数据结构（AGENT_BRAIN.md §1）。
 
-4 种节点（kind, 2026-09-02 砍 relation——两参考系统(A-MEM/AgentGal)均无此层,
-信息落 tags/subject; 无生产数据, 窗口期移除）:
-    fact       出厂基座（canon_fact, immutable）——experience/knowledge 出厂消化产出
-    episode    一次性经历（narration 第一人称浓缩 + verbatim 原话; 质感优先不升华）
+3 种节点（kind, 2026-09-02 fact 退役——出厂与运行时同构, 记忆 = 经历 + 认知）:
+    episode    一次性经历（narration 第一人称浓缩 + verbatim 原话; 质感优先不升华）;
+               出厂基座（source=experience, immutable）+ 运行期 digest 双来源
     experience 重复模式（pattern + count 聚合; subject=player = 玩家口癖, R5 强调点）
-    belief     抽象认知（inferred_belief, links 必须 ≥1 支撑; history 记录改写溯源）
+    belief     抽象认知（inferred_belief, links 必须 ≥1 支撑; history 记录改写溯源）;
+               出厂（beliefs.yml, 种子——不 immutable, 运行时 touch/update 演化）
 
 通用字段: id / kind / significance / epistemic / observer / tags / segment_id /
           event_seq / ts / source / links / contradictions
@@ -17,14 +17,15 @@ observer 语义（2026-09-02 收敛）: 单视角世界线里 observed_fact 的�
 （LLM 判断, 渲染为"听 X 说的"）。
 
 关键规则（引擎侧强制, 此处提供 validate/normalize 支撑）:
-    - epistemic: canon_fact | observed_fact | reported_fact | inferred_belief | speculation
-    - fact.epistemic == canon_fact; belief.epistemic == inferred_belief（护栏）
+    - epistemic: observed_fact | reported_fact | inferred_belief | speculation
+      （canon_fact 随 fact 退役, 2026-09-02——出厂基座 = episode(source=experience)）
+    - belief.epistemic == inferred_belief（护栏）
     - belief.links 非空（无支撑升华拒绝, §5 校验规则 4）
     - significance: decimal 0~1, 珍贵档 ≥ PRECIOUS_THRESHOLD(0.8)（保底通道）
     - 去重键 = (kind, event_seq): 同事件重复消化 → 去重; 不同事件同类 → accrue（不删）
     - player experience（subject=player）永不被内容去重/合并掉（§4.4）
 
-id 格式（决策 #7）: 前缀 + 4 位零填充, 无 # 无下划线 —— m0003 / c0002 / e0002。
+id 格式（决策 #7）: 前缀 + 4 位零填充, 无 # 无下划线 —— e0002 / m0003 / m0003。
 序列化: jsonl 一行一条（to_json_line / from_json_line）。
 """
 from __future__ import annotations
@@ -33,20 +34,17 @@ import json
 from dataclasses import dataclass, field
 from typing import Any
 
-#: 节点类型（relation 已砍, 2026-09-02）
-KINDS = ("fact", "episode", "experience", "belief")
-#: 认知类型（DESIGN_BRAIN.md §7）
-EPISTEMICS = ("canon_fact", "observed_fact", "reported_fact", "inferred_belief", "speculation")
+#: 节点类型（fact 已退役, 2026-09-02——出厂与 digest 同构: 记忆 = 经历 + 认知）
+KINDS = ("episode", "experience", "belief")
+#: 认知类型（DESIGN_BRAIN.md §7; canon_fact 随 fact 退役）
+EPISTEMICS = ("observed_fact", "reported_fact", "inferred_belief", "speculation")
 #: 珍贵档阈值（保底通道 / 对应 neuron 草稿的 memo 档）
 PRECIOUS_THRESHOLD = 0.8
 #: player experience 的 subject 固定值（玩家口癖/习惯, R5）
 PLAYER_SUBJECT = "player"
-#: 出厂基座 source 取值（fact 节点专用）
-_SEED_SOURCES = ("experience", "knowledge")
 
 #: 各 kind 的必填字段（validate 用）
 _REQUIRED: dict[str, tuple[str, ...]] = {
-    "fact": ("content", "source_key"),
     "episode": ("narration",),
     "experience": ("pattern", "subject"),
     "belief": ("content",),
@@ -67,7 +65,6 @@ class BrainNode:
         experience: pattern(必填) / subject(必填) / count(引擎数 links) / examples(≤3)
         belief:     content(必填) / subject(认知对象, 可空) / growth / observation[]
                     / history[改写溯源]（2026-09-02: {episode_id, content, ts} 数组）
-        fact:       content(必填) / source_key(必填, 溯源到 yml 字段)
     """
 
     id: str = ""
@@ -112,11 +109,7 @@ class BrainNode:
         for f in _REQUIRED[self.kind]:
             if not str(getattr(self, f, "") or "").strip():
                 errors.append(f"{self.kind} 缺少必填字段: {f}")
-        # epistemic 护栏（DESIGN_BRAIN.md §7）
-        if self.kind == "fact" and self.epistemic != "canon_fact":
-            errors.append("fact 节点 epistemic 必须是 canon_fact（出厂基座只读）")
-        if self.kind == "fact" and self.source not in _SEED_SOURCES:
-            errors.append(f"fact 节点 source 必须是 {'/'.join(_SEED_SOURCES)}（出厂 digest 产出）")
+        # epistemic 护栏（DESIGN_BRAIN.md §7; canon_fact 随 fact 退役 2026-09-02）
         if self.kind == "belief" and self.epistemic != "inferred_belief":
             errors.append("belief 节点 epistemic 必须是 inferred_belief（认知不伪装成事实）")
         if self.kind == "belief" and not self.links:
@@ -176,11 +169,12 @@ class BrainNode:
         return (self.kind, tuple(self.event_seq))
 
     def is_seed(self) -> bool:
-        """出厂基座（immutable——update 只允许 notes 追加, 2026-09-02 v2 扩展）:
-        knowledge → fact(canon_fact); experience → 出厂 episode(source=experience,
-        与 bond digest 产物同构的预设记忆——同渲染段同护栏, 见 seed.py v2）。"""
-        if self.kind == "fact" and self.epistemic == "canon_fact":
-            return True
+        """出厂基座（immutable——update 只允许 notes 追加, 2026-09-02 定稿）:
+        experience.yml 出厂 episode（source=experience, 预设记忆 = 角色记得的经历）。
+        knowledge 不再出厂化（世界观知识 = config 档案职责——system prompt 注入 +
+        interperson 读取, wiki 只存记忆）; beliefs.yml 出厂 belief **不 immutable**
+        （认知种子, 运行时 digest 的 touch/update 挂新经历——认知基线演化）。
+        """
         return self.kind == "episode" and self.source == "experience"
 
     # ------------------------------------------------------------------

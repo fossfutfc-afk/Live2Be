@@ -3,3 +3,7 @@
 # 运行全部测试: python -m pytest
 -r requirements.txt
 pytest>=8.0
+
+# wiki 可视化 dev 工具（tools/wiki_viz.py——networkx 只进 dev, 运行时仍 dict 邻接）
+networkx>=3.0
+matplotlib>=3.8
