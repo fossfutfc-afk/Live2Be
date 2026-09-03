@@ -6,18 +6,23 @@
 
 ## 进行中 / 即将
 
-### 出厂 wiki 闭环（seed v3 —— 手册已写, 引擎未跟）
+### 出厂 wiki 闭环（✅ 引擎全部落地, 9558287——剩内容创作）
 
-- [ ] **seed v3: beliefs.yml 解析**——出厂认知层（guidance/beliefs.md 已定稿）：
+- [x] **seed v3: beliefs.yml 解析**——出厂认知层（guidance/beliefs.md 已定稿）：
       subject/content/links（source_key 引用校验, 孤儿引用报错并列出可用键）/significance;
       belief 出厂**不 immutable**（运行时 digest 的 touch/update 要能挂新经历——认知基线演化）;
-      遥香 beliefs.yml 内容待写（用户自己写或我起草）
-- [ ] **渲染段位修正**（出厂 12 episode 现全挤"珍贵的"段 = 2576 字注入 + 挤掉运行时记忆）：
-      出厂 episode（source=experience）→ "久远的记忆"段 cap 5; 运行时 episode 独占珍贵/最近段
+      遥香 beliefs.yml 内容待写（用户自己写或我起草——唯一剩余项）
+- [x] **渲染段位修正**：出厂 episode（source=experience）→ "久远的记忆"段 cap 5;
+      运行时 episode 独占珍贵/最近段（v3 落地, 真实渲染 1151 字 vs 旧 2576 字）
+- [x] **fact 退役**（用户拍板, 9558287）：knowledge.yml 不再出厂化——"我知道的事" =
+      世界观知识（overview.yml common 语义）→ 世界观知识库中期项（见下）; fact 语义
+      已无消费方（knowledge 注入问题随之消解, 18 fact 不再注入）
+- [x] **wiki 图谱可视化工具**：tools/wiki_viz.py（networkx PNG + mermaid 双输出;
+      dev 依赖进 requirements-dev, 运行时仍 dict 邻接）
 - [ ] **人称转换残余**（"她/自己"指代链混用——替换"遥香"→"我"后暴露）：
       渲染层保守启发式（先"自己→我"类无歧义项; "她"消解需谨慎——可能指 sensei）
-- [ ] **knowledge 注入优先级**：18 fact 现纯 significance cap 5——书写顺序乱序不能直接用;
-      待定规则（如关系人分级: sensei 恒在 / 社团次之 / 其他按 sig）
+- [ ] **出厂经历优先级表达**：12 条同 sig 0.9 → cap 5 恒显示 yml 前 5 条
+      （现以作者书写顺序为准; 若需新_year/main 进窗口, 待定条目级 sig 标注）
 
 ### 上个 bug 修复的验证与遗留
 
