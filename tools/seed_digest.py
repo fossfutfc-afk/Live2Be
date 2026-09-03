@@ -237,6 +237,62 @@ def char_aliases(char_id: str) -> tuple[str, ...]:
     return tuple(dict.fromkeys(names))
 
 
+# ---------------------------------------------------------------------------
+# 2.5 写 brain_seed.yml（作者可读可改; 已存在防覆盖, --force 先 .bak）
+# ---------------------------------------------------------------------------
+
+def _yaml_scalar(value: str) -> str:
+    """YAML 双引号标量（json.dumps 转义与 YAML 双引号兼容——任意文本安全）。"""
+    import json
+    return json.dumps(str(value), ensure_ascii=False)
+
+
+def write_brain_seed(char_id: str, entries: list[dict], force: bool,
+                     generated_at: str) -> Path:
+    """写 brain_seed.yml（初稿——作者 review 手改后定稿）。
+
+    episodes[]: source_key/title/narration/verbatim(可选)/significance;
+    review_notes[]: source_key + author_notes（剥离的点评句——beliefs 素材, 不落库）。
+    已存在且非 force → FileExistsError; force → 旧文件改名 .bak。
+    """
+    out = _char_dir(char_id) / OUT_NAME
+    if out.exists():
+        if not force:
+            raise FileExistsError(
+                f"{out} 已存在（作者手改过的定稿?）——重跑会覆盖 review 内容; "
+                f"确认要重新生成请加 --force（旧文件自动备份 .bak）")
+        bak = out.with_suffix(".yml.bak")
+        out.rename(bak)
+        print(f"旧文件已备份: {bak.name}")
+
+    lines = [
+        "# 出厂经历定稿（tools/seed_digest.py 生成——LLM 初稿, 请 review 后手改才算定稿）",
+        f"# 生成时间: {generated_at}; 来源: experience.yml（逐条改编, 人设锚注入）",
+        "# 手改后不要重跑（重跑需 --force, 旧版自动备份 .bak）。narration 保持第一人称;",
+        "# 若把 review_notes 的点评句写进 beliefs.yml, links 引用下方对应 source_key 即可。",
+        "episodes:",
+    ]
+    for e in entries:
+        lines.append(f"  - source_key: {_yaml_scalar(e['source_key'])}")
+        lines.append(f"    title: {_yaml_scalar(e.get('title', ''))}")
+        lines.append(f"    narration: {_yaml_scalar(e.get('narration', ''))}")
+        if e.get("verbatim"):
+            lines.append(f"    verbatim: {_yaml_scalar(e['verbatim'])}")
+        lines.append(f"    significance: {float(e['significance'])}")
+    notes = [(e["source_key"], e.get("author_notes"))
+             for e in entries if e.get("author_notes")]
+    if notes:
+        lines.append("#")
+        lines.append("# 作者点评句（beliefs.yml 素材——不落库, 仅供你取材; 出处见 source_key）")
+        lines.append("review_notes:")
+        for sk, note in notes:
+            lines.append(f"  - source_key: {_yaml_scalar(sk)}")
+            lines.append(f"    note: {_yaml_scalar(note)}")
+    lines.append("")
+    out.write_text("\n".join(lines), encoding="utf-8")
+    return out
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="出厂经历改编工具（brain_seed 定稿制）")
     ap.add_argument("--char", required=True, help="角色目录名（config/characters/ 下）")
