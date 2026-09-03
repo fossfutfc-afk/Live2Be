@@ -22,7 +22,8 @@ import argparse
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+ROOT = Path(__file__).resolve().parent.parent          # 仓库根——任意 cwd 可跑
+sys.path.insert(0, str(ROOT))
 
 import networkx as nx                       # dev 依赖（requirements-dev; 运行时不用）
 
@@ -162,9 +163,9 @@ def main() -> None:
     ap.add_argument("--mermaid", action="store_true", help="输出 mermaid 文本而非 PNG")
     args = ap.parse_args()
 
-    st = WikiStoreV2("data", world_id=args.world, char_id=args.char)
+    st = WikiStoreV2(str(ROOT / "data"), world_id=args.world, char_id=args.char)
     if not len(st):
-        print(f"空库: data/worlds/{args.world}/characters/{args.char}/wiki.jsonl")
+        print(f"空库（或路径不存在）: {st.path}")
         return
     g, lines = build_graph(st.all())
     print(f"{args.char}: {len(g.nodes)} 节点 / {len(g.edges)} 边")
