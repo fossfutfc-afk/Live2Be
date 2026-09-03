@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -32,10 +33,16 @@ sys.path.insert(0, str(ROOT))
 from core.brain.wiki_v2.seed import _collect_leaves            # noqa: E402  复用 yml walker
 from core.parsing.dynamic_character_parser import (            # noqa: E402
     CharacterLoader, load_yaml_file, yaml_to_prompt)
+from llm.client import LLMClient                               # noqa: E402
 
 CHARACTERS_ROOT = ROOT / "config" / "characters"
 PROMPT_PATH = ROOT / "llm" / "prompts" / "seed_digest.md"
 OUT_NAME = "brain_seed.yml"
+
+#: 改编温度（低——有原文锚的转换任务, 求稳不求花样）
+TEMP = 0.3
+#: 单条失败外层重试次数（client json_object 内建提取修正之外）
+RETRIES = 2
 
 
 # ---------------------------------------------------------------------------
@@ -90,6 +97,79 @@ def render_name_table(char_id: str) -> str:
     return "\n".join(lines)
 
 
+# ---------------------------------------------------------------------------
+# 2.3 prompt 组装 + 逐条 LLM 改编（temp 低 / 失败重试 ×2 / 单条失败不阻塞）
+# ---------------------------------------------------------------------------
+
+def assemble_prompt(char_id: str, char_name: str, source_key: str, text: str) -> str:
+    """渲染单条改编 prompt:
+
+    seed_digest.md 的【输入结构】~【输出规格】之间的段落（含占位符说明, 工具端
+    契约）整体替换为实际输入块——角色定位/输出规格/规则/示范/纪律保持原文。
+    """
+    raw = PROMPT_PATH.read_text(encoding="utf-8")
+    head, _, rest = raw.partition("【输入结构】")
+    _, sep, tail = rest.partition("【输出规格】")
+    if not sep:
+        raise ValueError("seed_digest.md 结构异常: 缺【输出规格】锚点")
+    inputs = (
+        "【角色档案与性格】\n"
+        + render_character_anchor(char_id)
+        + "\n\n【人物称谓表】\n"
+        + (render_name_table(char_id) or "（无——按原文称谓, 不猜）")
+        + "\n\n【本轮改编目标】\n- source_key: " + source_key + "\n- 原文:\n" + text
+    )
+    body = head.rstrip() + "\n\n" + inputs + "\n\n【输出规格】" + tail
+    body = body.replace("{{char_name}}", char_name)
+    body = body.replace("{{name_table}}", "上方【人物称谓表】")
+    return body
+
+
+def adapt_one(client, prompt_text: str) -> dict:
+    """单条改编调用（LLM 一次; json_object 内建提取修正; 档位 = task_levels
+    seed_digest: medium thinking + 4096）。"""
+    from llm import task_levels as tl
+    resp = client.chat(
+        messages=[{"role": "user", "content": prompt_text}],
+        temperature=TEMP,
+        max_tokens=tl.max_tokens("seed_digest"),
+        response_format="json_object",
+        extra_body=tl.extra_body("seed_digest"),
+    )
+    if not isinstance(resp, dict):
+        raise ValueError(f"响应不是 JSON 对象: {str(resp)[:200]}")
+    return resp
+
+
+def adapt_all(client, char_id: str, char_name: str,
+              leaves: list[tuple[str, str]]) -> tuple[list[dict], list[str]]:
+    """逐条改编（串行, 每条失败重试 RETRIES 次; 单条最终失败 → 跳过记入 failed）。
+
+    Returns: (entries, failed_source_keys)。entries 未经校验（2.4 单独做）。
+    """
+    results: list[dict] = []
+    failed: list[str] = []
+    for i, (sk, text) in enumerate(leaves, 1):
+        t0 = time.time()
+        prompt_text = assemble_prompt(char_id, char_name, sk, text)
+        last_err: Exception | None = None
+        for attempt in range(RETRIES + 1):
+            try:
+                data = adapt_one(client, prompt_text)
+                results.append(data)
+                break
+            except Exception as e:                            # noqa: BLE001
+                last_err = e
+                print(f"  ⚠ {sk} 第 {attempt + 1} 次失败: {e}")
+                time.sleep(1)
+        else:
+            failed.append(sk)
+            print(f"  ✗ {sk} 改编失败（{last_err}）——已跳过, 可用 --only 单独重跑")
+            continue
+        print(f"  ✓ [{i}/{len(leaves)}] {sk}  ({time.time() - t0:.0f}s)")
+    return results, failed
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="出厂经历改编工具（brain_seed 定稿制）")
     ap.add_argument("--char", required=True, help="角色目录名（config/characters/ 下）")
@@ -112,8 +192,16 @@ def main() -> None:
         print(f"称谓表 ({table.count(chr(10)) + 1 if table else 0} 人):")
         print(table or "（无 friends 段——称谓表为空）")
         return
-    # 2.3+ 阶段: 逐条 LLM 改编 → 校验（2.4）→ 写 brain_seed.yml（2.5）
-    print("（改编管线 2.3-2.5 未接入——本文件按子阶段增量构建）")
+
+    print("连接 LLM（settings.toml [llm] / .env 凭据）…")
+    client = LLMClient()
+    name = (CharacterLoader(CHARACTERS_ROOT).load(args.char, strict=False)
+            .profile.get("REQ~most_called_name") or args.char)
+    entries, failed = adapt_all(client, args.char, name, leaves)
+    print(f"\n改编完成: {len(entries)} 成功 / {len(failed)} 失败{failed}")
+    if failed:
+        print("失败条目可用 --only <source_key> 单独重跑（2.6 接入）")
+    # 2.4-2.5 阶段: 校验 + 写 brain_seed.yml
 
 
 if __name__ == "__main__":
