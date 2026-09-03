@@ -128,7 +128,7 @@ def load_brain_segment(store: SessionStore, char_id: str, char_name: str = "",
                 aliases = _name_aliases(ch.profile)
             except Exception:                          # noqa: BLE001 — 别名取不到静默
                 pass
-            if not any(n.kind == "fact" for n in wstore.all()):
+            if not any(n.is_seed() for n in wstore.all()):
                 seed_from_config(wstore, Path(characters_root) / char_id)
         return render_character_view(wstore.all(), char_name=char_name,
                                      char_aliases=aliases) or ""
@@ -403,8 +403,8 @@ class MomoTalkEngine:
         try:
             wstore = WikiStoreV2(store.data_root, world_id=store.world_id,
                                  char_id=character_id)
-            # 出厂基座（0 LLM; fact 节点存在 = 已 seed——确定性映射, 幂等）
-            if not any(n.kind == "fact" for n in wstore.all()):
+            # 出厂基座（0 LLM——定稿 brain_seed 或原文, 确定性复制, source_key 幂等）
+            if not any(n.is_seed() for n in wstore.all()):
                 seed_from_config(wstore, self._characters_root / character_id)
             if digest:
                 events = store.events(character_id)
