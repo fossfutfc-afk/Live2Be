@@ -13,6 +13,8 @@ vn_cli/ide_agent 各自的常量与默认参数里——调一处忘一处）。
 | emotion  | off       | 情绪标注——低价值快失败任务, 思考是纯浪费且截断引发 robust 链爆炸 |
 | digest   | high      | 记忆消化 Round A/B——深度认知/逐字校验（实验矩阵: low 浅 / high 最佳,
 |          |           | 2026-09-02 拍板固定 high, 不随 settings 漂移） |
+| seed_digest | medium | 出厂经历逐条改编（一次性定稿工具, 有原文锚的转换任务——medium 够,
+|          |           | 避免 high 长考拖慢 12 条串行） |
 
 档位取值: default = 不注入（客户端按 settings [llm].reasoning_effort 默认档）;
 off = 显式关闭（extra_body={}）; low|medium|high = 显式覆盖。
@@ -26,6 +28,7 @@ off = 显式关闭（extra_body={}）; low|medium|high = 显式覆盖。
 | vn_cli    | main   |       1536 | CLI run_bond_story_vn 默认（历史值; 函数参数仍可覆盖） |
 | emotion   | emotion|        512 | 标注数组输出（关 thinking 后足量） |
 | digest    | digest |       8192 | Round A/B 长 JSON 决策（思考 + 输出同预算, high 长考实测 ~2min） |
+| seed_digest | seed_digest | 4096 | 出厂经历单条改编 JSON（medium 思考 + 300-500 字输出） |
 | ide       | ide    |      16384 | IDE agent（独立模型 IDE_MODEL, 长文档任务） |
 
 ## settings.toml 覆盖（可选, 不做也能跑）
@@ -33,7 +36,7 @@ off = 显式关闭（extra_body={}）; low|medium|high = 显式覆盖。
     [llm.tasks.mmt]        thinking = "high"    # 覆盖档位（off/low/medium/high/default）
     [llm.tasks.emotion]    max_tokens = 768     # 覆盖输出上限
 
-覆盖键按"输出形态"名（mmt/bond/vn_cli/emotion/digest/ide）。
+覆盖键按"输出形态"名（mmt/bond/vn_cli/emotion/digest/seed_digest/ide）。
 """
 from __future__ import annotations
 
@@ -51,6 +54,8 @@ PROFILES: dict[str, dict] = {
                 "note": "情绪标注数组（低价值, 快失败快兜底）"},
     "digest":  {"thinking": "high",    "max_tokens": 8192,
                 "note": "记忆消化 Round A/B 长 JSON 决策"},
+    "seed_digest": {"thinking": "medium", "max_tokens": 4096,
+                "note": "出厂经历单条改编（一次性定稿工具）"},
     "ide":     {"thinking": "default", "max_tokens": 16384,
                 "note": "IDE agent（独立模型 IDE_MODEL）"},
 }
