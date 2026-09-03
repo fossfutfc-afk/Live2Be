@@ -60,11 +60,14 @@
       校验硬软/重试跳过/写盘防覆盖 .bak——git add -f 入库, tests/tools 被 ignore）
 - [x] 4.5 全量回归: 494 passed（477 + 17）
 
-**阶段 5 真实执行（遥香）**
-- [ ] 5.1 seed_digest.py --char igusa_haruka → brain_seed.yml 初稿（12 条）
-- [ ] 5.2 用户 review/手改（语气/自注/点评句去留）→ 定稿
-- [ ] 5.3 world1 重灌 + 渲染抽查（第一人称/无点评混入）
-- [ ] 5.4 review_notes → 用户写 beliefs.yml（素材已备）
+**阶段 5 真实执行（遥香）**（5.1 ✅ c10d5ae——5.2 起待用户）
+- [x] 5.1 seed_digest.py --char igusa_haruka → brain_seed.yml 初稿（12/12 成功 ~4.5min;
+      第一人称/title 全齐/2 verbatim/1 author_notes(regular.1 点评含"经典遥香思维"自注原样保留);
+      忠实度抽查 main.1-3/valentine 与原文吻合; 原文 2281 字 → 改编 1857 字）
+- [ ] 5.2 用户 review/手改（重点: 语气/自注/点评句去留; 已标 1 处措辞疑点:
+      regular.1 "老师误解消息" vs "我误解"——原文主语含混, 作者定夺）→ 定稿
+- [ ] 5.3 world1 重灌（删 wiki → brain_seed 重 seed）+ 渲染抽查（title 进组织视图/图谱）
+- [ ] 5.4 review_notes → 用户写 beliefs.yml（素材已备: regular.1 点评句）
 - [ ] 5.5 组织视图抽查（title/verbatim 展示）
 
 **阶段 6 文档**
