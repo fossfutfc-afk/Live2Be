@@ -26,9 +26,21 @@ def _store(tmp_path) -> WikiStoreV2:
     return WikiStoreV2(tmp_path, world_id="world1", char_id="igusa_haruka")
 
 
+def _haruka_no_seed(tmp_path) -> str:
+    """真实遥香 experience.yml 拷到 tmp 目录（**不带 brain_seed.yml**——原文兜底
+    语义; 真实 config 目录 5.1 起已有 brain_seed 定稿, 会走定稿分支）。"""
+    char = Path(tmp_path) / "char"
+    char.mkdir(parents=True)
+    (char / "experience.yml").write_text(
+        (Path(HARUKA) / "experience.yml").read_text(encoding="utf-8"),
+        encoding="utf-8")
+    return str(char)
+
+
 def test_seed_haruka_full_mapping(tmp_path):
+    char_dir = _haruka_no_seed(tmp_path)
     st = _store(tmp_path)
-    res = seed_from_config(st, HARUKA)
+    res = seed_from_config(st, char_dir)
     assert not res.errors, res.errors
     # experience: self.regular 5 + self.new_year 3 + main 3 + valentine 1 = 12 → episode
     assert res.total == 12
