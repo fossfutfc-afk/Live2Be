@@ -29,13 +29,14 @@
       + 示范对照（同一原文正例）
 - [x] 1.5 输出纪律: 完整单条 JSON（工具端兼容 {"episodes": [...]} 数组态）, 不要代码块
 
-**阶段 2 工具: tools/seed_digest.py**
-- [ ] 2.1 读卡: CharacterLoader 取 profile/personality; experience.yml 叶子（复用 _collect_leaves）
-- [ ] 2.2 称谓表渲染: knowledge.friends → 称谓行（供人设锚注入）
-- [ ] 2.3 逐条 LLM 改编: temp 低/重试 ×2/单条失败记录不阻塞
-- [ ] 2.4 解析校验: source_key 回填/必填非空/sig 0-1/第三人称自指软校验 → 坏条目列清单
-- [ ] 2.5 写 brain_seed.yml: episodes[] + review_notes[]; 已存在拒绝（--force）
-- [ ] 2.6 CLI: --char/--force/单条重跑; 进度/耗时提示
+**阶段 2 工具: tools/seed_digest.py** ✅（02d21e4, 七连 commit; git add -f 入库——tools/ 被 ignore）
+- [x] 2.1 读卡: CharacterLoader 取 profile/personality; experience.yml 叶子（复用 _collect_leaves）
+- [x] 2.2 称谓表渲染: knowledge.friends → 称谓行（供人设锚注入）
+- [x] 2.3 逐条 LLM 改编: temp 低(0.3)/重试 ×2/单条失败记录不阻塞; task_levels 新增
+      seed_digest 形态（medium/4096——有原文锚的转换任务, high 长考拖慢 12 条串行）
+- [x] 2.4 解析校验: source_key 回填/必填非空/sig 0-1 硬错误; 第三人称残留/多余键软警告
+- [x] 2.5 写 brain_seed.yml: episodes[] + review_notes[]; 已存在拒绝（--force 备份 .bak）
+- [x] 2.6 CLI: --char/--dry/--only 单条重跑/--force; 进度/耗时/汇总提示
 
 **阶段 3 引擎: seed.py**
 - [ ] 3.1 brain_seed.yml 分支: episodes → make_node（title/verbatim 落库; source=experience）
