@@ -170,6 +170,73 @@ def adapt_all(client, char_id: str, char_name: str,
     return results, failed
 
 
+# ---------------------------------------------------------------------------
+# 2.4 产物校验: 硬错误（拒绝落盘）/ 软警告（第三人称残留提示）
+# ---------------------------------------------------------------------------
+
+def validate_entry(entry: dict, source_key: str, aliases: tuple[str, ...],
+                   ) -> tuple[list[str], list[str]]:
+    """校验单条改编产物。
+
+    Returns: (errors, warnings)——errors 非空 = 该条不合格（不写盘, --only 重跑）;
+    warnings = 第三人称自指残留等质量问题（提示, 仍落盘待作者 review）。
+    """
+    errors: list[str] = []
+    warnings: list[str] = []
+
+    got_sk = str(entry.get("source_key") or "").strip()
+    if got_sk != source_key:
+        errors.append(f"source_key 回填不一致: 期望 {source_key!r}, 实得 {got_sk!r}")
+    narration = str(entry.get("narration") or "").strip()
+    if not narration:
+        errors.append("narration 为空")
+    title = str(entry.get("title") or "").strip()
+    if not title:
+        errors.append("title 为空")
+    sig = entry.get("significance")
+    if sig is None:
+        errors.append("significance 缺失")
+    else:
+        try:
+            sigf = float(sig)
+            if not 0 <= sigf <= 1:
+                errors.append(f"significance 越界: {sig!r}")
+        except (TypeError, ValueError):
+            errors.append(f"significance 非数字: {sig!r}")
+    for key in ("verbatim", "author_notes"):
+        v = entry.get(key)
+        if v is not None and not isinstance(v, str):
+            errors.append(f"{key} 必须是字符串: {type(v).__name__}")
+    extra = set(entry) - {"source_key", "title", "narration", "verbatim",
+                          "significance", "author_notes"}
+    if extra:
+        warnings.append(f"多余键（忽略）: {sorted(extra)}")
+
+    # 软校验: 第一人称记忆里出现角色名 = 第三人称残留嫌疑
+    if narration:
+        hit = [a for a in aliases if len(a) >= 2 and a in narration]
+        if hit:
+            warnings.append(
+                f"narration 含角色名（{', '.join(hit)}）——疑似第三人称未转'我'; "
+                f"若为引语内转述可忽略, 请 review")
+    return errors, warnings
+
+
+def char_aliases(char_id: str) -> tuple[str, ...]:
+    """角色名变体（第三人称残留检测用）: 显示名全称 + other_names 拆分。"""
+    ch = CharacterLoader(CHARACTERS_ROOT).load(char_id, strict=False)
+    names: list[str] = []
+    for key in ("REQ~most_called_name", "other_names"):
+        raw = ch.profile.get(key)
+        if not raw:
+            continue
+        for part in str(raw).replace("，", ",").replace(" ", ",").split(","):
+            part = part.strip()
+            if part:
+                names.append(part)
+    return tuple(dict.fromkeys(names))
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="出厂经历改编工具（brain_seed 定稿制）")
     ap.add_argument("--char", required=True, help="角色目录名（config/characters/ 下）")
