@@ -117,6 +117,32 @@ def test_adapt_all_retry_then_fail_without_blocking():
     assert failed == ["b"]
 
 
+def test_validate_entry_copy_mirror_detected():
+    """v2 规则 2: 句式镜像照抄/无浓缩 → 软警告（相似度 + 压缩率双指标）。"""
+    aliases = ("遥香", "伊草 遥香")
+    original = ("不小心错误地给sensei发送了消息, 结果被sensei发现是在埋炸弹, "
+                "sensei告诉她她误解了消息, 并且陪着她让她拆除了所有的炸弹。")
+    # 镜像平移（换主语照抄）→ 相似度高 → 警告
+    mirror = ("我不小心错误地给老师发送了消息, 结果被老师发现我是在埋炸弹。"
+              "老师告诉我, 是我误解了消息, 然后没有怪我, 只是陪着我, 让我拆除了所有炸弹。")
+    _, warns = sd.validate_entry(
+        {"source_key": "k", "title": "t", "narration": mirror,
+         "significance": 0.8}, "k", aliases, original=original)
+    assert any("相似度" in w and "镜像" in w for w in warns), warns
+    # 真重构 → 相似度低, 无镜像警告
+    rebuilt = ("埋炸弹的事被老师发现了。老师没有骂我, 反而留下来陪着我, "
+               "让我把炸弹一颗颗拆完。长这么大, 第一次有人这样对我。")
+    _, warns2 = sd.validate_entry(
+        {"source_key": "k", "title": "t", "narration": rebuilt,
+         "significance": 0.8}, "k", aliases, original=original)
+    assert not any("镜像" in w for w in warns2), warns2
+    # 无浓缩（几乎等长）→ 压缩警告
+    _, warns3 = sd.validate_entry(
+        {"source_key": "k", "title": "t", "narration": original + "补充一点内容让长度相近",
+         "significance": 0.8}, "k", aliases, original=original)
+    assert any("浓缩" in w for w in warns3)
+
+
 # ---------------------------------------------------------------------------
 # brain_seed.yml 写入（2.5, monkeypatch 假角色目录）
 # ---------------------------------------------------------------------------
