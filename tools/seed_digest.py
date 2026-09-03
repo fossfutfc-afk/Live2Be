@@ -297,13 +297,23 @@ def main() -> None:
     ap = argparse.ArgumentParser(description="出厂经历改编工具（brain_seed 定稿制）")
     ap.add_argument("--char", required=True, help="角色目录名（config/characters/ 下）")
     ap.add_argument("--dry", action="store_true",
-                    help="只列出待改编清单（source_key + 字数）, 不调 LLM")
+                    help="只列出待改编清单（source_key + 字数 + 人设锚/称谓表预览）")
+    ap.add_argument("--only", default="", metavar="SOURCE_KEY",
+                    help="只改编指定 source_key（失败单条重跑用; 不写盘仅当校验未过）")
+    ap.add_argument("--force", action="store_true",
+                    help="brain_seed.yml 已存在时覆盖（旧文件自动备份 .bak）")
     args = ap.parse_args()
 
     if not _char_dir(args.char).exists():
         sys.exit(f"角色目录不存在: {_char_dir(args.char)}")
 
     leaves = load_experience_leaves(args.char)
+    if args.only:
+        keep = [item for item in leaves if item[0] == args.only]
+        if not keep:
+            available = ", ".join(sk for sk, _ in leaves)
+            sys.exit(f"--only 的 source_key 不存在: {args.only}（可用: {available}）")
+        leaves = keep
     total_chars = sum(len(t) for _, t in leaves)
     print(f"{args.char}: {len(leaves)} 条预设经历（共 {total_chars} 字）→ brain_seed.yml 初稿")
     for sk, text in leaves:
@@ -318,13 +328,43 @@ def main() -> None:
 
     print("连接 LLM（settings.toml [llm] / .env 凭据）…")
     client = LLMClient()
-    name = (CharacterLoader(CHARACTERS_ROOT).load(args.char, strict=False)
-            .profile.get("REQ~most_called_name") or args.char)
+    ch = CharacterLoader(CHARACTERS_ROOT).load(args.char, strict=False)
+    name = str(ch.profile.get("REQ~most_called_name") or args.char)
+    aliases = char_aliases(args.char)
+
     entries, failed = adapt_all(client, args.char, name, leaves)
-    print(f"\n改编完成: {len(entries)} 成功 / {len(failed)} 失败{failed}")
-    if failed:
-        print("失败条目可用 --only <source_key> 单独重跑（2.6 接入）")
-    # 2.4-2.5 阶段: 校验 + 写 brain_seed.yml
+
+    # 2.4 校验: 硬错误 → 不合格清单; 软警告 → 打印提示（仍落盘, 作者 review）
+    ok_entries: list[dict] = []
+    bad: list[str] = []
+    for e in entries:
+        sk = str(e.get("source_key") or "?").strip()
+        errors, warnings = validate_entry(e, sk, aliases)
+        for w in warnings:
+            print(f"  ~ {sk} 软警告: {w}")
+        if errors:
+            bad.append(sk)
+            for err in errors:
+                print(f"  ✗ {sk} 不合格: {err}")
+        else:
+            ok_entries.append(e)
+    if bad:
+        print(f"校验未过 {len(bad)} 条: {bad}——可用 --only <source_key> 单条重跑")
+
+    if not ok_entries:
+        print("没有合格产物——不写盘")
+        return
+    try:
+        from datetime import datetime
+        out = write_brain_seed(args.char, ok_entries, force=args.force,
+                               generated_at=datetime.now().isoformat(timespec="seconds"))
+    except FileExistsError as e:
+        sys.exit(f"{e}")
+    notes = sum(1 for e in ok_entries if e.get("author_notes"))
+    print(f"\n✅ 初稿已写: {out}")
+    print(f"   {len(ok_entries)} 条 episode / {notes} 条点评句(review_notes)"
+          f" / {len(failed) + len(bad)} 条待重跑")
+    print("   请 review 手改后定稿; 点评句是 beliefs.yml 素材（出处见 review_notes.source_key）")
 
 
 if __name__ == "__main__":
