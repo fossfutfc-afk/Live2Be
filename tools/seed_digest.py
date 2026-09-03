@@ -223,14 +223,17 @@ def validate_entry(entry: dict, source_key: str, aliases: tuple[str, ...],
 
 
 def char_aliases(char_id: str) -> tuple[str, ...]:
-    """角色名变体（第三人称残留检测用）: 显示名全称 + other_names 拆分。"""
+    """角色名变体（第三人称残留检测用）: 显示名全称（含空格保留）+ other_names 拆分。"""
     ch = CharacterLoader(CHARACTERS_ROOT).load(char_id, strict=False)
     names: list[str] = []
     for key in ("REQ~most_called_name", "other_names"):
         raw = ch.profile.get(key)
         if not raw:
             continue
-        for part in str(raw).replace("，", ",").replace(" ", ",").split(","):
+        text = str(raw)
+        if text.strip():
+            names.append(text.strip())                    # 原样（含空格的完整名）
+        for part in text.replace("，", ",").replace(" ", ",").split(","):
             part = part.strip()
             if part:
                 names.append(part)
