@@ -231,8 +231,8 @@ def char_aliases(char_id: str) -> tuple[str, ...]:
         if not raw:
             continue
         text = str(raw)
-        if text.strip():
-            names.append(text.strip())                    # 原样（含空格的完整名）
+        if key == "REQ~most_called_name" and text.strip():
+            names.append(text.strip())                # 全名原样（含空格）
         for part in text.replace("，", ",").replace(" ", ",").split(","):
             part = part.strip()
             if part:
