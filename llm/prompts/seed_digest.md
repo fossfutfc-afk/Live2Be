@@ -29,3 +29,23 @@
 - {{source_key}}: experience.yml 字段路径（self.regular.1）, 回填校验用
 - {{experience_text}}: 该条原文全文（逐条喂——单条输入, 不批量）
 
+【输出规格】（单条 episode, 完整 JSON 对象, 不要代码块）
+
+```jsonc
+{
+  "source_key": "self.regular.1",     // 原样回填输入的 source_key（校验用, 必填）
+  "title": "8-16 字的短标题",           // 记忆标题（组织视图/图谱节点展示用）
+  "narration": "第一人称浓缩记忆……",   // 主体: 发生了什么 + 我当时的感觉/反应
+  "verbatim": "印象最深的一句原话",     // 可选: 逐字复制, 禁止改写; 无 → 省略该键
+  "significance": 0.9,                // 0-1: 该经历在角色心中的分量（规则见改编规则 6）
+  "author_notes": "原文里作者外视角的点评句",  // 可选: 剥离的点评/结论句, 供作者写
+                                           // beliefs.yml 取材; 无 → 省略该键
+}
+```
+
+字段纪律:
+- 6 个键全部**可选**除 source_key/narration/title/significance 四者——必填不缺失
+- verbatim/author_notes 没有就**省略键**, 不要填空字符串
+- significance 用数字（0.9）, 不是字符串
+
+
