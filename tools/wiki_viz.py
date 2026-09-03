@@ -8,11 +8,13 @@
     - contradictions: 红色虚线
 
 用法:
-    python tools/wiki_viz.py --char igusa_haruka              # 默认 world1, PNG 存同目录
+    python tools/wiki_viz.py --char igusa_haruka              # PNG 概览（默认 world1）
+    python tools/wiki_viz.py --char igusa_haruka --html       # 交互 HTML（推荐——hover 看全文）
     python tools/wiki_viz.py --char igusa_haruka --world w2 --out view.png
-    python tools/wiki_viz.py --char igusa_haruka --mermaid    # 输出 mermaid 文本(零依赖替代)
+    python tools/wiki_viz.py --char igusa_haruka --mermaid    # mermaid 文本(零依赖替代)
 
-中文渲染: Windows 用 Microsoft YaHei; 无中文字体环境加 --ascii（fallback 转义）。
+中文渲染: PNG 用 Microsoft YaHei（nx 标签需显式 font_family——见 render_png 注释）;
+HTML 模式天然中文无字体坑。0 边 = belief/experience 未落库（数据真实状态）。
 运行时图操作仍是 dict 邻接（千级节点 O(1)）——networkx 只在此可视化工具（双真源决策不变,
 AGENT_BRAIN.md §0.1: dev 工具可选 networkx+matplotlib, requirements-dev 已加）。
 """
