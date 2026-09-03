@@ -78,8 +78,9 @@ def test_mmt_window_trigger_digests(tmp_path):
         e.type == "affection" and e.subtype == "digest"
         for e in st.events(CHARACTER))), "25 轮触发后应有好感事件"
     assert llm.llm_calls == 2                   # 恰好 A+B 两轮
-    # 出厂基座落库（wiki.jsonl 与 events 同目录）
-    wiki = Path(tmp_path) / "worlds" / "world1" / "characters" / CHARACTER / "wiki.jsonl"
+    # 出厂基座落库（soul/ = 记忆层——wiki 与 events 同居, 2026-09-04）
+    wiki = (Path(tmp_path) / "worlds" / "world1" / "characters" / CHARACTER
+            / "soul" / "wiki.jsonl")
     assert wiki.exists() and wiki.stat().st_size > 0
     # 注入段已刷新（下一轮自动生效）
     assert "【角色记忆" in engine._brain_injection

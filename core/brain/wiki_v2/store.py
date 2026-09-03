@@ -34,9 +34,12 @@ class WikiStoreV2:
     def __init__(self, data_root: str | Path = "data", *,
                  world_id: str = "world1", char_id: str = "",
                  path: str | Path | None = None):
+        # soul/ = 记忆层子目录（2026-09-04 用户拍板: 角色目录下开 soul 收编记忆
+        # 子系统——events 原材料 + wiki 成品 + 变更史 + 出厂快照自包含; 会话层
+        # meta/progress/sessions 留在 characters/{char}/ 原地）
         self.path = Path(path) if path is not None else (
             Path(data_root) / "worlds" / world_id / "characters"
-            / char_id / "wiki.jsonl")
+            / char_id / "soul" / "wiki.jsonl")
         self.meta_path = self.path.with_name("wiki.meta.json")
         self.meta: dict = self._load_meta()
         self._nodes: dict[str, BrainNode] = {}

@@ -97,7 +97,9 @@ class SessionStore:
         return self.char_dir(char_id) / "meta.json"
 
     def events_path(self, char_id: str, session_id: str = "") -> Path:
-        return self.char_dir(char_id) / "events.jsonl"
+        # soul/ = 记忆层（2026-09-04 拍板: events 原材料与 wiki 成品同居——
+        # digest 读 events 写 wiki, 重算自包含; 写时父目录自动 mkdir）
+        return self.char_dir(char_id) / "soul" / "events.jsonl"
 
     def progress_path(self, char_id: str, session_id: str = "") -> Path:
         return self.char_dir(char_id) / "progress.json"
