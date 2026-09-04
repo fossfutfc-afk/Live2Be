@@ -160,11 +160,16 @@
     <div id="bond-choices" class="bond-choices"></div>
     <!-- 右下: 继续提示（点击跳过逐字 / 剧情结束点击收尾） -->
     <div id="bond-continue" class="bond-continue" aria-hidden="true">▾</div>
-    <!-- 章节标题面板（开场: 模糊背景 + 白色横条 + 深蓝大字, 如"预先应对"） -->
+    <!-- 章节标题面板（开场: 模糊背景 + 白色横条 + 深蓝大字, 如"预先应对";
+         双用: ① 进场景等待期标题卡（waitCard——reason 文案, 掩盖首场生成缓冲）
+         ② 章节标题屏（scene.title, showTitle）） -->
     <div id="bond-title" class="bond-title hidden" aria-hidden="true">
       <div class="bond-title-bg"></div>
       <div class="bond-title-frame"></div>
-      <div class="bond-title-bar"><span id="bond-title-text" class="bond-title-text"></span></div>
+      <div class="bond-title-bar">
+        <span id="bond-title-text" class="bond-title-text"></span>
+        <span id="bond-title-note" class="bond-title-note hidden">回忆正在浮现…</span>
+      </div>
     </div>
     <!-- 菜单面板（右上"菜单": 对话记录 / 打字速度 / 自动播放 / 结束剧情） -->
     <div id="bond-menu" class="bond-menu hidden" aria-hidden="true">
