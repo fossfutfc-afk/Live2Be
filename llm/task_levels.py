@@ -26,14 +26,13 @@ off = 显式关闭（extra_body={}）; low|medium|high = 显式覆盖。
 | vn_cli    | main   |       1536 | CLI run_bond_story_vn 默认（历史值; 函数参数仍可覆盖） |
 | emotion   | emotion|        512 | 标注数组输出（关 thinking 后足量） |
 | digest    | digest |       8192 | Round A/B 长 JSON 决策（思考 + 输出同预算, high 长考实测 ~2min） |
-| ide       | ide    |      16384 | IDE agent（独立模型 IDE_MODEL, 长文档任务） |
 
 ## settings.toml 覆盖（可选, 不做也能跑）
 
     [llm.tasks.mmt]        thinking = "high"    # 覆盖档位（off/low/medium/high/default）
     [llm.tasks.emotion]    max_tokens = 768     # 覆盖输出上限
 
-覆盖键按"输出形态"名（mmt/bond/vn_cli/emotion/digest/ide）。
+覆盖键按"输出形态"名（mmt/bond/vn_cli/emotion/digest）。
 """
 from __future__ import annotations
 
@@ -51,8 +50,6 @@ PROFILES: dict[str, dict] = {
                 "note": "情绪标注数组（低价值, 快失败快兜底）"},
     "digest":  {"thinking": "high",    "max_tokens": 8192,
                 "note": "记忆消化 Round A/B 长 JSON 决策"},
-    "ide":     {"thinking": "default", "max_tokens": 16384,
-                "note": "IDE agent（独立模型 IDE_MODEL）"},
 }
 
 _VALID_THINKING = ("default", "off", "low", "medium", "high")
