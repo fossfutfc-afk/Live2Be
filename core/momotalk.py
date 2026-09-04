@@ -73,8 +73,7 @@ from core.session import SessionStore
 from core.session.events import make_event
 from core.session.renderer import render_events, session_status
 from core.brain.wiki_v2.digest import digest_segment
-from core.brain.wiki_v2.render import render_character_view
-from core.brain.wiki_v2.seed import seed_from_config
+from core.brain.wiki_v2.render import render_background_experience, render_character_view
 from core.brain.wiki_v2.store import WikiStoreV2
 from core.ui.display import MomoTalkOutput
 from core.ui.streaming import DisplayStep
@@ -112,26 +111,30 @@ def _name_aliases(profile: dict) -> tuple[str, ...]:
 
 def load_brain_segment(store: SessionStore, char_id: str, char_name: str = "",
                        characters_root: str | Path | None = None) -> str:
-    """角色注入段（wiki_v2, 0 LLM）——bond 开场/剧情引擎共用（webgui.bond/vn_cli）。
+    """角色注入段（0 LLM）——bond 开场/剧情引擎共用（webgui.bond/vn_cli）。
 
-    出厂基座确保（空库 seed, source_key 幂等）→ render_character_view 第一人称
-    （全名 + 称喟别名→我; 别名从角色 profile 取）; 失败/空库 → ""
-    （零注入, 平行世界; 读失败静默跳过, 不阻断剧情）。
+    2026-09-05 解耦定稿: 出厂记忆**不进 wiki**——注入段 = 出厂背景（experience.yml
+    原文直注, render_background_experience, 与 personality 同为作者人设描述）+ 运行时
+    wiki 记忆（render_character_view, digest 产物——空库为 ""）。wiki 只存玩家参与后
+    的事; 背景经历是她的底色, LLM 扮演时自然内化。失败/空 → ""（零注入不阻断）。
     """
     try:
-        wstore = WikiStoreV2(store.data_root, world_id=store.world_id,
-                             char_id=char_id)
+        seg_parts: list[str] = []
         aliases: tuple[str, ...] = ()
         if characters_root is not None:
             try:
                 ch = CharacterLoader(characters_root).load(char_id, strict=False)
                 aliases = _name_aliases(ch.profile)
-            except Exception:                          # noqa: BLE001 — 别名取不到静默
+                seg_parts.append(render_background_experience(ch.experience))
+            except Exception:                          # noqa: BLE001 — 背景取不到静默
                 pass
-            if not any(n.is_seed() for n in wstore.all()):
-                seed_from_config(wstore, Path(characters_root) / char_id)
-        return render_character_view(wstore.all(), char_name=char_name,
-                                     char_aliases=aliases) or ""
+        wstore = WikiStoreV2(store.data_root, world_id=store.world_id,
+                             char_id=char_id)
+        wiki_seg = render_character_view(wstore.all(), char_name=char_name,
+                                         char_aliases=aliases) or ""
+        if wiki_seg:
+            seg_parts.append(wiki_seg)
+        return "\n\n".join(p for p in seg_parts if p.strip())
     except Exception:                                # noqa: BLE001 — 宁缺勿错
         return ""
 
@@ -382,16 +385,20 @@ class MomoTalkEngine:
 
     def _inject_brain(self, character_id: str, session_id: str = "", *,
                       digest: bool = False) -> None:
-        """Brain 接线（wiki_v2, 2026-09-02 切换）: 注入角色 wiki → 注入段。
+        """Brain 接线（wiki_v2, 2026-09-02 切换; 2026-09-05 解耦）: 注入角色 wiki → 注入段。
 
-        角色记忆 = per-char 单库（wiki.jsonl, 与 events.jsonl 同目录——SessionStore
-        session_id 不参与路径）; 注入段动态拼装（_brain_injection 原子替换）——
-        digest 后台完成后**下一轮自动生效**, 不追加防重复注入, 跨线程零锁。
+        角色记忆 = per-char 单库（soul/wiki.jsonl——SessionStore session_id 不参与
+        路径）; 注入段动态拼装（_brain_injection 原子替换）——digest 后台完成后
+        **下一轮自动生效**, 不追加防重复注入, 跨线程零锁。
 
-        digest=False（resume）: 只读注入 + 出厂基座确保（0 LLM, source_key 幂等）。
-        digest=True（async_digest 后台线程, _digest_lock 串行）: 出厂基座 →
-        digest_segment（Round A 记录 + Round B 组织）→ 好感结算
-        （affection 事件, 幂等键 interact_max）→ 注入刷新。
+        2026-09-05 解耦: 出厂记忆不进 wiki——注入段 = 出厂背景（experience.yml
+        原文直注, render_background_experience）+ 运行时 wiki（digest 产物）;
+        **主进程不再调用 seed_from_config**（出厂改编链模块化, 可选调用）。
+
+        digest=False（resume）: 只读注入。
+        digest=True（async_digest 后台线程, _digest_lock 串行）: digest_segment
+        （Round A 记录 + Round B 组织）→ 好感结算（affection 事件, 幂等键
+        interact_max）→ 注入刷新。
         失败静默降级——wiki 是派生视图, events.jsonl 唯一真源, 可重算。
         """
         store = self._store
@@ -401,11 +408,12 @@ class MomoTalkEngine:
         anchor = yaml_to_prompt(
             {**char.personality, **char.knowledge}, "角色人设（锚点）")
         try:
+            seg_parts: list[str] = []
+            bg = render_background_experience(char.experience)
+            if bg:
+                seg_parts.append(bg)
             wstore = WikiStoreV2(store.data_root, world_id=store.world_id,
                                  char_id=character_id)
-            # 出厂基座（0 LLM——定稿 brain_seed 或原文, 确定性复制, source_key 幂等）
-            if not any(n.is_seed() for n in wstore.all()):
-                seed_from_config(wstore, self._characters_root / character_id)
             if digest:
                 events = store.events(character_id)
                 interact_max = _interact_max(events, wstore.digested_seq)
@@ -418,11 +426,13 @@ class MomoTalkEngine:
                 elif res.affection_delta > 0 and interact_max:
                     self._write_affection_event(store, character_id, events,
                                                 interact_max, res.affection_delta)
-            seg = render_character_view(
+            wiki_seg = render_character_view(
                 wstore.all(),
                 char_name=char.display_name or "",
                 char_aliases=_name_aliases(char.profile))
-            self._brain_injection = seg or ""
+            if wiki_seg:
+                seg_parts.append(wiki_seg)
+            self._brain_injection = "\n\n".join(seg_parts)
         except Exception as e:                       # noqa: BLE001 — 宁缺勿错
             logger.warning("brain 注入失败 (%s): %s", character_id, e)
 

@@ -67,24 +67,21 @@ def _mmt_event(st, char_id, seq_base):
 
 def test_mmt_window_trigger_digests(tmp_path):
     """_session_rounds=25 → _maybe_mmt_digest → 后台 digest 完成:
-    seed（出厂基座）+ 水位推进 + 好感事件落库。"""
+    水位推进 + 好感事件落库（2026-09-05 解耦: 出厂基座不再 seed 进 wiki——
+    出厂背景 = experience.yml 原文直注, wiki 只存 digest 产物）。"""
     engine, st, llm = _engine(tmp_path)
     _mmt_event(st, CHARACTER, 1)                # 有事件可消化
     engine._session_rounds = MMT_DIGEST_INTERVAL  # 模拟 25 轮已记录
 
     assert engine._maybe_mmt_digest() is None   # 仅触发（返回 None）
-    # 后台 digest: seed（0 LLM）+ A/B 两轮空包 → 好感 5 落 affection 事件
+    # 后台 digest: A/B 两轮空包 → 好感 5 落 affection 事件
     assert _wait(lambda: any(
         e.type == "affection" and e.subtype == "digest"
         for e in st.events(CHARACTER))), "25 轮触发后应有好感事件"
     assert llm.llm_calls == 2                   # 恰好 A+B 两轮
-    # 出厂基座落库（soul/ = 记忆层——wiki 与 events 同居, 2026-09-04）
-    wiki = (Path(tmp_path) / "worlds" / "world1" / "characters" / CHARACTER
-            / "soul" / "wiki.jsonl")
-    assert wiki.exists() and wiki.stat().st_size > 0
-    # 注入段已刷新（下一轮自动生效）
-    assert "【角色记忆" in engine._brain_injection
-    assert "老师" in engine._brain_injection or "遥香" in engine._brain_injection
+    # 注入段已刷新: 出厂背景（yml 直注）+ 无出厂节点落 wiki（空包 digest 零产物）
+    assert "【背景经历" in engine._brain_injection
+    assert "遥香" in engine._brain_injection or "sensei" in engine._brain_injection
 
 
 def test_mmt_window_skipped_in_vn(tmp_path):
