@@ -33,14 +33,12 @@
       调用全删（load_brain_segment/_inject_brain）——注入段 = 出厂背景
       （experience.yml 原文直注 cap 6: render_background_experience, 第三人称
       不转换——LLM 自然内化）+ 运行时 wiki（digest 产物）; world1 出厂残留已清
-- [ ] **出厂改编链模块化归档**（代码保留可调用, 主进程不用——本次决策的落实）:
-      seed.py v3/v4 + seed_digest 工具/prompt + brain_seed.yml 定稿稿 + guidance/
-      beliefs.md 的定位改写 = "创作辅助（背景文本润色/可选导出）"; 用词更新标注
+- [x] **预处理链归档**（5b44411, 471 全过）: seed 引擎/改编工具/prompt/brain_seed
+      稿/beliefs 手册/对应测试 → archive/factory_memory/（git mv 保历史, README
+      记录可复用资产: 记忆化重构规则/逐条调用模式/brain_seed 稿可作背景润色参考）
 - [ ] **背景段实机效果验证**: 【背景经历】指引（"回忆过去以此为准/底色不必每轮提起"）
       在 bond/MMT 的表现——第三人称背景 LLM 自然内化是否成立（酒馆同款验证）;
       以及 cap 6 是否够（12 条只显前 6——作者可调 experience.yml 顺序）
-- [ ] 旧 TODO 阶段 5.2-6（brain_seed review 定稿/重灌/guidance 写作规范）——
-      除 beliefs 素材外随解耦作废; 归档清理
 
 **阶段 0 设计定稿** ✅
 - [x] 0.1 出厂 = 一次定稿（brain_seed.yml）; seed = 确定性复制; digest 只处理玩家新记忆
