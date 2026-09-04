@@ -162,6 +162,26 @@ def render_character_view(
     return "\n\n".join(blocks)
 
 
+def render_background_experience(data: dict, *, cap: int = 6) -> str:
+    """出厂背景段（2026-09-05 解耦定稿: 出厂记忆**不进 wiki**）。
+
+    experience.yml 原文直注——与 personality 同为"作者人设描述", LLM 扮演时
+    自然内化（社区主流做法: 预置内容 = 直注上下文, 不做节点化/改编/第一人称
+    转换——回忆是 LLM 基本能力）。cap 按作者书写顺序截断（预算保护;
+    想调展示集 → 改 experience.yml 条目顺序/拆段）。
+
+    返回 "" = 无经历素材（零注入不阻断）。头段指引 LLM: 这些是她游戏开始前
+    的人生, 回忆过去以此为准（运行时 wiki 的记忆只含玩家参与后的事）。
+    """
+    from core.brain.wiki_v2.seed import _collect_leaves
+    leaves = _collect_leaves(data)
+    if not leaves:
+        return ""
+    body = "\n".join(f"- {text}" for _, text in leaves[:cap])
+    return ("【背景经历（游戏开始前她的人生——她回忆这段过去时以此为准; "
+            "这是她的底色, 不必每轮提起）】\n" + body)
+
+
 def _reported_line(node: BrainNode, char_name: str,
                    aliases: tuple[str, ...] = ()) -> str:
     line = f"- {_me(node.narration, char_name, aliases)}"
