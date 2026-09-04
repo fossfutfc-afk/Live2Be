@@ -26,7 +26,7 @@ reason 便签可退役（title 顶上）。
 | 事件 | 渲染为 | 规则 |
 |---|---|---|
 | `mmt/mmt_chat` | user=player 文本; assistant=reply | 现状保留: 去动作括号 + 切块模拟逐条消息（`split_reply_chunks`） |
-| `mmt/mmt_trigger_bond_story` | 不渲染正文 | 触发动作是系统转折点——但其 reply/reason 已在同轮前后（trigger 轮有 text 邀约话独立成 mmt chat? 需核对——设计: 只渲染该事件里的 reply 文本若非空, 不给 reason） |
+| `mmt/mmt_trigger_bond_story` | assistant = `（进入羁绊剧情: {chapter_title}）` | **title 取代 reason**（2026-09-05 拍板）: trigger payload 改必填 chapter_title, title 进上下文（本章命题——AI 知道刚才进入了叫什么的故事）; reason 字段退役（mmt 侧联动实施） |
 | `bond/story_scene` | user=input（玩家输入/旁白种子）; assistant=叙事提取 | 见 §2.1 |
 | `bond/memorial_enter` | 同 story_scene 叙事提取 | memorial 主体是 bond 事件（paragraphs=煽情文字）——**必渲染**, 行首标 `（纪念时刻画面…）` |
 | `bond/memorial_exit` | 叙事提取（过渡文字） | 同上 |
@@ -42,7 +42,7 @@ branches?, is_end?, input, background?...}`
 
 ```
 标题（若有 title）:      「{title}」
-句段:                  每句段一行: `{text}（{emotion}）`——emotion **必须随行保留**
+句段:                  每句段一行: `{text}（{emotion}）`——emotion **必须随行保留**\n                       （2026-09-05 格式定稿: 句末括号, **不翻译成中文**——emotion 键 =\n                       emotions.yml 词表键, 消费方（差分 hashmap/回放）直接查键映射,\n                       英文是全链路唯一统一语言, 翻译引入第二套映射）
                        （2026-09-05 用户拍板: emotion 是回放表情时间轴的基础——
                        上下文/回放/渲染三消费方读同一真源）; 旧事件无 emotion → 不标
 选项:                  （选项: {choices 文本逐条 }）——出现于场景带选项时
@@ -120,31 +120,33 @@ def window_messages(events, *, max_units=120):
 - 边界: 窗口内 bond 全场景文本（不压缩）——长剧情下预算内可容纳的"轮数"少于 mmt
   纯聊天时; 这是"按量占窗"的预期行为, 后续如需可加 bond 摘要压缩（v2 再议, 设计预留）
 
-## 6. 待确认点
+## 6. 决策记录（2026-09-05 全部拍板, 设计定稿）
 
-1. 窗口默认 120 单元（mmt 切块 + bond 段落）、单单元异常阈值 500 字——数值 OK?
-2. 段落行格式 `{text}（{emotion}）`——可读性 OK? 还是想要映射中文（nomal→平静）
-   或行首标签 `[smile] text`?
-3. ~~`patch_last_event` 破例~~——**已删除**: 落库时序核对 = 裁决时落库且门控保证标注就绪, 事件即终态（§2.1）
-4. trigger 事件渲染: 只保留其 reply 文本（若有）, reason 不渲染——等 title 方案落定后 reason 字段退役, 本节再校
-5. branches 不展开只记 picked——认可?
+1. **窗口 120 单元**定稿（mmt 切块 + bond 句段; 单单元异常阈值 500 字——句子化折计）;
+   滑动窗口机制本身升级 = 未来项（分工不变, 预算机制可换）
+2. **emotion 句末括号**定稿 `{text}（{emotion}）`; **不翻译**——emotion 键 = 词表键,
+   消费方（差分 hashmap/回放）直接查键映射, 英文是全链路唯一统一语言
+3. ~~patch 破例~~ —— 已删除（落库即终态: 裁决时落库且门控保证标注就绪, 见 §2.1）
+4. **reason 退役 → title** 定稿: trigger payload 换必填 chapter_title, **title 进上下文**;
+   reason 字段退役（mmt 侧联动: schema/prompt/executor/_trigger_reason/bond 消费点）
+5. **branches 不写记忆**定稿: 只记选项 + picked; 未选分支内容永不进上下文
 
 ---
 
 ## 7. 最终形态示例（含 emotion 处理系统, 理论规范）
 
 > 展示: 一段剧情（mmt 邀约 → bond 开场 → 玩家选选项）从事件流到 LLM 上下文的
-> 终态。emotion 处理系统嵌入方式: 骨架落库（段落 emotion 可能缺失/全 nomal）
-> → emo-LLM 全权标注（人设摘要 + 词表 + 段落文本 → 每段标签, 两遍式 C 第二遍）
-> → `patch_last_event` 回写终态。**渲染/窗口/回放读的都是 patch 后的终态**。
+> 终态。emotion 处理系统嵌入方式: 骨架（内存态）→ emo-LLM 全权标注（人设摘要 +
+> 词表 + 句段文本 → 每段标签, 两遍式 C 第二遍）→ **事件在玩家裁决时落库, 门控
+> 保证标注已就绪**（事件即终态, 无 patch——见 §2.1 核对）。渲染/窗口/回放读同一终态。
 
-### 7.1 事件流终态（patch 后, events.jsonl 里的样子）
+### 7.1 事件流终态（events.jsonl 里的样子——落库即终态）
 
 ```jsonc
 // mmt chat（原文即有）——不变
 {"type": "mmt", "subtype": "mmt_chat", "payload": {"player": "遥香，明天带我去看你的杂草吧", "reply": "诶？！老、老师要来看我的杂草……嗯！我会好好准备的！"}}
 
-// bond 场景——骨架落库时为段落 emotion 缺失; 标注完成后 patch 回写, 终态如下
+// bond 场景——事件落库即在标注就绪后（裁决时 + 门控）——段落带 emotion 即终态
 {"type": "bond", "subtype": "story_scene", "payload": {
   "input": "（旁白）基于「带老师去看自己养的杂草」……",
   "title": "杂草屋的午后",
@@ -161,8 +163,7 @@ def window_messages(events, *, max_units=120):
 }}
 ```
 
-（骨架态 = 上例段落**去掉 emotion 键**; `patch_last_event` 只在标注成功后
-原地补齐——标注失败 → 保持骨架, 渲染端 nomal 兜底, 无双路径。）
+（渲染示例中的标题行/触发段落见 §2 表; 标注失败 → nomal 兜底（_fallback_fill）, 事件恒带 emotion。）
 
 ### 7.2 渲染产物（喂 LLM 的消息, 窗口内形态）
 
@@ -196,9 +197,9 @@ def window_messages(events, *, max_units=120):
 ### 7.3 算法简述
 
 ```
-① 标注管线（写侧）:   骨架段落（无 emotion）→ 事件落库（骨架态）
-                       → emo worker（人设摘要+词表+文本 → 每段标签, robust 二分/逐项）
-                       → patch_last_event（锁内尾行原位回写 emotion）→ 终态
+① 标注管线（写侧）:   骨架（内存态, 无 emotion）→ emo worker（人设摘要+词表+
+                       句段文本 → 每段标签, robust 二分/逐项, 失败 nomal 兜底）
+                       → 玩家裁决时落库（门控保证标注已就绪）→ 事件即终态
 ② 渲染（读侧）:       render_events: mmt chat → 文本对（切块）; bond → 叙事提取
                        （§2.1: title/段落带 emotion/选项/picked/结束标）;
                        marker/affection/digest → 跳过
