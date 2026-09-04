@@ -156,6 +156,18 @@ def run_bond_story_vn(
         engine.char_loader.root, engine.llm,
         director=_build_director(char, reason), brain_segment=brain_segment)
     vn.start_session(char.character_id)
+    # 统一上下文窗口（2026-09-05, DESIGN_CONTEXT_WINDOW）: 触发/恢复时从事件流
+    # 灌最近叙事进 vn._history——首场带着触发前的 MMT 对话（断桥修复: AI 知道自己
+    # 刚聊过什么）; 与引擎内部自增历史同构（render_bond_scene_text）。store 缺 → 跳过
+    try:
+        store_ = store if store is not None else engine._store
+        if store_ is not None:
+            from core.session.renderer import window_messages
+            _win = window_messages(store_.events(char.character_id))
+            if _win:
+                vn._history = _win
+    except Exception:                                # noqa: BLE001 — 灌窗失败不阻断
+        pass
 
     # 渲染器（M1 收编）: 本场 VN 共用——背景查库/差分意图/特效/打字/选项全部走 renderer 管线
     renderer = Renderer(char.character_id)

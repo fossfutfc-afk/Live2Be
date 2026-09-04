@@ -162,7 +162,7 @@ def test_engine_attaches_background_audio(tmp_path):
     dct = scene.to_dict()
     assert dct["background"] == "class_room"             # 存档可见
     assert "sprite" not in dct and "beat_sprites" not in dct
-    hist = json.loads(vn.history[-1]["content"])
+    hist = vn.history[-1]["content"]                    # 2026-09-05: 叙事文本历史
     assert "background" not in hist and "audio" not in hist   # 导演输出不进主 LLM 历史
     print("    engine: place→background + audio 合并进 BondScene; 历史不含导演字段")
 

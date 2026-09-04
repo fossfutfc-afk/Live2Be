@@ -41,6 +41,7 @@ from core.session.events import (
     M_VN_STATE,
     make_event,
 )
+from core.session.renderer import window_messages
 from core.ui.vn_cli import _build_director, _trigger_reason
 from llm.image_gen import ImageGenerator, collect_ref_images
 from webgui import chat
@@ -273,6 +274,15 @@ def bond_start(char_id: str, session_id: str) -> dict:
         engine.char_loader.root, engine.llm,
         director=_build_director(char, reason), brain_segment=brain_segment)
     vn.start_session(char.character_id)
+    # 统一上下文窗口（2026-09-05, DESIGN_CONTEXT_WINDOW）: 从事件流灌最近叙事进
+    # vn._history——首场带着触发前的 MMT 对话（断桥修复）; 事件流已是终态
+    # （裁决时落库 + 门控保证标注就绪）; 与引擎自增历史同构, 滑动无缝
+    try:
+        _win = window_messages(_store().events(char_id))
+        if _win:
+            vn._history = _win
+    except Exception:                                # noqa: BLE001 — 灌窗失败不阻断
+        pass
 
     state.vn = vn
     state.reason = reason
