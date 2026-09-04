@@ -552,7 +552,7 @@ def test_engine_resume_history_window(tmp_path):
     engine = MomoTalkEngine(ROOT / "config" / "characters", Scripted(), store=st)
     info = engine.resume_session("igusa_haruka", root.session_id)
     assert info["history_len"] == 40 * 3, info            # 120 单元（默认 rounds 40 × 3）
-    assert engine.history[0]["content"] == "p40", engine.history[0]   # 窗口起点 = 第 41 轮
+    assert engine.history[0]["content"] == "p20", engine.history[0]   # 丢最老 40 条(20轮)
     assert engine.history[-2]["content"] == "p79", engine.history[-2] # 窗口终点 = 最新
     assert engine.history[1]["role"] == "assistant"
     print("    resume 窗口: 80 轮事件 → 最近 120 单元（40×3）, 与实时 _trim_history 一致")
