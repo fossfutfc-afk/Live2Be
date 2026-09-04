@@ -224,17 +224,16 @@ def test_render_events_messages():
     assert msgs[1] == {"role": "assistant", "content": "[mmt_chat] 啊、好看吧？"}
     assert msgs[2] == {"role": "assistant", "content": "[mmt_send_media]"}
     assert msgs[3] == {"role": "assistant", "content": "[mmt_chat] 是我拍的…"}
-    # bond: input → user + 紧凑 JSON assistant（与引擎历史一致）
+    # bond: input → user + 叙事提取 assistant（2026-09-05: 不再整 payload JSON——
+    # 上下文只放"发生过什么的叙事 + 情绪"; 段落无 emotion → 不标, 原样句段文本）
     assert msgs[4]["role"] == "user" and "旁白" in msgs[4]["content"]
-    import json as _json
-    parsed = _json.loads(msgs[5]["content"])
-    assert parsed["paragraphs"] == ["她红着脸。"]
+    assert msgs[5] == {"role": "assistant", "content": "她红着脸。"}
     # 第二个 bond 的 input=上一场 picked
     assert msgs[6] == {"role": "user", "content": "别紧张"}
     # marker/l2d 不产生消息
     assert all(m["role"] in ("user", "assistant") for m in msgs)
     assert len(msgs) == 8
-    print("    render_events: mmt 同轮去重 + bond 紧凑 JSON + marker/l2d 跳过")
+    print("    render_events: mmt 同轮去重 + bond 叙事提取 + marker/l2d 跳过")
 
 
 def test_render_events_roundtrip_with_engine_format():
@@ -243,10 +242,10 @@ def test_render_events_roundtrip_with_engine_format():
     msgs = render_events(evs)
     # mmt 历史格式: "[mmt_chat] 回复"（momotalk._finish_turn_list 同款）
     assert msgs[1]["content"].startswith("[mmt_chat] ")
-    # bond 历史格式: 紧凑 payload JSON（bond_story.send_vn_scene 同款, separators=(",",":")）
-    import json as _json
-    assert " " not in msgs[5]["content"], "bond assistant 应为紧凑 JSON（无空格分隔）"
-    _json.loads(msgs[5]["content"])
+    # bond 历史格式: 叙事文本（2026-09-05——同 render_bond_scene_text;
+    # 与引擎 history 同构的改动见 bond_story, 此断言 = 渲染无结构噪音）
+    assert "她红着脸。" in msgs[5]["content"]
+    assert "{" not in msgs[5]["content"], "bond assistant 应为叙事文本（非 JSON）"
     print("    render_events: 与引擎 history 格式一致（恢复零转换）")
 
 
