@@ -127,3 +127,84 @@ def window_messages(events, *, max_units=120):
 3. `patch_last_event` 破 append-only 例（仅 emotion 定稿回写, 过锁）——认可?
 4. trigger 事件渲染: 只保留其 reply 文本（若有）, reason 不渲染——等 title 方案落定后 reason 字段退役, 本节再校
 5. branches 不展开只记 picked——认可?
+
+---
+
+## 7. 最终形态示例（含 emotion 处理系统, 理论规范）
+
+> 展示: 一段剧情（mmt 邀约 → bond 开场 → 玩家选选项）从事件流到 LLM 上下文的
+> 终态。emotion 处理系统嵌入方式: 骨架落库（段落 emotion 可能缺失/全 nomal）
+> → emo-LLM 全权标注（人设摘要 + 词表 + 段落文本 → 每段标签, 两遍式 C 第二遍）
+> → `patch_last_event` 回写终态。**渲染/窗口/回放读的都是 patch 后的终态**。
+
+### 7.1 事件流终态（patch 后, events.jsonl 里的样子）
+
+```jsonc
+// mmt chat（原文即有）——不变
+{"type": "mmt", "subtype": "mmt_chat", "payload": {"player": "遥香，明天带我去看你的杂草吧", "reply": "诶？！老、老师要来看我的杂草……嗯！我会好好准备的！"}}
+
+// bond 场景——骨架落库时为段落 emotion 缺失; 标注完成后 patch 回写, 终态如下
+{"type": "bond", "subtype": "story_scene", "payload": {
+  "input": "（旁白）基于「带老师去看自己养的杂草」……",
+  "title": "杂草屋的午后",
+  "paragraphs": [
+    {"text": "（她抱着小水壶站在通往破屋的小路口, 回头看你时差点被自己绊倒。）", "emotion": "nomal"},
+    {"text": "那个……老师, 这边走。",                                   "emotion": "nomal"},
+    {"text": "虽然里面还是破破烂烂的……但杂草们最近都有好好长高！",         "emotion": "smile"},
+    {"text": "……我每天都会来给它们浇水, 也会和它们说说话。",             "emotion": "nomal"},
+    {"text": "总觉得它们……和我有点像。",                                "emotion": "sad"}
+  ],
+  "choices": ["认真看每一盆杂草", "问她哪一盆最宝贝"],
+  "picked": 1,
+  "is_end": false
+}}
+```
+
+（骨架态 = 上例段落**去掉 emotion 键**; `patch_last_event` 只在标注成功后
+原地补齐——标注失败 → 保持骨架, 渲染端 nomal 兜底, 无双路径。）
+
+### 7.2 渲染产物（喂 LLM 的消息, 窗口内形态）
+
+```jsonc
+[
+  {"role": "user",      "content": "遥香，明天带我去看你的杂草吧"},          // mmt: player 原文
+  {"role": "assistant", "content": "诶？！老、老师要来看我的杂草……嗯！我会好好准备的！"},  // mmt: reply 去括号
+  {"role": "user",      "content": "（旁白）基于「带老师去看自己的杂草」……"},  // bond: input
+  {"role": "assistant", "content":
+     "「杂草屋的午后」\n" +                                        // title
+     "（她抱着小水壶站在通往破屋的小路口, 回头看你时差点被自己绊倒。）（nomal）\n" +
+     "那个……老师, 这边走。（nomal）\n" +
+     "虽然里面还是破破烂烂的……但杂草们最近都有好好长高！（smile）\n" +
+     "……我每天都会来给它们浇水, 也会和它们说说话。（nomal）\n" +
+     "总觉得它们……和我有点像。（sad）\n" +
+     "（选项: 认真看每一盆杂草 / 问她哪一盆最宝贝）\n" +
+     "（选择了: 问她哪一盆最宝贝）"
+  },
+  {"role": "user",      "content": "问她哪一盆最宝贝"},                    // 下一场: 玩家选择 = input
+  // ...下一场景同理
+]
+```
+
+形态要点:
+- **emotion 随段落行尾**（`（nomal）`）——LLM 读上下文时把握每句语气;
+  消费方（回放）直接用它驱动立绘差分, 同一真源
+- 旁白/台词不标注 speaker——原文段落流, LLM 自读（括号段 = 旁白是叙事惯例）
+- 选项/选择入上下文（分支走向）, branches 未选内容永不出现
+- 无 title 场景 → 标题行省略; emotion 缺失（旧数据）→ 行尾不标
+
+### 7.3 算法简述
+
+```
+① 标注管线（写侧）:   骨架段落（无 emotion）→ 事件落库（骨架态）
+                       → emo worker（人设摘要+词表+文本 → 每段标签, robust 二分/逐项）
+                       → patch_last_event（锁内尾行原位回写 emotion）→ 终态
+② 渲染（读侧）:       render_events: mmt chat → 文本对（切块）; bond → 叙事提取
+                       （§2.1: title/段落带 emotion/选项/picked/结束标）;
+                       marker/affection/digest → 跳过
+③ 窗口装填:           window_messages: 倒序（最近优先）, 预算 = 叙事单元数
+                       （mmt 切块 + bond 段落数, 默认 120）, 超预算丢最老整条;
+                       异常超长单元（>500 字）→ 句末标点切句折计（中文句号优先,
+                       无则英文句点, 再无硬切——保留最近句）
+④ 注入点:            momotalk resume / bond_start / vn 恢复 → 同一 window_messages;
+                       bond 内部自增历史同 §2.1 格式（与窗口渲染同构, 无缝衔接）
+```
