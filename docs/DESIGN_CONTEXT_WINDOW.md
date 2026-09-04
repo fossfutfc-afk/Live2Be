@@ -42,7 +42,7 @@ branches?, is_end?, input, background?...}`
 
 ```
 标题（若有 title）:      「{title}」
-段落:                  每段一行: `{text}（{emotion}）`——emotion **必须随行保留**
+句段:                  每句段一行: `{text}（{emotion}）`——emotion **必须随行保留**
                        （2026-09-05 用户拍板: emotion 是回放表情时间轴的基础——
                        上下文/回放/渲染三消费方读同一真源）; 旧事件无 emotion → 不标
 选项:                  （选项: {choices 文本逐条 }）——出现于场景带选项时
@@ -68,10 +68,10 @@ reply 切块多条的现状保留）; bond 事件产出 user+assistant 两条（
 
 ### 3.1 预算计量（事件单元数, 不引 tokenizer）
 
-bond 场景的"大小" = 段落数（每段一 emotion 标签——2026-09-05 用户拍板:
+bond 场景的"大小" = 句段数（契约层 paragraphs = 切分后的句段列表——LLM 输出自然段经 split_paragraph 切碎, 每句段一 emotion 标签; 2026-09-05 用户拍板:
 **直接数情绪标签个数即可**, 段落是天然语义单元）; mmt = reply 切块数。
 
-- 窗口预算 = **最大事件单元数**（块: mmt reply 切块 / bond 段落）;
+- 窗口预算 = **最大事件单元数**（块: mmt reply 切块 / bond 句段）;
   长段（段落多）自然多占窗口——"程序计算长段占多少窗口"即数段。
 - 默认: `WINDOW_UNITS = 120`（≈ 原 40 轮 × 2 条当量, 语义从"条数/字符"改为
   "单元数"——每单元是完整叙事句, 无半切）。单单元超长（异常段落 > 500 字）
@@ -79,7 +79,7 @@ bond 场景的"大小" = 段落数（每段一 emotion 标签——2026-09-05 �
 
 ### 3.2 驱逐单元（裁剪粒度）
 
-1. 正常驱逐单元 = **一个叙事单元**（mmt 切块 / bond 段落）——窗口尾部倒序装填,
+1. 正常驱逐单元 = **一个叙事单元**（mmt 切块 / bond 句段）——窗口尾部倒序装填,
    超预算丢最老的整单元, 不半切
 2. 异常超长单元（> 500 字）→ 句子化折计（§3.1）——保留最近句
 
@@ -91,7 +91,7 @@ def window_messages(events, *, max_units=120):
     # 倒序装填: 最近的先保证; 单元数 = mmt 切块数 + bond 段落数（渲染时记录）
     units = 0; out = []
     for m in reversed(msgs):
-        u = unit_count(m)                 # 该消息含多少叙事单元（段落/切块数）
+        u = unit_count(m)                 # 该消息含多少叙事单元（句段/切块数）
         if out and units + u > max_units:
             break                          # 超预算 → 丢更老的整条
         units += u; out.append(m)
