@@ -22,12 +22,25 @@
       （§9.6）; 出厂记忆"整理冒泡"随创建流程一起（§9.5）
 - [ ] **待用户思考**: beliefs 出厂预置 vs 涌现 / 卡变体组织 / overlay 边界（§9.6）
 
-### 出厂定稿管线（brain_seed 定稿制 —— 2026-09-04 设计定稿, 本会话分阶段执行）
+### 出厂定稿管线 → **2026-09-05 转向: 运行时解耦**（出厂记忆不进 wiki）
 
-> 核心: 出厂经历（experience.yml）= **一次定稿**（LLM 逐条改编 + 作者 review → brain_seed.yml）,
-> seed = 确定性复制; digest（运行时）只处理玩家新记忆。修正了: 出厂改编挂后台 digest 的
-> 短时失忆/双轨 bug（0.1）、批量改编质量差（0.2 逐条）、改编 LLM 无人设锚（0.2 人设注入）、
-> 快照回退需 yml 副本（0.4）、中途改卡语义（0.3/行为热更·记忆重灌）。
+> 调研定稿（Letta Memory Blocks / SillyTavern 卡 / 图记忆系）: 主流项目预置内容 =
+> 直注上下文（persona 块/description）, LLM 扮演时自然内化; 图记忆只存运行时。
+> experience.yml = 作者人设描述（与 personality 同性质）, 不是"待改编的记忆"。
+> 改编链代码保留为可调用模块, **主进程不再使用**。
+
+- [x] **运行时解耦已完成**（4290f3e + ece0747, 495 全过）: 主进程 seed_from_config
+      调用全删（load_brain_segment/_inject_brain）——注入段 = 出厂背景
+      （experience.yml 原文直注 cap 6: render_background_experience, 第三人称
+      不转换——LLM 自然内化）+ 运行时 wiki（digest 产物）; world1 出厂残留已清
+- [ ] **出厂改编链模块化归档**（代码保留可调用, 主进程不用——本次决策的落实）:
+      seed.py v3/v4 + seed_digest 工具/prompt + brain_seed.yml 定稿稿 + guidance/
+      beliefs.md 的定位改写 = "创作辅助（背景文本润色/可选导出）"; 用词更新标注
+- [ ] **背景段实机效果验证**: 【背景经历】指引（"回忆过去以此为准/底色不必每轮提起"）
+      在 bond/MMT 的表现——第三人称背景 LLM 自然内化是否成立（酒馆同款验证）;
+      以及 cap 6 是否够（12 条只显前 6——作者可调 experience.yml 顺序）
+- [ ] 旧 TODO 阶段 5.2-6（brain_seed review 定稿/重灌/guidance 写作规范）——
+      除 beliefs 素材外随解耦作废; 归档清理
 
 **阶段 0 设计定稿** ✅
 - [x] 0.1 出厂 = 一次定稿（brain_seed.yml）; seed = 确定性复制; digest 只处理玩家新记忆
