@@ -525,9 +525,10 @@ def test_engine_resume_rejects_ended(tmp_path):
 
 
 def test_engine_resume_history_window(tmp_path):
-    """resume 时 AI 同样只拿到滑动窗口（40 轮 = 80 条消息）——与实时 _trim_history 一致。
+    """resume 时 AI 只拿统一上下文窗口（2026-09-05: 120 单元预算 = rounds×3——
+    每条消息单行计 1 单元; bond 句段按行占窗）——与实时 _trim_history 一致。
 
-    造 60 轮 mmt 事件（远超窗口）→ resume → history 应截断为最近 40 轮。
+    造 80 轮 mmt 事件（160 条, 远超 120 单元）→ resume → 截断为最近 120 条。
     """
     from core.momotalk import MomoTalkEngine
     from core.session import SessionStore
@@ -544,14 +545,14 @@ def test_engine_resume_history_window(tmp_path):
 
     st = SessionStore(tmp_path)
     root = st.create("igusa_haruka", "遥香")
-    for i in range(60):                                   # 60 轮 = 120 条消息, 远超 40 轮窗口
+    for i in range(80):                                   # 80 轮 = 160 条, 远超 120 单元
         st.append_event("igusa_haruka", root.session_id,
                         make_event("mmt", "mmt_chat", {"player": f"p{i}", "reply": f"r{i}"}))
 
     engine = MomoTalkEngine(ROOT / "config" / "characters", Scripted(), store=st)
     info = engine.resume_session("igusa_haruka", root.session_id)
-    assert info["history_len"] == 40 * 2, info            # 40 轮 × 2 条（player + assistant）
-    assert engine.history[0]["content"] == "p20", engine.history[0]   # 窗口起点 = 第 21 轮
-    assert engine.history[-2]["content"] == "p59", engine.history[-2] # 窗口终点 = 最新
+    assert info["history_len"] == 40 * 3, info            # 120 单元（默认 rounds 40 × 3）
+    assert engine.history[0]["content"] == "p40", engine.history[0]   # 窗口起点 = 第 41 轮
+    assert engine.history[-2]["content"] == "p79", engine.history[-2] # 窗口终点 = 最新
     assert engine.history[1]["role"] == "assistant"
-    print("    resume 窗口: 60 轮事件 → 只取最近 40 轮（80 条）, 与实时 _trim_history 一致")
+    print("    resume 窗口: 80 轮事件 → 最近 120 单元（40×3）, 与实时 _trim_history 一致")

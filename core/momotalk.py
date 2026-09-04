@@ -71,7 +71,7 @@ from core.parsing.dynamic_character_parser import (
 from core.parsing.world_parser import DEFAULT_WORLD_PATH, load_world, world_to_prompt
 from core.session import SessionStore
 from core.session.events import make_event
-from core.session.renderer import render_events, session_status
+from core.session.renderer import render_events, session_status, window_messages
 from core.brain.wiki_v2.digest import digest_segment
 from core.brain.wiki_v2.render import render_background_experience, render_character_view
 from core.brain.wiki_v2.store import WikiStoreV2
@@ -521,8 +521,11 @@ class MomoTalkEngine:
         if self._store is not None:                       # Brain 接线（wiki_v2）:
             self._inject_brain(character_id, session_id)  # 恢复时只注入已有 wiki（不消化——
                                                           # digest 由 async_digest 触发: bond 闭环 / mmt N=25 轮）
-        history = render_events(data["events"])           # 事件流 → LLM 消息（同格式）
-        self._history = history[-(self._history_rounds * 2):]
+        # 统一上下文窗口（2026-09-05, DESIGN_CONTEXT_WINDOW）: window_messages 按
+        # 叙事单元数装填（bond 句段按行占窗, 长场景自然挤旧）; 预算 = rounds × 3
+        # （默认 40 轮 → 120 单元, 与板块定稿一致; history_rounds 保留为可配语义）
+        self._history = window_messages(
+            data["events"], max_units=self._history_rounds * 3)
         self.attach_session(session_id)
         return {
             "status": status,
