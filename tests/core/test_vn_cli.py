@@ -121,12 +121,11 @@ def test_send_vn_scene():
     assert scene.choices == ["选A", "选B"], scene.choices
     assert not scene.is_end
     assert vn.history_length == 2, f"send_vn_scene 应记 2 条历史: {vn.history_length}"
-    # 历史存紧凑 JSON（中文完好, 无空格分隔符; story_scene 无 is_end——动作类型推导;
-    # 2026-09-02: 骨架 emotion 丢弃——历史 payload 无 emotion, 标注层另回填 scene）
-    hist = json.loads(vn.history[-1]["content"])
-    assert hist["paragraphs"] == [{"text": "段落一。"}] and hist["choices"] == ["选A", "选B"]
-    assert "is_end" not in hist, f"story_scene 历史不应含 is_end: {hist}"
-    print(f"    send_vn_scene: 1 段 + 2 选项, 历史紧凑 JSON 中文完好无 is_end, {vn.history_length} 条")
+    # 历史 = 叙事提取文本（2026-09-05 统一窗口——与 render_events/事件流渲染同构）
+    hist = vn.history[-1]["content"]
+    assert "段落一。" in hist and "选A" in hist and "选B" in hist
+    assert "（选项: 选A / 选B）" in hist
+    print(f"    send_vn_scene: 1 段 + 2 选项, 历史叙事文本同构, {vn.history_length} 条")
 
     # 收尾场景（story_end 动作 → is_end 推导为 true）
     vn2 = BondStoryEngine(ROOT / "config" / "characters", ScriptedLLM(STORY_END))
