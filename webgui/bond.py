@@ -284,7 +284,8 @@ def bond_start(char_id: str, session_id: str) -> dict:
 
     seed = f"（旁白）基于「{reason}」……" if reason else "（旁白）故事开始了……"
     _generate(state, char_id, session_id, seed)
-    return {"accepted": True, "busy": True, "resumed": False}
+    # reason 随响应返回——前端进场景等待期显示"章节标题卡"（掩盖首场生成缓冲）
+    return {"accepted": True, "busy": True, "resumed": False, "reason": reason}
 
 
 def bond_start_demo(char_id: str, session_id: str) -> dict:

@@ -59,6 +59,7 @@ const BondVN = (() => {
   let speedIdx = 1;             // 打字速度档（0 慢 / 1 中 / 2 快）
   let typeCharMs = SPEEDS[1].char, typePunctMs = SPEEDS[1].punct;
   let historyLog = [];          // 对话记录（每场 {round, paras}——菜单"对话记录"）
+  let waitCard = false;         // 等待标题卡显示中（enter → 首场就绪; 与 showTitle 互斥）
 
   // 打字机状态（renderScene → typeOut → 打完 → showInteraction）
   let typeTimer = null;
@@ -104,12 +105,52 @@ const BondVN = (() => {
       if (!res.ok || !data.accepted) {
         throw new Error(data.detail || data.error || "进入剧情失败");
       }
+      // 等待标题卡（2026-09-05）: 首场在后台 LLM 生成（5s+ 波动）——进入即显示
+      // 章节卡（reason 文案 + "回忆正在浮现…"）掩盖缓冲; 首场就绪 → waitScene
+      // 收卡进场景。resumed（内存态续玩）不显示（场景即刻可用）。
+      if (!data.resumed && !data.completed) {
+        showEnterWait(data.reason || "");
+      }
     } catch (e) {
       showError("进入羁绊剧情失败: " + e.message);
       exit();                        // 失败 → 回 MMT（解锁 + 重启轮询）
       return;
     }
     await waitScene();
+  }
+
+  // 等待标题卡: bond-title 面板的"进场景缓冲"模式——持续显示（不自动过/点击不跳）
+  // 直到 hideEnterWait; 与 showTitle（章节标题屏, 2.4s/点击跳过）互斥（waitCard 标记）
+  function showEnterWait(reason) {
+    const t = $("bond-title");
+    const v = $("view-bond");
+    const note = $("bond-title-note");
+    const np = document.querySelector(".bond-nameplate");
+    if (!t || !v) return;
+    waitCard = true;
+    // 标题文案: reason 太长取首句; 无 reason → 通用
+    let title = (reason || "").trim();
+    const cut = title.indexOf("。");
+    if (cut > 0) title = title.slice(0, cut);
+    $("bond-title-text").textContent = title || "羁绊剧情";
+    if (note) note.classList.remove("hidden");
+    t.classList.remove("hidden", "fade-out");
+    if (np) np.classList.add("hidden");
+    v.classList.add("title-active");
+  }
+
+  function hideEnterWait() {
+    const t = $("bond-title");
+    const v = $("view-bond");
+    const note = $("bond-title-note");
+    const np = document.querySelector(".bond-nameplate");
+    if (!t || !v || !waitCard) return;
+    waitCard = false;
+    t.classList.add("hidden");
+    t.classList.remove("fade-out");
+    if (note) note.classList.add("hidden");
+    if (np) np.classList.remove("hidden");
+    v.classList.remove("title-active");
   }
 
   function exit() {
@@ -119,6 +160,7 @@ const BondVN = (() => {
     unbindSkip();
     setAuto(false);
     toggleMenu(false);
+    hideEnterWait();                  // 防残留: 失败/中断路径收等待卡
     $("view-bond").classList.add("hidden");
     if (window.MMT && typeof window.MMT.unlockChat === "function") {
       window.MMT.unlockChat();
@@ -187,6 +229,7 @@ const BondVN = (() => {
         // （不重置打字机——只切表情; 文本段落不动）。新场景渲染时同步版本,
         // 避免对旧段落误切（时序: round 优先, emo_version 次之）。
         if (st.scene && (!gotScene || st.round !== seenRound)) {
+          hideEnterWait();              // 首场就绪 → 收等待卡（scene.title 走 showTitle 接力）
           gotScene = true;
           seenRound = st.round;
           seenEmo = (st.emo_version !== undefined) ? st.emo_version : -1;

@@ -389,6 +389,17 @@
   color: #3d4d80;                  /* 官方标题深蓝 */
   letter-spacing: 0.14em;
 }
+/* 等待卡小字（进场景缓冲期: "回忆正在浮现…"——标题条下方, 弱化不抢标题） */
+.bond-title-note {
+  display: block;
+  margin-top: 0.6rem;
+  font-size: 1rem;
+  font-weight: 400;
+  color: #8a93ad;
+  letter-spacing: 0.3em;
+  animation: bond-note-pulse 1.6s ease-in-out infinite;
+}
+@keyframes bond-note-pulse { 0%, 100% { opacity: 0.45; } 50% { opacity: 1; } }
 /* 标题面板淡入 */
 .bond-title:not(.hidden) { animation: bond-title-in 0.45s ease-out; }
 @keyframes bond-title-in { from { opacity: 0; } to { opacity: 1; } }
