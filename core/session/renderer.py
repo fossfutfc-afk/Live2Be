@@ -5,7 +5,8 @@
 消息 / 回放 / brain 全是实时渲染, 不落盘（无冗余）:
 
     render_events     → [{role, content}]（恢复/继续喂 LLM; 与引擎 history 格式一致:
-                        mmt = "[动作名] 回复", bond = 紧凑 payload JSON）
+                        mmt = "[动作名] 回复", bond = **叙事提取**（句段行 + 句末 emotion,
+                        2026-09-05 统一窗口定稿——见 render_bond_scene_text/window_messages）
     filter_bond       → type=bond 事件（回放源; 消费方转 BondScene, 本模块不 import bond 防循环）
     session_status    → {ended, in_vn, parent_session_id, vn_state}（marker 推导, 无状态机; parent 恒 None, 单流兼容）
     render_timeline   → 叙事时间线文本（brain 消化, 含板块标签）
@@ -47,12 +48,69 @@ _LABELS: dict[str, str] = {
 }
 
 
+def render_bond_scene_text(payload: dict[str, Any]) -> str:
+    """bond 事件 payload → 叙事文本（2026-09-05 统一上下文窗口定稿, DESIGN_CONTEXT_WINDOW §2.1）。
+
+    契约层 paragraphs = **切分后句段**（LLM 自然段经 split_paragraph 切碎）——每行:
+        `{text}（{emotion}）`——emotion 随行保留（词表键不翻译: 消费方查键映射,
+        回放表情时间轴基础）; 缺失（旧数据/兜底前）→ 不标
+        inner（内心独白, 挂句段）→ 独立行 （{inner}）
+    title（章节标题, 若有）→ 「{title}」
+    choices + picked → （选项: … / 选择了: …）——branches 未选内容永不进上下文
+    is_end → （本章结束）
+    返回 "" = 无可渲染叙事。
+    """
+    lines: list[str] = []
+    title = payload.get("title")
+    if isinstance(title, str) and title.strip():
+        lines.append(f"「{title.strip()}」")
+    paras = payload.get("paragraphs")
+    if isinstance(paras, str):
+        paras = [paras]                                  # 兼容裸字符串段落
+    if isinstance(paras, list):
+        for p in paras:
+            if isinstance(p, str):
+                if p.strip():
+                    lines.append(p.strip())
+                continue
+            if not isinstance(p, dict):
+                continue
+            text = p.get("text")
+            if not isinstance(text, str) or not text.strip():
+                continue
+            line = text.strip()
+            emo = p.get("emotion")
+            if isinstance(emo, str) and emo.strip():
+                line += f"（{emo.strip()}）"
+            lines.append(line)
+            inner = p.get("inner")
+            if isinstance(inner, str) and inner.strip():
+                lines.append(f"（{inner.strip()}）")
+    choices = payload.get("choices")
+    choice_texts: list[str] = []
+    if isinstance(choices, list):
+        for c in choices:
+            if isinstance(c, str) and c.strip():
+                choice_texts.append(c.strip())
+    if choice_texts:
+        lines.append("（选项: " + " / ".join(choice_texts) + "）")
+        picked = payload.get("picked")
+        if isinstance(picked, str) and picked.strip() and picked != "（继续）":
+            lines.append(f"（选择了: {picked.strip()}）")
+    if payload.get("is_end"):
+        lines.append("（本章结束）")
+    return "\n".join(lines)
+
+
 def render_events(events: list[Event]) -> list[dict[str, str]]:
     """事件流 → LLM 消息（[{role, content}]）, 与引擎 history 格式一致。
 
     mmt:   user=player（同轮后续动作 player 空 → 不重复）; assistant="[动作名] reply"
-    bond:  user=input（本场触发输入）; assistant=紧凑 payload JSON（与 bond_story 历史一致）
-    marker/l2d: 跳过（状态标记与资产引用不进对话上下文）
+    bond:  user=input（本场触发输入）; assistant=叙事提取（render_bond_scene_text——
+           2026-09-05: 不再整 payload JSON——上下文只放"发生过什么的叙事+情绪",
+           不放 place/emotion 外的结构元数据）
+    l2d:   payload 带 paragraphs（纪念时刻文字）→ 同提取, 行首标（画面）; 纯资产 → 跳过
+    marker/affection: 跳过（状态标记与系统结算不进对话上下文）
     """
     out: list[dict[str, str]] = []
     for e in events:
@@ -73,12 +131,40 @@ def render_events(events: list[Event]) -> list[dict[str, str]]:
                 out.append({"role": "assistant", "content": f"[{e.subtype}]"})
         elif e.type == TYPE_BOND:
             inp = e.payload.get("input", "")
-            if isinstance(inp, str) and inp:
-                out.append({"role": "user", "content": inp})
-            out.append({"role": "assistant", "content": json.dumps(
-                e.payload, ensure_ascii=False, separators=(",", ":"))})
-        # marker / l2d → 跳过（l2d 是资产引用, 恢复时无需告知 LLM）
+            if isinstance(inp, str) and inp.strip():
+                out.append({"role": "user", "content": inp.strip()})
+            text = render_bond_scene_text(e.payload)
+            if text:
+                out.append({"role": "assistant", "content": text})
+        elif e.type == TYPE_L2D:
+            # 纪念时刻（预留）: 文字进上下文（她是这段剧情的亲历者）, 图不进
+            text = render_bond_scene_text(e.payload)
+            if text:
+                out.append({"role": "assistant",
+                            "content": "（纪念画面出现——）\n" + text})
+        # marker / affection / 其余 → 跳过
     return out
+
+
+def window_messages(events: list[Event], *, max_units: int = 120) -> list[dict[str, str]]:
+    """统一上下文窗口（2026-09-05 定稿, DESIGN_CONTEXT_WINDOW §3）: 从事件流倒序
+    装填最近叙事, 预算 = 叙事单元数（一行 = 一单元: mmt reply 切块 / bond 句段行）。
+
+    超预算 → 丢更老的整条消息（整单元驱逐, 不半切）。返回与 render_events 同格式
+    （用户/历史直接灌 _history——任何域的唯一上下文入口）。
+    注: 超长单行（>500 字异常）按 1 单元宽松计——切分器已限句段/切块长度,
+    实际极少出现; 句子化折计留待滑动窗口升级（TODO 未来项）。
+    """
+    msgs = render_events(events)
+    kept: list[dict[str, str]] = []
+    units = 0
+    for m in reversed(msgs):
+        u = len(str(m["content"]).split("\n"))
+        if kept and units + u > max_units:
+            break
+        units += u
+        kept.append(m)
+    return list(reversed(kept))
 
 def filter_bond(events: list[Event]) -> list[Event]:
     """过滤 type=bond 事件（回放源; 消费方逐条 BondScene.from_dict(payload) 渲染）。"""
