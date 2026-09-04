@@ -418,8 +418,10 @@ def test_wrapup_after_vn():
     from core.ui.vn_cli import wrapup_after_vn
 
     # 动作列表格式（2026-08-23: MMT 输出 {"actions": [...]}——兼容仍解析）
+    # 2026-09-05: trigger payload = chapter_title（reason 退役）
     trig = {"actions": [
-        {"action": "mmt_trigger_bond_story", "payload": {"reason": "气氛到了"}}]}
+        {"action": "mmt_trigger_bond_story",
+         "payload": {"chapter_title": "天台的气氛"}}]}
     wrap = {"actions": [
         {"action": "mmt_chat",
          "reply": "今天去了天台……我很开心。下次再一起吧！", "payload": {}}]}
@@ -443,8 +445,8 @@ def test_wrapup_after_vn():
         assert "下次再一起吧" in "".join(h["content"] for h in wrap_tail)
         # 收尾注记注入（第二次 chat 调用: 倒数第 2 = 系统注记, 倒数第 1 = user）
         note = llm.snapshots[1][-2]["content"]
-        assert "羁绊剧情" in note and "收尾" in note and "气氛到了" in note, note
-        print("    wrapup_after_vn: 收尾 +1 历史(仅 assistant), 注记引述起因, 回几段话")
+        assert "羁绊剧情" in note and "收尾" in note and "本章: 天台的气氛" in note, note
+        print("    wrapup_after_vn: 收尾 +1 历史(仅 assistant), 注记引述章名, 回几段话")
 
 
 # ----------------------------------------------------------------------------

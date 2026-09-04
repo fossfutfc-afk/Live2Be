@@ -106,10 +106,10 @@ const BondVN = (() => {
         throw new Error(data.detail || data.error || "进入剧情失败");
       }
       // 等待标题卡（2026-09-05）: 首场在后台 LLM 生成（5s+ 波动）——进入即显示
-      // 章节卡（reason 文案 + "回忆正在浮现…"）掩盖缓冲; 首场就绪 → waitScene
+      // 章节卡（chapter_title 文案 + "回忆正在浮现…"）掩盖缓冲; 首场就绪 → waitScene
       // 收卡进场景。resumed（内存态续玩）不显示（场景即刻可用）。
       if (!data.resumed && !data.completed) {
-        showEnterWait(data.reason || "");
+        showEnterWait(data.chapter_title || "");
       }
     } catch (e) {
       showError("进入羁绊剧情失败: " + e.message);
@@ -121,7 +121,7 @@ const BondVN = (() => {
 
   // 等待标题卡: bond-title 面板的"进场景缓冲"模式——持续显示（不自动过/点击不跳）
   // 直到 hideEnterWait; 与 showTitle（章节标题屏, 2.4s/点击跳过）互斥（waitCard 标记）
-  function showEnterWait(reason) {
+  function showEnterWait(chapterTitle) {
     const t = $("bond-title");
     const v = $("view-bond");
     const note = $("bond-title-note");

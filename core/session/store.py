@@ -197,9 +197,13 @@ class SessionStore:
         self.append_marker(char_id, line_id, M_SESSION_START)
         return meta
 
-    def enter_vn(self, char_id: str, session_id: str = "", reason: str = "") -> str:
-        """MMT → VN: 角色线 append vn_enter marker（单事件流, 无子会话）。"""
-        payload = {"reason": reason} if reason else None
+    def enter_vn(self, char_id: str, session_id: str = "", title: str = "") -> str:
+        """MMT → VN: 角色线 append vn_enter marker（单事件流, 无子会话）。
+
+        title = 本章标题（trigger 的 chapter_title——2026-09-05 reason 退役;
+        事件流持久化, 回放/章节列表消费; 旧事件 reason 键残留不读）。
+        """
+        payload = {"chapter_title": title} if title else None
         self.append_marker(char_id, session_id, M_VN_ENTER, payload)
         return session_id
 

@@ -42,7 +42,7 @@ from core.session.events import (
     make_event,
 )
 from core.session.renderer import window_messages
-from core.ui.vn_cli import _build_director, _trigger_reason
+from core.ui.vn_cli import _build_director, _trigger_title
 from llm.image_gen import ImageGenerator, collect_ref_images
 from webgui import chat
 
@@ -121,7 +121,7 @@ class BondState:
     scene_logged: bool = True           # scene 是否已落事件流（append-only: 玩家裁决时补录）
     error: str = ""
     completed: bool = False             # 剧情已终结（is_end / 致命错误）→ 前端调 finish
-    reason: str = ""
+    chapter_title: str = ""
     # 生成失败重试（2026-09-02: 偶发 JSON 失败不再一败就 closing——前 3 次失败保留
     # 上一场在屏 + 置 error, 前端显示重试按钮重新生成; 连续超限才 closing 收尾）
     fail_count: int = 0
@@ -262,7 +262,7 @@ def bond_start(char_id: str, session_id: str) -> dict:
     char = engine.current_character
     if char is None:
         return {"accepted": False, "error": "会话未打开"}
-    reason = _trigger_reason(engine)
+    title = _trigger_title(engine)
 
     # brain 注入（DESIGN_BRAIN.md, wiki_v2 2026-09-02 切换）: 世界线 wiki 第一人称——
     # VN 中角色记得前面的事（出厂基座 0 LLM 确保; 失败静默零注入）
@@ -272,7 +272,7 @@ def bond_start(char_id: str, session_id: str) -> dict:
 
     vn = BondStoryEngine(
         engine.char_loader.root, engine.llm,
-        director=_build_director(char, reason), brain_segment=brain_segment)
+        director=_build_director(char), brain_segment=brain_segment)
     vn.start_session(char.character_id)
     # 统一上下文窗口（2026-09-05, DESIGN_CONTEXT_WINDOW）: 从事件流灌最近叙事进
     # vn._history——首场带着触发前的 MMT 对话（断桥修复）; 事件流已是终态
@@ -285,17 +285,19 @@ def bond_start(char_id: str, session_id: str) -> dict:
         pass
 
     state.vn = vn
-    state.reason = reason
+    state.chapter_title = title
     # 事件流: vn_enter marker（单事件流; 中断恢复依赖它推导 in_vn）
     try:
-        _store().enter_vn(char_id, session_id, reason)
+        _store().enter_vn(char_id, session_id, title)
     except Exception as e:                           # noqa: BLE001 — 写失败降级不阻断 VN
         logger.warning("事件流 vn_enter 写入失败: %s", e)
 
-    seed = f"（旁白）基于「{reason}」……" if reason else "（旁白）故事开始了……"
+    seed = (f"（旁白）本章：{title}——从刚才的对话与契机自然展开。"
+            if title else "（旁白）故事开始了……")
     _generate(state, char_id, session_id, seed)
     # reason 随响应返回——前端进场景等待期显示"章节标题卡"（掩盖首场生成缓冲）
-    return {"accepted": True, "busy": True, "resumed": False, "reason": reason}
+    return {"accepted": True, "busy": True, "resumed": False,
+            "chapter_title": title}
 
 
 def bond_start_demo(char_id: str, session_id: str) -> dict:
@@ -315,9 +317,9 @@ def bond_start_demo(char_id: str, session_id: str) -> dict:
         return {"accepted": False, "busy": True, "error": "正在生成首场"}
 
     state.demo = list(DEMO_SCRIPT)         # 副本（pop 消费不污染常量）
-    state.reason = "（演示）"
+    state.chapter_title = "（演示）"
     try:
-        _store().enter_vn(char_id, session_id, state.reason)
+        _store().enter_vn(char_id, session_id, state.chapter_title)
     except Exception as e:                           # noqa: BLE001 — 写失败降级不阻断
         logger.warning("事件流 vn_enter 写入失败: %s", e)
     _generate(state, char_id, session_id, "（演示开始）")
@@ -530,9 +532,9 @@ def bond_finish(char_id: str, session_id: str) -> dict:
 
     # wrapup 收尾（agent_turn 收尾话 → mmt 事件, 前端轮询拉到）→ 仅在剧情完整
     # 结束时 digest（中断剧情不提炼——wiki 只反映完整剧情段, 防记忆污染）
-    reason = state.reason
+    title = state.chapter_title
     threading.Thread(target=_wrapup,
-                     args=(char_id, session_id, reason, state.completed),
+                     args=(char_id, session_id, title, state.completed),
                      daemon=True).start()
     return {"completed": True}
 
@@ -762,7 +764,7 @@ def _log_scene_meta(state: BondState, char_id: str, session_id: str,
     try:
         if scene.memorial_prompt:
             _store().append_marker(char_id, session_id, M_MEMORIAL_ENTER,
-                                   {"reason": state.reason})
+                                   {"chapter_title": state.chapter_title})
         elif scene.memorial_exit:
             _store().append_marker(char_id, session_id, M_MEMORIAL_EXIT)
         vn = state.vn
@@ -818,11 +820,13 @@ def _system_note(state: BondState) -> str | None:
     return "\n".join(notes) if notes else None
 
 
-def _wrapup(char_id: str, session_id: str, reason: str, completed: bool) -> None:
+def _wrapup(char_id: str, session_id: str, title: str, completed: bool) -> None:
     """剧情收尾后的手机收尾: 自动触发一轮, AI 就这段剧情回几段话 + digest。
 
     收尾话 = agent_turn（system_note 注入, record_input=False——不落假 player 事件,
     只落 assistant 回复）; 前端轮询 events_after 自然拉到收尾气泡。
+    2026-09-05: reason 退役——收尾前给引擎灌统一窗口（事件流含刚结束的 bond
+    场景叙事, agent_turn 的 AI 知道这段剧情讲了什么）; title 仅兜底引用。
     completed=True（剧情 story_end 自然结束/兜底收尾）: 话术按"完整剧情"收尾 +
     async_digest（提炼 + 好感结算——digest 唯一触发点）。
     completed=False（玩家中途退出）: 话术明确"剧情只进行到一半"（防 LLM 脑补
@@ -845,11 +849,19 @@ def _wrapup(char_id: str, session_id: str, reason: str, completed: bool) -> None
         if completed:
             engine.async_digest()
         return
-    reason_suffix = f"（起因: {reason}）" if reason else ""
+    # 统一上下文窗口: bond 期间 momotalk 引擎未跑——收尾前把事件流（含刚结束的
+    # bond 场景叙事）灌进 _history, 收尾话自然接续剧情（起因便签不再需要）
+    try:
+        _win = window_messages(_store().events(char_id))
+        if _win:
+            engine._history = _win
+    except Exception:                                # noqa: BLE001 — 灌窗失败不阻断
+        pass
+    title_suffix = f"（本章: {title}）" if title else ""
     if completed:
         note = (
             "（系统）羁绊剧情刚刚结束，你们回到了 MomoTalk 手机聊天。"
-            f"请以{char.display_name}的身份，就刚才这段羁绊剧情{reason_suffix}，"
+            f"请以{char.display_name}的身份，就刚才这段羁绊剧情{title_suffix}，"
             "在手机上回复老师几句话作为收尾——自然、简短、像真实的手机消息。"
             "只使用 mmt_chat 动作，不要再次触发羁绊剧情。"
         )
@@ -858,7 +870,7 @@ def _wrapup(char_id: str, session_id: str, reason: str, completed: bool) -> None
         # 脑补"剧情结果"（实测: 收尾话把未发生的对决总结成"玩得很开心"）
         note = (
             "（系统）羁绊剧情**只进行到一半**就中断了——老师中途离开了，"
-            f"你们没有完成这段剧情{reason_suffix}。"
+            f"你们没有完成这段剧情{title_suffix}。"
             f"请以{char.display_name}的身份，在手机上给老师发一条简短的告别消息"
             "（如「下次再继续」）——**不要总结剧情结果、不要描述没有发生的剧情**。"
             "只使用 mmt_chat 动作，不要再次触发羁绊剧情。"

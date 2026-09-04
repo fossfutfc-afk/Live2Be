@@ -335,8 +335,12 @@ def test_store_enter_vn_and_status(tmp_path):
     st = SessionStore(tmp_path)
     root = st.create("igusa_haruka")
     assert root.type == "conversation"
-    sid = st.enter_vn("igusa_haruka", root.session_id, reason="邀约")
+    sid = st.enter_vn("igusa_haruka", root.session_id, title="邀约")
     assert sid == root.session_id
+    # vn_enter 事件 payload 记 chapter_title（2026-09-05 reason 退役）
+    vn_enter = [e for e in st.events("igusa_haruka", sid)
+                if e.subtype == "vn_enter"][0]
+    assert vn_enter.payload.get("chapter_title") == "邀约"
     st.append_event("igusa_haruka", sid,
                     make_event("bond", "story_scene", {"paragraphs": ["她脸红了。"]}))
     st.append_marker("igusa_haruka", sid, "vn_state", {"round": 1, "seed": "继续"})
