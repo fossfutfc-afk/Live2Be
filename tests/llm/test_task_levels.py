@@ -28,8 +28,7 @@ def test_base_profiles():
     assert tl.max_tokens("vn_cli") == 1536
     assert tl.max_tokens("emotion") == 512
     assert tl.max_tokens("digest") == 8192
-    assert tl.max_tokens("ide") == 16384
-    print("    基准: 三 thinking 类 + 六形态 max_tokens 就位")
+    print("    基准: 三 thinking 类 + 五形态 max_tokens 就位")
 
 
 def test_extra_body_conversion():
