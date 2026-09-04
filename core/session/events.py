@@ -36,10 +36,10 @@ EVENT_TYPES: tuple[str, ...] = (
 
 #: marker subtype（状态标记）
 M_SESSION_START = "session_start"
-M_VN_ENTER = "vn_enter"       # payload: {parent_session_id, reason?}
+M_VN_ENTER = "vn_enter"       # payload: {parent_session_id, chapter_title?}（2026-09-05 reason 退役）
 M_VN_EXIT = "vn_exit"
 M_VN_STATE = "vn_state"       # payload: VNState.to_dict()（round/seed/visual…）
-M_MEMORIAL_ENTER = "memorial_enter"  # ★ 进入纪念子模式（§4.7）payload: {reason?}
+M_MEMORIAL_ENTER = "memorial_enter"  # ★ 进入纪念子模式（§4.7）payload: {chapter_title?}
 M_MEMORIAL_EXIT = "memorial_exit"    # ★ 退出纪念, 回 bond
 M_SESSION_END = "session_end"  # payload: {ended: true}
 
