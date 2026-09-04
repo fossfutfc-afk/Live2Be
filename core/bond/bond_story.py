@@ -54,6 +54,7 @@ from llm.prompts import load_prompt
 from llm.task_levels import max_tokens as task_levels_max_tokens
 from core.parsing.dynamic_character_parser import CharacterLoader, DynamicCharacter
 from core.parsing.world_parser import DEFAULT_WORLD_PATH, load_world, world_to_prompt
+from core.session.renderer import render_bond_scene_text
 
 logger = logging.getLogger(__name__)
 
@@ -496,8 +497,14 @@ class BondStoryEngine:
             self._in_memorial = False
 
         self._history.append({"role": "user", "content": user_input})
-        self._history.append({"role": "assistant", "content": json.dumps(
-            action.payload, ensure_ascii=False, separators=(",", ":"))})
+        # 2026-09-05 统一窗口（DESIGN_CONTEXT_WINDOW）: 内部历史与事件流渲染同构——
+        # 叙事提取（render_bond_scene_text, 与 render_events 同一函数）; 触发/恢复时
+        # 外部灌入的 window_messages 与此自增历史格式一致, 滑动无缝
+        hist_text = render_bond_scene_text(action.payload)
+        self._history.append({"role": "assistant",
+                              "content": hist_text or json.dumps(
+                                  action.payload, ensure_ascii=False,
+                                  separators=(",", ":"))})
         self._trim_history()
         scene = BondScene.from_action(action)
         # 两遍式 C（2026-08-31）: 骨架段落缺 emotion → 批量标注补标（生成与
