@@ -12,15 +12,71 @@
 player experience（§4.4）: 组织视图带 [关于老师] 标记; 角色视图独立【老师的事】段。
 出厂 episode（2026-09-02 v3）: 角色视图渲染为独立【久远的记忆】段（cap 5 低配常驻）;
 运行时 episode 独占 珍贵/最近 段（玩家羁绊主窗口）——出厂不挤占玩家记忆。
+（2026-09-05 解耦: 出厂记忆不进 wiki——主进程注入用 render_background_experience
+（yml 原文直注）; 本文件的出厂渲染分支保留给可能的手动出厂库。）
 """
 from __future__ import annotations
 
-from typing import Iterable
+from typing import Any, Iterable
 
 from core.brain.wiki_v2.nodes import BrainNode
 
 #: 组织视图行首缩进（verbatim/example 续行）
 _INDENT = "        "
+
+# ---------------------------------------------------------------------------
+# yml → 叶子（source_key, 文本）收集（原 seed.py, 2026-09-05 解耦后内迁——
+# render_background_experience 唯一活动消费者; seed.py 本体随出厂链归档）
+# ---------------------------------------------------------------------------
+
+_PREFIXES = ("SIG~", "REQ~")
+_SKIP_LEAF = {"true", "false", "null", "none", "~", ""}
+
+
+def _collect_yml_leaves(data: dict[str, Any], prefix: str = "") -> list[tuple[str, str]]:
+    """递归拍平 yml 树 → [(source_key, 文本), …]。
+
+    规则:
+        - dict: 键路径拼接（剥离 SIG~/REQ~ 前缀; null 值跳过）
+        - list: 单键 dict 项 → 用其键作路径段（numbered 条目, 如 {1: text}）;
+                纯值项 → 1-based 序号（technique.1）
+        - 叶子: 非空文本（bool/None 类占位跳过）
+    """
+    out: list[tuple[str, str]] = []
+    _walk(data, prefix, out)
+    return out
+
+
+def _walk(node: Any, path: str, out: list[tuple[str, str]]) -> None:
+    if node is None:
+        return
+    if isinstance(node, dict):
+        for k, v in node.items():
+            if not isinstance(k, str):
+                continue
+            _walk(v, _join(path, _strip_prefix(k)), out)
+    elif isinstance(node, list):
+        for i, v in enumerate(node):
+            if isinstance(v, dict) and len(v) == 1:
+                (k, vv), = v.items()                      # numbered 条目 {1: text}
+                _walk(vv, _join(path, str(k)), out)
+            else:
+                _walk(v, _join(path, str(i + 1)), out)    # 纯值项 1-based
+    else:
+        text = str(node).strip()
+        if text.lower() not in _SKIP_LEAF and path:
+            out.append((path, text))
+
+
+def _join(path: str, seg: str) -> str:
+    return f"{path}.{seg}" if path else seg
+
+
+def _strip_prefix(key: str) -> str:
+    for p in _PREFIXES:
+        if key.startswith(p):
+            return key[len(p):]
+    return key
 
 
 # ---------------------------------------------------------------------------
@@ -173,8 +229,7 @@ def render_background_experience(data: dict, *, cap: int = 6) -> str:
     返回 "" = 无经历素材（零注入不阻断）。头段指引 LLM: 这些是她游戏开始前
     的人生, 回忆过去以此为准（运行时 wiki 的记忆只含玩家参与后的事）。
     """
-    from core.brain.wiki_v2.seed import _collect_leaves
-    leaves = _collect_leaves(data)
+    leaves = _collect_yml_leaves(data)
     if not leaves:
         return ""
     body = "\n".join(f"- {text}" for _, text in leaves[:cap])
