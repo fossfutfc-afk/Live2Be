@@ -102,7 +102,7 @@ def main() -> None:
         print("\n=== 手机收尾 wrapup ===")
         buf = io.StringIO()  # 清空, 避免 md 重复 VN 渲染
         with redirect_stdout(buf):
-            wrapup_after_vn(engine, reason)
+            wrapup_after_vn(engine)
         print(buf.getvalue())
         md.append("## 三、手机收尾（wrapup）")
         md.append("")

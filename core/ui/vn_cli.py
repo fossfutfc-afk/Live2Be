@@ -76,7 +76,7 @@ def simulate_vn_scene(
 # VN 主循环
 # ---------------------------------------------------------------------------
 
-def _build_director(char, reason: str):
+def _build_director(char):
     """构建视觉导演（v2 纯查表模式, 无辅助 LLM; 任何失败 → None 纯文本）。
 
     情感由主 LLM 在段落内联 emotion 给出, 导演只做 place→背景查表;
@@ -105,7 +105,9 @@ def run_bond_story_vn(
     """羁绊剧情 VN 模式：触发后进入, is_end 或 b 退出后回到 MomoTalk。
 
     构造独立 BondStoryEngine（复用引擎的 char_loader.root + llm），
-    首个种子 = 触发动作的 reason（有则旁白引述, 无则固定开篇语）。
+    首个种子 = 触发动作的 chapter_title（2026-09-05: reason 退役; 起因由上下文窗口承载——
+    触发前对话经 window_messages 灌入 vn._history, 首场自带; title 有则旁白命题引述,
+    无则固定开篇语）。
     store（SessionStore）注入时: 落**事件流**（DESIGN_SAVE.md §4）——enter_vn
     同会话 append vn_enter（单事件流, 无子会话）, 每场 append type=bond 事件 +
     vn_state marker（恢复点）, 结束时 vn_exit + session_end。写失败静默降级不阻断 VN。
@@ -139,7 +141,7 @@ def run_bond_story_vn(
     if char is None:
         return False
 
-    reason = _trigger_reason(engine)
+    title = _trigger_title(engine)
     # Brain 记忆段（DESIGN_BRAIN.md, wiki_v2 2026-09-02 切换）: 本世界线 wiki
     # 第一人称注入——VN 中角色记得这个世界线前面的事（resume 过则有 digest 产物;
     # 空 → 零注入, 平行世界）。读失败静默跳过（不阻断 VN）。
@@ -154,7 +156,7 @@ def run_bond_story_vn(
         brain_segment = ""
     vn = BondStoryEngine(
         engine.char_loader.root, engine.llm,
-        director=_build_director(char, reason), brain_segment=brain_segment)
+        director=_build_director(char), brain_segment=brain_segment)
     vn.start_session(char.character_id)
     # 统一上下文窗口（2026-09-05, DESIGN_CONTEXT_WINDOW）: 触发/恢复时从事件流
     # 灌最近叙事进 vn._history——首场带着触发前的 MMT 对话（断桥修复: AI 知道自己
@@ -177,14 +179,15 @@ def run_bond_story_vn(
     print("═" * 40)
 
     if seed is None:
-        seed = f"（旁白）基于「{reason}」……" if reason else "（旁白）故事开始了……"
+        seed = (f"（旁白）本章：{title}——从刚才的对话与契机自然展开。"
+                if title else "（旁白）故事开始了……")
 
     # 事件流（DESIGN_SAVE.md §5.3, 2026-08-24 单流）: 同会话 append vn_enter, 无子会话
     vn_sid = None
     if store is not None:
         try:
             vn_sid = store.enter_vn(
-                char.character_id, engine._session_id, reason)
+                char.character_id, engine._session_id, title)
         except Exception as e:
             logger.warning("事件流 vn_enter 写入失败, 本次 VN 不落事件流: %s", e)
             vn_sid = None
@@ -293,7 +296,7 @@ def run_bond_story_vn(
                 # 纪念子模式 marker + l2d 事件（立绘资产; 生图失败 → 无 l2d 事件, 剧情照走）
                 if scene.memorial_prompt:
                     store.append_marker(char.character_id, vn_sid, M_MEMORIAL_ENTER,
-                                        {"reason": reason})
+                                        {"chapter_title": title})
                     if memorial_images:
                         store.append_event(char.character_id, vn_sid, make_event(
                             "l2d", "memorial_enter",
@@ -349,7 +352,7 @@ def run_bond_story_vn(
     return completed
 
 
-def wrapup_after_vn(engine: MomoTalkEngine, reason: str = "",
+def wrapup_after_vn(engine: MomoTalkEngine,
                     completed: bool = True,
                     pending_check=None) -> None:
     """羁绊剧情收尾后的手机收尾: 自动触发一轮, AI 就这段剧情回几段话。
@@ -357,6 +360,9 @@ def wrapup_after_vn(engine: MomoTalkEngine, reason: str = "",
     系统注记只进 LLM context（agent_turn system_note + record_input=False）,
     历史只记 assistant 回复——不污染假 user 消息。一轮可见回复后结束,
     等玩家下一句（「结束一轮」）。收尾失败不阻塞聊天（宁缺勿错, 打印降级）。
+
+    2026-09-05: reason 参数退役——收尾前给引擎灌统一窗口（事件流含刚结束的
+    bond 场景叙事——agent_turn 的 AI 知道这段剧情讲了什么, 无需起因便签）。
 
     completed=True（剧情 story_end 自然结束/兜底收尾）: 话术按"完整剧情"收尾 +
     async_digest（【digest 唯一触发点】完整段（mmt+bond）异步消化）;
@@ -379,13 +385,22 @@ def wrapup_after_vn(engine: MomoTalkEngine, reason: str = "",
         if completed:
             engine.async_digest()
         return
-    if not reason:
-        reason = _trigger_reason(engine)      # 注记引述起因（引擎 trace 还在）
-    reason_suffix = f"（起因: {reason}）" if reason else ""
+    # 统一上下文窗口（2026-09-05）: bond 期间 momotalk 引擎未跑——收尾前把
+    # 事件流（含刚结束的 bond 场景叙事）灌进 _history, 收尾话自然接续剧情
+    try:
+        if engine._store is not None:
+            from core.session.renderer import window_messages
+            _win = window_messages(engine._store.events(char.character_id))
+            if _win:
+                engine._history = _win
+    except Exception:                                # noqa: BLE001 — 灌窗失败不阻断
+        pass
+    title = _trigger_title(engine)                  # 章名引述（引擎 trace 还在）
+    title_suffix = f"（本章: {title}）" if title else ""
     if completed:
         note = (
             "（系统）羁绊剧情刚刚结束，你们回到了 MomoTalk 手机聊天。"
-            f"请以{char.display_name}的身份，就刚才这段羁绊剧情{reason_suffix}，"
+            f"请以{char.display_name}的身份，就刚才这段羁绊剧情{title_suffix}，"
             "在手机上回复老师几句话作为收尾——自然、简短、像真实的手机消息。"
             "只使用 mmt_chat 动作，不要再次触发羁绊剧情。"
         )
@@ -394,7 +409,7 @@ def wrapup_after_vn(engine: MomoTalkEngine, reason: str = "",
         # 脑补"剧情结果"（实测: 收尾话把未发生的对决总结成"玩得很开心"）
         note = (
             "（系统）羁绊剧情**只进行到一半**就中断了——老师中途离开了，"
-            f"你们没有完成这段剧情{reason_suffix}。"
+            f"你们没有完成这段剧情{title_suffix}。"
             f"请以{char.display_name}的身份，在手机上给老师发一条简短的告别消息"
             "（如「下次再继续」）——**不要总结剧情结果、不要描述没有发生的剧情**。"
             "只使用 mmt_chat 动作，不要再次触发羁绊剧情。"
@@ -408,12 +423,15 @@ def wrapup_after_vn(engine: MomoTalkEngine, reason: str = "",
         engine.async_digest()                 # 仅完整剧情消化（中断不提炼）
 
 
-def _trigger_reason(engine: MomoTalkEngine) -> str:
-    """从最近一轮动作轨迹里取触发动作的 reason（找不到 → 空串）。"""
+def _trigger_title(engine: MomoTalkEngine) -> str:
+    """从最近一轮动作轨迹里取触发动作的 chapter_title（找不到 → 空串）。
+
+    2026-09-05: reason 退役——payload 带 chapter_title（触发即命题）。
+    """
     if not engine.trace:
         return ""
     for step in reversed(engine.trace):
         if step.get("action") == "mmt_trigger_bond_story":
             payload = step.get("payload") or {}
-            return payload.get("reason") or ""
+            return str(payload.get("chapter_title") or "").strip()
     return ""

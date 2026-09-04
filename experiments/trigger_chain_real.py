@@ -92,7 +92,7 @@ def main() -> None:
 
     # ---- 手机收尾 ----
     print("\n[收尾] wrapup_after_vn …")
-    wrapup_after_vn(engine, reason=reason)
+    wrapup_after_vn(engine)
     print("\n✅ 链路验证完成: 触发(第{}轮) → VN({}) → 手机收尾".format(
         trigger_turn, "收尾" if completed else "玩家退出"))
 

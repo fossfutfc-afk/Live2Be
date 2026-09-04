@@ -262,8 +262,10 @@ class MmtExecutor:
         # （玩家遇险时角色尬聊 6 轮是硬拒的伪正确）。时机由 momotalk 每轮注记
         # 建议（_bond_progress_note: 未满建议线报事实+沉淀, 达标主动提示）;
         # 触发与否全权交给 LLM 的剧情判断——紧急/危险场面随时可触发。
-        reason = action.payload["reason"]
-        suffix = f"（理由: {reason}）" if reason else ""
+        # 2026-09-05: reason 退役——payload 带 chapter_title（本章标题, 触发即命题）;
+        # 起因由上下文窗口承载（触发前对话在窗口里, bond 首场自带）
+        title = str(action.payload.get("chapter_title") or "").strip()
+        suffix = f"（本章: {title}）" if title else ""
         return ExecResult(
             ok=True,
             message=f"羁绊剧情触发成功{suffix}——切换到羁绊剧情模式",

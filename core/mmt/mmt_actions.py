@@ -120,12 +120,15 @@ def parse_mmt_trigger_bond_story(payload: dict[str, Any]) -> dict[str, Any]:
     """结构白名单校验（硬错误, 抛 ContractError）。
 
     羁绊剧情不是点选剧本——它是 LLM 自行的触发判定（算法轮数门槛 + LLM 决策）,
-    放行才切换羁绊剧情模式。payload 只带可选触发理由。
+    放行才切换羁绊剧情模式。payload 带本章标题（chapter_title——触发即命题:
+    章节标题卡的来源, 进上下文/事件流; 空则调用方降级, **不拦触发**）。
+    reason 字段已退役（2026-09-05——起因由上下文窗口承载）; 旧模型输出兼容
+    透传丢弃, 消费方不再读。
     """
-    reason = payload.get("reason", "")
-    if not isinstance(reason, str):
-        raise ContractError("reason 必须是字符串")
-    return {"reason": reason.strip()}
+    title = payload.get("chapter_title", "")
+    if not isinstance(title, str):
+        raise ContractError("chapter_title 必须是字符串（本章标题, 3-16 字）")
+    return {"chapter_title": title.strip()}
 
 
 # ============================================================================
@@ -180,15 +183,16 @@ def build_mmt_registry() -> MMTActionRegistry:
         APPROVAL_AUTO,
         prompt_fields=MMT_RUNTIME_FIELDS,
         payload_schema=(
-            "reason: 可选, 触发理由（你判断此刻关系到了新阶段）——供追溯\n"
+            "chapter_title: **必填**——本章羁绊剧情的标题（3-16 字, 中文）:\n"
+            "      此刻你握着刚发生的对话与契机, 上下文最强——起一个有剧情分量的\n"
+            "      章节名（不是对话的重复, 是这段故事的命题, 如『杂草屋的午后』\n"
+            "      『夏莱的邀请函』『雨中的秘密』）——它是章节标题卡与剧情记录的来源\n"
             "用途: 把对话从手机聊天切换到当面相见的羁绊剧情——面对面推进。\n"
-            "      当你判断手机消息进行不下去/共处契机出现时, 可以发起\n"
+            "      当你判断手机消息进行不下去/共处契机出现时, 可以发起;\n"
             "      邀约的话写 text 单元（见到老师时说的话——不是告别, 是见面的话）\n"
-            "      本动作只带 reason（触发理由）\n"
             "[系统] 节奏是**建议不是拦截**: 程序不会拒绝你的触发——每轮注记会\n"
             "      提示当前时机（距上次剧情轮数）; 紧急/危险场面（sensei 遇险等）\n"
-            "      你判断该去就去, 不必等轮数; 刚演完剧情也别立刻连开, 自然沉淀\n"
-            "      [系统] 剧情对白/表情/立绘待实现——切换后由程序渲染剧情场景"
+            "      你判断该去就去, 不必等轮数; 刚演完剧情也别立刻连开, 自然沉淀"
         ),
     ))
     return registry
