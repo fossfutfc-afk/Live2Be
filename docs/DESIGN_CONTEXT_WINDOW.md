@@ -53,11 +53,12 @@ is_end:                末尾标 （本章结束）——防 LLM 以为对话仍
 段落内联 emotion 保留 ✓; **branches 不展开**——玩家未选分支的内容属于"未发生的
 可能性", 历史只需 picked 的那条走向。
 
-**emotion 落库欠账修正（回放基础）**: 现状骨架先落库（`_log_scene_meta` 早于
-`_enqueue_annotate`）, 事件段落可能无 emotion。修正: 标注 worker 完成后**原位回写**
-最近一条 scene 事件的段落 emotion——`SessionStore.patch_last_event(char_id, ...)`
-（append/patch 统一过文件锁; 破例仅限"最近一条 scene 事件的 emotion 字段定稿",
-语义 = 记录补齐, 非历史篡改）。消费方（上下文/回放）读事件流即得终态, 零合并逻辑。
+**落库时序核对（2026-09-05 代码核实——无需 patch）**: webgui 场景事件在**玩家裁决时**
+才 `_log_scene` 落库, 而 turn 入口门控（`_scene_ready_or_busy`）保证落库前标注就绪
+（注释原文: "落库场景 emotion 完整: 分支消费/继续/自由输入都在标注就绪后才落库"）;
+标注 worker 有 `_fallback_fill` 兜底（异常强制 nomal, 恒可达）——**事件段落天然带
+emotion**（标注或 nomal）, 事件流即终态, 消费方（上下文/回放）零合并。
+边缘: demo 模式跳过标注（预设剧本段落 emotion 靠 DEMO_SCRIPT 自带）。
 
 ### 2.2 渲染产物形态
 
@@ -104,10 +105,10 @@ def window_messages(events, *, max_units=120):
 
 | 文件 | 改动 |
 |---|---|
-| `core/session/store.py` | `patch_last_event(char_id, patch_fn)`——标注完成后回写最近 scene 事件段落 emotion; append/patch 统一过文件锁 |
+
 | `core/session/renderer.py` | ① `render_bond_scene_text(payload)`（§2.1 提取——段落带 emotion/标题/选项/picked/结束标）② `render_events` bond 段与 l2d 段改用提取（不再 json.dumps 全 payload）③ `window_messages()`（§3.3, 单元数计量）④ 单测 |
 | `core/bond/bond_story.py` | `_history` append 的 assistant 内容改 `render_bond_scene_text(action.payload)`（与 render_events 同格式——bond 内历史与统一渲染同构, 滑动无缝） |
-| `webgui/bond.py` | ① 标注 worker 完成后 `patch_last_event`（emotion 定稿回写）② `bond_start` 构造 vn 后灌 `window_messages(store.events(char_id))` 进 `_history` |
+| `webgui/bond.py` | `bond_start` 构造 vn 后灌 `window_messages(store.events(char_id))` 进 `_history`（落库已终态, 无需标注回写） |
 | `core/momotalk.py` | `resume_session` 窗口截取改 `window_messages`（单元预算） |
 | `core/ui/vn_cli.py` | 恢复路径同款灌窗口 |
 
@@ -124,7 +125,7 @@ def window_messages(events, *, max_units=120):
 1. 窗口默认 120 单元（mmt 切块 + bond 段落）、单单元异常阈值 500 字——数值 OK?
 2. 段落行格式 `{text}（{emotion}）`——可读性 OK? 还是想要映射中文（nomal→平静）
    或行首标签 `[smile] text`?
-3. `patch_last_event` 破 append-only 例（仅 emotion 定稿回写, 过锁）——认可?
+3. ~~`patch_last_event` 破例~~——**已删除**: 落库时序核对 = 裁决时落库且门控保证标注就绪, 事件即终态（§2.1）
 4. trigger 事件渲染: 只保留其 reply 文本（若有）, reason 不渲染——等 title 方案落定后 reason 字段退役, 本节再校
 5. branches 不展开只记 picked——认可?
 
