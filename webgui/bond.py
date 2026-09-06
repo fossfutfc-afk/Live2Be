@@ -245,6 +245,70 @@ def _make_memorial_cb(state: BondState, char_id: str, session_id: str):
 
 
 # ---------------------------------------------------------------------------
+# 回放接口（2026-09-07, 纯读）: 会话内已记录的羁绊剧情逐场回放
+# 原料 = 事件流里的 bond 事件——落库即终态（裁决时落库 + 门控保证标注就绪,
+# 段落自带 emotion）, 与 live 渲染同源, 0 LLM 可完整回放。
+# 消费方: ① 回放 UI ② 中断剧情"回放前缀 + LLM 后补"（attempt 分段复用）
+# ---------------------------------------------------------------------------
+
+def replay_attempts(char_id: str, session_id: str = "") -> list[dict]:
+    """事件流 → 按 vn_enter 分段的回放列表（纯读, 幂等, 不碰状态机）。
+
+    返回: [{from_seq, title, completed, interrupted,
+            scenes: [{seq, input, picked, scene}]}]
+      scene = 事件 payload 去 input/picked 的渲染字段——与 live BondVN
+      renderScene 消费的 scene 同构（背景/表情/分支齐全）。
+    分段规则: vn_enter 开新段; vn_exit 关段（completed 取 payload——False 即
+    主动中断）; 段未关即遇新 vn_enter / 流尾 → interrupted=True。
+    """
+    try:
+        evs = _store().events(char_id, session_id)
+    except Exception:                                # noqa: BLE001 — 读失败空列表
+        return []
+    attempts: list[dict] = []
+    cur: dict | None = None
+
+    def close_interrupted():
+        nonlocal cur
+        if cur is not None:
+            cur["interrupted"] = True
+            attempts.append(cur)
+            cur = None
+
+    def open_attempt(from_seq: int, title: str):
+        nonlocal cur
+        close_interrupted()                 # 新段开 = 旧段未收尾 → 中断
+        cur = {"from_seq": from_seq, "title": title, "completed": False,
+               "interrupted": False, "scenes": []}
+
+    for e in evs:
+        t = getattr(e, "type", None)
+        if t == "marker":
+            if e.subtype == "vn_enter":
+                open_attempt(e.seq,
+                             str((e.payload.get("chapter_title") or "").strip()))
+            elif e.subtype == "vn_exit" and cur is not None:
+                cur["completed"] = bool(e.payload.get("completed"))
+                cur["interrupted"] = not cur["completed"]
+                attempts.append(cur)
+                cur = None
+        elif t == "bond":
+            if cur is None:                 # 兼容旧事件: 无 vn_enter 直接开段
+                open_attempt(e.seq, "")
+            payload = e.payload or {}
+            scene = {k: v for k, v in payload.items()
+                     if k not in ("input", "picked")}
+            cur["scenes"].append({
+                "seq": e.seq,
+                "input": str(payload.get("input") or ""),
+                "picked": payload.get("picked"),
+                "scene": scene,
+            })
+    close_interrupted()                     # 流尾未关段 → 中断
+    return attempts
+
+
+# ---------------------------------------------------------------------------
 # 公开 API（路由层调用）
 # ---------------------------------------------------------------------------
 
