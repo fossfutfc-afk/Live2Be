@@ -147,6 +147,22 @@ async def bond_status(char_id: str, session_id: str) -> dict:
         raise HTTPException(status_code=500, detail=f"bond status 失败: {e}")
 
 
+@router.get("/api/bond/replay")
+async def bond_replay(char_id: str, session_id: str = "") -> dict:
+    """回放接口（纯读, 2026-09-07）: 会话内已记录羁绊剧情——按 vn_enter 分段,
+    每段逐场 scene（带 input/picked）; 场景经 _resolve_scene 附渲染信息
+    （background_url/fx, 与 live status 同通道）。消费方: 回放 UI / 中断前缀回放。
+    """
+    try:
+        attempts = bond.replay_attempts(char_id, session_id)
+        for at in attempts:
+            for s in at["scenes"]:
+                s["scene"] = _resolve_scene(s.get("scene"), char_id)
+        return {"attempts": attempts}
+    except Exception as e:                     # noqa: BLE001 — 回放异常转 HTTP
+        raise HTTPException(status_code=500, detail=f"bond replay 失败: {e}")
+
+
 @router.post("/api/bond/finish")
 async def bond_finish(body: BondFinishIn) -> dict:
     """剧情终结收尾（wrapup + digest 后台执行）。"""
