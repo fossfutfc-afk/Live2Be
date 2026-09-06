@@ -125,6 +125,13 @@ class BondState:
     # 生成失败重试（2026-09-02: 偶发 JSON 失败不再一败就 closing——前 3 次失败保留
     # 上一场在屏 + 置 error, 前端显示重试按钮重新生成; 连续超限才 closing 收尾）
     fail_count: int = 0
+    # 入口预热（EXEC_BOND_LATENCY P1 2026-09-05）: 触发轮结束即生成首场暂存
+    # （staged）——玩家点击时 adopt。staged 期间**不落 vn_enter marker**（防未点击
+    # 被 session_status 推导 in_vn / 前端自动拽入 VN）; adopt 时补落, 事件流时序
+    # （触发 → vn_enter → 首场裁决落库）天然正确。点击前玩家又聊（新 mmt 事件）
+    # → staged_seq 失配 → 丢弃重建, 首场反映最新上下文。
+    staged_seq: int | None = None    # 非 None = 预热态; 值 = 预热时最后一条 mmt 事件 seq
+    vn_enter_written: bool = False   # vn_enter marker 已落（首进/adopt 时置 True）
     # Storyloom bridge 式预生成（2026-08-30）: 纯叙事场（无 choices）渲染完成即
     # 提前生成下一场（输入固定"（继续）"）——玩家点继续时已就绪, 体感零等待
     pregen_obj: BondScene | None = None
@@ -241,22 +248,70 @@ def _make_memorial_cb(state: BondState, char_id: str, session_id: str):
 # 公开 API（路由层调用）
 # ---------------------------------------------------------------------------
 
-def bond_start(char_id: str, session_id: str) -> dict:
+def _last_mmt_seq(char_id: str, session_id: str) -> int:
+    """事件流中最后一条 **mmt 事件** 的 seq（预热新鲜度基准）。
+
+    只计 mmt 事件（玩家对白/触发轮）——staged 预热自身的后续写入
+    （vn_state 等 marker / bond 事件, 产生于快照之后）不参与判定, 否则
+    自生成标记会把预热误判为过期而丢弃重建。
+    """
+    try:
+        last = 0
+        for e in _store().events(char_id, session_id):
+            if getattr(e, "type", None) == "mmt":
+                last = e.seq
+        return last
+    except Exception:                                # noqa: BLE001 — 读失败保守
+        return 0
+
+
+def bond_start(char_id: str, session_id: str, *,
+               staged: bool = False) -> dict:
     """进入羁绊剧情: 构造引擎 + vn_enter marker + 后台生成首场。
 
-    幂等: 已有进行中的 bond 状态（真实引擎或演示剧本）→ 返回现状（前端重进不重建）。
-    已完成（completed）→ 拒绝再进入（粉泡入口点击后由后端裁决——2026-09-01）。
-    中断再进入: 玩家中途退出后重进 → 内存态在（resumed）→ 从中断场景继续,
-    vn 引擎历史完整 → AI 正确衔接（事件流重建是 M3 回放, 服务重启前不做）。
+    入口预热（staged=True, EXEC_BOND_LATENCY P1）: 触发轮结束由 chat worker 调用
+    ——首场立即后台生成, 玩家点击时通常已就绪。staged 期间**不落 vn_enter marker**
+    （防未点击被推导 in_vn）; 玩家点击命中预热态 → adopt: 新鲜度校验（点击前
+    事件流未前进）通过 → 补落 marker + staged_seq=None → 以现有引擎继续。
+
+    幂等/守卫: 已有进行中的 bond 状态（真实引擎或演示剧本）→ 返回现状（前端
+    重进不重建）; 已完成（completed）→ 拒绝再进入; 生成在途（busy）→
+    accepted=True 让前端轮询等待（P1 语义变更: 预热在途时点击是常态, 不再以
+    accepted=False 报错）。中断再进入: 内存态在（resumed）→ 从中断场景继续。
     """
     state = _state(char_id, session_id)
     if state.completed:
         return {"accepted": False, "completed": True,
                 "error": "这段羁绊剧情已经完成"}
-    if state.vn is not None or state.demo is not None:
+
+    # ── 预热 adopt（staged 态 + 玩家点击 / 再次 staged 调用）────────
+    if state.vn is not None and state.staged_seq is not None:
+        if _last_mmt_seq(char_id, session_id) != state.staged_seq:
+            # 预热后玩家又聊过（新 mmt 事件）/ 新触发轮 → 预热上下文过期, 丢弃重建
+            logger.info("bond 预热态过期（mmt seq %s ≠ %s）, 丢弃重建: %s/%s",
+                        state.staged_seq, _last_mmt_seq(char_id, session_id),
+                        char_id, session_id)
+            _bonds.pop((char_id, session_id), None)
+            state = _state(char_id, session_id)
+        else:
+            # adopt: 补落 vn_enter marker（触发事件之后、首场裁决落库之前——时序正确）
+            if not state.vn_enter_written:
+                try:
+                    _store().enter_vn(char_id, session_id, state.chapter_title)
+                    state.vn_enter_written = True
+                except Exception as e:               # noqa: BLE001 — 写失败降级不阻断
+                    logger.warning("adopt vn_enter 写入失败: %s", e)
+            state.staged_seq = None
+            if state.busy:
+                # 预热生成仍在途 → 前端轮询等待（resumed=False → 章节等待卡可见）
+                return {"accepted": True, "busy": True, "resumed": False,
+                        "chapter_title": state.chapter_title}
+            return {"accepted": True, "busy": False, "resumed": True}
+    elif state.vn is not None or state.demo is not None:
         return {"accepted": True, "busy": state.busy, "resumed": True}
     if state.busy:
-        return {"accepted": False, "busy": True, "error": "正在生成首场"}
+        # 生成在途（P1: busy = 正在生成——让前端进入轮询, 不再报错）
+        return {"accepted": True, "busy": True, "resumed": False}
 
     engine = chat._engine(char_id)
     char = engine.current_character
@@ -286,11 +341,16 @@ def bond_start(char_id: str, session_id: str) -> dict:
 
     state.vn = vn
     state.chapter_title = title
-    # 事件流: vn_enter marker（单事件流; 中断恢复依赖它推导 in_vn）
-    try:
-        _store().enter_vn(char_id, session_id, title)
-    except Exception as e:                           # noqa: BLE001 — 写失败降级不阻断 VN
-        logger.warning("事件流 vn_enter 写入失败: %s", e)
+    # 事件流: vn_enter marker（单事件流; 中断恢复依赖它推导 in_vn）。
+    # staged 预热不落——adopt（玩家点击）时补, 防"没点也被拉进 VN"
+    if not staged:
+        try:
+            _store().enter_vn(char_id, session_id, title)
+            state.vn_enter_written = True
+        except Exception as e:                       # noqa: BLE001 — 写失败降级不阻断 VN
+            logger.warning("事件流 vn_enter 写入失败: %s", e)
+    else:
+        state.staged_seq = _last_mmt_seq(char_id, session_id)
 
     seed = (f"（旁白）本章：{title}——从刚才的对话与契机自然展开。"
             if title else "（旁白）故事开始了……")

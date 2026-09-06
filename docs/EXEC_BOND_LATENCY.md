@@ -1,6 +1,8 @@
 # 执行文档：VN 入口预热 + 读写交错（消灭"点击进羁绊剧情 5s+ 空屏"）
 
-> 状态：待执行（2026-09-05 整理）。相关讨论：会话归因结论（首场=一次主 LLM
+> 状态：**P1 已实施（2026-09-07）**——入口预热（staged/adopt/守卫）+ 单 POST +
+> busy 语义 + 细粒度首场轮询全部落地, webgui 测试 15/15 通过（含 2 个新增预热
+> 用例）。P2/P3 待执行。相关讨论：会话归因结论（首场=一次主 LLM
 > 整包生成 + thinking=high 抬高 TTFT）见本档 §1；Storyloom 对照结论见 §8。
 > 已拍板约束：reasoning 档位留给用户（最后优化点，本期不动）；bond.js 等待卡
 > 的 `reason` 变量为历史遗留，不修；演示模式（demo）不预热。
@@ -104,12 +106,12 @@ _tasks[key] = {"running": False, "error": "", "bond_story": bool(result.bond_sto
 **B. `webgui/bond.py`**
 - `bond_start(..., staged: bool = False)`：
   - 同步段同现状（引擎构造/窗口灌入/brain/标题取自 engine.trace）——**唯一差异**：
-    `staged=True` 时不调 `_store().enter_vn(...)`，记录 `staged_seq = 当前最大事件 seq`。
+    `staged=True` 时不调 `_store().enter_vn(...)`，记录 `staged_seq = 事件流最后一条
+    **mmt 事件** seq（基准只数 mmt——玩家对白/触发；预热自身后续写入的 vn_state 等
+    marker/bond 事件不参与判定，否则自生成标记会把预热误判过期而丢弃重建）。
   - 幂等/复入分支：见 §3.2；adopt 需要 `state.chapter_title`（已在字段中）。
   - busy 分支返回值改 accepted:True（见上表），error 字段可带 "正在生成首场"。
-  - 新增小工具 `_max_seq()`（读 `_store().events(char_id, session_id)` 末条 seq，O(n)
-    事件文件不大；也可在 adopt 时只比对 staged_seq 与 events_after 返回的 last_seq——
-    前端轮询已有此数，但服务端 adopt 以事件流为准，直接读 store）。
+  - 新增小工具 `_last_mmt_seq()`（扫事件流取最后一条 mmt 事件的 seq，见上）。
 - 丢弃重建：`_bonds.pop((char_id, session_id), None)` 后走全新首进路径（staged 生成
   线程是 daemon，其写回经对象身份检查 `_anno_worker` 风格防竞态——场景生成线程
   结束会写回旧 state 对象，不影响新 state，因键已 pop）。
@@ -118,10 +120,12 @@ _tasks[key] = {"running": False, "error": "", "bond_story": bool(result.bond_sto
 
 **D. `webgui/static/js/bond.js`** `enter()`
 - 目前 `await initSpine()` 先于 POST start（spine 元数据网络请求串在生成之前）→
-  改为并行：POST start 先行发起，`initSpine()` 不 await 或与 start `Promise.all`。
+  改为：POST start 先行发出并 await 结果，`initSpine()` 在其后 await——两次网络
+  请求时间重叠，spine 耗时被生成期覆盖。
 - 点击即 busy（预热在途）时：start 返回 accepted:True,busy:True → `showEnterWait`
   照旧显示等待卡，waitScene 轮询到场景即收卡（现状逻辑已支持 busy）。
-- waitScene 首轮先去 700ms sleep 再 fetch：首轮立即 fetch（预热完成时省 ~0.7s）。
+- waitScene：去掉每轮开头固定 700ms sleep——立即 fetch；busy 时尾部睡眠
+  `gotScene ? 700ms : 250ms`（首场等待细粒度，拿到首场后回粗粒度）。
 
 **E. `webgui/static/js/mmt.js`** `enterBond()`
 - 现状：enterBond POST#1 → BondVN.enter 内 POST#2（幂等双发）。清理为单 POST：
