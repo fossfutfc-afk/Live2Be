@@ -207,14 +207,19 @@ post-bridge 分支）。缺口 = 入口段（A）+ 少量语义修正（B）+ �
 
 ## 6. 埋点与验收
 
-### 6.1 计时埋点（logging，生产零 UI 成本）
+### 6.1 计时埋点（✅ 已实施 2026-09-07, logging INFO, 单行可 grep）
 
-| 计量 | 位置 |
-|---|---|
-| trigger→预热完成（staged scene 就绪） | bond.py staged 路径 start/end log |
-| 点击→首场可展示（adopt 时 scene 已就绪? busy?） | bond_start 返回前 log state.busy + scene 有无 |
-| 场景生成耗时 / pregen 命中率 / 标注耗时 | _generate/_pregenerate/_anno_worker log |
-| TTFT 与 usage | LLMClient 已记 last_reasoning；可按调用点补 timing log |
+| 计量 | 日志标记 | 位置 |
+|---|---|---|
+| trigger→预热完成（staged scene 就绪） | `bond_prewarm_start`（起点, 含 title）/ `bond_prewarm_ready … lat=`（就绪时点; 丢弃/adopt 后不误报——registry 身份守卫） | bond.py staged 分支 / _generate run |
+| 点击→首场（adopt 就绪? busy? / fresh 现场生成 / 内存续玩 / 中断回放） | `bond_click adopt … lat= ready=` / `bond_click prewarm\|fresh` / `bond_click resumed` / `bond_click replay scenes=` / `bond_click busy_wait` | bond_start 各分支 |
+| 场景生成 / pregen 耗时 | `bond_gen ok … round= dur=`（失败带 dur）/ `bond_pregen ok dur=` | _generate / _pregenerate run |
+| 标注耗时 | `bond_anno dur= fallback=` | _anno_worker |
+| LLM 调用总耗时 + TTFT（首个 content chunk） | `llm chat_full ms= ttft= json=` / `llm chat ms= json=y`（非流式 json 档） | llm/client.py chat/chat_full |
+
+中断行为注意点（实施约定）: `t_staged` 只随预热态存活——丢弃重建（pop 新对象）
+/ 回放 / 普通首进 = 0, 无脏值; 预热就绪日志带 registry 身份守卫（state 已被
+丢弃则不报）; busy 在途点击记 `adopt ready=n` 与 `busy_wait`, 语义各自独立。
 
 ### 6.2 手动验收脚本
 

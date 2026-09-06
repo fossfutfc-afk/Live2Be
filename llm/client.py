@@ -162,8 +162,13 @@ class LLMClient:
             response_format=response_format,
             extra_body=extra_body,
         )
-
+        # 计时埋点（EXEC_BOND_LATENCY §6.1）: 非流式 json 档记耗时（info 控噪）
+        _t0 = time.monotonic()
         raw_text = self._request_with_retry(payload, timeout=timeout)
+        if response_format == "json_object":
+            logger.info(
+                "llm chat ms=%d json=y",
+                int((time.monotonic() - _t0) * 1000))
         self.last_reasoning = _LAST_REASONING    # 模块级捕获 → 实例可读
 
         if response_format == "json_object":
@@ -207,7 +212,23 @@ class LLMClient:
             extra_body=extra_body,
             stream=True,
         )
-        raw_text = self._stream_collect(payload, on_chunk=on_chunk)
+        # 计时埋点（EXEC_BOND_LATENCY §6.1）: 总耗时 + TTFT（首个 content chunk）
+        _t0 = time.monotonic()
+        _ttft: list[float | None] = [None]
+        _user_obs = on_chunk
+
+        def _obs(c: str) -> None:
+            if _ttft[0] is None:
+                _ttft[0] = time.monotonic() - _t0
+            if _user_obs is not None:
+                _user_obs(c)
+
+        raw_text = self._stream_collect(payload, on_chunk=_obs)
+        logger.info(
+            "llm chat_full ms=%d ttft=%dms json=%s",
+            int((time.monotonic() - _t0) * 1000),
+            int(_ttft[0] * 1000) if _ttft[0] is not None else -1,
+            "y" if response_format == "json_object" else "n")
         self.last_reasoning = _LAST_REASONING    # 模块级捕获 → 实例可读
 
         if response_format == "json_object":

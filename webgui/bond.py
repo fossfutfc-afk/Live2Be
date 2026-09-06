@@ -55,6 +55,11 @@ from webgui import chat
 
 logger = logging.getLogger(__name__)
 
+
+def _ms_since(t0: float) -> int:
+    """自 t0（time.monotonic）起的毫秒（计时埋点, EXEC_BOND_LATENCY §6.1）。"""
+    return int((time.monotonic() - t0) * 1000)
+
 #: 双层收尾兜底（与 CLI 默认一致——剧情必须终结, 宁缺勿错）
 _REMIND_ROUNDS = 30
 _END_ROUNDS = 50
@@ -139,6 +144,9 @@ class BondState:
     # → staged_seq 失配 → 丢弃重建, 首场反映最新上下文。
     staged_seq: int | None = None    # 非 None = 预热态; 值 = 预热时最后一条 mmt 事件 seq
     vn_enter_written: bool = False   # vn_enter marker 已落（首进/adopt 时置 True）
+    # 计时埋点（§6.1）: 预热起点（monotonic）——adopt/预热就绪时算 latency。
+    # 只随预热态存活: 丢弃重建（pop 新对象）/回放/普通首进 = 0, 天然无脏值
+    t_staged: float = 0.0
     # 中断接入（2026-09-07）: 中断重进（无内存态）→ 回放已记录前缀（narrative-ized
     # 场景队列, 逐场本地推进, 0 LLM）; 队列尽 → 交棒常规 live 路径（promotion/生成）。
     # 回放场景来自事件流（已落库, scene_logged=True 不重复落）; 最后一场展示即
@@ -482,6 +490,13 @@ def bond_start(char_id: str, session_id: str, *,
                     state.vn_enter_written = True
                 except Exception as e:               # noqa: BLE001 — 写失败降级不阻断
                     logger.warning("adopt vn_enter 写入失败: %s", e)
+            # 计时埋点（§6.1）: 点击时预热态是否已就绪 + 预热起点 latency
+            logger.info(
+                "bond_click adopt %s/%s lat=%dms ready=%s",
+                char_id, session_id,
+                _ms_since(state.t_staged) if state.t_staged > 0 else -1,
+                "y" if not state.busy else "n")
+            state.t_staged = 0.0
             state.staged_seq = None
             if state.busy:
                 # 预热生成仍在途 → 前端轮询等待（resumed=False → 章节等待卡可见）
@@ -489,9 +504,13 @@ def bond_start(char_id: str, session_id: str, *,
                         "chapter_title": state.chapter_title}
             return {"accepted": True, "busy": False, "resumed": True}
     elif state.vn is not None or state.demo is not None:
+        # 计时埋点（§6.1）: 内存态续玩（resumed）——即时可用
+        logger.info("bond_click resumed %s/%s busy=%s",
+                    char_id, session_id, "y" if state.busy else "n")
         return {"accepted": True, "busy": state.busy, "resumed": True}
     if state.busy:
         # 生成在途（P1: busy = 正在生成——让前端进入轮询, 不再报错）
+        logger.info("bond_click busy_wait %s/%s", char_id, session_id)
         return {"accepted": True, "busy": True, "resumed": False}
 
     # ── 中断接入（2026-09-07）: 无内存态 + 有内容的未完成段 → 回放前缀 ──
@@ -507,6 +526,9 @@ def bond_start(char_id: str, session_id: str, *,
                 abandon_opens_except(_store(), char_id, session_id, keep_enter)
             except Exception as e:                   # noqa: BLE001 — 宣告失败降级
                 logger.warning("回放前废弃宣告失败: %s", e)
+            # 计时埋点（§6.1）: 中断回放入口（本地 0 LLM 展示, handoff 生成另计）
+            logger.info("bond_click replay %s/%s scenes=%d from=%d",
+                        char_id, session_id, len(replay_q), keep_enter)
             return _start_replay(state, replay_q, char_id, session_id)
 
     engine = chat._engine(char_id)
@@ -567,10 +589,17 @@ def bond_start(char_id: str, session_id: str, *,
         except Exception as e:                       # noqa: BLE001 — 宣告失败降级
             logger.warning("旧在押段废弃宣告失败: %s", e)
         state.staged_seq = _last_mmt_seq(char_id, session_id)
+        state.t_staged = time.monotonic()            # 计时埋点（§6.1）: 预热起点
+        logger.info("bond_prewarm_start %s/%s title=%r",
+                    char_id, session_id, title)
 
     seed = (f"（旁白）本章：{title}——从刚才的对话与契机自然展开。"
             if title else "（旁白）故事开始了……")
     _generate(state, char_id, session_id, seed)
+    # 计时埋点（§6.1）: 触发轮结束→点击时开始现场生成（无预热/续场路径）
+    logger.info("bond_click %s %s/%s title=%r",
+                "prewarm" if staged else "fresh",
+                char_id, session_id, title)
     # reason 随响应返回——前端进场景等待期显示"章节标题卡"（掩盖首场生成缓冲）
     return {"accepted": True, "busy": True, "resumed": False,
             "chapter_title": title}
@@ -853,6 +882,7 @@ def _generate(state: BondState, char_id: str, session_id: str, user_input: str) 
     state.error = ""
 
     def run():
+        t0 = time.monotonic()                    # 计时埋点（§6.1）
         try:
             with chat._lock(char_id):
                 state.round += 1
@@ -887,13 +917,26 @@ def _generate(state: BondState, char_id: str, session_id: str, user_input: str) 
                 # 两遍式 C 异步标注: 骨架先显示, emotion 解析入队补标（不阻塞玩家）
                 _enqueue_annotate(state, scene)
                 state.fail_count = 0           # 生成成功 → 失败计数清零
+                # 计时埋点（§6.1）: 每轮生成耗时; 首场且仍处预热态（未被丢弃/
+                # adopt）→ 预热就绪 latency
+                if state.staged_seq is not None and state.round == 1:
+                    cur = _bonds.get((char_id, session_id))
+                    if cur is state and state.t_staged > 0:
+                        logger.info(
+                            "bond_prewarm_ready %s/%s lat=%dms",
+                            char_id, session_id, _ms_since(state.t_staged))
+                logger.info(
+                    "bond_gen ok %s/%s round=%d dur=%dms%s",
+                    char_id, session_id, state.round, _ms_since(t0),
+                    "" if state.demo is None else " demo")
         except (SceneLoopError, ValueError) as e:
             # 模型连语义校验都过不了 → 偶发失败先给重试机会（2026-09-02:
             # 一败就 closing 会把偶发 JSON 错误变成"剧情突然结束"——上一场保持
             # 在屏, error 置位, 前端显示重试按钮重新 submit; 连续 3 次失败才
             # 中断收场（宁缺勿错, 剧情必须终结））
-            logger.warning("bond 场景生成失败 (%s/%s) 第 %d 次: %s",
-                           char_id, session_id, state.fail_count + 1, e)
+            logger.warning("bond 场景生成失败 (%s/%s) 第 %d 次 (%dms): %s",
+                           char_id, session_id, state.fail_count + 1,
+                           _ms_since(t0), e)
             state.error = str(e)
             state.fail_count += 1
             if state.fail_count > MAX_GEN_FAILURES:
@@ -934,6 +977,7 @@ def _pregenerate(state: BondState, char_id: str, session_id: str) -> None:
         state.busy = True
 
     def run():
+        t0 = time.monotonic()                    # 计时埋点（§6.1）
         try:
             with chat._lock(char_id):
                 scene = state.vn.send_vn_scene(
@@ -949,8 +993,11 @@ def _pregenerate(state: BondState, char_id: str, session_id: str) -> None:
                                        if isinstance(p, dict)]
                 # 预生成场景同样异步标注（与主场景同一队列串行, 玩家消费时表情就绪）
                 _enqueue_annotate(state, scene)
+                logger.info("bond_pregen ok %s/%s dur=%dms",
+                            char_id, session_id, _ms_since(t0))
         except Exception as e:                     # noqa: BLE001 — 预生成失败降级
-            logger.warning("bond 预生成失败（降级为点击时再生成）: %s", e)
+            logger.warning("bond 预生成失败 (%dms, 降级为点击时再生成): %s",
+                           _ms_since(t0), e)
             state.pregen_obj = None
             state.pregen_scene = None
             state.pregen_input = ""
@@ -1010,11 +1057,16 @@ def _anno_worker(state: BondState) -> None:
         scene = state._anno_queue.get()
         if scene is None:
             break
+        t0 = time.monotonic()                    # 计时埋点（§6.1）
+        failed = False
         try:
             state.vn.fill_scene_emotions(scene)     # 标注 LLM（不持锁）
         except Exception as e:                       # noqa: BLE001 — 标注失败兜底
+            failed = True
             logger.warning("bond 异步标注失败（兜底延续）: %s", e)
         _fallback_fill(scene)                        # 保险网: 空 emotion 强制 nomal
+        logger.info("bond_anno dur=%dms fallback=%s",
+                    _ms_since(t0), "n" if not failed else "y")
         with state._lock:
             if state.scene_obj is scene:
                 state.scene = scene.to_dict()
