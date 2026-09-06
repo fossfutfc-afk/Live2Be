@@ -75,11 +75,28 @@ from core.session.renderer import render_events, session_status, window_messages
 from core.brain.wiki_v2.digest import digest_segment
 from core.brain.wiki_v2.render import render_background_experience, render_character_view
 from core.brain.wiki_v2.store import WikiStoreV2
+from core.rag.brain import make_embed_fn
+from core.rag.embedder import LocalEmbedder
 from core.ui.display import MomoTalkOutput
 from core.ui.streaming import DisplayStep
 from core.ui.text_processors import _process_for_momotalk, _strip_action_brackets, split_reply_chunks
 
 logger = logging.getLogger(__name__)
+
+#: RAG 语义召回后端（digest 联想, 2026-09-xx 接线 core/rag）——embed_fn 传给
+#: digest_segment → recall_subgraph 通道1 用 embedding 相似度召回旧记忆;
+#: embedding 模型未加载/服务未起 → embed_fn 抛 RagError → recall 内部 try/except
+#: 自动降级 tags 关键词（宁缺勿错, 不阻断 digest）。模块级缓存（embedder 构造
+#: 时探一次 /v1/models, 低频调用不值得重复探）。
+_EMBED_FN = None
+
+
+def _get_embed_fn():
+    """懒构造 RAG embed_fn（None → 调用方走关键词降级, 语义等价）。"""
+    global _EMBED_FN
+    if _EMBED_FN is None:
+        _EMBED_FN = make_embed_fn(LocalEmbedder())
+    return _EMBED_FN
 
 
 def _interact_max(events: list, digested_seq: int) -> int:
@@ -419,6 +436,7 @@ class MomoTalkEngine:
                 interact_max = _interact_max(events, wstore.digested_seq)
                 res = digest_segment(wstore, self.llm, events,
                                      character_prompt=anchor,
+                                     embed_fn=_get_embed_fn(),
                                      llm_timeout=DIGEST_LLM_TIMEOUT)
                 if not res.ok:
                     logger.warning("digest 未完成 (%s): %s", character_id,
