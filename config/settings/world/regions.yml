@@ -1,0 +1,82 @@
+# regions.yml — 剧情地理 region 词表（DESIGN_PLACE.md 语义键层）
+#
+# 消费方:
+#   - place_studio.py region 下拉（作者整理时标注场景归属）
+#   - 语义实体表的 region 字段（子集注入: 每场候选 = 当前 region + 常驻通用）
+#
+# 结构: regions: [{id, zh, aliases}]
+#   id      = 稳定锚（latin snake, 程序侧键值, 不改）
+#   zh      = 官方中文主名（显示/注入/导出的 region 值, 归一终点）
+#   aliases = 别译/俗称吸收集——⚠️ 用途（2026-09-05 作者定）:
+#             同一地点的译名在汉化/社区/AI 侧并不统一（歌赫娜vs格黑娜、
+#             沙勒vs夏莱、千禧年vs千年…），LLM 汇报或检索命中的很可能是任一
+#             别译。aliases 的作用不是"记录别名"本身, 而是给归一化兜底:
+#             任意别译/id 出现时都归一成同一个 zh 主名——
+#             否则同一地点会因叫法不同裂成多个 region 分组, 子集注入就漏。
+#             作者若听到新的不同译名 → 加进对应条目的 aliases, 别新建条目。
+# 词表依据: 2026-09-05 用户提供的官方/常见地名表（含 3 个通用区域兜底）。作者可增补。
+
+regions:
+  - id: gehenna
+    zh: 格黑娜学院
+    aliases: [歌赫娜, Gehenna, 歌赫娜学院, 格黑娜]
+  - id: millennium
+    zh: 千年科技学院
+    aliases: [千禧年, Millennium, 千年, 千禧科技学院]
+  - id: trinity
+    zh: 圣三一综合学院
+    aliases: [崔尼蒂, Trinity, 圣三一]
+  - id: abydos
+    zh: 阿拜多斯高级中学
+    aliases: [阿比多斯, Abydos, 阿拜多斯]
+  - id: red_winter
+    zh: 红冬联邦学院
+    aliases: [RedWinter, 红冬]
+  - id: schale
+    zh: 夏莱
+    aliases: [沙勒, Schale, 夏莱办公室]
+  - id: shan_hai_jing
+    zh: 山海经高级中学
+    aliases: [ShanHaiJing, 山海经, 玄龙门]
+  - id: valkyrie
+    zh: 女武神警察学院
+    aliases: [瓦尔基里, 瓦尔基丽, 女武神]
+  - id: hyakkiyako
+    zh: 百鬼夜行联合学院
+    aliases: [百鬼夜行, 百鬼夜行学园]
+  - id: arius
+    zh: 阿里乌斯分校
+    aliases: [奥利斯, Arius, 阿里乌斯, 阿里乌斯学院]
+  - id: srt
+    zh: SRT特殊学院
+    aliases: [SRT, SRT学园]
+  - id: du
+    zh: 联邦学生会·D.U.白鸟区
+    aliases: [联邦学生会, 联邦理事会区, D.U.白鸟区, 白鸟区, 联邦学生会区]
+  - id: kronos
+    zh: 克洛诺斯新闻学院
+    aliases: [克洛诺斯]
+  - id: wildhunt
+    zh: 狂猎艺术学院
+    aliases: [狂猎美术, 狂猎学院]
+  - id: odyssey
+    zh: 奥德赛海洋学院
+    aliases: [奥德赛]
+  - id: angel24
+    zh: 天使24便利店
+    aliases: [天使24, Angel24]
+  - id: shinmyouken
+    zh: 神明十文字
+    aliases: [十文字, 神明]
+  - id: highlander
+    zh: 海兰德铁道学院
+    aliases: [HighLander, 海兰德]
+  - id: oldtown
+    zh: 旧城区
+    aliases: [老街, 老城区]
+  - id: downtown
+    zh: 中心城区
+    aliases: [市中心, 商业中心]
+  - id: seaside
+    zh: 海滨
+    aliases: [海边, 海岸]
