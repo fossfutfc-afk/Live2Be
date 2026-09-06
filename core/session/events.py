@@ -38,13 +38,17 @@ EVENT_TYPES: tuple[str, ...] = (
 M_SESSION_START = "session_start"
 M_VN_ENTER = "vn_enter"       # payload: {parent_session_id, chapter_title?}（2026-09-05 reason 退役）
 M_VN_EXIT = "vn_exit"
+M_VN_ABANDON = "vn_abandon"   # ★ 废弃宣告（2026-09-07, core/session/maintenance.py）:
+                              # payload {start_seq, end_seq, note?}——中断段被新章节压掉
+                              # （从未续写/走完）= 废弃"未发生": 从窗口/digest 排除;
+                              # 关闭语义同 vn_exit（推导 in_vn 时视同收尾）
 M_VN_STATE = "vn_state"       # payload: VNState.to_dict()（round/seed/visual…）
 M_MEMORIAL_ENTER = "memorial_enter"  # ★ 进入纪念子模式（§4.7）payload: {chapter_title?}
 M_MEMORIAL_EXIT = "memorial_exit"    # ★ 退出纪念, 回 bond
 M_SESSION_END = "session_end"  # payload: {ended: true}
 
 MARKER_SUBTYPES: tuple[str, ...] = (
-    M_SESSION_START, M_VN_ENTER, M_VN_EXIT, M_VN_STATE,
+    M_SESSION_START, M_VN_ENTER, M_VN_EXIT, M_VN_ABANDON, M_VN_STATE,
     M_MEMORIAL_ENTER, M_MEMORIAL_EXIT, M_SESSION_END,
 )
 

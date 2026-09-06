@@ -53,6 +53,7 @@ from core.brain.wiki_v2.recall import (
 from core.brain.wiki_v2.render import render_cognition_list
 from core.brain.wiki_v2.revise import apply_decisions
 from core.brain.wiki_v2.store import WikiStoreV2
+from core.session.maintenance import exclude_abandoned
 from core.session.renderer import render_timeline
 from llm.prompts import load_prompt
 from llm.task_levels import extra_body as _tl_extra
@@ -123,6 +124,8 @@ def digest_segment(
         max_tokens = _tl_max_tokens("digest")
     if extra_body is None:                       # 真源档位: digest = high（显式）
         extra_body = _tl_extra("digest")
+    # 废弃段过滤（2026-09-07, maintenance）: 被压掉的中断段"未发生"——不进记忆
+    events = exclude_abandoned(events)
     new_events = [e for e in events
                   if e.seq > store.digested_seq
                   and not e.is_marker and e.type != "affection"]

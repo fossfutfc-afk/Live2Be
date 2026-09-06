@@ -30,6 +30,7 @@ from datetime import datetime
 from pathlib import Path
 
 from core.session import SessionStore, make_event
+from core.session.maintenance import exclude_abandoned
 from core.session.renderer import render_timeline
 from core.brain.hippocampus import WikiStore
 from core.brain.recall import recall_related
@@ -87,6 +88,8 @@ def digest_session(
     if not events:
         logger.info("digest 跳过: 会话 %s 无事件", session_id)
         return None
+    # 废弃段过滤（2026-09-07, maintenance）: 被压掉的中断段"未发生"——不进记忆
+    events = exclude_abandoned(events)
 
     wiki = ws.load(char_id, session_id)
     digested_seq = int(wiki.get("digested_seq", 0) or 0)

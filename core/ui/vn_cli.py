@@ -164,8 +164,10 @@ def run_bond_story_vn(
     try:
         store_ = store if store is not None else engine._store
         if store_ is not None:
+            from core.session.maintenance import exclude_abandoned
             from core.session.renderer import window_messages
-            _win = window_messages(store_.events(char.character_id))
+            _win = window_messages(
+                exclude_abandoned(store_.events(char.character_id)))
             if _win:
                 vn._history = _win
     except Exception:                                # noqa: BLE001 — 灌窗失败不阻断
@@ -389,8 +391,10 @@ def wrapup_after_vn(engine: MomoTalkEngine,
     # 事件流（含刚结束的 bond 场景叙事）灌进 _history, 收尾话自然接续剧情
     try:
         if engine._store is not None:
+            from core.session.maintenance import exclude_abandoned
             from core.session.renderer import window_messages
-            _win = window_messages(engine._store.events(char.character_id))
+            _win = window_messages(
+                exclude_abandoned(engine._store.events(char.character_id)))
             if _win:
                 engine._history = _win
     except Exception:                                # noqa: BLE001 — 灌窗失败不阻断

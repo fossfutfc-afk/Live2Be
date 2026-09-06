@@ -27,6 +27,7 @@ from core.session.events import (
     M_MEMORIAL_EXIT,
     M_SESSION_END,
     M_SESSION_START,
+    M_VN_ABANDON,
     M_VN_ENTER,
     M_VN_EXIT,
     M_VN_STATE,
@@ -176,7 +177,8 @@ def session_status(events: list[Event]) -> dict[str, Any]:
 
     Returns:
         ended              — 有 session_end marker
-        in_vn              — 最后 vn_enter 之后无 vn_exit/session_end
+        in_vn              — 最后 vn_enter 之后无 vn_exit/vn_abandon/session_end
+                              （vn_abandon 视同收尾——废弃段关闭, 2026-09-07）
         in_memorial        — 纪念子模式中（§4.7）: 最后 memorial_enter 之后
                              无 memorial_exit/session_end
         parent_session_id  — 恒 None（2026-08-24 单流无子会话, 保留字段兼容）
@@ -185,15 +187,37 @@ def session_status(events: list[Event]) -> dict[str, Any]:
     ms = [e for e in events if e.is_marker]
     ended = any(m.subtype == M_SESSION_END for m in ms)
 
+    # in_vn = 仍有未关的 vn_enter（2026-09-07 改为 open 栈推导——定向废弃只关
+    # 指定段后, 更早的在押段仍应推导 in_vn=True）:
+    #   vn_enter      → 入栈
+    #   vn_exit       → 关最近一个在押段
+    #   vn_abandon    → 按 payload.start_seq 关指定段（无 start → 关最近, 兼容）
+    #   session_end   → 全关
     in_vn = False
     parent_session_id: str | None = None
-    enter_idxs = [i for i, m in enumerate(ms) if m.subtype == M_VN_ENTER]
-    if enter_idxs:
-        last = enter_idxs[-1]
-        in_vn = not any(
-            m.subtype in (M_VN_EXIT, M_SESSION_END) for m in ms[last + 1:])
-        p = ms[last].payload.get("parent_session_id")
-        parent_session_id = p if isinstance(p, str) and p else None
+    opens: list = []
+    last_enter_payload: dict = {}
+    for m in ms:
+        if m.subtype == M_VN_ENTER:
+            opens.append(m)
+            last_enter_payload = m.payload      # parent 语义: 最近一次 vn_enter（无论开合）
+        elif m.subtype == M_VN_EXIT:
+            if opens:
+                opens.pop()
+        elif m.subtype == M_VN_ABANDON:
+            try:
+                s = int(m.payload.get("start_seq", 0) or 0)
+            except (TypeError, ValueError):
+                s = 0
+            if s > 0:
+                opens = [o for o in opens if o.seq != s]
+            elif opens:
+                opens.pop()
+        elif m.subtype == M_SESSION_END:
+            opens = []
+    in_vn = bool(opens)
+    p = last_enter_payload.get("parent_session_id")
+    parent_session_id = p if isinstance(p, str) and p else None
 
     # 纪念子模式状态（§4.7: enter 后 exit 前, 中断恢复据此 resume 到纪念场景）
     in_memorial = False
