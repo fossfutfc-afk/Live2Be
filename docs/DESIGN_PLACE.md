@@ -20,6 +20,10 @@
      scene_id: latin snake 锚（自动派生——与资产同源）
      name:     中文语义名（LLM 看到的就是它: "杂草屋""圣三一走廊"）
      region:   剧情地理（可选; region 子集注入用）
+     region 键值 = 官方中文主名（config/settings/world/regions.yml 词表;
+     工具里下拉选择, 也允许自由输入; 拉丁 id/别名 → 主名自动归一）
+     region 别译防分裂: 词表 aliases 收集社区/AI 常见别译（歌赫娜/沙勒/千禧年…）,
+     任何写法都归一为同一 zh 主名——防同地点因译名不同裂成多个 region 分组
      group:    类型分组（可选: 学园/日常/商业…）
      active:   true（注入/可选）| false（保留资产不进键表）
      files:    {day: [...], night: [...]}（自动从 variant 归位——日夜不占键）
