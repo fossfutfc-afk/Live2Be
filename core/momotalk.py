@@ -541,9 +541,12 @@ class MomoTalkEngine:
                                                           # digest 由 async_digest 触发: bond 闭环 / mmt N=25 轮）
         # 统一上下文窗口（2026-09-05, DESIGN_CONTEXT_WINDOW）: window_messages 按
         # 叙事单元数装填（bond 句段按行占窗, 长场景自然挤旧）; 预算 = rounds × 3
-        # （默认 40 轮 → 120 单元, 与板块定稿一致; history_rounds 保留为可配语义）
+        # （默认 40 轮 → 120 单元, 与板块定稿一致; history_rounds 保留为可配语义）;
+        # 废弃段过滤（2026-09-07, maintenance）: 被新章压掉的中断段不进上下文
+        from core.session.maintenance import exclude_abandoned
         self._history = window_messages(
-            data["events"], max_units=self._history_rounds * 3)
+            exclude_abandoned(data["events"]),
+            max_units=self._history_rounds * 3)
         self.attach_session(session_id)
         return {
             "status": status,

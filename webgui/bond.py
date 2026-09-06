@@ -37,9 +37,16 @@ from core.momotalk import load_brain_segment
 from core.session.events import (
     M_MEMORIAL_ENTER,
     M_MEMORIAL_EXIT,
+    M_VN_ABANDON,
     M_VN_EXIT,
     M_VN_STATE,
     make_event,
+)
+from core.session.maintenance import (
+    abandon_open_attempts,
+    abandon_opens_except,
+    abandoned_ranges,
+    exclude_abandoned,
 )
 from core.session.renderer import window_messages
 from core.ui.vn_cli import _build_director, _trigger_title
@@ -321,14 +328,14 @@ def replay_attempts(char_id: str, session_id: str = "") -> list[dict]:
 # ---------------------------------------------------------------------------
 
 def _pending_in_vn(char_id: str, session_id: str) -> bool:
-    """事件流视角: 最近一个 vn_enter 之后没有 vn_exit（中断在押, 会话 in_vn）。"""
+    """事件流视角: 最近一个 vn_enter 之后没有 vn_exit/vn_abandon（中断在押, in_vn）。"""
     try:
         last_enter = last_exit = -1
         for e in _store().events(char_id, session_id):
             if getattr(e, "type", None) == "marker":
                 if e.subtype == "vn_enter":
                     last_enter = e.seq
-                elif e.subtype == "vn_exit":
+                elif e.subtype in ("vn_exit", "vn_abandon"):
                     last_exit = e.seq
         return last_enter > last_exit
     except Exception:                                # noqa: BLE001 — 读失败按无在押
@@ -350,16 +357,24 @@ def _narrativize(scene: dict, picked) -> dict:
     return out
 
 
-def _interrupted_replay_queue(char_id: str, session_id: str) -> list[dict] | None:
-    """最新一条"有内容的未完成段" → narrative-ized 场景列表（中断重进原料）。
+def _interrupted_replay_queue(char_id: str, session_id: str) -> tuple[list[dict], int] | None:
+    """最新一条"有内容的未完成段" → (narrative-ized 场景列表, 段 enter_seq)。
 
     从段尾向前找 interrupted 且有 scenes 的段; 空壳重启段（0 场景——旧 bug 的
     重复 vn_enter 产物）自动跳过, 回退到更早的有内容段（如 seq12 场景 + seq18/21
-    空壳）。无 → None（现场生成路径）。
+    空壳）; **废弃段（vn_abandon 宣告, 被新章压掉）跳过**——档案在回放列表,
+    不再自动续。无 → None（现场生成路径）。enter_seq 供"保留本段、压掉其余
+    open"的定向废弃（防续写事件归属到更新的空壳段）。
     """
+    try:
+        ranges = abandoned_ranges(_store().events(char_id, session_id))
+    except Exception:                                # noqa: BLE001 — 读失败无区间
+        ranges = []
     for at in reversed(replay_attempts(char_id, session_id)):
-        if at["interrupted"] and at["scenes"]:
-            return [_narrativize(s["scene"], s["picked"]) for s in at["scenes"]]
+        if at["interrupted"] and at["scenes"] and not any(
+                a <= at["from_seq"] <= b for a, b in ranges):
+            return ([_narrativize(s["scene"], s["picked"]) for s in at["scenes"]],
+                    at["from_seq"])
     return None
 
 
@@ -383,7 +398,8 @@ def _start_replay(state: BondState, replay_q: list[dict],
         director=_build_director(char), brain_segment=brain_segment)
     vn.start_session(char.character_id)
     try:
-        _win = window_messages(_store().events(char_id))
+        _evs = exclude_abandoned(_store().events(char_id))
+        _win = window_messages(_evs)
         if _win:
             vn._history = _win                # 前缀(含已记录场景)+ 触发前对话
     except Exception:                                # noqa: BLE001 — 灌窗失败不阻断
@@ -482,8 +498,15 @@ def bond_start(char_id: str, session_id: str, *,
     # （"从头开始播放已有半截剧情, 后续 LLM 后补"; staged 预热 = 新触发轮,
     # 不进回放——走下方现场构造续在押段或新段）
     if not staged:
-        replay_q = _interrupted_replay_queue(char_id, session_id)
-        if replay_q is not None:
+        replay = _interrupted_replay_queue(char_id, session_id)
+        if replay is not None:
+            replay_q, keep_enter = replay
+            # 定向废弃: 保留被回放段, 压掉其余 open（含空壳）——否则续写事件
+            # 会按 vn_enter 归属追加到更新的空壳段, 分段/记忆归属错乱
+            try:
+                abandon_opens_except(_store(), char_id, session_id, keep_enter)
+            except Exception as e:                   # noqa: BLE001 — 宣告失败降级
+                logger.warning("回放前废弃宣告失败: %s", e)
             return _start_replay(state, replay_q, char_id, session_id)
 
     engine = chat._engine(char_id)
@@ -506,7 +529,8 @@ def bond_start(char_id: str, session_id: str, *,
     # vn._history——首场带着触发前的 MMT 对话（断桥修复）; 事件流已是终态
     # （裁决时落库 + 门控保证标注就绪）; 与引擎自增历史同构, 滑动无缝
     try:
-        _win = window_messages(_store().events(char_id))
+        _evs = exclude_abandoned(_store().events(char_id))
+        _win = window_messages(_evs)
         if _win:
             vn._history = _win
     except Exception:                                # noqa: BLE001 — 灌窗失败不阻断
@@ -535,6 +559,13 @@ def bond_start(char_id: str, session_id: str, *,
         except Exception as e:                       # noqa: BLE001 — 写失败降级不阻断 VN
             logger.warning("事件流 vn_enter 写入失败: %s", e)
     else:
+        # 新章节触发轮（staged 预热）: 压掉旧 open 在押段——vn_abandon 宣告
+        # （2026-09-07, maintenance）: 之后 openChat 不再自动拽入旧中断段,
+        # 窗口/digest 按废弃区间过滤; 幂等（已关段自动跳过）
+        try:
+            abandon_open_attempts(_store(), char_id, session_id)
+        except Exception as e:                       # noqa: BLE001 — 宣告失败降级
+            logger.warning("旧在押段废弃宣告失败: %s", e)
         state.staged_seq = _last_mmt_seq(char_id, session_id)
 
     seed = (f"（旁白）本章：{title}——从刚才的对话与契机自然展开。"
@@ -1116,7 +1147,8 @@ def _wrapup(char_id: str, session_id: str, title: str, completed: bool) -> None:
     # 统一上下文窗口: bond 期间 momotalk 引擎未跑——收尾前把事件流（含刚结束的
     # bond 场景叙事）灌进 _history, 收尾话自然接续剧情（起因便签不再需要）
     try:
-        _win = window_messages(_store().events(char_id))
+        _evs = exclude_abandoned(_store().events(char_id))
+        _win = window_messages(_evs)
         if _win:
             engine._history = _win
     except Exception:                                # noqa: BLE001 — 灌窗失败不阻断
