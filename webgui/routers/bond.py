@@ -49,6 +49,23 @@ def _fx_resolver(char_id: str) -> EffectResolver:
     return r
 
 
+def warm_render(char_id: str) -> None:
+    """预热渲染依赖（P2, EXEC_BOND_LATENCY §5#3）: MediaCatalog（构造一次
+    ~百 ms）+ 角色特效表——移出首帧 status 轮询路径, 首个场景解析不再现构造。
+
+    幂等（模块级单例）; 资产缺失/损坏 → 静默跳过（宁缺勿错——渲染链本就
+    有各自降级）。由 webgui/bond.py 在进入剧情（含预热）时懒调用。
+    """
+    try:
+        _catalog()
+    except Exception:                                # noqa: BLE001 — 资产缺失降级
+        return
+    try:
+        _fx_resolver(char_id)
+    except Exception:                                # noqa: BLE001 — 角色无特效表降级
+        pass
+
+
 def _resolve_scene(scene: dict | None, char_id: str) -> dict | None:
     """场景 dict 附带前端渲染信息:
     background_url — scene_id → 静态文件 URL（无背景 → 保持 None, 黑屏余韵）

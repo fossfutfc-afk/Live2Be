@@ -907,3 +907,13 @@ def test_bond_prewarm_staged_stale_discard(tmp_path):
         print("    bond 预热守卫: 点击前事件流前进 → 丢弃重建")
     finally:
         _cleanup()
+
+
+def test_bond_warm_render_deps(tmp_path):
+    """P2: 渲染依赖预热幂等——MediaCatalog/特效表构造一次不抛, 资产缺失降级。"""
+    from webgui.routers.bond import warm_render, _catalog
+    warm_render(CHARACTER)                # 首次: catalog 构造 + 角色特效表
+    assert _catalog() is not None         # 单例已就绪（后续 status 不再现构造）
+    warm_render(CHARACTER)                # 幂等
+    print("    warm_render: catalog + fx 预热幂等")
+    # 无 finally —— warm 不碰全局 store/引擎, 无残留

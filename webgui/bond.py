@@ -341,6 +341,14 @@ def bond_start(char_id: str, session_id: str, *,
 
     state.vn = vn
     state.chapter_title = title
+    # 渲染依赖预热（P2, EXEC_BOND_LATENCY §5#3）: MediaCatalog/特效表移出
+    # 首帧 status 轮询——首次场景解析不再现构造（懒 import 破环 routers↔driver;
+    # 幂等单例; 失败静默——渲染链自带降级）
+    try:
+        from webgui.routers.bond import warm_render
+        warm_render(char.character_id)
+    except Exception:                                # noqa: BLE001 — 预热失败降级
+        pass
     # 事件流: vn_enter marker（单事件流; 中断恢复依赖它推导 in_vn）。
     # staged 预热不落——adopt（玩家点击）时补, 防"没点也被拉进 VN"
     if not staged:
