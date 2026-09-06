@@ -10,8 +10,10 @@
   （tempo 下放 place_studio.py 薄启动器即可——import 本项目 tools/place_studio）
 
 流程: 扫描 bg-root → (目录, scene 族) 分组（变体自动同族）→ 逐组看图 →
-中文语义名 / region / active(剔除) / 备注 → 进度断点续做 → E 导出实体表
-（导出按 scene_id 键 merge 累加——逐目录处理, 最后合成一张表）。
+中文语义名 / region（下拉选官方地名主名, 可自行输入; 拉丁 id/别名自动归一为主名,
+词表: config/settings/world/regions.yml）/ active(剔除) / 备注 → 进度断点续做
+→ E 导出实体表（导出按 scene_id 键 merge 累加——单实例 + 范围过滤逐块处理,
+最后合成一张表; 范围: 字母段 / BG_* 通配 / 文字——不必全量一次审, 也无需每目录开一次）。
 
 数据（均在 bg-root 下）:
   _place_review.json      审阅进度（断点续做）
@@ -31,6 +33,67 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from core.media.background import VARIANT_TOKENS, derive_background     # noqa: E402
+
+REGIONS_PATH = PROJECT_ROOT / "config" / "settings" / "world" / "regions.yml"
+
+
+def load_regions() -> list[dict]:
+    """读官方地理词表 regions.yml → [{id, zh, aliases}]（下拉/命名提示/旧值迁移）。
+
+    文件缺失/空 → []（工具仍可用——region 纯自由输入）。
+    """
+    try:
+        import yaml
+        data = yaml.safe_load(REGIONS_PATH.read_text(encoding="utf-8")) or {}
+    except FileNotFoundError:
+        return []
+    return [{"id": str(r["id"]), "zh": str(r["zh"]),
+             "aliases": [str(a) for a in (r.get("aliases") or [])]}
+            for r in (data.get("regions") or [])]
+
+
+def norm_region(raw: str, regions: list[dict] | None = None) -> str:
+    """region 归一化: 已知 id/别名 → 官方中文主名; 未收录 → 原样保留（自由输入）。"""
+    raw = (raw or "").strip()
+    if not raw:
+        return ""
+    if regions is None:
+        regions = load_regions()
+    for r in regions:
+        if raw == r["zh"] or raw == r["id"] or raw in r["aliases"]:
+            return r["zh"]
+    return raw
+
+
+def _dir_initial(dir_name: str) -> str:
+    """目录首字母（去 BG_/Event_ 前缀后首个字母, 大写; 无 → ''）。"""
+    base = re.sub(r"^(?:BG_|Event_)", "", dir_name)
+    m = re.search(r"[A-Za-z]", base)
+    return m.group(0).upper() if m else ""
+
+
+def _scope_matcher(q: str):
+    """范围表达式 → 组过滤器（与前端 scopeMatcher 语义一致, 导出用）。
+
+    空 → 全部; 单字母 → 目录首字母段; 含 * / ? → 通配; 其它 → 忽略大小写包含。
+    """
+    q = (q or "").strip()
+    if not q:
+        return lambda it: True
+    if len(q) == 1 and q.isalpha():
+        L = q.upper()
+        return lambda it: _dir_initial(it["dir"]) == L
+    if "*" in q or "?" in q:
+        s = re.escape(q).replace(r"\*", ".*").replace(r"\?", ".")
+        if not q.startswith("*"):
+            s = "^" + s
+        if not q.endswith("*"):
+            s += "$"
+        rx = re.compile(s, re.IGNORECASE)
+    else:
+        rx = re.compile(re.escape(q), re.IGNORECASE)
+    return lambda it: rx.search(f"{it['dir']}|{it['root']}") is not None
+
 
 #: scene_id 尾部噪声（数字/时刻后缀 → 同族自动合并; scene 已 snake 小写）
 _TAIL_RE = re.compile(
@@ -161,9 +224,10 @@ def build_app():
         if not key:
             return JSONResponse({"ok": False, "error": "缺 key"}, status_code=400)
         data = _load_review()
+        regions = load_regions()
         data[key] = {
             "name": str(body.get("name") or "").strip(),
-            "region": str(body.get("region") or "").strip(),
+            "region": norm_region(str(body.get("region") or ""), regions),
             "keywords": str(body.get("keywords") or "").strip(),
             "active": bool(body.get("active", True)),
             "note": str(body.get("note") or "").strip(),
@@ -172,9 +236,13 @@ def build_app():
         return {"ok": True, "saved": len(data)}
 
     @app.get("/api/export")
-    def api_export():
-        """review + 扫描组 → 实体表（merge 累加——逐目录处理后合成一张表）。"""
+    def api_export(scope: str = ""):
+        """review + 扫描组 → 实体表（merge 累加——逐目录/逐范围处理后合成一张表）。
+
+        scope 可选: 只导出匹配范围的组（单字母=目录首字母段 / BG_Big* 通配 / 文字）。
+        """
         review = _load_review()
+        match = _scope_matcher(scope)
         merged: dict = {}
         p = _export_path()
         if p.exists():
@@ -183,14 +251,18 @@ def build_app():
             except Exception:
                 merged = {}
         added = 0
+        regions = load_regions()
         for it in _items:
+            if not match(it):
+                continue
             rv = review.get(it["key"])
             if not rv or not rv.get("active", True):
                 continue
             day = [f for f in it["files"] if f not in it["night"]]
             merged[it["root"]] = {
                 "name": rv.get("name") or it["root"],
-                "region": rv.get("region", ""),
+                # 旧存量行可能存拉丁 id/别名 → 归一为官方中文主名
+                "region": norm_region(rv.get("region", ""), regions),
                 "keywords": [k.strip() for k in str(rv.get("keywords") or "").split(",") if k.strip()],
                 "files": {"day": day, "night": list(it["night"])},
             }
@@ -198,7 +270,13 @@ def build_app():
         with _lock:
             p.write_text(json.dumps(merged, ensure_ascii=False, indent=1),
                          encoding="utf-8")
-        return {"ok": True, "path": str(p), "count": len(merged), "added": added}
+        return {"ok": True, "path": str(p), "count": len(merged), "added": added,
+                "scope": scope}
+
+    @app.get("/api/regions")
+    def api_regions():
+        """官方地理词表（regions.yml）——前端下拉候选。"""
+        return {"regions": load_regions()}
 
     @app.post("/api/suggest")
     async def api_suggest(body: dict):
@@ -207,15 +285,16 @@ def build_app():
         try:
             from llm.client import LLMClient
             client = LLMClient()
+            regions = load_regions()
+            official = "、".join(f"{r['zh']}" for r in regions)
             prompt = (
                 "你是蔚蓝档案(Blue Archive)场景命名助手。把背景资产 id 翻译成"
                 "简短中文语义名（角色剧情里会说的地点名, 4-12 字）。\n"
                 f"目录: {dir_}\nid: {root}\n"
                 "给出 3 个候选（json 对象 {\"names\": [...]}）:\n"
-                "规则: 学园名用官方译名（gehenna=格黑娜, trinity=圣三一, "
-                "wildhunt=狂猎美术, abydos=阿拜多斯, schale=夏莱, "
-                "hyakkiyako=百鬼夜行, millennium=千年）; 剧情专属场景（人名/事件名）"
-                "标注为\"剧情专属\"前缀提示作者确认;\n"
+                "规则: 学园/区域名一律用官方中文主名"
+                f"（{official or '格黑娜学院、圣三一综合学院、千年科技学院、夏莱'}"
+                "）; 剧情专属场景（人名/事件名）标注为\"剧情专属\"前缀提示作者确认;\n"
                 "额外给 2-4 个同义检索词（剧情里的俗称/描述词, 如破屋/老屋）;\n"
                 "只输出 JSON {\"names\": [...], \"keywords\": \"词1, 词2\"}。"
             )
@@ -276,12 +355,29 @@ _PAGE = """<!DOCTYPE html>
   #badge { margin-left: auto; }
   #badge span { background:#2d3545; padding:3px 10px; border-radius: 12px; font-size:12px; }
   .nightchip { border-style: dashed; }
+  .scopeBar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+        padding: 6px 18px; background: #20252e; border-bottom: 1px solid #2c3340; }
+  .scopeBar input[type=text] { width: 300px; padding: 5px 10px; font-size: 13px; }
+  .chips { display: flex; gap: 4px; flex-wrap: wrap; }
+  .chip { font-size: 12px; padding: 3px 9px; border-radius: 12px; cursor: pointer;
+        border: 1px solid #3a4356; background: #2d3545; color: #b9c2d6; }
+  .chip.on { background: #3d7eff; border-color: #3d7eff; color: #fff; }
+  .chip .n { color: #7c869c; font-size: 11px; margin-left: 3px; }
+  .chip.on .n { color: #d5e2ff; }
+  #scopeInfo { font-size: 12px; color: #8a93ad; margin-left: auto; }
+  #scopeInfo b { color: #ffd166; }
 </style></head><body>
 <header>
   <b>place_studio</b>
   <span id="cur"></span><span id="progress"></span>
   <span id="badge"><span id="badgeText"></span></span>
 </header>
+<div class="scopeBar">
+  <input id="scopeIn" type="text" spellcheck="false"
+    placeholder="B → BG_B* 字母段 · BG_Big* 通配 · 中文名; Enter: 1条=定位, 多条=切块, 同式再按=循环; Esc=全部">
+  <div id="chips" class="chips"></div>
+  <div id="scopeInfo"></div>
+</div>
 <div id="stage">
   <div id="gallery"><img id="mainImg" alt=""></div>
   <div id="side">
@@ -294,8 +390,10 @@ _PAGE = """<!DOCTYPE html>
     </div>
     <div class="kv"><label>keyword（可选——同义检索词, 逗号分隔: 剧情俗称/描述词）</label>
       <input id="keywords" type="text" placeholder="如: 破屋, 老屋, 秘密基地（重要主场才填）"></div>
-    <div class="kv"><label>region（可选: gehenna / schale / oldtown…）</label>
-      <input id="region" type="text" placeholder="剧情地理（子集注入用, 可留空）"></div>
+    <div class="kv"><label>region（剧情地理——下拉选官方地名主名, 也可自行输入; 子集注入用）</label>
+      <input id="region" type="text" list="regionList"
+             placeholder="选官方地名（格黑娜学院…）或自行输入; 可留空">
+      <datalist id="regionList"></datalist></div>
     <div class="kv"><label><input id="active" type="checkbox" checked> 活跃（进实体表）</label></div>
     <div class="kv"><label>备注</label><input id="note" type="text"></div>
     <div class="bar">
@@ -303,29 +401,117 @@ _PAGE = """<!DOCTYPE html>
       <button id="skip">跳过 (S)</button>
     </div>
     <div style="margin-top:12px;font-size:12px;color:#6c7590">
-      ←/→ 翻组内图 · G 生成建议 · E 导出实体表（merge）· 已审可回改</div>
+      ←/→ 翻组内图 · G 生成建议 · E 导出实体表（随当前范围, merge 累加）· 已审可回改<br>
+      范围框: B=BG_B* 字母段 · BG_Big* 通配 · 中文名 — Enter 定位/切块, 同式再按=循环, Esc=全部</div>
   </div>
 </div>
 <script>
 const $ = id => document.getElementById(id);
-let items = [], idx = 0, imgIdx = 0;
-async function boot() {
-  const r = await (await fetch("/api/items")).json();
-  items = r.items;
-  idx = items.findIndex(i => !i.done);
-  if (idx < 0) idx = 0;
-  $("badgeText").textContent = `已审 ${r.done}/${r.total}`;
+let items = [], view = [], idx = 0, imgIdx = 0;
+let scopeText = "";                    // 当前范围表达式（'' = 全部）
+//: region 旧值迁移: 曾存拉丁锚（gehenna/oldtown…）→ 官方中文主名
+let REGION_LOOKUP = {};
+function normRegion(v) {
+  return v && REGION_LOOKUP[v] ? REGION_LOOKUP[v] : v;
+}
+function fillRegionList(regions) {
+  const dl = $("regionList");
+  REGION_LOOKUP = {};
+  (regions || []).forEach(r => {
+    const o = document.createElement("option");
+    o.value = r.zh;
+    const aka = (r.aliases || []).join(" / ");
+    if (aka) o.label = `${r.id}（${aka}）`; else o.label = r.id;
+    dl.appendChild(o);
+    REGION_LOOKUP[r.zh] = r.zh;              // 主名 → 主名
+    REGION_LOOKUP[r.id] = r.zh;              // latin 锚 → 主名（旧数据）
+    (r.aliases || []).forEach(a => { REGION_LOOKUP[a] = r.zh; });
+  });
+}
+// ---------- 范围（scope）: 字母段 / 通配 / 文字匹配 ----------
+function dirLetter(dir) {
+  const m = dir.replace(/^(BG_|Event_)/, "").match(/[A-Za-z]/);
+  return m ? m[0].toUpperCase() : "";
+}
+function itemHay(it) {
+  return `${it.dir}|${it.root}|${(it.done && it.done.name) || ""}`;
+}
+function scopeMatcher(q) {
+  q = (q || "").trim();
+  if (!q) return null;                             // null = 全部
+  if (/^[A-Za-z]$/.test(q)) {                      // 单字母 → 目录首字母段
+    const L = q.toUpperCase();
+    return it => dirLetter(it.dir) === L;
+  }
+  let rx;
+  if (/[*?]/.test(q)) {                            // 通配 BG_Big* / *Bar?
+    let s = q.replace(/[.+^${}()|[\\]\\\\]/g, "\\\\$&").replace(/\\*/g, ".*").replace(/\\?/g, ".");
+    if (!q.startsWith("*")) s = "^" + s;
+    if (!q.endsWith("*")) s += "$";
+    rx = new RegExp(s, "i");
+  } else {                                         // 其它: 包含匹配（可打中文名）
+    rx = new RegExp(q.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\\\$&"), "i");
+  }
+  return it => rx.test(itemHay(it));
+}
+function renderScope() {
+  const chips = $("chips");
+  chips.innerHTML = "";
+  const mk = (label, scope, extra, on) => {
+    const b = document.createElement("button");
+    b.className = "chip" + (on ? " on" : "");
+    b.innerHTML = label + (extra ? ` <span class="n">${extra}</span>` : "");
+    b.onclick = () => { applyScope(scope); };
+    chips.appendChild(b);
+  };
+  mk("全", "", "", !scopeText);
+  const letters = [...new Set(items.map(i => dirLetter(i.dir)).filter(Boolean))].sort();
+  letters.forEach(L => {
+    const n = items.filter(i => dirLetter(i.dir) === L).length;
+    mk(L, L, n, scopeText === L);
+  });
+  const doneAll = items.filter(i => i.done).length;
+  const doneView = view.filter(i => i.done).length;
+  $("badgeText").textContent = scopeText
+    ? `${doneView}/${view.length}（范围） · 全量 ${doneAll}/${items.length}`
+    : `已审 ${doneAll}/${items.length}`;
+  const label = scopeText === "" ? "全部" : scopeText;
+  $("scopeInfo").innerHTML = scopeText
+    ? `范围 <b>${label}</b> — ${view.length} 组` +
+      (view.length === 0 ? "，无匹配（Esc 清空）" : `，已审 ${doneView}`)
+    : `${items.length} 组 · 单字母=字母段, 支持 * 通配`;
+}
+function applyScope(q) {
+  scopeText = (q || "").trim();
+  const m = scopeMatcher(scopeText);
+  view = m ? items.filter(m) : items.slice();
+  idx = 0;
+  const p = view.findIndex(i => !i.done);
+  if (p >= 0) idx = p;
+  $("scopeIn").value = scopeText;
+  renderScope();
   render();
 }
-function cur() { return items[idx]; }
+async function boot() {
+  const [r, rr] = await Promise.all([
+    fetch("/api/items").then(x => x.json()),
+    fetch("/api/regions").then(x => x.json()),
+  ]);
+  items = r.items;
+  fillRegionList(rr.regions);
+  applyScope("");
+}
+function cur() { return view[idx]; }
 function render() {
   const it = cur();
-  $("cur").textContent = `${idx + 1} / ${items.length}`;
-  $("progress").textContent = it.done ? "已审 — 可改后覆盖" : (it.suspect ? "⚠ 杂物袋/需看图" : "");
-  $("key").textContent = it.key;
+  $("cur").textContent = view.length
+    ? `${idx + 1} / ${view.length}` : "0 / 0";
+  $("progress").textContent = !it ? "" :
+    (it.done ? "已审 — 可改后覆盖" : (it.suspect ? "⚠ 杂物袋/需看图" : ""));
+  $("key").textContent = it ? it.key : "—";
   $("files").innerHTML = "";
-  const nights = it.night || [];
-  it.files.forEach((f, i) => {
+  const nights = it ? (it.night || []) : [];
+  (it ? it.files : []).forEach((f, i) => {
     const c = document.createElement("span");
     c.className = "filechip" + (nights.includes(f) ? " nightchip" : "") +
                   (i === imgIdx ? " on" : "");
@@ -334,13 +520,14 @@ function render() {
     c.onclick = () => { imgIdx = i; renderImg(); };
     $("files").appendChild(c);
   });
-  $("imgNav").textContent = `${it.files.length} 张（${nights.length} 夜/变体）`;
-  $("name").value = (it.done && it.done.name) || "";
-  $("keywords").value = (it.done && it.done.keywords) || "";
-  $("region").value = (it.done && it.done.region) || "";
-  $("active").checked = it.done ? it.done.active : true;
-  $("note").value = (it.done && it.done.note) || "";
-  renderImg(); renderSuggest(); $("name").focus();
+  $("imgNav").textContent = it ? `${it.files.length} 张（${nights.length} 夜/变体）` : "";
+  $("name").value = (it && it.done && it.done.name) || "";
+  $("keywords").value = (it && it.done && it.done.keywords) || "";
+  $("region").value = normRegion((it && it.done && it.done.region) || "");
+  $("active").checked = it ? (it.done ? it.done.active : true) : true;
+  $("note").value = (it && it.done && it.done.note) || "";
+  renderImg(); renderSuggest();
+  if (it) $("name").focus();
 }
 function renderImg() {
   const it = cur();
@@ -352,7 +539,7 @@ function renderImg() {
 async function renderSuggest() {
   const it = cur();
   $("suggestRow").innerHTML = "";
-  if (it.done && it.done.name) return;
+  if (!it || (it.done && it.done.name)) return;
   const btn = document.createElement("button");
   btn.textContent = "⚡ LLM 建议中文名";
   btn.onclick = async () => {
@@ -381,17 +568,52 @@ async function renderSuggest() {
 }
 async function saveNext() {
   const it = cur();
+  if (!it) return;
   await fetch("/api/review", { method: "POST",
     headers: {"Content-Type": "application/json"},
     body: JSON.stringify({ key: it.key, name: $("name").value,
       region: $("region").value, keywords: $("keywords").value,
       active: $("active").checked, note: $("note").value }) });
   it.done = true;
-  if (idx < items.length - 1) idx++;
+  if (idx < view.length - 1) idx++;
   imgIdx = 0; render();
 }
-function skip() { if (idx < items.length - 1) idx++; imgIdx = 0; render(); }
+function skip() { if (idx < view.length - 1) idx++; imgIdx = 0; render(); }
+function handleScopeEnter() {
+  const q = $("scopeIn").value;
+  const m = scopeMatcher(q);
+  if (!m) { applyScope(""); return; }                 // 空 → 全部
+  const hits = [];
+  items.forEach((it, i) => { if (m(it)) hits.push(i); });
+  if (!hits.length) {
+    $("scopeInfo").innerHTML = `无匹配 <b>${q}</b> — Esc 清空回全部`;
+    return;
+  }
+  const inView = i => view.indexOf(items[i]) >= 0;
+  if (hits.length === 1) {                            // 单命中 → 直接定位
+    const t = items[hits[0]];
+    if (!inView(hits[0])) { applyScope(""); }         // 目标不在当前范围 → 回全部
+    idx = view.indexOf(t); imgIdx = 0;
+    $("scopeIn").blur();
+    render(); return;
+  }
+  if (q === scopeText) {                              // 同式再按 → 范围内循环到下一命中
+    const curIdx = items.indexOf(view[idx]);
+    let j = hits.findIndex(h => h > curIdx);
+    if (j < 0) j = 0;
+    idx = view.indexOf(items[hits[j]]);
+    imgIdx = 0; render();
+    return;
+  }
+  applyScope(q);                                      // 多命中 → 收窄为当前范围
+}
 document.addEventListener("keydown", e => {
+  const inScope = e.target === $("scopeIn");
+  if (inScope) {
+    if (e.key === "Enter") { e.preventDefault(); handleScopeEnter(); }
+    else if (e.key === "Escape") { applyScope(""); $("scopeIn").blur(); }
+    return;
+  }
   if (e.key === "Enter" && e.target.tagName !== "BUTTON") { e.preventDefault(); saveNext(); }
   else if ((e.key === "s" || e.key === "S") && e.target.tagName !== "INPUT") skip();
   else if (e.key === "ArrowRight") imgIdx++;
@@ -403,8 +625,9 @@ document.addEventListener("keydown", e => {
 $("saveNext").onclick = saveNext;
 $("skip").onclick = skip;
 async function exportEntities() {
-  const r = await (await fetch("/api/export")).json();
-  alert(`实体表已导出: 累计 ${r.count} 条（本次 ${r.added}）→ ${r.path}`);
+  const q = scopeText ? `?scope=${encodeURIComponent(scopeText)}` : "";
+  const r = await (await fetch("/api/export" + q)).json();
+  alert(`实体表已导出（范围: ${scopeText || "全部"}）: 累计 ${r.count} 条（本次 ${r.added}）→ ${r.path}`);
 }
 boot();
 </script></body></html>"""
