@@ -21,6 +21,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const BOND_POLL_MS = 700;       // status 轮询间隔（LLM 秒级, 不用太快）
 const BOND_POLL_FAST_MS = 250;  // 首场等待期细粒度（P1: 预热/在途, 拿到首场后回粗）
+const MAX_TURN_WAIT = 400;      // 推进忙等预算: 400×700ms ≈ 4.6min（覆盖最慢生成）
 const END_HOLD_MS = 1600;       // 收尾场景停留后自动 finish
 
 // 打字速度档位（菜单"打字速度"切换——逐字基准与标点停顿）
@@ -785,48 +786,82 @@ const BondVN = (() => {
     });
   }
 
+  // 忙等反馈（2026-09-07）: busy/gate 期间显示等待点 + 拒因小字 + 经过秒数,
+  // 不再每 700ms 狂发 turn——改轮询 status, 空闲后再补发一次（未接受的提交）
+  function showWaitDots(msg) {
+    $("bond-choices").innerHTML = "";
+    const dots = loadingDots();
+    $("bond-choices").appendChild(dots);
+    if (msg) {
+      const note = document.createElement("div");
+      note.className = "bond-wait-note";
+      note.id = "bond-wait-note";
+      note.textContent = msg;
+      $("bond-choices").appendChild(note);
+    }
+  }
+
+  function updateWaitNote(secs) {
+    const n = $("bond-wait-note");
+    if (n) n.textContent = `剧情推进中…（已等待 ${secs}s）`;
+  }
+
+  // 轮询 status 直到空闲（生成 busy 与标注门控都过）; 预算耗尽 → timedOut
+  async function waitTurnIdle(tries) {
+    const t0 = Date.now();
+    for (;;) {
+      if (++tries > MAX_TURN_WAIT) return { tries, timedOut: true };
+      await sleep(BOND_POLL_MS);
+      let st;
+      try {
+        st = await (await fetch(
+          `/api/bond/status?char_id=${charId}&session_id=${sessionId}`)).json();
+      } catch (e) { return { tries, timedOut: false }; }   // 网络抖动: 放行重试
+      if (st.completed || (!st.busy && !st.gate_busy)) return { tries, timedOut: false };
+      const secs = Math.round((Date.now() - t0) / 1000);
+      if (secs > 0 && secs % 10 === 0) updateWaitNote(secs);
+    }
+  }
+
   async function submit(text) {
     if (busy) return;
     busy = true;
     lastText = text;              // 失败重试用（2026-09-02）
     clearAutoTimer();             // 推进 → 自动倒计时作废（防自动+手动双提交）
     stopTyping();
-    let data;
+    let data = null;
+    let waiting = false;
     try {
-      // 2026-09-02: 重试上限——生成/标注偶发分钟级, 但不应无限静默转圈;
-      // 超限给出明确错误并解锁（玩家可再点一次真正重试）
-      const MAX_TURN_WAIT = 400;          // 400×700ms ≈ 4.6min（覆盖最慢生成）
       let tries = 0;
       for (;;) {
-        const res = await fetch("/api/bond/turn", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ char_id: charId, session_id: sessionId, text }),
-        });
-        data = await res.json();
-        if (data.busy) {          // 生成中 / 情绪标注门控中（2026-09-02）→ 等待后自动重试
-          if (!data.accepted) {   // 门控等待（标注未就绪）→ 显示等待点反馈
-            $("bond-choices").innerHTML = "";
-            const dots = loadingDots();
-            $("bond-choices").appendChild(dots);
-            // 后端拒因（情绪标注中/生成中）——小字提示, 别让玩家以为死机
-            if (data.error && !dots.dataset.noteShown) {
-              dots.dataset.noteShown = "1";
-              const note = document.createElement("div");
-              note.className = "bond-wait-note";
-              note.textContent = data.error;
-              $("bond-choices").appendChild(note);
-            }
+        if (!data || !data.busy) {
+          // 空闲/首次 → 提交一次裁决（busy 期间不再重复提交）
+          const res = await fetch("/api/bond/turn", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ char_id: charId, session_id: sessionId, text }),
+          });
+          data = await res.json();
+        }
+        if (data.busy) {
+          // 生成中 / 情绪标注门控中（2026-09-02）→ 轮询 status 等空闲;
+          // 已接受（生成在途）→ 等空闲后交 waitScene 取场景; 未接受 → 补发一次
+          if (!waiting) {
+            waiting = true;
+            showWaitDots(data.error || "剧情推进中…");
           }
-          if (++tries > MAX_TURN_WAIT) {
+          const r = await waitTurnIdle(tries);
+          tries = r.tries;
+          if (r.timedOut) {
             showTurnError("剧情生成时间过长（可能是模型响应慢）——请点下方按钮重试");
             busy = false;
             return;
           }
-          await sleep(BOND_POLL_MS);
+          if (data.accepted) break;      // 本次裁决已生效 → 交 waitScene 取场景
+          data = null;                   // 被拒（busy/门控）→ 空闲后重发一次
           continue;
         }
-        if (!res.ok || !data.accepted) {
+        if (!data.accepted) {
           showTurnError(data.detail || data.error || "剧情推进失败");
           busy = false;
           return;
