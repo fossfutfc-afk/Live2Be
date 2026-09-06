@@ -217,21 +217,59 @@ async function openChat(charId, name) {
   $("mmt-input").focus();
 }
 
+// 已完成羁绊剧情（气泡淡化 2026-09-07）: 完整走完的剧情入口从粉泡变淡行。
+// 后端对已完成入口直接给 kind=bond_done（成品文本, 不可点）; 已渲染的粉泡靠
+// 轮询响应 bond_done 列表原地翻转（移除点击 → 换 class/文本）。
+// _bondEls: seq → div（未完成的入口气泡; 完成翻转时注销）
+const _bondEls = new Map();
+
+function bubbleKindClass(b) {
+  if (b.kind === "bond_entry") return "bond-entry clickable";
+  if (b.kind === "bond_done") return "bond-done";
+  return b.side === "player" ? "player" : "char";
+}
+
+// 入口粉泡装饰（点击进 VN + 注册翻转位）; bond_done 不装饰（纯文本淡行）
+function decorateBubble(div, b) {
+  if (b.kind === "bond_entry") {
+    const handler = () => enterBond();
+    div._bondClick = handler;                 // 翻转时需移除监听
+    div.addEventListener("click", handler);
+    div.setAttribute("role", "button");
+    div.setAttribute("tabindex", "0");
+    if (typeof b.seq === "number") _bondEls.set(b.seq, div);
+  }
+  return div;
+}
+
+// 轮询响应的 bond_done: [{seq, text}] → 把已渲染的粉泡原地翻成淡行
+function applyBondDone(list) {
+  if (!Array.isArray(list)) return;
+  for (const it of list) {
+    const el = _bondEls.get(it.seq);
+    if (!el) continue;
+    _bondEls.delete(it.seq);
+    if (el._bondClick) {
+      el.removeEventListener("click", el._bondClick);
+      delete el._bondClick;
+    }
+    el.classList.remove("bond-entry", "clickable");
+    el.classList.add("bond-done");
+    el.removeAttribute("role");
+    el.removeAttribute("tabindex");
+    el.textContent = it.text || "已完成羁绊剧情";
+  }
+}
+
 function renderBubble(b) {
   const box = $("mmt-bubbles");
   if (!box) return;
   const div = document.createElement("div");
-  div.className = "mmt-bubble " + (
-    b.kind === "bond_entry" ? "bond-entry clickable"
-      : (b.side === "player" ? "player" : "char"));
+  div.className = "mmt-bubble " + bubbleKindClass(b);
   div.textContent = b.text;
   // 羁绊剧情入口（2026-09-01）: 粉色横幅 = 进入按钮——点击才进入（后端裁决:
-  // 首进生成 / 中断续进 resumed / 已完成拒绝）; 不自动锁输入（点击进入时才锁）
-  if (b.kind === "bond_entry") {
-    div.addEventListener("click", enterBond);
-    div.setAttribute("role", "button");
-    div.setAttribute("tabindex", "0");
-  }
+  // 首进生成 / 中断续进 resumed / 已完成拒绝→淡行）; 不自动锁输入（点击时锁）
+  decorateBubble(div, b);
   box.appendChild(div);
   scrollBubbles();
   return div;
@@ -269,17 +307,12 @@ async function renderBubbles(bubbles, { stream = false } = {}) {
     const frag = document.createDocumentFragment();
     for (const b of bubbles) {
       const div = document.createElement("div");
-      div.className = "mmt-bubble " + (
-        b.kind === "bond_entry" ? "bond-entry clickable"
-          : (b.side === "player" ? "player" : "char"));
+      div.className = "mmt-bubble " + bubbleKindClass(b);
       div.style.animation = "none";          // 历史无入场动画
       div.textContent = b.text;
-      // 历史粉泡同样可点击进入（后端裁决: 进行中 resumed 续进 / 已完成拒绝）
-      if (b.kind === "bond_entry") {
-        div.addEventListener("click", enterBond);
-        div.setAttribute("role", "button");
-        div.setAttribute("tabindex", "0");
-      }
+      // 历史粉泡同样可点击进入（后端裁决: 进行中 resumed 续进）;
+      // 已完成剧情 = bond_done 淡行（无装饰, 不可点）
+      decorateBubble(div, b);
       frag.appendChild(div);
     }
     box.appendChild(frag);
@@ -485,7 +518,10 @@ async function pollLoop() {
       const renderable = data.bubbles.filter((b) => b.side !== "player");
       for (let i = 0; i < renderable.length; i++) {
         const b = renderable[i];
-        if (b.kind === "bond_entry") { renderBubble(b); continue; }
+        if (b.kind === "bond_entry" || b.kind === "bond_done") {
+          renderBubble(b);
+          continue;
+        }
         if (i > 0) {
           showTyping();
           await sleep(chunkTypingTime(b.text) * 1000);
@@ -495,6 +531,8 @@ async function pollLoop() {
       }
       scrollBubbles();
     }
+    // 气泡淡化: 已渲染粉泡的剧情完成了 → 原地翻转（无新气泡也每轮同步）
+    applyBondDone(data.bond_done || []);
     // 羁绊剧情触发（2026-09-01）: 触发轮只渲染粉色入口气泡（已在 bubbles 循环
     // 渲染, 含 lockChat→改为点击才进入）——不再自动接管 VN 视图; 玩家点击
     // 粉泡（enterBond）才进入; 想继续聊天也可以（粉泡常驻等待点击）
