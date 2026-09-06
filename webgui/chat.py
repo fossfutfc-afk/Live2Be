@@ -22,6 +22,7 @@ from pathlib import Path
 
 from core.momotalk import MomoTalkEngine
 from core.session import SessionStore
+from core.session.events import M_VN_ENTER, M_VN_EXIT
 from core.ui.text_processors import _strip_action_brackets, split_reply_chunks
 from llm.client import LLMClient
 
@@ -205,11 +206,45 @@ def task_status(char_id: str, session_id: str) -> dict:
 # 事件查询（轮询）
 # ---------------------------------------------------------------------------
 
-def render_chat_events(events, display_name: str = "") -> list[dict]:
+def _bond_done_map(events, display_name: str = "") -> dict[int, str]:
+    """完整事件流 → {触发事件 seq: 已完成文本}（气泡淡化, 2026-09-07）。
+
+    配对规则（单事件流顺序扫描）: mmt_trigger_bond_story →（其后的）vn_enter
+    （章节标题）→ …bond 事件… → vn_exit。vn_exit 带 completed=True（完整走完,
+    含兜底收尾）→ 该次触发入口横幅应淡化为"已完成羁绊剧情：{标题}"——不可再点;
+    completed=False（中途退出）→ 保持可点击（resumed 续进）。
+    标题优先级: vn_enter.chapter_title > 触发事件 payload.chapter_title > display_name。
+    """
+    result: dict[int, str] = {}
+    open_entry: int | None = None          # 最近一个尚未收尾的触发事件 seq
+    pending_title = ""
+    for e in events:
+        t = getattr(e, "type", None)
+        if t == "mmt" and e.subtype == "mmt_trigger_bond_story":
+            open_entry = e.seq
+            pending_title = str((e.payload.get("chapter_title") or "").strip())
+        elif open_entry is not None:
+            if t == "marker" and e.subtype == M_VN_ENTER:
+                ct = str((e.payload.get("chapter_title") or "").strip())
+                if ct:
+                    pending_title = ct
+            elif t == "marker" and e.subtype == M_VN_EXIT:
+                if e.payload.get("completed"):
+                    title = pending_title or display_name or "羁绊"
+                    result[open_entry] = f"已完成羁绊剧情：{title}"
+                open_entry = None           # 收尾（完成/中断）→ 配对关闭
+    return result
+
+
+def render_chat_events(events, display_name: str = "",
+                       bond_done: dict[int, str] | None = None) -> list[dict]:
     """事件流 → 气泡列表 [{kind?, side, text, seq, subtype?}]。
 
     kind="bond_entry"（入口渲染）: mmt_trigger_bond_story 事件 → BA 风格粉色
     横幅"进入 xx 的羁绊剧情"（display_name 缺失用"羁绊"）。
+    kind="bond_done": 该次剧情已完整走完（vn_exit completed=True）→ 淡行
+    "已完成羁绊剧情：{标题}", 不可点击（bond_done: {触发 seq: 文本} 由调用方
+    从完整事件流预计算——增量轮询时触发事件与收尾 marker 不在同一批, 需要全量视角）。
     其余: 复用 CLI 的文本处理（core/ui/text_processors）——角色回复去动作括号 →
     split_reply_chunks 字数+随机切块（模拟真人一条条发消息）——每个 chunk 一个
     气泡。玩家消息不切（原样）。rng 用事件 seq 作种子（同一条回复每次切块一致,
@@ -221,7 +256,7 @@ def render_chat_events(events, display_name: str = "") -> list[dict]:
             continue
         if e.subtype == "mmt_trigger_bond_story":
             # 触发轮完整渲染（原 bug: continue 吞掉 player+reply——"不声不响"+重进消失）:
-            # 玩家消息 → AI 触发回复（当面对白, 切块）→ 粉色横幅
+            # 玩家消息 → AI 触发回复（当面对白, 切块）→ 粉色横幅（或已完成淡行）
             player = (e.payload.get("player") or "").strip()
             reply = (e.payload.get("reply") or "").strip()
             if player:
@@ -233,9 +268,14 @@ def render_chat_events(events, display_name: str = "") -> list[dict]:
                     for chunk in split_reply_chunks(text, rng=rng):
                         bubbles.append({"side": "char", "text": chunk,
                                         "seq": e.seq, "subtype": e.subtype})
-            name = display_name or "羁绊"
-            bubbles.append({"kind": "bond_entry",
-                            "text": f"进入 {name} 的羁绊剧情", "seq": e.seq})
+            done_text = (bond_done or {}).get(e.seq)
+            if done_text:
+                bubbles.append({"kind": "bond_done", "text": done_text,
+                                "seq": e.seq})
+            else:
+                name = display_name or "羁绊"
+                bubbles.append({"kind": "bond_entry",
+                                "text": f"进入 {name} 的羁绊剧情", "seq": e.seq})
             continue
         player = (e.payload.get("player") or "").strip()
         reply = (e.payload.get("reply") or "").strip()
@@ -260,12 +300,17 @@ def events_after(char_id: str, session_id: str, since: int = 0,
     events = _store.events(char_id, session_id)
     new_events = [e for e in events if e.seq > since]
     status = task_status(char_id, session_id)
+    # 完成态视角 = 全量事件流（触发与收尾 marker 可能跨多次轮询才到齐）
+    done = _bond_done_map(events, display_name)
     return {
-        "bubbles": render_chat_events(new_events, display_name),
+        "bubbles": render_chat_events(new_events, display_name, bond_done=done),
         "last_seq": max((e.seq for e in events), default=0),
         "running": bool(status.get("busy")),   # busy = 正在跑 or 队列有 pending
         "error": status.get("error", ""),
         "bond_story": bool(status.get("bond_story")),
+        # 气泡淡化（2026-09-07）: 已完成剧情入口 [{seq, text}]——前端把已渲染的
+        # 粉泡原地翻成淡行（历史渲染路径已直接产出 bond_done 气泡）
+        "bond_done": [{"seq": s, "text": t} for s, t in sorted(done.items())],
         # 微信式失败: worker 异步失败时标记哪条消息没送达（前端转感叹号 + 重发/删除）
         "failed": {"text": status["failed_text"], "error": status["error"]}
         if status.get("failed_text") else None,

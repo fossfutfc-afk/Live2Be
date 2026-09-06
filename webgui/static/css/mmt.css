@@ -290,6 +290,22 @@
   content: " ▸";
   font-weight: 700;
 }
+/* 已完成羁绊剧情（2026-09-07）: 粉泡走完后淡成一行说明——不可点、无箭头 */
+.mmt-bubble.bond-done {
+  align-self: center;
+  background: transparent;
+  border: none;
+  color: #8a93ad;
+  text-align: center;
+  font-size: 0.78rem;
+  letter-spacing: 0.5px;
+  padding: 0.3rem 0.5rem;
+  margin: 0.4rem auto;
+  max-width: 88%;
+  opacity: 0.8;
+  box-shadow: none;
+  cursor: default;
+}
 @keyframes bubble-in {
   from { opacity: 0; transform: translateY(6px); }
   to { opacity: 1; transform: translateY(0); }
