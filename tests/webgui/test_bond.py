@@ -844,3 +844,66 @@ def test_bond_midway_finish_no_digest(tmp_path):
     finally:
         chat._engines.pop(CHARACTER, None)
         chat._store = SessionStore(Path("data"))
+
+
+# ----------------------------------------------------------------------------
+# 入口预热（EXEC_BOND_LATENCY P1）: staged 首场 + adopt + 过期守卫
+# ----------------------------------------------------------------------------
+
+def test_bond_prewarm_staged_adopt(tmp_path):
+    """staged 预热不落 vn_enter; 点击 adopt 补落 marker（幂等, 不重复）→ resumed。"""
+    engine, st, sid, _llm = _setup(tmp_path, SCENE_A)
+    try:
+        # 触发轮结束 → chat worker 语义: staged=True 预热首场
+        r = bond.bond_start(CHARACTER, sid, staged=True)
+        assert r["accepted"] and r["busy"]
+        st1 = _wait_status(CHARACTER, sid)            # 首场已就绪（阅读期重叠）
+        assert st1["round"] == 1 and st1["scene"] is not None
+
+        # staged 期间不落 vn_enter（未点击不得推导 in_vn——防自动拽入 VN）
+        assert not [e for e in st.events(CHARACTER, sid)
+                    if (e.type, e.subtype) == ("marker", "vn_enter")]
+
+        # 点击（玩家没继续聊 → seq 一致）→ adopt: 补落 marker + resumed
+        r2 = bond.bond_start(CHARACTER, sid)
+        assert r2["accepted"] and r2.get("resumed") is True
+        enters = [e for e in st.events(CHARACTER, sid)
+                  if (e.type, e.subtype) == ("marker", "vn_enter")]
+        assert len(enters) == 1
+
+        # 再点 → 幂等 resumed, marker 不重复
+        r3 = bond.bond_start(CHARACTER, sid)
+        assert r3["accepted"] and r3.get("resumed") is True
+        enters = [e for e in st.events(CHARACTER, sid)
+                  if (e.type, e.subtype) == ("marker", "vn_enter")]
+        assert len(enters) == 1
+        print("    bond 预热: staged 不落 vn_enter → adopt 补落且幂等")
+    finally:
+        _cleanup()
+
+
+def test_bond_prewarm_staged_stale_discard(tmp_path):
+    """过期守卫: staged 后事件流前进（玩家又聊）→ 点击丢弃重建（非 resumed）。"""
+    engine, st, sid, _llm = _setup(tmp_path, SCENE_A, SCENE_A)
+    try:
+        bond.bond_start(CHARACTER, sid, staged=True)
+        _wait_status(CHARACTER, sid)
+        assert not [e for e in st.events(CHARACTER, sid)
+                    if (e.type, e.subtype) == ("marker", "vn_enter")]
+
+        # 模拟点击前又发了一条消息（事件流 seq 前进 → 预热上下文过期）
+        from core.session.events import make_event
+        st.append_event(CHARACTER, sid, make_event(
+            "mmt", "mmt_chat", {"player": "刚才说到哪了？", "reply": "（自然接续）"}))
+
+        # 点击 → 丢弃重建（非 resumed; vn_enter 由首进路径落库）
+        r = bond.bond_start(CHARACTER, sid)
+        assert r["accepted"] and r.get("resumed") is not True
+        st1 = _wait_status(CHARACTER, sid)
+        assert st1["round"] == 1 and st1["scene"] is not None
+        enters = [e for e in st.events(CHARACTER, sid)
+                  if (e.type, e.subtype) == ("marker", "vn_enter")]
+        assert len(enters) == 1                       # 重建路径落 marker
+        print("    bond 预热守卫: 点击前事件流前进 → 丢弃重建")
+    finally:
+        _cleanup()

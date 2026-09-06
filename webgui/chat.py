@@ -45,6 +45,11 @@ _tasks: dict[tuple[str, str], dict] = {}
 _queues: dict[tuple[str, str], list[str]] = {}
 _worker_running: dict[tuple[str, str], bool] = {}
 
+#: 入口预热开关（EXEC_BOND_LATENCY P1）: 触发轮结束即后台生成 bond 首场——
+#: 玩家阅读触发对白/犹豫期间生成完成, 点击粉泡时通常已就绪（体感 ~0 等待）。
+#: 关掉 = 回到"点击后才生成首场"的现状。
+PREWARM_ENABLED = True
+
 
 def _engine(char_id: str) -> MomoTalkEngine:
     """某角色的引擎实例（懒创建, 每 char 独立——并行多角色的基础）。"""
@@ -164,7 +169,19 @@ def _worker(char_id: str, session_id: str) -> None:
                             logger.warning("会话状态重建失败 (%s): %s", char_id, e2)
                         engine = _engine(char_id)
                     result = engine.agent_turn(text)
-                    # result.bond_story=True → vn_enter marker 已落; M3 阶段前端占位
+                    if PREWARM_ENABLED and bool(result.bond_story):
+                        # 入口预热（EXEC_BOND_LATENCY P1）: 触发轮结束即后台生成
+                        # 首场——此刻事件流已终态（含触发轮对白）、engine.trace 仍
+                        # 留着触发动作（章节标题）, 与点击时上下文一致。同步调用:
+                        # bond_start 同步段 0 LLM 立即返回, 生成线程自行等 chat 锁。
+                        # 失败降级: 点击时走现场生成, 零影响。
+                        try:
+                            from webgui import bond as _bond  # 延迟 import 破环
+                            _bond.bond_start(char_id, session_id, staged=True)
+                        except Exception as e3:          # noqa: BLE001 — 预热失败降级
+                            logger.warning("bond 首场预热失败（点击时现场生成）: %s", e3)
+                    # result.bond_story=True → 前端粉泡入口; vn_enter marker 由
+                    # bond_start 落（staged 预热不落, 点击 adopt 时补——见 bond.py）
                     _tasks[key] = {"running": False, "error": "",
                                    "bond_story": bool(result.bond_story)}
                 except Exception as e:            # noqa: BLE001 — LLM 失败/循环超限

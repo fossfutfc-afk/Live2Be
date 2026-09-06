@@ -20,6 +20,7 @@ const $ = (id) => document.getElementById(id);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const BOND_POLL_MS = 700;       // status 轮询间隔（LLM 秒级, 不用太快）
+const BOND_POLL_FAST_MS = 250;  // 首场等待期细粒度（P1: 预热/在途, 拿到首场后回粗）
 const END_HOLD_MS = 1600;       // 收尾场景停留后自动 finish
 
 // 打字速度档位（菜单"打字速度"切换——逐字基准与标点停顿）
@@ -94,27 +95,30 @@ const BondVN = (() => {
     }
     stopTyping();
     showView();
-    await initSpine();
+    // P1 入口预热: start POST 先行发出（首场可能已由触发轮预热或在途——生成
+    // 立即继续, 不与 spine 初始化串行）; initSpine 与其并行, 首帧渲染前等它就绪
+    let data;
     try {
       const res = await fetch("/api/bond/start", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ char_id: charId, session_id: sessionId }),
       });
-      const data = await res.json();
+      data = await res.json();
       if (!res.ok || !data.accepted) {
         throw new Error(data.detail || data.error || "进入剧情失败");
-      }
-      // 等待标题卡（2026-09-05）: 首场在后台 LLM 生成（5s+ 波动）——进入即显示
-      // 章节卡（chapter_title 文案 + "回忆正在浮现…"）掩盖缓冲; 首场就绪 → waitScene
-      // 收卡进场景。resumed（内存态续玩）不显示（场景即刻可用）。
-      if (!data.resumed && !data.completed) {
-        showEnterWait(data.chapter_title || "");
       }
     } catch (e) {
       showError("进入羁绊剧情失败: " + e.message);
       exit();                        // 失败 → 回 MMT（解锁 + 重启轮询）
       return;
+    }
+    await initSpine();
+    // 等待标题卡（2026-09-05）: 首场在后台 LLM 生成（5s+ 波动）——进入即显示
+    // 章节卡（chapter_title 文案 + "回忆正在浮现…"）掩盖缓冲; 首场就绪 → waitScene
+    // 收卡进场景。resumed（内存态续玩/adopt 就绪）不显示（场景即刻可用）。
+    if (!data.resumed && !data.completed) {
+      showEnterWait(data.chapter_title || "");
     }
     await waitScene();
   }
@@ -203,7 +207,6 @@ const BondVN = (() => {
   async function waitScene() {
     try {
       for (;;) {
-        await sleep(BOND_POLL_MS);
         let st;
         try {
           st = await (await fetch(
@@ -218,7 +221,12 @@ const BondVN = (() => {
         // 名字牌（官方: 名字 + 社团）——status 返回, 覆盖 enter 传入的兜底 name
         if (st.name) $("bond-name").textContent = st.name;
         if (st.club !== undefined) $("bond-club").textContent = st.club;
-        if (st.busy) continue;
+        if (st.busy) {
+          // P1: 首场等待（gotScene 前）用细粒度轮询——预热/在途时就绪立取;
+          // 已进场景后回粗粒度（后续场生成秒级, 700ms 足够）
+          await sleep(gotScene ? BOND_POLL_MS : BOND_POLL_FAST_MS);
+          continue;
+        }
         // 生成失败（2026-09-02 可重试: 上一场保留在屏, 后端给 3 次机会）——
         // 失败提示 + 重试按钮重新提交同输入; closing 收尾已置 completed → 走渲染
         if (st.error && !st.completed) {

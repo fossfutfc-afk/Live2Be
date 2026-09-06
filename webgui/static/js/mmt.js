@@ -237,28 +237,11 @@ function renderBubble(b) {
   return div;
 }
 
-// 点击粉泡进入羁绊剧情: POST /api/bond/start 由后端裁决一切——
-//   首进 → accepted（后台生成首场, enter 后 waitScene 拉取）
-//   中断再进 → resumed（内存态在 → 从中断场景继续, AI 衔接）
-//   已完成 → 拒绝（completed:true → 提示, 不可再进入）
+// 点击粉泡进入羁绊剧情: BondVN.enter 内 POST /api/bond/start——单入口
+// （P1 收敛: 原 enterBond 自身先 POST 一次 + enter 内再 POST 一次冗余双发;
+// 错误处理统一在 enter 的 catch: showError + exit() → 解锁回 MMT）
 async function enterBond() {
   if (!_chatChar || !_chatSession) return;
-  let data;
-  try {
-    const res = await fetch("/api/bond/start", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ char_id: _chatChar, session_id: _chatSession }),
-    });
-    data = await res.json();
-  } catch (e) {
-    renderError("进入羁绊剧情失败（网络错误: " + e.message + "）");
-    return;
-  }
-  if (!data.accepted) {
-    renderError(data.error || "无法进入羁绊剧情");
-    return;
-  }
   lockChat();                                   // 进入 → 锁定输入, 不许插嘴
   window.BondVN.enter(_chatChar, _chatSession, _chatName);
 }
