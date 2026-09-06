@@ -164,6 +164,7 @@ def build_app():
         data[key] = {
             "name": str(body.get("name") or "").strip(),
             "region": str(body.get("region") or "").strip(),
+            "keywords": str(body.get("keywords") or "").strip(),
             "active": bool(body.get("active", True)),
             "note": str(body.get("note") or "").strip(),
         }
@@ -190,6 +191,7 @@ def build_app():
             merged[it["root"]] = {
                 "name": rv.get("name") or it["root"],
                 "region": rv.get("region", ""),
+                "keywords": [k.strip() for k in str(rv.get("keywords") or "").split(",") if k.strip()],
                 "files": {"day": day, "night": list(it["night"])},
             }
             added += 1
@@ -213,14 +215,17 @@ def build_app():
                 "规则: 学园名用官方译名（gehenna=格黑娜, trinity=圣三一, "
                 "wildhunt=狂猎美术, abydos=阿拜多斯, schale=夏莱, "
                 "hyakkiyako=百鬼夜行, millennium=千年）; 剧情专属场景（人名/事件名）"
-                "标注为\"剧情专属\"前缀提示作者确认;\n只输出 JSON。"
+                "标注为\"剧情专属\"前缀提示作者确认;\n"
+                "额外给 2-4 个同义检索词（剧情里的俗称/描述词, 如破屋/老屋）;\n"
+                "只输出 JSON {\"names\": [...], \"keywords\": \"词1, 词2\"}。"
             )
             resp = client.chat(messages=[{"role": "user", "content": prompt}],
                                temperature=0.3, max_tokens=200,
                                response_format="json_object")
             arr = (resp.get("names") if isinstance(resp, dict) else [])
             names = [str(x).strip() for x in arr if str(x).strip()][:3]
-            return {"names": names}
+            kw = str((resp.get("keywords") if isinstance(resp, dict) else "") or "")
+            return {"names": names, "keywords": kw}
         except Exception as e:                              # noqa: BLE001
             return {"names": [], "error": str(e)}
 
@@ -287,6 +292,8 @@ _PAGE = """<!DOCTYPE html>
       <input id="name" type="text" placeholder="输入中文名（如 废墟走廊）">
       <div class="suggest" id="suggestRow"></div>
     </div>
+    <div class="kv"><label>keyword（可选——同义检索词, 逗号分隔: 剧情俗称/描述词）</label>
+      <input id="keywords" type="text" placeholder="如: 破屋, 老屋, 秘密基地（重要主场才填）"></div>
     <div class="kv"><label>region（可选: gehenna / schale / oldtown…）</label>
       <input id="region" type="text" placeholder="剧情地理（子集注入用, 可留空）"></div>
     <div class="kv"><label><input id="active" type="checkbox" checked> 活跃（进实体表）</label></div>
@@ -329,6 +336,7 @@ function render() {
   });
   $("imgNav").textContent = `${it.files.length} 张（${nights.length} 夜/变体）`;
   $("name").value = (it.done && it.done.name) || "";
+  $("keywords").value = (it.done && it.done.keywords) || "";
   $("region").value = (it.done && it.done.region) || "";
   $("active").checked = it.done ? it.done.active : true;
   $("note").value = (it.done && it.done.note) || "";
@@ -359,6 +367,12 @@ async function renderSuggest() {
         b.onclick = () => { $("name").value = n; };
         $("suggestRow").appendChild(b);
       });
+      if (r.keywords) {
+        const k = document.createElement("button");
+        k.textContent = "🔑 " + r.keywords;
+        k.onclick = () => { $("keywords").value = r.keywords; };
+        $("suggestRow").appendChild(k);
+      }
       if (!r.names || !r.names.length) btn.textContent = "无建议";
     } catch (e) { btn.textContent = "建议失败"; }
     btn.style.display = "none";
@@ -370,7 +384,8 @@ async function saveNext() {
   await fetch("/api/review", { method: "POST",
     headers: {"Content-Type": "application/json"},
     body: JSON.stringify({ key: it.key, name: $("name").value,
-      region: $("region").value, active: $("active").checked, note: $("note").value }) });
+      region: $("region").value, keywords: $("keywords").value,
+      active: $("active").checked, note: $("note").value }) });
   it.done = true;
   if (idx < items.length - 1) idx++;
   imgIdx = 0; render();
