@@ -132,6 +132,11 @@ class BondState:
     # → staged_seq 失配 → 丢弃重建, 首场反映最新上下文。
     staged_seq: int | None = None    # 非 None = 预热态; 值 = 预热时最后一条 mmt 事件 seq
     vn_enter_written: bool = False   # vn_enter marker 已落（首进/adopt 时置 True）
+    # 中断接入（2026-09-07）: 中断重进（无内存态）→ 回放已记录前缀（narrative-ized
+    # 场景队列, 逐场本地推进, 0 LLM）; 队列尽 → 交棒常规 live 路径（promotion/生成）。
+    # 回放场景来自事件流（已落库, scene_logged=True 不重复落）; 最后一场展示即
+    # 预生成续写（读屏期间完成, handoff 零等待）。
+    replay_scenes: list[dict] | None = None    # None = 非回放; [] = 队列尽待交棒
     # Storyloom bridge 式预生成（2026-08-30）: 纯叙事场（无 choices）渲染完成即
     # 提前生成下一场（输入固定"（继续）"）——玩家点继续时已就绪, 体感零等待
     pregen_obj: BondScene | None = None
@@ -309,6 +314,102 @@ def replay_attempts(char_id: str, session_id: str = "") -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
+# 中断接入（2026-09-07）: 中断剧情重进 = 回放已记录前缀 + LLM 后补
+#   无内存态 + 有内容的未完成段 → 逐场回放事件流里已落库的场景（0 LLM）;
+#   队列尽 → 交棒常规 live 路径。语义: "从头开始播放已有的半截剧情,
+#   后续剧情 LLM 生成后补"——确定性前缀, 生成只发生在断点之后。
+# ---------------------------------------------------------------------------
+
+def _pending_in_vn(char_id: str, session_id: str) -> bool:
+    """事件流视角: 最近一个 vn_enter 之后没有 vn_exit（中断在押, 会话 in_vn）。"""
+    try:
+        last_enter = last_exit = -1
+        for e in _store().events(char_id, session_id):
+            if getattr(e, "type", None) == "marker":
+                if e.subtype == "vn_enter":
+                    last_enter = e.seq
+                elif e.subtype == "vn_exit":
+                    last_exit = e.seq
+        return last_enter > last_exit
+    except Exception:                                # noqa: BLE001 — 读失败按无在押
+        return False
+
+
+def _narrativize(scene: dict, picked) -> dict:
+    """回放场景叙事化: 主段落 + 所选分支段落顺接, 去掉选项/分支结构——
+    前端只看到"段落流 + 继续", 与纯叙事场同交互（选项跟随记录自动隐含）。"""
+    out = dict(scene or {})
+    out.pop("choices", None)
+    out.pop("branches", None)
+    paras = [dict(p) for p in (out.get("paragraphs") or []) if isinstance(p, dict)]
+    if picked:
+        br = (scene or {}).get("branches") or {}
+        if isinstance(br, dict) and picked in br:
+            paras += [dict(p) for p in br[picked] if isinstance(p, dict)]
+    out["paragraphs"] = paras
+    return out
+
+
+def _interrupted_replay_queue(char_id: str, session_id: str) -> list[dict] | None:
+    """最新一条"有内容的未完成段" → narrative-ized 场景列表（中断重进原料）。
+
+    从段尾向前找 interrupted 且有 scenes 的段; 空壳重启段（0 场景——旧 bug 的
+    重复 vn_enter 产物）自动跳过, 回退到更早的有内容段（如 seq12 场景 + seq18/21
+    空壳）。无 → None（现场生成路径）。
+    """
+    for at in reversed(replay_attempts(char_id, session_id)):
+        if at["interrupted"] and at["scenes"]:
+            return [_narrativize(s["scene"], s["picked"]) for s in at["scenes"]]
+    return None
+
+
+def _start_replay(state: BondState, replay_q: list[dict],
+                  char_id: str, session_id: str) -> dict:
+    """进入回放模式: 引擎就绪（handoff 用, 历史=事件流窗口）+ 首场入屏。
+
+    回放场景 scene_logged=True（事件流已落库, 不重复落）; 若队列只有一场（或
+    最后一场入屏后队列尽）→ 立即预生成续写（_pregenerate, 玩家读屏期间完成,
+    handoff 时零等待）。不写 vn_enter（事件流已有在押的——沿用同一段）。
+    """
+    engine = chat._engine(char_id)
+    char = engine.current_character
+    if char is None:
+        return {"accepted": False, "error": "会话未打开"}
+    brain_segment = load_brain_segment(
+        _store(), char.character_id, char.display_name,
+        characters_root=engine.char_loader.root)
+    vn = BondStoryEngine(
+        engine.char_loader.root, engine.llm,
+        director=_build_director(char), brain_segment=brain_segment)
+    vn.start_session(char.character_id)
+    try:
+        _win = window_messages(_store().events(char_id))
+        if _win:
+            vn._history = _win                # 前缀(含已记录场景)+ 触发前对话
+    except Exception:                                # noqa: BLE001 — 灌窗失败不阻断
+        pass
+    state.vn = vn
+    state.vn_enter_written = True             # 事件流已有该段 vn_enter（不重复落）
+    state.replay_scenes = list(replay_q)
+    try:
+        from webgui.routers.bond import warm_render
+        warm_render(char.character_id)
+    except Exception:                                # noqa: BLE001 — 预热失败降级
+        pass
+
+    first = state.replay_scenes.pop(0)
+    state.scene_obj = BondScene.from_dict(first)
+    state.scene = state.scene_obj.to_dict()
+    state.round = 1
+    state.scene_logged = True                 # 已落库——回放不重复落
+    if not state.replay_scenes:
+        # 单场（或最后一场）: 续写在读屏期间预生成, busy=True 不阻塞回放推进
+        _pregenerate(state, char_id, session_id)
+    return {"accepted": True, "busy": state.busy, "resumed": True,
+            "replay": True, "chapter_title": state.chapter_title}
+
+
+# ---------------------------------------------------------------------------
 # 公开 API（路由层调用）
 # ---------------------------------------------------------------------------
 
@@ -377,6 +478,14 @@ def bond_start(char_id: str, session_id: str, *,
         # 生成在途（P1: busy = 正在生成——让前端进入轮询, 不再报错）
         return {"accepted": True, "busy": True, "resumed": False}
 
+    # ── 中断接入（2026-09-07）: 无内存态 + 有内容的未完成段 → 回放前缀 ──
+    # （"从头开始播放已有半截剧情, 后续 LLM 后补"; staged 预热 = 新触发轮,
+    # 不进回放——走下方现场构造续在押段或新段）
+    if not staged:
+        replay_q = _interrupted_replay_queue(char_id, session_id)
+        if replay_q is not None:
+            return _start_replay(state, replay_q, char_id, session_id)
+
     engine = chat._engine(char_id)
     char = engine.current_character
     if char is None:
@@ -414,8 +523,12 @@ def bond_start(char_id: str, session_id: str, *,
     except Exception:                                # noqa: BLE001 — 预热失败降级
         pass
     # 事件流: vn_enter marker（单事件流; 中断恢复依赖它推导 in_vn）。
-    # staged 预热不落——adopt（玩家点击）时补, 防"没点也被拉进 VN"
-    if not staged:
+    # staged 预热不落——adopt（玩家点击）时补, 防"没点也被拉进 VN"。
+    # 中断在押（无内容段续场 / 空壳段现场生成）→ 不重复落 marker（沿用同一段,
+    # 防旧 bug 式 vn_enter 堆叠）
+    if not staged and _pending_in_vn(char_id, session_id):
+        state.vn_enter_written = True          # 事件流已有该段 vn_enter
+    elif not staged:
         try:
             _store().enter_vn(char_id, session_id, title)
             state.vn_enter_written = True
@@ -512,6 +625,25 @@ def bond_turn(char_id: str, session_id: str, text: str) -> dict:
     state = _state(char_id, session_id)
     if state.vn is None and state.demo is None:
         return {"accepted": False, "error": "剧情未开始"}
+
+    # ── 回放推进（中断接入, 2026-09-07）: 纯本地逐场, 0 LLM ──────
+    # 在 busy 守卫之前——回放期间续写预生成在跑（busy=True）也不阻塞推进;
+    # 队列尽（[]）→ 交棒下方常规 live 路径（promotion/生成）
+    if state.replay_scenes is not None:
+        if state.replay_scenes:
+            nxt = state.replay_scenes.pop(0)
+            state.scene_obj = BondScene.from_dict(nxt)
+            state.scene = state.scene_obj.to_dict()
+            state.round += 1
+            state.scene_logged = True          # 事件流已落库——回放不重复落
+            if not state.replay_scenes:
+                # 最后一场入屏 → 续写预生成（读屏期间完成, handoff 零等待）
+                _pregenerate(state, char_id, session_id)
+            # 不带 scene 返回——前端走 waitScene → status（场景经 _resolve_scene
+            # 附 background_url/fx, 与分支直返路径同款降级规避）
+            return {"accepted": True, "busy": False, "replay": True}
+        state.replay_scenes = None             # 交棒: 走下方常规逻辑
+
     if state.busy:
         return {"accepted": False, "busy": True, "error": "剧情生成中"}
     if state.completed:

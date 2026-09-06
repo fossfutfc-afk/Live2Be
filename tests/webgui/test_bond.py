@@ -917,3 +917,87 @@ def test_bond_warm_render_deps(tmp_path):
     warm_render(CHARACTER)                # 幂等
     print("    warm_render: catalog + fx 预热幂等")
     # 无 finally —— warm 不碰全局 store/引擎, 无残留
+
+
+# ----------------------------------------------------------------------------
+# 中断接入（2026-09-07）: 中断重进 = 回放已记录前缀 + LLM 后补
+# ----------------------------------------------------------------------------
+
+def _interrupt_scene(st, sid, text, *, choices=None, picked=None, title=""):
+    """造一条已落库的 bond 场景事件（模拟中断前裁决落库的终态场景）。"""
+    from core.session.events import make_event
+    payload = {"paragraphs": [{"text": text, "emotion": "nomal"}],
+               "is_end": False}
+    if title:
+        payload["title"] = title
+    if choices:
+        payload["choices"] = choices
+        payload["branches"] = {
+            c: [{"text": f"分支·{c}", "emotion": "nomal"}] for c in choices}
+    if picked is not None:
+        payload["picked"] = picked
+    payload["input"] = "（种子）……"
+    return st.append_event(CHARACTER, sid, make_event(
+        "bond", "story_scene", payload))
+
+
+def test_bond_interrupt_replay_single_scene_handoff(tmp_path):
+    """中断单场: 重进 → 回放该场（主段落+所选分支, 无选项）→ 预生成续写交棒。"""
+    engine, st, sid, _llm = _setup(tmp_path, STORY_END)
+    try:
+        st.enter_vn(CHARACTER, sid, "中断的约定")
+        ev = _interrupt_scene(st, sid, "第一场。", choices=["A", "B"], picked="A")
+        # 无 vn_exit——中断在押
+
+        r = bond.bond_start(CHARACTER, sid)
+        assert r["accepted"] and r.get("replay") is True, r
+        st1 = _wait_status(CHARACTER, sid)          # 回放首场（预生成在途, busy 等清）
+        assert st1["round"] == 1
+        paras = st1["scene"]["paragraphs"]
+        assert paras[0]["text"] == "第一场。"        # 主段落
+        assert paras[-1]["text"] == "分支·A"         # 所选分支顺接
+        assert st1["scene"]["choices"] == []          # 叙事化: 无选项（自动跟随记录）
+
+        # 交棒: 点继续 → 预生成已就绪 → promotion 到续写场（story_end）
+        r2 = bond.bond_turn(CHARACTER, sid, "（继续）")
+        assert r2["accepted"] and r2.get("pregen") is True, r2
+        st2 = bond.bond_status(CHARACTER, sid)
+        assert st2["scene"]["is_end"] is True and st2["completed"]
+        # 事件流零污染: bond 事件仍只有回放源 1 条（回放不重复落）, vn_enter 无堆叠
+        evs = st.events(CHARACTER, sid)
+        assert len([e for e in evs if e.type == "bond"]) == 1
+        assert len([e for e in evs
+                    if (e.type, e.subtype) == ("marker", "vn_enter")]) == 1
+        print("    interrupt: 单场回放(段落+分支顺接) → 预生成 promotion 交棒, 零重复落库")
+    finally:
+        _cleanup()
+
+
+def test_bond_interrupt_replay_multi_scene_then_live(tmp_path):
+    """中断多场: 逐场回放（本地推进）→ 队列尽 → LLM 续写后补。"""
+    engine, st, sid, _llm = _setup(tmp_path, STORY_END)
+    try:
+        st.enter_vn(CHARACTER, sid, "中断的约定")
+        _interrupt_scene(st, sid, "第一场。", choices=["A", "B"], picked="A")
+        _interrupt_scene(st, sid, "第二场。")
+
+        r = bond.bond_start(CHARACTER, sid)
+        assert r["accepted"] and r.get("replay") is True
+        st1 = _wait_status(CHARACTER, sid)
+        assert st1["scene"]["paragraphs"][0]["text"] == "第一场。"
+
+        # 逐场回放推进（本地 0 LLM, 直达 scene）
+        r2 = bond.bond_turn(CHARACTER, sid, "（继续）")
+        assert r2["accepted"] and r2.get("replay") is True and not r2.get("busy")
+        st2 = _wait_status(CHARACTER, sid)          # 最后一场（预生成在途）
+        assert st2["round"] == 2
+        assert st2["scene"]["paragraphs"][0]["text"] == "第二场。"
+
+        # 队列尽 → 交棒: 预生成就绪 → promotion
+        r3 = bond.bond_turn(CHARACTER, sid, "（继续）")
+        assert r3["accepted"] and r3.get("pregen") is True, r3
+        st3 = bond.bond_status(CHARACTER, sid)
+        assert st3["scene"]["is_end"] is True and st3["completed"]
+        print("    interrupt: 多场逐场回放 → 交棒 LLM 后补(story_end)")
+    finally:
+        _cleanup()

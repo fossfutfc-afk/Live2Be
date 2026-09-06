@@ -221,6 +221,18 @@ const BondVN = (() => {
         // 名字牌（官方: 名字 + 社团）——status 返回, 覆盖 enter 传入的兜底 name
         if (st.name) $("bond-name").textContent = st.name;
         if (st.club !== undefined) $("bond-club").textContent = st.club;
+        // 中断回放/预热在途: 有场景先渲染（busy 可能来自续写预生成, 不阻塞展示）;
+        // 无场景才按 busy 轮询等待
+        if (st.scene && (!gotScene || st.round !== seenRound)) {
+          hideEnterWait();              // 首场就绪 → 收等待卡（scene.title 走 showTitle 接力）
+          gotScene = true;
+          seenRound = st.round;
+          seenEmo = (st.emo_version !== undefined) ? st.emo_version : -1;
+          renderScene(st.scene);
+          syncMemorial(st);          // 渲染后: 清普通背景（黑屏兜底）+ 隐藏立绘
+          if (st.completed) return;    // is_end 已渲染 → 结束轮询（等自动 finish）
+          return;                      // 新场景已取 → 结束本轮轮询（busy 与否都收）
+        }
         if (st.busy) {
           // P1: 首场等待（gotScene 前）用细粒度轮询——预热/在途时就绪立取;
           // 已进场景后回粗粒度（后续场生成秒级, 700ms 足够）
@@ -236,14 +248,7 @@ const BondVN = (() => {
         // 异步标注补标（两遍式 C）: emo_version 变化 → 已显示段落补切立绘表情
         // （不重置打字机——只切表情; 文本段落不动）。新场景渲染时同步版本,
         // 避免对旧段落误切（时序: round 优先, emo_version 次之）。
-        if (st.scene && (!gotScene || st.round !== seenRound)) {
-          hideEnterWait();              // 首场就绪 → 收等待卡（scene.title 走 showTitle 接力）
-          gotScene = true;
-          seenRound = st.round;
-          seenEmo = (st.emo_version !== undefined) ? st.emo_version : -1;
-          renderScene(st.scene);
-          syncMemorial(st);          // 渲染后: 清普通背景（黑屏兜底）+ 隐藏立绘
-        } else if (st.emo_version !== undefined && st.emo_version !== seenEmo) {
+        if (st.emo_version !== undefined && st.emo_version !== seenEmo) {
           seenEmo = st.emo_version;
           if (st.scene) applyEmotions(st.scene);
         }
