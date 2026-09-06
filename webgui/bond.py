@@ -777,11 +777,14 @@ def bond_turn(char_id: str, session_id: str, text: str) -> dict:
 def bond_status(char_id: str, session_id: str) -> dict:
     """轮询: 生成状态 + 最新场景（前端按 round 去重）+ 终结标记 + 名字牌信息
     + emo_version（异步标注补标版本——前端感知后补切已显示段落的立绘表情）
-    + memorial（纪念模式标记 + 立绘 URL——前端进纪念淡入图背景, 退出淡出）。"""
+    + memorial（纪念模式标记 + 立绘 URL——前端进纪念淡入图背景, 退出淡出）。
+    + gate_busy（2026-09-07）: 推进门控视角——当前场景 emotion 未标注完
+    （state.busy 之外的另一类"再等等"）; 前端忙等改轮询 status 而非狂发 turn。"""
     state = _state(char_id, session_id)
     role = _role_info(char_id)
     return {
         "busy": state.busy,
+        "gate_busy": not _scene_emotions_ready(state),
         "round": state.round,
         "scene": state.scene,
         "error": state.error,
