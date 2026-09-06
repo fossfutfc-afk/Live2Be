@@ -77,9 +77,15 @@ class LLMClient:
         api_key: str | None = None,
         base_url: str | None = None,
         model: str | None = None,
-        timeout: float = 60.0,
+        timeout: float = 240.0,
         max_retries: int = 3,
     ):
+        """OpenAI-compatible 客户端。
+
+        默认 timeout 2026-09-07: 60 → 240s——reasoning(high) 生成长思考可 >60s,
+        旧 60s 总超时会把正常慢调用砍掉 → ×3 重试 → 观感"卡死几分钟"。
+        长任务（digest）可继续用 per-call timeout 覆盖（如 300s）。
+        """
         cfg = _settings_toml().get("llm", {}) or {}
         self.api_key = (
             api_key or str(cfg.get("api_key") or "").strip()

@@ -21,7 +21,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const BOND_POLL_MS = 700;       // status 轮询间隔（LLM 秒级, 不用太快）
 const BOND_POLL_FAST_MS = 250;  // 首场等待期细粒度（P1: 预热/在途, 拿到首场后回粗）
-const MAX_TURN_WAIT = 400;      // 推进忙等预算: 400×700ms ≈ 4.6min（覆盖最慢生成）
+const MAX_TURN_WAIT = 600;      // 推进忙等预算: 600×700ms = 7min（LLM 超时已提至 240s,
+                                // 覆盖慢思考/标注长尾——超限给明确错误而非无限静默）
 const END_HOLD_MS = 1600;       // 收尾场景停留后自动 finish
 
 // 打字速度档位（菜单"打字速度"切换——逐字基准与标点停顿）

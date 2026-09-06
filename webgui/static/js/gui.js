@@ -29,14 +29,26 @@ async function startBgLoop() {
   } catch (e) { _bgImages = []; }
   if (!_bgImages.length) return;
   const layer = $("bg-layer");
-  const preload = (src) => { const im = new Image(); im.src = src; };
+  let failStreak = 0;                       // 连续加载失败计数（服务停了别再空转重试）
+  const preload = (src, onErr) => {
+    const im = new Image();
+    im.onerror = () => { if (onErr) onErr(); };
+    im.src = src;
+  };
+  const fail = () => {
+    failStreak++;
+    if (failStreak >= 3) {                  // 连续 3 次失败 → 服务疑似不可达, 停轮播
+      clearInterval(_bgTimer);
+      _bgTimer = null;
+    }
+  };
   // 只预加载前 2 张——避免 47 张并发下载拖垮首屏（刷新才正常的老毛病）
-  _bgImages.slice(0, 2).forEach(preload);
+  _bgImages.slice(0, 2).forEach((s) => preload(s, fail));
   layer.style.backgroundImage = `url("${_bgImages[0]}")`;
   setBgPan(Math.random() < 0.5);
   _bgTimer = setInterval(() => {
     _bgIdx = (_bgIdx + 5) % _bgImages.length;
-    preload(_bgImages[(_bgIdx + 1) % _bgImages.length]);   // 提前预加载下一张
+    preload(_bgImages[(_bgIdx + 1) % _bgImages.length], fail);   // 提前预加载下一张
     layer.style.opacity = 0;
     setTimeout(() => {
       layer.style.backgroundImage = `url("${_bgImages[_bgIdx]}")`;
