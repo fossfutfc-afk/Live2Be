@@ -127,7 +127,10 @@ const BondVN = (() => {
   }
 
   // 等待标题卡: bond-title 面板的"进场景缓冲"模式——持续显示（不自动过/点击不跳）
-  // 直到 hideEnterWait; 与 showTitle（章节标题屏, 2.4s/点击跳过）互斥（waitCard 标记）
+  // 直到 hideEnterWait; 与 showTitle（章节标题屏, 2.4s/点击跳过）互斥（waitCard 标记）。
+  // 2026-09-07 修复: 曾引用未定义的 reason 变量（历史遗留）——busy adopt 路径
+  // （不等预热直接点击 → resumed:False）进这里即 ReferenceError → enter 中断,
+  // waitScene 永不启动 → 卡死。改回用后端返回的 chapterTitle 参数。
   function showEnterWait(chapterTitle) {
     const t = $("bond-title");
     const v = $("view-bond");
@@ -135,8 +138,8 @@ const BondVN = (() => {
     const np = document.querySelector(".bond-nameplate");
     if (!t || !v) return;
     waitCard = true;
-    // 标题文案: reason 太长取首句; 无 reason → 通用
-    let title = (reason || "").trim();
+    // 标题文案: 取首句（后端返回的章节标题）; 无标题 → 通用兜底
+    let title = (chapterTitle || "").trim();
     const cut = title.indexOf("。");
     if (cut > 0) title = title.slice(0, cut);
     $("bond-title-text").textContent = title || "羁绊剧情";
