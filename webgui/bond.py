@@ -1058,27 +1058,36 @@ def _anno_worker(state: BondState) -> None:
         if scene is None:
             break
         t0 = time.monotonic()                    # 计时埋点（§6.1）
-        failed = False
         try:
-            state.vn.fill_scene_emotions(scene)     # 标注 LLM（不持锁）
-        except Exception as e:                       # noqa: BLE001 — 标注失败兜底
-            failed = True
-            logger.warning("bond 异步标注失败（兜底延续）: %s", e)
-        _fallback_fill(scene)                        # 保险网: 空 emotion 强制 nomal
-        logger.info("bond_anno dur=%dms fallback=%s",
-                    _ms_since(t0), "n" if not failed else "y")
-        with state._lock:
-            if state.scene_obj is scene:
-                state.scene = scene.to_dict()
-                state.emo_version += 1
-                state.prev_emotions = [p.get("emotion", "")
-                                       for p in scene.paragraphs
-                                       if isinstance(p, dict)]
-            elif state.pregen_obj is scene:
-                state.pregen_scene = scene.to_dict()
-                state.emo_version += 1
-            # 已被替换/消费后又被推进 → 丢弃（异步不覆盖新状态）
-        state._anno_queue.task_done()
+            try:
+                state.vn.fill_scene_emotions(scene)     # 标注 LLM（不持锁）
+                failed = False
+            except Exception as e:                       # noqa: BLE001 — 标注失败兜底
+                failed = True
+                logger.warning("bond 异步标注失败（兜底延续）: %s", e)
+            _fallback_fill(scene)                        # 保险网: 空 emotion 强制 nomal
+            logger.info("bond_anno dur=%dms fallback=%s",
+                        _ms_since(t0), "n" if not failed else "y")
+            with state._lock:
+                if state.scene_obj is scene:
+                    state.scene = scene.to_dict()
+                    state.emo_version += 1
+                    state.prev_emotions = [p.get("emotion", "")
+                                           for p in scene.paragraphs
+                                           if isinstance(p, dict)]
+                elif state.pregen_obj is scene:
+                    state.pregen_scene = scene.to_dict()
+                    state.emo_version += 1
+                # 已被替换/消费后又被推进 → 丢弃（异步不覆盖新状态）
+        except Exception as e:                           # noqa: BLE001 — 保活: 单条失败
+            logger.warning("bond 标注处理异常（跳过本条, worker 保活）: %s", e)
+        finally:
+            try:
+                state._anno_queue.task_done()
+            except Exception:                            # noqa: BLE001 — 幂等无害
+                pass
+    # 正常结束（None 哨兵）: 复位启动标记——后续入队可再启（worker 永不饿死）
+    state._anno_started = False
 
 
 def _log_scene(state: BondState, char_id: str, session_id: str, picked) -> None:

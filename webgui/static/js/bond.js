@@ -74,6 +74,9 @@ const BondVN = (() => {
   let typeState = null;
   // 当前立绘表情（段首同值不重播——AI 填同表情时立绘不闪）
   let curEmotion = "";
+  // 表情守望（2026-09-07）: 骨架场景标注完成后补切表情——waitScene 只在轮询期
+  // 触发 applyEmotions, 阅读期无轮询 → 需轻量守望（含后续未打字段落补 emotion/fx）
+  let emoWatchTimer = null;
 
   // ---------------------------------------------------------------------------
   // 公开: 进入 VN（mmt.js 收到 bond_story 或重进 in_vn 会话时调用）
@@ -95,7 +98,7 @@ const BondVN = (() => {
     }
     stopTyping();
     showView();
-    // P1 入口预热: start POST 先行发出（首场可能已由触发轮预热或在途——生成
+    clearEmoWatch();              // 进入: 旧守望清场（renderScene 按需重启）    // P1 入口预热: start POST 先行发出（首场可能已由触发轮预热或在途——生成
     // 立即继续, 不与 spine 初始化串行）; initSpine 与其并行, 首帧渲染前等它就绪
     let data;
     try {
@@ -160,6 +163,7 @@ const BondVN = (() => {
   function exit() {
     // 回 MMT: 隐藏 VN 视图（聊天窗原样保留）→ 解锁输入 + 重启轮询（拉 wrapup 收尾话）
     stopTyping();
+    clearEmoWatch();              // 退出 VN: 守望停（防隐藏页空轮询）
     clearAutoTimer();
     unbindSkip();
     setAuto(false);
@@ -294,12 +298,58 @@ const BondVN = (() => {
   // （2026-09-01 替换式渲染: 对话窗只保留当前段——只补当前段; 同值不重播）
   function applyEmotions(scene) {
     if (!player) return;
+    // 已打字段落同步补 emotion/fx（标注到达时, 未读段也能正确切表情/特效）
+    patchTypeParas(scene);
     const paras = scene.paragraphs || [];
     const p = paras[typeSeg];
     if (p && p.emotion && p.emotion !== curEmotion) {
       player.setEmotion(p.emotion);
       curEmotion = p.emotion;
     }
+  }
+
+  // 标注回填 → 把 emotion/fx 写进正在打字/待打的段落对象（typeParas 引用同一批）
+  function patchTypeParas(scene) {
+    const src = (scene && scene.paragraphs) || [];
+    if (!Array.isArray(typeParas) || typeParas.length !== src.length) return;
+    for (let i = 0; i < src.length; i++) {
+      const a = typeParas[i], b = src[i];
+      if (!a || !b || typeof a === "string") continue;
+      if (b && b.emotion) a.emotion = b.emotion;
+      if (b && b.fx) a.fx = b.fx;
+    }
+  }
+
+  // 阅读期轻量轮询: 标注（emo_version）到达即补切; 场景推进/全标注稳定后自停
+  function startEmoWatch(scene) {
+    clearEmoWatch();
+    const paras = (scene && scene.paragraphs) || [];
+    if (!paras.length || scene.is_end) return;
+    if (paras.every((p) => p && p.emotion)) return;      // 已全标注 → 无需守望
+    let stable = 0;
+    emoWatchTimer = setInterval(async () => {
+      if (emoWatchTimer == null) return;
+      try {
+        const st = await (await fetch(
+          `/api/bond/status?char_id=${charId}&session_id=${sessionId}`)).json();
+        if (st.round !== seenRound) { clearEmoWatch(); return; }  // 场景已推进
+        if (st.scene && st.emo_version !== undefined && st.emo_version !== seenEmo) {
+          seenEmo = st.emo_version;
+          stable = 0;
+          applyEmotions(st.scene);
+        } else {
+          stable++;
+        }
+        const allDone = st.scene && (st.scene.paragraphs || [])
+          .every((p) => p && p.emotion);
+        if (allDone && stable >= 2) clearEmoWatch();      // 标注完成且稳定 → 自停
+      } catch (e) { /* 网络瞬断忽略——下轮重试 */ }
+    }, 800);
+    setTimeout(() => { if (emoWatchTimer != null) clearEmoWatch(); }, 30000);
+  }
+
+  function clearEmoWatch() {
+    if (emoWatchTimer != null) { clearInterval(emoWatchTimer); emoWatchTimer = null; }
   }
 
   // ---------------------------------------------------------------------------
@@ -310,6 +360,7 @@ const BondVN = (() => {
     busy = false;
     clearAutoTimer();             // 新场景开始 → 旧自动倒计时作废
     stopTyping();
+    clearEmoWatch();              // 场景切换 → 旧守望作废（新场景按需重启）
     sceneIsEnd = !!scene.is_end;
     // 背景（scene_id → background_url; is_end 无背景 → 清空显示默认黑屏——官方结束样式）
     const bg = $("bond-bg");
@@ -339,6 +390,8 @@ const BondVN = (() => {
       hideContinue();
       showInteraction(scene);
     });
+    // 骨架场景（标注未就绪）→ 阅读期守望: 标注到达即补切表情/后续段
+    startEmoWatch(scene);
     // 2026-09-01 点击推进制: 打字中继续三角不亮——段完成时 paraDone 才亮
     // （提示"点击进入下一段"）; 交互期由 showInteraction 自行管理
   }
