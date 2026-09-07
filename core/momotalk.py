@@ -48,9 +48,7 @@ from datetime import datetime
 from pathlib import Path
 
 from core.common import Live2BeError, err
-from core.common.tone import load_story_tone
 from llm.client import LLMClient, feedback
-from llm.prompts import load_prompt
 from llm.task_levels import extra_body as _task_extra
 from llm.task_levels import max_tokens as task_levels_max_tokens
 from contract import APPROVAL_AUTO, DOMAIN_MMT, AgentAction, build_schema
@@ -60,15 +58,13 @@ from core.mmt.mmt_executor import (
     ExecResult,
     MmtExecError,
     MmtExecutor,
-    load_interperson,
-    self_entry_to_prompt,
 )
 from core.parsing.dynamic_character_parser import (
     CharacterLoader,
     DynamicCharacter,
     yaml_to_prompt,
 )
-from core.parsing.world_parser import DEFAULT_WORLD_PATH, load_world, world_to_prompt
+from core.promptkit import BlockContext, build_box, round_messages
 from core.session import SessionStore
 from core.session.events import make_event
 from core.session.renderer import render_events, session_status, window_messages
@@ -303,40 +299,17 @@ class MomoTalkEngine:
     def start_session(self, character_id: str) -> str:
         char = self.char_loader.load(character_id)
 
-        sp = char.build_prompt("momotalk")          # L0 自我层: 完整人设 + 行为约束
-
-        world_chunk = world_to_prompt(load_world(DEFAULT_WORLD_PATH))
-        if world_chunk:                              # 世界观（common + system 档）
-            sp += "\n\n" + world_chunk
-
-        # 剧情基调（对话生成层, "最一开始告诉 AI", DESIGN_BRAIN.md §0）:
-        # per 角色写在扮演手册 script.yml 的 SIG~main_tone（旧: personality 的
-        # SIG~story_tone, 兼容）——AI 从卡学角色, 基调也从卡来。digest 是事后提炼
-        # 救不了基调——生成的剧情必须一开始就符合角色类型。
-        sp += "\n\n【本角色剧情基调】\n" + load_story_tone(char)
-        # 扮演手册 MMT 风格（script.yml 的 SIG~mmt_tone; 缺失 → 不注入, 照旧）
-        if char.mmt_tone:
-            sp += "\n\n【本角色 MMT 风格】\n" + char.mmt_tone
-
-        try:                                         # L1 人际层: 自表条目注入（键值+权重）
-            interperson = load_interperson(self.executor.interperson_path)
-        except MmtExecError as e:                    # 文件损坏 → 跳过注入, 不挡会话启动
-            logger.warning("interperson 读取失败, 跳过 L1 注入: %s", e)
-            interperson = {}
-        entry = self_entry_to_prompt(interperson, char.character_id)
-        if entry:
-            sp += "\n\n" + entry
-
-        # 玩家名不注入 system prompt——学生不会直呼玩家自定义名（一直称呼"老师"）。
-        # 名字只做系统显示（终端提示符 / 菜单 / 存档标识）, 见 mmt_preset 玩家名系统。
-        sp += "\n\n" + load_prompt("momotalk_environment")
-        # 称呼注入（强化角色身份认知; list 为一人分饰多角预留——多角色时
-        # 调用方传 character_names=["A","B"] → "你好，A / B——以下是你的行为规则…"）
-        names = self._character_names or [char.display_name]
-        greeting = "你好，" + " / ".join(names) + "——以下是你的行为规则，请严格遵守："
-        sp += "\n\n" + greeting + "\n\n" + load_prompt("momotalk_rules")
-        # MMT 域用动作列表格式（2026-08-23 定稿: 混合节奏 "说话→发图→说话"）
-        sp += "\n\n可用动作 schema:\n" + build_schema(self.registry, action_list=True)
+        # 盒A v2（DESIGN_PROMPTKIT §4.1）: 命名块清单装配——称呼行归位盒顶
+        # （身份先行; 此前夹在 environment 与 rules 之间, 2026-09-07 用户拍板）。
+        # 玩家名不注入——学生不会直呼玩家自定义名（一直称呼"老师"）; 名字只做
+        # 系统显示（终端提示符 / 菜单 / 存档标识）, 见 mmt_preset 玩家名系统。
+        sp = build_box("mmt", BlockContext(
+            char=char,
+            names=self._character_names or [char.display_name],
+            greeting_suffix="——以下是你的行为规则，请严格遵守：",
+            schema=build_schema(self.registry, action_list=True),
+            interperson_path=self.executor.interperson_path,
+        ))
 
         self._current_char = char
         self._system_prompt = sp
@@ -595,25 +568,24 @@ class MomoTalkEngine:
             raise RuntimeError(err("NotInSession", "尚未开始会话"))
 
         self._trace = []
+        # 每轮动态尾（DESIGN_PROMPTKIT §2）: 唯一装配入口 round_messages——
+        # system(盒A+brain段) → history → 注记们（P16 进度 / P17 system_note /
+        # P18 随机）→ user。注记只进 LLM context, 不入历史。task 卡 Phase 2
+        # 接入（同槽, 在注记之后 user 之前）。
         brain = (self._brain_injection or "").strip()
-        system = self._system_prompt
-        if brain:
-            system += "\n\n" + brain                   # 注入段动态拼装（digest 后下轮生效）
-        messages = [{"role": "system", "content": system}]
-        messages.extend(self._history)
-        # 羁绊进度参考（软门槛）: 轮数注入 LLM 作判断依据, 不入历史
-        messages.append({"role": "system", "content": self._bond_progress_note()})
-        if system_note:
-            messages.append({"role": "system", "content": system_note})
-        # 随机事件（概率性, soft——低频惊喜）: 角色想说话（只进 LLM context）
-        if self._store is not None:          # 事件流会话才有轮数/冷却语境
+        notes: list[str] = [self._bond_progress_note()]    # P16 羁绊进度参考（软门槛）
+        if system_note:                                     # P17 本轮系统注记
+            notes.append(system_note)
+        if self._store is not None:          # P18 随机事件（概率性, soft——低频惊喜）
             from core.random_events import fire_event
             rand_note = fire_event(
                 "want_to_speak",
                 {"round": self._session_rounds, "_cooldowns": self._random_cooldowns})
             if rand_note:
-                messages.append({"role": "system", "content": rand_note})
-        messages.append({"role": "user", "content": user_input})
+                notes.append(rand_note)
+        messages = round_messages(
+            system=self._system_prompt, history=self._history,
+            notes=notes, brain=brain, user=user_input)
 
         for step in range(MAX_STEPS):
             # 1) LLM 决策（json_object 已内置 JSON 清洗与修正重试, 返回 dict）

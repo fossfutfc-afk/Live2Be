@@ -26,18 +26,21 @@
 
 ## 1. 盒A — MMT system prompt（会话级一次）
 
-`core/momotalk.py:303-348` `start_session()`，按序拼装：
+`core/momotalk.py:299-322` `start_session()` → `core/promptkit/` 盒装配
+（box.py DOMAIN_BOXES["mmt"] 声明式清单; 2026-09-07 Phase 1 抽盒完成——
+**盒A v2: 称呼行归位盒顶**, 其余顺序/文案逐字不变, 黄金夹具锁定）:
 
 | # | 块 | 来源/装配点 | 备注 |
 |---|---|---|---|
-| 1 | `# 角色设定` + 行为规则 | `build_prompt("momotalk")`（parser:396-398）= 六文件 merged raw → `yaml_to_prompt` + `_BEHAVIOR_RULES`（behavior_rules.md，parser:421 模块级加载） | yaml_to_prompt **剥 REQ~/SIG~ 前缀**（parser:285）、下划线转空格。raw = 六文件全量合并（parser:502-509）→ **script.yml 三个 tone 键内容也以 yaml 键值形态出现一次** |
-| 2 | `【世界常识】【世界规则】` | `world_to_prompt(load_world(...))`（world_parser:70-89），overview.yml common+system 档 | hidden 不注入 |
-| 3 | `【本角色剧情基调】` | `load_story_tone(char)`（momotalk.py:316）：script.yml `SIG~main_tone` 优先，personality `SIG~story_tone` 兜底（parser:531-533） | 与块1 dump 里的 main tone 键值**二次出现**（既有行为） |
-| 4 | `【本角色 MMT 风格】` | script.yml `SIG~mmt_tone`（char.mmt_tone）| 缺失 → 不注入 |
-| 5 | 人际层自表 | `interperson.json` self 条目 → `self_entry_to_prompt`（momotalk.py:321-328）| 便利屋68 权重 2；损坏 → 跳过不挡启动 |
-| 6 | MMT 环境 | `momotalk_environment.md`（momotalk.py:332）| 虚拟手机场景 |
-| 7 | 称呼问候 + MMT 规则 | `你好，伊草 遥香——以下是你的行为规则，请严格遵守：`（momotalk.py:335-336）+ `momotalk_rules.md`（L337）| rules 内含消息流协议、单人模式、契机导向触发规则、触发 JSON 示范 1~4 |
-| 8 | 可用动作 schema | `build_schema(mmt_registry, action_list=True)`（momotalk.py:339；schema.py:34-92）| ⚠️ **消息流协议渲染**：`{"messages":[{text}|{action,payload}]}`（2026-09-02 协议），非旧 `{"actions":[...]}` |
+| 0 | 称呼行 | `greeting` 块（blocks.py）: `你好，{display_name}——以下是你的行为规则，请严格遵守：`（名单可多人, 一人分饰多角预留） | **v2 首段（身份先行）**——此前夹在 environment 与 rules 之间（位置不伦不类, 用户拍板 2026-09-07）|
+| 1 | `# 角色设定` + 行为规则 | `persona_mmt` 块 = `build_prompt("momotalk")`（parser:396-398）= 六文件 merged raw → `yaml_to_prompt` + `_BEHAVIOR_RULES`（behavior_rules.md，parser:421 模块级加载） | yaml_to_prompt **剥 REQ~/SIG~ 前缀**（parser:285）、下划线转空格。raw = 六文件全量合并（parser:502-509）→ **script.yml 三个 tone 键内容也以 yaml 键值形态出现一次** |
+| 2 | `【世界常识】【世界规则】` | `world` 块 = `world_to_prompt(load_world(...))`（world_parser:70-89），overview.yml common+system 档 | hidden 不注入 |
+| 3 | `【本角色剧情基调】` | `story_tone` 块 = `load_story_tone(char)`（core/common/tone.py）：script.yml `SIG~main_tone` 优先，personality `SIG~story_tone` 兜底（parser:531-533） | 与块1 dump 里的 main tone 键值**二次出现**（既有行为） |
+| 4 | `【本角色 MMT 风格】` | `mmt_tone` 块 = script.yml `SIG~mmt_tone`（char.mmt_tone）| 缺失 → 不注入（条件块） |
+| 5 | 人际层自表 | `interperson` 块 = interperson.json self 条目（load_interperson + self_entry_to_prompt）| 便利屋68 权重 2；损坏 → 跳过不挡启动 |
+| 6 | MMT 环境 | `environment_mmt` 块 = `momotalk_environment.md` | 虚拟手机场景 |
+| 7 | MMT 规则 | `rules_mmt` 块 = `momotalk_rules.md` | rules 内含消息流协议、单人模式、契机导向触发规则、触发 JSON 示范 1~4 |
+| 8 | 可用动作 schema | `schema` 块 = `build_schema(mmt_registry, action_list=True)`（contract/schema.py:34-92）| ⚠️ **消息流协议渲染**：`{"messages":[{text}|{action,payload}]}`（2026-09-02 协议），非旧 `{"actions":[...]}` |
 
 ---
 
@@ -182,8 +185,11 @@ emotion → emo_version++（引擎同步标注仅 CLI/测试用）。**导演层
 
 | 位置 | 说明 |
 |---|---|
-| `core/momotalk.py:303-348` | 盒A 拼装（8 块顺序） |
-| `core/momotalk.py:598-616` | MMT 每轮 messages 尾（brain/P16/P17/P18/user） |
+| `core/promptkit/box.py` | 盒装配（DOMAIN_BOXES["mmt"] 9 块清单, 盒A v2 称呼行首段） |
+| `core/promptkit/blocks.py` | 命名块实现（文案单一装配源） |
+| `core/promptkit/tail.py` | round_messages（每轮动态尾唯一入口） |
+| `core/momotalk.py:299-322` | start_session → build_box("mmt")（盒A v2） |
+| `core/momotalk.py:543-595` | agent_turn（每轮尾 → round_messages: brain/P16/P17/P18/user） |
 | `core/momotalk.py:403-453` | _inject_brain（出厂背景 + wiki 注入段） |
 | `core/momotalk.py:492-512` | _maybe_mmt_digest（25 轮窗口） |
 | `core/momotalk.py:930-951` | _bond_progress_note（P16 文案） |
