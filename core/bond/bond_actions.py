@@ -262,6 +262,8 @@ def build_story_registry() -> StoryActionRegistry:
             "      inner: 可选, 字符串——**内心独白**（角色没说出口的心理活动, 屏幕变黑\n"
             "          单独展示）。低频惊喜: 只在情感的关键时刻写（遥香的自卑、阿露的逞强\n"
             "          心理这类）; 不必每场都有, 没有就省略, 不要为了写而写\n"
+            "      分段（v2 定稿, 2026-09-07）: **空间/时间明显跳变 → 另起一个 text**——\n"
+            "          一个 text = 一个画面节拍（走出教室/来到天台这类换场是段落重音, 系统按段切背景）\n"
             "  choices: 数组——给 sensei 的选项文本列表（1~3 个）。**带 choices 时\n"
             "      必须同时提供 branches**（见下）; 纯叙事板块可省略 choices\n"
             "      （缺省 = 本板块不提供选项, sensei 读完点继续）\n"
@@ -285,7 +287,7 @@ def build_story_registry() -> StoryActionRegistry:
         payload_schema=(
             "payload 字段（story_end 收尾场景参数）:\n"
             "  paragraphs: 必填, 数组——同 story_scene（每项 {text, inner?}, 自然段语义;\n"
-            "      emotion 不要写——系统自动切句并标注）\n"
+            "      emotion 不要写——系统自动切句并标注; 空间/时间跳变另起一段, 同 story_scene）\n"
             "  place: 可选, 字符串——同 story_scene（场景切换才标）\n"
             "约束: story_end 是**收尾场景**——输出后剧情结束, 不再有选项、不再开新场景。\n"
             "      choices 必须为空（结构上收尾无选项, 传非空会被拒绝）。宁可及早收尾, \n"
