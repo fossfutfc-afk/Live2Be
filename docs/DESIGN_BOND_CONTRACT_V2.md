@@ -226,8 +226,11 @@ gate  当且仅当本场景 两路标志都置位 → 放行推进（gate_busy �
   place 就绪 = scene 对象 `_place_done` 标记（判定完成即含 keep, gate 恒可达）;
   分支反应段/回放场景/无词表/纪念退出 = 视为就绪不占 lane; 新增异步锚点写回
   集成测试（锚点落 payload → 门控放行 → 事件落库携带）。llm+core+webgui 464。
-- **P3b-2 接线（待做）**：导演/前端锚点句背景切换（含晚到规则 §7.2, place_ver
-  推送）、事件/回放句级 place 键时间轴渲染; **同节点删除 schema/rules 的 place
-  说明**、删盒的地点词表块（词表改由 place_annotate 模板持有）、夹具再刷新。
+- **P3b-2 接线（✅ 落地）**：routers `_resolve_scene` 注入锚点 `place_bg`（词表 id →
+  静态资源, 查不到静默保持）; 前端段级锚点应用（writePara 段首切背景 + patch 晚到
+  即切 + renderScene 板级复位, 纯文字模式同样生效）; BondScene.from_dict 视觉键
+  透传（回放场景保留句级锚点——事件流 append-only 定格 → 中断回放时间轴可用）;
+  **单源切换完成**: schema/rules 地点说明删除、盒"地点词表"块移除（词表由
+  place_annotate 模板持有）、夹具刷新。llm+core+webgui 465 全绿。
 - 验收口径：换场句背景切换正确、板内多次移动逐句生效、忘标/歧义静默保持、
   双路并发不增等待、resume 上下文无 place 键。

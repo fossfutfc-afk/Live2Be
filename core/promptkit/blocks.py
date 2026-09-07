@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from core.common.tone import load_story_tone
-from core.media.emotion_lexicon import build_emotion_injection, build_place_injection
+from core.media.emotion_lexicon import build_emotion_injection
 from core.mmt.mmt_executor import MmtExecError, load_interperson, self_entry_to_prompt
 from core.parsing.world_parser import DEFAULT_WORLD_PATH, load_world, world_to_prompt
 from llm.prompts import load_prompt
@@ -132,12 +132,6 @@ def _lexicon_emotion(ctx: BlockContext) -> str | None:
     return inj or None
 
 
-def _lexicon_place(ctx: BlockContext) -> str | None:
-    """地点词表: _director_whitelist.json common_scenes（封闭地点语义）。"""
-    inj = build_place_injection()
-    return inj or None
-
-
 def _brain(ctx: BlockContext) -> str | None:
     """brain 段（Bond 开场注入, 剧情内固定）: 出厂背景 + wiki 第一人称视图。"""
     seg = (ctx.brain_segment or "").strip()
@@ -158,7 +152,6 @@ BLOCKS: dict[str, Callable[[BlockContext], str | None]] = {
     "bond_tone": _bond_tone,
     "rules_bond": _rules_bond,
     "lexicon_emotion": _lexicon_emotion,
-    "lexicon_place": _lexicon_place,
     "schema": _schema,
     "brain": _brain,
 }
@@ -176,7 +169,6 @@ BLOCK_DOC: dict[str, str] = {
     "bond_tone": "本角色羁绊剧情建议（SIG~bond_tone, 条件）",
     "rules_bond": "羁绊剧情规则书（含 memorial_enter 范本）",
     "lexicon_emotion": "表情标注词表（emotions.yml, 条件）",
-    "lexicon_place": "地点词表（_director_whitelist, 条件）",
     "schema": "可用动作 schema（域契约）",
     "brain": "记忆段（brain_segment, 条件）",
 }

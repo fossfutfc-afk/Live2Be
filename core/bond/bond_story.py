@@ -164,6 +164,11 @@ class BondScene:
                     emotion = p.get("emotion")
                     if isinstance(emotion, str) and emotion.strip():
                         item["emotion"] = emotion.strip()
+                    # 视觉键透传（P3b-2）: place 锚点（句级）随回放场景保留——
+                    # 事件流 append-only 已定格, 回放渲染时间轴依赖它
+                    pid = p.get("place")
+                    if isinstance(pid, str) and pid.strip():
+                        item["place"] = pid.strip()
                     paras.append(item)
         choices = [c for c in raw.get("choices", []) if isinstance(c, str)]
         branches: dict[str, list] = {}

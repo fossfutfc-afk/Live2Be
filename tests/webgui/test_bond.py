@@ -699,6 +699,49 @@ def test_bond_async_place_anchors_written(tmp_path):
         _cleanup()
 
 
+def test_bond_interrupt_replay_keeps_place_anchors(tmp_path):
+    """中断保护 + 事件回放保留句级 place 锚点（append-only 视觉键定格）:
+
+    已落库事件（含锚点）→ 中断 → bond_start 回放该场 → 锚点随场景保留、
+    双路门控就绪 → 点继续零 LLM 交棒续写。"""
+    from core.media.emotion_lexicon import load_place_lexicon
+    from core.session.events import make_event
+    place_keys = load_place_lexicon()
+    if not place_keys:                      # 无资产 → 跳过
+        print("    (跳过: 无 _director_whitelist 资产)")
+        return
+    anchor = place_keys[0]
+    engine, st, sid, _llm = _setup(tmp_path, STORY_END)
+    try:
+        st.enter_vn(CHARACTER, sid, "中断的约定")
+        # 手工造一条 v2 形态事件: 句项带 place 锚点（模拟标注层已落库）
+        st.append_event(CHARACTER, sid, make_event(
+            "bond", "story_scene",
+            {"paragraphs": [
+                {"text": "她在教室里收拾着书包。", "emotion": "nomal"},
+                {"text": "她带我穿过走廊，推开了天台的门。",
+                 "emotion": "nomal", "place": anchor},
+            ], "input": "（种子）……", "picked": None, "is_end": False}))
+
+        r = bond.bond_start(CHARACTER, sid)
+        assert r["accepted"] and r.get("replay") is True, r
+        st1 = _wait_status(CHARACTER, sid)
+        assert st1["scene"]["paragraphs"][0]["text"] == "她在教室里收拾着书包。"
+        # 锚点随回放场景保留（事件流 → narrativize → 场景对象）
+        state = bond._state(CHARACTER, sid)
+        assert state.scene_obj.paragraphs[-1].get("place") == anchor
+        # 回放场景双路门控就绪（回放不占 lane, 标记置位）
+        assert bond.bond_status(CHARACTER, sid)["gate_busy"] is False
+        # 点继续 → 预生成交棒（story_end）, 零污染
+        r2 = _turn_until_accepted(CHARACTER, sid, "（继续）")
+        assert r2["accepted"], r2
+        evs = st.events(CHARACTER, sid)
+        assert len([e for e in evs if e.type == "bond"]) == 1   # 回放不重复落
+        print("    interrupt: 事件锚点保留于回放场景 + 双路门控就绪 + 交棒续写")
+    finally:
+        _cleanup()
+
+
 # ----------------------------------------------------------------------------
 # 纪念立绘异步生成（方案 A 2026-09-01）: 流式嗅探到 memorial_enter 的 prompt
 # 定稿 → 后台生图（与 LLM 剩余输出并行）→ 画廊落盘 → bond_status.memorial_img
