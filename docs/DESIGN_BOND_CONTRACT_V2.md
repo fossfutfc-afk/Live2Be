@@ -213,10 +213,16 @@ gate  当且仅当本场景 两路标志都置位 → 放行推进（gate_busy �
 - **P1 文案同步（✅ 落地）**：bond_story_rules 增补【段落规划与换场】、story_scene
   schema 加"分段"提示、story_end 括注同步；place 说明保留（过渡）；夹具刷新留 diff。
   零引擎逻辑改动。
-- **P2 标注器**：place_annotate.md + `annotate_places` + 判据正反例测试集（含
-  "从…走进…"定性用例）。
-- **P3 接线（含单源切换）**：双路并发 worker、引擎同步兜底、导演/渲染句级应用、
-  事件/回放键、前端锚点切换；**同节点删除 schema/rules 的 place 说明**、删盒的
-  地点词表块（词表改由 place_annotate 模板持有）、夹具再刷新。
+- **P2 标注器（✅ 落地 edd9638）**：place_annotate.md + `annotate_places` + 判据
+  正反例测试集（含"从…走进…"定性用例）+ rules↔prompt 判据镜像防漂移测试。
+- **P3a 引擎同步路径（✅ 落地）**：send_vn_scene annotate=True → `fill_scene_places`
+  （锚点写回 payload 变更句 place 键, 稀有）; 引擎本地 `_current_place` 延续态
+  （异步 webgui 由 P3b lane 同源维护）; 同步顺序 = emotion → place（最小 diff）;
+  渲染隔离天然成立（render 只读 text/emotion/inner）; 测试桩全部补 place 应答
+  分支; llm+core+webgui 463 全绿。
+- **P3b 接线（含单源切换, 待做）**：双 lane worker（Q_emo/W_emo、Q_place/W_place）
+  + gate 双条件、导演/前端锚点句背景切换（含晚到规则 §7.2）、事件/回放句级
+  place 键时间轴; **同节点删除 schema/rules 的 place 说明**、删盒的地点词表块
+  （词表改由 place_annotate 模板持有）、夹具再刷新。
 - 验收口径：换场句背景切换正确、板内多次移动逐句生效、忘标/歧义静默保持、
   双路并发不增等待、resume 上下文无 place 键。

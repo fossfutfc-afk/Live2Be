@@ -15,6 +15,7 @@ from llm.prompts import load_prompt
 from llm.task_levels import max_tokens as tl_max_tokens
 
 ROOT = Path(__file__).resolve().parent.parent.parent
+CHARACTER = "igusa_haruka"
 KEYS = ["campus", "classroom", "hallway", "rooftop", "ramen"]
 
 
@@ -150,3 +151,71 @@ def test_judgement_mirror_between_rules_and_prompt():
     for token in ("从…走进", "推开", "转身", "来到"):
         assert token in rules, f"rules 缺判据示例: {token}"
         assert token in place, f"place prompt 缺判据示例: {token}"
+
+
+# ---------------------------------------------------------------------------
+# 引擎同步路径集成（P3a: annotate=True → fill_scene_places 接线）
+# ---------------------------------------------------------------------------
+
+SCENE = {"action": "story_scene", "payload": {
+    "paragraphs": [{"text": "她在教室里收拾着书包。"},
+                   {"text": "「老师，今天也陪我一会儿吧。」"},
+                   {"text": "她带我穿过走廊，推开了天台的门。"},
+                   {"text": "晚风迎面吹来。"}]}}
+
+
+class EngineLLM:
+    """同步路径桩: chat_full 出场景; chat 应答 place 标注（锚点/空）。"""
+
+    def __init__(self, *place_replies):
+        self._scripts = list(place_replies)
+        self.calls = []
+
+    def chat_full(self, messages, **kw):
+        return SCENE
+
+    def chat(self, messages, **kw):
+        self.calls.append([dict(m) for m in messages])
+        return self._scripts.pop(0)
+
+
+def _engine_with(place_keys, place_replies):
+    from core.bond.bond_story import BondStoryEngine
+    llm = EngineLLM(*place_replies)
+    engine = BondStoryEngine(ROOT / "config" / "characters", llm)
+    engine.start_session(CHARACTER)
+    engine._lexicon_keys = []                 # 本测试只关心 place 路
+    engine._place_keys = place_keys
+    engine._current_place = ""
+    return engine, llm
+
+
+def test_engine_sync_fill_scene_places():
+    """同步路径: 锚点写回 payload（变更句 place 键）; 当前地点延续; 上下文隔离。"""
+    from core.session.renderer import render_bond_scene_text
+    engine, llm = _engine_with(["classroom", "rooftop"],
+                               [[{"sentence": 3, "place": "rooftop"}]])
+    scene = engine.send_vn_scene("（旁白）本章：测试。", annotate=True)
+    assert scene.paragraphs[2].get("place") == "rooftop", scene.paragraphs
+    assert all("place" not in p for i, p in enumerate(scene.paragraphs) if i != 2)
+    assert engine._current_place == "rooftop"                 # 延续态顺延
+
+    # place 视觉键不进 LLM 上下文（render 忽略）
+    text = render_bond_scene_text(scene.to_dict())
+    assert "rooftop" not in text and "place" not in text, text
+
+    # 第二场: 当前地点带入标注 prompt（“当前所在地…rooftop”）; 无变更 → keep
+    engine2, llm2 = _engine_with(["classroom", "rooftop"], [[]])
+    engine2._current_place = "rooftop"
+    engine2.send_vn_scene("（旁白）第二场。", annotate=True)
+    sys_text = llm2.calls[0][0]["content"]
+    assert "rooftop" in sys_text                               # 当前地点已注入
+    assert engine2._current_place == "rooftop"                 # 无变更 → 保持
+
+
+def test_engine_sync_no_place_keys_no_call():
+    """无地点词表 → place 标注不触发（零调用, 与改动前行为一致）。"""
+    engine, llm = _engine_with([], [])
+    scene = engine.send_vn_scene("（旁白）本章：测试。", annotate=True)
+    assert all("place" not in p for p in scene.paragraphs)
+    assert llm.calls == []

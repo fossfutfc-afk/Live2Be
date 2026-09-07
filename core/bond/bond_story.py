@@ -46,7 +46,9 @@ from core.bond.stream_probe import MemorialProbe
 from core.media.emotion_lexicon import (
     build_emotion_injection,
     load_emotion_lexicon,
+    load_place_lexicon,
 )
+from core.bond.place_annotate import annotate_places
 from llm.client import LLMClient, feedback
 from llm.task_levels import max_tokens as task_levels_max_tokens
 from core.parsing.dynamic_character_parser import CharacterLoader, DynamicCharacter
@@ -286,6 +288,11 @@ class BondStoryEngine:
         self._lexicon_hint: str = ""           # 词表注入文本（few-shot 示范, 标注 prompt 用）
         self._character_hint: str = ""         # 角色人设摘要（标注层用, 2026-09-02:
                                                # 人设化情绪判断基准——逞强笑 ≠ smile）
+        # place 标注（DESIGN_BOND_CONTRACT_V2 §5, P3a）: 地点词表 + 引擎本地
+        # "当前地点"延续态（同步路径用; 异步 webgui 由 lane/state 同源维护）——
+        # 锚点句写回 payload 的 place 键, 视觉键不进 LLM 上下文（renderer 忽略）
+        self._place_keys: list[str] = []
+        self._current_place = ""
         # 本回合任务卡（DESIGN_PROMPTKIT §4, Phase 3）: 构造参数 > settings 开关;
         # start_session 定值; 每场 kind 自推（in_memorial → memorial_exit, 否则 scene）
         self._task_card_override: bool | None = task_card
@@ -322,6 +329,10 @@ class BondStoryEngine:
         self._lexicon_hint = build_emotion_injection(_char_asset_dir)
         # 2026-09-02: 角色人设摘要（标注层情绪判断基准——personality 行为逻辑）
         self._character_hint = _personality_summary(char)
+        # place 标注词表（closed; 读取失败 → 空 = 该剧情不标地点, 画面默认）;
+        # 当前地点延续态重置（每个引擎实例从"未知"起, 首次变更句即起始背景）
+        self._place_keys = load_place_lexicon()
+        self._current_place = ""
         self._system_prompt = system_prompt
         self._history = []
         self._trace = []
@@ -515,6 +526,14 @@ class BondStoryEngine:
                 self.fill_scene_emotions(scene)
             except Exception as e:             # noqa: BLE001 — 标注异常不阻断剧情
                 logger.warning("emotion 标注异常（兜底延续）: %s", e)
+        # place 标注（DESIGN_BOND_CONTRACT_V2 P3a, 同步路径）: 换场句锚点写回
+        # payload（place 键, 稀有）; 失败静默 keep（画面保持）。webgui 异步路径
+        # annotate=False → P3b 双 lane 承担。
+        if annotate and self._place_keys and not scene.memorial_exit:
+            try:
+                self.fill_scene_places(scene)
+            except Exception as e:             # noqa: BLE001 — 标注异常不阻断剧情
+                logger.warning("place 标注异常（兜底保持背景）: %s", e)
         if self.director is not None:
             # 视觉导演（v2）: place 意图 → background + audio 占位
             # 表情不经导演——渲染端从段落内联 emotion 查 emotions.yml（catalog.sprite）
@@ -550,6 +569,33 @@ class BondStoryEngine:
                                   lexicon_hint=self._lexicon_hint,
                                   character=self._character_hint)
         return True
+
+    def fill_scene_places(self, scene: "BondScene") -> bool:
+        """地点变更标注回填（DESIGN_BOND_CONTRACT_V2 §5, P3a; 公共方法供同步/
+        异步调用）: 换场锚点写回正文句项（place 键, 稀有——只挂在变更句）;
+        引擎本地"当前地点"延续态顺延（异步 webgui 由调用方同源维护）。
+
+        判定语义在 place_annotate.md（镜像编剧 rules 换场判据）; 失败 → keep
+        （画面保持, 不 raise）。branches/纪念文字不标（反应段与正文同场延续,
+        过渡文字无承载——与 emotion 同规则）。memorial_exit 跳过。
+
+        Returns: 是否产出锚点（False = 无词表 / memorial_exit / 无变更 / 失败）。
+        """
+        if not self._place_keys or scene.memorial_exit:
+            return False
+        texts = [(p.get("text") or "") if isinstance(p, dict) else ""
+                 for p in scene.paragraphs]
+        anchors = annotate_places(
+            self.llm, texts, self._place_keys, self._current_place)
+        for a in anchors:
+            idx = a["sentence"] - 1
+            if 0 <= idx < len(scene.paragraphs):
+                item = scene.paragraphs[idx]
+                if isinstance(item, dict):
+                    item["place"] = a["place"]
+        if anchors:
+            self._current_place = anchors[-1]["place"]     # 延续态: 终地点
+        return bool(anchors)
 
     # ------------------------------------------------------------------
     # 属性

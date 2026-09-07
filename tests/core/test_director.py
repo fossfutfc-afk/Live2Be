@@ -79,6 +79,8 @@ class _MainLLM:
         if "情绪标签数组" in last:               # emotion 标注 → 全 nomal
             n = len(_re.findall(r"(?m)^\d+: ", head))
             return ["nomal"] * max(n, 1)
+        if "变更句数组" in last:                  # place 标注（P3a）→ 无变更
+            return []
         return self._script
 
     def format_messages(self, *, system_prompt, user_message, history=None):

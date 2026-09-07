@@ -69,6 +69,8 @@ class ScriptedLLM:
             import re as _re
             n = len(_re.findall(r"(?m)^\d+: ", head))
             return ["nomal"] * max(n, 1)
+        if "变更句数组" in last:                  # place 标注（P3a）→ 无变更
+            return []
         if "记录员" in head or "整理者" in head:
             return _digest_stub(messages)              # digest 调用 → 两轮空包
         if not self._scripts:
@@ -653,6 +655,8 @@ class StreamLLM:
             import re as _re
             n = len(_re.findall(r"(?m)^\d+: ", head))
             return ["nomal"] * max(n, 1)
+        if "变更句数组" in last:                  # place 标注（P3a）→ 无变更
+            return []
         if "记录员" in head or "整理者" in head:
             return _digest_stub(messages)              # digest 调用 → 两轮空包
         if not self._scripts:
@@ -667,6 +671,8 @@ class StreamLLM:
             import re as _re
             n = len(_re.findall(r"(?m)^\d+: ", head))
             return ["nomal"] * max(n, 1)
+        if "变更句数组" in last:                  # place 标注 → 无变更
+            return []
         if "记录员" in head or "整理者" in head:
             return _digest_stub(messages)
         if not self._scripts:
