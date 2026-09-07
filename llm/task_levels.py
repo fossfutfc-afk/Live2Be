@@ -11,6 +11,7 @@ vn_cli/ide_agent 各自的常量与默认参数里——调一处忘一处）。
 | main     | default   | 主对话/剧情创作（MomoTalk 消息流 + bond 场景）——跟随 settings.toml
 |          |           | [llm].reasoning_effort（默认 high）; 想整体调创作思考深度 → 改 settings |
 | emotion  | off       | 情绪标注——低价值快失败任务, 思考是纯浪费且截断引发 robust 链爆炸 |
+| place    | off       | 地点变更标注——同 emotion 类低价值判定, 快失败快兜底（keep 保持画面） |
 | digest   | high      | 记忆消化 Round A/B——深度认知/逐字校验（实验矩阵: low 浅 / high 最佳,
 |          |           | 2026-09-02 拍板固定 high, 不随 settings 漂移） |
 
@@ -25,6 +26,7 @@ off = 显式关闭（extra_body={}）; low|medium|high = 显式覆盖。
 | bond      | main   |       8192 | 羁绊剧情场景 JSON（自然段 + choices + branches 长响应） |
 | vn_cli    | main   |       1536 | CLI run_bond_story_vn 默认（历史值; 函数参数仍可覆盖） |
 | emotion   | emotion|        512 | 标注数组输出（关 thinking 后足量） |
+| place     | place  |        256 | 换场锚点数组（变更句稀疏输出, 256 足量） |
 | digest    | digest |       8192 | Round A/B 长 JSON 决策（思考 + 输出同预算, high 长考实测 ~2min） |
 
 ## settings.toml 覆盖（可选, 不做也能跑）
@@ -32,7 +34,7 @@ off = 显式关闭（extra_body={}）; low|medium|high = 显式覆盖。
     [llm.tasks.mmt]        thinking = "high"    # 覆盖档位（off/low/medium/high/default）
     [llm.tasks.emotion]    max_tokens = 768     # 覆盖输出上限
 
-覆盖键按"输出形态"名（mmt/bond/vn_cli/emotion/digest）。
+覆盖键按"输出形态"名（mmt/bond/vn_cli/emotion/place/digest）。
 """
 from __future__ import annotations
 
@@ -48,6 +50,8 @@ PROFILES: dict[str, dict] = {
                 "note": "CLI run_bond_story_vn 默认（参数可覆盖）"},
     "emotion": {"thinking": "off",     "max_tokens": 512,
                 "note": "情绪标注数组（低价值, 快失败快兜底）"},
+    "place":   {"thinking": "off",     "max_tokens": 256,
+                "note": "地点变更锚点（稀疏数组; keep=保持画面）"},
     "digest":  {"thinking": "high",    "max_tokens": 8192,
                 "note": "记忆消化 Round A/B 长 JSON 决策"},
 }
