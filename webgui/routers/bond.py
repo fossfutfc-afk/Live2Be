@@ -90,6 +90,17 @@ def _resolve_scene(scene: dict | None, char_id: str) -> dict | None:
                     fx = _fx_resolver(char_id).effects_for(e)
                     if fx:
                         p["fx"] = fx
+                # place 锚点背景（DESIGN_BOND_CONTRACT_V2 P3b-2）: 换场句的背景
+                # 静态资源（词表 id → catalog; 查不到 → 保持上一背景, 静默降级）
+                pid = p.get("place")
+                if isinstance(pid, str) and pid.strip():
+                    try:
+                        media = _catalog().background(pid.strip())
+                        if media is not None:
+                            rel = media.path.relative_to(_catalog().assets_root)
+                            p["place_bg"] = f"/assets/{rel.as_posix()}"
+                    except Exception:                        # noqa: BLE001 — 查库失败保持
+                        pass
     return scene
 
 

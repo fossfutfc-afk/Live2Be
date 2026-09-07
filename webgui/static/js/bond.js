@@ -79,8 +79,16 @@ const BondVN = (() => {
   // 表情守望（2026-09-07）: 骨架场景标注完成后补切表情——waitScene 只在轮询期
   // 触发 applyEmotions, 阅读期无轮询 → 需轻量守望（含后续未打字段落补 emotion/fx）
   let emoWatchTimer = null;
+  // place 锚点背景（DESIGN_BOND_CONTRACT_V2 P3b-2）: 当前已应用的背景地点——
+  // 锚点句（段落项带 place/place_bg）到达/打字经过时切背景; 晚到锚点即切（§7.2）
+  let appliedPlace = null;
 
   // ---------------------------------------------------------------------------
+
+  function setBg(url) {
+    const bg = $("bond-bg");
+    if (bg && url) bg.style.backgroundImage = `url("${url}")`;
+  }
   // 公开: 进入 VN（mmt.js 收到 bond_story 或重进 in_vn 会话时调用）
   // ---------------------------------------------------------------------------
 
@@ -302,9 +310,12 @@ const BondVN = (() => {
   // 异步标注补标: 场景已显示, emotion 就绪 → 对**当前显示段**补切立绘表情
   // （2026-09-01 替换式渲染: 对话窗只保留当前段——只补当前段; 同值不重播）
   function applyEmotions(scene) {
-    if (!player) return;
-    // 已打字段落同步补 emotion/fx（标注到达时, 未读段也能正确切表情/特效）
+    // 标注/锚点回填（emotion/fx/place——player 缺失纯文字模式也要补切背景）
     patchTypeParas(scene);
+    // place 晚到锚点（§7.2 晚到即切）: 已打字经过的段若含新锚点 → 立即切背景
+    const upto = Math.min(typeSeg, (typeParas.length || 1) - 1);
+    for (let i = 0; i <= upto; i++) applyPlaceForSeg(typeParas[i]);
+    if (!player) return;
     const paras = scene.paragraphs || [];
     const p = paras[typeSeg];
     if (p && p.emotion && p.emotion !== curEmotion) {
@@ -313,7 +324,7 @@ const BondVN = (() => {
     }
   }
 
-  // 标注回填 → 把 emotion/fx 写进正在打字/待打的段落对象（typeParas 引用同一批）
+  // 标注回填 → 把 emotion/fx/place 写进正在打字/待打的段落对象（typeParas 引用同一批）
   function patchTypeParas(scene) {
     const src = (scene && scene.paragraphs) || [];
     if (!Array.isArray(typeParas) || typeParas.length !== src.length) return;
@@ -322,6 +333,18 @@ const BondVN = (() => {
       if (!a || !b || typeof a === "string") continue;
       if (b && b.emotion) a.emotion = b.emotion;
       if (b && b.fx) a.fx = b.fx;
+      if (b && b.place) a.place = b.place;          // place 锚点（P3b-2）
+      if (b && b.place_bg) a.place_bg = b.place_bg; // 背景资源随行
+    }
+  }
+
+  // 段级背景锚点: 锚点句（place_bg 就绪）且地点与当前不同 → 切背景并记录。
+  // 语义: 锚点句起进入新地点, 后续段落沿用, 直到下一锚点/场景结束。
+  function applyPlaceForSeg(p) {
+    if (!p || typeof p === "string") return;
+    if (p.place_bg && p.place && p.place !== appliedPlace) {
+      setBg(p.place_bg);
+      appliedPlace = p.place;
     }
   }
 
@@ -369,6 +392,7 @@ const BondVN = (() => {
     sceneIsEnd = !!scene.is_end;
     // 背景（scene_id → background_url; is_end 无背景 → 清空显示默认黑屏——官方结束样式）
     const bg = $("bond-bg");
+    appliedPlace = null;              // 板级背景复位——锚点句到达才切换（P3b-2）
     if (scene.background_url) {
       bg.style.backgroundImage = `url("${scene.background_url}")`;
     } else if (!scene.background) {
@@ -549,6 +573,8 @@ const BondVN = (() => {
   function writePara() {
     const p = typeParas[typeSeg];
     if (!p) { return finishType(); }
+    // 段级背景锚点: 本段起换场 → 段首切背景（P3b-2; 晚到锚点由 applyEmotions 补）
+    applyPlaceForSeg(p);
     // 替换式渲染（2026-09-01）: 对话窗只保留当前一句——前一句清空, 新段淡入
     typeBoxEl.innerHTML = "";
     // 段首切立绘表情（同值不重播——AI 填同表情时立绘保持, 不闪）
