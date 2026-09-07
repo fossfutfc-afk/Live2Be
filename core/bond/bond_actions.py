@@ -205,7 +205,8 @@ def parse_story_end(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def _end_result(paragraphs: list[dict], payload: dict[str, Any]) -> dict[str, Any]:
-    """story_end 结果组装: paragraphs 必含; place 可选仅在出现时存在。"""
+    """story_end 结果组装: paragraphs 必含; place 兼容旧输出（v2 主 LLM 不写,
+    地点由标注层判定, 2026-09-07——机器侧保留容错）。"""
     result: dict[str, Any] = {"paragraphs": paragraphs}
     place = _parse_place(payload)
     if place is not None:
@@ -220,7 +221,7 @@ def parse_memorial_enter(payload: dict[str, Any]) -> dict[str, Any]:
         prompt     必填: 生图场景总结（当场写, 与剧情一致——角色外观+场景+氛围+构图, 精炼）
         paragraphs 必填: 纪念场景的煽情文字（同 story_scene 格式——本场剧情内容）
         choices    可选: 给 sensei 的回应（同 story_scene）
-        place      可选: 本场地点（同 story_scene, 场景切换才标）
+        place      兼容旧输出（v2 主 LLM 不写——地点由标注层判定, 2026-09-07）
 
     切换动作归**发出方域**（bond 剧情中输出 → 属 story 域; 仿 mmt_trigger_bond_story
     属 mmt 域）——纪念模式内的收尾动作 memorial_exit 才归 memorial 域。
