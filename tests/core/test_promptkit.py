@@ -116,10 +116,21 @@ def test_task_card_wrapup_kind():
     assert "只许 mmt_chat" in card and "不要再次触发剧情" in card
 
 
+def test_task_card_bond_kinds():
+    """Bond 场卡: 默认 scene（task_bond.md）; 纪念模式 kind=memorial_exit。"""
+    scene = task_card("bond", enabled=True, char="伊草 遥香")
+    assert scene is not None
+    assert scene.startswith("本场任务：作为伊草 遥香推进当前板块")
+    assert "story_scene" in scene and "branches" in scene
+    exit_card = task_card("bond", "memorial_exit", char="伊草 遥香", enabled=True)
+    assert exit_card is not None
+    assert "memorial_exit" in exit_card and "story_scene 骨架" not in exit_card
+
+
 def test_task_card_disabled_or_missing():
     """禁用 / kind 无模板 → None（不注入, 宁缺勿错）。"""
     assert task_card("mmt", enabled=False) is None                 # 开关关
-    assert task_card("bond", enabled=True) is None                 # Phase 3 未启用（模板缺失）
+    assert task_card("bond", enabled=False) is None                # 开关关
     assert task_card("mmt", "scene", enabled=True) is None         # 未知 kind 模板缺失
     assert task_card("unknown_domain", enabled=True) is None
 

@@ -279,9 +279,13 @@ def test_run_vn_memorial_exit_note_injected(tmp_path):
     engine, st, _ = _store_engine(llm, tmp_path / "data2")
     run_bond_story_vn(engine, input_fn=lambda p: "1", char_ms=0,
                       remind_rounds=15, end_rounds=22, store=st)
-    # exit 轮（第 3 个场景轮）: 最后一个 system 消息 = 纪念模式注记（含 exit schema）
+    # exit 轮（第 3 个场景轮）: 尾序（2026-09-07 promptkit §4）= 约束注记（含
+    # exit schema）→ 场 task 卡 → user; 此处断言约束注记层, 卡槽位由
+    # test_promptkit_baseline 锁定
     exit_msgs = _scene_msgs(llm)[2]
-    note = [m["content"] for m in exit_msgs if m["role"] == "system"][-1]
+    sys_msgs = [m["content"] for m in exit_msgs if m["role"] == "system"]
+    note = [c for c in sys_msgs if not c.startswith("本场任务：")][-1]
     assert "纪念模式" in note and "memorial_exit" in note, note
     assert "可用动作 schema" in note
+    assert sys_msgs[-1].startswith("本场任务：纪念时刻已落幕")      # memorial_exit 卡
     print("    run_vn: 纪念模式内下一轮注入 exit schema 注记")

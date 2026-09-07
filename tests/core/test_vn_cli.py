@@ -72,15 +72,19 @@ class ScriptedLLM:
 
 
 def _seen_notes(llm: ScriptedLLM) -> list[list[str]]:
-    """每次**场景轮** chat 调用的系统注记（= 第一个 system 主 prompt 之后的
+    """每次**场景轮** chat 调用的系统**约束注记**（= 第一个 system 主 prompt 之后的
     system 消息）。emotion 标注调用（user 含"情绪标签数组", 2026-09-02 全量
-    回填）不算场景轮, 过滤掉。"""
+    回填）不算场景轮, 过滤掉; task 卡（本场任务, 目标层——2026-09-07 promptkit
+    §4）也不属于约束注记, 过滤掉（卡槽位由 test_promptkit_baseline 锁定）。"""
     out: list[list[str]] = []
     for msgs in llm.snapshots:
         last = msgs[-1]["content"] if len(msgs) > 1 else ""
         if "情绪标签数组" in last:
             continue                      # 标注调用不产生场景轮
-        out.append([m["content"] for m in msgs if m["role"] == "system"][1:])
+        notes = [m["content"] for m in msgs if m["role"] == "system"][1:]
+        out.append([n for n in notes
+                    if not n.startswith("本场任务：")
+                    and not n.startswith("本回合任务：")])
     return out
 
 

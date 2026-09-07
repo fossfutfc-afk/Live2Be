@@ -6,7 +6,8 @@
 >
 > **执行记录**：Phase 0 基线夹具 ✅（0d3a76f）；Phase 1 盒A v2 抽盒 +
 > 称呼行归位 ✅（72b5440）；Phase 2 MMT task 卡（chat/wrapup）+ 缓存命中日志
-> ✅（本节点）；Phase 3/4 待做。
+> ✅（fc7944f）；Phase 3 盒B v2 抽盒 + 称呼行归位 + 场卡（scene/memorial_exit）
+> ✅（本节点）；Phase 4（方案A-A1）待做。
 > **前置事实**：docs/PROMPT_INJECTION_MAP.md（现网注入地图——本设计的唯一事实基线；
 > 旧 DESIGN_WEBGUI_PROMPTS.md 已归档）。窗口语义：docs/DESIGN_CONTEXT_WINDOW.md。
 > **本批不碰**：reasoning knob（用户裁决项）、SSE、choice 场全量预生成（InfiPlot 式）、
