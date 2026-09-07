@@ -38,7 +38,6 @@ from typing import Callable
 
 from contract import AgentAction, build_schema
 from core.common import Live2BeError, err
-from core.common.tone import load_story_tone
 from core.bond.bond_actions import MAX_SCENE_RETRIES, build_story_registry
 from core.bond.emotion_annotate import annotate_emotions
 from core.bond.bond_executor import StoryExecError, StoryExecutor
@@ -46,14 +45,18 @@ from core.bond.memorial_actions import build_memorial_registry
 from core.bond.stream_probe import MemorialProbe
 from core.media.emotion_lexicon import (
     build_emotion_injection,
-    build_place_injection,
     load_emotion_lexicon,
 )
 from llm.client import LLMClient, feedback
-from llm.prompts import load_prompt
 from llm.task_levels import max_tokens as task_levels_max_tokens
 from core.parsing.dynamic_character_parser import CharacterLoader, DynamicCharacter
-from core.parsing.world_parser import DEFAULT_WORLD_PATH, load_world, world_to_prompt
+from core.promptkit import (
+    BlockContext,
+    build_box,
+    round_messages,
+    task_card,
+    task_card_enabled,
+)
 from core.session.renderer import render_bond_scene_text
 
 logger = logging.getLogger(__name__)
@@ -261,6 +264,7 @@ class BondStoryEngine:
         brain_segment: str = "",
         character_names: list[str] | None = None,
         history_rounds: int = DEFAULT_HISTORY_ROUNDS,
+        task_card: bool | None = None,   # None = settings [promptkit].task_card（默认 true）
     ):
         self.char_loader = CharacterLoader(characters_root)
         self.llm = llm_client
@@ -282,6 +286,10 @@ class BondStoryEngine:
         self._lexicon_hint: str = ""           # 词表注入文本（few-shot 示范, 标注 prompt 用）
         self._character_hint: str = ""         # 角色人设摘要（标注层用, 2026-09-02:
                                                # 人设化情绪判断基准——逞强笑 ≠ smile）
+        # 本回合任务卡（DESIGN_PROMPTKIT §4, Phase 3）: 构造参数 > settings 开关;
+        # start_session 定值; 每场 kind 自推（in_memorial → memorial_exit, 否则 scene）
+        self._task_card_override: bool | None = task_card
+        self._task_on = True
 
     # ------------------------------------------------------------------
     # 会话生命周期
@@ -289,49 +297,26 @@ class BondStoryEngine:
 
     def start_session(self, character_id: str) -> str:
         char = self.char_loader.load(character_id)
-        system_prompt = char.build_prompt("bond_story")
 
-        # 世界观（common + system 档）注入——角色理应知道的世界常识 + 安全边界
-        world_chunk = world_to_prompt(load_world(DEFAULT_WORLD_PATH))
-        if world_chunk:
-            system_prompt += "\n\n" + world_chunk
-
-        # 剧情基调（对话生成层, "最一开始告诉 AI"）: per 角色写在扮演手册
-        # script.yml 的 SIG~main_tone（旧: personality 的 SIG~story_tone, 兼容）——
-        # VN 是剧情生成的主场, 基调开场定
-        system_prompt += "\n\n【本角色剧情基调】\n" + load_story_tone(char)
-        # 扮演手册 bond 建议（script.yml 的 SIG~bond_tone; 缺失 → 不注入, 照旧）
-        if char.bond_tone:
-            system_prompt += "\n\n【本角色羁绊剧情建议】\n" + char.bond_tone
-
-        # 称呼注入（同 momotalk——强化身份认知; list 为分饰多角预留）+ 剧情规则
-        names = self._character_names or [char.display_name]
-        greeting = "你好，" + " / ".join(names) + "——以下是你的剧情行为规则，请严格遵守："
-        system_prompt += "\n\n" + greeting + "\n\n" + load_prompt("bond_story_rules")
-        # 场景契约 schema（story_scene 动作）——momotalk 同款注入, LLM 看到字段约束
-        system_prompt += "\n\n可用动作 schema:\n" + build_schema(self.registry)
-        # 视觉意图协议 §11: 开场喂一遍当前角色表情词表 + 世界地点词表（few-shot 示范）
-        # 词表缺失/损坏 → 注入空串跳过, VN 纯文本照跑（宁缺勿错）
-        # 注意: emotions.yml 在 assets/illustration/{char_id}/default/（catalog 同款
-        # outfit="default" 路径——2026-08-31 修复: 之前缺 default 段, 词表从未注入）
-        _assets = Path(__file__).resolve().parent.parent.parent / "assets"
-        _char_asset_dir = _assets / "illustration" / char.character_id / "default"
-        lex_inj = build_emotion_injection(_char_asset_dir)
-        if lex_inj:
-            system_prompt += "\n\n" + lex_inj
-        place_inj = build_place_injection()
-        if place_inj:
-            system_prompt += "\n\n" + place_inj
-        # Brain 记忆段（DESIGN_BRAIN.md）: 本世界线 wiki 第一人称注入——
-        # 角色在 VN 中也记得这个世界线前面的事（vn_cli 恢复场景传入; 空 = 不注入）
-        if self._brain_segment:
-            system_prompt += "\n\n" + self._brain_segment
+        # 盒B v2（DESIGN_PROMPTKIT §4.1, Phase 3）: 命名块清单装配——称呼行归位盒顶
+        # （身份先行; 此前夹在 bond_tone 与 rules 之间）。视觉意图协议 §11 词表
+        # 开场喂一遍（few-shot）; Brain 段开场注入（剧情内固定）。
+        _assets_root = Path(__file__).resolve().parent.parent.parent / "assets"
+        system_prompt = build_box("bond", BlockContext(
+            char=char,
+            names=self._character_names or [char.display_name],
+            greeting_suffix="——以下是你的剧情行为规则，请严格遵守：",
+            schema=build_schema(self.registry),
+            brain_segment=self._brain_segment,
+            assets_root=_assets_root,
+        ))
 
         self._current_char = char
         # 两遍式 C: 角色词表键 + 注入文本（标注层用; 缺词表 → 空, 骨架不补标）
+        _char_asset_dir = _assets_root / "illustration" / char.character_id / "default"
         _lex = load_emotion_lexicon(_char_asset_dir)
         self._lexicon_keys = list(_lex.keys())
-        self._lexicon_hint = lex_inj or ""
+        self._lexicon_hint = build_emotion_injection(_char_asset_dir)
         # 2026-09-02: 角色人设摘要（标注层情绪判断基准——personality 行为逻辑）
         self._character_hint = _personality_summary(char)
         self._system_prompt = system_prompt
@@ -339,6 +324,10 @@ class BondStoryEngine:
         self._trace = []
         self._in_memorial = False
         self._memorial_used = False
+        if self._task_card_override is None:        # 卡开关定值（会话内不变）
+            self._task_on = task_card_enabled()
+        else:
+            self._task_on = bool(self._task_card_override)
         if self.director is not None:
             self.director.reset()        # 新会话清空视觉记忆与 nudge 计数
 
@@ -383,19 +372,21 @@ class BondStoryEngine:
 
         self._trace = []
 
-        if system_note:
-            # 手动组装: system + history + system_note(最近) + user
-            messages = [{"role": "system", "content": self._system_prompt}]
-            if self._history:
-                messages.extend(self._history)
-            messages.append({"role": "system", "content": system_note})
-            messages.append({"role": "user", "content": user_input})
-        else:
-            messages = self.llm.format_messages(
-                system_prompt=self._system_prompt,
-                user_message=user_input,
-                history=self._history if self._history else None,
-            )
+        # 每场动态尾（DESIGN_PROMPTKIT §2, Phase 3）: 唯一装配入口 round_messages——
+        # [system(盒B)] + history + [约束注记?] + [场 task 卡] + [user]。无注记时
+        # 与旧 format_messages 布局逐字节一致（format_messages 仅剩客户端公共方法）。
+        notes: list[str] = []
+        if system_note:                                     # 约束注记（纪念 exit schema/
+            notes.append(system_note)                       # 配额/收尾提醒, webgui/vn_cli 拼）
+        if self._task_on:                                   # 场卡 = 目标层（末位）
+            card = task_card("bond", self._scene_task_kind(),
+                             char=self._current_char.display_name
+                             if self._current_char else "")
+            if card:
+                notes.append(card)
+        messages = round_messages(
+            system=self._system_prompt, history=self._history,
+            notes=notes, user=user_input)
         if max_tokens is None:                       # 真源: task_levels 形态 bond
             max_tokens = task_levels_max_tokens("bond")
 
@@ -569,6 +560,11 @@ class BondStoryEngine:
         """memorial 域 schema 文本（进入纪念模式后, vn_cli 作 system_note 注入
         给 LLM——本场可输出动作的 JSON 写法, §4.7）。"""
         return build_schema(self.memorial_registry)
+
+    def _scene_task_kind(self) -> str:
+        """场卡 kind 自推（DESIGN_PROMPTKIT §4）: 纪念模式中 → memorial_exit
+        （本场唯一任务 = 退出）; 否则 scene（推进当前板块）。"""
+        return "memorial_exit" if self._in_memorial else "scene"
 
     @property
     def history(self) -> list[dict[str, str]]:

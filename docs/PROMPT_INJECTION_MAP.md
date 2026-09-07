@@ -78,19 +78,22 @@ messages = [system] + history + [P16 羁绊进度注记] + [P17 system_note?]
 
 ## 3. 盒B — Bond system prompt（进剧情一次）
 
-`core/bond/bond_story.py:290-346` `start_session()`，按序拼装：
+`core/bond/bond_story.py:290-335` `start_session()` → `core/promptkit/` 盒装配
+（box.py DOMAIN_BOXES["bond"] 声明式清单; 2026-09-07 Phase 3 抽盒完成——
+**盒B v2: 称呼行归位盒顶**, 其余顺序/文案逐字不变, 黄金夹具锁定）:
 
 | # | 块 | 来源 | 备注 |
 |---|---|---|---|
-| 1 | `# 角色设定` + 行为规则 | `build_prompt("bond_story")`（parser:400-403）= **仅 {profile+personality} 两层** merged + behavior_rules | script.yml **不进** dump；tone 全靠下面专段 |
-| 2 | `【世界常识】【世界规则】` | 同盒A（bond_story.py:295-297）| 同源重新注入 |
-| 3 | `【本角色剧情基调】` | load_story_tone（bond_story.py:302）| 与盒A同源 |
-| 4 | `【本角色羁绊剧情建议】` | script.yml `SIG~bond_tone`（bond_story.py:304-305）| 缺失 → 不注入 |
-| 5 | 称呼问候 + Bond 规则 | `你好，伊草 遥香——以下是你的剧情行为规则，请严格遵守：`（bond_story.py:309）+ `bond_story_rules.md`（L310）| rules 内含：单人模式/3~5 板块+收尾/每板块 1 个选项（2~3 候选项）**branches 必须且键一致**/选项收敛同主线/宁可及早收尾/story_scene 与 story_end JSON 范本/**memorial_enter JSON 范本行内教形状**（rules L66-80：prompt=中文场景指令勿写外观） |
-| 6 | 可用动作 schema | `build_schema(story registry)`（bond_story.py:312）单动作 | ⚠️ **只有 story_scene/story_end**；memorial 双动作不在盒里——enter 形状靠 rules 范本教，exit schema 在纪念模式每场由 webgui 注记补喂 |
-| 7 | `【表情标注词表】` | `build_emotion_injection`（emotion_lexicon.py:95-112）= emotions.yml 键 + 行尾示范注释 + `eg[键]` 例句 | 词表路径 `assets/illustration/{char}/default/`（2026-08-31 修过 default 段缺失）；缺失 → 空串跳过 |
-| 8 | 地点词表 | `build_place_injection`（emotion_lexicon.py:130+）= `_director_whitelist.json` common_scenes | 同上降级 |
-| 9 | brain 段 | `load_brain_segment`（momotalk.py:129-156）：出厂背景 + wiki 视图 | webgui 每次 start/replay 都重取（webgui/bond.py:401-406, 542-548）→ **剧情内固定**不随 digest 更新 |
+| 0 | 称呼行 | `greeting` 块: `你好，{display_name}——以下是你的剧情行为规则，请严格遵守：` | **v2 首段（身份先行）**——此前夹在 bond_tone 与 rules 之间 |
+| 1 | `# 角色设定` + 行为规则 | `persona_bond` 块 = `build_prompt("bond_story")`（parser:400-403）= **仅 {profile+personality} 两层** merged + behavior_rules | script.yml **不进** dump；tone 全靠下面专段 |
+| 2 | `【世界常识】【世界规则】` | `world` 块（world_parser:70-89）| 同源重新注入 |
+| 3 | `【本角色剧情基调】` | `story_tone` 块 = load_story_tone（core/common/tone.py）| 与盒A同源 |
+| 4 | `【本角色羁绊剧情建议】` | `bond_tone` 块 = script.yml `SIG~bond_tone`（char.bond_tone）| 缺失 → 不注入（条件块） |
+| 5 | 羁绊剧情规则书 | `rules_bond` 块 = `bond_story_rules.md` | rules 内含：单人模式/3~5 板块+收尾/每板块 1 个选项（2~3 候选项）**branches 必须且键一致**/选项收敛同主线/宁可及早收尾/story_scene 与 story_end JSON 范本/**memorial_enter JSON 范本行内教形状**（rules L66-80：prompt=中文场景指令勿写外观） |
+| 6 | 可用动作 schema | `schema` 块 = `build_schema(story registry)`（bond_story.py）单动作 | ⚠️ **只有 story_scene/story_end**；memorial 双动作不在盒里——enter 形状靠 rules 范本教，exit schema 在纪念模式每场由注记补喂 |
+| 7 | `【表情标注词表】` | `lexicon_emotion` 块 = `build_emotion_injection`（emotion_lexicon.py:95-112）= emotions.yml 键 + 行尾示范注释 + `eg[键]` 例句 | 词表路径 `assets/illustration/{char}/default/`（2026-08-31 修过 default 段缺失）；缺失 → 不注入（条件块） |
+| 8 | 地点词表 | `lexicon_place` 块 = `build_place_injection` = `_director_whitelist.json` common_scenes | 缺失 → 不注入（条件块） |
+| 9 | brain 段 | `brain` 块 = `load_brain_segment`（momotalk.py:129-156）：出厂背景 + wiki 视图 | webgui 每次 start/replay 都重取（webgui/bond.py:401-406, 542-548）→ **剧情内固定**不随 digest 更新（条件块） |
 
 双 registry 分流（bond_story.py:429-435）：按**动作名归属**——story 域 spec 命中 →
 story parse；否则 memorial 域。parse 失败仍留本域反馈（不能按 parse 结果分流）。
@@ -102,8 +105,10 @@ story parse；否则 memorial 域。parse 失败仍留本域反馈（不能按 p
 `send_vn_scene`（bond_story.py:352-525）：
 
 ```
-system_note 有:  [盒B] + engine._history + [P17 system_note(system)] + [user]
-system_note 无:  llm.format_messages(system=盒B, user, history)
+# 每场统一经 round_messages（core/promptkit/tail.py, Phase 3 起——含无注记路径,
+# 与旧 llm.format_messages 布局逐字节一致）
+[system(盒B)] + engine._history + [P17 system_note?（约束注记, webgui/vn_cli 拼）]
+              + [场 task 卡] + [user]
 ```
 
 **本场 user_input 的五种真值**（webgui/bond.py:722-774）：
@@ -129,6 +134,12 @@ system_note 无:  llm.format_messages(system=盒B, user, history)
 - 上一场 ≥3 单元且 emotion 全同 → 提醒情绪变化、切新单元
 - `round == _REMIND_ROUNDS` → 建议向结尾收束（中段提示，不匆匆）
 - `round == _END_ROUNDS` → 强制本轮 story_end 收尾
+
+**场 task 卡（目标层, Phase 3 2026-09-07 启用）** = 约束注记之后、user 之前末位：
+- 常规场：`task_bond.md`（scene——推进当前板块, 引擎默认）
+- 纪念模式中：`task_bond_memorial_exit.md`（memorial_exit——引擎 `_scene_task_kind()`
+  自推, 与 P17 的 exit schema 注记互补不重复）
+- 开关与 MMT 同源（settings [promptkit].task_card）; vn_cli/webgui/预生成同源（引擎级）。
 
 **失败路径**：引擎内 feedback 回灌自纠错 ×3（MAX_SCENE_RETRIES）→ 仍败抛
 SceneLoopError；webgui 侧连续 3 次失败（MAX_GEN_FAILURES）→ closing 强制收场。
@@ -195,8 +206,12 @@ emotion → emo_version++（引擎同步标注仅 CLI/测试用）。**导演层
 | `core/momotalk.py:492-512` | _maybe_mmt_digest（25 轮窗口） |
 | `core/momotalk.py:930-951` | _bond_progress_note（P16 文案） |
 | `core/momotalk.py:129-156` | load_brain_segment（Bond 开场注入段共用） |
-| `core/bond/bond_story.py:290-346` | 盒B 拼装（9 块顺序） |
-| `core/bond/bond_story.py:352-525` | send_vn_scene（双 registry + 状态机 + 骨架 + 历史） |
+| `core/bond/bond_story.py:298-339` | start_session → build_box("bond")（盒B v2） |
+| `core/bond/bond_story.py:341-537` | send_vn_scene（每场尾 → round_messages; 双 registry + 状态机 + 骨架 + 历史） |
+| `core/bond/bond_story.py:564-569` | _scene_task_kind（场卡 kind 自推: memorial_exit/scene） |
+| `core/promptkit/box.py` | DOMAIN_BOXES（mmt 9 块 / bond 10 块） |
+| `core/promptkit/blocks.py:110-141` | Bond 域块（persona_bond/bond_tone/rules_bond/lexicon_*/brain） |
+| `llm/prompts/task_bond.md` / `task_bond_memorial_exit.md` | Bond 场卡模板（scene / memorial_exit） |
 | `core/bond/bond_story.py:429-435` | 双 registry 按动作名分流 |
 | `core/parsing/dynamic_character_parser.py:386-417` | build_prompt 三模式 |
 | `core/parsing/dynamic_character_parser.py:259-326` | yaml_to_prompt（剥前缀渲染） |

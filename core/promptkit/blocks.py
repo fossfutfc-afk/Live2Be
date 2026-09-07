@@ -13,14 +13,19 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Callable
 
 from core.common.tone import load_story_tone
+from core.media.emotion_lexicon import build_emotion_injection, build_place_injection
 from core.mmt.mmt_executor import MmtExecError, load_interperson, self_entry_to_prompt
 from core.parsing.world_parser import DEFAULT_WORLD_PATH, load_world, world_to_prompt
 from llm.prompts import load_prompt
 
 logger = logging.getLogger(__name__)
+
+#: assets 默认根（core/promptkit/blocks.py → 项目根/assets; 与 bond 引擎旧推导一致）
+_DEFAULT_ASSETS = Path(__file__).resolve().parents[2] / "assets"
 
 
 @dataclass
@@ -33,6 +38,8 @@ class BlockContext:
     schema: str = ""                       # 域契约 schema 原文（contract.build_schema 输出）
     interperson_path: Any = None           # MMT 人际层文件（executor 持有）
     world_path: str | None = None          # None → 默认 overview.yml
+    brain_segment: str = ""                # Bond: 记忆段（开场注入, 剧情内固定）
+    assets_root: Path | str | None = None  # Bond 词表资产根（None → 项目根/assets）
 
 
 # ---------------------------------------------------------------------------
@@ -98,29 +105,80 @@ def _schema(ctx: BlockContext) -> str:
     return "可用动作 schema:\n" + (ctx.schema or "")
 
 
+# ---- Bond 域（Phase 3; 盒B v2 见 box.DOMAIN_BOXES["bond"]）------------------
+
+def _persona_bond(ctx: BlockContext) -> str:
+    """角色设定（Bond 两层面: profile+personality）+ 行为规则（build_prompt("bond_story"））"""
+    return ctx.char.build_prompt("bond_story")
+
+
+def _bond_tone(ctx: BlockContext) -> str | None:
+    """【本角色羁绊剧情建议】: script.yml SIG~bond_tone（缺失 → 不注入）。"""
+    tone = (ctx.char.bond_tone or "").strip()
+    return ("【本角色羁绊剧情建议】\n" + tone) if tone else None
+
+
+def _rules_bond(ctx: BlockContext) -> str:
+    """bond_story_rules.md: 单人模式/3~5 板块/选项收敛/JSON 范本（memorial_enter 形状行内教）。"""
+    return load_prompt("bond_story_rules")
+
+
+def _lexicon_emotion(ctx: BlockContext) -> str | None:
+    """【表情标注词表】: assets/illustration/{char}/default/emotions.yml 键+示范 few-shot。
+    词表缺失/损坏 → 不注入（VN 纯文本照跑, 宁缺勿错）。"""
+    assets_root = Path(ctx.assets_root) if ctx.assets_root else _DEFAULT_ASSETS
+    char_dir = assets_root / "illustration" / ctx.char.character_id / "default"
+    inj = build_emotion_injection(char_dir)
+    return inj or None
+
+
+def _lexicon_place(ctx: BlockContext) -> str | None:
+    """地点词表: _director_whitelist.json common_scenes（封闭地点语义）。"""
+    inj = build_place_injection()
+    return inj or None
+
+
+def _brain(ctx: BlockContext) -> str | None:
+    """brain 段（Bond 开场注入, 剧情内固定）: 出厂背景 + wiki 第一人称视图。"""
+    seg = (ctx.brain_segment or "").strip()
+    return seg or None
+
+
 #: 块注册表（id → build）; 说明文案供 report.describe 用
 BLOCKS: dict[str, Callable[[BlockContext], str | None]] = {
     "greeting": _greeting,
     "persona_mmt": _persona_mmt,
+    "persona_bond": _persona_bond,
     "world": _world,
     "story_tone": _story_tone,
     "mmt_tone": _mmt_tone,
     "interperson": _interperson,
     "environment_mmt": _environment_mmt,
     "rules_mmt": _rules_mmt,
+    "bond_tone": _bond_tone,
+    "rules_bond": _rules_bond,
+    "lexicon_emotion": _lexicon_emotion,
+    "lexicon_place": _lexicon_place,
     "schema": _schema,
+    "brain": _brain,
 }
 
 BLOCK_DOC: dict[str, str] = {
     "greeting": "称呼行（身份先行, 名单可多人）",
     "persona_mmt": "角色设定全量六文件 + 行为规则",
+    "persona_bond": "角色设定两层（profile+personality）+ 行为规则",
     "world": "世界常识/世界规则（common+system 档）",
     "story_tone": "本角色剧情基调（SIG~main_tone）",
     "mmt_tone": "本角色 MMT 风格（SIG~mmt_tone, 条件）",
     "interperson": "人际层自表（interperson.json, 条件）",
     "environment_mmt": "MomoTalk 环境说明",
     "rules_mmt": "MomoTalk 行为规则书",
+    "bond_tone": "本角色羁绊剧情建议（SIG~bond_tone, 条件）",
+    "rules_bond": "羁绊剧情规则书（含 memorial_enter 范本）",
+    "lexicon_emotion": "表情标注词表（emotions.yml, 条件）",
+    "lexicon_place": "地点词表（_director_whitelist, 条件）",
     "schema": "可用动作 schema（域契约）",
+    "brain": "记忆段（brain_segment, 条件）",
 }
 
 

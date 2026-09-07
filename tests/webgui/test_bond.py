@@ -428,7 +428,10 @@ def test_bond_pregenerate_narrative_flow(tmp_path):
         # ——生成完自动触发预生成（第 3 场"（继续）"）
         r2 = bond.bond_turn(CHARACTER, sid, "选A")
         assert r2["accepted"] and r2.get("branch"), r2
-        assert bond.bond_turn(CHARACTER, sid, "（继续）")["accepted"]
+        # 预生成与点击竞态: 分支消费后后台预生成下一场（busy）→ 轮询重试
+        # （_turn_until_accepted 语义, 消除 flake）
+        r3 = _turn_until_accepted(CHARACTER, sid, "（继续）")
+        assert r3.get("pregen"), r3
         st2 = _wait_status(CHARACTER, sid)
         assert st2["scene"]["choices"] == []                    # 纯叙事场
         # 等预生成完成（后台线程）——脚本 STORY_END 已被预生成消费

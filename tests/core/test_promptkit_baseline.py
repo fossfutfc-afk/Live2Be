@@ -126,12 +126,12 @@ _MMT_MARKERS = [
 ]
 
 _BOND_MARKERS = [
+    f"你好，{DISPLAY}",                 # 称呼行: v2 归位盒顶（Phase 3 完成——身份先行）
     "# 角色设定",
     "【世界常识】",
     "【世界规则】",
     "【本角色剧情基调】",
     "【本角色羁绊剧情建议】",
-    f"你好，{DISPLAY}",                 # 称呼行: 现网位置（tone 与 rules 之间）——Phase 3 归位盒顶时此处改
     "【羁绊剧情 回复规则】",
     "可用动作 schema",
 ]
@@ -217,7 +217,7 @@ def test_mmt_wrapup_tail_card():
 
 
 def test_bond_scene_tail_baseline():
-    """Bond 一场完整 messages（有 system_note）: [system(盒B)] + [注记] + [user]。"""
+    """Bond 一场完整 messages（task 卡 on）: [system(盒B)] + [注记] + [场卡] + [user]。"""
     scene = {"action": "story_scene", "payload": {
         "paragraphs": [{"text": "（测试）她站在窗边，听到声音回过头来。"},
                        {"text": "那个……有些话，我一直想找机会跟你说。"}],
@@ -235,8 +235,44 @@ def test_bond_scene_tail_baseline():
     s = engine.send_vn_scene(seed, system_note="（系统）测试注记", annotate=False)
     assert s is not None and not s.is_end
     m = llm.snapshots[0]
-    assert [x["role"] for x in m] == ["system", "system", "user"], m
+    assert [x["role"] for x in m] == ["system", "system", "system", "user"], m
     assert m[0]["content"] == box                     # 前缀 = 盒B 逐字节
     assert m[1] == {"role": "system", "content": "（系统）测试注记"}
-    assert m[2] == {"role": "user", "content": seed}
+    assert m[2]["content"].startswith("本场任务：作为伊草 遥香推进当前板块")  # scene 场卡
+    assert m[3] == {"role": "user", "content": seed}
     _write_json_fixture("bond_scene.txt", m)
+
+
+def test_bond_scene_tail_task_off():
+    """Bond task 卡 off（构造参数）: 旧行为 [system]+[注记]+[user]。"""
+    scene = {"action": "story_scene", "payload": {
+        "paragraphs": [{"text": "（测试）她推开门走了进来。"}],
+        "choices": ["A", "B"], "branches": {"A": [{"text": "（测试）a"}],
+                                           "B": [{"text": "（测试）b"}]}}}
+    llm = ScriptedLLM(scene)
+    engine = BondStoryEngine(ROOT / "config" / "characters", llm, task_card=False)
+    engine.start_session(CHARACTER)
+    s = engine.send_vn_scene("（旁白）测试。", system_note="（系统）测试注记", annotate=False)
+    assert s is not None
+    m = llm.snapshots[0]
+    assert [x["role"] for x in m] == ["system", "system", "user"], m
+    assert all("本场任务" not in x["content"] for x in m)
+
+
+def test_bond_memorial_exit_card():
+    """纪念模式中: 引擎自推 kind=memorial_exit——卡提示退出, 无 scene 卡。"""
+    from core.promptkit import task_card as _card
+    exit_scene = {"action": "memorial_exit", "payload": {
+        "paragraphs": [{"text": "（测试）我们沿着路灯往回走。"}]}}
+    llm = ScriptedLLM(exit_scene)
+    engine = _bond_engine(llm)
+    engine._in_memorial = True                        # 模拟进入纪念模式后
+    s = engine.send_vn_scene("（继续）", annotate=False)
+    assert s is not None
+    m = llm.snapshots[0]
+    assert m[-2]["content"].startswith("本场任务：纪念时刻已落幕")     # memorial 卡
+    assert "memorial_exit" in m[-2]["content"]
+    assert "story_scene 骨架" not in m[-2]["content"]                  # 无 scene 卡
+    assert m[-2]["content"] == _card("bond", "memorial_exit",
+                                     char="伊草 遥香", enabled=True)
+    assert m[-1] == {"role": "user", "content": "（继续）"}
