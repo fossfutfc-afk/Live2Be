@@ -64,7 +64,13 @@ from core.parsing.dynamic_character_parser import (
     DynamicCharacter,
     yaml_to_prompt,
 )
-from core.promptkit import BlockContext, build_box, round_messages
+from core.promptkit import (
+    BlockContext,
+    build_box,
+    round_messages,
+    task_card,
+    task_card_enabled,
+)
 from core.session import SessionStore
 from core.session.events import make_event
 from core.session.renderer import render_events, session_status, window_messages
@@ -258,6 +264,7 @@ class MomoTalkEngine:
         store: SessionStore | None = None,
         character_names: list[str] | None = None,
         history_rounds: int = DEFAULT_HISTORY_ROUNDS,
+        task_card: bool | None = None,   # None = settings [promptkit].task_card（默认 true）
     ):
         self.char_loader = CharacterLoader(characters_root)
         self._characters_root = Path(characters_root)   # seed（出厂 digest）读 config 用
@@ -291,6 +298,10 @@ class MomoTalkEngine:
         self._trace: list[dict] = []      # 最近一轮的完整动作轨迹（追溯/调试）
         self._random_cooldowns: dict = {}  # 随机事件冷却状态（per 引擎实例, 不跨会话串）
         self._digest_lock = threading.Lock()  # 同引擎 digest 串行（async_digest 后台线程）
+        # 本回合任务卡（DESIGN_PROMPTKIT §4）: 构造参数 > settings [promptkit].task_card
+        # （默认 true; false = 现网无卡行为, A/B 对照用）——start_session 时定值
+        self._task_card_override: bool | None = task_card
+        self._task_on = True
 
     # ------------------------------------------------------------------
     # 公共 API — 会话生命周期
@@ -316,6 +327,10 @@ class MomoTalkEngine:
         self._history = []
         self._trace = []
         self.executor.set_current_character(char)   # inspect/trigger 依赖会话角色
+        if self._task_card_override is None:        # 卡开关定值（会话内不变）
+            self._task_on = task_card_enabled()
+        else:
+            self._task_on = bool(self._task_card_override)
 
         logger.info("新会话: %s (%s)", character_id, char.display_name)
         return char.display_name
@@ -546,6 +561,7 @@ class MomoTalkEngine:
         *,
         system_note: str | None = None,
         record_input: bool = True,
+        task_kind: str = "",          # 本回合任务卡 kind（"" → 域默认 chat）; 收尾轮传 "wrapup"
     ) -> TurnResult:
         """一轮 agent 对话：LLM 输出**消息流**, 逐单元执行, 直到用户可见输出。
 
@@ -570,8 +586,7 @@ class MomoTalkEngine:
         self._trace = []
         # 每轮动态尾（DESIGN_PROMPTKIT §2）: 唯一装配入口 round_messages——
         # system(盒A+brain段) → history → 注记们（P16 进度 / P17 system_note /
-        # P18 随机）→ user。注记只进 LLM context, 不入历史。task 卡 Phase 2
-        # 接入（同槽, 在注记之后 user 之前）。
+        # P18 随机）→ task 卡 → user。注记/卡只进 LLM context, 不入历史。
         brain = (self._brain_injection or "").strip()
         notes: list[str] = [self._bond_progress_note()]    # P16 羁绊进度参考（软门槛）
         if system_note:                                     # P17 本轮系统注记
@@ -583,6 +598,13 @@ class MomoTalkEngine:
                 {"round": self._session_rounds, "_cooldowns": self._random_cooldowns})
             if rand_note:
                 notes.append(rand_note)
+        if self._task_on:                    # task 卡（目标层, 末位——离生成最近）:
+            # kind = 调用方显式（wrapup 收尾轮）或域默认 chat; 模板缺失静默跳过
+            card = task_card(
+                "mmt", task_kind,
+                char=self._current_char.display_name if self._current_char else "")
+            if card:
+                notes.append(card)
         messages = round_messages(
             system=self._system_prompt, history=self._history,
             notes=notes, brain=brain, user=user_input)

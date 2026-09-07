@@ -19,6 +19,7 @@ from core.promptkit import (
     build_box,
     describe,
     round_messages,
+    task_card,
 )
 from core.promptkit.blocks import BLOCKS, render_block
 
@@ -91,6 +92,36 @@ def test_box_chunks_unknown_domain():
         assert False, "未知域应抛 ValueError"
     except ValueError:
         pass
+
+
+# ---------------------------------------------------------------------------
+# task 卡（Phase 2）
+# ---------------------------------------------------------------------------
+
+def test_task_card_chat_default_and_char_replace():
+    """默认 kind=chat: task_mmt.md 模板; {char} 占位替换。"""
+    from core.promptkit.task import _template_name
+    assert _template_name("mmt", "chat") == "task_mmt"
+    assert _template_name("mmt", "wrapup") == "task_mmt_wrapup"
+    card = task_card("mmt", enabled=True, char="伊草 遥香")
+    assert card is not None
+    assert "{char}" not in card and "伊草 遥香" in card
+    assert "mmt_trigger_bond_story" in card
+
+
+def test_task_card_wrapup_kind():
+    """收尾轮 kind=wrapup: 只许 mmt_chat 的任务约束。"""
+    card = task_card("mmt", "wrapup", char="遥香", enabled=True)
+    assert card is not None
+    assert "只许 mmt_chat" in card and "不要再次触发剧情" in card
+
+
+def test_task_card_disabled_or_missing():
+    """禁用 / kind 无模板 → None（不注入, 宁缺勿错）。"""
+    assert task_card("mmt", enabled=False) is None                 # 开关关
+    assert task_card("bond", enabled=True) is None                 # Phase 3 未启用（模板缺失）
+    assert task_card("mmt", "scene", enabled=True) is None         # 未知 kind 模板缺失
+    assert task_card("unknown_domain", enabled=True) is None
 
 
 # ---------------------------------------------------------------------------

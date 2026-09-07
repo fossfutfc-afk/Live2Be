@@ -169,12 +169,18 @@ class LLMClient:
             extra_body=extra_body,
         )
         # 计时埋点（EXEC_BOND_LATENCY §6.1）: 非流式 json 档记耗时（info 控噪）
+        global _LAST_USAGE
+        _LAST_USAGE = None
         _t0 = time.monotonic()
         raw_text = self._request_with_retry(payload, timeout=timeout)
         if response_format == "json_object":
+            # 前缀缓存命中（DeepSeek usage.prompt_cache_hit_tokens; 无 → -1）
+            _u = _LAST_USAGE or {}
             logger.info(
-                "llm chat ms=%d json=y",
-                int((time.monotonic() - _t0) * 1000))
+                "llm chat ms=%d json=y cache_hit=%d cache_miss=%d",
+                int((time.monotonic() - _t0) * 1000),
+                int(_u.get("prompt_cache_hit_tokens") or -1),
+                int(_u.get("prompt_cache_miss_tokens") or -1))
         self.last_reasoning = _LAST_REASONING    # 模块级捕获 → 实例可读
 
         if response_format == "json_object":
@@ -217,8 +223,11 @@ class LLMClient:
             response_format=response_format,
             extra_body=extra_body,
             stream=True,
+            include_usage=True,     # 流式 usage（末 chunk）——前缀缓存命中统计用
         )
         # 计时埋点（EXEC_BOND_LATENCY §6.1）: 总耗时 + TTFT（首个 content chunk）
+        global _LAST_USAGE
+        _LAST_USAGE = None
         _t0 = time.monotonic()
         _ttft: list[float | None] = [None]
         _user_obs = on_chunk
@@ -230,11 +239,14 @@ class LLMClient:
                 _user_obs(c)
 
         raw_text = self._stream_collect(payload, on_chunk=_obs)
+        _u = _LAST_USAGE or {}
         logger.info(
-            "llm chat_full ms=%d ttft=%dms json=%s",
+            "llm chat_full ms=%d ttft=%dms json=%s cache_hit=%d cache_miss=%d",
             int((time.monotonic() - _t0) * 1000),
             int(_ttft[0] * 1000) if _ttft[0] is not None else -1,
-            "y" if response_format == "json_object" else "n")
+            "y" if response_format == "json_object" else "n",
+            int(_u.get("prompt_cache_hit_tokens") or -1),
+            int(_u.get("prompt_cache_miss_tokens") or -1))
         self.last_reasoning = _LAST_REASONING    # 模块级捕获 → 实例可读
 
         if response_format == "json_object":
@@ -490,8 +502,8 @@ class LLMClient:
         resp: httpx.Response,
         on_chunk: Callable[[str], None] | None = None,
     ) -> str:
-        """SSE 流式响应 → 完整文本（内容增量 + reasoning 增量捕获）。"""
-        global _LAST_REASONING
+        """SSE 流式响应 → 完整文本（内容增量 + reasoning 增量 + usage 捕获）。"""
+        global _LAST_REASONING, _LAST_USAGE
         buf: list[str] = []
         reasoning: list[str] = []
         for line in resp.iter_lines():
@@ -501,8 +513,16 @@ class LLMClient:
             if data == "[DONE]":
                 break
             try:
-                delta = json.loads(data)["choices"][0].get("delta", {})
-            except (json.JSONDecodeError, KeyError, IndexError):
+                parsed = json.loads(data)
+            except json.JSONDecodeError:
+                continue
+            # usage（stream_options.include_usage 末 chunk; 无 choices 也读）
+            usage = parsed.get("usage")
+            if isinstance(usage, dict):
+                _LAST_USAGE = usage
+            try:
+                delta = parsed["choices"][0].get("delta", {})
+            except (KeyError, IndexError, TypeError):
                 continue
             content = delta.get("content", "")
             if content:
@@ -529,6 +549,7 @@ def _build_payload(
     response_format: str,
     extra_body: dict[str, Any] | None,
     stream: bool = False,
+    include_usage: bool = False,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "model": model,
@@ -541,6 +562,9 @@ def _build_payload(
     if response_format == "json_object":
         payload["response_format"] = {"type": "json_object"}
         _ensure_json_instruction(messages)
+
+    if stream and include_usage:
+        payload["stream_options"] = {"include_usage": True}
 
     if extra_body:
         payload.update(extra_body)   # 展开成顶层字段（此前误嵌套, 无调用点未暴露）
@@ -563,11 +587,14 @@ def _ensure_json_instruction(messages: list[dict[str, str]]) -> None:
 
 #: 最近一次响应的思维链（模块级——_parse_chat_response 设置, chat() 同步到实例）
 _LAST_REASONING: str | None = None
+#: 最近一次响应的 usage（DeepSeek: prompt_cache_hit_tokens/miss; None = 未返回）
+_LAST_USAGE: dict | None = None
 
 
 def _parse_chat_response(body: dict[str, Any]) -> str:
-    global _LAST_REASONING
+    global _LAST_REASONING, _LAST_USAGE
     try:
+        _LAST_USAGE = body.get("usage") or None     # 前缀缓存命中统计用
         msg = body["choices"][0]["message"]
         # 思维链捕获: DeepSeek reasoner/v4 系列返回 reasoning_content（chat 无 → 清空）
         _LAST_REASONING = msg.get("reasoning_content") or None
