@@ -1,7 +1,8 @@
 # DESIGN_PROMPTKIT — 提示词组装层 + 本回合任务卡 + 选项回录（定稿）
 
-> **状态**：设计定稿 2026-09-07（用户拍板三项：① 先定稿再开 Phase 0；
-> ② task 卡默认开、settings 可关；③ 方案A 选项回录并入本批）。
+> **状态**：设计定稿 2026-09-07（用户拍板：① 先定稿再开 Phase 0；② task 卡默认开、
+> settings 可关；③ 方案A **按 A1** 只回录 picked（分支叙事化 A2 留作将来，见 §5.4）；
+> ④ 盒内称呼问候语位置调整（归位盒顶，见 §4.1）。）
 > **前置事实**：docs/PROMPT_INJECTION_MAP.md（现网注入地图——本设计的唯一事实基线；
 > 旧 DESIGN_WEBGUI_PROMPTS.md 已归档）。窗口语义：docs/DESIGN_CONTEXT_WINDOW.md。
 > **本批不碰**：reasoning knob（用户裁决项）、SSE、choice 场全量预生成（InfiPlot 式）、
@@ -74,6 +75,25 @@ core/promptkit/
 职责切分：**卡 = 目标层**（这回合达成什么）；现网 P17/系统注记 = **约束层**
 （配额/提醒/边界）——两者互补不重叠，卡内不重复约束内容。
 
+### 4.1 盒结构 v2（称呼行归位——用户 2026-09-07 拍板）
+
+现网"称呼问候语"夹在盒中部（MMT：environment 与 rules 之间，momotalk.py:335-337；
+Bond：tone 段与 rules 之间，bond_story.py:308-310），位置不伦不类。v2 把它
+**归位到盒顶**（角色设定块之前），文案逐字不变（`你好，{name}——以下是你的
+行为规则，请严格遵守：` / Bond 版 `…剧情行为规则…`）——身份先行、再给设定
+与规则，同时保留多角色名单扩展位（character_names 列表）。
+
+```
+盒A v2（MMT）:  称呼行 → 角色设定(全量+behavior) → 世界常识/规则 → 剧情基调
+                → MMT 风格 → 人际层 → MMT 环境 → momotalk_rules → schema
+盒B v2（Bond）: 称呼行 → 角色设定(两层+behavior) → 世界常识/规则 → 剧情基调
+                → 羁绊建议 → bond_story_rules → schema → 表情词表 → 地点词表 → brain
+```
+
+**执行与验收**：Phase 1（MMT）/ Phase 3（Bond）随抽盒一起搬移——**有意的内容变更**，
+Phase 0 基线夹具存档旧序（现网原样），Phase 1 夹具更新并留 diff 记录；同时刷新
+PROMPT_INJECTION_MAP §1/§3 的块顺序表。
+
 | 文件 | kind | 文案（定稿草案） | 触发 |
 |---|---|---|---|
 | task_mmt.md | chat | `本回合任务：以{char}身份回应老师刚发来的消息。若此刻已形成共处契机或老师正需要你出面——直接发起 mmt_trigger_bond_story（独占轮，规则见前）；否则按 MomoTalk 规则正常消息流聊天，不要无端转剧情。` | MMT 每轮（引擎默认） |
@@ -98,40 +118,39 @@ core/promptkit/
 **续写靠猜 = live 路径缺 picked**；分支内容缺失是 2026-09-05 的有意决定，但它直接导致
 "（继续）"续写不记得分支里刚说过/做过什么——本批**推翻该决定**（见 5.4 决策）。
 
-### 5.2 目标形态：一函数 + 一 API
+### 5.2 定稿形态：A1（只回录 picked，live=resume 同形）
 
-1. **叙事化唯一化**：`render_bond_scene_text(payload, *, include_branch=False)` 增加
-   `include_branch`——payload 有 picked 且 branches[picked] 存在时，选中分支段落
-   以续行并入叙事文本（行首无标注即可，与正文同格；未选分支永不进上下文不变）。
-   webgui `_narrativize`（bond.py:353-384）删除，回放渲染改走本函数（include_branch=True），
-   消除重复实现——**回放视图与 LLM 上下文从此一致**。
-2. **引擎回录 API**：`BondStoryEngine` 记录最近一次动作 payload（`self._last_payload`），
+1. **引擎回录 API**：`BondStoryEngine` 记录最近一次动作 payload（`self._last_payload`），
    新方法 `record_picked(picked: str)`：把 `_history` 尾部该场 assistant 条目重渲为
-   `render_bond_scene_text(payload, include_branch=True)` 并把 picked 写进 payload
-   副本 → live 历史 = 事件流将来重放的样子（append-only 事件流不动——picked 已由
-   `_log_scene` 落库，无新事件）。
-3. **接线点**（裁决即回录，随后任何 LLM 调用都看到）：
+   `render_bond_scene_text({**last_payload, "picked": picked})`——渲染器已原生支持
+   picked（renderer.py:98-100 输出 `（选择了: X）`），**无需改渲染器**；live 历史从此
+   与 resume/wrapup 的事件流渲染（render_events 同一函数、同参数）逐字节同形。
+   append-only 事件流不动（picked 已由 `_log_scene` 落库，无新事件）。
+2. **接线点**（裁决即回录，随后任何 LLM 调用都看到）：
    - webgui：分支消费（bond.py:748 `_log_scene(picked=text)` 后、:765 `_pregenerate`
      前）调 `state.vn.record_picked(text)`——预生成/正常续写都发生在裁决之后，顺序天然正确。
    - 自由输入轮：玩家原文即下轮 user，无需回录（现网已等价）。
    - vn_cli：裁决点同款接线（实施时核对 CLI 消费循环的裁决分支）。
    - 演示模式（demo）无引擎，跳过。
-4. **边界**：choice 场本体不做裁决前预生成（InfiPlot 式全预生成仍为邻接项）——
-   回录只保证"裁决之后发起的生成看到选择与分支"。
+3. **边界**：choice 场本体不做裁决前预生成（InfiPlot 式全预生成仍为邻接项）——
+   回录只保证"裁决之后发起的生成看到选择"。webgui `_narrativize`（回放视图用）**保留
+   不动**——它是人看的渲染，与 LLM 上下文本来就允许不同（A2 才需要统一）。
 
 ### 5.3 文档联动
 
-- docs/DESIGN_CONTEXT_WINDOW.md："branches 不写记忆（只记 picked）"一条作废 →
-  新语义：**picked 必记（live/恢复同源）+ 选中分支叙事化进上下文**；未选分支仍永不入。
-- digest 输入若经叙事化文本（wiki_v2/digest.py 摘取源实施时核对）将同步获得分支
-  叙事——无新增代码，只观察 token 涨幅。
+- docs/DESIGN_CONTEXT_WINDOW.md："branches 不写记忆（只记 picked）"**维持有效**——
+  A1 只是补上 live 路径漏掉的 picked，恢复语义与设计意图一致（2026-09-05 设计 live
+  本应同形，实现滞后）。
+- A2（选中分支叙事化 + 删 `_narrativize` 统一一函数）记录为**未来选项**，触发条件：
+  续写仍出现"忘了分支刚发生的事"的实证时重新评估。
 
-### 5.4 待拍板（两选项，二选一）
+### 5.4 决策记录（2026-09-07 用户拍板：A1）
 
-- **A2（推荐）**：picked + 选中分支都进上下文（5.2 全量）。续写真正不猜；代价：
-  每场上下文 +1 段分支文本（数十字~百余字），前缀稳定不变。
-- **A1（保守）**：只回录 picked（不改 renderer include_branch，不删 _narrativize）。
-  续写知道选择、仍不知道分支说了什么——猜的洞补一半。改动最小。
+- **A1（选定）**：picked 回录，live 与 resume 同形；改动 = 引擎 1 方法 + 2 处接线；
+  渲染器/回放视图零改动。
+- A2（未选，留档）：picked + 选中分支都叙事化进上下文；删 webgui `_narrativize`、
+  渲染器加 include_branch。代价：每场上下文 +1 段分支文本；收益：续写连分支内容都
+  不猜。用户判断当前先不做，有想法再改。
 
 ## 6. 配置
 
@@ -154,11 +173,12 @@ task_card = true      # 本回合任务卡开关（默认 true; false = 现网�
   敏感）。夹具即本批"语义等价"的裁判。
 - 产出：`tests/core/test_promptkit_baseline.py`。
 
-### Phase 1 — promptkit 骨架 + MMT 装配抽盒（语义等价重构）
+### Phase 1 — promptkit 骨架 + MMT 装配抽盒 + 称呼行归位
 - 建 core/promptkit/（config/blocks/box/tail/task/report）+ task 模板 md（先空置不注）。
 - momotalk `start_session`/`agent_turn` 换 `build_box("mmt")` + `round_messages`；
-  顺序与文案逐字节不变（report.describe("mmt") 输出 == 黄金夹具段表）。
-- 验收：全量测试绿；describe 报表与 PROMPT_INJECTION_MAP §1/§2 段结构一致。
+  **称呼行归位盒顶**（§4.1 盒A v2）——唯一的有意内容变更，其余顺序/文案逐字不变。
+- 验收：全量测试绿；describe("mmt") 报表 == 更新后的黄金夹具段表；git diff 夹具只含
+  称呼行位移一处。
 
 ### Phase 2 — Task 卡启用（MMT）
 - task.py + task_mmt.md（chat/wrapup 两 kind）；`agent_turn(task_kind=...)`；
@@ -168,29 +188,28 @@ task_card = true      # 本回合任务卡开关（默认 true; false = 现网�
   → 完成 EXEC_BOND_LATENCY P2 #4（前缀缓存验证）的数据面。
 - 验收：卡出现在 user 前最后一位；开/关两态测试；wrapup 轮卡在 P16 注记之后。
 
-### Phase 3 — Bond 盒装配抽盒 + 场卡
+### Phase 3 — Bond 盒装配抽盒 + 场卡 + 称呼行归位
 - bond_story `start_session`/`send_vn_scene` 换盒/尾；scene/memorial_exit 两 kind 卡
-  （send_vn_scene 引擎自推默认 kind）；CLI/vn_cli/webgui/预生成同源。
-- 验收：describe("bond") == 地图 §3 段结构；纪念模式轮 = memorial_exit 卡且无 scene 卡。
+  （send_vn_scene 引擎自推默认 kind）；称呼行归位盒顶（§4.1 盒B v2）；CLI/vn_cli/webgui/
+  预生成同源。
+- 验收：describe("bond") == 更新后夹具；纪念模式轮 = memorial_exit 卡且无 scene 卡。
 
-### Phase 4 — 方案A（选项回录；按 5.4 拍板结果）
-- A2：renderer include_branch + 删 webgui _narrativize + record_picked + 接线
-  （webgui 分支消费点 / vn_cli）；A1：仅 record_picked（picked 行）。
-- 验收：分支消费后 `（继续）` 生成请求的历史尾部含选择与（A2）分支叙事；resume/
-  wrapup 预灌与 live 逐字节同形；replay 视图与 LLM 上下文一致（_narrativize 删除后
-  无行为差异——有对比测试）。
+### Phase 4 — 方案A-A1（选项回录 picked）
+- 引擎 `_last_payload` + `record_picked(picked)`（重渲尾部，含 `（选择了: X）`）；
+  接线 webgui 分支消费点（bond.py:748→765 之间）与 vn_cli 裁决点。
+- 验收：分支消费后 `（继续）` 生成请求的历史尾部含选择行；resume/wrapup 预灌与
+  live 同形（同一渲染函数同一参数，构造性成立）；无分支/自由输入轮不受影响。
 
 ## 8. 测试计划（新增/改动摘要）
 
 | 测试 | 要点 |
 |---|---|
-| test_promptkit_baseline | Phase 0 黄金夹具（段表对比） |
-| test_boxes | build_box("mmt"/"bond") 段顺序 == 地图顺序；条件块（无 mmt_tone/词表/brain）缺省降级 |
+| test_promptkit_baseline | Phase 0 黄金夹具：盒全文字节 + 典型轮/场 messages 字节 + 段顺序断言（含称呼行现网位置）|
+| test_boxes | build_box("mmt"/"bond") 段顺序 == v2 盒结构（称呼行 = 首段）；条件块缺省降级 |
 | test_round_messages | 前缀逐字节稳定（同盒两轮 system 相等）；卡=最后一位；notes 顺序 |
-| test_task_cards | 各 kind 文案/占位；模板缺失 → 不注入；开关 false → 无卡且全文=现网夹具 |
-| test_record_picked | record_picked 重渲尾部；picked 未消费不破坏历史；连续两场正确性 |
-| test_narrativize_unified | render include_branch=True == 旧 _narrativize 输出（删除前先对拍） |
-| 回归 | 现有全量（尤其 test_context_window / test_bond* / webgui turn/分支/回放用例） |
+| test_task_cards | 各 kind 文案/占位；模板缺失 → 不注入；开关 false → 无卡且全文=旧夹具 |
+| test_record_picked | record_picked 重渲尾部（含 `（选择了: X）`）；picked 未消费不破坏历史；连续两场正确性；渲染输出 == render_events 同 payload 输出 |
+| 回归 | 现有全量（尤其 test_context_window / test_bond* / webgui turn/分支/回放用例）|
 
 ## 9. 邻接与明确不做
 
