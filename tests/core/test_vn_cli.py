@@ -443,9 +443,13 @@ def test_wrapup_after_vn():
         wrap_tail = engine.history[2:]
         assert any(h["content"].startswith("[mmt_chat]") for h in wrap_tail)
         assert "下次再一起吧" in "".join(h["content"] for h in wrap_tail)
-        # 收尾注记注入（第二次 chat 调用: 倒数第 2 = 系统注记, 倒数第 1 = user）
-        note = llm.snapshots[1][-2]["content"]
+        # 收尾注记注入（第二次 chat 调用: 尾序 = 系统注记 → task 卡 → user,
+        # 2026-09-07 promptkit §4: 卡 = 目标层, 恒在注记后 user 前）
+        tail = llm.snapshots[1]
+        note = tail[-3]["content"]                        # P17 收尾注记
         assert "羁绊剧情" in note and "收尾" in note and "本章: 天台的气氛" in note, note
+        assert tail[-2]["content"].startswith("本回合任务：")   # wrapup 卡
+        assert "只许 mmt_chat" in tail[-2]["content"]
         print("    wrapup_after_vn: 收尾 +1 历史(仅 assistant), 注记引述章名, 回几段话")
 
 
@@ -517,7 +521,9 @@ def test_trigger_no_gate_and_suggestion_notes():
     engine2.start_session(CHARACTER)
     for i in range(7):
         engine2.agent_turn(f"闲聊 {i}")
-        sys_note = llm2.snapshots[i][-2]["content"]   # 倒数第2 = 本轮注记
+        # 尾序（2026-09-07 promptkit §4）: P16 注记 → task 卡 → user
+        sys_note = llm2.snapshots[i][-3]["content"]
+        assert llm2.snapshots[i][-2]["content"].startswith("本回合任务：")  # chat 卡
         if i == 0:
             assert "沉淀" in sys_note and "羁绊进度事实" in sys_note, sys_note
             assert "主动发起" not in sys_note, sys_note

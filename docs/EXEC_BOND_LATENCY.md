@@ -4,7 +4,8 @@
 > busy 语义 + 细粒度首场轮询全部落地, webgui 测试 20/20 通过（含新增预热与
 > 渲染预热用例）。P2：#1（细粒度轮询）#2（enter 并行/单 POST）随 P1 落地,
 > #3（MediaCatalog/EffectResolver 预热）2026-09-07 落地; #4（前缀缓存验证）
-> 与 SSE（#5）待执行。相关讨论：会话归因结论（首场=一次主 LLM
+> 数据面已加（2026-09-07: llm chat/chat_full 日志输出 usage cache_hit/cache_miss,
+> 流式请求带 stream_options.include_usage）, 验证报告待跑; SSE（#5）待执行。相关讨论：会话归因结论（首场=一次主 LLM
 > 整包生成 + thinking=high 抬高 TTFT）见本档 §1；Storyloom 对照结论见 §8。
 > 已拍板约束：reasoning 档位留给用户（最后优化点，本期不动）；bond.js 等待卡
 > 的 `reason` 变量为历史遗留，不修；演示模式（demo）不预热。

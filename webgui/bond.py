@@ -1237,7 +1237,8 @@ def _wrapup(char_id: str, session_id: str, title: str, completed: bool) -> None:
         )
     try:
         with chat._lock(char_id):
-            engine.agent_turn("（自动收尾）", system_note=note, record_input=False)
+            engine.agent_turn("（自动收尾）", system_note=note, record_input=False,
+                              task_kind="wrapup")
     except Exception as e:                           # noqa: BLE001 — 收尾失败不阻塞
         logger.warning("羁绊剧情收尾回复失败: %s", e)
         # 兜底收尾话（2026-08-30）: LLM 收尾失败 → 本地预设结语落库——保证

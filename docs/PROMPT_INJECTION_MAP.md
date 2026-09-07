@@ -46,12 +46,12 @@
 
 ## 2. MMT 每轮动态尾（agent_turn，只进 context 不入历史）
 
-`core/momotalk.py:598-616`：
+`core/momotalk.py:543-600` → `round_messages`（core/promptkit/tail.py）：
 
 ```
 system   = 盒A + "\n\n" + brain 注入段（_brain_injection）
 messages = [system] + history + [P16 羁绊进度注记] + [P17 system_note?]
-         + [P18 随机事件?] + [user 原文]
+         + [P18 随机事件?] + [task 卡] + [user 原文]
 ```
 
 | # | 块 | 内容 |
@@ -61,6 +61,7 @@ messages = [system] + history + [P16 羁绊进度注记] + [P17 system_note?]
 | P16 | 羁绊进度注记 | `_bond_progress_note()`（momotalk.py:930-951）：`【剧情时机】距上次完整剧情 ≥6 轮→铺垫足够可发起` / `<6 → 报事实+沉淀`。**每次 agent_turn 都注入**（含 wrapup 收尾轮） |
 | P17 | system_note | 引擎可选参数。现网主聊天路径恒 None（webgui/chat.py:172 不传）；**只有收尾轮传**（wrapup 话术 webgui/bond.py:1240） |
 | P18 | 随机事件 | `want_to_speak`（12%，冷却 6 轮，core/random_events/events.py:56-63）："你现在有点想和老师说点别的…" soft 倾向。仅 store 会话触发 |
+| task 卡 | 本回合任务（目标层） | `task_mmt.md`（chat，引擎默认）/ `task_mmt_wrapup.md`（收尾轮，调用方传 task_kind="wrapup"）；{char} 占位；开关 settings [promptkit].task_card（默认 true，关闭 = 无卡旧行为）；模板缺失静默跳过。**Phase 2（2026-09-07）启用**——卡 = 末位注记（约束注记之后、user 之前，离生成最近）|
 
 **输出历史格式**（momotalk.py:849-862）：user 原文原样入历史；assistant 按
 `[动作名] `前缀 + 去括号切块，仅首块带动作名前缀。

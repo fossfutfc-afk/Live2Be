@@ -419,7 +419,8 @@ def wrapup_after_vn(engine: MomoTalkEngine,
             "只使用 mmt_chat 动作，不要再次触发羁绊剧情。"
         )
     try:
-        result = engine.agent_turn("（自动收尾）", system_note=note, record_input=False)
+        result = engine.agent_turn("（自动收尾）", system_note=note, record_input=False,
+                                   task_kind="wrapup")
         simulate_steps(result.steps)
     except Exception as e:
         print(f"[系统] 羁绊剧情收尾回复失败: {e}")
