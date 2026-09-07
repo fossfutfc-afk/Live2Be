@@ -167,6 +167,12 @@ class BondState:
     emo_version: int = 0                       # emotion 补标版本（前端感知补切表情）
     _anno_queue: "queue.Queue | None" = field(default=None, repr=False)
     _anno_started: bool = field(default=False, repr=False)
+    # place 标注 lane（DESIGN_BOND_CONTRACT_V2 §7, P3b-1 2026-09-07）: 与 emotion
+    # 双路并行——各自队列/消费者; 推进门控 = 双路齐; 锚点写回 payload 变更句
+    # （place 键, 稀有）。场景就绪标记挂 scene 对象（_place_done——判定完成即
+    # 含 keep, gate 恒可达）; 分支反应段/无词表/纪念退出 = 视为就绪。
+    _place_queue: "queue.Queue | None" = field(default=None, repr=False)
+    _place_started: bool = field(default=False, repr=False)
     # 纪念立绘异步生成（方案 A 2026-09-01）: 流式嗅探到 memorial_enter 的 prompt
     # 定稿即后台生图（与 LLM 剩余输出并行）——玩家看到纪念场景时图已就绪, 淡入
     memorial_img: str = ""                     # 前端 URL（/gallery/{char}/{sid}.png）; 空 = 未就绪/失败
@@ -423,6 +429,7 @@ def _start_replay(state: BondState, replay_q: list[dict],
 
     first = state.replay_scenes.pop(0)
     state.scene_obj = BondScene.from_dict(first)
+    state.scene_obj._place_done = True    # 回放场景来自事件流（视觉键已定格）——不占 lane
     state.scene = state.scene_obj.to_dict()
     state.round = 1
     state.scene_logged = True                 # 已落库——回放不重复落
@@ -654,12 +661,36 @@ def _scene_emotions_ready(state: BondState) -> bool:
     return True
 
 
+def _scene_places_ready(state: BondState) -> bool:
+    """当前展示场景的 place 标注是否已就绪（DESIGN_BOND_CONTRACT_V2 §7, P3b-1）。
+
+    place 是事件型判定（变化句才产出, keep 是常态）——不能靠内容判完成, 用
+    scene 对象上的 _place_done 标记（place lane 对当前场景尝试过 = 完成, 无论
+    是否产出锚点）。分支反应段/无词表/纪念退出/无当前场景 → 恒就绪（不占 lane）。
+    """
+    if state.demo is not None or state.vn is None:
+        return True
+    if not state.vn._place_keys:          # 无地点词表 → 引擎不标注 → 恒就绪
+        return True
+    scene = state.scene_obj
+    if scene is None:
+        return True
+    if scene.memorial_exit:
+        return True
+    return bool(getattr(scene, "_place_done", False))
+
+
+def _scene_visual_ready(state: BondState) -> bool:
+    """双路齐（gate = emotion + place 都就绪, §7.1）。"""
+    return _scene_emotions_ready(state) and _scene_places_ready(state)
+
+
 def _scene_ready_or_busy(state: BondState) -> dict | None:
     """门控检查: 未就绪 → 返回 busy 响应（前端已有 busy 轮询重试, 标注 2~5s 内
     完成/兜底 → 下次重试放行）; 就绪 → None（继续正常 turn 流程）。"""
-    if not _scene_emotions_ready(state):
+    if not _scene_visual_ready(state):
         return {"accepted": False, "busy": True,
-                "error": "情绪标注中, 稍后自动继续"}
+                "error": "视觉标注中, 稍后自动继续"}
     return None
 
 
@@ -693,6 +724,7 @@ def bond_turn(char_id: str, session_id: str, text: str) -> dict:
         if state.replay_scenes:
             nxt = state.replay_scenes.pop(0)
             state.scene_obj = BondScene.from_dict(nxt)
+            state.scene_obj._place_done = True    # 回放: 视觉键定格, 不占 lane
             state.scene = state.scene_obj.to_dict()
             state.round += 1
             state.scene_logged = True          # 事件流已落库——回放不重复落
@@ -712,9 +744,9 @@ def bond_turn(char_id: str, session_id: str, text: str) -> dict:
     if not text:
         return {"accepted": False, "error": "输入不能为空"}
 
-    # 推进门控（2026-09-02）: 当前场景（含分支）emotion 未标注完成 → 不让推进
-    # （情绪不到位不点下一轮——标注 2~5s, 前端 busy 轮询自动放行; 同时保证
-    # 落库场景 emotion 完整: 分支消费/继续/自由输入都在标注就绪后才落库）
+    # 推进门控（2026-09-02; P3b-1 双路齐）: 当前场景（含分支）emotion + place
+    # 未就绪 → 不让推进（情绪不到位/换场锚点未定不点下一轮——标注 2~5s,
+    # 前端 busy 轮询自动放行; 同时保证落库场景视觉键完整: append-only 不可补）
     gate = _scene_ready_or_busy(state)
     if gate is not None:
         return gate
@@ -759,6 +791,9 @@ def bond_turn(char_id: str, session_id: str, text: str) -> dict:
         )
         state.scene = state.scene_obj.to_dict()
         state.scene_logged = True    # 分支是场景一部分（已随场景落库）——继续时不重复落
+        # 分支反应段 = 同板延续（地点不重新判定, 主场景的 place 判定已随门控完成）;
+        # 置就绪标记 → 不占 place lane（§7 gate 双路语义）
+        state.scene_obj._place_done = True
         # prev_emotions 由标注 worker 回填后统一更新（骨架无 emotion, 2026-09-02）
         # 分支段落可能是骨架（branches 未标注）→ 入队异步标注（与主场景同队列）
         _enqueue_annotate(state, state.scene_obj)
@@ -784,13 +819,13 @@ def bond_status(char_id: str, session_id: str) -> dict:
     """轮询: 生成状态 + 最新场景（前端按 round 去重）+ 终结标记 + 名字牌信息
     + emo_version（异步标注补标版本——前端感知后补切已显示段落的立绘表情）
     + memorial（纪念模式标记 + 立绘 URL——前端进纪念淡入图背景, 退出淡出）。
-    + gate_busy（2026-09-07）: 推进门控视角——当前场景 emotion 未标注完
+    + gate_busy（2026-09-07）: 推进门控视角——当前场景 emotion+place 未就绪
     （state.busy 之外的另一类"再等等"）; 前端忙等改轮询 status 而非狂发 turn。"""
     state = _state(char_id, session_id)
     role = _role_info(char_id)
     return {
         "busy": state.busy,
-        "gate_busy": not _scene_emotions_ready(state),
+        "gate_busy": not _scene_visual_ready(state),
         "round": state.round,
         "scene": state.scene,
         "error": state.error,
@@ -830,14 +865,15 @@ def bond_finish(char_id: str, session_id: str) -> dict:
     if state.busy:
         return {"completed": False, "busy": True, "error": "剧情生成中"}
 
-    # 收尾前等最后场景标注就绪（2026-09-02）——append-only 落库缺 emotion
-    # 不可补; 标注 worker 独立线程, 短等（失败兜底也回填 → 必达; 超时宁缺勿错）
-    if not _scene_emotions_ready(state):
+    # 收尾前等最后场景标注就绪（2026-09-02 emotion; P3b-1 双路齐）——append-only
+    # 落库缺 emotion/place 不可补; 标注 worker 独立线程, 短等（失败兜底也回填/
+    # 置完成标记 → 必达; 超时宁缺勿错）
+    if not _scene_visual_ready(state):
         deadline = time.time() + 8.0
-        while time.time() < deadline and not _scene_emotions_ready(state):
+        while time.time() < deadline and not _scene_visual_ready(state):
             time.sleep(0.05)
-        if not _scene_emotions_ready(state):
-            logger.warning("bond_finish 等待标注超时, 场景可能缺 emotion: %s/%s",
+        if not _scene_visual_ready(state):
+            logger.warning("bond_finish 等待标注超时, 场景可能缺 emotion/place: %s/%s",
                            char_id, session_id)
 
     # 最后场景（is_end / closing）: 玩家无裁决 → picked=None
@@ -1017,14 +1053,16 @@ def _pregenerate(state: BondState, char_id: str, session_id: str) -> None:
 
 
 def _enqueue_annotate(state: BondState, scene: BondScene) -> None:
-    """场景入队异步标注（两遍式 C: emotion 解析挪出玩家等待路径）。
+    """场景入队异步标注（两遍式 C + place lane, P3b-1 双路并行）。
 
-    骨架先显示 → 标注队列单 worker 串行补标（标注 LLM 调用不持 chat._lock——
-    并发 API 调用可接受; 写回持短锁 + 对象身份检查——场景已被替换则丢弃,
-    异步线程绝不覆盖比它新的状态）。
+    骨架先显示 → emotion/place 各自 lane 串行补标（标注 LLM 调用不持 chat._lock
+    ——并发 API 调用可接受; 写回持短锁 + 对象身份检查——场景已被替换则丢弃,
+    异步线程绝不覆盖比它新的状态）。emotion 有内容判定（全回填/兜底）, place
+    靠 scene._place_done 标记（含 keep 即完成）——推进门控 = 双路齐。
     """
     if state.demo is not None or state.vn is None:
         return
+    _enqueue_place_annotate(state, scene)   # 双路并行 lane（§7）——独立于 emotion 守卫
     if not state.vn._lexicon_keys:
         return                                      # 无词表 → 无需标注
     if not any(not p.get("emotion") for p in scene.paragraphs
@@ -1036,6 +1074,66 @@ def _enqueue_annotate(state: BondState, scene: BondScene) -> None:
     if not state._anno_started:
         state._anno_started = True
         threading.Thread(target=_anno_worker, args=(state,), daemon=True).start()
+
+
+def _enqueue_place_annotate(state: BondState, scene: BondScene) -> None:
+    """场景入队地点变更标注（DESIGN_BOND_CONTRACT_V2 §7, P3b-1 双 lane 第二路）。
+
+    判定完成（含 keep/失败）即置 scene._place_done（gate 恒可达）——place 是
+    事件型判定, 不能靠内容判完成。分支反应段（同板延续）在创建处已置就绪,
+    不占 lane; 无词表/纪念退出 → 不入队（就绪判定同样提前放行）。
+    """
+    if state.demo is not None or state.vn is None:
+        return
+    if not state.vn._place_keys or scene.memorial_exit:
+        return
+    if getattr(scene, "_place_done", False):
+        return
+    if state._place_queue is None:
+        state._place_queue = queue.Queue()
+    state._place_queue.put(scene)
+    if not state._place_started:
+        state._place_started = True
+        threading.Thread(target=_place_worker, args=(state,), daemon=True).start()
+
+
+def _place_worker(state: BondState) -> None:
+    """place 标注 lane: 串行判定场景换场锚点（fill_scene_places——成功/失败/
+    无变更都置完成标记, keep 是合法结果）, 写回带防竞态检查（同 _anno_worker）。
+
+    时序（§7.1）: place 判定句少、通常先于 emotion 完成; 锚点写回 scene 对象
+    的变更句 place 键——事件落库（_log_scene 用 scene.to_dict()）与回放时间轴
+    自动携带; 视觉键不进 LLM 上下文（render 忽略）。
+    """
+    while True:
+        scene = state._place_queue.get()
+        if scene is None:
+            break
+        t0 = time.monotonic()                    # 计时埋点（§6.1）
+        anchors = False
+        try:
+            try:
+                anchors = state.vn.fill_scene_places(scene)   # 标注 LLM（不持锁）
+            except Exception as e:                       # noqa: BLE001 — 失败即 keep
+                logger.warning("bond 异步 place 标注失败（keep 保持背景）: %s", e)
+            scene._place_done = True                     # 判定完成（含 keep）——gate 可达
+            logger.info("bond_anno_place dur=%dms anchors=%s",
+                        _ms_since(t0), "y" if anchors else "n")
+            with state._lock:
+                if state.scene_obj is scene:
+                    state.scene = scene.to_dict()        # 当前展示场景: 序列化视图同步
+                elif state.pregen_obj is scene:
+                    state.pregen_scene = scene.to_dict() # 预生成待消费: 只更新暂存视图
+                # 已被推进/替换 → 丢弃（异步不覆盖新状态, 同 _anno_worker）
+        except Exception as e:                           # noqa: BLE001 — 保活: 单条失败
+            logger.warning("bond place 标注处理异常（跳过本条, worker 保活）: %s", e)
+        finally:
+            try:
+                state._place_queue.task_done()
+            except Exception:                            # noqa: BLE001 — 幂等无害
+                pass
+    # 正常结束（None 哨兵）: 复位启动标记——后续入队可再启（worker 永不饿死）
+    state._place_started = False
 
 
 def _fallback_fill(scene: BondScene) -> None:

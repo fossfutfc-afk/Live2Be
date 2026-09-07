@@ -564,7 +564,8 @@ def test_bond_annotate_gate_blocks_then_releases(tmp_path):
     released = {"n": 0}
 
     class GatedLLM:
-        """骨架顺序输出; 标注调用（user 消息含'情绪标签'）阻塞等闸门。"""
+        """骨架顺序输出; 标注调用（user 消息含'情绪标签'）阻塞等闸门;
+        place 标注（'变更句数组'）不阻塞——快速 keep, 门控只由 emotion 路卡住。"""
         def __init__(self, *scripts):
             self._scripts = list(scripts)
         def chat(self, messages, **kw):
@@ -573,6 +574,8 @@ def test_bond_annotate_gate_blocks_then_releases(tmp_path):
                 gate.wait(timeout=10)
                 released["n"] += 1
                 return '["nomal", "smile"]'
+            if "变更句数组" in user:                  # place 标注 → 无变更（不占闸门）
+                return []
             if not self._scripts:
                 raise RuntimeError("脚本耗尽")
             return self._scripts.pop(0)
@@ -603,7 +606,7 @@ def test_bond_annotate_gate_blocks_then_releases(tmp_path):
         # 前端自动轮询重试）——情绪不到位不推进
         r = bond.bond_turn(CHARACTER, sid, "继续走")
         assert not r["accepted"] and r.get("busy") is True, r
-        assert "情绪标注中" in r.get("error", ""), r
+        assert "标注中" in r.get("error", ""), r          # 双路门控（emotion+place）
         # 释放标注 → 回填完成 → 重试放行（分支消费）
         gate.set()
         r2 = _turn_until_accepted(CHARACTER, sid, "继续走")
@@ -625,6 +628,73 @@ def test_bond_annotate_gate_blocks_then_releases(tmp_path):
         assert s["scene"]["paragraphs"][0]["text"] == "第二场。", s["scene"]
         assert s["scene"]["paragraphs"][0]["emotion"] == "nomal", s["scene"]
         print("    bond 门控: 标注未完成 turn 被拦 → 释放后放行; 写回对象检查防御保留")
+    finally:
+        _cleanup()
+
+
+# ----------------------------------------------------------------------------
+# place 标注 lane（DESIGN_BOND_CONTRACT_V2 §7, P3b-1）: 异步锚点写回 + 门控双路
+# ----------------------------------------------------------------------------
+
+def test_bond_async_place_anchors_written(tmp_path):
+    """place lane 异步写回: 变更句 place 键落到 payload; 门控 = emotion+place 双路齐。"""
+    from core.media.emotion_lexicon import load_place_lexicon
+    place_keys = load_place_lexicon()
+    if not place_keys:                      # 无地点词表资产 → 无标注能力, 跳过
+        print("    (跳过: 无 _director_whitelist 资产)")
+        return
+    anchor = place_keys[0]
+
+    class PlaceLLM(ScriptedLLM):
+        def chat(self, messages, temperature=0.8, max_tokens=4096,
+                 response_format="text", **kw):
+            self.snapshots.append([dict(m) for m in messages])
+            head = messages[0]["content"]
+            last = messages[-1]["content"] if len(messages) > 1 else ""
+            if "情绪标签数组" in last:               # emotion → 全 nomal
+                import re as _re
+                n = len(_re.findall(r"(?m)^\d+: ", head))
+                return ["nomal"] * max(n, 1)
+            if "变更句数组" in last:                  # place → 末句锚点
+                import re as _re
+                n = len(_re.findall(r"(?m)^\d+: ", head))
+                return [{"sentence": max(n, 1), "place": anchor}]
+            if "记录员" in head or "整理者" in head:
+                return _digest_stub(messages)
+            if not self._scripts:
+                raise RuntimeError("PlaceLLM 脚本耗尽")
+            return self._scripts.pop(0)
+
+    scene1 = {"action": "story_scene", "payload": {
+        "paragraphs": ["她在教室里收拾着书包。",
+                       "她带我穿过走廊，推开了天台的门。"]}}
+    scene2 = {"action": "story_end", "payload": {
+        "paragraphs": [{"text": "（夜色渐深, 这一章落下帷幕。）"}]}}
+    llm = PlaceLLM(scene1, scene2)
+    engine, st, sid, _ = _setup(tmp_path)
+    chat._engines[CHARACTER] = engine
+    engine.llm = llm
+    try:
+        bond.bond_start(CHARACTER, sid)
+        st1 = _wait_status(CHARACTER, sid)
+        # place lane 异步: 锚点写回当前展示场景的变更句（轮询状态直到出现）
+        deadline = time.time() + 8.0
+        while time.time() < deadline:
+            s = bond.bond_status(CHARACTER, sid)
+            paras = s["scene"]["paragraphs"] if s.get("scene") else []
+            if paras and any(p.get("place") == anchor for p in paras):
+                break
+            time.sleep(0.05)
+        assert any(p.get("place") == anchor for p in paras), paras
+        # 门控放行（双路齐）: 自由输入推进可立即被接受
+        r = _turn_until_accepted(CHARACTER, sid, "老师，今晚就到这里吧")
+        assert r["accepted"], r
+        # 事件落库携带锚点（_log_scene 用 scene.to_dict()——append-only 视觉键定格）
+        evs = st.events(CHARACTER, sid)
+        logged = [e for e in evs if e.type == "bond"][0]
+        assert any(p.get("place") == anchor
+                   for p in logged.payload["paragraphs"] if isinstance(p, dict))
+        print("    place lane: 异步锚点写回 payload + 门控放行 + 事件落库携带")
     finally:
         _cleanup()
 

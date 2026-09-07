@@ -220,9 +220,14 @@ gate  当且仅当本场景 两路标志都置位 → 放行推进（gate_busy �
   （异步 webgui 由 P3b lane 同源维护）; 同步顺序 = emotion → place（最小 diff）;
   渲染隔离天然成立（render 只读 text/emotion/inner）; 测试桩全部补 place 应答
   分支; llm+core+webgui 463 全绿。
-- **P3b 接线（含单源切换, 待做）**：双 lane worker（Q_emo/W_emo、Q_place/W_place）
-  + gate 双条件、导演/前端锚点句背景切换（含晚到规则 §7.2）、事件/回放句级
-  place 键时间轴; **同节点删除 schema/rules 的 place 说明**、删盒的地点词表块
-  （词表改由 place_annotate 模板持有）、夹具再刷新。
+- **P3b-1 双 lane + gate（✅ 落地）**：webgui 标注体系升级双路——`_enqueue_place_
+  annotate`/`_place_worker`（Q_place/W_place, 镜像 emotion lane 的写回身份检查
+  与保活）; 推进门控/status/finish 全改**双路齐**（`_scene_visual_ready`）;
+  place 就绪 = scene 对象 `_place_done` 标记（判定完成即含 keep, gate 恒可达）;
+  分支反应段/回放场景/无词表/纪念退出 = 视为就绪不占 lane; 新增异步锚点写回
+  集成测试（锚点落 payload → 门控放行 → 事件落库携带）。llm+core+webgui 464。
+- **P3b-2 接线（待做）**：导演/前端锚点句背景切换（含晚到规则 §7.2, place_ver
+  推送）、事件/回放句级 place 键时间轴渲染; **同节点删除 schema/rules 的 place
+  说明**、删盒的地点词表块（词表改由 place_annotate 模板持有）、夹具再刷新。
 - 验收口径：换场句背景切换正确、板内多次移动逐句生效、忘标/歧义静默保持、
   双路并发不增等待、resume 上下文无 place 键。
