@@ -1,5 +1,10 @@
 # DESIGN_WEBGUI_PROMPTS — webgui 主循环总图：prompt 类型与注入时刻
 
+> ⚠️ **已归档（2026-09-07）**：本文描写的注入结构大体仍成立，但存在多处
+> 实质过期（消息流协议、digest 双触发、brain 解耦、wrapup reason 退役等——
+> 完整勘误见新文档）。新基准 = **docs/PROMPT_INJECTION_MAP.md**（对照现网
+> 代码逐点校准版）。本文留作历史/设计意图参考。
+
 > 以 `igusa_haruka`（伊草 遥香）为例。总览 webgui（`webgui/`）从打开会话到
 > 羁绊剧情闭环的全流程，标注**每个 prompt 的类型、来源、注入时刻**。
 > 配套代码：`core/parsing/dynamic_character_parser.py` / `core/momotalk.py` /
