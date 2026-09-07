@@ -147,15 +147,53 @@ payload_schema 中现有 place 说明句删除；paragraphs 说明追加一句�
 
 ## 7. 双路并发实现分解（标注层）
 
+> **并发模型澄清（2026-09-07 用户确认）**：不是"一个消费者按某顺序吃两个队列"。
+> 正确形态 = **两队列 + 两消费者（lane）**：emotion lane 只吃 emotion 队列、
+> place lane 只吃 place 队列，**互不等待、各自并行**；跨 lane 无顺序要求。
+> 时序约束只有两条：① lane 内 FIFO（场景不重排）；② 每场景两路都完成才开 gate。
+
+### 7.1 每场景时序（发布 → 放行）
+
+```
+t0  骨架发布（busy=False）→ 前端立即打字显示（不等待标注——现状语义不变）
+t0+ 同时入两队列: Q_emo(本场景逐句情绪) + Q_place(本场景变更判定)
+     W_emo 开始调用（~1-3s, thinking off）; W_place 开始调用（~0.5-2s, thinking off）
+t0+ place_done → 锚点句写回 payload（place 键, 稀有）; place_ver++
+     前端在锚点句位置切换背景（见 7.2 晚到规则）
+t0+ emo_done  → emotion 键回填; emo_version++（现状）
+gate  当且仅当本场景 两路标志都置位 → 放行推进（gate_busy 条件 = 双路未齐）
+```
+
+- 两路都廉价（256-512 token、off-thinking），并行墙钟 ≈ max(两路) 而非之和；
+- place 判定句子少、通常先到——**天然赢"锚点 vs 打字位置"竞态**，无需优先级调度
+  机制；若实测仍常晚到，再考虑 place lane 先行（v2 不做）。
+
+### 7.2 锚点晚到规则（到达时锚点句已打过头）
+
+- 锚点到达即应用（背景即时切换, 允许晚半拍——与 emotion 补切立绘同款容忍）;
+- 不做"跳过/排队到下一板"的复杂化; 罕见竞态以"迟切一拍"收场, 可接受;
+- 导演 current place 状态**无论何时都立即更新**（后续场景判定/下一板默认背景正确）。
+
+### 7.3 线程/进程形态（方案 A: 双 lane）
+
+- 每场景会话两条 daemon lane（Q_emo/W_emo、Q_place/W_place），各自 FIFO;
+- 两路写同 payload **不同键**（emotion / place）→ 逐键赋值无冲突; 若嫌脏,
+  place 路写副本、完成时一次合并（实现时二选一, 测试覆盖）;
+- 失败隔离: emotion 失败延续兜底 / place 失败空数组 keep——互不影响;
+- **引擎同步路径（CLI/测试 annotate=True）不需要线程**: 同一线程内串行调用
+  （顺序实现时按最小 diff 定）。⚠️ 既有 annotate=True 测试的 ScriptedLLM 脚本数
+  需 +1（多一次 place 文本调用; place 输出非法 → 空数组 keep 不崩溃, 但脚本耗尽
+  会误报——P3 需审计受影响用例）。
+
 | 件 | 改动 | 验收 |
 |---|---|---|
 | place_annotate.md | 见 §5.3（新文件） | 文案审 |
 | 标注函数 | core/bond 新增 `annotate_places`（text 模式单次）+ smart 二分兜底（复用 emotion 的 robust 模式）; 词表/当前 place 参数 | 单测: 正例/反例/越界/词表外/相等 → keep |
-| 双路并发 | webgui 标注 worker: emotion（逐句）与 place（变更句）**两路并行**（独立队列或线程池两任务）; 失败互不影响 | 场级时序: 两路都完成才 gate 放行（语义同现状 gate_busy） |
-| 引擎同步兜底 | `annotate=True` 路径（CLI/测试）同函数同步调用 | CLI 场照常 |
+| 双路并发 | 双 lane（Q_emo/W_emo、Q_place/W_place）; 失败互不影响; gate = 双路齐 | 场级时序: 两路都完成才放行（gate_busy 双条件） |
+| 引擎同步兜底 | `annotate=True` 路径（CLI/测试）同步调用（无线程） | CLI 场照常; 受影响测试脚本数已审计 |
 | 导演/渲染 | `director.visual_for` 消费句级 place 变更（现网板级 → 锚点句应用）; 非法静默保持 | 板内换场用例: 教室→天台同板切图 |
 | 事件/回放 | 句级 place 键入库 + renderer 忽略键 + 回放时间轴 | replay 背景时序正确 |
-| 测试 | 文案镜像测试（rules 与 place_annotate 判据一致? 以行为测试为准: 正反例句集） | 全绿 |
+| 测试 | 判据行为测试（正反例句集: 含"从…走进…"定性用例）; 晚到竞态用例 | 全绿 |
 
 ## 8. 未决清单登记（不影响本方案核心, 逐项待用户拍板）
 
