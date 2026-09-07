@@ -114,13 +114,13 @@ def _assert_ordered(box: str, markers: list[str]) -> None:
 # ---------------------------------------------------------------------------
 
 _MMT_MARKERS = [
+    f"你好，{DISPLAY}",                 # 称呼行: v2 归位盒顶（Phase 1 完成——身份先行）
     "# 角色设定",
     "【世界常识】",
     "【世界规则】",
     "【本角色剧情基调】",
     "【本角色 MMT 风格】",
     "【MomoTalk 环境说明】",
-    f"你好，{DISPLAY}",                 # 称呼行: 现网位置（env 与 rules 之间）——Phase 1 归位盒顶时此处改
     "【MomoTalk 行为规则】",
     "可用动作 schema",
 ]
