@@ -746,6 +746,12 @@ def bond_turn(char_id: str, session_id: str, text: str) -> dict:
             and text in state.scene_obj.branches):
         branch = state.scene_obj.branches[text]
         _log_scene(state, char_id, session_id, picked=text)   # 场景（含 branches）落库
+        # 方案A-A1 选项回录（DESIGN_PROMPTKIT §5, Phase 4）: 分支消费 = 裁决完成,
+        # 立即写回引擎历史尾部（“（选择了: X）”）——后续预生成/正常续写的输入恒为
+        # “（继续）”, 不回录则 AI 永远看不到玩家选了哪项（live 与 resume 分叉洞）。
+        # 必须在 _pregenerate 之前: 预生成请求的历史要含本次裁决。
+        if state.vn is not None:
+            state.vn.record_picked(text)
         state.scene_obj = BondScene(
             paragraphs=branch,
             background=state.scene_obj.background,

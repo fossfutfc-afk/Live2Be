@@ -428,6 +428,9 @@ def test_bond_pregenerate_narrative_flow(tmp_path):
         # ——生成完自动触发预生成（第 3 场"（继续）"）
         r2 = bond.bond_turn(CHARACTER, sid, "选A")
         assert r2["accepted"] and r2.get("branch"), r2
+        # 方案A-A1 回录（2026-09-07）: 分支消费即裁决 → 引擎历史尾部带 （选择了: 选A）
+        vn_hist = bond._state(CHARACTER, sid).vn._history
+        assert "（选择了: 选A）" in vn_hist[-1]["content"], vn_hist[-1]
         # 预生成与点击竞态: 分支消费后后台预生成下一场（busy）→ 轮询重试
         # （_turn_until_accepted 语义, 消除 flake）
         r3 = _turn_until_accepted(CHARACTER, sid, "（继续）")
@@ -441,6 +444,11 @@ def test_bond_pregenerate_narrative_flow(tmp_path):
                 break
             time.sleep(0.05)
         assert not bond.bond_status(CHARACTER, sid)["busy"], "预生成应已完成"
+        # A1: 分支消费后发起的预生成请求, 历史里能看到裁决行（续写不再靠猜 picked）
+        seen = any("（选择了: 选A）" in m["content"]
+                   for snap in llm.snapshots[1:] for m in snap
+                   if m["role"] == "assistant")
+        assert seen, "预生成请求历史应含裁决行"
 
         # 点继续 → 直接消费预生成（immediate: pregen=True, busy=False, 不调 LLM）
         r3 = bond.bond_turn(CHARACTER, sid, "（继续）")

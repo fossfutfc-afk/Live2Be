@@ -290,6 +290,9 @@ class BondStoryEngine:
         # start_session 定值; 每场 kind 自推（in_memorial → memorial_exit, 否则 scene）
         self._task_card_override: bool | None = task_card
         self._task_on = True
+        # 方案A-A1 选项回录（DESIGN_PROMPTKIT §5, Phase 4）: 最近一次成功动作的
+        # payload（生成时落库, picked 尚不存在）——裁决后 record_picked 重渲尾部
+        self._last_payload: dict | None = None
 
     # ------------------------------------------------------------------
     # 会话生命周期
@@ -324,6 +327,7 @@ class BondStoryEngine:
         self._trace = []
         self._in_memorial = False
         self._memorial_used = False
+        self._last_payload = None           # 回录基准重置（每个引擎实例新剧情）
         if self._task_card_override is None:        # 卡开关定值（会话内不变）
             self._task_on = task_card_enabled()
         else:
@@ -487,6 +491,10 @@ class BondStoryEngine:
         elif action.action == "memorial_exit":
             self._in_memorial = False
 
+        # 方案A-A1 回录基准: 本场动作 payload 留存（含 choices/branches——生成时
+        # picked 尚不存在; 裁决后 record_picked 重渲尾部, live 与 resume 同形）
+        self._last_payload = dict(action.payload)
+
         self._history.append({"role": "user", "content": user_input})
         # 2026-09-05 统一窗口（DESIGN_CONTEXT_WINDOW）: 内部历史与事件流渲染同构——
         # 叙事提取（render_bond_scene_text, 与 render_events 同一函数）; 触发/恢复时
@@ -565,6 +573,30 @@ class BondStoryEngine:
         """场卡 kind 自推（DESIGN_PROMPTKIT §4）: 纪念模式中 → memorial_exit
         （本场唯一任务 = 退出）; 否则 scene（推进当前板块）。"""
         return "memorial_exit" if self._in_memorial else "scene"
+
+    def record_picked(self, picked: str) -> None:
+        """方案A-A1 选项回录（DESIGN_PROMPTKIT §5）: 玩家裁决写回引擎历史尾部。
+
+        背景: 引擎历史在**生成时**落库, 当时 picked 尚不存在; 而事件流（resume/
+        wrapup 预灌/replay）渲染时 payload 已带 picked → 同一场戏 live 与恢复
+        看到的不同（live 缺"选择了 X"——续写靠猜的半边洞）。
+
+        做法: 调用方在裁决消费后通知引擎, 用 render_bond_scene_text（同一函数,
+        同一参数形态）重渲历史尾部该场 assistant 条目 → live 与事件流渲染
+        逐字节同形。branches 内容仍不进上下文（A1, A2 留档见设计文档 §5.4）。
+        未消费/无场景/空白 picked → 安全 no-op。
+        """
+        if not isinstance(picked, str) or not picked.strip():
+            return
+        if not self._last_payload or not self._history:
+            return
+        if self._history[-1]["role"] != "assistant":
+            return
+        enriched = dict(self._last_payload)
+        enriched["picked"] = picked.strip()
+        text = render_bond_scene_text(enriched)
+        if text:
+            self._history[-1]["content"] = text
 
     @property
     def history(self) -> list[dict[str, str]]:

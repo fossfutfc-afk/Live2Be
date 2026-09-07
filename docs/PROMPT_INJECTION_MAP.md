@@ -121,11 +121,16 @@ story parse；否则 memorial 域。parse 失败仍留本域反馈（不能按 p
 | 纯叙事场点"继续" | `（继续）`（pregen 链式消费）| None |
 | 自由输入 | 玩家原文 | 原文（L771-772）|
 
-**关键设计洞（实锤"AI 在猜"）**：引擎每场历史只追加
-`render_bond_scene_text(action.payload)`（bond_story.py:503-507）——payload **无 picked、
-无 branches**；而选项场之后 LLM 拿到的 user 是 `（继续）`。**AI 永远看不到玩家选了
-哪个选项、也看不到分支内容**——续写时就靠猜。与预生成收敛链是同一根设计洞
-（record_choice/方案A 拟修，另行立项）。
+**live/resume 分叉与 A1 回录（2026-09-07 Phase 4 修复）**：事件流渲染
+（renderer.py:98-100）在 payload 带 picked 时输出 `（选择了: X）`；但引擎 live
+历史**生成时落库**、picked 尚不存在 → 活会话续写（输入恒为"（继续）"）看不到
+选择——与 resume/回放分叉（"AI 猜"的半边洞）。修复：
+- `BondStoryEngine.record_picked(picked)`：引擎留存 `_last_payload`（本场动作
+  payload），裁决后以 `render_bond_scene_text`（同一函数）重渲历史尾部 → live
+  与 resume/wrapup 预灌**逐字节同形**（构造性成立）；
+- webgui 接线：分支消费点（`_log_scene(picked=text)` 之后、`_pregenerate` 之前）；
+- vn_cli 无需回录——其裁决文本（choice）即下一场 user_input，LLM 直接可见。
+**branches 内容仍不进上下文**（A1 定稿；A2 叙事化留档，见 DESIGN_PROMPTKIT §5.4）。
 
 **每场动态注记 P17** = webgui `_system_note(state)` 聚合器（webgui/bond.py:1138-1179），
 多条聚合一行一条（None = 不注入）：
