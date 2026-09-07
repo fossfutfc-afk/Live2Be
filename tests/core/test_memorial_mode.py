@@ -54,6 +54,8 @@ class ScriptedLLM:
         if "情绪标签数组" in last:               # emotion 标注 → 全 nomal
             n = len(_re.findall(r"(?m)^\d+: ", head))
             return ["nomal"] * max(n, 1)
+        if "变更句数组" in last:                  # place 标注（P3a）→ 无变更
+            return []
         if not self._scripts:
             raise RuntimeError("脚本耗尽")
         return self._scripts.pop(0)

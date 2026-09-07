@@ -56,6 +56,8 @@ class ScriptedLLM:
             import re as _re
             n = len(_re.findall(r"(?m)^\d+: ", head))
             return ["nomal"] * max(n, 1)
+        if "变更句数组" in last:                  # place 标注（P3a）→ 无变更
+            return []
         if "记录员" in head:                       # digest Round A → 空 episodes
             return {"episodes": []}
         if "整理者" in head:                       # digest Round B → 空 decisions
@@ -79,8 +81,8 @@ def _seen_notes(llm: ScriptedLLM) -> list[list[str]]:
     out: list[list[str]] = []
     for msgs in llm.snapshots:
         last = msgs[-1]["content"] if len(msgs) > 1 else ""
-        if "情绪标签数组" in last:
-            continue                      # 标注调用不产生场景轮
+        if "情绪标签数组" in last or "变更句数组" in last:
+            continue                      # emotion/place 标注调用不产生场景轮
         notes = [m["content"] for m in msgs if m["role"] == "system"][1:]
         out.append([n for n in notes
                     if not n.startswith("本场任务：")
