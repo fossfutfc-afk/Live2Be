@@ -317,6 +317,9 @@ const BondVN = (() => {
   // 异步标注补标: 场景已显示, emotion 就绪 → 对**当前显示段**补切立绘表情
   // （2026-09-01 替换式渲染: 对话窗只保留当前段——只补当前段; 同值不重播）
   function applyEmotions(scene) {
+    dbg("applyEmotions t=", Math.round(performance.now()),
+        "ver", seenEmo, "seg", typeSeg, "player?", !!player,
+        "emotions", (scene.paragraphs || []).map((p) => (p && p.emotion) || "-"));
     // 标注/锚点回填（emotion/fx/place——player 缺失纯文字模式也要补切背景）
     patchTypeParas(scene);
     // place 晚到锚点（§7.2 晚到即切）: 已打字经过的段若含新锚点 → 立即切背景
@@ -369,6 +372,10 @@ const BondVN = (() => {
           `/api/bond/status?char_id=${charId}&session_id=${sessionId}`)).json();
         if (st.round !== seenRound) { clearEmoWatch(); return; }  // 场景已推进
         if (st.scene && st.emo_version !== undefined && st.emo_version !== seenEmo) {
+          dbg("emoWatch 版本变化 t=", Math.round(performance.now()),
+              "ver", seenEmo, "→", st.emo_version,
+              "paras", (st.scene.paragraphs || []).map(
+                  (p) => (p && p.emotion) || "-"));
           seenEmo = st.emo_version;
           stable = 0;
           applyEmotions(st.scene);
