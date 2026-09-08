@@ -16,7 +16,10 @@
 创建第三个之后拒绝新建（数据安全优先, 玩家手动删/归档）。active 标记在
 world.json——切换器（M2）读它; 默认 active_world() = world1（或唯一存在的世界）。
 
-seq 分配: 每次 append 从文件重算 max（跨实例安全, 文件小/低频, 正确性优先）。
+seq 分配: 每次 append 从文件重算 max **且持 store 级写锁**（2026-09-08 修复:
+无锁时 计算 max 与写行之间可交错——wrapup 线程与 chat worker 并发落库会撞出
+重复 seq, 前端按 seq 推进游标会把重复行吞掉 → MMT 回复"不渲染"的元凶之一）。
+单进程多线程安全; **多进程同写同一 events.jsonl 仍会重复——务必单实例运行**。
 
 状态: 无状态机——ended/in_vn 由 events 的 marker 推导（renderer.session_status）。
 """
@@ -26,6 +29,7 @@ from __future__ import annotations
 import json
 import random
 import string
+import threading
 from datetime import datetime
 from pathlib import Path
 
@@ -66,6 +70,7 @@ class SessionStore:
                  world_id: str | None = None):
         self.data_root = Path(data_root)
         self.world_id = world_id or DEFAULT_WORLD  # 当前世界槽位（调用方可覆盖）
+        self._append_lock = threading.Lock()       # seq 计算+写行原子化（见模块 docstring）
 
     # ------------------------------------------------------------------
     # 路径（v2: worlds/{world}/characters/{char}/…）
@@ -217,22 +222,23 @@ class SessionStore:
 
     def append_event(self, char_id: str, session_id: str = "", event: Event | None = None,
                      **kwargs) -> Event:
-        """append 一个事件（seq 每次从文件重算 max——跨实例安全, 正确性优先）。"""
+        """append 一个事件（seq 每次从文件重算 max——写锁内原子, 见模块 docstring）。"""
         if event is None:
             event = make_event(kwargs.pop("type", "mmt"), kwargs.pop("subtype", "mmt_chat"),
                                kwargs.pop("payload", {}))
-        evs = parse_events(read_jsonl(self.events_path(char_id, session_id)))
-        seq = max((e.seq for e in evs), default=0) + 1
-        ev = Event(
-            seq=seq,
-            ts=event.ts or datetime.now().isoformat(),
-            type=event.type,
-            subtype=event.subtype,
-            payload=dict(event.payload),
-        )
-        p = self.events_path(char_id, session_id)
-        p.parent.mkdir(parents=True, exist_ok=True)
-        append_jsonl(p, ev.to_dict())
+        with self._append_lock:                     # 计算 max 与写行不可分割
+            evs = parse_events(read_jsonl(self.events_path(char_id, session_id)))
+            seq = max((e.seq for e in evs), default=0) + 1
+            ev = Event(
+                seq=seq,
+                ts=event.ts or datetime.now().isoformat(),
+                type=event.type,
+                subtype=event.subtype,
+                payload=dict(event.payload),
+            )
+            p = self.events_path(char_id, session_id)
+            p.parent.mkdir(parents=True, exist_ok=True)
+            append_jsonl(p, ev.to_dict())
         return ev
 
     def append_marker(
