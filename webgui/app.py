@@ -29,6 +29,8 @@ logging.basicConfig(
     format="%(asctime)s %(name)s %(levelname)s %(message)s",
     datefmt="%H:%M:%S",
 )
+# httpx 每请求一行太吵——压到 WARNING, 让 live2be.* 埋点可读
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 from webgui.routers import bond, menu, mmt, name, settings, spine
 
