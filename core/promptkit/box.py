@@ -25,8 +25,8 @@ DOMAIN_BOXES: dict[str, list[str]] = {
     ],
     # 盒B v2（Bond, 2026-09-07 Phase 3）: 称呼行归位盒顶——此前夹在 bond_tone
     # 与 rules 之间; 其余顺序/文案逐字节沿用现网（黄金夹具锁定）。
-    # 2026-09-07 v2 单源切换（P3b-2）: 地点词表块移除——place 判定移交标注层
-    # （place_annotate 模板持有词表）, 主 LLM 不再写地点
+    # 2026-09-07 v2: place 判定移交标注层（单源切换）——主 LLM 不写地点;
+    # 但词表可见性 ≠ 写权限: place_palette（舞台清单）保留创作可选空间
     "bond": [
         "greeting",            # 称呼行（v2 首段, 剧情行为规则指向）
         "persona_bond",        # 角色设定两层 + 行为规则
@@ -36,6 +36,7 @@ DOMAIN_BOXES: dict[str, list[str]] = {
         "rules_bond",          # 羁绊剧情规则书
         "schema",              # 可用动作 schema（story 域）
         "lexicon_emotion",     # 表情标注词表（条件）
+        "place_palette",       # 可去的地方·舞台清单（条件; 只扩可选空间）
         "brain",               # 记忆段（条件）
     ],
 }
