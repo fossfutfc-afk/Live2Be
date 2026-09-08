@@ -32,6 +32,34 @@ logging.basicConfig(
 # httpx 每请求一行太吵——压到 WARNING, 让 live2be.* 埋点可读
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
+
+def _setup_file_logging() -> None:
+    """诊断日志落盘（2026-09-09, 用户拍板: 排障留痕不进事件流）:
+
+    events.jsonl 是 append-only 唯一真源——错误/诊断**不进事件流**（会被
+    window_messages/digest/回放消费, 污染 LLM 上下文与记忆）;
+    旁路文件 data/diag/live2be.log 挂 root logger（WARNING+, 单行可 grep:
+    bond_gen/bond_anno/bond_cand/羁绊剧情收尾回复失败/llm chat … 自动积累,
+    历史问题从此有据可查）。目录 gitignore; 创建失败静默降级（宁缺勿错）。
+    """
+    try:
+        diag_dir = Path(__file__).resolve().parent.parent / "data" / "diag"
+        diag_dir.mkdir(parents=True, exist_ok=True)
+        handler = logging.FileHandler(
+            diag_dir / "live2be.log", encoding="utf-8", mode="a")
+        handler.setLevel(logging.WARNING)
+        handler.setFormatter(logging.Formatter(
+            "%(asctime)s %(name)s %(levelname)s %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S"))
+        root = logging.getLogger()
+        root.addHandler(handler)
+        root.setLevel(logging.INFO)
+    except Exception as e:                           # noqa: BLE001 — 降级不阻断
+        logging.warning("diag 日志文件不可用（降级控制台）: %s", e)
+
+
+_setup_file_logging()
+
 from webgui.routers import bond, menu, mmt, name, settings, spine
 
 ROOT = Path(__file__).resolve().parent.parent
