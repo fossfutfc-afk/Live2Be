@@ -257,7 +257,7 @@ def test_engine_skeleton_annotated():
 
     class ScriptedLLM:
         def __init__(self):
-            self._scripts = [skeleton, ["nomal", "embarrassed"],
+            self._scripts = [skeleton, ["nomal"], ["embarrassed"],
                              ["expectant"], ["smile"]]
         def chat(self, messages, **kw):
             if not self._scripts:
@@ -269,13 +269,13 @@ def test_engine_skeleton_annotated():
     vn = BondStoryEngine(ROOT / "config" / "characters", ScriptedLLM())
     vn.start_session("igusa_haruka")
     scene = vn.send_vn_scene("（开场）")
-    # 正文 2 句已标注（1 次标注调用）
+    # SceneStream P1 按段标注: 2 个自然段（各 1 句）→ 逐段 2 次标注调用
     assert scene.paragraphs[0]["emotion"] == "nomal", scene.paragraphs
     assert scene.paragraphs[1]["emotion"] == "embarrassed", scene.paragraphs
-    # branches 各分支已标注（各 1 次标注调用）
+    # branches 各分支一组（上下文 = 主线尾段; 各 1 次标注调用）
     assert scene.branches["走过去"][0]["emotion"] == "expectant", scene.branches
     assert scene.branches["笑着说"][0]["emotion"] == "smile", scene.branches
-    print("    engine: 骨架段落 + branches 全部经标注 attach（正文 1 次 + 分支各 1 次调用）")
+    print("    engine: 骨架按自然段逐段标注（正文 2 段 + 分支各 1 组调用）")
 
 
 def test_engine_skeleton_annotate_failure_degrade():
@@ -317,7 +317,7 @@ def test_engine_inline_emotion_discarded():
 
     class ScriptedLLM:
         def __init__(self):
-            self._scripts = [inline, ["smile", "embarrassed"]]
+            self._scripts = [inline, ["smile"], ["embarrassed"]]
         def chat(self, messages, **kw):
             if not self._scripts:
                 raise RuntimeError("脚本耗尽")
@@ -328,7 +328,7 @@ def test_engine_inline_emotion_discarded():
     vn = BondStoryEngine(ROOT / "config" / "characters", ScriptedLLM())
     vn.start_session("igusa_haruka")
     scene = vn.send_vn_scene("（开场）")
-    # 标注层回填（值与骨架同——模型自己写的情绪被独立标注确认）
+    # 标注层按自然段回填（值与骨架同——模型自己写的情绪被独立标注确认）
     assert scene.paragraphs[0]["emotion"] == "smile"
     assert scene.paragraphs[1]["emotion"] == "embarrassed"
     print("    engine: 骨架自带 emotion → 丢弃后由标注层全量回填（唯一真源）")

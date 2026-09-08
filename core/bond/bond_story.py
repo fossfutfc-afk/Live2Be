@@ -39,7 +39,6 @@ from typing import Callable
 from contract import AgentAction, build_schema
 from core.common import Live2BeError, err
 from core.bond.bond_actions import MAX_SCENE_RETRIES, build_story_registry
-from core.bond.emotion_annotate import annotate_emotions
 from core.bond.bond_executor import StoryExecError, StoryExecutor
 from core.bond.memorial_actions import build_memorial_registry
 from core.bond.stream_probe import MemorialProbe
@@ -116,6 +115,9 @@ class BondScene:
     audio: str | None = None
     place: str | None = None
     title: str | None = None        # 章节标题（如"预先应对"）——开场标题面板; None = 不显示
+    # SceneStream P1（2026-09-08）: 段分组边界（句平铺列表里每个自然段的终点下标）。
+    # 仅引擎侧标注流水消费——**不进 to_dict/from_dict**（事件/回放不携带）
+    segments: list[int] | None = None
     memorial_prompt: str = ""
     memorial_exit: bool = False
 
@@ -229,6 +231,10 @@ class BondScene:
             is_end=(action.action == "story_end"),
             place=payload.get("place") if isinstance(payload.get("place"), str) else None,
         )
+        # SceneStream P1: 段边界随 parse 结果携带（引擎侧, 不进事件/回放）
+        _segs = payload.get("_seg_ends")
+        if isinstance(_segs, list):
+            scene.segments = [int(x) for x in _segs if isinstance(x, int) and x > 0]
         if action.action == "memorial_enter":
             prompt = payload.get("prompt")
             if isinstance(prompt, str):
@@ -298,6 +304,13 @@ class BondStoryEngine:
         # 锚点句写回 payload 的 place 键, 视觉键不进 LLM 上下文（renderer 忽略）
         self._place_keys: list[str] = []
         self._current_place = ""
+        # SceneStream P1 链记账（DESIGN_SCENE_STREAM §4.2/§8）: 情绪标注按自然段
+        # 流水——"已生效链" = 上一段原文 + 末句情绪（段 >1 情境）; 会话首段退化
+        # 本章 seed 锚（开场那一句, 禁后文）; 跨完整剧情衔接 = P2+ 开放项（§11）
+        self._carry_text: str | None = None     # 上一自然段原文（标注情境用）
+        self._carry_emo = ""                    # 链尾部情绪（carry + 段首兜底起点）
+        self._seed_anchor = ""                  # 本章开场锚（首段情境; 空 = 模板通用句）
+        self._para_seq = 0                      # 自然段全局序号（跨板递增; 日志/metrics）
         # 本回合任务卡（DESIGN_PROMPTKIT §4, Phase 3）: 构造参数 > settings 开关;
         # start_session 定值; 每场 kind 自推（in_memorial → memorial_exit, 否则 scene）
         self._task_card_override: bool | None = task_card
@@ -338,6 +351,11 @@ class BondStoryEngine:
         # 当前地点延续态重置（每个引擎实例从"未知"起, 首次变更句即起始背景）
         self._place_keys = load_place_lexicon()
         self._current_place = ""
+        # SceneStream P1 链记账复位（每会话从零起——跨剧情 carry 是 P2+ 开放项）
+        self._carry_text = None
+        self._carry_emo = ""
+        self._seed_anchor = ""
+        self._para_seq = 0
         self._system_prompt = system_prompt
         self._history = []
         self._trace = []
@@ -378,9 +396,10 @@ class BondStoryEngine:
 
         system_note: 本轮系统注记（只进 context 不入历史, 最近位置最醒目）——
         双层收尾机制用: 轮数提醒 / 达上限建议收尾。None = 不注入。
-        annotate: 两遍式 C——True（默认）= 同步标注（骨架缺 emotion → 批量标注
-        补标后返回, CLI/测试用）; False = 只返回骨架（标注由调用方异步执行——
-        webgui 用它把 emotion 解析挪出玩家等待路径, fill_scene_emotions 补标）。
+        annotate: 两遍式 C——True（默认）= 同步标注（骨架缺 emotion → **按自然段
+        逐段标注** fill_scene_emotions_text 补标后返回, CLI/测试用）; False = 只
+        返回骨架（标注由调用方异步执行——webgui 用它把 emotion 解析挪出玩家等待
+        路径, 同一 fill_scene_emotions_text 在 emo lane 补标）。
         on_memorial_prompt: 方案 A 流式嗅探钩子（2026-09-01）——LLM 输出流式
         到达, MemorialProbe 在 memorial_enter 的 prompt 字段值闭合（定稿）时
         立即回调（生图与 LLM 剩余输出并行）。None = 不嗅探（原同步行为）。
@@ -389,6 +408,14 @@ class BondStoryEngine:
         """
         if self._current_char is None:
             raise RuntimeError(err("NotInSession", "尚未开始会话"))
+
+        # SceneStream P1: 会话首场捕获"本章 seed 锚"（开场那一句——首段情绪标注
+        # 的情境退化项; 括注指令/继续占位不算叙事锚, 留空走模板通用句）
+        if not self._history and not self._seed_anchor:
+            _seed = (user_input or "").strip()
+            if _seed and _seed not in {"（开场）", "（继续）", "（开始）",
+                                       "开场", "继续", "开始", "（进入羁绊剧情）"}:
+                self._seed_anchor = _seed
 
         self._trace = []
 
@@ -522,13 +549,14 @@ class BondStoryEngine:
                                   separators=(",", ":"))})
         self._trim_history()
         scene = BondScene.from_action(action)
-        # 两遍式 C（2026-08-31）: 骨架段落缺 emotion → 批量标注补标（生成与
-        # 情绪解耦——生成不背 emotion 负担, 校验零重试; 失败静默兜底延续）。
-        # 正文 + branches 段落统一处理; annotate=False 时跳过（异步标注, webgui）。
+        # 两遍式 C（2026-08-31）+ SceneStream P1 按段流水: 骨架缺 emotion → 按
+        # **自然段**逐段标注（段任务小输入 + 情境/carry + 重试一次 + 段内延续,
+        # 永不整批 None——DESIGN_SCENE_STREAM §4/§10）。正文 + branches 统一处理;
+        # annotate=False 时跳过（异步标注, webgui emo lane）。
         # memorial_exit 跳过（过渡文字是纯字符串旁白, 无表情承载——不标, 前端延续）。
         if annotate and self._lexicon_keys and not scene.memorial_exit:
             try:
-                self.fill_scene_emotions(scene)
+                self.fill_scene_emotions_text(scene)
             except Exception as e:             # noqa: BLE001 — 标注异常不阻断剧情
                 logger.warning("emotion 标注异常（兜底延续）: %s", e)
         # place 标注（DESIGN_BOND_CONTRACT_V2 P3a, 同步路径）: 换场句锚点写回
@@ -547,33 +575,101 @@ class BondStoryEngine:
             scene.audio = vs.audio
         return scene
 
-    def fill_scene_emotions(self, scene: "BondScene") -> bool:
-        """两遍式 C 标注回填（公共方法, 供异步标注调用）: 骨架段落（emotion 已由
-        契约层丢弃）→ robust 全量标注（二分降级/逐项容错）并写回 scene
-        （正文 + branches; 2026-09-02: 注入角色人设——人设化情绪判断基准）。
-        标注失败 → 兜底延续（不 raise）。
+    def fill_scene_emotions_text(self, scene: "BondScene") -> bool:
+        """SceneStream P1 按段标注回填（公共方法——同步路径与 webgui emo lane
+        同一入口, 取代整场批标 fill_scene_emotions）。
 
-        Returns: 是否触发过标注（False = 无词表 / memorial_exit / 无缺漏）。
+        正文按**自然段**分组（scene.segments = parse 层累计句界, DESIGN_SCENE_
+        STREAM §10: 段分组在 P1 恢复随 parse 携带）逐段小请求标注; 段间链记账
+        （情境 = 上一段原文 + 末句情绪; 会话首段退化 seed 锚——只给"她此刻恰好
+        读到/知道"的信息, 禁后文）。失败半径 = 单段数句——长度不符重试一次,
+        残余段内确定性延续（前一句键 → 段首 carry）, **永不整批 None**; 每段
+        一条 grep 日志 `scene_anno para=…`（§8）。branches 逐分支一组（上下文
+        = 主线尾段; 不更新链——分支是主线外反应, 展示链仍以主线为准）。
+
+        Returns: 是否触发过标注（False = 无词表 / memorial_exit / 无正文 / 已齐）。
         """
-        if not self._lexicon_keys or scene.memorial_exit:
+        if not self._lexicon_keys or scene.memorial_exit or not scene.paragraphs:
             return False
-        from core.bond.emotion_annotate import (
-            annotate_emotions_smart,
-            fill_missing_emotions,
-        )
-
-        annotator = lambda sents, keys, hint, char: annotate_emotions_smart(  # noqa: E731
-            self.llm, sents, keys, hint, char)
-        fill_missing_emotions(scene.paragraphs, annotator=annotator,
-                              lexicon_keys=self._lexicon_keys,
-                              lexicon_hint=self._lexicon_hint,
-                              character=self._character_hint)
+        if self._scene_emo_complete(scene):
+            return False                                # 幂等: 已全带 → 不再调用
+        groups: list[list[dict]] = []
+        start = 0
+        for end in (scene.segments or [len(scene.paragraphs)]):
+            end = int(end)
+            if end > start:                             # 段界不齐 → 宁缺勿错合并兜底
+                groups.append(scene.paragraphs[start:end])
+                start = end
+        if start < len(scene.paragraphs):
+            groups.append(scene.paragraphs[start:])
+        for group in groups:
+            self._annotate_text_group(group)
         for branch in scene.branches.values():
-            fill_missing_emotions(branch, annotator=annotator,
-                                  lexicon_keys=self._lexicon_keys,
-                                  lexicon_hint=self._lexicon_hint,
-                                  character=self._character_hint)
+            if branch:
+                self._annotate_text_group(branch, chain=False)
         return True
+
+    @staticmethod
+    def _scene_emo_complete(scene: "BondScene") -> bool:
+        """骨架是否已全带 emotion（幂等短路——重入/晚到回填不再重复调用）。"""
+        for p in scene.paragraphs:
+            if isinstance(p, dict) and not (p.get("emotion") or "").strip():
+                return False
+        for br in scene.branches.values():
+            for p in br:
+                if isinstance(p, dict) and not (p.get("emotion") or "").strip():
+                    return False
+        return True
+
+    def _annotate_text_group(self, group: list[dict], *, chain: bool = True) -> None:
+        """标一段（自然段一组）: 组段任务（情境 + carry + 全注释词表 + 人设卡）
+        → 校验回填（annotate_paragraph 已保证长度恒等/词表内/零整批 None）。
+        成功/兜底都推进链记账（§4.2: 显示链按写回实时更新——冲突以文本为准,
+        正常切键由前端补切基建兜住）。异常 → 段内确定性延续, 不 raise。
+        """
+        from core.bond.emo_text import annotate_paragraph
+
+        sentences = [p.get("text") for p in group
+                     if isinstance(p, dict) and (p.get("text") or "").strip()]
+        if not sentences:
+            return
+        self._para_seq += 1                     # 自然段全局序号（日志/metrics/模板标题）
+        prev_carry = self._carry_emo or "nomal"
+        context = ""
+        if self._carry_text is not None:
+            context = (
+                "（上一段原文——她刚读完的内容, 情境最近的一屏）\n"
+                f"{self._carry_text}\n"
+                f"（上一段末句已生效情绪: {prev_carry}）"
+            )
+        elif self._seed_anchor:
+            context = f"（本章开场那一句——剧情锚点）\n{self._seed_anchor}"
+        try:
+            labels, info = annotate_paragraph(
+                self.llm, sentences, self._lexicon_keys, self._lexicon_hint,
+                self._character_hint,
+                char_name=self._current_char.display_name
+                if self._current_char else "",
+                context=context,
+                para_no=self._para_seq,
+                prev=prev_carry,
+            )
+        except Exception as e:                  # noqa: BLE001 — 失败半径=单段
+            logger.warning("emo 按段标注异常 para=%d（段内延续）: %s",
+                           self._para_seq, e)
+            labels = [prev_carry] * len(sentences)
+            info = {"attempts": 0, "retry": 0, "fallback": len(sentences)}
+        for p, label in zip(group, labels):
+            if isinstance(p, dict):
+                p["emotion"] = label
+        tail = labels[-1] if labels else prev_carry
+        logger.info(
+            "scene_anno para=%d n=%d retry=%d fallback_sents=%d carry=%s→%s",
+            self._para_seq, len(sentences), int(info.get("retry", 0)),
+            int(info.get("fallback", 0)), prev_carry, tail)
+        if chain:
+            self._carry_text = "\n".join(sentences)     # 已生效链: 上一段原文
+            self._carry_emo = tail                      # + 末句已生效情绪
 
     def fill_scene_places(self, scene: "BondScene") -> bool:
         """地点变更标注回填（DESIGN_BOND_CONTRACT_V2 §5, P3a; 公共方法供同步/

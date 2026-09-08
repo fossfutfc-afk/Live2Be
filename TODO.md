@@ -160,9 +160,45 @@
 - [ ] **bond_finish 收尾等标注的 8s 同步等待** → 后台化（当前阻塞 finish 请求线程;
       标注修复后 ~1-3s, 可接受但可优化）
 
-## 中期（蓝图 / 板块）
+### 选项等待减少 + 标注链路稳定（2026-09-08 立项候选, 未排期）
 
-- [ ] **回放功能**（事件流 → 自动播放）：
+> 背景: SceneStream P1 真 API 实测（5 轮, experiments/p1_text_annotate_real.py）——
+> 标注已收敛到「text + 编号映射 + 宽松解析 + 重试预算 3」(b12eb53); 今晚服务端
+> 负载期空响应污染数据, 验收数字等空闲复测。选项等待现状: 分支直显零等待 +
+> 分支播放期预生成, 剩余等待 ≈ max(0, 下一板生成 − 分支播放)。
+
+- [x] **A. 预生成/纯推进板 low reasoning**——**用户否决（2026-09-08）**: 现网 API
+       必须 high 才有正常文风（低思考 AI 味浓）, 创作档不可降; 选项等待改走
+       D（P2 流式）为主 + 分支预生成已覆盖的窗口内就绪。放弃降档路线
+- [ ] **B. 追赶降档**：预生成落后时先 low 出一版上屏, 后台 high 替换——双生成
+       复杂度, 仅极端慢期值得, 暂缓
+- [ ] **C. 选项候选预生成（sibling 草稿支, 用户方案 2026-09-08）**：板带 choices
+       → fork 候选支（A1 按路径回录 + 引擎克隆）各自预生成下一板; 裁决后选中支
+       端上、未选支作废 GC——等待窗口前移到选项阅读期。成本实测: 双路 prompt
+       近全量缓存命中（miss 262-1072 vs hit ~6.2-6.4k）, 增量 ≈ 1 个候选支输出
+       token。设计 docs/DESIGN_CHOICE_PREGEN.md; 参数 [bond] choice_pregen =
+       off|sibling|tree（首期 sibling, tree 预判收益≈0 不做）。**草稿纯内存不
+       落库**（append-only 只在观测/裁决点收主线）; fork 原语 = 主要工程点;
+       分歧感规则测试已获用户授权（临时改 rules 4 + 夹具同批, 测完回退）
+- [ ] **D. P2 流式渐进（段闭合即发布）**：选项/继续等待的终态解——TTFT+首段即读;
+       见 DESIGN_SCENE_STREAM §2/§10
+- [ ] **E. 空闲时段复测 P1 验收**：兜底句数≈0 / 重试率 / 单段耗时 p50
+       （`P1_MAX_BOARDS=6` 全量; 今晚负载噪声不可信）
+- [ ] **F. client json_object 空 raw 快速失败短路**：空响应根因已除（thinking
+       disabled, 见 G）——此短路变为纯防御性加固, 优先级降; 若仍要: raw 空 →
+       跳过两次 LLM 自纠错直接交上层重试
+- [x] **G. 档位语义修正（2026-09-08, 已落地）**：emotion/place "off" = 显式传
+       `{"thinking":{"type":"disabled"}}`（此前实现"不传参数"= DeepSeek 默认
+       思考开、reasoning 计入 max_tokens → 空 content, DeepSeek-V3#1610 同型;
+       disabled 后标注 4/4 一次通过、单段 0.5-2.4s）——task_levels.py 注释与
+       实现已更新 + 单测对齐
+- [ ] **H. MMT 空 reply/直触发复现追踪**：12 轮高/低探针 0 空 0 触发、completion
+       tokens 27-1126 远低于 4096 → 判为服务端偶发窗口而非档位; 复现时抓
+       `llm chat ms=…` + usage + raw（探针 .testtmp/probe_mmt_effort.py 可复用）
+- [ ] **I. 每板档位表拍板**（候选: low = wrapup/纯叙事续写预生成/MMT 闲聊;
+       high = 选项板/自由输入/触发轮）——A 的决策前提, 待用户
+
+## 中期（蓝图 / 板块）- [ ] **回放功能**（事件流 → 自动播放）：
       - vn_state marker 中断恢复：服务重启后重建 VN 引擎续播（webgui/bond.py 注释
         "M3 回放"——事件流在, 内存态丢, 需重建）
       - 回放模式：已存档剧情自动播放（选项锁定 picked）——DESIGN_RENDERER.md M3;
