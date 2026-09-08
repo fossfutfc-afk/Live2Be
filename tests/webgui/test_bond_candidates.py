@@ -1,0 +1,183 @@
+# -*- coding: utf-8 -*-
+"""webgui 候选支池（DESIGN_CHOICE_PREGEN, N2a）— spawn 触发/就绪/失败/跳过。
+
+覆盖:
+    choices 板落地 → spawn N 候选（fork 引擎后台预生成, 不占 busy）;
+    就绪后 scene_obj 可消费（内容来自对应脚本）;
+    脚本不足 → failed 态（不 raise）;
+    纯叙事板/收尾板 → 不 spawn（池空）;
+    标注调用自动应答（情绪/place 不消耗脚本）。
+"""
+
+import re
+import threading
+import time
+from pathlib import Path
+
+import pytest
+
+ROOT = Path(__file__).resolve().parent.parent.parent
+
+from webgui import bond, chat  # noqa: E402
+from core.session.store import SessionStore  # noqa: E402
+from core.momotalk import MomoTalkEngine  # noqa: E402
+
+CHARACTER = "igusa_haruka"
+
+BOARD = {"action": "story_scene", "payload": {
+    "paragraphs": [{"text": "她低着头站在窗边，指尖捏着衣角。"}],
+    "choices": ["选A", "选B"],
+    "branches": {"选A": [{"text": "她怔了一下，点点头。"}],
+                 "选B": [{"text": "她抿抿嘴没说话。"}]}}}
+NEXT = {"action": "story_scene", "payload": {
+    "paragraphs": [{"text": "（同一内容——候选线程并发取脚本, 顺序不定, 内容一致断言）"}]}}
+NARRATIVE = {"action": "story_scene", "payload": {
+    "paragraphs": [{"text": "纯叙事场, 无选项。"}]}}
+END = {"action": "story_end", "payload": {
+    "paragraphs": [{"text": "（收尾。）"}]}}
+
+
+class ScriptedLLM:
+    """场景脚本按序弹出; 标注调用按 user 声明句数自动应答（不消耗脚本）。"""
+
+    def __init__(self, *scripts):
+        self._s = list(scripts)
+        self._lock = threading.Lock()
+
+    def chat(self, messages, **kw):
+        last = messages[-1]["content"] if len(messages) > 1 else ""
+        head = messages[0]["content"]
+        if "情绪标签数组" in last:
+            m = re.search(r"句号从 1 到 (\d+)", last)
+            n = int(m.group(1)) if m else 1
+            return ["nomal"] * max(n, 1)
+        if "变更句数组" in last:
+            return []
+        if "记录员" in head or "整理者" in head:
+            return {"episodes": []}
+        with self._lock:                     # 候选线程并发取脚本（同内容安全）
+            if not self._s:
+                raise RuntimeError("ScriptedLLM 脚本耗尽")
+            return self._s.pop(0)
+
+
+def _setup(tmp_path, *scripts):
+    st = SessionStore(tmp_path)
+    llm = ScriptedLLM(*scripts)
+    engine = MomoTalkEngine(ROOT / "config" / "characters", llm, store=st)
+    engine.start_session(CHARACTER)
+    root = st.create(CHARACTER)
+    engine.attach_session(root.session_id)
+    chat._engines[CHARACTER] = engine
+    chat._store = st
+    return engine, st, root.session_id
+
+
+def _wait_status(char_id, sid, timeout=10.0):
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        st = bond.bond_status(char_id, sid)
+        if not st["busy"]:
+            return st
+        time.sleep(0.05)
+    raise AssertionError("等待生成超时")
+
+
+def _wait_candidates(state, n, status="ready", timeout=15.0):
+    """轮询候选池: n 个候选全部进入指定状态。"""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        with state._lock:
+            cands = list(state.choice_candidates)
+        if len(cands) >= n and all(c.status == status for c in cands):
+            return cands
+        time.sleep(0.05)
+    raise AssertionError(
+        f"候选未就绪: {[(c.picked, c.status) for c in cands]}")
+
+
+def _cleanup():
+    try:
+        chat._engines.pop(CHARACTER, None)
+    except Exception:                            # noqa: BLE001
+        pass
+
+
+# ----------------------------------------------------------------------------
+# N2a: spawn / ready / skip
+# ----------------------------------------------------------------------------
+
+def test_spawn_two_candidates_and_ready(tmp_path):
+    """choices 板落地 → 两个候选 spawn 且就绪（各自 fork 生成, 不占 busy）。"""
+    engine, st, sid = _setup(tmp_path, BOARD, NEXT, NEXT)
+    try:
+        bond.bond_start(CHARACTER, sid)
+        _wait_status(CHARACTER, sid)
+        state = bond._state(CHARACTER, sid)
+        cands = _wait_candidates(state, 2)
+        picks = sorted(c.picked for c in cands)
+        assert picks == ["选A", "选B"]
+        for c in cands:
+            assert c.scene_obj is not None and c.scene_obj.paragraphs
+            text = "".join(p.get("text", "") for p in c.scene_obj.paragraphs)
+            assert "同一内容" in text, text
+        assert not state.busy                    # 候选不占 busy（玩家可推进）
+        print("    spawn: 2 候选就绪（fork 引擎独立生成, busy 不被占用）")
+    finally:
+        _cleanup()
+
+
+def test_candidate_failed_no_raise(tmp_path):
+    """脚本不足 → 未拿到脚本的候选 failed（不 raise, 消费端降级老路）。"""
+    engine, st, sid = _setup(tmp_path, BOARD, NEXT)
+    try:
+        bond.bond_start(CHARACTER, sid)
+        _wait_status(CHARACTER, sid)
+        state = bond._state(CHARACTER, sid)
+        # 两个候选并发: 一个成功一个失败（脚本只有 1 份 NEXT）
+        deadline = time.time() + 15.0
+        while time.time() < deadline:
+            with state._lock:
+                statuses = {c.picked: c.status for c in state.choice_candidates}
+            if len(statuses) == 2 and "generating" not in statuses.values():
+                break
+            time.sleep(0.05)
+        assert set(statuses.values()) == {"ready", "failed"}, statuses
+        assert not state.busy
+        print(f"    spawn 失败态: {statuses}（不 raise, 可降级老路）")
+    finally:
+        _cleanup()
+
+
+def test_no_spawn_for_narrative_and_end(tmp_path):
+    """纯叙事板 / 收尾板 → 不 spawn（池空, 只有真实 choices 板才 spawn）。"""
+    # 纯叙事场（独立子目录——SessionStore 同目录会复用旧会话）
+    engine, st, sid = _setup(tmp_path / "a", NARRATIVE)
+    try:
+        bond.bond_start(CHARACTER, sid)
+        _wait_status(CHARACTER, sid)
+        state = bond._state(CHARACTER, sid)
+        assert state.choice_candidates == []
+    finally:
+        _cleanup()
+    # 收尾板
+    engine2, st2, sid2 = _setup(tmp_path / "b", END)
+    try:
+        bond.bond_start(CHARACTER, sid2)
+        _wait_status(CHARACTER, sid2)
+        state = bond._state(CHARACTER, sid2)
+        assert state.choice_candidates == []
+        assert state.completed
+    finally:
+        _cleanup()
+    print("    spawn 跳过: 纯叙事/收尾板不 spawn")
+
+
+if __name__ == "__main__":
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        test_spawn_two_candidates_and_ready(d)
+    with tempfile.TemporaryDirectory() as d:
+        test_candidate_failed_no_raise(d)
+    with tempfile.TemporaryDirectory() as d:
+        test_no_spawn_for_narrative_and_end(d)
