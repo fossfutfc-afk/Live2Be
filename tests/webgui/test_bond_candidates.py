@@ -9,6 +9,7 @@
     标注调用自动应答（情绪/place 不消耗脚本）。
 """
 
+import json
 import re
 import threading
 import time
@@ -134,6 +135,13 @@ def test_spawn_two_candidates_and_ready(tmp_path):
         s = bond.bond_status(CHARACTER, sid)
         assert sorted((c["picked"], c["status"]) for c in s["candidates"]) == \
             sorted((c.picked, c.status) for c in cands)
+        # 中断审计: 候选就绪但玩家从未裁决 → 事件流零草稿（候选不落库,
+        # 事件只可能来自 _log_scene——首场未裁决不落 bond 场景）
+        blob = "".join(json.dumps(e.payload, ensure_ascii=False)
+                       for e in st.events(CHARACTER, sid))
+        assert "同一内容" not in blob, "候选草稿泄漏进事件流!"
+        assert not any(e.type == "bond" and e.subtype == "story_scene"
+                       for e in st.events(CHARACTER, sid))
         print("    spawn: 2 候选就绪（fork 引擎独立生成, busy 不被占用）")
     finally:
         _cleanup()

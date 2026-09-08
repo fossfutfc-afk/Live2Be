@@ -997,6 +997,10 @@ def bond_finish(char_id: str, session_id: str) -> dict:
         return {"completed": False, "error": "剧情未开始"}
     if state.busy:
         return {"completed": False, "busy": True, "error": "剧情生成中"}
+    # SceneStream P1.5（中断/收尾防御, 2026-09-08 审计）: 会话收尾即清候选池
+    # ——后台候选（若仍在生成）作废孤儿, 停止烧 token; 未选支零落库由
+    # _log_scene 边界结构保证（候选从不触碰事件流）
+    _discard_candidates(state)
 
     # 收尾前等最后场景标注就绪（2026-09-02 emotion; P3b-1 双路齐）——append-only
     # 落库缺 emotion/place 不可补; 标注 worker 独立线程, 短等（失败兜底也回填/
