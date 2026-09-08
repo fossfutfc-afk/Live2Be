@@ -35,6 +35,14 @@ NARRATIVE = {"action": "story_scene", "payload": {
     "paragraphs": [{"text": "纯叙事场, 无选项。"}]}}
 END = {"action": "story_end", "payload": {
     "paragraphs": [{"text": "（收尾。）"}]}}
+# N2b 链式 spawn 用: 候选下一板自身带 choices（读板期再 spawn 一层）
+NEXT_C = {"action": "story_scene", "payload": {
+    "paragraphs": [{"text": "（第二层候选板, 又带选项。）"}],
+    "choices": ["再选1", "再选2"],
+    "branches": {"再选1": [{"text": "（反应1）"}],
+                 "再选2": [{"text": "（反应2）"}]}}}
+N1 = {"action": "story_scene", "payload": {
+    "paragraphs": [{"text": "（第三层内容。）"}]}}
 
 
 class ScriptedLLM:
@@ -171,6 +179,111 @@ def test_no_spawn_for_narrative_and_end(tmp_path):
     finally:
         _cleanup()
     print("    spawn 跳过: 纯叙事/收尾板不 spawn")
+
+
+# ----------------------------------------------------------------------------
+# N2b: 裁决命中切换 / 老路回退 / 链式 spawn
+# ----------------------------------------------------------------------------
+
+def test_pick_hits_candidate_switch_engine(tmp_path):
+    """裁决命中就绪候选 → 切主引擎 + pregen 通道就绪 + 池清空;
+    （继续）消费零 LLM（候选即下一板）。"""
+    engine, st, sid = _setup(tmp_path / "h", BOARD, NEXT, NEXT)
+    try:
+        bond.bond_start(CHARACTER, sid)
+        _wait_status(CHARACTER, sid)
+        state = bond._state(CHARACTER, sid)
+        cands = _wait_candidates(state, 2)
+        cand_a = next(c for c in cands if c.picked == "选A")
+        live_before = state.vn
+
+        r = bond.bond_turn(CHARACTER, sid, "选A")
+        assert r["accepted"] and r.get("candidate") is True, r
+        # 主引擎切换为候选 fork（历史已内嵌裁决行——无重复回录）
+        assert state.vn is cand_a.engine
+        assert state.vn is not live_before
+        assert state.pregen_obj is cand_a.scene_obj
+        assert state.choice_candidates == []          # 未选候选作废 GC
+        assert state.scene_logged                     # 主线已落库（分支展示中）
+        # （继续）→ 消费 pregen 零 LLM（无脚本可耗 = 若走生成会抛, 此处应成功）
+        deadline = time.time() + 10.0
+        r2 = None
+        while time.time() < deadline:
+            r2 = bond.bond_turn(CHARACTER, sid, "（继续）")
+            if r2["accepted"]:
+                break
+            time.sleep(0.05)
+        assert r2 is not None and r2["accepted"], r2
+        # 链式预生成（无脚本 → 降级失败）结束后 busy 复位
+        deadline = time.time() + 10.0
+        while time.time() < deadline and bond.bond_status(
+                CHARACTER, sid)["busy"]:
+            time.sleep(0.05)
+        assert state.scene_obj is cand_a.scene_obj
+        assert state.round == 2
+        text = "".join(p.get("text", "") for p in state.scene_obj.paragraphs)
+        assert "同一内容" in text
+        print("    pick-hit: 引擎切换 / pregen 通道 / 零 LLM 消费 / 池清空")
+    finally:
+        _cleanup()
+
+
+def test_pick_fallback_when_no_ready(tmp_path):
+    """候选未就绪（failed）→ 走老路: record_picked + 单路预生成, 不 raise。"""
+    engine, st, sid = _setup(tmp_path / "f", BOARD, NEXT)
+    try:
+        bond.bond_start(CHARACTER, sid)
+        _wait_status(CHARACTER, sid)
+        state = bond._state(CHARACTER, sid)
+        # 1 ready 1 failed（脚本只有 1 份）→ 对 failed 候选裁决
+        deadline = time.time() + 15.0
+        while time.time() < deadline:
+            with state._lock:
+                statuses = {c.picked: c.status for c in state.choice_candidates}
+            if len(statuses) == 2 and "generating" not in statuses.values():
+                break
+            time.sleep(0.05)
+        bad_pick = next(p for p, s in statuses.items() if s == "failed")
+        live_before = state.vn
+        r = bond.bond_turn(CHARACTER, sid, bad_pick)
+        assert r["accepted"] and not r.get("candidate"), r
+        assert state.vn is live_before                 # 老路不切引擎
+        assert state.choice_candidates == []
+        # record_picked 生效（老路回录）
+        assert "（选择了: %s）" % bad_pick in state.vn.history[-1]["content"]
+        print(f"    pick-fallback: failed 候选走老路（回录 {bad_pick}, 不 raise）")
+    finally:
+        _cleanup()
+
+
+def test_chain_spawn_after_pregen_consume(tmp_path):
+    """候选下一板自身带 choices → （继续）消费后链式再 spawn（N2a 缺口）。"""
+    engine, st, sid = _setup(tmp_path / "c", BOARD, NEXT_C, NEXT_C, N1, N1)
+    try:
+        bond.bond_start(CHARACTER, sid)
+        _wait_status(CHARACTER, sid)
+        state = bond._state(CHARACTER, sid)
+        cands = _wait_candidates(state, 2)             # 第一层候选
+        r = bond.bond_turn(CHARACTER, sid, "选A")
+        assert r["accepted"] and r.get("candidate") is True
+        # 消费（继续）→ 提升候选板（带 choices）→ 链式 spawn 第二层
+        deadline = time.time() + 10.0
+        r2 = None
+        while time.time() < deadline:
+            r2 = bond.bond_turn(CHARACTER, sid, "（继续）")
+            if r2["accepted"]:
+                break
+            time.sleep(0.05)
+        assert r2 is not None and r2["accepted"], r2
+        assert state.scene_obj.choices == ["再选1", "再选2"]
+        cands2 = _wait_candidates(state, 2)
+        assert sorted(c.picked for c in cands2) == ["再选1", "再选2"]
+        for c in cands2:
+            text = "".join(p.get("text", "") for p in c.scene_obj.paragraphs)
+            assert "第三层" in text, text
+        print("    chain-spawn: 候选板消费后链式再 spawn（带 choices 场景）")
+    finally:
+        _cleanup()
 
 
 if __name__ == "__main__":
