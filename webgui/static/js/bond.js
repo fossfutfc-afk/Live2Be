@@ -386,6 +386,10 @@ const BondVN = (() => {
       try {
         const st = await (await fetch(
           `/api/bond/status?char_id=${charId}&session_id=${sessionId}`)).json();
+        dbg("watch tick round", st.round, "ver", st.emo_version, "gate",
+            st.gate_busy,
+            "emotions", ((st.scene && st.scene.paragraphs) || []).map(
+                (p) => (p && p.emotion) || "-"));
         if (st.round !== seenRound) { clearEmoWatch(); return; }  // 场景已推进
         if (st.scene && st.emo_version !== undefined && st.emo_version !== seenEmo) {
           dbg("emoWatch 版本变化 t=", Math.round(performance.now()),
