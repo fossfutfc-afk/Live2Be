@@ -120,6 +120,22 @@ DEMO_SCRIPT: list[dict] = [
 
 
 @dataclass
+class ChoiceCandidate:
+    """候选支草稿（DESIGN_CHOICE_PREGEN §1, N2a）: 一个候选项对应的 fork 引擎。
+
+    纯内存态: choices 板展示即 spawn（每个候选 fork 引擎后台预生成"选了它
+    之后的下一板", 同步标注——后台不可见）; 玩家裁决命中且 ready → 消费提升
+    （N2b: 切主引擎 + 提升为下一板）; 未选/换板 → 作废 GC（零落库, 事件流
+    无感知——append-only 唯一真源不变）。
+    """
+
+    picked: str                                  # 对应 choices 的选项文本
+    engine: BondStoryEngine | None = None        # fork 草稿引擎（独立历史/链）
+    scene_obj: BondScene | None = None           # 就绪后的下一板场景
+    status: str = "generating"                   # generating | ready | failed
+
+
+@dataclass
 class BondState:
     """一场羁绊剧情的驱动状态（per (char_id, session_id) 内存态）。"""
 
@@ -157,6 +173,10 @@ class BondState:
     pregen_obj: BondScene | None = None
     pregen_scene: dict | None = None
     pregen_input: str = ""
+    # SceneStream P1.5 候选支池（DESIGN_CHOICE_PREGEN §1, N2a）: choices 板
+    # 展示即 spawn——每候选项一个 fork 草稿引擎后台预生成（不占 busy）;
+    # 裁决命中且就绪 → N2b 消费提升; 新板/换板 → _spawn_candidates 起点清池
+    choice_candidates: list = field(default_factory=list)
     # 选项配额（整段剧情 2~3 次选择——LLM 每场给选项的疲劳问题）: 已用计数,
     # 注入 system_note 提醒; 预生成场景的 choices 同样计入
     choices_used: int = 0
@@ -1026,6 +1046,10 @@ def _generate(state: BondState, char_id: str, session_id: str, user_input: str) 
                 _log_scene_meta(state, char_id, session_id, scene)
                 # 两遍式 C 异步标注: 骨架先显示, emotion 解析入队补标（不阻塞玩家）
                 _enqueue_annotate(state, scene)
+                # SceneStream P1.5（N2a）: 新板落地 → 旧候选作废（GC）; 本板若
+                # 带 choices → 候选支 spawn（读板期后台预生成, 不占 busy）
+                state.choice_candidates = []
+                _spawn_candidates(state, scene, char_id, session_id)
                 state.fail_count = 0           # 生成成功 → 失败计数清零
                 # 计时埋点（§6.1）: 每轮生成耗时; 首场且仍处预热态（未被丢弃/
                 # adopt）→ 预热就绪 latency
@@ -1115,6 +1139,65 @@ def _pregenerate(state: BondState, char_id: str, session_id: str) -> None:
             state.busy = False
 
     threading.Thread(target=run, daemon=True).start()
+
+
+def _spawn_candidates(state: BondState, scene: BondScene,
+                      char_id: str, session_id: str) -> None:
+    """SceneStream P1.5（DESIGN_CHOICE_PREGEN §0, N2a）: choices 板候选支 spawn。
+
+    choices 板落地（玩家开始读板/选项）即对每个候选项 fork 草稿引擎, 后台
+    send("（继续）") 预生成"选了它之后的下一板"——把等待窗口前移到选项阅读期。
+    - 候选引擎独立（fork_for_pick: 历史已 A1 内嵌裁决行, 标注链/place 分岔
+      预期内）; **不持 chat._lock / 不占 state.busy**（加速器语义——玩家路径
+      永不被候选阻塞; 同角色 LLM 并发 ≤ live+候选+lane, httpx 并发安全）
+    - annotate=True（后台不可见, 同步标完——省 lane 归属改造; 消费即视觉就绪）
+    - 失败 → status=failed（N2b 消费端降级老路）; 换板/作废 → 池清空, 孤儿
+      线程完成即不可达（GC, 零落库）
+    - 调用点: 主线 _generate 落地（N2a）; **pregen 消费提升出 choices 板 →
+      N2b 需在此处补 spawn**（缺口登记, 防漏: 预生成场景若带选项同样要读板期
+      候选）; choices_used/prev_emotions 统计在消费提升时对齐 _pregenerate
+    """
+    if state.demo is not None or state.vn is None:
+        return
+    if not scene.choices or scene.is_end or scene.memorial_prompt:
+        return
+    cands: list[ChoiceCandidate] = []
+    for picked in scene.choices:
+        fork = state.vn.fork_for_pick(picked)
+        if fork is None:
+            continue
+        cands.append(ChoiceCandidate(picked=picked, engine=fork))
+    if not cands:
+        return
+    with state._lock:
+        state.choice_candidates = cands
+    for c in cands:
+        threading.Thread(target=_candidate_worker,
+                         args=(state, c, char_id, session_id), daemon=True).start()
+    logger.info("bond_cand spawn %s/%s round=%d n=%d",
+                char_id, session_id, state.round, len(cands))
+
+
+def _candidate_worker(state: BondState, cand: ChoiceCandidate,
+                      char_id: str, session_id: str) -> None:
+    """候选支生成线程: fork 引擎预生成下一板（同步标注）; 写回带池身份检查。"""
+    t0 = time.monotonic()                     # 计时埋点（§6.1）
+    try:
+        scene = cand.engine.send_vn_scene("（继续）", annotate=True)
+        with state._lock:
+            # 池身份检查: 已被换板/作废 → 结果丢弃（孤儿, 不可达即 GC）
+            if any(c is cand for c in state.choice_candidates):
+                cand.scene_obj = scene
+                cand.status = "ready"
+                logger.info("bond_cand ready %s/%s picked=%s dur=%dms para=%d",
+                            char_id, session_id, cand.picked, _ms_since(t0),
+                            len(scene.paragraphs))
+    except Exception as e:                    # noqa: BLE001 — 失败降级老路
+        with state._lock:
+            if any(c is cand for c in state.choice_candidates):
+                cand.status = "failed"
+        logger.warning("bond_cand fail %s/%s picked=%s (%dms): %s",
+                       char_id, session_id, cand.picked, _ms_since(t0), e)
 
 
 def _ensure_lane(state: BondState, *, started_attr: str, thread_attr: str,
