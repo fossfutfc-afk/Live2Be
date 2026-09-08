@@ -1582,9 +1582,14 @@ def _wrapup(char_id: str, session_id: str, title: str, completed: bool) -> None:
     演示模式（state.demo）: 预设收尾话落 mmt 事件, 跳过 agent_turn 和 digest（不调 LLM）。
     """
     state = _state(char_id, session_id)
+    # daemon 线程长生命周期——**store 快照**（2026-09-09 审计: wrapup 在 finish
+    # 后异步执行, 期间全局 chat._store 可能已被替换（测试 cleanup/未来多线）,
+    # 迟到的兜底写入曾落错 store（真实 data 被测试污染）; 线程内一律用快照,
+    # 与"谁调起它"时的归属一致
+    store = _store()
     if state.demo is not None:
         try:
-            _store().append_event(char_id, session_id, make_event(
+            store.append_event(char_id, session_id, make_event(
                 "mmt", "mmt_chat",
                 {"player": "", "reply": "（演示收尾）今晚的剧情，我会一直记在心里……"}))
         except Exception as e:                       # noqa: BLE001
@@ -1599,7 +1604,7 @@ def _wrapup(char_id: str, session_id: str, title: str, completed: bool) -> None:
     # 统一上下文窗口: bond 期间 momotalk 引擎未跑——收尾前把事件流（含刚结束的
     # bond 场景叙事）灌进 _history, 收尾话自然接续剧情（起因便签不再需要）
     try:
-        _evs = exclude_abandoned(_store().events(char_id))
+        _evs = exclude_abandoned(store.events(char_id))
         _win = window_messages(_evs)
         if _win:
             engine._history = _win
@@ -1636,7 +1641,7 @@ def _wrapup(char_id: str, session_id: str, title: str, completed: bool) -> None:
                 fallback = "（今晚的事……我会好好记住的。老师，谢谢你。）"
             else:
                 fallback = "（……老师突然就走了。嗯，剧情下次再继续吧。）"
-            _store().append_event(char_id, session_id, make_event(
+            store.append_event(char_id, session_id, make_event(
                 "mmt", "mmt_chat",
                 {"player": "", "reply": fallback}))
         except Exception as e2:                      # noqa: BLE001

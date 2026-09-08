@@ -25,6 +25,11 @@ from webgui import bond, chat
 ROOT = Path(__file__).resolve().parent.parent.parent
 CHARACTER = "igusa_haruka"
 
+#: 模块级 store 快照（2026-09-09 审计）: cleanup 一律恢复此值（= 真实 data 默认,
+#: import 发生在任何测试运行前）——**禁止硬编码另建 SessionStore**（曾导致
+#: wrapup daemon 线程把兜底话写进真实 data/events.jsonl, 测试污染真源）
+_ORIG_STORE = chat._store
+
 
 @pytest.fixture(autouse=True)
 def _no_choice_pregen(monkeypatch):
@@ -135,7 +140,7 @@ def _turn_until_accepted(char_id, sid, text, timeout=10.0):
 
 def _cleanup():
     chat._engines.pop(CHARACTER, None)
-    chat._store = SessionStore(Path("data"))   # 恢复真实 store（模块级默认）
+    chat._store = _ORIG_STORE      # 恢复模块快照（禁硬编码真 data）
 
 
 # ----------------------------------------------------------------------------
@@ -942,7 +947,7 @@ def test_bond_memorial_async_image(tmp_path, monkeypatch):
         print("    bond 纪念立绘: 流式嗅探 prompt 定稿即生图 → 画廊落盘 → memorial_img 就绪")
     finally:
         chat._engines.pop(CHARACTER, None)
-        chat._store = SessionStore(Path("data"))
+        chat._store = _ORIG_STORE
 
 
 class FailingImageGen:
@@ -993,7 +998,7 @@ def test_bond_memorial_image_failure_degrades(tmp_path, monkeypatch):
         print("    bond 纪念立绘失败: 降级纯文字, 剧情照走（memorial_img=None）")
     finally:
         chat._engines.pop(CHARACTER, None)
-        chat._store = SessionStore(Path("data"))
+        chat._store = _ORIG_STORE
 
 
 # ----------------------------------------------------------------------------
@@ -1040,7 +1045,7 @@ def test_bond_midway_finish_no_digest(tmp_path):
         print("    bond 中途退出: vn_exit completed=False + wrapup 收尾话 + 不 digest")
     finally:
         chat._engines.pop(CHARACTER, None)
-        chat._store = SessionStore(Path("data"))
+        chat._store = _ORIG_STORE
 
 
 # ----------------------------------------------------------------------------
