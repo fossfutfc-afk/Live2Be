@@ -136,7 +136,7 @@
 - [x] N_a 失败超限 = 中止态（completed 恒 False、不落结束事件、可重试/离开重进续写）; 篇幅超限强制 closing 删除, _system_note 每轮强制 story_end 注记
 - [x] N_b 前端天然支持（showTurnError 重试按钮; 无 is_end 不触发自动 finish）; 中止文案简洁化（完整异常入 diag 日志 data/diag/live2be.log——诊断不进事件流）
 - [x] N_c digest 触发面注释守卫（completed 只来自场景 is_end 自然收尾）
-- [ ] N_d CLI 失败收场对齐: vn_cli catch 仍落 closing story_end（伪收场残留, webgui 已改）——失败提示+重试 N 次, 超限中断且不落 story_end（vn_enter 在押可 resume）
+- [x] N_d CLI 失败收场对齐（72b2043）: 失败自动重试 ≤3 次, 超限/篇幅耗尽 = 中断退出（completed=False、不落 story_end、vn_exit False）——digest 只可能来自自然 story_end; 重进续写能力仍待 CLI resume 落地（见中期回放）
 - [ ] 放弃本章/拒绝邀约（显式退出 UI + vn_abandon——未来扩展, 用户搁置）
 - [ ] replay 尾场 is_end → completed 置位口径核对（回放已完整结束剧情时的收尾/digest 语义）
 - [x] 诊断日志落盘（5470f9f: data/diag/live2be.log, WARNING+ 旁路文件, 不进事件流）
