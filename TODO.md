@@ -127,6 +127,20 @@
 - [ ] **真机完整 bond 闭环验证 digest**：wiki 出厂落盘 + episode 化后, 跑完整剧情
       → digest 产 episode/belief + 注入刷新（此前 digest 从未成功闭环过）
 
+### 中止语义修正（2026-09-09 用户拍板: 中断/异常 ≠ 失败/完成）✅ 引擎侧已落地
+
+> 历史遗留: 生成失败超限曾 closing 伪收场（is_end+completed）→ 前端 1.6s 自动
+> finish → vn_exit completed=True → digest + 完整收尾话/兜底落库——大量重复
+> "好好记住"兜底话 + wiki 空的来源（从未自然完成）。
+
+- [x] N_a 失败超限 = 中止态（completed 恒 False、不落结束事件、可重试/离开重进续写）; 篇幅超限强制 closing 删除, _system_note 每轮强制 story_end 注记
+- [x] N_b 前端天然支持（showTurnError 重试按钮; 无 is_end 不触发自动 finish）; 中止文案简洁化（完整异常入 diag 日志 data/diag/live2be.log——诊断不进事件流）
+- [x] N_c digest 触发面注释守卫（completed 只来自场景 is_end 自然收尾）
+- [ ] N_d CLI 失败收场对齐: vn_cli catch 仍落 closing story_end（伪收场残留, webgui 已改）——失败提示+重试 N 次, 超限中断且不落 story_end（vn_enter 在押可 resume）
+- [ ] 放弃本章/拒绝邀约（显式退出 UI + vn_abandon——未来扩展, 用户搁置）
+- [ ] replay 尾场 is_end → completed 置位口径核对（回放已完整结束剧情时的收尾/digest 语义）
+- [x] 诊断日志落盘（5470f9f: data/diag/live2be.log, WARNING+ 旁路文件, 不进事件流）
+
 ## 短期（体验闭环 / 明确小项）
 
 - [ ] **mmt 圆括号剥离误伤（未来优化）**：`_strip_action_brackets` 剥全部 （）/() 内容——
@@ -199,7 +213,9 @@
 - [ ] **I. 每板档位表拍板**（候选: low = wrapup/纯叙事续写预生成/MMT 闲聊;
        high = 选项板/自由输入/触发轮）——A 的决策前提, 待用户
 
-## 中期（蓝图 / 板块）- [ ] **回放功能**（事件流 → 自动播放）：
+## 中期（蓝图 / 板块）
+
+- [ ] **回放功能**（事件流 → 自动播放）：
       - vn_state marker 中断恢复：服务重启后重建 VN 引擎续播（webgui/bond.py 注释
         "M3 回放"——事件流在, 内存态丢, 需重建）
       - 回放模式：已存档剧情自动播放（选项锁定 picked）——DESIGN_RENDERER.md M3;
