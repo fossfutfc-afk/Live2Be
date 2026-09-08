@@ -50,8 +50,53 @@ def _system(llm: _ScriptLLM, idx: int = -1) -> str:
 
 
 # ----------------------------------------------------------------------------
-# pick_demo_keys: 示范键恒 ∈ 词表
+# _extract_key_array: 严格 JSON 优先, 容忍裸键数组（真 API 观测补强）
 # ----------------------------------------------------------------------------
+
+def test_extract_key_array_lenient():
+    from core.bond.emo_text import _extract_key_array
+
+    # 编号映射形态（现网契约）: dict 直给 / JSON 字符串 / 乱序键按句号排序
+    assert _extract_key_array({"labels": {"1": "smile", "2": "nomal"}}) == \
+        ["smile", "nomal"]
+    assert _extract_key_array('{"labels": {"1": "smile", "2": "nomal"}}') == \
+        ["smile", "nomal"]
+    assert _extract_key_array({"labels": {"2": "nomal", "1": "smile"}}) == \
+        ["smile", "nomal"]
+    assert _extract_key_array({"emotion": {"1": "smile"}}) == ["smile"]
+    # 旧形态兼容: 数组 / 对象数组 / 裸键 / 字符串数组
+    assert _extract_key_array('["smile", "nomal"]') == ["smile", "nomal"]
+    assert _extract_key_array(["smile"]) == ["smile"]
+    assert _extract_key_array({"labels": ["smile", "nomal"]}) == \
+        ["smile", "nomal"]
+    assert _extract_key_array("[nomal, embarrassed]") == ["nomal", "embarrassed"]
+    assert _extract_key_array("输出如下:\n[nomal, smile]\n谢谢") == \
+        ["nomal", "smile"]
+    # 无法识别（引号混杂/中文/空/非编号对象）→ None（走重试路径）
+    assert _extract_key_array("[nomal, \"smile\"]") is None
+    assert _extract_key_array("[她低头, smile]") is None
+    assert _extract_key_array("") is None
+    assert _extract_key_array("抱歉，我无法完成") is None
+    assert _extract_key_array({"labels": {"a": "smile"}}) is None
+    print("    extract: 编号映射/数组/裸键全形态, 无法识别 → None")
+
+
+def test_para_unquoted_keys_accepted():
+    """裸键输出（省引号）不再判死——逐项词表校验后正常入链。"""
+    from core.bond.emo_text import annotate_paragraph
+
+    class _BareLLM:
+        def chat(self, messages, **kw):
+            return "[smile, nomal]"            # 无引号裸键
+
+    labels, info = annotate_paragraph(
+        _BareLLM(), ["a。", "b！"], ["nomal", "smile"], "", "", "", "",
+        para_no=1, prev="nomal", max_tokens=256)
+    assert labels == ["smile", "nomal"]
+    assert info == {"attempts": 1, "retry": 0, "fallback": 0}
+    print("    para: 裸键数组一次通过（无重试/无兜底）")
+
+
 
 def test_pick_demo_keys_in_lexicon():
     from core.bond.emo_text import pick_demo_keys
@@ -80,12 +125,12 @@ def test_para_annotate_normal():
     sys = _system(llm)
     assert "第 3 段" in sys and "遥香" in sys and "胆小" in sys      # 段号/人设卡
     assert "她抬起头" in sys and "末句情绪: nomal" in sys            # 情境块
-    assert "共 2 句" in sys and "长度必须恰为 2 项" in sys            # 总数显式双写
+    assert "共 2 句" in sys and "一行一项" in sys                    # 总数/逐行显式
     assert "1: 她站在窗边，看着远处。" in sys and "2: 老师来了！" in sys
     assert "smile: 微笑" in sys or "smile" in sys                    # 全注释词表
-    assert "[\"nomal\", \"smile\"]" in sys or "[" in sys             # I/O 示范替换
+    assert '"labels"' in sys                                        # 编号映射契约
     assert "恰 2 项" in llm.calls[-1][-1]["content"]                 # 底部双写
-    print("    para: 正常标注（模板全占位符替换, 总数显式双写, 1 次调用零兜底）")
+    print("    para: 正常标注（模板全占位符替换, 编号映射, 1 次调用零兜底）")
 
 
 def test_para_length_mismatch_retry_message():
@@ -99,11 +144,11 @@ def test_para_length_mismatch_retry_message():
 
 
 def test_para_exhausted_chain_fallback_never_none():
-    llm, labels, info = _para("不是数组", "[also bad]")
-    assert len(llm.calls) == 2                  # 预算 = 初始 + 重试一次
+    llm, labels, info = _para("不是数组", "[also bad]", "仍坏")
+    assert len(llm.calls) == 3                  # 预算 = 首发 + 2 次重试
     # 耗尽 → 段内确定性延续（prev carry）——绝不整批 None / 不无限调用
     assert labels == ["nomal", "nomal"]
-    assert info["fallback"] == 2 and info["retry"] == 1
+    assert info["fallback"] == 2 and info["retry"] == 2 and info["attempts"] == 3
     # 词表外单项 → 只丢该项, 其余保留（段内延续: 前一句键）
     llm2, labels2, info2 = _para(["smile", "zzz_not_in_lexicon"])
     assert labels2 == ["smile", "smile"] and info2["fallback"] == 1
