@@ -83,7 +83,9 @@ def test_annotate_places_valid_and_prompt_shape():
     assert "当前所在地" in sys_text and "classroom" in sys_text
     assert "1: 她在教室里收拾着书包。" in sys_text          # 编号句子
     assert llm.calls[0]["kw"].get("temperature") == 0.2
-    assert llm.calls[0]["kw"].get("extra_body") == {}       # off-thinking 真源
+    # off → 显式 thinking disabled（2026-09-08: 不传 = 默认思考吃光预算→空 content）
+    assert llm.calls[0]["kw"].get("extra_body") == \
+        {"thinking": {"type": "disabled"}}
 
 
 def test_annotate_places_empty_inputs():

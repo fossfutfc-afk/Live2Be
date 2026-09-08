@@ -4,7 +4,7 @@
 覆盖:
     1. 三类 thinking 档位语义（main=default 跟随 settings / emotion=off / digest=high）
     2. max_tokens 形态值（mmt 4096 / bond 8192 / emotion 512 / digest 8192…）
-    3. extra_body 换算（default→None / off→{} / 显式档→dict）
+    3. extra_body 换算（default→None / off→thinking disabled / 显式档→dict）
     4. settings.toml [llm.tasks] 覆盖（合法合并 / 非法忽略 / 未知形态忽略）
 """
 import sys
@@ -32,11 +32,13 @@ def test_base_profiles():
 
 
 def test_extra_body_conversion():
-    """档位 → extra_body: default 交给客户端, off 显式关, 显式档注入。"""
+    """档位 → extra_body: default 交给客户端, off 显式关思考, 显式档注入。"""
     assert tl.extra_body("mmt") is None                     # default → 客户端 settings 档
-    assert tl.extra_body("emotion") == {}                   # off → 关闭 thinking
+    # off → 显式 thinking disabled（DeepSeek v4-flash 默认思考开——
+    # 不传 = 思考吃光 max_tokens → 空 content, DeepSeek-V3#1610; 2026-09-08 真机定位）
+    assert tl.extra_body("emotion") == {"thinking": {"type": "disabled"}}
     assert tl.extra_body("digest") == {"reasoning_effort": "high"}
-    print("    extra_body: default→None / off→{} / high→显式注入")
+    print("    extra_body: default→None / off→thinking disabled / high→显式注入")
 
 
 def test_unknown_profile_raises():
@@ -71,7 +73,8 @@ def test_settings_override(monkeypatch, tmp_path):
     assert tl.profile("emotion")["thinking"] == "medium"
     assert tl.max_tokens("emotion") == 768
     assert tl.profile("digest")["thinking"] == "off"
-    assert tl.extra_body("digest") == {}                    # 覆盖为 off → 关闭
+    # 覆盖为 off → 显式关思考（同 emotion）
+    assert tl.extra_body("digest") == {"thinking": {"type": "disabled"}}
     assert tl.profile("mmt") == tl.PROFILES["mmt"]          # 非法值 → 原样
     assert "unknown" not in tl._load_overrides()            # 未知形态忽略
     print("    settings 覆盖: 合法合并 / 非法忽略 / 未知形态忽略")
