@@ -238,8 +238,12 @@ def annotate_paragraph(
                 ],
                 temperature=0.2,
                 max_tokens=max_tokens,
-                # 2026-09-08 实测: text 模式 + 编号映射（引擎数项）; json_object
-                # 模式服务端长提示词空响应率高且客户端自纠错放大成本(15s/次)
+                # 2026-09-08 终局: json_object + **thinking 显式 disabled**
+                # （task_levels off 语义; DeepSeek v4-flash 默认思考吃光
+                # max_tokens → 空 content, DeepSeek-V3#1610 同型——disabled 后
+                # 无空响应 + 引号/结构双保证, 单段 0.5-2.4s 实测）; 编号映射
+                # 由引擎数项, 自纠错风暴不再触发
+                response_format="json_object",
                 extra_body=_tl_extra("emotion"),
             )
         except Exception as e:                  # noqa: BLE001 — 失败重试/段内延续

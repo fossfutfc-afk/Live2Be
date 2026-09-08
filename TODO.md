@@ -181,10 +181,14 @@
        见 DESIGN_SCENE_STREAM §2/§10
 - [ ] **E. 空闲时段复测 P1 验收**：兜底句数≈0 / 重试率 / 单段耗时 p50
        （`P1_MAX_BOARDS=6` 全量; 今晚负载噪声不可信）
-- [ ] **F. client json_object 空 raw 快速失败短路**：raw 空 → 跳过两次 LLM 自纠错
-       （~15s/次风暴源头）直接抛上层重试——之后可安全回 json_object（引号问题根治）
-- [ ] **G. 档位语义注释修正**：emotion "off" = 不注入 reasoning_effort（服务端默认档
-       生效, 非关闭思考）——task_levels.py / settings.toml 注释写清
+- [ ] **F. client json_object 空 raw 快速失败短路**：空响应根因已除（thinking
+       disabled, 见 G）——此短路变为纯防御性加固, 优先级降; 若仍要: raw 空 →
+       跳过两次 LLM 自纠错直接交上层重试
+- [x] **G. 档位语义修正（2026-09-08, 已落地）**：emotion/place "off" = 显式传
+       `{"thinking":{"type":"disabled"}}`（此前实现"不传参数"= DeepSeek 默认
+       思考开、reasoning 计入 max_tokens → 空 content, DeepSeek-V3#1610 同型;
+       disabled 后标注 4/4 一次通过、单段 0.5-2.4s）——task_levels.py 注释与
+       实现已更新 + 单测对齐
 - [ ] **H. MMT 空 reply/直触发复现追踪**：12 轮高/低探针 0 空 0 触发、completion
        tokens 27-1126 远低于 4096 → 判为服务端偶发窗口而非档位; 复现时抓
        `llm chat ms=…` + usage + raw（探针 .testtmp/probe_mmt_effort.py 可复用）
