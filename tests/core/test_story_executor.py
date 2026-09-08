@@ -216,11 +216,14 @@ def test_parse_story_end_rejects_nonempty_choices():
 
 
 def test_parse_story_end_empty_or_missing_choices_ok():
+    # _seg_ends = SceneStream P1 引擎侧段边界（parse 结果携带, 不进事件/渲染）
     a, r = _parse("story_end", {"paragraphs": ["收尾了。"]})
-    assert r.is_valid and a.payload == {"paragraphs": [{"text": "收尾了。"}]}
+    assert r.is_valid and a.payload == {"paragraphs": [{"text": "收尾了。"}],
+                                        "_seg_ends": [1]}
     a, r = _parse("story_end", {"paragraphs": ["收尾了。"], "choices": []})
-    assert r.is_valid and a.payload == {"paragraphs": [{"text": "收尾了。"}]}
-    print("    parse_story_end: 空/缺省 choices 静默忽略, payload 干净")
+    assert r.is_valid and a.payload == {"paragraphs": [{"text": "收尾了。"}],
+                                        "_seg_ends": [1]}
+    print("    parse_story_end: 空/缺省 choices 静默忽略, payload 仅多引擎侧 _seg_ends")
 
 
 # ----------------------------------------------------------------------------

@@ -1,6 +1,11 @@
 # DESIGN_SCENE_STREAM — 场景流: 按 text(自然段) 流式标注 + 渐进发布（定稿草案）
 
 > **状态**: 设计定稿草案 2026-09-08（用户逐项拍板, 见 §0）。
+> **P1 落地**（2026-09-08, 分支 feat/scene-stream-p1）: 按段标注原语
+> `core/bond/emo_text.py`（模板 llm/prompts/emotion_text_annotate.md）+ 引擎
+> `BondStoryEngine.fill_scene_emotions_text`（段分组/seed 锚/跨板 carry 链记账,
+> 取代整场批标 fill_scene_emotions）; 同步路径与 webgui emo lane 同一入口;
+> 每段 `scene_anno para=…` grep 日志（§8）。
 > **背景**: 两遍式 C 的标注层从"整场批标"演进为"按段流水"。触发事故链:
 > 实机 emotion dur=27.4s（失败二分串行爆炸, 预算封顶修复）→ 整批 None 兜底
 > 被否（视觉是 VN 核心, 不容马虎）→ 转入架构讨论: 哪些环节可去同步、
