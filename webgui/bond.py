@@ -826,10 +826,13 @@ def bond_turn(char_id: str, session_id: str, text: str) -> dict:
         if state.scene_obj is not None and state.scene_obj.is_end:
             state.completed = True
         _log_scene_meta(state, char_id, session_id, state.scene_obj)
-        # 链式: 新场景若是纯叙事（无 choices 未收尾）→ 继续预生成下一场
-        if (state.scene_obj is not None
-                and not state.scene_obj.choices and not state.scene_obj.is_end):
-            _pregenerate(state, char_id, session_id)
+        # 链式备料（N2a 缺口补上, N2b）: 新场景未收尾——纯叙事 → 单路预生成;
+        # 带 choices → 候选 spawn（读板期预跑, 与主线生成同款）
+        if (state.scene_obj is not None and not state.scene_obj.is_end):
+            if state.scene_obj.choices:
+                _spawn_candidates(state, state.scene_obj, char_id, session_id)
+            else:
+                _pregenerate(state, char_id, session_id)
         return {"accepted": True, "busy": state.busy, "pregen": True}
 
     # 分支消费（板块契约 2026-08-30）: 选项带同响应分支 → 立即展示分支内容
@@ -843,8 +846,44 @@ def bond_turn(char_id: str, session_id: str, text: str) -> dict:
         # 立即写回引擎历史尾部（“（选择了: X）”）——后续预生成/正常续写的输入恒为
         # “（继续）”, 不回录则 AI 永远看不到玩家选了哪项（live 与 resume 分叉洞）。
         # 必须在 _pregenerate 之前: 预生成请求的历史要含本次裁决。
-        if state.vn is not None:
-            state.vn.record_picked(text)
+        # ── SceneStream P1.5（N2b）: 候选支命中（DESIGN_CHOICE_PREGEN §0）──
+        # 若该选项的候选已就绪 → 切主引擎为候选 fork（历史已内嵌裁决行 +
+        # “（继续）”一轮——**不再 record_picked, 防重复**）+ 下一板经 pregen
+        # 通道暂存（点继续零等待消费）; 未就绪/失败 → 走老路（record_picked +
+        # 分支播放期单路预生成）。任一裁决路径都在此处清池（未选候选作废 GC）。
+        cand = next((c for c in state.choice_candidates
+                     if c.picked == text and c.status == "ready"), None)
+        if cand is None and state.choice_candidates:
+            # generating → 给短窗口（候选通常已在跑, 白等可惜）; 超时走老路
+            deadline = time.monotonic() + 3.0
+            while time.monotonic() < deadline:
+                with state._lock:
+                    c = next((c for c in state.choice_candidates
+                              if c.picked == text), None)
+                    if c is not None and c.status in ("ready", "failed"):
+                        break
+                time.sleep(0.05)
+            if c is not None and c.status == "ready":
+                cand = c
+        if cand is not None:
+            state.vn = cand.engine               # 切主引擎 = 候选世界线（fork 历史自洽）
+            state.choice_candidates = []         # 未选候选作废 GC
+            nxt = cand.scene_obj
+            # 候选同步标注已完成（annotate=True）; place 判定已随同步 fill 完成——
+            # 置标记 → pregen 消费门放行（§7 双路语义, 不占 lane）
+            nxt._place_done = True
+            state.pregen_obj = nxt
+            state.pregen_scene = nxt.to_dict()
+            state.pregen_input = "（继续）"
+            if nxt.choices:                      # 统计对齐 _pregenerate
+                state.choices_used += 1
+            state.prev_emotions = [p.get("emotion", "") for p in nxt.paragraphs
+                                   if isinstance(p, dict)]
+            logger.info("bond_cand hit %s/%s picked=%s", char_id, session_id, text)
+        else:
+            state.choice_candidates = []         # 无命中候选 → 老路 + 池作废
+            if state.vn is not None:
+                state.vn.record_picked(text)
         state.scene_obj = BondScene(
             paragraphs=branch,
             background=state.scene_obj.background,
@@ -863,10 +902,12 @@ def bond_turn(char_id: str, session_id: str, text: str) -> dict:
         # （修复后标注 ~1-3s, 上限 8s 兜底——标注层失败也有 _fallback_fill 保证就绪）
         _wait_annotated(state, timeout=8.0)
         state.scene = state.scene_obj.to_dict()
-        # 分支播放时预生成下一板块（choices_used 已在场景生成时计过, 这里不加）
-        _pregenerate(state, char_id, session_id)
+        # 候选命中时下一板已就绪（pregen 通道）→ 不再单路预生成（防双份）;
+        # 老路则分支播放时照旧预生成
+        if cand is None:
+            _pregenerate(state, char_id, session_id)
         return {"accepted": True, "busy": state.busy, "branch": True,
-                "scene": state.scene}
+                "scene": state.scene, "candidate": cand is not None}
 
     # append-only 事件流: 当前展示场景在玩家裁决时落库（带 picked）;
     # 纯叙事场的"（继续）"是推进指令不是内容裁决 → picked=None（与预生成消费一致）
