@@ -126,6 +126,44 @@ def test_system_note_force_end_after_limit():
     print("    system_note: 超限后每轮强制 story_end 注记（无伪收场）")
 
 
+# ----------------------------------------------------------------------------
+# finish 幂等（2026-09-09 审计: 重复 finish 曾刷重复 vn_exit/wrapup/兜底话）
+# ----------------------------------------------------------------------------
+
+def test_bond_finish_idempotent(tmp_path):
+    """同一进程内重复 finish → 第二次幂等跳过（不重复 vn_exit/wrapup/兜底话）。"""
+    end = {"action": "story_end", "payload": {
+        "paragraphs": [{"text": "（收尾。）"}]}}
+    llm = FailThenOK(0, end)
+    st = SessionStore(tmp_path / "f2")
+    engine = MomoTalkEngine(ROOT / "config" / "characters", llm, store=st)
+    engine.start_session(CHARACTER)
+    root = st.create(CHARACTER)
+    engine.attach_session(root.session_id)
+    chat._engines[CHARACTER] = engine
+    chat._store = st
+    try:
+        bond.bond_start(CHARACTER, sid := root.session_id)
+        _wait_idle(CHARACTER, sid)
+        state = bond._state(CHARACTER, sid)
+        # is_end 场景已展示（completed True）→ finish 第一次执行
+        deadline = time.time() + 10.0
+        while time.time() < deadline and not state.completed:
+            time.sleep(0.05)
+        assert state.completed
+        r1 = bond.bond_finish(CHARACTER, sid)
+        assert r1["completed"] and not r1.get("already")
+        # 第二次（模拟前端异常重复调用/多标签页）→ 幂等跳过
+        r2 = bond.bond_finish(CHARACTER, sid)
+        assert r2.get("already") is True, r2
+        evs = st.events(CHARACTER, sid)
+        exits = [e for e in evs if e.type == "marker" and e.subtype == "vn_exit"]
+        assert len(exits) == 1, f"vn_exit 只落一次: {len(exits)}"
+        print("    finish 幂等: 重复调用跳过（vn_exit 单条）")
+    finally:
+        _cleanup()
+
+
 if __name__ == "__main__":
     import tempfile
     with tempfile.TemporaryDirectory() as d:

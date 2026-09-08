@@ -38,16 +38,26 @@ def _setup_file_logging() -> None:
 
     events.jsonl 是 append-only 唯一真源——错误/诊断**不进事件流**（会被
     window_messages/digest/回放消费, 污染 LLM 上下文与记忆）;
-    旁路文件 data/diag/live2be.log 挂 root logger（WARNING+, 单行可 grep:
-    bond_gen/bond_anno/bond_cand/羁绊剧情收尾回复失败/llm chat … 自动积累,
-    历史问题从此有据可查）。目录 gitignore; 创建失败静默降级（宁缺勿错）。
+    旁路文件 data/diag/live2be.log 挂 root logger（INFO+, 单行可 grep:
+    bond_gen/bond_anno/bond_cand/bond_finish/羁绊剧情收尾回复失败/llm chat…
+    自动积累, 历史问题从此有据可查）。目录 gitignore; 创建失败静默降级。
     """
+    class _NoNoise(logging.Filter):
+        """排除每请求高频噪音（uvicorn access / httpx）——只留业务埋点。"""
+
+        def filter(self, record: logging.LogRecord) -> bool:
+            name = record.name
+            return not (name.startswith("httpx")
+                        or name.startswith("uvicorn")
+                        or name.startswith("werkzeug"))
+
     try:
         diag_dir = Path(__file__).resolve().parent.parent / "data" / "diag"
         diag_dir.mkdir(parents=True, exist_ok=True)
         handler = logging.FileHandler(
             diag_dir / "live2be.log", encoding="utf-8", mode="a")
-        handler.setLevel(logging.WARNING)
+        handler.setLevel(logging.INFO)
+        handler.addFilter(_NoNoise())
         handler.setFormatter(logging.Formatter(
             "%(asctime)s %(name)s %(levelname)s %(message)s",
             datefmt="%Y-%m-%d %H:%M:%S"))
