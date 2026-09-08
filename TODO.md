@@ -160,9 +160,38 @@
 - [ ] **bond_finish 收尾等标注的 8s 同步等待** → 后台化（当前阻塞 finish 请求线程;
       标注修复后 ~1-3s, 可接受但可优化）
 
-## 中期（蓝图 / 板块）
+### 选项等待减少 + 标注链路稳定（2026-09-08 立项候选, 未排期）
 
-- [ ] **回放功能**（事件流 → 自动播放）：
+> 背景: SceneStream P1 真 API 实测（5 轮, experiments/p1_text_annotate_real.py）——
+> 标注已收敛到「text + 编号映射 + 宽松解析 + 重试预算 3」(b12eb53); 今晚服务端
+> 负载期空响应污染数据, 验收数字等空闲复测。选项等待现状: 分支直显零等待 +
+> 分支播放期预生成, 剩余等待 ≈ max(0, 下一板生成 − 分支播放)。
+
+- [ ] **A. 预生成/纯推进板 low reasoning（首选）**：输入恒为"（继续）"的后台板
+       → 生成调用按 per-call `extra_body={"reasoning_effort":"low"}`（client 已支持,
+       不影响前缀缓存）; 前台当场生成（选项板/自由输入）维持 high。预期 9-23s →
+       ~5-9s, 多数分支读完即就绪。风险: 续写质量——对策: 只作用于预生成场 +
+       抽样对比（A/B）。实现挂点: engine `send_vn_scene`/mmt 收 reasoning 参数 →
+       webgui bond.py `_generate`/`_pregenerate` 的"（继续）"分支传 low。
+- [ ] **B. 追赶降档**：预生成落后时先 low 出一版上屏, 后台 high 替换——双生成
+       复杂度, 仅极端慢期值得, 暂缓
+- [ ] **C. choice 板 N 路全预生成（InfiPlot）**：3× 生成成本 + 引擎快照/回录冲突;
+       收敛链下收益低——维持不推荐（DESIGN_BOND_CONTRACT_V2 §8 联动）
+- [ ] **D. P2 流式渐进（段闭合即发布）**：选项/继续等待的终态解——TTFT+首段即读;
+       见 DESIGN_SCENE_STREAM §2/§10
+- [ ] **E. 空闲时段复测 P1 验收**：兜底句数≈0 / 重试率 / 单段耗时 p50
+       （`P1_MAX_BOARDS=6` 全量; 今晚负载噪声不可信）
+- [ ] **F. client json_object 空 raw 快速失败短路**：raw 空 → 跳过两次 LLM 自纠错
+       （~15s/次风暴源头）直接抛上层重试——之后可安全回 json_object（引号问题根治）
+- [ ] **G. 档位语义注释修正**：emotion "off" = 不注入 reasoning_effort（服务端默认档
+       生效, 非关闭思考）——task_levels.py / settings.toml 注释写清
+- [ ] **H. MMT 空 reply/直触发复现追踪**：12 轮高/低探针 0 空 0 触发、completion
+       tokens 27-1126 远低于 4096 → 判为服务端偶发窗口而非档位; 复现时抓
+       `llm chat ms=…` + usage + raw（探针 .testtmp/probe_mmt_effort.py 可复用）
+- [ ] **I. 每板档位表拍板**（候选: low = wrapup/纯叙事续写预生成/MMT 闲聊;
+       high = 选项板/自由输入/触发轮）——A 的决策前提, 待用户
+
+## 中期（蓝图 / 板块）- [ ] **回放功能**（事件流 → 自动播放）：
       - vn_state marker 中断恢复：服务重启后重建 VN 引擎续播（webgui/bond.py 注释
         "M3 回放"——事件流在, 内存态丢, 需重建）
       - 回放模式：已存档剧情自动播放（选项锁定 picked）——DESIGN_RENDERER.md M3;
