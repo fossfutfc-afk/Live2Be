@@ -130,6 +130,10 @@ def test_spawn_two_candidates_and_ready(tmp_path):
             text = "".join(p.get("text", "") for p in c.scene_obj.paragraphs)
             assert "同一内容" in text, text
         assert not state.busy                    # 候选不占 busy（玩家可推进）
+        # N2c: status 暴露候选诊断（picked+status）
+        s = bond.bond_status(CHARACTER, sid)
+        assert sorted((c["picked"], c["status"]) for c in s["candidates"]) == \
+            sorted((c.picked, c.status) for c in cands)
         print("    spawn: 2 候选就绪（fork 引擎独立生成, busy 不被占用）")
     finally:
         _cleanup()
@@ -204,6 +208,8 @@ def test_pick_hits_candidate_switch_engine(tmp_path):
         assert state.vn is not live_before
         assert state.pregen_obj is cand_a.scene_obj
         assert state.choice_candidates == []          # 未选候选作废 GC
+        # N2c: status 候选诊断清空（裁决后无残留）
+        assert bond.bond_status(CHARACTER, sid)["candidates"] == []
         assert state.scene_logged                     # 主线已落库（分支展示中）
         # （继续）→ 消费 pregen 零 LLM（无脚本可耗 = 若走生成会抛, 此处应成功）
         deadline = time.time() + 10.0

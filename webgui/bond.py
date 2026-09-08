@@ -867,7 +867,7 @@ def bond_turn(char_id: str, session_id: str, text: str) -> dict:
                 cand = c
         if cand is not None:
             state.vn = cand.engine               # 切主引擎 = 候选世界线（fork 历史自洽）
-            state.choice_candidates = []         # 未选候选作废 GC
+            _discard_candidates(state)           # 未选候选作废 GC
             nxt = cand.scene_obj
             # 候选同步标注已完成（annotate=True）; place 判定已随同步 fill 完成——
             # 置标记 → pregen 消费门放行（§7 双路语义, 不占 lane）
@@ -881,7 +881,7 @@ def bond_turn(char_id: str, session_id: str, text: str) -> dict:
                                    if isinstance(p, dict)]
             logger.info("bond_cand hit %s/%s picked=%s", char_id, session_id, text)
         else:
-            state.choice_candidates = []         # 无命中候选 → 老路 + 池作废
+            _discard_candidates(state)           # 无命中候选 → 老路 + 池作废
             if state.vn is not None:
                 state.vn.record_picked(text)
         state.scene_obj = BondScene(
@@ -965,6 +965,12 @@ def bond_status(char_id: str, session_id: str) -> dict:
         "in_memorial": bool(state.vn is not None and state.vn.in_memorial),
         "memorial_img": state.memorial_img or None,
         "memorial_img_busy": state.memorial_img_busy,
+        # 候选支诊断（DESIGN_CHOICE_PREGEN, N2c）: 只暴露 {picked,status}——
+        # 生成中/就绪/失败一目了然, 不泄场景数据
+        "candidates": [
+            {"picked": c.picked, "status": c.status}
+            for c in state.choice_candidates
+        ],
     }
 
 
@@ -1087,9 +1093,8 @@ def _generate(state: BondState, char_id: str, session_id: str, user_input: str) 
                 _log_scene_meta(state, char_id, session_id, scene)
                 # 两遍式 C 异步标注: 骨架先显示, emotion 解析入队补标（不阻塞玩家）
                 _enqueue_annotate(state, scene)
-                # SceneStream P1.5（N2a）: 新板落地 → 旧候选作废（GC）; 本板若
-                # 带 choices → 候选支 spawn（读板期后台预生成, 不占 busy）
-                state.choice_candidates = []
+                # SceneStream P1.5（N2a）: 本板若带 choices → 候选支 spawn
+                # （读板期后台预生成, 不占 busy; spawn 内部先清旧池）
                 _spawn_candidates(state, scene, char_id, session_id)
                 state.fail_count = 0           # 生成成功 → 失败计数清零
                 # 计时埋点（§6.1）: 每轮生成耗时; 首场且仍处预热态（未被丢弃/
@@ -1182,6 +1187,14 @@ def _pregenerate(state: BondState, char_id: str, session_id: str) -> None:
     threading.Thread(target=run, daemon=True).start()
 
 
+def _discard_candidates(state: BondState) -> None:
+    """候选支池作废（DESIGN_CHOICE_PREGEN §1, N2c）: 清空引用 → 未选候选引擎
+    即孤儿（生成中线程完成即不可达 → GC, 零落库）。列表替换为原子操作
+    （GIL）; worker 写回带池身份检查（any(c is cand)）——清池后结果自然丢弃。
+    """
+    state.choice_candidates = []
+
+
 def _spawn_candidates(state: BondState, scene: BondScene,
                       char_id: str, session_id: str) -> None:
     """SceneStream P1.5（DESIGN_CHOICE_PREGEN §0, N2a）: choices 板候选支 spawn。
@@ -1194,9 +1207,8 @@ def _spawn_candidates(state: BondState, scene: BondScene,
     - annotate=True（后台不可见, 同步标完——省 lane 归属改造; 消费即视觉就绪）
     - 失败 → status=failed（N2b 消费端降级老路）; 换板/作废 → 池清空, 孤儿
       线程完成即不可达（GC, 零落库）
-    - 调用点: 主线 _generate 落地（N2a）; **pregen 消费提升出 choices 板 →
-      N2b 需在此处补 spawn**（缺口登记, 防漏: 预生成场景若带选项同样要读板期
-      候选）; choices_used/prev_emotions 统计在消费提升时对齐 _pregenerate
+    - 调用点: 主线 _generate 落地 + pregen 消费提升出 choices 板（N2b 补口）;
+      spawn 前必清旧池（本函数负责, 调用方无需前置清池）
     """
     if state.demo is not None or state.vn is None:
         return
