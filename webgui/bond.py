@@ -827,6 +827,8 @@ def bond_turn(char_id: str, session_id: str, text: str) -> dict:
         state.pregen_input = ""
         state.round += 1
         if state.scene_obj is not None and state.scene_obj.is_end:
+            # completed 置位只可能来自**场景 is_end**（自然 story_end / demo 收尾
+            # ——digest/完整收尾话的唯一许可; 异常/中止永不置, 2026-09-09 语义）
             state.completed = True
         _log_scene_meta(state, char_id, session_id, state.scene_obj)
         # 链式备料（N2a 缺口补上, N2b）: 新场景未收尾——纯叙事 → 单路预生成;
@@ -1132,9 +1134,11 @@ def _generate(state: BondState, char_id: str, session_id: str, user_input: str) 
                            _ms_since(t0), e)
             state.fail_count += 1
             if state.fail_count > MAX_GEN_FAILURES:
-                # 中止态（completed 保持 False）: 可重试或离开（重进回放续写）
-                state.error = (f"{e}——已多次生成失败, 剧情暂缓。"
-                               "可点击重试继续; 离开后重进可从已记录剧情续写。")
+                # 中止态（completed 保持 False）: 可重试或离开（重进回放续写）。
+                # 错误详情不进 error（前端横幅短文案）——完整异常在 warning 日志
+                # （diag 落盘 data/diag/live2be.log）
+                state.error = ("剧情生成多次失败，已暂缓。"
+                               "可点击重试继续；离开后重进可从已记录剧情续写。")
             else:
                 state.error = str(e)        # 普通失败: 前端重试按钮
         finally:
@@ -1626,4 +1630,7 @@ def _wrapup(char_id: str, session_id: str, title: str, completed: bool) -> None:
         except Exception as e2:                      # noqa: BLE001
             logger.warning("兜底收尾话写入失败: %s", e2)
     if completed:
-        engine.async_digest()             # 仅完整剧情消化（中断不提炼）
+        # digest 唯一触发点——completed 只可能来自自然 story_end（N_a 语义修正
+        # 后异常/中止永不置位）; 中断（completed=False）不提炼, wiki 只反映
+        # 完整剧情段
+        engine.async_digest()
