@@ -151,7 +151,9 @@ class BondState:
     scene_input: str = ""               # 生成 scene 用的输入（落库 input 字段）
     scene_logged: bool = True           # scene 是否已落事件流（append-only: 玩家裁决时补录）
     error: str = ""
-    completed: bool = False             # 剧情已终结（is_end / 致命错误）→ 前端调 finish
+    completed: bool = False             # 剧情已终结（is_end 自然收尾 → True）
+    finished: bool = False              # finish 已执行（幂等, 2026-09-09 审计:
+                                        # 重复 finish 曾刷重复 vn_exit/wrapup/兜底话）
     chapter_title: str = ""
     # 生成失败重试（2026-09-02: 偶发 JSON 失败不再一败就 closing——前 3 次失败保留
     # 上一场在屏 + 置 error, 前端显示重试按钮重新生成; 超限 = 中止态不伪收场, 见 _generate）
@@ -1001,6 +1003,15 @@ def bond_finish(char_id: str, session_id: str) -> dict:
         return {"completed": False, "error": "剧情未开始"}
     if state.busy:
         return {"completed": False, "busy": True, "error": "剧情生成中"}
+    if state.finished:
+        # 幂等（2026-09-09 审计: 01:20-01:21 同一进程 6s 内两次 finish →
+        # 重复 vn_exit + wrapup + 兜底话; 前端有 finished 防重, 后端再兜一层）。
+        # 留痕 warning → diag 落盘, "谁在调 finish"从此可查
+        logger.warning("bond_finish 幂等跳过（重复调用） %s/%s",
+                       char_id, session_id)
+        return {"completed": True, "already": True}
+    logger.info("bond_finish 执行 %s/%s completed=%s（入口留痕）",
+                char_id, session_id, state.completed)
     # SceneStream P1.5（中断/收尾防御, 2026-09-08 审计）: 会话收尾即清候选池
     # ——后台候选（若仍在生成）作废孤儿, 停止烧 token; 未选支零落库由
     # _log_scene 边界结构保证（候选从不触碰事件流）
@@ -1046,6 +1057,7 @@ def bond_finish(char_id: str, session_id: str) -> dict:
     threading.Thread(target=_wrapup,
                      args=(char_id, session_id, title, state.completed),
                      daemon=True).start()
+    state.finished = True               # 幂等标记（本内存态生命周期内只收尾一次）
     return {"completed": True}
 
 
