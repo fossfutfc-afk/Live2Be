@@ -863,6 +863,21 @@ def bond_status(char_id: str, session_id: str) -> dict:
     + gate_busy（2026-09-07）: 推进门控视角——当前场景 emotion+place 未就绪
     （state.busy 之外的另一类"再等等"）; 前端忙等改轮询 status 而非狂发 turn。"""
     state = _state(char_id, session_id)
+    # lane 自愈（2026-09-08）: worker 意外死亡且队列有积压 → 看门狗立即重启
+    # （_ensure_lane 只在入队时触发——本函数覆盖"死后无人入队"的饥饿窗口）
+    if state.vn is not None and state.demo is None:
+        for started_attr, thread_attr, q_attr, fn, lane in (
+                ("_anno_started", "_anno_thread", "_anno_queue", _anno_worker, "emo"),
+                ("_place_started", "_place_thread", "_place_queue", _place_worker,
+                 "place")):
+            q = getattr(state, q_attr)
+            th = getattr(state, thread_attr)
+            if (getattr(state, started_attr)
+                    and (th is None or not th.is_alive())
+                    and q is not None and q.qsize() > 0):
+                logger.warning("bond_anno lane %s 死亡重启(status 自愈)", lane)
+                _ensure_lane(state, started_attr=started_attr,
+                             thread_attr=thread_attr, worker_fn=fn, lane=lane)
     role = _role_info(char_id)
     return {
         "busy": state.busy,
@@ -874,6 +889,15 @@ def bond_status(char_id: str, session_id: str) -> dict:
         "name": role["name"],
         "club": role["club"],
         "emo_version": state.emo_version,
+        # lane 诊断（2026-09-08, 前端 tick 直读）: 存活/积压/版本/场景对象——
+        # 判定"标注没跑 / worker 死了 / 场景对象分叉"一线定位
+        "anno": {
+            "emo_alive": bool(state._anno_thread and state._anno_thread.is_alive()),
+            "place_alive": bool(state._place_thread and state._place_thread.is_alive()),
+            "emo_pending": state._anno_queue.qsize() if state._anno_queue else 0,
+            "place_pending": state._place_queue.qsize() if state._place_queue else 0,
+            "scene_id": id(state.scene_obj) if state.scene_obj else None,
+        },
         # 纪念立绘（方案 A）: in_memorial = 纪念模式中（前端保持图背景）;
         # memorial_img = 图 URL（None = 未就绪/失败 → 纯文字降级）;
         # memorial_img_busy = 生图中（防重/调试可见）
