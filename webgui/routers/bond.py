@@ -49,6 +49,34 @@ def _fx_resolver(char_id: str) -> EffectResolver:
     return r
 
 
+#: 无意图/占位背景的展示兜底优先级（语义 id; neutral 等无资产占位 → 选真实场景）。
+#: 只作用于展示层（background_url）, 不改事件/导演状态——防"开场无锚点+占位无资产
+#: = 纯黑"（2026-09-08 实机问题 2）; 锚点句到达后前端仍会在该段切真实意图。
+_BG_FALLBACK_PRIORITY = [
+    "class_room", "campus", "school_ground", "school_rooftop",
+    "gehenna_street", "park", "beachside",
+]
+
+
+def _fallback_bg_url() -> str | None:
+    """真实背景兜底 URL（None = 资产库全空, 前端保持原样）。"""
+    try:
+        cat = _catalog()
+        scenes = set(cat.background_scenes())
+    except Exception:                                # noqa: BLE001 — 资产缺失降级
+        return None
+    for sid in [*_BG_FALLBACK_PRIORITY, *sorted(scenes)]:
+        if sid in scenes:
+            media = cat.background(sid)
+            if media is not None:
+                try:
+                    rel = media.path.relative_to(cat.assets_root)
+                    return f"/assets/{rel.as_posix()}"
+                except Exception:                    # noqa: BLE001
+                    return None
+    return None
+
+
 def warm_render(char_id: str) -> None:
     """预热渲染依赖（P2, EXEC_BOND_LATENCY §5#3）: MediaCatalog（构造一次
     ~百 ms）+ 角色特效表——移出首帧 status 轮询路径, 首个场景解析不再现构造。
@@ -81,6 +109,15 @@ def _resolve_scene(scene: dict | None, char_id: str) -> dict | None:
         if media is not None:
             rel = media.path.relative_to(_catalog().assets_root)
             scene["background_url"] = f"/assets/{rel.as_posix()}"
+        elif not scene.get("is_end"):
+            # 占位/缺资产（如 neutral）→ 展示兜底真实场景（防纯黑; 锚点段仍会切）
+            fb = _fallback_bg_url()
+            if fb:
+                scene["background_url"] = fb
+    elif not scene.get("is_end"):
+        fb = _fallback_bg_url()
+        if fb:
+            scene["background_url"] = fb
     paras = scene.get("paragraphs")
     if isinstance(paras, list):
         for p in paras:

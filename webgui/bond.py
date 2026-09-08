@@ -685,6 +685,27 @@ def _scene_visual_ready(state: BondState) -> bool:
     return _scene_emotions_ready(state) and _scene_places_ready(state)
 
 
+def _scene_obj_visual_ready(state: BondState, scene) -> bool:
+    """任意场景对象的双路就绪判定（预生成消费门用, 2026-09-08）:
+
+    emotion = 内容判（含 branches 全有键; 无词表/纪念退出 → 无需）;
+    place   = 标记判（判定完成即含 keep; 无词表/纪念退出 → 无需）。
+    demo/无引擎/无场景 → 恒就绪（不阻塞消费）。
+    """
+    if scene is None or state.vn is None or state.demo is not None:
+        return True
+    vn = state.vn
+    if not scene.memorial_exit:
+        if vn._lexicon_keys:
+            for group in [scene.paragraphs, *scene.branches.values()]:
+                for p in group:
+                    if isinstance(p, dict) and not (p.get("emotion") or "").strip():
+                        return False
+        if vn._place_keys and not getattr(scene, "_place_done", False):
+            return False
+    return True
+
+
 def _scene_ready_or_busy(state: BondState) -> dict | None:
     """门控检查: 未就绪 → 返回 busy 响应（前端已有 busy 轮询重试, 标注 2~5s 内
     完成/兜底 → 下次重试放行）; 就绪 → None（继续正常 turn 流程）。"""
@@ -752,6 +773,13 @@ def bond_turn(char_id: str, session_id: str, text: str) -> dict:
         return gate
 
     if text == "（继续）" and state.pregen_scene is not None:
+        # 预生成消费门（2026-09-08 实机修复）: 预生成场景自身的标注（emotion/place）
+        # 未就绪 → 不提升、返回 busy（前端轮询重试）——否则场景被消费后
+        # pregen_obj=None, 标注 worker 的身份检查把它当"已替换"丢弃 → 整板无
+        # 表情且无补切通道（emo_version 不再涨）→ 表情卡 nomal。
+        if not _scene_obj_visual_ready(state, state.pregen_obj):
+            return {"accepted": False, "busy": True,
+                    "error": "预生成标注中, 稍后自动继续"}
         # 预生成就绪 → 补录当前场 → 提升预生成场景为当前场 → 链式预生成
         _log_scene(state, char_id, session_id, picked=None)
         state.scene_obj = state.pregen_obj
