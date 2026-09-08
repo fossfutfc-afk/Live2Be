@@ -118,6 +118,12 @@ def _try_batch(
     return tags
 
 
+#: robust 标注的 LLM 调用总预算（2026-09-08 定案修复: 实机观测单场景情绪标注
+#: dur=27.4s——失败二分链在慢/失败调用下串行累积。典型单次成功 ~1-3s;
+#: 超预算 → 返回 None 项, 调用方延续/兜底 nomal——宁缺勿错但**快**。
+_ANNO_CALL_BUDGET = 4
+
+
 def annotate_emotions_smart(
     llm,
     sentences: list[str],
@@ -130,17 +136,28 @@ def annotate_emotions_smart(
     """robust 批量标注: 全量优先 → 失败二分递归 → 逐项容错。
 
     返回与 sentences 同长的 list（str = 词表内标签; None = 该项标注失败,
-    调用方延续兜底）。单句也失败 → [None]（不无限递归）。
+    调用方延续兜底）。单句也失败 → [None]（不无限递归）。**LLM 调用总量被
+    全局预算硬顶（含所有递归分支, 默认 4 次）**——防 27s 级串行爆炸
+    （2026-09-08 实测定案: dur=27390ms）。
     max_tokens: 输出上限（None → 真源 task_levels 形态 "emotion"=512——
     2026-09-02 集中管理; thinking 档位 off 由 extra_body 真源注入）。
     """
+    return _smart_rec(llm, sentences, lexicon_keys, lexicon_hint, character,
+                      max_tokens, _ANNO_CALL_BUDGET, [0])
+
+
+def _smart_rec(llm, sentences, lexicon_keys, lexicon_hint, character,
+               max_tokens, budget: int, calls: list[int]) -> list[str | None]:
+    """smart 递归体——calls[0] 全局计数（所有分支共享, 预算耗尽即整批 None）。"""
     if not sentences:
         return []
     if not lexicon_keys:
         return [None] * len(sentences)
     if max_tokens is None:
         max_tokens = _anno_max_tokens(None)
-
+    if calls[0] >= budget:
+        return [None] * len(sentences)          # 预算耗尽 → 兜底（不再调用）
+    calls[0] += 1
     tags = _try_batch(llm, sentences, lexicon_keys, lexicon_hint, character,
                       max_tokens=max_tokens)
     if tags is not None:
@@ -148,12 +165,10 @@ def annotate_emotions_smart(
     if len(sentences) <= 1:
         return [None]
     mid = len(sentences) // 2
-    left = annotate_emotions_smart(
-        llm, sentences[:mid], lexicon_keys, lexicon_hint, character,
-        max_tokens=max_tokens)
-    right = annotate_emotions_smart(
-        llm, sentences[mid:], lexicon_keys, lexicon_hint, character,
-        max_tokens=max_tokens)
+    left = _smart_rec(llm, sentences[:mid], lexicon_keys, lexicon_hint,
+                      character, max_tokens, budget, calls)
+    right = _smart_rec(llm, sentences[mid:], lexicon_keys, lexicon_hint,
+                       character, max_tokens, budget, calls)
     return left + right
 
 
