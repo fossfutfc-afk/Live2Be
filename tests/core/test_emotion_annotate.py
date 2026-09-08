@@ -150,14 +150,15 @@ def test_annotate_smart_binary_split():
             raise RuntimeError("api down")
 
     llm = SplitLLM()
-    # 4 句全失败 → 递归拆到单句: 1 全量 + 2 半组 + 4 单句 = 7 次调用, 全 None
+    # 4 句全失败 → 递归拆解, 但 LLM 调用被全局预算硬顶（2026-09-08: 防 27s 级
+    # 串行爆炸, 预算 _ANNO_CALL_BUDGET=4）——预算耗尽即停, 剩余整批 None
     tags = annotate_emotions_smart(llm, ["a", "b", "c", "d"], ["nomal"])
     assert tags == [None, None, None, None]
-    assert len(llm.calls) == 7, f"1+2+4: {llm.calls}"
+    assert len(llm.calls) == 4, f"预算 4 次调用: {llm.calls}"
     # 空输入 → [] / 无词表 → 全 None 不调用
     assert annotate_emotions_smart(llm, [], ["nomal"]) == []
     assert annotate_emotions_smart(SplitLLM(), ["x"], []) == [None]
-    print("    smart: 全失败 → 二分递归 5 次全 None; 空输入/无词表短路")
+    print("    smart: 全失败 → 二分递归但预算封顶 4 次全 None; 空输入/无词表短路")
 
 
 def test_annotate_smart_partial_recover():
