@@ -318,6 +318,9 @@ class BondStoryEngine:
         # 方案A-A1 选项回录（DESIGN_PROMPTKIT §5, Phase 4）: 最近一次成功动作的
         # payload（生成时落库, picked 尚不存在）——裁决后 record_picked 重渲尾部
         self._last_payload: dict | None = None
+        # SceneStream P1.5 候选草稿标记（DESIGN_CHOICE_PREGEN §2）:
+        # fork_for_pick 产物 = True——消费方据此跳过重复 record_picked
+        self._draft = False
 
     # ------------------------------------------------------------------
     # 会话生命周期
@@ -748,6 +751,75 @@ class BondStoryEngine:
     @property
     def history(self) -> list[dict[str, str]]:
         return list(self._history)
+
+    # ------------------------------------------------------------------
+    # SceneStream P1.5: 候选支 fork 原语（DESIGN_CHOICE_PREGEN §2）
+    # ------------------------------------------------------------------
+
+    def fork_for_pick(self, picked: str) -> "BondStoryEngine | None":
+        """候选世界线草稿（sibling 预生成的引擎原语, 2026-09-08）。
+
+        板块带 choices → 调用方对每个候选 fork 一个引擎, 各自后台
+        send("（继续）") 预生成"选了该选项后的下一板"——玩家裁决后
+        选中支直接端上, 未选支作废（草稿零落库, append-only 不受影响）。
+
+        Fork 规则（只读面共享 + 可变面独立, DESIGN_CHOICE_PREGEN §2）:
+          - 共享: llm / _system_prompt（同字节 → 跨支前缀缓存成立的关键）/
+            char_loader / registry / lexicon / 人设卡 / 词表
+          - 独立: _history（**尾部 A1 同形回录** "（选择了: X）"——与
+            record_picked 同一渲染函数, live 历史原样不动）; 标注链
+            carry/seed/para_seq（两路链分岔预期内）; place 延续态;
+            视觉导演克隆（catalog 只读 + _state 延续记忆——两路视觉
+            记忆互不污染）
+          - _draft 标记: 消费方据此跳过重复 record_picked（fork 历史已内嵌）
+
+        Returns: fork 引擎; 守卫失败（未开场/无上一板/无 payload/空白
+        picked/纪念模式中）→ None（安全 no-op）。
+        """
+        if (self._current_char is None or not self._history
+                or not self._last_payload or not isinstance(picked, str)
+                or not picked.strip() or self._in_memorial):
+            return None
+        import copy as _copy
+
+        fork = object.__new__(BondStoryEngine)   # 免构造: 属性面逐项复制
+        fork.__dict__.update(self.__dict__)      # 只读面共享（含 _system_prompt）
+        # ---- 可变/独立面 ----
+        fork._history = _copy.deepcopy(self._history)
+        fork._trace = []
+        fork._last_payload = dict(self._last_payload)   # 尾部重渲基准
+        fork._carry_text = self._carry_text
+        fork._carry_emo = self._carry_emo
+        fork._seed_anchor = self._seed_anchor
+        fork._para_seq = self._para_seq
+        fork._current_place = self._current_place
+        fork._in_memorial = False                # 守卫已排除 True
+        fork._memorial_used = self._memorial_used
+        fork._task_on = self._task_on
+        # A1 同形回录（fork 生成的下一板必须已见裁决行; live 零污染）
+        if fork._history[-1]["role"] == "assistant":
+            enriched = dict(fork._last_payload)
+            enriched["picked"] = picked.strip()
+            text = render_bond_scene_text(enriched)
+            if text:
+                fork._history[-1]["content"] = text
+        # 视觉导演克隆: catalog/char/default 只读共享, 视觉记忆独立延续。
+        # 仅支持标准 Director 形态（catalog/char_id/default_background 构造
+        # 面）; 自定义 director 无法克隆 → 降级 None（宁缺勿错——webgui 端
+        # 有 _resolve_scene/fallback 兜底, 候选支背景短暂缺省可接受）
+        if self.director is not None:
+            try:
+                d = self.director
+                clone = d.__class__(
+                    catalog=d.catalog, char_id=d.char_id,
+                    default_background=d.default_background)
+                clone._state = d._state          # VisualState 不可变 → 共享起点
+                fork.director = clone
+            except Exception as e:               # noqa: BLE001
+                logger.warning("fork 导演克隆失败（候选支降级无导演）: %s", e)
+                fork.director = None
+        fork._draft = True                       # 候选草稿标记（消费方语义用）
+        return fork
 
     @property
     def history_length(self) -> int:
