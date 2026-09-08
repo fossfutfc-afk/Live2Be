@@ -1,11 +1,32 @@
-# DESIGN_CHOICE_PREGEN — 选项候选预生成（sibling 草稿支 + 按需展开, 草案）
+# DESIGN_CHOICE_PREGEN — 选项候选预生成（sibling 草稿支 + 按需展开, 定稿）
 
-> **状态**: 设计草案 2026-09-08（用户提出方案并逐点确认; 分支 feat/scene-stream-p1）。
+> **状态**: 设计定稿 2026-09-08 用户方案; **N1 + N2a-N2d 已落地 master**
+> （fork 原语 + spawn/消费/清理/开关——见文末"落地记录"）。
 > **背景**: 选项等待的剩余空间 = max(0, 下一板生成 − 分支播放)。降档路线（A）
 > 被用户否决（创作档必须 high 才有文风）; 本方案用"候选双路预生成"把等待窗口
 > 前移到**选项阅读期**, 接受 ≤2× token（+ 前缀缓存折扣）。
 > **关联**: DESIGN_SCENE_STREAM §10 / DESIGN_BOND_CONTRACT_V2 §6.5/§8 /
 > TODO.md（选项等待 A–I; C 由本方案受控化）。
+
+## 落地记录（分步节点）
+
+- **N1 引擎 fork 原语** `BondStoryEngine.fork_for_pick(picked)`: 只读面共享
+  （system 同字节 → 跨支前缀缓存） + 可变面独立（历史 A1 内嵌裁决行/标注链
+  carry/place 延续/para_seq）; director 克隆; `_draft` 标记;
+  守卫: 未开场/无上一板/空白 picked/纪念中 → None（tests/core/test_engine_fork.py）
+- **N2a spawn**: `BondState.choice_candidates` + `_spawn_candidates`（每候选
+  fork + daemon 线程 `send("（继续）", annotate=True)`——不持 chat._lock /
+  不占 busy, 同步标注 → 消费即视觉就绪）; worker 池身份检查（作废即丢弃）
+- **N2b 消费**: `bond_turn` 分支裁决——命中就绪候选 → 切主引擎（跳过
+  record_picked 防重复）+ 下一板入 pregen 通道（点继续零等待）; generating
+  → 3s 短窗等待; failed/超时 → 老路（record_picked + 分支播放期单路 pregen）;
+  补口: pregen 消费提升出 choices 板 → 链式 spawn
+- **N2c 清理/观测**: `_discard_candidates` 统一作废; spawn 自清旧池;
+  bond_status 暴露 candidates（picked+status）
+- **N2d 开关**: settings.toml `[bond] choice_pregen = "off" | "sibling"`
+  （tree 预留未实现; 缺省/异常 → sibling 开; off → 老路）; 全量 489 绿
+- 成本实测: 双路 prompt 近全量缓存命中（miss 262-1072 vs hit ~6.2-6.4k）,
+  增量 ≈ 1 个候选支输出 token（1.9-2.7k）; 候选并发生成时墙钟 ≈ 单路
 
 ## 0. 方案语义（用户 2026-09-08 口述, 校准后）
 
@@ -56,7 +77,7 @@
 
 ```
 settings.toml [bond]
-  choice_pregen = "off" | "sibling" | "tree"   # 默认候选 off（实验期先行 sibling）
+  choice_pregen = "off" | "sibling" | "tree"   # 缺省/异常 = sibling（N2d 已落地）
 ```
 - `off`: 现状单路（分支播放期预生成一路）;
 - `sibling`: 本方案单层——每层只展开当前板候选（推荐首期落地形态）;

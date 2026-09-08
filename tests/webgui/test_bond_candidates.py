@@ -292,6 +292,46 @@ def test_chain_spawn_after_pregen_consume(tmp_path):
         _cleanup()
 
 
+# ----------------------------------------------------------------------------
+# N2d: choice_pregen 开关（settings.toml [bond]）
+# ----------------------------------------------------------------------------
+
+def test_choice_pregen_switch(monkeypatch, tmp_path):
+    from webgui import bond as bond_mod
+
+    cfg = tmp_path / "settings.toml"
+    monkeypatch.setattr(bond_mod, "_CAND_SETTINGS_PATH", cfg)
+    assert bond_mod._choice_pregen_enabled() is True      # 缺省开（sibling）
+    cfg.write_text("[bond]\nchoice_pregen = \"off\"\n", encoding="utf-8")
+    assert bond_mod._choice_pregen_enabled() is False
+    cfg.write_text("[bond]\nchoice_pregen = \"sibling\"\n", encoding="utf-8")
+    assert bond_mod._choice_pregen_enabled() is True
+    cfg.write_text("[bond]\nchoice_pregen = \"tree\"\n", encoding="utf-8")
+    assert bond_mod._choice_pregen_enabled() is True       # tree 暂同 sibling
+    cfg.write_text("broken[[", encoding="utf-8")
+    assert bond_mod._choice_pregen_enabled() is True       # 异常 → 缺省开
+    print("    choice_pregen 开关: off/sibling/tree/缺省/异常语义")
+
+
+def test_choice_pregen_off_no_spawn(monkeypatch, tmp_path):
+    """开关 off → choices 板不 spawn（走老路单路 pregen）。"""
+    from webgui import bond as bond_mod
+
+    cfg = tmp_path / "s.toml"
+    cfg.write_text("[bond]\nchoice_pregen = \"off\"\n", encoding="utf-8")
+    monkeypatch.setattr(bond_mod, "_CAND_SETTINGS_PATH", cfg)
+    engine, st, sid = _setup(tmp_path / "o", BOARD)
+    try:
+        bond.bond_start(CHARACTER, sid)
+        _wait_status(CHARACTER, sid)
+        state = bond._state(CHARACTER, sid)
+        assert state.choice_candidates == []
+        assert state.scene_obj is not None and state.scene_obj.choices
+    finally:
+        _cleanup()
+    print("    choice_pregen=off: choices 板不 spawn")
+
+
 if __name__ == "__main__":
     import tempfile
     with tempfile.TemporaryDirectory() as d:
