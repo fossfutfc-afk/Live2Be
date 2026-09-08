@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from core.common.tone import load_story_tone
-from core.media.emotion_lexicon import build_emotion_injection
+from core.media.emotion_lexicon import build_emotion_injection, load_place_lexicon
 from core.mmt.mmt_executor import MmtExecError, load_interperson, self_entry_to_prompt
 from core.parsing.world_parser import DEFAULT_WORLD_PATH, load_world, world_to_prompt
 from llm.prompts import load_prompt
@@ -40,6 +40,7 @@ class BlockContext:
     world_path: str | None = None          # None → 默认 overview.yml
     brain_segment: str = ""                # Bond: 记忆段（开场注入, 剧情内固定）
     assets_root: Path | str | None = None  # Bond 词表资产根（None → 项目根/assets）
+    place_whitelist_path: Path | str | None = None  # 舞台清单词表（None → 默认 whitelist）
 
 
 # ---------------------------------------------------------------------------
@@ -132,6 +133,27 @@ def _lexicon_emotion(ctx: BlockContext) -> str | None:
     return inj or None
 
 
+def _place_palette(ctx: BlockContext) -> str | None:
+    """【可去的地方】舞台清单（v2 2026-09-07 用户拍板——词表可见性 ≠ 写权限）:
+
+    单源切换把"主 LLM 写地点"移给了标注层——但词表本身是**创作可选空间**:
+    主 LLM 若不知道系统能呈现天台/海边/拉面店, 会把剧情收敛到"肯定有"的场景,
+    背景单调。本块把**同一份词表**（_director_whitelist common_scenes, 标注层
+    同源）以"舞台清单"形态注入——只扩可选空间, 措辞明示不输出地点字段。
+    """
+    keys = load_place_lexicon(ctx.place_whitelist_path)
+    if not keys:
+        return None
+    lines = [
+        "【可去的地方】（本世界画面舞台清单）",
+        "你能把剧情安排到的所有场景都在下面。**你不需要、也不能输出地点字段**——",
+        "系统会从你的文本自动判定并切换画面。知道清单只是为了不把自己困在同一个",
+        "场景: 气氛需要海边/天台/拉面店就尽管把故事写到那里（换场 = 另起一段）。",
+    ]
+    lines.extend(f"  {k}" for k in keys)
+    return "\n".join(lines)
+
+
 def _brain(ctx: BlockContext) -> str | None:
     """brain 段（Bond 开场注入, 剧情内固定）: 出厂背景 + wiki 第一人称视图。"""
     seg = (ctx.brain_segment or "").strip()
@@ -152,6 +174,7 @@ BLOCKS: dict[str, Callable[[BlockContext], str | None]] = {
     "bond_tone": _bond_tone,
     "rules_bond": _rules_bond,
     "lexicon_emotion": _lexicon_emotion,
+    "place_palette": _place_palette,
     "schema": _schema,
     "brain": _brain,
 }
@@ -169,6 +192,7 @@ BLOCK_DOC: dict[str, str] = {
     "bond_tone": "本角色羁绊剧情建议（SIG~bond_tone, 条件）",
     "rules_bond": "羁绊剧情规则书（含 memorial_enter 范本）",
     "lexicon_emotion": "表情标注词表（emotions.yml, 条件）",
+    "place_palette": "可去的地方·舞台清单（词表同源, 只扩可选空间不写字段）",
     "schema": "可用动作 schema（域契约）",
     "brain": "记忆段（brain_segment, 条件）",
 }

@@ -92,14 +92,15 @@ messages = [system] + history + [P16 羁绊进度注记] + [P17 system_note?]
 | 5 | 羁绊剧情规则书 | `rules_bond` 块 = `bond_story_rules.md` | rules 内含：单人模式/3~5 板块+收尾/每板块 1 个选项（2~3 候选项）**branches 必须且键一致**/选项收敛同主线/宁可及早收尾/story_scene 与 story_end JSON 范本/**memorial_enter JSON 范本行内教形状**（rules L66-80：prompt=中文场景指令勿写外观） |
 | 6 | 可用动作 schema | `schema` 块 = `build_schema(story registry)`（bond_story.py）单动作 | ⚠️ **只有 story_scene/story_end**；memorial 双动作不在盒里——enter 形状靠 rules 范本教，exit schema 在纪念模式每场由注记补喂 |
 | 7 | `【表情标注词表】` | `lexicon_emotion` 块 = `build_emotion_injection`（emotion_lexicon.py:95-112）= emotions.yml 键 + 行尾示范注释 + `eg[键]` 例句 | 词表路径 `assets/illustration/{char}/default/`（2026-08-31 修过 default 段缺失）；缺失 → 不注入（条件块） |
-| 8 | brain 段 | `brain` 块 = `load_brain_segment`（momotalk.py:129-156）：出厂背景 + wiki 视图 | webgui 每次 start/replay 都重取（webgui/bond.py:401-406, 542-548）→ **剧情内固定**不随 digest 更新（条件块） |
+| 8 | `【可去的地方】` | `place_palette` 块 = whitelist common_scenes（**与标注层同源**）| 舞台清单（v2 2026-09-07）：**词表可见性 ≠ 写权限**——主 LLM 不写地点字段（单源判定在标注层），但必须知道舞台范围才不会把剧情困在"肯定有"的场景；措辞明示不输出字段 |
+| 9 | brain 段 | `brain` 块 = `load_brain_segment`（momotalk.py:129-156）：出厂背景 + wiki 视图 | webgui 每次 start/replay 都重取（webgui/bond.py:401-406, 542-548）→ **剧情内固定**不随 digest 更新（条件块） |
 
-**地点单源切换（2026-09-07 v2, P3b-2 完成）**：主 LLM **不再写 place**（schema/rules
-地点说明已删、盒"地点词表"块已移除）——换场语义靠"换场即换段"写作约定（rules
-【段落规划与换场】）；地点判定移交标注层 place lane（place_annotate.md 持有词表），
-锚点写回句项 `place` 键（稀有，只进 payload/事件流，render 忽略——不进 LLM 上下文），
-导演/前端在锚点句切背景（routers `_resolve_scene` 注入 place_bg；晚到锚点即切）。
-详细设计：docs/DESIGN_BOND_CONTRACT_V2.md。
+**地点单源切换（2026-09-07 v2, P3b-2 完成）**：主 LLM **不写 place**（schema/rules
+地点说明已删）——换场语义靠"换场即换段"写作约定（rules【段落规划与换场】）；
+地点判定移交标注层 place lane（place_annotate.md 持有词表），锚点写回句项 `place`
+键（稀有，只进 payload/事件流，render 忽略——不进 LLM 上下文），导演/前端在锚点
+句切背景（routers `_resolve_scene` 注入 place_bg；晚到锚点即切）。**词表可见性以
+`place_palette` 舞台清单保留**（同源, 防背景单调）。详细设计：docs/DESIGN_BOND_CONTRACT_V2.md。
 
 双 registry 分流（bond_story.py:429-435）：按**动作名归属**——story 域 spec 命中 →
 story parse；否则 memorial 域。parse 失败仍留本域反馈（不能按 parse 结果分流）。

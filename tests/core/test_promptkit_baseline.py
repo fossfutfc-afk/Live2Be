@@ -153,6 +153,11 @@ def test_bond_box_baseline():
     markers = list(_BOND_MARKERS)
     if "【表情标注词表】" in box:        # 词表/地点资产 gitignore——存在才断言
         markers.insert(markers.index("可用动作 schema") + 1, "【表情标注词表】")
+    if "【可去的地方】" in box:          # 舞台清单（资产 whitelist 存在才有）
+        at = (markers.index("【表情标注词表】") + 1
+              if "【表情标注词表】" in markers
+              else markers.index("可用动作 schema") + 1)
+        markers.insert(at, "【可去的地方】")
     _assert_ordered(box, markers)
 
 
