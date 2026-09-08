@@ -14,7 +14,7 @@ CLI 是同步循环（send_vn_scene → 渲染 → 玩家输入 → 下一场）
                     （digest 唯一触发点: bond 闭环）
 
 与 CLI 对齐的语义:
-    - 双层收尾兜底（remind/end 系统注记 + 超限强制 closing——剧情必须终结）
+    - 收尾兜底（remind/end 系统注记; 2026-09-09 起无超限伪收场）
     - 纪念子模式（in_memorial → 注入 exit schema; 无生图 → 纯文字, 剧情照走）
     - 失败降级（SceneLoopError → closing 场景落库 + completed, 宁缺勿错）
     - 事件流: bond 事件 {input, picked, ...scene} + memorial/vn_state marker
@@ -61,14 +61,16 @@ def _ms_since(t0: float) -> int:
     """自 t0（time.monotonic）起的毫秒（计时埋点, EXEC_BOND_LATENCY §6.1）。"""
     return int((time.monotonic() - t0) * 1000)
 
-#: 双层收尾兜底（与 CLI 默认一致——剧情必须终结, 宁缺勿错）
+#: 收尾兜底注记轮数（与 CLI 默认一致）: _REMIND_ROUNDS 提醒收束,
+#: _END_ROUNDS 后每轮强制 story_end 注记（_system_note）——**不再有超限
+#: 强制 closing**（2026-09-09 语义修正: 伪收场会把中断伪装成完成, 触发
+#: digest/完整收尾话/自动 finish——见 _generate 失败中止注释）; 模型持续
+#: 不收尾 = 玩家可离开（中场退出, 重进续写）, 不伪终结
 _REMIND_ROUNDS = 30
 _END_ROUNDS = 50
-#: 超限强制收尾（CLI force_after = end_rounds + 2）
-_FORCE_AFTER = _END_ROUNDS + 2
-#: 程序兜底 closing 文案（错误收场 / 超限收场）
+#: 程序兜底 closing 文案（demo 剧本耗尽收尾 / CLI 兜底用; 2026-09-09 起
+#: webgui 生成失败路径不再用它——见 _generate）
 _CLOSING_TEXT = "（夜色渐深，这一章的羁绊剧情就此落下帷幕。）"
-#: closing 段落（程序文案, 无标注——自带 emotion, 门控恒就绪, 2026-09-02）
 _CLOSING_PARA = [{"text": _CLOSING_TEXT, "emotion": "nomal"}]
 #: 场景生成连续失败上限（2026-09-02: 偶发 JSON 失败给重试机会, 超限才 closing）
 MAX_GEN_FAILURES = 3
@@ -152,7 +154,7 @@ class BondState:
     completed: bool = False             # 剧情已终结（is_end / 致命错误）→ 前端调 finish
     chapter_title: str = ""
     # 生成失败重试（2026-09-02: 偶发 JSON 失败不再一败就 closing——前 3 次失败保留
-    # 上一场在屏 + 置 error, 前端显示重试按钮重新生成; 连续超限才 closing 收尾）
+    # 上一场在屏 + 置 error, 前端显示重试按钮重新生成; 超限 = 中止态不伪收场, 见 _generate）
     fail_count: int = 0
     # 入口预热（EXEC_BOND_LATENCY P1 2026-09-05）: 触发轮结束即生成首场暂存
     # （staged）——玩家点击时 adopt。staged 期间**不落 vn_enter marker**（防未点击
@@ -1017,7 +1019,7 @@ def bond_finish(char_id: str, session_id: str) -> dict:
     _log_scene(state, char_id, session_id, picked=None)
     try:
         # vn_exit 带剧情完成标志（2026-09-01）: completed = 剧情真正走完
-        # （story_end / 兜底收尾）; False = 玩家中途退出——收尾链据此分支
+        # （story_end 自然收尾）; False = 玩家中途退出——收尾链据此分支
         # （中断不脑补收尾话 + 不 digest——记忆只反映完整剧情段）
         _store().append_marker(char_id, session_id, M_VN_EXIT,
                                {"completed": state.completed})
@@ -1080,16 +1082,15 @@ def _generate(state: BondState, char_id: str, session_id: str, user_input: str) 
                         on_memorial_prompt=_make_memorial_cb(
                             state, char_id, session_id),
                     )
-                    if state.round > _FORCE_AFTER and not scene.is_end:
-                        # 超限强制收尾（CLI force_after 语义——剧情必须终结）
-                        scene = BondScene(
-                            paragraphs=list(_CLOSING_PARA), is_end=True)
+                    # 2026-09-09 语义修正: 篇幅超限不再丢弃 LLM 场景换 closing
+                    # 伪收场——纠正面在 system_note（_END_ROUNDS 后每轮强制
+                    # story_end）; 持续不收尾 = 玩家可离开（中场退出, 在押续写）
                 state.scene_obj = scene
                 state.scene = scene.to_dict()
                 state.scene_input = user_input
                 state.scene_logged = False
                 if scene.is_end:
-                    state.completed = True
+                    state.completed = True       # 仅自然 story_end 才 completed
                 # 选项配额（供下一场 system_note 参考）
                 if scene.choices:
                     state.choices_used += 1
@@ -1118,19 +1119,24 @@ def _generate(state: BondState, char_id: str, session_id: str, user_input: str) 
             # 模型连语义校验都过不了 → 偶发失败先给重试机会（2026-09-02:
             # 一败就 closing 会把偶发 JSON 错误变成"剧情突然结束"——上一场保持
             # 在屏, error 置位, 前端显示重试按钮重新 submit; 连续 3 次失败才
-            # 中断收场（宁缺勿错, 剧情必须终结））
+            # 中止（2026-09-09 语义修正, 用户拍板: **中断/异常 ≠ 失败/完成**）:
+            # 不再 closing 伪收场——closing 曾伪装 story_end(is_end + completed)
+            # → 前端 1.6s 自动 finish → vn_exit completed=True → digest 触发 +
+            # "完整剧情"收尾话/兜底落库（历史遗留: 大量重复"好好记住"兜底话 +
+            # wiki 空 = 从未自然完成的佐证）。修正: 超限 = 中止态——completed
+            # 保持 False（剧情不终结, vn_enter 在押 = 中场退出语义）, 不落任何
+            # 结束事件, 玩家可重试（error 已置, 前端重试按钮）或离开（重进走
+            # 回放续写——2026-09-07 中断接入）。"放弃本章/拒绝邀约"= 未来项。
             logger.warning("bond 场景生成失败 (%s/%s) 第 %d 次 (%dms): %s",
                            char_id, session_id, state.fail_count + 1,
                            _ms_since(t0), e)
-            state.error = str(e)
             state.fail_count += 1
             if state.fail_count > MAX_GEN_FAILURES:
-                closing = BondScene(paragraphs=list(_CLOSING_PARA),
-                                    is_end=True)
-                state.scene_obj = closing
-                state.scene = closing.to_dict()
-                state.scene_logged = False
-                state.completed = True
+                # 中止态（completed 保持 False）: 可重试或离开（重进回放续写）
+                state.error = (f"{e}——已多次生成失败, 剧情暂缓。"
+                               "可点击重试继续; 离开后重进可从已记录剧情续写。")
+            else:
+                state.error = str(e)        # 普通失败: 前端重试按钮
         finally:
             state.busy = False
             # Storyloom bridge 式预生成（2026-08-30）: 主生成完成后（busy 已清零）
@@ -1535,6 +1541,13 @@ def _system_note(state: BondState) -> str | None:
             "（系统）已达剧情篇幅上限。本轮请改用 story_end 动作收尾"
             "结束剧情——收尾场景只有 paragraphs，不再输出选项。"
         )
+    if state.round > _END_ROUNDS:
+        # 超限后的每轮强制（2026-09-09 取代旧 FORCE_AFTER closing——强制注记
+        # 引导自然收尾, 不做伪收场）
+        notes.append(
+            "（系统）剧情已远超篇幅上限。本轮**必须**输出 story_end 动作收尾"
+            "结束剧情——收尾场景只有 paragraphs，不再输出选项、不再开新场景。"
+        )
     return "\n".join(notes) if notes else None
 
 
@@ -1545,7 +1558,7 @@ def _wrapup(char_id: str, session_id: str, title: str, completed: bool) -> None:
     只落 assistant 回复）; 前端轮询 events_after 自然拉到收尾气泡。
     2026-09-05: reason 退役——收尾前给引擎灌统一窗口（事件流含刚结束的 bond
     场景叙事, agent_turn 的 AI 知道这段剧情讲了什么）; title 仅兜底引用。
-    completed=True（剧情 story_end 自然结束/兜底收尾）: 话术按"完整剧情"收尾 +
+    completed=True（剧情 story_end 自然结束）: 话术按"完整剧情"收尾 +
     async_digest（提炼 + 好感结算——digest 唯一触发点）。
     completed=False（玩家中途退出）: 话术明确"剧情只进行到一半"（防 LLM 脑补
     未发生的剧情结果）+ **不 digest**（记忆只反映完整剧情段——中断不提炼,

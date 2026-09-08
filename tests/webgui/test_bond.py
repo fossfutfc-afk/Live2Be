@@ -353,10 +353,12 @@ def test_bond_demo_replay_resets(tmp_path):
 
 
 # ----------------------------------------------------------------------------
-# 失败降级: LLM 一直坏 → closing 场景 + completed（剧情必须终结）
+# 失败降级（2026-09-09 语义修正: 中断/异常 ≠ 失败/完成）: LLM 一直坏 →
+# 中止态（completed 保持 False, 不伪收场/不落 story_end）; 玩家可离开走
+# 中断收尾（vn_exit completed=False + 中断兜底话, 非"完整剧情"话术）
 # ----------------------------------------------------------------------------
 
-def test_bond_scene_error_falls_back_to_closing(tmp_path):
+def test_bond_scene_error_abort_no_closing(tmp_path):
     class BadLLM(ScriptedLLM):
         def chat(self, messages, **kw):
             self.snapshots.append([dict(m) for m in messages])
@@ -371,24 +373,35 @@ def test_bond_scene_error_falls_back_to_closing(tmp_path):
     try:
         bond.bond_start(CHARACTER, sid)
         stt = _wait_status(CHARACTER, sid)
-        # 2026-09-02: 偶发失败不再一败就 closing——首败保留上一场 + error（可重试）
+        # 首败: 保留上一场 + error（可重试）, completed 恒 False
         assert stt["completed"] is False, stt
         assert stt["error"], "应有错误信息（前端显示重试按钮）"
-        # 玩家连续重试（每次 turn 重新生成仍失败）→ 超限（MAX_GEN_FAILURES+1）才 closing
+        # 玩家连续重试仍失败 → 超限 = 中止态（旧语义在此 closing 伪收场, 已废）
         for _ in range(6):
             bond.bond_turn(CHARACTER, sid, "（继续）")
             stt = _wait_status(CHARACTER, sid)
-            if stt["completed"]:
+            if "暂缓" in (stt["error"] or ""):
                 break
-        assert stt["completed"] is True, stt
-        assert stt["scene"]["is_end"] is True, stt["scene"]
-        assert "夜色渐深" in stt["scene"]["paragraphs"][0]["text"]
-        # finish 收尾照常（事件流完整）
+        assert "暂缓" in (stt["error"] or ""), stt
+        assert stt["completed"] is False, "中止态绝不可 completed（伪收场已废）"
+        assert not (stt["scene"] or {}).get("is_end"), stt["scene"]
+        # 事件流: 零伪收场——无 bond 事件/无 story_end
+        evs0 = st.events(CHARACTER, sid)
+        assert not any(e.type == "bond" for e in evs0), \
+            [e.subtype for e in evs0 if e.type == "bond"]
+        # 玩家离开 → 中断收尾: vn_exit completed=False + 中断兜底话
+        # （不是"完整剧情"的"好好记住"版——异常/中断不再伪装完成）
         assert bond.bond_finish(CHARACTER, sid)["completed"] is True
         evs = st.events(CHARACTER, sid)
-        assert ("bond", "story_end") in [(e.type, e.subtype) for e in evs]
-        assert ("marker", "session_end") in [(e.type, e.subtype) for e in evs]
-        print("    bond 失败降级: 首败可重试 → 连续超限才 closing + finish 收尾")
+        exits = [e for e in evs if e.type == "marker" and e.subtype == "vn_exit"]
+        assert exits and exits[-1].payload.get("completed") is False, \
+            [e.payload for e in exits]
+        assert not any(e.type == "bond" and e.subtype == "story_end" for e in evs)
+        replies = "".join(json.dumps(e.payload, ensure_ascii=False)
+                          for e in evs if e.type == "mmt")
+        assert "好好记住" not in replies, "中止不应落完整剧情兜底话!"
+        print("    bond 失败中止: 首败可重试 → 超限中止态（零伪收场）→ "
+              "离开走中断收尾（completed=False + 中断话术）")
     finally:
         _cleanup()
 
