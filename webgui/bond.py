@@ -173,6 +173,8 @@ class BondState:
     # 含 keep, gate 恒可达）; 分支反应段/无词表/纪念退出 = 视为就绪。
     _place_queue: "queue.Queue | None" = field(default=None, repr=False)
     _place_started: bool = field(default=False, repr=False)
+    _anno_thread: "threading.Thread | None" = field(default=None, repr=False)
+    _place_thread: "threading.Thread | None" = field(default=None, repr=False)
     # 纪念立绘异步生成（方案 A 2026-09-01）: 流式嗅探到 memorial_enter 的 prompt
     # 定稿即后台生图（与 LLM 剩余输出并行）——玩家看到纪念场景时图已就绪, 淡入
     memorial_img: str = ""                     # 前端 URL（/gallery/{char}/{sid}.png）; 空 = 未就绪/失败
@@ -538,35 +540,46 @@ def bond_start(char_id: str, session_id: str, *,
                         char_id, session_id, len(replay_q), keep_enter)
             return _start_replay(state, replay_q, char_id, session_id)
 
-    engine = chat._engine(char_id)
-    char = engine.current_character
-    if char is None:
-        return {"accepted": False, "error": "会话未打开"}
-    title = _trigger_title(engine)
+    # 现场建引擎段（双检锁, 2026-09-08 自查加固）: chat worker 的 staged 预热
+    # 与前端直进点击可能并发进入本段——不加锁会双建/换 vn（首场标注对象与
+    # 状态分叉 → ver 恒 0 / gate 恒 true / 表情整板 nomal 的一类根因）。
+    with state._lock:
+        if state.vn is not None or state.demo is not None:
+            # 并发下另一路已先初始化 → 放弃本次, 按现状返回（busy 由前端轮询）
+            logger.info("bond_click concurrent init skip %s/%s busy=%s",
+                        char_id, session_id, "y" if state.busy else "n")
+            return {"accepted": True, "busy": state.busy,
+                    "resumed": state.vn is not None}
 
-    # brain 注入（DESIGN_BRAIN.md, wiki_v2 2026-09-02 切换）: 世界线 wiki 第一人称——
-    # VN 中角色记得前面的事（出厂基座 0 LLM 确保; 失败静默零注入）
-    brain_segment = load_brain_segment(
-        _store(), char.character_id, char.display_name,
-        characters_root=engine.char_loader.root)
+        engine = chat._engine(char_id)
+        char = engine.current_character
+        if char is None:
+            return {"accepted": False, "error": "会话未打开"}
+        title = _trigger_title(engine)
 
-    vn = BondStoryEngine(
-        engine.char_loader.root, engine.llm,
-        director=_build_director(char), brain_segment=brain_segment)
-    vn.start_session(char.character_id)
-    # 统一上下文窗口（2026-09-05, DESIGN_CONTEXT_WINDOW）: 从事件流灌最近叙事进
-    # vn._history——首场带着触发前的 MMT 对话（断桥修复）; 事件流已是终态
-    # （裁决时落库 + 门控保证标注就绪）; 与引擎自增历史同构, 滑动无缝
-    try:
-        _evs = exclude_abandoned(_store().events(char_id))
-        _win = window_messages(_evs)
-        if _win:
-            vn._history = _win
-    except Exception:                                # noqa: BLE001 — 灌窗失败不阻断
-        pass
+        # brain 注入（DESIGN_BRAIN.md, wiki_v2 2026-09-02 切换）: 世界线 wiki 第一人称——
+        # VN 中角色记得前面的事（出厂基座 0 LLM 确保; 失败静默零注入）
+        brain_segment = load_brain_segment(
+            _store(), char.character_id, char.display_name,
+            characters_root=engine.char_loader.root)
 
-    state.vn = vn
-    state.chapter_title = title
+        vn = BondStoryEngine(
+            engine.char_loader.root, engine.llm,
+            director=_build_director(char), brain_segment=brain_segment)
+        vn.start_session(char.character_id)
+        # 统一上下文窗口（2026-09-05, DESIGN_CONTEXT_WINDOW）: 从事件流灌最近叙事进
+        # vn._history——首场带着触发前的 MMT 对话（断桥修复）; 事件流已是终态
+        # （裁决时落库 + 门控保证标注就绪）; 与引擎自增历史同构, 滑动无缝
+        try:
+            _evs = exclude_abandoned(_store().events(char_id))
+            _win = window_messages(_evs)
+            if _win:
+                vn._history = _win
+        except Exception:                            # noqa: BLE001 — 灌窗失败不阻断
+            pass
+
+        state.vn = vn
+        state.chapter_title = title
     # 渲染依赖预热（P2, EXEC_BOND_LATENCY §5#3）: MediaCatalog/特效表移出
     # 首帧 status 轮询——首次场景解析不再现构造（懒 import 破环 routers↔driver;
     # 幂等单例; 失败静默——渲染链自带降级）
@@ -1080,6 +1093,23 @@ def _pregenerate(state: BondState, char_id: str, session_id: str) -> None:
     threading.Thread(target=run, daemon=True).start()
 
 
+def _ensure_lane(state: BondState, *, started_attr: str, thread_attr: str,
+                 worker_fn, lane: str) -> None:
+    """lane 看门狗（2026-09-08 自查加固）: 启动标记 + 线程存活双检——
+
+    若 worker 曾意外死亡（标记 True 但线程已死）→ 下次入队自动重启, 防
+    "ver 恒 0 + gate 恒 true" 的永久饥饿。正常驻留线程（阻塞等队列）→ 不重启。
+    """
+    th = getattr(state, thread_attr)
+    if getattr(state, started_attr) and th is not None and th.is_alive():
+        return
+    setattr(state, started_attr, True)
+    t = threading.Thread(target=worker_fn, args=(state,), daemon=True)
+    setattr(state, thread_attr, t)
+    t.start()
+    logger.info("bond_anno lane %s start tid=%s", lane, t.ident)
+
+
 def _enqueue_annotate(state: BondState, scene: BondScene) -> None:
     """场景入队异步标注（两遍式 C + place lane, P3b-1 双路并行）。
 
@@ -1107,9 +1137,8 @@ def _enqueue_annotate(state: BondState, scene: BondScene) -> None:
     if state._anno_queue is None:
         state._anno_queue = queue.Queue()
     state._anno_queue.put(scene)
-    if not state._anno_started:
-        state._anno_started = True
-        threading.Thread(target=_anno_worker, args=(state,), daemon=True).start()
+    _ensure_lane(state, started_attr="_anno_started", thread_attr="_anno_thread",
+                 worker_fn=_anno_worker, lane="emo")
 
 
 def _enqueue_place_annotate(state: BondState, scene: BondScene) -> None:
@@ -1128,9 +1157,8 @@ def _enqueue_place_annotate(state: BondState, scene: BondScene) -> None:
     if state._place_queue is None:
         state._place_queue = queue.Queue()
     state._place_queue.put(scene)
-    if not state._place_started:
-        state._place_started = True
-        threading.Thread(target=_place_worker, args=(state,), daemon=True).start()
+    _ensure_lane(state, started_attr="_place_started", thread_attr="_place_thread",
+                 worker_fn=_place_worker, lane="place")
 
 
 def _place_worker(state: BondState) -> None:
@@ -1170,6 +1198,7 @@ def _place_worker(state: BondState) -> None:
                 pass
     # 正常结束（None 哨兵）: 复位启动标记——后续入队可再启（worker 永不饿死）
     state._place_started = False
+    state._place_thread = None
 
 
 def _fallback_fill(scene: BondScene) -> None:
@@ -1231,6 +1260,7 @@ def _anno_worker(state: BondState) -> None:
                 pass
     # 正常结束（None 哨兵）: 复位启动标记——后续入队可再启（worker 永不饿死）
     state._anno_started = False
+    state._anno_thread = None
 
 
 def _log_scene(state: BondState, char_id: str, session_id: str, picked) -> None:
