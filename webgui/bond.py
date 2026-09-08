@@ -1090,6 +1090,14 @@ def _enqueue_annotate(state: BondState, scene: BondScene) -> None:
     """
     if state.demo is not None or state.vn is None:
         return
+    # 入队打点（2026-09-08 首板 nomal 排查）: 每场景标注意向一目了然（emo/place）
+    _want_emo = bool(state.vn._lexicon_keys and not scene.memorial_exit
+                     and any(not p.get("emotion") for p in scene.paragraphs
+                             if isinstance(p, dict)))
+    _want_place = bool(state.vn._place_keys and not scene.memorial_exit
+                       and not getattr(scene, "_place_done", False))
+    logger.info("bond_anno enq emo=%s place=%s scene=%s",
+                _want_emo, _want_place, id(scene))
     _enqueue_place_annotate(state, scene)   # 双路并行 lane（§7）——独立于 emotion 守卫
     if not state.vn._lexicon_keys:
         return                                      # 无词表 → 无需标注
