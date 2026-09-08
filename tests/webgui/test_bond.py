@@ -742,6 +742,51 @@ def test_bond_interrupt_replay_keeps_place_anchors(tmp_path):
         _cleanup()
 
 
+def test_promote_gate_blocks_until_pregen_annotated():
+    """预生成消费门（2026-09-08）: 预生成场景自身 emotion/place 未就绪 → 不提升
+    （busy, 前端轮询）; 就绪（含 place keep 标记）→ 放行——防"消费后标注被丢弃
+    → 整板表情卡 nomal"。"""
+    from webgui.bond import BondState, _scene_obj_visual_ready
+    from core.bond.bond_story import BondScene
+
+    class FakeVN:
+        def __init__(self, emo_keys, place_keys):
+            self._lexicon_keys = emo_keys
+            self._place_keys = place_keys
+
+    def _scene(paras, *, done=False):
+        sc = BondScene.from_dict({"paragraphs": paras})
+        if done:
+            sc._place_done = True
+        return sc
+
+    # 无引擎/无场景 → 恒就绪（不阻塞）
+    assert _scene_obj_visual_ready(BondState(), None) is True
+    # 无词表（无标注能力）→ 恒就绪
+    st = BondState()
+    st.vn = FakeVN([], [])
+    st.demo = None
+    sc = _scene([{"text": "没有表情的骨架句。"}])
+    assert _scene_obj_visual_ready(st, sc) is True
+    # emotion 缺键 → 未就绪; place 标记缺 → 未就绪
+    st.vn = FakeVN(["nomal"], ["class_room"])
+    assert _scene_obj_visual_ready(st, sc) is False          # 骨架无 emotion
+    emo_ok = _scene([{"text": "句一。", "emotion": "nomal"},
+                     {"text": "句二。", "emotion": "smile"}])
+    assert _scene_obj_visual_ready(st, emo_ok) is False      # place 未标记
+    st2 = BondState()
+    st2.vn = FakeVN(["nomal"], ["class_room"])
+    assert _scene_obj_visual_ready(st2, _scene(
+        [{"text": "句一。", "emotion": "nomal"}], done=True)) is True
+    # 纪念退出无需标注 → 就绪
+    exit_scene = BondScene.from_dict({"paragraphs": ["过渡。"]})
+    exit_scene.memorial_exit = True
+    st3 = BondState()
+    st3.vn = FakeVN(["nomal"], ["class_room"])
+    assert _scene_obj_visual_ready(st3, exit_scene) is True
+    print("    预生成消费门: 双路未齐拦截 → 齐（含 place keep 标记）放行")
+
+
 # ----------------------------------------------------------------------------
 # 纪念立绘异步生成（方案 A 2026-09-01）: 流式嗅探到 memorial_enter 的 prompt
 # 定稿 → 后台生图（与 LLM 剩余输出并行）→ 画廊落盘 → bond_status.memorial_img
