@@ -124,7 +124,10 @@ def run_bond_story_vn(
         第 remind_rounds 场 → 注入系统注记「已推进 N 轮, 剩余约 M 轮」,
                               引导 AI 开始向结尾收束;
         第 end_rounds   场 → 注入系统注记「已达篇幅上限, 本轮务必改用 story_end 收尾」;
-        超过 end_rounds+2 场仍不结束 → 程序兜底收尾（循环必须终结, 宁缺勿错）。
+        超过 end_rounds+2 场仍不结束 → **不再程序兜底伪收场**（2026-09-09 CLI
+        对齐 webgui 中止语义: 中断/异常 ≠ 失败/完成）——completed=False 中断
+        退出（不落 closing story_end, 章在押; 重进续写能力待 CLI resume 落地,
+        TODO 中期回放）。模型持续不收尾属异常, 纠正是注记, 不是伪终结。
     生产默认 30/50; 调试可传 15/22（实验脚本与单测用）。
     max_tokens: 输出上限透传 send_vn_scene（None → 真源 llm/task_levels.py 形态
     "vn_cli" = 1536, 2026-09-02 集中管理; 长段落场景可显式调高）;
@@ -200,8 +203,9 @@ def run_bond_story_vn(
     gallery_store = gallery if gallery is not None else GalleryStore()
 
     completed = False
+    fails = 0                      # 连续生成失败计数（对齐 webgui MAX_GEN_FAILURES）
     user_input = seed
-    force_after = end_rounds + 2          # 建议收尾后再留 2 场余量, 超限硬兜底
+    force_after = end_rounds + 2          # 建议收尾后再留 2 场余量（超限 = 中断, 不伪收场）
     for i in range(1, force_after + 1):
         system_note = None
         # 随机事件（soft, 低频惊喜）: 记忆突然浮现——只在开场（第一场）触发,
@@ -244,19 +248,19 @@ def run_bond_story_vn(
         try:
             scene = vn.send_vn_scene(user_input, max_tokens=max_tokens, system_note=system_note)
         except (SceneLoopError, ValueError) as e:
-            # 模型连语义校验都过不了 → 中断收场（宁缺勿错, 循环必须终结）
-            print(f"[系统] 剧情生成失败: {e}")
-            closing = BondScene(paragraphs=[{"text": "（这一章的羁绊剧情就此中断收场。）"}], is_end=True)
-            render_scene(renderer.render(RenderScene.from_live(closing)), char_ms=char_ms)
-            # 事件流: 中断收尾也落 closing 场景（事件流完整, 回放不缺最后一场）
-            if store is not None and vn_sid is not None:
-                try:
-                    store.append_event(char.character_id, vn_sid, make_event(
-                        "bond", "story_end",
-                        {**closing.to_dict(), "input": user_input, "picked": None}))
-                except Exception as ex:
-                    logger.warning("事件流写入失败: %s", ex)
-            completed = True
+            # 2026-09-09 CLI 对齐（webgui 中止语义）: 失败 ≠ 完成——不再落
+            # closing story_end + completed=True（历史伪收场: 中断被当成完成,
+            # 事件流出现假结尾 + digest/收尾话误触发）。改: 同输入自动重试
+            # （≤3 次）, 仍失败 → 中断退出（completed=False → vn_exit False,
+            # 章在押不落收尾事件; 重进续写待 CLI resume 落地）
+            fails += 1
+            logger.warning("VN 场景生成失败（第 %d 次, 自动重试）: %s", fails, e)
+            if fails <= 3:
+                print(f"[系统] 剧情生成失败（第 {fails} 次）——正在自动重试同输入…")
+                continue
+            print("[系统] 连续多次生成失败，本章剧情暂缓——未结束不落收尾事件；"
+                  "稍后重新触发本剧情可继续。")
+            completed = False
             break
 
         # 纪念进入轮（§4.7）: 生图（APIYI 秒级 / 本地预热后 ~2s, 显示加载中）→ gallery 落盘
@@ -319,18 +323,12 @@ def run_bond_story_vn(
             break
         user_input = choice
     else:
-        # for 循环耗尽 = 模型仍不 is_end → 程序兜底收尾（循环必须终结）
-        closing = BondScene(paragraphs=[{"text": "（夜色渐深，这一章的羁绊剧情就此落下帷幕。）"}], is_end=True)
-        render_scene(renderer.render(RenderScene.from_live(closing)), char_ms=char_ms)
-        # 事件流: 程序兜底收尾也落 closing 场景（事件流完整, 回放不缺最后一场）
-        if store is not None and vn_sid is not None:
-            try:
-                store.append_event(char.character_id, vn_sid, make_event(
-                    "bond", "story_end",
-                    {**closing.to_dict(), "input": user_input, "picked": None}))
-            except Exception as e:
-                logger.warning("事件流写入失败: %s", e)
-        completed = True
+        # for 循环耗尽 = 模型仍不 is_end（其间生成均成功）——2026-09-09 对齐:
+        # 不再程序兜底 closing 伪收场（completed=False 中断, 不落 story_end;
+        # 已落库场次 = 正常内容, 章在押, 重进续写待 CLI resume 落地）
+        print("[系统] 剧情篇幅已达上限但角色仍未收尾——本章暂缓结束（未收尾不落"
+              "收尾事件）。重新触发本剧情可继续。")
+        completed = False
     print("[系统] 已退出羁绊剧情, 回到 MomoTalk。")
 
     # 事件流收尾（统一, 无论哪条路径）: vn_exit + session_end（没写 = 中断）
