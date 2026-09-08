@@ -14,12 +14,21 @@
 """
 from __future__ import annotations
 
+import logging
 import re
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, Response
 from starlette.staticfiles import StaticFiles
+
+# 根日志配置（2026-09-08）: uvicorn 只配自己的 access/error logger——live2be.* 的
+# INFO 埋点（bond_gen / bond_anno / llm chat …）此前从不输出, 排查全靠盲猜。
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(name)s %(levelname)s %(message)s",
+    datefmt="%H:%M:%S",
+)
 
 from webgui.routers import bond, menu, mmt, name, settings, spine
 
