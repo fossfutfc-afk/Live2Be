@@ -12,7 +12,9 @@ engine 按实际词表动态挑选, 保证词表内合法）。engine 职责外�
 """
 from __future__ import annotations
 
+import json
 import logging
+import re
 
 from core.bond.emotion_annotate import _extract_array
 from llm.prompts import load_prompt
@@ -25,9 +27,10 @@ logger = logging.getLogger("live2be.bond")
 _CANONICAL = ["nomal", "embarrassed", "smile", "surprised",
               "sad", "outburst", "expectant", "respond"]
 
-#: 长度重试上限（DESIGN_SCENE_STREAM §4.3.1: 长度不符 → 重试一次）——
-#: 小输入快失败; 仍失败走段内延续, 不再调用
-_ANNO_TEXT_MAX_ATTEMPTS = 2
+#: 预算（2026-09-08 真 API 修正: 1 → 2 次重试）——空响应/项数错配在
+#: 服务端负载期占首发 ~40%; 第 2 次重试显著回收; 仍失败走段内延续
+#: （小输入快失败, 代价小; DESIGN_SCENE_STREAM §4.3/§10 注）
+_ANNO_TEXT_MAX_ATTEMPTS = 3
 
 #: 无词表/输入为空时的段内延续默认键（engine 侧已保证词表非空; 兜底防线）
 _DEFAULT_EMOTION = "nomal"
@@ -47,6 +50,89 @@ def pick_demo_keys(lexicon_keys: list[str]) -> tuple[str, str, str]:
     a = rest[0] if rest else n
     b = rest[1] if len(rest) > 1 else a
     return n, a, b
+
+
+_KEY_RE = re.compile(r"^[A-Za-z_]+$")
+
+
+def _first_list_value(obj: dict) -> object:
+    """对象包装取键数组（数组形态）: labels/emotion 键优先, 否则首个 list。"""
+    for key in ("labels", "emotion", "keys", "emotions"):
+        v = obj.get(key)
+        if isinstance(v, list):
+            return v
+    for v in obj.values():
+        if isinstance(v, list):
+            return v
+    return None
+
+
+def _numbered_map_value(obj: dict) -> object:
+    """对象包装取键数组（编号映射形态, 2026-09-08 真 API 二修）。
+
+    数组形态（text/json）下模型数不对项（n≥3 常合并/漏行 → 重试后整段兜底）。
+    编号映射 `{"labels": {"1": 键, "2": 键}}` 让**引擎数项**（句号键集合）,
+    模型只需逐行标——键(≥1)排序取值; 漏行/错位仍由项数硬校验兜底（重试）。
+    """
+    for key in ("labels", "emotion", "keys", "emotions"):
+        v = obj.get(key)
+        if isinstance(v, dict):
+            pairs: list[tuple[int, object]] = []
+            for k, val in v.items():
+                try:
+                    idx = int(k)
+                except (TypeError, ValueError):
+                    continue
+                if idx >= 1 and isinstance(val, str):
+                    pairs.append((idx, val))
+            if pairs:
+                pairs.sort()
+                return [val for _, val in pairs]
+    return None
+
+
+def _extract_key_array(raw: object) -> object:
+    """标注输出 → 键数组（形态无关: 数组 | 对象数组 | 对象编号映射）。
+
+    2026-09-08 真 API 修正（DESIGN_SCENE_STREAM §4.1 注）: 文本模式实测
+    deepseek-v4-flash 频发空响应/裸键数组（重试/整段兜底率飙升）→ 输出契约
+    改 json_object 对象包装, 二修为**编号映射** {"labels": {"1":键,…}}
+    （模型不再数项数——引擎按句号键集合数项）。本函数兜底兼容旧形态
+    （dict/list/裸键容忍——测试桩与旧客户端路径用）。
+    键合法性仍由词表成员校验兜底（丢非法项）, 项数仍由 _label_chain 硬校验
+    （不符 → 重试一次, 消息带"期望 N, 实得 M"）。无法识别 → None。
+    """
+    if isinstance(raw, list):
+        return raw
+    if isinstance(raw, dict):
+        arr = _first_list_value(raw)                # 对象数组形态
+        if arr is not None:
+            return arr
+        return _numbered_map_value(raw)             # 对象编号映射形态
+    if isinstance(raw, str):
+        text = raw.strip()
+        try:
+            obj = json.loads(text)
+        except ValueError:
+            obj = None
+        if isinstance(obj, list):
+            return obj
+        if isinstance(obj, dict):
+            arr = _first_list_value(obj)
+            if arr is not None:
+                return arr
+            return _numbered_map_value(obj)
+        arr = _extract_array(raw)                  # 旧形态: 摘引号数组
+        if isinstance(arr, list):
+            return arr
+        m = re.search(r"\[(.*)\]", text, re.S)     # 裸键容忍（省引号输出）
+        if m:
+            body = m.group(1)
+            if '"' not in body and "'" not in body:
+                items = [x.strip() for x in body.split(",") if x.strip()]
+                if items and all(_KEY_RE.fullmatch(x) for x in items):
+                    return items
+    return None
 
 
 def _label_chain(arr: object, n: int, kset: set[str], prev: str | None,
@@ -99,10 +185,10 @@ def annotate_paragraph(
 
     Returns:
         (labels, info): labels 长度恒 == len(sentences) 且全词表内——
-        长度不符 → 重试一次; 仍失败/调用异常 → 段内确定性延续（前一句键 →
-        段首 carry → nomal）, **绝不整批 None**。
+        形状/项数不符 → 重试至多两次; 仍失败/调用异常 → 段内确定性延续
+        （前一句键 → 段首 carry → nomal）, **绝不整批 None**。
         info = {attempts, retry, fallback}: 质量记账（DESIGN_SCENE_STREAM §8:
-        retry = 是否触发过重试; fallback = 兜底句数——目标 ≈0）。
+        retry = 触发重试次数; fallback = 兜底句数——目标 ≈0）。
     """
     n = len(sentences)
     if n == 0:
@@ -136,18 +222,24 @@ def annotate_paragraph(
         retry_msg = ""
         if attempt > 0 and mismatch:
             retry_msg = (
-                f"\n（上次输出无法通过校验——长度不符: 期望 {n}, 实得 {mismatch}。"
-                f"只重新输出恰 {n} 项的 JSON 数组, 无任何解释。）"
+                "\n（上次输出无法通过校验——项数不符: 期望 "
+                + str(n) + ", 实得 " + str(mismatch) + "。只重新输出 "
+                '{"labels": {1..' + str(n)
+                + ' 的句号 → 情绪键}}, 无任何解释。）'
             )
         try:
             raw = llm.chat(
                 [
                     {"role": "system", "content": _system(retry_msg)},
                     {"role": "user",
-                     "content": f"请输出第 1..{n} 句的情绪标签数组（恰 {n} 项）。"},
+                     "content": '请输出情绪标签数组, 包装为 {"labels": {句号: '
+                     '情绪键}}, 句号从 1 到 ' + str(n) + '（恰 ' + str(n)
+                     + ' 项）。'},
                 ],
                 temperature=0.2,
                 max_tokens=max_tokens,
+                # 2026-09-08 实测: text 模式 + 编号映射（引擎数项）; json_object
+                # 模式服务端长提示词空响应率高且客户端自纠错放大成本(15s/次)
                 extra_body=_tl_extra("emotion"),
             )
         except Exception as e:                  # noqa: BLE001 — 失败重试/段内延续
@@ -155,13 +247,13 @@ def annotate_paragraph(
                            attempt + 1, _ANNO_TEXT_MAX_ATTEMPTS, para_no, e)
             mismatch = "调用异常"
             continue
-        arr = _extract_array(raw)
+        arr = _extract_key_array(raw)
         cleaned = _label_chain(arr, n, kset, prev)
         if cleaned is not None:
             labels, missing = cleaned
             return labels, {"attempts": attempt + 1, "retry": attempt,
                             "fallback": missing}
-        mismatch = f"{len(arr)} 项" if isinstance(arr, list) else "非数组"
+        mismatch = f"{len(arr)} 项" if isinstance(arr, list) else "无法解析"
         if isinstance(arr, list):
             length_bad = True
     # 预算耗尽 → 段内确定性延续（前一句键 → 段首 carry; 绝不整批 None）
@@ -172,5 +264,5 @@ def annotate_paragraph(
     cur = prev or _DEFAULT_EMOTION
     for _ in sentences:
         labels.append(cur)
-    return labels, {"attempts": _ANNO_TEXT_MAX_ATTEMPTS, "retry": 1,
-                    "fallback": n}
+    return labels, {"attempts": _ANNO_TEXT_MAX_ATTEMPTS,
+                    "retry": _ANNO_TEXT_MAX_ATTEMPTS - 1, "fallback": n}
