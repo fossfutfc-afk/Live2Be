@@ -172,14 +172,15 @@
        D（P2 流式）为主 + 分支预生成已覆盖的窗口内就绪。放弃降档路线
 - [ ] **B. 追赶降档**：预生成落后时先 low 出一版上屏, 后台 high 替换——双生成
        复杂度, 仅极端慢期值得, 暂缓
-- [ ] **C. 选项候选预生成（sibling 草稿支, 用户方案 2026-09-08）**：板带 choices
-       → fork 候选支（A1 按路径回录 + 引擎克隆）各自预生成下一板; 裁决后选中支
-       端上、未选支作废 GC——等待窗口前移到选项阅读期。成本实测: 双路 prompt
-       近全量缓存命中（miss 262-1072 vs hit ~6.2-6.4k）, 增量 ≈ 1 个候选支输出
-       token。设计 docs/DESIGN_CHOICE_PREGEN.md; 参数 [bond] choice_pregen =
-       off|sibling|tree（首期 sibling, tree 预判收益≈0 不做）。**草稿纯内存不
-       落库**（append-only 只在观测/裁决点收主线）; fork 原语 = 主要工程点;
-       分歧感规则测试已获用户授权（临时改 rules 4 + 夹具同批, 测完回退）
+- [x] **C. 选项候选预生成（sibling 草稿支, 用户方案）**：已落地 master（N1 fork
+       原语 + N2a spawn / N2b 消费切换 / N2c 清理观测 / N2d 开关, 489 绿）——
+       板带 choices → fork 候选支（A1 按路径回录）各自预生成下一板; 裁决命中
+       即端上（零等待, 未命中走老路）; 未选作废 GC（草稿纯内存零落库）。
+       成本实测: 双路 prompt 近全量缓存（miss 262-1072 vs hit ~6.2k）, 增量
+       ≈ 1 候选支输出; 设计/落地记录 docs/DESIGN_CHOICE_PREGEN.md; 开关
+       settings.toml [bond] choice_pregen（缺省 sibling; tree 预留不做）;
+       **待真机验证**: 选项命中 0 等待率 / 候选墙钟并发实测; 分歧感规则测试
+       已获用户授权（临时改 rules 4 + 夹具同批, 测完回退）
 - [ ] **D. P2 流式渐进（段闭合即发布）**：选项/继续等待的终态解——TTFT+首段即读;
        见 DESIGN_SCENE_STREAM §2/§10
 - [ ] **E. 空闲时段复测 P1 验收**：兜底句数≈0 / 重试率 / 单段耗时 p50

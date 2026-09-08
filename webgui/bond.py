@@ -30,6 +30,7 @@ import queue
 import threading
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from core.bond.bond_story import BondScene, BondStoryEngine, SceneLoopError
 from core.media.gallery import GalleryStore
@@ -1195,6 +1196,28 @@ def _discard_candidates(state: BondState) -> None:
     state.choice_candidates = []
 
 
+#: 运行时开关读取路径（settings.toml, gitignore——本机 GUI 设置文件）
+_CAND_SETTINGS_PATH = Path(__file__).resolve().parent.parent / "settings.toml"
+
+
+def _choice_pregen_enabled() -> bool:
+    """choice_pregen 开关（DESIGN_CHOICE_PREGEN §4, N2d）:
+
+    settings.toml [bond] choice_pregen = "off" | "sibling" | "tree"
+    - sibling: 单层候选预生成（当前实现; tree 暂同 sibling——递归展开未做,
+      预判收益趋零不做）; off: 关闭（走分支播放期单路 pregen 老路）。
+    - 读取失败/缺省 → True（sibling——功能默认开, 不稳可一键关）。
+    """
+    try:
+        import tomllib
+        text = _CAND_SETTINGS_PATH.read_text(encoding="utf-8")
+        mode = str(((tomllib.loads(text).get("bond") or {})
+                    .get("choice_pregen") or "sibling")).strip().lower()
+        return mode in ("sibling", "tree")
+    except Exception:                              # noqa: BLE001 — 缺省开
+        return True
+
+
 def _spawn_candidates(state: BondState, scene: BondScene,
                       char_id: str, session_id: str) -> None:
     """SceneStream P1.5（DESIGN_CHOICE_PREGEN §0, N2a）: choices 板候选支 spawn。
@@ -1211,6 +1234,8 @@ def _spawn_candidates(state: BondState, scene: BondScene,
       spawn 前必清旧池（本函数负责, 调用方无需前置清池）
     """
     if state.demo is not None or state.vn is None:
+        return
+    if not _choice_pregen_enabled():             # 开关（N2d）: off → 老路
         return
     if not scene.choices or scene.is_end or scene.memorial_prompt:
         return

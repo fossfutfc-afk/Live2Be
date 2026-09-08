@@ -25,6 +25,15 @@ from webgui import bond, chat
 ROOT = Path(__file__).resolve().parent.parent.parent
 CHARACTER = "igusa_haruka"
 
+
+@pytest.fixture(autouse=True)
+def _no_choice_pregen(monkeypatch):
+    """本文件脚本队列按"分支播放期单路预生成"老路设计（DESIGN_CHOICE_PREGEN
+    N2d: 候选 spawn 默认开）——候选 fork 会消耗 ScriptedLLM 脚本打乱断言;
+    关闭候选（老路回归语义由 test_bond_candidates 的 off 用例与回退用例覆盖）。
+    """
+    monkeypatch.setattr(bond, "_choice_pregen_enabled", lambda: False)
+
 # 契约动作（与 test_vn_cli.py 同构; 2026-08-30 契约强化: emotion 必填 + 按句切分）
 SCENE_A = {"action": "story_scene", "payload": {
     "paragraphs": [{"text": "段落一。", "emotion": "nomal"},
