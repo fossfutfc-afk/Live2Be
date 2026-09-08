@@ -262,12 +262,13 @@ def _scenes(n: int, start: int = 1) -> list[dict]:
 
 
 def test_run_vn_two_layer_force(tmp_path):
-    """模型 24 轮仍不 is_end → 第15场提醒、第22场上限注记、第24场程序兜底收尾。"""
+    """模型 24 轮仍不 is_end → 15 场提醒 / 22 场上限注记 / 耗尽 = 中断退出
+    （2026-09-09 CLI 对齐: 不再程序兜底伪收场——completed=False, 不落 story_end）。"""
     llm = ScriptedLLM(*_scenes(24))
     engine, st, sid = _store_engine(llm, tmp_path)
     completed = run_bond_story_vn(engine, input_fn=lambda p: "1", char_ms=0,
                                   remind_rounds=15, end_rounds=22, store=st)
-    assert completed is True, "模型 24 轮不 is_end → 程序兜底应 completed=True"
+    assert completed is False, "篇幅耗尽 = 中断退出（不伪收场）"
     notes = _seen_notes(llm)
     assert len(notes) == 24, f"应跑满 24 场: {len(notes)}"
     # 第 1 场可能有 memory_flash 随机事件（wiki 出厂记忆落盘后生效, 概率 25%）;
@@ -276,11 +277,70 @@ def test_run_vn_two_layer_force(tmp_path):
     assert len(notes[14]) == 1 and "剩余约 7 轮" in notes[14][0], notes[14]
     assert all(not n for n in notes[15:21]), "16~21 场不应注入注记"
     assert len(notes[21]) == 1 and "已达剧情篇幅上限" in notes[21][0], notes[21]
-    assert all(not n for n in notes[22:]), "23~24 场（硬兜底余量）不应注入注记"
+    assert all(not n for n in notes[22:]), "23~24 场（余量）不应注入注记"
     evs = st.events(CHARACTER, sid)
     bond_n = [e for e in evs if e.type == "bond"]
-    assert len(bond_n) == 25, f"24 真实 + 1 兜底收尾: {len(bond_n)}"
-    print("    双层兜底: 15场提醒/22场上限注记, 24场程序兜底 completed=True")
+    assert len(bond_n) == 24, f"24 场真实内容, 无兜底假收尾: {len(bond_n)}"
+    exits = [e for e in evs if e.type == "marker" and e.subtype == "vn_exit"]
+    assert exits and exits[-1].payload.get("completed") is False
+    print("    双层兜底: 15 场提醒/22 场上限注记; 耗尽 = 中断退出（零伪收场）")
+
+
+class _FailFirst(ScriptedLLM):
+    """前 n 次 LLM 调用抛异常（send 内每 attempt 一次）, 之后正常出脚本。"""
+
+    def __init__(self, fail_calls: int, *scripts):
+        super().__init__(*scripts)
+        self._fails = fail_calls
+
+    def chat(self, messages, temperature=0.8, max_tokens=4096,
+             response_format="text", **kw):
+        head = messages[0]["content"]
+        last = messages[-1]["content"] if len(messages) > 1 else ""
+        if "情绪标签数组" in last:               # 标注自动应答（不耗脚本/不耗失败）
+            import re as _re
+            n = len(_re.findall(r"(?m)^\d+: ", head))
+            return ["nomal"] * max(n, 1)
+        if "变更句数组" in last:
+            return []
+        if self._fails > 0:
+            self._fails -= 1
+            raise RuntimeError("api down")
+        return super().chat(messages, temperature=temperature,
+                            max_tokens=max_tokens,
+                            response_format=response_format, **kw)
+
+
+def test_run_vn_gen_fail_retry_then_end(tmp_path):
+    """生成失败自动重试（同输入, ≤3 次）→ 恢复成功 → 自然收尾 completed=True。"""
+    end = {"action": "story_end", "payload": {
+        "paragraphs": [{"text": "收尾了。", "emotion": "nomal"}]}}
+    # send1: 3 attempts 全败 → 自动重试; send2: 首 attempt 再败 → 第 2 attempt 成功
+    llm = _FailFirst(4, end)
+    engine, st, sid = _store_engine(llm, tmp_path)
+    completed = run_bond_story_vn(engine, input_fn=lambda p: "b", char_ms=0,
+                                  remind_rounds=15, end_rounds=22, store=st)
+    assert completed is True, "失败自动重试后自然 story_end → completed=True"
+    evs = st.events(CHARACTER, sid)
+    assert ("bond", "story_end") in [(e.type, e.subtype) for e in evs]
+    exits = [e for e in evs if e.type == "marker" and e.subtype == "vn_exit"]
+    assert exits and exits[-1].payload.get("completed") is True
+    print("    CLI 失败: 自动重试恢复 → 自然收尾（completed=True 且落库正常）")
+
+
+def test_run_vn_gen_fail_abort(tmp_path):
+    """连续失败超限（4 send × 3 attempts）→ 中断退出: completed=False、
+    不落任何 bond 场景/结束事件（旧语义曾落 closing story_end + completed）。"""
+    llm = _FailFirst(12)
+    engine, st, sid = _store_engine(llm, tmp_path)
+    completed = run_bond_story_vn(engine, input_fn=lambda p: "1", char_ms=0,
+                                  remind_rounds=15, end_rounds=22, store=st)
+    assert completed is False, "连续失败超限 → 中断退出（completed=False）"
+    evs = st.events(CHARACTER, sid)
+    assert not any(e.type == "bond" for e in evs), "零伪收场（无 bond 场景落库）"
+    exits = [e for e in evs if e.type == "marker" and e.subtype == "vn_exit"]
+    assert exits and exits[-1].payload.get("completed") is False
+    print("    CLI 失败超限: 中断退出（completed=False / 零 bond 事件 / vn_exit False）")
 
 
 def test_run_vn_remind_then_natural_end(tmp_path):
