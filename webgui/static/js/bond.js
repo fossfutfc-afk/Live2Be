@@ -47,6 +47,11 @@ const FX_SYMBOLS = {
 };
 
 const BondVN = (() => {
+  // 诊断开关（2026-09-08 实机问题排查）: URL 带 ?bondDebug=1 → console.debug 打印
+  // 表情链路关键点（renderScene/writePara/applyEmotions/emoWatch）
+  const DBG = new URLSearchParams(window.location.search).has("bondDebug");
+  const dbg = (...a) => { if (DBG) console.debug("[bond]", ...a); };
+
   let charId = "", sessionId = "", name = "";
   let seenRound = 0;            // 已渲染的 round（status 幂等去重）
   let gotScene = false;         // 本轮 enter 是否已渲染过场景
@@ -266,6 +271,8 @@ const BondVN = (() => {
         // （不重置打字机——只切表情; 文本段落不动）。新场景渲染时同步版本,
         // 避免对旧段落误切（时序: round 优先, emo_version 次之）。
         if (st.emo_version !== undefined && st.emo_version !== seenEmo) {
+          dbg("emo 补切触发 round", seenRound, "emoVer", st.emo_version,
+              "player?", !!player, "curSeg", typeSeg);
           seenEmo = st.emo_version;
           if (st.scene) applyEmotions(st.scene);
         }
@@ -386,6 +393,8 @@ const BondVN = (() => {
 
   async function renderScene(scene) {
     busy = false;
+    dbg("renderScene paras=", (scene.paragraphs || []).map(
+        (p) => (p && p.emotion) || "-"), "is_end", !!scene.is_end);
     clearAutoTimer();             // 新场景开始 → 旧自动倒计时作废
     stopTyping();
     clearEmoWatch();              // 场景切换 → 旧守望作废（新场景按需重启）
@@ -573,6 +582,8 @@ const BondVN = (() => {
   function writePara() {
     const p = typeParas[typeSeg];
     if (!p) { return finishType(); }
+    dbg("writePara seg", typeSeg, "emotion", p && (p.emotion || null),
+        "player?", !!player, "cur", curEmotion);
     // 段级背景锚点: 本段起换场 → 段首切背景（P3b-2; 晚到锚点由 applyEmotions 补）
     applyPlaceForSeg(p);
     // 替换式渲染（2026-09-01）: 对话窗只保留当前一句——前一句清空, 新段淡入
