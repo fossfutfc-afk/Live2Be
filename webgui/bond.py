@@ -1228,7 +1228,7 @@ def _place_worker(state: BondState) -> None:
 def _fallback_fill(scene: BondScene) -> None:
     """标注兜底（2026-09-02）: 空 emotion 段落强制回填 nomal。
 
-    保险网——fill_scene_emotions 正常路径已全量回填/延续（幂等）; 若标注层
+    保险网——fill_scene_emotions_text 正常路径已全量回填/延续（幂等）; 若标注层
     异常漏网（段落仍无 emotion）→ 强制兜底, 保证推进门控就绪**恒可达**
     （剧情必须能推进; 失败只影响表情精度, 宁缺勿错）。
     """
@@ -1256,7 +1256,7 @@ def _anno_worker(state: BondState) -> None:
         t0 = time.monotonic()                    # 计时埋点（§6.1）
         try:
             try:
-                state.vn.fill_scene_emotions(scene)     # 标注 LLM（不持锁）
+                state.vn.fill_scene_emotions_text(scene)   # 标注 LLM（不持锁）
                 failed = False
             except Exception as e:                       # noqa: BLE001 — 标注失败兜底
                 failed = True

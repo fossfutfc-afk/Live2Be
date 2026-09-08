@@ -66,13 +66,25 @@ def _parse_paragraphs(payload: dict[str, Any]) -> list[dict]:
 
     Returns: 至少 1 个 {text, inner?} 组成的句段列表（strip 后, 已切分）。
     """
+    return _parse_paragraphs_seg(payload)[0]
+
+
+def _parse_paragraphs_seg(payload: dict[str, Any]) -> tuple[list[dict], list[int]]:
+    """同 _parse_paragraphs, 额外返回**段分组边界**（2026-09-08 SceneStream P1）:
+
+    seg_ends[i] = 前 i+1 个自然段累计产出的句数（句平铺列表中每个自然段的终点
+    下标, 半开区间用）——段分组此前在平铺时丢弃, P1 起标注按自然段流水需要
+    它。仅引擎侧消费（_seg_ends 进 parse 结果, 不进事件/渲染）。
+    """
     raw_paras = payload.get("paragraphs")
     if isinstance(raw_paras, str):
         raw_paras = [raw_paras]          # 单段裸字符串 → 包成单元素列表
     if not isinstance(raw_paras, list):
         raise ContractError("paragraphs 必须是数组（每项 {text, inner?} 或字符串）")
     paragraphs: list[dict] = []
+    seg_ends: list[int] = []
     for p in raw_paras:
+        before = len(paragraphs)
         if isinstance(p, str) and p.strip():
             for sent in split_paragraph(p):
                 paragraphs.append({"text": sent})
@@ -86,9 +98,11 @@ def _parse_paragraphs(payload: dict[str, Any]) -> list[dict]:
                     if i == 0 and inner_s:
                         item["inner"] = inner_s     # 内心独白挂首句（低频惊喜）
                     paragraphs.append(item)
+        if len(paragraphs) > before:
+            seg_ends.append(len(paragraphs))
     if not paragraphs:
         raise ContractError("paragraphs 至少需要一个非空段落")
-    return paragraphs
+    return paragraphs, seg_ends
 
 
 def _parse_choices(payload: dict[str, Any]) -> list[str]:
@@ -168,11 +182,12 @@ def parse_story_scene(payload: dict[str, Any]) -> dict[str, Any]:
     branches（2026-08-30 板块契约）: 有 choices 时必须带——同响应分支内容, 选完
     零等待; 无 choices（纯叙事场）不需要。
     """
-    paragraphs = _parse_paragraphs(payload)
+    paragraphs, seg_ends = _parse_paragraphs_seg(payload)
     choices = _parse_choices(payload)
     branches = _parse_branches(payload, choices)
     place = _parse_place(payload)
-    result: dict[str, Any] = {"paragraphs": paragraphs, "choices": choices}
+    result: dict[str, Any] = {"paragraphs": paragraphs, "choices": choices,
+                              "_seg_ends": seg_ends}      # 引擎侧段边界（不进事件）
     if branches:
         result["branches"] = branches
     if place is not None:
@@ -187,11 +202,11 @@ def parse_story_end(payload: dict[str, Any]) -> dict[str, Any]:
     结构性保证（story_end 隐含 is_end=True）。**非空 choices 硬拒绝**（含 nudge 措辞
     「请改用 story_scene」）; 空/缺省 choices 静默忽略。place 可选（同 story_scene）。
     """
-    paragraphs = _parse_paragraphs(payload)
+    paragraphs, seg_ends = _parse_paragraphs_seg(payload)
 
     raw_choices = payload.get("choices")
     if raw_choices is None:
-        return _end_result(paragraphs, payload)
+        return _end_result(paragraphs, payload, seg_ends)
     if isinstance(raw_choices, str):
         raw_choices = [raw_choices]
     if not isinstance(raw_choices, list):
@@ -201,13 +216,16 @@ def parse_story_end(payload: dict[str, Any]) -> dict[str, Any]:
             "story_end 是收尾场景, 不出选项——choices 必须为空。"
             "若剧情尚未到结尾, 请改用 story_scene 动作继续。"
         )
-    return _end_result(paragraphs, payload)
+    return _end_result(paragraphs, payload, seg_ends)
 
 
-def _end_result(paragraphs: list[dict], payload: dict[str, Any]) -> dict[str, Any]:
+def _end_result(paragraphs: list[dict], payload: dict[str, Any],
+                seg_ends: list[int] | None = None) -> dict[str, Any]:
     """story_end 结果组装: paragraphs 必含; place 兼容旧输出（v2 主 LLM 不写,
-    地点由标注层判定, 2026-09-07——机器侧保留容错）。"""
+    地点由标注层判定, 2026-09-07——机器侧保留容错）; _seg_ends 引擎侧段边界。"""
     result: dict[str, Any] = {"paragraphs": paragraphs}
+    if seg_ends:
+        result["_seg_ends"] = seg_ends
     place = _parse_place(payload)
     if place is not None:
         result["place"] = place
@@ -231,13 +249,14 @@ def parse_memorial_enter(payload: dict[str, Any]) -> dict[str, Any]:
         raise ContractError(
             "prompt 必填——生图场景总结（角色外观+场景+氛围+构图, 精炼, 当场写与剧情一致）"
         )
-    paragraphs = _parse_paragraphs(payload)
+    paragraphs, seg_ends = _parse_paragraphs_seg(payload)
     choices = _parse_choices(payload)
     place = _parse_place(payload)
     result: dict[str, Any] = {
         "prompt": raw_prompt.strip(),
         "paragraphs": paragraphs,
         "choices": choices,
+        "_seg_ends": seg_ends,                    # 引擎侧段边界（不进事件）
     }
     if place is not None:
         result["place"] = place

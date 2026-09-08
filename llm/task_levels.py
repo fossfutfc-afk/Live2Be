@@ -16,7 +16,11 @@ vn_cli/ide_agent 各自的常量与默认参数里——调一处忘一处）。
 |          |           | 2026-09-02 拍板固定 high, 不随 settings 漂移） |
 
 档位取值: default = 不注入（客户端按 settings [llm].reasoning_effort 默认档）;
-off = 显式关闭（extra_body={}）; low|medium|high = 显式覆盖。
+off = **显式关闭思考**（传 `{"thinking": {"type": "disabled"}}`——DeepSeek
+v4-flash 系**默认思考开启**, 不传参数 = 思考吃光 max_tokens 预算 → 空 content
++ finish_reason=length, 官方 issue deepseek-ai/DeepSeek-V3#1610 同型;
+2026-09-08 真机定位, 传 disabled 后标注 4/4 一次通过且 500-900ms）;
+low|medium|high = 显式覆盖（reasoning_effort）。
 
 ## max_tokens 分输出形态（同一任务类内输出长度不同）
 
@@ -116,10 +120,13 @@ def max_tokens(name: str) -> int:
 def extra_body(name: str) -> dict | None:
     """形态的 thinking 注入参数（含覆盖）:
     default → None（客户端按 settings [llm].reasoning_effort 默认档注入）;
-    off → {}（显式关闭思考）; low|medium|high → 显式档位。"""
+    off → {"thinking": {"type": "disabled"}}（**显式关闭思考**——DeepSeek
+    v4-flash 系默认思考开启, 空 dict 不传参数 = 思考吃光 max_tokens →
+    空 content, 见模块顶部表注与 DeepSeek-V3#1610）;
+    low|medium|high → 显式 reasoning_effort 档位。"""
     th = profile(name)["thinking"]
     if th == "default":
         return None
     if th == "off":
-        return {}
+        return {"thinking": {"type": "disabled"}}
     return {"reasoning_effort": th}
