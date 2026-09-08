@@ -30,3 +30,28 @@ def test_append_seq_unique_under_concurrency(tmp_path):
     assert len(evs) == 30, f"丢事件: {len(evs)}"
     assert len(set(seqs)) == 30, f"重复 seq: {seqs}"
     assert seqs == list(range(1, 31)), f"seq 空洞/乱序: {seqs}"
+
+
+def test_append_seq_unique_across_instances(tmp_path):
+    """多实例写同一文件（chat 单例 vs routers/mmt 每请求实例的生产形态）:
+    锁必须进程级——实例级锁会各持一把仍撞重复（2026-09-08 实测修复前复现）。"""
+    st_a = SessionStore(tmp_path)
+    st_b = SessionStore(tmp_path)
+
+    def w(store, i: int) -> None:
+        store.append_event("ch", "s", make_event("mmt", "mmt_chat", {"i": i}))
+
+    ts = []
+    for i in range(15):
+        ts.append(threading.Thread(target=w, args=(st_a, i)))
+        ts.append(threading.Thread(target=w, args=(st_b, 100 + i)))
+    for t in ts:
+        t.start()
+    for t in ts:
+        t.join()
+
+    evs = st_a.events("ch", "s")
+    seqs = sorted(e.seq for e in evs)
+    assert len(evs) == 30, f"丢事件: {len(evs)}"
+    assert len(set(seqs)) == 30, f"跨实例重复 seq: {seqs}"
+    assert seqs == list(range(1, 31)), f"seq 空洞/乱序: {seqs}"
