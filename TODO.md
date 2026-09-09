@@ -138,6 +138,10 @@
 - [x] N_c digest 触发面注释守卫（completed 只来自场景 is_end 自然收尾）
 - [x] N_d CLI 失败收场对齐（72b2043）: 失败自动重试 ≤3 次, 超限/篇幅耗尽 = 中断退出（completed=False、不落 story_end、vn_exit False）——digest 只可能来自自然 story_end; 重进续写能力仍待 CLI resume 落地（见中期回放）
 - [ ] 放弃本章/拒绝邀约（显式退出 UI + vn_abandon——未来扩展, 用户搁置）
+- [ ] **见面式对话扩展（邀约, 预期未立项）**：docs/DESIGN_MEETUP.md——玩家显式
+      发起（手机形态=发定位卡片）→ 纯对话不触发 memorial / 结束权在玩家 /
+      意外中断≠BS（直接打终止符号, 不保留续写链）; 3s/回合前提已实测
+      （v4-flash: off 0.66s / low 2.5s / high 2.2s, TTFT<200ms, 不需降档）
 - [ ] replay 尾场 is_end → completed 置位口径核对（回放已完整结束剧情时的收尾/digest 语义）
 - [x] 诊断日志落盘（5470f9f: data/diag/live2be.log, WARNING+ 旁路文件, 不进事件流）
 - [x] **跨重启预热缓存**（soul/prewarm.json, 旁路非真源）: 首个落地场景即落盘,
