@@ -140,6 +140,12 @@
 - [ ] 放弃本章/拒绝邀约（显式退出 UI + vn_abandon——未来扩展, 用户搁置）
 - [ ] replay 尾场 is_end → completed 置位口径核对（回放已完整结束剧情时的收尾/digest 语义）
 - [x] 诊断日志落盘（5470f9f: data/diag/live2be.log, WARNING+ 旁路文件, 不进事件流）
+- [x] **跨重启预热缓存**（soul/prewarm.json, 旁路非真源）: 首个落地场景即落盘,
+      重启后 bond_start 命中（anchor=最新 mmt seq）→ 0 LLM 直出首场; adopt/finish/
+      命中即删; 失配（触发后又聊/新触发轮）→ 现场生成并重新落盘; demo 不写;
+      首场重试成功同样落盘（first_scene 判据）; 测试 4 组绿
+- [ ] 预热缓存后续: adopt 已落 vn_enter 但首场未裁决就重启（回放空→现场生成,
+      v1 接受）; 候选支/预生成持久化同机制评估; 多实例同 data 原子写实测
 
 ## 短期（体验闭环 / 明确小项）
 
