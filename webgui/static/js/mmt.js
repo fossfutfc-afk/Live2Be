@@ -200,10 +200,12 @@ async function openChat(charId, name) {
   renderBubbles(data.bubbles || []);      // 历史气泡一次性渲染（不逐块; 含 bond_entry → 锁定）
   scrollBubbles();
   if (data.in_vn) {
-    // 重进 in_vn 会话 → 进入 VN 视图（后端 start 幂等: 内存态在 → 继续;
-    // 服务重启态丢 → 从事件流重建场景（M3 回放前: 重新从 seed 开始））
+    // 2026-09-09 修复: 中断在押（in_vn）重进**不再强制拉入 VN**——停在聊天页,
+    // 由玩家点击羁绊入口主动续进（历史粉泡 bond_entry, 或下方兜底注入的
+    // "继续"条 → enterBond → 后端幂等 resumed/回放）。输入保持锁定（VN 中
+    // 不许插嘴, 与既有语义一致——入口点击时 lockChat 幂等）。
     lockChat();
-    window.BondVN.enter(charId, data.session_id, _chatName);
+    ensureBondResumeEntry();
   } else {
     // 2026-08-30 修复: 历史渲染的 bond_entry 无条件 lockChat——但 bond_entry
     // 也可能来自**已结束**的剧情（vn_exit 已落, 事件流保留）→ 重开聊天窗会
@@ -273,6 +275,15 @@ function renderBubble(b) {
   box.appendChild(div);
   scrollBubbles();
   return div;
+}
+
+// 2026-09-09: 中断在押重进——聊天页若无任何可点羁绊入口（trigger 行可能在
+// 窗口外/被排除）, 注入一条"继续"入口条; 已有 bond-entry 则不重复
+function ensureBondResumeEntry() {
+  const box = $("mmt-bubbles");
+  if (!box) return;
+  if (box.querySelector(".bond-entry")) return;
+  renderBubble({ kind: "bond_entry", text: "羁绊剧情进行中——点击继续" });
 }
 
 // 点击粉泡进入羁绊剧情: BondVN.enter 内 POST /api/bond/start——单入口

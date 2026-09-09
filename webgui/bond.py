@@ -541,7 +541,9 @@ def bond_start(char_id: str, session_id: str, *,
         # 计时埋点（§6.1）: 内存态续玩（resumed）——即时可用
         logger.info("bond_click resumed %s/%s busy=%s",
                     char_id, session_id, "y" if state.busy else "n")
-        return {"accepted": True, "busy": state.busy, "resumed": True}
+        # chapter_title 必带（2026-09-09: resumed/adopt 就绪同样展示章节标题屏）
+        return {"accepted": True, "busy": state.busy, "resumed": True,
+                "chapter_title": state.chapter_title}
     if state.busy:
         # 生成在途（P1: busy = 正在生成——让前端进入轮询, 不再报错）
         logger.info("bond_click busy_wait %s/%s", char_id, session_id)
