@@ -133,12 +133,19 @@ const BondVN = (() => {
     }
     await initSpine();
     // 等待标题卡（2026-09-05）: 首场在后台 LLM 生成（5s+ 波动）——进入即显示
-    // 章节卡（chapter_title 文案 + "回忆正在浮现…"）掩盖缓冲; 首场就绪 → waitScene
-    // 收卡进场景。resumed（内存态续玩/adopt 就绪）不显示（场景即刻可用）。
-    if (!data.resumed && !data.completed) {
+    // 章节卡（chapter_title 文案 + "故事正在展开…"）掩盖缓冲; 首场就绪 → waitScene
+    // 收卡进场景。
+    // 2026-09-09: resumed（续玩/预热就绪）也展示章节标题——标题无论如何都要
+    // 给玩家看到, 预热只是"不必等生成"（短面板 2.4s/点击跳过, 场景已就绪）。
+    if (data.completed) {
+      await waitScene();
+    } else if (data.resumed) {
+      await showTitle(data.chapter_title || "", "");
+      await waitScene();
+    } else {
       showEnterWait(data.chapter_title || "");
+      await waitScene();
     }
-    await waitScene();
   }
 
   // 等待标题卡: bond-title 面板的"进场景缓冲"模式——持续显示（不自动过/点击不跳）
@@ -246,7 +253,7 @@ const BondVN = (() => {
         if (st.club !== undefined) $("bond-club").textContent = st.club;
         // 视觉门（2026-09-08 实机修复: 首板表情整板 nomal）——新场景上屏前等
         // emotion+place 双路就绪（标注 ~1-3s）: 否则替换式渲染错过即错过, 骨架期
-        // 整板默认表情。gate_busy 期间 loading 卡（回忆正在生成…）保持显示。
+        // 整板默认表情。gate_busy 期间 loading 卡（故事正在展开…）保持显示。
         // 8s 超时降级放行（宁缺勿错——标注兜底恒可达, 仅防御 worker 异常）。
         if (st.scene && st.gate_busy && (!gotScene || st.round !== seenRound)) {
           if (!gateSince) gateSince = performance.now();
