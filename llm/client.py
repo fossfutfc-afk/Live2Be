@@ -408,12 +408,13 @@ class LLMClient:
 
         for attempt in range(self.max_retries + 1):
             try:
-                if timeout is None:
-                    resp = self._http.post("/chat/completions", json=payload)
-                else:
-                    req = self._http.build_request(
-                        "POST", "/chat/completions", json=payload)
-                    resp = self._http.send(req, timeout=httpx.Timeout(timeout))
+                # 2026-09-09 修复: httpx 0.28 的 Client.send 已无 timeout 参数
+                # （旧 send(req, timeout=...) 抛 unexpected kwarg → digest 长期
+                # 失败, wiki 永不产出）; per-request 超时统一走 post(timeout=)
+                resp = self._http.post(
+                    "/chat/completions", json=payload,
+                    timeout=None if timeout is None
+                    else httpx.Timeout(timeout))
             except httpx.TimeoutException as e:
                 last_error = e
                 if attempt < self.max_retries:
