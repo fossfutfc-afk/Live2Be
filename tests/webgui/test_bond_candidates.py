@@ -30,6 +30,13 @@ BOARD = {"action": "story_scene", "payload": {
     "choices": ["选A", "选B"],
     "branches": {"选A": [{"text": "她怔了一下，点点头。"}],
                  "选B": [{"text": "她抿抿嘴没说话。"}]}}}
+# 三选项板（契约上限 1~3, 用户 2026-09-09 疑虑: "三个选项时 fork 能否 handle"）
+BOARD3 = {"action": "story_scene", "payload": {
+    "paragraphs": [{"text": "「那、那个……老师觉得哪个好？」她捧着铁盒, 眼神躲闪。"}],
+    "choices": ["选一", "选二", "选三"],
+    "branches": {"选一": [{"text": "（反应一）"}],
+                 "选二": [{"text": "（反应二）"}],
+                 "选三": [{"text": "（反应三）"}]}}}
 NEXT = {"action": "story_scene", "payload": {
     "paragraphs": [{"text": "（同一内容——候选线程并发取脚本, 顺序不定, 内容一致断言）"}]}}
 NARRATIVE = {"action": "story_scene", "payload": {
@@ -238,6 +245,55 @@ def test_pick_hits_candidate_switch_engine(tmp_path):
         text = "".join(p.get("text", "") for p in state.scene_obj.paragraphs)
         assert "同一内容" in text
         print("    pick-hit: 引擎切换 / pregen 通道 / 零 LLM 消费 / 池清空")
+    finally:
+        _cleanup()
+
+
+def test_three_choices_fork_pick_middle(tmp_path):
+    """三选项板 → 三个候选全 spawn/就绪; 命中第二个照样切引擎+零 LLM 消费。
+
+    用户疑虑（2026-09-09）: "出三个选项时 fork 程序能否 handle"——
+    契约上限 3, spawn 按 choices 逐个 fork（≤3 全支持）, 命中任意一个都等价。
+    """
+    engine, st, sid = _setup(tmp_path / "t3",
+                             BOARD3, NEXT, NEXT, NEXT)
+    try:
+        bond.bond_start(CHARACTER, sid)
+        _wait_status(CHARACTER, sid)
+        state = bond._state(CHARACTER, sid)
+        # 三候选全就绪（各自独立 fork 生成, busy 不被占用）
+        cands = _wait_candidates(state, 3)
+        assert {c.picked for c in cands} == {"选一", "选二", "选三"}
+        assert not state.busy
+        for c in cands:
+            assert c.status == "ready" and c.scene_obj is not None
+            text = "".join(p.get("text", "") for p in c.scene_obj.paragraphs)
+            assert "同一内容" in text, text
+        # 命中第二个（非首尾）→ 切主引擎 + pregen 通道 + 池清空
+        live_before = state.vn
+        cand_two = next(c for c in cands if c.picked == "选二")
+        r = bond.bond_turn(CHARACTER, sid, "选二")
+        assert r["accepted"] and r.get("candidate") is True, r
+        assert state.vn is cand_two.engine and state.vn is not live_before
+        assert state.pregen_obj is cand_two.scene_obj
+        assert state.choice_candidates == []
+        assert bond.bond_status(CHARACTER, sid)["candidates"] == []
+        # （继续）→ 消费 pregen 零 LLM（无脚本可耗 = 若走生成会抛, 此处应成功）
+        deadline = time.time() + 10.0
+        r2 = None
+        while time.time() < deadline:
+            r2 = bond.bond_turn(CHARACTER, sid, "（继续）")
+            if r2["accepted"]:
+                break
+            time.sleep(0.05)
+        assert r2 is not None and r2["accepted"], r2
+        deadline = time.time() + 10.0
+        while time.time() < deadline and bond.bond_status(
+                CHARACTER, sid)["busy"]:
+            time.sleep(0.05)
+        assert state.scene_obj is cand_two.scene_obj
+        assert state.round == 2
+        print("    three-choice fork: 3 候选就绪 / 命中第二支切引擎 / 池清空")
     finally:
         _cleanup()
 
