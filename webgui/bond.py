@@ -25,6 +25,7 @@ CLI 是同步循环（send_vn_scene → 渲染 → 玩家输入 → 下一场）
 """
 from __future__ import annotations
 
+import json
 import logging
 import queue
 import threading
@@ -532,6 +533,7 @@ def bond_start(char_id: str, session_id: str, *,
                 "y" if not state.busy else "n")
             state.t_staged = 0.0
             state.staged_seq = None
+            _prewarm_cache_delete(char_id)     # adopt 消费（首场已进玩家视野）
             if state.busy:
                 # 预热生成仍在途 → 前端轮询等待（resumed=False → 章节等待卡可见）
                 return {"accepted": True, "busy": True, "resumed": False,
@@ -639,6 +641,23 @@ def bond_start(char_id: str, session_id: str, *,
         state.t_staged = time.monotonic()            # 计时埋点（§6.1）: 预热起点
         logger.info("bond_prewarm_start %s/%s title=%r",
                     char_id, session_id, title)
+
+    # ── 跨重启预热缓存命中（2026-09-09）────────────────────────
+    # 首场曾生成但未裁决/未 adopt 即中断（进程重启, 内存 staged 丢失）→
+    # 磁盘旁路缓存（soul/prewarm.json, 非真源——LLM 不读, 裁决才落库）直接
+    # 作为首场落地, 0 LLM。并发双开在 573 锁块被 skip（vn 已建）→ 本段单路。
+    if not staged and state.demo is None and state.scene_obj is None:
+        cache = _prewarm_cache_load(char_id, session_id)
+        if cache is not None:
+            scene_c, input_c, title_c = cache
+            _prewarm_cache_delete(char_id)          # 命中即消费（旧首场不残留）
+            state.round += 1
+            _scene_landed(state, scene_c, char_id, session_id, input_c,
+                          t0=time.monotonic(), save_cache=False)
+            logger.info("bond_cache_hit %s/%s title=%r",
+                        char_id, session_id, title_c or title)
+            return {"accepted": True, "busy": False, "resumed": True,
+                    "chapter_title": title_c or title}
 
     seed = (f"（旁白）本章：{title}——从刚才的对话与契机自然展开。"
             if title else "（旁白）故事开始了……")
@@ -1014,6 +1033,7 @@ def bond_finish(char_id: str, session_id: str) -> dict:
         return {"completed": True, "already": True}
     logger.info("bond_finish 执行 %s/%s completed=%s（入口留痕）",
                 char_id, session_id, state.completed)
+    _prewarm_cache_delete(char_id)             # 收尾: 旧首场缓存一并失效
     # SceneStream P1.5（中断/收尾防御, 2026-09-08 审计）: 会话收尾即清候选池
     # ——后台候选（若仍在生成）作废孤儿, 停止烧 token; 未选支零落库由
     # _log_scene 边界结构保证（候选从不触碰事件流）
@@ -1067,6 +1087,126 @@ def bond_finish(char_id: str, session_id: str) -> dict:
 # 内部: 生成 / 落库 / 收尾
 # ---------------------------------------------------------------------------
 
+#: 跨重启预热缓存（2026-09-09, 旁路非真源）: 首场生成成功即落盘
+#: soul/prewarm.json——进程重启后玩家再点入时直接作为首场（0 LLM）,
+#: 覆盖"首场已生成但从未裁决/从未 adopt"的冷等。LLM 不读（不在事件流,
+#: 上下文从事件流构建）; 真源仍在裁决时落库（picked/回放/append-only 原样）。
+_PREWARM_FILE = "prewarm.json"
+
+
+def _prewarm_cache_path(char_id: str) -> Path | None:
+    """缓存文件路径（char_dir/soul/prewarm.json）; 拿不到 → None（跳过缓存）。"""
+    try:
+        st = _store()
+        return Path(st.char_dir(char_id)) / "soul" / _PREWARM_FILE
+    except Exception:                              # noqa: BLE001 — 缓存不可用降级
+        return None
+
+
+def _prewarm_cache_save(char_id: str, session_id: str, scene_dict: dict,
+                        scene_input: str, chapter_title: str) -> None:
+    """首场落地即写缓存（round==1 真实引擎; 原子写 tmp+rename 防半写）。"""
+    try:
+        path = _prewarm_cache_path(char_id)
+        if path is None:
+            return
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "anchor_seq": _last_mmt_seq(char_id, session_id),
+            "chapter_title": chapter_title,
+            "scene": scene_dict,
+            "input": scene_input,
+            "ts": time.time(),
+        }
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(payload, ensure_ascii=False),
+                       encoding="utf-8")
+        tmp.replace(path)
+    except Exception as e:                         # noqa: BLE001 — 缓存失败降级
+        logger.warning("prewarm 缓存写失败（降级, 不影响剧情）: %s", e)
+
+
+def _prewarm_cache_load(char_id: str, session_id: str):
+    """读缓存 → (scene, scene_input, chapter_title) | None。
+
+    新鲜判据: anchor_seq == 当前最新 mmt seq——期间玩家又聊/新触发轮 →
+    上下文过期（与内存 staged_seq 同判据）→ miss; 坏文件/缺字段 → miss。
+    """
+    try:
+        path = _prewarm_cache_path(char_id)
+        if path is None or not path.is_file():
+            return None
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        if int(payload.get("anchor_seq", -1)) != \
+                _last_mmt_seq(char_id, session_id):
+            return None                                  # 触发后又聊过 → 过期
+        scene = BondScene.from_dict(payload.get("scene"))
+        if not scene.paragraphs:
+            return None
+        return scene, str(payload.get("input") or ""), \
+            str(payload.get("chapter_title") or "")
+    except Exception:                                # noqa: BLE001 — 坏缓存当 miss
+        return None
+
+
+def _prewarm_cache_delete(char_id: str) -> None:
+    """缓存失效（adopt 消费 / finish / 命中使用后）——旧首场不得与后续段混淆。"""
+    try:
+        path = _prewarm_cache_path(char_id)
+        if path is not None and path.is_file():
+            path.unlink()
+    except Exception:                                # noqa: BLE001 — 删除失败无碍
+        pass
+
+
+def _scene_landed(state: BondState, scene: BondScene, char_id: str,
+                  session_id: str, user_input: str, *, t0: float,
+                  save_cache: bool) -> None:
+    """场景落地公共路径（_generate 成功块与跨重启缓存命中共用, 2026-09-09）:
+
+    设置 scene_obj/scene/input/落库就绪标记 + 配额/prev/meta/异步标注/候选
+    spawn + 失败计数清零 + 计时日志。save_cache=True（LLM 首场落地）→ 写
+    跨重启预热缓存; demo 不写。
+    """
+    state.scene_obj = scene
+    state.scene = scene.to_dict()
+    state.scene_input = user_input
+    state.scene_logged = False
+    if scene.is_end:
+        state.completed = True       # 仅自然 story_end 才 completed
+    # 选项配额（供下一场 system_note 参考）
+    if scene.choices:
+        state.choices_used += 1
+    # prev_emotions（情绪单调注记）由标注 worker 回填后统一更新——
+    # 骨架无 emotion（2026-09-02）, 生成时取只会得到空列表
+    _log_scene_meta(state, char_id, session_id, scene)
+    # 两遍式 C 异步标注: 骨架先显示, emotion 解析入队补标（不阻塞玩家）
+    _enqueue_annotate(state, scene)
+    # SceneStream P1.5（N2a）: 本板若带 choices → 候选支 spawn
+    # （读板期后台预生成, 不占 busy; spawn 内部先清旧池）
+    _spawn_candidates(state, scene, char_id, session_id)
+    state.fail_count = 0           # 生成成功 → 失败计数清零
+    # 计时埋点（§6.1）: 每轮生成耗时; 首场且仍处预热态（未被丢弃/
+    # adopt）→ 预热就绪 latency
+    if state.staged_seq is not None and state.round == 1:
+        cur = _bonds.get((char_id, session_id))
+        if cur is state and state.t_staged > 0:
+            logger.info(
+                "bond_prewarm_ready %s/%s lat=%dms",
+                char_id, session_id, _ms_since(state.t_staged))
+    suffix = ""
+    if state.demo is not None:
+        suffix = " demo"
+    elif not save_cache:
+        suffix = " cache"
+    logger.info("bond_gen ok %s/%s round=%d dur=%dms%s",
+                char_id, session_id, state.round, _ms_since(t0), suffix)
+    # 跨重启预热缓存: 首个落地场景（LLM 真实引擎）→ 落盘（重启后 0 LLM）;
+    # demo 不写; 缓存注入路径 save_cache=False 不自写
+    if save_cache and state.demo is None:
+        _prewarm_cache_save(char_id, session_id, scene.to_dict(),
+                            user_input, state.chapter_title)
+
 def _generate(state: BondState, char_id: str, session_id: str, user_input: str) -> bool:
     """后台线程: 生成下一场 → 更新 state（场景/事件/兜底）。
 
@@ -1085,6 +1225,7 @@ def _generate(state: BondState, char_id: str, session_id: str, user_input: str) 
         t0 = time.monotonic()                    # 计时埋点（§6.1）
         try:
             with chat._lock(char_id):
+                first_scene = state.scene_obj is None   # 首场（重试也命中此判据）
                 state.round += 1
                 if state.demo is not None:
                     # 演示模式: 弹预设场景; 剧本耗尽 → closing 收尾（剧情必须终结）
@@ -1101,36 +1242,8 @@ def _generate(state: BondState, char_id: str, session_id: str, user_input: str) 
                     # 2026-09-09 语义修正: 篇幅超限不再丢弃 LLM 场景换 closing
                     # 伪收场——纠正面在 system_note（_END_ROUNDS 后每轮强制
                     # story_end）; 持续不收尾 = 玩家可离开（中场退出, 在押续写）
-                state.scene_obj = scene
-                state.scene = scene.to_dict()
-                state.scene_input = user_input
-                state.scene_logged = False
-                if scene.is_end:
-                    state.completed = True       # 仅自然 story_end 才 completed
-                # 选项配额（供下一场 system_note 参考）
-                if scene.choices:
-                    state.choices_used += 1
-                # prev_emotions（情绪单调注记）由标注 worker 回填后统一更新——
-                # 骨架无 emotion（2026-09-02）, 生成时取只会得到空列表
-                _log_scene_meta(state, char_id, session_id, scene)
-                # 两遍式 C 异步标注: 骨架先显示, emotion 解析入队补标（不阻塞玩家）
-                _enqueue_annotate(state, scene)
-                # SceneStream P1.5（N2a）: 本板若带 choices → 候选支 spawn
-                # （读板期后台预生成, 不占 busy; spawn 内部先清旧池）
-                _spawn_candidates(state, scene, char_id, session_id)
-                state.fail_count = 0           # 生成成功 → 失败计数清零
-                # 计时埋点（§6.1）: 每轮生成耗时; 首场且仍处预热态（未被丢弃/
-                # adopt）→ 预热就绪 latency
-                if state.staged_seq is not None and state.round == 1:
-                    cur = _bonds.get((char_id, session_id))
-                    if cur is state and state.t_staged > 0:
-                        logger.info(
-                            "bond_prewarm_ready %s/%s lat=%dms",
-                            char_id, session_id, _ms_since(state.t_staged))
-                logger.info(
-                    "bond_gen ok %s/%s round=%d dur=%dms%s",
-                    char_id, session_id, state.round, _ms_since(t0),
-                    "" if state.demo is None else " demo")
+                _scene_landed(state, scene, char_id, session_id, user_input,
+                              t0=t0, save_cache=first_scene)
         except (SceneLoopError, ValueError) as e:
             # 模型连语义校验都过不了 → 偶发失败先给重试机会（2026-09-02:
             # 一败就 closing 会把偶发 JSON 错误变成"剧情突然结束"——上一场保持
