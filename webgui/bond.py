@@ -50,7 +50,7 @@ from core.session.maintenance import (
     abandoned_ranges,
     exclude_abandoned,
 )
-from core.session.renderer import window_messages
+from core.session.renderer import render_bond_scene_text, window_messages
 from core.ui.vn_cli import _build_director, _trigger_title
 from llm.image_gen import ImageGenerator, collect_ref_images
 from webgui import chat
@@ -651,13 +651,32 @@ def bond_start(char_id: str, session_id: str, *,
         if cache is not None:
             scene_c, input_c, title_c = cache
             _prewarm_cache_delete(char_id)          # 命中即消费（旧首场不残留）
+            # 2026-09-09 修复（真机 prob2: 命中后"继续"反复重新开场——事件流
+            # seq15 第二场与首场近同义）: 缓存首场未经过 send_vn_scene → 引擎
+            # 历史/_last_payload 缺它 → record_picked 落空、后续生成无剧情上下文
+            # → 每场重编开场。注入引擎状态使后续链路与正常生成完全等价:
+            # 历史尾部同形（user=缓存 input + assistant=叙事渲染——AI 视角含
+            # 首场内容）; _last_payload 供 record_picked/fork 候选回录基准
+            try:
+                vn_payload = scene_c.to_dict()
+                hist_txt = render_bond_scene_text(vn_payload)
+                state.vn._history.append(
+                    {"role": "user", "content": input_c or ""})
+                state.vn._history.append(
+                    {"role": "assistant",
+                     "content": hist_txt or json.dumps(
+                         vn_payload, ensure_ascii=False,
+                         separators=(",", ":"))})
+                state.vn._last_payload = vn_payload
+            except Exception as e:                   # noqa: BLE001 — 注入失败降级
+                logger.warning("缓存命中引擎注入失败（后续生成可能重开）: %s", e)
             state.round += 1
             _scene_landed(state, scene_c, char_id, session_id, input_c,
                           t0=time.monotonic(), save_cache=False)
             logger.info("bond_cache_hit %s/%s title=%r",
                         char_id, session_id, title_c or title)
             return {"accepted": True, "busy": False, "resumed": True,
-                    "chapter_title": title_c or title}
+                    "chapter_title": title_c or title or "羁绊剧情"}
 
     seed = (f"（旁白）本章：{title}——从刚才的对话与契机自然展开。"
             if title else "（旁白）故事开始了……")

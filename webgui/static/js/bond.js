@@ -471,7 +471,8 @@ const BondVN = (() => {
   async function showTitle(title, bgUrl) {
     const t = $("bond-title");
     const v = $("view-bond");
-    $("bond-title-text").textContent = title;
+    // 2026-09-09: 空标题兜底（缓存命中/resumed 等路径的章节名缺失时面板不空白）
+    $("bond-title-text").textContent = (title || "").trim() || "羁绊剧情";
     // 模糊背景层用当前场景背景（或无背景 → 深色兜底）
     document.querySelector(".bond-title-bg").style.backgroundImage =
       bgUrl ? `url("${bgUrl}")` : "";
