@@ -119,7 +119,8 @@ def test_cache_saved_on_first_scene_landed(tmp_path):
 
 def test_cache_hit_after_restart_zero_llm(tmp_path):
     """模拟重启: 清内存态（_bonds）→ bond_start 命中缓存 → 0 LLM 出首场。"""
-    engine, st, sid, llm = _setup(tmp_path, SCENE, SCENE2, SCENE2)
+    # 纯叙事首场（无 choices → 命中后不 spawn 候选, 主生成零调用可精确断言）
+    engine, st, sid, llm = _setup(tmp_path, NARR1, PRE)
     try:
         bond.bond_start(CHARACTER, sid)
         _wait_idle(CHARACTER, sid)
@@ -135,8 +136,7 @@ def test_cache_hit_after_restart_zero_llm(tmp_path):
         stt = _wait_idle(CHARACTER, sid)
         text = "".join(p.get("text", "")
                        for p in (stt["scene"] or {}).get("paragraphs", []))
-        assert "缓存首场" in text, text
-        assert stt["scene"]["choices"] == ["过去", "静静等她"]
+        assert "月光下她指了指杂草丛" in text, text
         print("    缓存命中: 重启后 0 LLM 直出首场（resumed, 消费即删）")
     finally:
         _cleanup()
@@ -181,6 +181,54 @@ def test_cache_deleted_on_finish_and_demo_skip(tmp_path):
         bond.bond_finish(CHARACTER, sid)
         assert not _cache_path(tmp_path, sid).exists(), "finish 应删缓存"
         print("    finish: 缓存失效删除")
+    finally:
+        _cleanup()
+
+
+NARR1 = {"action": "story_scene", "payload": {
+    "paragraphs": [{"text": "（缓存首场·纯叙事）月光下她指了指杂草丛。"}]}}
+PRE = {"action": "story_scene", "payload": {
+    "paragraphs": [{"text": "（首场后的自动预生成占位——重启即弃）"}]}}
+NARR2 = {"action": "story_scene", "payload": {
+    "paragraphs": [{"text": "（承接第二场）她蹲下来摘了一片叶子。"}]}}
+
+
+def test_cache_hit_injects_engine_state_and_advances(tmp_path):
+    """prob2 回归: 命中缓存后推进——引擎注入生效（历史含首场 / _last_payload
+    就位）→ （继续）生成承接场（round2 内容 != 首场, 不重新开场）。"""
+    # 脚本序列: fresh 首场(NARR1)后 finally 会自动预生成(PRE 被消费, 重启丢弃);
+    # 命中后（继续）现场生成用 NARR2
+    engine, st, sid, llm = _setup(tmp_path, NARR1, PRE, NARR2)
+    try:
+        bond.bond_start(CHARACTER, sid)
+        _wait_idle(CHARACTER, sid)
+        assert _cache_path(tmp_path, sid).is_file()
+        gen_calls = llm.calls                     # 首场 LLM 生成 1 次
+        bond._bonds.pop((CHARACTER, sid), None)   # 模拟重启
+        r = bond.bond_start(CHARACTER, sid)
+        assert r["accepted"] and r.get("resumed"), r
+        assert llm.calls == gen_calls             # 命中 0 LLM
+        # 引擎注入断言: 历史尾部含首场叙事 + _last_payload 就位
+        state = bond._state(CHARACTER, sid)
+        hist_tail = state.vn.history[-1]["content"]
+        assert "杂草丛" in hist_tail, "缓存首场应注入引擎历史（AI 视角含首场）"
+        assert state.vn._last_payload is not None, \
+            "_last_payload 应就位（record_picked/fork 回录基准）"
+        # 玩家点继续 → （继续）生成承接场（gate 等标注就绪, 轮询重试）
+        deadline = time.time() + 15.0
+        r2 = None
+        while time.time() < deadline:
+            r2 = bond.bond_turn(CHARACTER, sid, "（继续）")
+            if r2.get("accepted"):
+                break
+            time.sleep(0.05)
+        assert r2 is not None and r2["accepted"], r2
+        _wait_idle(CHARACTER, sid, timeout=20.0)
+        state = bond._state(CHARACTER, sid)
+        text = "".join(p.get("text", "") for p in state.scene_obj.paragraphs)
+        assert "承接第二场" in text, f"应承接推进而非重新开场: {text}"
+        assert state.round == 2
+        print("    命中后推进: 引擎注入生效,（继续）承接生成（不重新开场）")
     finally:
         _cleanup()
 
