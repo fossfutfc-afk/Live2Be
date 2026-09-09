@@ -325,7 +325,7 @@ def build_story_registry() -> StoryActionRegistry:
             "      角色外观/画风/配饰不用写（引擎自动附角色参考图锚定, 2026-08-24）\n"
             "  paragraphs: 必填, 数组——纪念场景的煽情文字, 同 story_scene（自然段语义,\n"
             "      每项 {text, inner?}; emotion 不要写——系统自动切句并标注; 这是本场剧情内容）\n"
-            "  choices: 可选, 数组——同 story_scene（1~3 个; 缺省 = sensei 自由输入）\n"
+            "  choices: 可选, 数组——同 story_scene（1~3 个; 缺省 = 无选项——剧情内没有自由打字通道, sensei 的话只经选项说出; 无选项时点继续推进）\n"
             "约束: memorial_enter 是**进入纪念时刻**的专属动作——这是剧情的决定时刻, 只\n"
             "      在该真正值得纪念的场景使用（约定/告白/道别/重大转折）, 一段剧情至多\n"
             "      一次（重复会被引擎拒绝）。输出后本场生成纪念立绘。文字要煽情, 配得上\n"
