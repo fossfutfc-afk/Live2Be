@@ -119,6 +119,12 @@ class LLMClient:
                 "LLM_API_KEY not set. 请在 .env 中设置或通过 LLMClient(api_key=...) 传入",
             ))
 
+        # 代理（2026-09-09 事故加固）: 默认 **不信任环境代理**（trust_env=False,
+        # httpx 默认走 HTTP_PROXY/HTTPS_PROXY——本机曾因代理变量指向未监听的
+        # 127.0.0.1:7897 → 全部请求 WinError 10061 连接拒绝, "之前从没出过"）。
+        # 本项目 API 均为官方直连（实测可达）; 确需系统代理时 settings.toml
+        # [llm] use_proxy = true 显式开启。
+        use_proxy = str(cfg.get("use_proxy") or "").strip().lower() == "true"
         self._http = httpx.Client(
             base_url=self.base_url,
             headers={
@@ -126,6 +132,7 @@ class LLMClient:
                 "Content-Type": "application/json",
             },
             timeout=httpx.Timeout(self.timeout),
+            trust_env=use_proxy,
         )
 
     def _resolve_extra(self, extra_body: dict[str, Any] | None) -> dict[str, Any]:
