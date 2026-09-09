@@ -184,6 +184,20 @@ def test_regression_quote_fragments():
                    "她转身跑远。"], got
 
 
+def test_curly_quote_block():
+    """2026-09-09 实测: LLM 用弯引号 ‘…’ 时右引号被单独切成孤句 {"text":"’"}——
+    弯引号纳入引号块保护后整块成句, 不再产孤引号。"""
+    text = ("她蹲下身，指着另一丛叶片说，‘这是车前草，叶子上的脉络很粗，"
+            "是过去常在车辙印里长出来的……老师你看，连那样被反复压过的地方，"
+            "它都能自己钻出来。’说起杂草的事，她结结巴巴的舌头渐渐顺了过来。")
+    got = split_paragraph(text)
+    assert all(g.strip() not in ("’", "‘", "”", "“") for g in got), got
+    # 弯引号块不拆（含块内句号）→ 块自成一句
+    assert any("‘这是车前草" in g and g.rstrip().endswith("。’") for g in got), got
+    # 孤弯引号（不成对）清洗
+    _check("她说了一句。’", ["她说了一句。"], "孤闭弯引号移除")
+
+
 def test_merge_params_exposed():
     assert MERGE_MIN == 6
     assert MERGE_MAX == 30
