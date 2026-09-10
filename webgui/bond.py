@@ -33,6 +33,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from contract import CHARACTER_SENSEI, NON_PICKS, pick_insert_index
 from core.bond.bond_story import BondScene, BondStoryEngine, SceneLoopError
 from core.media.gallery import GalleryStore
 from core.momotalk import load_brain_segment
@@ -392,12 +393,23 @@ def _pending_in_vn(char_id: str, session_id: str) -> bool:
 
 def _narrativize(scene: dict, picked) -> dict:
     """回放场景叙事化: 主段落 + 所选分支段落顺接, 去掉选项/分支结构——
-    前端只看到"段落流 + 继续", 与纯叙事场同交互（选项跟随记录自动隐含）。"""
+    前端只看到"段落流 + 继续", 与纯叙事场同交互（选项跟随记录自动隐含）。
+
+    记录流 v2（P0-6）: 板带 `records` 时**裁决物化**（把 `老师：X` 插回群首,与
+    `BondScene.from_dict`/`render_records` 同一语义、同一插入位置）——v1 的
+    branches 顺接保持不变（旧档冻结）。
+    """
     out = dict(scene or {})
     out.pop("choices", None)
     out.pop("branches", None)
     paras = [dict(p) for p in (out.get("paragraphs") or []) if isinstance(p, dict)]
-    if picked:
+    records = scene.get("records") if isinstance(scene, dict) else None
+    pick_text = str(picked).strip() if isinstance(picked, str) else ""
+    if pick_text and pick_text not in NON_PICKS and isinstance(records, list) and records:
+        idx = pick_insert_index(records, (scene or {}).get("choices") or ())
+        paras.insert(min(idx, len(paras)),
+                     {"text": pick_text, "speaker": CHARACTER_SENSEI})
+    elif picked:
         br = (scene or {}).get("branches") or {}
         if isinstance(br, dict) and picked in br:
             paras += [dict(p) for p in br[picked] if isinstance(p, dict)]
