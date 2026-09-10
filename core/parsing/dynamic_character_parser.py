@@ -39,6 +39,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -225,6 +226,20 @@ def get_completeness(data: dict[str, Any]) -> dict[str, Any]:
 # ===========================================================================
 # 元数据提取
 # ===========================================================================
+
+
+#: CJK（含中日韩标点/全角）——折行合并时用于去掉汉字之间的空格噪声
+_CJK = r"[\u3000-\u303f\u3040-\u30ff\u4e00-\u9fff\uff00-\uffef]"
+
+
+def _fold_prompt_text(text: str) -> str:
+    """YAML 块标量折行 → 单行提示文本: 压缩空白, 再去掉 CJK 之间的空格。"""
+    folded = " ".join(text.split())
+    previous = None
+    while previous != folded:
+        previous = folded
+        folded = re.sub(f"({_CJK}) ({_CJK})", r"\1\2", folded)
+    return folded
 
 
 def get_display_name(data: dict[str, Any]) -> str:
@@ -564,4 +579,30 @@ class CharacterLoader:
             if p.exists():
                 return p
         return None
+
+    def load_illustration(self, character_id: str) -> dict[str, str]:
+        """读角色**可选生图配置** {char_dir}/illustration.yml（缺失/损坏 → {}）。
+
+        与 profile.yml 的 halo 字段**刻意分开**: 后者是给其他角色/扮演查阅的设定,
+        这里专供生图（模型没见过的非典型形状——如遥香的非闭合三角光环——靠它讲清）。
+        支持字段（都可选; 非字符串/空 → 忽略）:
+            halo_hint:      光环形状描述（替换引擎默认光环提示）
+            character_hint: 外观要点/性格等, 追加到【角色本体】标签
+        """
+        path = self.root / character_id / "illustration.yml"
+        if not path.is_file():
+            return {}
+        try:
+            data = load_yaml_file(path)
+        except Exception as e:                       # noqa: BLE001 — 读不了就空（不阻断）
+            logger.warning("[%s] illustration.yml 加载失败: %s", character_id, e)
+            return {}
+        if not isinstance(data, dict):
+            return {}
+        out: dict[str, str] = {}
+        for key in ("halo_hint", "character_hint"):
+            val = data.get(key)
+            if isinstance(val, str) and val.strip():
+                out[key] = _fold_prompt_text(val)     # 折行 → 单行（prompt 里更稳）
+        return out
 

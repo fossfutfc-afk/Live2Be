@@ -153,6 +153,11 @@ _APIYI_STYLE_LABEL = (
 )
 _APIYI_ACC_LABEL = "【图{n} 配饰：{acc}】必须画出：形状与颜色照图{hint}。"
 _APIYI_HALO_HINT = "；光环悬浮于头顶上方、不与头部相连，半透明发光"
+#: 角色卡 profile.yml 的 halo 字段注入形态（该角色光环形状特殊时按此描述绘制）
+_APIYI_HALO_DESC = "【图{n} 配饰：{acc}】必须画出，形状严格按参考图与以下描述：{desc}。" \
+                   "光环悬浮于头顶上方、不与头部相连，半透明发光。"
+#: 角色卡补充设定（外观要点/性格等）追加到角色本体标签
+_APIYI_ROLE_HINT = "补充设定：{hint}"
 _APIYI_TAIL = (
     "【场景指令】\n{scene}\n\n"
     "【要求】单幅，画幅 {ratio}（{w}x{h}）；官方动画风格（干净线稿、通透色彩、柔和光影）；"
@@ -221,20 +226,29 @@ def _kind_label(path: Path) -> tuple[str, str]:
 
 def _build_api_parts(specs: list[tuple[str, str, Path]], name: str, scene: str,
                      size: tuple[int, int] | None, *, ref_max_edge: int = 0,
-                     ref_jpeg_quality: int = 85,
-                     cache_dir: Path | None = None) -> list[dict]:
+                     ref_jpeg_quality: int = 85, cache_dir: Path | None = None,
+                     character_hint: str = "", halo_hint: str = "") -> list[dict]:
     """逐图带标签的 parts（标签 text 与 inline_data 交替）+ 场景指令尾。
 
     specs = [(kind, 中文标签, path)]（ref_specs() 或路径推断的结果）。
-    ref_max_edge > 0 → ref 上传前压到该长边并转 JPEG（实测 21.7MB→压缩后大幅下降,
+    ref_max_edge > 0 → ref 上传前压到该长边并转 JPEG（实测 21.7MB→0.33MB,
     延迟大头是上传; 见 _prepare_ref_bytes）。
+    character_hint → 追加到【角色本体】标签（外观要点等）;
+    halo_hint → 替换默认光环描述（角色卡 profile.yml 的 halo 字段——模型没见过
+    的非典型光环形状靠它讲清楚）。
     """
     parts: list[dict] = [{"text": _APIYI_HEADER}]
+    role_text = _APIYI_ROLE_LABEL.format(n=1, name=name)
+    if character_hint.strip():
+        role_text += "\n" + _APIYI_ROLE_HINT.format(hint=character_hint.strip())
     for i, (kind, label, path) in enumerate(specs, start=1):
         if kind == "role":
-            text = _APIYI_ROLE_LABEL.format(n=i, name=name)
+            text = role_text if i == 1 else _APIYI_ROLE_LABEL.format(n=i, name=name)
         elif kind == "style":
             text = _APIYI_STYLE_LABEL.format(n=i)
+        elif label == "光环" and halo_hint.strip():
+            text = _APIYI_HALO_DESC.format(
+                n=i, acc=label, desc=halo_hint.strip().rstrip("。；;，, "))
         else:
             hint = _APIYI_HALO_HINT if label == "光环" else ""
             text = _APIYI_ACC_LABEL.format(n=i, acc=label, hint=hint)
@@ -328,15 +342,18 @@ class ImageGenerator:
         character_name: str = "角色",
         size: tuple[int, int] | str | None = None,
         fit: str | None = None,
+        character_hint: str = "",
+        halo_hint: str = "",
         **_legacy,
     ) -> GeneratedImage:
         """生成一张图并保存到输出目录, 返回 GeneratedImage（路径 + 尺寸 + 元信息）。
 
         prompt = **中文场景指令**（场景/光线/情感/构图, 不写角色外观——ref 图锚定）;
         ref_images = collect_ref_images(char_id)（角色→画风→配饰顺序, 逐图带标签）;
-        character_name 注入角色本体标签; size 缺省 = self.screen_size（屏幕尺寸）,
-        fit 缺省 = self.fit。**_legacy 吞掉旧参数（seed/steps/height…本地后端残留）,
-        避免历史调用点报错。
+        character_name 注入角色本体标签; character_hint/halo_hint 来自角色卡
+        （profile.yml 的 halo 字段等）——逐角色讲清"模型没见过的"特殊形状;
+        size 缺省 = self.screen_size（屏幕尺寸）, fit 缺省 = self.fit。
+        **_legacy 吞掉旧参数（seed/steps/height…本地后端残留）, 避免历史调用点报错。
         """
         if not prompt.strip():
             raise ValueError(err("ImageGen", "prompt 不能为空"))
@@ -346,7 +363,8 @@ class ImageGenerator:
                 "——请在 settings.toml [image] 或 .env 配置 APIYI key"))
         return self._generate_apiyi(
             prompt, ref_images, character_name,
-            size=parse_size(size) or self.screen_size, fit=fit or self.fit)
+            size=parse_size(size) or self.screen_size, fit=fit or self.fit,
+            character_hint=character_hint, halo_hint=halo_hint)
 
     # ------------------------------------------------------------------
     # APIYI（Gemini 图像）后端
@@ -359,6 +377,8 @@ class ImageGenerator:
         character_name: str,
         size: tuple[int, int] | None = None,
         fit: str | None = None,
+        character_hint: str = "",
+        halo_hint: str = "",
     ) -> GeneratedImage:
         """APIYI generateContent: 逐图带标签的多图 parts + 场景指令 → 落盘 → 归一化。
 
@@ -382,7 +402,9 @@ class ImageGenerator:
         parts = _build_api_parts(specs, character_name, scene_prompt, size,
                                  ref_max_edge=self.ref_max_edge,
                                  ref_jpeg_quality=self.ref_jpeg_quality,
-                                 cache_dir=_ref_cache_dir())
+                                 cache_dir=_ref_cache_dir(),
+                                 character_hint=character_hint,
+                                 halo_hint=halo_hint)
         inline_b64 = sum(len(p["inline_data"]["data"]) for p in parts if "inline_data" in p)
         logger.info("生图请求: ref=%d 张, 内联载荷≈%.1fMB (max_edge=%d, q=%d, %s)",
                     len(specs), inline_b64 * 3 / 4 / 1048576, self.ref_max_edge,

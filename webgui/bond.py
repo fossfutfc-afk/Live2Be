@@ -257,10 +257,14 @@ def _memorial_gen(state: BondState, char_id: str, session_id: str,
         gen = _image_generator()
         if gen is None:
             return                              # 未配 key → 降级纯文字
-        char = chat._engine(char_id).current_character
+        eng = chat._engine(char_id)
+        char = eng.current_character
         name = char.display_name if char is not None else "角色"
+        hints = eng.char_loader.load_illustration(char_id)   # illustration.yml（可选）
         img = gen.generate(prompt, ref_images=collect_ref_images(char_id),
-                           character_name=name)
+                           character_name=name,
+                           character_hint=hints.get("character_hint", ""),
+                           halo_hint=hints.get("halo_hint", ""))
         logger.info("纪念立绘: %dx%d %.1fs %s", img.width, img.height,
                     img.elapsed_s, img.path.name)
         sid = GalleryStore(_store().data_root, world_id=_store().world_id).write(
