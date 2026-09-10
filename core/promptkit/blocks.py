@@ -35,7 +35,8 @@ class BlockContext:
     char: Any = None                     # DynamicCharacter（引擎必传; None 仅供纯文本块测试）
     names: list[str] = field(default_factory=list)   # 称呼名单（单人=[display_name]）
     greeting_suffix: str = ""              # 称呼行尾句（域专属: MMT/Bond 的规则指向）
-    schema: str = ""                       # 域契约 schema 原文（contract.build_schema 输出）
+    schema: str = ""                       # 域契约 schema 原文（contract 渲染）
+    schema_title: str = "可用动作 schema"    # schema 块标题（bond 记录流域改称输出契约）
     interperson_path: Any = None           # MMT 人际层文件（executor 持有）
     world_path: str | None = None          # None → 默认 overview.yml
     brain_segment: str = ""                # Bond: 记忆段（开场注入, 剧情内固定）
@@ -102,8 +103,12 @@ def _rules_mmt(ctx: BlockContext) -> str:
 
 
 def _schema(ctx: BlockContext) -> str:
-    """可用动作 schema: 引擎用自己 registry 渲染的契约原文（域专属壳）。"""
-    return "可用动作 schema:\n" + (ctx.schema or "")
+    """输出契约：引擎用自己 registry / 记录文法渲染的契约原文（域专属壳）。
+
+    标题可换（`schema_title`）：VN 记录流域没有"动作"概念 → 称「本轮输出契约」，
+    免得模型去找一个不存在的 action 外壳（§8.4 外壳字段退役）。
+    """
+    return f"{ctx.schema_title}:\n" + (ctx.schema or "")
 
 
 # ---- Bond 域（Phase 3; 盒B v2 见 box.DOMAIN_BOXES["bond"]）------------------
@@ -120,35 +125,38 @@ def _bond_tone(ctx: BlockContext) -> str | None:
 
 
 def _rules_bond(ctx: BlockContext) -> str:
-    """bond_story_rules.md: 单人模式/3~5 板块/选项收敛/JSON 范本（memorial_enter 形状行内教）。"""
+    """bond_story_rules.md: 单人模式/对白为主节奏/记录流写法（switch·群·memorial·end）。"""
     return load_prompt("bond_story_rules")
 
 
 def _lexicon_emotion(ctx: BlockContext) -> str | None:
     """【表情标注词表】: assets/illustration/{char}/default/emotions.yml 键+示范 few-shot。
+    记录流 v2: 措辞按 **writer 受众**（`for_writer=True`——它不写 emotion，只看表演能力边界）。
     词表缺失/损坏 → 不注入（VN 纯文本照跑, 宁缺勿错）。"""
     assets_root = Path(ctx.assets_root) if ctx.assets_root else _DEFAULT_ASSETS
     char_dir = assets_root / "illustration" / ctx.char.character_id / "default"
-    inj = build_emotion_injection(char_dir)
+    inj = build_emotion_injection(char_dir, for_writer=True)
     return inj or None
 
 
 def _place_palette(ctx: BlockContext) -> str | None:
-    """【可去的地方】舞台清单（v2 2026-09-07 用户拍板——词表可见性 ≠ 写权限）:
+    """【可去的地方】舞台清单（2026-09-10 记录流 v2 改版——换场由 writer 发 `switch`）:
 
-    单源切换把"主 LLM 写地点"移给了标注层——但词表本身是**创作可选空间**:
-    主 LLM 若不知道系统能呈现天台/海边/拉面店, 会把剧情收敛到"肯定有"的场景,
-    背景单调。本块把**同一份词表**（_director_whitelist common_scenes, 标注层
-    同源）以"舞台清单"形态注入——只扩可选空间, 措辞明示不输出地点字段。
+    旧单源切换（主 LLM 不写地点、由标注层从文本判定）在记录流里被 `stage: switch`
+    取代：**WHEN 归 writer**（它换场就发一条），**WHICH 归标注器**（把地点话翻译成
+    资产键）。所以本块不再说"你不能输出地点字段"，而是把**同一份词表**（标注层
+    同源）作为"可选舞台"注入——只扩可选空间（气氛需要海边/天台/拉面店就写过去），
+    措辞同时教它 switch 的写法。词表键永不回灌（history 只回显它自己写的地点话）。
     """
     keys = load_place_lexicon(ctx.place_whitelist_path)
     if not keys:
         return None
     lines = [
         "【可去的地方】（本世界画面舞台清单）",
-        "你能把剧情安排到的所有场景都在下面。**你不需要、也不能输出地点字段**——",
-        "系统会从你的文本自动判定并切换画面。知道清单只是为了不把自己困在同一个",
-        "场景: 气氛需要海边/天台/拉面店就尽管把故事写到那里（换场 = 另起一段）。",
+        "你能把剧情安排到的所有场景都在下面。换场时发一条 "
+        '{"stage": "switch", "text": "地点"}——地点用你自己的话（具体名词短语），',
+        "系统据此切换画面（你不写资产名、不写地点字段）。知道清单只是为了不把自己",
+        "困在同一个场景: 气氛需要海边/天台/拉面店就尽管把故事写到那里（换场 = 发 switch）。",
     ]
     lines.extend(f"  {k}" for k in keys)
     return "\n".join(lines)
@@ -190,10 +198,10 @@ BLOCK_DOC: dict[str, str] = {
     "environment_mmt": "MomoTalk 环境说明",
     "rules_mmt": "MomoTalk 行为规则书",
     "bond_tone": "本角色羁绊剧情建议（SIG~bond_tone, 条件）",
-    "rules_bond": "羁绊剧情规则书（含 memorial_enter 范本）",
+    "rules_bond": "羁绊剧情规则书（记录流写法: switch/群/memorial/end）",
     "lexicon_emotion": "表情标注词表（emotions.yml, 条件）",
-    "place_palette": "可去的地方·舞台清单（词表同源, 只扩可选空间不写字段）",
-    "schema": "可用动作 schema（域契约）",
+    "place_palette": "可去的地方·舞台清单（词表同源; 换场由 writer 发 switch）",
+    "schema": "输出契约 schema（域契约; 标题随域可换）",
     "brain": "记忆段（brain_segment, 条件）",
 }
 

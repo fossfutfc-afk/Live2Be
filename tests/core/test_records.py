@@ -248,11 +248,26 @@ def test_build_record_schema_covers_all_values():
     assert '\\"' in text                       # 转义示范（实战唯一真实错误源）
     assert f"1~{MAX_SENSEI_RUN} 条" in text     # 群上限
     assert "不要数组" in text and "代码围栏" in text
-    assert "stage=exit" in text and "块首" in text and "块尾" in text
+    assert "stage=exit" in text and "本轮首条" in text and "本轮最后一条" in text
     # 关掉示例时更短，但仍含硬规则
     brief = build_record_schema(with_examples=False)
     assert len(brief) < len(text) and "硬规则" in brief and "示例" not in brief
     print("    schema: 全取值 + 转义示范 + 群上限 + 可关示例")
+
+
+def test_build_record_schema_is_session_bound():
+    """schema 随会话角色渲染: 记录取真实 id（示例与取值行都不再是占位 `haruka`）。"""
+    from contract.schema import build_record_schema
+
+    text = build_record_schema(char_id="igusa_haruka", char_display="伊草 遥香")
+    assert '"character": "igusa_haruka"' in text
+    assert "伊草 遥香" in text
+    assert '"haruka"' not in text                      # 占位值不再漏进会话
+    assert text.count("igusa_haruka") >= 5             # 取值行 + 示例行
+    # 默认（文档/测试口径）仍给占位示例, 且转义示范位置不变
+    default = build_record_schema()
+    assert '"character": "haruka"' in default
+    print("    schema: 随会话角色渲染（id/显示名）")
 
 
 # ---------------------------------------------------------------------------

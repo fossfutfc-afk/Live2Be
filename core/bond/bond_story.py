@@ -17,7 +17,8 @@
     **一解析器两用**: 运行时 from_action（动作类型推导 is_end）+ 读存档 json[] 回放
     from_dict（存档显式 is_end）（DESIGN_BOND_STORY.md）。
     双空格/【选择】/【完】等自由文本标记解析已删除——结构由 JSON 字段强制。
-    行为规则在 llm/prompts/bond_story_rules.md; 契约 schema 由 build_schema 注入。
+    行为规则在 llm/prompts/bond_story_rules.md; 契约 schema 由 build_record_schema 注入
+    （2026-09-10 记录流 v2——story 域不再用 build_schema 的单动作外壳）。
 
 用法:
     from core.bond.bond_story import BondStoryEngine
@@ -36,7 +37,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
-from contract import AgentAction, build_schema
+from contract import AgentAction, build_record_schema, build_schema
 from core.common import Live2BeError, err
 from core.bond.bond_actions import MAX_SCENE_RETRIES, build_story_registry
 from core.bond.bond_executor import StoryExecError, StoryExecutor
@@ -332,12 +333,16 @@ class BondStoryEngine:
         # 盒B v2（DESIGN_PROMPTKIT §4.1, Phase 3）: 命名块清单装配——称呼行归位盒顶
         # （身份先行; 此前夹在 bond_tone 与 rules 之间）。视觉意图协议 §11 词表
         # 开场喂一遍（few-shot）; Brain 段开场注入（剧情内固定）。
+        # 2026-09-10 记录流 v2: 契约块 = 记录文法（build_record_schema, 带真实角色 id）,
+        # 标题改「本轮输出契约」——story 域不再有 action 外壳（§8.4）。
         _assets_root = Path(__file__).resolve().parent.parent.parent / "assets"
         system_prompt = build_box("bond", BlockContext(
             char=char,
             names=self._character_names or [char.display_name],
             greeting_suffix="——以下是你的剧情行为规则，请严格遵守：",
-            schema=build_schema(self.registry),
+            schema=build_record_schema(char_id=char.character_id,
+                                       char_display=char.display_name),
+            schema_title="本轮输出契约（VN 记录流）",
             brain_segment=self._brain_segment,
             assets_root=_assets_root,
         ))

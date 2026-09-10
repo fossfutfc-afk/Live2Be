@@ -57,6 +57,7 @@ from contract.records import (
 from contract.schema import (
     build_schema,
     build_digest_schema,
+    build_record_schema,
     export_definitions,
 )
 
@@ -88,6 +89,7 @@ __all__ = [
     "parse_action_text",
     "build_schema",
     "build_digest_schema",
+    "build_record_schema",
     "export_definitions",
     # —— VN 记录流（记录流 v2, 2026-09-10）——
     "KIND_CHARACTER",

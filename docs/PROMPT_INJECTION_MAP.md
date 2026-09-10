@@ -1,6 +1,8 @@
 # PROMPT_INJECTION_MAP — 提示词注入地图（现网校准版）
 
-> **状态**：2026-09-07 对照现网代码逐点校准（行号为当日实况）。
+> **状态**：2026-09-07 对照现网代码逐点校准（行号为当日实况）；**2026-09-10 盒B
+> 段落已按记录流 v2 更新**（rules/输出契约/词表/舞台清单四处，见 §3；真机守形验证
+> 随 P0-4b 引擎接线）。
 > **取代**：`docs/DESIGN_WEBGUI_PROMPTS.md`（已归档至 `docs/archive/`，历史参考）。
 > **用途**：提示词组装重构（promptkit / task 卡片）的事实基线；LLM 各调用点
 > "到底注入了什么"的唯一现网答案。代码改动后本节可能再漂——行号以代码为准，
@@ -89,22 +91,23 @@ messages = [system] + history + [P16 羁绊进度注记] + [P17 system_note?]
 | 2 | `【世界常识】【世界规则】` | `world` 块（world_parser:70-89）| 同源重新注入 |
 | 3 | `【本角色剧情基调】` | `story_tone` 块 = load_story_tone（core/common/tone.py）| 与盒A同源 |
 | 4 | `【本角色羁绊剧情建议】` | `bond_tone` 块 = script.yml `SIG~bond_tone`（char.bond_tone）| 缺失 → 不注入（条件块） |
-| 5 | 羁绊剧情规则书 | `rules_bond` 块 = `bond_story_rules.md` | rules 内含：单人模式/3~5 板块+收尾/每板块 1 个选项（2~3 候选项）**branches 必须且键一致**/选项收敛同主线/宁可及早收尾/story_scene 与 story_end JSON 范本/**memorial_enter JSON 范本行内教形状**（rules L66-80：prompt=中文场景指令勿写外观） |
-| 6 | 可用动作 schema | `schema` 块 = `build_schema(story registry)`（bond_story.py）单动作 | ⚠️ **只有 story_scene/story_end**；memorial 双动作不在盒里——enter 形状靠 rules 范本教，exit schema 在纪念模式每场由注记补喂 |
-| 7 | `【表情标注词表】` | `lexicon_emotion` 块 = `build_emotion_injection`（emotion_lexicon.py:95-112）= emotions.yml 键 + 行尾示范注释 + `eg[键]` 例句 | 词表路径 `assets/illustration/{char}/default/`（2026-08-31 修过 default 段缺失）；缺失 → 不注入（条件块） |
-| 8 | `【可去的地方】` | `place_palette` 块 = whitelist common_scenes（**与标注层同源**）| 舞台清单（v2 2026-09-07）：**词表可见性 ≠ 写权限**——主 LLM 不写地点字段（单源判定在标注层），但必须知道舞台范围才不会把剧情困在"肯定有"的场景；措辞明示不输出字段 |
+| 5 | 羁绊剧情规则书 | `rules_bond` 块 = `bond_story_rules.md` | **记录流 v2（2026-09-10）**：单人模式/对白为主节奏/一行一条记录的写法（**换场 = 发 `stage:switch`**、老师的话 = 连续 1~3 条 `sensei` 成"群"、`memorial` 触发 + `art` 预告制、`end` 收尾黑屏余韵）/三份范本（中段·纪念·收尾，含 `\"` 转义示范）；旧 story_scene/branches/memorial_enter 字样已退役 |
+| 6 | 本轮输出契约（VN 记录流） | `schema` 块 = **`build_record_schema(char_id=…, char_display=…)`**（contract/schema.py；bond_story.py start_session）| **v2**：标题由 `BlockContext.schema_title` 换掉「可用动作 schema」（story 域无 action 外壳）；内容 = 七种取值 + 硬规则七条 + few-shot（**随会话渲染真实角色 id**）；不再用 `build_schema(story registry)`（memorial exit schema 仍走 registry，纪念模式注记补喂） |
+| 7 | `【表情标注词表】` | `lexicon_emotion` 块 = `build_emotion_injection(..., for_writer=True)`（emotion_lexicon.py）= emotions.yml 键 + 行尾示范注释 + `eg[键]` 例句 | 词表路径 `assets/illustration/{char}/default/`（2026-08-31 修过 default 段缺失）；缺失 → 不注入（条件块）；**v2 措辞按受众分叉**：writer 盒说「你不用写 emotion，系统逐记录挑」（只交代表演能力边界），标注层默认措辞仍是「标注时只从下面选」 |
+| 8 | `【可去的地方】` | `place_palette` 块 = whitelist common_scenes（**与标注层同源**）| 舞台清单（v2 2026-09-10 措辞反转）：**WHEN 归 writer**——换场就发 `{"stage":"switch","text":"地点"}`（自然语言、具体名词短语），**WHICH 归标注器**（switch 文本 → 资产键）；清单只扩可选空间（防背景单调），资产名/地点字段仍不写 |
 | 9 | brain 段 | `brain` 块 = `load_brain_segment`（momotalk.py:129-156）：出厂背景 + wiki 视图 | webgui 每次 start/replay 都重取（webgui/bond.py:401-406, 542-548）→ **剧情内固定**不随 digest 更新（条件块） |
 
-**地点单源切换（2026-09-07 v2, P3b-2 完成）**：主 LLM **不写 place**（schema/rules
-地点说明已删）——换场语义靠"换场即换段"写作约定（rules【段落规划与换场】）；
-地点判定移交标注层 place lane（place_annotate.md 持有词表），锚点写回句项 `place`
-键（稀有，只进 payload/事件流，render 忽略——不进 LLM 上下文），导演/前端在锚点
-句切背景（routers `_resolve_scene` 注入 place_bg；晚到锚点即切）。**词表可见性以
-`place_palette` 舞台清单保留**（同源, 防背景单调）。详细设计：docs/archive/DESIGN_BOND_CONTRACT_V2.md
-（旧契约, 已归档）；新契约的换场/词表归属见 docs/DESIGN_VN_UPGRADE.md §5。
+**地点归属换代（2026-09-10 记录流 v2）**：主 LLM **发 `stage:switch`**
+（WHEN 归它，自然语言地点），**不再有任何地点字段**；翻译成资产键是标注层的事
+（WHICH；P1 待接）。旧 v2 单源切换（"换场即换段"、place lane 从正文判锚点）在
+记录流里退役——history 只回显 writer 自己写的地点话，词表键永不回灌。
+`place_palette` 舞台清单保留（同源, 防背景单调）。旧契约见
+docs/archive/DESIGN_BOND_CONTRACT_V2.md；新契约见 docs/DESIGN_VN_UPGRADE.md §5。
 
 双 registry 分流（bond_story.py:429-435）：按**动作名归属**——story 域 spec 命中 →
 story parse；否则 memorial 域。parse 失败仍留本域反馈（不能按 parse 结果分流）。
+**记录流 v2 后**：story 域每场不再走 registry.parse（改 `parse_stream` 行解析，
+P0-4b 落地）；registry 分流此时只剩 memorial exit 路径。
 
 ---
 
