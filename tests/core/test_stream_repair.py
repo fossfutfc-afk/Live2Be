@@ -29,6 +29,11 @@ from core.session.renderer import session_status
 CHARACTER = "igusa_haruka"
 
 
+def _shape(events):
+    """结构指纹（seq/type/subtype）——ts 是构造期 now()，不参与比较。"""
+    return [(e.seq, e.type, e.subtype) for e in events]
+
+
 def _real_like_events():
     """用户真实数据形态: 有内容段 A(12) 之后两个空壳重启段(18/21, 只有 marker)。"""
     return [
@@ -95,7 +100,8 @@ def test_exclude_abandoned_drops_bond_only_in_ranges():
     assert any(e.seq == 25 for e in out)           # 区间外保留
     assert any(e.seq == 14 for e in out)           # A 的内容段保留（未废弃）
     assert any(e.seq == 15 for e in out)           # mmt 保留
-    assert exclude_abandoned(_real_like_events()) == _real_like_events()
+    # 无废弃区间 → 逐条原样保留（比结构，不比 ts：构造期各自取 now，会抖）
+    assert _shape(exclude_abandoned(_real_like_events())) == _shape(_real_like_events())
 
 
 # ---------------------------------------------------------------------------
