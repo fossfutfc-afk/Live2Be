@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
-"""VN 记录流契约单测 — 行解析（P0-2）+ 群/位置校验（P0-1）。
+"""VN 记录流契约单测 — 行解析（P0-2）+ 群/位置校验（P0-1）+ 块载体（P0-4）。
 
 覆盖设计文档 §2 文法与 §9 失败口径：三类坏行的容错（未转义引号 / 末行悬空 / 数组行）、
-形状违规丢行、sensei 群语义（用户样例）、块内位置约束。
+形状违规丢行、sensei 群语义（用户样例）、块内位置约束、VnBlock 派生视图与两种出口。
 
 运行: python -m pytest tests/core/test_records.py
 """
@@ -13,8 +13,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from contract.records import (CHARACTER_NARRATOR, CHARACTER_SENSEI,  # noqa: E402
                               KIND_CHARACTER, KIND_STAGE, MAX_SENSEI_RUN,
-                              VnRecord, check_block, parse_line, parse_stream,
-                              sensei_group_labels, sensei_groups)
+                              VnBlock, VnRecord, check_block, parse_line,
+                              parse_stream, sensei_group_labels, sensei_groups)
 
 
 def _rec(value, text="x", kind=KIND_CHARACTER, line_no=0) -> VnRecord:
@@ -251,3 +251,102 @@ def test_build_record_schema_covers_all_values():
     brief = build_record_schema(with_examples=False)
     assert len(brief) < len(text) and "硬规则" in brief and "示例" not in brief
     print("    schema: 全取值 + 转义示范 + 群上限 + 可关示例")
+
+
+# ---------------------------------------------------------------------------
+# P0-4：块载体（记录数组 + 群 + 位置 + 两种出口）
+# ---------------------------------------------------------------------------
+
+_BLOCK_TEXT = "\n".join([
+    '{"stage": "switch", "text": "深夜的杂草屋"}',
+    '{"character": "haruka", "text": "……老师。"}',
+    '{"character": "sensei", "text": "是我来晚了。"}',
+    '{"character": "haruka", "text": "「……」"}',
+    '{"character": "sensei", "text": "先坐下吧。"}',
+    '{"character": "sensei", "text": "要说的话，慢慢说。"}',
+    '{"stage": "memorial", "text": "（她抬起头。）"}',
+    '{"character": "haruka", "text": "「那种话，我不想再听了。」"}',
+])
+
+
+def test_vn_block_derived_views():
+    """块载体：群 / 位置 / 前后切片 —— 位置元数据齐备，且与校验结论一致。"""
+    blk = VnBlock.from_text(_BLOCK_TEXT)
+    assert len(blk.records) == 8 and blk.is_valid and blk.issues == ()
+    assert blk.switch_at == 0 and blk.art_at is None and blk.memorial_at == 6
+    assert blk.end_at is None and blk.exit_at is None
+    # 两群：run=1（第 3 条）+ run=2（第 5~6 条）
+    assert blk.groups == ((2,), (4, 5))
+    assert blk.group_texts == (("是我来晚了。",), ("先坐下吧。", "要说的话，慢慢说。"))
+    assert blk.has_choices
+    # 纪念闸门切片：闸门前可渲染前缀 / 纪念区间本体
+    assert len(blk.before(blk.memorial_at)) == 6
+    assert [r.text for r in blk.after(blk.memorial_at)] == ["「那种话，我不想再听了。」"]
+    assert blk.after(None) == ()
+    print("    block: 群/位置/前后切片")
+
+
+def test_vn_block_render_and_roundtrip():
+    """两种出口：渲染文本（最小说话人形态）与 to_dict/from_dict 往返稳定。"""
+    blk = VnBlock.from_text(_BLOCK_TEXT)
+    text = blk.render_text()
+    assert "老师：是我来晚了。" in text
+    assert "haruka：「……」" in text            # 未给名字表 → 回落到 id
+    assert "深夜的杂草屋" in text                # switch 回显自己的话
+    assert "（她抬起头。）" in text              # memorial 文本照常显示
+    assert "春香：「……」" in blk.render_text({"haruka": "春香"})       # 名字表覆盖 id
+    assert "haruka：" not in blk.render_text({"haruka": "春香"})
+    assert "是我来晚了。" in blk.render_text(speaker=False)           # 关前缀 → 纯文本
+    assert "老师：" not in blk.render_text(speaker=False)
+    # 往返：payload → 块 → payload 逐字节一致
+    payload = blk.to_dict()
+    assert payload["records"][0] == {"stage": "switch", "text": "深夜的杂草屋"}
+    back = VnBlock.from_dict(payload)
+    assert back.records == blk.records and back.to_dict() == payload
+    # 裸 list 也吃（历史存档里可能是纯数组）
+    assert VnBlock.from_dict(payload["records"]).records == blk.records
+    print("    block: 渲染（最小说话人形态）+ payload 往返")
+
+
+def test_vn_block_records_notes_and_legacy_rejection():
+    """块载体：坏行/修复进 notes（可观测）；旧契约 payload 显式拒绝而非猜。"""
+    blk = VnBlock.from_text("\n".join([
+        '{"character": "haruka", "text": "她说 "好"。"}',      # 可救 → NOTE
+        '{"character": "haruka" "text": "缺逗号"}',            # 不可救 → DROP
+    ]))
+    assert [r.text for r in blk.records] == ['她说 "好"。']
+    joined = "\n".join(blk.notes)
+    assert "NOTE" in joined and "辅助转义" in joined
+    assert "DROP" in joined and "JSON 解析失败" in joined
+    assert blk.to_dict()["notes"] == list(blk.notes)
+    # 旧契约 payload（现网 paragraphs/choices/branches）→ 明确报错，不静默降级
+    for legacy in ({"paragraphs": ["a"], "choices": ["b"]}, {"scene": {}, "text": "x"}):
+        try:
+            VnBlock.from_dict(legacy)
+        except ValueError as e:
+            assert "records" in str(e) and "旧" in str(e), e
+        else:                                                  # pragma: no cover
+            raise AssertionError(f"旧契约 payload 应被拒绝: {legacy}")
+    print("    block: 修复/丢行记账 + 旧档拒绝")
+
+
+def test_vn_block_keeps_issues_not_blocks():
+    """校验只出问题清单：不合规块照样装得下（拦不拦是引擎的判断）。"""
+    # ① end 不在块尾 + ② sensei 群超上限
+    recs = [_rec("haruka", "开场"), _rec("end", "收尾", KIND_STAGE),
+            _rec("haruka", "后面还有话"),
+            _rec(CHARACTER_SENSEI, "一"), _rec(CHARACTER_SENSEI, "二"),
+            _rec(CHARACTER_SENSEI, "三"), _rec(CHARACTER_SENSEI, "四")]
+    blk = VnBlock.from_records(recs)
+    assert len(blk.records) == 7 and not blk.is_valid
+    assert any("必须块尾" in i for i in blk.issues), blk.issues
+    assert any("群过长" in i for i in blk.issues), blk.issues
+    assert blk.issues == tuple(check_block(recs))
+    # ③ memorial 之后出现 switch → 纪念区间违规（switch 本身位置自由）
+    mid = VnBlock.from_records([_rec("haruka", "开口"),
+                                _rec("memorial", "触发", KIND_STAGE),
+                                _rec("switch", "换场", KIND_STAGE)])
+    assert any("纪念区间" in i for i in mid.issues), mid.issues
+    # validate=False → 只当容器（引擎自行判定时用）
+    assert VnBlock.from_records(recs, validate=False).issues == ()
+    print("    block: 校验只出清单，不拦不修")

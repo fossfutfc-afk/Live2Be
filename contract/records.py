@@ -27,8 +27,8 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Iterable
-from dataclasses import dataclass
+from collections.abc import Iterable, Mapping
+from dataclasses import dataclass, field
 from typing import Any
 
 # ---------------------------------------------------------------------------
@@ -76,12 +76,16 @@ _TEXT_FIELD_RE = re.compile(r'"text"\s*:\s*"')
 
 @dataclass(frozen=True)
 class VnRecord:
-    """一条记录（解析成功的最小单元）。"""
+    """一条记录（解析成功的最小单元）。
+
+    `line_no` 是**解析期定位信息**（诊断/回放定位用），不参与相等性——记录的
+    身份 = (kind, value, text)，故 payload 往返比较稳定（P0-6 回放逐字节同形）。
+    """
 
     kind: str                 # KIND_CHARACTER | KIND_STAGE
     value: str                # 角色 id / sensei / narrator ｜ stage 取值
     text: str
-    line_no: int = 0
+    line_no: int = field(default=0, compare=False)
 
     @property
     def is_sensei(self) -> bool:
@@ -344,3 +348,151 @@ def check_block(records: Iterable[VnRecord]) -> list[str]:
             issues.append(
                 f"sensei 群过长（第 {g[0] + 1}~{g[-1] + 1} 条共 {len(g)}，上限 {MAX_SENSEI_RUN}）")
     return issues
+
+
+# ---------------------------------------------------------------------------
+# 块载体（P0-4）：记录数组 + 群 + 位置元数据 + 两种出口（落库 dict / 渲染文本）
+# ---------------------------------------------------------------------------
+
+#: 说话人显示名兜底（引擎可用 names 覆盖；角色 id → 显示名）
+SPEAKER_SENSEI_LABEL = "老师"
+DEFAULT_SPEAKER_NAMES: dict[str, str] = {CHARACTER_SENSEI: SPEAKER_SENSEI_LABEL}
+
+
+@dataclass(frozen=True)
+class VnBlock:
+    """一个**块**（= 引擎最小提交单元：一次 LLM 回合产出的全部记录）。
+
+    纯数据载体——解析校验（`check_block`）只出"问题清单"，**不拦不修**；
+    配额/状态判定（章级 memorial ≤1、槽频率等）归引擎（见 DESIGN §4 分工）。
+    """
+
+    records: tuple[VnRecord, ...] = ()
+    notes: tuple[str, ...] = ()       # 解析期 NOTE（修复/拍平/多余字段）——可观测，不进 LLM 上下文
+    issues: tuple[str, ...] = ()      # 块内结构校验结果（空 = 合规）
+
+    # --- 构造 --------------------------------------------------------------
+    @classmethod
+    def from_records(cls, records: Iterable[VnRecord], *, notes: Iterable[str] = (),
+                     validate: bool = True) -> VnBlock:
+        recs = tuple(records)
+        return cls(recs, tuple(notes), tuple(check_block(recs)) if validate else ())
+
+    @classmethod
+    def from_text(cls, text: str, *, validate: bool = True) -> VnBlock:
+        """整块文本（LLM 原始输出）→ 块；坏行不阻断，NOTE/DROP 全部记账。"""
+        res = parse_stream(text)
+        notes = [f"[NOTE line {d.line_no}] {d.error}" for d in res.notes]
+        notes += [f"[DROP line {d.line_no}] {d.error}" for d in res.dropped]
+        return cls.from_records(res.records, notes=notes, validate=validate)
+
+    @classmethod
+    def from_dict(cls, data: Any) -> VnBlock:
+        """落库 payload → 块（回放/存档）。旧契约 payload 显式拒绝而非猜。"""
+        if isinstance(data, list):
+            items = data
+        elif isinstance(data, dict):
+            if "records" not in data:
+                legacy = sorted(set(data) & {"paragraphs", "choices", "branches", "scene",
+                                             "text", "emotions"})
+                hint = f"（疑似旧契约字段 {legacy}）" if legacy else ""
+                raise ValueError(f"payload 缺少 records 字段{hint}——旧档冻结策略见 §3/§11 P0-6")
+            items = data.get("records") or []
+        else:
+            raise ValueError(f"payload 必须是 dict 或 list（实得 {type(data).__name__}）")
+        records: list[VnRecord] = []
+        for item in items:
+            if isinstance(item, VnRecord):
+                records.append(item)
+                continue
+            rec, why = _record_from_obj(item)
+            if rec is None:
+                raise ValueError(f"payload 内含非法记录: {why}（{item!r}）")
+            records.append(rec)
+        raw_notes = data.get("notes", []) if isinstance(data, dict) else []
+        return cls.from_records(records, notes=[str(x) for x in raw_notes])
+
+    # --- 派生视图 ----------------------------------------------------------
+    @property
+    def groups(self) -> tuple[tuple[int, ...], ...]:
+        """sensei 群（连续 `sensei` 段的下标组）——run=1 单选项 / run≥2 多选项。"""
+        return tuple(tuple(g) for g in sensei_groups(self.records))
+
+    @property
+    def group_texts(self) -> tuple[tuple[str, ...], ...]:
+        """各群的候选台词（= 交互槽的选项文本）。"""
+        recs = self.records
+        return tuple(tuple(recs[i].text for i in g) for g in self.groups)
+
+    def _first_stage(self, value: str) -> int | None:
+        for i, rec in enumerate(self.records):
+            if rec.stage == value:
+                return i
+        return None
+
+    @property
+    def switch_at(self) -> int | None:
+        return self._first_stage(STAGE_SWITCH)
+
+    @property
+    def art_at(self) -> int | None:
+        return self._first_stage(STAGE_ART)
+
+    @property
+    def memorial_at(self) -> int | None:
+        return self._first_stage(STAGE_MEMORIAL)
+
+    @property
+    def end_at(self) -> int | None:
+        return self._first_stage(STAGE_END)
+
+    @property
+    def exit_at(self) -> int | None:
+        return self._first_stage(STAGE_EXIT)
+
+    @property
+    def has_choices(self) -> bool:
+        return bool(self.groups)
+
+    @property
+    def is_valid(self) -> bool:
+        return not self.issues
+
+    def before(self, index: int | None) -> tuple[VnRecord, ...]:
+        """`index` 之前的记录（index=None → 全部）——如纪念闸门前的可渲染前缀。"""
+        return self.records if index is None else self.records[:index]
+
+    def after(self, index: int | None) -> tuple[VnRecord, ...]:
+        """`index` 之后的记录（不含 index）——如纪念区间本体。"""
+        return () if index is None else self.records[index + 1:]
+
+    # --- 出口 --------------------------------------------------------------
+    def to_dict(self) -> dict[str, Any]:
+        """落库 / 回放 payload（唯一真源形态）。"""
+        data: dict[str, Any] = {"records": [r.to_dict() for r in self.records]}
+        if self.notes:
+            data["notes"] = list(self.notes)
+        return data
+
+    def render_text(self, names: Mapping[str, str] | None = None, *,
+                    speaker: bool = True) -> str:
+        """**最小形态**渲染（历史回灌/回放文本）。
+
+        - 角色/老师：`显示名：正文`（names 覆盖，默认 sensei→老师，角色 id→id）
+        - 旁白：正文（不加前缀）
+        - stage：`switch`/`memorial`/`end` 回显自己的文本；`art` 是**不可见声明**、
+          `exit` 无文本 → 跳过（视觉键不进 LLM 上下文，见 §4）
+        """
+        table = dict(DEFAULT_SPEAKER_NAMES)
+        if names:
+            table.update(names)
+        lines: list[str] = []
+        for rec in self.records:
+            if rec.is_narration:
+                lines.append(rec.text)
+            elif rec.kind == KIND_CHARACTER:
+                name = table.get(rec.value, rec.value)
+                lines.append(f"{name}：{rec.text}" if speaker else rec.text)
+            elif rec.stage in (STAGE_SWITCH, STAGE_MEMORIAL, STAGE_END):
+                lines.append(rec.text)
+        return "\n".join(lines)
