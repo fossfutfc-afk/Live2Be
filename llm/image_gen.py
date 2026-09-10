@@ -165,6 +165,49 @@ def _mime_of(path: Path) -> str:
     return "image/png" if path.suffix.lower() == ".png" else "image/jpeg"
 
 
+def _ref_cache_dir() -> Path:
+    """ref 压缩缓存目录（默认 <IMAGE_OUTPUT_DIR>/_ref_cache; 环境变量可覆盖）。"""
+    env = os.getenv("IMAGE_REF_CACHE_DIR", "").strip()
+    base = Path(env) if env else Path(os.getenv("IMAGE_OUTPUT_DIR", _DEFAULT_OUTPUT))
+    return base / "_ref_cache"
+
+
+def _prepare_ref_bytes(path: Path, max_edge: int = 0, quality: int = 85,
+                       cache_dir: Path | None = None) -> tuple[bytes, str]:
+    """上传前处理 ref 图: 长边压到 max_edge 并转 JPEG（按 mtime/尺寸缓存）。
+
+    - max_edge <= 0 → 原图原样（PNG 无损, 但请求体可能是几十 MB——实测 21.7MB, 延迟大头）;
+    - 压缩失败/PIL 缺失 → 回退原图（宁缺勿错, 不阻断生图）;
+    - 缓存键 = 文件名 + mtime + 体积 + 参数 → 原图不变则零重复压缩。
+    """
+    if max_edge <= 0:
+        return path.read_bytes(), _mime_of(path)
+    try:
+        from PIL import Image
+    except ImportError:
+        return path.read_bytes(), _mime_of(path)
+    cache_root = cache_dir or _ref_cache_dir()
+    try:
+        st = path.stat()
+        key = f"{path.stem}_{int(st.st_mtime)}_{st.st_size}_{max_edge}_{quality}.jpg"
+        cached = cache_root / key
+        if cached.is_file():
+            return cached.read_bytes(), "image/jpeg"
+        with Image.open(path) as raw:
+            im = raw.convert("RGB")
+            w, h = im.size
+            scale = max_edge / max(w, h)
+            if scale < 1:
+                im = im.resize((max(1, round(w * scale)), max(1, round(h * scale))),
+                               Image.LANCZOS)
+            cache_root.mkdir(parents=True, exist_ok=True)
+            im.save(cached, format="JPEG", quality=quality, optimize=True)
+        return cached.read_bytes(), "image/jpeg"
+    except Exception as e:                               # noqa: BLE001 — 压缩失败不废图
+        logger.warning("ref 压缩失败（用原图 %s）: %s", path.name, e)
+        return path.read_bytes(), _mime_of(path)
+
+
 def _kind_label(path: Path) -> tuple[str, str]:
     """ref 文件名 → (kind, 中文标签): sprite_*=角色本体 / style_*=画风基准 / 其余=配饰。"""
     stem = path.stem
@@ -177,10 +220,14 @@ def _kind_label(path: Path) -> tuple[str, str]:
 
 
 def _build_api_parts(specs: list[tuple[str, str, Path]], name: str, scene: str,
-                     size: tuple[int, int] | None) -> list[dict]:
+                     size: tuple[int, int] | None, *, ref_max_edge: int = 0,
+                     ref_jpeg_quality: int = 85,
+                     cache_dir: Path | None = None) -> list[dict]:
     """逐图带标签的 parts（标签 text 与 inline_data 交替）+ 场景指令尾。
 
     specs = [(kind, 中文标签, path)]（ref_specs() 或路径推断的结果）。
+    ref_max_edge > 0 → ref 上传前压到该长边并转 JPEG（实测 21.7MB→压缩后大幅下降,
+    延迟大头是上传; 见 _prepare_ref_bytes）。
     """
     parts: list[dict] = [{"text": _APIYI_HEADER}]
     for i, (kind, label, path) in enumerate(specs, start=1):
@@ -191,9 +238,10 @@ def _build_api_parts(specs: list[tuple[str, str, Path]], name: str, scene: str,
         else:
             hint = _APIYI_HALO_HINT if label == "光环" else ""
             text = _APIYI_ACC_LABEL.format(n=i, acc=label, hint=hint)
+        raw, mime = _prepare_ref_bytes(path, ref_max_edge, ref_jpeg_quality, cache_dir)
         parts.append({"text": text})
-        parts.append({"inline_data": {"mime_type": _mime_of(path),
-                                      "data": base64.b64encode(path.read_bytes()).decode()}})
+        parts.append({"inline_data": {"mime_type": mime,
+                                      "data": base64.b64encode(raw).decode()}})
     w, h = size or DEFAULT_SCREEN_SIZE
     parts.append({"text": _APIYI_TAIL.format(scene=scene, ratio=_ratio_str(w, h), w=w, h=h)})
     return parts
@@ -250,6 +298,16 @@ class ImageGenerator:
             self.fit = "contain"
         self.api_aspect_ratio = bool(cfg.get("api_aspect_ratio", True))
         self._aspect_ok = True          # 代理不认 imageConfig.aspectRatio → 只降级一次
+
+        # ref 上传前压缩（长边像素; 0 = 原图不压）——实测请求体 21.7MB 是延迟/成本大头
+        try:
+            self.ref_max_edge = int(cfg.get("ref_max_edge", 1024))
+        except (TypeError, ValueError):
+            self.ref_max_edge = 1024
+        try:
+            self.ref_jpeg_quality = int(cfg.get("ref_jpeg_quality", 85))
+        except (TypeError, ValueError):
+            self.ref_jpeg_quality = 85
 
     @property
     def is_api_mode(self) -> bool:
@@ -321,7 +379,14 @@ class ImageGenerator:
         specs = _specs_from_paths(ref_images)
         size = size or self.screen_size
         fit = fit or self.fit
-        parts = _build_api_parts(specs, character_name, scene_prompt, size)
+        parts = _build_api_parts(specs, character_name, scene_prompt, size,
+                                 ref_max_edge=self.ref_max_edge,
+                                 ref_jpeg_quality=self.ref_jpeg_quality,
+                                 cache_dir=_ref_cache_dir())
+        inline_b64 = sum(len(p["inline_data"]["data"]) for p in parts if "inline_data" in p)
+        logger.info("生图请求: ref=%d 张, 内联载荷≈%.1fMB (max_edge=%d, q=%d, %s)",
+                    len(specs), inline_b64 * 3 / 4 / 1048576, self.ref_max_edge,
+                    self.ref_jpeg_quality, self.api_model)
         generation: dict = {"responseModalities": ["IMAGE"]}
         if size and self.api_aspect_ratio and self._aspect_ok:
             generation["imageConfig"] = {"aspectRatio": _ratio_str(*size)}

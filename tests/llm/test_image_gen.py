@@ -145,6 +145,39 @@ def test_unsupported_aspect_detection():
     print("    aspect: 不支持字段的识别")
 
 
+def test_ref_compression_before_upload(tmp_path):
+    """ref_max_edge > 0 → 上传前压成 JPEG 且体积骤降; 再次构建命中缓存。"""
+    ref = tmp_path / "illustration" / "igusa_haruka" / "ref"
+    _png(ref / "sprite_1.png", size=(800, 2286))
+    _png(ref / "style_1.png", size=(2560, 1440))
+    cache = tmp_path / "cache"
+    specs = ref_specs("igusa_haruka", assets_root=tmp_path)
+    parts = _build_api_parts(specs, "测试角色", "场景", (1920, 1080),
+                             ref_max_edge=256, ref_jpeg_quality=80, cache_dir=cache)
+    imgs = [p["inline_data"] for p in parts if "inline_data" in p]
+    assert len(imgs) == 2 and all(i["mime_type"] == "image/jpeg" for i in imgs)
+    assert len(list(cache.glob("*.jpg"))) == 2
+    raw_total = sum(p.stat().st_size for _, _, p in specs)
+    b64_total = sum(len(i["data"]) for i in imgs)
+    assert b64_total * 3 / 4 < raw_total / 4, (b64_total, raw_total)   # 至少降到 1/4
+    parts2 = _build_api_parts(specs, "测试角色", "场景", (1920, 1080),
+                              ref_max_edge=256, ref_jpeg_quality=80, cache_dir=cache)
+    assert [p["inline_data"]["data"] for p in parts2 if "inline_data" in p] == \
+        [i["data"] for i in imgs]                                      # 缓存命中
+    print("    ref: 压缩上传 + 缓存复用")
+
+
+def test_ref_compression_off_keeps_png(tmp_path):
+    """ref_max_edge=0 → 原图原样上传（PNG, 无损; 默认关闭路径）。"""
+    ref = tmp_path / "illustration" / "igusa_haruka" / "ref"
+    _png(ref / "sprite_1.png", size=(200, 300))
+    parts = _build_api_parts(ref_specs("igusa_haruka", assets_root=tmp_path),
+                             "测试角色", "场景", (1920, 1080))
+    imgs = [p["inline_data"] for p in parts if "inline_data" in p]
+    assert imgs and all(i["mime_type"] == "image/png" for i in imgs)
+    print("    ref: 关闭压缩 → 原图")
+
+
 # ---------------------------------------------------------------------------
 # 返回值与尺寸归一化
 # ---------------------------------------------------------------------------
