@@ -37,9 +37,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
-from contract import (AgentAction, MAX_SENSEI_RUN, STAGE_ART, STAGE_END,
-                      STAGE_EXIT, STAGE_MEMORIAL, STAGE_SWITCH, VnBlock,
-                      build_record_schema, build_schema, sensei_groups)
+from contract import (AgentAction, CHARACTER_SENSEI, MAX_SENSEI_RUN, NON_PICKS,
+                      STAGE_ART, STAGE_END, STAGE_EXIT, STAGE_MEMORIAL,
+                      STAGE_SWITCH, VnBlock, build_record_schema, build_schema,
+                      pick_insert_index, sensei_groups)
 from core.common import Live2BeError, err
 from core.bond.bond_actions import MAX_SCENE_RETRIES, build_story_registry
 from core.bond.bond_executor import StoryExecError, StoryExecutor
@@ -211,7 +212,10 @@ class BondScene:
             if rec.is_stage and rec.stage in (STAGE_SWITCH, STAGE_ART, STAGE_EXIT):
                 continue
             if rec.text:
-                paras.append({"text": rec.text})
+                item: dict = {"text": rec.text}
+                if not rec.is_stage:
+                    item["speaker"] = rec.value        # 最小说话人形态（UI 样式留 P0-7）
+                paras.append(item)
         scene = cls(
             paragraphs=paras,
             choices=[records[i].text for i in group],
@@ -277,6 +281,9 @@ class BondScene:
                 text = p.get("text")
                 if isinstance(text, str) and text.strip():
                     item: dict = {"text": text.strip()}
+                    speaker = p.get("speaker")          # 记录流 v2: 最小说话人形态透传
+                    if isinstance(speaker, str) and speaker.strip():
+                        item["speaker"] = speaker.strip()
                     emotion = p.get("emotion")
                     if isinstance(emotion, str) and emotion.strip():
                         item["emotion"] = emotion.strip()
@@ -313,6 +320,12 @@ class BondScene:
         notes = [str(x) for x in raw.get("notes", []) if isinstance(x, str)]
         place_hint = raw.get("place_hint")
         art_hint = raw.get("art_hint")
+        picked = raw.get("picked")
+        if records and isinstance(picked, str) and picked.strip() and picked.strip() not in NON_PICKS:
+            # 记录流 v2 显示层物化（P0-5）: 裁决行插回群首（派生 paragraphs 已剔除整群）
+            idx = pick_insert_index(records, choices)
+            paras.insert(min(idx, len(paras)),
+                         {"text": picked.strip(), "speaker": CHARACTER_SENSEI})
         return cls(
             paragraphs=paras,
             choices=choices,
@@ -557,10 +570,10 @@ class BondStoryEngine:
         # 记录流 v2（P0-4b）: 上一回合切出的尾板——内容已在手, **0 LLM 直接发**
         # （玩家点继续即领下一板; 这是"读屏期间生成下一板"最朴素形态, §6）
         if self._pending_boards:
-            scene, hist_text = self._pending_boards.pop(0)
+            scene = self._pending_boards.pop(0)
             self._trace = [{"attempt": 0, "action": "record_stream/pending",
                             "records": len(scene.records), "parse_valid": True}]
-            return self._finish_scene(scene, user_input, hist_text, annotate=annotate)
+            return self._finish_scene(scene, user_input, annotate=annotate)
 
         # 每场动态尾（DESIGN_PROMPTKIT §2, Phase 3）: 唯一装配入口 round_messages——
         # [system(盒B)] + history + [约束注记?] + [场 task 卡] + [user]。无注记时
@@ -622,9 +635,8 @@ class BondStoryEngine:
                         "1~3 条 sensei）——不要数组、不要围栏、不要动作 JSON。",
                     )
                     continue
-                scene, hist_text = boards[0]
                 self._pending_boards = list(boards[1:])
-                return self._finish_scene(scene, user_input, hist_text, annotate=annotate)
+                return self._finish_scene(boards[0], user_input, annotate=annotate)
 
             # 1) 契约解析（story 域优先, 未知动作名再试 memorial 域——双 registry）
             #    按**动作名归属**分流（不能按 parse 结果: parse 失败 = 动作有效但 payload
@@ -699,61 +711,35 @@ class BondStoryEngine:
         elif action.action == "memorial_exit":
             self._in_memorial = False
 
-        # 方案A-A1 回录基准: 本场动作 payload 留存（含 choices/branches——生成时
-        # picked 尚不存在; 裁决后 record_picked 重渲尾部, live 与 resume 同形）
-        self._last_payload = dict(action.payload)
-
-        self._history.append({"role": "user", "content": user_input})
-        # 2026-09-05 统一窗口（DESIGN_CONTEXT_WINDOW）: 内部历史与事件流渲染同构——
-        # 叙事提取（render_bond_scene_text, 与 render_events 同一函数）; 触发/恢复时
-        # 外部灌入的 window_messages 与此自增历史格式一致, 滑动无缝
+        # 方案A-A1 回录基准 + 历史灌入 + 两遍式标注 + 导演视觉 → 统一收尾
+        #（旧契约板走 payload 分支: 渲染为空时用紧凑 JSON 兜底, 保持旧行为）
         hist_text = render_bond_scene_text(action.payload)
-        self._history.append({"role": "assistant",
-                              "content": hist_text or json.dumps(
-                                  action.payload, ensure_ascii=False,
-                                  separators=(",", ":"))})
-        self._trim_history()
-        scene = BondScene.from_action(action)
-        # 两遍式 C（2026-08-31）+ SceneStream P1 按段流水: 骨架缺 emotion → 按
-        # **自然段**逐段标注（段任务小输入 + 情境/carry + 重试一次 + 段内延续,
-        # 永不整批 None——DESIGN_SCENE_STREAM §4/§10）。正文 + branches 统一处理;
-        # annotate=False 时跳过（异步标注, webgui emo lane）。
-        # memorial_exit 跳过（过渡文字是纯字符串旁白, 无表情承载——不标, 前端延续）。
-        if annotate and self._lexicon_keys and not scene.memorial_exit:
-            try:
-                self.fill_scene_emotions_text(scene)
-            except Exception as e:             # noqa: BLE001 — 标注异常不阻断剧情
-                logger.warning("emotion 标注异常（兜底延续）: %s", e)
-        # place 标注（DESIGN_BOND_CONTRACT_V2 P3a, 同步路径）: 换场句锚点写回
-        # payload（place 键, 稀有）; 失败静默 keep（画面保持）。webgui 异步路径
-        # annotate=False → P3b 双 lane 承担。
-        if annotate and self._place_keys and not scene.memorial_exit:
-            try:
-                self.fill_scene_places(scene)
-            except Exception as e:             # noqa: BLE001 — 标注异常不阻断剧情
-                logger.warning("place 标注异常（兜底保持背景）: %s", e)
-        if self.director is not None:
-            # 视觉导演（v2）: place 意图 → background + audio 占位
-            # 表情不经导演——渲染端从段落内联 emotion 查 emotions.yml（catalog.sprite）
-            vs = self.director.visual_for(scene.place, is_end=scene.is_end)
-            scene.background = vs.background
-            scene.audio = vs.audio
-        return scene
+        return self._finish_scene(
+            BondScene.from_action(action), user_input, payload=action.payload,
+            fallback_text=hist_text or json.dumps(action.payload, ensure_ascii=False,
+                                                  separators=(",", ":")),
+            annotate=annotate)
 
     # ------------------------------------------------------------------
     # 记录流 v2（P0-4b）: 块解析 → 板派生 → 收尾
     # ------------------------------------------------------------------
 
     def _speaker_names(self) -> dict[str, str]:
-        """历史渲染的说话人名字表（角色 id → 显示名）。"""
+        """历史渲染的说话人名字表（角色 id → 显示名)——仅诊断/日志用。
+
+        历史与回放的**唯一**渲染源是 `render_bond_scene_text(payload)`：它只看
+        payload（说话人用记录里的取值，老师固定「老师」），故 live 与 resume
+        逐字节同形；显示名替换是 UI 层的事（P0-7）。
+        """
         char = self._current_char
         return {char.character_id: char.display_name} if char else {}
 
     def _build_record_boards(self, raw: str,
-                             attempt: int) -> tuple[list[tuple["BondScene", str]], list[str]]:
+                             attempt: int) -> tuple[list["BondScene"], list[str]]:
         """LLM 原始记录流文本 → (板列表, 硬违规)。
 
-        板列表每项 = (BondScene, 灌历史的叙事文本); 首板本次发, 其余进待发队列。
+        板列表首板本次发, 其余进待发队列; 每板的历史文本由
+        `render_bond_scene_text(scene.to_dict())` 在交付时现算（唯一渲染源）。
         硬违规（形状类）→ 板列表为空, 由调用方 feedback 打回重发。
         """
         char = self._current_char
@@ -798,7 +784,7 @@ class BondStoryEngine:
                            len(spans), MAX_BOARDS_PER_TURN)
             spans = spans[:MAX_BOARDS_PER_TURN]
         names = self._speaker_names()
-        boards: list[tuple[BondScene, str]] = []
+        boards: list[BondScene] = []
         spare: tuple = ()                        # 不可见板（纯 switch）→ 记录并入下一板
         for start, end, group in spans:
             slice_ = flow[start:end]
@@ -813,35 +799,38 @@ class BondStoryEngine:
             if not scene.paragraphs and not scene.choices and not scene.is_end:
                 spare = slice_
                 continue
-            # 历史文本 = 本板叙事记录（**排除槽内候选**——未选台词永不进 LLM 上下文）;
-            # switch 文本按 §4 回显 writer 自己写的地点话（绝不是资产键）
-            visible = tuple(r for i, r in enumerate(slice_) if i not in group_local)
-            boards.append((scene, VnBlock.from_records(visible).render_text(names)))
+            boards.append(scene)
         if spare:                                # 结尾只剩不可见记录 → 并入末板真源
             if boards:
-                scene, text = boards[-1]
+                scene = boards[-1]
                 scene.records = [r.to_dict() for r in spare] + scene.records
             else:
-                fallback = BondScene.from_board(spare, (), notes=list(block.notes))
-                boards.append((fallback, ""))
+                boards.append(BondScene.from_board(spare, (), notes=list(block.notes)))
         if block_art:                            # 画面意向挂到含纪念的板（否则首板）
-            target = next((s for s, _ in boards if s.memorial), boards[0][0])
+            target = next((s for s in boards if s.memorial), boards[0])
             target.art_hint = block_art
-        if any(scene.memorial for scene, _ in boards):
+        if any(scene.memorial for scene in boards):
             self._memorial_used = True           # 章内 ≤1（区间 = 本板, 拍板 17: 降级为普通 VN）
             logger.info("[vn][records] 本回合含纪念触发（区间 = 本板; v2 不切模式）")
         return boards, []
 
-    def _finish_scene(self, scene: "BondScene", user_input: str, hist_text: str, *,
+    def _finish_scene(self, scene: "BondScene", user_input: str, *,
+                      payload: dict | None = None, fallback_text: str = "",
                       annotate: bool = True) -> "BondScene":
-        """本板收尾（回录基准 + 历史灌入 + 两遍式标注 + 导演视觉）——记录流/旧动作共用。"""
-        # 方案A-A1 回录基准（裁决后 record_picked 用同一渲染函数重渲尾部）:
-        # 记录流板 = to_dict()（records 真源 + 派生 paragraphs, 老渲染函数照吃）
-        self._last_payload = scene.to_dict()
+        """本板收尾（回录基准 + 历史灌入 + 两遍式标注 + 导演视觉）——记录流/旧动作共用。
+
+        历史文本一律由 `render_bond_scene_text(payload)` 现算（**唯一渲染源**——
+        记录流板 = records + 未选候选剔除, 旧契约板 = paragraphs 提取）;
+        `fallback_text` 仅旧契约的兜底（渲染为空时用紧凑 JSON，保持旧行为）。
+        """
+        # 方案A-A1 回录基准（裁决后 record_picked 用同一渲染函数 + 同一 payload 重渲尾部）:
+        # 记录流板 = to_dict()（records 真源 + 派生 paragraphs/choices/speaker）
+        self._last_payload = dict(payload) if payload is not None else scene.to_dict()
         self._history.append({"role": "user", "content": user_input})
-        # 2026-09-05 统一窗口（DESIGN_CONTEXT_WINDOW）: 内部历史与事件流渲染同构;
-        # 记录流板的历史文本 = **只含叙事记录**（switch/art/群内候选不进 LLM 上下文）
-        self._history.append({"role": "assistant", "content": hist_text or "（……）"})
+        self._history.append({
+            "role": "assistant",
+            "content": render_bond_scene_text(self._last_payload) or fallback_text or "（……）",
+        })
         self._trim_history()
         # 两遍式 C + SceneStream P1 按段流水（正文逐段标注; annotate=False → webgui emo lane）
         if annotate and self._lexicon_keys and not scene.memorial_exit:
@@ -1010,15 +999,16 @@ class BondStoryEngine:
         return "memorial_exit" if self._in_memorial else "scene"
 
     def record_picked(self, picked: str) -> None:
-        """方案A-A1 选项回录（DESIGN_PROMPTKIT §5）: 玩家裁决写回引擎历史尾部。
+        """方案A-A1 选项回录（DESIGN_PROMPTKIT §5；记录流 v2 版 = **裁决物化**）。
 
         背景: 引擎历史在**生成时**落库, 当时 picked 尚不存在; 而事件流（resume/
         wrapup 预灌/replay）渲染时 payload 已带 picked → 同一场戏 live 与恢复
-        看到的不同（live 缺"选择了 X"——续写靠猜的半边洞）。
+        看到的会不同（live 缺老师那句——续写靠猜的半边洞）。
 
-        做法: 调用方在裁决消费后通知引擎, 用 render_bond_scene_text（同一函数,
-        同一参数形态）重渲历史尾部该场 assistant 条目 → live 与事件流渲染
-        逐字节同形。branches 内容仍不进上下文（A1, A2 留档见设计文档 §5.4）。
+        记录流 v2: 裁决不是注解而是**物化**——被选中的候选成为群里的一条 `sensei`
+        记录（`老师：X`），其余候选彻底消失; 因为 live 与回放都调
+        `render_bond_scene_text`（同一 payload + picked）→ 逐字节同形（构造性成立）。
+        旧契约板（无 records）保持"（选择了: X）"旧语义（旧档回放冻结）。
         未消费/无场景/空白 picked → 安全 no-op。
         """
         if not isinstance(picked, str) or not picked.strip():

@@ -131,9 +131,10 @@ P0-4b 落地）；registry 分流此时只剩 memorial exit 路径。
   对象"且客户端会 `json.loads` 成 dict → 被误判成旧动作分支）。纪念子模式仍 `json_object`。
 - 引擎把字符串输出解析成 `VnBlock` → **派生板**（换场/槽前切）→ 首板本次返回，
   其余进**待发板队列**（后续同形调用 **0 LLM** 直接发，`trace.action=record_stream/pending`）。
-- `engine._history` 里每板一条 assistant 文本 = `VnBlock.render_text`（**排除槽内候选**；
-  `switch` 按 §4 回显 writer 自己写的地点话；`art`/`exit` 跳过）。
-- 板 payload = `{records, paragraphs(派生), choices(派生), is_end, place_hint?, art_hint?, memorial?}`
+- `engine._history` 里每板一条 assistant 文本 = `render_bond_scene_text(板 payload)`
+  （**唯一渲染源**: 未选候选不进; `switch` 按 §4 回显 writer 自己写的地点话;
+  `art`/`exit` 跳过; 裁决物化为 `老师：X`）。
+- 板 payload = `{records, paragraphs(派生, 带 speaker), choices(派生), is_end, place_hint?, art_hint?, memorial?}`
   —— `records` 是唯一真源，派生字段是给**尚未迁移的消费者**的过渡面（§11 P0-7）。
 - **旧动作通道仍在**（输出为 dict 时走 registry.parse）——测试桩/开发通道，P0-7 删除。
 
@@ -147,16 +148,20 @@ P0-4b 落地）；registry 分流此时只剩 memorial exit 路径。
 | 纯叙事场点"继续" | `（继续）`（pregen 链式消费）| None |
 | 自由输入 | 玩家原文 | 原文（L771-772）|
 
-**live/resume 分叉与 A1 回录（2026-09-07 Phase 4 修复）**：事件流渲染
-（renderer.py:98-100）在 payload 带 picked 时输出 `（选择了: X）`；但引擎 live
-历史**生成时落库**、picked 尚不存在 → 活会话续写（输入恒为"（继续）"）看不到
-选择——与 resume/回放分叉（"AI 猜"的半边洞）。修复：
-- `BondStoryEngine.record_picked(picked)`：引擎留存 `_last_payload`（本场动作
-  payload），裁决后以 `render_bond_scene_text`（同一函数）重渲历史尾部 → live
-  与 resume/wrapup 预灌**逐字节同形**（构造性成立）；
-- webgui 接线：分支消费点（`_log_scene(picked=text)` 之后、`_pregenerate` 之前）；
-- vn_cli 无需回录——其裁决文本（choice）即下一场 user_input，LLM 直接可见。
-**branches 内容仍不进上下文**（A1 定稿；A2 叙事化留档，见 DESIGN_PROMPTKIT §5.4）。
+**live/resume 分叉与 A1 回录（2026-09-07 Phase 4 修复；2026-09-10 记录流 v2 改为"物化"）**：
+引擎 live 历史**生成时落库**、picked 尚不存在 → 活会话续写（输入恒为"（继续）"）
+看不到裁决——与 resume/回放分叉（"AI 猜"的半边洞）。记录流 v2 的修法：
+- **渲染唯一源** = `render_bond_scene_text(payload)`（`core/session/renderer.py`）：
+  payload 带 `records` → `contract.records.render_records`（说话人取记录值: 角色真实 id /
+  老师 / 旁白无前缀；**未选候选不出现**）；旧契约 payload（无 records）走原 paragraphs 提取。
+- **裁决 = 物化**：`record_picked(picked)` 把 picked 并进 `_last_payload` 后重渲尾部 →
+  群里多出一条 `老师：X`（**群首**，即老师原本开口处），不再写"（选择了: X）"；
+  `BondScene.from_dict` 在显示层做同一件事（插回群首 + `speaker: "sensei"`）。
+- 因渲染只看 payload、不看外部名字表 → **live 与 resume/wrapup 预灌逐字节同形**（构造性）；
+  **显示名替换是 UI 层的事**（P0-7；历史/回放里角色用 id）。
+- 未选候选与 `branches` 内容**不进任何视图/上下文**（A1 定稿；A2 已关闭）。
+- 接线点不变：webgui 分支消费点（`_log_scene(picked=text)` 之后、`_pregenerate` 之前）；
+  vn_cli 不调（其裁决文本即下一场 user_input）。
 
 **每场动态注记 P17** = webgui `_system_note(state)` 聚合器（webgui/bond.py:1138-1179），
 多条聚合一行一条（None = 不注入）：

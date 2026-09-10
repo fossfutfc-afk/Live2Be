@@ -39,6 +39,7 @@ from core.session.events import (
 )
 from core.session.models import VNState
 from core.ui.text_processors import _strip_action_brackets, split_reply_chunks
+from contract.records import render_records
 
 #: brain 时间线的板块标签
 _LABELS: dict[str, str] = {
@@ -52,15 +53,30 @@ _LABELS: dict[str, str] = {
 def render_bond_scene_text(payload: dict[str, Any]) -> str:
     """bond 事件 payload → 叙事文本（2026-09-05 统一上下文窗口定稿, DESIGN_CONTEXT_WINDOW §2.1）。
 
-    契约层 paragraphs = **切分后句段**（LLM 自然段经 split_paragraph 切碎）——每行:
-        `{text}（{emotion}）`——emotion 随行保留（词表键不翻译: 消费方查键映射,
-        回放表情时间轴基础）; 缺失（旧数据/兜底前）→ 不标
-        inner（内心独白, 挂句段）→ 独立行 （{inner}）
-    title（章节标题, 若有）→ 「{title}」
-    choices + picked → （选项: … / 选择了: …）——branches 未选内容永不进上下文
-    is_end → （本章结束）
+    **记录流 v2（2026-09-10, P0-5）**: payload 带 `records` 时走记录渲染
+    （`contract.records.render_records`）——说话人前缀用**记录里的取值**
+    （角色 id / 老师 / 旁白无前缀），群内未选候选不出现，`picked` 非空则在群位置
+    **物化**为一条 `老师：{picked}`。因为只看 payload、不看外部名字表，
+    live 历史与 resume/回放**逐字节同形**（构造性成立）。
+
+    旧契约 payload（无 records）保持原行为（旧档回放冻结不改）:
+        契约层 paragraphs = **切分后句段**——每行 `{text}（{emotion}）`
+        （emotion 随行保留: 词表键不翻译, 回放表情时间轴基础; 缺失 → 不标）;
+        inner（内心独白）→ 独立行; title → `「{title}」`;
+        choices + picked → （选项: … / 选择了: …）; is_end → （本章结束）。
     返回 "" = 无可渲染叙事。
     """
+    records = payload.get("records")
+    if isinstance(records, list) and records:
+        text = render_records(
+            [r for r in records if isinstance(r, dict)],
+            choices=payload.get("choices") or (),
+            picked=payload.get("picked") or "")
+        title = payload.get("title")
+        if isinstance(title, str) and title.strip():
+            text = f"{title.strip()}\n{text}" if text else title.strip()
+        return text
+
     lines: list[str] = []
     title = payload.get("title")
     if isinstance(title, str) and title.strip():
