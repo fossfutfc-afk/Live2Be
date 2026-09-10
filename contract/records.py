@@ -529,25 +529,120 @@ class VnBlock:
 
     def render_text(self, names: Mapping[str, str] | None = None, *,
                     speaker: bool = True) -> str:
-        """**最小形态**渲染（历史回灌/回放文本）。
+        """**最小形态**渲染（块级——诊断/日志用）；板级（含槽与裁决）见 `render_records`。
 
         - 角色/老师：`显示名：正文`（names 覆盖，默认 sensei→老师，角色 id→id）
         - 旁白：正文（不加前缀）
         - stage：`switch`/`memorial`/`end` 回显自己的文本；`art` 是**不可见声明**、
           `exit` 无文本 → 跳过（视觉键不进 LLM 上下文，见 §4）
         """
-        table = dict(DEFAULT_SPEAKER_NAMES)
-        if names:
-            table.update(names)
-        lines: list[str] = []
-        for rec in self.records:
-            if not rec.text:
-                continue                       # `end`/`exit` 可留空（空行不进历史/回放）
-            if rec.is_narration:
-                lines.append(rec.text)
-            elif rec.kind == KIND_CHARACTER:
-                name = table.get(rec.value, rec.value)
-                lines.append(f"{name}：{rec.text}" if speaker else rec.text)
-            elif rec.stage in (STAGE_SWITCH, STAGE_MEMORIAL, STAGE_END):
-                lines.append(rec.text)
-        return "\n".join(lines)
+        return render_records(self.records, names=names, speaker=speaker)
+
+
+#: 不算"裁决"的占位输入（渲染时跳过——与旧渲染函数同语义）
+NON_PICKS = ("（继续）",)
+
+
+def materialize_pick(records: Iterable[Any], picked: str) -> tuple[VnRecord, ...]:
+    """**裁决物化**（P0-5）: 被选中的候选 → 群里的一条 `sensei` 记录，其余候选消失。
+
+    位置的语义: 老师那句就落在他原本开口的地方（群首位），其后的角色反应顺序不变。
+    找不到匹配候选 → 用第一个群; 整块无群 → 追加到末尾（CLI 自由文本兜底）。
+    这是回录与回放**共用的唯一变换**（live 与 resume 同形靠它成立）。
+    """
+    picked = (picked or "").strip()
+    recs = _coerce_records(records)
+    if not picked:
+        return tuple(recs)
+    groups = sensei_groups(recs)
+    target: list[int] | None = None
+    for g in groups:
+        if any(recs[i].text.strip() == picked for i in g):
+            target = g
+            break
+    if target is None and groups:
+        target = groups[0]
+    line = VnRecord(KIND_CHARACTER, CHARACTER_SENSEI, picked)
+    if target is None:
+        return tuple(recs) + (line,)
+    return tuple(recs[:target[0]] + [line] + recs[target[-1] + 1:])
+
+
+def _coerce_records(records: Iterable[Any]) -> list[VnRecord]:
+    """记录容器宽容化: 接受 `VnRecord` 或 wire dict（payload 回放走后者）。"""
+    out: list[VnRecord] = []
+    for r in records:
+        if isinstance(r, VnRecord):
+            out.append(r)
+            continue
+        if isinstance(r, dict):
+            rec, _why = _record_from_obj(r)
+            if rec is not None:
+                out.append(rec)
+    return out
+
+
+def render_records(records: Iterable[Any], *, choices: Iterable[str] = (),                   picked: str = "", names: Mapping[str, str] | None = None,
+                   speaker: bool = True) -> str:
+    """记录流 → 叙事文本（**历史/回放唯一渲染源**，P0-5）。
+
+    - 记录按序出: 角色/老师 → `说话人：正文`（sensei→老师; 角色默认回落到 id，
+      由调用方用 `names` 覆盖）; 旁白 → 正文; `switch`/`memorial`/`end` → 自己的文本;
+      `art`/`exit` 与空 text → 跳过;
+    - **群内候选（`choices` 里的 sensei 记录）不出现**——未选台词永不进任何视图/上下文;
+    - `picked` 非空且不是 `（继续）` → 在该群位置**物化**一条 `老师：{picked}`
+      （与 `materialize_pick` 同语义: 回录/回放逐字节同形）。
+    """
+    recs = _coerce_records(records)
+    cand = {c.strip() for c in choices if isinstance(c, str) and c.strip()}
+    table = dict(DEFAULT_SPEAKER_NAMES)
+    if names:
+        table.update(names)
+    pick_line = (picked or "").strip()
+    pick_rec = (VnRecord(KIND_CHARACTER, CHARACTER_SENSEI, pick_line)
+                if pick_line and pick_line not in NON_PICKS else None)
+    lines: list[str] = []
+    emitted = False
+    for rec in recs:
+        if pick_rec is not None and not emitted and rec.is_sensei and rec.text.strip() in cand:
+            lines.append(_speaker_line(pick_rec, table, speaker))   # 裁决物化在群首
+            emitted = True
+        if rec.is_sensei and rec.text.strip() in cand:
+            continue                                                # 其余候选不出现
+        line = _speaker_line(rec, table, speaker)
+        if line:
+            lines.append(line)
+    if pick_rec is not None and not emitted:                        # 无群（CLI 自由文本）
+        lines.append(_speaker_line(pick_rec, table, speaker))
+    return "\n".join(lines)
+
+
+def _speaker_line(rec: VnRecord, table: Mapping[str, str], speaker: bool) -> str:
+    """单条记录 → 叙事行（不可见记录 → 空串）。"""
+    if not rec.text:
+        return ""
+    if rec.is_narration:
+        return rec.text
+    if rec.kind == KIND_CHARACTER:
+        if not speaker:
+            return rec.text
+        return f"{table.get(rec.value, rec.value)}：{rec.text}"
+    if rec.stage in (STAGE_SWITCH, STAGE_MEMORIAL, STAGE_END):
+        return rec.text
+    return ""
+
+
+def pick_insert_index(records: Iterable[Any], choices: Iterable[str] = ()) -> int:
+    """裁决行的插入位置（在**显示行**序列里的下标）——群首之前。
+
+    `BondScene.from_dict` 渲染显示层时用它把 `老师：{picked}` 插回原位
+    （派生 paragraphs 已剔除整群, 所以位置要按"显示行"数）。
+    """
+    cand = {c.strip() for c in choices if isinstance(c, str) and c.strip()}
+    idx = 0
+    for rec in _coerce_records(records):
+        if rec.is_sensei and rec.text.strip() in cand:
+            return idx
+        if _speaker_line(rec, {}, True):
+            idx += 1
+    return idx
