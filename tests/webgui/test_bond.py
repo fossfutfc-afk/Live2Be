@@ -892,6 +892,7 @@ class FakeImageGen:
 
     def generate(self, prompt, ref_images=None, character_name="角色", **kw):
         self.prompts.append(prompt)
+        self.kwargs = kw                     # 记录角色生图提示注入（illustration.yml）
         p = self.tmp / "fake.png"
         p.write_bytes(b"fake-png-bytes")
         return GeneratedImage(path=p, width=1920, height=1080,
@@ -941,6 +942,8 @@ def test_bond_memorial_async_image(tmp_path, monkeypatch):
         assert st2["memorial_img"].startswith(f"/gallery/world1/{CHARACTER}/"), \
             st2["memorial_img"]
         assert fake.prompts == ["湖边, 黑发少女含泪抬头, 月光"], fake.prompts
+        # 生图提示注入: illustration.yml 的 halo_hint 必须一路传到生图调用（端到端确认）
+        assert "钝角三角形" in fake.kwargs.get("halo_hint", ""), fake.kwargs
         # 画廊成对落盘（png + json, 2026-09-02: 世界线角色目录内）——list 只认成对
         gdir = (tmp_path / "worlds" / "world1" / "characters"
                 / CHARACTER / "gallery")
