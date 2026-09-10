@@ -353,6 +353,7 @@ VN 记录流 = 这同一思路在 story 域的对应演进。
 | **记录流真机（文案纪律 #24 后）** | 49 条 → **17.3s**；**DROP 0 / NOTE 0 / 违规 0**；7 板 / 6 群 → **交互密度 每 8.2 条一次**（改前 5.5）；说话人取值 `{igusa_haruka: 32, sensei: 11, narrator: 3}` = **模型 100% 输出真实 id**（别名归一零触发）；**输出文本零「」**（改前会包「」）；盒B 11059 → **9435 字** | 同上 |
 | `response_format` | 记录流**必须走 `text`**（`json_object` = 整回复单对象; 且客户端会 `json.loads` 成 dict → 被误判成旧动作分支）; 纪念子模式（memorial_exit）仍 `json_object` | P0-4b 真机踩坑 |
 | 待发板收益 | 一次调用 = 一拍（~10 板），板间**零 LLM**；否则按旧"一板一调用"需 ~10×20s | `probe_vn_records_engine.py` |
+| **换场翻译真机** | 7 例: 「放学后的天台」→ `school_rooftop`、「教室里」→ `class_room`、「基沃托斯的商业街」→ `gehenna_street`；「深夜的杂草屋」「黄昏，杂草屋门前的小巷」（词表无此项）与「某个地方」→ **MISS(keep)** ✓；单次 0.2~0.8s；重复句 **0.0s**（进程内缓存） | `probe_place_resolve.py` |
 
 ---
 
@@ -532,7 +533,8 @@ pending ──(worker 起)──► generating ──(图落盘 + l2d)──► 
 | **P0-4b** | **引擎接线**：`send_vn_scene` 字符串输出走**记录流**（`VnBlock` → 板派生 → 群/槽 → 待发板队列）；`BondScene` 持 `records`（真源）+ 派生 `paragraphs/choices`（过渡期喂老 renderer）; 别名归一 + 两级修复上线; `response_format` 切 text | `core/bond/bond_story.py`、`contract/records.py` | 单测 9 例（板切分/待发板 0 LLM/历史隔离/别名/辅助转义/硬违规重试/软违规切槽/art 不切空板/空板并记录）;**真机一场跑通**（见 §9） |
 | **P0-5** | **槽与回录**：群 → `choices`（run=1 也弹）; 选中候选**物化**为单条 `sensei` 记录（替掉"（选择了: X）"）; 渲染唯一源 = `render_records`（未选候选不出现 + 裁决物化在群首）; `BondScene.from_dict` 显示层同步物化 + 派生段落带 `speaker` | `contract/records.py`、`core/session/renderer.py`、`core/bond/bond_story.py` | 单测: live 尾部 == 事件流渲染**逐字节**、未选候选不进任何视图/上下文、显示层物化插回群首 |
 | **P0-6** | **落库 / 回放 / 存档**：板 payload = `{records(真源), paragraphs(派生), choices(派生), is_end, place_hint?/art_hint?/memorial?}`（webgui `_log_scene` 早已写 `scene.to_dict()`，无需改）; **旧档冻结**（无 records → 旧渲染/旧结构原样）; webgui 回放视图 `_narrativize` 补记录流分支（裁决行插回群首） | `core/session/*`、`webgui/bond.py` | 单测 7 例：payload 经 SessionStore 往返逐字节、回放 == live、恢复窗口 == live、旧档冻结、混合存档、坏 payload 降级、旧契约被 VnBlock 显式拒绝 |
-| **P0-7** | **消费者与测试桩迁移**：各 `ScriptedLLM` 应答改记录流（**删掉 dict→旧动作过渡缝**, 决策 #22）; webgui/vn_cli 展示层（说话人显示名映射、黑屏 end、无 branches 的裁决显形）; 前端 JS 跟进 | `tests/{core,webgui,llm}`、`webgui/`、`core/ui/vn_cli.py` | 全量绿（存量用例走记录流）+ 真机一场（switch/槽/end 全链） |
+| **P0-7a** | **消费者切到记录流 + 换场翻译最小版**：① `switch` 地点话 → 背景键（新 prompt `place_resolve.md` + `resolve_place()`，复用 `place` 档位，**进程内缓存**，失败 `[place][SWITCH] MISS(keep)`）; ② webgui: 记录流板**不 fork 候选/不预生成**（下一板已在引擎待发队列）、点选项 = **就地物化展示** `老师：X`（不生成, 不重建 scene_obj——保住标注就绪态）、点继续 = 0 LLM 领下一板; ③ API 边界注入 `speaker_name`（角色 id → 显示名, `sensei` → 老师, 旁白空）; ④ CLI: `render_scene` 画名字行 + `simulate_vn_scene(speaker_names=)`; ⑤ 前端: `.bond-speaker` 名字行（样式最简, 细节留后） | `core/bond/place_annotate.py`、`llm/prompts/place_resolve.md`、`webgui/{bond.py,routers/bond.py}`、`core/ui/vn_cli.py`、`renderer/{scene,cli}.py`、`webgui/static/{js/bond.js,css/bond.css}` | 单测: 翻译/缓存/keep 全路径、引擎 `scene.place` 就位、webgui 端到端（选项物化 + 待发板 0 LLM + 事件流带 records/picked + `speaker_name`） |
+| **P0-7b** | **删过渡缝 + 测试桩迁移**：删掉 dict→旧动作通道（决策 #22）; 各 `ScriptedLLM` 应答改记录流（test_vn_cli / test_memorial_mode / test_director / test_engine_fork / test_choice_pregen / webgui 各件 / promptkit bond 夹具）; memorial 双动作路径标记退役 | `core/bond/bond_story.py`、`tests/**` | 全量绿（存量用例走记录流）+ 真机一场（switch/槽/end 全链） |
 
 **依赖关系**：P0-1/2/3 相互独立可并行 → P0-4 依赖三者 → P0-5 与 P0-6 可并行 → P0-7 收尾。
 
@@ -541,7 +543,7 @@ pending ──(worker 起)──► generating ──(图落盘 + l2d)──► 
 | 步 | 做什么 | 完成标志 |
 |---|---|---|
 | P1-1 | 读**背景资产库导出视图**（`D:\myStuff\tempo\_place_entities.json`：key/中文名/keywords 别名/files.day-night；`_place_review.json` 的 `active` 过滤出词表）+ 引擎侧缓存 **（⚠️ 库的人工审核未完成 → 本期先沿用旧 `_director_whitelist.json`，切换时机见 §5 状态注）** | 表可加载、别名可查、`active=false` 不进词表、缺文件不炸 |
-| P1-2 | `switch` → 翻译（命中缓存 0 调用；未命中一次极小调用，**固定带前后 2 行上下文**） | 开场景解析在首条记录闭合时即发起 |
+| P1-2 | `switch` → 翻译（**最小版已随 P0-7a 落地**: `resolve_place` + 进程内缓存 + keep 兜底**；本步补: 命中文件缓存 0 调用、固定带前后 2 行上下文、tempo 导出视图词表） | 开场景解析在首条记录闭合时即发起 |
 | P1-3 | 解析缓存 `places_resolved.jsonl`（原文→键）+ `[place][MISS]` 日志（= 美术需求单） | 命中率可观测；miss 可 grep |
 | P1-4 | 标注合并为**单 lane**（emo 逐行 + place 翻译）；板边界由锚点决定（前必切） | 双 lane 机制退役；背景切换内容驱动 |
 
@@ -645,6 +647,7 @@ pending ──(worker 起)──► generating ──(图落盘 + l2d)──► 
 | 23 | **板切分语义（真机校准）** | **槽挂板尾、反应在下一板**（不是"槽起新板"——否则角色的反应会在玩家选择前就显示出来）；`art` 不切板（块级声明）; 空板并记录; 超长群切槽。真机实证: 55 条 → 10 板, 说明模型把"老师每次开口"都写成了群（≈每 5 条一次交互）——**与用户样例（9 条 2 群）同量级**，密度引导见 #24⑥ |
 | 24 | **文案纪律（2026-09-10 用户六条裁决）** | ① **不写"不要写 X 字段"式负面提醒**（白熊效应: 不说模型不知道，一说反而幻觉 + 废 token）——schema/rules 里的"不写地点键/情绪键/action/choices/branches"全部删除; ② **范例里不出现「」**，直接告诉模型写纯文本（rules 内 meta 引用改用 “ ”）; ③ 范例说话人**统一真实 id**（`igusa_haruka`，rules 用 `{char_id}` 占位由引擎按会话替换）; ④ `end` 的 `text` = **收尾字段（不是老师的话）且可留空** = 直接黑屏收尾（`TEXT_OPTIONAL_STAGES` 纳入 `end`），并在文案里给**收尾组合技巧**（角色末句+余韵／末句+黑屏／老师一句+空镜+黑屏／收在纪念里）; ⑤ **`lexicon_emotion` 退出盒B**（v2 里 emotion 由标注层逐记录挑，词表对创作无用 → 盒B 10 块降为 9 块，省 ~1.6k 字）; ⑥ 删重复（rules 的"格式硬性要求"节由输出契约段承担）并**降低交互密度**（引导"一段里老师开口 3~5 次"） |
 | 25 | **渲染唯一源与说话人形态（P0-5）** | 历史/回放的叙事文本**只有一个**渲染源 = `render_bond_scene_text(payload)`：记录流板走 `render_records`（**说话人取记录里的值**——角色 = 真实 id、老师 = `老师`、旁白无前缀），旧契约板走原 paragraphs 提取（旧档冻结）。因为只看 payload、不看外部名字表：① **live 尾部 == resume/回放逐字节同形**（构造性成立，不靠约定）; ② 显示名替换属于 **UI 层**（P0-7）。裁决物化 = 群里一条 `sensei` 记录（`老师：X`），**落在群首**（老师原本开口处），未选候选在渲染层消失但 `records` 真源不动 |
+| 26 | **换场翻译与消费者切分（P0-7a）** | ① `switch` 地点话 → 背景键 = **独立小 prompt + `place` 档位**（不复用"变更句标注"prompt：那是变更检测，对名词短语不可靠），进程内缓存（同句同地点 0 调用），失败/词表外/与当前相同 → `[place][SWITCH] MISS(keep)`（日志即美术需求单）; ② webgui 记录流板**不 fork 候选、不预生成**（下一板已在引擎待发队列, 且避免 `_last_payload` 被预生成板顶掉的回录错位）; ③ 点选项 = **就地物化展示**（不生成, 且**不重建 scene_obj**——重建会丢掉标注就绪态, 推进门控永远等一个不回来的标注, 真机测试踩到）; ④ `speaker_name` 在 **API 边界**注入（payload 里只有 `speaker` 记录值） |
 
 **残留未决（真未定）**：
 - `art` 意向文本的长度上限（现定"意向级 1~2 句"，是否设硬上限）；

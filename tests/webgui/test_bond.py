@@ -88,6 +88,8 @@ class ScriptedLLM:
             return []
         if "记录员" in head or "整理者" in head:
             return _digest_stub(messages)              # digest 调用 → 两轮空包
+        if "地点 id JSON" in last:                # 换场翻译（P0-7）→ 不切背景
+            return {"place": ""}
         if not self._scripts:
             raise RuntimeError("ScriptedLLM 脚本耗尽")
         return self._scripts.pop(0)
@@ -843,6 +845,8 @@ class StreamLLM:
             return ["nomal"] * max(n, 1)
         if "变更句数组" in last:                  # place 标注（P3a）→ 无变更
             return []
+        if "地点 id JSON" in last:                # 换场翻译（P0-7）→ 不切背景
+            return {"place": ""}
         if "记录员" in head or "整理者" in head:
             return _digest_stub(messages)              # digest 调用 → 两轮空包
         if not self._scripts:
@@ -859,6 +863,8 @@ class StreamLLM:
             return ["nomal"] * max(n, 1)
         if "变更句数组" in last:                  # place 标注 → 无变更
             return []
+        if "地点 id JSON" in last:                # 换场翻译（P0-7）→ 不切背景
+            return {"place": ""}
         if "记录员" in head or "整理者" in head:
             return _digest_stub(messages)
         if not self._scripts:
@@ -1206,5 +1212,84 @@ def test_bond_interrupt_replay_multi_scene_then_live(tmp_path):
         st3 = bond.bond_status(CHARACTER, sid)
         assert st3["scene"]["is_end"] is True and st3["completed"]
         print("    interrupt: 多场逐场回放 → 交棒 LLM 后补(story_end)")
+    finally:
+        _cleanup()
+
+
+# ----------------------------------------------------------------------------
+# 记录流 v2（P0-7）: 一块多板 —— 点选项 = 物化展示, 点继续 = 0 LLM 领下一板
+# ----------------------------------------------------------------------------
+
+RECORD_BLOCK = "\n".join([
+    '{"stage": "switch", "text": "深夜的杂草屋"}',
+    '{"character": "igusa_haruka", "text": "……老师，你来了。"}',
+    '{"character": "sensei", "text": "我来了。"}',
+    '{"character": "sensei", "text": "路上买了点东西。"}',
+    '{"character": "igusa_haruka", "text": "「不、不用这样的……」"}',
+    '{"stage": "end", "text": "（夜风停了。）"}',
+])
+RECORD_PICK = "路上买了点东西。"
+
+
+def test_bond_record_stream_slots_and_free_next_board(tmp_path):
+    """记录流一场: 群 → 选项; 点选 → 就地物化 `老师：X`（不生成）; 点继续 → 待发板 0 LLM。"""
+    engine, st, sid, llm = _setup(tmp_path, RECORD_BLOCK)
+    try:
+        r = bond.bond_start(CHARACTER, sid)
+        assert r["accepted"] and r["busy"]
+        st1 = _wait_status(CHARACTER, sid)
+        scene1 = st1["scene"]
+        # 板 = switch + 正文 + 群; 选项 = 群内候选; 段落带最小说话人形态
+        assert scene1["choices"] == ["我来了。", RECORD_PICK]
+        assert [p["text"] for p in scene1["paragraphs"]] == ["……老师，你来了。"]
+        assert scene1["paragraphs"][0]["speaker"] == CHARACTER
+        assert scene1["records"][0] == {"stage": "switch", "text": "深夜的杂草屋"}
+        assert llm.snapshots and len(llm._scripts) == 0        # 只调了一次（一板一块）
+
+        # 点选项: 返回 scene（就地展示老师那句）, 不生成、不 fork 候选
+        r2 = bond.bond_turn(CHARACTER, sid, RECORD_PICK)
+        assert r2["accepted"] and r2.get("branch") is True and r2.get("scene"), r2
+        texts = [p["text"] for p in r2["scene"]["paragraphs"]]
+        assert texts[0] == "……老师，你来了。" and texts[1] == RECORD_PICK
+        assert r2["scene"]["paragraphs"][1]["speaker"] == "sensei"
+        assert not r2["scene"].get("choices")                  # 裁决后不再给选项
+        assert bond.bond_status(CHARACTER, sid)["round"] == 1  # 不出新板
+
+        # 点继续 → 待发板（0 LLM: 脚本已空, 再调即抛）
+        r3 = _turn_until_accepted(CHARACTER, sid, "（继续）")
+        assert r3["accepted"]
+        st2 = _wait_status(CHARACTER, sid)
+        assert st2["round"] == 2
+        assert [p["text"] for p in st2["scene"]["paragraphs"]] == [
+            "「不、不用这样的……」", "（夜风停了。）"]
+        assert st2["scene"]["is_end"] is True
+
+        # 事件流: 裁决板带 picked（回放可物化）; 引擎历史尾部含老师那句
+        bond_evs = [e for e in st.events(CHARACTER, sid) if e.type == "bond"]
+        assert bond_evs[0].payload["picked"] == RECORD_PICK
+        assert bond_evs[0].payload["records"]                  # 真源在事件里
+        vn_engine = bond._state(CHARACTER, sid).vn             # VN 引擎（不是 MMT 引擎）
+        assert any(f"老师：{RECORD_PICK}" in m["content"]
+                   for m in vn_engine.history if m["role"] == "assistant")
+        print("    v2: 选项物化 + 待发板 0 LLM + 事件流带 records/picked")
+    finally:
+        _cleanup()
+
+
+def test_bond_record_stream_speaker_names_in_api(tmp_path):
+    """API 边界: 记录流段落带 speaker_name（角色 id → 显示名, 老师 → 老师）。"""
+    from webgui.routers.bond import _resolve_scene
+
+    engine, st, sid, _llm = _setup(tmp_path, RECORD_BLOCK)
+    try:
+        bond.bond_start(CHARACTER, sid)
+        scene = _wait_status(CHARACTER, sid)["scene"]
+        out = _resolve_scene(scene, CHARACTER)
+        assert out["paragraphs"][0]["speaker_name"] == "伊草 遥香"
+        r2 = bond.bond_turn(CHARACTER, sid, RECORD_PICK)
+        out2 = _resolve_scene(r2["scene"], CHARACTER)
+        names = [p.get("speaker_name") for p in out2["paragraphs"]]
+        assert names == ["伊草 遥香", "老师"]                  # 老师那句 = 老师
+        print("    v2: speaker_name 注入（角色显示名 / 老师）")
     finally:
         _cleanup()

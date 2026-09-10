@@ -94,11 +94,28 @@ def warm_render(char_id: str) -> None:
         pass
 
 
+def _speaker_name_map(char_id: str) -> dict[str, str]:
+    """记录流 v2: 说话人取值 → 显示名（最小形态——前端只负责把名字行画出来）。
+
+    角色 id → 人设 display_name; `sensei` → 老师; `narrator` → 空串
+    （旁白不加名字行）。取不到人设 → 回落 id（宁缺勿错）。
+    """
+    from contract import CHARACTER_NARRATOR, SPEAKER_SENSEI_LABEL
+    try:
+        who = bond._role_info(char_id).get("name") or char_id
+    except Exception:                                # noqa: BLE001 — 取不到用 id
+        who = char_id
+    return {char_id: who, "sensei": SPEAKER_SENSEI_LABEL,
+            CHARACTER_NARRATOR: ""}
+
+
 def _resolve_scene(scene: dict | None, char_id: str) -> dict | None:
     """场景 dict 附带前端渲染信息:
     background_url — scene_id → 静态文件 URL（无背景 → 保持 None, 黑屏余韵）
     paragraphs[].fx — emotion → 特效符号列表（EffectResolver 单源: 角色表→全局表→空;
                       前端 VN 立绘头顶浮现——官方冒爱心/音符/惊叹等 UI 层特效）。
+    paragraphs[].speaker_name — 记录流 v2 说话人显示名（最小形态: 只有名字行,
+                      样式/气泡留给前端; 旁白为空串 → 不加名字行）。
     """
     if not scene:
         return None
@@ -120,8 +137,12 @@ def _resolve_scene(scene: dict | None, char_id: str) -> dict | None:
             scene["background_url"] = fb
     paras = scene.get("paragraphs")
     if isinstance(paras, list):
+        _names = _speaker_name_map(char_id) if scene.get("records") else {}
         for p in paras:
             if isinstance(p, dict):
+                sp = p.get("speaker")
+                if _names and isinstance(sp, str) and sp.strip():
+                    p["speaker_name"] = _names.get(sp.strip(), sp.strip())
                 e = p.get("emotion")
                 if isinstance(e, str) and e.strip():
                     fx = _fx_resolver(char_id).effects_for(e)

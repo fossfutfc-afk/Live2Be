@@ -104,6 +104,14 @@ def render_scene(output: RenderOutput, *, char_ms: int = PARA_CHAR_MS) -> None:
             # 段落显式带 emotion 才标注; 延续的段静默（渲染端默认/继承表情）
             if isinstance(emotion, str) and emotion.strip():
                 print(f"[表情 {emotion}]")
+            # 说话人（记录流 v2 最小形态）: speaker_name 优先（后端映射的显示名）,
+            # 退而用记录原值（角色 id / sensei）; 旁白无名字行
+            name = para.get("speaker_name")
+            if not (isinstance(name, str) and name.strip()):
+                raw_speaker = para.get("speaker")
+                name = raw_speaker if isinstance(raw_speaker, str) else ""
+            if isinstance(name, str) and name.strip():
+                print(f"— {name.strip()} —")
             text = para.get("text", "")
         else:
             text = str(para)

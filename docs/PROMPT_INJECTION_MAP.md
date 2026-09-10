@@ -136,7 +136,16 @@ P0-4b 落地）；registry 分流此时只剩 memorial exit 路径。
   `art`/`exit` 跳过; 裁决物化为 `老师：X`）。
 - 板 payload = `{records, paragraphs(派生, 带 speaker), choices(派生), is_end, place_hint?, art_hint?, memorial?}`
   —— `records` 是唯一真源，派生字段是给**尚未迁移的消费者**的过渡面（§11 P0-7）。
-- **旧动作通道仍在**（输出为 dict 时走 registry.parse）——测试桩/开发通道，P0-7 删除。
+- **旧动作通道仍在**（输出为 dict 时走 registry.parse）——测试桩/开发通道，
+  P0-7b 删除（决策 #22）。
+- **换场翻译**（P0-7a）: 板带 `place_hint`（`switch` 记录文本）时，place lane 调
+  `resolve_place`（prompt `place_resolve.md` + `place` 档位 = off-thinking/256）→
+  `scene.place` = 词表键 → 导演查表出 `background_url`；进程内缓存（同句 0 调用），
+  失败/词表外 → `[place][SWITCH] MISS(keep)`（画面保持）。
+- **说话人（P0-7a 最小形态）**: payload 段落带 `speaker`（记录取值）；**API 边界**
+  （`routers/bond._resolve_scene`）注入 `speaker_name`（角色 id → display_name、
+  `sensei` → 老师、旁白空）→ 前端画名字行（`.bond-speaker`）；CLI 同款经
+  `simulate_vn_scene(speaker_names=)`。
 
 **本场 user_input 的五种真值**（webgui/bond.py:722-774）：
 

@@ -51,7 +51,7 @@ from core.media.emotion_lexicon import (
     load_emotion_lexicon,
     load_place_lexicon,
 )
-from core.bond.place_annotate import annotate_places
+from core.bond.place_annotate import annotate_places, resolve_place
 from llm.client import LLMClient, feedback
 from llm.task_levels import max_tokens as task_levels_max_tokens
 from core.parsing.dynamic_character_parser import CharacterLoader, DynamicCharacter
@@ -960,6 +960,17 @@ class BondStoryEngine:
         Returns: 是否产出锚点（False = 无词表 / memorial_exit / 无变更 / 失败）。
         """
         if not self._place_keys or scene.memorial_exit:
+            return False
+        # 记录流 v2（P0-7）: 换场信号 = `switch` 记录（`place_hint`）——直接翻译成
+        # 背景键（P1-2 的最小版: 进程内缓存 + 失败 keep）; 板边界就在换场处, 故一板一背景
+        if scene.place_hint:
+            key = resolve_place(self.llm, scene.place_hint, self._place_keys,
+                                self._current_place)
+            logger.info("[place][SWITCH] %r → %s", scene.place_hint, key or "MISS(keep)")
+            if key:
+                scene.place = key
+                self._current_place = key
+                return True
             return False
         texts = [(p.get("text") or "") if isinstance(p, dict) else ""
                  for p in scene.paragraphs]

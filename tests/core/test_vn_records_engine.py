@@ -38,17 +38,29 @@ TWO_GROUP_BLOCK = "\n".join([
 
 
 class ScriptedLLM:
-    """场景轮按脚本返回**记录流字符串**；每个脚本用完即提示（防静默多发调用）。"""
+    """场景轮按脚本返回**记录流字符串**；标注调用（emotion/place/换场翻译）按关键字
+    自动应答, 不消耗脚本。每个脚本用完即提示（防静默多发调用）。"""
 
-    def __init__(self, *scripts):
+    def __init__(self, *scripts, place_reply: str = ""):
         self._scripts = list(scripts)
         self.snapshots = []
+        self.place_reply = place_reply
 
     def chat_full(self, messages, **kw):
         return self.chat(messages, **kw)
 
     def chat(self, messages, **kw):
         self.snapshots.append([dict(m) for m in messages])
+        last = messages[-1]["content"] if messages else ""
+        head = messages[0]["content"] if messages else ""
+        if "情绪标签数组" in last:                       # emotion 标注 → 全 nomal
+            import re as _re
+            n = len(_re.findall(r"(?m)^\d+: ", head))
+            return ["nomal"] * max(n, 1)
+        if "地点 id JSON" in last:                       # switch → 背景键（P0-7）
+            return {"place": self.place_reply}
+        if "变更句数组" in last:                          # 旧 place 标注 → 无变更
+            return []
         if not self._scripts:
             raise AssertionError("ScriptedLLM 脚本耗尽——引擎多发了一次 LLM 调用")
         return self._scripts.pop(0)
@@ -226,6 +238,31 @@ def test_empty_end_board_is_kept_for_blackout_finish():
     assert second.place_hint == "星空"
     assert len(llm.snapshots) == 1
     print("    engine: end 留空 = 黑屏收尾板（空段落也保留）")
+
+
+# ---------------------------------------------------------------------------
+# 换场翻译（P0-7）: switch 记录 → 背景键
+# ---------------------------------------------------------------------------
+
+def test_switch_record_resolves_to_background_key():
+    """`switch` 记录走换场翻译（place 档位）→ scene.place = 词表键; 失败 keep。"""
+    from core.bond.place_annotate import _RESOLVE_CACHE
+    _RESOLVE_CACHE.clear()                         # 进程内缓存跨用例, 先清
+    llm = ScriptedLLM(TWO_GROUP_BLOCK, place_reply="school_rooftop")
+    engine = _engine(llm)
+    engine._lexicon_keys = []                      # 关掉 emotion 标注, 只测换场
+    scene = engine.send_vn_scene("（开场）", annotate=True)
+    assert scene.place == "school_rooftop"         # 背景键就位（导演/前端据此切图）
+    assert engine._current_place == "school_rooftop"   # 延续态顺延
+
+    # 翻译失败（词表外/空）→ keep: place 为空, 画面保持（换一句地点话, 避开缓存）
+    block = TWO_GROUP_BLOCK.replace("深夜的杂草屋", "某个不知名的地方")
+    llm2 = ScriptedLLM(block, place_reply="")
+    engine2 = _engine(llm2)
+    engine2._lexicon_keys = []
+    scene2 = engine2.send_vn_scene("（开场）", annotate=True)
+    assert scene2.place is None and engine2._current_place == ""
+    print("    engine: switch → 背景键（失败 keep）")
 
 
 def test_soft_violation_overlong_slot_is_chunked():
