@@ -3,7 +3,7 @@
 
 覆盖:
     1. 三类 thinking 档位语义（main=default 跟随 settings / emotion=off / digest=high）
-    2. max_tokens 形态值（mmt 4096 / bond 8192 / emotion 512 / digest 8192…）
+    2. max_tokens 形态值（mmt 4096 / bond 16384 / emotion 512 / digest 8192…）
     3. extra_body 换算（default→None / off→thinking disabled / 显式档→dict）
     4. settings.toml [llm.tasks] 覆盖（合法合并 / 非法忽略 / 未知形态忽略）
 """
@@ -24,7 +24,7 @@ def test_base_profiles():
     assert tl.PROFILES["digest"]["thinking"] == "high"      # 深度认知, 固定 high
     # max_tokens 形态值
     assert tl.max_tokens("mmt") == 4096
-    assert tl.max_tokens("bond") == 8192
+    assert tl.max_tokens("bond") == 16384
     assert tl.max_tokens("vn_cli") == 1536
     assert tl.max_tokens("emotion") == 512
     assert tl.max_tokens("digest") == 8192
