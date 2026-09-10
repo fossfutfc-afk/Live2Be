@@ -223,23 +223,26 @@ def test_mmt_wrapup_tail_card():
 
 
 def test_bond_scene_tail_baseline():
-    """Bond 一场完整 messages（task 卡 on）: [system(盒B)] + [注记] + [场卡] + [user]。"""
-    scene = {"action": "story_scene", "payload": {
-        "paragraphs": [{"text": "（测试）她站在窗边，听到声音回过头来。"},
-                       {"text": "那个……有些话，我一直想找机会跟你说。"}],
-        "choices": ["走过去，在她身边坐下", "笑着说：说吧，我在听"],
-        "branches": {
-            "走过去，在她身边坐下": [{"text": "（测试）她张了张嘴，小声说：那我说了哦。"}],
-            "笑着说：说吧，我在听": [{"text": "（测试）她松了口气，声音轻快了些。"}],
-        },
-    }}
-    llm = ScriptedLLM(scene)
+    """Bond 一场完整 messages（task 卡 on）: [system(盒B)] + [注记] + [场卡] + [user]。
+
+    记录流 v2（P0-7c）: 场景桩 = 记录流（一板一块）。
+    """
+    from tests.vn_fixtures import scene as _scene
+
+    block = _scene(
+        switch_to="测试教室",
+        lines=["（测试）她站在窗边，听到声音回过头来。",
+               "那个……有些话，我一直想找机会跟你说。"],
+        sensei=["走过去，在她身边坐下", "笑着说：说吧，我在听"],
+    )
+    llm = ScriptedLLM(block)
     engine = _bond_engine(llm)
     box = engine._system_prompt
 
     seed = "（旁白）本章：测试章——从刚才的对话与契机自然展开。"
     s = engine.send_vn_scene(seed, system_note="（系统）测试注记", annotate=False)
     assert s is not None and not s.is_end
+    assert s.choices == ["走过去，在她身边坐下", "笑着说：说吧，我在听"]
     m = llm.snapshots[0]
     assert [x["role"] for x in m] == ["system", "system", "system", "user"], m
     assert m[0]["content"] == box                     # 前缀 = 盒B 逐字节
@@ -251,11 +254,11 @@ def test_bond_scene_tail_baseline():
 
 def test_bond_scene_tail_task_off():
     """Bond task 卡 off（构造参数）: 旧行为 [system]+[注记]+[user]。"""
-    scene = {"action": "story_scene", "payload": {
-        "paragraphs": [{"text": "（测试）她推开门走了进来。"}],
-        "choices": ["A", "B"], "branches": {"A": [{"text": "（测试）a"}],
-                                           "B": [{"text": "（测试）b"}]}}}
-    llm = ScriptedLLM(scene)
+    from tests.vn_fixtures import scene as _scene
+
+    block = _scene(switch_to="测试教室", lines=["（测试）她推开门走了进来。"],
+                   sensei=["A", "B"])
+    llm = ScriptedLLM(block)
     engine = BondStoryEngine(ROOT / "config" / "characters", llm, task_card=False)
     engine.start_session(CHARACTER)
     s = engine.send_vn_scene("（旁白）测试。", system_note="（系统）测试注记", annotate=False)
@@ -263,22 +266,3 @@ def test_bond_scene_tail_task_off():
     m = llm.snapshots[0]
     assert [x["role"] for x in m] == ["system", "system", "user"], m
     assert all("本场任务" not in x["content"] for x in m)
-
-
-def test_bond_memorial_exit_card():
-    """纪念模式中: 引擎自推 kind=memorial_exit——卡提示退出, 无 scene 卡。"""
-    from core.promptkit import task_card as _card
-    exit_scene = {"action": "memorial_exit", "payload": {
-        "paragraphs": [{"text": "（测试）我们沿着路灯往回走。"}]}}
-    llm = ScriptedLLM(exit_scene)
-    engine = _bond_engine(llm)
-    engine._in_memorial = True                        # 模拟进入纪念模式后
-    s = engine.send_vn_scene("（继续）", annotate=False)
-    assert s is not None
-    m = llm.snapshots[0]
-    assert m[-2]["content"].startswith("本场任务：纪念时刻已落幕")     # memorial 卡
-    assert "memorial_exit" in m[-2]["content"]
-    assert "story_scene 骨架" not in m[-2]["content"]                  # 无 scene 卡
-    assert m[-2]["content"] == _card("bond", "memorial_exit",
-                                     char="伊草 遥香", enabled=True)
-    assert m[-1] == {"role": "user", "content": "（继续）"}

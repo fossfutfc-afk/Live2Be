@@ -348,7 +348,14 @@ def run_bond_story_vn(
         if choice is None:                # 退出 / is_end 结束
             completed = scene.is_end      # 区分: is_end=剧情走到结尾; b=玩家退出
             break
-        user_input = choice
+        # 记录流 v2（P0-7c）: 选项 = 裁决 —— 物化进历史尾部 + 用"（继续）"领下一板
+        # （与 webgui 裁决路径、事件流回放三者同形）; 纯叙事场的自由输入仍是玩家原话
+        # （CLI 开发通道语义：那确实是"玩家说的话"）。
+        if scene.records and choice in (scene.choices or []):
+            vn.record_picked(choice)
+            user_input = "（继续）"
+        else:
+            user_input = choice
     else:
         # for 循环耗尽 = 模型仍不 is_end（其间生成均成功）——2026-09-09 对齐:
         # 不再程序兜底 closing 伪收场（completed=False 中断, 不落 story_end;
