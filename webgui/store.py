@@ -48,6 +48,8 @@ DEFAULTS: dict = {
         "screen_size": "1920x1080",
         "fit": "contain",              # contain=留边不裁 / cover=裁满屏 / none=不处理
         "api_aspect_ratio": True,      # 请求携带 imageConfig.aspectRatio（不支持自动降级）
+        "ref_max_edge": 1024,          # ref 上传前压到该长边（0=原图不压）
+        "ref_jpeg_quality": 85,        # 压缩质量
     },
 }
 
