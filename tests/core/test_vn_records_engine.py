@@ -208,6 +208,26 @@ def test_invisible_board_merges_forward_without_losing_records():
     print("    engine: 空板记录并入下一板（真源不丢）")
 
 
+def test_empty_end_board_is_kept_for_blackout_finish():
+    """收尾组合③（老师一句 → 空镜 → end 留空）: 空段落板因 is_end 保留, 直接黑屏结束。"""
+    block = "\n".join([
+        '{"character": "igusa_haruka", "text": "……"}',
+        '{"character": "sensei", "text": "你看那边，多漂亮啊"}',
+        '{"stage": "switch", "text": "星空"}',
+        '{"stage": "end", "text": ""}',
+    ])
+    llm = ScriptedLLM(block)
+    engine = _engine(llm)
+    first = engine.send_vn_scene("（开场）", annotate=False)
+    assert first.choices == ["你看那边，多漂亮啊"]         # 老师一句 = run=1 的群
+    assert first.is_end is False
+    second = engine.send_vn_scene("（继续）", annotate=False)   # 0 LLM
+    assert second.is_end is True and second.paragraphs == []    # 纯黑屏收尾板
+    assert second.place_hint == "星空"
+    assert len(llm.snapshots) == 1
+    print("    engine: end 留空 = 黑屏收尾板（空段落也保留）")
+
+
 def test_soft_violation_overlong_slot_is_chunked():
     """超长 sensei 群（软违规）→ 切成 ≤3 的槽而不是整块重发（内容零损失）。"""
     block = "\n".join([

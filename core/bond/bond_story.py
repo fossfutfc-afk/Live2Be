@@ -808,8 +808,10 @@ class BondStoryEngine:
                 slice_ = spare + slice_
                 spare = ()
             scene = BondScene.from_board(slice_, group_local, notes=list(block.notes))
-            if not scene.paragraphs and not scene.choices:
-                spare = slice_                     # 无可显示内容（如连发两条 switch）
+            # 无可显示内容 → 并入下一板真源; 但**含 end/exit 的板必须保留**
+            #（"老师一句 → 空镜 → end 留空"这类收尾组合: 段落为空也要让玩家走到黑屏）
+            if not scene.paragraphs and not scene.choices and not scene.is_end:
+                spare = slice_
                 continue
             # 历史文本 = 本板叙事记录（**排除槽内候选**——未选台词永不进 LLM 上下文）;
             # switch 文本按 §4 回显 writer 自己写的地点话（绝不是资产键）

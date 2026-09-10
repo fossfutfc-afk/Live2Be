@@ -125,7 +125,7 @@ def export_definitions(registry: ActionRegistry) -> dict[str, Any]:
     }
 
 
-def build_record_schema(*, with_examples: bool = True, char_id: str = "haruka",
+def build_record_schema(*, with_examples: bool = True, char_id: str = "igusa_haruka",
                         char_display: str = "") -> str:
     """渲染 **VN 记录流契约**（LLM 可见）——`build_schema` 的第三种形态。
 
@@ -136,30 +136,36 @@ def build_record_schema(*, with_examples: bool = True, char_id: str = "haruka",
     不进 `build_schema()` 是因为记录文法**不依赖动作注册表**（参数是角色 id 与状态约束，
     不是 ActionSpec 集合）——保留独立入口，语义更清楚（§8.2 已按此对齐）。
 
+    文案纪律（2026-09-10 用户裁决 #24）:
+    - **不写"不要写 X 字段"这类负面提醒**（白熊效应: 不说模型不知道, 一说反而幻觉 + 废 token）;
+    - 台词**不包引号**（范例里也不出现「」，直接告诉模型写纯文本）;
+    - 示例里的角色取值 = **真实 id**（引擎按会话传入, 默认值即本项目角色）。
+
     Args:
         with_examples: 是否附 few-shot 示例（含**转义引号**示范——实测唯一真实错误源）。
-        char_id: 本场角色的记录取值（引擎传真实 id; 默认示例值仅供文档/测试）。
-        char_display: 角色显示名（非空则写进示例说明，便于模型对上号）。
+        char_id: 本场角色的记录取值（引擎传真实 id）。
+        char_display: 角色显示名（非空则写进取值说明，便于模型对上号）。
     """
     char_note = (f"你自己（{char_display.strip()}）——本场只有你一个角色" if char_display.strip()
                  else "你自己——本场只有你一个角色")
     char_shapes = [
-        (char_id, '"台词（不加「」，说话人由字段表达）"', f"{char_note}；记录里写 `{char_id}`"),
-        (CHARACTER_NARRATOR, '"（旁白 / 动作 / 环境）"', "叙述（稀有：一整段 0~3 条）"),
+        (char_id, '"你说的台词，纯文本"', f"{char_note}；记录里写 `{char_id}`"),
+        (CHARACTER_NARRATOR, '"（旁白 / 短动作）"', "叙述（稀有：一整段 0~3 条）"),
         (CHARACTER_SENSEI, '"老师此刻会说的一句话"',
-         f"老师的话；连续 {1}~{MAX_SENSEI_RUN} 条 = 一个群（玩家挑一句说）"),
+         f"老师的话；连续 1~{MAX_SENSEI_RUN} 条 = 一个群（玩家挑一句说）"),
     ]
     stage_shapes = [
-        (STAGE_SWITCH, '"目标地点"', "换场（自由文本，不是资产键）"),
+        (STAGE_SWITCH, '"目标地点"', "换场（用你自己的话，写具体名词短语）"),
         (STAGE_ART, '"画面意向（1~2 句）"',
-         "本章纪念时刻的预告（必须本轮首条；一章至多一次）"),
+         "本章纪念时刻的预告（本轮首条；一章至多一次）"),
         (STAGE_MEMORIAL, '"（触发句）"', "纪念触发；其后到本轮结束为纪念正文"),
-        (STAGE_END, '"（收尾正文）"', "收尾（必须本轮最后一条）"),
-        (STAGE_EXIT, '""', "仅纪念域（可省略 text）"),
+        (STAGE_END, '"（收尾字段，可留空）"',
+         "收尾——**这里不是老师的话**，是本轮最后的收束文字（旁白/余韵）；"
+         "留空字符串 = 直接黑屏收尾（本轮最后一条）"),
+        (STAGE_EXIT, '""', "仅纪念域（可留空）"),
     ]
     lines = [
-        "你以**一行一条 JSON 记录**的形式输出本轮内容（段与段之间只换行，不要数组、不要嵌套、"
-        "不要代码围栏、不要解释）。每条记录**恰好**含 `character` 或 `stage` 之一，外加 `text`:",
+        "你以**一行一条 JSON 记录**的形式输出本轮内容（一行一条，不要数组、不要围栏）:",
         "",
     ]
     for kind, shapes in ((KIND_CHARACTER, char_shapes), (KIND_STAGE, stage_shapes)):
@@ -169,21 +175,19 @@ def build_record_schema(*, with_examples: bool = True, char_id: str = "haruka",
         lines.append("")
     lines += [
         "硬规则（违反即被丢弃）:",
-        "1. 一行一条完整记录；字段只有那两个；text 除 stage=exit 外必填。",
+        "1. 一行一条完整记录；字段只有那两个；text 除 stage=end / exit 外必填。",
         '2. text 里的半角双引号与反斜杠必须转义（写成 \\" 与 \\\\）——这是最常见的错误。',
-        "3. 不写地点键、不写情绪键（引擎自己判定），也不要写 action / choices / branches。",
-        '4. 不要出现"选项"字样：老师要说话就直接写第 2 条之类的 sensei 记录，连续 1~%d 条即可。'
+        "3. 老师要说话就直接写 sensei 记录（连续 1~%d 条）——那几句就是玩家会看到、会挑的话。"
         % MAX_SENSEI_RUN,
-        "5. 本章第一条必须是 stage=switch（交代开场景）；若本轮含纪念，"
+        "4. 本章第一条必须是 stage=switch（交代开场景）；若本轮含纪念，"
         "则 stage=art 紧跟其后成为本轮首条。",
-        "6. stage=end / exit 必须是本轮最后一条；stage=memorial 之后到本轮结束都属于纪念正文，"
-        "其中不得再出现 switch 或 art。",
-        "7. 篇幅：一轮约 %d 行（写下你觉得完整的一段戏，不要草草收尾）。" % 40,
+        "5. stage=end / exit 必须是本轮最后一条；stage=memorial 之后到本轮结束都属于纪念正文。",
+        "6. 篇幅：一轮约 %d 行（写下你觉得完整的一段戏）。" % 40,
     ]
     if with_examples:
         lines += [
             "",
-            "示例（注意：一行一条；第 3 行演示了转义引号；连续两条 sensei = 一个群）:",
+            "示例（第 3 行演示转义引号；连续两条 sensei = 一个群）:",
             '    {"stage": "switch", "text": "放学后的天台"}',
             f'    {{"character": "{char_id}", "text": "……老师，你、你来了。"}}',
             f'    {{"character": "{char_id}", "text": "他说 \\"别担心\\" 的时候，我、我却差点搞砸。"}}',

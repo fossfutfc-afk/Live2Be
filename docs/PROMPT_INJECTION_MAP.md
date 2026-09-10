@@ -91,11 +91,15 @@ messages = [system] + history + [P16 羁绊进度注记] + [P17 system_note?]
 | 2 | `【世界常识】【世界规则】` | `world` 块（world_parser:70-89）| 同源重新注入 |
 | 3 | `【本角色剧情基调】` | `story_tone` 块 = load_story_tone（core/common/tone.py）| 与盒A同源 |
 | 4 | `【本角色羁绊剧情建议】` | `bond_tone` 块 = script.yml `SIG~bond_tone`（char.bond_tone）| 缺失 → 不注入（条件块） |
-| 5 | 羁绊剧情规则书 | `rules_bond` 块 = `bond_story_rules.md` | **记录流 v2（2026-09-10）**：单人模式/对白为主节奏/一行一条记录的写法（**换场 = 发 `stage:switch`**、老师的话 = 连续 1~3 条 `sensei` 成"群"、`memorial` 触发 + `art` 预告制、`end` 收尾黑屏余韵）/三份范本（中段·纪念·收尾，含 `\"` 转义示范）；旧 story_scene/branches/memorial_enter 字样已退役 |
-| 6 | 本轮输出契约（VN 记录流） | `schema` 块 = **`build_record_schema(char_id=…, char_display=…)`**（contract/schema.py；bond_story.py start_session）| **v2**：标题由 `BlockContext.schema_title` 换掉「可用动作 schema」（story 域无 action 外壳）；内容 = 七种取值 + 硬规则七条 + few-shot（**随会话渲染真实角色 id**）；不再用 `build_schema(story registry)`（memorial exit schema 仍走 registry，纪念模式注记补喂） |
-| 7 | `【表情标注词表】` | `lexicon_emotion` 块 = `build_emotion_injection(..., for_writer=True)`（emotion_lexicon.py）= emotions.yml 键 + 行尾示范注释 + `eg[键]` 例句 | 词表路径 `assets/illustration/{char}/default/`（2026-08-31 修过 default 段缺失）；缺失 → 不注入（条件块）；**v2 措辞按受众分叉**：writer 盒说「你不用写 emotion，系统逐记录挑」（只交代表演能力边界），标注层默认措辞仍是「标注时只从下面选」 |
-| 8 | `【可去的地方】` | `place_palette` 块 = whitelist common_scenes（**与标注层同源**）| 舞台清单（v2 2026-09-10 措辞反转）：**WHEN 归 writer**——换场就发 `{"stage":"switch","text":"地点"}`（自然语言、具体名词短语），**WHICH 归标注器**（switch 文本 → 资产键）；清单只扩可选空间（防背景单调），资产名/地点字段仍不写 |
-| 9 | brain 段 | `brain` 块 = `load_brain_segment`（momotalk.py:129-156）：出厂背景 + wiki 视图 | webgui 每次 start/replay 都重取（webgui/bond.py:401-406, 542-548）→ **剧情内固定**不随 digest 更新（条件块） |
+| 5 | 羁绊剧情规则书 | `rules_bond` 块 = `bond_story_rules.md`（**`{char_id}`/`{char_name}` 按会话替换**） | **记录流 v2（2026-09-10）**：八节结构（视角/节奏/记录写法/群与密度/换场/纪念预告/收尾组合/范本）；**台词写纯文本（不包「」）**；范例说话人 = 真实 id；**不写"不要写 X 字段"式提醒**（决策 #24） |
+| 6 | 本轮输出契约（VN 记录流） | `schema` 块 = **`build_record_schema(char_id=…, char_display=…)`**（contract/schema.py；bond_story.py start_session）| **v2**：标题由 `BlockContext.schema_title` 换掉「可用动作 schema」（story 域无 action 外壳）；内容 = 七种取值 + 硬规则六条 + few-shot（**随会话渲染真实角色 id**）；`end` 明示"收尾字段、不是老师的话、可留空"；不再用 `build_schema(story registry)`（memorial exit schema 仍走 registry，纪念模式注记补喂） |
+| 7 | `【可去的地方】` | `place_palette` 块 = whitelist common_scenes（**与标注层同源**）| 舞台清单（v2 2026-09-10 措辞反转）：**WHEN 归 writer**——换场就发 `{"stage":"switch","text":"地点"}`（自然语言、具体名词短语），**WHICH 归标注器**（switch 文本 → 资产键）；清单只扩可选空间（防背景单调） |
+| 8 | brain 段 | `brain` 块 = `load_brain_segment`（momotalk.py:129-156）：出厂背景 + wiki 视图 | webgui 每次 start/replay 都重取（webgui/bond.py:401-406, 542-548）→ **剧情内固定**不随 digest 更新（条件块） |
+
+> **`lexicon_emotion` 已退出盒B**（2026-09-10 决策 #24⑤）：记录流 v2 里 emotion 由标注层
+> **逐记录**判定（词表在标注层 prompt 里），writer 不写情绪 → 该块对创作无作用，且其
+> "你不用写 emotion"式提醒属白熊效应。盒B 由 10 块降为 **9 块**（块实现保留在
+> `blocks.BLOCKS`，供标注层/测试复用）。
 
 **地点归属换代（2026-09-10 记录流 v2）**：主 LLM **发 `stage:switch`**
 （WHEN 归它，自然语言地点），**不再有任何地点字段**；翻译成资产键是标注层的事

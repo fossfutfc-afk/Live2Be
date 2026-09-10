@@ -27,6 +27,9 @@ DOMAIN_BOXES: dict[str, list[str]] = {
     # 与 rules 之间; 其余顺序/文案逐字节沿用现网（黄金夹具锁定）。
     # 2026-09-07 v2: place 判定移交标注层（单源切换）——主 LLM 不写地点;
     # 但词表可见性 ≠ 写权限: place_palette（舞台清单）保留创作可选空间
+    # 2026-09-10 记录流 v2: 换场由 writer 发 stage:switch（place_palette 措辞反转）;
+    # **lexicon_emotion 块退出盒B**——v2 里 emotion 由标注层逐记录挑, writer 不写情绪,
+    # 词表注入对创作不再起作用（且其"你不用写 emotion"式提醒属白熊效应, 决策 #24）。
     "bond": [
         "greeting",            # 称呼行（v2 首段, 剧情行为规则指向）
         "persona_bond",        # 角色设定两层 + 行为规则
@@ -34,9 +37,8 @@ DOMAIN_BOXES: dict[str, list[str]] = {
         "story_tone",          # 本角色剧情基调
         "bond_tone",           # 羁绊剧情建议（条件）
         "rules_bond",          # 羁绊剧情规则书
-        "schema",              # 可用动作 schema（story 域）
-        "lexicon_emotion",     # 表情标注词表（条件）
-        "place_palette",       # 可去的地方·舞台清单（条件; 只扩可选空间）
+        "schema",              # 输出契约（VN 记录流; 标题可换）
+        "place_palette",       # 可去的地方·舞台清单（条件; 换场发 switch）
         "brain",               # 记忆段（条件）
     ],
 }

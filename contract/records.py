@@ -21,7 +21,8 @@ run=1 单选项、run=2~3 多选项；群一律弹选项（不做"自动播的�
     ① 代码围栏行（```…）→ 静默丢弃；
     ② 数组行（LLM 手痒包了一层）→ 拍平成多条记录；
     ③ 末行悬空（字符串未闭合）→ 追加 `"}` 重试一次（EOF 处无歧义）；
-    ④ 其余解析失败 / 形状违规 → 丢行 + 记 `ParseDiag`（**不抛异常**，由上层计数与反馈）。
+    ④ 未转义半角引号 → **辅助转义**（按文法形状确定性重建, 见 `_rescape_repair`）；
+    ⑤ 其余解析失败 / 形状违规 → 丢行 + 记 `ParseDiag`（**不抛异常**，由上层计数与反馈）。
 """
 from __future__ import annotations
 
@@ -55,8 +56,9 @@ STAGE_VALUES = (STAGE_SWITCH, STAGE_ART, STAGE_MEMORIAL, STAGE_END, STAGE_EXIT)
 STAGE_BLOCK_HEAD = (STAGE_ART,)                    # 必须块首（或紧随开章 switch）
 STAGE_BLOCK_TAIL = (STAGE_END, STAGE_EXIT)         # 必须块尾（其后不得再有记录）
 STAGE_FORBIDDEN_IN_MEMORIAL = (STAGE_SWITCH, STAGE_ART)   # 纪念区间内禁止（换场 / 二次预告）
-#: `text` 可省略的唯一取值
-TEXT_OPTIONAL_STAGES = (STAGE_EXIT,)
+#: `text` 可省略的取值（2026-09-10 用户裁决: `end` 的 text 是**收尾字段**而非台词,
+#: 留空 = 直接黑屏收尾——"角色最后一句 + switch + end('')"是常用收尾组合）
+TEXT_OPTIONAL_STAGES = (STAGE_END, STAGE_EXIT)
 
 #: sensei 群上限（最长连续段）
 MAX_SENSEI_RUN = 3
@@ -539,6 +541,8 @@ class VnBlock:
             table.update(names)
         lines: list[str] = []
         for rec in self.records:
+            if not rec.text:
+                continue                       # `end`/`exit` 可留空（空行不进历史/回放）
             if rec.is_narration:
                 lines.append(rec.text)
             elif rec.kind == KIND_CHARACTER:
