@@ -12,7 +12,12 @@
                            填充率 100%（含延续显式写回）
 """
 
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+
+from tests.vn_fixtures import scene  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 
@@ -179,16 +184,12 @@ def test_para_llm_exception_then_success():
 # 引擎集成: 按自然段分组 + seed 锚 + 跨板 carry 链记账
 # ----------------------------------------------------------------------------
 
-SCENE1 = {"action": "story_scene", "payload": {
-    "paragraphs": [
-        {"text": "她站在窗边看着天空。风把窗帘吹了起来。"},
-        {"text": "「老师，你来啦。」"}]}}
-SCENE2 = {"action": "story_scene", "payload": {
-    "paragraphs": [{"text": "（她低头笑了笑。）"}]}}
-SCENE2_BRANCH = {"action": "story_scene", "payload": {
-    "paragraphs": [{"text": "（她低头笑了笑。）"}],
-    "choices": ["留下来"],
-    "branches": {"留下来": [{"text": "她轻轻点头。"}]}}}
+# 记录流 v2（P0-7b）: 一记录 = 一显示/判定单元（= 旧契约的一个自然段）
+SCENE1 = scene(lines=["她站在窗边看着天空。风把窗帘吹了起来。",
+                      "「老师，你来啦。」"])
+SCENE2 = scene(lines=["（她低头笑了笑。）"])
+SCENE2_BRANCH = scene(lines=["（她低头笑了笑。）"], sensei=["留下来"],
+                      after=["她轻轻点头。"])
 
 
 class _EngineLLM:
@@ -216,48 +217,45 @@ def _engine(*scripts):
 
 
 def test_engine_segmented_chain_and_seed():
-    """自然段分组逐段标注; 段 1 情境 = seed 锚; 段 2 = 上一段原文 + carry;
-    跨板链记账（下一场首段用上一板尾段情境）。"""
-    vn, llm = _engine(SCENE1, ["smile", "nomal"], ["embarrassed"])
+    """记录流 v2 标注单元 = **记录**（一板一组）: 板内一次调用、跨板链记账;
+    板 1 情境 = seed 锚, 下一板 = 上一板原文 + 末句 carry。"""
+    vn, llm = _engine(SCENE1, ["smile", "nomal"])
     scene = vn.send_vn_scene("今天放学后的教室。")      # 叙事 seed → 捕获为锚
-    # 逐句填充率 100%（每句都有 emotion, 无兜底占位）
-    assert [p["emotion"] for p in scene.paragraphs] == \
-        ["smile", "nomal", "embarrassed"], scene.paragraphs
-    assert vn._para_seq == 2                            # 2 个自然段 = 2 次标注
-    assert len(llm.calls) == 3                          # 生成 + 2 段标注
-    # 段 1: seed 锚情境（无上一段, 禁后文——引擎合成块标记不存在）
+    assert [p["emotion"] for p in scene.paragraphs] == ["smile", "nomal"], \
+        scene.paragraphs
+    assert vn._para_seq == 1                            # 一板一组 = 1 次标注
+    assert len(llm.calls) == 2                          # 生成 + 1 组标注
+    # 板 1 情境: seed 锚（无上一板, 禁后文）
     sys1 = llm.calls[1][0]["content"]
     assert "第 1 段" in sys1 and "本章开场那一句——剧情锚点" in sys1 \
         and "今天放学后的教室。" in sys1, sys1[:300]
-    assert "她刚读完的内容" not in sys1
-    # 段 2: 上一段原文 + 末句 carry（= 段 1 尾标签 nomal）
-    sys2 = llm.calls[2][0]["content"]
-    assert "第 2 段" in sys2 and "上一段原文" in sys2 \
-        and "风把窗帘吹了起来" in sys2 and "末句已生效情绪: nomal" in sys2, \
-        sys2[:400]
-    assert vn._carry_emo == "embarrassed"               # 链尾部 = 段 2 尾
-    # 跨板: 第二场首段情境 = 上一板尾段（原文 + carry）
-    vn2, llm2 = _engine(SCENE1, ["smile", "nomal"], ["embarrassed"],
-                        SCENE2, ["nomal"])
+    assert vn._carry_emo == "nomal"                     # 链尾 = 板内末条
+    # 跨板: 下一板情境 = 上一板（原文 + carry）
+    vn2, llm2 = _engine(SCENE1, ["smile", "nomal"], SCENE2, ["embarrassed"])
     vn2.send_vn_scene("今天放学后的教室。")
     vn2.send_vn_scene("（继续）")
-    sys3 = llm2.calls[4][0]["content"]
-    assert "第 3 段" in sys3 and "「老师，你来啦。」" in sys3 \
-        and "末句已生效情绪: embarrassed" in sys3, sys3[:400]
-    print("    engine: 按段标注 + seed 锚 + 跨板 carry 链（段内 100% 填充）")
+    sys2 = llm2.calls[3][0]["content"]
+    assert "第 2 段" in sys2 and "「老师，你来啦。」" in sys2 \
+        and "末句已生效情绪: nomal" in sys2, sys2[:400]
+    print("    engine: 板内一次标注 + seed 锚 + 跨板 carry 链（记录 = 单元）")
 
 
-def test_engine_branch_not_advancing_chain():
-    """branches 逐分支一组（上下文 = 主线尾段）; 分支不更新链——主线为准。"""
+def test_engine_reaction_board_annotated_with_chain():
+    """记录流 v2: 角色反应在**下一板**（槽挂板尾）——它独立标注, 链随主线推进。"""
     vn, llm = _engine(SCENE2_BRANCH, ["smile"], ["expectant"])
     scene = vn.send_vn_scene("（开场）")
     assert scene.paragraphs[0]["emotion"] == "smile"
-    assert scene.branches["留下来"][0]["emotion"] == "expectant"
-    assert vn._para_seq == 2 and vn._carry_emo == "smile"   # 链停在主线尾
-    # 分支组情境 = 主线尾段
-    sys_branch = llm.calls[2][0]["content"]
-    assert "第 2 段" in sys_branch and "上一段原文" in sys_branch
-    print("    engine: 分支一组标注（链不因分支推进, 主线为准）")
+    assert scene.choices == ["留下来"]                    # 群 = 交互槽（run=1 也弹）
+    assert vn._para_seq == 1 and vn._carry_emo == "smile"
+    vn.record_picked("留下来")
+    nxt = vn.send_vn_scene("（继续）")                     # 待发板（0 LLM）
+    assert [p["text"] for p in nxt.paragraphs] == ["她轻轻点头。"]
+    assert nxt.paragraphs[0]["emotion"] == "expectant"
+    assert vn._para_seq == 2 and vn._carry_emo == "expectant"   # 链前进到反应板
+    # 反应板情境 = 上一板原文 + carry
+    sys_next = llm.calls[2][0]["content"]
+    assert "第 2 段" in sys_next and "上一段原文" in sys_next, sys_next[:300]
+    print("    engine: 反应板独立标注（槽挂板尾, 链随主线推进）")
 
 
 if __name__ == "__main__":

@@ -244,6 +244,29 @@ def test_empty_end_board_is_kept_for_blackout_finish():
 # 换场翻译（P0-7）: switch 记录 → 背景键
 # ---------------------------------------------------------------------------
 
+def test_legacy_action_input_is_rejected_by_default():
+    """P0-7b: **默认只吃记录流**——旧动作 JSON 被打回重发; 开关打开才放行（存量桩）。"""
+    legacy = {"action": "story_scene", "payload": {
+        "paragraphs": [{"text": "（旧契约）段落。"}]}}
+    llm = ScriptedLLM(legacy, legacy, legacy)
+    engine = BondStoryEngine(ROOT / "config" / "characters", llm,
+                             allow_legacy_action=False)
+    engine.start_session(CHARACTER)
+    with pytest.raises(SceneLoopError):
+        engine.send_vn_scene("（开场）", annotate=False)
+    assert engine.trace[0]["action"] == "legacy_action_rejected"
+    assert any("输出形态无效" in m["content"] for m in llm.snapshots[-1])
+
+    # 开关打开（存量测试桩通道）→ 旧路径仍可用, 且用 json_object 形态
+    llm2 = ScriptedLLM(legacy)
+    engine2 = BondStoryEngine(ROOT / "config" / "characters", llm2,
+                              allow_legacy_action=True)
+    engine2.start_session(CHARACTER)
+    scene = engine2.send_vn_scene("（开场）", annotate=False)
+    assert [p["text"] for p in scene.paragraphs] == ["（旧契约）段落。"]
+    print("    engine: 旧动作默认被拒 / 开关放行（P0-7b）")
+
+
 def test_switch_record_resolves_to_background_key():
     """`switch` 记录走换场翻译（place 档位）→ scene.place = 词表键; 失败 keep。"""
     from core.bond.place_annotate import _RESOLVE_CACHE
