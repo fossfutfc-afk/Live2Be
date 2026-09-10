@@ -109,6 +109,13 @@ A1 回录、官方文风、digest 仅 story_end、中断≠失败）全部保留
 - 槽之后**接续只写一份**（收敛链 + 候选同向），官方结构本身背书我们的收敛语义；
 - 单条 `[s]` 遍地（"你好，春香。""做得不错。"）——**不交互**，就是剧本台词。
 
+**另一份样本 1600008（春香"错误的地点"，完整一章）**（详见 §14 附录）：
+- 109 条记录里 **4 个表态点**（`SelectionGroup` 1/2、3/4、5/6、7/8），台词槽仍同向异辞，
+  另有**动作型选项**（`[ns1] （环顾四周）` / `[ns2] （再等了一会儿）`）→ 印证"Sensei 的行动列表"；
+- 转场 = `Transition（fade out 2000ms / fade in 2000ms）` + `BGName` + `#all;hide`；
+- 中段切进 **`SpineBG_LobbyHaruka`（春香的记忆大厅 L2D，`MemoryLobbyDBSchema` 交叉验证）**，
+  其"差分"是 L2D 动画态（`Idle_01` / `Talk_01_M`…`Talk_05_M`），且**进入前先淡到 `BG_Black`**。
+
 ---
 
 ## 3. 与旧契约的对照
@@ -149,15 +156,23 @@ writer 自己写的那句 location 文本，绝不回显解析出的资产键）
 - writer 发一条 `{"stage": "switch", "text": "深夜的杂草屋"}`（自然语言地点，可用自己话）；
   规则：换场（含时间/天气跃迁）必须发；`text` 要具体到名词短语（禁"外面/某处"）。
 - engine 提取 `text` → 查**翻译表**（命中即 0 调用）→ 未命中则一次极小解析调用（带前后 2 行上下文）→ 资产键。
-- 翻译表形态（世界目录）：
+- 词表 / 别名 / 资产 = **现成的背景资产库（2026-09-10 改版）**，不新造 `places.yml`：
 
-```yaml
-# config/worlds/{world}/places.yml
-- key: weed_hut_night
-  owner: igusa_haruka            # 个人地点（可选）
-  aliases: [深夜的杂草屋, 杂草屋, 废弃小屋, 那间小屋]   # 可混语言
-  desc: 春香常待的废弃小屋（夜）
 ```
+D:\myStuff\tempo\                        ← 背景资产库根
+  SDIR_*（10 大类）/DIR_*（210 地点组）/BG_*.jpg        合计 1115 张
+  SDIR_Atmosphere\DIR_PureColor\    BG_Black.jpg / BG_Red.jpg / BG_White.jpg
+  _place_review.json   人工审校: "SDIR|DIR|entity_key" → {name, region, keywords, active, note}
+  _place_entities.json 机器可读导出: entity_key → {sdir, dir, name, region,
+                        keywords[], files{day[], night[]}}
+  place_studio.py      自包含工作台（942 行; 官方地名表 + 别名归一化 + 可选 LLM 建议）
+```
+  - **`_place_entities.json` 就是本节要的"翻译表"**：`entity_key`（英文 slug）+ `name`（中文主名）
+    + `keywords`（别名，`|` 分隔，含官方译名变体）+ `files.day/night`（资产相对路径）；
+  - **`_place_review.json` 的 `active` = 是否进词表**（人工裁决，如"夏莱会议室…暂时不进词表"）
+    ——这正是"舞台清单"开关，取代散落的 `_director_whitelist.json`（对齐见 §13）；
+  - 引擎侧读**导出视图**（可缓存为 `places_resolved`），`place` 锚点 + 时间（day/night）选图；
+  - 纯色背景（`BG_Black` 等）是**本地资产、零生成**——memorial 黑场直接用它（§7）。
 - 缓存：`data/worlds/{world}/places_resolved.jsonl`（原文→键，自动增长）；未命中且解析不了 → 三级兜底
   （角色默认景 → 全局默认 → keep）+ 日志 `[place][MISS] X`（**日志即美术需求单**）。
 - 开场景：**本章第一条必须是 `switch`** → 引擎立刻解析（不必等整块生成完）→ 首屏背景零等待。
@@ -193,6 +208,13 @@ writer 自己写的那句 location 文本，绝不回显解析出的资产键）
 - 退出三路（都不卡死）：① 块自然结束；② 玩家 UI 关闭 = 立即回 bond、0 LLM；③ 玩家离开 = abort 语义（不伪造收尾）。
 - **结语另起一块**（不与该块同块）：块边界是纪念区间的唯一界线；结语在读完纪念后写，落点更好。
 - 生图见 §11（`illustration.yml` 已提供角色级提示；触发点前置）。
+- **过场机制（照官方 1600008 实证，见 §14）**：触发句在**旧背景 + 立绘**上正常显示 →
+  背景连同立绘一起 **fade out 2s** → 停在 **`BG_Black`（纯色资产，零生成）** →
+  **fade in 2s** 进入纪念画面（官方 `Transition = fade out 2000ms / fade in 2000ms`）。
+  **这 ~4s 黑场是等待缓冲**：图就绪即续 fade in；未就绪则停在黑场（有加载态，超时上限
+  后降级纯文本）——比"停在上一拍"更接近官方观感。
+- **纪念段隐藏立绘与差分**（官方 `#all;hide`；用户拍板"memo 模式无差分变化"）——
+  立绘层进入黑场后即撤，纪念画面由"背景层 + 文本"承担。
 
 ---
 
@@ -296,19 +318,32 @@ VN 记录流 = 这同一思路在 story 域的对应演进。
 **结论**：payload 压缩 66× 只省约 4s → **延迟地板 ≈ 20s 是模型生成本身**；13.7~26s 方差大，
 需真机多采样取 p50/p90（未决）。**想再快只能"更早发图"**。
 
-### 10.2 异步设计（不阻塞玩家）
+### 10.2 异步设计（无蓝图 + 硬闸门 + 黑场缓冲）
+
+**memorial 是硬闸门**（用户 09-10 更正）：`stage: memorial` 之后**不再渲染文本**，画面切到
+生成图；纪念段**无立绘/差分变化**。所以"文本先行、图晚到淡入"是错的——等待只能发生在闸门处。
 
 ```
-① 拍组开始（蓝图标记本拍组含纪念）
-     └─ 画师步出草案 prompt（可选：先不发图，只备好）
-② stage: memorial 记录闭合（文本流中）
-     └─ 画师步定稿 prompt → 立即异步生图（独立线程，主链外）
-③ 玩家侧：纪念文本即时可读 → 图到**淡入** → 未到不阻塞 → 退出后进图鉴
+Writer 流：…铺垫板… │ {"stage":"memorial","text":"触发句"} │ 纪念文本（等图放行）
+                     │              ▲
+玩家侧：  读铺垫板（← 掩盖窗口 = 闸门前阅读 + 预生成链提前量）
+                     │              └─ 闸门：图就绪 → fade in 2s 进纪念画面 → 放行文本
+                     └─ 触发句显示完 → fade out 2s → BG_Black（纯色资产）→ 等图
 ```
-- **幂等/回放**：prompt 与图引用落事件流（`l2d`）；回放/resume **不重生成**；prompt hash 缓存复用；
-- **取消钩子**：玩家离开 → 丢弃在飞结果（abort 语义，不落假收尾、不落假 l2d）；
-- **失败降级**：生图失败/超时 → 保留占位 + 单行 WARNING，纪念照常进行；
-- **成本上界**：纪念一章 ≤1 次 + 提示只会触发一次 → 生图调用有硬上界。
+
+- **提前量来源**（无蓝图，按贡献排序）：
+  1. **预生成链（最大头）**：块在玩家读上一块时就已生成完 → 画师步 + 生图可在玩家进入该块前发出；
+  2. **闸门前的正文阅读**（该块触发点之前的部分）；
+  3. 画师步耗时（与正文生成并行，可忽略）。
+- **黑场即缓冲**：fade out 2s → `BG_Black` → fade in 2s（官方数值）；图未就绪就**停在黑场**
+  （带加载态），就绪立刻续 fade in；**超时上限**（建议 ~30s）后降级纯文本纪念，绝不卡死。
+- **起跑点**：`stage: memorial` 闭合即启动画师步；纪念文本攒够（≥2 行 / ≥80 字）即定稿发图——
+  此时玩家通常还在读铺垫板。
+- **幂等 / 回放**：prompt 与图引用落事件流（`l2d`）；回放/resume **不重生成**；prompt hash 缓存复用；
+  **回放时若 `l2d` 缺失**（玩家在生成中离开）→ 允许一次性补偿重发，再失败则纯文本。
+- **取消钩子**：触发被引擎拒绝（本章已有纪念 / 格式违规）→ 丢弃在飞结果；其余情况让请求跑完
+  （钱已花，纪念事实已落 marker）。
+- **成本上界**：纪念一章 ≤1 次 + **只在真正触发时发图**（不投机预生成）→ 生图调用有硬上界。
 
 ### 10.3 已落地的接口（生图侧）
 
@@ -350,7 +385,7 @@ VN 记录流 = 这同一思路在 story 域的对应演进。
 
 | 步 | 做什么 | 完成标志 |
 |---|---|---|
-| P1-1 | 世界目录 `config/worlds/{world}/places.yml`（key/owner/aliases/desc）+ 引擎读取 | 表可加载、别名可查、缺文件不炸 |
+| P1-1 | 读**背景资产库导出视图**（`D:\myStuff\tempo\_place_entities.json`：key/中文名/keywords 别名/files.day-night；`_place_review.json` 的 `active` 过滤出词表）+ 引擎侧缓存 | 表可加载、别名可查、`active=false` 不进词表、缺文件不炸 |
 | P1-2 | `switch` → 翻译（命中缓存 0 调用；未命中一次极小调用，**固定带前后 2 行上下文**） | 开场景解析在首条记录闭合时即发起 |
 | P1-3 | 解析缓存 `places_resolved.jsonl`（原文→键）+ `[place][MISS]` 日志（= 美术需求单） | 命中率可观测；miss 可 grep |
 | P1-4 | 标注合并为**单 lane**（emo 逐行 + place 翻译）；板边界由锚点决定（前必切） | 双 lane 机制退役；背景切换内容驱动 |
@@ -366,22 +401,39 @@ VN 记录流 = 这同一思路在 story 域的对应演进。
 
 ### 11.4 P3 — 蓝图 planner
 
-见 §12（待用户先想清蓝图形态再开工）。
+**当前倾向：不立项**（2026-09-10 讨论，见 §12 抬头）。若确认，本阶段整体跳过；
+替代物 = `mmt_trigger_bond_story` 可选 `bible` 字段 + 引擎侧起承转合计数（都不新增 LLM 调用）。
 
 ### 11.5 P4 — 生图异步完善
 
 | 步 | 做什么 | 完成标志 |
 |---|---|---|
-| P4-1 | **画师步**（独立小调用：蓝图画面意图 + 角色外观 + 实际正文 → image prompt） | 与 writer 解耦；产物可审计 |
-| P4-2 | 两个触发点（拍组开始草案 / `memorial` 闭合定稿发图）+ 主链外线程 | 纪念文本零等待；图晚到为常态 |
-| P4-3 | 图到淡入 + 图鉴兜底 + 回放不重生成 + prompt hash 幂等 | 回放 0 生图；重复进纪念不重复烧钱 |
-| P4-4 | 取消钩子（玩家离开丢弃在飞结果）+ 真机 p50/p90 采样 | 中断不落假 l2d；延迟分布入档 |
+| P4-1 | **画师步**（独立小调用：角色外观卡 + `illustration.yml` + 实际纪念正文 + 当前场景 → image prompt；触发闭合即启动，文本攒够即定稿） | 与 writer 解耦；产物可审计 |
+| P4-2 | **闸门机制**：触发句 → fade out 2s → `BG_Black`（纯色资产）→ fade in 2s 进纪念画面；图未就绪停在黑场（加载态）+ 超时降级纯文本 | 黑场即缓冲；绝不卡死 |
+| P4-3 | 落库/幂等/回放：`l2d` 引用 + prompt hash 缓存 + 回放 0 生图 + `l2d` 缺失时一次性补偿 | 重复进纪念不重复烧钱 |
+| P4-4 | 取消钩子（触发被拒才取消）+ 真机 p50/p90 采样（生图分布 / 闸门前阅读时长 → 就绪命中率） | 延迟与命中率入档 |
 
 ---
 
 ## 12. 蓝图（planner）待决问题
 
-> 本节是**给用户思考用的提问清单，不是方案**。P3 开工前建议至少回答 A/B 两组。
+> **当前倾向（2026-09-10 讨论）：不立项。** 论证见下；本节其余问题**仅在重开时**才需要回答。
+>
+> 理由三条：① InfiPlot 式计划的字段里，`sceneSummary/sceneKey/entryActiveCharacters/
+> speakingTone` 等四个直接服务于**图像/语音管线**（我们每章只生 1 张图，且由画师步从实际
+> 正文产出，无需机位预告）；② `logline/genreTags/synopsis/openThreads` 是**无限长度故事**
+> 的约束刚需——我们是有界一章（实测 ≈2.4k 字），`window_messages` 120 单元**装得下整章**；
+> ③ 那些字段本质是"LLM 整理给 LLM 的 prompt"= **wiki**，我们已有 digest→wiki + 人设 + 好感 +
+> MMT 历史这条链，只是节奏不同（他们在飞更新，我们事后消化）。
+>
+> **替代物（都不新增 LLM 调用）**：`mmt_trigger_bond_story` 未来可加可选 `bible` 字段
+> （章首一句意图，等价于现有 `chapter_title` 的扩展）+ 引擎侧起承转合/多段计数（把纪念推向
+> 靠后 → 为生图买阅读时间）。
+>
+> **重开条件**：VN 变长线（一章超出窗口 / 多章连演）｜多角色同场群像（需要 cast 调度）｜
+> 改成每拍生图（需要镜头计划）｜官方长剧本需要多拍结构对齐（那用手写结构，不是 planner LLM）。
+
+**（以下为若重开时的提问清单）**
 
 **A. 形态与粒度**
 1. 蓝图的单位：章级拍谱（每拍一行）／幕（几拍一组）／更细（每拍带情绪走向）？
@@ -419,10 +471,18 @@ VN 记录流 = 这同一思路在 story 域的对应演进。
 6. **生图数值**：`ref_max_edge` 定值（1024 vs 1536）、p50/p90 采样、光环位置是否加"正上方居中"约束。
 7. **`window_messages` 单元**：记录流下"叙事单元"的定义是否从板改为记录（影响 120 单元窗口语义）。
 8. **渲染层**：说话人是否需要最小标识（名字/颜色/气泡）；是否本轮一并升级 UI。
+9. **词表对齐**（新增）：`_director_whitelist.json`（现网 common_scenes）与 `D:\myStuff\tempo`
+   资产库职责重叠——是否改为**从库导出**（`_place_review.json` 的 `active` 为准）？
+10. **地点工具归属**（新增）：`place_studio.py`（942 行、自包含、含官方地名表与别名归一化）
+   是否迁入仓库 `tools/` 以便长期维护？（现网 `Makefile`/白名单生成链需同步）
+11. **选项密度校准**（新增）：官方一章羁绊剧情实测 **4 个表态点**（`SelectionGroup` 1/2…7/8），
+   而我方规则层现为"整章 0~3 次"——是否放宽到 0~4 / 改为密度表述（约每 25~30 条记录一个）？
+12. **纯色背景**（新增）：memorial 黑场固定用 `SDIR_Atmosphere/DIR_PureColor/BG_Black.jpg`
+   （另有 DIR_Black / BG_Red / BG_White）——是否把"纯色"纳入导演可选项（换场闪白/闪红等）？
 
 ---
 
-## 14. 附录：探针档案（`.testtmp/`，不提交）
+## 14. 附录：探针档案与官方实证（`.testtmp/`，不提交）
 
 | 文件 | 用途 | 关键产出 |
 |---|---|---|
@@ -433,3 +493,23 @@ VN 记录流 = 这同一思路在 story 域的对应演进。
 | `probe7.py` | 空响应归因 | thinking 与正文共享 `max_tokens`（2048 → content 全空） |
 | `probe_img_latency.py` | 生图真机计时（单张，授权后跑） | §10.1 四行数据 + `gen_out/last_request.txt` 审计留痕 |
 | `check_img_request.py` | 离线 prompt 全文检查（零成本） | 逐图标签 / 比例 / payload 画像 |
+| `ba_extract3.py` / `ba_dump4.py` | 官方剧本流式抽取（**保留 `#` 指令**，v2 会丢） | `ba_1600008_compact.txt`（109 条记录） |
+| `ba_decode.py` / `ba_decode2.py` | 剧本哈希解码（BGName / Transition / Emotion / MemoryLobby） | 见下 |
+
+**官方 1600008（春香羁绊剧情）实证**（`D:\myStuff\tools\Blue-Archive-Asset-Downloader\CN_Extracted\Table\ExcelDB\ScenarioScriptDBSchema.json`）：
+
+- 结构：109 条记录 = 1 条 `#title` + 旁白 `#na` + 逐字文本 `#st` + 立绘指令 `#3;…`(含 `closeup`)
+  + 4 个表态点（`SelectionGroup` 1/2、3/4、5/6、7/8；`[sN]` 台词槽 / `[nsN]` 动作槽）+ 6 处转场；
+- **转场 = `Transition` + `BGName` + `#all;hide`**；`Transition 2482233134` = **fade out 2000ms
+  / fade in 2000ms**；黑场 = **`BG_Black`（纯色图，非特效）**；
+- **进入"记忆大厅"的确切序列**：记录 28 `Transition + BG_Black + #all;hide`（淡出到黑）→
+  记录 29 `Transition + SpineBG_LobbyHaruka + BGMId=43 + #all;hide`（从黑淡入 L2D 记忆大厅）；
+  交叉验证：`MemoryLobbyDBSchema` 中 `CharacterId 16000 → PrefabName LobbyHaruka`、`BGMId 43`；
+- L2D 背景的几个哈希 = 同一 `SpineBG_LobbyHaruka` 的**不同动画态**（`Idle_01` / `Talk_01_M`…
+  `Talk_05_M`）——即纪念段的"差分"是 **L2D 动画态**，而非立绘差分；
+- 结尾：最后一句特写台词（`#3;closeup` + 害羞表情）→ 记录 109 `Transition + BG_Black + #all;hide`。
+
+**背景资产库（2026-09-10 改版）**：`D:\myStuff\tempo\` —— `SDIR_*`(10) / `DIR_*`(210) /
+`BG_*.jpg`(1115)；纯色在 `SDIR_Atmosphere\DIR_PureColor\`；实体表 `_place_entities.json`
+（key→sdir/dir/name/region/keywords/files{day,night}，注意 **keywords 是 `|` 分隔的单个字符串**）
++ 审校表 `_place_review.json`（`active` = 是否进词表）；工具 `place_studio.py`。
