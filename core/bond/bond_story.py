@@ -37,7 +37,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
-from contract import AgentAction, build_record_schema, build_schema
+from contract import (AgentAction, MAX_SENSEI_RUN, STAGE_ART, STAGE_END,
+                      STAGE_EXIT, STAGE_MEMORIAL, STAGE_SWITCH, VnBlock,
+                      build_record_schema, build_schema, sensei_groups)
 from core.common import Live2BeError, err
 from core.bond.bond_actions import MAX_SCENE_RETRIES, build_story_registry
 from core.bond.bond_executor import StoryExecError, StoryExecutor
@@ -62,6 +64,55 @@ from core.promptkit import (
 from core.session.renderer import render_bond_scene_text
 
 logger = logging.getLogger(__name__)
+
+#: 一次 LLM 回合最多切几板（记录流 v2 防御: 模型写飞了也不无限排队。正常一拍
+#: 2~4 个槽; 24 板 ≈ 150 条记录, 只在模型彻底失控时兜底）
+MAX_BOARDS_PER_TURN = 24
+
+#: 记录流"硬"违规 → 打回重发（形状类: 说明模型没守约, 重发值得）
+HARD_BLOCK_ISSUE_MARKS = ("空块", "必须块尾", "必须块首", "首条不是 switch",
+                          "纪念区间内", "条 memorial", "条 art")
+
+
+def split_board_issues(issues: tuple[str, ...] | list[str]) -> tuple[list[str], list[str]]:
+    """把 `check_block` 的问题清单分成 (硬, 软)。
+
+    硬 = 形状类（块首/块尾/纪念区间/空块）→ 引擎打回重发;
+    软 = sensei 群过长 → **切群**（契约是硬上限, 但为一处超长整块重发代价太大,
+    切成多个 <=MAX_SENSEI_RUN 的槽即可, 内容零损失）。
+    """
+    hard = [i for i in issues if any(m in i for m in HARD_BLOCK_ISSUE_MARKS)]
+    soft = [i for i in issues if i not in hard]
+    return hard, soft
+
+
+def _board_spans(records: tuple) -> list[tuple[int, int, tuple[int, ...]]]:
+    """记录流块 → 板切分（P0-4b 的"板 = 引擎派生单位"最小实现）。
+
+    板边界（§6）: ① **换场点前**（switch 记录另起一板）; ② **交互槽后**（老师的
+    候选台词挂在**本板末尾**——玩家读完本板正文才看到那几个选项, 选中后下一板
+    才是角色的反应, 即"槽在板尾、反应在下一板"）。超长群（>MAX_SENSEI_RUN）再
+    按上限切槽 → 每板一组候选项, 内容零损失。
+
+    Returns: [(起, 止, 本板群内记录下标)]——止为开区间; 空块 → []。
+    """
+    group_ends: dict[int, tuple[int, ...]] = {}
+    for group in sensei_groups(records):
+        for k in range(0, len(group), MAX_SENSEI_RUN):
+            chunk = tuple(group[k:k + MAX_SENSEI_RUN])
+            group_ends[chunk[-1]] = chunk
+    spans: list[tuple[int, int, tuple[int, ...]]] = []
+    start = 0
+    for i, rec in enumerate(records):
+        if i in group_ends:                      # 槽后收板（候选 = 本板 choices）
+            spans.append((start, i + 1, group_ends[i]))
+            start = i + 1
+        elif i and getattr(rec, "stage", "") == STAGE_SWITCH and i > start:
+            spans.append((start, i, ()))         # 换场前必切（已在板首则不重复切）
+            start = i
+    if start < len(records):
+        spans.append((start, len(records), ()))
+    return spans
 
 
 def _personality_summary(char: "DynamicCharacter") -> str:
@@ -121,11 +172,63 @@ class BondScene:
     segments: list[int] | None = None
     memorial_prompt: str = ""
     memorial_exit: bool = False
+    # 记录流 v2（2026-09-10, P0-4b）: 本板记录（真源）+ 解析记账。
+    # paragraphs/choices 由记录**派生**（过渡期：老 renderer/前端照旧吃派生字段,
+    # 消费者迁移见 §11 P0-7）；空 = 本场景来自旧动作路径（回放旧档/开发通道）。
+    records: list[dict] = field(default_factory=list)     # [{"character"|"stage":…, "text":…}]
+    notes: list[str] = field(default_factory=list)        # 解析 NOTE/DROP（可观测, 不进 LLM）
+    # 记录流 v2 额外信号: 换场记录原文（P1 翻译成资产键）+ 本板是否含纪念触发 +
+    # 块级画面意向（`art` 声明——本块含纪念时提前开画, §10.4）。
+    # 三者都**不进 LLM 上下文**（历史渲染只出叙事/switch 文本）。
+    place_hint: str | None = None
+    memorial: bool = False
+    art_hint: str = ""
+
+    @property
+    def has_records(self) -> bool:
+        return bool(self.records)
+
+    def record_texts(self) -> list[str]:
+        """各记录文本（诊断/回放用）。"""
+        return [str(r.get("text", "")) for r in self.records]
+
+    @classmethod
+    def from_board(cls, records: tuple, group: tuple[int, ...] = (), *,
+                   notes: list[str] | None = None) -> "BondScene":
+        """一块记录（板切片）→ BondScene（记录流 v2, P0-4b）。
+
+        - `paragraphs` **由记录派生**（一记录 = 一判定/显示单元）:
+          `switch`/`art`/`exit` 是引擎信号（不显示）; 群内候选（老师的话）不显示
+          ——它们变成 `choices`; 其余（角色/narrator/sensei 之外的正文）照常显示;
+        - `choices` = 本板群内候选台词（run=1 也弹, 拍板 18）;
+        - `is_end` = 本板含 `stage:end`/`exit`（记录是块尾, 故只可能落在末板）;
+        - `records` = **真源**（含全部记录, 落库/回放用）。
+        """
+        paras: list[dict] = []
+        for i, rec in enumerate(records):
+            if i in group:
+                continue
+            if rec.is_stage and rec.stage in (STAGE_SWITCH, STAGE_ART, STAGE_EXIT):
+                continue
+            if rec.text:
+                paras.append({"text": rec.text})
+        scene = cls(
+            paragraphs=paras,
+            choices=[records[i].text for i in group],
+            is_end=any(r.stage in (STAGE_END, STAGE_EXIT) for r in records),
+            memorial=any(r.stage == STAGE_MEMORIAL for r in records),
+            place_hint=(records[0].text if records and records[0].stage == STAGE_SWITCH
+                        else None),
+            records=[r.to_dict() for r in records],
+            notes=list(notes or ()),
+        )
+        return scene
 
     def to_dict(self) -> dict:
         """序列化为存档/契约同构 dict（回放读档的反向）。
 
         视觉/意图字段空值（None / 空列表）→ 省略, 不污染存档（旧档兼容）。
+        记录流板额外带 `records`（**唯一真源**）+ `notes`（可观测）。
         """
         d = {
             "paragraphs": [dict(p) if isinstance(p, dict) else {"text": p}
@@ -133,6 +236,16 @@ class BondScene:
             "choices": list(self.choices),
             "is_end": bool(self.is_end),
         }
+        if self.records:
+            d["records"] = [dict(r) for r in self.records]
+        if self.notes:
+            d["notes"] = list(self.notes)
+        if self.place_hint:
+            d["place_hint"] = self.place_hint
+        if self.memorial:
+            d["memorial"] = True
+        if self.art_hint:
+            d["art_hint"] = self.art_hint
         if self.branches:
             d["branches"] = {
                 k: [dict(p) if isinstance(p, dict) else {"text": p} for p in v]
@@ -196,6 +309,10 @@ class BondScene:
         audio = raw.get("audio")
         place = raw.get("place")
         title = raw.get("title")
+        records = [dict(r) for r in raw.get("records", []) if isinstance(r, dict)]
+        notes = [str(x) for x in raw.get("notes", []) if isinstance(x, str)]
+        place_hint = raw.get("place_hint")
+        art_hint = raw.get("art_hint")
         return cls(
             paragraphs=paras,
             choices=choices,
@@ -205,6 +322,11 @@ class BondScene:
             audio=audio if isinstance(audio, str) else None,
             place=place if isinstance(place, str) else None,
             title=title if isinstance(title, str) and title.strip() else None,
+            records=records,
+            notes=notes,
+            place_hint=place_hint if isinstance(place_hint, str) and place_hint else None,
+            memorial=bool(raw.get("memorial", False)),
+            art_hint=art_hint if isinstance(art_hint, str) else "",
         )
 
     @classmethod
@@ -322,6 +444,9 @@ class BondStoryEngine:
         # SceneStream P1.5 候选草稿标记（DESIGN_CHOICE_PREGEN §2）:
         # fork_for_pick 产物 = True——消费方据此跳过重复 record_picked
         self._draft = False
+        # 记录流 v2（P0-4b）: 上一次调用切出的尾板（0 LLM 待发——记录里已经写好了
+        # 后续内容, 玩家点继续即领下一板; 天然"预生成", 见 §6 板派生）
+        self._pending_boards: list[BondScene] = []
 
     # ------------------------------------------------------------------
     # 会话生命周期
@@ -370,6 +495,7 @@ class BondStoryEngine:
         self._in_memorial = False
         self._memorial_used = False
         self._last_payload = None           # 回录基准重置（每个引擎实例新剧情）
+        self._pending_boards = []           # 记录流待发板（同会话生命周期）
         if self._task_card_override is None:        # 卡开关定值（会话内不变）
             self._task_on = task_card_enabled()
         else:
@@ -428,6 +554,14 @@ class BondStoryEngine:
 
         self._trace = []
 
+        # 记录流 v2（P0-4b）: 上一回合切出的尾板——内容已在手, **0 LLM 直接发**
+        # （玩家点继续即领下一板; 这是"读屏期间生成下一板"最朴素形态, §6）
+        if self._pending_boards:
+            scene, hist_text = self._pending_boards.pop(0)
+            self._trace = [{"attempt": 0, "action": "record_stream/pending",
+                            "records": len(scene.records), "parse_valid": True}]
+            return self._finish_scene(scene, user_input, hist_text, annotate=annotate)
+
         # 每场动态尾（DESIGN_PROMPTKIT §2, Phase 3）: 唯一装配入口 round_messages——
         # [system(盒B)] + history + [约束注记?] + [场 task 卡] + [user]。无注记时
         # 与旧 format_messages 布局逐字节一致（format_messages 仅剩客户端公共方法）。
@@ -445,6 +579,10 @@ class BondStoryEngine:
             notes=notes, user=user_input)
         if max_tokens is None:                       # 真源: task_levels 形态 bond
             max_tokens = task_levels_max_tokens("bond")
+        # 记录流 v2（P0-4b）: 输出是 **JSONL（多行多条）**——不能用 json_object
+        # （那是"整回复单个 JSON 对象", 且客户端会把回复 json.loads 成 dict, 反而
+        # 被当成旧动作分支）。纪念子模式仍是单动作 JSON → 保持 json_object。
+        resp_format = "json_object" if self._in_memorial else "text"
 
         for attempt in range(MAX_SCENE_RETRIES):
             # 方案 A 流式嗅探（每次 attempt 新建——重试是全新输出, 重新嗅探）
@@ -456,19 +594,37 @@ class BondStoryEngine:
                 if chat_full is not None:
                     response = chat_full(
                         messages, temperature=0.8, max_tokens=max_tokens,
-                        response_format="json_object",
+                        response_format=resp_format,
                         on_chunk=probe.feed if probe is not None else None,
                     )
                 else:
                     response = self.llm.chat(
                         messages, temperature=0.8, max_tokens=max_tokens,
-                        response_format="json_object",
+                        response_format=resp_format,
                     )
             except Exception as e:
                 logger.warning("LLM 调用失败（第 %d 次）: %s", attempt, e)
                 feedback(messages, f"LLM 调用失败: {e}\n请重试。")
                 continue
             messages.append({"role": "assistant", "content": str(response)})
+
+            # ---- 记录流 v2（P0-4b）: 字符串输出 = 记录流（真机路径）----
+            # dict = 旧动作 JSON（测试桩/开发通道——P0-7 迁移后退役）; 纪念子模式
+            # 仍走旧动作（memorial_exit 独占一轮; 记录流里"区间 = 本板", 该动作待退役）
+            if not isinstance(response, dict) and not self._in_memorial:
+                boards, hard = self._build_record_boards(str(response), attempt)
+                if not boards:
+                    feedback(
+                        messages,
+                        "记录流不合规: " + "; ".join(hard or ["空块：没有任何合法记录"]),
+                        "请按「本轮输出契约」重发整轮记录: 一行一条 JSON（换场发 "
+                        "stage=switch; 收尾 end 放最后一条; art 预告放首条; 老师的话连写 "
+                        "1~3 条 sensei）——不要数组、不要围栏、不要动作 JSON。",
+                    )
+                    continue
+                scene, hist_text = boards[0]
+                self._pending_boards = list(boards[1:])
+                return self._finish_scene(scene, user_input, hist_text, annotate=annotate)
 
             # 1) 契约解析（story 域优先, 未知动作名再试 memorial 域——双 registry）
             #    按**动作名归属**分流（不能按 parse 结果: parse 失败 = 动作有效但 payload
@@ -579,6 +735,127 @@ class BondStoryEngine:
         if self.director is not None:
             # 视觉导演（v2）: place 意图 → background + audio 占位
             # 表情不经导演——渲染端从段落内联 emotion 查 emotions.yml（catalog.sprite）
+            vs = self.director.visual_for(scene.place, is_end=scene.is_end)
+            scene.background = vs.background
+            scene.audio = vs.audio
+        return scene
+
+    # ------------------------------------------------------------------
+    # 记录流 v2（P0-4b）: 块解析 → 板派生 → 收尾
+    # ------------------------------------------------------------------
+
+    def _speaker_names(self) -> dict[str, str]:
+        """历史渲染的说话人名字表（角色 id → 显示名）。"""
+        char = self._current_char
+        return {char.character_id: char.display_name} if char else {}
+
+    def _build_record_boards(self, raw: str,
+                             attempt: int) -> tuple[list[tuple["BondScene", str]], list[str]]:
+        """LLM 原始记录流文本 → (板列表, 硬违规)。
+
+        板列表每项 = (BondScene, 灌历史的叙事文本); 首板本次发, 其余进待发队列。
+        硬违规（形状类）→ 板列表为空, 由调用方 feedback 打回重发。
+        """
+        char = self._current_char
+        main_id = char.character_id if char else ""
+        aliases = ([char.display_name] if char else []) + list(self._character_names or [])
+        block = VnBlock.from_text(raw, main_id=main_id, aliases=aliases)
+        block_art = next((r.text for r in block.records if r.stage == STAGE_ART), "")
+        hard, soft = split_board_issues(block.issues)
+        drops = [n for n in block.notes if n.startswith("[DROP")]
+        notes = [n for n in block.notes if not n.startswith("[DROP")]
+        self._trace.append({
+            "attempt": attempt,
+            "action": "record_stream",
+            "records": len(block.records),
+            "parse_valid": bool(block.records) and not hard,
+            "parse_errors": list(hard),
+            "issues": list(block.issues),
+            "soft": list(soft),
+            "notes": notes,
+            "drops": drops,
+        })
+        logger.info("[vn][records] attempt=%d n=%d drop=%d note=%d issues=%d%s",
+                    attempt, len(block.records), len(drops), len(notes), len(block.issues),
+                    f" soft={len(soft)}" if soft else "")
+        for d in drops:                          # 逐条坏行（原文前 100 字在 diag 里）
+            logger.warning("[vn][records] 丢行 %s", d)
+        if not block.records:
+            return [], ["空块：没有任何合法记录"]
+        if hard:
+            return [], hard
+        if soft:                                 # 超长群 → 切群（内容零损失）
+            logger.info("[vn][records] 软违规（已切群处理）: %s", "; ".join(soft))
+        if block_art and not any(r.stage == STAGE_MEMORIAL for r in block.records):
+            logger.warning("[vn][records] 声明了 art 但本回合没有 memorial（降级: 不发图）")
+
+        # `art` 是**块级声明**（本轮画面意向）——不参与板切分（否则会切出一个纯声明
+        # 的空板）; 挂在含纪念的那一板上（无纪念则挂首板, 信息不丢）
+        flow = tuple(r for r in block.records if r.stage != STAGE_ART)
+        spans = _board_spans(flow)
+        if len(spans) > MAX_BOARDS_PER_TURN:
+            logger.warning("[vn][records] 本回合派生 %d 板 → 只发前 %d（其余丢弃）",
+                           len(spans), MAX_BOARDS_PER_TURN)
+            spans = spans[:MAX_BOARDS_PER_TURN]
+        names = self._speaker_names()
+        boards: list[tuple[BondScene, str]] = []
+        spare: tuple = ()                        # 不可见板（纯 switch）→ 记录并入下一板
+        for start, end, group in spans:
+            slice_ = flow[start:end]
+            group_local = tuple(i - start for i in group)
+            if spare:                            # 真源不丢: 空板的记录挂在下一板里
+                group_local = tuple(i + len(spare) for i in group_local)
+                slice_ = spare + slice_
+                spare = ()
+            scene = BondScene.from_board(slice_, group_local, notes=list(block.notes))
+            if not scene.paragraphs and not scene.choices:
+                spare = slice_                     # 无可显示内容（如连发两条 switch）
+                continue
+            # 历史文本 = 本板叙事记录（**排除槽内候选**——未选台词永不进 LLM 上下文）;
+            # switch 文本按 §4 回显 writer 自己写的地点话（绝不是资产键）
+            visible = tuple(r for i, r in enumerate(slice_) if i not in group_local)
+            boards.append((scene, VnBlock.from_records(visible).render_text(names)))
+        if spare:                                # 结尾只剩不可见记录 → 并入末板真源
+            if boards:
+                scene, text = boards[-1]
+                scene.records = [r.to_dict() for r in spare] + scene.records
+            else:
+                fallback = BondScene.from_board(spare, (), notes=list(block.notes))
+                boards.append((fallback, ""))
+        if block_art:                            # 画面意向挂到含纪念的板（否则首板）
+            target = next((s for s, _ in boards if s.memorial), boards[0][0])
+            target.art_hint = block_art
+        if any(scene.memorial for scene, _ in boards):
+            self._memorial_used = True           # 章内 ≤1（区间 = 本板, 拍板 17: 降级为普通 VN）
+            logger.info("[vn][records] 本回合含纪念触发（区间 = 本板; v2 不切模式）")
+        return boards, []
+
+    def _finish_scene(self, scene: "BondScene", user_input: str, hist_text: str, *,
+                      annotate: bool = True) -> "BondScene":
+        """本板收尾（回录基准 + 历史灌入 + 两遍式标注 + 导演视觉）——记录流/旧动作共用。"""
+        # 方案A-A1 回录基准（裁决后 record_picked 用同一渲染函数重渲尾部）:
+        # 记录流板 = to_dict()（records 真源 + 派生 paragraphs, 老渲染函数照吃）
+        self._last_payload = scene.to_dict()
+        self._history.append({"role": "user", "content": user_input})
+        # 2026-09-05 统一窗口（DESIGN_CONTEXT_WINDOW）: 内部历史与事件流渲染同构;
+        # 记录流板的历史文本 = **只含叙事记录**（switch/art/群内候选不进 LLM 上下文）
+        self._history.append({"role": "assistant", "content": hist_text or "（……）"})
+        self._trim_history()
+        # 两遍式 C + SceneStream P1 按段流水（正文逐段标注; annotate=False → webgui emo lane）
+        if annotate and self._lexicon_keys and not scene.memorial_exit:
+            try:
+                self.fill_scene_emotions_text(scene)
+            except Exception as e:             # noqa: BLE001 — 标注异常不阻断剧情
+                logger.warning("emotion 标注异常（兜底延续）: %s", e)
+        # place 标注（同步路径）: 换场句锚点写回（记录流路径沿用现网标注器; switch →
+        # 资产键的翻译是 P1-2 的事, 本期 place_hint 只随 payload 落库）
+        if annotate and self._place_keys and not scene.memorial_exit:
+            try:
+                self.fill_scene_places(scene)
+            except Exception as e:             # noqa: BLE001 — 标注异常不阻断剧情
+                logger.warning("place 标注异常（兜底保持背景）: %s", e)
+        if self.director is not None:
+            # 视觉导演（v2）: place 意图 → background + audio 占位
             vs = self.director.visual_for(scene.place, is_end=scene.is_end)
             scene.background = vs.background
             scene.audio = vs.audio

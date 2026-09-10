@@ -365,6 +365,46 @@ SPEAKER_SENSEI_LABEL = "老师"
 DEFAULT_SPEAKER_NAMES: dict[str, str] = {CHARACTER_SENSEI: SPEAKER_SENSEI_LABEL}
 
 
+def _speaker_key(value: str) -> str:
+    """说话人比较键：去空白/下划线/连字符 + 小写（`伊草 遥香` ≡ `伊草遥香`）。"""
+    return re.sub(r"[\s_\-·]+", "", value or "").lower()
+
+
+def normalize_main_character(records: Iterable[VnRecord], main_id: str,
+                             aliases: Iterable[str] = ()) -> tuple[tuple[VnRecord, ...], tuple[str, ...]]:
+    """把主角的别名写法归一到 `main_id`（决策 #21 引擎侧）。
+
+    单人模式下写作 `character` 值的合法说话人只有三种: 主角、`narrator`、`sensei`。
+    模型偶尔会用显示名/昵称（`伊草 遥香` / `遥香`）——**归一兜底**而不是丢行或另起
+    一个"角色"（未来 NPC table 会取代这条兜底）。
+
+    Returns:
+        (归一后的记录, NOTE 列表)——没发生改名时 NOTE 为空。
+    """
+    main = (main_id or "").strip()
+    if not main:
+        return tuple(records), ()
+    alias_keys = {_speaker_key(main)}
+    alias_keys |= {_speaker_key(a) for a in aliases if str(a).strip()}
+    out: list[VnRecord] = []
+    notes: list[str] = []
+    for rec in records:
+        if rec.kind == KIND_CHARACTER and rec.value not in (CHARACTER_NARRATOR,
+                                                            CHARACTER_SENSEI,
+                                                            main):
+            if _speaker_key(rec.value) in alias_keys:
+                notes.append(f"[NOTE line {rec.line_no}] 说话人 {rec.value!r} → {main}（别名归一）")
+                out.append(VnRecord(rec.kind, main, rec.text, rec.line_no))
+                continue
+            # 单人模式下"不认识的名字"也归主角（防丢台词）；NOTE 记账以便观测
+            notes.append(f"[NOTE line {rec.line_no}] 未知说话人 {rec.value!r} → {main}"
+                         "（单人模式归一；未来 NPC table 细分）")
+            out.append(VnRecord(rec.kind, main, rec.text, rec.line_no))
+            continue
+        out.append(rec)
+    return tuple(out), tuple(notes)
+
+
 @dataclass(frozen=True)
 class VnBlock:
     """一个**块**（= 引擎最小提交单元：一次 LLM 回合产出的全部记录）。
@@ -385,12 +425,17 @@ class VnBlock:
         return cls(recs, tuple(notes), tuple(check_block(recs)) if validate else ())
 
     @classmethod
-    def from_text(cls, text: str, *, validate: bool = True) -> VnBlock:
-        """整块文本（LLM 原始输出）→ 块；坏行不阻断，NOTE/DROP 全部记账。"""
+    def from_text(cls, text: str, *, validate: bool = True, main_id: str = "",
+                  aliases: Iterable[str] = ()) -> VnBlock:
+        """整块文本（LLM 原始输出）→ 块；坏行不阻断，NOTE/DROP 全部记账。
+
+        `main_id`/`aliases` 非空时顺带做**主角别名归一**（决策 #21）。
+        """
         res = parse_stream(text)
         notes = [f"[NOTE line {d.line_no}] {d.error}" for d in res.notes]
         notes += [f"[DROP line {d.line_no}] {d.error}" for d in res.dropped]
-        return cls.from_records(res.records, notes=notes, validate=validate)
+        recs, alias_notes = normalize_main_character(res.records, main_id, aliases)
+        return cls.from_records(recs, notes=[*notes, *alias_notes], validate=validate)
 
     @classmethod
     def from_dict(cls, data: Any) -> VnBlock:

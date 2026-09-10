@@ -219,6 +219,12 @@ D:\myStuff\tempo\                        ← 背景资产库根
   **最小说话人形态**：`显示名：正文`，旁白无前缀，`art`/`exit` 跳过）。
   校验（`check_block`）只出**问题清单**，不拦不修；`VnRecord.line_no` 不参与相等性
   （记录身份 = kind/value/text）→ payload 往返稳定。
+- **板切分落地（P0-4b，`_board_spans`）**：边界 = **换场点前** + **交互槽后**——
+  即"**槽挂在板尾、角色的反应在下一板**"（玩家读完本板正文才看到选项；选中后下一板
+  才是反应）。`art` 是**块级声明**，不参与切分（否则会切出一个纯声明的空板）；
+  只含舞台信号的板（如连发两条 `switch`）**并进下一板的记录真源**（地点顺延，真源不丢）。
+  超长群（>3）按上限**切槽**（软违规，不整块重发）。一次调用可派生多板 → 首板本次发，
+  其余进**待发板队列**（`_pending_boards`），后续调用 **0 LLM** 领取（§10.4 桥的朴素形态）。
 
 ---
 
@@ -335,6 +341,9 @@ VN 记录流 = 这同一思路在 story 域的对应演进。
 | **不救**（丢行 + 计数） | 形状类不可救：双判别符 / 都无判别符 / 未知 stage / 空 text / 缺逗号 / `text` 非字符串 / `text` 不是最后字段（text-first 形状）——**不越界修复**（宁可丢行也不猜语义） | P0-2 |
 | 失败分类 | ① 行级格式错 → **能救则救 + NOTE 计数**，不可救才丢行；② `finish=length` / `content` 空 → **独立计数 + 可重试**（非格式问题） | 探针 6/7 |
 | 两遍式标注档位 | emotion/place `thinking=off`（既定铁律，探针 7 从反面验证） | `llm/task_levels.py` |
+| **记录流真机（首次）** | 47 条 → 16.0s；55 条 → 27.9s（high 档）; **DROP 0 / NOTE 0 / 硬违规 0 / 软违规 0**；55 条切出 **10 板**（含 1 板 memorial + `art` 声明）；首个待发板续发 **0.00s** | `probe_vn_records_engine.py` |
+| `response_format` | 记录流**必须走 `text`**（`json_object` = 整回复单对象; 且客户端会 `json.loads` 成 dict → 被误判成旧动作分支）; 纪念子模式（memorial_exit）仍 `json_object` | P0-4b 真机踩坑 |
+| 待发板收益 | 一次调用 = 一拍（~10 板），板间**零 LLM**；否则按旧"一板一调用"需 ~10×20s | `probe_vn_records_engine.py` |
 
 ---
 
@@ -511,7 +520,7 @@ pending ──(worker 起)──► generating ──(图落盘 + l2d)──► 
 | **P0-3a** | **schema 渲染第三形态**：`build_record_schema(with_examples, char_id, char_display)` = 七种取值 + 转义规范 + 硬规则七条 + few-shot（**随会话角色渲染真实 id/显示名**，不再漏占位 `haruka`） | `contract/schema.py` | 单测：全取值/转义示范/群上限/可关示例/随会话渲染 |
 | **P0-3b** | **文案与盒装配换代**：rules 重写为记录流（switch/群/memorial/art 预告/end/节奏/三份范本，含 `\"` 转义示范）；盒 B `schema` 块改 `build_record_schema`（标题「本轮输出契约（VN 记录流）」）；`place_palette` 措辞反转（**换场由 writer 发 switch**）；词表块按 writer 受众措辞；`task_bond.md` 换代 | `llm/prompts/bond_story_rules.md`、`task_bond.md`、`core/promptkit/{blocks,bond_story}.py`、`core/media/emotion_lexicon.py` | 夹具刷新 + 人工审 diff（mmt 夹具不动）；真机输出守形（照 probe5 口径统计）——真机验证随 P0-4b |
 | **P0-4a** | **块载体** `VnBlock`：记录数组 + sensei 群 + 位置元数据（`switch_at`/`art_at`/`memorial_at`/`end_at`/`exit_at`）+ 前后切片 + 两种出口（`to_dict` 落库 / `render_text` 历史渲染，最小说话人形态） | `contract/records.py` | 单测：群/位置/切片、payload 往返稳定、`line_no` 不参与相等、修复与丢行进 notes、**旧契约 payload 显式拒绝** |
-| **P0-4b** | **引擎接线（单板）**：`BondScene` 持有 `VnBlock`（板=最小提交单元语义不变）；`send_vn_scene` 改为"收集文本 → 行解析 → 组装块"；说话人**最小形态**（payload/renderer 带 speaker，UI 样式留后） | `core/bond/bond_story.py`、`core/ui/vn_cli.py`、`webgui/bond.py` | 真机跑通一场：开场 `switch` → 若干行 → 槽 → `end` |
+| **P0-4b** | **引擎接线**：`send_vn_scene` 字符串输出走**记录流**（`VnBlock` → 板派生 → 群/槽 → 待发板队列）；`BondScene` 持 `records`（真源）+ 派生 `paragraphs/choices`（过渡期喂老 renderer）; 别名归一 + 两级修复上线; `response_format` 切 text | `core/bond/bond_story.py`、`contract/records.py` | 单测 9 例（板切分/待发板 0 LLM/历史隔离/别名/辅助转义/硬违规重试/软违规切槽/art 不切空板/空板并记录）;**真机一场跑通**（见 §9） |
 | **P0-5** | **槽与回录**：连续 `sensei ≥2` 生成槽；选中者**物化**为单条记录进历史（替代"（选择了: X）"） | 引擎 + `core/session/renderer.py` + `record_picked` 路径 | live 历史与回放同形；未选台词不出现在任何视图/上下文 |
 | **P0-6** | **落库 / 回放 / 存档**：板 payload 改记录数组；旧档只读策略落地（转换层 or 冻结） | `core/session/*`、`renderer/` | 回放逐字节稳定；旧档不炸（转换层测试 or 显式拒绝 + 提示） |
 | **P0-7** | **夹具与测试桩迁移**：各 `ScriptedLLM` 应答改记录流；promptkit 基线刷新 | `tests/{core,webgui,llm}` | 全量绿 + 真机一场（含 switch/槽/end） |
@@ -623,6 +632,8 @@ pending ──(worker 起)──► generating ──(图落盘 + l2d)──► 
 | 19 | 旧的"≥3 次省略选项"机械兜底 | **保留为死代码**（不再触发），不必删除 |
 | 20 | **未转义半角引号要不要"辅助转义"** | **要**：唯一真实错误源（2/391 行），且我们文法形状固定（判别符 + `text` 恒在最后、正文恒在行尾）→ 可做**确定性**再转义（约 30 行、可解释、可计数），成本远低于行级重发。红线：只救这一类；形状类错误**不越界修复**（宁可丢行也不猜语义），每次救回打 NOTE 计入日志以便观测真实频率 |
 | 21 | **记录的两处取值/写法**（P0-3b 用户裁决） | ① 台词**不包「」**（说话人由 `character` 字段表达；（）只留给 `narrator` 记录）——记录里"谁在说"不表达两次；② `character` 取值 = **真实角色 id**（`igusa_haruka`）而非显示名：模型偶尔写「伊草 遥香/遥香/春香」时由**引擎归一兜底**（P0-4b 实现，单人模式下非 narrator/sensei 的记录一律归主角） |
+| 22 | **P0-4b 过渡缝（旧动作通道保留一个节点）** | 引擎按**输出类型**分流: 字符串 = 记录流（真机路径）; **dict = 旧动作 JSON**（测试桩/开发通道——各 `ScriptedLLM` 仍返回 story_scene dict, 故 535 例存量测试保持绿）。缝上带 WARNING 语义与 `trace.action` 区分; **P0-7 迁移测试桩时删除该通道**（届时旧 registry.parse 只剩 memorial exit）。配套: 记录流板仍**派生** `paragraphs/choices` 喂老 renderer（消费者迁移同属 P0-7） |
+| 23 | **板切分语义（真机校准）** | **槽挂板尾、反应在下一板**（不是"槽起新板"——否则角色的反应会在玩家选择前就显示出来）；`art` 不切板（块级声明）; 空板并记录; 超长群切槽。真机实证: 55 条 → 10 板, 说明模型把"老师每次开口"都写成了群（≈每 5 条一次交互）——**与用户样例（9 条 2 群）同量级**，是否收敛到更疏的密度留待用户裁决 |
 
 **残留未决（真未定）**：
 - `art` 意向文本的长度上限（现定"意向级 1~2 句"，是否设硬上限）；
@@ -640,6 +651,7 @@ pending ──(worker 起)──► generating ──(图落盘 + l2d)──► 
 | `probe4.py` | 字段命名对照（speaker/who/actor/kind × narr/@前缀） | 命名不影响守约；`kind` 产出缩水；`@` 前缀最稳 |
 | `probe5.py` / `probe6.py` | 单字段 vs 两分法（× end/memorial 变体） | 两分法 0 违规、产出最高；"尾条失败"实为空响应 |
 | `probe7.py` | 空响应归因 | thinking 与正文共享 `max_tokens`（2048 → content 全空） |
+| `probe_vn_records_engine.py` | **记录流引擎端到端**（P0-4b 真机验收） | 47 条/16.0s、55 条/27.9s，DROP 0、违规 0；55 条 → 10 板（1 板含 memorial + art 声明）；待发板续发 0.00s；**`json_object` 会把 JSONL 解析成 dict** → 记录流必须 `text` |
 | `probe_img_latency.py` | 生图真机计时（单张，授权后跑） | §10.1 四行数据 + `gen_out/last_request.txt` 审计留痕 |
 | `check_img_request.py` | 离线 prompt 全文检查（零成本） | 逐图标签 / 比例 / payload 画像 |
 | `ba_extract3.py` / `ba_dump4.py` | 官方剧本流式抽取（**保留 `#` 指令**，v2 会丢） | `ba_1600008_compact.txt`（109 条记录） |

@@ -122,6 +122,17 @@ P0-4b 落地）；registry 分流此时只剩 memorial exit 路径。
               + [场 task 卡] + [user]
 ```
 
+**记录流 v2（P0-4b, 2026-09-10）对"每场"的改动**：
+- **`response_format` = `text`**（记录流是 JSONL 多行多条；`json_object` 是"整回复单
+  对象"且客户端会 `json.loads` 成 dict → 被误判成旧动作分支）。纪念子模式仍 `json_object`。
+- 引擎把字符串输出解析成 `VnBlock` → **派生板**（换场/槽前切）→ 首板本次返回，
+  其余进**待发板队列**（后续同形调用 **0 LLM** 直接发，`trace.action=record_stream/pending`）。
+- `engine._history` 里每板一条 assistant 文本 = `VnBlock.render_text`（**排除槽内候选**；
+  `switch` 按 §4 回显 writer 自己写的地点话；`art`/`exit` 跳过）。
+- 板 payload = `{records, paragraphs(派生), choices(派生), is_end, place_hint?, art_hint?, memorial?}`
+  —— `records` 是唯一真源，派生字段是给**尚未迁移的消费者**的过渡面（§11 P0-7）。
+- **旧动作通道仍在**（输出为 dict 时走 registry.parse）——测试桩/开发通道，P0-7 删除。
+
 **本场 user_input 的五种真值**（webgui/bond.py:722-774）：
 
 | 场景 | user_input | picked 落库 |
