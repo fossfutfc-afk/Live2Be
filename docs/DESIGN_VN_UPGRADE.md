@@ -59,7 +59,7 @@ A1 回录、官方文风、digest 仅 story_end、中断≠失败）全部保留
 
 | 字段 | 取值 | text 含义 | 位置约束 |
 |---|---|---|---|
-| `character` | 角色 id（如 `haruka`） | 台词 | 任意 |
+| `character` | 角色 id（**记录里写真实 id**，如 `igusa_haruka`；显示名/别名由引擎归一——决策 #21） | 台词（**不包「」**——说话人由字段表达，决策 #21） | 任意 |
 | `character` | `sensei` | 老师台词：**每条 = 一个独立动作/一句话**；**最长连续 sensei 段 = 一个「群」，长度 1~3**；**群一律弹选项**（run=1 = 单选项、2~3 = 多选项，玩家挑一句说） | 任意（块内出现几次不限） |
 | `character` | `narrator` | 叙述（旁白/舞台指示） | 任意 |
 | `stage` | `switch` | **目标地点（自由文本，永不是资产键）** | 任意；**本章第一条必须是 switch**（交代开场景） |
@@ -274,7 +274,7 @@ VN 记录流 = 这同一思路在 story 域的对应演进。
 | 构件 | 保留理由 |
 |---|---|
 | `domain` 概念 | 域仍是 promptkit 盒 / 夹具 / 校验的边界（story 域 = VN 记录域） |
-| `build_schema()` 作为唯一渲染入口 | 新增**第三种形态**：记录流 schema（与 MMT 的消息流并列），示例行 + 规范八条 |
+| `build_schema()` 作为唯一渲染入口 | 新增**第三种形态**：记录流 schema（与 MMT 的消息流并列）——落点 = 独立函数 `build_record_schema()`（**不进 `build_schema(registry)`**：记录文法不依赖动作注册表，参数是角色 id 与状态约束；盒子仍由 `schema` 块承载，标题可换「本轮输出契约」） |
 | `ContractError` / `ValidationResult` 语义 | 逐行解析仍需要结构化诊断（行号 + 原因 + 是否致命） |
 | promptkit 夹具基线机制 | 契约文本变了 → 夹具必须同批刷新（`PROMPTKIT_UPDATE_FIXTURES=1` + 人工审 diff） |
 | 审批策略常量 | story 域仍全 `APPROVAL_AUTO`，不变 |
@@ -508,7 +508,8 @@ pending ──(worker 起)──► generating ──(图落盘 + l2d)──► 
 |---|---|---|---|
 | **P0-1** | **文法 spec**：`RecordSpec`（kind=character/stage、允许值、位置约束、槽上限、转义规范）+ 单域 registry 挂载 | `contract/`（新增 `records.py`，或扩展 `spec.py`）、`core/bond/bond_actions.py` | 单测：合法/非法记录行判定正确；保留值与角色 id 不冲突 |
 | **P0-2** | **行解析器**：`parse_line(text) → VnRecord \| ParseDiag`；`parse_stream(lines)` 批量；坏行丢弃 + 诊断聚合（行号/原因/致命性）+ **辅助转义/末行悬空两级修复**（经用户裁决：值得做且简单，NOT 通用 JSON 修复） | `contract/records.py` | 回归用例覆盖 §9 各类行：未转义引号（含多引号/同时悬空/夹多余字段）、**末行悬空补 `"}`**、数组行拍平、不可救形状仍丢行；391 行样本零致命误判 |
-| **P0-3** | **schema 渲染第三形态**：`record_stream=True` 输出记录文法 + 规范八条 + 示例行；rules 重写（few-shot 含 `\"` 转义样例） | `contract/schema.py`、`llm/prompts/bond_story_rules.md`、盒 B schema 块 | 夹具刷新 + 人工审 diff；真机输出守形（照 probe5 口径统计） |
+| **P0-3a** | **schema 渲染第三形态**：`build_record_schema(with_examples, char_id, char_display)` = 七种取值 + 转义规范 + 硬规则七条 + few-shot（**随会话角色渲染真实 id/显示名**，不再漏占位 `haruka`） | `contract/schema.py` | 单测：全取值/转义示范/群上限/可关示例/随会话渲染 |
+| **P0-3b** | **文案与盒装配换代**：rules 重写为记录流（switch/群/memorial/art 预告/end/节奏/三份范本，含 `\"` 转义示范）；盒 B `schema` 块改 `build_record_schema`（标题「本轮输出契约（VN 记录流）」）；`place_palette` 措辞反转（**换场由 writer 发 switch**）；词表块按 writer 受众措辞；`task_bond.md` 换代 | `llm/prompts/bond_story_rules.md`、`task_bond.md`、`core/promptkit/{blocks,bond_story}.py`、`core/media/emotion_lexicon.py` | 夹具刷新 + 人工审 diff（mmt 夹具不动）；真机输出守形（照 probe5 口径统计）——真机验证随 P0-4b |
 | **P0-4a** | **块载体** `VnBlock`：记录数组 + sensei 群 + 位置元数据（`switch_at`/`art_at`/`memorial_at`/`end_at`/`exit_at`）+ 前后切片 + 两种出口（`to_dict` 落库 / `render_text` 历史渲染，最小说话人形态） | `contract/records.py` | 单测：群/位置/切片、payload 往返稳定、`line_no` 不参与相等、修复与丢行进 notes、**旧契约 payload 显式拒绝** |
 | **P0-4b** | **引擎接线（单板）**：`BondScene` 持有 `VnBlock`（板=最小提交单元语义不变）；`send_vn_scene` 改为"收集文本 → 行解析 → 组装块"；说话人**最小形态**（payload/renderer 带 speaker，UI 样式留后） | `core/bond/bond_story.py`、`core/ui/vn_cli.py`、`webgui/bond.py` | 真机跑通一场：开场 `switch` → 若干行 → 槽 → `end` |
 | **P0-5** | **槽与回录**：连续 `sensei ≥2` 生成槽；选中者**物化**为单条记录进历史（替代"（选择了: X）"） | 引擎 + `core/session/renderer.py` + `record_picked` 路径 | live 历史与回放同形；未选台词不出现在任何视图/上下文 |
@@ -621,6 +622,7 @@ pending ──(worker 起)──► generating ──(图落盘 + l2d)──► 
 | 18 | **run=1 的 UI / 推进节奏** | **统一弹选项**（run=1 = 单选项，不做"自动播的剧本台词"）；**逐句点击推进**（每句话点一下）——取代"板间无缝连播"；点击停顿即异步缓冲 |
 | 19 | 旧的"≥3 次省略选项"机械兜底 | **保留为死代码**（不再触发），不必删除 |
 | 20 | **未转义半角引号要不要"辅助转义"** | **要**：唯一真实错误源（2/391 行），且我们文法形状固定（判别符 + `text` 恒在最后、正文恒在行尾）→ 可做**确定性**再转义（约 30 行、可解释、可计数），成本远低于行级重发。红线：只救这一类；形状类错误**不越界修复**（宁可丢行也不猜语义），每次救回打 NOTE 计入日志以便观测真实频率 |
+| 21 | **记录的两处取值/写法**（P0-3b 用户裁决） | ① 台词**不包「」**（说话人由 `character` 字段表达；（）只留给 `narrator` 记录）——记录里"谁在说"不表达两次；② `character` 取值 = **真实角色 id**（`igusa_haruka`）而非显示名：模型偶尔写「伊草 遥香/遥香/春香」时由**引擎归一兜底**（P0-4b 实现，单人模式下非 narrator/sensei 的记录一律归主角） |
 
 **残留未决（真未定）**：
 - `art` 意向文本的长度上限（现定"意向级 1~2 句"，是否设硬上限）；

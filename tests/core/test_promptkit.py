@@ -117,11 +117,12 @@ def test_task_card_wrapup_kind():
 
 
 def test_task_card_bond_kinds():
-    """Bond 场卡: 默认 scene（task_bond.md）; 纪念模式 kind=memorial_exit。"""
+    """Bond 场卡: 默认 scene（task_bond.md, 记录流 v2）; 纪念模式 kind=memorial_exit。"""
     scene = task_card("bond", enabled=True, char="伊草 遥香")
     assert scene is not None
-    assert scene.startswith("本场任务：作为伊草 遥香推进当前板块")
-    assert "story_scene" in scene and "branches" in scene
+    assert scene.startswith("本场任务：作为伊草 遥香推进当前这一段剧情")
+    assert '"stage": "switch"' in scene and "sensei" in scene and '"stage": "end"' in scene
+    assert "story_scene" not in scene and "branches" not in scene     # 旧契约字样退役
     exit_card = task_card("bond", "memorial_exit", char="伊草 遥香", enabled=True)
     assert exit_card is not None
     assert "memorial_exit" in exit_card and "story_scene 骨架" not in exit_card

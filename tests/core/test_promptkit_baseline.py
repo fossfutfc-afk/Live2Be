@@ -133,7 +133,7 @@ _BOND_MARKERS = [
     "【本角色剧情基调】",
     "【本角色羁绊剧情建议】",
     "【羁绊剧情 回复规则】",
-    "可用动作 schema",
+    "本轮输出契约（VN 记录流）",           # 记录流 v2: 标题可换（无 action 外壳）
 ]
 
 
@@ -151,12 +151,13 @@ def test_bond_box_baseline():
     box = engine._system_prompt
     _assert_fixture("bond_box.txt", box)
     markers = list(_BOND_MARKERS)
+    _schema_at = markers.index("本轮输出契约（VN 记录流）")
     if "【表情标注词表】" in box:        # 词表/地点资产 gitignore——存在才断言
-        markers.insert(markers.index("可用动作 schema") + 1, "【表情标注词表】")
+        markers.insert(_schema_at + 1, "【表情标注词表】")
     if "【可去的地方】" in box:          # 舞台清单（资产 whitelist 存在才有）
         at = (markers.index("【表情标注词表】") + 1
               if "【表情标注词表】" in markers
-              else markers.index("可用动作 schema") + 1)
+              else _schema_at + 1)
         markers.insert(at, "【可去的地方】")
     _assert_ordered(box, markers)
 
@@ -243,7 +244,7 @@ def test_bond_scene_tail_baseline():
     assert [x["role"] for x in m] == ["system", "system", "system", "user"], m
     assert m[0]["content"] == box                     # 前缀 = 盒B 逐字节
     assert m[1] == {"role": "system", "content": "（系统）测试注记"}
-    assert m[2]["content"].startswith("本场任务：作为伊草 遥香推进当前板块")  # scene 场卡
+    assert m[2]["content"].startswith("本场任务：作为伊草 遥香推进当前这一段剧情")  # scene 场卡
     assert m[3] == {"role": "user", "content": seed}
     _write_json_fixture("bond_scene.txt", m)
 
