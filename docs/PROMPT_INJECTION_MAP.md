@@ -100,7 +100,8 @@ messages = [system] + history + [P16 羁绊进度注记] + [P17 system_note?]
 地点判定移交标注层 place lane（place_annotate.md 持有词表），锚点写回句项 `place`
 键（稀有，只进 payload/事件流，render 忽略——不进 LLM 上下文），导演/前端在锚点
 句切背景（routers `_resolve_scene` 注入 place_bg；晚到锚点即切）。**词表可见性以
-`place_palette` 舞台清单保留**（同源, 防背景单调）。详细设计：docs/DESIGN_BOND_CONTRACT_V2.md。
+`place_palette` 舞台清单保留**（同源, 防背景单调）。详细设计：docs/archive/DESIGN_BOND_CONTRACT_V2.md
+（旧契约, 已归档）；新契约的换场/词表归属见 docs/DESIGN_VN_UPGRADE.md §5。
 
 双 registry 分流（bond_story.py:429-435）：按**动作名归属**——story 域 spec 命中 →
 story parse；否则 memorial 域。parse 失败仍留本域反馈（不能按 parse 结果分流）。

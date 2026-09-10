@@ -1,5 +1,9 @@
 # Bond Story JSON 契约化 + 双核升级 — 设计文档
 
+> ⚠️ **已归档（2026-09-10）**：本文描述 **VN 引擎旧运行时路径**（`story_scene`/`story_end`
+> 双动作 + 双 registry + JSON 单动作契约）。契约形式换代见 **`docs/DESIGN_VN_UPGRADE.md`**
+> （记录流 v2；registry 的保留/改写/退役清单见该文 §8）。留作历史与设计意图参考，不再更新。
+
 状态：已批准（2026-08-22 用户拍板，v1 已实现 + v2 双核升级）。
 关联：contract/DESIGN.md（契约层根基）、llm/DESIGN.md（prompt 仓库）、docs/archive/DESIGN_AGENT.md（早期方案, 已归档）。
 

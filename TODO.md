@@ -6,6 +6,15 @@
 
 ## 进行中 / 即将
 
+### VN 契约形式换代（记录流 v2, 2026-09-10 设计整理——**未立项, 待蓝图想清**）
+
+- 理论/分步规划/未决清单: **docs/DESIGN_VN_UPGRADE.md**（§11 P0-P4 分步, §12 蓝图待决 14 问）
+- 已归档旧 VN 文档: DESIGN_BOND_CONTRACT_V2 / DESIGN_CHOICE_PREGEN /
+  DESIGN_SCENE_STREAM / DESIGN_BOND_STORY（→ docs/archive/）
+- [ ] **待用户**: 蓝图（planner）形态拍板（§12 A/B 组: 粒度·归属·时机·漂移）
+- [ ] **待开工 P0**: 记录流最小闭环（文法 spec → 行解析器 → schema 第三形态 →
+      引擎接线 → 槽物化 → 落库回放 → 夹具/桩迁移）
+
 ### 世界线语义定稿实施（core/DESIGN_WORLD.md §9, 2026-09-04 定稿——法则共享/历史固化/overlay 三层）
 
 - [ ] **行为层现状核对**：config 单一真源实时读 = 定稿形态（无副本）——核对所有
@@ -201,13 +210,14 @@
        板带 choices → fork 候选支（A1 按路径回录）各自预生成下一板; 裁决命中
        即端上（零等待, 未命中走老路）; 未选作废 GC（草稿纯内存零落库）。
        成本实测: 双路 prompt 近全量缓存（miss 262-1072 vs hit ~6.2k）, 增量
-       ≈ 1 候选支输出; 设计/落地记录 docs/DESIGN_CHOICE_PREGEN.md; 开关
+       ≈ 1 候选支输出; 设计/落地记录 docs/archive/DESIGN_CHOICE_PREGEN.md（已归档）; 开关
        settings.toml [bond] choice_pregen（缺省 sibling; tree 预留不做）;
        **待真机验证**: 选项命中 0 等待率 / 候选墙钟并发实测; ~~分歧感规则测试
        授权~~ 已撤销（2026-09-10 收敛终局定稿——VN 不做分歧感, 自由度移交
        邀约扩展 DESIGN_MEETUP.md）
 - [ ] **D. P2 流式渐进（段闭合即发布）**：选项/继续等待的终态解——TTFT+首段即读;
-       见 DESIGN_SCENE_STREAM §2/§10
+       见 docs/archive/DESIGN_SCENE_STREAM §2/§10（已归档; 记录流 v2 见
+       docs/DESIGN_VN_UPGRADE.md §11.3）
 - [ ] **E. 空闲时段复测 P1 验收**：兜底句数≈0 / 重试率 / 单段耗时 p50
        （`P1_MAX_BOARDS=6` 全量; 今晚负载噪声不可信）
 - [ ] **F. client json_object 空 raw 快速失败短路**：空响应根因已除（thinking
