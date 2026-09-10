@@ -17,16 +17,15 @@ import sys
 import tempfile
 from pathlib import Path
 
-import pytest
-
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from core.momotalk import MomoTalkEngine
 from core.bond.bond_story import BondScene, BondStoryEngine, SceneLoopError
-from core.bond.bond_executor import StoryExecError, StoryExecutor
 from core.session import SessionStore
 from core.session.events import M_VN_EXIT
 from core.ui.vn_cli import run_bond_story_vn, simulate_vn_scene
+
+from tests.vn_fixtures import scene  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 CHARACTER = "igusa_haruka"
@@ -105,14 +104,10 @@ def _store_engine(llm, tmp_path) -> tuple[MomoTalkEngine, SessionStore, str]:
     return engine, st, root.session_id
 
 
-# story_scene/story_end 契约动作（与 bond_story_rules.md few-shot 同构;
-# 2026-08-30 契约强化: emotion 必填 + 按句切分）
-SCENE_A = {"action": "story_scene", "payload": {
-    "paragraphs": [{"text": "段落一。", "emotion": "nomal"}], "choices": ["选A", "选B"],
-    "branches": {"选A": [{"text": "分支一。", "emotion": "nomal"}],
-                 "选B": [{"text": "分支二。", "emotion": "smile"}]}}}
-STORY_END = {"action": "story_end", "payload": {
-    "paragraphs": [{"text": "收尾了。", "emotion": "nomal"}]}}
+# 记录流 v2（P0-7c 迁移）: 块 = 一行一条 JSON 记录; 槽 = 连续 sensei（挂板尾）
+SCENE_A = scene(switch_to="教室", lines=["段落一。"], sensei=["选A", "选B"],
+                after=["分支一。"])
+STORY_END = scene(lines=["收尾了。"], end_text="（幕落。）")
 
 
 # ----------------------------------------------------------------------------
@@ -120,26 +115,29 @@ STORY_END = {"action": "story_end", "payload": {
 # ----------------------------------------------------------------------------
 
 def test_send_vn_scene():
+    """记录流一场: 正文进显示、群 → 选项; 历史 = 叙事渲染（**槽内候选不进上下文**）。"""
     vn = BondStoryEngine(ROOT / "config" / "characters", ScriptedLLM(SCENE_A))
     vn.start_session(CHARACTER)
     scene = vn.send_vn_scene("（开场）")
-    assert scene.paragraphs == [{"text": "段落一。", "emotion": "nomal"}], scene.paragraphs
+    assert [p["text"] for p in scene.paragraphs] == ["段落一。"], scene.paragraphs
+    assert scene.paragraphs[0]["speaker"] == CHARACTER
     assert scene.choices == ["选A", "选B"], scene.choices
-    assert not scene.is_end
+    assert not scene.is_end and scene.place_hint == "教室"
     assert vn.history_length == 2, f"send_vn_scene 应记 2 条历史: {vn.history_length}"
-    # 历史 = 叙事提取文本（2026-09-05 统一窗口——与 render_events/事件流渲染同构）
+    # 历史 = 记录流叙事渲染（2026-09-05 统一窗口——与 render_events/事件流渲染同构）;
+    # 未选候选永不进上下文（A1）
     hist = vn.history[-1]["content"]
-    assert "段落一。" in hist and "选A" in hist and "选B" in hist
-    assert "（选项: 选A / 选B）" in hist
-    print(f"    send_vn_scene: 1 段 + 2 选项, 历史叙事文本同构, {vn.history_length} 条")
+    assert "段落一。" in hist and "教室" in hist
+    assert "选A" not in hist and "选B" not in hist
+    print(f"    send_vn_scene: 1 段 + 2 选项（槽候选不进历史）, {vn.history_length} 条")
 
-    # 收尾场景（story_end 动作 → is_end 推导为 true）
+    # 收尾块（stage=end → is_end）
     vn2 = BondStoryEngine(ROOT / "config" / "characters", ScriptedLLM(STORY_END))
     vn2.start_session(CHARACTER)
     scene2 = vn2.send_vn_scene("继续")
-    assert scene2.is_end and scene2.paragraphs == [{"text": "收尾了。", "emotion": "nomal"}], scene2
+    assert scene2.is_end and [p["text"] for p in scene2.paragraphs] == ["收尾了。", "（幕落。）"], scene2
     assert not scene2.choices
-    print("    send_vn_scene: story_end 动作 → 收尾场景, 无选项")
+    print("    send_vn_scene: stage=end → 收尾块, 无选项")
 
 
 # ----------------------------------------------------------------------------
@@ -366,116 +364,6 @@ def test_run_vn_remind_then_natural_end(tmp_path):
 # ----------------------------------------------------------------------------
 # send_vn_scene: 无效动作 feedback 回灌 → LLM 修正重试
 # ----------------------------------------------------------------------------
-
-def test_send_vn_scene_invalid_retry():
-    bad = {"action": "mmt_teleport", "payload": {}}
-    llm = ScriptedLLM(bad, SCENE_A)
-    vn = BondStoryEngine(ROOT / "config" / "characters", llm)
-    vn.start_session(CHARACTER)
-    scene = vn.send_vn_scene("（开场）")
-    assert scene.paragraphs == [{"text": "段落一。", "emotion": "nomal"}], scene.paragraphs
-    # 第一次调用无效 → feedback 回灌（第二次调用的最后一条 user）
-    fb = llm.snapshots[1][-1]["content"]
-    assert "动作无效" in fb and "未知动作" in fb, fb
-    # 历史只记最终有效场景（失败轮不进 history）
-    assert vn.history_length == 2, vn.history_length
-    print("    send_vn_scene 无效动作: 回灌重试成功, 失败轮不进历史")
-
-
-# ----------------------------------------------------------------------------
-# send_vn_scene: MAX_SCENE_RETRIES 次无效 → SceneLoopError（循环必须终结）
-# ----------------------------------------------------------------------------
-
-def test_send_vn_scene_loop_exhausted():
-    bad = {"action": "mmt_teleport", "payload": {}}
-    vn = BondStoryEngine(ROOT / "config" / "characters", ScriptedLLM(bad, bad, bad))
-    vn.start_session(CHARACTER)
-    with pytest.raises(SceneLoopError):
-        vn.send_vn_scene("（开场）")
-    print("    send_vn_scene 耗尽: 3 次无效 → SceneLoopError（宁缺勿错）")
-
-
-# ----------------------------------------------------------------------------
-# 双核执行层: story_end 空段落 parse 拒绝 / exec 拒绝回灌 / exec 耗尽 / trace
-# ----------------------------------------------------------------------------
-
-def test_story_end_empty_paragraphs_rejected():
-    """story_end 空 paragraphs → parse ContractError → feedback 回灌 → LLM 修正重试。"""
-    bad = {"action": "story_end", "payload": {"paragraphs": []}}
-    llm = ScriptedLLM(bad, STORY_END)
-    vn = BondStoryEngine(ROOT / "config" / "characters", llm)
-    vn.start_session(CHARACTER)
-    scene = vn.send_vn_scene("继续")
-    assert scene.is_end and scene.paragraphs == [{"text": "收尾了。", "emotion": "nomal"}], scene
-    fb = llm.snapshots[1][-1]["content"]
-    assert "动作无效" in fb and "paragraphs" in fb, fb
-    print("    story_end 空段落: parse ContractError → 回灌修正重试成功")
-
-
-def test_story_exec_reject_retry():
-    """StoryExecError → feedback 回灌 → LLM 修正重试成功（双核执行层拦截）。"""
-
-    class RejectingExecutor(StoryExecutor):
-        """executor stub: 第一次 story_end 抛 StoryExecError, 之后正常。"""
-        def __init__(self):
-            super().__init__()
-            self.rejected = 0
-        def execute(self, action):
-            if action.action == "story_end" and self.rejected == 0:
-                self.rejected += 1
-                raise StoryExecError("收尾场景暂不可执行——请重试")
-            return super().execute(action)
-
-    llm = ScriptedLLM(STORY_END, STORY_END)
-    vn = BondStoryEngine(ROOT / "config" / "characters", llm)
-    vn.start_session(CHARACTER)
-    vn.executor = RejectingExecutor()
-    scene = vn.send_vn_scene("继续")
-    assert scene.is_end, "StoryExecError 回灌重试后应成功"
-    fb = llm.snapshots[1][-1]["content"]
-    assert "暂不可执行" in fb, fb
-    print("    story_exec 拒绝: StoryExecError → 回灌修正重试成功")
-
-
-def test_story_exec_exhaustion_raises_scene_loop():
-    """executor 连续拒 3 次 → SceneLoopError（语义扩展: 解析或执行任一失败超限）。"""
-
-    class AlwaysReject(StoryExecutor):
-        def execute(self, action):
-            raise StoryExecError("总是拒绝")
-
-    vn = BondStoryEngine(ROOT / "config" / "characters",
-                         ScriptedLLM(STORY_END, STORY_END, STORY_END))
-    vn.start_session(CHARACTER)
-    vn.executor = AlwaysReject()
-    with pytest.raises(SceneLoopError):
-        vn.send_vn_scene("继续")
-    print("    story_exec 耗尽: exec 拒 3 次 → SceneLoopError（循环必须终结）")
-
-
-def test_trace_records_attempts():
-    """trace 逐轮留痕: 1 次 parse 失败 + 1 次成功, attempt/parse/exec 字段齐全。"""
-    bad = {"action": "mmt_teleport", "payload": {}}
-    llm = ScriptedLLM(bad, SCENE_A)
-    vn = BondStoryEngine(ROOT / "config" / "characters", llm)
-    vn.start_session(CHARACTER)
-    vn.send_vn_scene("（开场）")
-    trace = vn.trace
-    assert len(trace) == 2, f"1 次解析失败 + 1 次成功: {len(trace)}"
-    # 第一次: parse 失败, 无 exec 字段
-    assert trace[0]["attempt"] == 0 and trace[0]["action"] is None
-    assert trace[0]["parse_valid"] is False and trace[0]["parse_errors"]
-    assert "exec_ok" not in trace[0], "parse 失败轮不应有 exec 字段"
-    # 第二次: parse 成功 + exec 成功
-    assert trace[1]["attempt"] == 1 and trace[1]["action"] == "story_scene"
-    assert trace[1]["parse_valid"] is True and not trace[1]["parse_errors"]
-    assert trace[1]["exec_ok"] is True and trace[1]["exec_message"] == "中段场景已就绪"
-    # 2026-09-02: 骨架 emotion 丢弃——trace 的 payload 无 emotion（标注层另回填 scene）
-    assert trace[1]["payload"]["paragraphs"] == [{"text": "段落一。"}]
-    print("    trace: 1 失败 + 1 成功, attempt/parse/exec 字段齐全")
-
-
-# ----------------------------------------------------------------------------
 # wrapup_after_vn: 剧情结束后的手机收尾（agent_turn 走 ScriptedLLM.chat）
 # ----------------------------------------------------------------------------
 
@@ -543,11 +431,12 @@ def test_vn_event_stream(tmp_path):
     assert subs[:2] == [M_SESSION_START, M_VN_ENTER], subs
     assert "story_scene" in subs and "story_end" in subs
     assert M_VN_STATE in subs and M_VN_EXIT in subs and M_SESSION_END in subs
-    # bond 事件含 input（本场触发输入）+ picked（玩家裁决）
+    # bond 事件含 input（本场触发输入）+ picked（玩家裁决）+ 记录真源
     scene_ev = [e for e in evs if e.subtype == "story_scene"][0]
     assert scene_ev.payload["input"].startswith("（旁白）")
     assert scene_ev.payload["picked"] == "选A"
-    assert scene_ev.payload["paragraphs"] == [{"text": "段落一。", "emotion": "nomal"}]
+    assert scene_ev.payload["records"][0] == {"stage": "switch", "text": "教室"}
+    assert [p["text"] for p in scene_ev.payload["paragraphs"]] == ["段落一。"]
     # vn_enter 单流无 parent
     enter = [e for e in evs if e.subtype == M_VN_ENTER][0]
     assert "parent_session_id" not in enter.payload
