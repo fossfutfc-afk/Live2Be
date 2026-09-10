@@ -19,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 from core.bond.bond_story import BondStoryEngine, SceneLoopError
 from core.momotalk import MomoTalkEngine
 from core.session import SessionStore
+from llm.image_gen import GeneratedImage
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 CHARACTER = "igusa_haruka"
@@ -223,11 +224,13 @@ def test_run_vn_memorial_flow(tmp_path):
             self.last_refs: list = []
         def warmup(self):
             self.warmed += 1
-        def generate(self, prompt, seed=None, ref_images=None, character_name="角色"):
+        def generate(self, prompt, seed=None, ref_images=None, character_name="角色",
+                     **kw):
             self.used += 1
             self.last_prompt = prompt
             self.last_refs = list(ref_images or [])
-            return self.png
+            return GeneratedImage(path=self.png, width=1920, height=1080,
+                                  size_bytes=self.png.stat().st_size, backend="apiyi")
 
     fake_png = tmp_path / "fake.png"
     fake_png.write_bytes(b"\x89PNG\r\n\x1a\nfake")

@@ -270,14 +270,16 @@ def run_bond_story_vn(
         if scene.memorial_prompt and image_gen is not None:
             print("[纪念立绘 生成中…]", flush=True)
             try:
-                png = image_gen.generate(
+                img = image_gen.generate(
                     scene.memorial_prompt, seed=memorial_seed,
                     ref_images=collect_ref_images(char.character_id),
                     character_name=char.display_name)
                 sid = gallery_store.write(
-                    char.character_id, scene.memorial_prompt, vn_sid or "", png)
+                    char.character_id, scene.memorial_prompt, vn_sid or "", img.path,
+                    width=img.width, height=img.height)
                 memorial_images = [str(gallery_store.png_path(char.character_id, sid))]
-                print(f"[纪念立绘] {memorial_images[0]}", flush=True)
+                print(f"[纪念立绘] {memorial_images[0]} "
+                      f"({img.width}x{img.height}, {img.elapsed_s:.1f}s)", flush=True)
             except Exception as e:
                 logger.warning("纪念立绘生成失败, 本场降级为纯文字: %s", e)
                 memorial_images = []

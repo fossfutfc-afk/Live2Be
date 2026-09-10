@@ -43,7 +43,11 @@ DEFAULTS: dict = {
     "image": {
         "api_key": "",
         "base_url": "https://api.apiyi.com",
-        "model": "gemini-3.1-flash-lite-image"
+        "model": "gemini-3.1-flash-lite-image",
+        # 目标尺寸 = 屏幕尺寸（出图归一化到该尺寸; 2026-09-10）
+        "screen_size": "1920x1080",
+        "fit": "contain",              # contain=留边不裁 / cover=裁满屏 / none=不处理
+        "api_aspect_ratio": True,      # 请求携带 imageConfig.aspectRatio（不支持自动降级）
     },
 }
 
