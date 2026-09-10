@@ -125,17 +125,28 @@ def _bond_tone(ctx: BlockContext) -> str | None:
 
 
 def _rules_bond(ctx: BlockContext) -> str:
-    """bond_story_rules.md: 单人模式/对白为主节奏/记录流写法（switch·群·memorial·end）。"""
-    return load_prompt("bond_story_rules")
+    """bond_story_rules.md: 单人视角/对白节奏/记录流写法（switch·群·memorial·end）。
+
+    记录流 v2: 范本里的 `{char_id}` / `{char_name}` 占位按**本会话角色**替换——
+    范例一律用真实 id（不许再出现 `haruka` 这类短名, 决策 #24）。
+    """
+    text = load_prompt("bond_story_rules")
+    char = ctx.char
+    if char is not None:
+        text = (text.replace("{char_id}", char.character_id)
+                    .replace("{char_name}", char.display_name))
+    return text
 
 
 def _lexicon_emotion(ctx: BlockContext) -> str | None:
     """【表情标注词表】: assets/illustration/{char}/default/emotions.yml 键+示范 few-shot。
-    记录流 v2: 措辞按 **writer 受众**（`for_writer=True`——它不写 emotion，只看表演能力边界）。
-    词表缺失/损坏 → 不注入（VN 纯文本照跑, 宁缺勿错）。"""
+
+    **已退出盒B**（记录流 v2, 决策 #24）: writer 不写 emotion（标注层逐记录挑），
+    词表与创作无关; 保留块实现供标注层/测试复用（盒清单见 box.DOMAIN_BOXES）。
+    """
     assets_root = Path(ctx.assets_root) if ctx.assets_root else _DEFAULT_ASSETS
     char_dir = assets_root / "illustration" / ctx.char.character_id / "default"
-    inj = build_emotion_injection(char_dir, for_writer=True)
+    inj = build_emotion_injection(char_dir)
     return inj or None
 
 

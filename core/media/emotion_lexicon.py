@@ -92,25 +92,22 @@ def _assign_eg(lex: dict[str, dict], eg_line: str) -> None:
         lex[key]["eg"] = eg_text
 
 
-def build_emotion_injection(char_dir: Path, *, for_writer: bool = False) -> str:
-    """生成表情词表注入文本（协议 §11: 开场喂一遍 + 犯错重喂）。
+def build_emotion_injection(char_dir: Path) -> str:
+    """生成表情词表注入文本（标注层受众——协议 §11: 开场喂一遍 + 犯错重喂）。
 
-    两个消费者，措辞不同（2026-09-10 记录流 v2）:
-    - 标注层（默认, `for_writer=False`）: "标注 emotion 时只从下面选"——它就是标注器；
-    - writer 盒（`for_writer=True`）: v2 里 writer **不写 emotion**（逐记录标注在引擎侧），
-      词表注入只为让它知道"表情能演到什么程度"（防写成词表演不出的情绪）。
+    记录流 v2（2026-09-10）起**只给标注层用**（`bond_story.start_session` 的
+    `_lexicon_hint`）：writer 不写 emotion，词表对创作不起作用，故已退出盒B
+    （决策 #24——盒内"你不用写 emotion"式提醒属白熊效应且废 token）。
 
     无词表 → 空串（调用方跳过注入）。格式: 键 + 示范注释 + eg 例句（few-shot）。
     """
     lex = load_emotion_lexicon(char_dir)
     if not lex:
         return ""
-    if for_writer:
-        head = ("**你不用写 emotion**——系统会按记录逐条挑表情渲染。下面只是让你知道"
-                "表情能演到什么程度（别写成这里演不出的情绪）:")
-    else:
-        head = "给每个情绪单元标注 emotion 时，只从下面选；词表外的情绪不要标（标了会被忽略）。"
-    lines = ["【表情标注词表】（仅当前角色）", head]
+    lines = [
+        "【表情标注词表】（仅当前角色）",
+        "给每个情绪单元标注 emotion 时，只从下面选；词表外的情绪不要标（标了会被忽略）。",
+    ]
     for key, item in lex.items():          # 保持作者文件顺序（默认态在前）
         line = f"  {key}: {item['comment']}" if item["comment"] else f"  {key}"
         if item["eg"]:
