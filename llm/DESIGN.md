@@ -188,7 +188,7 @@ llm/
 - [x] JSON 清洗管道（§2.2 Layer 1-4）
 - [x] Prompt 仓库 `llm/prompts/`（load_prompt 加载 md）
 - [x] 羁绊剧情双动作契约（bond_story_rules.md: story_scene/story_end few-shot,
-      由 core/bond_story.py 双核 loop 消费, 见 core/DESIGN_BOND_STORY.md）
+      由 core/bond_story.py 双核 loop 消费, 见 docs/archive/DESIGN_BOND_STORY.md
 - [x] 视觉导演规则（director_rules.md: core/director 导演 LLM 少样本, 见 core/DESIGN_VISUAL.md）
 
 ### 待定 / 未来扩展

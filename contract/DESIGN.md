@@ -128,7 +128,8 @@ prompt_fields / payload_schema）。Python 端是唯一执行引擎，但定义�
 - `core/mmt/mmt_executor.py`：`MmtExecutor` 按 approval=auto 执行动作，reply 承载对白
 - `core/momotalk.py`：全 JSON agent loop + `_trace`
 - `core/story_actions.py` + `core/story_executor.py`：羁绊剧情 story_scene/story_end 双动作
-  + `StoryExecutor` 执行层（双核 loop，见 DESIGN_BOND_STORY.md）
+  + `StoryExecutor` 执行层（双核 loop，见 docs/archive/DESIGN_BOND_STORY.md）
+  ——**注意**: 该双动作契约将被记录流 v2 取代, 见 docs/DESIGN_VN_UPGRADE.md §8
 
 ## 9. 下一步（Story 契约演进）
 

@@ -61,7 +61,8 @@ python -m pytest                      # 全部离线测试（~150 个）
 | [contract/DESIGN.md](contract/DESIGN.md) | 契约层设计（ActionSpec / 审批策略 / 数据流） |
 | [ide/README.md](ide/README.md) | IDE agent 快速上手 |
 | [web/DESIGN.md](web/DESIGN.md) | Web GUI 设计（SSE 并发 / 审批桥） |
-| [core/DESIGN_BOND_STORY.md](core/DESIGN_BOND_STORY.md) | 羁绊剧情引擎（story_scene/story_end 双动作 + 执行层） |
+| [docs/DESIGN_VN_UPGRADE.md](docs/DESIGN_VN_UPGRADE.md) | VN 契约形式换代（记录流 v2：character/stage 两分法 + switch/标注分工 + registry 关系） |
+| [docs/archive/DESIGN_BOND_STORY.md](docs/archive/DESIGN_BOND_STORY.md) | ⚠️ 已归档（旧 VN 运行时：story_scene/story_end 双动作 + 执行层） |
 | [core/DESIGN_VISUAL.md](core/DESIGN_VISUAL.md) | ② 视觉导演设计（已实现：导演定 sprite/background） |
 | [core/DESIGN_VISUAL_PROTOCOL.md](core/DESIGN_VISUAL_PROTOCOL.md) | 视觉意图协议（emotion/place 意图 + 情绪词表，设计定稿待实现） |
 | [docs/archive/DESIGN_AGENT.md](docs/archive/DESIGN_AGENT.md) | ⚠️ 已归档（算法做导演早期方案，被视觉意图协议取代，历史参考） |
