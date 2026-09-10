@@ -112,13 +112,13 @@ def run_bond_story_vn(
     同会话 append vn_enter（单事件流, 无子会话）, 每场 append type=bond 事件 +
     vn_state marker（恢复点）, 结束时 vn_exit + session_end。写失败静默降级不阻断 VN。
 
-    纪念子模式（§4.7, 2026-08-24）:
-        image_gen（ImageGenerator）注入时: 开场后台预热生图 pipe（首次 ~12s 不阻塞）;
-        LLM 输出 memorial_enter → 当场生图（已预热 ~2s, 显示「生成中」）→ gallery 落盘
-        → l2d 事件 + marker memorial_enter; 下一轮 system_note 注入 memorial_exit
-        schema（纪念模式内只许 exit）; exit 轮 → marker memorial_exit 回 bond。
-        image_gen=None → 纪念场景纯文字渲染（测试/无 GPU 环境）。
-        gallery（GalleryStore）可注入（默认 data/）; memorial_seed 固定 → 立绘可复现。
+    纪念子模式（§4.7, 2026-08-24; 2026-09-10 生图改 APIYI 单后端）:
+        image_gen（ImageGenerator）注入时: LLM 输出 memorial_enter → 当场生图
+        （APIYI 实测单张 26s 量级, 显示「生成中」）→ gallery 落盘 → l2d 事件 +
+        marker memorial_enter; 下一轮 system_note 注入 memorial_exit schema
+        （纪念模式内只许 exit）; exit 轮 → marker memorial_exit 回 bond。
+        image_gen=None / 未配 key → 纪念场景纯文字渲染（测试环境友好）。
+        gallery（GalleryStore）可注入（默认 data/）; memorial_seed 保留为历史参数。
 
     双层收尾兜底（模型可能迟迟不改用 story_end 动作收尾）:
         第 remind_rounds 场 → 注入系统注记「已推进 N 轮, 剩余约 M 轮」,
@@ -197,7 +197,7 @@ def run_bond_story_vn(
             logger.warning("事件流 vn_enter 写入失败, 本次 VN 不落事件流: %s", e)
             vn_sid = None
 
-    # 纪念立绘: trigger 后立即后台预热生图 pipe（首次 ~12s 不阻塞玩家; enter 轮当场仅 ~2s）
+    # 纪念立绘: trigger 后立即后台预热（APIYI 无预热对象, warmup 为兼容占位）
     if image_gen is not None:
         threading.Thread(target=image_gen.warmup, daemon=True).start()
     gallery_store = gallery if gallery is not None else GalleryStore()
@@ -263,7 +263,7 @@ def run_bond_story_vn(
             completed = False
             break
 
-        # 纪念进入轮（§4.7）: 生图（APIYI 秒级 / 本地预热后 ~2s, 显示加载中）→ gallery 落盘
+        # 纪念进入轮（§4.7）: 生图（APIYI 单张 26s 量级, 显示加载中）→ gallery 落盘
         # ref 图 = collect_ref_images（sprite_* 角色 → style_* 画风 → 其余 配饰, 顺序固定）
         # 生图失败 → 降级纯文字, 不阻断剧情（宁缺勿错）
         memorial_images: list[str] = []
