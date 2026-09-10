@@ -214,6 +214,11 @@ D:\myStuff\tempo\                        ← 背景资产库根
 - 玩家侧节奏：**逐句点击推进**（每句话点一下；`sensei` 群弹选项）——取代原先"板间无缝连播"的设想，
   与官方 VN 观感一致；**每一次点击之间的停顿本身就是异步线程的天然缓冲**（§10.4）。
 - 事件 payload = 该板的记录数组（append-only 不变，形状变了）。
+- **载体落地（P0-4a）**：`contract.records.VnBlock` = 记录数组 + 群 + 位置元数据；
+  两个出口 = `to_dict()`（落库/回放 payload）与 `render_text()`（历史回灌/回放文本，
+  **最小说话人形态**：`显示名：正文`，旁白无前缀，`art`/`exit` 跳过）。
+  校验（`check_block`）只出**问题清单**，不拦不修；`VnRecord.line_no` 不参与相等性
+  （记录身份 = kind/value/text）→ payload 往返稳定。
 
 ---
 
@@ -504,7 +509,8 @@ pending ──(worker 起)──► generating ──(图落盘 + l2d)──► 
 | **P0-1** | **文法 spec**：`RecordSpec`（kind=character/stage、允许值、位置约束、槽上限、转义规范）+ 单域 registry 挂载 | `contract/`（新增 `records.py`，或扩展 `spec.py`）、`core/bond/bond_actions.py` | 单测：合法/非法记录行判定正确；保留值与角色 id 不冲突 |
 | **P0-2** | **行解析器**：`parse_line(text) → VnRecord \| ParseDiag`；`parse_stream(lines)` 批量；坏行丢弃 + 诊断聚合（行号/原因/致命性）+ **辅助转义/末行悬空两级修复**（经用户裁决：值得做且简单，NOT 通用 JSON 修复） | `contract/records.py` | 回归用例覆盖 §9 各类行：未转义引号（含多引号/同时悬空/夹多余字段）、**末行悬空补 `"}`**、数组行拍平、不可救形状仍丢行；391 行样本零致命误判 |
 | **P0-3** | **schema 渲染第三形态**：`record_stream=True` 输出记录文法 + 规范八条 + 示例行；rules 重写（few-shot 含 `\"` 转义样例） | `contract/schema.py`、`llm/prompts/bond_story_rules.md`、盒 B schema 块 | 夹具刷新 + 人工审 diff；真机输出守形（照 probe5 口径统计） |
-| **P0-4** | **引擎接线（单板）**：`send_vn_scene` 改为"收集文本 → 行解析 → 组装板"；板提交语义沿用现网（暂不做块式多板/板派生） | `core/bond/bond_story.py`、`core/ui/vn_cli.py`、`webgui/bond.py` | 真机跑通一场：开场 `switch` → 若干行 → 槽 → `end` |
+| **P0-4a** | **块载体** `VnBlock`：记录数组 + sensei 群 + 位置元数据（`switch_at`/`art_at`/`memorial_at`/`end_at`/`exit_at`）+ 前后切片 + 两种出口（`to_dict` 落库 / `render_text` 历史渲染，最小说话人形态） | `contract/records.py` | 单测：群/位置/切片、payload 往返稳定、`line_no` 不参与相等、修复与丢行进 notes、**旧契约 payload 显式拒绝** |
+| **P0-4b** | **引擎接线（单板）**：`BondScene` 持有 `VnBlock`（板=最小提交单元语义不变）；`send_vn_scene` 改为"收集文本 → 行解析 → 组装块"；说话人**最小形态**（payload/renderer 带 speaker，UI 样式留后） | `core/bond/bond_story.py`、`core/ui/vn_cli.py`、`webgui/bond.py` | 真机跑通一场：开场 `switch` → 若干行 → 槽 → `end` |
 | **P0-5** | **槽与回录**：连续 `sensei ≥2` 生成槽；选中者**物化**为单条记录进历史（替代"（选择了: X）"） | 引擎 + `core/session/renderer.py` + `record_picked` 路径 | live 历史与回放同形；未选台词不出现在任何视图/上下文 |
 | **P0-6** | **落库 / 回放 / 存档**：板 payload 改记录数组；旧档只读策略落地（转换层 or 冻结） | `core/session/*`、`renderer/` | 回放逐字节稳定；旧档不炸（转换层测试 or 显式拒绝 + 提示） |
 | **P0-7** | **夹具与测试桩迁移**：各 `ScriptedLLM` 应答改记录流；promptkit 基线刷新 | `tests/{core,webgui,llm}` | 全量绿 + 真机一场（含 switch/槽/end） |
