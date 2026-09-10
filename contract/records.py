@@ -26,6 +26,7 @@ run=1 单选项、run=2~3 多选项；群一律弹选项（不做"自动播的�
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any
@@ -61,6 +62,11 @@ TEXT_OPTIONAL_STAGES = (STAGE_EXIT,)
 MAX_SENSEI_RUN = 3
 #: 末行悬空修复候选（依次尝试）
 _TAIL_REPAIRS = ('"}', "}")
+#: 辅助转义用：判别符前缀（`text` 是最后字段，我们 few-shot 的形状）
+_RECORD_HEAD_RE = re.compile(
+    r'^\{\s*"(?P<kind>character|stage)"\s*:\s*"(?P<value>[^"]*)"\s*,')
+#: 辅助转义用：`text` 字段的起始（取判别符之后的**第一个**，正文里的同名子串不干扰）
+_TEXT_FIELD_RE = re.compile(r'"text"\s*:\s*"')
 
 
 # ---------------------------------------------------------------------------
@@ -171,6 +177,37 @@ def _record_from_obj(obj: Any) -> tuple[VnRecord | None, str]:
     return VnRecord(kind=kind, value=value, text=text), ""
 
 
+def _rescape_repair(line: str) -> tuple[VnRecord | None, str]:
+    """辅助转义：`text` 尾部含**未转义半角引号**时，切出文本段重新转义后重建。
+
+    这不是通用 JSON 修复，而是**利用我们文法的确定性形状**：`text` 恒为最后一个
+    字段、正文恒在行尾，所以前缀可由正则切出，剩下的一律是文本。步骤：
+    判别符前缀 + `"text": "` 定界 → 去掉行尾可选的 `}` / `"` → 直接用 dict 重建
+    对象走正常校验（引号已在数据层，无需再拼 JSON 字符串）。
+    不适用/救不回 → (None, "")，交回原有诊断。
+    """
+    m = _RECORD_HEAD_RE.match(line)
+    if not m:
+        return None, ""
+    field = _TEXT_FIELD_RE.search(line, m.end())
+    if field is None:
+        return None, ""
+    tail = line[field.end():].rstrip()
+    if tail.endswith("}"):
+        tail = tail[:-1].rstrip()
+    if tail.endswith('"'):
+        tail = tail[:-1]
+    if '"' not in tail or not tail.strip():
+        return None, ""                       # 无未转义引号 → 不属于本类错误
+    rec, _why = _record_from_obj({m.group("kind"): m.group("value"), "text": tail})
+    if rec is None:
+        return None, ""
+    note = f"text 内 {tail.count(chr(34))} 处未转义引号 → 辅助转义救回"
+    if line[m.end():field.start()].strip():
+        note += "（中间多余字段已丢弃）"
+    return rec, note
+
+
 def _tail_repair(line: str) -> Any | None:
     """末行悬空修复：补 `"}` / `}`（EOF 处无歧义）。失败返回 None。"""
     if line.endswith("}"):
@@ -191,6 +228,9 @@ def _parse_line_multi(line: str, line_no: int) -> tuple[list[VnRecord], ParseDia
     try:
         obj = json.loads(text)
     except json.JSONDecodeError as e:
+        rec, note = _rescape_repair(text)
+        if rec is not None:
+            return [rec], ParseDiag(line_no, text, note, dropped=False)
         repaired = _tail_repair(text)
         if repaired is None:
             return [], ParseDiag(line_no, text, f"JSON 解析失败: {e.msg}")
