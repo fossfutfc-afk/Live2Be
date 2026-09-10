@@ -80,13 +80,44 @@ def test_shape_violations_dropped_with_diag():
     print("    parse: 六类违规丢行 + 多余字段 NOTE")
 
 
-def test_unescaped_quote_is_dropped_not_repaired():
-    """未转义半角引号（唯一真实错误源）→ 丢行 + JSON 错误诊断（不做魔法修复）。"""
+def test_unescaped_quote_is_rescaped():
+    """未转义半角引号 → 辅助转义救回 + NOTE（文本逐字节还原）。"""
     line = '{"character": "haruka", "text": "……不是 "别担心" 这种话。"}'
     rec, diag = parse_line(line, 3)
-    assert rec is None and diag is not None and diag.dropped
-    assert "JSON 解析失败" in diag.error
-    print("    parse: 未转义引号 → 丢行（不魔法修复）")
+    assert rec is not None and rec.value == "haruka"
+    assert rec.text == '……不是 "别担心" 这种话。'
+    assert diag is not None and not diag.dropped and "辅助转义" in diag.error
+    print("    parse: 未转义引号 → 辅助转义救回")
+
+
+def test_rescape_repair_edge_cases():
+    """辅助转义的边界：多对引号 / 同时悬空 / 夹多余字段 / 正常引号不触发。"""
+    # 多对未转义引号 + 悬空（既缺收尾引号又缺右括号）
+    rec, diag = parse_line('{"character": "sensei", "text": "她说 "好" 又说 "不好"。', 4)
+    assert rec is not None and rec.text == '她说 "好" 又说 "不好"。'
+    assert not diag.dropped and "辅助转义" in diag.error
+    # 夹一个不含引号的多余字段：救回并记账
+    rec2, diag2 = parse_line(
+        '{"character": "haruka", "emotion": "normal", "text": "听 "心跳" 声。"}', 5)
+    assert rec2 is not None and rec2.text == '听 "心跳" 声。'
+    assert "多余字段" in diag2.error
+    # 中文引号 / 已正确转义的半角引号（含结尾）/ 无引号：一律不触发修复
+    for ok in ('{"character": "haruka", "text": "「别担心」这种话。"}',
+               '{"character": "haruka", "text": "不是 \\"别担心\\" 这种话。"}',
+               '{"character": "haruka", "text": "他问：\\"走吗？\\""}',
+               '{"character": "haruka", "text": "走吧。"}'):
+        r, d = parse_line(ok, 6)
+        assert r is not None and d is None, (ok, d)
+    print("    parse: 辅助转义边界（多引号/悬空/多余字段/正常引号不触发）")
+
+
+def test_unescapable_line_still_dropped():
+    """辅助转义不越界：非本类形状（缺逗号等）依旧丢行。"""
+    for bad in ('{"character": "haruka" "text": "缺逗号"}',
+                '{"character": "haruka", "text": ["不是字符串"]}'):
+        rec, diag = parse_line(bad, 7)
+        assert rec is None and diag is not None and diag.dropped, bad
+    print("    parse: 不可救行仍丢行（不越界修复）")
 
 
 def test_tail_truncation_is_repaired():
@@ -113,19 +144,21 @@ def test_array_line_is_flattened():
 # ---------------------------------------------------------------------------
 
 def test_mixed_block_local_failure_isolation():
-    """坏行只死自己，其余记录照常收下（行级隔离）。"""
+    """坏行只死自己，其余记录照常收下（行级隔离）；可救行救回不丢。"""
     block = "\n".join([
         '{"stage": "switch", "text": "深夜的杂草屋"}',
         '{"character": "haruka", "text": "……老师。"}',
-        '{"character": "haruka", "text": "我想要的不是 "别担心" 这种话。"}',   # 坏行
-        '{"character": "sensei", "text": "是我来晚了。"}',
+        '{"character": "haruka" "text": "缺逗号，不可救"}',                    # 坏行
+        '{"character": "sensei", "text": "我想要的不是 "别担心" 这种话。"}',   # 可救
         '{"stage": "memorial", "text": "（她抬起头。）"}',
         '{"character": "haruka", "text": "「……」"}',
     ])
     res = parse_stream(block)
     assert len(res.records) == 5, res.records
+    assert res.records[2].text == '我想要的不是 "别担心" 这种话。'
     assert len(res.dropped) == 1 and res.dropped[0].line_no == 3
-    print("    parse: 坏行隔离（5 好 1 坏）")
+    assert len(res.notes) == 1 and "辅助转义" in res.notes[0].error
+    print("    parse: 坏行隔离（坏行丢、可救行救）")
 
 
 # ---------------------------------------------------------------------------
