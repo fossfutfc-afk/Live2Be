@@ -206,6 +206,54 @@ def test_halo_and_character_hints_injected(tmp_path):
 # 返回值与尺寸归一化
 # ---------------------------------------------------------------------------
 
+def test_end_to_end_yml_hint_reaches_request_body(tmp_path, monkeypatch):
+    """端到端: illustration.yml → CharacterLoader → generate → 真实请求体含该描述。
+
+    这是"prompt 真的接进去了"的证据: 不调 API, 但抓的是最终 wire body。
+    """
+    import base64 as _b64
+    import json as _json
+    from io import BytesIO
+
+    from PIL import Image
+
+    from core.parsing.dynamic_character_parser import CharacterLoader
+    import llm.image_gen as ig
+
+    char_root = tmp_path / "characters"
+    d = char_root / "test_char"
+    d.mkdir(parents=True)
+    (d / "profile.yml").write_text("REQ~most_called_name: 测试角色\n", encoding="utf-8")
+    (d / "illustration.yml").write_text(
+        "halo_hint: 三个互相分离的紫色钝角三角形\ncharacter_hint: 紫色短发\n",
+        encoding="utf-8")
+    ref = tmp_path / "assets" / "illustration" / "test_char" / "ref"
+    _png(ref / "sprite_1.png")
+    _png(ref / "halo.png")
+
+    gen = ImageGenerator(api_key="test-key", output_dir=tmp_path / "out",
+                         screen_size=(160, 90))
+    monkeypatch.setattr(ig, "_ref_cache_dir", lambda: tmp_path / "cache")
+    buf = BytesIO()
+    Image.new("RGB", (1376, 768), (9, 9, 9)).save(buf, format="PNG")
+    captured: dict = {}
+
+    def fake_post(body):
+        captured["body"] = body
+        return {"candidates": [{"content": {"parts": [
+            {"inlineData": {"data": _b64.b64encode(buf.getvalue()).decode()}}]}}]}
+
+    monkeypatch.setattr(gen, "_post_api", fake_post)
+    hints = CharacterLoader(char_root).load_illustration("test_char")
+    img = gen.generate("夜晚的天台", ref_images=collect_ref_images("test_char", ref_dir=ref),
+                       character_name="测试角色", **hints)
+    wire = _json.dumps(captured["body"], ensure_ascii=False)
+    assert "三个互相分离的紫色钝角三角形" in wire, "halo_hint 未进入请求体"
+    assert "补充设定：紫色短发" in wire, "character_hint 未进入请求体"
+    assert (img.width, img.height) == (160, 90) and img.source_size == (1376, 768)
+    print("    e2e: illustration.yml → 请求体 → 落盘归一化")
+
+
 def test_generated_image_path_protocol(tmp_path):
     """GeneratedImage 兼容 os.fspath/str（gallery.copy2 可直接吃）+ as_dict。"""
     gi = GeneratedImage(path=tmp_path / "a.png", width=1920, height=1080,
