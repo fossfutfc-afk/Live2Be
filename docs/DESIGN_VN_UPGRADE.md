@@ -531,8 +531,8 @@ pending ──(worker 起)──► generating ──(图落盘 + l2d)──► 
 | **P0-4a** | **块载体** `VnBlock`：记录数组 + sensei 群 + 位置元数据（`switch_at`/`art_at`/`memorial_at`/`end_at`/`exit_at`）+ 前后切片 + 两种出口（`to_dict` 落库 / `render_text` 历史渲染，最小说话人形态） | `contract/records.py` | 单测：群/位置/切片、payload 往返稳定、`line_no` 不参与相等、修复与丢行进 notes、**旧契约 payload 显式拒绝** |
 | **P0-4b** | **引擎接线**：`send_vn_scene` 字符串输出走**记录流**（`VnBlock` → 板派生 → 群/槽 → 待发板队列）；`BondScene` 持 `records`（真源）+ 派生 `paragraphs/choices`（过渡期喂老 renderer）; 别名归一 + 两级修复上线; `response_format` 切 text | `core/bond/bond_story.py`、`contract/records.py` | 单测 9 例（板切分/待发板 0 LLM/历史隔离/别名/辅助转义/硬违规重试/软违规切槽/art 不切空板/空板并记录）;**真机一场跑通**（见 §9） |
 | **P0-5** | **槽与回录**：群 → `choices`（run=1 也弹）; 选中候选**物化**为单条 `sensei` 记录（替掉"（选择了: X）"）; 渲染唯一源 = `render_records`（未选候选不出现 + 裁决物化在群首）; `BondScene.from_dict` 显示层同步物化 + 派生段落带 `speaker` | `contract/records.py`、`core/session/renderer.py`、`core/bond/bond_story.py` | 单测: live 尾部 == 事件流渲染**逐字节**、未选候选不进任何视图/上下文、显示层物化插回群首 |
-| **P0-6** | **落库 / 回放 / 存档**：板 payload 改记录数组；旧档只读策略落地（转换层 or 冻结） | `core/session/*`、`renderer/` | 回放逐字节稳定；旧档不炸（转换层测试 or 显式拒绝 + 提示） |
-| **P0-7** | **夹具与测试桩迁移**：各 `ScriptedLLM` 应答改记录流；promptkit 基线刷新 | `tests/{core,webgui,llm}` | 全量绿 + 真机一场（含 switch/槽/end） |
+| **P0-6** | **落库 / 回放 / 存档**：板 payload = `{records(真源), paragraphs(派生), choices(派生), is_end, place_hint?/art_hint?/memorial?}`（webgui `_log_scene` 早已写 `scene.to_dict()`，无需改）; **旧档冻结**（无 records → 旧渲染/旧结构原样）; webgui 回放视图 `_narrativize` 补记录流分支（裁决行插回群首） | `core/session/*`、`webgui/bond.py` | 单测 7 例：payload 经 SessionStore 往返逐字节、回放 == live、恢复窗口 == live、旧档冻结、混合存档、坏 payload 降级、旧契约被 VnBlock 显式拒绝 |
+| **P0-7** | **消费者与测试桩迁移**：各 `ScriptedLLM` 应答改记录流（**删掉 dict→旧动作过渡缝**, 决策 #22）; webgui/vn_cli 展示层（说话人显示名映射、黑屏 end、无 branches 的裁决显形）; 前端 JS 跟进 | `tests/{core,webgui,llm}`、`webgui/`、`core/ui/vn_cli.py` | 全量绿（存量用例走记录流）+ 真机一场（switch/槽/end 全链） |
 
 **依赖关系**：P0-1/2/3 相互独立可并行 → P0-4 依赖三者 → P0-5 与 P0-6 可并行 → P0-7 收尾。
 
