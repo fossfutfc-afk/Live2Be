@@ -15,11 +15,15 @@ from webgui import bond, chat
 from core.session.store import SessionStore
 from core.momotalk import MomoTalkEngine
 
-ROOT = Path(__file__).resolve().parent.parent.parent
+sys_path_root = Path(__file__).resolve().parent.parent.parent
+import sys  # noqa: E402
+sys.path.insert(0, str(sys_path_root))
+from tests.vn_fixtures import scene as _scene  # noqa: E402
+
+ROOT = sys_path_root
 CHARACTER = "igusa_haruka"
 
-SCENE = {"action": "story_scene", "payload": {
-    "paragraphs": [{"text": "她轻轻点了点头，夜色里声音也软了下来。"}]}}
+SCENE = _scene(lines=["她轻轻点了点头，夜色里声音也软了下来。"])
 
 
 class FailThenOK:
@@ -115,15 +119,15 @@ def test_system_note_force_end_after_limit():
 
     st50 = BondState(round=_END_ROUNDS)
     note50 = bond._system_note(st50)
-    assert note50 and "本轮请改用 story_end" in note50
+    assert note50 and "stage=end" in note50
     st60 = BondState(round=_END_ROUNDS + 10)
     note60 = bond._system_note(st60)
-    assert note60 and "必须" in note60 and "story_end" in note60, note60
+    assert note60 and "必须" in note60 and "stage=end" in note60, note60
     # 平时（未到提醒轮）→ 无收尾注记
     st5 = BondState(round=5)
     note5 = bond._system_note(st5)
-    assert note5 is None or "story_end" not in note5
-    print("    system_note: 超限后每轮强制 story_end 注记（无伪收场）")
+    assert note5 is None or "stage=end" not in note5
+    print("    system_note: 超限后每轮强制 stage=end 注记（无伪收场）")
 
 
 # ----------------------------------------------------------------------------
@@ -132,8 +136,7 @@ def test_system_note_force_end_after_limit():
 
 def test_bond_finish_idempotent(tmp_path):
     """同一进程内重复 finish → 第二次幂等跳过（不重复 vn_exit/wrapup/兜底话）。"""
-    end = {"action": "story_end", "payload": {
-        "paragraphs": [{"text": "（收尾。）"}]}}
+    end = _scene(narrator=["（收尾。）"], end_text="")
     llm = FailThenOK(0, end)
     st = SessionStore(tmp_path / "f2")
     engine = MomoTalkEngine(ROOT / "config" / "characters", llm, store=st)

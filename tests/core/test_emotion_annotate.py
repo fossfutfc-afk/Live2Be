@@ -4,11 +4,16 @@
 覆盖:
     annotate_emotions      正常/非法输出/LLM 异常/空输入/无词表
     fill_missing_emotions  骨架补标/延续兜底/部分缺漏/依赖注入
-    引擎集成                send_vn_scene 骨架 → 标注 attach（正文 + branches）
+    引擎集成                send_vn_scene 记录流块 → 一板一组标注（反应板独立一组）
 """
 
+import sys
 import tempfile
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+
+from tests.vn_fixtures import scene as _scene  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 
@@ -212,16 +217,15 @@ def test_annotate_character_injected():
 
 
 def test_engine_fill_passes_character():
-    """引擎集成: fill_scene_emotions 注入角色人设（_character_hint 非空且含遥香性格）。"""
+    """引擎集成: 标注层注入角色人设（_character_hint 非空且含遥香性格）。"""
     from core.bond.bond_story import BondStoryEngine
 
-    skeleton = {"action": "story_scene", "payload": {
-        "paragraphs": [{"text": "对不起……我又做错了……"}]}}
+    skeleton = "line"
 
     class ScriptedLLM:
         def __init__(self):
             self.seen_system: str = ""
-            self._scripts = [skeleton]
+            self._scripts = [_scene(lines=["对不起……我又做错了……"])]
         def chat(self, messages, **kw):
             head = messages[0]["content"]
             if "情绪标签数组" in (messages[-1]["content"] if len(messages) > 1 else ""):
@@ -235,30 +239,26 @@ def test_engine_fill_passes_character():
 
     vn = BondStoryEngine(ROOT / "config" / "characters", ScriptedLLM())
     vn.start_session("igusa_haruka")
+    vn._place_keys = []          # 本组用例只关心 emo 路（place 关断）
     assert "遥香" in vn._character_hint, vn._character_hint
     assert "自卑" in vn._character_hint or "胆小" in vn._character_hint, \
         vn._character_hint
     scene = vn.send_vn_scene("（开场）")
     assert scene.paragraphs[0]["emotion"] == "depressed", scene.paragraphs
+    assert skeleton == "line"        # 占位（下方用例共用记录流夹具）
     print("    engine: 标注 prompt 带遥香人设（自卑/胆小行为逻辑）")
 
 
-
 def test_engine_skeleton_annotated():
+    """记录流 v2: 一板一组标注（正文 2 条 → 1 次调用）; 反应板独立一组（槽挂板尾）。"""
     from core.bond.bond_story import BondStoryEngine
 
-    skeleton = {"action": "story_scene", "payload": {
-        "paragraphs": [{"text": "她站在窗边。"}, {"text": "啊，老师……你来得正好。"}],
-        "choices": ["走过去", "笑着说"],
-        "branches": {
-            "走过去": [{"text": "她张了张嘴。"}],
-            "笑着说": [{"text": "她松了口气。"}],
-        }}}
+    block = _scene(lines=["她站在窗边。", "啊，老师……你来得正好。"],
+                   sensei=["走过去", "笑着说"], after=["她张了张嘴。"])
 
     class ScriptedLLM:
         def __init__(self):
-            self._scripts = [skeleton, ["nomal"], ["embarrassed"],
-                             ["expectant"], ["smile"]]
+            self._scripts = [block, ["nomal", "embarrassed"], ["expectant"]]
         def chat(self, messages, **kw):
             if not self._scripts:
                 raise RuntimeError("脚本耗尽")
@@ -268,26 +268,26 @@ def test_engine_skeleton_annotated():
 
     vn = BondStoryEngine(ROOT / "config" / "characters", ScriptedLLM())
     vn.start_session("igusa_haruka")
+    vn._place_keys = []          # 本组用例只关心 emo 路（place 关断）
     scene = vn.send_vn_scene("（开场）")
-    # SceneStream P1 按段标注: 2 个自然段（各 1 句）→ 逐段 2 次标注调用
-    assert scene.paragraphs[0]["emotion"] == "nomal", scene.paragraphs
-    assert scene.paragraphs[1]["emotion"] == "embarrassed", scene.paragraphs
-    # branches 各分支一组（上下文 = 主线尾段; 各 1 次标注调用）
-    assert scene.branches["走过去"][0]["emotion"] == "expectant", scene.branches
-    assert scene.branches["笑着说"][0]["emotion"] == "smile", scene.branches
-    print("    engine: 骨架按自然段逐段标注（正文 2 段 + 分支各 1 组调用）")
+    assert [p["emotion"] for p in scene.paragraphs] == ["nomal", "embarrassed"], \
+        scene.paragraphs
+    assert scene.choices == ["走过去", "笑着说"]
+    nxt = vn.send_vn_scene("（继续）")                       # 待发板（0 LLM）
+    assert [p["text"] for p in nxt.paragraphs] == ["她张了张嘴。"]
+    assert nxt.paragraphs[0]["emotion"] == "expectant"
+    print("    engine: 一板一组标注 + 反应板独立标注")
 
 
 def test_engine_skeleton_annotate_failure_degrade():
     """标注全失败 → 静默兜底（nomal/延续）, 剧情不阻断（失败成本 O(0)）。"""
     from core.bond.bond_story import BondStoryEngine
 
-    skeleton = {"action": "story_scene", "payload": {
-        "paragraphs": [{"text": "她站在窗边。"}, {"text": "老师来了！"}]}}
+    block = _scene(lines=["她站在窗边。", "老师来了！"])
 
     class ScriptedLLM:
         def __init__(self):
-            self._scripts = [skeleton, RuntimeError("api down"), RuntimeError("api down")]
+            self._scripts = [block, RuntimeError("api down"), RuntimeError("api down")]
         def chat(self, messages, **kw):
             if self._scripts and isinstance(self._scripts[0], RuntimeError):
                 e = self._scripts.pop(0)
@@ -300,24 +300,27 @@ def test_engine_skeleton_annotate_failure_degrade():
 
     vn = BondStoryEngine(ROOT / "config" / "characters", ScriptedLLM())
     vn.start_session("igusa_haruka")
+    vn._place_keys = []          # 本组用例只关心 emo 路（place 关断）
     scene = vn.send_vn_scene("（开场）")          # 标注异常 → 不 raise
-    assert scene.paragraphs[0]["emotion"] == "nomal"   # 首句兜底
+    assert scene.paragraphs[0]["emotion"] == "nomal"   # 首条兜底
     assert scene.paragraphs[1]["emotion"] == "nomal"   # 延续
     print("    engine: 标注失败 → 静默兜底（nomal/延续）, 剧情不阻断")
 
 
 def test_engine_inline_emotion_discarded():
-    """2026-09-02 定稿: 骨架自带 emotion（旧桩习惯）→ 契约层**丢弃**, 标注层
-    全量回填（标注层唯一真源——防双源/锚定; 旧输出带 emotion 兼容丢弃）。"""
+    """2026-09-02 定稿（记录流版）: 记录自带 emotion（旧桩习惯）→ 契约层**丢弃**
+    （多余字段只记 NOTE）, 标注层全量回填（唯一真源——防双源/锚定）。"""
     from core.bond.bond_story import BondStoryEngine
 
-    inline = {"action": "story_scene", "payload": {
-        "paragraphs": [{"text": "她笑了。", "emotion": "smile"},
-                       {"text": "她低下头。", "emotion": "embarrassed"}]}}
+    # 手工拼两行, 带上旧版才会写的 emotion 字段
+    block = "\n".join([
+        '{"character": "igusa_haruka", "text": "她笑了。", "emotion": "smile"}',
+        '{"character": "igusa_haruka", "text": "她低下头。", "emotion": "embarrassed"}',
+    ])
 
     class ScriptedLLM:
         def __init__(self):
-            self._scripts = [inline, ["smile"], ["embarrassed"]]
+            self._scripts = [block, ["smile", "embarrassed"]]
         def chat(self, messages, **kw):
             if not self._scripts:
                 raise RuntimeError("脚本耗尽")
@@ -327,11 +330,14 @@ def test_engine_inline_emotion_discarded():
 
     vn = BondStoryEngine(ROOT / "config" / "characters", ScriptedLLM())
     vn.start_session("igusa_haruka")
+    vn._place_keys = []          # 本组用例只关心 emo 路（place 关断）
     scene = vn.send_vn_scene("（开场）")
-    # 标注层按自然段回填（值与骨架同——模型自己写的情绪被独立标注确认）
+    # 标注层回填（值与骨架同——模型自己写的情绪被独立标注确认）; 记录里不带 emotion
     assert scene.paragraphs[0]["emotion"] == "smile"
     assert scene.paragraphs[1]["emotion"] == "embarrassed"
-    print("    engine: 骨架自带 emotion → 丢弃后由标注层全量回填（唯一真源）")
+    assert all("emotion" not in r for r in scene.records)
+    assert any("多余字段" in n for n in scene.notes)
+    print("    engine: 记录自带 emotion → 丢弃后由标注层全量回填（唯一真源）")
 
 
 if __name__ == "__main__":

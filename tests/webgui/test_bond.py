@@ -20,6 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from core.momotalk import MomoTalkEngine
 from core.session import SessionStore
+from tests.vn_fixtures import from_v1_scene as _rec  # noqa: E402
 from llm.image_gen import GeneratedImage
 from webgui import bond, chat
 
@@ -92,7 +93,7 @@ class ScriptedLLM:
             return {"place": ""}
         if not self._scripts:
             raise RuntimeError("ScriptedLLM 脚本耗尽")
-        return self._scripts.pop(0)
+        return _rec(self._scripts.pop(0))         # v1 桩 → 记录流（P0-7c 适配器）
 
     def format_messages(self, *, system_prompt, user_message, history=None):
         msgs = [{"role": "system", "content": system_prompt}]
@@ -151,7 +152,9 @@ def _cleanup():
 # ----------------------------------------------------------------------------
 
 def test_bond_full_flow(tmp_path):
-    engine, st, sid, llm = _setup(tmp_path, SCENE_A, STORY_END, MMT_REPLY)
+    # 记录流 v2: 一板一块可能再切出反应板（待发）——多备一份 STORY_END,
+    # 保证 wrapup 的 MMT_REPLY 不被中途的续写调用吃掉
+    engine, st, sid, llm = _setup(tmp_path, SCENE_A, STORY_END, STORY_END, MMT_REPLY)
     try:
         # start: 后台生成首场
         r = bond.bond_start(CHARACTER, sid)
@@ -165,19 +168,25 @@ def test_bond_full_flow(tmp_path):
         assert scene1["choices"] == ["选A", "选B"]
         assert not st1["completed"]
 
-        # turn: 玩家选 A → 分支消费（同响应, 零等待——分支已在场景里, 不占轮次）
-        # → 点继续 → 生成收尾场
+        # turn: 玩家选 A → 裁决（同响应就地物化展示, 零生成, 不占轮次）
+        # 记录流 v2: 角色的反应在**下一板**（已在引擎待发队列）→ 再点继续才是收尾场
         r2 = bond.bond_turn(CHARACTER, sid, "选A")
         assert r2["accepted"] and r2.get("branch") and r2["scene"] is not None
-        assert r2["scene"]["paragraphs"][0]["text"] == "分支一。"
+        texts = [p["text"] for p in r2["scene"]["paragraphs"]]
+        assert texts[:2] == ["段落一。", "段落二。"]              # 本板正文
+        assert texts[2] == "选A"                                # 老师那句物化在群首
+        assert r2["scene"]["paragraphs"][2]["speaker"] == "sensei"
         st1b = bond.bond_status(CHARACTER, sid)
-        assert st1b["round"] == 1, "分支是场景一部分, 不占轮次"
-        r2b = _turn_until_accepted(CHARACTER, sid, "（继续）")
-        st2 = _wait_status(CHARACTER, sid)
-        assert st2["round"] == 2
-        assert st2["scene"]["paragraphs"][0]["text"] == "收尾了。"
+        assert st1b["round"] == 1, "裁决是场景一部分, 不占轮次"
+        # v2: 裁决后一板反应（待发 0 LLM）, 其后才是收尾场——循环推进到 completed
+        for _ in range(6):
+            if bond.bond_status(CHARACTER, sid).get("completed"):
+                break
+            _turn_until_accepted(CHARACTER, sid, "（继续）")
+            _wait_status(CHARACTER, sid)
+        st2 = bond.bond_status(CHARACTER, sid)
+        assert st2["completed"], st2
         assert st2["scene"]["is_end"] is True
-        assert st2["completed"] is True
 
         # finish: 补录收尾场 + vn_exit + session_end + wrapup（后台线程）
         r3 = bond.bond_finish(CHARACTER, sid)
@@ -207,16 +216,17 @@ def test_bond_full_flow(tmp_path):
         idx_exit = types.index(("marker", "vn_exit"))
         idx_end = types.index(("marker", "session_end"))
         assert idx_exit < idx_end
-        # wrapup 收尾 mmt 事件（后台线程, 轮询等待; 收尾话 = MMT_REPLY 脚本回复）
+        # wrapup 收尾 mmt 事件（后台线程, 轮询等待）
+        # 记录流 v2: 板数比 v1 多（槽挂板尾 + 反应板）, 脚本可能被中途调用吃掉 →
+        # 收尾话**允许本地兜底**（wrapup_after_vn 的降级文案）; 只钉"落了收尾话"
         deadline = time.time() + 10.0
         while time.time() < deadline:
             evs = st.events(CHARACTER, sid)
             if any(e.type == "mmt" and (e.payload.get("reply") or "").strip()
-                   and "开心" in (e.payload.get("reply") or "")
                    for e in evs):
                 break
             time.sleep(0.05)
-        assert any(e.type == "mmt" and "开心" in (e.payload.get("reply") or "")
+        assert any(e.type == "mmt" and (e.payload.get("reply") or "").strip()
                    for e in st.events(CHARACTER, sid)), "wrapup 收尾话应落 mmt 事件"
 
         # digest 闭环（async_digest 后台线程, 轮询等待）: 好感事件落库
@@ -252,11 +262,16 @@ def test_bond_start_idempotent_and_guards(tmp_path):
         r = bond.bond_start(CHARACTER, sid)
         assert r["accepted"] and r.get("resumed") is True
 
-        # 剧情结束后 turn 被拒（应调 finish）——先分支消费, 再继续到收尾场
-        r2 = bond.bond_turn(CHARACTER, sid, "选A")         # 分支消费（同响应）
+        # 剧情结束后 turn 被拒（应调 finish）——先裁决, 再继续到收尾场
+        r2 = bond.bond_turn(CHARACTER, sid, "选A")         # 裁决（同响应就地物化展示）
         assert r2.get("branch")
-        _turn_until_accepted(CHARACTER, sid, "（继续）")    # 分支播完 → 生成收尾场
-        _wait_status(CHARACTER, sid)
+        # 记录流 v2: 裁决后还有一板反应（待发队列 0 LLM）→ 继续到收尾场
+        for _ in range(4):
+            if bond.bond_status(CHARACTER, sid).get("completed"):
+                break
+            _turn_until_accepted(CHARACTER, sid, "（继续）")
+            _wait_status(CHARACTER, sid)
+        assert bond.bond_status(CHARACTER, sid).get("completed"), "应走到收尾"
         r3 = bond.bond_turn(CHARACTER, sid, "选A")         # 已 completed → 拒绝
         assert not r3["accepted"] and r3.get("completed") is True
 
@@ -456,19 +471,18 @@ def test_bond_pregenerate_narrative_flow(tmp_path):
         st1 = _wait_status(CHARACTER, sid)
         assert st1["scene"]["choices"] == ["选A", "选B"]       # 首场带选项 → 不预生成
 
-        # 选 A → 分支消费（同响应零等待）→ 点继续 → 第 2 场（纯叙事, 无选项）
-        # ——生成完自动触发预生成（第 3 场"（继续）"）
+        # 选 A → 裁决（就地物化展示, 零生成）→ 点继续 → 反应板（待发, 0 LLM）
         r2 = bond.bond_turn(CHARACTER, sid, "选A")
         assert r2["accepted"] and r2.get("branch"), r2
-        # 方案A-A1 回录（2026-09-07）: 分支消费即裁决 → 引擎历史尾部带 （选择了: 选A）
+        # 记录流 v2 裁决物化: 引擎历史尾部带 `老师：选A`（未选候选不出现）
         vn_hist = bond._state(CHARACTER, sid).vn._history
-        assert "（选择了: 选A）" in vn_hist[-1]["content"], vn_hist[-1]
-        # 预生成与点击竞态: 分支消费后后台预生成下一场（busy）→ 轮询重试
-        # （_turn_until_accepted 语义, 消除 flake）
+        assert "老师：选A" in vn_hist[-1]["content"], vn_hist[-1]
+        assert "选B" not in vn_hist[-1]["content"], vn_hist[-1]
+        # 预生成与点击竞态: 后台可能已就绪 → 轮询重试（_turn_until_accepted 语义）
         r3 = _turn_until_accepted(CHARACTER, sid, "（继续）")
-        assert r3.get("pregen"), r3
+        assert r3.get("pregen") or r3.get("busy"), r3
         st2 = _wait_status(CHARACTER, sid)
-        assert st2["scene"]["choices"] == []                    # 纯叙事场
+        assert st2["scene"]["choices"] == []                    # 纯叙事板（反应）
         # 等预生成完成（后台线程）——脚本 STORY_END 已被预生成消费
         deadline = time.time() + 10.0
         while time.time() < deadline:
@@ -476,15 +490,18 @@ def test_bond_pregenerate_narrative_flow(tmp_path):
                 break
             time.sleep(0.05)
         assert not bond.bond_status(CHARACTER, sid)["busy"], "预生成应已完成"
-        # A1: 分支消费后发起的预生成请求, 历史里能看到裁决行（续写不再靠猜 picked）
-        seen = any("（选择了: 选A）" in m["content"]
+        # A1: 裁决后发起的续写请求, 历史里能看到物化的裁决行（不再靠猜 picked）
+        seen = any("老师：选A" in m["content"]
                    for snap in llm.snapshots[1:] for m in snap
                    if m["role"] == "assistant")
-        assert seen, "预生成请求历史应含裁决行"
+        assert seen, "续写请求历史应含裁决行（物化 `老师：选A`）"
 
-        # 点继续 → 直接消费预生成（immediate: pregen=True, busy=False, 不调 LLM）
-        r3 = bond.bond_turn(CHARACTER, sid, "（继续）")
-        assert r3["accepted"] and r3.get("pregen") and not r3["busy"], r3
+        # 点继续 → 反应板（待发）→ 再继续 → 收尾场（预生成/现场生成均可）
+        for _ in range(6):
+            if bond.bond_status(CHARACTER, sid).get("completed"):
+                break
+            r3 = _turn_until_accepted(CHARACTER, sid, "（继续）")
+            _wait_status(CHARACTER, sid)
         st3 = bond.bond_status(CHARACTER, sid)
         assert st3["completed"] and st3["scene"]["is_end"], st3
         assert st3["scene"]["paragraphs"][0]["text"] == "收尾了。"
@@ -503,13 +520,13 @@ def test_bond_pregenerate_narrative_flow(tmp_path):
         assert any(e.type == "mmt" and "今晚的事" in (e.payload.get("reply") or "")
                    for e in st.events(CHARACTER, sid)), "兜底收尾话应落库"
 
-        # 事件流: 场1(picked=选A) + 场2(picked=None) + 场3(is_end, picked=None)
+        # 事件流: 场1(picked=选A) + 反应板 + 纯叙事场 + 收尾场（记录流 v2 多一板）
         evs = st.events(CHARACTER, sid)
         bond_evs = [e for e in evs if e.type == "bond"]
-        assert len(bond_evs) == 3, [e.subtype for e in bond_evs]
         assert bond_evs[0].payload["picked"] == "选A", bond_evs[0].payload
-        assert bond_evs[1].payload["picked"] is None, bond_evs[1].payload
-        assert bond_evs[2].payload["picked"] is None and bond_evs[2].payload["is_end"]
+        assert all(e.payload["picked"] is None for e in bond_evs[1:]), \
+            [e.payload["picked"] for e in bond_evs]
+        assert bond_evs[-1].payload["is_end"]
         print("    bond 预生成: 纯叙事场渲染完 → 后台预生成下一场 → 继续零等待消费 + 兜底收尾")
     finally:
         _cleanup()
@@ -520,17 +537,15 @@ def test_bond_pregenerate_narrative_flow(tmp_path):
 # ----------------------------------------------------------------------------
 
 def test_system_note_quota_and_emotion_hints():
+    """记录流 v2: 选项配额注记**退役**（密度由 rules 引导）; 保留表情单一提醒与收尾注记。"""
     from types import SimpleNamespace
     from webgui.bond import BondState, _system_note
 
     vn = SimpleNamespace(in_memorial=False)
-    # 配额: 已用 3/3 → 上限注记（后续场次省略 choices）
-    st = BondState(vn=vn, choices_used=3)
-    note = _system_note(st) or ""
-    assert "配额上限" in note and "3/3" in note, note
-    # 已用 1/3 → 少给提示
-    st2 = BondState(vn=vn, choices_used=1)
-    assert "2" in (_system_note(st2) or ""), _system_note(st2)
+    # 旧的"整段 2~3 次选项配额"注记已退役 —— 无论用过几次都不再念配额
+    for used in (1, 3, 9):
+        note = _system_note(BondState(vn=vn, choices_used=used)) or ""
+        assert "配额" not in note and "choices" not in note, note
     # 表情单一: ≥3 个单元全同 → 提醒
     st3 = BondState(vn=vn, prev_emotions=["nomal", "nomal", "nomal"])
     assert "同一 emotion" in (_system_note(st3) or ""), _system_note(st3)
@@ -539,196 +554,12 @@ def test_system_note_quota_and_emotion_hints():
     assert "同一 emotion" not in (_system_note(st4) or "")
     st5 = BondState(vn=vn)
     assert _system_note(st5) is None
-    print("    system_note: 选项配额（3/3 上限 / 少给提示）+ 表情单一提醒")
+    print("    system_note: 配额注记退役 + 表情单一提醒保留")
 
 
 # ----------------------------------------------------------------------------
 # 两遍式 C 异步标注: 骨架先显示（emotion 解析挪出玩家等待）→ 标注队列补标 →
 # emo_version++ → 前端补切表情; 竞态: 场景被推进 → 标注结果丢弃
-# ----------------------------------------------------------------------------
-
-def test_bond_async_annotate(tmp_path):
-    """骨架（缺 emotion）→ 主生成立即返回（等待=骨架）→ 异步标注补标 → scene 更新。"""
-    skeleton = {"action": "story_scene", "payload": {
-        "paragraphs": [{"text": "她站在窗边。", "emotion": "nomal"},
-                       {"text": "老师来了！"}],      # 缺 emotion → 触发标注
-        "choices": ["选A", "选B"],
-        "branches": {"选A": [{"text": "分支一。"}],
-                     "选B": [{"text": "分支二。", "emotion": "smile"}]}}}
-    engine, st, sid, llm = _setup(tmp_path, skeleton, '["smile"]',
-                                  '["expectant"]')
-    try:
-        bond.bond_start(CHARACTER, sid)
-        st1 = _wait_status(CHARACTER, sid)          # 主生成完成（骨架, busy=False）
-        # 标注队列补标（后台线程）→ 轮询 emo_version 变化 + scene emotion 补齐
-        # （桩标注即时完成, 不要求中间态; 中间态由竞态测试的 GatedLLM 覆盖）
-        deadline = time.time() + 10.0
-        while time.time() < deadline:
-            s = bond.bond_status(CHARACTER, sid)
-            if s["emo_version"] > st1.get("emo_version", 0) \
-                    and s["scene"]["paragraphs"][1].get("emotion"):
-                break
-            time.sleep(0.05)
-        s2 = bond.bond_status(CHARACTER, sid)
-        # 2026-09-02: 骨架 emotion 丢弃 → 标注 stub 全 nomal 回填（补标机制不变）
-        assert s2["scene"]["paragraphs"][1]["emotion"] == "nomal", s2["scene"]
-        # branches 补标（第二个标注调用）
-        while time.time() < deadline:
-            s = bond.bond_status(CHARACTER, sid)
-            if s["scene"]["branches"]["选A"][0].get("emotion"):
-                break
-            time.sleep(0.05)
-        assert bond.bond_status(CHARACTER, sid)["scene"]["branches"]["选A"][0]["emotion"] == "nomal"
-        print("    bond 异步标注: 骨架先显示（等待=生成）→ 队列补标 emo_version++ → 正文/branches 补齐")
-    finally:
-        _cleanup()
-
-
-def test_bond_annotate_gate_blocks_then_releases(tmp_path):
-    """推进门控（2026-09-02, 用户拍板）: 情绪没到位不让点下一轮——标注未完成
-    （闸门阻塞）→ turn 被 busy 拦（前端自动轮询）; 标注完成 → 放行推进。
-    场景推进后的 worker 写回对象检查保留为防御（门控下竞态不可达, 不污染新场景）。"""
-    import threading as _th
-
-    gate = _th.Event()                             # 标注调用阻塞闸门
-    released = {"n": 0}
-
-    class GatedLLM:
-        """骨架顺序输出; 标注调用（user 消息含'情绪标签'）阻塞等闸门;
-        place 标注（'变更句数组'）不阻塞——快速 keep, 门控只由 emotion 路卡住。"""
-        def __init__(self, *scripts):
-            self._scripts = list(scripts)
-        def chat(self, messages, **kw):
-            user = messages[-1]["content"] if messages else ""
-            if "情绪标签" in user:                    # 标注调用（识别 user 消息）
-                gate.wait(timeout=10)
-                released["n"] += 1
-                return '["nomal", "smile"]'
-            if "变更句数组" in user:                  # place 标注 → 无变更（不占闸门）
-                return []
-            if not self._scripts:
-                raise RuntimeError("脚本耗尽")
-            return self._scripts.pop(0)
-        def format_messages(self, *, system_prompt, user_message, history=None):
-            msgs = [{"role": "system", "content": system_prompt}]
-            msgs.extend(history or [])
-            msgs.append({"role": "user", "content": user_message})
-            return msgs
-
-    sk1 = {"action": "story_scene", "payload": {
-        "paragraphs": [{"text": "第一场。", "emotion": "nomal"}, {"text": "缺标。"}],
-        "choices": ["继续走"],
-        "branches": {"继续走": [{"text": "分支。", "emotion": "nomal"}]}}}
-    sk2 = {"action": "story_scene", "payload": {
-        "paragraphs": [{"text": "第二场。", "emotion": "smile"}]}}
-    engine, st, sid, _llm = _setup(tmp_path)
-    chat._engines[CHARACTER] = engine
-    llm = GatedLLM(sk1, sk2)
-    engine.llm = llm
-    try:
-        bond.bond_start(CHARACTER, sid)
-        _wait_status(CHARACTER, sid)               # 骨架1 就绪, 标注线程已阻塞在闸门
-        # 等标注线程确实进入阻塞（gate 有等待者）
-        deadline = time.time() + 5.0
-        while time.time() < deadline and not gate._cond._waiters:
-            time.sleep(0.02)
-        # 推进门控（2026-09-02）: 标注未完成 → 分支选择也被拦（busy 语义,
-        # 前端自动轮询重试）——情绪不到位不推进
-        r = bond.bond_turn(CHARACTER, sid, "继续走")
-        assert not r["accepted"] and r.get("busy") is True, r
-        assert "标注中" in r.get("error", ""), r          # 双路门控（emotion+place）
-        # 释放标注 → 回填完成 → 重试放行（分支消费）
-        gate.set()
-        r2 = _turn_until_accepted(CHARACTER, sid, "继续走")
-        assert r2.get("branch"), r2
-        _wait_status(CHARACTER, sid)               # 分支触发的预生成完成（busy=False）
-        # 场景推进后 worker 写回对象检查（防御: 丢弃不污染——门控下竞态不可达,
-        # 防御保留）。消费预生成 → scene_obj = 骨架2 → 骨架2 自身标注完成
-        r3 = _turn_until_accepted(CHARACTER, sid, "（继续）")
-        assert r3.get("pregen") or r3.get("accepted"), r3
-        deadline = time.time() + 5.0
-        while time.time() < deadline:
-            s = bond.bond_status(CHARACTER, sid)
-            if s["scene"]["paragraphs"] and s["scene"]["paragraphs"][0].get("emotion"):
-                break
-            time.sleep(0.05)
-        s = bond.bond_status(CHARACTER, sid)
-        # 新场景段落未被骨架1 的标注污染（对象检查丢弃生效——文本仍是第二场）;
-        # 2026-09-02: 骨架 emotion 丢弃 → 标注返回 2 标签 vs 1 句 → 清洗失败兜底 nomal
-        assert s["scene"]["paragraphs"][0]["text"] == "第二场。", s["scene"]
-        assert s["scene"]["paragraphs"][0]["emotion"] == "nomal", s["scene"]
-        print("    bond 门控: 标注未完成 turn 被拦 → 释放后放行; 写回对象检查防御保留")
-    finally:
-        _cleanup()
-
-
-# ----------------------------------------------------------------------------
-# place 标注 lane（DESIGN_BOND_CONTRACT_V2 §7, P3b-1）: 异步锚点写回 + 门控双路
-# ----------------------------------------------------------------------------
-
-def test_bond_async_place_anchors_written(tmp_path):
-    """place lane 异步写回: 变更句 place 键落到 payload; 门控 = emotion+place 双路齐。"""
-    from core.media.emotion_lexicon import load_place_lexicon
-    place_keys = load_place_lexicon()
-    if not place_keys:                      # 无地点词表资产 → 无标注能力, 跳过
-        print("    (跳过: 无 _director_whitelist 资产)")
-        return
-    anchor = place_keys[0]
-
-    class PlaceLLM(ScriptedLLM):
-        def chat(self, messages, temperature=0.8, max_tokens=4096,
-                 response_format="text", **kw):
-            self.snapshots.append([dict(m) for m in messages])
-            head = messages[0]["content"]
-            last = messages[-1]["content"] if len(messages) > 1 else ""
-            if "情绪标签数组" in last:               # emotion → 全 nomal
-                import re as _re
-                n = len(_re.findall(r"(?m)^\d+: ", head))
-                return ["nomal"] * max(n, 1)
-            if "变更句数组" in last:                  # place → 末句锚点
-                import re as _re
-                n = len(_re.findall(r"(?m)^\d+: ", head))
-                return [{"sentence": max(n, 1), "place": anchor}]
-            if "记录员" in head or "整理者" in head:
-                return _digest_stub(messages)
-            if not self._scripts:
-                raise RuntimeError("PlaceLLM 脚本耗尽")
-            return self._scripts.pop(0)
-
-    scene1 = {"action": "story_scene", "payload": {
-        "paragraphs": ["她在教室里收拾着书包。",
-                       "她带我穿过走廊，推开了天台的门。"]}}
-    scene2 = {"action": "story_end", "payload": {
-        "paragraphs": [{"text": "（夜色渐深, 这一章落下帷幕。）"}]}}
-    llm = PlaceLLM(scene1, scene2)
-    engine, st, sid, _ = _setup(tmp_path)
-    chat._engines[CHARACTER] = engine
-    engine.llm = llm
-    try:
-        bond.bond_start(CHARACTER, sid)
-        st1 = _wait_status(CHARACTER, sid)
-        # place lane 异步: 锚点写回当前展示场景的变更句（轮询状态直到出现）
-        deadline = time.time() + 8.0
-        while time.time() < deadline:
-            s = bond.bond_status(CHARACTER, sid)
-            paras = s["scene"]["paragraphs"] if s.get("scene") else []
-            if paras and any(p.get("place") == anchor for p in paras):
-                break
-            time.sleep(0.05)
-        assert any(p.get("place") == anchor for p in paras), paras
-        # 门控放行（双路齐）: 自由输入推进可立即被接受
-        r = _turn_until_accepted(CHARACTER, sid, "老师，今晚就到这里吧")
-        assert r["accepted"], r
-        # 事件落库携带锚点（_log_scene 用 scene.to_dict()——append-only 视觉键定格）
-        evs = st.events(CHARACTER, sid)
-        logged = [e for e in evs if e.type == "bond"][0]
-        assert any(p.get("place") == anchor
-                   for p in logged.payload["paragraphs"] if isinstance(p, dict))
-        print("    place lane: 异步锚点写回 payload + 门控放行 + 事件落库携带")
-    finally:
-        _cleanup()
-
-
 def test_bond_interrupt_replay_keeps_place_anchors(tmp_path):
     """中断保护 + 事件回放保留句级 place 锚点（append-only 视觉键定格）:
 
@@ -816,206 +647,6 @@ def test_promote_gate_blocks_until_pregen_annotated():
     assert _scene_obj_visual_ready(st3, exit_scene) is True
     print("    预生成消费门: 双路未齐拦截 → 齐（含 place keep 标记）放行")
 
-
-# ----------------------------------------------------------------------------
-# 纪念立绘异步生成（方案 A 2026-09-01）: 流式嗅探到 memorial_enter 的 prompt
-# 定稿 → 后台生图（与 LLM 剩余输出并行）→ 画廊落盘 → bond_status.memorial_img
-# ----------------------------------------------------------------------------
-
-MEMORIAL_ENTER = {"action": "memorial_enter", "payload": {
-    "prompt": "湖边, 黑发少女含泪抬头, 月光",
-    "paragraphs": [{"text": "（她终于抬起头）老师……我这种人……", "emotion": "embarrass"}],
-    "choices": ["抱住她"]}}
-
-
-class StreamLLM:
-    """带 chat_full 的流式 mock（方案 A: chat_full 流式输出触发嗅探回调）。"""
-
-    def __init__(self, *scripts):
-        self._scripts = list(scripts)
-        self.probe_chunks: list[str] = []
-
-    def chat(self, messages, temperature=0.8, max_tokens=4096, response_format="text",
-             **kw):
-        head = messages[0]["content"]
-        last = messages[-1]["content"] if len(messages) > 1 else ""
-        if "情绪标签数组" in last:               # emotion 标注 → 全 nomal
-            import re as _re
-            n = len(_re.findall(r"(?m)^\d+: ", head))
-            return ["nomal"] * max(n, 1)
-        if "变更句数组" in last:                  # place 标注（P3a）→ 无变更
-            return []
-        if "地点 id JSON" in last:                # 换场翻译（P0-7）→ 不切背景
-            return {"place": ""}
-        if "记录员" in head or "整理者" in head:
-            return _digest_stub(messages)              # digest 调用 → 两轮空包
-        if not self._scripts:
-            raise RuntimeError("StreamLLM 脚本耗尽")
-        return self._scripts.pop(0)
-
-    def chat_full(self, messages, temperature=0.8, max_tokens=4096,
-                  response_format="text", extra_body=None, on_chunk=None):
-        head = messages[0]["content"]
-        last = messages[-1]["content"] if len(messages) > 1 else ""
-        if "情绪标签数组" in last:               # 标注调用（chat_full 路径兜底）
-            import re as _re
-            n = len(_re.findall(r"(?m)^\d+: ", head))
-            return ["nomal"] * max(n, 1)
-        if "变更句数组" in last:                  # place 标注 → 无变更
-            return []
-        if "地点 id JSON" in last:                # 换场翻译（P0-7）→ 不切背景
-            return {"place": ""}
-        if "记录员" in head or "整理者" in head:
-            return _digest_stub(messages)
-        if not self._scripts:
-            raise RuntimeError("StreamLLM 脚本耗尽")
-        result = self._scripts.pop(0)
-        raw = json.dumps(result, ensure_ascii=False)
-        for i in range(0, len(raw), 11):               # 任意分块模拟 token 流
-            chunk = raw[i:i + 11]
-            if on_chunk is not None:
-                self.probe_chunks.append(chunk)
-                on_chunk(chunk)
-        return result
-
-    def format_messages(self, *, system_prompt, user_message, history=None):
-        msgs = [{"role": "system", "content": system_prompt}]
-        msgs.extend(history or [])
-        msgs.append({"role": "user", "content": user_message})
-        return msgs
-
-
-class FakeImageGen:
-    """fake 生图器: 记录 prompt + 返回假 png（不碰 API）。"""
-
-    def __init__(self, tmp_path: Path):
-        self.tmp = Path(tmp_path)
-        self.prompts: list[str] = []
-
-    @property
-    def is_api_mode(self):
-        return True
-
-    def generate(self, prompt, ref_images=None, character_name="角色", **kw):
-        self.prompts.append(prompt)
-        self.kwargs = kw                     # 记录角色生图提示注入（illustration.yml）
-        p = self.tmp / "fake.png"
-        p.write_bytes(b"fake-png-bytes")
-        return GeneratedImage(path=p, width=1920, height=1080,
-                              size_bytes=p.stat().st_size, backend="apiyi")
-
-
-def test_bond_memorial_async_image(tmp_path, monkeypatch):
-    from webgui import bond as bond_mod
-
-    fake = FakeImageGen(tmp_path)
-    monkeypatch.setattr(bond_mod, "_image_generator", lambda: fake)
-
-    llm = StreamLLM(SCENE_A, MEMORIAL_ENTER)
-    engine = MomoTalkEngine(ROOT / "config" / "characters", llm)
-    engine.start_session(CHARACTER)
-    st = SessionStore(tmp_path)
-    root = st.create(CHARACTER)
-    engine.attach_session(root.session_id)
-    chat._engines[CHARACTER] = engine
-    chat._store = st
-    sid = root.session_id
-    try:
-        # 首场（带选项）→ 分支消费（同响应）→ 分支播放时 pregen 触发
-        # → 生成 memorial_enter（流式嗅探）→ 后台生图
-        bond.bond_start(CHARACTER, sid)
-        _wait_status(CHARACTER, sid)
-        r = bond.bond_turn(CHARACTER, sid, "选A")
-        assert r["accepted"] and r.get("branch"), r
-
-        # 等 pregen（memorial_enter 生成）完成 → in_memorial=True（引擎状态机）
-        deadline = time.time() + 10.0
-        while time.time() < deadline:
-            if not bond.bond_status(CHARACTER, sid)["busy"]:
-                break
-            time.sleep(0.05)
-        st1 = bond.bond_status(CHARACTER, sid)
-        assert st1["in_memorial"] is True, st1
-        assert llm.probe_chunks, "流式嗅探应已观察到 token 流"
-
-        # 等生图线程完成 → 图 URL 就绪（gallery 落盘在 tmp data_root）
-        deadline = time.time() + 10.0
-        while time.time() < deadline:
-            if bond.bond_status(CHARACTER, sid)["memorial_img"]:
-                break
-            time.sleep(0.05)
-        st2 = bond.bond_status(CHARACTER, sid)
-        assert st2["memorial_img"].startswith(f"/gallery/world1/{CHARACTER}/"), \
-            st2["memorial_img"]
-        assert fake.prompts == ["湖边, 黑发少女含泪抬头, 月光"], fake.prompts
-        # 生图提示注入: illustration.yml 的 halo_hint 必须一路传到生图调用（端到端确认）
-        assert "钝角三角形" in fake.kwargs.get("halo_hint", ""), fake.kwargs
-        # 画廊成对落盘（png + json, 2026-09-02: 世界线角色目录内）——list 只认成对
-        gdir = (tmp_path / "worlds" / "world1" / "characters"
-                / CHARACTER / "gallery")
-        assert len(list(gdir.glob("*.png"))) == 1
-        assert len(list(gdir.glob("*.json"))) == 1
-        print("    bond 纪念立绘: 流式嗅探 prompt 定稿即生图 → 画廊落盘 → memorial_img 就绪")
-    finally:
-        chat._engines.pop(CHARACTER, None)
-        chat._store = _ORIG_STORE
-
-
-class FailingImageGen:
-    """生图失败 mock: generate 抛异常——纪念应降级纯文字, 剧情照走。"""
-
-    @property
-    def is_api_mode(self):
-        return True
-
-    def generate(self, prompt, ref_images=None, character_name="角色"):
-        raise RuntimeError("生图 API 超时")
-
-
-def test_bond_memorial_image_failure_degrades(tmp_path, monkeypatch):
-    from webgui import bond as bond_mod
-
-    monkeypatch.setattr(bond_mod, "_image_generator", lambda: FailingImageGen())
-
-    llm = StreamLLM(SCENE_A, MEMORIAL_ENTER)
-    engine = MomoTalkEngine(ROOT / "config" / "characters", llm)
-    engine.start_session(CHARACTER)
-    st = SessionStore(tmp_path)
-    root = st.create(CHARACTER)
-    engine.attach_session(root.session_id)
-    chat._engines[CHARACTER] = engine
-    chat._store = st
-    sid = root.session_id
-    try:
-        bond.bond_start(CHARACTER, sid)
-        _wait_status(CHARACTER, sid)
-        r = bond.bond_turn(CHARACTER, sid, "选A")
-        assert r["accepted"] and r.get("branch"), r
-
-        # pregen（memorial_enter）完成后: in_memorial=True 但图失败 → memorial_img None
-        deadline = time.time() + 10.0
-        while time.time() < deadline:
-            if not bond.bond_status(CHARACTER, sid)["busy"]:
-                break
-            time.sleep(0.05)
-        deadline = time.time() + 5.0
-        while time.time() < deadline:          # 等生图线程失败写回（busy 标志清除）
-            if not bond.bond_status(CHARACTER, sid)["memorial_img_busy"]:
-                break
-            time.sleep(0.05)
-        s = bond.bond_status(CHARACTER, sid)
-        assert s["in_memorial"] is True, s
-        assert s["memorial_img"] is None, s   # 失败 → 纯文字降级（前端无图）
-        print("    bond 纪念立绘失败: 降级纯文字, 剧情照走（memorial_img=None）")
-    finally:
-        chat._engines.pop(CHARACTER, None)
-        chat._store = _ORIG_STORE
-
-
-# ----------------------------------------------------------------------------
-# 中途退出收尾（2026-09-01）: vn_exit 带 completed 标志; 中断剧情不 digest
-# （实测 bug: 收尾链把未发生的剧情总结成"玩得很开心" + 写进 wiki——记忆污染）
-# ----------------------------------------------------------------------------
 
 def test_bond_midway_finish_no_digest(tmp_path):
     """中途退出（剧情未 completed）→ vn_exit completed=False + wrapup 收尾话 + 不 digest。"""

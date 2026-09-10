@@ -204,18 +204,18 @@ def test_judgement_mirror_between_rules_and_prompt():
 
 
 # ---------------------------------------------------------------------------
-# 引擎同步路径集成（P3a: annotate=True → fill_scene_places 接线）
+# 引擎同步路径集成（记录流 v2: switch 记录 → 背景键; 旧段落锚点路径随 v1 契约退役）
 # ---------------------------------------------------------------------------
 
-SCENE = {"action": "story_scene", "payload": {
-    "paragraphs": [{"text": "她在教室里收拾着书包。"},
-                   {"text": "「老师，今天也陪我一会儿吧。」"},
-                   {"text": "她带我穿过走廊，推开了天台的门。"},
-                   {"text": "晚风迎面吹来。"}]}}
+from tests.vn_fixtures import scene as _scene  # noqa: E402
+
+#: 记录流一块: 换场 + 两条正文（v2 的换场信号 = `stage:switch`, 不再是段落锚点）
+SCENE = _scene(switch_to="学校天台",
+               lines=["她在教室里收拾着书包。", "「老师，今天也陪我一会儿吧。」"])
 
 
 class EngineLLM:
-    """同步路径桩: chat_full 出场景; chat 应答 place 标注（锚点/空）。"""
+    """同步路径桩: chat_full 出记录流; chat 应答换场翻译（键/空）。"""
 
     def __init__(self, *place_replies):
         self._scripts = list(place_replies)
@@ -241,31 +241,33 @@ def _engine_with(place_keys, place_replies):
 
 
 def test_engine_sync_fill_scene_places():
-    """同步路径: 锚点写回 payload（变更句 place 键）; 当前地点延续; 上下文隔离。"""
+    """同步路径（记录流 v2）: switch → 背景键写 scene.place; 延续态顺延; 视觉键不进上下文。"""
     from core.session.renderer import render_bond_scene_text
     engine, llm = _engine_with(["classroom", "rooftop"],
-                               [[{"sentence": 3, "place": "rooftop"}]])
+                               [{"place": "rooftop"}])
     scene = engine.send_vn_scene("（旁白）本章：测试。", annotate=True)
-    assert scene.paragraphs[2].get("place") == "rooftop", scene.paragraphs
-    assert all("place" not in p for i, p in enumerate(scene.paragraphs) if i != 2)
-    assert engine._current_place == "rooftop"                 # 延续态顺延
+    assert scene.place == "rooftop", scene.place          # 背景键（导演/前端据此切图）
+    assert scene.place_hint == "学校天台"                  # 记录流原文（writer 自己写的地点话）
+    assert engine._current_place == "rooftop"             # 延续态顺延
+    # 翻译 prompt 带上了词表与地点话
+    sys_text = llm.calls[0][0]["content"]
+    assert "rooftop" in sys_text and "学校天台" in sys_text
 
-    # place 视觉键不进 LLM 上下文（render 忽略）
+    # place 视觉键不进 LLM 上下文（渲染只出叙事 + switch 自己写的地点话）
     text = render_bond_scene_text(scene.to_dict())
-    assert "rooftop" not in text and "place" not in text, text
+    assert "rooftop" not in text, text
 
-    # 第二场: 当前地点带入标注 prompt（“当前所在地…rooftop”）; 无变更 → keep
-    engine2, llm2 = _engine_with(["classroom", "rooftop"], [[]])
+    # 第二场: 当前地点带入翻译 prompt; 模型给空 → keep（画面保持）
+    engine2, llm2 = _engine_with(["classroom", "rooftop"], [{"place": ""}])
     engine2._current_place = "rooftop"
     engine2.send_vn_scene("（旁白）第二场。", annotate=True)
-    sys_text = llm2.calls[0][0]["content"]
-    assert "rooftop" in sys_text                               # 当前地点已注入
-    assert engine2._current_place == "rooftop"                 # 无变更 → 保持
+    assert "rooftop" in llm2.calls[0][0]["content"]        # 当前地点已注入
+    assert engine2._current_place == "rooftop"             # 无变更 → 保持
 
 
 def test_engine_sync_no_place_keys_no_call():
-    """无地点词表 → place 标注不触发（零调用, 与改动前行为一致）。"""
+    """无地点词表 → 换场翻译不触发（零调用, 宁缺勿错: 画面保持）。"""
     engine, llm = _engine_with([], [])
     scene = engine.send_vn_scene("（旁白）本章：测试。", annotate=True)
-    assert all("place" not in p for p in scene.paragraphs)
+    assert scene.place is None
     assert llm.calls == []
