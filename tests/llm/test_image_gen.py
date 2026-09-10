@@ -178,6 +178,30 @@ def test_ref_compression_off_keeps_png(tmp_path):
     print("    ref: 关闭压缩 → 原图")
 
 
+def test_halo_and_character_hints_injected(tmp_path):
+    """角色生图提示: halo_hint 替换默认光环描述; character_hint 追加到角色本体标签。
+
+    来源是 illustration.yml（CharacterLoader.load_illustration）——与 profile.yml 的
+    halo 字段分开, 那边是给其他角色查阅的设定。
+    """
+    ref = tmp_path / "illustration" / "igusa_haruka" / "ref"
+    _png(ref / "sprite_1.png")
+    _png(ref / "halo.png")
+    parts = _build_api_parts(ref_specs("igusa_haruka", assets_root=tmp_path),
+                             "测试角色", "场景", (1920, 1080),
+                             character_hint="紫色短发, 精灵耳发型",
+                             halo_hint="三个互相分离的紫色钝角三角形")
+    texts = [p["text"] for p in parts if "text" in p]
+    assert any("补充设定：紫色短发" in t for t in texts)
+    assert any("三个互相分离的紫色钝角三角形" in t for t in texts)
+    assert not any("形状与颜色照图；光环悬浮" in t for t in texts)   # 默认光环提示被替换
+    # 未给 hint 时回落默认（普适配饰路径不受影响）
+    parts2 = _build_api_parts(ref_specs("igusa_haruka", assets_root=tmp_path),
+                              "测试角色", "场景", (1920, 1080))
+    assert any("悬浮于头顶上方" in p["text"] for p in parts2 if "text" in p)
+    print("    hints: 角色补充设定 + 光环描述注入（缺省回落）")
+
+
 # ---------------------------------------------------------------------------
 # 返回值与尺寸归一化
 # ---------------------------------------------------------------------------

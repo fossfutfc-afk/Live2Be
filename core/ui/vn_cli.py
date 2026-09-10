@@ -270,10 +270,13 @@ def run_bond_story_vn(
         if scene.memorial_prompt and image_gen is not None:
             print("[纪念立绘 生成中…]", flush=True)
             try:
+                hints = engine.char_loader.load_illustration(char.character_id)
                 img = image_gen.generate(
                     scene.memorial_prompt, seed=memorial_seed,
                     ref_images=collect_ref_images(char.character_id),
-                    character_name=char.display_name)
+                    character_name=char.display_name,
+                    character_hint=hints.get("character_hint", ""),
+                    halo_hint=hints.get("halo_hint", ""))
                 sid = gallery_store.write(
                     char.character_id, scene.memorial_prompt, vn_sid or "", img.path,
                     width=img.width, height=img.height)
