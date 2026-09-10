@@ -67,6 +67,8 @@ _RECORD_HEAD_RE = re.compile(
     r'^\{\s*"(?P<kind>character|stage)"\s*:\s*"(?P<value>[^"]*)"\s*,')
 #: 辅助转义用：`text` 字段的起始（取判别符之后的**第一个**，正文里的同名子串不干扰）
 _TEXT_FIELD_RE = re.compile(r'"text"\s*:\s*"')
+#: 辅助转义护栏：疑似 JSON 结构残留（多记录粘在一行 / 记录重启）→ 宁可丢行
+_JSON_ISH_RE = re.compile(r'\}\s*\{|"\s*:\s*"|"\s*,\s*"')
 
 
 # ---------------------------------------------------------------------------
@@ -203,6 +205,10 @@ def _rescape_repair(line: str) -> tuple[VnRecord | None, str]:
         tail = tail[:-1]
     if '"' not in tail or not tail.strip():
         return None, ""                       # 无未转义引号 → 不属于本类错误
+    if _JSON_ISH_RE.search(tail):
+        # 结构残留（如模型把两条记录粘在一行 `..."x"}{"character":...`）：吞下去会
+        # 把 JSON 碎片当正文 → 宁可丢行（宁缺勿错；护栏失效时最多退回旧行为）
+        return None, ""
     rec, _why = _record_from_obj({m.group("kind"): m.group("value"), "text": tail})
     if rec is None:
         return None, ""
