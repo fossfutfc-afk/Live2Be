@@ -48,21 +48,42 @@ logger = logging.getLogger(__name__)
 # 单场景渲染（委托 renderer 管线——背景/表情/特效/打字/选项全部收编）
 # ---------------------------------------------------------------------------
 
+def _speaker_names(char) -> dict[str, str]:
+    """记录流 v2 说话人显示名映射（最小形态）: 角色 id → display_name, sensei → 老师。
+
+    narrator 不在表里（`speaker_name` 缺失 → CLI 不画名字行）。
+    """
+    from contract import CHARACTER_SENSEI, SPEAKER_SENSEI_LABEL
+    names = {CHARACTER_SENSEI: SPEAKER_SENSEI_LABEL}
+    cid = getattr(char, "character_id", "") if char is not None else ""
+    if cid:
+        names[cid] = getattr(char, "display_name", "") or cid
+    return names
+
+
 def simulate_vn_scene(
     scene: BondScene,
     input_fn=input,
     char_ms: int = PARA_CHAR_MS,
     renderer: Renderer | None = None,
+    speaker_names: dict[str, str] | None = None,
 ) -> str | None:
     """渲染一个场景（视觉标签 + 段落 + 特效 + 选项/收尾）, 返回下一场景的用户输入。
 
     renderer: 由 run_bond_story_vn 构建一次注入（真实资产查库）;
     None → 懒构建空角色渲染器（无词表/无角色特效覆盖——测试与直接调用路径,
     背景/表情/全局特效照常）。
+    speaker_names: 记录流 v2 说话人 → 显示名（缺省则不画名字行——旧档/测试路径）。
     """
     if renderer is None:
         renderer = Renderer("")
-    out = renderer.render(RenderScene.from_live(scene))
+    render_scene_obj = RenderScene.from_live(scene)
+    if speaker_names:
+        for p in render_scene_obj.paragraphs:
+            sp = p.get("speaker") if isinstance(p, dict) else None
+            if isinstance(sp, str) and sp.strip() and sp.strip() in speaker_names:
+                p["speaker_name"] = speaker_names[sp.strip()]
+    out = renderer.render(render_scene_obj)
     render_scene(out, char_ms=char_ms)
 
     if scene.is_end:
@@ -288,7 +309,8 @@ def run_bond_story_vn(
                 memorial_images = []
 
         choice = simulate_vn_scene(scene, input_fn=input_fn, char_ms=char_ms,
-                                   renderer=renderer)
+                                   renderer=renderer,
+                                   speaker_names=_speaker_names(char))
 
         # 事件流（store 注入时）: type=bond 事件（input=本场触发输入, picked=玩家裁决）
         # + 纪念 marker/l2d 事件（§4.7）+ vn_state marker（恢复点: round/seed/visual）

@@ -20,7 +20,9 @@
 
 from __future__ import annotations
 
+import json
 import logging
+import re
 
 from core.bond.emotion_annotate import _extract_array  # 共享文本模式数组提取
 from llm.prompts import load_prompt
@@ -28,6 +30,11 @@ from llm.task_levels import extra_body as _tl_extra
 from llm.task_levels import max_tokens as _tl_max_tokens
 
 logger = logging.getLogger("live2be.bond")
+
+#: switch 文本 → 词表键的进程内缓存（P0-7 最小换场翻译; 文件级缓存 places_resolved.jsonl
+#: 是 P1-3 的事——这里先给"同一地点话不再重复调用"的收益）
+_RESOLVE_CACHE: dict[str, str] = {}
+_RESOLVE_CACHE_MAX = 256
 
 
 def _clean_anchors(
@@ -118,4 +125,79 @@ def annotate_places(
         if arr is not None:                       # 形状可解析 → 逐项容错完成
             return _clean_anchors(arr, len(sentences), key_set, current)
     return []                                     # 全部失败 → keep（画面保持）
+
+
+def _extract_place_obj(raw: object) -> str | None:
+    """从模型输出里抠出 {"place": "<id>"} 的 id；形状不对 → None。"""
+    text = raw if isinstance(raw, str) else json.dumps(raw, ensure_ascii=False)
+    if not text:
+        return None
+    m = re.search(r"\{.*\}", text, re.S)
+    if not m:
+        return None
+    try:
+        obj = json.loads(m.group(0))
+    except (ValueError, TypeError):
+        return None
+    if not isinstance(obj, dict):
+        return None
+    place = obj.get("place")
+    return place.strip() if isinstance(place, str) else None
+
+
+def resolve_place(
+    llm,
+    text: str,
+    place_keys: list[str],
+    current_place: str = "",
+    *,
+    max_tokens: int | None = None,
+    retries: int = 1,
+) -> str:
+    """`switch` 地点话 → 背景词表键（**P0-7 最小换场翻译**；P1-2 会用 tempo 导出视图替换词表）。
+
+    记录流 v2 的换场由 writer 发 `stage:switch`（自然语言地点），WHICH 归标注层:
+    这一步就是那一次翻译。命中进程内缓存 → 0 调用; 失败/词表外/与当前相同 → `""`
+    （keep——画面保持, 宁缺勿错）。
+
+    Returns: 词表键; `""` = 这次不切背景。
+    """
+    text = (text or "").strip()
+    current = (current_place or "").strip()
+    if not text or not place_keys:
+        return ""
+    cache_key = f"{current}|{text}"
+    if cache_key in _RESOLVE_CACHE:
+        return _RESOLVE_CACHE[cache_key]
+    if max_tokens is None:
+        max_tokens = _tl_max_tokens("place")
+    key_set = set(place_keys)
+    lexicon_hint = "\n".join(f"  {k}" for k in place_keys)
+    system = (load_prompt("place_resolve")
+              .replace("{lexicon}", lexicon_hint)
+              .replace("{current_place}", current or "（还没定）")
+              .replace("{text}", text))
+    user = "请输出地点 id JSON。"
+    result = ""
+    for attempt in range(retries + 1):
+        try:
+            raw = llm.chat(
+                [{"role": "system", "content": system},
+                 {"role": "user", "content": user}],
+                temperature=0.2,
+                max_tokens=max_tokens,
+                extra_body=_tl_extra("place"),
+            )
+        except Exception as e:                    # noqa: BLE001 — 失败静默降级（keep）
+            logger.warning("place 翻译调用失败（keep 兜底）: %s", e)
+            continue
+        place = _extract_place_obj(raw)
+        if place is None:                         # 解析失败 → 重试一次
+            continue
+        if place and place in key_set and place != current:
+            result = place
+        break
+    if len(_RESOLVE_CACHE) < _RESOLVE_CACHE_MAX:
+        _RESOLVE_CACHE[cache_key] = result
+    return result
 

@@ -893,7 +893,11 @@ def bond_turn(char_id: str, session_id: str, text: str) -> dict:
         _log_scene_meta(state, char_id, session_id, state.scene_obj)
         # 链式备料（N2a 缺口补上, N2b）: 新场景未收尾——纯叙事 → 单路预生成;
         # 带 choices → 候选 spawn（读板期预跑, 与主线生成同款）
-        if (state.scene_obj is not None and not state.scene_obj.is_end):
+        # 记录流 v2（P0-7）: 下一板**已经在引擎待发队列里**（0 LLM）——既不 fork
+        # 候选也不预生成（点击"（继续）"直接领出）; 顺带避开 _last_payload 被
+        # 预生成板顶掉的回录错位风险。
+        if (state.scene_obj is not None and not state.scene_obj.is_end
+                and not state.scene_obj.records):
             if state.scene_obj.choices:
                 _spawn_candidates(state, state.scene_obj, char_id, session_id)
             else:
@@ -973,6 +977,22 @@ def bond_turn(char_id: str, session_id: str, text: str) -> dict:
             _pregenerate(state, char_id, session_id)
         return {"accepted": True, "busy": state.busy, "branch": True,
                 "scene": state.scene, "candidate": cand is not None}
+
+    # 记录流 v2 裁决（P0-7）: 选中候选 = 老师那句话 —— **物化 + 就地展示**;
+    # 角色的反应在**下一板**（引擎待发队列, 点继续 0 LLM 领出）——不在这里生成。
+    if (state.scene_obj is not None and state.scene_obj.records
+            and text in (state.scene_obj.choices or [])):
+        _log_scene(state, char_id, session_id, picked=text)
+        if state.vn is not None:
+            state.vn.record_picked(text)          # 历史尾部物化（live == 回放）
+        _discard_candidates(state)                # v2 不 fork（内容已在待发队列）
+        # 就地展示老师那句（**不重建 scene_obj**——原对象的标注就绪态要保住,
+        # 否则推进门控会一直等一个永不回来的标注）
+        state.scene = _narrativize(state.scene, text)
+        state.scene_obj.choices = []              # 已裁决: 不再给选项
+        state.scene_logged = True                 # 本板已随裁决落库
+        return {"accepted": True, "busy": False, "branch": True,
+                "scene": state.scene, "candidate": False}
 
     # append-only 事件流: 当前展示场景在玩家裁决时落库（带 picked）;
     # 纯叙事场的"（继续）"是推进指令不是内容裁决 → picked=None（与预生成消费一致）

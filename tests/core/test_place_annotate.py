@@ -10,7 +10,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-from core.bond.place_annotate import _clean_anchors, annotate_places
+from core.bond.place_annotate import (_RESOLVE_CACHE, _clean_anchors,  # noqa: E402
+                                      annotate_places, resolve_place)
 from llm.prompts import load_prompt
 from llm.task_levels import max_tokens as tl_max_tokens
 
@@ -140,6 +141,53 @@ def test_annotate_places_max_tokens_truth_source():
     llm2 = ScriptedLLM([])
     annotate_places(llm2, SENTENCES, KEYS, "")
     assert llm2.calls[0]["kw"]["max_tokens"] == 256
+
+
+# ---------------------------------------------------------------------------
+# switch → 背景键翻译（P0-7 最小换场翻译; P1-2 会用 tempo 导出视图替换词表）
+# ---------------------------------------------------------------------------
+
+def test_resolve_place_translates_and_caches():
+    """地点话 → 词表键: 命中词表 → 返回; 重复同一句 → 命中缓存（0 调用）。"""
+    _RESOLVE_CACHE.clear()
+    llm = ScriptedLLM('{"place": "rooftop"}')
+    assert resolve_place(llm, "放学后的天台", KEYS, "") == "rooftop"
+    assert len(llm.calls) == 1
+    assert resolve_place(llm, "放学后的天台", KEYS, "") == "rooftop"
+    assert len(llm.calls) == 1                       # 缓存命中 → 不再调用
+    # prompt 占位替换（词表 + 地点话 + 当前地点）
+    system = llm.calls[0]["messages"][0]["content"]
+    assert "rooftop" in system and "放学后的天台" in system
+    assert "还没定" in system                         # 空当前地点 → 占位文案
+    print("    resolve: 地点话 → 键 + 缓存命中 0 调用")
+
+
+def test_resolve_place_keep_on_bad_output():
+    """词表外 / 与当前相同 / 形状坏 / 异常 → 一律 ""（keep——画面保持）。"""
+    _RESOLVE_CACHE.clear()
+    cases = [
+        ('{"place": "not_in_lexicon"}', "", ""),     # 词表外
+        ('{"place": "rooftop"}', "rooftop", ""),     # 与当前相同 → 不动画面
+        ("随便说点什么", "", ""),                      # 形状坏（重试后仍坏）
+        ('{"place": ""}', "", ""),                   # 模型自己给空
+    ]
+    for raw, current, expect in cases:
+        llm = ScriptedLLM(raw, raw)                  # 重试一次仍给同样输出
+        assert resolve_place(llm, f"地点{raw}{current}", KEYS, current) == expect
+    class BoomLLM:
+        def chat(self, messages, **kw):
+            raise RuntimeError("boom")
+    assert resolve_place(BoomLLM(), "某个地方", KEYS, "") == ""
+    print("    resolve: 词表外/同地点/坏输出/异常 → keep")
+
+
+def test_resolve_place_uses_place_task_level():
+    """档位复用 place 形态（thinking off + 256），与标注层同源。"""
+    _RESOLVE_CACHE.clear()
+    llm = ScriptedLLM('{"place": "campus"}')
+    resolve_place(llm, "校园里", KEYS, "")
+    assert llm.calls[0]["kw"]["max_tokens"] == tl_max_tokens("place") == 256
+    print("    resolve: 复用 place 档位（256）")
 
 
 # ---------------------------------------------------------------------------

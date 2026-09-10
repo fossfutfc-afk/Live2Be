@@ -629,6 +629,14 @@ const BondVN = (() => {
       curEmotion = p.emotion;
     }
     if (p && p.fx && p.fx.length) showFx(p.fx);
+    // 说话人名字行（记录流 v2 最小形态）: 后端已把 speaker → 显示名映射好
+    // （旁白为空串 → 不画名字行）; 样式 .bond-speaker, 细节留后。
+    if (p && p.speaker_name) {
+      const nm = document.createElement("div");
+      nm.className = "bond-speaker";
+      nm.textContent = p.speaker_name;
+      typeBoxEl.appendChild(nm);
+    }
     const div = document.createElement("div");
     div.className = "bond-para";
     typeBoxEl.appendChild(div);

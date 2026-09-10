@@ -88,6 +88,12 @@ class RenderScene:
                     emotion = p.get("emotion")
                     if isinstance(emotion, str) and emotion.strip():
                         item["emotion"] = emotion.strip()
+                    # 记录流 v2 说话人（最小形态）: speaker = 记录取值, speaker_name =
+                    # 调用方映射好的显示名（CLI 直接用后者画名字行）
+                    for key in ("speaker", "speaker_name"):
+                        v = p.get(key)
+                        if isinstance(v, str) and v.strip():
+                            item[key] = v.strip()
                     paras.append(item)
         choices = [c for c in raw.get("choices", []) if isinstance(c, str)]
         background = raw.get("background")

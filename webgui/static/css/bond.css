@@ -214,6 +214,19 @@
 /* 正在输出的当前段（打字机）——淡入, 其余段照常 */
 .bond-para.done { opacity: 1; }
 
+/* 说话人名字行（记录流 v2 最小形态）: 只区分"谁在说"——老师 / 角色名;
+   旁白（narrator）不带名字行。样式刻意最简, 细节等后续定。 */
+.bond-speaker {
+  font-size: 0.82rem;
+  line-height: 1.4;
+  letter-spacing: 0.06em;
+  color: #ffd9ec;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.85);
+  text-align: left;
+  margin-bottom: 0.1rem;
+  animation: bond-para-in 0.2s ease-out;
+}
+
 /* 交互区（画面中上部——官方 VN 选项: 白色大横条, 所有选项等宽 = 最长项决定;
    平行四边形: 上下边等长平行, 整体小角度倾斜） */
 .bond-choices {
