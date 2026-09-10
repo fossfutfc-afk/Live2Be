@@ -22,6 +22,8 @@ from core.bond.bond_story import BondStoryEngine
 from core.director import Director, VisualState, build_director
 from core.media import MediaCatalog
 
+from tests.vn_fixtures import scene as _scene  # noqa: E402
+
 ROOT = Path(__file__).resolve().parent.parent.parent
 _CHARACTER = "igusa_haruka"
 
@@ -67,19 +69,23 @@ def _director(tmp_path, **kw) -> Director:
 
 
 class _MainLLM:
-    """引擎集成测试用的主 LLM stub（单动作脚本; 标注调用返回 nomal 数组）。"""
+    """引擎集成测试用的主 LLM stub（记录流脚本; 标注/翻译调用按关键字应答）。"""
 
-    def __init__(self, script: dict):
+    def __init__(self, script):
         self._script = script
+        self.place_reply: dict = {"place": ""}
 
-    def chat(self, messages, temperature=0.8, max_tokens=4096, response_format="text"):
+    def chat(self, messages, temperature=0.8, max_tokens=4096, response_format="text",
+             **kw):
         import re as _re
         head = messages[0]["content"]
         last = messages[-1]["content"] if len(messages) > 1 else ""
         if "情绪标签数组" in last:               # emotion 标注 → 全 nomal
             n = len(_re.findall(r"(?m)^\d+: ", head))
             return ["nomal"] * max(n, 1)
-        if "变更句数组" in last:                  # place 标注（P3a）→ 无变更
+        if "地点 id JSON" in last:                # 换场翻译（P0-7）
+            return self.place_reply
+        if "变更句数组" in last:                  # 旧 place 标注（v1 通道）→ 无变更
             return []
         return self._script
 
@@ -147,35 +153,33 @@ def test_director_reset_and_build(tmp_path):
 # ----------------------------------------------------------------------------
 
 def test_engine_attaches_background_audio(tmp_path):
-    main = _MainLLM({"action": "story_scene", "payload": {
-        "paragraphs": [{"text": "她脸红了。", "emotion": "embarrass"}],
-        "place": "class_room",
-        "choices": [],
-    }})
+    """记录流 v2: switch → 背景键（place 路）→ 导演查表出 background; 导演字段不进 LLM 历史。"""
+    main = _MainLLM(_scene(switch_to="教室", lines=["她脸红了。"]))
     d = _director(tmp_path)
     vn = BondStoryEngine(ROOT / "config" / "characters", main, director=d)
     vn.start_session(_CHARACTER)
+    vn._place_keys = ["class_room"]              # 只留一个键 → 翻译桩直接给 class_room
+    main.place_reply = {"place": "class_room"}
     scene = vn.send_vn_scene("（开场）")
-    assert scene.background == "class_room"
+    assert scene.place == "class_room"                   # switch → 背景键
+    assert scene.background == "class_room"              # 导演查表
     assert scene.audio is None                           # 占位
-    # 2026-09-02: 骨架 emotion 丢弃 → 标注层回填（stub 返回 nomal）
-    assert scene.paragraphs == [{"text": "她脸红了。", "emotion": "nomal"}]
-    assert scene.place == "class_room"
+    assert [p["text"] for p in scene.paragraphs] == ["她脸红了。"]
     dct = scene.to_dict()
     assert dct["background"] == "class_room"             # 存档可见
     assert "sprite" not in dct and "beat_sprites" not in dct
-    hist = vn.history[-1]["content"]                    # 2026-09-05: 叙事文本历史
+    hist = vn.history[-1]["content"]                    # 叙事文本历史
     assert "background" not in hist and "audio" not in hist   # 导演输出不进主 LLM 历史
-    print("    engine: place→background + audio 合并进 BondScene; 历史不含导演字段")
+    assert "class_room" not in hist                      # 视觉键也不进
+    print("    engine: switch→place→background 合并进 BondScene; 历史不含导演字段")
 
 
 def test_engine_no_director_pure_text(tmp_path):
-    main = _MainLLM({"action": "story_scene", "payload": {
-        "paragraphs": [{"text": "纯文本。", "emotion": "nomal"}], "choices": []}})
+    main = _MainLLM(_scene(lines=["纯文本。"]))
     vn = BondStoryEngine(ROOT / "config" / "characters", main)  # director=None
     vn.start_session(_CHARACTER)
     scene = vn.send_vn_scene("x")
     assert scene.background is None and scene.audio is None
-    assert scene.paragraphs == [{"text": "纯文本。", "emotion": "nomal"}]  # 契约 emotion 必填
+    assert [p["text"] for p in scene.paragraphs] == ["纯文本。"]
     assert "background" not in scene.to_dict() and "audio" not in scene.to_dict()
     print("    engine: 无导演 → 纯文本模式, 无视觉字段")

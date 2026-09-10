@@ -90,3 +90,51 @@ def scene(*, switch_to: str = "", art_hint: str = "", lines=(), sensei=(),
     if end_text is not None:
         out.append(end(end_text))
     return "\n".join(out)
+
+
+def from_v1_scene(raw) -> str:
+    """**v1 桩 → 记录流**（P0-7c 迁移期适配器, 只给存量测试桩用）。
+
+    存量测试写的是 `{"action": "story_scene", "payload": {...}}` dict; 引擎现在只吃
+    记录流。这里做一次等价翻译, 让那些**仍在测活行为**的用例改一行就能继续跑:
+
+        paragraphs    → 角色记录（以（）开头的整段 → narrator 记录）
+        choices       → 群（连续 sensei 记录, 挂块尾 = 交互槽）
+        branches[第一个] → 群之后的**下一板**（收敛链语义: 反应在同块内后续）
+        is_end/story_end → stage=end 收尾记录
+
+    注意: 这是**测试侧**适配——产品侧没有这条通道（dict 一律被引擎拒）。
+    新写的用例请直接用 `scene(...)`; 本函数只为存量桩兜底, 迁完即可删。
+    """
+    payload = raw
+    if isinstance(raw, dict) and "action" in raw:
+        payload = raw.get("payload") or {}
+    if isinstance(raw, str) or not isinstance(payload, dict):
+        return str(raw)
+    paras = payload.get("paragraphs") or []
+    lines: list[str] = []
+    for p in paras:
+        text = (p.get("text") if isinstance(p, dict) else p) or ""
+        text = str(text)
+        if not text:
+            continue
+        speaker = "narrator" if text.startswith("（") else CHARACTER
+        lines.append(line(text, speaker))
+    sensei_texts = [str(c) for c in (payload.get("choices") or []) if str(c).strip()]
+    branches = payload.get("branches") or {}
+    reaction: list[str] = []
+    if sensei_texts and isinstance(branches, dict):
+        first = branches.get(sensei_texts[0]) or []
+        for p in first:
+            text = str((p.get("text") if isinstance(p, dict) else p) or "")
+            if text:
+                reaction.append(line(text, "narrator" if text.startswith("（") else CHARACTER))
+    is_end = bool(payload.get("is_end")) or (
+        isinstance(raw, dict) and raw.get("action") == "story_end")
+    out = list(lines)
+    out += [rec("character", "sensei", t) for t in sensei_texts]
+    out += reaction
+    if is_end:
+        out.append(end(""))
+    return "\n".join(out)
+

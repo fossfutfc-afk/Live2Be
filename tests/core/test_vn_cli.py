@@ -61,8 +61,12 @@ class ScriptedLLM:
             return {"episodes": []}
         if "整理者" in head:                       # digest Round B → 空 decisions
             return {"decisions": [], "evidence": [], "affection_exp_delta": 0}
+        if "地点 id JSON" in last:                # 换场翻译（P0-7）→ 不切背景
+            return {"place": ""}
         if not self._scripts:
             raise RuntimeError("ScriptedLLM 脚本耗尽")
+        # 注: 内联 dict 场景的用例仍走**旧动作开关**（P0-7c 收尾项: 脚本计数需按
+        # v2 板数重算后再接适配器）; 常量 SCENE_A/STORY_END 已是记录流。
         return self._scripts.pop(0)
 
     def format_messages(self, *, system_prompt, user_message, history=None):

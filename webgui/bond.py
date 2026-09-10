@@ -63,11 +63,11 @@ def _ms_since(t0: float) -> int:
     """自 t0（time.monotonic）起的毫秒（计时埋点, EXEC_BOND_LATENCY §6.1）。"""
     return int((time.monotonic() - t0) * 1000)
 
-#: 收尾兜底注记轮数（与 CLI 默认一致）: _REMIND_ROUNDS 提醒收束,
-#: _END_ROUNDS 后每轮强制 story_end 注记（_system_note）——**不再有超限
-#: 强制 closing**（2026-09-09 语义修正: 伪收场会把中断伪装成完成, 触发
-#: digest/完整收尾话/自动 finish——见 _generate 失败中止注释）; 模型持续
-#: 不收尾 = 玩家可离开（中场退出, 重进续写）, 不伪终结
+#: 收尾注记轮数（与 CLI 默认一致）: _REMIND_ROUNDS 起给收束提示,
+#: _END_ROUNDS 起每轮强制收尾注记（_system_note）——**不再有超限伪收场**
+#: （2026-09-09 语义修正: 伪收场会把中断伪装成完成, 触发 digest/完整收尾话/
+#: 自动 finish——见 _generate 失败中止注释）; 模型持续不收尾 = 玩家可离开
+#: （中场退出, 重进续写）, 不伪终结。记录流 v2 里注记指向 `stage=end` 记录。
 _REMIND_ROUNDS = 30
 _END_ROUNDS = 50
 #: 程序兜底 closing 文案（demo 剧本耗尽收尾 / CLI 兜底用; 2026-09-09 起
@@ -1699,17 +1699,9 @@ def _system_note(state: BondState) -> str | None:
             f"可用动作 schema:\n{vn.memorial_exit_schema()}"
         )
     notes: list[str] = []
-    # 选项配额（整段剧情 2~3 次——每场给选项的疲劳问题）: 已用 X/3
-    if state.choices_used >= 3:
-        notes.append(
-            f"（系统）本段剧情已用 {state.choices_used}/3 个选项——已到配额上限,"
-            "后续场次一律省略 choices（纯叙事推进, 系统自动衔接下一场）。"
-        )
-    elif state.choices_used >= 1:
-        notes.append(
-            f"（系统）本段剧情已用 {state.choices_used}/3 个选项——尽量少给,"
-            f"只在真正需要老师表态的关键时刻再给（最多还能给 {3 - state.choices_used} 个）。"
-        )
+    # 记录流 v2（P0-7c）: 旧的"整段剧情 2~3 次选项配额"注记退役——v2 的交互密度
+    # 由 rules 引导（一段戏里老师开口 3~5 次）, 引擎不再逐轮念配额（注记进 prompt,
+    # 提旧概念只会干扰守形）。choices_used 仍计数（统计/诊断用）。
     # 表情单一提醒（上一场 ≥3 个单元但 emotion 全同 → 提示 LLM 情绪变化）
     uniq = {e for e in state.prev_emotions if e}
     if len(state.prev_emotions) >= 3 and len(uniq) <= 1:
@@ -1721,20 +1713,20 @@ def _system_note(state: BondState) -> str | None:
         notes.append(
             f"（系统）剧情已推进 {state.round} 轮，剩余约 {_END_ROUNDS - state.round} 轮。"
             "请开始把剧情向结尾收束——感情到位、约定达成、道别告别的时刻"
-            "就改用 story_end 动作收尾结束剧情，不要再开新场景"
+            "就把本轮的**最后一条记录**写成 stage=end 收尾，不要再开新场景"
             "不过也谨记这只是中段提示，你并不需要匆匆结尾，但是建议开始铺垫"
         )
     if state.round == _END_ROUNDS:
         notes.append(
-            "（系统）已达剧情篇幅上限。本轮请改用 story_end 动作收尾"
-            "结束剧情——收尾场景只有 paragraphs，不再输出选项。"
+            "（系统）已达剧情篇幅上限。本轮请用 stage=end 收尾"
+            "结束剧情——收尾那一条 text 是收尾字段（可留空 = 直接黑屏退场）。"
         )
     if state.round > _END_ROUNDS:
         # 超限后的每轮强制（2026-09-09 取代旧 FORCE_AFTER closing——强制注记
         # 引导自然收尾, 不做伪收场）
         notes.append(
-            "（系统）剧情已远超篇幅上限。本轮**必须**输出 story_end 动作收尾"
-            "结束剧情——收尾场景只有 paragraphs，不再输出选项、不再开新场景。"
+            "（系统）剧情已远超篇幅上限。本轮**必须**把最后一条记录写成 stage=end"
+            "收尾结束剧情——不再开新场景、不再写新的铺垫。"
         )
     return "\n".join(notes) if notes else None
 

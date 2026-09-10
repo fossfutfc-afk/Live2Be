@@ -18,15 +18,15 @@ from core.session.store import SessionStore
 from core.momotalk import MomoTalkEngine
 
 ROOT = Path(__file__).resolve().parent.parent.parent
+import sys  # noqa: E402
+sys.path.insert(0, str(ROOT))
+from tests.vn_fixtures import scene as _scene  # noqa: E402
+
 CHARACTER = "igusa_haruka"
 
-SCENE = {"action": "story_scene", "payload": {
-    "paragraphs": [{"text": "（缓存首场）她站在窗边，夕阳把影子拉长。"}],
-    "choices": ["过去", "静静等她"],
-    "branches": {"过去": [{"text": "她回过头。"}],
-                 "静静等她": [{"text": "她没发现我。"}]}}}
-SCENE2 = {"action": "story_scene", "payload": {
-    "paragraphs": [{"text": "（LLM 现场生成的首场）"}]}}
+SCENE = _scene(lines=["（缓存首场）她站在窗边，夕阳把影子拉长。"],
+               sensei=["过去", "静静等她"])
+SCENE2 = _scene(lines=["（LLM 现场生成的首场）"])
 
 
 class ScriptedLLM:
@@ -185,12 +185,9 @@ def test_cache_deleted_on_finish_and_demo_skip(tmp_path):
         _cleanup()
 
 
-NARR1 = {"action": "story_scene", "payload": {
-    "paragraphs": [{"text": "（缓存首场·纯叙事）月光下她指了指杂草丛。"}]}}
-PRE = {"action": "story_scene", "payload": {
-    "paragraphs": [{"text": "（首场后的自动预生成占位——重启即弃）"}]}}
-NARR2 = {"action": "story_scene", "payload": {
-    "paragraphs": [{"text": "（承接第二场）她蹲下来摘了一片叶子。"}]}}
+NARR1 = _scene(lines=["（缓存首场·纯叙事）月光下她指了指杂草丛。"])
+PRE = _scene(lines=["（首场后的自动预生成占位——重启即弃）"])
+NARR2 = _scene(lines=["（承接第二场）她蹲下来摘了一片叶子。"])
 
 
 def test_cache_hit_injects_engine_state_and_advances(tmp_path):
