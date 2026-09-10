@@ -20,6 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from core.momotalk import MomoTalkEngine
 from core.session import SessionStore
+from llm.image_gen import GeneratedImage
 from webgui import bond, chat
 
 ROOT = Path(__file__).resolve().parent.parent.parent
@@ -889,11 +890,12 @@ class FakeImageGen:
     def is_api_mode(self):
         return True
 
-    def generate(self, prompt, ref_images=None, character_name="角色"):
+    def generate(self, prompt, ref_images=None, character_name="角色", **kw):
         self.prompts.append(prompt)
         p = self.tmp / "fake.png"
         p.write_bytes(b"fake-png-bytes")
-        return p
+        return GeneratedImage(path=p, width=1920, height=1080,
+                              size_bytes=p.stat().st_size, backend="apiyi")
 
 
 def test_bond_memorial_async_image(tmp_path, monkeypatch):

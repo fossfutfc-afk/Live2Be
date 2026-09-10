@@ -73,6 +73,8 @@ class GalleryStore:
         *,
         description: str = "",
         scene_id: str | None = None,
+        width: int | None = None,
+        height: int | None = None,
     ) -> str:
         """落一张画廊图（png + json 成对, §4.5 格式）。
 
@@ -99,6 +101,9 @@ class GalleryStore:
         }
         if description:
             meta["description"] = description
+        if width and height:                    # 生图尺寸（= 屏幕尺寸; 前端布局/校验用）
+            meta["width"] = int(width)
+            meta["height"] = int(height)
         atomic_write_json(self.meta_path(char_id, sid), meta)
         return sid
 
