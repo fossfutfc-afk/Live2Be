@@ -123,14 +123,14 @@ def test_build_api_parts_labels_every_ref(tmp_path):
     for name in ("sprite_1.png", "style_1.png", "style_2.png", "halo.png"):
         _png(ref / name)
     parts = _build_api_parts(ref_specs("igusa_haruka", assets_root=tmp_path),
-                             "伊草春香", "夜晚的天台，她转过头来微笑。", (1920, 1080))
+                             "测试角色", "夜晚的天台，她转过头来微笑。", (1920, 1080))
     texts = [p["text"] for p in parts if "text" in p]
     assert len([p for p in parts if "inline_data" in p]) == 4
-    assert any("【图1 角色本体】" in t and "伊草春香" in t for t in texts)
+    assert any("【图1 角色本体】" in t and "测试角色" in t for t in texts)
     assert sum("画风与质感基准" in t for t in texts) == 2
-    assert any("配饰参考：光环" in t and "悬浮于头顶上方" in t for t in texts)
+    assert any("配饰：光环" in t and "悬浮于头顶上方" in t for t in texts)
     assert any("16:9" in t and "1920x1080" in t for t in texts)
-    assert any("不要角色设定表" in t for t in texts)          # 防参考图排版被抄成多视图
+    assert any("设定表" in t for t in texts)                  # 防参考图排版被抄成多视图
     for i, part in enumerate(parts):                          # 每张图前面必是标签 text
         if "inline_data" in part:
             assert "text" in parts[i - 1]

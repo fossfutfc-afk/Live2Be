@@ -33,9 +33,9 @@
 用法:
     from llm.image_gen import ImageGenerator, collect_ref_images
     gen = ImageGenerator()
-    img = gen.generate("她在湖边微笑，眼角带一滴泪，黄昏暖光，晚风拂过鬓发",
-                       ref_images=collect_ref_images("igusa_haruka"),
-                       character_name="伊草 遥香")
+    img = gen.generate(scene_prompt,                      # 中文场景指令（不写外观）
+                       ref_images=collect_ref_images(char_id),
+                       character_name=char.display_name)  # 名字由角色卡提供, 不硬编码
     img.path, img.width, img.height
 """
 from __future__ import annotations
@@ -142,32 +142,22 @@ class GeneratedImage:
 # 标签错位（光环被当多余图 → 画错, 2026-09-10 实测确诊）
 # ---------------------------------------------------------------------------
 
-_APIYI_HEADER = (
-    "你是一位负责《蔚蓝档案》官方风格插画的画师。请依据以下参考图与场景指令，"
-    "绘制**一张**单幅插画。"
-)
+_APIYI_HEADER = "《蔚蓝档案》官方风格插画。依据以下参考图与场景指令，绘制一张单幅插画。"
 _APIYI_ROLE_LABEL = (
-    '【图{n} 角色本体】图{n}是角色"{name}"的官方立绘拆件。'
-    "必须严格保持她的角色设计：脸型、五官、瞳色、发色与发型、服装与配饰、"
-    "头顶光环——不要改动设计，不要变化年龄感，不要自行换装。"
+    '【图{n} 角色本体】角色"{name}"的官方立绘拆件。严格保持其设计：发型、瞳色、'
+    "服装、配饰、头顶光环；不改设计、不换装、不变年龄感。"
 )
 _APIYI_STYLE_LABEL = (
-    "【图{n} 画风与质感基准】图{n}是同一角色的官方记忆大厅插画。"
-    "线条、上色方式、光影与材质、整体氛围按此执行；它同时也是该角色外观的补充参考。"
+    "【图{n} 画风与质感基准】同一角色的官方记忆大厅插画：线条、上色、光影、氛围照此执行，"
+    "亦作外观补充参考。"
 )
-_APIYI_ACC_LABEL = (
-    "【图{n} 配饰参考：{acc}】图{n}是该角色的标志性配饰（{acc}），必须画出："
-    "形状、颜色、比例严格照图；光环悬浮于头顶上方、不与头部相连，半透明发光质感。"
-)
+_APIYI_ACC_LABEL = "【图{n} 配饰：{acc}】必须画出：形状与颜色照图{hint}。"
+_APIYI_HALO_HINT = "；光环悬浮于头顶上方、不与头部相连，半透明发光"
 _APIYI_TAIL = (
     "【场景指令】\n{scene}\n\n"
-    "【输出要求】\n"
-    "1. 单幅插画，画幅 {ratio}（{w}x{h} 屏幕尺寸），人物为主体、构图完整；\n"
-    "2. 官方动画风格：干净清晰的线稿、鲜明通透的色彩、柔和自然的光影；\n"
-    "3. 表情、视线、姿态严格按场景指令，情绪到位；\n"
-    "4. 画面只包含场景指令要求的内容——不要文字、水印、签名、边框；"
-    "不要角色设定表/多视图/分格排版；\n"
-    "5. 不要改变角色设计，不要新增场景指令之外的人物。"
+    "【要求】单幅，画幅 {ratio}（{w}x{h}）；官方动画风格（干净线稿、通透色彩、柔和光影）；"
+    "表情与姿态按场景指令；不要文字、水印、签名、边框、设定表、多视图、分格；"
+    "不改角色设计，不新增场景外人物。"
 )
 
 
@@ -199,7 +189,8 @@ def _build_api_parts(specs: list[tuple[str, str, Path]], name: str, scene: str,
         elif kind == "style":
             text = _APIYI_STYLE_LABEL.format(n=i)
         else:
-            text = _APIYI_ACC_LABEL.format(n=i, acc=label)
+            hint = _APIYI_HALO_HINT if label == "光环" else ""
+            text = _APIYI_ACC_LABEL.format(n=i, acc=label, hint=hint)
         parts.append({"text": text})
         parts.append({"inline_data": {"mime_type": _mime_of(path),
                                       "data": base64.b64encode(path.read_bytes()).decode()}})
