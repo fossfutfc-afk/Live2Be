@@ -12,6 +12,18 @@ from __future__ import annotations
 from typing import Any
 
 from contract.constants import APPROVAL_AUTO, APPROVAL_NEVER, APPROVAL_REQUIRED
+from contract.records import (
+    CHARACTER_NARRATOR,
+    CHARACTER_SENSEI,
+    KIND_CHARACTER,
+    KIND_STAGE,
+    MAX_SENSEI_RUN,
+    STAGE_ART,
+    STAGE_END,
+    STAGE_EXIT,
+    STAGE_MEMORIAL,
+    STAGE_SWITCH,
+)
 from contract.registry import ActionRegistry
 
 # 外壳字段的说明文本（build_schema 渲染用）
@@ -111,6 +123,70 @@ def export_definitions(registry: ActionRegistry) -> dict[str, Any]:
         "domain": registry.domain,
         "actions": actions,
     }
+
+
+def build_record_schema(*, with_examples: bool = True) -> str:
+    """渲染 **VN 记录流契约**（LLM 可见）——`build_schema` 的第三种形态。
+
+    与"单动作 JSON"（story 旧契约）和"messages 消息流"（MMT, `action_list=True`）并列。
+    设计: `docs/DESIGN_VN_UPGRADE.md` §2（文法）/ §10.4（`art` 预告制）。
+    文案单源: 取值与约束全部取自 `contract.records` 常量。
+
+    Args:
+        with_examples: 是否附 few-shot 示例（含**转义引号**示范——实测唯一真实错误源）。
+    """
+    char_shapes = [
+        ("角色名（如 haruka）", '"台词"', "已登记角色名"),
+        (CHARACTER_NARRATOR, '"（旁白 / 动作 / 环境）"', "叙述"),
+        (CHARACTER_SENSEI, '"老师此刻会说的一句话"',
+         f"老师的话；连续 {1}~{MAX_SENSEI_RUN} 条 = 一个群（玩家挑一句说）"),
+    ]
+    stage_shapes = [
+        (STAGE_SWITCH, '"目标地点"', "换场（自由文本，不是资产键）"),
+        (STAGE_ART, '"画面意向（1~2 句）"',
+         "本章纪念时刻的预告（必须块首；一章至多一次）"),
+        (STAGE_MEMORIAL, '"（触发句）"', "纪念触发；其后到本轮结束为纪念正文"),
+        (STAGE_END, '"（收尾正文）"', "收尾（必须块尾）"),
+        (STAGE_EXIT, "（可省略 text）", "仅纪念域"),
+    ]
+    lines = [
+        "你以**一行一条 JSON 记录**的形式输出本轮内容（段与段之间只换行，不要数组、不要嵌套、"
+        "不要代码围栏、不要解释）。每条记录**恰好**含 `character` 或 `stage` 之一，外加 `text`:",
+        "",
+    ]
+    for kind, shapes in ((KIND_CHARACTER, char_shapes), (KIND_STAGE, stage_shapes)):
+        lines.append(f"{kind} 取值:")
+        for value, text_shape, note in shapes:
+            lines.append(f'    {{"{kind}": "{value}", "text": {text_shape}}}   {note}')
+        lines.append("")
+    lines += [
+        "硬规则（违反即被丢弃）:",
+        "1. 一行一条完整记录；字段只有那两个；text 除 stage=exit 外必填。",
+        '2. text 里的半角双引号与反斜杠必须转义（写成 \\" 与 \\\\）——这是最常见的错误。',
+        "3. 不写地点键、不写情绪键（引擎自己判定），也不要写 action / choices / branches。",
+        '4. 不要出现"选项"字样：老师要说话就直接写第 2 条之类的 sensei 记录，连续 1~%d 条即可。'
+        % MAX_SENSEI_RUN,
+        "5. 本章第一条必须是 stage=switch（交代开场景）；若本块含纪念，"
+        "则 stage=art 紧跟其后成为本块首条。",
+        "6. stage=end / exit 必须是本轮最后一条；stage=memorial 之后到本轮结束都属于纪念正文，"
+        "其中不得再出现 switch 或 art。",
+        "7. 篇幅：一轮约 %d 行（写下你觉得完整的一段戏，不要草草收尾）。" % 40,
+    ]
+    if with_examples:
+        lines += [
+            "",
+            "示例（注意：一行一条；第 3 行演示了转义引号；连续两条 sensei = 一个群）:",
+            '    {"stage": "switch", "text": "放学后的天台"}',
+            '    {"character": "haruka", "text": "……老师，你、你来了。"}',
+            '    {"character": "haruka", "text": "他说 \\"别担心\\" 的时候，我、我却差点搞砸。"}',
+            '    {"character": "sensei", "text": "我想和你一起面对。"}',
+            '    {"character": "sensei", "text": "你不想让我陪着吗？"}',
+            '    {"character": "haruka", "text": "……！！"}',
+            '    {"character": "narrator", "text": "（她把手藏到身后，又慢慢拿出来。）"}',
+            '    {"stage": "memorial", "text": "（她忽然抬起头，朝我笑了一下。）"}',
+            '    {"character": "haruka", "text": "「老师，谢谢你今天来。」"}',
+        ]
+    return "\n".join(lines)
 
 
 def build_digest_schema() -> str:

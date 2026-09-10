@@ -193,3 +193,28 @@ def test_block_head_art_after_opening_switch():
             _rec("haruka", "铺垫"), _rec("memorial", "触发", KIND_STAGE)]
     assert check_block(recs) == [], check_block(recs)
     print("    block: 开章 switch + art 紧随 = 合规")
+
+
+# ---------------------------------------------------------------------------
+# P0-3：LLM 可见的契约文本（第三种形态）
+# ---------------------------------------------------------------------------
+
+def test_build_record_schema_covers_all_values():
+    """schema 文本覆盖全部取值 + 关键软规则（含转义示范与群上限）。"""
+    from contract.records import STAGE_VALUES
+    from contract.schema import build_record_schema
+
+    text = build_record_schema()
+    for value in STAGE_VALUES:
+        assert f'"{value}"' in text, value
+    for value in ("haruka", CHARACTER_NARRATOR, CHARACTER_SENSEI):
+        assert value in text, value
+    assert "一行一条" in text
+    assert '\\"' in text                       # 转义示范（实战唯一真实错误源）
+    assert f"1~{MAX_SENSEI_RUN} 条" in text     # 群上限
+    assert "不要数组" in text and "代码围栏" in text
+    assert "stage=exit" in text and "块首" in text and "块尾" in text
+    # 关掉示例时更短，但仍含硬规则
+    brief = build_record_schema(with_examples=False)
+    assert len(brief) < len(text) and "硬规则" in brief and "示例" not in brief
+    print("    schema: 全取值 + 转义示范 + 群上限 + 可关示例")
