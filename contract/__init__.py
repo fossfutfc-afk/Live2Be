@@ -35,6 +35,22 @@ from contract.registry import (
     StoryActionRegistry,
     parse_action_text,
 )
+from contract.records import (
+    CHARACTER_NARRATOR,
+    CHARACTER_SENSEI,
+    KIND_CHARACTER,
+    KIND_STAGE,
+    MAX_SENSEI_RUN,
+    STAGE_VALUES,
+    ParseDiag,
+    ParseResult,
+    VnRecord,
+    check_block,
+    parse_line,
+    parse_stream,
+    sensei_group_labels,
+    sensei_groups,
+)
 from contract.schema import (
     build_schema,
     build_digest_schema,
@@ -70,4 +86,19 @@ __all__ = [
     "build_schema",
     "build_digest_schema",
     "export_definitions",
+    # —— VN 记录流（记录流 v2, 2026-09-10）——
+    "KIND_CHARACTER",
+    "KIND_STAGE",
+    "CHARACTER_NARRATOR",
+    "CHARACTER_SENSEI",
+    "STAGE_VALUES",
+    "MAX_SENSEI_RUN",
+    "VnRecord",
+    "ParseDiag",
+    "ParseResult",
+    "parse_line",
+    "parse_stream",
+    "sensei_groups",
+    "sensei_group_labels",
+    "check_block",
 ]
