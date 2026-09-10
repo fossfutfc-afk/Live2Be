@@ -229,9 +229,9 @@ _image_gen: ImageGenerator | None = None
 
 
 def _image_generator() -> ImageGenerator | None:
-    """懒初始化生图器。未配 IMAGE_API_KEY（非 API 模式）→ None = 纪念降级纯文字。
+    """懒初始化生图器。未配 IMAGE_API_KEY → None = 纪念降级纯文字。
 
-    webgui 不做本地 diffusers 兜底（20 分钟/张不可接受）——API 模式才启用。
+    本地 diffusers 兜底已于 2026-09-10 移除（出图"不像人类"）——只有 APIYI 一条路。
     """
     global _image_gen
     if _image_gen is None:

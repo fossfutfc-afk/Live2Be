@@ -160,7 +160,7 @@ _tasks[key] = {"running": False, "error": "", "bond_story": bool(result.bond_sto
 | 分支读完→下一场 | 分支消费时即链式 `_pregenerate` | 极端：分支读完瞬间 pregen 未完成（≤ 一次生成时长，罕见） |
 | 纯叙事场→下一场 | 渲染完成即 pregen，点"继续"零等待 | 同上有 pregen 失败降级窗口 |
 | emotion 标注 | 展示不等标注（骨架先出）；推进门控等当前场景标注完 | 读速>标注速时短暂 busy（标注单 worker FIFO，当前场景先入队先标） |
-| memorial 立绘 | 流式嗅探 prompt 定稿即开生图线程，图就绪静默淡入 | 无（首图 ~2s 内） |
+| memorial 立绘 | 流式嗅探 prompt 定稿即开生图线程，图就绪静默淡入 | 无（APIYI 实测 **26s**/张；本地 SD ~2s 时代已于 2026-09-10 终止——后端只保留 APIYI） |
 | digest/wrapup | finish 后异步 | 无 |
 
 结论：**读写交错的主体已存在**（pregen 链 = Storyloom 的桥接预取；branches =
