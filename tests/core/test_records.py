@@ -112,9 +112,11 @@ def test_rescape_repair_edge_cases():
 
 
 def test_unescapable_line_still_dropped():
-    """辅助转义不越界：非本类形状（缺逗号等）依旧丢行。"""
+    """辅助转义不越界：非本类形状（缺逗号等）+ 疑似结构残留依旧丢行。"""
     for bad in ('{"character": "haruka" "text": "缺逗号"}',
-                '{"character": "haruka", "text": ["不是字符串"]}'):
+                '{"character": "haruka", "text": ["不是字符串"]}',
+                # 两条记录粘在一行：护栏拦住，不把 JSON 碎片当正文吞下去
+                '{"character": "haruka", "text": "甲"}{"character": "haruka", "text": "乙"}'):
         rec, diag = parse_line(bad, 7)
         assert rec is None and diag is not None and diag.dropped, bad
     print("    parse: 不可救行仍丢行（不越界修复）")
