@@ -389,8 +389,9 @@ class BondStoryEngine:
     ) -> BondScene:
         """结构化场景 API：单次 LLM 调用 → BondScene（段落 + 选项 + 是否结束）。
 
-        max_tokens: 输出上限（None → 真源 llm/task_levels.py 形态 "bond" = 8192,
-        2026-09-02 集中管理; CLI 等调用方可显式传更小值覆盖）。
+        max_tokens: 输出上限（None → 真源 llm/task_levels.py 形态 "bond" = 16384,
+        2026-09-02 集中管理, 2026-09-10 翻倍——思考与正文共享预算且 wiki 只增不减;
+        CLI 等调用方可显式传更小值覆盖）。
 
         LLM 直接输出 story_scene/story_end 契约 JSON（json_object 模式, 内部已有
         3 次语法自纠错）; 外层再做解析/执行重试（双核: registry.parse + executor.

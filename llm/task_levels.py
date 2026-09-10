@@ -27,7 +27,8 @@ low|medium|high = 显式覆盖（reasoning_effort）。
 | 形态      | 任务类 | max_tokens | 调用点 / 说明 |
 |-----------|--------|-----------:|----------------|
 | mmt       | main   |       4096 | MomoTalk 消息流 JSON + 对白（推理模型吃预算, 勿改小——462 截断事故） |
-| bond      | main   |       8192 | 羁绊剧情场景 JSON（自然段 + choices + branches 长响应） |
+| bond      | main   |      16384 | 羁绊剧情记录流长输出块（思考 + 正文同预算）
+|           |        |            | 2026-09-10 用户拍板 8192→16384: wiki 记忆只增不减, 思考水位持续上涨 |
 | vn_cli    | main   |       1536 | CLI run_bond_story_vn 默认（历史值; 函数参数仍可覆盖） |
 | emotion   | emotion|        512 | 标注数组输出（关 thinking 后足量） |
 | place     | place  |        256 | 换场锚点数组（变更句稀疏输出, 256 足量） |
@@ -48,8 +49,8 @@ from pathlib import Path
 PROFILES: dict[str, dict] = {
     "mmt":     {"thinking": "default", "max_tokens": 4096,
                 "note": "MomoTalk 消息流 JSON + 对白"},
-    "bond":    {"thinking": "default", "max_tokens": 8192,
-                "note": "羁绊剧情场景 JSON（段落+选项+分支）"},
+    "bond":    {"thinking": "default", "max_tokens": 16384,
+                "note": "羁绊剧情记录流块级长输出（思考共预算; 2026-09-10 翻倍）"},
     "vn_cli":  {"thinking": "default", "max_tokens": 1536,
                 "note": "CLI run_bond_story_vn 默认（参数可覆盖）"},
     "emotion": {"thinking": "off",     "max_tokens": 512,

@@ -127,9 +127,10 @@ LLM 输出: {"action": "story_scene", "payload": {paragraphs: [str], choices: [s
 
 ## 4. 运行时路径（send_vn_scene）
 
-签名不变：`send_vn_scene(user_input, max_tokens=8192, system_note=None)`。
+签名不变：`send_vn_scene(user_input, max_tokens=16384, system_note=None)`。
 （2026-09-02: max_tokens 1536 → 8192——high reasoning 档思维链吃输出预算,
-1536 在长场景（正文 + 全分支）中途截断, json_cleaner 修不动 → 连续失败。）
+1536 在长场景（正文 + 全分支）中途截断, json_cleaner 修不动 → 连续失败。
+2026-09-10: 8192 → 16384——新契约块级长输出 + 思考共享预算, wiki 记忆只增不减。）
 
 - messages 组装不变（双层收尾兜底的 system_note 分支保留）
 - `llm.chat(messages, response_format="json_object")` → dict（json_object 内部已有 3 次语法自纠错）
