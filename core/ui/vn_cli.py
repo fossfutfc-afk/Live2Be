@@ -138,7 +138,8 @@ def run_bond_story_vn(
         （APIYI 实测单张 26s 量级, 显示「生成中」）→ gallery 落盘 → l2d 事件 +
         marker memorial_enter; 下一轮 system_note 注入 memorial_exit schema
         （纪念模式内只许 exit）; exit 轮 → marker memorial_exit 回 bond。
-        image_gen=None / 未配 key → 纪念场景纯文字渲染（测试环境友好）。
+        image_gen=None / 未配 key / **总开关为关** → 纪念场景纯文字渲染
+        （测试环境友好）。
         gallery（GalleryStore）可注入（默认 data/）; memorial_seed 保留为历史参数。
 
     双层收尾兜底（模型可能迟迟不改用 story_end 动作收尾）:
@@ -161,6 +162,11 @@ def run_bond_story_vn(
     if max_tokens is None:
         from llm.task_levels import max_tokens as _tl_mt
         max_tokens = _tl_mt("vn_cli")
+    # 生图总开关（2026-09-11）: 关（LIVE2BE_IMAGE=off / settings [image].enabled=false）
+    # → 一律当没注入生图器——纪念场景纯文字, 连 warmup 线程都不开
+    if image_gen is not None and not getattr(image_gen, "enabled", True):
+        logger.info("生图总开关为关 → CLI 纪念场景纯文字（不出图）")
+        image_gen = None
     char = engine.current_character
     if char is None:
         return False

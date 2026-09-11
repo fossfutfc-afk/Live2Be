@@ -1249,3 +1249,53 @@ def test_bond_flow_store_bound_at_state_creation(tmp_path):
             time.sleep(0.05)
         time.sleep(0.2)
         _cleanup()
+
+
+def test_memorial_image_switch_gates_thread(monkeypatch):
+    """生图总开关（2026-09-11）: 关 → **不构造生图器、不开生图线程**。
+
+    跑测试默认就是关（tests/conftest.py 会话级 `LIVE2BE_IMAGE=off`）——本用例把
+    两个方向都钉住: 关时纪念回调只置空、连线程都不开; 开时正常构造并可用。
+    """
+    from llm.image_gen import ENV_SWITCH
+
+    made: list = []
+
+    class FakeGen:
+        """替身: 构造即记账（真 ImageGenerator 构造会读 settings.toml）。"""
+
+        def __init__(self, *a, **kw):
+            made.append(1)
+            self.enabled = True
+            self.available = True
+            self.is_api_mode = True
+
+    monkeypatch.setattr(bond, "ImageGenerator", FakeGen)
+    monkeypatch.setattr(bond, "_image_gen", None)
+
+    monkeypatch.setenv(ENV_SWITCH, "off")
+    assert bond._image_generator() is None
+    assert made == [], "关闭时不得构造生图器"
+    st = bond.BondState()
+    bond._make_memorial_cb(st, CHARACTER, "sid")("（纪念）她站在夕阳里。")
+    time.sleep(0.1)
+    assert st.memorial_img_busy is False, "关闭时不得开生图线程"
+    assert st.memorial_img_ready is False and st.memorial_img == ""
+
+    monkeypatch.setenv(ENV_SWITCH, "on")
+    assert bond._image_generator() is not None
+    assert made == [1], "打开后应恰好构造一次"
+    assert bond._image_generator() is not None and made == [1], "第二次走缓存, 不重复构造"
+    print("    switch: 关=不构造/不开线程, 开=构造一次并复用")
+
+
+def test_session_switch_blocks_configured_key():
+    """证据用例: 本机 settings.toml **配着真 key**（单独构造 available=True）,
+    但 tests/conftest.py 的会话级开关是关的 → 纪念路径的 `_image_generator()`
+    仍是 None —— 也就是说"跑测试不会真出图"靠的是开关, 不是"没配 key"。
+    """
+    from llm.image_gen import ImageGenerator
+    if not ImageGenerator().is_api_mode:
+        pytest.skip("本机未配 IMAGE_API_KEY——本用例无出图风险可证")
+    assert bond._image_generator() is None, "会话级生图开关必须压过已配置的 key"
+    print("    switch: 配了 key 也不出图（conftest 会话级硬关生效）")

@@ -6,6 +6,9 @@
     2. ref 命名约定 → (kind, 中文标签) 与顺序（角色 → 画风 → 配饰）
     3. 请求体拼装（逐图带标签 + 屏幕比例声明; 旧版写死三张导致光环错位）
     4. 返回值 GeneratedImage（路径协议 / 元信息 / 尺寸归一化 contain·cover）
+    5. **生图总开关** `image_enabled()`（env > settings [image].enabled > 默认开）
+       ——注意本套件整体跑在 `LIVE2BE_IMAGE=off` 下（tests/conftest.py 会话级
+       autouse 硬关）, 所以凡是要走 `generate()` 正常路径的用例都要显式打开。
 真机出图（APIYI 计费）属实验验证, 见 experiments/（不放进单测）。
 """
 import os
@@ -16,8 +19,10 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-from llm.image_gen import (DEFAULT_SCREEN_SIZE, GeneratedImage, ImageGenerator,  # noqa: E402
-                           _build_api_parts, _unsupported_aspect, collect_ref_images,
+import llm.image_gen as ig  # noqa: E402
+from llm.image_gen import (DEFAULT_SCREEN_SIZE, ENV_SWITCH, GeneratedImage,  # noqa: E402
+                           ImageGenerator, _build_api_parts, _settings_image_cfg,
+                           _unsupported_aspect, collect_ref_images, image_enabled,
                            parse_size, ref_specs)
 
 
@@ -33,8 +38,12 @@ def _png(path: Path, size=(64, 64), color=(10, 20, 30)) -> Path:
 # 配置与错误路径
 # ---------------------------------------------------------------------------
 
-def test_no_api_key_raises_clear_error():
-    """未配 key → 明确报错（本地兜底已移除, 不静默降级）。"""
+def test_no_api_key_raises_clear_error(monkeypatch):
+    """未配 key → 明确报错（本地兜底已移除, 不静默降级）。
+
+    显式打开总开关（套件默认 off）——本用例考的是"没 key"这条, 不是"被关闭"。
+    """
+    monkeypatch.setenv(ENV_SWITCH, "on")
     gen = ImageGenerator(api_key="")
     assert gen.is_api_mode is False
     with pytest.raises(RuntimeError) as ei:
@@ -81,6 +90,65 @@ def test_warmup_is_noop():
     """warmup 保留为兼容占位（CLI 后台线程仍调用; 本地 pipe 已移除）。"""
     assert ImageGenerator(api_key="").warmup() is None
     print("    warmup: 兼容占位, 无副作用")
+
+
+# ---------------------------------------------------------------------------
+# 生图总开关（2026-09-11: 跑测试/离线时确定性关掉, 不依赖"忘配 key"）
+# ---------------------------------------------------------------------------
+
+def test_env_switch_name_in_sync_with_conftest():
+    """conftest 的硬关变量名必须与本模块一致（不同步 = 测试静默恢复真出图/烧钱）。"""
+    from tests.conftest import _IMG_SWITCH
+    assert ENV_SWITCH == _IMG_SWITCH == "LIVE2BE_IMAGE"
+
+
+def test_image_enabled_precedence(monkeypatch):
+    """env > settings [image].enabled > 默认开; 非法形态一律回默认开。"""
+    monkeypatch.delenv(ENV_SWITCH, raising=False)
+    assert image_enabled({}) is True                       # 缺字段 → 开
+    assert image_enabled({"enabled": True}) is True
+    assert image_enabled({"enabled": False}) is False
+    assert image_enabled({"enabled": "no"}) is True        # 非 bool → 回默认
+    for off in ("off", "0", "false", "FALSE", " no ", "Disabled"):
+        monkeypatch.setenv(ENV_SWITCH, off)
+        assert image_enabled({"enabled": True}) is False, off   # env 压过配置
+    for on in ("on", "1", "true", "yes"):
+        monkeypatch.setenv(ENV_SWITCH, on)
+        assert image_enabled({"enabled": False}) is True, on    # env 反向也压过配置
+    monkeypatch.setenv(ENV_SWITCH, "")                     # 空 = 未设 → 落配置
+    assert image_enabled({"enabled": False}) is False
+    print("    switch: env > settings > 默认开")
+
+
+def test_image_enabled_reads_settings_file(monkeypatch, tmp_path):
+    """真实文件路径分支: 项目根 settings.toml 的 [image].enabled 被读到。"""
+    monkeypatch.delenv(ENV_SWITCH, raising=False)
+    monkeypatch.setattr(ig, "_PROJECT_ROOT", tmp_path)
+    assert _settings_image_cfg() == {} and image_enabled() is True   # 无文件 → 开
+    (tmp_path / "settings.toml").write_text(
+        "[image]\n  enabled = false\n  model = \"x\"\n", encoding="utf-8")
+    assert _settings_image_cfg()["model"] == "x"
+    assert image_enabled() is False
+    (tmp_path / "settings.toml").write_text("[image\nbad", encoding="utf-8")
+    assert _settings_image_cfg() == {} and image_enabled() is True   # 损坏 → 开
+    print("    switch: settings.toml [image].enabled 生效 + 损坏回默认")
+
+
+def test_disabled_generator_raises_and_declares_unavailable(monkeypatch):
+    """关掉后: available=False（消费方据此不开线程）+ generate() 明确报错。"""
+    monkeypatch.setenv(ENV_SWITCH, "off")
+    gen = ImageGenerator(api_key="fake-key")
+    assert gen.enabled is False
+    assert gen.is_api_mode is True          # key 仍在——只是被开关否决
+    assert gen.available is False
+    with pytest.raises(RuntimeError) as ei:
+        gen.generate("test prompt")
+    assert "生图已关闭" in str(ei.value), ei.value
+    monkeypatch.setenv(ENV_SWITCH, "on")
+    assert ImageGenerator(api_key="fake-key").available is True
+    assert ImageGenerator(api_key="").available is False     # 开关开但无 key → 不可用
+    print("    switch: 关闭 → available=False + generate() 明确报错")
+
 
 
 # ---------------------------------------------------------------------------
@@ -219,6 +287,8 @@ def test_end_to_end_yml_hint_reaches_request_body(tmp_path, monkeypatch):
 
     from core.parsing.dynamic_character_parser import CharacterLoader
     import llm.image_gen as ig
+
+    monkeypatch.setenv(ENV_SWITCH, "on")       # 套件默认 off——本用例要走真 generate()
 
     char_root = tmp_path / "characters"
     d = char_root / "test_char"

@@ -34,6 +34,15 @@
   box-shadow: 0 0 0 3px rgba(79, 195, 247, 0.2);
 }
 
+/* 复选框行（生图总开关）: 左对齐——不参与上面 space-between 的"标签+输入框"布局 */
+.settings label.check { justify-content: flex-start; gap: 0.5rem; }
+.settings label.check input[type="checkbox"] {
+  width: auto;
+  accent-color: var(--blue);
+  transform: scale(1.15);
+}
+.settings label.check .hint { margin: 0; font-size: 0.8rem; }
+
 .settings .row {
   justify-content: center;
   margin-top: 1.2rem;
