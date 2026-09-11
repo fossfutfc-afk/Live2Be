@@ -893,12 +893,16 @@ def bond_turn(char_id: str, session_id: str, text: str) -> dict:
         _log_scene_meta(state, char_id, session_id, state.scene_obj)
         # 链式备料（N2a 缺口补上, N2b）: 新场景未收尾——纯叙事 → 单路预生成;
         # 带 choices → 候选 spawn（读板期预跑, 与主线生成同款）
-        # 记录流 v2（P0-7）: 下一板**已经在引擎待发队列里**（0 LLM）——既不 fork
-        # 候选也不预生成（点击"（继续）"直接领出）; 顺带避开 _last_payload 被
-        # 预生成板顶掉的回录错位风险。
-        if (state.scene_obj is not None and not state.scene_obj.is_end
-                and not state.scene_obj.records):
-            if state.scene_obj.choices:
+        # 记录流 v2（P0-7c 修正）: 待发板队列让"下一板"常常是 0 LLM, 但**块耗尽后
+        # 仍需桥**（否则下一拍要玩家干等一次完整生成）——所以:
+        #   无槽板（纯叙事/反应板）→ 照常预生成（待发有货就领, 没货就真生成）
+        #   有槽板 → 不预生成（裁决要先落; 桥由"裁决后立即预生成"承担, 见裁决段）
+        #   同时不再 fork 候选（v2 里后继板已在手, fork 无意义）
+        if state.scene_obj is not None and not state.scene_obj.is_end:
+            if state.scene_obj.records:
+                if not state.scene_obj.choices:
+                    _pregenerate(state, char_id, session_id)
+            elif state.scene_obj.choices:
                 _spawn_candidates(state, state.scene_obj, char_id, session_id)
             else:
                 _pregenerate(state, char_id, session_id)
@@ -991,7 +995,11 @@ def bond_turn(char_id: str, session_id: str, text: str) -> dict:
         state.scene = _narrativize(state.scene, text)
         state.scene_obj.choices = []              # 已裁决: 不再给选项
         state.scene_logged = True                 # 本板已随裁决落库
-        return {"accepted": True, "busy": False, "branch": True,
+        # 裁决后立刻备料（P0-7c 修正）: 这里必须先 record_picked（上面已做）——
+        # 预生成请求的历史要含物化裁决行。待发有货 → 0 LLM 领出反应板; 没货 →
+        # 真生成下一拍（玩家读老师那句的时间即缓冲桥）。
+        _pregenerate(state, char_id, session_id)
+        return {"accepted": True, "busy": state.busy, "branch": True,
                 "scene": state.scene, "candidate": False}
 
     # append-only 事件流: 当前展示场景在玩家裁决时落库（带 picked）;
@@ -1241,7 +1249,10 @@ def _scene_landed(state: BondState, scene: BondScene, char_id: str,
     _enqueue_annotate(state, scene)
     # SceneStream P1.5（N2a）: 本板若带 choices → 候选支 spawn
     # （读板期后台预生成, 不占 busy; spawn 内部先清旧池）
-    _spawn_candidates(state, scene, char_id, session_id)
+    # 记录流 v2（P0-7c 修正）: 不 spawn——后继板已在引擎待发队列（0 LLM）,
+    # fork 候选只是白复制一份; 裁决路径也不需要候选（见 bond_turn 裁决段）。
+    if not scene.records:
+        _spawn_candidates(state, scene, char_id, session_id)
     state.fail_count = 0           # 生成成功 → 失败计数清零
     # 计时埋点（§6.1）: 每轮生成耗时; 首场且仍处预热态（未被丢弃/
     # adopt）→ 预热就绪 latency

@@ -21,6 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 from core.momotalk import MomoTalkEngine
 from core.session import SessionStore
 from tests.vn_fixtures import from_v1_scene as _rec  # noqa: E402
+from tests.vn_fixtures import scene  # noqa: E402
 from llm.image_gen import GeneratedImage
 from webgui import bond, chat
 
@@ -474,10 +475,12 @@ def test_bond_pregenerate_narrative_flow(tmp_path):
         # 选 A → 裁决（就地物化展示, 零生成）→ 点继续 → 反应板（待发, 0 LLM）
         r2 = bond.bond_turn(CHARACTER, sid, "选A")
         assert r2["accepted"] and r2.get("branch"), r2
-        # 记录流 v2 裁决物化: 引擎历史尾部带 `老师：选A`（未选候选不出现）
+        # 记录流 v2 裁决物化: 引擎历史里带 `老师：选A`（未选候选不出现）
+        # 注: 裁决后立即预生成下一板 → 尾部可能已是反应板, 故看整段历史
         vn_hist = bond._state(CHARACTER, sid).vn._history
-        assert "老师：选A" in vn_hist[-1]["content"], vn_hist[-1]
-        assert "选B" not in vn_hist[-1]["content"], vn_hist[-1]
+        asst = [m["content"] for m in vn_hist if m["role"] == "assistant"]
+        assert any("老师：选A" in c for c in asst), asst
+        assert not any("选B" in c for c in asst), asst
         # 预生成与点击竞态: 后台可能已就绪 → 轮询重试（_turn_until_accepted 语义）
         r3 = _turn_until_accepted(CHARACTER, sid, "（继续）")
         assert r3.get("pregen") or r3.get("busy"), r3
@@ -922,5 +925,44 @@ def test_bond_record_stream_speaker_names_in_api(tmp_path):
         names = [p.get("speaker_name") for p in out2["paragraphs"]]
         assert names == ["伊草 遥香", "老师"]                  # 老师那句 = 老师
         print("    v2: speaker_name 注入（角色显示名 / 老师）")
+    finally:
+        _cleanup()
+
+
+def test_bond_record_stream_prewarm_semantics(tmp_path):
+    """记录流预热三层（P0-7c 修正后）:
+
+    · 有槽板 → 不 fork 候选（后继板已在引擎待发队列, fork 只是白复制）;
+    · 无槽板 → 预生成链照常（待发有货 0 LLM 领出; 队列空 → 后台真生成 = 块边界桥）;
+    · 裁决后 → 立即预生成（必须在 record_picked 之后: 请求历史要含物化裁决行）。
+    """
+    # 无槽块（1 板）+ 收尾块: 首板落地即预生成收尾 → 点继续 0 LLM 消费
+    narr = scene(lines=["（预生成源）她蹲下来看了看那些草。"])
+    engine, st, sid, llm = _setup(tmp_path, narr, RECORD_BLOCK)
+    try:
+        bond.bond_start(CHARACTER, sid)
+        _wait_status(CHARACTER, sid)
+        state = bond._state(CHARACTER, sid)
+        assert state.choice_candidates == []                   # 无槽板不 fork
+        deadline = time.time() + 10.0
+        while time.time() < deadline and state.pregen_scene is None:
+            time.sleep(0.05)
+        assert state.pregen_scene is not None, "无槽记录流板应照常预生成下一场"
+        assert state.pregen_obj.records, "预生成物应仍是记录流板"
+        # 消费预生成 → 有槽板: 不 fork 候选
+        r = _turn_until_accepted(CHARACTER, sid, "（继续）")
+        assert r.get("pregen"), r
+        _wait_status(CHARACTER, sid)
+        assert bond.bond_status(CHARACTER, sid)["scene"]["choices"] == ["我来了。", RECORD_PICK]
+        assert bond._state(CHARACTER, sid).choice_candidates == [], "记录流有槽板不 fork 候选"
+        # 裁决 → 立即预生成（反应板 0 LLM 领出 / 或后台生成）
+        r2 = bond.bond_turn(CHARACTER, sid, RECORD_PICK)
+        assert r2.get("branch"), r2
+        state2 = bond._state(CHARACTER, sid)
+        deadline = time.time() + 10.0
+        while time.time() < deadline and state2.pregen_scene is None and state2.busy:
+            time.sleep(0.05)
+        assert state2.pregen_scene is not None or state2.busy, "裁决后应立即备料"
+        print("    v2 预热: 无槽板预生成链 + 记录流不 fork 候选 + 裁决后备料")
     finally:
         _cleanup()
