@@ -14,6 +14,9 @@ const FIELDS = [
   ["image", "model", "set-img-model", false]
 ];
 
+// 复选框字段（布尔, 单独处理——文本字段"空 = 不改", 复选框必须显式送 true/false）
+const CHECKS = [["image", "enabled", "set-img-enabled"]];
+
 async function loadSettings() {
   try {
     const data = await (await fetch("/api/settings")).json();
@@ -30,6 +33,10 @@ async function loadSettings() {
         el.value = val;
       }
     }
+    for (const [section, key, elId] of CHECKS) {
+      // 缺省视为开（后端 DEFAULTS / image_enabled 同判据）
+      $(elId).checked = (data[section] || {})[key] !== false;
+    }
   } catch (e) {
     $("settings-msg").textContent = "设置加载失败: " + e;
     $("settings-msg").classList.remove("hidden");
@@ -43,6 +50,10 @@ async function saveSettings() {
     if (!val) continue;                       // 空 = 不变（key 打码值不填输入框了）
     payload[section] = payload[section] || {};
     payload[section][key] = val;
+  }
+  for (const [section, key, elId] of CHECKS) {
+    payload[section] = payload[section] || {};
+    payload[section][key] = !!$(elId).checked;   // 布尔: 明确发送开/关
   }
   const res = await fetch("/api/settings", {
     method: "POST",

@@ -16,6 +16,7 @@
     [image]
       api_key = ""
       base_url = "https://api.apiyi.com"
+      enabled = true        # 生图总开关（false = 纪念降级纯文字）; LIVE2BE_IMAGE=off 优先
 
 写: 手写轻量 toml 序列化（分组 + k=v, 值 str/int/bool——够用;
      未来复杂类型（列表/嵌套）再升级 tomli_w）。
@@ -44,6 +45,9 @@ DEFAULTS: dict = {
         "api_key": "",
         "base_url": "https://api.apiyi.com",
         "model": "gemini-3.1-flash-lite-image",
+        # 生图总开关（2026-09-11）: false = 纪念场景降级纯文字, 不生图不花钱。
+        # 环境变量 LIVE2BE_IMAGE=off 优先于本项（进程级硬关, 跑测试用）。
+        "enabled": True,
         # 目标尺寸 = 屏幕尺寸（出图归一化到该尺寸; 2026-09-10）
         "screen_size": "1920x1080",
         "fit": "contain",              # contain=留边不裁 / cover=裁满屏 / none=不处理

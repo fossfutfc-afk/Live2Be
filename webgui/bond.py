@@ -53,7 +53,7 @@ from core.session.maintenance import (
 )
 from core.session.renderer import render_bond_scene_text, window_messages
 from core.ui.vn_cli import _build_director, _trigger_title
-from llm.image_gen import ImageGenerator, collect_ref_images
+from llm.image_gen import ImageGenerator, collect_ref_images, image_enabled
 from webgui import chat
 
 logger = logging.getLogger(__name__)
@@ -243,18 +243,28 @@ _image_gen: ImageGenerator | None = None
 
 
 def _image_generator() -> ImageGenerator | None:
-    """懒初始化生图器。未配 IMAGE_API_KEY → None = 纪念降级纯文字。
+    """懒初始化生图器。总开关关 / 未配 IMAGE_API_KEY → None = 纪念降级纯文字。
 
     本地 diffusers 兜底已于 2026-09-10 移除（出图"不像人类"）——只有 APIYI 一条路。
+    **总开关**（`image_enabled`: `LIVE2BE_IMAGE=off` / settings `[image].enabled=false`,
+    2026-09-11）在此设卡: 关闭即**不构造、不开生图线程**——跑测试/离线调试的确定性
+    关闭（key 配着时否则真会出图烧钱）。
     """
     global _image_gen
+    if not image_enabled():
+        if _image_gen is None or _image_gen.enabled:
+            logger.info("生图总开关为关（LIVE2BE_IMAGE/settings [image].enabled）"
+                        "——纪念场景降级纯文字")
+        return None
     if _image_gen is None:
         try:
             _image_gen = ImageGenerator()
         except Exception as e:                   # noqa: BLE001 — 构造失败降级
             logger.warning("生图器初始化失败（纪念降级纯文字）: %s", e)
             return None
-    if not _image_gen.is_api_mode:
+    else:
+        _image_gen.enabled = True                # 开关回调（关过又开）——缓存实例跟手
+    if not _image_gen.available:
         return None
     return _image_gen
 
@@ -265,7 +275,7 @@ def _memorial_gen(state: BondState, char_id: str, session_id: str,
 
     触发早于契约校验——动作最终可能被拒（频率限制/坏 JSON → 图作废, 接受浪费）。
     失败降级: 不设置 memorial_img（前端纯文字, 剧情照走）。写回持短锁;
-    场景已推进不影响（前端只在纪念场景显示图）。
+    场景已推进不影响（前端只在纪念场景显示图）。总开关关 → 调用方已不开线程。
     """
     try:
         gen = _image_generator()
@@ -306,6 +316,8 @@ def _make_memorial_cb(state: BondState, char_id: str, session_id: str):
     def cb(prompt: str) -> None:
         if state.demo is not None:
             return
+        if _image_generator() is None:
+            return                       # 总开关关 / 未配 key → 不开线程（纯文字降级）
         with state._lock:
             if state.memorial_img_busy:
                 return

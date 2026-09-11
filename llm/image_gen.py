@@ -6,6 +6,7 @@
     generate() 明确报错（宁缺勿错, 不静默降级成低质量本地图）。
 
 配置（settings.toml [image] 优先, .env 兜底; 构造参数可覆盖）:
+    enabled              生图总开关（默认 true; false = 全局关闭, 见下）
     IMAGE_API_KEY        APIYI key（必填）
     IMAGE_API_BASE_URL   默认 https://api.apiyi.com
     IMAGE_MODEL          默认 gemini-3.1-flash-lite-image（Nano Banana 2 Lite）
@@ -14,6 +15,14 @@
     screen_size          目标尺寸 = 屏幕尺寸（默认 1920x1080）
     fit                  contain(留边不裁, 默认) / cover(裁满屏) / none
     api_aspect_ratio     请求是否携带 imageConfig.aspectRatio（默认 true; 不支持自动降级）
+
+**生图总开关（2026-09-11）**——第一个 `image_enabled()`:
+    环境变量 `LIVE2BE_IMAGE=off`（最高优先, 进程级硬关, 不碰配置文件）
+    > settings.toml `[image].enabled = false`（GUI 设置页复选框, 持久)
+    > 默认 **开**。关闭时: `ImageGenerator.enabled=False` → 消费方（webgui 纪念
+    线程 / vn_cli / main）一律**不开生图线程、降级纯文字**; 直接调 `generate()`
+    会明确报错（不静默假装成功）。用途: 跑测试 / 离线调试 / 临时省钱的**确定性**
+    关闭——不再依赖"忘了配 key"这种偶然保护（key 配着时跑测试是真会出图烧钱的）。
 
 **ref 命名约定（不变; 目录路径可变——每个角色都会有对应图片）**:
     <ref 目录>/
@@ -71,6 +80,41 @@ _DEFAULT_REF_SUBDIR = Path("illustration")
 DEFAULT_SCREEN_SIZE = (1920, 1080)
 #: 配饰文件名 → 中文标签（未列出的直接用文件名主干, 保持通用）
 _ACCESSORY_LABELS = {"halo": "光环", "weapon": "武器", "bag": "挎包", "gift": "礼物"}
+
+#: 生图总开关的环境变量名（进程级; 值 off/0/false/no = 关闭, on/1/true/yes = 打开）
+ENV_SWITCH = "LIVE2BE_IMAGE"
+#: 视为"关闭"的取值（大小写不敏感）
+_OFF_VALUES = {"off", "0", "false", "no", "none", "disable", "disabled"}
+
+
+def _settings_image_cfg() -> dict:
+    """读项目根 settings.toml 的 [image] 分组（缺失/损坏 → {}; 不阻塞）。"""
+    try:
+        st = _PROJECT_ROOT / "settings.toml"
+        if not st.is_file():
+            return {}
+        import tomllib
+        data = tomllib.loads(st.read_text(encoding="utf-8"))
+        cfg = data.get("image", {}) if isinstance(data, dict) else {}
+        return cfg if isinstance(cfg, dict) else {}
+    except (OSError, ValueError, ImportError):
+        return {}
+
+
+def image_enabled(cfg: dict | None = None) -> bool:
+    """生图总开关: 环境变量 `LIVE2BE_IMAGE` > settings `[image].enabled` > 默认 True。
+
+    环境变量只在**明确取值**时生效（未设 → 落到配置）; 关闭 = 所有消费方不开生图
+    线程、降级纯文字（见模块头"生图总开关"）。cfg 可传入已读好的 [image] 分组
+    （ImageGenerator.__init__ 复用, 少读一次文件）。
+    """
+    raw = str(os.getenv(ENV_SWITCH, "")).strip().lower()
+    if raw:
+        return raw not in _OFF_VALUES
+    if cfg is None:
+        cfg = _settings_image_cfg()
+    v = cfg.get("enabled", True)
+    return bool(v) if isinstance(v, bool) else True
 
 
 def parse_size(value) -> tuple[int, int] | None:
@@ -275,15 +319,9 @@ class ImageGenerator:
         fit: str | None = None,
     ):
         # 优先级: 构造参数 > settings.toml [image]（GUI 设置页）> .env
-        cfg: dict = {}
-        try:
-            _st = _PROJECT_ROOT / "settings.toml"
-            if _st.is_file():
-                import tomllib
-                _data = tomllib.loads(_st.read_text(encoding="utf-8"))
-                cfg = _data.get("image", {}) if isinstance(_data, dict) else {}
-        except (OSError, ValueError, ImportError):
-            cfg = {}
+        cfg = _settings_image_cfg()
+        # 生图总开关（LIVE2BE_IMAGE 环境变量最高优先——测试/离线硬关, 见 image_enabled）
+        self.enabled = image_enabled(cfg)
         self._api_key = (
             api_key if api_key is not None
             else str(cfg.get("api_key") or "").strip()
@@ -325,8 +363,17 @@ class ImageGenerator:
 
     @property
     def is_api_mode(self) -> bool:
-        """是否配了 APIYI key（单后端——未配 = 不可用）。"""
+        """是否配了 APIYI key（单后端——未配 = 不可用）。
+
+        注意: 只说"配了 key", **不含总开关**（`enabled`）——消费方要判断"能不能
+        出图"请用 `available`（或分别看 `enabled`）。
+        """
         return bool(self._api_key)
+
+    @property
+    def available(self) -> bool:
+        """实际可出图 = 总开关开 **且** 配了 key（消费方统一用这个判据）。"""
+        return bool(self.enabled and self._api_key)
 
     def warmup(self) -> None:
         """接口兼容占位（本地 diffusers 已移除; API 后端无预热对象）。"""
@@ -357,6 +404,10 @@ class ImageGenerator:
         """
         if not prompt.strip():
             raise ValueError(err("ImageGen", "prompt 不能为空"))
+        if not self.enabled:
+            raise RuntimeError(err(
+                "ImageGen", f"生图已关闭（{ENV_SWITCH}=off / settings.toml "
+                "[image].enabled=false）——如需出图请打开总开关"))
         if not self.is_api_mode:
             raise RuntimeError(err(
                 "ImageGen", "未配置 IMAGE_API_KEY（本地 diffusers 兜底已于 2026-09-10 移除）"
