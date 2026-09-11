@@ -144,6 +144,10 @@ class ChoiceCandidate:
 class BondState:
     """一场羁绊剧情的驱动状态（per (char_id, session_id) 内存态）。"""
 
+    #: 流程绑定的 store（`_state()` 创建时捕获）——长流程（后台生成线程）可能活过
+    #: 测试的 store 切换/多开/重启, 写入时再读全局 `chat._store` 会写进别的世界线
+    #: （2026-09-11 真机事故: 流式测试的生成线程把 vn_state 写进真实 events.jsonl）。
+    store: object = None
     vn: BondStoryEngine | None = None
     demo: list[dict] | None = None      # 演示模式: 预设剧本（不调 LLM）; None = 真实引擎
     round: int = 0                      # 已生成场景数（系统注记 / 前端轮询去重）
@@ -214,11 +218,20 @@ _bonds: dict[tuple[str, str], BondState] = {}
 
 
 def _state(char_id: str, session_id: str) -> BondState:
-    """懒创建 bond 状态（每 (char, session) 一场剧情）。"""
+    """懒创建 bond 状态（每 (char, session) 一场剧情）。
+
+    **store 在此绑定**（而非写入时再读 `chat._store`）: 后台生成线程可能活过
+    调用方的 store 切换（测试注入/多开/重启）, 那时再读全局就会写进别的世界线。
+    """
     key = (char_id, session_id)
     if key not in _bonds:
-        _bonds[key] = BondState()
+        _bonds[key] = BondState(store=_store())
     return _bonds[key]
+
+
+def _flow_store(state: "BondState | None"):
+    """流程绑定的 store（缺省回落到全局 `chat._store`）。"""
+    return getattr(state, "store", None) or _store()
 
 
 def _store():
@@ -458,7 +471,7 @@ def _start_replay(state: BondState, replay_q: list[dict],
         director=_build_director(char), brain_segment=brain_segment)
     vn.start_session(char.character_id)
     try:
-        _evs = exclude_abandoned(_store().events(char_id))
+        _evs = exclude_abandoned(_flow_store(state).events(char_id))
         _win = window_messages(_evs)
         if _win:
             vn._history = _win                # 前缀(含已记录场景)+ 触发前对话
@@ -490,7 +503,7 @@ def _start_replay(state: BondState, replay_q: list[dict],
 # 公开 API（路由层调用）
 # ---------------------------------------------------------------------------
 
-def _last_mmt_seq(char_id: str, session_id: str) -> int:
+def _last_mmt_seq(char_id: str, session_id: str, store=None) -> int:
     """事件流中最后一条 **mmt 事件** 的 seq（预热新鲜度基准）。
 
     只计 mmt 事件（玩家对白/触发轮）——staged 预热自身的后续写入
@@ -499,7 +512,7 @@ def _last_mmt_seq(char_id: str, session_id: str) -> int:
     """
     try:
         last = 0
-        for e in _store().events(char_id, session_id):
+        for e in (store or _store()).events(char_id, session_id):
             if getattr(e, "type", None) == "mmt":
                 last = e.seq
         return last
@@ -528,10 +541,11 @@ def bond_start(char_id: str, session_id: str, *,
 
     # ── 预热 adopt（staged 态 + 玩家点击 / 再次 staged 调用）────────
     if state.vn is not None and state.staged_seq is not None:
-        if _last_mmt_seq(char_id, session_id) != state.staged_seq:
+        store = _flow_store(state)
+        if _last_mmt_seq(char_id, session_id, store) != state.staged_seq:
             # 预热后玩家又聊过（新 mmt 事件）/ 新触发轮 → 预热上下文过期, 丢弃重建
             logger.info("bond 预热态过期（mmt seq %s ≠ %s）, 丢弃重建: %s/%s",
-                        state.staged_seq, _last_mmt_seq(char_id, session_id),
+                        state.staged_seq, _last_mmt_seq(char_id, session_id, store),
                         char_id, session_id)
             _bonds.pop((char_id, session_id), None)
             state = _state(char_id, session_id)
@@ -539,7 +553,7 @@ def bond_start(char_id: str, session_id: str, *,
             # adopt: 补落 vn_enter marker（触发事件之后、首场裁决落库之前——时序正确）
             if not state.vn_enter_written:
                 try:
-                    _store().enter_vn(char_id, session_id, state.chapter_title)
+                    store.enter_vn(char_id, session_id, state.chapter_title)
                     state.vn_enter_written = True
                 except Exception as e:               # noqa: BLE001 — 写失败降级不阻断
                     logger.warning("adopt vn_enter 写入失败: %s", e)
@@ -551,7 +565,7 @@ def bond_start(char_id: str, session_id: str, *,
                 "y" if not state.busy else "n")
             state.t_staged = 0.0
             state.staged_seq = None
-            _prewarm_cache_delete(char_id)     # adopt 消费（首场已进玩家视野）
+            _prewarm_cache_delete(char_id, store)   # adopt 消费（首场已进玩家视野）
             if state.busy:
                 # 预热生成仍在途 → 前端轮询等待（resumed=False → 章节等待卡可见）
                 return {"accepted": True, "busy": True, "resumed": False,
@@ -581,7 +595,7 @@ def bond_start(char_id: str, session_id: str, *,
             # 定向废弃: 保留被回放段, 压掉其余 open（含空壳）——否则续写事件
             # 会按 vn_enter 归属追加到更新的空壳段, 分段/记忆归属错乱
             try:
-                abandon_opens_except(_store(), char_id, session_id, keep_enter)
+                abandon_opens_except(_flow_store(state), char_id, session_id, keep_enter)
             except Exception as e:                   # noqa: BLE001 — 宣告失败降级
                 logger.warning("回放前废弃宣告失败: %s", e)
             # 计时埋点（§6.1）: 中断回放入口（本地 0 LLM 展示, handoff 生成另计）
@@ -620,7 +634,7 @@ def bond_start(char_id: str, session_id: str, *,
         # vn._history——首场带着触发前的 MMT 对话（断桥修复）; 事件流已是终态
         # （裁决时落库 + 门控保证标注就绪）; 与引擎自增历史同构, 滑动无缝
         try:
-            _evs = exclude_abandoned(_store().events(char_id))
+            _evs = exclude_abandoned(_flow_store(state).events(char_id))
             _win = window_messages(_evs)
             if _win:
                 vn._history = _win
@@ -645,7 +659,7 @@ def bond_start(char_id: str, session_id: str, *,
         state.vn_enter_written = True          # 事件流已有该段 vn_enter
     elif not staged:
         try:
-            _store().enter_vn(char_id, session_id, title)
+            _flow_store(state).enter_vn(char_id, session_id, title)
             state.vn_enter_written = True
         except Exception as e:                       # noqa: BLE001 — 写失败降级不阻断 VN
             logger.warning("事件流 vn_enter 写入失败: %s", e)
@@ -654,10 +668,10 @@ def bond_start(char_id: str, session_id: str, *,
         # （2026-09-07, maintenance）: 之后 openChat 不再自动拽入旧中断段,
         # 窗口/digest 按废弃区间过滤; 幂等（已关段自动跳过）
         try:
-            abandon_open_attempts(_store(), char_id, session_id)
+            abandon_open_attempts(_flow_store(state), char_id, session_id)
         except Exception as e:                       # noqa: BLE001 — 宣告失败降级
             logger.warning("旧在押段废弃宣告失败: %s", e)
-        state.staged_seq = _last_mmt_seq(char_id, session_id)
+        state.staged_seq = _last_mmt_seq(char_id, session_id, _flow_store(state))
         state.t_staged = time.monotonic()            # 计时埋点（§6.1）: 预热起点
         logger.info("bond_prewarm_start %s/%s title=%r",
                     char_id, session_id, title)
@@ -667,10 +681,11 @@ def bond_start(char_id: str, session_id: str, *,
     # 待发板）。这里只需恢复**后继板队列**——首板由下面的首场缓存（同内容）或
     # 正常生成给出; 中断回放场景则由 bond_turn 的回放交棒处再接（_draft_adopt）。
     if not staged and state.demo is None and state.scene_obj is None \
-            and state.vn is not None and _last_bond_seq(char_id, session_id) == 0:
+            and state.vn is not None \
+            and _last_bond_seq(char_id, session_id, _flow_store(state)) == 0:
         # 注: 已有已落库板（将被回放）时**不在此恢复**——那一路由 bond_turn 的
         # 回放交棒处 _draft_adopt 统一接（避免队列被两处设置/历史重复注入）
-        rest = _draft_pending(char_id, session_id)
+        rest = _draft_pending(char_id, session_id, _flow_store(state))
         if rest:
             state.vn._pending_boards = [BondScene.from_dict(b) for b in rest]
             logger.info("bond_draft_q %s/%s boards=%d", char_id, session_id, len(rest))
@@ -680,10 +695,11 @@ def bond_start(char_id: str, session_id: str, *,
     # 磁盘旁路缓存（soul/prewarm.json, 非真源——LLM 不读, 裁决才落库）直接
     # 作为首场落地, 0 LLM。并发双开在 573 锁块被 skip（vn 已建）→ 本段单路。
     if not staged and state.demo is None and state.scene_obj is None:
-        cache = _prewarm_cache_load(char_id, session_id)
+        store = _flow_store(state)
+        cache = _prewarm_cache_load(char_id, session_id, store)
         if cache is not None:
             scene_c, input_c, title_c = cache
-            _prewarm_cache_delete(char_id)          # 命中即消费（旧首场不残留）
+            _prewarm_cache_delete(char_id, store)   # 命中即消费（旧首场不残留）
             # 2026-09-09 修复（真机 prob2: 命中后"继续"反复重新开场——事件流
             # seq15 第二场与首场近同义）: 缓存首场未经过 send_vn_scene → 引擎
             # 历史/_last_payload 缺它 → record_picked 落空、后续生成无剧情上下文
@@ -742,7 +758,7 @@ def bond_start_demo(char_id: str, session_id: str) -> dict:
     state.demo = list(DEMO_SCRIPT)         # 副本（pop 消费不污染常量）
     state.chapter_title = "（演示）"
     try:
-        _store().enter_vn(char_id, session_id, state.chapter_title)
+        _flow_store(state).enter_vn(char_id, session_id, state.chapter_title)
     except Exception as e:                           # noqa: BLE001 — 写失败降级不阻断
         logger.warning("事件流 vn_enter 写入失败: %s", e)
     _generate(state, char_id, session_id, "（演示开始）")
@@ -1117,8 +1133,8 @@ def bond_finish(char_id: str, session_id: str) -> dict:
         return {"completed": True, "already": True}
     logger.info("bond_finish 执行 %s/%s completed=%s（入口留痕）",
                 char_id, session_id, state.completed)
-    _prewarm_cache_delete(char_id)             # 收尾: 旧首场缓存一并失效
-    _draft_delete(char_id)                     # 收尾: 未播放草稿一并失效（#28b）
+    _prewarm_cache_delete(char_id, _flow_store(state))   # 收尾: 旧首场缓存一并失效
+    _draft_delete(char_id, _flow_store(state))           # 收尾: 未播放草稿一并失效（#28b）
     # SceneStream P1.5（中断/收尾防御, 2026-09-08 审计）: 会话收尾即清候选池
     # ——后台候选（若仍在生成）作废孤儿, 停止烧 token; 未选支零落库由
     # _log_scene 边界结构保证（候选从不触碰事件流）
@@ -1179,25 +1195,25 @@ def bond_finish(char_id: str, session_id: str) -> dict:
 _PREWARM_FILE = "prewarm.json"
 
 
-def _prewarm_cache_path(char_id: str) -> Path | None:
+def _prewarm_cache_path(char_id: str, store=None) -> Path | None:
     """缓存文件路径（char_dir/soul/prewarm.json）; 拿不到 → None（跳过缓存）。"""
     try:
-        st = _store()
+        st = store or _store()
         return Path(st.char_dir(char_id)) / "soul" / _PREWARM_FILE
     except Exception:                              # noqa: BLE001 — 缓存不可用降级
         return None
 
 
 def _prewarm_cache_save(char_id: str, session_id: str, scene_dict: dict,
-                        scene_input: str, chapter_title: str) -> None:
+                        scene_input: str, chapter_title: str, store=None) -> None:
     """首场落地即写缓存（round==1 真实引擎; 原子写 tmp+rename 防半写）。"""
     try:
-        path = _prewarm_cache_path(char_id)
+        path = _prewarm_cache_path(char_id, store)
         if path is None:
             return
         path.parent.mkdir(parents=True, exist_ok=True)
         payload = {
-            "anchor_seq": _last_mmt_seq(char_id, session_id),
+            "anchor_seq": _last_mmt_seq(char_id, session_id, store),
             "chapter_title": chapter_title,
             "scene": scene_dict,
             "input": scene_input,
@@ -1211,19 +1227,19 @@ def _prewarm_cache_save(char_id: str, session_id: str, scene_dict: dict,
         logger.warning("prewarm 缓存写失败（降级, 不影响剧情）: %s", e)
 
 
-def _prewarm_cache_load(char_id: str, session_id: str):
+def _prewarm_cache_load(char_id: str, session_id: str, store=None):
     """读缓存 → (scene, scene_input, chapter_title) | None。
 
     新鲜判据: anchor_seq == 当前最新 mmt seq——期间玩家又聊/新触发轮 →
     上下文过期（与内存 staged_seq 同判据）→ miss; 坏文件/缺字段 → miss。
     """
     try:
-        path = _prewarm_cache_path(char_id)
+        path = _prewarm_cache_path(char_id, store)
         if path is None or not path.is_file():
             return None
         payload = json.loads(path.read_text(encoding="utf-8"))
         if int(payload.get("anchor_seq", -1)) != \
-                _last_mmt_seq(char_id, session_id):
+                _last_mmt_seq(char_id, session_id, store):
             return None                                  # 触发后又聊过 → 过期
         scene = BondScene.from_dict(payload.get("scene"))
         if not scene.paragraphs:
@@ -1234,10 +1250,10 @@ def _prewarm_cache_load(char_id: str, session_id: str):
         return None
 
 
-def _prewarm_cache_delete(char_id: str) -> None:
+def _prewarm_cache_delete(char_id: str, store=None) -> None:
     """缓存失效（adopt 消费 / finish / 命中使用后）——旧首场不得与后续段混淆。"""
     try:
-        path = _prewarm_cache_path(char_id)
+        path = _prewarm_cache_path(char_id, store)
         if path is not None and path.is_file():
             path.unlink()
     except Exception:                                # noqa: BLE001 — 删除失败无碍
@@ -1255,28 +1271,29 @@ def _prewarm_cache_delete(char_id: str) -> None:
 _DRAFT_FILE = "bond_draft.json"
 
 
-def _draft_path(char_id: str) -> Path | None:
+def _draft_path(char_id: str, store=None) -> Path | None:
     try:
-        st = _store()
+        st = store or _store()
         return Path(st.char_dir(char_id)) / "soul" / _DRAFT_FILE
     except Exception:                              # noqa: BLE001 — 缓存不可用降级
         return None
 
 
-def _last_bond_seq(char_id: str, session_id: str) -> int:
+def _last_bond_seq(char_id: str, session_id: str, store=None) -> int:
     """最后一个 type=bond 事件的 seq（无 → 0）——草稿新鲜判据基准。"""
     try:
-        evs = [e for e in _store().events(char_id, session_id) if e.type == "bond"]
+        evs = [e for e in (store or _store()).events(char_id, session_id)
+               if e.type == "bond"]
         return evs[-1].seq if evs else 0
     except Exception:                              # noqa: BLE001 — 读失败按不新鲜
         return -1
 
 
-def _open_vn_seq(char_id: str, session_id: str) -> int:
+def _open_vn_seq(char_id: str, session_id: str, store=None) -> int:
     """最近一个 vn_enter marker 的 seq（无 → 0）——草稿归属哪一次在押段。"""
     try:
         seq = 0
-        for e in _store().events(char_id, session_id):
+        for e in (store or _store()).events(char_id, session_id):
             if e.is_marker and e.subtype == "vn_enter":
                 seq = e.seq
         return seq
@@ -1303,7 +1320,8 @@ def _draft_boards(state: "BondState") -> list[dict]:
 def _draft_save(state: "BondState", char_id: str, session_id: str) -> None:
     """落草稿旁路（原子写）。无可存内容 → 删旧档（宁缺勿错, 不留过期草稿）。"""
     try:
-        path = _draft_path(char_id)
+        store = _flow_store(state)
+        path = _draft_path(char_id, store)
         if path is None:
             return
         boards = _draft_boards(state)
@@ -1315,8 +1333,8 @@ def _draft_save(state: "BondState", char_id: str, session_id: str) -> None:
         payload = {
             "boards": boards,
             "input": state.scene_input,
-            "base_seq": _last_bond_seq(char_id, session_id),
-            "vn_enter_seq": _open_vn_seq(char_id, session_id),
+            "base_seq": _last_bond_seq(char_id, session_id, store),
+            "vn_enter_seq": _open_vn_seq(char_id, session_id, store),
             "round": state.round,
             "ts": time.time(),
         }
@@ -1327,40 +1345,40 @@ def _draft_save(state: "BondState", char_id: str, session_id: str) -> None:
         logger.warning("草稿旁路写失败（降级, 不影响剧情）: %s", e)
 
 
-def _draft_delete(char_id: str) -> None:
+def _draft_delete(char_id: str, store=None) -> None:
     try:
-        path = _draft_path(char_id)
+        path = _draft_path(char_id, store)
         if path is not None and path.is_file():
             path.unlink()
     except Exception:                              # noqa: BLE001
         pass
 
 
-def _draft_load(char_id: str, session_id: str) -> list[dict] | None:
+def _draft_load(char_id: str, session_id: str, store=None) -> list[dict] | None:
     """读草稿 → 板 payload 列表 | None（新鲜判据不过 → None + 顺手删档）。"""
     try:
-        path = _draft_path(char_id)
+        path = _draft_path(char_id, store)
         if path is None or not path.is_file():
             return None
         payload = json.loads(path.read_text(encoding="utf-8"))
         boards = payload.get("boards")
         fresh = (isinstance(boards, list) and boards
-                 and int(payload.get("base_seq", -1)) == _last_bond_seq(char_id, session_id)
-                 and int(payload.get("vn_enter_seq", -1)) == _open_vn_seq(char_id, session_id))
+                 and int(payload.get("base_seq", -1)) == _last_bond_seq(char_id, session_id, store)
+                 and int(payload.get("vn_enter_seq", -1)) == _open_vn_seq(char_id, session_id, store))
         if not fresh:
-            _draft_delete(char_id)                 # 过期/坏档 → 清掉, 别留矛盾数据
+            _draft_delete(char_id, store)                 # 过期/坏档 → 清掉, 别留矛盾数据
             return None
         out = [b for b in boards if isinstance(b, dict)]
         return out or None
     except Exception:                              # noqa: BLE001 — 坏档当 miss
-        _draft_delete(char_id)
+        _draft_delete(char_id, store)
         return None
 
 
-def _draft_pending(char_id: str, session_id: str) -> list[dict]:
+def _draft_pending(char_id: str, session_id: str, store=None) -> list[dict]:
     """只取草稿的**后继板**（boards[1:]）——进剧情时若首板由 prewarm 首场缓存给出,
     这一份用于恢复引擎待发队列（后续点击 0 LLM）。过期/坏档 → []。"""
-    boards = _draft_load(char_id, session_id)
+    boards = _draft_load(char_id, session_id, store)
     return boards[1:] if boards and len(boards) > 1 else []
 
 
@@ -1369,7 +1387,7 @@ def _draft_adopt(state: "BondState", char_id: str, session_id: str) -> bool:
 
     Returns: 是否接上（False = 无草稿/过期 → 调用方走正常生成）。
     """
-    boards = _draft_load(char_id, session_id)
+    boards = _draft_load(char_id, session_id, _flow_store(state))
     if not boards or state.vn is None:
         return False
     try:
@@ -1446,7 +1464,8 @@ def _scene_landed(state: BondState, scene: BondScene, char_id: str,
     # demo 不写; 缓存注入路径 save_cache=False 不自写
     if save_cache and state.demo is None:
         _prewarm_cache_save(char_id, session_id, scene.to_dict(),
-                            user_input, state.chapter_title)
+                            user_input, state.chapter_title,
+                            store=_flow_store(state))
     # 草稿旁路（#28b）: 每次板落地都刷新"未播放内容"（当前未落库板 + 待发队列）
     if state.demo is None:
         _draft_save(state, char_id, session_id)
@@ -1866,7 +1885,7 @@ def _log_scene(state: BondState, char_id: str, session_id: str, picked) -> None:
     else:
         sub = "story_end" if scene.is_end else "story_scene"
     try:
-        _store().append_event(char_id, session_id, make_event(
+        _flow_store(state).append_event(char_id, session_id, make_event(
             "bond", sub,
             {**scene.to_dict(), "input": state.scene_input, "picked": picked}))
     except Exception as e:                           # noqa: BLE001 — 写失败降级不阻断
@@ -1877,16 +1896,17 @@ def _log_scene(state: BondState, char_id: str, session_id: str, picked) -> None:
 def _log_scene_meta(state: BondState, char_id: str, session_id: str,
                     scene: BondScene) -> None:
     """每场 marker 落库: 纪念子模式 + vn_state 恢复点（与 CLI 对齐）。"""
+    store = _flow_store(state)
     try:
         if scene.memorial_prompt:
-            _store().append_marker(char_id, session_id, M_MEMORIAL_ENTER,
-                                   {"chapter_title": state.chapter_title})
+            store.append_marker(char_id, session_id, M_MEMORIAL_ENTER,
+                                {"chapter_title": state.chapter_title})
         elif scene.memorial_exit:
-            _store().append_marker(char_id, session_id, M_MEMORIAL_EXIT)
+            store.append_marker(char_id, session_id, M_MEMORIAL_EXIT)
         vn = state.vn
         visual = (vn.director.state.to_dict()
                   if vn is not None and vn.director is not None else {})
-        _store().append_marker(char_id, session_id, M_VN_STATE, {
+        store.append_marker(char_id, session_id, M_VN_STATE, {
             "round": state.round, "seed": state.scene_input, "visual": visual})
     except Exception as e:                           # noqa: BLE001 — 写失败降级不阻断
         logger.warning("事件流 marker 写入失败: %s", e)
