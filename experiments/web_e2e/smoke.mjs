@@ -254,38 +254,47 @@ async function main() {
   }
   if (choices.length < 1) throw new Error("首板没有选项（记录流板切分异常?）");
 
-  // ── 6. 裁决 → 就地物化「老师：X」 ─────────────────────────────────────
+  // ── 6. 裁决 → 玩家那句话**不上屏**（只消失选项, 正文停在上一句）──────────
+  // 语义定稿（2026-09-12, 用户核对 BA）: **玩家的话语永远只体现为选项**——
+  // 裁决后正文保持"上一句角色台词/旁白", 名字牌/立绘都不动; 把玩家那句当正文念
+  // 出来就会被读成"角色说了玩家的话"（真机报障: 睦月/便利屋68 + 你还打算对我怎么恶作剧？）。
   // 注: 点击后**必须先等交互区清空**——旧板的选项按钮会停留到响应到达为止,
   // 直接开读会立刻"发现"旧选项并误判为读完了。
+  const lastLineBefore = board1[board1.length - 1].text;
   await page.locator("#bond-choices .bond-choice").first().click();
   await waitInteractionReset(page);
-  const afterPick = await readUntilInteraction(page, "裁决后物化板");
-  const pickLine = afterPick.find((p) => p.text.includes("我来了")) || null;
-  record("裁决物化", {
-    info: pickLine
-      ? `老师那句=${JSON.stringify(pickLine.text.slice(0, 30))}`
-      : `未读到老师那句（段落=${afterPick.length}）`,
+  const afterPick = await readUntilInteraction(page, "裁决后（选项消失, 正文不动）");
+  const leaked = afterPick.filter((p) => p.text.includes("我来了"));
+  record("裁决不上屏", {
+    info: leaked.length
+      ? `❌ 玩家那句被当正文渲染: ${JSON.stringify(leaked.map((p) => p.text))}`
+      : `正文保持上一句=${JSON.stringify(afterPick.map((p) => p.text.slice(0, 20)))}`,
     shot: await shot(page, "vn-after-pick"),
     transcript: afterPick,
   });
-  if (!pickLine) throw new Error("裁决后未渲染出老师那句");
-  // 2026-09-11 定稿规则: 正文区**不画**名字行——当前角色（名字牌已写明）与
-  // **老师**（玩家自己选的那句）都不画; 只有"别的角色"才画（未来多角色同场）。
-  // 这条正是用户两次报的"红字老师是不明字段"（且只在裁决+继续节点出现）。
+  if (leaked.length) {
+    throw new Error(`裁决后玩家那句被当正文渲染（应只体现为选项）: ${JSON.stringify(leaked)}`);
+  }
+  // 正文停在上一句角色台词/旁白: 整屏只有那一段, 不许重播板正文
+  if (afterPick.length !== 1 || afterPick[0].text !== lastLineBefore) {
+    throw new Error(`裁决后正文应保持上一句（期望 1 段 ${JSON.stringify(lastLineBefore)}）`
+      + `: ${JSON.stringify(afterPick)}`);
+  }
   const strayLabels = afterPick.filter((p) => p.speaker).map((p) => p.speaker);
   if (strayLabels.length) {
     throw new Error(`裁决节点仍画了名字行（应无）: ${JSON.stringify(strayLabels)}`);
   }
-  // 增量渲染: 裁决后**不许重播已读段落**（2026-09-11 真机报障"第一段出现两遍才进第二段"）。
-  // 判据: 点击瞬间残留在屏上的旧段允许出现一次（且必须是第一条）; 之后若再出现板正文
-  // 的文本 = 前端把整块重渲染了一遍（bug 现象）。
-  const boardTexts = board1.map((p) => p.text);
-  const replayed = afterPick.slice(1).filter((p) => boardTexts.includes(p.text));
-  if (replayed.length) {
-    throw new Error(`裁决后重播了已读段落: ${JSON.stringify(replayed)}`);
-  }
-  if (afterPick[afterPick.length - 1].text !== pickLine.text) {
-    throw new Error("裁决后最后一段不是老师那句: " + JSON.stringify(afterPick));
+  // 名字牌必须仍是角色（用户核对 BA: "名字什么的都不用变"）
+  const plateAfterPick = await page.evaluate(() => {
+    const np = document.querySelector(".bond-nameplate");
+    return {
+      name: (document.querySelector("#bond-name") || {}).textContent || "",
+      club: (document.querySelector("#bond-club") || {}).textContent || "",
+      hidden: !!(np && np.classList.contains("hidden")),
+    };
+  });
+  if (plateAfterPick.hidden || !plateAfterPick.name.trim()) {
+    throw new Error(`裁决后名字牌不该变（BA: 名字不用变）: ${JSON.stringify(plateAfterPick)}`);
   }
 
   // ── 7. 继续 → 收尾板 → 自动 finish 回 MMT ────────────────────────────

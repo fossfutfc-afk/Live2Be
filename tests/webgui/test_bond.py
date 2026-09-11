@@ -181,19 +181,17 @@ def test_bond_full_flow(tmp_path):
         assert scene1["choices"] == ["选A", "选B"]
         assert not st1["completed"]
 
-        # turn: 玩家选 A → 裁决（同响应就地物化展示, 零生成, 不占轮次）
+        # turn: 玩家选 A → 裁决（**只记不念**: 玩家的话语永远只体现为选项, 零生成）
         # 记录流 v2: 角色的反应在**下一板**（已在引擎待发队列）→ 再点继续才是收尾场
         r2 = bond.bond_turn(CHARACTER, sid, "选A")
-        assert r2["accepted"] and r2.get("branch") and r2["scene"] is not None
-        texts = [p["text"] for p in r2["scene"]["paragraphs"]]
-        # 2026-09-11: 裁决返回**增量**（只回老师那句, 不回放已读的板正文——
-        # 回完整板会让前端把第一段重播一遍, 真机报障"第一段出现两遍"）
-        assert texts == ["选A"], texts
-        assert r2["scene"]["paragraphs"][0]["speaker"] == "sensei"
-        # status 视图与**屏上内容一致**（也是增量——否则前端任何一次轮询重渲染
-        # 都会把板正文重播一遍, 真机"继续轮又看到老师那行"就是这个）
+        assert r2["accepted"] and r2.get("branch") and r2.get("picked") == "选A", r2
+        assert "scene" not in r2, r2          # 裁决不回 scene（回就会被当正文念出来）
+        # status 视图 = 板正文 + 选项清空——玩家那句不进段落（2026-09-12 定稿:
+        # 它上屏就会被读成角色台词, 真机报障"睦月/便利屋68 + 你还打算对我怎么恶作剧？"）
         st1b = bond.bond_status(CHARACTER, sid)
-        assert [p["text"] for p in st1b["scene"]["paragraphs"]] == ["选A"], st1b["scene"]
+        assert [p["text"] for p in st1b["scene"]["paragraphs"]] \
+            == ["段落一。", "段落二。"], st1b["scene"]
+        assert st1b["scene"]["choices"] == [] and st1b["scene"]["picked"] == "选A"
         assert st1b["round"] == 1, "裁决是场景一部分, 不占轮次"
         # v2: 裁决后一板反应（待发 0 LLM）, 其后才是收尾场——循环推进到 completed
         for _ in range(6):
@@ -896,13 +894,15 @@ def test_bond_record_stream_slots_and_free_next_board(tmp_path):
         assert scene1["records"][0] == {"stage": "switch", "text": "深夜的杂草屋"}
         assert llm.snapshots and len(llm._scripts) == 0        # 只调了一次（一板一块）
 
-        # 点选项: 返回**增量** scene（只回老师那句——不回放已读的板正文）, 不生成/不 fork
+        # 点选项: **不回 scene**（玩家的话语永远只体现为选项——正文停在上一句,
+        # 玩家那句绝不当正文上屏: 真机报障"睦月/便利屋68 + 你还打算对我怎么恶作剧？"）,
+        # 不生成 / 不 fork; 展示视图保留板正文、只去掉选项
         r2 = bond.bond_turn(CHARACTER, sid, RECORD_PICK)
-        assert r2["accepted"] and r2.get("branch") is True and r2.get("scene"), r2
-        texts = [p["text"] for p in r2["scene"]["paragraphs"]]
-        assert texts == [RECORD_PICK], texts
-        assert r2["scene"]["paragraphs"][0]["speaker"] == "sensei"
-        assert not r2["scene"].get("choices")                  # 裁决后不再给选项
+        assert r2["accepted"] and r2.get("branch") is True, r2
+        assert r2.get("picked") == RECORD_PICK and "scene" not in r2, r2
+        shown = bond.bond_status(CHARACTER, sid)["scene"]
+        assert [p["text"] for p in shown["paragraphs"]] == ["……老师，你来了。"], shown
+        assert shown["choices"] == [] and shown["picked"] == RECORD_PICK, shown
         assert bond.bond_status(CHARACTER, sid)["round"] == 1  # 不出新板
 
         # 点继续 → 待发板（0 LLM: 脚本已空, 再调即抛）
@@ -1001,24 +1001,24 @@ def test_bond_record_stream_speaker_names_in_api(tmp_path):
         out = _resolve_scene(scene, CHARACTER)
         assert out["paragraphs"][0]["speaker_name"] == "伊草 遥香"
         r2 = bond.bond_turn(CHARACTER, sid, RECORD_PICK)
-        out2 = _resolve_scene(r2["scene"], CHARACTER)
-        names = [p.get("speaker_name") for p in out2["paragraphs"]]
-        assert names == ["老师"], names                        # 增量: 只有老师那句
-        # status 视图（前端轮询看的那份）同样是增量——与屏上内容一致
+        assert "scene" not in r2, r2                           # 裁决不回 scene
+        # status 视图（前端轮询看的那份）= 板正文 + 选项清空——玩家那句不在段落里
         st_all = bond.bond_status(CHARACTER, sid)
-        assert [p.get("speaker_name")
-                for p in _resolve_scene(st_all["scene"], CHARACTER)["paragraphs"]] \
-            == ["老师"]
+        out_all = _resolve_scene(st_all["scene"], CHARACTER)
+        assert [p.get("speaker_name") for p in out_all["paragraphs"]] \
+            == ["伊草 遥香"]
+        assert out_all["choices"] == [] and out_all["picked"] == RECORD_PICK
         # 完整物化板（板正文 + 裁决行）在**事件流**里: 回放场景 = 原始板 + picked,
-        # 观看视图由 `_narrativize` 物化（前端回放/中断续看都走这条）
+        # 观看视图**不再物化玩家那句**（2026-09-12 定稿——它上屏会被读成角色台词）;
+        # `picked` 单带回, 将来要显示"当时选了哪句"应做成选项态 UI
         ats = bond.replay_attempts(CHARACTER, sid)
         sc = [s for a in ats for s in a["scenes"]]
         assert sc and sc[0]["picked"] == RECORD_PICK, sc
         narr = _resolve_scene(bond._narrativize(sc[0]["scene"], sc[0]["picked"]),
                               CHARACTER)
         assert [p.get("speaker_name") for p in narr["paragraphs"]] \
-            == ["伊草 遥香", "老师"], narr["paragraphs"]
-        print("    v2: speaker_name 注入（角色显示名 / 老师）")
+            == ["伊草 遥香"], narr["paragraphs"]
+        print("    v2: speaker_name 注入（角色显示名; 玩家那句不上屏）")
     finally:
         _cleanup()
 
@@ -1129,8 +1129,8 @@ def test_bond_stream_first_board_visible_before_block_done(tmp_path):
 
 
 def test_bond_turn_router_resolves_direct_scene(tmp_path):
-    """裁决直返的场景与 status 同通道过 `_resolve_scene`（否则老师那句没有名字行）,
-    且**回放器**能吃到记录流字段（`/api/bond/replay` → records + speaker_name）。"""
+    """裁决**不回 scene**（玩家的话语永远只体现为选项）, 但 status 视图照旧过
+    `_resolve_scene`; **回放器**能吃到记录流字段（`/api/bond/replay` → records）。"""
     import asyncio
     from webgui.routers.bond import BondTurnIn, bond_replay, bond_turn as router_turn
     from webgui.routers.bond import _resolve_scene
@@ -1141,9 +1141,12 @@ def test_bond_turn_router_resolves_direct_scene(tmp_path):
         _wait_status(CHARACTER, sid)
         r = asyncio.run(router_turn(BondTurnIn(char_id=CHARACTER, session_id=sid,
                                               text=RECORD_PICK)))
-        assert r.get("branch") and isinstance(r.get("scene"), dict)
-        names = [p.get("speaker_name") for p in r["scene"]["paragraphs"]]
-        assert names == ["老师"], names          # 直返=增量（只老师那句）, 但也过 resolve
+        assert r.get("branch") and r.get("picked") == RECORD_PICK, r
+        assert not r.get("scene"), "裁决不回 scene（否则前端会把玩家那句当正文念）"
+        # status 视图（屏上那份）= 板正文 + 选项清空, 且过了 _resolve_scene
+        shown = _resolve_scene(bond.bond_status(CHARACTER, sid)["scene"], CHARACTER)
+        assert [p.get("speaker_name") for p in shown["paragraphs"]] == ["伊草 遥香"]
+        assert shown["choices"] == [] and shown["picked"] == RECORD_PICK
         # 回放器: 事件流里的板（records/picked）→ 回放 scene 附渲染信息
         rp = asyncio.run(bond_replay(CHARACTER, sid))
         scenes = [s for at in rp["attempts"] for s in at["scenes"]]
@@ -1151,13 +1154,12 @@ def test_bond_turn_router_resolves_direct_scene(tmp_path):
         first = scenes[0]["scene"]
         assert first.get("records"), "回放场景应带记录真源"
         assert first["paragraphs"][0].get("speaker_name") == "伊草 遥香"
-        assert scenes[0]["picked"] == RECORD_PICK, "回放应带裁决（UI 侧渲染老师那句）"
+        assert scenes[0]["picked"] == RECORD_PICK, "回放应带裁决（UI 侧可用选项态展示）"
         assert first["choices"] == ["我来了。", RECORD_PICK]
-        # 叙事化（中断前缀回放路径）: 裁决物化进段落
+        # 叙事化（中断前缀回放路径）: **玩家那句不上屏**（2026-09-12 定稿）
         narr = bond._narrativize(first, RECORD_PICK)
-        assert [p["text"] for p in narr["paragraphs"]] == ["……老师，你来了。", RECORD_PICK]
-        assert _resolve_scene(narr, CHARACTER)["paragraphs"][1]["speaker_name"] == "老师"
-        print("    v2 回放/直返: 场景过 _resolve_scene + 记录真源与裁决都在")
+        assert [p["text"] for p in narr["paragraphs"]] == ["……老师，你来了。"]
+        print("    v2 回放/直返: 裁决不回 scene + 记录真源与 picked 都在")
     finally:
         _cleanup()
 

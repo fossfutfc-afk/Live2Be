@@ -302,10 +302,10 @@ def test_mmt_chat_round_over_http(web):
 def test_bond_full_chain_over_http(web):
     """羁绊剧情全链过 HTTP; 场景过 _resolve_scene（有 speaker_name）, 事件流可回放。
 
-    语义锚点（易踩）: ① `turn` 立即回**就地物化的当前板**（board + 老师那句）而
-    `busy=True`——生成仍在后台, 必须轮询 status 等它落定; ② 待发板由**下一次
-    `turn("（继续）")`** 领出（0 LLM, 返回 pregen=True）——这才是记录流 v2 的
-    "一板一停"节奏; ③ 收尾板落定后 `completed=True` 才能 finish。
+    语义锚点（易踩）: ① `turn` 裁决**不回 scene**（只回 `picked`）——玩家的话语永远
+    只体现为选项, 正文停在上一句; ② 待发板由**下一次 `turn("（继续）")`** 领出
+    （0 LLM）——这才是记录流 v2 的"一板一停"节奏; ③ 收尾板落定后 `completed=True`
+    才能 finish。
     """
     st, sid = web
     _seed_trigger(st, sid)                       # 章节标题的真源（触发动作 payload）
@@ -329,12 +329,14 @@ def test_bond_full_chain_over_http(web):
                    json={"char_id": CHARACTER, "session_id": sid, "text": PICK})
     assert turned.status_code == 200, turned.text
     body = turned.json()
-    assert body.get("branch") and isinstance(body.get("scene"), dict), body
-    # 2026-09-11 修复: 裁决返回**增量**（只回老师那句）——回完整物化板会让前端
-    # 把已读过的板正文重播一遍（真机"第一段出现两遍"就是这个）
-    assert [p["text"] for p in body["scene"]["paragraphs"]] == [PICK], body["scene"]
-    names = [p.get("speaker_name") for p in body["scene"]["paragraphs"]]
-    assert names == ["老师"], names                   # 只渲染老师那句（带名字行）
+    assert body.get("branch") is True and body.get("picked") == PICK, body
+    # 2026-09-12 定稿（用户核对 BA）: **玩家的话语永远只体现为选项**——裁决不返回
+    # scene, 前端只清选项、正文停在上一句; 把这句话当正文回给前端就会被念出来,
+    # 读成"角色说了玩家的话"（真机报障）。展示视图保留板正文、只去掉选项。
+    assert "scene" not in body, body
+    shown = bond.bond_status(CHARACTER, sid)["scene"]
+    assert [p["text"] for p in shown["paragraphs"]] == ["（首板）她抬起头。"], shown
+    assert shown["choices"] == [] and shown["picked"] == PICK, shown
     _poll_status(sid)                                  # 等后台生成落定（busy 拒绝 finish）
 
     # 待发板（反应板 + end）: 点"继续"即领出, 0 LLM 且立刻完成
@@ -492,10 +494,11 @@ def test_bond_reenter_interrupted_returns_scene_immediately(web):
     assert body.get("chapter_title") == CHAPTER_TITLE, body
     assert isinstance(body.get("scene"), dict), body
     texts = [p["text"] for p in body["scene"]["paragraphs"]]
-    # 回放 = 已记录前缀（0 LLM）; 裁决行已物化进段落（观看视图）
-    assert texts == ["（首板）她抬起头。", PICK], texts
+    # 回放 = 已记录前缀（0 LLM）; **玩家那句不上屏**（2026-09-12 定稿: 玩家的话语
+    # 永远只体现为选项）, 观看视图就是板正文本身——裁决靠 payload.picked 留档
+    assert texts == ["（首板）她抬起头。"], texts
     names = [p.get("speaker_name") for p in body["scene"]["paragraphs"]]
-    assert names == ["伊草 遥香", "老师"], names
+    assert names == ["伊草 遥香"], names
     print("    web: 重进中断剧情 → 首帧即场景（无黑屏等待）")
 
 
