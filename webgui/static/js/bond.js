@@ -23,6 +23,9 @@ const BOND_POLL_MS = 700;       // status 轮询间隔（LLM 秒级, 不用太�
 const BOND_POLL_FAST_MS = 250;  // 首场等待期细粒度（P1: 预热/在途, 拿到首场后回粗）
 const MAX_TURN_WAIT = 600;      // 推进忙等预算: 600×700ms = 7min（LLM 超时已提至 240s,
                                 // 覆盖慢思考/标注长尾——超限给明确错误而非无限静默）
+//: 推进忙等**软上限**（2026-09-11）: 90s 还没空闲就先回调用方去取屏上内容
+//: （后端 busy/gate 看门狗已兜底放行）——真机"已等待 110s 不动"就是硬等到 7min
+const TURN_SOFT_WAIT_MS = 90 * 1000;
 const END_HOLD_MS = 1600;       // 收尾场景停留后自动 finish
 
 // 打字速度档位（菜单"打字速度"切换——逐字基准与标点停顿）
@@ -56,6 +59,10 @@ const BondVN = (() => {
   let seenRound = 0;            // 已渲染的 round（status 幂等去重）
   let gotScene = false;         // 本轮 enter 是否已渲染过场景
   let seenEmo = -1;             // 已应用的 emo_version（异步标注补标感知）
+//: 已渲染场景的**内容指纹**（2026-09-11）: round 会在生成开始时先 +1（此时
+//: status.scene 还是上一场）——只按 round 判新旧会把旧场景重渲染一遍（真机
+//: "继续轮又看到老师/打搅了"）。指纹一致 = 屏上没变 → 不重渲染。
+let lastSceneKey = "";
   let player = null;            // SpinePlayer（无 spine 资产 → null, 纯文字）
   let playerMeta = null;        // /api/spine 元信息 {pack, emotions}
   let busy = false;             // 场景切换中（防双击）
@@ -131,12 +138,33 @@ const BondVN = (() => {
       exit();                        // 失败 → 回 MMT（解锁 + 重启轮询）
       return;
     }
-    await initSpine();
+    // 2026-09-11: 立绘加载**不阻塞首屏**——真机"重进先黑屏一小段"有一半耗在
+    // spine 包（skel/atlas/png）加载上; 文字先上屏, 立绘就绪后自行进画面
+    // （writePara 每段都实时读 player, 后续段落/补切照常带表情）。
+    initSpine().catch(() => { /* 无 spine → 纯文字降级（原语义） */ });
     // 等待标题卡（2026-09-05）: 首场在后台 LLM 生成（5s+ 波动）——进入即显示
     // 章节卡（chapter_title 文案 + "故事正在展开…"）掩盖缓冲; 首场就绪 → waitScene
     // 收卡进场景。
     // 2026-09-09: resumed（续玩/预热就绪）也展示章节标题——标题无论如何都要
     // 给玩家看到, 预热只是"不必等生成"（短面板 2.4s/点击跳过, 场景已就绪）。
+    // 2026-09-11 真机修复（"重进中断剧情先黑屏还要加载一小段"）: `bond_start`
+    // **已经带回就绪场景**时（回放/预热命中/adopt 就绪/续玩）——直接上屏:
+    //   · 回放（data.replay）不播章节卡（玩家是接着中断处看, 重复播报反而怪）;
+    //   · 其余在**场景自己的背景**上播章节卡（不再是纯黑底等 2.4s）。
+    if (data.scene) {
+      if (!data.replay) {
+        await showTitle(data.chapter_title || "",
+                        data.scene.background_url || "");
+      }
+      // 名字牌（名字 + 社团——随角色变动的两个字段）: 不走轮询的路径也要立刻正确
+      if (data.name) $("bond-name").textContent = data.name;
+      if (data.club !== undefined) $("bond-club").textContent = data.club;
+      gotScene = true;
+      seenRound = data.round !== undefined ? data.round : seenRound;
+      seenEmo = data.emo_version !== undefined ? data.emo_version : seenEmo;
+      renderScene(data.scene);
+      return;
+    }
     if (data.completed) {
       await waitScene();
     } else if (data.resumed) {
@@ -267,8 +295,13 @@ const BondVN = (() => {
           }
         }
         // 中断回放/预热在途: 有场景先渲染（busy 可能来自续写预生成, 不阻塞展示）;
-        // 无场景才按 busy 轮询等待
-        if (st.scene && (!gotScene || st.round !== seenRound)) {
+        // 无场景才按 busy 轮询等待。
+        // 2026-09-11 加**场景指纹去重**（真机"继续轮又看到老师/打搅了"）: 只按
+        // round 判新旧不够——round 会在生成**开始**时就 +1, 此时 status.scene 还是
+        // 上一场 → 前端把旧场景重渲染一遍（重读 + 残留名字行）。指纹一致即视为
+        // "屏上内容没变" → 不重渲染, 继续等真正的新场景。
+        if (st.scene && (!gotScene || st.round !== seenRound)
+            && sceneKey(st.scene) !== lastSceneKey) {
           hideEnterWait();              // 首场就绪 → 收等待卡（scene.title 走 showTitle 接力）
           gotScene = true;
           seenRound = st.round;
@@ -425,8 +458,19 @@ const BondVN = (() => {
   // 场景渲染: 背景 → 打字机（逐字输出 + 段首切立绘表情）→ 打完 → 选项/输入/收尾
   // ---------------------------------------------------------------------------
 
+  /** 场景指纹（内容判等）——轮询去重用: 相同内容绝不重渲染（防重读/残留名字行）。
+   *  2026-09-11 真机"继续轮又看到老师+打搅了"就是这个重复渲染造成的。 */
+  function sceneKey(scene) {
+    if (!scene) return "";
+    const paras = (scene.paragraphs || [])
+      .map((p) => `${(p && p.speaker) || ""}|${(p && p.text) || ""}`).join("␟");
+    const choices = (scene.choices || []).join("␟");
+    return `${paras}␟${choices}␟${scene.is_end ? 1 : 0}`;
+  }
+
   async function renderScene(scene) {
     busy = false;
+    lastSceneKey = sceneKey(scene);   // 记指纹: 轮询里同内容不再重渲染
     dbg("renderScene paras=", (scene.paragraphs || []).map(
         (p) => (p && p.emotion) || "-"), "is_end", !!scene.is_end);
     clearAutoTimer();             // 新场景开始 → 旧自动倒计时作废
@@ -894,12 +938,17 @@ const BondVN = (() => {
     }
   }
 
-  function updateWaitNote(secs) {
+  function updateWaitNote(secs, why) {
     const n = $("bond-wait-note");
-    if (n) n.textContent = `剧情推进中…（已等待 ${secs}s）`;
+    // 2026-09-11: 带上**卡在哪**（生成中/视觉门/预生成标注）——真机"已等待 110s"
+    // 时前端只显示一个数字, 排查只能靠猜; 现在后端 status 的原因直接显示出来。
+    if (n) n.textContent = `剧情推进中…（已等待 ${secs}s${why ? "·" + why : ""}）`;
   }
 
-  // 轮询 status 直到空闲（生成 busy 与标注门控都过）; 预算耗尽 → timedOut
+  // 轮询 status 直到空闲（生成 busy 与标注门控都过）; 预算耗尽 → timedOut。
+  // 2026-09-11 加固: ① 显示卡在哪（busy/gate）; ② **软上限** SOFT（默认 90s）——
+  // 到点不再死等, 回给调用方去 waitScene 取屏上内容（后端看门狗也会兜底放行）;
+  // ③ 硬上限 MAX_TURN_WAIT 仍保留（极小概率的双卡死）。
   async function waitTurnIdle(tries) {
     const t0 = Date.now();
     for (;;) {
@@ -912,7 +961,13 @@ const BondVN = (() => {
       } catch (e) { return { tries, timedOut: false }; }   // 网络抖动: 放行重试
       if (st.completed || (!st.busy && !st.gate_busy)) return { tries, timedOut: false };
       const secs = Math.round((Date.now() - t0) / 1000);
-      if (secs > 0 && secs % 10 === 0) updateWaitNote(secs);
+      const why = st.busy ? "生成中" : "标注中";
+      if (secs > 0 && secs % 5 === 0) updateWaitNote(secs, why);
+      if (Date.now() - t0 > TURN_SOFT_WAIT_MS) {
+        dbg("推进忙等软超时放行", secs, "s why=", why);
+        updateWaitNote(secs, why + "·先展示");
+        return { tries, timedOut: false, soft: true };
+      }
     }
   }
 
@@ -949,6 +1004,10 @@ const BondVN = (() => {
             showTurnError("剧情生成时间过长（可能是模型响应慢）——请点下方按钮重试");
             busy = false;
             return;
+          }
+          if (r.soft) {                  // 软超时（2026-09-11）: 别死等——去看屏上有什么
+            data = { ...(data || {}), accepted: true };
+            break;
           }
           if (data.accepted) break;      // 本次裁决已生效 → 交 waitScene 取场景
           data = null;                   // 被拒（busy/门控）→ 空闲后重发一次

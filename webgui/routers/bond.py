@@ -180,9 +180,17 @@ class BondFinishIn(BaseModel):
 
 @router.post("/api/bond/start")
 async def bond_start(body: BondStartIn) -> dict:
-    """进入羁绊剧情（幂等: 已有进行中的剧情 → 返回现状）。"""
+    """进入羁绊剧情（幂等: 已有进行中的剧情 → 返回现状）。
+
+    场景已就绪的路径（回放 / 预热命中 / adopt 就绪 / 续玩）会带 `scene`——与
+    `/api/bond/status` 同通道过 `_resolve_scene`（否则前端拿到的段落缺
+    speaker_name/background_url/fx, 首屏无背景无名字行）。
+    """
     try:
-        return bond.bond_start(body.char_id, body.session_id)
+        r = bond.bond_start(body.char_id, body.session_id)
+        if isinstance(r.get("scene"), dict):
+            r["scene"] = _resolve_scene(r["scene"], body.char_id)
+        return r
     except Exception as e:                     # noqa: BLE001 — 驱动异常转 HTTP 错误
         raise HTTPException(status_code=500, detail=f"bond start 失败: {e}")
 

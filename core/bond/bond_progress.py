@@ -47,8 +47,10 @@ class BondProgress:
     构造时自动迁移 v0 分文件（data/{char}/progress.json → 并入聚合, 清空壳目录）。
     """
 
-    def __init__(self, data_root: str | Path = DEFAULT_DATA_ROOT):
-        self.data_root = Path(data_root)
+    def __init__(self, data_root: str | Path | None = None):
+        # 注: 默认值**在调用时**解析（不用 DEFAULT_DATA_ROOT 作默认参数——默认参数
+        # 在函数定义时就绑定了, 测试/多世界重定向就会失效, 2026-09-11 教训）
+        self.data_root = Path(data_root or DEFAULT_DATA_ROOT)
         self._migrated = False
 
     # ------------------------------------------------------------------

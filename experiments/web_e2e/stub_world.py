@@ -115,13 +115,25 @@ class StubLLM:
 def build_world(data_root: Path):
     """临时世界线 + 注入 chat（引擎/store 都指向 data_root）。
 
+    **硬隔离（2026-09-11 事故）**: 冒烟会在登录页取名 → `POST /api/name` →
+    `mmt_preset.save_player_name()` 写的是**模块级常量 PLAYER_JSON**（真实
+    `data/basic/player.json`）——冒烟曾把用户自己的名字覆盖成"老师"（用户报障
+    "填名字总在后面追加老师"就是它的后遗症: 登录框预填了被污染的名字）。
+    这里把 PLAYER_JSON / AFFECTION / 进度等**所有全局落盘点**都改到临时目录。
+
     Returns: (store, session_id, engine, llm)
     """
+    from core.mmt import mmt_preset
     from core.momotalk import MomoTalkEngine
     from core.session import SessionStore
     from webgui import chat
 
     data_root.mkdir(parents=True, exist_ok=True)
+    basic = data_root / "basic"
+    basic.mkdir(parents=True, exist_ok=True)
+    # 玩家名等全局文件 → 临时目录（否则冒烟会改写真实 data/basic/*）
+    mmt_preset.PLAYER_JSON = basic / "player.json"
+
     st = SessionStore(data_root)
     llm = StubLLM()
     engine = MomoTalkEngine(ROOT / "config" / "characters", llm, store=st)

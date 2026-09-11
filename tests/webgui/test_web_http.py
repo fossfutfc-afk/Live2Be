@@ -389,6 +389,115 @@ def test_bond_enter_adopt_carries_chapter_title(web):
     print("    web: adopt 就绪路径带章节标题（否则标题屏显示『羁绊剧情』）")
 
 
+def test_bond_enter_adopt_returns_ready_scene(web):
+    """**就绪场景随 bond_start 一起回**（2026-09-11）: 重进/预热命中/adopt 就绪
+    这些路径场景本来就在手里（纯读文件）, 旧协议只回 `resumed: true` → 前端黑屏
+    等一轮轮询（+ 标题屏黑底）。现在直接带 scene/round/emo_version。"""
+    st, sid = web
+    _seed_trigger(st, sid)
+    bond.bond_start(CHARACTER, sid, staged=True)
+    _poll_status(sid)
+    adopted = bond.bond_start(CHARACTER, sid)
+    assert isinstance(adopted.get("scene"), dict), adopted
+    assert adopted["scene"]["paragraphs"], adopted["scene"]
+    assert adopted.get("round") == 1, adopted
+    assert "emo_version" in adopted, adopted
+    print("    web: adopt 就绪 → 响应自带场景（前端 0 等待上屏, 无黑屏）")
+
+
+def test_bond_watchdogs_self_heal_stuck_gate(web, monkeypatch):
+    """看门狗（2026-09-11）: 视觉门/预生成消费门卡住不能变成"点击永久无响应"。
+
+    真机现象: 点继续后前端一直"剧情推进中…（已等待 110s）"而后端其实闲着——
+    某些异常下标注 lane 不会再回来 → `gate` 永远 False。这里把阈值调到 0 模拟
+    "已经卡很久", 断言 bond_status 触发兜底放行（场景被强制标成就绪）。
+    """
+    st, sid = web
+    _seed_trigger(st, sid)
+    bond.bond_start(CHARACTER, sid, staged=True)
+    _poll_status(sid)
+    state = bond._state(CHARACTER, sid)
+    # 造一个"永远不就绪"的场景: 抹掉 emotion + place 标记
+    for p in state.scene_obj.paragraphs:
+        p.pop("emotion", None)
+    state.scene_obj._place_done = False
+    state.gate_since = 0.0
+    assert bond._scene_visual_ready(state) is False, "前置: 场景确实卡在未就绪"
+    monkeypatch.setattr(bond, "GATE_WATCHDOG_MS", -1)        # 视为已超时
+    st_after = bond.bond_status(CHARACTER, sid)
+    assert st_after["gate_busy"] is False, st_after           # 看门狗兜底放行
+    assert all((p.get("emotion") or "").strip()
+               for p in state.scene_obj.paragraphs), state.scene_obj.paragraphs
+    print("    web: 视觉门看门狗兜底放行（表情降级换能推进）")
+
+
+def test_bond_busy_watchdog_resets_lost_thread(web, monkeypatch):
+    """忙态看门狗: 生成线程丢失（异常退出/线程没了）而 busy 仍在 → 复位。
+
+    否则前端 `waitTurnIdle` 会一直等一个永远不会结束的忙态（真机 110s+ 的形态之一）。
+    """
+    st, sid = web
+    bond.bond_start(CHARACTER, sid)
+    _poll_status(sid)
+    state = bond._state(CHARACTER, sid)
+    state.busy = True
+    state.busy_since = time.monotonic()
+    state._gen_thread = None
+    state._pregen_thread = None
+    monkeypatch.setattr(bond, "BUSY_WATCHDOG_MS", -1)
+    st_after = bond.bond_status(CHARACTER, sid)
+    assert st_after["busy"] is False, st_after
+    print("    web: 忙态看门狗复位（线程丢失不再让点击永久无响应）")
+
+
+def test_turn_reject_is_logged(web, caplog):
+    """推进被拒要留痕: 前端在重试, 后端不记日志等于"事故无迹可查"。"""
+    import logging
+    st, sid = web
+    bond.bond_start(CHARACTER, sid)
+    _poll_status(sid)
+    state = bond._state(CHARACTER, sid)
+    state.busy = True                                        # 模拟生成中
+    with caplog.at_level(logging.WARNING, logger="live2be.bond"):
+        r = bond.bond_turn(CHARACTER, sid, "（继续）")
+    state.busy = False
+    assert r.get("accepted") is False and r.get("busy") is True, r
+    assert any("bond_turn 被拒" in rec.getMessage()
+               for rec in caplog.records), [r.getMessage() for r in caplog.records]
+    print("    web: 推进被拒有 WARNING 留痕（reason + 次数）")
+
+
+def test_bond_reenter_interrupted_returns_scene_immediately(web):
+    """重进中断剧情（回放路径）: `/api/bond/start` 直接带场景回来 + chapter_title。
+
+    真机报障（2026-09-11）:"重进中断的剧情一开始黑屏, 居然还要加载一小段时间"——
+    后端这条路径纯读事件流（实测 ~0.1s）, 慢的是前端"黑底标题屏 + 等一轮轮询"。
+    协议修好后: 首帧即有场景（前端不再 waitScene、也不播黑底标题屏）。
+    """
+    st, sid = web
+    _seed_trigger(st, sid)
+    bond.bond_start(CHARACTER, sid, staged=True)
+    _poll_status(sid)
+    bond.bond_start(CHARACTER, sid)                    # adopt → 首板在屏
+    bond.bond_turn(CHARACTER, sid, PICK)               # 裁决（板落事件流）
+    _poll_status(sid)
+    bond._bonds.pop((CHARACTER, sid), None)            # 模拟重启: 内存态丢失
+
+    r = _http("POST", "/api/bond/start",
+              json={"char_id": CHARACTER, "session_id": sid})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body.get("accepted") is True and body.get("replay") is True, body
+    assert body.get("chapter_title") == CHAPTER_TITLE, body
+    assert isinstance(body.get("scene"), dict), body
+    texts = [p["text"] for p in body["scene"]["paragraphs"]]
+    # 回放 = 已记录前缀（0 LLM）; 裁决行已物化进段落（观看视图）
+    assert texts == ["（首板）她抬起头。", PICK], texts
+    names = [p.get("speaker_name") for p in body["scene"]["paragraphs"]]
+    assert names == ["伊草 遥香", "老师"], names
+    print("    web: 重进中断剧情 → 首帧即场景（无黑屏等待）")
+
+
 # ---------------------------------------------------------------------------
 # 6. 设置页
 # ---------------------------------------------------------------------------
