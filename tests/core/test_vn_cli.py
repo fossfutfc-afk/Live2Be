@@ -184,10 +184,8 @@ def test_simulate_vn_scene():
 # ----------------------------------------------------------------------------
 
 def test_run_vn_choice_flow(tmp_path):
-    scene1 = {"action": "story_scene", "payload": {
-        "paragraphs": [{"text": "遥香在天台等你。", "emotion": "nomal"}], "choices": ["走过去", "喊她名字"],
-        "branches": {"走过去": [{"text": "她眼睛一亮。", "emotion": "smile"}],
-                     "喊她名字": [{"text": "她转过头来。", "emotion": "respond"}]}}}
+    scene1 = scene(switch_to="天台", lines=["遥香在天台等你。"],
+                   sensei=["走过去", "喊她名字"])
     engine, st, sid = _store_engine(ScriptedLLM(scene1, STORY_END), tmp_path)
     calls = {"n": 0}
 
@@ -212,8 +210,7 @@ def test_run_vn_choice_flow(tmp_path):
 # ----------------------------------------------------------------------------
 
 def test_run_vn_free_input(tmp_path):
-    scene1 = {"action": "story_scene", "payload": {
-        "paragraphs": [{"text": "遥香静静地看着你。", "emotion": "nomal"}], "choices": []}}
+    scene1 = scene(lines=["遥香静静地看着你。"])
     engine, st, sid = _store_engine(ScriptedLLM(scene1, STORY_END), tmp_path)
     seq = ["（继续）"]
 
@@ -234,8 +231,7 @@ def test_run_vn_free_input(tmp_path):
 
 def test_run_vn_early_exit(tmp_path):
     from core.session.events import M_SESSION_END, M_VN_EXIT
-    scene1 = {"action": "story_scene", "payload": {
-        "paragraphs": [{"text": "遥香看着你，欲言又止。", "emotion": "nomal"}], "choices": []}}
+    scene1 = scene(lines=["遥香看着你，欲言又止。"])
     engine, st, sid = _store_engine(ScriptedLLM(scene1), tmp_path)
     completed = run_bond_story_vn(engine, input_fn=lambda p: "b", char_ms=0, store=st)
     assert completed is False, "b 提前退出应返回 completed=False"
@@ -254,13 +250,9 @@ def test_run_vn_early_exit(tmp_path):
 # run_bond_story_vn 双层收尾兜底（调试值 15 提醒 / 22 建议收尾 / 24 硬兜底）
 # ----------------------------------------------------------------------------
 
-def _scenes(n: int, start: int = 1) -> list[dict]:
-    """n 个带选项的未结束 story_scene（永远不用 story_end 收尾）。"""
-    return [{"action": "story_scene", "payload": {
-        "paragraphs": [{"text": f"场景{i}。", "emotion": "nomal"}], "choices": ["继续", "换种方式"],
-        "branches": {"继续": [{"text": "继续分支。", "emotion": "nomal"}],
-                     "换种方式": [{"text": "换分支。", "emotion": "smile"}]}}}
-        for i in range(start, start + n)]
+def _scenes(n: int, start: int = 1) -> list[str]:
+    """n 个不 is_end 的单板记录流（永远不用 stage=end 收尾——测兜底注记）。"""
+    return [scene(lines=[f"场景{i}。"]) for i in range(start, start + n)]
 
 
 def test_run_vn_two_layer_force(tmp_path):
@@ -315,8 +307,7 @@ class _FailFirst(ScriptedLLM):
 
 def test_run_vn_gen_fail_retry_then_end(tmp_path):
     """生成失败自动重试（同输入, ≤3 次）→ 恢复成功 → 自然收尾 completed=True。"""
-    end = {"action": "story_end", "payload": {
-        "paragraphs": [{"text": "收尾了。", "emotion": "nomal"}]}}
+    end = scene(lines=["收尾了。"], end_text="")
     # send1: 3 attempts 全败 → 自动重试; send2: 首 attempt 再败 → 第 2 attempt 成功
     llm = _FailFirst(4, end)
     engine, st, sid = _store_engine(llm, tmp_path)
@@ -347,8 +338,7 @@ def test_run_vn_gen_fail_abort(tmp_path):
 
 def test_run_vn_remind_then_natural_end(tmp_path):
     """模型 17 场自然 is_end → 只吃到 15 场提醒, 不走上限注记与硬兜底。"""
-    end = {"action": "story_end", "payload": {
-        "paragraphs": [{"text": "收尾了。", "emotion": "nomal"}]}}
+    end = scene(lines=["收尾了。"], end_text="")
     llm = ScriptedLLM(*_scenes(16), end)
     engine, st, sid = _store_engine(llm, tmp_path)
     completed = run_bond_story_vn(engine, input_fn=lambda p: "1", char_ms=0,
@@ -513,7 +503,7 @@ def test_bond_gap_persist_and_clear(tmp_path):
     engine2.agent_turn("继续聊")
     assert st.read_bond_gap(CHARACTER) == 2
     # 中途退出 bond（b）→ completed=False → gap 保留
-    llm3 = ScriptedLLM(SCENE_A)
+    llm3 = ScriptedLLM(scene(lines=["缺口场。"]))
     engine3 = MomoTalkEngine(ROOT / "config" / "characters", llm3, store=st)
     engine3.start_session(CHARACTER)
     engine3.attach_session(root.session_id)
@@ -522,7 +512,7 @@ def test_bond_gap_persist_and_clear(tmp_path):
     assert completed is False
     assert st.read_bond_gap(CHARACTER) == 2, "中途退出不清零（只有完整演过才值得冷却）"
     # 完整剧情结束 → vn_exit completed → 清零
-    llm4 = ScriptedLLM(SCENE_A, STORY_END)
+    llm4 = ScriptedLLM(scene(lines=["缺口场。"]), STORY_END)
     engine4 = MomoTalkEngine(ROOT / "config" / "characters", llm4, store=st)
     engine4.start_session(CHARACTER)
     engine4.attach_session(root.session_id)

@@ -426,7 +426,6 @@ class BondStoryEngine:
         character_names: list[str] | None = None,
         history_rounds: int = DEFAULT_HISTORY_ROUNDS,
         task_card: bool | None = None,   # None = settings [promptkit].task_card（默认 true）
-        allow_legacy_action: bool | None = None,   # None = 环境变量（默认关, 决策 #27）
     ):
         self.char_loader = CharacterLoader(characters_root)
         self.llm = llm_client
@@ -473,9 +472,6 @@ class BondStoryEngine:
         # 记录流 v2（P0-4b）: 上一次调用切出的尾板（0 LLM 待发——记录里已经写好了
         # 后续内容, 玩家点继续即领下一板; 天然"预生成", 见 §6 板派生）
         self._pending_boards: list[BondScene] = []
-        # 旧动作输入兼容（默认关; 见 LEGACY_ACTION_ENV/决策 #27）
-        self._legacy_action = (legacy_action_enabled() if allow_legacy_action is None
-                               else bool(allow_legacy_action))
 
     # ------------------------------------------------------------------
     # 会话生命周期
@@ -608,10 +604,10 @@ class BondStoryEngine:
             notes=notes, user=user_input)
         if max_tokens is None:                       # 真源: task_levels 形态 bond
             max_tokens = task_levels_max_tokens("bond")
-        # 记录流 v2（P0-4b）: 输出是 **JSONL（多行多条）**——不能用 json_object
-        # （那是"整回复单个 JSON 对象", 且客户端会把回复 json.loads 成 dict, 反而
-        # 被当成旧动作分支）。旧动作通道（开关打开时）仍用 json_object。
-        resp_format = "json_object" if self._legacy_action else "text"
+        # 记录流 v2: 输出是 **JSONL（多行多条）**——必须走 text 模式
+        # （json_object = 整回复单个 JSON 对象, 且客户端会 json.loads 成 dict,
+        # 反而被当成"收到的不是记录流" → 打回重发）。
+        resp_format = "text"
 
         for attempt in range(MAX_SCENE_RETRIES):
             # 方案 A 流式嗅探（每次 attempt 新建——重试是全新输出, 重新嗅探）
@@ -637,11 +633,10 @@ class BondStoryEngine:
                 continue
             messages.append({"role": "assistant", "content": str(response)})
 
-            # ---- 记录流 v2（P0-7b）: **默认唯一输入形态 = 记录流字符串** ----
-            # 旧动作 JSON（dict）默认一律拒绝（story 域动作集退役, §8.4）。存量测试桩
-            # 仍返回 dict → 由**显式开关**（构造参数 / 环境变量）放行旧路径; 生产与真机
-            # 不设, 故实际只有记录流一条路（决策 #27）。
-            if isinstance(response, dict) and not self._legacy_action:
+            # ---- 输入形态（P0-7c 定稿）: **唯一形态 = 记录流字符串** ----
+            # 旧动作 JSON（story_scene/story_end/memorial_*）彻底退役（§8.4）:
+            # 收到 dict 一律打回重发——store 域动作集与双 registry 解析已不在主链上。
+            if isinstance(response, dict):
                 self._trace.append({
                     "attempt": attempt,
                     "action": "legacy_action_rejected",
@@ -651,105 +646,26 @@ class BondStoryEngine:
                 feedback(
                     messages,
                     "输出形态无效: 需要一行一条 JSON 记录，收到了动作 JSON。",
-                    "请按「本轮输出契约」重发整轮记录——story_scene / story_end / "
-                    "memorial_enter / memorial_exit 动作已退役; 换场发 stage=switch, "
-                    "收尾用 stage=end, 纪念用 stage=memorial。",
+                    "请按「本轮输出契约」重发整轮记录——旧动作已退役; 换场发 "
+                    "stage=switch, 收尾用 stage=end, 纪念用 stage=memorial。",
                 )
                 continue
-            if not isinstance(response, dict):
-                boards, hard = self._build_record_boards(str(response), attempt)
-                if not boards:
-                    feedback(
-                        messages,
-                        "记录流不合规: " + "; ".join(hard or ["空块：没有任何合法记录"]),
-                        "请按「本轮输出契约」重发整轮记录: 一行一条 JSON（换场发 "
-                        "stage=switch; 收尾 end 放最后一条; art 预告放首条; 老师的话连写 "
-                        "1~3 条 sensei）——不要数组、不要围栏、不要动作 JSON。",
-                    )
-                    continue
-                self._pending_boards = list(boards[1:])
-                return self._finish_scene(boards[0], user_input, annotate=annotate)
-
-            # ---- 以下 = 旧动作路径（**仅开关打开时可达**: 存量测试桩/开发通道）----
-            # 1) 契约解析（story 域优先, 未知动作名再试 memorial 域——双 registry）
-            #    按**动作名归属**分流（不能按 parse 结果: parse 失败 = 动作有效但 payload
-            #    非法, 仍应留在本域反馈具体错误, 而不是误判"未知动作"）
-            if self.registry.spec(response.get("action", "")) is not None:
-                action, result = self.registry.parse(response)
-            else:
-                action, result = self.memorial_registry.parse(response)
-            self._trace.append({
-                "attempt": attempt,
-                "action": action.action if action else None,
-                "summary": action.summary if action else "",
-                "reply": action.reply if action else "",
-                "payload": action.payload if action else None,
-                "parse_valid": result.is_valid,
-                "parse_errors": list(result.errors),
-            })
-            if not result.is_valid:
+            boards, hard = self._build_record_boards(str(response), attempt)
+            if not boards:
                 feedback(
                     messages,
-                    f"动作无效: {'; '.join(result.errors)}",
-                    "请严格按 schema 重新输出可用动作 JSON（story_scene / story_end / "
-                    "memorial_enter / memorial_exit）。",
+                    "记录流不合规: " + "; ".join(hard or ["空块：没有任何合法记录"]),
+                    "请按「本轮输出契约」重发整轮记录: 一行一条 JSON（换场发 "
+                    "stage=switch; 收尾 end 放最后一条; art 预告放首条; 老师的话连写 "
+                    "1~3 条 sensei）——不要数组、不要围栏、不要动作 JSON。",
                 )
                 continue
-
-            # 1.5) 纪念子模式状态机约束（§4.7: enter 独占一轮含全部内容, 纪念模式内只许 exit）
-            if action.action == "memorial_exit" and not self._in_memorial:
-                feedback(
-                    messages,
-                    "动作无效: 当前不在纪念模式, memorial_exit 不可用。",
-                    "请继续输出 story_scene 或 story_end。",
-                )
-                continue
-            if action.action != "memorial_exit" and self._in_memorial:
-                feedback(
-                    messages,
-                    "动作无效: 当前处于纪念模式, 只能输出 memorial_exit 回到 bond。",
-                    "请输出 memorial_exit 动作（可选过渡文字）。",
-                )
-                continue
-            if action.action == "memorial_enter" and self._memorial_used:
-                feedback(
-                    messages,
-                    "动作无效: 一段剧情至多一次纪念, 已使用过。",
-                    "请继续输出 story_scene 或 story_end。",
-                )
-                continue
-
-            # 2) 执行确认（不可执行 → 回灌修正）
-            try:
-                exec_result = self.executor.execute(action)
-            except StoryExecError as e:
-                self._trace[-1]["exec_message"] = str(e)
-                feedback(messages, str(e))
-                continue
-            self._trace[-1]["exec_ok"] = exec_result.ok
-            self._trace[-1]["exec_message"] = exec_result.message
-            break
+            self._pending_boards = list(boards[1:])
+            return self._finish_scene(boards[0], user_input, annotate=annotate)
         else:
             raise SceneLoopError(
                 f"单场景解析或执行超过 {MAX_SCENE_RETRIES} 次仍未通过"
             )
-
-        # ---- 旧动作路径收尾（开关打开时才可达）----
-        # 纪念子模式状态更新（enter → 进入; exit → 回 bond）
-        if action.action == "memorial_enter":
-            self._in_memorial = True
-            self._memorial_used = True
-        elif action.action == "memorial_exit":
-            self._in_memorial = False
-
-        # 方案A-A1 回录基准 + 历史灌入 + 两遍式标注 + 导演视觉 → 统一收尾
-        #（旧契约板走 payload 分支: 渲染为空时用紧凑 JSON 兜底, 保持旧行为）
-        hist_text = render_bond_scene_text(action.payload)
-        return self._finish_scene(
-            BondScene.from_action(action), user_input, payload=action.payload,
-            fallback_text=hist_text or json.dumps(action.payload, ensure_ascii=False,
-                                                  separators=(",", ":")),
-            annotate=annotate)
 
     # ------------------------------------------------------------------
     # 记录流 v2（P0-4b）: 块解析 → 板派生 → 收尾

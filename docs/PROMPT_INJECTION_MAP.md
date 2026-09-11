@@ -136,8 +136,9 @@ P0-4b 落地）；registry 分流此时只剩 memorial exit 路径。
   `art`/`exit` 跳过; 裁决物化为 `老师：X`）。
 - 板 payload = `{records, paragraphs(派生, 带 speaker), choices(派生), is_end, place_hint?, art_hint?, memorial?}`
   —— `records` 是唯一真源，派生字段是给**尚未迁移的消费者**的过渡面（§11 P0-7）。
-- **旧动作通道仍在**（输出为 dict 时走 registry.parse）——测试桩/开发通道，
-  P0-7b 删除（决策 #22）。
+- **输入形态唯一**（P0-7c 定稿）: 记录流字符串——旧动作 JSON 一律打回重发;
+  兼容开关与旧动作输入路径**已删除**（决策 #27）; story 域动作集模块留在库内但
+  主链不可达（旧档回放由 `render_bond_scene_text` 旧分支承担, 冻结不改）。
 - **换场翻译**（P0-7a）: 板带 `place_hint`（`switch` 记录文本）时，place lane 调
   `resolve_place`（prompt `place_resolve.md` + `place` 档位 = off-thinking/256）→
   `scene.place` = 词表键 → 导演查表出 `background_url`；进程内缓存（同句 0 调用），
