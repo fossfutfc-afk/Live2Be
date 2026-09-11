@@ -1,10 +1,15 @@
 # Live2Be 视觉意图协议 — emotion/place 字段 + 角色表情词表
 
-> 状态：**设计定稿（2026-08-23），待实现**。注入节奏与词表外兜底已最终拍板（见 §11）。
-> 实现走分支 `visual-director`。
-> 定位：演进 `DESIGN_VISUAL.md` §② 导演组件——从「导演从文本猜」升级为
-> 「主 LLM 出意图语义（emotion/place），静态映射表持领域知识，本地 LLM 只做小决策仲裁」。
-> 回退策略不变：小模型表现不良 → 回主分支冻结 visual-director。
+> **状态（2026-09-12 校准）：部分过时, 读前先看这里。**
+> - **已作废**：§2「主 LLM 出 emotion/place 意图（beats[].emotion）」——记录流 v2 起
+>   主 LLM **不写任何视觉字段**（emotion 由标注层按板标注、一条记录一个键; place 由
+>   标注层出换场锚点）。现网口径见 `CLAUDE.md §4` 与 `docs/DESIGN_VN_UPGRADE.md §6/§9`。
+> - **仍生效**：§4/§8 的 `emotions.yml`（键 + 注释 + 词表外兜底）与双投影资产形态——
+>   `core/media/manifest.py` / `emotion_lexicon.py` / `core/director/` 的词表真源,
+>   资产填写手册见 `docs/EMOTIONS_CONFIG.md`。
+> - 定位（历史）：演进 `DESIGN_VISUAL.md` §② 导演组件——从「导演从文本猜」升级为
+>   「主 LLM 出意图语义（emotion/place），静态映射表持领域知识，本地 LLM 只做小决策仲裁」。
+> - 回退策略不变：小模型表现不良 → 回主分支冻结 visual-director。
 
 ## 1. 背景与动机
 
