@@ -103,8 +103,13 @@ def test_live_and_replay_byte_identical_on_records():
     print("    picked: live == 回放（逐字节）")
 
 
-def test_from_dict_materializes_pick_for_display():
-    """显示层也物化: BondScene.from_dict(payload+picked) 把裁决行插回群首。"""
+def test_from_dict_keeps_picked_without_materializing():
+    """**裁决句不进正文**（决策 #37: 玩家的话语永远只体现为选项）。
+
+    `BondScene.from_dict(payload+picked)` 只把 `picked` 带在场景上（前端据此把
+    选项组画成锁定态 + 高亮所选）——不再插进 paragraphs: 那句话一旦当正文上屏,
+    配上角色的名字牌就会被读成"角色说了玩家的话"（真机报障）。
+    """
     from core.bond.bond_story import BondScene
 
     engine = _record_engine()
@@ -113,11 +118,13 @@ def test_from_dict_materializes_pick_for_display():
     scene = BondScene.from_dict(payload)
 
     texts = [p["text"] for p in scene.paragraphs]
-    assert RECORD_PICKED in texts and texts.index(RECORD_PICKED) == 1   # 群首位置
-    assert all(p.get("speaker") for p in scene.paragraphs)  # 最小说话人形态齐备
-    assert scene.paragraphs[1]["speaker"] == "sensei"
+    assert RECORD_PICKED not in texts, texts               # 不上屏
     assert RECORD_OTHER not in texts
-    # 未给 picked → 显示层不含老师那句（生成时形态）
+    assert scene.picked == RECORD_PICKED                   # 标记带回（选项态 UI 用）
+    assert scene.choices                                   # 选项组保留（回放可显示）
+    # 未给 picked → 场景无裁决标记（生成时形态）
     plain = BondScene.from_dict(engine._last_payload)
-    assert RECORD_PICKED not in [p["text"] for p in plain.paragraphs]
-    print("    picked: 显示层物化（speaker=sensei 插回群首）")
+    assert plain.picked == "" and RECORD_PICKED not in [p["text"] for p in plain.paragraphs]
+    # 往返: to_dict 带 picked, 再 from_dict 仍在
+    assert BondScene.from_dict(scene.to_dict()).picked == RECORD_PICKED
+    print("    picked: 只带标记不进正文（选项态 UI; 往返一致）")

@@ -576,18 +576,33 @@ let lastSceneKey = "";
       showContinue();
       setTimeout(() => finish(), END_HOLD_MS);
     } else if (scene.choices && scene.choices.length) {
+      // 已裁决的板（回放/续看, `picked` 由后端随场景带回）: 选项组**只读**画出来,
+      // 高亮所选——玩家重进中断剧情时能看出"当时给了什么、我选了什么"（用户
+      // 2026-09-12 反馈: 否则选哪个选项看起来都一样）。裁决句本身仍不上屏（决策 #37）。
+      const resolved = !!scene.picked;
       scene.choices.forEach((c) => {
         const btn = document.createElement("button");
-        btn.className = "bond-choice";
+        btn.className = "bond-choice"
+          + (resolved ? " resolved" : "")
+          + (resolved && c === scene.picked ? " picked" : "");
         btn.textContent = c;
-        btn.addEventListener("click", () => {
-          clearAutoTimer();              // 玩家手动选择 → 取消自动倒计时（不冲突）
-          submit(c);
-        });
+        if (resolved) {
+          btn.disabled = true;               // 只读: 不提交（推进走"▼ 继续"）
+          btn.title = c === scene.picked ? "（当时选了这句）" : "（当时未选）";
+        } else {
+          btn.addEventListener("click", () => {
+            clearAutoTimer();              // 玩家手动选择 → 取消自动倒计时（不冲突）
+            submit(c);
+          });
+        }
         choiceBox.appendChild(btn);
       });
-      // 自动模式: 打字完成后 3s 自动选第一个选项（玩家手动介入 → 取消）
-      if (autoOn) scheduleAutoChoice(scene.choices);
+      if (resolved) {
+        showContinueButton();                // 读完这一段 → 推进下一场回放
+      } else if (autoOn) {
+        // 自动模式: 打字完成后 3s 自动选第一个选项（玩家手动介入 → 取消）
+        scheduleAutoChoice(scene.choices);
+      }
     } else {
       // 纯叙事场（无选项）: "点击继续"推进——输入固定"（继续）", 后端 Storyloom
       // 式预生成已就绪 → 衔接零等待（2026-08-30 替代自由输入框: 纯叙事场不需要

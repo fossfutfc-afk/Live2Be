@@ -38,10 +38,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
-from contract import (AgentAction, BlockStreamParser, CHARACTER_SENSEI,
+from contract import (AgentAction, BlockStreamParser,
                       MAX_SENSEI_RUN, NON_PICKS, STAGE_ART, STAGE_END, STAGE_EXIT,
                       STAGE_MEMORIAL, STAGE_SWITCH, VnBlock, build_record_schema,
-                      build_schema, check_block, pick_insert_index, sensei_groups)
+                      build_schema, check_block, sensei_groups)
 from core.common import Live2BeError, err
 from core.bond.bond_actions import MAX_SCENE_RETRIES, build_story_registry
 from core.bond.bond_executor import StoryExecError, StoryExecutor
@@ -196,6 +196,9 @@ class BondScene:
     place_hint: str | None = None
     memorial: bool = False
     art_hint: str = ""
+    #: 已裁决的选项原文（决策 #37）: 只作**展示标记**——回放/续看时前端据此把选项组
+    #: 画出来（锁定 + 高亮所选）; 绝不进 paragraphs（玩家的话语只体现为选项）。
+    picked: str = ""
     #: 运行时标记: 该板已在**流式**过程中交付给调用方（勿重复落地）——不进序列化
     _streamed: bool = False
 
@@ -264,6 +267,8 @@ class BondScene:
             d["memorial"] = True
         if self.art_hint:
             d["art_hint"] = self.art_hint
+        if self.picked:
+            d["picked"] = self.picked
         if self.branches:
             d["branches"] = {
                 k: [dict(p) if isinstance(p, dict) else {"text": p} for p in v]
@@ -334,12 +339,14 @@ class BondScene:
         notes = [str(x) for x in raw.get("notes", []) if isinstance(x, str)]
         place_hint = raw.get("place_hint")
         art_hint = raw.get("art_hint")
-        picked = raw.get("picked")
-        if records and isinstance(picked, str) and picked.strip() and picked.strip() not in NON_PICKS:
-            # 记录流 v2 显示层物化（P0-5）: 裁决行插回群首（派生 paragraphs 已剔除整群）
-            idx = pick_insert_index(records, choices)
-            paras.insert(min(idx, len(paras)),
-                         {"text": picked.strip(), "speaker": CHARACTER_SENSEI})
+        picked_raw = raw.get("picked")
+        picked = (picked_raw.strip()
+                  if isinstance(picked_raw, str) and picked_raw.strip() not in NON_PICKS
+                  else "")
+        # **不把裁决句物化进 paragraphs**（决策 #37: 玩家的话语永远只体现为选项）。
+        # 它一旦当正文上屏, 配上角色的名字牌就会被读成"角色说了玩家的话"
+        # （真机报障）。`picked` 随场景带着走, 供回放 UI 把**选项组**画出来并高亮
+        # 所选（见 webgui `showInteraction` 的 resolved 分支）。
         return cls(
             paragraphs=paras,
             choices=choices,
@@ -354,6 +361,7 @@ class BondScene:
             place_hint=place_hint if isinstance(place_hint, str) and place_hint else None,
             memorial=bool(raw.get("memorial", False)),
             art_hint=art_hint if isinstance(art_hint, str) else "",
+            picked=picked,
         )
 
     @classmethod
@@ -474,6 +482,9 @@ class BondStoryEngine:
         # 记录流 v2（P0-4b）: 上一次调用切出的尾板（0 LLM 待发——记录里已经写好了
         # 后续内容, 玩家点继续即领下一板; 天然"预生成", 见 §6 板派生）
         self._pending_boards: list[BondScene] = []
+        #: 可归因性（决策 #35）: 上一次 `send_vn_scene` 是否**领的待发队列**（0 LLM）
+        #: ——调用方据此标注 `bond_board_deliver src=`（queue/draft 而非 gen）。
+        self._served_from_pending = False
 
     # ------------------------------------------------------------------
     # 会话生命周期
@@ -588,6 +599,10 @@ class BondStoryEngine:
             scene = self._pending_boards.pop(0)
             self._trace = [{"attempt": 0, "action": "record_stream/pending",
                             "records": len(scene.records), "parse_valid": True}]
+            # 可归因性（决策 #35）: 这一板**不是本次调用生成的**——来自待发队列
+            # （本回合早先那次调用切出的尾板, 或重进时草稿旁路灌回来的板）。
+            # 调用方据此把 `bond_board_deliver src=` 标成 queue/draft 而不是 gen。
+            self._served_from_pending = True
             return self._finish_scene(scene, user_input, annotate=annotate)
 
         # 每场动态尾（DESIGN_PROMPTKIT §2, Phase 3）: 唯一装配入口 round_messages——

@@ -33,6 +33,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from contract import NON_PICKS
 from core.bond.bond_story import BondScene, BondStoryEngine, SceneLoopError
 from core.media.gallery import GalleryStore
 from core.momotalk import load_brain_segment
@@ -538,24 +539,30 @@ def _pending_in_vn(char_id: str, session_id: str) -> bool:
 
 
 def _narrativize(scene: dict, picked) -> dict:
-    """回放场景叙事化: 只保留板正文段落, 去掉选项/分支结构——前端只看到"段落流 +
-    继续", 与纯叙事场同交互（选项跟随记录自动隐含）。
+    """回放场景: 板正文 + **选项组**（锁定, 高亮所选）——前端据此还原"当时给了什么
+    选项、我选了什么"。
 
     **玩家的话语永远只体现为选项（2026-09-12 用户核对 BA 后定稿）**: 裁决句
-    **不再物化进段落**——它一旦当正文上屏就会被读成角色台词（真机报障:
-    "睦月/便利屋68 + 你还打算对我怎么恶作剧？"）。事件 payload 里 `picked` 照旧
-    保留并随回放 API 单独带回; 将来要在回放里显示"当时选了哪句", 应做成**选项态**
-    UI（高亮所选）, 不是正文行。
-
-    v1 的 branches 顺接保持不变（旧档冻结）——分支段落是**剧情内容**（角色的反应）,
-    不是玩家的话, 该留。
+    **不物化进段落**——它一旦当正文上屏就会被读成角色台词（真机报障:
+    "睦月/便利屋68 + 你还打算对我怎么恶作剧？"）。所以回放里:
+      · `choices` **保留**（用户 2026-09-12 反馈: 续看重进时"选哪个选项都一样",
+        看不出去别 → 恢复选项组, 由前端画成锁定态 + 高亮 `picked`）;
+      · `picked` 随场景带回（`BondScene.picked`, 见 core/bond/bond_story.py）;
+      · v1 旧档的 branches 顺接保持不变（旧档冻结）——分支段落是**剧情内容**
+        （角色的反应）, 不是玩家的话, 该留。
     """
     out = dict(scene or {})
-    out.pop("choices", None)
     out.pop("branches", None)
     paras = [dict(p) for p in (out.get("paragraphs") or []) if isinstance(p, dict)]
     records = scene.get("records") if isinstance(scene, dict) else None
     pick_text = str(picked).strip() if isinstance(picked, str) else ""
+    if pick_text in NON_PICKS:              # "（继续）"这类推进指令不是裁决
+        pick_text = ""
+    out.pop("picked", None)
+    if pick_text:
+        # 回放 API 把 picked 从 scene 里摘出来单带回（tests/webgui/test_bond_replay.py），
+        # 这里按参数重新放回——前端据此把选项组画成"已裁决"（锁定 + 高亮所选）。
+        out["picked"] = pick_text
     if not (isinstance(records, list) and records):
         br = (scene or {}).get("branches") or {}
         if pick_text and isinstance(br, dict) and pick_text in br:
@@ -695,8 +702,13 @@ def _start_replay(state: BondState, replay_q: list[dict],
     state.scene_logged = True                 # 已落库——回放不重复落
     _log_board_deliver(state, state.scene_obj, char_id, session_id, "replay")
     if not state.replay_scenes:
-        # 单场（或最后一场）: 续写在读屏期间预生成, busy=True 不阻塞回放推进
-        _pregenerate(state, char_id, session_id)
+        # 单场（或最后一场）: 续写在读屏期间备好 → 交棒零等待。
+        # 顺序（2026-09-12 修正）: **先接草稿旁路**（已生成未播放的板, 0 LLM,
+        # 内容不丢, 排队不动屏上场景）→ 没有再预生成。此前这里直接 `_pregenerate`,
+        # 于是"选了选项后关页面再进"会把已生成的后继板丢掉、重新生成一份
+        # （实测: `bond_pregen src=gen` 紧跟 `bond_board_deliver src=replay`）。
+        if not _draft_queue(state, char_id, session_id):
+            _pregenerate(state, char_id, session_id)
     return {"accepted": True, "busy": state.busy, "resumed": True,
             "replay": True,
             "chapter_title": _enter_title(state, char_id, session_id),
@@ -892,12 +904,14 @@ def bond_start(char_id: str, session_id: str, *,
     # ── 草稿旁路: 恢复待发板队列（决策 #28b, 2026-09-10）────────────
     # 上一进程把"已生成未播放"的板落在 soul/bond_draft.json（含当前未落库板 +
     # 待发板）。这里只需恢复**后继板队列**——首板由下面的首场缓存（同内容）或
-    # 正常生成给出; 中断回放场景则由 bond_turn 的回放交棒处再接（_draft_adopt）。
+    # 正常生成给出; 中断回放场景则由**回放交棒处**（`_start_replay` / `_advance_replay`
+    # 队列尽时）用 `_draft_queue` 排队接上（2026-09-12: 不再 adopt 上屏——那会顶掉
+    # 刚回放的那一场, 或在进场时就丢掉后继板）。
     if not staged and state.demo is None and state.scene_obj is None \
             and state.vn is not None \
             and _last_bond_seq(char_id, session_id, _flow_store(state)) == 0:
-        # 注: 已有已落库板（将被回放）时**不在此恢复**——那一路由 bond_turn 的
-        # 回放交棒处 _draft_adopt 统一接（避免队列被两处设置/历史重复注入）
+        # 注: 已有已落库板（将被回放）时**不在此恢复**——那一路由回放交棒处
+        # `_draft_queue` 统一接（避免队列被两处设置/历史重复注入）
         rest = _draft_pending(char_id, session_id, _flow_store(state))
         if rest:
             state.vn._pending_boards = [BondScene.from_dict(b) for b in rest]
@@ -1093,8 +1107,9 @@ def bond_turn(char_id: str, session_id: str, text: str) -> dict:
             _log_board_deliver(state, state.scene_obj, char_id, session_id, "replay")
             if not state.replay_scenes:
                 # 最后一场入屏 → 优先接续**草稿旁路**（已生成未播放, 0 LLM 续播,
-                # 决策 #28b）; 没草稿/过期 → 续写预生成（读屏期间完成, handoff 零等待）
-                if not _draft_adopt(state, char_id, session_id):
+                # 决策 #28b）: **排队**进待发队列（不 adopt 上屏——那会顶掉刚回放的
+                # 这一场, 2026-09-12 修正）; 没草稿/过期 → 续写预生成（读屏期间完成）
+                if not _draft_queue(state, char_id, session_id):
                     _pregenerate(state, char_id, session_id)
             # 场景一起回（2026-09-11）: 回放是纯本地 0 LLM, 前端拿到即上屏——
             # 省掉一轮 status 轮询（700ms 起）也不再黑屏
@@ -1254,7 +1269,8 @@ def bond_turn(char_id: str, session_id: str, text: str) -> dict:
     # 读起来就是角色说了玩家的话）。所以这里**不返回 scene**（返回就会 renderScene
     # → 重播正文, #32 踩过）, 只回 `picked` 让前端清选项。
     if (state.scene_obj is not None and state.scene_obj.records
-            and text in (state.scene_obj.choices or [])):
+            and text in (state.scene_obj.choices or [])
+            and not (state.scene or {}).get("picked")):
         _log_scene(state, char_id, session_id, picked=text)
         if state.vn is not None:
             state.vn.record_picked(text)          # 历史尾部物化（live == 回放/续写）
@@ -1648,37 +1664,33 @@ def _draft_pending(char_id: str, session_id: str, store=None) -> list[dict]:
     return boards[1:] if boards and len(boards) > 1 else []
 
 
-def _draft_adopt(state: "BondState", char_id: str, session_id: str) -> bool:
-    """重进接续: 草稿首板设为当前板（未落库, 正常推进即落库）, 其余灌回引擎待发队列。
+def _draft_queue(state: "BondState", char_id: str, session_id: str) -> int:
+    """把草稿旁路的板**灌进引擎待发队列**（不动屏上场景）——回放交棒用。
 
-    Returns: 是否接上（False = 无草稿/过期 → 调用方走正常生成）。
+    与旧 `_draft_adopt` 的区别（2026-09-12 修正）: 后者把草稿首板当"当前板"上屏;
+    但回放路径屏上**已经有一场**（刚回放的那场）——草稿的板全是**后继**, 只能排队,
+    否则要么顶掉刚回放的场景（`_advance_replay` 老行为: 最后一场回放被跳过）, 要么
+    在进场时就丢掉它们（`_start_replay` 老行为: 直接 `_pregenerate` → 已生成的后继板
+    被丢弃、重新生成一份, 真机/冒烟实测 `bond_pregen src=gen` 紧跟 `src=replay`）。
+
+    Returns: 灌入的板数（0 = 无草稿/过期/引擎未就绪）。
     """
+    if state.vn is None:
+        return 0
     boards = _draft_load(char_id, session_id, _flow_store(state))
-    if not boards or state.vn is None:
-        return False
+    if not boards:
+        return 0
     try:
-        first = BondScene.from_dict(boards[0])
-        rest = [BondScene.from_dict(b) for b in boards[1:]]
-        state.vn._pending_boards = rest              # 后续点击 0 LLM 领出（与正常完全同构）
-        # 引擎历史/回录基准注入（与 prewarm 缓存命中同款——否则后续生成无剧情上下文）
-        vn_payload = first.to_dict()
-        hist_txt = render_bond_scene_text(vn_payload)
-        state.vn._history.append({"role": "user", "content": "（继续）"})
-        state.vn._history.append({
-            "role": "assistant",
-            "content": hist_txt or json.dumps(vn_payload, ensure_ascii=False,
-                                              separators=(",", ":")),
-        })
-        state.vn._last_payload = vn_payload
-        state.round += 1
-        _scene_landed(state, first, char_id, session_id, "（继续）",
-                      t0=time.monotonic(), save_cache=False, source="draft")
-        logger.info("bond_draft_hit %s/%s boards=%d", char_id, session_id, len(boards))
-        return True
+        rest = [BondScene.from_dict(b) for b in boards]
+        for sc in rest:                              # 台账来源标记（决策 #35）
+            sc._from_draft = True
+        state.vn._pending_boards = rest          # 后续点击 0 LLM 领出（与正常完全同构）
+        logger.info("bond_draft_queued %s/%s boards=%d", char_id, session_id, len(rest))
+        return len(rest)
     except Exception as e:                         # noqa: BLE001 — 注入失败 → 走正常生成
-        logger.warning("草稿接续失败（降级为正常生成）: %s", e)
+        logger.warning("草稿排队失败（降级为正常生成）: %s", e)
         state.vn._pending_boards = []
-        return False
+        return 0
 
 
 def _log_board_deliver(state: BondState, scene: BondScene | None, char_id: str,
@@ -1831,9 +1843,15 @@ def _generate(state: BondState, char_id: str, session_id: str, user_input: str) 
                 if getattr(scene, "_streamed", False):
                     state.fail_count = 0        # 流式已落地（含标注/日志）→ 只清失败计数
                 else:
+                    # 台账来源: 领待发队列（0 LLM——本回合早先那次调用切的尾板, 或
+                    # 重进时草稿旁路灌回的板）→ 标 queue/draft, 别一律记 gen
+                    # （决策 #35 可归因性: "这一板从哪来"要一眼可查）。
+                    src = "demo" if state.demo is not None else "gen"
+                    if state.demo is None and getattr(state.vn, "_served_from_pending",
+                                                      False):
+                        src = "draft" if getattr(scene, "_from_draft", False) else "queue"
                     _scene_landed(state, scene, char_id, session_id, user_input,
-                                  t0=t0, save_cache=first_scene,
-                                  source="demo" if state.demo is not None else "gen")
+                                  t0=t0, save_cache=first_scene, source=src)
         except (SceneLoopError, ValueError) as e:
             # 模型连语义校验都过不了 → 偶发失败先给重试机会（2026-09-02:
             # 一败就 closing 会把偶发 JSON 错误变成"剧情突然结束"——上一场保持
