@@ -197,9 +197,22 @@ async function main() {
     shot: await shot(page, "mmt-bond-entry"),
   });
 
-  // ── 5. 点入口 → VN 首板 ───────────────────────────────────────────────
+  // ── 5. 点入口 → 章节标题屏 → VN 首板 ─────────────────────────────────
   await page.click(".bond-entry");
   await page.waitForSelector("#view-bond:not(.hidden)", { timeout: 25000 });
+  // 章节标题屏（~2.4s 自动过 / 点击跳过）: 文案必须是**章节名**而不是兜底的"羁绊剧情"
+  // （2026-09-11 真机报障: adopt 就绪路径漏带 chapter_title → 标题屏显示四个大字）
+  const titlePanel = await page.evaluate(async () => {
+    for (let i = 0; i < 80; i++) {
+      const t = document.getElementById("bond-title");
+      const txt = document.getElementById("bond-title-text");
+      if (t && !t.classList.contains("hidden") && txt && txt.textContent.trim()) {
+        return txt.textContent.trim();
+      }
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    return "";
+  });
   await page.waitForFunction(
     () => {
       const t = document.getElementById("bond-text");
@@ -213,12 +226,32 @@ async function main() {
     const s = document.getElementById("bond-stage");
     return { hidden: s.classList.contains("hidden"), children: s.children.length };
   });
+  // 名字牌（随当前角色变动的两个字段）: 名字 + 社团
+  const nameplate = await page.evaluate(() => ({
+    name: (document.getElementById("bond-name") || {}).textContent || "",
+    club: (document.getElementById("bond-club") || {}).textContent || "",
+  }));
   record("VN 首板", {
-    info: `段落=${board1.length} 选项=${JSON.stringify(choices)} 背景=${bg ? "有" : "无"} `
-      + `立绘层=${stage.hidden ? "隐藏" : stage.children + " 个元素"}`,
+    info: `标题屏=${JSON.stringify(titlePanel)} 名字牌=${nameplate.name}/${nameplate.club} `
+      + `段落=${board1.length} 选项=${JSON.stringify(choices)} 背景=${bg ? "有" : "无"}`,
     shot: await shot(page, "vn-board1"),
+    chapterTitlePanel: titlePanel, nameplate,
     transcript: board1, choices, background: bg.slice(0, 160), stage,
   });
+  if (!titlePanel || titlePanel === "羁绊剧情") {
+    throw new Error(`标题屏没拿到章节名（得到 ${JSON.stringify(titlePanel)}）`);
+  }
+  if (!titlePanel.includes("放学后的约定")) {
+    throw new Error(`标题屏文案不是章节名: ${JSON.stringify(titlePanel)}`);
+  }
+  if (!nameplate.name.trim() || !nameplate.club.trim()) {
+    throw new Error(`名字牌缺名字/社团: ${JSON.stringify(nameplate)}`);
+  }
+  // 当前角色自己说话时**不画**红字名字行（名字牌已表明是谁）——2026-09-11 用户反馈
+  const onStageNames = board1.filter((p) => p.speaker).map((p) => p.speaker);
+  if (onStageNames.length) {
+    throw new Error(`角色段落仍画了重复名字行: ${JSON.stringify(onStageNames)}`);
+  }
   if (choices.length < 1) throw new Error("首板没有选项（记录流板切分异常?）");
 
   // ── 6. 裁决 → 就地物化「老师：X」 ─────────────────────────────────────
@@ -237,6 +270,17 @@ async function main() {
   });
   if (!teacherLine) throw new Error("裁决后未渲染出「老师」名字行");
   if (!teacherLine.text.includes("我来了")) throw new Error("老师那句内容不对: " + teacherLine.text);
+  // 增量渲染: 裁决后**不许重播已读段落**（2026-09-11 真机报障"第一段出现两遍才进第二段"）。
+  // 判据: 点击瞬间残留在屏上的旧段允许出现一次（且必须是第一条）; 之后若再出现板正文
+  // 的文本 = 前端把整块重渲染了一遍（bug 现象）。
+  const boardTexts = board1.map((p) => p.text);
+  const replayed = afterPick.slice(1).filter((p) => boardTexts.includes(p.text));
+  if (replayed.length) {
+    throw new Error(`裁决后重播了已读段落: ${JSON.stringify(replayed)}`);
+  }
+  if (afterPick[afterPick.length - 1].text !== teacherLine.text) {
+    throw new Error("裁决后最后一段不是老师那句: " + JSON.stringify(afterPick));
+  }
 
   // ── 7. 继续 → 收尾板 → 自动 finish 回 MMT ────────────────────────────
   await page.click("#bond-choices .bond-continue-btn");

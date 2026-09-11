@@ -614,6 +614,15 @@ const BondVN = (() => {
     }
   }
 
+  /** 该 speaker 是否就是"当前在屏角色"（名字牌上那位）——是则不再画重复的名字行。
+   *  比对前归一化空白（"伊草 遥香" / "伊草遥香" 视为同一人）。 */
+  function _isOnStageSpeaker(speakerName) {
+    const norm = (s) => String(s || "").replace(/\s+/g, "");
+    const s = norm(speakerName);
+    if (!s) return false;
+    return s === norm(name) || s === norm($("bond-name").textContent);
+  }
+
   function writePara() {
     const p = typeParas[typeSeg];
     if (!p) { return finishType(); }
@@ -629,9 +638,12 @@ const BondVN = (() => {
       curEmotion = p.emotion;
     }
     if (p && p.fx && p.fx.length) showFx(p.fx);
-    // 说话人名字行（记录流 v2 最小形态）: 后端已把 speaker → 显示名映射好
-    // （旁白为空串 → 不画名字行）; 样式 .bond-speaker, 细节留后。
-    if (p && p.speaker_name) {
+    // 说话人名字行（记录流 v2）: 后端已把 speaker → 显示名映射好
+    // （旁白为空串 → 不画名字行）。
+    // 2026-09-11 真机反馈（用户: "红色的伊草遥香是不必要的"）: **在当前角色自己说话时
+    // 不画**——左上名字牌（.bond-nameplate: 名字 + 社团）已经标明是谁在屏上, 再画一行
+    // 同名的红字是重复; 只有"非当前角色"（老师/其他角色）才需要这行来区分。
+    if (p && p.speaker_name && !_isOnStageSpeaker(p.speaker_name)) {
       const nm = document.createElement("div");
       nm.className = "bond-speaker";
       nm.textContent = p.speaker_name;

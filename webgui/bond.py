@@ -442,6 +442,65 @@ def _narrativize(scene: dict, picked) -> dict:
     return out
 
 
+def _display_delta(scene: dict, picked: str) -> dict:
+    """裁决就地展示的**增量**场景: 只留新出现的"老师那句", 不回放已读过的板正文。
+
+    2026-09-11 真机修复: 裁决后把完整物化板（板正文 + 老师那句）交给前端
+    `renderScene` → 前端从头逐段渲染 → 玩家把第一段又读了一遍（"第一段出现两遍
+    才进第二段"）。这里只回增量段落; 背景/place/records 等载体照旧带上（前端
+    渲染路径不变——它只消费 paragraphs）。
+
+    纯叙事场（`picked` 是"（继续）"等非裁决）→ 没有增量可言: 原样返回（该路径
+    本就不走这里, 兜底防御）。
+    """
+    text = str(picked or "").strip()
+    if not text or text in NON_PICKS:
+        return scene
+    out = dict(scene or {})
+    # 已读过的板正文全部去掉, 只留裁决行（与 `_narrativize` 同一插入语义:
+    # speaker=sensei, 交给 `_resolve_scene` 映射成"老师"）
+    out["paragraphs"] = [{"text": text, "speaker": CHARACTER_SENSEI}]
+    return out
+
+
+def _title_from_events(char_id: str, session_id: str, store=None) -> str:
+    """从事件流取最近一次 `mmt_trigger_bond_story` 的 chapter_title。
+
+    进程重启后 `engine.trace`（内存）没了, 但触发事件在流里——标题屏文案仍要能出。
+    """
+    try:
+        for e in reversed((store or _store()).events(char_id, session_id)):
+            if e.type == "mmt" and e.subtype == "mmt_trigger_bond_story":
+                return str((e.payload or {}).get("chapter_title") or "").strip()
+    except Exception:                                # noqa: BLE001 — 读失败按无标题
+        return ""
+    return ""
+
+
+def _enter_title(state: BondState, char_id: str, session_id: str) -> str:
+    """进入响应里的章节标题（前端标题屏文案）。
+
+    2026-09-11 真机修复（用户报"标题就是四个大字『羁绊剧情』"）: 标题屏取的是
+    `/api/bond_start` 的 `chapter_title`，而 **adopt 就绪 / busy_wait 等返回路径
+    漏带该字段** → 前端兜底成"羁绊剧情"。这里统一兜底: state → 内存 trace →
+    事件流（触发事件 payload），拿到就记住。
+    """
+    t = (state.chapter_title or "").strip()
+    if t:
+        return t
+    try:
+        # 只在**已有**引擎上查（不触发引擎构造/新会话——进入路径不该有副作用）
+        eng = chat._engines.get(char_id)
+        t = (_trigger_title(eng) or "").strip() if eng is not None else ""
+    except Exception:                                # noqa: BLE001 — 内存查失败继续流查
+        t = ""
+    if not t:
+        t = _title_from_events(char_id, session_id, _flow_store(state))
+    if t:
+        state.chapter_title = t
+    return t
+
+
 def _interrupted_replay_queue(char_id: str, session_id: str) -> tuple[list[dict], int] | None:
     """最新一条"有内容的未完成段" → (narrative-ized 场景列表, 段 enter_seq)。
 
@@ -508,7 +567,8 @@ def _start_replay(state: BondState, replay_q: list[dict],
         # 单场（或最后一场）: 续写在读屏期间预生成, busy=True 不阻塞回放推进
         _pregenerate(state, char_id, session_id)
     return {"accepted": True, "busy": state.busy, "resumed": True,
-            "replay": True, "chapter_title": state.chapter_title}
+            "replay": True,
+            "chapter_title": _enter_title(state, char_id, session_id)}
 
 
 # ---------------------------------------------------------------------------
@@ -581,8 +641,11 @@ def bond_start(char_id: str, session_id: str, *,
             if state.busy:
                 # 预热生成仍在途 → 前端轮询等待（resumed=False → 章节等待卡可见）
                 return {"accepted": True, "busy": True, "resumed": False,
-                        "chapter_title": state.chapter_title}
-            return {"accepted": True, "busy": False, "resumed": True}
+                        "chapter_title": _enter_title(state, char_id, session_id)}
+            # adopt 就绪（最常见真机路径）: **chapter_title 必带**——漏了前端标题屏
+            # 就兜底成"羁绊剧情"（2026-09-11 用户报障）
+            return {"accepted": True, "busy": False, "resumed": True,
+                    "chapter_title": _enter_title(state, char_id, session_id)}
     elif state.vn is not None or state.demo is not None:
         # 计时埋点（§6.1）: 内存态续玩（resumed）——即时可用
         logger.info("bond_click resumed %s/%s busy=%s",
@@ -591,11 +654,12 @@ def bond_start(char_id: str, session_id: str, *,
             _draft_save(state, char_id, session_id)    # 草稿旁路保持新鲜（#28b）
         # chapter_title 必带（2026-09-09: resumed/adopt 就绪同样展示章节标题屏）
         return {"accepted": True, "busy": state.busy, "resumed": True,
-                "chapter_title": state.chapter_title}
+                "chapter_title": _enter_title(state, char_id, session_id)}
     if state.busy:
         # 生成在途（P1: busy = 正在生成——让前端进入轮询, 不再报错）
         logger.info("bond_click busy_wait %s/%s", char_id, session_id)
-        return {"accepted": True, "busy": True, "resumed": False}
+        return {"accepted": True, "busy": True, "resumed": False,
+                "chapter_title": _enter_title(state, char_id, session_id)}
 
     # ── 中断接入（2026-09-07）: 无内存态 + 有内容的未完成段 → 回放前缀 ──
     # （"从头开始播放已有半截剧情, 后续 LLM 后补"; staged 预热 = 新触发轮,
@@ -630,7 +694,8 @@ def bond_start(char_id: str, session_id: str, *,
         char = engine.current_character
         if char is None:
             return {"accepted": False, "error": "会话未打开"}
-        title = _trigger_title(engine)
+        title = _trigger_title(engine) or _title_from_events(
+            char_id, session_id, _flow_store(state))
 
         # brain 注入（DESIGN_BRAIN.md, wiki_v2 2026-09-02 切换）: 世界线 wiki 第一人称——
         # VN 中角色记得前面的事（出厂基座 0 LLM 确保; 失败静默零注入）
@@ -1046,8 +1111,12 @@ def bond_turn(char_id: str, session_id: str, text: str) -> dict:
         # 真生成下一拍（玩家读老师那句的时间即缓冲桥）。
         _draft_save(state, char_id, session_id)   # 草稿旁路刷新（#28b）
         _pregenerate(state, char_id, session_id)
+        # 2026-09-11 真机修复（用户报"第一段剧情出现两遍才进第二段"）: 返回给前端
+        # 的必须是**增量**——`state.scene` 是完整物化板（板正文 + 老师那句），
+        # 前端 renderScene 会从头重播 → 已读过的板正文又念一遍。这里只回新出现的
+        # 那句（背景/records 等载体照旧带上, 前端渲染逻辑不变）。
         return {"accepted": True, "busy": state.busy, "branch": True,
-                "scene": state.scene, "candidate": False}
+                "scene": _display_delta(state.scene, text), "candidate": False}
 
     # append-only 事件流: 当前展示场景在玩家裁决时落库（带 picked）;
     # 纯叙事场的"（继续）"是推进指令不是内容裁决 → picked=None（与预生成消费一致）
@@ -1089,6 +1158,9 @@ def bond_status(char_id: str, session_id: str) -> dict:
         "completed": state.completed,
         "name": role["name"],
         "club": role["club"],
+        # 章节标题（2026-09-11）: 名字牌照常, 标题也随 status 一路带着——
+        # 前端重进/刷新/回放都能拿到正确章节名（不再落到"羁绊剧情"兜底）
+        "chapter_title": state.chapter_title,
         "emo_version": state.emo_version,
         # lane 诊断（2026-09-08, 前端 tick 直读）: 存活/积压/版本/场景对象——
         # 判定"标注没跑 / worker 死了 / 场景对象分叉"一线定位
