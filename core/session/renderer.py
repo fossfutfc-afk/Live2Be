@@ -299,6 +299,11 @@ def render_timeline(events: list[Event], *, max_paragraph_chars: int = 120,
                     texts.append(f"{t} ({emo.strip()})")
                 else:
                     texts.append(t)
+            # 玩家裁决行（记录流 v2: 物化成 `老师：X` 记录, 但不在派生 paragraphs 里）
+            # ——digest 消化"这段戏说了什么"时, 玩家那句同样是内容（v1 也漏, 顺手补）
+            picked = e.payload.get("picked")
+            if isinstance(picked, str) and picked.strip():
+                texts.append(f"老师: {picked.strip()}")
             text = " / ".join(texts)
             if len(text) > max_paragraph_chars:
                 text = text[:max_paragraph_chars] + "…"

@@ -198,9 +198,17 @@ async def bond_demo(body: BondStartIn) -> dict:
 
 @router.post("/api/bond/turn")
 async def bond_turn(body: BondTurnIn) -> dict:
-    """玩家裁决 → 下一场（后台生成, 轮询 status 取场景）。"""
+    """玩家裁决 → 下一场（后台生成, 轮询 status 取场景）。
+
+    注: 裁决直返（branch=True, 记录流 v2 的"就地物化展示"）也带 scene——与 status
+    同通道过 `_resolve_scene`（否则前端拿到的段落缺 speaker_name/fx/background_url,
+    老师那句会没名字行）。
+    """
     try:
-        return bond.bond_turn(body.char_id, body.session_id, body.text)
+        r = bond.bond_turn(body.char_id, body.session_id, body.text)
+        if isinstance(r.get("scene"), dict):
+            r["scene"] = _resolve_scene(r["scene"], body.char_id)
+        return r
     except Exception as e:                     # noqa: BLE001
         raise HTTPException(status_code=500, detail=f"bond turn 失败: {e}")
 

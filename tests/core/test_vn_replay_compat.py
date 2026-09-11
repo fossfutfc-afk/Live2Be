@@ -193,3 +193,20 @@ def test_bad_payload_degrades_without_raising():
         assert isinstance(scene, BondScene)
         render_bond_scene_text(bad if isinstance(bad, dict) else {})
     print("    bad: 坏 payload 降级不抛（宁缺勿错）")
+
+
+def test_timeline_includes_picked_line():
+    """digest 消化时间线: 玩家裁决那句也是内容（记录流 v2 里它不在派生 paragraphs）。"""
+    from core.session.events import make_event
+    from core.session.renderer import render_timeline
+
+    ev = make_event("bond", "story_scene",
+                    dict(V2_PAYLOAD, input="（旁白）本章：测试。", picked=V2_PICKED),
+                    seq=9)
+    line = render_timeline([ev])
+    assert "老师: " + V2_PICKED in line, line
+    assert "……老师，你来了。" in line
+    # 无裁决的板 → 不伪造玩家台词
+    ev2 = make_event("bond", "story_scene", dict(V2_PAYLOAD, picked=None), seq=10)
+    assert "老师: " not in render_timeline([ev2])
+    print("    digest: 时间线含玩家裁决行（无裁决不伪造）")

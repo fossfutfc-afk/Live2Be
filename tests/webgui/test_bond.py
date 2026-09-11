@@ -1041,3 +1041,37 @@ def test_bond_record_stream_prewarm_semantics(tmp_path):
         print("    v2 预热: 无槽板预生成链 + 记录流不 fork 候选 + 裁决后备料")
     finally:
         _cleanup()
+
+
+def test_bond_turn_router_resolves_direct_scene(tmp_path):
+    """裁决直返的场景与 status 同通道过 `_resolve_scene`（否则老师那句没有名字行）,
+    且**回放器**能吃到记录流字段（`/api/bond/replay` → records + speaker_name）。"""
+    import asyncio
+    from webgui.routers.bond import BondTurnIn, bond_replay, bond_turn as router_turn
+    from webgui.routers.bond import _resolve_scene
+
+    engine, st, sid, _llm = _setup(tmp_path, RECORD_BLOCK)
+    try:
+        bond.bond_start(CHARACTER, sid)
+        _wait_status(CHARACTER, sid)
+        r = asyncio.run(router_turn(BondTurnIn(char_id=CHARACTER, session_id=sid,
+                                              text=RECORD_PICK)))
+        assert r.get("branch") and isinstance(r.get("scene"), dict)
+        names = [p.get("speaker_name") for p in r["scene"]["paragraphs"]]
+        assert names == ["伊草 遥香", "老师"], names          # 直返也过 resolve
+        # 回放器: 事件流里的板（records/picked）→ 回放 scene 附渲染信息
+        rp = asyncio.run(bond_replay(CHARACTER, sid))
+        scenes = [s for at in rp["attempts"] for s in at["scenes"]]
+        assert scenes, rp
+        first = scenes[0]["scene"]
+        assert first.get("records"), "回放场景应带记录真源"
+        assert first["paragraphs"][0].get("speaker_name") == "伊草 遥香"
+        assert scenes[0]["picked"] == RECORD_PICK, "回放应带裁决（UI 侧渲染老师那句）"
+        assert first["choices"] == ["我来了。", RECORD_PICK]
+        # 叙事化（中断前缀回放路径）: 裁决物化进段落
+        narr = bond._narrativize(first, RECORD_PICK)
+        assert [p["text"] for p in narr["paragraphs"]] == ["……老师，你来了。", RECORD_PICK]
+        assert _resolve_scene(narr, CHARACTER)["paragraphs"][1]["speaker_name"] == "老师"
+        print("    v2 回放/直返: 场景过 _resolve_scene + 记录真源与裁决都在")
+    finally:
+        _cleanup()
