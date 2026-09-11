@@ -1478,16 +1478,31 @@ def _generate(state: BondState, char_id: str, session_id: str, user_input: str) 
                              else BondScene(paragraphs=list(_CLOSING_PARA),
                                             is_end=True))
                 else:
+                    # 渐进渲染（P2-1 前置）: 引擎在**流式**中把已闭合的板交回来——
+                    # 首板不必等整块写完（实测省 ~4-5s 首屏等待）。落地一次即止
+                    # （`_streamed` 标记让下面的统一落地跳过它）。
+                    def _on_board(scene_b: BondScene) -> None:
+                        if state.scene_obj is not None and not state.scene_logged:
+                            return          # 已有未播放板（不该发生）→ 不覆盖
+                        _scene_landed(state, scene_b, char_id, session_id,
+                                      user_input, t0=t0, save_cache=first_scene)
+                        logger.info("bond_stream_first %s/%s dur=%dms",
+                                    char_id, session_id, _ms_since(t0))
+
                     scene = state.vn.send_vn_scene(
                         user_input, system_note=_system_note(state), annotate=False,
                         on_memorial_prompt=_make_memorial_cb(
                             state, char_id, session_id),
+                        on_board=_on_board,
                     )
-                    # 2026-09-09 语义修正: 篇幅超限不再丢弃 LLM 场景换 closing
-                    # 伪收场——纠正面在 system_note（_END_ROUNDS 后每轮强制
-                    # story_end）; 持续不收尾 = 玩家可离开（中场退出, 在押续写）
-                _scene_landed(state, scene, char_id, session_id, user_input,
-                              t0=t0, save_cache=first_scene)
+                    # SceneStream P1.5（2026-09-09 语义修正）: 篇幅超限不再丢弃
+                    # LLM 场景换 closing 伪收场——纠正面在 system_note;
+                    # 持续不收尾 = 玩家可离开（中场退出, 在押续写）
+                if getattr(scene, "_streamed", False):
+                    state.fail_count = 0        # 流式已落地（含标注/日志）→ 只清失败计数
+                else:
+                    _scene_landed(state, scene, char_id, session_id, user_input,
+                                  t0=t0, save_cache=first_scene)
         except (SceneLoopError, ValueError) as e:
             # 模型连语义校验都过不了 → 偶发失败先给重试机会（2026-09-02:
             # 一败就 closing 会把偶发 JSON 错误变成"剧情突然结束"——上一场保持

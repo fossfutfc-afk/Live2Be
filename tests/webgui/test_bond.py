@@ -1043,6 +1043,66 @@ def test_bond_record_stream_prewarm_semantics(tmp_path):
         _cleanup()
 
 
+def test_bond_stream_first_board_visible_before_block_done(tmp_path):
+    """渐进渲染（P2-1 前置）: 块还没生成完, 首板已经能读——`busy=True` 时 status 就有场景。"""
+    import threading as _th
+
+    first = "\n".join([
+        '{"stage": "switch", "text": "教室"}',
+        '{"character": "igusa_haruka", "text": "（首板）她抬起头。"}',
+        '{"character": "sensei", "text": "选A"}',
+        '{"character": "sensei", "text": "选B"}',
+        '{"character": "igusa_haruka", "text": "（反应板）她笑了。"}',   # ← 首板在此闭合
+    ])
+    rest = "\n".join([
+        '{"character": "sensei", "text": "选C"}',
+        '{"stage": "end", "text": ""}',
+    ])
+    block = first + "\n" + rest
+    gate = _th.Event()
+    fed = _th.Event()
+
+    class GatedStreamLLM:
+        """前半喂完即等闸门（模拟"块还在写"）——期间 status 应已能读到首板。"""
+
+        def chat(self, messages, **kw):
+            return block
+
+        def chat_full(self, messages, **kw):
+            on_chunk = kw.get("on_chunk")
+            if on_chunk:
+                on_chunk(first + "\n")
+                fed.set()
+                gate.wait(timeout=10)
+                on_chunk(rest)
+            return block
+
+    engine, st, sid, llm = _setup(tmp_path)
+    engine.llm = llm = GatedStreamLLM()
+    try:
+        bond.bond_start(CHARACTER, sid)
+        assert fed.wait(timeout=10), "流式桩未被喂入（渐进渲染未生效）"
+        # 块未完成（busy=True）时首板已在 status 里
+        early = bond.bond_status(CHARACTER, sid)
+        assert early["busy"] is True, early
+        assert early["scene"] and early["scene"]["choices"] == ["选A", "选B"], early
+        assert [p["text"] for p in early["scene"]["paragraphs"]] == ["（首板）她抬起头。"]
+        gate.set()
+        stt = _wait_status(CHARACTER, sid)
+        assert stt["round"] == 1 and not stt["completed"]
+        # 首板只落地一次（流式落地 + 返回后不重复）; 待发板仍在引擎队列
+        assert [p["text"] for p in stt["scene"]["paragraphs"]] == ["（首板）她抬起头。"]
+        vn = bond._state(CHARACTER, sid).vn
+        assert len(vn._pending_boards) == 2, "余下两板应进待发队列"
+        assert [p["text"] for p in vn._pending_boards[0].paragraphs] == ["（反应板）她笑了。"]
+        assert vn._pending_boards[0].choices == ["选C"]
+        assert vn._pending_boards[1].is_end is True
+        print("    v2 渐进渲染: 块未完成时首板已可读（busy=True 即有场景）")
+    finally:
+        gate.set()
+        _cleanup()
+
+
 def test_bond_turn_router_resolves_direct_scene(tmp_path):
     """裁决直返的场景与 status 同通道过 `_resolve_scene`（否则老师那句没有名字行）,
     且**回放器**能吃到记录流字段（`/api/bond/replay` → records + speaker_name）。"""

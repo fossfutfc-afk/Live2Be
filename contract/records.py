@@ -646,3 +646,100 @@ def pick_insert_index(records: Iterable[Any], choices: Iterable[str] = ()) -> in
         if _speaker_line(rec, {}, True):
             idx += 1
     return idx
+
+
+# ---------------------------------------------------------------------------
+# 增量解析（流式: chunk → 完整行 → 板闭合即交付）
+# ---------------------------------------------------------------------------
+
+
+class BlockStreamParser:
+    """**流式**块解析器: 逐 chunk 喂入, 板一闭合即可取走（`pop_ready()`）。
+
+    为什么现在才可能: 记录流是**行分隔**的——chunk 里出现换行就能解析那一行;
+    旧契约是"整回复单个 JSON 对象", 半个 JSON 无法解析, 只能等全量收完。
+
+    切板规则与批式 `_board_spans` **同源**（只是增量推进）:
+        · 槽挂板尾: sensei 连续段结束（后一行不是 sensei）= 板结束, 后一行开新板
+        · 换场前必切: `switch` 开新板
+        · 超长群: 满 MAX_SENSEI_RUN 先收槽, 新群从下一条起
+        · `art` 是块级声明 → 不参与切板（由调用方挂到 scene.art_hint）
+    容错与批式一致: 复用 `_parse_line_multi`（围栏/数组/辅助转义/丢行记账）。
+    """
+
+    def __init__(self, *, main_id: str = "", aliases: Iterable[str] = ()) -> None:
+        self._main_id = main_id
+        self._aliases = tuple(aliases)
+        self._text_buf = ""                     # 未闭合的行缓冲
+        self._cur: list[VnRecord] = []          # 当前板缓冲（不含尾部群）
+        self._run: list[VnRecord] = []          # 当前尾部 sensei 群
+        self._art = ""                          # 块级画面意向
+        self._ready: list[tuple[VnRecord, ...]] = []
+        self._notes: list[str] = []
+        self.records: list[VnRecord] = []       # 全量（诊断/trace）
+        self.line_no = 0
+
+    # --- 喂入 --------------------------------------------------------------
+    def feed(self, chunk: str) -> None:
+        """喂一段文本（可以切在行中间）——完整行即时解析、满板即时闭合。"""
+        self._text_buf += chunk or ""
+        while "\n" in self._text_buf:
+            line, self._text_buf = self._text_buf.split("\n", 1)
+            self._consume_line(line)
+
+    def finish(self) -> None:
+        """流结束: 收残余行 + 闭合最后一个板。"""
+        if self._text_buf.strip():
+            self._consume_line(self._text_buf)
+            self._text_buf = ""
+        self._close()
+
+    # --- 产出 --------------------------------------------------------------
+    def pop_ready(self) -> list[tuple[VnRecord, ...]]:
+        """取走已闭合的板（可多次调用; 返回自上次以来新闭合的）。"""
+        out, self._ready = self._ready, []
+        return out
+
+    @property
+    def notes(self) -> tuple[str, ...]:
+        return tuple(self._notes)
+
+    @property
+    def art_hint(self) -> str:
+        return self._art
+
+    # --- 内部 --------------------------------------------------------------
+    def _consume_line(self, raw: str) -> None:
+        self.line_no += 1
+        recs, diag = _parse_line_multi(raw, self.line_no)
+        if diag is not None:
+            tag = "DROP" if diag.dropped else "NOTE"
+            self._notes.append(f"[{tag} line {diag.line_no}] {diag.error}")
+        for rec in recs:
+            self._push(rec)
+
+    def _push(self, rec: VnRecord) -> None:
+        self.records.append(rec)
+        if rec.is_stage and rec.stage == STAGE_ART:
+            self._art = rec.text                # 块级声明（不切板）
+            return
+        if rec.is_sensei:
+            if len(self._run) >= MAX_SENSEI_RUN:
+                self._close()                   # 超长群切槽: 满 3 先收
+            self._run.append(rec)
+            return
+        if self._run:                           # 群结束 → 槽挂板尾, 收板
+            self._close()
+        if rec.stage == STAGE_SWITCH and self._cur:
+            self._close()                       # 换场前必切
+        self._cur.append(rec)
+
+    def _close(self) -> None:
+        board = self._cur + self._run
+        self._cur, self._run = [], []
+        if board:
+            self._ready.append(tuple(board))
+
+    def all_boards(self) -> list[tuple[VnRecord, ...]]:
+        """当前累计的板（含已取走的? 否——仅未取走的; 全量见 `records`）。"""
+        return list(self._ready)

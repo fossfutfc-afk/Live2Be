@@ -38,10 +38,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
-from contract import (AgentAction, CHARACTER_SENSEI, MAX_SENSEI_RUN, NON_PICKS,
-                      STAGE_ART, STAGE_END, STAGE_EXIT, STAGE_MEMORIAL,
-                      STAGE_SWITCH, VnBlock, build_record_schema, build_schema,
-                      pick_insert_index, sensei_groups)
+from contract import (AgentAction, BlockStreamParser, CHARACTER_SENSEI,
+                      MAX_SENSEI_RUN, NON_PICKS, STAGE_ART, STAGE_END, STAGE_EXIT,
+                      STAGE_MEMORIAL, STAGE_SWITCH, VnBlock, build_record_schema,
+                      build_schema, check_block, pick_insert_index, sensei_groups)
 from core.common import Live2BeError, err
 from core.bond.bond_actions import MAX_SCENE_RETRIES, build_story_registry
 from core.bond.bond_executor import StoryExecError, StoryExecutor
@@ -196,6 +196,8 @@ class BondScene:
     place_hint: str | None = None
     memorial: bool = False
     art_hint: str = ""
+    #: 运行时标记: 该板已在**流式**过程中交付给调用方（勿重复落地）——不进序列化
+    _streamed: bool = False
 
     @property
     def has_records(self) -> bool:
@@ -542,6 +544,7 @@ class BondStoryEngine:
         system_note: str | None = None,
         annotate: bool = True,
         on_memorial_prompt: Callable[[str], None] | None = None,
+        on_board: Callable[["BondScene"], None] | None = None,
     ) -> BondScene:
         """结构化场景 API：单次 LLM 调用 → BondScene（段落 + 选项 + 是否结束）。
 
@@ -612,21 +615,64 @@ class BondStoryEngine:
         for attempt in range(MAX_SCENE_RETRIES):
             # 方案 A 流式嗅探（每次 attempt 新建——重试是全新输出, 重新嗅探）
             probe = MemorialProbe(on_memorial_prompt) if on_memorial_prompt else None
+            # 记录流 v2 渐进渲染（P2-1 前置）: chunk 逐行喂增量解析器, **板一闭合
+            # 就回调交付**（on_board）——首板不必等整块写完（实测省 4~5s 首屏等待）。
+            stream = BlockStreamParser(main_id=self._current_char.character_id
+                                       if self._current_char else "",
+                                       aliases=self._speaker_names()) \
+                if on_board is not None else None
+            delivered: list["BondScene"] = []
+
+            def _feed(text: str) -> None:
+                if probe is not None:
+                    probe.feed(text)
+                if stream is None:
+                    return
+                stream.feed(str(text))
+                for board_records in stream.pop_ready():
+                    scene_b = self._scene_from_records(board_records, stream)
+                    if stream.art_hint and not delivered:      # 画面意向挂首个交付板
+                        scene_b.art_hint = stream.art_hint
+                    if scene_b.memorial:
+                        self._memorial_used = True             # 章内 ≤1（区间 = 本板）
+                    scene_b._streamed = True         # 已在流中交付, 调用方勿重复落地
+                    delivered.append(scene_b)
+                    logger.info("[vn][stream] 板提前交付 n=%d 累计=%d",
+                                len(board_records), len(delivered))
+                    try:
+                        on_board(scene_b)
+                    except Exception as e:           # noqa: BLE001 — 交付回调异常不炸生成
+                        logger.warning("流式交付回调异常（继续收集）: %s", e)
+
             try:
                 # 流式优先（chat_full = chat 的流式等价 + on_chunk 观察者）;
-                # 旧 mock LLM（仅实现 chat）自动回退——嗅探随之失效, 行为与改造前一致
+                # 旧 mock LLM（仅实现 chat）自动回退——渐进渲染随之失效（行为=旧）
                 chat_full = getattr(self.llm, "chat_full", None)
                 if chat_full is not None:
                     response = chat_full(
                         messages, temperature=0.8, max_tokens=max_tokens,
                         response_format=resp_format,
-                        on_chunk=probe.feed if probe is not None else None,
+                        on_chunk=_feed if (probe is not None or stream is not None) else None,
                     )
                 else:
                     response = self.llm.chat(
                         messages, temperature=0.8, max_tokens=max_tokens,
                         response_format=resp_format,
                     )
+                if stream is not None:
+                    stream.finish()                  # 收残余行 + 末板
+                    for board_records in stream.pop_ready():
+                        scene_b = self._scene_from_records(board_records, stream)
+                        if stream.art_hint and not delivered:
+                            scene_b.art_hint = stream.art_hint
+                        if scene_b.memorial:
+                            self._memorial_used = True
+                        scene_b._streamed = True
+                        delivered.append(scene_b)
+                        try:
+                            on_board(scene_b)
+                        except Exception as e:       # noqa: BLE001
+                            logger.warning("流式交付回调异常（收尾）: %s", e)
             except Exception as e:
                 logger.warning("LLM 调用失败（第 %d 次）: %s", attempt, e)
                 feedback(messages, f"LLM 调用失败: {e}\n请重试。")
@@ -650,16 +696,31 @@ class BondStoryEngine:
                     "stage=switch, 收尾用 stage=end, 纪念用 stage=memorial。",
                 )
                 continue
-            boards, hard = self._build_record_boards(str(response), attempt)
-            if not boards:
-                feedback(
-                    messages,
-                    "记录流不合规: " + "; ".join(hard or ["空块：没有任何合法记录"]),
-                    "请按「本轮输出契约」重发整轮记录: 一行一条 JSON（换场发 "
-                    "stage=switch; 收尾 end 放最后一条; art 预告放首条; 老师的话连写 "
-                    "1~3 条 sensei）——不要数组、不要围栏、不要动作 JSON。",
-                )
-                continue
+            if delivered:
+                # 流式已交付（on_board 给过板）: **不再重复解析/交付**——校验只做记账。
+                # 注: 流式下"硬违规"无法回滚（板已在玩家屏上）, 故只 trace/日志,
+                # 不打回重发（真机守形 0 违规; 反馈留给上层下一轮注记）。
+                issues = check_block(tuple(stream.records))
+                self._trace.append({
+                    "attempt": attempt, "action": "record_stream/streamed",
+                    "records": len(stream.records), "boards": len(delivered),
+                    "parse_valid": bool(stream.records),
+                    "issues": issues, "notes": list(stream.notes),
+                })
+                logger.info("[vn][stream] 完成 n=%d boards=%d issues=%d",
+                            len(stream.records), len(delivered), len(issues))
+                boards = delivered
+            else:
+                boards, hard = self._build_record_boards(str(response), attempt)
+                if not boards:
+                    feedback(
+                        messages,
+                        "记录流不合规: " + "; ".join(hard or ["空块：没有任何合法记录"]),
+                        "请按「本轮输出契约」重发整轮记录: 一行一条 JSON（换场发 "
+                        "stage=switch; 收尾 end 放最后一条; art 预告放首条; 老师的话连写 "
+                        "1~3 条 sensei）——不要数组、不要围栏、不要动作 JSON。",
+                    )
+                    continue
             self._pending_boards = list(boards[1:])
             return self._finish_scene(boards[0], user_input, annotate=annotate)
         else:
@@ -670,6 +731,14 @@ class BondStoryEngine:
     # ------------------------------------------------------------------
     # 记录流 v2（P0-4b）: 块解析 → 板派生 → 收尾
     # ------------------------------------------------------------------
+
+    def _scene_from_records(self, records: tuple, stream: "BlockStreamParser") -> BondScene:
+        """流式板块 → BondScene（与批式 `_build_record_boards` 同语义）。
+
+        群的判定: 板内所有 sensei 记录即本板候选（切板规则保证群在板尾）。
+        """
+        group = tuple(i for i, r in enumerate(records) if r.is_sensei)
+        return BondScene.from_board(records, group, notes=list(stream.notes))
 
     def _speaker_names(self) -> dict[str, str]:
         """历史渲染的说话人名字表（角色 id → 显示名)——仅诊断/日志用。
