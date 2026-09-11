@@ -244,6 +244,108 @@ def test_empty_end_board_is_kept_for_blackout_finish():
 # 换场翻译（P0-7）: switch 记录 → 背景键
 # ---------------------------------------------------------------------------
 
+def test_stream_delivers_first_board_early():
+    """渐进渲染（P2-1 前置）: `on_board` 在**流中途**就拿到首板（不等整块写完）。
+
+    切板需要一行前瞻（槽挂板尾）: 首板在"群之后的第 1 行"到达时闭合——这里显式
+    把流分成"够首板闭合的前半"与"其余", 断言交付发生在**喂完前半、还没喂其余**时。
+    """
+    first = "\n".join([
+        '{"stage": "switch", "text": "教室"}',
+        '{"character": "igusa_haruka", "text": "一"}',
+        '{"character": "sensei", "text": "A"}',
+        '{"character": "sensei", "text": "B"}',
+        '{"character": "igusa_haruka", "text": "二"}',     # ← 这行让首板闭合
+    ])
+    rest = "\n".join([
+        '{"character": "sensei", "text": "C"}',
+        '{"character": "igusa_haruka", "text": "三"}',
+        '{"stage": "end", "text": ""}',
+    ])
+    block = first + "\n" + rest
+
+    class StreamingLLM:
+        """流式桩: 先喂前半（首板闭合）, 再喂其余。"""
+
+        def __init__(self):
+            self.order: list[str] = []
+
+        def chat_full(self, messages, **kw):
+            on_chunk = kw.get("on_chunk")
+            if on_chunk:
+                on_chunk(first + "\n")
+                self.order.append("first-fed")
+                on_chunk(rest)
+                self.order.append("rest-fed")
+            return block
+
+        def chat(self, messages, **kw):
+            return block
+
+    llm = StreamingLLM()
+    engine = BondStoryEngine(ROOT / "config" / "characters", llm)
+    engine.start_session(CHARACTER)
+    got: list = []
+
+    def on_board(sc) -> None:
+        got.append((sc, list(llm.order)))                # 交付时刻的进度快照
+
+    scene = engine.send_vn_scene("（开场）", annotate=False, on_board=on_board)
+    assert got, "流式应至少提前交付一板"
+    first_scene, order_at_first = got[0]
+    # 交付在**喂入前半的那次 on_chunk 之内**同步发生（连 "first-fed" 都还没记）——
+    # 也就是说玩家不必等整块写完
+    assert order_at_first == [], f"首板应在喂完其余之前交付: {order_at_first}"
+    assert first_scene.choices == ["A", "B"]
+    assert [p["text"] for p in first_scene.paragraphs] == ["一"]
+    assert first_scene._streamed is True and scene is first_scene   # 返回值即已交付那块
+    # 其余板进待发队列（点击 0 LLM）; 流式下不再重复解析/交付
+    assert [s.is_end for s, _ in got] == [False, False, True], \
+        [[p["text"] for p in s.paragraphs] for s, _ in got]
+    assert len(engine._pending_boards) == 2
+    assert scene.is_end is False and engine._pending_boards[-1].is_end
+    print("    engine: 流式提前交付首板（on_board 在流中途回调）")
+
+
+def test_stream_first_board_keeps_art_and_notes():
+    """流式交付板与批式同语义: art 声明挂首板, 群/候选/位置元数据一致,
+    memorial 板（可能在后续板）也照常记账 `_memorial_used`。"""
+    block = "\n".join([
+        '{"stage": "art", "text": "画面意向"}',
+        '{"stage": "switch", "text": "破屋后院"}',
+        '{"character": "igusa_haruka", "text": "……"}',
+        '{"character": "sensei", "text": "我在。"}',
+        '{"stage": "memorial", "text": "（她抬起头。）"}',
+        '{"character": "igusa_haruka", "text": "谢谢老师。"}',
+    ])
+
+    class StreamingLLM:
+        def chat_full(self, messages, **kw):
+            on_chunk = kw.get("on_chunk")
+            if on_chunk:
+                for i in range(0, len(block), 11):
+                    on_chunk(block[i:i + 11])
+            return block
+
+        def chat(self, messages, **kw):
+            return block
+
+    engine = BondStoryEngine(ROOT / "config" / "characters", StreamingLLM())
+    engine.start_session(CHARACTER)
+    seen: list = []
+    scene = engine.send_vn_scene("（开场）", annotate=False, on_board=seen.append)
+    assert scene.art_hint == "画面意向" and seen[0].art_hint == "画面意向"
+    assert scene.place_hint == "破屋后院" and scene.choices == ["我在。"]
+    assert [p["text"] for p in scene.paragraphs] == ["……"]
+    # 群收板 → memorial 落在**下一板**（待发）; 章内记账照样生效
+    assert scene.memorial is False and engine._memorial_used is True
+    assert len(engine._pending_boards) == 1
+    tail = engine._pending_boards[0]
+    assert tail.memorial is True and [p["text"] for p in tail.paragraphs] == [
+        "（她抬起头。）", "谢谢老师。"]
+    print("    engine: 流式板与批式同语义（art 挂首板 / 群 / memorial 记账）")
+
+
 def test_legacy_action_input_is_rejected():
     """P0-7c 定稿: **唯一输入形态 = 记录流**——旧动作 JSON 一律被打回重发。"""
     legacy = {"action": "story_scene", "payload": {

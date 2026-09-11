@@ -301,6 +301,65 @@ def test_end_text_is_optional_and_separate_from_sensei():
 
 
 # ---------------------------------------------------------------------------
+# 流式增量解析（P2-1 前置）: chunk → 完整行 → 板闭合即交付
+# ---------------------------------------------------------------------------
+
+def test_block_stream_parser_incremental():
+    """逐 chunk 喂入, 板一闭合即可取走——切板规则与批式同源。"""
+    from contract.records import BlockStreamParser, check_block, parse_stream
+
+    block = "\n".join([
+        '{"stage": "art", "text": "画面意向"}',
+        '{"stage": "switch", "text": "教室"}',
+        '{"character": "igusa_haruka", "text": "一"}',
+        '{"character": "sensei", "text": "A"}',
+        '{"character": "sensei", "text": "B"}',
+        '{"character": "igusa_haruka", "text": "二"}',
+        '{"character": "sensei", "text": "C"}',
+        '{"stage": "end", "text": ""}',
+    ])
+    p = BlockStreamParser()
+    got: list[list[str]] = []
+    for i in range(0, len(block), 7):          # 7 字节一切 → 行被切在中间
+        p.feed(block[i:i + 7])
+        for b in p.pop_ready():
+            got.append([r.stage or r.value for r in b])
+    p.finish()
+    for b in p.pop_ready():
+        got.append([r.stage or r.value for r in b])
+    assert got == [["switch", "igusa_haruka", "sensei", "sensei"],
+                   ["igusa_haruka", "sensei"], ["end"]], got
+    assert p.art_hint == "画面意向"                       # 块级声明不入板
+    assert len(p.records) == 8 and not p.notes
+    assert check_block(parse_stream(block).records) == []  # 与批式边界一致
+    print("    stream: 逐 chunk 增量解析 + 板边界与批式同源")
+
+
+def test_block_stream_parser_edge_cases():
+    """流式边界: 超长群切槽 / 丢行记账 / 空流。"""
+    from contract.records import BlockStreamParser
+
+    p = BlockStreamParser()
+    p.feed("\n".join([
+        '{"character": "sensei", "text": "1"}',
+        '{"character": "sensei", "text": "2"}',
+        '{"character": "sensei", "text": "3"}',
+        '{"character": "sensei", "text": "4"}',       # 第 4 条 → 切槽
+        '{"character": "igusa_haruka" "text": "缺逗号"}',   # 坏行 → DROP 记账
+    ]))
+    p.finish()
+    boards = [[r.text for r in b] for b in p.pop_ready()]
+    assert boards == [["1", "2", "3"], ["4"]], boards
+    assert any("DROP" in n for n in p.notes), p.notes
+
+    empty = BlockStreamParser()
+    empty.feed("")
+    empty.finish()
+    assert empty.pop_ready() == [] and empty.records == []
+    print("    stream: 超长群切槽 + 丢行记账 + 空流不炸")
+
+
+# ---------------------------------------------------------------------------
 # P0-4：块载体（记录数组 + 群 + 位置 + 两种出口）
 # ---------------------------------------------------------------------------
 
