@@ -192,9 +192,12 @@ NARR2 = _scene(lines=["（承接第二场）她蹲下来摘了一片叶子。"])
 
 def test_cache_hit_injects_engine_state_and_advances(tmp_path):
     """prob2 回归: 命中缓存后推进——引擎注入生效（历史含首场 / _last_payload
-    就位）→ （继续）生成承接场（round2 内容 != 首场, 不重新开场）。"""
-    # 脚本序列: fresh 首场(NARR1)后 finally 会自动预生成(PRE 被消费, 重启丢弃);
-    # 命中后（继续）现场生成用 NARR2
+    就位）→ （继续）承接推进（round2 内容 != 首场, 不重新开场）。
+
+    记录流 v2 / 决策 #28b: 重启前已自动预生成的那一板会落**草稿旁路**（PRE）——
+    重进时它作为后继板被恢复, 所以（继续）先领出 PRE（0 LLM）, 再下一次才是 NARR2。
+    断言"不重新开场 + 最终接到 NARR2", 不钉死单次点击的落点。
+    """
     engine, st, sid, llm = _setup(tmp_path, NARR1, PRE, NARR2)
     try:
         bond.bond_start(CHARACTER, sid)
@@ -211,21 +214,21 @@ def test_cache_hit_injects_engine_state_and_advances(tmp_path):
         assert "杂草丛" in hist_tail, "缓存首场应注入引擎历史（AI 视角含首场）"
         assert state.vn._last_payload is not None, \
             "_last_payload 应就位（record_picked/fork 回录基准）"
-        # 玩家点继续 → （继续）生成承接场（gate 等标注就绪, 轮询重试）
+        # 玩家点继续 → 承接推进（待发草稿板 0 LLM / 或现场生成）; 不重新开场
+        seen: list[str] = []
         deadline = time.time() + 15.0
-        r2 = None
-        while time.time() < deadline:
+        while time.time() < deadline and not any("承接第二场" in t for t in seen):
             r2 = bond.bond_turn(CHARACTER, sid, "（继续）")
-            if r2.get("accepted"):
-                break
-            time.sleep(0.05)
-        assert r2 is not None and r2["accepted"], r2
-        _wait_idle(CHARACTER, sid, timeout=20.0)
-        state = bond._state(CHARACTER, sid)
-        text = "".join(p.get("text", "") for p in state.scene_obj.paragraphs)
-        assert "承接第二场" in text, f"应承接推进而非重新开场: {text}"
-        assert state.round == 2
-        print("    命中后推进: 引擎注入生效,（继续）承接生成（不重新开场）")
+            if not r2.get("accepted"):
+                time.sleep(0.05)
+                continue
+            _wait_idle(CHARACTER, sid, timeout=20.0)
+            state = bond._state(CHARACTER, sid)
+            seen.append("".join(p.get("text", "") for p in state.scene_obj.paragraphs))
+        assert seen, "应至少推进一板"
+        assert not any("杂草丛" in t for t in seen), f"不应重新开场: {seen}"
+        assert any("承接第二场" in t for t in seen), f"应最终接到 NARR2: {seen}"
+        print("    命中后推进: 引擎注入生效, 承接推进（草稿板 0 LLM 优先, 不重新开场）")
     finally:
         _cleanup()
 

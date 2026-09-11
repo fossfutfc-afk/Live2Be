@@ -148,6 +148,17 @@ def _cleanup():
     chat._store = _ORIG_STORE      # 恢复模块快照（禁硬编码真 data）
 
 
+def _scene_calls(llm) -> list:
+    """桩里**主生成**调用（排除 emotion/place 标注与换场翻译——那些是廉价旁路）。"""
+    out = []
+    for snap in llm.snapshots:
+        last = snap[-1]["content"] if snap else ""
+        if "情绪标签" in last or "变更句数组" in last or "地点 id JSON" in last:
+            continue
+        out.append(snap)
+    return out
+
+
 # ----------------------------------------------------------------------------
 # 全流程: start（首场选项）→ turn（选A）→ finish（收尾 + 事件流断言）
 # ----------------------------------------------------------------------------
@@ -906,6 +917,70 @@ def test_bond_record_stream_slots_and_free_next_board(tmp_path):
         assert any(f"老师：{RECORD_PICK}" in m["content"]
                    for m in vn_engine.history if m["role"] == "assistant")
         print("    v2: 选项物化 + 待发板 0 LLM + 事件流带 records/picked")
+    finally:
+        _cleanup()
+
+
+def test_bond_draft_sidecar_resume_zero_llm(tmp_path):
+    """决策 #28b: 已生成未播放的板落 `soul/bond_draft.json` → 重进 0 LLM 续播,
+    且续播的板**正常落库**（不是回放——它们之前从未进事件流）。"""
+    engine, st, sid, llm = _setup(tmp_path, RECORD_BLOCK, STORY_END)
+    try:
+        bond.bond_start(CHARACTER, sid)
+        st1 = _wait_status(CHARACTER, sid)
+        assert st1["scene"]["choices"] == ["我来了。", RECORD_PICK]   # 首板（未落库）
+        draft_file = Path(bond._draft_path(CHARACTER))
+        assert draft_file.is_file(), "板落地即应写草稿旁路"
+        draft = json.loads(draft_file.read_text(encoding="utf-8"))
+        assert len(draft["boards"]) >= 2, draft["boards"]              # 当前板 + 待发板
+        assert draft["boards"][0]["choices"] == ["我来了。", RECORD_PICK]
+        # 模拟进程重启: 清内存态（事件流与旁路留在盘上）
+        bond._bonds.pop((CHARACTER, sid), None)
+        chat._engines.pop(CHARACTER, None)
+        engine2, st2, sid2, llm2 = _setup(tmp_path, RECORD_BLOCK, STORY_END)
+        assert sid2 == sid                                             # 同一条世界线
+        r = bond.bond_start(CHARACTER, sid2)
+        assert r["accepted"]
+        # 重进: 事件流里没有 bond 事件（玩家从未裁决）→ 无回放 → 直接接草稿首板
+        stt = _wait_status(CHARACTER, sid2)
+        assert [p["text"] for p in stt["scene"]["paragraphs"]] == ["……老师，你来了。"]
+        assert stt["scene"]["choices"] == ["我来了。", RECORD_PICK]
+        assert not _scene_calls(llm2), "接草稿不应调用主 LLM（0 LLM 续播）"
+        # 继续 → 待发板（引擎队列来自草稿）→ 0 LLM; 且这一板会正常落库
+        r2 = _turn_until_accepted(CHARACTER, sid2, "（继续）")
+        assert r2["accepted"]
+        st3 = _wait_status(CHARACTER, sid2)
+        assert [p["text"] for p in st3["scene"]["paragraphs"]] == [
+            "「不、不用这样的……」", "（夜风停了。）"]
+        assert not _scene_calls(llm2), "续播期间不应调用主 LLM"
+        bond_evs = [e for e in st2.events(CHARACTER, sid2) if e.type == "bond"]
+        assert bond_evs and bond_evs[0].payload["records"], "续播板应正常落库"
+        print("    v2 草稿旁路: 重进 0 LLM 续播 + 续播板正常落库")
+    finally:
+        _cleanup()
+
+
+def test_bond_draft_sidecar_stale_and_finish(tmp_path):
+    """草稿新鲜判据: 其后又落了新 bond 事件 / 换了在押段 → 作废; finish → 删除。"""
+    engine, st, sid, llm = _setup(tmp_path, RECORD_BLOCK, STORY_END)
+    try:
+        bond.bond_start(CHARACTER, sid)
+        _wait_status(CHARACTER, sid)
+        draft_file = Path(bond._draft_path(CHARACTER))
+        assert draft_file.is_file()
+        # ① 期间又落了一个 bond 事件（模拟另一处推进）→ 草稿过期
+        st.append_event(CHARACTER, sid, type="bond", subtype="story_scene",
+                        payload={"records": [{"character": CHARACTER, "text": "别处的板。"}],
+                                 "input": "（继续）", "picked": None})
+        assert bond._draft_load(CHARACTER, sid) is None, "新事件后草稿应判过期"
+        assert not draft_file.is_file(), "过期草稿应顺手清掉"
+        # ② finish → 草稿删除
+        bond.bond_start(CHARACTER, sid)
+        _wait_status(CHARACTER, sid)
+        assert draft_file.is_file()
+        bond.bond_finish(CHARACTER, sid)
+        assert not draft_file.is_file(), "收尾应删除草稿旁路"
+        print("    v2 草稿旁路: 过期作废 + 收尾删除")
     finally:
         _cleanup()
 
