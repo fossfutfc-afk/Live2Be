@@ -542,6 +542,63 @@ def test_finish_wrapup_marks_task_busy(web, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# 5c. 板交付台账（回答"这一板是生成的还是缓存/回放来的"）
+# ---------------------------------------------------------------------------
+
+def test_board_deliver_ledger(web, caplog):
+    """**板交付台账**（2026-09-11）: 每板一行, 标明"这一板怎么到玩家眼前的"。
+
+    用户实际追问过"你怎么确定是一次 LLM 写完而不是缓存"——为此必须能从日志直接
+    读出每板来源（stream/gen/queue/prewarm/draft/replay）与产出它的调用 id。
+    """
+    import logging
+    st, sid = web
+    with caplog.at_level(logging.INFO, logger="live2be.bond"):
+        _seed_trigger(st, sid)
+        bond.bond_start(CHARACTER, sid, staged=True)
+        _poll_status(sid)                        # 首板（预热生成）
+        first = bond.bond_start(CHARACTER, sid)  # adopt 就绪（场景随响应回）
+        assert first.get("scene"), first
+        bond.bond_turn(CHARACTER, sid, PICK)     # 裁决 → 反应板进 pregen
+        _poll_status(sid)
+        bond.bond_turn(CHARACTER, sid, "（继续）")   # 领预生成（0 LLM）
+        _poll_status(sid)
+    lines = [r.getMessage() for r in caplog.records
+             if "bond_board_deliver" in r.getMessage()]
+    assert lines, "没有交付台账"
+    srcs = [ln.split("src=")[1].split()[0] for ln in lines]
+    assert "gen" in srcs or "stream" in srcs, srcs       # 首板: 真生成
+    assert "queue" in srcs, srcs                         # 后续板: 0 LLM 领队列
+    assert all("call=" in ln and "recs=" in ln for ln in lines), lines
+    print(f"    web: 交付台账 {len(lines)} 行, srcs={sorted(set(srcs))}")
+
+
+def test_board_deliver_ledger_marks_replay(web, caplog):
+    """重进中断剧情 → 台账必须标 `src=replay`（0 LLM 本地回放）。
+
+    这条正是"零卡顿里有多少是生成、多少是回放"的答案来源。
+    """
+    import logging
+    st, sid = web
+    _seed_trigger(st, sid)
+    bond.bond_start(CHARACTER, sid, staged=True)
+    _poll_status(sid)
+    bond.bond_start(CHARACTER, sid)
+    bond.bond_turn(CHARACTER, sid, PICK)
+    _poll_status(sid)
+    bond._bonds.pop((CHARACTER, sid), None)          # 模拟重启
+    with caplog.at_level(logging.INFO, logger="live2be.bond"):
+        r = _http("POST", "/api/bond/start",
+                  json={"char_id": CHARACTER, "session_id": sid})
+        assert r.json().get("replay") is True, r.text
+    lines = [x.getMessage() for x in caplog.records
+             if "bond_board_deliver" in x.getMessage()]
+    assert any("src=replay" in ln for ln in lines), lines
+    print("    web: 回放交付标 src=replay（可据此统计 0 LLM 占比）")
+
+
+
+# ---------------------------------------------------------------------------
 # 6. 设置页
 # ---------------------------------------------------------------------------
 

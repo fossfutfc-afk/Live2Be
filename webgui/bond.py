@@ -714,6 +714,7 @@ def _start_replay(state: BondState, replay_q: list[dict],
     state.scene = state.scene_obj.to_dict()
     state.round = 1
     state.scene_logged = True                 # 已落库——回放不重复落
+    _log_board_deliver(state, state.scene_obj, char_id, session_id, "replay")
     if not state.replay_scenes:
         # 单场（或最后一场）: 续写在读屏期间预生成, busy=True 不阻塞回放推进
         _pregenerate(state, char_id, session_id)
@@ -954,7 +955,7 @@ def bond_start(char_id: str, session_id: str, *,
                 logger.warning("缓存命中引擎注入失败（后续生成可能重开）: %s", e)
             state.round += 1
             _scene_landed(state, scene_c, char_id, session_id, input_c,
-                          t0=time.monotonic(), save_cache=False)
+                          t0=time.monotonic(), save_cache=False, source="prewarm")
             logger.info("bond_cache_hit %s/%s title=%r",
                         char_id, session_id, title_c or title)
             return {"accepted": True, "busy": False, "resumed": True,
@@ -1110,6 +1111,7 @@ def bond_turn(char_id: str, session_id: str, text: str) -> dict:
             state.scene = state.scene_obj.to_dict()
             state.round += 1
             state.scene_logged = True          # 事件流已落库——回放不重复落
+            _log_board_deliver(state, state.scene_obj, char_id, session_id, "replay")
             if not state.replay_scenes:
                 # 最后一场入屏 → 优先接续**草稿旁路**（已生成未播放, 0 LLM 续播,
                 # 决策 #28b）; 没草稿/过期 → 续写预生成（读屏期间完成, handoff 零等待）
@@ -1165,6 +1167,8 @@ def bond_turn(char_id: str, session_id: str, text: str) -> dict:
             # completed 置位只可能来自**场景 is_end**（自然 story_end / demo 收尾
             # ——digest/完整收尾话的唯一许可; 异常/中止永不置, 2026-09-09 语义）
             state.completed = True
+        # 台账（2026-09-11）: 这一板来自预生成暂存（0 LLM 领出）
+        _log_board_deliver(state, state.scene_obj, char_id, session_id, "queue")
         _log_scene_meta(state, char_id, session_id, state.scene_obj)
         _draft_save(state, char_id, session_id)    # 草稿旁路刷新（#28b）
         # 链式备料（N2a 缺口补上, N2b）: 新场景未收尾——纯叙事 → 单路预生成;
@@ -1243,6 +1247,7 @@ def bond_turn(char_id: str, session_id: str, text: str) -> dict:
         )
         state.scene = state.scene_obj.to_dict()
         state.scene_logged = True    # 分支是场景一部分（已随场景落库）——继续时不重复落
+        _log_board_deliver(state, state.scene_obj, char_id, session_id, "branch")
         # 分支反应段 = 同板延续（地点不重新判定, 主场景的 place 判定已随门控完成）;
         # 置就绪标记 → 不占 place lane（§7 gate 双路语义）
         state.scene_obj._place_done = True
@@ -1690,7 +1695,7 @@ def _draft_adopt(state: "BondState", char_id: str, session_id: str) -> bool:
         state.vn._last_payload = vn_payload
         state.round += 1
         _scene_landed(state, first, char_id, session_id, "（继续）",
-                      t0=time.monotonic(), save_cache=False)
+                      t0=time.monotonic(), save_cache=False, source="draft")
         logger.info("bond_draft_hit %s/%s boards=%d", char_id, session_id, len(boards))
         return True
     except Exception as e:                         # noqa: BLE001 — 注入失败 → 走正常生成
@@ -1699,14 +1704,45 @@ def _draft_adopt(state: "BondState", char_id: str, session_id: str) -> bool:
         return False
 
 
+def _log_board_deliver(state: BondState, scene: BondScene | None, char_id: str,
+                       session_id: str, source: str, *, dur_ms: int = -1) -> None:
+    """**板交付台账**（2026-09-11）: 这一板是怎么到玩家眼前的——一板一行 INFO。
+
+    为什么需要（用户实际追问过）: 系统只记"生成了什么", 不记"这一板从哪来", 于是
+    "玩家几乎零卡顿"到底是一次 LLM 写完整章、命中预热缓存、还是回放/草稿旁路,
+    只能靠考古比对时间戳与条数（`[vn][records]` / `bond_pregen ok dur=0ms` /
+    事件流时间戳）。有了这行, 一眼可答:
+
+        bond_board_deliver src=queue board=3 recs=12 paras=10 call=c7f3 dur=0ms
+
+    src 取值: stream（流式先交付）| gen（等整块/批量生成）| queue（预生成/待发队列,
+    0 LLM）| prewarm（跨重启首场缓存）| draft（草稿旁路）| replay（事件流回放）
+    | demo。call = 产出该板的 LLM 调用短 id（0 LLM 路径为 `-`）。
+    """
+    if scene is None:
+        return
+    try:
+        logger.info(
+            "bond_board_deliver src=%s board=%d recs=%d paras=%d call=%s dur=%dms %s/%s",
+            source, state.round, len(getattr(scene, "records", None) or []),
+            len(getattr(scene, "paragraphs", None) or []),
+            getattr(scene, "_call_id", None) or "-",
+            dur_ms, char_id, session_id)
+    except Exception:                                # noqa: BLE001 — 埋点绝不阻断
+        pass
+
+
 def _scene_landed(state: BondState, scene: BondScene, char_id: str,
                   session_id: str, user_input: str, *, t0: float,
-                  save_cache: bool) -> None:
+                  save_cache: bool, source: str = "gen") -> None:
     """场景落地公共路径（_generate 成功块与跨重启缓存命中共用, 2026-09-09）:
 
     设置 scene_obj/scene/input/落库就绪标记 + 配额/prev/meta/异步标注/候选
     spawn + 失败计数清零 + 计时日志。save_cache=True（LLM 首场落地）→ 写
     跨重启预热缓存; demo 不写。
+
+    source（2026-09-11）: 交付来源——"stream"/"gen"/"prewarm"/"draft"/"demo"，
+    透传给 `_log_board_deliver` 台账（调用方各自注明; 缺省 gen）。
     """
     state.scene_obj = scene
     state.scene = scene.to_dict()
@@ -1714,6 +1750,8 @@ def _scene_landed(state: BondState, scene: BondScene, char_id: str,
     state.scene_logged = False
     if scene.is_end:
         state.completed = True       # 仅自然 story_end 才 completed
+    _log_board_deliver(state, scene, char_id, session_id, source,
+                       dur_ms=_ms_since(t0) if t0 else -1)
     # 选项配额（供下一场 system_note 参考）
     if scene.choices:
         state.choices_used += 1
@@ -1771,6 +1809,10 @@ def _generate(state: BondState, char_id: str, session_id: str, user_input: str) 
 
     def run():
         t0 = time.monotonic()                    # 计时埋点（§6.1）
+        # 本次调用的台账短 id（2026-09-11）: 打给本块产出的每一板, 交付台账据此
+        # 回答"这一板是哪次调用写的"（0 LLM 路径为 `-`）
+        cid = f"{int(time.time() * 1000) % 0xFFFF:04x}"
+        state._call_id = cid
         try:
             with chat._lock(char_id):
                 first_scene = state.scene_obj is None   # 首场（重试也命中此判据）
@@ -1788,8 +1830,10 @@ def _generate(state: BondState, char_id: str, session_id: str, user_input: str) 
                     def _on_board(scene_b: BondScene) -> None:
                         if state.scene_obj is not None and not state.scene_logged:
                             return          # 已有未播放板（不该发生）→ 不覆盖
+                        scene_b._call_id = cid
                         _scene_landed(state, scene_b, char_id, session_id,
-                                      user_input, t0=t0, save_cache=first_scene)
+                                      user_input, t0=t0, save_cache=first_scene,
+                                      source="stream")
                         logger.info("bond_stream_first %s/%s dur=%dms",
                                     char_id, session_id, _ms_since(t0))
 
@@ -1802,11 +1846,17 @@ def _generate(state: BondState, char_id: str, session_id: str, user_input: str) 
                     # SceneStream P1.5（2026-09-09 语义修正）: 篇幅超限不再丢弃
                     # LLM 场景换 closing 伪收场——纠正面在 system_note;
                     # 持续不收尾 = 玩家可离开（中场退出, 在押续写）
+                scene._call_id = cid
+                # 待发队列里的后续板同属这次调用 → 一并打上 id（交付时读得到）
+                if state.vn is not None:
+                    for _b in getattr(state.vn, "_pending_boards", None) or []:
+                        _b._call_id = cid
                 if getattr(scene, "_streamed", False):
                     state.fail_count = 0        # 流式已落地（含标注/日志）→ 只清失败计数
                 else:
                     _scene_landed(state, scene, char_id, session_id, user_input,
-                                  t0=t0, save_cache=first_scene)
+                                  t0=t0, save_cache=first_scene,
+                                  source="demo" if state.demo is not None else "gen")
         except (SceneLoopError, ValueError) as e:
             # 模型连语义校验都过不了 → 偶发失败先给重试机会（2026-09-02:
             # 一败就 closing 会把偶发 JSON 错误变成"剧情突然结束"——上一场保持
@@ -1867,12 +1917,30 @@ def _pregenerate(state: BondState, char_id: str, session_id: str) -> None:
 
     def run():
         t0 = time.monotonic()                    # 计时埋点（§6.1）
+        cid = f"{int(time.time() * 1000) % 0xFFFF:04x}"
+        state._call_id = cid
         try:
             with chat._lock(char_id):
                 scene = state.vn.send_vn_scene(
                     "（继续）", system_note=_system_note(state), annotate=False,
                     on_memorial_prompt=_make_memorial_cb(
                         state, char_id, session_id))
+                # 台账（2026-09-11）: 这次预生成是**领队列**（0 LLM）还是**真调用**?
+                # 引擎的 trace 写得很清楚（record_stream/pending = 从待发板拿出）。
+                # 领队列时板上的 `_call_id` 保留"当初写它的那次调用"。
+                trace = getattr(state.vn, "_trace", None) or [{}]
+                from_queue = trace[0].get("action") == "record_stream/pending"
+                if from_queue:
+                    # 0 LLM 领队列: 板上的 `_call_id` 保留"当初写它的那次调用"
+                    # （交付台账 src=queue 时会打出来）, 这里不另发 id
+                    logger.info("bond_pregen src=queue call=- %s/%s dur=%dms",
+                                char_id, session_id, _ms_since(t0))
+                else:
+                    scene._call_id = cid
+                    for _b in getattr(state.vn, "_pending_boards", None) or []:
+                        _b._call_id = cid
+                    logger.info("bond_pregen src=gen call=%s %s/%s dur=%dms",
+                                cid, char_id, session_id, _ms_since(t0))
                 state.pregen_obj = scene
                 state.pregen_scene = scene.to_dict()
                 state.pregen_input = "（继续）"
@@ -1882,8 +1950,6 @@ def _pregenerate(state: BondState, char_id: str, session_id: str) -> None:
                                        if isinstance(p, dict)]
                 # 预生成场景同样异步标注（与主场景同一队列串行, 玩家消费时表情就绪）
                 _enqueue_annotate(state, scene)
-                logger.info("bond_pregen ok %s/%s dur=%dms",
-                            char_id, session_id, _ms_since(t0))
                 _draft_save(state, char_id, session_id)   # 草稿旁路刷新（#28b）
         except Exception as e:                     # noqa: BLE001 — 预生成失败降级
             logger.warning("bond 预生成失败 (%dms, 降级为点击时再生成): %s",

@@ -53,6 +53,7 @@ import base64
 import json
 import logging
 import os
+import sys
 import time
 import urllib.error
 import urllib.request
@@ -85,6 +86,39 @@ _ACCESSORY_LABELS = {"halo": "光环", "weapon": "武器", "bag": "挎包", "gif
 ENV_SWITCH = "LIVE2BE_IMAGE"
 #: 视为"关闭"的取值（大小写不敏感）
 _OFF_VALUES = {"off", "0", "false", "no", "none", "disable", "disabled"}
+#: 视为"只构造请求、不发 HTTP"的取值（dry-run: 探针/实验/调试零成本跑通代码路径）
+_DRY_VALUES = {"dry", "dry-run", "dryrun", "noop", "fake"}
+#: 显式允许**测试进程**真实生图（默认禁止——见 _refuse_real_call_in_pytest）
+ENV_ALLOW_REAL = "LIVE2BE_IMAGE_ALLOW_REAL"
+
+
+def _running_under_pytest() -> bool:
+    """是否在 pytest 进程里（含测试派生的后台线程——环境变量是进程级的）。"""
+    if os.environ.get("PYTEST_CURRENT_TEST"):
+        return True
+    return "pytest" in sys.modules
+
+
+def _refuse_real_call_in_pytest() -> None:
+    """**测试进程硬闸**（2026-09-11 真机事故后加）: 禁止真实生图 HTTP。
+
+    事故: 我给"生图总开关"写的冒烟探针（`.testtmp/probe_image_switch.py`）里
+    `g.generate('测试')` 被 try/except 包着, 本意是"验证打开时不报错", 结果它
+    **真的发了一次计费请求**（`D:\\by-user\\fossf\\AI\\output\\gen_20260911_202541_apiyi.png`）。
+    conftest 的 `LIVE2BE_IMAGE=off` 管不到这种独立脚本, 于是钱花了才发现。
+
+    所以闸门放在**唯一的 HTTP 出口**（`_post_api`）上, 按进程环境判定:
+    测试进程一律拒绝, 除非显式 `LIVE2BE_IMAGE_ALLOW_REAL=1`（真机连通性用例
+    才需要）。experiments/ 脚本用 `conda run python` 跑, 不受影响。
+    """
+    if not _running_under_pytest():
+        return
+    if str(os.environ.get(ENV_ALLOW_REAL, "")).strip().lower() in ("1", "true", "yes", "on"):
+        return
+    raise RuntimeError(err(
+        "ImageGen", "测试进程禁止真实生图调用（会计费）——用例请 monkeypatch "
+        "`ImageGenerator._post_api`, 或设 dry（LIVE2BE_IMAGE=dry）; "
+        f"确实要真调请显式 {ENV_ALLOW_REAL}=1"))
 
 
 def _settings_image_cfg() -> dict:
@@ -107,14 +141,40 @@ def image_enabled(cfg: dict | None = None) -> bool:
     环境变量只在**明确取值**时生效（未设 → 落到配置）; 关闭 = 所有消费方不开生图
     线程、降级纯文字（见模块头"生图总开关"）。cfg 可传入已读好的 [image] 分组
     （ImageGenerator.__init__ 复用, 少读一次文件）。
+
+    注: `LIVE2BE_IMAGE=dry`（= 只构造请求不发 HTTP）**也算"开"**——dry 由
+    `image_dry_run()` 单独判定; 这样"开关关了"与"开关开着但干跑"互不混淆。
     """
-    raw = str(os.getenv(ENV_SWITCH, "")).strip().lower()
-    if raw:
+    raw = str(_env_raw()).strip().lower()
+    if raw and raw not in _DRY_VALUES:
         return raw not in _OFF_VALUES
+    if raw in _DRY_VALUES:
+        return True
     if cfg is None:
         cfg = _settings_image_cfg()
     v = cfg.get("enabled", True)
     return bool(v) if isinstance(v, bool) else True
+
+
+def image_dry_run(cfg: dict | None = None) -> bool:
+    """是否**干跑**（构造完整请求 + 打日志, 但不发 HTTP）: `LIVE2BE_IMAGE=dry`
+    > settings `[image].dry_run = true` > 默认 False。
+
+    用途: 探针/实验/调试零成本跑通生图代码路径（我就是缺这个才误触了一次真调用）。
+    干跑时 `generate()` 返回**占位 GeneratedImage**（路径按正常命名给, 但不落盘）。
+    """
+    raw = str(_env_raw()).strip().lower()
+    if raw:
+        return raw in _DRY_VALUES
+    if cfg is None:
+        cfg = _settings_image_cfg()
+    v = cfg.get("dry_run", False)
+    return bool(v) if isinstance(v, bool) else False
+
+
+def _env_raw() -> str:
+    """生图开关环境变量的原始值（空 = 未设）。"""
+    return os.getenv(ENV_SWITCH, "")
 
 
 def parse_size(value) -> tuple[int, int] | None:
@@ -322,6 +382,8 @@ class ImageGenerator:
         cfg = _settings_image_cfg()
         # 生图总开关（LIVE2BE_IMAGE 环境变量最高优先——测试/离线硬关, 见 image_enabled）
         self.enabled = image_enabled(cfg)
+        # 干跑（只构造请求不发 HTTP; 探针/实验用——2026-09-11）
+        self.dry_run = image_dry_run(cfg)
         self._api_key = (
             api_key if api_key is not None
             else str(cfg.get("api_key") or "").strip()
@@ -412,6 +474,17 @@ class ImageGenerator:
             raise RuntimeError(err(
                 "ImageGen", "未配置 IMAGE_API_KEY（本地 diffusers 兜底已于 2026-09-10 移除）"
                 "——请在 settings.toml [image] 或 .env 配置 APIYI key"))
+        # 干跑（2026-09-11）: 请求照常构造 + 打日志, **不发 HTTP**——探针/实验/调试
+        # 零成本跑通代码路径; 返回占位 GeneratedImage（路径按正常命名, 但不落盘——
+        # 下游做文件 copy 的调用方会失败, 那是"干跑"应有的表现, 别拿它当成功）
+        if self.dry_run:
+            size = parse_size(size) or self.screen_size
+            out = Path(self.output_dir) / (
+                f"DRYRUN_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{os.getpid()}.png")
+            logger.info("生图 dry-run: 已构造请求, 未发送（prompt=%r ref=%d 张 size=%s）",
+                        prompt[:40], len(ref_images or []), size)
+            return GeneratedImage(path=out, width=size[0], height=size[1],
+                                  size_bytes=0, backend="dry", elapsed_s=0.0)
         return self._generate_apiyi(
             prompt, ref_images, character_name,
             size=parse_size(size) or self.screen_size, fit=fit or self.fit,
@@ -489,6 +562,10 @@ class ImageGenerator:
         raise RuntimeError(err("ImageGen", f"响应无图片输出: {str(resp)[:300]}"))
 
     def _post_api(self, body: dict) -> dict:
+        # **测试进程硬闸**（唯一 HTTP 出口, 2026-09-11 误触计费事故后加）:
+        # 见 _refuse_real_call_in_pytest 的说明。放在这里 = 任何调用方
+        # （webgui 纪念线程 / vn_cli / main / 探针脚本）在测试进程里都拦得住。
+        _refuse_real_call_in_pytest()
         """POST generateContent → 解析 JSON; HTTP/网络失败 → 明确报错（不静默）。"""
         url = (f"{self.api_base_url}/{self.api_version}"
                f"/models/{self.api_model}:generateContent")

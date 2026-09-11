@@ -182,12 +182,17 @@ class LLMClient:
         raw_text = self._request_with_retry(payload, timeout=timeout)
         if response_format == "json_object":
             # 前缀缓存命中（DeepSeek usage.prompt_cache_hit_tokens; 无 → -1）
+            # 2026-09-11 补 **输出侧** 用量: 此前只记 prompt 侧缓存指标, 判断
+            # "一次调用写了多少字/单块还能加多长"只能靠记录条数间接估（记录流
+            # 一章 ≈ 52 条 / ~1000 字, 但 completion_tokens 一直不可见）。
             _u = _LAST_USAGE or {}
             logger.info(
-                "llm chat ms=%d json=y cache_hit=%d cache_miss=%d",
+                "llm chat ms=%d json=y cache_hit=%d cache_miss=%d out=%d in=%d",
                 int((time.monotonic() - _t0) * 1000),
                 int(_u.get("prompt_cache_hit_tokens") or -1),
-                int(_u.get("prompt_cache_miss_tokens") or -1))
+                int(_u.get("prompt_cache_miss_tokens") or -1),
+                int(_u.get("completion_tokens") or -1),
+                int(_u.get("prompt_tokens") or -1))
         self.last_reasoning = _LAST_REASONING    # 模块级捕获 → 实例可读
 
         if response_format == "json_object":
@@ -247,13 +252,17 @@ class LLMClient:
 
         raw_text = self._stream_collect(payload, on_chunk=_obs)
         _u = _LAST_USAGE or {}
+        # out/in = 输出/输入 token（2026-09-11 补: 记录流一章 ≈ 52 条, 有了它才能
+        # 量化"单块还能写多长 / 章长该不该拆"）
         logger.info(
-            "llm chat_full ms=%d ttft=%dms json=%s cache_hit=%d cache_miss=%d",
+            "llm chat_full ms=%d ttft=%dms json=%s cache_hit=%d cache_miss=%d out=%d in=%d",
             int((time.monotonic() - _t0) * 1000),
             int(_ttft[0] * 1000) if _ttft[0] is not None else -1,
             "y" if response_format == "json_object" else "n",
             int(_u.get("prompt_cache_hit_tokens") or -1),
-            int(_u.get("prompt_cache_miss_tokens") or -1))
+            int(_u.get("prompt_cache_miss_tokens") or -1),
+            int(_u.get("completion_tokens") or -1),
+            int(_u.get("prompt_tokens") or -1))
         self.last_reasoning = _LAST_REASONING    # 模块级捕获 → 实例可读
 
         if response_format == "json_object":

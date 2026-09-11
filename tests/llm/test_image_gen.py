@@ -20,9 +20,10 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 import llm.image_gen as ig  # noqa: E402
-from llm.image_gen import (DEFAULT_SCREEN_SIZE, ENV_SWITCH, GeneratedImage,  # noqa: E402
-                           ImageGenerator, _build_api_parts, _settings_image_cfg,
-                           _unsupported_aspect, collect_ref_images, image_enabled,
+from llm.image_gen import (DEFAULT_SCREEN_SIZE, ENV_ALLOW_REAL, ENV_SWITCH,  # noqa: E402
+                           GeneratedImage, ImageGenerator, _build_api_parts,
+                           _settings_image_cfg, _unsupported_aspect,
+                           collect_ref_images, image_dry_run, image_enabled,
                            parse_size, ref_specs)
 
 
@@ -148,6 +149,56 @@ def test_disabled_generator_raises_and_declares_unavailable(monkeypatch):
     assert ImageGenerator(api_key="fake-key").available is True
     assert ImageGenerator(api_key="").available is False     # 开关开但无 key → 不可用
     print("    switch: 关闭 → available=False + generate() 明确报错")
+
+
+# ---------------------------------------------------------------------------
+# 防误触计费（2026-09-11 真机事故）: 测试进程硬闸 + dry-run
+# ---------------------------------------------------------------------------
+
+def test_post_api_refuses_real_call_under_pytest(monkeypatch):
+    """**唯一 HTTP 出口**在测试进程里必须拒绝（事故: 探针真的发了一次计费请求）。
+
+    闸门在 `_post_api` 上（不是 generate），所以任何调用方——webgui 纪念线程、
+    vn_cli、main、探针脚本——在 pytest 进程里都拦得住。
+    """
+    monkeypatch.setenv("PYTEST_CURRENT_TEST", "x")           # 模拟测试进程
+    monkeypatch.delenv(ENV_ALLOW_REAL, raising=False)
+    gen = ImageGenerator(api_key="fake-key")
+    with pytest.raises(RuntimeError) as ei:
+        gen._post_api({})
+    assert "测试进程禁止真实生图调用" in str(ei.value), ei.value
+    # 显式放行（真机连通性用例）
+    monkeypatch.setenv(ENV_ALLOW_REAL, "1")
+    try:
+        gen._post_api({})                                    # 会走到网络层 → 任何异常都行
+    except RuntimeError as e:                                # pragma: no cover
+        assert "测试进程禁止" not in str(e), e
+    except Exception:                                        # noqa: BLE001 — 网络层报错可接受
+        pass
+    print("    guard: 测试进程拒绝真实生图（ALLOW_REAL=1 可显式放行）")
+
+
+def test_dry_run_builds_request_without_http(monkeypatch):
+    """dry（`LIVE2BE_IMAGE=dry`）: enabled 仍为真, 但只构造请求、不发 HTTP。
+
+    返回占位 GeneratedImage（backend="dry"、不落盘）——探针/实验/调试零成本跑通
+    生图代码路径（我就是缺这个才误触了一次真调用）。
+    """
+    monkeypatch.setenv(ENV_SWITCH, "dry")
+    assert image_enabled() is True                           # dry 也算"开"
+    assert image_dry_run() is True
+    gen = ImageGenerator(api_key="fake-key")
+    assert gen.dry_run is True and gen.enabled is True
+    called = []
+    monkeypatch.setattr(gen, "_post_api", lambda body: called.append(body))
+    img = gen.generate("干跑测试")
+    assert called == [], "dry-run 不得发 HTTP"
+    assert img.backend == "dry" and (img.width, img.height) == (1920, 1080)
+    assert not Path(img.path).is_file(), "dry-run 不落盘"
+    monkeypatch.setenv(ENV_SWITCH, "on")
+    assert image_dry_run() is False
+    print("    dry: 构造请求但不发 HTTP（占位返回, 不落盘）")
+
 
 
 
