@@ -185,10 +185,14 @@ def test_bond_full_flow(tmp_path):
         r2 = bond.bond_turn(CHARACTER, sid, "选A")
         assert r2["accepted"] and r2.get("branch") and r2["scene"] is not None
         texts = [p["text"] for p in r2["scene"]["paragraphs"]]
-        assert texts[:2] == ["段落一。", "段落二。"]              # 本板正文
-        assert texts[2] == "选A"                                # 老师那句物化在群首
-        assert r2["scene"]["paragraphs"][2]["speaker"] == "sensei"
+        # 2026-09-11: 裁决返回**增量**（只回老师那句, 不回放已读的板正文——
+        # 回完整板会让前端把第一段重播一遍, 真机报障"第一段出现两遍"）
+        assert texts == ["选A"], texts
+        assert r2["scene"]["paragraphs"][0]["speaker"] == "sensei"
+        # 完整物化板仍在 status（= 当前屏上内容的一致性视图）
         st1b = bond.bond_status(CHARACTER, sid)
+        assert [p["text"] for p in st1b["scene"]["paragraphs"]] == [
+            "段落一。", "段落二。", "选A"], "status 视图仍是完整物化板"
         assert st1b["round"] == 1, "裁决是场景一部分, 不占轮次"
         # v2: 裁决后一板反应（待发 0 LLM）, 其后才是收尾场——循环推进到 completed
         for _ in range(6):
@@ -891,12 +895,12 @@ def test_bond_record_stream_slots_and_free_next_board(tmp_path):
         assert scene1["records"][0] == {"stage": "switch", "text": "深夜的杂草屋"}
         assert llm.snapshots and len(llm._scripts) == 0        # 只调了一次（一板一块）
 
-        # 点选项: 返回 scene（就地展示老师那句）, 不生成、不 fork 候选
+        # 点选项: 返回**增量** scene（只回老师那句——不回放已读的板正文）, 不生成/不 fork
         r2 = bond.bond_turn(CHARACTER, sid, RECORD_PICK)
         assert r2["accepted"] and r2.get("branch") is True and r2.get("scene"), r2
         texts = [p["text"] for p in r2["scene"]["paragraphs"]]
-        assert texts[0] == "……老师，你来了。" and texts[1] == RECORD_PICK
-        assert r2["scene"]["paragraphs"][1]["speaker"] == "sensei"
+        assert texts == [RECORD_PICK], texts
+        assert r2["scene"]["paragraphs"][0]["speaker"] == "sensei"
         assert not r2["scene"].get("choices")                  # 裁决后不再给选项
         assert bond.bond_status(CHARACTER, sid)["round"] == 1  # 不出新板
 
@@ -998,7 +1002,12 @@ def test_bond_record_stream_speaker_names_in_api(tmp_path):
         r2 = bond.bond_turn(CHARACTER, sid, RECORD_PICK)
         out2 = _resolve_scene(r2["scene"], CHARACTER)
         names = [p.get("speaker_name") for p in out2["paragraphs"]]
-        assert names == ["伊草 遥香", "老师"]                  # 老师那句 = 老师
+        assert names == ["老师"], names                        # 增量: 只有老师那句
+        # status 视图（完整物化板）两侧名字行都在
+        st_all = bond.bond_status(CHARACTER, sid)
+        assert [p.get("speaker_name")
+                for p in _resolve_scene(st_all["scene"], CHARACTER)["paragraphs"]] \
+            == ["伊草 遥香", "老师"]
         print("    v2: speaker_name 注入（角色显示名 / 老师）")
     finally:
         _cleanup()
@@ -1124,7 +1133,7 @@ def test_bond_turn_router_resolves_direct_scene(tmp_path):
                                               text=RECORD_PICK)))
         assert r.get("branch") and isinstance(r.get("scene"), dict)
         names = [p.get("speaker_name") for p in r["scene"]["paragraphs"]]
-        assert names == ["伊草 遥香", "老师"], names          # 直返也过 resolve
+        assert names == ["老师"], names          # 直返=增量（只老师那句）, 但也过 resolve
         # 回放器: 事件流里的板（records/picked）→ 回放 scene 附渲染信息
         rp = asyncio.run(bond_replay(CHARACTER, sid))
         scenes = [s for at in rp["attempts"] for s in at["scenes"]]

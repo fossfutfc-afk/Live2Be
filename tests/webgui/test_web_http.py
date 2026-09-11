@@ -36,6 +36,8 @@ from webgui.app import app  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 CHARACTER = "igusa_haruka"
+#: 章节标题（触发动作带下来的命题——标题屏文案; 2026-09-11 真机报障: 漏带则显示"羁绊剧情"）
+CHAPTER_TITLE = "放学后的约定"
 
 #: 模块级 store 快照（禁硬编码真 data——见 test_bond.py 的同类注释）
 _ORIG_STORE = chat._store
@@ -120,6 +122,18 @@ def _teardown():
     chat._store = _ORIG_STORE
     for key in [k for k in bond._bonds if k[0] == CHARACTER]:
         bond._bonds.pop(key, None)
+
+
+def _seed_trigger(store, sid, title=CHAPTER_TITLE):
+    """往事件流塞一条触发事件（= MMT 那轮的 `mmt_trigger_bond_story`）。
+
+    章节标题的真源就是它——`_trigger_title`（内存 trace）在进程重启后是空的,
+    引擎侧会回落到事件流取这个 payload（`_title_from_events`）。
+    """
+    from core.session.events import make_event
+    return store.append_event(CHARACTER, sid, make_event(
+        "mmt", "mmt_trigger_bond_story",
+        {"player": "去逛逛吧", "reply": "嗯！好呀……", "chapter_title": title}))
 
 
 @pytest.fixture()
@@ -293,10 +307,14 @@ def test_bond_full_chain_over_http(web):
     "一板一停"节奏; ③ 收尾板落定后 `completed=True` 才能 finish。
     """
     st, sid = web
+    _seed_trigger(st, sid)                       # 章节标题的真源（触发动作 payload）
     started = _http("POST", "/api/bond/start",
                     json={"char_id": CHARACTER, "session_id": sid})
     assert started.status_code == 200, started.text
     assert started.json().get("accepted") is True, started.text
+    # 章节标题必带（2026-09-11 修复: 遍历所有返回路径都要有——漏了前端标题屏
+    # 就兜底成四个大字"羁绊剧情"）
+    assert started.json().get("chapter_title") == CHAPTER_TITLE, started.json()
 
     first = _poll_status(sid)
     assert first["round"] == 1 and first["scene"], first
@@ -311,8 +329,11 @@ def test_bond_full_chain_over_http(web):
     assert turned.status_code == 200, turned.text
     body = turned.json()
     assert body.get("branch") and isinstance(body.get("scene"), dict), body
+    # 2026-09-11 修复: 裁决返回**增量**（只回老师那句）——回完整物化板会让前端
+    # 把已读过的板正文重播一遍（真机"第一段出现两遍"就是这个）
+    assert [p["text"] for p in body["scene"]["paragraphs"]] == [PICK], body["scene"]
     names = [p.get("speaker_name") for p in body["scene"]["paragraphs"]]
-    assert names == ["伊草 遥香", "老师"], names      # 裁决物化 + 老师名字行
+    assert names == ["老师"], names                   # 只渲染老师那句（带名字行）
     _poll_status(sid)                                  # 等后台生成落定（busy 拒绝 finish）
 
     # 待发板（反应板 + end）: 点"继续"即领出, 0 LLM 且立刻完成
@@ -347,6 +368,25 @@ def test_bond_full_chain_over_http(web):
     assert "story_scene" in bond_kinds and "story_end" in bond_kinds, bond_kinds
     print(f"    web: bond 全链过 HTTP（{len(evs)} 条事件, 回放 {len(scenes)} 场, "
           f"待发板 0 LLM 续播）")
+
+
+# ---------------------------------------------------------------------------
+# 5b. 进入响应必带章节标题（真机: 标题屏曾显示四个大字"羁绊剧情"）
+# ---------------------------------------------------------------------------
+
+def test_bond_enter_adopt_carries_chapter_title(web):
+    """**adopt 就绪**（预热已完成 → 玩家点击）是真实最常见路径——该返回路径此前
+    漏带 `chapter_title`, 前端标题屏兜底成"羁绊剧情"（2026-09-11 用户报障）。"""
+    st, sid = web
+    _seed_trigger(st, sid)
+    staged = bond.bond_start(CHARACTER, sid, staged=True)     # 入口预热（触发轮之后）
+    assert staged.get("accepted") is True, staged
+    _poll_status(sid)                                        # 等首场生成完（预热就绪）
+    adopted = bond.bond_start(CHARACTER, sid)                # 玩家点击 → adopt
+    assert adopted.get("accepted") is True and adopted.get("resumed") is True, adopted
+    assert adopted.get("chapter_title") == CHAPTER_TITLE, adopted
+    assert bond.bond_status(CHARACTER, sid).get("chapter_title") == CHAPTER_TITLE
+    print("    web: adopt 就绪路径带章节标题（否则标题屏显示『羁绊剧情』）")
 
 
 # ---------------------------------------------------------------------------
