@@ -561,6 +561,8 @@ def bond_start(char_id: str, session_id: str, *,
         # 计时埋点（§6.1）: 内存态续玩（resumed）——即时可用
         logger.info("bond_click resumed %s/%s busy=%s",
                     char_id, session_id, "y" if state.busy else "n")
+        if state.demo is None:
+            _draft_save(state, char_id, session_id)    # 草稿旁路保持新鲜（#28b）
         # chapter_title 必带（2026-09-09: resumed/adopt 就绪同样展示章节标题屏）
         return {"accepted": True, "busy": state.busy, "resumed": True,
                 "chapter_title": state.chapter_title}
@@ -659,6 +661,19 @@ def bond_start(char_id: str, session_id: str, *,
         state.t_staged = time.monotonic()            # 计时埋点（§6.1）: 预热起点
         logger.info("bond_prewarm_start %s/%s title=%r",
                     char_id, session_id, title)
+
+    # ── 草稿旁路: 恢复待发板队列（决策 #28b, 2026-09-10）────────────
+    # 上一进程把"已生成未播放"的板落在 soul/bond_draft.json（含当前未落库板 +
+    # 待发板）。这里只需恢复**后继板队列**——首板由下面的首场缓存（同内容）或
+    # 正常生成给出; 中断回放场景则由 bond_turn 的回放交棒处再接（_draft_adopt）。
+    if not staged and state.demo is None and state.scene_obj is None \
+            and state.vn is not None and _last_bond_seq(char_id, session_id) == 0:
+        # 注: 已有已落库板（将被回放）时**不在此恢复**——那一路由 bond_turn 的
+        # 回放交棒处 _draft_adopt 统一接（避免队列被两处设置/历史重复注入）
+        rest = _draft_pending(char_id, session_id)
+        if rest:
+            state.vn._pending_boards = [BondScene.from_dict(b) for b in rest]
+            logger.info("bond_draft_q %s/%s boards=%d", char_id, session_id, len(rest))
 
     # ── 跨重启预热缓存命中（2026-09-09）────────────────────────
     # 首场曾生成但未裁决/未 adopt 即中断（进程重启, 内存 staged 丢失）→
@@ -846,8 +861,10 @@ def bond_turn(char_id: str, session_id: str, text: str) -> dict:
             state.round += 1
             state.scene_logged = True          # 事件流已落库——回放不重复落
             if not state.replay_scenes:
-                # 最后一场入屏 → 续写预生成（读屏期间完成, handoff 零等待）
-                _pregenerate(state, char_id, session_id)
+                # 最后一场入屏 → 优先接续**草稿旁路**（已生成未播放, 0 LLM 续播,
+                # 决策 #28b）; 没草稿/过期 → 续写预生成（读屏期间完成, handoff 零等待）
+                if not _draft_adopt(state, char_id, session_id):
+                    _pregenerate(state, char_id, session_id)
             # 不带 scene 返回——前端走 waitScene → status（场景经 _resolve_scene
             # 附 background_url/fx, 与分支直返路径同款降级规避）
             return {"accepted": True, "busy": False, "replay": True}
@@ -891,6 +908,7 @@ def bond_turn(char_id: str, session_id: str, text: str) -> dict:
             # ——digest/完整收尾话的唯一许可; 异常/中止永不置, 2026-09-09 语义）
             state.completed = True
         _log_scene_meta(state, char_id, session_id, state.scene_obj)
+        _draft_save(state, char_id, session_id)    # 草稿旁路刷新（#28b）
         # 链式备料（N2a 缺口补上, N2b）: 新场景未收尾——纯叙事 → 单路预生成;
         # 带 choices → 候选 spawn（读板期预跑, 与主线生成同款）
         # 记录流 v2（P0-7c 修正）: 待发板队列让"下一板"常常是 0 LLM, 但**块耗尽后
@@ -998,6 +1016,7 @@ def bond_turn(char_id: str, session_id: str, text: str) -> dict:
         # 裁决后立刻备料（P0-7c 修正）: 这里必须先 record_picked（上面已做）——
         # 预生成请求的历史要含物化裁决行。待发有货 → 0 LLM 领出反应板; 没货 →
         # 真生成下一拍（玩家读老师那句的时间即缓冲桥）。
+        _draft_save(state, char_id, session_id)   # 草稿旁路刷新（#28b）
         _pregenerate(state, char_id, session_id)
         return {"accepted": True, "busy": state.busy, "branch": True,
                 "scene": state.scene, "candidate": False}
@@ -1099,6 +1118,7 @@ def bond_finish(char_id: str, session_id: str) -> dict:
     logger.info("bond_finish 执行 %s/%s completed=%s（入口留痕）",
                 char_id, session_id, state.completed)
     _prewarm_cache_delete(char_id)             # 收尾: 旧首场缓存一并失效
+    _draft_delete(char_id)                     # 收尾: 未播放草稿一并失效（#28b）
     # SceneStream P1.5（中断/收尾防御, 2026-09-08 审计）: 会话收尾即清候选池
     # ——后台候选（若仍在生成）作废孤儿, 停止烧 token; 未选支零落库由
     # _log_scene 边界结构保证（候选从不触碰事件流）
@@ -1224,6 +1244,159 @@ def _prewarm_cache_delete(char_id: str) -> None:
         pass
 
 
+# ---------------------------------------------------------------------------
+# 草稿旁路（bond_draft.json, 2026-09-10 决策 #28 选项 b）
+#   "已生成但未播放"的内容 = 当前未落库板 + 引擎待发板队列。它们不是真源（裁决才
+#   落库）, 但**重新生成要钱要时间**（一拍可达 ~10 板 / 13~30s）——落旁路后重进
+#   0 LLM 继续播。新鲜判据: 同一 vn_enter 段 + 其后没有新的 bond 事件落库。
+# ---------------------------------------------------------------------------
+
+#: 草稿旁路文件名（与 prewarm.json 同目录: soul/）
+_DRAFT_FILE = "bond_draft.json"
+
+
+def _draft_path(char_id: str) -> Path | None:
+    try:
+        st = _store()
+        return Path(st.char_dir(char_id)) / "soul" / _DRAFT_FILE
+    except Exception:                              # noqa: BLE001 — 缓存不可用降级
+        return None
+
+
+def _last_bond_seq(char_id: str, session_id: str) -> int:
+    """最后一个 type=bond 事件的 seq（无 → 0）——草稿新鲜判据基准。"""
+    try:
+        evs = [e for e in _store().events(char_id, session_id) if e.type == "bond"]
+        return evs[-1].seq if evs else 0
+    except Exception:                              # noqa: BLE001 — 读失败按不新鲜
+        return -1
+
+
+def _open_vn_seq(char_id: str, session_id: str) -> int:
+    """最近一个 vn_enter marker 的 seq（无 → 0）——草稿归属哪一次在押段。"""
+    try:
+        seq = 0
+        for e in _store().events(char_id, session_id):
+            if e.is_marker and e.subtype == "vn_enter":
+                seq = e.seq
+        return seq
+    except Exception:                              # noqa: BLE001 — 读失败 → 0（不 adopt）
+        return 0
+
+
+def _draft_boards(state: "BondState") -> list[dict]:
+    """当前草稿 = [未落库的当前板?] + 引擎待发板队列（播放顺序）。"""
+    boards: list[dict] = []
+    if state.scene_obj is not None and not state.scene_logged:
+        boards.append(state.scene_obj.to_dict())
+    vn = state.vn
+    for sc in list(getattr(vn, "_pending_boards", []) or []):
+        boards.append(sc.to_dict() if hasattr(sc, "to_dict") else dict(sc))
+    if state.pregen_obj is not None and state.pregen_scene is not None:
+        # 预生成板（已生成待消费）也算"已生成未播放"——但它在引擎待发队列之外,
+        # 只有引擎队列已空时它才是唯一后继（避免与队列重复计数）
+        if not getattr(vn, "_pending_boards", None):
+            boards.append(dict(state.pregen_scene))
+    return boards
+
+
+def _draft_save(state: "BondState", char_id: str, session_id: str) -> None:
+    """落草稿旁路（原子写）。无可存内容 → 删旧档（宁缺勿错, 不留过期草稿）。"""
+    try:
+        path = _draft_path(char_id)
+        if path is None:
+            return
+        boards = _draft_boards(state)
+        if not boards:
+            if path.is_file():
+                path.unlink()
+            return
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "boards": boards,
+            "input": state.scene_input,
+            "base_seq": _last_bond_seq(char_id, session_id),
+            "vn_enter_seq": _open_vn_seq(char_id, session_id),
+            "round": state.round,
+            "ts": time.time(),
+        }
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        tmp.replace(path)
+    except Exception as e:                         # noqa: BLE001 — 缓存失败降级
+        logger.warning("草稿旁路写失败（降级, 不影响剧情）: %s", e)
+
+
+def _draft_delete(char_id: str) -> None:
+    try:
+        path = _draft_path(char_id)
+        if path is not None and path.is_file():
+            path.unlink()
+    except Exception:                              # noqa: BLE001
+        pass
+
+
+def _draft_load(char_id: str, session_id: str) -> list[dict] | None:
+    """读草稿 → 板 payload 列表 | None（新鲜判据不过 → None + 顺手删档）。"""
+    try:
+        path = _draft_path(char_id)
+        if path is None or not path.is_file():
+            return None
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        boards = payload.get("boards")
+        fresh = (isinstance(boards, list) and boards
+                 and int(payload.get("base_seq", -1)) == _last_bond_seq(char_id, session_id)
+                 and int(payload.get("vn_enter_seq", -1)) == _open_vn_seq(char_id, session_id))
+        if not fresh:
+            _draft_delete(char_id)                 # 过期/坏档 → 清掉, 别留矛盾数据
+            return None
+        out = [b for b in boards if isinstance(b, dict)]
+        return out or None
+    except Exception:                              # noqa: BLE001 — 坏档当 miss
+        _draft_delete(char_id)
+        return None
+
+
+def _draft_pending(char_id: str, session_id: str) -> list[dict]:
+    """只取草稿的**后继板**（boards[1:]）——进剧情时若首板由 prewarm 首场缓存给出,
+    这一份用于恢复引擎待发队列（后续点击 0 LLM）。过期/坏档 → []。"""
+    boards = _draft_load(char_id, session_id)
+    return boards[1:] if boards and len(boards) > 1 else []
+
+
+def _draft_adopt(state: "BondState", char_id: str, session_id: str) -> bool:
+    """重进接续: 草稿首板设为当前板（未落库, 正常推进即落库）, 其余灌回引擎待发队列。
+
+    Returns: 是否接上（False = 无草稿/过期 → 调用方走正常生成）。
+    """
+    boards = _draft_load(char_id, session_id)
+    if not boards or state.vn is None:
+        return False
+    try:
+        first = BondScene.from_dict(boards[0])
+        rest = [BondScene.from_dict(b) for b in boards[1:]]
+        state.vn._pending_boards = rest              # 后续点击 0 LLM 领出（与正常完全同构）
+        # 引擎历史/回录基准注入（与 prewarm 缓存命中同款——否则后续生成无剧情上下文）
+        vn_payload = first.to_dict()
+        hist_txt = render_bond_scene_text(vn_payload)
+        state.vn._history.append({"role": "user", "content": "（继续）"})
+        state.vn._history.append({
+            "role": "assistant",
+            "content": hist_txt or json.dumps(vn_payload, ensure_ascii=False,
+                                              separators=(",", ":")),
+        })
+        state.vn._last_payload = vn_payload
+        state.round += 1
+        _scene_landed(state, first, char_id, session_id, "（继续）",
+                      t0=time.monotonic(), save_cache=False)
+        logger.info("bond_draft_hit %s/%s boards=%d", char_id, session_id, len(boards))
+        return True
+    except Exception as e:                         # noqa: BLE001 — 注入失败 → 走正常生成
+        logger.warning("草稿接续失败（降级为正常生成）: %s", e)
+        state.vn._pending_boards = []
+        return False
+
+
 def _scene_landed(state: BondState, scene: BondScene, char_id: str,
                   session_id: str, user_input: str, *, t0: float,
                   save_cache: bool) -> None:
@@ -1274,6 +1447,9 @@ def _scene_landed(state: BondState, scene: BondScene, char_id: str,
     if save_cache and state.demo is None:
         _prewarm_cache_save(char_id, session_id, scene.to_dict(),
                             user_input, state.chapter_title)
+    # 草稿旁路（#28b）: 每次板落地都刷新"未播放内容"（当前未落库板 + 待发队列）
+    if state.demo is None:
+        _draft_save(state, char_id, session_id)
 
 def _generate(state: BondState, char_id: str, session_id: str, user_input: str) -> bool:
     """后台线程: 生成下一场 → 更新 state（场景/事件/兜底）。
@@ -1385,12 +1561,14 @@ def _pregenerate(state: BondState, char_id: str, session_id: str) -> None:
                 _enqueue_annotate(state, scene)
                 logger.info("bond_pregen ok %s/%s dur=%dms",
                             char_id, session_id, _ms_since(t0))
+                _draft_save(state, char_id, session_id)   # 草稿旁路刷新（#28b）
         except Exception as e:                     # noqa: BLE001 — 预生成失败降级
             logger.warning("bond 预生成失败 (%dms, 降级为点击时再生成): %s",
                            _ms_since(t0), e)
             state.pregen_obj = None
             state.pregen_scene = None
             state.pregen_input = ""
+            _draft_save(state, char_id, session_id)    # 队列/当前板仍值得留（#28b）
         finally:
             state.busy = False
 
