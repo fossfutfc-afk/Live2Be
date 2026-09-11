@@ -260,16 +260,22 @@ async function main() {
   await page.locator("#bond-choices .bond-choice").first().click();
   await waitInteractionReset(page);
   const afterPick = await readUntilInteraction(page, "裁决后物化板");
-  const teacherLine = afterPick.find((p) => p.speaker === "老师") || null;
+  const pickLine = afterPick.find((p) => p.text.includes("我来了")) || null;
   record("裁决物化", {
-    info: teacherLine
-      ? `老师那句=${JSON.stringify(teacherLine.text.slice(0, 30))}`
-      : `未读到老师名字行（段落=${afterPick.length}）`,
+    info: pickLine
+      ? `老师那句=${JSON.stringify(pickLine.text.slice(0, 30))}`
+      : `未读到老师那句（段落=${afterPick.length}）`,
     shot: await shot(page, "vn-after-pick"),
     transcript: afterPick,
   });
-  if (!teacherLine) throw new Error("裁决后未渲染出「老师」名字行");
-  if (!teacherLine.text.includes("我来了")) throw new Error("老师那句内容不对: " + teacherLine.text);
+  if (!pickLine) throw new Error("裁决后未渲染出老师那句");
+  // 2026-09-11 定稿规则: 正文区**不画**名字行——当前角色（名字牌已写明）与
+  // **老师**（玩家自己选的那句）都不画; 只有"别的角色"才画（未来多角色同场）。
+  // 这条正是用户两次报的"红字老师是不明字段"（且只在裁决+继续节点出现）。
+  const strayLabels = afterPick.filter((p) => p.speaker).map((p) => p.speaker);
+  if (strayLabels.length) {
+    throw new Error(`裁决节点仍画了名字行（应无）: ${JSON.stringify(strayLabels)}`);
+  }
   // 增量渲染: 裁决后**不许重播已读段落**（2026-09-11 真机报障"第一段出现两遍才进第二段"）。
   // 判据: 点击瞬间残留在屏上的旧段允许出现一次（且必须是第一条）; 之后若再出现板正文
   // 的文本 = 前端把整块重渲染了一遍（bug 现象）。
@@ -278,7 +284,7 @@ async function main() {
   if (replayed.length) {
     throw new Error(`裁决后重播了已读段落: ${JSON.stringify(replayed)}`);
   }
-  if (afterPick[afterPick.length - 1].text !== teacherLine.text) {
+  if (afterPick[afterPick.length - 1].text !== pickLine.text) {
     throw new Error("裁决后最后一段不是老师那句: " + JSON.stringify(afterPick));
   }
 
@@ -288,6 +294,10 @@ async function main() {
   const ending = await readToEnd(page);
   if (!ending.some((p) => p.text.includes("她愣了一下"))) {
     throw new Error("收尾板正文没读到（反应板未播完）: " + JSON.stringify(ending));
+  }
+  const endLabels = ending.filter((p) => p.speaker).map((p) => p.speaker);
+  if (endLabels.length) {
+    throw new Error(`收尾节点仍画了名字行（应无）: ${JSON.stringify(endLabels)}`);
   }
   await page.waitForSelector("#mmt-input:not([disabled])", { timeout: 25000 });
   // 退出 VN 后前端重启轮询拉完成态气泡 → 等"已完成羁绊剧情"行出现（别抢跑）

@@ -658,12 +658,20 @@ let lastSceneKey = "";
     }
   }
 
-  /** 该 speaker 是否就是"当前在屏角色"（名字牌上那位）——是则不再画重复的名字行。
-   *  比对前归一化空白（"伊草 遥香" / "伊草遥香" 视为同一人）。 */
+  /** 是否**不该**画正文区名字行（`.bond-speaker`）。
+   *
+   *  2026-09-11 真机两轮反馈后的定稿规则: 不画的两类 = ① 当前在屏角色（名字牌
+   *  #bond-name/#bond-club 已经写明, 再画是重复）; ② **老师**（玩家自己选的那句
+   *  ——用户两次报"红字老师是不明字段", 它只在"裁决物化 + 继续按钮"那个节点出现,
+   *  因为那时屏上就是玩家选的话）。
+   *  其余 speaker（未来多角色同场）照常画——那时名字行是必要的区分。
+   *  比对前归一化空白（"伊草 遥香" / "伊草遥香" 视为同一人）。
+   */
   function _isOnStageSpeaker(speakerName) {
     const norm = (s) => String(s || "").replace(/\s+/g, "");
     const s = norm(speakerName);
     if (!s) return false;
+    if (s === "老师" || s === "sensei") return true;      // 玩家那句不画标签
     return s === norm(name) || s === norm($("bond-name").textContent);
   }
 
@@ -961,8 +969,17 @@ let lastSceneKey = "";
       } catch (e) { return { tries, timedOut: false }; }   // 网络抖动: 放行重试
       if (st.completed || (!st.busy && !st.gate_busy)) return { tries, timedOut: false };
       const secs = Math.round((Date.now() - t0) / 1000);
-      const why = st.busy ? "生成中" : "标注中";
-      if (secs > 0 && secs % 5 === 0) updateWaitNote(secs, why);
+      // 卡在哪（2026-09-11）: 后端把两路拆开给了（busy_ms/gate_emo/gate_place/
+      // pregen_wait）——文案直接写出来, 且 dbg 留一份现场, 下次报障不必再猜。
+      const why = st.busy
+        ? `生成中${st.busy_ms ? "·" + Math.round(st.busy_ms / 1000) + "s" : ""}`
+        : (st.pregen_wait ? "下一板标注中"
+           : (st.gate_emo === false ? "表情标注中" : "换场判定中"));
+      if (secs > 0 && secs % 5 === 0) {
+        updateWaitNote(secs, why);
+        dbg("等待卡点", secs, "s", why, "round", st.round,
+            "anno", st.anno || {}, "busy_ms", st.busy_ms);
+      }
       if (Date.now() - t0 > TURN_SOFT_WAIT_MS) {
         dbg("推进忙等软超时放行", secs, "s why=", why);
         updateWaitNote(secs, why + "·先展示");

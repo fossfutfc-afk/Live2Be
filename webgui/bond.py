@@ -1329,9 +1329,24 @@ def bond_status(char_id: str, session_id: str) -> dict:
                 _ensure_lane(state, started_attr=started_attr,
                              thread_attr=thread_attr, worker_fn=fn, lane=lane)
     role = _role_info(char_id)
+    # 卡在哪（2026-09-11 第二次真机"已等待 110s"复盘）: 上一轮只给了 busy/gate_busy
+    # 两个布尔, 事故时**无法判断是哪一路卡住**（旧日志里也没有）。这里把两路拆开 +
+    # 忙态持续时长 + 预生成门一起给出——一次 status 快照即可定位:
+    #   gate_emo=False → emotion 标注没回来（lane 死/结果被丢弃）;
+    #   gate_place=False → place 判定没回来;
+    #   busy_ms 很大而日志无生成 → 忙态卡死（线程丢失; 由看门狗复位）;
+    #   pregen_wait=True → "继续"被预生成消费门挡住。
+    gate_emo = _scene_emotions_ready(state)
+    gate_place = _scene_places_ready(state)
+    pregen = getattr(state, "pregen_obj", None)
     return {
         "busy": state.busy,
-        "gate_busy": not _scene_visual_ready(state),
+        "gate_busy": not (gate_emo and gate_place),
+        "gate_emo": gate_emo,
+        "gate_place": gate_place,
+        "busy_ms": _ms_since(state.busy_since) if state.busy_since else 0,
+        "pregen_wait": bool(pregen is not None
+                            and not _scene_obj_visual_ready(state, pregen)),
         "round": state.round,
         "scene": state.scene,
         "error": state.error,
