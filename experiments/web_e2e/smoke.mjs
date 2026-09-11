@@ -297,6 +297,68 @@ async function main() {
     throw new Error(`裁决后名字牌不该变（BA: 名字不用变）: ${JSON.stringify(plateAfterPick)}`);
   }
 
+  // ── 6.5 中途退出重进 → 回放里"选项态"必须看得见（2026-09-12 用户要求）────
+  // 场景: 玩家选了选项后关掉页面（硬退出, 事件流里那条 bond 场景已带 picked）→
+  // 重进 → 回放该场。此时正文仍不许出现玩家那句（决策 #37）, 但**选项组要画出来**
+  // 并高亮所选——否则"选哪个选项看起来都一样"（用户反馈）。
+  {
+    // 先丢掉进程内状态（桩世界钩子）——**模拟服务端重启**: 浏览器刷新时服务端
+    // 内存态还在的话, 重进走的是"就地续玩"（选项已被裁决清空, 不该再给）;
+    // 只有内存态没了, 才走事件流**回放**, 那里才需要把选项组画出来。
+    const dropped = await page.evaluate(async (base) => {
+      const r = await fetch(`${base}/__e2e/drop_bond_state`, { method: "POST" });
+      return r.ok ? await r.json() : { dropped: -1 };
+    }, baseUrl);
+    await page.reload({ waitUntil: "domcontentloaded" });
+    // 重载后回到登录确认屏（名字已存）→ 再进主界面（与步骤 1/2 同路径）
+    await page.waitForSelector("#view-login:not(.hidden)", { timeout: 30000 });
+    await page.click("#btn-ok");
+    await page.waitForSelector("#btn-enter:not(.hidden)", { timeout: 15000 });
+    await page.click("#btn-enter");
+    await page.waitForSelector("#view-main:not(.hidden)", { timeout: 15000 });
+    await page.click("#btn-mmt");
+    await page.waitForSelector("#view-mmt:not(.hidden)", { timeout: 15000 });
+    await page.click('.mode-btn[data-mode="chat"]');
+    await page.waitForSelector("#mmt-chat-list [data-id]", { timeout: 20000 });
+    await page.click('#mmt-chat-list [data-id="igusa_haruka"]');
+    // 在押章节: 历史重建的粉泡（bond_entry）或下方兜底入口条 —— 点它续进回放
+    await page.waitForSelector(".bond-entry", { timeout: 30000 });
+    await page.click(".bond-entry");
+    await page.waitForSelector("#view-bond:not(.hidden)", { timeout: 25000 });
+    await page.waitForFunction(
+      () => {
+        const t = document.getElementById("bond-text");
+        return t && t.innerText.trim().length > 2;
+      }, { timeout: 40000 });
+    const replayParas = await readUntilInteraction(page, "重进回放（选项态）");
+    const locked = await page.evaluate(() => {
+      const all = [...document.querySelectorAll("#bond-choices .bond-choice")];
+      return {
+        total: all.length,
+        resolved: all.filter((b) => b.classList.contains("resolved")).length,
+        pickedText: (all.find((b) => b.classList.contains("picked")) || {}).textContent || "",
+        disabled: all.filter((b) => b.disabled).length,
+      };
+    });
+    record("重进回放·选项态", {
+      info: `${JSON.stringify(dropped)} 正文=${JSON.stringify(replayParas.map((p) => p.text.slice(0, 16)))} `
+        + `选项=${locked.total} 锁定=${locked.resolved} 禁用=${locked.disabled} `
+        + `所选=${JSON.stringify(locked.pickedText)}`,
+      shot: await shot(page, "vn-replay-choices"),
+      transcript: replayParas, locked,
+    });
+    if (replayParas.some((p) => p.text.includes("我来了"))) {
+      throw new Error(`重进回放仍把玩家那句当正文: ${JSON.stringify(replayParas)}`);
+    }
+    if (!locked.total || locked.resolved !== locked.total) {
+      throw new Error(`重进回放的选项组没画成锁定态: ${JSON.stringify(locked)}`);
+    }
+    if (locked.pickedText.trim() !== "我来了。") {
+      throw new Error(`重进回放没高亮所选: ${JSON.stringify(locked)}`);
+    }
+    // 注: 这里**不推进** —— 交给步骤 7 的"▼ 继续"从回放交棒到后续板。
+  }
+
   // ── 7. 继续 → 收尾板 → 自动 finish 回 MMT ────────────────────────────
   await page.click("#bond-choices .bond-continue-btn");
   await waitInteractionReset(page);
@@ -351,6 +413,22 @@ async function main() {
   if (!wrapupShown) {
     throw new Error("收尾话未自动冒泡（前端轮询过早停止）: "
       + afterWrapup.slice(0, 200).replace(/\n/g, " / "));
+  }
+  // 收尾话到了之后**不该再显示"对方正在输入…"**（2026-09-12 真机报障: 话已经
+  // 全部显示完了, 三个点还在跳, 半分钟后静默消失——旧逻辑在 25s 宽限窗口里
+  // 无条件 showTyping）。观察 3.5s: **期间任何一次出现**都算残留（轮询 1s 一次,
+  // 只看"当下有没有"会错过它下一拍又冒出来）。
+  let typingSeen = false;
+  for (let i = 0; i < 35; i++) {
+    typingSeen = await page.evaluate(() => !!document.getElementById("mmt-typing"));
+    if (typingSeen) break;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  record("收尾后打字指示", {
+    info: typingSeen ? "❌ 收尾话已到, 三个点仍在跳" : "收尾话落地即消失（观察 3.5s）",
+  });
+  if (typingSeen) {
+    throw new Error("收尾话已显示完, 打字指示（mmt-typing）仍残留 —— 宽限窗口谎报");
   }
 
   await browser.close();

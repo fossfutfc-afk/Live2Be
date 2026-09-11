@@ -803,7 +803,7 @@ def _interrupt_scene(st, sid, text, *, choices=None, picked=None, title=""):
 
 
 def test_bond_interrupt_replay_single_scene_handoff(tmp_path):
-    """中断单场: 重进 → 回放该场（主段落+所选分支, 无选项）→ 预生成续写交棒。"""
+    """中断单场: 重进 → 回放该场（主段落 + 所选分支顺接 + **选项组只读重现**）→ 预生成交棒。"""
     engine, st, sid, _llm = _setup(tmp_path, STORY_END)
     try:
         st.enter_vn(CHARACTER, sid, "中断的约定")
@@ -817,7 +817,11 @@ def test_bond_interrupt_replay_single_scene_handoff(tmp_path):
         paras = st1["scene"]["paragraphs"]
         assert paras[0]["text"] == "第一场。"        # 主段落
         assert paras[-1]["text"] == "分支·A"         # 所选分支顺接
-        assert st1["scene"]["choices"] == []          # 叙事化: 无选项（自动跟随记录）
+        # 选项组**保留**（2026-09-12 用户反馈: 否则"选哪个选项都一样"）——
+        # 前端画成锁定态 + 高亮 picked; 裁决句本身仍不进正文（决策 #37）
+        assert st1["scene"]["choices"] == ["A", "B"], st1["scene"]
+        assert st1["scene"]["picked"] == "A", st1["scene"]
+        assert "A" not in [p["text"] for p in paras]     # 玩家那句不上屏
 
         # 交棒: 点继续 → 预生成已就绪 → promotion 到续写场（story_end）
         r2 = bond.bond_turn(CHARACTER, sid, "（继续）")
@@ -922,6 +926,53 @@ def test_bond_record_stream_slots_and_free_next_board(tmp_path):
         assert any(f"老师：{RECORD_PICK}" in m["content"]
                    for m in vn_engine.history if m["role"] == "assistant")
         print("    v2: 选项物化 + 待发板 0 LLM + 事件流带 records/picked")
+    finally:
+        _cleanup()
+
+
+def test_reentry_replay_hands_off_to_draft_not_regenerate(tmp_path):
+    """重进中断剧情（已裁决过一板）: 回放交棒**先接草稿旁路**——0 LLM, 内容不丢。
+
+    2026-09-12 修正: 此前 `_start_replay` 在"回放队列只有一场"时直接 `_pregenerate`,
+    于是已生成的后继板被丢弃、重新生成一份（冒烟实测 `bond_pregen src=gen` 紧跟
+    `bond_board_deliver src=replay`）。现在改成先 `_draft_queue`（排队, 不动屏上
+    刚回放的那一场）, 且这一板的交付来源标成 `draft`。
+    """
+    engine, st, sid, llm = _setup(tmp_path, RECORD_BLOCK, STORY_END)
+    try:
+        bond.bond_start(CHARACTER, sid)
+        _wait_status(CHARACTER, sid)
+        bond.bond_turn(CHARACTER, sid, RECORD_PICK)     # 裁决 → 板落库 + 草稿刷新
+        draft_file = Path(bond._draft_path(CHARACTER))
+        assert draft_file.is_file(), "裁决后应留草稿（后继板已生成未播放）"
+        # 模拟进程重启（事件流 + 草稿在盘上, 内存态清掉）
+        bond._bonds.pop((CHARACTER, sid), None)
+        chat._engines.pop(CHARACTER, None)
+        engine2, st2, sid2, llm2 = _setup(tmp_path, RECORD_BLOCK, STORY_END)
+
+        r = bond.bond_start(CHARACTER, sid2)
+        assert r["accepted"] and r.get("replay") is True, r
+        stt = _wait_status(CHARACTER, sid2)
+        # 屏上是**回放的那一板**（板正文 + 选项组只读重现）, 玩家那句不在正文里
+        assert [p["text"] for p in stt["scene"]["paragraphs"]] == ["……老师，你来了。"]
+        assert stt["scene"]["choices"] == ["我来了。", RECORD_PICK]
+        assert stt["scene"]["picked"] == RECORD_PICK
+        # 交棒: 草稿已**排队**（而不是 adopt 上屏, 也不是重新生成）
+        state = bond._state(CHARACTER, sid2)
+        pending = [[p["text"] for p in s.to_dict()["paragraphs"]]
+                   for s in state.vn._pending_boards]
+        assert pending == [["「不、不用这样的……」", "（夜风停了。）"]], pending
+        assert state.vn._pending_boards[0].is_end is True, "草稿板内容原样（含 end）"
+        assert not _scene_calls(llm2), "回放交棒不应调用主 LLM（草稿已生成）"
+
+        # 点继续 → 待发板（来自草稿, 0 LLM）→ 正常落库
+        r2 = _turn_until_accepted(CHARACTER, sid2, "（继续）")
+        assert r2["accepted"]
+        st3 = _wait_status(CHARACTER, sid2)
+        assert [p["text"] for p in st3["scene"]["paragraphs"]] == [
+            "「不、不用这样的……」", "（夜风停了。）"]
+        assert not _scene_calls(llm2), "草稿续播期间不应调用主 LLM"
+        print("    v2 重进回放: 选项组只读重现 + 交棒接草稿（0 LLM, 不重新生成）")
     finally:
         _cleanup()
 

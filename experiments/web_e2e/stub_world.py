@@ -171,6 +171,18 @@ def serve(port: int = 0, data_root: Path | None = None, ready_timeout: float = 2
 
     from webgui.app import app
 
+    #: 冒烟专用钩子（**只在桩世界里注册**, 产品 app 没有这个路由）:
+    #: 丢掉进程内的 BondState —— 模拟"服务端重启/内存态丢失", 让下一次进入
+    #: 走**事件流回放**（回放/续看路径）。用它验证"重进时选项组只读重现"
+    #: （用户 2026-09-12 要求: 否则选哪个选项看起来都一样）。
+    @app.post("/__e2e/drop_bond_state")
+    async def _e2e_drop_bond_state() -> dict:
+        from webgui import bond as _bond
+
+        n = len(_bond._bonds)
+        _bond._bonds.clear()
+        return {"dropped": n}
+
     _st, sid, _engine, llm = build_world(root)
 
     cfg = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning")

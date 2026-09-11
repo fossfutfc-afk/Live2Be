@@ -126,6 +126,11 @@ let _polling = false;      // 是否在轮询回复中
 //: resumePolling 后的宽限期（2026-09-11）: 收尾 wrapup 可能还没占上任务位,
 //: 窗口内即使 `running=false` 也继续轮询（否则收尾气泡要切页才出现）
 let _pollGraceUntil = 0;
+//: 宽限窗口内**是否已经收到新气泡**（2026-09-12 真机报障修正）:
+//: 收尾话已经全部显示完了, 三个点却还跳了半分钟才静默消失——宽限窗口只该覆盖
+//: "收尾话还没到"的那段; 气泡一旦落地就没有人在输入了（轮询照旧继续, 只为不丢
+//: 后续气泡, 但不再显示"对方正在输入…"）。
+let _graceGotBubbles = false;
 
 const POLL_MS = 1000;          // 轮询间隔
 const POLL_RESUME_GRACE_MS = 25 * 1000;   // VN 退出后继续轮询的宽限窗口
@@ -523,6 +528,7 @@ async function pollLoop() {
     }
     if (data.bubbles && data.bubbles.length) {
       hideTyping();
+      _graceGotBubbles = true;       // 宽限窗口内已见新气泡 → 收尾话到了（见下）
       _lastSeq = data.last_seq;
       // 增量轮询: 跳过 player 气泡（sendMessage 已乐观渲染, 避免重复渲染;
       // 全量加载 openChat(since=0) 仍渲染 player——历史重建需要）
@@ -552,9 +558,16 @@ async function pollLoop() {
     // 渲染, 含 lockChat→改为点击才进入）——不再自动接管 VN 视图; 玩家点击
     // 粉泡（enterBond）才进入; 想继续聊天也可以（粉泡常驻等待点击）
     if (!data.running) {
-      // 宽限窗口内（刚退出 VN）: 收尾 wrapup 可能还没占上任务位 → 再等一会
+      // 宽限窗口内（刚退出 VN）: 收尾 wrapup 可能还没占上任务位 → 再等一会。
+      // 2026-09-12: **已收到气泡就不再显示"对方正在输入…"**（真机报障: 收尾话
+      // 全部显示完了, 三个点还在跳, 半分钟后静默消失）。仍然继续轮询（只到窗口
+      // 耗尽）, 免得后到的收尾气泡被漏掉——只是不再谎报"有人在打字"。
       if (Date.now() < _pollGraceUntil) {
-        showTyping();                         // "对方正在输入…"（收尾话在写）
+        if (!_graceGotBubbles) {
+          showTyping();                       // 收尾话还没到
+        } else {
+          hideTyping();                       // 已到: 静默等窗口耗尽
+        }
         continue;
       }
       hideTyping();
@@ -573,6 +586,7 @@ async function pollLoop() {
 // 看见 running=false 也继续轮询, 直到收尾话落地或窗口耗尽。
 function resumePolling() {
   _pollGraceUntil = Date.now() + POLL_RESUME_GRACE_MS;
+  _graceGotBubbles = false;          // 新一轮宽限: 还没收到收尾气泡
   if (!_polling) {
     _polling = true;
     pollLoop();

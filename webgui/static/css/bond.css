@@ -268,6 +268,21 @@
   color: #1e4a8c;
   transform: translateY(-1px);
 }
+/* 回放/续看里的**已裁决**选项组（2026-09-12）: 只读——整体压暗, 所选那条保持
+   高亮 + 左侧橙色标记条（玩家一眼看出"当时给了什么、我选了什么"）。 */
+.bond-choice.resolved {
+  opacity: 0.45;
+  cursor: default;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+}
+.bond-choice.resolved.picked {
+  opacity: 1;
+  color: #1e4a8c;
+  background: linear-gradient(180deg, #ffffff, #ffe9cf);
+  border-left: 6px solid #ffb273;
+  cursor: default;
+}
+.bond-choice.resolved.picked:hover { transform: none; }
 
 .bond-free { display: flex; gap: 0.6rem; width: 100%; }
 .bond-free input {
