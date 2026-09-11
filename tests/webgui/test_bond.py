@@ -1100,6 +1100,12 @@ def test_bond_stream_first_board_visible_before_block_done(tmp_path):
         print("    v2 渐进渲染: 块未完成时首板已可读（busy=True 即有场景）")
     finally:
         gate.set()
+        # 等生成线程落定**再**摘 store——否则线程后续落库会读到恢复后的全局
+        # store（2026-09-11 事故: 曾把 vn_state 写进真实 data/events.jsonl）
+        deadline = time.time() + 10.0
+        while time.time() < deadline and bond.bond_status(CHARACTER, sid)["busy"]:
+            time.sleep(0.05)
+        time.sleep(0.2)
         _cleanup()
 
 
@@ -1134,4 +1140,112 @@ def test_bond_turn_router_resolves_direct_scene(tmp_path):
         assert _resolve_scene(narr, CHARACTER)["paragraphs"][1]["speaker_name"] == "老师"
         print("    v2 回放/直返: 场景过 _resolve_scene + 记录真源与裁决都在")
     finally:
+        _cleanup()
+
+
+def test_bond_flow_store_bound_at_state_creation(tmp_path):
+    """**流程落库绑 store**（2026-09-11 真机事故回归）。
+
+    事故: 渐进渲染测试的生成线程活过了 `_cleanup()` 的 store 恢复——线程后续
+    `_log_scene_meta/_prewarm_cache_save/_draft_save` 读全局 `chat._store` →
+    把 `vn_state` marker 与缓存写进**真实** data/（真实 events.jsonl 多出
+    seq 31~33 + prewarm.json/bond_draft.json）。
+
+    修法: store 在 `_state()` 创建时绑定到 BondState; 流程内一切读写走
+    `_flow_store(state)`。本用例模拟"生成在途时切走全局 store"并断言:
+    ① 落库进流程绑定的 store; ② 切换后的 store 一点没沾; ③ 真实 data 未被追加。
+    """
+    import threading as _th
+    from core.session import SessionStore as _SS
+
+    block = "\n".join([
+        '{"stage": "switch", "text": "教室"}',
+        '{"character": "igusa_haruka", "text": "（首板）她抬起头。"}',
+        '{"character": "sensei", "text": "选A"}',
+        '{"character": "igusa_haruka", "text": "（反应板）她笑了。"}',
+    ])
+    gate, entered = _th.Event(), _th.Event()
+
+    class GateLLM:
+        """主生成卡在闸门（模拟在途）; 标注/digest 旁路交回 ScriptedLLM 桩。"""
+
+        def __init__(self):
+            self._stub = ScriptedLLM()
+
+        @staticmethod
+        def _side(messages):
+            head = messages[0]["content"]
+            last = messages[-1]["content"] if len(messages) > 1 else ""
+            return ("情绪标签数组" in last or "变更句数组" in last
+                    or "地点 id JSON" in last or "记录员" in head or "整理者" in head)
+
+        def chat(self, messages, **kw):
+            if self._side(messages):
+                return self._stub.chat(messages, **kw)
+            entered.set()
+            gate.wait(timeout=10)
+            return block
+
+        def chat_full(self, messages, **kw):
+            if self._side(messages):
+                return self._stub.chat(messages, **kw)
+            entered.set()
+            gate.wait(timeout=10)
+            on_chunk = kw.get("on_chunk")
+            if on_chunk:
+                on_chunk(block)
+            return block
+
+        def format_messages(self, *, system_prompt, user_message, history=None):
+            return self._stub.format_messages(
+                system_prompt=system_prompt, user_message=user_message,
+                history=history)
+
+    engine, st, sid, _llm = _setup(tmp_path)
+    engine.llm = GateLLM()
+    other = _SS(tmp_path / "other")               # 模拟"另一个世界线/重启后的 store"
+    real_file = None
+    try:
+        real_file = Path(_ORIG_STORE.events_path(CHARACTER))   # data/.../soul/events.jsonl
+        before = real_file.read_text(encoding="utf-8") if real_file.is_file() else None
+    except Exception:                             # noqa: BLE001 — 无真实 data（干净检出）
+        before = None
+
+    def _soul_count(store):
+        try:
+            return len((Path(store.char_dir(CHARACTER)) / "soul" / "prewarm.json")
+                       .read_text(encoding="utf-8"))
+        except Exception:                         # noqa: BLE001 — 不存在即 0
+            return 0
+
+    try:
+        bond.bond_start(CHARACTER, sid)
+        assert entered.wait(timeout=10), "主生成未进入 LLM"
+        chat._store = other                       # ← 生成在途, 全局 store 被切走
+        gate.set()
+        stt = _wait_status(CHARACTER, sid)
+        assert stt["round"] == 1, stt
+        mine = st.events(CHARACTER, sid)
+        assert [e.subtype for e in mine
+                if e.is_marker and e.subtype == "vn_state"], \
+            "每场 vn_state marker 应落进**流程绑定的** store"
+        assert [e for e in mine if e.type == "bond"] == [], \
+            "板在裁决前不落库（append-only: 落地只写 marker + 缓存旁路）"
+        try:
+            stray = [e for e in other.events(CHARACTER, sid)
+                     if e.is_marker and e.subtype == "vn_state"]
+        except Exception:                         # noqa: BLE001 — 未建会话 = 无事件
+            stray = []
+        assert stray == [], "生成线程不得写进切换后的 store"
+        assert _soul_count(st) > 0, "prewarm 缓存应落进流程 store"
+        if before is not None:
+            after = real_file.read_text(encoding="utf-8") if real_file.is_file() else None
+            assert after == before, "真实 data/events.jsonl 被测试流程追加（污染回归）"
+        print("    v2 store 绑定: 流程在途切走全局 store 也不写错世界线")
+    finally:
+        gate.set()
+        deadline = time.time() + 10.0             # 等生成线程落定再摘 store（本次事故根因）
+        while time.time() < deadline and bond.bond_status(CHARACTER, sid)["busy"]:
+            time.sleep(0.05)
+        time.sleep(0.2)
         _cleanup()
