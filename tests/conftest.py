@@ -41,6 +41,26 @@ os.environ.setdefault(
     str(Path(__file__).resolve().parent.parent / ".testtmp" / "diag" / "test.log"))
 
 
+@pytest.fixture(autouse=True)
+def _clear_module_caches():
+    """清**进程级模块缓存**——否则用例结果取决于执行顺序（2026-09-12 实测）。
+
+    案例: `core/bond/place_annotate._RESOLVE_CACHE`（换场翻译: 同 `当前地点|地点话`
+    只调一次 LLM）。先跑的用例（webgui 桩把「教室」译成 MISS）会把结果留给
+    `tests/core/test_director.py::test_engine_attaches_background_audio`（它期望
+    「教室」→ `class_room`）→ **`pytest tests/webgui tests/core` 红, 换个顺序就绿**。
+    新增模块级缓存时请一并登记到这里。
+    """
+    from core.bond import place_annotate as pa
+
+    cache = getattr(pa, "_RESOLVE_CACHE", None)
+    if cache is not None:
+        cache.clear()
+    yield
+    if cache is not None:
+        cache.clear()
+
+
 @pytest.fixture(scope="session", autouse=True)
 def _no_image_gen():
     """生图总开关: 整个测试会话硬关（`LIVE2BE_IMAGE=off`）。

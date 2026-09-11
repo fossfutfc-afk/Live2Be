@@ -33,7 +33,6 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from contract import CHARACTER_SENSEI, NON_PICKS, pick_insert_index
 from core.bond.bond_story import BondScene, BondStoryEngine, SceneLoopError
 from core.media.gallery import GalleryStore
 from core.momotalk import load_brain_segment
@@ -539,12 +538,17 @@ def _pending_in_vn(char_id: str, session_id: str) -> bool:
 
 
 def _narrativize(scene: dict, picked) -> dict:
-    """回放场景叙事化: 主段落 + 所选分支段落顺接, 去掉选项/分支结构——
-    前端只看到"段落流 + 继续", 与纯叙事场同交互（选项跟随记录自动隐含）。
+    """回放场景叙事化: 只保留板正文段落, 去掉选项/分支结构——前端只看到"段落流 +
+    继续", 与纯叙事场同交互（选项跟随记录自动隐含）。
 
-    记录流 v2（P0-6）: 板带 `records` 时**裁决物化**（把 `老师：X` 插回群首,与
-    `BondScene.from_dict`/`render_records` 同一语义、同一插入位置）——v1 的
-    branches 顺接保持不变（旧档冻结）。
+    **玩家的话语永远只体现为选项（2026-09-12 用户核对 BA 后定稿）**: 裁决句
+    **不再物化进段落**——它一旦当正文上屏就会被读成角色台词（真机报障:
+    "睦月/便利屋68 + 你还打算对我怎么恶作剧？"）。事件 payload 里 `picked` 照旧
+    保留并随回放 API 单独带回; 将来要在回放里显示"当时选了哪句", 应做成**选项态**
+    UI（高亮所选）, 不是正文行。
+
+    v1 的 branches 顺接保持不变（旧档冻结）——分支段落是**剧情内容**（角色的反应）,
+    不是玩家的话, 该留。
     """
     out = dict(scene or {})
     out.pop("choices", None)
@@ -552,36 +556,11 @@ def _narrativize(scene: dict, picked) -> dict:
     paras = [dict(p) for p in (out.get("paragraphs") or []) if isinstance(p, dict)]
     records = scene.get("records") if isinstance(scene, dict) else None
     pick_text = str(picked).strip() if isinstance(picked, str) else ""
-    if pick_text and pick_text not in NON_PICKS and isinstance(records, list) and records:
-        idx = pick_insert_index(records, (scene or {}).get("choices") or ())
-        paras.insert(min(idx, len(paras)),
-                     {"text": pick_text, "speaker": CHARACTER_SENSEI})
-    elif picked:
+    if not (isinstance(records, list) and records):
         br = (scene or {}).get("branches") or {}
-        if isinstance(br, dict) and picked in br:
-            paras += [dict(p) for p in br[picked] if isinstance(p, dict)]
+        if pick_text and isinstance(br, dict) and pick_text in br:
+            paras += [dict(p) for p in br[pick_text] if isinstance(p, dict)]
     out["paragraphs"] = paras
-    return out
-
-
-def _display_delta(scene: dict, picked: str) -> dict:
-    """裁决就地展示的**增量**场景: 只留新出现的"老师那句", 不回放已读过的板正文。
-
-    2026-09-11 真机修复: 裁决后把完整物化板（板正文 + 老师那句）交给前端
-    `renderScene` → 前端从头逐段渲染 → 玩家把第一段又读了一遍（"第一段出现两遍
-    才进第二段"）。这里只回增量段落; 背景/place/records 等载体照旧带上（前端
-    渲染路径不变——它只消费 paragraphs）。
-
-    纯叙事场（`picked` 是"（继续）"等非裁决）→ 没有增量可言: 原样返回（该路径
-    本就不走这里, 兜底防御）。
-    """
-    text = str(picked or "").strip()
-    if not text or text in NON_PICKS:
-        return scene
-    out = dict(scene or {})
-    # 已读过的板正文全部去掉, 只留裁决行（与 `_narrativize` 同一插入语义:
-    # speaker=sensei, 交给 `_resolve_scene` 映射成"老师"）
-    out["paragraphs"] = [{"text": text, "speaker": CHARACTER_SENSEI}]
     return out
 
 
@@ -1267,37 +1246,35 @@ def bond_turn(char_id: str, session_id: str, text: str) -> dict:
         return {"accepted": True, "busy": state.busy, "branch": True,
                 "scene": state.scene, "candidate": cand is not None}
 
-    # 记录流 v2 裁决（P0-7）: 选中候选 = 老师那句话 —— **物化 + 就地展示**;
+    # 记录流 v2 裁决（P0-7）: 选中候选 = 老师那句话 —— **只记不念**。
     # 角色的反应在**下一板**（引擎待发队列, 点继续 0 LLM 领出）——不在这里生成。
+    # **屏幕语义定稿（2026-09-12 用户核对 BA 后明确）**: 玩家的话语**永远只体现为
+    # 选项**——裁决后正文停在"上一句角色台词/旁白", 名字牌不动, 选项消失即继续;
+    # 绝不把这句当正文播出来（真机报障:"睦月/便利屋68 + 你还打算对我怎么恶作剧？"
+    # 读起来就是角色说了玩家的话）。所以这里**不返回 scene**（返回就会 renderScene
+    # → 重播正文, #32 踩过）, 只回 `picked` 让前端清选项。
     if (state.scene_obj is not None and state.scene_obj.records
             and text in (state.scene_obj.choices or [])):
         _log_scene(state, char_id, session_id, picked=text)
         if state.vn is not None:
-            state.vn.record_picked(text)          # 历史尾部物化（live == 回放）
+            state.vn.record_picked(text)          # 历史尾部物化（live == 回放/续写）
         _discard_candidates(state)                # v2 不 fork（内容已在待发队列）
-        # 就地展示老师那句（**不重建 scene_obj**——原对象的标注就绪态要保住,
-        # 否则推进门控会一直等一个永不回来的标注）
-        state.scene = _narrativize(state.scene, text)
-        # 2026-09-11 二次修复: **当前展示视图也换成增量**。此前只改返回值、state.scene
-        # 留完整物化板 → 前端任何一次 status 重渲染（round 已变/轮询兜底）都会把
-        # 板正文重播一遍, 并再次出现"老师"那行（用户报"继续轮又看到红字老师 + 打搅了"）。
-        # 事件流/回放不受影响（它们读事件 payload, 自己 narrativize）。
-        display = _display_delta(state.scene, text)
-        state.scene = display
+        # 展示视图: 保留板正文（屏上就是它）, 只**去掉选项**并标记已裁决——
+        # 指纹不含 choices（bond.js sceneKey）, 故轮询不会把它当成"新场景"重播。
+        scene = dict(state.scene or {})
+        scene["choices"] = []
+        scene["picked"] = text
+        state.scene = scene
         state.scene_obj.choices = []              # 已裁决: 不再给选项
         state.scene_logged = True                 # 本板已随裁决落库
         # 裁决后立刻备料（P0-7c 修正）: 这里必须先 record_picked（上面已做）——
         # 预生成请求的历史要含物化裁决行。待发有货 → 0 LLM 领出反应板; 没货 →
-        # 真生成下一拍（玩家读老师那句的时间即缓冲桥）。
+        # 真生成下一拍（玩家读上一句的时间即缓冲桥）。
         _draft_save(state, char_id, session_id)   # 草稿旁路刷新（#28b）
         _pregenerate(state, char_id, session_id)
-        # 2026-09-11 真机修复（用户报"第一段剧情出现两遍才进第二段"）: 返回给前端
-        # 的必须是**增量**——`state.scene` 是完整物化板（板正文 + 老师那句），
-        # 前端 renderScene 会从头重播 → 已读过的板正文又念一遍。这里只回新出现的
-        # 那句（背景/records 等载体照旧带上, 前端渲染逻辑不变）。
         _clear_rejects(state, char_id, session_id)
         return {"accepted": True, "busy": state.busy, "branch": True,
-                "scene": display, "candidate": False}
+                "picked": text, "candidate": False}
 
     # append-only 事件流: 当前展示场景在玩家裁决时落库（带 picked）;
     # 纯叙事场的"（继续）"是推进指令不是内容裁决 → picked=None（与预生成消费一致）

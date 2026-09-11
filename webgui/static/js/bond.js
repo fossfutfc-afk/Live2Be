@@ -459,13 +459,16 @@ let lastSceneKey = "";
   // ---------------------------------------------------------------------------
 
   /** 场景指纹（内容判等）——轮询去重用: 相同内容绝不重渲染（防重读/残留名字行）。
-   *  2026-09-11 真机"继续轮又看到老师+打搅了"就是这个重复渲染造成的。 */
+   *  2026-09-11 真机"继续轮又看到老师+打搅了"就是这个重复渲染造成的。
+   *  **不含 choices**（2026-09-12）: 裁决是"就地"发生的——`choices` 被清空时正文
+   *  一字未变, 若把 choices 算进指纹, 裁决后的展示视图就会被当成**新场景** → 从头
+   *  重播板正文。新场景一定伴随段落变化（且 round 先变）, 故去掉 choices 不影响
+   *  "换板必重渲染"。 */
   function sceneKey(scene) {
     if (!scene) return "";
     const paras = (scene.paragraphs || [])
       .map((p) => `${(p && p.speaker) || ""}|${(p && p.text) || ""}`).join("␟");
-    const choices = (scene.choices || []).join("␟");
-    return `${paras}␟${choices}␟${scene.is_end ? 1 : 0}`;
+    return `${paras}␟${scene.is_end ? 1 : 0}`;
   }
 
   async function renderScene(scene) {
@@ -545,6 +548,27 @@ let lastSceneKey = "";
     });
   }
 
+  /** 屏幕交互区: 纯叙事场的"▼ 继续"按钮。
+   *
+   *  两处用: ① 无选项的叙事板; ② **裁决后**——选项消失, 回到普通推进态（正文停在
+   *  上一句角色台词/旁白, 名字牌/立绘都不动; 玩家的话语永远只体现为选项）。 */
+  function showContinueButton() {
+    const choiceBox = $("bond-choices");
+    const wrap = document.createElement("div");
+    wrap.className = "bond-free";
+    const btn = document.createElement("button");
+    btn.className = "bond-continue-btn";       // 不与 #bond-continue（继续三角）撞名
+    btn.textContent = "▼ 继续";
+    btn.addEventListener("click", () => {
+      clearAutoTimer();            // 玩家手动继续 → 取消自动倒计时（不冲突）
+      submit("（继续）");
+    });
+    wrap.appendChild(btn);
+    choiceBox.appendChild(wrap);
+    // 自动模式: 3s 后自动继续（纯叙事场输入固定"（继续）"——不是伪造玩家话, 安全）
+    if (autoOn) scheduleAutoContinue();
+  }
+
   function showInteraction(scene) {
     const choiceBox = $("bond-choices");
     if (scene.is_end) {
@@ -568,19 +592,7 @@ let lastSceneKey = "";
       // 纯叙事场（无选项）: "点击继续"推进——输入固定"（继续）", 后端 Storyloom
       // 式预生成已就绪 → 衔接零等待（2026-08-30 替代自由输入框: 纯叙事场不需要
       // 玩家打字, 读完全自动继续; 想自由发挥的场次由 LLM 给选项承载）
-      const wrap = document.createElement("div");
-      wrap.className = "bond-free";
-      const btn = document.createElement("button");
-      btn.className = "bond-continue-btn";       // 不与 #bond-continue（继续三角）撞名
-      btn.textContent = "▼ 继续";
-      btn.addEventListener("click", () => {
-        clearAutoTimer();            // 玩家手动继续 → 取消自动倒计时（不冲突）
-        submit("（继续）");
-      });
-      wrap.appendChild(btn);
-      choiceBox.appendChild(wrap);
-      // 自动模式: 3s 后自动继续（纯叙事场输入固定"（继续）"——不是伪造玩家话, 安全）
-      if (autoOn) scheduleAutoContinue();
+      showContinueButton();
     }
   }
 
@@ -1063,6 +1075,17 @@ let lastSceneKey = "";
       $("bond-choices").innerHTML = "";
       hideContinue();
       renderScene(data.scene);
+      return;
+    }
+    if (data.picked) {
+      // 记录流 v2 裁决: **玩家的话语永远只体现为选项**（2026-09-12 用户核对 BA 后
+      // 定稿）——选项消失, 正文停在上一句角色台词/旁白, 名字牌/立绘都不动, 回到
+      // 普通推进态（▼ 继续）。这里**绝不**碰 #bond-text、绝不 renderScene（那会把
+      // 玩家那句当正文念出来, 真机报障:"睦月/便利屋68 + 你还打算对我怎么恶作剧？"）。
+      $("bond-choices").innerHTML = "";
+      busy = false;
+      hideContinue();
+      showContinueButton();
       return;
     }
     $("bond-text").innerHTML = "";
