@@ -23,8 +23,10 @@ VN 契约从"单动作 JSON（story_scene/story_end + memorial 双动作）"换�
 
 代码侧对应物**大部分还在**（`core/bond/memorial_actions.py`、`fork_for_pick`、
 `MemorialProbe`、`bond_actions.py`/`bond_executor.py`），只是主链不再调用：
-- 引擎默认**只吃记录流**——旧动作 JSON 要走显式开关
-  （`BondStoryEngine(allow_legacy_action=True)` 或环境变量 `LIVE2BE_VN_LEGACY_ACTION=1`）；
+- 引擎**只吃记录流**——旧动作 JSON 会被打回重发（P0-7c 起连"兼容开关"也已删除,
+  不再有 `LIVE2BE_VN_LEGACY_ACTION`）；
+- 存量测试桩若仍写 v1 形状 dict, 用 `tests/vn_fixtures.from_v1_scene()` 在**测试侧**
+  转成记录流（产品侧没有这条通道）；
 - 旧档回放（历史事件流里的 v1 payload）**是活的**，由 `render_bond_scene_text` 的
   旧分支 + `BondScene.from_dict` 承担，冻结不改（§3/§11 P0-6）；
 - 若要复活某个机制，先把它的用例按**记录流语义**重写再取消归档，不要直接改
