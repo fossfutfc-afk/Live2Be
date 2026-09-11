@@ -41,7 +41,19 @@ def _setup_file_logging() -> None:
     旁路文件 data/diag/live2be.log 挂 root logger（INFO+, 单行可 grep:
     bond_gen/bond_anno/bond_cand/bond_finish/羁绊剧情收尾回复失败/llm chat…
     自动积累, 历史问题从此有据可查）。目录 gitignore; 创建失败静默降级。
+
+    **路径可覆盖（2026-09-11）**: 环境变量 `LIVE2BE_DIAG_LOG` 指定落盘文件,
+    值为 `off`/`0` = 不落文件。测试与浏览器冒烟导入本模块时会把日志重定向到
+    `.testtmp`——否则**测试的噪音会混进真机诊断日志**（2026-09-11 就因此把
+    "settings reasoning_effort 非法: 'turbo'"（来自 tests/llm 的非法值用例）
+    误读成用户配置问题; 同类的还有 ScriptedLLM 脚本耗尽）。
     """
+    import os
+
+    target = os.environ.get("LIVE2BE_DIAG_LOG", "").strip()
+    if target.lower() in ("off", "0", "none", "disable"):
+        return
+
     class _NoNoise(logging.Filter):
         """排除每请求高频噪音（uvicorn access / httpx）——只留业务埋点。"""
 
@@ -52,10 +64,11 @@ def _setup_file_logging() -> None:
                         or name.startswith("werkzeug"))
 
     try:
-        diag_dir = Path(__file__).resolve().parent.parent / "data" / "diag"
-        diag_dir.mkdir(parents=True, exist_ok=True)
-        handler = logging.FileHandler(
-            diag_dir / "live2be.log", encoding="utf-8", mode="a")
+        log_file = (Path(target) if target
+                    else Path(__file__).resolve().parent.parent / "data" / "diag"
+                    / "live2be.log")
+        log_file.parent.mkdir(parents=True, exist_ok=True)
+        handler = logging.FileHandler(log_file, encoding="utf-8", mode="a")
         handler.setLevel(logging.INFO)
         handler.addFilter(_NoNoise())
         handler.setFormatter(logging.Formatter(

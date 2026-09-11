@@ -163,10 +163,14 @@ def serve(port: int = 0, data_root: Path | None = None, ready_timeout: float = 2
     """
     import uvicorn
 
-    from webgui.app import app
-
     root = data_root or (ROOT / ".testtmp" / "webtest"
                          / f"run-{time.strftime('%Y%m%d_%H%M%S')}" / "data")
+    # 诊断日志也重定向到本次运行目录（2026-09-11）: app 在 import 时挂全局
+    # FileHandler——不重定向的话冒烟的日志会混进真机 data/diag/live2be.log
+    os.environ.setdefault("LIVE2BE_DIAG_LOG", str(root.parent / "diag.log"))
+
+    from webgui.app import app
+
     _st, sid, _engine, llm = build_world(root)
 
     cfg = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning")

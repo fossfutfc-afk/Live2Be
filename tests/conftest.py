@@ -19,12 +19,26 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 import pytest
 
 #: 生图总开关的环境变量名 —— 不 import 项目模块（conftest 加载早于 pythonpath 生效,
 #: 且减少耦合）; 与 `llm.image_gen.ENV_SWITCH` 的一致性由 test_image_gen 断言兜底。
 _IMG_SWITCH = "LIVE2BE_IMAGE"
+
+# ---------------------------------------------------------------------------
+# 诊断日志重定向（2026-09-11, **必须在任何测试模块 import 之前**做）
+# ---------------------------------------------------------------------------
+# `webgui.app` 在 import 时就挂全局 FileHandler 写 data/diag/live2be.log——
+# 测试（含各测试桩的 WARNING）会混进**真机诊断日志**: 用户就问过
+# "settings reasoning_effort 非法: 'turbo' 是谁写的?"（那是 tests/llm 里
+# 「非法档位被忽略」用例的桩值, 与用户 settings.toml 无关）, 类似的还有
+# ScriptedLLM 脚本耗尽。这里在 conftest 导入期（早于测试模块）就把落盘路径
+# 改到 .testtmp, 真机日志只留真实运行。
+os.environ.setdefault(
+    "LIVE2BE_DIAG_LOG",
+    str(Path(__file__).resolve().parent.parent / ".testtmp" / "diag" / "test.log"))
 
 
 @pytest.fixture(scope="session", autouse=True)
