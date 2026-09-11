@@ -498,6 +498,49 @@ def test_bond_reenter_interrupted_returns_scene_immediately(web):
     print("    web: 重进中断剧情 → 首帧即场景（无黑屏等待）")
 
 
+def test_finish_wrapup_marks_task_busy(web, monkeypatch):
+    """收尾 wrapup 必须占住 MMT 任务位（2026-09-11 真机报障的根因）。
+
+    现象: finish 后收尾气泡不立刻出现, 要切页/重进才看得到。
+    根因: wrapup 跑在 bond 自己的线程里, 不走 chat 的 `_worker` → 前端
+    `pollLoop` 第一轮就看见 `running: false` → **停止轮询**。
+    修法: `chat.task_begin/task_end` 由 wrapup 占位/释放; 这里把慢的收尾话
+    换成一个会阻塞的桩, 断言"收尾在跑时 task busy=True, 结束后 False"。
+    """
+    import threading as _th
+    st, sid = web
+    _seed_trigger(st, sid)
+    bond.bond_start(CHARACTER, sid, staged=True)
+    _poll_status(sid)
+
+    gate = _th.Event()
+    engine = chat._engines[CHARACTER]
+    real_turn = engine.agent_turn
+
+    def slow_turn(*a, **kw):
+        if kw.get("task_kind") == "wrapup":
+            gate.wait(timeout=10)
+            return real_turn(*a, **kw)
+        return real_turn(*a, **kw)
+
+    monkeypatch.setattr(engine, "agent_turn", slow_turn)
+    monkeypatch.setattr(engine, "async_digest", lambda *a, **kw: None)
+    r = bond.bond_finish(CHARACTER, sid)
+    assert r.get("completed") is True, r
+
+    # 收尾在跑 → 前端轮询会看到 busy（因此不会停止轮询）
+    deadline = time.time() + 5.0
+    while time.time() < deadline and not chat.task_status(CHARACTER, sid)["busy"]:
+        time.sleep(0.02)
+    assert chat.task_status(CHARACTER, sid)["busy"] is True, "wrapup 应占住任务位"
+    gate.set()
+    deadline = time.time() + 10.0
+    while time.time() < deadline and chat.task_status(CHARACTER, sid)["busy"]:
+        time.sleep(0.05)
+    assert chat.task_status(CHARACTER, sid)["busy"] is False, "wrapup 结束必须释放"
+    print("    web: 收尾 wrapup 占/放任务位（前端轮询据此继续拉收尾气泡）")
+
+
 # ---------------------------------------------------------------------------
 # 6. 设置页
 # ---------------------------------------------------------------------------

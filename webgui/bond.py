@@ -1455,7 +1455,12 @@ def bond_finish(char_id: str, session_id: str) -> dict:
 
     # wrapup 收尾（agent_turn 收尾话 → mmt 事件, 前端轮询拉到）→ 仅在剧情完整
     # 结束时 digest（中断剧情不提炼——wiki 只反映完整剧情段, 防记忆污染）
+    # 2026-09-11 真机修复: wrapup 跑在自己的线程里, 不走 chat 的 `_worker` →
+    # 前端 VN 退出后第一次轮询就看见 `running: false` → **停止轮询** → 收尾气泡
+    # 要等切页/重进才被 `since=0` 全量拉出来。这里先占住任务位（task_begin）,
+    # 线程结束再放（task_end）——前端因此保持轮询并显示"对方正在输入…"。
     title = state.chapter_title
+    chat.task_begin(char_id, session_id)
     threading.Thread(target=_wrapup,
                      args=(char_id, session_id, title, state.completed),
                      daemon=True).start()
@@ -2243,6 +2248,22 @@ def _system_note(state: BondState) -> str | None:
 
 
 def _wrapup(char_id: str, session_id: str, title: str, completed: bool) -> None:
+    """收尾话线程入口（2026-09-11）: 占住 MMT 任务位 → 干活 → 必放。
+
+    占位的作用: 前端 VN 退出后 `pollLoop` 依据 `running` 决定要不要继续轮询;
+    wrapup 不走 chat 的 `_worker`（自己起线程）, 不占位的话前端第一轮就以为
+    "没事了"而停轮询 → 收尾气泡要切页才看得到（真机报障）。
+    """
+    try:
+        chat.task_begin(char_id, session_id)
+        _wrapup_inner(char_id, session_id, title, completed)
+    except Exception as e:                           # noqa: BLE001 — 收尾异常不致命
+        logger.warning("羁绊收尾线程异常: %s", e)
+    finally:
+        chat.task_end(char_id, session_id)
+
+
+def _wrapup_inner(char_id: str, session_id: str, title: str, completed: bool) -> None:
     """剧情收尾后的手机收尾: 自动触发一轮, AI 就这段剧情回几段话 + digest。
 
     收尾话 = agent_turn（system_note 注入, record_input=False——不落假 player 事件,
