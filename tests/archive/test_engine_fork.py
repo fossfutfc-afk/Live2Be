@@ -36,9 +36,10 @@ class ScriptedLLM:
         self.calls += 1
         head = messages[0]["content"]
         last = messages[-1]["content"] if len(messages) > 1 else ""
-        if "情绪标签数组" in last:
-            n = len(re.findall(r"(?m)^\d+: ", head))
-            return ["nomal"] * max(n, 1)
+        if "情绪标签" in last:
+            m = re.search(r"恰 (\d+) 项", last)
+            n = int(m.group(1)) if m else 1
+            return ["nomal"] * n
         if "变更句数组" in last:
             return []
         if not self._s:

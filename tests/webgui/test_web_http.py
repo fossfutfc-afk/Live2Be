@@ -65,9 +65,10 @@ class ScriptedLLM:
              response_format="text", **kw):
         head = messages[0]["content"]
         last = messages[-1]["content"] if len(messages) > 1 else ""
-        if "情绪标签数组" in last:                      # emotion 标注 → 全 nomal
-            n = len(re.findall(r"(?m)^\d+: ", head))
-            return ["nomal"] * max(n, 1)
+        if "情绪标签" in last:                      # emotion 标注 → 全 nomal
+            m = re.search(r"恰 (\d+) 项", last)
+            n = int(m.group(1)) if m else 1
+            return ["nomal"] * n
         if "变更句数组" in last:                        # place 标注 → 无变更
             return []
         if "地点 id JSON" in last:                      # 换场翻译 → 不切背景

@@ -13,12 +13,31 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from contract.records import (CHARACTER_NARRATOR, CHARACTER_SENSEI,  # noqa: E402
                               KIND_CHARACTER, KIND_STAGE, MAX_SENSEI_RUN,
-                              VnBlock, VnRecord, check_block, parse_line,
+                              VnBlock, VnRecord, check_block, is_main_speaker,
+                              normalize_main_character, parse_line,
                               parse_stream, sensei_group_labels, sensei_groups)
 
 
 def _rec(value, text="x", kind=KIND_CHARACTER, line_no=0) -> VnRecord:
     return VnRecord(kind=kind, value=value, text=text, line_no=line_no)
+
+
+def test_is_main_speaker_judgement():
+    """主角身份判据与别名归一**同源**（emo 标注层据此挑出 NPC 台词）。"""
+    aliases = ["伊草 遥香", "春香"]
+    for value in ("igusa_haruka", "伊草 遥香", "伊草遥香", "春香", "IGUSA_HARUKA"):
+        assert is_main_speaker(value, "igusa_haruka", aliases), value
+    # 别的角色/老师/旁白/空值 都不算"主角自己"
+    for value in ("asagi_mutsuki", "浅黄 睦月", CHARACTER_SENSEI,
+                  CHARACTER_NARRATOR, "", "   "):
+        assert not is_main_speaker(value, "igusa_haruka", aliases), value
+    assert not is_main_speaker("igusa_haruka", "", aliases)      # 无主角 → 不判
+    # 与归一函数同一判据: 别名 → 归一; 未知名 → 也归主角但 NOTE 措辞不同
+    recs, notes = normalize_main_character(
+        [_rec("伊草遥香"), _rec("asagi_mutsuki")], "igusa_haruka", aliases)
+    assert [r.value for r in recs] == ["igusa_haruka"] * 2
+    assert "别名归一" in notes[0] and "未知说话人" in notes[1]
+    print("    speaker: 主角判据 = id/别名/显示名（NPC/老师/旁白不是）")
 
 
 # ---------------------------------------------------------------------------

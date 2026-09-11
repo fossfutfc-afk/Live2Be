@@ -27,13 +27,15 @@ def test_bond_async_place_anchors_written(tmp_path):
             self.snapshots.append([dict(m) for m in messages])
             head = messages[0]["content"]
             last = messages[-1]["content"] if len(messages) > 1 else ""
-            if "情绪标签数组" in last:               # emotion → 全 nomal
+            if "情绪标签" in last:               # emotion → 全 nomal
                 import re as _re
-                n = len(_re.findall(r"(?m)^\d+: ", head))
-                return ["nomal"] * max(n, 1)
+                m = _re.search(r"恰 (\d+) 项", last)
+                n = int(m.group(1)) if m else 1
+                return ["nomal"] * n
             if "变更句数组" in last:                  # place → 末句锚点
                 import re as _re
-                n = len(_re.findall(r"(?m)^\d+: ", head))
+                m = _re.search(r"恰 (\d+) 项", last)
+                n = int(m.group(1)) if m else 1
                 return [{"sentence": max(n, 1), "place": anchor}]
             if "记录员" in head or "整理者" in head:
                 return _digest_stub(messages)
@@ -96,10 +98,11 @@ class StreamLLM:
              **kw):
         head = messages[0]["content"]
         last = messages[-1]["content"] if len(messages) > 1 else ""
-        if "情绪标签数组" in last:               # emotion 标注 → 全 nomal
+        if "情绪标签" in last:               # emotion 标注 → 全 nomal
             import re as _re
-            n = len(_re.findall(r"(?m)^\d+: ", head))
-            return ["nomal"] * max(n, 1)
+            m = _re.search(r"恰 (\d+) 项", last)
+            n = int(m.group(1)) if m else 1
+            return ["nomal"] * n
         if "变更句数组" in last:                  # place 标注（P3a）→ 无变更
             return []
         if "地点 id JSON" in last:                # 换场翻译（P0-7）→ 不切背景
@@ -114,10 +117,11 @@ class StreamLLM:
                   response_format="text", extra_body=None, on_chunk=None):
         head = messages[0]["content"]
         last = messages[-1]["content"] if len(messages) > 1 else ""
-        if "情绪标签数组" in last:               # 标注调用（chat_full 路径兜底）
+        if "情绪标签" in last:               # 标注调用（chat_full 路径兜底）
             import re as _re
-            n = len(_re.findall(r"(?m)^\d+: ", head))
-            return ["nomal"] * max(n, 1)
+            m = _re.search(r"恰 (\d+) 项", last)
+            n = int(m.group(1)) if m else 1
+            return ["nomal"] * n
         if "变更句数组" in last:                  # place 标注 → 无变更
             return []
         if "地点 id JSON" in last:                # 换场翻译（P0-7）→ 不切背景

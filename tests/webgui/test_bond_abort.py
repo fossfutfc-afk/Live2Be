@@ -37,7 +37,7 @@ class FailThenOK:
 
     def chat(self, messages, **kw):
         last = messages[-1]["content"] if len(messages) > 1 else ""
-        if "情绪标签数组" in last or "变更句数组" in last:
+        if "情绪标签" in last or "变更句数组" in last:
             return []
         if self._left > 0:
             self._left -= 1

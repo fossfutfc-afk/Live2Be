@@ -52,10 +52,11 @@ class ScriptedLLM:
         self.snapshots.append([dict(m) for m in messages])
         head = messages[0]["content"]
         last = messages[-1]["content"] if len(messages) > 1 else ""
-        if "情绪标签数组" in last:               # emotion 标注 → 全 nomal 数组
+        if "情绪标签" in last:               # emotion 标注 → 全 nomal 数组
             import re as _re
-            n = len(_re.findall(r"(?m)^\d+: ", head))
-            return ["nomal"] * max(n, 1)
+            m = _re.search(r"恰 (\d+) 项", last)
+            n = int(m.group(1)) if m else 1
+            return ["nomal"] * n
         if "变更句数组" in last:                  # place 标注（P3a）→ 无变更
             return []
         if "记录员" in head:                       # digest Round A → 空 episodes
@@ -75,13 +76,13 @@ class ScriptedLLM:
 
 def _seen_notes(llm: ScriptedLLM) -> list[list[str]]:
     """每次**场景轮** chat 调用的系统**约束注记**（= 第一个 system 主 prompt 之后的
-    system 消息）。emotion 标注调用（user 含"情绪标签数组", 2026-09-02 全量
+    system 消息）。emotion 标注调用（user 含"情绪标签", 2026-09-02 全量
     回填）不算场景轮, 过滤掉; task 卡（本场任务, 目标层——2026-09-07 promptkit
     §4）也不属于约束注记, 过滤掉（卡槽位由 test_promptkit_baseline 锁定）。"""
     out: list[list[str]] = []
     for msgs in llm.snapshots:
         last = msgs[-1]["content"] if len(msgs) > 1 else ""
-        if "情绪标签数组" in last or "变更句数组" in last:
+        if "情绪标签" in last or "变更句数组" in last:
             continue                      # emotion/place 标注调用不产生场景轮
         notes = [m["content"] for m in msgs if m["role"] == "system"][1:]
         out.append([n for n in notes
@@ -297,10 +298,11 @@ class _FailFirst(ScriptedLLM):
              response_format="text", **kw):
         head = messages[0]["content"]
         last = messages[-1]["content"] if len(messages) > 1 else ""
-        if "情绪标签数组" in last:               # 标注自动应答（不耗脚本/不耗失败）
+        if "情绪标签" in last:               # 标注自动应答（不耗脚本/不耗失败）
             import re as _re
-            n = len(_re.findall(r"(?m)^\d+: ", head))
-            return ["nomal"] * max(n, 1)
+            m = _re.search(r"恰 (\d+) 项", last)
+            n = int(m.group(1)) if m else 1
+            return ["nomal"] * n
         if "变更句数组" in last:
             return []
         if self._fails > 0:

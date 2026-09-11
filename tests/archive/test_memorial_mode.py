@@ -52,9 +52,10 @@ class ScriptedLLM:
         import re as _re
         head = messages[0]["content"]
         last = messages[-1]["content"] if len(messages) > 1 else ""
-        if "情绪标签数组" in last:               # emotion 标注 → 全 nomal
-            n = len(_re.findall(r"(?m)^\d+: ", head))
-            return ["nomal"] * max(n, 1)
+        if "情绪标签" in last:               # emotion 标注 → 全 nomal
+            m = _re.search(r"恰 (\d+) 项", last)
+            n = int(m.group(1)) if m else 1
+            return ["nomal"] * n
         if "变更句数组" in last:                  # place 标注（P3a）→ 无变更
             return []
         if not self._scripts:
@@ -86,10 +87,10 @@ def _store_engine(llm, tmp_path: Path) -> tuple[MomoTalkEngine, SessionStore, st
 
 def _last_fb(llm: ScriptedLLM) -> str:
     """最近一次**场景轮** chat 调用的最后一条 user 消息（feedback 回灌内容）。
-    标注调用（user 含"情绪标签数组"）跳过——它们不是场景轮。"""
+    标注调用（user 含"情绪标签"）跳过——它们不是场景轮。"""
     for msgs in reversed(llm.snapshots):
         last = msgs[-1]["content"] if len(msgs) > 1 else ""
-        if "情绪标签数组" not in last:
+        if "情绪标签" not in last:
             return last
     return ""
 
@@ -97,7 +98,7 @@ def _last_fb(llm: ScriptedLLM) -> str:
 def _scene_msgs(llm: ScriptedLLM) -> list[list[dict]]:
     """过滤标注调用后的场景轮 snapshots（标注不算场景轮）。"""
     return [msgs for msgs in llm.snapshots
-            if "情绪标签数组" not in (msgs[-1]["content"] if len(msgs) > 1 else "")]
+            if "情绪标签" not in (msgs[-1]["content"] if len(msgs) > 1 else "")]
 
 
 def test_enter_sets_memorial_prompt():

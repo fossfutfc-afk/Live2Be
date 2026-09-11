@@ -79,9 +79,9 @@ class StubLLM:
 
     def _side_effect(self, system: str, note: str):
         """标注/digest 旁路 → 合法空应答（不消耗主生成脚本）。"""
-        if "情绪标签数组" in note:
-            n = len(re.findall(r"(?m)^\d+: ", system))
-            return ["nomal"] * max(n, 1)
+        if "情绪标签" in note:
+            m = re.search(r"恰 (\d+) 项", note)
+            return ["nomal"] * (int(m.group(1)) if m else 1)
         if "变更句数组" in note:
             return []
         if "地点 id JSON" in note:

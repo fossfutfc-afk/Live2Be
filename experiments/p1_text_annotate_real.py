@@ -36,18 +36,18 @@ logging.basicConfig(
 MAX_BOARDS = int(os.environ.get("P1_MAX_BOARDS", "6"))
 
 # ---------------------------------------------------------------------------
-# annotate_paragraph 调用级计时（monkeypatch 模块属性——engine 每次
-# `from core.bond.emo_text import annotate_paragraph` 走同一模块命名空间）
+# annotate_items 调用级计时（monkeypatch 模块属性——engine 每次
+# `from core.bond.emo_text import annotate_items` 走同一模块命名空间）
 # ---------------------------------------------------------------------------
 import core.bond.emo_text as emo_text_mod  # noqa: E402
 
-_ORIG = emo_text_mod.annotate_paragraph
+_ORIG = emo_text_mod.annotate_items
 ANNO_CALLS: list[dict] = []
 RAW_DUMP = os.environ.get("P1_RAW", "0") == "1"
 
 
-def _wrapped(llm, sentences, lexicon_keys, lexicon_hint, character,
-             char_name, context, para_no, *, prev=None, max_tokens=None):
+def _wrapped(llm, items, lexicon_keys, lexicon_hint, character,
+             char_name, context, group_no, *, prev=None, max_tokens=None):
     # 原始输出抓取（P1_RAW=1）: 在 LLM 层旁路记录每次标注响应形状
     if RAW_DUMP and not getattr(llm, "_p1_spied", False):
         import re as _re
@@ -55,10 +55,10 @@ def _wrapped(llm, sentences, lexicon_keys, lexicon_hint, character,
 
         def _spy(messages, **kw):
             last = messages[-1]["content"] if len(messages) > 1 else ""
-            m = _re.search(r"第 1\.\.(\d+) 句", last)
+            m = _re.search(r"共 (\d+) 条记录", messages[0]["content"])
             expect = int(m.group(1)) if m else -1
             raw = orig_chat(messages, **kw)
-            if "情绪标签数组" in last:
+            if "情绪标签" in last:
                 import json as _json
                 got = "?"
                 if isinstance(raw, list):
@@ -68,7 +68,7 @@ def _wrapped(llm, sentences, lexicon_keys, lexicon_hint, character,
                         got = len(_json.loads(raw))
                     except Exception:                 # noqa: BLE001
                         got = f"str({raw[:60]!r}…)"
-                print(f"    [raw] para={para_no} expect={expect} got={got}"
+                print(f"    [raw] group={group_no} expect={expect} got={got}"
                       f" raw={str(raw)[:150]!r}")
             return raw
 
@@ -76,12 +76,12 @@ def _wrapped(llm, sentences, lexicon_keys, lexicon_hint, character,
         llm._p1_spied = True
     t0 = time.monotonic()
     labels, info = _ORIG(
-        llm, sentences, lexicon_keys, lexicon_hint, character,
-        char_name, context, para_no, prev=prev, max_tokens=max_tokens)
+        llm, items, lexicon_keys, lexicon_hint, character,
+        char_name, context, group_no, prev=prev, max_tokens=max_tokens)
     ANNO_CALLS.append({
         "dur_ms": (time.monotonic() - t0) * 1000,
-        "n": len(sentences),
-        "para_no": para_no,
+        "n": len(items),
+        "group_no": group_no,
         "info": dict(info),
         "prev": prev,
         "out": labels[-1] if labels else None,
@@ -90,7 +90,7 @@ def _wrapped(llm, sentences, lexicon_keys, lexicon_hint, character,
     return labels, info
 
 
-emo_text_mod.annotate_paragraph = _wrapped
+emo_text_mod.annotate_items = _wrapped
 
 
 def main():
@@ -159,7 +159,7 @@ def main():
               f"p95={pct(0.95):.0f}ms max={durs[-1]:.0f}ms | "
               f"标注总耗时(串行)={sum(durs):.0f}ms")
     for c in ANNO_CALLS:
-        print(f"    para={c['para_no']:<3} n={c['n']} dur={c['dur_ms']:.0f}ms "
+        print(f"    group={c['group_no']:<3} n={c['n']} dur={c['dur_ms']:.0f}ms "
               f"retry={c['info'].get('retry')} fb={c['info'].get('fallback')} "
               f"carry={c['prev']}→{c['out']}")
     print(f"主生成(每板含标注串行): {['%.0f' % t for t in board_times]}")

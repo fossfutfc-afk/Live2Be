@@ -40,10 +40,10 @@ class ScriptedLLM:
     def chat(self, messages, **kw):
         last = messages[-1]["content"] if len(messages) > 1 else ""
         head = messages[0]["content"]
-        if "情绪标签数组" in last:
+        if "情绪标签" in last:
             import re
-            m = re.search(r"句号从 1 到 (\d+)", last)
-            return ["nomal"] * max(int(m.group(1)) if m else 1, 1)
+            m = re.search(r"恰 (\d+) 项", last)
+            return ["nomal"] * (int(m.group(1)) if m else 1)
         if "变更句数组" in last:
             return []
         if "记录员" in head or "整理者" in head:

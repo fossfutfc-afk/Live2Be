@@ -228,7 +228,7 @@ def test_engine_fill_passes_character():
             self._scripts = [_scene(lines=["对不起……我又做错了……"])]
         def chat(self, messages, **kw):
             head = messages[0]["content"]
-            if "情绪标签数组" in (messages[-1]["content"] if len(messages) > 1 else ""):
+            if "情绪标签" in (messages[-1]["content"] if len(messages) > 1 else ""):
                 self.seen_system = head
                 return ["depressed"]
             if not self._scripts:
