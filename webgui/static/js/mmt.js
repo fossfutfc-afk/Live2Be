@@ -123,8 +123,12 @@ let _chatSession = "";     // session_id
 let _chatName = "";        // 显示名
 let _lastSeq = 0;          // 已渲染的最后 seq
 let _polling = false;      // 是否在轮询回复中
+//: resumePolling 后的宽限期（2026-09-11）: 收尾 wrapup 可能还没占上任务位,
+//: 窗口内即使 `running=false` 也继续轮询（否则收尾气泡要切页才出现）
+let _pollGraceUntil = 0;
 
 const POLL_MS = 1000;          // 轮询间隔
+const POLL_RESUME_GRACE_MS = 25 * 1000;   // VN 退出后继续轮询的宽限窗口
 const BUBBLE_GAP_MS = 600;     // 逐块冒出间隔（第一块 TTFT 立即, 后续块此间隔）
 
 // ── 分块打字节奏（2026-08-30: 复刻 core/ui/streaming.py + text_processors.py 的
@@ -548,6 +552,11 @@ async function pollLoop() {
     // 渲染, 含 lockChat→改为点击才进入）——不再自动接管 VN 视图; 玩家点击
     // 粉泡（enterBond）才进入; 想继续聊天也可以（粉泡常驻等待点击）
     if (!data.running) {
+      // 宽限窗口内（刚退出 VN）: 收尾 wrapup 可能还没占上任务位 → 再等一会
+      if (Date.now() < _pollGraceUntil) {
+        showTyping();                         // "对方正在输入…"（收尾话在写）
+        continue;
+      }
       hideTyping();
       _polling = false;
       break;
@@ -558,7 +567,12 @@ async function pollLoop() {
 }
 
 // 重启轮询（BondVN 收尾后调用——拉 wrapup 收尾话 + 后续聊天回复）
+// 2026-09-11: 带**宽限窗口**——收尾 wrapup 是后端起线程跑的, 前端重启轮询时
+// 它可能还没占上任务位（`running` 仍是 false）→ 旧逻辑第一轮就停轮询, 收尾气泡
+// 要等切页/重进才出现（真机报障"finish 后 mmt 不会立刻逐条显示"）。窗口内即使
+// 看见 running=false 也继续轮询, 直到收尾话落地或窗口耗尽。
 function resumePolling() {
+  _pollGraceUntil = Date.now() + POLL_RESUME_GRACE_MS;
   if (!_polling) {
     _polling = true;
     pollLoop();

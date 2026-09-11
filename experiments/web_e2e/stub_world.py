@@ -32,14 +32,18 @@ os.environ.setdefault("LIVE2BE_IMAGE", "off")
 CHARACTER = "igusa_haruka"
 CHAPTER_TITLE = "放学后的约定"
 
-#: 记录流 v2 桩块（板 = switch/正文/选项 → 反应板 → 收尾）
+#: 记录流 v2 桩块（板 = switch/正文/选项 → 收尾板[多段!]）
+#: **收尾板故意放多段**——2026-09-11 真机 bug: is_end 板点击=直接 finish 而非
+#: 推进段落, 导致"最后一段只看到第一句就退出 VN"。冒烟必须能抓住它。
 BOND_BLOCK = "\n".join([
     '{"stage": "switch", "text": "教室"}',
     f'{{"character": "{CHARACTER}", "text": "（她抬起头，指尖还沾着粉笔灰。）老师……你来了。"}}',
     '{"character": "sensei", "text": "我来了。"}',
     '{"character": "sensei", "text": "再等一会儿。"}',
     f'{{"character": "{CHARACTER}", "text": "（她愣了一下，随即笑起来。）嗯……那我等你。"}}',
-    '{"stage": "end", "text": ""}',
+    f'{{"character": "{CHARACTER}", "text": "（收尾一）谢谢您，老师……！"}}',
+    '{"character": "narrator", "text": "（收尾二：她用力地鞠了一躬。）"}',
+    '{"stage": "end", "text": "（收尾三：她抱着那本笔记站在门口，一直挥着手。）"}',
 ])
 #: 预生成/续写兜底块（若待发板被耗尽还有请求 → 纯叙事板, 不炸）
 BOND_FALLBACK = "\n".join([
@@ -52,6 +56,8 @@ MMT_TRIGGER = {"messages": [
      "payload": {"reason": "邀约", "chapter_title": CHAPTER_TITLE}},
 ]}
 MMT_REPLY = {"messages": [{"text": "嗯……我、我其实很开心的！"}]}
+#: 羁绊收尾话（wrapup）——文本独立, 冒烟据此断言"收尾气泡不用切页就能到"
+WRAPUP_REPLY = {"messages": [{"text": "（收尾话）老师，今天真的很谢谢你。"}]}
 
 
 class StubLLM:
@@ -95,11 +101,16 @@ class StubLLM:
         if side is not None:
             self.calls.append("side")
             return side
+        # 全量文本（system_note 可能落在 system 段或独立 system 消息里——收尾轮
+        # 的判据是"这段剧情刚结束/只进行到一半"这个**注记**, 不只看最后一条 user）
+        joined = "\n".join(str(m.get("content") or "") for m in messages)
         if "mmt_chat" in system or "MomoTalk" in system:
             self.mmt_calls += 1
             self.calls.append(f"mmt#{self.mmt_calls}")
             if self.mmt_calls == 1:
                 return MMT_TRIGGER         # 第一轮即触发羁绊剧情（界面走全链）
+            if "羁绊剧情刚刚结束" in joined or "只进行到一半" in joined:
+                return WRAPUP_REPLY        # 收尾话（wrapup 轮）——区别于普通回复
             return MMT_REPLY
         self.bond_calls += 1
         self.calls.append(f"bond#{self.bond_calls}")

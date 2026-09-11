@@ -198,8 +198,30 @@ def task_status(char_id: str, session_id: str) -> dict:
     key = (char_id, session_id)
     st = dict(_tasks.get(key, {"running": False, "error": ""}))
     st["busy"] = bool(st.get("running")) or bool(_queues.get(key)) \
-        or _worker_running.get(key, False)
+        or _worker_running.get(key, False) or key in _external_busy
     return st
+
+
+#: 外部流程占用 MMT 任务位（2026-09-11）: 羁绊收尾 wrapup 跑在自己的线程里,
+#: 不走 `_worker` → 前端 `pollLoop` 在 VN 退出后第一轮就看见 `running: false`
+#: 于是**停止轮询**, 收尾气泡要等玩家切页/重进才被 `since=0` 全量拉出来
+#: （真机报障"finish 后 mmt 不会立刻逐条显示, 必须到其他页面再回来"）。
+#: task_begin/task_end 让外部流程也如实反映"还在跑", 前端据此继续轮询 + 显示打字中。
+_external_busy: set[tuple[str, str]] = set()
+
+
+def task_begin(char_id: str, session_id: str) -> None:
+    """标记该会话有外部流程在跑（前端轮询保持; 与 MMT worker 的 busy 等价）。"""
+    key = (char_id, session_id)
+    _external_busy.add(key)
+    _tasks[key] = {"running": True, "error": ""}
+
+
+def task_end(char_id: str, session_id: str, error: str = "") -> None:
+    """外部流程结束（清忙态; error 走既有字段, 前端可显示失败）。"""
+    key = (char_id, session_id)
+    _external_busy.discard(key)
+    _tasks[key] = {"running": False, "error": error}
 
 
 # ---------------------------------------------------------------------------

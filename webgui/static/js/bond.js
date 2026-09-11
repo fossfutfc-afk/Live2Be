@@ -796,14 +796,31 @@ let lastSceneKey = "";
     typeOnDone = null;
   }
 
-  // 继续三角（右下）: 段完成 = 推进下一段; is_end 段完成 = 点击收尾 finish;
+  /** 还有没读完的段吗（is_end 板常常是多段——收尾那一板尤其） */
+  function _moreParas() {
+    return !!(typeParas && typeSeg < typeParas.length - 1);
+  }
+
+  /** 左键/继续三角的统一语义（2026-09-11 真机修复）。
+   *
+   *  **bug**: 原来写成 `if (sceneIsEnd) finish(); else advance();` —— 收尾板（is_end）
+   *  只要点一下就**直接结束整章**, 于是"最后一板"里第 2 段之后的正文永远看不到
+   *  （用户报"到最后一段只看到第一段 outburst 就退出 VN 了, 还以为是 AI 写得不好"）。
+   *  is_end 的语义是"没有下一板", 不是"没有下一段"。
+   *  **正确语义**: 先把本板读完（逐段推进）; 读到段尾才由 showInteraction 走收尾
+   *  （`is_end` → 继续三角 + 1.6s 后自动 finish）。
+   */
+  function advanceOrFinish() {
+    if (typeState === "typing") return;      // 打字中点击无操作（渲染完成是推进前提）
+    if (_moreParas()) { advance(); return; } // 本板还有段 → 先读完
+    if (sceneIsEnd) finish();                // 段读完了且是收尾板 → 收尾
+    else advance();
+  }
+
+  // 继续三角（右下）: 段完成 = 推进下一段; 段读完且 is_end = 收尾 finish;
   // 打字中点击 = 无操作（左键语义, 渲染完成是推进的前提——2026-09-01）
   function bindContinue() {
-    $("bond-continue").addEventListener("click", () => {
-      if (typeState === "typing") return;
-      if (sceneIsEnd) finish();
-      else advance();
-    });
+    $("bond-continue").addEventListener("click", advanceOrFinish);
   }
   function showContinue() { $("bond-continue").classList.add("show"); $("bond-continue").setAttribute("aria-hidden", "false"); }
   function hideContinue() { $("bond-continue").classList.remove("show"); $("bond-continue").setAttribute("aria-hidden", "true"); }
@@ -824,9 +841,7 @@ let lastSceneKey = "";
   function onClick(e) {
     if (menuOpen) return;               // 菜单打开时点击不响应（菜单项已处理）
     if (e.target.closest(".bond-choice, .bond-topbtn, .bond-free, #bond-continue, #bond-title")) return;
-    if (typeState === "typing") return; // 打字中左键没用（渲染完成是推进前提）
-    if (sceneIsEnd) finish();
-    else advance();
+    advanceOrFinish();                  // 与继续三角同一语义（含 is_end 多段先读完）
   }
 
   function bindSkip() {

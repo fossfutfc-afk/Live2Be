@@ -292,8 +292,13 @@ async function main() {
   await page.click("#bond-choices .bond-continue-btn");
   await waitInteractionReset(page);
   const ending = await readToEnd(page);
-  if (!ending.some((p) => p.text.includes("她愣了一下"))) {
-    throw new Error("收尾板正文没读到（反应板未播完）: " + JSON.stringify(ending));
+  // **收尾板多段必须逐段读完**（2026-09-11 真机 bug: is_end 板点一下就直接 finish,
+  // "最后一段只看到第一句就退出 VN"）。桩块的收尾板有 4 段（收尾一/二/三 + 反应板）。
+  const wantEnd = ["收尾一", "收尾二", "收尾三"];
+  const missing = wantEnd.filter((k) => !ending.some((p) => p.text.includes(k)));
+  if (missing.length) {
+    throw new Error(`收尾板段落没读完（is_end 提前 finish?）缺: ${JSON.stringify(missing)}`
+      + ` 实际: ${JSON.stringify(ending.map((p) => p.text.slice(0, 16)))}`);
   }
   const endLabels = ending.filter((p) => p.speaker).map((p) => p.speaker);
   if (endLabels.length) {
@@ -315,6 +320,29 @@ async function main() {
   });
   if (!done) throw new Error("收尾后 MMT 未见『已完成羁绊剧情』行: "
     + finalTexts.slice(0, 200).replace(/\n/g, " / "));
+
+  // ── 8. 收尾话必须**不用切页**就逐条冒出来（2026-09-11 真机 bug）──────────
+  // 根因: wrapup 跑在 bond 自己的线程里, 不占 MMT 任务位 → 前端 pollLoop 第一轮
+  // 就看见 running=false 而停止轮询 → 气泡要切页/重进才被 since=0 全量拉出来。
+  // 判定: 就在当前页面等收尾话气泡出现（不点击、不切换视图）。
+  await page.waitForFunction(
+    () => {
+      const w = document.getElementById("mmt-chat-window");
+      // 注: 桩回复文本是"（收尾话）老师，今天真的很谢谢你。"——括号内心声会被引擎
+      // 剥掉, 所以断言用后半句
+      return w && w.innerText.includes("今天真的很谢谢你");
+    }, { timeout: 30000 }).catch(() => { /* 下面统一判定 */ });
+  const afterWrapup = await page.locator("#mmt-chat-window").innerText();
+  const wrapupShown = afterWrapup.includes("今天真的很谢谢你");
+  record("收尾话自动冒泡", {
+    info: wrapupShown ? "未切页即出现（轮询保持）" : "未出现（要切页才看得到）",
+    shot: await shot(page, "mmt-wrapup"),
+    wrapupShown,
+  });
+  if (!wrapupShown) {
+    throw new Error("收尾话未自动冒泡（前端轮询过早停止）: "
+      + afterWrapup.slice(0, 200).replace(/\n/g, " / "));
+  }
 
   await browser.close();
 
