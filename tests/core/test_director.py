@@ -80,9 +80,10 @@ class _MainLLM:
         import re as _re
         head = messages[0]["content"]
         last = messages[-1]["content"] if len(messages) > 1 else ""
-        if "情绪标签数组" in last:               # emotion 标注 → 全 nomal
-            n = len(_re.findall(r"(?m)^\d+: ", head))
-            return ["nomal"] * max(n, 1)
+        if "情绪标签" in last:               # emotion 标注 → 全 nomal
+            m = _re.search(r"恰 (\d+) 项", last)
+            n = int(m.group(1)) if m else 1
+            return ["nomal"] * n
         if "地点 id JSON" in last:                # 换场翻译（P0-7）
             return self.place_reply
         if "变更句数组" in last:                  # 旧 place 标注（v1 通道）→ 无变更

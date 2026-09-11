@@ -53,10 +53,11 @@ class ScriptedLLM:
         self.snapshots.append([dict(m) for m in messages])
         last = messages[-1]["content"] if messages else ""
         head = messages[0]["content"] if messages else ""
-        if "情绪标签数组" in last:                       # emotion 标注 → 全 nomal
+        if "情绪标签" in last:                       # emotion 标注 → 全 nomal
             import re as _re
-            n = len(_re.findall(r"(?m)^\d+: ", head))
-            return ["nomal"] * max(n, 1)
+            m = _re.search(r"恰 (\d+) 项", last)
+            n = int(m.group(1)) if m else 1
+            return ["nomal"] * n
         if "地点 id JSON" in last:                       # switch → 背景键（P0-7）
             return {"place": self.place_reply}
         if "变更句数组" in last:                          # 旧 place 标注 → 无变更

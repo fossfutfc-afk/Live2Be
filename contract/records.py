@@ -372,6 +372,26 @@ def _speaker_key(value: str) -> str:
     return re.sub(r"[\s_\-·]+", "", value or "").lower()
 
 
+def is_main_speaker(value: str, main_id: str,
+                    aliases: Iterable[str] = ()) -> bool:
+    """该说话人取值是否算"主角自己"（id / 别名 / 显示名）。
+
+    与 `normalize_main_character` **同一判据**（同一比较键）, 供消费方复用——
+    emo 标注层据此把"其他角色（客串/NPC）的台词"挑出来（无差分可切, 不送标注;
+    见 `BondStoryEngine._annotate_text_group`）。空值（旁白无 speaker 字段）不算
+    主角——由调用方自行判定。
+    """
+    key = _speaker_key(value)
+    if not key:
+        return False
+    main = (main_id or "").strip()
+    if not main:
+        return False
+    if key == _speaker_key(main):
+        return True
+    return key in {_speaker_key(a) for a in aliases if str(a).strip()}
+
+
 def normalize_main_character(records: Iterable[VnRecord], main_id: str,
                              aliases: Iterable[str] = ()) -> tuple[tuple[VnRecord, ...], tuple[str, ...]]:
     """把主角的别名写法归一到 `main_id`（决策 #21 引擎侧）。
@@ -386,15 +406,13 @@ def normalize_main_character(records: Iterable[VnRecord], main_id: str,
     main = (main_id or "").strip()
     if not main:
         return tuple(records), ()
-    alias_keys = {_speaker_key(main)}
-    alias_keys |= {_speaker_key(a) for a in aliases if str(a).strip()}
     out: list[VnRecord] = []
     notes: list[str] = []
     for rec in records:
         if rec.kind == KIND_CHARACTER and rec.value not in (CHARACTER_NARRATOR,
                                                             CHARACTER_SENSEI,
                                                             main):
-            if _speaker_key(rec.value) in alias_keys:
+            if is_main_speaker(rec.value, main, aliases):
                 notes.append(f"[NOTE line {rec.line_no}] 说话人 {rec.value!r} → {main}（别名归一）")
                 out.append(VnRecord(rec.kind, main, rec.text, rec.line_no))
                 continue

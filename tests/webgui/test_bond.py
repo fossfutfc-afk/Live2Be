@@ -82,10 +82,11 @@ class ScriptedLLM:
         self.snapshots.append([dict(m) for m in messages])
         head = messages[0]["content"]
         last = messages[-1]["content"] if len(messages) > 1 else ""
-        if "情绪标签数组" in last:               # emotion 标注 → 全 nomal
+        if "情绪标签" in last:               # emotion 标注 → 全 nomal
             import re as _re
-            n = len(_re.findall(r"(?m)^\d+: ", head))
-            return ["nomal"] * max(n, 1)
+            m = _re.search(r"恰 (\d+) 项", last)
+            n = int(m.group(1)) if m else 1
+            return ["nomal"] * n
         if "变更句数组" in last:                  # place 标注（P3a）→ 无变更
             return []
         if "记录员" in head or "整理者" in head:
@@ -1194,7 +1195,7 @@ def test_bond_flow_store_bound_at_state_creation(tmp_path):
         def _side(messages):
             head = messages[0]["content"]
             last = messages[-1]["content"] if len(messages) > 1 else ""
-            return ("情绪标签数组" in last or "变更句数组" in last
+            return ("情绪标签" in last or "变更句数组" in last
                     or "地点 id JSON" in last or "记录员" in head or "整理者" in head)
 
         def chat(self, messages, **kw):

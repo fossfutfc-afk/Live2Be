@@ -56,6 +56,7 @@ from contract.records import (
     VnBlock,
     VnRecord,
     check_block,
+    is_main_speaker,
     materialize_pick,
     normalize_main_character,
     parse_line,
@@ -129,6 +130,7 @@ __all__ = [
     "render_records",
     "NON_PICKS",
     "normalize_main_character",
+    "is_main_speaker",
     "SPEAKER_SENSEI_LABEL",
     "DEFAULT_SPEAKER_NAMES",
 ]

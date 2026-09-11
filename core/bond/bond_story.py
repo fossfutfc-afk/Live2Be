@@ -454,13 +454,13 @@ class BondStoryEngine:
         # 锚点句写回 payload 的 place 键, 视觉键不进 LLM 上下文（renderer 忽略）
         self._place_keys: list[str] = []
         self._current_place = ""
-        # SceneStream P1 链记账（DESIGN_SCENE_STREAM §4.2/§8）: 情绪标注按自然段
-        # 流水——"已生效链" = 上一段原文 + 末句情绪（段 >1 情境）; 会话首段退化
+        # 链记账（记录流 v2: 标注单元 = 记录, 一板一组一次调用）: 情绪标注按**板**
+        # 流水——"已生效链" = 上一板记录原文 + 末条情绪; 首板退化
         # 本章 seed 锚（开场那一句, 禁后文）; 跨完整剧情衔接 = P2+ 开放项（§11）
-        self._carry_text: str | None = None     # 上一自然段原文（标注情境用）
-        self._carry_emo = ""                    # 链尾部情绪（carry + 段首兜底起点）
-        self._seed_anchor = ""                  # 本章开场锚（首段情境; 空 = 模板通用句）
-        self._para_seq = 0                      # 自然段全局序号（跨板递增; 日志/metrics）
+        self._carry_text: str | None = None     # 上一板记录原文（标注情境用）
+        self._carry_emo = ""                    # 链尾部情绪（carry + 板首兜底起点）
+        self._seed_anchor = ""                  # 本章开场锚（首板情境; 空 = 模板通用句）
+        self._group_seq = 0                     # 标注组序号（跨板递增; 日志/metrics）
         # 本回合任务卡（DESIGN_PROMPTKIT §4, Phase 3）: 构造参数 > settings 开关;
         # start_session 定值; 每场 kind 自推（in_memorial → memorial_exit, 否则 scene）
         self._task_card_override: bool | None = task_card
@@ -511,11 +511,11 @@ class BondStoryEngine:
         # 当前地点延续态重置（每个引擎实例从"未知"起, 首次变更句即起始背景）
         self._place_keys = load_place_lexicon()
         self._current_place = ""
-        # SceneStream P1 链记账复位（每会话从零起——跨剧情 carry 是 P2+ 开放项）
+        # 链记账复位（每会话从零起——跨剧情 carry 是 P2+ 开放项）
         self._carry_text = None
         self._carry_emo = ""
         self._seed_anchor = ""
-        self._para_seq = 0
+        self._group_seq = 0
         self._system_prompt = system_prompt
         self._history = []
         self._trace = []
@@ -740,6 +740,12 @@ class BondStoryEngine:
         group = tuple(i for i, r in enumerate(records) if r.is_sensei)
         return BondScene.from_board(records, group, notes=list(stream.notes))
 
+    def _main_aliases(self) -> list[str]:
+        """主角别名表（显示名 + 构造期注入的额外名字）——别名归一与 emo 标注
+        "谁是自己"判定**同一份**（`contract.is_main_speaker`, 记录流 v2）。"""
+        char = self._current_char
+        return ([char.display_name] if char else []) + list(self._character_names or [])
+
     def _speaker_names(self) -> dict[str, str]:
         """历史渲染的说话人名字表（角色 id → 显示名)——仅诊断/日志用。
 
@@ -760,7 +766,7 @@ class BondStoryEngine:
         """
         char = self._current_char
         main_id = char.character_id if char else ""
-        aliases = ([char.display_name] if char else []) + list(self._character_names or [])
+        aliases = self._main_aliases()
         block = VnBlock.from_text(raw, main_id=main_id, aliases=aliases)
         block_art = next((r.text for r in block.records if r.stage == STAGE_ART), "")
         hard, soft = split_board_issues(block.issues)
@@ -869,16 +875,17 @@ class BondStoryEngine:
         return scene
 
     def fill_scene_emotions_text(self, scene: "BondScene") -> bool:
-        """SceneStream P1 按段标注回填（公共方法——同步路径与 webgui emo lane
-        同一入口, 取代整场批标 fill_scene_emotions）。
+        """按**板**标注回填（公共方法——同步路径与 webgui emo lane 同一入口,
+        取代整场批标 fill_scene_emotions）。
 
-        正文按**自然段**分组（scene.segments = parse 层累计句界, DESIGN_SCENE_
-        STREAM §10: 段分组在 P1 恢复随 parse 携带）逐段小请求标注; 段间链记账
-        （情境 = 上一段原文 + 末句情绪; 会话首段退化 seed 锚——只给"她此刻恰好
-        读到/知道"的信息, 禁后文）。失败半径 = 单段数句——长度不符重试一次,
-        残余段内确定性延续（前一句键 → 段首 carry）, **永不整批 None**; 每段
-        一条 grep 日志 `scene_anno para=…`（§8）。branches 逐分支一组（上下文
-        = 主线尾段; 不更新链——分支是主线外反应, 展示链仍以主线为准）。
+        标注单元 = **记录**（记录流 v2 P0-7b 定稿）: `scene.segments` 在 v2 恒为
+        None（`_seg_ends` 只由旧动作契约 parse 产生）→ 一板 = 一组 = **一次调用**
+        （真机 3~12 条; 单元 = 一条记录, 记录内多句也只给一个键）。组间链记账
+        （情境 = 上一板记录原文 + 末条情绪; 首板退化 seed 锚——只给"她此刻恰好
+        读到/知道"的信息, 禁后文）。失败半径 = 整板: 长度不符重试一次, 残余板内
+        确定性延续（前一条键 → 板首 carry）, **永不整批 None**; 每组一条 grep
+        日志 `scene_anno group=…`（§8）。branches 逐分支一组（上下文 = 主线尾板;
+        不更新链——分支是主线外反应, 展示链仍以主线为准）。
 
         Returns: 是否触发过标注（False = 无词表 / memorial_exit / 无正文 / 已齐）。
         """
@@ -915,54 +922,84 @@ class BondStoryEngine:
         return True
 
     def _annotate_text_group(self, group: list[dict], *, chain: bool = True) -> None:
-        """标一段（自然段一组）: 组段任务（情境 + carry + 全注释词表 + 人设卡）
-        → 校验回填（annotate_paragraph 已保证长度恒等/词表内/零整批 None）。
+        """标一板（一组记录）: 组任务（情境 + carry + 全注释词表 + 人设卡）
+        → 校验回填（annotate_items 已保证长度恒等/词表内/零整批 None）。
         成功/兜底都推进链记账（§4.2: 显示链按写回实时更新——冲突以文本为准,
-        正常切键由前端补切基建兜住）。异常 → 段内确定性延续, 不 raise。
-        """
-        from core.bond.emo_text import annotate_paragraph
+        正常切键由前端补切基建兜住）。异常 → 板内确定性延续, 不 raise。
 
-        sentences = [p.get("text") for p in group
-                     if isinstance(p, dict) and (p.get("text") or "").strip()]
-        if not sentences:
+        **谁进标注**（2026-09-11 定稿）: 只有**当前角色自己的记录**和**旁白**
+        （无 speaker）——其他角色的台词（客串/NPC）没有差分（只有 default 一张）,
+        送标注纯属浪费且会把别人的语气标到主角脸上: 它们由引擎确定性地继承
+        "上一条已生效键"（立绘保持不变, 零 LLM 决策）; `sensei` 记录同理
+        （v2 里它本来就是选项槽, 不进 paragraphs）。
+        """
+        from core.bond.emo_text import annotate_items
+        from contract import is_main_speaker
+
+        main_id = self._current_char.character_id if self._current_char else ""
+        aliases = self._main_aliases()
+        order: list[dict] = []                  # 板内可见项（回填顺序 = 显示顺序）
+        texts: list[str] = []
+        items: list[dict] = []                  # 送标注: 当前角色记录 + 旁白
+        for p in group:
+            if not isinstance(p, dict):
+                continue
+            text = (p.get("text") or "").strip()
+            if not text:
+                continue
+            order.append(p)
+            texts.append(text)
+            speaker = p.get("speaker")
+            own = not isinstance(speaker, str) or not speaker.strip()
+            if not own and main_id:
+                own = is_main_speaker(str(speaker), main_id, aliases)
+            if own:
+                items.append(p)
+        if not order:
             return
-        self._para_seq += 1                     # 自然段全局序号（日志/metrics/模板标题）
+        self._group_seq += 1                    # 标注组序号（日志/metrics/模板标题）
         prev_carry = self._carry_emo or "nomal"
         context = ""
         if self._carry_text is not None:
             context = (
-                "（上一段原文——她刚读完的内容, 情境最近的一屏）\n"
+                "（上一板记录原文——她刚读完的内容, 情境最近的一屏）\n"
                 f"{self._carry_text}\n"
-                f"（上一段末句已生效情绪: {prev_carry}）"
+                f"（上一板末条已生效情绪: {prev_carry}）"
             )
         elif self._seed_anchor:
             context = f"（本章开场那一句——剧情锚点）\n{self._seed_anchor}"
-        try:
-            labels, info = annotate_paragraph(
-                self.llm, sentences, self._lexicon_keys, self._lexicon_hint,
-                self._character_hint,
-                char_name=self._current_char.display_name
-                if self._current_char else "",
-                context=context,
-                para_no=self._para_seq,
-                prev=prev_carry,
-            )
-        except Exception as e:                  # noqa: BLE001 — 失败半径=单段
-            logger.warning("emo 按段标注异常 para=%d（段内延续）: %s",
-                           self._para_seq, e)
-            labels = [prev_carry] * len(sentences)
-            info = {"attempts": 0, "retry": 0, "fallback": len(sentences)}
-        for p, label in zip(group, labels):
-            if isinstance(p, dict):
-                p["emotion"] = label
-        tail = labels[-1] if labels else prev_carry
+        info = {"attempts": 0, "retry": 0, "fallback": 0}
+        labels: list[str] = []
+        if items:
+            try:
+                labels, info = annotate_items(
+                    self.llm, [p["text"] for p in items],
+                    self._lexicon_keys, self._lexicon_hint, self._character_hint,
+                    char_name=self._current_char.display_name
+                    if self._current_char else "",
+                    context=context,
+                    group_no=self._group_seq,
+                    prev=prev_carry,
+                )
+            except Exception as e:              # noqa: BLE001 — 失败半径=整板
+                logger.warning("emo 按板标注异常 group=%d（板内延续）: %s",
+                               self._group_seq, e)
+                labels = [prev_carry] * len(items)
+                info = {"attempts": 0, "retry": 0, "fallback": len(items)}
+        # 回填: 按显示顺序走一遍——不送标注的项继承上一条已生效键（立绘不变）
+        by_item = {id(p): label for p, label in zip(items, labels)}
+        cur = prev_carry
+        for p in order:
+            cur = by_item.get(id(p), cur)
+            p["emotion"] = cur
         logger.info(
-            "scene_anno para=%d n=%d retry=%d fallback_sents=%d carry=%s→%s",
-            self._para_seq, len(sentences), int(info.get("retry", 0)),
-            int(info.get("fallback", 0)), prev_carry, tail)
+            "scene_anno group=%d n=%d npc=%d retry=%d fallback_items=%d carry=%s→%s",
+            self._group_seq, len(items), len(order) - len(items),
+            int(info.get("retry", 0)), int(info.get("fallback", 0)),
+            prev_carry, cur)
         if chain:
-            self._carry_text = "\n".join(sentences)     # 已生效链: 上一段原文
-            self._carry_emo = tail                      # + 末句已生效情绪
+            self._carry_text = "\n".join(texts)         # 已生效链: 上一板记录原文
+            self._carry_emo = cur                       # + 末条已生效情绪
 
     def fill_scene_places(self, scene: "BondScene") -> bool:
         """地点变更标注回填（DESIGN_BOND_CONTRACT_V2 §5, P3a; 公共方法供同步/
@@ -1093,7 +1130,7 @@ class BondStoryEngine:
         fork._carry_text = self._carry_text
         fork._carry_emo = self._carry_emo
         fork._seed_anchor = self._seed_anchor
-        fork._para_seq = self._para_seq
+        fork._group_seq = self._group_seq
         fork._current_place = self._current_place
         fork._in_memorial = False                # 守卫已排除 True
         fork._memorial_used = self._memorial_used
