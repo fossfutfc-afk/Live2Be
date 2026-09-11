@@ -277,7 +277,11 @@ class MomoTalkEngine:
         self._character_names = list(character_names) if character_names else None
         # 全局累计轮数统计（record_turn, 供外部偏好统计/注记——2026-09-02 v2:
         # 不再参与触发节奏, 节奏建议看 _bond_gap）
-        self.bond_progress = bond_progress or BondProgress()
+        # 2026-09-11 隔离修复（同 webgui 决策 #31 的同类问题）: 注入了 store 就
+        # **跟着 store 的数据根**走——否则测试/CLI/多世界用临时 store 时, 轮数仍写
+        # 真实 data/basic/bond_progress.json（真机上把 haruka 刷到 4550 轮）。
+        self.bond_progress = bond_progress or BondProgress(
+            getattr(store, "data_root", None))
         self.executor = MmtExecutor(characters_root, interperson_path)
         # 事件流存档（DESIGN_SAVE.md §4）: store 注入 + attach_session 后,
         # 每轮 agent_turn 落 mmt 事件 + 会话内轮数; None = 不记录（向后兼容）

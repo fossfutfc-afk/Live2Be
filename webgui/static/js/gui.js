@@ -91,12 +91,18 @@ async function init() {
   const res = await fetch("/api/name");
   const data = await res.json();
   $("main-name").textContent = data.name;
+  const input = $("input-name");
   if (data.has_name) {
     // 已设置过: 预填当前名字（可改）+ 显示欢迎 + 快捷进入主界面
     $("welcome-line").textContent = `欢迎回来，${data.name}（想换个称呼，直接改吧）`;
     $("welcome-line").classList.remove("hidden");
-    $("input-name").value = data.name;
+    input.value = data.name;
     $("btn-enter").classList.remove("hidden");
+    // 2026-09-11 真机反馈（"填名字总在后面追加老师"）: 预填后**全选**——玩家一
+    // 打字就是"替换"而不是"插在旧名字前面/后面"。聚焦时再选一次（点回输入框
+    // 想改名也直接替换, 不用先手动删）。
+    input.select();
+    input.addEventListener("focus", () => input.select());
   }
   show("view-login");
 }

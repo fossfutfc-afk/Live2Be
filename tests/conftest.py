@@ -49,3 +49,45 @@ def _no_image_gen():
             os.environ.pop(_IMG_SWITCH, None)
         else:
             os.environ[_IMG_SWITCH] = old
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _isolate_runtime_files(tmp_path_factory):
+    """**全局运行时落盘点重定向**（2026-09-11 二次事故后的兜底）。
+
+    事故: 注入临时 store 也挡不住**模块级常量路径**——`mmt_preset.PLAYER_JSON`
+    （登录取名）与 `BondProgress()`（对话轮数）写的是真实 `data/basic/*.json`。
+    真机后果: 玩家名被测试写成"老师"、haruka 轮数被刷到 4550。
+
+    产品侧已修（引擎跟着 store 走 + 冒烟桩世界改 PLAYER_JSON）; 这里再加一道
+    会话级兜底: 任何用例/新代码只要碰这两个路径就落到 tmp, **测试永远碰不到
+    data/**。新增全局落盘点时也请一并登记到这里。
+    """
+    from core.bond import bond_progress as bp
+    from core.mmt import mmt_preset
+    from pathlib import Path
+
+    root = tmp_path_factory.mktemp("runtime")
+    (root / "basic").mkdir(parents=True, exist_ok=True)
+    old_player = mmt_preset.PLAYER_JSON
+    old_default = bp.DEFAULT_DATA_ROOT
+    old_init = bp.BondProgress.__init__
+    mmt_preset.PLAYER_JSON = root / "basic" / "player.json"
+    bp.DEFAULT_DATA_ROOT = root
+
+    def _guarded_init(self, data_root=None):
+        # 解析后再挡一道: 显式传"真实 data 根"的调用（如 chat.py 模块级 _store
+        # 建的引擎）也要重定向到 tmp——否则 test 仍会写真实 basic/bond_progress.json
+        # （2026-09-11 实测: 全量跑一轮把 haruka 刷到 38）。
+        resolved = Path(data_root) if data_root else root
+        if resolved == old_default:
+            resolved = root
+        old_init(self, resolved)
+
+    bp.BondProgress.__init__ = _guarded_init
+    try:
+        yield root
+    finally:
+        mmt_preset.PLAYER_JSON = old_player
+        bp.DEFAULT_DATA_ROOT = old_default
+        bp.BondProgress.__init__ = old_init

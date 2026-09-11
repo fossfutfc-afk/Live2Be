@@ -211,6 +211,15 @@ class BondState:
     memorial_img: str = ""                     # 前端 URL（/gallery/{char}/{sid}.png）; 空 = 未就绪/失败
     memorial_img_ready: bool = False           # 图已落盘可展示
     memorial_img_busy: bool = False            # 生图中（防重复触发; 重试 attempt 可能重复回调）
+    # 看门狗计时（2026-09-11 真机"继续键等了 110s 不动"）: 忙态/视觉门/预生成
+    # 消费门各自记起点——bond_status（前端在轮询）顺手检查, 卡住就兜底放行 + WARNING,
+    # 绝不让"点击永久无响应"这类问题只能靠用户重启服务解决。
+    busy_since: float = 0.0                    # monotonic; 0 = 空闲
+    gate_since: float = 0.0                     # 视觉门连续未就绪起点
+    pregen_gate_since: float = 0.0              # 预生成消费门连续未通过起点
+    _gen_thread: object = field(default=None, repr=False)    # 生成线程（存活判定用）
+    _pregen_thread: object = field(default=None, repr=False)
+    turn_rejects: dict = field(default_factory=dict)         # 推进被拒计数（诊断留痕）
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
 
@@ -232,6 +241,119 @@ def _state(char_id: str, session_id: str) -> BondState:
 def _flow_store(state: "BondState | None"):
     """流程绑定的 store（缺省回落到全局 `chat._store`）。"""
     return getattr(state, "store", None) or _store()
+
+
+#: 看门狗阈值（2026-09-11）: 忙态/视觉门卡住多久算异常 → 兜底放行
+BUSY_WATCHDOG_MS = 300_000     # 5min（LLM client 超时 240s + 余量）: 超时且线程不在 → 复位
+GATE_WATCHDOG_MS = 25_000      # 视觉门 25s 未就绪且 lane 空闲 → 强制兜底就绪
+PREGEN_GATE_WATCHDOG_MS = 25_000   # 预生成消费门 25s 未通过 → 强制兜底就绪并消费
+
+
+def _thread_alive(th) -> bool:
+    try:
+        return bool(th is not None and th.is_alive())
+    except Exception:                                # noqa: BLE001 — 判定失败按不活
+        return False
+
+
+def _lanes_idle(state: "BondState") -> bool:
+    """标注 lane 是否空闲（队列无积压）——看门狗只在"没人正在做这件事"时兜底。"""
+    for q in (state._anno_queue, state._place_queue):
+        try:
+            if q is not None and q.qsize() > 0:
+                return False
+        except Exception:                            # noqa: BLE001
+            continue
+    return not (_thread_alive(state._anno_thread) and state._anno_queue
+                and state._anno_queue.qsize() > 0)
+
+
+def _force_scene_ready(state: "BondState", scene) -> None:
+    """强制把场景标成视觉就绪（兜底放行用）: 空 emotion 回填 + place 标记。"""
+    if scene is None:
+        return
+    try:
+        _fallback_fill(scene)
+    except Exception:                                # noqa: BLE001 — 兜底失败也要放行
+        pass
+    try:
+        scene._place_done = True
+    except Exception:                                # noqa: BLE001
+        pass
+
+
+def _watchdog(state: "BondState", char_id: str, session_id: str) -> None:
+    """看门狗（bond_status 顺手调用）: 把"卡住=永久卡住"变成"卡住=降级放行"。
+
+    三类异常各有兜底:
+      ① **忙态卡死**: busy 超 BUSY_WATCHDOG_MS 且生成/预生成线程都不在 → 复位
+         （线程丢失/异常退出的兜底; 活着的线程不抢——它还在生成）。
+      ② **视觉门卡死**: 当前场景 emotion/place 连续 GATE_WATCHDOG_MS 未就绪且
+         lane 空闲（没人会再来标它）→ 强制兜底就绪（表情精度损失换"能推进"）。
+      ③ **预生成消费门卡死**: 同 ② 作用于 pregen 场景（否则"继续"键永久无响应）。
+    """
+    now = time.monotonic()
+    # ① 忙态
+    if state.busy:
+        state.busy_since = state.busy_since or now
+        if (_ms_since(state.busy_since) > BUSY_WATCHDOG_MS
+                and not _thread_alive(state._gen_thread)
+                and not _thread_alive(state._pregen_thread)):
+            logger.warning(
+                "bond 看门狗: 忙态 %dms 且生成线程均不在 → 复位（防点击永久无响应） %s/%s",
+                _ms_since(state.busy_since), char_id, session_id)
+            state.busy = False
+            state.busy_since = 0.0
+    else:
+        state.busy_since = 0.0
+    # ② 视觉门
+    if _scene_visual_ready(state):
+        state.gate_since = 0.0
+    else:
+        state.gate_since = state.gate_since or now
+        if (_ms_since(state.gate_since) > GATE_WATCHDOG_MS and _lanes_idle(state)
+                and not state.busy):
+            logger.warning(
+                "bond 看门狗: 视觉门 %dms 未就绪且 lane 空闲 → 兜底放行 %s/%s",
+                _ms_since(state.gate_since), char_id, session_id)
+            _force_scene_ready(state, state.scene_obj)
+            state.gate_since = 0.0
+    # ③ 预生成消费门
+    pregen = getattr(state, "pregen_obj", None)
+    if pregen is None or _scene_obj_visual_ready(state, pregen):
+        state.pregen_gate_since = 0.0
+    else:
+        state.pregen_gate_since = state.pregen_gate_since or now
+        if (_ms_since(state.pregen_gate_since) > PREGEN_GATE_WATCHDOG_MS
+                and _lanes_idle(state) and not state.busy):
+            logger.warning(
+                "bond 看门狗: 预生成消费门 %dms 未通过且 lane 空闲 → 兜底放行 %s/%s",
+                _ms_since(state.pregen_gate_since), char_id, session_id)
+            _force_scene_ready(state, pregen)
+            state.pregen_gate_since = 0.0
+
+
+def _note_reject(state: "BondState", reason: str, char_id: str,
+                 session_id: str) -> None:
+    """推进被拒留痕（2026-09-11）: 前端会重试, 后端不记就等于没发生。
+
+    首次 + 每 10 次打一条 WARNING（含计数与原因）, 让 diag 日志能直接读出
+    "继续键被什么挡住了、挡了多久"——真机 110s 那种事故下次可一眼定位。
+    """
+    n = int(state.turn_rejects.get(reason, 0)) + 1
+    state.turn_rejects[reason] = n
+    if n == 1 or n % 10 == 0:
+        logger.warning("bond_turn 被拒 %s/%s reason=%s 第 %d 次（客户端在重试）",
+                       char_id, session_id, reason, n)
+
+
+def _clear_rejects(state: "BondState", char_id: str, session_id: str) -> None:
+    """推进成功 → 报一次"此前被拒 N 次"（把等待时间归因清楚）。"""
+    if not state.turn_rejects:
+        return
+    summary = ", ".join(f"{k}×{v}" for k, v in state.turn_rejects.items())
+    logger.info("bond_turn 接受（此前被拒: %s） %s/%s", summary, char_id, session_id)
+    state.turn_rejects = {}
 
 
 def _store():
@@ -501,6 +623,35 @@ def _enter_title(state: BondState, char_id: str, session_id: str) -> str:
     return t
 
 
+def _ready_scene_payload(state: BondState, char_id: str = "") -> dict:
+    """进入响应里带上"已就绪场景"——客户端可**立即上屏**（免黑屏 + 免一轮轮询）。
+
+    2026-09-11 真机报障"重进中断剧情先黑屏还要加载一小段时间": 回放/预热命中/
+    adopt 就绪/内存态续玩这些路径场景**本来就在手里**（纯读文件, 后端 ~0.1s）,
+    但旧协议只回 `resumed: true` → 前端去 waitScene 轮询（700ms 起）+ 黑屏标题屏
+    （bgUrl 空）→ 看着像"在加载"。现在把场景连同 round/emo_version 一起回:
+    前端拿到即 renderScene, 后续轮询靠 round/指纹去重不会重播。
+
+    **名字牌（name/club）也一起回**（2026-09-11 冒烟抓到）: 旧流程的名字牌信息
+    只在 `/api/bond/status` 里, 不走轮询的路径会让社团栏空着——那是"随角色变动
+    的两个字段", 必须随首帧到。
+
+    场景不存在（真在生成中）→ 返回 {}（调用方保持原语义, 前端走等待卡）。
+    """
+    if state.scene is None:
+        return {}
+    out = {"scene": state.scene, "round": state.round,
+           "emo_version": state.emo_version}
+    if char_id:
+        try:
+            role = _role_info(char_id)
+            out["name"] = role.get("name", "")
+            out["club"] = role.get("club", "")
+        except Exception:                            # noqa: BLE001 — 名字牌降级
+            pass
+    return out
+
+
 def _interrupted_replay_queue(char_id: str, session_id: str) -> tuple[list[dict], int] | None:
     """最新一条"有内容的未完成段" → (narrative-ized 场景列表, 段 enter_seq)。
 
@@ -568,7 +719,8 @@ def _start_replay(state: BondState, replay_q: list[dict],
         _pregenerate(state, char_id, session_id)
     return {"accepted": True, "busy": state.busy, "resumed": True,
             "replay": True,
-            "chapter_title": _enter_title(state, char_id, session_id)}
+            "chapter_title": _enter_title(state, char_id, session_id),
+            **_ready_scene_payload(state, char_id)}
 
 
 # ---------------------------------------------------------------------------
@@ -643,18 +795,22 @@ def bond_start(char_id: str, session_id: str, *,
                 return {"accepted": True, "busy": True, "resumed": False,
                         "chapter_title": _enter_title(state, char_id, session_id)}
             # adopt 就绪（最常见真机路径）: **chapter_title 必带**——漏了前端标题屏
-            # 就兜底成"羁绊剧情"（2026-09-11 用户报障）
+            # 就兜底成"羁绊剧情"（2026-09-11 用户报障）; 场景已就绪 → 一起带上
+            # （前端立即上屏, 不再黑屏等轮询）
             return {"accepted": True, "busy": False, "resumed": True,
-                    "chapter_title": _enter_title(state, char_id, session_id)}
+                    "chapter_title": _enter_title(state, char_id, session_id),
+                    **_ready_scene_payload(state, char_id)}
     elif state.vn is not None or state.demo is not None:
         # 计时埋点（§6.1）: 内存态续玩（resumed）——即时可用
         logger.info("bond_click resumed %s/%s busy=%s",
                     char_id, session_id, "y" if state.busy else "n")
         if state.demo is None:
             _draft_save(state, char_id, session_id)    # 草稿旁路保持新鲜（#28b）
-        # chapter_title 必带（2026-09-09: resumed/adopt 就绪同样展示章节标题屏）
+        # chapter_title 必带（2026-09-09: resumed/adopt 就绪同样展示章节标题屏）;
+        # 场景就绪则带上（重进/续玩立即有画面）
         return {"accepted": True, "busy": state.busy, "resumed": True,
-                "chapter_title": _enter_title(state, char_id, session_id)}
+                "chapter_title": _enter_title(state, char_id, session_id),
+                **_ready_scene_payload(state, char_id)}
     if state.busy:
         # 生成在途（P1: busy = 正在生成——让前端进入轮询, 不再报错）
         logger.info("bond_click busy_wait %s/%s", char_id, session_id)
@@ -802,7 +958,8 @@ def bond_start(char_id: str, session_id: str, *,
             logger.info("bond_cache_hit %s/%s title=%r",
                         char_id, session_id, title_c or title)
             return {"accepted": True, "busy": False, "resumed": True,
-                    "chapter_title": title_c or title or "羁绊剧情"}
+                    "chapter_title": title_c or title or "羁绊剧情",
+                    **_ready_scene_payload(state, char_id)}
 
     seed = (f"（旁白）本章：{title}——从刚才的对话与契机自然展开。"
             if title else "（旁白）故事开始了……")
@@ -958,12 +1115,14 @@ def bond_turn(char_id: str, session_id: str, text: str) -> dict:
                 # 决策 #28b）; 没草稿/过期 → 续写预生成（读屏期间完成, handoff 零等待）
                 if not _draft_adopt(state, char_id, session_id):
                     _pregenerate(state, char_id, session_id)
-            # 不带 scene 返回——前端走 waitScene → status（场景经 _resolve_scene
-            # 附 background_url/fx, 与分支直返路径同款降级规避）
-            return {"accepted": True, "busy": False, "replay": True}
+            # 场景一起回（2026-09-11）: 回放是纯本地 0 LLM, 前端拿到即上屏——
+            # 省掉一轮 status 轮询（700ms 起）也不再黑屏
+            return {"accepted": True, "busy": False, "replay": True,
+                    **_ready_scene_payload(state, char_id)}
         state.replay_scenes = None             # 交棒: 走下方常规逻辑
 
     if state.busy:
+        _note_reject(state, "busy:生成中", char_id, session_id)
         return {"accepted": False, "busy": True, "error": "剧情生成中"}
     if state.completed:
         return {"accepted": False, "completed": True, "error": "剧情已结束"}
@@ -976,6 +1135,8 @@ def bond_turn(char_id: str, session_id: str, text: str) -> dict:
     # 前端 busy 轮询自动放行; 同时保证落库场景视觉键完整: append-only 不可补）
     gate = _scene_ready_or_busy(state)
     if gate is not None:
+        _note_reject(state, f"gate:{'emotion' if not _scene_emotions_ready(state) else 'place'}",
+                     char_id, session_id)
         return gate
 
     if text == "（继续）" and state.pregen_scene is not None:
@@ -983,9 +1144,13 @@ def bond_turn(char_id: str, session_id: str, text: str) -> dict:
         # 未就绪 → 不提升、返回 busy（前端轮询重试）——否则场景被消费后
         # pregen_obj=None, 标注 worker 的身份检查把它当"已替换"丢弃 → 整板无
         # 表情且无补切通道（emo_version 不再涨）→ 表情卡 nomal。
+        # 2026-09-11: 加**超时兜底**（见 _watchdog ③）——否则这道门一旦标注没跑
+        # 成就是"继续键永久无响应"（真机 110s 事故的可能形态之一）。
         if not _scene_obj_visual_ready(state, state.pregen_obj):
+            _note_reject(state, "pregen:标注中", char_id, session_id)
             return {"accepted": False, "busy": True,
                     "error": "预生成标注中, 稍后自动继续"}
+        state.pregen_gate_since = 0.0
         # 预生成就绪 → 补录当前场 → 提升预生成场景为当前场 → 链式预生成
         _log_scene(state, char_id, session_id, picked=None)
         state.scene_obj = state.pregen_obj
@@ -1017,7 +1182,10 @@ def bond_turn(char_id: str, session_id: str, text: str) -> dict:
                 _spawn_candidates(state, state.scene_obj, char_id, session_id)
             else:
                 _pregenerate(state, char_id, session_id)
-        return {"accepted": True, "busy": state.busy, "pregen": True}
+        _clear_rejects(state, char_id, session_id)
+        # 新场景一起回（2026-09-11）: 预生成已在手, 前端拿到即上屏（省一轮轮询）
+        return {"accepted": True, "busy": state.busy, "pregen": True,
+                **_ready_scene_payload(state, char_id)}
 
     # 分支消费（板块契约 2026-08-30）: 选项带同响应分支 → 立即展示分支内容
     # （零等待——分支已在场景响应里, 无需再调 LLM; 返回 scene 由前端直接渲染）
@@ -1090,6 +1258,7 @@ def bond_turn(char_id: str, session_id: str, text: str) -> dict:
         # 老路则分支播放时照旧预生成
         if cand is None:
             _pregenerate(state, char_id, session_id)
+        _clear_rejects(state, char_id, session_id)
         return {"accepted": True, "busy": state.busy, "branch": True,
                 "scene": state.scene, "candidate": cand is not None}
 
@@ -1104,6 +1273,12 @@ def bond_turn(char_id: str, session_id: str, text: str) -> dict:
         # 就地展示老师那句（**不重建 scene_obj**——原对象的标注就绪态要保住,
         # 否则推进门控会一直等一个永不回来的标注）
         state.scene = _narrativize(state.scene, text)
+        # 2026-09-11 二次修复: **当前展示视图也换成增量**。此前只改返回值、state.scene
+        # 留完整物化板 → 前端任何一次 status 重渲染（round 已变/轮询兜底）都会把
+        # 板正文重播一遍, 并再次出现"老师"那行（用户报"继续轮又看到红字老师 + 打搅了"）。
+        # 事件流/回放不受影响（它们读事件 payload, 自己 narrativize）。
+        display = _display_delta(state.scene, text)
+        state.scene = display
         state.scene_obj.choices = []              # 已裁决: 不再给选项
         state.scene_logged = True                 # 本板已随裁决落库
         # 裁决后立刻备料（P0-7c 修正）: 这里必须先 record_picked（上面已做）——
@@ -1115,13 +1290,15 @@ def bond_turn(char_id: str, session_id: str, text: str) -> dict:
         # 的必须是**增量**——`state.scene` 是完整物化板（板正文 + 老师那句），
         # 前端 renderScene 会从头重播 → 已读过的板正文又念一遍。这里只回新出现的
         # 那句（背景/records 等载体照旧带上, 前端渲染逻辑不变）。
+        _clear_rejects(state, char_id, session_id)
         return {"accepted": True, "busy": state.busy, "branch": True,
-                "scene": _display_delta(state.scene, text), "candidate": False}
+                "scene": display, "candidate": False}
 
     # append-only 事件流: 当前展示场景在玩家裁决时落库（带 picked）;
     # 纯叙事场的"（继续）"是推进指令不是内容裁决 → picked=None（与预生成消费一致）
     _log_scene(state, char_id, session_id,
                picked=None if text == "（继续）" else text)
+    _clear_rejects(state, char_id, session_id)
     _generate(state, char_id, session_id, text)
     return {"accepted": True, "busy": True}
 
@@ -1133,6 +1310,9 @@ def bond_status(char_id: str, session_id: str) -> dict:
     + gate_busy（2026-09-07）: 推进门控视角——当前场景 emotion+place 未就绪
     （state.busy 之外的另一类"再等等"）; 前端忙等改轮询 status 而非狂发 turn。"""
     state = _state(char_id, session_id)
+    # 看门狗（2026-09-11）: 前端在轮询 status —— 借这次调用检查"忙态/视觉门/
+    # 预生成消费门"是否卡死, 卡死就兜底放行（否则点击永久无响应, 用户只能重启）
+    _watchdog(state, char_id, session_id)
     # lane 自愈（2026-09-08）: worker 意外死亡且队列有积压 → 看门狗立即重启
     # （_ensure_lane 只在入队时触发——本函数覆盖"死后无人入队"的饥饿窗口）
     if state.vn is not None and state.demo is None:
@@ -1566,6 +1746,7 @@ def _generate(state: BondState, char_id: str, session_id: str, user_input: str) 
         if state.busy:
             return False
         state.busy = True
+        state.busy_since = time.monotonic()      # 看门狗计时起点（2026-09-11）
     state.error = ""
 
     def run():
@@ -1632,6 +1813,7 @@ def _generate(state: BondState, char_id: str, session_id: str, user_input: str) 
                 state.error = str(e)        # 普通失败: 前端重试按钮
         finally:
             state.busy = False
+            state.busy_since = 0.0
             # Storyloom bridge 式预生成（2026-08-30）: 主生成完成后（busy 已清零）
             # 才触发——纯叙事场（无 choices 未收尾）提前生成下一场, 玩家点"继续"
             # 时已就绪, 体感零等待。放 finally 而非 success 分支: success 分支里
@@ -1643,7 +1825,9 @@ def _generate(state: BondState, char_id: str, session_id: str, user_input: str) 
                     and not state.scene_obj.is_end):
                 _pregenerate(state, char_id, session_id)
 
-    threading.Thread(target=run, daemon=True).start()
+    th = threading.Thread(target=run, daemon=True)
+    state._gen_thread = th                          # 看门狗存活判定用
+    th.start()
 
 
 def _pregenerate(state: BondState, char_id: str, session_id: str) -> None:
@@ -1659,6 +1843,7 @@ def _pregenerate(state: BondState, char_id: str, session_id: str) -> None:
                 or state.demo is not None or state.vn is None:
             return
         state.busy = True
+        state.busy_since = time.monotonic()      # 看门狗计时起点（2026-09-11）
 
     def run():
         t0 = time.monotonic()                    # 计时埋点（§6.1）
@@ -1689,8 +1874,11 @@ def _pregenerate(state: BondState, char_id: str, session_id: str) -> None:
             _draft_save(state, char_id, session_id)    # 队列/当前板仍值得留（#28b）
         finally:
             state.busy = False
+            state.busy_since = 0.0
 
-    threading.Thread(target=run, daemon=True).start()
+    th = threading.Thread(target=run, daemon=True)
+    state._pregen_thread = th                    # 看门狗存活判定用
+    th.start()
 
 
 def _discard_candidates(state: BondState) -> None:

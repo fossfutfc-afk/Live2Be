@@ -189,10 +189,10 @@ def test_bond_full_flow(tmp_path):
         # 回完整板会让前端把第一段重播一遍, 真机报障"第一段出现两遍"）
         assert texts == ["选A"], texts
         assert r2["scene"]["paragraphs"][0]["speaker"] == "sensei"
-        # 完整物化板仍在 status（= 当前屏上内容的一致性视图）
+        # status 视图与**屏上内容一致**（也是增量——否则前端任何一次轮询重渲染
+        # 都会把板正文重播一遍, 真机"继续轮又看到老师那行"就是这个）
         st1b = bond.bond_status(CHARACTER, sid)
-        assert [p["text"] for p in st1b["scene"]["paragraphs"]] == [
-            "段落一。", "段落二。", "选A"], "status 视图仍是完整物化板"
+        assert [p["text"] for p in st1b["scene"]["paragraphs"]] == ["选A"], st1b["scene"]
         assert st1b["round"] == 1, "裁决是场景一部分, 不占轮次"
         # v2: 裁决后一板反应（待发 0 LLM）, 其后才是收尾场——循环推进到 completed
         for _ in range(6):
@@ -1003,11 +1003,20 @@ def test_bond_record_stream_speaker_names_in_api(tmp_path):
         out2 = _resolve_scene(r2["scene"], CHARACTER)
         names = [p.get("speaker_name") for p in out2["paragraphs"]]
         assert names == ["老师"], names                        # 增量: 只有老师那句
-        # status 视图（完整物化板）两侧名字行都在
+        # status 视图（前端轮询看的那份）同样是增量——与屏上内容一致
         st_all = bond.bond_status(CHARACTER, sid)
         assert [p.get("speaker_name")
                 for p in _resolve_scene(st_all["scene"], CHARACTER)["paragraphs"]] \
-            == ["伊草 遥香", "老师"]
+            == ["老师"]
+        # 完整物化板（板正文 + 裁决行）在**事件流**里: 回放场景 = 原始板 + picked,
+        # 观看视图由 `_narrativize` 物化（前端回放/中断续看都走这条）
+        ats = bond.replay_attempts(CHARACTER, sid)
+        sc = [s for a in ats for s in a["scenes"]]
+        assert sc and sc[0]["picked"] == RECORD_PICK, sc
+        narr = _resolve_scene(bond._narrativize(sc[0]["scene"], sc[0]["picked"]),
+                              CHARACTER)
+        assert [p.get("speaker_name") for p in narr["paragraphs"]] \
+            == ["伊草 遥香", "老师"], narr["paragraphs"]
         print("    v2: speaker_name 注入（角色显示名 / 老师）")
     finally:
         _cleanup()
