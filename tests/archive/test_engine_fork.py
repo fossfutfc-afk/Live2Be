@@ -97,8 +97,8 @@ def test_fork_send_independent_paths():
     fa = vn.fork_for_pick("选A")
     fb = vn.fork_for_pick("选B")
     assert fa is not None and fb is not None
-    fork_base = fa._para_seq                       # fork 复制时的主线链
-    assert fork_base == vn._para_seq == fb._para_seq
+    fork_base = fa._group_seq                       # fork 复制时的主线链
+    assert fork_base == vn._group_seq == fb._group_seq
     sa = fa.send_vn_scene("（继续）", annotate=True)
     sb = fb.send_vn_scene("（继续）", annotate=True)
     # 两路各自生成、内容不同（脚本不同）; live 未新增历史
@@ -108,8 +108,8 @@ def test_fork_send_independent_paths():
     assert vn.history_length == live_hist_len
     # 标注链分岔（预期内）: fork 复制主线链后各自再推进一步（正文段组）,
     # live 链不动（para_seq 含正文+branch 组, 故用相对增量断言）
-    assert fa._para_seq == fork_base + 1 and fb._para_seq == fork_base + 1
-    assert vn._para_seq == fork_base
+    assert fa._group_seq == fork_base + 1 and fb._group_seq == fork_base + 1
+    assert vn._group_seq == fork_base
     assert fa._carry_emo == "nomal" and fb._carry_emo == "nomal"
     assert fa._carry_text != "" and fb._carry_text != ""
     # 两路间互不可见
