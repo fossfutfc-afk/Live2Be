@@ -6,7 +6,7 @@
 > 原两份文件（core/DESIGN_BRAIN.md、docs/DESIGN_MEMORY.md）已归档至 docs/archive/。
 >
 > 关联文档: `core/DESIGN_SEGMENT.md`（段模型, digest 边界）· `core/DESIGN_WORLD.md`
-> （世界对齐）· `docs/archive/DESIGN_SAVE.md §4.6`（存储, 已归档）· `docs/world_model_evolution.md`
+> （世界对齐）· `docs/archive/DESIGN_SAVE.md §4.6`（存储, 已归档）· `docs/archive/world_model_evolution.md`（已归档）
 > （世界模型演进史）· `llm/prompts/digest.md`（digest 规则）·
 > `contract/schema.py: build_digest_schema`（输出契约单源真值）。
 
@@ -92,7 +92,7 @@ worlds/{world}/characters/{char}/wiki.json（本世界线 wiki; 含 digested_seq
   （"阿露1生病/阿露2有空" = 世界1阿露/世界2阿露——世界隔离不交叉）。
 - **wiki 归属**: per 世界线（该角色在当前世界的记忆）——不是 per 会话、更不是 per 角色。
 - **虚边（关联事件）**: 角色间共享事件由"视角节点对 + event_id"虚边关联——**设计中 🔧**
-  （阶段 12~15, 见 docs/world_model_evolution.md）; 广播落库（共享事件各角色各落一份视角）
+  （阶段 12~15, 见 docs/archive/world_model_evolution.md）; 广播落库（共享事件各角色各落一份视角）
   是虚边的地基。当前代码尚未实现广播落库（同框客串未落地）。
 
 ---
@@ -245,7 +245,7 @@ C. RAG 回忆（Phase 2 🔧）: embedding 检索与新增语义相关的旧事�
 
 > 🔧 **2026-09-02 新增设计（未实现）**: 条目加 `epistemic`（认知类型）+ `observer`（观察者）
 > —— 把"角色认为的"与"世界真相"从 prompt 规则（digest.md 规则 6/7）升级为**数据结构约束**。
-> 对应世界模型"广播落库/信息差"（docs/world_model_evolution.md 阶段 12）。
+> 对应世界模型"广播落库/信息差"（docs/archive/world_model_evolution.md 阶段 12）。
 
 ```jsonc
 // data/worlds/{world_id}/characters/{char_id}/wiki.jsonl  ← 规划: jsonl 逐条（一行一条目）
@@ -372,4 +372,4 @@ C. RAG 回忆（Phase 2 🔧）: embedding 检索与新增语义相关的旧事�
 | `core/session/renderer.py` | render_timeline（digest 输入叙事化） |
 | `core/DESIGN_SEGMENT.md` | 段模型（最小单元 / digest 边界 / affection×significance 正交） |
 | `core/DESIGN_WORLD.md` | 世界对齐（世界=顶层单元, 世界线挂靠） |
-| `docs/world_model_evolution.md` | 模型演进史（阶段 0~15, 虚边/快照树/共通删除等设计） |
+| `docs/archive/world_model_evolution.md`（已归档） | 模型演进史（阶段 0~15, 虚边/快照树/共通删除等设计） |

@@ -1,3 +1,8 @@
+> **已归档（2026-09-12）**：2026-08-27 一次性 A/B 实验记录（bond 触发软/强措辞 ×3 遍）。
+> **不再更新, 以代码为准**。
+> 取代者：`llm/task_levels.py`（档位真源）· `llm/prompts/task_bond.md`（task 卡）
+> · `docs/EXEC_BOND_LATENCY.md`（延迟工程）。重跑：`experiments/reasoning_ab_test.py`（输出到本目录）。
+
 # 思维链对照实验：git 旧版 vs 强措辞（bond 触发, 稳定性统计）
 
 - **模型**: `deepseek-v4-flash`（reasoning_content 可用）

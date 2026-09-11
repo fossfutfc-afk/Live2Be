@@ -261,8 +261,11 @@
 
 - [ ] 事件流全量保留策略（YAGNI：等积累大再摘要化/归档）
 - [ ] jsonl 单行 >4KB 的 append 原子性实测（长段落场景）
-- [ ] DESIGN_VISUAL_PROTOCOL.md 状态行过时（"设计定稿待实现"——契约已切 emotion 内联,
-      beats 已删多年）
+- [x] DESIGN_VISUAL_PROTOCOL.md 状态行过时（"设计定稿待实现"）——**2026-09-12 已校准**：
+      顶部状态改写为"部分过时"（§2 主 LLM 出 emotion/place 已作废；§4/§8 词表形态仍生效）
 - [ ] docs/archive 与 core/DESIGN_*.md 的部分过时描述（如 DESIGN_SAVE 已归档,
-      新链路在代码 docstring——按需清理）
+      新链路在代码 docstring——按需清理）。2026-09-12 已归档 maXEmo-miNDelay /
+      reasoning_experiment / world_model_evolution 三份史料；仍在原位的 v1 架构档
+      （DESIGN_VISUAL / DESIGN_GUI / DESIGN_MMT_CHAT / DESIGN_SEGMENT / DESIGN_WORLD /
+      DESIGN_MULTI_CHAR）待逐个核对：仍是规范的修状态头, 只具史料的再归档
 - [ ] llm/design.md 待定/未来扩展段核对（max_tokens/thinking 已集中到 task_levels.py）

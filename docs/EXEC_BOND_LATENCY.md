@@ -276,5 +276,5 @@ post-bridge 分支）。缺口 = 入口段（A）+ 少量语义修正（B）+ �
 
 - 本问题归因链：webgui/bond.py `_generate`/send_vn_scene 调用、core/bond/bond_story.py
   `send_vn_scene`（406-449）、llm/client.py `chat_full`（181-222）、llm/task_levels.py、
-  settings.toml `reasoning_effort=high`、maXEmo-miNDelay.md（流式 vs 退火取舍）、
+  settings.toml `reasoning_effort=high`、archive/maXEmo-miNDelay.md（已归档）（流式 vs 退火取舍）、
   docs/DESIGN_MMT_CHAT.md / docs/archive/DESIGN_BOND_STORY.md（M3/两遍式 C 背景）。
