@@ -628,6 +628,18 @@ class BondStoryEngine:
         # 反而被当成"收到的不是记录流" → 打回重发）。
         resp_format = "text"
 
+        # ⚠️ 2026-09-13（审计 B19, **仍未修**——原因记在此处, 免得下次又踩）:
+        # 曾想在这里清空 `_pending_boards`, 让"生成期间队列里没有可交付的板"成为
+        # 不变式。实测**这段在队列非空时不可达**: 上面的 0-LLM 快路径
+        # （`if self._pending_boards:` → `return`）会先返回。而流式交付窗口恰恰
+        # 是"队列非空"的情形——本回合的板尚未解析出来, 队列里还挂着**上一回合的
+        # 尾板**, 此时首板在下面的 LLM 调用中闭合即回调, webgui 的 `_draft_save`
+        # 在回调里读 `_pending_boards` → 草稿混入旧板 → 进程若在此刻死掉, 重进会
+        # 把旧板当"已生成未播放"续播。
+        # 正确修法（待做）: 在 **webgui 侧**标记"正在生成中", 让 `_draft_boards`
+        # 在生成期间不取引擎待发队列; 或把"本回合待发板"与"上一回合残留"在引擎里
+        # 分成两个字段。
+
         for attempt in range(MAX_SCENE_RETRIES):
             # 纪念生图提前开画（v2, 2026-09-12）: v1 的 `MemorialProbe` 嗅探的是
             # `"action":"memorial_enter"` 的 prompt 字段——记录流下不存在, 所以
