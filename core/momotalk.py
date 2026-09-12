@@ -86,18 +86,58 @@ from core.ui.text_processors import _process_for_momotalk, _strip_action_bracket
 logger = logging.getLogger(__name__)
 
 #: RAG 语义召回后端（digest 联想, 2026-09-xx 接线 core/rag）——embed_fn 传给
-#: digest_segment → recall_subgraph 通道1 用 embedding 相似度召回旧记忆;
-#: embedding 模型未加载/服务未起 → embed_fn 抛 RagError → recall 内部 try/except
-#: 自动降级 tags 关键词（宁缺勿错, 不阻断 digest）。模块级缓存（embedder 构造
-#: 时探一次 /v1/models, 低频调用不值得重复探）。
+#: digest_segment → recall_subgraph 通道1 用 embedding 相似度召回旧记忆。
+#: **embed_fn 只在本机真的加载了 embedding 模型时才给出**（健康判定见 `_get_embed_fn`）。
 _EMBED_FN = None
+
+#: 最近一次上报过的 embed_fn 状态（None = 还没上报过）。
+#: 只用于**状态跳变时才打日志**——附注记语义（INFO 级, 可 grep）, 不逐次刷屏。
+_EMBED_REPORTED: bool | None = None
 
 
 def _get_embed_fn():
-    """懒构造 RAG embed_fn（None → 调用方走关键词降级, 语义等价）。"""
-    global _EMBED_FN
-    if _EMBED_FN is None:
-        _EMBED_FN = make_embed_fn(LocalEmbedder())
+    """懒构造 RAG embed_fn——**模型未就绪 → 返回 None**（调用方走关键词降级）。
+
+    2026-09-13 修正（审计拆分点 A: 降级不可观测）: 原实现无条件
+    `make_embed_fn(LocalEmbedder())`。而 `LocalEmbedder` 在服务未起/无 embedding
+    模型时 `model == ""`、`embed()` 每次抛 `RagError`, 该异常又被 recall 侧
+    `except Exception` 静默吞掉 → **每一轮 digest 都悄悄跑在词面关键词降级上,
+    零日志**。后果不是崩溃而是**记忆质量静默损失**: Round B 的
+    `recommend_candidates` 因此失去语义近似能力 → 引擎抬不出【疑似同主题】
+    标注（CAND_HIGH 结构强制 touch/update 防重复）→ 新经历只会一路 `add`,
+    wiki 图退化成"一条经历配一个 belief"（现网 haruka 实测 4 episode → 4 belief,
+    evolution 全 add）。
+
+    现在: ① 先查 `health()`（= 真的发现了 embedding 模型）, 未就绪 → 返回 None
+    （语义等价于原降级路径, 但**从源头**不给出注定抛错的 embed_fn）;
+    ② 状态跳变时打一条可 grep 的日志, "在跑语义召回"还是"在跑词面兜底"一眼可判。
+    未就绪**不永久缓存**（服务可能是后起的）: 每次 digest 重探一次
+    （构造时一次 `GET /v1/models`; digest 是 ~分钟级低频路径, 可接受）。
+    """
+    global _EMBED_FN, _EMBED_REPORTED
+    if _EMBED_FN is not None:                        # 已构造 → 直接复用
+        return _EMBED_FN
+    # 服务可能是后起的 → **不永久缓存"未就绪"**, 每次 digest 重探一次
+    # （构造时一次 GET /v1/models, 10s 超时; digest 是分钟级低频路径）
+    try:
+        emb = LocalEmbedder()
+        model = emb.model if emb.health() else ""
+    except Exception as e:                           # noqa: BLE001 — 探测失败按未就绪
+        emb, model, reason = None, "", f"probe_error({e})"
+    else:
+        reason = "" if model else "model_missing"
+    if not model:                                    # 未就绪 → 上报跳变后交出 None
+        if _EMBED_REPORTED is not False:
+            logger.info(
+                "digest_embed fn=none reason=%s fallback=keyword_candidates"
+                "（语义召回不可用: 本机未加载 embedding 模型 → Round B 失去"
+                "【疑似同主题】标注能力, 新经历只会 add）", reason)
+            _EMBED_REPORTED = False
+        return None
+    _EMBED_FN = make_embed_fn(emb)
+    if _EMBED_REPORTED is not True:
+        logger.info("digest_embed fn=ok model=%s fallback=-", model)
+        _EMBED_REPORTED = True
     return _EMBED_FN
 
 

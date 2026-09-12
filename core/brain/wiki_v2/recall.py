@@ -18,6 +18,7 @@ digest 是异步路径, 毫秒级重算可接受。
 """
 from __future__ import annotations
 
+import logging
 import math
 import random
 from datetime import datetime
@@ -25,6 +26,8 @@ from typing import Callable, Iterable
 
 from core.brain.wiki_v2.nodes import PRECIOUS_THRESHOLD, BrainNode
 from core.brain.wiki_v2.store import WikiStoreV2
+
+logger = logging.getLogger(__name__)
 
 #: 通道3 参数（per 角色可配——天然呆角色 σ 大, 呼应 CLAUDE.md 衰减系数设计）
 PRECIOUS_RATIO = 0.3        # 珍贵分支概率
@@ -116,6 +119,10 @@ def recommend_candidates(store: WikiStoreV2, query: str, *,
     None → 关键词降级（tags∩ + subject 命中 + 正文 2-gram Dice, 保守——
     宁缺勿错: 不标注比标错好）。
 
+    **降级可观测（2026-09-13 审计拆分点 A）**: 语义后端故障时打一行
+    `recall_cand fallback=keyword reason=…`——此前的静默降级会让"引擎抬不出
+    【疑似同主题】"表现为"wiki 只增不并", 排查时无从下手。
+
     Returns: [(node, score), ...] 降序, score > 0; 空 query/空认知 → []。
     """
     nodes = [n for n in store.all() if n.kind in ("belief", "experience")]
@@ -130,8 +137,10 @@ def recommend_candidates(store: WikiStoreV2, query: str, *,
                 ((_cosine(qv, v), n) for n, v in zip(nodes, vecs) if v),
                 key=lambda t: t[0], reverse=True)
             return [(n, s) for s, n in scored[:k] if s > 0]
-        except Exception:                       # noqa: BLE001 — 后端故障降级
-            pass
+        except Exception as e:                  # noqa: BLE001 — 后端故障降级
+            logger.info("recall_cand fallback=keyword reason=embed_error err=%s "
+                        "nodes=%d（Round B 抬不出【疑似同主题】→ 该段可能只会 add）",
+                        e, len(nodes))
     return _keyword_candidates(nodes, query, k)
 
 
@@ -183,7 +192,9 @@ def _similarity_hits(nodes: list[BrainNode], query: str,
     try:
         vecs = embed_fn(texts)
         qv = embed_fn([query])[0]
-    except Exception:                       # noqa: BLE001 — 后端故障降级, 宁缺勿错
+    except Exception as e:                      # noqa: BLE001 — 后端故障降级, 宁缺勿错
+        logger.info("recall_sim fallback=tags reason=embed_error err=%s nodes=%d "
+                    "（通道1 语义召回不可用, 退词面标签命中）", e, len(nodes))
         return _tags_hits(nodes, query, k)
     scored = sorted(
         ((_cosine(qv, v), n) for n, v in zip(nodes, vecs) if v),
