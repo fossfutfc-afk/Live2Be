@@ -16,6 +16,7 @@ tests/conftest 的开关关掉这里不适用, 故这里显式置 `LIVE2BE_IMAGE
 from __future__ import annotations
 
 import argparse
+import base64
 import os
 import re
 import sys
@@ -38,6 +39,9 @@ CHAPTER_TITLE = "放学后的约定"
 BOND_BLOCK = "\n".join([
     '{"stage": "switch", "text": "教室"}',
     f'{{"character": "{CHARACTER}", "text": "（她抬起头，指尖还沾着粉笔灰。）老师……你来了。"}}',
+    # 纪念触发（2026-09-12）: 落在**首板**（其后到块尾都是纪念正文）——冒烟据此
+    # 断言 v2 纪念链: in_memorial → 立绘隐藏 + 普通背景清空 + 生图淡入
+    '{"stage": "memorial", "text": "（她抬起头，第一次直视我的眼睛。）"}',
     '{"character": "sensei", "text": "我来了。"}',
     '{"character": "sensei", "text": "再等一会儿。"}',
     f'{{"character": "{CHARACTER}", "text": "（她愣了一下，随即笑起来。）嗯……那我等你。"}}',
@@ -123,6 +127,36 @@ class StubLLM:
         return msgs
 
 
+class _FakeImageGen:
+    """离线生图替身（冒烟用）: **不碰网络**, 写一张 1×1 PNG 当"纪念图"。
+
+    为什么需要: 纪念链路的验证点是"引擎的 art/memorial → 生图 → gallery URL →
+    `bond_status.memorial_img` → 前端纪念层淡入"整条线（2026-09-12 v2 重接线）。
+    真调 API 花钱且不确定, 所以这里替身出一个真实存在的文件（GalleryStore 要复制它）。
+    """
+
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    def generate(self, prompt: str, **kw):  # noqa: ANN003 — 与真接口同形
+        from llm.image_gen import GeneratedImage
+
+        self.calls.append(prompt)
+        root = ROOT / ".testtmp" / "webtest" / "fakeimg"
+        root.mkdir(parents=True, exist_ok=True)
+        path = root / "memorial.png"
+        if not path.is_file():
+            path.write_bytes(base64.b64decode(_PNG_1PX))
+        return GeneratedImage(path=path, width=1, height=1, size_bytes=path.stat().st_size)
+
+
+#: 1×1 透明 PNG（冒烟占位图; 不下载资产、不出网）
+_PNG_1PX = (
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAF"
+    "AAH/q842iQAAAABJRU5ErkJggg=="
+)
+
+
 def build_world(data_root: Path):
     """临时世界线 + 注入 chat（引擎/store 都指向 data_root）。
 
@@ -153,6 +187,11 @@ def build_world(data_root: Path):
     engine.attach_session(sid)
     chat._engines[CHARACTER] = engine
     chat._store = st
+    # 纪念生图替身（2026-09-12）: 离线出图, 让"引擎 art/memorial → gallery URL →
+    # 前端纪念层淡入"整条线在冒烟里真的跑一遍（`LIVE2BE_IMAGE=off` 也拦不住它,
+    # 因为这里直接替换了 `_image_generator` 的返回值, 不碰网络也不写真实 gallery）。
+    from webgui import bond as bond_mod
+    bond_mod._image_generator = lambda: _FakeImageGen()
     return st, sid, engine, llm
 
 
@@ -170,6 +209,12 @@ def serve(port: int = 0, data_root: Path | None = None, ready_timeout: float = 2
     os.environ.setdefault("LIVE2BE_DIAG_LOG", str(root.parent / "diag.log"))
 
     from webgui.app import app
+
+    #: 画廊取图路由读的是**模块级 `webgui.app.DATA_DIR`**（真 data/）——桩世界的
+    #: 世界线在临时目录, 不重定向就会"图写进了临时 gallery, 前端取图 404"
+    #: （2026-09-12 冒烟实测: 纪念层淡入但图片请求 404）。与 PLAYER_JSON 同款隔离。
+    from webgui import app as app_mod
+    app_mod.DATA_DIR = root
 
     #: 冒烟专用钩子（**只在桩世界里注册**, 产品 app 没有这个路由）:
     #: 丢掉进程内的 BondState —— 模拟"服务端重启/内存态丢失", 让下一次进入

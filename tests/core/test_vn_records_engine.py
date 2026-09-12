@@ -184,6 +184,86 @@ def test_empty_block_exhausts_retries():
     print("    engine: 空块重试耗尽 → SceneLoopError")
 
 
+def test_memorial_fires_image_hook_with_art_intent():
+    """纪念生图钩子（v2, 2026-09-12）: `stage:memorial` 一出现就回调, prompt =
+    块级 `art` 画面意向（rules 要求写清"她此刻在画面里是什么样"）。
+
+    v1 的 `MemorialProbe`（嗅 `"action":"memorial_enter"` 的 prompt 字段）在记录流下
+    永不触发 → 已退役; 这里锁住替代行为的两条路径（批式 / 流式）。
+    """
+    block = "\n".join([
+        '{"stage": "art", "text": "她在开满杂草的坡道上回头，夕阳打在脸上"}',
+        '{"stage": "switch", "text": "黄昏的坡道"}',
+        '{"character": "igusa_haruka", "text": "老师，你看。"}',
+        '{"stage": "memorial", "text": "（她第一次直视我的眼睛。）"}',
+        '{"character": "igusa_haruka", "text": "这句话我想说很久了。"}',
+    ])
+    got: list[str] = []
+    engine = _engine(ScriptedLLM(block))
+    scene = engine.send_vn_scene("（开场）", annotate=False,
+                                 on_memorial_prompt=got.append)      # 批式（无 on_board）
+    assert scene.memorial is True
+    assert got == ["她在开满杂草的坡道上回头，夕阳打在脸上"], got   # 意向优先
+
+    # 无 art 声明 → 退化为触发句（同样是"她在做什么"的一句话, 保证画面里有主角）
+    block2 = "\n".join([
+        '{"stage": "switch", "text": "教室"}',
+        '{"character": "igusa_haruka", "text": "……老师。"}',
+        '{"stage": "memorial", "text": "（她抬起头，第一次直视我的眼睛。）"}',
+    ])
+    got2: list[str] = []
+    engine2 = _engine(ScriptedLLM(block2))
+    engine2.send_vn_scene("（开场）", annotate=False, on_memorial_prompt=got2.append)
+    assert got2 == ["（她抬起头，第一次直视我的眼睛。）"], got2
+
+    # 没有 memorial 的普通块 → **不开画**（模型写了 art 却没兑现 → 不浪费调用）
+    block3 = "\n".join([
+        '{"stage": "art", "text": "她在教室里回头"}',
+        '{"stage": "switch", "text": "教室"}',
+        '{"character": "igusa_haruka", "text": "老师，早上好。"}',
+    ])
+    got3: list[str] = []
+    engine3 = _engine(ScriptedLLM(block3))
+    engine3.send_vn_scene("（开场）", annotate=False, on_memorial_prompt=got3.append)
+    assert got3 == [], got3
+
+    # 流式路径: 触发发生在**喂完其余输出之前**（生图与 LLM 剩余输出并行——
+    # 真机生图 ~26s, 玩家读纪念正文即缓冲）
+    class _StreamLLM:
+        def __init__(self):
+            self.order: list[str] = []
+
+        def chat_full(self, messages, **kw):
+            on_chunk = kw.get("on_chunk")
+            if on_chunk:
+                on_chunk('{"stage": "art", "text": "她回头, 夕阳打在脸上"}\n')
+                on_chunk('{"stage": "switch", "text": "黄昏的坡道"}\n')
+                on_chunk('{"character": "igusa_haruka", "text": "老师。"}\n')
+                on_chunk('{"stage": "memorial", "text": "（她抬起头。）"}\n')
+                self.order.append("memorial-fed")
+                on_chunk('{"character": "igusa_haruka", "text": "……谢谢你。"}\n')
+                self.order.append("rest-fed")
+            return block
+
+        def chat(self, messages, **kw):
+            return block
+
+    llm_s = _StreamLLM()
+    engine_s = BondStoryEngine(ROOT / "config" / "characters", llm_s)
+    engine_s.start_session(CHARACTER)
+    got_s: list[tuple[str, list[str]]] = []
+    engine_s.send_vn_scene("（开场）", annotate=False,
+                           on_board=lambda sc: None,
+                           on_memorial_prompt=lambda p: got_s.append(
+                               (p, list(llm_s.order))))
+    assert got_s, "流式路径应触发纪念生图钩子"
+    prompt_s, order_at_fire = got_s[0]
+    assert prompt_s == "她回头, 夕阳打在脸上", prompt_s
+    assert order_at_fire == [], f"开画应在纪念行解析后立即发生: {order_at_fire}"
+    print("    engine: 纪念生图钩子 = art 意向优先 / 触发句兜底 / 无纪念不开画 / "
+          "流式即时开画")
+
+
 def test_art_declaration_is_not_its_own_board():
     """`art` 是块级声明（真机实证: 模型把它放在首条）——不许切出一个纯声明的空板。"""
     block = "\n".join([

@@ -1,5 +1,17 @@
 # -*- coding: utf-8 -*-
-"""MEMORIAL 流式嗅探探针（方案 A, 2026-09-01）— 流式输出中提前捕获生图 prompt。
+"""**已退役（2026-09-12, 决策 #39）：主链不再调用**，模块留档供考古/复活参考。
+
+退役原因：它嗅的是 v1 动作 `"action":"memorial_enter"` 的 `prompt` 字段——记录流 v2
+里不存在这种输出，于是**纪念生图永远不会触发**（真机实测：整章不出图）。
+v2 的等价物 = 引擎在**一行 `stage:memorial` 解析出来时**就回调
+（`BondStoryEngine._fire_memorial_image`，prompt = 块级 `art` 意向 → 缺省退化触发句，
+且只在真出现 memorial 时才开画）。v2 行为的用例：
+`tests/core/test_vn_records_engine.py::test_memorial_fires_image_hook_with_art_intent`
+与 B 层冒烟"纪念链路"步骤；本模块自身的 v1 用例已归档到 `tests/archive/`。
+
+---- 以下为原始说明（v1, 2026-09-01）----
+
+MEMORIAL 流式嗅探探针（方案 A）— 流式输出中提前捕获生图 prompt。
 
 目标: LLM 在输出 memorial_enter 动作时, `prompt` 字段一旦**定稿**（JSON 字符串
 值引号闭合）就触发回调 → 生图与 LLM 剩余输出（paragraphs/choices）并行——
