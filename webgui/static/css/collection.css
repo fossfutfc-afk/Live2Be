@@ -84,7 +84,17 @@
   transition: transform 0.12s, box-shadow 0.15s;
 }
 .col-slot.empty { cursor: default; }        /* 没有这个角色的槽位: 什么都不画 */
-.col-slot:not(.empty):not(.blank):hover {
+/* 留白格: 有这个人但没有 cover 素材 —— **照样可点**（进角色页看已结束的章）
+ *
+ * 2026-09-13（审计 A2）: 原先 `cursor: default` 且被上方 hover 规则排除,
+ * 是在用视觉告诉玩家"这格不能点"——而 JS 侧现在也确实能点（后端不看封面）。
+ * 保留虚线/斜纹的"缺素材"外观区别, 但交互提示与普通格一致。 */
+.col-slot.blank {
+  border: 1px dashed rgba(120, 96, 64, 0.35);
+  background: repeating-linear-gradient(45deg, #f7f1e6, #f7f1e6 8px,
+              #f2ebdd 8px, #f2ebdd 16px);
+}
+.col-slot:not(.empty):hover {
   transform: translateY(-2px);
   box-shadow: 0 6px 18px rgba(90, 70, 40, 0.28);
 }
@@ -94,13 +104,6 @@
   object-fit: contain;                      /* 半身像完整——不裁头 */
   border-radius: 6px;
   background: #f3ece0;
-}
-/* 留白格: 有这个人但没有素材（占位, 顺序稳定） */
-.col-slot.blank {
-  cursor: default;
-  border: 1px dashed rgba(120, 96, 64, 0.35);
-  background: repeating-linear-gradient(45deg, #f7f1e6, #f7f1e6 8px,
-              #f2ebdd 8px, #f2ebdd 16px);
 }
 .col-blank-mark { font-size: 1.6rem; color: rgba(120, 96, 64, 0.35); }
 .col-cell-name {

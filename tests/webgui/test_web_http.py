@@ -731,6 +731,14 @@ def test_collection_book_routes(web, monkeypatch, tmp_path):
     blanks = [c for c in book["cells"] if not c["has_cover"]]
     assert blanks, "无素材角色应留白占位（不是从书里消失）"
     assert all(c["name"] for c in book["cells"]), "每格都要有显示名"
+    # 2026-09-13（审计 A2）: 前端按 `char_id` 挂点击并 `openChar(c)`, 留白格原先
+    # 提前 return 漏挂 → 没封面的角色**整格点不动**。契约层钉住"每格都带 char_id",
+    # 前端 invariant 才成立（真正的点击路径由 B 层浏览器冒烟覆盖）。
+    assert all(c["char_id"] for c in book["cells"]), "每格都要有 char_id（前端靠它挂点击）"
+    # 留白格的角色页必须**照样能开**——后端从不看封面（只读事件流）
+    r = _http("GET", f"/api/collection/{blanks[0]['char_id']}/chapters")
+    assert r.status_code == 200, f"留白格角色页应可开: {r.text}"
+    assert r.json()["chapters"] == [], "该角色无已结束章 → 空列表（不是 404/报错）"
 
     # 角色页: 只有甲
     r = _http("GET", f"/api/collection/{CHARACTER}/chapters")

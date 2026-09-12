@@ -557,14 +557,29 @@ async function main() {
   await page.click("#btn-playback");
   await page.waitForSelector("#view-collection:not(.hidden)", { timeout: 10000 });
   await page.waitForSelector('.col-grid [data-char]', { timeout: 20000 });
-  const bookCells = await page.locator(".col-grid [data-char]").count();
-  const blankCells = await page.locator(".col-grid .col-slot.blank").count();
+  // 2026-09-13（审计 A2）: `[data-char]` **包含留白格**（data-char 在"有无封面"
+  // 分支之前就设了）——原来把它的数量打成"N 格可点"是**标签撒谎**。这里分开数:
+  // 有封面的格子（有 <img>）与留白格, 并**真去点一个留白格**验证能进角色页
+  // （原实现在留白分支提前 return, 没挂 click → 点不动）。
+  const bookTotal = await page.locator(".col-grid [data-char]").count();
+  const withCover = await page.locator(".col-grid [data-char] .col-cell-img").count();
+  const blankInfo = await page.evaluate(() =>
+    [...document.querySelectorAll(".col-grid .col-slot.blank[data-char]")]
+      .map((el) => el.dataset.char));
   record("回忆册书页", {
-    info: `${bookCells} 格可点 / ${blankCells} 格留白（无素材角色占位）`,
+    info: `${bookTotal} 格（${withCover} 有封面 / ${blankInfo.length} 留白）`,
     shot: await shot(page, "book"),
-    bookCells, blankCells,
+    bookTotal, withCover, blankChars: blankInfo,
   });
-  if (!bookCells) throw new Error("回忆册书页没有任何可点角色格");
+  if (!bookTotal) throw new Error("回忆册书页没有任何角色格");
+
+  if (blankInfo.length) {
+    // 留白格必须可点: 点它 → 角色页打开（后端本就不看封面）
+    await page.click(`.col-grid [data-char="${blankInfo[0]}"]`);
+    await page.waitForSelector("#col-char:not(.hidden)", { timeout: 10000 });
+    await page.click("#col-char-back");
+    await page.waitForSelector("#col-char.hidden", { timeout: 10000 });
+  }
 
   await page.click(`.col-grid [data-char="${CHAR}"]`);
   await page.waitForSelector("#col-char:not(.hidden)", { timeout: 10000 });
