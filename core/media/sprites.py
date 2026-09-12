@@ -1,11 +1,13 @@
 # -*- coding: utf-8 -*-
 """差分/spine 资源查库 — 语义情绪 → 静态 png / spine 导出。
 
-角色资源布局（assets/illustration/{char}/）:
-    diff/       静态差分 png（文件名无语义, 情绪映射在 emotions.yml 词表）
-    spine/      spine 导出目录（haruka_spr/{skel,atlas,png}; atlas 区名即语义）
-    possession/ 物品图（不参与 sprite 查询）
-    l2d/ other/ 占位（空目录自然忽略）
+角色资源布局（assets/illustration/{char}/{outfit}/）——标准外观格式（2026-09-12）:
+    emotions.yml  ★必有（键 + 资源 ID, 双投影真源; 见 docs/EMOTIONS_CONFIG.md）
+    portrait/     ★必有（该外观的 GUI 头像 / 其他界面渲染资产; MMT 列表读这里）
+    spine/        ★必有（spine 导出目录: haruka_spr/{skel,atlas,png}; atlas 区名即语义）
+    diff/         可选（静态差分 png, 文件名无语义, 情绪映射在 emotions.yml 词表）
+    possession/   角色级物品图（不参与 sprite 查询）
+    l2d/ other/   占位（空目录自然忽略）
 
 spine 导出包: 目录内 {dir}/{dir}.skel + .atlas + .png 三件套齐全即识别为一包。
 atlas 区名解析: 文本格式, 列 0 行 = 页名/区名, 缩进行 = 属性（页面属性带 ':' 跳过）。

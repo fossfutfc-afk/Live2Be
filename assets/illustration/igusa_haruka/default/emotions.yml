@@ -45,4 +45,5 @@ emotions:
 # 补充资产（不进主表——不是情绪键, 是播放器轨道素材）:
 #   diff/haruka_spr_Eye_Close_01.png   眨眼帧（播放器独立轨道, M4）
 #   diff/haruka_spr_Idle_01.webm       待机动画视频（mmt 聊天用）
-#   mmt/haruka_spr_Idle_01.png         MMT 头像待机帧
+#   diff/haruka_spr_Idle_01.png        待机帧（2026-09-12 自 mmt/ 迁入——头像已改用
+#                                      portrait/collection.png, mmt/ 目录退役）

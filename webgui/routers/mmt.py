@@ -2,7 +2,7 @@
 """MMT 路由（成员列表 + 头像 + 好感 + 排序）。
 
 角色来源 = mmt_registry.toml 白名单（作者维护）——只显示白名单内的角色, 按白名单
-顺序; 头像 = **每个角色各取自己的**（`{cid}/{outfit}/portrait/` → `mmt/` → `diff/`,
+顺序; 头像 = **每个角色各取自己的** `{cid}/{outfit}/portrait/`（无则 diff 兜底,
 见 `_find_avatar`）。
 好感 = 事件流真源累计（load_affection_from_events）→ per-char 聚合（best_affection,
 "你和她最好的那一次"）; 排序 = core/mmt/ranking.py（最新活跃 / 好感, ?sort= 切换）。
@@ -27,16 +27,14 @@ ROOT = Path(__file__).resolve().parent.parent.parent
 CHAR_ROOT = ROOT / "config" / "characters"
 ILLUS_ROOT = ROOT / "assets" / "illustration"
 
-#: 头像来源优先级（2026-09-12 二次修正）:
-#:   1) `{cid}/{outfit}/portrait/*.png` —— **该外观的 GUI 头像**（作者放; 首选
-#:      `collection.png`）——这是"每个角色各显各的"的正解
-#:   2) `{cid}/{outfit}/mmt/*.png` —— BA 圆头像帧（兜底）
-#:   3) `{cid}/{outfit}/diff/*Idle*.png` —— 静态立绘兜底（前端圆形裁剪; 不用 webm）
-#: 历史: 曾短暂改成"全角色共用遥香那一张"（作者一度以为每角色各一张是误设）——
-#: 那是**过度解读**: 真问题是遥香自己的 `mmt/` 里放了整张立绘, 而不是"不该按角色找"。
+#: MMT 列表头像来源（2026-09-12 定稿——`{cid}/{outfit}/` 标准外观格式）:
+#:   1) `portrait/*.png` —— **该外观的 GUI 头像**（必有; 首选约定名 `collection.png`）
+#:   2) `diff/*Idle*.png` —— 兜底（标准格式里 diff/ 可选, 没有 portrait/ 属资产缺件;
+#:      宁可显一张裁圆的立绘也别让角色从列表里消失）
+#: 历史: 曾有一层 `mmt/*.png`（BA 圆头像帧）与"全角色共用一张"的误改, 均已退役。
+#: 标准外观格式 = emotions.yml + portrait/ + spine/（必有）; diff/ 可选（OC 无 spine 动画）。
 _PORTRAIT_GLOB = "*.png"
 _PORTRAIT_PREFERRED = "collection.png"      # 作者约定名（BA collection 半身像）
-_MMT_GLOB = "*.png"
 _IDLE_GLOB = "*[Ii]dle*.png"
 
 
@@ -56,9 +54,8 @@ def _pick_portrait(d: Path) -> Path | None:
 
 
 def _find_avatar(cid: str) -> tuple[str, str]:
-    """找角色头像 → (url, type); 无 → ("", "")。
+    """找角色头像 → (url, type); 无 → ("", "")。type: portrait(GUI 头像) | png(diff 兜底)。
 
-    type: portrait(该外观 GUI 头像) | mmt(BA 圆头像帧) | png(diff 立绘兜底)。
     板块化（2026-08-28）: 资产在 {char}/{outfit}/（default 为首选外观）;
     旧平铺 {char}/ 兼容兜底。**每个角色各取自己的**——没有的层就往下落。
     """
@@ -66,10 +63,6 @@ def _find_avatar(cid: str) -> tuple[str, str]:
         f = _pick_portrait(base / "portrait")
         if f is not None:
             return _asset_url(f), "portrait"
-        mmt_dir = base / "mmt"
-        if mmt_dir.is_dir():
-            for f in sorted(mmt_dir.glob(_MMT_GLOB)):
-                return _asset_url(f), "mmt"
         diff_dir = base / "diff"
         if diff_dir.is_dir():
             for f in sorted(diff_dir.glob(_IDLE_GLOB)):

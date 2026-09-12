@@ -261,11 +261,12 @@ def test_mmt_avatar_picks_each_char_own_portrait(monkeypatch, tmp_path):
     """MMT 头像 = **每个角色各取自己的** `{cid}/{outfit}/portrait/`（2026-09-12 定稿）。
 
     为什么断言里不写真资产路径: `assets/` 是 gitignore 的——本机没那些图就会假红。
-    这里把 `ILLUS_ROOT` 指到 tmp 世界树, 覆盖三层优先级与"无图"两端:
-      ① 有 `portrait/collection.png` → 用它, type=portrait（且压过 mmt/ 图标）;
+    这里把 `ILLUS_ROOT` 指到 tmp 世界树, 覆盖标准外观格式与"无图"两端:
+      ① 有 `portrait/collection.png` → 用它, type=portrait（且压过 diff 立绘）;
       ② 只有 `portrait/` 里的其他名 → 仍算 portrait（约定名缺失时可容忍）;
-      ③ 无 portrait/ → 回落 `mmt/*.png`; ④ 只有 diff → `*Idle*.png`, type=png;
-      ⑤ 什么都没有 → 空串（列表跳过该角色, 不炸）。
+      ③ 无 portrait/（资产缺件）→ 回落 `diff/*Idle*.png`, type=png;
+      ④ 什么都没有 → 空串（列表跳过该角色, 不炸）。
+      ⑤ **`mmt/` 目录已退役**: 放那里不再被认（回归守卫——那条来源被删掉了）。
 
     **反向断言**: 甲角色的头像绝不能出现在乙角色身上（曾被改成"全角色共用一张",
     该错误单靠 ① 是抓不到的——每个角色都"有"头像, 只是都指向同一张）。
@@ -279,21 +280,22 @@ def test_mmt_avatar_picks_each_char_own_portrait(monkeypatch, tmp_path):
         return "/assets/illustration/" + f"{cid}/default/{rel}"
 
     url_haruka = put("igusa_haruka", "portrait/collection.png")   # ① 约定名
-    put("igusa_haruka", "mmt/sprite_Idle_01.png")                 # 应被 portrait 压过
+    put("igusa_haruka", "diff/haruka_spr_Idle_01.png")            # 应被 portrait 压过
     url_kayoko = put("onikata_kayoko", "portrait/lobby_icon.png")  # ② 其他名
-    url_mutsuki = put("asagi_mutsuki", "mmt/Lobbyillust_Icon_01.png")  # ③ 兜底
-    url_aru = put("rikuhachima_aru", "diff/Aru_Idle_01.png")       # ④ 兜底
+    url_mutsuki = put("asagi_mutsuki", "diff/mutsuki_spr_Idle_01.png")  # ③ 兜底
+    put("rikuhachima_aru", "mmt/Lobbyillust_Icon_01.png")          # ⑤ 退役来源, 不算
     monkeypatch.setattr(mmt_router, "ILLUS_ROOT", tmp_path)
 
     want = {"igusa_haruka": (url_haruka, "portrait"),
             "onikata_kayoko": (url_kayoko, "portrait"),
-            "asagi_mutsuki": (url_mutsuki, "mmt"),
-            "rikuhachima_aru": (url_aru, "png"),
-            "shiraishi_kokoro": ("", "")}                          # ⑤ 无图
+            "asagi_mutsuki": (url_mutsuki, "png"),
+            "rikuhachima_aru": ("", ""),                           # ⑤ mmt/ 不再认
+            "shiraishi_kokoro": ("", "")}                          # ④ 无图
     for cid, exp in want.items():
         assert mmt_router._find_avatar(cid) == exp, cid
-    urls = {mmt_router._find_avatar(c)[0] for c in want if c != "shiraishi_kokoro"}
-    assert len(urls) == 4, f"每角色必须各取各的（曾错误地全指向同一张）: {urls}"
+    urls = {u for u, _t in want.values() if u}
+    assert urls == {url_haruka, url_kayoko, url_mutsuki}, \
+        f"每角色必须各取各的（曾错误地全指向同一张）: {urls}"
 
     r = _http("GET", "/api/mmt/characters")
     assert r.status_code == 200, r.text
@@ -308,8 +310,8 @@ def test_mmt_avatar_picks_each_char_own_portrait(monkeypatch, tmp_path):
 
     monkeypatch.setattr(mmt_router, "ILLUS_ROOT", tmp_path / "empty")
     assert mmt_router._find_avatar("igusa_haruka") == ("", "")
-    print(f"    web: MMT 头像按角色各取各的（{len(avatars)} 个角色, 三层回落全通; "
-          f"缺资产 → 空串跳过, 不炸）")
+    print(f"    web: MMT 头像按角色各取各的（{len(avatars)} 个角色, portrait/diff 回落全通; "
+          f"mmt/ 来源已退役; 缺资产 → 空串跳过, 不炸）")
 
 
 def test_mmt_chat_round_over_http(web):
