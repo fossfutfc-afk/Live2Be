@@ -117,15 +117,19 @@ def test_task_card_wrapup_kind():
 
 
 def test_task_card_bond_kinds():
-    """Bond 场卡: 默认 scene（task_bond.md, 记录流 v2）; 纪念模式 kind=memorial_exit。"""
+    """Bond 场卡: 只有 scene 一种（task_bond.md, 记录流 v2）。
+
+    2026-09-13（审计 B1）: `memorial_exit` kind **已退役**——v2 里纪念区间到块尾,
+    边界由块边界结构性给出, 不存在"退出动作"; 原 kind 会把 v1 已退役动作名喂给
+    只吃记录流的引擎。这里钉住"卡模板不存在 → 不注入"。
+    """
     scene = task_card("bond", enabled=True, char="伊草 遥香")
     assert scene is not None
     assert scene.startswith("本场任务：作为伊草 遥香推进当前这一段剧情")
     assert '"stage": "switch"' in scene and "sensei" in scene and '"stage": "end"' in scene
     assert "story_scene" not in scene and "branches" not in scene     # 旧契约字样退役
-    exit_card = task_card("bond", "memorial_exit", char="伊草 遥香", enabled=True)
-    assert exit_card is not None
-    assert "memorial_exit" in exit_card and "story_scene 骨架" not in exit_card
+    # 退役 kind: 模板已删 → None（而不是注入一条指向不存在动作的指令）
+    assert task_card("bond", "memorial_exit", char="伊草 遥香", enabled=True) is None
 
 
 def test_task_card_disabled_or_missing():
