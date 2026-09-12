@@ -1472,11 +1472,20 @@ def bond_turn(char_id: str, session_id: str, text: str) -> dict:
         _discard_candidates(state)                # v2 不 fork（内容已在待发队列）
         # 展示视图: 保留板正文（屏上就是它）, 只**去掉选项**并标记已裁决——
         # 指纹不含 choices（bond.js sceneKey）, 故轮询不会把它当成"新场景"重播。
+        #
+        # 2026-09-13（审计 B13 复核）: 这里**只清展示视图** `state.scene`,
+        # `scene_obj.choices` 保持原样。审计原判"落库 payload 也会变空"是**误报**
+        # ——`_log_scene` 就在上面（先于本段）执行, 它取的是 `scene_obj.to_dict()`
+        # 的当时快照, 所以事件流一直是对的（实测 payload `choices=['选A','选B']`）。
+        # 但那条正确性**只靠语句顺序**维系: 谁把 `_log_scene` 挪到清空之后,
+        # 选项真源就永久丢了（append-only 不可回补）。故 ① 不再多清一处
+        # （少一个可变状态就少一条出错路径, 且 `state.scene['picked']` 已足够阻止
+        # 重复裁决——见上面的守卫）; ② 顺序由用例钉死
+        # （test_bond.py::test_bond_full_flow 断言落库 payload 的 choices）。
         scene = dict(state.scene or {})
         scene["choices"] = []
         scene["picked"] = text
         state.scene = scene
-        state.scene_obj.choices = []              # 已裁决: 不再给选项
         state.scene_logged = True                 # 本板已随裁决落库
         # 裁决后立刻备料（P0-7c 修正）: 这里必须先 record_picked（上面已做）——
         # 预生成请求的历史要含物化裁决行。待发有货 → 0 LLM 领出反应板; 没货 →

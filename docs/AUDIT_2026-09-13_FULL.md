@@ -16,8 +16,9 @@
 > A1 设置页裁配置 · A2 留白格不可点 · A6 看门狗前置条件 · B1 退役场卡 ·
 > B5 章末闭合纪念窗口 · B6 落库失败永久丢板 · B8 退役 v1 表情注记 ·
 > B17 `reset_engines` 清锁 · B18 `_wrapup_inner` 全局 store。
-> **已撤销 1 条误报**: B2（批式/流式切板**等价**, 见该行说明）。
-> 回归 589 passed。
+> **已撤销 2 条误报**: B2（批式/流式切板**等价**）· B13（选项真源**一直是对的**,
+> 缺的是断言）——两条均见该行说明与复核方法。
+> 回归 590 passed。
 
 ---
 
@@ -156,7 +157,7 @@
 | B10 | **`mmt_send_media` 端到端 no-op** | `mmt_executor.py:234-251` | 只返回"[图片占位]", 前端 JS 全量 grep 无 send_media 渲染分支 → 不出图、无气泡、只落一条空 reply 事件; 而 schema 承诺"先查资源库…就发"。 |
 | B11 | **前端 finish 静默失败 → 章永不进回忆册** | `webgui/static/js/bond.js:1252-1261` | 不查 `res.ok`/body; 后端 busy 时返回 `completed:false`（`bond.py:1559-1560`）→ 无 `vn_exit`/wrapup/digest → `chapters.py:116-117` 不收（要求 completed）→ **回忆册看不到这一章**。 |
 | B12 | **`is_end` 板落地但玩家不点 finish → completed 悬空** | `webgui/bond.py:1903` | `_scene_landed` 消费 `is_end` 板即 `completed=True`, 但事件流无 `vn_exit`; 重进时 `bond_start:842` 以"已完成"为由挡住玩家。**修法**: `is_end` 落地即后台 finish。 |
-| B13 | **选项组真源在落库前被抹掉** | `webgui/bond.py:1438` | 在 `_log_scene:1431` **之前**写 `scene["choices"]=[]` → 事件 payload `choices=[]` → 回放/续看 `_narrativize:618` 不重建 → `bond.js:1233` 只读选项组守卫恒 false。**用户 2026-09-12 报的"回放看不见选项"其实没被真正修好**（live 只在 `data.picked` 分支靠 `paintChoices` 显示"所选那句"）。 |
+| B13 | ~~**选项组真源在落库前被抹掉**~~ → **【根因误报, 2026-09-13 复核撤销; 已补契约断言】** | `webgui/bond.py` 裁决分支 | 原判: `bond.py:1438` 在 `_log_scene` **之前**写 `scene["choices"]=[]` → 事件 payload `choices=[]` → 回放画不出选项组（"用户 09-12 的反馈其实没修好"）。**复核结论: 不成立**。落库取的是 `state.scene_obj.to_dict()` 快照, 清空动作只作用于**展示视图** `state.scene`——两者是**不同的 dict**。实测 pick 事件 payload = `choices=['选A','选B']` + `picked='选A'`, 一直是对的。另外 `_log_scene` 本就在清空语句**之前**执行。（变异验证: 即便把 `_log_scene` 挪到清空之后, payload 仍正确——因为清的不是同一个对象。）**真源没问题; 缺的是断言** → 已补 `test_bond.py::test_bond_full_flow` 对 payload choices/picked 的断言。顺带删掉裁决分支里对 `scene_obj.choices` 的那次冗余原地清空（少一个可变状态; 重复裁决由展示视图 `picked` 守卫拦截）。 |
 | B14 | **每板一次无谓 place 调用 + 门控等待** | `bond_story.py:1108-1111`; `webgui/bond.py:2272-2289` | 换场必在板首 → 无 switch 的板不可能换场, 但仍走 `annotate_places` 并占 lane、卡推进门（约 1 次 LLM + ~1s/板）。**修法**: payload 标"本板有无 switch", 无则直接 `_place_done=True`。边界: sensei 槽正好压在 switch 记录上时（`_board_spans:119-124`）仍需兜底。 |
 | B15 | **轮询 O(N) 全量重读** | `webgui/chat.py:322,326`; `webgui/routers/bond.py:224-230`; `webgui/bond.py` 多次全量读 | MMT 每秒全量读+解析 events.jsonl 并全量扫 `_bond_done_map` + 每次重解角色卡取 display_name（`routers/mmt.py:169-175,182`）; `store.append_event`（`core/session/store.py:226-245`）每次 append 都全量读+解析; `/api/bond/status` 无版本参数、同端点被三路并发轮询（`bond.js:1137,367,525`）。当前规模可接受, **随历史线性恶化**。 |
 | B16 | **`_resolve_scene` 无缓存 + 就地改业务状态** | `webgui/routers/bond.py:112-162` | 每次 status 对每段重算 `fx`/`background_url`/名字表; 且**就地改 `state.scene` 内层段落 dict**（`:141-145`）→ 展示层写回业务状态。 |
