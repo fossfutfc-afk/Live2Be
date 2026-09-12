@@ -111,7 +111,7 @@
 .mmt-profile-card.selected { background: #ffe3ee; border-color: #ffb3cd; }
 
 .mmt-avatar { width: 52px; height: 52px; border-radius: 50%; object-fit: cover; flex: none; }
-.mmt-avatar.rounded { border-radius: 50%; }   /* diff 兜底图圆形裁剪 */
+.mmt-avatar.rounded { border-radius: 50%; }   /* diff 兜底立绘: 圆形裁剪（非方图居中裁方） */
 
 .mmt-item-meta { flex: 1; min-width: 0; }
 .mmt-item-name { color: #5b4250; font-size: 0.95rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

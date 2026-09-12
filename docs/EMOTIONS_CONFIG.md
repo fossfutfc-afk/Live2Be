@@ -8,15 +8,18 @@
 
 ## 一、板块结构（每外观 = 一个并行目录）
 
+**标准外观格式（2026-09-12 定稿）= `emotions.yml` + `portrait/` + `spine/` 三项必有,
+`diff/` 可选**（自己的 OC 不好做 spine 动画 → 没有 diff 也能跑）。内部文件格式一致,
+换角色 = 整体拷目录。
+
 ```
 assets/illustration/{char_id}/
 ├── default/                  # 默认外观（id = default, 代码缺省值; 语义真源）
-│   ├── emotions.yml          # 键 + 注释 + eg 写全（喂 LLM 词表读这里）
-│   ├── diff/                 # 静态表情图（{spine}_{id}.png 命名）
-│   ├── spine/                # 自己的 spine 包（{spine}/ 三件套）
-│   ├── mmt/                  # 聊天头像帧（外观级）——MMT 列表的兜底来源, 见注①
-│   ├── portrait/             # 该外观的 GUI 头像（MMT 列表首选来源, 见注①）
-│   └── original/             # 该外观的分层立绘
+│   ├── emotions.yml          # ★必有: 键 + 注释 + eg 写全（喂 LLM 词表读这里）
+│   ├── portrait/             # ★必有: 该外观的 GUI 头像 / 其他界面渲染资产（见注①）
+│   ├── spine/                # ★必有: 自己的 spine 包（{spine}/ 三件套——播放差分）
+│   ├── diff/                 # 可选: 静态表情图（{spine}_{id}.png 命名; 见注①）
+│   └── original/             # 可选: 该外观的分层立绘
 ├── newyear/                  # 附加外观（例: 遥香新春 CH0087）——自包含
 │   ├── emotions.yml          # 只写资源（键 ⊆ default; 注释不重复）
 │   └── spine/                # CH0087_spr + CH0087_home
@@ -27,10 +30,9 @@ assets/illustration/{char_id}/
 
 **关键规则**：
 - **注① MMT 列表头像 = 每个角色各取自己的**（2026-09-12 定稿, `webgui/routers/mmt.py`）:
-  优先级 `{cid}/{outfit}/portrait/*.png`（首选 `collection.png`）→ `mmt/*.png`
-  → `diff/*Idle*.png`（前端一律圆形裁剪）。**遥香必须走 portrait/**——她的 `mmt/`
-  里放的是整张立绘 sprite（1.4MB）, 当 52px 头像会糊成一团。
-  （历史: 一度改成"全角色共用遥香那一张", 那是过度解读, 已回退。）
+  `{cid}/{outfit}/portrait/*.png` →（首选约定名 `collection.png`）没有 portrait/ 才回落到
+  `diff/*Idle*.png`; 前端一律圆形裁剪。**`mmt/` 目录已退役删除**——头像不再有这一层。
+  （历史: 曾误改成"全角色共用遥香那一张", 已回退; 真问题是遥香把待机帧放进了 `mmt/`。）
 - **"有 emotions.yml 的目录 = 外观"**——扫描零歧义（ref/possession 无 yml 自动排除）
 - **语义继承**：注释/eg few-shot 只在 `default/emotions.yml` 写全（LLM 词表注入永远读 default——换装不漂移词表）; 其他外观 emotions.yml 只写键 + 资源 ID
 - **键 ⊆ default 的键**（超出 → 校验警告）; **未写键 = 该外观无此表情** → 渲染端静默保持（宁缺勿错）
@@ -76,7 +78,11 @@ emotions:
 
 ## 三、添加新外观（三步）
 
-1. **资产就位**：spine 包拷入 `{外观id}/spine/`（+ `{外观id}/home/` 如有身体包）; 静态图/头像/分层立绘按需放入
+> 标准外观格式（§一）: **emotions.yml + portrait/ + spine/ 必有; diff/ 可选**。
+
+1. **资产就位**：spine 包拷入 `{外观id}/spine/`（+ `{外观id}/home/` 如有身体包）;
+   **头像放 `{外观id}/portrait/`（必有, 首选名 `collection.png`, 其余 `*.png` 按名序取第一张）**;
+   diff 静态差分按需放入（自己画的 OC 做不出 spine 动画时可省, 渲染端自动降级纯文字）
 2. **验证动画名**（确认哪些情绪有动画、哪些缺）：
    ```bash
    node l2d-demo/scripts/anim_list.mjs   # 或对照官方资源说明
@@ -119,5 +125,5 @@ curl http://127.0.0.1:8080/api/spine/{char_id}?outfit=newyear
 | `core/media/emotion_lexicon.py` | default 的 emotions.yml 逐行 → 键 + 注释 + eg → 喂主 LLM 的表情词表 |
 | `core/media/catalog.py` | `sprite(char, emotion, outfit="default")` → SpriteMedia（static_path/spine/anim） |
 | `webgui/routers/spine.py` | `/api/spine/{char_id}?outfit=` → 包 URL + emotion→动画映射（前端播放器） |
-| `webgui/routers/mmt.py` | 头像三层回落（`portrait/`→`mmt/`→`diff/`）→ `/api/mmt/characters` 的 `avatar`/`avatar_type`（注①） |
+| `webgui/routers/mmt.py` | 头像来源 `portrait/*.png` → `diff/*Idle*.png` → `/api/mmt/characters` 的 `avatar`/`avatar_type`（注①） |
 | LLM 契约 | `story_scene` payload `outfit`（未来）→ 换装意图（词表外静默保持） |
