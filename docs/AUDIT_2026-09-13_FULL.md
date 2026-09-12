@@ -11,6 +11,13 @@
 > `core/momotalk._get_embed_fn`（健康判定 + 跳变上报）+
 > `core/brain/wiki_v2/recall.py`（两条降级路径带 reason 日志）。**580 测试绿**。
 > 详见文末 §8。
+>
+> **2026-09-13 已修（与图/RAG 无关的批次, 用户指定）**:
+> A1 设置页裁配置 · A2 留白格不可点 · A6 看门狗前置条件 · B1 退役场卡 ·
+> B5 章末闭合纪念窗口 · B6 落库失败永久丢板 · B8 退役 v1 表情注记 ·
+> B17 `reset_engines` 清锁 · B18 `_wrapup_inner` 全局 store。
+> **已撤销 1 条误报**: B2（批式/流式切板**等价**, 见该行说明）。
+> 回归 589 passed。
 
 ---
 
@@ -138,7 +145,7 @@
 | # | 项 | 锚点 | 说明 |
 |---|---|---|---|
 | B1 | **v2 下仍注入已退役的 `memorial_exit` 任务卡** | `llm/prompts/task_bond_memorial_exit.md:1` + `core/bond/bond_story.py:1140-1143` | `_scene_task_kind()` 在 `_in_memorial=True` 时返回 `"memorial_exit"`, 而 v2 只吃记录流、动作 JSON 一律打回（`bond_story.py:743-745`）。`_system_note` 里同类注记**已为此删除**（`webgui/bond.py:2453-2455` 注释"会打回重发 → 反馈回环"）——卡这条路径漏改。**修法**: v2 下恒返回 `"scene"`。 |
-| B2 | **批式/流式切板语义不等价**（真分歧 bug） | `core/bond/bond_story.py:122` vs `contract/records.py:751-753` | 批式 `elif ... and i > start` → **板首 switch 不切板**, 被并入本板 → `scene.place_hint is None`（`from_board` 只在 `records[0].stage==switch` 时给 hint, `:240`）→ `fill_scene_places:1099` 掉进 legacy 句级分支。流式则独立开板。**批式正是 `_pregenerate`（`webgui/bond.py:2082` 不传 `on_board`）与 CLI 的唯一路径**。 |
+| B2 | ~~**批式/流式切板语义不等价**（真分歧 bug）~~ → **【误报, 2026-09-13 复核撤销】** | `core/bond/bond_story.py:122` vs `contract/records.py:751-753` | 原判: 批式 `elif ... and i > start` → 板首 switch 不切板 → `place_hint=None`。**复核结论: 不成立**。槽后收板（`if i in group_ends`）已把 `start` 推到 switch 之后, 所以 `i > start` 在该场景**恒真**; 两个守卫语义等价（流式的 `if self._cur` 与批式的 `i > start` 都表达"当前板非空才切"）。用 7 种边界逐板比对（群后紧跟 switch / switch 在群前 / 超长群 / switch 落在群中间 / 群结尾即块尾 / 相邻双 switch / art+memorial）, **板切分与 `place_hint` 全部一致**。已补回归用例 `tests/core/test_records.py::test_board_split_batch_stream_equivalence` 钉住这条不变量（此前只有 `check_block` 的软断言）。 |
 | B3 | **place 双通道并存** | `bond_story.py:1097-1120` | 板首是 switch → `resolve_place`; 其余板 → 回落 v1 的 `annotate_places`, 而 place lane **每块都调**（`webgui/bond.py:2259,2308`）。文档称句级标注器"已退役"——实际两套并存。 |
 | B4 | **章内"至多 1 次 memorial"无强制** | `bond_story.py:454,661,693,908` | `_memorial_used` **只写不读**, 全仓无拒绝路径; 唯一约束是 `check_block:342-348` 的同块 ≤1。CLAUDE.md/规则书/成本模型（DESIGN_VN_UPGRADE §10.2"硬上界"）**三层都只是文档**。 |
 | B5 | **纪念窗口 marker 章末不闭合** | `webgui/bond.py:1554-1623` | `bond_finish` 只写 `vn_exit`+`session_end`, **不写 `memorial_exit`**（补写只在"下一板落地" `:2432-2439`）。而 `_memorial_open_in_events:256-271` 只认 exit/session_end → 下一章同 `(char,session)` 首板被 `_memorial_no_visuals:1141-1145` 判为"纪念窗口内" → **整块跳过 emo/place 标注**（表情恒 nomal、背景不切、门控恒放行）。 |
