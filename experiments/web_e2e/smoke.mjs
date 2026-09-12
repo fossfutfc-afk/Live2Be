@@ -389,18 +389,36 @@ async function main() {
     if (locked.pickedText.trim() !== "我来了。") {
       throw new Error(`重进回放没高亮所选: ${JSON.stringify(locked)}`);
     }
-    // 回放的**纪念板**同样要进纪念态（立绘隐藏 + 普通背景清空; 图属档案保真,
-    // 见"回放不带 gallery URL"的已知缺口——这里只断言状态驱动的两项）
-    const replayMem = await page.evaluate(() => {
-      const stage = document.getElementById("bond-stage");
-      const bg = document.getElementById("bond-bg");
-      return {
-        stageHidden: !!(stage && stage.classList.contains("hidden")),
-        bgCleared: !(bg && bg.style.backgroundImage),
-      };
+    // 回放的**纪念板**同样要进纪念态（立绘隐藏 + 普通背景清空）,
+    // 且**档案图要能恢复**（2026-09-12: 图是异步生成的 → 单开 `memorial_image`
+    // marker 落真源, 回放/重启据此恢复——这就是"重进还能看到那张纪念图"）
+    let replayMem = null;
+    for (let i = 0; i < 30; i++) {
+      replayMem = await page.evaluate(() => {
+        const stage = document.getElementById("bond-stage");
+        const bg = document.getElementById("bond-bg");
+        const layer = document.getElementById("bond-memorial");
+        return {
+          stageHidden: !!(stage && stage.classList.contains("hidden")),
+          bgCleared: !(bg && bg.style.backgroundImage),
+          layerOn: !!(layer && layer.classList.contains("on")),
+          layerImg: (layer && layer.style.backgroundImage) || "",
+        };
+      });
+      if (replayMem.layerOn && replayMem.layerImg) break;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    record("回放·纪念态", {
+      info: `立绘隐藏=${replayMem.stageHidden} 背景清空=${replayMem.bgCleared} `
+        + `档案图=${replayMem.layerImg ? "已恢复" : "缺失"}`,
+      replayMemorial: replayMem,
     });
     if (!replayMem.stageHidden || !replayMem.bgCleared) {
       throw new Error(`回放的纪念板未进纪念态: ${JSON.stringify(replayMem)}`);
+    }
+    if (!replayMem.layerImg) {
+      throw new Error(`回放没恢复档案纪念图（memorial_image marker 断?）: `
+        + JSON.stringify(replayMem));
     }
     // 注: 这里**不推进** —— 交给步骤 7 的"▼ 继续"从回放交棒到后续板。
   }

@@ -1360,6 +1360,87 @@ def test_memorial_board_skips_annotation_lane(tmp_path):
         _cleanup()
 
 
+def test_memorial_marker_pair_and_auto_exit(tmp_path):
+    """v2 纪念 marker: 板含 memorial → `memorial_enter`; **窗口结束（新生成一块）→
+    自动补 `memorial_exit`**——否则 marker 栈（`session_status.in_memorial`）会一直
+    停在纪念中（2026-09-12 决策 #39 补）。"""
+    mem = scene(switch_to="黄昏的坡道", lines=["老师，你看。"],
+                memorial_text="（她抬起头，第一次直视我的眼睛。）", after=["……谢谢你。"])
+    plain = scene(switch_to="校门口", lines=["明天见。"])
+    engine, st, sid, _llm = _setup(tmp_path, mem, plain)
+    try:
+        bond.bond_start(CHARACTER, sid)
+        _wait_status(CHARACTER, sid)
+        subs = [e.subtype for e in st.events(CHARACTER, sid) if e.is_marker]
+        assert "memorial_enter" in subs, subs
+        assert "memorial_exit" not in subs, subs
+        assert bond._memorial_open_in_events(CHARACTER, sid, st) is True
+        # 推进 → 新生成一块（区间到块尾）→ 落地时补 exit
+        _turn_until_accepted(CHARACTER, sid, "（继续）")
+        _wait_status(CHARACTER, sid)
+        subs2 = [e.subtype for e in st.events(CHARACTER, sid) if e.is_marker]
+        assert subs2.count("memorial_enter") == 1 and subs2.count("memorial_exit") == 1, subs2
+        assert bond._memorial_open_in_events(CHARACTER, sid, st) is False
+        print("    v2 纪念 marker: enter 落地即写 + 窗口结束自动 exit（栈不再停在纪念中）")
+    finally:
+        _cleanup()
+
+
+def test_memorial_image_marker_written_and_restored(tmp_path, monkeypatch):
+    """纪念图回执落真源 + 回放/重启恢复（2026-09-12 决策 #39 补）。
+
+    图是异步生成完才有的 → 不能补写原 bond 事件（append-only）→ 单开一条
+    `memorial_image` marker; 回放/重启按**本段在押范围**恢复（上一章的图不许错挂）。
+    """
+    import base64
+
+    from llm.image_gen import GeneratedImage
+
+    class _FakeGen:
+        def generate(self, prompt, **kw):            # noqa: ANN003 — 与真接口同形
+            p = tmp_path / "mem.png"
+            p.write_bytes(base64.b64decode(
+                "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAF"
+                "AAH/q842iQAAAABJRU5ErkJggg=="))
+            return GeneratedImage(path=p, width=1, height=1)
+
+    mem = scene(switch_to="黄昏的坡道", lines=["老师，你看。"],
+                memorial_text="（她抬起头，第一次直视我的眼睛。）", after=["……谢谢你。"])
+    engine, st, sid, _llm = _setup(tmp_path, mem)
+    try:
+        monkeypatch.setattr(bond, "_image_generator", lambda: _FakeGen())
+        bond.bond_start(CHARACTER, sid)
+        stt = _wait_status(CHARACTER, sid)
+        state = bond._state(CHARACTER, sid)
+        assert state.vn.in_memorial is True
+        bond._memorial_gen(state, CHARACTER, sid, "她在坡道尽头回头，夕阳打在脸上")
+        url = state.memorial_img
+        assert url.startswith("/gallery/"), url
+        marks = [e for e in st.events(CHARACTER, sid) if e.subtype == "memorial_image"]
+        assert marks and marks[-1].payload["url"] == url, marks
+        assert marks[-1].payload["prompt"] == "她在坡道尽头回头，夕阳打在脸上"
+        # 回放/重启: 新状态从事件流恢复（内存态那张丢了也能找回来）
+        state.memorial_img = ""
+        state.memorial_img_ready = False
+        bond._ensure_memorial_img(state, CHARACTER, sid)
+        assert state.memorial_img == url, state.memorial_img
+        # 边界①: **预热会在 vn_enter 之前就出图** → 之后写 vn_enter 不该让图失效
+        # （B 层冒烟实测踩到: 按 vn_enter 划范围会把当前章自己的图排除掉）
+        from core.session import M_VN_ENTER
+        st.append_marker(CHARACTER, sid, M_VN_ENTER, {"chapter_title": "本章"})
+        state.memorial_img = ""
+        bond._ensure_memorial_img(state, CHARACTER, sid)
+        assert state.memorial_img == url, "vn_enter 不该让本章自己的图失效"
+        # 边界②: **上一章**的图不许错挂到新章（其后出现 vn_exit = 本章结束）
+        st.append_marker(CHARACTER, sid, "vn_exit", {"completed": True})
+        state.memorial_img = ""
+        bond._ensure_memorial_img(state, CHARACTER, sid)
+        assert state.memorial_img == "", "已结束章的纪念图不该被恢复"
+        print("    v2 纪念图: 回执 marker 落真源 + 按'本章未结束'恢复（预热先于 vn_enter 也成立）")
+    finally:
+        _cleanup()
+
+
 def test_memorial_image_switch_gates_thread(monkeypatch):
     """生图总开关（2026-09-11）: 关 → **不构造生图器、不开生图线程**。
 

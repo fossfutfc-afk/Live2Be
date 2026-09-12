@@ -45,11 +45,16 @@ M_VN_ABANDON = "vn_abandon"   # ★ 废弃宣告（2026-09-07, core/session/main
 M_VN_STATE = "vn_state"       # payload: VNState.to_dict()（round/seed/visual…）
 M_MEMORIAL_ENTER = "memorial_enter"  # ★ 进入纪念子模式（§4.7）payload: {chapter_title?}
 M_MEMORIAL_EXIT = "memorial_exit"    # ★ 退出纪念, 回 bond
+M_MEMORIAL_IMAGE = "memorial_image"  # ★ 纪念图**异步落盘**回执（2026-09-12）:
+                                     # payload {url, prompt, width, height, scene_id}
+                                     # ——图是生成完才有的, 不能补写进原 bond 事件
+                                     # （append-only）, 故单开一条 marker; 回放/重启
+                                     # 据此恢复纪念图（见 webgui `_ensure_memorial_img`）
 M_SESSION_END = "session_end"  # payload: {ended: true}
 
 MARKER_SUBTYPES: tuple[str, ...] = (
     M_SESSION_START, M_VN_ENTER, M_VN_EXIT, M_VN_ABANDON, M_VN_STATE,
-    M_MEMORIAL_ENTER, M_MEMORIAL_EXIT, M_SESSION_END,
+    M_MEMORIAL_ENTER, M_MEMORIAL_EXIT, M_MEMORIAL_IMAGE, M_SESSION_END,
 )
 
 

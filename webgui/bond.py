@@ -40,6 +40,9 @@ from core.momotalk import load_brain_segment
 from core.session.events import (
     M_MEMORIAL_ENTER,
     M_MEMORIAL_EXIT,
+    M_MEMORIAL_IMAGE,
+    M_SESSION_END,
+    M_VN_ENTER,
     M_VN_ABANDON,
     M_VN_EXIT,
     M_VN_STATE,
@@ -211,6 +214,10 @@ class BondState:
     memorial_img: str = ""                     # 前端 URL（/gallery/{char}/{sid}.png）; 空 = 未就绪/失败
     memorial_img_ready: bool = False           # 图已落盘可展示
     memorial_img_busy: bool = False            # 生图中（防重复触发; 重试 attempt 可能重复回调）
+    #: 纪念窗口 marker 记账（2026-09-12）: 已写过 `memorial_enter` 且还没写 `exit`。
+    #: 状态创建时从事件流初始化（跨重启: 上一次进程可能死在窗口里）——据此在窗口
+    #: 结束（新生成一块）时补一条 `memorial_exit`, 让 marker 栈与现实一致。
+    memorial_logged: bool = False
     # 看门狗计时（2026-09-11 真机"继续键等了 110s 不动"）: 忙态/视觉门/预生成
     # 消费门各自记起点——bond_status（前端在轮询）顺手检查, 卡住就兜底放行 + WARNING,
     # 绝不让"点击永久无响应"这类问题只能靠用户重启服务解决。
@@ -234,8 +241,33 @@ def _state(char_id: str, session_id: str) -> BondState:
     """
     key = (char_id, session_id)
     if key not in _bonds:
-        _bonds[key] = BondState(store=_store())
+        st = BondState(store=_store())
+        # 跨重启: 上一次进程可能死在纪念窗口里（写了 enter 没写 exit）——按事件流
+        # 初始化记账, 窗口结束时才能补上 exit（否则 marker 栈一直停在 in_memorial）。
+        try:
+            st.memorial_logged = _memorial_open_in_events(char_id, session_id, st.store)
+        except Exception:                            # noqa: BLE001 — 读失败按未开
+            st.memorial_logged = False
+        _bonds[key] = st
     return _bonds[key]
+
+
+def _memorial_open_in_events(char_id: str, session_id: str, store=None) -> bool:
+    """事件流里是否存在**未闭合**的 `memorial_enter`（v1/v2 通用判据, 与
+    `session_status.in_memorial` 同规则: 其后的 `memorial_exit`/`session_end` 才算闭合）。"""
+    try:
+        evs = (store or _store()).events(char_id, session_id)
+    except Exception:                                # noqa: BLE001 — 读失败当未开
+        return False
+    open_ = False
+    for e in evs:
+        if not getattr(e, "is_marker", False):
+            continue
+        if e.subtype == M_MEMORIAL_ENTER:
+            open_ = True
+        elif e.subtype in (M_MEMORIAL_EXIT, M_SESSION_END):
+            open_ = False
+    return open_
 
 
 def _flow_store(state: "BondState | None"):
@@ -413,12 +445,24 @@ def _memorial_gen(state: BondState, char_id: str, session_id: str,
                            halo_hint=hints.get("halo_hint", ""))
         logger.info("纪念立绘: %dx%d %.1fs %s", img.width, img.height,
                     img.elapsed_s, img.path.name)
-        sid = GalleryStore(_store().data_root, world_id=_store().world_id).write(
+        sid = GalleryStore(_flow_store(state).data_root,
+                           world_id=_flow_store(state).world_id).write(
             char_id, prompt, session_id, img.path, width=img.width, height=img.height)
         with state._lock:
             state.memorial_img = (
-                f"/gallery/{_store().world_id}/{char_id}/{sid}.png")
+                f"/gallery/{_flow_store(state).world_id}/{char_id}/{sid}.png")
             state.memorial_img_ready = True
+        # 异步回执落真源（append-only: 图后到, 不能补写原 bond 事件）——
+        # 回放/重启据此恢复纪念图（`_ensure_memorial_img`）。写失败只降级: 本进程
+        # 内存里仍有图, 只是重启后回放看不到（宁缺勿错）。
+        try:
+            _flow_store(state).append_marker(
+                char_id, session_id, M_MEMORIAL_IMAGE,
+                {"url": f"/gallery/{_flow_store(state).world_id}/{char_id}/{sid}.png",
+                 "prompt": str(prompt)[:200], "width": img.width, "height": img.height,
+                 "scene_id": sid})
+        except Exception as e:                       # noqa: BLE001 — 回执写失败不阻断
+            logger.warning("纪念图回执 marker 写失败（回放将看不到这张图）: %s", e)
     except Exception as e:                       # noqa: BLE001 — 失败降级纯文字
         logger.warning("纪念立绘生成失败（降级纯文字）: %s", e)
         with state._lock:
@@ -707,6 +751,7 @@ def _start_replay(state: BondState, replay_q: list[dict],
     # 回放的纪念板也进纪念态（2026-09-12）: 否则重放纪念段时立绘照常显示、背景照常亮
     # （v2 区间 = 本块内, 其后从草稿/待发队列领出的板会沿用这个标志, 直到新生成一块）
     state.vn._in_memorial = bool(state.scene_obj.memorial)
+    _ensure_memorial_img(state, char_id, session_id)     # 回放: 恢复档案纪念图
     state.scene = state.scene_obj.to_dict()
     state.round = 1
     state.scene_logged = True                 # 已落库——回放不重复落
@@ -1003,6 +1048,52 @@ def bond_start_demo(char_id: str, session_id: str) -> dict:
     return {"accepted": True, "busy": True, "resumed": False}
 
 
+def _persisted_memorial_img(char_id: str, session_id: str, store=None) -> str:
+    """从事件流恢复纪念图 URL（2026-09-12）: 最近一条**仍属当前章**的
+    `memorial_image` marker。
+
+    为什么单开一条 marker: 图是异步生成完才有的, 不能补写进原 bond 事件
+    （append-only 不可改）→ 生成成功即 append 回执（`_memorial_gen`）。
+
+    **范围判据 = "其后没有本章结束"**（`vn_exit`/`vn_abandon`/`session_end`）:
+    章内 ≤1 次纪念, 上一章的图不能错挂到新章 → 只看其后未闭合的那条。
+    为什么**不**用"最近一次 `vn_enter` 之后"划范围: **预热会在 `vn_enter` 之前就出图**
+    （触发轮结束即后台生成首场 → 板落地就写 marker; 玩家点进来才写 vn_enter）——
+    B 层冒烟实测踩到: 按 vn_enter 划范围会把当前章自己的图排除掉。
+    """
+    try:
+        evs = (store or _store()).events(char_id, session_id)
+    except Exception:                                # noqa: BLE001 — 读失败当没有
+        return ""
+    url = ""
+    for e in evs:
+        if not getattr(e, "is_marker", False):
+            continue
+        if e.subtype in (M_VN_EXIT, M_VN_ABANDON, M_SESSION_END):
+            url = ""                                 # 本章结束 → 之前那张作废
+        elif e.subtype == M_MEMORIAL_IMAGE:
+            u = (e.payload or {}).get("url")
+            if isinstance(u, str) and u.strip():
+                url = u.strip()
+    return url
+
+
+def _ensure_memorial_img(state: BondState, char_id: str, session_id: str) -> None:
+    """纪念窗口内还没有图 → 从事件流补一次（回放 / 重启 / 重进: 图由上一进程生成）。
+
+    只在纪念窗口内 + 图为空时查（每次进板一次, 事件流很小）; 命中即写回 state,
+    随后 `bond_status`/`_ready_scene_payload` 自然把它带给前端（前端 `syncMemorial`
+    据此淡入）。查不到就什么都不做（纯文字降级, 宁缺勿错）。
+    """
+    if state.memorial_img or state.vn is None or not state.vn.in_memorial:
+        return
+    url = _persisted_memorial_img(char_id, session_id, _flow_store(state))
+    if url:
+        state.memorial_img = url
+        state.memorial_img_ready = True
+        logger.info("纪念立绘: 事件流恢复 %s", url)
+
+
 def _memorial_no_visuals(state: "BondState", scene=None) -> bool:
     """纪念窗口内**不渲染任何视觉键** → 标注无意义, 判定为"无需标注"。
 
@@ -1133,6 +1224,7 @@ def bond_turn(char_id: str, session_id: str, text: str) -> dict:
             state.scene_obj._place_done = True    # 回放: 视觉键定格, 不占 lane
             # 纪念板 → 进纪念态（同 `_start_replay`: 重放纪念段时立绘隐藏/背景清空）
             state.vn._in_memorial = bool(state.scene_obj.memorial)
+            _ensure_memorial_img(state, char_id, session_id)   # 回放: 恢复档案图
             state.scene = state.scene_obj.to_dict()
             state.round += 1
             state.scene_logged = True          # 事件流已落库——回放不重复落
@@ -1769,6 +1861,12 @@ def _scene_landed(state: BondState, scene: BondScene, char_id: str,
     state.scene = scene.to_dict()
     state.scene_input = user_input
     state.scene_logged = False
+    if scene.memorial and state.vn is not None:
+        # 纪念区间置位（2026-09-12）: 引擎侧 `_finish_scene` 已置位, 但**预热缓存/
+        # 草稿旁路/回放**这些“直接落地”的路径绕过它——统一在这里补一道（只置位,
+        # 不复位: 区间内的后续板 `memorial=False` 但仍在窗口里）。
+        state.vn._in_memorial = True
+    _ensure_memorial_img(state, char_id, session_id)     # 回放/重启: 恢复档案图
     if scene.is_end:
         state.completed = True       # 仅自然 story_end 才 completed
     _log_board_deliver(state, scene, char_id, session_id, source,
@@ -2289,11 +2387,23 @@ def _log_scene_meta(state: BondState, char_id: str, session_id: str,
     """每场 marker 落库: 纪念子模式 + vn_state 恢复点（与 CLI 对齐）。"""
     store = _flow_store(state)
     try:
-        if scene.memorial_prompt:
+        if scene.memorial_prompt or scene.memorial:
+            # v1: memorial_enter 动作带 prompt; v2: 板含 `stage:memorial`（区间 = 本块内）
             store.append_marker(char_id, session_id, M_MEMORIAL_ENTER,
-                                {"chapter_title": state.chapter_title})
+                                {"chapter_title": state.chapter_title,
+                                 "v2": bool(scene.memorial)})
+            state.memorial_logged = True
         elif scene.memorial_exit:
             store.append_marker(char_id, session_id, M_MEMORIAL_EXIT)
+            state.memorial_logged = False
+        elif (state.memorial_logged and state.vn is not None
+              and not state.vn.in_memorial):
+            # v2 窗口结束（新生成一块 = 区间到块尾）: 补一条 exit —— marker 栈
+            # （`session_status.in_memorial`）与现实一致（mmt_preset 的"纪念中"标签、
+            # MMT digest 跳过判定都读它）。跨重启也成立: 创建 state 时已从流里初始化。
+            store.append_marker(char_id, session_id, M_MEMORIAL_EXIT,
+                                {"v2": True, "auto": True})
+            state.memorial_logged = False
         vn = state.vn
         visual = (vn.director.state.to_dict()
                   if vn is not None and vn.director is not None else {})

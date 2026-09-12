@@ -628,9 +628,6 @@ class BondStoryEngine:
         resp_format = "text"
 
         for attempt in range(MAX_SCENE_RETRIES):
-            # 走到这里 = 待发队列空了, **要新生成一块** → v2 的纪念区间（本块内）
-            # 到此结束, 复位子模式标志（服务待发板不走这条路, 见上面的 early return）。
-            self._in_memorial = False
             # 纪念生图提前开画（v2, 2026-09-12）: v1 的 `MemorialProbe` 嗅探的是
             # `"action":"memorial_enter"` 的 prompt 字段——记录流下不存在, 所以
             # 探针已退役（模块留档, 主链不调用）。现在:**一行 `stage:memorial`
@@ -748,6 +745,10 @@ class BondStoryEngine:
                         "1~3 条 sensei）——不要数组、不要围栏、不要动作 JSON。",
                     )
                     continue
+            # **新的一块解析成功** = v2 纪念区间（本块内）结束 → 复位子模式标志。
+            # （放在这里而不是尝试循环开头: 预生成/重试可能失败, 那不是窗口结束;
+            #   本块若自己又带 memorial, `_finish_scene` 会立刻再置位——章内 ≤1。）
+            self._in_memorial = False
             self._pending_boards = list(boards[1:])
             # 非流式路径（无 on_board / 旧 mock LLM）: 整块解析完才知道有纪念 →
             # 这里补触发（延迟几秒, 但保证"有声明的就一定会开画"）
