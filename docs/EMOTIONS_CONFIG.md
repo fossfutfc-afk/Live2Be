@@ -33,6 +33,19 @@ assets/illustration/{char_id}/
   `{cid}/{outfit}/portrait/*.png` →（首选约定名 `collection.png`）没有 portrait/ 才回落到
   `diff/*Idle*.png`; 前端一律圆形裁剪。**`mmt/` 目录已退役删除**——头像不再有这一层。
   （历史: 曾误改成"全角色共用遥香那一张", 已回退; 真问题是遥香把待机帧放进了 `mmt/`。）
+- **注② portrait/ 五件套（官方素材名 → 本地标准名, 尺寸固定）**——四个角色已全部就位:
+  | 官方名（BA 解包） | 本地名 | 尺寸 |
+  |---|---|---|
+  | `Student_Portrait_{Name}_Collection.png` | `collection.png` | 404x456 |
+  | `Student_Portrait_{Name}.png` | `student.png` | 252x204 |
+  | `Student_Portrait_{Name}_Small.png` | `student_small.png` | 182x144 |
+  | `Lobbyillust_Icon_{Name}_01.png` | `lobby_icon.png` | 304x240 |
+  | `Lobbyillust_Icon_{Name}_01_Small.png` | `lobby_icon_small.png` | 172x136 |
+
+  补齐/校验: `python tools/sync_portrait.py`（干跑列计划）→ `--apply` 真拷 → `--verify`
+  只查标准（缺件/尺寸不符退出码 1）→ `--audit` 与官方源逐字节比对。
+  **非 default 外观**在 BA 侧是名字中缀（`Student_Portrait_Aru_Newyear_Collection.png`）,
+  `--outfit newyear` 即按此翻。工具在 `tools/`（.gitignore: 官方素材只本地保留）。
 - **"有 emotions.yml 的目录 = 外观"**——扫描零歧义（ref/possession 无 yml 自动排除）
 - **语义继承**：注释/eg few-shot 只在 `default/emotions.yml` 写全（LLM 词表注入永远读 default——换装不漂移词表）; 其他外观 emotions.yml 只写键 + 资源 ID
 - **键 ⊆ default 的键**（超出 → 校验警告）; **未写键 = 该外观无此表情** → 渲染端静默保持（宁缺勿错）
@@ -81,7 +94,8 @@ emotions:
 > 标准外观格式（§一）: **emotions.yml + portrait/ + spine/ 必有; diff/ 可选**。
 
 1. **资产就位**：spine 包拷入 `{外观id}/spine/`（+ `{外观id}/home/` 如有身体包）;
-   **头像放 `{外观id}/portrait/`（必有, 首选名 `collection.png`, 其余 `*.png` 按名序取第一张）**;
+   **头像五件套放 `{外观id}/portrait/`（必有）**——官方素材用
+   `python tools/sync_portrait.py -o {外观id} --apply` 一条命令补齐（见注②）;
    diff 静态差分按需放入（自己画的 OC 做不出 spine 动画时可省, 渲染端自动降级纯文字）
 2. **验证动画名**（确认哪些情绪有动画、哪些缺）：
    ```bash
