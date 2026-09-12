@@ -1323,6 +1323,43 @@ def test_bond_flow_store_bound_at_state_creation(tmp_path):
         _cleanup()
 
 
+def test_memorial_board_skips_annotation_lane(tmp_path):
+    """纪念窗口（v2, 2026-09-12）: 立绘隐藏 + 普通背景清空 → emo/place 不占 lane,
+    门控**直接就绪**; 引擎 `in_memorial` 由"板含 memorial"置位。
+
+    背景: v1 靠 `memorial_enter` 动作置 `_in_memorial`——记录流下那条路不存在,
+    实测该标志永为 False, 于是纪念视觉整条链（隐藏立绘/黑屏/纪念图淡入）死掉,
+    而 emo/place 标注却照跑（每次纪念白花 1~2 次调用 + 门控白等）。
+    """
+    block = scene(switch_to="黄昏的坡道",
+                  art_hint="她在坡道尽头回头，夕阳打在脸上",
+                  lines=["老师，你看。"],
+                  memorial_text="（她抬起头，第一次直视我的眼睛。）",
+                  after=["……这句话我想说很久了。"],
+                  end_text="（夜色落下来了。）")
+    engine, st, sid, _llm = _setup(tmp_path, block)
+    try:
+        bond.bond_start(CHARACTER, sid)
+        _wait_status(CHARACTER, sid)
+        state = bond._state(CHARACTER, sid)
+        sc = state.scene_obj
+        assert sc.memorial is True and sc.art_hint, sc.to_dict()
+        # ① 纪念区间置位（v1 路径死后曾永为 False）+ 前端信号
+        assert state.vn.in_memorial is True
+        assert bond.bond_status(CHARACTER, sid)["in_memorial"] is True
+        # ② 无视觉键可标 → 判定"无需" + 门控直接就绪（不等标注）
+        assert bond._memorial_no_visuals(state, sc) is True
+        assert bond._scene_emotions_ready(state) is True
+        assert bond._scene_places_ready(state) is True
+        assert bond._scene_visual_ready(state) is True
+        # ③ 没真发调用: 段落保持无 emotion, emo 队列没被建/没货
+        assert all(not (p.get("emotion") or "") for p in sc.paragraphs)
+        assert state._anno_queue is None or state._anno_queue.empty()
+        print("    v2 纪念: in_memorial 置位 + 不占标注 lane（门控直接就绪）")
+    finally:
+        _cleanup()
+
+
 def test_memorial_image_switch_gates_thread(monkeypatch):
     """生图总开关（2026-09-11）: 关 → **不构造生图器、不开生图线程**。
 

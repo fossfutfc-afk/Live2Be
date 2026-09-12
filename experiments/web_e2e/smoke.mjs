@@ -254,6 +254,39 @@ async function main() {
   }
   if (choices.length < 1) throw new Error("首板没有选项（记录流板切分异常?）");
 
+  // ── 5.5 纪念链路（v2, 2026-09-12）: in_memorial → 立绘隐藏 + 背景清空 + 图淡入 ──
+  // 桩块在首板里放了 `stage:memorial`, 生图走替身（离线 1×1 PNG）——验证的是
+  // **整条接线**: 引擎 art/memorial → 生图回调 → gallery URL → bond_status →
+  // 前端纪念层。旧版这条线在 v2 是断的（v1 探针只认 action=memorial_enter）。
+  {
+    // 等图就绪（替身是毫秒级, 但状态要过一轮轮询）
+    let memOk = null;
+    for (let i = 0; i < 60; i++) {
+      memOk = await page.evaluate(() => {
+        const layer = document.getElementById("bond-memorial");
+        const stage = document.getElementById("bond-stage");
+        const bg = document.getElementById("bond-bg");
+        return {
+          layerOn: !!(layer && layer.classList.contains("on")),
+          layerImg: (layer && layer.style.backgroundImage) || "",
+          stageHidden: !!(stage && stage.classList.contains("hidden")),
+          bgCleared: !(bg && bg.style.backgroundImage),
+        };
+      });
+      if (memOk.layerOn && memOk.layerImg) break;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    record("纪念链路", {
+      info: `图=${memOk.layerImg ? "已淡入" : "未就绪"} 立绘隐藏=${memOk.stageHidden} `
+        + `普通背景清空=${memOk.bgCleared}`,
+      shot: await shot(page, "vn-memorial"),
+      memorial: memOk,
+    });
+    if (!memOk.layerImg) throw new Error(`纪念图未淡入（生图链断?）: ${JSON.stringify(memOk)}`);
+    if (!memOk.stageHidden) throw new Error(`纪念期间立绘未隐藏: ${JSON.stringify(memOk)}`);
+    if (!memOk.bgCleared) throw new Error(`纪念期间普通背景未清空: ${JSON.stringify(memOk)}`);
+  }
+
   // ── 6. 裁决 → 玩家那句话**不上屏**（只消失选项, 正文停在上一句）──────────
   // 语义定稿（2026-09-12, 用户核对 BA）: **玩家的话语永远只体现为选项**——
   // 裁决后正文保持"上一句角色台词/旁白", 名字牌/立绘都不动; 把玩家那句当正文念
@@ -355,6 +388,19 @@ async function main() {
     }
     if (locked.pickedText.trim() !== "我来了。") {
       throw new Error(`重进回放没高亮所选: ${JSON.stringify(locked)}`);
+    }
+    // 回放的**纪念板**同样要进纪念态（立绘隐藏 + 普通背景清空; 图属档案保真,
+    // 见"回放不带 gallery URL"的已知缺口——这里只断言状态驱动的两项）
+    const replayMem = await page.evaluate(() => {
+      const stage = document.getElementById("bond-stage");
+      const bg = document.getElementById("bond-bg");
+      return {
+        stageHidden: !!(stage && stage.classList.contains("hidden")),
+        bgCleared: !(bg && bg.style.backgroundImage),
+      };
+    });
+    if (!replayMem.stageHidden || !replayMem.bgCleared) {
+      throw new Error(`回放的纪念板未进纪念态: ${JSON.stringify(replayMem)}`);
     }
     // 注: 这里**不推进** —— 交给步骤 7 的"▼ 继续"从回放交棒到后续板。
   }

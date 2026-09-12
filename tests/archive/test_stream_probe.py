@@ -1,5 +1,10 @@
 # -*- coding: utf-8 -*-
-"""MemorialProbe 流式嗅探状态机测试（方案 A step2）。
+"""MemorialProbe 流式嗅探状态机测试（方案 A step2）——**已归档 2026-09-12**。
+
+v1 专用: 它嗅的是 `"action":"memorial_enter"` 的 prompt 字段, 记录流 v2 里不存在
+→ 主链改用"一行 `stage:memorial` 解析即开画"（决策 #39）; 本模块留档供考古,
+v2 行为由 `tests/core/test_vn_records_engine.py::test_memorial_fires_image_hook_*`
+与 B 层冒烟"纪念链路"步骤覆盖。
 
 要点: 值闭合即定稿（触发点可靠）; 分块边界任意; 非目标动作永不误触发;
 只触发一次; 乱序退化为"action 确认后立即触发"（不亏）; 回调异常不炸流。

@@ -163,6 +163,10 @@ let lastSceneKey = "";
       seenRound = data.round !== undefined ? data.round : seenRound;
       seenEmo = data.emo_version !== undefined ? data.emo_version : seenEmo;
       renderScene(data.scene);
+      // 纪念态也要一起同步（2026-09-12）: 直返场景**不走 waitScene**, 而纪念的
+      // 立绘隐藏/背景清空/图淡入都在 `syncMemorial` 里——不同步就会看到"纪念板
+      // 照常显示立绘 + 普通背景"（冒烟实测抓到）。状态由 `_ready_scene_payload` 带。
+      syncMemorial(data);
       return;
     }
     if (data.completed) {

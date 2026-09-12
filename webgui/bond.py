@@ -628,6 +628,13 @@ def _ready_scene_payload(state: BondState, char_id: str = "") -> dict:
         return {}
     out = {"scene": state.scene, "round": state.round,
            "emo_version": state.emo_version}
+    # 纪念态随场景一起回（2026-09-12）: 直返场景不走 waitScene, 而纪念的立绘隐藏/
+    # 背景清空/图淡入都在前端 `syncMemorial` 里——不带这几个字段就会"纪念板照常
+    # 显示立绘 + 普通背景"（B 层冒烟实测抓到）。与 `/api/bond/status` 同源。
+    if state.vn is not None:
+        out["in_memorial"] = bool(state.vn.in_memorial)
+        out["memorial_img"] = state.memorial_img or None
+        out["memorial_img_busy"] = state.memorial_img_busy
     if char_id:
         try:
             role = _role_info(char_id)
@@ -697,6 +704,9 @@ def _start_replay(state: BondState, replay_q: list[dict],
     first = state.replay_scenes.pop(0)
     state.scene_obj = BondScene.from_dict(first)
     state.scene_obj._place_done = True    # 回放场景来自事件流（视觉键已定格）——不占 lane
+    # 回放的纪念板也进纪念态（2026-09-12）: 否则重放纪念段时立绘照常显示、背景照常亮
+    # （v2 区间 = 本块内, 其后从草稿/待发队列领出的板会沿用这个标志, 直到新生成一块）
+    state.vn._in_memorial = bool(state.scene_obj.memorial)
     state.scene = state.scene_obj.to_dict()
     state.round = 1
     state.scene_logged = True                 # 已落库——回放不重复落
@@ -993,6 +1003,24 @@ def bond_start_demo(char_id: str, session_id: str) -> dict:
     return {"accepted": True, "busy": True, "resumed": False}
 
 
+def _memorial_no_visuals(state: "BondState", scene=None) -> bool:
+    """纪念窗口内**不渲染任何视觉键** → 标注无意义, 判定为"无需标注"。
+
+    依据（前端定稿行为, `bond.js::syncMemorial`）: `in_memorial` 期间立绘整层隐藏 +
+    普通背景清空（黑屏兜底, 只有纪念图淡入）——所以 emo（表情）与 place（背景）
+    标了也没人看。跳过它们 = 每次纪念省 1~2 次调用, 也免掉门控白等 ~1s
+    （2026-09-12 用户核对纪念行为时确认: 立绘不工作, emo lane 本不该跑）。
+
+    窗口 = 本板含 memorial 触发（`scene.memorial`——首板那一刻引擎的 in_memorial
+    可能还没翻）**或**引擎已在纪念中（`vn.in_memorial`, 覆盖其后到 exit 的所有板）。
+    """
+    if state.demo is not None or state.vn is None:
+        return False
+    if bool(getattr(scene, "memorial", False)):
+        return True
+    return bool(getattr(state.vn, "in_memorial", False))
+
+
 def _scene_emotions_ready(state: BondState) -> bool:
     """当前展示场景的 emotion 是否已就绪（2026-09-02 推进门控）。
 
@@ -1008,6 +1036,8 @@ def _scene_emotions_ready(state: BondState) -> bool:
     scene = state.scene_obj
     if scene is None:
         return True
+    if scene.memorial_exit or _memorial_no_visuals(state, scene):
+        return True                            # 纪念: 立绘隐藏 → 无需 emotion
     groups = [scene.paragraphs] + list(scene.branches.values())
     for group in groups:
         for p in group:
@@ -1030,8 +1060,8 @@ def _scene_places_ready(state: BondState) -> bool:
     scene = state.scene_obj
     if scene is None:
         return True
-    if scene.memorial_exit:
-        return True
+    if scene.memorial_exit or _memorial_no_visuals(state, scene):
+        return True                            # 纪念: 背景清空（黑屏/纪念图）→ 无需 place
     return bool(getattr(scene, "_place_done", False))
 
 
@@ -1050,7 +1080,7 @@ def _scene_obj_visual_ready(state: BondState, scene) -> bool:
     if scene is None or state.vn is None or state.demo is not None:
         return True
     vn = state.vn
-    if not scene.memorial_exit:
+    if not scene.memorial_exit and not _memorial_no_visuals(state, scene):
         if vn._lexicon_keys:
             for group in [scene.paragraphs, *scene.branches.values()]:
                 for p in group:
@@ -1101,6 +1131,8 @@ def bond_turn(char_id: str, session_id: str, text: str) -> dict:
             nxt = state.replay_scenes.pop(0)
             state.scene_obj = BondScene.from_dict(nxt)
             state.scene_obj._place_done = True    # 回放: 视觉键定格, 不占 lane
+            # 纪念板 → 进纪念态（同 `_start_replay`: 重放纪念段时立绘隐藏/背景清空）
+            state.vn._in_memorial = bool(state.scene_obj.memorial)
             state.scene = state.scene_obj.to_dict()
             state.round += 1
             state.scene_logged = True          # 事件流已落库——回放不重复落
@@ -2079,6 +2111,12 @@ def _enqueue_annotate(state: BondState, scene: BondScene) -> None:
     """
     if state.demo is not None or state.vn is None:
         return
+    if _memorial_no_visuals(state, scene):
+        # 纪念窗口: 立绘隐藏 + 背景清空 → emo/place 标了也没人看, 不占 lane
+        # （2026-09-12: 此前只排除 memorial_exit, 纪念板照样花 1~2 次调用 + 门控等待）
+        logger.info("bond_anno enq emo=False place=False scene=%s (memorial: 无视觉键)",
+                    id(scene))
+        return
     # 入队打点（2026-09-08 首板 nomal 排查）: 每场景标注意向一目了然（emo/place）
     _want_emo = bool(state.vn._lexicon_keys and not scene.memorial_exit
                      and any(not p.get("emotion") for p in scene.paragraphs
@@ -2266,15 +2304,14 @@ def _log_scene_meta(state: BondState, char_id: str, session_id: str,
 
 
 def _system_note(state: BondState) -> str | None:
-    """本轮系统注记（只进 context 不入历史）: 纪念模式 / 选项配额 / 表情单一提醒 /
-    收尾提醒 / 上限建议。多条聚合为多行（每条一行）。"""
+    """本轮系统注记（只进 context 不入历史）: 选项配额 / 表情单一提醒 /
+    收尾提醒 / 上限建议。多条聚合为多行（每条一行）。
+
+    **v1 的"纪念模式 → 请输出 memorial_exit 动作"注记已删除**（2026-09-12）:
+    记录流 v2 里纪念是块内区间（`stage:memorial` 之后到块尾）, 没有 exit 动作——
+    那条注记会把"输出动作 JSON"喂给只吃记录流的引擎（打回重发 → 反馈回环）。
+    """
     vn = state.vn
-    if vn is not None and vn.in_memorial:
-        return (
-            "（系统）当前处于**纪念模式**——纪念场景已结束, 本场请输出"
-            " memorial_exit 动作回到 bond（可选过渡文字, 不要输出其他动作）。\n"
-            f"可用动作 schema:\n{vn.memorial_exit_schema()}"
-        )
     notes: list[str] = []
     # 记录流 v2（P0-7c）: 旧的"整段剧情 2~3 次选项配额"注记退役——v2 的交互密度
     # 由 rules 引导（一段戏里老师开口 3~5 次）, 引擎不再逐轮念配额（注记进 prompt,

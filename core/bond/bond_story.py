@@ -46,7 +46,6 @@ from core.common import Live2BeError, err
 from core.bond.bond_actions import MAX_SCENE_RETRIES, build_story_registry
 from core.bond.bond_executor import StoryExecError, StoryExecutor
 from core.bond.memorial_actions import build_memorial_registry
-from core.bond.stream_probe import MemorialProbe
 from core.media.emotion_lexicon import (
     build_emotion_injection,
     load_emotion_lexicon,
@@ -574,11 +573,12 @@ class BondStoryEngine:
         逐段标注** fill_scene_emotions_text 补标后返回, CLI/测试用）; False = 只
         返回骨架（标注由调用方异步执行——webgui 用它把 emotion 解析挪出玩家等待
         路径, 同一 fill_scene_emotions_text 在 emo lane 补标）。
-        on_memorial_prompt: 方案 A 流式嗅探钩子（2026-09-01）——LLM 输出流式
-        到达, MemorialProbe 在 memorial_enter 的 prompt 字段值闭合（定稿）时
-        立即回调（生图与 LLM 剩余输出并行）。None = 不嗅探（原同步行为）。
-        注意: 触发时动作尚未通过契约校验（频率限制/坏 JSON 可能打回）——已触发
-        的生图可能作废（调用方接受浪费, 宁缺勿错）。
+        on_memorial_prompt: 纪念生图钩子（v2, 2026-09-12）——**一行
+        `stage:memorial` 解析出来就回调**（生图与 LLM 剩余输出并行, 越早越好:
+        真机生图 ~26s, 玩家读纪念正文即缓冲）; prompt = 块级 `art` 画面意向,
+        缺省退化为触发句。流式路径即时触发, 非流式路径在整块解析后补触发。
+        None = 不开画（纯文字降级）。**只在本轮确实出现 memorial 时才触发**
+        （模型写了 `art` 预告却没兑现 → 不发图, 不浪费调用）。
         """
         if self._current_char is None:
             raise RuntimeError(err("NotInSession", "尚未开始会话"))
@@ -628,8 +628,15 @@ class BondStoryEngine:
         resp_format = "text"
 
         for attempt in range(MAX_SCENE_RETRIES):
-            # 方案 A 流式嗅探（每次 attempt 新建——重试是全新输出, 重新嗅探）
-            probe = MemorialProbe(on_memorial_prompt) if on_memorial_prompt else None
+            # 走到这里 = 待发队列空了, **要新生成一块** → v2 的纪念区间（本块内）
+            # 到此结束, 复位子模式标志（服务待发板不走这条路, 见上面的 early return）。
+            self._in_memorial = False
+            # 纪念生图提前开画（v2, 2026-09-12）: v1 的 `MemorialProbe` 嗅探的是
+            # `"action":"memorial_enter"` 的 prompt 字段——记录流下不存在, 所以
+            # 探针已退役（模块留档, 主链不调用）。现在:**一行 `stage:memorial`
+            # 解析出来就触发**（越早越好——生图真机 ~26s, 玩家读纪念正文即缓冲）,
+            # prompt = 块级 `art` 画面意向（本轮首行, 通常已先到）→ 缺省用触发句。
+            memorial_fired = False
             # 记录流 v2 渐进渲染（P2-1 前置）: chunk 逐行喂增量解析器, **板一闭合
             # 就回调交付**（on_board）——首板不必等整块写完（实测省 4~5s 首屏等待）。
             stream = BlockStreamParser(main_id=self._current_char.character_id
@@ -639,11 +646,16 @@ class BondStoryEngine:
             delivered: list["BondScene"] = []
 
             def _feed(text: str) -> None:
-                if probe is not None:
-                    probe.feed(text)
+                nonlocal memorial_fired
                 if stream is None:
                     return
                 stream.feed(str(text))
+                # 纪念生图提前开画（v2）: 见 attempt 循环头注释
+                if (on_memorial_prompt is not None and not memorial_fired
+                        and any(r.stage == STAGE_MEMORIAL for r in stream.records)):
+                    memorial_fired = True
+                    self._fire_memorial_image(on_memorial_prompt,
+                                              stream.records, stream.art_hint)
                 for board_records in stream.pop_ready():
                     scene_b = self._scene_from_records(board_records, stream)
                     if stream.art_hint and not delivered:      # 画面意向挂首个交付板
@@ -667,7 +679,7 @@ class BondStoryEngine:
                     response = chat_full(
                         messages, temperature=0.8, max_tokens=max_tokens,
                         response_format=resp_format,
-                        on_chunk=_feed if (probe is not None or stream is not None) else None,
+                        on_chunk=_feed if stream is not None else None,
                     )
                 else:
                     response = self.llm.chat(
@@ -737,6 +749,17 @@ class BondStoryEngine:
                     )
                     continue
             self._pending_boards = list(boards[1:])
+            # 非流式路径（无 on_board / 旧 mock LLM）: 整块解析完才知道有纪念 →
+            # 这里补触发（延迟几秒, 但保证"有声明的就一定会开画"）
+            if (on_memorial_prompt is not None and not memorial_fired
+                    and any(getattr(sc, "memorial", False) for sc in boards)):
+                memorial_fired = True
+                sc = next(sc for sc in boards if sc.memorial)
+                # 画面意向挂在**首个交付板**（流式与批式同规则）——合并时取任意一块的
+                art = sc.art_hint or next(
+                    (getattr(b, "art_hint", "") for b in boards
+                     if getattr(b, "art_hint", "")), "")
+                self._fire_memorial_image(on_memorial_prompt, sc.records, art)
             return self._finish_scene(boards[0], user_input, annotate=annotate)
         else:
             raise SceneLoopError(
@@ -746,6 +769,40 @@ class BondStoryEngine:
     # ------------------------------------------------------------------
     # 记录流 v2（P0-4b）: 块解析 → 板派生 → 收尾
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _memorial_image_prompt(records, art_hint: str) -> str:
+        """纪念生图 prompt（v2, 2026-09-12）: 块级 `art` 画面意向优先。
+
+        `art` 是 rules 要求的"1~2 句画面意向"（**必须写清她此刻在画面里是什么样**,
+        见 `bond_story_rules.md` §六 与 schema）；缺省退化用 `memorial` 触发句
+        （同样是"她在做什么"的一句话, 保证画面里有主角）。都没有 → ""（不开画）。
+        """
+        art = (art_hint or "").strip()
+        if art:
+            return art
+        for r in records or ():
+            if isinstance(r, dict):
+                stage = r.get("stage")
+                text = (r.get("text") or "").strip()
+            else:
+                stage = getattr(r, "stage", "")
+                text = (getattr(r, "text", "") or "").strip()
+            if stage == STAGE_MEMORIAL and text:
+                return text
+        return ""
+
+    def _fire_memorial_image(self, cb, records, art_hint: str) -> None:
+        """触发纪念生图回调（v2）——回调异常不外抛（生图失败只降级纯文字, §10.2）。"""
+        prompt = self._memorial_image_prompt(records, art_hint)
+        if not prompt:
+            logger.warning("[vn][memorial] 没拿到画面意向/触发句 → 不开画（纯文字降级）")
+            return
+        logger.info("[vn][memorial] 开画 prompt=%r", prompt[:60])
+        try:
+            cb(prompt)
+        except Exception as e:                     # noqa: BLE001 — 生图触发失败不炸生成
+            logger.warning("[vn][memorial] 生图回调异常（降级纯文字）: %s", e)
 
     def _scene_from_records(self, records: tuple, stream: "BlockStreamParser") -> BondScene:
         """流式板块 → BondScene（与批式 `_build_record_boards` 同语义）。
@@ -860,6 +917,13 @@ class BondStoryEngine:
         记录流板 = records + 未选候选剔除, 旧契约板 = paragraphs 提取）;
         `fallback_text` 仅旧契约的兜底（渲染为空时用紧凑 JSON，保持旧行为）。
         """
+        if scene.memorial:
+            # v2 纪念区间（2026-09-12）: 触发之后到**本块结束**都属于纪念正文——
+            # 期间前端隐藏立绘 + 清空普通背景, 只等纪念图淡入（`syncMemorial` 读
+            # `bond_status.in_memorial`）。v1 靠 `memorial_enter` 动作置位, 记录流下
+            # 那条路径不存在（实测该标志永为 False → 纪念视觉整条链死掉）;
+            # 复位在"要新生成一块"时（见 send_vn_scene 的 attempt 循环头）。
+            self._in_memorial = True
         # 方案A-A1 回录基准（裁决后 record_picked 用同一渲染函数 + 同一 payload 重渲尾部）:
         # 记录流板 = to_dict()（records 真源 + 派生 paragraphs/choices/speaker）
         self._last_payload = dict(payload) if payload is not None else scene.to_dict()
