@@ -18,6 +18,7 @@
 <link rel="stylesheet" href="/static/css/settings.css">
 <link rel="stylesheet" href="/static/css/mmt.css">
 <link rel="stylesheet" href="/static/css/bond.css">
+<link rel="stylesheet" href="/static/css/collection.css">
 </head>
 <body>
 <!-- menu 背景轮播层（BA 大版本图按序播放, 淡入淡出） -->
@@ -137,6 +138,37 @@
     </div>
   </section>
 
+  <!-- 回忆册（DESIGN_COLLECTION_BOOK）: 书页 = 两半页 × 3行4列 = 24 格
+       （一格一角色, collection.png 封面, 无素材留白; 满了翻页）
+       → 点格子进"角色页"（该角色**已结束**的章标题列表 + 进入按钮）→ 只读回放 -->
+  <section id="view-collection" class="collection hidden" aria-label="回忆册">
+    <header class="col-header">
+      <span class="col-title">回忆册</span>
+      <button id="col-back" class="link">返回</button>
+    </header>
+    <div class="col-stage">
+      <div id="col-book" class="col-book">
+        <button id="col-prev" class="col-turn prev" type="button" aria-label="上一页">‹</button>
+        <div class="col-page left"><div id="col-grid-left" class="col-grid"></div></div>
+        <div class="col-spine" aria-hidden="true"></div>
+        <div class="col-page right"><div id="col-grid-right" class="col-grid"></div></div>
+        <button id="col-next" class="col-turn next" type="button" aria-label="下一页">›</button>
+        <div id="col-pager" class="col-pager"></div>
+      </div>
+      <!-- 角色页（第二层: 已结束的章 → 只读回放） -->
+      <div id="col-char" class="col-char hidden">
+        <div class="col-char-head">
+          <div class="col-char-who">
+            <span id="col-char-name" class="col-char-name"></span>
+            <span id="col-char-club" class="col-char-club"></span>
+          </div>
+          <button id="col-char-back" class="link">返回书页</button>
+        </div>
+        <div id="col-chapters" class="col-chapters"></div>
+      </div>
+    </div>
+  </section>
+
   <!-- 羁绊剧情 VN 视图（全屏遮罩——在 MMT 之上; 背景 cover + SpinePlayer 立绘
        舞台 + 下部文字区/选项; 结束回 MMT 保留聊天窗状态） -->
   <section id="view-bond" class="bond hidden" aria-label="羁绊剧情">
@@ -198,6 +230,7 @@
 <script src="/static/js/main.js"></script>
 <script src="/static/js/settings.js"></script>
 <script src="/static/js/mmt.js"></script>
+<script src="/static/js/collection.js"></script>
 <script type="module" src="/static/js/bond.js"></script>
 </body>
 </html>
