@@ -10,6 +10,7 @@
 from core.session.events import (
     EVENT_TYPES,
     MARKER_SUBTYPES,
+    M_MEMORIAL_IMAGE,
     M_SESSION_END,
     M_SESSION_START,
     M_VN_ENTER,
@@ -54,6 +55,7 @@ __all__ = [
     "EVENT_TYPES", "MARKER_SUBTYPES",
     "TYPE_MMT", "TYPE_BOND", "TYPE_L2D", "TYPE_MARKER", "TYPE_OFFICIAL",
     "M_SESSION_START", "M_VN_ENTER", "M_VN_EXIT", "M_VN_STATE", "M_SESSION_END",
+    "M_MEMORIAL_IMAGE",
     # renderer
     "render_events", "filter_bond", "session_status", "render_timeline",
     # store

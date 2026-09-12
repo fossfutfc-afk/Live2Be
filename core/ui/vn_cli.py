@@ -251,9 +251,11 @@ def run_bond_story_vn(
                     system_note = flash
             except Exception:                                # noqa: BLE001 — 静默跳过
                 system_note = None
-        if vn.in_memorial:
-            # 纪念子模式（§4.7）: 本场只输出 memorial_exit——临时注入 exit schema
-            # （纪念模式只有 1 轮: enter 独占一轮含全部内容 → 下一轮 exit 回 bond）
+        if vn.in_memorial and not vn._last_payload:
+            # 纪念子模式（§4.7）: 本场只输出 memorial_exit——临时注入 exit schema。
+            # **仅旧契约路径**（vocab: 记录流 v2 的纪念是块内区间, 没有 exit 动作,
+            # 引擎也不吃动作 JSON）——`_last_payload` 在 v2 每条板都会置位, 故用它
+            # 区分; 否则这里会把动作 schema 喂给只吃记录流的引擎（2026-09-12 修正）。
             system_note = (
                 "（系统）当前处于**纪念模式**——纪念场景已结束, 本场请输出"
                 " memorial_exit 动作回到 bond（可选过渡文字, 不要输出其他动作）。\n"
