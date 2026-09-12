@@ -15,13 +15,16 @@
 > **2026-09-13 已修（与图/RAG 无关的批次, 用户指定）**:
 > A1 设置页裁配置 · A2 留白格不可点 · A6 看门狗前置条件 · B1 退役场卡 ·
 > B5 章末闭合纪念窗口 · B6 落库失败永久丢板 · B17 `reset_engines` 清锁 ·
-> B18 `_wrapup_inner` 全局 store · **B21**（新增条目）退役 v1 表情单调注记。
+> B18 `_wrapup_inner` 全局 store · **B21**（新增条目）退役 v1 表情单调注记 ·
+> **E11** 轮数跨重连恢复。
 > **已撤销 2 条误报**: B2（批式/流式切板**等价**）· B13（选项真源**一直是对的**,
 > 缺的是断言）——两条均见该行说明与复核方法。
+> **B19 订正**: 现象成立但**原修法无效**（清空语句在快路径 `return` 之后,
+> 队列非空时不可达）——见该行; 仍未修, 已留注释防重踩。
 > **编号说明**: 本条曾误写为"B8 退役 v1 表情注记"——**表里 B8 是另一件事**
 > （`_trim_history` 从头截断破坏前缀缓存, **未修**）; 表情注记原表无条目, 现补为
 > **B21**（见 §2 表末）。按 ID 追进度时以 §2 表为准。
-> 回归 591 passed。
+> 回归 594 passed。
 
 ---
 
@@ -166,7 +169,7 @@
 | B16 | **`_resolve_scene` 无缓存 + 就地改业务状态** | `webgui/routers/bond.py:112-162` | 每次 status 对每段重算 `fx`/`background_url`/名字表; 且**就地改 `state.scene` 内层段落 dict**（`:141-145`）→ 展示层写回业务状态。 |
 | B17 | **`reset_engines` 清锁不清 BondState** | `webgui/chat.py:74-82` | 在跑的 turn 持旧 Lock、新调用者拿新锁 → 同角色并发 `agent_turn`; `_bonds` 不清则 `BondState.vn` 继续用旧 key。 |
 | B18 | **`_wrapup_inner` 用全局 store** | `webgui/bond.py:2526` | 与自身 docstring（`:2522-2526`）矛盾, 也与决策 #31"流程绑定 store"的修法矛盾 → 迟到写入可能落错世界线（同类事故见 `:151-153`）。 |
-| B19 | **`_draft_save` 在流式首板交付时写入了上一回合残留的待发板** | `webgui/bond.py:1759,1945` | 此刻引擎 `_pending_boards` 还是上一拍的（新队列要到 `bond_story.py:752` 才赋值）→ 草稿文件混入旧板; 崩溃/重启窗口会把旧板当"已生成未播放"续播。 |
+| B19 | **`_draft_save` 在流式交付时读到"上一回合的待发板"**（**仍未修**——原修法经复核**无效**, 已订正根因） | `webgui/bond.py::_draft_save`/`_draft_boards`; `core/bond/bond_story.py:597-607` | 现象成立: 流式下首板在 `send_vn_scene` 的 LLM 调用中闭合即回调交付, 而 webgui 的 `_draft_save` 会在回调里读引擎 `_pending_boards` 写"未生成未播放"旁路 → 混入**上一回合的尾板**; 进程若在此刻死掉, 重进会把旧板当"已生成未播放"续播。<br>**但审计给的原修法（在 `send_vn_scene` 里清空队列）经实测无效**: 该清空语句位于 0-LLM 快路径 `if self._pending_boards: … return`（`:599-607`）**之后**, 故**队列非空时根本不可达**——而流式交付窗口恰恰是"队列非空"（本回合的板还没解析出来, 队列里挂的是上一回合的尾板）。行级 trace 实证: `line 599 executed / line 639 executed = 0`。<br>**正确修法（待做）**: webgui 侧标记"正在生成中", 让 `_draft_boards` 在生成期间**不取**引擎待发队列; 或引擎把"本回合待发板"与"上一回合残留"拆成两个字段。已在 `bond_story.py` 该处留注释说明（防下次重踩）。 |
 | B20 | **前端错误吞噬** | `webgui/static/js/bond.js:434,546,1139` | `waitScene` 遇畸形 status 静默 return → 等待卡永驻; `emoWatch` 空 catch; `waitTurnIdle` 把网络错当空闲; 6 个 JS 无请求超时 → turn 悬挂时点击全静默。 |
 | **B21** | **v1 遗留的"表情单调"注记每轮白喂**（原表遗漏, 2026-09-13 复核补录） | `webgui/bond.py::_system_note` + `BondState.prev_emotions` | "上一场所有单元都是同一 emotion → 请随情绪变化切换 emotion 并切新单元"——写给 **v1**（emotion 由主 LLM 内联）的; v2 的 emotion 由标注层按记录给（决策 #27）, **写作者既看不见也没有该字段可写**（schema 只有 `character`/`stage` + `text`; `bond_story_rules.md` 全文不提 emotion）。每轮白喂 token, 且会诱导模型为了"切换单元"碎化输出。`prev_emotions` 字段是它唯一的消费者 → 一并删除（否则后人会以为主 LLM 还参与表情决策）。**已修**。 |
 | **B22** | **`_lane_inflight` 增减未持锁**（低危, 2026-09-13 用户复核指出） | `webgui/bond.py` 两处 worker 的 `+= 1` / `finally: -= 1` | 读它的看门狗在另一个线程。丢更新方向安全（只会偏小但仍 >0）; 危险的是"一个 worker 减到 0、另一个还没加 1"的**瞬时零穿越** → 配合 25s 计时器理论上仍可开火。窗口纳秒级。**未修**（低危, 留档）: 要彻底消掉需给计数加锁, 或改判"无进展 N 秒"。 |
