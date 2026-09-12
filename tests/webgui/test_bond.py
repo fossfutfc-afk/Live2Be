@@ -193,6 +193,19 @@ def test_bond_full_flow(tmp_path):
             == ["段落一。", "段落二。"], st1b["scene"]
         assert st1b["scene"]["choices"] == [] and st1b["scene"]["picked"] == "选A"
         assert st1b["round"] == 1, "裁决是场景一部分, 不占轮次"
+        # 2026-09-13（审计 B13 复核）: 钉住**事件流留住了选项真源**。
+        # 审计原判"裁决路径把 choices 清空 → 落库 payload 也空"是**误报**:
+        # 落库取的是 `state.scene_obj.to_dict()` 快照, 而清空动作只作用于
+        # **展示视图** `state.scene`（`scene_obj` 与 `state.scene` 是两个 dict）。
+        # 实测 pick 事件 payload `choices=['选A','选B']` + `picked='选A'` 一直是对的。
+        # 仍有价值: 回忆册的只读选项组**依赖**这条 payload, 而此前没有任何用例
+        # 断言过它——这里把它固定下来（谁哪天让落库取到已清空的视图, 这条必红）。
+        _picked_ev = [e for e in st.events(CHARACTER, sid)
+                      if e.subtype == "story_scene" and (e.payload or {}).get("picked")]
+        assert _picked_ev, "裁决板应已落库"
+        assert _picked_ev[-1].payload["choices"] == ["选A", "选B"], \
+            f"事件流丢了选项真源: {_picked_ev[-1].payload.get('choices')}"
+        assert _picked_ev[-1].payload["picked"] == "选A"
         # v2: 裁决后一板反应（待发 0 LLM）, 其后才是收尾场——循环推进到 completed
         for _ in range(6):
             if bond.bond_status(CHARACTER, sid).get("completed"):
