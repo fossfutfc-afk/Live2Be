@@ -402,10 +402,19 @@ class MomoTalkEngine:
         2026-09-02: 触发门槛计数（_bond_gap）从持久 progress.json 恢复
         （rounds_since_bond——断线/重启继续累计, 不从 0 开始; 完整 bond
         剧情结束才清零, 见 bond_completed）。
+
+        **2026-09-13（审计 E11）**: `_session_rounds` 同样**从事件流恢复**, 不再
+        无条件归零。它有两个身份: ① mmt 窗口 digest 的触发计数
+        （`_maybe_mmt_digest`: `>= 25` 且 `% 25 == 0`）; ② `want_to_speak` 的
+        冷却键（`core/random_events` 的 `_cooldowns` 用它当"当前轮号"）。
+        原先每次 `attach_session` 归零 → **前端每次刷新/切页（`open_session`）
+        都让 25 轮窗口从头再数一遍**, 页面常刷新时 digest 几乎永不触发; 冷却键
+        同样失效（"冷却 6 轮"变成"冷却 >=6 次刷新"）。现在按**本会话已落库的
+        mmt 轮数**恢复, 与 `_bond_gap` 的持久化口径一致。
         """
         self._session_id = session_id
-        self._session_rounds = 0
         char_id = self._current_char.character_id if self._current_char else ""
+        self._session_rounds = self._count_session_turns(char_id)
         if self._store is not None and char_id:
             try:
                 self._bond_gap = self._store.read_bond_gap(char_id)
@@ -414,6 +423,25 @@ class MomoTalkEngine:
                 self._bond_gap = 0
         else:
             self._bond_gap = 0
+
+    def _count_session_turns(self, char_id: str) -> int:
+        """本会话已落库的 mmt 轮数（`_session_rounds` 的重启恢复值）。
+
+        每成功一轮落一条 `mmt_chat` 事件（`_finish_turn_list` → `_log_events`）,
+        故"条数"即"轮数"（invariant 有单测钉住）。无 store / 无会话 / 读失败
+        → 0（宁缺勿错: 从 0 起只是窗口晚一点, 不阻断对话）。
+        """
+        if self._store is None or not char_id or not self._session_id:
+            return 0
+        try:
+            return sum(
+                1 for e in self._store.events(char_id, self._session_id)
+                if not getattr(e, "is_marker", False)
+                and getattr(e, "type", "") == "mmt"
+                and getattr(e, "subtype", "") == "mmt_chat")
+        except Exception as e:                   # noqa: BLE001 — 读失败降级 0
+            logger.warning("mmt 轮数恢复失败（从 0 起）: %s", e)
+            return 0
 
     def bond_completed(self) -> None:
         """完整 bond 剧情结束回调（vn_exit completed=True 收尾链调用, 2026-09-02

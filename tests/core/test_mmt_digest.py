@@ -59,10 +59,16 @@ def _wait(pred, timeout=10.0, interval=0.05):
 
 
 def _mmt_event(st, char_id, seq_base):
-    """补一段 mmt 互动事件（digest 有输入可提炼——空包下也推进水位）。"""
+    """补一段 mmt 互动事件（digest 有输入可提炼——空包下也推进水位）。
+
+    subtype = `mmt_chat`（与生产一致: `_log_events` 落的是 registry 动作名, 真机
+    events.jsonl 里就是 `mmt_chat`）。2026-09-13 修正: 此前写的是 `"chat"`——一个
+    **生产里不存在的 subtype**, 而 E11 的轮数恢复正是按 `mmt_chat` 计数, 于是
+    "事件条数 == 轮数"这条 invariant 在测试里失真（用例会假红/假绿）。
+    """
     from core.session.events import make_event
     st.append_event(char_id, "", make_event(
-        "mmt", "chat", {"player": f"消息{seq_base}", "reply": "回复"}))
+        "mmt", "mmt_chat", {"player": f"消息{seq_base}", "reply": "回复"}))
 
 
 def test_mmt_window_trigger_digests(tmp_path):
@@ -120,3 +126,49 @@ def test_digest_idempotent_no_new_events(tmp_path):
     assert _wait(lambda: engine._brain_injection != ""), "注入段应存在"
     time.sleep(0.5)
     assert llm.llm_calls == calls_after_first   # 空跑无害
+
+
+# ---------------------------------------------------------------------------
+# 2026-09-13（审计 E11）: 轮数必须**跨重连恢复**, 不能因前端刷新归零
+# ---------------------------------------------------------------------------
+
+def test_session_rounds_restored_across_reattach(tmp_path):
+    """`attach_session` 重入（= 前端刷新/切页走 `open_session`）不得把轮数清零。
+
+    `_session_rounds` 有两个身份: ① mmt 窗口 digest 的触发计数（>=25 且 %25==0）;
+    ② `want_to_speak` 的冷却键（`core/random_events` 拿它当"当前轮号"）。
+    原先 `attach_session` 无条件 `= 0` → **页面每刷新一次, 25 轮窗口就从头再数**,
+    常刷新时 digest 几乎永不触发; 冷却键同样退化成"冷却 >=6 次刷新"。
+
+    恢复所依赖的 invariant = "**本会话 mmt_chat 事件条数 == 成功轮数**"
+    （每成功一轮恰落一条, 见 `_log_events`/`_finish_turn_list`）——这里两半都钉住。
+    """
+    engine, st, llm = _engine(tmp_path)
+    sid = engine._session_id
+
+    # 造"本会话已经聊过 3 轮"的既成事实（事件流是唯一真源）
+    for i in range(3):
+        _mmt_event(st, CHARACTER, i)
+    assert engine._session_rounds == 0, "前置: 内存计数此刻还是 0"
+
+    # 重连（同会话）→ 从事件流恢复到 3, 而不是 0
+    engine.attach_session(sid)
+    assert engine._session_rounds == 3, \
+        f"重连后轮数被清零（digest 窗口会从头再数）: {engine._session_rounds}"
+
+    # 继续对话 → 在恢复值上递增（每轮恰好 +1, invariant 的另一半）
+    engine._advance_round(CHARACTER)
+    assert engine._session_rounds == 4, engine._session_rounds
+
+    # 无 store → 0（宁缺勿错, 不抛）
+    engine._store = None
+    engine.attach_session(sid)
+    assert engine._session_rounds == 0
+
+    # 空会话（无任何 mmt_chat）→ 0
+    engine._store = st
+    empty = SessionStore(tmp_path / "empty")
+    engine._store = empty
+    engine.attach_session(sid)
+    assert engine._session_rounds == 0
+    print("    E11: 轮数跨重连恢复（3 → 重连 3 → 续聊 4）; 无 store/空会话降级 0")
