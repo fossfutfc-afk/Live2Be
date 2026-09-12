@@ -354,6 +354,65 @@ def test_block_stream_parser_incremental():
     print("    stream: 逐 chunk 增量解析 + 板边界与批式同源")
 
 
+def test_board_split_batch_stream_equivalence():
+    """**批式与流式切板必须逐板等价**（2026-09-13 审计 B2 复核 → 补钉住）。
+
+    两条实现独立: 批式 `bond_story._board_spans`（CLI 与 webgui 预生成的唯一
+    路径）、流式 `records.BlockStreamParser`（渐进渲染路径）。它们对**同一块**
+    必须切出同样的板——否则同一段内容走两条路会得到不同的板边界, 而板边界是
+    `place_hint`/choices/落库单位（append-only, 事后无法对齐）。
+
+    审计曾报"批式 `i > start` 会把板首 switch 并进上一板"——复核为**误报**:
+    槽后收板已把 `start` 推到 switch 之后, 守卫因此成立。本用例把五种边界
+    （群后 switch / 超长群 / 群中 switch / 群结尾 / art+memorial）逐板比对,
+    含 `place_hint`, 防的是"以后改一边忘了另一边"。
+    """
+    from contract.records import (STAGE_ART, BlockStreamParser,  # noqa: E402
+                                  MAX_SENSEI_RUN)
+    from core.bond.bond_story import BondScene, _board_spans  # noqa: E402
+
+    S = lambda t: '{"stage": "switch", "text": "%s"}' % t          # noqa: E731
+    C = lambda c, t: '{"character": "%s", "text": "%s"}' % (c, t)  # noqa: E731
+    H = "igusa_haruka"
+    cases = {
+        "群后紧跟 switch": [S("教室"), C(H, "老师"), C("sensei", "嗯。"),
+                            S("天台"), C(H, "风好大")],
+        "switch 在群前": [C(H, "老师"), C("sensei", "嗯。"),
+                          S("天台"), C(H, "风好大")],
+        f"超长群（{MAX_SENSEI_RUN + 1} 连 sensei）":
+            [S("教室")] + [C("sensei", f"第{i}句")
+                           for i in range(1, MAX_SENSEI_RUN + 2)] + [C(H, "嗯。")],
+        "switch 落在群中间": [S("教室"), C(H, "老师"), C("sensei", "嗯。"),
+                              S("天台"), C("sensei", "那边"), C(H, "好")],
+        "群结尾即块尾": [S("教室"), C(H, "老师"), C("sensei", "嗯。")],
+        "相邻双 switch": [S("教室"), S("天台"), C(H, "老师")],
+        "art 在块首 + memorial":
+            ['{"stage": "art", "text": "她在坡道回头"}', S("坡道"), C(H, "老师"),
+             '{"stage": "memorial", "text": "她笑了。"}'],
+    }
+    for name, lines in cases.items():
+        block = "\n".join(lines)
+        flow = tuple(r for r in parse_stream(block).records if r.stage != STAGE_ART)
+
+        batch: list[tuple] = []
+        for a, b, group in _board_spans(flow):
+            sl = flow[a:b]
+            sc = BondScene.from_board(sl, group=tuple(i - a for i in group))
+            batch.append((tuple(r.value for r in sl), sc.place_hint))
+
+        p = BlockStreamParser()
+        p.feed(block + "\n")
+        p.finish()
+        stream = []
+        for b in p.all_boards():
+            sc = BondScene.from_board(b, group=())
+            stream.append((tuple(r.value for r in b), sc.place_hint))
+
+        assert batch == stream, f"[{name}] 批式/流式切板分歧:\n  批式={batch}\n  流式={stream}"
+        assert batch, f"[{name}] 不该切出空板"
+    print(f"    records: 批式/流式切板逐板等价（{len(cases)} 种边界, 含 place_hint）")
+
+
 def test_block_stream_parser_edge_cases():
     """流式边界: 超长群切槽 / 丢行记账 / 空流。"""
     from contract.records import BlockStreamParser
