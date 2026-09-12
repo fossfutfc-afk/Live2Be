@@ -550,11 +550,17 @@ def test_bond_pregenerate_narrative_flow(tmp_path):
 
 
 # ----------------------------------------------------------------------------
-# _system_note: 选项配额 + 表情单一提醒（LLM 每场给选项 / 整场一个表情的软约束）
+# _system_note: v2 下只剩"收尾节奏"类注记（配额 / 表情单调 均已退役）
 # ----------------------------------------------------------------------------
 
-def test_system_note_quota_and_emotion_hints():
-    """记录流 v2: 选项配额注记**退役**（密度由 rules 引导）; 保留表情单一提醒与收尾注记。"""
+def test_system_note_v2_only_pacing_hints():
+    """记录流 v2: 选项配额 **与** 表情单调注记都已退役, 只剩篇幅/收尾注记。
+
+    2026-09-13（审计 B8）: "上一场 emotion 全同 → 请切换 emotion 并切新单元"
+    是写给 v1（emotion 由主 LLM 内联）的——v2 的 emotion 由标注层按记录给,
+    写作者既看不见也没有该字段可写（schema 只有 character/stage + text）。
+    那条注记在 v2 下每轮白喂 token, 还会诱导模型为"切换单元"碎化输出。
+    """
     from types import SimpleNamespace
     from webgui.bond import BondState, _system_note
 
@@ -563,15 +569,15 @@ def test_system_note_quota_and_emotion_hints():
     for used in (1, 3, 9):
         note = _system_note(BondState(vn=vn, choices_used=used)) or ""
         assert "配额" not in note and "choices" not in note, note
-    # 表情单一: ≥3 个单元全同 → 提醒
-    st3 = BondState(vn=vn, prev_emotions=["nomal", "nomal", "nomal"])
-    assert "同一 emotion" in (_system_note(st3) or ""), _system_note(st3)
-    # 有变化 → 不提醒; 干净状态 → 无注记
-    st4 = BondState(vn=vn, prev_emotions=["nomal", "smile"])
-    assert "同一 emotion" not in (_system_note(st4) or "")
-    st5 = BondState(vn=vn)
-    assert _system_note(st5) is None
-    print("    system_note: 配额注记退役 + 表情单一提醒保留")
+    # 中段轮: 仍应有收尾节奏提示（这是 v2 合理的"目标层"注记）
+    mid = _system_note(BondState(vn=vn, round=30)) or ""
+    assert "收束" in mid or "结尾" in mid, mid
+    # 干净状态（未到提醒轮）→ 无注记
+    assert _system_note(BondState(vn=vn)) is None
+    # 表情单调字段已删——不该再有任何 emotion 相关注记
+    st = BondState(vn=vn)
+    assert not hasattr(st, "prev_emotions"), "prev_emotions 应已随注记一并删除"
+    print("    system_note: 配额/表情单调注记退役 + 收尾节奏保留")
 
 
 # ----------------------------------------------------------------------------
@@ -1356,6 +1362,99 @@ def test_memorial_board_skips_annotation_lane(tmp_path):
         assert all(not (p.get("emotion") or "") for p in sc.paragraphs)
         assert state._anno_queue is None or state._anno_queue.empty()
         print("    v2 纪念: in_memorial 置位 + 不占标注 lane（门控直接就绪）")
+    finally:
+        _cleanup()
+
+
+def test_memorial_window_closed_when_chapter_ends_in_window(tmp_path):
+    """**玩家在纪念板读完就收尾** → 窗口必须闭合（2026-09-13 审计 B5）。
+
+    v2 的纪念区间 = 触发后到本块块尾, 没有 exit 动作; 原先补 `memorial_exit`
+    只挂在"下一板落地"那条路径上——玩家直接在纪念处 finish 时它永不发生 →
+    流里留下未闭合 `memorial_enter`; 而 `_memorial_open_in_events` 只认
+    exit/session_end → **下一章首板会被判成"纪念窗口内"** → 整块跳过 emo/place
+    标注（表情恒 nomal、背景不切、门控恒放行）。
+    """
+    mem = scene(switch_to="黄昏的坡道", lines=["老师，你看。"],
+                memorial_text="（她抬起头，第一次直视我的眼睛。）")
+    # 只给一块: 后继预生成会失败（脚本耗尽 → 无害 WARNING）, **这是有意的**——
+    # 要的就是"玩家停在纪念板上、从未推进过任何一板"的状态（`vn.in_memorial`
+    # 仍为 True, 因为没有任何"新块解析成功"来复位它）。
+    engine, st, sid, _llm = _setup(tmp_path, mem)
+    try:
+        bond.bond_start(CHARACTER, sid)
+        stt = _wait_status(CHARACTER, sid)
+        assert stt["in_memorial"] is True
+        subs = [e.subtype for e in st.events(CHARACTER, sid) if e.is_marker]
+        assert "memorial_enter" in subs and "memorial_exit" not in subs, subs
+
+        # 玩家在此收尾（不在窗口内推进过任何一板）
+        r = bond.bond_finish(CHARACTER, sid)
+        assert r.get("completed") is True, r
+        subs2 = [e.subtype for e in st.events(CHARACTER, sid) if e.is_marker]
+        assert subs2.count("memorial_exit") == 1, f"章末未闭合纪念窗口: {subs2}"
+        assert bond._memorial_open_in_events(CHARACTER, sid, st) is False
+        # 闭合顺序: exit 必须早于 vn_exit（否则靠 session_end 顺带闭合, 语义含糊）
+        assert subs2.index("memorial_exit") < subs2.index("vn_exit"), subs2
+        print("    v2 纪念: 章在窗口内结束 → finish 闭合 marker 栈（下一章不再误判）")
+    finally:
+        _cleanup()
+
+
+def test_close_memorial_window_idempotent(tmp_path):
+    """窗口已闭合 / 引擎仍在窗口内 → 不重复写 exit（bond_finish 可无条件调用）。"""
+    from types import SimpleNamespace
+
+    engine, st, sid, _llm = _setup(tmp_path, scene(switch_to="教室", lines=["老师。"]))
+    try:
+        state = bond._state(CHARACTER, sid)
+        assert bond._close_memorial_window(state, CHARACTER, sid) is False   # 无未闭合 enter
+        subs = [e.subtype for e in st.events(CHARACTER, sid) if e.is_marker]
+        assert "memorial_exit" not in subs, subs
+
+        # 标记为"有未闭合 enter"但引擎仍在窗口内 → 非 force 路径不是收尾时机, 不写
+        state.memorial_logged = True
+        state.vn = SimpleNamespace(in_memorial=True)
+        assert bond._close_memorial_window(state, CHARACTER, sid) is False
+        subs2 = [e.subtype for e in st.events(CHARACTER, sid) if e.is_marker]
+        assert "memorial_exit" not in subs2, subs2
+        # force（bond_finish 用）: 同样状态下必须强闭合
+        assert bond._close_memorial_window(state, CHARACTER, sid, force=True) is True
+        subs3 = [e.subtype for e in st.events(CHARACTER, sid) if e.is_marker]
+        assert subs3.count("memorial_exit") == 1, subs3
+        print("    _close_memorial_window: 幂等 + 非 force 守窗口 + force 强闭合")
+    finally:
+        _cleanup()
+
+
+def test_log_scene_keeps_retry_on_write_failure(tmp_path, monkeypatch):
+    """落库写失败**不得**置 `scene_logged`（2026-09-13 审计 B6）。
+
+    原先 `state.scene_logged = True` 在 `try` 之外 → 写失败也置位 → 该板
+    永远不再尝试落库（回忆册/回放缺板、草稿旁路也不再含它）。修后: 失败保持
+    False, 下一次裁决/收尾可重试。
+    """
+    engine, st, sid, _llm = _setup(tmp_path, scene(switch_to="教室", lines=["老师。"]))
+    try:
+        bond.bond_start(CHARACTER, sid)
+        _wait_status(CHARACTER, sid)
+        state = bond._state(CHARACTER, sid)
+        state.scene_logged = False                 # 模拟"本板未落库"
+        before = len(st.events(CHARACTER, sid))
+
+        def _boom(*a, **kw):
+            raise OSError("磁盘满")
+        monkeypatch.setattr(st, "append_event", _boom)
+        bond._log_scene(state, CHARACTER, sid, picked=None)
+        assert state.scene_logged is False, "写失败却置位 → 该板永久丢失"
+        assert len(st.events(CHARACTER, sid)) == before
+
+        # 恢复写入 → 重试成功并置位
+        monkeypatch.undo()
+        bond._log_scene(state, CHARACTER, sid, picked=None)
+        assert state.scene_logged is True, "恢复后应能重试落库"
+        assert len(st.events(CHARACTER, sid)) == before + 1
+        print("    _log_scene: 写失败保留重试机会（不再永久丢板）")
     finally:
         _cleanup()
 
