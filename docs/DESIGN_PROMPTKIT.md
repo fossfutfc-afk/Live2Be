@@ -6,9 +6,9 @@
 >
 > **执行记录**：Phase 0 基线夹具 ✅（0d3a76f）；Phase 1 盒A v2 抽盒 +
 > 称呼行归位 ✅（72b5440）；Phase 2 MMT task 卡（chat/wrapup）+ 缓存命中日志
-> ✅（fc7944f）；Phase 3 盒B v2 抽盒 + 称呼行归位 + 场卡（scene/memorial_exit）
-> ✅（607b6b2）；Phase 4 方案A-A1 选项回录（record_picked + webgui 接线）
-> ✅（本节点）——本批全部落地，A2 留档。
+> ✅（fc7944f）；Phase 3 盒B v2 抽盒 + 称呼行归位 + 场卡（scene；~~memorial_exit~~
+> 2026-09-13 随 v1 动作退役删除）✅（607b6b2）；Phase 4 方案A-A1 选项回录
+> （record_picked + webgui 接线）✅（本节点）——本批全部落地，A2 留档。
 > **前置事实**：docs/PROMPT_INJECTION_MAP.md（现网注入地图——本设计的唯一事实基线；
 > 旧 DESIGN_WEBGUI_PROMPTS.md 已归档）。窗口语义：docs/DESIGN_CONTEXT_WINDOW.md。
 > **本批不碰**：reasoning knob（用户裁决项）、SSE、choice 场全量预生成（InfiPlot 式）、
@@ -72,7 +72,9 @@ core/promptkit/
   system = box("mmt") + brain 段 → history → 注记（现有 P16/P17/P18 顺序不动）
   → `task_card("mmt", task_kind)` → user。
 - `BondStoryEngine.send_vn_scene(user_input, *, task_kind=None, ...)`：
-  task_kind 默认由引擎自推——`in_memorial` → `memorial_exit`，否则 `scene`；
+  task_kind 由引擎自推——**2026-09-13 起恒为 `scene`**（原 `in_memorial` →
+  `memorial_exit` 分支已退役: v2 只吃记录流, `memorial_exit` 是 v1 独占动作;
+  详见 `core/bond/bond_story.py::_scene_task_kind` 的说明）。
   调用方（收尾轮等）可显式传。
 - 收尾轮（wrapup / vn_cli 收尾）传 `task_kind="wrapup"`。
 
@@ -104,8 +106,8 @@ PROMPT_INJECTION_MAP §1/§3 的块顺序表。
 |---|---|---|---|
 | task_mmt.md | chat | `本回合任务：以{char}身份回应老师刚发来的消息。若此刻已形成共处契机或老师正需要你出面——直接发起 mmt_trigger_bond_story（独占轮，规则见前）；否则按 MomoTalk 规则正常消息流聊天，不要无端转剧情。` | MMT 每轮（引擎默认） |
 | task_mmt.md | wrapup | `本回合任务：以{char}身份就刚结束的羁绊剧情给老师回几条手机消息收尾（具体话术见系统注记）——只许 mmt_chat，不要再次触发剧情。` | 收尾轮（调用方显式传）|
-| task_bond.md | scene | `本场任务：作为{char}推进当前板块——输出 story_scene 骨架：正文自然段 + 一组 2~3 选项 + 键一致的 branches；若剧情已到约定达成/道别/夜色收场的自然段落 → 直接输出 story_end 收尾。` | Bond 每场（引擎默认；含预生成"（继续）"场）|
-| task_bond.md | memorial_exit | `本场任务：纪念时刻已落幕——输出 memorial_exit 回到 bond（可带一句过渡文字）。` | 纪念模式中每场（引擎自推）|
+| task_bond.md | scene | `本场任务：作为{char}推进当前这一段剧情——一行一条记录往下写（约 30~45 条）：对白为主（（）旁白稀有、无场景描写）；**换场就发 {"stage": "switch", "text": "地点"}**；**需要老师表态时连写 1~3 条 sensei 记录**（= 一个群，玩家从里面挑一句说）；走到真正值得纪念的瞬间用 {"stage": "memorial", …} 触发；剧情到自然告一段落时，**最后一条用 {"stage": "end", …}** 收尾。` | Bond 每场（引擎默认；含预生成"（继续）"场） |
+| ~~task_bond_memorial_exit.md~~ | ~~memorial_exit~~ | **2026-09-13 删除**（审计 B1）: v2 里纪念区间到块尾, 不存在"退出动作"; 该卡会把 v1 已退役动作名喂给只吃记录流的引擎 | ~~纪念模式中每场~~ |
 
 - 卡只在 `task_card_enabled()` 为真时注入；模板缺失 → 不注入（宁缺勿错）。
 - 收尾强制（_END_ROUNDS 之类）仍是约束注记职责，不进卡（不重复）。
@@ -195,10 +197,12 @@ task_card = true      # 本回合任务卡开关（默认 true; false = 现网�
 - 验收：卡出现在 user 前最后一位；开/关两态测试；wrapup 轮卡在 P16 注记之后。
 
 ### Phase 3 — Bond 盒装配抽盒 + 场卡 + 称呼行归位
-- bond_story `start_session`/`send_vn_scene` 换盒/尾；scene/memorial_exit 两 kind 卡
-  （send_vn_scene 引擎自推默认 kind）；称呼行归位盒顶（§4.1 盒B v2）；CLI/vn_cli/webgui/
-  预生成同源。
-- 验收：describe("bond") == 更新后夹具；纪念模式轮 = memorial_exit 卡且无 scene 卡。
+- bond_story `start_session`/`send_vn_scene` 换盒/尾；场卡（send_vn_scene 引擎自推
+  kind）；称呼行归位盒顶（§4.1 盒B v2）；CLI/vn_cli/webgui/预生成同源。
+- 验收：describe("bond") == 更新后夹具。
+- **2026-09-13 更新**: 当时是 scene/memorial_exit 两 kind; 后者随 v1 动作退役一并
+  删除（审计 B1）, 现在只有 `scene` 一种——验收项"纪念模式轮 = memorial_exit 卡"
+  已作废。
 
 ### Phase 4 — 方案A-A1（选项回录 picked）
 - 引擎 `_last_payload` + `record_picked(picked)`（重渲尾部，含 `（选择了: X）`）；

@@ -469,7 +469,8 @@ class BondStoryEngine:
         self._seed_anchor = ""                  # 本章开场锚（首板情境; 空 = 模板通用句）
         self._group_seq = 0                     # 标注组序号（跨板递增; 日志/metrics）
         # 本回合任务卡（DESIGN_PROMPTKIT §4, Phase 3）: 构造参数 > settings 开关;
-        # start_session 定值; 每场 kind 自推（in_memorial → memorial_exit, 否则 scene）
+        # start_session 定值; 每场 kind 恒为 "scene"（2026-09-13 起——原
+        # in_memorial → memorial_exit 分支随 v1 动作退役, 见 `_scene_task_kind`）
         self._task_card_override: bool | None = task_card
         self._task_on = True
         # 方案A-A1 选项回录（DESIGN_PROMPTKIT §5, Phase 4）: 最近一次成功动作的

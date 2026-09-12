@@ -90,11 +90,19 @@ _SCALARS = (str, bool, int, float)      # 注意: bool 是 int 子类, 须先判
 def _sane_value(v) -> bool:
     """**叶子**值是否可安全写进 settings.toml 并被 `load_settings` 读回。
 
-    dict/list 拒收——不是"防垃圾键"的洁癖: `_to_toml` 里它会被 `str(v)` 降级成
-    一段**看起来合法的 TOML 字符串**（如 `me = "{'a': 1}"`），读回时类型静默漂移。
-    宁缺勿错: 拒收 → 该键不写, 比写坏配置好。
+    只认真标量（str/bool/int/float）。**`None` 必须拒收**——2026-09-13 复核修正:
+    本函数初版写成 `v is None or isinstance(v, _SCALARS)`, 与自己的 docstring
+    相反地把 `None` 放行了; 而 `_to_toml` 对非标量走 `str(v)` → `null` 会落成
+    字符串 `"None"`, 读回就是一段垃圾（`model = "None"`）。旧的白名单实现
+    `isinstance(val, (str,int,float,bool))` 本来会跳过它, 所以那是**本节点引入的
+    行为变化**, 不是既有问题。可达性低（GUI 输入框给的是 `""` 不是 null, 需要手搓
+    POST `{"llm": {"model": null}}`）, 但一旦发生就是"静默写坏配置"。
+
+    dict/list 同样拒收——不是"防垃圾键"的洁癖: `_to_toml` 里它会被 `str(v)`
+    降级成一段**看起来合法的 TOML 字符串**（如 `me = "{'a': 1}"`），读回时类型
+    静默漂移。宁缺勿错: 拒收 → 该键不写, 比写坏配置好。
     """
-    return v is None or isinstance(v, _SCALARS)
+    return isinstance(v, _SCALARS)
 
 
 def _sane_table(v) -> bool:

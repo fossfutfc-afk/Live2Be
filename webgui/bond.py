@@ -313,10 +313,17 @@ def _lanes_idle(state: "BondState") -> bool:
 
 
 def _lane_writer_alive(state: "BondState") -> bool:
-    """是否还有标注 worker 可能产出（线程活着 = 还有人在做这件事）。
+    """是否还有标注 worker 线程在跑（诊断/测试用, **不是**兜底判据）。
 
-    线程正常退出时会复位 `_anno_started`/`_place_started` 并置 `_*_thread = None`
-    → 这里为 False 且队列为空, 才是"**没人会再来标它**"的确凿判据。
+    ⚠️ 2026-09-13 复核: 这个信号在真实会话里**恒为 True**, 不能拿来做"没人会再来标"
+    的判据。证据链: 两个 worker 只在收到 `None` 哨兵时 `break`
+    （`_anno_worker`/`_place_worker` 的 `if scene is None`）, 而全仓 `.put(` 只有
+    两处、都是投场景（`_anno_queue.put(scene)` / `_place_queue.put(scene)`）——
+    **没有任何地方投 `None`**（`grep put(None)` 零命中）。所以 worker 一旦启动就
+    阻塞在 `q.get()` 上活到进程结束, `_anno_started`/`_place_started` 永不复位。
+    曾用它做 `_gate_stalled` 的合项 → ②③ 看门狗在稳态**永不触发**, 把真阳性
+    （lane 再也不回来 = 真机"已等待 110s"那个形态）也一起关掉了。
+    保留本函数仅作观测/测试。
     """
     if state._anno_started and _thread_alive(state._anno_thread):
         return True
@@ -326,13 +333,20 @@ def _lane_writer_alive(state: "BondState") -> bool:
 
 
 def _gate_stalled(state: "BondState") -> bool:
-    """视觉门兜底的**前置条件**: 没有积压、没有在途、也没有活着的 writer。
+    """视觉门兜底的**前置条件**: 没有积压、也没有在途标注。
 
-    三者齐备才允许强推兜底——只在"这份场景永远不会再被标注"时才牺牲精度。
-    慢但在途的调用不满足（等它回来, 那是真标注）; LLM client 的 240s 超时是
-    最终兜底, 本判据不抢它的活。
+    `_lanes_idle` 本身已经是 A6 要的语义（2026-09-13 收紧: 队列深度 **且** 在途
+    计数）——worker 把场景取走正在 `await` 时 `_lane_inflight > 0`, 不会被误判成
+    空闲。所以这里**不再**叠加"线程死活"判据（那会让兜底在稳态永不触发, 见
+    `_lane_writer_alive` 的说明）。
+
+    代价评估: 若 lane 真的挂住（worker 死在 `await` 里, 线程对象仍"存活" →
+    在途计数不归零）, 兜底不会开火 → `bond_turn` 被 `_scene_ready_or_busy` 一直拒
+    → 玩家卡在"视觉标注中"。此时仍有 ①忙态看门狗、前端 90s 软上限与 8s 降级渲染
+    兜着, 不至于全黑。更保守的做法是改判"**无进展 N 秒**"（如 90s）而不是"无线程"
+    ——留作后续（需要给 lane 记最后进展时间戳）。
     """
-    return _lanes_idle(state) and not _lane_writer_alive(state)
+    return _lanes_idle(state)
 
 
 def _force_scene_ready(state: "BondState", scene) -> None:
@@ -356,15 +370,17 @@ def _watchdog(state: "BondState", char_id: str, session_id: str) -> None:
       ① **忙态卡死**: busy 超 BUSY_WATCHDOG_MS 且生成/预生成线程都不在 → 复位
          （线程丢失/异常退出的兜底; 活着的线程不抢——它还在生成）。
       ② **视觉门卡死**: 当前场景 emotion/place 连续 GATE_WATCHDOG_MS 未就绪且
-         **没人会再来标它**（无积压 / 无在途 / 无活着的 writer, 见 `_gate_stalled`）
-         → 强制兜底就绪（表情精度损失换"能推进"）。
+         **没有积压/没有在途标注**（见 `_gate_stalled`）→ 强制兜底就绪
+         （表情精度损失换"能推进"）。
       ③ **预生成消费门卡死**: 同 ② 作用于 pregen 场景（否则"继续"键永久无响应）。
 
     **2026-09-13（审计 A6）**: ②③ 原先只判 `_lanes_idle`（= 队列深度为 0）——
     那在"worker 正把场景取走并 await 标注"时也成立, 于是**一次健康的慢调用
     （>25s）就会被强制兜底**; 而兜底产物会随 `_log_scene` 进 append-only 真源
-    （假 `nomal`/假 `_place_done`）, 晚到的真标注再也回不去。现在改判
-    `_gate_stalled`: 慢但在途 → 等它; 只有"没人会再来标"才降级。
+    （假 `nomal`/假 `_place_done`）, 晚到的真标注再也回不去。
+    修法 = 给 `_lanes_idle` 加**在途判据**（`_lane_inflight`）: 慢但在途 → 等它;
+    积压/在途都没有 → 降级。**注意别再加"线程死活"合项**——那会让兜底在稳态
+    永不触发（原因见 `_lane_writer_alive`）。
     """
     now = time.monotonic()
     # ① 忙态
@@ -388,7 +404,7 @@ def _watchdog(state: "BondState", char_id: str, session_id: str) -> None:
         if (_ms_since(state.gate_since) > GATE_WATCHDOG_MS and _gate_stalled(state)
                 and not state.busy):
             logger.warning(
-                "bond 看门狗: 视觉门 %dms 未就绪且无 writer/在途 → 兜底放行 %s/%s",
+                "bond 看门狗: 视觉门 %dms 未就绪且无积压/无在途 → 兜底放行 %s/%s",
                 _ms_since(state.gate_since), char_id, session_id)
             _force_scene_ready(state, state.scene_obj)
             state.gate_since = 0.0
@@ -401,7 +417,7 @@ def _watchdog(state: "BondState", char_id: str, session_id: str) -> None:
         if (_ms_since(state.pregen_gate_since) > PREGEN_GATE_WATCHDOG_MS
                 and _gate_stalled(state) and not state.busy):
             logger.warning(
-                "bond 看门狗: 预生成消费门 %dms 未通过且无 writer/在途 → 兜底放行 %s/%s",
+                "bond 看门狗: 预生成消费门 %dms 未通过且无积压/无在途 → 兜底放行 %s/%s",
                 _ms_since(state.pregen_gate_since), char_id, session_id)
             _force_scene_ready(state, pregen)
             state.pregen_gate_since = 0.0
@@ -1473,15 +1489,13 @@ def bond_turn(char_id: str, session_id: str, text: str) -> dict:
         # 展示视图: 保留板正文（屏上就是它）, 只**去掉选项**并标记已裁决——
         # 指纹不含 choices（bond.js sceneKey）, 故轮询不会把它当成"新场景"重播。
         #
-        # 2026-09-13（审计 B13 复核）: 这里**只清展示视图** `state.scene`,
-        # `scene_obj.choices` 保持原样。审计原判"落库 payload 也会变空"是**误报**
-        # ——`_log_scene` 就在上面（先于本段）执行, 它取的是 `scene_obj.to_dict()`
-        # 的当时快照, 所以事件流一直是对的（实测 payload `choices=['选A','选B']`）。
-        # 但那条正确性**只靠语句顺序**维系: 谁把 `_log_scene` 挪到清空之后,
-        # 选项真源就永久丢了（append-only 不可回补）。故 ① 不再多清一处
-        # （少一个可变状态就少一条出错路径, 且 `state.scene['picked']` 已足够阻止
-        # 重复裁决——见上面的守卫）; ② 顺序由用例钉死
-        # （test_bond.py::test_bond_full_flow 断言落库 payload 的 choices）。
+        # 2026-09-13（审计 B13 复核）: 这里**只清展示视图** `state.scene`。
+        # 审计原判"落库 payload 也会变空"是**误报**——`_log_scene` 就在上面执行,
+        # 它取的是 `scene_obj.to_dict()` 的当时快照, 所以事件流一直是对的
+        # （实测 payload `choices=['选A','选B']`）。原先这里还多写了一句
+        # `scene_obj.choices = []`, 那是**死代码**（落库已过、之后无人再读它）,
+        # 只是平白多一个可变状态 → 删掉。重复裁决由上面守卫的
+        # `not (state.scene or {}).get("picked")` 拦（展示视图已标 picked）。
         scene = dict(state.scene or {})
         scene["choices"] = []
         scene["picked"] = text

@@ -131,6 +131,29 @@ def test_save_settings_rejects_non_scalar_without_wiping():
     print("    settings: 非法值跳过 + 其余键无损")
 
 
+def test_save_settings_rejects_none_leaf():
+    """`null` 叶子必须被拒——否则会落成字符串 `"None"`（2026-09-13 复核）。
+
+    `_to_toml` 对非标量走 `str(v)` → `{"model": null}` 会写成 `model = "None"`,
+    读回是一段垃圾字符串, **静默写坏配置**（比"不写"糟）。初版 `_sane_value`
+    把 `None` 放行了（`v is None or isinstance(...)`）, 与自己的 docstring 相反;
+    旧的白名单实现本来会跳过它。可达性低（GUI 给的是 `""` 不是 null, 需要手搓
+    POST）, 但一旦发生就是坏配置。
+    """
+    _write_handmade()
+    assert store._sane_value(None) is False, "None 必须被判为不可写"
+    cur = store.load_settings()
+    cur["llm"]["model"] = None                     # 手搓 POST {"llm": {"model": null}}
+    store.save_settings(cur)
+    text = store.SETTINGS_PATH.read_text(encoding="utf-8")
+    assert '"None"' not in text and "= None" not in text, \
+        f"null 落成了垃圾值: {text[:200]}"
+    after = store.load_settings()
+    assert after["llm"]["model"] == "deepseek-v4-flash", \
+        f"None 应被跳过（保持原值）, 实得 {after['llm']['model']!r}"
+    print("    settings: null 叶子被拒（不会写成字符串 \"None\"）")
+
+
 def test_post_settings_does_not_overwrite_real_key_with_mask():
     """打码值回传不得覆盖真 key（`is_masked` 是唯一防线, 此前零覆盖）。"""
     _write_handmade()
