@@ -175,16 +175,23 @@ P0-4b 落地）；registry 分流此时只剩 memorial exit 路径。
 
 **每场动态注记 P17** = webgui `_system_note(state)` 聚合器（webgui/bond.py:1138-1179），
 多条聚合一行一条（None = 不注入）：
-- 纪念模式中：强制只许 `memorial_exit` + 补喂 exit 域 schema（L1142-1147）
-- 选项配额：已用 ≥3 → 后续一律省略 choices；已用 1~2 → 提醒少给、报剩余
-- 上一场 ≥3 单元且 emotion 全同 → 提醒情绪变化、切新单元
 - `round == _REMIND_ROUNDS` → 建议向结尾收束（中段提示，不匆匆）
 - `round == _END_ROUNDS` → 强制本轮 story_end 收尾
+- `round > _END_ROUNDS` → 每轮强制收尾
+
+> **2026-09-13 校准（现网实况）**: 原列的四条里有三条**已不存在**——
+> ① "纪念模式 → 强制 memorial_exit + exit schema 注记"（v1 动作已退役, 该注记
+> 2026-09-12 删除, 理由见 webgui/bond.py 注释"会打回重发 → 反馈回环"）;
+> ② "选项配额注记"（记录流 v2 退役——密度由 rules 引导, `choices_used` 只作统计）;
+> ③ "上一场 emotion 全同 → 提醒切新单元"（2026-09-13 审计 B8 退役——emotion 由
+> 标注层给, 写作者无该字段可写, 每轮白喂且会诱导碎化输出; `prev_emotions` 字段
+> 一并删除）。现役只剩上面三条收尾节奏注记。
 
 **场 task 卡（目标层, Phase 3 2026-09-07 启用）** = 约束注记之后、user 之前末位：
-- 常规场：`task_bond.md`（scene——推进当前板块, 引擎默认）
-- 纪念模式中：`task_bond_memorial_exit.md`（memorial_exit——引擎 `_scene_task_kind()`
-  自推, 与 P17 的 exit schema 注记互补不重复）
+- **只有一种**: `task_bond.md`（scene——推进当前板块）
+- ~~纪念模式中：`task_bond_memorial_exit.md`~~ **2026-09-13 已删除**（审计 B1）:
+  v2 里纪念区间到块尾、边界由块边界结构性给出, 不存在"退出动作"; 该卡会把 v1
+  已退役动作名喂给只吃记录流的引擎。`_scene_task_kind()` 现恒返回 `scene`。
 - 开关与 MMT 同源（settings [promptkit].task_card）; vn_cli/webgui/预生成同源（引擎级）。
 
 **失败路径**：引擎内 feedback 回灌自纠错 ×3（MAX_SCENE_RETRIES）→ 仍败抛
@@ -254,10 +261,10 @@ emotion → emo_version++（引擎同步标注仅 CLI/测试用）。**导演层
 | `core/momotalk.py:129-156` | load_brain_segment（Bond 开场注入段共用） |
 | `core/bond/bond_story.py:298-339` | start_session → build_box("bond")（盒B v2） |
 | `core/bond/bond_story.py:341-537` | send_vn_scene（每场尾 → round_messages; 双 registry + 状态机 + 骨架 + 历史） |
-| `core/bond/bond_story.py:564-569` | _scene_task_kind（场卡 kind 自推: memorial_exit/scene） |
-| `core/promptkit/box.py` | DOMAIN_BOXES（mmt 9 块 / bond 10 块） |
-| `core/promptkit/blocks.py:110-141` | Bond 域块（persona_bond/bond_tone/rules_bond/lexicon_*/brain） |
-| `llm/prompts/task_bond.md` / `task_bond_memorial_exit.md` | Bond 场卡模板（scene / memorial_exit） |
+| `core/bond/bond_story.py` | _scene_task_kind（场卡 kind——**v2 恒为 scene**; memorial_exit 分支 2026-09-13 退役） |
+| `core/promptkit/box.py` | DOMAIN_BOXES（mmt 9 块 / bond **9** 块——lexicon_emotion 已出盒） |
+| `core/promptkit/blocks.py:110-141` | Bond 域块（persona_bond/bond_tone/rules_bond/brain; `_lexicon_emotion` 已不在盒内） |
+| `llm/prompts/task_bond.md` | Bond 场卡模板（**唯一**; task_bond_memorial_exit.md 2026-09-13 删除） |
 | `core/bond/bond_story.py:429-435` | 双 registry 按动作名分流 |
 | `core/parsing/dynamic_character_parser.py:386-417` | build_prompt 三模式 |
 | `core/parsing/dynamic_character_parser.py:259-326` | yaml_to_prompt（剥前缀渲染） |

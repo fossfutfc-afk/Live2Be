@@ -472,45 +472,62 @@ def test_bond_watchdogs_self_heal_stuck_gate(web, monkeypatch):
     真机现象: 点继续后前端一直"剧情推进中…（已等待 110s）"而后端其实闲着——
     某些异常下标注 lane 不会再回来 → `gate` 永远 False。
 
-    2026-09-13 修正后的前置条件（`_gate_stalled`）: 无积压 **且** 无在途
-    **且** 没有活着的 writer。原先只看队列深度 → worker 正 `await` 标注时
-    `qsize()==0` 也成立, 于是一次**健康的慢调用**就会被强制兜底, 而兜底产物
-    会随 `_log_scene` 进 append-only 真源（假 nomal + 假 `_place_done`）。
-    本用例两半都钉: ①有人在做 → 不抢; ②没人会做 → 必须放行。
+    2026-09-13 修正后的前置条件（`_gate_stalled` = `_lanes_idle`）: 无积压 **且**
+    无在途。原先只看队列深度 → worker 正 `await` 标注时 `qsize()==0` 也成立,
+    于是一次**健康的慢调用**就会被强制兜底, 而兜底产物会随 `_log_scene` 进
+    append-only 真源（假 nomal + 假 `_place_done`）。
+
+    本用例要覆盖**三种**状态（第二版曾漏掉第三种, 导致兜底在稳态永不触发）:
+      ① 有 worker 在途 → 不抢;
+      ② 线程都没起来 / 已退出 → 必须放行;
+      ③ **稳态**: worker 线程**活着**（阻塞在 `q.get()` 上——全仓没有任何地方投
+         `None` 哨兵, 所以它活到进程结束）、队列空、无在途 → **也必须放行**。
+         第三种才是真实会话的常态; 若判据里掺了"线程死活", ②③ 就永远不触发。
     """
     st, sid = web
     _seed_trigger(st, sid)
     bond.bond_start(CHARACTER, sid, staged=True)
     _poll_status(sid)
     state = bond._state(CHARACTER, sid)
-    # 造一个"永远不就绪"的场景: 抹掉 emotion + place 标记
-    for p in state.scene_obj.paragraphs:
-        p.pop("emotion", None)
-    state.scene_obj._place_done = False
-    state.gate_since = 0.0
+
+    def _make_unready():
+        """造一个"永远不就绪"的场景: 抹掉 emotion + place 标记。"""
+        for p in state.scene_obj.paragraphs:
+            p.pop("emotion", None)
+        state.scene_obj._place_done = False
+        state.gate_since = 0.0
+
+    _make_unready()
     assert bond._scene_visual_ready(state) is False, "前置: 场景确实卡在未就绪"
     monkeypatch.setattr(bond, "GATE_WATCHDOG_MS", -1)        # 视为已超时
 
-    # ① 有活着的 writer（lane 线程还在跑, 可能正在标注）→ **不得**抢它的活:
-    #    慢但在途不是卡死, 等它回来（真标注比兜底的假 nomal 有价值）
-    if bond._lane_writer_alive(state):
-        monkeypatch.setattr(state, "_lane_inflight", 1)      # 模拟"正在 await 标注"
-        st_mid = bond.bond_status(CHARACTER, sid)
-        assert st_mid["gate_busy"] is True, \
-            f"worker 在途时不该强推兜底（会污染 append-only）: {st_mid}"
-        monkeypatch.setattr(state, "_lane_inflight", 0)
+    # ① 有 worker 正在 await 标注（在途）→ **不得**抢它的活: 等真标注回来
+    monkeypatch.setattr(state, "_lane_inflight", 1)
+    st_mid = bond.bond_status(CHARACTER, sid)
+    assert st_mid["gate_busy"] is True, \
+        f"worker 在途时不该强推兜底（会污染 append-only）: {st_mid}"
+    monkeypatch.setattr(state, "_lane_inflight", 0)
 
-    # ② 没人会再来标它（线程已死 / 从未启动）→ 必须兜底放行
+    # ③ 稳态: 线程活着 + 队列空 + 无在途 → 放行（真实会话的常态）
+    assert bond._lane_writer_alive(state) is True, "前置: 稳态下 writer 线程应活着"
+    assert bond._gate_stalled(state) is True, \
+        "稳态（writer 活着但队列空/无在途）也必须是 stalled——否则兜底永不触发"
+    st_after = bond.bond_status(CHARACTER, sid)
+    assert st_after["gate_busy"] is False, st_after           # 看门狗兜底放行
+    assert all((p.get("emotion") or "").strip()
+               for p in state.scene_obj.paragraphs), state.scene_obj.paragraphs
+
+    # ② 线程已死 / 从未启动 → 同样必须放行
+    _make_unready()
+    state.gate_since = 0.0
     monkeypatch.setattr(state, "_anno_started", False)
     monkeypatch.setattr(state, "_place_started", False)
     monkeypatch.setattr(state, "_anno_thread", None)
     monkeypatch.setattr(state, "_place_thread", None)
     assert bond._gate_stalled(state) is True, "无人可标时前置条件应成立"
-    st_after = bond.bond_status(CHARACTER, sid)
-    assert st_after["gate_busy"] is False, st_after           # 看门狗兜底放行
-    assert all((p.get("emotion") or "").strip()
-               for p in state.scene_obj.paragraphs), state.scene_obj.paragraphs
-    print("    web: 视觉门看门狗——在途不抢 / 无人可标才降级放行")
+    st_dead = bond.bond_status(CHARACTER, sid)
+    assert st_dead["gate_busy"] is False, st_dead
+    print("    web: 视觉门看门狗——在途不抢 / 稳态放行 / 线程没了也放行")
 
 
 def test_bond_busy_watchdog_resets_lost_thread(web, monkeypatch):
