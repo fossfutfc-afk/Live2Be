@@ -100,27 +100,40 @@ function cleanTranscript(seen) {
   });
 }
 
-/** 等交互区清空 = 上一板的选项/继续按钮已撤（新板开始渲染）。 */
+/** 交互就绪选择器（**决策 #41**: "▼ 继续"按钮已删——板读完的信号 = 右下三角带
+ *  `.ready`, 板内"还有下一段"的三角不带它, 所以能区分"板读完"与"板内推进"）。 */
+const INTERACTIVE = "#bond-choices .bond-choice, #bond-continue.ready";
+
+/** 等交互区清空 = 上一板的选项/板读完态已撤（新板开始渲染）。 */
 async function waitInteractionReset(page, timeout = 40000) {
   const deadline = Date.now() + timeout;
   while (Date.now() < deadline) {
-    const n = await page.locator(
-      "#bond-choices .bond-choice, #bond-choices .bond-continue-btn").count();
-    if (n === 0) return;
+    if (await page.locator(INTERACTIVE).count() === 0) return;
     await page.waitForTimeout(100);
   }
   throw new Error("点击后交互区未清空（新板未开始渲染?）");
 }
 
-/** 读完整板直到出现交互元素（选项 / "▼ 继续"）或 VN 退出; 返回逐段记录。 */
+/** 点画面推进到下一板（**决策 #41**: 没有"▼ 继续"按钮了——板读完点画面即下一板）。 */
+async function advanceBoard(page, timeout = 40000) {
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    if (await page.locator(INTERACTIVE).count() === 0) return;   // 已进下一板
+    await page.locator("#bond-text")
+      .click({ position: { x: 30, y: 20 }, timeout: 5000 })
+      .catch(() => { /* 文字区正在替换 → 下一轮再试 */ });
+    await page.waitForTimeout(150);
+  }
+  throw new Error("点画面推进失败: 交互区一直没清空（板没进下一板?）");
+}
+
+/** 读完整板直到出现交互元素（选项 / 板读完三角）或 VN 退出; 返回逐段记录。 */
 async function readUntilInteraction(page, label, timeout = 90000) {
   const deadline = Date.now() + timeout;
   const seen = [];
   while (Date.now() < deadline) {
     await capturePara(page, seen);
-    const interactive = await page.locator(
-      "#bond-choices .bond-choice, #bond-choices .bond-continue-btn").count();
-    if (interactive) return cleanTranscript(seen);
+    if (await page.locator(INTERACTIVE).count()) return cleanTranscript(seen);
     if (await page.locator("#view-bond.hidden").count()) return cleanTranscript(seen);
     await _tick(page);
   }
@@ -295,23 +308,40 @@ async function main() {
     if (!memOk.bgCleared) throw new Error(`纪念期间普通背景未清空: ${JSON.stringify(memOk)}`);
   }
 
-  // ── 6. 裁决 → 玩家那句话**不上屏**（只消失选项, 正文停在上一句）──────────
+  // ── 6. 裁决 → 玩家那句话**不上屏**（选项组留在屏上转只读态）─────────────
   // 语义定稿（2026-09-12, 用户核对 BA）: **玩家的话语永远只体现为选项**——
   // 裁决后正文保持"上一句角色台词/旁白", 名字牌/立绘都不动; 把玩家那句当正文念
   // 出来就会被读成"角色说了玩家的话"（真机报障: 睦月/便利屋68 + 你还打算对我怎么恶作剧？）。
-  // 注: 点击后**必须先等交互区清空**——旧板的选项按钮会停留到响应到达为止,
-  // 直接开读会立刻"发现"旧选项并误判为读完了。
+  // 决策 #41（同日）: **"▼ 继续"按钮已删** —— 裁决后选项组**不消失**, 转只读态
+  // （压暗 + 高亮所选 + live 侧禁用）, 推进 = 点画面。
   const lastLineBefore = board1[board1.length - 1].text;
   await page.locator("#bond-choices .bond-choice").first().click();
-  await waitInteractionReset(page);
-  const afterPick = await readUntilInteraction(page, "裁决后（选项消失, 正文不动）");
+  await page.waitForFunction(() => {
+    const bs = [...document.querySelectorAll("#bond-choices .bond-choice")];
+    return bs.length > 0 && bs.every((b) => b.classList.contains("resolved"));
+  }, { timeout: 20000 }).catch(() => { /* 下面统一判定 */ });
+  const pickState = await page.evaluate(() => {
+    const bs = [...document.querySelectorAll("#bond-choices .bond-choice")];
+    return {
+      total: bs.length,
+      resolved: bs.filter((b) => b.classList.contains("resolved")).length,
+      pickedText: (bs.find((b) => b.classList.contains("picked")) || {}).textContent || "",
+      disabled: bs.filter((b) => b.disabled).length,
+      continueBtn: document.querySelectorAll("#bond-choices .bond-continue-btn").length,
+      triReady: !!document.querySelector("#bond-continue.ready"),
+    };
+  });
+  const afterPick = [];
+  await capturePara(page, afterPick);
   const leaked = afterPick.filter((p) => p.text.includes("我来了"));
   record("裁决不上屏", {
     info: leaked.length
       ? `❌ 玩家那句被当正文渲染: ${JSON.stringify(leaked.map((p) => p.text))}`
-      : `正文保持上一句=${JSON.stringify(afterPick.map((p) => p.text.slice(0, 20)))}`,
+      : `正文保持上一句=${JSON.stringify(afterPick.map((p) => p.text.slice(0, 20)))}; `
+        + `选项留屏 ${pickState.resolved}/${pickState.total} 只读, 高亮=`
+        + `${JSON.stringify(pickState.pickedText)}, 继续按钮=${pickState.continueBtn}`,
     shot: await shot(page, "vn-after-pick"),
-    transcript: afterPick,
+    transcript: afterPick, pickState,
   });
   if (leaked.length) {
     throw new Error(`裁决后玩家那句被当正文渲染（应只体现为选项）: ${JSON.stringify(leaked)}`);
@@ -320,6 +350,22 @@ async function main() {
   if (afterPick.length !== 1 || afterPick[0].text !== lastLineBefore) {
     throw new Error(`裁决后正文应保持上一句（期望 1 段 ${JSON.stringify(lastLineBefore)}）`
       + `: ${JSON.stringify(afterPick)}`);
+  }
+  if (pickState.total === 0 || pickState.resolved !== pickState.total) {
+    throw new Error(`裁决后选项组应留屏且转只读态: ${JSON.stringify(pickState)}`);
+  }
+  if (pickState.disabled !== pickState.total) {
+    throw new Error(`live 侧已裁决的选项必须禁用（点它=再提交一次会改写历史）: `
+      + JSON.stringify(pickState));
+  }
+  if (pickState.pickedText.trim() !== "我来了。") {
+    throw new Error(`裁决后没高亮所选: ${JSON.stringify(pickState)}`);
+  }
+  if (pickState.continueBtn !== 0) {
+    throw new Error(`决策 #41: "▼ 继续"按钮应已删除, 却仍在屏上: ${JSON.stringify(pickState)}`);
+  }
+  if (!pickState.triReady) {
+    throw new Error(`板读完应亮右下三角（.ready）: ${JSON.stringify(pickState)}`);
   }
   const strayLabels = afterPick.filter((p) => p.speaker).map((p) => p.speaker);
   if (strayLabels.length) {
@@ -428,12 +474,11 @@ async function main() {
       throw new Error(`回放没恢复档案纪念图（memorial_image marker 断?）: `
         + JSON.stringify(replayMem));
     }
-    // 注: 这里**不推进** —— 交给步骤 7 的"▼ 继续"从回放交棒到后续板。
+    // 注: 这里**不推进** —— 交给步骤 7 从回放交棒到后续板。
   }
 
-  // ── 7. 继续 → 收尾板 → 自动 finish 回 MMT ────────────────────────────
-  await page.click("#bond-choices .bond-continue-btn");
-  await waitInteractionReset(page);
+  // ── 7. 点画面推进（决策 #41: 无"▼ 继续"按钮）→ 收尾板 → 自动 finish 回 MMT ──
+  await advanceBoard(page);
   const ending = await readToEnd(page);
   // **收尾板多段必须逐段读完**（2026-09-11 真机 bug: is_end 板点一下就直接 finish,
   // "最后一段只看到第一句就退出 VN"）。桩块的收尾板有 4 段（收尾一/二/三 + 反应板）。
@@ -538,24 +583,65 @@ async function main() {
   await page.click("#col-chapters .col-chapter .col-play");
   await page.waitForSelector("#view-bond:not(.hidden)", { timeout: 20000 });
   const roBoard1 = await readUntilInteraction(page, "只读回放首板", 60000);
+  // 只读回放的选项板（决策 #41）: **另一个选项也可以点**（"毕竟都是一句话"——收敛链
+  // 下通往同一后续）, 高亮仍留在当时选的那句; 点了只推进, 不发任何请求。
+  const roChoice = await page.evaluate(() => {
+    const bs = [...document.querySelectorAll("#bond-choices .bond-choice")];
+    return {
+      total: bs.length,
+      disabled: bs.filter((b) => b.disabled).length,
+      picked: (bs.find((b) => b.classList.contains("picked")) || {}).textContent || "",
+      continueBtn: document.querySelectorAll("#bond-choices .bond-continue-btn").length,
+    };
+  });
   record("只读回放首板", {
-    info: `${roBoard1.length} 段; ${roBoard1.map((p) => p.text.slice(0, 10)).join(" / ")}`,
+    info: `${roBoard1.length} 段; 选项 ${roChoice.total}（可点 ${roChoice.total - roChoice.disabled}）`
+      + ` 高亮=${JSON.stringify(roChoice.picked)} 继续按钮=${roChoice.continueBtn}`,
     shot: await shot(page, "book-replay"),
-    transcript: roBoard1,
+    transcript: roBoard1, roChoice,
   });
   if (bondWrites.length) {
     throw new Error(`只读回放发了写请求（应 0 LLM/不写事件流）: ${bondWrites.join(" / ")}`);
   }
+  if (roChoice.continueBtn !== 0) {
+    throw new Error(`决策 #41: 回放里不该有"▼ 继续"按钮: ${JSON.stringify(roChoice)}`);
+  }
+  if (roChoice.disabled !== 0) {
+    throw new Error(`回放的另一个选项应可点（决策 #41）: ${JSON.stringify(roChoice)}`);
+  }
+  if (roChoice.picked.trim() !== "我来了。") {
+    throw new Error(`回放应保留当时所选的高亮: ${JSON.stringify(roChoice)}`);
+  }
+  // 点"另一个选项"：只读推进（本地下一板）——不报错、不发写请求
+  const other = page.locator("#bond-choices .bond-choice:not(.picked)").first();
+  const otherCount = await other.count();
+  let afterOther = [];
+  if (otherCount) {
+    await other.click();
+    await waitInteractionReset(page, 20000).catch(() => { /* 末板可能直接到出口 */ });
+    afterOther = await readUntilInteraction(
+      page, "只读回放（点了另一个选项之后）", 60000).catch(() => []);
+  }
+  record("只读回放·另一个选项可点", {
+    info: otherCount
+      ? `点『另一个选项』→ 本地推进到下一板（${afterOther.length} 段, 无写请求）`
+      : "（本章只有一个选项, 跳过）",
+    bondWrites: bondWrites.length, afterOther,
+  });
+  if (otherCount && !afterOther.length) {
+    throw new Error("点回放的另一个选项没有推进到下一板（决策 #41: 点了应推进）");
+  }
+  if (bondWrites.length) {
+    throw new Error(`点回放选项后出现写请求（只读契约破）: ${bondWrites.join(" / ")}`);
+  }
   // 一路推进到章末 → 出现"返回回忆册"
+  const exitBtn = page.locator("#bond-choices .bond-replay-exit");
   let sawEndButton = false;
   for (let i = 0; i < 16 && !sawEndButton; i++) {
-    const labels = await page.locator("#bond-choices .bond-continue-btn").allInnerTexts();
-    if (labels.some((t) => t.includes("返回回忆册"))) { sawEndButton = true; break; }
-    const btn = page.locator("#bond-choices .bond-continue-btn").first();
-    if (!(await btn.count())) break;
-    await btn.click();
-    await waitInteractionReset(page, 20000).catch(() => { /* 末板没有下一板 */ });
-    await readUntilInteraction(page, `只读回放第 ${i + 2} 板`, 60000).catch(() => []);
+    if (await exitBtn.count()) { sawEndButton = true; break; }
+    await readUntilInteraction(page, `只读回放第 ${i + 1} 板`, 30000).catch(() => {});
+    if (await exitBtn.count()) { sawEndButton = true; break; }   // is_end 板读完 → 出口
+    await advanceBoard(page, 30000).catch(() => { /* 已在末板/出口 */ });
   }
   record("只读回放播完", {
     info: sawEndButton ? "出现『返回回忆册』" : "❌ 没走到章末",
@@ -565,7 +651,7 @@ async function main() {
   if (bondWrites.length) {
     throw new Error(`只读回放全程出现写请求: ${bondWrites.join(" / ")}`);
   }
-  await page.click("#bond-choices .bond-continue-btn");        // 返回回忆册
+  await exitBtn.click();                                       // 返回回忆册
   await page.waitForSelector("#view-collection:not(.hidden):not(#view-bond)", { timeout: 10000 })
     .catch(() => { /* 视图类名不同也不致命, 下面用 DOM 判断 */ });
   const backToChar = await page.evaluate(() => {
@@ -610,7 +696,7 @@ main()
             view_bond: vis("view-bond"), view_mmt: vis("view-mmt"),
             choices_html: box ? box.innerHTML.slice(0, 600) : null,
             choice_count: box ? box.querySelectorAll(".bond-choice").length : null,
-            continue_count: box ? box.querySelectorAll(".bond-continue-btn").length : 0,
+            continue_count: box ? box.querySelectorAll(".bond-replay-exit").length : 0,
             text: (document.getElementById("bond-text") || {}).innerText || "",
             tri_shown: !!document.querySelector("#bond-continue.show"),
           };

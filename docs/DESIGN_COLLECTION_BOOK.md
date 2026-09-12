@@ -117,8 +117,9 @@ P0 只把图挂到**章**（角色页条目上的缩略图 + `memorial_url`）; 
 | 原料 | 同一份 | 同一份（`replay_attempts` 是纯读） |
 
 前端可复用度很高: `renderScene` 消费的 scene dict 与 live 同构, 选项组的
-`.resolved` / `.picked` 锁定态是决策 #37/#38 就做好的。**所以工作量主要在"给现有渲染器
-加一个只读喂数据模式", 而不是后端。**
+`.resolved` / `.picked` 锁定态是决策 #37/#38 就做好的。**推进机制** = 点画面
+（决策 #41 删掉了"▼ 继续"按钮）; 回放里**所有选项可点**——点了只是推进（本地下一板）,
+高亮仍留在当时选的那句（"毕竟都是一句话": 收敛链下两句通往同一后续）。
 
 ## 5. UI 细节（先定死, 免得来回改）
 
@@ -149,7 +150,8 @@ P0 只把图挂到**章**（角色页条目上的缩略图 + `memorial_url`）; 
   `GET /api/collection/{cid}/chapters`（已结束的章; 不背正文）
   `GET /api/collection/{cid}/{from_seq}`（逐板 scene + 当时的选择; 章不存在/未结束 → **404**）
 - 前端: `collection.js`（书页 24 格 / 翻页 / 角色页 / 留白格）+ `collection.css`;
-  `BondVN.enterReadonly(payload, onExit)` 复用 live 渲染器逐板播, 播完出"▸ 返回回忆册"。
+  `BondVN.enterReadonly(payload, onExit)` 复用 live 渲染器逐板播, 播完出"▸ 返回回忆册"
+  （决策 #41 后是交互区里唯一的按钮; 推进 = 点画面, 选项可点=只推进）。
 - 测试: `tests/core/test_chapters.py`（10 例: 只收 completed / 废弃 / 空壳 / 旧档 /
   图归属三条 / 流序 / 索引不带正文）; `test_web_http.py::test_collection_book_routes`
   （书页 4 格 3 留白 → 角色页 1 章 → 回放 3 板含 picked → 未完/废弃/不存在章 404）;

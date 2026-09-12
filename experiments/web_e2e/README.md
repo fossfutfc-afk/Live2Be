@@ -39,17 +39,22 @@ conda run -n live2be python experiments/web_e2e/run.py --edge     # 用 Edge
 ### 界面语义（写脚本/排查必读）
 
 VN 是**点击推进制 + 逐段替换渲染**：同一时刻只显示一段，段末右下出现"继续三角"
-（`#bond-continue.show`）等左键推进；打字中按 `x` 补全当前段；**全部段读完**才进
-`showInteraction`（选项 / "▼ 继续" / `is_end` 自动 finish）。
+（`#bond-continue.show`；**`.ready` = 整板读完**，点了就进下一板）；打字中按 `x`
+补全当前段；**全部段读完**才进 `showInteraction`（选项 / 板读完 / `is_end` 自动 finish）。
 
-因此脚本里有三条约定的坑（都已在 `smoke.mjs` 处理好）：
+**没有"▼ 继续"按钮**（2026-09-12 决策 #41 删除）：推进 = **点 `#bond-text`**。
+`readUntilInteraction` 的"交互就绪"信号 = `.bond-choice` 或 `#bond-continue.ready`
+（`INTERACTIVE` 常量）；`advanceBoard()` 负责"点画面推进到下一板"。
+
+因此脚本里有四条约定的坑（都已在 `smoke.mjs` 处理好）：
 
 1. **不点继续三角**：`.bond-continue` 带无限 bob 动画，Playwright 的"元素稳定"
    检查永不通过 → `click` 必然超时。改点 `#bond-text`（`onClick` 挂在 `#view-bond`
    上，点文字区等价于玩家点屏）。
-2. **点击选项后先等交互区清空**（`waitInteractionReset`）：旧板的选项按钮会停留到
-   响应到达，直接开读会立刻"发现"旧选项 → 误判读完整板。
-3. **退出 VN 后等完成态气泡**：`已完成羁绊剧情：…` 由前端轮询拉到，别抢跑。
+2. **裁决后选项组留在屏上**（只读态 + 高亮所选; live 侧 disabled）——**不要等它清空**，
+   直接点画面推进（`advanceBoard`）。
+3. **只读回放里选项可点**：点了只是本地推进（0 请求）, 高亮仍是当时选的那句。
+4. **退出 VN 后等完成态气泡**：`已完成羁绊剧情：…` 由前端轮询拉到，别抢跑。
 
 ## 扩展建议
 

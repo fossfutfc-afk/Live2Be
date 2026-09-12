@@ -4,7 +4,8 @@
 //
 // 布局（对齐官方 bond story, 2026-08-29 视觉版对照）:
 //   背景 cover 全屏 + 底部暗渐 → 立绘透明浮层(中央偏左) → 左下名字+社团+分隔线
-//   → 下部对话文本(逐字打字机) + 选项 → 右上 自动/菜单 占位 → 右下 继续三角(跳过打字)。
+//   → 下部对话文本(逐字打字机) + 选项 → 右上 自动/菜单 → 右下 继续三角(唯一推进提示)。
+//   推进 = **点画面**（决策 #41: "▼ 继续"按钮已删）: 板内 → 下一段; 板读完 → 下一板。
 //
 // 图片大小参数:
 //   - SpinePlayer: resolution = devicePixelRatio（retina 清晰, autoDensity 保证 CSS 尺寸）;
@@ -84,6 +85,13 @@ let lastSceneKey = "";
   let roQueue = [];             // 待播场景（后端按事件流序给）
   let roIndex = 0;              // 下一板下标
   let roExit = null;            // 退出回调（回角色页）
+
+  // ── 推进机制（决策 #41, 2026-09-12）──────────────────────────────────
+  // **没有"▼ 继续"按钮**: 推进 = 点画面（右下 ▾ 三角只是提示）——
+  //   板内还有段 → 下一段; 板读完 → 下一板; is_end → 收尾。
+  // 例外: 板上有**未裁决**的选项时点画面不推进（等玩家点选项）。
+  let pendingChoice = false;    // 当前板有未裁决选项（点画面不推进）
+  let curScene = null;          // 当前板（裁决后就地重画选项组, 不重播正文）
 
   // 打字机状态（renderScene → typeOut → 打完 → showInteraction）
   let typeTimer = null;
@@ -296,20 +304,17 @@ let lastSceneKey = "";
     renderScene(item.scene || {});        // 与 live 同一渲染器（背景/立绘/打字机/选项态）
   }
 
-  /** 播完: 右下"返回回忆册"（不自动退出——让玩家看完最后一板再走）。 */
+  /** 播完: 出口按钮（**不是**"继续"——继续已删, 见决策 #41）。 */
   function roEnd() {
     const box = $("bond-choices");
     if (!box) return;
     box.innerHTML = "";
     hideContinue();
-    const wrap = document.createElement("div");
-    wrap.className = "bond-free";
     const btn = document.createElement("button");
-    btn.className = "bond-continue-btn";
+    btn.className = "bond-replay-exit";
     btn.textContent = "▸ 返回回忆册";
     btn.addEventListener("click", exitReadonly);
-    wrap.appendChild(btn);
-    box.appendChild(wrap);
+    box.appendChild(btn);
   }
 
   function exitReadonly() {
@@ -566,6 +571,8 @@ let lastSceneKey = "";
 
   async function renderScene(scene) {
     busy = false;
+    curScene = scene;                 // 裁决后就地重画选项组（不重播正文）
+    pendingChoice = false;            // 新板: 未裁决态由 showInteraction 按需置位
     lastSceneKey = sceneKey(scene);   // 记指纹: 轮询里同内容不再重渲染
     dbg("renderScene paras=", (scene.paragraphs || []).map(
         (p) => (p && p.emotion) || "-"), "is_end", !!scene.is_end);
@@ -641,70 +648,80 @@ let lastSceneKey = "";
     });
   }
 
-  /** 屏幕交互区: 纯叙事场的"▼ 继续"按钮。
+  /** 屏幕交互区: 板读完 → **不画按钮**, 亮右下三角（"点这里往下"）。
    *
-   *  两处用: ① 无选项的叙事板; ② **裁决后**——选项消失, 回到普通推进态（正文停在
-   *  上一句角色台词/旁白, 名字牌/立绘都不动; 玩家的话语永远只体现为选项）。 */
-  function showContinueButton() {
-    const choiceBox = $("bond-choices");
-    // 幂等: 同一板重复进入交互态（左键点过最后一段 / 只读回放重入）不叠出第二个"▼ 继续"
-    choiceBox.querySelectorAll(".bond-free").forEach((n) => n.remove());
-    const wrap = document.createElement("div");
-    wrap.className = "bond-free";
-    const btn = document.createElement("button");
-    btn.className = "bond-continue-btn";       // 不与 #bond-continue（继续三角）撞名
-    btn.textContent = "▼ 继续";
-    btn.addEventListener("click", () => {
-      clearAutoTimer();            // 玩家手动继续 → 取消自动倒计时（不冲突）
-      submit("（继续）");
-    });
-    wrap.appendChild(btn);
-    choiceBox.appendChild(wrap);
-    // 自动模式: 3s 后自动继续（纯叙事场输入固定"（继续）"——不是伪造玩家话, 安全）
+   *  决策 #41（2026-09-12 作者口径）: **删掉"▼ 继续"按钮**——推进 = 点画面;
+   *  三角加 `.ready` 标记"整板读完, 点了就进下一板"（板内的"下一段"不带它,
+   *  冒烟/自动化据此区分"板内还有段"与"板读完"）。
+   *  自动模式在这里排下一板（原来是按钮排的）。 */
+  function showAdvance() {
+    showContinue();
+    const tri = $("bond-continue");
+    if (tri) tri.classList.add("ready");
     if (autoOn) scheduleAutoContinue();
   }
 
+  /** 画选项组（live 与只读回放共用）。
+   *
+   *  locked = 只读态（压暗 + 高亮 `picked`）: live 是"裁决之后", 回放是"全程"。
+   *    · live 已裁决 → **disabled**: 点它等于用另一句再提交一次, 会改写历史, 绝不允许;
+   *    · 只读回放 → **可点, 但只推进**（决策 #41: "毕竟都是一句话"——收敛链下两句
+   *      通往同一后续, 所以让另一个选项也能点; 高亮仍留在当时选的那句 = 事实不变）。
+   */
+  function paintChoices(choices, picked, locked) {
+    const box = $("bond-choices");
+    box.innerHTML = "";
+    choices.forEach((c) => {
+      const on = !!picked && c === picked;
+      const btn = document.createElement("button");
+      btn.className = "bond-choice" + (locked ? " resolved" : "")
+        + (on ? " picked" : "");
+      btn.textContent = c;
+      if (!locked) {
+        btn.addEventListener("click", () => {
+          clearAutoTimer();            // 玩家手动选择 → 取消自动倒计时（不冲突）
+          submit(c);
+        });
+      } else if (readonly) {
+        btn.title = on ? "（当时选了这句）" : "（点一下继续）";
+        btn.addEventListener("click", () => {
+          clearAutoTimer();
+          goNext();                    // 只读: 本地下一板, 不发任何请求
+        });
+      } else {
+        btn.disabled = true;
+        btn.title = on ? "（你选了这句）" : "（当时未选）";
+      }
+      box.appendChild(btn);
+    });
+  }
+
   function showInteraction(scene) {
-    const choiceBox = $("bond-choices");
+    curScene = scene;
+    pendingChoice = false;
     if (scene.is_end) {
       // 官方结束样式: 黑屏余韵——无"结束"横幅, 右下三角亮（点击 finish 或自动兜底）
       showContinue();
+      const tri = $("bond-continue");
+      if (tri) tri.classList.add("ready");
       setTimeout(() => finish(), END_HOLD_MS);
-    } else if (scene.choices && scene.choices.length) {
-      // 已裁决的板（回放/续看, `picked` 由后端随场景带回）: 选项组**只读**画出来,
-      // 高亮所选——玩家重进中断剧情时能看出"当时给了什么、我选了什么"（用户
-      // 2026-09-12 反馈: 否则选哪个选项看起来都一样）。裁决句本身仍不上屏（决策 #37）。
-      // 回忆册只读回放: **一律锁定**（即使没有 picked——点了会提交真实剧情, 绝不允许）。
-      const resolved = readonly || !!scene.picked;
-      scene.choices.forEach((c) => {
-        const btn = document.createElement("button");
-        btn.className = "bond-choice"
-          + (resolved ? " resolved" : "")
-          + (resolved && c === scene.picked ? " picked" : "");
-        btn.textContent = c;
-        if (resolved) {
-          btn.disabled = true;               // 只读: 不提交（推进走"▼ 继续"）
-          btn.title = c === scene.picked ? "（当时选了这句）" : "（当时未选）";
-        } else {
-          btn.addEventListener("click", () => {
-            clearAutoTimer();              // 玩家手动选择 → 取消自动倒计时（不冲突）
-            submit(c);
-          });
-        }
-        choiceBox.appendChild(btn);
-      });
-      if (resolved) {
-        showContinueButton();                // 读完这一段 → 推进下一场回放
-      } else if (autoOn) {
-        // 自动模式: 打字完成后 3s 自动选第一个选项（玩家手动介入 → 取消）
-        scheduleAutoChoice(scene.choices);
-      }
-    } else {
-      // 纯叙事场（无选项）: "点击继续"推进——输入固定"（继续）", 后端 Storyloom
-      // 式预生成已就绪 → 衔接零等待（2026-08-30 替代自由输入框: 纯叙事场不需要
-      // 玩家打字, 读完全自动继续; 想自由发挥的场次由 LLM 给选项承载）
-      showContinueButton();
+      return;
     }
+    if (scene.choices && scene.choices.length) {
+      // 已裁决的板（回放/续看, `picked` 由后端随场景带回）: 选项组画成只读态并高亮所选
+      // ——否则"选哪个选项看起来都一样"（用户 2026-09-12 反馈）。裁决句永不上屏（决策 #37）。
+      const locked = readonly || !!scene.picked;
+      paintChoices(scene.choices, scene.picked || "", locked);
+      if (locked) {
+        showAdvance();                 // 读完这一段 → 点画面进下一板
+      } else {
+        pendingChoice = true;          // 未裁决: 点画面不推进, 等玩家点选项
+        if (autoOn) scheduleAutoChoice(scene.choices);
+      }
+      return;
+    }
+    // 纯叙事板: 板读完 → 点画面推进（输入固定"（继续）", 后端预生成已就绪 → 零等待）
+    showAdvance();
   }
 
   // ── 自动模式（右上"自动"按钮: 黄 = 开）─────────────────────────────
@@ -785,7 +802,7 @@ let lastSceneKey = "";
    *
    *  2026-09-11 真机两轮反馈后的定稿规则: 不画的两类 = ① 当前在屏角色（名字牌
    *  #bond-name/#bond-club 已经写明, 再画是重复）; ② **老师**（玩家自己选的那句
-   *  ——用户两次报"红字老师是不明字段", 它只在"裁决物化 + 继续按钮"那个节点出现,
+   *  ——用户两次报"红字老师是不明字段", 它只在"裁决物化"那个节点出现,
    *  因为那时屏上就是玩家选的话）。
    *  其余 speaker（未来多角色同场）照常画——那时名字行是必要的区分。
    *  比对前归一化空白（"伊草 遥香" / "伊草遥香" 视为同一人）。
@@ -936,8 +953,16 @@ let lastSceneKey = "";
   function advanceOrFinish() {
     if (typeState === "typing") return;      // 打字中点击无操作（渲染完成是推进前提）
     if (_moreParas()) { advance(); return; } // 本板还有段 → 先读完
-    if (sceneIsEnd) finish();                // 段读完了且是收尾板 → 收尾
-    else advance();
+    if (sceneIsEnd) { finish(); return; }    // 段读完了且是收尾板 → 收尾
+    if (pendingChoice) return;               // 未裁决的选项板: 等玩家点选项（点画面不推进）
+    goNext();                                // 板读完 → 下一板（决策 #41: 点画面即推进）
+  }
+
+  /** 板读完 → 下一板: live 提交"（继续）"（后端预生成已就绪 → 零等待）;
+   *  只读回放走本地队列（0 LLM, 不发任何请求）。 */
+  function goNext() {
+    if (readonly) { roNext(); return; }
+    submit("（继续）");
   }
 
   // 继续三角（右下）: 段完成 = 推进下一段; 段读完且 is_end = 收尾 finish;
@@ -946,7 +971,12 @@ let lastSceneKey = "";
     $("bond-continue").addEventListener("click", advanceOrFinish);
   }
   function showContinue() { $("bond-continue").classList.add("show"); $("bond-continue").setAttribute("aria-hidden", "false"); }
-  function hideContinue() { $("bond-continue").classList.remove("show"); $("bond-continue").setAttribute("aria-hidden", "true"); }
+  function hideContinue() {
+    const t = $("bond-continue");
+    t.classList.remove("show");
+    t.classList.remove("ready");      // .ready = "整板读完"（决策 #41）——收起时一并清
+    t.setAttribute("aria-hidden", "true");
+  }
 
   // ── 快速渲染（2026-09-01 问题3）: 仅 X 键——打字中补全当前段（停段尾）;
   // 空格/Enter 不绑定（以后再说）。左键推进见 onClick/advance。────────────
@@ -963,7 +993,7 @@ let lastSceneKey = "";
 
   function onClick(e) {
     if (menuOpen) return;               // 菜单打开时点击不响应（菜单项已处理）
-    if (e.target.closest(".bond-choice, .bond-topbtn, .bond-free, #bond-continue, #bond-title")) return;
+    if (e.target.closest(".bond-choice, .bond-replay-exit, .bond-topbtn, #bond-continue, #bond-title")) return;
     advanceOrFinish();                  // 与继续三角同一语义（含 is_end 多段先读完）
   }
 
@@ -1194,13 +1224,18 @@ let lastSceneKey = "";
     }
     if (data.picked) {
       // 记录流 v2 裁决: **玩家的话语永远只体现为选项**（2026-09-12 用户核对 BA 后
-      // 定稿）——选项消失, 正文停在上一句角色台词/旁白, 名字牌/立绘都不动, 回到
-      // 普通推进态（▼ 继续）。这里**绝不**碰 #bond-text、绝不 renderScene（那会把
-      // 玩家那句当正文念出来, 真机报障:"睦月/便利屋68 + 你还打算对我怎么恶作剧？"）。
+      // 定稿）——正文停在上一句角色台词/旁白, 名字牌/立绘都不动。这里**绝不**碰
+      // #bond-text、绝不 renderScene（那会把玩家那句当正文念出来, 真机报障:
+      // "睦月/便利屋68 + 你还打算对我怎么恶作剧？"）。
+      // 决策 #41（2026-09-12）: 选项组**留在屏上**转只读态 + 高亮所选（不再消失,
+      // 也没有"▼ 继续"按钮）——点画面即进下一板。
       $("bond-choices").innerHTML = "";
+      if (curScene && Array.isArray(curScene.choices) && curScene.choices.length) {
+        paintChoices(curScene.choices, data.picked, true);
+      }
       busy = false;
       hideContinue();
-      showContinueButton();
+      showAdvance();
       return;
     }
     $("bond-text").innerHTML = "";
