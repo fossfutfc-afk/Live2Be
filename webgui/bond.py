@@ -195,8 +195,9 @@ class BondState:
     # 选项配额（整段剧情 2~3 次选择——LLM 每场给选项的疲劳问题）: 已用计数,
     # 注入 system_note 提醒; 预生成场景的 choices 同样计入
     choices_used: int = 0
-    # 上一场 emotion 序列（单一检测: 全场同一 emotion → 下一场 system_note 提醒 LLM）
-    prev_emotions: list[str] = field(default_factory=list)
+    # 2026-09-13（审计 B8）: `prev_emotions` 已删——它唯一的消费者是那条
+    # "上一场 emotion 全同 → 请切换 emotion"注记, 而 v2 的 emotion 由标注层给、
+    # 写作者无字段可写。留着只会让人误以为主 LLM 还参与表情决策。
     # 异步标注（两遍式 C 2026-08-31）: emotion 解析挪出玩家等待路径——
     # 骨架先显示, 标注队列单 worker 串行补标, 写回经对象身份检查防竞态
     emo_version: int = 0                       # emotion 补标版本（前端感知补切表情）
@@ -1384,8 +1385,6 @@ def bond_turn(char_id: str, session_id: str, text: str) -> dict:
             state.pregen_input = "（继续）"
             if nxt.choices:                      # 统计对齐 _pregenerate
                 state.choices_used += 1
-            state.prev_emotions = [p.get("emotion", "") for p in nxt.paragraphs
-                                   if isinstance(p, dict)]
             logger.info("bond_cand hit %s/%s picked=%s", char_id, session_id, text)
         else:
             _discard_candidates(state)           # 无命中候选 → 老路 + 池作废
@@ -1402,7 +1401,6 @@ def bond_turn(char_id: str, session_id: str, text: str) -> dict:
         # 分支反应段 = 同板延续（地点不重新判定, 主场景的 place 判定已随门控完成）;
         # 置就绪标记 → 不占 place lane（§7 gate 双路语义）
         state.scene_obj._place_done = True
-        # prev_emotions 由标注 worker 回填后统一更新（骨架无 emotion, 2026-09-02）
         # 分支段落可能是骨架（branches 未标注）→ 入队异步标注（与主场景同队列）
         _enqueue_annotate(state, state.scene_obj)
         # 2026-09-02 修复: 分支渲染后前端不轮询 status（turn 直接返回 scene）——
@@ -1587,6 +1585,15 @@ def bond_finish(char_id: str, session_id: str) -> dict:
 
     # 最后场景（is_end / closing）: 玩家无裁决 → picked=None
     _log_scene(state, char_id, session_id, picked=None)
+    # 2026-09-13（审计 B5）: 章在纪念窗口内结束（玩家读完纪念板就收尾）时,
+    # "下一板落地"那条补 exit 的路径永不发生 → 必须在这里闭合, 否则流里留下
+    # 未闭合的 memorial_enter, 下一章首板会被判成"纪念窗口内"而整块跳过标注。
+    # 放在 vn_exit/session_end **之前**: `_memorial_open_in_events` 只认
+    # exit/session_end 来闭合, 顺序上先写 exit 更直白（session_end 也会闭合,
+    # 但那是"会话结束"而非"纪念结束"的语义）。`force=True`: 收尾时引擎
+    # `vn.in_memorial` 可能仍为 True（玩家一板都没推进过, 没有"新块解析成功"
+    # 来复位它）, 而章已经结束——必须强闭合, 否则窗口跨章悬空。
+    _close_memorial_window(state, char_id, session_id, force=True)
     try:
         # vn_exit 带剧情完成标志（2026-09-01）: completed = 剧情真正走完
         # （story_end 自然收尾）; False = 玩家中途退出——收尾链据此分支
@@ -1907,8 +1914,6 @@ def _scene_landed(state: BondState, scene: BondScene, char_id: str,
     # 选项配额（供下一场 system_note 参考）
     if scene.choices:
         state.choices_used += 1
-    # prev_emotions（情绪单调注记）由标注 worker 回填后统一更新——
-    # 骨架无 emotion（2026-09-02）, 生成时取只会得到空列表
     _log_scene_meta(state, char_id, session_id, scene)
     # 两遍式 C 异步标注: 骨架先显示, emotion 解析入队补标（不阻塞玩家）
     _enqueue_annotate(state, scene)
@@ -2104,8 +2109,6 @@ def _pregenerate(state: BondState, char_id: str, session_id: str) -> None:
                 state.pregen_input = "（继续）"
                 if scene.choices:
                     state.choices_used += 1
-                state.prev_emotions = [p.get("emotion", "") for p in scene.paragraphs
-                                       if isinstance(p, dict)]
                 # 预生成场景同样异步标注（与主场景同一队列串行, 玩家消费时表情就绪）
                 _enqueue_annotate(state, scene)
                 _draft_save(state, char_id, session_id)   # 草稿旁路刷新（#28b）
@@ -2348,10 +2351,7 @@ def _anno_worker(state: BondState) -> None:
     写回规则: scene_obj 仍是 state.scene_obj（当前展示）或 state.pregen_obj
     （预生成待消费）→ 序列化更新 + emo_version++（前端补切表情）;
     否则（场景已被推进/替换）→ 丢弃（标注结果作废, 不污染新场景）。
-    2026-09-02: 骨架 emotion 已移交标注层——回填后同步 prev_emotions
-    （当前展示场景的情绪谱, 供下一场 system_note 防单调; 预生成场景不更新——
-    它尚未展示, prev 语义 = 上一场）。fill 异常 → _fallback_fill 强制兜底
-    （门控就绪恒可达, 剧情必须能推进）。
+    fill 异常 → `_fallback_fill` 强制兜底（门控就绪恒可达, 剧情必须能推进）。
     """
     while True:
         scene = state._anno_queue.get()
@@ -2372,9 +2372,6 @@ def _anno_worker(state: BondState) -> None:
                 if state.scene_obj is scene:
                     state.scene = scene.to_dict()
                     state.emo_version += 1
-                    state.prev_emotions = [p.get("emotion", "")
-                                           for p in scene.paragraphs
-                                           if isinstance(p, dict)]
                 elif state.pregen_obj is scene:
                     state.pregen_scene = scene.to_dict()
                     state.emo_version += 1
@@ -2396,6 +2393,13 @@ def _log_scene(state: BondState, char_id: str, session_id: str, picked) -> None:
 
     与 CLI 落库格式一致: {**scene.to_dict(), "input": 本场输入, "picked": 玩家裁决}
     ——回放兼容（filter_bond → BondScene.from_dict + input/picked）。
+
+    2026-09-13 修正（审计 B6）: `scene_logged = True` 原先在 `try` **之外**，
+    写失败（磁盘/权限/序列化）时仍置位 → 该板**永远不会再尝试落库**：
+    回忆册/回放缺这一板, 草稿旁路（只收 `not scene_logged` 的板）也不再含它。
+    现在只在 append 真正成功后置位——失败保持 False, 让下一次
+    `_log_scene`（下一次裁决/收尾/finish）重试。重复调用安全:
+    `_log_scene_meta` 只播 marker 不播板正文, 重试不会重复写板。
     """
     if state.scene_logged or state.scene_obj is None:
         return
@@ -2411,8 +2415,44 @@ def _log_scene(state: BondState, char_id: str, session_id: str, picked) -> None:
             "bond", sub,
             {**scene.to_dict(), "input": state.scene_input, "picked": picked}))
     except Exception as e:                           # noqa: BLE001 — 写失败降级不阻断
-        logger.warning("事件流 bond 写入失败: %s", e)
+        logger.warning("事件流 bond 写入失败（该板保持未落库, 下次裁决/收尾重试）: %s", e)
+        return                                       # ← 不置位: 留一次重试机会
     state.scene_logged = True
+
+
+def _close_memorial_window(state: BondState, char_id: str, session_id: str,
+                           *, force: bool = False) -> bool:
+    """v2 纪念窗口收尾: 有未闭合的 `memorial_enter` → 补一条 `memorial_exit`。
+
+    2026-09-13 新增（审计 B5）: v2 的纪念区间 = 触发后到**本块块尾**, 没有 exit
+    动作, 所以窗口闭合原先只挂在"下一板落地"那条路径上（`_log_scene_meta`）。
+    玩家**在纪念板读完就收尾**时那条路径永不发生 → 事件流里留下一条未闭合的
+    `memorial_enter`; 下一章同 `(char, session)` 首板会被 `_memorial_no_visuals`
+    判成"纪念窗口内" → **整块跳过 emo/place 标注**（表情恒 nomal、背景不切、
+    门控恒放行）。正常路径下 `vn_exit`/`session_end` 也会闭合该窗口, 这条 exit
+    是**第二道保障**——两个 marker 写在同一个 try 里, 一起失败时才有区别。
+
+    Args:
+        force: `bond_finish` 用。收尾时引擎 `vn.in_memorial` **仍可能为 True**
+            （玩家从未推进过任何一板 → 没有任何"新块解析成功"来复位它）, 而章已经
+            结束, 此时必须强闭合; 非 force 路径（`_log_scene_meta`, 剧情进行中）
+            保留该守卫——引擎还在纪念区间里时不是闭合时机。
+
+    幂等: 无未闭合 enter → 不写。Returns: 是否补写了 exit。
+    """
+    if not state.memorial_logged:
+        return False
+    vn = state.vn
+    if not force and vn is not None and vn.in_memorial:
+        return False             # 引擎仍认为在窗口内（本块未解析完）→ 不是收尾时机
+    try:
+        _flow_store(state).append_marker(char_id, session_id, M_MEMORIAL_EXIT,
+                                        {"v2": True, "auto": True})
+    except Exception as e:                           # noqa: BLE001 — 写失败降级不阻断
+        logger.warning("纪念窗口闭合失败（marker 栈会停在 in_memorial）: %s", e)
+        return False
+    state.memorial_logged = False
+    return True
 
 
 def _log_scene_meta(state: BondState, char_id: str, session_id: str,
@@ -2429,14 +2469,13 @@ def _log_scene_meta(state: BondState, char_id: str, session_id: str,
         elif scene.memorial_exit:
             store.append_marker(char_id, session_id, M_MEMORIAL_EXIT)
             state.memorial_logged = False
-        elif (state.memorial_logged and state.vn is not None
-              and not state.vn.in_memorial):
+        else:
             # v2 窗口结束（新生成一块 = 区间到块尾）: 补一条 exit —— marker 栈
             # （`session_status.in_memorial`）与现实一致（mmt_preset 的"纪念中"标签、
             # MMT digest 跳过判定都读它）。跨重启也成立: 创建 state 时已从流里初始化。
-            store.append_marker(char_id, session_id, M_MEMORIAL_EXIT,
-                                {"v2": True, "auto": True})
-            state.memorial_logged = False
+            # 2026-09-13: 抽成 `_close_memorial_window`——同一语义 bond_finish 也要用
+            # （玩家在纪念板读完就收尾时, 这条路径永不发生 → marker 栈悬空, 审计 B5）。
+            _close_memorial_window(state, char_id, session_id)
         vn = state.vn
         visual = (vn.director.state.to_dict()
                   if vn is not None and vn.director is not None else {})
@@ -2459,13 +2498,11 @@ def _system_note(state: BondState) -> str | None:
     # 记录流 v2（P0-7c）: 旧的"整段剧情 2~3 次选项配额"注记退役——v2 的交互密度
     # 由 rules 引导（一段戏里老师开口 3~5 次）, 引擎不再逐轮念配额（注记进 prompt,
     # 提旧概念只会干扰守形）。choices_used 仍计数（统计/诊断用）。
-    # 表情单一提醒（上一场 ≥3 个单元但 emotion 全同 → 提示 LLM 情绪变化）
-    uniq = {e for e in state.prev_emotions if e}
-    if len(state.prev_emotions) >= 3 and len(uniq) <= 1:
-        notes.append(
-            "（系统）上一场所有单元都是同一 emotion——若剧情有情绪起伏,"
-            "请随情绪变化切换 emotion 并切新单元（不要整场一个表情）。"
-        )
+    # 2026-09-13（审计 B8）: "上一场 emotion 全同 → 请切换 emotion 并切新单元"
+    # 注记**一并退役**——emotion 由标注层按记录逐条给（决策 #27）; 写作者既看不见
+    # 也没有 emotion 字段可写（v2 schema 只有 character/stage + text）。那条注记
+    # 是写给 v1（emotion 由主 LLM 内联）的, 在 v2 下每轮白喂且会诱导模型为了
+    # "切换单元"把输出碎化。`prev_emotions` 字段随之失去唯一消费者, 已删。
     if state.round == _REMIND_ROUNDS:
         notes.append(
             f"（系统）剧情已推进 {state.round} 轮，剩余约 {_END_ROUNDS - state.round} 轮。"
