@@ -12,10 +12,13 @@ let _chatSort = "recent";         // 对话模式排序
 // ---------------------------------------------------------------------------
 
 function renderAvatar(wrap, c, sizeCls) {
-  // BA 圆头像（mmt/ 渲染图）直接用; diff 兜底 png 圆形裁剪
+  // 头像 = 后端给什么显示什么。avatar_type: portrait(该外观 GUI 头像, 如遥香的
+  // collection.png) | mmt(BA 圆头像帧) | png(diff 立绘兜底)。
+  // 三种都按圆形裁剪: .mmt-avatar 自带 border-radius 50% + object-fit cover,
+  // 非方图（半身像 404x456）居中裁成方。
   const img = document.createElement("img");
   img.src = c.avatar;
-  img.className = "mmt-avatar" + (c.avatar_type === "png" ? " rounded" : "");
+  img.className = "mmt-avatar" + (c.avatar_type === "mmt" ? "" : " rounded");
   if (sizeCls) img.classList.add(sizeCls);
   wrap.appendChild(img);
 }
