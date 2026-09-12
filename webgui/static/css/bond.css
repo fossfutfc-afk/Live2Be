@@ -284,43 +284,25 @@
 }
 .bond-choice.resolved.picked:hover { transform: none; }
 
-.bond-free { display: flex; gap: 0.6rem; width: 100%; }
-.bond-free input {
-  flex: 1;
-  padding: 0.6rem 1rem;
-  border: 1px solid rgba(255, 190, 130, 0.5);
-  border-radius: 20px;
-  background: rgba(18, 10, 14, 0.72);
-  color: #fff;
-  font-size: 0.98rem;
-  outline: none;
-}
-.bond-free input:focus { border-color: #ffb273; }
-.bond-free button {
-  padding: 0.6rem 1.3rem;
-  border: none;
-  border-radius: 20px;
-  background: #ffb273;
-  color: #4a1a10;
-  font-size: 0.98rem;
-  cursor: pointer;
-}
-/* 纯叙事场"继续"按钮（2026-08-30: 无选项场次点击推进——后端预生成已就绪零等待;
-   平行四边形风格与选项横条一致, 但更小更淡——它是推进动作不是决策。
-   命名 bond-continue-btn: 不与 #bond-continue（右下继续三角）撞名） */
-.bond-free .bond-continue-btn {
+/* 只读回放播完的**出口**按钮（决策 #41 删掉"▼ 继续"后, 交互区里只剩这一个按钮
+   ——它不是"继续": 点了是离开回放回回忆册）。样式沿用原继续按钮的平行四边形。 */
+.bond-replay-exit {
+  display: block;
   margin: 0 auto;
   padding: 0.55rem 2.2rem;
+  border: none;
   border-radius: 0;
   background: rgba(255, 255, 255, 0.92);
   color: #3a3f52;
+  font-size: 0.98rem;
   font-weight: bold;
   letter-spacing: 0.06em;
+  cursor: pointer;
   clip-path: polygon(4% 0, 100% 0, 96% 100%, 0 100%);
   box-shadow: 0 3px 12px rgba(0, 0, 0, 0.3);
   transition: all 0.16s;
 }
-.bond-free .bond-continue-btn:hover {
+.bond-replay-exit:hover {
   background: #ffffff;
   color: #1e4a8c;
   transform: translateY(-1px);
@@ -345,7 +327,8 @@
 /* 生成/标注等待期的后端拒因提示（2026-09-02: 别让玩家以为死机） */
 .bond-wait-note { color: #9fb8c9; font-size: 0.75rem; padding: 0.15rem 0; }
 
-/* 右下: 继续提示三角（点击跳过当前逐字; 打字完成/无选项时也亮） */
+/* 右下: 继续提示三角（**唯一的推进提示**——决策 #41 删掉"▼ 继续"按钮后,
+   点画面/点它都推进: 板内 → 下一段; 板读完（.ready）→ 下一板; is_end → 收尾）。 */
 .bond-continue {
   position: absolute;
   right: 2.4rem;
@@ -361,6 +344,7 @@
   animation: bond-continue-bob 1.2s ease-in-out infinite;
 }
 .bond-continue.show { opacity: 1; pointer-events: auto; }
+.bond-continue.ready { color: #7fd0ff; }   /* 整板读完 → 亮一点（点了就进下一板） */
 @keyframes bond-continue-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(4px); } }
 
 @keyframes typing-bounce { 0%, 60%, 100% { transform: none; } 30% { transform: translateY(-4px); } }

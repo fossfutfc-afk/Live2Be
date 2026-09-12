@@ -192,7 +192,8 @@
     </div>
     <!-- 选项（画面中上部白色横条, 独立于对话块——官方 VN 选项样式） -->
     <div id="bond-choices" class="bond-choices"></div>
-    <!-- 右下: 继续提示（点击跳过逐字 / 剧情结束点击收尾） -->
+    <!-- 右下: 继续三角（**唯一推进提示**——决策 #41 删掉"▼ 继续"按钮:
+         点画面/点它 = 板内下一段 → 板读完进下一板 → is_end 收尾） -->
     <div id="bond-continue" class="bond-continue" aria-hidden="true">▾</div>
     <!-- 章节标题面板（开场: 模糊背景 + 白色横条 + 深蓝大字, 如"预先应对";
          双用: ① 进场景等待期标题卡（waitCard——reason 文案, 掩盖首场生成缓冲）
