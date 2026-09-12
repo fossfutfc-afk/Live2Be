@@ -835,4 +835,18 @@ def test_settings_over_http_roundtrip(monkeypatch, tmp_path):
     after = _http("GET", "/api/settings").json()["image"]
     assert after["enabled"] is False, after            # 复选框落盘
     assert after["api_key"] == body["image"]["api_key"], "打码值回传不得改 key"
-    print("    web: /api/settings 打码 + 布尔开关往返")
+
+    # 2026-09-13（A1 余波复核）: **JSON `null` = 不改**——走真 HTTP 钉住这条边界。
+    # 为什么值得单独钉: pydantic 的 `llm: dict` 对内部值不设类型, `null` 会原样到
+    # 路由; 而 store 对 None 只会"跳过不写" → 键从文件消失 → 读回回落 DEFAULTS。
+    # 于是 `{"image": {"enabled": null}}` 会把生图开关**翻回默认 true = 花钱方向**,
+    # `{"llm": {"model": null}}` 会把自定义 model 重置成内置默认。入口必须拦住。
+    model_before = _http("GET", "/api/settings").json()["llm"]["model"]
+    r = _http("POST", "/api/settings", json={"llm": {"model": None}})
+    assert r.status_code == 200 and r.json()["ok"] is True, r.text
+    assert _http("GET", "/api/settings").json()["llm"]["model"] == model_before, \
+        "null 改了 model（应视为'不改'）"
+    _http("POST", "/api/settings", json={"image": {"enabled": None}})
+    assert _http("GET", "/api/settings").json()["image"]["enabled"] is False, \
+        "null 把生图开关翻回默认 true 了（花钱方向）"
+    print("    web: /api/settings 打码 + 布尔开关往返 + null=不改（真 JSON 边界）")

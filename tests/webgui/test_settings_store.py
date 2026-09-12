@@ -132,16 +132,26 @@ def test_save_settings_rejects_non_scalar_without_wiping():
 
 
 def test_save_settings_rejects_none_leaf():
-    """`null` 叶子必须被拒——否则会落成字符串 `"None"`（2026-09-13 复核）。
+    """`null` 叶子被拒 → 不写成垃圾 `"None"`; 但**它是"删键"不是"保持原值"**。
 
-    `_to_toml` 对非标量走 `str(v)` → `{"model": null}` 会写成 `model = "None"`,
-    读回是一段垃圾字符串, **静默写坏配置**（比"不写"糟）。初版 `_sane_value`
-    把 `None` 放行了（`v is None or isinstance(...)`）, 与自己的 docstring 相反;
-    旧的白名单实现本来会跳过它。可达性低（GUI 给的是 `""` 不是 null, 需要手搓
-    POST）, 但一旦发生就是坏配置。
+    2026-09-13 复核（用户复核上一批修复时发现）: 本用例原先断言
+    `after["llm"]["model"] == "deepseek-v4-flash"` 并写着"None 应被跳过（保持原值）"
+    ——**那条断言不可能失败**: `_HANDMADE` 里的 model 恰好等于 `DEFAULTS` 的值,
+    所以"值被保住"和"键被删掉→回落默认"两种实现都会通过（断言成了装饰）。
+
+    实测真相（先落一个**非默认值**再看）: 拒收 = 跳过不写 = 该键从文件消失 →
+    读回回落 `DEFAULTS`。所以"null = 不改"这个语义**不在本层**, 它归入口
+    （`routers/settings.py::_acceptable`, 见下一个用例）。
     """
     _write_handmade()
     assert store._sane_value(None) is False, "None 必须被判为不可写"
+
+    # 先落一个非默认值——否则下面的断言两种实现都通过, 等于没测
+    cur = store.load_settings()
+    cur["llm"]["model"] = "deepseek-reasoner"
+    store.save_settings(cur)
+    assert store.load_settings()["llm"]["model"] == "deepseek-reasoner"
+
     cur = store.load_settings()
     cur["llm"]["model"] = None                     # 手搓 POST {"llm": {"model": null}}
     store.save_settings(cur)
@@ -149,9 +159,49 @@ def test_save_settings_rejects_none_leaf():
     assert '"None"' not in text and "= None" not in text, \
         f"null 落成了垃圾值: {text[:200]}"
     after = store.load_settings()
+    # 本层行为: 键被删 → 回落 DEFAULTS（**不是**保住 "deepseek-reasoner"）
+    assert after["llm"]["model"] == store.DEFAULTS["llm"]["model"], after["llm"]["model"]
+    assert after["llm"]["model"] != "deepseek-reasoner", \
+        "store 层不做'保持原值'——若哪天做了, 这条会红, 请同步改入口的说明"
+    print("    settings: null 叶子不写成垃圾（键被删→回落默认, '不改'归入口）")
+
+
+def test_post_settings_null_means_no_change():
+    """**入口层**: POST 里的 `null` = 不改这个键（2026-09-13 修）。
+
+    `store` 的"拒收"是跳过不写 → 删键; 所以"不改"必须在路由层拦。两个最要紧的
+    后果（都是上面那条 store 用例的延伸）:
+      · `[llm].model` 自定义值不能被 null 重置成内置默认;
+      · **`[image].enabled=false` 不能被 null 翻回默认 true**（生图开 = 花钱方向）。
+    """
+    _write_handmade()
+    asyncio.run(post_settings(SettingsIn(llm={"model": "deepseek-reasoner"})))
+    asyncio.run(post_settings(SettingsIn(llm={"model": None})))          # null → 不改
+    assert store.load_settings()["llm"]["model"] == "deepseek-reasoner", \
+        "null 把自定义 model 重置成默认了（入口没拦住）"
+
+    asyncio.run(post_settings(SettingsIn(image={"enabled": False})))
+    assert store.load_settings()["image"]["enabled"] is False
+    asyncio.run(post_settings(SettingsIn(image={"enabled": None})))      # null → 不改
+    assert store.load_settings()["image"]["enabled"] is False, \
+        "null 把生图开关翻回默认 true 了（花钱方向）"
+    print("    settings: POST null = 不改（自定义 model / 生图开关都不被冲掉）")
+
+
+def test_post_settings_ignores_non_scalar_junk():
+    """非标量塞进标量键 → 不改; 但**合法的嵌套表写入不能被误伤**（2026-09-13）。"""
+    _write_handmade()
+    asyncio.run(post_settings(SettingsIn(llm={"model": {"x": 1}, "bogus": ["a"]})))
+    after = store.load_settings()
     assert after["llm"]["model"] == "deepseek-v4-flash", \
-        f"None 应被跳过（保持原值）, 实得 {after['llm']['model']!r}"
-    print("    settings: null 叶子被拒（不会写成字符串 \"None\"）")
+        f"dict 把标量键顶成表了: {after['llm']['model']!r}"
+    assert "bogus" not in after["llm"], "list 被写进配置"
+
+    # 嵌套表是合法配置形态（[llm.tasks.*] 覆盖语法）——必须照常可写
+    asyncio.run(post_settings(SettingsIn(
+        llm={"tasks": {"emotion": {"thinking": "off", "max_tokens": 768}}})))
+    assert store.load_settings()["llm"]["tasks"]["emotion"]["thinking"] == "off"
+    print("    settings: 非法类型不改 / 嵌套表仍可写")
 
 
 def test_post_settings_does_not_overwrite_real_key_with_mask():

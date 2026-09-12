@@ -141,6 +141,12 @@ def save_settings(data: dict) -> None:
 
     已知取舍: `_to_toml` 是整文件重写, **注释不保留**（tomllib 解析后即丢）。
     要把注释也留住需引入 tomlkit 类的"带格式解析"依赖——当前依赖面刻意保持最小。
+
+    **"不改"语义在入口, 不在本层**（2026-09-13 复核补注）: 本层对 `None`/list 等
+    不可写的值只会"跳过不写"——而跳过 = 该键从文件消失 = 读回回落 `DEFAULTS`,
+    那是**删掉**而不是"保持原值"。要表达"这次不改这个键", 请在调用方过滤
+    （`routers/settings.py::_acceptable` 就是这么做的; 那里的 docstring 记了
+    `null` 冲掉 `[image].enabled=false` 的具体后果）。
     """
     clean: dict = {}
     if not isinstance(data, dict):
