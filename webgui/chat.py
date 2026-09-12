@@ -72,14 +72,19 @@ def _lock(char_id: str) -> threading.Lock:
 
 
 def reset_engines() -> None:
-    """清空引擎实例 + 锁缓存（设置变更后调用——下次 _engine() 按新配置重建）。
+    """清空引擎实例（设置变更后调用——下次 `_engine()` 按新配置重建）。
 
     引擎构造时 LLMClient 已把 settings.toml 的 key/base_url 写死（含 Authorization
     header）——改配置后不重建则旧实例继续用旧 key（假 key 时期创建的实例改 key
     不生效）。设置路由保存成功后调用本函数。
+
+    **2026-09-13 修正（审计 B17）: 不再 `_locks.clear()`。**
+    锁是**并发保护**而非引擎的一部分: 一次 `agent_turn` 可能正持着旧 Lock 在跑,
+    清掉 `_locks` 后新调用者拿到的是**另一个 Lock** → 同一角色两个 turn 并行
+    跑（串行不变量被打破, 会话/事件流都可能写乱）。引擎重建本身不需要动锁——
+    新引擎是通过 `_engine()` 惰性造的, 与锁无关。
     """
     _engines.clear()
-    _locks.clear()
 
 
 # ---------------------------------------------------------------------------

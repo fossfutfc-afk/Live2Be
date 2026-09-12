@@ -466,11 +466,17 @@ def test_bond_enter_adopt_returns_ready_scene(web):
 
 
 def test_bond_watchdogs_self_heal_stuck_gate(web, monkeypatch):
-    """看门狗（2026-09-11）: 视觉门/预生成消费门卡住不能变成"点击永久无响应"。
+    """看门狗（2026-09-11 / 2026-09-13 审计 A6 收紧）: 视觉门/预生成消费门卡住
+    不能变成"点击永久无响应"——但**只在没人会再来标它时**才降级。
 
     真机现象: 点继续后前端一直"剧情推进中…（已等待 110s）"而后端其实闲着——
-    某些异常下标注 lane 不会再回来 → `gate` 永远 False。这里把阈值调到 0 模拟
-    "已经卡很久", 断言 bond_status 触发兜底放行（场景被强制标成就绪）。
+    某些异常下标注 lane 不会再回来 → `gate` 永远 False。
+
+    2026-09-13 修正后的前置条件（`_gate_stalled`）: 无积压 **且** 无在途
+    **且** 没有活着的 writer。原先只看队列深度 → worker 正 `await` 标注时
+    `qsize()==0` 也成立, 于是一次**健康的慢调用**就会被强制兜底, 而兜底产物
+    会随 `_log_scene` 进 append-only 真源（假 nomal + 假 `_place_done`）。
+    本用例两半都钉: ①有人在做 → 不抢; ②没人会做 → 必须放行。
     """
     st, sid = web
     _seed_trigger(st, sid)
@@ -484,11 +490,27 @@ def test_bond_watchdogs_self_heal_stuck_gate(web, monkeypatch):
     state.gate_since = 0.0
     assert bond._scene_visual_ready(state) is False, "前置: 场景确实卡在未就绪"
     monkeypatch.setattr(bond, "GATE_WATCHDOG_MS", -1)        # 视为已超时
+
+    # ① 有活着的 writer（lane 线程还在跑, 可能正在标注）→ **不得**抢它的活:
+    #    慢但在途不是卡死, 等它回来（真标注比兜底的假 nomal 有价值）
+    if bond._lane_writer_alive(state):
+        monkeypatch.setattr(state, "_lane_inflight", 1)      # 模拟"正在 await 标注"
+        st_mid = bond.bond_status(CHARACTER, sid)
+        assert st_mid["gate_busy"] is True, \
+            f"worker 在途时不该强推兜底（会污染 append-only）: {st_mid}"
+        monkeypatch.setattr(state, "_lane_inflight", 0)
+
+    # ② 没人会再来标它（线程已死 / 从未启动）→ 必须兜底放行
+    monkeypatch.setattr(state, "_anno_started", False)
+    monkeypatch.setattr(state, "_place_started", False)
+    monkeypatch.setattr(state, "_anno_thread", None)
+    monkeypatch.setattr(state, "_place_thread", None)
+    assert bond._gate_stalled(state) is True, "无人可标时前置条件应成立"
     st_after = bond.bond_status(CHARACTER, sid)
     assert st_after["gate_busy"] is False, st_after           # 看门狗兜底放行
     assert all((p.get("emotion") or "").strip()
                for p in state.scene_obj.paragraphs), state.scene_obj.paragraphs
-    print("    web: 视觉门看门狗兜底放行（表情降级换能推进）")
+    print("    web: 视觉门看门狗——在途不抢 / 无人可标才降级放行")
 
 
 def test_bond_busy_watchdog_resets_lost_thread(web, monkeypatch):
