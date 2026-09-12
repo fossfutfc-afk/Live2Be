@@ -7,6 +7,10 @@
 当前已落地: io 原子写/append/行级容错 + SessionMeta（纯索引）/VNState（marker payload）。
 """
 
+from core.session.chapters import (
+    chapter_index,
+    replayable_chapters,
+)
 from core.session.events import (
     EVENT_TYPES,
     MARKER_SUBTYPES,
@@ -58,6 +62,8 @@ __all__ = [
     "M_MEMORIAL_IMAGE",
     # renderer
     "render_events", "filter_bond", "session_status", "render_timeline",
+    # 回忆册（可回放章节派生）
+    "replayable_chapters", "chapter_index",
     # store
     "SessionStore", "DEFAULT_DATA_ROOT",
 ]

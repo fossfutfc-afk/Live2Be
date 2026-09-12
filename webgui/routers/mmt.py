@@ -70,6 +70,16 @@ def _find_avatar(cid: str) -> tuple[str, str]:
     return "", ""
 
 
+def collection_cover(cid: str, outfit: str = "default") -> str:
+    """回忆册封面 = 该外观的 `portrait/collection.png`（DESIGN_COLLECTION_BOOK §1）。
+
+    与 `_find_avatar` 的区别: **不做 diff 兜底**——册子的留白格是产品语义
+    （"这一格的人我还没有素材"）, 拿整张立绘当封面反而像故障。缺 → 空串。
+    """
+    p = ILLUS_ROOT / cid / outfit / "portrait" / _PORTRAIT_PREFERRED
+    return _asset_url(p) if p.is_file() else ""
+
+
 def _session_ids(store: SessionStore, cid: str) -> list[str]:
     """该角色在【当前世界】的角色线 id（v2: 每角色一条线——读 meta.json）。
 

@@ -76,6 +76,15 @@ let lastSceneKey = "";
   let historyLog = [];          // 对话记录（每场 {round, paras}——菜单"对话记录"）
   let waitCard = false;         // 等待标题卡显示中（enter → 首场就绪; 与 showTitle 互斥）
 
+  // ── 回忆册只读回放（2026-09-12, DESIGN_COLLECTION_BOOK §4）─────────────
+  // 与 live 的区别: **播完即停**——0 LLM、不发 turn/finish、不碰后端状态机。
+  // 数据由 /api/collection/{char}/{from_seq} 一次给全（逐板 scene）, 这里只是喂给
+  // 同一套渲染器（背景/立绘/打字机/选项锁定态全部复用 → 看到的 = 当时看到的）。
+  let readonly = false;         // 只读模式: submit 短路成"下一板", finish 短路成"退出"
+  let roQueue = [];             // 待播场景（后端按事件流序给）
+  let roIndex = 0;              // 下一板下标
+  let roExit = null;            // 退出回调（回角色页）
+
   // 打字机状态（renderScene → typeOut → 打完 → showInteraction）
   let typeTimer = null;
   let typeParas = [];
@@ -217,20 +226,99 @@ let lastSceneKey = "";
     v.classList.remove("title-active");
   }
 
-  function exit() {
-    // 回 MMT: 隐藏 VN 视图（聊天窗原样保留）→ 解锁输入 + 重启轮询（拉 wrapup 收尾话）
+  /** 收起 VN 视图 + 停掉所有定时器/绑定（live 与只读共用）。 */
+  function _hideVn() {
     stopTyping();
     clearEmoWatch();              // 退出 VN: 守望停（防隐藏页空轮询）
     clearAutoTimer();
     unbindSkip();
     setAuto(false);
     toggleMenu(false);
-    hideEnterWait();                  // 防残留: 失败/中断路径收等待卡
+    hideEnterWait();              // 防残留: 失败/中断路径收等待卡
     $("view-bond").classList.add("hidden");
+  }
+
+  function exit() {
+    // 回 MMT: 隐藏 VN 视图（聊天窗原样保留）→ 解锁输入 + 重启轮询（拉 wrapup 收尾话）
+    _hideVn();
     if (window.MMT && typeof window.MMT.unlockChat === "function") {
       window.MMT.unlockChat();
       window.MMT.resumePolling();
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // 回忆册只读回放（DESIGN_COLLECTION_BOOK §4）
+  //   ① enterReadonly: 一次性收下整章逐板数据 → 复用 live 渲染器逐板播
+  //   ② 推进 = 本地下一板（submit/finish 在 readonly 下短路, 绝不发请求）
+  //   ③ 播完 = "返回回忆册"（不写事件流、不改玩家当前进度）
+  // ---------------------------------------------------------------------------
+
+  async function enterReadonly(payload, onExit) {
+    readonly = true;
+    roExit = typeof onExit === "function" ? onExit : null;
+    roQueue = (payload && payload.scenes) || [];
+    roIndex = 0;
+    charId = (payload && payload.char_id) || "";
+    sessionId = "";                       // 只读: 不绑任何会话
+    name = (payload && payload.name) || charId;
+    finished = false; busy = false; gotScene = true; seenRound = 0; seenEmo = -1;
+    historyLog = [];
+    speedIdx = 1; typeCharMs = SPEEDS[1].char; typePunctMs = SPEEDS[1].punct;
+    setAuto(false);
+    toggleMenu(false);
+    bindSkip();
+    if (player) {                         // 换角色: 旧立绘必须销毁（spine 是 per 角色）
+      try { player.destroy(); } catch (e) { /* 尽力而为 */ }
+      player = null;
+      playerMeta = null;
+    }
+    stopTyping();
+    clearEmoWatch();
+    showView();
+    if (payload && payload.name) $("bond-name").textContent = payload.name;
+    if (payload && payload.club !== undefined) $("bond-club").textContent = payload.club;
+    // 立绘不阻塞首屏（与 live 同策略）; 章标题屏给"翻开这一章"的仪式感（点击可跳过）
+    initSpine().catch(() => { /* 无 spine → 纯文字 */ });
+    await showTitle((payload && payload.title) || "", "");
+    if (!roQueue.length) { roEnd(); return; }
+    roNext();
+  }
+
+  /** 播下一板（只读推进的唯一入口）。 */
+  function roNext() {
+    if (!readonly) return;
+    if (roIndex >= roQueue.length) { roEnd(); return; }
+    const item = roQueue[roIndex++];
+    $("bond-text").innerHTML = "";
+    $("bond-choices").innerHTML = "";
+    hideContinue();
+    renderScene(item.scene || {});        // 与 live 同一渲染器（背景/立绘/打字机/选项态）
+  }
+
+  /** 播完: 右下"返回回忆册"（不自动退出——让玩家看完最后一板再走）。 */
+  function roEnd() {
+    const box = $("bond-choices");
+    if (!box) return;
+    box.innerHTML = "";
+    hideContinue();
+    const wrap = document.createElement("div");
+    wrap.className = "bond-free";
+    const btn = document.createElement("button");
+    btn.className = "bond-continue-btn";
+    btn.textContent = "▸ 返回回忆册";
+    btn.addEventListener("click", exitReadonly);
+    wrap.appendChild(btn);
+    box.appendChild(wrap);
+  }
+
+  function exitReadonly() {
+    const cb = roExit;
+    readonly = false; roQueue = []; roIndex = 0; roExit = null;
+    _hideVn();                            // 只收视图——**不碰 MMT**（册子不是从聊天进来的）
+    $("bond-choices").innerHTML = "";
+    $("bond-text").innerHTML = "";
+    if (cb) cb();
   }
 
   // ---------------------------------------------------------------------------
@@ -421,6 +509,7 @@ let lastSceneKey = "";
   // 阅读期轻量轮询: 标注（emo_version）到达即补切; 场景推进/全标注稳定后自停
   function startEmoWatch(scene) {
     clearEmoWatch();
+    if (readonly) return;        // 只读回放: 板是从事件流读的（标注早已回填）, 不轮询 status
     const paras = (scene && scene.paragraphs) || [];
     if (!paras.length || scene.is_end) return;
     if (paras.every((p) => p && p.emotion)) return;      // 已全标注 → 无需守望
@@ -558,6 +647,8 @@ let lastSceneKey = "";
    *  上一句角色台词/旁白, 名字牌/立绘都不动; 玩家的话语永远只体现为选项）。 */
   function showContinueButton() {
     const choiceBox = $("bond-choices");
+    // 幂等: 同一板重复进入交互态（左键点过最后一段 / 只读回放重入）不叠出第二个"▼ 继续"
+    choiceBox.querySelectorAll(".bond-free").forEach((n) => n.remove());
     const wrap = document.createElement("div");
     wrap.className = "bond-free";
     const btn = document.createElement("button");
@@ -583,7 +674,8 @@ let lastSceneKey = "";
       // 已裁决的板（回放/续看, `picked` 由后端随场景带回）: 选项组**只读**画出来,
       // 高亮所选——玩家重进中断剧情时能看出"当时给了什么、我选了什么"（用户
       // 2026-09-12 反馈: 否则选哪个选项看起来都一样）。裁决句本身仍不上屏（决策 #37）。
-      const resolved = !!scene.picked;
+      // 回忆册只读回放: **一律锁定**（即使没有 picked——点了会提交真实剧情, 绝不允许）。
+      const resolved = readonly || !!scene.picked;
       scene.choices.forEach((c) => {
         const btn = document.createElement("button");
         btn.className = "bond-choice"
@@ -910,6 +1002,8 @@ let lastSceneKey = "";
     if (autoItem) autoItem.textContent = "自动播放：" + (autoOn ? "开" : "关");
     const speedItem = document.querySelector('.bond-menu-item[data-act="speed"]');
     if (speedItem) speedItem.textContent = "打字速度：" + SPEEDS[speedIdx].label;
+    const endItem = document.querySelector('.bond-menu-item[data-act="end"]');
+    if (endItem) endItem.textContent = readonly ? "退出回放" : "结束剧情";
   }
 
   function applySpeed() {
@@ -1035,6 +1129,8 @@ let lastSceneKey = "";
   }
 
   async function submit(text) {
+    // 回忆册只读回放: 推进 = 本地下一板。**绝不**发 turn（那会推进真实剧情/写事件流）
+    if (readonly) { roNext(); return; }
     if (busy) return;
     busy = true;
     lastText = text;              // 失败重试用（2026-09-02）
@@ -1115,6 +1211,7 @@ let lastSceneKey = "";
   }
 
   async function finish() {
+    if (readonly) { roEnd(); return; }   // 只读: 收尾 = 播完本板（不写 vn_exit/wrapup/digest）
     if (finished) return;
     finished = true;
     try {
@@ -1199,7 +1296,7 @@ let lastSceneKey = "";
 
   // ---------------------------------------------------------------------------
 
-  return { enter, exit };
+  return { enter, exit, enterReadonly };
 })();
 
 window.BondVN = BondVN;

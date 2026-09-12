@@ -39,6 +39,7 @@ const resourceConsole = [];      // "Failed to load resource" 类（由 badRespo
 const benignNotices = [];        // 明确无害的噪音（如浏览器自动探测 /favicon.ico）
 const failedRequests = [];
 const badResponses = [];
+const bondWrites = [];            // 回忆册只读回放期间不该出现的 bond 写请求
 const allowedNotices = [];       // 白名单内的非 2xx（如 /api/spine 404 = 无 spine 降级）
 //: 允许的非 2xx: /api/spine 404 = 无 spine 资源 → 前端按纯文字降级（合法）
 const ALLOWED_4XX = [/\/api\/spine\//];
@@ -151,6 +152,13 @@ async function main() {
     (t.includes("Failed to load resource") ? resourceConsole : consoleErrors).push(t);
   });
   page.on("pageerror", (e) => consoleErrors.push("pageerror: " + String(e).slice(0, 400)));
+  // 只读回放契约: 回忆册里播章**不许**出现任何 bond 写请求（turn/finish/start）
+  page.on("request", (r) => {
+    if (r.method() !== "POST") return;
+    if (/\/api\/bond\/(turn|finish|start)/.test(r.url())) {
+      bondWrites.push(`${r.method()} ${r.url()}`);
+    }
+  });
   page.on("requestfailed", (r) => {
     const f = r.failure();
     failedRequests.push(`${r.method()} ${r.url()} — ${f ? f.errorText : "?"}`);
@@ -494,6 +502,80 @@ async function main() {
   if (typingSeen) {
     throw new Error("收尾话已显示完, 打字指示（mmt-typing）仍残留 —— 宽限窗口谎报");
   }
+
+  // ── 9. 回忆册: 书页 → 角色页 → 只读回放（DESIGN_COLLECTION_BOOK）────────
+  //  口径: 一格一角色; 角色页只列**已确认结束**的章; 只读回放 0 LLM、不写事件流。
+  const CHAR = "igusa_haruka";
+  bondWrites.length = 0;                    // 从这里开始算"回放期间的写请求"
+  await page.click("#mmt-back");
+  await page.waitForSelector("#view-main:not(.hidden)", { timeout: 10000 });
+  await page.click("#btn-playback");
+  await page.waitForSelector("#view-collection:not(.hidden)", { timeout: 10000 });
+  await page.waitForSelector('.col-grid [data-char]', { timeout: 20000 });
+  const bookCells = await page.locator(".col-grid [data-char]").count();
+  const blankCells = await page.locator(".col-grid .col-slot.blank").count();
+  record("回忆册书页", {
+    info: `${bookCells} 格可点 / ${blankCells} 格留白（无素材角色占位）`,
+    shot: await shot(page, "book"),
+    bookCells, blankCells,
+  });
+  if (!bookCells) throw new Error("回忆册书页没有任何可点角色格");
+
+  await page.click(`.col-grid [data-char="${CHAR}"]`);
+  await page.waitForSelector("#col-char:not(.hidden)", { timeout: 10000 });
+  await page.waitForSelector("#col-chapters .col-chapter", { timeout: 20000 });
+  const chapterTitles = await page.locator("#col-chapters .col-chapter-name").allInnerTexts();
+  const hasThumb = await page.locator("#col-chapters .col-chapter-thumb").count();
+  record("回忆册角色页", {
+    info: `章节=${JSON.stringify(chapterTitles)} 纪念图缩略=${hasThumb}`,
+    shot: await shot(page, "book-chapters"),
+    chapterTitles, hasThumb,
+  });
+  if (!chapterTitles.includes("放学后的约定")) {
+    throw new Error(`角色页没列出刚结束的章: ${JSON.stringify(chapterTitles)}`);
+  }
+
+  await page.click("#col-chapters .col-chapter .col-play");
+  await page.waitForSelector("#view-bond:not(.hidden)", { timeout: 20000 });
+  const roBoard1 = await readUntilInteraction(page, "只读回放首板", 60000);
+  record("只读回放首板", {
+    info: `${roBoard1.length} 段; ${roBoard1.map((p) => p.text.slice(0, 10)).join(" / ")}`,
+    shot: await shot(page, "book-replay"),
+    transcript: roBoard1,
+  });
+  if (bondWrites.length) {
+    throw new Error(`只读回放发了写请求（应 0 LLM/不写事件流）: ${bondWrites.join(" / ")}`);
+  }
+  // 一路推进到章末 → 出现"返回回忆册"
+  let sawEndButton = false;
+  for (let i = 0; i < 16 && !sawEndButton; i++) {
+    const labels = await page.locator("#bond-choices .bond-continue-btn").allInnerTexts();
+    if (labels.some((t) => t.includes("返回回忆册"))) { sawEndButton = true; break; }
+    const btn = page.locator("#bond-choices .bond-continue-btn").first();
+    if (!(await btn.count())) break;
+    await btn.click();
+    await waitInteractionReset(page, 20000).catch(() => { /* 末板没有下一板 */ });
+    await readUntilInteraction(page, `只读回放第 ${i + 2} 板`, 60000).catch(() => []);
+  }
+  record("只读回放播完", {
+    info: sawEndButton ? "出现『返回回忆册』" : "❌ 没走到章末",
+    shot: await shot(page, "book-replay-end"),
+  });
+  if (!sawEndButton) throw new Error("只读回放没走到章末（『返回回忆册』未出现）");
+  if (bondWrites.length) {
+    throw new Error(`只读回放全程出现写请求: ${bondWrites.join(" / ")}`);
+  }
+  await page.click("#bond-choices .bond-continue-btn");        // 返回回忆册
+  await page.waitForSelector("#view-collection:not(.hidden):not(#view-bond)", { timeout: 10000 })
+    .catch(() => { /* 视图类名不同也不致命, 下面用 DOM 判断 */ });
+  const backToChar = await page.evaluate(() => {
+    const v = document.getElementById("view-collection");
+    const c = document.getElementById("col-char");
+    return { book: v && !v.classList.contains("hidden"),
+             char: c && !c.classList.contains("hidden") };
+  });
+  record("回放后回角色页", { info: JSON.stringify(backToChar) });
+  if (!backToChar.book) throw new Error("退出只读回放后没回到回忆册");
 
   await browser.close();
 

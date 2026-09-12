@@ -660,6 +660,110 @@ def test_board_deliver_ledger_marks_replay(web, caplog):
 
 
 # ---------------------------------------------------------------------------
+# 5d. 回忆册（书页 / 角色页 / 只读回放）—— DESIGN_COLLECTION_BOOK.md
+# ---------------------------------------------------------------------------
+
+def _seed_chapters(store, sid):
+    """塞三章: 甲（已结束, 3 板, 含一组已裁决选项 + 一张纪念图）/ 乙（未完）/ 丙（废弃）。
+
+    返回甲的 from_seq（章的稳定 id）与乙的——后者用来断言"未完章后端根本没有"。
+    """
+    from core.session.events import make_event
+
+    def board(text, choices=None, picked=None):
+        store.append_event(CHARACTER, sid, make_event(
+            "bond", "story_scene",
+            {"paragraphs": [{"text": text}], "background": "class_room",
+             "choices": choices or [], "picked": picked, "input": "（继续）"}))
+
+    # 甲: 已确认结束
+    a = store.append_marker(CHARACTER, sid, "vn_enter",
+                            {"chapter_title": "咖啡厅的甜点陷阱"}).seq
+    board("她抬起头。")
+    board("我来了。", choices=["我来了。", "再等一会儿。"], picked="我来了。")
+    store.append_marker(CHARACTER, sid, "memorial_image",
+                        {"url": "/gallery/world1/igusa_haruka/20260101_000000_ab12.png",
+                         "prompt": "p", "width": 1024, "height": 1024,
+                         "scene_id": "20260101_000000_ab12"})
+    board("她笑了。")
+    store.append_marker(CHARACTER, sid, "vn_exit", {"completed": True})
+
+    # 乙: 未完（流尾未关）——册子不该看到它
+    b = store.append_marker(CHARACTER, sid, "vn_enter",
+                            {"chapter_title": "没写完的章"}).seq
+    board("半截。")
+
+    # 丙: 被 vn_abandon 关闭（视为未发生）
+    c = store.append_marker(CHARACTER, sid, "vn_enter",
+                            {"chapter_title": "废弃的章"}).seq
+    board("这段不算数。")
+    store.append_marker(CHARACTER, sid, "vn_abandon",
+                        {"start_seq": c, "end_seq": c + 1})
+    return a, b, c
+
+
+def test_collection_book_routes(web, monkeypatch, tmp_path):
+    """书页 → 角色页 → 只读回放: **只有已确认结束的章出现**, 未完/废弃的连数据都没有。
+
+    资产（`collection.png` 封面）指到 tmp 世界树——`assets/` 是 gitignore 的, 写真路径
+    会假红; 这里同时验证"无素材角色 → 留白格"（作者口径）。
+    """
+    from webgui.routers import mmt as mmt_router
+
+    st, sid = web
+    a_seq, b_seq, c_seq = _seed_chapters(st, sid)
+
+    # 封面: 只有 CHARACTER 有 collection.png, 其余白名单角色留白
+    illus = tmp_path / "illus"
+    cover = illus / CHARACTER / "default" / "portrait" / "collection.png"
+    cover.parent.mkdir(parents=True)
+    cover.write_bytes(b"\x89PNG\r\n\x1a\n")
+    monkeypatch.setattr(mmt_router, "ILLUS_ROOT", illus)
+
+    r = _http("GET", "/api/collection/book")
+    assert r.status_code == 200, r.text
+    book = r.json()
+    assert book["rows"] == 3 and book["cols"] == 4
+    assert book["cells"], book
+    by_id = {c["char_id"]: c for c in book["cells"]}
+    assert by_id[CHARACTER]["has_cover"] is True
+    assert by_id[CHARACTER]["cover"].endswith(f"{CHARACTER}/default/portrait/collection.png")
+    blanks = [c for c in book["cells"] if not c["has_cover"]]
+    assert blanks, "无素材角色应留白占位（不是从书里消失）"
+    assert all(c["name"] for c in book["cells"]), "每格都要有显示名"
+
+    # 角色页: 只有甲
+    r = _http("GET", f"/api/collection/{CHARACTER}/chapters")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    chs = body["chapters"]
+    assert [c["title"] for c in chs] == ["咖啡厅的甜点陷阱"], chs
+    assert chs[0]["from_seq"] == a_seq and chs[0]["boards"] == 3
+    assert chs[0]["memorial_url"].endswith("20260101_000000_ab12.png"), chs[0]
+    assert "scenes" not in chs[0], "角色页不该背正文"
+
+    # 只读回放: 逐板 + 当时的选择 + 渲染信息
+    r = _http("GET", f"/api/collection/{CHARACTER}/{a_seq}")
+    assert r.status_code == 200, r.text
+    rep = r.json()
+    assert rep["title"] == "咖啡厅的甜点陷阱" and len(rep["scenes"]) == 3
+    mid = rep["scenes"][1]
+    assert mid["picked"] == "我来了。" and mid["scene"]["picked"] == "我来了。"
+    assert mid["scene"]["choices"] == ["我来了。", "再等一会儿。"]
+    assert "input" not in mid["scene"], "input 摘出来单放（前端不渲染玩家那句）"
+    assert rep["images"], rep
+
+    # 未完 / 废弃的章: 后端也没有（"渲染都不渲染"是数据口径, 不是前端过滤）
+    for seq, why in ((b_seq, "未完"), (c_seq, "废弃")):
+        rr = _http("GET", f"/api/collection/{CHARACTER}/{seq}")
+        assert rr.status_code == 404, f"{why}章不该可取: {rr.status_code}"
+    rr = _http("GET", f"/api/collection/{CHARACTER}/999999")
+    assert rr.status_code == 404
+    print(f"    web: 回忆册 {len(book['cells'])} 格（{len(blanks)} 格留白）; "
+          f"角色页 {len(chs)} 章; 未完/废弃章 404")
+
+
+# ---------------------------------------------------------------------------
 # 6. 设置页
 # ---------------------------------------------------------------------------
 

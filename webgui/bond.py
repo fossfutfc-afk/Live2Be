@@ -48,6 +48,7 @@ from core.session.events import (
     M_VN_STATE,
     make_event,
 )
+from core.session.chapters import replayable_chapters
 from core.session.maintenance import (
     abandon_open_attempts,
     abandon_opens_except,
@@ -558,6 +559,38 @@ def replay_attempts(char_id: str, session_id: str = "") -> list[dict]:
             })
     close_interrupted()                     # 流尾未关段 → 中断
     return attempts
+
+
+# ---------------------------------------------------------------------------
+# 回忆册只读回放（DESIGN_COLLECTION_BOOK, 2026-09-12）
+#   与上面的 resume 型 replay 的区别: **播完即停**——0 LLM、不碰 BondState、
+#   不写事件流、不改玩家当前进度。原料同一份（事件流里的 bond 板, 落库即终态）,
+#   所以复用 `_narrativize` 保证"回放看到的 = 当时看到的"。
+# ---------------------------------------------------------------------------
+
+def chapter_replay(char_id: str, from_seq: int, session_id: str = "") -> dict | None:
+    """某章的全部板（只读回放载荷）; 章不存在/未结束 → None（纯读, 幂等）。
+
+    只认 `replayable_chapters` 里的章——**未完/中断/废弃的章这里也拿不到**
+    （不是前端藏起来, 是后端根本没有）, 与"渲染都不渲染"的口径同源。
+    """
+    try:
+        evs = _store().events(char_id, session_id)
+    except Exception:                                # noqa: BLE001 — 读失败按无此章
+        return None
+    try:
+        want = int(from_seq)
+    except (TypeError, ValueError):
+        return None
+    for ch in replayable_chapters(evs):
+        if ch["from_seq"] != want:
+            continue
+        scenes = [{"seq": s["seq"], "input": s["input"], "picked": s["picked"],
+                   "scene": _narrativize(s["scene"], s["picked"])}
+                  for s in ch["scenes"]]
+        return {"from_seq": ch["from_seq"], "to_seq": ch["to_seq"], "title": ch["title"],
+                "boards": ch["boards"], "images": ch["images"], "scenes": scenes}
+    return None
 
 
 # ---------------------------------------------------------------------------

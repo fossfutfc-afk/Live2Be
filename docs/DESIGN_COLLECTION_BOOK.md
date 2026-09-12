@@ -1,8 +1,13 @@
 # 回忆册（Collection Book）— 设计稿
 
-> **状态: 设计稿, 未实现**（2026-09-12 与作者逐条敲定; 动代码前先读 §8）。
+> **状态: P0 已落地**（2026-09-12; 设计 2026-09-12 与作者逐条敲定, 同日实现）。
+> 落地清单: `core/session/chapters.py`（派生）+ `webgui/routers/collection.py`（三个只读路由）
+> + `webgui/static/js/collection.js` / `css/collection.css`（书页/角色页）
+> + `BondVN.enterReadonly`（只读回放）+ 主界面"回 放"按钮接线。
+> 测试: `tests/core/test_chapters.py`（10 例）+ `tests/webgui/test_web_http.py::test_collection_book_routes`
+> + B 层冒烟"回忆册/只读回放"步骤。**P1（图挂 memorial 板/缩略图之外的呈现/3D 翻页/书签）未做。**
 > 术语纪律: 本稿的**「回忆册」= 书页 UI**;**「回放」专指只读播 VN 正文**——
-> 与现网那个"中断重进 → 回放前缀 → LLM 续写"的 resume 型 replay 是两件事（§5）。
+> 与现网那个"中断重进 → 回放前缀 → LLM 续写"的 resume 型 replay 是两件事（§4）。
 
 ---
 
@@ -87,13 +92,20 @@ rikuhachima_aru 无事件流文件
 
 ## 3. 纪念图怎么出现（回放里的图）
 
-- 章的图 = 落在该章区间 `[vn_enter.seq, vn_exit.seq]` 内的 `memorial_image` marker。
-- **预热先出图**（#40）: marker 落在 `vn_enter` **之前** → 归"紧随其后的那个 `vn_enter` 所属章";
-  但两者之间夹了 `vn_abandon` → 作废（那是废弃章的图）。
-- **精确挂载**（推荐）: v2 板的 payload 带 `memorial: true` → 图挂到**那块板**上,
-  回放播到那一刻淡入——与 live 同观感; 一章多图就按顺序配对。
-- 数量对不上时静默降级: 有板无图 → 纯文字; 有图无板 → 章末定格一张。
-- 角色页的章节条目可以带**缩略图**（有图才有; 没图就是纯标题行）。
+**已实现的归属规则**（`core/session/chapters.py:_memorial_urls`, 实现时被测试逼着收敛成三条）:
+
+1. **板锚点说了算**: 找该图 marker **最近的前置 `memorial_enter`**（那才是"哪块板触发的图"）——
+   锚点落在某章内 → 图归该章; 锚点落在章前的空档（预热板）→ 归紧随其后的那一章（#40）。
+2. **没有锚点时退回区间判据**（v1 档 / 图先于板落盘）: 图在章区间内 → 该章;
+   在 `vn_enter` 之前 → 紧随其后的章; 中间夹 `vn_abandon` → 作废。
+3. **孤儿**（锚点/图之后没有任何新章）→ 不显示（没有章可挂）。
+
+> **为什么必须有第 1 条**: 生图 ~26s, 而纪念多在本章末尾——**图经常在本章 `vn_exit`
+> 之后才落盘**; 只按区间判会把它错挂到下一章（玩家在下一章看到上一章的画）。
+> 这是实现期写测试时才发现的口径漏洞, 已写成用例 `test_memorial_image_attribution`。
+
+P0 只把图挂到**章**（角色页条目上的缩略图 + `memorial_url`）; **播到那一刻淡入**
+（图挂到具体那块 `memorial` 板）留 P1——板 payload 带 `memorial: true`, 数据已具备。
 
 ## 4. 回放语义: **只读型**（与现网的 resume 型区分）
 
@@ -127,24 +139,34 @@ rikuhachima_aru 无事件流文件
 | 章节条目 | 角色页里一行标题 + 进入回放的按钮 |
 | 只读回放 | 册子里的回放: 播完即停、0 LLM、不碰 live 状态 |
 
-## 7. 实施切分
+## 7. 实施切分（P0 = 已落地）
 
-**P0（做完就能用）**
+**P0（做完就能用）—— 已实现 2026-09-12**
 
-- 后端: `chapters(char)` 纯函数（`replay_attempts` + `completed` 过滤 + `exclude_abandoned`
-  + 标题回落链 + 图归属）→ 一个 GET 路由, 返回册子数据:
-  `[{char, cover_url, chapters: [{from_seq, title, boards, has_memorial, memorial_url}]}]`。
-- 前端: 书页 overlay（两半页 / 24 格 / 翻页）+ 角色页 + 只读回放视图。
-- 测试: A 层 HTTP 用例——**只有 completed 的章出现在列表里**, 废弃章不出现, 未完章不出现;
-  B 层浏览器走一遍（点格子 → 条目 → 回放 → 播完停在末板）。
+- 后端: `core/session/chapters.py:replayable_chapters/chapter_index`（纯派生）→
+  `webgui/routers/collection.py` 三个只读路由:
+  `GET /api/collection/book`（角色格 + 封面, **不扫章**——开书零成本）
+  `GET /api/collection/{cid}/chapters`（已结束的章; 不背正文）
+  `GET /api/collection/{cid}/{from_seq}`（逐板 scene + 当时的选择; 章不存在/未结束 → **404**）
+- 前端: `collection.js`（书页 24 格 / 翻页 / 角色页 / 留白格）+ `collection.css`;
+  `BondVN.enterReadonly(payload, onExit)` 复用 live 渲染器逐板播, 播完出"▸ 返回回忆册"。
+- 测试: `tests/core/test_chapters.py`（10 例: 只收 completed / 废弃 / 空壳 / 旧档 /
+  图归属三条 / 流序 / 索引不带正文）; `test_web_http.py::test_collection_book_routes`
+  （书页 4 格 3 留白 → 角色页 1 章 → 回放 3 板含 picked → 未完/废弃/不存在章 404）;
+  B 层冒烟: 书页 → 角色页 → 只读回放 → 播完返回, 并断言**全程 0 个 bond 写请求**。
 
-**P1（攒着）**: 图挂 memorial 板（§3 精确挂载）、条目缩略图、CSS 3D 翻页、书签。
+**只读保证（三层）**: ① 后端只有读路由, 没有写路径; ② 前端 `submit()/finish()` 在
+`readonly` 下短路成本地推进（绝不 POST）; ③ 冒烟监听 `POST /api/bond/{start,turn,finish}`
+计数为 0。
+
+**P1（攒着）**: 图挂 memorial 板（播到那一刻淡入）、CSS 3D 翻页、书签/续读位置。
 
 **明确不做**: 索引表（§2）、未完章的渲染（§1）、任何续写。
 
-## 8. 未决（先按暂定走, 作者一句话可改）
+## 8. 未决 → 已按暂定实现（作者 2026-09-12 "都按暂定的来做"）
 
-1. **章标题缺失**（v1 旧档 / 异常）的兜底文案 —— 暂定: 触发事件 title → `display_name`。
-2. **一章多图**的呈现 —— 暂定: 每张挂对应 `memorial` 板, 多余的挂章末。
-3. **0 章角色的格子**（如真机的 `onikata_kayoko`: 只有 session_start）——
-   暂定: 格子照常可点, 角色页显示空态文案"还没有结束的故事"。
+1. **章标题缺失**（v1 旧档 / 异常）→ 前端兜底 `第 N 章`（后端 title 原样给空串;
+   角色页按序号补）。**注**: 触发事件 title → `display_name` 那条链在 P0 没接
+   （需要跨到 mmt 触发事件去查）——真机两章都有标题, 等真出现空标题再补。
+2. **一章多图** → P0 取**最后一张**作章代表（`memorial_url`）; 逐张挂板的呈现留 P1。
+3. **0 章角色的格子** → 格子照常可点, 角色页显示"还没有结束的故事。"
