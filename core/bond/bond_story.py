@@ -1138,9 +1138,27 @@ class BondStoryEngine:
         return build_schema(self.memorial_registry)
 
     def _scene_task_kind(self) -> str:
-        """场卡 kind 自推（DESIGN_PROMPTKIT §4）: 纪念模式中 → memorial_exit
-        （本场唯一任务 = 退出）; 否则 scene（推进当前板块）。"""
-        return "memorial_exit" if self._in_memorial else "scene"
+        """场卡 kind（DESIGN_PROMPTKIT §4）——**v2 恒为 `scene`**。
+
+        2026-09-13 修正（审计 B1）: 原实现 `"memorial_exit" if self._in_memorial
+        else "scene"`。该分支在记录流 v2 下既是**死动作**又是**错指令**:
+
+        ① 死动作——`memorial_exit` 是 v1 的独占动作, v2 只吃记录流、动作 JSON
+           一律打回（见本文件 `feedback(... "请按「本轮输出契约」重发整轮记录")`）。
+           同类坑已修过一次: `webgui/bond.py` 的 `_system_note` 里那条
+           "请输出 memorial_exit" 注记正是为此删除的（注释写着"会打回重发 →
+           反馈回环"）——任务卡这条路径漏改。
+        ② 错指令（更隐蔽）——`_in_memorial` 只在**新一块解析成功后**复位
+           （本文件 `self._in_memorial = False`）, 所以**构造提示词的那一刻**
+           `_in_memorial=True` 的真实含义是"**上一块**含纪念", 而不是"本场在
+           纪念区间内"。把它读成后者就会对着一场**新块**说"纪念已落幕"。
+        ③ 而 v2 根本不需要这条指令——纪念区间 = 触发之后到**本块块尾**
+           （决策 #39/#40）, 边界由块边界结构性给出; `MEMORIAL`/`END`/`EXIT`
+           的写法在盒B rules 与输出契约里已有, 无需场卡再说一遍。
+
+        故恒返回 `scene`; 模板 `task_bond_memorial_exit.md` 同时删除（已成孤儿）。
+        """
+        return "scene"
 
     def record_picked(self, picked: str) -> None:
         """方案A-A1 选项回录（DESIGN_PROMPTKIT §5；记录流 v2 版 = **裁决物化**）。
