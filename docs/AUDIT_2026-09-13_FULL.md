@@ -462,3 +462,78 @@ E11 轮数跨重连恢复 · 拆分点A embedding 降级可观测 · store `null
 回归: **594 passed**。
 
 
+
+---
+
+## 10. embedding 服务实测与校准（2026-09-13 现场）
+
+> 用户: "embedding 理论上现在还没有彻底接入，因为这个服务不知道为什么似乎有点问题，
+> 你先看看这个 embedding 能不能正常调用"。**结论: 调用本身已通; 真正的问题是模型选型
+> 与阈值标定, 不是连通性。**
+
+### 10.1 现场诊断
+
+| 现象 | 实况 |
+|---|---|
+| 探 `localhost:1234` 返回 **502** | 不是服务故障: 系统代理 `ProxyEnable=1 / 127.0.0.1:7897` 曾拦截; 且**当时 1234 上确实没有进程**（直连 `127.0.0.1:1234` = 连接被积极拒绝） |
+| 服务其实装了 | `~/.lmstudio/bin/lms.exe`（CLI 版, 无 GUI 主程序）; `lms server start --port 1234` 即可起来（进程名 **Bionic**） |
+| 可用 embedding 模型 | 磁盘仅 `text-embedding-nomic-embed-text-v1.5`（84MB, **英文为主**）; `Qwen/Qwen3-Embedding-0.6B-GGUF` 已下载 639MB, 但**不在 LM Studio 索引里**（`lms ls` 看不到 → `lms load` 拒收, 需 `model.yaml` 元数据） |
+
+调用链实测（走项目自己的 `core.rag.embedder.LocalEmbedder`）: `/v1/models` 200、
+`_auto_discover` 命中、`health()` True、`embed()` 返回真实向量（**可用**）。
+
+### 10.2 真正的问题: 中文判别力
+
+`recommend_candidates` 靠余弦相似度撞库, `>= CAND_HIGH(0.50)` 就判【疑似同主题】→
+`parse_round_b` **结构强制**该条只能 `touch`/`update`、**禁 add**。所以这个阈值决定了
+"能不能长出新的 belief"。实测（真实 wiki 的 4 个 belief 两两 + 参照对）:
+
+| 模型 | 维度 | 完全无关对 | 略相关对 | 真实 belief 两两 | ≥0.50 的比例 |
+|---|---|---|---|---|---|
+| `nomic-embed-text-v1.5`（现役） | 768 | **0.603** | 0.583 | 0.769 ~ 0.865（均值 0.813） | **6/6** |
+| `Qwen3-Embedding-0.6B`（多语言） | 1024 | **0.260** | 0.534 | 0.528 ~ 0.712（均值 0.588） | 6/6 |
+
+**读法**: nomic 把中文压进一条很窄的高相似带（**句句都 ~0.6 起**，连"天气"vs"量子色动力学"
+都 0.603）→ 判别力近乎为零。Qwen3 的无关基线降到 0.260（好得多）, 但真实 belief 对仍
+0.528~0.712 —— 因为那 4 条 belief **本来就都关于"我和老师"**（"被老师求助"、"向老师敞开
+秘密基地"、"对老师肯定的感受"、"对老师的承诺方式"）, 共享 `老师` 标签与同一段关系。
+
+**结论（关键）**: `CAND_HIGH=0.50` 这个阈值**从未被真机分数标定过**（标定时服务没通）。
+两个模型下它都会把**全部**真实对判成"同主题"。若照此上线, 引擎会**禁止所有 add**——
+新经历只能去 touch/update 已有 belief, wiki 永远长不出新节点。这与"只增不并"是**方向相反的
+同一个病**: 阈值把"同一段关系里的不同侧面"误判成"同一件事"。
+
+### 10.3 建议（未实施, 属图/RAG 批次）
+
+1. **换多语言模型**: Qwen3-Embedding-0.6B（已下载）。代价实测: 批量 40 条 143ms → 1716ms
+   （~12×）, 长文本 91ms → 927ms; digest 是分钟级后台路径, **可接受**。
+2. **阈值必须重标**: 用真实 wiki 分数分布定 `CAND_HIGH`/`CAND_MED`（例如取"无关档上界"
+   之上），并**按模型分别标定**——写死一个常数跨模型必然再次失效。
+3. **给"疑似同主题"加语义密度**: 单看相似度会把"同角色同关系"的全部分侧面判成同主题。
+   应叠加 `subject` 是否近似, 或让 `must_touch` 只作**提示**而非**结构强制**（现在是
+   `parse_round_b` 直接判错、决策作废）。
+4. **重跑一场验证**: 服起 + 阈值调好后跑一段真实剧情, 看 `evolution.jsonl` 里
+   `touch`/`update` 是否**按预期**出现（而不是 0 或 100%）。
+
+### 10.4 让服务长期可用（操作备忘）
+
+```powershell
+# nomic（LM Studio/Bionic, 1234）—— 项目默认地址, 无需改代码
+lms server start --port 1234
+lms load text-embedding-nomic-embed-text-v1.5 --gpu max --identifier embed
+
+# Qwen3-Embedding-0.6B（多语言, 1235）—— 因不在 LM Studio 索引, 走 llama.cpp 直启
+$dir = "$env:USERPROFILE\.lmstudio\extensions\backends\llama.cpp-win-x86_64-avx2-2.27.1"
+Push-Location $dir
+.\llama-server.exe --model "$env:USERPROFILE\.lmstudio\models\Qwen\Qwen3-Embedding-0.6B-GGUF\Qwen3-Embedding-0.6B-Q8_0.gguf" `
+  --embeddings --port 1235 --host 127.0.0.1
+```
+注意: CUDA 版 `llama-server.exe` 在本机 **DLL 加载失败**（exit `0xC0000135`）,
+**AVX2 版正常**; 且必须 `Push-Location` 到该目录（同级 DLL 依赖）。
+项目侧换模型只需 `LocalEmbedder(base_url="http://127.0.0.1:1235/v1")`。
+
+### 10.5 现场验证脚本（不提交, 在 .testtmp/）
+
+`_probe_embed.py`（连通性/维度）· `_probe_disc.py`（判别力拆解: content/tags/growth）·
+`_probe_realwiki2.py`（真实 belief 两两 + HIGH/MED 标注统计）·
+`_probe_cmp.py`（两模型对照）· `_probe_robust.py`（长文本/边界/批量）。
