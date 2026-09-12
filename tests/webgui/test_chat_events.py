@@ -115,3 +115,31 @@ def test_bond_done_title_fallback(tmp_path):
     _exit(st, sid, completed=True)
     done = chat._bond_done_map(st.events(CHARACTER, sid), "遥香")
     assert done[trig.seq] == "已完成羁绊剧情：遥香"
+
+
+def test_reset_engines_keeps_per_char_lock():
+    """设置变更重建引擎时**不得**清掉同角色串行锁（2026-09-13 审计 B17）。
+
+    锁是并发保护而非引擎的一部分: 一次 `agent_turn` 可能正持着旧 Lock 在跑,
+    清掉 `_locks` 后新调用者会拿到**另一个 Lock** → 同角色两个 turn 并行跑,
+    串行不变量被打破（会话/事件流都可能写乱）。
+    """
+    old_engines = dict(chat._engines)
+    old_locks = dict(chat._locks)
+    try:
+        chat._engines.clear()
+        chat._locks.clear()
+        lock = chat._lock(CHARACTER)
+        lock.acquire()                            # 模拟"某次 turn 正持锁在跑"
+        try:
+            chat._engines[CHARACTER] = object()   # 有个旧引擎待清
+            chat.reset_engines()
+            assert not chat._engines, "引擎应被清空（下次按新配置重建）"
+            assert chat._lock(CHARACTER) is lock, \
+                "锁被换掉了 → 同一角色会出现两个并发 turn"
+        finally:
+            lock.release()
+    finally:
+        chat._engines.clear(); chat._engines.update(old_engines)
+        chat._locks.clear(); chat._locks.update(old_locks)
+    print("    reset_engines: 清引擎但保住串行锁（并发不变量不破）")

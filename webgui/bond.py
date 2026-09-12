@@ -211,6 +211,10 @@ class BondState:
     _place_started: bool = field(default=False, repr=False)
     _anno_thread: "threading.Thread | None" = field(default=None, repr=False)
     _place_thread: "threading.Thread | None" = field(default=None, repr=False)
+    # 在途标注计数（2026-09-13 审计 A6）: worker 从队列取走 → `await` 标注 LLM →
+    # 写回, 这段窗口里 `qsize()==0`, 光看队列深度会误判成"lane 空闲"。看门狗据此
+    # 区分"慢但在途"（等它）与"没人会再来标"（才降级）——两路各自 +1/−1。
+    _lane_inflight: int = field(default=0, repr=False)
     # 纪念立绘异步生成（方案 A 2026-09-01）: 流式嗅探到 memorial_enter 的 prompt
     # 定稿即后台生图（与 LLM 剩余输出并行）——玩家看到纪念场景时图已就绪, 淡入
     memorial_img: str = ""                     # 前端 URL（/gallery/{char}/{sid}.png）; 空 = 未就绪/失败
@@ -291,15 +295,44 @@ def _thread_alive(th) -> bool:
 
 
 def _lanes_idle(state: "BondState") -> bool:
-    """标注 lane 是否空闲（队列无积压）——看门狗只在"没人正在做这件事"时兜底。"""
+    """标注 lane 是否**真的**空闲（无积压 且 无在途）。
+
+    2026-09-13 修正（审计 A6）: 原先只看 `qsize()`——worker 一旦把场景从队列取走、
+    正在 `await` 标注 LLM, `qsize()==0` 就返回 True。于是**一次健康的、只是慢
+    （>25s）的标注调用期间**, 看门狗就会开火强推兜底（不需要 worker 卡死）。
+    """
+    if getattr(state, "_lane_inflight", 0) > 0:
+        return False                                 # 有 worker 正在标注（在途）
     for q in (state._anno_queue, state._place_queue):
         try:
             if q is not None and q.qsize() > 0:
                 return False
         except Exception:                            # noqa: BLE001
             continue
-    return not (_thread_alive(state._anno_thread) and state._anno_queue
-                and state._anno_queue.qsize() > 0)
+    return True
+
+
+def _lane_writer_alive(state: "BondState") -> bool:
+    """是否还有标注 worker 可能产出（线程活着 = 还有人在做这件事）。
+
+    线程正常退出时会复位 `_anno_started`/`_place_started` 并置 `_*_thread = None`
+    → 这里为 False 且队列为空, 才是"**没人会再来标它**"的确凿判据。
+    """
+    if state._anno_started and _thread_alive(state._anno_thread):
+        return True
+    if state._place_started and _thread_alive(state._place_thread):
+        return True
+    return False
+
+
+def _gate_stalled(state: "BondState") -> bool:
+    """视觉门兜底的**前置条件**: 没有积压、没有在途、也没有活着的 writer。
+
+    三者齐备才允许强推兜底——只在"这份场景永远不会再被标注"时才牺牲精度。
+    慢但在途的调用不满足（等它回来, 那是真标注）; LLM client 的 240s 超时是
+    最终兜底, 本判据不抢它的活。
+    """
+    return _lanes_idle(state) and not _lane_writer_alive(state)
 
 
 def _force_scene_ready(state: "BondState", scene) -> None:
@@ -323,8 +356,15 @@ def _watchdog(state: "BondState", char_id: str, session_id: str) -> None:
       ① **忙态卡死**: busy 超 BUSY_WATCHDOG_MS 且生成/预生成线程都不在 → 复位
          （线程丢失/异常退出的兜底; 活着的线程不抢——它还在生成）。
       ② **视觉门卡死**: 当前场景 emotion/place 连续 GATE_WATCHDOG_MS 未就绪且
-         lane 空闲（没人会再来标它）→ 强制兜底就绪（表情精度损失换"能推进"）。
+         **没人会再来标它**（无积压 / 无在途 / 无活着的 writer, 见 `_gate_stalled`）
+         → 强制兜底就绪（表情精度损失换"能推进"）。
       ③ **预生成消费门卡死**: 同 ② 作用于 pregen 场景（否则"继续"键永久无响应）。
+
+    **2026-09-13（审计 A6）**: ②③ 原先只判 `_lanes_idle`（= 队列深度为 0）——
+    那在"worker 正把场景取走并 await 标注"时也成立, 于是**一次健康的慢调用
+    （>25s）就会被强制兜底**; 而兜底产物会随 `_log_scene` 进 append-only 真源
+    （假 `nomal`/假 `_place_done`）, 晚到的真标注再也回不去。现在改判
+    `_gate_stalled`: 慢但在途 → 等它; 只有"没人会再来标"才降级。
     """
     now = time.monotonic()
     # ① 忙态
@@ -345,10 +385,10 @@ def _watchdog(state: "BondState", char_id: str, session_id: str) -> None:
         state.gate_since = 0.0
     else:
         state.gate_since = state.gate_since or now
-        if (_ms_since(state.gate_since) > GATE_WATCHDOG_MS and _lanes_idle(state)
+        if (_ms_since(state.gate_since) > GATE_WATCHDOG_MS and _gate_stalled(state)
                 and not state.busy):
             logger.warning(
-                "bond 看门狗: 视觉门 %dms 未就绪且 lane 空闲 → 兜底放行 %s/%s",
+                "bond 看门狗: 视觉门 %dms 未就绪且无 writer/在途 → 兜底放行 %s/%s",
                 _ms_since(state.gate_since), char_id, session_id)
             _force_scene_ready(state, state.scene_obj)
             state.gate_since = 0.0
@@ -359,9 +399,9 @@ def _watchdog(state: "BondState", char_id: str, session_id: str) -> None:
     else:
         state.pregen_gate_since = state.pregen_gate_since or now
         if (_ms_since(state.pregen_gate_since) > PREGEN_GATE_WATCHDOG_MS
-                and _lanes_idle(state) and not state.busy):
+                and _gate_stalled(state) and not state.busy):
             logger.warning(
-                "bond 看门狗: 预生成消费门 %dms 未通过且 lane 空闲 → 兜底放行 %s/%s",
+                "bond 看门狗: 预生成消费门 %dms 未通过且无 writer/在途 → 兜底放行 %s/%s",
                 _ms_since(state.pregen_gate_since), char_id, session_id)
             _force_scene_ready(state, pregen)
             state.pregen_gate_since = 0.0
@@ -2304,6 +2344,7 @@ def _place_worker(state: BondState) -> None:
         scene = state._place_queue.get()
         if scene is None:
             break
+        state._lane_inflight += 1                # 在途（看门狗据此不误判 lane 空闲）
         t0 = time.monotonic()                    # 计时埋点（§6.1）
         anchors = False
         try:
@@ -2323,6 +2364,7 @@ def _place_worker(state: BondState) -> None:
         except Exception as e:                           # noqa: BLE001 — 保活: 单条失败
             logger.warning("bond place 标注处理异常（跳过本条, worker 保活）: %s", e)
         finally:
+            state._lane_inflight -= 1                    # 出在途（与上面的 +1 成对）
             try:
                 state._place_queue.task_done()
             except Exception:                            # noqa: BLE001 — 幂等无害
@@ -2357,6 +2399,7 @@ def _anno_worker(state: BondState) -> None:
         scene = state._anno_queue.get()
         if scene is None:
             break
+        state._lane_inflight += 1                # 在途（看门狗据此不误判 lane 空闲）
         t0 = time.monotonic()                    # 计时埋点（§6.1）
         try:
             try:
@@ -2379,6 +2422,7 @@ def _anno_worker(state: BondState) -> None:
         except Exception as e:                           # noqa: BLE001 — 保活: 单条失败
             logger.warning("bond 标注处理异常（跳过本条, worker 保活）: %s", e)
         finally:
+            state._lane_inflight -= 1                    # 出在途（与上面的 +1 成对）
             try:
                 state._anno_queue.task_done()
             except Exception:                            # noqa: BLE001 — 幂等无害
@@ -2559,8 +2603,12 @@ def _wrapup_inner(char_id: str, session_id: str, title: str, completed: bool) ->
     # daemon 线程长生命周期——**store 快照**（2026-09-09 审计: wrapup 在 finish
     # 后异步执行, 期间全局 chat._store 可能已被替换（测试 cleanup/未来多线）,
     # 迟到的兜底写入曾落错 store（真实 data 被测试污染）; 线程内一律用快照,
-    # 与"谁调起它"时的归属一致
-    store = _store()
+    # 与"谁调起它"时的归属一致。
+    # 2026-09-13 修正（审计 B18）: 取的是**流程绑定的** store（`_flow_store`）,
+    # 而不是全局 `_store()`——原实现与本 docstring 自相矛盾: 决策 #31 已经把
+    # 长流程的一切读写钉到 `BondState.store`, 这里漏了一处, 多世界/多开时
+    # 迟到的收尾话仍可能落错世界线。
+    store = _flow_store(state)
     if state.demo is not None:
         try:
             store.append_event(char_id, session_id, make_event(
