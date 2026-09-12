@@ -395,10 +395,70 @@
 `_probe_settings.py`（A1 的设置页裁配置复现）。
 
 ### 仍未做（拆分点 B/C, 待拍板）
-
 - **B**: 候选碰撞窗口与 `COGNITION_CAP=12` 解耦（渲染 12 条 ≠ 碰撞全集,
   否则 belief 数过 12 后图结构性停止生长）。
 - **C**: 给 merge/accrue 一个入口（`PHASE_DEEP` 是现成挂点, 现在
   `build_schema("deep")` 直接抛错 = 明确留白）——这是"episode → belief →
   多条 belief 升华"缺的那一环。
+
+---
+
+## 9. 未修清单（2026-09-13 结算, 按"与图/RAG 的关系"分组）
+
+> 用户 2026-09-13: **图/RAG 相关集中讨论**, 先修其他架构问题。下表据此分组。
+> 标记: ✅已修 / ❌未修 / ⛔误报撤销 / ⚪范围外。
+
+### 9.1 ❌ 未修 · 与图/RAG **无关**（"先修其他"的那一半, 仍有剩余）
+
+| 项 | 一句话 | 为什么还没动 |
+|---|---|---|
+| B4 | 章内"至多 1 次 memorial"无强制（`_memorial_used` 只写不读） | 需先定口径: 补硬闸, 还是删掉这条文档承诺 |
+| B7 | `CLAUDE.md §12` 测试命令**第二次跑必 566 ERROR** | 纯文档; 可用命令与根因已在 §1/B7, 未回填 CLAUDE.md |
+| B8 | `_trim_history` 砍头破坏前缀缓存（`cache_hit` 断崖） | 需**真机 `cache_hit=` 序列**先确认; 改动面在上下文窗口语义 |
+| B9 | `mmt_inspect_character` 读到的资料**被丢弃**, LLM 从未拿到 | 需定口径: 接上回灌, 还是把该动作与 schema 承诺一起下线 |
+| B10 | `mmt_send_media` 端到端 no-op, 而 schema 承诺"会发图" | 需定口径: 接 gallery/生图, 还是从 registry 摘除 |
+| B11/B12 | finish 静默失败 / `is_end` 落地但 `completed` 悬空 → 该章不进回忆册、不 digest、重进被挡 | **等形态确认**: 自动收尾要处理 `busy` 竞态（前端 1.6s 延迟正是为此） |
+| B14 | 无 switch 的板仍白跑一次 place 标注 + 卡门控 ~1s/板 | 与 place 链路同域（背景/地点）→ 按用户口径**并入背景批次** |
+| B19 | `_draft_save` 在流式交付窗口读到上一回合的待发板 | 现象成立但**原修法无效**（清空语句在快路径 return 之后, 队列非空时不可达）; 正确方向已留注释, 见 §2/B19 |
+| B20 | 前端错误吞噬（畸形 status 静默、无请求超时） | 纯前端; 归"前端体验"批（与 A2 同类, A2 已修） |
+| B22 | `_lane_inflight` 增减未持锁（瞬时零穿越, 纳秒级） | 低危留档; 彻底消掉需加锁或改判"无进展 N 秒" |
+| E8 | `CharacterLoader` 无缓存（每轮重解 6 yml）; mmt 列表每次重读所有 events.jsonl | 性能项; mtime 缓存即可 |
+| E9 | 标注重试 3 次各重发**完整 system**（3 倍 prompt 成本换 1 次机会） | 可仿退役的二分法只重问缺失行号 |
+| E10 | 首板之后不再走流式交付（后续板靠 `_pregenerate` 逐板领） | 要动标注分组语义（引擎对整块分组标注） |
+| F1/F2/F3 | 42 个活跃 LLM 桩 → 1 个; 桩加"未识别调用即失败"; `_setup/_cleanup` 提 fixture | 工程债, 改动面大（碰 40+ 文件）, 建议单独节点 |
+| F4 | 补测缺口 ②③④⑤（JS 零自动化 / `cache_hit` 埋点无断言 / 多世界管理 / 回忆册三条降级分支） | ①`is_masked` **已补**; 其余待排 |
+| F5/F6/F7 | 慢例（5.1s/3.5s）; `tests/renderer` 不在文档命令里; `api` marker 死配置 | 低优先 |
+| C 级 | 文档漂移 23 条 | 已修一部分（C2/C3/C5/C15/C16/C17 相关）; **其余未修**——先修"路径/文件名/id 错"（C1/C11/C13/C20）, 行号类（C14/C18）后置 |
+| D 级 | 死码清理 | 未动; **注意 `choice_candidates` 一族 v1 旧档回放仍依赖, 别当死码清** |
+
+### 9.2 ❌ 未修 · **与图/RAG 相关**（用户指定集中讨论）
+
+| 项 | 一句话 |
+|---|---|
+| A3 | 好感 delta 丢失窗口（wiki+水位先提交, affection 事件后写 → 中间崩则 delta 永久丢失） |
+| A4 | `save`/`save_meta` 非原子 → meta 写失败则水位回退重跑 → 重复节点（去重键只认 `main_text` 全等, 太严） |
+| A5 | 废弃段不回撤（`vn_abandon` 只过滤输入窗口）; 且中断的 VN 之后 MMT 25 轮 digest 会把半截剧情写进 wiki |
+| E1 | digest 输入被砍到 **120 字** → RoundA verbatim / RoundB evidence 的"逐字"**物理不可能** |
+| E2 | digest **双份输入**（时间线 + 人设锚 A/B 各送一次）+ 双 `high` → 成本 ≈ 2× 最大块 |
+| E3 | evidence 白花钱（schema 每轮要 ≤5 条、不校验 quote ∈ 时间线, 且**无 live 消费者**） |
+| E4 | 知识图谱**只增不并**: `apply_revision_package`（merge/contradict/accrue/link…）仅被测试调用; `PHASE_DEEP` 已声明未注册, `build_schema("deep")` 直接抛错 |
+| E5 | `COGNITION_CAP=12` 认知窗口饱和 → 超 12 条后低 sig 认知**永远不可见、无法被 touch/update** |
+| E6 | memory 段拼进 **system 首串** → digest 一落库整段前缀缓存失效; verbatim 无上限 |
+| E7 | 空注入常驻（空库也总注入「【角色记忆（brain）】」标题, 调用方 `or ""` 永不生效） |
+| E12 | `WikiStoreV2.save` 无跨进程锁（webgui + CLI 同时 digest 会互相覆盖丢节点） |
+| 拆分点 B | 候选碰撞窗口与 `COGNITION_CAP=12` 解耦（渲染 12 条 ≠ 碰撞全集） |
+| 拆分点 C | 给 merge/accrue 一个入口（`PHASE_DEEP` 是现成挂点） |
+
+### 9.3 本次会话已修（12 项）
+
+```
+A1 设置页裁配置 · A2 留白格不可点 · A6 看门狗前置条件（含过度修复回退）
+B1 退役场卡 memorial_exit · B5 章末闭合纪念窗口 · B6 落库失败不再永久丢板
+B17 reset_engines 清锁 · B18 _wrapup_inner 全局 store · B21 退役 v1 表情注记
+E11 轮数跨重连恢复 · 拆分点A embedding 降级可观测 · store `null` → "None" 洞
+文档: PROMPT_INJECTION_MAP / DESIGN_PROMPTKIT / CLAUDE.md 退役口径追平
+```
+⛔ 撤销误报 2 条（B2 切板等价 / B13 选项真源本就正确）。
+回归: **594 passed**。
+
 
