@@ -83,7 +83,16 @@ const Book = (() => {
       ? `${page + 1} / ${spreads}` : "";
   }
 
-  /** 一个格子: 有封面 → 可点; 有角色无封面 → 留白占位; 无角色 → 空槽（不画）。 */
+  /** 一个格子: 有角色即可点（封面只是外观）; 无角色 → 空槽（不画）。
+   *
+   * 2026-09-13 修正（审计 A2）: 原实现把 `addEventListener("click")` 放在
+   * "有封面"那条分支里, 而留白分支 `return box` **在挂监听之前** → 没封面的
+   * 角色**整格点不动**。后端 `/api/collection/{char_id}/chapters` 只看事件流、
+   * **从不看封面**（routers/collection.py:90-102）, 所以这个限制纯属前端自造:
+   * 触发路径不是"别人 clone"（.gitignore 忽略 portrait/*.png, fresh clone 每格
+   * 都留白）, 更常见的是**作者加新角色**——人设/spine 就位、封面还没做时,
+   * 她已结束的章在册子里根本进不去。
+   */
   function slotFor(c) {
     if (!c) return el("div", "col-slot empty");
     const box = el("div", "col-slot");
@@ -93,15 +102,16 @@ const Book = (() => {
       box.title = `${c.name}（还没有 collection 素材）`;
       box.appendChild(el("span", "col-blank-mark", "？"));
       box.appendChild(el("span", "col-cell-name", c.name));
-      return box;
+    } else {
+      const img = el("img", "col-cell-img");
+      img.src = c.cover;
+      img.alt = c.name;
+      img.loading = "lazy";
+      box.appendChild(img);
+      box.appendChild(el("span", "col-cell-name", c.name));
+      box.title = c.name;
     }
-    const img = el("img", "col-cell-img");
-    img.src = c.cover;
-    img.alt = c.name;
-    img.loading = "lazy";
-    box.appendChild(img);
-    box.appendChild(el("span", "col-cell-name", c.name));
-    box.title = c.name;
+    // 挂监听在两条分支之外——有角色就能进角色页（封面缺失不影响可点性）
     box.addEventListener("click", () => openChar(c));
     return box;
   }
