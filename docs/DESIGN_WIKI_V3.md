@@ -19,11 +19,14 @@
 
 | 轴 | v2 现状 | v3 目标 |
 |---|---|---|
-| **节点** | 4 个 kind 混用（`episode`/`experience`/`belief` + `source=experience`），一词四义 | **3 kind**：`episode`（发生的事）/ `belief`（持久认知）/ `possession`（持有物）；**观察到的规律降为 belief 的子形态** |
+| **图的中心** | **以非 belief 节点为中心**：episode 是主体，belief 挂在它下面、彼此无边（利于 agent-memory，**不利于 RP**） | **实体中心的两层图**：`entity`（谁/什么/哪里/哪条知识）为持久参照物，episode/belief 都指向它 |
+| **节点** | 4 个 kind 混用（`episode`/`experience`/`belief` + `source=experience`），一词四义 | **2 kind**：`entity` + `episode`/`belief`（同为经验层）；**`experience` kind 归并**（规律 = belief + `nature=pattern`，物品 = `entity(etype=item)` + 边状态） |
+| **归属** | `subject` 是自由字符串 → 同一实体裂成多种写法（真机：老师 ×4 种） | `about`（引擎管，指向 entity，保证归堆）+ `aspect`（LLM 写，保留侧面区分度） |
+| **认知分层** | 无 | 第四轴 `nature`：`self_image`（内核，**不合并**）/ `other`（合并）/ `relationship`（有时效）/ `pattern`（计数聚合） |
 | **时间** | **零游戏内时间**，只有壁钟 `ts` | 双层：壁钟（审计）+ **剧情时间游标**（锚点 + 累积流逝）；渲染模糊成"三周前" |
-| **召回** | 静态分桶按 `significance` 取前 N（**无 query**）；三通道召回零生产调用方 | **混合召回**：向量 + 词面 + 线索 → 融合 → 时间/重要性加权 → 跳转扩展；**且可观测** |
-| **LLM 动作** | Round A 记录 + Round B 三选一（add/touch/update） | **多步**：记录 → 元数据 → 组织决策（含**链接/矛盾/组合**）→ 时间推进；动作集扩到 8 |
-| **组合** | `merge`/`accrue` 代码全套 ✅ 但**零生产调用** | 两档：**无损聚合**（digest 内）与**深度重组**（独立阶段，带溯源与撤销） |
+| **召回** | 静态分桶按 `significance` 取前 N（**无 query**）；三通道召回零生产调用方 | **实体为召回车道**：向量 + 词面 + 线索 → 实体级打分 → 车道内取 belief → 融合/时间加权 → 跳转扩展；**且可观测** |
+| **LLM 动作** | Round A 记录 + Round B 三选一（add/touch/update） | **多步**：时间推进 → 记录 → 实体消解/登记 → 组织决策（含**链接/矛盾/组合**）→ 好感；动作集扩到 9 |
+| **组合** | `merge`/`accrue` 代码全套 ✅ 但**零生产调用** | 两档：**无损聚合**（digest 内）与**深度重组**（独立阶段，带溯源与撤销）；合并策略**按 `nature` 分派** |
 
 ---
 
@@ -89,14 +92,20 @@
 | 诉求 | 要动的地方 |
 |---|---|
 | 澄清 `experience` | `nodes.KINDS/_REQUIRED/validate/normalize` · `store._PREFIX` · `render` 五个分桶 · `recall` 的 kind 过滤 · `digest_registry` 决策表与 parse · `revise` 目标校验 |
-| 新增 `possession` | **同上全部**（新 kind 要过每一道闸） |
-| 组合重组 | `revise` 规则引擎 · `store` 不变量 · 新增阶段编排 · `digest_registry` 新动作 |
+| **实体中心化 + 物品/地点/知识** | **同上全部**（新 kind 要过每一道闸）+ `recall` 两级结构 + `render` 分组 + Round B 组织视图 + **新增 Step 1.8** |
+| 组合重组 | `revise` 规则引擎 · `store` 不变量 · 新增阶段编排 · `digest_registry` 新动作 · **合并策略按 `nature` 分派** |
 | 时间架构 | 每个节点的字段 · `render` 文案 · `recall` 衰减 · `store` 需要时间游标 |
 
 打四次补丁 = 把同一片代码动四遍，且中间态是"半新半旧 schema"（新旧 kind 共存、
 时间字段半有无）。**重构一次 = 动一遍 + 带 `schema_version` 迁移**。
 
 **代价现在最低**：全库 13 个节点，迁移脚本几十行；等真跑几百条就不是这个量级。
+
+**而且这四件事互为前提**（不是四件独立的事）：
+- 没有实体层，"组合重组"就只能在**自由字符串 subject** 上做比较 → 判不出该不该合并
+- 没有 `nature`，"合并策略"就没有判据 → 会把角色内核（`self_image`）当重复项合并掉
+- 没有时间，`relationship`（约定）就无法过期 → 只能一直堆着
+- 没有实体层，物品/地点的"状态"就要各自造一套 → 就是 v3 初稿那个 `possession` kind
 
 ### 1.5 v3 明确**不**重写的东西（保住已建成的资产）
 
@@ -110,164 +119,256 @@
 
 ---
 
-## 2. 节点新概念（kinds / 字段 / 前缀 / 不变量）
+## 2. 节点新概念（实体层 + 经验层 + 四条轴）
 
-### 2.1 两个正交的轴（v2 把它们压在一起了）
+### 2.0 为什么引入实体层（诊断 + 用户裁决 2026-09-13）
+
+**v2 的图是"以非 belief 节点为中心"的**：`episode` 是绝对主体，belief 挂在它下面，
+彼此之间没有任何边。作为 agent-memory 这没问题；**但对 RP 不对** —— 角色扮演里
+最有价值的查询是"老师在她心里是什么样"，而 v2 的结构回答不了。
+
+真实数据（线上 13 节点）给出三条证据：
+
+**(1) `subject` 是自由字符串 → 同一实体裂成多种写法**
 
 ```
-轴一 kind      —— 节点的"形状"（要不要时间区间、要不要证据链、怎么渲染）
-轴二 epistemic —— 认知的"来源性质"（亲历 / 听说 / 推断 / 猜测）
+igusa_haruka  [belief] subject='被老师求助时的反应'
+              [belief] subject='向老师敞开秘密基地'
+              [belief] subject='对老师肯定的感受'
+              [belief] subject='对老师的承诺方式'
+asagi_mutsuki [belief] subject='我对老师的心意'
+              [belief] subject='我对阿露的看法'
+```
+同一个"老师"，haruka 用 4 种**侧面描述**当 subject，mutsuki 用"我对X的看法"当 subject。
+不是 LLM 不听话——**是引擎没给它一个稳定引用点**，每次都是现场编。
+后果：这 4 条 belief 语义上属于同一个实体，结构上却彼此无关，召回时无法一起捞。
+
+**(2) 实体信息其实已经在图里，只是散在 `tags`**
+
+真机 episode 的 tags：`阿露 / 春余×2 / 杂草屋 / 咖啡厅 / 俄罗斯轮盘巧克力 / 联邦理事会 / …`
+——**人名、地点、物品全在，但没有节点承载**。换场翻译、物品查表都只能靠字符串匹配。
+
+**(3) `interperson.json` 已经是一张角色实体表**（8 条，带权重 1/2/3）
+——实体中心化不是引入新概念，是**把已有的表接进图**。
+
+**(4) 顺带**：线上 `source=experience` 的节点 **0 条** —— 出厂 episode 从未进过 wiki。
+所以"出厂基座"目前纯属设计概念，迁移几乎没有历史包袱。
+
+**用户裁决（2026-09-13）**：需要 `self`（自我认知）/ `item`（物品）/
+`place`（地点）/ `knowledge`（特定知识）四类实体；**belief 保持多条并存**
+（不做"合成一条总结"——理由见 §2.5）。
+
+### 2.1 两层，不是三种东西
+
+```
+┌─ 实体层（entity）── 世界里的"持久参照物"：谁 / 什么 / 哪里 / 哪条知识
+│     稳定 · 引擎管身份 · 可被引用 · 不承载情感内容
+│
+└─ 经验层 ────────── 角色视角的"我经历过/我认为"
+      episode（发生的事，亲历/听说）
+      belief （持久认知，含自我认知/对他人/关系/模式）
 ```
 
-v2 的问题是：**用 kind 兼职表达了"关于谁"与"来源"**。v3 把"关于谁"交给 `subject`，
-"来源性质"交给 `epistemic`，kind 只管形状。
+**关键澄清（用户问题的直接回答）**：
 
-### 2.2 v3 的 kind 集合（3 个）
+> 引入实体层解决的是**归属与召回**，**不是**内容粒度。
 
-#### (1) `episode` — 发生的事（一次性，有起有落）
+`entity` 节点**不是"把对它的看法装进它"**，而是"给它一个家"——
+entity 只存身份与索引（名字/别名/类型/关系阶段），**关于它的看法仍是多个 belief 节点**。
+
+所以**不做**方案 B（把"对老师的看法"合成一条）：
+- "对老师的看法"会变成一段**单调增长**的长文本，而 `content ≤200 字`——
+  第 20 条经历时要么丢细节、要么写不下
+- 每次 update 都要**重生成整段** → 成本高 + **漂移**（A-Mem 的警告正是针对这个：
+  "rewriting older notes … without hard versioning is hard to debug and can be unsafe"）
+- **矛盾无法表达**：一个人对另一个人的看法**本来就是矛盾的**
+  （"依赖他" + "怕成为负担"）——合成一条会把张力抹平，而 **RP 里张力就是戏**
+
+### 2.2 实体层：`entity`
 
 ```jsonc
 {
-  "id": "m0001", "kind": "episode",
-  "title": "老师拜托我调查杂草",          // 8-16 字
-  "narration": "第一人称浓缩……",          // ≤300 字，质感优先不升华
-  "verbatim": "老、老师千万不要这么说！",   // 可选，逐字
-  "tags": ["杂草调查", "报告"],             // ≤4，检索导向
-  "significance": 0.7,                     // 0~1 行为锚点
-  "epistemic": "observed_fact",            // observed_fact | reported_fact
-  "observer": "",                          // reported_fact 时= 转述者（"老师"）
-  "subject": "",                           // v3 新增可选：事件主体（他人事件时填）
-  "story_time": { ... },                   // §4 时间游标
-  "segment_id": "seg-30", "event_seq": [30],
-  "origin": "digest",                      // digest | seed（原 source）
-  "links": ["m0005"]                       // 它支撑的认知
+  "id": "x0001",
+  "kind": "entity",
+  "name": "老师",                        // 显示名（中文主名）
+  "etype": ["person"],                   // ★ 数组，不是单值（见 §2.4 改进①）
+  "aliases": ["sensei", "老师", "他"],    // 归一化用（每角色视角不同）
+  "ref": "player",                       // 关联既有 id：interperson / registry / 角色 id（可空）
+  "stage": "",                           // 关系阶段词（未来 relationship_view 接这里；引擎裁决）
+  "origin": "digest",                    // digest | seed | author
+  "story_time": { ... }                  // 首次确立时间（§4）
 }
 ```
 
-**v3 相对 v2 的变化**：新增可选 `subject`（把"关于谁"从 narrator 文风里解放出来）、
-`source`→`origin` 改名（消除与 `experience` 的拼写冲突）。
+**`etype` 取值（用户定，4 + 1）**：
 
-#### (2) `belief` — 持久认知（结论，非事件）
-
-```jsonc
-{
-  "id": "m0005", "kind": "belief",
-  "subject": "被老师求助时的反应",          // 稳定维度命名（人/关系/互动模式）
-  "content": "老师一开口请我帮忙，我会先……",  // ≤200 字，结论式
-  "growth": "学着在自我怀疑之前先承认……",   // 可选，成长方向
-  "pattern": "",                            // v3：反复出现时填"模式句"（见下）
-  "occurrences": 3,                         // 引擎字段，= 支撑 episode 条数（不信任 LLM）
-  "keywords": ["老师", "自我怀疑"],          // v3 新增：与 tags 分开，供检索
-  "significance": 0.6,
-  "epistemic": "inferred_belief",           // 引擎强制
-  "history": [ { "episode_id": "m0001", "content": "…", "ts": "…" } ],  // ✅ 已有
-  "superseded_by": "",                      // v3 新增：被更新的认知取代时填写
-  "story_time": { ... },
-  "origin": "digest",
-  "links": ["m0001"]                        // ≥1 条支撑，含 episode 与 belief
-}
-```
-
-**`experience` 的去向（v3 的核心裁决）**
-
-| v2 | v3 |
-|---|---|
-| kind `experience` = 重复模式 | **降为 belief 的形态**：`pattern` 非空 + `occurrences ≥ 2` 即"规律型认知"，渲染成 `【模式】` 前缀 |
-| `subject="player"` = 玩家画像 | **仍是 belief**，`subject` 填 `player`（渲染进独立的【老师的事】段） |
-| 护栏"player experience 永不被内容去重/合并掉" | 改为**按 subject 的护栏**：`subject == "player"` 的 belief 不被 merge 入其他 subject |
-
-理由：一个字符对老师的稳定认知（"老师总靠浓缩咖啡硬撑"）**本来就是 belief**；
-"反复出现"是 `occurrences` 的事。保留独立 kind 的唯一实际收益是"决策表里多一个选项"，
-而代价是**每一道 kind 闸都要多写一个分支**（`_REQUIRED`/`_PREFIX`/`normalize`/
-`render` 分桶/`recall` 过滤/`revise` 目标/契约枚举 7 处），并且制造了 §1.2 那三处自相矛盾。
-
-> 宁可少一个 kind、多一个字段：kind 是**编译期**概念（每处消费者都要枚举），
-> 字段是**运行期**概念（不关心的消费者直接忽略）。
-
-#### (3) `possession` — 持有的物品（v3 新增）
-
-```jsonc
-{
-  "id": "p0001", "kind": "possession",
-  "item": "写着杂草名字的卡片",              // 物品名（稳定标识）
-  "state": "held",                          // held | lost | given_away | consumed
-  "holder": "igusa_haruka",                 // 当前持有者（角色 id 或 player）
-  "obtained": { "episode": "m0001", "story_time": { ... } },   // 获得出处
-  "lost": null,                             // 失去/转手的出处（同构）
-  "keywords": ["卡片", "杂草"],
-  "significance": 0.4,
-  "story_time": { ... },
-  "origin": "digest",
-  "links": ["m0001"]                        // 获得/失去它的 episode
-}
-```
-
-**为什么必须是独立 kind（而不是 belief 的一种）**
-
-| 判据 | 说明 |
-|---|---|
-| 有**身份** | 一个具体物品（"那张卡片"）可以被反复提起、被指认；belief 是一次性结论 |
-| 有**状态机** | held → given_away / lost / consumed；belief 没有状态迁移（只有改写） |
-| 有**时间区间** | "持有"是**区间**而非时刻；§4 的时间游标正好表达 |
-| 有**资产锚点** | `assets/illustration/{char}/{outfit}/possession/` **已在文档里预留**（`EMOTIONS_CONFIG.md §28/49` 明写"角色级物品图"），只是尚无实体目录。节点化后可与图一一对应 |
-
-**关键设计点：转手用边表达，不用字段覆盖**
-
-"我把发夹送给她了"之后，**双方都不应显示为持有**。所以 `holder` + `state` 是**当前快照**，
-而**历史在 `links` + `lost.episode`**。v3 不做"拥有边"的图结构（那会让每次转手写成两条边），
-而是**快照 + 溯源**：谁改的、哪条 episode 改的，都能追。
-
-**清单类物品的归并**：`keywords` 用于"她还记得自己有哪些东西"这类召回；
-同一 `item` 的重复出现**不新建节点**，而是追加 `links`（与 belief 的 `occurrences` 同构）。
-
-### 2.3 字段总表（v3 定稿）
-
-| 字段 | 适用 kind | 性质 | 说明 |
+| etype | 指什么 | 真机例子 | 特殊之处 |
 |---|---|---|---|
-| `id` / `kind` / `significance` / `epistemic` / `tags` / `links` | 全部 | 引擎/LLM 混合 | `links` 方向 = "支撑/相关"无向语义，渲染时按 kind 解释 |
-| `story_time` | 全部 | 引擎写、LLM 提议 | §4 |
-| `origin` | 全部 | 引擎 | `digest` / `seed`（原 `source`） |
-| `segment_id` / `event_seq` / `ts` | 全部 | 引擎 | 溯源，LLM 不可写 |
-| `title` / `narration` / `verbatim` / `observer` / `subject` | episode | LLM | `subject` 可选（他人事件） |
-| `subject` / `content` / `growth` / `pattern` / `keywords` / `history` | belief | LLM（`history` 引擎） | `occurrences` 引擎数 |
-| `item` / `state` / `holder` / `obtained` / `lost` | possession | LLM 提议、引擎校验 | |
-| `contradictions` / `superseded_by` | belief/episode | 引擎 + 深度阶段 | §5 |
-| `notes` | 全部 | 引擎 | 只允许追加（出厂基座纪律保留） |
+| `self` | **角色本人**（自我认知的归属点） | 唯一一个，id 固定 `x0000` | 必存在：开局自动建，别名 = 角色名 + 自称 |
+| `person` | 他人（学生/老师/其他） | 老师、阿露、春余 | 可与 `interperson.json` 对齐 |
+| `place` | 地点 | 杂草屋、咖啡厅、联邦理事会 | 与 §10 背景词表/换场翻译天然对接 |
+| `item` | 物品 | 俄罗斯轮盘巧克力、写满杂草名字的卡片 | 有生命周期 → 见 §2.6 边状态 |
+| `knowledge` | 特定知识（事实/秘密/规则） | "联邦理事会让他做环境调研报告" | **与 `knowledge.yml`（世界观知识库）刻意同名**——把"我知道的事"接进图 |
 
-### 2.4 id 前缀与 `_PREFIX` 表
+**为什么 `self` 必须有**：真实 belief 里 **最多的是关于自己的**——
+"我这种人配不上老师的帮助"、"对老师肯定的感受"。若只建"他人"实体，
+**角色内核将无家可归**（现在它们的 subject 是"被老师求助时的反应"，挂在老师名下，
+语义上是错的）。
 
-v2 实测（`store.py:25`）：`{"experience": "e", "episode": "m", "belief": "m"}`
-—— **episode 与 belief 共用 `m`**（因为两者都是"动态产出"）。
+### 2.3 经验层：`episode` / `belief`
 
-v3 变为：
+**episode**（形状同 §2.2 旧版，仅新增/改名两个字段）：
+```jsonc
+{ "id": "m0001", "kind": "episode",
+  "title": "老师拜托我调查杂草", "narration": "……", "verbatim": "……",
+  "tags": ["杂草调查", "报告"], "significance": 0.7,
+  "epistemic": "observed_fact", "observer": "",
+  "about": ["x0001"],              // ★ v2 的单一 subject → 实体引用列表（可多人同场）
+  "story_time": { ... }, "origin": "digest", "event_seq": [30], "links": ["m0005"] }
+```
+
+**belief**（⚠️ 相对 v3 初稿有实质变化——`subject` 拆成 `about` + `aspect`）：
+```jsonc
+{ "id": "m0005", "kind": "belief",
+  "about": "x0000",                // ★ 归堆键：指向实体（引擎保证存在、唯一）
+  "aspect": "被求助时的反应",        // ★ v2 的 subject 语义降到这里（LLM 自由写）
+  "nature": "self_image",          // ★ 第四轴，见 §2.5
+  "content": "老师一开口请我帮忙，我会先……",   // ≤200 字，结论式
+  "growth": "……", "pattern": "", "keywords": ["老师", "自我怀疑"],
+  "occurrences": 3,                // 引擎数（= 支撑 episode 条数）
+  "significance": 0.6, "epistemic": "inferred_belief",
+  "history": [ { "episode_id": "m0001", "content": "…", "ts": "…" } ],
+  "superseded_by": "", "story_time": { ... }, "origin": "digest",
+  "links": ["m0001"] }
+```
+
+**`about` + `aspect` 的拆分是这一版的核心**：
+
+| 字段 | 谁管 | 作用 |
+|---|---|---|
+| `about` | **引擎**（LLM 只能从已渲染的实体列表里选，或显式提议新建） | **保证归堆**——同一实体下的 belief 天然成为一组，"四种写法"从根上消失，**不靠提示词劝** |
+| `aspect` | LLM | **保留区分度**——每条看法讲的是哪个侧面，自由命名 |
+
+这两者缺一不可：只有 `about` → 丢侧面（"对老师的看法"含糊）；只有 `aspect` → 就是现在这样裂开。
+
+**替换 `player` 特例**：v2 用硬编码 `subject == "player"` 表达"玩家画像"
+（`is_player_experience`/`PLAYER_SUBJECT`，7 处消费）。v3 改为
+`about == 玩家实体 id` + `nature == "pattern"` —— **同一套词汇，取消特例**。
+
+### 2.4 四条轴（v2 只有两条，且被压在一起）
+
+```
+轴一 kind      —— 节点的"形状"      : entity | episode | belief
+轴二 epistemic —— "我怎么知道的"    : observed_fact | reported_fact | inferred_belief | speculation
+轴三 etype     —— 实体是"哪种东西"  : self | person | place | item | knowledge   （仅 entity）
+轴四 nature    —— 认知"是哪一类"    : self_image | other | relationship | pattern （仅 belief）
+```
+
+### 2.5 改进②：第四轴 `nature`（为什么必须加）
+
+真实那 4 条 belief 混着**四种性质不同的知识**，而它们的**合并规则完全不同**：
+
+| nature | 例子 | 合并规则 | 为什么 |
+|---|---|---|---|
+| `self_image` | "我这种人配不上老师的帮助" | **不合并**——允许长期并存甚至互相矛盾 | 这是**角色内核**；合并等于抹掉人设张力 |
+| `other` | "老师总靠浓缩咖啡硬撑" | **同类合并**（同一 about+aspect 的多条经历 → update/accrue） | 关于他人的判断会被反复观察到，该收敛 |
+| `relationship` | "约定一起去看杂草" | **有时效，过期退场** | 约定会履行或失效；现在没有这个机制（§4 时间架构支撑） |
+| `pattern` | "老师总说摸鱼"（= v2 的 experience 本义） | **计数聚合**（`occurrences`） | "反复出现"是证据条数的属性 |
+
+**只按 `about` 归堆的缺陷**：会把 `self_image`（自我认知）与 `pattern`（他人习惯）
+放进同一个桶里，而前者**不该被计数合并**、后者**应该**。
+所以 `nature` 是**合并策略的判据**，不是标签——它决定这条 belief 在 V3-6
+深度重组阶段**能不能被 merge**。
+
+**默认值**：LLM 未填 → 按 `about` 推断（`about == self` → `self_image`；
+有关键词线索"约定/答应/一起" → `relationship`；`pattern` 非空 → `pattern`；
+否则 `other`）。引擎可覆盖，且**判错不致命**（最坏是合并策略取默认）。
+
+### 2.6 改进③：边状态 —— 通用化 v3 初稿的 `possession`
+
+v3 初稿给 `possession` 设计了独立 kind + `state`/`holder` 字段。**引入实体层后
+这套变得多余，而且不通用**：
+
+| 情况 | 用 possession kind | 用边状态 |
+|---|---|---|
+| 物品转手 | `state=given_away` | ✅ 同 |
+| 地点变得不可去（毕业了/封锁） | ❌ 无表达 | ✅ `state=lost` |
+| 知道了某个秘密 | ❌ 无表达 | ✅ `state=held`（knowledge 也"持有"） |
+| 忘记了 | ❌ 无表达 | ✅ `state=forgotten` |
+
+**推荐形态（待确认，但必须现在定形状）**：把"角色与实体的当前关系"表达为
+**角色 → 实体的边状态**，而不是物品专属字段：
+
+```jsonc
+// 每角色一份（与 wiki.jsonl 并列，不改 entity 节点本身）
+// soul/bonds.jsonl 或 wiki.meta.json 的 relations 段
+{ "entity": "x0003", "state": "held",       // held | lost | given_away | consumed | forgotten
+  "obtained": { "episode": "m0001", "story_time": {...} },
+  "lost":     null,                          // 同构
+  "updated_at": "壁钟（审计）" }
+```
+
+**为什么不能把状态放 entity 节点上**：entity 是**世界级**的（一个物品只有一件），
+而"持有"是**角色级**的（换角色视角完全不同）。放错层会让多角色共享世界时互相污染。
+
+**与 §2.2 初稿的 `possession` kind 的取舍**：v3 初稿把 `possession` 立为 kind 的
+四条理由（有身份/有状态机/有时间区间/有资产锚点）**全部由
+`entity(etype=item)` + 边状态满足**，且少一个 kind。资产锚点
+（`assets/illustration/{char}/{outfit}/possession/`）改为与 `entity.id` 对应。
+
+### 2.7 改进①+④：`etype` 用数组 + 别名软合并
+
+**改进①：`etype: list[str]` 而非单值。** 一个实体天然可属多类，
+单值会强制 LLM 二选一：`白守`既是 person 又是 group；`圣园未花`是 person，
+但作为学生会长出现在 belief 里也带 group 语义。而 `etype` 是**滤镜**不是**身份**——
+`["person", "group"]` 同时满足两种检索。渲染取首元素当主标签。
+
+**改进④：实体合并用"别名软合并"，不做硬删。**
+v3 初稿让 merge 保留源节点（I7）。实体合并同理且更严格：
+
+```
+LLM 提议 merge(x0007 → x0001)
+  → 只做两件事: ① x0001.aliases ∪= x0007.aliases ∪ {x0007.name}
+                ② x0007.merged_into = "x0001"（**节点保留**）
+  → 此后 LLM 看到的是 x0001（含全部别名, 归一命中率上升）
+  → 旧的 about=x0007 的 belief **不改写**（append-only 精神）;
+    召回时经 merged_into 一跳重定向到 x0001
+```
+
+**为什么硬删是坑**：实体是**被引用的**——删掉它，指向它的 belief 全变悬空
+（`store.audit` 能查出来，但已经丢了解释信息）。而软合并**只增不改**，
+可回滚、可审计，与项目既有哲学一致。
+
+### 2.8 id 前缀
 
 ```python
-_PREFIX = {"episode": "m", "belief": "m", "possession": "p"}
+_PREFIX = {"entity": "x", "episode": "m", "belief": "m"}
 ```
 
-- `e` 前缀**退役**（随 `experience` kind 归并）—— 迁移时 `e0001` → `m00xx`，
-  **id 会变**，因此迁移脚本必须**同步改写所有指向它的 links/contradictions**
-  （`store.audit` 的悬空引用检查会兜住遗漏，见 §7.2）。
-- `p` 前缀给 `possession`；与 `m` 分开的理由：物品有**状态机**与**当前快照**语义，
-  在日志与调试里一眼能区分"这是事件/认知"还是"这是物品"。
-- `c` 前缀（出厂基座）已于 2026-09-02 随 `fact` 退役，v3 不恢复
-  （出厂 episode 改用 `origin="seed"` 表达，见 §2.2）。
+- `x` 给实体（`x0000` 固定为 `self` —— 保留 0 号，让"我自己"在日志里一眼可辨）
+- `m` 仍给 episode/belief（两者都是"动态产出"，序号共享便于按创建序读日志）
+- `e` 前缀**退役**（随 v2 `experience` kind 归并）
+- `p` 前缀**不再需要**（possession 不再是 kind，见 §2.6）
+- `c` 前缀已于 2026-09-02 随 `fact` 退役，v3 不恢复
 
-### 2.5 不变量（引擎强制，入仓时校验）
+### 2.9 不变量（引擎强制，入仓时校验）
 
 ```
-I1  belief.epistemic == "inferred_belief"（认知不伪装成事实）          ✅ v2 已有
-I2  belief.links ≥ 1 条支撑（episode 或 belief）——无支撑不升华          ✅ v2 已有
-I3  possession.state ∈ {held,lost,given_away,consumed}；given_away 必须有 holder
-I4  belief.occurrences == 支撑它的 episode 条数（引擎数，不信任 LLM）    ⚠️ v2 的 count 只对 experience 生效
-I5  subject == "player" 的 belief 不被 merge（只可 update）
-I6  story_time 单调不减（同一条世界线的节点按 event_seq 排序，story_time 不得倒退）
-I7  superseded_by 指向存在的节点；被取代者**保留在图里**（不回 GC）
-I8  history 只增不改（改写溯源，v2 已有）
+I1  belief.epistemic == "inferred_belief"（认知不伪装成事实）              ✅ v2 已有
+I2  belief.links ≥ 1 条支撑（episode 或 belief）——无支撑不升华              ✅ v2 已有
+I3  belief.about 指向存在的 entity（**悬空引用一律拒收**）                  ★ v3 新增
+I4  entity.id 唯一；`x0000` 恒为 self；每个角色开局必有一个 self 实体        ★ v3 新增
+I5  entity.etype ⊆ {self,person,place,item,knowledge} 且非空                ★ v3 新增
+I6  belief.nature ∈ {self_image,other,relationship,pattern}（缺省按 §2.5 推断）★ v3 新增
+I7  belief.occurrences == 支撑它的 episode 条数（引擎数，不信任 LLM）        ⚠️ v2 count 只对 experience 生效
+I8  nature == self_image 的 belief **不参与 merge**（只可 update/accrue）    ★ v3 新增
+I9  entity 合并只走"别名软合并"：`merged_into` 单向、目标必须存在、不得成环    ★ v3 新增
+I10 story_time 单调不减（同世界线按 event_seq 排序不得倒退）                 ★ v3 新增
+I11 superseded_by / merged_into 指向存在的节点；被取代者**保留在图里**       ✅ v3 初稿
+I12 history 只增不改（改写溯源）                                            ✅ v2 已有
 ```
 
 ---
-
 ## 3. 混合召回策略（读路径重建）
 
 ### 3.1 现状：读路径根本不是召回
@@ -289,43 +390,80 @@ I8  history 只增不改（改写溯源，v2 已有）
 **零生产调用方**（我逐处核过：只有 `def`、`core/rag/brain.py` 的 wrapper、和
 `tests/core/test_wiki_recall.py`）。
 
-### 3.2 v3 召回管线（引擎侧确定性，不进 LLM）
+### 3.2 v3 召回管线（实体为"车道"）
+
+引入实体层后，召回从"在一个扁平池子里打分"变成**两级 + 车道配额**：
 
 ```
 query（本轮情境文本）
   │
-  ├─ 通道1 语义：embedding(query) × 节点向量 → top-k_sim          [embed_fn 可缺]
-  ├─ 通道2 词面：BM25 / tags∩ / subject 命中 → top-k_lex          [零依赖兜底]
-  ├─ 通道3 线索：本轮提到的具名实体（人名/物品/地点）→ 命中其节点     [v3 新增]
-  ├─ 通道4 珍贵保底：significance ≥ 0.8 且未命中 → 补 n_precious     ✅ 设计已有
-  └─ 通道5 随机摘段：30% 珍贵加权 / 70% 对数正态(剧情年龄)加权       ✅ 设计已有
-        │
-        ▼  合并去重(id)
-  融合打分 = w_rel·relevance + w_time·recency + w_imp·importance      ← v3 核心
-        │   relevance = w_vec·cos + w_lex·bm25_norm                   （AgentGal 同构）
-        │   recency   = 双信号：剧情年龄衰减 × 上次被想起的年龄衰减
-        ▼
-  一跳扩展（沿 links ∪ contradictions）                               ✅ 设计已有
-        │
-        ▼
-  按 kind 配额截断（防单一 kind 挤占）→ 渲染
-        │
-        ▼
-  写召回台账（§3.5）+ 回写 last_recalled（剧情时间）
+  ├─ ① 实体级召回（先决定"这轮关于谁/什么"）
+  │     通道E1 具名线索：query 里出现的实体名/别名（含 merged_into 重定向）★ 最强信号
+  │     通道E2 语义：embedding(query) × **实体**向量（name+aliases 合成的代表向量）
+  │     通道E3 在场保底：本场 episode 的 about 里的实体（剧情正在讲谁，必进）
+  │        ▼  合并去重 → 实体打分 = w_cue·线索 + w_sem·cos + w_imp·该实体下最高 sig
+  │        ▼  取 top-k_entity（建议 3~5）——**这就是"召回车道"**
+  │
+  ├─ ② 车道内召回（在每个实体内部取具体的认知/经历）
+  │     通道B1 语义：embedding(query) × 该实体下 belief/episode 向量 → top-k
+  │     通道B2 词面：BM25 / tags∩ / aspect 命中
+  │     通道B3 珍贵保底：该实体下 significance ≥ 0.8 且未命中 → 补 n_precious  ✅ 设计已有
+  │     通道B4 随机摘段：30% 珍贵加权 / 70% 对数正态(剧情年龄)加权              ✅ 设计已有
+  │        ▼  融合打分 = w_rel·relevance + w_time·recency + w_imp·importance
+  │             relevance = w_vec·cos + w_lex·bm25_norm            （AgentGal 同构）
+  │             recency   = 双信号：剧情年龄衰减 × 上次被想起的年龄衰减
+  │        ▼  **每实体配额**（每车道最多 n_per_entity，防一个实体洪泛）
+  │
+  ├─ ③ 跨实体补充（保证"没被 query 提到但对角色重要"的东西不饿死）
+  │     通道C1 珍贵保底：全库 significance ≥ 0.8 的 belief（跨实体，补 n_precious）
+  │     通道C2 时间锚：最近的 episode（保持"最近发生了什么"的连续性）
+  │
+  ▼
+  一跳扩展（沿 links ∪ contradictions ∪ about 反向）
+  ▼
+  按 kind 配额截断（防 episode 洪泛把 belief 挤出去）→ 渲染
+  ▼
+  写召回台账（§3.5, 增记 entity 命中）+ 回写 last_recalled（剧情时间）
 ```
 
+**为什么"实体为车道"是这一版的关键**：v2 是在**扁平池**里按 significance 取前 N，
+于是"关于老师的 4 条 belief"里只有排前面的进得来，其余永久读不出（§3.1）。
+实体车道把"该给谁"和"给多少"解耦：**先按 query 选人，再在这个人内部按 query 选事**。
+`COGNITION_CAP=12` 那个全局漏斗随之退役（见 §8-5）。
+
+**防扇出（必须做，否则新结构会比旧的更糟）**：
+若"老师"下挂 20 条 belief，无配额的一跳扩展会把它们全拉进上下文。
+三道闸：① `k_entity` 限制车道数 ② `n_per_entity` 限制单车道条数
+③ 全库上限 `cap`。三个值都进 `settings.toml [recall]`（V3-0 已建好旋钮面）。
+
 **关键改动 vs v2 设计**：
-1. **`recency` 用剧情时间，不用壁钟**（§4 落地后才有意义）
-2. **`last_recalled_at`（剧情时间）** —— 刚念过的自然下沉，解掉"每轮重复念同一件事"
-3. **双信号 recency**（事件年龄 + 上次被想起的年龄）—— 对齐 AgentGal
-4. **kind 配额** —— 防 episode 洪泛把 belief 挤出去（v2 靠固定 cap，v3 靠配额）
+1. **两级结构**（实体级 → 车道内）+ 车道配额（v3 新增）
+2. **`recency` 用剧情时间，不用壁钟**（§4 落地后才有意义）
+3. **`last_recalled_at`（剧情时间）** —— 刚念过的自然下沉，解掉"每轮重复念同一件事"
+4. **双信号 recency**（事件年龄 + 上次被想起的年龄）—— 对齐 AgentGal
+5. **kind 配额** —— 防 episode 洪泛（v2 靠固定 cap，v3 靠配额）
 
 ### 3.3 两套视图，两种召回（v2 只有一套）
 
 | 视图 | 消费者 | 召回方式 |
 |---|---|---|
 | **角色视图** ✅ 已有 | 主剧情 LLM（MMT 每轮 / Bond 开场） | 上述管线，第一人称、无 id |
-| **组织视图** ✅ 已实现零调用 | digest Round B / 深度阶段 | 子图 + 邻接表 + id + 矛盾标记 |
+| **组织视图** ✅ 已实现零调用 | digest Round B / 深度阶段 | **实体清单 + 该实体下的认知子图**（id + 邻接表 + 矛盾标记） |
+
+**组织视图随实体层升级**（这是 Round B 能写出正确 `about` 的前提）：
+v2 渲染的是"本地 id `u0001..` 的扁平认知列表"；v3 必须额外渲染**实体清单**，
+让 LLM 能引用既有实体（而不是每次现场编 subject）：
+
+```
+【已知实体】（引用时只能从这里选；确需新建 → 走 new_entity）
+  x0000 [self] 我
+  x0001 [person] 老师（别名: sensei）
+  x0002 [person] 阿露
+  x0003 [place] 杂草屋
+  x0004 [item] 俄罗斯轮盘巧克力   ← 当前: 已吃掉
+```
+这**正是 v2 那 7 处 `player` 硬编码特例的通用化**——玩家只是 `etype=person` 的
+一个普通实体。
 
 v3 要求：**两个视图都必须有 query**。Bond 的"开场注入后整章不变"（盒是逐字节稳定的）
 需要重新设计——见 §6.4 的待拍板项。
@@ -429,17 +567,28 @@ merge 是**造新节点 + 删源节点**，`links/contradictions/event_seq` 取�
 
 特点：**信息零损失**，可随时重建。这档没有争议，v3 直接启用（v2 只是没接入口）。
 
-### 5.3 重档：深度重组（独立阶段，可撤销）
+### 5.3 重档：深度重组（独立阶段，可撤销）—— **合并策略按 `nature` 分派**
+
+这是 §2.5 第四轴的**用途所在**：`nature` 不是标签，而是**能不能合并的判据**。
+
+| `nature` | 允不允许 merge | 理由 |
+|---|---|---|
+| `self_image` | **禁止 merge**（I8） | 角色内核。合并 = 抹掉人设张力（"依赖他" + "怕成为负担"必须能并存） |
+| `other` | ✅ 允许 | 关于他人的判断会被反复观察，该收敛 |
+| `relationship` | ✅ 允许，但**优先"过期退场"而非合并** | 约定会被履行/失效，是**时效**问题不是重复问题 |
+| `pattern` | ✅ 优先 `accrue`（计数聚合） | "反复出现"本就该累积，不需要合成新句 |
 
 | 动作 | 语义 | v3 新增纪律 |
 |---|---|---|
-| `merge` | 多条认知合成一条更宽的 | **产物记 `superseded_by`；源节点保留**（I7）；产物 `history` 合并源的历史 |
+| `merge` | 多条同 `nature`、同 `about` 的认知合成一条更宽的 | **产物记 `superseded_by`；源节点保留**（I11）；产物 `history` 合并源的历史；**`self_image` 一律拒绝** |
 | `contradict` | 标注两条认知互斥 | 双向边；渲染时并列显示，**不自动选边**（让 LLM 在剧情里处理张力） |
 | `generalize` | 由 N 条 episode 提升出**新** belief | 必须 ≥2 条支撑（对齐 I2） |
+| `merge_entity` | 两个实体实为同一个 | **只做别名软合并**（§2.7 改进④）：别名并入 + `merged_into` 单向标记，**节点保留**、**不改写指向它的 belief** |
 
 **触发时机**（v2 的 `PHASE_DEEP` 声明了但没注册动作）：
-- 同 `subject` 的 belief 数超阈值（如 ≥4）→ 提议 merge
-- 语义碰撞持续判"同主题"但内容分歧（用 §3.2 的 relevance 分数分布触发）
+- **同 `about` + 同 `nature=other`** 的 belief 数超阈值（如 ≥4）→ 提议 merge
+- **同 `about` 的实体重复**（LLM 提议新建时发现别名高度重合）→ 提议 `merge_entity`
+- 语义碰撞持续判"同主题"但内容分歧（用 §6.3 的 relevance 分数分布触发）
 - 每 N 次 digest 兜底一次
 
 **成本控制**：对齐 AgentGal 的 step3 —— **只在超过阈值时才跑**，
@@ -448,9 +597,11 @@ merge 是**造新节点 + 删源节点**，`links/contradictions/event_seq` 取�
 ### 5.4 撤销与审计
 
 - `history` ✅ 已有：update 时追加 `{episode_id, content, ts}`
-- v3 补：`superseded_by` + `evolution.jsonl` 记录 `merge` 的**源 id 列表**
+- v3 补：`superseded_by`（认知被取代）+ `merged_into`（实体被归并）
+  + `evolution.jsonl` 记录 `merge`/`merge_entity` 的**源 id 列表**
 - **不做 GC**：被取代的节点留在图里（可回放、可审计、可回滚），只是不再参与常规召回
-  （`superseded_by` 非空的节点权重 ×0.3，或直接从角色视图剔除、仅组织视图可见）
+  （`superseded_by` / `merged_into` 非空的节点权重 ×0.3，或直接从角色视图剔除、
+  仅组织视图可见）
 
 ---
 
@@ -495,26 +646,61 @@ merge 是**造新节点 + 删源节点**，`links/contradictions/event_seq` 取�
 | 输出 | 每条 episode 的 `keywords`（本次可含**物品/地点**线索） |
 | 失败 | 退化为 Step 1 自带的 tags（对齐 AgentGal 的 `_apply_default_chunk_metadata`） |
 
-> 存在的理由：关键词质量对 §3.2 通道2/3 影响很大，而"写叙事"与"抽检索词"
+> 存在的理由：关键词质量对召回通道影响很大，而"写叙事"与"抽检索词"
 > 是两种不同的注意力模式。省掉也能跑——**这是可选的加档**。
+
+#### Step 1.8 — 实体消解与登记（**新，实体层的入口**）
+
+这是引入实体层后**新增的关键一步**，也是"四种写法"问题的根治点。
+
+| | |
+|---|---|
+| 触发 | Step 1 之后（与 Step 1.5 可合并成一次调用） |
+| 输入 | Step 1 的 episode（含 tags/narration）+ **已知实体清单**（渲染成 `x0001 [person] 老师（别名: sensei）`）+ 关系表（`interperson.json`） |
+| 输出 | `{"entities": [{"ref": "x0001"} \| {"new": {"name": "春余", "etype": ["item"], "aliases": []}}], "links": [{"episode": "m0001", "about": ["x0001", "x0004"]}]}` |
+| 引擎校验 | ① `ref` 必须存在于清单（**引用幻觉 → 该条作废**，与 Round B 的 id 纪律同源）② `new` 必须过 `etype ⊆ 词表`（I5）③ `new` 与既有实体**别名重合度超阈值 → 引擎改判为 `ref` 并建议 `merge_entity`**（防重复实体）④ 每条 episode 的 `about` 至少 1 个实体 |
+| 失败 | 跳过本步 → `about` 留空（该 episode 不进实体车道，仍可被语义/词面通道召回到；**绝不阻断消化**） |
+
+**为什么必须有这一步（而不是让 Round B 顺手写）**：
+- **`about` 是归堆键，必须可信**。若交给 Round B（它同时在忙决策/改写/好感），
+  就会重演 v2 的 `subject` 自由发挥。
+- **实体创建要防重复**。引擎做别名重合度检查、强制走 `ref`，这是**构造性**防重；
+  靠提示词"请复用已有实体"是劝不住的（v2 的实证）。
+- **代价可控**：可与 Step 1.5 合并为一次调用，不额外增加轮次。
+
+**`self` 与 `player` 不进 LLM 决策**：`x0000`（self）开局自动建、
+`about=self` 由引擎按"这是角色自己的反应"判定；玩家实体开局自动建
+（`ref=player`，`etype=[person]`，别名取玩家当前名字 + "老师"/"sensei"）。
+LLM 只需要在清单里引用它们。
 
 #### Step 2 — 认知整理者（原 Round B，拆分）
 
 | | |
 |---|---|
-| 输入 | Step 1 产物（真实 id）+ **候选标注**（§6.3）+ 现有认知列表（本地 id `u0001..`）+ 人设锚 |
+| 输入 | Step 1 产物（真实 id）+ **候选标注**（§6.3）+ **实体清单**（含每实体下的既有认知）+ 人设锚 |
 | 输出 | `{"decisions": [...]}` — 见 §6.3 的 v3 动作集 |
-| 引擎校验 | id 引用合法；覆盖检查；`must_link` 检查；subject/kind 约束 |
+| 引擎校验 | id 引用合法；`about` 指向存在的实体（I3）；覆盖检查；`must_link` 检查；`nature` 取值合法（缺省按 §2.5 推断） |
 | 失败 | 整包回滚（快照），水位不推进 |
 
-#### Step 3 — 物品登记（**新**，仅当 Step 1 出现物品线索时跑）
+> **与 v2 的关键差别**：v2 给的是"扁平认知列表 `u0001..`"，LLM 得自己猜
+> 这条新经历该挂到哪个 subject；v3 给的是**按实体分组的视图**
+> （`x0001 老师` 下面列出它已有的 4 条认知），挂靠从"猜"变成"选"。
+
+#### Step 3 — 边状态维护（**新**，仅当本段出现状态变化线索时跑）
+
+> v3 初稿这里叫"物品登记"。引入实体层后**不再是物品专属**——
+> 它维护的是"**角色 ↔ 实体**的当前关系状态"（§2.6），物品只是其中一个 `etype`。
 
 | | |
 |---|---|
-| 输入 | Step 1 的 episode + **现有 possession 清单** + 线索 |
-| 输出 | `{"possessions": [{"item","state","holder","episode_ref"}]}` |
-| 引擎校验 | `item` 去重（同名追加 links 不新建）；state 合法性（I3）；holder 必须是已知角色或 player |
-| 失败 | 跳过（物品是**锦上添花**，绝不阻断剧情消化） |
+| 触发 | 本段出现 获得/失去/送出/吃掉/遗忘/得知 这类变化线索 |
+| 输入 | Step 1 的 episode + **该角色当前的边状态表**（`x0004 俄罗斯轮盘巧克力 → held`）+ 线索 |
+| 输出 | `{"edges": [{"entity": "x0004", "state": "consumed", "episode": "m0009"}]}` |
+| 引擎校验 | ① `entity` 必须存在且 `etype` 匹配语义 ② `state ∈ {held,lost,given_away,consumed,forgotten}` ③ 目标实体必须是 entity（不是 belief/episode） ④ 同段内同一实体只允许一次转移 |
+| 失败 | 跳过（边状态是**锦上添花**，绝不阻断剧情消化） |
+
+**与 Step 1.8 的关系**：Step 1.8 负责"新实体登记 + episode 归到哪些实体"，
+Step 3 负责"已有实体的状态迁移"。两者都可省——省了只会丢精度，不会丢内容。
 
 #### Step 4 — 好感与成长（原 Round B 里的一部分，**拆出来**）
 
@@ -533,22 +719,41 @@ merge 是**造新节点 + 删源节点**，`links/contradictions/event_seq` 取�
 
 ### 6.3 v2 → v3 动作集对照
 
+**三张动作表**（分属不同步骤，别混）：
+
+**(a) 实体动作（Step 1.8）**
 | v2 | v3 | 说明 |
 |---|---|---|
-| `add`(belief) | ✅ `add` | |
-| `add`(experience) | → `add`(belief, 带 `pattern`) | §2.2 的归并 |
+| — | 🔧 `ref_entity` | 引用既有实体（**默认路径**——清单里能对上就绝不该新建） |
+| — | 🔧 `new_entity` | 新建实体（引擎做别名重合检查；重合 → 改判 `ref` 并建议 `merge_entity`） |
+| — | 🔧 `merge_entity` | 别名软合并（§2.7 改进④；节点保留 + `merged_into` 单向） |
+
+**(b) 认知动作（Step 2）**
+| v2 | v3 | 说明 |
+|---|---|---|
+| `add`(belief) | ✅ `add` | 需带 `about`（指向实体）+ 可选 `aspect`/`nature` |
+| `add`(experience) | → `add`(belief, `nature=pattern`) | §2.2 的归并（`experience` kind 退役） |
 | `touch` | ✅ `touch` | |
 | `update` | ✅ `update` | |
-| — | 🔧 `link` | **连 belief↔belief**；补 `kind` 字段说清关系（`same_theme`/`caused_by`/`elaborates`） |
+| — | 🔧 `link` | **连 belief↔belief**；补关系类型（`same_theme`/`caused_by`/`elaborates`） |
 | — | 🔧 `contradict` | 标互斥（双向边） |
 | — | 🔧 `accrue` | 无损聚合（`occurrences`/`examples`） |
-| — | 🔧 `add_possession` / `update_possession` | 物品登记与状态迁移 |
-| — | 🔧 `merge` | 深度重组档（独立阶段） |
+
+**(c) 边状态动作（Step 3）**
+| v2 | v3 | 说明 |
+|---|---|---|
+| — | 🔧 `set_edge_state` | 角色 ↔ 实体的当前关系（`held`/`lost`/`given_away`/`consumed`/`forgotten`）——**取代** v3 初稿的 `add_possession`/`update_possession` |
+
+**(d) 深度重组（Step 9，独立阶段）**：`merge` / `generalize`（见 §5.3）
 
 **`must_touch` 的口径变更**：v2 是**结构强制**（出 `add` → 整行作废，见
 `parse_round_b`），v3 改为**强提示**：仍标注"疑似同主题 + sim 分数"，但允许 LLM
 `add` 并在 `note` 里说明理由。理由：v2 的强制把一个**未标定的阈值**变成了硬闸门
-（实测两个模型下 6/6 全部越线 → 会禁止一切 add）。
+（实测: 真机 4/4 episode 全越线、`best sim 0.92` → 会禁止一切 add；见 §9.1 首次读数）。
+
+**另外**：`must_touch` 的判定范围也应随实体层收窄——**只在同一 `about` 内部比较**
+（"这条新经历是否印证了关于老师的某条既有认知"），而不是和全库认知比。
+这样"阈值把同关系的不同侧面判成同一件事"就从根上消失了（§11 的实证）。
 
 ### 6.4 提示词装配的约束（与盒机制冲突的地方）
 
@@ -572,24 +777,56 @@ merge 是**造新节点 + 删源节点**，`links/contradictions/event_seq` 取�
 `wiki.meta.json` 补 `schema_version`（当前实测只有 `{"digested_seq": 30}`，
 **v2 完全没有版本机制**），v3 写 `3`。
 
-### 7.2 迁移映射（基于线上 13 条真实数据）
+### 7.2 迁移映射（基于线上 13 条真实数据，**实体中心版**）
+
+迁移分两段：**先建实体，再把节点挂上去**。
+
+**(a) 实体层生成**（7 条 belief/experience 的 subject → 实体）
+
+| v2 subject | 数量 | → entity | `about` 归属 |
+|---|---|---|---|
+| `player`（e0001） | 1 | `x_p` [person] 老师（`ref=player`，别名 sensei/老师） | 引擎预建 |
+| `我对老师的心意`（mutsuki m0003） | 1 | 同上 `x_p` | `about=x_p`, `aspect="我对他的心意"` |
+| `我对阿露的看法`（mutsuki m0004） | 1 | `x_a` [person] 阿露 | `about=x_a`, `aspect="我对她的看法"` |
+| `被老师求助时的反应`（haruka m0005） | 1 | `x_s` [self] 我（`x0000`） | `about=x_s`, `aspect="被求助时的反应"` |
+| `向老师敞开秘密基地`（m0006） | 1 | `x_p`（关系） | `about=x_p`, `aspect="敞开秘密基地"`, `nature=relationship` |
+| `对老师肯定的感受`（m0007） | 1 | `x_s`（自我价值） | `about=x_s`, `aspect="被肯定时的感受"` |
+| `对老师的承诺方式`（m0008） | 1 | `x_p`（关系） | `about=x_p`, `aspect="我们的承诺方式"`, `nature=relationship` |
+
+**这张表就是迁移脚本的规则来源**，但脚本**不硬编码这些字符串**——它按
+"**subject 文本 → 是否含自身指代/关系词 → 归 self 还是 person**"的启发式来判，
+并把**无法判定的打进人工审清单**（干跑 diff 里高亮）。判定启发式：
+
+```
+subject 含 我/自己/我的 + 心理词（反应/感受/价值/怀疑） → about=self
+subject 含 约定/一起/敞开/承诺/关系词                  → about=person, nature=relationship
+subject 形如 "我对X的看法/心意"                        → about=X（先解析 X 是否既有实体）
+其余                                                  → about=person, 保持原 subject 为 aspect
+```
+
+**(b) 节点迁移**
 
 | v2 形态 | 数量 | → v3 |
 |---|---|---|
-| `kind=episode`, `source=digest` | 6 | `kind=episode`, `origin=digest` |
-| `kind=belief` | 6 | `kind=belief`, `occurrences=len(links)`, `keywords=tags` |
-| `kind=experience`, `subject=player`（`e0001`） | 1 | **拆两条**：① `episode`（老师说了那句话，`reported_fact`, `observer=老师`）② `belief`（`subject=player`, `pattern` 非空, `occurrences=1`）；② links 指① |
-| `epistemic=reported_fact` + `subject`（`m0002`） | 1 | `episode` 保留；`subject` 保留（v3 新字段正好容纳） |
-| `source=experience`（出厂 episode） | **0（线上无）** | 迁移规则保留：`origin=seed` |
-| 所有节点 | 13 | 补 `story_time`：按 `event_seq` 单调外插，或置 `null`（渲染退化"很久以前"） |
+| `kind=episode`, `source=digest` | 6 | `kind=episode`, `origin=digest`, 补 `about`（由 tags 线索 + 人工审） |
+| `kind=belief` | 6 | `kind=belief`, `about`+`aspect`（见上表）, `occurrences=len(links)`, `keywords=tags`, `nature` 推断 |
+| `kind=experience`, `subject=player`（`e0001`） | 1 | **拆两条**：① `episode`（老师说了那句话，`reported_fact`, `observer=老师`）② `belief`（`about=x_p`, `nature=pattern`, `pattern` 非空, `occurrences=1`）；② links 指① |
+| `epistemic=reported_fact`（`m0002`） | 1 | `episode` 保留；其 narration 讲的是**阿露**的事 → `about=[x_a]`（这正是 §1.3 说的"主体读不出来"，迁移时人工定） |
+| `source=experience`（出厂 episode） | **0（线上无）** | 规则保留：`origin=seed` |
+| 所有节点 | 13 | 补 `story_time`：按 `event_seq` 单调外插（§10 Q8 建议） |
 
 **迁移脚本必须**：① 幂等（可重跑）② 先备份 `wiki.jsonl.bak.v2`
-③ 干跑模式先输出 diff 供人工审 ④ 失败整文件回滚（复用 `atomic_write_lines`）。
+③ **干跑模式输出 diff + 人工审清单**（实体归属无法判定的条目）供人工过
+④ 失败整文件回滚（复用 `atomic_write_lines`）⑤ 迁移后跑 `store.audit()` 断言无悬空引用。
 
 ### 7.3 旧档兼容
 
 对齐决策 #4（旧档冻结）：**v3 读 v2（迁移后）**；读**未迁移**的 v2 档 →
 按 §7.2 在内存里即时映射（不写盘），保证老世界线可玩。
+
+**⚠️ 一个必须处理的兼容点**：v2 档的 `subject` 在 v3 里语义变了
+（从"归属键"降为 `aspect`）。即时映射时必须**为每条旧 belief 现造一个临时实体**
+（`about` 指向它，`aspect=原 subject`），否则旧档的 belief 会因 `about` 缺失被 I3 拒收。
 
 ---
 
@@ -615,15 +852,21 @@ merge 是**造新节点 + 删源节点**，`links/contradictions/event_seq` 取�
 | 阶段 | 内容 | 完成标志 |
 |---|---|---|
 | **V3-0** ✅ **已落地（2026-09-13）** | **召回台账**（§3.5）+ 阈值可配置化 | ✅ 真机一行日志能看出"这轮给了 LLM 哪几条"——见 §9.1 |
-| **V3-1** | **节点层换代**：3 kind + 字段表 + 不变量（I1~I8）+ `origin` 改名 | 单测：validate/normalize/渲染分桶/契约枚举全绿 |
-| **V3-2** | **迁移脚本** + `schema_version`（13 节点，干跑 diff 人工审） | 旧档迁移后逐字节可回放 |
-| **V3-3** | **读路径接上混合召回**（§3.2 + 模糊时间渲染 §3.4） | 台账显示双通道命中；belief 不再"取前 5" |
+| **V3-1a** | **实体层地基**：`entity` kind + `etype`（5 类）+ `about`/`aspect`/`nature` 字段 + 不变量 I1~I12 + `_PREFIX`（x 入、e/p 出）+ `origin` 改名 | 单测：validate/normalize/实体引用校验/软合并/渲染分组全绿 |
+| **V3-1b** | **`experience` kind 归并** + `player` 特例通用化（`is_player_experience` 7 处消费点改走 `about`+`nature`） | 单测：旧 experience 语义可表达；无 `PLAYER_SUBJECT` 残留 |
+| **V3-2** | **迁移脚本** + `schema_version`（13 节点 + 7 条 subject→实体映射，干跑 diff + 人工审清单） | 旧档迁移后 `store.audit()` 无悬空引用、逐字节可回放 |
+| **V3-3** | **读路径接上实体车道召回**（§3.2 两级 + 模糊时间渲染 §3.4） | 台账显示 entity 命中与车道配额；belief 不再"取前 5" |
 | **V3-4** | **时间架构**（§4）：游标 + Step 0 + 模糊渲染 + 衰减接进召回 | 剧情跨段后"三周前"正确出现 |
-| **V3-5** | **LLM 动作扩展**：`link`/`contradict`/`accrue` + Step 3 物品 + 动作集表落地 | 真机一章后 `evolution.jsonl` 出现 touch/link（不再是清一色 add） |
-| **V3-6** | **深度重组阶段**（§5.3）+ `superseded_by` 溯源 | 阈值触发的 merge 可审计、可回滚 |
+| **V3-5** | **LLM 动作扩展**：Step 1.8 实体消解 + `link`/`contradict`/`accrue` + Step 3 边状态 + 动作集三表落地 + **`must_touch` 收窄到同一 `about`（Q11）** | 真机一章后 `evolution.jsonl` 不再清一色 add；台账 `forced=` 显著下降 |
+| **V3-6** | **深度重组阶段**（§5.3）+ `superseded_by`/`merged_into` 溯源 + 按 `nature` 分派 | 阈值触发的 merge 可审计、可回滚；`self_image` 拒合并有测试 |
 | **V3-7** | **Bond 章内重召回**（§6.4 选项 C） | 长章后半段的记忆不再陈旧 |
 
-**依赖**：V3-0 ✅ 独立完成；V3-1 必须先于 V3-3/4/5；V3-2 依赖 V3-1；V3-6 依赖 V3-5。
+**依赖**：
+- V3-0 ✅ 独立完成
+- **V3-1a 是一切的前提**（V3-1b/2/3/4/5 都依赖它）
+- V3-2 依赖 V3-1b；V3-3 依赖 V3-1a；V3-5 依赖 V3-2（迁移完才有干净的 `about`）
+- V3-6 依赖 V3-5；V3-7 依赖 V3-3
+- **V3-4 与 V3-3 可并行**（都只依赖 V3-1a）
 
 ### 9.1 V3-0 落地记录（2026-09-13）
 
@@ -662,18 +905,30 @@ recall_write char=igusa_haruka eps=4 collide=12 forced=100% med_only=0 none=0
 
 ---
 
-## 10. 待拍板（阻塞项，按需要你回答的顺序）
+## 10. 待拍板
+
+### 10.1 ✅ 已裁决（2026-09-13 用户拍板）
+
+| # | 问题 | 裁决 |
+|---|---|---|
+| **Q1** | `experience` kind 是否归并？ | ✅ **归并**——`pattern` 字段 + `occurrences`；`experience` kind 退役（依据 §1.2 三处自相矛盾） |
+| **Q1b** | 实体层要哪些 `etype`？ | ✅ **`self` / `item` / `place` / `knowledge`**（+ 必然存在的 `person`，共 5 类） |
+| **Q1c** | belief 粒度：多条并存 vs 合成一条 | ✅ **多条并存**——不做"对 X 的看法"单条总结（理由 §2.1：200 字上限 + 重写漂移 + 矛盾无法表达） |
+| **Q3** | 物品"转手"的数据形态 | ✅ 演化为**通用边状态**（§2.6）——不再是物品专属字段；`possession` kind 取消 |
+| **Q4** | merge 后源节点 | ✅ **保留 + `superseded_by`**（I11）；实体合并同理走**别名软合并**（§2.7 改进④） |
+
+### 10.2 ⏳ 仍待你拍板
 
 | # | 问题 | 我的倾向 | 影响 |
 |---|---|---|---|
-| **Q1** | `experience` kind 是否按 §2.2 **归并进 belief**（`pattern` 字段 + `occurrences`）？ | 归并（理由是 §1.2 那三处自相矛盾） | 决定 V3-1 的 kind 数量与全部消费者 |
 | **Q2** | 剧情时间**锚点**谁定？间隔谁给？ | LLM 提议 + 引擎校验夹取（§4.3） | 决定 V3-4 |
-| **Q3** | `possession` 的"转手"用**快照 + 溯源**（我倾向）还是**时间区间边**？ | 快照 + 溯源（§2.2） | 决定 possession 的数据形态 |
-| **Q4** | merge 后源节点：**保留 + `superseded_by`**（我倾向）还是删除？ | 保留（对齐 A-Mem 版本化纪律，I7） | 决定 V3-6 与存储增长 |
-| **Q5** | Bond 章内召回：A 开场固定 / B 每板刷新 / **C 关键点重召回**（我倾向） | C | 决定 V6-7 与盒机制是否破 |
-| **Q6** | `evidence` 直接删除还是保留待用？ | 删除（§8-4） | 决定 Step 4 契约 |
-| **Q7** | Step 1.5（关键词抽出）做不做？ | 做（对通道2/3 有价值，且可降级） | 决定 V3-5 的调用数 +1 |
-| **Q8** | 旧节点没有 `story_time` 时：外插（我倾向）还是 `null` 退化？ | 外插（按 event_seq 单调） | 决定 V3-2 迁移质量 |
+| **Q5** | Bond 章内召回：A 开场固定 / B 每板刷新 / **C 关键点重召回** | C（换场是天然检索时机，Bond 已有 `switch` 触发点） | 决定 V3-7 与盒机制是否破 |
+| **Q6** | `evidence` 直接删除还是保留待用？ | 删除（§8-4：零消费者 + 不校验逐字） | 决定 Step 4 契约 |
+| **Q7** | Step 1.5（关键词抽出）做不做？ | 做（对召回通道有价值，且可降级） | 决定调用数 +1 |
+| **Q8** | 旧节点没有 `story_time` 时：外插还是 `null` 退化？ | 外插（按 event_seq 单调） | 决定 V3-2 迁移质量 |
+| **Q9**（新） | 边状态存哪：`soul/bonds.jsonl` 独立文件 vs `wiki.meta.json` 的 relations 段？ | 独立文件（与 wiki.jsonl 并列，便于 diff 与备份） | 决定 V3-5 存储形态 |
+| **Q10**（新） | Step 1.8 与 Step 1.5 **是否合并成一次调用**？ | 合并（省一轮；两者都是"从 episode 抽结构化信息"，注意力模式相同） | 决定调用数与 V3-5 编排 |
+| **Q11**（新） | `must_touch` 是否**收窄到同一 `about` 内**比较？ | 收窄（§6.3 末——从根上消除"同关系不同侧面被误判同主题"，真机 4/4 越线正是这个病） | 决定 V3-5 判定范围，**建议优先级最高** |
 
 ---
 
