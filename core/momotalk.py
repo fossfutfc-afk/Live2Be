@@ -191,11 +191,35 @@ def load_brain_segment(store: SessionStore, char_id: str, char_name: str = "",
                              char_id=char_id)
         wiki_seg = render_character_view(wstore.all(), char_name=char_name,
                                          char_aliases=aliases) or ""
+        _log_read_ledger(char_id)
         if wiki_seg:
             seg_parts.append(wiki_seg)
         return "\n\n".join(p for p in seg_parts if p.strip())
     except Exception:                                # noqa: BLE001 — 宁缺勿错
         return ""
+
+
+def _log_read_ledger(char_id: str) -> None:
+    """读路径召回台账（V3-0, DESIGN_WIKI_V3 §3.5）——取走 render 层记下的桶统计。
+
+    `render_character_view` 是纯渲染函数、不知道自己在为谁渲染, 所以由调用方
+    （这里/`_inject_brain`）消费台账并补上 char_id。取走即清空, 不重复打点。
+    渲染函数没被调用过（异常路径）→ 无声返回。
+    """
+    try:
+        from core.brain.wiki_v2 import recall_ledger
+        from core.brain.wiki_v2.render import take_last_view_account
+        acct = take_last_view_account()
+        if not acct:
+            return
+        picked = sum(n for n, _ in acct["caps"].values())
+        recall_ledger.log_read(
+            char_id=char_id, total=acct["total"], picked=picked,
+            buckets={k: f"{n}/{c}" for k, (n, c) in acct["caps"].items()},
+            # v2 的角色视图是静态分桶（不依赖向量）, 故 mode 如实标 off
+            mode="off", surface="chara")
+    except Exception as e:                           # noqa: BLE001 — 台账不阻断注入
+        logger.debug("读路径台账失败: %s", e)
 
 #: 滑动窗口默认轮数（每轮 = user+assistant 2 条消息; 40 轮 = 80 条消息）。
 #: 玩家可配（引擎构造参数 history_rounds 传入; 设置页接入见 docs/DESIGN_MEMORY.md Step 1）
@@ -508,6 +532,7 @@ class MomoTalkEngine:
                 wstore.all(),
                 char_name=char.display_name or "",
                 char_aliases=_name_aliases(char.profile))
+            _log_read_ledger(character_id)               # V3-0 读路径台账
             if wiki_seg:
                 seg_parts.append(wiki_seg)
             self._brain_injection = "\n\n".join(seg_parts)

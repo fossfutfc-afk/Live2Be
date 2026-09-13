@@ -614,7 +614,7 @@ merge 是**造新节点 + 删源节点**，`links/contradictions/event_seq` 取�
 
 | 阶段 | 内容 | 完成标志 |
 |---|---|---|
-| **V3-0** | **召回台账**（§3.5）+ 阈值可配置化 | 真机一行日志能看出"这轮给了 LLM 哪几条" |
+| **V3-0** ✅ **已落地（2026-09-13）** | **召回台账**（§3.5）+ 阈值可配置化 | ✅ 真机一行日志能看出"这轮给了 LLM 哪几条"——见 §9.1 |
 | **V3-1** | **节点层换代**：3 kind + 字段表 + 不变量（I1~I8）+ `origin` 改名 | 单测：validate/normalize/渲染分桶/契约枚举全绿 |
 | **V3-2** | **迁移脚本** + `schema_version`（13 节点，干跑 diff 人工审） | 旧档迁移后逐字节可回放 |
 | **V3-3** | **读路径接上混合召回**（§3.2 + 模糊时间渲染 §3.4） | 台账显示双通道命中；belief 不再"取前 5" |
@@ -623,7 +623,42 @@ merge 是**造新节点 + 删源节点**，`links/contradictions/event_seq` 取�
 | **V3-6** | **深度重组阶段**（§5.3）+ `superseded_by` 溯源 | 阈值触发的 merge 可审计、可回滚 |
 | **V3-7** | **Bond 章内重召回**（§6.4 选项 C） | 长章后半段的记忆不再陈旧 |
 
-**依赖**：V3-0 独立可先做；V3-1 必须先于 V3-3/4/5；V3-2 依赖 V3-1；V3-6 依赖 V3-5。
+**依赖**：V3-0 ✅ 独立完成；V3-1 必须先于 V3-3/4/5；V3-2 依赖 V3-1；V3-6 依赖 V3-5。
+
+### 9.1 V3-0 落地记录（2026-09-13）
+
+| 交付 | 位置 |
+|---|---|
+| 召回旋钮（`[recall]` 分组，默认 = v2 常量） | `core/brain/wiki_v2/recall_config.py` · `settings.toml [recall]` |
+| 召回台账（写路径 + 读路径） | `core/brain/wiki_v2/recall_ledger.py` |
+| 写路径打点（候选碰撞汇总） | `core/brain/wiki_v2/digest.py::_round_b_material` |
+| 读路径打点（注入视图桶统计） | `core/brain/wiki_v2/render.py::_bucket_view`（分桶抽成单一实现）+ `core/momotalk.py::_log_read_ledger` |
+| 契约测试 11 例 | `tests/core/test_wiki_recall_ledger.py` |
+
+**行为零变化**（这是 V3-0 的承诺，已实测）：
+- 渲染文本逐字节不变（真机 8 节点 = 999 字，sha256 前 16 位 `e8eff9dc55f99b5d`）
+- `recommend_candidates` 默认 `k` 与显式 `k=CAND_K` 结果相同
+- 不配 `[recall]` 时全部走默认；配坏值/TOML 损坏 → 回落默认、不抛
+
+**真机首次读数（就是 v3 要解的那个病）**：
+
+```
+recall_read  surface=chara char=igusa_haruka total=8 picked=8 dropped=0 mode=off
+             buckets=seed:0/0 episode:4/4 belief:4/4 player:0/0 reported:0/0
+recall_write char=igusa_haruka eps=4 collide=12 forced=100% med_only=0 none=0
+             cands=12 best=0.92 mode=semantic thr=0.50/0.25 ⚠forced_high
+```
+
+两条读数各自钉住一个 v3 要解的问题：
+- **读路径 `dropped=0`** 是**假阴性**——库里只有 8 条、低于全部 cap，所以"看不出来"。
+  等节点数超过 cap（belief > 5）才会出现 `dropped>0`；这正是 §3.1 说的"第 6 条
+  以后的 belief 永远读不出来"，台账现在会**提前**把它显示出来。
+- **写路径 `forced=100% mode=semantic`** 是**真问题当场暴露**：真实 4 条 episode
+  在**语义模式**（非降级）下全部被判【疑似同主题】→ `parse_round_b` 结构强制
+  touch/update → **新 belief 永远长不出来**。这条链此前在日志里完全不可见。
+
+回归：**605 passed**（594 + 11）。
+
 
 ---
 

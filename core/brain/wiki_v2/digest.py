@@ -46,7 +46,6 @@ from core.brain.wiki_v2.nodes import make_node
 from core.brain.wiki_v2.recall import (
     CAND_HIGH,
     CAND_MED,
-    CAND_K,
     EmbedFn,
     recommend_candidates,
 )
@@ -170,7 +169,8 @@ def digest_segment(
         cog_text, local_of = render_cognition_list(
             store, cap=COGNITION_CAP, exclude=set(player_ids))   # 本轮画像条目不进认知列表
         ep_text, high_map = _round_b_material(store, episode_ids, local_of,
-                                              embed_fn=embed_fn)
+                                              embed_fn=embed_fn,
+                                              char_id=getattr(store, "char_id", ""))
         system_b = load_prompt("digest_v2_round_b").replace(
             "{{digest_schema}}", digest_registry.build_schema(PHASE_UNDERSTAND))
         user_b = _join_sections([
@@ -314,7 +314,8 @@ def _create_a_nodes(store: WikiStoreV2, entries: list[dict], *, ts: str,
 
 def _round_b_material(store: WikiStoreV2, episode_ids: list[str],
                       local_of: dict[str, str],
-                      embed_fn: EmbedFn | None) -> tuple[str, dict[str, str]]:
+                      embed_fn: EmbedFn | None,
+                      *, char_id: str = "") -> tuple[str, dict[str, str]]:
     """Round B 输入: 新经历摘要 + 每条引擎候选标注（板块 5）。
 
     每条 episode 用 main_text 走 recommend_candidates 与现有认知碰撞:
@@ -323,8 +324,21 @@ def _round_b_material(store: WikiStoreV2, episode_ids: list[str],
         ≥CAND_MED   → 标注【可能相关】——供参考, LLM 自由 touch/update
     无标注 → 不画蛇添足（LLM 自由 add/组织）。
 
+    **2026-09-13 V3-0（DESIGN_WIKI_V3 §3.5）**: 末尾打一行**写路径召回台账**
+    `recall_write char=… eps=… forced=…% mode=semantic|keyword thr=…`。
+    此前这条链完全不可观测——"阈值把全部 episode 判成同主题 → 禁止一切 add"
+    （实测两模型皆 6/6 越线）在日志里看不出任何异常。
+
     Returns: (episodes_text, high_map)。
     """
+    from core.brain.wiki_v2 import recall_ledger
+    from core.brain.wiki_v2.recall import _thr, CAND_HIGH, CAND_MED
+
+    thr_high = _thr("cand_high", CAND_HIGH)
+    thr_med = _thr("cand_med", CAND_MED)
+    acc = recall_ledger.CollisionAccount(char_id)
+    modes: list[str] = []
+
     lines: list[str] = []
     high_map: dict[str, str] = {}
     for nid in episode_ids:
@@ -339,10 +353,13 @@ def _round_b_material(store: WikiStoreV2, episode_ids: list[str],
         if node.verbatim:
             lines.append(f"    原话: {node.verbatim}")
         query = f"{node.narration} {node.verbatim}".strip()
-        cands = recommend_candidates(store, query, embed_fn=embed_fn, k=CAND_K)
+        cands = recommend_candidates(store, query, embed_fn=embed_fn,
+                                     mode_out=modes)
         cands = [(c, s) for c, s in cands if c.id in local_of]   # 只标已渲染的
-        highs = [(c, s) for c, s in cands if s >= CAND_HIGH]
-        meds = [(c, s) for c, s in cands if CAND_MED <= s < CAND_HIGH]
+        highs = [(c, s) for c, s in cands if s >= thr_high]
+        meds = [(c, s) for c, s in cands if thr_med <= s < thr_high]
+        acc.episode(hi=len(highs), med=len(meds), n_cand=len(cands),
+                    best_sim=(cands[0][1] if cands else 0.0))
         if highs:
             top = local_of[highs[0][0].id]
             high_map[nid] = top
@@ -355,6 +372,15 @@ def _round_b_material(store: WikiStoreV2, episode_ids: list[str],
             lines.append(
                 f"    → 可能相关(sim {meds[0][1]:.2f}): {ids}"
                 " —— 供参考, 可选 touch/update 或视作无关")
+
+    # 通道口径: 全程 semantic / 全程 keyword / 混合（部分 episode 失败降级）
+    if modes and all(m == "semantic" for m in modes):
+        acc.mode = "semantic"
+    elif modes and all(m == "keyword" for m in modes):
+        acc.mode = "keyword"
+    elif modes:
+        acc.mode = "mixed"
+    acc.log(thr_high=thr_high, thr_med=thr_med)
     return "\n".join(lines) or "（无）", high_map
 
 
