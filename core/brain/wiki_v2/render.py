@@ -17,9 +17,12 @@ player experience（§4.4）: 组织视图带 [关于老师] 标记; 角色视�
 """
 from __future__ import annotations
 
-from typing import Any, Iterable
+from typing import TYPE_CHECKING, Any, Iterable
 
 from core.brain.wiki_v2.nodes import BrainNode
+
+if TYPE_CHECKING:                       # 仅注解求值期可见（避免运行时循环导入）
+    from core.brain.wiki_v2.store import WikiStoreV2
 
 #: 组织视图行首缩进（verbatim/example 续行）
 _INDENT = "        "
