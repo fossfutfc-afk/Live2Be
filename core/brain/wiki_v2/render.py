@@ -152,6 +152,64 @@ def _organize_extra(node: BrainNode) -> str:
 # 角色视图（主剧情 LLM 消费, 第一人称无 id）
 # ---------------------------------------------------------------------------
 
+#: 最近一次 `render_character_view` 的台账（V3-0）。调用方取走后应清空，
+#: 用列表而非全局标量: 渲染函数可能在多处被调（bond 开场 / MMT 每轮 / CLI），
+#: 由调用方决定"这次渲染属于谁"，渲染层自己不猜 char_id。
+_last_view_account: list[dict] = []
+
+
+def take_last_view_account() -> dict | None:
+    """取走最近一次角色视图的台账（无 → None）。取走即清空（消费语义）。"""
+    return _last_view_account.pop() if _last_view_account else None
+
+
+def _bucket_view(nodes: Iterable[BrainNode], *,
+                 cap_seed_episodes: int, cap_beliefs: int, cap_player: int,
+                 cap_recent: int, cap_reported: int) -> dict:
+    """**唯一**分桶实现（v2 语义原样保留）。
+
+    抽出来是为了让台账（V3-0）与渲染共用同一份分桶结果——否则两条路径会漂移,
+    而台账的全部价值就在于"如实反映 LLM 看到了什么"。
+    """
+    all_nodes = list(nodes)
+    seed_eps = sorted(
+        (n for n in all_nodes if n.kind == "episode" and n.source == "experience"),
+        key=lambda n: n.significance, reverse=True)[:cap_seed_episodes]
+    episodic = sorted(
+        (n for n in all_nodes if n.kind == "episode"
+         and n.epistemic == "observed_fact" and n.source != "experience"),
+        key=lambda n: (n.is_precious, n.ts or ""), reverse=True)
+    episodes = episodic[:cap_recent]
+    beliefs = sorted((n for n in all_nodes if n.kind == "belief"),
+                     key=lambda n: n.significance, reverse=True)[:cap_beliefs]
+    players = sorted((n for n in all_nodes if n.is_player_experience),
+                     key=lambda n: n.count, reverse=True)[:cap_player]
+    reported = [n for n in all_nodes if n.kind == "episode"
+                and n.epistemic == "reported_fact"][:cap_reported]
+    return {
+        "total": len(all_nodes),
+        "seed_eps": seed_eps,
+        "episodes": episodes,
+        "beliefs": beliefs,
+        "players": players,
+        "reported": reported,
+        # 台账口径: 桶名 → (选中数, 候选总数)（候选总数 = 该桶未截断前的条数）
+        "caps": {
+            "seed": (len(seed_eps), min(
+                sum(1 for n in all_nodes if n.kind == "episode"
+                    and n.source == "experience"), cap_seed_episodes)),
+            "episode": (len(episodes), min(len(episodic), cap_recent)),
+            "belief": (len(beliefs), min(
+                sum(1 for n in all_nodes if n.kind == "belief"), cap_beliefs)),
+            "player": (len(players), min(
+                sum(1 for n in all_nodes if n.is_player_experience), cap_player)),
+            "reported": (len(reported), min(
+                sum(1 for n in all_nodes if n.kind == "episode"
+                    and n.epistemic == "reported_fact"), cap_reported)),
+        },
+    }
+
+
 def render_character_view(
     nodes: Iterable[BrainNode],
     *,
@@ -177,22 +235,18 @@ def render_character_view(
         - 我听说的（reported）: 兜底
         - knowledge 不再出厂化（世界观知识 = config 档案, system prompt 注入）
     第一人称转换: char_name + char_aliases（yml 原文多用简称, 如"遥香"）→ 我。
+
+    2026-09-13（V3-0）: 分桶抽到 `_bucket_view`（台账与渲染共用），并把这次
+    的桶统计**记进 `_last_view_account`** 供调用方打台账（渲染函数本身不打日志——
+    它不知道自己在为哪个角色/哪条 surface 渲染）。
     """
-    # 角色视图不依赖 id（渲染中从不出现 id）——直接按 kind/排序处理
-    seed_eps = sorted(
-        (n for n in nodes if n.kind == "episode" and n.source == "experience"),
-        key=lambda n: n.significance, reverse=True)[:cap_seed_episodes]
-    episodes = sorted(
-        (n for n in nodes if n.kind == "episode"
-         and n.epistemic == "observed_fact" and n.source != "experience"),
-        key=lambda n: (n.is_precious, n.ts or ""), reverse=True)
-    episodes = episodes[:cap_recent]
-    beliefs = sorted((n for n in nodes if n.kind == "belief"),
-                     key=lambda n: n.significance, reverse=True)[:cap_beliefs]
-    players = sorted((n for n in nodes if n.is_player_experience),
-                     key=lambda n: n.count, reverse=True)[:cap_player]
-    reported = [n for n in nodes if n.kind == "episode"
-                and n.epistemic == "reported_fact"][:cap_reported]
+    b = _bucket_view(
+        nodes, cap_seed_episodes=cap_seed_episodes, cap_beliefs=cap_beliefs,
+        cap_player=cap_player, cap_recent=cap_recent, cap_reported=cap_reported)
+    episodes, beliefs, players, reported = (
+        b["episodes"], b["beliefs"], b["players"], b["reported"])
+    seed_eps = b["seed_eps"]
+    _last_view_account.append(b)
 
     blocks: list[str] = ["【角色记忆（brain）】"]
     if summary:

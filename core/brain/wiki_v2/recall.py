@@ -37,10 +37,23 @@ SIGMA = 1.5                 # 对数正态尺度（衰减快慢）
 #: 批式 embedding 后端（RAG 后路）: texts → 等长向量列表
 EmbedFn = Callable[[list[str]], list[list[float]]]
 
-#: 候选推荐标注阈值（板块 5; embed cosine 与关键词分同尺度归一）
+#: 候选推荐标注阈值（板块 5; embed cosine 与关键词分同尺度归一）。
+#: **2026-09-13 V3-0: 实际取值已搬到 `settings.toml [recall]`**（见 `recall_config`）——
+#: 它们是**跨模型必须重标**的旋钮（实测: nomic 无关对基线 0.60 / Qwen3 0.26，
+#: 真实 belief 对 0.77~0.87 / 0.53~0.71），写死在代码里等于"换模型即静默失效"。
+#: 此处常量仅作**默认值来源**（逐字等于 v2 原值）；运行期走 `_thr()` 读配置。
 CAND_HIGH = 0.50            # ≥: 疑似同主题——决策必须 touch/update（禁 add）
 CAND_MED = 0.25             # ≥: 可能相关——供参考, 自由决策
 CAND_K = 3                  # 每 episode 最多候选数
+
+
+def _thr(name: str, fallback: float) -> float:
+    """取召回旋钮（配置优先; 配置层异常 → 回落模块常量, 绝不上抛）。"""
+    try:
+        from core.brain.wiki_v2.recall_config import get
+        return get(name)
+    except Exception:                            # noqa: BLE001 — 配置层不阻断召回
+        return fallback
 
 
 def recall_subgraph(
@@ -102,7 +115,8 @@ def recall_subgraph(
 
 def recommend_candidates(store: WikiStoreV2, query: str, *,
                          embed_fn: EmbedFn | None = None,
-                         k: int = CAND_K) -> list[tuple[BrainNode, float]]:
+                         k: int | None = None,
+                         mode_out: list | None = None) -> list[tuple[BrainNode, float]]:
     """Round B 候选推荐（板块 5）: episode query → 认知候选（相似度降序, k 截断）。
 
     服务: digest Round B 输入——引擎先把每条新经历与现有稳定认知碰撞,
@@ -123,8 +137,16 @@ def recommend_candidates(store: WikiStoreV2, query: str, *,
     `recall_cand fallback=keyword reason=…`——此前的静默降级会让"引擎抬不出
     【疑似同主题】"表现为"wiki 只增不并", 排查时无从下手。
 
+    Args:
+        k: None → 读 `[recall].cand_k`（默认 3）
+        mode_out: 可选传出参数——本函数会把实际走的通道 **append** 进去
+            （`"semantic"` / `"keyword"`），供调用方汇总成召回台账（V3-0）。
+            用列表而非返回值，是为了不改既有返回签名（测试与调用方零改动）。
+
     Returns: [(node, score), ...] 降序, score > 0; 空 query/空认知 → []。
     """
+    if k is None:
+        k = int(_thr("cand_k", CAND_K))
     nodes = [n for n in store.all() if n.kind in ("belief", "experience")]
     query = (query or "").strip()
     if not nodes or not query:
@@ -136,11 +158,15 @@ def recommend_candidates(store: WikiStoreV2, query: str, *,
             scored = sorted(
                 ((_cosine(qv, v), n) for n, v in zip(nodes, vecs) if v),
                 key=lambda t: t[0], reverse=True)
+            if mode_out is not None:
+                mode_out.append("semantic")
             return [(n, s) for s, n in scored[:k] if s > 0]
         except Exception as e:                  # noqa: BLE001 — 后端故障降级
             logger.info("recall_cand fallback=keyword reason=embed_error err=%s "
                         "nodes=%d（Round B 抬不出【疑似同主题】→ 该段可能只会 add）",
                         e, len(nodes))
+    if mode_out is not None:
+        mode_out.append("keyword")
     return _keyword_candidates(nodes, query, k)
 
 
