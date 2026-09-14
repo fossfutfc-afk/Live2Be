@@ -124,6 +124,60 @@ def test_round_a_bad_kind_rejected():
 
 
 # ---------------------------------------------------------------------------
+# Round A 情绪两标量 emo_int / emo_valence（§3.3.3, 2026-09-13）
+# ---------------------------------------------------------------------------
+
+def _ep(**over):
+    base = {"kind": "episode", "narration": "她笑了一下。", "title": "测试条目",
+            "tags": ["测试"]}
+    base.update(over)
+    return base
+
+
+def test_round_a_emo_fields_pass_through():
+    items, result = digest_registry.parse_round_a({"episodes": [
+        _ep(emo_int=0.8, emo_valence=-0.6)]})
+    assert result.is_valid, result.errors
+    assert items[0]["emo_int"] == 0.8
+    assert items[0]["emo_valence"] == -0.6
+    print("    emo_int/emo_valence: 原样透传")
+
+
+def test_round_a_emo_absent_stays_absent():
+    """★ 缺 → **不落字段**（None 哨兵）——「未采集」≠「真的毫无波澜」。"""
+    items, result = digest_registry.parse_round_a({"episodes": [_ep()]})
+    assert result.is_valid
+    assert "emo_int" not in items[0] and "emo_valence" not in items[0]
+    print("    emo_*: 缺 → 字段不存在（不折成 0.0）")
+
+
+def test_round_a_emo_zero_is_kept():
+    """0.0 是合法值（无波澜 / 中性色彩）——必须保留, 不能被"假值即缺省"吃掉。"""
+    items, result = digest_registry.parse_round_a({"episodes": [
+        _ep(emo_int=0.0, emo_valence=0.0)]})
+    assert result.is_valid
+    assert items[0]["emo_int"] == 0.0
+    assert items[0]["emo_valence"] == 0.0
+    print("    emo_*: 0.0 保留（不是缺省）")
+
+
+def test_round_a_emo_clamped_and_bad_ignored():
+    # 越界 → 夹紧（值仍可用, 不整条丢）
+    items, _ = digest_registry.parse_round_a({"episodes": [
+        _ep(emo_int=9, emo_valence=-9)]})
+    assert items[0]["emo_int"] == 1.0
+    assert items[0]["emo_valence"] == -1.0
+    # 坏值 → 忽略该字段（不折成 0.0）, 条目本身仍有效
+    for bad in ("abc", True, float("nan"), [], {}):
+        items, result = digest_registry.parse_round_a({"episodes": [
+            _ep(emo_int=bad, emo_valence=bad)]})
+        assert result.is_valid, f"{bad!r} 不该让整条失效"
+        assert "emo_int" not in items[0] and "emo_valence" not in items[0], \
+            f"{bad!r} 应被忽略而非折成 0.0"
+    print("    emo_*: 越界夹紧 / 坏值忽略（不折成 0.0, 不整条丢）")
+
+
+# ---------------------------------------------------------------------------
 # Round B parse
 # ---------------------------------------------------------------------------
 

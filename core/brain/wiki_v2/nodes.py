@@ -8,7 +8,8 @@
                出厂（beliefs.yml, 种子——不 immutable, 运行时 touch/update 演化）
 
 通用字段: id / kind / significance / epistemic / observer / tags / segment_id /
-          event_seq / ts / source / links / contradictions / aff_at_encoding
+          event_seq / ts / source / links / contradictions / aff_at_encoding /
+          emo_int / emo_valence
 专属字段: episode.title(可选短标题) / belief.subject / belief.growth /
           belief.observation / belief.history[{episode_id, content, ts}]
 
@@ -101,6 +102,16 @@ class BrainNode:
     #: 真源仍是 `affection` 事件流（`load_affection_from_events` 可按 seq 回放），
     #: 本字段只是省掉每次召回重放。
     aff_at_encoding: float | None = None
+    #: 峰值情绪强度 ∈ [0, 1]（Round A 出值, §3.3.3 矩阵第二行）——**峰值**不是均值。
+    #: 判据由 `【本段情绪标尺】`（作者注释, §3.3.2）提供。
+    #: `None` = 未采集（旧档 / LLM 没给）; **`0.0` 也是合法值**（确实毫无波澜,
+    #: 如纯事务性寒暄）。两者不可合并——故用 `None` 哨兵而非 `0` 当缺省。
+    emo_int: float | None = None
+    #: 整体情绪色彩 ∈ [−1, 1]（带符号, Round A 出值）——**不进矩阵**。
+    #: 矩阵第二格是 `emo_span`（无符号幅度）; 极性在这里, 供**情感召回的同频匹配**用
+    #: （"现在难过" ↔ "这条记忆是难过的"）。
+    #: 分级: 明显正面 → 0.5~1.0; 中性 → 0.0; 明显负面 → −0.5~−1.0。
+    emo_valence: float | None = None
 
     # ------------------------------------------------------------------
     # 校验（字段级; 契约层/组织 pass 在引擎侧再叠加引用级校验）
@@ -205,10 +216,13 @@ class BrainNode:
             if v in (None, "", [], 0):
                 continue
             d[f] = v
-        # aff_at_encoding **不进上面那圈"空值省略"**——它用 None 当"未采集"哨兵,
-        # 而 0.0 是合法的中性值（旧口径的 `v in (..., 0)` 会把 0.0 一起省掉）。
-        if self.aff_at_encoding is not None:
-            d["aff_at_encoding"] = self.aff_at_encoding
+        # aff_at_encoding / emo_int / emo_valence **不进上面那圈"空值省略"**——
+        # 它们用 None 当"未采集"哨兵, 而 0.0 是合法值（中性好感/无波澜/中性色彩）。
+        # 旧口径的 `v in (..., 0)` 会把合法的 0.0 一起省掉。
+        for f in ("aff_at_encoding", "emo_int", "emo_valence"):
+            v = getattr(self, f)
+            if v is not None:
+                d[f] = v
         return d
 
     @classmethod
@@ -245,7 +259,9 @@ class BrainNode:
         node.observation = _str_list(raw.get("observation"))
         node.history = _dict_list(raw.get("history"))
         node.source_key = _str(raw.get("source_key"))
-        node.aff_at_encoding = _opt_clamp01(raw.get("aff_at_encoding"))
+        node.aff_at_encoding = _opt_clamp(raw.get("aff_at_encoding"), -1.0, 1.0)
+        node.emo_int = _opt_clamp(raw.get("emo_int"), 0.0, 1.0)
+        node.emo_valence = _opt_clamp(raw.get("emo_valence"), -1.0, 1.0)
         return node
 
     def to_json_line(self) -> str:
@@ -320,12 +336,13 @@ def _clamp_sig(v: Any) -> float:
     return max(0.0, min(1.0, f))
 
 
-def _opt_clamp01(v: Any) -> float | None:
-    """可选 [−1, 1] 标量（`aff_at_encoding`）——**缺/坏 → None, 不折成 0.0**。
+def _opt_clamp(v: Any, lo: float, hi: float) -> float | None:
+    """可选 [lo, hi] 标量（`aff_at_encoding` / `emo_int` / `emo_valence`）
+    ——**缺/坏 → None, 不折成 0.0**。
 
-    与 `_clamp_sig` 的关键差别: 后者的默认值 0.5 是一个真实档位;
-    而这里 `None`（未采集）与 `0.0`（中性）是**两个不同的事实**,
-    合并会让旧档在召回里冒充"当时关系中性"。
+    与 `_clamp_sig` 的关键差别: 后者的默认 0.5 是一个真实档位;
+    而这里 `None`（未采集）与 `0.0`（中性/无波澜）是**两个不同的事实**,
+    合并会让旧档在召回里冒充"当时关系中性 / 毫无波澜"。
     """
     if v is None or isinstance(v, bool):
         return None
@@ -335,4 +352,4 @@ def _opt_clamp01(v: Any) -> float | None:
         return None
     if f != f:                                  # NaN
         return None
-    return max(-1.0, min(1.0, f))
+    return max(lo, min(hi, f))
