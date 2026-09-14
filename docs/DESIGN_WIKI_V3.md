@@ -893,12 +893,16 @@ det = SIG·TIME + emo_span·emo_int          ← 恒 ≥ 0（四格均非负、�
 
 **现状（实测，四处硬闸门，比预想多一处）**：
 
-| # | 位置 | 现在的行为 |
-|---|---|---|
-| 1 | `affection_calc.py:82-83` | `if self.exp < 0: self.exp = 0`；`_recalc_level` 夹 `max(lv, MIN_LEVEL)` |
-| 2 | `affection_calc.py:111-112` | `add_exp` 遇 `delta <= 0` **直接 return** |
-| 3 | `wiki_v2/digest.py:69` | `_AFF_MIN, _AFF_MAX = 0, 100` —— delta 被夹到 ≥0 |
-| 4 | **`momotalk.py:528`** | `elif res.affection_delta > 0` —— **负 delta 连事件都不写** |
+| # | 位置 | 现在的行为 | 处置 |
+|---|---|---|---|
+| 1 | `affection_calc.py:82-83` | `if self.exp < 0: self.exp = 0`；`_recalc_level` 夹 `max(lv, MIN_LEVEL)` | ✅ **已改**（提交 `e135c17`）——地板常量 `MIN_EXP=0`，恶化到底同步回 `MIN_LEVEL` |
+| 2 | `affection_calc.py:111-112` | `add_exp` 遇 `delta <= 0` **直接 return** | ✅ **已改**——`delta == 0` 早退，负值真的减 |
+| 3 | `wiki_v2/digest.py:69` | `_AFF_MIN, _AFF_MAX = 0, 100` —— delta 被夹到 ≥0 | ✅ **已改**——`(-100, 100)` 对称；语义 = "**单段**净变化"不是总量 |
+| 4 | **`momotalk.py:528`** | `elif res.affection_delta > 0` —— **负 delta 连事件都不写** | ✅ **已改**——判据 `!= 0`（负 delta 同样落真源） |
+
+**配套**：三条 prompt 文案同步（`digest_v2_round_b.md` 第 7 条、`digest.md` 第 11 条、
+`digest_registry.py:267` 的 schema 注释）——**告诉 LLM 负值何时给、给多少**，
+并明写"别为剧情起伏随手给负分"（防剧作本能污染数值）。
 
 **要推翻的口头契约**：`affection_calc.py:12` 的注释 *"经验只增不减（好感不降——
 BA 无降好感机制）"*。

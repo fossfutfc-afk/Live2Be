@@ -66,8 +66,12 @@ MAX_FEEDBACK_RETRIES = 1
 EVIDENCE_THRESHOLD = 0.7
 #: B 轮认知渲染上限（本地 id 数量; 排序: 珍贵档先）
 COGNITION_CAP = 12
-#: 好感 delta clamp 边界
-_AFF_MIN, _AFF_MAX = 0, 100
+#: 好感 delta clamp 边界（**带符号: 下界 2026-09-13 由 0 放开**）。
+#: 语义 = "**单段**内的好感净变化"，不是总量——上界 100 防一段暴涨,
+#: 下界 -100 对称防一段暴跌; 累计地板在 `Affection` 层（MIN_EXP=0）。
+#: 放开下界的理由见 docs/DESIGN_WIKI_V3.md §3.3.3: 关系能变坏是玩法语义,
+#: 且同频召回需要 `aff_at_encoding` 的符号。
+_AFF_MIN, _AFF_MAX = -100, 100
 
 
 @dataclass
