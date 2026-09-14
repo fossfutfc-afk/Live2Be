@@ -9,13 +9,19 @@
 
 规则:
   - level 1-100, 初始 1; 到 100 级经验继续增长但等级不动（BA 同款: 满级后仍累计）
-  - 经验只增不减（好感不降——BA 无降好感机制）
+  - **经验可增可减（2026-09-13 立项: 关系能变坏）**——`exp` 是**带符号的累计量**,
+    地板 MIN_EXP=0（不出现负经验; 关系恶化到 0 = 回到中性, 等级回 MIN_LEVEL）。
+    历史上的"只增不减"契约（BA 无降好感机制）**已推翻**——理由:
+    现有全部召回信号都是单调累积量, **没有一个能表达"变坏"**;
+    带符号后才有 `mood_congruence = 1 − |aff_now − aff_at_encoding|/量程`
+    这个同频召回轴（docs/DESIGN_WIKI_V3.md §3.3.3）。
   - bonus（概率双倍经验）预留: 调用方在 add_exp 前自行翻倍, 本类不管随机
 """
 from __future__ import annotations
 
 import json
 import logging
+import math
 from pathlib import Path
 
 from core.common.errors import err
@@ -30,6 +36,13 @@ _AFFECTION_JSON = (
 
 MIN_LEVEL = 1
 MAX_LEVEL = 100
+
+#: 累计 exp 地板（关系恶化到底 = 中性; 不出现负经验）
+MIN_EXP = 0
+
+#: `to_scalar()` 的尺度常数（exp）——tanh(exp/此值) → (−1, 1)
+#: 5000 exp ≈ level 5~6; 只影响同频召回的**差值分辨率**, 不是玩法数值
+SCALAR_SCALE = 5000.0
 
 
 def load_affection_table() -> dict[str, tuple[int, int]]:
@@ -63,12 +76,15 @@ def load_raiser_table() -> dict[str, int]:
 
 
 class Affection:
-    """好感度（level 1-100 + 累计 exp, 查表）。
+    """好感度（level 1-100 + **带符号**累计 exp, 查表）。
 
     >>> a = Affection(table=load_affection_table())
     >>> a.add_exp(50)          # 50 >= 45 → level 3（累计 exp 50）
     >>> a.level, a.exp
     (3, 50)
+    >>> a.add_exp(-70)         # 恶化 → 触发 exp 地板 0, 等级回 1
+    >>> a.level, a.exp
+    (1, 0)
     """
     def __init__(
         self,
@@ -78,9 +94,7 @@ class Affection:
     ) -> None:
         self._table = table if table is not None else load_affection_table()
         self.level = int(level)
-        self.exp = int(exp)
-        if self.exp < 0:
-            self.exp = 0
+        self.exp = max(MIN_EXP, int(exp))       # 地板: 不出现负经验
         self._recalc_level()
 
     # -- 状态 -----------------------------------------------------------
@@ -107,11 +121,25 @@ class Affection:
 
     # -- 变更 -----------------------------------------------------------
     def add_exp(self, delta: int) -> None:
-        """加经验（只增不减, 负值按 0 处理）→ 查表更新等级（cap 100）。"""
-        if delta <= 0:
+        """加/减经验 → 查表更新等级（cap 100）。
+
+        **2026-09-13 起 delta 可为负**（关系能变坏）; 累计 exp 触地板 MIN_EXP=0
+        （不出现负经验, 恶化到底 = 中性）。`delta == 0` 早退（无变化不重算）。
+        行为本身不变: 仍是"只做累加 + 重查表", 负值走同一条路径。
+        """
+        if delta == 0:
             return
-        self.exp += int(delta)
+        self.exp = max(MIN_EXP, self.exp + int(delta))
         self._recalc_level()
+
+    def to_scalar(self) -> float:
+        """带符号标量 ∈ (−1, 1) —— **同频召回用**（§3.3.3）。
+
+        `tanh(exp / SCALAR_SCALE)`：保号、单调、饱和、`exp=0 → 0.0`（中性）。
+        尺度不敏感是**故意的**——同频只关心 `|now − at_encoding|` 的**差**，
+        不关心绝对量级；且好感是慢变量, 本函数不假装能顶替"心情"。
+        """
+        return math.tanh(self.exp / SCALAR_SCALE)
 
     def add_behavior(self, behavior: str, raiser: dict[str, int] | None = None) -> int:
         """按行为加好感（AffectionRaiser 表, 如 gift_orange_l=60）→ 返回加的 exp。
@@ -158,9 +186,14 @@ def load_affection_from_events(events, up_to_seq: int | None = None) -> dict | N
         up_to_seq: 可选回退点（互动 seq 上限）; None = 全部。
 
     Returns:
-        {level, exp}; 无 affection 事件或累计 0 → None。
+        {level, exp}；**该 session 没有任何好感事件 → None**（= "无数据"）。
+        事件存在但累计 ≤0（含**恶化到地板**）→ `{level: 1, exp: 0}`——
+        2026-09-13 语义变更: 旧口径把"累计 ≤0"也当 None, 但**"关系中性/已恶化"
+        与"无数据"是两件事**; 前者在 `best_affection` 里应当参与比较（它是一次
+        真实的关系状态）, 后者应当被跳过。
     """
     total = 0
+    seen = False
     for e in events:
         if getattr(e, "type", None) != "affection":
             continue
@@ -169,11 +202,12 @@ def load_affection_from_events(events, up_to_seq: int | None = None) -> dict | N
         covered = int(e.payload.get("digested_seq", getattr(e, "seq", 0)) or 0)
         if up_to_seq is not None and covered > up_to_seq:
             continue
+        seen = True
         try:
             total += int(e.payload.get("delta", 0) or 0)
         except (TypeError, ValueError, AttributeError):
             continue
-    if total <= 0:
-        return None
-    aff = Affection(exp=total)
+    if not seen:
+        return None                             # 该 session 根本没有好感事件
+    aff = Affection(exp=total)                  # 负累计 → 构造器吃地板 → 中性
     return aff.to_dict()

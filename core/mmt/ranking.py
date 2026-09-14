@@ -22,7 +22,10 @@ def best_affection(session_affections: list[dict | None] | None) -> dict | None:
 
     语义: 该角色所有世界线中"你和她最好的一次"——平行世界下 per-char 的可比值
     （DESIGN 决策: 好感排序用最高 session, 而非跨世界线平均/总和）。
-    session_affections: [{level, exp} | None, ...]（None = 该 session 无好感事件）。
+    session_affections: [{level, exp} | None, ...]。
+        **None = 该 session 无好感事件**（跳过）;
+        `{level: 1, exp: 0}` = 有事件但净变化 ≤0（**参与比较**——"中性/已恶化"
+        是一次真实状态, 与"无数据"不同, 2026-09-13 §3.3.3）。
     全 None/空 → None。
     """
     best: dict | None = None
