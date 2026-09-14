@@ -77,6 +77,25 @@ def test_aff_at_encoding_clamped_and_bad_to_none():
     print("    aff_at_encoding: 越界夹紧 + 坏值 → None")
 
 
+def test_emo_span_roundtrip_and_bounds():
+    """emo_span = 情绪摆幅, **声明非负**（是幅度不是方向）。"""
+    node = make_node("episode", narration="先炸后真心笑", emo_span=0.9)
+    assert node.emo_span == 0.9
+    assert '"emo_span":0.9' in node.to_json_line()
+    assert BrainNode.from_json_line(node.to_json_line()).emo_span == 0.9
+    # 0.0 合法且必须落库
+    z = make_node("episode", narration="全程一个调子", emo_span=0.0)
+    assert '"emo_span":0.0' in z.to_json_line()
+    # 负值夹到 0（非负声明）; 越上界夹到 1
+    assert make_node("episode", narration="x", emo_span=-0.5).emo_span == 0.0
+    assert make_node("episode", narration="x", emo_span=9).emo_span == 1.0
+    # 缺/坏 → None
+    assert make_node("episode", narration="x").emo_span is None
+    for bad in ("abc", True, float("nan")):
+        assert make_node("episode", narration="x", emo_span=bad).emo_span is None
+    print("    emo_span: 往返保真 + 非负 + 0.0 落库 + 坏值 None")
+
+
 def test_episode_epistemic_guard():
     node = make_node("episode", narration="x", epistemic="inferred_belief")
     errs = node.validate()

@@ -456,7 +456,7 @@ def test_aff_at_encoding_zero_is_written(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# 情绪两标量 emo_int / emo_valence 落到 episode 节点（§3.3.3）
+# 情绪三标量 emo_int / emo_span / emo_valence 落到 episode 节点（§3.3.3）
 # ---------------------------------------------------------------------------
 
 def test_emo_scalars_land_on_episode_nodes(tmp_path):
@@ -464,16 +464,17 @@ def test_emo_scalars_land_on_episode_nodes(tmp_path):
     st = _seed_store(tmp_path)
     a = _a_episode()
     a["episodes"][0]["emo_int"] = 0.85
+    a["episodes"][0]["emo_span"] = 0.9
     a["episodes"][0]["emo_valence"] = -0.4
     llm = FakeLLM(a, _b_ok())
     res = digest_segment(st, llm, _events(_mmt(3, "x", "y")))
     assert res.ok and res.created
     ep = st.get(res.created[0])
     assert ep.emo_int == 0.85, f"emo_int 未落节点: {ep.emo_int}"
+    assert ep.emo_span == 0.9, f"emo_span 未落节点: {ep.emo_span}"
     assert ep.emo_valence == -0.4, f"emo_valence 未落节点: {ep.emo_valence}"
-    # 落盘往返也必须在（jsonl 一行 → 读回）
-    assert st.all(), "store 应为空则下面的断言无意义"
-    print(f"    emo_*: 落节点 {res.created[0]} int={ep.emo_int} val={ep.emo_valence}")
+    print(f"    emo_*: 落节点 {res.created[0]} int={ep.emo_int} "
+          f"span={ep.emo_span} val={ep.emo_valence}")
 
 
 def test_emo_scalars_absent_when_llm_silent(tmp_path):
@@ -482,23 +483,26 @@ def test_emo_scalars_absent_when_llm_silent(tmp_path):
     llm = FakeLLM(_a_episode(), _b_ok())
     res = digest_segment(st, llm, _events(_mmt(3, "x", "y")))
     ep = st.get(res.created[0])
-    assert ep.emo_int is None and ep.emo_valence is None
-    assert "emo_int" not in ep.to_dict()
+    assert ep.emo_int is None and ep.emo_span is None and ep.emo_valence is None
+    d = ep.to_dict()
+    for f in ("emo_int", "emo_span", "emo_valence"):
+        assert f not in d, f"{f} 不该落库"
     print("    emo_*: LLM 没给 → None（不冒充'毫无波澜'）")
 
 
 def test_emo_scalars_zero_is_written(tmp_path):
-    """0.0 是合法值（事务性寒暄 / 中性色彩）——必须落库。"""
+    """0.0 是合法值（事务性寒暄 / 全程一个调子 / 中性色彩）——必须落库。"""
     st = _seed_store(tmp_path)
     a = _a_episode()
-    a["episodes"][0]["emo_int"] = 0.0
-    a["episodes"][0]["emo_valence"] = 0.0
+    for f in ("emo_int", "emo_span", "emo_valence"):
+        a["episodes"][0][f] = 0.0
     llm = FakeLLM(a, _b_ok())
     res = digest_segment(st, llm, _events(_mmt(3, "x", "y")))
     ep = st.get(res.created[0])
-    assert ep.emo_int == 0.0 and ep.emo_valence == 0.0
+    assert ep.emo_int == 0.0 and ep.emo_span == 0.0 and ep.emo_valence == 0.0
     d = ep.to_dict()
-    assert "emo_int" in d and "emo_valence" in d
+    for f in ("emo_int", "emo_span", "emo_valence"):
+        assert f in d, f"{f} 0.0 应落库"
     print("    emo_*: 0.0 落库（≠ 未采集）")
 
 # ---------------------------------------------------------------------------

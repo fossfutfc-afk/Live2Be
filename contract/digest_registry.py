@@ -99,6 +99,11 @@ RECORD_EPISODE = DigestAction(
         '                          // **不是** significance（那个问"改不改变认知"）;\n'
         '                          // 0.9+ 失控/崩溃级; 0.6~0.9 明显起伏; 0.3~0.6 平常情绪;\n'
         '                          // <0.3 近乎无波澜（纯事务性寒暄）。拿不准往低给 //\n'
+        '      "emo_span": 0~1,    // 情绪摆幅: 这条经历里情绪**从最低摆到最高跨了多远**。\n'
+        '                          // 与 emo_int 分工: 一直很猛但没转折 → int 高 span 低;\n'
+        '                          // 先炸后真心笑（爆发→释然）→ 两个都高;\n'
+        '                          // 缓慢的起伏（不安→期待→不安）→ span 高 int 低;\n'
+        '                          // 全程一个调子 → 0。**必须非负**（是幅度不是方向）//\n'
         '      "emo_valence": -1~1,  // 整体情绪色彩（带符号）: 这段经历总体上让她更好受还是\n'
         '                          // 更难受。明显正面 0.5~1.0; 中性 0.0; 明显负面 -0.5~-1.0。\n'
         '                          // **与 emo_int 是两件事**: 撕心裂肺的争吵 val 很负但 int 很高;\n'
@@ -112,7 +117,7 @@ RECORD_EPISODE = DigestAction(
         ' "verbatim": "它想认识你。",'
         ' "tags": ["公园", "流浪猫", "热茶"],'
         ' "significance": 0.8,'
-        ' "emo_int": 0.6, "emo_valence": 0.7}'
+        ' "emo_int": 0.6, "emo_span": 0.7, "emo_valence": 0.7}'
     ),
 )
 
@@ -484,9 +489,10 @@ def _clean_episode_item(e: dict, i: int, errors: list[str], warnings: list[str]
         warnings.append(f"episodes[{i}].significance 非数字——取 0.5")
         sig_f = 0.5
     item["significance"] = max(0.0, min(1.0, sig_f))
-    # 情绪两标量（§3.3.3）: **缺/坏 → 不落字段**（None 哨兵）, 不折成 0.0——
-    # 「未采集」与「真的毫无波澜」是两件事, 合并会让旧档在召回里冒充后者。
-    for fname, lo, hi in (("emo_int", 0.0, 1.0), ("emo_valence", -1.0, 1.0)):
+    # 情绪三标量（§3.3.3）: **缺/坏 → 不落字段**（None 哨兵）, 不折成 0.0——
+    # 「未采集」与「真的毫无波澜 / 中性色彩」是两件事, 合并会让旧档在召回里冒充后者。
+    for fname, lo, hi in (("emo_int", 0.0, 1.0), ("emo_span", 0.0, 1.0),
+                          ("emo_valence", -1.0, 1.0)):
         raw_v = e.get(fname)
         if raw_v is None:
             continue
