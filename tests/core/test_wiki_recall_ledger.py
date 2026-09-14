@@ -34,6 +34,21 @@ def _clean_config():
     rc.reload()
 
 
+@pytest.fixture(autouse=True)
+def _drain_view_account():
+    """每个用例前**抽干** `_last_view_account`（模块级状态, 跨文件会串）。
+
+    生产里每次渲染后调用方都会取走（`_log_read_ledger`），所以正常不积压;
+    但别的测试文件渲染完不取 → 残留会污染本文件的"取走即清空"断言。
+    **测试不该造生产不会产生的状态**——这里按生产语义清干净。
+    """
+    while take_last_view_account() is not None:
+        pass
+    yield
+    while take_last_view_account() is not None:
+        pass
+
+
 # ---------------------------------------------------------------------------
 # 旋钮
 # ---------------------------------------------------------------------------
@@ -193,10 +208,10 @@ def test_render_records_view_account(tmp_path):
     acct = take_last_view_account()
     assert acct is not None, "渲染后应有台账"
     assert acct["total"] == len(st.all())
-    caps = acct["caps"]
-    assert caps["belief"] == (1, 1), caps          # 1 条 belief, 候选总数 1
-    assert caps["episode"] == (2, 2), caps
-    picked = sum(n for n, _ in caps.values())
+    buckets = acct["buckets"]
+    assert buckets["belief"] == 1, buckets           # 1 条 belief（cap 已删 → 桶内全量）
+    assert buckets["episode"] == 2, buckets          # 2 条 episode
+    picked = sum(buckets.values())
     assert picked == 3
     # 文本里确实能读到这些内容（台账与文本同源）
     assert "我心里渐渐觉得" in txt and "被老师需要" in txt
@@ -205,15 +220,14 @@ def test_render_records_view_account(tmp_path):
 
 
 def test_bucket_summary_matches_text(tmp_path):
-    """桶统计必须与文本一致（防"台账好看、文本没给"这类漂移）。"""
+    """桶统计必须与文本一致（防"台账好看、文本没给"这类漂移）。
+
+    2026-09-13 cap 全删后：桶内即全量，`picked == total`（不再有被砍掉的分母）。
+    """
     st = _store(tmp_path)
     txt = render_character_view(st.all(), char_name="遥香")
     acct = take_last_view_account()
-    n_belief = acct["caps"]["belief"][0]
+    n_belief = acct["buckets"]["belief"]
     assert n_belief == 1 and "我心里渐渐觉得" in txt
-    # 把 belief 全部截掉（cap=0）→ 文本不应再出现该段
-    txt0 = render_character_view(st.all(), char_name="遥香", cap_beliefs=0)
-    acct0 = take_last_view_account()
-    assert acct0["caps"]["belief"][0] == 0
-    assert "我心里渐渐觉得" not in txt0
-    print("    渲染: 桶统计与文本一致（cap=0 → 整段消失）")
+    assert sum(acct["buckets"].values()) == acct["total"], "cap 删后不应再有未注入的节点"
+    print("    渲染: 桶统计与文本一致（桶内全量, picked==total）")

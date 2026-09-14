@@ -212,10 +212,10 @@ def _log_read_ledger(char_id: str) -> None:
         acct = take_last_view_account()
         if not acct:
             return
-        picked = sum(n for n, _ in acct["caps"].values())
+        picked = sum(acct["buckets"].values())
         recall_ledger.log_read(
             char_id=char_id, total=acct["total"], picked=picked,
-            buckets={k: f"{n}/{c}" for k, (n, c) in acct["caps"].items()},
+            buckets={k: str(n) for k, n in acct["buckets"].items()},
             # v2 的角色视图是静态分桶（不依赖向量）, 故 mode 如实标 off
             mode="off", surface="chara")
     except Exception as e:                           # noqa: BLE001 — 台账不阻断注入

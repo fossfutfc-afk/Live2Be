@@ -8,7 +8,7 @@
 | 路径 | 现状 | 看不见的后果 |
 |---|---|---|
 | **写路径**（候选碰撞） | `recommend_candidates` 把候选标成【疑似同主题】→ `parse_round_b` **结构强制**只能 touch/update | 阈值是否把全部 episode 都判成同主题？**没有任何日志**。实测两个模型下都是 6/6 全越线 → 会禁止一切 add |
-| **读路径**（注入视图） | `render_character_view` 静态分桶 + cap 截断 | 这轮到底给了 LLM 哪几条？哪些被 cap 掉了？**没有任何日志**。第 6 条以后的 belief 永远读不出来，却不告警 |
+| **读路径**（注入视图） | `render_character_view` 静态分桶（**2026-09-13 cap 已删**） | 这轮到底给了 LLM 哪几条？**曾经没有任何日志**。第 6 条以后的 belief 永远读不出来，却不告警——**这正是 cap 被删的原因**（cap 就是旧召回机制, 由 v3 实体车道接管） |
 
 这与当初给 VN 加 `bond_board_deliver`（"这一板是怎么到玩家眼前的"）是同一个理由:
 **先让事实可观测，再谈调优**。没有台账，V3-1~V3-6 每一步都无法验收。
@@ -16,7 +16,7 @@
 ## 日志口径（可 grep，值全为 `k=v`）
 
     写路径: `recall_write char=… eps=4 collide=12 hi=4 med=11 forced=100% mode=semantic thr=0.50/0.25`
-    读路径: `recall_read char=… total=8 picked=5 dropped=3 mode=… buckets=belief:4/5 episode:3/6 …`
+    读路径: `recall_read char=… total=8 picked=8 dropped=0 mode=… buckets=belief:4 episode:4 …`
 
 `mode`: `semantic`（embedding 可用）/ `keyword`（降级——`_get_embed_fn` 探针失败时）/ `off`。
 
@@ -118,9 +118,11 @@ def log_read(*, char_id: str, total: int, picked: int, buckets: dict[str, str],
     """打一行读路径台账。
 
     Args:
-        total: 图里全部节点数（含未被选中/被 cap 掉的）
+        total: 图里全部节点数
         picked: 实际进入注入文本的节点数
-        buckets: `{桶名: "选中/cap"}`（如 `{"belief": "4/5", "episode": "3/6"}`）
+        buckets: `{桶名: 注入条数}`（如 `{"belief": "4", "episode": "3"}`）。
+            **2026-09-13 cap 全删后不再是 "选中/cap"**——桶内即全量, 无分母可言;
+            故 `picked` 恒等于各桶之和（`dropped` 因此恒 0, 除非渲染层另有过滤）。
         mode: `semantic` / `keyword` / `off`（embedding 可用性——读路径 v3 才用它，
               v2 的分桶视图不依赖向量，这里如实标 `off`）
         surface: `chara`（角色视图）/ `organize`（组织视图）
