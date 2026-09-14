@@ -47,6 +47,7 @@ from core.bond.bond_actions import MAX_SCENE_RETRIES, build_story_registry
 from core.bond.bond_executor import StoryExecError, StoryExecutor
 from core.bond.memorial_actions import build_memorial_registry
 from core.media.emotion_lexicon import (
+    assets_root,
     build_emotion_injection,
     load_emotion_lexicon,
     load_place_lexicon,
@@ -498,7 +499,9 @@ class BondStoryEngine:
         # 开场喂一遍（few-shot）; Brain 段开场注入（剧情内固定）。
         # 2026-09-10 记录流 v2: 契约块 = 记录文法（build_record_schema, 带真实角色 id）,
         # 标题改「本轮输出契约」——story 域不再有 action 外壳（§8.4）。
-        _assets_root = Path(__file__).resolve().parent.parent.parent / "assets"
+        # 2026-09-13: 资产根改从 media 层取（此前此处与 core/media/catalog.py 各自
+        # 拼过同一个三层 parents 路径——集中到 assets_root() 一处）。
+        _assets_root = assets_root()
         system_prompt = build_box("bond", BlockContext(
             char=char,
             names=self._character_names or [char.display_name],

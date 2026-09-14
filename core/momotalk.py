@@ -527,11 +527,22 @@ class MomoTalkEngine:
                     events, up_to_seq=wstore.digested_seq)
                 aff_prior = (Affection(exp=int(aff_prior_d.get("exp", 0) or 0))
                              .to_scalar()) if aff_prior_d else None
+                # 角色情绪标尺（§3.3.2）: 作者手写的 per 键强度语义。
+                # 由调用方给而不是 brain 层自己找——资产布局是 media 的事。
+                try:
+                    from core.media import assets_root, load_emotion_lexicon
+                    _lex_dir = (assets_root() / "illustration"
+                                / (char.character_id or character_id) / "default")
+                    emotion_lex = load_emotion_lexicon(_lex_dir)
+                except Exception as e:                    # noqa: BLE001 — 宁缺勿错
+                    logger.warning("情绪词表加载失败（本轮不注标尺）: %s", e)
+                    emotion_lex = {}
                 res = digest_segment(wstore, self.llm, events,
                                      character_prompt=anchor,
                                      embed_fn=_get_embed_fn(),
                                      llm_timeout=DIGEST_LLM_TIMEOUT,
-                                     aff_at_encoding=aff_prior)
+                                     aff_at_encoding=aff_prior,
+                                     emotion_lexicon=emotion_lex)
                 if not res.ok:
                     logger.warning("digest 未完成 (%s): %s", character_id,
                                    " | ".join(res.errors))
