@@ -395,6 +395,27 @@ def test_affection_clamped(tmp_path):
     assert res.ok and res.affection_delta == 100
 
 
+def test_affection_negative_passes_through(tmp_path):
+    """★ 2026-09-13: delta 下界由 0 放开到 -100——关系能变坏（§3.3.3）。
+
+    旧行为: -30 被夹成 0（关系只能变好）。新行为: -30 原样透出。
+    """
+    st = _seed_store(tmp_path)
+    llm = FakeLLM({"episodes": []},
+                  {"decisions": [], "evidence": [], "affection_exp_delta": -30})
+    res = digest_segment(st, llm, _events(_mmt(3, "x", "y")))
+    assert res.ok and res.affection_delta == -30
+
+
+def test_affection_negative_clamped_at_floor(tmp_path):
+    """下界对称: -999 夹到 -100（单段不能暴跌穿底）。"""
+    st = _seed_store(tmp_path)
+    llm = FakeLLM({"episodes": []},
+                  {"decisions": [], "evidence": [], "affection_exp_delta": -999})
+    res = digest_segment(st, llm, _events(_mmt(3, "x", "y")))
+    assert res.ok and res.affection_delta == -100
+
+
 # ---------------------------------------------------------------------------
 # 幂等: 崩溃窗口重跑（落盘成功但水位未推进）不双写
 # ---------------------------------------------------------------------------

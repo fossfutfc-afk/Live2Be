@@ -525,7 +525,9 @@ class MomoTalkEngine:
                 if not res.ok:
                     logger.warning("digest 未完成 (%s): %s", character_id,
                                    " | ".join(res.errors))
-                elif res.affection_delta > 0 and interact_max:
+                elif res.affection_delta != 0 and interact_max:
+                    # 2026-09-13: 判据由 `> 0` 改为 `!= 0`——负 delta（关系恶化）
+                    # 同样要落事件, 否则"能变坏"只存在于数值层、进不了真源。
                     self._write_affection_event(store, character_id, events,
                                                 interact_max, res.affection_delta)
             wiki_seg = render_character_view(
