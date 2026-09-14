@@ -40,9 +40,14 @@ MAX_LEVEL = 100
 #: 累计 exp 地板（关系恶化到底 = 中性; 不出现负经验）
 MIN_EXP = 0
 
-#: `to_scalar()` 的尺度常数（exp）——tanh(exp/此值) → (−1, 1)
-#: 5000 exp ≈ level 5~6; 只影响同频召回的**差值分辨率**, 不是玩法数值
-SCALAR_SCALE = 5000.0
+#: `to_scalar()` 的尺度常数（exp）——`tanh(exp/此值)` → (−1, 1)。
+#: **按真机量级定，不是拍的**（2026-09-13 实测）: 真机一个完整章节的 digest
+#: delta = **75 exp**（haruka/mutsuki 两条线皆然）。初版拍 5000 → `tanh(75/5000)`
+#: = **+0.015**，几乎为 0——那种尺度下同频信号要几十章才浮得出来，**等于没有**。
+#: 取 300 → 一章好感 ≈ **+0.245**（有区分度的量级）; 满级 240,225 exp → 饱和 1.0。
+#: ⚠️ 这个常数**只影响同频召回的差值分辨率**，不是玩法数值——
+#: 它不进等级/不进面板/不喂 LLM。
+SCALAR_SCALE = 300.0
 
 
 def load_affection_table() -> dict[str, tuple[int, int]]:
@@ -138,6 +143,7 @@ class Affection:
         `tanh(exp / SCALAR_SCALE)`：保号、单调、饱和、`exp=0 → 0.0`（中性）。
         尺度不敏感是**故意的**——同频只关心 `|now − at_encoding|` 的**差**，
         不关心绝对量级；且好感是慢变量, 本函数不假装能顶替"心情"。
+        真机锚点（`SCALAR_SCALE=300`）: 一章好感 75 exp → **+0.245**。
         """
         return math.tanh(self.exp / SCALAR_SCALE)
 

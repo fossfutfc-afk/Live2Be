@@ -95,19 +95,35 @@ def test_positive_path_unchanged():
 
 def test_to_scalar_sign_and_bounds():
     assert Affection(exp=0, table=TABLE).to_scalar() == 0.0
-    assert Affection(exp=12000, table=TABLE).to_scalar() > 0.9
-    assert Affection(exp=12000, table=TABLE).to_scalar() < 1.0
+    # 渐近饱和: 极小值 >0, 极大值夹在 1.0（tanh 在 exp/SCALE 大时会浮点到 1.0）
+    v_small = Affection(exp=10, table=TABLE).to_scalar()
+    assert 0.0 < v_small < 1.0
+    assert Affection(exp=12000, table=TABLE).to_scalar() <= 1.0
     # 地板保证不出现负标量——"关系变坏"= 标量趋 0, 不是趋负
     assert Affection(exp=-9999, table=TABLE).to_scalar() == 0.0
-    print("    to_scalar: 保号 + 有界 (−1,1) + exp=0 → 0.0 + 地板不产负值")
+    print("    to_scalar: 保号 + 上界 1.0 + exp=0 → 0.0 + 地板不产负值")
+
+
+def test_to_scalar_real_scale_anchor():
+    """★ 尺度锚点按**真机量级**定, 不是拍的（2026-09-13 修正）。
+
+    真机实测: 一个完整章节的 digest delta = **75 exp**。
+    初版拍 5000 → tanh(75/5000) = 0.015（几乎为 0, 同频信号等于没有）。
+    取 300 → 0.245（有区分度的量级）。
+    """
+    one_chapter = Affection(exp=75, table=TABLE).to_scalar()
+    assert 0.2 < one_chapter < 0.3, f"一章好感标量 {one_chapter:.3f} 不在可分辨区间"
+    assert SCALAR_SCALE == 300.0, "SCALAR_SCALE 改动必须同时改文档 §3.3.3"
+    print(f"    to_scalar: 真机锚点 一章75exp → {one_chapter:+.3f}"
+          f"（SCALAR_SCALE={SCALAR_SCALE:.0f}）")
 
 
 def test_to_scalar_monotone():
-    xs = [0, 100, 1000, 5000, 20000, 200000]
+    xs = [0, 10, 75, 300, 1500, 20000]
     ys = [Affection(exp=x, table=TABLE).to_scalar() for x in xs]
     assert all(b > a for a, b in zip(ys, ys[1:])), f"非单调: {ys}"
-    assert SCALAR_SCALE == 5000.0               # 旋钮值显式钉住（改它要改文档）
-    print(f"    to_scalar: 单调 且 SCALAR_SCALE={SCALAR_SCALE:.0f}")
+    assert ys[0] == 0.0 and ys[-1] > 0.99
+    print(f"    to_scalar: 单调（0→0.0, 75→{ys[2]:.3f}, 20000→{ys[-1]:.3f}）")
 
 
 # ---------------------------------------------------------------------------
@@ -145,6 +161,7 @@ if __name__ == "__main__":
                test_add_exp_zero_is_noop,
                test_positive_path_unchanged,
                test_to_scalar_sign_and_bounds,
+               test_to_scalar_real_scale_anchor,
                test_to_scalar_monotone,
                test_no_affection_events_returns_none,
                test_net_zero_or_negative_returns_neutral_dict,
