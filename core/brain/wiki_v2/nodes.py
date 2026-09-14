@@ -9,7 +9,7 @@
 
 通用字段: id / kind / significance / epistemic / observer / tags / segment_id /
           event_seq / ts / source / links / contradictions / aff_at_encoding /
-          emo_int / emo_valence
+          emo_int / emo_span / emo_valence
 专属字段: episode.title(可选短标题) / belief.subject / belief.growth /
           belief.observation / belief.history[{episode_id, content, ts}]
 
@@ -107,6 +107,16 @@ class BrainNode:
     #: `None` = 未采集（旧档 / LLM 没给）; **`0.0` 也是合法值**（确实毫无波澜,
     #: 如纯事务性寒暄）。两者不可合并——故用 `None` 哨兵而非 `0` 当缺省。
     emo_int: float | None = None
+    #: 情绪**摆幅** ∈ [0, 1]（Round A 出值, §3.3.3 矩阵第二格）——**非负**。
+    #: "从最低摆到最高跨了多远"。与 `emo_int` 的区别:
+    #:   span 高 int 高 = `outburst→smile`（先炸后真心笑）;
+    #:   span 高 int 低 = 缓慢的起伏; int 高 span 低 = 一直很猛但没转折。
+    #: ★ **不是**板级极差的聚合——板不是必需的粒度（2026-09-13 修正）:
+    #:   Round A 看得到每条记录的 `(情绪键)`, 而它能读注释语义
+    #:   （作者写 `sigh`「一看就知道是装可怜」——**字面极差读不出"装"**）。
+    #:   故与 `emo_int`/`emo_valence`/`significance` 同为 episode 级 LLM 标量,
+    #:   **不需要板链**（Q34 因此不阻塞任何字段）。
+    emo_span: float | None = None
     #: 整体情绪色彩 ∈ [−1, 1]（带符号, Round A 出值）——**不进矩阵**。
     #: 矩阵第二格是 `emo_span`（无符号幅度）; 极性在这里, 供**情感召回的同频匹配**用
     #: （"现在难过" ↔ "这条记忆是难过的"）。
@@ -219,7 +229,7 @@ class BrainNode:
         # aff_at_encoding / emo_int / emo_valence **不进上面那圈"空值省略"**——
         # 它们用 None 当"未采集"哨兵, 而 0.0 是合法值（中性好感/无波澜/中性色彩）。
         # 旧口径的 `v in (..., 0)` 会把合法的 0.0 一起省掉。
-        for f in ("aff_at_encoding", "emo_int", "emo_valence"):
+        for f in ("aff_at_encoding", "emo_int", "emo_valence", "emo_span"):
             v = getattr(self, f)
             if v is not None:
                 d[f] = v
@@ -261,6 +271,7 @@ class BrainNode:
         node.source_key = _str(raw.get("source_key"))
         node.aff_at_encoding = _opt_clamp(raw.get("aff_at_encoding"), -1.0, 1.0)
         node.emo_int = _opt_clamp(raw.get("emo_int"), 0.0, 1.0)
+        node.emo_span = _opt_clamp(raw.get("emo_span"), 0.0, 1.0)
         node.emo_valence = _opt_clamp(raw.get("emo_valence"), -1.0, 1.0)
         return node
 
