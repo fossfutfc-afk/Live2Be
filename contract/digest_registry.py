@@ -92,7 +92,17 @@ RECORD_EPISODE = DigestAction(
         '                          // 拿不准往低给 //\n'
         '      "epistemic": "observed_fact",  // observed_fact 默认;\n'
         '                          // 若是"听别人说的"→ reported_fact 且必须填 observer=转述者 //\n'
-        '      "observer": "…"     // reported_fact 时必填（转述者）; observed 不填 //\n'
+        '      "observer": "…",    // reported_fact 时必填（转述者）; observed 不填 //\n'
+        '      "emo_int": 0~1,     // 峰值情绪强度: 这条经历里角色情绪最猛的那一下有多猛。\n'
+        '                          // 判据 = 时间线里记录后的 (情绪键) + 【本段情绪标尺】\n'
+        '                          // （作者为该角色手写的强度语义）。\n'
+        '                          // **不是** significance（那个问"改不改变认知"）;\n'
+        '                          // 0.9+ 失控/崩溃级; 0.6~0.9 明显起伏; 0.3~0.6 平常情绪;\n'
+        '                          // <0.3 近乎无波澜（纯事务性寒暄）。拿不准往低给 //\n'
+        '      "emo_valence": -1~1,  // 整体情绪色彩（带符号）: 这段经历总体上让她更好受还是\n'
+        '                          // 更难受。明显正面 0.5~1.0; 中性 0.0; 明显负面 -0.5~-1.0。\n'
+        '                          // **与 emo_int 是两件事**: 撕心裂肺的争吵 val 很负但 int 很高;\n'
+        '                          // 平静的告别 val 略负但 int 低 //\n'
         '    }'
     ),
     example=(
@@ -101,7 +111,8 @@ RECORD_EPISODE = DigestAction(
         ' "title": "和老师的公园散步",'
         ' "verbatim": "它想认识你。",'
         ' "tags": ["公园", "流浪猫", "热茶"],'
-        ' "significance": 0.8}'
+        ' "significance": 0.8,'
+        ' "emo_int": 0.6, "emo_valence": 0.7}'
     ),
 )
 
@@ -473,6 +484,24 @@ def _clean_episode_item(e: dict, i: int, errors: list[str], warnings: list[str]
         warnings.append(f"episodes[{i}].significance 非数字——取 0.5")
         sig_f = 0.5
     item["significance"] = max(0.0, min(1.0, sig_f))
+    # 情绪两标量（§3.3.3）: **缺/坏 → 不落字段**（None 哨兵）, 不折成 0.0——
+    # 「未采集」与「真的毫无波澜」是两件事, 合并会让旧档在召回里冒充后者。
+    for fname, lo, hi in (("emo_int", 0.0, 1.0), ("emo_valence", -1.0, 1.0)):
+        raw_v = e.get(fname)
+        if raw_v is None:
+            continue
+        if isinstance(raw_v, bool):
+            warnings.append(f"episodes[{i}].{fname} 是布尔——忽略")
+            continue
+        try:
+            v = float(raw_v)
+        except (TypeError, ValueError):
+            warnings.append(f"episodes[{i}].{fname} 非数字——忽略")
+            continue
+        if v != v:                              # NaN
+            warnings.append(f"episodes[{i}].{fname} 是 NaN——忽略")
+            continue
+        item[fname] = max(lo, min(hi, v))       # 越界**夹紧**（不丢弃——值仍可用）
     epi = str(e.get("epistemic", "observed_fact")).strip()
     if epi == "reported_fact":
         obs = e.get("observer")
