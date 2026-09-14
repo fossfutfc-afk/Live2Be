@@ -18,10 +18,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 from core.media import (
     MediaCatalog,
     MediaError,
+    assets_root,
     build_emotion_injection,
     build_place_injection,
     load_emotion_lexicon,
     load_place_lexicon,
+    render_emotion_scale,
 )
 from core.media.background import derive_background
 from core.media.manifest import load_character_manifest
@@ -460,6 +462,63 @@ def test_emotion_injection_build(tmp_path):
     # 无词表 → 空串（调用方跳过注入）
     assert build_emotion_injection(tmp_path / "nope") == ""
     print("    injection: 注入文本含键+示范+eg; 无词表 → 空串")
+
+
+# ---------------------------------------------------------------------------
+# render_emotion_scale —— digest Round A 的"只给出现的键"（§3.3.2, 2026-09-13）
+# ---------------------------------------------------------------------------
+
+def test_emotion_scale_only_given_keys(tmp_path):
+    """★ 核心不变量: **只列传入的键**——全词表对这个段是噪声, 还会诱发凑强度。"""
+    ch = tmp_path / "char"
+    ch.mkdir()
+    (ch / "emotions.yml").write_text(_LEXICON_YML, encoding="utf-8")
+    lex = load_emotion_lexicon(ch)
+    assert len(lex) >= 3, "夹具词表应该有多于 3 个键"
+    keys = list(lex)[:2]
+    scale = render_emotion_scale(lex, keys)
+    assert "【本段情绪标尺】" in scale
+    for k in keys:
+        assert f"  {k}:" in scale, f"传入的键 {k} 未渲染"
+    for k in list(lex)[2:]:
+        assert f"  {k}:" not in scale, f"未传入的键 {k} 被注入了"
+    print(f"    scale: 只渲染传入的 {len(keys)} 键（词表共 {len(lex)} 键）")
+
+
+def test_emotion_scale_empty_and_unknown(tmp_path):
+    ch = tmp_path / "char"
+    ch.mkdir()
+    (ch / "emotions.yml").write_text(_LEXICON_YML, encoding="utf-8")
+    lex = load_emotion_lexicon(ch)
+    assert render_emotion_scale(lex, []) == ""
+    assert render_emotion_scale({}, ["smile"]) == ""
+    assert render_emotion_scale(lex, [None, "", 3]) == ""
+    # 键不在词表里**也照样列**（保持完整, 不静默丢）——只有键名, 无注释
+    scale = render_emotion_scale(lex, ["not_a_key"])
+    assert "not_a_key（作者未写注释）" in scale
+    print("    scale: 空输入 → 空串; 词表外的键照样列（不静默丢）")
+
+
+def test_emotion_scale_order_and_eg(tmp_path):
+    ch = tmp_path / "char"
+    ch.mkdir()
+    (ch / "emotions.yml").write_text(_LEXICON_YML, encoding="utf-8")
+    lex = load_emotion_lexicon(ch)
+    # 按传入顺序, 且重复键去重
+    keys = list(lex)
+    scale = render_emotion_scale(lex, keys + keys)
+    body = [ln for ln in scale.splitlines()[1:] if ln.strip()]
+    assert len(body) == len(keys), f"重复键未去重: {len(body)} vs {len(keys)}"
+    assert "eg:" in scale, "有 eg 的键应带例句"
+    print("    scale: 保持传入顺序 + 去重 + 带 eg 例句")
+
+
+def test_assets_root_resolves():
+    """assets_root() 是唯一解析点（bond_story 与 digest 注入共用）。"""
+    r = assets_root()
+    assert r.name == "assets"
+    assert (r / "illustration").is_dir()
+    print(f"    assets_root: {r}")
 
 
 def test_place_lexicon_from_whitelist():

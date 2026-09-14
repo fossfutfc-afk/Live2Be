@@ -102,6 +102,7 @@ def digest_segment(
     llm_timeout: float | None = None,
     extra_body: dict | None = None,
     aff_at_encoding: float | None = None,
+    emotion_lexicon: dict | None = None,
 ) -> DigestResult:
     """增量两轮 digest: 新事件 → A 记录 → B 理解 → 原子落盘 → 推进水位。
 
@@ -127,6 +128,13 @@ def digest_segment(
                    （§3.3.3）——落进 episode 节点的**快照**, 写入后永不改。
                    None = 未采集 → 字段不落库（与 `0.0` 中性区分）。调用方算,
                    因为 wiki_v2 看不到事件流里的 affection 事件。
+        emotion_lexicon: 角色情绪词表 `{键: {comment, eg, path}}`
+                   （`core.media.load_emotion_lexicon(char_dir)`, §3.3.2）。
+                   给了 → 只把**本段实际出现的键**的作者标尺注进 Round A,
+                   LLM 才有依据判断"情绪摆幅多大 / 峰值多猛"。
+                   None/空 → 不注入（Round A 照跑, 只是少一层依据）。
+                   **为什么由调用方给**: 词表在 `assets/illustration/{char_id}/default/`,
+                   brain 层不该知道资产布局——与 `aff_at_encoding` 同一分工。
     """
     if max_tokens is None:                       # 真源: task_levels 形态 digest
         max_tokens = _tl_max_tokens("digest")
@@ -146,6 +154,14 @@ def digest_segment(
     timeline = render_timeline(new_events, include_seq=True)
     if visuals is None:
         visuals = _collect_visual_prompts(new_events)
+    # 本段出现的情绪键 → 只把这些键的作者标尺注进 Round A（§3.3.2）。
+    # 为什么在这里算: `char_id` 只够定位词表,**哪个键该注**必须看本段实际标注
+    # ——全词表对一个只出现 5 键的段是纯噪声, 还会诱使 LLM 拿没出现的键凑强度。
+    emotion_scale = ""
+    if emotion_lexicon:
+        from core.media.emotion_lexicon import render_emotion_scale
+        emotion_scale = render_emotion_scale(emotion_lexicon,
+                                             _segment_emotion_keys(new_events))
     now_ts = datetime.now().isoformat(timespec="seconds")
     segment_id = f"seg-{interact_max}"
 
@@ -161,6 +177,7 @@ def digest_segment(
             ("本段新增互动", timeline),
             ("画面记忆", "\n".join(f"- {v}" for v in visuals)),
             ("角色人设（锚点）", character_prompt),
+            ("本段情绪标尺", emotion_scale),
         ])
         entries, resp_a = _round_call(
             llm, system_a, user_a,
@@ -397,6 +414,29 @@ def _round_b_material(store: WikiStoreV2, episode_ids: list[str],
         acc.mode = "mixed"
     acc.log(thr_high=thr_high, thr_med=thr_med)
     return "\n".join(lines) or "（无）", high_map
+
+
+def _segment_emotion_keys(events) -> list[str]:
+    """本段所有 bond 板里**出现过的**情绪键（按首次出现顺序, 去重）。
+
+    来源 = `payload.paragraphs[i].emotion`（标注层产物, 真源在事件流里）。
+    只读不写——用于决定"给 Round A 注哪些键的标尺"（§3.3.2）。
+    缺字段/坏结构 → 跳过, 不抛（宁缺勿错: 少注一个键, 不阻断 digest）。
+    """
+    keys: list[str] = []
+    seen: set[str] = set()
+    for e in events:
+        if getattr(e, "type", None) != "bond":
+            continue
+        payload = getattr(e, "payload", None) or {}
+        for p in payload.get("paragraphs") or []:
+            if not isinstance(p, dict):
+                continue
+            k = p.get("emotion")
+            if isinstance(k, str) and k.strip() and k.strip() not in seen:
+                seen.add(k.strip())
+                keys.append(k.strip())
+    return keys
 
 
 def _join_sections(sections: list[tuple[str, str]]) -> str:

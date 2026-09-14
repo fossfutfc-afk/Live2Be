@@ -456,6 +456,72 @@ def test_aff_at_encoding_zero_is_written(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# 情绪标尺注入 Round A（§3.3.2）
+# ---------------------------------------------------------------------------
+
+_LEX = {
+    "smile": {"comment": "眯眼开心: 发自心底的开心", "eg": "", "path": "03"},
+    "outburst": {"comment": "失控瞪眼: 终极失控, 角色灵魂表情", "eg": "", "path": "13"},
+    "tease": {"comment": "带调戏意味的微笑", "eg": "", "path": "10"},
+}
+
+
+def _bond(seq, keys):
+    """一板: payload.paragraphs[i].emotion = 键（其余字段 digest 不关心）。"""
+    return ("bond", "story_scene",
+            {"paragraphs": [{"text": f"第{i}条", "emotion": k}
+                            for i, k in enumerate(keys, 1)]}, seq)
+
+
+def test_segment_emotion_keys_order_and_dedup():
+    from core.brain.wiki_v2.digest import _segment_emotion_keys
+    evs = _events(_bond(1, ["tease", "smile"]), _bond(2, ["smile", "outburst"]),
+                  _mmt(3, "hi", "yo"))
+    assert _segment_emotion_keys(evs) == ["tease", "smile", "outburst"]
+    # 坏结构 / 缺字段 → 跳过, 不抛
+    evs2 = _events(("bond", "story_scene", {"paragraphs": ["坏", {"no": 1}, None]}, 1),
+                   ("bond", "story_scene", {}, 2))
+    assert _segment_emotion_keys(evs2) == []
+    print("    _segment_emotion_keys: 首次出现顺序 + 去重; 坏结构不抛")
+
+
+def test_emotion_scale_reaches_round_a(tmp_path):
+    """★ 给了词表 → Round A 的 user 里出现**只含本段出现的键**的标尺。"""
+    st = _seed_store(tmp_path)
+    llm = FakeLLM(_a_episode(), _b_ok())
+    res = digest_segment(st, llm, _events(_bond(3, ["smile", "outburst"])),
+                         emotion_lexicon=_LEX)
+    assert res.ok, res.errors
+    user_a = llm.calls[0][1]["content"]         # calls[0] = Round A
+    assert "【本段情绪标尺】" in user_a, "标尺未注入 Round A"
+    assert "outburst: 失控瞪眼" in user_a
+    assert "smile: 眯眼开心" in user_a
+    assert "tease" not in user_a, "未在本段出现的键被注入（应只注出现的键）"
+    print("    Round A: 标尺注入且只含本段出现的键（tease 未出现 → 不注）")
+
+
+def test_emotion_scale_absent_without_lexicon(tmp_path):
+    """不给词表 → 不注入, 但 digest 照跑（宁缺勿错）。"""
+    st = _seed_store(tmp_path)
+    llm = FakeLLM(_a_episode(), _b_ok())
+    res = digest_segment(st, llm, _events(_bond(3, ["smile"])))
+    assert res.ok, res.errors
+    assert "【本段情绪标尺】" not in llm.calls[0][1]["content"]
+    print("    Round A: 无词表 → 不注标尺, digest 照跑")
+
+
+def test_emotion_scale_absent_when_segment_has_no_labels(tmp_path):
+    """本段没有任何情绪标注（如纯 MMT 段）→ 标尺为空, 不注入空块。"""
+    st = _seed_store(tmp_path)
+    llm = FakeLLM(_a_episode(), _b_ok())
+    res = digest_segment(st, llm, _events(_mmt(3, "x", "y")),
+                         emotion_lexicon=_LEX)
+    assert res.ok, res.errors
+    assert "【本段情绪标尺】" not in llm.calls[0][1]["content"]
+    print("    Round A: 本段无标注 → 无标尺块（不注空块）")
+
+
+# ---------------------------------------------------------------------------
 # 幂等: 崩溃窗口重跑（落盘成功但水位未推进）不双写
 # ---------------------------------------------------------------------------
 

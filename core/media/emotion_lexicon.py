@@ -116,6 +116,48 @@ def build_emotion_injection(char_dir: Path) -> str:
     return "\n".join(lines)
 
 
+def assets_root() -> Path:
+    """`assets/` 根（唯一解析点）——`bond_story` 与 digest 词表注入共用。
+
+    此前 `core/bond/bond_story.py:501` 与 `core/media/catalog.py` 各自拼过一次
+    同样的三层 `parents` 路径；集中到这里，换布局只改一处。
+    """
+    return Path(__file__).resolve().parent.parent.parent / "assets"
+
+
+def render_emotion_scale(lexicon: dict[str, dict], keys) -> str:
+    """**只渲染给定键**的情绪标尺（digest 受众——§3.3.2）。
+
+    与 `build_emotion_injection`（标注层受众）的分工：
+        - 那个给**标注员**：全词表 + 用法 + 例句, 教它怎么标
+        - 这个给 **digest Round A**：**只给本段真的出现的键**, 让 LLM 判断
+          "这条 episode 的情绪摆幅多大、峰值多猛"——**不是**让它改标注
+
+    为什么只给出现的键: 全词表（14 键 × 2~3 行）对一个只出现 5 键的段是纯噪声,
+    且会诱使 LLM 拿没出现的键去"凑"强度。
+
+    Returns:
+        文本块（含标题行）; `lexicon` 或 `keys` 为空、无交集 → 空串（调用方跳过注入）。
+        **键不在词表里也照样列出**（只有键名, 无注释）——保持完整, 不静默丢。
+    """
+    wanted = [k for k in dict.fromkeys(keys) if isinstance(k, str) and k.strip()]
+    if not lexicon or not wanted:
+        return ""
+    lines = [
+        "【本段情绪标尺】（作者为该角色手写的强度语义——**判断情绪摆幅/峰值时参考**）",
+    ]
+    for key in wanted:
+        item = lexicon.get(key)
+        if not item:
+            lines.append(f"  {key}（作者未写注释）")
+            continue
+        line = f"  {key}: {item['comment']}" if item.get("comment") else f"  {key}"
+        if item.get("eg"):
+            line += f"  eg: {item['eg']}"
+        lines.append(line)
+    return "\n".join(lines)
+
+
 # ============================================================================
 # place 词表（per 世界, 当前数据源 = _director_whitelist.json 的 common_scenes）
 # ============================================================================

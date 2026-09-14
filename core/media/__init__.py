@@ -12,10 +12,12 @@
 from core.media.background import BackgroundMedia, derive_background
 from core.media.catalog import MediaCatalog, MediaError
 from core.media.emotion_lexicon import (
+    assets_root,
     build_emotion_injection,
     build_place_injection,
     load_emotion_lexicon,
     load_place_lexicon,
+    render_emotion_scale,
 )
 from core.media.sprites import SpinePack, SpriteMedia
 
@@ -25,4 +27,5 @@ __all__ = [
     "SpinePack", "SpriteMedia",
     "load_emotion_lexicon", "build_emotion_injection",
     "load_place_lexicon", "build_place_injection",
+    "assets_root", "render_emotion_scale",
 ]

@@ -809,21 +809,63 @@ Round A 输出（在现有 schema 上加一个字段，不是两个）:
 **多板聚合用 `max` 不用 `mean`**——同 `emo_span` 的理由：一条 episode 吃多板时，
 **取最跌宕的那一板**，平均会把弧抹平。
 
-#### 3.3.2 与 `§6.4` 初稿"标注层顺带产 intensity"的关系：**撤回**
+#### 3.3.2 情绪标尺怎么进 Round A：**作者注释注入，不是另建数值表**
 
-§6.4 初稿建议"情绪强度由标注层顺带产出（与 `percept` 同一次调用），0~1"。
-**撤回**，理由两条：
+**用户裁决（2026-09-13）**：*"这种数值对于不了解角色的人来说可不一定写的有 LLM 好，
+我觉得其实可以直接把 `emotions.yml` 词表给 round1 的 LLM。"* —— **采纳**。
+
+**⚠️ 一条需要说清的既有误读**：本节初稿写的是"`emo_int` 由引擎查表派生"。
+**已被 §3.3.3 取代**——`emo_span` / `emo_int` / `emo_valence` **三个数都由 Round A 输出**
+（与 `significance` 同级：都是 LLM 在同一轮 JSON 里给的规范化标量）。
+**本文档不再有"per 角色 valence/intensity 数值表"这个方案**（曾起草，已撤）。
+
+**那么作者注释的作用是什么**：**是 LLM 判断的依据，不是引擎查表的输入**。
+
+```
+emotions.yml 的键注释 = per 角色手写的强度标尺
+  tease    「带调戏意味的微笑」                      ← 弱
+  outburst 「完全失控的愤怒…几乎不会有这个表情」      ← 强
+haruka 的 outburst 注释原文还带着「角色灵魂表情」    ← 作者直接给了权重
+```
+
+**所以 LLM 不需要人去翻译成数值**——它读注释比读一个我拍的 `-1.0` 准。
+这也是"LLM 比不了解角色的人写得好"的直接落地：**注释是作者写的，数值是 LLM 读出来的。**
+
+**三条理由支撑"不建表"**：
 
 1. **emo lane 结构上看不到基线**——它只吃一板 + 上一板 + 人设卡
-   （`emo_text.py:186` 的 context 构造），**它给不出"这个键对本角色算多强"**。
-   这正是用户最初的判断："**睦月每天的 tease 笑，但她真为伙伴 outburst 的那一刻
-   才是最高的**"。
-2. **作者已经在注释里写好了强度序**——`emotions.yml` 的键注释就是
-   **per 角色的手写强度标尺**（`tease`「带调戏意味的微笑」 vs `outburst`
-   「**完全失控**……**几乎不会有这个表情**」）。**读它，不要重新发明它。**
+   （`emo_text.py:186` 的 context 构造），**它给不出"这个键对本角色算多强"**
+   → **这也是"不让标注层产 intensity"的理由**（两条不是一回事：
+   标注层看不到基线，Round A 看得到整段）。
+2. **作者已经在注释里写好了强度序**（上表）。**读它，不要重新发明它。**
+3. **表是 per 角色数据、不是算法**（用户：*"这不是统一的算法，而是每个角色独有的
+   内容…有点打补丁意味"*）。30 个键 × 5 角色要维护 30~70 行数值，
+   而且**跨角色同名键语义还会分歧**：实测 `outburst` 在 mutsuki 是「完全失控的
+   **愤怒**」、在 haruka 是「非常**惊慌**」、在 shirishi_kokoro 是「**失控瞪眼**
+   （存档损坏）」——**同一键三种语义，一张全局表必然错，per 角色表则是 5 份维护债**。
 
-**因此 `emo_int` 是查表值，不是 LLM 评分。** 唯一保留给 LLM 的情绪相关输出是
-**板指针**（§3.3.1）。
+##### ✅ 已落地（提交见 §9.5）
+
+| 交付 | 位置 |
+|---|---|
+| `assets_root()` 唯一解析点（此前 `bond_story.py:501` 与 `media/catalog.py` 各拼过一次同样的三层 `parents`） | `core/media/emotion_lexicon.py` |
+| `render_emotion_scale(lexicon, keys)` —— **只渲染传入的键** | 同上 |
+| `_segment_emotion_keys(events)` —— 本段 bond 板里出现过的情绪键（首次出现序 + 去重） | `core/brain/wiki_v2/digest.py` |
+| Round A 输入新增 `【本段情绪标尺】` 块（空则整块跳过） | 同上 |
+| `digest_segment(..., emotion_lexicon=)` —— **调用方给词表**, brain 层不知道资产布局 | 同上 |
+| `momotalk._inject_brain` 加载 `assets/illustration/{char_id}/default/emotions.yml` | `core/momotalk.py` |
+
+**★ 关键设计：只注"本段真的出现的键"**——全词表对一个只出现 8 键的段是纯噪声，
+**而且会诱使 LLM 拿没出现的键去"凑"强度**。真机实测（2026-09-13）：
+
+| 角色 | 词表键 | 本段出现 | 不注入 | 标尺字数 | 占输入比 |
+|---|---|---|---|---|---|
+| igusa_haruka | 14 | **13** | `giggle` | 609 | **19.6%** |
+| asagi_mutsuki | 14 | **8** | `nomal` `sigh` `worry` `enraged` `enraged_2` `outburst` | 289 | **7.7%** |
+
+**这张表本身就是一条有趣的证据**：mutsuki 整章的 `outburst` **一次都没出现**
+（`enraged` / `enraged_2` 也没有）——**她的招牌是 `tease`/`smile`/`laugh`**，
+这正是用户说的"招牌动作不代表情感"的数据侧面貌。
 
 **仍未解决的**：`§3.3` 初稿把"情绪强 → 半衰期更长"写成
 `decay = exp(-age/(half_life·(1+k·emo)))`。**在行列式形态下 `emo_int` 已经在
@@ -1939,6 +1981,31 @@ recall_write char=igusa_haruka eps=4 collide=12 forced=100% med_only=0 none=0
 **只落不用**——这是有意的（先让数据长起来，召回接上时才有历史可比）。
 **边界**：**bond 链不产 `affection` 事件**（实测只有 momotalk 的 digest 产），
 所以好感的真源目前**只覆盖 MMT 线**——bond 章内形成的好感快照会是段前的值。
+
+### 9.5 情绪标尺注入 Round A 落地记录（2026-09-13）
+
+| 交付 | 位置 |
+|---|---|
+| `assets_root()` —— 资产根唯一解析点（此前 `bond_story.py:501` 与 `media/catalog.py:145` 各自拼过同样的三层 `parents`） | `core/media/emotion_lexicon.py` · `core/bond/bond_story.py` |
+| `render_emotion_scale(lexicon, keys)` —— **只渲染传入的键**；词表外的键照样列（只有键名）不静默丢 | `core/media/emotion_lexicon.py` |
+| `_segment_emotion_keys(events)` —— 本段出现过的键（首次出现序 + 去重；坏结构不抛） | `core/brain/wiki_v2/digest.py` |
+| Round A 输入新增 `【本段情绪标尺】` 块（空 → `_join_sections` 整块跳过） | 同上 |
+| `digest_segment(..., emotion_lexicon=)` —— **调用方给词表** | 同上 |
+| `momotalk._inject_brain` 加载词表（失败 → 空 dict + WARNING, digest 照跑） | `core/momotalk.py` |
+
+**验证**：`632 passed`（605 基线 + 27 新增）。**真机实测**（不跑 LLM，直接看组装结果）：
+
+| 角色 | 词表键 | 本段出现 | 不注入 | 时间线 | 标尺 | 占输入比 |
+|---|---|---|---|---|---|---|
+| igusa_haruka | 14 | **13** | `giggle` | 2494 字 | 609 字 | **19.6%** |
+| asagi_mutsuki | 14 | **8** | `nomal` `sigh` `worry` `enraged` `enraged_2` `outburst` | 3485 字 | 289 字 | **7.7%** |
+
+haruka 的 `outburst` 注释原文含「**角色灵魂表情**」——**作者直接给了权重**，
+这正是"LLM 比不了解角色的人写得好"落地的方式：注释是作者写的，强度是 LLM 读出来的。
+
+**尚未做**：三个输出字段本身（`emo_span` / `emo_int` / `emo_valence`）——
+本次只补了**注入侧**（LLM 有了判断依据）；输出侧要改 Round A 的 schema 与
+`_clean_episode_item`，且 `emo_span` 依赖 **Q34 板↔episode 归属规则**。
 
 
 ---
