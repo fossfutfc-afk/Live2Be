@@ -8,7 +8,7 @@
                出厂（beliefs.yml, 种子——不 immutable, 运行时 touch/update 演化）
 
 通用字段: id / kind / significance / epistemic / observer / tags / segment_id /
-          event_seq / ts / source / links / contradictions
+          event_seq / ts / source / links / contradictions / aff_at_encoding
 专属字段: episode.title(可选短标题) / belief.subject / belief.growth /
           belief.observation / belief.history[{episode_id, content, ts}]
 
@@ -93,6 +93,14 @@ class BrainNode:
     observation: list[str] = field(default_factory=list)
     history: list[dict] = field(default_factory=list)   # belief 改写溯源（见 docstring）
     source_key: str = ""
+    #: 编码时好感标量 ∈ [−1, 1]（`Affection.to_scalar()`, §3.3.3）——**快照**:
+    #: 写入时定、之后**永不改**（故与"节点 append-only"不冲突）。
+    #: `None` = 旧档/未采集; `0.0` = 中性。两者**必须能区分**——否则旧档会被
+    #: 误读成"当时关系中性", 同频召回会捞出一堆假匹配。
+    #: 用途: `mood_congruence = 1 − |aff_now − aff_at_encoding| / 2`（值域宽 2）。
+    #: 真源仍是 `affection` 事件流（`load_affection_from_events` 可按 seq 回放），
+    #: 本字段只是省掉每次召回重放。
+    aff_at_encoding: float | None = None
 
     # ------------------------------------------------------------------
     # 校验（字段级; 契约层/组织 pass 在引擎侧再叠加引用级校验）
@@ -197,6 +205,10 @@ class BrainNode:
             if v in (None, "", [], 0):
                 continue
             d[f] = v
+        # aff_at_encoding **不进上面那圈"空值省略"**——它用 None 当"未采集"哨兵,
+        # 而 0.0 是合法的中性值（旧口径的 `v in (..., 0)` 会把 0.0 一起省掉）。
+        if self.aff_at_encoding is not None:
+            d["aff_at_encoding"] = self.aff_at_encoding
         return d
 
     @classmethod
@@ -233,6 +245,7 @@ class BrainNode:
         node.observation = _str_list(raw.get("observation"))
         node.history = _dict_list(raw.get("history"))
         node.source_key = _str(raw.get("source_key"))
+        node.aff_at_encoding = _opt_clamp01(raw.get("aff_at_encoding"))
         return node
 
     def to_json_line(self) -> str:
@@ -305,3 +318,21 @@ def _clamp_sig(v: Any) -> float:
     except (TypeError, ValueError):
         return 0.5
     return max(0.0, min(1.0, f))
+
+
+def _opt_clamp01(v: Any) -> float | None:
+    """可选 [−1, 1] 标量（`aff_at_encoding`）——**缺/坏 → None, 不折成 0.0**。
+
+    与 `_clamp_sig` 的关键差别: 后者的默认值 0.5 是一个真实档位;
+    而这里 `None`（未采集）与 `0.0`（中性）是**两个不同的事实**,
+    合并会让旧档在召回里冒充"当时关系中性"。
+    """
+    if v is None or isinstance(v, bool):
+        return None
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    if f != f:                                  # NaN
+        return None
+    return max(-1.0, min(1.0, f))
