@@ -258,9 +258,8 @@ def session_status(events: list[Event]) -> dict[str, Any]:
     }
 
 
-def render_timeline(events: list[Event], *, max_paragraph_chars: int = 120,
-                    include_seq: bool = False) -> str:
-    """事件流 → 叙事时间线文本（brain 消化输入, §4.6; 含板块标签, 段落截断）。
+def render_timeline(events: list[Event], *, include_seq: bool = False) -> str:
+    """事件流 → 叙事时间线文本（brain 消化输入, §4.6; 含板块标签, **不截断**）。
 
     设计（2026-08-27 修正）:
     - **每事件一行**——紧凑叙事流: LLM 顺序阅读, 事件顺序即叙事顺序
@@ -272,6 +271,13 @@ def render_timeline(events: list[Event], *, max_paragraph_chars: int = 120,
       缺省段不标注（契约语义: 缺省 = 延续上一段, 见 digest.md 输入说明）。
     - **seq 标签（2026-09-02, digest_v2 用）**: include_seq=True 时每行前缀 `[seq N]`——
       LLM 可复制 seq 作条目 event_seq 溯源（复制不发明; 引擎校验 ⊆ 本段 seq 集）。
+    - **不截断（2026-09-13, Q26 落地）**: 原 `max_paragraph_chars=120` 已删。它是
+      "防出厂记忆挤占窗口"的补丁, 而**补丁对象已死**（出厂记忆直注、不进 wiki）。
+      实测板均 73~163 字、阈值正卡在之上一点, 砍的全是正常板——且砍掉的正是
+      **全章情感落点**（如 haruka 板 6 的 `outburst` 与收束 `smile`）与**玩家裁决行**。
+      `verbatim`「印象最深的一句原话, 逐字复制」在 12 条大板上摊到每记录 ≈10 字,
+      **物理上常常拿不到**。删后输入仅 ×1.11~×1.50（§8.1 实测）。
+      本函数是 **digest Round A 的唯一输入**——不截断 = LLM 看得见完整情绪弧。
     """
     lines: list[str] = []
     for e in events:
@@ -305,8 +311,6 @@ def render_timeline(events: list[Event], *, max_paragraph_chars: int = 120,
             if isinstance(picked, str) and picked.strip():
                 texts.append(f"老师: {picked.strip()}")
             text = " / ".join(texts)
-            if len(text) > max_paragraph_chars:
-                text = text[:max_paragraph_chars] + "…"
             lines.append(f"{label} {text}")
         elif e.type == TYPE_L2D:
             imgs = e.payload.get("images", [])

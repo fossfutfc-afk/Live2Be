@@ -290,10 +290,11 @@ def test_render_timeline_brain():
     assert "玩家: 老师你看！" in tl and "角色: 是我拍的…" in tl
     assert "她红着脸。" in tl
     assert "【L2D生成】" not in tl           # 本会话无 l2d
-    # 截断
+    # 不截断（2026-09-13, Q26 落地）: 原 max_paragraph_chars 已删——长板全文保留,
+    # 因为 Round A 靠它看见完整情绪弧与 verbatim 可复制的原话
     long = [make_event("bond", "story_scene", {"paragraphs": ["长" * 300]}, seq=1)]
-    tl2 = render_timeline(long, max_paragraph_chars=50)
-    assert len(tl2) < 100 and "…" in tl2
+    tl2 = render_timeline(long)
+    assert "长" * 300 in tl2 and "…" not in tl2
     # 表情标注（2026-08-28）: 段落显式带 emotion → 段落后 (emotion); 缺省段不标注
     with_emo = [make_event("bond", "story_scene", {
         "paragraphs": [{"text": "她低头笑了。", "emotion": "smile"},
@@ -302,7 +303,7 @@ def test_render_timeline_brain():
     tl3 = render_timeline(with_emo)
     assert "她低头笑了。 (smile)" in tl3
     assert "（沉默片刻）" in tl3 and " (smile)" not in tl3.split("（沉默片刻）")[1]
-    print("    render_timeline: 板块标签 + 段落截断 + 表情标注（brain 消化输入）")
+    print("    render_timeline: 板块标签 + 长板不截断 + 表情标注（brain 消化输入）")
 
 
 # ----------------------------------------------------------------------------
