@@ -75,6 +75,7 @@ from core.session import SessionStore
 from core.session.events import make_event
 from core.session.renderer import render_events, session_status, window_messages
 from core.brain.wiki_v2.digest import digest_segment
+from core.affection import Affection, load_affection_from_events
 from core.brain.wiki_v2.render import render_background_experience, render_character_view
 from core.brain.wiki_v2.store import WikiStoreV2
 from core.rag.brain import make_embed_fn
@@ -518,10 +519,19 @@ class MomoTalkEngine:
             if digest:
                 events = store.events(character_id)
                 interact_max = _interact_max(events, wstore.digested_seq)
+                # 编码时好感快照（§3.3.3）: 本段**开始之前**的累计好感标量。
+                # 按 digested_seq 过滤（不是 interact_max）——只算**已消化**的部分,
+                # 即"写这些记忆的那一刻她对玩家多少好感"。
+                # None = 本段前没有任何 affection 事件 → 字段不落库（与 0.0 区分）。
+                aff_prior_d = load_affection_from_events(
+                    events, up_to_seq=wstore.digested_seq)
+                aff_prior = (Affection(exp=int(aff_prior_d.get("exp", 0) or 0))
+                             .to_scalar()) if aff_prior_d else None
                 res = digest_segment(wstore, self.llm, events,
                                      character_prompt=anchor,
                                      embed_fn=_get_embed_fn(),
-                                     llm_timeout=DIGEST_LLM_TIMEOUT)
+                                     llm_timeout=DIGEST_LLM_TIMEOUT,
+                                     aff_at_encoding=aff_prior)
                 if not res.ok:
                     logger.warning("digest 未完成 (%s): %s", character_id,
                                    " | ".join(res.errors))

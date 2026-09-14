@@ -951,6 +951,15 @@ mood_congruence = 1 − |aff_now − aff_at_encoding| / 量程        ← 用绝
 - **落节点的理由**：① 写入时定、之后不变（与 `event_seq` 同性质，非突变态）
   ② 省掉每次召回重放事件流 ③ 与 Q9 的"突变态才进物化层"一致
 - ⚠️ **与"节点是 append-only"不冲突**：它是创建时确定的值，**永不改**
+- ✅ **已落地（提交见 §9.4）**：`BrainNode.aff_at_encoding: float | None`；
+  `digest_segment(..., aff_at_encoding=)` → `_create_a_nodes` 写入；
+  调用方 `momotalk._inject_brain` 按 **`up_to_seq=store.digested_seq`** 算
+  （只算**已消化**的部分 = "写这些记忆那一刻的好感"）
+- ★ **`None`（未采集）与 `0.0`（中性）必须可区分**——`to_dict()` 的
+  "空值省略"规则里 `0` 会被省掉，故该字段**单独用 `None` 做哨兵**：
+  落库条件是 `is not None`，而坏值/越界走 `_opt_clamp01` → `None`
+  （**坏值不等于"中性"**）。否则旧档会在召回里冒充"当时关系中性"，
+  同频匹配直接捞出一堆假阳性。
 
 #### 链接展开：有向 + 有类型（回应用户 c/d）
 
@@ -1910,6 +1919,20 @@ recall_write char=igusa_haruka eps=4 collide=12 forced=100% med_only=0 none=0
 
 **仍未做**：`digest.py:349-350` 的**第二处** 120 字硬编码（Round B 素材里
 `node.narration` 的头部截断）——同一类补丁，**未在 Q26 范围内**，另行拍板。
+
+### 9.4 好感度带符号 + `aff_at_encoding` 落地记录（2026-09-13，三个独立提交）
+
+| 提交 | 内容 |
+|---|---|
+| `e135c17` | **`Affection` 数值层带符号**：`exp` 可减、地板 `MIN_EXP=0`、恶化到底同步回 `MIN_LEVEL`、新增 `to_scalar()=tanh(exp/5000)`；`load_affection_from_events` 语义细分（无事件 → `None`；净变化 ≤0 → `{1,0}` 真实状态）。10 条新单测 |
+| `cc93d98` | **放开 delta 下界 + 负 delta 落真源**：`_AFF_MIN` 0 → −100（对称）；`momotalk.py` 判据 `>0` → `!=0`（否则负 delta 连事件都不写）；prompt 三处同步（`digest_v2_round_b` 第 7 条 / `digest.md` 第 11 条 / registry schema 注释），含"**别为剧情起伏随手给负分**"的防污染措辞。2 条新用例 |
+| （本提交） | **`aff_at_encoding` 落 episode 节点**：`BrainNode.aff_at_encoding: float\|None` + `_opt_clamp01`（坏值 → `None`，**不折成 0.0**）+ `to_dict` 用 `is not None` 单独落库（不吃"空值省略"）+ `digest_segment` 新参数 + `_create_a_nodes` 写入 + `momotalk._inject_brain` 按 `up_to_seq=digested_seq` 计算。6 条新用例（节点往返 3 + digest 落库 3） |
+
+**验证**：`623 passed`（605 基线 + 18 新增），每步全量跑过、无退化。
+**未做**：`mood_congruence` 的实际消费（在 V3-3 召回里）；`aff_at_encoding` 目前
+**只落不用**——这是有意的（先让数据长起来，召回接上时才有历史可比）。
+**边界**：**bond 链不产 `affection` 事件**（实测只有 momotalk 的 digest 产），
+所以好感的真源目前**只覆盖 MMT 线**——bond 章内形成的好感快照会是段前的值。
 
 
 ---

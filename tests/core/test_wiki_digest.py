@@ -417,6 +417,45 @@ def test_affection_negative_clamped_at_floor(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# aff_at_encoding: 编码时好感快照落 episode 节点（§3.3.3）
+# ---------------------------------------------------------------------------
+
+def test_aff_at_encoding_lands_on_episode_nodes(tmp_path):
+    """传入 → 落进**新建的 episode 节点**; 快照语义 = 写入时定。"""
+    st = _seed_store(tmp_path)
+    llm = FakeLLM(_a_episode(), _b_ok())
+    res = digest_segment(st, llm, _events(_mmt(3, "x", "y")),
+                         aff_at_encoding=-0.42)
+    assert res.ok and res.created, "应建出 episode"
+    ep = st.get(res.created[0])
+    assert ep.aff_at_encoding == -0.42
+    print(f"    aff_at_encoding: 落节点 {res.created[0]} = {ep.aff_at_encoding}")
+
+
+def test_aff_at_encoding_absent_when_not_passed(tmp_path):
+    """不传（CLI/旧调用方）→ 字段**不落库**, 与 0.0（中性）区分。"""
+    st = _seed_store(tmp_path)
+    llm = FakeLLM(_a_episode(), _b_ok())
+    res = digest_segment(st, llm, _events(_mmt(3, "x", "y")))
+    assert res.ok and res.created
+    ep = st.get(res.created[0])
+    assert ep.aff_at_encoding is None
+    assert "aff_at_encoding" not in ep.to_dict()
+    print("    aff_at_encoding: 未传 → None（不落库, 不冒充中性）")
+
+
+def test_aff_at_encoding_zero_is_written(tmp_path):
+    """0.0 是真值（当时关系中性）——**必须落库**, 不能被空值省略规则吃掉。"""
+    st = _seed_store(tmp_path)
+    llm = FakeLLM(_a_episode(), _b_ok())
+    res = digest_segment(st, llm, _events(_mmt(3, "x", "y")), aff_at_encoding=0.0)
+    ep = st.get(res.created[0])
+    assert ep.aff_at_encoding == 0.0
+    assert "aff_at_encoding" in ep.to_dict()
+    print("    aff_at_encoding: 0.0 落库（中性 ≠ 未采集）")
+
+
+# ---------------------------------------------------------------------------
 # 幂等: 崩溃窗口重跑（落盘成功但水位未推进）不双写
 # ---------------------------------------------------------------------------
 

@@ -101,6 +101,7 @@ def digest_segment(
     deadline_seconds: float = 300.0,
     llm_timeout: float | None = None,
     extra_body: dict | None = None,
+    aff_at_encoding: float | None = None,
 ) -> DigestResult:
     """增量两轮 digest: 新事件 → A 记录 → B 理解 → 原子落盘 → 推进水位。
 
@@ -122,6 +123,10 @@ def digest_segment(
                    默认 300s——撞上 → 判失败回滚, 水位不推进可重算）
         llm_timeout: per-call 超时覆盖（None = 客户端构造超时; 后台 digest
                    建议 ≥300s——high 档单次长考可超 60s 共享客户端默认）
+        aff_at_encoding: 本段**开始之前**的好感标量 `Affection.to_scalar()` ∈ [−1,1]
+                   （§3.3.3）——落进 episode 节点的**快照**, 写入后永不改。
+                   None = 未采集 → 字段不落库（与 `0.0` 中性区分）。调用方算,
+                   因为 wiki_v2 看不到事件流里的 affection 事件。
     """
     if max_tokens is None:                       # 真源: task_levels 形态 digest
         max_tokens = _tl_max_tokens("digest")
@@ -167,7 +172,7 @@ def digest_segment(
             return _rollback(store, snapshot, result)
         episode_ids, player_ids = _create_a_nodes(
             store, entries, ts=now_ts, segment_id=segment_id,
-            event_seq=[interact_max])
+            event_seq=[interact_max], aff_at_encoding=aff_at_encoding)
 
         # ── Round B: 理解者（引擎候选推荐 + 决策表）──
         cog_text, local_of = render_cognition_list(
@@ -274,7 +279,8 @@ def _round_call(
 # ---------------------------------------------------------------------------
 
 def _create_a_nodes(store: WikiStoreV2, entries: list[dict], *, ts: str,
-                    segment_id: str, event_seq: list[int]
+                    segment_id: str, event_seq: list[int],
+                    aff_at_encoding: float | None = None
                     ) -> tuple[list[str], list[str]]:
     """Round A 条目 → 节点（引擎字段归属——确定性归引擎, 防幻觉）。
 
@@ -282,6 +288,10 @@ def _create_a_nodes(store: WikiStoreV2, entries: list[dict], *, ts: str,
     kind=experience（玩家画像, MMT 专则）→ subject=player experience 节点:
         口癖/偏好/一次性个人信息——不进本轮 B（B 只组织 episode）, 下轮起参与认知层
     dedupe: (kind, event_seq, 主文本) 命中已有节点 → 复用 id（崩溃窗口重跑防双写）。
+
+    aff_at_encoding（§3.3.3, 2026-09-13）: 本段**开始之前**的好感标量
+    （`Affection.to_scalar()`, [−1,1]）——快照, 写入后永不改。
+    调用方传 None = 未采集（旧档/CLI 路径）→ 字段不落库, 与 `0.0`（中性）区分。
 
     Returns: (episode_ids, player_ids)——episode_ids 供 B 覆盖检查。
     """
@@ -308,6 +318,7 @@ def _create_a_nodes(store: WikiStoreV2, entries: list[dict], *, ts: str,
         node.ts = ts
         node.segment_id = segment_id
         node.event_seq = list(event_seq)
+        node.aff_at_encoding = aff_at_encoding
         dup = _find_duplicate(store, node)
         if dup is not None:
             episode_ids.append(dup.id)

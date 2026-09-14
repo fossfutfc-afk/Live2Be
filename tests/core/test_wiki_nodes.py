@@ -38,6 +38,45 @@ def test_episode_required_narration():
     assert "episode 缺少必填字段: narration" in node.validate()
 
 
+# ---------------------------------------------------------------------------
+# aff_at_encoding —— 编码时好感快照（§3.3.3, 2026-09-13）
+# ---------------------------------------------------------------------------
+
+def test_aff_at_encoding_roundtrip():
+    """★ 0.0（中性）必须真的落库——它不能和"未采集"一起被省略。"""
+    node = make_node("episode", narration="那天她只是普通地打了个招呼",
+                     aff_at_encoding=0.0)
+    assert node.aff_at_encoding == 0.0
+    line = node.to_json_line()
+    assert '"aff_at_encoding":0.0' in line, f"0.0 中性值被省掉了: {line}"
+    back = BrainNode.from_json_line(line)
+    assert back.aff_at_encoding == 0.0
+    print("    aff_at_encoding: 0.0（中性）落库且往返保真")
+
+
+def test_aff_at_encoding_none_is_not_zero():
+    """★ 未采集(None) 与 中性(0.0) 必须可区分——否则旧档冒充"当时关系中性"。"""
+    node = make_node("episode", narration="旧档没有这个字段")
+    assert node.aff_at_encoding is None
+    assert "aff_at_encoding" not in node.to_dict()
+    # 旧档行（无该字段）→ None, 不是 0.0
+    old = BrainNode.from_dict({"id": "m0001", "kind": "episode", "narration": "旧"})
+    assert old.aff_at_encoding is None
+    print("    aff_at_encoding: None（未采集）≠ 0.0（中性）")
+
+
+def test_aff_at_encoding_clamped_and_bad_to_none():
+    assert make_node("episode", narration="x", aff_at_encoding=-1.0).aff_at_encoding == -1.0
+    assert make_node("episode", narration="x", aff_at_encoding=1.0).aff_at_encoding == 1.0
+    assert make_node("episode", narration="x", aff_at_encoding=-9).aff_at_encoding == -1.0
+    assert make_node("episode", narration="x", aff_at_encoding=9).aff_at_encoding == 1.0
+    # 坏值 → None（不是 0.0——坏值不等于"中性"）
+    for bad in ("abc", None, True, float("nan"), [], {}):
+        got = make_node("episode", narration="x", aff_at_encoding=bad).aff_at_encoding
+        assert got is None, f"{bad!r} → {got!r}, 应为 None"
+    print("    aff_at_encoding: 越界夹紧 + 坏值 → None")
+
+
 def test_episode_epistemic_guard():
     node = make_node("episode", narration="x", epistemic="inferred_belief")
     errs = node.validate()
