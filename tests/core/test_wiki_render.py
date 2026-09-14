@@ -121,31 +121,37 @@ def test_character_view_sections_and_first_person():
     assert "m0001" not in out and "links" not in out
 
 
-def test_character_view_reported_and_caps():
+def test_character_view_no_caps_all_rendered():
+    """2026-09-13 **cap 全删**：桶内全量注入（曾经 cap_recent 默认 6 / cap_beliefs 5）。
+
+    这是"第 6 条 belief 永不出现 → 永不可能被 touch/update"那个冻结病的反面
+    （DESIGN_WIKI_V3 §3.1/§3.7）——召回交给 v3 实体车道, 渲染不再先砍一刀。
+    """
     nodes = [
         _ep("听睦月说阿露昨天又翻车了", sig=0.5, event_seq=[1],
             epistemic="reported_fact", observer="asagi_mutsuki"),
         *(_ep(f"日常{i}", sig=0.4, ts=f"2026-09-0{1 + i % 9}T12:00:00",
               event_seq=[10 + i]) for i in range(12)),
     ]
-    out = render_character_view(nodes, cap_recent=10)
+    out = render_character_view(nodes)
     assert "我听说的：\n- 听睦月说阿露昨天又翻车了（听asagi_mutsuki说的）" in out
     assert "最近的事：" in out
-    assert out.count("\n- 日常") == 10         # 12 条 observed → cap 10; reported 不进此段
+    assert out.count("\n- 日常") == 12         # 12 条 observed 全部注入（旧 cap 6/10 会截断）
     # 空段省略
     out2 = render_character_view([])
     assert out2 == "【角色记忆（brain）】"
     assert "我心里渐渐觉得" not in out2
 
 
-def test_character_view_belief_and_player_caps():
+def test_character_view_belief_and_player_all_rendered():
+    """belief / player 两桶同样全量（旧 cap_beliefs / cap_player 默认 5）。"""
     beliefs = [make_node("belief", content=f"信念{i}", subject="sensei",
                          epistemic="inferred_belief", significance=0.9 - i * 0.1,
                          links=["m0001"], event_seq=[1]) for i in range(7)]
     players = [make_node("experience", pattern=f"口癖{i}", subject="player",
                          significance=0.6, count=7 - i, links=["m0001"],
                          event_seq=[1]) for i in range(7)]
-    out = render_character_view([*beliefs, *players], cap_beliefs=5, cap_player=5)
-    assert out.count("\n- 对sensei：信念") == 5
-    assert out.count("（count ") == 5
-    assert "信念5" not in out and "口癖5" not in out       # 超出 cap 的丢弃
+    out = render_character_view([*beliefs, *players])
+    assert out.count("\n- 对sensei：信念") == 7        # 7 条全在（旧 cap 5 会丢 2 条）
+    assert out.count("（count ") == 7
+    assert "信念5" in out and "口癖5" in out          # 旧 cap 下这两条正是被丢的

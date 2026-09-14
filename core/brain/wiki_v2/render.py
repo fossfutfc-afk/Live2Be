@@ -163,29 +163,45 @@ def take_last_view_account() -> dict | None:
     return _last_view_account.pop() if _last_view_account else None
 
 
-def _bucket_view(nodes: Iterable[BrainNode], *,
-                 cap_seed_episodes: int, cap_beliefs: int, cap_player: int,
-                 cap_recent: int, cap_reported: int) -> dict:
-    """**唯一**分桶实现（v2 语义原样保留）。
+def _bucket_view(nodes: Iterable[BrainNode]) -> dict:
+    """**唯一**分桶实现（2026-09-13 **cap 全删**）。
 
     抽出来是为了让台账（V3-0）与渲染共用同一份分桶结果——否则两条路径会漂移,
     而台账的全部价值就在于"如实反映 LLM 看到了什么"。
+
+    **cap 为什么删**（用户裁决 2026-09-13, DESIGN_WIKI_V3 §3.1/§3.7）:
+    分桶的 `[:cap]` 截断**就是** v2 的召回机制——它按绝对 `significance` 取前 N,
+    后果是"第 6 条以后的 belief 永不出现 → 永远不可能被 touch/update"（写路径
+    依赖读路径把它喂进去）。v3 的召回由**实体车道 + 混合打分**接管（A-Mem 式），
+    判据是"与当下相关"而不是"绝对重要"——**两者是替代关系, 不是叠加**。
+    留 cap = 在召回之前先无理由砍一刀 → 召回再准也捞不到被砍掉的。
+
+    规模实测（真机 world1）: 一条世界线全部记忆 ≈1.6k~3.1k 字（≈800~1600 token），
+    且**当前无一条世界线触到任何 cap**（haruka 4 belief / 4 episode）——
+    删 cap 在今天**行为零变化**, 只是拆掉将来的玻璃天花板。
+
+    桶内**排序保留**（它决定注入顺序, 不是截断判据）。
     """
     all_nodes = list(nodes)
-    seed_eps = sorted(
-        (n for n in all_nodes if n.kind == "episode" and n.source == "experience"),
-        key=lambda n: n.significance, reverse=True)[:cap_seed_episodes]
-    episodic = sorted(
-        (n for n in all_nodes if n.kind == "episode"
-         and n.epistemic == "observed_fact" and n.source != "experience"),
-        key=lambda n: (n.is_precious, n.ts or ""), reverse=True)
-    episodes = episodic[:cap_recent]
-    beliefs = sorted((n for n in all_nodes if n.kind == "belief"),
-                     key=lambda n: n.significance, reverse=True)[:cap_beliefs]
-    players = sorted((n for n in all_nodes if n.is_player_experience),
-                     key=lambda n: n.count, reverse=True)[:cap_player]
-    reported = [n for n in all_nodes if n.kind == "episode"
-                and n.epistemic == "reported_fact"][:cap_reported]
+    bucket = {
+        "seed": lambda n: n.kind == "episode" and n.source == "experience",
+        "episode": lambda n: (n.kind == "episode"
+                              and n.epistemic == "observed_fact"
+                              and n.source != "experience"),
+        "belief": lambda n: n.kind == "belief",
+        "player": lambda n: n.is_player_experience,
+        "reported": lambda n: (n.kind == "episode"
+                               and n.epistemic == "reported_fact"),
+    }
+    seed_eps = sorted((n for n in all_nodes if bucket["seed"](n)),
+                      key=lambda n: n.significance, reverse=True)
+    episodes = sorted((n for n in all_nodes if bucket["episode"](n)),
+                      key=lambda n: (n.is_precious, n.ts or ""), reverse=True)
+    beliefs = sorted((n for n in all_nodes if bucket["belief"](n)),
+                     key=lambda n: n.significance, reverse=True)
+    players = sorted((n for n in all_nodes if bucket["player"](n)),
+                     key=lambda n: n.count, reverse=True)
+    reported = [n for n in all_nodes if bucket["reported"](n)]
     return {
         "total": len(all_nodes),
         "seed_eps": seed_eps,
@@ -193,19 +209,13 @@ def _bucket_view(nodes: Iterable[BrainNode], *,
         "beliefs": beliefs,
         "players": players,
         "reported": reported,
-        # 台账口径: 桶名 → (选中数, 候选总数)（候选总数 = 该桶未截断前的条数）
-        "caps": {
-            "seed": (len(seed_eps), min(
-                sum(1 for n in all_nodes if n.kind == "episode"
-                    and n.source == "experience"), cap_seed_episodes)),
-            "episode": (len(episodes), min(len(episodic), cap_recent)),
-            "belief": (len(beliefs), min(
-                sum(1 for n in all_nodes if n.kind == "belief"), cap_beliefs)),
-            "player": (len(players), min(
-                sum(1 for n in all_nodes if n.is_player_experience), cap_player)),
-            "reported": (len(reported), min(
-                sum(1 for n in all_nodes if n.kind == "episode"
-                    and n.epistemic == "reported_fact"), cap_reported)),
+        # 台账口径: 桶名 → 注入条数（cap 已删 → 桶内全量, 无"选中/候选"之分）
+        "buckets": {
+            "seed": len(seed_eps),
+            "episode": len(episodes),
+            "belief": len(beliefs),
+            "player": len(players),
+            "reported": len(reported),
         },
     }
 
@@ -216,33 +226,26 @@ def render_character_view(
     char_name: str = "",
     char_aliases: tuple[str, ...] = (),
     summary: str = "",
-    cap_seed_episodes: int = 5,
-    cap_beliefs: int = 5,
-    cap_player: int = 5,
-    cap_recent: int = 6,
-    cap_reported: int = 3,
 ) -> str:
-    """角色注入视图: 分层排序渲染（2026-09-02 v3: fact 退役 + 出厂/运行时分层）。
+    """角色注入视图: 分层排序渲染（2026-09-13: **cap 全删**, 见 `_bucket_view`）。
 
-    分层（出厂记忆低配常驻, 运行时玩家羁绊主窗口——注入预算竞争矛盾定稿）:
-        - 久远的记忆（出厂 episode, source=experience）: cap_seed_episodes 按 sig——
-          角色底色, 少而精; 出厂经历是"游戏开始前的过去", 不该挤占玩家记忆窗口
-        - 我记得的事（珍贵的/最近）: **运行时独占**（玩家羁绊主窗口: 珍贵档 +
-          ts 降序）; 出厂 episode 永不进此段
-        - 我心里渐渐觉得（belief）: 出厂 belief（种子）+ 运行时 digest 产物混排
-          （按 sig; 被玩家剧情 touch/update 的出厂认知自然带着玩家印记演化）
+    分层（出厂/运行时分区, 决定**注入顺序**而非截断）:
+        - 久远的记忆（出厂 episode, source=experience）: 按 sig——角色底色;
+          出厂经历是"游戏开始前的过去"
+        - 我记得的事（珍贵的/最近）: **运行时独占**（珍贵档 + ts 降序）;
+          出厂 episode 永不进此段
+        - 我心里渐渐觉得（belief）: 按 sig（出厂种子 + 运行时 digest 产物混排）
         - 老师的事（player experience 口癖）: count 降序
         - 我听说的（reported）: 兜底
         - knowledge 不再出厂化（世界观知识 = config 档案, system prompt 注入）
     第一人称转换: char_name + char_aliases（yml 原文多用简称, 如"遥香"）→ 我。
+    （**v3 将废弃该转换**——见 DESIGN_WIKI_V3 §2.11; 本节暂不动。）
 
     2026-09-13（V3-0）: 分桶抽到 `_bucket_view`（台账与渲染共用），并把这次
     的桶统计**记进 `_last_view_account`** 供调用方打台账（渲染函数本身不打日志——
     它不知道自己在为哪个角色/哪条 surface 渲染）。
     """
-    b = _bucket_view(
-        nodes, cap_seed_episodes=cap_seed_episodes, cap_beliefs=cap_beliefs,
-        cap_player=cap_player, cap_recent=cap_recent, cap_reported=cap_reported)
+    b = _bucket_view(nodes)
     episodes, beliefs, players, reported = (
         b["episodes"], b["beliefs"], b["players"], b["reported"])
     seed_eps = b["seed_eps"]
