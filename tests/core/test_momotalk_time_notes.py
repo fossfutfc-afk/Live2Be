@@ -113,13 +113,33 @@ def test_no_store_skips_time_notes(tmp_path):
     print("    无 store: 时间注记跳过（P16/卡不受影响）")
 
 
+def test_vn_brain_segment_carries_time_but_no_phone(tmp_path):
+    """★ VN 侧（`load_brain_segment`）也要有**剧情时间 + 现实间隔**, 但**不给手机日期**。
+
+    VN 无自由打字通道（`CLAUDE.md §6.3`）→ 玩家问不出"今天几号" → 注了只污染创作。
+    这条钉住 2026-09-13 查出的一处缺口: MMT 接了时间而 VN 没有（同一个大脑两套口径）。
+    """
+    from core.momotalk import load_brain_segment
+    store = SessionStore(data_root=tmp_path)
+    root = store.create(CHARACTER, "测试")
+    store.append_event(CHARACTER, root.session_id,
+                       event=__import__("core.session.events", fromlist=["x"])
+                       .make_event("mmt", "chat", {"player": "在吗", "reply": "在的"}))
+    seg = load_brain_segment(store, CHARACTER, "伊草 遥香",
+                             ROOT / "config" / "characters")
+    assert "【现在是】" in seg, seg[-300:]
+    assert "【手机上的日期】" not in seg, "VN 不该注手机日期"
+    print("    VN: 有剧情时间注记, 无手机日期")
+
+
 if __name__ == "__main__":
     import tempfile
 
     for fn in (test_time_notes_reach_mmt_messages,
                test_time_notes_carry_story_season,
                test_notes_before_task_card,
-               test_no_store_skips_time_notes):
+               test_no_store_skips_time_notes,
+               test_vn_brain_segment_carries_time_but_no_phone):
         with tempfile.TemporaryDirectory() as d:
             fn(Path(d))
     print("all time-note wiring tests passed")
