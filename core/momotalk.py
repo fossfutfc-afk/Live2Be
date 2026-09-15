@@ -177,6 +177,12 @@ def load_brain_segment(store: SessionStore, char_id: str, char_name: str = "",
     原文直注, render_background_experience, 与 personality 同为作者人设描述）+ 运行时
     wiki 记忆（render_character_view, digest 产物——空库为 ""）。wiki 只存玩家参与后
     的事; 背景经历是她的底色, LLM 扮演时自然内化。失败/空 → ""（零注入不阻断）。
+
+    2026-09-13（T13 收口）: **VN 侧也接时间** ——
+      ① 传 `story_now` 给 `render_character_view`（否则 VN 的记忆条目**没有"3 周前"**，
+         而 MMT 有 —— 同一个大脑两套口径）
+      ② 在段尾拼**时间注记**（剧情时间 + 现实间隔；**不给手机日期**——
+         VN 无自由打字通道, 选项由 LLM 生成, 问不出"今天几号"）。
     """
     try:
         seg_parts: list[str] = []
@@ -190,11 +196,26 @@ def load_brain_segment(store: SessionStore, char_id: str, char_name: str = "",
                 pass
         wstore = WikiStoreV2(store.data_root, world_id=store.world_id,
                              char_id=char_id)
+        cursor = wstore.clock().cursor
         wiki_seg = render_character_view(wstore.all(), char_name=char_name,
-                                         char_aliases=aliases) or ""
+                                         char_aliases=aliases,
+                                         story_now=cursor) or ""
         _log_read_ledger(char_id)
         if wiki_seg:
             seg_parts.append(wiki_seg)
+        # 时间注记（VN: 不含手机日期）
+        try:
+            from core.worldtime import time_notes
+            last_ts = ""
+            evs = store.events(char_id)
+            for e in reversed(evs):
+                if getattr(e, "type", None) in ("mmt", "bond") and e.ts:
+                    last_ts = e.ts
+                    break
+            seg_parts.extend(time_notes(cursor, last_ts=last_ts,
+                                        include_phone=False))
+        except Exception as e:                         # noqa: BLE001 — 注记绝不阻断
+            logger.warning("VN 时间注记失败（不注）: %s", e)
         return "\n\n".join(p for p in seg_parts if p.strip())
     except Exception:                                # noqa: BLE001 — 宁缺勿错
         return ""
