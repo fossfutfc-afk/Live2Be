@@ -11,18 +11,29 @@
     - 去重: find_by_event_seq（(kind, event_seq) 键——同事件重复消化去重）
     - id: 前缀 + 4 位零填充（m=动态 episode/belief/relation, c=出厂基座, e=experience）
     - 快照: snapshot_to/restore_from = 整文件复制（R6 存档快照语义）
+    - 剧情时间游标: `clock()` / `save_clock()`（§4.11 —— 写路径先推进再 stamp）
 """
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Iterable
 
 from core.brain.wiki_v2.nodes import BrainNode, format_id
 from core.common import err
 from core.session.io import atomic_write_json, atomic_write_lines, read_jsonl
+from core.worldtime.clock import WorldClock
+from core.worldtime.story import StoryTime
+
+logger = logging.getLogger(__name__)
 
 #: kind → id 前缀（AGENT_BRAIN.md §2; relation/fact 已砍——c 前缀退役 2026-09-02）
 _PREFIX = {"experience": "e", "episode": "m", "belief": "m"}
+
+#: ★ 旧档纪元（`sim_day` 单位 = 时相格, 1 叙事日 = 5 格）
+#: 5000 格 = 1000 叙事日 ≈ 2.7 叙事年 —— 足够容纳"迁移前所有旧节点"的外插区间,
+#: 又不与任何真实游标混淆。**一旦落盘就不该改**（改了等于全体旧记忆的 age 突变）。
+LEGACY_EPOCH = 5000
 
 #: 节点字段白名单（update patch 只接受这些——防任意字段注入）
 _FIELDS = set(BrainNode.__dataclass_fields__.keys())
@@ -41,6 +52,10 @@ class WikiStoreV2:
             Path(data_root) / "worlds" / world_id / "characters"
             / char_id / "soul" / "wiki.jsonl")
         self.meta_path = self.path.with_name("wiki.meta.json")
+        #: 世界根定位（游标路径由 worldtime 统一派生, 不在这里拼）
+        self._data_root = Path(data_root)
+        self._world_id = world_id
+        self._clock = None                      # 惰性装载（见 clock()）
         self.meta: dict = self._load_meta()
         self._nodes: dict[str, BrainNode] = {}
         self._load()
@@ -68,6 +83,68 @@ class WikiStoreV2:
             return int(self.meta.get("digested_seq", 0) or 0)
         except (TypeError, ValueError):
             return 0
+
+    # ------------------------------------------------------------------
+    # 剧情时间游标（§4.11 —— 写路径的唯一入口）
+    # ------------------------------------------------------------------
+
+    @property
+    def clock_path(self) -> Path:
+        """`data/worlds/{world}/world_clock.json` —— 布局与 `worldtime` 同源。"""
+        from core.worldtime.clock import world_clock_path
+        return world_clock_path(self.data_root, self.world_id)
+
+    @property
+    def world_id(self) -> str:
+        return self._world_id
+
+    @property
+    def data_root(self) -> Path:
+        return self._data_root
+
+    def clock(self):
+        """惰性装载的 `WorldClock`（**per store 实例缓存**——同一次 digest 只读一次盘）。
+
+        ★ **新世界的起点是非零的 `LEGACY_EPOCH`**（见常量注释）:
+        线上已有 13 条节点没有 `story_time`（迁移在 T10）。若新节点从 `sim_day=0`
+        起算, 而旧节点日后外插也落在 `[0, N)`, 两者会**撞在同一段**——新记忆与
+        旧记忆的 age 混在一起, 且无法事后分辨。
+        故: **新节点一律落在 `≥ LEGACY_EPOCH`**，旧档迁移后落在 `< LEGACY_EPOCH`。
+        两个区间天然分离, 且**不需要现在就改任何一个旧节点**。
+
+        世界全新（无 wiki 文件且水位 0）→ 从 0 起算（真的没有历史）。
+        """
+        if self._clock is None:
+            clk = WorldClock.load(self.clock_path)
+            if clk.cursor.sim_day == 0 and self._world_has_history():
+                clk.cursor = StoryTime.from_sim_day(LEGACY_EPOCH, anchor=clk.anchor)
+                logger.info("world_clock 初始化到 LEGACY_EPOCH=%d（已有历史）",
+                            LEGACY_EPOCH)
+            self._clock = clk
+        return self._clock
+
+    def save_clock(self) -> bool:
+        """落盘游标（**与节点写入同临界区**——§4.11 的 I-a）。"""
+        if self._clock is None:
+            return True
+        return self._clock.save()
+
+    def peek_clock_cursor(self):
+        """游标**快照**（未装载 → None）。供 `digest._rollback` 还原内存游标。
+
+        为什么不用 `clock()`: 那个会**装载**（并可能初始化到 LEGACY_EPOCH）——
+        失败回滚不该产生副作用。
+        """
+        return None if self._clock is None else self._clock.cursor
+
+    def restore_clock_cursor(self, cursor) -> None:
+        """还原内存游标（`cursor=None` 或未装载 → 不动）。"""
+        if self._clock is not None and cursor is not None:
+            self._clock.cursor = cursor
+
+    def _world_has_history(self) -> bool:
+        """该角色线是否已有记忆（有节点或有水位即算）。"""
+        return bool(self._nodes) or self.digested_seq > 0
 
     # ------------------------------------------------------------------
     # 载入 / 查询
