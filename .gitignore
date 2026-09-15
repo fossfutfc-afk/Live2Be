@@ -32,6 +32,12 @@ ASKYOURSELF.yml
 
 experiments/out/
 
+# archive/ 只放**代码/文档**的归档（如 factory_memory/）。
+# 运行时数据快照不进库: `archive/events.jsonl` 是一次调试时手动备份的旧跑档
+# ——同一 session 的 seq 已被后来的重跑覆盖, 它不是真源（真源在 data/, 已忽略）。
+# 规则放宽到 *.jsonl: 免得下次又不小心把某段事件流 dump 到这儿。
+archive/*.jsonl
+
 
 # pyvis 生成的本地 vis.js 依赖（wiki_viz --html 用 in_line 内联, 不落盘）
 lib/
