@@ -554,7 +554,10 @@ class MomoTalkEngine:
             wiki_seg = render_character_view(
                 wstore.all(),
                 char_name=char.display_name or "",
-                char_aliases=_name_aliases(char.profile))
+                char_aliases=_name_aliases(char.profile),
+                # 防失忆注记（T3）: 给游标 → 每条 episode 前置"（3 周前）"。
+                # 游标未就绪/该角色线无 world_clock.json → 仍从锚点起（不会抛）。
+                story_now=wstore.clock().cursor)
             _log_read_ledger(character_id)               # V3-0 读路径台账
             if wiki_seg:
                 seg_parts.append(wiki_seg)
