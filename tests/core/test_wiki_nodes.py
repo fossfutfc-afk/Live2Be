@@ -96,6 +96,60 @@ def test_emo_span_roundtrip_and_bounds():
     print("    emo_span: 往返保真 + 非负 + 0.0 落库 + 坏值 None")
 
 
+# ---------------------------------------------------------------------------
+# story_time —— 剧情时间快照（§4.2 / core.worldtime, T1）
+# ---------------------------------------------------------------------------
+
+_ST = {"year": 1, "month": 4, "week": 2, "phase": "夕", "sim_day": 47}
+# （自洽性: 47 % 5 == 2 → PHASES[2] == "夕"; 47 // 5 == 9 日 → 第 2 周）
+
+
+def test_story_time_roundtrip():
+    node = make_node("episode", narration="那天在杂草屋", story_time=dict(_ST))
+    assert node.story_time == _ST, node.story_time
+    line = node.to_json_line()
+    assert '"story_time"' in line
+    back = BrainNode.from_json_line(line)
+    assert back.story_time == _ST
+    assert BrainNode.from_dict(node.to_dict()).to_dict() == node.to_dict()
+    print(f"    story_time: 往返保真 {node.story_time}")
+
+
+def test_story_time_none_is_not_sim_day_zero():
+    """★ 未采集(None) 与 世界起点(sim_day=0) 必须可区分。"""
+    node = make_node("episode", narration="旧档")
+    assert node.story_time is None
+    assert "story_time" not in node.to_dict()
+    # 显式的世界起点必须落库
+    z = make_node("episode", narration="世界起点",
+                  story_time={"year": 1, "month": 4, "week": 1, "phase": "晨",
+                              "sim_day": 0})
+    assert '"story_time"' in z.to_json_line()
+    assert z.story_time["sim_day"] == 0
+    print("    story_time: None（未采集）≠ sim_day=0（世界起点）")
+
+
+def test_story_time_reexports_calendar_from_sim_day():
+    """★ 校验**以 sim_day 为准重导槽位** —— 手写矛盾的 dict 不得带进节点。"""
+    # 故意写一个与 sim_day 矛盾的槽位（sim_day=140 应为 5 月第 1 周）
+    bad = {"year": 1, "month": 4, "week": 4, "phase": "夜", "sim_day": 140}
+    node = make_node("episode", narration="x", story_time=bad)
+    st = node.story_time
+    assert st["sim_day"] == 140 and st["month"] == 5 and st["week"] == 1, st
+    assert st["phase"] == "晨", st
+    print(f"    story_time: 矛盾 dict 被重导 → {st}")
+
+
+def test_story_time_bad_values_to_none():
+    """坏/缺 → None（不抛、不折成 sim_day=0）。"""
+    for bad in (None, "x", 123, [], {},
+                {"sim_day": -1}, {"sim_day": "9"}, {"sim_day": True},
+                {"phase": "昼"}):
+        got = make_node("episode", narration="x", story_time=bad).story_time
+        assert got is None, f"{bad!r} → {got!r}, 应为 None"
+    print("    story_time: 坏值/缺 sim_day → None")
+
+
 def test_episode_epistemic_guard():
     node = make_node("episode", narration="x", epistemic="inferred_belief")
     errs = node.validate()
