@@ -50,9 +50,17 @@ from __future__ import annotations
 
 from core.worldtime.age import age_sim_days, freshness, render_relative
 from core.worldtime.clock import WorldClock
+from core.worldtime.prompt_time import (
+    FICTIONAL_YEAR,
+    notes as time_notes,
+    phone_date_note,
+    real_gap_note,
+    story_time_note,
+)
 from core.worldtime.span import SPANS, SpanError, parse_span, to_sim_days
 from core.worldtime.story import (
     PHASES,
+    SEASONS,
     StoryTime,
     advance,
     parse_story_time,
@@ -62,6 +70,7 @@ __all__ = [
     # story —— 时间点与槽位算术
     "StoryTime",
     "PHASES",
+    "SEASONS",
     "advance",
     "parse_story_time",
     # clock —— 游标真源
@@ -75,4 +84,10 @@ __all__ = [
     "SpanError",
     "parse_span",
     "to_sim_days",
+    # prompt_time —— 进 prompt 的注记
+    "FICTIONAL_YEAR",
+    "time_notes",
+    "story_time_note",
+    "phone_date_note",
+    "real_gap_note",
 ]

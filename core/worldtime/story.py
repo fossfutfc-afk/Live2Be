@@ -79,6 +79,16 @@ MONTHS_PER_YEAR = 12
 #: 默认锚点（BA 口径: 开学 = 四月）
 DEFAULT_ANCHOR = {"year": 1, "month": 4}
 
+#: 季节（`§4.1`: 剧情时间的职权之一 —— 季节/日夜是"面向角色的时间表达"）。
+#: 按自然季切（3/6/9/12 月为界）; 索引 = `(month % 12) // 3`。
+#: 锚点默认 **四月 → 春**, 与"开学在春天"自洽。
+SEASONS: tuple[str, ...] = ("冬", "春", "夏", "秋")
+
+#: 时相 → 日夜（注入给 LLM 的口径之一; 比逐个时相更好写天气/作息）
+DAY_PARTS: dict[str, str] = {
+    "晨": "清晨", "昼": "白天", "夕": "傍晚", "夜": "夜里", "凌晨": "深夜",
+}
+
 #: 单次推进的上限（格）—— 30 叙事日 × 5（§4.3 的夹取）
 MAX_STEP = 30 * DAYS_TO_SIM
 
@@ -148,6 +158,25 @@ class StoryTime:
     def story_day(self) -> float:
         """叙事日数（**仅显示/换算用**）——`sim_day / 5`。"""
         return self.sim_day / DAYS_TO_SIM
+
+    @property
+    def season(self) -> str:
+        """季节（`§4.1`）—— `month` 的纯函数, 无新状态。"""
+        return SEASONS[(int(self.month) % MONTHS_PER_YEAR) // 3]
+
+    @property
+    def day_part(self) -> str:
+        """日夜口径（清晨/白天/傍晚/夜里/深夜）—— 给 LLM 写天气与作息用。"""
+        return DAY_PARTS.get(self.phase, self.phase)
+
+    @property
+    def date_label(self) -> str:
+        """人类口径的**粗**日期 —— `1年4月·春·白天`。
+
+        ⚠️ **刻意不带周、不带精确日**（I-c 同一条纪律）: 角色没有日历,
+        给精确值会诱导它数日子、也会让 LLM 做算术。
+        """
+        return (f"{self.year}年{self.month}月·{self.season}·{self.day_part}")
 
     def to_dict(self) -> dict:
         """节点序列化形态（与 `§4.2` 的 `story_time` 同构）。"""
