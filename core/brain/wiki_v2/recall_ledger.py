@@ -7,7 +7,7 @@
 
 | 路径 | 现状 | 看不见的后果 |
 |---|---|---|
-| **写路径**（候选碰撞） | `recommend_candidates` 把候选标成【疑似同主题】→ `parse_round_b` **结构强制**只能 touch/update | 阈值是否把全部 episode 都判成同主题？**没有任何日志**。实测两个模型下都是 6/6 全越线 → 会禁止一切 add |
+| **写路径**（候选碰撞） | `recommend_candidates` 抬出几条候选**提示**给 Round B（**2026-09-15 T17 起不再分档、不再结构强制**——阈值从未标定过、实测两模型下候选 6/6 全越线，闸门把"全部分侧面"判成同一件事） | 一段跑完有没有抬出候选？覆盖度与最高分分布，一行可查 |
 | **读路径**（注入视图） | `render_character_view` 静态分桶（**2026-09-13 cap 已删**） | 这轮到底给了 LLM 哪几条？**曾经没有任何日志**。第 6 条以后的 belief 永远读不出来，却不告警——**这正是 cap 被删的原因**（cap 就是旧召回机制, 由 v3 实体车道接管） |
 
 这与当初给 VN 加 `bond_board_deliver`（"这一板是怎么到玩家眼前的"）是同一个理由:
@@ -48,63 +48,59 @@ def _pct(part: int, whole: int) -> str:
 class CollisionAccount:
     """一次 Round B 候选碰撞的累加器（跨 episode 聚合，最后打一行）。
 
-    用法（`digest._round_b_material` 内）:
+    用法（`digest._round_b_material` 内）::
+
         acc = CollisionAccount(char_id)
-        acc.episode(forced=bool(highs), n_cand=len(cands), hi=len(highs), med=len(meds))
-        acc.log(thresholds, mode)
+        acc.episode(n_cand=len(cands), best_sim=(cands[0][1] if cands else 0.0))
+        acc.log(thr_k=k)          # mode 由调用方在 log 前设好
     """
 
     def __init__(self, char_id: str = "") -> None:
         self.char_id = char_id
         self.episodes = 0
-        self.with_cand = 0
-        self.forced = 0          # 带【疑似同主题】标注（= 结构强制 touch/update，禁 add）
-        self.med_only = 0
+        self.with_cand = 0       # 至少抬出一条候选的 episode 数
         self.no_cand = 0
         self.cands = 0
         self.best_sim = 0.0
         self.mode = "off"
 
-    def episode(self, *, hi: int, med: int, n_cand: int,
-                best_sim: float = 0.0) -> None:
-        """记一条 episode 的碰撞结果。"""
+    def episode(self, *, n_cand: int, best_sim: float = 0.0) -> None:
+        """记一条 episode 的碰撞结果。
+
+        ⚠️ 2026-09-15（T17）: `hi`/`med` 两档**已删**（候选不再分档、不再有阈值）。
+        原先的 `forced%`（被结构强制 touch/update 的 episode 占比）随之消失——
+        它就是"阈值把全部 episode 判成同一件事"那个失效模式的观测口，
+        而结构强制本身已按 Q11/Q31/Q32 取消。
+        """
         self.episodes += 1
         self.cands += int(n_cand)
         if best_sim > self.best_sim:
             self.best_sim = best_sim
-        if hi > 0:
-            self.forced += 1
-        elif med > 0:
-            self.med_only += 1
+        if n_cand > 0:
+            self.with_cand += 1
         else:
             self.no_cand += 1
 
-    def log(self, *, thr_high: float, thr_med: float, char_id: str = "") -> None:
-        """打一行写路径台账（`mode` 由调用方在 `log` 前设好）。"""
+    def log(self, *, thr_k: int = 0, char_id: str = "") -> None:
+        """打一行写路径台账（`mode` 由调用方在 `log` 前设好）。
+
+        保留的观测量: `collide%`（有候选的 episode 占比——**它高不再是坏事**，
+        因为候选只是提示；但**恒 0%** 说明 embedding 降级或库太空，
+        那才是要查的）与 `best`（最高相似度，看分布用）。
+        """
         if not ENABLED:
             return
         try:
             who = char_id or self.char_id
-            # accept 命中率 = 被结构强制 touch/update 的 episode 占比。
-            # 它接近 100% → 阈值把"全部分侧面"判成"同一件事" → 新认知永远长不出来
-            # （v2 的失效模式，实测两模型皆 6/6）；接近 0% 且库里认知很多 →
-            # 可能是 embedding 降级导致候选抬不出来（另一侧失效）。
-            rate = _pct(self.forced, self.episodes)
+            rate = _pct(self.with_cand, self.episodes)
             warn = ""
-            try:
-                from core.brain.wiki_v2 import recall_config
-                if (self.episodes >= 3
-                        and self.forced / max(self.episodes, 1)
-                        >= recall_config.get("accept_hit_rate")):
-                    warn = " ⚠forced_high"
-            except Exception:                        # noqa: BLE001 — 告警线取不到就算了
-                pass
+            if self.episodes >= 3 and self.with_cand == 0:
+                warn = " ⚠no_candidate"          # 一条候选都抬不出来 → 查后端/空库
             logger.info(
-                "recall_write char=%s eps=%d collide=%d forced=%s med_only=%d none=%d "
-                "cands=%d best=%.2f mode=%s thr=%.2f/%.2f%s",
-                who, self.episodes, self.cands, rate, self.med_only,
-                self.no_cand, self.cands, self.best_sim, self.mode,
-                thr_high, thr_med, warn)
+                "recall_write char=%s eps=%d collide=%s none=%d cands=%d "
+                "best=%.2f mode=%s k=%d%s",
+                who, self.episodes, rate, self.no_cand, self.cands,
+                self.best_sim, self.mode, int(thr_k), warn)
         except Exception as e:                       # noqa: BLE001 — 台账绝不阻断
             logger.debug("recall_ledger 写路径打点失败: %s", e)
 

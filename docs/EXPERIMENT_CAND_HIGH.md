@@ -1,5 +1,16 @@
 # EXPERIMENT_CAND_HIGH.md — `cand_high` 阈值标定实验（Q11, 2026-09-13）
 
+> ## ✅ 后续（2026-09-15, T17）: 本实验的结论已落地，**阈值本身被删除**
+>
+> 用户裁决: *"cand_high 相关全删掉。"* —— 注意这**不是**给 `cand_high` 标一个更好的值,
+> 而是**整个概念删除**。落地面: `recall.py` 的 `CAND_HIGH`/`CAND_MED` 常量、
+> `recall_config` 的三个旋钮、`parse_round_b` 的 `must_touch` 结构强制、
+> `recall_ledger` 的 `forced%`/`⚠forced_high` 台账, 全部删除。
+>
+> **本文件的 C1~C5 依然全部有效**（它们是实测数据）; 作废的只有 §0 表格之外那句
+> "Qwen3 建议 `cand_high ≈ 0.62`" —— 因为 **C5 比 C2 更根本**: 既然结构强制该取消,
+> 阈值就没有消费方了。候选改为**排序取 top-k 的提示**。
+
 > 目的（DESIGN_WIKI_V3 §10.2/Q11）：验证一个假设——
 > **"真机 4/4 episode 全被判【疑似同主题】→ 结构强制禁 add"是不是单阈值造成的？**
 > 方法：用真机 wiki（haruka 4 belief + 4 episode；mutsuki 3 + 2）复刻 Round B 的

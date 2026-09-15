@@ -4,8 +4,6 @@ from datetime import datetime, timedelta
 
 from core.brain.wiki_v2 import BrainNode, WikiStoreV2, make_node
 from core.brain.wiki_v2.recall import (
-    CAND_HIGH,
-    CAND_MED,
     recommend_candidates,
     recall_subgraph,
 )
@@ -231,10 +229,42 @@ def test_candidates_kind_filter_and_embed_path(tmp_path):
 
     cands = recommend_candidates(st, "老师带着猫粮来喂猫", embed_fn=fake_embed)
     assert [n.id for n, _ in cands] == ["m0002"]       # 只有 belief（episode 不参与）
-    assert cands[0][1] > CAND_HIGH                     # 疑似同主题档
+    assert cands[0][1] > 0.9                           # 相似度原样给出（**不判档**）
 
     cands2 = recommend_candidates(st, "老师又说摸鱼", embed_fn=fake_embed)
-    assert cands2[0][0].id == "e0001" and cands2[0][1] > CAND_HIGH
+    assert cands2[0][0].id == "e0001" and cands2[0][1] > 0.9
+
+
+def test_candidates_are_hints_not_gates(tmp_path):
+    """★ T17: **候选只是提示** —— 不返回任何"档位"、不携带判定。
+
+    `CAND_HIGH`/`CAND_MED` 已删（Q11/Q31/Q32）: 阈值从未标定过、实测两模型下
+    候选 6/6 全越线 → 结构强制把"全部分侧面"判成"同一件事" → 新认知长不出来。
+    这里钉的是**返回值形态**: 只有 `(node, score)`, 分值连续、不夹带档位。
+    """
+    st = _cog_store(tmp_path)
+
+    def fake_embed(texts):
+        return [[1.0, 0.0] if "猫" in t else [0.0, 1.0] if "摸鱼" in t
+                else [0.6, 0.6] for t in texts]
+
+    # 无关 query 也能拿到候选（相似度低而已）——没有阈值拦它
+    out = recommend_candidates(st, "今天天气不错但我要说猫", embed_fn=fake_embed)
+    assert out, "候选提示不该被阈值拦掉"
+    assert isinstance(out[0][1], float)
+    # 模块里不再有任何 CAND_* 阈值常量
+    import core.brain.wiki_v2.recall as R
+    assert not hasattr(R, "CAND_HIGH") and not hasattr(R, "CAND_MED")
+    # 配置面也没有
+    from core.brain.wiki_v2 import recall_config as rc
+    assert "cand_high" not in rc.DEFAULTS and "cand_med" not in rc.DEFAULTS
+    assert "accept_hit_rate" not in rc.DEFAULTS
+    # 契约层不再有结构强制参数
+    import inspect
+    from contract.digest_registry import digest_registry
+    sig = inspect.signature(digest_registry.parse_round_b)
+    assert "must_touch" not in sig.parameters, "结构强制未删干净"
+    print("    cand_high 全删: 无阈值常量 / 无配置项 / parse_round_b 无 must_touch")
 
 
 def test_candidates_keyword_fallback(tmp_path):

@@ -3,25 +3,36 @@
 
 **为什么单独一个模块**（DESIGN_WIKI_V3 §3.1/§3.5，2026-09-13 V3-0）:
 
-v2 的记忆召回参数是**散落的模块常量**（`recall.CAND_HIGH=0.50` 等），后果有两条:
+v2 的记忆召回参数是**散落的模块常量**，后果有两条:
 
-1. **没法按模型标定**。`CAND_HIGH` 决定"能不能 add 出新 belief"——`>= 0.50` 的
-   候选被 `parse_round_b` **结构强制**只能 touch/update。而实测（审计 §10）:
-   `nomic-embed-text` 下无关对基线就有 0.60、真实 belief 对 0.77~0.87;
-   `Qwen3-Embedding-0.6B` 下是 0.26 / 0.53~0.71。**同一常数跨模型必然失效**。
+1. **没法按模型标定**。实测 `nomic-embed-text` 下无关对基线就有 0.60、真实 belief
+   对 0.77~0.87; `Qwen3-Embedding-0.6B` 下是 0.26 / 0.53~0.71。**同一常数跨模型必然失效**。
 2. **调参要改代码**。一次真机实验要改常量 + 重启 + 回滚，成本高到不会去做。
 
-所以 V3-0 只做一件事: **把旋钮搬到配置面，且默认值 = 现值**（行为零变化）。
-真正的标定是 V3-3/V3-4 的工作，本模块只提供可调入口与可观测口径。
+所以 V3-0 只做一件事: **把旋钮搬到配置面**。
+
+## ⚠️ 2026-09-15（T17）: **三个阈值旋钮已删**
+
+`cand_high` / `cand_med` / `accept_hit_rate` **全部删除**（用户裁决
+*"cand_high 相关全删掉"*，落地 Q11/Q31/Q32）。**这里不再有任何"阈值"。**
+
+删的理由（不是口味，是实测结论）:
+
+- `cand_high` 驱动的是一条**硬闸门**（`>= 阈值` → 该 episode 禁 `add`），
+  而它**从未被真机标定过**（标定时 embedding 服务没通）; Q11 实测 nomic 下
+  "无关经历"(0.868) 比"相关经历"(0.819) 还高 → **单阈值原理上不可分**;
+  两个模型下候选皆 **6/6 全越线** → 新认知永远长不出来。
+- Q31 已定 **"召回不要阈值"**（用户: *"肯定不能要阈值"*）→ 排序取 top-k。
+- `cand_med` 是**陪葬的**: Qwen3 的实测窗口是 (0.452, 0.682)，而 `cand_med=0.25`
+  **低于窗口下界** → 它一条都筛不掉，是个"看着像旋钮、实际不做事"的值。
+
+**留下的旋钮都不是阈值**，只有"取几条"与"半衰期"两类。
 
 ## settings.toml 形态（可选，不配也能跑）
 
     [recall]
-      cand_high = 0.50      # 候选碰撞上限阈值（>= 即判【疑似同主题】）
-      cand_med  = 0.25      # 参考阈值（>= 标注【可能相关】）
-      cand_k    = 3         # 每条 episode 最多带几个候选
+      cand_k    = 3         # Round B 每条 episode 最多带几个候选（提示条数）
       sim_k     = 5         # 读路径语义通道 top-k
-      accept_hit_rate = 0.5 # 健康位: 结构强制命中率超过它就值得告警（仅台账用）
       time_half_life_days = 5.0  # A 链路新鲜度半衰期（**叙事日**, §4.11）
 
 ## 优先级
@@ -40,13 +51,10 @@ logger = logging.getLogger(__name__)
 #: 项目根 settings.toml（core/brain/wiki_v2/ → parents[3]）
 _SETTINGS_PATH = Path(__file__).resolve().parents[3] / "settings.toml"
 
-#: 默认值 —— **与 v2 模块常量逐字一致**（V3-0 行为零变化）
+#: 默认值 —— **全部非阈值**（只有"取几条"与"半衰期"）
 DEFAULTS: dict[str, float] = {
-    "cand_high": 0.50,          # recall.CAND_HIGH
-    "cand_med": 0.25,           # recall.CAND_MED
-    "cand_k": 3.0,              # recall.CAND_K
-    "sim_k": 5.0,               # recall_recall_subgraph k_sim
-    "accept_hit_rate": 0.5,     # 台账告警线（不参与判定）
+    "cand_k": 3.0,              # Round B 候选提示条数（recall.CAND_K）
+    "sim_k": 5.0,               # recall_subgraph k_sim
     #: `A_intensity` 链路的时间半衰期（**单位 = 叙事日**, §4.11）。
     #: 语义 = **新鲜度**（用户裁决 2026-09-13: *"TIME 做新鲜度语义, 这遗忘曲线
     #: 没办法适用了, 60 天跨度太大了"*）。5 叙事日 ≈ "一周前的戏该沉下去"。

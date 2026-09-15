@@ -37,13 +37,21 @@ SIGMA = 1.5                 # 对数正态尺度（衰减快慢）
 #: 批式 embedding 后端（RAG 后路）: texts → 等长向量列表
 EmbedFn = Callable[[list[str]], list[list[float]]]
 
-#: 候选推荐标注阈值（板块 5; embed cosine 与关键词分同尺度归一）。
-#: **2026-09-13 V3-0: 实际取值已搬到 `settings.toml [recall]`**（见 `recall_config`）——
-#: 它们是**跨模型必须重标**的旋钮（实测: nomic 无关对基线 0.60 / Qwen3 0.26，
-#: 真实 belief 对 0.77~0.87 / 0.53~0.71），写死在代码里等于"换模型即静默失效"。
-#: 此处常量仅作**默认值来源**（逐字等于 v2 原值）；运行期走 `_thr()` 读配置。
-CAND_HIGH = 0.50            # ≥: 疑似同主题——决策必须 touch/update（禁 add）
-CAND_MED = 0.25             # ≥: 可能相关——供参考, 自由决策
+#: 每 episode 最多带几个候选 —— **这是"给几条提示", 不是阈值**。
+#: 2026-09-15（T17）: `CAND_HIGH` / `CAND_MED` **已删**（用户裁决"cand_high 相关全删掉"，
+#: 落地 DESIGN_WIKI_V3 的 Q11/Q31/Q32）。三条理由，都不是口味问题:
+#:
+#: 1. **阈值从来不是标定出来的**。Q11 实测: nomic 下"无关经历"(0.868) 比"相关经历"
+#:    (0.819) 得分还高——**单阈值原理上不可分**; 标定时 embedding 服务没通,
+#:    `0.50` 是拍的。实测两个模型下候选 **6/6 全越线**。
+#: 2. **它驱动的是一条硬闸门**。`>= CAND_HIGH` → 该 episode 出 `add` 就整包拒。
+#:    分数带在**同一实体内部**天然压缩，于是"全部分侧面"被判成"同一件事" →
+#:    新认知永远长不出来（v2 的真实失效模式）。
+#: 3. **Q31 已定"召回不要阈值"**（用户: *"肯定不能要阈值"*）——改成
+#:    排序取 top-k。Q32 随即裁掉写入侧的结构强制。
+#:
+#: 现在候选**只作提示**（`recommend_candidates` 排序取 top-k，`s > 0` 挡掉零/负相似），
+#: 判断留给 LLM，而且**判 add 要在 note 里说明理由**（写进 Round B prompt）。
 CAND_K = 3                  # 每 episode 最多候选数
 
 
@@ -117,12 +125,15 @@ def recommend_candidates(store: WikiStoreV2, query: str, *,
                          embed_fn: EmbedFn | None = None,
                          k: int | None = None,
                          mode_out: list | None = None) -> list[tuple[BrainNode, float]]:
-    """Round B 候选推荐（板块 5）: episode query → 认知候选（相似度降序, k 截断）。
+    """Round B 候选推荐（板块 5）: episode query → 认知候选（相似度降序, **top-k**）。
 
     服务: digest Round B 输入——引擎先把每条新经历与现有稳定认知碰撞,
-    标注【疑似同主题】(≥CAND_HIGH, 决策必须 touch/update) /【可能相关】
-    (≥CAND_MED, 供参考), 收敛 LLM 决策空间（A-MEM/AgentGal 同款"引擎先筛
+    把最像的几条**列出来给 LLM 参考**（A-MEM/AgentGal 同款"引擎先筛
     再让 LLM 逐条判定"）。
+
+    ⚠️ **候选只是提示, 没有阈值、也没有结构强制**（2026-09-15 T17 删 `CAND_HIGH`）:
+    排序取 top-k, `s > 0` 挡掉零/负相似; 判 touch/update/add 全在 LLM。
+    `add` 需在 note 里说明理由（写进 Round B prompt）。理由见 `CAND_K` 上方注释。
 
     只挑稳定认知（belief/experience）——episode 是流水不参与组织, fact 是
     出厂基座不可被 touch/update（守 revise._ensure_cognition 语义）。
@@ -134,8 +145,8 @@ def recommend_candidates(store: WikiStoreV2, query: str, *,
     宁缺勿错: 不标注比标错好）。
 
     **降级可观测（2026-09-13 审计拆分点 A）**: 语义后端故障时打一行
-    `recall_cand fallback=keyword reason=…`——此前的静默降级会让"引擎抬不出
-    【疑似同主题】"表现为"wiki 只增不并", 排查时无从下手。
+    `recall_cand fallback=keyword reason=…`——此前的静默降级会让"引擎抬不出候选"
+    表现为"wiki 只增不并", 排查时无从下手。
 
     Args:
         k: None → 读 `[recall].cand_k`（默认 3）
@@ -163,7 +174,7 @@ def recommend_candidates(store: WikiStoreV2, query: str, *,
             return [(n, s) for s, n in scored[:k] if s > 0]
         except Exception as e:                  # noqa: BLE001 — 后端故障降级
             logger.info("recall_cand fallback=keyword reason=embed_error err=%s "
-                        "nodes=%d（Round B 抬不出【疑似同主题】→ 该段可能只会 add）",
+                        "nodes=%d（Round B 抬不出候选 → 该段只能凭 LLM 自己判断）",
                         e, len(nodes))
     if mode_out is not None:
         mode_out.append("keyword")

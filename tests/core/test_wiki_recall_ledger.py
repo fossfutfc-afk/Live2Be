@@ -53,14 +53,25 @@ def _drain_view_account():
 # 旋钮
 # ---------------------------------------------------------------------------
 
-def test_defaults_match_v2_constants():
-    """默认旋钮必须**逐字等于 v2 模块常量**（V3-0 的承诺: 行为零变化）。"""
+def test_no_threshold_knobs_left():
+    """★ T17（2026-09-15）: **三个阈值旋钮已删** —— 配置面不再有任何"阈值"。
+
+    用户裁决 *"cand_high 相关全删掉"*（落地 Q11/Q31/Q32）。留下的旋钮只有
+    "取几条"（`cand_k`/`sim_k`）与"半衰期"（`time_half_life_days`）。
+    """
     from core.brain.wiki_v2 import recall as R
     snap = rc.snapshot()
-    assert snap["cand_high"] == R.CAND_HIGH == 0.50
-    assert snap["cand_med"] == R.CAND_MED == 0.25
+    assert set(snap) == {"cand_k", "sim_k", "time_half_life_days"}, snap
     assert snap["cand_k"] == float(R.CAND_K) == 3.0
-    print("    旋钮: 默认值 == v2 常量（行为零变化）")
+    for gone in ("cand_high", "cand_med", "accept_hit_rate"):
+        assert gone not in snap
+        assert not hasattr(R, gone.upper())
+        try:
+            rc.get(gone)
+            raise AssertionError(f"{gone} 仍可读——没删干净")
+        except KeyError:
+            pass                              # 未知键 → KeyError（防拼错静默走默认）
+    print("    旋钮: 只剩 cand_k/sim_k/time_half_life_days（三个阈值已删）")
 
 
 def test_time_half_life_default_and_override(tmp_path, monkeypatch):
@@ -85,32 +96,29 @@ def test_time_half_life_default_and_override(tmp_path, monkeypatch):
 def test_settings_override(tmp_path, monkeypatch):
     """`[recall]` 覆盖生效（这是 V3-0 存在的理由: 按模型标定不必改代码）。"""
     p = tmp_path / "settings.toml"
-    p.write_text("[recall]\ncand_high = 0.72\ncand_med = 0.40\ncand_k = 2\n",
-                 encoding="utf-8")
+    p.write_text("[recall]\ncand_k = 2\nsim_k = 8\n", encoding="utf-8")
     monkeypatch.setattr(rc, "_SETTINGS_PATH", p)
     rc.reload()
-    assert rc.get("cand_high") == 0.72
-    assert rc.get("cand_med") == 0.40
     assert rc.get("cand_k") == 2.0
+    assert rc.get("sim_k") == 8.0
     # 未配的键保持默认
-    assert rc.get("sim_k") == rc.DEFAULTS["sim_k"]
+    assert rc.get("time_half_life_days") == rc.DEFAULTS["time_half_life_days"]
     print("    旋钮: [recall] 覆盖生效 + 未配键保持默认")
 
 
 def test_bad_values_fall_back(tmp_path, monkeypatch):
     """坏值/坏文件**不得**炸（宁缺勿错——配置层绝不能阻断对话或 digest）。"""
     p = tmp_path / "settings.toml"
-    p.write_text('[recall]\ncand_high = "high"\ncand_k = true\n',
-                 encoding="utf-8")
+    p.write_text('[recall]\nsim_k = "many"\ncand_k = true\n', encoding="utf-8")
     monkeypatch.setattr(rc, "_SETTINGS_PATH", p)
     rc.reload()
-    assert rc.get("cand_high") == rc.DEFAULTS["cand_high"], "字符串应被拒"
+    assert rc.get("sim_k") == rc.DEFAULTS["sim_k"], "字符串应被拒"
     assert rc.get("cand_k") == rc.DEFAULTS["cand_k"], "bool 应被拒（不是数值）"
 
     # 文件损坏 → 全默认
     p.write_text("[recall\n 这行不是合法 toml", encoding="utf-8")
     rc.reload()
-    assert rc.get("cand_high") == rc.DEFAULTS["cand_high"]
+    assert rc.get("sim_k") == rc.DEFAULTS["sim_k"]
     print("    旋钮: 类型不符/TOML 损坏 → 回落默认, 不抛")
 
 
@@ -118,7 +126,7 @@ def test_unknown_key_raises():
     """未知键报错——防拼错后静默走默认（那会让标定白做）。"""
     with pytest.raises(KeyError) as e:
         rc.get("cand_hihg")
-    assert "cand_high" in str(e.value)
+    assert "cand_k" in str(e.value)
     print("    旋钮: 未知键 KeyError（并列出可用键）")
 
 
@@ -126,13 +134,13 @@ def test_reload_picks_up_change(tmp_path, monkeypatch):
     """`reload()` 后读新值（测试与设置变更依赖这个语义）。"""
     p = tmp_path / "settings.toml"
     monkeypatch.setattr(rc, "_SETTINGS_PATH", p)
-    p.write_text("[recall]\ncand_high = 0.5\n", encoding="utf-8")
+    p.write_text("[recall]\nsim_k = 5\n", encoding="utf-8")
     rc.reload()
-    assert rc.get("cand_high") == 0.5
-    p.write_text("[recall]\ncand_high = 0.8\n", encoding="utf-8")
-    assert rc.get("cand_high") == 0.5, "未 reload 应命中缓存"
+    assert rc.get("sim_k") == 5.0
+    p.write_text("[recall]\nsim_k = 8\n", encoding="utf-8")
+    assert rc.get("sim_k") == 5.0, "未 reload 应命中缓存"
     rc.reload()
-    assert rc.get("cand_high") == 0.8, "reload 后应读新值"
+    assert rc.get("sim_k") == 8.0, "reload 后应读新值"
     print("    旋钮: 懒加载缓存 + reload 生效")
 
 
@@ -140,32 +148,33 @@ def test_reload_picks_up_change(tmp_path, monkeypatch):
 # 台账
 # ---------------------------------------------------------------------------
 
-def test_collision_account_forced_rate(caplog):
-    """写路径台账: forced 比例算对 + 超告警线打 ⚠forced_high。
+def test_collision_account_reports_coverage(caplog):
+    """写路径台账（T17 后）: 报**候选覆盖度**，不再报 forced 比例。
 
-    这条告警的语义是"阈值把同一段关系的不同侧面判成了同一件事 → 新认知永远
-    长不出来"（真机实测 4/4 皆 forced、best sim 0.92）。
+    `forced%` 随结构强制一起删了——它观测的是"阈值把全部 episode 判成同一件事"
+    那个失效模式，而闸门本身已取消。留下的告警是**反向**的:
+    `⚠no_candidate`（一条候选都抬不出来 → 查 embedding 后端或空库）。
     """
     with caplog.at_level(logging.INFO, logger="live2be.brain"):
         acc = rl.CollisionAccount("igusa_haruka")
         for _ in range(4):
-            acc.episode(hi=1, med=2, n_cand=3, best_sim=0.92)
+            acc.episode(n_cand=3, best_sim=0.92)
         acc.mode = "semantic"
-        acc.log(thr_high=0.50, thr_med=0.25)
+        acc.log(thr_k=3)
     line = next(r.message for r in caplog.records if r.message.startswith("recall_write"))
-    assert "forced=100%" in line and "⚠forced_high" in line
-    assert "mode=semantic" in line and "thr=0.50/0.25" in line
+    assert "collide=100%" in line and "mode=semantic" in line and "k=3" in line
     assert "char=igusa_haruka" in line and "eps=4" in line
+    assert "forced" not in line and "⚠" not in line
 
     caplog.clear()
     with caplog.at_level(logging.INFO, logger="live2be.brain"):
         acc2 = rl.CollisionAccount("x")
         for _ in range(4):
-            acc2.episode(hi=0, med=1, n_cand=1, best_sim=0.3)   # 全 MED, 无强制
-        acc2.log(thr_high=0.50, thr_med=0.25)
+            acc2.episode(n_cand=0, best_sim=0.0)      # 一条都抬不出来
+        acc2.log(thr_k=3)
     line2 = next(r.message for r in caplog.records if r.message.startswith("recall_write"))
-    assert "forced=0%" in line2 and "⚠forced_high" not in line2
-    print("    台账: forced 比例 + ⚠forced_high 告警线")
+    assert "collide=0%" in line2 and "⚠no_candidate" in line2
+    print("    台账: 候选覆盖度 + ⚠no_candidate（forced 已随阈值一起删）")
 
 
 def test_collision_account_disabled(caplog):
@@ -173,7 +182,7 @@ def test_collision_account_disabled(caplog):
     with caplog.at_level(logging.INFO, logger="live2be.brain"):
         rl.ENABLED = False
         try:
-            rl.CollisionAccount("x").log(thr_high=0.5, thr_med=0.25)
+            rl.CollisionAccount("x").log(thr_k=3)
         finally:
             rl.ENABLED = True
     assert not [r for r in caplog.records if r.message.startswith("recall_write")]
@@ -195,7 +204,7 @@ def test_log_read_format(caplog):
 def test_ledger_never_raises(caplog):
     """台账是观测层——**任何**畸形输入都不得抛（坏了不能阻断剧情）。"""
     with caplog.at_level(logging.INFO, logger="live2be.brain"):
-        rl.CollisionAccount("x").log(thr_high=0.5, thr_med=0.25)      # 0 episode
+        rl.CollisionAccount("x").log(thr_k=3)                         # 0 episode
         rl.log_read(char_id="", total=0, picked=0, buckets={})        # 空
     print("    台账: 空/畸形输入不抛")
 
