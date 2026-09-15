@@ -54,6 +54,7 @@ from core.brain.wiki_v2.revise import apply_decisions
 from core.brain.wiki_v2.store import WikiStoreV2
 from core.session.maintenance import exclude_abandoned
 from core.session.renderer import render_timeline
+from core.worldtime.span import parse_span
 from llm.prompts import load_prompt
 from llm.task_levels import extra_body as _tl_extra
 from llm.task_levels import max_tokens as _tl_max_tokens
@@ -150,6 +151,10 @@ def digest_segment(
     interact_max = max(e.seq for e in new_events)
     result = DigestResult(ok=False)
     snapshot = store.clone_state()                       # 原子性: 失败 → 回滚
+    # ⚠️ 游标快照必须**在 `clock()` 装载之后**取 —— 装载会顺带初始化到
+    #    `LEGACY_EPOCH`（有历史的世界）, 那一步也是有副作用的。
+    store.clock()
+    clock_snapshot = store.peek_clock_cursor()
 
     timeline = render_timeline(new_events, include_seq=True)
     if visuals is None:
@@ -186,10 +191,20 @@ def digest_segment(
             extra_body=extra_body, deadline=deadline, label="round_a",
             parse_fn=digest_registry.parse_round_a, result=result)
         if entries is None:
-            return _rollback(store, snapshot, result)
+            return _rollback(store, snapshot, result, clock_snapshot)
+        # ── 时间推进（§4.11 的写路径时序）──
+        # ⚠️ **I-a: 先推进, 再 stamp**。否则第二段与第一段拿到同一个 sim_day,
+        #    age 恒 0、衰减永不生效（静默失效）。
+        # 游标由 `WorldClock` 持有; **落盘在提交临界区**（下面的 `save_clock()`）,
+        # 而失败路径由 `_rollback` 还原内存游标 —— 故重试不会二次推进。
+        span = parse_span(resp_a.get("time_span"))
+        _clock = store.clock()
+        _clock.cursor = _clock.advance(span)      # ★ 赋值回游标（否则只推进了返回值）
+        new_cursor = _clock.cursor
         episode_ids, player_ids = _create_a_nodes(
             store, entries, ts=now_ts, segment_id=segment_id,
-            event_seq=[interact_max], aff_at_encoding=aff_at_encoding)
+            event_seq=[interact_max], aff_at_encoding=aff_at_encoding,
+            story_time=new_cursor.to_dict())
 
         # ── Round B: 理解者（引擎候选推荐 + 决策表）──
         cog_text, local_of = render_cognition_list(
@@ -216,14 +231,14 @@ def digest_segment(
                 must_touch=high_map),
             result=result)
         if rows is None:
-            return _rollback(store, snapshot, result)
+            return _rollback(store, snapshot, result, clock_snapshot)
         apply_decisions(store, rows,
                         id_map={v: k for k, v in local_of.items()},   # local→real
                         ts=now_ts, segment_id=segment_id,
                         event_seq=[interact_max])
     except ValueError as e:                              # store 层拒绝 → 回滚
         result.errors.append(str(e))
-        return _rollback(store, snapshot, result)
+        return _rollback(store, snapshot, result, clock_snapshot)
 
     # ── 成功: 提交（节点落盘 + 水位推进）──
     result.ok = True
@@ -231,6 +246,11 @@ def digest_segment(
     result.evidence = _clean_evidence(resp_b.get("evidence"), evidence_threshold)
     result.affection_delta = _clamp_aff(resp_b.get("affection_exp_delta"))
     store.save()
+    # 游标提交（§4.11 I-a）: **与节点写入同一临界区** —— 放在 store.save() 之后、
+    # 水位推进之前。若这里失败, 节点已经落盘但游标没走 → 重跑会二次推进;
+    # 故失败**必须显式告警**（宁缺勿错: 时间宁可不动, 不可静默错位）。
+    if not store.save_clock():
+        logger.warning("world_clock 提交失败——时间点未推进, 下段将从旧游标起算")
     store.meta["digested_seq"] = max((e.seq for e in events), default=interact_max)
     store.save_meta()
     return result
@@ -297,7 +317,8 @@ def _round_call(
 
 def _create_a_nodes(store: WikiStoreV2, entries: list[dict], *, ts: str,
                     segment_id: str, event_seq: list[int],
-                    aff_at_encoding: float | None = None
+                    aff_at_encoding: float | None = None,
+                    story_time: dict | None = None
                     ) -> tuple[list[str], list[str]]:
     """Round A 条目 → 节点（引擎字段归属——确定性归引擎, 防幻觉）。
 
@@ -309,6 +330,11 @@ def _create_a_nodes(store: WikiStoreV2, entries: list[dict], *, ts: str,
     aff_at_encoding（§3.3.3, 2026-09-13）: 本段**开始之前**的好感标量
     （`Affection.to_scalar()`, [−1,1]）——快照, 写入后永不改。
     调用方传 None = 未采集（旧档/CLI 路径）→ 字段不落库, 与 `0.0`（中性）区分。
+
+    story_time（§4.11, 2026-09-13）: 本段**结束时刻**的剧情时间点
+    （`StoryTime.to_dict()`）——同样是**快照, 写入后永不改**。
+    ⚠️ **只在这里写**（I-b）: `apply_decisions`（Round B）不许碰它,
+    与 `id`/`ts`/`event_seq` 同级保护——否则时间会倒流。
 
     Returns: (episode_ids, player_ids)——episode_ids 供 B 覆盖检查。
     """
@@ -336,6 +362,7 @@ def _create_a_nodes(store: WikiStoreV2, entries: list[dict], *, ts: str,
         node.segment_id = segment_id
         node.event_seq = list(event_seq)
         node.aff_at_encoding = aff_at_encoding
+        node.story_time = story_time
         dup = _find_duplicate(store, node)
         if dup is not None:
             episode_ids.append(dup.id)
@@ -498,7 +525,15 @@ def _clamp_aff(raw: Any) -> int:
         return 0
 
 
-def _rollback(store: WikiStoreV2, snapshot: dict, result: DigestResult) -> DigestResult:
-    """回滚内存态（失败 → 零残留; 水位未推进, 磁盘未动）。"""
+def _rollback(store: WikiStoreV2, snapshot: dict, result: DigestResult,
+              snapshot_clock=None) -> DigestResult:
+    """回滚内存态（失败 → 零残留; 水位未推进, 磁盘未动）。
+
+    ⚠️ **游标也要回滚**（§4.11 I-a 的配套）：`clock()` 是**惰性缓存**的同一实例,
+    本段在 `_create_a_nodes` 前已经推进过它。若不还原, 同一次 digest 的**重试**
+    （或同进程的下一次调用）会从"已经走掉的游标"再推一次 —— **时钟静默前进**,
+    而 `world_clock.json` 里看不出来（失败不落盘）。
+    """
     store.restore_state(snapshot)
+    store.restore_clock_cursor(snapshot_clock)
     return result

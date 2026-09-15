@@ -43,6 +43,21 @@ MAX_TAGS = 4            # tags 检索词上限
 MAX_EXAMPLES = 3        # experience.examples 上限
 MAX_EVIDENCE = 5        # B 轮 evidence 上限
 
+#: A 轮 `time_span` 的任务说明（`§4.11 ②` —— LLM 只选粒度, 引擎算算术）。
+#: 真源 = `core/worldtime/span.py` 的 `SPANS`；这里只负责**措辞**。
+TASK_TIMESPAN = (
+    "【time_span — 本段剧情跨了多久】（**枚举, 不许自由发挥**）\n"
+    "  判据 = 时间线本身：同一天内的连续对话 → same；"
+    "明显过了半天 → halfday；\n"
+    "  台词/旁白里说了\"第二天\"\"过了几天\"\"一周后\" → 对应的 day/days:N/week 等。\n"
+    "  可选值: same | halfday | day | days:2~7 | week | weeks:2~4 | month\n"
+    "  ⚠️ **不许写日期、月份、年份**（如\"4月3日\"\"三年后\"）——"
+    "这些由引擎从锚点累加,\n"
+    "  你只回答\"跨了多久\"这个**叙事事实**。"
+    "拿不准就给 halfday（引擎的默认档）。\n"
+    "  ⚠️ days:N 的 N 最多 7；更久就用 week / weeks:N。"
+)
+
 
 @dataclass(frozen=True)
 class DigestAction:
@@ -252,14 +267,17 @@ class DigestRegistry:
         if phase == PHASE_RECORD:
             lines = [
                 "输出 JSON（不要任何解释文字, 不要 ```json 代码块）:",
-                '    {"episodes": [',
+                '    {"time_span": "halfday",   // ★ 本段剧情跨了多久（枚举, 见下）//',
+                '     "episodes": [',
             ]
             a = self.spec("record_episode")
             lines.append(a.field_schema)
             lines.extend(["    ]}",
                           "",
                           f"【record_episode 释义】{a.role}",
-                          "语义:", a.semantics])
+                          "语义:", a.semantics,
+                          "",
+                          TASK_TIMESPAN])
             if include_examples and a.example:
                 lines.extend(["", "【范例】", a.example])
             return "\n".join(lines)
