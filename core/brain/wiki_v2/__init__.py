@@ -8,6 +8,8 @@
     revise.py  修订契约校验/执行 + evolution_log                  ✅ M2
     evolution.py 审计日志（append-only, R6 回滚依据）              ✅ M2
     recall.py  三通道召回 + 一跳扩展                               ✅ M4
+    channels.py      召回链路**接口**（五条链路的形态声明）         ✅ V3-3 前置
+    channel_impl.py  五条链路的实现（多数"诚实的空"——缺数据不出分） ✅ V3-3 前置
     recall_config.py  召回旋钮（settings.toml [recall]）           ✅ V3-0
     recall_ledger.py  召回台账（写路径候选碰撞 / 读路径注入视图）   ✅ V3-0
     digest.py  digest v2 管线（增量/召回/反馈重试/水位/幂等）       ✅ M3
@@ -28,6 +30,19 @@ from core.brain.wiki_v2.revise import RevisionResult, apply_revision_package
 from core.brain.wiki_v2.render import render_background_experience, render_character_view, render_organize_view
 from core.brain.wiki_v2.recall import recall_subgraph
 from core.brain.wiki_v2 import recall_config, recall_ledger
+from core.brain.wiki_v2.channels import (
+    CHANNELS,
+    KIND_GATE,
+    KIND_PRIOR,
+    KIND_SIMILARITY,
+    PLANNED,
+    Channel,
+    ChannelHit,
+    ChannelResult,
+    RecallContext,
+    describe as describe_channels,
+    get as get_channel,
+)
 from core.brain.wiki_v2.digest import DigestResult, digest_segment
 
 __all__ = [
@@ -44,6 +59,17 @@ __all__ = [
     "recall_subgraph",
     "recall_config",
     "recall_ledger",
+    "CHANNELS",
+    "PLANNED",
+    "KIND_PRIOR",
+    "KIND_SIMILARITY",
+    "KIND_GATE",
+    "Channel",
+    "ChannelHit",
+    "ChannelResult",
+    "RecallContext",
+    "describe_channels",
+    "get_channel",
     "DigestResult",
     "digest_segment",
     "render_background_experience",
