@@ -30,11 +30,6 @@ logger = logging.getLogger(__name__)
 #: kind → id 前缀（AGENT_BRAIN.md §2; relation/fact 已砍——c 前缀退役 2026-09-02）
 _PREFIX = {"experience": "e", "episode": "m", "belief": "m"}
 
-#: ★ 旧档纪元（`sim_day` 单位 = 时相格, 1 叙事日 = 5 格）
-#: 5000 格 = 1000 叙事日 ≈ 2.7 叙事年 —— 足够容纳"迁移前所有旧节点"的外插区间,
-#: 又不与任何真实游标混淆。**一旦落盘就不该改**（改了等于全体旧记忆的 age 突变）。
-LEGACY_EPOCH = 5000
-
 #: 节点字段白名单（update patch 只接受这些——防任意字段注入）
 _FIELDS = set(BrainNode.__dataclass_fields__.keys())
 
@@ -105,21 +100,24 @@ class WikiStoreV2:
     def clock(self):
         """惰性装载的 `WorldClock`（**per store 实例缓存**——同一次 digest 只读一次盘）。
 
-        ★ **新世界的起点是非零的 `LEGACY_EPOCH`**（见常量注释）:
-        线上已有 13 条节点没有 `story_time`（迁移在 T10）。若新节点从 `sim_day=0`
-        起算, 而旧节点日后外插也落在 `[0, N)`, 两者会**撞在同一段**——新记忆与
-        旧记忆的 age 混在一起, 且无法事后分辨。
-        故: **新节点一律落在 `≥ LEGACY_EPOCH`**，旧档迁移后落在 `< LEGACY_EPOCH`。
-        两个区间天然分离, 且**不需要现在就改任何一个旧节点**。
+        ★ **有历史的世界, 起点按数据自己的 `event_seq` 算**（不是固定常数）:
+        线上旧节点没有 `story_time`（迁移见 `migrate_time.py`）。若新节点从 0 起算,
+        而旧档外插也落在低位, 两者会撞在同一段。
+        故纪元 = `epoch_for(全部节点)`（≈ `max(event_seq) + 间隙`）,
+        **旧档落在 `< epoch`、新节点从 `epoch` 起** —— 两个区间天然分离,
+        且**不需要现在就改任何一个旧节点**。
 
-        世界全新（无 wiki 文件且水位 0）→ 从 0 起算（真的没有历史）。
+        ⚠️ 初版用固定常数 `LEGACY_EPOCH=5000`, 真机实测后果:
+        一份刚发生没几天的记忆被 T3 的短语算成"**3 年前**"
+        （旧档窗口 5000 格全被吃掉）。**窗口必须按数据比例, 不能拍。**
         """
         if self._clock is None:
             clk = WorldClock.load(self.clock_path)
             if clk.cursor.sim_day == 0 and self._world_has_history():
-                clk.cursor = StoryTime.from_sim_day(LEGACY_EPOCH, anchor=clk.anchor)
-                logger.info("world_clock 初始化到 LEGACY_EPOCH=%d（已有历史）",
-                            LEGACY_EPOCH)
+                from core.brain.wiki_v2.migrate_time import epoch_for
+                epoch = epoch_for(self.all())
+                clk.cursor = StoryTime.from_sim_day(epoch, anchor=clk.anchor)
+                logger.info("world_clock 初始化到纪元 %d（已有历史）", epoch)
             self._clock = clk
         return self._clock
 

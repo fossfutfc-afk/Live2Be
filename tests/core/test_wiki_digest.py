@@ -585,8 +585,9 @@ def test_story_time_stamped_on_episodes(tmp_path):
     assert res.ok, res.errors
     ep = st.get(res.created[0])
     assert ep.story_time is not None, "story_time 未 stamp"
-    # days:3 = 3 叙事日 = 15 格; 且该世界有历史 → 起点在 LEGACY_EPOCH
-    assert ep.story_time["sim_day"] == 5000 + 15, ep.story_time
+    # days:3 = 3 叙事日 = 15 格; 该世界有历史 → 起点在本世界线的**纪元**
+    from core.brain.wiki_v2.migrate_time import epoch_for
+    assert ep.story_time["sim_day"] == epoch_for(st.all()) + 15, ep.story_time
     print(f"    time_span=days:3 → story_time={ep.story_time}")
 
 
@@ -645,20 +646,21 @@ def test_clock_file_written_on_commit(tmp_path):
     print(f"    clock: 落盘并往返一致 sim_day={back.cursor.sim_day}")
 
 
-def test_legacy_epoch_keeps_new_nodes_off_old_range(tmp_path):
-    """★ 有历史的世界: 新节点落在 `≥ LEGACY_EPOCH`, 与旧档外插区间分离。"""
-    from core.brain.wiki_v2.store import LEGACY_EPOCH
+def test_epoch_keeps_new_nodes_off_old_range(tmp_path):
+    """★ 有历史的世界: 新节点落在 `≥ 纪元`, 与旧档外插区间（`< 纪元`）分离。"""
+    from core.brain.wiki_v2.migrate_time import epoch_for
     st = _seed_store(tmp_path)                        # 预置节点 → 有历史
     assert st.all(), "夹具应已有节点"
+    epoch = epoch_for(st.all())
     a = _a_episode()
     a["time_span"] = "day"
     res = digest_segment(st, FakeLLM(a, _b_ok()), _events(_mmt(6, "x", "y")))
     assert res.ok, res.errors
     sim = st.get(res.created[0]).story_time["sim_day"]
-    assert sim >= LEGACY_EPOCH, f"新节点落在 {sim} < LEGACY_EPOCH"
+    assert sim >= epoch, f"新节点落在 {sim} < 纪元 {epoch}"
     old = [n for n in st.all() if n.story_time is None]
-    assert old, "旧节点不该被自动 stamp（迁移是 T10）"
-    print(f"    LEGACY_EPOCH: 新节点 sim_day={sim} ≥ {LEGACY_EPOCH}; "
+    assert old, "旧节点不该被自动 stamp（迁移是独立步骤）"
+    print(f"    纪元 {epoch}: 新节点 sim_day={sim} ≥ {epoch}; "
           f"旧节点 {len(old)} 条仍未采集")
 
 
