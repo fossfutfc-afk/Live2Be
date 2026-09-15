@@ -155,3 +155,61 @@ def test_character_view_belief_and_player_all_rendered():
     assert out.count("\n- 对sensei：信念") == 7        # 7 条全在（旧 cap 5 会丢 2 条）
     assert out.count("（count ") == 7
     assert "信念5" in out and "口癖5" in out          # 旧 cap 下这两条正是被丢的
+
+
+# ---------------------------------------------------------------------------
+# 防失忆注记: episode 前置虚化时间短语（§3.8 / §4.11 的 T3）
+# ---------------------------------------------------------------------------
+
+def _st(sim_day: int) -> dict:
+    from core.worldtime import StoryTime
+    return StoryTime.from_sim_day(sim_day).to_dict()
+
+
+def test_time_phrase_prefixed_and_vague():
+    """★ 短语挂在**最前**（先看到远近再读内容），且**绝不出现精确值**。"""
+    nodes = [
+        _ep("昨天刚发生的事", sig=0.5, event_seq=[1]),      # 同一时刻
+        _ep("前几天的事", sig=0.5, event_seq=[2]),
+        _ep("三个月前的事", sig=0.5, event_seq=[3]),
+    ]
+    nodes[0].story_time = _st(100)          # age = 0
+    nodes[1].story_time = _st(90)           # age = 10 格 = 2 叙事日
+    nodes[2].story_time = _st(0)            # age = 100 格 = 20 叙事日
+    out = render_character_view(nodes, story_now=_st(100))
+    assert "（刚才）昨天刚发生的事" in out, out
+    assert "（2 天前）前几天的事" in out, out       # 10 格 = 2 叙事日
+    assert "（3 周前）三个月前的事" in out, out     # 100 格 = 20 叙事日
+    # I-c: 不得出现精确日/周数以外的刻度、不得出现日期
+    for bad in ("格", "分钟", "小时", "0 天", "年-", "sim_day"):
+        assert bad not in out, f"短语里出现了精确形态: {bad}"
+    print("    T3: 短语前置且虚化（刚才/昨天/3 周前）")
+
+
+def test_time_phrase_absent_without_story_now():
+    """不给 `story_now` → **完全不出现短语**（与本改动前逐字节相同）。"""
+    nodes = [_ep("老师带我去吃甜品", sig=0.6, event_seq=[1])]
+    nodes[0].story_time = _st(0)
+    out = render_character_view(nodes)
+    assert out == ("【角色记忆（brain）】\n\n最近的事：\n- 老师带我去吃甜品"), out
+    print("    T3: 无 story_now → 零变化（旧调用方不受影响）")
+
+
+def test_time_phrase_absent_for_unstamped_old_nodes():
+    """★ 旧档（无 `story_time`）→ **不加短语**，不编"很久以前"。
+    否则「未采集」与「真的很旧」混为一谈（哨兵纪律）。"""
+    nodes = [_ep("旧档记忆", sig=0.6, event_seq=[1])]      # story_time 缺省 = None
+    out = render_character_view(nodes, story_now=_st(100))
+    assert "- 旧档记忆" in out
+    assert "很久以前" not in out and "（" not in out.split("最近的事：")[1]
+    print("    T3: 未采集的旧节点不加短语（不编'很久以前'）")
+
+
+def test_time_phrase_survives_bad_values():
+    """坏 `story_time` / 坏 `story_now` → 静默跳过，**渲染绝不因时间炸**。"""
+    nodes = [_ep("坏值节点", sig=0.6, event_seq=[1])]
+    nodes[0].story_time = {"sim_day": -5}                  # 非法 → parse 出 None
+    assert "- 坏值节点" in render_character_view(nodes, story_now=_st(100))
+    nodes[0].story_time = _st(0)
+    assert "- 坏值节点" in render_character_view(nodes, story_now={"nope": 1})
+    print("    T3: 坏 story_time / 坏 story_now → 跳过短语, 不抛")

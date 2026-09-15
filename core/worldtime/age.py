@@ -45,12 +45,16 @@ from core.worldtime.story import DAYS_TO_SIM, StoryTime
 DEFAULT_HALF_LIFE_DAYS = 5.0
 
 #: 措辞桶（`§3.8` / `§4.9` 的表）—— `(阈值上限叙事日, 单数, 复数)`
-#: 顺序即判定顺序（从上往下第一个 age < 上限的胜出）。
+#: 顺序即判定顺序（从上往下第一个 `age < 上限` 的胜出）。
+#:
+#: ⚠️ **用户 2026-09-13 裁决: 周桶暂时保留**（"我还是想不删周bucket，以后再说"）。
+#: 注意这里**不承担精度**——精度归 `freshness`（连续值, 进 `det`）;
+#: 短语只是"她怎么记得", 粗一点无害（见 `render_relative` docstring）。
 _BUCKETS: tuple[tuple[float, str, str], ...] = (
     (1 / DAYS_TO_SIM, "刚才", "刚才"),      # < 1 时相
     (1.0, "今天", "今天"),                  # < 1 叙事日
-    (2.0, "昨天", "N 天前"),
-    (7.0, "N 天前", "N 天前"),              # 2~7 天
+    (1.5, "昨天", "昨天"),                  # 1~1.4 日 —— 说"1 天前"不像人话
+    (7.0, "N 天前", "N 天前"),              # 2~7 日（首档已是"昨天"）
     (14.0, "上周", "N 周前"),
     (28.0, "N 周前", "N 周前"),             # 2~4 周
     (56.0, "上个月", "N 个月前"),
@@ -111,20 +115,19 @@ def render_relative(age: int | None, significance: float = 0.5) -> str:
 
 
 def _phrase(days: float, singular: str, plural: str) -> str:
-    """桶内取词: 含 `N` 的按数量替换（数量**已取整为人类口径**）。"""
+    """桶内取词 —— 含 `N` 的按数量替换（数量已取整为人类口径）。
+
+    各桶的 `N` 单位不同, 故按桶语义换算（不是按 days 取整一次就完）。
+    """
     if "N" not in plural:
-        return singular
-    # 各桶的 N 单位不同 —— 按桶的语义取整（不是按 days 取整）
-    if days < 2.0:
-        n = 1                                  # "昨天"
-        return "昨天" if plural == "N 天前" else plural.replace("N", str(n))
-    if days < 14.0:
-        n = int(round(days)) if days < 8 else int(round(days / 7))
-        unit = "天前" if days < 8 else "周前"
-        return f"{n} {unit}"
-    if days < 56.0:
+        return singular                          # 刚才/今天/昨天/上周/上个月/去年
+    if days <= 7.0:
+        return f"{max(2, int(round(days)))} 天前"
+    if days <= 28.0:                             # 2~4 周
         return f"{int(round(days / 7))} 周前"
-    if days < 336.0:
+    if days <= 56.0:
+        return f"{int(round(days / 30))} 个月前"
+    if days <= 336.0:                            # 2~11 月
         return f"{int(round(days / 30))} 个月前"
     return f"{int(round(days / 365))} 年前"
 
