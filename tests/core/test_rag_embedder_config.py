@@ -161,9 +161,7 @@ def test_health_cached(monkeypatch):
 
 def test_auto_discover_recognizes_qwen3(monkeypatch):
     """`_EMBED_HINTS` 认得出 Qwen3-Embedding（`embed` 片段）——自动发现仍可用。"""
-    emb = E.LocalEmbedder.__new__(E.LocalEmbedder)
-    emb.base_url = "http://x/v1"
-    emb.timeout = 3.0
+    emb = _bare_embedder()
 
     class _R:
         status_code = 200
@@ -180,6 +178,48 @@ def test_auto_discover_recognizes_qwen3(monkeypatch):
     monkeypatch.setattr(E.httpx, "Client", _C)
     assert emb._auto_discover() == "Qwen3-Embedding-0.6B"
     print("    自动发现: Qwen3-Embedding-0.6B 被 _EMBED_HINTS 认出")
+
+
+def test_auto_discover_never_blind_picks_an_llm(monkeypatch):
+    """★ **绝不盲选 `ids[0]`** —— 服务上只有 LLM 时必须返回 `""`。
+
+    旧实现末尾是 `return ids[0] if ids else ""`（"只有一个模型也认"）。那在
+    "这台机器只跑了一个 **LLM**"时是有毒的: 拿 LLM 的 id 当 embedding 模型
+    → `health()` True → 每轮 embed 全失败, 而日志只说"调用失败",
+    看不出是**端口指错了服务**。本机正是这种布局（embedding 在 1235, 1234 另有用）。
+    """
+    emb = _bare_embedder()
+
+    class _R:
+        status_code = 200
+        def raise_for_status(self): pass
+        def json(self): return {"data": [{"id": "qwen2.5-7b-instruct"},
+                                         {"id": "deepseek-v4-flash"}]}
+
+    class _C:
+        def __init__(self, **kw): pass
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def get(self, url): return _R()
+
+    monkeypatch.setattr(E.httpx, "Client", _C)
+    assert emb._auto_discover() == "", "把 LLM 当 embedding 模型了"
+    # 且空表同样返回 ""（不是崩）
+    class _Empty(_R):
+        def json(self): return {"data": []}
+    class _C2(_C):
+        def get(self, url): return _Empty()
+    monkeypatch.setattr(E.httpx, "Client", _C2)
+    assert emb._auto_discover() == ""
+    print("    自动发现: 只有 LLM / 空表 → \"\"（宁可降级, 不可用错）")
+
+
+def _bare_embedder():
+    """不跑 __init__ 的裸实例（避开配置链与网络）——只测 `_auto_discover`。"""
+    emb = E.LocalEmbedder.__new__(E.LocalEmbedder)
+    emb.base_url = "http://x/v1"
+    emb.timeout = 3.0
+    return emb
 
 
 if __name__ == "__main__":
