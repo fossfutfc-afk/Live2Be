@@ -178,12 +178,73 @@ def test_intensity_prior_all_old_archive_degrades(tmp_path):
     print(f"    A: 全旧档 → 降级（{r.note[:48]}）")
 
 
-def test_emotion_rag_reports_link_gap(tmp_path):
+def test_emotion_rag_degrades_without_query_or_shape(tmp_path):
+    """B 的三种降级理由（T15 起它**能出分**了, 但缺料仍必须诚实降级）。"""
     st = _store(tmp_path)
-    r = get_channel("B_emotion_rag").gather(st, _ctx())
-    assert r.degraded and "event_seq" in r.note
-    assert "needs" in r.knobs
-    print(f"    B: 降级并说明缺连接键 → {r.note[:56]}")
+    # ① 没有当前情绪键序列
+    r1 = get_channel("B_emotion_rag").gather(st, _ctx())
+    assert r1.degraded and "emo_now" in r1.note
+    # ② 有 emo_now, 但节点没有 emo_shape（旧档未物化）
+    r2 = get_channel("B_emotion_rag").gather(
+        st, _ctx(emo_now=["tease", "smile"]))
+    assert r2.degraded and "emo_shape" in r2.note
+    assert r2.knobs["no_emo_shape"] == 2
+    # ③ 有料但没向量后端
+    st.get("m0001").emo_shape = ["tease", "smile"]
+    st.get("m0002").emo_shape = ["outburst", "shout"]
+    r3 = get_channel("B_emotion_rag").gather(
+        st, _ctx(emo_now=["tease", "smile"]))
+    assert r3.degraded and "embed_fn" in r3.note
+    print(f"    B: 三种降级分别说明 → ①{r1.note[:22]} ②{r2.note[:22]} ③{r3.note[:22]}")
+
+
+def test_emotion_rag_scores_by_key_sequence(tmp_path):
+    """★ B 出分: **键序列**的 cos（不是情绪数值, 不需要「键→唤醒度」表）。"""
+    st = _store(tmp_path)
+    st.get("m0001").emo_shape = ["tease", "smile", "smile"]
+    st.get("m0002").emo_shape = ["outburst", "shout", "strive"]
+    # 假向量: 键序列 → 三维（只按键的字符和, 与叙述内容无关）
+    def emb(texts):
+        out = []
+        for t in texts:
+            h = sum(ord(c) for c in t if c not in "情绪序列: ")
+            out.append([float(h % 7), float(h % 11), 1.0])
+        return out
+    r = get_channel("B_emotion_rag").gather(
+        st, _ctx(emo_now=["tease", "smile", "smile"], embed_fn=emb))
+    assert not r.degraded and len(r.hits) == 2
+    assert all(h.raw is not None for h in r.hits)
+    # 自己跟自己那一板必须排第一（键序列完全相同 → cos=1）
+    assert r.hits[0].node.id == "m0001" and abs(r.hits[0].raw - 1.0) < 1e-9
+    assert r.hits[0].rank == 1 and r.hits[1].rank == 2
+    # 只读键序列: 叙述/verbatim 不进向量文本（§2.3.1 撤回框: 混正文会塌陷空间）
+    seen = []
+    get_channel("B_emotion_rag").gather(
+        st, _ctx(emo_now=["tease"], embed_fn=lambda ts: (seen.extend(ts), emb(ts))[1]))
+    assert all("杂草屋" not in t for t in seen), seen
+    assert all(t.startswith("情绪序列: ") for t in seen), seen
+    print(f"    B: 键序列 cos 出分 → {[(h.node.id, round(h.raw, 3)) for h in r.hits]}")
+
+
+def test_recall_side_fields_never_reach_llm(tmp_path):
+    """★★ 用户 2026-09-15 裁决: `emo_shape` / `place_now` **不进 LLM 上下文**。
+
+    它们是**召回侧信号**——参与排序与筛选, 不参与写作。这里钉死的是
+    「节点级」那一半: `render_*`（唯一往 prompt 里塞节点文本的地方）
+    不许输出 `emo_shape`, 哪怕它是满的。
+    """
+    from core.brain.wiki_v2.render import render_character_view, render_organize_view
+    st = _store(tmp_path)
+    for n in st.all():
+        n.emo_shape = ["outburst", "shout"]
+    view = render_character_view(st.all(), char_name="遥香")
+    org = render_organize_view(st.all())
+    for text in (view, org):
+        assert "outburst" not in text and "shout" not in text, text
+        assert "emo_shape" not in text
+    # 反向确认: 这两个视图确实渲染了节点（不是空串让断言假通过）
+    assert "杂草屋" in view and "杂草屋" in org
+    print("    ★ 召回侧字段隔离: emo_shape 不进 render_character_view / organize_view")
 
 
 def test_place_gate_needs_place_field(tmp_path):

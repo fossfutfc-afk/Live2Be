@@ -9,13 +9,17 @@
 | 链路 | 现在能不能出分 | 缺什么 |
 |---|---|---|
 | **A** `A_intensity` | ✅ **能** | 只需要 `ctx.story_now`（游标）+ 节点 `story_time`。**旧档节点**（无 `story_time`）逐条跳过 |
-| **B** `B_emotion_rag` | ❌ 不能 | 键序列在事件流的**板**上, 而"episode → 板"的连接键**不可靠**（`event_seq` 被覆写成常量 `[interact_max]`, 实测 `[30]` 而板最大 25） |
+| **B** `B_emotion_rag` | ✅ **能**（T15, 2026-09-15） | 需要 `ctx.emo_now` + 节点 `emo_shape`（digest 按板指针物化）+ `embed_fn` |
 | **C** `C_place` | ❌ 不能 | `BrainNode` **无 `place` 字段**（§2.3.2: 设计已定、实现待补） |
 | **D** `D_deja_vu` | ✅ **能** | 只需要 `narration` + `embed_fn`（两者都有） |
 | **E** `E_unconscious` | ⏳ 未立项 | 认知碎片（§6.4 的 `percepts`） |
 
-**A 与 D 是现在就能出分的两条**——都不是巧合：它们只需要**已存在的数据**。
-A 是唯一的 `PRIOR`（每条自身的属性, 可预物化）; D 是 pairwise（要 query + 向量后端）。
+**A / B / D 是现在就能出分的三条**——都不是巧合：它们只需要**已存在的数据**
+（A 是候选自身属性（`PRIOR`）; B/D 是 pairwise, 要 query + 向量后端）。
+
+🚫 **召回侧字段不进 LLM 上下文**（用户 2026-09-15 裁决）: `emo_shape` /
+`emo_now` / `place_now` 参与**排序与筛选**, 不参与**写作**——`render_*` 一律
+不输出它们。与 `bond` 侧"place 不进 LLM 上下文"（§4 视觉键隔离）同一条纪律。
 
 ## 三条实现纪律
 
@@ -168,10 +172,15 @@ class EmotionRag:
       2. **键序列单独向量化有层次**（haruka 板间 [0.590, 0.834], 跨度 0.244）,
          而塞进正文会塌陷
 
-    ⚠️ **现在出不了分**: 键序列在**板**上（`events.jsonl` 的
-    `payload.paragraphs[i].emotion`）, 而节点是 episode。两者的连接键
-    `event_seq` **被覆写成常量**（`digest.py` 无条件写 `[interact_max]`,
-    实测 `[30]` 而 haruka 的板最大是 25）——**它指向一条 MMT 消息, 不指向任何一板**。
+    ⚠️ **为什么键序列要物化到节点上**（T15, 2026-09-15 接通）:
+    键序列在**板**上（`events.jsonl` 的 `payload.paragraphs[i].emotion`），
+    而 `gather(store, ctx)` **只拿得到节点, 拿不到事件流**——链路无法去翻板。
+    所以 `digest` 在写节点时按**板指针 `event_seq`** 把键序列物化成
+    `node.emo_shape`（§3.3/§3.9 早就定了这一手: "板级 affect 物化缓存（一次算,
+    索引表里存）…可从真源重建"）。有 `event_seq` 就能重算, 故它不是第二真源。
+
+    🚫 **`emo_shape` / `emo_now` 绝不进 LLM 上下文**（用户 2026-09-15 裁决）:
+    它们是**召回侧信号**, 与 `place` 同类——参与排序, 不参与写作。
 
     ⚠️ 另有一条**未验证**的依赖: 本链路需要"键 → 唤醒度"的映射才能排序,
     而那张表**已被用户否掉**（"怎么又回到机械打分的时代了"）。
@@ -186,14 +195,42 @@ class EmotionRag:
 
     def gather(self, store, ctx: RecallContext) -> ChannelResult:
         res = ChannelResult(channel=self.name, kind=self.kind)
-        if not ctx.query:
+        q = [k.strip() for k in (ctx.emo_now or [])
+             if isinstance(k, str) and k.strip()]
+        if not q:
             res.degraded = True
-            res.note = "无 query"
+            res.note = "无 emo_now（当前情绪键序列未知）"
+            res.knobs = {"needs": "ctx.emo_now（当前这板的情绪键序列）"}
             return res
-        res.degraded = True
-        res.note = ("episode→板 连接键不可靠（event_seq 被覆写成常量）"
-                    "——情绪键序列取不到, 见 channels.py")
-        res.knobs = {"needs": "episode.event_seq 指向真实板 seq"}
+        nodes = [n for n in store.all() if n.kind == "episode" and n.emo_shape]
+        no_shape = sum(1 for n in store.all()
+                       if n.kind == "episode" and not n.emo_shape)
+        res.knobs = {"n_nodes": len(nodes), "no_emo_shape": no_shape,
+                     "query_keys": len(q)}
+        if not nodes:
+            res.degraded = True
+            res.note = (f"无 episode 有 emo_shape（旧档 {no_shape} 条）"
+                        "→ 不出分")
+            return res
+        if ctx.embed_fn is None:
+            res.degraded = True
+            res.note = "无 embed_fn（无向量后端）"
+            return res
+        try:
+            from core.brain.wiki_v2.recall import _cosine
+            texts = [f"{_EMO_PREFIX}{' '.join(n.emo_shape)}" for n in nodes]
+            vecs = ctx.embed_fn(texts + [f"{_EMO_PREFIX}{' '.join(q)}"])
+            qv = vecs[-1]
+            scored = sorted(((_cosine(qv, v), n) for v, n in zip(vecs[:-1], nodes)),
+                            key=lambda t: -t[0])
+        except Exception as e:                       # noqa: BLE001 — 链路失败不抛
+            logger.warning("B_emotion_rag 降级: %s", e)
+            res.degraded = True
+            res.note = f"embedding 失败: {e}"
+            return res
+        res.hits = [ChannelHit(node=n, raw=float(s), rank=i + 1,
+                               detail={"keys": len(n.emo_shape)})
+                    for i, (s, n) in enumerate(scored)]
         return res
 
 
