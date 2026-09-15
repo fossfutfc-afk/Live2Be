@@ -275,7 +275,7 @@ def test_emo_shape_absent_when_no_pointer(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# 板块5: 引擎候选标注（疑似同主题 → 禁 add, 结构强制 + 反馈）
+# 板块5: 引擎候选提示（T17 后**仅提示** —— 曾为"疑似同主题 → 禁 add"的结构强制）
 # ---------------------------------------------------------------------------
 
 def _cat_store(tmp_path) -> WikiStoreV2:
@@ -291,33 +291,39 @@ def _cat_store(tmp_path) -> WikiStoreV2:
     return st
 
 
-def test_high_candidate_forces_touch_update_not_add(tmp_path):
-    """B 输入带引擎标注; LLM 仍 add → 整包拒 → 反馈后 touch 通过。"""
+def test_high_candidate_no_longer_forces_touch_update(tmp_path):
+    """★ T17（2026-09-15）: **候选降为提示, LLM 判 add 不再被拒**。
+
+    旧行为: 候选 ≥ `CAND_HIGH` → 该 episode 出 `add` 整行作废 → 引擎反馈重试。
+    而那个阈值从未标定过、实测两模型下候选 **6/6 全越线** → 结构强制把
+    "全部分侧面"判成"同一件事" → **新认知永远长不出来**（Q11/Q31/Q32 已裁）。
+
+    现在: 候选照样摆给 LLM（**输入里仍能看到**），但 `add` 不触发任何拒绝/重试。
+    """
     st = _cat_store(tmp_path)
     llm = FakeLLM(
         _a_episode(narration="老师带猫粮来喂猫, 猫绕着我转了两圈"),
         {"decisions": [
             {"episode": "m0003", "decision": "add", "kind": "belief",
-             "subject": "猫", "content": "老师会带猫粮来喂猫"},      # 违规: 疑似同主题仍 add
-         ], "evidence": [], "affection_exp_delta": 5},
-        {"decisions": [
-            {"episode": "m0003", "decision": "touch", "target": "u0001"},
+             "subject": "猫", "content": "老师会带猫粮来喂猫",
+             "note": "与候选只是字面像, 不是同一件事"},
          ], "evidence": [], "affection_exp_delta": 5},
     )
     events = _events(_mmt(3, "x", "猫粮带来了"))
     res = digest_segment(st, llm, events)
     assert res.ok, res.errors
-    assert res.llm_calls == 3                          # A + B1(拒) + B2
-    # B1 的输入里带了疑似同主题标注; 反馈提到违规原因
-    assert "疑似同主题" in llm.calls[1][1]["content"]
-    assert "疑似同主题" in llm.calls[2][-1]["content"]
-    bel = st.get("m0002")
-    assert bel.history == []                           # touch: 只连边
-    assert "m0003" in bel.links
+    assert res.llm_calls == 2                          # A + B（**没有**拒绝重试）
+    # 候选提示仍在输入里（只是不再带"禁 add"的措辞）
+    assert "候选" in llm.calls[1][1]["content"]
+    assert "禁 add" not in llm.calls[1][1]["content"]
+    # add 真的落地了（新认知长出来了——这正是删阈值的直接目的）
+    added = [n for n in st.all() if n.kind == "belief" and n.content == "老师会带猫粮来喂猫"]
+    assert added, "add 被引擎拦掉了——结构强制没删干净"
+    print("    候选仅提示: add 不再被拒（新认知能长出来）")
 
 
 def test_no_candidate_when_unrelated(tmp_path):
-    """无关键词关联 → 无标注 → LLM 自由 add（不触发强制）。"""
+    """无关键词关联 → 无候选提示行 → LLM 自由 add（本来也不再有强制）。"""
     st = _cat_store(tmp_path)
     llm = FakeLLM(
         _a_episode(narration="老师送我一盆新的杂草", tags=("杂草",)),
@@ -328,7 +334,7 @@ def test_no_candidate_when_unrelated(tmp_path):
     events = _events(_mmt(3, "x", "这盆杂草送给你"))
     res = digest_segment(st, llm, events)
     assert res.ok, res.errors
-    assert "疑似同主题" not in llm.calls[1][1]["content"]      # 无标注
+    assert "→ 候选" not in llm.calls[1][1]["content"]         # 无候选提示行
     bel = st.get("m0004")                              # add 成功（m0003 episode + m0004 belief）
     assert bel.kind == "belief"
 

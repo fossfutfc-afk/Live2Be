@@ -359,14 +359,17 @@ class DigestRegistry:
 
     def parse_round_b(self, raw: Any, *, episode_ids: set[str],
                       target_ids: set[str],
-                      must_touch: dict[str, str] | None = None,
                       ) -> tuple[list[dict], ValidationResult]:
         """Round B: {"decisions": [...], "evidence": [...], "affection_exp_delta": n}。
 
         episode_ids: 本轮 Round A 产出的真实 episode id 集（引用检查）。
         target_ids: 渲染给 LLM 的认知本地 id 集（u0001..; 引用检查）。
-        must_touch: 引擎候选标注（板块 5）: {episode_id: 疑似同主题候选的本地 id}——
-        这些 episode 的 decision 只能是 touch/update（禁 add 重复, 结构强制）。
+
+        ⚠️ **`must_touch` 参数已删**（2026-09-15 T17）: 它曾是"引擎候选 ≥ 阈值 →
+        该 episode 禁 `add`"的**结构强制**，而那个阈值从未标定过、实测两模型下
+        候选皆 6/6 全越线 → **新认知永远长不出来**（DESIGN_WIKI_V3 Q11/Q31/Q32
+        已裁"取消结构强制, 候选仅作提示"）。现在候选只是输入里的一行提示,
+        判 add/touch/update 全归 LLM, **引擎不设闸门**。
         """
         errors: list[str] = []
         warnings: list[str] = []
@@ -391,12 +394,6 @@ class DigestRegistry:
                 continue
             seen.add(ep)
             item: dict = {"episode": ep, "decision": decision}
-            forced = (must_touch or {}).get(ep)
-            if forced and decision == "add":
-                errors.append(
-                    f"decisions[{i}]: episode {ep} 存在疑似同主题候选"
-                    f"（{forced}）——decision 只能是 touch/update（禁 add 同主题重复）")
-                continue
             if decision in ("touch", "update"):
                 target = str(row.get("target", "")).strip()
                 if not target:

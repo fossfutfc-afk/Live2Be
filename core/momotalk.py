@@ -104,10 +104,12 @@ def _get_embed_fn():
     模型时 `model == ""`、`embed()` 每次抛 `RagError`, 该异常又被 recall 侧
     `except Exception` 静默吞掉 → **每一轮 digest 都悄悄跑在词面关键词降级上,
     零日志**。后果不是崩溃而是**记忆质量静默损失**: Round B 的
-    `recommend_candidates` 因此失去语义近似能力 → 引擎抬不出【疑似同主题】
-    标注（CAND_HIGH 结构强制 touch/update 防重复）→ 新经历只会一路 `add`,
-    wiki 图退化成"一条经历配一个 belief"（现网 haruka 实测 4 episode → 4 belief,
-    evolution 全 add）。
+    `recommend_candidates` 因此失去语义近似能力 → 引擎抬不出候选提示 →
+    LLM 只能凭自己判断该并入还是新建, 判据少了一半。
+    （旧口径下这里还会连带失效"候选 ≥ 阈值禁 add"的结构强制——**那条已在
+    2026-09-15 T17 删除**, 候选现在只是提示, 所以降级的后果轻得多, 但依然要报。）
+    更早的失效形态: 新经历一路 `add`, wiki 图退化成"一条经历配一个 belief"
+    （现网 haruka 实测 4 episode → 4 belief, evolution 全 add）。
 
     现在: ① 先查 `health()`（= 真的发现了 embedding 模型）, 未就绪 → 返回 None
     （语义等价于原降级路径, 但**从源头**不给出注定抛错的 embed_fn）;
@@ -131,8 +133,8 @@ def _get_embed_fn():
         if _EMBED_REPORTED is not False:
             logger.info(
                 "digest_embed fn=none reason=%s fallback=keyword_candidates"
-                "（语义召回不可用: 本机未加载 embedding 模型 → Round B 失去"
-                "【疑似同主题】标注能力, 新经历只会 add）", reason)
+                "（语义召回不可用: 本机未加载 embedding 模型 → Round B 拿不到"
+                "候选提示, 只能凭 LLM 自己判断）", reason)
             _EMBED_REPORTED = False
         return None
     _EMBED_FN = make_embed_fn(emb)

@@ -328,30 +328,27 @@ def test_round_b_bad_decision_kind():
 
 
 # ---------------------------------------------------------------------------
-# must_touch（板块 5: 引擎疑似同主题标注 → 结构强制 touch/update）
+# must_touch 已删（T17, 2026-09-15）——候选降为提示，引擎不设闸门
 # ---------------------------------------------------------------------------
 
-def test_round_b_must_touch_forbids_add():
+def test_round_b_add_is_never_gated():
+    """★ **引擎不再禁 add**（Q11/Q31/Q32）。
+
+    旧行为: 引擎候选 ≥ `CAND_HIGH` → 该 episode 出 `add` 整行作废。
+    那个阈值从未标定过、实测两模型下候选 6/6 全越线 → **新认知永远长不出来**。
+    现在判 add/touch/update 全归 LLM（prompt 要求判 add 时在 note 里说明理由）。
+    """
     raw = {"decisions": [
         {"episode": "m0001", "decision": "add", "kind": "belief",
-         "subject": "s", "content": "又一条同主题认知"},
+         "subject": "s", "content": "一条全新的认知", "note": "与候选只是字面像"},
     ]}
     rows, result = digest_registry.parse_round_b(
-        raw, episode_ids={"m0001"}, target_ids={"u0001"},
-        must_touch={"m0001": "u0001"})
-    assert not result.is_valid
-    assert any("疑似同主题" in e and "touch/update" in e for e in result.errors)
-    assert rows == []                                  # 违规行被拒
-
-
-def test_round_b_must_touch_allows_touch_and_update():
-    raw = {"decisions": [
-        {"episode": "m0001", "decision": "touch", "target": "u0001"},
-        {"episode": "m0002", "decision": "update", "target": "u0001",
-         "patch": {"content": "深化后的表述"}},
-    ]}
-    rows, result = digest_registry.parse_round_b(
-        raw, episode_ids={"m0001", "m0002"}, target_ids={"u0001"},
-        must_touch={"m0001": "u0001", "m0002": "u0001"})
+        raw, episode_ids={"m0001"}, target_ids={"u0001"})
     assert result.is_valid, result.errors
-    assert len(rows) == 2
+    assert len(rows) == 1 and rows[0]["decision"] == "add"
+    # 引擎里不再有任何"候选 → 禁 add"的入口
+    import inspect
+    sig = inspect.signature(digest_registry.parse_round_b)
+    assert "must_touch" not in sig.parameters
+    assert not any("疑似同主题" in e for e in result.errors)
+    print("    Round B: add 不再被引擎闸门拦（must_touch 已删）")

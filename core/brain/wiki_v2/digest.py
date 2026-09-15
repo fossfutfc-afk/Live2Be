@@ -44,8 +44,6 @@ from contract.digest_registry import (
 from core.brain.wiki_v2.llm_call import llm_chat
 from core.brain.wiki_v2.nodes import make_node
 from core.brain.wiki_v2.recall import (
-    CAND_HIGH,
-    CAND_MED,
     EmbedFn,
     recommend_candidates,
 )
@@ -217,9 +215,9 @@ def digest_segment(
         # ── Round B: 理解者（引擎候选推荐 + 决策表）──
         cog_text, local_of = render_cognition_list(
             store, cap=COGNITION_CAP, exclude=set(player_ids))   # 本轮画像条目不进认知列表
-        ep_text, high_map = _round_b_material(store, episode_ids, local_of,
-                                              embed_fn=embed_fn,
-                                              char_id=getattr(store, "char_id", ""))
+        ep_text = _round_b_material(store, episode_ids, local_of,
+                                    embed_fn=embed_fn,
+                                    char_id=getattr(store, "char_id", ""))
         system_b = load_prompt("digest_v2_round_b").replace(
             "{{digest_schema}}", digest_registry.build_schema(PHASE_UNDERSTAND))
         user_b = _join_sections([
@@ -235,8 +233,7 @@ def digest_segment(
             extra_body=extra_body, deadline=deadline, label="round_b",
             parse_fn=lambda r: digest_registry.parse_round_b(
                 r, episode_ids=set(episode_ids),
-                target_ids=set(local_of.values()),      # local_of: real→local, 取 values
-                must_touch=high_map),
+                target_ids=set(local_of.values())),      # local_of: real→local, 取 values
             result=result)
         if rows is None:
             return _rollback(store, snapshot, result, clock_snapshot)
@@ -393,32 +390,30 @@ def _create_a_nodes(store: WikiStoreV2, entries: list[dict], *, ts: str,
 def _round_b_material(store: WikiStoreV2, episode_ids: list[str],
                       local_of: dict[str, str],
                       embed_fn: EmbedFn | None,
-                      *, char_id: str = "") -> tuple[str, dict[str, str]]:
-    """Round B 输入: 新经历摘要 + 每条引擎候选标注（板块 5）。
+                      *, char_id: str = "") -> str:
+    """Round B 输入: 新经历摘要 + 每条引擎候选提示（板块 5）。
 
-    每条 episode 用 main_text 走 recommend_candidates 与现有认知碰撞:
-        ≥CAND_HIGH  → 标注【疑似同主题】——决策必须 touch/update（禁 add）,
-                      high_map[nid] = 该候选的本地 id（parse 层结构强制）
-        ≥CAND_MED   → 标注【可能相关】——供参考, LLM 自由 touch/update
-    无标注 → 不画蛇添足（LLM 自由 add/组织）。
+    每条 episode 用 main_text 走 recommend_candidates 与现有认知碰撞,
+    把最像的几条**列出来给 LLM 参考**（`→ 候选(sim 0.xx): u0002 …`）。
+
+    ⚠️ **候选只是提示, 不分档、不强制**（2026-09-15 T17）: 原先
+    `≥CAND_HIGH` 会标【疑似同主题】并让 parse 层**结构强制**禁 `add`——
+    而那个阈值从未标定过、实测两模型皆 6/6 全越线 → 新认知永远长不出来。
+    现在排序取 top-k 无条件列出，判断全在 LLM（判 add 要在 note 里说明理由）。
 
     **2026-09-13 V3-0（DESIGN_WIKI_V3 §3.5）**: 末尾打一行**写路径召回台账**
-    `recall_write char=… eps=… forced=…% mode=semantic|keyword thr=…`。
-    此前这条链完全不可观测——"阈值把全部 episode 判成同主题 → 禁止一切 add"
-    （实测两模型皆 6/6 越线）在日志里看不出任何异常。
+    `recall_write char=… eps=… cands=… best=… mode=…`。
 
-    Returns: (episodes_text, high_map)。
+    Returns: episodes_text（含候选提示行）。
     """
     from core.brain.wiki_v2 import recall_ledger
-    from core.brain.wiki_v2.recall import _thr, CAND_HIGH, CAND_MED
+    from core.brain.wiki_v2.recall import _thr, CAND_K
 
-    thr_high = _thr("cand_high", CAND_HIGH)
-    thr_med = _thr("cand_med", CAND_MED)
+    thr_k = int(_thr("cand_k", CAND_K))
     acc = recall_ledger.CollisionAccount(char_id)
     modes: list[str] = []
 
     lines: list[str] = []
-    high_map: dict[str, str] = {}
     for nid in episode_ids:
         node = store.get(nid)
         if node is None:
@@ -434,22 +429,13 @@ def _round_b_material(store: WikiStoreV2, episode_ids: list[str],
         cands = recommend_candidates(store, query, embed_fn=embed_fn,
                                      mode_out=modes)
         cands = [(c, s) for c, s in cands if c.id in local_of]   # 只标已渲染的
-        highs = [(c, s) for c, s in cands if s >= thr_high]
-        meds = [(c, s) for c, s in cands if thr_med <= s < thr_high]
-        acc.episode(hi=len(highs), med=len(meds), n_cand=len(cands),
+        acc.episode(n_cand=len(cands),
                     best_sim=(cands[0][1] if cands else 0.0))
-        if highs:
-            top = local_of[highs[0][0].id]
-            high_map[nid] = top
-            ids = " ".join(local_of[c.id] for c, _ in highs)
+        if cands:
+            ids = " ".join(local_of[c.id] for c, _ in cands)
             lines.append(
-                f"    → 【疑似同主题】(sim {highs[0][1]:.2f}): {ids}"
-                " —— 与上同主题, decision 只能 touch/update（禁 add 重复）")
-        if meds:
-            ids = " ".join(local_of[c.id] for c, _ in meds)
-            lines.append(
-                f"    → 可能相关(sim {meds[0][1]:.2f}): {ids}"
-                " —— 供参考, 可选 touch/update 或视作无关")
+                f"    → 候选(sim {cands[0][1]:.2f}): {ids}"
+                " —— 仅供参照, 同主题就 touch/update, 不同主题就 add")
 
     # 通道口径: 全程 semantic / 全程 keyword / 混合（部分 episode 失败降级）
     if modes and all(m == "semantic" for m in modes):
@@ -458,8 +444,8 @@ def _round_b_material(store: WikiStoreV2, episode_ids: list[str],
         acc.mode = "keyword"
     elif modes:
         acc.mode = "mixed"
-    acc.log(thr_high=thr_high, thr_med=thr_med)
-    return "\n".join(lines) or "（无）", high_map
+    acc.log(thr_k=thr_k)
+    return "\n".join(lines) or "（无）"
 
 
 def _segment_emotion_keys(events) -> list[str]:
