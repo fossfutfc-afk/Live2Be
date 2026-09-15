@@ -1,6 +1,22 @@
-# Live2Be 待办表（2026-09-03 快照）
+# Live2Be 待办表（2026-09-03 快照；2026-09-15 校准）
 
 > 此表是跨 session 的进度锚点——完成一项就勾掉。旧快照（08-23）已清理归档进 git 历史。
+>
+> **2026-09-15 校准说明**：本表停在 09-03，中间有两大段工作**没进过这张表**，
+> 已在下面就地更新（时间架构、召回链路、地点系统、阈值退役）。跨 session 找进度时
+> **别只信这张表**——`git log --oneline` 与各设计稿的状态头更准。
+>
+> **近期已落地（09-13 ~ 09-15，全部在 master）**：
+> - **V3-0 召回台账** + 五链路接口（`core/brain/wiki_v2/channels.py`）
+> - **时间骨干 T0–T13**：`core/worldtime/` 独立包（剧情时间游标 / 虚化短语 / 手机日期）
+> - **召回链路 T14–T15**：时间线记录级索引 + 板指针接通 + `verbatim` 两条通道 +
+>   B 链路（情绪序列 RAG）实现 + 召回侧字段隔离（`emo_shape` 等不进 LLM 上下文）
+> - **地点 T16**：盒B 去内容词表（`place_palette` → `place_world`）+ `regions.yml`
+>   归一（`core/parsing/place_regions.py`）
+> - **T17**：删 `cand_high`/`cand_med`/`accept_hit_rate` + `must_touch` 结构强制
+>   （Q11/Q31/Q32）——候选仅作提示
+> - **T18**：`LocalEmbedder` 配置面（`settings.toml [embed]` + `LIVE2BE_EMBED_*`）+
+>   `health()` 真探测 —— **等 embedding 服务起来，写路径自动活**（见下方中期项）
 > 关联：CLAUDE_OPTIMIZE.md（优化方向状态清单）/ guidance/（角色卡写作指导）/
 > AGENT_BRAIN.md（wiki 实施蓝图, 含开放问题 §9）/ DESIGN_BRAIN.md（记忆体系总纲）
 
@@ -326,9 +342,18 @@
       - 字段预留已就位：character_names 称呼注入（momotalk/bond_story 分饰多角）、
         interperson 权重表、hub channel 预留、observer 语义（reported_fact）
       - 群像本体：A 一次调用 / B 轮番调用（段落流抽象）——前置：单人模式稳定
-- [ ] **RAG 召回记忆**：recall.py 三通道已实现, embed_fn 注入=RAG 升级接口已留——
-      接本地 embedding（nomic + numpy 余弦, DESIGN_BRAIN §10 Phase 2）+ 原文回捞
-      （滑动窗口外的按需调页）
+- [ ] **RAG 召回记忆**：`recall.py` 三通道（读路径 v2）+ `channels.py` 五链路
+      （读路径新接口 V3-3）**都已实现**; embed_fn 注入=RAG 升级接口已留。
+      **2026-09-15 更新 —— 缺的不再是接口**:
+      - ✅ **后端配置面已就位（T18）**: `settings.toml [embed]` + `LIVE2BE_EMBED_*`
+        （真源 `core/rag/embedder.py`, 优先级 构造参数 > settings.toml > env > 默认）
+      - ⏳ **服务没起**: 探过 1234/1235/8080 全部超时。**起来之后写路径自动活**——
+        digest Round B 的候选提示走 `_get_embed_fn()`, 零代码改动; 观测口 =
+        台账行 `recall_write … collide=% best=…`（可复测 Qwen3 的 (0.452, 0.682) 窗口）
+      - ❌ **读路径缺组合层**: `RecallContext` 全仓只有测试构造 → 五链路谁都没在
+        生产里被调用过（A/B/D 都能出分, 只是没人调）。**卡在"合成函数"这个裁决上**
+        （链路 kind/scale 各不同, `channels.py` 写明"最终分由合成层算", 而合成层没写）
+      - 原文回捞（滑动窗口外的按需调页）仍未做
 - [ ] Virtual Brain 完整（Semantic Graph / Self-Model / Sleep 五阶段——当前 digest
       体系是其简化版; CLAUDE.md §3.2）
 - [ ] 官方剧情（剧本解析器 + 播放器）
@@ -336,7 +361,10 @@
 - [ ] mmt_send_media 媒体管线（资源查库 → 生图; 当前占位回灌）
 - [ ] 世界观输出侧校验（LLM 输出 vs overview.yml 规则检测矫正——config/settings/.md 未来项）
 - [ ] SSE 流式推送替代轮询（chat_stream 客户端已有, 引擎/前端未接）
-- [ ] 时间系统（AGENT_BRAIN §时间——单元时间标注/渲染层记忆模糊化, 待拍板）
+- [x] ~~时间系统（待拍板）~~ → **已落地（2026-09-13, T0–T13）**:
+      `core/worldtime/` 独立包（游标 `world_clock.json` / 槽位算术 / 虚化短语 /
+      手机日期 / 现实间隔）+ 写路径 stamp `story_time` + 读路径"（3 周前）"注记 +
+      旧档迁移 + A 链路新鲜度。设计见 `docs/DESIGN_WIKI_V3.md` §4
 
 ## 已知技术债 / 文档债
 
