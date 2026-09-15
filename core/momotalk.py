@@ -139,7 +139,9 @@ def _get_embed_fn():
         return None
     _EMBED_FN = make_embed_fn(emb)
     if _EMBED_REPORTED is not True:
-        logger.info("digest_embed fn=ok model=%s fallback=-", model)
+        # 带 base= : 配置面接通后"在跑哪个服务"不再靠猜（Qwen3 在 1235 / nomic 在 1234）
+        logger.info("digest_embed fn=ok model=%s base=%s fallback=-",
+                    model, emb.base_url)
         _EMBED_REPORTED = True
     return _EMBED_FN
 
