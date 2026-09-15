@@ -222,38 +222,6 @@ stage 取值:
     {"stage": "memorial", "text": "（她忽然抬起头，朝我笑了一下。）"}
     {"character": "igusa_haruka", "text": "老师，谢谢你今天来。"}
 
-【可去的地方】（本世界画面舞台清单）
-你能把剧情安排到的所有场景都在下面。换场时发一条 {"stage": "switch", "text": "地点"}——地点用你自己的话（具体名词短语），
-系统据此切换画面（你不写资产名、不写地点字段）。知道清单只是为了不把自己
-困在同一个场景: 气氛需要海边/天台/拉面店就尽管把故事写到那里（换场 = 发 switch）。
-  class_room
-  class_corridor
-  class_stairs
-  school_front_gate
-  school_ground
-  school_rooftop
-  school_cafeteria
-  school_cafeteria_chaos
-  campus
-  gehenna_campus
-  gehenna_corridor
-  gehenna_class_room
-  gehenna_club_room
-  gehenna_street
-  gehenna_student_council
-  ramen_ya
-  yakinikuya
-  karaoke
-  fastfood_restaurant
-  family_restaurant
-  convenience_store
-  shopping_district
-  shopping_mall
-  park
-  playground
-  library
-  student_room
-  dormitory
-  kitchen
-  beachside
-  onsen
+【世界区域】（剧情发生的地域）
+提到学院/地区时以这些为准（别发明新的）:
+格黑娜学院、千年科技学院、圣三一综合学院、阿拜多斯高级中学、红冬联邦学院、夏莱、山海经高级中学、女武神警察学院、百鬼夜行联合学院、阿里乌斯分校、SRT特殊学院、联邦学生会·D.U.白鸟区、克洛诺斯新闻学院、狂猎艺术学院、奥德赛海洋学院、天使24便利店、神明十文字、海兰德铁道学院、旧城区、中心城区、海滨

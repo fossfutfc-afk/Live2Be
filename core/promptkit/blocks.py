@@ -17,8 +17,9 @@ from pathlib import Path
 from typing import Any, Callable
 
 from core.common.tone import load_story_tone
-from core.media.emotion_lexicon import build_emotion_injection, load_place_lexicon
+from core.media.emotion_lexicon import build_emotion_injection
 from core.mmt.mmt_executor import MmtExecError, load_interperson, self_entry_to_prompt
+from core.parsing.place_regions import load_regions
 from core.parsing.world_parser import DEFAULT_WORLD_PATH, load_world, world_to_prompt
 from llm.prompts import load_prompt
 
@@ -41,7 +42,7 @@ class BlockContext:
     world_path: str | None = None          # None → 默认 overview.yml
     brain_segment: str = ""                # Bond: 记忆段（开场注入, 剧情内固定）
     assets_root: Path | str | None = None  # Bond 词表资产根（None → 项目根/assets）
-    place_whitelist_path: Path | str | None = None  # 舞台清单词表（None → 默认 whitelist）
+    regions_path: Path | str | None = None  # 剧情地理词表（None → 默认 regions.yml）
 
 
 # ---------------------------------------------------------------------------
@@ -150,27 +151,41 @@ def _lexicon_emotion(ctx: BlockContext) -> str | None:
     return inj or None
 
 
-def _place_palette(ctx: BlockContext) -> str | None:
-    """【可去的地方】舞台清单（2026-09-10 记录流 v2 改版——换场由 writer 发 `switch`）:
+def _place_world(ctx: BlockContext) -> str | None:
+    """【世界区域】剧情地理（`regions.yml` 的官方中文主名）。
 
-    旧单源切换（主 LLM 不写地点、由标注层从文本判定）在记录流里被 `stage: switch`
-    取代：**WHEN 归 writer**（它换场就发一条），**WHICH 归标注器**（把地点话翻译成
-    资产键）。所以本块不再说"你不能输出地点字段"，而是把**同一份词表**（标注层
-    同源）作为"可选舞台"注入——只扩可选空间（气氛需要海边/天台/拉面店就写过去），
-    措辞同时教它 switch 的写法。词表键永不回灌（history 只回显它自己写的地点话）。
+    **2026-09-15（T16）取代 `place_palette`**（31 条资产 slug 的"舞台菜单"）。
+    用户裁决: *"普通地点我希望以文本的形式说明, 比如各个学院, 不具体到那些咖啡馆
+    这种地点词, 因为给主 LLM 这些反而会把它框死, 这是异步 lane 的工作。"*
+
+    ## 为什么这一档要给（而 `place_palette` 不该给）
+
+    | | `place_palette`（旧） | 【世界区域】（本块） |
+    |---|---|---|
+    | 内容 | 资产键（`school_rooftop`…） | 剧情地理主名（`阿拜多斯高级中学`…） |
+    | 性质 | **可选空间**——"你能把故事写到哪" | **世界设定**——"这个世界有哪些地方" |
+    | 副作用 | 诱导"为了用上拉面店而写一场拉面店" | 无（与 persona/world 同性质） |
+
+    判据 = **"多给 writer 一个手段"还是"少给 writer 一个自由"**。
+    而且 `overview.yml` 里**一个学院名都没有**——writer 本来不知道这个世界有哪些
+    学院，会凭空发明。所以这不是"给菜单"，是**补世界设定**。
+
+    ## 为什么删 `place_palette` 不损失"防单调"
+
+    它当年存在的理由是"writer 不敢换场"。而那个职责**已经由规则书承担**:
+    `bond_story_rules.md` §五【换场】写了何时发、怎么发、同地点小动作不换场,
+    连示例都给了三条（含 `{"stage": "switch", "text": "星空"}`）。
+    **规则书给的是"能力", 菜单给的是"选项"**——前者才是正解。
     """
-    keys = load_place_lexicon(ctx.place_whitelist_path)
-    if not keys:
+    table = load_regions(ctx.regions_path)
+    names = table.names()
+    if not names:
         return None
-    lines = [
-        "【可去的地方】（本世界画面舞台清单）",
-        "你能把剧情安排到的所有场景都在下面。换场时发一条 "
-        '{"stage": "switch", "text": "地点"}——地点用你自己的话（具体名词短语），',
-        "系统据此切换画面（你不写资产名、不写地点字段）。知道清单只是为了不把自己",
-        "困在同一个场景: 气氛需要海边/天台/拉面店就尽管把故事写到那里（换场 = 发 switch）。",
-    ]
-    lines.extend(f"  {k}" for k in keys)
-    return "\n".join(lines)
+    return "\n".join([
+        "【世界区域】（剧情发生的地域）",
+        "提到学院/地区时以这些为准（别发明新的）:",
+        "、".join(names),
+    ])
 
 
 def _brain(ctx: BlockContext) -> str | None:
@@ -193,7 +208,7 @@ BLOCKS: dict[str, Callable[[BlockContext], str | None]] = {
     "bond_tone": _bond_tone,
     "rules_bond": _rules_bond,
     "lexicon_emotion": _lexicon_emotion,
-    "place_palette": _place_palette,
+    "place_world": _place_world,
     "schema": _schema,
     "brain": _brain,
 }
@@ -211,7 +226,7 @@ BLOCK_DOC: dict[str, str] = {
     "bond_tone": "本角色羁绊剧情建议（SIG~bond_tone, 条件）",
     "rules_bond": "羁绊剧情规则书（记录流写法: switch/群/memorial/end）",
     "lexicon_emotion": "表情标注词表（emotions.yml, 条件）",
-    "place_palette": "可去的地方·舞台清单（词表同源; 换场由 writer 发 switch）",
+    "place_world": "世界区域·剧情地理（regions.yml 主名; 世界设定, 非可选空间）",
     "schema": "输出契约 schema（域契约; 标题随域可换）",
     "brain": "记忆段（brain_segment, 条件）",
 }

@@ -26,10 +26,13 @@ DOMAIN_BOXES: dict[str, list[str]] = {
     # 盒B v2（Bond, 2026-09-07 Phase 3）: 称呼行归位盒顶——此前夹在 bond_tone
     # 与 rules 之间; 其余顺序/文案逐字节沿用现网（黄金夹具锁定）。
     # 2026-09-07 v2: place 判定移交标注层（单源切换）——主 LLM 不写地点;
-    # 但词表可见性 ≠ 写权限: place_palette（舞台清单）保留创作可选空间
-    # 2026-09-10 记录流 v2: 换场由 writer 发 stage:switch（place_palette 措辞反转）;
+    # 2026-09-10 记录流 v2: 换场由 writer 发 stage:switch;
     # **lexicon_emotion 块退出盒B**——v2 里 emotion 由标注层逐记录挑, writer 不写情绪,
     # 词表注入对创作不再起作用（且其"你不用写 emotion"式提醒属白熊效应, 决策 #24）。
+    # 2026-09-15（T16）: **place_palette → place_world**——用户裁决"主 LLM 零内容词表":
+    # 资产 slug 菜单会**框死** writer（"为了用上拉面店而写一场拉面店"）, 而
+    # **世界区域是设定不是菜单**（overview.yml 里一个学院名都没有, writer 会凭空发明）;
+    # "换场"这个能力由 rules_bond §五【换场】承担, 不需要菜单。
     "bond": [
         "greeting",            # 称呼行（v2 首段, 剧情行为规则指向）
         "persona_bond",        # 角色设定两层 + 行为规则
@@ -38,7 +41,7 @@ DOMAIN_BOXES: dict[str, list[str]] = {
         "bond_tone",           # 羁绊剧情建议（条件）
         "rules_bond",          # 羁绊剧情规则书
         "schema",              # 输出契约（VN 记录流; 标题可换）
-        "place_palette",       # 可去的地方·舞台清单（条件; 换场发 switch）
+        "place_world",         # 世界区域·剧情地理（条件; 世界设定, 非可选空间）
         "brain",               # 记忆段（条件）
     ],
 }

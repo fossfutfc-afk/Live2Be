@@ -93,7 +93,7 @@ messages = [system] + history + [P16 羁绊进度注记] + [P17 system_note?]
 | 4 | `【本角色羁绊剧情建议】` | `bond_tone` 块 = script.yml `SIG~bond_tone`（char.bond_tone）| 缺失 → 不注入（条件块） |
 | 5 | 羁绊剧情规则书 | `rules_bond` 块 = `bond_story_rules.md`（**`{char_id}`/`{char_name}` 按会话替换**） | **记录流 v2（2026-09-10）**：八节结构（视角/节奏/记录写法/群与密度/换场/纪念预告/收尾组合/范本）；**台词写纯文本（不包「」）**；范例说话人 = 真实 id；**不写"不要写 X 字段"式提醒**（决策 #24） |
 | 6 | 本轮输出契约（VN 记录流） | `schema` 块 = **`build_record_schema(char_id=…, char_display=…)`**（contract/schema.py；bond_story.py start_session）| **v2**：标题由 `BlockContext.schema_title` 换掉「可用动作 schema」（story 域无 action 外壳）；内容 = 七种取值 + 硬规则六条 + few-shot（**随会话渲染真实角色 id**）；`end` 明示"收尾字段、不是老师的话、可留空"；不再用 `build_schema(story registry)`（memorial exit schema 仍走 registry，纪念模式注记补喂） |
-| 7 | `【可去的地方】` | `place_palette` 块 = whitelist common_scenes（**与标注层同源**）| 舞台清单（v2 2026-09-10 措辞反转）：**WHEN 归 writer**——换场就发 `{"stage":"switch","text":"地点"}`（自然语言、具体名词短语），**WHICH 归标注器**（switch 文本 → 资产键）；清单只扩可选空间（防背景单调） |
+| 7 | `【世界区域】` | `place_world` 块 = `regions.yml` 21 条 `zh` 主名（`core/parsing/place_regions.py`）| **2026-09-15（T16）取代 `place_palette`**：用户裁决"**主 LLM 零内容词表**"——资产 slug 菜单会**框死** writer（"为了用上拉面店而写一场拉面店"）；而**世界区域是设定不是菜单**（`overview.yml` 里一个学院名都没有, writer 会凭空发明）。判据 = "多给 writer 一个手段"还是"少给 writer 一个自由"。**"换场"这个能力由 `rules_bond` §五【换场】承担**（何时发/怎么发/同地点小动作不换场 + 三条示例）, 不需要菜单 |
 | 8 | brain 段 | `brain` 块 = `load_brain_segment`（momotalk.py:129-156）：出厂背景 + wiki 视图 | webgui 每次 start/replay 都重取（webgui/bond.py:401-406, 542-548）→ **剧情内固定**不随 digest 更新（条件块） |
 
 > **`lexicon_emotion` 已退出盒B**（2026-09-10 决策 #24⑤）：记录流 v2 里 emotion 由标注层
@@ -101,12 +101,15 @@ messages = [system] + history + [P16 羁绊进度注记] + [P17 system_note?]
 > "你不用写 emotion"式提醒属白熊效应。盒B 由 10 块降为 **9 块**（块实现保留在
 > `blocks.BLOCKS`，供标注层/测试复用）。
 
-**地点归属换代（2026-09-10 记录流 v2）**：主 LLM **发 `stage:switch`**
+**地点归属换代（2026-09-10 记录流 v2 / 2026-09-15 T16）**：主 LLM **发 `stage:switch`**
 （WHEN 归它，自然语言地点），**不再有任何地点字段**；翻译成资产键是标注层的事
 （WHICH；P1 待接）。旧 v2 单源切换（"换场即换段"、place lane 从正文判锚点）在
 记录流里退役——history 只回显 writer 自己写的地点话，词表键永不回灌。
-`place_palette` 舞台清单保留（同源, 防背景单调）。旧契约见
-docs/archive/DESIGN_BOND_CONTRACT_V2.md；新契约见 docs/DESIGN_VN_UPGRADE.md §5。
+
+**盒B 至此已无任何词表块**（`lexicon_emotion` 2026-09-10 退出、`place_palette`
+2026-09-15 换成世界设定块）：情绪归标注层逐记录判、地点归标注层翻译，
+writer 只写自然语言。旧契约见 docs/archive/DESIGN_BOND_CONTRACT_V2.md；
+新契约见 docs/DESIGN_VN_UPGRADE.md §5 与 docs/DESIGN_PLACE.md（三层框架）。
 
 双 registry 分流（bond_story.py:429-435）：按**动作名归属**——story 域 spec 命中 →
 story parse；否则 memorial 域。parse 失败仍留本域反馈（不能按 parse 结果分流）。

@@ -237,6 +237,84 @@
 - [ ] **I. 每板档位表拍板**（候选: low = wrapup/纯叙事续写预生成/MMT 闲聊;
        high = 选项板/触发轮——~~自由输入板~~ 2026-09-10 锁死撤销, 自由度移交 DESIGN_MEETUP）——A 的决策前提, 待用户
 
+### 标注层「两层解析」+ 主 LLM 去词表（2026-09-15 立项讨论——**未动代码**）
+
+> 方向（用户裁决）: **主 LLM 零词表**（输出契约枚举除外）——
+> `lexicon_emotion` 已因同样理由退出盒B（决策 #24: "词表注入对创作不再起作用,
+> 且其提醒属白熊效应"）; **`place_palette` 是盒B 里最后一块词表**。
+> 词表统一归标注层, 由标注层做「自由文本 → 键」。
+
+- [ ] **`place_palette` 退出盒B**（最小第一刀）: 删块 → 盒B 9→8 块 →
+      **promptkit 黄金夹具必刷**（CLAUDE.md §8 纪律）。
+      **它不是"防背景单调"的正解**: 想解决的是"writer 不敢换场", 而正确手段是
+      **一条规则 + 一个动作**（`switch` 已经有了）——给菜单是**用错的手段做同一件事**,
+      且菜单是**猜**需求、`[place][MISS]` 日志是**测**需求
+- [ ] **switch 并入 place lane**: 现在 `resolve_place`（首记录是 `switch`）与
+      `annotate_places`（句级锚点）**二选一 + 早返回**（`bond_story.py:1115-1136`）
+      ——合成一条路; `current_place` 延续态跟着搬
+- [ ] **接 tempo 导出表**: `_place_entities.json`（200+ 条 + `keywords` + `note`）
+      替换 31 条裸 slug —— **层1 `keywords` 别名精确命中（0 调用）+ 层2 LLM 解析**。
+      `resolve_place` docstring 自称「P1-2 会用 tempo 导出视图替换词表」
+- [ ] **`keywords` 分隔符（源头 bug, 接通前第一件事）**: `place_studio.py:574` 按
+      `,` 拆, 而数据是 `/`（旧导出用 `|`）→ **实测两个导出文件都是单元素数组、
+      元素是整串** → 别名表恒不命中。消费端容错（`, / | 、` + 空白一起拆, 同
+      `parse_index` 绝不抛的纪律）; tempo 侧 `split` 与 placeholder 一行同修
+- [ ] **`PlaceRetriever` 接线**: `core/rag/place.py` 已经就是「精确兜底 + 语义兜底」
+      两层, 但**生产零调用**（只 `experiments/rag_test.py` 用）; 且它读 `places.yml`
+      （中英日别名）与 `resolve_place` 的裸 slug **互不相识** → 词表统一时收口
+- [ ] **`place` = 数组**: `BrainNode.place: list[str]`（digest 按 `event_seq` 物化,
+      同 `emo_shape` 的做法）, **原文与键并存**——两根轴: 键 = 视觉/素材,
+      原文 + `region` = 叙事
+- [ ] **⚠️ 同键不同义（用户 2026-09-15 提醒）**: `place` 字段里混着两类键——
+      `default_place()` 派生的**文件名 slug**（描述资产）与**作者手写语义键**
+      （描述地点）, 且**无从判别是哪一种**。后果两个方向都有:
+      ① 一键多义（`class_room` 同时服务阿拜多斯/格黑娜教室 → 求交**假阳性**）
+      ② 一地多键（`DIR_ViewSora` 下 `view_sky`/`view_constellation`/`view_dawnsky`
+      → 求交**假阴性**）。**结论: C 链路的"同地"判据默认不吃 `place` 键**,
+      走 `region`（剧情地理, 独立轴）+ 原短语; `place` 键相等只声称"**同素材**"。
+      `SDIR_Atmosphere`（黑场/纯色/全景）是**镜头不是地点**, 直接排除出同地判断
+- [ ] **★ 三档分流: 情景图 / 粗粒度地理 / 具体地点**（用户 2026-09-15 澄清，
+      **这是 emoment 的真实含义**）——**同一张 `_place_entities.json`, 按类别走三种
+      注入策略**。表自身的结构（`sdir`/`dir` / `region` / `place`）**已经把三档分好了**:
+
+      | 档 | 判据 | 给主 LLM | 谁解析 | 现在能做？ |
+      |---|---|---|---|---|
+      | **粗粒度地理** | `region`（`regions.yml` 21 条） | ✅ 给**文本**（学院名一级） | 别名的纯字符串归一 | ✅ **现在就能** |
+      | **情景图（镜头）** | `DIR_View*` 一类 | ✅ 给**说明**（自然语言，不给键） | 层1 别名 0 调用 → 层2 anno | ⏸ **等 tempo** |
+      | **具体地点** | `place` 键 | ❌ **不给**（会框死） | 异步 lane（anno） | ⏸ **等 tempo** |
+
+      **判据 = 这张表是"多给 writer 一个手段"还是"少给 writer 一个自由"**:
+      - 情景图**必须给**——**能力可见性**: writer 不知道资产存在就**永远不会调度**它
+        （"可以在最后调天空的情景结束, 但不告诉 LLM 它就肯定不会用"）→ **扩大**空间
+      - 具体地点**不能给**——从列表里挑 = **收窄**空间
+      - ⚠️ **不是封闭枚举**: writer 不写资产名（既有纪律）, 它写自然语言、由别名表
+        命中 → **两步走在两档上都成立**, 区别只是命中率（情景图高、具体地点低）
+      - ⏸ **情景图档挂起**（用户 2026-09-15）: *"AI 在 bond story 更多是编剧,
+        给它一些常见的组合拳它自然能理解的, **这是等我手写那些图片结束后的事情**"*
+      - ⚠️ **`DIR_PureColor`（black/red/white）排除**——作者在 `note` 里已写死边界:
+        "黑色特效, **转场不必使用, engine 会处理的**"。筛选依据现成
+      - ⚠️ **粗粒度地理会不会与 `world` 块重复** → ✅ **已核: 不重复**。
+        `overview.yml` 里只有"基沃托斯"和"夏莱", **没有任何学院名清单** →
+        writer 现在其实**不知道这个世界有哪些学院**（可能凭空发明）。
+        所以注入 `region` 不是"给菜单", 是**给世界设定**（与 persona/world 同性质）
+      - ⚠️ **待定（挂起）: writer 用什么信号调度情景图**——复用 `switch` 的 text
+        / 新开 stage 原语 / 同 `time_of_day` 那样加可选字段
+
+- [ ] **★★ 现在就能做的 place 第一刀（不依赖 tempo 表）**:
+      ① **`place_palette` 退出盒B**, 换成 **`region` 列表**（`regions.yml` 21 条
+         中文主名）—— 这正是"粗粒度地理以文本形式说明"; 盒B 9→8 块, **夹具必刷**
+      ② **`BrainNode.region: str` + `BrainNode.place: list[str]`**:
+         region 由 switch 原文经 `regions.yml` **别名归一**（纯字符串, **0 LLM**）;
+         place 先只落**原文**（键留空, 等 tempo 表 → 原文留着可重解析,
+         同 `verbatim_seq` 的理由）
+      ③ **switch 并入 place lane**: 消掉与 `annotate_places` 的"二选一早返回"
+      ④ **C 链路先落 region 层**: `region` 相等（精确、0 依赖、不靠 embed 后端）
+
+- [ ] **`regions.yml` vs `place_studio.REGIONS` 双表漂移**: `config/settings/world/
+      regions.yml`（21 条）**Live2Be 侧零消费**（`grep regions.yml` 在 `*.py` 零命中）,
+      而 `place_studio.py:40` **内嵌了第二份**（自称"不再依赖/import Live2Be"）
+      → 两份表迟早漂移。接线时收口到一份
+
 ## 中期（蓝图 / 板块）
 
 - [ ] **回放功能**（事件流 → 自动播放）：
