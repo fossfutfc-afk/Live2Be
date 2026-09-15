@@ -1,23 +1,29 @@
 # -*- coding: utf-8 -*-
 """embedder.py — 本地 embedding 客户端（RAG 向量来源, core/rag/ 地基）。
 
-对接本地 OpenAI 兼容 /v1/embeddings（LM Studio / Bionic, 默认 localhost:1234）,
-跨语言 embedding 模型（如 bge-m3 / Qwen3-Embedding / multilingual-e5）由用户在
-Bionic 里加载; 本模块只负责:
-    - 自动发现: model 缺省时从 /v1/models 挑 id 含 "embed" 的模型（启发式）
+对接本地 OpenAI 兼容 `/v1/embeddings`（LM Studio / llama.cpp / Bionic 等），
+跨语言 embedding 模型（如 bge-m3 / Qwen3-Embedding / multilingual-e5）由用户加载;
+本模块只负责:
+    - **配置发现**: `settings.toml [embed]` > `LIVE2BE_EMBED_*` > 默认（见下）
+    - **模型发现**: `model` 一路都空时，从 `/v1/models` 挑 id 含 "embed" 的模型
     - 批式 embed(texts) → 等长向量（自动分批, 单次调用失败可重试）
     - 统一错误: RagError（继承 Live2BeError, [embedder.py][RagError][info]）
+
+**地址默认 1234 只是"LM Studio 的常见端口"，不是约定**——2026-09-15（T18）之前
+它是硬编码的、没有配置面, 于是"本机装好的模型对代码不可见"（Qwen3 在 1235,
+代码只会去敲 1234）。配置面见 `_settings_embed_cfg` 的 docstring。
 
 语义（宁缺勿错）: 服务未起 / 模型未加载 → 抛 RagError——调用方（place/brain）
 自行降级（精确兜底 / tags 词面匹配）, 本层不吞错。
 
 用法:
     from core.rag.embedder import LocalEmbedder
-    emb = LocalEmbedder()                     # 自动发现 embedding 模型
+    emb = LocalEmbedder()                     # 走配置链 + 自动发现
     vecs = emb.embed(["school rooftop", "学校天台"])
 """
 from __future__ import annotations
 
+import logging
 import os
 import time
 from pathlib import Path
@@ -26,7 +32,9 @@ import httpx
 
 from core.common.errors import Live2BeError
 
-#: 默认服务地址（LM Studio 的常见端口）
+logger = logging.getLogger(__name__)
+
+#: 默认服务地址（LM Studio 的常见端口; **可被 [embed].base_url 覆盖**）
 DEFAULT_BASE_URL = "http://localhost:1234/v1"
 
 #: 项目根（core/rag/embedder.py → parents[2]）
@@ -152,7 +160,16 @@ class LocalEmbedder:
     # ------------------------------------------------------------------
 
     def _auto_discover(self) -> str:
-        """从 /v1/models 挑 embedding 模型（id 启发式）; 找不到 → ""。"""
+        """从 `/v1/models` 挑 embedding 模型（id 启发式）; 找不到 → `""`。
+
+        ⚠️ **刻意不盲选 `ids[0]`**（2026-09-15）: 旧实现末尾是
+        `return ids[0] if ids else ""`（"只有一个模型也认——宁可用不可断"）。
+        那在"这台机器只跑了一个 **LLM**"时是**有毒**的: 拿 LLM 的 id 当 embedding
+        模型 → `health()` True → 每轮 embed 全失败, 而日志只说"调用失败",
+        看不出是**端口指错了服务**。本机正是这种布局（embedding 在 1235,
+        1234 另有用）→ 宁可返回 `""`: `health()` False, 上层走关键词兜底并打一行
+        `digest_embed fn=none`。**宁可降级, 不可用错。**
+        """
         try:
             with httpx.Client(timeout=min(self.timeout, 10)) as client:
                 r = client.get(f"{self.base_url}/models")
@@ -164,7 +181,10 @@ class LocalEmbedder:
             hit = next((i for i in ids if hint.lower() in i.lower()), None)
             if hit:
                 return hit
-        return ids[0] if ids else ""       # 只有一个模型也认（宁可用不可断）
+        logger.warning("[embed] %s 上没有可识别的 embedding 模型（列表: %s）"
+                       "——不盲选; 请确认端口, 或显式配 settings.toml [embed].model",
+                       self.base_url, ids or "（空）")
+        return ""
 
     def available_models(self) -> list[str]:
         """当前服务已加载的全部模型 id（供上层挑选/排查）。"""
