@@ -84,6 +84,14 @@ class BrainNode:
     # ── kind 专属 ──
     narration: str = ""
     verbatim: str = ""
+    #: `verbatim` 的**索引通道**（T14, 2026-09-15）——`["28.3", "20.p"]`。
+    #: 语义: 这条 episode 的"关键几句"在**时间线上的地址**（词汇表见
+    #: `contract/timeline_index.py`）。地址**永久有效**——`paragraphs` 落在
+    #: append-only 的 `events.jsonl` 里, 永不改删, 所以索引能被无限次重新解析。
+    #: `[]` = 未采集 / LLM 只给了文本通道。
+    #: ⚠️ **`verbatim`（文本）才是消费字段**——`render.py`/`recall.py` 只拿到节点、
+    #: 拿不到事件流, 解析不了索引。本字段服务的是**可追溯性 / 板归属 / 重解析**。
+    verbatim_seq: list[str] = field(default_factory=list)
     title: str = ""             # episode 可选短标题（渲染压缩/回放/决策表引用）
     pattern: str = ""
     subject: str = ""
@@ -231,7 +239,8 @@ class BrainNode:
             "epistemic": self.epistemic,
         }
         for f in ("observer", "tags", "segment_id", "event_seq", "ts", "source",
-                  "links", "contradictions", "notes", "narration", "verbatim", "title",
+                  "links", "contradictions", "notes", "narration", "verbatim",
+                  "verbatim_seq", "title",
                   "pattern", "subject", "count", "examples", "content", "growth",
                   "observation", "history", "source_key"):
             v = getattr(self, f)
@@ -273,6 +282,7 @@ class BrainNode:
         # kind 专属
         node.narration = _str(raw.get("narration"))
         node.verbatim = _str(raw.get("verbatim"))
+        node.verbatim_seq = _str_list(raw.get("verbatim_seq"))
         node.title = _str(raw.get("title"))
         node.pattern = _str(raw.get("pattern"))
         node.subject = _str(raw.get("subject"))
