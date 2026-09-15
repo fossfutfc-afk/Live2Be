@@ -102,7 +102,14 @@ class RecallContext:
     #: 当前好感标量 ∈ [−1,1]（`Affection.to_scalar()`）—— 同频召回用
     aff_now: float | None = None
     #: 当前地点（`§2.3.2` 的 `place`）—— C 链路用; None = 未知
+    #: 🚫 **不进 LLM 上下文**（用户 2026-09-15 裁决）: 召回侧信号, 参与筛选不参与写作。
     place_now: str = ""
+    #: 当前**情绪键序列**（B 链路的 query 侧）—— 如 `["tease", "smile"]`。
+    #: 与 `place_now` 对称: 同样是**召回侧信号, 🚫 绝不进 LLM 上下文**。
+    #: 为什么不是自由文本: B 比的是"情绪的**形状**", 而 `query` 是给 D（内容 RAG）用的
+    #: ——两者混用会让"情绪像"退化成"字面像"（§2.3.1 撤回框的实测教训）。
+    #: `[]` = 未知（链路降级, 不编）。
+    emo_now: list[str] = field(default_factory=list)
     #: 检索后端（`texts → 等长向量列表`）; None → 相关链路降级
     embed_fn: object | None = None
     #: 本角色 id（词表/资产定位用）

@@ -224,6 +224,54 @@ def test_event_seq_falls_back_to_segment_constant(tmp_path):
     assert res.ok, res.errors
     assert st.get("m0003").event_seq == [3]            # interact_max
     assert st.get("m0003").verbatim_seq == []          # 未采集
+    assert st.get("m0003").emo_shape == []             # 板不是 bond → 无键
+
+
+def test_emo_shape_materialized_from_board_pointer(tmp_path):
+    """★ T15: 板指针 → **板级情绪键序列**物化到节点（B 链路的唯一输入）。
+
+    为什么物化: `Channel.gather(store, ctx)` 只拿得到节点、拿不到事件流。
+    """
+    st = _seed_store(tmp_path)
+    a = {"episodes": [{
+        "narration": "杂草屋里她第一次笑出来。", "title": "杂草屋",
+        "event_seq": ["20", "22", "24"],   # 20 是 MMT → 无键; 22/24 是板
+        "tags": ["杂草屋"], "significance": 0.7}]}
+    b = {"decisions": [{"episode": "m0003", "decision": "touch", "target": "u0001"}],
+         "evidence": [], "affection_exp_delta": 0}
+    events = _events(
+        _mmt(20, "在吗", "在的"),
+        ("bond", "story_scene", {"paragraphs": [
+            {"text": "……这里就是，我一直在照顾它们的地方。", "emotion": "expectant"},
+            {"text": "（她蹲下来碰了碰叶子）", "emotion": ""},      # 空键跳过
+            {"text": "它们都长得很好。", "emotion": "smile"},
+        ]}, 22),
+        ("bond", "story_scene", {"paragraphs": [
+            {"text": "谢谢您，老师……！", "emotion": "outburst"},
+            {"text": "我会好好照顾它们的。", "emotion": "strive"},
+        ]}, 24),
+    )
+    res = digest_segment(st, FakeLLM(a, b), events)
+    assert res.ok, res.errors
+    ep = st.get(res.created[0])
+    # 按 seq 序拼接; MMT(20) 无键; 空键跳过 —— 弧的形状保留, 不补位
+    assert ep.emo_shape == ["expectant", "smile", "outburst", "strive"], ep.emo_shape
+    assert ep.event_seq == [20, 22, 24]
+    print(f"    emo_shape 物化: {ep.emo_shape}")
+
+
+def test_emo_shape_absent_when_no_pointer(tmp_path):
+    """无板指针（回落段级常量）→ 段级常量指向的若恰好是 bond, 键序列仍会物化;
+    若指向 MMT → 空。**绝不编。**"""
+    st = _seed_store(tmp_path)
+    events = _events(("bond", "story_scene", {"paragraphs": [
+        {"text": "她笑了。", "emotion": "smile"}]}, 3))
+    res = digest_segment(st, FakeLLM(_a_episode(), _b_ok()), events)
+    assert res.ok, res.errors
+    ep = st.get(res.created[0])
+    assert ep.event_seq == [3]
+    assert ep.emo_shape == ["smile"]           # 回落常量指向 bond → 照样物化
+    print(f"    无板指针(回落 {ep.event_seq}) → emo_shape={ep.emo_shape}")
 
 
 # ---------------------------------------------------------------------------

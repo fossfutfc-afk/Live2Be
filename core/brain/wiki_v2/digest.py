@@ -212,7 +212,7 @@ def digest_segment(
         episode_ids, player_ids = _create_a_nodes(
             store, entries, ts=now_ts, segment_id=segment_id,
             event_seq=[interact_max], aff_at_encoding=aff_at_encoding,
-            story_time=new_cursor.to_dict())
+            story_time=new_cursor.to_dict(), by_seq=by_seq)
 
         # ── Round B: 理解者（引擎候选推荐 + 决策表）──
         cog_text, local_of = render_cognition_list(
@@ -326,7 +326,8 @@ def _round_call(
 def _create_a_nodes(store: WikiStoreV2, entries: list[dict], *, ts: str,
                     segment_id: str, event_seq: list[int],
                     aff_at_encoding: float | None = None,
-                    story_time: dict | None = None
+                    story_time: dict | None = None,
+                    by_seq: dict | None = None
                     ) -> tuple[list[str], list[str]]:
     """Round A 条目 → 节点（引擎字段归属——确定性归引擎, 防幻觉）。
 
@@ -376,6 +377,9 @@ def _create_a_nodes(store: WikiStoreV2, entries: list[dict], *, ts: str,
         node.ts = ts
         node.segment_id = segment_id
         node.event_seq = list(ent.get("event_seq") or event_seq)
+        # 板级情绪键序列（T15）——召回侧物化, **不进 LLM 上下文**
+        if by_seq is not None:
+            node.emo_shape = _emotion_shape(node.event_seq, by_seq)
         node.aff_at_encoding = aff_at_encoding
         node.story_time = story_time
         dup = _find_duplicate(store, node)
@@ -567,6 +571,30 @@ def _text_at(ev, rec) -> str:
     p = paras[rec]
     t = p.get("text", "") if isinstance(p, dict) else str(p)
     return t.strip() if isinstance(t, str) else ""
+
+
+def _emotion_shape(seqs: list, by_seq: dict) -> list[str]:
+    """板指针 → **板级情绪键序列**（按 seq 序拼接; 取不到 → `[]`, 绝不编）。
+
+    只收 bond 事件: 情绪键由**标注层**产出（每条记录一个键）, MMT 事件没有键。
+    空键（`""`/None）跳过——标注失败与"真的无表情"在数据里不可分,
+    所以只把**有值的键**按顺序连起来（保持弧的形状, 不补位）。
+
+    🚫 返回值只进 `node.emo_shape`（召回侧）——**绝不进 LLM 上下文**。
+    """
+    out: list[str] = []
+    for seq in sorted(seqs or []):
+        ev = by_seq.get(seq)
+        if ev is None or ev.type != "bond":
+            continue
+        paras = ev.payload.get("paragraphs")
+        if not isinstance(paras, list):
+            continue
+        for p in paras:
+            k = p.get("emotion") if isinstance(p, dict) else None
+            if isinstance(k, str) and k.strip():
+                out.append(k.strip())
+    return out
 
 
 def _clean_evidence(raw: Any, threshold: float) -> list[dict]:

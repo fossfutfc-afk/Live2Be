@@ -872,6 +872,50 @@ Round A 输出（在现有 schema 上加一个字段，不是两个）:
 里有 **3 条**的关键原话落在 **MMT 事件**上（mutsuki m0002 / haruka m0001 / m0004），
 只收块 seq 的板指针表达不了它们。B 链路自己过滤出 bond 类型即可。
 
+##### 3.3.1.2 `emo_shape`：板键序列**物化**，且**不进 LLM 上下文**（T15，2026-09-15）
+
+B 链路（情绪序列 RAG）的实现撞上一条结构约束：
+
+> **`Channel.gather(store, ctx)` 只拿得到节点，拿不到事件流**——链路无法去翻板的
+> `paragraphs[*].emotion`。
+
+而 §3.3/§3.9 早就定了这一手（"引擎 → 板级 affect **物化缓存**（一次算，索引表里存）…
+§3.9 索引表的正当用途（**可从真源重建**）"）。所以：
+
+```
+digest 写节点时:  node.event_seq（板指针）→ 那几块的 paragraphs[*].emotion
+                  → 按 seq 序拼接 → node.emo_shape = ["expectant", "smile", ...]
+```
+
+- 只收 **bond** 事件（情绪键由标注层产，MMT 没有键）
+- **空键跳过、不补位**——保持弧的形状；"标注失败"与"真的无表情"在数据里不可分
+- **有 `event_seq` 就能重算**，所以 `emo_shape` 不是第二真源（可从真源重建）
+- ⚠️ **旧档节点的 `emo_shape` 恒为 `[]`**（digest 不会重跑，水位已过）→
+  B 链路对它们**诚实降级**，不会拿常量 `event_seq` 去编一个假的键序列
+
+**query 侧对称新增 `RecallContext.emo_now: list[str]`**——"当前这板的情绪键序列"。
+为什么不复用 `ctx.query`：`query` 是给 D（内容 RAG）的自由文本，B 比的是情绪的
+**形状**；混用会让"情绪像"退化成"字面像"（§2.3.1 撤回框的实测教训）。
+
+> ### 🚫 召回侧字段**不进 LLM 上下文**（用户 2026-09-15 裁决）
+>
+> *"记得 list emo 和 place_now 都暂定不进 LLM 而是走别的路线的，不要进 LLM 上下文。"*
+>
+> | 字段 | 归属 | 进 prompt？ |
+> |---|---|---|
+> | `BrainNode.emo_shape` | 召回（B 链路打分） | ❌ |
+> | `RecallContext.emo_now` | 召回（B 链路 query） | ❌ |
+> | `RecallContext.place_now` | 召回（C 链路筛选） | ❌ |
+>
+> **参与排序与筛选，不参与写作。** 与 bond 侧"place 不进 LLM 上下文"
+> （§4 视觉键隔离）、"`aff_at_encoding` 数值不喂 LLM"（§7）同一条纪律。
+> **已用测试钉死**：`test_recall_side_fields_never_reach_llm` 断言
+> `render_character_view` / `render_organize_view`（唯二往 prompt 里塞节点文本的地方）
+> 不输出 `emo_shape`，并反向断言视图确实渲染了节点（防"空串让断言假通过"）。
+
+**至此五条链路的状态**：A ✅ / **B ✅（T15）** / C ❌（缺 `place` 字段）/ D ✅ / E ⏳ 未立项。
+A、B、D 三条的**代码**都能出分；生产出分仍等组合层（`RecallContext` 目前只有测试构造）。
+
 ##### ⚠️ 撤回一条：`_clean_episode` 的"防幻觉先例"在代码里不存在
 
 §3.3.1 初稿曾援引「与 `evidence.quote` 的『逐字来自时间线』同一套防幻觉思路，

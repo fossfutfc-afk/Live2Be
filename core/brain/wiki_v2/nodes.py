@@ -92,6 +92,18 @@ class BrainNode:
     #: ⚠️ **`verbatim`（文本）才是消费字段**——`render.py`/`recall.py` 只拿到节点、
     #: 拿不到事件流, 解析不了索引。本字段服务的是**可追溯性 / 板归属 / 重解析**。
     verbatim_seq: list[str] = field(default_factory=list)
+    #: **板级情绪键序列**（T15, 2026-09-15）——`["tease", "smile", "smile_2"]`。
+    #: 由 `digest` 按 `event_seq`（板指针）从真源**物化**: 那几块的
+    #: `payload.paragraphs[*].emotion` 按 seq 序拼接。B 链路（情绪序列 RAG）的唯一输入。
+    #:
+    #: 为什么物化而不是召回时现取: `Channel.gather(store, ctx)` **只拿得到节点,
+    #: 拿不到事件流**——链路无法去翻板。而 §3.3/§3.9 本来就定了这一手
+    #: （"板级 affect 物化缓存（一次算，索引表里存）…可从真源重建"）。
+    #: 有 `event_seq` 就能重算, 所以它不是第二真源。
+    #:
+    #: 🚫 **绝不进 LLM 上下文**（用户 2026-09-15 裁决）——它是**召回侧信号**,
+    #: 与 `place` 同类: 参与排序, 不参与写作。`render_*` 一律不输出它。
+    emo_shape: list[str] = field(default_factory=list)
     title: str = ""             # episode 可选短标题（渲染压缩/回放/决策表引用）
     pattern: str = ""
     subject: str = ""
@@ -240,7 +252,7 @@ class BrainNode:
         }
         for f in ("observer", "tags", "segment_id", "event_seq", "ts", "source",
                   "links", "contradictions", "notes", "narration", "verbatim",
-                  "verbatim_seq", "title",
+                  "verbatim_seq", "title", "emo_shape",
                   "pattern", "subject", "count", "examples", "content", "growth",
                   "observation", "history", "source_key"):
             v = getattr(self, f)
@@ -283,6 +295,7 @@ class BrainNode:
         node.narration = _str(raw.get("narration"))
         node.verbatim = _str(raw.get("verbatim"))
         node.verbatim_seq = _str_list(raw.get("verbatim_seq"))
+        node.emo_shape = _str_list(raw.get("emo_shape"))
         node.title = _str(raw.get("title"))
         node.pattern = _str(raw.get("pattern"))
         node.subject = _str(raw.get("subject"))
