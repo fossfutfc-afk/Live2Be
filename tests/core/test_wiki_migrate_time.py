@@ -147,6 +147,27 @@ def test_seq_order_dominates_insert_order(tmp_path):
     print(f"    排序: seq 10/30/60 → {by_seq[10]}/{by_seq[30]}/{by_seq[60]}")
 
 
+def test_world_epoch_is_world_level(tmp_path):
+    """★ `world_clock.json` 是**世界级**文件, 纪元必须世界级。
+
+    否则同一世界的 A/B 两角色各自初始化、**互相覆盖**（真机侥幸靠"最大者赢",
+    但那是顺序侥幸, 不是设计）。
+    """
+    from core.brain.wiki_v2.migrate_time import migrate_data_root, world_epoch
+    for cid, seq in (("a", 10), ("b", 60)):
+        st = WikiStoreV2(tmp_path, world_id="world1", char_id=cid)
+        st.add(_mk(seq, f"{cid} 的节点"))
+        st.save()
+    we = world_epoch(tmp_path, "world1")
+    assert we == 60 + GAP, we                     # 取**最大**者, 不是某个角色的
+    res = migrate_data_root(tmp_path, world_id="world1", dry_run=True)
+    assert {v["epoch"] for v in res.values()} == {we}, res
+    a_only = epoch_for(WikiStoreV2(tmp_path, world_id="world1",
+                                   char_id="a").all())
+    assert a_only != we, "逐角色各算会得到不同纪元（这正是要避免的）"
+    print(f"    世界级纪元: {we}（两角色一致）; 逐角色各算会是 {a_only}")
+
+
 def test_empty_store_is_noop(tmp_path):
     st = WikiStoreV2(tmp_path, world_id="world1", char_id="c")
     assert migrate_plan(st.all()) == {}
@@ -162,6 +183,7 @@ if __name__ == "__main__":
                test_apply_stamps_and_saves, test_dry_run_writes_nothing,
                test_already_stamped_never_moved, test_missing_seq_falls_back,
                test_seq_order_dominates_insert_order,
+               test_world_epoch_is_world_level,
                test_empty_store_is_noop):
         with tempfile.TemporaryDirectory() as d:
             fn(Path(d))

@@ -56,29 +56,34 @@ MIN_EPOCH = 50
 logger = logging.getLogger(__name__)
 
 #: 迁移窗口上界 —— 由 `epoch_for()` 按**数据自己**的 seq 算出, 不再是固定常数
-__all__ = ["plan", "apply", "migrate_data_root", "epoch_for", "GAP", "MIN_EPOCH"]
+__all__ = ["plan", "apply", "migrate_data_root", "epoch_for", "world_epoch",
+           "GAP", "MIN_EPOCH"]
 
 
-#: 迁移窗口上界 —— 由 `epoch_for()` 按**数据自己**的 seq 算出, 不再是固定常数
-__all__ = ["plan", "apply", "migrate_data_root", "epoch_for", "GAP", "MIN_EPOCH"]
-
-
-def epoch_for(nodes: list) -> int:
+def epoch_for(nodes: list, *, world_epoch: int | None = None) -> int:
     """本世界线的纪元位置 —— **按数据自己的 `event_seq` 比例算**。
+
+    ## ⚠️ `world_clock.json` 是**世界级**文件，纪元也必须是世界级
+
+    时钟落在 `worlds/{world}/world_clock.json`，**所有角色共用一条时间线**。
+    若纪元按"当前角色的节点"算，同一世界的 A/B 两个角色会各自初始化、
+    **互相覆盖** —— 真机侥幸没出事（先处理 mutsuki 纪元 65、再处理 haruka 纪元 50，
+    而 `save_clock` 只增不减 → 65 留住了），但这是**靠顺序侥幸**，不是设计。
+    `world_epoch` 给了就用它（`migrate_data_root` 会跨角色取最大）。
 
     ## 为什么不再用固定常数（2026-09-13 实测修正）
 
     初版取 `LEGACY_EPOCH = 5000` 常量, 把"旧档窗口"和"与新区间的分离带"混成一个数。
     真机实测后果: 旧节点落在 `sim_day ∈ [0, 4999]`, 而游标在 5000 ——
-    **一份刚发生没几天的记忆被算成"3 年前"**（`§4.10` 的"相对顺序"保住了,
-    但绝对年龄失真）。
+    **一份刚发生没几天的记忆被算成"3 年前"**。
 
     ## 正确口径: `一个事件 seq ≈ 一场互动 ≈ 1 时相 ≈ 1 格`
 
-    于是旧档窗口 = `max(event_seq)` 格（`seq 60` → 60 格 = 12 叙事日）,
-    加上一小段 `GAP` 就是纪元。**新节点从纪元起算, 与旧档天然不重叠。**
-    全新世界（无 seq）→ `MIN_EPOCH`。
+    → 旧档窗口 = `max(event_seq)` 格（`seq 60` → 60 格 = 12 叙事日）,
+    加上一小段 `GAP` 就是纪元。全新世界（无 seq）→ `MIN_EPOCH`。
     """
+    if world_epoch is not None:
+        return max(MIN_EPOCH, int(world_epoch))
     seqs = [min(n.event_seq) for n in nodes if n.event_seq]
     top = max(seqs) if seqs else 0
     return max(MIN_EPOCH, top + GAP)
@@ -114,19 +119,21 @@ def plan(nodes: list, *, epoch: int | None = None) -> dict[str, int]:
 
 
 def apply(store: WikiStoreV2, *, dry_run: bool = True,
-          force: bool = False) -> dict:
+          force: bool = False, epoch: int | None = None) -> dict:
     """执行迁移。`dry_run=True` → 只算不写（默认——宁缺勿错）。
 
     `force=True` → **先把 `story_time` 清零再重迁**（修正历史迁移错误用）。
     默认 False: 只动未采集的节点, 故天然幂等（已 stamp 的永不重定位）。
 
-    ⚠️ **游标也要对齐**（`store.clock()` 初始化到本世界线的 `epoch_for`）:
-    否则旧档落在 `[0, epoch)` 而新区间从别处起算, 两个区间可能重叠。
+    `epoch` 缺省 → `epoch_for(nodes)`（**按当前角色**）。批量跑时请由
+    `migrate_data_root` 传入**世界级**纪元（见 `epoch_for` 的 ⚠️）。
+
+    ⚠️ **游标无条件落盘**（见下）。
 
     Returns: `{migrated, would_migrate, skipped, epoch, samples, saved}`。
     """
     nodes = store.all()
-    epoch = epoch_for(nodes)
+    epoch = epoch_for(nodes, world_epoch=epoch)
     if force:
         for n in nodes:
             n.story_time = None
@@ -157,20 +164,41 @@ def apply(store: WikiStoreV2, *, dry_run: bool = True,
             "skipped": skipped, "epoch": epoch, "samples": samples, "saved": True}
 
 
+def world_epoch(data_root: str | Path = "data", world_id: str = "world1") -> int:
+    """**世界级纪元** —— 扫全部角色的 `event_seq` 取最大。
+
+    `world_clock.json` 是世界级文件, 纪元必须世界级（见 `epoch_for` 的 ⚠️）。
+    """
+    root = Path(data_root) / "worlds" / world_id / "characters"
+    top = 0
+    if root.is_dir():
+        for d in sorted(p for p in root.iterdir() if p.is_dir()):
+            store = WikiStoreV2(data_root, world_id=world_id, char_id=d.name)
+            for n in store.all():
+                if n.event_seq:
+                    top = max(top, min(n.event_seq))
+    return max(MIN_EPOCH, top + GAP)
+
+
 def migrate_data_root(data_root: str | Path = "data", *,
                       world_id: str = "world1",
                       char_id: str = "", dry_run: bool = True,
                       force: bool = False) -> dict:
-    """按角色跑一次（CLI / 脚本入口）。`char_id=""` → 该世界全部角色。"""
+    """按角色跑一次（CLI / 脚本入口）。`char_id=""` → 该世界全部角色。
+
+    ★ **纪元先按全世界算好**再逐角色用 —— 否则每个角色各自初始化世界级时钟,
+    互相覆盖（见 `epoch_for` 的 ⚠️）。
+    """
     root = Path(data_root) / "worlds" / world_id / "characters"
     chars = [char_id] if char_id else sorted(
         p.name for p in root.iterdir() if p.is_dir()) if root.is_dir() else []
+    epoch = world_epoch(data_root, world_id)
     out: dict[str, dict] = {}
     for cid in chars:
         store = WikiStoreV2(data_root, world_id=world_id, char_id=cid)
         if not store.all():
             continue
-        out[cid] = apply(store, dry_run=dry_run, force=force)
+        out[cid] = apply(store, dry_run=dry_run, force=force, epoch=epoch)
     return out
 
 
