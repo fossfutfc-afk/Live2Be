@@ -157,6 +157,10 @@ def digest_segment(
     clock_snapshot = store.peek_clock_cursor()
 
     timeline = render_timeline(new_events, indexed=True)
+    # 本段**可寻址事件** —— `event_seq` / `verbatim` 索引的 ⊆ 校验基准（T14）。
+    # 只收种子事件（marker/affection 不渲染进时间线, LLM 指不到它们）。
+    seq_set = {e.seq for e in new_events}
+    by_seq = {e.seq: e for e in new_events}
     if visuals is None:
         visuals = _collect_visual_prompts(new_events)
     # 本段出现的情绪键 → 只把这些键的作者标尺注进 Round A（§3.3.2）。
@@ -189,9 +193,13 @@ def digest_segment(
             model=model, temperature=temperature, max_tokens=max_tokens,
             llm_timeout=llm_timeout,
             extra_body=extra_body, deadline=deadline, label="round_a",
-            parse_fn=digest_registry.parse_round_a, result=result)
+            parse_fn=lambda r: digest_registry.parse_round_a(r, seq_set=seq_set),
+            result=result)
         if entries is None:
             return _rollback(store, snapshot, result, clock_snapshot)
+        # 索引 → 原文（T14）: parse 层拿不到事件流, 回填在这里做
+        for ent in entries:
+            _resolve_verbatim(ent, by_seq)
         # ── 时间推进（§4.11 的写路径时序）──
         # ⚠️ **I-a: 先推进, 再 stamp**。否则第二段与第一段拿到同一个 sim_day,
         #    age 恒 0、衰减永不生效（静默失效）。
@@ -322,10 +330,16 @@ def _create_a_nodes(store: WikiStoreV2, entries: list[dict], *, ts: str,
                     ) -> tuple[list[str], list[str]]:
     """Round A 条目 → 节点（引擎字段归属——确定性归引擎, 防幻觉）。
 
-    kind=episode  → episode 节点（段级溯源 event_seq=[interact_max]）
+    kind=episode  → episode 节点
     kind=experience（玩家画像, MMT 专则）→ subject=player experience 节点:
         口癖/偏好/一次性个人信息——不进本轮 B（B 只组织 episode）, 下轮起参与认知层
     dedupe: (kind, event_seq, 主文本) 命中已有节点 → 复用 id（崩溃窗口重跑防双写）。
+
+    event_seq（T14, 2026-09-15）: **条目自带就用条目自带的**（Round A 抄的行号,
+    已在 parse 层校验 ⊆ 本段）, 否则回落到段级 `[interact_max]`。
+    旧版**无条件覆写**成 `[interact_max]`——实测 mutsuki 全段 `[60]` 而板最大 55,
+    它指向一条 MMT 消息、不指向任何一板, 于是板指针从来没存在过,
+    而 `migrate_time` 的唯一排序信号也一起死掉（全部节点同键 → 退化成插入序）。
 
     aff_at_encoding（§3.3.3, 2026-09-13）: 本段**开始之前**的好感标量
     （`Affection.to_scalar()`, [−1,1]）——快照, 写入后永不改。
@@ -346,11 +360,12 @@ def _create_a_nodes(store: WikiStoreV2, entries: list[dict], *, ts: str,
             node = make_node("experience",
                              pattern=ent["pattern"], subject=ent.get("subject", "player"),
                              verbatim=ent.get("verbatim", ""),
+                             verbatim_seq=ent.get("verbatim_seq", []),
                              tags=ent.get("tags", []),
                              significance=ent.get("significance", 0.5))
             node.ts = ts
             node.segment_id = segment_id
-            node.event_seq = list(event_seq)
+            node.event_seq = list(ent.get("event_seq") or event_seq)
             dup = _find_duplicate(store, node)
             if dup is not None:
                 player_ids.append(dup.id)
@@ -360,7 +375,7 @@ def _create_a_nodes(store: WikiStoreV2, entries: list[dict], *, ts: str,
         node = make_node("episode", **{k: v for k, v in ent.items() if k != "kind"})
         node.ts = ts
         node.segment_id = segment_id
-        node.event_seq = list(event_seq)
+        node.event_seq = list(ent.get("event_seq") or event_seq)
         node.aff_at_encoding = aff_at_encoding
         node.story_time = story_time
         dup = _find_duplicate(store, node)
@@ -490,6 +505,68 @@ def _collect_visual_prompts(events) -> list[str]:
             except (OSError, ValueError):
                 continue
     return prompts
+
+
+def _resolve_verbatim(ent: dict, by_seq: dict) -> None:
+    """`verbatim_seq`（行索引）→ `verbatim`（逐字原文）——**文本优先**（T14）。
+
+    ## 两条通道（用户 2026-09-15 裁决: "保留 verbatim 可以是文本的通道"）
+
+    ```
+    LLM 只给索引  → 引擎解析出原文回填     ← 新能力, 逐字且永久可重解析
+    LLM 只给文本  → 原样保留               ← 老通道, 一字不动
+    LLM 两条都给  → **文本优先**（索引只留作溯源）
+    索引解析不出  → 文本原样保留（没有文本就留空——**绝不编**）
+    ```
+
+    ## 为什么两条都给时是**文本**优先（这是个安全决定, 不是偏好）
+
+    用户把"**错索引不可见**"明确**放进待办**了——错的原话一眼看得出不对, 错的索引
+    解析出真文本、看起来完全正常。**在台账做出来之前, 索引不该掌握内容**:
+    否则一个偏了一位的索引会把一句正确的原话**静默换掉**, 而这正是被推迟处理的那件事。
+
+    所以索引的权威范围限定在"**它是唯一来源**"时。等台账上了（`verbatim_seq` →
+    解析文本 打一行）, 再谈要不要让它顶掉文本。
+    """
+    seqs = ent.get("verbatim_seq") or []
+    if not seqs or (ent.get("verbatim") or "").strip():
+        return                                   # 无索引 / 已有文本 → 不动
+    from contract.timeline_index import parse_index
+    picked: list[str] = []
+    for idx in seqs:
+        got = parse_index(idx)
+        if got is None:
+            continue
+        ev = by_seq.get(got[0])
+        if ev is None:
+            continue
+        text = _text_at(ev, got[1])
+        if text:
+            picked.append(text)
+    if picked:
+        # 多条关键句拼一行（`" / "` 与时间线的记录分隔同形）——`render.py` 的
+        # `（「{verbatim}」）` 是单行渲染, 换行符会把视图打断。
+        ent["verbatim"] = " / ".join(picked)
+
+
+def _text_at(ev, rec) -> str:
+    """事件 + 记录位 → 那一条记录的**逐字原文**（取不到 → `""`, 绝不编）。"""
+    from contract.timeline_index import REC_PICKED
+    if rec == REC_PICKED:
+        pk = ev.payload.get("picked")
+        return pk.strip() if isinstance(pk, str) else ""
+    if ev.type == "mmt":
+        key = {0: "player", 1: "reply"}.get(rec)
+        v = ev.payload.get(key) if key else None
+        return v.strip() if isinstance(v, str) and v.strip() else ""
+    paras = ev.payload.get("paragraphs")
+    if not isinstance(paras, list) or not isinstance(rec, int):
+        return ""
+    if not (0 <= rec < len(paras)):
+        return ""
+    p = paras[rec]
+    t = p.get("text", "") if isinstance(p, dict) else str(p)
+    return t.strip() if isinstance(t, str) else ""
 
 
 def _clean_evidence(raw: Any, threshold: float) -> list[dict]:

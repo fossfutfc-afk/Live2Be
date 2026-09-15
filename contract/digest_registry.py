@@ -85,8 +85,10 @@ RECORD_EPISODE = DigestAction(
     role="把本段新增互动浓缩为值得记住的经历条目（一条一对象）。",
     semantics=(
         "何时用: 时间线里形成了完整经历（有起有落/有情感细节/值得以后想起）;\n"
-        "怎么改: 第一人称浓缩——起点→关键推进→落点, 保留角色当时的感受与反应;"
-        " 印象最深的一句原话进 verbatim（逐字, 禁改写）;\n"
+        "怎么改: 第一人称浓缩——起点→关键推进→落点, 保留角色当时的感受与反应;\n"
+        "指位置（T14, 2026-09-15）: 只抄时间线的行号, 不打分——"
+        " event_seq 抄 `[28]` 这类事件头（本条覆盖了哪几块）;"
+        " verbatim 抄 `[28.3]`/`[28.p]` 这类记录行号（关键的几句）;\n"
         "禁什么: 不升华成人生感悟; 不记寒暄流水账; 不写旧记忆里已有的事;"
         " 情绪词堆砌但无情节支撑 → 舍弃。"
     ),
@@ -99,7 +101,15 @@ RECORD_EPISODE = DigestAction(
         '      "pattern": "…",    // kind=experience 必填; 玩家画像句, 如"玩家的生日是\n'
         '                          // 5 月 20 日""玩家总说摸鱼" //\n'
         '      "title": "…",      // kind=episode 必填; 8-16 字短标题; 拿不准也给朴素标题 //\n'
-        '      "verbatim": "…",   // 可选; 原话逐字复制（角色或玩家均可）, 禁止改写 //\n'
+        '      "event_seq": ["28", "30"],  // 本条覆盖了哪几块——抄时间线的事件头编号\n'
+        '                          //（`[28] 【羁绊剧情】` 里的 28）。**这是指位置, 不是打分**;\n'
+        '                          // 抄错/抄不存在的编号会被丢弃。拿不准就少写, 别硬凑 //\n'
+        '      "verbatim": "…",   // 可选; **两条通道, 给一条即可**:\n'
+        '                          //  ① 列表 = 抄时间线的记录行号（推荐）——\n'
+        '                          //     ["28.3", "20.p"]; 引擎据此取回**逐字原文**\n'
+        '                          //  ② 字符串 = 原话逐字复制（禁改写）;\n'
+        '                          // 两条都给时**以②为准**（索引只留作溯源）——\n'
+        '                          // 所以想用①就**别写字符串**, 别两条都给 //\n'
         '      "tags": ["…"],     // 必填 1-4 个; 检索导向——未来玩家输入/叙事可能出现的词\n'
         '                          //（人名/地点/物品/动作/话题）; 不含时间词; 从最重要排起 //\n'
         '      "significance": 0~1,  // 行为锚点: 0.9+ 改变认知/极深刻（初遇/告白）;\n'
@@ -129,7 +139,8 @@ RECORD_EPISODE = DigestAction(
         '{"narration": "老师约我去公园散步, 我紧张但努力答应了; 在长椅上一起喝热茶时,'
         ' 一只流浪猫来蹭老师的裤脚, 我鼓起勇气摸了摸它, 回家路上嘴角一直藏着笑。",'
         ' "title": "和老师的公园散步",'
-        ' "verbatim": "它想认识你。",'
+        ' "event_seq": ["31", "33"],'
+        ' "verbatim": ["33.2", "33.p"],'
         ' "tags": ["公园", "流浪猫", "热茶"],'
         ' "significance": 0.8,'
         ' "emo_int": 0.6, "emo_span": 0.7, "emo_valence": 0.7}'
@@ -319,8 +330,14 @@ class DigestRegistry:
     # 解析（结构校验; 引用级/图语义在引擎执行层）
     # ------------------------------------------------------------------
 
-    def parse_round_a(self, raw: Any) -> tuple[list[dict], ValidationResult]:
-        """Round A: {"episodes": [...]} → 规范化条目列表。"""
+    def parse_round_a(self, raw: Any, *, seq_set: set[int] | None = None
+                      ) -> tuple[list[dict], ValidationResult]:
+        """Round A: {"episodes": [...]} → 规范化条目列表。
+
+        `seq_set`（T14）: 本段**事件 seq 全集**——`event_seq` / `verbatim` 索引
+        的 ⊆ 校验基准（与 `parse_round_b` 的 `episode_ids` 同思路:
+        引用纪律在 parse 层, 不在 prompt 层）。`None` = 不校验（老调用方/单测）。
+        """
         errors: list[str] = []
         warnings: list[str] = []
         if not isinstance(raw, dict):
@@ -333,7 +350,7 @@ class DigestRegistry:
             raw_eps = raw_eps[:MAX_EPISODES]
         out: list[dict] = []
         for i, e in enumerate(raw_eps):
-            item, item_errs, item_warns = _clean_episode(e, i)
+            item, item_errs, item_warns = _clean_episode(e, i, seq_set)
             errors.extend(item_errs)
             warnings.extend(item_warns)
             if item is not None:
@@ -438,18 +455,23 @@ class DigestRegistry:
 # 内部清洗（宁缺勿错: 坏项丢弃 + 报错; 质量项 warning 不阻断）
 # ============================================================================
 
-def _clean_episode(e: Any, i: int) -> tuple[dict | None, list[str], list[str]]:
+def _clean_episode(e: Any, i: int, seq_set: set[int] | None = None
+                   ) -> tuple[dict | None, list[str], list[str]]:
     errors: list[str] = []
     warnings: list[str] = []
     if not isinstance(e, dict):
         return None, [f"episodes[{i}] 必须是对象"], []
-    # 引擎字段一律不收（id/ts/event_seq/segment_id——LLM 塞了也丢弃）
-    for f in ("id", "ts", "event_seq", "segment_id"):
+    # 引擎字段一律不收（id/ts/segment_id——LLM 塞了也丢弃）
+    # ⚠️ `event_seq` **已从这份名单移出**（T14, 2026-09-15）: 它现在是**板指针**,
+    #    是 §3.3.1 里 LLM 唯一的"指位置"输出之一。旧版把它当引擎字段丢弃,
+    #    而 `digest.py` 又把它覆写成常量 → 两者相加 = 板指针从来没存在过。
+    for f in ("id", "ts", "segment_id"):
         if f in e:
             warnings.append(f"episodes[{i}] 含引擎字段 {f}——已忽略")
     kind = str(e.get("kind", "episode")).strip()
     if kind == "episode":
-        item, errors, warnings = _clean_episode_item(e, i, errors, warnings)
+        item, errors, warnings = _clean_episode_item(
+            e, i, errors, warnings, seq_set)
         if item is not None:
             item["kind"] = "episode"
         return item, errors, warnings
@@ -460,9 +482,8 @@ def _clean_episode(e: Any, i: int) -> tuple[dict | None, list[str], list[str]]:
             return None, [f"episodes[{i}]: kind=experience（玩家画像）必须填 pattern"], []
         item: dict = {"kind": "experience", "pattern": pattern.strip(),
                       "subject": PLAYER_SUBJECT}
-        verbatim = e.get("verbatim")
-        if isinstance(verbatim, str) and verbatim.strip():
-            item["verbatim"] = verbatim.strip()     # 画像条目无 episode 载体——原话直接存
+        # 画像条目无 episode 载体——原话直接存（两条通道: 文本 / 索引）
+        _fill_verbatim(item, e, i, warnings, seq_set)
         tags = [t for t in e.get("tags", []) if isinstance(t, str) and t.strip()][:MAX_TAGS]
         if tags:
             item["tags"] = tags
@@ -476,7 +497,87 @@ def _clean_episode(e: Any, i: int) -> tuple[dict | None, list[str], list[str]]:
     return None, [f"episodes[{i}].kind 非法: {kind!r}（episode|experience）"], []
 
 
-def _clean_episode_item(e: dict, i: int, errors: list[str], warnings: list[str]
+def _norm_index(raw: Any) -> str | None:
+    """索引项 → 规范串 `"28.3"` / `"28.p"` / `"28"`（坏项 → None）。"""
+    from contract.timeline_index import parse_index
+    got = parse_index(raw) if isinstance(raw, str) else (
+        (raw, "") if isinstance(raw, int) and not isinstance(raw, bool) else None)
+    if got is None:
+        return None
+    seq, rec = got
+    return f"{seq}.{rec}" if rec != "" else str(seq)
+
+
+def _clean_seq_list(raw: Any, seq_set: set[int] | None, *,
+                    label: str, warnings: list[str],
+                    record_level: bool) -> list[str]:
+    """索引数组清洗 —— **坏项逐条丢弃**（不废整包, 与 `parse_index_list` 同纪律）。
+
+    `record_level=False`（板指针 `event_seq`）: 只收事件级 `"28"`, 记录级
+    `"28.3"` 视为写错（它的 seq 部分仍然认, 但会记一条 warning 提醒）。
+    `record_level=True`（`verbatim` 索引通道）: 收 `"28.3"` / `"28.p"` / `"28"`。
+
+    `seq_set` 非空时做 ⊆ 校验——**抄不存在的编号 → 丢弃**（与 `evidence.quote`
+    的"逐字来自时间线"同一套防幻觉思路, 但这里是真的实现了的）。
+    """
+    from contract.timeline_index import parse_index
+    if raw is None:
+        return []
+    items = raw if isinstance(raw, (list, tuple)) else [raw]
+    out: list[str] = []
+    bad = 0
+    for it in items:
+        norm = _norm_index(it)
+        if norm is None:
+            bad += 1
+            continue
+        seq = parse_index(norm)[0]
+        if not record_level and "." in norm:
+            warnings.append(f"{label} 收了记录级索引 {norm!r}——板指针只收事件级"
+                            f"（已按事件 {seq} 收下）")
+            norm = str(seq)
+        if seq_set is not None and seq not in seq_set:
+            bad += 1
+            warnings.append(f"{label} 的 {norm!r} 不在本段时间线里——丢弃")
+            continue
+        if norm not in out:
+            out.append(norm)
+    if bad:
+        warnings.append(f"{label}: {bad} 个索引不可用（已丢弃）")
+    return out
+
+
+def _fill_verbatim(item: dict, e: dict, i: int, warnings: list[str],
+                   seq_set: set[int] | None) -> None:
+    """`verbatim` 的**两条通道**（T14, 用户 2026-09-15 裁决: 保文本通道）。
+
+    ① `"verbatim": ["28.3", "20.p"]` —— 索引通道: 引擎据此取回**逐字原文**
+    ② `"verbatim": "…"`             —— 文本通道: 原话逐字复制（禁改写）
+    ③ 另可显式给 `"verbatim_seq": [...]`（与①等价, 两条并存时合并去重）
+
+    落库分工: `verbatim_seq` = 索引（可重解析 / 板归属）; `verbatim` = 文本。
+    **文本由引擎在 `digest.py` 解析索引后回填**——parse 层拿不到事件流。
+
+    两条并存时的顺序: `verbatim` 列表在先、显式 `verbatim_seq` 在后
+    （schema 里 `verbatim` 是主字段, `verbatim_seq` 是它的显式别名）。
+    """
+    seqs: list[str] = []
+    for key in ("verbatim", "verbatim_seq"):
+        v = e.get(key)
+        if isinstance(v, (list, tuple)):
+            seqs.extend(_clean_seq_list(v, seq_set, label=f"episodes[{i}].{key}",
+                                        warnings=warnings, record_level=True))
+        elif key == "verbatim_seq" and v is not None:
+            warnings.append(f"episodes[{i}].verbatim_seq 必须是数组——忽略")
+    if seqs:
+        item["verbatim_seq"] = list(dict.fromkeys(seqs))
+    raw_text = e.get("verbatim")
+    if isinstance(raw_text, str) and raw_text.strip():
+        item["verbatim"] = raw_text.strip()
+
+
+def _clean_episode_item(e: dict, i: int, errors: list[str], warnings: list[str],
+                        seq_set: set[int] | None = None
                         ) -> tuple[dict | None, list[str], list[str]]:
     """kind=episode 条目的字段清洗（缺 narration 整条丢弃, 宁缺勿错）。"""
     narration = e.get("narration")
@@ -492,9 +593,14 @@ def _clean_episode_item(e: dict, i: int, errors: list[str], warnings: list[str]
         item["title"] = title.strip()
     else:
         warnings.append(f"episodes[{i}] 缺 title（建议 8-16 字短标题）")
-    verbatim = e.get("verbatim")
-    if isinstance(verbatim, str) and verbatim.strip():
-        item["verbatim"] = verbatim.strip()
+    # 板指针（§3.3.1）——"这条 episode 覆盖了哪几块", 收事件级 seq
+    seqs = _clean_seq_list(e.get("event_seq"), seq_set,
+                           label=f"episodes[{i}].event_seq",
+                           warnings=warnings, record_level=False)
+    if seqs:
+        item["event_seq"] = [int(s) for s in seqs]
+    # verbatim 两条通道（索引 / 文本）
+    _fill_verbatim(item, e, i, warnings, seq_set)
     tags = [t for t in e.get("tags", []) if isinstance(t, str) and t.strip()][:MAX_TAGS]
     if tags:
         item["tags"] = tags

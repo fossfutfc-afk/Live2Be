@@ -144,6 +144,89 @@ def test_touch_decision_links_only(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# T14: 板指针 event_seq + verbatim 索引通道 → 逐字原文（2026-09-15）
+# ---------------------------------------------------------------------------
+
+def _mmt_ev(seq, player, reply):
+    return ("mmt", "chat", {"player": player, "reply": reply}, seq)
+
+
+def test_event_seq_pointer_and_verbatim_resolve(tmp_path):
+    """★ 板指针真的落库（不再被覆写成常量）+ 索引解析出**逐字原文**。"""
+    st = _seed_store(tmp_path)
+    a = {"episodes": [{
+        "narration": "老师突然约我去咖啡厅, 说好久没见要请我吃甜点。",
+        "title": "咖啡厅的甜点陷阱",
+        "event_seq": ["9", "11"],
+        # `9.p` 是 MMT 事件、没有裁决行 → 取不到原文, **静默跳过**（绝不编）;
+        # 但索引本身留在 verbatim_seq 里（可追溯性不受解析成败影响）
+        "verbatim": ["11.1", "9.p", "11.p"],
+        "tags": ["咖啡厅", "甜点"], "significance": 0.82}]}
+    b = {"decisions": [{"episode": "m0003", "decision": "touch", "target": "u0001"}],
+         "evidence": [], "affection_exp_delta": 0}
+    events = _events(
+        _mmt(9, "你好呀", "库呼呼～老师～"),
+        ("bond", "story_scene", {
+            "paragraphs": [{"text": "……这块，给你。"},
+                           {"text": "刚才推过来那块是唯一一块没被我动过的。"}],
+            "picked": "那就谢谢了"}, 11),
+    )
+    res = digest_segment(st, FakeLLM(a, b), events)
+    assert res.ok, res.errors
+    ep = st.get(res.created[0])
+    # 板指针: 条目自带 → 不再覆写成常量 interact_max(=11)
+    assert ep.event_seq == [9, 11], ep.event_seq
+    assert ep.verbatim_seq == ["11.1", "9.p", "11.p"], ep.verbatim_seq
+    # 索引 → 逐字原文（引擎从真源取, 不是 LLM 复述的）; 解析不出的那条不进文本
+    assert ep.verbatim == "刚才推过来那块是唯一一块没被我动过的。 / 那就谢谢了", ep.verbatim
+    print(f"    event_seq={ep.event_seq} verbatim_seq={ep.verbatim_seq}")
+    print(f"    verbatim={ep.verbatim!r}")
+
+
+def test_verbatim_text_channel_wins_over_index(tmp_path):
+    """★ 两条都给 → **文本优先**（用户裁决"错索引进待办"的安全前提）。
+
+    坏索引（这里 `11.99` 越界）取不到非空原文 → 文本原样保留。
+    这正是"台账做出来之前, 索引不该掌握内容"。
+    """
+    st = _seed_store(tmp_path)
+    a = {"episodes": [{
+        "narration": "她递给我一块甜点。", "title": "甜点",
+        "event_seq": ["11"],
+        "verbatim": "……这块，给你。",            # 文本通道
+        "verbatim_seq": ["11.99"],              # 越界索引（取不到）
+        "tags": ["甜点"], "significance": 0.6}]}
+    b = {"decisions": [{"episode": "m0003", "decision": "touch", "target": "u0001"}],
+         "evidence": [], "affection_exp_delta": 0}
+    events = _events(("bond", "story_scene", {
+        "paragraphs": [{"text": "……这块，给你。"}]}, 11))
+    res = digest_segment(st, FakeLLM(a, b), events)
+    assert res.ok, res.errors
+    ep = st.get(res.created[0])
+    assert ep.verbatim == "……这块，给你。", ep.verbatim   # 文本一字不动
+    assert ep.verbatim_seq == ["11.99"]                   # 索引留着（可追溯）
+    # 全坏索引且**无文本** → verbatim 留空（绝不编）
+    st2 = _seed_store(tmp_path / "b")
+    a2 = {"episodes": [{"narration": "只有坏索引", "title": "x", "event_seq": ["11"],
+                        "verbatim": ["11.99"], "tags": ["t"], "significance": 0.5}]}
+    res2 = digest_segment(st2, FakeLLM(a2, b), events)
+    assert res2.ok, res2.errors
+    ep2 = st2.get(res2.created[0])
+    assert ep2.verbatim == "" and ep2.verbatim_seq == ["11.99"]
+    print("    verbatim: 文本优先（越界索引不顶替）+ 无文本时留空不编")
+
+
+def test_event_seq_falls_back_to_segment_constant(tmp_path):
+    """没有板指针 → 回落段级常量（旧行为, 不编）。"""
+    st = _seed_store(tmp_path)
+    res = digest_segment(st, FakeLLM(_a_episode(), _b_ok()),
+                         _events(_mmt(3, "老师", "下次再去吃甜品吧")))
+    assert res.ok, res.errors
+    assert st.get("m0003").event_seq == [3]            # interact_max
+    assert st.get("m0003").verbatim_seq == []          # 未采集
+
+
+# ---------------------------------------------------------------------------
 # 板块5: 引擎候选标注（疑似同主题 → 禁 add, 结构强制 + 反馈）
 # ---------------------------------------------------------------------------
 

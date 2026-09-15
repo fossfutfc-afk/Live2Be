@@ -124,6 +124,73 @@ def test_round_a_bad_kind_rejected():
 
 
 # ---------------------------------------------------------------------------
+# T14 板指针 event_seq + verbatim 两条通道（2026-09-15）
+# ---------------------------------------------------------------------------
+
+def test_round_a_event_seq_pointer_validated():
+    """★ `event_seq` = **板指针**（§3.3.1）——⊆ 本段 seq 集, 抄错丢弃。
+
+    旧版把它列为引擎字段**直接丢弃**, 而 `digest.py` 又覆写成常量
+    → 板指针从来没存在过（实测 `[60]` 而板最大 55）。
+    """
+    items, result = digest_registry.parse_round_a(
+        {"episodes": [_ep(event_seq=["28", "30", "999", "坏"])]},
+        seq_set={28, 30, 32})
+    assert items[0]["event_seq"] == [28, 30], items[0]   # 999/坏 逐条丢弃
+    assert any("999" in w for w in result.warnings)
+    # 去重 + 记录级写法按事件收下（并提醒）
+    items2, res2 = digest_registry.parse_round_a(
+        {"episodes": [_ep(event_seq=["28", "28", "30.1"])]}, seq_set={28, 30})
+    assert items2[0]["event_seq"] == [28, 30]
+    assert any("记录级" in w for w in res2.warnings)
+    # 不传 seq_set → 不校验（老调用方/单测）
+    items3, _ = digest_registry.parse_round_a({"episodes": [_ep(event_seq=[7])]})
+    assert items3[0]["event_seq"] == [7]
+    # 没有 event_seq → **不落字段**（引擎回落段级常量, 不编）
+    items4, _ = digest_registry.parse_round_a({"episodes": [_ep()]}, seq_set={28})
+    assert "event_seq" not in items4[0]
+    print("    event_seq: 板指针 ⊆ 校验 + 坏项逐条丢弃 + 缺省不落字段")
+
+
+def test_round_a_verbatim_two_channels():
+    """★ `verbatim` 两条通道（用户 2026-09-15: 保留文本通道）。"""
+    # ① 索引通道 → 落 verbatim_seq（此时还没有文本——解析要事件流, 在 digest.py）
+    items, result = digest_registry.parse_round_a(
+        {"episodes": [_ep(verbatim=["28.3", "20.p", "30"])]}, seq_set={28, 20, 30})
+    assert items[0]["verbatim_seq"] == ["28.3", "20.p", "30"], items[0]
+    assert "verbatim" not in items[0]
+    # ② 文本通道 → 原样
+    items2, _ = digest_registry.parse_round_a({"episodes": [_ep(verbatim="它想认识你。")]})
+    assert items2[0]["verbatim"] == "它想认识你。"
+    assert "verbatim_seq" not in items2[0]
+    # ③ 显式 verbatim_seq 字段等价; 两条并存 → 合并去重（**verbatim 列表在先**,
+    #    因为 schema 里 verbatim 是主字段, verbatim_seq 是它的显式别名）
+    items3, _ = digest_registry.parse_round_a(
+        {"episodes": [_ep(verbatim_seq=["28.3"], verbatim=["28.5"])]}, seq_set={28})
+    assert items3[0]["verbatim_seq"] == ["28.5", "28.3"]
+    # ④ 索引 ⊆ 校验: 段外编号丢弃; 全坏 → 不落 verbatim_seq
+    items4, res4 = digest_registry.parse_round_a(
+        {"episodes": [_ep(verbatim=["999.1"])]}, seq_set={28})
+    assert "verbatim_seq" not in items4[0]
+    assert any("999.1" in w for w in res4.warnings)
+    # ⑤ verbatim_seq 非数组 → 忽略（不废整包）
+    items5, res5 = digest_registry.parse_round_a(
+        {"episodes": [_ep(verbatim_seq="28.3")]}, seq_set={28})
+    assert "verbatim_seq" not in items5[0]
+    assert any("必须是数组" in w for w in res5.warnings)
+    print("    verbatim: 索引通道 / 文本通道 / 显式字段 / ⊆ 校验 / 坏形态忽略")
+
+
+def test_schema_documents_pointer_and_channels():
+    """schema 文案必须描述 T14 的两个字段（镜像防漂移）。"""
+    text = digest_registry.build_schema(PHASE_RECORD)
+    assert "event_seq" in text and "指位置, 不是打分" in text
+    assert "28.3" in text and "20.p" in text
+    assert "给一条即可" in text
+    print("    schema: 板指针 + verbatim 两通道 已文档化")
+
+
+# ---------------------------------------------------------------------------
 # Round A 情绪两标量 emo_int / emo_valence（§3.3.3, 2026-09-13）
 # ---------------------------------------------------------------------------
 
