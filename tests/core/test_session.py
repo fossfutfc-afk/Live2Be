@@ -306,6 +306,86 @@ def test_render_timeline_brain():
     print("    render_timeline: 板块标签 + 长板不截断 + 表情标注（brain 消化输入）")
 
 
+def test_render_timeline_indexed():
+    """T14: `indexed=True` → 记录级行索引（LLM 抄行号的唯一词汇表）。"""
+    evs = parse_events([
+        make_event("mmt", "mmt_chat", {"player": "你好呀", "reply": "库呼呼～"}, seq=2).to_dict(),
+        make_event("bond", "story_scene", {
+            "paragraphs": [{"text": "……这块，给你。", "emotion": "smile"},
+                           {"text": "刚才推过来那块是唯一一块没被我动过的。"}],
+            "picked": "那就谢谢了",
+        }, seq=28).to_dict(),
+    ])
+    tl = render_timeline(evs, indexed=True)
+    lines = tl.splitlines()
+    print("    ---- indexed 形态 ----")
+    for ln in lines:
+        print(f"      {ln}")
+    # 事件头（板指针抄它）
+    assert "[2] 【MMT对话】" in lines
+    assert "[28] 【羁绊剧情】" in lines
+    # 记录（verbatim 抄它）——索引 = paragraphs 的**数组下标**, 不是渲染序
+    assert "[2.0] 玩家: 你好呀" in lines
+    assert "[2.1] 角色: 库呼呼～" in lines
+    assert "[28.0] ……这块，给你。 (smile)" in lines
+    assert "[28.1] 刚才推过来那块是唯一一块没被我动过的。" in lines
+    # 玩家裁决行: 不在 paragraphs 里 → 独立位 `.p`
+    assert "[28.p] 老师: 那就谢谢了" in lines
+    # 一记录一行（现行形态是一事件一行 + `" / "` 拼接）
+    assert len(lines) == 7, lines
+    assert not any(" / " in ln for ln in lines)
+    # 缺省形态不变（consolidation legacy 仍走它）
+    assert " / " in render_timeline(evs)
+    assert "[28.0]" not in render_timeline(evs)
+    # ★ 不变量: indexed 形态下**每一行都必须可寻址**（LLM 指得到才叫索引）
+    from contract.timeline_index import parse_index
+    for ln in lines:
+        head = ln.split(" ", 1)[0]
+        assert parse_index(head) is not None, f"行不可寻址: {ln!r}"
+    print("    render_timeline(indexed): 记录级行索引 + 板指针 + 裁决行 `.p`")
+
+
+def test_digest_round_a_prompt_matches_index_format():
+    """镜像防漂移（CLAUDE.md §12）: prompt 描述的形态必须与渲染器**同源**。
+
+    2026-09-15 之前这里是 `每行 [seq N]`——而渲染器的 `[seq N]` 前缀**从未被消费**
+    （`event_seq` 被丢弃 + 被覆写成常量）。现在两侧都换成记录级索引,
+    任何一侧单独漂移都会让 Round A 抄出行号却指不到东西（**静默取错, 不报错**）。
+    """
+    from llm.prompts import load_prompt
+    text = load_prompt("digest_v2_round_a")
+    assert "[seq " not in text, "prompt 仍描述已删除的 `[seq N]` 形态"
+    for form in ("[28]", "[28.3]", "[28.p]"):
+        assert form in text, f"prompt 未描述索引形态 {form}"
+    print("    digest Round A prompt 与时间线索引形态同源（无 `[seq N]` 残留）")
+
+
+def test_timeline_index_vocabulary():
+    """`contract.timeline_index`: 渲染/解析**同源**（漂移 = 静默取错原文）。"""
+    from contract.timeline_index import (
+        REC_PICKED, format_event, format_record, parse_index, parse_index_list,
+    )
+
+    assert format_event(28) == "[28]"
+    assert format_record(28, 3) == "[28.3]"
+    assert format_record(28, REC_PICKED) == "[28.p]"
+    # 往返（渲染 → 解析）自洽
+    assert parse_index(format_event(28)) == (28, "")
+    assert parse_index(format_record(28, 3)) == (28, 3)
+    assert parse_index(format_record(28, REC_PICKED)) == (28, "p")
+    # 宽松: 裸数字 / 带方括号 / 空白容忍
+    assert parse_index("28.3") == (28, 3)
+    assert parse_index(" [ 28 . 3 ] ") == (28, 3)
+    # **绝不抛**: 坏索引 → None（丢掉那一条, 不废整包）
+    for bad in ("", "abc", "[", "28.x", None, 28.3, "[]", "[-1]"):
+        assert parse_index(bad) is None, bad
+    # 数组: 坏项逐条丢弃
+    assert parse_index_list(["28.3", "坏", "20.p", 7, None]) == [(28, 3), (20, "p"), (7, "")]
+    assert parse_index_list("28.3") == []          # 非数组整体拒
+    assert parse_index_list(None) == []
+    print("    timeline_index: 渲染/解析同源往返 + 坏索引逐条丢弃（绝不抛）")
+
+
 # ----------------------------------------------------------------------------
 # store: 会话生命周期（create/open_vn/append/finish/list_open/resume）
 # ----------------------------------------------------------------------------

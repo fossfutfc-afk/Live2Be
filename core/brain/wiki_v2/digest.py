@@ -9,8 +9,8 @@
 
 编排（digest_segment）:
     1. 增量: new_events = seq > store.digested_seq（无新增 → 0 次 LLM 调用）
-    2. 公共输入: 时间线(带 seq) + 视觉记忆 + 人设锚点（A 用）; 时间线同时供 B 的
-       evidence quote 逐字引用
+    2. 公共输入: 时间线(**记录级带行索引**, T14) + 视觉记忆 + 人设锚点（A 用）;
+       时间线同时供 B 的 evidence quote 逐字引用
     3. Round A: llm_chat → parse_round_a → 建 episode（引擎字段归属: ts/segment_id/
        event_seq=[interact_max]; 防幻觉——LLM 不产这些字段, 4a 不做每 episode 溯源）
     4. Round B: episodes 摘要 + 认知渲染(u0001.. 本地 id) → llm_chat → parse_round_b
@@ -156,7 +156,7 @@ def digest_segment(
     store.clock()
     clock_snapshot = store.peek_clock_cursor()
 
-    timeline = render_timeline(new_events, include_seq=True)
+    timeline = render_timeline(new_events, indexed=True)
     if visuals is None:
         visuals = _collect_visual_prompts(new_events)
     # 本段出现的情绪键 → 只把这些键的作者标尺注进 Round A（§3.3.2）。

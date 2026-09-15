@@ -40,6 +40,7 @@ from core.session.events import (
 from core.session.models import VNState
 from core.ui.text_processors import _strip_action_brackets, split_reply_chunks
 from contract.records import render_records
+from contract.timeline_index import REC_PICKED, format_event, format_record
 
 #: brain 时间线的板块标签
 _LABELS: dict[str, str] = {
@@ -258,19 +259,40 @@ def session_status(events: list[Event]) -> dict[str, Any]:
     }
 
 
-def render_timeline(events: list[Event], *, include_seq: bool = False) -> str:
+def render_timeline(events: list[Event], *, indexed: bool = False) -> str:
     """事件流 → 叙事时间线文本（brain 消化输入, §4.6; 含板块标签, **不截断**）。
 
     设计（2026-08-27 修正）:
-    - **每事件一行**——紧凑叙事流: LLM 顺序阅读, 事件顺序即叙事顺序
-      （原文回捞未来走 embedding（DESIGN_MEMORY.md Step 3 废弃记录）, 不需要行号引用）。
     - **紧凑文本, 非 jsonl**——省 token（无 JSON 键名/结构开销）; 叙事流不被
       数据结构打断（角色扮演语境, 不 rigid）。
     - **表情标注（2026-08-28 收敛）**: bond 段落显式带 emotion → 段落后 ` (emotion)`——
       digest 提炼时"她当时的表情/反应"是难忘细节的原料（人设感记忆, 不 OOC 靠记忆不靠状态）;
       缺省段不标注（契约语义: 缺省 = 延续上一段, 见 digest.md 输入说明）。
-    - **seq 标签（2026-09-02, digest_v2 用）**: include_seq=True 时每行前缀 `[seq N]`——
-      LLM 可复制 seq 作条目 event_seq 溯源（复制不发明; 引擎校验 ⊆ 本段 seq 集）。
+    - **两形态（T14, 2026-09-15）**:
+
+      | `indexed` | 形态 | 消费者 |
+      |---|---|---|
+      | `False`（默认） | **每事件一行**, 记录用 `" / "` 拼 | `consolidation.py`（digest v1 legacy） |
+      | `True` | **每记录一行**, 行首带行索引 | `digest.py`（Round A 唯一输入） |
+
+      `indexed=True` 的形态（词汇表见 `contract/timeline_index.py`）::
+
+          [28] 【羁绊剧情】                 ← 事件头: 板指针 event_seq 抄这个
+          [28.0] ……这块，给你。 (smile)     ← 记录: verbatim 抄这个
+          [28.1] 库呼呼～
+          [28.p] 老师: 要不要再来一块？      ← 玩家裁决行
+          [20] 【MMT对话】
+          [20.0] 玩家: 你好呀
+          [20.1] 角色: 库呼呼～老师你可千万别告诉她哦
+
+      **为什么记录级**（2026-09-15 实测）: `verbatim` 的语义是"印象最深的一句原话",
+      而"一句"是**记录**不是事件（一板 3~12 条记录）。代价实测 **×0.92 / ×0.98**
+      （mutsuki / haruka 真机时间线）——**比现行还省**, 因为 `" / "` 分隔符
+      与 `[seq N]` 标签被短索引替掉了。所以这是纯收益, 不是 trade-off。
+
+      **说话人前缀刻意不加**: 记录文本原样保留（不加 `角色id:` 前缀）——
+      那是**另一个**改动（会同时改变 Round A 看到的全部内容）, 与本变更不同批。
+
     - **不截断（2026-09-13, Q26 落地）**: 原 `max_paragraph_chars=120` 已删。它是
       "防出厂记忆挤占窗口"的补丁, 而**补丁对象已死**（出厂记忆直注、不进 wiki）。
       实测板均 73~163 字、阈值正卡在之上一点, 砍的全是正常板——且砍掉的正是
@@ -278,23 +300,51 @@ def render_timeline(events: list[Event], *, include_seq: bool = False) -> str:
       `verbatim`「印象最深的一句原话, 逐字复制」在 12 条大板上摊到每记录 ≈10 字,
       **物理上常常拿不到**。删后输入仅 ×1.11~×1.50（§8.1 实测）。
       本函数是 **digest Round A 的唯一输入**——不截断 = LLM 看得见完整情绪弧。
+
+    ⚠️ **`include_seq` 参数已删**（T14）: 它的旧语义是"每事件行前缀 `[seq N]`",
+    唯一调用方是 digest——而那个前缀**从来没有被消费**（`event_seq` 被
+    `_clean_episode` 丢弃 + 被 `digest.py` 覆写成常量 `[interact_max]`）。
+    现在换成真正可指的 `indexed`, 不留死旋钮。
     """
     lines: list[str] = []
     for e in events:
         if e.is_marker:
             continue
         label = _LABELS.get(e.type, f"【{e.type}】")
-        if include_seq:
-            label = f"[seq {e.seq}] {label}"
         if e.type == TYPE_MMT:
             player = e.payload.get("player", "")
             reply = e.payload.get("reply", "")
+            if indexed:
+                lines.append(f"{format_event(e.seq)} {label}")
+                lines.append(f"{format_record(e.seq, 0)} 玩家: {player or '—'}")
+                if reply:
+                    lines.append(f"{format_record(e.seq, 1)} 角色: {reply}")
+                continue
             parts = [f"玩家: {player or '—'}"]
             if reply:
                 parts.append(f"角色: {reply}")
             lines.append(f"{label} {' / '.join(parts)}")
         elif e.type == TYPE_BOND:
             paras = e.payload.get("paragraphs", [])
+            picked = e.payload.get("picked")
+            # 玩家裁决行（记录流 v2: 物化成 `老师：X` 记录, 但不在派生 paragraphs 里）
+            # ——digest 消化"这段戏说了什么"时, 玩家那句同样是内容（v1 也漏, 顺手补）
+            has_picked = isinstance(picked, str) and bool(picked.strip())
+            if indexed:
+                lines.append(f"{format_event(e.seq)} {label}")
+                for i, p in enumerate(paras):
+                    t = p.get("text", "") if isinstance(p, dict) else str(p)
+                    if not isinstance(t, str) or not t:
+                        continue
+                    emo = p.get("emotion") if isinstance(p, dict) else None
+                    if isinstance(emo, str) and emo.strip():
+                        t = f"{t} ({emo.strip()})"
+                    # 索引 = `paragraphs` 的**数组下标**（跳过空项也保留原下标）——
+                    # 地址必须指向真源里的位置, 不能是"渲染后的第几条"
+                    lines.append(f"{format_record(e.seq, i)} {t}")
+                if has_picked:
+                    lines.append(f"{format_record(e.seq, REC_PICKED)} 老师: {picked.strip()}")
+                continue
             texts = []
             for p in paras:
                 t = p.get("text", "") if isinstance(p, dict) else str(p)
@@ -305,15 +355,15 @@ def render_timeline(events: list[Event], *, include_seq: bool = False) -> str:
                     texts.append(f"{t} ({emo.strip()})")
                 else:
                     texts.append(t)
-            # 玩家裁决行（记录流 v2: 物化成 `老师：X` 记录, 但不在派生 paragraphs 里）
-            # ——digest 消化"这段戏说了什么"时, 玩家那句同样是内容（v1 也漏, 顺手补）
-            picked = e.payload.get("picked")
-            if isinstance(picked, str) and picked.strip():
+            if has_picked:
                 texts.append(f"老师: {picked.strip()}")
-            text = " / ".join(texts)
-            lines.append(f"{label} {text}")
+            lines.append(f"{label} {' / '.join(texts)}")
         elif e.type == TYPE_L2D:
             imgs = e.payload.get("images", [])
             img = imgs[0] if isinstance(imgs, list) and imgs else "?"
+            if indexed:
+                lines.append(f"{format_event(e.seq)} {label}")
+                lines.append(f"{format_record(e.seq, 0)} 生成: {img}")
+                continue
             lines.append(f"{label} 生成: {img}")
     return "\n".join(lines)
