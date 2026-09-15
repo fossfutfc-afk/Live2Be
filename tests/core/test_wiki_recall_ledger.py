@@ -63,6 +63,25 @@ def test_defaults_match_v2_constants():
     print("    旋钮: 默认值 == v2 常量（行为零变化）")
 
 
+def test_time_half_life_default_and_override(tmp_path, monkeypatch):
+    """`time_half_life_days`（A 链路新鲜度半衰期, §4.11）——默认 5 叙事日 + 可覆盖。
+
+    语义钉住: **新鲜度不是遗忘曲线**（用户裁决 2026-09-13）——
+    所以默认值必须是"一周上下"的量级, 而不是遗忘曲线的 60 天。
+    """
+    assert rc.DEFAULTS["time_half_life_days"] == 5.0
+    p = tmp_path / "settings.toml"
+    p.write_text("[recall]\ntime_half_life_days = 12\n", encoding="utf-8")
+    monkeypatch.setattr(rc, "_SETTINGS_PATH", p)
+    rc.reload()
+    assert rc.get("time_half_life_days") == 12.0
+    # 坏值 → 默认（不抛）
+    p.write_text('[recall]\ntime_half_life_days = "long"\n', encoding="utf-8")
+    rc.reload()
+    assert rc.get("time_half_life_days") == 5.0
+    print("    旋钮: time_half_life_days 默认 5.0（叙事日）+ 覆盖/坏值回落")
+
+
 def test_settings_override(tmp_path, monkeypatch):
     """`[recall]` 覆盖生效（这是 V3-0 存在的理由: 按模型标定不必改代码）。"""
     p = tmp_path / "settings.toml"

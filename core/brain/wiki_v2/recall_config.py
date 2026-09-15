@@ -22,6 +22,7 @@ v2 的记忆召回参数是**散落的模块常量**（`recall.CAND_HIGH=0.50` �
       cand_k    = 3         # 每条 episode 最多带几个候选
       sim_k     = 5         # 读路径语义通道 top-k
       accept_hit_rate = 0.5 # 健康位: 结构强制命中率超过它就值得告警（仅台账用）
+      time_half_life_days = 5.0  # A 链路新鲜度半衰期（**叙事日**, §4.11）
 
 ## 优先级
 
@@ -46,6 +47,12 @@ DEFAULTS: dict[str, float] = {
     "cand_k": 3.0,              # recall.CAND_K
     "sim_k": 5.0,               # recall_recall_subgraph k_sim
     "accept_hit_rate": 0.5,     # 台账告警线（不参与判定）
+    #: `A_intensity` 链路的时间半衰期（**单位 = 叙事日**, §4.11）。
+    #: 语义 = **新鲜度**（用户裁决 2026-09-13: *"TIME 做新鲜度语义, 这遗忘曲线
+    #: 没办法适用了, 60 天跨度太大了"*）。5 叙事日 ≈ "一周前的戏该沉下去"。
+    #: 换算 `freshness = 0.5 ** ((age_格 / 5) / time_half_life_days)` —— 半衰期处
+    #: 正好 0.5。**不是遗忘曲线**（那是另一条轴, 未来在物化层, §3.3）。
+    "time_half_life_days": 5.0,
 }
 
 _cache: dict[str, float] | None = None
