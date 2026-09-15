@@ -8,13 +8,14 @@
 
 | 链路 | 现在能不能出分 | 缺什么 |
 |---|---|---|
-| **A** `A_intensity` | ⚠️ **不能** | `TIME` 未设计（`story_time` 字段不存在; `half_life` 未定）。四格里 `SIG`/`emo_span`/`emo_int` **已落地**——只差时间 |
+| **A** `A_intensity` | ✅ **能** | 只需要 `ctx.story_now`（游标）+ 节点 `story_time`。**旧档节点**（无 `story_time`）逐条跳过 |
 | **B** `B_emotion_rag` | ❌ 不能 | 键序列在事件流的**板**上, 而"episode → 板"的连接键**不可靠**（`event_seq` 被覆写成常量 `[interact_max]`, 实测 `[30]` 而板最大 25） |
 | **C** `C_place` | ❌ 不能 | `BrainNode` **无 `place` 字段**（§2.3.2: 设计已定、实现待补） |
 | **D** `D_deja_vu` | ✅ **能** | 只需要 `narration` + `embed_fn`（两者都有） |
 | **E** `E_unconscious` | ⏳ 未立项 | 认知碎片（§6.4 的 `percepts`） |
 
-**D 是唯一现在就能出分的链路**——这不是巧合：它只需要已存在的数据。
+**A 与 D 是现在就能出分的两条**——都不是巧合：它们只需要**已存在的数据**。
+A 是唯一的 `PRIOR`（每条自身的属性, 可预物化）; D 是 pairwise（要 query + 向量后端）。
 
 ## 三条实现纪律
 
@@ -58,10 +59,35 @@ class IntensityPrior:
     **本链路是 `PRIOR`**——不依赖 query, 是候选**自己的属性**。所以它天然
     可以预物化（索引表里存一列）, 而 B/D/E 是 pairwise 的、不能。
 
-    ⚠️ **TIME 未设计 → 现在不出分。** 这不是偷懒:
-    `§4` 定了三层时钟, 而 `story_time` **只是一个字段计划**（节点上无值）;
-    `half_life` 的取值/是否按 kind 分/语义（遗忘 vs 新鲜度）全未定。
-    **给个占位 half_life 会让"权重看起来能调"——那正是 V3-0 之前那个病。**
+    ## 四格
+
+    | 格 | 来源 | 缺值时 |
+    |---|---|---|
+    | `SIG` | `node.significance`（0~1, 恒有） | — |
+    | `emo_span` | `node.emo_span`（0~1） | 退化：第二行整行为 0 |
+    | `emo_int` | `node.emo_int`（0~1） | 同上 |
+    | `TIME` | `freshness(age, half_life)` | **降级不出分**（见下） |
+
+    ## TIME 的判定（§4.11 ① —— 写路径与读路径分开）
+
+    ```
+    写路径（digest 时）:  stamp  →  node.story_time = 当前 cursor      ← 存下来
+    读路径（召回时）:    age    =  ctx.story_now.sim_day − node.story_time.sim_day
+                         TIME   =  0.5 ** ((age/5) / half_life_days)
+    ```
+
+    **`TIME` 不落库**——若写进节点, 节点就永远停在"写入那一刻的新鲜度", 指数白算。
+
+    ## 降级（`raw=None`, 绝不编分）
+
+    - `ctx.story_now is None` → 游标未就绪
+    - `ctx.story_now` 不是 `StoryTime` → 调用方传错
+    - `node.story_time is None` → 旧档未采集（**该节点**降级, 其余照常出分）
+
+    **第三种的语义**: 一条旧档记忆的 `TIME` 无法判定, 但它的
+    `emo_span·emo_int` 仍然有效 —— 所以**不是整条链路降级**, 而是该节点
+    `raw=None`。`det` 的 `SIG·TIME` 项因此缺失, 由合成层决定怎么处理
+    （当前口径: 不带 TIME 的候选进"待补"集合, 不参与排序）。
     """
 
     name = "A_intensity"
@@ -71,16 +97,60 @@ class IntensityPrior:
 
     def gather(self, store, ctx: RecallContext) -> ChannelResult:
         res = ChannelResult(channel=self.name, kind=self.kind)
-        # 四格就绪度**永远报**（两条降级理由共用同一份账, 免得信息在分支里丢）
-        res.knobs = {"sig_ready": True, "span_ready": True, "int_ready": True,
-                     "time_ready": False}
-        res.degraded = True
-        if ctx.story_now is None:
-            res.note = ("TIME 未设计（story_now=None）——A 链路不出分; "
-                        "四格中 SIG/emo_span/emo_int 已就绪, 只差时间")
-        else:
-            res.note = ("TIME 未设计（story_time 字段不存在 / half_life 未定）"
-                        "——四格中 SIG/emo_span/emo_int 已就绪, 只差时间")
+        try:
+            from core.worldtime.age import freshness
+            from core.worldtime.story import parse_story_time
+            from core.brain.wiki_v2.recall_config import get as _knob
+        except Exception as e:                       # noqa: BLE001 — 链路失败不抛
+            res.degraded = True
+            res.note = f"依赖不可用: {e}"
+            return res
+
+        hl = _knob("time_half_life_days")
+        now = ctx.story_now
+        if now is None:
+            res.degraded = True
+            res.note = "TIME 缺 now（ctx.story_now=None）——游标未传"
+            res.knobs = {"time_half_life_days": hl, "time_ready": False}
+            return res
+        now_st = parse_story_time(now.to_dict() if hasattr(now, "to_dict") else now)
+        if now_st is None:
+            res.degraded = True
+            res.note = "TIME 缺 now（ctx.story_now 形态非法）"
+            res.knobs = {"time_half_life_days": hl, "time_ready": False}
+            return res
+
+        hits: list[ChannelHit] = []
+        no_time = 0
+        for node in store.all():
+            if node.kind != "episode":
+                continue
+            node_st = parse_story_time(node.story_time)
+            age = None if node_st is None else max(0, now_st.sim_day - node_st.sim_day)
+            t = freshness(age, hl) if age is not None else None
+            if t is None:
+                no_time += 1
+                hits.append(ChannelHit(
+                    node=node, raw=None, rank=0,
+                    detail={"reason": "no story_time（旧档未采集）"}))
+                continue
+            span = float(node.emo_span or 0.0)
+            emo_i = float(node.emo_int or 0.0)
+            det = float(node.significance) * t + span * emo_i
+            hits.append(ChannelHit(
+                node=node, raw=det, rank=0,
+                detail={"sig": node.significance, "time": round(t, 4),
+                        "age": age, "span": span, "int": emo_i}))
+        scored = [h for h in hits if h.raw is not None]
+        scored.sort(key=lambda h: -h.raw)
+        for i, h in enumerate(scored, 1):
+            h.rank = i
+        res.hits = scored + [h for h in hits if h.raw is None]
+        res.knobs = {"time_half_life_days": hl, "time_ready": True,
+                     "scored": len(scored), "no_story_time": no_time}
+        if not scored:
+            res.degraded = True
+            res.note = f"无一条 episode 有 story_time（旧档 {no_time} 条）→ 不出分"
         return res
 
 

@@ -111,15 +111,71 @@ def test_missing_data_degrades_never_fabricates(tmp_path):
               f"note={r.note[:52]}")
 
 
-def test_intensity_prior_reports_time_gap(tmp_path):
-    """★ A 链路: 四格已就绪但 TIME 未设计 → 不出分, 且 knobs 要说明差什么。"""
+def test_intensity_prior_scores_when_time_available(tmp_path):
+    """★ A 出分: `det = SIG·TIME + span·int`, TIME 走 freshness(age, half_life)。"""
+    from core.worldtime import StoryTime
     st = _store(tmp_path)
-    r = get_channel("A_intensity").gather(st, _ctx())
-    assert r.degraded and "TIME" in r.note
-    assert r.knobs.get("time_ready") is False
-    assert r.knobs.get("sig_ready") and r.knobs.get("int_ready")
-    assert not r.hits
-    print(f"    A: 降级并说明只差时间 → {r.note[:56]}")
+    # 两条 episode 都 stamp 到 sim_day=0; now 推到 sim_day=0 → age=0 → freshness=1
+    for n in st.all():
+        n.story_time = StoryTime.from_sim_day(0).to_dict()
+    now = StoryTime.from_sim_day(0)
+    r = get_channel("A_intensity").gather(st, _ctx(story_now=now))
+    assert not r.degraded, r.note
+    assert len(r.hits) == 2 and all(h.raw is not None for h in r.hits)
+    raws = [h.raw for h in r.hits]
+    assert raws == sorted(raws, reverse=True) and [h.rank for h in r.hits] == [1, 2]
+    # age=0 → TIME=1 → det = SIG + span*int
+    for h in r.hits:
+        d = h.detail
+        assert abs(h.raw - (d["sig"] * d["time"] + d["span"] * d["int"])) < 1e-9
+        assert d["time"] == 1.0 and d["age"] == 0
+    print(f"    A: 出分 {len(r.hits)} 条 raws={[round(x, 3) for x in raws]} "
+          f"knobs={r.knobs}")
+
+
+def test_intensity_prior_decays_with_age(tmp_path):
+    """★ 新鲜度真的衰减: 同一节点, now 越晚 det 越小。"""
+    from core.worldtime import StoryTime
+    st = _store(tmp_path)
+    for n in st.all():
+        n.story_time = StoryTime.from_sim_day(0).to_dict()
+    vals = []
+    for day in (0, 5, 15, 60):
+        now = StoryTime.from_sim_day(day * 5)          # day 叙事日 = 5*day 格
+        r = get_channel("A_intensity").gather(st, _ctx(story_now=now))
+        vals.append(max(h.raw for h in r.hits))
+    assert all(b < a for a, b in zip(vals, vals[1:])), vals
+    print(f"    A: 新鲜度衰减 age=0/5/15/60 日 → {[round(v, 3) for v in vals]}")
+
+
+def test_intensity_prior_degrades_without_clocks(tmp_path):
+    """缺 now → 整条链路降级; 缺 node.story_time → **该节点**降级, 其余照常。"""
+    from core.worldtime import StoryTime
+    st = _store(tmp_path)
+    r0 = get_channel("A_intensity").gather(st, _ctx())
+    assert r0.degraded and not r0.hits and "story_now" in r0.note
+    # 只给其中一条 stamp
+    nodes = list(st.all())
+    nodes[0].story_time = StoryTime.from_sim_day(0).to_dict()
+    r1 = get_channel("A_intensity").gather(
+        st, _ctx(story_now=StoryTime.from_sim_day(0)))
+    assert not r1.degraded
+    assert len(r1.hits) == 2
+    assert sum(1 for h in r1.hits if h.raw is None) == 1     # 旧档那条
+    assert r1.knobs["no_story_time"] == 1
+    print(f"    A: 缺 now → 整链降级; 缺 node.story_time → 单条降级 "
+          f"（{r1.knobs}）")
+
+
+def test_intensity_prior_all_old_archive_degrades(tmp_path):
+    """全部旧档（无 story_time）→ 降级而不是给一堆 0 分。"""
+    from core.worldtime import StoryTime
+    st = _store(tmp_path)
+    r = get_channel("A_intensity").gather(
+        st, _ctx(story_now=StoryTime.from_sim_day(0)))
+    assert r.degraded and not [h for h in r.hits if h.raw is not None]
+    assert "story_time" in r.note
+    print(f"    A: 全旧档 → 降级（{r.note[:48]}）")
 
 
 def test_emotion_rag_reports_link_gap(tmp_path):
@@ -207,7 +263,10 @@ if __name__ == "__main__":
     with tempfile.TemporaryDirectory() as d:
         p = Path(d)
         for fn in (test_missing_data_degrades_never_fabricates,
-                   test_intensity_prior_reports_time_gap,
+                   test_intensity_prior_scores_when_time_available,
+                   test_intensity_prior_decays_with_age,
+                   test_intensity_prior_degrades_without_clocks,
+                   test_intensity_prior_all_old_archive_degrades,
                    test_emotion_rag_reports_link_gap,
                    test_place_gate_needs_place_field,
                    test_unconscious_is_declared_not_implemented,
