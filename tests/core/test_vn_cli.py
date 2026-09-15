@@ -472,14 +472,21 @@ def test_trigger_no_gate_and_suggestion_notes():
     engine2.start_session(CHARACTER)
     for i in range(7):
         engine2.agent_turn(f"闲聊 {i}")
-        # 尾序（2026-09-07 promptkit §4）: P16 注记 → task 卡 → user
-        sys_note = llm2.snapshots[i][-3]["content"]
-        assert llm2.snapshots[i][-2]["content"].startswith("本回合任务：")  # chat 卡
+        msgs = llm2.snapshots[i]
+        # 尾序（2026-09-07 promptkit §4）: 注记们 → task 卡 → user
+        # ⚠️ **注记按下标取, 不要全文搜** —— 前几轮的注记已渲染进 history,
+        #    搜"羁绊进度事实"会命中**历史里那条旧的**（2026-09-13 加时间注记时踩到）。
+        #    卡恒在 user 前最后一位 → 本轮注记就是它前面那一条（P16 恒为注记首位）。
+        assert msgs[-2]["content"].startswith("本回合任务：")      # chat 卡
+        assert msgs[-1]["role"] == "user"
+        note = msgs[-3]["content"]
+        # P16 有两种抬头: 沉淀期"羁绊进度事实" / 建议期"【剧情时机】"
+        assert note.startswith(("羁绊进度事实", "【剧情时机】")), note[:40]
         if i == 0:
-            assert "沉淀" in sys_note and "羁绊进度事实" in sys_note, sys_note
-            assert "主动发起" not in sys_note, sys_note
+            assert "沉淀" in note, note
+            assert "主动发起" not in note, note
         if i == 6:
-            assert "【剧情时机】" in sys_note and "主动发起羁绊剧情" in sys_note, sys_note
+            assert "【剧情时机】" in note and "主动发起羁绊剧情" in note, note
     print("    trigger 注记分级: gap<6 报沉淀事实 → gap≥6 主动建议（不拦截）")
 
 

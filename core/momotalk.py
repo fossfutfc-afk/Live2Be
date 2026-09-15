@@ -565,6 +565,26 @@ class MomoTalkEngine:
         except Exception as e:                       # noqa: BLE001 — 宁缺勿错
             logger.warning("brain 注入失败 (%s): %s", character_id, e)
 
+    def _last_seen_ts(self) -> str:
+        """她上次与老师互动的**壁钟时间**（`§4.11` 的"现实间隔"数据源）。
+
+        取事件流里最后一条**互动**事件（mmt/bond）的 `ts` —— 数据现成, 不新增存储。
+        没有 → `""`（注记整行跳过, 不编一个"很久没见"）。
+
+        ⚠️ 刻意用 **③ 壁钟**（不是 ① 剧情时间）: 这里要回答的是
+        "**玩家**隔了多久才回来", 那是现实世界的事。两条时钟各答各的。
+        """
+        if self._store is None or not self._current_char:
+            return ""
+        try:
+            evs = self._store.events(self._current_char.character_id)
+        except Exception:                            # noqa: BLE001 — 注记绝不阻断
+            return ""
+        for e in reversed(evs):
+            if getattr(e, "type", None) in ("mmt", "bond") and e.ts:
+                return e.ts
+        return ""
+
     @staticmethod
     def _write_affection_event(store: SessionStore, character_id: str,
                                events: list, interact_max: int, delta: int) -> None:
@@ -712,6 +732,30 @@ class MomoTalkEngine:
         # P18 随机）→ task 卡 → user。注记/卡只进 LLM context, 不入历史。
         brain = (self._brain_injection or "").strip()
         notes: list[str] = [self._bond_progress_note()]    # P16 羁绊进度参考（软门槛）
+        # P17 时间注记（§4.11）—— 剧情时间 + 现实间隔 + 手机日期。
+        # ★ 三行**互不参与判定**（不进 det/age/召回），只给 LLM 写作与答题的素材。
+        # ★ "手机上的日期"给归因（她是掏手机看, 不是知道现实世界）+ 使用边界
+        #   （问起才引用）—— 否则模型会主动提日期、破第四面墙。
+        # 位置: P16 之后、P18/task 卡之前（时间事实比随机事件更基础）。
+        try:
+            from core.worldtime import time_notes
+            # ⚠️ `WikiStoreV2` 定义了 `__len__`（节点数）→ **空库是假值**。
+            # 所以这里必须 `is not None`，不能写 `if wstore`——
+            # 那会让"空记忆的新角色"永远拿不到时间注记（真机踩到过）。
+            wstore = None
+            if self._store is not None:
+                wstore = WikiStoreV2(self._store.data_root,
+                                     world_id=self._store.world_id,
+                                     char_id=self._current_char.character_id)
+            _cur = wstore.clock().cursor if wstore is not None else None
+            # ⚠️ `include_phone` 必须跟着 **store 有无**走 —— 它是壁钟派生的
+            # （不需要游标, 所以写死 True 会让"无 store 的用例"也注入手机日期,
+            #  与"无 store 不注时间"的纪律矛盾。真机/测试都踩到过。）
+            for _n in time_notes(_cur, last_ts=self._last_seen_ts(),
+                                 include_phone=wstore is not None):
+                notes.append(_n)
+        except Exception as e:                       # noqa: BLE001 — 注记绝不阻断
+            logger.warning("时间注记失败（本轮不注）: %s", e)
         if system_note:                                     # P17 本轮系统注记
             notes.append(system_note)
         if self._store is not None:          # P18 随机事件（概率性, soft——低频惊喜）

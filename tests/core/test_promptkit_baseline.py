@@ -13,6 +13,7 @@ tests/fixtures/promptkit/*.txt（生成后人工审 diff 再提交）。
 import json
 import os
 import sys
+from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
@@ -52,12 +53,31 @@ class ScriptedLLM:
         return []
 
 
-def _mmt_engine(llm):
+def _mmt_engine(llm, store=None):
     from core.bond.bond_progress import BondProgress
     engine = MomoTalkEngine(ROOT / "config" / "characters", llm,
-                            bond_progress=BondProgress(data_root=ROOT / "data"))
+                            bond_progress=BondProgress(data_root=ROOT / "data"),
+                            store=store)
     engine.start_session(CHARACTER)
     return engine
+
+
+def _freeze_wall_clock(monkeypatch, when):
+    """把 `prompt_time` 的壁钟冻住 —— 否则夹具会**每天失效**。
+
+    时间注记里的"手机上的日期"取 `datetime.now()`（真实日期）;
+    真机要真实日期, 但**夹具必须可重现**（今天跑出 9月15, 明天就是 9月16）,
+    所以这里只替换**读时钟**的那一处。
+    """
+    import core.worldtime.prompt_time as _pt
+
+    class _FixedDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return when
+
+    monkeypatch.setattr(_pt, "datetime", _FixedDateTime)
+    return when
 
 
 def _bond_engine(llm):
@@ -166,8 +186,14 @@ def test_bond_box_baseline():
 # 每轮/每场 messages 基线（手动装配分支: 有 system_note / P16 注记）
 # ---------------------------------------------------------------------------
 
-def test_mmt_round_tail_baseline():
-    """MMT 一轮完整 messages（task 卡 on）: [system(盒A)] + [P16 进度] + [卡] + [user]。"""
+def test_mmt_round_tail_baseline(monkeypatch):
+    """MMT 一轮完整 messages（task 卡 on）: [system(盒A)] + [注记们] + [卡] + [user]。
+
+    ⚠️ **注记条数不写死**（2026-09-13 加时间注记后, 原按条数断言的写法会失效）。
+    改为**按内容定位 + 只断言顺序关系**。
+    ⚠️ 壁钟**冻住** —— 手机日期取 `datetime.now()`, 不冻则夹具每天失效。
+    """
+    _freeze_wall_clock(monkeypatch, datetime(2026, 9, 13, 20, 41))
     llm = ScriptedLLM({"messages": [{"text": "嗯……我、我有点紧张。"}]},
                       {"messages": [{"text": "老师你听我慢慢说。"}]})
     engine = _mmt_engine(llm)
@@ -176,11 +202,13 @@ def test_mmt_round_tail_baseline():
     r = engine.agent_turn("你好呀，在吗")
     assert r.ok
     m1 = llm.snapshots[0]
-    assert [m["role"] for m in m1] == ["system", "system", "system", "user"], m1
     assert m1[0]["content"] == box                    # 前缀 = 盒A 逐字节
-    assert m1[1]["content"].startswith("羁绊进度事实")   # P16 注记（新会话 gap=0）
-    assert m1[2]["content"].startswith("本回合任务：以伊草 遥香身份")   # task 卡
-    assert m1[3] == {"role": "user", "content": "你好呀，在吗"}
+    assert all(x["role"] == "system" for x in m1[:-1]), m1
+    assert m1[-1] == {"role": "user", "content": "你好呀，在吗"}
+    i16 = next(i for i, x in enumerate(m1) if x["content"].startswith("羁绊进度事实"))
+    icard = next(i for i, x in enumerate(m1)
+                 if x["content"].startswith("本回合任务：以伊草 遥香身份"))
+    assert i16 < icard, (i16, icard)                  # P16 在卡之前
 
     r2 = engine.agent_turn("继续")
     assert r2.ok
@@ -192,18 +220,18 @@ def test_mmt_round_tail_baseline():
 
 
 def test_mmt_round_tail_task_off():
-    """task 卡 off（引擎参数）: 尾部 = 旧行为 [system]+[P16]+[user]（A/B 对照基线）。"""
+    """task 卡 off（引擎参数）: 尾部无卡。"""
     llm = ScriptedLLM({"messages": [{"text": "嗯……我、我有点紧张。"}]})
     engine = _mmt_engine(llm)
     engine._task_on = False
     engine.agent_turn("你好呀，在吗")
     m = llm.snapshots[0]
-    assert [x["role"] for x in m] == ["system", "system", "user"], m
     assert all("本回合任务" not in x["content"] for x in m)
+    assert m[-1] == {"role": "user", "content": "你好呀，在吗"}
 
 
 def test_mmt_wrapup_tail_card():
-    """收尾轮（task_kind="wrapup"）: 注记后是收尾卡, 卡内容 = task_mmt_wrapup.md。"""
+    """收尾轮（task_kind="wrapup"）: 注记之后是收尾卡, 卡内容 = task_mmt_wrapup.md。"""
     from core.promptkit import task_card as _card
     llm = ScriptedLLM({"messages": [{"text": "嗯…今晚的事我会记住的。"}]})
     engine = _mmt_engine(llm)
@@ -212,13 +240,12 @@ def test_mmt_wrapup_tail_card():
                           task_kind="wrapup")
     assert r.ok
     m = llm.snapshots[0]
-    roles = [x["role"] for x in m]
-    assert roles == ["system", "system", "system", "system", "user"], roles
-    assert m[1]["content"].startswith("羁绊进度事实")    # P16 注记
-    assert m[2]["content"] == note                    # P17 注记在卡前
     card = _card("mmt", "wrapup", char="伊草 遥香", enabled=True)
-    assert m[3]["content"] == card                    # 卡 = 模板渲染结果（含"只许 mmt_chat"）
-    assert m[4] == {"role": "user", "content": "（自动收尾）"}
+    assert m[-1] == {"role": "user", "content": "（自动收尾）"}
+    assert m[-2]["content"] == card                   # 卡恒在 user 前最后一位
+    i16 = next(i for i, x in enumerate(m) if x["content"].startswith("羁绊进度事实"))
+    inote = next(i for i, x in enumerate(m) if x["content"] == note)
+    assert i16 < inote < len(m) - 2, (i16, inote, len(m))   # 注记在卡之前
     assert engine.history[-1]["role"] == "assistant"  # record_input=False → 无假 user 历史
 
 
