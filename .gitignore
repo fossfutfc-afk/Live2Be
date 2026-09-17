@@ -2,7 +2,6 @@
 .env
 settings.toml
 *.exe
-CLAUDE.md
 resources/*
 __pycache__/
 .pytest_cache/
