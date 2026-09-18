@@ -213,8 +213,11 @@ def digest_segment(
         # **唯一日期轴是现实日期**（`node.ts` —— 由下面的 `ts=now_ts` 落下），
         # 剧情内部的流逝自由但**不累积、不进账**。
         # 段的日期 = 段内最后一条内容事件的时刻（见上面 `now_ts` 的取法）。
-        # ⚠️ Round A 的 `time_span` **仍由契约输出但已无人消费** —— 删它要动
-        #    schema / prompt / 黄金夹具, 是独立一刀（见 `TODO.md`）。
+        # ⚠️ Round A 的 `time_span` **仍由契约输出但不消费**（用户 2026-09-17 裁决 = 选项 c）:
+        #    **它是为将来的衰减新模型预留的** —— 玩家的游玩时间是**密集成块的离散**
+        #    （一口气玩 3 小时 → 隔一周 → 又 3 小时），而记忆曲线假设时间连续均匀,
+        #    **不匹配**。故现在**保留契约字段**, 等新模型落地时改它的计算方式。
+        #    详见 `TODO.md`「记忆衰减」。**不要顺手删它。**
         episode_ids, player_ids = _create_a_nodes(
             store, entries, ts=now_ts, segment_id=segment_id,
             event_seq=[interact_max], aff_at_encoding=aff_at_encoding,
