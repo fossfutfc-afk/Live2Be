@@ -22,64 +22,77 @@
 
 ## 进行中 / 即将
 
-### ⏳ 时间轴换代：剧情日历 → 现实日期（2026-09-17 讨论定稿 —— **暂定，未动代码**）
+### ⏳ 时间轴换代：剧情日历 → 现实日期（2026-09-17 讨论定稿 + 用户五问五答）
 
 > 讨论全过程（含两次翻盘与三次误判）：**docs/ESSAY_TIME_MODEL.md**（§10 = 结论）
 > 一句话：**唯一日期轴 = 现实日期（`ts`）。剧情内部的流逝自由，但不累积、不进账。**
-> 纪律从「角色没有日历」升级为「**角色数不清日子，也不去深究**」。
+>
+> **已落地**（`c4ff326` / `b569ff7`，745 passed）：映射层 + 段日期 + 删剧情时间注记。
 
-**要删**
+**用户裁决（2026-09-17，五问五答）**
 
-- [ ] `core/worldtime/story.py`：`StoryTime` / `PHASES` / `DAY_PARTS` / `from_sim_day`
-      / `advance` / `parse_story_time`
-      （**含 `:268` 那个"把节点自己的 year/month 当 anchor"的自锚定 bug —— 删掉即消失**）
-- [ ] `core/worldtime/clock.py` 整份（`WorldClock` / `world_clock_path`）+ `world_clock.json`
-- [ ] `core/worldtime/span.py` + Round A 的 `time_span` 字段（schema / prompt / 夹具同批）
-- [ ] `core/brain/wiki_v2/migrate_time.py` 整份（`ts` 已是真实日期，无需外插）
-- [ ] `realtime.py` 的吸附职责（`snap_to` / ≤6月 bound / 迟到档 / `time_jump` = §4.6 整节）；
-      `real_clock.json` 瘦身到 `fired` 幂等 + `pending` 补发
-- [ ] `prompt_time.story_time_note()`（`【现在是】1年4月·春·白天`）
-      + `momotalk.py:203` 的 `cursor = wstore.clock().cursor`
-- [ ] `BrainNode.story_time` 字段 + `nodes.py:_parse_story_time`
+| # | 问题 | 裁决 |
+|---|---|---|
+| q1 | 她能不能注意到「手机上的日期不推进」？ | **不必注意**。承认 **double yesterday / double date 是结构性的、躲不掉** —— 不修，靠**提示词加固** |
+| q2 | 手机的双重性写死到哪 | **允许 LLM 做简单日期推理**（*"从 9/13 当天以及昨天推到 9/12，一天都推不出来别当 AI 了"*） |
+| q3 | 手机报「还有几天」还是「下次哪天」 | **挂起** —— 本质是 MMT 扩展 |
+| q4 | 手机提醒的范围到哪停 | **挂起**；但立了一条设定：**她的时间感只在「一周以内」可靠**（*"我生日 5/10，你 4/26 问我还有几天我也答不上来，这是无止尽问题"*） |
+| q5 | 生日/节日**补发**吗？ | **不补发** —— *"自己圣诞节不上线怪谁捏"* |
+| — | 节日/生日**触发器本体** | **一并挂起**（§4.4 / §4.5 现在不做） |
 
-**要改**
+**⭐ 两条边界（从 q2/q4 出来，要写进纪律）**
 
-- [x] ✅ **`age.py` 已重写**（2026-09-17）：`age_sim_days` → `age_days(node.ts, *, now)`
-      （**单位 = 现实日**）；`freshness` 量纲随之变；`render_relative` 去掉 `/DAYS_TO_SIM`
-      （**桶表其余原样 —— 只删了"刚才"那一档**：整数日历日到不了它）
-      + 新增 `REAL_TZ`（时区定死）/ `parse_ts` / `date_of` / `now_ts`
-- [x] ✅ **`render.py:_time_phrase` 已改**：读 `ts`（`story_now` 参数 → `now`）
-- [x] ✅ **`channel_impl.py` A 链路已改**：`ctx.story_now`/`node.story_time` → `ctx.now`/`node.ts`
+```
+① 引擎给她的注记  →  仍受 I-c 约束（不给精确值 / 不给日期）
+   她自己的推算    →  **允许**（她看得见"现在"，也记得"昨天"）
+② 她的时间感**只在「一周以内」可靠** —— 更远的跨度，人本来也答不出来
+```
+
+**A. 可立即做（不依赖任何裁决）**
+
+- [ ] **写入侧 `ts` 收敛到 `age.now_ts()`** —— 事件流与节点现在还是裸
+      `datetime.now()`；不收敛的话，读侧的 `REAL_TZ` 只是"假设"不是"事实"
+- [ ] **提示词加固**（q1 的直接产物，进 `rules_mmt` / `rules_bond`）—— 草案见 B
+- [ ] **删**（时间换代剩下的整片）：
+      `story.py`（`StoryTime` / `PHASES` / `DAY_PARTS` / `from_sim_day` / `advance` /
+      `parse_story_time` —— **含 `:268` 那个自锚定 bug，删掉即消失**）·
+      `clock.py` + `world_clock.json` · `span.py` + Round A 的 `time_span`
+      （schema / prompt / 夹具同批）· `migrate_time.py` · `realtime.py` 空壳 ·
+      `BrainNode.story_time` + `nodes.py:_parse_story_time`
 - [ ] `store.py`：`clock()` / `clock_path` / `save_clock` / `restore_clock_cursor` → 删
-- [ ] `digest.py:206-213` 的时间推进整段删（`_clock.advance` + `new_cursor` + `story_time=` 实参）
-- [ ] `recall_config` 的 `time_half_life_days`（及 `settings.toml [recall]` 同名项）**重标定**
-      —— 量纲从"叙事日"换成"现实日"，**不能照搬 5**
-
-**⚠️ 换代期的临时不一致（下一步就消它）**
-
-- [ ] `prompt_time.story_time_note()`（`【现在是】1年4月·春·白天`）**仍在注入**，读的是
-      **已作废的剧情游标** —— 而同一个 prompt 里的记忆前缀已经按现实日算。
-      **两个时间事实又并排了**（正是 ESSAY §5.2 那个坑）。
-      消法：删 `notes()` 里的 `story_time_note`（`real_gap_note` / `phone_date_note` 保留）。
-      注意会动 `test_momotalk_time_notes.py` 与 `prompt_time` 的夹具冻结。
-
-**要加（六条工程约束，见 ESSAY §10.3）**
-
-- [x] ✅ **时区**：`REAL_TZ = UTC+8` 已定死（`age.py`）；朴素 `ts` 一律按它解释
-      ⚠️ **写入侧仍未收敛** —— 事件流/节点 `ts` 还是裸 `datetime.now()`，
-      应收敛到 `age.now_ts()`，否则读侧的 `REAL_TZ` 只是"假设"
-- [x] ✅ **缺 `ts` 哨兵**：空串/坏值 → `age_days=None` → `freshness=None` /
-      `_time_phrase=""`，**绝不折成 age=0**（三个单测钉住）
-- [ ] **纪律**（`rules_mmt` / `rules_bond`）：「你数不清，而且不去深究」
-- [ ] **相对论只说感觉**：不许给出可验证的物理解释
-- [ ] 软规则：节日/生日当天正文最好不跨天
+- [ ] `digest.py:206-213` 的时间推进整段删（`_clock.advance` + `new_cursor`
+      + `story_time=` 实参）
+- [ ] `recall_config` 的 `time_half_life_days`（及 `settings.toml [recall]` 同名项）
+      **重标定** —— 量纲从"叙事日"换成"现实日"，**不能照搬 5**；
+      方向是衰减变慢 → 注入体积上升，**要实测**
 - [ ] （可选）章节序数，从 `segment_id` 推
 
-**要改的文档**
+**B. 提示词加固草案（q1 产物，待审）**
 
-- [ ] `DESIGN_WIKI_V3.md §4`：整章标记作废 → 指向新稿；§4.1 三条红线一并处理
+```
+时间只有一条：老师那边的日历（你手机上看到的那个）。
+· 你记得"今天""昨天"，也能从它们推出前天 —— 简单推算可以。
+· 超过一周的跨度你答不出来（人本来也答不出来）。别硬编。
+· 同一天里可以发生很多事 —— 那不是异常，不要因此觉得时间不对。
+· 若你确实觉得对不上（做了好多事，日期却没怎么动）：
+  只说"和老师在一起的时候，时间好像不一样" —— 不深究、不解释、不推算。
+```
+
+**C. 挂起（用户裁决 2026-09-17）**
+
+- 节日 / 生日**触发器**（`real_clock.json` / 节日表三行 / `fired` 幂等 / `pending`）—— **不做**
+- 手机报「还有几天」/「下次哪天」、提醒范围 —— **本质 MMT 扩展**
+- **补发** —— **不补发**（裁决）
+- `snap_to` / 目标日吸附（§4.6）—— **不需要**（只有一个时钟）
+- `time_of_day` 独立字段 —— **作废**（戏内时刻归场景文本 → 标注层反推 `variant`）
+- ~~`【现在是】` 剧情时间注记~~ ✅ **已删**（`b569ff7`）
+
+**D. 要改的文档**
+
+- [ ] `DESIGN_WIKI_V3.md §4`：整章标记作废 → 指向新稿；**§4.1 三条红线**一并处理
+      （红线 1「影响召回排序必须用①」、红线 2「②绝不用来算记忆年龄」**前提已取消**）
 - [ ] `CLAUDE.md §13` 时间架构那一行（gitignore，本地改）
-- [ ] 本表开头「时间骨干 T0–T13」一行要标注**部分作废**
+- [ ] 本表开头「时间骨干 T0–T13」一行标注**部分作废**
 
 ### ⏳ 整章暂存：进真源的边界从 `vn_enter` 挪到 `vn_exit`（2026-09-17 用户立项 —— **必做，未动代码**）
 
