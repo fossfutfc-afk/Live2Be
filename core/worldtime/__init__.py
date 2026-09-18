@@ -61,7 +61,6 @@ from core.worldtime.age import (
     render_relative,
 )
 from core.worldtime.prompt_time import (
-    FICTIONAL_YEAR,
     notes as time_notes,
     phone_date_note,
     real_gap_note,
@@ -89,8 +88,8 @@ __all__ = [
     "SPANS",
     "SpanError",
     "parse_span",
-    # prompt_time —— 进 prompt 的注记
-    "FICTIONAL_YEAR",
+    # prompt_time —— 进 prompt 的注记（⚠️ `FICTIONAL_YEAR` 已于 2026-09-17 删除:
+    # 手机上的日期现在**就是真实日期**, 见该模块 docstring）
     "time_notes",
     "phone_date_note",
     "real_gap_note",

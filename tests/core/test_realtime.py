@@ -204,8 +204,13 @@ def test_target_feb29_falls_to_mar1():
     assert o.target(date(2028, 1, 1)) == date(2028, 2, 29)     # 2028 是闰年
 
 
-def test_signature_uses_real_year_not_fictional_2100():
-    """★ 决定 2: 拿角色的虚构年 2100 当键 = "每年一次"退化成"一辈子一次"。"""
+def test_signature_uses_the_period_year():
+    """幂等键的年份 = `target` 那一期的年 —— 这是"每年一次"能成立的全部。
+
+    ⚠️ 这条用例原名 `..._not_fictional_2100`, 钉的是"别拿角色的虚构年当键"。
+    虚构年已于 2026-09-17 删除（用户裁决）, 威胁随之消失; 但**断言本身仍然有效**
+    （键必须是递增的那个年份的年份）, 故保留并改名, 附上这段来历。
+    """
     o = rt.Occasion(id="xmas", month=12, day=25, name="圣诞", proactive=True)
     assert o.signature(date(2026, 12, 25)) == "xmas:2026"
     assert o.signature(date(2027, 12, 25)) == "xmas:2027"
