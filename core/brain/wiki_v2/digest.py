@@ -149,10 +149,10 @@ def digest_segment(
     interact_max = max(e.seq for e in new_events)
     result = DigestResult(ok=False)
     snapshot = store.clone_state()                       # 原子性: 失败 → 回滚
-    # ⚠️ 游标快照必须**在 `clock()` 装载之后**取 —— 装载会顺带初始化到
-    #    `LEGACY_EPOCH`（有历史的世界）, 那一步也是有副作用的。
-    store.clock()
-    clock_snapshot = store.peek_clock_cursor()
+    # 游标快照：**已退役**（2026-09-17, `ESSAY_TIME_MODEL §10`）——
+    # 剧情游标不再存在, 故恒 None（`_rollback` 对它天然 no-op）。
+    # 保留这个变量是为了不动 3 个 `_rollback` 调用点与它的签名。
+    clock_snapshot = None
 
     timeline = render_timeline(new_events, indexed=True)
     # 本段**可寻址事件** —— `event_seq` / `verbatim` 索引的 ⊆ 校验基准（T14）。
@@ -207,19 +207,18 @@ def digest_segment(
         # 索引 → 原文（T14）: parse 层拿不到事件流, 回填在这里做
         for ent in entries:
             _resolve_verbatim(ent, by_seq)
-        # ── 时间推进（§4.11 的写路径时序）──
-        # ⚠️ **I-a: 先推进, 再 stamp**。否则第二段与第一段拿到同一个 sim_day,
-        #    age 恒 0、衰减永不生效（静默失效）。
-        # 游标由 `WorldClock` 持有; **落盘在提交临界区**（下面的 `save_clock()`）,
-        # 而失败路径由 `_rollback` 还原内存游标 —— 故重试不会二次推进。
-        span = parse_span(resp_a.get("time_span"))
-        _clock = store.clock()
-        _clock.cursor = _clock.advance(span)      # ★ 赋值回游标（否则只推进了返回值）
-        new_cursor = _clock.cursor
+        # ── 时间推进：**已退役**（2026-09-17, `ESSAY_TIME_MODEL §10`）──
+        # 旧实现读 Round A 的 `time_span` 推进 `WorldClock` 的**剧情游标**,
+        # 再把新游标 stamp 到节点上（`story_time`）。整条链已废:
+        # **唯一日期轴是现实日期**（`node.ts` —— 由下面的 `ts=now_ts` 落下），
+        # 剧情内部的流逝自由但**不累积、不进账**。
+        # 段的日期 = 段内最后一条内容事件的时刻（见上面 `now_ts` 的取法）。
+        # ⚠️ Round A 的 `time_span` **仍由契约输出但已无人消费** —— 删它要动
+        #    schema / prompt / 黄金夹具, 是独立一刀（见 `TODO.md`）。
         episode_ids, player_ids = _create_a_nodes(
             store, entries, ts=now_ts, segment_id=segment_id,
             event_seq=[interact_max], aff_at_encoding=aff_at_encoding,
-            story_time=new_cursor.to_dict(), by_seq=by_seq)
+            by_seq=by_seq)
 
         # ── Round B: 理解者（引擎候选推荐 + 决策表）──
         cog_text, local_of = render_cognition_list(
@@ -260,11 +259,7 @@ def digest_segment(
     result.evidence = _clean_evidence(resp_b.get("evidence"), evidence_threshold)
     result.affection_delta = _clamp_aff(resp_b.get("affection_exp_delta"))
     store.save()
-    # 游标提交（§4.11 I-a）: **与节点写入同一临界区** —— 放在 store.save() 之后、
-    # 水位推进之前。若这里失败, 节点已经落盘但游标没走 → 重跑会二次推进;
-    # 故失败**必须显式告警**（宁缺勿错: 时间宁可不动, 不可静默错位）。
-    if not store.save_clock():
-        logger.warning("world_clock 提交失败——时间点未推进, 下段将从旧游标起算")
+    # 游标提交：**已退役**（2026-09-17）—— 没有剧情游标可落盘。
     store.meta["digested_seq"] = max((e.seq for e in events), default=interact_max)
     store.save_meta()
     return result
