@@ -126,15 +126,31 @@ def test_date_of_is_timezone_pinned():
 
 
 def test_freshness_bounds_and_monotone():
+    """★ 2026-09-17 加了下界 `floor` —— 这条断言随之改写（**行为变更, 不是放宽**）。
+
+    旧口径: `freshness(hl) == 0.5` **正好**（半衰期的字面定义）。
+    新口径: `freshness(hl) == (1 + floor) / 2`; 只有 `floor=0` 时才回到 0.5。
+    `age=0` 仍是 **1.0**（与 floor 无关）—— 这条没变, 是关键。
+    """
+    from core.worldtime.age import DEFAULT_FRESHNESS_FLOOR as FL
+
     assert freshness(None) is None
-    assert freshness(0) == 1.0
+    assert freshness(0) == 1.0                       # 新记忆不受 floor 影响
+    assert freshness(0, floor=0.9) == 1.0            # 极端 floor 也一样
     hl = DEFAULT_HALF_LIFE_DAYS
     half = freshness(int(hl))
-    assert abs(half - 0.5) < 1e-9, half                 # 半衰期处正好 0.5
+    assert abs(half - (1 + FL) / 2) < 1e-9, half     # 半衰期处 = (1+floor)/2
+    assert abs(freshness(int(hl), floor=0.0) - 0.5) < 1e-9, "floor=0 应回到旧行为"
+
     vals = [freshness(n) for n in range(0, 40, 5)]
     assert all(b < a for a, b in zip(vals, vals[1:])), vals
-    assert all(0.0 < v <= 1.0 for v in vals)
-    print(f"    freshness: age=0→1.0; 半衰期({hl}现实日)处→{half:.3f}; 单调递减且有界")
+    assert all(FL <= v <= 1.0 for v in vals)         # 下界是 floor, 不是 0
+
+    # ★ 下界真的兜住了尾巴（旧版这里是 1e-22 量级）
+    assert freshness(365) >= FL
+    assert freshness(3650) == FL or freshness(3650) > 0.9 * FL
+    print(f"    freshness: age=0→1.0; 半衰期处→{half:.3f}; "
+          f"下界 {FL}（floor=0 时回到 0.5 / 0.0）")
 
 
 def test_render_relative_buckets():

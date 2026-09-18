@@ -51,6 +51,8 @@
 from __future__ import annotations
 
 from core.worldtime.age import (
+    DEFAULT_FRESHNESS_FLOOR,
+    DEFAULT_HALF_LIFE_DAYS,
     REAL_TZ,
     age_days,
     date_of,
@@ -76,6 +78,8 @@ from core.worldtime.span import SPANS, SpanError, parse_span
 __all__ = [
     # age —— 双出口（2026-09-17: 年龄改由**现实日期**算, §10）
     "REAL_TZ",
+    "DEFAULT_HALF_LIFE_DAYS",
+    "DEFAULT_FRESHNESS_FLOOR",
     "age_days",
     "date_of",
     "freshness",
