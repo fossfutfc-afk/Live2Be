@@ -729,6 +729,7 @@ class MomoTalkEngine:
         system_note: str | None = None,
         record_input: bool = True,
         task_kind: str = "",          # 本回合任务卡 kind（"" → 域默认 chat）; 收尾轮传 "wrapup"
+        now: datetime | None = None,  # 本轮"现在"（None → 读壁钟）; 时间注记**共用**它
     ) -> TurnResult:
         """一轮 agent 对话：LLM 输出**消息流**, 逐单元执行, 直到用户可见输出。
 
@@ -762,7 +763,15 @@ class MomoTalkEngine:
         #   （问起才引用）—— 否则模型会主动提日期、破第四面墙。
         # 位置: P16 之后、P18/task 卡之前（时间事实比随机事件更基础）。
         try:
-            from core.worldtime import time_notes
+            from core.worldtime import realtime_notes, time_notes
+            # ★ **一次取一个"现在", 三条注记共用**（2026-09-17 接线时踩到）:
+            #   若让 `time_notes` 与 `realtime_notes` 各自读壁钟, 它们会落在两个
+            #   时刻上 —— 探针里就出现过"【手机上的日期】9月19日"与
+            #   "（手机日历上标着：圣诞节）"同轮并存的画面。同一个 prompt 里
+            #   两条时间事实不同源, 正是 `ESSAY §5.2` 记的那个坑的形状。
+            #   `now` 形参是这条纪律的出口（同 `age_days(*, now)` 不留默认值）:
+            #   生产传 None（读壁钟）, 测试传一个钉死的时刻。
+            _now = now or datetime.now()
             # ⚠️ `WikiStoreV2` 定义了 `__len__`（节点数）→ **空库是假值**。
             # 所以这里必须 `is not None`，不能写 `if wstore`——
             # 那会让"空记忆的新角色"永远拿不到时间注记（真机踩到过）。
@@ -774,9 +783,19 @@ class MomoTalkEngine:
             # ⚠️ `include_phone` 必须跟着 **store 有无**走 —— 它是壁钟派生的
             # （不需要游标, 所以写死 True 会让"无 store 的用例"也注入手机日期,
             #  与"无 store 不注时间"的纪律矛盾。真机/测试都踩到过。）
-            for _n in time_notes(last_ts=self._last_seen_ts(),
+            for _n in time_notes(last_ts=self._last_seen_ts(), now=_now,
                                  include_phone=wstore is not None):
                 notes.append(_n)
+            # ★ 特殊日期（现实日历②, 2026-09-17 接入）—— 同一个纪律: 跟着 store 走。
+            # 只在少数日子产注记（其余轮返回 []）; 调用即记账（台账写了 `fired`,
+            # 所以"LLM 调用失败也不重复注"——这正是"调用即记账"要买的东西）。
+            # ⚠️ 它是**动态注记**不是**盒块**: 盒在 start_session 一次拼死、每轮
+            #   逐字节复用, 而这条只在那一天出现 —— 进盒就会破前缀稳定。
+            # ⚠️ char_id 必须是 **slug**（台账按它分桶）, 不是 display_name。
+            if self._store is not None:
+                for _n in realtime_notes(self._current_char.character_id,
+                                         self._store.world_dir(), now=_now):
+                    notes.append(_n)
         except Exception as e:                       # noqa: BLE001 — 注记绝不阻断
             logger.warning("时间注记失败（本轮不注）: %s", e)
         if system_note:                                     # P17 本轮系统注记

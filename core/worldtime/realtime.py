@@ -622,13 +622,41 @@ def due_notes(char_id: str, world_dir: str | Path, *, now: object = None,
     ⚠️ **只给 MMT 用**（模块 docstring 边界 1）: VN 不注。
 
     任何异常 → `[]`（宁缺勿错, **绝不阻断对话**）。
+
+    ## ★ 没变化就不写盘（接入 MMT 之后才需要）
+
+    MMT **每轮**调它, 而节日只在少数日子点火 —— 每次都 `save_clock` 等于每轮做一次
+    原子写（临时文件 + `replace`）。所以这里快照了会变的两个字段, **只有真变了才写**:
+
+    - `last_seen_date` 前进（过了一天, 或时钟回拨）
+    - `fired` 多了键（点火了）
+
+    ⚠️ 判据是"值变了没有", 不是"今天是几号" —— 同一天里第二次调用 `mark_seen`
+    把日期设成同一个值, 那不是变化, 不该写盘（否则"同一天玩十轮 = 十次写"）。
+
+    ## ★ 一次调用只取**一个**"现在"（接线时踩到的）
+
+    旧写法把 `now=None` 一路传下去, 于是每个内部点各读一次壁钟 —— 不但可能落在
+    午夜两侧, 更要命的是**与同轮的另两条注记不同源**:
+    `momotalk` 把 `time_notes(now=…)` 钉在一个时刻上, 而这里若自己再读一次壁钟,
+    12/25 探针就会输出"手机上的日期 9月19日 + 手机日历上标着：圣诞节"。
+    ⇒ 现在开头 `now or datetime.now(_REAL_TZ)` **取一次**, 之后全用它。
     """
     try:
+        stamp = now if isinstance(now, datetime) else _as_day(now)
+        if not isinstance(stamp, datetime):      # `now` 是 `date` → 补一个时刻
+            stamp = datetime(stamp.year, stamp.month, stamp.day,
+                             12, 0, tzinfo=_REAL_TZ)
         clock = load_clock(world_dir)
-        occs = due_occasions(char_id, clock, now, occasions=occasions, path=path)
-        mark_seen(clock, now)
-        mark_fired(clock, char_id, occs, now)
-        save_clock(world_dir, clock)
+        before = (clock.get("last_seen_date"), clock.get("rewind_count"),
+                  json.dumps(clock.get("fired"), sort_keys=True))
+        occs = due_occasions(char_id, clock, stamp, occasions=occasions, path=path)
+        mark_seen(clock, stamp)
+        mark_fired(clock, char_id, occs, stamp)
+        after = (clock.get("last_seen_date"), clock.get("rewind_count"),
+                 json.dumps(clock.get("fired"), sort_keys=True))
+        if after != before:                      # 没变 → 不写（见 docstring）
+            save_clock(world_dir, clock)
         return [o.note() for o in occs]
     except Exception as e:                       # noqa: BLE001 — 注记绝不阻断
         logger.warning("节日注记失败（本轮不注）: %s", e)

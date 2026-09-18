@@ -168,15 +168,30 @@
 - ⚠️ **归因那半句现在更承重**：原先还有"年份不重合"当第二道保险，现在她说的就是
   2026，全靠"这是手机上显示的"把它框在手机里
 
+**✅ 已接进 MMT（2026-09-17）**
+
+- **落点** = **每轮动态尾**（`round_messages` 的注记槽），**不是盒块** ——
+  盒在 `start_session` **一次拼死、每轮逐字节复用**（前缀稳定），而节日注记只在
+  那一天出现 ⇒ 进盒就会破缓存前缀。判据: **盒 = 会话级静态; 尾 = 每轮**
+- `core/momotalk.py` 的 P17 块里、`time_notes` 之后调用
+  `realtime_notes(char_id, store.world_dir())`，与 `time_notes` 同一个
+  `try/except`（静默降级）; `char_id` 必须是 **slug**（台账按它分桶）
+- ⚠️ **`agent_turn` 新增 `now` 形参**，三条注记**共用一个"现在"** —— 接线时探针
+  抓到过"【手机上的日期】9月19日"与"（手机日历上标着：圣诞节）"同轮并存
+  （`time_notes` 与 `realtime_notes` 各自读壁钟 ⇒ 一个 prompt 里两个时间事实，
+  正是 `ESSAY §5.2` 那个坑的形状）。生产传 `None`（读壁钟），测试传钉死时刻
+- ⚠️ **没变化就不写盘**：MMT 每轮调它，而节日只在少数日子点火 —— 每次
+  `save_clock` 都是原子写（临时文件 + `replace`）。判据是"**值变了没有**"
+  （`last_seen_date` 前进 / `rewind_count` / `fired` 多键），不是"今天是几号"
+- 新增 9 例接线用例（`tests/core/test_momotalk_time_notes.py`）:
+  进 messages / 与手机日期同源 / 说一次就不再说 / VN 不注 / 无 store 跳过
+
 **待做**
 
-- [ ] **接进 MMT**（`core/momotalk.py` 的 P17 时间注记之后、P18 随机事件之前）——
-      `due_notes(char_id, self._store.world_dir())`，包在 `try/except` 里静默降级。
-      模块本体已完工, 这是**纯装配**一步
 - [ ] **birthday 源**（`OccasionSource` 扩展点已留）：现网 8 个 `profile.yml` 的
       `SIG~birthday` 有**三种写法**（`7/29` / `12月22日` / `5/13`）→ 要容错解析;
       幂等键用 `key`（8 人共用 `birthday` 这个 id）
-- [ ] 顺手清：`data/worlds/world1/world_clock.json`（换代残留孤儿, 全库只剩注释引用）
+- [x] ~~顺手清 `data/worlds/world1/world_clock.json`~~ ✅ 已删
 
 
 ### ⏳ 整章暂存：进真源的边界从 `vn_enter` 挪到 `vn_exit`（2026-09-17 用户立项 —— **必做，未动代码**）
