@@ -50,18 +50,19 @@
 
 **A. 可立即做（不依赖任何裁决）**
 
-- [ ] **写入侧 `ts` 收敛到 `age.now_ts()`** —— 事件流与节点现在还是裸
-      `datetime.now()`；不收敛的话，读侧的 `REAL_TZ` 只是"假设"不是"事实"
+- [ ] **写入侧 `ts` 收敛到 `age.now_ts()`** ✅ **已完成**（`180e79a` / `f105afd`）
 - [ ] **提示词加固**（q1 的直接产物，进 `rules_mmt` / `rules_bond`）—— 草案见 B
 - [ ] **删**（时间换代剩下的整片）：
       `story.py`（`StoryTime` / `PHASES` / `DAY_PARTS` / `from_sim_day` / `advance` /
       `parse_story_time` —— **含 `:268` 那个自锚定 bug，删掉即消失**）·
       `clock.py` + `world_clock.json` · `span.py` + Round A 的 `time_span`
-      （schema / prompt / 夹具同批）· `migrate_time.py` · `realtime.py` 空壳 ·
+      （schema / prompt / 夹具同批）· `migrate_time.py` · `realtime.py` 空壳（**已重写为真实现, 见下节**）·
       `BrainNode.story_time` + `nodes.py:_parse_story_time`
-- [ ] `store.py`：`clock()` / `clock_path` / `save_clock` / `restore_clock_cursor` → 删
+      ✅ **已完成**（`dbb931b` / `09899f1` / `1f9cd67` / `84c809f` / `180e79a`）；
+      ⚠️ **`span.py` 与 `time_span` 按用户裁决保留**（"输出但不消费", 等衰减新模型）
+- [ ] `store.py`：`clock()` / `clock_path` / `save_clock` / `restore_clock_cursor` → 删 ✅ **已完成**（`1f9cd67`）
 - [ ] `digest.py:206-213` 的时间推进整段删（`_clock.advance` + `new_cursor`
-      + `story_time=` 实参）
+      + `story_time=` 实参）✅ **已完成**（`84c809f`）
 - [ ] `recall_config` 的 `time_half_life_days`（及 `settings.toml [recall]` 同名项）
       —— **不是重标定，是等新模型**（见下）
 
@@ -107,9 +108,11 @@
 
 **C. 挂起（用户裁决 2026-09-17）**
 
-- 节日 / 生日**触发器**（`real_clock.json` / 节日表三行 / `fired` 幂等 / `pending`）—— **不做**
+- ~~节日 / 生日**触发器**（`real_clock.json` / 节日表 / `fired` 幂等）~~ →
+  **2026-09-17 改判: 节日表已实现**（见下「现实日历」节）; **生日仍挂起**
+  （用户: *"仍然读 yaml，角色生日的处理模式可能不太一样，正好先不啃这根骨头"*）
 - 手机报「还有几天」/「下次哪天」、提醒范围 —— **本质 MMT 扩展**
-- **补发** —— **不补发**（裁决）
+- **补发** —— **不补发**（裁决）; 实现层再加一条"新角色**零**补发"（见下）
 - `snap_to` / 目标日吸附（§4.6）—— **不需要**（只有一个时钟）
 - `time_of_day` 独立字段 —— **作废**（戏内时刻归场景文本 → 标注层反推 `variant`）
 - ~~`【现在是】` 剧情时间注记~~ ✅ **已删**（`b569ff7`）
@@ -120,6 +123,43 @@
       （红线 1「影响召回排序必须用①」、红线 2「②绝不用来算记忆年龄」**前提已取消**）
 - [ ] `CLAUDE.md §13` 时间架构那一行（gitignore，本地改）
 - [ ] 本表开头「时间骨干 T0–T13」一行标注**部分作废**
+
+### ✅ 现实日历（②）：特殊日期表 + 触发幂等（2026-09-17 落地）
+
+> 一句话：**引擎只答"今天是不是某个日子"，不答"所以呢"。**
+> 表 = `config/eggs/festivals.json`（作者手编）; 台账 = `data/worlds/{w}/real_clock.json`。
+
+**已完成**（模块 `core/worldtime/realtime.py`, 44 个新用例）
+
+| 件 | 说明 |
+|---|---|
+| 表 | 三栏（年/月/日）+ **留空 = 匹配任意**; `proactive` **逐行必填**（无默认值） |
+| 判定 | `occasions_on`（纯投影）/ `due_occasions`（三闸）/ `mark_fired` / `due_notes` |
+| 台账 | `last_seen_date` / `rewind_count` / **按角色分桶的 `fired`** |
+| 入口 | `due_notes(char_id, world_dir)` —— 调一次 = 查表 + 记账 + 写盘 |
+
+**⭐ 四条设计决定（都不要"顺手简化"掉, 踩过）**
+
+1. **`year` 栏干两份活**：留空 = 每年一次（键 `christmas:2026`）; 写死 = 一辈子一次
+   （键 `anniv:2027`）。一张表同时表达"每年"和"一次"
+2. **幂等键的年份必须是现实年** —— 她看到的是**虚构年 2100**（`prompt_time`），
+   拿它当键会让"每年一次"退化成"一辈子一次"。代价已记档: 同一个角色的两个不同年
+   的圣诞, 在她眼里是同一个 `2100-12-25`（double date 的又一症状）
+3. **台账按角色分桶**（世界级文件里存角色级的事）—— 否则遥香过完圣诞阿露收不到
+4. **窗口 = "上次跟她说过话那天"**，`last_seen_date` 为空时窗口**为零**：
+   - 用"一年以内"当窗口 → 12/25 那天四个节日**同时到期**（试出来的）
+   - 空账本初始化成"今天" → **新档第一天收到元旦+情人节**（试出来的）
+
+**待做**
+
+- [ ] **接进 MMT**（`core/momotalk.py` 的 P17 时间注记之后、P18 随机事件之前）——
+      `due_notes(char_id, self._store.world_dir())`，包在 `try/except` 里静默降级。
+      模块本体已完工, 这是**纯装配**一步
+- [ ] **birthday 源**（`OccasionSource` 扩展点已留）：现网 8 个 `profile.yml` 的
+      `SIG~birthday` 有**三种写法**（`7/29` / `12月22日` / `5/13`）→ 要容错解析;
+      幂等键用 `key`（8 人共用 `birthday` 这个 id）
+- [ ] 顺手清：`data/worlds/world1/world_clock.json`（换代残留孤儿, 全库只剩注释引用）
+
 
 ### ⏳ 整章暂存：进真源的边界从 `vn_enter` 挪到 `vn_exit`（2026-09-17 用户立项 —— **必做，未动代码**）
 
