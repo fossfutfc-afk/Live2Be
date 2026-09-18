@@ -342,6 +342,57 @@ def test_new_data_has_no_abandon_marker(tmp_path):
     print("    新数据零 vn_abandon；exclude_abandoned 空转 ✓")
 
 
+# ---------------------------------------------------------------------------
+# 9. 写入侧 `ts` 收敛（时间轴换代 A）—— 带固定时区
+# ---------------------------------------------------------------------------
+
+def test_now_ts_is_tz_aware_and_keeps_microseconds():
+    """★ `age.now_ts()` = **带固定时区** + **保留微秒**。
+
+    写入侧四处出口（`events.now_iso` / `store.append_event` / `staging` /
+    `digest` 兜底）全部转调它。**钉住格式** —— 免得有人改回裸 `datetime.now()`,
+    那会让读侧的 `REAL_TZ` 从"事实"退回"假设", 且**没有任何测试会红**。
+    """
+    from core.worldtime.age import REAL_TZ, now_ts, parse_ts
+    ts = now_ts()
+    assert ts.endswith("+08:00"), ts                       # 时区**写死在串里**
+    dt = parse_ts(ts)
+    assert dt is not None and dt.tzinfo is not None
+    assert dt.utcoffset() == REAL_TZ.utcoffset(None)
+    assert "." in ts, f"微秒丢了（真机事件流本来是微秒精度）: {ts}"
+    print(f"    now_ts: {ts}（带时区 + 微秒）")
+
+
+def test_event_ts_is_tz_aware(tmp_path):
+    """★ **写入侧每一条 `ts` 都带时区** —— store 与暂存两条路都验。"""
+    from core.worldtime.age import parse_ts
+    st = _st(tmp_path)
+    st.append_event(CHAR, "", make_event("mmt", "mmt_chat", {"i": 0}))
+    st.append_marker(CHAR, "", "vn_state", {})
+    sg = staging.staging_store(st)
+    sg.append_event(CHAR, "", make_event("bond", "story_scene", {"i": 1}))
+
+    evs = st.events(CHAR) + staging.staging_events(st, CHAR)
+    assert len(evs) == 3
+    for ev in evs:
+        dt = parse_ts(ev.ts)
+        assert dt is not None and dt.tzinfo is not None, f"ts 不带时区: {ev.ts!r}"
+    print("    store + 暂存: 全部 ts 带时区 ✓")
+
+
+def test_parse_ts_reads_old_and_new_as_same_instant():
+    """★ **新旧并存安全** —— 旧 `ts`（朴素本地）与新 `ts`（带时区）指**同一时刻**,
+    故 `age_days` 相同 ⇒ **收敛前写下的数据不会被重新解释**。"""
+    from datetime import datetime
+    from core.worldtime.age import REAL_TZ, age_days, parse_ts
+    aware = "2026-09-16T23:00:00+08:00"
+    naive = "2026-09-16T23:00:00"                 # 旧格式（朴素一律按 REAL_TZ）
+    assert parse_ts(aware) == parse_ts(naive)
+    now = datetime(2026, 9, 17, 1, 0, tzinfo=REAL_TZ)
+    assert age_days(aware, now=now) == age_days(naive, now=now) == 1   # 跨午夜 → 昨天
+    print("    新旧 ts 同一时刻: age_days 一致（旧档不被重新解释）✓")
+
+
 if __name__ == "__main__":
     import tempfile
 
