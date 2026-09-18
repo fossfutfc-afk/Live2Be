@@ -447,6 +447,46 @@ def test_due_notes_never_raises(tmp_path):
     assert isinstance(rt.due_notes("h", bad, now=D(2026, 9, 10)), list)
 
 
+def test_due_notes_skips_write_when_nothing_changed(tmp_path, table, monkeypatch):
+    """★ 没变化就不写盘 —— MMT **每轮**调它, 而节日只在少数日子点火。
+
+    每次都原子写（临时文件 + `replace`）等于每轮一次磁盘写。
+    ⚠️ 判据是"**值变了没有**", 不是"今天是几号": 同一天里第二次调用会把
+    `last_seen_date` 设成同一个值, 那不是变化。
+
+    ⚠️ 用**计数**验, 不用 `mtime`: Windows 的 `st_mtime_ns` 粒度很粗,
+    "同一天内两次写"根本区分不出来（第一版就是这么假绿的）。
+    """
+    calls: list[dict] = []
+    real_save = rt.save_clock
+    monkeypatch.setattr(rt, "save_clock",
+                        lambda wd, c: (calls.append(dict(c)), real_save(wd, c))[1])
+    wd = tmp_path / "w"
+    assert rt.due_notes("h", wd, now=D(2026, 3, 1), path=table) == []
+    assert len(calls) == 1, "首轮该写（last_seen_date 从空变成 3/1）"
+    assert rt.due_notes("h", wd, now=D(2026, 3, 1), path=table) == []
+    assert len(calls) == 1, "同一天第二轮不该重写台账"
+    assert rt.due_notes("h", wd, now=D(2026, 3, 2), path=table) == []
+    assert len(calls) == 2, "日期前进必须落盘"
+    assert rt.load_clock(wd)["last_seen_date"] == "2026-03-02"
+
+
+def test_due_notes_marks_fired_only_once_per_occasion(tmp_path):
+    """跨天也不重记同一个键（`fired` 是幂等的, 不靠"当天"这个条件）。"""
+    p = tmp_path / "f.json"
+    p.write_text(json.dumps({"festivals": [
+        {"id": "x", "month": 9, "day": 10, "name": "教师节", "proactive": True},
+    ]}, ensure_ascii=False), encoding="utf-8")
+    wd = tmp_path / "w"
+    rt.due_notes("h", wd, now=D(2026, 9, 1), path=p)      # 第一次说话 → 地板打开
+    assert len(rt.due_notes("h", wd, now=D(2026, 9, 10), path=p)) == 1
+    after_first = rt.load_clock(wd)["fired"]["h"]["x:2026"]
+    # 同一天再调、以及第二天再调, 都不能改写"说出口的那天"
+    assert rt.due_notes("h", wd, now=D(2026, 9, 10), path=p) == []
+    assert rt.due_notes("h", wd, now=D(2026, 9, 11), path=p) == []
+    assert rt.load_clock(wd)["fired"]["h"]["x:2026"] == after_first
+
+
 def test_due_notes_returns_notes_with_permission_split(tmp_path):
     """出口是**注记文本**（不是 Occasion）, 且 `proactive` 真的改了文本。"""
     p = tmp_path / "f.json"
