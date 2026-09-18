@@ -83,8 +83,8 @@ __all__ = [
     "is_precious",
     "now_ts",
     "parse_ts",
-    # span —— LLM 面对的时间语法（**枚举定义**；`time_span` 字段按用户裁决保留,
-    # 现为"输出但不消费", 为将来的衰减新模型预留 —— 见 TODO「记忆衰减」）
+    # span —— LLM 面对的时间语法（**枚举定义**；⚠️ 契约侧 `time_span` 字段
+    # 已于 2026-09-17 删除, 本模块现无运行时消费方 —— 留的是语法, 见 span.py）
     "SPANS",
     "SpanError",
     "parse_span",

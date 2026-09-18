@@ -39,6 +39,60 @@ def test_episode_required_narration():
 
 
 # ---------------------------------------------------------------------------
+# ★ 序列化字段的三方一致（2026-09-17 补 —— 孤儿字段就是这么藏住的）
+# ---------------------------------------------------------------------------
+
+def test_every_serialized_field_is_parsed_back():
+    """`to_dict` 里的字段必须也能被 `from_dict` 读回来。
+
+    为什么单开一条: `to_dict` 是一个**手写字段名清单**, `from_dict` 是另一串
+    **手写赋值行** —— 两处不同源。字段只写在 `to_dict` 里（= 落库）而没写在
+    `from_dict` 里（= 读不回）时, 节点"写出去就变形", 而且**往返测试也抓不到**
+    （往返用的是同一份内存对象）。
+
+    2026-09-17 的孤儿字段审计里, `observation` 正是这一类: 两边都写了,
+    但**写入侧没有任何生产者、读取侧没有任何消费者** —— 三方缺两方。
+    这条用例钉住"落库 ⇄ 读回"这一对; 生产者/消费者那两方靠 grep 审。
+
+    做法: 逐个把"清单里的字段"设成非空值 → 往返 → 看是否还在。
+    """
+    from dataclasses import fields as _dc_fields
+
+    node = BrainNode(id="m0001", kind="belief", content="老师是值得信赖的大人",
+                     links=["m0002"])
+    # 每个可序列化字段都填一个非空值（哨兵值, 值本身不重要）
+    probes = {
+        "observer": "老师", "tags": ["x"], "segment_id": "seg-1",
+        "event_seq": [1], "ts": "2026-09-01T20:00:00", "source": "experience",
+        "links": ["m0002"], "contradictions": ["m0003"], "notes": ["n"],
+        "narration": "n", "verbatim": "v", "verbatim_seq": ["1.1"],
+        "title": "t", "emo_shape": ["smile"], "pattern": "p", "subject": "player",
+        "count": 2, "examples": ["e"], "content": "c", "growth": "g",
+        "history": [{"episode_id": "m0002", "content": "c", "ts": "t"}],
+        "source_key": "k", "aff_at_encoding": 0.5, "emo_int": 0.5,
+        "emo_span": 0.5, "emo_valence": 0.5,
+    }
+    declared = {f.name for f in _dc_fields(BrainNode)}
+    unknown = set(probes) - declared
+    assert not unknown, f"探针里有已不存在的字段（删字段时忘了改这里）: {unknown}"
+    for k, v in probes.items():
+        setattr(node, k, v)
+
+    back = BrainNode.from_dict(node.to_dict())
+    lost = [k for k, v in probes.items() if getattr(back, k) != v]
+    assert not lost, f"这些字段落库后读不回来: {lost}"
+
+    # 反向: `to_dict` 的清单里不该有"探针没覆盖"的字段（新增字段要一起补）
+    serialized = set(node.to_dict())
+    undeclared = serialized - set(probes) - {"id", "kind", "significance",
+                                            "epistemic"}
+    assert not undeclared, (
+        f"`to_dict` 会落这些字段, 但探针没覆盖 → 无法确认它们读得回来: {undeclared}"
+        "（往探针里补一个非空值）")
+    print("    序列化字段: to_dict ⇄ from_dict 三方一致 ✓")
+
+
+# ---------------------------------------------------------------------------
 # aff_at_encoding —— 编码时好感快照（§3.3.3, 2026-09-13）
 # ---------------------------------------------------------------------------
 

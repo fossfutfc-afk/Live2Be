@@ -11,8 +11,7 @@
           event_seq / ts / source / links / contradictions / aff_at_encoding /
           emo_int / emo_span / emo_valence
 专属字段: episode.title(可选短标题) / belief.subject / belief.growth /
-          belief.observation / belief.history[{episode_id, content, ts}]
-
+          belief.history[{episode_id, content, ts}]
 observer 语义（2026-09-02 收敛）: 单视角世界线里 observed_fact 的观察者恒为
 角色本人——引擎填 char_id, 不交给 LLM; reported_fact 的 observer = 转述者
 （LLM 判断, 渲染为"听 X 说的"）。
@@ -64,8 +63,9 @@ class BrainNode:
     按 kind 取用的专属字段:
         episode:    narration(必填) / verbatim(可选原话) / title(可选短标题 8-16 字)
         experience: pattern(必填) / subject(必填) / count(引擎数 links) / examples(≤3)
-        belief:     content(必填) / subject(认知对象, 可空) / growth / observation[]
+        belief:     content(必填) / subject(认知对象, 可空) / growth
                     / history[改写溯源]（2026-09-02: {episode_id, content, ts} 数组）
+                    （`observation` 已删 —— 见其在字段区的删除说明）
     """
 
     id: str = ""
@@ -111,7 +111,23 @@ class BrainNode:
     examples: list[str] = field(default_factory=list)
     content: str = ""
     growth: str = ""
-    observation: list[str] = field(default_factory=list)
+    #: ⚠️ **`observation: list[str]` 已于 2026-09-17 删除** —— 与 `time_span` 同一
+    #: 形状的**孤儿字段**, 用同一把尺子办的（"有写入无消费"）:
+    #:
+    #: 1. **无生产者**: Round B 契约（`contract/digest_registry`）里**根本没有这个
+    #:    字段**, 所以 LLM 输出不了它; `digest` / `revise` 也没有任何写入点
+    #:    ⇒ 它**永远不可能被填上**（旧协议残留 —— `AGENT_BRAIN.md` 的 belief 范例
+    #:    里还有一行, 那是 v1 的写法）
+    #: 2. **无消费者**: 全库没有任何地方读它
+    #: 3. **真机零节点**: `data/` 的 wiki.jsonl 里 grep 一条都没有
+    #:
+    #: 它当初的说明是"对该对象的观察（可承载玩家口癖等 R5 素材）"—— 而那件事现在
+    #: **有专门的字段**: `experience` 节点 + `subject="player"` + `pattern`
+    #: （契约里明写"玩家画像专用"）。所以不是"功能丢了", 是**路线改了、旧字段忘了删**。
+    #:
+    #: **为什么不留成"将来可能有用"**: 一个 LLM 永远不会输出的字段, 留着只会让读
+    #: 节点的人以为"这里能装观察"。要装新东西时再加字段, 比留一个假接口便宜。
+    #: （旧档里若还有这个键 → `from_dict` 宽松解析, **多余的键自动忽略**, 不抛。）
     history: list[dict] = field(default_factory=list)   # belief 改写溯源（见 docstring）
     source_key: str = ""
     #: 编码时好感标量 ∈ [−1, 1]（`Affection.to_scalar()`, §3.3.3）——**快照**:
@@ -247,7 +263,7 @@ class BrainNode:
                   "links", "contradictions", "notes", "narration", "verbatim",
                   "verbatim_seq", "title", "emo_shape",
                   "pattern", "subject", "count", "examples", "content", "growth",
-                  "observation", "history", "source_key"):
+                  "history", "source_key"):
             v = getattr(self, f)
             if v in (None, "", [], 0):
                 continue
@@ -295,7 +311,6 @@ class BrainNode:
         node.examples = _str_list(raw.get("examples"))
         node.content = _str(raw.get("content"))
         node.growth = _str(raw.get("growth"))
-        node.observation = _str_list(raw.get("observation"))
         node.history = _dict_list(raw.get("history"))
         node.source_key = _str(raw.get("source_key"))
         node.aff_at_encoding = _opt_clamp(raw.get("aff_at_encoding"), -1.0, 1.0)

@@ -52,7 +52,6 @@ from core.brain.wiki_v2.revise import apply_decisions
 from core.brain.wiki_v2.store import WikiStoreV2
 from core.session.maintenance import exclude_abandoned
 from core.session.renderer import render_timeline
-from core.worldtime.span import parse_span
 from llm.prompts import load_prompt
 from llm.task_levels import extra_body as _tl_extra
 from llm.task_levels import max_tokens as _tl_max_tokens
@@ -209,11 +208,10 @@ def digest_segment(
         # **唯一日期轴是现实日期**（`node.ts` —— 由下面的 `ts=now_ts` 落下），
         # 剧情内部的流逝自由但**不累积、不进账**。
         # 段的日期 = 段内最后一条内容事件的时刻（见上面 `now_ts` 的取法）。
-        # ⚠️ Round A 的 `time_span` **仍由契约输出但不消费**（用户 2026-09-17 裁决 = 选项 c）:
-        #    **它是为将来的衰减新模型预留的** —— 玩家的游玩时间是**密集成块的离散**
-        #    （一口气玩 3 小时 → 隔一周 → 又 3 小时），而记忆曲线假设时间连续均匀,
-        #    **不匹配**。故现在**保留契约字段**, 等新模型落地时改它的计算方式。
-        #    详见 `TODO.md`「记忆衰减」。**不要顺手删它。**
+        # ⚠️ 契约侧的 `time_span` 字段本身也已删（2026-09-17 用户裁决）—— 它当时
+        #    "保留但不消费", 而**新衰减模型的输入是活跃日/会话, 不是它**;
+        #    加上 parse 层从来没取过它（连落库都没有）, 留着就是白付 token。
+        #    枚举定义仍留在 `core/worldtime/span.py`。详见 `contract/digest_registry.py`。
         episode_ids, player_ids = _create_a_nodes(
             store, entries, ts=now_ts, segment_id=segment_id,
             event_seq=[interact_max], aff_at_encoding=aff_at_encoding,
