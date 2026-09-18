@@ -1,13 +1,17 @@
 # -*- coding: utf-8 -*-
 """时间 → 注入注记（`§4.11` 的"进 prompt"落地）—— 纯渲染, 无 IO, 无项目内依赖。
 
-## 三行的分工（**互不参与判定**，见各自的注释）
+## 两行的分工（**互不参与判定**，见各自的注释）
 
 ```
-【现在是】1年4月·春·白天                    ← ① 剧情时间（角色口吻）
 【手机上的日期】2100年9月13日（星期日）        ← ③ 壁钟（**仅 MMT**, 见下）
 【她上次见到老师是 12 天前】                  ← ② 现实间隔（模糊）
 ```
+
+⚠️ **2026-09-17（时间轴换代）: 原来的第①行 `【现在是】1年4月·春·白天` 已删** ——
+它读的是作废的**剧情游标**，留着会让两个时间事实并排在同一个 prompt 里
+（`ESSAY §5.2` 的坑）。现在两行**同源**（都是壁钟），剧本内的时刻归场景文本。
+详见 `story_time_note` 删除处的注释。
 
 ## ★ 为什么"手机上的日期"是**虚构年份**
 
@@ -66,14 +70,18 @@ def phone_date(when: datetime | None = None) -> tuple[int, int, int, int, str]:
         WEEKDAYS[probe.weekday()]
 
 
-def story_time_note(story_now) -> str:
-    """① 剧情时间注记 —— `【现在是】1年4月·春·白天`（空 → `""`）。"""
-    if story_now is None:
-        return ""
-    label = getattr(story_now, "date_label", "")
-    if not label:
-        return ""
-    return f"【现在是】{label}"
+#: ⚠️ **`story_time_note()` 已于 2026-09-17 删除**（时间轴换代, `ESSAY §10`）。
+#:
+#: 它渲染 `【现在是】1年4月·春·白天` —— 读的是**已作废的剧情游标**
+#: （`world_clock.json` 的 `cursor`）。留着它会让**两个时间事实并排在同一个
+#: prompt 里**（"1年4月·春" + 记忆前缀的"（7 天前）"）—— 正是 `ESSAY §5.2`
+#: 记录的那个坑，而且其中一个读的是死数据。
+#:
+#: 现在进 prompt 的时间事实只剩两个, 且**同源**（都是壁钟）：
+#:   ② `real_gap_note`   —— 现实间隔（"她上次见到老师是 12 天前"）
+#:   ③ `phone_date_note` —— 现实日期（**仅 MMT**，带"手机上的"归因）
+#: 而"**戏内**的时刻"（白天/夜里）由**场景文本**承载 → 标注层反推 → 背景变体。
+#: 剧情日历不再以任何形式进 prompt。
 
 
 def phone_date_note(when: datetime | None = None) -> str:
@@ -128,14 +136,18 @@ def real_gap_note(last_ts: str | datetime | None,
     return "【她已经很久没见到老师了】"
 
 
-def notes(story_now=None, *, last_ts: str | datetime | None = None,
+def notes(*, last_ts: str | datetime | None = None,
           now: datetime | None = None, include_phone: bool = False,
           ) -> list[str]:
     """一次取全部时间注记（空行自动跳过）。
 
     `include_phone=True` → 加"手机上的日期"（**仅 MMT**）。
+
+    2026-09-17（时间轴换代）: **不再接收 `story_now`** —— 剧情时间注记已删
+    （理由见 `story_time_note` 删除处）。两个出口现在**同源**（都是壁钟），
+    调用方那条纪律不变: `include_phone` 必须跟着 **store 有无**走。
     """
-    out = [story_time_note(story_now), real_gap_note(last_ts, now)]
+    out = [real_gap_note(last_ts, now)]
     if include_phone:
         out.append(phone_date_note(now))
     return [n for n in out if n]
