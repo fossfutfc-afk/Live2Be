@@ -15,145 +15,47 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from core.worldtime import (                        # noqa: E402
-    PHASES,
     SPANS,
-    advance,
     age_days,
     date_of,
     freshness,
     parse_span,
-    parse_story_time,
     render_relative,
 )
 from core.worldtime.age import DEFAULT_HALF_LIFE_DAYS   # noqa: E402
-from core.worldtime.story import (                      # noqa: E402
-    DAYS_TO_SIM,
-    MAX_STEP,
-    PHASES_PER_DAY,
-    StoryTime,
-)
 from core.worldtime import realtime                     # noqa: E402
 
 
 # ---------------------------------------------------------------------------
-# 1. 时间点与日历派生
 # ---------------------------------------------------------------------------
 
-def test_phases_and_units():
-    assert PHASES == ("晨", "昼", "夕", "夜", "凌晨")
-    assert PHASES_PER_DAY == 5 == DAYS_TO_SIM
-    st = StoryTime.from_sim_day(0)
-    assert st.phase == "晨" and st.story_day == 0.0
-    assert StoryTime.from_sim_day(5).story_day == 1.0
-    print(f"    story: PHASES={PHASES} 5 格 = 1 叙事日")
 
 
-def test_calendar_derives_from_sim_day():
-    """日历是 sim_day 的**纯函数** —— 结构上不可能失同步。
-
-    约定: 锚点当月第 1 周 = 起点; 7 叙事日进一周; 4 周进一月。
-    （故"第 4 周"是 sim_day = 21 叙事日 = 105 格, 不是 4 天。）
-    """
-    a = {"year": 1, "month": 4}
-    seq = [StoryTime.from_sim_day(n, anchor=a) for n in (0, 5, 35, 105)]
-    for st in seq:
-        print(f"      sim_day={st.sim_day:<4} {st}")
-    assert seq[1].week == 1 and seq[1].phase == "晨"      # 第 1 日
-    assert seq[2].week == 2, seq[2]                        # 第 7 日 → 第 2 周
-    assert seq[3].week == 4 and seq[3].month == 4, seq[3]  # 第 21 日 → 第 4 周
-    print(f"    story: 7 日/周 · 4 周/月 → 第 4 周 = {seq[3]}")
 
 
-def test_month_rollover_at_four_weeks():
-    a = {"year": 1, "month": 4}
-    # 4 周 = 28 叙事日 = 140 格 → 翻到 5 月第 1 周
-    st = StoryTime.from_sim_day(4 * 7 * DAYS_TO_SIM, anchor=a)
-    assert (st.month, st.week) == (5, 1), st
-    print(f"    story: 4 周/月 → sim_day={4 * 7 * DAYS_TO_SIM} 翻到 {st}")
 
 
-def test_year_rollover():
-    a = {"year": 1, "month": 4}
-    # 从 4 月起满 12 个月 = 48 周 = 336 叙事日
-    st = StoryTime.from_sim_day(48 * 7 * DAYS_TO_SIM, anchor=a)
-    assert (st.year, st.month) == (2, 4), st
-    print(f"    story: 跨年正确 → {st}")
 
 
-def test_phase_cycles_within_a_day():
-    a = {"year": 1, "month": 4}
-    phases = [StoryTime.from_sim_day(n, anchor=a).phase for n in range(5)]
-    assert phases == list(PHASES), phases
-    assert StoryTime.from_sim_day(5, anchor=a).phase == "晨"
-    print(f"    story: 日内时相循环 {phases} → 第 6 格回到 晨")
 
 
 # ---------------------------------------------------------------------------
 # 2. ★ 凌晨归属（用户点名的崩溃点）
 # ---------------------------------------------------------------------------
 
-def test_wee_hours_belong_to_previous_day():
-    """★ 4 月第 4 周的「夜 → 凌晨」必须仍是 **4 月第 4 周**，不得提前翻到 5 月。
-
-    （21 叙事日 = 105 格 起，是 4 月第 4 周的第 1 日。）
-    """
-    a = {"year": 1, "month": 4}
-    w4d1 = 21 * DAYS_TO_SIM                     # 4 月第 4 周第 1 日（晨）
-    d7 = w4d1 + 6 * DAYS_TO_SIM                 # 第 4 周第 7 日（晨）
-    night = StoryTime.from_sim_day(d7 + 3, anchor=a)       # 夜
-    wee = StoryTime.from_sim_day(d7 + 4, anchor=a)         # 凌晨
-    assert night.phase == "夜" and wee.phase == "凌晨", (night, wee)
-    assert night.month == 4 and night.week == 4, night
-    assert wee.month == 4 and wee.week == 4, f"凌晨跑到下个月了: {wee}"
-    # 再进「晨」才翻到 5 月
-    nxt = StoryTime.from_sim_day(d7 + 5, anchor=a)
-    assert nxt.phase == "晨" and nxt.month == 5 and nxt.week == 1, nxt
-    print(f"    ★ 凌晨归属: {night} → {wee} → {nxt}")
 
 
 # ---------------------------------------------------------------------------
-# 3. advance 的单调性与夹取（I6）
 # ---------------------------------------------------------------------------
 
-def test_advance_is_monotone_for_every_span():
-    st = StoryTime.from_sim_day(10)
-    for sp in SPANS:
-        nxt = advance(st, sp)
-        assert nxt.sim_day >= st.sim_day, f"{sp} 让时间倒退了"
-    print(f"    advance: {len(SPANS)} 个 span 全部单调不减（I6）")
 
 
-def test_advance_span_semantics():
-    st = StoryTime.from_sim_day(0)
-    assert advance(st, "same").sim_day == 1                # 同一格
-    assert advance(st, "halfday").sim_day == 1             # 时相级，不推到整天
-    assert advance(st, "day").sim_day == DAYS_TO_SIM       # 1 叙事日
-    assert advance(st, "days:3").sim_day == 3 * DAYS_TO_SIM
-    assert advance(st, "week").sim_day == 7 * DAYS_TO_SIM
-    assert advance(st, "month").sim_day == 4 * 7 * DAYS_TO_SIM
-    print("    advance: same=1格 halfday=1格 day=5格 days:3=15格 week=35格 month=140格")
 
 
-def test_advance_clamps_span_not_result():
-    """★ 夹的是**增量**（≤ MAX_STEP），不是结果 —— 否则长世界线会被截断。"""
-    far = StoryTime.from_sim_day(100000)
-    nxt = advance(far, "days:99")
-    assert nxt.sim_day - far.sim_day <= MAX_STEP, "增量没夹住"
-    assert nxt.sim_day > far.sim_day
-    print(f"    advance: 增量夹到 ≤{MAX_STEP} 格（结果不被截断）")
 
 
-def test_advance_from_none_starts_at_anchor():
-    st = advance(None, "day")
-    assert st.sim_day == DAYS_TO_SIM and st.phase == "晨"
-    print("    advance: st=None → 从锚点起算")
 
 
-def test_advance_unknown_span_defaults():
-    st = StoryTime.from_sim_day(0)
-    for bad in ("", None, "十年后", "days:", "days:abc", 123):
-        assert advance(st, bad).sim_day == 1, bad
-    print("    advance: 未知/坏 span → 默认 +1 格（§4.3）")
 
 
 # ---------------------------------------------------------------------------
@@ -315,13 +217,6 @@ if __name__ == "__main__":
 
     for fn in (test_phases_and_units, test_calendar_derives_from_sim_day,
                test_month_rollover_at_four_weeks, test_year_rollover,
-               test_phase_cycles_within_a_day,
-               test_wee_hours_belong_to_previous_day,
-               test_advance_is_monotone_for_every_span,
-               test_advance_span_semantics,
-               test_advance_clamps_span_not_result,
-               test_advance_from_none_starts_at_anchor,
-               test_advance_unknown_span_defaults,
                test_parse_span_normalizes, test_parse_span_clamps_over_range,
                test_parse_span_never_raises_by_default,
                test_age_days_is_real_calendar_days,

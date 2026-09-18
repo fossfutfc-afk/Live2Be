@@ -91,7 +91,10 @@ def _or_raise(fallback: str, strict: bool, why: str) -> str:
     return fallback
 
 
-def to_sim_days(span: str) -> int:
-    """span → `sim_day` 增量（格）—— 转调 `story._span_to_sim`（单一真源）。"""
-    from core.worldtime.story import _span_to_sim
-    return _span_to_sim(parse_span(span))
+#: ⚠️ `to_sim_days()` 已于 2026-09-17 删除（时间轴换代, `ESSAY_TIME_MODEL §10`）——
+#: 它把 span 换算成 **`sim_day` 格数**（1 格 = 1/5 叙事日, 转调 `story._span_to_sim`）。
+#: 那个单位随**剧情日历**一起作废（唯一日期轴 = 现实日期; `story.py` 已删）。
+#:
+#: **本模块现在只剩"枚举定义"这一个职责**：`SPANS` / `parse_span`。
+#: `time_span` 字段按**用户裁决保留**（输出但不消费）—— 它是为将来的**衰减新模型**
+#: 预留的（玩家的游玩时间是密集成块的离散, 记忆曲线不适用）。**不要顺手删。**

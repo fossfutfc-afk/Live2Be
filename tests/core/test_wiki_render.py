@@ -163,11 +163,6 @@ def test_character_view_belief_and_player_all_rendered():
 # 防失忆注记: episode 前置虚化时间短语（§3.8 / §4.11 的 T3）
 # ---------------------------------------------------------------------------
 
-def _st(sim_day: int) -> dict:
-    from core.worldtime import StoryTime
-    return StoryTime.from_sim_day(sim_day).to_dict()
-
-
 #: 固定的"现在" —— 年龄全按**现实日**算（`ESSAY_TIME_MODEL §10`），
 #: 故夹具不随真实日期漂。
 _NOW = datetime(2026, 9, 17, 12, 0)
