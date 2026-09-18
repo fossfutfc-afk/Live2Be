@@ -326,7 +326,6 @@ def _round_call(
 def _create_a_nodes(store: WikiStoreV2, entries: list[dict], *, ts: str,
                     segment_id: str, event_seq: list[int],
                     aff_at_encoding: float | None = None,
-                    story_time: dict | None = None,
                     by_seq: dict | None = None
                     ) -> tuple[list[str], list[str]]:
     """Round A 条目 → 节点（引擎字段归属——确定性归引擎, 防幻觉）。
@@ -345,11 +344,6 @@ def _create_a_nodes(store: WikiStoreV2, entries: list[dict], *, ts: str,
     aff_at_encoding（§3.3.3, 2026-09-13）: 本段**开始之前**的好感标量
     （`Affection.to_scalar()`, [−1,1]）——快照, 写入后永不改。
     调用方传 None = 未采集（旧档/CLI 路径）→ 字段不落库, 与 `0.0`（中性）区分。
-
-    story_time（§4.11, 2026-09-13）: 本段**结束时刻**的剧情时间点
-    （`StoryTime.to_dict()`）——同样是**快照, 写入后永不改**。
-    ⚠️ **只在这里写**（I-b）: `apply_decisions`（Round B）不许碰它,
-    与 `id`/`ts`/`event_seq` 同级保护——否则时间会倒流。
 
     Returns: (episode_ids, player_ids)——episode_ids 供 B 覆盖检查。
     """
@@ -381,7 +375,6 @@ def _create_a_nodes(store: WikiStoreV2, entries: list[dict], *, ts: str,
         if by_seq is not None:
             node.emo_shape = _emotion_shape(node.event_seq, by_seq)
         node.aff_at_encoding = aff_at_encoding
-        node.story_time = story_time
         dup = _find_duplicate(store, node)
         if dup is not None:
             episode_ids.append(dup.id)
