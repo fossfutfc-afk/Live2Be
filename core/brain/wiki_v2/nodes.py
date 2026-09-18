@@ -9,7 +9,7 @@
 
 通用字段: id / kind / significance / epistemic / observer / tags / segment_id /
           event_seq / ts / source / links / contradictions / aff_at_encoding /
-          emo_int / emo_span / emo_valence / story_time
+          emo_int / emo_span / emo_valence
 专属字段: episode.title(可选短标题) / belief.subject / belief.growth /
           belief.observation / belief.history[{episode_id, content, ts}]
 
@@ -142,18 +142,11 @@ class BrainNode:
     #: （"现在难过" ↔ "这条记忆是难过的"）。
     #: 分级: 明显正面 → 0.5~1.0; 中性 → 0.0; 明显负面 → −0.5~−1.0。
     emo_valence: float | None = None
-    #: **剧情时间点**（`§4.2` / `core.worldtime`）—— 引擎写入的**创建时快照**。
-    #: 形态 = `{"year","month","week","phase","sim_day"}`（见 `StoryTime.to_dict`）。
-    #: `None` = 旧档/未采集 **≠** `sim_day=0`（世界起点）——同一条哨兵纪律。
-    #:
-    #: ★ **记忆的年龄由它算**：`age = 当前游标.sim_day − 本字段.sim_day`，
-    #: 再 `freshness = 0.5 ** ((age/5) / half_life)` 进 `det` 的 TIME 格。
-    #: `age`/`freshness` **不落库**（每次召回重算）——落库的只有这个快照。
-    #:
-    #: ⚠️ **只由 `_create_a_nodes` 写**（I-b）：`apply_decisions`（Round B）不许碰它，
-    #: 与 `id`/`ts`/`event_seq` 同级保护——否则时间会倒流。
-    #: ⚠️ 注入时**只渲染为虚化短语**（"3 周前"），绝不出现精确值（I-c）。
-    story_time: dict | None = None
+    # ── 剧情时间点（`story_time`）：**已整族退役**（2026-09-17, `ESSAY_TIME_MODEL §10`）──
+    # 删掉的是 `story_time: dict | None` 字段、`_parse_story_time()` 与 `to_dict` 里的
+    # 特例分支。它存的是**剧情日历**的快照（`{year,month,week,phase,sim_day}`），
+    # 而唯一日期轴现在是**现实日期**（`ts`，由 `age.age_days` 算年龄）。
+    # ⚠️ 旧档里仍可能有这个键 —— `from_dict` 宽松解析，**多余的键自动忽略**（不抛）。
 
     # ------------------------------------------------------------------
     # 校验（字段级; 契约层/组织 pass 在引擎侧再叠加引用级校验）
@@ -259,12 +252,11 @@ class BrainNode:
             if v in (None, "", [], 0):
                 continue
             d[f] = v
-        # aff_at_encoding / emo_int / emo_span / emo_valence / story_time **不进上面
-        # 那圈"空值省略"** —— 它们用 None 当"未采集"哨兵, 而 0.0 是合法值
-        # （中性好感 / 无波澜 / 中性色彩）, story_time 则是 dict。
+        # aff_at_encoding / emo_int / emo_span / emo_valence **不进上面那圈
+        # "空值省略"** —— 它们用 None 当"未采集"哨兵, 而 0.0 是合法值
+        # （中性好感 / 无波澜 / 中性色彩）。
         # 旧口径的 `v in (..., 0)` 会把合法的 0.0 一起省掉。
-        for f in ("aff_at_encoding", "emo_int", "emo_valence", "emo_span",
-                  "story_time"):
+        for f in ("aff_at_encoding", "emo_int", "emo_valence", "emo_span"):
             v = getattr(self, f)
             if v is not None:
                 d[f] = v
@@ -310,7 +302,7 @@ class BrainNode:
         node.emo_int = _opt_clamp(raw.get("emo_int"), 0.0, 1.0)
         node.emo_span = _opt_clamp(raw.get("emo_span"), 0.0, 1.0)
         node.emo_valence = _opt_clamp(raw.get("emo_valence"), -1.0, 1.0)
-        node.story_time = _parse_story_time(raw.get("story_time"))
+        # `story_time` 已退役（2026-09-17）——旧档里若还有这个键, **此处直接忽略** ✓
         return node
 
     def to_json_line(self) -> str:
@@ -402,22 +394,3 @@ def _opt_clamp(v: Any, lo: float, hi: float) -> float | None:
     if f != f:                                  # NaN
         return None
     return max(lo, min(hi, f))
-
-
-def _parse_story_time(v: Any) -> dict | None:
-    """`story_time` 宽松解析 —— **缺/坏 → None**（不抛）。
-
-    委派给 `core.worldtime.story.parse_story_time`（**单一真源**）——
-    校验规则不在这里重写一份, 否则两处会漂。
-
-    关键: **以 `sim_day` 为准重导槽位字段**。手写的 dict 可能带进自相矛盾的
-    `week`/`month`（与 `sim_day` 不一致）, 重导后日历不可能与计数器失同步。
-    """
-    if not isinstance(v, dict):
-        return None
-    try:
-        from core.worldtime.story import parse_story_time
-    except Exception:                            # noqa: BLE001 — 宁缺勿错
-        return None
-    st = parse_story_time(v)
-    return st.to_dict() if st is not None else None
