@@ -3,6 +3,8 @@
 组织视图的节点必须带 id（真实流程由 store.add 分配）——测试用 _ids 助手分配。
 角色视图不依赖 id（渲染中从不出现）。
 """
+from datetime import datetime, timedelta
+
 from core.brain.wiki_v2 import BrainNode, make_node
 from core.brain.wiki_v2.render import render_character_view, render_organize_view
 
@@ -166,50 +168,63 @@ def _st(sim_day: int) -> dict:
     return StoryTime.from_sim_day(sim_day).to_dict()
 
 
+#: 固定的"现在" —— 年龄全按**现实日**算（`ESSAY_TIME_MODEL §10`），
+#: 故夹具不随真实日期漂。
+_NOW = datetime(2026, 9, 17, 12, 0)
+
+
+def _ts(days_ago: int) -> str:
+    """`days_ago` 天前的 `ts`（现实日）。"""
+    return (_NOW - timedelta(days=days_ago)).isoformat(timespec="seconds")
+
+
 def test_time_phrase_prefixed_and_vague():
-    """★ 短语挂在**最前**（先看到远近再读内容），且**绝不出现精确值**。"""
+    """★ 短语挂在**最前**（先看到远近再读内容），且**绝不出现精确值**。
+
+    2026-09-17（`ESSAY_TIME_MODEL §10`）: 年龄按**现实日**算（`node.ts`）。
+    """
     nodes = [
-        _ep("昨天刚发生的事", sig=0.5, event_seq=[1]),      # 同一时刻
+        _ep("今天刚发生的事", sig=0.5, event_seq=[1]),
         _ep("前几天的事", sig=0.5, event_seq=[2]),
-        _ep("三个月前的事", sig=0.5, event_seq=[3]),
+        _ep("三周前的事", sig=0.5, event_seq=[3]),
     ]
-    nodes[0].story_time = _st(100)          # age = 0
-    nodes[1].story_time = _st(90)           # age = 10 格 = 2 叙事日
-    nodes[2].story_time = _st(0)            # age = 100 格 = 20 叙事日
-    out = render_character_view(nodes, story_now=_st(100))
-    assert "（刚才）昨天刚发生的事" in out, out
-    assert "（2 天前）前几天的事" in out, out       # 10 格 = 2 叙事日
-    assert "（3 周前）三个月前的事" in out, out     # 100 格 = 20 叙事日
+    nodes[0].ts = _ts(0)                    # age = 0 → 今天
+    nodes[1].ts = _ts(2)                    # age = 2 → 2 天前
+    nodes[2].ts = _ts(20)                   # age = 20 → 3 周前
+    out = render_character_view(nodes, now=_NOW)
+    assert "（今天）今天刚发生的事" in out, out
+    assert "（2 天前）前几天的事" in out, out
+    assert "（3 周前）三周前的事" in out, out
     # I-c: 不得出现精确日/周数以外的刻度、不得出现日期
     for bad in ("格", "分钟", "小时", "0 天", "年-", "sim_day"):
         assert bad not in out, f"短语里出现了精确形态: {bad}"
-    print("    T3: 短语前置且虚化（刚才/昨天/3 周前）")
+    print("    T3: 短语前置且虚化（今天/2 天前/3 周前）")
 
 
-def test_time_phrase_absent_without_story_now():
-    """不给 `story_now` → **完全不出现短语**（与本改动前逐字节相同）。"""
+def test_time_phrase_absent_without_now():
+    """不给 `now` → **完全不出现短语**（与本改动前逐字节相同）。"""
     nodes = [_ep("老师带我去吃甜品", sig=0.6, event_seq=[1])]
-    nodes[0].story_time = _st(0)
+    nodes[0].ts = _ts(0)
     out = render_character_view(nodes)
     assert out == ("【角色记忆（brain）】\n\n最近的事：\n- 老师带我去吃甜品"), out
-    print("    T3: 无 story_now → 零变化（旧调用方不受影响）")
+    print("    T3: 无 now → 零变化（旧调用方不受影响）")
 
 
 def test_time_phrase_absent_for_unstamped_old_nodes():
-    """★ 旧档（无 `story_time`）→ **不加短语**，不编"很久以前"。
+    """★ 无 `ts`（空串，未采集）→ **不加短语**，不编"很久以前"。
     否则「未采集」与「真的很旧」混为一谈（哨兵纪律）。"""
-    nodes = [_ep("旧档记忆", sig=0.6, event_seq=[1])]      # story_time 缺省 = None
-    out = render_character_view(nodes, story_now=_st(100))
+    nodes = [_ep("旧档记忆", sig=0.6, event_seq=[1])]      # ts 缺省 = ""
+    out = render_character_view(nodes, now=_NOW)
     assert "- 旧档记忆" in out
     assert "很久以前" not in out and "（" not in out.split("最近的事：")[1]
-    print("    T3: 未采集的旧节点不加短语（不编'很久以前'）")
+    print("    T3: 缺 ts 的节点不加短语（不编'很久以前'）")
 
 
 def test_time_phrase_survives_bad_values():
-    """坏 `story_time` / 坏 `story_now` → 静默跳过，**渲染绝不因时间炸**。"""
+    """坏 `ts` / 坏 `now` → 静默跳过，**渲染绝不因时间炸**。"""
     nodes = [_ep("坏值节点", sig=0.6, event_seq=[1])]
-    nodes[0].story_time = {"sim_day": -5}                  # 非法 → parse 出 None
-    assert "- 坏值节点" in render_character_view(nodes, story_now=_st(100))
-    nodes[0].story_time = _st(0)
-    assert "- 坏值节点" in render_character_view(nodes, story_now={"nope": 1})
-    print("    T3: 坏 story_time / 坏 story_now → 跳过短语, 不抛")
+    nodes[0].ts = "坏值"                                   # 解析不出 → None
+    assert "- 坏值节点" in render_character_view(nodes, now=_NOW)
+    nodes[0].ts = _ts(0)
+    assert "- 坏值节点" in render_character_view(nodes, now={"nope": 1})
+    print("    T3: 坏 ts / 坏 now → 跳过短语, 不抛")

@@ -226,7 +226,7 @@ def render_character_view(
     char_name: str = "",
     char_aliases: tuple[str, ...] = (),
     summary: str = "",
-    story_now=None,
+    now=None,
 ) -> str:
     """角色注入视图: 分层排序渲染（2026-09-13: **cap 全删**, 见 `_bucket_view`）。
 
@@ -246,11 +246,15 @@ def render_character_view(
     的桶统计**记进 `_last_view_account`** 供调用方打台账（渲染函数本身不打日志——
     它不知道自己在为哪个角色/哪条 surface 渲染）。
 
-    2026-09-13（T3）**防失忆注记**: `story_now` 给了 → 每条 episode 前置
+    2026-09-13（T3）**防失忆注记**: `now` 给了 → 每条 episode 前置
     **虚化时间短语**（"（3 周前）…"）。这是 Q24 留下的洞的补丁:
     episode 只给标题后, LLM 没有任何时间线索, 不知道是上周还是三年前的事。
-    短语**不落数据**（§3.8: 只在渲染层做, 阈值可随时重算）; 不给 `story_now`
+    短语**不落数据**（§3.8: 只在渲染层做, 阈值可随时重算）; 不给 `now`
     则完全不出现（旧档/未接线时与本改动前逐字节相同）。
+
+    2026-09-17（`ESSAY_TIME_MODEL §10` 时间轴换代）: 年龄改由**现实日期**算
+    （`node.ts`），不再读 `node.story_time` / 剧情游标。`now` 传的是当前
+    **时刻**（`datetime` 或 `ts` 串）—— 形状没变, 语义从"剧情时间槽"变成"今天"。
     """
     b = _bucket_view(nodes)
     episodes, beliefs, players, reported = (
@@ -265,11 +269,11 @@ def render_character_view(
     recent = [n for n in episodes if not n.is_precious]
     if precious:
         blocks.append("我记得的事（珍贵的）：\n" + "\n".join(
-            _memory_line(n, char_name, char_aliases, story_now)
+            _memory_line(n, char_name, char_aliases, now)
             for n in precious))
     if recent:
         blocks.append("最近的事：\n" + "\n".join(
-            _memory_line(n, char_name, char_aliases, story_now)
+            _memory_line(n, char_name, char_aliases, now)
             for n in recent))
     if beliefs:
         blocks.append("我心里渐渐觉得：\n" + "\n".join(
@@ -316,7 +320,7 @@ def _reported_line(node: BrainNode, char_name: str,
 
 def _memory_line(node: BrainNode, char_name: str,
                  aliases: tuple[str, ...] = (),
-                 story_now=None) -> str:
+                 now=None) -> str:
     """一条 episode 的记忆行 —— **时间短语挂在最前**（§3.8 / §4.11）。
 
     形态: `- （3 周前）她拉着我在杂草屋蹲了一下午。（「原话」）`
@@ -330,15 +334,15 @@ def _memory_line(node: BrainNode, char_name: str,
     而它恰好补上 Q24 留下的洞——干标题没有任何时间线索, 措辞会漂。
 
     ⚠️ **短语绝不出现精确值**（I-c）: `render_relative` 只给
-    "刚才/今天/昨天/N 天前/N 周前/上个月/N 个月前/去年/N 年前/很久以前"。
+    "今天/昨天/N 天前/N 周前/上个月/N 个月前/去年/N 年前/很久以前"。
     破了会让角色"数日子", 且诱导 LLM 做算术。
 
-    `story_now=None`（调用方未给游标）→ **不加短语**（旧档/未接线时保持原形态）。
-    节点无 `story_time`（旧档未迁移）→ 同样不加——**不编一个"很久以前"**,
+    `now=None`（调用方未给）→ **不加短语**（旧档/未接线时保持原形态）。
+    节点无 `ts`（空串/坏值）→ 同样不加——**不编一个"很久以前"**,
     那会让"未采集"与"真的很旧"混为一谈。
     """
     line = f"- {_me(node.narration, char_name, aliases)}"
-    phrase = _time_phrase(node, story_now)
+    phrase = _time_phrase(node, now)
     if phrase:
         line = f"- （{phrase}）" + line[2:]
     if node.verbatim:
@@ -346,17 +350,18 @@ def _memory_line(node: BrainNode, char_name: str,
     return line
 
 
-def _time_phrase(node: BrainNode, story_now) -> str:
-    """节点的时间短语（`""` = 不加）。**只读, 不改节点**（§3.8「不落数据」）。"""
-    if story_now is None or not node.story_time:
+def _time_phrase(node: BrainNode, now) -> str:
+    """节点的时间短语（`""` = 不加）。**只读, 不改节点**（§3.8「不落数据」）。
+
+    2026-09-17（`ESSAY_TIME_MODEL §10`）: 年龄 = `今天 − date(node.ts)`（**现实日**），
+    不再读 `node.story_time`。`now=None` 或 `node.ts` 缺失 → `""`
+    （哨兵纪律: **不编一个"很久以前"**，那会让"未采集"与"真的很旧"混为一谈）。
+    """
+    if now is None or not node.ts:
         return ""
     try:
-        from core.worldtime.age import age_sim_days, render_relative
-        from core.worldtime.story import parse_story_time
-        node_st = parse_story_time(node.story_time)
-        now_st = parse_story_time(story_now.to_dict()
-                                  if hasattr(story_now, "to_dict") else story_now)
-        age = age_sim_days(node_st, now_st)
+        from core.worldtime.age import age_days, render_relative
+        age = age_days(node.ts, now=now)
         if age is None:
             return ""
         return render_relative(age, node.significance)

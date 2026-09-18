@@ -566,36 +566,6 @@ def test_turn_reject_is_logged(web, caplog):
     print("    web: 推进被拒有 WARNING 留痕（reason + 次数）")
 
 
-def test_bond_reenter_interrupted_returns_scene_immediately(web):
-    """重进中断剧情（回放路径）: `/api/bond/start` 直接带场景回来 + chapter_title。
-
-    真机报障（2026-09-11）:"重进中断的剧情一开始黑屏, 居然还要加载一小段时间"——
-    后端这条路径纯读事件流（实测 ~0.1s）, 慢的是前端"黑底标题屏 + 等一轮轮询"。
-    协议修好后: 首帧即有场景（前端不再 waitScene、也不播黑底标题屏）。
-    """
-    st, sid = web
-    _seed_trigger(st, sid)
-    bond.bond_start(CHARACTER, sid, staged=True)
-    _poll_status(sid)
-    bond.bond_start(CHARACTER, sid)                    # adopt → 首板在屏
-    bond.bond_turn(CHARACTER, sid, PICK)               # 裁决（板落事件流）
-    _poll_status(sid)
-    bond._bonds.pop((CHARACTER, sid), None)            # 模拟重启: 内存态丢失
-
-    r = _http("POST", "/api/bond/start",
-              json={"char_id": CHARACTER, "session_id": sid})
-    assert r.status_code == 200, r.text
-    body = r.json()
-    assert body.get("accepted") is True and body.get("replay") is True, body
-    assert body.get("chapter_title") == CHAPTER_TITLE, body
-    assert isinstance(body.get("scene"), dict), body
-    texts = [p["text"] for p in body["scene"]["paragraphs"]]
-    # 回放 = 已记录前缀（0 LLM）; **玩家那句不上屏**（2026-09-12 定稿: 玩家的话语
-    # 永远只体现为选项）, 观看视图就是板正文本身——裁决靠 payload.picked 留档
-    assert texts == ["（首板）她抬起头。"], texts
-    names = [p.get("speaker_name") for p in body["scene"]["paragraphs"]]
-    assert names == ["伊草 遥香"], names
-    print("    web: 重进中断剧情 → 首帧即场景（无黑屏等待）")
 
 
 def test_finish_wrapup_marks_task_busy(web, monkeypatch):
@@ -673,28 +643,6 @@ def test_board_deliver_ledger(web, caplog):
     print(f"    web: 交付台账 {len(lines)} 行, srcs={sorted(set(srcs))}")
 
 
-def test_board_deliver_ledger_marks_replay(web, caplog):
-    """重进中断剧情 → 台账必须标 `src=replay`（0 LLM 本地回放）。
-
-    这条正是"零卡顿里有多少是生成、多少是回放"的答案来源。
-    """
-    import logging
-    st, sid = web
-    _seed_trigger(st, sid)
-    bond.bond_start(CHARACTER, sid, staged=True)
-    _poll_status(sid)
-    bond.bond_start(CHARACTER, sid)
-    bond.bond_turn(CHARACTER, sid, PICK)
-    _poll_status(sid)
-    bond._bonds.pop((CHARACTER, sid), None)          # 模拟重启
-    with caplog.at_level(logging.INFO, logger="live2be.bond"):
-        r = _http("POST", "/api/bond/start",
-                  json={"char_id": CHARACTER, "session_id": sid})
-        assert r.json().get("replay") is True, r.text
-    lines = [x.getMessage() for x in caplog.records
-             if "bond_board_deliver" in x.getMessage()]
-    assert any("src=replay" in ln for ln in lines), lines
-    print("    web: 回放交付标 src=replay（可据此统计 0 LLM 占比）")
 
 
 

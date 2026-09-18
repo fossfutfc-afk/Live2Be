@@ -72,21 +72,23 @@ class IntensityPrior:
     | `emo_int` | `node.emo_int`（0~1） | 同上 |
     | `TIME` | `freshness(age, half_life)` | **降级不出分**（见下） |
 
-    ## TIME 的判定（§4.11 ① —— 写路径与读路径分开）
+    ## TIME 的判定（2026-09-17, `ESSAY_TIME_MODEL §10` 时间轴换代）
 
     ```
-    写路径（digest 时）:  stamp  →  node.story_time = 当前 cursor      ← 存下来
-    读路径（召回时）:    age    =  ctx.story_now.sim_day − node.story_time.sim_day
-                         TIME   =  0.5 ** ((age/5) / half_life_days)
+    写路径:  什么都不写 —— `ts` 本来就在节点上（不再需要 stamp 剧情时间）
+    读路径:  age  = 今天 − date(node.ts)          （**整数, 单位 = 现实日**）
+             TIME = 0.5 ** (age / half_life_days)
     ```
 
-    **`TIME` 不落库**——若写进节点, 节点就永远停在"写入那一刻的新鲜度", 指数白算。
+    **`TIME` 不落库**——它是"读的时候算出来的新鲜度"; 写进节点就永远停在
+    写入那一刻的新鲜度, 指数白算。而 `age` 的两个输入端（`node.ts` 与"今天"）
+    都不需要额外存储。
 
     ## 降级（`raw=None`, 绝不编分）
 
-    - `ctx.story_now is None` → 游标未就绪
-    - `ctx.story_now` 不是 `StoryTime` → 调用方传错
-    - `node.story_time is None` → 旧档未采集（**该节点**降级, 其余照常出分）
+    - `ctx.now is None` → 调用方未给"现在"
+    - `ctx.now` 解析不出日期 → 调用方传错
+    - `node.ts` 缺失/坏值 → **该节点**降级, 其余照常出分
 
     **第三种的语义**: 一条旧档记忆的 `TIME` 无法判定, 但它的
     `emo_span·emo_int` 仍然有效 —— 所以**不是整条链路降级**, 而是该节点
@@ -102,8 +104,7 @@ class IntensityPrior:
     def gather(self, store, ctx: RecallContext) -> ChannelResult:
         res = ChannelResult(channel=self.name, kind=self.kind)
         try:
-            from core.worldtime.age import freshness
-            from core.worldtime.story import parse_story_time
+            from core.worldtime.age import age_days, date_of, freshness
             from core.brain.wiki_v2.recall_config import get as _knob
         except Exception as e:                       # noqa: BLE001 — 链路失败不抛
             res.degraded = True
@@ -111,16 +112,15 @@ class IntensityPrior:
             return res
 
         hl = _knob("time_half_life_days")
-        now = ctx.story_now
+        now = ctx.now
         if now is None:
             res.degraded = True
-            res.note = "TIME 缺 now（ctx.story_now=None）——游标未传"
+            res.note = "TIME 缺 now（ctx.now=None）——调用方未给"
             res.knobs = {"time_half_life_days": hl, "time_ready": False}
             return res
-        now_st = parse_story_time(now.to_dict() if hasattr(now, "to_dict") else now)
-        if now_st is None:
+        if date_of(now) is None:
             res.degraded = True
-            res.note = "TIME 缺 now（ctx.story_now 形态非法）"
+            res.note = "TIME 缺 now（ctx.now 形态非法）"
             res.knobs = {"time_half_life_days": hl, "time_ready": False}
             return res
 
@@ -129,14 +129,16 @@ class IntensityPrior:
         for node in store.all():
             if node.kind != "episode":
                 continue
-            node_st = parse_story_time(node.story_time)
-            age = None if node_st is None else max(0, now_st.sim_day - node_st.sim_day)
+            # 2026-09-17（ESSAY §10 时间轴换代）: 年龄 = 今天 − date(node.ts)
+            # （**现实日**）。缺 `ts`（空串/坏值）→ None → **该节点**降级,
+            # 绝不折成 0（那会让旧记忆冒充"刚发生"，det 虚高）。
+            age = age_days(node.ts, now=now)
             t = freshness(age, hl) if age is not None else None
             if t is None:
                 no_time += 1
                 hits.append(ChannelHit(
                     node=node, raw=None, rank=0,
-                    detail={"reason": "no story_time（旧档未采集）"}))
+                    detail={"reason": "no ts（未采集）"}))
                 continue
             span = float(node.emo_span or 0.0)
             emo_i = float(node.emo_int or 0.0)
@@ -151,10 +153,10 @@ class IntensityPrior:
             h.rank = i
         res.hits = scored + [h for h in hits if h.raw is None]
         res.knobs = {"time_half_life_days": hl, "time_ready": True,
-                     "scored": len(scored), "no_story_time": no_time}
+                     "scored": len(scored), "no_ts": no_time}
         if not scored:
             res.degraded = True
-            res.note = f"无一条 episode 有 story_time（旧档 {no_time} 条）→ 不出分"
+            res.note = f"无一条 episode 有 ts（未采集 {no_time} 条）→ 不出分"
         return res
 
 
