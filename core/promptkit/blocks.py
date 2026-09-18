@@ -194,6 +194,52 @@ def _brain(ctx: BlockContext) -> str | None:
     return seg or None
 
 
+def _time_sense(ctx: BlockContext) -> str:
+    """【时间感】—— 时间**对她意味着什么**（2026-09-17, `ESSAY_TIME_MODEL §10`）。
+
+    ## 为什么单独成块
+
+    它**不是行为规则**（不是"不要提日期"那种祈使句），而是**她的世界观**。
+    塞进 `rules_mmt` 会被读成"又一条要遵守的规则"，而且会被规则书里
+    换场/节奏/选项/收尾那一堆淹没。
+
+    ★ **第一人称是关键**：LLM 会把它当"她本来就这么想"内化，
+    而不是"我得记住这条"。**规则会被违反，世界观不会。**
+
+    ## 它管什么（用户 2026-09-17 裁决）
+
+    | 事实 | 出处 |
+    |---|---|
+    | 唯一日期轴 = 现实日期（`node.ts`） | `ESSAY §10` |
+    | 剧情内部流逝自由、不累积 | 同上 |
+    | "昨天/今天"**必须存在** —— 否则 LLM 没有时间感 | 故 double yesterday / double date 是**结构性的、躲不掉** |
+    | 剧情内跨天 vs 日历不动 → 她会**系统性地往未来推错** | **时间加速的副作用，没办法**（用户裁决） |
+
+    所以加固的方式是**给她许可不深究**，不是**教她应对** ——
+    **不点名任何具体矛盾形态**（点名 = 白熊效应，与 `lexicon_emotion`
+    退出盒B 是同一条理由：*"其提醒属白熊效应"*）。
+
+    ## ⚠️ 这条**不防**什么
+
+    **「被玩家质疑」不是要防的** —— 她自然地提出来、玩家觉得对不上，
+    **那正是产品**（creepy value）。这条只防两件事：**钻牛角尖** + **破墙**。
+    「老师还在和我说话呢」之所以是好句子，正因为它是**出口**而不是**禁令** ——
+    **堵会失败，转移不会。**
+
+    ## 范围
+
+    **只进盒A（MMT）**。盒B 的情况更复杂（VN 里有 `switch` 换场、章内可跨天、
+    且记忆段就在同一个盒里），等整顿盒B 时统一搞（用户 2026-09-17）。
+    """
+    return "\n".join([
+        "【时间感】",
+        "这个时间就是我所经历的时间——是我感官决定的。",
+        "不过……似乎感觉哪里不太对劲？",
+        "但我不应该深究这些：老师还在和我说话呢。",
+        "太久的记忆我记不清跨度了，但可以按记得的事和现在的时间推一推。",
+    ])
+
+
 #: 块注册表（id → build）; 说明文案供 report.describe 用
 BLOCKS: dict[str, Callable[[BlockContext], str | None]] = {
     "greeting": _greeting,
@@ -209,6 +255,7 @@ BLOCKS: dict[str, Callable[[BlockContext], str | None]] = {
     "rules_bond": _rules_bond,
     "lexicon_emotion": _lexicon_emotion,
     "place_world": _place_world,
+    "time_sense": _time_sense,
     "schema": _schema,
     "brain": _brain,
 }
@@ -227,6 +274,7 @@ BLOCK_DOC: dict[str, str] = {
     "rules_bond": "羁绊剧情规则书（记录流写法: switch/群/memorial/end）",
     "lexicon_emotion": "表情标注词表（emotions.yml, 条件）",
     "place_world": "世界区域·剧情地理（regions.yml 主名; 世界设定, 非可选空间）",
+    "time_sense": "时间感（第一人称世界观; 只进盒A——盒B 待统一整顿）",
     "schema": "输出契约 schema（域契约; 标题随域可换）",
     "brain": "记忆段（brain_segment, 条件）",
 }

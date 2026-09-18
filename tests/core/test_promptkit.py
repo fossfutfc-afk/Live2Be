@@ -152,5 +152,5 @@ def test_describe_mmt_manifest():
     assert lines[0].startswith("# promptkit describe: mmt")
     assert "| 1 | greeting |" in rep
     assert "| 2 | persona_mmt |" in rep
-    assert len(DOMAIN_BOXES["mmt"]) == 9                # 声明 9 块
-    assert "缺席块" not in rep                          # 遥香全量资料 → 9 块全注入
+    assert len(DOMAIN_BOXES["mmt"]) == 10               # 声明 10 块
+    assert "缺席块" not in rep                          # 遥香全量资料 → 10 块全注入

@@ -20,6 +20,7 @@ DOMAIN_BOXES: dict[str, list[str]] = {
         "mmt_tone",        # MMT 风格（条件）
         "interperson",     # 人际层（条件）
         "environment_mmt", # MMT 环境
+        "time_sense",      # 时间感（第一人称世界观, 2026-09-17; 紧邻环境——载体就是手机）
         "rules_mmt",       # MMT 规则书
         "schema",          # 可用动作 schema
     ],
