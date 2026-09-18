@@ -70,6 +70,7 @@ from core.session.events import (
 )
 from core.session.io import append_jsonl, read_jsonl
 from core.session.store import _GLOBAL_APPEND_LOCK, SessionStore
+from core.worldtime.age import now_ts
 
 logger = logging.getLogger(__name__)
 
@@ -158,7 +159,7 @@ class StagingStore(SessionStore):
                 _read_safe(source_events_path(self, char_id)))), default=0)
             staged = parse_events(_read_safe(self.events_path(char_id, session_id)))
             seq = max(truth_max, max((e.seq for e in staged), default=0)) + 1
-            ev = Event(seq=seq, ts=event.ts or datetime.now().isoformat(),
+            ev = Event(seq=seq, ts=event.ts or now_ts(),
                        type=event.type, subtype=event.subtype,
                        payload=dict(event.payload))
             p = self.events_path(char_id, session_id)

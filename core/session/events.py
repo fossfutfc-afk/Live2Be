@@ -59,7 +59,14 @@ MARKER_SUBTYPES: tuple[str, ...] = (
 
 
 def now_iso() -> str:
-    return datetime.now().isoformat()
+    """事件时间戳 —— **转调 `age.now_ts()`**（带固定时区的**单一真源**）。
+
+    2026-09-17（时间轴换代）收敛: 本函数是 `make_event` 的默认 `ts`,
+    而 `make_event` 是**绝大多数 `ts` 的实际出口**（`store.append_event` 里那处
+    只是 fallback）。保留函数名 —— 多处调用点认的是它。
+    """
+    from core.worldtime.age import now_ts
+    return now_ts()
 
 
 @dataclass

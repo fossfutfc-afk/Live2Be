@@ -176,8 +176,9 @@ def digest_segment(
     #    → **玩完（`vn_exit`）那一刻 = 玩家过完整段** → 那一刻才是记忆形成时刻。
     # **为什么用 `new_events` 而不是全部事件**: 后者会取到 digest 自己刚写的
     #    `affection/digest`（本次调用内生成）—— 循环依赖。
+    from core.worldtime.age import now_ts as _now_ts      # 写侧单一真源（带时区）
     now_ts = ((new_events[-1].ts or "").strip()
-              or datetime.now().isoformat(timespec="seconds"))
+              or _now_ts())
     segment_id = f"seg-{interact_max}"
 
     # 时间预算: A+B 全程共享一个 deadline（宁缺勿错——水位不推进, 可重算）

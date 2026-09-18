@@ -46,6 +46,9 @@ from core.session.io import append_jsonl, atomic_write_json, read_jsonl
 from core.session.models import TYPE_CONVERSATION, SessionMeta
 from core.session.renderer import session_status
 
+#: `ts` 的写侧单一真源（带固定时区; 2026-09-17 收敛）
+from core.worldtime.age import now_ts as _now_ts
+
 #: 数据根（项目根绝对, cwd 无关——uvicorn/IDE 从任意目录启动）
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 DEFAULT_DATA_ROOT = _PROJECT_ROOT / "data"
@@ -234,7 +237,7 @@ class SessionStore:
             seq = max((e.seq for e in evs), default=0) + 1
             ev = Event(
                 seq=seq,
-                ts=event.ts or datetime.now().isoformat(),
+                ts=event.ts or _now_ts(),
                 type=event.type,
                 subtype=event.subtype,
                 payload=dict(event.payload),
