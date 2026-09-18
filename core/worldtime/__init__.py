@@ -64,23 +64,9 @@ from core.worldtime.prompt_time import (
     phone_date_note,
     real_gap_note,
 )
-from core.worldtime.span import SPANS, SpanError, parse_span, to_sim_days
-from core.worldtime.story import (
-    PHASES,
-    SEASONS,
-    StoryTime,
-    advance,
-    parse_story_time,
-)
+from core.worldtime.span import SPANS, SpanError, parse_span
 
 __all__ = [
-    # story —— 时间点与槽位算术
-    "StoryTime",
-    "PHASES",
-    "SEASONS",
-    "advance",
-    "parse_story_time",
-    # clock —— 游标真源
     # age —— 双出口（2026-09-17: 年龄改由**现实日期**算, §10）
     "REAL_TZ",
     "age_days",
@@ -90,11 +76,11 @@ __all__ = [
     "is_precious",
     "now_ts",
     "parse_ts",
-    # span —— LLM 面对的时间语法
+    # span —— LLM 面对的时间语法（**枚举定义**；`time_span` 字段按用户裁决保留,
+    # 现为"输出但不消费", 为将来的衰减新模型预留 —— 见 TODO「记忆衰减」）
     "SPANS",
     "SpanError",
     "parse_span",
-    "to_sim_days",
     # prompt_time —— 进 prompt 的注记
     "FICTIONAL_YEAR",
     "time_notes",

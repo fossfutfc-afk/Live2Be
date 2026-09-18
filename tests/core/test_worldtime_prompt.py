@@ -17,8 +17,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from core.worldtime import (                                   # noqa: E402
     FICTIONAL_YEAR,
-    SEASONS,
-    StoryTime,
     phone_date_note,
     real_gap_note,
     time_notes,
@@ -27,38 +25,9 @@ from core.worldtime.prompt_time import WEEKDAYS, phone_date    # noqa: E402
 
 
 # ---------------------------------------------------------------------------
-# 1. 季节与日夜（纯派生）
-# ---------------------------------------------------------------------------
-
-def test_season_is_pure_function_of_month():
-    """★ 季节无新状态 —— 由 `month` 算出, 边界 3/6/9/12。"""
-    got = {}
-    for m in range(1, 13):
-        st = StoryTime.from_sim_day((m - 1) * 28 * 5)   # 每月第 1 天
-        got[st.month] = st.season
-    assert got[3] == got[4] == got[5] == "春"
-    assert got[6] == got[7] == got[8] == "夏"
-    assert got[9] == got[10] == got[11] == "秋"
-    assert got[12] == got[1] == got[2] == "冬"
-    assert set(SEASONS) == {"春", "夏", "秋", "冬"}
-    print(f"    season: 3~5春/6~8夏/9~11秋/12~2冬（12 个月全覆盖）")
 
 
-def test_day_part_maps_every_phase():
-    parts = {StoryTime.from_sim_day(n).phase: StoryTime.from_sim_day(n).day_part
-             for n in range(5)}
-    assert set(parts) == {"晨", "昼", "夕", "夜", "凌晨"}, parts
-    assert parts["晨"] == "清晨" and parts["夜"] == "夜里"
-    print(f"    day_part: {parts}")
 
-
-def test_date_label_is_coarse():
-    """★ 粗日期 —— **不带周、不带精确日**（I-c 同一条纪律）。"""
-    label = StoryTime.from_sim_day(65).date_label
-    assert label == "1年4月·春·清晨", label
-    for bad in ("周", "第", "日"):
-        assert bad not in label, f"粗日期里出现了 {bad}: {label}"
-    print(f"    date_label: {label}（无周/无精确日）")
 
 
 # ---------------------------------------------------------------------------
@@ -154,8 +123,6 @@ def test_notes_bundle_and_phone_switch():
 
 if __name__ == "__main__":
     for fn in (test_season_is_pure_function_of_month,
-               test_day_part_maps_every_phase,
-               test_date_label_is_coarse,
                test_phone_date_uses_fictional_year,
                test_phone_date_handles_leap_boundary,
                test_phone_note_has_attribution_and_boundary,
