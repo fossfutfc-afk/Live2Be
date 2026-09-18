@@ -139,14 +139,28 @@ asagi_mutsuki   61 事件 → 只有 2 个活跃日:  9/9 有 1 条, 9/12 有 60
 > 判据 = `time_span` 的形状：**有定义、无消费**。逐项手工核实（脚本会把调用点的
 > kwarg 当消费算, 有假阳性 —— 别只信脚本）。
 
-**删了两个**:
+**删了一个**:
 
 | 字段 | 三重身份（生产者 / 消费者 / 真机数据） |
 |---|---|
 | **`time_span`**（A 轮契约） | ❌ 无消费（推进链已删）· ❌ **parse 层从来没取过它**（`parse_round_a` 只读 `episodes`）· ❌ 真机零记录 ⇒ 每轮 digest 白付 token |
-| **`BrainNode.observation`** | ❌ 无生产者（**Round B 契约里根本没这个字段**, LLM 输出不了）· ❌ 无消费者 · ❌ 真机零节点。旧说明是"承载玩家口癖" —— 那件事现在归 `experience` + `subject="player"` + `pattern`，**路线改了旧字段忘了删** |
+
+**留了一个（用户裁决）**:
+
+| 字段 | 处置 |
+|---|---|
+| **`BrainNode.observation`** | ⏸ **已声明、未投产** —— *"以后多人模式这个可能会很有用；现在我们的 digest 模式还没处理，只是在做前置"*。**不落库**（不在 `to_dict` 里，零生产者零消费者）; 旧档的键宽松忽略。⚠️ v3 落地时它**大概率不留在 belief 上**，应折进实体模型（`about` + `aspect` + `nature`），见 `nodes.py` 字段区说明 |
 
 保留：`span.py` 的枚举定义（契约死了语法不必死）; 旧档里多余的键由 `from_dict` 宽松忽略。
+
+**未来模型（用户 2026-09-17 口述，与 `DESIGN_WIKI_V3` 已写的设计吻合）**:
+
+> *"它最终以 entity 对象节点为中心，belief 为第一层，episode 连接 belief 的水波形。"*
+
+对应文档：`DESIGN_WIKI_V3.md §2.1`（实体中心的两层图）/ `§2.2`（entity 层）/
+`§3.5`（BFS `entity → belief → episode`，深度上限 2 = "总-分-证"）。
+⇒ `observation` 的挂点在**那个模型里**，不在现网的 v2 belief 上。
+
 
 **查过是活的（留档, 免得下次重查）**: `source`（`render.py:187` 的出厂/运行期分流）·
 `contradictions`（`recall.py:110` 一跳扩展）· `source_key`（出厂 seed 判重键）·
@@ -159,12 +173,17 @@ asagi_mutsuki   61 事件 → 只有 2 个活跃日:  9/9 有 1 条, 9/12 有 60
 `read_bond_gap` docstring 明写"旧版文件（仅 rounds 键, 死数据）→ 视为 0"，
 是 2026-09-02 的**有意裁决**, 不是漏删。
 
-**防复发**: `tests/core/test_wiki_nodes.py::test_every_serialized_field_is_parsed_back`
-—— 钉住 `to_dict` ⇄ `from_dict` 的字段一致（`observation` 就是"两边都写了、
-但没人生产也没人读"的三方缺两方; 那条用例覆盖"落库 ⇄ 读回"这一对, 另两方靠 grep 审）。
+**防复发**: `tests/core/test_wiki_nodes.py` 两条 ——
 
-**未查（已知不在本轮范围）**: `assets/` 的 yml 字段、`config/` 的键、
-前端 JS 读的响应字段。这三块没有现成的"生产者/消费者"可枚举, 要另开一轮。
+- `test_every_serialized_field_is_parsed_back`：钉住 `to_dict` ⇄ `from_dict` 的字段一致
+  （`observation` 就是"两边都写了、但没人生产也没人读"的三方缺两方）
+- `test_observation_stays_dormant`：把"休眠"变成**可执行断言** —— 声明必须在、
+  不许落库、**wiki_v2 里不许有任何真的读写它**（AST 扫描，不误伤 docstring）。
+  已验证它会红（临时插一行赋值即失败）。谁要投产，就得先在这条用例里登记"谁生产、
+  谁消费"，顺带被迫更新 `nodes.py` 的字段区说明
+
+**未查（明确不在本轮范围，用户裁决"config 和 assets 不用管"）**: `config/` 的键 ·
+`assets/` 的 yml 字段 · 前端 JS 读的响应字段。
 
 
 **B. 提示词加固草案（q1 产物，待审）**

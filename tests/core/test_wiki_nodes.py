@@ -1,5 +1,6 @@
 """图式 wiki 节点数据结构测试（AGENT_BRAIN.md §1 / M1）。"""
 import json
+from pathlib import Path
 
 from core.brain.wiki_v2 import (
     PLAYER_SUBJECT,
@@ -50,9 +51,8 @@ def test_every_serialized_field_is_parsed_back():
     `from_dict` 里（= 读不回）时, 节点"写出去就变形", 而且**往返测试也抓不到**
     （往返用的是同一份内存对象）。
 
-    2026-09-17 的孤儿字段审计里, `observation` 正是这一类: 两边都写了,
-    但**写入侧没有任何生产者、读取侧没有任何消费者** —— 三方缺两方。
-    这条用例钉住"落库 ⇄ 读回"这一对; 生产者/消费者那两方靠 grep 审。
+    2026-09-17 的孤儿字段审计正是从"三方缺两方"入手的（生产者/消费者/数据）。
+    这条用例钉住"落库 ⇄ 读回"这一对; 另两方靠 grep 审。
 
     做法: 逐个把"清单里的字段"设成非空值 → 往返 → 看是否还在。
     """
@@ -90,6 +90,74 @@ def test_every_serialized_field_is_parsed_back():
         f"`to_dict` 会落这些字段, 但探针没覆盖 → 无法确认它们读得回来: {undeclared}"
         "（往探针里补一个非空值）")
     print("    序列化字段: to_dict ⇄ from_dict 三方一致 ✓")
+
+
+# ---------------------------------------------------------------------------
+# ⏸ observation —— 已声明、未投产（2026-09-17 用户裁决）
+# ---------------------------------------------------------------------------
+
+def test_observation_stays_dormant():
+    """`observation` **声明保留但不投产** —— 这条用例把"休眠"变成可执行断言。
+
+    用户裁决: *"把 observation 暂时留着，但是标明一下没有投入生产，以后多人模式
+    这个可能会很有用；现在我们的 digest 模式还没处理，只是在做前置。"*
+
+    它被删过一次又恢复（2026-09-17），所以两个方向都要钉:
+
+    1. **不许因为"看着没用"删掉它** —— 声明必须在
+    2. **不许在没人消费的情况下开始写它** —— 它不落库; 谁要投产, 就得先在本用例
+       里显式登记（连同"谁生产、谁消费"），**顺带被迫更新字段区的注释**
+
+    为什么值得为"一个没用的字段"写用例: 一个不落库、不读不写的字段是**零成本**的
+    设计挂点; 而一旦有人悄悄往它写数据, 它就变成"看着像有数据、其实没人读"的陷阱
+    —— 正是审计里抓出来的那类问题的**成因**。所以钉住的是"它没有偷偷投产"。
+    """
+    import inspect
+    from dataclasses import fields as _dc_fields
+
+    from core.brain import wiki_v2
+
+    # 1) 声明还在（别删）
+    assert "observation" in {f.name for f in _dc_fields(BrainNode)}
+
+    # 2) 不落库 —— 空的值不该出现在 jsonl 里, 非空的值也一样
+    empty = BrainNode(id="m0001", kind="belief", content="c", links=["m0002"])
+    assert "observation" not in empty.to_dict()
+    filled = BrainNode(id="m0002", kind="belief", content="c", links=["m0003"],
+                       observation=["她注意到老师总记得她说过的话"])
+    assert "observation" not in filled.to_dict(), (
+        "observation 开始落库了 —— 那说明它投产了; 请同时登记生产者/消费者, "
+        "并更新 nodes.py 字段区的说明与本用例")
+    # 落库既然不带它, 读回自然是空的（不是"丢了", 是本来就没存）
+    assert BrainNode.from_dict(filled.to_dict()).observation == []
+
+    # 3) 生产/消费两侧都还没有 —— wiki_v2 里不该有任何**真的读/写它**的代码。
+    #    ⚠️ 用 **AST** 而不是文本扫描: docstring / `#:` 注释里出现名字是正常的
+    #    （那些是说明, 不是引用），文本扫描会把它们当违规（第一版就是这么假红的）。
+    #    只认两种真引用: 属性访问 `.observation` 与字符串字面量 `"observation"`
+    #    （契约/parse/序列化清单都走字符串）。
+    import ast as _ast
+    pkg_dir = Path(inspect.getfile(wiki_v2)).parent
+    offenders: list[str] = []
+    for py in sorted(pkg_dir.rglob("*.py")):
+        src = py.read_text(encoding="utf-8")
+        lines = src.splitlines()
+        for node in _ast.walk(_ast.parse(src)):
+            hit = ((isinstance(node, _ast.Attribute)
+                    and node.attr == "observation")
+                   or (isinstance(node, _ast.Constant)
+                       and node.value == "observation"))
+            if not hit:
+                continue
+            ln = lines[node.lineno - 1].strip()
+            # 字段声明本身（`observation: list[str] = field(...)`）是声明不是引用
+            if ln.startswith("observation:"):
+                continue
+            offenders.append(f"{py.name}:{node.lineno}: {ln[:70]}")
+    assert not offenders, (
+        f"observation 在 wiki_v2 里出现了实际读写 —— 要么是投产了（请登记"
+        f"生产者/消费者, 并更新 nodes.py 字段区说明）, 要么是写错了地方: {offenders}")
+    print("    observation: 已声明、未投产（零生产者零消费者零落库）✓")
 
 
 # ---------------------------------------------------------------------------

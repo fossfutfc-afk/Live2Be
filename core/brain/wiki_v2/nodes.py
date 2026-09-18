@@ -11,7 +11,8 @@
           event_seq / ts / source / links / contradictions / aff_at_encoding /
           emo_int / emo_span / emo_valence
 专属字段: episode.title(可选短标题) / belief.subject / belief.growth /
-          belief.history[{episode_id, content, ts}]
+          belief.history[{episode_id, content, ts}] /
+          belief.observation[]（⏸ **已声明未投产** —— 见字段区）
 observer 语义（2026-09-02 收敛）: 单视角世界线里 observed_fact 的观察者恒为
 角色本人——引擎填 char_id, 不交给 LLM; reported_fact 的 observer = 转述者
 （LLM 判断, 渲染为"听 X 说的"）。
@@ -65,7 +66,7 @@ class BrainNode:
         experience: pattern(必填) / subject(必填) / count(引擎数 links) / examples(≤3)
         belief:     content(必填) / subject(认知对象, 可空) / growth
                     / history[改写溯源]（2026-09-02: {episode_id, content, ts} 数组）
-                    （`observation` 已删 —— 见其在字段区的删除说明）
+                    ⏸ observation[]（**已声明、未投产** —— 见字段区说明）
     """
 
     id: str = ""
@@ -111,23 +112,45 @@ class BrainNode:
     examples: list[str] = field(default_factory=list)
     content: str = ""
     growth: str = ""
-    #: ⚠️ **`observation: list[str]` 已于 2026-09-17 删除** —— 与 `time_span` 同一
-    #: 形状的**孤儿字段**, 用同一把尺子办的（"有写入无消费"）:
+    #: ⏸ **`observation: list[str]` —— 已声明、未投产（2026-09-17 用户裁决）**。
     #:
-    #: 1. **无生产者**: Round B 契约（`contract/digest_registry`）里**根本没有这个
-    #:    字段**, 所以 LLM 输出不了它; `digest` / `revise` 也没有任何写入点
-    #:    ⇒ 它**永远不可能被填上**（旧协议残留 —— `AGENT_BRAIN.md` 的 belief 范例
-    #:    里还有一行, 那是 v1 的写法）
-    #: 2. **无消费者**: 全库没有任何地方读它
-    #: 3. **真机零节点**: `data/` 的 wiki.jsonl 里 grep 一条都没有
+    #: *"把 observation 暂时留着，但是标明一下没有投入生产，以后多人模式这个可能会
+    #: 很有用；现在我们的 digest 模式还没处理，只是在做前置。"*
     #:
-    #: 它当初的说明是"对该对象的观察（可承载玩家口癖等 R5 素材）"—— 而那件事现在
-    #: **有专门的字段**: `experience` 节点 + `subject="player"` + `pattern`
-    #: （契约里明写"玩家画像专用"）。所以不是"功能丢了", 是**路线改了、旧字段忘了删**。
+    #: ## 现状（审计结论，2026-09-17）
     #:
-    #: **为什么不留成"将来可能有用"**: 一个 LLM 永远不会输出的字段, 留着只会让读
-    #: 节点的人以为"这里能装观察"。要装新东西时再加字段, 比留一个假接口便宜。
-    #: （旧档里若还有这个键 → `from_dict` 宽松解析, **多余的键自动忽略**, 不抛。）
+    #: | 三方 | |
+    #: |---|---|
+    #: | 生产者 | ❌ 无（Round B 契约里**没有这个字段**，LLM 输出不了） |
+    #: | 消费者 | ❌ 无（全库没有读取点） |
+    #: | 真机数据 | ❌ 零节点（`wiki.jsonl` 里一条都没有） |
+    #:
+    #: ⇒ **它不落库**（不在 `to_dict` 清单里）—— 一个没人生产、没人消费的字段占用
+    #: 每行 jsonl 是纯浪费。旧档里若还有这个键 → `from_dict` 宽松忽略。
+    #: ⇒ 但**声明保留**，因为它有明确的未来用途。
+    #:
+    #: ## 未来用途：多人模式（**与实体的"观察者"维度相关**）
+    #:
+    #: 现在一条世界线是**单视角**的（`observer` 恒为角色本人, 见上面 observer 语义）。
+    #: 多人模式里同一个实体会被**多个观察者**看到，而"谁观察到了什么"需要落成字段 ——
+    #: 那时 `observation` 的语义才立得住（"这个实体, 我这个视角观察到的几条"）。
+    #:
+    #: ## ⚠️ 但那套模型落地时，它**大概率不留在 belief 上**
+    #:
+    #: 记忆图 v3 的中心是**实体**（`docs/DESIGN_WIKI_V3.md §2.1` "实体中心的两层图" /
+    #: `§2.2` entity 层 / `§3.5` BFS `entity → belief → episode`，即"总-分-证"）。那套
+    #: 模型里"对某对象的观察"已经有归属机制：`about`（引擎管，指向 entity）+
+    #: `aspect`（LLM 写）+ `nature`（规律 = belief + `nature=pattern`），
+    #: 而 `entity.overview` 承担"总体感觉"那一行。
+    #:
+    #: ⇒ **本字段是 v2 形状的占位**。v3 落地时应当把它**折进实体模型**
+    #: （按 `about` 归堆 + `aspect` 区分侧面），而不是平移成 belief 的一个字段。
+    #: 保留声明是为了让那个设计有一个可见的挂点，**不是**为了在 v2 上把它填起来。
+    #:
+    #: ⚠️ **不许因为"看着没用"删掉它**（已被删过一次, 2026-09-17 恢复）;
+    #: 也**不许在没人消费它的情况下开始写它** —— 两条都由
+    #: `tests/core/test_wiki_nodes.py::test_observation_stays_dormant` 钉住。
+    observation: list[str] = field(default_factory=list)
     history: list[dict] = field(default_factory=list)   # belief 改写溯源（见 docstring）
     source_key: str = ""
     #: 编码时好感标量 ∈ [−1, 1]（`Affection.to_scalar()`, §3.3.3）——**快照**:
