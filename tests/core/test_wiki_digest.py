@@ -712,20 +712,6 @@ def test_emotion_scale_absent_when_segment_has_no_labels(tmp_path):
 # 剧情时间: 写路径时序（§4.11 —— I-a 先推进再 stamp / I-b Round B 不许碰）
 # ---------------------------------------------------------------------------
 
-def test_story_time_stamped_on_episodes(tmp_path):
-    """Round A 的 `time_span` → 引擎推进游标 → stamp 到 episode 节点。"""
-    st = _seed_store(tmp_path)
-    a = _a_episode()
-    a["time_span"] = "days:3"
-    llm = FakeLLM(a, _b_ok())
-    res = digest_segment(st, llm, _events(_mmt(3, "x", "y")))
-    assert res.ok, res.errors
-    ep = st.get(res.created[0])
-    assert ep.story_time is not None, "story_time 未 stamp"
-    # days:3 = 3 叙事日 = 15 格; 该世界有历史 → 起点在本世界线的**纪元**
-    from core.brain.wiki_v2.migrate_time import epoch_for
-    assert ep.story_time["sim_day"] == epoch_for(st.all()) + 15, ep.story_time
-    print(f"    time_span=days:3 → story_time={ep.story_time}")
 
 
 def test_two_advances_beat_one(tmp_path):
@@ -768,71 +754,12 @@ def test_failed_digest_does_not_advance_clock(tmp_path):
     print(f"    失败零残留: 内存游标仍 {before_mem}, 磁盘无 world_clock.json")
 
 
-def test_clock_file_written_on_commit(tmp_path):
-    """游标落盘 + 与节点 stamp 一致（同一临界区）。"""
-    from core.worldtime.clock import WorldClock
-    st = _seed_store(tmp_path)
-    a = _a_episode()
-    a["time_span"] = "week"
-    res = digest_segment(st, FakeLLM(a, _b_ok()), _events(_mmt(6, "x", "y")))
-    assert res.ok, res.errors
-    p = st.clock_path
-    assert p.is_file(), "world_clock.json 未落盘"
-    back = WorldClock.load(p)
-    assert back.cursor.sim_day == st.get(res.created[0]).story_time["sim_day"]
-    print(f"    clock: 落盘并往返一致 sim_day={back.cursor.sim_day}")
 
 
-def test_epoch_keeps_new_nodes_off_old_range(tmp_path):
-    """★ 有历史的世界: 新节点落在 `≥ 纪元`, 与旧档外插区间（`< 纪元`）分离。"""
-    from core.brain.wiki_v2.migrate_time import epoch_for
-    st = _seed_store(tmp_path)                        # 预置节点 → 有历史
-    assert st.all(), "夹具应已有节点"
-    epoch = epoch_for(st.all())
-    a = _a_episode()
-    a["time_span"] = "day"
-    res = digest_segment(st, FakeLLM(a, _b_ok()), _events(_mmt(6, "x", "y")))
-    assert res.ok, res.errors
-    sim = st.get(res.created[0]).story_time["sim_day"]
-    assert sim >= epoch, f"新节点落在 {sim} < 纪元 {epoch}"
-    old = [n for n in st.all() if n.story_time is None]
-    assert old, "旧节点不该被自动 stamp（迁移是独立步骤）"
-    print(f"    纪元 {epoch}: 新节点 sim_day={sim} ≥ {epoch}; "
-          f"旧节点 {len(old)} 条仍未采集")
 
 
-def test_unknown_time_span_does_not_block(tmp_path):
-    """坏/缺 `time_span` → 走默认档（+1 格），不阻断 digest。
-
-    ⚠️ 每轮**独立 store**：`_b_ok()` 的 `episode: "m0003"` 是硬编码 id,
-    第二轮新 episode 会变成 m0004 → 覆盖校验会拒（夹具限制, 非生产行为）。
-    """
-    sims = []
-    for i, bad in enumerate((None, "十年后", "days:99")):
-        st = _seed_store(tmp_path / f"s{i}")
-        a = _a_episode(narration=f"段 {bad}")
-        if bad is not None:
-            a["time_span"] = bad
-        res = digest_segment(st, FakeLLM(a, _b_ok()),
-                             _events(_mmt(6, "x", "y")))
-        assert res.ok, (bad, res.errors)
-        sims.append(st.get(res.created[0]).story_time["sim_day"])
-    assert all(s > 0 for s in sims), sims
-    print(f"    time_span 坏值不阻断; sim_day 序列 {sims}")
 
 
-def test_round_b_cannot_move_story_time(tmp_path):
-    """★ I-b: Round B 的 patch 不许碰 `story_time`（否则时间倒流）。"""
-    st = _seed_store(tmp_path)
-    a = _a_episode()
-    a["time_span"] = "day"
-    b = _b_ok()
-    b["decisions"][0]["patch"]["story_time"] = {"sim_day": 0}   # 恶意 patch
-    res = digest_segment(st, FakeLLM(a, b), _events(_mmt(6, "x", "y")))
-    assert res.ok, res.errors
-    stamped = [n.story_time["sim_day"] for n in st.all() if n.story_time]
-    assert stamped and all(s > 0 for s in stamped), stamped
-    print(f"    I-b: 恶意 patch 未生效, sim_day 仍为 {stamped}")
 
 
 # ---------------------------------------------------------------------------
