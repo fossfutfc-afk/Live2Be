@@ -295,6 +295,53 @@ def test_thread_safe_seq_allocation(tmp_path):
     print(f"    并发写 12 条 → seq {seqs} 无重复 ✓")
 
 
+# ---------------------------------------------------------------------------
+# 8. 语义修正: 收尾是 vn_exit(False)，不是 vn_abandon
+# ---------------------------------------------------------------------------
+
+def test_supersede_semantics_is_exit_false_not_abandon(tmp_path):
+    """★ 新章触发时旧在押段的收尾 = **`vn_exit completed=False`**（发生过但没读完）,
+    **不是 `vn_abandon`**（"没发生过" —— 那会删掉她真实经历过的那半段）。
+
+    复刻 `webgui.bond.bond_start` 的两步（顺序同代码）。
+    """
+    st = _st(tmp_path)
+    st.enter_vn(CHAR, "", "旧章")                      # 真源里的未闭合段
+    st.append_event(CHAR, "", make_event("bond", "story_scene", {"i": 0}))
+
+    sg = staging.staging_store(st)                     # 暂存里的未闭合章
+    sg.enter_vn(CHAR, "", "新章")
+    sg.append_event(CHAR, "", make_event("bond", "story_scene", {"i": 1}))
+    sg.append_marker(CHAR, "", "vn_exit", {"completed": False})
+
+    staging.commit_staging(st, CHAR, "", completed=False)
+    staging.close_open_attempts(st, CHAR, "")
+
+    truth = st.events(CHAR)
+    assert not any(e.subtype == "vn_abandon" for e in truth), "不应再写 vn_abandon"
+    assert staging.open_attempt(truth) is None, "真源里不留未闭合段"
+    exits = [e for e in truth if e.subtype == "vn_exit"]
+    assert len(exits) == 2, [e.subtype for e in truth]
+    assert all(e.payload["completed"] is False for e in exits)
+    print(f"    收尾语义: vn_exit(False)×{len(exits)}、零 vn_abandon ✓")
+
+
+def test_new_data_has_no_abandon_marker(tmp_path):
+    """★ B0 之后 `vn_abandon` 不再产生 ⇒ `exclude_abandoned` 对新数据**空转**
+    （它只为旧档保留）。"""
+    from core.session.maintenance import exclude_abandoned
+    st = _st(tmp_path)
+    _do_chapter(st, boards=2, complete=True)
+    staging.commit_staging(st, CHAR, "")
+    staging.close_open_attempts(st, CHAR, "")
+
+    truth = st.events(CHAR)
+    assert len(truth) == 4
+    assert not any(e.subtype == "vn_abandon" for e in truth)
+    assert exclude_abandoned(truth) == truth           # 空转
+    print("    新数据零 vn_abandon；exclude_abandoned 空转 ✓")
+
+
 if __name__ == "__main__":
     import tempfile
 

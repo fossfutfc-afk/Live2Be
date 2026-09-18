@@ -49,14 +49,14 @@ from core.session.events import (
     make_event,
 )
 from core.session.chapters import replayable_chapters
-from core.session.maintenance import (
-    abandon_open_attempts,
-    abandon_opens_except,
-    abandoned_ranges,
-    exclude_abandoned,
-)
+from core.session.maintenance import abandoned_ranges, exclude_abandoned
 from core.session.renderer import render_bond_scene_text, window_messages
-from core.session.staging import commit_staging, staging_store
+from core.session.staging import (
+    close_open_attempts,
+    commit_staging,
+    staging_store,
+    truth_store,
+)
 from core.ui.vn_cli import _build_director, _trigger_title
 from llm.image_gen import ImageGenerator, collect_ref_images, image_enabled
 from webgui import chat
@@ -990,13 +990,10 @@ def bond_start(char_id: str, session_id: str, *,
         replay = _interrupted_replay_queue(char_id, session_id)
         if replay is not None:
             replay_q, keep_enter = replay
-            # 定向废弃: 保留被回放段, 压掉其余 open（含空壳）——否则续写事件
-            # 会按 vn_enter 归属追加到更新的空壳段, 分段/记忆归属错乱
-            try:
-                abandon_opens_except(_flow_store(state), char_id, session_id, keep_enter)
-            except Exception as e:                   # noqa: BLE001 — 宣告失败降级
-                logger.warning("回放前废弃宣告失败: %s", e)
-            # 计时埋点（§6.1）: 中断回放入口（本地 0 LLM 展示, handoff 生成另计）
+            # 2026-09-17（B0）: 原「定向废弃：保留被回放段、压掉其余 open」
+            # **不再需要** —— B0 的不变量保证真源里**最多只有一个未闭合段**,
+            # 而被回放的那个就是它。故这里无操作（旧数据的多 open 由
+            # `_interrupted_replay_queue` 的空壳跳过 + 收尾逻辑各自处理）。
             logger.info("bond_click replay %s/%s scenes=%d from=%d",
                         char_id, session_id, len(replay_q), keep_enter)
             return _start_replay(state, replay_q, char_id, session_id)
@@ -1063,13 +1060,20 @@ def bond_start(char_id: str, session_id: str, *,
         except Exception as e:                       # noqa: BLE001 — 写失败降级不阻断 VN
             logger.warning("事件流 vn_enter 写入失败: %s", e)
     else:
-        # 新章节触发轮（staged 预热）: 压掉旧 open 在押段——vn_abandon 宣告
-        # （2026-09-07, maintenance）: 之后 openChat 不再自动拽入旧中断段,
-        # 窗口/digest 按废弃区间过滤; 幂等（已关段自动跳过）
+        # 新章节触发轮（staged 预热）: 收尾旧的在押段。
+        # 2026-09-17（B0）: **语义修正** —— 旧实现在这里打 `vn_abandon`
+        # （宣告"这段**没发生过**"）。但玩家确实陪她走完了那半段 ——
+        # 那是**有意义的叙事事件**（她可能失落），删掉它是素材损失。
+        # 正确语义 = `vn_exit completed=False`（**发生过，但没读完**）:
+        #   ① 暂存里有未闭合章 → 以 completed=False 整段提交
+        #   ② 真源里还有未闭合段（旧档 / 半截 commit）→ 补一条收尾
+        # 两头都做完，「真源里不留未闭合段」这条不变量恒成立。
         try:
-            abandon_open_attempts(_flow_store(state), char_id, session_id)
-        except Exception as e:                       # noqa: BLE001 — 宣告失败降级
-            logger.warning("旧在押段废弃宣告失败: %s", e)
+            _fs = _flow_store(state)
+            commit_staging(_fs, char_id, session_id, completed=False)
+            close_open_attempts(truth_store(_fs), char_id, session_id)
+        except Exception as e:                       # noqa: BLE001 — 收尾失败降级
+            logger.warning("旧在押段收尾失败: %s", e)
         state.staged_seq = _last_mmt_seq(char_id, session_id, _flow_store(state))
         state.t_staged = time.monotonic()            # 计时埋点（§6.1）: 预热起点
         logger.info("bond_prewarm_start %s/%s title=%r",
