@@ -714,44 +714,8 @@ def test_emotion_scale_absent_when_segment_has_no_labels(tmp_path):
 
 
 
-def test_two_advances_beat_one(tmp_path):
-    """★ I-a 的正向证明: 同一起点上, 推进**两次**必须比推进**一次**更远。
-
-    （不变量本身在 `worldtime` 已验; 这里验的是**经 digest 的游标**——
-    即 `store.clock()` 拿到的那个实例真的会前进。）
-    """
-    from core.worldtime.clock import WorldClock
-    st = _seed_store(tmp_path)
-    start = st.clock().cursor
-    assert not st.clock_path.is_file(), "尚未提交时不该有游标文件"
-
-    st.clock().cursor = st.clock().advance("day")
-    st.save_clock()                                   # 提交一次
-    n1 = WorldClock.load(st.clock_path).cursor.sim_day
-    assert n1 == start.sim_day + 5, f"第一次推进不对: {start.sim_day} → {n1}"
-
-    st.clock().cursor = st.clock().advance("day")
-    st.save_clock()                                   # 再提交一次
-    n2 = WorldClock.load(st.clock_path).cursor.sim_day
-    assert n2 == n1 + 5, f"第二次没推进: {n1} → {n2}"
-    print(f"    I-a: 游标 {start.sim_day} → {n1} → {n2}（day=5 格, 严格递增）")
 
 
-def test_failed_digest_does_not_advance_clock(tmp_path):
-    """★ 失败必须**零残留**: 游标内存态与磁盘都不得前进（否则重试会二次推进）。"""
-    st = _seed_store(tmp_path)
-    before_mem = st.clock().cursor.sim_day
-    a = _a_episode()
-    a["time_span"] = "week"
-    # Round B 用空 decisions → 覆盖校验必拒 → 整段失败
-    res = digest_segment(st, FakeLLM(a, {"decisions": [], "evidence": [],
-                                         "affection_exp_delta": 0}),
-                         _events(_mmt(6, "x", "y")))
-    assert not res.ok, "该段应当失败"
-    assert st.clock().cursor.sim_day == before_mem, \
-        f"失败后内存游标前进了: {before_mem} → {st.clock().cursor.sim_day}"
-    assert not st.clock_path.is_file(), "失败不该落盘 world_clock.json"
-    print(f"    失败零残留: 内存游标仍 {before_mem}, 磁盘无 world_clock.json")
 
 
 

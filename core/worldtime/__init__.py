@@ -58,7 +58,6 @@ from core.worldtime.age import (
     parse_ts,
     render_relative,
 )
-from core.worldtime.clock import WorldClock
 from core.worldtime.prompt_time import (
     FICTIONAL_YEAR,
     notes as time_notes,
@@ -82,7 +81,6 @@ __all__ = [
     "advance",
     "parse_story_time",
     # clock —— 游标真源
-    "WorldClock",
     # age —— 双出口（2026-09-17: 年龄改由**现实日期**算, §10）
     "REAL_TZ",
     "age_days",

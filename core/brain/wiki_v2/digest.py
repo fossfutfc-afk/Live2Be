@@ -149,10 +149,6 @@ def digest_segment(
     interact_max = max(e.seq for e in new_events)
     result = DigestResult(ok=False)
     snapshot = store.clone_state()                       # 原子性: 失败 → 回滚
-    # 游标快照：**已退役**（2026-09-17, `ESSAY_TIME_MODEL §10`）——
-    # 剧情游标不再存在, 故恒 None（`_rollback` 对它天然 no-op）。
-    # 保留这个变量是为了不动 3 个 `_rollback` 调用点与它的签名。
-    clock_snapshot = None
 
     timeline = render_timeline(new_events, indexed=True)
     # 本段**可寻址事件** —— `event_seq` / `verbatim` 索引的 ⊆ 校验基准（T14）。
@@ -203,7 +199,7 @@ def digest_segment(
             parse_fn=lambda r: digest_registry.parse_round_a(r, seq_set=seq_set),
             result=result)
         if entries is None:
-            return _rollback(store, snapshot, result, clock_snapshot)
+            return _rollback(store, snapshot, result)
         # 索引 → 原文（T14）: parse 层拿不到事件流, 回填在这里做
         for ent in entries:
             _resolve_verbatim(ent, by_seq)
@@ -247,14 +243,14 @@ def digest_segment(
                 target_ids=set(local_of.values())),      # local_of: real→local, 取 values
             result=result)
         if rows is None:
-            return _rollback(store, snapshot, result, clock_snapshot)
+            return _rollback(store, snapshot, result)
         apply_decisions(store, rows,
                         id_map={v: k for k, v in local_of.items()},   # local→real
                         ts=now_ts, segment_id=segment_id,
                         event_seq=[interact_max])
     except ValueError as e:                              # store 层拒绝 → 回滚
         result.errors.append(str(e))
-        return _rollback(store, snapshot, result, clock_snapshot)
+        return _rollback(store, snapshot, result)
 
     # ── 成功: 提交（节点落盘 + 水位推进）──
     result.ok = True
@@ -623,15 +619,13 @@ def _clamp_aff(raw: Any) -> int:
         return 0
 
 
-def _rollback(store: WikiStoreV2, snapshot: dict, result: DigestResult,
-              snapshot_clock=None) -> DigestResult:
+def _rollback(store: WikiStoreV2, snapshot: dict,
+              result: DigestResult) -> DigestResult:
     """回滚内存态（失败 → 零残留; 水位未推进, 磁盘未动）。
 
-    ⚠️ **游标也要回滚**（§4.11 I-a 的配套）：`clock()` 是**惰性缓存**的同一实例,
-    本段在 `_create_a_nodes` 前已经推进过它。若不还原, 同一次 digest 的**重试**
-    （或同进程的下一次调用）会从"已经走掉的游标"再推一次 —— **时钟静默前进**,
-    而 `world_clock.json` 里看不出来（失败不落盘）。
+    2026-09-17（`ESSAY_TIME_MODEL §10`）: 原先还要还原 `WorldClock` 的**内存游标**
+    （§4.11 I-a 的配套 —— 否则重试会二次推进时钟）。剧情游标整族退役后
+    这一步没了, `snapshot_clock` 参数一并删除。
     """
     store.restore_state(snapshot)
-    store.restore_clock_cursor(snapshot_clock)
     return result
