@@ -115,11 +115,18 @@ def real_gap_note(last_ts: str | datetime | None,
              if isinstance(last_ts, str) else last_ts)
     except (TypeError, ValueError):
         return ""
-    now = now or datetime.now()
-    try:
-        mins = (now - t).total_seconds() / 60.0
-    except TypeError:                          # 朴素/带时区混用
+    # ★ 时区对齐（2026-09-17 收敛 `ts` 到带时区后**必做**）
+    #   新 `ts` 带固定时区、旧 `ts` 是朴素本地时间，而 `now` 常是裸 `datetime.now()`。
+    #   混算会 `TypeError` → 被下面的 except 吃成 `""` → **时间注记整条静默消失**
+    #   （真机症状: `【她刚刚还在和老师说话】` 不再出现。测试当场抓到）。
+    #   统一走 `age.parse_ts`: **朴素时间一律按 `REAL_TZ` 解释** ——
+    #   与 `age_days` / `age.parse_ts` 同一条纪律, 单一真源。
+    from core.worldtime.age import REAL_TZ, parse_ts
+    t_ok, now_ok = parse_ts(t), (parse_ts(now) if now is not None else None)
+    if t_ok is None:
         return ""
+    now_ok = now_ok or datetime.now(REAL_TZ)
+    mins = (now_ok - t_ok).total_seconds() / 60.0
     if mins < 0:
         return ""
     if mins < 60:
