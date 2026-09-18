@@ -11,7 +11,6 @@
     - 去重: find_by_event_seq（(kind, event_seq) 键——同事件重复消化去重）
     - id: 前缀 + 4 位零填充（m=动态 episode/belief/relation, c=出厂基座, e=experience）
     - 快照: snapshot_to/restore_from = 整文件复制（R6 存档快照语义）
-    - 剧情时间游标: `clock()` / `save_clock()`（§4.11 —— 写路径先推进再 stamp）
 """
 from __future__ import annotations
 
@@ -22,8 +21,7 @@ from typing import Iterable
 from core.brain.wiki_v2.nodes import BrainNode, format_id
 from core.common import err
 from core.session.io import atomic_write_json, atomic_write_lines, read_jsonl
-from core.worldtime.clock import WorldClock
-from core.worldtime.story import StoryTime
+from core.worldtime.age import now_ts as _now_ts
 
 logger = logging.getLogger(__name__)
 
@@ -47,10 +45,9 @@ class WikiStoreV2:
             Path(data_root) / "worlds" / world_id / "characters"
             / char_id / "soul" / "wiki.jsonl")
         self.meta_path = self.path.with_name("wiki.meta.json")
-        #: 世界根定位（游标路径由 worldtime 统一派生, 不在这里拼）
+        #: 世界根定位
         self._data_root = Path(data_root)
         self._world_id = world_id
-        self._clock = None                      # 惰性装载（见 clock()）
         self.meta: dict = self._load_meta()
         self._nodes: dict[str, BrainNode] = {}
         self._load()
@@ -84,12 +81,6 @@ class WikiStoreV2:
     # ------------------------------------------------------------------
 
     @property
-    def clock_path(self) -> Path:
-        """`data/worlds/{world}/world_clock.json` —— 布局与 `worldtime` 同源。"""
-        from core.worldtime.clock import world_clock_path
-        return world_clock_path(self.data_root, self.world_id)
-
-    @property
     def world_id(self) -> str:
         return self._world_id
 
@@ -97,48 +88,12 @@ class WikiStoreV2:
     def data_root(self) -> Path:
         return self._data_root
 
-    def clock(self):
-        """惰性装载的 `WorldClock`（**per store 实例缓存**——同一次 digest 只读一次盘）。
-
-        ★ **有历史的世界, 起点按数据自己的 `event_seq` 算**（不是固定常数）:
-        线上旧节点没有 `story_time`（迁移见 `migrate_time.py`）。若新节点从 0 起算,
-        而旧档外插也落在低位, 两者会撞在同一段。
-        故纪元 = `epoch_for(全部节点)`（≈ `max(event_seq) + 间隙`）,
-        **旧档落在 `< epoch`、新节点从 `epoch` 起** —— 两个区间天然分离,
-        且**不需要现在就改任何一个旧节点**。
-
-        ⚠️ 初版用固定常数 `LEGACY_EPOCH=5000`, 真机实测后果:
-        一份刚发生没几天的记忆被 T3 的短语算成"**3 年前**"
-        （旧档窗口 5000 格全被吃掉）。**窗口必须按数据比例, 不能拍。**
-        """
-        if self._clock is None:
-            clk = WorldClock.load(self.clock_path)
-            if clk.cursor.sim_day == 0 and self._world_has_history():
-                from core.brain.wiki_v2.migrate_time import epoch_for
-                epoch = epoch_for(self.all())
-                clk.cursor = StoryTime.from_sim_day(epoch, anchor=clk.anchor)
-                logger.info("world_clock 初始化到纪元 %d（已有历史）", epoch)
-            self._clock = clk
-        return self._clock
-
-    def save_clock(self) -> bool:
-        """落盘游标（**与节点写入同临界区**——§4.11 的 I-a）。"""
-        if self._clock is None:
-            return True
-        return self._clock.save()
-
-    def peek_clock_cursor(self):
-        """游标**快照**（未装载 → None）。供 `digest._rollback` 还原内存游标。
-
-        为什么不用 `clock()`: 那个会**装载**（并可能初始化到 LEGACY_EPOCH）——
-        失败回滚不该产生副作用。
-        """
-        return None if self._clock is None else self._clock.cursor
-
-    def restore_clock_cursor(self, cursor) -> None:
-        """还原内存游标（`cursor=None` 或未装载 → 不动）。"""
-        if self._clock is not None and cursor is not None:
-            self._clock.cursor = cursor
+    # ── 剧情游标 API：**已整族退役**（2026-09-17, `ESSAY_TIME_MODEL §10`）──
+    # 删掉的是 `clock_path` / `clock()` / `save_clock()` / `peek_clock_cursor()`
+    # / `restore_clock_cursor()`（以及 `self._clock` 与 `WorldClock`/`StoryTime` 导入）。
+    # 它们服务的是**剧情日历**（`world_clock.json` 的游标）—— 而唯一日期轴
+    # 现在是**现实日期**（`node.ts`），故整族无人调用、整族删除。
+    # `digest` 侧同步: 推进块与游标提交都已删（见 `digest.py`）。
 
     def _world_has_history(self) -> bool:
         """该角色线是否已有记忆（有节点或有水位即算）。"""

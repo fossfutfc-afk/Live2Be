@@ -17,7 +17,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from core.worldtime import (                        # noqa: E402
     PHASES,
     SPANS,
-    WorldClock,
     advance,
     age_days,
     date_of,
@@ -27,7 +26,6 @@ from core.worldtime import (                        # noqa: E402
     render_relative,
 )
 from core.worldtime.age import DEFAULT_HALF_LIFE_DAYS   # noqa: E402
-from core.worldtime.clock import world_clock_path       # noqa: E402
 from core.worldtime.story import (                      # noqa: E402
     DAYS_TO_SIM,
     MAX_STEP,
@@ -272,51 +270,14 @@ def test_render_relative_none_is_vague():
 # 6. 游标（clock）
 # ---------------------------------------------------------------------------
 
-def test_clock_roundtrip_and_monotone(tmp_path):
-    p = world_clock_path(tmp_path, "w1")
-    clk = WorldClock.load(p, anchor={"year": 1, "month": 4})
-    assert clk.cursor.sim_day == 0
-    clk.cursor = clk.advance("days:2")
-    assert clk.save()
-    back = WorldClock.load(p)
-    assert back.cursor.sim_day == clk.cursor.sim_day
-    assert back.cursor.phase == clk.cursor.phase
-    assert back.anchor == clk.anchor
-    print(f"    clock: 往返保真 {back.cursor}")
 
 
-def test_clock_missing_file_starts_at_anchor(tmp_path):
-    clk = WorldClock.load(tmp_path / "nope" / "world_clock.json")
-    assert clk.cursor.sim_day == 0
-    print("    clock: 文件缺失 → 从锚点起算（不抛）")
 
 
-def test_clock_corrupt_file_does_not_raise(tmp_path):
-    p = tmp_path / "world_clock.json"
-    p.write_text("{ 坏 json", encoding="utf-8")
-    clk = WorldClock.load(p)
-    assert clk.cursor.sim_day == 0
-    p.write_text('{"cursor": {"sim_day": -5}}', encoding="utf-8")
-    assert WorldClock.load(p).cursor.sim_day == 0
-    print("    clock: 损坏/非法 cursor → 回锚点 + WARNING（不抛）")
 
 
-def test_clock_advance_is_monotone_assertion(tmp_path):
-    clk = WorldClock.load(tmp_path / "wc.json")
-    for sp in SPANS:
-        before = clk.cursor.sim_day
-        clk.cursor = clk.advance(sp)
-        assert clk.cursor.sim_day > before, sp
-    print(f"    clock: {len(SPANS)} 个 span 全部严格递增")
 
 
-def test_clock_write_is_atomic(tmp_path):
-    clk = WorldClock.load(tmp_path / "wc.json")
-    clk.cursor = clk.advance("day")
-    clk.save()
-    leftovers = list(tmp_path.glob("*.tmp"))
-    assert not leftovers, f"残留临时文件: {leftovers}"
-    print("    clock: 原子写（无 .tmp 残留）")
 
 
 # ---------------------------------------------------------------------------
@@ -373,12 +334,4 @@ if __name__ == "__main__":
                test_realtime_is_declared_not_implemented,
                test_worldtime_does_not_import_project_modules):
         fn()
-    with tempfile.TemporaryDirectory() as d:
-        p = Path(d)
-        for fn in (test_clock_roundtrip_and_monotone,
-                   test_clock_missing_file_starts_at_anchor,
-                   test_clock_corrupt_file_does_not_raise,
-                   test_clock_advance_is_monotone_assertion,
-                   test_clock_write_is_atomic):
-            fn(p)
     print("all worldtime tests passed")
