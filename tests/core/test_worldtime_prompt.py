@@ -3,7 +3,7 @@
 
 钉住四条:
   1. **季节/日夜**是 `month`/`phase` 的纯函数（无新状态）
-  2. **虚构年份 2100**, 月/日/星期几照真实; **闰年边界**（2/29 → 3/1）不构造非法日期
+  2. **手机上的日期 = 真实日期**（虚构年 `2100` 已于 2026-09-17 删除, 用户裁决）
   3. **归因与边界**: "手机上的日期"必须写明来源 + "问起才引用"
   4. **措辞虚化**: 间隔注记绝不出现小时/分钟/精确日期（与 I-c 同一条纪律）
 """
@@ -16,7 +16,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from core.worldtime import (                                   # noqa: E402
-    FICTIONAL_YEAR,
     phone_date_note,
     real_gap_note,
     time_notes,
@@ -31,37 +30,44 @@ from core.worldtime.prompt_time import WEEKDAYS, phone_date    # noqa: E402
 
 
 # ---------------------------------------------------------------------------
-# 2. 手机日期（虚构年 + 闰年边界）
+# 2. 手机日期（真实日期 + 真实闰年）
 # ---------------------------------------------------------------------------
 
-def test_phone_date_uses_fictional_year():
-    y, m, d, _, wd = phone_date(datetime(2026, 9, 13, 20, 41))
-    assert y == FICTIONAL_YEAR
-    assert (m, d) == (9, 13), "月/日必须照真实"
-    assert wd in WEEKDAYS
-    # 星期几必须**按虚构年那天**算, 不是照抄真实年
-    real_wd = WEEKDAYS[datetime(2026, 9, 13).weekday()]
-    assert wd == WEEKDAYS[datetime(FICTIONAL_YEAR, 9, 13).weekday()]
-    print(f"    手机日期: {y}年{m}月{d}日（{wd}）; 真实 {2026} 那天是 {real_wd}")
+def test_phone_date_is_the_real_date():
+    """★ 2026-09-17 用户裁决: 虚构年 `2100` 已删 —— 手机上的日期**就是真实日期**。
+
+    旧断言是 `y == FICTIONAL_YEAR`（2100）+ `wd == WEEKDAYS[datetime(2100, …)]`。
+    现在 `wd` 必须等于**同一年**的星期几, 而不再是另一个年份的。
+    """
+    y, m, d, wi, wd = phone_date(datetime(2026, 9, 13, 20, 41))
+    assert (y, m, d) == (2026, 9, 13)
+    assert wi == datetime(2026, 9, 13).weekday()
+    assert wd == WEEKDAYS[datetime(2026, 9, 13).weekday()]
+    print(f"    手机日期: {y}年{m}月{d}日（{wd}）—— 与真实历一致")
 
 
-def test_phone_date_handles_leap_boundary():
-    """★ 2100 **不是闰年** → 真实 2/29 平移到 3/1, **绝不构造非法日期**。"""
-    assert not (FICTIONAL_YEAR % 4 == 0 and
-                (FICTIONAL_YEAR % 100 != 0 or FICTIONAL_YEAR % 400 == 0)), \
-        "2100 被当成闰年了——测试前提错了"
-    y, m, d, _, _ = phone_date(datetime(2028, 2, 29, 12, 0))
-    assert (m, d) == (3, 1), (m, d)
-    print(f"    闰年边界: 真实 2028-02-29 → {y}年{m}月{d}日（2100 非闰年）")
+def test_phone_date_keeps_feb29_when_it_exists():
+    """★ 删掉虚构年之后 `2/29` **不再被平移** —— 真实年份闰就是闰。
+
+    旧行为: 2100 不是闰年 → 真实 `2/29` 一律平移到 `3/1`。
+    新行为: 2028 是闰年 → 原样保留。**这是一次真实的行为变更, 不是等价改写。**
+    """
+    assert phone_date(datetime(2028, 2, 29, 12, 0))[:3] == (2028, 2, 29)
+    # 非闰年的 2/29 根本不可能是 datetime, 所以无需再防"构造非法日期"
+    print("    闰年边界: 2028-02-29 → 2028年2月29日（原样保留）")
 
 
 def test_phone_note_has_attribution_and_boundary():
-    """★ 归因（"手机上的"）+ 使用边界（"问起才引用"）—— 少任一条都会破墙。"""
+    """★ 归因（"手机上的"）+ 使用边界（"问起才引用"）—— 少任一条都会破墙。
+
+    ⚠️ 虚构年删掉之后**这两半更承重了**: 原先还有"年份不重合"当第二道保险,
+    现在只剩归因 —— 她说的就是 2026, 靠"这是手机上显示的"把它框在手机里。
+    """
     note = phone_date_note(datetime(2026, 9, 13, 20, 41))
     assert "手机上的日期" in note, f"缺归因: {note}"
     assert "问起" in note and "不要主动" in note, f"缺使用边界: {note}"
-    assert str(FICTIONAL_YEAR) in note
-    print(f"    phone_note: 归因+边界齐全")
+    assert "2026年9月13日" in note
+    print("    phone_note: 归因+边界齐全")
 
 
 # ---------------------------------------------------------------------------
@@ -122,9 +128,8 @@ def test_notes_bundle_and_phone_switch():
 
 
 if __name__ == "__main__":
-    for fn in (test_season_is_pure_function_of_month,
-               test_phone_date_uses_fictional_year,
-               test_phone_date_handles_leap_boundary,
+    for fn in (test_phone_date_is_the_real_date,
+               test_phone_date_keeps_feb29_when_it_exists,
                test_phone_note_has_attribution_and_boundary,
                test_real_gap_is_vague,
                test_real_gap_empty_on_bad_input,
