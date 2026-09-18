@@ -200,7 +200,6 @@ def load_brain_segment(store: SessionStore, char_id: str, char_name: str = "",
                 pass
         wstore = WikiStoreV2(store.data_root, world_id=store.world_id,
                              char_id=char_id)
-        cursor = wstore.clock().cursor
         wiki_seg = render_character_view(wstore.all(), char_name=char_name,
                                          char_aliases=aliases,
                                          now=datetime.now()) or ""
@@ -216,8 +215,7 @@ def load_brain_segment(store: SessionStore, char_id: str, char_name: str = "",
                 if getattr(e, "type", None) in ("mmt", "bond") and e.ts:
                     last_ts = e.ts
                     break
-            seg_parts.extend(time_notes(cursor, last_ts=last_ts,
-                                        include_phone=False))
+            seg_parts.extend(time_notes(last_ts=last_ts, include_phone=False))
         except Exception as e:                         # noqa: BLE001 — 注记绝不阻断
             logger.warning("VN 时间注记失败（不注）: %s", e)
         return "\n\n".join(p for p in seg_parts if p.strip())
@@ -773,11 +771,10 @@ class MomoTalkEngine:
                 wstore = WikiStoreV2(self._store.data_root,
                                      world_id=self._store.world_id,
                                      char_id=self._current_char.character_id)
-            _cur = wstore.clock().cursor if wstore is not None else None
             # ⚠️ `include_phone` 必须跟着 **store 有无**走 —— 它是壁钟派生的
             # （不需要游标, 所以写死 True 会让"无 store 的用例"也注入手机日期,
             #  与"无 store 不注时间"的纪律矛盾。真机/测试都踩到过。）
-            for _n in time_notes(_cur, last_ts=self._last_seen_ts(),
+            for _n in time_notes(last_ts=self._last_seen_ts(),
                                  include_phone=wstore is not None):
                 notes.append(_n)
         except Exception as e:                       # noqa: BLE001 — 注记绝不阻断

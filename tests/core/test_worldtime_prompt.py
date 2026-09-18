@@ -21,7 +21,6 @@ from core.worldtime import (                                   # noqa: E402
     StoryTime,
     phone_date_note,
     real_gap_note,
-    story_time_note,
     time_notes,
 )
 from core.worldtime.prompt_time import WEEKDAYS, phone_date    # noqa: E402
@@ -133,18 +132,22 @@ def test_real_gap_empty_on_bad_input():
 # ---------------------------------------------------------------------------
 
 def test_notes_bundle_and_phone_switch():
-    st = StoryTime.from_sim_day(65)
+    """★ 组装（2026-09-17 时间轴换代后）—— **不再有剧情时间注记**。
+
+    MMT = 现实间隔 + 手机日期（2 行）; VN = 只有现实间隔（1 行）。
+    `【现在是】1年4月·春·白天` **已删** —— 它读的是作废的剧情游标,
+    留着会让两个时间事实并排在同一个 prompt 里（`ESSAY §5.2` 的坑）。
+    """
     now = datetime(2026, 9, 13, 20, 41)
-    mmt = time_notes(st, last_ts="2026-09-01T10:00:00", now=now, include_phone=True)
-    assert len(mmt) == 3, mmt
-    assert mmt[0].startswith("【现在是】")
+    mmt = time_notes(last_ts="2026-09-01T10:00:00", now=now, include_phone=True)
+    assert len(mmt) == 2, mmt
     assert any("手机上的日期" in n for n in mmt)
-    # VN: 不给手机日期
-    vn = time_notes(st, last_ts="2026-09-01T10:00:00", now=now, include_phone=False)
-    assert len(vn) == 2 and not any("手机" in n for n in vn)
-    # 空输入 → 空列表（不注空行）
-    assert time_notes(None, last_ts=None) == []
-    print(f"    notes: MMT {len(mmt)} 行 / VN {len(vn)} 行（手机日期仅 MMT）")
+    # ★ 核心断言: 剧情时间注记不再出现（两个事实并排 = 那个坑）
+    assert not any("【现在是】" in n for n in mmt), mmt
+    vn = time_notes(last_ts="2026-09-01T10:00:00", now=now, include_phone=False)
+    assert len(vn) == 1 and not any("手机" in n for n in vn)
+    assert time_notes(last_ts=None) == []                # 空 → 空列表（不注空行）
+    print(f"    notes: MMT {len(mmt)} 行 / VN {len(vn)} 行（**无剧情时间注记**）")
     for n in mmt:
         print(f"      {n[:60]}")
 

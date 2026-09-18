@@ -64,7 +64,6 @@ from core.worldtime.prompt_time import (
     notes as time_notes,
     phone_date_note,
     real_gap_note,
-    story_time_note,
 )
 from core.worldtime.span import SPANS, SpanError, parse_span, to_sim_days
 from core.worldtime.story import (
@@ -101,7 +100,6 @@ __all__ = [
     # prompt_time —— 进 prompt 的注记
     "FICTIONAL_YEAR",
     "time_notes",
-    "story_time_note",
     "phone_date_note",
     "real_gap_note",
 ]

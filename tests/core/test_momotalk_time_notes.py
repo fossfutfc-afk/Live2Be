@@ -49,30 +49,21 @@ def _joined(llm: ScriptedLLM) -> str:
 
 
 def test_time_notes_reach_mmt_messages(tmp_path):
-    """★ 三行时间注记必须出现在本轮 messages 里。"""
+    """★ 时间注记必须出现在本轮 messages 里 —— 且**只剩现实口径**。
+
+    2026-09-17（时间轴换代）: `【现在是】1年4月·春·白天`（剧情时间）**已删** ——
+    它读的是作废的剧情游标，留着会让两个时间事实并排（`ESSAY §5.2` 的坑）。
+    """
     llm = ScriptedLLM()
     eng = _engine(tmp_path, llm)
     eng.agent_turn("老师，早上好！")
     joined = _joined(llm)
-    assert "【现在是】" in joined, joined[-400:]
     assert "【手机上的日期】" in joined, joined[-400:]
     # 手机日期带归因 + 使用边界
     assert "这是你手机上显示的日期" in joined and "问起" in joined
-    print("    接线: 【现在是】+【手机上的日期】都进了 messages")
-
-
-def test_time_notes_carry_story_season(tmp_path):
-    """① 必须是**剧情时间口径**（年/月/季/日夜）, 不是日期。"""
-    llm = ScriptedLLM()
-    eng = _engine(tmp_path, llm)
-    eng.agent_turn("早")
-    joined = _joined(llm)
-    line = next((ln for ln in joined.splitlines() if "【现在是】" in ln), "")
-    assert line, joined[-300:]
-    assert "年" in line and "月" in line, line
-    assert any(s in line for s in ("春", "夏", "秋", "冬")), line
-    assert any(p in line for p in ("清晨", "白天", "傍晚", "夜里", "深夜")), line
-    print(f"    ① {line.strip()[:60]}")
+    # ★ 核心断言: 剧情时间注记不再出现
+    assert "【现在是】" not in joined, joined[-400:]
+    print("    接线: 【手机上的日期】进了 messages; 【现在是】已删 ✓")
 
 
 def test_notes_before_task_card(tmp_path):
@@ -82,7 +73,7 @@ def test_notes_before_task_card(tmp_path):
     eng.agent_turn("早")
     msgs = llm.snapshots[-1]
     idx_note = next((i for i, m in enumerate(msgs)
-                     if "【现在是】" in (m.get("content") or "")), None)
+                     if "【手机上的日期】" in (m.get("content") or "")), None)
     assert idx_note is not None
     # 时间注记之后仍应有内容（task 卡 / user）——即它不是最后一条
     assert idx_note < len(msgs) - 1, (idx_note, len(msgs))
@@ -114,10 +105,12 @@ def test_no_store_skips_time_notes(tmp_path):
 
 
 def test_vn_brain_segment_carries_time_but_no_phone(tmp_path):
-    """★ VN 侧（`load_brain_segment`）也要有**剧情时间 + 现实间隔**, 但**不给手机日期**。
+    """★ VN 侧（`load_brain_segment`）也得有**现实间隔**, 但**不给手机日期**。
 
     VN 无自由打字通道（`CLAUDE.md §6.3`）→ 玩家问不出"今天几号" → 注了只污染创作。
-    这条钉住 2026-09-13 查出的一处缺口: MMT 接了时间而 VN 没有（同一个大脑两套口径）。
+
+    2026-09-17（时间轴换代）: 原断言"VN 有**剧情时间**注记"已作废 ——
+    剧情时间注记整条删除; VN 现在只剩**现实间隔**（壁钟派生, 同源）。
     """
     from core.momotalk import load_brain_segment
     store = SessionStore(data_root=tmp_path)
@@ -127,16 +120,17 @@ def test_vn_brain_segment_carries_time_but_no_phone(tmp_path):
                        .make_event("mmt", "chat", {"player": "在吗", "reply": "在的"}))
     seg = load_brain_segment(store, CHARACTER, "伊草 遥香",
                              ROOT / "config" / "characters")
-    assert "【现在是】" in seg, seg[-300:]
     assert "【手机上的日期】" not in seg, "VN 不该注手机日期"
-    print("    VN: 有剧情时间注记, 无手机日期")
+    assert "【现在是】" not in seg, "剧情时间注记已删"
+    # 现实间隔在（上一条事件就是刚才）—— 这是 VN 侧**唯一**的时间注记
+    assert "【她刚刚还在和老师说话】" in seg, seg[-300:]
+    print("    VN: 只有现实间隔注记; 无手机日期、无剧情时间 ✓")
 
 
 if __name__ == "__main__":
     import tempfile
 
     for fn in (test_time_notes_reach_mmt_messages,
-               test_time_notes_carry_story_season,
                test_notes_before_task_card,
                test_no_store_skips_time_notes,
                test_vn_brain_segment_carries_time_but_no_phone):
