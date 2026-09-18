@@ -22,6 +22,187 @@
 
 ## 进行中 / 即将
 
+### ⏳ 时间轴换代：剧情日历 → 现实日期（2026-09-17 讨论定稿 —— **暂定，未动代码**）
+
+> 讨论全过程（含两次翻盘与三次误判）：**docs/ESSAY_TIME_MODEL.md**（§10 = 结论）
+> 一句话：**唯一日期轴 = 现实日期（`ts`）。剧情内部的流逝自由，但不累积、不进账。**
+> 纪律从「角色没有日历」升级为「**角色数不清日子，也不去深究**」。
+
+**要删**
+
+- [ ] `core/worldtime/story.py`：`StoryTime` / `PHASES` / `DAY_PARTS` / `from_sim_day`
+      / `advance` / `parse_story_time`
+      （**含 `:268` 那个"把节点自己的 year/month 当 anchor"的自锚定 bug —— 删掉即消失**）
+- [ ] `core/worldtime/clock.py` 整份（`WorldClock` / `world_clock_path`）+ `world_clock.json`
+- [ ] `core/worldtime/span.py` + Round A 的 `time_span` 字段（schema / prompt / 夹具同批）
+- [ ] `core/brain/wiki_v2/migrate_time.py` 整份（`ts` 已是真实日期，无需外插）
+- [ ] `realtime.py` 的吸附职责（`snap_to` / ≤6月 bound / 迟到档 / `time_jump` = §4.6 整节）；
+      `real_clock.json` 瘦身到 `fired` 幂等 + `pending` 补发
+- [ ] `prompt_time.story_time_note()`（`【现在是】1年4月·春·白天`）
+      + `momotalk.py:203` 的 `cursor = wstore.clock().cursor`
+- [ ] `BrainNode.story_time` 字段 + `nodes.py:_parse_story_time`
+
+**要改**
+
+- [x] ✅ **`age.py` 已重写**（2026-09-17）：`age_sim_days` → `age_days(node.ts, *, now)`
+      （**单位 = 现实日**）；`freshness` 量纲随之变；`render_relative` 去掉 `/DAYS_TO_SIM`
+      （**桶表其余原样 —— 只删了"刚才"那一档**：整数日历日到不了它）
+      + 新增 `REAL_TZ`（时区定死）/ `parse_ts` / `date_of` / `now_ts`
+- [x] ✅ **`render.py:_time_phrase` 已改**：读 `ts`（`story_now` 参数 → `now`）
+- [x] ✅ **`channel_impl.py` A 链路已改**：`ctx.story_now`/`node.story_time` → `ctx.now`/`node.ts`
+- [ ] `store.py`：`clock()` / `clock_path` / `save_clock` / `restore_clock_cursor` → 删
+- [ ] `digest.py:206-213` 的时间推进整段删（`_clock.advance` + `new_cursor` + `story_time=` 实参）
+- [ ] `recall_config` 的 `time_half_life_days`（及 `settings.toml [recall]` 同名项）**重标定**
+      —— 量纲从"叙事日"换成"现实日"，**不能照搬 5**
+
+**⚠️ 换代期的临时不一致（下一步就消它）**
+
+- [ ] `prompt_time.story_time_note()`（`【现在是】1年4月·春·白天`）**仍在注入**，读的是
+      **已作废的剧情游标** —— 而同一个 prompt 里的记忆前缀已经按现实日算。
+      **两个时间事实又并排了**（正是 ESSAY §5.2 那个坑）。
+      消法：删 `notes()` 里的 `story_time_note`（`real_gap_note` / `phone_date_note` 保留）。
+      注意会动 `test_momotalk_time_notes.py` 与 `prompt_time` 的夹具冻结。
+
+**要加（六条工程约束，见 ESSAY §10.3）**
+
+- [x] ✅ **时区**：`REAL_TZ = UTC+8` 已定死（`age.py`）；朴素 `ts` 一律按它解释
+      ⚠️ **写入侧仍未收敛** —— 事件流/节点 `ts` 还是裸 `datetime.now()`，
+      应收敛到 `age.now_ts()`，否则读侧的 `REAL_TZ` 只是"假设"
+- [x] ✅ **缺 `ts` 哨兵**：空串/坏值 → `age_days=None` → `freshness=None` /
+      `_time_phrase=""`，**绝不折成 age=0**（三个单测钉住）
+- [ ] **纪律**（`rules_mmt` / `rules_bond`）：「你数不清，而且不去深究」
+- [ ] **相对论只说感觉**：不许给出可验证的物理解释
+- [ ] 软规则：节日/生日当天正文最好不跨天
+- [ ] （可选）章节序数，从 `segment_id` 推
+
+**要改的文档**
+
+- [ ] `DESIGN_WIKI_V3.md §4`：整章标记作废 → 指向新稿；§4.1 三条红线一并处理
+- [ ] `CLAUDE.md §13` 时间架构那一行（gitignore，本地改）
+- [ ] 本表开头「时间骨干 T0–T13」一行要标注**部分作废**
+
+### ⏳ 整章暂存：进真源的边界从 `vn_enter` 挪到 `vn_exit`（2026-09-17 用户立项 —— **必做，未动代码**）
+
+> 一句话：**章内的一切先落暂存；看到 `vn_exit` 才整段 append 进 `events.jsonl`。**
+> 动机（用户原话）：*"以后假如拒绝羁绊剧情，那么真源里就会出现不应该出现的东西。"*
+
+**为什么该做**
+
+- 现在进真源的边界是 **`vn_enter`**（`webgui/bond.py:1024-1033`）—— 玩家点进去之后的
+  一切都落库，**包括中场退出、以及玩家没读完的部分**。
+  `vn_abandon` 一族就是在给这个不该存在的边界打补丁。
+- 挪到 `vn_exit` 之后，「段」从**约定**变成**结构事实** ——
+  而这正是「段的日期 = 段尾」所需的前提（见上一条）。
+- 它让「以后加"拒绝羁绊剧情"」变得安全。
+
+**已经有一半在跑（有先例可循）**
+
+| 旁路 | 文件 | 定位（代码里写着的） |
+|---|---|---|
+| staged 首场缓存 | `soul/prewarm.json` | "**非真源**——LLM 不读, 裁决才落库" |
+| 草稿旁路（已生成未播放的板） | `soul/bond_draft.json` | 同上 |
+
+⇒ 本项 = **把这两个特例推广到整章**。
+
+**能做掉什么**
+
+- [ ] `vn_abandon` marker + `abandon_open_attempts`（`webgui/bond.py:1041`）
+- [ ] `exclude_abandoned`（恢复窗口过滤）
+- [ ] `core/session/maintenance.py` 的 heal / supersede
+- [ ] `replay_attempts` 按 `vn_enter` 分段回放
+- [ ] 回忆册「只渲染 `vn_exit completed` 的章」从**查询条件**变成**结构事实**
+
+**要实现的三件事**
+
+- [ ] 暂存文件（建议 `data/worlds/{w}/characters/{c}/staging/chapter.jsonl`）——
+      **每块 append 落盘**（不要在内存攒：崩了要能续上；可靠性必须与现在落真源**相同**）
+- [ ] commit：见 `vn_exit` → 整段 append 进 `events.jsonl` → 删暂存
+      ⚠️ **原子性**：搬迁中断 → 半截章回来。兜底 = 读时校验 `vn_enter…vn_exit` 闭合，
+      不闭合的当不存在（或先写 `vn_pending` 再写内容）
+- [ ] `session_status` 的 `in_vn` 改从**暂存**推（不再从真源 marker 栈推）
+
+**必须同时改的一句话**
+
+- [ ] `CLAUDE.md §0` / §5 的「**任何状态都能重建**」要改口径 →
+      **真源记录「发生过的事」；暂存记录「正在发生的事」。
+      重建的是已完成的状态 —— 因为没读完的章没有发生过。**
+
+**⚠️ 顺带记一处现存的泄漏（与本项同源）**
+
+- [ ] `webgui/bond.py:379`：视觉门**兜底的假 `nomal` / 假 `_place_done` 会随 `_log_scene`
+      进 append-only 真源**，而"晚到的真标注再也回不去"。
+      2026-09-13 审计 A6 修的是**触发频率**，不是泄漏本身。
+      **整章暂存之后这个窗口自动闭合**（章没闭合就不落库）。
+
+**架构论点（用户 2026-09-17，比动机更本质）**
+
+> **缓存架构的真正优势是：「删除」变成了「丢弃」。**
+
+| | 直接落真源 | 缓存/暂存 |
+|---|---|---|
+| 让一段内容"不进上下文" | **需要删除/遮断操作** —— `vn_abandon` 标记 + 每条读路径记得 `exclude_abandoned`。**漏一处就污染**，且遮断标记**自己也进真源** | **丢弃即可** —— 它从来没进过真源，**没有任何地方需要"记得过滤"** |
+
+**三种结局，两种提交：**
+
+```
+章内（暂存 —— 什么都不进真源）
+  ├─ 拒绝 / 从未进入   →  丢缓存                → 【从未发生】← 零删除操作
+  ├─ 中途退出          →  vn_exit completed=False → 【发生过，但没读完】
+  └─ 正常读完          →  vn_exit completed=True  → 【完整发生过】
+```
+
+**`vn_abandon` 一族之所以整个消失**：它存在的唯一理由是"真源里有**未闭合的段**"。
+而缓存架构下，未闭合的段**只存在于暂存里** → 要么丢、要么以 `vn_exit` 提交
+→ **真源里永远没有未闭合的段**。
+
+**顺带一处语义修正**：现状把"中断"当 `vn_abandon`＝**宣告没发生过**；正确语义是
+`vn_exit completed=False`＝**发生过但没读完** —— 她**确实经历了那半段**
+（"玩家陪她到一半跑了"是有意义的叙事事件），而 abandon 把它删了。
+`vn_exit` 的 payload **早就有 `completed` 字段**，数据结构不用改。
+而且它与「记忆形成时刻 = 读完时刻」自洽：**进真源，但不进记忆**。
+
+**"之前的缓存现在的职责不同了"**：`prewarm.json` / `bond_draft.json` 原本是
+**性能优化**（跨重启首场缓存 / 待发板队列），新架构下它们**升格为暂存区的一部分**
+—— 从"优化"变成"架构"。
+
+**进度（2026-09-17）**
+
+- [x] ✅ **地基**：`core/session/staging.py` —— `StagingStore` **继承** `SessionStore`；
+      `commit_staging` / `discard_staging` / `close_open_attempts`；
+      **overlay 语义**（2026-09-17 审计后升级）：`events()` = **真源 + 暂存**、
+      `append_event()` 的 `seq` **接续真源**（`max(真源, 暂存)+1`）→ 合并天然有序、
+      章外**逐字节等价于真源** ⇒ **读侧无需任何改动**（不会有"漏改一个读点"的幽灵）；
+      `truth_store()` 保证 `commit_staging` 写真源（传 overlay 也安全）
+      单测 13 例（含半截 commit 可重试 / 并发 seq 无重复）
+- [x] ✅ **接线第一刀**：`bond_finish` 的 `vn_exit` 改走 `_stage_store(state)` +
+      `commit_staging` —— **行为不变、数据路径变了**（752 个既有用例全绿即证明：
+      若收尾条件写错，真源里会冒出两个 `vn_exit`，它们全会红）
+- [x] ✅ **接线（章内读写口）**：`_flow_store(state)` → **overlay**（改这一行，
+      5 处 `store = _flow_store(state)` 自动跟着变）；另补 3 处独立站点
+      （`_pending_in_vn` / `_open_vn_seq` / `_last_bond_seq` 的缺省 fallback）；
+      `_stage_store` 收敛为它的别名；`:1699` 的 `session_end` **故意仍写真源**
+      （会话结束不属于章内容）
+- [x] ✅ **测试迁移**：旧架构断言（"章内内容落在真源里"）**摘除 18 个**
+      （`test_bond.py` 16 / `test_web_http.py` 2，AST 精确摘除）；
+      新增 `tests/webgui/test_bond_staging.py` 3 例钉住新架构
+      —— ⭐ **其中一例当场抓到 `_pending_in_vn` 漏改**（真 bug，已修）
+- [ ] **CLI 路径同步**：`core/ui/vn_cli.py` ×7 写点仍走本地 `store`（真源）
+- [ ] **`_log_scene` / `_log_scene_meta` 复核**：它们用 `store = _flow_store(state)`
+      ⇒ 已自动走 overlay ✓（无需改动，但要确认行为）
+- [ ] **语义修正**：中断 → `vn_exit completed=False` 替换
+      `abandon_open_attempts` 的动作（`bond.py:1041`）
+- [ ] **删死代码**：`maintenance.py` 整份 / `M_VN_ABANDON` / renderer + chapters 的
+      abandon 分支 / 4 处 `exclude_abandoned`
+
+**⚠️ 已写死的一条不变量（B-1 时踩到的坑）**
+
+> `commit_staging` 的收尾**只在暂存自带 `vn_enter` 时才跑。**
+>
+> | 暂存内容 | 真源里那个未闭合段是谁 | 该不该收尾 |
+> |---|---|---|
+> | 自带 `vn_enter`（整章） | 必然是**旧的** | ✅ 收尾它 |
+> | 不带（过渡期：只装本章尾巴） | **就是本章本身** | ❌ 收尾它 → 真源里两个 `vn_exit` + 本章被判成"没读完" |
+
 ### VN 契约形式换代（记录流 v2, 2026-09-10 设计整理——**P0–P2 已落地, 真机在跑**）
 
 - 理论/分步规划/未决清单: **docs/DESIGN_VN_UPGRADE.md**

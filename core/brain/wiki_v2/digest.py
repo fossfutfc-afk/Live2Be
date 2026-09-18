@@ -169,7 +169,15 @@ def digest_segment(
         from core.media.emotion_lexicon import render_emotion_scale
         emotion_scale = render_emotion_scale(emotion_lexicon,
                                              _segment_emotion_keys(new_events))
-    now_ts = datetime.now().isoformat(timespec="seconds")
+    # 段的日期 = **段内最后一条内容事件**的时刻（2026-09-17, ESSAY §10 时间轴换代）。
+    # ⚠️ **不是 `datetime.now()`** —— 那是"写库时刻 / 记账时刻"，而 `ts` 要的是
+    #    "这段记忆是什么时候形成的"。
+    # **为什么是"最后一条"**: 羁绊剧情期间玩家无法发消息、且每次进入都从头重放
+    #    → **玩完（`vn_exit`）那一刻 = 玩家过完整段** → 那一刻才是记忆形成时刻。
+    # **为什么用 `new_events` 而不是全部事件**: 后者会取到 digest 自己刚写的
+    #    `affection/digest`（本次调用内生成）—— 循环依赖。
+    now_ts = ((new_events[-1].ts or "").strip()
+              or datetime.now().isoformat(timespec="seconds"))
     segment_id = f"seg-{interact_max}"
 
     # 时间预算: A+B 全程共享一个 deadline（宁缺勿错——水位不推进, 可重算）

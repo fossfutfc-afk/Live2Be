@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import sys
+from datetime import date, datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -18,7 +19,8 @@ from core.worldtime import (                        # noqa: E402
     SPANS,
     WorldClock,
     advance,
-    age_sim_days,
+    age_days,
+    date_of,
     freshness,
     parse_span,
     parse_story_time,
@@ -186,28 +188,64 @@ def test_parse_span_never_raises_by_default():
 # 5. 双出口
 # ---------------------------------------------------------------------------
 
-def test_age_needs_both_sides():
-    """★ 任一侧缺值 → None（**不得折成 0** —— 否则旧记忆冒充刚发生）。"""
-    st = StoryTime.from_sim_day(10)
-    assert age_sim_days(None, st) is None
-    assert age_sim_days(st, None) is None
-    assert age_sim_days(None, None) is None
-    assert age_sim_days(st, StoryTime.from_sim_day(13)) == 3
-    # 未来节点（不该发生，但不得出负数）
-    assert age_sim_days(StoryTime.from_sim_day(99), st) == 0
-    print("    age: 缺值→None; 未来节点夹到 0")
+def test_age_days_is_real_calendar_days():
+    """★ `age` = 今天 − date(node.ts)，**整数日历日**；缺/坏 → None（不折成 0）。
+
+    2026-09-17（`ESSAY_TIME_MODEL §10`）: 年龄的唯一来源是**现实日期**。
+    """
+    now = datetime(2026, 9, 17, 14, 0)
+    assert age_days("", now=now) is None
+    assert age_days(None, now=now) is None
+    assert age_days("坏值", now=now) is None
+    assert age_days("2026-09-17T01:00:00", now=now) == 0
+    assert age_days("2026-09-10T00:00:00", now=now) == 7
+    assert age_days("2026-09-10T00:00:00", now="坏值") is None
+    # 未来日（时钟回拨 / 时区误配）→ 夹到 0，不出负数
+    assert age_days("2026-10-01T00:00:00", now=now) == 0
+    print("    age_days: 缺/坏→None; 未来→夹到 0")
+
+
+def test_age_days_is_calendar_not_hours():
+    """★ 必须是**日历日**：跨午夜 2 小时算"昨天"，不是"今天"。
+
+    玩家说的是"昨天/今天"，那是日历日。用小时差会给出与玩家相反的答案。
+    """
+    now = datetime(2026, 9, 17, 1, 0)
+    assert age_days("2026-09-16T23:00:00", now=now) == 1        # 相差 2 小时，但是昨天
+    assert render_relative(age_days("2026-09-16T23:00:00", now=now)) == "昨天"
+    print("    跨午夜 2 小时 → age=1 → '昨天'（不是'今天'）")
+
+
+def test_date_of_is_timezone_pinned():
+    """★ 时区定死（约束 1）—— 朴素/带偏移的 `ts` 一律按 `REAL_TZ` 切日。"""
+    assert date_of("2026-09-17T00:30:00+00:00") == date(2026, 9, 17)   # = UTC+8 08:30
+    assert date_of("2026-09-17T20:00:00+00:00") == date(2026, 9, 18)   # = UTC+8 次日 04:00
+    assert date_of("2026-09-17T00:30:00") == date(2026, 9, 17)         # 朴素 = REAL_TZ
+    assert date_of("") is None and date_of(None) is None
+    print("    date_of: 按 REAL_TZ 切日；朴素 ts 视为 REAL_TZ")
 
 
 def test_freshness_bounds_and_monotone():
     assert freshness(None) is None
     assert freshness(0) == 1.0
     hl = DEFAULT_HALF_LIFE_DAYS
-    half = freshness(int(hl * DAYS_TO_SIM))
+    half = freshness(int(hl))
     assert abs(half - 0.5) < 1e-9, half                 # 半衰期处正好 0.5
-    vals = [freshness(n * DAYS_TO_SIM) for n in range(0, 40, 5)]
+    vals = [freshness(n) for n in range(0, 40, 5)]
     assert all(b < a for a, b in zip(vals, vals[1:])), vals
     assert all(0.0 < v <= 1.0 for v in vals)
-    print(f"    freshness: age=0→1.0; 半衰期({hl}日)处→{half:.3f}; 单调递减且有界")
+    print(f"    freshness: age=0→1.0; 半衰期({hl}现实日)处→{half:.3f}; 单调递减且有界")
+
+
+def test_render_relative_buckets():
+    """桶边界（**"刚才"档已删** —— 整数日历日到不了它，留着会把 age=0 误判成"刚才"）。"""
+    assert render_relative(0) == "今天"
+    assert render_relative(1) == "昨天"
+    assert render_relative(2) == "2 天前"
+    assert render_relative(10) == "1 周前"
+    assert render_relative(40) == "1 个月前"
+    assert render_relative(400) == "1 年前"
+    print("    render_relative 桶: 0→今天 1→昨天 2→2天前 10→1周前 40→1个月前 400→1年前")
 
 
 def test_render_relative_never_exposes_precise_values():
@@ -222,12 +260,12 @@ def test_render_relative_never_exposes_precise_values():
         for bad in ("年-", "-月-", "小时", "分钟", "天前 0", "."):
             assert bad not in ph, f"age={a} 的短语含精确形态: {ph!r}"
     for a, ph in out:
-        print(f"      age={a:<5}格({a / DAYS_TO_SIM:>6.1f}日) → {ph!r}")
+        print(f"      age={a:<5}(现实日) → {ph!r}")
 
 
 def test_render_relative_none_is_vague():
     assert render_relative(None) == "很久以前"
-    print("    render_relative: 旧档(None) → '很久以前'（不暴露'未知'）")
+    print("    render_relative: 缺 ts(None) → '很久以前'（不暴露'未知'）")
 
 
 # ---------------------------------------------------------------------------
@@ -325,7 +363,11 @@ if __name__ == "__main__":
                test_advance_unknown_span_defaults,
                test_parse_span_normalizes, test_parse_span_clamps_over_range,
                test_parse_span_never_raises_by_default,
-               test_age_needs_both_sides, test_freshness_bounds_and_monotone,
+               test_age_days_is_real_calendar_days,
+               test_age_days_is_calendar_not_hours,
+               test_date_of_is_timezone_pinned,
+               test_freshness_bounds_and_monotone,
+               test_render_relative_buckets,
                test_render_relative_never_exposes_precise_values,
                test_render_relative_none_is_vague,
                test_realtime_is_declared_not_implemented,

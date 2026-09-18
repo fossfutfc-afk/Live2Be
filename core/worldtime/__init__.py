@@ -48,7 +48,16 @@
 """
 from __future__ import annotations
 
-from core.worldtime.age import age_sim_days, freshness, render_relative
+from core.worldtime.age import (
+    REAL_TZ,
+    age_days,
+    date_of,
+    freshness,
+    is_precious,
+    now_ts,
+    parse_ts,
+    render_relative,
+)
 from core.worldtime.clock import WorldClock
 from core.worldtime.prompt_time import (
     FICTIONAL_YEAR,
@@ -75,10 +84,15 @@ __all__ = [
     "parse_story_time",
     # clock —— 游标真源
     "WorldClock",
-    # age —— 双出口
-    "age_sim_days",
+    # age —— 双出口（2026-09-17: 年龄改由**现实日期**算, §10）
+    "REAL_TZ",
+    "age_days",
+    "date_of",
     "freshness",
     "render_relative",
+    "is_precious",
+    "now_ts",
+    "parse_ts",
     # span —— LLM 面对的时间语法
     "SPANS",
     "SpanError",

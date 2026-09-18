@@ -56,6 +56,7 @@ from core.session.maintenance import (
     exclude_abandoned,
 )
 from core.session.renderer import render_bond_scene_text, window_messages
+from core.session.staging import commit_staging, staging_store
 from core.ui.vn_cli import _build_director, _trigger_title
 from llm.image_gen import ImageGenerator, collect_ref_images, image_enabled
 from webgui import chat
@@ -277,8 +278,32 @@ def _memorial_open_in_events(char_id: str, session_id: str, store=None) -> bool:
 
 
 def _flow_store(state: "BondState | None"):
-    """流程绑定的 store（缺省回落到全局 `chat._store`）。"""
-    return getattr(state, "store", None) or _store()
+    """**章内的统一读写口** —— 真源 + 暂存（2026-09-17, B0 整章暂存）。
+
+    | 读 / 写 | 落到哪 |
+    |---|---|
+    | `events()` | **真源 + 暂存**（合并；暂存 `seq` **接续真源** → 天然有序） |
+    | `append_event` / `append_marker` / `enter_vn` | **暂存**（章内的一切**不进真源**） |
+
+    ★ **章外（暂存为空）逐字节等价于真源** —— 所以这里**无条件**返回 overlay:
+    调用方不需要判断"章在不在进行中"，也就不会有"漏改一个读点"的幽灵。
+
+    缺省回落到全局 `chat._store`（`BondState.store` 优先——决策 #31）。
+    """
+    return staging_store(getattr(state, "store", None) or _store())
+
+
+def _stage_store(state: "BondState | None"):
+    """**章内写入口** —— 章进行中返回**暂存** store（B0 整章暂存, 2026-09-17）。
+
+    章内的一切（`vn_enter` / 板 / `vn_state` / memorial 标记）先落
+    `soul/staging/events.jsonl`；见到 `vn_exit` 才由 `commit_staging` 整段
+    append 进真源。**「拒绝」= 丢暂存**，真源里连"宣告它没发生"的痕迹都没有。
+
+    ⚠️ **只用于写**。读（回放 / `in_vn` 推导 / 恢复窗口）仍走 `_flow_store` ——
+    因为真源里躺着的才是**已发生的事**。
+    """
+    return _flow_store(state)
 
 
 #: 看门狗阈值（2026-09-11）: 忙态/视觉门卡住多久算异常 → 兜底放行
@@ -658,10 +683,14 @@ def chapter_replay(char_id: str, from_seq: int, session_id: str = "") -> dict | 
 # ---------------------------------------------------------------------------
 
 def _pending_in_vn(char_id: str, session_id: str) -> bool:
-    """事件流视角: 最近一个 vn_enter 之后没有 vn_exit/vn_abandon（中断在押, in_vn）。"""
+    """事件流视角: 最近一个 vn_enter 之后没有 vn_exit/vn_abandon（中断在押, in_vn）。
+
+    ⚠️ 2026-09-17（B0 整章暂存）: 改读 **overlay**（真源 + 暂存）——
+    章内的 `vn_enter` 在**暂存**里，只读真源会把"章进行中"漏判成"无在押"。
+    """
     try:
         last_enter = last_exit = -1
-        for e in _store().events(char_id, session_id):
+        for e in staging_store(_store()).events(char_id, session_id):
             if getattr(e, "type", None) == "marker":
                 if e.subtype == "vn_enter":
                     last_enter = e.seq
@@ -1661,8 +1690,16 @@ def bond_finish(char_id: str, session_id: str) -> dict:
         # vn_exit 带剧情完成标志（2026-09-01）: completed = 剧情真正走完
         # （story_end 自然收尾）; False = 玩家中途退出——收尾链据此分支
         # （中断不脑补收尾话 + 不 digest——记忆只反映完整剧情段）
-        _store().append_marker(char_id, session_id, M_VN_EXIT,
-                               {"completed": state.completed})
+        # 2026-09-17（B0/B-1 整章暂存）: `vn_exit` 改走**章内写入口**（暂存）,
+        # 紧接 `commit_staging` 把暂存整段搬进真源 —— 于是真源里
+        # `vn_enter…vn_exit` 一次到位, 中间**不留未闭合窗口**。
+        # ⚠️ `commit_staging` 的收尾步骤**只在暂存自带 `vn_enter` 时才跑**:
+        #    现阶段（B-2 之前）暂存通常只装这条 `vn_exit`,
+        #    而真源里那个未闭合段**就是本章本身** —— 收尾它会把本章误判成"没读完"。
+        _stage_store(state).append_marker(char_id, session_id, M_VN_EXIT,
+                                          {"completed": state.completed})
+        commit_staging(_flow_store(state), char_id, session_id,
+                       completed=state.completed)
         _store().finish(char_id, session_id, ended=True)
         # 2026-09-02 用户拍板: 完整剧情结束（vn_exit completed）→ 距上次剧情
         # 计数清零（触发门槛 + 剧情后冷却一体; 中途退出不清——只有完整演过
@@ -1791,7 +1828,7 @@ def _draft_path(char_id: str, store=None) -> Path | None:
 def _last_bond_seq(char_id: str, session_id: str, store=None) -> int:
     """最后一个 type=bond 事件的 seq（无 → 0）——草稿新鲜判据基准。"""
     try:
-        evs = [e for e in (store or _store()).events(char_id, session_id)
+        evs = [e for e in (store or staging_store(_store())).events(char_id, session_id)
                if e.type == "bond"]
         return evs[-1].seq if evs else 0
     except Exception:                              # noqa: BLE001 — 读失败按不新鲜
@@ -1799,10 +1836,14 @@ def _last_bond_seq(char_id: str, session_id: str, store=None) -> int:
 
 
 def _open_vn_seq(char_id: str, session_id: str, store=None) -> int:
-    """最近一个 vn_enter marker 的 seq（无 → 0）——草稿归属哪一次在押段。"""
+    """最近一个 `vn_enter` marker 的 seq（无 → 0）——草稿归属哪一次在押段。
+
+    ⚠️ 2026-09-17（B0）: 缺省改走 **overlay**（真源 + 暂存）—— 章内的 `vn_enter`
+    在暂存里，只读真源会返回 0 → 草稿归属判定失效。
+    """
     try:
         seq = 0
-        for e in (store or _store()).events(char_id, session_id):
+        for e in (store or staging_store(_store())).events(char_id, session_id):
             if e.is_marker and e.subtype == "vn_enter":
                 seq = e.seq
         return seq

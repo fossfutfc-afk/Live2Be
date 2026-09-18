@@ -1,17 +1,67 @@
 # -*- coding: utf-8 -*-
-"""时间的**双出口**（`§3.8` / `§4.9`）—— 同一个 `age`，两种消费方式。
+"""时间映射 —— **现实日期 → 年龄 → 双出口**（`§10` 暂定模型, 2026-09-17）。
 
 ```
-node.story_time.sim_day ──┬──→ age（整数, 单调）──→ freshness(age, hl) ∈ [0,1]   给 det 的 TIME 格
-                          └──→ render_relative(age) ──→ "3 周前"                给注入注记 / 渲染后缀
+node.ts ──┬──→ age_days（整数, 单位 = 现实日）──→ freshness(age, hl) ∈ [0,1]  给 det 的 TIME 格
+          └──→ render_relative(age) ──────────→ "3 周前"                    给注入注记 / 渲染后缀
 ```
 
-**为什么两个出口都要**（`§3.8` 已经定了"只在渲染层做，不落数据"）：
+## ★ 唯一日期轴 = 现实日期（`docs/ESSAY_TIME_MODEL.md §10`）
 
-| 出口 | 需要什么 | 消费方 |
+旧口径是 `node.story_time.sim_day` —— 一个由 `time_span` 累加出来的"剧情日历"。
+**已作废：它是里程表冒充日期**（见 ESSAY §2.5）。现行模型：
+
+| | |
+|---|---|
+| 唯一日期轴 | **现实日期**（`ts`） |
+| 剧情内部的流逝 | 自由（一场戏可从日到夜、可跨几天），但 **不累积、不进账、不构成第二个日历** |
+| 记忆的年龄 | `today − date(node.ts)`，**整数日历日** |
+| 「昨天」 | 现实的昨天 —— **玩家 / 引擎 / 角色 三方同一个** |
+
+**为什么必须是"整数日历日"，不是"小时差"**：玩家说的是"昨天/今天"，那是**日历日**。
+
+```
+记忆 ts = 9/16 23:00   ，   现在 = 9/17 01:00
+  小时差   = 2 小时  → 桶表判 < 1 天  → 「今天」   ❌ 玩家会说"昨天晚上"
+  日历日差 = 1 天    → 桶表判 1      → 「昨天」   ✅ 与玩家同一个词
+```
+
+用小时差 = 引擎又持有了一个**独立于日历的连续时间量** —— 那就是又造了第二个时间量，
+而 `ESSAY §8.2` 已经证明：**只要有两个时间量，就一定存在一个观察者能看见它们不一致**
+（这里那个观察者就是玩家）。**引擎的时间坐标必须和玩家的是同一个。**
+
+**与 `prompt_time.real_gap_note` 的分工 —— 两者可以不一致，而且是故意的**：
+
+| | 轴 | 口径 |
 |---|---|---|
-| `freshness` | **连续值**（`exp(−age/half_life)` 要算） | `A_intensity` 链路的 `det` |
-| `render_relative` | **虚化短语** | ① 召回结果的渲染后缀 ② **防失忆注记** |
+| 记忆前缀（本模块） | **日历日** | 「（昨天）」—— 记忆的**坐标**，跨条可比、玩家可验证 |
+| `real_gap_note` | **滚动小时** | 「她刚刚还在和老师说话」—— **间隔 / 感受**，单点 |
+
+真人就是这样说话的：**凌晨 1 点，"他刚刚还在这儿"与"那是昨天的事"同时为真。**
+
+（小时级的"刚才"因此没有丢 —— 它归 `real_gap_note`，不归记忆前缀。）
+
+**承重墙**：*差速可以发生在「戏里」，不能发生在「账上」。*
+
+## ★ 时区定死（ESSAY §10.3 约束 1）
+
+`ts` 是 `datetime.now().isoformat()` 写下的**朴素本地时间**。若按"运行时的本地时区"切日，
+换时区 / 改系统设置会让往事被重新贴标签（"昨天"变成"今天"）。
+故本模块 **`REAL_TZ` 定死**，朴素 `ts` 一律按它解释、按它切日。
+
+⚠️ 写入侧（事件流 / 节点 `ts`）目前仍是不带时区的 `now()` —— 收敛到 `now_ts()` 见
+`TODO.md`「时间轴换代」。
+
+## ★ 哨兵纪律（ESSAY §10.3 约束 4）
+
+```
+ts 缺失 / 空串 / 坏值  →  date_of() = None  →  age_days() = None
+                      →  freshness() = None（**该节点**降级, 不是整条链路）
+                      →  调用方不加短语（**绝不编一个"很久以前"**）
+
+绝不折成 age = 0 —— 那会让旧记忆冒充"刚发生", `det` 直接虚高。
+（与 `aff_at_encoding` / `emo_*` / 旧的 `story_time is None` 同一条哨兵纪律。）
+```
 
 ## ★ 硬约束：`render_relative` **绝不输出精确值**
 
@@ -22,39 +72,38 @@ node.story_time.sim_day ──┬──→ age（整数, 单调）──→ fres
 
 所以本模块的短语表**不接受自定义数字格式**；要改粒度就改表。
 
-## ★ age 只用 `sim_day`（不跨 epoch 回绕）
-
-`sim_day` 是单调整数（单位 = 时相格）。`year`/`month`/`week` **不参与** age 计算
-——跨年时槽位会回绕，用槽位差会算出负数或跳变（`§4.9` 的原始表也提醒过
-"跨吸附点要用吸附后的 sim_days 算"）。
-
-## 新鲜度语义（用户裁决 2026-09-13）
+## 新鲜度语义
 
 `half_life` 表达 **新鲜度**（不是遗忘曲线）——"最近发生的浮上来"。
-默认 **5 叙事日**。用户判断: *"遗忘曲线没办法适用了，60 天跨度太大了"* ——
-且**不需要 X 轴缩放**: 新鲜度的自然尺度就是一周上下, `sim_day` 本来就是叙事时间,
-量纲天然对齐。
+
+⚠️ `DEFAULT_HALF_LIFE_DAYS` 的**量纲已从"叙事日"换成"现实日"，数值待重标定**：
+旧值 5 是照"剧情时间跑得比现实快"选的；换成现实日后衰减**变慢**，
+可能压不住旧记忆 → 注入体积上升。**必须实测后回调**（见 TODO）。
 """
 from __future__ import annotations
 
-import math
+from datetime import date, datetime, timedelta, timezone
 
-from core.worldtime.story import DAYS_TO_SIM, StoryTime
+#: ★ 定死的时区（约束 1）—— 朴素 `ts` 一律按它解释、按它切日。
+#: 选 UTC+8 是因为本机与作者都在该时区；它只管"哪一天"，不管"几点"。
+REAL_TZ = timezone(timedelta(hours=8))
 
-#: 半衰期默认（**叙事日**）——进 `settings.toml [recall].time_half_life_days`
+#: 半衰期默认（**现实日**）—— 进 `settings.toml [recall].time_half_life_days`
+#: ⚠️ 量纲已由"叙事日"改为"现实日"，数值**待重标定**（见模块 docstring）。
 DEFAULT_HALF_LIFE_DAYS = 5.0
 
-#: 措辞桶（`§3.8` / `§4.9` 的表）—— `(阈值上限叙事日, 单数, 复数)`
+#: 措辞桶 —— `(阈值上限（现实日）, 单数, 复数)`
 #: 顺序即判定顺序（从上往下第一个 `age < 上限` 的胜出）。
 #:
-#: ⚠️ **用户 2026-09-13 裁决: 周桶暂时保留**（"我还是想不删周bucket，以后再说"）。
-#: 注意这里**不承担精度**——精度归 `freshness`（连续值, 进 `det`）;
+#: ⚠️ **"刚才"那一档已删**（原为 `< 1 时相`）—— 整数日历日不可能落在它里面，
+#: 留着会让 `age=0`（今天发生）被渲染成"刚才"。小时级的措辞归 `real_gap_note`。
+#:
+#: ⚠️ 注意本表**不承担精度**——精度归 `freshness`（连续值, 进 `det`）;
 #: 短语只是"她怎么记得", 粗一点无害（见 `render_relative` docstring）。
 _BUCKETS: tuple[tuple[float, str, str], ...] = (
-    (1 / DAYS_TO_SIM, "刚才", "刚才"),      # < 1 时相
-    (1.0, "今天", "今天"),                  # < 1 叙事日
-    (1.5, "昨天", "昨天"),                  # 1~1.4 日 —— 说"1 天前"不像人话
-    (7.0, "N 天前", "N 天前"),              # 2~7 日（首档已是"昨天"）
+    (1.0, "今天", "今天"),
+    (1.5, "昨天", "昨天"),
+    (7.0, "N 天前", "N 天前"),
     (14.0, "上周", "N 周前"),
     (28.0, "N 周前", "N 周前"),             # 2~4 周
     (56.0, "上个月", "N 个月前"),
@@ -66,25 +115,71 @@ _BUCKETS: tuple[tuple[float, str, str], ...] = (
 _SIG_PRECIOUS = 0.8
 
 
-def age_sim_days(node_st: StoryTime | None, now_st: StoryTime | None) -> int | None:
-    """`age` = `now.sim_day − node.sim_day`（**整数, 单位 = 时相格**）。
+# ---------------------------------------------------------------------------
+# ts ↔ 日期
+# ---------------------------------------------------------------------------
+
+def now_ts() -> str:
+    """当前时刻的 `ts` 写法（**带固定时区**）。
+
+    供**写入侧**收敛用：事件流与节点 `ts` 都应走它，否则读侧的 `REAL_TZ`
+    只是"假设"，而不是"事实"。当前写入侧尚未改（见 TODO）。
+    """
+    return datetime.now(REAL_TZ).isoformat(timespec="seconds")
+
+
+def parse_ts(ts: object) -> datetime | None:
+    """宽松解析一个 `ts` —— **缺/坏 → None, 不抛**。
+
+    接受 `datetime` / ISO 字符串。**朴素时间按 `REAL_TZ` 解释**
+    （历史 `ts` 都是 `datetime.now()` 写下的朴素本地时间）。
+    """
+    if isinstance(ts, datetime):
+        dt = ts
+    elif isinstance(ts, str) and ts.strip():
+        try:
+            dt = datetime.fromisoformat(ts.strip())
+        except ValueError:
+            return None
+    else:
+        return None
+    return dt.replace(tzinfo=REAL_TZ) if dt.tzinfo is None else dt
+
+
+def date_of(ts: object, *, tz: timezone = REAL_TZ) -> date | None:
+    """`ts` → **日历日**（按定死的时区切）。**缺/坏 → None**。"""
+    dt = parse_ts(ts)
+    return None if dt is None else dt.astimezone(tz).date()
+
+
+def age_days(node_ts: object, *, now: object, tz: timezone = REAL_TZ) -> int | None:
+    """`age` = 今天 − 节点那天（**整数, 单位 = 现实日**）。
+
+    `now` **必填**（不留默认值）—— 同 `RecallContext` 的纪律：
+    逼调用方在调用处显式说明"现在是什么时候"，而不是让模块偷偷读壁钟。
 
     Returns:
-        None = **任一侧缺值**（旧档未采集 / 游标未就绪）——调用方必须降级,
+        None = **任一侧缺值**（旧档 / 空 `ts` / 坏值）——调用方必须降级,
         **不得折成 0**（那会让旧记忆冒充"刚发生"，`det` 直接虚高）。
+        未来日（时钟回拨 / 时区误配）**夹到 0**，不返回负数。
     """
-    if node_st is None or now_st is None:
+    d0 = date_of(node_ts, tz=tz)
+    d1 = date_of(now, tz=tz)
+    if d0 is None or d1 is None:
         return None
-    return max(0, int(now_st.sim_day) - int(node_st.sim_day))
+    return max(0, (d1 - d0).days)
 
 
-def freshness(age: int | None, half_life_days: float = DEFAULT_HALF_LIFE_DAYS
-              ) -> float | None:
-    """`age` → 新鲜度 ∈ (0, 1] —— **`det` 的 TIME 格**。
+# ---------------------------------------------------------------------------
+# 出口 1：连续值（给 det 的 TIME 格）
+# ---------------------------------------------------------------------------
 
-    `0.5 ** (age_days / half_life_days)`，`age_days = age / 5`（格 → 叙事日）。
-    `age=0` → 1.0（刚发生）; `age = half_life` 处**正好 0.5**（半衰期的定义）;
-    `age → ∞` → 0（但**永不取负**）。
+def freshness(age: int | None,
+              half_life_days: float = DEFAULT_HALF_LIFE_DAYS) -> float | None:
+    """`age`（**现实日**）→ 新鲜度 ∈ (0, 1] —— **`det` 的 TIME 格**。
+
+    `0.5 ** (age_days / half_life_days)`，`age=0` → 1.0（刚发生）;
+    `age = half_life` 处**正好 0.5**（半衰期的定义）; `age → ∞` → 0（**永不取负**）。
 
     Returns: None = `age` 不可用（同上, 调用方降级）。
     """
@@ -93,21 +188,24 @@ def freshness(age: int | None, half_life_days: float = DEFAULT_HALF_LIFE_DAYS
     hl = float(half_life_days) if half_life_days else DEFAULT_HALF_LIFE_DAYS
     if hl <= 0:
         hl = DEFAULT_HALF_LIFE_DAYS
-    # `age` 的单位是**时相格**, 先换成叙事日再套半衰期
-    return 0.5 ** ((age / DAYS_TO_SIM) / hl)
+    return 0.5 ** (float(age) / hl)
 
+
+# ---------------------------------------------------------------------------
+# 出口 2：虚化短语（给注入注记 / 渲染后缀）
+# ---------------------------------------------------------------------------
 
 def render_relative(age: int | None, significance: float = 0.5) -> str:
-    """`age` → **虚化短语**（`§3.8`）—— 注入注记 / 渲染后缀用。
+    """`age`（**现实日**）→ **虚化短语**（`§3.8`）。
 
-    `age=None`（旧档）→ `"很久以前"`（**不显式暴露"未知"**——角色口径里
-    "记不清多久了"本来就该这么说）。
+    `age=None`（缺 `ts` / 旧档）→ `"很久以前"`（**不显式暴露"未知"**——
+    角色口径里"记不清多久了"本来就该这么说）。
 
     ★ **绝不输出精确值**（见模块 docstring）。
     """
     if age is None:
         return "很久以前"
-    days = age / DAYS_TO_SIM
+    days = float(age)
     for hi, singular, plural in _BUCKETS:
         if days < hi:
             return _phrase(days, singular, plural)
@@ -120,7 +218,7 @@ def _phrase(days: float, singular: str, plural: str) -> str:
     各桶的 `N` 单位不同, 故按桶语义换算（不是按 days 取整一次就完）。
     """
     if "N" not in plural:
-        return singular                          # 刚才/今天/昨天/上周/上个月/去年
+        return singular                          # 今天/昨天/上周/上个月/去年
     if days <= 7.0:
         return f"{max(2, int(round(days)))} 天前"
     if days <= 28.0:                             # 2~4 周
@@ -135,3 +233,16 @@ def _phrase(days: float, singular: str, plural: str) -> str:
 def is_precious(significance: float) -> bool:
     """是否"珍贵档"——措辞可更贴身（`§3.8` 的情绪权重）。"""
     return float(significance or 0.0) >= _SIG_PRECIOUS
+
+
+__all__ = [
+    "REAL_TZ",
+    "DEFAULT_HALF_LIFE_DAYS",
+    "now_ts",
+    "parse_ts",
+    "date_of",
+    "age_days",
+    "freshness",
+    "render_relative",
+    "is_precious",
+]

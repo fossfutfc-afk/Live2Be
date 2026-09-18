@@ -215,13 +215,20 @@ def run_bond_story_vn(
                 if title else "（旁白）故事开始了……")
 
     # 事件流（DESIGN_SAVE.md §5.3, 2026-08-24 单流）: 同会话 append vn_enter, 无子会话
+    # 2026-09-17（B0 整章暂存）: **章内一切改走暂存**（`staging_store`），见到
+    # `vn_exit` 时由 `commit_staging` 整段搬进真源 —— 与 webgui 同一条链。
+    # `truth` 留住真源 store（收尾时 commit 用）；失败则回退到真源（旧行为）。
     vn_sid = None
+    truth = store
     if store is not None:
         try:
+            from core.session.staging import staging_store
+            store = staging_store(store)
             vn_sid = store.enter_vn(
                 char.character_id, engine._session_id, title)
         except Exception as e:
             logger.warning("事件流 vn_enter 写入失败, 本次 VN 不落事件流: %s", e)
+            store = truth
             vn_sid = None
 
     # 纪念立绘: trigger 后立即后台预热（APIYI 无预热对象, warmup 为兼容占位）
@@ -376,11 +383,16 @@ def run_bond_story_vn(
     # 事件流收尾（统一, 无论哪条路径）: vn_exit + session_end（没写 = 中断）
     # vn_exit 带剧情完成标志（2026-09-01）: completed = 剧情真正走完
     # （story_end/兜底收尾）; False = 玩家中途退出——收尾链据此分支
-    if store is not None and vn_sid is not None:
+    if truth is not None and vn_sid is not None:
         try:
+            from core.session.staging import commit_staging
+            # `vn_exit` 进**暂存**，随后整段 commit —— 真源里 `vn_enter…vn_exit`
+            # 一次到位，中间不留未闭合窗口（B0）。`session_end` 仍写真源（不属于章）。
             store.append_marker(char.character_id, vn_sid, M_VN_EXIT,
                                 {"completed": completed})
-            store.finish(char.character_id, vn_sid, ended=completed)
+            commit_staging(truth, char.character_id, vn_sid,
+                           completed=completed)
+            truth.finish(char.character_id, vn_sid, ended=completed)
         except Exception as e:
             logger.warning("事件流收尾失败: %s", e)
     # 2026-09-02 用户拍板: 完整剧情结束（vn_exit completed）→ 距上次剧情计数

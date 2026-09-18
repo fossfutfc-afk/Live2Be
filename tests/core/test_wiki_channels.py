@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import sys
+from datetime import datetime, timedelta
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -42,7 +43,7 @@ def _store(tmp_path) -> WikiStoreV2:
 
 
 def _ctx(**kw) -> RecallContext:
-    base = dict(story_now=None, query="她又想起那天的杂草屋", aff_now=None,
+    base = dict(now=None, query="她又想起那天的杂草屋", aff_now=None,
                 place_now="", embed_fn=None, char_id="c")
     base.update(kw)
     return RecallContext(**base)
@@ -112,14 +113,16 @@ def test_missing_data_degrades_never_fabricates(tmp_path):
 
 
 def test_intensity_prior_scores_when_time_available(tmp_path):
-    """★ A 出分: `det = SIG·TIME + span·int`, TIME 走 freshness(age, half_life)。"""
-    from core.worldtime import StoryTime
+    """★ A 出分: `det = SIG·TIME + span·int`, TIME 走 freshness(age, half_life)。
+
+    2026-09-17（`ESSAY_TIME_MODEL §10`）: `age` 按**现实日**算（`node.ts`）。
+    """
+    now = datetime(2026, 9, 17, 12, 0)
     st = _store(tmp_path)
-    # 两条 episode 都 stamp 到 sim_day=0; now 推到 sim_day=0 → age=0 → freshness=1
+    # 两条 episode 都落在"今天" → age=0 → freshness=1
     for n in st.all():
-        n.story_time = StoryTime.from_sim_day(0).to_dict()
-    now = StoryTime.from_sim_day(0)
-    r = get_channel("A_intensity").gather(st, _ctx(story_now=now))
+        n.ts = now.isoformat(timespec="seconds")
+    r = get_channel("A_intensity").gather(st, _ctx(now=now))
     assert not r.degraded, r.note
     assert len(r.hits) == 2 and all(h.raw is not None for h in r.hits)
     raws = [h.raw for h in r.hits]
@@ -134,48 +137,45 @@ def test_intensity_prior_scores_when_time_available(tmp_path):
 
 
 def test_intensity_prior_decays_with_age(tmp_path):
-    """★ 新鲜度真的衰减: 同一节点, now 越晚 det 越小。"""
-    from core.worldtime import StoryTime
+    """★ 新鲜度真的衰减: 同一节点, now 越晚 det 越小（单位 = 现实日）。"""
+    base = datetime(2026, 9, 17, 12, 0)
     st = _store(tmp_path)
     for n in st.all():
-        n.story_time = StoryTime.from_sim_day(0).to_dict()
+        n.ts = base.isoformat(timespec="seconds")
     vals = []
     for day in (0, 5, 15, 60):
-        now = StoryTime.from_sim_day(day * 5)          # day 叙事日 = 5*day 格
-        r = get_channel("A_intensity").gather(st, _ctx(story_now=now))
+        now = base + timedelta(days=day)               # age = day 现实日
+        r = get_channel("A_intensity").gather(st, _ctx(now=now))
         vals.append(max(h.raw for h in r.hits))
     assert all(b < a for a, b in zip(vals, vals[1:])), vals
-    print(f"    A: 新鲜度衰减 age=0/5/15/60 日 → {[round(v, 3) for v in vals]}")
+    print(f"    A: 新鲜度衰减 age=0/5/15/60 现实日 → {[round(v, 3) for v in vals]}")
 
 
 def test_intensity_prior_degrades_without_clocks(tmp_path):
-    """缺 now → 整条链路降级; 缺 node.story_time → **该节点**降级, 其余照常。"""
-    from core.worldtime import StoryTime
+    """缺 now → 整条链路降级; 缺 `node.ts` → **该节点**降级, 其余照常。"""
+    now = datetime(2026, 9, 17, 12, 0)
     st = _store(tmp_path)
     r0 = get_channel("A_intensity").gather(st, _ctx())
-    assert r0.degraded and not r0.hits and "story_now" in r0.note
+    assert r0.degraded and not r0.hits and "now" in r0.note
     # 只给其中一条 stamp
     nodes = list(st.all())
-    nodes[0].story_time = StoryTime.from_sim_day(0).to_dict()
-    r1 = get_channel("A_intensity").gather(
-        st, _ctx(story_now=StoryTime.from_sim_day(0)))
+    nodes[0].ts = now.isoformat(timespec="seconds")
+    r1 = get_channel("A_intensity").gather(st, _ctx(now=now))
     assert not r1.degraded
     assert len(r1.hits) == 2
-    assert sum(1 for h in r1.hits if h.raw is None) == 1     # 旧档那条
-    assert r1.knobs["no_story_time"] == 1
-    print(f"    A: 缺 now → 整链降级; 缺 node.story_time → 单条降级 "
-          f"（{r1.knobs}）")
+    assert sum(1 for h in r1.hits if h.raw is None) == 1     # 缺 ts 那条
+    assert r1.knobs["no_ts"] == 1
+    print(f"    A: 缺 now → 整链降级; 缺 node.ts → 单条降级（{r1.knobs}）")
 
 
 def test_intensity_prior_all_old_archive_degrades(tmp_path):
-    """全部旧档（无 story_time）→ 降级而不是给一堆 0 分。"""
-    from core.worldtime import StoryTime
+    """全部缺 `ts` → 降级而不是给一堆 0 分。"""
     st = _store(tmp_path)
     r = get_channel("A_intensity").gather(
-        st, _ctx(story_now=StoryTime.from_sim_day(0)))
+        st, _ctx(now=datetime(2026, 9, 17, 12, 0)))
     assert r.degraded and not [h for h in r.hits if h.raw is not None]
-    assert "story_time" in r.note
-    print(f"    A: 全旧档 → 降级（{r.note[:48]}）")
+    assert "ts" in r.note
+    print(f"    A: 全部缺 ts → 降级（{r.note[:48]}）")
 
 
 def test_emotion_rag_degrades_without_query_or_shape(tmp_path):
