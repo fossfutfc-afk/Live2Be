@@ -33,7 +33,8 @@ v2 的记忆召回参数是**散落的模块常量**，后果有两条:
     [recall]
       cand_k    = 3         # Round B 每条 episode 最多带几个候选（提示条数）
       sim_k     = 5         # 读路径语义通道 top-k
-      time_half_life_days = 5.0  # A 链路新鲜度半衰期（**叙事日**, §4.11）
+      time_half_life_days  = 5.0   # A 链路新鲜度半衰期（**现实日**）
+      time_freshness_floor = 0.25  # A 链路新鲜度**下界**（0 = 关掉下界）
 
 ## 优先级
 
@@ -51,16 +52,22 @@ logger = logging.getLogger(__name__)
 #: 项目根 settings.toml（core/brain/wiki_v2/ → parents[3]）
 _SETTINGS_PATH = Path(__file__).resolve().parents[3] / "settings.toml"
 
-#: 默认值 —— **全部非阈值**（只有"取几条"与"半衰期"）
+#: 默认值 —— **全部非阈值**（只有"取几条"与"半衰期/下界"）
 DEFAULTS: dict[str, float] = {
     "cand_k": 3.0,              # Round B 候选提示条数（recall.CAND_K）
     "sim_k": 5.0,               # recall_subgraph k_sim
-    #: `A_intensity` 链路的时间半衰期（**单位 = 叙事日**, §4.11）。
+    #: `A_intensity` 链路的时间半衰期（**单位 = 现实日**）。
     #: 语义 = **新鲜度**（用户裁决 2026-09-13: *"TIME 做新鲜度语义, 这遗忘曲线
-    #: 没办法适用了, 60 天跨度太大了"*）。5 叙事日 ≈ "一周前的戏该沉下去"。
-    #: 换算 `freshness = 0.5 ** ((age_格 / 5) / time_half_life_days)` —— 半衰期处
-    #: 正好 0.5。**不是遗忘曲线**（那是另一条轴, 未来在物化层, §3.3）。
+    #: 没办法适用了, 60 天跨度太大了"*）。
+    #: ⚠️ **本注释原先写"单位 = 叙事日" + 换算式 `0.5 ** ((age_格 / 5) / hl)`**
+    #: —— 那两样都随**时间轴换代**作废了（唯一日期轴 = 现实日期, 见
+    #: `ESSAY_TIME_MODEL §10`; "格"= 1/5 叙事日的单位已不存在）。已改正。
+    #: ⚠️ **数值 5.0 也待重标定**（它是按叙事日时代的口味定的）。
     "time_half_life_days": 5.0,
+    #: 新鲜度**下界** —— `freshness(age, hl, floor)` 的 `floor`。
+    #: `0.0` = 关掉下界（= 换代前的行为: 老记忆一路掉到 10⁻²²）。
+    #: 见 `core/worldtime/age.py::freshness` 的 docstring（那里有实测的交叉点）。
+    "time_freshness_floor": 0.25,
 }
 
 _cache: dict[str, float] | None = None

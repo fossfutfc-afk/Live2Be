@@ -70,15 +70,22 @@ class IntensityPrior:
     | `SIG` | `node.significance`（0~1, 恒有） | — |
     | `emo_span` | `node.emo_span`（0~1） | 退化：第二行整行为 0 |
     | `emo_int` | `node.emo_int`（0~1） | 同上 |
-    | `TIME` | `freshness(age, half_life)` | **降级不出分**（见下） |
+    | `TIME` | `freshness(age, half_life, floor)` | **降级不出分**（见下） |
 
     ## TIME 的判定（2026-09-17, `ESSAY_TIME_MODEL §10` 时间轴换代）
 
     ```
     写路径:  什么都不写 —— `ts` 本来就在节点上（不再需要 stamp 剧情时间）
     读路径:  age  = 今天 − date(node.ts)          （**整数, 单位 = 现实日**）
-             TIME = 0.5 ** (age / half_life_days)
+             TIME = floor + (1-floor) * 0.5 ** (age / half_life_days)
     ```
+
+    ⚠️ **`floor`（下界）是 2026-09-17 加的**, 两个旋钮都在
+    `settings.toml [recall]`: `time_half_life_days` / `time_freshness_floor`。
+    加它的理由是实测出来的 —— `SIG=0.9` 的旧记忆在 `floor=0` 时**四天**就被
+    "今天的 `SIG=0.5`"盖过, 一年后差 22 个数量级。完整对照见
+    `core/worldtime/age.py::freshness` 的 docstring（那里也写明它**不是万灵药**:
+    想让"情绪平淡但重要"的记忆长期占优, 缺的是**重复提起**那条通道）。
 
     **`TIME` 不落库**——它是"读的时候算出来的新鲜度"; 写进节点就永远停在
     写入那一刻的新鲜度, 指数白算。而 `age` 的两个输入端（`node.ts` 与"今天"）
@@ -112,6 +119,7 @@ class IntensityPrior:
             return res
 
         hl = _knob("time_half_life_days")
+        fl = _knob("time_freshness_floor")
         now = ctx.now
         if now is None:
             res.degraded = True
@@ -133,7 +141,7 @@ class IntensityPrior:
             # （**现实日**）。缺 `ts`（空串/坏值）→ None → **该节点**降级,
             # 绝不折成 0（那会让旧记忆冒充"刚发生"，det 虚高）。
             age = age_days(node.ts, now=now)
-            t = freshness(age, hl) if age is not None else None
+            t = freshness(age, hl, fl) if age is not None else None
             if t is None:
                 no_time += 1
                 hits.append(ChannelHit(
@@ -152,8 +160,8 @@ class IntensityPrior:
         for i, h in enumerate(scored, 1):
             h.rank = i
         res.hits = scored + [h for h in hits if h.raw is None]
-        res.knobs = {"time_half_life_days": hl, "time_ready": True,
-                     "scored": len(scored), "no_ts": no_time}
+        res.knobs = {"time_half_life_days": hl, "time_freshness_floor": fl,
+                     "time_ready": True, "scored": len(scored), "no_ts": no_time}
         if not scored:
             res.degraded = True
             res.note = f"无一条 episode 有 ts（未采集 {no_time} 条）→ 不出分"

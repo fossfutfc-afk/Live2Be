@@ -57,11 +57,16 @@ def test_no_threshold_knobs_left():
     """★ T17（2026-09-15）: **三个阈值旋钮已删** —— 配置面不再有任何"阈值"。
 
     用户裁决 *"cand_high 相关全删掉"*（落地 Q11/Q31/Q32）。留下的旋钮只有
-    "取几条"（`cand_k`/`sim_k`）与"半衰期"（`time_half_life_days`）。
+    "取几条"（`cand_k`/`sim_k`）与"半衰期/下界"（`time_half_life_*`）。
+
+    ⚠️ **`time_freshness_floor`（2026-09-17 新增）不是阈值**: 阈值是"过线/不过线"
+    的**硬闸门**（`cand_high` 就是那样把新认知永远掐死的）; 而 `floor` 是
+    `freshness` 曲线的**渐近下界**, 只影响分数不影响准入 —— 排序仍然全量参与。
     """
     from core.brain.wiki_v2 import recall as R
     snap = rc.snapshot()
-    assert set(snap) == {"cand_k", "sim_k", "time_half_life_days"}, snap
+    assert set(snap) == {"cand_k", "sim_k", "time_half_life_days",
+                         "time_freshness_floor"}, snap
     assert snap["cand_k"] == float(R.CAND_K) == 3.0
     for gone in ("cand_high", "cand_med", "accept_hit_rate"):
         assert gone not in snap
@@ -71,14 +76,18 @@ def test_no_threshold_knobs_left():
             raise AssertionError(f"{gone} 仍可读——没删干净")
         except KeyError:
             pass                              # 未知键 → KeyError（防拼错静默走默认）
-    print("    旋钮: 只剩 cand_k/sim_k/time_half_life_days（三个阈值已删）")
+    print("    旋钮: cand_k/sim_k/time_half_life_days/time_freshness_floor"
+          "（三个阈值已删）")
 
 
 def test_time_half_life_default_and_override(tmp_path, monkeypatch):
-    """`time_half_life_days`（A 链路新鲜度半衰期, §4.11）——默认 5 叙事日 + 可覆盖。
+    """`time_half_life_days`（A 链路新鲜度半衰期）——默认 5 **现实日** + 可覆盖。
 
     语义钉住: **新鲜度不是遗忘曲线**（用户裁决 2026-09-13）——
     所以默认值必须是"一周上下"的量级, 而不是遗忘曲线的 60 天。
+
+    ⚠️ 单位是**现实日**, 不是"叙事日"（本用例原先写错, 2026-09-17 时间轴换代后
+    叙事日已不存在）。
     """
     assert rc.DEFAULTS["time_half_life_days"] == 5.0
     p = tmp_path / "settings.toml"
@@ -90,7 +99,24 @@ def test_time_half_life_default_and_override(tmp_path, monkeypatch):
     p.write_text('[recall]\ntime_half_life_days = "long"\n', encoding="utf-8")
     rc.reload()
     assert rc.get("time_half_life_days") == 5.0
-    print("    旋钮: time_half_life_days 默认 5.0（叙事日）+ 覆盖/坏值回落")
+    print("    旋钮: time_half_life_days 默认 5.0（现实日）+ 覆盖/坏值回落")
+
+
+def test_freshness_floor_knob(tmp_path, monkeypatch):
+    """`time_freshness_floor`（2026-09-17 新增）—— 默认 0.25 + 可覆盖 + 可关掉。
+
+    `0.0` = 关掉下界（回到换代前的行为: 老记忆掉到 10⁻²²）。
+    """
+    assert rc.DEFAULTS["time_freshness_floor"] == 0.25
+    p = tmp_path / "settings.toml"
+    p.write_text("[recall]\ntime_freshness_floor = 0.0\n", encoding="utf-8")
+    monkeypatch.setattr(rc, "_SETTINGS_PATH", p)
+    rc.reload()
+    assert rc.get("time_freshness_floor") == 0.0     # 显式关掉（不是回落默认）
+    p.write_text('[recall]\ntime_freshness_floor = "low"\n', encoding="utf-8")
+    rc.reload()
+    assert rc.get("time_freshness_floor") == 0.25    # 坏值 → 默认
+    print("    旋钮: time_freshness_floor 默认 0.25 / 0.0 可关 / 坏值回落")
 
 
 def test_settings_override(tmp_path, monkeypatch):

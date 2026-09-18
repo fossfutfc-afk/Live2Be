@@ -2,7 +2,7 @@
 """时间映射 —— **现实日期 → 年龄 → 双出口**（`§10` 暂定模型, 2026-09-17）。
 
 ```
-node.ts ──┬──→ age_days（整数, 单位 = 现实日）──→ freshness(age, hl) ∈ [0,1]  给 det 的 TIME 格
+node.ts ──┬──→ age_days（整数, 单位 = 现实日）──→ freshness(age, hl, floor) ∈ [floor,1]  给 det 的 TIME 格
           └──→ render_relative(age) ──────────→ "3 周前"                    给注入注记 / 渲染后缀
 ```
 
@@ -115,6 +115,15 @@ REAL_TZ = timezone(timedelta(hours=8))
 #: ⚠️ 量纲已由"叙事日"改为"现实日"，数值**待重标定**（见模块 docstring）。
 DEFAULT_HALF_LIFE_DAYS = 5.0
 
+#: ★ 新鲜度**下界**（`floor`）—— 进 `settings.toml [recall].time_freshness_floor`。
+#:
+#: 没有它时, `SIG·fresh` 会把"情绪平淡但重要"的记忆推到 10⁻²² 量级, 四天就被
+#: 今天的寒暄盖过（实测, 见 `freshness` docstring）。
+#:
+#: ⚠️ **`0.25` 是判断不是标定**（用户 2026-09-17: *"现在其实根本没有数据，
+#: 我们就……自行判断吧"*）。有真机游玩数据后连同 `half_life` 一起重标定。
+DEFAULT_FRESHNESS_FLOOR = 0.25
+
 #: 措辞桶 —— `(阈值上限（现实日）, 单数, 复数)`
 #: 顺序即判定顺序（从上往下第一个 `age < 上限` 的胜出）。
 #:
@@ -212,20 +221,74 @@ def age_days(node_ts: object, *, now: object, tz: timezone = REAL_TZ) -> int | N
 # ---------------------------------------------------------------------------
 
 def freshness(age: int | None,
-              half_life_days: float = DEFAULT_HALF_LIFE_DAYS) -> float | None:
-    """`age`（**现实日**）→ 新鲜度 ∈ (0, 1] —— **`det` 的 TIME 格**。
+              half_life_days: float = DEFAULT_HALF_LIFE_DAYS,
+              floor: float = DEFAULT_FRESHNESS_FLOOR) -> float | None:
+    """`age`（**现实日**）→ 新鲜度 ∈ **[floor, 1]** —— **`det` 的 TIME 格**。
 
-    `0.5 ** (age_days / half_life_days)`，`age=0` → 1.0（刚发生）;
-    `age = half_life` 处**正好 0.5**（半衰期的定义）; `age → ∞` → 0（**永不取负**）。
+    ```
+    floor + (1 - floor) * 0.5 ** (age / half_life_days)
+    ```
 
-    Returns: None = `age` 不可用（同上, 调用方降级）。
+    `age=0` → **1.0**（刚发生, 与 `floor` 无关）;
+    `age = half_life` → `(1+floor)/2`（`floor=0` 时正好 0.5 = 半衰期的定义）;
+    `age → ∞` → **`floor`**（**有下界, 不取 0**）。
+
+    ## ★ 为什么必须有 `floor`（2026-09-17）
+
+    **旧版没有下界**（`floor=0`），后果实测如下（`half_life=5.0`）:
+
+    ```
+    A = 一年前的重大约定（SIG=0.90, 情绪平淡 ⇒ 矩阵第二项=0）
+    B = 今天的一句普通寒暄（SIG=0.50）
+
+      age(A)     A.det     B.det
+           0    0.9000     0.500     A 赢
+           7    0.3410     0.500     B 赢   ← 才 7 天
+          30    0.0141     0.500     B 赢
+         365    9.5e-23    0.500     B 赢   ← 差 22 个数量级
+    ```
+
+    **交叉点 ≈ 4.2 天** —— 一个"情绪平淡但重要"的记忆（约定 / 事实 / 承诺）
+    四天就被今天的寒暄盖过去。而**它没有别的机制撑**:
+
+    - 情绪上的重要 → 矩阵第二行 `emo_span·emo_int`（**不衰减**）已经在撑
+    - **情绪平淡的重要 → 只剩 `SIG·fresh` 一项，它会一路掉到浮点下溢**
+
+    ## ⚠️ `floor` 不是"解决", 是"止损"（这句要留着, 免得被当成万灵药）
+
+    `floor=0.1` 时最坏 `0.9 × 0.1 = 0.09`, 仍然输给 `0.5 × 1.0 = 0.5`。
+    **想靠 `floor` 让"一年前的重大约定"压过"今天的寒暄"，需要 `floor ≈ 0.56`**
+    —— 那等于"几乎不衰减", 就背叛了这个函数存在的理由。
+
+    ⇒ 真正该补的是**第三条通道**: `SIG`（重要）与 `emo_*`（情绪）之外,
+    **"重复提起"**（`last_recalled_at` / 召回次数）—— 一个每周被想起来的约定
+    不该跟一次性的往事同命运。那是 `DESIGN_WIKI_V3 §3.3` 的物化层, **未实现**
+    （`channel_impl.py:29` / `recall_ledger.py:26` 都注明"那是 V3-3 的事"）。
+    `floor` 是在那条通道落地之前,**把最坏情况从 22 个数量级收成个位数倍**的止损。
+
+    ## 默认值 `0.25` 是**判断, 不是标定**
+
+    > 用户 2026-09-17: *"现在其实根本没有数据，我们就……自行判断吧"*
+
+    取的判据: `SIG` 的实际取值范围是 `0.5~0.9`（契约建议值），而 `[0,1]` 是
+    矩阵的格子量纲。取 `0.25` 时——
+    最旧的 `SIG=0.5` 记忆 → `0.125`, 最旧的 `SIG=0.9` → `0.225`,
+    而"今天"的 `SIG=0.5` → `0.500`。⇒ **仍然"新的赢", 但差距从无穷缩到约 2~4 倍。**
+
+    ⚠️ **有真机游玩数据后要重标定**（连同 `half_life_days` 一起, 见 `TODO.md`
+    「记忆衰减」）。改的是一个常量, 不是结构。
+
+    Returns: None = `age` 不可用（同上, 调用方降级）。**缺 `age` 时也不给 `floor`**
+    —— 哨兵纪律: "不知道多旧"不该被当成"至少 floor 那么新"。
     """
     if age is None:
         return None
     hl = float(half_life_days) if half_life_days else DEFAULT_HALF_LIFE_DAYS
     if hl <= 0:
         hl = DEFAULT_HALF_LIFE_DAYS
-    return 0.5 ** (float(age) / hl)
+    fl = float(floor or 0.0)
+    fl = max(0.0, min(1.0 - 1e-9, fl))       # 夹到 [0,1)：floor=1 会让 fresh 恒 1
+    return fl + (1.0 - fl) * 0.5 ** (float(age) / hl)
 
 
 # ---------------------------------------------------------------------------
