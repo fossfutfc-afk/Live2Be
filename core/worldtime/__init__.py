@@ -22,11 +22,13 @@
 
 | 模块 | 管什么 | 不管什么 |
 |---|---|---|
-| `story.py` | **时间点的数据模型 + 槽位算术**（纯函数, 无 IO） | 不读盘、不知道 LLM |
-| `clock.py` | **游标真源**（`world_clock.json` 读写）+ 推进 + I6 单调校验 | 不算 age |
 | `age.py` | **双出口**: 连续 `age` → `freshness`; 同一 age → `render_relative` 短语 | 不做排序、不知道 score |
-| `span.py` | **LLM 面对的时间语法**（枚举 + 校验 + 夹取 + 默认） | 不做进位（那是 `story` 的） |
-| `realtime.py` | 现实日历（②）+ 触发器幂等 + 目标日吸附 | **与 `story` 永不互算** |
+| `prompt_time.py` | **进 prompt 的时间注记**（现实间隔 / 手机日期）—— 纯渲染, 无 IO | 不读盘、不判定 |
+| `span.py` | **LLM 面对的时间语法**（枚举 + 校验; 输出但不消费, 等衰减新模型） | 不做进位、不做衰减 |
+| `realtime.py` | **现实日历（②）**: 特殊日期表 + 触发幂等 + `real_clock.json` 台账 | **只做由头, 不做时钟**（不持有任何时钟） |
+
+⚠️ **`story.py` / `clock.py` 已于 2026-09-17「时间轴换代」删除** —— 剧情游标
+（`world_clock.json`）不再是时间事实, 唯一日期轴 = 现实日期（`age.py` docstring）。
 
 ## ★ 三条硬边界（违反即失去独立性）
 
@@ -36,15 +38,15 @@
    `freshness`（∈[0,1] 的新鲜度）是时间概念 —— 在这里;
    `det = SIG·freshness + emo_span·emo_int` 是**打分** —— 在
    `core/brain/wiki_v2/channel_impl.py`。**否则时间包迟早长出"权重"概念。**
-3. **两个时钟永不互算**: `story` 的槽位算术**绝不**读 `realtime` 的日期;
-   `realtime` 的触发器**绝不**改 `story` 的游标 —— 唯一交汇点是
-   `realtime.snap_to(target)`（吸附, §4.6）, 且它**只能向前**（I6）。
+3. **没有第二个时钟可算**: 剧情时间不进账（不累积、不落库）, 现实日期是唯一轴。
+   故**不存在**"两个时钟互算"的问题 —— 那曾是 `snap_to`（目标日吸附）的唯一
+   理由, 而吸附的前提已随换代取消。`realtime` 与 `age` 各算各的, 互不引用。
 
 ## 与 `§4` 的关系
 
-`DESIGN_WIKI_V3.md §4` 是**设计稿**（三层时钟 / 离散槽位 / 粒度枚举 / 凌晨归属 /
-目标日吸附 / 模糊措辞）。本包是它的**实现**。文档与代码冲突时以文档的裁决为准,
-但**新发现的事实写回文档**（§4.11 起）。
+`DESIGN_WIKI_V3.md §4` 是**旧的**三层时钟设计稿（已随换代作废, 见
+`docs/ESSAY_TIME_MODEL.md §10` 与 `TODO.md`「时间轴换代」）; `§4.11` 的
+"时间注记进 prompt"仍然有效。文档与代码冲突时**以代码为准**。
 """
 from __future__ import annotations
 
@@ -63,6 +65,12 @@ from core.worldtime.prompt_time import (
     notes as time_notes,
     phone_date_note,
     real_gap_note,
+)
+from core.worldtime.realtime import (
+    Occasion,
+    due_notes as realtime_notes,
+    load_clock,
+    load_occasions,
 )
 from core.worldtime.span import SPANS, SpanError, parse_span
 
@@ -86,4 +94,9 @@ __all__ = [
     "time_notes",
     "phone_date_note",
     "real_gap_note",
+    # realtime —— 现实日历（②）: 表 + 台账（⚠️ 尚未接进 MMT; 接入点见 TODO）
+    "Occasion",
+    "load_occasions",
+    "load_clock",
+    "realtime_notes",
 ]

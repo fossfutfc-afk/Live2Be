@@ -186,10 +186,17 @@ def test_render_relative_none_is_vague():
 # 7. ★ 两个时钟不互算（独立性）
 # ---------------------------------------------------------------------------
 
-def test_realtime_is_declared_not_implemented():
-    assert realtime.IMPLEMENTED is False
-    assert realtime.__all__ == []
-    print("    realtime: 显式声明未实现（边界已写在 docstring）")
+def test_realtime_declares_its_boundaries():
+    """`realtime` 的边界仍然显式声明（2026-09-17: 已实现, 但边界没变）。
+
+    旧断言是 `IMPLEMENTED is False` + `__all__ == []` —— 那是"只声明不实现"阶段的
+    哨兵。现在它实现了, 但**"只做由头不做时钟"**这条要保住:
+    它不该导出任何时钟/游标概念（`snap_to` / 游标推进已随换代取消）。
+    """
+    assert "due_notes" in realtime.__all__
+    banned = {"snap_to", "advance", "cursor", "sim_day", "WorldClock"}
+    assert not banned & set(realtime.__all__)
+    print("    realtime: 已实现（表 + 台账）, 但无任何时钟出口")
 
 
 def test_worldtime_does_not_import_project_modules():
@@ -226,7 +233,7 @@ if __name__ == "__main__":
                test_render_relative_buckets,
                test_render_relative_never_exposes_precise_values,
                test_render_relative_none_is_vague,
-               test_realtime_is_declared_not_implemented,
+               test_realtime_declares_its_boundaries,
                test_worldtime_does_not_import_project_modules):
         fn()
     print("all worldtime tests passed")
