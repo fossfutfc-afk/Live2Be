@@ -110,9 +110,23 @@ tests/ core/ webgui/ llm/ 分别对应域; experiments/ 真 API 基准与探索�
 |---|---|---|---|
 | emotion 标注 | 每板交付后（webgui 异步 lane / CLI 同步） | 词表键数组（长度 = 板内**记录数**, 一条记录一个键; 主角+旁白, NPC 不送） | emotion: off / 512 |
 | place 标注 | 同上, **与 emotion 双路并行** | 换场锚点 `[{sentence, place}]`（稀疏；keep=空） | place: off / 256 |
+| **选图（第二遍）** | 板首 `switch` 定键之后, **该键不止一张图时**（168 键里 146 个） | `{"image": "<表 files 里的文件名>"}`（空=保持） | place: off / 256 |
 | digest | bond 完整闭环后 / MMT 每 25 轮（剧情中不触发） | wiki RoundA/B 增量 + 好感 delta | digest: high / 8192 |
 | wrapup 收尾轮 | finish 后 agent_turn（mmt 域, task_kind=wrapup） | 手机消息收尾话 | mmt（default） |
 | 生图 | 板上出现 `stage:memorial` 时（v2: prompt = 块级 `art` 画面意向 → 缺省触发句; 只在真出现纪念时开画） | 图片（**非 LLM** 主链外；总开关见 §10） | — |
+
+**选图（`core/bond/variant_annotate.py` + `llm/prompts/place_variant.md`, 2026-09-19）**：
+第一遍（`resolve_place`）只回答"**哪个地点**"；同一地点在资源库里常有好几张图 ——
+**时刻/天气**（`_Night` 153 张 / `_Sunset` 35 张）与**作者差分**（45 个键各有 ≥2 张
+无变体图，区别写在 `note` 里：*"请使用差分2"*、*"2则有圣诞树"*）。此前引擎走
+`catalog.background(sid, variant=None)` = **永远第一条**，两条轴都选不了。
+现在：候选 = 该键 `files` 的每一张（标签机器派生：`夜` / `默认·差分2`），
+**作者 `note` 原样进 prompt**（用户：*"我的部分 note 里面本身就会教 LLM 某些特殊
+常用的夜景以及差分的区别"*），输出必须是候选之一（否则丢弃 = 保持）。
+⚠️ **不走关键词表**（用户当场否掉）：时刻词在文本里 ≠ 时刻
+（「这些灯光，感觉像在白天一样呢~」其实是夜；「私は夜の散歩が一番好きです」是意愿句）
+——那四句反例写进了 prompt。选中的文件落 `payload.place_asset`（旧事件没有 → 默认图,
+回放安全）；取图**优先走表的路径**（catalog 的 scene_id 派生会漏 6 张）。
 
 档位真源 = `llm/task_levels.py`（main=跟随 settings `[llm].reasoning_effort`, 用户裁决项）。
 
@@ -159,8 +173,11 @@ tests/ core/ webgui/ llm/ 分别对应域; experiments/ 真 API 基准与探索�
   ⚠️ **表键 ≠ 资产 scene_id**（`classroom`↔`class_room`），翻译走 `files` 文件名。
   缺素材 → **黑屏 `black` + 报"素材未找到"**（不静默换别的图）。
   速查/防坑见 `docs/AI_BRIEF_PLACE.md`。
-- **视觉键隔离**：`render_bond_scene_text` 只读 text/emotion/inner —— place 不进
-  LLM 上下文（resume 窗口不被视觉键污染）；但进 payload/事件流供回放时间轴。
+- **视觉键隔离**：`render_bond_scene_text` 只读 text/emotion/inner —— place / place_asset
+  不进 LLM 上下文（resume 窗口不被视觉键污染）；但进 payload/事件流供回放时间轴。
+- **选图（第二遍, 2026-09-19）**：定键之后若该键 `files` 不止一张图 → 选图调用
+  （`variant_annotate.pick_image` + `place_variant.md`，详见 §3.3）→ `payload.place_asset`
+  = 表内相对路径；前端取图**优先走表的路径**（`_table_bg_url`），catalog 只作回落。
 
 **双路 lane（webgui）**：Q_emo/W_emo 与 Q_place/W_place 独立队列消费者并行；
 推进门控 = **双路齐**（emotion 内容判完成 / place 靠 scene._place_done 标记, 含 keep）。
@@ -348,9 +365,11 @@ v1 的 `MemorialProbe`/`memorial_exit` 动作已退役。**图是异步的 → �
 - 测试桩约定（**改引擎标注行为必读**）：各测试文件 ScriptedLLM 按 **user 尾部关键字**
   应答异步调用——emotion 标注（user 含 `情绪标签`）→ 全 nomal 数组, **条数从
   `恰 N 项` 取**（别用 `^\d+: ` 数 system 行: 模板【示范】也带编号行, 会恒多 4）;
-  place 标注("变更句数组")→ []；digest("记录员/整理者")→ 空包。新增标注任务 → 同步给
-  tests/webgui/test_bond.py、tests/core/test_vn_cli.py、test_memorial_mode.py、
-  test_director.py 等桩补分支, 否则吞场景脚本。
+  place 标注("变更句数组")→ []；换场翻译("地点 id JSON")→ `{"place": ""}`；
+  **选图("选中的文件名")→ `{"image": ""}`**（2026-09-19 第二遍）; digest
+  ("记录员/整理者")→ 空包。新增标注任务 → 同步给 tests/webgui/test_bond.py、
+  tests/core/test_vn_cli.py、test_memorial_mode.py、test_director.py 等桩补分支,
+  否则吞场景脚本。
 
 ---
 

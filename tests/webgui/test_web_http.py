@@ -73,6 +73,8 @@ class ScriptedLLM:
             return []
         if "地点 id JSON" in last:                      # 换场翻译 → 不切背景
             return {"place": ""}
+        if "选中的文件名" in last:                # 选图（第二遍）→ 保持默认图
+            return {"image": ""}
         if "记录员" in head or "整理者" in head:        # digest → 空包
             return ({"episodes": []} if "记录员" in head
                     else {"decisions": [], "evidence": [], "affection_exp_delta": 0})

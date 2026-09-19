@@ -1377,10 +1377,65 @@ writer 根本不知道板存在, 它只是连着写记录、该换场就发 swit
 ⚠️ **同步方向提醒（写进工具输出）**: 表是 **tempo → repo 单向**。就地改 repo 的表
 只对本机有效, 下次从 tempo 同步会被覆盖 ⇒ `--apply` 时工具会提醒你在 tempo 侧也改。
 
+### PL6′ 选图（第二遍: 时刻/天气/作者差分）—— **✅ 完成（2026-09-19, 用户推动）**
+
+> 起因: 用户问 *"我其实是问考虑 Night、Sunset、Erode 等别名了吗，需不需要为这个给
+> LLM 一个新的 type 字段？"* → 我提了三条路 → **我提"走世界时钟"被否**（*"一个玩家
+> 上了一天班……想和喜欢的角色看日出结果天空漆黑一片是吧？"*; 代码里 9-17 也早定过
+> "剧本内的时刻归场景文本"）→ **我提"关键词表（正则）"又被否**（用户甩四句反例）→
+> 用户自己给的路: *"我在思考要不要走两遍，也就是先决定大类再决定具体差分和时间"* +
+> *"好消息是我的部分 note 里面本身就会教 LLM 某些特殊常用的夜景以及差分的区别"*。
+
+**为什么必须走 LLM（用户四句反例, 已写进 prompt）**
+
+| 文本 | 关键词表会判 | 实际 |
+|---|---|---|
+| 从早到晚，我都想一直陪在老师身边 | 夜/晨 | 范围成语，与此刻无关 |
+| 这些灯光，感觉像在白天一样呢~ | 白天 | **比喻 + 否定** ⇒ 其实是夜 |
+| 我一定要将老师的善良公布在光天化日之下！ | 白天 | 成语，与时刻无关 |
+| 私は夜の散歩が一番好きです | 夜 | 外语 + 意愿句: 喜欢夜里散步 ≠ 现在是夜里 |
+
+关键词表会 3 句判反 + 1 句判错, 而且**漏判是静默的**（画面停在旧图, 没人报错）。
+
+**实测（决定了形态）**
+
+* 时刻: `_Night` 153 张 / `_Sunset` 35 张 / dawn·fineday·cloudy·rain·fog 少量
+* **作者差分**: **45 个键各有 ≥2 张"无变体"图**（`BG_X.jpg` / `BG_X2.jpg`）——
+  区别**只写在 `note` 里**（`fishing_village`: *"请使用差分2,差分2是阳光明媚的正常
+  渔村,正常版本是雾气浓浓的"*; `lighthousepier`: *"建议使用差分2"*;
+  `school_rooftop`: *"普通差分天台为主,差分2天空为主"*; `villacomplex`:
+  *"Night不关灯,Night2全熄灯"*）。**引擎此前永远取第一张** ⇒ 作者的偏好没有任何消费方
+* 取图路径: 表的 `files` 路径 **194/194 命中磁盘**; `catalog.background(scene_id, variant)`
+  会漏 **6 张**（`BG_ClassRoom2_Night.jpg` 派生成 `class_room_2` 另一个 scene_id）
+  ⇒ **取图优先走表**
+
+**落地**
+
+| 件 | 形态 |
+|---|---|
+| 候选派生 | `PlaceEntry.moments()` / `image_candidates()` / `image_label()`（"夜"/"默认·差分2"）——**从文件名派生**, 零作者侧 schema 改动 |
+| 可选时刻子集 | `MOMENT_VARIANTS` = night/sunset/dawn/fineday/cloudy/rain/fog + `MOMENT_LABELS`（中文名）; **状态类刻意排除**（erode/ruin/off/party/fake… 没有信号源） |
+| 第二遍 | `core/bond/variant_annotate.py::pick_image()` + `llm/prompts/place_variant.md`: 输入 = 键 + **候选图清单** + **作者 note 原样** + 当前图 + switch 原文 + 四句反例; 输出 = `{"image": "<候选文件名>"}`（或空=保持）; 候选外/坏 JSON/失败 → 保持 |
+| 触发条件 | 该键 `files` **不止一张**才发（22 个单图键 0 调用; 层1 命中也要发——时刻不是键的属性） |
+| 契约 | `BondScene.place_asset`（表内相对路径）+ `payload.place_asset`; **旧事件没有 → 默认图**（回放安全）; 不进 LLM 上下文（与 place/emotion 同纪律） |
+| 取图 | `webgui._table_bg_url(key, asset)`: 表路径优先（并校验 asset 属于该键、防穿越）→ catalog 回落; `_place_bg(key, asset)` 状态不变 |
+| 日志 | `[place][PICK] key=… → 文件名 / 保持`（与 `[place][SWITCH]` 同一族） |
+| 层2 词表 | 每行补 `［默认/夜(night)/夕(sunset)］`（只在真有别的图时）——第一遍也知道"这个键有夜图" |
+
+**测试** `tests/core/test_variant_annotate.py`（8 例）+ 表侧新增（候选派生/标签/回落）;
+各测试桩补 `选中的文件名` 分支（7 个文件, 按 CLAUDE.md §11 的桩约定）。
+`experiments/place_switch_real.py` 现在会打印**选了哪张图**与选图调用次数。
+
+⚠️ **已知缺口（下一步候选）**: 句级锚点（板内后续换场）**不带选图**——那也是这次
+换场的图, 暂时用默认图; 要补就在 `annotate_places` 的锚点上再发一次（同形态）。
+
 ### PL7 表自身收尾（**作者侧**, 我只出清单）
 
 - [ ] `files.night` 归类：混进状态变体 25 张（ruin/erode/blur/off/dark/party/fake）
       + 白天天气 7 张（fog/rain/cloudy/dawn/sky）; 只有 115/168 是真夜景
+      ⚠️ **PL6′ 后这条的优先级变了**: 选图的候选**从文件名后缀派生**, 但只放行
+      "时刻/天气"子集（`MOMENT_VARIANTS`）⇒ 状态类混装**暂时无害**;
+      真正的好处是作者侧把差分/时刻写清楚（note 已经是最好的载体）
 - [ ] `tent_inside` 无 day 文件（唯一一条）
 - [ ] 覆盖率：435/1094 = 39%; `SDIR_Special` 59 组 **0 active**; `SDIR_Schools` 9/126
 - [ ] 写了 note 却没勾 active 的（`ruinpianoroom` 废弃琴房 / `abandoned_warehouse` …）

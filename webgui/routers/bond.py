@@ -131,7 +131,7 @@ def _resolve_scene(scene: dict | None, char_id: str) -> dict | None:
     place = scene.get("place")
     if isinstance(place, str) and place.strip():
         key = place.strip()
-        url, st = _place_bg(key)
+        url, st = _place_bg(key, _place_asset_of(scene))
         if st != "ok":
             # 缺素材 / 旧名 → 黑屏 + 回执（`_missing_info` 会带上改名解释）
             info = _missing_info(key)
@@ -231,8 +231,8 @@ def _missing_info(key: str) -> dict:
     return info
 
 
-def _place_bg(key: str) -> tuple[str | None, str]:
-    """地点键 → `(URL, 状态)`。状态 = `"ok"` / `"missing"` / `"renamed"`。
+def _place_bg(key: str, asset: str = "") -> tuple[str | None, str]:
+    """地点键（+ 第二遍选的图）→ `(URL, 状态)`。状态 = `"ok"` / `"missing"` / `"renamed"`。
 
     ## 素材缺失怎么办（用户 2026-09-19 裁决）
 
@@ -249,8 +249,10 @@ def _place_bg(key: str) -> tuple[str | None, str]:
     ⇒ PL6（2026-09-19）补上第二种的解释: 查不到时**先问改名台账**
     （`core/media/place_renames.py`）, 命中就返回 `"renamed"` + 人话原因
     （*"key 'X' 已改名为 'Y'"*）—— 那条黑屏 alert 于是直接告诉人该去改什么。
+
+    `asset` = 第二遍选中的**具体文件**（`place_asset`）; 非法/不属于这个键 → 回落默认图。
     """
-    url = _catalog_url(_catalog_key(key))
+    url = _table_bg_url(key, asset) or _catalog_url(_catalog_key(key))
     if url:
         return (url, "ok")
     try:
@@ -260,6 +262,12 @@ def _place_bg(key: str) -> tuple[str | None, str]:
     except Exception:                                # noqa: BLE001 — 台账缺失不影响取图
         pass
     return (None, "missing")
+
+
+def _place_asset_of(scene: dict) -> str:
+    """场景里的 `place_asset`（第二遍选的图; 旧事件没有 → 空 = 默认图）。"""
+    v = scene.get("place_asset")
+    return v.strip() if isinstance(v, str) and v.strip() else ""
 
 
 def _catalog_key(key: str) -> str:
@@ -272,6 +280,37 @@ def _catalog_key(key: str) -> str:
     except Exception:                                # noqa: BLE001 — 表缺失退回老口径
         pass
     return key
+
+
+def _table_bg_url(key: str, asset: str = "") -> str | None:
+    """走**表**取图（`place_asset` 优先, 否则该键的默认图）——查不到 → None。
+
+    为什么优先走表而不是 catalog: 表的 `files` 路径是**逐字准确**的
+    （实测 194/194 张时刻图都在盘上）, 而 `catalog.background(scene_id, variant)`
+    会漏 6 张——`BG_ClassRoom2_Night.jpg` 派生成 `class_room_2` 这个**另一个
+    scene_id**, 与键的 `class_room` 对不上（2026-09-19 探针）。
+    """
+    from core import paths
+    try:
+        from core.media.place_table import load_table
+        t = load_table()
+        if not t:
+            return None
+        rel = (asset or "").strip()
+        if rel:
+            # 第二遍选的图: 必须在**这个键自己的候选**里（防串键/防路径穿越）
+            e = t.get(key)
+            allowed = {r for r, _ in (e.image_candidates() if e else [])}
+            rel = rel if rel in allowed else ""
+        if not rel:
+            rel = t.get(key).asset() if t.get(key) else None
+        if not rel or rel.startswith(("/", "\\")) or ".." in rel:
+            return None
+        if not (paths.BACKGROUND_DIR / rel).is_file():
+            return None
+        return f"/assets/background/{rel}"
+    except Exception:                                # noqa: BLE001 — 缺表/坏表退回 catalog
+        return None
 
 
 def _place_bg_url(key: str) -> str | None:

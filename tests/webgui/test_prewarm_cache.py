@@ -46,6 +46,8 @@ class ScriptedLLM:
             return ["nomal"] * (int(m.group(1)) if m else 1)
         if "变更句数组" in last:
             return []
+        if "选中的文件名" in last:                # 选图（第二遍）→ 保持默认图
+            return {"image": ""}
         if "记录员" in head or "整理者" in head:
             return {"episodes": []}
         with self._lock:

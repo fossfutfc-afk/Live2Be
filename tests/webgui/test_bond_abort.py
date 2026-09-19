@@ -39,6 +39,8 @@ class FailThenOK:
         last = messages[-1]["content"] if len(messages) > 1 else ""
         if "情绪标签" in last or "变更句数组" in last:
             return []
+        if "选中的文件名" in last:                # 选图（第二遍, 2026-09-19）→ 保持默认图
+            return {"image": ""}
         if self._left > 0:
             self._left -= 1
             raise RuntimeError("api down")

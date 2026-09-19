@@ -64,6 +64,8 @@ class ScriptedLLM:
             return {"decisions": [], "evidence": [], "affection_exp_delta": 0}
         if "地点 id JSON" in last:                # 换场翻译（P0-7）→ 不切背景
             return {"place": ""}
+        if "选中的文件名" in last:                # 选图（第二遍, 2026-09-19）→ 保持默认图
+            return {"image": ""}
         if not self._scripts:
             raise RuntimeError("ScriptedLLM 脚本耗尽")
         # 注: 内联 dict 场景的用例仍走**旧动作开关**（P0-7c 收尾项: 脚本计数需按
@@ -299,6 +301,8 @@ class _FailFirst(ScriptedLLM):
             return ["nomal"] * n
         if "变更句数组" in last:
             return []
+        if "选中的文件名" in last:            # 选图（第二遍）→ 保持默认图
+            return {"image": ""}
         if self._fails > 0:
             self._fails -= 1
             raise RuntimeError("api down")

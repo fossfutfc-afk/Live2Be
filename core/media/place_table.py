@@ -45,6 +45,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -80,6 +81,50 @@ SDIR_LABELS: dict[str, str] = {
 def sdir_label(sdir: str) -> str:
     """`SDIR_*` → 中文分组头（没登记 → 原样返回, 不抛）。"""
     return SDIR_LABELS.get(sdir, sdir)
+
+
+#: **可选时刻/天气**（"这一场是白天还是夜里、下没下雨"）——从文件名后缀派生。
+#: 用户 2026-09-19 裁决: 候选**从文件名自动派生**（不另立名单、不动导出 schema）。
+#: ⚠️ 只放行"场面时刻/天气"这一类; `ruin`/`erode`/`off`/`party`/`fake`/`blur`/`dark`/
+#: `fire`/`alert`/`tent`/`sky` 是**剧情状态**（侵蚀/停电/派对……）——现在**没有任何
+#: 信号源**告诉标注层"这场戏停电了", 放进去只会变成瞎挑（TODO: 状态类另议）。
+MOMENT_VARIANTS: tuple[str, ...] = (
+    "night", "sunset", "dawn", "fineday", "cloudy", "rain", "fog",
+)
+
+#: 时刻 → 给标注 LLM 看的中文名（与 `sdir` 同一条纪律: 只换显示名, token 不变）
+MOMENT_LABELS: dict[str, str] = {
+    "night": "夜",
+    "sunset": "夕",
+    "dawn": "清晨",
+    "fineday": "晴",
+    "cloudy": "阴",
+    "rain": "雨",
+    "fog": "雾",
+}
+
+#: `moment=""` 在文本里的写法（= 用没有变体后缀的那张图）
+BASE_LABEL = "默认"
+
+
+def moment_label(moment: str) -> str:
+    """`night` → `夜`（空/未知 → `默认`/原样）。"""
+    if not moment:
+        return BASE_LABEL
+    return MOMENT_LABELS.get(moment, moment)
+
+
+def moment_token(text: str) -> str:
+    """标注层输出 → 变体 token（接受中文名/英文 token/空; 认不出 → `""`）。"""
+    t = (text or "").strip().lower()
+    if not t or t == BASE_LABEL:
+        return ""
+    if t in MOMENT_VARIANTS:
+        return t
+    for token, label in MOMENT_LABELS.items():
+        if t == label.lower():
+            return token
+    return ""
 
 #: 层1 子串匹配的最短针长（单字别名只允许整串命中——否则"桥"满地误命中）
 _MIN_NEEDLE = 2
@@ -128,6 +173,84 @@ class PlaceEntry:
             return (self.night or self.day or (None,))[0]
         return (self.day or self.night or (None,))[0]
 
+    def moments(self) -> tuple[str, ...]:
+        """本条**实际可选**的时刻/天气（从文件名后缀派生, 表里没写就推不出来）。
+
+        判据 = `files` 里每个文件走 `derive_background` 得到的 `variant`, 与
+        `MOMENT_VARIANTS` 取交集（保 `MOMENT_VARIANTS` 的顺序, 便于测试与日志）。
+        **空 = 只有默认图** ⇒ 第二遍判定根本不用发（0 调用）。
+        """
+        found = set()
+        for rel in self.day + self.night:
+            _, variant = derive_background(Path(rel).stem)
+            if variant in MOMENT_VARIANTS:
+                found.add(variant)
+        return tuple(v for v in MOMENT_VARIANTS if v in found)
+
+    def moments_text(self) -> str:
+        """给标注 LLM 的候选写法: `默认 / 夜(night) / 夕(sunset)`（无候选 → `默认`）。"""
+        parts = [BASE_LABEL] + [f"{moment_label(v)}({v})" for v in self.moments()]
+        return " / ".join(parts)
+
+    def asset_for(self, moment: str = "") -> str | None:
+        """某一时刻的图（相对路径）。**该时刻没有 → 回落默认图**（宁缺勿错）。
+
+        ⚠️ **别用 `catalog.background(scene_id, variant)` 代替它**: 实测（2026-09-19）
+        194 张时刻图里, 走 catalog 会漏 6 张（`BG_ClassRoom2_Night.jpg` 派生成
+        `class_room_2` 这个**另一个 scene_id**, 而键的 scene_id 是 `class_room`),
+        而表里的 `files` 路径是**逐字准确的（194/194）**——取图就走表。
+        """
+        want = moment_token(moment)
+        if want:
+            for rel in self.day + self.night:
+                _, variant = derive_background(Path(rel).stem)
+                if variant == want:
+                    return rel
+        return self.asset()
+
+    def asset_url(self, moment: str = "") -> str | None:
+        """`asset_for` → 前端 URL（`/assets/background/<rel>`）; 无图 → None。"""
+        rel = self.asset_for(moment)
+        return f"/assets/background/{rel}" if rel else None
+
+    # ------------------------------------------------------------------
+    # 候选图（给"选图"那一步: 同一地点常有好几张）
+    # ------------------------------------------------------------------
+
+    def image_label(self, rel: str) -> str:
+        """候选图的人话标签（**机器派生, 只是提示**）: `夜` / `默认·差分2` / `雨`。
+
+        "差分N" 的判据 = 派生出的 scene 以 `_数字` 结尾（`class_room_2` ⇒ 差分2）——
+        作者在 note 里就是这么说这些图的（*"请使用差分2"*）。认不出 → 差分1。
+        """
+        scene, variant = derive_background(Path(rel).stem)
+        m = re.search(r"_(\d+)$", scene)
+        idx = int(m.group(1)) if m else 1
+        head = moment_label(variant) if variant else BASE_LABEL
+        if idx > 1:
+            head += f"·差分{idx}"
+        return head
+
+    def image_candidates(self) -> list[tuple[str, str]]:
+        """`[(相对路径, 标签)]` —— 这个键**实际有的每一张图**（去重保序）。
+
+        ⚠️ 为什么不是"时刻 token 列表": 作者的表里同一地点往往有多张**无变体**的
+        "差分"（`BG_X.jpg` / `BG_X2.jpg`——圣诞树/带家具/白墙 vs 铁墙…），它们的
+        区别写在 `note` 里。只给时刻 token 会让这 45 个键的差分永远选不了。
+        """
+        out: list[tuple[str, str]] = []
+        seen: set[str] = set()
+        for rel in self.day + self.night:
+            if rel and rel not in seen:
+                seen.add(rel)
+                out.append((rel, self.image_label(rel)))
+        return out
+
+    def image_candidate_lines(self) -> str:
+        """候选图的 prompt 文本（每行一张, 带标签与文件名）。"""
+        return "\n".join(f"  {i + 1}) {Path(rel).name}    （{label}）"
+                         for i, (rel, label) in enumerate(self.image_candidates()))
+
     def scene_id(self) -> str | None:
         """本条 → **资产派生的 scene_id**（`MediaCatalog` 的键）。
 
@@ -144,9 +267,16 @@ class PlaceEntry:
         return None
 
     def line(self, *, with_note: bool = True) -> str:
-        """标注 LLM 看到的一行（`place（别名）: note`）。"""
+        """标注 LLM 看到的一行（`place（别名）［时刻候选］: note`）。
+
+        `［默认/夜(night)/夕(sunset)］` 只在**真有别的图**时出现（30 个键只有一张图
+        → 不加噪声）。这是用户 2026-09-19 问的"Night/Sunset 这些让 LLM 知道了吗"的
+        答案: 现在知道了（时刻本身由**第二遍**单独判, 见 `core/bond/moment_annotate.py`）。
+        """
         kw = "/".join(self.keywords)
         head = f"{self.place}（{kw}）" if kw else self.place
+        if self.moments():
+            head += f"［{self.moments_text()}］"
         if with_note and self.note:
             return f"{head}: {self.note}"
         return head
@@ -184,6 +314,21 @@ class PlaceTable:
         """表键 → 资产 scene_id（下游查图用）; 表键本身也行（slug 型键两者相同）。"""
         e = self.get(place)
         return (e.scene_id() if e else None) or ((place or "").strip() or None)
+
+    def moments(self, place: str) -> tuple[str, ...]:
+        """某键的可选时刻（没有这个键 → 空）。**空 = 只有默认图, 不用问 LLM**。"""
+        e = self.get(place)
+        return e.moments() if e else ()
+
+    def moments_text(self, place: str) -> str:
+        """某键的候选写法（`默认 / 夜(night) / 夕(sunset)`）; 键不存在 → `默认`。"""
+        e = self.get(place)
+        return e.moments_text() if e else BASE_LABEL
+
+    def asset_url(self, place: str, moment: str = "") -> str | None:
+        """某键某一时刻的 URL（`/assets/background/<rel>`）; 键/图缺失 → None。"""
+        e = self.get(place)
+        return e.asset_url(moment) if e else None
 
     def all(self) -> list[PlaceEntry]:
         return list(self.entries.values())
