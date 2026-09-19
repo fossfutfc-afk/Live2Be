@@ -116,7 +116,7 @@ P0 只把图挂到**章**（角色页条目上的缩略图 + `memorial_url`）; 
 |---|---|
 | `core/session/chapters.py::_memorial_boards` | 从事件流**派生板级纪念态**（不加新字段）: ① 窗口 = `memorial_enter` … 其后第一条 `memorial_exit`/`vn_exit`/`session_end`; ② **触发板** = 离 marker 最近且带 `memorial`/`memorial_prompt` 的那一板; ③ 图认最近的前置 `memorial_enter`（图晚到 26s, 常晚于 `vn_exit`） |
 | 板载荷 | 窗口内的板带 `in_memorial: true`; 触发板另带 `memorial_img`（前端 `syncMemorial` 读的就是这两个键, 与 live **同形**） |
-| `webgui/static/js/bond.js` | `roNext` 渲染后调 `syncMemorial(scene)`（此前只 live 的两条路径调）; `enterReadonly` 与 `roEnd` 各补一次"退出纪念态"（清残留 + 淡出） |
+| `webgui/static/js/bond.js` | `roNext` 渲染后调 `syncMemorial(scene)`（此前只 live 的两条路径调）; `enterReadonly` 与 `roEnd` 各补一次"退出纪念态"（清残留 + 淡出）; **退出时把普通背景还回来**——按 `curScene.background_url`（收尾板本来就没背景 → 仍留黑屏, 不把上一张糊回来） |
 
 **三个只有实测才会发现的坑（都已写成用例）**:
 

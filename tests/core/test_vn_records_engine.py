@@ -186,6 +186,48 @@ def test_empty_block_exhausts_retries():
     print("    engine: 空块重试耗尽 → SceneLoopError")
 
 
+def test_second_memorial_in_chapter_is_silently_rejected():
+    """★ 章内**第二次**纪念 → 静默拒绝（2026-09-20, 用户要求）。
+
+    背景: 规则书写着"章内至多一次（重复会被拒绝）", 但 `_memorial_used` 此前
+    **只写不读** ⇒ **同块内**由契约校验挡住, **跨块**的第二次一路放行: 又开一张图、
+    又写 `memorial_enter`、又置 `in_memorial`（回忆册"一章多图"的来源）。
+
+    "静默"= 不给模型反馈/不重试、只打一行 INFO; **文字照常显示**
+    （`stage=memorial` 本来就以旁白形态上屏 ⇒ 降级成 narrator 后观感不变）。
+    """
+    first = "\n".join([
+        '{"stage": "switch", "text": "黄昏的坡道"}',
+        '{"character": "igusa_haruka", "text": "老师，你看。"}',
+        '{"stage": "memorial", "text": "（她第一次直视我的眼睛。）"}',
+    ])
+    second = "\n".join([
+        f'{{"character": "igusa_haruka", "text": "（第二段日常。）"}}',
+        '{"stage": "memorial", "text": "（她又抬了一次头——这次不该再开画。）"}',
+        '{"character": "igusa_haruka", "text": "……"}',
+    ])
+    shots: list[str] = []
+    engine = _engine(ScriptedLLM(first, second))
+    s1 = engine.send_vn_scene("（开场）", annotate=False, on_memorial_prompt=shots.append)
+    assert s1.memorial is True and len(shots) == 1
+    assert engine._memorial_used is True
+
+    s2 = engine.send_vn_scene("（继续）", annotate=False, on_memorial_prompt=shots.append)
+    assert len(shots) == 1, f"第二次纪念不该再开画: {shots}"
+    assert s2.memorial is False, "第二次纪念该被静默降级"
+    # 文字照常显示: 降级成**标准旁白记录**（`{"character": "narrator"}` —— writer
+    # 写旁白本来就是这么写的; 前端把它渲染成没有名字牌的一段, 与 `stage:memorial`
+    # 的呈现一致——`stage` 记录也不带 speaker, 两种都不上名字行）
+    texts = [p["text"] for p in s2.paragraphs]
+    assert "（她又抬了一次头——这次不该再开画。）" in texts, texts
+    demoted = [p for p in s2.paragraphs if p["text"].startswith("（她又抬")]
+    assert demoted and demoted[0].get("speaker") == "narrator", s2.paragraphs
+    # 真源里也已经是 narrator 记录（回放/回忆册据此看不到第二个纪念窗口）
+    recs = [r for r in s2.records if r.get("text", "").startswith("（她又抬")]
+    assert recs and recs[0].get("character") == "narrator", s2.records
+    print("    章内第二次纪念: 不生图 / 不置位 / 记录降级为旁白（文字照常显示）")
+
+
 def test_memorial_fires_image_hook_with_art_intent():
     """纪念生图钩子（v2, 2026-09-12）: `stage:memorial` 一出现就回调, prompt =
     块级 `art` 画面意向（rules 要求写清"她此刻在画面里是什么样"）。
