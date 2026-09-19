@@ -1426,6 +1426,22 @@ writer 根本不知道板存在, 它只是连着写记录、该换场就发 swit
 各测试桩补 `选中的文件名` 分支（7 个文件, 按 CLAUDE.md §11 的桩约定）。
 `experiments/place_switch_real.py` 现在会打印**选了哪张图**与选图调用次数。
 
+**真机验收（2026-09-20, 真 API `deepseek-flash`）**
+
+* **选图判定**（`experiments/place_pick_real.py`, 12 用例 → **12/12 通过**, 单次 0.4–0.8s）:
+  · 时刻: 深夜→`BG_SchoolRooftop_Night.jpg` · 夕阳→`…2_Sunset.jpg` · 清晨→`…_Dawn.jpg`
+  · **四句反例全过**: 范围成语→空（保持）; **"这些灯光，感觉像在白天一样呢~"→夜图**
+    （比喻+否定判对了 —— 关键词表会判反）; 光天化日→空; 私は夜の散歩が…→空
+  · **作者差分照办**: "阳光明媚的渔村"→`BG_FishingVillage2.jpg`（note: *"请使用差分2"*）·
+    "雾气浓浓的渔村码头"→`BG_FishingVillage.jpg` · "夜里的渔村"→夜图
+  · 没有对应图 → 回落默认（"雨中的天台"→默认图, **不黑屏**）· "大雾里的山谷"→`BG_Valley2_Fog.jpg`
+* **真剧情端到端**（`experiments/place_switch_real.py`, 纯内存**不写事件流**）:
+  `[place][SWITCH] '深夜的格黑娜学院天台' → school_rooftop` +
+  `[place][PICK] → BG_SchoolRooftop_Night.jpg` ⇒ **夜景第一次真的上屏**;
+  地点相关调用 2 次 / 0.9s（resolve + pick）
+* **无污染**: 跑前跑后 `data/` **24 个文件长度与 mtime 全同**（探针
+  `.testtmp/probe_data_pollution.py`; 我第一版对比脚本键归一化写错, 报了个假警报）
+
 ⚠️ **已知缺口（下一步候选）**: 句级锚点（板内后续换场）**不带选图**——那也是这次
 换场的图, 暂时用默认图; 要补就在 `annotate_places` 的锚点上再发一次（同形态）。
 
