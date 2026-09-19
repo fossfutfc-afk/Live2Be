@@ -694,17 +694,26 @@ B = 今天的一句寒暄（SIG=0.50）
 > 且其提醒属白熊效应"）; **`place_palette` 是盒B 里最后一块词表**。
 > 词表统一归标注层, 由标注层做「自由文本 → 键」。
 
-- [ ] **`place_palette` 退出盒B**（最小第一刀）: 删块 → 盒B 9→8 块 →
-      **promptkit 黄金夹具必刷**（CLAUDE.md §8 纪律）。
+- [x] **`place_palette` 退出盒B**（2026-09-15 T16 已落地 `20bf757`）——
+      ⚠️ **原地换块, 不是删块**: `place_palette` → `place_world`, 盒B 仍是 **9 块**
+      （原计划"9→8"是记错了）; 黄金夹具已刷。
       **它不是"防背景单调"的正解**: 想解决的是"writer 不敢换场", 而正确手段是
       **一条规则 + 一个动作**（`switch` 已经有了）——给菜单是**用错的手段做同一件事**,
       且菜单是**猜**需求、`[place][MISS]` 日志是**测**需求
 - [ ] **switch 并入 place lane**: 现在 `resolve_place`（首记录是 `switch`）与
       `annotate_places`（句级锚点）**二选一 + 早返回**（`bond_story.py:1115-1136`）
       ——合成一条路; `current_place` 延续态跟着搬
-- [ ] **接 tempo 导出表**: `_place_entities.json`（200+ 条 + `keywords` + `note`）
+- [ ] **接 tempo 导出表**: `_place_entities.json`（**168 条 active**, 2026-09-17）
       替换 31 条裸 slug —— **层1 `keywords` 别名精确命中（0 调用）+ 层2 LLM 解析**。
-      `resolve_place` docstring 自称「P1-2 会用 tempo 导出视图替换词表」
+      `resolve_place` docstring 自称「P1-2 会用 tempo 导出视图替换词表」。
+      ⚠️ 表当前**缺三样**才能当标注语料用（`DESIGN_PLACE.md §6` 差距表）:
+      ① `note`（245/246 条有值, 作者写的用途说明）**不进导出** —— 而它才是
+      "这个地点适合什么戏"的判据; ② 导出**外层键仍是自动族键 `root`**, 与
+      `place` 不等者 **103/168**; ③ 键名统一为 `place`（2026-09-19 用户裁决,
+      依据 `place_studio._migrate_export_entry`）
+- [ ] **导出外层键收口**: `api_export` 的 `merged[it["root"]]` → `merged[place]`
+      （否则"168 条表"有两个标识符, 接线时必踩）; 连带 `_do_export.py` /
+      `_probe_tables4.py` 的对账口径
 - [ ] **`keywords` 分隔符（源头 bug, 接通前第一件事）**: `place_studio.py:574` 按
       `,` 拆, 而数据是 `/`（旧导出用 `|`）→ **实测两个导出文件都是单元素数组、
       元素是整串** → 别名表恒不命中。消费端容错（`, / | 、` + 空白一起拆, 同
@@ -760,10 +769,55 @@ B = 今天的一句寒暄（SIG=0.50）
       ③ **switch 并入 place lane**: 消掉与 `annotate_places` 的"二选一早返回"
       ④ **C 链路先落 region 层**: `region` 相等（精确、0 依赖、不靠 embed 后端）
 
-- [ ] **`regions.yml` vs `place_studio.REGIONS` 双表漂移**: `config/settings/world/
-      regions.yml`（21 条）**Live2Be 侧零消费**（`grep regions.yml` 在 `*.py` 零命中）,
-      而 `place_studio.py:40` **内嵌了第二份**（自称"不再依赖/import Live2Be"）
-      → 两份表迟早漂移。接线时收口到一份
+- [ ] **`regions.yml` vs `place_studio.REGIONS` 双表漂移**: `place_studio.py`
+      **内嵌了第二份 `REGIONS`**（`place_studio.py:40`, 自称"不再依赖/import
+      Live2Be"）与 `config/settings/world/regions.yml`（21 条）各一份
+      → 两份表迟早漂移。接线时收口到一份。
+      ~~Live2Be 侧零消费~~ **2026-09-19 更正: 此说法已过时** —— T16 之后
+      `core/parsing/place_regions.py:57` 与 `core/promptkit/blocks.py:22` 都在读它,
+      【世界区域】块已上屏
+
+### 地点系统实测（2026-09-19 复核, 只读探针）
+
+> 探针: `.testtmp/probe_place_ns.py`（命名空间对齐）/ `probe_place_table.py`
+> （表结构缺口）/ `probe_place_real.py`（真机事件流地点痕迹）。
+
+- [ ] **🔴 现役「地点→画面」链在真机上全灭**（haruka 6 板 + mutsuki 14 板）:
+
+      | 观测 | 值 |
+      |---|---|
+      | `place_hint`（writer 的换场话） | **3 条**（校舍后面的杂草屋 ×2 / 街角的咖啡馆，靠窗的位子 ×1） |
+      | board 级 `place`（翻译结果） | **0 条** —— 3/3 MISS |
+      | 记录级 `place` 锚点 | **0 条** |
+      | board 级 `background` | **`neutral` × 20/20** |
+
+      `neutral` 不是场景（`cat.background("neutral") is None`）→ `_resolve_scene`
+      落到 `_fallback_bg_url()` → `_BG_FALLBACK_PRIORITY[0]` → **`class_room`**。
+      ⇒ **每次 VN 都在显示教室**，剧情开在杂草屋还是咖啡馆一样。
+      （比对 `TODO` 里"bond 黑背景遗留确认"那条——这就是它的具体形态）
+- [ ] **🔴 31 条裸 slug 两头都不对**（`data/diag/live2be.log` 的 `[place][SWITCH]`
+      共 331 行）:
+      - 写到的地儿**没有** → `'校舍后面的杂草屋'→MISS` / `'街角的咖啡馆…'→MISS`（生产）
+      - 有的地儿模型**硬凑** → `'深夜的杂草屋' → school_rooftop` ×88（杂草屋译成校舍屋顶！）
+        —— 正是 `place_resolve.md` "宁可空着，不要硬凑"要防的事, 没防住
+      - `'学校天台' → rooftop` ×11：`rooftop` **不在**当前 31 条里（是 `school_rooftop`）;
+        而 `llm/prompts/place_annotate.md` 的示例还写着 `[{"sentence": 3, "place": "rooftop"}]`
+        → **示例教了一个会被闸门丢掉的 id**, 待改
+- [x] **三份孤儿产物已删**（2026-09-19 用户裁决: background 目录整体换成工作区组织）:
+      `assets/_background_lexicon.json`（616 条 VLM 打标, 曾经 `76e45d9` 入库 →
+      `git rm`; 要回滚: `git show 76e45d9:assets/_background_lexicon.json > <path>`）·
+      `assets/_place_draft.json`（94 KB,
+      `place_organizer.py` 的 Stage 1 草案, 可重生成）·
+      `assets/background/_place_entities.json`（2 条, 旧 `name` schema）。
+      三者**全库零消费方**（grep 证实）
+- [x] **旧版工作台已删**（2026-09-19 用户裁决: "只有 tempo 下是好的"）:
+      `tools/place_studio.py`（09-07, 28 KB）已 `git rm`; 真源 =
+      `D:\myStuff\tempo\place_studio.py`（09-15, 38 KB, SDIR/DIR + 导出重写）
+- [ ] **⚠️ `assets/background/.thumbs/` 被当成资产扫进 catalog**：
+      `MediaCatalog._scan_backgrounds` 用 `rglob("*")` 不跳隐藏目录 →
+      **239 张 480px 缩略图进了 `background_scenes()`**。今天恰好不赢
+      （同 scene 的首选图仍解析到真图, 0 个场景落在 `.thumbs`）——**顺序偶然, 不是设计**。
+      换成 SDIR/DIR 组织时 `.thumbs` 会跟着搬 → 加一行"跳过点目录"再动
 
 ## 中期（蓝图 / 板块）
 
