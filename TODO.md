@@ -1448,17 +1448,60 @@ writer 根本不知道板存在, 它只是连着写记录、该换场就发 swit
 `test_webgui_uses_paragraph_asset`（全量 842 通过）。
 ⚠️ 代价: 一次换场最多 **2 次选图调用**（板首 + 板内锚点）——真机上一章锚点极少。
 
-### PL7 表自身收尾（**作者侧**, 我只出清单）
+### PL7 表自身收尾（**作者侧**, 我只出清单）—— **清单已出（2026-09-20）**
 
-- [ ] `files.night` 归类：混进状态变体 25 张（ruin/erode/blur/off/dark/party/fake）
-      + 白天天气 7 张（fog/rain/cloudy/dawn/sky）; 只有 115/168 是真夜景
-      ⚠️ **PL6′ 后这条的优先级变了**: 选图的候选**从文件名后缀派生**, 但只放行
-      "时刻/天气"子集（`MOMENT_VARIANTS`）⇒ 状态类混装**暂时无害**;
-      真正的好处是作者侧把差分/时刻写清楚（note 已经是最好的载体）
-- [ ] `tent_inside` 无 day 文件（唯一一条）
-- [ ] 覆盖率：435/1094 = 39%; `SDIR_Special` 59 组 **0 active**; `SDIR_Schools` 9/126
-- [ ] 写了 note 却没勾 active 的（`ruinpianoroom` 废弃琴房 / `abandoned_warehouse` …）
-- [ ] `region` 补全（现 20/168）——用户说"作用不大", 可做可不做
+> 生成器: `python experiments/place_author_checklist.py`（**只读**, 不改任何东西）——
+> 每次跑都会打印下面四组并把全量 JSON 落到 `.testtmp/pl7_checklist.json`。
+> 数字随表变, 别背; 要改就重跑。
+
+**A. `files.night` 里的混装 = 26 张**（判据 = 不在 `MOMENT_VARIANTS` 里）
+
+| 后缀 | 张数 | 性质 | 例子 |
+|---|---|---|---|
+| `ruin` | 7 | 剧情状态（废墟） | `train_cabin` / `rope_bridge` / `phone_box` / `cityoverpass` |
+| `blur` | 5 | 剧情状态（失焦/晕） | `bamboo_forest` / `computer_center` / `trinityclassroom` |
+| `erode` | 5 | 剧情状态（侵蚀） | `computer_center` / `amusement` / `schale_office` / `park` |
+| `off` | 3 | 剧情状态（停电） | `broadcasting_room` / `computer_center` / `view_mainstadium` |
+| `dark` / `party` | 2 + 2 | 剧情状态 | `schale_cafeteria` / `gehenna_corridor` … |
+| `fake` | 1 | 剧情状态（伪装） | `schale_office` |
+| `sky` | 1 | 白天天气 | `view_sky` 的 `BG_View_Sky.jpg` |
+
+⚠️ **这条的性质变了**（PL6′ 之后）: 选图候选**只放行时刻/天气**（night/sunset/dawn/
+fineday/cloudy/rain/fog）⇒ 上面这些**进不了候选、也不会误用**, 放着不影响运行。
+**挪不挪随你**；真要挪，建议给状态类单开一个 `files.state`（别混进 `night`），
+将来若要接"停电/侵蚀"这类剧情状态，那份清单就是现成的语料。
+（旧口径说"25 状态 + 7 白天天气"; 按现在的判据 **天气类已算合法时刻**, 所以是 26 张。）
+
+**B. 形状问题（逐条可改, 都很小）**
+
+- `tentinside_night` **只有夜、没有昼**（唯一一条）——真要白天用就得补图或改名
+- `family_restaurant` **note 为空**（168 条里唯一一条空的）⇒ 层2 "表外落位"对它无效
+- **22 个键只有一张图**（选图那一步不会问 LLM）——正常, 只是列出来
+
+**C. 覆盖率: 磁盘 1089 张 / 表引用 435 张（40%）/ 未进表 654 张**
+
+按 SDIR: `SDIR_Schools` 299 · `SDIR_Special` 100 · `SDIR_Inner` 75 · `SDIR_Public` 60 ·
+`SDIR_Nature` 38 · `SDIR_Infrastructure` 32 · `SDIR_Outer`/`SDIR_Streets` 各 16 ·
+`SDIR_Atmosphere` 14 · `SDIR_Clubs` 4。
+⇒ **没进表 ≠ 坏**（很多是事件图/特效/重复）：这张表是"**可以演的地点**"的视图,
+不是资产清单。想提高可演覆盖率, 从 `SDIR_Schools` 那 299 张里挑最常用的几组勾 active
+收益最大。
+
+**D. ⭐ 最划算的一条: 给多图键写清"用哪张"**
+
+**146 个多图键里, note 只有 2 条写了偏好**（`fishing_village` / `lighthousepier`）,
+其余 144 条的 note 只描述"这是什么地方"。而第二遍选图**会照办 note**（已验证）:
+
+* 写了 → 你说用哪张就用哪张（`"请使用差分2"` 这类话现在有实际回报）
+* 没写 → 模型按剧情自己挑（多数情况挺好; 但两张图差别是"陈设/构图"而不是"时刻"时,
+  它只能瞎猜——`view_sky`（纯云/有太阳月亮两组）、`school_rooftop`（天台为主 vs 天空为主）
+  就是这种）
+⇒ 建议至少给**这几类**补一句: ①几张差分各是什么场合 ②默认用哪张 ③哪张不适合日常（事件图）
+
+**E. `region`**: 148/168 为空——你说过"作用不大", 留着不动。
+
+**F. 写了 note 却没勾 active 的**（`ruinpianoroom` 废弃琴房 / `abandoned_warehouse` …）:
+翻 `active: true` 就进表; 现状不影响运行（它们只是"暂时不进词表"）。
 
 ### PL8 文档/夹具收尾 —— **✅ 完成（2026-09-20）**
 
