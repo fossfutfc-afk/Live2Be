@@ -6,12 +6,26 @@
     sprite(char_id, emotion)            → 差分（manifest 情绪白名单 + 可选 spine 导出）
     sprite_emotions / background_scenes / background_variants / has_*  → 供 ② 导演/播放协议校验
 
+## 目录组织（2026-09-19, PL0）
+
+背景**递归**扫描, 且**剪掉点/下划线开头的目录**（`.thumbs/` 缩略图缓存、
+`__pycache__`、作者预留的 `_unused/` —— 见 `_iter_background_images` 的 docstring）。
+现行 `BG_*/BG_*.jpg` 与工作区导出的 `SDIR_*/DIR_*/BG_*.jpg` 两级布局**都支持** ——
+scene_id 由**文件名**派生, 与目录层级无关（用户同步的是 `SDIR`/`DIR` + 地点表）。
+
+⚠️ **`background_dirs()` / `background_scenes_in_dir()` 已删**（2026-09-19）:
+它们是"② 导演背景分层选目录"时代的 API, **零消费方**, 且目录名换组织后本就失效 ——
+留着就成了**说谎的接口**（"有哪些目录"答出 `SDIR_*`, 调用方以为拿到 `BG_*`）。
+需要"某目录下有哪些 scene"用 `background_scenes()` 自行过滤。
+
 架构: 背景=命名派生（零 manifest）; 差分=manifest 映射（情绪白名单真源）。
 详见 core/DESIGN_VISUAL.md §5-①。
 """
 from __future__ import annotations
 
+import os
 from pathlib import Path
+from typing import Iterator
 
 from core import paths
 from core.common.errors import Live2BeError
@@ -24,6 +38,38 @@ _DEFAULT_ASSETS = paths.ASSETS_DIR
 
 # 背景变体后缀（.py 等脚本残留自动排除）
 _IMAGE_EXTS = {".jpg", ".jpeg", ".png"}
+
+#: 遍历背景资产时**跳过的目录名前缀**（点 = 工具缓存如 `.thumbs/`;
+#: 下划线 = `__pycache__` 与作者预留的 `_unused/`）
+_SKIP_DIR_PREFIX = (".", "_")
+
+
+def _iter_background_images(bg_root: Path) -> Iterator[Path]:
+    """背景图全集（递归; **剪掉点/下划线开头的目录**）。
+
+    为什么不用 `rglob("*")`（2026-09-19, PL0）:
+    * `assets/background/.thumbs/` 是工作台（`place_studio.py`）的缩略图缓存 ——
+      **239 张 480px JPEG 曾经全部进了 `background_scenes()`**
+      （真图 1094 + 缩略图 239 = 1333）。今天没出事只是因为"同 scene 的首选图恰好先被
+      扫到"——**顺序偶然, 不是设计**。
+    * `__pycache__` 同理（当前没图, 但没理由靠这个）。
+    * 下划线开头还留给作者: `DESIGN_PLACE §4` 的 `_unused/`（"确定用不到的"）——
+      那些**不该进活跃索引**。当前无 `_` 开头的资产目录（除 `__pycache__`）。
+
+    ## 目录组织
+
+    既支持现在的 `BG_*/BG_*.jpg`, 也支持工作区导出的 **`SDIR_*/DIR_*/BG_*.jpg`**
+    （用户 2026-09-19: tempo 是"带实体的 development 分支", 他同步 `SDIR`/`DIR` + 表
+    进来）。**文件名不变 ⇒ `derive_background()` 结果不变 ⇒ 查库天然不受影响**,
+    这里只负责"递归 + 剪枝"。
+    """
+    for dirpath, dirnames, filenames in os.walk(bg_root):
+        dirnames[:] = [d for d in dirnames if not d.startswith(_SKIP_DIR_PREFIX)]
+        for name in filenames:
+            p = Path(dirpath) / name
+            if p.suffix.lower() in _IMAGE_EXTS:
+                yield p
+
 
 
 class MediaError(Live2BeError):
@@ -72,28 +118,6 @@ class MediaCatalog:
         """全部已登记场景 id。"""
         return sorted(self._backgrounds)
 
-    def background_dirs(self) -> list[str]:
-        """assets/background/ 下目录名清单（② 导演背景分层第一层: 目录粗选）。"""
-        bg_root = self.assets_root / "background"
-        if not bg_root.is_dir():
-            return []
-        return sorted(p.name for p in bg_root.iterdir() if p.is_dir())
-
-    def background_scenes_in_dir(self, dir_name: str) -> list[str]:
-        """某目录内已派生的 scene_id 清单（② 导演分层第二层: 目录内拍板）。
-
-        懒扫描该目录（按需、便宜）; 目录不存在/无图 → []（宁缺勿错）。
-        """
-        d = self.assets_root / "background" / dir_name
-        if not d.is_dir():
-            return []
-        seen: set[str] = set()
-        for p in d.iterdir():
-            if p.is_file() and p.suffix.lower() in _IMAGE_EXTS:
-                scene, _ = derive_background(p.stem)
-                seen.add(scene)
-        return sorted(seen)
-
     # ------------------------------------------------------------------
     # 查询: 差分（板块结构 2026-08-28: 每外观一个自包含目录 {char}/{outfit}/,
     # 有 emotions.yml 的目录 = 外观; 缺省 outfit="default"）
@@ -127,12 +151,11 @@ class MediaCatalog:
         bg_root = self.assets_root / "background"
         if not bg_root.is_dir():
             return
-        for p in bg_root.rglob("*"):
-            if p.is_file() and p.suffix.lower() in _IMAGE_EXTS:
-                scene, variant = derive_background(p.stem)
-                self._backgrounds.setdefault(scene, []).append(
-                    BackgroundMedia(scene, p, variant)
-                )
+        for p in _iter_background_images(bg_root):
+            scene, variant = derive_background(p.stem)
+            self._backgrounds.setdefault(scene, []).append(
+                BackgroundMedia(scene, p, variant)
+            )
 
     def _ensure_character(self, char_id: str, outfit: str = "default") -> None:
         """外观懒加载: 首次 query 该角色外观才扫描, 之后 O(1)（含不存在外观的空缓存）。"""

@@ -1070,26 +1070,33 @@ B = 今天的一句寒暄（SIG=0.50）
 > 新组织"。`.thumbs/` 不在同步清单里（同步的是 SDIR/DIR + 表）, 但 repo 里
 > **现存的那份 `.thumbs`** 仍要处理（见下第 2 条）。
 
-- [ ] 接受 `SDIR_*/DIR_*` 两级组织（文件名不变 ⇒ `derive_background()` 结果不变 ⇒
-      查库天然不受影响, 只需支持递归）
-- [ ] `MediaCatalog._scan_backgrounds` **跳过点目录**（repo 现有
-      `assets/background/.thumbs/` = 239 张 480px 缩略图, 正被 `rglob("*")` 当资产
-      扫进 `background_scenes()`；今天靠顺序偶然不赢, 不是设计）
-- [ ] `background_dirs()` / `background_scenes_in_dir()`：随目录名失效（**零消费方**
-      → 改成两级或直接删）
-- [ ] `_director_whitelist.json` 的 `common_dirs`（23 个 `BG_*`）废
-- **验收**: ① `background_scenes()` 仍 = 620（数量不变）② 随机抽 20 个 scene_id
-      `background(sid)` 出真图 ③ `_place_bg(key)` 对**表里 168 条全扫**一遍,
-      **0 条 missing**（现在是缺的, 因为 `files` 指 `SDIR_*/...` 而磁盘还是 `BG_*`）
+- [x] **repo 侧接住新组织（代码已做, 2026-09-19）**:
+      · `MediaCatalog` 背景扫描改成显式 walk + **剪枝点/下划线开头的目录**
+        （`.thumbs/` 缩略图 / `__pycache__` / 作者预留的 `_unused/`）
+        —— 真机: 遍历到的图 **1333 → 1094**（239 张缩略图不再进索引）,
+        `background_scenes()` 仍 620
+      · **删** `background_dirs()` / `background_scenes_in_dir()`（零消费方 +
+        换组织后会说谎）; `_director_whitelist.json` 的 `common_dirs` 同批删
+      · 新增 3 例测试（两级组织可扫 / 缓存目录被剪 / 那两个 API 已删）,
+        **哨兵验过会红**（关掉剪枝 → `['class_room','class_stairs','junk','old_thing']`）
+- [ ] **用户侧同步**（他的活）: 把 tempo 的 `SDIR`/`DIR` + 表同步进 repo。
+      ⚠️ **建议先清空 `assets/background/` 再放新树** —— 否则旧的 196 个 `BG_*` 目录
+      会与新树**共存**, 同一张图存两份（磁盘翻倍; 查库因文件名同源不会错, 但很脏）。
+      `.thumbs/` 不用带（带了也已被剪枝忽略）
+- **验收**: 跑 `python experiments/place_asset_audit.py` —— **A 全绿**
+      （表 `files` 435 个路径全部命中磁盘, 168/168 条目全对）。
+      当前(未同步)读数: **A = 0/168 全对、435/435 缺**; B = 168/168 取到图
+      （运行时靠"文件名派生的 scene_id"兜住了, 所以现在**没有黑屏**）
 
-### PL1 表与资产的路径对齐
+### PL1 表与资产的路径对齐 —— **对账脚本已就位（2026-09-19）**
 
-- [ ] PL0 之后, 表里 `files`（`SDIR_x/DIR_y/BG_z.jpg`）**可直接解析**；
-      `PlaceEntry.asset()` 从"给路径"变"给真存在的路径"
-- [ ] 新增自检：**表 ↔ 磁盘对账**（多少条的 `files` 找不到 → 那就是黑屏名单）
-- [ ] 该自检接进 `experiments/`（可复跑）, 不进运行时
-- **验收**: 168 条全对账通过; 对账脚本输出 `missing=0`
-- **阻塞**: PL0
+- [x] `experiments/place_asset_audit.py` —— 答两个**不同**的问题:
+      · **A. 表 `files` ↔ 磁盘**（PL0 的真验收; 现在 0/168 全对, 435/435 缺）
+      · **B. 运行时 `_place_bg(key)`**（玩家会不会看黑屏; 现在 168/168 取到图
+        —— 因为 scene_id 由**文件名**派生, 目录层级换了也照样命中）
+      · C. 目录形态（`BG_*` / `SDIR_*` / 已剪枝）
+- [ ] 同步后复跑, A 应转 168/168 全对; 之后把它当常规自检（改表/换组织后跑一次）
+- **阻塞**: 用户的同步（PL0 那条）
 
 ### PL2 写作用词成块（详细问题描述 + 我的决定）
 

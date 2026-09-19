@@ -333,6 +333,69 @@ def test_background_event_png_indexed(tmp_path):
 
 
 # ----------------------------------------------------------------------------
+# PL0（2026-09-19）: 递归 + 剪枝 —— 支持 SDIR/DIR 两级组织, 排掉缓存目录
+# ----------------------------------------------------------------------------
+
+def _make_layout_assets(tmp_path):
+    """一棵"既有旧布局又有新布局又有缓存"的假资产树。"""
+    bg = tmp_path / "assets" / "background"
+    # ① 现行布局: BG_*/BG_*.jpg
+    (bg / "BG_Class").mkdir(parents=True)
+    (bg / "BG_Class" / "BG_ClassRoom.jpg").write_bytes(b"real")
+    # ② 工作区导出的两级布局: SDIR_*/DIR_*/BG_*.jpg（用户同步进来的形态）
+    (bg / "SDIR_Inner" / "DIR_Class").mkdir(parents=True)
+    (bg / "SDIR_Inner" / "DIR_Class" / "BG_ClassStairs.jpg").write_bytes(b"real")
+    # ③ 工作台缩略图缓存 —— **不该进索引**（真机曾把 239 张扫进来）
+    (bg / ".thumbs" / "BG_Class").mkdir(parents=True)
+    (bg / ".thumbs" / "BG_Class" / "BG_ClassRoom.jpg").write_bytes(b"thumb")
+    # ④ __pycache__ / 作者预留的 _unused/ —— 同样排除
+    (bg / "__pycache__").mkdir(parents=True)
+    (bg / "__pycache__" / "BG_Junk.jpg").write_bytes(b"junk")
+    (bg / "_unused" / "BG_Old").mkdir(parents=True)
+    (bg / "_unused" / "BG_Old" / "BG_OldThing.jpg").write_bytes(b"unused")
+    return tmp_path / "assets"
+
+
+def test_background_scan_recurses_sdir_dir_layout(tmp_path):
+    """★ 两级组织（`SDIR_*/DIR_*`）照样扫得到 —— scene_id 由**文件名**派生, 与层级无关。"""
+    c = MediaCatalog(_make_layout_assets(tmp_path))
+    scenes = c.background_scenes()
+    assert "class_room" in scenes and "class_stairs" in scenes, scenes
+    # 新布局里那条真的指向 SDIR/DIR 路径
+    p = c.background("class_stairs").path
+    assert p.parent.name == "DIR_Class" and p.parent.parent.name == "SDIR_Inner", p
+    print(f"    PL0: SDIR/DIR 两级可扫 → {sorted(scenes)}")
+
+
+def test_background_scan_skips_cache_dirs(tmp_path):
+    """★ **点/下划线开头的目录不进索引**（`.thumbs` 缩略图 / `__pycache__` / `_unused`）。
+
+    真机实测: 改前 `rglob("*")` 会捞 **1333** 张（1094 真图 + 239 缩略图）,
+    缩略图全部进了 `background_scenes()`; 改后只捞 **1094**。
+    """
+    c = MediaCatalog(_make_layout_assets(tmp_path))
+    scenes = c.background_scenes()
+    assert scenes == ["class_room", "class_stairs"], scenes
+    # 首选图必须是真图, 不是 `.thumbs/` 里的缩略图（同 scene_id、同 variant=None）
+    got = c.background("class_room").path
+    assert ".thumbs" not in got.parts, got
+    assert got.read_bytes() == b"real", "拿到缩略图了"
+    print(f"    PL0: 缓存目录被剪掉; class_room → {got.parent.name}/{got.name}")
+
+
+def test_background_dirs_apis_are_gone(tmp_path):
+    """★ `background_dirs()` / `background_scenes_in_dir()` 已删（零消费方 + 换组织后失效）。
+
+    它们是"② 导演背景分层选目录"时代的 API。留着的话, 目录名一变就成了**说谎的接口**
+    （"有哪些目录"会答出 `SDIR_*`, 而调用方以为拿到的是 `BG_*`）。
+    """
+    c = MediaCatalog(_make_layout_assets(tmp_path))
+    for gone in ("background_dirs", "background_scenes_in_dir"):
+        assert not hasattr(c, gone), f"{gone} 该删掉了"
+    print("    PL0: background_dirs / background_scenes_in_dir 已删（零消费方）")
+
+
+# ----------------------------------------------------------------------------
 # catalog: 差分查询
 # ----------------------------------------------------------------------------
 

@@ -1,4 +1,12 @@
 {
+  "_comment_2026_09_19": [
+    "本文件现在只剩一个用途: common_scenes = place 词表的【降级兜底】",
+    "（core/media/place_table.py 的表读不出来时才用它）。",
+    "现役词表 = config/settings/world/place_entities.json（168 条语义键表, 含 keywords 别名 + note 用途说明）。",
+    "common_dirs 字段已删 —— 它是『②导演背景分层选目录』时代的产物, 零消费方,",
+    "且资产换成 SDIR_*/DIR_* 两级组织后本就失效。",
+    "另: MediaCatalog.background_dirs() / background_scenes_in_dir() 同批已删。"
+  ],
   "common_scenes": [
     "class_room", "class_corridor", "class_stairs",
     "school_front_gate", "school_ground", "school_rooftop",
@@ -10,13 +18,5 @@
     "shopping_district", "shopping_mall", "park",
     "playground", "library", "student_room",
     "dormitory", "kitchen", "beachside", "onsen"
-  ],
-  "common_dirs": [
-    "BG_Class", "BG_School", "BG_Gehenna", "BG_Campus",
-    "BG_Conven", "BG_Shopping", "BG_Library", "BG_Park_",
-    "BG_Playground", "BG_Rooftop", "BG_Beach", "BG_Onsen",
-    "BG_Yakinikuya", "BG_FoodCartRamen", "BG_Dormitory", "BG_StudentRoom",
-    "BG_Kitchen", "BG_CityDowntown", "BG_Market", "BG_FamilyRestaurant",
-    "BG_FastfoodRestaurant", "BG_Tatami", "BG_Subway"
   ]
 }
