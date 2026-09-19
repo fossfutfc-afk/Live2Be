@@ -452,15 +452,16 @@ let lastSceneKey = "";
 
   // 纪念立绘同步（方案 A）: in_memorial + memorial_img 就绪 → 淡入全屏图
   // （进入瞬间普通背景清空 = 黑屏兜底, 无加载 UI——图就绪静默淡入）;
-  // 退出（in_memorial False）→ 淡出纪念层, 露出普通背景。
+  // 退出（in_memorial False）→ 淡出纪念层 + **把普通背景还回来**。
   // memorial 期间立绘隐藏（设计定稿: 纪念 = 图 + 文字, 无 spine/emotion/fx）。
   function syncMemorial(st) {
     const layer = $("bond-memorial");
     if (!layer) return;
     const stage = $("bond-stage");
+    const bg = $("bond-bg");
     if (st.in_memorial && stage) stage.classList.add("hidden");   // 纪念无立绘
     if (st.in_memorial) {
-      $("bond-bg").style.backgroundImage = "";                    // 黑屏兜底
+      if (bg) bg.style.backgroundImage = "";                    // 黑屏兜底
       if (st.memorial_img && layer.dataset.src !== st.memorial_img) {
         layer.dataset.src = st.memorial_img;
         layer.style.backgroundImage = `url("${st.memorial_img}")`;
@@ -474,6 +475,13 @@ let lastSceneKey = "";
           layer.style.backgroundImage = "";
         }
       }, 1200);
+      // ★ 恢复正常背景（2026-09-20, 用户要求）: 进入纪念时把 `bond-bg` 清空了,
+      //   退出时若它还空着 → 按**当前这块板的** `background_url` 还回去。
+      //   为什么用 curScene 而不是"记住进场前那张": 纪念窗口之后的那一板若本来就
+      //   没有背景（收尾黑屏余韵 / `is_end`）, 就不该把上一张图糊回来。
+      if (bg && !bg.style.backgroundImage && curScene && curScene.background_url) {
+        bg.style.backgroundImage = `url("${curScene.background_url}")`;
+      }
     }
   }
 

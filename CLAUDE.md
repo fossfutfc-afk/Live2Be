@@ -187,7 +187,11 @@ tests/ core/ webgui/ llm/ 分别对应域; experiments/ 真 API 基准与探索�
 
 **纪念（memorial, v2 2026-09-12 接通）**：板含 `stage:memorial` → 引擎 `in_memorial`
 置位（**新一块解析成功**时复位 = 区间到块尾）→ 前端隐藏立绘 + 清空普通背景 + 纪念图淡入；
+**退出纪念时按当前板的 `background_url` 把普通背景还回来**（收尾板本来无背景 → 仍黑屏）。
 生图由引擎在**一行 memorial 解析出来时**触发（prompt = 块级 `art` 意向, 缺省触发句）;
+**章内第二次 `memorial` → 静默拒绝**（`_demote_repeat_memorial`: 记录降级为标准旁白、
+文字照常显示, 不生图/不置位/不写 marker/不给模型反馈——`_memorial_used` 此前只写不读,
+规则书那句"重复会被拒绝"是空的, 2026-09-20 补上）。
 v1 的 `MemorialProbe`/`memorial_exit` 动作已退役。**图是异步的 → 回执单开一条
 `memorial_image` marker 落真源**（append-only 不可补写原事件）, 回放/重启按"其后没有
 `vn_exit`/`vn_abandon`/`session_end`"恢复——**不是**按 `vn_enter` 划范围

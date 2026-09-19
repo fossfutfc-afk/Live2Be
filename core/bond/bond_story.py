@@ -38,9 +38,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
-from contract import (AgentAction, BlockStreamParser,
-                      MAX_SENSEI_RUN, NON_PICKS, STAGE_ART, STAGE_END, STAGE_EXIT,
-                      STAGE_MEMORIAL, STAGE_SWITCH, VnBlock, build_record_schema,
+from contract import (AgentAction, BlockStreamParser, CHARACTER_NARRATOR,
+                      KIND_CHARACTER, MAX_SENSEI_RUN, NON_PICKS, STAGE_ART,
+                      STAGE_END, STAGE_EXIT, STAGE_MEMORIAL, STAGE_SWITCH,
+                      VnBlock, VnRecord, build_record_schema,
                       build_schema, check_block, sensei_groups)
 from core.common import Live2BeError, err
 from core.bond.bond_actions import MAX_SCENE_RETRIES, build_story_registry
@@ -691,8 +692,11 @@ class BondStoryEngine:
                 if stream is None:
                     return
                 stream.feed(str(text))
-                # 纪念生图提前开画（v2）: 见 attempt 循环头注释
+                # 纪念生图提前开画（v2）: 见 attempt 循环头注释。
+                # ⚠️ `not self._memorial_used`: 章内第二次纪念会被
+                # `_demote_repeat_memorial` 静默降级 —— 这里也不能先开画。
                 if (on_memorial_prompt is not None and not memorial_fired
+                        and not self._memorial_used
                         and any(r.stage == STAGE_MEMORIAL for r in stream.records)):
                     memorial_fired = True
                     self._fire_memorial_image(on_memorial_prompt,
@@ -849,11 +853,48 @@ class BondStoryEngine:
         except Exception as e:                     # noqa: BLE001 — 生图触发失败不炸生成
             logger.warning("[vn][memorial] 生图回调异常（降级纯文字）: %s", e)
 
+    def _demote_repeat_memorial(self, records: tuple) -> tuple:
+        """章内**第二次** `memorial` → **静默拒绝**（降级成旁白记录, 纪念语义全去）。
+
+        ## 为什么补这一手（2026-09-20）
+
+        规则书写着"**章内至多一次**（重复会被拒绝）", 但 `_memorial_used` 此前
+        **只写不读**（全仓 3 处赋值、0 处读取）⇒ **同块内**的重复由契约校验挡住
+        （`contract/records.py:342` 报 issue, 会反馈重试）, 而**跨块**的第二次
+        一路放行: 又开一张图、又写一条 `memorial_enter`、又置 `in_memorial`
+        （回忆册那边"一章多图"就是这么来的——章级缩略图只能取最后一张）。
+
+        用户 2026-09-20: *"engine 以后遇到第二次 memo 可以直接静默拒绝"*。
+
+        ## "静默"的准确含义
+
+        * **不给模型反馈、不重试**（不写 `notes`/不进 feedback——那会变成反馈回环,
+          与 `_system_note` 里删掉那条"请输出 memorial_exit"注记同一个理由）;
+        * 只打一行 INFO 供 grep;
+        * **文字照常显示**: `stage=memorial` 的记录本来就以旁白形态上屏
+          （`from_board` 只跳过 switch/art/exit, 且 stage 记录不带 speaker）——
+          改成 `narrator` 记录后**观感逐字节不变**, 只是不再有纪念语义:
+          不置 `in_memorial` / 不写 `memorial_enter` / 不触发生图 / 不进回忆册的图列表。
+        """
+        if not self._memorial_used:
+            return records
+        if not any(getattr(r, "stage", "") == STAGE_MEMORIAL for r in records):
+            return records
+        logger.info("[vn][memorial] 章内第二次纪念 → 静默拒绝"
+                    "（降级为旁白; 不生图/不置位/不写 marker）")
+        return tuple(
+            VnRecord(KIND_CHARACTER, CHARACTER_NARRATOR, r.text,
+                     getattr(r, "line_no", 0))
+            if getattr(r, "stage", "") == STAGE_MEMORIAL else r
+            for r in records
+        )
+
     def _scene_from_records(self, records: tuple, stream: "BlockStreamParser") -> BondScene:
         """流式板块 → BondScene（与批式 `_build_record_boards` 同语义）。
 
         群的判定: 板内所有 sensei 记录即本板候选（切板规则保证群在板尾）。
         """
+        records = self._demote_repeat_memorial(records)
         group = tuple(i for i, r in enumerate(records) if r.is_sensei)
         return BondScene.from_board(records, group, notes=list(stream.notes))
 
@@ -917,6 +958,7 @@ class BondStoryEngine:
         # `art` 是**块级声明**（本轮画面意向）——不参与板切分（否则会切出一个纯声明
         # 的空板）; 挂在含纪念的那一板上（无纪念则挂首板, 信息不丢）
         flow = tuple(r for r in block.records if r.stage != STAGE_ART)
+        flow = self._demote_repeat_memorial(flow)     # 章内第二次纪念 → 静默降级
         spans = _board_spans(flow)
         if len(spans) > MAX_BOARDS_PER_TURN:
             logger.warning("[vn][records] 本回合派生 %d 板 → 只发前 %d（其余丢弃）",

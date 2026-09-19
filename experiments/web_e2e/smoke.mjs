@@ -686,6 +686,22 @@ async function main() {
     shot: await shot(page, "book-replay-end"),
   });
   if (!sawEndButton) throw new Error("只读回放没走到章末（『返回回忆册』未出现）");
+  // ★ 退出纪念后**普通背景要还回来**（2026-09-20 用户要求）: 进入纪念时
+  //   `syncMemorial` 把 `#bond-bg` 清空当黑屏兜底, 退出时若它仍空着 → 按当前这块板
+  //   的 `background_url` 还回去（本章是"整章都在纪念窗口里", 所以只能在出口屏验:
+  //   收尾板本身没有 background_url 时**不该**把上一张糊回来）。
+  const bgAfter = await page.evaluate(() => {
+    const bg = document.getElementById("bond-bg");
+    return { bg: (bg && bg.style.backgroundImage) || "", layerOn:
+      !!(document.getElementById("bond-memorial") || {}).classList
+      && document.getElementById("bond-memorial").classList.contains("on") };
+  });
+  record("只读回放·退出后背景", {
+    info: `背景=${bgAfter.bg ? "已恢复" : "（空——本章收尾板无背景, 正确）"}`
+      + ` 纪念层=${bgAfter.layerOn ? "❌仍开" : "已淡出"}`,
+    bgAfter,
+  });
+  if (bgAfter.layerOn) throw new Error(`退出只读回放后纪念层仍开着: ${JSON.stringify(bgAfter)}`);
   if (bondWrites.length) {
     throw new Error(`只读回放全程出现写请求: ${bondWrites.join(" / ")}`);
   }
