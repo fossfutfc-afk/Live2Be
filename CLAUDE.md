@@ -210,6 +210,9 @@ v1 的 `MemorialProbe`/`memorial_exit` 动作已退役。**图是异步的 → �
 - **回放/中断（2026-09-07 语义）**：中断后重进 → `replay_attempts` 按 vn_enter 分段,
   逐场回放"已记录前缀"（0 LLM, 分支视图合并 picked）→ 队列尽交棒 live 预生成续写
   （LLM 后补）。**开场/恢复即预生成链**, 读屏期间生成下一场。
+  ⚠️ **回放读的是 overlay（真源 + 章内暂存）**: B0 整章暂存后进行中的章**不在真源**
+  ⇒ 只读真源会让"章进行中重进"看不到任何段（2026-09-20 修 `replay_attempts` /
+  `_interrupted_replay_queue`; `_pending_in_vn` 当时改对了）。
 - **维护工具**：`core/session/maintenance.py`（CLI: heal/supersede/audit, dry-run
   默认）——把废弃段用 vn_abandon 闭合, 新章自然接管；用法见该文件 docstring。
   **地点改名** = `python -m core.media.place_rename --from X --to Y [--apply]`
@@ -436,7 +439,7 @@ v1 的 `MemorialProbe`/`memorial_exit` 动作已退役。**图是异步的 → �
 | 好感可视化（relationship_view 阶段词） | §7; 未立项 |
 | 官方固定剧情（XML/剧本管线） | 未动工（与动态契约并列的另一条线） |
 | 见面式对话扩展（邀约/扯皮窗, 玩家显式发起/纯对话/中断打终止） | docs/DESIGN_MEETUP.md; 预期未立项 |
-| **回忆册（书页 UI: 一格一角色 → 角色页 → 只读回放）** | docs/DESIGN_COLLECTION_BOOK.md（**P0 已落地 2026-09-12**; 口径: 只渲染 `vn_exit completed` 的章、不建索引表（事件流派生）、0 LLM）; P1 未做（图挂 memorial 板/3D 翻页/书签） |
+| **回忆册（书页 UI: 一格一角色 → 角色页 → 只读回放）** | docs/DESIGN_COLLECTION_BOOK.md（**P0 已落地 2026-09-12**; **P1① 已落地 2026-09-20**——纪念态落到板: 回放里播到纪念板同样"隐藏立绘 + 清空背景 + 档案图淡入", 见该文 §3.1）; P1 余项: CSS 3D 翻页 / 书签 / 缩略图收尾 |
 | **记忆图 v3（实体中心节点 + 混合召回 + 时间架构 + 组合重组）** | docs/DESIGN_WIKI_V3.md（**设计稿**; **V3-0 召回台账已落地 2026-09-13**; V3-1a 起未实现。**§4 时间 = 三层时钟**：剧情时间（角色口径）· 现实日历（只做生日/节日触发器）· 壁钟（只做审计）——**两钟不试图同步**，冲突走单向**目标日吸附**。Q14–Q22 见 §10） |
 | **第四面墙 / creepiness / OS（Orwell'S 操作系统）** | docs/DESIGN_FOURTH_WALL.md（**立项稿 2026-09-13, 只留接口不实现**; 地基 = `archive/world_model_evolution.md` 阶段 15「单体倒流=局部熵减=他人眼中失忆」; 理论核心 = **只有玩家跨世界线**; creepiness 可关闭/达阈值**不惩罚**只开门）; 唯一已落接口 = `real_clock.rewind_count`（随 V3-4） |
 | promptkit 注记体系引擎化（vn_cli 同款合并） | DESIGN_PROMPTKIT §9 后续可选项 |

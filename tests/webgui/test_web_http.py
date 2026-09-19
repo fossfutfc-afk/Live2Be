@@ -653,28 +653,33 @@ def test_board_deliver_ledger(web, caplog):
 # ---------------------------------------------------------------------------
 
 def _seed_chapters(store, sid):
-    """塞三章: 甲（已结束, 3 板, 含一组已裁决选项 + 一张纪念图）/ 乙（未完）/ 丙（废弃）。
+    """塞三章: 甲（已结束, 3 板, 含一组已裁决选项 + **一段纪念窗口 + 一张纪念图**）/
+    乙（未完）/ 丙（废弃）。
 
     返回甲的 from_seq（章的稳定 id）与乙的——后者用来断言"未完章后端根本没有"。
     """
     from core.session.events import make_event
 
-    def board(text, choices=None, picked=None):
+    def board(text, choices=None, picked=None, **extra):
         store.append_event(CHARACTER, sid, make_event(
             "bond", "story_scene",
             {"paragraphs": [{"text": text}], "background": "class_room",
-             "choices": choices or [], "picked": picked, "input": "（继续）"}))
+             "choices": choices or [], "picked": picked, "input": "（继续）", **extra}))
 
-    # 甲: 已确认结束
+    # 甲: 已确认结束（第 2 板触发纪念 —— v2 形状: 板 → memorial_enter → 图晚到）
     a = store.append_marker(CHARACTER, sid, "vn_enter",
                             {"chapter_title": "咖啡厅的甜点陷阱"}).seq
     board("她抬起头。")
-    board("我来了。", choices=["我来了。", "再等一会儿。"], picked="我来了。")
+    board("我来了。", choices=["我来了。", "再等一会儿。"], picked="我来了。",
+          memorial=True)
+    store.append_marker(CHARACTER, sid, "memorial_enter",
+                        {"chapter_title": "咖啡厅的甜点陷阱", "v2": True})
     store.append_marker(CHARACTER, sid, "memorial_image",
                         {"url": "/gallery/world1/igusa_haruka/20260101_000000_ab12.png",
                          "prompt": "p", "width": 1024, "height": 1024,
                          "scene_id": "20260101_000000_ab12"})
-    board("她笑了。")
+    board("她笑了。")                     # 这一板的落地收窗（v2 形状）
+    store.append_marker(CHARACTER, sid, "memorial_exit", {"v2": True, "auto": True})
     store.append_marker(CHARACTER, sid, "vn_exit", {"completed": True})
 
     # 乙: 未完（流尾未关）——册子不该看到它
@@ -749,6 +754,14 @@ def test_collection_book_routes(web, monkeypatch, tmp_path):
     assert mid["scene"]["choices"] == ["我来了。", "再等一会儿。"]
     assert "input" not in mid["scene"], "input 摘出来单放（前端不渲染玩家那句）"
     assert rep["images"], rep
+    # P1①（2026-09-20）: 纪念态落到**板**——前端只读回放据此隐藏立绘/清背景/淡入图。
+    # 触发板带图, 窗口内后续板只带 in_memorial（图保持亮着, 与 live 同）;
+    # 窗口外的板一个纪念键都不带。
+    assert mid["scene"].get("in_memorial") is True, mid["scene"]
+    assert mid["scene"].get("memorial_img", "").endswith("20260101_000000_ab12.png"), \
+        mid["scene"]
+    assert "in_memorial" not in rep["scenes"][0]["scene"], rep["scenes"][0]["scene"]
+    assert "in_memorial" not in rep["scenes"][2]["scene"], rep["scenes"][2]["scene"]
 
     # 未完 / 废弃的章: 后端也没有（"渲染都不渲染"是数据口径, 不是前端过滤）
     for seq, why in ((b_seq, "未完"), (c_seq, "废弃")):

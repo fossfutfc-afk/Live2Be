@@ -129,6 +129,107 @@ def test_prewarm_image_dropped_when_abandon_between():
     assert [c["images"] for c in chs] == [[]]
 
 
+def test_memorial_board_attribution():
+    """★ P1①（2026-09-20）: 纪念态落到**板**——窗口内的板 + 触发板带图。
+
+    只读回放要和 live 看到的一样: live 是"进窗口即隐藏立绘 + 清空背景 + 图淡入,
+    窗口内每板保持"。窗口 = `memorial_enter` … 其后第一条 `memorial_exit`/`vn_exit`
+    （v2 的"到本块块尾"就是这一对）; 触发板 = enter marker 之前最后一条 bond 事件;
+    图认**最近的前置 `memorial_enter`**（图晚到, 常在 `vn_exit` 之后落盘）。
+    """
+    evs = [
+        marker("vn_enter", {"chapter_title": "甲"}, seq=2),
+        make_event("bond", "story_scene",
+                   {"paragraphs": [{"text": "触发"}], "memorial": True}, seq=3),
+        marker("memorial_enter", {"chapter_title": "甲", "v2": True}, seq=4),
+        _board(5, "纪念正文（同块后续板）"),
+        _board(6, "新一块的第一板（它的落地收窗）"),
+        marker("memorial_exit", {"v2": True, "auto": True}, seq=7),
+        _board(8, "窗口之后"),
+        marker("vn_exit", {"completed": True}, seq=9),
+        marker("memorial_image", {"url": "/gallery/w/c/a.png"}, seq=10),   # 晚到
+    ]
+    ch = replayable_chapters(evs)[0]
+    s = [x["scene"] for x in ch["scenes"]]
+    assert s[0].get("in_memorial") is True and s[0].get("memorial_img") == "/gallery/w/c/a.png"
+    assert s[1].get("in_memorial") is True, "窗口内后续板也是纪念态（live 到块尾）"
+    assert "memorial_img" not in s[1], "图只在触发板亮一次, 之后保持（同 live）"
+    assert "in_memorial" not in s[2], \
+        "★ 收窗那一板在 live 里已是普通板（复位发生在新块解析成功那一刻）"
+    assert "in_memorial" not in s[3], "窗口闭合后的板不该带纪念态"
+    assert ch["images"] == ["/gallery/w/c/a.png"], "章级缩略图仍照旧"
+    print("    板级纪念: 触发板带图 + 窗口内保持 + 收窗板与之后干净")
+
+
+def test_memorial_window_before_its_board():
+    """★ **预热/草稿顺序**: marker 先落、板随后（甚至在 `vn_enter` 之后）——图照样挂得上。
+
+    B 层冒烟实测的真形状: `memorial_enter` seq4 → `vn_enter` seq7 → **板 seq8**
+    （预热期就把 mark 写了, 板要等玩家进来才落）。只认"marker 之前那块板"会找不到
+    触发板 → 图挂不上 → 回放里纪念层开着却没有图。
+    """
+    evs = [
+        marker("memorial_enter", {"chapter_title": "甲", "v2": True}, seq=4),
+        marker("memorial_image", {"url": "/gallery/w/c/pre.png"}, seq=6),
+        marker("vn_enter", {"chapter_title": "甲"}, seq=7),
+        make_event("bond", "story_scene",
+                   {"paragraphs": [{"text": "触发"}], "memorial": True}, seq=8),
+        _board(9, "后续"),
+        marker("vn_exit", {"completed": True}, seq=10),
+    ]
+    ch = replayable_chapters(evs)[0]
+    s = [x["scene"] for x in ch["scenes"]]
+    assert s[0].get("in_memorial") is True and s[0].get("memorial_img") == "/gallery/w/c/pre.png"
+    print("    预热顺序: marker 在板之前 → 图仍挂到触发板")
+
+
+def test_memorial_window_closed_by_chapter_end_keeps_all_boards():
+    """章在窗口内结束（`vn_exit` 收窗, 没有新块来收）→ 窗口内的板**全都**算纪念态。"""
+    evs = [
+        marker("vn_enter", {"chapter_title": "甲"}, seq=2),
+        make_event("bond", "story_scene",
+                   {"paragraphs": [{"text": "触发"}], "memorial": True}, seq=3),
+        marker("memorial_enter", {"chapter_title": "甲", "v2": True}, seq=4),
+        _board(5, "同块后续"),
+        marker("vn_exit", {"completed": True}, seq=6),
+        marker("memorial_image", {"url": "/gallery/w/c/end.png"}, seq=7),
+    ]
+    s = [x["scene"] for x in replayable_chapters(evs)[0]["scenes"]]
+    assert all(x.get("in_memorial") is True for x in s), s
+    assert s[0].get("memorial_img") == "/gallery/w/c/end.png"
+    print("    章内收窗: 窗口内板全在纪念态（不剔任何板）")
+
+
+def test_memorial_board_v1_fallback():
+    """v1 档 / **图先于板落盘**（没有 `memorial_enter` 锚点）→ 章级判据挂到纪念板上。
+
+    注意与"孤儿"的区别: 那张图必须**落在章区间内**（本用例 seq=3 在 2…5 里）——
+    落在本章之后又没有下一章的, 仍按孤儿丢掉（见 `test_memorial_image_attribution`）。
+    """
+    evs = [
+        marker("vn_enter", {"chapter_title": "旧档"}, seq=2),
+        marker("memorial_image", {"url": "/gallery/w/c/v1.png"}, seq=3),   # 图先到
+        make_event("bond", "story_scene",
+                   {"paragraphs": [{"text": "她哭了"}], "memorial_prompt": "湖边"},
+                   seq=4),
+        _board(5, "后续"),
+        marker("vn_exit", {"completed": True}, seq=6),
+    ]
+    scenes = replayable_chapters(evs)[0]["scenes"]
+    s = [x["scene"] for x in scenes]
+    assert s[0].get("in_memorial") is True and s[0].get("memorial_img") == "/gallery/w/c/v1.png"
+    assert "in_memorial" not in s[1], "只有纪念板进态"
+    print("    v1 回落: 无锚点的图挂到带 memorial_prompt 的板")
+
+
+def test_plain_chapter_has_no_memorial_keys():
+    """没有纪念的章: 一个多余键都不带（前端据此走普通渲染）。"""
+    scenes = replayable_chapters(_chapter(2, 6, title="日常"))[0]["scenes"]
+    for it in scenes:
+        assert "in_memorial" not in it["scene"] and "memorial_img" not in it["scene"]
+    print("    普通章: 板级载荷不带纪念键")
+
+
 def test_chapter_index_drops_scenes():
     """角色页索引不背正文（scenes 摘掉, 其余字段留给列表渲染）。"""
     idx = chapter_index(_chapter(2, 6, title="甲"))

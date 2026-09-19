@@ -104,8 +104,42 @@ rikuhachima_aru 无事件流文件
 > 之后才落盘**; 只按区间判会把它错挂到下一章（玩家在下一章看到上一章的画）。
 > 这是实现期写测试时才发现的口径漏洞, 已写成用例 `test_memorial_image_attribution`。
 
-P0 只把图挂到**章**（角色页条目上的缩略图 + `memorial_url`）; **播到那一刻淡入**
-（图挂到具体那块 `memorial` 板）留 P1——板 payload 带 `memorial: true`, 数据已具备。
+P0 只把图挂到**章**（角色页条目上的缩略图 + `memorial_url`）; ~~**播到那一刻淡入**
+（图挂到具体那块 `memorial` 板）留 P1~~ → **✅ P1① 已落地（2026-09-20）**, 见 §3.1。
+
+### 3.1 P1① 已落地: 纪念态落到**板**（2026-09-20）
+
+只读回放现在与 live 逐项一致: 播到纪念板 → **隐藏立绘 + 清空普通背景 + 档案图淡入**,
+窗口内每板保持, 出窗恢复。
+
+| 件 | 做法 |
+|---|---|
+| `core/session/chapters.py::_memorial_boards` | 从事件流**派生板级纪念态**（不加新字段）: ① 窗口 = `memorial_enter` … 其后第一条 `memorial_exit`/`vn_exit`/`session_end`; ② **触发板** = 离 marker 最近且带 `memorial`/`memorial_prompt` 的那一板; ③ 图认最近的前置 `memorial_enter`（图晚到 26s, 常晚于 `vn_exit`） |
+| 板载荷 | 窗口内的板带 `in_memorial: true`; 触发板另带 `memorial_img`（前端 `syncMemorial` 读的就是这两个键, 与 live **同形**） |
+| `webgui/static/js/bond.js` | `roNext` 渲染后调 `syncMemorial(scene)`（此前只 live 的两条路径调）; `enterReadonly` 与 `roEnd` 各补一次"退出纪念态"（清残留 + 淡出） |
+
+**三个只有实测才会发现的坑（都已写成用例）**:
+
+1. **收窗那一板不算在窗内**: 引擎在"新一块的第一板落地"时才补 `memorial_exit`
+   （先写板、紧接着写 marker）, 而 live 的复位发生在新块解析那一刻 ⇒ 那块板在 live
+   里已是普通板。判据: 闭合 marker 是 `memorial_exit` **且**紧跟在最后一条 bond 事件
+   之后（中间没有别的 marker）**且**它不是触发板 → 才剔。
+2. **章在窗口内结束**（`vn_exit` 收窗, 没有新块来收）→ 窗口内的板**全都**算纪念态。
+3. **预热/草稿顺序**: marker 可能**先于**它的板落盘, 甚至在 `vn_enter` 之后
+   （B 层冒烟实测: `memorial_enter` seq4 → `vn_enter` seq7 → 板 seq8）⇒ 触发板
+   必须按"最近的带纪念标记的板"找, 不能只看 marker 之前。
+
+**验证**: `tests/core/test_chapters.py`（板级归属/收窗/章内收窗/预热顺序/v1 回落/
+普通章不带键）+ `tests/webgui/test_web_http.py`（回放载荷带板级纪念键）+
+**B 层浏览器冒烟新步骤"只读回放·纪念板"**（真点进册子回放, 断言纪念层淡入 + 图 URL +
+立绘隐藏 + 背景清空）。
+
+> **P1① 顺带修掉一个更早的真 bug**（2026-09-20, B 层冒烟抓出来的）:
+> `webgui/bond.py::replay_attempts` / `_interrupted_replay_queue` 只读**真源**,
+> 而 B0 整章暂存（2026-09-17）之后**进行中的章一条都不在真源里** ⇒ 章进行中重进时
+> "回放已记录前缀"整条断掉, 直接掉进现场生成（屏上出现新板而不是已记录的选项前缀）。
+> `_pending_in_vn` 当时改对了, 这两处漏了。现改读 **overlay**（真源 + 暂存）,
+> 用例 `test_replay_reads_staging_overlay`。
 
 ## 4. 回放语义: **只读型**（与现网的 resume 型区分）
 
@@ -161,7 +195,10 @@ P0 只把图挂到**章**（角色页条目上的缩略图 + `memorial_url`）; 
 `readonly` 下短路成本地推进（绝不 POST）; ③ 冒烟监听 `POST /api/bond/{start,turn,finish}`
 计数为 0。
 
-**P1（攒着）**: 图挂 memorial 板（播到那一刻淡入）、CSS 3D 翻页、书签/续读位置。
+**P1（进行中）**: ✅ **① 图挂 memorial 板**（2026-09-20, 见 §3.1）; ⏳ ② CSS 3D 翻页;
+⏳ ③ 书签/续读位置。另有两处 P1 级别的收尾（2026-09-20 读代码发现, 未做）:
+角色页缩略图取的是该章**最后**一张图（一章多图时未必是最动人的那张）; 缩略图 `<img>`
+没有 `onerror` 降级（gallery 被清/换世界线时会出现碎图 + 静默 404）。
 
 **明确不做**: 索引表（§2）、未完章的渲染（§1）、任何续写。
 

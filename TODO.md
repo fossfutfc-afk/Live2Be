@@ -1448,6 +1448,47 @@ writer 根本不知道板存在, 它只是连着写记录、该换场就发 swit
 `test_webgui_uses_paragraph_asset`（全量 842 通过）。
 ⚠️ 代价: 一次换场最多 **2 次选图调用**（板首 + 板内锚点）——真机上一章锚点极少。
 
+### 回忆册 P1①（纪念图挂板）—— **✅ 完成（2026-09-20）**
+
+用户: *"先修1吧"*（= P1 第一项: 播到纪念那一刻淡入, 而不是只挂章缩略图）。
+
+**先读了代码, 发现"图"只是缺的三件里的第一件**（记在 `docs/DESIGN_COLLECTION_BOOK.md §3.1`）:
+live 的纪念态是 `bond.js::syncMemorial()` 一个函数干三件事（隐藏立绘 + 清空普通背景 +
+图淡入）, 而它只在 live 的两条路径被调用; 只读回放的 `roNext` 只 `renderScene`
+⇒ 册子回放播到纪念段是"立绘照常 + 背景照常 + 没有图"。
+
+**做法（不加新字段, 全部从事件流派生）**
+- `core/session/chapters.py::_memorial_boards`: 窗口 = `memorial_enter` … 其后第一条
+  `memorial_exit`/`vn_exit`/`session_end`; 触发板 = 离 marker 最近且带
+  `memorial`/`memorial_prompt` 的板; 图认最近的前置 `memorial_enter`
+- 板载荷带 `in_memorial`（窗口内每板）/ `memorial_img`（触发板）——与 live 的
+  `syncMemorial` **同形**
+- `bond.js`: `roNext` 渲染后调 `syncMemorial`; `enterReadonly` / `roEnd` 各补一次退出
+
+**三个只有实测才会发现的坑（都写成用例了）**
+1. **收窗那一板不在窗内**: 引擎在"新一块的第一板落地"时才补 `memorial_exit`
+   （先写板、紧接着写 marker）, 而 live 的复位发生在**新块解析成功**那一刻
+2. **章在窗口内结束**（`vn_exit` 收窗）→ 窗口内的板**全都**算纪念态
+3. **预热/草稿顺序**: marker 可能**先于**它的板落盘, 甚至在 `vn_enter` 之后
+   （冒烟实测 `memorial_enter` seq4 → `vn_enter` seq7 → 板 seq8）
+
+**验证**: `tests/core/test_chapters.py`（6 例:+预热顺序/收窗/章内收窗/v1 回落/普通章）·
+`tests/webgui/test_web_http.py`（回放载荷带板级纪念键）· **B 层浏览器冒烟新步骤
+"只读回放·纪念板"**（真点进册子回放: 纪念层淡入 + 图 URL + 立绘隐藏 + 背景清空）
+⇒ 冒烟 **PASS**。
+
+**⚠️ 顺带修掉一个更早的真 bug（B 层冒烟抓出来的）**: `webgui/bond.py::replay_attempts`
+与 `_interrupted_replay_queue` 只读**真源**, 而 B0 整章暂存（2026-09-17）之后
+**进行中的章一条都不在真源里**（全在 `soul/staging/events.jsonl`）⇒ 章进行中重进时
+"回放已记录前缀"整条断掉, 直接掉进现场生成（屏上是新生成的板, 而不是已记录的选项前缀）。
+`_pending_in_vn` 当时改对了, 这两处漏了。现改读 overlay; 用例
+`test_replay_reads_staging_overlay`。
+（另: B 层桩世界 `stub_world.py` 少了 PL6′ 的 `选中的文件名` 分支 → 选图调用落进主生成
+分支吃掉一轮脚本 → 后续每块退化成兜底块。同批补上。）
+
+**P1 余项**: ② CSS 3D 翻页 ③ 书签/续读位置; 以及两处收尾——角色页缩略图取"该章最后一张"
+（一章多图时未必最动人）、缩略图 `<img>` 无 `onerror` 降级（gallery 被清会出现碎图 + 静默 404）。
+
 ### PL7 表自身收尾（**作者侧**, 我只出清单）—— **清单已出（2026-09-20）**
 
 > 生成器: `python experiments/place_author_checklist.py`（**只读**, 不改任何东西）——
