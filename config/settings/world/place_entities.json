@@ -1,0 +1,3190 @@
+{
+ "view_sky": {
+  "sdir": "SDIR_Atmosphere",
+  "dir": "DIR_ViewSora",
+  "place": "view_sky",
+  "region": "",
+  "keywords": [
+   "蓝天白云",
+   "星空",
+   "夜空",
+   "黄昏"
+  ],
+  "note": "分为 纯云/纯星空的1组 和 有太阳/月亮的2组 以及单独的黄昏，用作收尾/看天空的场景图",
+  "files": {
+   "day": [
+    "SDIR_Atmosphere/DIR_ViewSora/BG_View_Sky2.jpg"
+   ],
+   "night": [
+    "SDIR_Atmosphere/DIR_ViewSora/BG_View_Sky.jpg",
+    "SDIR_Atmosphere/DIR_ViewSora/BG_View_Sky2_Night.jpg",
+    "SDIR_Atmosphere/DIR_ViewSora/BG_View_Sky_Night.jpg",
+    "SDIR_Atmosphere/DIR_ViewSora/BG_View_Sky_Sunset.jpg"
+   ]
+  }
+ },
+ "big_bridge": {
+  "sdir": "SDIR_Streets",
+  "dir": "DIR_BigBridge",
+  "place": "big_bridge",
+  "region": "",
+  "keywords": [
+   "桥",
+   "天桥",
+   "大桥",
+   "交通桥"
+  ],
+  "note": "用于表达氛围感浓厚的人行天桥，或用作交通的大桥都可以",
+  "files": {
+   "day": [
+    "SDIR_Streets/DIR_BigBridge/BG_BigBridge.jpg"
+   ],
+   "night": [
+    "SDIR_Streets/DIR_BigBridge/BG_BigBridge2_Night.jpg",
+    "SDIR_Streets/DIR_BigBridge/BG_BigBridge_Night.jpg"
+   ]
+  }
+ },
+ "big_plaza": {
+  "sdir": "SDIR_Streets",
+  "dir": "DIR_BigPlaza",
+  "place": "big_plaza",
+  "region": "圣三一综合学院",
+  "keywords": [
+   "休闲街头",
+   "甜点馆外",
+   "活动中心"
+  ],
+  "note": "一个非常常用的街道会面的地点",
+  "files": {
+   "day": [
+    "SDIR_Streets/DIR_BigPlaza/BG_BigPlaza.jpg"
+   ],
+   "night": [
+    "SDIR_Streets/DIR_BigPlaza/BG_BigPlaza_Night.jpg",
+    "SDIR_Streets/DIR_BigPlaza/BG_BigPlaza_Sunset.jpg"
+   ]
+  }
+ },
+ "building_roof_top": {
+  "sdir": "SDIR_Streets",
+  "dir": "DIR_Building",
+  "place": "building_roof_top",
+  "region": "",
+  "keywords": [
+   "楼顶",
+   "天台",
+   "摩天大楼楼顶"
+  ],
+  "note": "巨大摩天大楼的楼顶，Night差分非常美丽，此差分更倾向于楼顶，无护栏防护",
+  "files": {
+   "day": [
+    "SDIR_Streets/DIR_Building/BG_BuildingRooftop.jpg"
+   ],
+   "night": [
+    "SDIR_Streets/DIR_Building/BG_BuildingRooftop_Night.jpg"
+   ]
+  }
+ },
+ "68office": {
+  "sdir": "SDIR_Clubs",
+  "dir": "DIR_Benrya68",
+  "place": "68office",
+  "region": "",
+  "keywords": [
+   "便利屋68办公室",
+   "万事屋68",
+   "征信社68据点"
+  ],
+  "note": "便利屋68四人的活动地",
+  "files": {
+   "day": [
+    "SDIR_Clubs/DIR_Benrya68/BG_KohshinjoRoom.jpg"
+   ],
+   "night": []
+  }
+ },
+ "gamedevroom": {
+  "sdir": "SDIR_Clubs",
+  "dir": "DIR_GameDevDep",
+  "place": "gamedevroom",
+  "region": "千年科技学院",
+  "keywords": [
+   "游戏开发部基地",
+   "游戏开发部部门"
+  ],
+  "note": "游戏开发部四人的日常地点",
+  "files": {
+   "day": [
+    "SDIR_Clubs/DIR_GameDevDep/BG_GameDevRoom.jpg"
+   ],
+   "night": [
+    "SDIR_Clubs/DIR_GameDevDep/BG_GameDevRoom_Night.jpg"
+   ]
+  }
+ },
+ "hyakkayouran_tatamiroom": {
+  "sdir": "SDIR_Clubs",
+  "dir": "DIR_Hyakkayour",
+  "place": "hyakkayouran_tatamiroom",
+  "region": "百鬼夜行联合学院",
+  "keywords": [
+   "百花缭乱纠纷委员会榻榻米屋",
+   "百花缭乱纠纷委员会茶水间",
+   "百花缭乱纠纷委员会会客室"
+  ],
+  "note": "百花缭乱纠纷委员会中包含榻榻米的饮茶会客地点",
+  "files": {
+   "day": [
+    "SDIR_Clubs/DIR_Hyakkayour/BG_HyakkayouranTatamiRoom.jpg"
+   ],
+   "night": [
+    "SDIR_Clubs/DIR_Hyakkayour/BG_HyakkayouranTatamiRoom_Night.jpg",
+    "SDIR_Clubs/DIR_Hyakkayour/BG_HyakkayouranTatamiRoom_Sunset.jpg"
+   ]
+  }
+ },
+ "bus_inside": {
+  "sdir": "SDIR_Infrastructure",
+  "dir": "DIR_BusInside",
+  "place": "bus_inside",
+  "region": "",
+  "keywords": [
+   "公交车里",
+   "公家车内部",
+   "巴士内部",
+   "巴士里"
+  ],
+  "note": "公交车内部的图样,可以是二人发生羁绊的地点",
+  "files": {
+   "day": [
+    "SDIR_Infrastructure/DIR_BusInside/BG_BusInside.jpg"
+   ],
+   "night": [
+    "SDIR_Infrastructure/DIR_BusInside/BG_BusInside_Night.jpg",
+    "SDIR_Infrastructure/DIR_BusInside/BG_BusInside_sunset.jpg"
+   ]
+  }
+ },
+ "busstation": {
+  "sdir": "SDIR_Infrastructure",
+  "dir": "DIR_BusStation",
+  "place": "busstation",
+  "region": "",
+  "keywords": [
+   "公交车站",
+   "公家站台"
+  ],
+  "note": "经典的日系公交站台,美好邂逅的起点",
+  "files": {
+   "day": [
+    "SDIR_Infrastructure/DIR_BusStation/BG_BusStation.jpg"
+   ],
+   "night": [
+    "SDIR_Infrastructure/DIR_BusStation/BG_BusStation_Night.jpg"
+   ]
+  }
+ },
+ "construction_site": {
+  "sdir": "SDIR_Infrastructure",
+  "dir": "DIR_ConstructionSite",
+  "place": "construction_site",
+  "region": "",
+  "keywords": [
+   "建筑工地",
+   "工地"
+  ],
+  "note": "某些角色可能工地,比如说为了资金打工的遥香或者工头实梨",
+  "files": {
+   "day": [
+    "SDIR_Infrastructure/DIR_ConstructionSite/BG_ConstructionSite.jpg"
+   ],
+   "night": [
+    "SDIR_Infrastructure/DIR_ConstructionSite/BG_ConstructionSite_Night.jpg"
+   ]
+  }
+ },
+ "forest_railroad": {
+  "sdir": "SDIR_Infrastructure",
+  "dir": "DIR_ForestRailRoad",
+  "place": "forest_railroad",
+  "region": "",
+  "keywords": [
+   "森林铁路",
+   "森林铁道"
+  ],
+  "note": "森林中的铁路,坐火车时路过的风景",
+  "files": {
+   "day": [
+    "SDIR_Infrastructure/DIR_ForestRailRoad/BG_ForestRailRoad.jpg"
+   ],
+   "night": [
+    "SDIR_Infrastructure/DIR_ForestRailRoad/BG_ForestRailRoad_Fog.jpg"
+   ]
+  }
+ },
+ "hangar": {
+  "sdir": "SDIR_Infrastructure",
+  "dir": "DIR_Hangar",
+  "place": "hangar",
+  "region": "",
+  "keywords": [
+   "机械库",
+   "机械房",
+   "重型机械存储房"
+  ],
+  "note": "存储大型交通设施/机器人的房间,科技类学生频繁出没",
+  "files": {
+   "day": [
+    "SDIR_Infrastructure/DIR_Hangar/BG_Hangar.jpg",
+    "SDIR_Infrastructure/DIR_Hangar/BG_Hangar2.jpg"
+   ],
+   "night": []
+  }
+ },
+ "helicopter_inside": {
+  "sdir": "SDIR_Infrastructure",
+  "dir": "DIR_HelicopterInside",
+  "place": "helicopter_inside",
+  "region": "",
+  "keywords": [
+   "直升机内部",
+   "直升机上"
+  ],
+  "note": "直升机内部舱的景象",
+  "files": {
+   "day": [
+    "SDIR_Infrastructure/DIR_HelicopterInside/BG_HelicopterInside.jpg"
+   ],
+   "night": [
+    "SDIR_Infrastructure/DIR_HelicopterInside/BG_HelicopterInside_Night.jpg"
+   ]
+  }
+ },
+ "powerroom": {
+  "sdir": "SDIR_Infrastructure",
+  "dir": "DIR_PowerRoom",
+  "place": "powerroom",
+  "region": "",
+  "keywords": [
+   "电力室",
+   "供电室",
+   "能量间"
+  ],
+  "note": "供电室,停电的时候可能用到",
+  "files": {
+   "day": [
+    "SDIR_Infrastructure/DIR_PowerRoom/BG_PowerRoom.jpg"
+   ],
+   "night": [
+    "SDIR_Infrastructure/DIR_PowerRoom/BG_PowerRoom_Night.jpg"
+   ]
+  }
+ },
+ "railway_crossing": {
+  "sdir": "SDIR_Infrastructure",
+  "dir": "DIR_RailWay",
+  "place": "railway_crossing",
+  "region": "",
+  "keywords": [
+   "火车马路交界处"
+  ],
+  "note": "小镇中火车铁轨与马路的交接地点,十分宁静",
+  "files": {
+   "day": [
+    "SDIR_Infrastructure/DIR_RailWay/BG_RailWayCrossing.jpg"
+   ],
+   "night": [
+    "SDIR_Infrastructure/DIR_RailWay/BG_RailWayCrossing_Night.jpg"
+   ]
+  }
+ },
+ "subway": {
+  "sdir": "SDIR_Infrastructure",
+  "dir": "DIR_Subway",
+  "place": "subway",
+  "region": "",
+  "keywords": [
+   "地铁内部",
+   "铁路内部",
+   "列车内部"
+  ],
+  "note": "重要的交通工具,地铁内部的景象",
+  "files": {
+   "day": [
+    "SDIR_Infrastructure/DIR_Subway/BG_Subway.jpg"
+   ],
+   "night": [
+    "SDIR_Infrastructure/DIR_Subway/BG_Subway_Night.jpg"
+   ]
+  }
+ },
+ "subwayhall": {
+  "sdir": "SDIR_Infrastructure",
+  "dir": "DIR_Subway",
+  "place": "subwayhall",
+  "region": "",
+  "keywords": [
+   "地铁站"
+  ],
+  "note": "地铁站,也是常用的地点",
+  "files": {
+   "day": [
+    "SDIR_Infrastructure/DIR_Subway/BG_SubwayHall.jpg"
+   ],
+   "night": [
+    "SDIR_Infrastructure/DIR_Subway/BG_SubwayHall_Night.jpg"
+   ]
+  }
+ },
+ "traincabin": {
+  "sdir": "SDIR_Infrastructure",
+  "dir": "DIR_Train",
+  "place": "traincabin",
+  "region": "",
+  "keywords": [
+   "列车车厢",
+   "列车车厢内部"
+  ],
+  "note": "另一个基础交通工具,列车的内部景象",
+  "files": {
+   "day": [
+    "SDIR_Infrastructure/DIR_Train/BG_TrainCabin.jpg",
+    "SDIR_Infrastructure/DIR_Train/BG_TrainCabin_Ruin2.jpg"
+   ],
+   "night": [
+    "SDIR_Infrastructure/DIR_Train/BG_TrainCabin_Night.jpg",
+    "SDIR_Infrastructure/DIR_Train/BG_TrainCabin_Ruin.jpg"
+   ]
+  }
+ },
+ "trainhangar": {
+  "sdir": "SDIR_Infrastructure",
+  "dir": "DIR_Train",
+  "place": "trainhangar",
+  "region": "海兰德铁道学院",
+  "keywords": [
+   "列车停靠间",
+   "火车停车间"
+  ],
+  "note": "列车停靠的修复维护间,海兰德的工程师可能频繁出现",
+  "files": {
+   "day": [
+    "SDIR_Infrastructure/DIR_Train/BG_TrainHangar.jpg"
+   ],
+   "night": [
+    "SDIR_Infrastructure/DIR_Train/BG_TrainHangar_Night.jpg"
+   ]
+  }
+ },
+ "train_restaurant": {
+  "sdir": "SDIR_Infrastructure",
+  "dir": "DIR_Train",
+  "place": "train_restaurant",
+  "region": "",
+  "keywords": [
+   "火车餐厅",
+   "列车餐厅"
+  ],
+  "note": "火车餐厅车厢,包含被摧毁的差分以及日夜差分",
+  "files": {
+   "day": [
+    "SDIR_Infrastructure/DIR_Train/BG_TrainRestaurant.jpg",
+    "SDIR_Infrastructure/DIR_Train/BG_TrainRestaurant_Ruin2.jpg"
+   ],
+   "night": [
+    "SDIR_Infrastructure/DIR_Train/BG_TrainRestaurant_Night.jpg",
+    "SDIR_Infrastructure/DIR_Train/BG_TrainRestaurant_Ruin.jpg"
+   ]
+  }
+ },
+ "trainstation": {
+  "sdir": "SDIR_Infrastructure",
+  "dir": "DIR_Train",
+  "place": "trainstation",
+  "region": "",
+  "keywords": [
+   "火车站",
+   "列车站"
+  ],
+  "note": "基础交通工具,火车车站",
+  "files": {
+   "day": [
+    "SDIR_Infrastructure/DIR_Train/BG_TrainStation.jpg"
+   ],
+   "night": [
+    "SDIR_Infrastructure/DIR_Train/BG_TrainStation_Night.jpg"
+   ]
+  }
+ },
+ "tundra_railroads": {
+  "sdir": "SDIR_Infrastructure",
+  "dir": "DIR_TundraRailroads",
+  "place": "tundra_railroads",
+  "region": "",
+  "keywords": [
+   "冻土铁轨",
+   "极地铁路"
+  ],
+  "note": "火车可能会遇到的极地,有极光在内部",
+  "files": {
+   "day": [
+    "SDIR_Infrastructure/DIR_TundraRailroads/BG_TundraRailroads.jpg",
+    "SDIR_Infrastructure/DIR_TundraRailroads/BG_TundraRailroads_Night2.jpg"
+   ],
+   "night": [
+    "SDIR_Infrastructure/DIR_TundraRailroads/BG_TundraRailroads_Night.jpg"
+   ]
+  }
+ },
+ "bamboo_forest": {
+  "sdir": "SDIR_Nature",
+  "dir": "DIR_BambooForest",
+  "place": "bamboo_forest",
+  "region": "山海经高级中学",
+  "keywords": [
+   "竹林"
+  ],
+  "note": "可能有熊猫的美丽竹林",
+  "files": {
+   "day": [
+    "SDIR_Nature/DIR_BambooForest/BG_BambooForest.jpg"
+   ],
+   "night": [
+    "SDIR_Nature/DIR_BambooForest/BG_BambooForest_Blur.jpg",
+    "SDIR_Nature/DIR_BambooForest/BG_BambooForest_Night.jpg",
+    "SDIR_Nature/DIR_BambooForest/BG_BambooForest_Sunset.jpg"
+   ]
+  }
+ },
+ "beach_festival": {
+  "sdir": "SDIR_Nature",
+  "dir": "DIR_Beach",
+  "place": "beach_festival",
+  "region": "",
+  "keywords": [
+   "沙滩集会",
+   "海边小摊"
+  ],
+  "note": "沙滩边一个一个小摊贩的景色",
+  "files": {
+   "day": [
+    "SDIR_Nature/DIR_Beach/BG_BeachFestival.jpg"
+   ],
+   "night": [
+    "SDIR_Nature/DIR_Beach/BG_BeachFestival_Night.jpg",
+    "SDIR_Nature/DIR_Beach/BG_BeachFestival_Sunset.jpg"
+   ]
+  }
+ },
+ "artmuseum_lobby": {
+  "sdir": "SDIR_Inner",
+  "dir": "DIR_ArtMuseumLobby",
+  "place": "artmuseum_lobby",
+  "region": "",
+  "keywords": [
+   "美术馆",
+   "艺术博物馆"
+  ],
+  "note": "可以是展示任何东西的艺术馆",
+  "files": {
+   "day": [
+    "SDIR_Inner/DIR_ArtMuseumLobby/BG_ArtMuseumLobby.jpg"
+   ],
+   "night": [
+    "SDIR_Inner/DIR_ArtMuseumLobby/BG_ArtMuseumLobby_Night.jpg"
+   ]
+  }
+ },
+ "atelier": {
+  "sdir": "SDIR_Inner",
+  "dir": "DIR_Atelier",
+  "place": "atelier",
+  "region": "",
+  "keywords": [
+   "画室"
+  ],
+  "note": "堆满了画作和手工艺品的艺术车间",
+  "files": {
+   "day": [
+    "SDIR_Inner/DIR_Atelier/BG_Atelier.jpg"
+   ],
+   "night": [
+    "SDIR_Inner/DIR_Atelier/BG_Atelier_Night.jpg"
+   ]
+  }
+ },
+ "auditorium": {
+  "sdir": "SDIR_Inner",
+  "dir": "DIR_Auditorium",
+  "place": "auditorium",
+  "region": "千年科技学院",
+  "keywords": [
+   "大礼堂"
+  ],
+  "note": "千年的大礼堂,用于公开演讲",
+  "files": {
+   "day": [
+    "SDIR_Inner/DIR_Auditorium/BG_Auditorium.jpg",
+    "SDIR_Inner/DIR_Auditorium/BG_Auditorium2.jpg"
+   ],
+   "night": [
+    "SDIR_Inner/DIR_Auditorium/BG_Auditorium2_Night.jpg",
+    "SDIR_Inner/DIR_Auditorium/BG_Auditorium_Night.jpg"
+   ]
+  }
+ },
+ "broadcastingroom": {
+  "sdir": "SDIR_Inner",
+  "dir": "DIR_Broadcastingroom",
+  "place": "broadcastingroom",
+  "region": "",
+  "keywords": [
+   "广播室"
+  ],
+  "note": "外部的广播室",
+  "files": {
+   "day": [
+    "SDIR_Inner/DIR_Broadcastingroom/BG_Broadcastingroom.jpg"
+   ],
+   "night": [
+    "SDIR_Inner/DIR_Broadcastingroom/BG_Broadcastingroom_Night.jpg",
+    "SDIR_Inner/DIR_Broadcastingroom/BG_Broadcastingroom_Off.jpg"
+   ]
+  }
+ },
+ "buildingcorridor": {
+  "sdir": "SDIR_Inner",
+  "dir": "DIR_BuildingCorridor",
+  "place": "buildingcorridor",
+  "region": "",
+  "keywords": [
+   "大楼过道"
+  ],
+  "note": "普通差分是白墙类似医院等地方的过道;2则是铁墙过道",
+  "files": {
+   "day": [
+    "SDIR_Inner/DIR_BuildingCorridor/BG_BuildingCorridor.jpg",
+    "SDIR_Inner/DIR_BuildingCorridor/BG_BuildingCorridor2.jpg"
+   ],
+   "night": [
+    "SDIR_Inner/DIR_BuildingCorridor/BG_BuildingCorridor2_Night.jpg",
+    "SDIR_Inner/DIR_BuildingCorridor/BG_BuildingCorridor_Night.jpg"
+   ]
+  }
+ },
+ "cathedral": {
+  "sdir": "SDIR_Inner",
+  "dir": "DIR_Cathedral",
+  "place": "cathedral",
+  "region": "",
+  "keywords": [
+   "大教堂"
+  ],
+  "note": "神圣无比紫光教堂",
+  "files": {
+   "day": [
+    "SDIR_Inner/DIR_Cathedral/BG_Cathedral.jpg"
+   ],
+   "night": [
+    "SDIR_Inner/DIR_Cathedral/BG_Cathedral_Night.jpg"
+   ]
+  }
+ },
+ "classcorridor": {
+  "sdir": "SDIR_Inner",
+  "dir": "DIR_Class",
+  "place": "classcorridor",
+  "region": "",
+  "keywords": [
+   "学校过道",
+   "学校走廊"
+  ],
+  "note": "非常常用的学校走廊",
+  "files": {
+   "day": [
+    "SDIR_Inner/DIR_Class/BG_ClassCorridor.jpg",
+    "SDIR_Inner/DIR_Class/BG_ClassCorridor2.jpg"
+   ],
+   "night": [
+    "SDIR_Inner/DIR_Class/BG_ClassCorridor2_Night.jpg",
+    "SDIR_Inner/DIR_Class/BG_ClassCorridor_Night.jpg"
+   ]
+  }
+ },
+ "classroom": {
+  "sdir": "SDIR_Inner",
+  "dir": "DIR_Class",
+  "place": "classroom",
+  "region": "",
+  "keywords": [
+   "教室"
+  ],
+  "note": "及其重要的教室差分",
+  "files": {
+   "day": [
+    "SDIR_Inner/DIR_Class/BG_ClassRoom.jpg",
+    "SDIR_Inner/DIR_Class/BG_ClassRoom2.jpg"
+   ],
+   "night": [
+    "SDIR_Inner/DIR_Class/BG_ClassRoom2_Night.jpg",
+    "SDIR_Inner/DIR_Class/BG_ClassRoom_Night.jpg"
+   ]
+  }
+ },
+ "classstairs": {
+  "sdir": "SDIR_Inner",
+  "dir": "DIR_Class",
+  "place": "classstairs",
+  "region": "",
+  "keywords": [
+   "学校楼梯间"
+  ],
+  "note": "学校的楼梯间,适合偶遇",
+  "files": {
+   "day": [
+    "SDIR_Inner/DIR_Class/BG_ClassStairs.jpg"
+   ],
+   "night": [
+    "SDIR_Inner/DIR_Class/BG_ClassStairs_Night.jpg",
+    "SDIR_Inner/DIR_Class/BG_ClassStairs_Sunset.jpg"
+   ]
+  }
+ },
+ "computercenter": {
+  "sdir": "SDIR_Inner",
+  "dir": "DIR_ComputerCenter",
+  "place": "computercenter",
+  "region": "千年科技学院",
+  "keywords": [
+   "机房"
+  ],
+  "note": "电脑机房",
+  "files": {
+   "day": [
+    "SDIR_Inner/DIR_ComputerCenter/BG_ComputerCenter.jpg"
+   ],
+   "night": [
+    "SDIR_Inner/DIR_ComputerCenter/BG_ComputerCenter_Blur.jpg",
+    "SDIR_Inner/DIR_ComputerCenter/BG_ComputerCenter_Erode.jpg",
+    "SDIR_Inner/DIR_ComputerCenter/BG_ComputerCenter_Off.jpg"
+   ]
+  }
+ },
+ "dormitory": {
+  "sdir": "SDIR_Inner",
+  "dir": "DIR_Dormitory",
+  "place": "dormitory",
+  "region": "",
+  "keywords": [
+   "宿舍"
+  ],
+  "note": "简洁的学生宿舍",
+  "files": {
+   "day": [
+    "SDIR_Inner/DIR_Dormitory/BG_Dormitory.jpg",
+    "SDIR_Inner/DIR_Dormitory/BG_Dormitory2.jpg"
+   ],
+   "night": [
+    "SDIR_Inner/DIR_Dormitory/BG_Dormitory2_Night.jpg",
+    "SDIR_Inner/DIR_Dormitory/BG_Dormitory_Night.jpg"
+   ]
+  }
+ },
+ "elevator": {
+  "sdir": "SDIR_Inner",
+  "dir": "DIR_Elevator",
+  "place": "elevator",
+  "region": "",
+  "keywords": [
+   "电梯",
+   "自动电梯"
+  ],
+  "note": "电梯也是很常见的二人时刻",
+  "files": {
+   "day": [
+    "SDIR_Inner/DIR_Elevator/BG_Elevator.jpg"
+   ],
+   "night": [
+    "SDIR_Inner/DIR_Elevator/BG_Elevator_Night.jpg"
+   ]
+  }
+ },
+ "exhibitionhall": {
+  "sdir": "SDIR_Inner",
+  "dir": "DIR_ExhibitionHall",
+  "place": "exhibitionhall",
+  "region": "",
+  "keywords": [
+   "漫展",
+   "画展"
+  ],
+  "note": "漫画博览会,红冬的特别活动",
+  "files": {
+   "day": [
+    "SDIR_Inner/DIR_ExhibitionHall/BG_ExhibitionHall.jpg"
+   ],
+   "night": [
+    "SDIR_Inner/DIR_ExhibitionHall/BG_ExhibitionHall2_Night.jpg"
+   ]
+  }
+ },
+ "fireplacedormitory": {
+  "sdir": "SDIR_Inner",
+  "dir": "DIR_FireplaceDormitory",
+  "place": "fireplacedormitory",
+  "region": "",
+  "keywords": [
+   "壁炉房间"
+  ],
+  "note": "正常差分无圣诞元素,2则有圣诞树",
+  "files": {
+   "day": [
+    "SDIR_Inner/DIR_FireplaceDormitory/BG_FireplaceDormitory.jpg",
+    "SDIR_Inner/DIR_FireplaceDormitory/BG_FireplaceDormitory2.jpg"
+   ],
+   "night": [
+    "SDIR_Inner/DIR_FireplaceDormitory/BG_FireplaceDormitory2_Night.jpg",
+    "SDIR_Inner/DIR_FireplaceDormitory/BG_FireplaceDormitory_Night.jpg"
+   ]
+  }
+ },
+ "healthclub": {
+  "sdir": "SDIR_Inner",
+  "dir": "DIR_HealthClub",
+  "place": "healthclub",
+  "region": "",
+  "keywords": [
+   "健身房"
+  ],
+  "note": "带超多走步机和杠铃的健身房",
+  "files": {
+   "day": [
+    "SDIR_Inner/DIR_HealthClub/BG_HealthClub.jpg"
+   ],
+   "night": [
+    "SDIR_Inner/DIR_HealthClub/BG_HealthClub_Night.jpg"
+   ]
+  }
+ },
+ "hotellobby": {
+  "sdir": "SDIR_Inner",
+  "dir": "DIR_Hotel",
+  "place": "hotellobby",
+  "region": "",
+  "keywords": [
+   "酒店大堂"
+  ],
+  "note": "很有典雅风格的大堂lobby,不一定一定要是酒店",
+  "files": {
+   "day": [
+    "SDIR_Inner/DIR_Hotel/BG_HotelLobby.jpg"
+   ],
+   "night": [
+    "SDIR_Inner/DIR_Hotel/BG_HotelLobby_Night.jpg"
+   ]
+  }
+ },
+ "hotelcorridor": {
+  "sdir": "SDIR_Inner",
+  "dir": "DIR_Hotel",
+  "place": "hotelcorridor",
+  "region": "",
+  "keywords": [
+   "酒店走廊"
+  ],
+  "note": "有多个房门的典雅走廊",
+  "files": {
+   "day": [
+    "SDIR_Inner/DIR_Hotel/BG_Hotelcorridor.jpg",
+    "SDIR_Inner/DIR_Hotel/BG_Hotelcorridor2.jpg",
+    "SDIR_Inner/DIR_Hotel/BG_Hotelcorridor3.jpg"
+   ],
+   "night": [
+    "SDIR_Inner/DIR_Hotel/BG_Hotelcorridor_Night.jpg"
+   ]
+  }
+ },
+ "indoor_playground": {
+  "sdir": "SDIR_Inner",
+  "dir": "DIR_IndoorPlayground",
+  "place": "indoor_playground",
+  "region": "",
+  "keywords": [
+   "室内游乐场"
+  ],
+  "note": "给小孩子玩的海洋球和室内滑梯",
+  "files": {
+   "day": [
+    "SDIR_Inner/DIR_IndoorPlayground/BG_IndoorPlayGround.jpg"
+   ],
+   "night": [
+    "SDIR_Inner/DIR_IndoorPlayground/BG_IndoorPlayGround_Night.jpg"
+   ]
+  }
+ },
+ "infirmary": {
+  "sdir": "SDIR_Inner",
+  "dir": "DIR_Infirmary",
+  "place": "infirmary",
+  "region": "",
+  "keywords": [
+   "病房"
+  ],
+  "note": "病房",
+  "files": {
+   "day": [
+    "SDIR_Inner/DIR_Infirmary/BG_Infirmary.jpg"
+   ],
+   "night": [
+    "SDIR_Inner/DIR_Infirmary/BG_Infirmary_Night.jpg"
+   ]
+  }
+ },
+ "interrogationroom": {
+  "sdir": "SDIR_Inner",
+  "dir": "DIR_InterrogationRoom",
+  "place": "interrogationroom",
+  "region": "",
+  "keywords": [
+   "审讯室"
+  ],
+  "note": "带昏暗灯光的审讯室",
+  "files": {
+   "day": [
+    "SDIR_Inner/DIR_InterrogationRoom/BG_InterrogationRoom.jpg"
+   ],
+   "night": [
+    "SDIR_Inner/DIR_InterrogationRoom/BG_InterrogationRoom_Night.jpg"
+   ]
+  }
+ },
+ "kitchen": {
+  "sdir": "SDIR_Inner",
+  "dir": "DIR_Kitchen",
+  "place": "kitchen",
+  "region": "格黑娜学院",
+  "keywords": [
+   "后厨"
+  ],
+  "note": "食堂后厨",
+  "files": {
+   "day": [
+    "SDIR_Inner/DIR_Kitchen/BG_Kitchen.jpg"
+   ],
+   "night": [
+    "SDIR_Inner/DIR_Kitchen/BG_Kitchen_Night.jpg"
+   ]
+  }
+ },
+ "library": {
+  "sdir": "SDIR_Inner",
+  "dir": "DIR_Library",
+  "place": "library",
+  "region": "",
+  "keywords": [
+   "图书馆"
+  ],
+  "note": "很经典的图书馆",
+  "files": {
+   "day": [
+    "SDIR_Inner/DIR_Library/BG_Library.jpg",
+    "SDIR_Inner/DIR_Library/BG_Library2.jpg"
+   ],
+   "night": [
+    "SDIR_Inner/DIR_Library/BG_Library2_Night.jpg",
+    "SDIR_Inner/DIR_Library/BG_Library2_Rain.jpg"
+   ]
+  }
+ },
+ "lockerroom": {
+  "sdir": "SDIR_Inner",
+  "dir": "DIR_LockerRoom",
+  "place": "lockerroom",
+  "region": "",
+  "keywords": [
+   "更衣室"
+  ],
+  "note": "现代摩登的更衣室,sensei不许偷看学生!",
+  "files": {
+   "day": [
+    "SDIR_Inner/DIR_LockerRoom/BG_LockerRoom.jpg"
+   ],
+   "night": [
+    "SDIR_Inner/DIR_LockerRoom/BG_LockerRoom_Night.jpg"
+   ]
+  }
+ },
+ "luxuriousrooms": {
+  "sdir": "SDIR_Inner",
+  "dir": "DIR_LuxuriousRooms",
+  "place": "luxuriousrooms",
+  "region": "",
+  "keywords": [
+   "奢华大床房",
+   "奢华房间"
+  ],
+  "note": "极尽奢华的大床房,和学生同床共枕",
+  "files": {
+   "day": [
+    "SDIR_Inner/DIR_LuxuriousRooms/BG_LuxuriousRooms.jpg",
+    "SDIR_Inner/DIR_LuxuriousRooms/BG_LuxuriousRooms2.jpg"
+   ],
+   "night": [
+    "SDIR_Inner/DIR_LuxuriousRooms/BG_LuxuriousRooms_Night.jpg"
+   ]
+  }
+ },
+ "hotel_dining": {
+  "sdir": "SDIR_Inner",
+  "dir": "DIR_PartyRoom",
+  "place": "hotel_dining",
+  "region": "",
+  "keywords": [
+   "酒店餐厅"
+  ],
+  "note": "摆满餐桌的酒店餐厅",
+  "files": {
+   "day": [
+    "SDIR_Inner/DIR_PartyRoom/BG_PartyRoom.jpg"
+   ],
+   "night": [
+    "SDIR_Inner/DIR_PartyRoom/BG_PartyRoom_Night.jpg"
+   ]
+  }
+ },
+ "practiceroom": {
+  "sdir": "SDIR_Inner",
+  "dir": "DIR_PracticeRoom",
+  "place": "practiceroom",
+  "region": "",
+  "keywords": [
+   "乐队练习室",
+   "歌舞房"
+  ],
+  "note": "练习声乐时候的房间,甜点部四人组曾用过很久",
+  "files": {
+   "day": [
+    "SDIR_Inner/DIR_PracticeRoom/BG_PracticeRoom.jpg",
+    "SDIR_Inner/DIR_PracticeRoom/BG_PracticeRoom2.jpg"
+   ],
+   "night": [
+    "SDIR_Inner/DIR_PracticeRoom/BG_PracticeRoom2_Night.jpg",
+    "SDIR_Inner/DIR_PracticeRoom/BG_PracticeRoom_Night.jpg"
+   ]
+  }
+ },
+ "recreationroom": {
+  "sdir": "SDIR_Inner",
+  "dir": "DIR_RecreationRoom",
+  "place": "recreationroom",
+  "region": "",
+  "keywords": [
+   "图书馆娱乐室"
+  ],
+  "note": "图书馆娱乐室",
+  "files": {
+   "day": [
+    "SDIR_Inner/DIR_RecreationRoom/BG_RecreationRoom.jpg",
+    "SDIR_Inner/DIR_RecreationRoom/BG_RecreationRoom2.jpg"
+   ],
+   "night": []
+  }
+ },
+ "ruinschoolcorridor": {
+  "sdir": "SDIR_Inner",
+  "dir": "DIR_RuinSchool",
+  "place": "ruinschoolcorridor",
+  "region": "",
+  "keywords": [
+   "破屋",
+   "老屋",
+   "学校走廊废墟",
+   "秘密基地"
+  ],
+  "note": "学校走廊废墟,青苔遍地,也可以用做老屋子或者某种杂草秘密基地",
+  "files": {
+   "day": [
+    "SDIR_Inner/DIR_RuinSchool/BG_RuinSchoolCorridor.jpg"
+   ],
+   "night": [
+    "SDIR_Inner/DIR_RuinSchool/BG_RuinSchoolCorridor_Night.jpg",
+    "SDIR_Inner/DIR_RuinSchool/BG_RuinSchoolCorridor_Sunset.jpg"
+   ]
+  }
+ },
+ "school_cafeteria": {
+  "sdir": "SDIR_Inner",
+  "dir": "DIR_SchoolCafe",
+  "place": "school_cafeteria",
+  "region": "格黑娜学院",
+  "keywords": [
+   "学校餐厅",
+   "学校食堂"
+  ],
+  "note": "学校的食堂",
+  "files": {
+   "day": [
+    "SDIR_Inner/DIR_SchoolCafe/BG_SchoolCafeteria.jpg"
+   ],
+   "night": [
+    "SDIR_Inner/DIR_SchoolCafe/BG_SchoolCafeteria_Night.jpg"
+   ]
+  }
+ },
+ "shoescabinet": {
+  "sdir": "SDIR_Inner",
+  "dir": "DIR_ShoesCabinet",
+  "place": "shoescabinet",
+  "region": "",
+  "keywords": [
+   "鞋柜存放地"
+  ],
+  "note": "存放鞋子的地方",
+  "files": {
+   "day": [
+    "SDIR_Inner/DIR_ShoesCabinet/BG_ShoesCabinet.jpg"
+   ],
+   "night": [
+    "SDIR_Inner/DIR_ShoesCabinet/BG_ShoesCabinet_Night.jpg"
+   ]
+  }
+ },
+ "storage": {
+  "sdir": "SDIR_Inner",
+  "dir": "DIR_Storage",
+  "place": "storage",
+  "region": "",
+  "keywords": [
+   "储物间"
+  ],
+  "note": "狭小的储物间,容易被不小心锁在里面",
+  "files": {
+   "day": [
+    "SDIR_Inner/DIR_Storage/BG_Storage.jpg"
+   ],
+   "night": [
+    "SDIR_Inner/DIR_Storage/BG_Storage_Night.jpg"
+   ]
+  }
+ },
+ "studentroom": {
+  "sdir": "SDIR_Inner",
+  "dir": "DIR_StudentRoom",
+  "place": "studentroom",
+  "region": "",
+  "keywords": [
+   "学生房间"
+  ],
+  "note": "学生自己的房间,可以邀请老师进入",
+  "files": {
+   "day": [
+    "SDIR_Inner/DIR_StudentRoom/BG_StudentRoom.jpg",
+    "SDIR_Inner/DIR_StudentRoom/BG_StudentRoom_Night2.jpg"
+   ],
+   "night": [
+    "SDIR_Inner/DIR_StudentRoom/BG_StudentRoom_Night.jpg"
+   ]
+  }
+ },
+ "tatamiroom": {
+  "sdir": "SDIR_Inner",
+  "dir": "DIR_Tatami",
+  "place": "tatamiroom",
+  "region": "",
+  "keywords": [
+   "榻榻米屋"
+  ],
+  "note": "有榻榻米的日式会客厅",
+  "files": {
+   "day": [
+    "SDIR_Inner/DIR_Tatami/BG_TatamiRoom.jpg"
+   ],
+   "night": [
+    "SDIR_Inner/DIR_Tatami/BG_TatamiRoom_Night.jpg"
+   ]
+  }
+ },
+ "viplounge": {
+  "sdir": "SDIR_Inner",
+  "dir": "DIR_VIPLounge",
+  "place": "viplounge",
+  "region": "",
+  "keywords": [
+   "vip接待室"
+  ],
+  "note": "vip顾客的休闲地点",
+  "files": {
+   "day": [
+    "SDIR_Inner/DIR_VIPLounge/BG_VIPLounge.jpg",
+    "SDIR_Inner/DIR_VIPLounge/BG_VIPLounge2.jpg"
+   ],
+   "night": [
+    "SDIR_Inner/DIR_VIPLounge/BG_VIPLounge_Night.jpg"
+   ]
+  }
+ },
+ "waitingroom": {
+  "sdir": "SDIR_Inner",
+  "dir": "DIR_WaitingRoom",
+  "place": "waitingroom",
+  "region": "",
+  "keywords": [
+   "列车候车室",
+   "火车候车地"
+  ],
+  "note": "候车室",
+  "files": {
+   "day": [
+    "SDIR_Inner/DIR_WaitingRoom/BG_WaitingRoom.jpg"
+   ],
+   "night": [
+    "SDIR_Inner/DIR_WaitingRoom/BG_WaitingRoom_Night.jpg"
+   ]
+  }
+ },
+ "karaoke": {
+  "sdir": "SDIR_Inner",
+  "dir": "DIR_Z",
+  "place": "karaoke",
+  "region": "",
+  "keywords": [
+   "KTV房间"
+  ],
+  "note": "K歌的地方",
+  "files": {
+   "day": [
+    "SDIR_Inner/DIR_Z/BG_Karaoke.jpg"
+   ],
+   "night": []
+  }
+ },
+ "lab": {
+  "sdir": "SDIR_Inner",
+  "dir": "DIR_Z",
+  "place": "lab",
+  "region": "",
+  "keywords": [
+   "实验室"
+  ],
+  "note": "充满药剂的化学实验室",
+  "files": {
+   "day": [
+    "SDIR_Inner/DIR_Z/BG_Lab.jpg"
+   ],
+   "night": []
+  }
+ },
+ "oldgym": {
+  "sdir": "SDIR_Inner",
+  "dir": "DIR_Z",
+  "place": "oldgym",
+  "region": "",
+  "keywords": [
+   "旧健身房"
+  ],
+  "note": "比较陈旧的健身房,全是哑铃片子",
+  "files": {
+   "day": [
+    "SDIR_Inner/DIR_Z/BG_OldGYM.jpg"
+   ],
+   "night": []
+  }
+ },
+ "amusement": {
+  "sdir": "SDIR_Public",
+  "dir": "DIR_Amusement",
+  "place": "amusement",
+  "region": "",
+  "keywords": [
+   "游乐场",
+   "游园会"
+  ],
+  "note": "绝佳约会点",
+  "files": {
+   "day": [
+    "SDIR_Public/DIR_Amusement/BG_Amusement.jpg",
+    "SDIR_Public/DIR_Amusement/BG_Amusement_Night2.jpg"
+   ],
+   "night": [
+    "SDIR_Public/DIR_Amusement/BG_Amusement_Erode.jpg",
+    "SDIR_Public/DIR_Amusement/BG_Amusement_Night.jpg"
+   ]
+  }
+ },
+ "bar": {
+  "sdir": "SDIR_Public",
+  "dir": "DIR_Bar",
+  "place": "bar",
+  "region": "",
+  "keywords": [
+   "酒馆"
+  ],
+  "note": "注意,只有此目录下的酒馆正常可用",
+  "files": {
+   "day": [
+    "SDIR_Public/DIR_Bar/BG_Bar.jpg",
+    "SDIR_Public/DIR_Bar/BG_Bar_2.jpg",
+    "SDIR_Public/DIR_Bar/BG_Bar_Night_2.jpg"
+   ],
+   "night": [
+    "SDIR_Public/DIR_Bar/BG_Bar_Night.jpg"
+   ]
+  }
+ },
+ "campus_vendingmachine": {
+  "sdir": "SDIR_Public",
+  "dir": "DIR_CampusVendingMachine",
+  "place": "campus_vendingmachine",
+  "region": "",
+  "keywords": [
+   "自动售货机"
+  ],
+  "note": "街边自动售货机,很常见的街景",
+  "files": {
+   "day": [
+    "SDIR_Public/DIR_CampusVendingMachine/BG_CampusVendingMachine.jpg"
+   ],
+   "night": [
+    "SDIR_Public/DIR_CampusVendingMachine/BG_CampusVendingMachine_Night.jpg",
+    "SDIR_Public/DIR_CampusVendingMachine/BG_CampusVendingMachine_Sunset.jpg"
+   ]
+  }
+ },
+ "convenience": {
+  "sdir": "SDIR_Public",
+  "dir": "DIR_Convenience",
+  "place": "convenience",
+  "region": "",
+  "keywords": [
+   "便利店前"
+  ],
+  "note": "更常用的是乡村路口",
+  "files": {
+   "day": [
+    "SDIR_Public/DIR_Convenience/BG_Convenience.jpg"
+   ],
+   "night": [
+    "SDIR_Public/DIR_Convenience/BG_Convenience_Night.jpg"
+   ]
+  }
+ },
+ "convenience_store": {
+  "sdir": "SDIR_Public",
+  "dir": "DIR_Convenience",
+  "place": "convenience_store",
+  "region": "",
+  "keywords": [
+   "便利店内部"
+  ],
+  "note": "进便利店使用的差分,里面似乎有很多女性刊物",
+  "files": {
+   "day": [
+    "SDIR_Public/DIR_Convenience/BG_ConvenienceStore.jpg"
+   ],
+   "night": []
+  }
+ },
+ "family_restaurant": {
+  "sdir": "SDIR_Public",
+  "dir": "DIR_FamilyRestaurant",
+  "place": "family_restaurant",
+  "region": "",
+  "keywords": [
+   "家庭餐厅"
+  ],
+  "note": "",
+  "files": {
+   "day": [
+    "SDIR_Public/DIR_FamilyRestaurant/BG_FamilyRestaurant.jpg"
+   ],
+   "night": [
+    "SDIR_Public/DIR_FamilyRestaurant/BG_FamilyRestaurant_Night.jpg"
+   ]
+  }
+ },
+ "fastfood_restaurant": {
+  "sdir": "SDIR_Public",
+  "dir": "DIR_FastfoodRestaurant",
+  "place": "fastfood_restaurant",
+  "region": "",
+  "keywords": [
+   "快餐店"
+  ],
+  "note": "快餐餐厅",
+  "files": {
+   "day": [
+    "SDIR_Public/DIR_FastfoodRestaurant/BG_FastfoodRestaurant.jpg"
+   ],
+   "night": [
+    "SDIR_Public/DIR_FastfoodRestaurant/BG_FastfoodRestaurant_Night.jpg"
+   ]
+  }
+ },
+ "finedining": {
+  "sdir": "SDIR_Public",
+  "dir": "DIR_FineDining",
+  "place": "finedining",
+  "region": "",
+  "keywords": [
+   "奢华餐厅"
+  ],
+  "note": "高档装潢的餐厅",
+  "files": {
+   "day": [
+    "SDIR_Public/DIR_FineDining/BG_FineDining.jpg"
+   ],
+   "night": [
+    "SDIR_Public/DIR_FineDining/BG_FineDining_Night.jpg"
+   ]
+  }
+ },
+ "foodcart_ramen": {
+  "sdir": "SDIR_Public",
+  "dir": "DIR_FoodCartRamen",
+  "place": "foodcart_ramen",
+  "region": "",
+  "keywords": [
+   "拉面移动餐车"
+  ],
+  "note": "极其重要的路边拉面摊,芹香的打工处",
+  "files": {
+   "day": [
+    "SDIR_Public/DIR_FoodCartRamen/BG_FoodCartRamen.jpg",
+    "SDIR_Public/DIR_FoodCartRamen/BG_FoodCartRamen2.jpg"
+   ],
+   "night": [
+    "SDIR_Public/DIR_FoodCartRamen/BG_FoodCartRamen2_Night.jpg",
+    "SDIR_Public/DIR_FoodCartRamen/BG_FoodCartRamen_Night.jpg"
+   ]
+  }
+ },
+ "kivotosstadium": {
+  "sdir": "SDIR_Public",
+  "dir": "DIR_KivotosStadium",
+  "place": "kivotosstadium",
+  "region": "",
+  "keywords": [
+   "基沃托斯体育场"
+  ],
+  "note": "体育场馆内部,能看到非常多运动场地",
+  "files": {
+   "day": [
+    "SDIR_Public/DIR_KivotosStadium/BG_KivotosStadium.jpg",
+    "SDIR_Public/DIR_KivotosStadium/BG_KivotosStadium2.jpg"
+   ],
+   "night": [
+    "SDIR_Public/DIR_KivotosStadium/BG_KivotosStadium2_Sunset.jpg",
+    "SDIR_Public/DIR_KivotosStadium/BG_KivotosStadium_Sunset.jpg"
+   ]
+  }
+ },
+ "market": {
+  "sdir": "SDIR_Public",
+  "dir": "DIR_Market",
+  "place": "market",
+  "region": "",
+  "keywords": [
+   "市集"
+  ],
+  "note": "街边小集市",
+  "files": {
+   "day": [
+    "SDIR_Public/DIR_Market/BG_Market.jpg"
+   ],
+   "night": [
+    "SDIR_Public/DIR_Market/BG_Market_Night.jpg"
+   ]
+  }
+ },
+ "marketinside": {
+  "sdir": "SDIR_Public",
+  "dir": "DIR_Market",
+  "place": "marketinside",
+  "region": "",
+  "keywords": [
+   "超市内部"
+  ],
+  "note": "琳琅满目的货架",
+  "files": {
+   "day": [
+    "SDIR_Public/DIR_Market/BG_MarketInside.jpg"
+   ],
+   "night": [
+    "SDIR_Public/DIR_Market/BG_MarketInside_Night.jpg"
+   ]
+  }
+ },
+ "operahouse": {
+  "sdir": "SDIR_Public",
+  "dir": "DIR_OperaHouse",
+  "place": "operahouse",
+  "region": "",
+  "keywords": [
+   "歌剧院外景"
+  ],
+  "note": "歌剧院隔马路看的全景",
+  "files": {
+   "day": [
+    "SDIR_Public/DIR_OperaHouse/BG_OperaHouse.jpg"
+   ],
+   "night": [
+    "SDIR_Public/DIR_OperaHouse/BG_OperaHouse_Night.jpg"
+   ]
+  }
+ },
+ "black": {
+  "sdir": "SDIR_Atmosphere",
+  "dir": "DIR_PureColor",
+  "place": "black",
+  "region": "",
+  "keywords": [
+   "纯黑",
+   "黑屏",
+   "黑色",
+   "黑幕"
+  ],
+  "note": "角色用于思考时可用的黑色特效，转场不必使用，engine会处理的",
+  "files": {
+   "day": [
+    "SDIR_Atmosphere/DIR_PureColor/BG_Black.jpg"
+   ],
+   "night": []
+  }
+ },
+ "view_constellation": {
+  "sdir": "SDIR_Atmosphere",
+  "dir": "DIR_ViewSora",
+  "place": "view_constellation",
+  "region": "",
+  "keywords": [
+   "流星雨",
+   "繁星夜空"
+  ],
+  "note": "流星雨坠落的夜空，也可以理解为繁星夜景，非常漂亮",
+  "files": {
+   "day": [
+    "SDIR_Atmosphere/DIR_ViewSora/BG_View_BeachNightSky.jpg"
+   ],
+   "night": []
+  }
+ },
+ "view_dawnsky": {
+  "sdir": "SDIR_Atmosphere",
+  "dir": "DIR_ViewSora",
+  "place": "view_dawnsky",
+  "region": "",
+  "keywords": [
+   "黄昏云彩"
+  ],
+  "note": "专用的黄昏景色，非常漂亮有氛围感",
+  "files": {
+   "day": [
+    "SDIR_Atmosphere/DIR_ViewSora/BG_View_DawnSky.jpg"
+   ],
+   "night": []
+  }
+ },
+ "hyakkayouran_garden": {
+  "sdir": "SDIR_Clubs",
+  "dir": "DIR_Hyakkayour",
+  "place": "hyakkayouran_garden",
+  "region": "百鬼夜行联合学院",
+  "keywords": [
+   "百花缭乱纠纷委员会前庭",
+   "百花缭乱纠纷委员会花园"
+  ],
+  "note": "百花缭乱纠纷委员会社团的前庭",
+  "files": {
+   "day": [
+    "SDIR_Clubs/DIR_Hyakkayour/BG_HyakkayouranGarden.jpg"
+   ],
+   "night": [
+    "SDIR_Clubs/DIR_Hyakkayour/BG_HyakkayouranGarden_Night.jpg",
+    "SDIR_Clubs/DIR_Hyakkayour/BG_HyakkayouranGarden_Sunset.jpg"
+   ]
+  }
+ },
+ "craftchamber": {
+  "sdir": "SDIR_Clubs",
+  "dir": "DIR_Schale",
+  "place": "craftchamber",
+  "region": "",
+  "keywords": [
+   "夏莱工坊"
+  ],
+  "note": "老师工作的地方,学生可以在此处休息",
+  "files": {
+   "day": [
+    "SDIR_Clubs/DIR_Schale/BG_CraftChamber.jpg"
+   ],
+   "night": [
+    "SDIR_Clubs/DIR_Schale/BG_CraftChamber_Night.jpg"
+   ]
+  }
+ },
+ "schale_office": {
+  "sdir": "SDIR_Clubs",
+  "dir": "DIR_Schale",
+  "place": "schale_office",
+  "region": "夏莱",
+  "keywords": [
+   "夏莱办公室",
+   "沙勒办公室"
+  ],
+  "note": "重要的地点，老师办公室内，是学生来值日的地点",
+  "files": {
+   "day": [
+    "SDIR_Clubs/DIR_Schale/BG_MainOffice.jpg",
+    "SDIR_Clubs/DIR_Schale/BG_MainOffice_Night2.jpg"
+   ],
+   "night": [
+    "SDIR_Clubs/DIR_Schale/BG_MainOffice_Erode.jpg",
+    "SDIR_Clubs/DIR_Schale/BG_MainOffice_Fake.jpg",
+    "SDIR_Clubs/DIR_Schale/BG_MainOffice_Night.jpg",
+    "SDIR_Clubs/DIR_Schale/BG_MainOffice_Sunset.jpg"
+   ]
+  }
+ },
+ "restinglounge": {
+  "sdir": "SDIR_Clubs",
+  "dir": "DIR_Schale",
+  "place": "restinglounge",
+  "region": "",
+  "keywords": [
+   "夏莱休息室"
+  ],
+  "note": "重要地点,老师让学生休息的休息室,有按摩椅",
+  "files": {
+   "day": [
+    "SDIR_Clubs/DIR_Schale/BG_RestingLounge.jpg"
+   ],
+   "night": [
+    "SDIR_Clubs/DIR_Schale/BG_RestingLounge_Night.jpg"
+   ]
+  }
+ },
+ "schale_cafeteria": {
+  "sdir": "SDIR_Clubs",
+  "dir": "DIR_Schale",
+  "place": "schale_cafeteria",
+  "region": "夏莱",
+  "keywords": [
+   "夏莱咖啡厅",
+   "沙勒咖啡厅",
+   "夏莱自助餐厅"
+  ],
+  "note": "夏莱的餐厅，老师可以和学生在此处吃饭",
+  "files": {
+   "day": [
+    "SDIR_Clubs/DIR_Schale/BG_SchaleCafeteria.jpg"
+   ],
+   "night": [
+    "SDIR_Clubs/DIR_Schale/BG_SchaleCafeteria_Dark.jpg"
+   ]
+  }
+ },
+ "schale_operationroom": {
+  "sdir": "SDIR_Clubs",
+  "dir": "DIR_Schale",
+  "place": "schale_operationroom",
+  "region": "夏莱",
+  "keywords": [
+   "夏莱会议室",
+   "沙勒会议室"
+  ],
+  "note": "夏莱中谈论重要事宜的会议室",
+  "files": {
+   "day": [
+    "SDIR_Clubs/DIR_Schale/BG_SchaleOperationRoom.jpg",
+    "SDIR_Clubs/DIR_Schale/BG_SchaleOperationRoom2.jpg"
+   ],
+   "night": []
+  }
+ },
+ "schale_overnightroom": {
+  "sdir": "SDIR_Clubs",
+  "dir": "DIR_Schale",
+  "place": "schale_overnightroom",
+  "region": "夏莱",
+  "keywords": [
+   "夏莱过夜房",
+   "沙勒过夜间",
+   "夏莱大床房",
+   "夏莱学生休息室"
+  ],
+  "note": "重要的地点，老师和学生心跳加速的双人房",
+  "files": {
+   "day": [
+    "SDIR_Clubs/DIR_Schale/BG_SchaleOvernightRoom.jpg"
+   ],
+   "night": [
+    "SDIR_Clubs/DIR_Schale/BG_SchaleOvernightRoom_Night.jpg"
+   ]
+  }
+ },
+ "warehouse": {
+  "sdir": "SDIR_Infrastructure",
+  "dir": "DIR_Warehouse",
+  "place": "warehouse",
+  "region": "",
+  "keywords": [
+   "仓库内部",
+   "仓储内部"
+  ],
+  "note": "用来找东西或和sensei独处的仓库",
+  "files": {
+   "day": [
+    "SDIR_Infrastructure/DIR_Warehouse/BG_Warehouse.jpg"
+   ],
+   "night": [
+    "SDIR_Infrastructure/DIR_Warehouse/BG_Warehouse_Night.jpg"
+   ]
+  }
+ },
+ "cablecar": {
+  "sdir": "SDIR_Infrastructure",
+  "dir": "DIR_Z",
+  "place": "cablecar",
+  "region": "",
+  "keywords": [
+   "缆车"
+  ],
+  "note": "有些破旧的山上缆车",
+  "files": {
+   "day": [
+    "SDIR_Infrastructure/DIR_Z/BG_OldCablecar.jpg"
+   ],
+   "night": []
+  }
+ },
+ "gym": {
+  "sdir": "SDIR_Inner",
+  "dir": "DIR_Gym",
+  "place": "gym",
+  "region": "",
+  "keywords": [
+   "室内体育馆"
+  ],
+  "note": "带篮球架的室内体育馆",
+  "files": {
+   "day": [
+    "SDIR_Inner/DIR_Gym/BG_Gym.jpg",
+    "SDIR_Inner/DIR_Gym/BG_Gym_Night2.jpg"
+   ],
+   "night": [
+    "SDIR_Inner/DIR_Gym/BG_Gym_Night.jpg"
+   ]
+  }
+ },
+ "showerroom": {
+  "sdir": "SDIR_Inner",
+  "dir": "DIR_Z",
+  "place": "showerroom",
+  "region": "",
+  "keywords": [
+   "澡堂"
+  ],
+  "note": "学生澡堂,sensei止步!",
+  "files": {
+   "day": [
+    "SDIR_Inner/DIR_Z/BG_ShowerRoom.jpg"
+   ],
+   "night": []
+  }
+ },
+ "tentinside_night": {
+  "sdir": "SDIR_Inner",
+  "dir": "DIR_Z",
+  "place": "tentinside_night",
+  "region": "",
+  "keywords": [
+   "夜晚帐篷内部"
+  ],
+  "note": "更加温馨美好的夜间帐篷内部景象",
+  "files": {
+   "day": [],
+   "night": [
+    "SDIR_Inner/DIR_Z/BG_TentInside_Night.jpg"
+   ]
+  }
+ },
+ "ward": {
+  "sdir": "SDIR_Inner",
+  "dir": "DIR_Z",
+  "place": "ward",
+  "region": "",
+  "keywords": [
+   "病院"
+  ],
+  "note": "有着诸多病房的病院",
+  "files": {
+   "day": [
+    "SDIR_Inner/DIR_Z/BG_Ward.jpg"
+   ],
+   "night": [
+    "SDIR_Inner/DIR_Z/BG_Ward_Night.jpg"
+   ]
+  }
+ },
+ "beach_frontside": {
+  "sdir": "SDIR_Nature",
+  "dir": "DIR_Beach",
+  "place": "beach_frontside",
+  "region": "",
+  "keywords": [
+   "海景"
+  ],
+  "note": "非常美丽的海景差分,尤其是Sunset和Night",
+  "files": {
+   "day": [
+    "SDIR_Nature/DIR_Beach/BG_BeachFrontSide.jpg",
+    "SDIR_Nature/DIR_Beach/BG_BeachFrontSide2.jpg"
+   ],
+   "night": [
+    "SDIR_Nature/DIR_Beach/BG_BeachFrontSide_Night.jpg",
+    "SDIR_Nature/DIR_Beach/BG_BeachFrontSide_Sunset.jpg"
+   ]
+  }
+ },
+ "beach_nightview": {
+  "sdir": "SDIR_Nature",
+  "dir": "DIR_Beach",
+  "place": "beach_nightview",
+  "region": "",
+  "keywords": [
+   "晚霞海景"
+  ],
+  "note": "包括紫色晚霞的超美丽海景",
+  "files": {
+   "day": [
+    "SDIR_Nature/DIR_Beach/BG_BeachNightView.jpg"
+   ],
+   "night": []
+  }
+ },
+ "beachshop_inside": {
+  "sdir": "SDIR_Nature",
+  "dir": "DIR_Beach",
+  "place": "beachshop_inside",
+  "region": "",
+  "keywords": [
+   "沙滩小店",
+   "沙滩室内店铺"
+  ],
+  "note": "海边棚子里的各种小吃店的景象",
+  "files": {
+   "day": [
+    "SDIR_Nature/DIR_Beach/BG_BeachShopInSide.jpg"
+   ],
+   "night": [
+    "SDIR_Nature/DIR_Beach/BG_BeachShopInSide_Night.jpg"
+   ]
+  }
+ },
+ "beach_volleyball": {
+  "sdir": "SDIR_Nature",
+  "dir": "DIR_Beach",
+  "place": "beach_volleyball",
+  "region": "",
+  "keywords": [
+   "沙滩排球场"
+  ],
+  "note": "一个沙滩排球场地,阳光明媚",
+  "files": {
+   "day": [
+    "SDIR_Nature/DIR_Beach/BG_BeachVolleyball.jpg"
+   ],
+   "night": []
+  }
+ },
+ "beachside": {
+  "sdir": "SDIR_Nature",
+  "dir": "DIR_Beach",
+  "place": "beachside",
+  "region": "",
+  "keywords": [
+   "海滨",
+   "海滩"
+  ],
+  "note": "海滨的水陆景色",
+  "files": {
+   "day": [
+    "SDIR_Nature/DIR_Beach/BG_Beachside.jpg"
+   ],
+   "night": [
+    "SDIR_Nature/DIR_Beach/BG_Beachside_Night.jpg",
+    "SDIR_Nature/DIR_Beach/BG_Beachside_Sunset.jpg"
+   ]
+  }
+ },
+ "beachside_shop": {
+  "sdir": "SDIR_Nature",
+  "dir": "DIR_Beach",
+  "place": "beachside_shop",
+  "region": "",
+  "keywords": [
+   "滨海商店",
+   "滨海餐厅"
+  ],
+  "note": "在海滨的优雅小馆子",
+  "files": {
+   "day": [
+    "SDIR_Nature/DIR_Beach/BG_BeachsideShop.jpg"
+   ],
+   "night": [
+    "SDIR_Nature/DIR_Beach/BG_BeachsideShop_Dark.jpg",
+    "SDIR_Nature/DIR_Beach/BG_BeachsideShop_Night.jpg",
+    "SDIR_Nature/DIR_Beach/BG_BeachsideShop_Sunset.jpg"
+   ]
+  }
+ },
+ "campinside": {
+  "sdir": "SDIR_Nature",
+  "dir": "DIR_CampInside",
+  "place": "campinside",
+  "region": "",
+  "keywords": [
+   "帐篷内部"
+  ],
+  "note": "老师和学生睡帐篷的场面;同时是SRT的学生常见据点,没有钱的便利屋68也会睡帐篷",
+  "files": {
+   "day": [
+    "SDIR_Nature/DIR_CampInside/BG_CampInside.jpg"
+   ],
+   "night": [
+    "SDIR_Nature/DIR_CampInside/BG_CampInside_Night.jpg"
+   ]
+  }
+ },
+ "campsite": {
+  "sdir": "SDIR_Nature",
+  "dir": "DIR_CampSite",
+  "place": "campsite",
+  "region": "",
+  "keywords": [
+   "帐篷外郊",
+   "郊野"
+  ],
+  "note": "帐篷外郊野的美丽自然景象",
+  "files": {
+   "day": [
+    "SDIR_Nature/DIR_CampSite/BG_CampSite.jpg",
+    "SDIR_Nature/DIR_CampSite/BG_CampSite2.jpg"
+   ],
+   "night": [
+    "SDIR_Nature/DIR_CampSite/BG_CampSite_Night.jpg"
+   ]
+  }
+ },
+ "countryfield": {
+  "sdir": "SDIR_Nature",
+  "dir": "DIR_CountryField",
+  "place": "countryfield",
+  "region": "",
+  "keywords": [
+   "原野",
+   "田野",
+   "郊外田野"
+  ],
+  "note": "郊外的田地",
+  "files": {
+   "day": [
+    "SDIR_Nature/DIR_CountryField/BG_CountryField.jpg"
+   ],
+   "night": [
+    "SDIR_Nature/DIR_CountryField/BG_CountryField_Night.jpg",
+    "SDIR_Nature/DIR_CountryField/BG_CountryField_Rain.jpg"
+   ]
+  }
+ },
+ "fishing_village": {
+  "sdir": "SDIR_Nature",
+  "dir": "DIR_FishingVillage",
+  "place": "fishing_village",
+  "region": "",
+  "keywords": [
+   "小渔村"
+  ],
+  "note": "请使用差分2,差分2是阳光明媚的正常渔村,正常版本是雾气浓浓的,夜晚都一样",
+  "files": {
+   "day": [
+    "SDIR_Nature/DIR_FishingVillage/BG_FishingVillage.jpg",
+    "SDIR_Nature/DIR_FishingVillage/BG_FishingVillage2.jpg"
+   ],
+   "night": [
+    "SDIR_Nature/DIR_FishingVillage/BG_FishingVillage_Night.jpg"
+   ]
+  }
+ },
+ "forestroad": {
+  "sdir": "SDIR_Nature",
+  "dir": "DIR_ForestRoad",
+  "place": "forestroad",
+  "region": "",
+  "keywords": [
+   "林间小道",
+   "森林小径"
+  ],
+  "note": "森林中的小路,有人可能会在这里找花朵或者杂草",
+  "files": {
+   "day": [
+    "SDIR_Nature/DIR_ForestRoad/BG_ForestRoad.jpg",
+    "SDIR_Nature/DIR_ForestRoad/BG_ForestRoad2.jpg"
+   ],
+   "night": [
+    "SDIR_Nature/DIR_ForestRoad/BG_ForestRoad_Night.jpg"
+   ]
+  }
+ },
+ "forestroad2_fall": {
+  "sdir": "SDIR_Nature",
+  "dir": "DIR_ForestRoad",
+  "place": "forestroad2_fall",
+  "region": "",
+  "keywords": [
+   "秋天森林",
+   "秋日森林"
+  ],
+  "note": "非常美丽的枫叶小桥流水之景",
+  "files": {
+   "day": [
+    "SDIR_Nature/DIR_ForestRoad/BG_ForestRoad2_Fall.jpg"
+   ],
+   "night": []
+  }
+ },
+ "islandbeach": {
+  "sdir": "SDIR_Nature",
+  "dir": "DIR_IslandBeach",
+  "place": "islandbeach",
+  "region": "",
+  "keywords": [
+   "小岛沙滩",
+   "小岛海滩"
+  ],
+  "note": "一个美丽的小岛上的沙滩棕榈",
+  "files": {
+   "day": [
+    "SDIR_Nature/DIR_IslandBeach/BG_IslandBeach.jpg"
+   ],
+   "night": [
+    "SDIR_Nature/DIR_IslandBeach/BG_IslandBeach_Night.jpg"
+   ]
+  }
+ },
+ "lemon_forest": {
+  "sdir": "SDIR_Nature",
+  "dir": "DIR_LemonForest",
+  "place": "lemon_forest",
+  "region": "",
+  "keywords": [
+   "柠檬森林"
+  ],
+  "note": "白天很美丽的森林,晚上略显阴森",
+  "files": {
+   "day": [
+    "SDIR_Nature/DIR_LemonForest/BG_LemonForest.jpg",
+    "SDIR_Nature/DIR_LemonForest/BG_LemonForest2.jpg"
+   ],
+   "night": [
+    "SDIR_Nature/DIR_LemonForest/BG_LemonForest2_Night.jpg",
+    "SDIR_Nature/DIR_LemonForest/BG_LemonForest_Night.jpg"
+   ]
+  }
+ },
+ "lighthousepier": {
+  "sdir": "SDIR_Nature",
+  "dir": "DIR_LightHousePier",
+  "place": "lighthousepier",
+  "region": "",
+  "keywords": [
+   "灯塔"
+  ],
+  "note": "建议使用差分2,差分2是正常白天灯塔,无2的则是雾萦灯塔",
+  "files": {
+   "day": [
+    "SDIR_Nature/DIR_LightHousePier/BG_LightHousePier.jpg",
+    "SDIR_Nature/DIR_LightHousePier/BG_LightHousePier2.jpg"
+   ],
+   "night": [
+    "SDIR_Nature/DIR_LightHousePier/BG_LightHousePier_Night.jpg"
+   ]
+  }
+ },
+ "mountaintop": {
+  "sdir": "SDIR_Nature",
+  "dir": "DIR_MountainTop",
+  "place": "mountaintop",
+  "region": "",
+  "keywords": [
+   "山顶",
+   "山巅"
+  ],
+  "note": "普通是日出,Night则是星空,都是很美丽的常用自然地点",
+  "files": {
+   "day": [
+    "SDIR_Nature/DIR_MountainTop/BG_MountainTop.jpg"
+   ],
+   "night": [
+    "SDIR_Nature/DIR_MountainTop/BG_MountainTop_Night.jpg"
+   ]
+  }
+ },
+ "phonebox": {
+  "sdir": "SDIR_Nature",
+  "dir": "DIR_Phonebox",
+  "place": "phonebox",
+  "region": "",
+  "keywords": [
+   "深山电话亭"
+  ],
+  "note": "深山里的电话亭,似乎有些奇怪",
+  "files": {
+   "day": [
+    "SDIR_Nature/DIR_Phonebox/BG_Phonebox.jpg"
+   ],
+   "night": [
+    "SDIR_Nature/DIR_Phonebox/BG_Phonebox_Ruin.jpg"
+   ]
+  }
+ },
+ "privatebeach": {
+  "sdir": "SDIR_Nature",
+  "dir": "DIR_PrivateBeach",
+  "place": "privatebeach",
+  "region": "",
+  "keywords": [
+   "私人海滩",
+   "私人沙滩"
+  ],
+  "note": "无2的正常差分会有床和椅子等家具在沙滩上,2则是正常沙滩",
+  "files": {
+   "day": [
+    "SDIR_Nature/DIR_PrivateBeach/BG_PrivateBeach.jpg",
+    "SDIR_Nature/DIR_PrivateBeach/BG_PrivateBeach2.jpg"
+   ],
+   "night": [
+    "SDIR_Nature/DIR_PrivateBeach/BG_PrivateBeach2_Night.jpg",
+    "SDIR_Nature/DIR_PrivateBeach/BG_PrivateBeach2_Sunset.jpg",
+    "SDIR_Nature/DIR_PrivateBeach/BG_PrivateBeach_Night.jpg",
+    "SDIR_Nature/DIR_PrivateBeach/BG_PrivateBeach_Sunset.jpg"
+   ]
+  }
+ },
+ "privatebeach_campfire": {
+  "sdir": "SDIR_Nature",
+  "dir": "DIR_PrivateBeach",
+  "place": "privatebeach_campfire",
+  "region": "",
+  "keywords": [
+   "私人沙滩篝火"
+  ],
+  "note": "带篝火的沙滩",
+  "files": {
+   "day": [
+    "SDIR_Nature/DIR_PrivateBeach/BG_PrivateBeach_Campfire.jpg"
+   ],
+   "night": []
+  }
+ },
+ "ropebridge": {
+  "sdir": "SDIR_Nature",
+  "dir": "DIR_RopeBridge",
+  "place": "ropebridge",
+  "region": "",
+  "keywords": [
+   "吊桥"
+  ],
+  "note": "心跳加速的山间吊桥,风景很美丽,也有断桥差分",
+  "files": {
+   "day": [
+    "SDIR_Nature/DIR_RopeBridge/BG_RopeBridge.jpg"
+   ],
+   "night": [
+    "SDIR_Nature/DIR_RopeBridge/BG_RopeBridge_Night.jpg",
+    "SDIR_Nature/DIR_RopeBridge/BG_RopeBridge_Ruin.jpg"
+   ]
+  }
+ },
+ "seashore_rocks": {
+  "sdir": "SDIR_Nature",
+  "dir": "DIR_SeashoreRocks",
+  "place": "seashore_rocks",
+  "region": "",
+  "keywords": [
+   "海边石滩"
+  ],
+  "note": "海边石头摊上的景色",
+  "files": {
+   "day": [
+    "SDIR_Nature/DIR_SeashoreRocks/BG_SeashoreRocks.jpg"
+   ],
+   "night": [
+    "SDIR_Nature/DIR_SeashoreRocks/BG_SeashoreRocks_Sunset.jpg"
+   ]
+  }
+ },
+ "valley": {
+  "sdir": "SDIR_Nature",
+  "dir": "DIR_Valley",
+  "place": "valley",
+  "region": "",
+  "keywords": [
+   "山谷"
+  ],
+  "note": "带着湖泊的美丽山谷,有雾萦差分",
+  "files": {
+   "day": [
+    "SDIR_Nature/DIR_Valley/BG_Valley1.jpg",
+    "SDIR_Nature/DIR_Valley/BG_Valley2.jpg"
+   ],
+   "night": [
+    "SDIR_Nature/DIR_Valley/BG_Valley1_Night.jpg",
+    "SDIR_Nature/DIR_Valley/BG_Valley1_Sunset.jpg",
+    "SDIR_Nature/DIR_Valley/BG_Valley2_Fog.jpg",
+    "SDIR_Nature/DIR_Valley/BG_Valley2_Night.jpg"
+   ]
+  }
+ },
+ "valley_shore": {
+  "sdir": "SDIR_Nature",
+  "dir": "DIR_Valley",
+  "place": "valley_shore",
+  "region": "",
+  "keywords": [
+   "山谷岸边"
+  ],
+  "note": "美丽的山谷岸边,溪水旁的景色",
+  "files": {
+   "day": [
+    "SDIR_Nature/DIR_Valley/BG_ValleyShore.jpg",
+    "SDIR_Nature/DIR_Valley/BG_ValleyShore1.jpg"
+   ],
+   "night": [
+    "SDIR_Nature/DIR_Valley/BG_ValleyShore1_Night.jpg",
+    "SDIR_Nature/DIR_Valley/BG_ValleyShore_Night.jpg"
+   ]
+  }
+ },
+ "waterfall": {
+  "sdir": "SDIR_Nature",
+  "dir": "DIR_WaterFall",
+  "place": "waterfall",
+  "region": "",
+  "keywords": [
+   "瀑布"
+  ],
+  "note": "树林中的瀑布",
+  "files": {
+   "day": [
+    "SDIR_Nature/DIR_WaterFall/BG_WaterFall.jpg"
+   ],
+   "night": [
+    "SDIR_Nature/DIR_WaterFall/BG_WaterFall_Night.jpg"
+   ]
+  }
+ },
+ "wharf": {
+  "sdir": "SDIR_Nature",
+  "dir": "DIR_Wharf",
+  "place": "wharf",
+  "region": "",
+  "keywords": [
+   "码头",
+   "港口"
+  ],
+  "note": "集装箱堆满的港口",
+  "files": {
+   "day": [
+    "SDIR_Nature/DIR_Wharf/BG_Wharf.jpg"
+   ],
+   "night": [
+    "SDIR_Nature/DIR_Wharf/BG_Wharf_Night.jpg"
+   ]
+  }
+ },
+ "winterfield": {
+  "sdir": "SDIR_Nature",
+  "dir": "DIR_Winter",
+  "place": "winterfield",
+  "region": "",
+  "keywords": [
+   "冬日雪地",
+   "雪地"
+  ],
+  "note": "冬天下雪的特色景色",
+  "files": {
+   "day": [
+    "SDIR_Nature/DIR_Winter/BG_WinterField.jpg"
+   ],
+   "night": [
+    "SDIR_Nature/DIR_Winter/BG_WinterField_Cloudy.jpg",
+    "SDIR_Nature/DIR_Winter/BG_WinterField_Night.jpg",
+    "SDIR_Nature/DIR_Winter/BG_WinterField_Sunset.jpg"
+   ]
+  }
+ },
+ "winterroad": {
+  "sdir": "SDIR_Nature",
+  "dir": "DIR_Winter",
+  "place": "winterroad",
+  "region": "",
+  "keywords": [
+   "雪覆小径",
+   "雪地小路"
+  ],
+  "note": "雪地覆盖的森林小道",
+  "files": {
+   "day": [
+    "SDIR_Nature/DIR_Winter/BG_WinterRoad.jpg"
+   ],
+   "night": [
+    "SDIR_Nature/DIR_Winter/BG_WinterRoad_Night.jpg"
+   ]
+  }
+ },
+ "coastroad": {
+  "sdir": "SDIR_Nature",
+  "dir": "DIR_Z",
+  "place": "coastroad",
+  "region": "",
+  "keywords": [
+   "滨海道路",
+   "海边公里"
+  ],
+  "note": "海边公路的明媚景色",
+  "files": {
+   "day": [
+    "SDIR_Nature/DIR_Z/BG_CoastRoad.jpg"
+   ],
+   "night": []
+  }
+ },
+ "blackmarket": {
+  "sdir": "SDIR_Outer",
+  "dir": "DIR_BlackMarket",
+  "place": "blackmarket",
+  "region": "",
+  "keywords": [
+   "黑市"
+  ],
+  "note": "黑市在这个世界观里非常常见,每个学生几乎都去过,把它当成不正规的集市便可",
+  "files": {
+   "day": [
+    "SDIR_Outer/DIR_BlackMarket/BG_BlackMarket.jpg"
+   ],
+   "night": [
+    "SDIR_Outer/DIR_BlackMarket/BG_BlackMarket_Night.jpg"
+   ]
+  }
+ },
+ "cabin": {
+  "sdir": "SDIR_Outer",
+  "dir": "DIR_Cabin",
+  "place": "cabin",
+  "region": "",
+  "keywords": [
+   "林间小屋"
+  ],
+  "note": "森林中的小木屋外景",
+  "files": {
+   "day": [
+    "SDIR_Outer/DIR_Cabin/BG_Cabin.jpg",
+    "SDIR_Outer/DIR_Cabin/BG_Cabin2.jpg"
+   ],
+   "night": [
+    "SDIR_Outer/DIR_Cabin/BG_Cabin_Night.jpg",
+    "SDIR_Outer/DIR_Cabin/BG_Cabin_Sunset.jpg"
+   ]
+  }
+ },
+ "campus": {
+  "sdir": "SDIR_Outer",
+  "dir": "DIR_Campus",
+  "place": "campus",
+  "region": "",
+  "keywords": [
+   "校园外景"
+  ],
+  "note": "重要地点,夏莱周边通用校园景色",
+  "files": {
+   "day": [
+    "SDIR_Outer/DIR_Campus/BG_Campus.jpg"
+   ],
+   "night": [
+    "SDIR_Outer/DIR_Campus/BG_Campus_Night.jpg",
+    "SDIR_Outer/DIR_Campus/BG_Campus_Sunset.jpg"
+   ]
+  }
+ },
+ "cityoverpass": {
+  "sdir": "SDIR_Outer",
+  "dir": "DIR_CityOffice",
+  "place": "cityoverpass",
+  "region": "",
+  "keywords": [
+   "城市天桥"
+  ],
+  "note": "重要地点,在天桥上,背后是城市的景色,常用",
+  "files": {
+   "day": [
+    "SDIR_Outer/DIR_CityOffice/BG_CityOffice.jpg"
+   ],
+   "night": [
+    "SDIR_Outer/DIR_CityOffice/BG_CityOffice_Night.jpg",
+    "SDIR_Outer/DIR_CityOffice/BG_CityOffice_Ruin.jpg"
+   ]
+  }
+ },
+ "conventionhall": {
+  "sdir": "SDIR_Outer",
+  "dir": "DIR_ConventionHall",
+  "place": "conventionhall",
+  "region": "",
+  "keywords": [
+   "会展中心外景",
+   "会展中心"
+  ],
+  "note": "会展中心的外部景观",
+  "files": {
+   "day": [
+    "SDIR_Outer/DIR_ConventionHall/BG_ConventionHall.jpg",
+    "SDIR_Outer/DIR_ConventionHall/BG_ConventionHall3.jpg"
+   ],
+   "night": [
+    "SDIR_Outer/DIR_ConventionHall/BG_ConventionHall3_Blur.jpg",
+    "SDIR_Outer/DIR_ConventionHall/BG_ConventionHall3_Night.jpg",
+    "SDIR_Outer/DIR_ConventionHall/BG_ConventionHall3_Sunset.jpg",
+    "SDIR_Outer/DIR_ConventionHall/BG_ConventionHall_Night.jpg",
+    "SDIR_Outer/DIR_ConventionHall/BG_ConventionHall_Sunset.jpg"
+   ]
+  }
+ },
+ "cruise_board": {
+  "sdir": "SDIR_Outer",
+  "dir": "DIR_CruiseRooftop",
+  "place": "cruise_board",
+  "region": "",
+  "keywords": [
+   "豪华游轮甲板",
+   "邮轮甲板"
+  ],
+  "note": "豪华邮轮的甲板上,包含游泳池等奢华设施",
+  "files": {
+   "day": [
+    "SDIR_Outer/DIR_CruiseRooftop/BG_CruiseRooftop.jpg"
+   ],
+   "night": [
+    "SDIR_Outer/DIR_CruiseRooftop/BG_CruiseRooftop_Night.jpg",
+    "SDIR_Outer/DIR_CruiseRooftop/BG_CruiseRooftop_Sunset.jpg"
+   ]
+  }
+ },
+ "fishmarket": {
+  "sdir": "SDIR_Outer",
+  "dir": "DIR_FishMarket",
+  "place": "fishmarket",
+  "region": "",
+  "keywords": [
+   "卖鱼商铺",
+   "鱼商"
+  ],
+  "note": "卖鱼和海鲜的专卖店",
+  "files": {
+   "day": [
+    "SDIR_Outer/DIR_FishMarket/BG_FishMarket.jpg"
+   ],
+   "night": [
+    "SDIR_Outer/DIR_FishMarket/BG_FishMarket_Night.jpg"
+   ]
+  }
+ },
+ "galleondeck_day": {
+  "sdir": "SDIR_Outer",
+  "dir": "DIR_Galleon",
+  "place": "galleondeck_day",
+  "region": "",
+  "keywords": [
+   "帆船甲板"
+  ],
+  "note": "帆船的甲板上",
+  "files": {
+   "day": [
+    "SDIR_Outer/DIR_Galleon/BG_GalleonDeck_Day.jpg"
+   ],
+   "night": [
+    "SDIR_Outer/DIR_Galleon/BG_GalleonDeck_Day_Ruin.jpg"
+   ]
+  }
+ },
+ "newyear_festival": {
+  "sdir": "SDIR_Outer",
+  "dir": "DIR_NewYearFestival",
+  "place": "newyear_festival",
+  "region": "",
+  "keywords": [
+   "新年场地",
+   "新年许愿场"
+  ],
+  "note": "鸟居之下,让大家许新年愿望的地方,便利屋68曾在这里活动",
+  "files": {
+   "day": [
+    "SDIR_Outer/DIR_NewYearFestival/BG_NewYearFestival.jpg"
+   ],
+   "night": [
+    "SDIR_Outer/DIR_NewYearFestival/BG_NewYearFestival_Night.jpg"
+   ]
+  }
+ },
+ "newyear_festival_road": {
+  "sdir": "SDIR_Outer",
+  "dir": "DIR_NewYearFestival",
+  "place": "newyear_festival_road",
+  "region": "",
+  "keywords": [
+   "新年街道"
+  ],
+  "note": "新年到来的街道,日式新年,并没有过多的红灯笼,是传统的日式木屋",
+  "files": {
+   "day": [
+    "SDIR_Outer/DIR_NewYearFestival/BG_NewYearFestivalRoad.jpg"
+   ],
+   "night": [
+    "SDIR_Outer/DIR_NewYearFestival/BG_NewYearFestivalRoad_Night.jpg"
+   ]
+  }
+ },
+ "garden": {
+  "sdir": "SDIR_Outer",
+  "dir": "DIR_OldHouseOutside",
+  "place": "garden",
+  "region": "",
+  "keywords": [
+   "花园",
+   "花卉"
+  ],
+  "note": "一个很美丽的花园",
+  "files": {
+   "day": [
+    "SDIR_Outer/DIR_OldHouseOutside/BG_OldHouseOutside.jpg"
+   ],
+   "night": [
+    "SDIR_Outer/DIR_OldHouseOutside/BG_OldHouseOutside_Night.jpg"
+   ]
+  }
+ },
+ "residence": {
+  "sdir": "SDIR_Outer",
+  "dir": "DIR_Residence",
+  "place": "residence",
+  "region": "阿拜多斯高级中学",
+  "keywords": [
+   "居民区",
+   "住宅区"
+  ],
+  "note": "阿拜多斯的居民区",
+  "files": {
+   "day": [
+    "SDIR_Outer/DIR_Residence/BG_Residence.jpg",
+    "SDIR_Outer/DIR_Residence/BG_Residence_Night2.jpg"
+   ],
+   "night": [
+    "SDIR_Outer/DIR_Residence/BG_Residence_Night.jpg"
+   ]
+  }
+ },
+ "residencearea": {
+  "sdir": "SDIR_Outer",
+  "dir": "DIR_Residence",
+  "place": "residencearea",
+  "region": "阿拜多斯高级中学",
+  "keywords": [
+   "居民区全景"
+  ],
+  "note": "虽然所属阿拜多斯,但其他地点也可以使用,是居民区的全景",
+  "files": {
+   "day": [
+    "SDIR_Outer/DIR_Residence/BG_ResidenceArea.jpg",
+    "SDIR_Outer/DIR_Residence/BG_ResidenceArea_Night2.jpg"
+   ],
+   "night": [
+    "SDIR_Outer/DIR_Residence/BG_ResidenceArea_Night.jpg"
+   ]
+  }
+ },
+ "schoolground": {
+  "sdir": "SDIR_Outer",
+  "dir": "DIR_SchoolGround",
+  "place": "schoolground",
+  "region": "",
+  "keywords": [
+   "操场",
+   "活动场"
+  ],
+  "note": "学生运动的绿色操场",
+  "files": {
+   "day": [
+    "SDIR_Outer/DIR_SchoolGround/BG_SchoolGround.jpg"
+   ],
+   "night": [
+    "SDIR_Outer/DIR_SchoolGround/BG_SchoolGround_Sunset.jpg"
+   ]
+  }
+ },
+ "school_rooftop": {
+  "sdir": "SDIR_Outer",
+  "dir": "DIR_SchoolRoodtop",
+  "place": "school_rooftop",
+  "region": "",
+  "keywords": [
+   "学校天台",
+   "天台"
+  ],
+  "note": "最正常的天台,表白的绝佳地点,非常有氛围感的地方,普通差分天台为主,差分2天空为主",
+  "files": {
+   "day": [
+    "SDIR_Outer/DIR_SchoolRoodtop/BG_SchoolRooftop.jpg",
+    "SDIR_Outer/DIR_SchoolRoodtop/BG_SchoolRooftop2.jpg"
+   ],
+   "night": [
+    "SDIR_Outer/DIR_SchoolRoodtop/BG_SchoolRooftop2_Night.jpg",
+    "SDIR_Outer/DIR_SchoolRoodtop/BG_SchoolRooftop2_Sunset.jpg",
+    "SDIR_Outer/DIR_SchoolRoodtop/BG_SchoolRooftop_Dawn.jpg",
+    "SDIR_Outer/DIR_SchoolRoodtop/BG_SchoolRooftop_Night.jpg"
+   ]
+  }
+ },
+ "swimmingpool": {
+  "sdir": "SDIR_Outer",
+  "dir": "DIR_Swimming",
+  "place": "swimmingpool",
+  "region": "",
+  "keywords": [
+   "游泳池"
+  ],
+  "note": "夏日露天游泳池",
+  "files": {
+   "day": [
+    "SDIR_Outer/DIR_Swimming/BG_SwimmingPool.jpg"
+   ],
+   "night": [
+    "SDIR_Outer/DIR_Swimming/BG_SwimmingPool_Night.jpg"
+   ]
+  }
+ },
+ "swimming_terrace": {
+  "sdir": "SDIR_Outer",
+  "dir": "DIR_Swimming",
+  "place": "swimming_terrace",
+  "region": "",
+  "keywords": [
+   "泳池露台"
+  ],
+  "note": "泳池旁边的露台,很惬意的感觉",
+  "files": {
+   "day": [
+    "SDIR_Outer/DIR_Swimming/BG_SwimmingTerrace.jpg"
+   ],
+   "night": [
+    "SDIR_Outer/DIR_Swimming/BG_SwimmingTerrace_Night.jpg",
+    "SDIR_Outer/DIR_Swimming/BG_SwimmingTerrace_Sunset.jpg"
+   ]
+  }
+ },
+ "underbridge": {
+  "sdir": "SDIR_Outer",
+  "dir": "DIR_UnderBridge",
+  "place": "underbridge",
+  "region": "",
+  "keywords": [
+   "桥下",
+   "桥底"
+  ],
+  "note": "正常的交通桥桥底",
+  "files": {
+   "day": [
+    "SDIR_Outer/DIR_UnderBridge/BG_UnderBridge.jpg"
+   ],
+   "night": []
+  }
+ },
+ "view_mainstadium": {
+  "sdir": "SDIR_Outer",
+  "dir": "DIR_View_MainStadium",
+  "place": "view_mainstadium",
+  "region": "",
+  "keywords": [
+   "体育主馆",
+   "体育馆"
+  ],
+  "note": "主体育馆外的场景",
+  "files": {
+   "day": [
+    "SDIR_Outer/DIR_View_MainStadium/BG_View_MainStadium.jpg",
+    "SDIR_Outer/DIR_View_MainStadium/BG_View_MainStadium2.jpg"
+   ],
+   "night": [
+    "SDIR_Outer/DIR_View_MainStadium/BG_View_MainStadium_Off.jpg"
+   ]
+  }
+ },
+ "villacomplex": {
+  "sdir": "SDIR_Outer",
+  "dir": "DIR_VillaComplex",
+  "place": "villacomplex",
+  "region": "",
+  "keywords": [
+   "乡间路口"
+  ],
+  "note": "及其常用的差分,十字路口边的便利店景色,Night不关灯,Night2全熄灯",
+  "files": {
+   "day": [
+    "SDIR_Outer/DIR_VillaComplex/BG_VillaComplex.jpg",
+    "SDIR_Outer/DIR_VillaComplex/BG_VillaComplex_Night2.jpg"
+   ],
+   "night": [
+    "SDIR_Outer/DIR_VillaComplex/BG_VillaComplex_Night.jpg"
+   ]
+  }
+ },
+ "park": {
+  "sdir": "SDIR_Public",
+  "dir": "DIR_Park",
+  "place": "park",
+  "region": "",
+  "keywords": [
+   "公园"
+  ],
+  "note": "极其重要的地点,很多时候与sensei的约见地",
+  "files": {
+   "day": [
+    "SDIR_Public/DIR_Park/BG_Park.jpg"
+   ],
+   "night": [
+    "SDIR_Public/DIR_Park/BG_Park_Erode.jpg",
+    "SDIR_Public/DIR_Park/BG_Park_Night.jpg"
+   ]
+  }
+ },
+ "playground": {
+  "sdir": "SDIR_Public",
+  "dir": "DIR_Playground",
+  "place": "playground",
+  "region": "",
+  "keywords": [
+   "活动场地"
+  ],
+  "note": "小区里常见的带秋千滑梯的活动场地",
+  "files": {
+   "day": [
+    "SDIR_Public/DIR_Playground/BG_Playground.jpg"
+   ],
+   "night": [
+    "SDIR_Public/DIR_Playground/BG_Playground_Night.jpg",
+    "SDIR_Public/DIR_Playground/BG_Playground_Sunset.jpg"
+   ]
+  }
+ },
+ "shoppingmall": {
+  "sdir": "SDIR_Public",
+  "dir": "DIR_ShoppingMall",
+  "place": "shoppingmall",
+  "region": "",
+  "keywords": [
+   "购物中心"
+  ],
+  "note": "繁华的购物中心内部",
+  "files": {
+   "day": [
+    "SDIR_Public/DIR_ShoppingMall/BG_ShoppingMall.jpg"
+   ],
+   "night": [
+    "SDIR_Public/DIR_ShoppingMall/BG_ShoppingMall_Night.jpg"
+   ]
+  }
+ },
+ "underground_shoppingarea": {
+  "sdir": "SDIR_Public",
+  "dir": "DIR_UndergroundShoppingArea",
+  "place": "underground_shoppingarea",
+  "region": "",
+  "keywords": [
+   "地下超商"
+  ],
+  "note": "地下的购物场地",
+  "files": {
+   "day": [
+    "SDIR_Public/DIR_UndergroundShoppingArea/BG_UndergroundShoppingArea.jpg"
+   ],
+   "night": [
+    "SDIR_Public/DIR_UndergroundShoppingArea/BG_UndergroundShoppingArea_Night.jpg"
+   ]
+  }
+ },
+ "yakinikuya": {
+  "sdir": "SDIR_Public",
+  "dir": "DIR_Yakinikuya",
+  "place": "yakinikuya",
+  "region": "",
+  "keywords": [
+   "烧肉屋",
+   "烤肉屋"
+  ],
+  "note": "有很多美食的烤肉屋,宴请自己喜欢的学生吧!",
+  "files": {
+   "day": [
+    "SDIR_Public/DIR_Yakinikuya/BG_Yakinikuya.jpg",
+    "SDIR_Public/DIR_Yakinikuya/BG_Yakinikuya2.jpg"
+   ],
+   "night": []
+  }
+ },
+ "yatai": {
+  "sdir": "SDIR_Public",
+  "dir": "DIR_Yatai",
+  "place": "yatai",
+  "region": "",
+  "keywords": [
+   "小吃街"
+  ],
+  "note": "重要的地点,街头小吃街是很常见的地方",
+  "files": {
+   "day": [
+    "SDIR_Public/DIR_Yatai/BG_Yatai.jpg"
+   ],
+   "night": [
+    "SDIR_Public/DIR_Yatai/BG_Yatai_Night.jpg"
+   ]
+  }
+ },
+ "arcade": {
+  "sdir": "SDIR_Public",
+  "dir": "DIR_Z",
+  "place": "arcade",
+  "region": "",
+  "keywords": [
+   "游戏厅"
+  ],
+  "note": "街机,抓娃娃机等活动应有尽有",
+  "files": {
+   "day": [
+    "SDIR_Public/DIR_Z/BG_Arcade.jpg"
+   ],
+   "night": []
+  }
+ },
+ "bank": {
+  "sdir": "SDIR_Public",
+  "dir": "DIR_Z",
+  "place": "bank",
+  "region": "",
+  "keywords": [
+   "银行内部"
+  ],
+  "note": "有时候会涉及抢银行的桥段",
+  "files": {
+   "day": [
+    "SDIR_Public/DIR_Z/BG_Bank.jpg"
+   ],
+   "night": []
+  }
+ },
+ "dessertcafe": {
+  "sdir": "SDIR_Public",
+  "dir": "DIR_Z",
+  "place": "dessertcafe",
+  "region": "",
+  "keywords": [
+   "甜品站"
+  ],
+  "note": "极其重要的地方,甜品站是约会时常见的地点",
+  "files": {
+   "day": [
+    "SDIR_Public/DIR_Z/BG_DessertCafe.jpg"
+   ],
+   "night": []
+  }
+ },
+ "moderncafe": {
+  "sdir": "SDIR_Public",
+  "dir": "DIR_Z",
+  "place": "moderncafe",
+  "region": "",
+  "keywords": [
+   "咖啡馆"
+  ],
+  "note": "非常摩登的咖啡馆",
+  "files": {
+   "day": [
+    "SDIR_Public/DIR_Z/BG_ModernCafe.jpg"
+   ],
+   "night": []
+  }
+ },
+ "gehennaclassroom": {
+  "sdir": "SDIR_Schools",
+  "dir": "DIR_Gehenna",
+  "place": "gehennaclassroom",
+  "region": "格黑娜学院",
+  "keywords": [
+   "格黑娜教室内部"
+  ],
+  "note": "格黑娜的紫色风格教室",
+  "files": {
+   "day": [
+    "SDIR_Schools/DIR_Gehenna/BG_GehennaClassRoom.jpg"
+   ],
+   "night": [
+    "SDIR_Schools/DIR_Gehenna/BG_GehennaClassRoom_Night.jpg",
+    "SDIR_Schools/DIR_Gehenna/BG_GehennaClassRoom_Sunset.jpg"
+   ]
+  }
+ },
+ "gehennacorridor": {
+  "sdir": "SDIR_Schools",
+  "dir": "DIR_Gehenna",
+  "place": "gehennacorridor",
+  "region": "",
+  "keywords": [
+   "格黑娜走廊"
+  ],
+  "note": "格黑娜外部的走廊",
+  "files": {
+   "day": [
+    "SDIR_Schools/DIR_Gehenna/BG_GehennaCorridor.jpg",
+    "SDIR_Schools/DIR_Gehenna/BG_GehennaCorridor2.jpg"
+   ],
+   "night": [
+    "SDIR_Schools/DIR_Gehenna/BG_GehennaCorridor2_Night.jpg",
+    "SDIR_Schools/DIR_Gehenna/BG_GehennaCorridor_Night.jpg",
+    "SDIR_Schools/DIR_Gehenna/BG_GehennaCorridor_Party.jpg"
+   ]
+  }
+ },
+ "gehennastreet": {
+  "sdir": "SDIR_Schools",
+  "dir": "DIR_Gehenna",
+  "place": "gehennastreet",
+  "region": "",
+  "keywords": [
+   "格黑娜街头"
+  ],
+  "note": "格黑娜学生常走的街坊(但是为保证灵活性,不建议一遇到所属学生就用此差分)",
+  "files": {
+   "day": [
+    "SDIR_Schools/DIR_Gehenna/BG_GehennaStreet.jpg"
+   ],
+   "night": [
+    "SDIR_Schools/DIR_Gehenna/BG_GehennaStreet_Night.jpg"
+   ]
+  }
+ },
+ "highlander_central": {
+  "sdir": "SDIR_Schools",
+  "dir": "DIR_HighLander",
+  "place": "highlander_central",
+  "region": "海兰德铁道学院",
+  "keywords": [
+   "海兰德地铁站"
+  ],
+  "note": "海兰德十分繁华的地铁站",
+  "files": {
+   "day": [
+    "SDIR_Schools/DIR_HighLander/BG_HighlanderCentral.jpg"
+   ],
+   "night": [
+    "SDIR_Schools/DIR_HighLander/BG_HighlanderCentral_Night.jpg",
+    "SDIR_Schools/DIR_HighLander/BG_HighlanderCentral_Sunset.jpg"
+   ]
+  }
+ },
+ "milleniumstudentroom": {
+  "sdir": "SDIR_Schools",
+  "dir": "DIR_Millenium",
+  "place": "milleniumstudentroom",
+  "region": "千年科技学院",
+  "keywords": [
+   "千年学生房间"
+  ],
+  "note": "千年学生的房间",
+  "files": {
+   "day": [
+    "SDIR_Schools/DIR_Millenium/BG_MilleniumStudentRoom.jpg",
+    "SDIR_Schools/DIR_Millenium/BG_MilleniumStudentRoom2.jpg"
+   ],
+   "night": []
+  }
+ },
+ "trinityclassroom": {
+  "sdir": "SDIR_Schools",
+  "dir": "DIR_Trinity",
+  "place": "trinityclassroom",
+  "region": "",
+  "keywords": [
+   "圣三一教室"
+  ],
+  "note": "圣三一明显高端的教室",
+  "files": {
+   "day": [
+    "SDIR_Schools/DIR_Trinity/BG_TrinityClassRoom.jpg",
+    "SDIR_Schools/DIR_Trinity/BG_TrinityClassRoom2.jpg",
+    "SDIR_Schools/DIR_Trinity/BG_TrinityClassRoom_Night2.jpg"
+   ],
+   "night": [
+    "SDIR_Schools/DIR_Trinity/BG_TrinityClassRoom2_Blur.jpg",
+    "SDIR_Schools/DIR_Trinity/BG_TrinityClassRoom2_Night.jpg",
+    "SDIR_Schools/DIR_Trinity/BG_TrinityClassRoom2_Sunset.jpg",
+    "SDIR_Schools/DIR_Trinity/BG_TrinityClassRoom_Blur.jpg",
+    "SDIR_Schools/DIR_Trinity/BG_TrinityClassRoom_Night.jpg",
+    "SDIR_Schools/DIR_Trinity/BG_TrinityClassRoom_Party.jpg",
+    "SDIR_Schools/DIR_Trinity/BG_TrinityClassRoom_Sunset.jpg"
+   ]
+  }
+ },
+ "trinitymarket": {
+  "sdir": "SDIR_Schools",
+  "dir": "DIR_Trinity",
+  "place": "trinitymarket",
+  "region": "",
+  "keywords": [
+   "圣三一集市"
+  ],
+  "note": "圣三一街头的集市外景",
+  "files": {
+   "day": [
+    "SDIR_Schools/DIR_Trinity/BG_TrinityMarket.jpg"
+   ],
+   "night": [
+    "SDIR_Schools/DIR_Trinity/BG_TrinityMarket_Night.jpg"
+   ]
+  }
+ },
+ "trinitystreet": {
+  "sdir": "SDIR_Schools",
+  "dir": "DIR_Trinity",
+  "place": "trinitystreet",
+  "region": "",
+  "keywords": [
+   "圣三一街道"
+  ],
+  "note": "圣三一的街道样貌,差分2为圣诞差分",
+  "files": {
+   "day": [
+    "SDIR_Schools/DIR_Trinity/BG_TrinityStreet.jpg"
+   ],
+   "night": [
+    "SDIR_Schools/DIR_Trinity/BG_TrinityStreet2_Night.jpg",
+    "SDIR_Schools/DIR_Trinity/BG_TrinityStreet_Night.jpg",
+    "SDIR_Schools/DIR_Trinity/BG_TrinityStreet_Ruin.jpg"
+   ]
+  }
+ },
+ "trinity_terrace": {
+  "sdir": "SDIR_Schools",
+  "dir": "DIR_Trinity",
+  "place": "trinity_terrace",
+  "region": "",
+  "keywords": [
+   "圣三一阳台"
+  ],
+  "note": "虽然是阳台,但普通学生无法进入,因为这是茶话会成员的常住地",
+  "files": {
+   "day": [
+    "SDIR_Schools/DIR_Trinity/BG_TrinityTerrace.jpg"
+   ],
+   "night": [
+    "SDIR_Schools/DIR_Trinity/BG_TrinityTerrace_Night.jpg"
+   ]
+  }
+ },
+ "building_back_street": {
+  "sdir": "SDIR_Streets",
+  "dir": "DIR_Building",
+  "place": "building_back_street",
+  "region": "",
+  "keywords": [
+   "后巷",
+   "后街"
+  ],
+  "note": "破旧的后街地点，Night和Sunset差分很适合用于两人互诉衷肠",
+  "files": {
+   "day": [
+    "SDIR_Streets/DIR_Building/BG_BuildingBackStreet.jpg"
+   ],
+   "night": [
+    "SDIR_Streets/DIR_Building/BG_BuildingBackStreet_Night.jpg",
+    "SDIR_Streets/DIR_Building/BG_BuildingBackStreet_Sunset.jpg"
+   ]
+  }
+ },
+ "building_front2": {
+  "sdir": "SDIR_Streets",
+  "dir": "DIR_Building",
+  "place": "building_front2",
+  "region": "",
+  "keywords": [
+   "大楼前门",
+   "大楼正门"
+  ],
+  "note": "一个通用的现代大楼正门前的画面",
+  "files": {
+   "day": [
+    "SDIR_Streets/DIR_Building/BG_BuildingFront2.jpg"
+   ],
+   "night": [
+    "SDIR_Streets/DIR_Building/BG_BuildingFront2_Night.jpg"
+   ]
+  }
+ },
+ "city_down_town": {
+  "sdir": "SDIR_Streets",
+  "dir": "DIR_CityDowntown",
+  "place": "city_down_town",
+  "region": "阿拜多斯高级中学",
+  "keywords": [
+   "城市街道",
+   "城市市街"
+  ],
+  "note": "正常的城市街道，2为圣诞节特色差分",
+  "files": {
+   "day": [
+    "SDIR_Streets/DIR_CityDowntown/BG_CityDowntown.jpg",
+    "SDIR_Streets/DIR_CityDowntown/BG_CityDowntown2.jpg"
+   ],
+   "night": [
+    "SDIR_Streets/DIR_CityDowntown/BG_CityDowntown2_Night.jpg",
+    "SDIR_Streets/DIR_CityDowntown/BG_CityDowntown_Night.jpg"
+   ]
+  }
+ },
+ "city_sqaure": {
+  "sdir": "SDIR_Streets",
+  "dir": "DIR_CitySqaure",
+  "place": "city_sqaure",
+  "region": "",
+  "keywords": [
+   "城市广场"
+  ],
+  "note": "一个开阔的城市广场，比较通用",
+  "files": {
+   "day": [
+    "SDIR_Streets/DIR_CitySqaure/BG_CitySqaure.jpg"
+   ],
+   "night": [
+    "SDIR_Streets/DIR_CitySqaure/BG_CitySqaure_Night.jpg"
+   ]
+  }
+ },
+ "downtown": {
+  "sdir": "SDIR_Streets",
+  "dir": "DIR_DownTown",
+  "place": "downtown",
+  "region": "",
+  "keywords": [
+   "镇中心",
+   "市中心"
+  ],
+  "note": "并不是很繁华的小镇中心，两侧都是农家小店",
+  "files": {
+   "day": [
+    "SDIR_Streets/DIR_DownTown/BG_DownTown.jpg"
+   ],
+   "night": [
+    "SDIR_Streets/DIR_DownTown/BG_DownTown_Night.jpg"
+   ]
+  }
+ },
+ "rivercity_downtown": {
+  "sdir": "SDIR_Streets",
+  "dir": "DIR_River",
+  "place": "rivercity_downtown",
+  "region": "",
+  "keywords": [
+   "水之都市中心"
+  ],
+  "note": "中间有河流，桥相交错的都市",
+  "files": {
+   "day": [
+    "SDIR_Streets/DIR_River/BG_RiverCityDownTown.jpg"
+   ],
+   "night": [
+    "SDIR_Streets/DIR_River/BG_RiverCityDownTown_Night.jpg"
+   ]
+  }
+ },
+ "riversideroad": {
+  "sdir": "SDIR_Streets",
+  "dir": "DIR_River",
+  "place": "riversideroad",
+  "region": "",
+  "keywords": [
+   "河边小路",
+   "溪流边"
+  ],
+  "note": "河边的樱花树小径，常用的美丽地点",
+  "files": {
+   "day": [
+    "SDIR_Streets/DIR_River/BG_RiversideRoad.jpg"
+   ],
+   "night": [
+    "SDIR_Streets/DIR_River/BG_RiversideRoad_Erode.jpg",
+    "SDIR_Streets/DIR_River/BG_RiversideRoad_Night.jpg"
+   ]
+  }
+ },
+ "rooftop": {
+  "sdir": "SDIR_Streets",
+  "dir": "DIR_Rooftop",
+  "place": "rooftop",
+  "region": "",
+  "keywords": [
+   "楼顶",
+   "天台"
+  ],
+  "note": "这个更加偏向天台，有护栏，且Night差分非常有氛围感",
+  "files": {
+   "day": [
+    "SDIR_Streets/DIR_Rooftop/BG_Rooftop.jpg"
+   ],
+   "night": [
+    "SDIR_Streets/DIR_Rooftop/BG_Rooftop_Night.jpg"
+   ]
+  }
+ },
+ "shopping_district": {
+  "sdir": "SDIR_Streets",
+  "dir": "DIR_ShoppingDistrict",
+  "place": "shopping_district",
+  "region": "",
+  "keywords": [
+   "购物街区"
+  ],
+  "note": "非常常见的购物地点，相比于正常的购物中心更加偏向于市集",
+  "files": {
+   "day": [
+    "SDIR_Streets/DIR_ShoppingDistrict/BG_ShoppingDistrict.jpg"
+   ],
+   "night": [
+    "SDIR_Streets/DIR_ShoppingDistrict/BG_ShoppingDistrict_Night.jpg"
+   ]
+  }
+ },
+ "citytown": {
+  "sdir": "SDIR_Streets",
+  "dir": "DIR_Z",
+  "place": "citytown",
+  "region": "",
+  "keywords": [
+   "城市路边",
+   "城市路旁"
+  ],
+  "note": "一个正常的城市公路边景色",
+  "files": {
+   "day": [
+    "SDIR_Streets/DIR_Z/BG_CityTown.jpg"
+   ],
+   "night": []
+  }
+ }
+}

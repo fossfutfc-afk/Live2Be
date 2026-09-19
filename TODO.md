@@ -746,20 +746,31 @@ B = 今天的一句寒暄（SIG=0.50）
       别名总数 168 → **260**（平均 1.55 / 最多 4 / 97 条仍只有单个别名）
 - [x] **A3 `note` 进导出**（2026-09-19）: 实测 **167/168 有 note**
       （唯一空的是 `family_restaurant`）。重导幂等（再跑 0 变化）
-- [ ] **`杂草屋` 的落点要你拍一下**（1 bit）: writer 的示例地点「深夜的杂草屋」
-      **层1 不命中（对的, 层1 不该猜）**，层2 现在有两个候选:
-      · `ruinschoolcorridor`（**active**）kw=`破屋/老屋/学校走廊废墟/秘密基地`,
-        note=*"学校走廊废墟,青苔遍地,也可以用做老屋子或者某种杂草秘密基地"*
-        —— note 里**直接出现"杂草"**，正是"看 note 就能大致推测"的样本
-      · `abandoned_warehouse`（**未 active**）kw=`废旧仓库/破旧仓储`,
-        note=*"一个破旧的仓库,可以作为集合地点甚至作战基地等,发挥想象力"*
-        —— 更像"仓库"，但**不在表里**（写了 note 却没勾）
-      ⇒ 要么勾上 `abandoned_warehouse`，要么认 `ruinschoolcorridor` 当落点。
-      （不勾也不改 prompt 的话，层2 只能在 active 集里挑，
-      真机那个 `杂草屋 → school_rooftop` 还会重演）
+- [x] **`杂草屋` 不是 `abandoned_warehouse`**（用户 2026-09-19 裁决）:
+      那个是**房子外部**，不是正主 ⇒ 不勾它、不追这条。
+      用户同时给了更新机制的定性: *"想要直接更改为 active: true 就好，这不就是
+      我之前说的支持更新吗？"* ⇒ **表更新 = 翻 `active`**（工具 + 动态读入已就位），
+      不需要为某一个地点单独立项
 - [ ] **`PlaceRetriever` 接线**: `core/rag/place.py` 已经就是「精确兜底 + 语义兜底」
       两层, 但**生产零调用**（只 `experiments/rag_test.py` 用）; 且它读 `places.yml`
       （中英日别名）与 `resolve_place` 的裸 slug **互不相识** → 词表统一时收口
+      （C1 的 `keywords` 正是它缺的语料 —— 很可能直接由 `place_table` 取代）
+- [x] **C1 `core/media/place_table.py` 已落地**（2026-09-19, **纯新增, 零行为变化**）:
+      `PlaceEntry` + `PlaceTable`（`resolve_exact` 层1 / `lexicon_text` 层2 含 note /
+      `writing_words` 按 `sdir` / `by_region`）+ `load_table`（**mtime 缓存**;
+      缺/坏 → 空表绝不抛; 坏条目逐条丢弃）。表落位
+      `config/settings/world/place_entities.json`（与 regions.yml/places.yml 同目录,
+      入库可 diff）。12 例单测（含「外层键 == place」「mtime 缓存真重读」两条哨兵）。
+      实测层1: `教室`→classroom ✔ · `街角的咖啡馆，靠窗的位子`→moderncafe ✔
+      （两条在 31 条裸 slug 时代全 MISS）· `学校天台`→school_rooftop ✔ ·
+      `天台`→歧义 3 条（交层2）· `杂草屋`类→未命中（交层2 读 note）。
+      层2 词表体量 = 整表 7022 字符（≈3.5k tokens, **只在层2 调用时付**）
+- [ ] **C2/C3/C4 接线**（下一步）: 词表来源换成 `load_table()`（`_place_keys` 仍作
+      webgui 门控, 语义变成"表非空"）+ `resolve_place`/`annotate_places` 加层1 +
+      两个标注 prompt 换成整表并**改掉"宁可空着/拿不准不标"**（用户: 第一版遗老）
+- [ ] **层2 词表体量优化**（7022 字符/次）: 层1 命中即 0 调用; 未命中才付。
+      若要再压: 按 region 取子集 / 只对"有 note 才有区分度"的条目带 note。
+      与 C6（`switch` 并入 place lane, 减少每板调用）同批看
 - [ ] **`place` = 数组**: `BrainNode.place: list[str]`（digest 按 `event_seq` 物化,
       同 `emo_shape` 的做法）, **原文与键并存**——两根轴: 键 = 视觉/素材,
       原文 + `region` = 叙事

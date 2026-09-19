@@ -6,6 +6,8 @@
     MediaCatalog.sprite(char_id, emotion)            → 差分（manifest 映射 + 可选 spine 导出）
     sprite_emotions / background_scenes              → 白名单（喂 ② 导演/播放协议）
     emotion_lexicon                                  → emotions.yml 逐行解析（词表+示范+eg → 主 LLM 注入）
+    place_table                                      → 地点语义键表（**标注层**语料: 层1 别名 0 调用
+                                                       + 层2 整表含 note; 动态读入/mtime 缓存）
 
 架构见 core/DESIGN_VISUAL.md §5-① + core/DESIGN_VISUAL_PROTOCOL.md。
 """
@@ -19,6 +21,13 @@ from core.media.emotion_lexicon import (
     load_place_lexicon,
     render_emotion_scale,
 )
+from core.media.place_table import (
+    DEFAULT_TABLE_PATH,
+    PlaceEntry,
+    PlaceTable,
+    load_table,
+    reset_cache as reset_place_cache,
+)
 from core.media.sprites import SpinePack, SpriteMedia
 
 __all__ = [
@@ -28,4 +37,7 @@ __all__ = [
     "load_emotion_lexicon", "build_emotion_injection",
     "load_place_lexicon", "build_place_injection",
     "assets_root", "render_emotion_scale",
+    # 地点语义键表（C1, 2026-09-19）——标注层的语料; 旧 load_place_lexicon 待退役
+    "PlaceTable", "PlaceEntry", "load_table", "DEFAULT_TABLE_PATH",
+    "reset_place_cache",
 ]
