@@ -11,15 +11,13 @@ import logging
 import tomllib
 from pathlib import Path
 
+from core import paths
 from core.common.errors import err
 
 logger = logging.getLogger(__name__)
 
-#: 白名单路径（config/settings/mmt_registry.toml）
-REGISTRY_PATH = (
-    Path(__file__).resolve().parent.parent.parent
-    / "config" / "settings" / "mmt_registry.toml"
-)
+#: 白名单路径 = `core/paths.py` 的宏（config/settings/mmt_registry.toml）
+REGISTRY_PATH = paths.MMT_REGISTRY_PATH
 
 
 def load_mmt_registry() -> list[dict]:

@@ -49,12 +49,13 @@ import unicodedata
 from enum import Enum
 from pathlib import Path
 
+from core import paths
 from core.momotalk import MomoTalkEngine
 from core.common import err
 
-# 玩家名存储——项目根绝对路径（cwd 无关: uvicorn/IDE 从任意目录启动也能读写）
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
-PLAYER_JSON = _PROJECT_ROOT / "data" / "basic" / "player.json"
+# 玩家名存储——`core/paths.py` 的宏（项目根绝对路径, cwd 无关）
+_PROJECT_ROOT = paths.ROOT
+PLAYER_JSON = paths.DATA_DIR / "basic" / "player.json"
 DEFAULT_PLAYER_NAME = "sensei"
 MAX_NAME_LEN = 20
 # 序列化语义保留词: 直接禁用, 避免与 JSON null/布尔 混淆

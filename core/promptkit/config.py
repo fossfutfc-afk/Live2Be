@@ -10,9 +10,11 @@ import logging
 import tomllib
 from pathlib import Path
 
+from core import paths
+
 logger = logging.getLogger(__name__)
 
-_SETTINGS_PATH = Path(__file__).resolve().parents[2] / "settings.toml"
+_SETTINGS_PATH = paths.SETTINGS_PATH
 
 
 def _read_settings() -> dict:

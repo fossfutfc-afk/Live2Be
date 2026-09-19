@@ -26,13 +26,13 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+from core import paths
 from core.common.errors import err
 
 logger = logging.getLogger(__name__)
 
-#: settings.toml 位置（项目根——与 .env 并列, 用户容易找到）
-#: 注意层级: webgui/store.py → parent=webgui → parent.parent=Live2Be（项目根）
-SETTINGS_PATH = Path(__file__).resolve().parent.parent / "settings.toml"
+#: settings.toml 位置（`core/paths.py` 的宏 —— 项目根, 与 .env 并列, 用户容易找到）
+SETTINGS_PATH = paths.SETTINGS_PATH
 
 #: 默认配置（缺失/损坏 → 兜底; 与 .env 同名变量对应）
 DEFAULTS: dict = {

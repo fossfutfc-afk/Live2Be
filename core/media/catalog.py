@@ -13,13 +13,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from core import paths
 from core.common.errors import Live2BeError
 from core.media.background import BackgroundMedia, derive_background
 from core.media.manifest import load_character_manifest
 from core.media.sprites import SpriteMedia, find_spine_packs
 
-# assets/ 默认根（core/media/catalog.py → ../../.. → 项目根/assets）
-_DEFAULT_ASSETS = Path(__file__).resolve().parent.parent.parent / "assets"
+# assets/ 默认根（`core/paths.py` 的宏）
+_DEFAULT_ASSETS = paths.ASSETS_DIR
 
 # 背景变体后缀（.py 等脚本残留自动排除）
 _IMAGE_EXTS = {".jpg", ".jpeg", ".png"}

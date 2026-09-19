@@ -41,6 +41,7 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
+from core import paths
 from core.common import Live2BeError
 from contract import AgentAction, DOMAIN_MMT
 from core.parsing.dynamic_character_parser import (
@@ -49,9 +50,9 @@ from core.parsing.dynamic_character_parser import (
     yaml_to_prompt,
 )
 
-# interperson.json 默认路径（项目根绝对, cwd 无关——uvicorn/IDE 从任意目录启动）
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
-DEFAULT_INTERPERSON_PATH = _PROJECT_ROOT / "config" / "settings" / "relation" / "interperson.json"
+# interperson.json 默认路径（`core/paths.py` 的宏——项目根绝对, cwd 无关）
+_PROJECT_ROOT = paths.ROOT
+DEFAULT_INTERPERSON_PATH = paths.INTERPERSON_PATH
 
 
 class MmtExecError(Live2BeError):

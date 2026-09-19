@@ -107,6 +107,8 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
+from core import paths
+
 logger = logging.getLogger(__name__)
 
 #: 定死的时区 —— 与 `age.REAL_TZ` 同源（本模块只是不在导入期绑死依赖关系）。
@@ -121,11 +123,11 @@ CLOCK_SCHEMA_VERSION = 1
 #: 表 `schema_version`
 TABLE_SCHEMA_VERSION = 1
 
-#: 项目根（cwd 无关 —— uvicorn / IDE 从任意目录启动）
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+#: 项目根（`core/paths.py` 的宏 —— cwd 无关, uvicorn / IDE 从任意目录启动）
+_PROJECT_ROOT = paths.ROOT
 
 #: 默认表路径（作者手编; `config/eggs/` = 作者塞东西的地方, `namegg.json` 的邻居）
-DEFAULT_TABLE_PATH = _PROJECT_ROOT / "config" / "eggs" / "festivals.json"
+DEFAULT_TABLE_PATH = paths.FESTIVALS_PATH
 
 #: 台账文件名（**落在 `store.world_dir()` 下** —— 世界级, 与角色目录并列）
 CLOCK_FILENAME = "real_clock.json"

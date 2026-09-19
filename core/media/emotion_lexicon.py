@@ -27,9 +27,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-# assets/ 默认根（core/media/emotion_lexicon.py → ../../.. → 项目根/assets）
-_DEFAULT_ASSETS = Path(__file__).resolve().parent.parent.parent / "assets"
-_DEFAULT_WHITELIST = _DEFAULT_ASSETS / "_director_whitelist.json"
+from core import paths
+
+# assets/ 默认根 + 地点白名单（`core/paths.py` 的宏）
+_DEFAULT_ASSETS = paths.ASSETS_DIR
+_DEFAULT_WHITELIST = paths.DIRECTOR_WHITELIST_PATH
 
 
 # ============================================================================
@@ -121,8 +123,9 @@ def assets_root() -> Path:
 
     此前 `core/bond/bond_story.py:501` 与 `core/media/catalog.py` 各自拼过一次
     同样的三层 `parents` 路径；集中到这里，换布局只改一处。
+    **值现在来自 `core/paths.py` 的宏**（2026-09-19: 路径不许再散着拼）。
     """
-    return Path(__file__).resolve().parent.parent.parent / "assets"
+    return paths.ASSETS_DIR
 
 
 def render_emotion_scale(lexicon: dict[str, dict], keys) -> str:

@@ -21,13 +21,14 @@ from pathlib import Path
 
 import yaml
 
+from core import paths
 from core.common import err
 
-#: 项目根（绝对路径——uvicorn/IDE 从任意 CWD 启动都能找到 config/）
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+#: 项目根（`core/paths.py` 的宏——绝对路径, uvicorn/IDE 从任意 CWD 启动都能找到）
+_PROJECT_ROOT = paths.ROOT
 
 #: 默认路径（项目根绝对, cwd 无关）
-DEFAULT_WORLD_PATH = _PROJECT_ROOT / "config" / "settings" / "world" / "overview.yml"
+DEFAULT_WORLD_PATH = paths.WORLD_OVERVIEW_PATH
 
 #: 三档（顺序即渲染顺序）
 _TIERS = ("common", "hidden", "system")

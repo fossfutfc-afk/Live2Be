@@ -45,6 +45,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from core import paths
+
 #: 输出形态 → (thinking 档位, max_tokens, 备注)
 PROFILES: dict[str, dict] = {
     "mmt":     {"thinking": "default", "max_tokens": 4096,
@@ -62,7 +64,8 @@ PROFILES: dict[str, dict] = {
 }
 
 _VALID_THINKING = ("default", "off", "low", "medium", "high")
-_SETTINGS_PATH = Path(__file__).resolve().parents[1] / "settings.toml"
+#: settings.toml（`core/paths.py` 的宏 —— 项目根那一份）
+_SETTINGS_PATH = paths.SETTINGS_PATH
 
 _OVERRIDES: dict[str, dict] | None = None
 

@@ -48,13 +48,15 @@ from pathlib import Path
 
 import yaml
 
+from core import paths
+
 logger = logging.getLogger(__name__)
 
-#: 项目根（绝对路径——cwd 无关，与 `world_parser` 同规矩）
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+#: 项目根（`core/paths.py` 的宏——绝对路径, cwd 无关, 与 `world_parser` 同规矩）
+_PROJECT_ROOT = paths.ROOT
 
 #: 默认路径（`config/settings/world/regions.yml`）
-DEFAULT_REGIONS_PATH = _PROJECT_ROOT / "config" / "settings" / "world" / "regions.yml"
+DEFAULT_REGIONS_PATH = paths.REGIONS_PATH
 
 #: 参与子串匹配的最短别名长度（单字别名会疯狂误命中）
 _MIN_NEEDLE = 2

@@ -22,6 +22,8 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, Response
 from starlette.staticfiles import StaticFiles
 
+from core import paths
+
 # 根日志配置（2026-09-08）: uvicorn 只配自己的 access/error logger——live2be.* 的
 # INFO 埋点（bond_gen / bond_anno / llm chat …）此前从不输出, 排查全靠盲猜。
 logging.basicConfig(
@@ -64,9 +66,7 @@ def _setup_file_logging() -> None:
                         or name.startswith("werkzeug"))
 
     try:
-        log_file = (Path(target) if target
-                    else Path(__file__).resolve().parent.parent / "data" / "diag"
-                    / "live2be.log")
+        log_file = (Path(target) if target else paths.DIAG_LOG_PATH)
         log_file.parent.mkdir(parents=True, exist_ok=True)
         handler = logging.FileHandler(log_file, encoding="utf-8", mode="a")
         handler.setLevel(logging.INFO)
@@ -85,12 +85,12 @@ _setup_file_logging()
 
 from webgui.routers import bond, collection, menu, mmt, name, settings, spine
 
-ROOT = Path(__file__).resolve().parent.parent
-STATIC_DIR = Path(__file__).resolve().parent / "static"
-MENU_DIR = ROOT / "assets" / "menu"
-ILLUS_DIR = ROOT / "assets" / "illustration"
-BG_DIR = ROOT / "assets" / "background"
-DATA_DIR = ROOT / "data"
+ROOT = paths.ROOT
+STATIC_DIR = paths.WEBGUI_STATIC_DIR
+MENU_DIR = paths.MENU_DIR
+ILLUS_DIR = paths.ILLUSTRATION_DIR
+BG_DIR = paths.BACKGROUND_DIR
+DATA_DIR = paths.DATA_DIR
 
 #: 画廊 scene_id 形态: {YYYYMMDD_HHMMSS}_{hex4}
 _SCENE_RE = re.compile(r"^\d{8}_\d{6}_[0-9a-f]{4}$")

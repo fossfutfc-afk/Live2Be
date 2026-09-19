@@ -7,11 +7,13 @@ from pathlib import Path
 from fastapi import APIRouter
 from fastapi.responses import FileResponse
 
+from core import paths
+
 router = APIRouter()
 
-STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
-ROOT = Path(__file__).resolve().parent.parent.parent
-MENU_DIR = ROOT / "assets" / "menu"
+STATIC_DIR = paths.WEBGUI_STATIC_DIR
+ROOT = paths.ROOT
+MENU_DIR = paths.MENU_DIR
 
 
 @router.get("/")
