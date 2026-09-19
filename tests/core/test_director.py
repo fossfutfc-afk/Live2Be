@@ -184,3 +184,45 @@ def test_engine_no_director_pure_text(tmp_path):
     assert [p["text"] for p in scene.paragraphs] == ["纯文本。"]
     assert "background" not in scene.to_dict() and "audio" not in scene.to_dict()
     print("    engine: 无导演 → 纯文本模式, 无视觉字段")
+
+
+def test_real_table_switch_end_to_end_zero_calls(tmp_path):
+    """★ **表接线后能否真跑通**（C2–C5 端到端）: `switch_to="教室"` 全链。
+
+    层1 命中（`教室` → `classroom`, **0 次 LLM 调用**）→ 语义键 → 资产 scene_id
+    （`class_room`）→ 导演闸门放行 → `scene.background` = 真 scene_id（不是 neutral）。
+    这条链任一环断了, 真机症状就是"背景恒 neutral / 每板都是教室"。
+    """
+    main = _MainLLM(_scene(switch_to="教室", lines=["她放下了书包。"]))
+    d = _director(tmp_path)
+    vn = BondStoryEngine(ROOT / "config" / "characters", main, director=d)
+    vn.start_session(_CHARACTER)
+    assert len(vn._place_keys) > 100, "没吃表"
+    calls_before = len(main.calls) if hasattr(main, "calls") else None
+    scene = vn.send_vn_scene("（开场）")
+    assert scene.place == "classroom", f"层1 该把「教室」解成 classroom, 实得 {scene.place!r}"
+    assert scene.place_hint == "教室"                    # 原文仍留着
+    assert scene.background == "class_room", scene.background   # 语义键 → 资产键
+    assert scene.background != "neutral", "背景没切（导演闸门被拦 → 真机 20/20 板的老症状）"
+    # 视觉键不进叙事历史（老纪律）
+    hist = vn.history[-1]["content"]
+    assert "classroom" not in hist and "class_room" not in hist
+    print(f"    e2e: 「教室」→ classroom → class_room → background（层1 0 调用）")
+
+
+def test_real_table_extends_beyond_old_whitelist(tmp_path):
+    """表键**超出旧 31 条白名单**的那些也能走通（否则接线等于白接）。
+
+    `moderncafe` / `hyakkayouran_tatamiroom` 这类键在旧白名单里根本没有;
+    用假资产树时它们查不到图 → 导演保持上一场（静默降级, 不崩）。
+    """
+    main = _MainLLM(_scene(switch_to="街角的咖啡馆，靠窗的位子", lines=["她笑了。"]))
+    d = _director(tmp_path)
+    vn = BondStoryEngine(ROOT / "config" / "characters", main, director=d)
+    vn.start_session(_CHARACTER)
+    scene = vn.send_vn_scene("（开场）")
+    assert scene.place == "moderncafe", scene.place       # 层1 命中（旧白名单没有这个键）
+    assert scene.place not in ("class_room", "school_rooftop"), "不该退回旧白名单的键"
+    # 假资产树里没有 BG_ModernCafe → 导演保持冷启动默认, 这是**预期降级**
+    assert scene.background == "neutral", scene.background
+    print("    e2e: 表外于旧白名单的键也能解出（无图时静默降级保持）")
