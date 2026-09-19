@@ -783,9 +783,31 @@ B = 今天的一句寒暄（SIG=0.50）
       `place in background_scenes` 闸门静默拦住一切 = 真机 20/20 板 `neutral`）;
       路由 `_place_bg_url()` 表键→scene_id→catalog→URL。
       实测全部出真 URL（含重命名条目 `68office→kohshinjo_room`）
-- [ ] **C6 `switch` 并入 place lane**: 现在仍是"首记录是 `switch` → `resolve_place`;
-      否则 → `annotate_places`"二选一早返回（`bond_story.fill_scene_places`）——
-      合成一条路, `current_place` 延续态跟着搬
+- [x] **C6 `switch` 并入 place lane**（2026-09-19）: `fill_scene_places` 不再
+      "二选一 + 早返回" —— ① 板首 `switch` → 板级地点（权威）② 句级锚点覆盖
+      **板内后续换场**（switch 板也跑）。`switch` 记录不在 `paragraphs` 里
+      （`from_board` 跳过 STAGE_SWITCH）→ 两步不会撞车; `current_place` 顺序顺延。
+      代价 = 每板恒定一次 `annotate_places`（层1 让 ① 免费; 真机 0.5s, 异步不挡玩家）
+- [x] **⭐ 真机复测换场: 通了**（2026-09-19, `experiments/place_switch_real.py`,
+      真 LLM + 真导演 + 真 catalog, 不写事件流）:
+
+      ```
+      种子「…她提议带老师去学校天台看看」
+      板1 switch '放学后的教室'   → classroom      → class_room      图存在=True
+      板4 switch '傍晚的学校天台' → school_rooftop → school_rooftop  图存在=True
+      背景序列: [class_room ×3, school_rooftop ×3]   ← **背景真的切了**
+      换场 2 次: 解出 2 / MISS 0; 地点调用 6 次 均 0.48s
+      ```
+
+      对照接线前的真机症状: **3/3 MISS、board 级 place 0 条、记录级锚点 0 条、
+      每板 `background=neutral` → 展示兜底成 class_room（每次 VN 都在显示教室）**。
+      另跑 8 板常规种子（全程在教室）: 换场 1/1 解出, 背景恒 `class_room` 真图,
+      `neutral` **一次都没出现**。
+- [ ] **句级锚点真机频率 ≈ 0（已观测, 不是缺陷）**: 两次真机跑（14 板）锚点 0 条
+      —— writer 换场**都发了 `switch`**（这正是 rules 要的"换场即发"）。
+      锚点是**兜底**（writer 漏发 switch 时救画面）; 其正确性已由合成板验证
+      （`place_resolve_real.py` §③: 6 句板只锚「推开天台的门」那一句）。
+      真要它常出场 = 让 writer 少发 switch, 但那会丢板边界, 不值得
 - [x] **C2–C5 真机验收通过**（2026-09-19, 真 API 跑
       `experiments/place_resolve_real.py`）:
 

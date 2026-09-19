@@ -378,6 +378,52 @@ def test_engine_maps_place_key_to_asset_scene_id():
     print("    engine: 语义键 → 资产 scene_id（导演闸门才放行）")
 
 
+def test_engine_switch_board_also_gets_sentence_anchors():
+    """★ C6（2026-09-19）: **switch 板也要跑句级锚点** —— 消掉"二选一早返回"。
+
+    此前板首有 `switch` 就 `return`，板内**后续换场永远标不出来**
+    （writer 写「她拉着我走出教室」而没再发 switch → 画面不动）。
+    现在 ① 板首 switch → 板级地点, ② 句级锚点覆盖板内后续换场, 顺序固定。
+
+    本用例: switch=「教室」（层1 命中 → **0 调用**）+ 板内第二次移动（第 2 句）。
+    总调用 = 1（只有 ②）——**这就是"没有早返回"的铁证**。
+    """
+    from core.bond.bond_story import BondStoryEngine
+    board = _scene(switch_to="教室",
+                   lines=["她放下书包。", "她拉着我走出教室，来到天台。"])
+
+    class TwoStageLLM:
+        def __init__(self):
+            self.calls = []
+
+        def chat_full(self, messages, **kw):
+            return board
+
+        def chat(self, messages, **kw):
+            last = messages[-1]["content"] if len(messages) > 1 else ""
+            self.calls.append(last)
+            if "变更句数组" in last:                  # ② 句级锚点
+                return [{"sentence": 2, "place": "school_rooftop"}]
+            return []                                 # 其他（含 ① 若被调用）
+
+    llm = TwoStageLLM()
+    engine = BondStoryEngine(ROOT / "config" / "characters", llm)
+    engine.start_session(CHARACTER)
+    engine._lexicon_keys = []                    # 本测试只关心 place 路（同 _engine_with）
+    scene = engine.send_vn_scene("（开场）", annotate=True)
+
+    assert scene.place == "classroom", scene.place            # ① 层1（0 调用）
+    assert scene.paragraphs[1].get("place") == "school_rooftop", scene.paragraphs
+    assert "place" not in scene.paragraphs[0], "第 1 句没换场, 不该有锚点"
+    assert engine._current_place == "school_rooftop", "延续态该顺延到板内终地点"
+    assert len(llm.calls) == 1, f"应只调 1 次（② 句级）——早返回没消掉? {llm.calls}"
+    # 视觉键不进叙事历史
+    from core.session.renderer import render_bond_scene_text
+    text = render_bond_scene_text(scene.to_dict())
+    assert "school_rooftop" not in text and "classroom" not in text
+    print("    C6: switch 板 = 板级地点(层1 0 调用) + 句级锚点(1 调用), 无早返回")
+
+
 def test_engine_uses_table_by_default():
     """引擎默认吃表（`_place_keys` = 表的键）; 表坏了才回落旧白名单。"""
     from core.bond.bond_story import BondStoryEngine
