@@ -9,10 +9,17 @@
 降级路径仍会被覆盖, 语义检索用例会打印 SKIP。
 
 覆盖:
-    1. place 跨语言检索: 中/英/日 query → scene_id（背景管线用例）
-    2. place 精确兜底: 词表 id / 别名子串直接命中（零依赖路径）
-    3. place 低分不匹配 → []（宁缺勿错: 保持上一场景语义）
-    4. brain 记忆召回: 临时 wiki 造节点, 跨语言 query 语义召回 top 命中
+    1. place 检索: 中文自由话语 → **地点表键**（PL4 起语料 = `place_entities.json`）
+    2. place 精确兜底: 表键 / 别名整串直接命中（零依赖, 0 调用）
+    3. place 跨语言: 中/英/日 query —— ⚠️ **表里没有假名别名, 拉丁别名是 slug**
+       ⇒ 这一节纯看 embedding 模型的跨语言能力（miss 是预期内的, 不计入失败）
+    4. place 低分不匹配 → []（宁缺勿错: 保持上一场景语义）
+    5. brain 记忆召回: 临时 wiki 造节点, 跨语言 query 语义召回 top 命中
+
+⚠️ **PL4（2026-09-19）语料换基座**: 旧版读手维护的 `places.yml`（31 条资产 scene slug,
+`class_room`/`ramen_ya`/`onsen`）, 现在读**地点表本身**（168 键 / 428 别名）——
+返回的是**表键**（`classroom`）, 不是资产 scene_id（`class_room`）。
+表里**没有温泉**（旧语料有 `onsen`）这类条目 ⇒ 期望值按表改过。
 """
 from __future__ import annotations
 
@@ -53,25 +60,20 @@ def main() -> int:
     fails = 0
 
     # ────────────────────────────────────────────────────────────
-    # 1. place 跨语言检索
+    # 1. place 检索（中文自由话语 → 地点表键）
     # ────────────────────────────────────────────────────────────
-    section("1. place 跨语言检索（LLM 话语 → scene_id）")
+    section("1. place 检索（自由话语 → 表键; 语料 = place_entities.json）")
     retriever = PlaceRetriever()
-    print(f"语料 scene 数: {len(retriever.scenes())}")
+    print(f"语料地点键数: {len(retriever.scenes())}")
     cases = [
-        # (query, 期望 scene)
+        # (query, 期望表键) —— 期望值都是**表里的真实键**, 不是资产 scene_id
         ("她们在教学楼天台上看星星", "school_rooftop"),
-        ("rooftop at night under the stars", "school_rooftop"),
-        ("屋上で星を見ている", "school_rooftop"),
-        ("在教室上课", "class_room"),
-        ("classroom", "class_room"),
-        ("一起去拉面店吃面", "ramen_ya"),
-        ("ラーメン屋で待ち合わせ", "ramen_ya"),
-        ("便利屋68的部室里商量委托", "gehenna_club_room"),
+        ("在教室上课", "classroom"),
+        ("一起去拉面店吃面", "foodcart_ramen"),
         ("在便利店里买零食", "convenience_store"),
-        ("コンビニでお菓子を買う", "convenience_store"),
-        ("泡温泉放松", "onsen"),
-        ("beach in summer", "beachside"),
+        ("便利屋68的办公室里商量委托", "68office"),
+        ("放学后在图书馆自习", "library"),
+        ("夏天去海边玩", "beachside"),
     ]
     for query, want in cases:
         hits = retriever.resolve(query, k=1)
@@ -86,12 +88,12 @@ def main() -> int:
             fails += 1
 
     # ────────────────────────────────────────────────────────────
-    # 2. place 精确兜底（零依赖: id / 别名整串）
+    # 2. place 精确兜底（零依赖: 表键 / 别名整串, 0 次 embedding）
     # ────────────────────────────────────────────────────────────
-    section("2. place 精确兜底（零依赖）")
+    section("2. place 精确兜底（零依赖, 0 调用）")
     for query, want in [("school_rooftop", "school_rooftop"),
-                        ("教室", "class_room"),
-                        ("屋上", "school_rooftop")]:
+                        ("教室", "classroom"),
+                        ("图书馆", "library")]:
         got = retriever.resolve_one(query)
         ok = got == want
         if not ok:
@@ -99,18 +101,33 @@ def main() -> int:
         print(f"{PASS if ok else FAIL} {query!r} → {got}" + ("" if ok else f"（期望 {want}）"))
 
     # ────────────────────────────────────────────────────────────
-    # 3. 低分不匹配 → []（宁缺勿错: 上层保持上一场景）
+    # 3. 跨语言（**表里没有假名别名, 拉丁别名是 slug** —— 全靠模型）
     # ────────────────────────────────────────────────────────────
-    section("3. 词表外/低分不匹配")
+    section("3. 跨语言（表无假名别名: 这一节纯看 embedding 模型, miss 不计失败）")
+    for query, want in [("屋上で星を見ている", "school_rooftop"),
+                        ("ラーメン屋で待ち合わせ", "foodcart_ramen"),
+                        ("コンビニでお菓子を買う", "convenience_store"),
+                        ("rooftop at night under the stars", "school_rooftop")]:
+        hits = retriever.resolve(query, k=1)
+        got = hits[0][0] if hits else None
+        score = hits[0][1] if hits else 0.0
+        flag = PASS if got == want else (SKIP if not have_model else "…")
+        print(f"{flag} {query!r:34s} → {got} ({score:.3f})（期望 {want}）"
+              + ("" if got == want else "  ← 想要字面命中: 在 tempo 表里给该键加这条别名"))
+
+    # ────────────────────────────────────────────────────────────
+    # 4. 低分不匹配 → []（宁缺勿错: 上层保持上一场景）
+    # ────────────────────────────────────────────────────────────
+    section("4. 词表外/低分不匹配")
     hits = retriever.resolve("量子物理实验室里的粒子对撞机", k=1)
     print(f"{PASS if not hits else FAIL} 超纲地点 → {hits if hits else '[]（保持上一场景）'}")
     if hits:
         fails += 1
 
     # ────────────────────────────────────────────────────────────
-    # 4. brain 记忆召回（RAG × wiki_v2, 跨语言 query）
+    # 5. brain 记忆召回（RAG × wiki_v2, 跨语言 query）
     # ────────────────────────────────────────────────────────────
-    section("4. brain 记忆召回（临时 wiki + 跨语言 query）")
+    section("5. brain 记忆召回（临时 wiki + 跨语言 query）")
     with tempfile.TemporaryDirectory() as td:
         store = WikiStoreV2(path=Path(td) / "wiki.jsonl")
         seed_nodes = [

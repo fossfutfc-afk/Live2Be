@@ -46,7 +46,6 @@ FESTIVALS_PATH = EGGS_DIR / "festivals.json"
 WORLD_DIR = CONFIG_DIR / "settings" / "world"
 WORLD_OVERVIEW_PATH = WORLD_DIR / "overview.yml"
 REGIONS_PATH = WORLD_DIR / "regions.yml"
-PLACES_PATH = WORLD_DIR / "places.yml"
 #: 地点语义键表（`core/media/place_table.py`; 由 tempo 工作台导出, 会随时更新）
 PLACE_TABLE_PATH = WORLD_DIR / "place_entities.json"
 #: 人际权重表
@@ -60,7 +59,8 @@ ASSETS_DIR = ROOT / "assets"
 BACKGROUND_DIR = ASSETS_DIR / "background"
 ILLUSTRATION_DIR = ASSETS_DIR / "illustration"
 MENU_DIR = ASSETS_DIR / "menu"
-#: 导演地点白名单（`common_scenes`; ⚠️ 待退——现役 place 词表, 表接线后作废）
+#: 导演地点白名单（`common_scenes`; **只剩降级兜底**——表读不出来时
+#: `bond_story` 拿它当 `place_keys`, 见 `core/media/emotion_lexicon.load_place_lexicon`）
 DIRECTOR_WHITELIST_PATH = ASSETS_DIR / "_director_whitelist.json"
 
 # ── data/：运行时数据（gitignore）─────────────────────────────────────────
@@ -76,7 +76,7 @@ WEBGUI_STATIC_DIR = ROOT / "webgui" / "static"
 __all__ = [
     "ROOT", "SETTINGS_PATH",
     "CONFIG_DIR", "EGGS_DIR", "FESTIVALS_PATH",
-    "WORLD_DIR", "WORLD_OVERVIEW_PATH", "REGIONS_PATH", "PLACES_PATH",
+    "WORLD_DIR", "WORLD_OVERVIEW_PATH", "REGIONS_PATH",
     "PLACE_TABLE_PATH", "RELATION_DIR", "INTERPERSON_PATH",
     "MMT_REGISTRY_PATH",
     "ASSETS_DIR", "BACKGROUND_DIR", "ILLUSTRATION_DIR", "MENU_DIR",

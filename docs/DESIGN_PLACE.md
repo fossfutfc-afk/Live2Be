@@ -167,7 +167,10 @@ time_of_day: LLM 可选（"night" 或省略=day）——夜晚是剧情氛围决
 - ~~director: visual_for(place, time_of_day) → 变体选择~~
   → 实际: `visual_for(scene_id)` 只查 scene，**变体参数生产里从没传过**
 - ~~core/rag place.py 语料升级 = 语义键表（别名同源）~~
-  → 实际: `PlaceRetriever` **生产零调用**；别名语料现在是表的 `keywords`
+  → **2026-09-19（PL4）已做**: `PlaceRetriever` 的语料**就是那张表**
+  （168 键 / 428 别名, 与标注层层1/层2 同源）, 手维护的 `places.yml` 已删;
+  返回单位 = **表键**（不是资产 scene_id, 翻译走 `asset_scene()`）。
+  但**仍未接线**（生产零调用, 只 `experiments/rag_test.py` 用）——接线与召回策略同批
 
 **真实接线见 §6 + 文首状态头。**
 
@@ -282,7 +285,7 @@ time_of_day: LLM 可选（"night" 或省略=day）——夜晚是剧情氛围决
 | `webgui/routers/bond.py:55` | `_BG_FALLBACK_PRIORITY` — **7 个地点 id 在代码里** | 改由表/数据给（"哪张图能当通用底"） |
 | `core/director/state.py:13` | `DEFAULT_BACKGROUND = "neutral"` —— **一个不存在的场景 id** | 改成表驱动的默认 |
 | `assets/_director_whitelist.json` | `common_scenes`(31) + `common_dirs`(23) | 退役（`common_dirs` 换组织后必废） |
-| `config/settings/world/places.yml` | 31 条 scene slug | 由表的 `keywords` 生成，别手维护第二份 |
+| `config/settings/world/places.yml` | 31 条 scene slug | **已删（PL4 2026-09-19）**——语料改成读表本身（`keywords`），不再手维护第二份 |
 | `llm/prompts/place_annotate.md` | 示例键 `rooftop` —— **表里没有**（是 `school_rooftop`） | 改（标注 prompt 可以动态，见下） |
 | `place_studio.py`（tempo） | 内嵌第二份 `REGIONS`(21) | 收口到 `regions.yml` |
 | `llm/prompts/bond_story_rules.md:52/87/95/106`, `contract/schema.py:192` | 示例地点「深夜的杂草屋」「放学后的天台」「星空」「傍晚的杂草坡道」 | **盒里保持静态**（前缀稳定）——**这不是问题**：写作用词（星空）与自由地点（杂草屋）都是设计要的，见上 §7 尾注 |

@@ -20,7 +20,6 @@ from core.media import (
     MediaError,
     assets_root,
     build_emotion_injection,
-    build_place_injection,
     load_emotion_lexicon,
     load_place_lexicon,
     render_emotion_scale,
@@ -585,9 +584,20 @@ def test_assets_root_resolves():
 
 
 def test_place_lexicon_from_whitelist():
-    # 真实 _director_whitelist.json 的 common_scenes（30 个地点语义）
+    # 真实 _director_whitelist.json 的 common_scenes（31 条裸 slug）—— **降级兜底**
     places = load_place_lexicon()
     assert places and "class_room" in places and "ramen_ya" in places
-    inj = build_place_injection()
-    assert "【地点标注词表】" in inj and "class_room" in inj
-    print("    place: 词表来自 _director_whitelist.common_scenes; 缺失 → []/空串")
+    print(f"    place: 兜底键集 {len(places)} 条（来自 _director_whitelist.common_scenes）")
+
+
+def test_place_injection_api_is_gone():
+    """★ PL4（2026-09-19）删掉的 API 不许回来。
+
+    `build_place_injection` 是"主 LLM 只从词表里选 place"时代的产物: 记录流 v2 +
+    "主 LLM 零内容词表"裁决之后它**生产零调用**, 只有本测试在读它。
+    """
+    import core.media as media
+    from core.media import emotion_lexicon as el
+    assert not hasattr(el, "build_place_injection"), "已删的注入 API 又回来了"
+    assert "build_place_injection" not in media.__all__
+    print("    place: build_place_injection 已删（生产零调用）且不在导出面")

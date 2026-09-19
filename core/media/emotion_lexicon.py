@@ -17,9 +17,12 @@ emotions.yml 格式（v2 视觉意图协议, DESIGN_VISUAL_PROTOCOL.md §4/§8�
 逐行解析原因: yaml.safe_load 拿不到行尾注释与 eg 例句——而 few-shot 正是它们的价值。
 缺失/损坏/无 emotions 键 → 空词表（宁缺勿错, 不阻断 VN）。
 
-place 词表（per 世界, 协议 §5）: 封闭通用地点语义。当前数据源 =
-assets/_director_whitelist.json 的 common_scenes（已涵盖 campus/classroom/ramen 等）。
-未来可独立为 assets/_world_places.json。
+place 词表（**只剩降级兜底**, PL4 2026-09-19）: 现役地点语料 =
+`config/settings/world/place_entities.json`（`core/media/place_table.py`）;
+本文件的 `load_place_lexicon` 读旧白名单 `assets/_director_whitelist.json` 的
+`common_scenes`，**只在表读不出来时**当 `place_keys` 用（`bond_story` 的回落路径）。
+（旧 `build_place_injection` 已删: 生产零调用, 且它宣传的"主 LLM 只从词表里选 place"
+已被记录流 v2 + "主 LLM 零内容词表"裁决废掉。）
 """
 
 from __future__ import annotations
@@ -162,11 +165,16 @@ def render_emotion_scale(lexicon: dict[str, dict], keys) -> str:
 
 
 # ============================================================================
-# place 词表（per 世界, 当前数据源 = _director_whitelist.json 的 common_scenes）
+# place 词表 —— **只剩降级兜底**（现役语料 = place_entities.json / place_table.py）
 # ============================================================================
 
 def load_place_lexicon(whitelist_path: str | Path | None = None) -> list[str]:
-    """place 候选（封闭通用地点语义）。缺失/损坏 → []（宁缺勿错）。"""
+    """旧白名单 `common_scenes`（31 条裸 slug）——**表读不出来时的兜底键集**。
+
+    唯一消费方 = `core/bond/bond_story.py` 的
+    `self._place_keys = self._place_table.keys() or load_place_lexicon()`。
+    正常路径（表在位）它一次都不会被调用。缺失/损坏 → []（宁缺勿错）。
+    """
     p = Path(whitelist_path) if whitelist_path else _DEFAULT_WHITELIST
     try:
         data = json.loads(p.read_text(encoding="utf-8"))
@@ -174,14 +182,3 @@ def load_place_lexicon(whitelist_path: str | Path | None = None) -> list[str]:
         return []
     scenes = data.get("common_scenes", []) if isinstance(data, dict) else []
     return [s for s in scenes if isinstance(s, str)]
-
-
-def build_place_injection(whitelist_path: str | Path | None = None) -> str:
-    """生成主 LLM 可用的地点词表注入文本（协议 §5: 封闭词表 + 不切省略）。"""
-    places = load_place_lexicon(whitelist_path)
-    if not places:
-        return ""
-    return (
-        "【地点标注词表】场景切换时 place 只从下面选（同一地点不标, 省略即保持）：\n"
-        + ", ".join(places)
-    )
