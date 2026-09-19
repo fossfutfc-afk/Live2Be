@@ -1,291 +1,318 @@
-# 背景系统：组织形式与查询框架（DESIGN_PLACE, 2026-09-05 定稿）
+# 地点 / 背景系统（DESIGN_PLACE）——**现网事实**
 
-> ## ⚠️ 状态（2026-09-15 校准——本稿此前**不在 CLAUDE.md 文档路由表里**，被漏读）
+> **这份文档是什么**：地点与背景系统的**唯一一份**设计文档。2026-09-20 重写——
+> 旧稿（09-05 定稿 + 09-15 状态头 + 09-19 三次补丁）已删，它是一份"设计意图 +
+> 作废章节 + 进度勾选"混在一起的千层饼，读它的人（包括 AI）会被带偏。
+> 旧稿里那些**曾经写过、但一条都没做**的话，集中收在 §10，见到就当它不存在。
 >
-> | 节 | 状态 |
-> |---|---|
-> | **§1② 语义键层**（`_place_entities.json` 的 key/name/region/group/active/files） | ✅ **有效**，仍是目标形态 |
-> | **§1③ 解析链**（语义名/描述 → **精确（id/name/别名）** → **embedding** → 阈值宁缺勿错） | ✅ **有效**——"两层解析"就是它 |
-> | **§2 日夜组织**（`time_of_day` 独立字段, 不占键） | ✅ 有效; 未实现 |
-> | **§1③ / §5 主 LLM 写 `place` 字段 + 注入活跃键表 ≤100 中文名** | ❌ **已被取代** |
+> **读法**：§1–§2 是一分钟版；§3–§7 是机制；§8 是作者侧工作流；§10 是防坑清单。
+> 本文只写**今天为真的事**。不确定时以代码为准（`core/media/place_table.py`
+> `core/bond/place_annotate.py` `core/bond/variant_annotate.py`）。
 >
-> **取代链**：
-> 1. **2026-09-10 记录流 v2**——换场改由 writer 发 `{"stage":"switch","text":"地点"}`，
->    **WHEN 归 writer、WHICH 归标注层**，主 LLM **不再写任何地点字段**
-> 2. **2026-09-15 用户裁决"主 LLM 零内容词表"**——连"活跃键表"也不注入
->    （从列表里挑 = **收窄**创作空间）。改为**三档分流**：
->
->    | 档 | 给主 LLM | 现在能做？ |
->    |---|---|---|
->    | **粗粒度地理**（`region` 主名） | ✅ 文本说明（**世界设定, 非菜单**） | ✅ **T16 已落地** |
->    | **情景图**（`view_sky` 一类镜头） | ✅ 说明（**能力可见性**——不告诉它就永远不会用） | ⏸ 等 tempo 图片手写完成 |
->    | **具体地点**（`place` 键） | ❌ 不给 → 归异步 lane | ⏸ 等 tempo 表 |
->
-> **实现进度**（2026-09-19 **C1–C5 接线完成**后的复核）：
->
-> | 层 | 状态 |
-> |---|---|
-> | **粗粒度地理**（`region`） | ✅ **已接线**——盒B【世界区域】块 + 字符串归一（`core/parsing/place_regions.py`, T16） |
-> | **语义键表**（`place` 查表键） | ✅ **已接线**（C1–C5）——表落 `config/settings/world/place_entities.json`（168 条）; `core/media/place_table.py` 提供层1 别名索引 + 层2 整表语料; 引擎默认吃它 |
-> | **写作用词**（`black`/`星空`…） | ✅ 词在表里（`sdir=SDIR_Atmosphere` 4 条）; ⏸ 尚未作为一个块注入盒B |
-> | **现役词表** | `assets/_director_whitelist.json` 的 31 条裸 slug = **只剩降级兜底**（表缺失时用） |
->
-> **表的实际形状**（与本节下方 §1② 的旧描述不同——以表为准）：
->
-> ```json
-> "big_bridge": { "sdir": "SDIR_Streets", "dir": "DIR_BigBridge",
->                 "place": "big_bridge",      // ← 查表键（唯一标识）
->                 "region": "",               // 剧情地理（regions.yml 主名）
->                 "keywords": ["桥","天桥"],   // 别名（检索用）
->                 "files": {"day": [...], "night": [...]} }
-> ```
->
-> **字段名统一（2026-09-19 用户裁决）**：`key`(导出外层键) / `name`(旧字段) /
-> `place`(现字段) 三者曾**同指一个概念 = 查表键**。统一为 **`place`** —— 依据是
-> 工具自己的迁移函数 `place_studio._migrate_export_entry()`（"把旧导出里的 name
-> 字段迁移成 place" + `entry.pop("name")`）与 `default_place()` 的 docstring
-> （"作为 place 默认查表键"）。
-> **导出外层键也已收口到 `place`**（A1, 2026-09-19）—— 此前是自动派生的族键
-> `root`，与手写 `place` 有 **103/168 条不等**（同一行两个标识符）。重导后
-> 168/168 键 == 行内 `place`，行内容零差异。
->
-> ⚠️ **表必须动态读入，不许在代码里写死任何地名**（用户 2026-09-19）：
-> *"这个表因为官方地点的更新是会进行更新或者调整措辞的，所以最好是动态读入
-> 而非写成死代码。"* 落地要求见 §7。
->
-> ⚠️ **表自身的四处缺口**（2026-09-19 实测，接线前必修）：
-> ① `keywords` **168/168 都是单元素数组**（工具按 `,` 拆，作者写的是 `/`）→ 别名表恒不命中；
-> ② `region` **148/168 为空**；
-> ③ `files.night` 里混着**状态变体 25 张**（ruin/erode/blur/off/dark/party/fake）+
->    **白天天气 7 张**（fog/rain/cloudy/dawn/sky）→ 只有 115/168 是真夜景；
-> ④ review 里的 `note`（**245/246 条有值**，是作者写的用途说明，如 "这个更加偏向
->    天台，有护栏"）**不进导出** —— 而这正是标注 LLM 判"该用哪张"的依据。
->
-> ⚠️ 另有**双表漂移**: `place_studio.py` 内嵌了一份自己的 `REGIONS`,
-> 与 `config/settings/world/regions.yml` 各一份。
->
-> **工具位置**（2026-09-19）：`place_studio.py` **只在工作区**
-> `D:\myStuff\tempo\`（09-15 版，含 SDIR/DIR 组织 + 导出重写）; 仓库内那份
-> `tools/place_studio.py`（09-07 旧版）**已删**——两份内容不同，留一份防漂移。
+> **落地进度**：PL0–PL6′ 全部完成（2026-09-19/20）；作者侧收尾清单见 §8.3；
+> C 链路（`channel_impl.py`）**未通电**、语义检索**未接线**——都是有意为之，不是漏做。
 
-> 触发：资产 1094 张 / 620 scene_id——LLM 无法面对全量; 地点语义（杂草屋=破房子）
-> 不在资产名里; 背景单调（LLM 无候选可选/不敢转场）。
-> 定稿路线：**存储走现行自动扫描（扩展最优）, 键表 = 活跃语义视图, 日夜 = LLM
-> 可选字段**——不是新存储, 是"存储上的语义层 + 契约字段"。
+---
 
-## 1. 三层框架
+## 1. 一分钟版
+
+**writer 自由写地点（自然语言，表里没有也行）；后台标注层把它翻成表里的一个键；
+同一个键往往有好几张图，再由第二遍挑出"这一场用哪一张"；记忆里同时存"键"
+（管回放/同一张图）和"writer 原话"（管检索/同一个地方）。**
+
+四条不变量（改代码前先记牢）：
+
+| # | 不变量 | 为什么 |
+|---|---|---|
+| 1 | **主 LLM 零内容词表**——不注入任何地点清单（只有一个例外，见 §6） | 从 168 条菜单里挑 = **收窄**创作空间（用户 2026-09-15 裁决） |
+| 2 | **键 = "用哪张图"的编号，不是"这是哪儿"的名字** | 一键多义（`ruinschoolcorridor` 也能当"杂草屋"）与一地多键（`天台` → 3 个键）**实测都在表里活着** |
+| 3 | **key 不可改**（回放按 key 查表，事件流 append-only）；改名的唯一合法路径 = 只改表 + 写台账（§5.2） | 旧事件里躺着的是"当时按哪张图演" |
+| 4 | **视觉键不进 LLM 上下文**（`place` / `place_asset` 都不进） | resume 窗口不被视觉键污染（`core/session/renderer.py` 只读 text/emotion/inner） |
+
+---
+
+## 2. 一条地点话的完整旅程
 
 ```
-① 资产层（存储——现行不变）
-   assets/background/{BG_*}/BG_{Scene}_{Variant}.jpg
-   命名规范: camelCase scene + VARIANT_TOKENS 变体（night/sunset/...）;
-   无变体后缀 = day（默认）
-   自动扫描 → catalog（scene_id × variant, 加图自动可见——扩展零注册）
-   整理时用不到的 → 移 _unused/（保留资产, 不进活跃键）
-
-② 语义键层（活跃视图——整理产物, `_place_entities.json`，落在 tempo 工作区）
-   每条 = 一个可被剧情提到的地点（日夜无关）; **外层键 = `place` 查表键**
-   （2026-09-19 统一；旧稿写的 `scene_id`/`name`/`group` 已作废——见文首状态头）:
-     place:    查表键（latin snake；作者手写优先, 缺省回落文件公共前缀）
-     region:   剧情地理（可选; region 子集注入用）
-     sdir/dir: 资产组织归属（SDIR_Streets/DIR_BigBridge）——**表自带三档分流的判据**
-     keywords: 别名数组（剧情里的俗称/描述词; 层1 精确命中的语料）
-     note:     用途说明（作者写"这个适合什么戏"——**标注 LLM 的判据, 现在不进导出**）
-     files:    {day: [...], night: [...]}（按变体归位——日夜不占键）
-   数量目标: 活跃 ~150-250（资产 ÷2 的现实值）; 键量由"语义归并 + 剔除"决定
-   现状: 168 条 active / 246 条已审 / 468 组（覆盖 435 张图 = 全库 39%）
-
-③ 契约/查询层  ⚠️ **整节作废（2026-09-19）——下面这几十行是 09-05 的旧设计，
-   读它会被带偏。真实形态见 §6「标注层」与文首状态头。**
-
-   ~~story_scene payload 扩展:
-     place:        语义名（候选注入 = 活跃集上下文子集 ≤100 或自由描述）
-     time_of_day:  "day" | "night"（可选字段, 缺省 day——LLM 显式表达剧情氛围）
-   程序解析链（core/rag, 语料 = 语义键表同源）:
-     语义名/描述 → 精确（id/name/别名）→ embedding（跨语言中英日）→ 阈值宁缺勿错
-     → scene_id × time_of_day variant → 资产 URL（无夜景 → 静默降级 day）
-   切换保障: 候选含 60-100 语义名 + LLM 每场决策 → 剧情转场即换图（单调消除）~~
-
-   **现在实际是**（一句话版）:
-     · 主 LLM **不写任何地点字段**，只发 `{"stage":"switch","text":"自然语言地点"}`
-     · 标注层翻成表里的 `place` 键（层1 别名 0 调用 → 层2 读 note 就近推测）
-     · 键 → `files` 的文件名 → 资产 scene_id → 图
-     · **没有 time_of_day**（日夜那套没实现，`files.night` 至今无消费方）
+writer 发  {"stage":"switch","text":"深夜的格黑娜学院天台"}
+   ↓ 这里写什么都可以（表里没有也行 —— 这是设计，不是 bug）
+引擎       bond_story.fill_scene_places()
+   ↓
+① 第一遍：定"哪个地点"      resolve_place()   [core/bond/place_annotate.py]
+     层1  表里的 place + keywords 做字面命中（整串 → 最长子串≥2字）→ **0 次调用**
+     层2  把**整张表（含 note）**丢给廉价 LLM 就近推测 → 1 次调用（off-thinking）
+     都失败 → ""（keep，画面不动）
+   ↓ 键 = school_rooftop
+①′ 第二遍：定"用哪一张图"    pick_image()      [core/bond/variant_annotate.py]
+     该键只有一张图 → **不发调用**（22/168 个键）
+     否则：候选 = 该键 files 的每一张（夜/夕/差分2…），**作者 note 原样进 prompt**，
+           输出必须是候选文件名之一，判不出 → 空 = 保持
+   ↓
+② 句级锚点：板内后续又换场   annotate_places()（两道 0 调用闸先过，见 §4.3）
+   ↳ 锚点也是换场 ⇒ **同样会选图**，落在**段落**上：
+     paragraphs[i].place 与 paragraphs[i].place_asset
+   ↓
+scene.place         = 键          ← 进事件流（回放/记忆/两轴）
+scene.place_hint    = writer 原话   ← 进事件流（检索/追溯）
+scene.place_asset   = 选中的文件（表内相对路径；空 = 默认图）
+   ↓
+引擎 _place_scene_id()  键 → 资产 scene_id（classroom → class_room，翻译靠 files 文件名）
+   ↓
+路由 _resolve_scene() → **优先表的路径**（place_asset → /assets/background/…），
+                        catalog 只作回落 → 前端换图（缺图 → 黑屏 + 报出来，§5.1）
 ```
 
-## 2. 日夜组织（独立字段, 不占键）
+**两个最容易搞错的翻译**：
 
+* **表键 ≠ 资产 scene_id**。`classroom` ↔ `class_room`；`68office` ↔ `kohshinjo_room`。
+  翻译只走 `PlaceEntry.scene_id()`（从 `files` 文件名派生），**不是靠猜名字**。
+* **板级 `place_asset` 管板首那一段，段落级 `paragraphs[i].place_asset` 管锚点之后那一段**——
+  段落没写 asset 就回落该键的默认图，绝不会串用板级那张。
+
+---
+
+## 3. 表：`config/settings/world/place_entities.json`
+
+作者在 **tempo 工作台**（`D:\myStuff\tempo\place_studio.py`）整理、导出，**拷进 repo**。
+仓库里只有这一份，**不再有第二份手维护的词表**（旧的 `places.yml` 已于 PL4 删除）。
+
+```json
+"big_bridge": {
+  "sdir": "SDIR_Streets",         // 资产大类（作者的语义分组；也是"写作用词"的判据）
+  "dir":  "DIR_BigBridge",        // 资产子目录
+  "place": "big_bridge",          // ★ 查表键（唯一标识；外层键 == 它，A1 不变量）
+  "region": "",                   // 剧情地理（regions.yml 主名；148/168 仍为空）
+  "keywords": ["桥", "天桥"],      // 别名 —— 层1 精确命中的语料
+  "note": "……",                   // ★ 作者写的用途说明 = **资源说明书**（见 §4.2）
+  "files": {"day":   ["SDIR_Streets/DIR_BigBridge/BG_BigBridge.jpg"],
+            "night": ["SDIR_Streets/DIR_BigBridge/BG_BigBridge_Night.jpg"]}
+}                                 // files 相对 assets/background/
 ```
-time_of_day: LLM 可选（"night" 或省略=day）——夜晚是剧情氛围决策, 表达权在 LLM
-资产: scene × variant（_Night 文件已在位 337 张）
-程序: night → 查 files.night → 缺 → 降级 day（宁缺勿错静默）
-未来扩展: sunset/dawn 等 = 字段枚举 +2, 资产按 VARIANT_TOKENS 规范加图即可
-```
 
-## 3. 扩展性结论
+**规模（2026-09-20 实测）**：168 键 · **428 个别名**（`place`+`keywords`）·
+194 张时刻图（`_Night` 153 / `_Sunset` 35 / 其余少量）· **45 个键各有 ≥2 张"无变体"图**
+（作者叫**差分**）· 22 个单图键 · 137 个键有时刻候选 · 层2 词表文本 **9378 字符**
+（≈4.7k tokens，只在层1 未命中时付）。
 
-| 动作 | 成本 |
+**纪律**
+
+| 纪律 | 落地 |
 |---|---|
-| 加新地点图 | 资产落位 → 扫描自动可见 → 键表补 place 一次（工具辅助） |
-| 加时刻变体 | 按命名规范加 _Night 文件 → files.night 自动归位 |
-| 新区域/角色主场 | 键表 region 标注 → region 子集注入自动受益 |
-| 玩家自由指定地点 | 自由描述 → 检索链（embedding 泛化）——CLAVIN 式后续 |
-| 未来 embedding/记忆 RAG | 键表 = 语料/描述文档同源——一次构建双用 |
+| **动态读入**（用户：*"官方地点的更新会调整措辞……最好动态读入而非写成死代码"*） | `load_table()` 按 `(path, mtime_ns, size)` 缓存 → 作者改完表**下一次调用即生效，不重启** |
+| **路径只在 `core/paths.py`** | `paths.PLACE_TABLE_PATH`；`grep -n "^[A-Z][A-Z_]* = " core/paths.py` 是全量清单 |
+| **缺表/坏表 → 空表降级**，绝不抛 | 引擎回落 `_director_whitelist.json` 的 31 条裸 slug（**只剩这一个用途**） |
+| **坏条目逐条丢弃**；**重复键要报出来** | `object_pairs_hook` 数重复键 → WARNING + `PlaceTable.error`（手编 JSON 里写两遍同一个键，`json.loads` 是静默保留最后一个的） |
+| **A1**: 外层键 == 行内 `place` | `tests/core/test_place_table.py` 守着（工具侧退回按族名建键就红） |
 
-## 4. 整理操作规范（作者 tempo 工作流）
+---
 
-> **2026-09-19 更新**：资产组织已从"官方 `BG_*` 一目录一场景"换成
-> **`SDIR_*/DIR_*` 两级**（工具 09-15 版起只认这个结构）。十个 SDIR 是
-> **作者的语义大类**（不是官方命名）：`Atmosphere`（黑场/纯色/PV 全景/天空）·
-> `Clubs`（社团据点）· `Infrastructure` · `Inner` · `Nature` · `Outer` ·
-> `Public` · `Schools` · `Special` · `Streets`。
-> ⚠️ **文件名不变** → `derive_background()` 派生的 scene_id 不变，
-> `MediaCatalog._scan_backgrounds()` 用 `rglob` 递归，**换组织不影响查库**；
-> 但 `background_dirs()` / `background_scenes_in_dir()` 会随目录名失效
-> （两者目前零消费方）。
+## 4. 判定层（两道主判定 + 两道省钱闸）
 
-1. 目录结构 = `{bg-root}/{SDIR_*}/{DIR_*}/BG_{Scene}_{Variant}.jpg`; 逐 DIR 清理/补全
-2. 命名规范不变: `BG_{Scene}_{Variant}.jpg`（Scene camelCase; Variant ∈ 白名单）
-3. 同一地点的多镜头/版本图: 保留但语义键层自动同族（工具里可见/可调）
-4. 确定用不到的（事件图/纯特效/重复）→ `DIR_Z` / `TRASH_*`（工具标 `suspect`,
-   但**作者仍可把其中的组勾成 active** —— 现状 `DIR_Z` 里有 13 组是 active）
-5. 产出物: 完整 `assets/background/`（= tempo 树）+ 工具审定的 `_place_entities.json`
-   （工具: **`D:\myStuff\tempo\place_studio.py`**——看图/命名/region/剔除/进度/导出。
-   仓库内不再放副本, 防双份漂移）
-
-## 5. ~~契约接线（整理完成后实施）~~ ⚠️ **整节作废（2026-09-19）**
-
-> 这五条是 09-05 的旧计划，**一条都没按它做**，读它会被带偏：
-
-- ~~story_scene schema: place 语义名白名单（soft）+ time_of_day 枚举~~
-  → 实际: 主 LLM **不写地点字段**（记录流 v2），也没有 time_of_day
-- ~~注入: 活跃键表（region 子集 ≤100 中文名 + 分组标题 ~2k 字）~~
-  → 实际: **不注入任何地点键给主 LLM**（用户裁决"主 LLM 零内容词表"）；
-  【世界区域】块只给 21 条**学院主名**（世界设定，不是菜单）
-- ~~bond_story_rules / 词表指引: "每个场景标 place; 夜晚剧情写 time_of_day=night"~~
-  → 实际: rules 只教 `{"stage":"switch","text":"地点"}`；夜晚没有字段
-- ~~director: visual_for(place, time_of_day) → 变体选择~~
-  → 实际: `visual_for(scene_id)` 只查 scene，**变体参数生产里从没传过**
-- ~~core/rag place.py 语料升级 = 语义键表（别名同源）~~
-  → **2026-09-19（PL4）已做**: `PlaceRetriever` 的语料**就是那张表**
-  （168 键 / 428 别名, 与标注层层1/层2 同源）, 手维护的 `places.yml` 已删;
-  返回单位 = **表键**（不是资产 scene_id, 翻译走 `asset_scene()`）。
-  但**仍未接线**（生产零调用, 只 `experiments/rag_test.py` 用）——接线与召回策略同批
-
-**真实接线见 §6 + 文首状态头。**
-
-## 6. 标注层：主 LLM 零内容词表 → 后台标注吃整表（2026-09-19 定稿）
-
-> 核心逻辑（用户 2026-09-19 原话）：
-> *"主 LLM 可以随便写或仅仅掌握部分词表，然后由后台 LLM 标注；后台 LLM 由于
-> 任务极其单一，可以接受更复杂的巨大表单。"*
-
-三段拆开：
-
-**① 写（主 LLM）——自由优先，写表外地名是设计的一部分，不是缺陷**
-
-> *"writer 当然可以说表外，为什么不能，writer 的自由不受限制，这个设计就是给
-> writer 最大自由防止注意力矩阵稀疏。"*（用户 2026-09-19）
-
-给 writer 的东西只有两类：
-* **粗粒度地理**：`region`（21 条学院主名）——**世界设定**，不是可选空间。
-* **一小撮"特效/情景词"**（`black`、`星空`…）——**这是主 LLM 唯一的内容词表**，
-  判据是 *"这些词能让 LLM 更好的写作"*（用户 2026-09-19）——不是"可选空间菜单"，
-  是**写作手段**。来源现成：表里 `sdir = SDIR_Atmosphere` 且 active 的条目
-  （现 4 条：`view_sky`/`black`/`view_constellation`/`view_dawnsky`）——
-  **判据是表自带的 `sdir`，不许另立名单**。
-  旁证：`bond_story_rules.md:87` 的示例 `{"stage":"switch","text":"星空"}`
-  正对应 `view_sky` 的 keyword `星空` —— 盒里那个示例**是故意的**。
-
-其余地点一律**自由写**，包括表里没有的（`深夜的杂草屋`）。
-
-**② 判（后台标注 LLM / 异步 lane）**——输入 = 原短语 + **整张表**
-（168 条 × `place`/`keywords`/**`note`**/`region`），输出 = 一个 `place` 键。
-**因为它的任务单一（只答"这句话说的是哪个地点"），表可以大到 168 条。**
+### 4.1 第一遍：哪个地点
 
 | 层 | 做什么 | 成本 |
 |---|---|---|
-| **层1 精确命中** | `keywords` 别名 / `place` 整串或子串命中 | **0 调用**（纯字符串） |
-| **层2 LLM 解析** | 吃整表（**含 `note`**）**就近推测**一个键 | 1 次廉价调用（off-thinking） |
+| **层1** `PlaceTable.resolve_exact` | `place` + `keywords` 的纯字符串命中：**整串优先**，否则取**最长子串**（针长 ≥2）；**不做反向包含**（`"z"` 会抓走一串 latin 键） | **0 调用** |
+| **层2** `place_resolve.md` / `place_annotate.md` + `lexicon_text()` | 吃**整表**（`【中文分组头】` + 每行 `键（别名）［时刻候选］: note`），**就近推测**一张最说得通的图 | 1 次廉价调用（place 档，off-thinking） |
 
-> ⭐ **`note` 是"表外也能用"的全部依据**（用户 2026-09-19）：
-> *"背后的 annotation-llm 只要看到 note 就能大致推测出地点，这就可以了，
-> 而且关键地点还能给它当作注记注入 anno-llm，更加方便。"*
-> 所以 **`note` 不进导出 = 这条路直接断掉** → A3 是关键路径，不是锦上添花。
->
-> ⚠️ **与现役 prompt 冲突**：`place_resolve.md` 现在写着"词表里没有能对上 →
-> `{"place": ""}`（宁可空着，不要硬凑一个近似的）"、`place_annotate.md` 写着
-> "拿不准 → 不标"。**"大致推测"与"宁可空着"是两条相反的指令**——按上面的模型，
-> 该改成"读 `note` 选语义最近的一个"。改动在**标注 prompt**（不进盒，无夹具影响）。
->
-> 只有"与当前地点相同"仍走 `""`（画面不用动）。
+* **层1 歧义不猜**（`天台` 指着 3 个键）→ 照实返回多条，**下沉层2**（层1 只负责"确定无疑"那部分）。
+* **"词表里没有"不是失败**（旧稿写过"宁可空着"——那是第一版为了让程序跑起来的遗老）：
+  用户 *"writer 的自由不受限制……annotation-llm 只要看到 note 就能大致推测出地点"*。
+* **`note` 是表外落位的唯一依据** ⇒ 缺 note = 这条路直接断（现只有 1 条空 note）。
 
-**③ 用**——`place` 键 → `files.day` / `files.night` → 资产 URL。
-**这是表的唯一消费目的**（不再走 `catalog.background(scene_id)` 的命名派生：
-族键≠scene_id，且表自带文件清单）。
+### 4.2 第二遍：用哪一张图（时刻 / 天气 / 作者差分）
 
-### 三档分流（给主 LLM 什么）
+**同一个键在资源库里常有好几张图**，两条轴：
 
-| 档 | 判据（表自带） | 给主 LLM | 谁解析 | 状态 |
-|---|---|---|---|---|
-| **写作用词**（特效/情景） | `sdir = SDIR_Atmosphere` 且 active（现 4 条: `view_sky`/`black`/`view_constellation`/`view_dawnsky`） | ✅ **小词表**（`black`/`星空`…——**唯一的内容词表**, 判据"能让 LLM 更好地写"） | 层1 → 层2 | ⏸ 词已在表里, 尚未作为块注入（只有 `星空` 一个示例在盒里） |
-| **粗粒度地理** | `region` | ✅ 文本说明（世界设定, 非菜单） | 别名的纯字符串归一 | ✅ T16 已落地 |
-| **自由地点** | 表外/表内均可 | ✅ **自由写, 不受限**（防注意力矩阵稀疏） | 层1 → **层2 读 `note` 就近推测** | ⏸ 等接线 |
-| **具体地点键** | 其余 `place` 键 | ❌ 不给键（列表 = 收窄创作） | 异步 lane | ⏸ 等接线 |
-
-> 后两行**不是对立的**：writer 的自由输出（无论表内表外）都归同一个 lane，
-> 表内命中率高、表外靠 `note` 推测——**表外不是失败路径，是设计主路径**。
-
-### 现役实现：接线后（C1–C5, 2026-09-19）
-
-| # | 项 | 状态 |
+| 轴 | 例 | 之前 |
 |---|---|---|
-| 1 | 词表 = **168 条带别名与说明的表**（不再是 31 条裸 slug） | ✅ `bond_story.start_session`: `_place_keys = load_table().keys()`，表坏才回落旧白名单 |
-| 2 | 标注 prompt 拿到 **`keywords` / `note`** | ✅ `_lexicon_hint()` 有表走 `lexicon_text()`（含 note + 按 sdir 分组; **分组头 2026-09-19 起是中文**，`【社团】`/`【室外】`——用户裁决"直接换中文，保证一致性"，判据 `sdir` 本身仍是英文） |
-| 3 | **层1**（别名 0 调用） | ✅ `resolve_place` 先过 `_layer1`; 真机 `教室`/`街角的咖啡馆，靠窗的位子` 由 MISS 变 0 调用命中 |
-| 4 | **"宁可空着/拿不准不标"**（第一版遗老） | ✅ 两个 prompt 已改：**"词表里没有"不是失败，是层2 的活**（读 note 挑语义最近的一张） |
-| 5 | **图像落不下来**（表键 ≠ 资产 scene_id） | ✅ `PlaceEntry.scene_id()` 从 `files` 文件名派生 → 导演闸门放行 + `place_bg` 出 URL（`classroom → class_room`、`68office → kohshinjo_room`） |
-| 6 | 逐板词表体量 7022 字符 ≈ 3.5k tokens | ⏳ 只在层1 未命中时付; 待真机统计 MISS 比例 |
-| 7 | `switch` 与 `annotate` 二选一早返回（应合成一条路） | ⏳ 未做（C6） |
+| **时刻 / 天气** | `_Night` 153 张 · `_Sunset` 35 张 · dawn/fineday/cloudy/rain/fog 少量 | `catalog.background(sid, variant=None)` = **永远第一条**，全都选不了 |
+| **作者差分** | `BG_X.jpg` / `BG_X2.jpg`（"2 则有圣诞树"、"普通差分天台为主,差分2天空为主"） | 45 个键的差分只有 note 描述，**引擎永远取第一张**；`fishing_village`/`lighthousepier` 的 note 明写"请/建议使用差分2"，**没有任何消费方** |
 
-> 未决项（用户 2026-09-19 表示"我自己也无法确认"）：**C 链路「同地」判据吃
-> `place` 还是 `region`** —— 两处代码口径相反（`core/parsing/place_regions.py:18`
-> 说"默认不吃 `place` 键，吃 `region`"；`core/brain/wiki_v2/channel_impl.py:277`
-> 的 `needs` 写 `episode.place`）。见 `TODO.md` 地点节。
+**做法**：候选**从文件名派生**（`PlaceEntry.image_candidates()`，标签机器生成：
+`夜` / `默认·差分2`），**作者 note 原样进 prompt**（用户：*"我的部分 note 里面本身就
+会教 LLM 某些特殊常用的夜景以及差分的区别"*），输出**必须是候选之一**。
 
-## 7. 动态读入（表随官方地点更新 —— 用户 2026-09-19）
+⚠️ **不走关键词表**（用户当场否掉，四句反例已写进 `llm/prompts/place_variant.md`）：
 
-> *"这个表因为官方地点的更新是会进行更新或者调整措辞的，所以最好是动态读入
-> 而非写成死代码。"* … *"本来确实不需要动态注入，只是方便实时更新。"*
-
-**性质**：这不是设计硬约束，是**实现选择——为了能实时更新**（改表即生效，
-不用改代码、不用重启）。但既然要做，就做干净：
-
-1. **表里已有的信息不写死在代码里**——包括"兜底用哪个背景""默认地点是什么"。
-2. **路径可配**（构造参数覆盖默认值；默认值来自 `core/paths.py` 的宏
-   `PLACE_TABLE_PATH`，换表/换世界线不用改代码）。
-   📌 **固定路径一律写成 `core/paths.py` 的顶层宏**（用户 2026-09-19）：
-   *"这种固定路径我推荐你写成 macro 的形式放在最上面……最后改成你用 grep 能
-   直接全量定位的方法。"* —— 全量定位两条 grep：
-   `grep -n "^[A-Z][A-Z_]* = " core/paths.py`（有哪些）/ `grep -rn "paths\.[A-Z]"`（谁在用）。
-   由 `tests/core/test_paths.py` 守门（现拼项目根路径会直接红）。
-3. **按 mtime 缓存**：`(path, mtime_ns, size)` 变了就重读 —— 作者改完表重导，
-   下一次调用即生效，**不重启 webgui**。
-4. 缺表/坏表 → **空表降级**（回落到"不标注地点"，画面保持），绝不抛（宁缺勿错）。
-
-> **盒不需要动态**：盒里给 writer 的写作用词是**刻意选定的稳定少数**
-> （`black`/`星空`——为了让 LLM 写得更好），它们不随表的增补而变；
-> writer 的表外自由输出也不需要进盒（那是 anno-llm 的事）。
-> 所以**"稳定前缀 ↔ 动态表"不构成矛盾**——动态读入只服务标注层。
-
-### 现在写死的地名清单（接线时逐个拆）
-
-| 位置 | 写死了什么 | 处置 |
+| 文本 | 关键词表会判 | 实际 |
 |---|---|---|
-| `webgui/routers/bond.py:55` | `_BG_FALLBACK_PRIORITY` — **7 个地点 id 在代码里** | 改由表/数据给（"哪张图能当通用底"） |
-| `core/director/state.py:13` | `DEFAULT_BACKGROUND = "neutral"` —— **一个不存在的场景 id** | 改成表驱动的默认 |
-| `assets/_director_whitelist.json` | `common_scenes`(31) + `common_dirs`(23) | 退役（`common_dirs` 换组织后必废） |
-| `config/settings/world/places.yml` | 31 条 scene slug | **已删（PL4 2026-09-19）**——语料改成读表本身（`keywords`），不再手维护第二份 |
-| `llm/prompts/place_annotate.md` | 示例键 `rooftop` —— **表里没有**（是 `school_rooftop`） | 改（标注 prompt 可以动态，见下） |
-| `place_studio.py`（tempo） | 内嵌第二份 `REGIONS`(21) | 收口到 `regions.yml` |
-| `llm/prompts/bond_story_rules.md:52/87/95/106`, `contract/schema.py:192` | 示例地点「深夜的杂草屋」「放学后的天台」「星空」「傍晚的杂草坡道」 | **盒里保持静态**（前缀稳定）——**这不是问题**：写作用词（星空）与自由地点（杂草屋）都是设计要的，见上 §7 尾注 |
+| 从早到晚，我都想一直陪在老师身边 | 夜 / 晨 | 范围成语，与此刻无关 |
+| 这些灯光，感觉像在白天一样呢~ | 白天 | **比喻 + 否定** ⇒ 其实是夜 |
+| 我一定要将老师的善良公布在光天化日之下！ | 白天 | 成语，与时刻无关 |
+| 私は夜の散歩が一番好きです | 夜 | 外语 + 意愿句：喜欢夜里散步 ≠ 现在是夜里 |
+
+关键词表会 3 句判反 + 1 句判错，而且**漏判是静默的**（画面停在旧图，没人报错）。
+真机 12/12（含这四句）——见 `experiments/place_pick_real.py`。
+
+**可选时刻子集** = `MOMENT_VARIANTS`（night/sunset/dawn/fineday/cloudy/rain/fog）。
+**剧情状态类**（ruin/erode/off/party/fake/blur/dark/fire/alert/tent/sky）**刻意不进候选**：
+现在没有任何信号源告诉标注层"这场戏停电了/被侵蚀了"，放进去只会变成瞎挑。
+
+**调用纪律**：单图键 0 调用 · 判不出/候选外/坏 JSON/服务失败 → **保持当前画面**
+（选错一张图比不动更糟）· 档位与第一遍相同（place / off-thinking / 256 tokens）。
+
+### 4.3 句级锚点的两道省钱闸（PL3）
+
+板内"writer 描述了移动却没发 switch"的补刀此前**每板恒定一次 9378 字符调用**，
+而真机存档 20 板 / 93 段正文里含换场线索的板 = **0**。两道闸（都 0 调用）：
+
+1. **线索预筛**：板内没有换场线索词（`core/bond/place_cues.py`，38 个位移动词：
+   走出/走进/来到/推开/穿过…）→ 整板跳过，日志 `[place][SKIP] skip=no_cue`
+2. **句级层1**：有线索，但每句都能被别名**唯一**命中且 ≠ 当前 → 直接落锚，`skip=layer1_hit`
+
+⚠️ **闸2 从宽**：只要有一句带线索却解决不了（歧义/表外/与当前相同）就**整板交 LLM**——
+省钱的代价只允许落在"确定无疑"的板上。**不许用"歧义∩当前就 keep"这种捷径**：
+真机最常见的换场恰恰是「她拉着我**走出教室**，来到**天台**」（当前与目的地同时出现），
+走捷径会让画面**永远不切**（有测试钉着）。
+
+---
+
+## 5. 缺素材 / 改名 / 回放
+
+### 5.1 缺素材 → 黑屏 + 报出来（用户裁决）
+
+> *"假如发现资源库里没有这张图，就用黑屏 black，且 alert/console.log 素材未找到即可。"*
+
+**不再静默换一张别的图**（那样"看起来正常，其实错了"——真机 20/20 板显示教室就是这么来的）。
+现状：`missing_asset` 随场景下发 + `background_url` = 黑屏 `black`；前端
+`console.error` 每次都记 + 每个键 `alert` 一次。板级与锚点级都覆盖（板级独立于导演的
+"保持上一场"，所以不会被上一张图掩盖）。
+
+### 5.2 改名 → 只改表 + 留台账
+
+key 不可改是**纪律**（回放按 key 查表），不是"改名不会发生"。合法路径：
+
+```
+python -m core.media.place_rename --from OLD --to NEW [--reason "…"] [--apply]
+  ① 扫引用面: 事件流 payload.place + paragraphs[*].place + soul/staging + _place_review.json
+  ② 改表那一行（先验证"能逐字节复原导出格式"才敢重写；目标键已存在 → 拒绝）
+  ③ 留痕: data/worlds/{world}/place_renames.jsonl（append-only, 链 a→b→c 可回溯）
+```
+**事件流一个字不动**。台账的消费方 = `_place_bg()` 查不到图时先说
+*"key 'X' 已改名为 'Y'（原因）"*，而不是笼统的"素材未找到"。
+⚠️ 表是 **tempo → repo 单向同步**：就地改 repo 的表只对本机有效，源头也要改。
+
+### 5.3 回放
+
+* 旧事件没有 `place_asset` → 默认图（第一条）；没有改名台账 → 就是"素材未找到"。
+* **append-only**：视觉键（`place` / `place_asset`）落 payload 是为了回放时间轴，
+  不是为了补写。
+* 记忆两轴（`core/brain/wiki_v2/digest.py` 物化）：`node.place` = **键**序列（字面相等 ⇒
+  **同一张图**）· `node.place_raw` = **writer 原话**序列（语义相似 ⇒ **同一个地方**）。
+  两个字段**都不进 LLM 上下文**。
+
+---
+
+## 6. 给谁看什么（三档分流）
+
+| 档 | 判据（表自带 / 手写） | 给谁 | 状态 |
+|---|---|---|---|
+| **写作用词**（镜头/特效：`星空`/`纯黑`/`黄昏`…） | `sdir == SDIR_Atmosphere` 的 4 条 | **writer**——手抄在 `llm/prompts/bond_shots.md`【一】那行（盒B 的一块） | ✅ PL2；`test_bond_shots.py` 钉住"每个词层1 唯一命中" |
+| **粗粒度地理**（学院/地区名，21 条） | `regions.yml` | **writer**——盒B【世界区域】块（**世界设定，不是菜单**） | ✅ T16 |
+| **具体地点键 + note** | 整张表 | **标注层**（层2） | ✅ C1–C5 |
+| **这一场的图**（候选清单 + note） | 该键的 `files` | **标注层**（第二遍选图） | ✅ PL6′ |
+| 资产 scene_id | `files` 文件名派生 | 导演 / 前端 | ✅ C5 |
+
+⚠️ `PlaceTable.writing_words()`（按 sdir 判）**至今没有生产消费方**——真正到 writer
+手里的是那份**手写**的 `bond_shots.md`。改了表**不会**自动进盒，**两处都得动**。
+
+---
+
+## 7. 语义检索（`core/rag/place.py`，**未接线**）
+
+* 语料 = **同一张表**（168 键 / 428 别名，PL4 起），手维护的 `places.yml` 已删。
+* 返回**表键**（不是 scene_id）；层1 唯一命中 → 1.0 且 0 次 embedding；
+  **歧义不猜** → 下沉语义层，服务不可用就 `[]`。
+* 打分 = 键内**全部别名**取最大余弦（旧实现只留"范数最大"的一条 ≈ 只留第一条别名）。
+* **生产零调用**（只 `experiments/rag_test.py` 用）——用户：*"我们需要一个地点语义检索
+  来体现既视感以增强我们的召回策略"*，接线与召回策略同批。
+* ⚠️ 表里**一个假名别名都没有**（428 条中 0 条），删掉的 `places.yml` 有 21 条
+  ⇒ 跨语言从"字面命中"退化成"纯靠模型"。想要字面命中就在 tempo 表里加别名。
+
+---
+
+## 8. 作者侧工作流
+
+### 8.1 同步方向：tempo → repo（单向）
+
+作者在 `D:\myStuff\tempo\` 工作（工具 `place_studio.py` + `_place_entities.json` +
+`_place_review.json`），整理完把 **`SDIR_*/DIR_*` 资产树 + 导出表**同步进 repo：
+
+```
+tempo\_place_entities.json   →   config/settings/world/place_entities.json
+tempo\_place_review.json     →   assets/background/_place_review.json（审校视图, 只作参考）
+```
+拷完**不用重启**（mtime 缓存），跑一次对账确认：
+`python experiments/place_asset_audit.py`（A: 表 `files` ↔ 磁盘 / B: 运行时取图 / C: 目录形态）。
+
+### 8.2 资产组织
+
+`assets/background/{SDIR_*}/{DIR_*}/BG_{Scene}_{Variant}.jpg`。
+**文件名不变 ⇒ `derive_background()` 派生的 scene_id 不变 ⇒ 换组织不影响查库**；
+扫描会剪掉 `.`/`_` 开头的目录（`.thumbs` 之类）。
+
+### 8.3 作者侧待办（PL7 清单）
+
+| 事 | 现状 |
+|---|---|
+| `files.night` 归类 | 混进状态变体 25 张（ruin/erode/blur/off/dark/party/fake）+ 白天天气 7 张（fog/rain/cloudy/dawn/sky）；真夜景只有 115/168。⚠️ 选图只放行"时刻/天气"子集，**暂时无害** |
+| 覆盖 | 435/1094 张 = 39%；`SDIR_Special` 59 组 **0 active**；`SDIR_Schools` 9/126 |
+| `region` | 148/168 为空（用户说"作用不大"，可做可不做） |
+| 写了 note 却没勾 active | `ruinpianoroom`（废弃琴房）等 |
+| ⭐ **note 的写法现在有回报** | 第二遍选图**照办** note 里的偏好（"请使用差分2"已验证）。给每个多图键写一句"默认用哪张、几张差分各是什么场合"，就是最划算的投入 |
+
+---
+
+## 9. 纪律与测试
+
+* **不许在代码里写死地名**（用户：*"最好是动态读入而非写成死代码"*）。
+  还写死的地方：`webgui/routers/bond.py` 的 `_BG_FALLBACK_PRIORITY`（7 个 id，展示兜底）、
+  `core/director/state.py` 的 `DEFAULT_BACKGROUND = "neutral"`。
+* **路径走 `core/paths.py` 的宏**（`grep -n "^[A-Z][A-Z_]* = " core/paths.py`），
+  现拼项目根路径会被 `tests/core/test_paths.py` 挡下。
+* **镜像防漂移**：`bond_shots.md` 的镜头词 ↔ 表（`test_bond_shots.py`）；
+  `CORE_CUES` ↔ rules ↔ `place_annotate.md` 三处同源；`SDIR_LABELS` 覆盖真表全部 sdir。
+* **测试桩约定**：桩按 user 尾部关键字应答——`地点 id JSON`（换场翻译）、
+  `变更句数组`（句级锚点）、**`选中的文件名`（第二遍选图）**、`情绪标签`、
+  `记录员/整理者`。新增标注任务必须同步补分支，否则吞场景脚本（CLAUDE.md §11）。
+* **真机脚本**：`experiments/place_switch_real.py`（真剧情，纯内存**不写事件流**）·
+  `place_pick_real.py`（选图判定 12 用例）· `place_asset_audit.py`（对账）·
+  `place_resolve_real.py`。
+
+---
+
+## 10. 会带偏你的旧话（见到就当它不存在）
+
+| 你会读到的 | 真相 |
+|---|---|
+| `time_of_day`（"day"/"night" 字段，LLM 可选） | **不存在**。时刻现在由**第二遍选图**判（§4.2），判据是 scene 文本 |
+| "注入活跃键表（region 子集 ≤100 中文名）给主 LLM" | **作废**。主 LLM 零内容词表（唯一例外 = 写作用词，§6） |
+| "主 LLM 写 `place` 字段" | **作废**（记录流 v2 起 writer 只发 `switch`；WHEN 归它、WHICH 归标注层） |
+| `config/settings/world/places.yml` | **已删**（PL4）。语料 = 表本身；`paths.PLACES_PATH` 也没了 |
+| "`_director_whitelist.json` 是现役地点词表" | **过时**。它是**降级兜底**（表读不出来时才用） |
+| 资产是 `BG_*` 一目录一场景 | **`SDIR_*/DIR_*` 两级**（作者的组织）；文件名不变，查库不受影响 |
+| "一个 key 就是一张图" | **一个 key 是一族图**：194 张时刻图 + 45 个键的差分（§4.2） |
+| "`catalog.background(scene_id, variant)` 是取图正路" | 取图**优先走表的路径**：catalog 的 scene_id 派生会漏 6 张时刻图（`BG_ClassRoom2_Night.jpg` 派生成 `class_room_2`） |
+| "时刻可以从文本里用关键词判出来" | **被否**（四句反例，§4.2）。判据是"这句话在说什么"，归标注层 |
+| "`PlaceRetriever` 返回 scene_id" | 返回**表键**；要图走 `asset_scene()` |
+| "缺素材就兜底一张别的图" | **被否**：黑屏 + 报出来（§5.1） |
+| "C 链路吃 `region`/`place` 判同地" | C 链路（`channel_impl.py`）**没通电**；`node.place`/`place_raw` 照常物化，等 v3 |
+
+---
+
+## 附：关键文件
+
+| 件 | 干什么 |
+|---|---|
+| `core/media/place_table.py` | 表加载（mtime 缓存/坏表降级/重复键守卫）+ 层1 `resolve_exact` + 层2 `lexicon_text` + 候选图 `moments()/image_candidates()/asset_for()` |
+| `core/bond/place_annotate.py` | 第一遍：`resolve_place`（层1→层2）、`annotate_places`（句级锚点） |
+| `core/bond/variant_annotate.py` | 第二遍：`pick_image`（时刻/天气/作者差分） |
+| `core/bond/place_cues.py` | 换场线索词（闸1）+ `CORE_CUES`（与两份 prompt 同源） |
+| `core/bond/bond_story.py` | `fill_scene_places`（①定键 → ①′选图 → ②句级锚点 的顺序与延续态 `_current_place`/`_current_asset`） |
+| `core/media/place_renames.py` · `place_rename.py` | 改名台账 + 改名工具 |
+| `core/rag/place.py` | 语义检索（语料 = 表；未接线） |
+| `webgui/routers/bond.py` | `_resolve_scene` / `_place_bg` / `_table_bg_url`（取图与黑屏回执） |
+| `llm/prompts/place_resolve.md` · `place_annotate.md` · `place_variant.md` | 三道标注 prompt |
+| `llm/prompts/bond_shots.md` | writer 手里的镜头词（手写，唯一给 writer 的内容词表） |
+| 表 / 审校 / 白名单 | `config/settings/world/place_entities.json` · `assets/background/_place_review.json` · `assets/_director_whitelist.json`（兜底） |
