@@ -740,11 +740,23 @@ B = 今天的一句寒暄（SIG=0.50）
       没有 note**，模型只能瞎猜。改法 = 层2 prompt 换成整表（含 `note`）+
       指令改成"选语义最近的一个"；只有"与当前地点相同"仍走 `""`。
       改动在**标注 prompt**（不进盒 → 无 promptkit 夹具影响）
-- [ ] **A3 `note` 进导出 = 关键路径**（不是锦上添花）: 它是"表外也能用"的唯一依据
-- [ ] **`keywords` 分隔符（源头 bug, 接通前第一件事）**: `place_studio.py` 的
-      `api_export` 按 `,` 拆, 而数据是 `/`（旧导出用 `|`）→ **实测两个导出文件都是
-      单元素数组、元素是整串** → 别名表恒不命中。消费端容错（`, / | 、 ; ；` +
-      空白一起拆, 同 `parse_index` 绝不抛的纪律）; tempo 侧 `split` 与 placeholder 同修
+- [x] **A2 `keywords` 分隔符已修**（2026-09-19, tempo 侧）: 新增
+      `_split_keywords()`（`, ， / | 、 ; ；` + 空白一起拆, 去重保序, 绝不抛）,
+      `api_export` 与 UI placeholder 同修。实测 **单元素整串 71 → 0**,
+      别名总数 168 → **260**（平均 1.55 / 最多 4 / 97 条仍只有单个别名）
+- [x] **A3 `note` 进导出**（2026-09-19）: 实测 **167/168 有 note**
+      （唯一空的是 `family_restaurant`）。重导幂等（再跑 0 变化）
+- [ ] **`杂草屋` 的落点要你拍一下**（1 bit）: writer 的示例地点「深夜的杂草屋」
+      **层1 不命中（对的, 层1 不该猜）**，层2 现在有两个候选:
+      · `ruinschoolcorridor`（**active**）kw=`破屋/老屋/学校走廊废墟/秘密基地`,
+        note=*"学校走廊废墟,青苔遍地,也可以用做老屋子或者某种杂草秘密基地"*
+        —— note 里**直接出现"杂草"**，正是"看 note 就能大致推测"的样本
+      · `abandoned_warehouse`（**未 active**）kw=`废旧仓库/破旧仓储`,
+        note=*"一个破旧的仓库,可以作为集合地点甚至作战基地等,发挥想象力"*
+        —— 更像"仓库"，但**不在表里**（写了 note 却没勾）
+      ⇒ 要么勾上 `abandoned_warehouse`，要么认 `ruinschoolcorridor` 当落点。
+      （不勾也不改 prompt 的话，层2 只能在 active 集里挑，
+      真机那个 `杂草屋 → school_rooftop` 还会重演）
 - [ ] **`PlaceRetriever` 接线**: `core/rag/place.py` 已经就是「精确兜底 + 语义兜底」
       两层, 但**生产零调用**（只 `experiments/rag_test.py` 用）; 且它读 `places.yml`
       （中英日别名）与 `resolve_place` 的裸 slug **互不相识** → 词表统一时收口
