@@ -140,6 +140,29 @@ def _rules_bond(ctx: BlockContext) -> str:
     return text
 
 
+def _bond_shots(ctx: BlockContext) -> str:
+    """`bond_shots.md`: **镜头与手法**（可选写法——不是规则）。
+
+    PL2（2026-09-19 用户裁决）: 把"怎么写更好看"从规则书里**搬出来**——
+    规则书说"不能怎么写"（硬规则 + 判据）; 本块说"怎么写好看"（手法 + 范本）。
+    来源: 原 `bond_story_rules.md` 的 §七 常用收尾组合 ①②③④ 与 §八 范本,
+    外加用户要的两节（煽情场景写法 / switch 组合拳）与**镜头词**。
+
+    用户原话: *"把煽情场景以及一些常用的 switch 组合手法（我怀疑现在全堆在
+    bond_rules）丢进去"*。
+
+    镜头词（星空/夜空/黄昏/纯黑…）是**刻意给 writer 的**——*"这些词能让 LLM
+    更好的写作"*; 与"主 LLM 零内容词表"不矛盾（那条打的是 168 条资产菜单会框死
+    writer）。`{char_id}` / `{char_name}` 占位与 `_rules_bond` 同手替换。
+    """
+    text = load_prompt("bond_shots")
+    char = ctx.char
+    if char is not None:
+        text = (text.replace("{char_id}", char.character_id)
+                    .replace("{char_name}", char.display_name))
+    return text
+
+
 def _lexicon_emotion(ctx: BlockContext) -> str | None:
     """【表情标注词表】: assets/illustration/{char}/default/emotions.yml 键+示范 few-shot。
 
@@ -254,6 +277,7 @@ BLOCKS: dict[str, Callable[[BlockContext], str | None]] = {
     "rules_mmt": _rules_mmt,
     "bond_tone": _bond_tone,
     "rules_bond": _rules_bond,
+    "bond_shots": _bond_shots,
     "lexicon_emotion": _lexicon_emotion,
     "place_world": _place_world,
     "time_sense": _time_sense,
@@ -273,6 +297,7 @@ BLOCK_DOC: dict[str, str] = {
     "rules_mmt": "MomoTalk 行为规则书",
     "bond_tone": "本角色羁绊剧情建议（SIG~bond_tone, 条件）",
     "rules_bond": "羁绊剧情规则书（记录流写法: switch/群/memorial/end）",
+    "bond_shots": "镜头与手法（可选写法: 镜头词/switch 组合/煽情场景/收尾收法+范本）",
     "lexicon_emotion": "表情标注词表（emotions.yml, 条件）",
     "place_world": "世界区域·剧情地理（regions.yml 主名; 世界设定, 非可选空间）",
     "time_sense": "时间感（第一人称世界观; 只进盒A——盒B 待统一整顿）",

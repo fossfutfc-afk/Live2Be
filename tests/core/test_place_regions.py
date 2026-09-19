@@ -88,11 +88,15 @@ def test_load_regions_missing_or_broken_degrades():
 
 
 def test_place_world_block_and_box():
-    """盒B 第 7 块 = 【世界区域】; `place_palette` 已退役。"""
+    """盒B 的【世界区域】块; `place_palette` 已退役。"""
     from core.promptkit.box import DOMAIN_BOXES
     from core.promptkit.blocks import BlockContext, render_block
     assert "place_palette" not in DOMAIN_BOXES["bond"], "旧菜单块未退出盒B"
-    assert DOMAIN_BOXES["bond"][7] == "place_world"
+    # PL2（2026-09-19）: `bond_shots`（镜头与手法）插在 rules_bond 与 schema 之间
+    # ⇒ place_world 从 index 7 挪到 8 —— 断言按"位置关系"写, 免得再加块又红
+    boxes = DOMAIN_BOXES["bond"]
+    assert boxes.index("place_world") > boxes.index("schema"), boxes
+    assert boxes[boxes.index("rules_bond") + 1] == "bond_shots", boxes
     text = render_block("place_world", BlockContext())
     assert text and text.startswith("【世界区域】")
     assert "格黑娜学院" in text and "夏莱" in text
@@ -102,7 +106,8 @@ def test_place_world_block_and_box():
     # 词表缺失 → 块缺席（条件块, 不占位）
     assert render_block("place_world",
                         BlockContext(regions_path="/nope/regions.yml")) is None
-    print("    box.B: 第 7 块 place_world（世界区域）, 无资产键; 缺表 → 缺席")
+    print(f"    box.B: place_world 在第 {boxes.index('place_world')} 块（世界区域）, "
+          f"无资产键; 缺表 → 缺席")
 
 
 if __name__ == "__main__":

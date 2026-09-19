@@ -248,16 +248,20 @@ v1 的 `MemorialProbe`/`memorial_exit` 动作已退役。**图是异步的 → �
 ## 8. 提示词装配（promptkit）——改文案/加任务前必读
 
 - 代码：`core/promptkit/{box,tail,task,config,report}.py`；盒清单 = `DOMAIN_BOXES`：
-  盒A(mmt) 9 块：greeting → persona_mmt → world → story_tone → mmt_tone →
-  interperson → environment → rules_mmt → schema。
-  盒B(bond) **9 块**：greeting → persona_bond → world → story_tone → bond_tone →
-  rules_bond → schema → **place_world（世界区域·剧情地理）** → brain。
-  **盒B 至此已无任何词表块**：`lexicon_emotion` 2026-09-10 退出（emotion 归标注层
+  盒A(mmt) **10 块**：greeting → persona_mmt → world → story_tone → mmt_tone →
+  interperson → environment → **time_sense（2026-09-17 加）** → rules_mmt → schema。
+  盒B(bond) **10 块**：greeting → persona_bond → world → story_tone → bond_tone →
+  rules_bond → **bond_shots（镜头与手法, 2026-09-19 PL2）** → schema →
+  **place_world（世界区域·剧情地理）** → brain。
+  **盒B 的词表纪律（别读错）**：`lexicon_emotion` 2026-09-10 退出（emotion 归标注层
   逐记录判）、`place_palette` 2026-09-15 换成 `place_world`（用户裁决"**主 LLM 零
   内容词表**"——资产 slug 菜单会**框死** writer；而世界区域是**设定不是菜单**，
   `overview.yml` 里一个学院名都没有、writer 会凭空发明）。判据 = "多给 writer 一个
   手段"还是"少给 writer 一个自由"；"换场"这个能力由 `rules_bond` §五【换场】承担。
-  地点/背景系统见 docs/DESIGN_PLACE.md（三层框架）。
+  ⚠️ **`bond_shots` 是有意的例外**：它给的是**镜头词**（星空/夜空/黄昏/纯黑…）与
+  **手法**（switch 组合拳/煽情写法/收尾收法/范本）——用户原话 *"这些词能让 LLM 更好
+  的写作"*。与"零内容词表"不矛盾（那条打的是**从 168 条资产菜单里挑**）。
+  地点/背景系统见 docs/DESIGN_PLACE.md + docs/AI_BRIEF_PLACE.md。
 - 每轮动态尾唯一入口 `round_messages`：注记们（P16/P17/P18/…）→ task 卡 → user。
 - task 卡模板（目标层, 不重复规则书）：`llm/prompts/task_<domain>.md` =
   默认 kind（mmt→chat, bond→scene）；`task_<domain>_<kind>.md` = 其余
