@@ -1312,6 +1312,33 @@ writer 根本不知道板存在, 它只是连着写记录、该换场就发 swit
 `68office`、`class_room`/`ramen_ya` → 表键是 `classroom`/`foodcart_ramen`
 ⇒ 这些都是"换基座"的必然结果（语料跟表走）。
 
+**随 `places.yml` 一起消失的 21 条假名别名**（旧 scene → 别名; 作者若想保留跨语言字面
+命中, 就在 tempo 表里对应键的 `keywords` 补上——**这是可选补充, 不补也不报错**）:
+
+| 旧 scene slug | 假名别名 | 现在该进哪个表键（据表现状） |
+|---|---|---|
+| `class_room` | 教室の中 | `classroom` |
+| `class_corridor` | 渡り廊下 | （走廊一族, 表里多条: 看作者归哪条） |
+| `school_rooftop` | 校舎の屋上 | `school_rooftop` |
+| `school_cafeteria` | カフェテリア | （表里食堂类键） |
+| `campus` | キャンパス | （校区类键） |
+| `gehenna_campus` | ゲヘナ学園 | 格黑娜校园类键 |
+| `gehenna_corridor` | ゲヘナの廊下 | 格黑娜走廊类键 |
+| `gehenna_class_room` | ゲヘナの教室 | 格黑娜教室类键 |
+| `gehenna_club_room` | ゲヘナ部室 | `68office` |
+| `gehenna_street` | ゲヘナの通り | 格黑娜街道类键 |
+| `ramen_ya` | ラーメン屋 / ラーメン店 | `foodcart_ramen` |
+| `karaoke` | カラオケ | KTV 类键 |
+| `fastfood_restaurant` | ファストフード | 快餐类键 |
+| `family_restaurant` | ファミレス | 家庭餐厅类键 |
+| `convenience_store` | コンビニ / コンビニエンスストア | `convenience_store` / `convenience` |
+| `shopping_district` | ショッピング街 | 商店街类键 |
+| `shopping_mall` | デパート | 商场类键 |
+| `kitchen` | キッチン | 厨房类键 |
+| `beachside` | ビーチ | `beachside` |
+
+（旧文件全文仍可从 git 取回: `git show <本提交>^:config/settings/world/places.yml`）
+
 ### PL5 C 链路通电 —— **❌ 用户 2026-09-19 答"不"**
 
 - **不做**（不补生产者、不接主链）。理由: 半通电比不通电更难查; 这是 v3-3 的活,
