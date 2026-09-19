@@ -52,6 +52,7 @@ from core.media.emotion_lexicon import (
     load_emotion_lexicon,
     load_place_lexicon,
 )
+from core.media.place_table import PlaceTable, load_table
 from core.bond.place_annotate import annotate_places, resolve_place
 from llm.client import LLMClient, feedback
 from llm.task_levels import max_tokens as task_levels_max_tokens
@@ -457,9 +458,12 @@ class BondStoryEngine:
         self._lexicon_hint: str = ""           # 词表注入文本（few-shot 示范, 标注 prompt 用）
         self._character_hint: str = ""         # 角色人设摘要（标注层用, 2026-09-02:
                                                # 人设化情绪判断基准——逞强笑 ≠ smile）
-        # place 标注（DESIGN_BOND_CONTRACT_V2 §5, P3a）: 地点词表 + 引擎本地
+        # place 标注（DESIGN_BOND_CONTRACT_V2 §5, P3a）: 地点语义键表 + 引擎本地
         # "当前地点"延续态（同步路径用; 异步 webgui 由 lane/state 同源维护）——
-        # 锚点句写回 payload 的 place 键, 视觉键不进 LLM 上下文（renderer 忽略）
+        # 锚点句写回 payload 的 place 键, 视觉键不进 LLM 上下文（renderer 忽略）。
+        # `_place_table`（C2, 2026-09-19）= 层1 别名索引 + 层2 词表文本来源;
+        # `_place_keys` 仍是"有没有地点能力"的门控（webgui 双路 lane 据此决定入队）
+        self._place_table: "PlaceTable" = PlaceTable()
         self._place_keys: list[str] = []
         self._current_place = ""
         # 链记账（记录流 v2: 标注单元 = 记录, 一板一组一次调用）: 情绪标注按**板**
@@ -521,9 +525,13 @@ class BondStoryEngine:
         self._lexicon_hint = build_emotion_injection(_char_asset_dir)
         # 2026-09-02: 角色人设摘要（标注层情绪判断基准——personality 行为逻辑）
         self._character_hint = _personality_summary(char)
-        # place 标注词表（closed; 读取失败 → 空 = 该剧情不标地点, 画面默认）;
+        # place 标注语料（C2, 2026-09-19）——**地点语义键表优先，旧白名单兜底**:
+        #   表 = `config/settings/world/place_entities.json`（168 条, 带 keywords/note）
+        #   缺表/坏表 → 空表 → 回落 `_director_whitelist.json` 的 `common_scenes`（31 条裸 slug）
+        # 读取失败一律降级为"该剧情不标地点, 画面保持"（宁缺勿错）。
         # 当前地点延续态重置（每个引擎实例从"未知"起, 首次变更句即起始背景）
-        self._place_keys = load_place_lexicon()
+        self._place_table = load_table()
+        self._place_keys = self._place_table.keys() or load_place_lexicon()
         self._current_place = ""
         # 链记账复位（每会话从零起——跨剧情 carry 是 P2+ 开放项）
         self._carry_text = None
@@ -964,11 +972,24 @@ class BondStoryEngine:
             except Exception as e:             # noqa: BLE001 — 标注异常不阻断剧情
                 logger.warning("place 标注异常（兜底保持背景）: %s", e)
         if self.director is not None:
-            # 视觉导演（v2）: place 意图 → background + audio 占位
-            vs = self.director.visual_for(scene.place, is_end=scene.is_end)
+            # 视觉导演（v2）: place 意图 → background + audio 占位。
+            # ⚠️ 传的是**资产 scene_id**（C5, 2026-09-19）: 表的语义键（`classroom`）
+            # 与资产 scene_id（`class_room`）不是一回事, 而导演/catalog 吃后者。
+            # `scene.place` 本身仍存**语义键**（事件流里的地点语义, 给记忆用）。
+            vs = self.director.visual_for(self._place_scene_id(scene.place),
+                                          is_end=scene.is_end)
             scene.background = vs.background
             scene.audio = vs.audio
         return scene
+
+    def _place_scene_id(self, key: str | None) -> str | None:
+        """地点键 → 资产 scene_id（导演/查图用）。表里没有/没 files → 原样传（老行为）。"""
+        if not key:
+            return key
+        try:
+            return self._place_table.scene_id(key) or key
+        except Exception:                       # noqa: BLE001 — 翻不动就原样, 不阻断
+            return key
 
     def fill_scene_emotions_text(self, scene: "BondScene") -> bool:
         """按**板**标注回填（公共方法——同步路径与 webgui emo lane 同一入口,
@@ -1114,7 +1135,8 @@ class BondStoryEngine:
         # 背景键（P1-2 的最小版: 进程内缓存 + 失败 keep）; 板边界就在换场处, 故一板一背景
         if scene.place_hint:
             key = resolve_place(self.llm, scene.place_hint, self._place_keys,
-                                self._current_place)
+                                self._current_place,
+                                table=self._place_table)
             logger.info("[place][SWITCH] %r → %s", scene.place_hint, key or "MISS(keep)")
             if key:
                 scene.place = key
@@ -1124,7 +1146,8 @@ class BondStoryEngine:
         texts = [(p.get("text") or "") if isinstance(p, dict) else ""
                  for p in scene.paragraphs]
         anchors = annotate_places(
-            self.llm, texts, self._place_keys, self._current_place)
+            self.llm, texts, self._place_keys, self._current_place,
+            table=self._place_table)
         for a in anchors:
             idx = a["sentence"] - 1
             if 0 <= idx < len(scene.paragraphs):
@@ -1246,6 +1269,7 @@ class BondStoryEngine:
         fork._seed_anchor = self._seed_anchor
         fork._group_seq = self._group_seq
         fork._current_place = self._current_place
+        fork._place_table = self._place_table      # 只读语料, 共享无妨（fork 不改它）
         fork._in_memorial = False                # 守卫已排除 True
         fork._memorial_used = self._memorial_used
         fork._task_on = self._task_on

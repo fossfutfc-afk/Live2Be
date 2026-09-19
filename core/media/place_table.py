@@ -49,6 +49,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from core import paths
+from core.media.background import derive_background
 
 logger = logging.getLogger(__name__)
 
@@ -105,6 +106,21 @@ class PlaceEntry:
             return (self.night or self.day or (None,))[0]
         return (self.day or self.night or (None,))[0]
 
+    def scene_id(self) -> str | None:
+        """本条 → **资产派生的 scene_id**（`MediaCatalog` 的键）。
+
+        表键（`classroom`）与资产 scene_id（`class_room`）**不是一回事**——
+        前者是作者手写的语义键，后者由文件名派生。下游（导演查库 / 前端 URL /
+        `paragraphs[].place_bg`）吃的是后者，所以这里做一次翻译。
+        取 `files` 里第一个文件的名字派生（与 `MediaCatalog` 同一函数，不会漂）。
+        `files` 空 → None（调用方回落）。
+        """
+        for rel in (self.day + self.night):
+            scene, _ = derive_background(Path(rel).stem)
+            if scene:
+                return scene
+        return None
+
     def line(self, *, with_note: bool = True) -> str:
         """标注 LLM 看到的一行（`place（别名）: note`）。"""
         kw = "/".join(self.keywords)
@@ -141,6 +157,11 @@ class PlaceTable:
 
     def get(self, place: str) -> PlaceEntry | None:
         return self.entries.get((place or "").strip())
+
+    def scene_id(self, place: str) -> str | None:
+        """表键 → 资产 scene_id（下游查图用）; 表键本身也行（slug 型键两者相同）。"""
+        e = self.get(place)
+        return (e.scene_id() if e else None) or ((place or "").strip() or None)
 
     def all(self) -> list[PlaceEntry]:
         return list(self.entries.values())

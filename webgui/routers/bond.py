@@ -149,17 +149,43 @@ def _resolve_scene(scene: dict | None, char_id: str) -> dict | None:
                     if fx:
                         p["fx"] = fx
                 # place 锚点背景（DESIGN_BOND_CONTRACT_V2 P3b-2）: 换场句的背景
-                # 静态资源（词表 id → catalog; 查不到 → 保持上一背景, 静默降级）
+                # 静态资源（表键 → **资产 scene_id** → catalog; 查不到 → 保持上一背景）
                 pid = p.get("place")
                 if isinstance(pid, str) and pid.strip():
-                    try:
-                        media = _catalog().background(pid.strip())
-                        if media is not None:
-                            rel = media.path.relative_to(_catalog().assets_root)
-                            p["place_bg"] = f"/assets/{rel.as_posix()}"
-                    except Exception:                        # noqa: BLE001 — 查库失败保持
-                        pass
+                    url = _place_bg_url(pid.strip())
+                    if url:
+                        p["place_bg"] = url
     return scene
+
+
+def _place_bg_url(key: str) -> str | None:
+    """地点键 → 背景 URL（C5, 2026-09-19）。
+
+    表键（`classroom`/`moderncafe`/`view_sky`）**不是**资产 scene_id
+    （`class_room`/`modern_cafe`/`view_sky`）——表里 `files` 的文件名才是。
+    所以先经 `load_table().scene_id()` 翻一次，再走 catalog（老口径）。
+    任一步失败 → None（调用方保持上一背景, 宁缺勿错）。
+    """
+    try:
+        cat = _catalog()
+    except Exception:                                # noqa: BLE001 — 资产缺失降级
+        return None
+    sid = key
+    try:
+        from core.media.place_table import load_table
+        t = load_table()
+        if t:
+            sid = t.scene_id(key) or key
+    except Exception:                                # noqa: BLE001 — 表缺失退回老口径
+        sid = key
+    for cand in (sid, key):
+        media = cat.background(cand)
+        if media is not None:
+            try:
+                return f"/assets/{media.path.relative_to(cat.assets_root).as_posix()}"
+            except Exception:                        # noqa: BLE001
+                return None
+    return None
 
 
 class BondStartIn(BaseModel):

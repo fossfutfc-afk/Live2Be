@@ -161,6 +161,42 @@ def test_by_region_only_nonempty():
     print(f"    region: {len(by)} 个区域 / {total} 个 place")
 
 
+def test_scene_id_translates_table_key_to_asset_key():
+    """★ 表键 ≠ 资产 scene_id——下游（导演/URL）吃的是后者（C5, 2026-09-19）。
+
+    `classroom`（作者手写语义键）vs `class_room`（文件名派生）;
+    `68office` → `kohshinjo_room` 是作者重命名过的条目, 靠 `files` 才对得上。
+    """
+    t = _table()
+    cases = {
+        "classroom": "class_room",
+        "moderncafe": "modern_cafe",
+        "68office": "kohshinjo_room",
+        "hyakkayouran_tatamiroom": "hyakkayouran_tatami_room",
+        "school_rooftop": "school_rooftop",      # slug 型键本来就是 scene_id
+    }
+    for key, want in cases.items():
+        got = t.scene_id(key)
+        assert got == want, f"{key} → {got}（期望 {want}）"
+    # 未知键 → 原样返回（调用方按老口径再试一次）; 空 → None
+    assert t.scene_id("不存在的键") == "不存在的键"
+    assert t.scene_id("") is None
+    # 派生必须与 catalog 同源（同一个 derive_background, 不会漂）
+    from core.media.background import derive_background
+    e = t.get("classroom")
+    assert e is not None and e.scene_id() == derive_background("BG_ClassRoom")[0]
+    assert pt.PlaceEntry(place="x").scene_id() is None, "没有 files → None"
+    print(f"    scene_id: {len(cases)} 条表键 → 资产键（含重命名条目）")
+
+
+def test_scene_id_all_entries_resolvable():
+    """真表里**每条**都翻得出 scene_id（否则那条永远切不出图）。"""
+    t = _table()
+    bad = [e.place for e in t.all() if not e.scene_id()]
+    assert not bad, f"这些条目翻不出 scene_id: {bad}"
+    print(f"    scene_id: 全表 {len(t)} 条都能翻到资产键")
+
+
 def test_mtime_cache_makes_it_truly_dynamic(tmp_path):
     """★ 用户硬要求: **动态读入**——改表即生效, 不重启进程。"""
     p = tmp_path / "t.json"
