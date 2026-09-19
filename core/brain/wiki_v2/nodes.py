@@ -105,6 +105,30 @@ class BrainNode:
     #: 🚫 **绝不进 LLM 上下文**（用户 2026-09-15 裁决）——它是**召回侧信号**,
     #: 与 `place` 同类: 参与排序, 不参与写作。`render_*` 一律不输出它。
     emo_shape: list[str] = field(default_factory=list)
+    #: **地点键序列**（M3, 2026-09-19）——`["classroom", "school_rooftop"]`。
+    #: 由 `digest` 按 `event_seq`（板指针）从真源**物化**: 那几板的
+    #: `payload.place`（板首 `switch` 解出的键）+ `payload.paragraphs[*].place`
+    #: （句级锚点），**相邻去重保序** —— 于是它同时是"她这段去过哪些地方"的变化
+    #: 序列（重复次数也留着: 同一个地点去了两次 = 两个元素）。
+    #:
+    #: ## 带的是**键**，不是 writer 的本名
+    #:
+    #: 用户 2026-09-19 问 *"带的是 key 还是 writer 的本名?"* —— **键**。
+    #: 理由: C 链路（地点查重）比的是**相等**，而 writer 的写法每次都不同
+    #: （「放学后的教室」/「教室里」/「回到教室」是同一张图、三个字符串，拿来做
+    #: 等值分组是废的）。writer 本名**不落节点**——它在事件流里
+    #: （`payload.place_hint` 与锚点句的 `paragraphs[i].text`），`event_seq` 指得到,
+    #: 将来表改名要重解析时按指针回捞即可（同 `verbatim_seq` 的纪律:
+    #: **地址永久有效**，因为 `paragraphs` 落在 append-only 的事件流里）。
+    #:
+    #: 🚫 **绝不进 LLM 上下文**（用户 2026-09-15 裁决同 `emo_shape`）——召回侧信号。
+    place: list[str] = field(default_factory=list)
+    #: **剧情地理**（M3）——`regions.yml` 的官方中文主名（`"阿拜多斯高级中学"`），
+    #: 由 `digest` 拿段内**最后一条 `switch` 原文**经纯字符串归一出（**0 LLM**）。
+    #: `""` = 未采集/没提到（**哨兵**: 不知道 ≠ 某个区域）。
+    #: 用途: C 链路"同地"判据的**第二坐标**（`place` 键相等 = 同素材;
+    #: `region` 相等 = 同一片地方）——两根轴都在节点上，判据选哪个不必现在定。
+    region: str = ""
     title: str = ""             # episode 可选短标题（渲染压缩/回放/决策表引用）
     pattern: str = ""
     subject: str = ""
@@ -284,7 +308,7 @@ class BrainNode:
         }
         for f in ("observer", "tags", "segment_id", "event_seq", "ts", "source",
                   "links", "contradictions", "notes", "narration", "verbatim",
-                  "verbatim_seq", "title", "emo_shape",
+                  "verbatim_seq", "title", "emo_shape", "place", "region",
                   "pattern", "subject", "count", "examples", "content", "growth",
                   "history", "source_key"):
             v = getattr(self, f)
@@ -327,6 +351,8 @@ class BrainNode:
         node.verbatim = _str(raw.get("verbatim"))
         node.verbatim_seq = _str_list(raw.get("verbatim_seq"))
         node.emo_shape = _str_list(raw.get("emo_shape"))
+        node.place = _str_list(raw.get("place"))
+        node.region = _str(raw.get("region"))
         node.title = _str(raw.get("title"))
         node.pattern = _str(raw.get("pattern"))
         node.subject = _str(raw.get("subject"))

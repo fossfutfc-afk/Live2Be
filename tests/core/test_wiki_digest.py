@@ -274,6 +274,73 @@ def test_emo_shape_absent_when_no_pointer(tmp_path):
     print(f"    无板指针(回落 {ep.event_seq}) → emo_shape={ep.emo_shape}")
 
 
+def test_place_materialized_from_board_pointer(tmp_path):
+    """★ M3（2026-09-19）: 板指针 → **地点键序列 + 剧情地理**物化到节点。
+
+    与 `emo_shape` 同一手。带的是 **标注层解出的键**（不是 writer 本名）:
+    「放学后的教室」/「傍晚的学校天台」三个字符串在节点上只有一个身份 ——
+    `classroom` / `school_rooftop`, 因为 C 链路比的是相等。
+    """
+    st = _seed_store(tmp_path)
+    a = {"episodes": [{
+        "narration": "她带我去了天台。", "title": "天台",
+        "event_seq": ["20", "22", "24"],
+        "tags": ["天台"], "significance": 0.8}]}
+    b = {"decisions": [{"episode": "m0003", "decision": "touch", "target": "u0001"}],
+         "evidence": [], "affection_exp_delta": 0}
+    events = _events(
+        _mmt(20, "在吗", "在的"),                                   # MMT → 无地点
+        ("bond", "story_scene", {                                   # 板: switch 教室
+            "place": "classroom", "place_hint": "格黑娜学院·放学后的教室",
+            "paragraphs": [{"text": "她放下书包。"}]}, 22),
+        ("bond", "story_scene", {                                   # 板: switch 天台 + 句级锚点
+            "place": "school_rooftop", "place_hint": "傍晚的学校天台",
+            "paragraphs": [{"text": "晚风迎面。"},
+                           {"text": "她又走下楼梯回到教室。",
+                            "place": "classroom"}]}, 24),
+    )
+    res = digest_segment(st, FakeLLM(a, b), events)
+    assert res.ok, res.errors
+    ep = st.get(res.created[0])
+    # 键序列: 板级 place 在前、句级锚点在后; **相邻去重**（同地反复会留多次）
+    assert ep.place == ["classroom", "school_rooftop", "classroom"], ep.place
+    # 剧情地理 = 段内**最后一条 switch 原文**经 regions.yml 归一（纯字符串, 0 LLM）
+    assert ep.region == "格黑娜学院", ep.region
+    # 真源里 writer 本名照旧在（可回捞, 不落节点）
+    print(f"    place 物化: {ep.place}  region={ep.region!r}")
+
+
+def test_place_absent_when_no_place_data(tmp_path):
+    """没地点数据 → `[]` / `""`（**哨兵: 未采集 ≠ 某个地点**）, 绝不编。"""
+    st = _seed_store(tmp_path)
+    events = _events(_mmt(3, "老师", "下次再去吃甜品吧"))
+    res = digest_segment(st, FakeLLM(_a_episode(), _b_ok()), events)
+    assert res.ok, res.errors
+    ep = st.get(res.created[0])
+    assert ep.place == [] and ep.region == ""
+    assert "place" not in ep.to_dict() and "region" not in ep.to_dict(), \
+        "空值该被省略（行小）——也顺手钉住 to_dict 的省略口径"
+    print("    place: 无数据 → []/''（哨兵）, to_dict 省略")
+
+
+def test_place_region_sentinel_never_raw(tmp_path):
+    """`region` **绝不返回原文**（同 `place_regions` 的哨兵纪律）。"""
+    st = _seed_store(tmp_path)
+    a = {"episodes": [{"narration": "在杂草屋", "title": "x", "event_seq": ["22"],
+                       "tags": ["t"], "significance": 0.5}]}
+    b = {"decisions": [{"episode": "m0003", "decision": "touch", "target": "u0001"}],
+         "evidence": [], "affection_exp_delta": 0}
+    events = _events(("bond", "story_scene", {
+        "place": "ruinschoolcorridor", "place_hint": "深夜的杂草屋",
+        "paragraphs": [{"text": "……"}]}, 22))
+    res = digest_segment(st, FakeLLM(a, b), events)
+    assert res.ok, res.errors
+    ep = st.get(res.created[0])
+    assert ep.place == ["ruinschoolcorridor"]
+    assert ep.region == "", f"原文不是 region（实得 {ep.region!r}）"
+    print("    region: 未命中 → ''（绝不把原文冒充 region）")
+
+
 # ---------------------------------------------------------------------------
 # 板块5: 引擎候选提示（T17 后**仅提示** —— 曾为"疑似同主题 → 禁 add"的结构强制）
 # ---------------------------------------------------------------------------
