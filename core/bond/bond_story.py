@@ -1119,20 +1119,36 @@ class BondStoryEngine:
             self._carry_emo = cur                       # + 末条已生效情绪
 
     def fill_scene_places(self, scene: "BondScene") -> bool:
-        """地点变更标注回填（DESIGN_BOND_CONTRACT_V2 §5, P3a; 公共方法供同步/
-        异步调用）: 换场锚点写回正文句项（place 键, 稀有——只挂在变更句）;
-        引擎本地"当前地点"延续态顺延（异步 webgui 由调用方同源维护）。
+        """地点变更回填（DESIGN_BOND_CONTRACT_V2 §5, P3a; 公共方法供同步/异步调用）。
 
-        判定语义在 place_annotate.md（镜像编剧 rules 换场判据）; 失败 → keep
-        （画面保持, 不 raise）。branches/纪念文字不标（反应段与正文同场延续,
-        过渡文字无承载——与 emotion 同规则）。memorial_exit 跳过。
+        ## 一条路（C6, 2026-09-19）
 
-        Returns: 是否产出锚点（False = 无词表 / memorial_exit / 无变更 / 失败）。
+        此前是"**二选一 + 早返回**": 板首有 `switch` 就只做 `resolve_place`、
+        否则只做 `annotate_places`。后果是 **switch 板上的板内换场永远标不出来**
+        （writer 写了「她拉着我走出教室」而没有再发一条 switch → 画面不动）。
+
+        现在**两件事都做, 顺序固定**:
+          ① 板首 `switch`（writer 明说的地点）= **权威信号** → `resolve_place` →
+             板级 `scene.place`（层1 别名 0 调用 / 层2 读 note 就近推测）
+          ② 句级 `annotate_places` 覆盖**板内后续换场** —— 带上 ① 之后的最新
+             `current_place`, 所以「第一步就走到了新地点」不会被重复标一次
+
+        `switch` 记录**不在 `paragraphs` 里**（`from_board` 跳过 STAGE_SWITCH），
+        所以 ② 看不到它, 不会和 ① 撞车。
+
+        ⚠️ 代价: 每个板恒定一次 `annotate_places`（含 switch 板）。层1 让 ① 基本
+        免费, ② 是异步 lane 里的廉价调用（真机实测 0.4–0.7s, 不挡玩家）。
+
+        判定语义在 `place_annotate.md`（镜像编剧 rules 换场判据）; 失败 → keep
+        （画面保持, 不 raise）。branches/纪念文字不标（反应段与正文同场延续）。
+        memorial_exit 跳过。
+
+        Returns: 是否有地点变化（板级 place 或任一句级锚点）。
         """
         if not self._place_keys or scene.memorial_exit:
             return False
-        # 记录流 v2（P0-7）: 换场信号 = `switch` 记录（`place_hint`）——直接翻译成
-        # 背景键（P1-2 的最小版: 进程内缓存 + 失败 keep）; 板边界就在换场处, 故一板一背景
+        changed = False
+        # ① 板首 `switch` → 板级地点（权威; 决定这一板用哪张图）
         if scene.place_hint:
             key = resolve_place(self.llm, scene.place_hint, self._place_keys,
                                 self._current_place,
@@ -1141,8 +1157,8 @@ class BondStoryEngine:
             if key:
                 scene.place = key
                 self._current_place = key
-                return True
-            return False
+                changed = True
+        # ② 句级锚点 —— 板内后续换场（switch 板也要跑, 见 docstring）
         texts = [(p.get("text") or "") if isinstance(p, dict) else ""
                  for p in scene.paragraphs]
         anchors = annotate_places(
@@ -1156,7 +1172,8 @@ class BondStoryEngine:
                     item["place"] = a["place"]
         if anchors:
             self._current_place = anchors[-1]["place"]     # 延续态: 终地点
-        return bool(anchors)
+            changed = True
+        return changed
 
     # ------------------------------------------------------------------
     # 属性
