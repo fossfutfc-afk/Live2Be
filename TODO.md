@@ -1442,8 +1442,12 @@ writer 根本不知道板存在, 它只是连着写记录、该换场就发 swit
 * **无污染**: 跑前跑后 `data/` **24 个文件长度与 mtime 全同**（探针
   `.testtmp/probe_data_pollution.py`; 我第一版对比脚本键归一化写错, 报了个假警报）
 
-⚠️ **已知缺口（下一步候选）**: 句级锚点（板内后续换场）**不带选图**——那也是这次
-换场的图, 暂时用默认图; 要补就在 `annotate_places` 的锚点上再发一次（同形态）。
+✅ **缺口已补（2026-09-20）**: 句级锚点**也发选图**（`_pick_asset` 由板首 switch 与
+锚点共用; 锚点用**锚点那一句**当文本, 结果落 `paragraphs[i].place_asset`）——
+前端 `_finish_scene` 的锚点分支按段落 `place_asset` 取图（板级那张不会串到段落上）,
+回放读回也带它。测试: `test_anchor_switch_also_picks_image` +
+`test_webgui_uses_paragraph_asset`（全量 842 通过）。
+⚠️ 代价: 一次换场最多 **2 次选图调用**（板首 + 板内锚点）——真机上一章锚点极少。
 
 ### PL7 表自身收尾（**作者侧**, 我只出清单）
 

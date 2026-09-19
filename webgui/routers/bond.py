@@ -177,7 +177,9 @@ def _finish_scene(scene: dict, char_id: str) -> dict:
                 # 静态资源（表键 → **资产 scene_id** → catalog）
                 pid = p.get("place")
                 if isinstance(pid, str) and pid.strip():
-                    url, st = _place_bg(pid.strip())
+                    pa = p.get("place_asset")
+                    asset = pa.strip() if isinstance(pa, str) and pa.strip() else ""
+                    url, st = _place_bg(pid.strip(), asset)
                     if st != "ok":
                         # 缺图（或旧名）→ **黑屏 + 报出**（不再静默保持上一背景）
                         p["place_bg"] = _black_bg_url()
