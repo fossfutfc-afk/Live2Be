@@ -44,8 +44,14 @@
 > `place`(现字段) 三者曾**同指一个概念 = 查表键**。统一为 **`place`** —— 依据是
 > 工具自己的迁移函数 `place_studio._migrate_export_entry()`（"把旧导出里的 name
 > 字段迁移成 place" + `entry.pop("name")`）与 `default_place()` 的 docstring
-> （"作为 place 默认查表键"）。**导出外层键仍是自动派生的族键 `root`，不是
-> `place`** —— 168 条里有 103 条两者不等（手写键漏下划线），接线前必须收口。
+> （"作为 place 默认查表键"）。
+> **导出外层键也已收口到 `place`**（A1, 2026-09-19）—— 此前是自动派生的族键
+> `root`，与手写 `place` 有 **103/168 条不等**（同一行两个标识符）。重导后
+> 168/168 键 == 行内 `place`，行内容零差异。
+>
+> ⚠️ **表必须动态读入，不许在代码里写死任何地名**（用户 2026-09-19）：
+> *"这个表因为官方地点的更新是会进行更新或者调整措辞的，所以最好是动态读入
+> 而非写成死代码。"* 落地要求见 §7。
 >
 > ⚠️ **表自身的四处缺口**（2026-09-19 实测，接线前必修）：
 > ① `keywords` **168/168 都是单元素数组**（工具按 `,` 拆，作者写的是 `/`）→ 别名表恒不命中；
@@ -196,3 +202,45 @@ time_of_day: LLM 可选（"night" 或省略=day）——夜晚是剧情氛围决
 > `place` 还是 `region`** —— 两处代码口径相反（`core/parsing/place_regions.py:18`
 > 说"默认不吃 `place` 键，吃 `region`"；`core/brain/wiki_v2/channel_impl.py:277`
 > 的 `needs` 写 `episode.place`）。见 `TODO.md` 地点节。
+
+## 7. 动态读入（用户 2026-09-19 硬要求）
+
+> *"这个表因为官方地点的更新是会进行更新或者调整措辞的，所以最好是动态读入
+> 而非写成死代码。"*
+
+**判据**：表是**数据**，改表 = 改行为，**不许改代码**。因此：
+
+1. **没有任何地名写死在代码里**——包括"兜底用哪个背景""默认地点是什么"。
+2. **路径可配**（`settings.toml` 或构造参数覆盖默认 `assets/background/_place_entities.json`），
+   换表/换世界线不用改代码。
+3. **按 mtime 缓存**：`(path, mtime_ns, size)` 变了就重读 —— 作者改完表重导，
+   下一次调用即生效，**不重启 webgui**。
+4. 缺表/坏表 → **空表降级**（回落到"不标注地点"，画面保持），绝不抛（宁缺勿错）。
+
+### 现在写死的地名清单（接线时逐个拆）
+
+| 位置 | 写死了什么 | 处置 |
+|---|---|---|
+| `webgui/routers/bond.py:55` | `_BG_FALLBACK_PRIORITY` — **7 个地点 id 在代码里** | 改由表/数据给（"哪张图能当通用底"） |
+| `core/director/state.py:13` | `DEFAULT_BACKGROUND = "neutral"` —— **一个不存在的场景 id** | 改成表驱动的默认 |
+| `assets/_director_whitelist.json` | `common_scenes`(31) + `common_dirs`(23) | 退役（`common_dirs` 换组织后必废） |
+| `config/settings/world/places.yml` | 31 条 scene slug | 由表的 `keywords` 生成，别手维护第二份 |
+| `llm/prompts/place_annotate.md` | 示例键 `rooftop` —— **表里没有**（是 `school_rooftop`） | 改（标注 prompt 可以动态，见下） |
+| `place_studio.py`（tempo） | 内嵌第二份 `REGIONS`(21) | 收口到 `regions.yml` |
+| ⚠️ `llm/prompts/bond_story_rules.md:52/87/95/106` | 示例地点「深夜的杂草屋」「放学后的天台」「星空」「傍晚的杂草坡道」 | **在盒里 → 不能动态**（见下） |
+| ⚠️ `contract/schema.py:192` | `{"stage":"switch","text":"放学后的天台"}` | **在盒里 → 不能动态**（见下） |
+
+### 盒的稳定前缀 ↔ 动态表：一个必须裁的矛盾
+
+**盒**（`rules_bond` / `schema`）是**逐字节稳定前缀**，动态注入地名会破上下文缓存。
+但盒里的示例**正在教 writer 说表外的地点**——真机那句「深夜的杂草屋」就是从
+`bond_story_rules.md:52` 学来的，而表里根本没有"杂草屋"。**这不是巧合, 是因果。**
+
+| 路 | 做法 | 代价 |
+|---|---|---|
+| a | 示例改用"表里一定有"的地点 | 表还能改，"一定有"不成立 |
+| b | 示例写成**不含具体地名**的抽象形式（`{"stage":"switch","text":"<具体地点>"}`） | 示范力略降 |
+| c | 给这几个示例地点**保位**（作者承诺不删） | 一条隐性约定要维护 |
+
+**倾向 b**：把"写什么"与"举什么例"解耦；具体例子挪到**标注层 prompt**
+（那里本来就可以每调用一次现读表，正是 `keywords` / `note` 该出现的地方）。
