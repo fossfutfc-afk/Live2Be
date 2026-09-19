@@ -430,6 +430,8 @@ def test_engine_switch_board_also_gets_sentence_anchors():
             self.calls.append(last)
             if "变更句数组" in last:                  # ② 句级锚点
                 return [{"sentence": 2, "place": "school_rooftop"}]
+            if "选中的文件名" in last:                # ①′ 选图（第二遍）→ 保持默认图
+                return {"image": ""}
             return []                                 # 其他（含 ① 若被调用）
 
     llm = TwoStageLLM()
@@ -442,12 +444,17 @@ def test_engine_switch_board_also_gets_sentence_anchors():
     assert scene.paragraphs[1].get("place") == "school_rooftop", scene.paragraphs
     assert "place" not in scene.paragraphs[0], "第 1 句没换场, 不该有锚点"
     assert engine._current_place == "school_rooftop", "延续态该顺延到板内终地点"
-    assert len(llm.calls) == 1, f"应只调 1 次（② 句级）——早返回没消掉? {llm.calls}"
+    # 调用数: ② 句级锚点 1 次 + **①′ 选图 1 次**（2026-09-19 起的第二遍:
+    # `classroom` 有多张图, 所以层1 命中之后仍要问一次"用哪一张"）;
+    # ① 换场翻译本身仍是层1 = 0 调用（PL3 的成果没被吃掉）
+    assert sum("变更句数组" in c for c in llm.calls) == 1, llm.calls
+    assert sum("选中的文件名" in c for c in llm.calls) == 1, llm.calls
+    assert sum("地点 id JSON" in c for c in llm.calls) == 0, llm.calls
     # 视觉键不进叙事历史
     from core.session.renderer import render_bond_scene_text
     text = render_bond_scene_text(scene.to_dict())
     assert "school_rooftop" not in text and "classroom" not in text
-    print("    C6: switch 板 = 板级地点(层1 0 调用) + 句级锚点(1 调用), 无早返回")
+    print("    C6: switch 板 = 板级地点(层1 0 调用) + 选图(1) + 句级锚点(1), 无早返回")
 
 
 def test_engine_uses_table_by_default():
@@ -494,6 +501,8 @@ class ScanLLM:
         if "变更句数组" in last:
             self.annotate_calls.append(last)
             return self.annotate_reply
+        if "选中的文件名" in last:                     # 选图（第二遍）→ 保持默认图
+            return {"image": ""}
         return []
 
 

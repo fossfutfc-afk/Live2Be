@@ -88,6 +88,8 @@ class _MainLLM:
             return self.place_reply
         if "变更句数组" in last:                  # 旧 place 标注（v1 通道）→ 无变更
             return []
+        if "选中的文件名" in last:                # 选图（第二遍）→ 保持默认图
+            return {"image": ""}
         return self._script
 
     def format_messages(self, *, system_prompt, user_message, history=None):

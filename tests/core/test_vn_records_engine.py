@@ -62,6 +62,8 @@ class ScriptedLLM:
             return {"place": self.place_reply}
         if "变更句数组" in last:                          # 旧 place 标注 → 无变更
             return []
+        if "选中的文件名" in last:                # 选图（第二遍）→ 保持默认图
+            return {"image": ""}
         if not self._scripts:
             raise AssertionError("ScriptedLLM 脚本耗尽——引擎多发了一次 LLM 调用")
         return self._scripts.pop(0)

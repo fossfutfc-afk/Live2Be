@@ -42,18 +42,22 @@ class Counting:
     def __init__(self, inner):
         self.inner = inner
         self.place_calls = 0
+        self.pick_calls = 0
         self.place_secs = 0.0
         self.gen_calls = 0
 
     def chat(self, messages, **kw):
         last = messages[-1]["content"] if len(messages) > 1 else ""
-        is_place = ("地点 id JSON" in last) or ("变更句数组" in last)
+        is_pick = "选中的文件名" in last
+        is_place = ("地点 id JSON" in last) or ("变更句数组" in last) or is_pick
         t0 = time.time()
         out = self.inner.chat(messages, **kw)
         dt = time.time() - t0
         if is_place:
             self.place_calls += 1
             self.place_secs += dt
+        if is_pick:
+            self.pick_calls += 1
         return out
 
     def chat_full(self, messages, **kw):
@@ -117,6 +121,7 @@ def main():
         print(f"   switch 原文 : {hint or '（本板无换场）'}")
         print(f"   → 地点键    : {key or '（未变/keep）'}")
         print(f"   → 资产键    : {sid or '-'}")
+        print(f"   → 选的图    : {Path(scene.place_asset).name if scene.place_asset else '（默认图）'}")
         print(f"   → 背景      : {bg}   图存在={exists}")
         if anchors:
             print(f"   句级锚点    : "
@@ -135,7 +140,7 @@ def main():
     if "neutral" in bg_seen:
         print("⚠️ 仍出现过 neutral（= 展示兜底会顶成 class_room）")
     print(f"地点相关调用 {llm.place_calls} 次 / 共 {llm.place_secs:.1f}s "
-          f"（均 {llm.place_secs / max(llm.place_calls, 1):.2f}s）; "
+          f"（均 {llm.place_secs / max(llm.place_calls, 1):.2f}s; 其中**选图** {llm.pick_calls} 次）; "
           f"主生成 {llm.gen_calls} 次")
 
     # ── M3 闭环: 真机 payload → 记忆节点的两轴（物化是纯函数, 不调 API）──

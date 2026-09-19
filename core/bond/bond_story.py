@@ -54,6 +54,7 @@ from core.media.emotion_lexicon import (
 )
 from core.media.place_table import PlaceTable, load_table
 from core.bond.place_annotate import annotate_places, resolve_place
+from core.bond.variant_annotate import pick_image           # 第二遍: 选图（时刻/差分）
 from core.bond import place_cues                      # 换场线索词（PL3 预筛）
 from llm.client import LLMClient, feedback
 from llm.task_levels import max_tokens as task_levels_max_tokens
@@ -196,6 +197,11 @@ class BondScene:
     # 块级画面意向（`art` 声明——本块含纪念时提前开画, §10.4）。
     # 三者都**不进 LLM 上下文**（历史渲染只出叙事/switch 文本）。
     place_hint: str | None = None
+    #: **选图结果**（第二遍, 2026-09-19）: 这个地点的**哪一张图**（表 `files` 里的
+    #: 相对路径, 如 `SDIR_Outer/…/BG_SchoolRooftop2_Night.jpg`）。空 = 用默认图
+    #: （旧事件没有这个字段 → 回放安全, 落回第一条）。与 `place` 同属视觉键,
+    #: **不进 LLM 上下文**。
+    place_asset: str | None = None
     memorial: bool = False
     art_hint: str = ""
     #: 已裁决的选项原文（决策 #37）: 只作**展示标记**——回放/续看时前端据此把选项组
@@ -281,6 +287,8 @@ class BondScene:
             d["audio"] = self.audio
         if self.place is not None:
             d["place"] = self.place
+        if self.place_asset:
+            d["place_asset"] = self.place_asset
         if self.title:
             d["title"] = self.title
         return d
@@ -340,6 +348,7 @@ class BondScene:
         records = [dict(r) for r in raw.get("records", []) if isinstance(r, dict)]
         notes = [str(x) for x in raw.get("notes", []) if isinstance(x, str)]
         place_hint = raw.get("place_hint")
+        place_asset = raw.get("place_asset")
         art_hint = raw.get("art_hint")
         picked_raw = raw.get("picked")
         picked = (picked_raw.strip()
@@ -361,6 +370,8 @@ class BondScene:
             records=records,
             notes=notes,
             place_hint=place_hint if isinstance(place_hint, str) and place_hint else None,
+            place_asset=(place_asset.strip()
+                         if isinstance(place_asset, str) and place_asset.strip() else None),
             memorial=bool(raw.get("memorial", False)),
             art_hint=art_hint if isinstance(art_hint, str) else "",
             picked=picked,
@@ -467,6 +478,9 @@ class BondStoryEngine:
         self._place_table: "PlaceTable" = PlaceTable()
         self._place_keys: list[str] = []
         self._current_place = ""
+        #: 当前画面用的那张图（表 `files` 相对路径）——第二遍"选图"的延续态:
+        #: 给标注 LLM 一个"保持当前画面"的参照, 也是 `place_asset` 缺省时的回落依据
+        self._current_asset = ""
         # 链记账（记录流 v2: 标注单元 = 记录, 一板一组一次调用）: 情绪标注按**板**
         # 流水——"已生效链" = 上一板记录原文 + 末条情绪; 首板退化
         # 本章 seed 锚（开场那一句, 禁后文）; 跨完整剧情衔接 = P2+ 开放项（§11）
@@ -534,6 +548,7 @@ class BondStoryEngine:
         self._place_table = load_table()
         self._place_keys = self._place_table.keys() or load_place_lexicon()
         self._current_place = ""
+        self._current_asset = ""
         # 链记账复位（每会话从零起——跨剧情 carry 是 P2+ 开放项）
         self._carry_text = None
         self._carry_emo = ""
@@ -1168,6 +1183,17 @@ class BondStoryEngine:
                 scene.place = key
                 self._current_place = key
                 changed = True
+                # ①′ **第二遍: 选图**（时刻/天气/作者差分）——只有这个键真有别的图才发
+                entry = self._place_table.get(key) if self._place_table else None
+                if entry is not None and len(entry.image_candidates()) > 1:
+                    picked = pick_image(self.llm, scene.place_hint, entry,
+                                        current_image=self._current_asset)
+                    logger.info("[place][PICK] key=%s → %s",
+                                key, picked.rsplit("/", 1)[-1] if picked else "保持")
+                    if picked:
+                        scene.place_asset = picked
+                self._current_asset = scene.place_asset or (
+                    entry.asset() if entry is not None else "")
         # ② 句级锚点 —— 板内后续换场（switch 板也要跑, 见 docstring）
         texts = [(p.get("text") or "") if isinstance(p, dict) else ""
                  for p in scene.paragraphs]
@@ -1344,6 +1370,7 @@ class BondStoryEngine:
         fork._seed_anchor = self._seed_anchor
         fork._group_seq = self._group_seq
         fork._current_place = self._current_place
+        fork._current_asset = self._current_asset
         fork._place_table = self._place_table      # 只读语料, 共享无妨（fork 不改它）
         fork._in_memorial = False                # 守卫已排除 True
         fork._memorial_used = self._memorial_used
