@@ -283,6 +283,7 @@ let lastSceneKey = "";
     }
     stopTyping();
     clearEmoWatch();
+    syncMemorial({ in_memorial: false });   // 清掉上一场 live 可能留下的纪念层/隐藏立绘
     showView();
     if (payload && payload.name) $("bond-name").textContent = payload.name;
     if (payload && payload.club !== undefined) $("bond-club").textContent = payload.club;
@@ -293,7 +294,13 @@ let lastSceneKey = "";
     roNext();
   }
 
-  /** 播下一板（只读推进的唯一入口）。 */
+  /** 播下一板（只读推进的唯一入口）。
+   *
+   *  ⚠️ **必须跟着调 `syncMemorial`**（P1①, 2026-09-20）: 纪念的三件事（隐藏立绘 /
+   *  清空普通背景 / 图淡入）全在那个函数里, 而它此前只在 live 的两条路径被调用
+   *  ⇒ 册子回放里纪念板是"立绘照常 + 背景照常 + 图不出现", 与 live 差三处。
+   *  载荷里的键与 live 同形（`in_memorial` / `memorial_img`, 由 chapters 派生）。
+   */
   function roNext() {
     if (!readonly) return;
     if (roIndex >= roQueue.length) { roEnd(); return; }
@@ -301,7 +308,9 @@ let lastSceneKey = "";
     $("bond-text").innerHTML = "";
     $("bond-choices").innerHTML = "";
     hideContinue();
-    renderScene(item.scene || {});        // 与 live 同一渲染器（背景/立绘/打字机/选项态）
+    const scene = item.scene || {};
+    renderScene(scene);                   // 与 live 同一渲染器（背景/立绘/打字机/选项态）
+    syncMemorial(scene);                  // 再套纪念态（顺序与 live 一致: 先渲后同步）
   }
 
   /** 播完: 出口按钮（**不是**"继续"——继续已删, 见决策 #41）。 */
@@ -310,6 +319,7 @@ let lastSceneKey = "";
     if (!box) return;
     box.innerHTML = "";
     hideContinue();
+    syncMemorial({ in_memorial: false });   // 最后一块若在纪念里 → 淡出, 别把图挂在出口屏上
     const btn = document.createElement("button");
     btn.className = "bond-replay-exit";
     btn.textContent = "▸ 返回回忆册";

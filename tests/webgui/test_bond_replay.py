@@ -122,6 +122,45 @@ def test_replay_graceful_midquit_is_interrupted(tmp_path):
         chat._store = old
 
 
+def test_replay_reads_staging_overlay(tmp_path):
+    """★ 章**进行中**（B0 整章暂存）时回放照样看得到前缀——`replay_attempts` 读 overlay。
+
+    2026-09-20 修的真 bug: B0 之后进行中的章一条都不在真源里（全在
+    `soul/staging/events.jsonl`, 见到 `vn_exit` 才整段 append）; 旧实现只读真源
+    ⇒ 章进行中重进时 `replay_attempts` 返回空 → `_interrupted_replay_queue` 拿不到段
+    → **回放整条断掉**, 直接掉进现场生成（B 层冒烟实测: 重进后屏上是新生成的板,
+    而不是已记录的选项前缀）。`_pending_in_vn` 当时改对了, 这里漏了。
+    """
+    from core.session import staging as staging_mod
+    st, old = _with_store(tmp_path)
+    try:
+        sid = _sid(st)
+        sg = staging_mod.staging_store(st)              # 章内写入口（B0）
+        sg.enter_vn(CHARACTER, sid, TITLE_A)
+        e1 = sg.append_event(CHARACTER, sid, make_event("bond", "story_scene", {
+            "paragraphs": [{"text": "前缀第一场。", "emotion": "nomal"}],
+            "choices": ["我来了。", "再等一会儿。"], "picked": "我来了。",
+            "input": "（继续）"}))
+        # 真源里**没有这一章的板**（还没 vn_exit → 没 commit）
+        assert not [e for e in st.events(CHARACTER, sid) if e.type == "bond"]
+        ats = bond.replay_attempts(CHARACTER, sid)
+        assert len(ats) == 1, "暂存里的章读不到 → 回放会掉进现场生成"
+        assert ats[0]["interrupted"] is True and len(ats[0]["scenes"]) == 1
+        assert ats[0]["scenes"][0]["seq"] == e1.seq
+        # 中断重进的队列也要能从暂存里捞到这一段（交棒前的"回放前缀"）
+        q = bond._interrupted_replay_queue(CHARACTER, sid)
+        assert q and q[0] and q[0][0]["picked"] == "我来了。", q
+        # 章收尾（vn_exit → commit）后, 真源里有了, 结论不变
+        sg.append_marker(CHARACTER, sid, "vn_exit", {"completed": True})
+        staging_mod.commit_staging(st, CHARACTER, sid, completed=True)
+        assert len(st.events(CHARACTER, sid)) >= 3
+        ats2 = bond.replay_attempts(CHARACTER, sid)
+        assert ats2 and ats2[0]["completed"] is True and not ats2[0]["interrupted"]
+        print(f"    replay: 暂存期看得到 {len(ats[0]['scenes'])} 场前缀; commit 后 completed")
+    finally:
+        chat._store = old
+
+
 def test_replay_empty_session(tmp_path):
     """空会话 / 无剧情角色 → 空列表（不抛）。"""
     st, old = _with_store(tmp_path)

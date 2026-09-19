@@ -596,9 +596,16 @@ def replay_attempts(char_id: str, session_id: str = "") -> list[dict]:
       renderScene 消费的 scene 同构（背景/表情/分支齐全）。
     分段规则: vn_enter 开新段; vn_exit 关段（completed 取 payload——False 即
     主动中断）; 段未关即遇新 vn_enter / 流尾 → interrupted=True。
+
+    ⚠️ **读 overlay（真源 + 章内暂存）**, 不是只读真源（2026-09-20 修）:
+    B0 整章暂存（2026-09-17）之后, **进行中的章一条都不在真源里**（全在
+    `soul/staging/events.jsonl`, 见到 `vn_exit` 才整段 append）⇒ 只读真源的版本
+    在"章进行中重进"时看不到任何段 → `_interrupted_replay_queue` 返回 None →
+    **回放整条断掉**, 直接掉进现场生成（B 层冒烟实测: 重进后屏上出现的是新生成的
+    板, 而不是已记录的选项前缀）。`_pending_in_vn` 当时改对了, 这里漏了。
     """
     try:
-        evs = _store().events(char_id, session_id)
+        evs = staging_store(_store()).events(char_id, session_id)
     except Exception:                                # noqa: BLE001 — 读失败空列表
         return []
     attempts: list[dict] = []
@@ -819,7 +826,7 @@ def _interrupted_replay_queue(char_id: str, session_id: str) -> tuple[list[dict]
     open"的定向废弃（防续写事件归属到更新的空壳段）。
     """
     try:
-        ranges = abandoned_ranges(_store().events(char_id, session_id))
+        ranges = abandoned_ranges(staging_store(_store()).events(char_id, session_id))
     except Exception:                                # noqa: BLE001 — 读失败无区间
         ranges = []
     for at in reversed(replay_attempts(char_id, session_id)):

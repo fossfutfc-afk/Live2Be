@@ -90,6 +90,12 @@ class StubLLM:
             return []
         if "地点 id JSON" in note:
             return {"place": ""}
+        if "选中的文件名" in note:
+            # 选图（第二遍, PL6′ 2026-09-19）→ 保持默认图。
+            # ⚠️ 少这一分支的后果不是"报错"而是**脚本漂移**: 选图调用会落进主生成分支,
+            # 把 `bond_calls` 计数吃掉一轮 → 后续每块都退化成兜底块（2026-09-20 实测:
+            # 冒烟的"重进回放·选项态"因此看不到选项）。
+            return {"image": ""}
         if "记录员" in system:
             return {"episodes": []}
         if "整理者" in system:

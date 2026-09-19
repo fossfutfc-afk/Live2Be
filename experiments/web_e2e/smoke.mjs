@@ -615,6 +615,29 @@ async function main() {
     shot: await shot(page, "book-replay"),
     transcript: roBoard1, roChoice,
   });
+  // P1①（2026-09-20）: **只读回放里的纪念板 = live**（立绘隐藏 + 普通背景清空 +
+  // 档案纪念图淡入）。此前这三件事只在 live 的 `syncMemorial` 里做, 回放只挂章缩略图
+  // ⇒ 册子里播到纪念段是"普通板 + 没有图"。桩章的首板就带 `stage:memorial`。
+  const roMem = await page.evaluate(() => {
+    const layer = document.getElementById("bond-memorial");
+    const stage = document.getElementById("bond-stage");
+    const bg = document.getElementById("bond-bg");
+    return {
+      on: !!(layer && layer.classList.contains("on")),
+      img: (layer && layer.dataset.src) || "",
+      stageHidden: !!(stage && stage.classList.contains("hidden")),
+      bgCleared: !bg || !bg.style.backgroundImage,
+    };
+  });
+  record("只读回放·纪念板", {
+    info: `纪念层=${roMem.on ? "淡入" : "❌未开"} 图=${roMem.img || "（无）"}`
+      + ` 立绘隐藏=${roMem.stageHidden} 普通背景清空=${roMem.bgCleared}`,
+    shot: await shot(page, "book-replay-memorial"), memorial: roMem,
+  });
+  if (!roMem.on || !roMem.img.includes("/gallery/") || !roMem.stageHidden
+      || !roMem.bgCleared) {
+    throw new Error(`只读回放的纪念板没进纪念态（应与 live 一致）: ${JSON.stringify(roMem)}`);
+  }
   if (bondWrites.length) {
     throw new Error(`只读回放发了写请求（应 0 LLM/不写事件流）: ${bondWrites.join(" / ")}`);
   }
