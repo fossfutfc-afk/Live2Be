@@ -17,6 +17,8 @@
 
     写路径: `recall_write char=… eps=4 collide=12 hi=4 med=11 forced=100% mode=semantic thr=0.50/0.25`
     读路径: `recall_read char=… total=8 picked=8 dropped=0 mode=… buckets=belief:4 episode:4 …`
+    合成层: `recall_compose char=… cands=12 ranked=4 pending=1 no_rel=6 mode=harmonic rel=[0.00,1.00] prior=[0.30,0.42] degraded=B_emotion_rag,C_place top=m0003:0.84,…`
+    （2026-09-20 加第三条: 四条召回道路的**最终分**是怎么算出来的 —— 见 `compose.py`）
 
 `mode`: `semantic`（embedding 可用）/ `keyword`（降级——`_get_embed_fn` 探针失败时）/ `off`。
 
@@ -133,3 +135,40 @@ def log_read(*, char_id: str, total: int, picked: int, buckets: dict[str, str],
             surface, char_id, total, picked, dropped, mode or "off", bucket_txt or "-")
     except Exception as e:                           # noqa: BLE001 — 台账绝不阻断
         logger.debug("recall_ledger 读路径打点失败: %s", e)
+
+
+# ---------------------------------------------------------------------------
+# 合成层（四条道路 → 最终分; `compose.py`）
+# ---------------------------------------------------------------------------
+
+def log_compose(*, char_id: str = "", cands: int = 0, ranked: int = 0,
+                pending: int = 0, no_rel: int = 0, mode: str = "harmonic",
+                rel_band: tuple[float, float] = (0.0, 0.0),
+                prior_band: tuple[float, float] = (0.0, 0.0),
+                degraded: str = "-", top: str = "-") -> None:
+    """打一行合成台账（**"最终分是怎么来的"**——一条链路不够用时的排查口）。
+
+    用法（合成层是纯函数, 打点由消费方做）::
+
+        res = recall_now(store, ctx)
+        log_compose(char_id=char, **res.ledger_fields())
+
+    字段口径:
+        cands    进过合成的候选数（= ranked + pending + no_rel + 被融合成 0 的）
+        ranked   真的出了最终分、可参与注入的条数
+        pending  有相关证据但**先验缺席**（A 的 `raw=None`: 旧档无 `ts`）→ 待补
+        no_rel   只被 A 命中（**A 不能单独准入**）
+        rel_band / prior_band  两根轴这次的实际分数带 —— 判断"是不是某一轴在独裁"
+        degraded 这次降级的链路（**缺席, 不是 0 分**）
+    """
+    if not ENABLED:
+        return
+    try:
+        logger.info(
+            "recall_compose char=%s cands=%d ranked=%d pending=%d no_rel=%d "
+            "mode=%s rel=[%.2f,%.2f] prior=[%.2f,%.2f] degraded=%s top=%s",
+            char_id or "-", int(cands), int(ranked), int(pending), int(no_rel),
+            mode, rel_band[0], rel_band[1], prior_band[0], prior_band[1],
+            degraded or "-", top or "-")
+    except Exception as e:                           # noqa: BLE001 — 台账绝不阻断
+        logger.debug("recall_ledger 合成层打点失败: %s", e)

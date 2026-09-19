@@ -10,6 +10,7 @@
     recall.py  三通道召回 + 一跳扩展                               ✅ M4
     channels.py      召回链路**接口**（五条链路的形态声明）         ✅ V3-3 前置
     channel_impl.py  五条链路的实现（多数"诚实的空"——缺数据不出分） ✅ V3-3 前置
+    compose.py        **最终打分**（四条道路合成 = 调和平均 rel×prior）✅ 2026-09-20
     recall_config.py  召回旋钮（settings.toml [recall]）           ✅ V3-0
     recall_ledger.py  召回台账（写路径候选碰撞 / 读路径注入视图）   ✅ V3-0
     digest.py  digest v2 管线（增量/召回/反馈重试/水位/幂等）       ✅ M3
@@ -44,6 +45,13 @@ from core.brain.wiki_v2.channels import (
     get as get_channel,
 )
 from core.brain.wiki_v2.digest import DigestResult, digest_segment
+from core.brain.wiki_v2.compose import (
+    ComposeResult,
+    Composed,
+    compose,
+    gather_all,
+    recall_now,
+)
 
 __all__ = [
     "EPISTEMICS",
@@ -72,6 +80,11 @@ __all__ = [
     "get_channel",
     "DigestResult",
     "digest_segment",
+    "ComposeResult",
+    "Composed",
+    "compose",
+    "gather_all",
+    "recall_now",
     "render_background_experience",
     "render_character_view",
     "render_organize_view",

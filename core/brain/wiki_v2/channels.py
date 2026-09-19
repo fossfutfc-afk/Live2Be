@@ -13,11 +13,15 @@
 
 | 代号 | 链路 | 本模块的 kind | 状态 |
 |---|---|---|---|
-| **A** | 综合强度**行列式**（`SIG·TIME + emo_span·emo_int`） | `PRIOR` | ✅ 四格已落地；⚠️ **TIME 未设计, 见下** |
-| **B** | **情绪数组** RAG 相似度（键序列 embedding） | `SIMILARITY` | 🔧 待实现 |
-| **C** | **地点字段查重（检测）** | `GATE` | 🔧 待实现 |
-| **D** | **既视感**（`narration` 等 RAG 相似度） | `SIMILARITY` | 🔧 待实现 |
+| **A** | 综合强度**行列式**（`SIG·TIME + emo_span·emo_int`） | `PRIOR` | ✅ 四格已落地（TIME 见下; ⚠️ 值域 **[0,2]**） |
+| **B** | **情绪数组** RAG 相似度（键序列 embedding） | `SIMILARITY` | ✅ T15（真档暂无 `emo_shape` → 降级） |
+| **C** | **地点**召回（两轴融合: 素材字面 × 叙事语义） | `GATE` | ✅ 2026-09-20（**也出分**, 见下） |
+| **D** | **既视感**（`narration` 等 RAG 相似度） | `SIMILARITY` | ✅ 唯一在真档上出分的 |
 | **E** | **无意识**（认知碎片 RAG）—— 扩展 | `SIMILARITY` | ⏳ 未立项 |
+
+**合成层已落**（2026-09-20）: `core/brain/wiki_v2/compose.py` —— 四条道路
+（剧情语义 D / 情绪 B / 正交矩阵 A / 地点 C）→ 最终分, 形状 = **参数可选的调和平均**
+（`core/common/fuse.py`, 与 C 链路的 `magic` 同一个函数）。见该模块的 docstring。
 
 ## 三条形态纪律（先定, 免得后面互相打架）
 
@@ -25,8 +29,15 @@
 
 - **`SIMILARITY`**：query ↔ 候选的**关系量**（B/D/E）。**是 pairwise 的**，
   不能填进节点自己的标量格（§3.3.3 已论：`cos` 塞进单条记忆的格子量纲不成立）。
+  合成层对它的处理 = **池内 min-max**（cos 的绝对值在本机模型/真档上不可分, 实测见
+  `compose.py`; 与 §10 Q31 引的 AgentGal"各自 min-max 归一化, 全程无阈值"同口径）。
 - **`PRIOR`**：候选**自己的属性**（A 的行列式）。**不依赖 query**。
-- **`GATE`**：**过滤/分组**（C 的地点）。不是分数——它的产物是"候选集合"。
+  合成层**不归一它**（用户 2026-09-20: *"不必归一，这个矩阵携带的信息本身就比较重很合理"*）
+  —— 所以它担当"强度轴", 而不是混进相关证据里。
+- **`GATE`**：**过滤/分组**（C 的地点）。⚠️ **2026-09-20 起它也出分**：C 的两轴融合
+  （素材字面 × 叙事语义）产出 `magic ∈ (0,1]`, 既是**准入面**（一轴为零 ⇒ 不命中）
+  又是**打分面**。所以合成层把 `GATE` 的 `raw` 当**证据**用（原样, 不再归一）。
+  旧话"GATE 不是分数、产物是候选集合"**只对 2026-09-20 之前的 C 成立**。
 
 ### 2. 不给分数定死尺度，给**归一化声明**
 
@@ -81,7 +92,10 @@ KIND_GATE = "gate"              # 过滤/分组, 不是分数
 KINDS = (KIND_PRIOR, KIND_SIMILARITY, KIND_GATE)
 
 #: 原始分的尺度声明（合成层据此归一; 链路**不自己归一**）
-SCALE_UNIT = "unit"             # [0, 1]
+#: ⚠️ **`unit` 不是"保证 ≤1"**: A 的行列式是两格之和, 值域是 **[0, 2]**
+#: （`IntensityPrior` 的注释; 用户 2026-09-20 裁决**不归一**它 —— *"这个矩阵携带的
+#: 信息本身就比较重很合理"*）。所以合成层不按声明去夹 PRIOR 轴, 见 `compose.py`。
+SCALE_UNIT = "unit"             # [0, 1]（C 的 magic）; A 用它但值域 [0, 2]
 SCALE_SIGNED = "signed"         # [−1, 1]
 SCALE_COSINE = "cosine"         # [−1, 1], 但通常落在窄带（需按角色标定, §3.3）
 SCALE_UNBOUNDED = "unbounded"   # 无界（合成层需先 log/截断）
@@ -154,6 +168,10 @@ class ChannelResult:
 
     channel: str                     # 链路名（见 CHANNELS 的 name）
     kind: str                        # KIND_*
+    #: 本链路声明的尺度（`SCALE_*`）——⭐ **2026-09-20 补**: 此前只有 `Channel`
+    #: 类属性上有 `scale`, **结果对象不携带** → 合成层拿到 `ChannelResult` 却不知道
+    #: 怎么归一（写 `compose.py` 时撞上的真缺口）。链路 `gather` 时把它填进来。
+    scale: str = ""
     hits: list[ChannelHit] = field(default_factory=list)
     #: 本链路这次是否走了降级（无 embed_fn / TIME 未定 / 无数据…）
     degraded: bool = False

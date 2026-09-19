@@ -22,9 +22,15 @@
   不是按地点身份（这正是本模块要补的那个洞）;
 * "一个别名指多键"在真表里只有 2 例（`天台` / `楼顶`）——**少, 但都是真·同地不同键**。
 
-## 形状: 调和平均（用户 2026-09-20 选定）
+## 形状: 调和平均（用户 2026-09-20 选定）—— **实现不在这里**
 
     magic(sw, sk) = 2·sw·sk / (sw + sk)
+
+⚠️ **2026-09-20 搬家**: 形状函数（`harmonic` / `geometric` / `product` / `magic` /
+`MODES` / `DEFAULT_MODE`）唯一实现在 **`core/common/fuse.py`** —— 合成层
+（`core/brain/wiki_v2/compose.py` 的"相关 × 强度"）要用**同一个**函数, 而
+`brain` 反向依赖 `media` 是层次倒挂。本模块**原样 re-export**（老调用方零改动;
+`place_fuse.magic is core.common.fuse.magic` 这条有测试钉着）。
 
 | 形状 | 两轴都高 | **一高一低** | 两轴都低 |
 |---|---|---|---|
@@ -56,60 +62,21 @@ from __future__ import annotations
 
 import re
 
+from core.common.fuse import (                       # noqa: F401 — re-export（形状唯一实现在那儿）
+    DEFAULT_MODE,
+    MODES,
+    fuse,
+    geometric,
+    harmonic,
+    magic,
+    product,
+)
 from core.media.place_table import PlaceTable, load_table
 
 #: 键名 token 的最短长度（与层1 `_MIN_NEEDLE` 同一条纪律: 单字会满地把误命中）
 _MIN_TOKEN = 2
 
 _SPLIT_TOKEN = re.compile(r"[^0-9a-z]+")
-
-
-def harmonic(a: float, b: float) -> float:
-    """调和平均 `2ab/(a+b)`（**默认形状**）。两轴都 0 → 0（不抛）。"""
-    a, b = float(a or 0.0), float(b or 0.0)
-    if a <= 0.0 or b <= 0.0:
-        return 0.0
-    return 2.0 * a * b / (a + b)
-
-
-def geometric(a: float, b: float) -> float:
-    """几何平均 `√(ab)`（备选: 单轴高时比调和平均略高）。"""
-    a, b = float(a or 0.0), float(b or 0.0)
-    if a <= 0.0 or b <= 0.0:
-        return 0.0
-    return (a * b) ** 0.5
-
-
-def product(a: float, b: float) -> float:
-    """乘积 `ab`（备选: 惩罚最狠 —— "只有两轴都对上才算数"）。"""
-    a, b = float(a or 0.0), float(b or 0.0)
-    if a <= 0.0 or b <= 0.0:
-        return 0.0
-    return a * b
-
-
-#: 形状表（`mode` 取值 → 函数）——**代码里的显式选项, 不是配置项**
-MODES = {"harmonic": harmonic, "geometric": geometric, "product": product}
-
-#: 默认形状（用户 2026-09-20 选定）
-DEFAULT_MODE = "harmonic"
-
-
-def magic(sw: float, sk: float, *, mode: str = DEFAULT_MODE) -> float:
-    """两轴融合（见模块 docstring; 默认调和平均）。未知 mode → `ValueError`。
-
-    参数约定: 两轴都应是 **[0, 1]** 的正向相似度。两个夹取都在这一个地方做:
-
-    * **负**（cos 落在负半轴 / None）→ 0: 负相关不是"弱相关", 它对"同一个地方"是**反证据**
-    * **过冲 >1**（cos 的浮点误差常给 `1+1e-16`）→ 夹到 1: 免得合成层拿到量纲外的分
-    """
-    try:
-        f = MODES[mode]
-    except KeyError:
-        raise ValueError(f"未知融合形状: {mode!r}（可选 {sorted(MODES)}）") from None
-    a = min(1.0, max(0.0, float(sw or 0.0)))
-    b = min(1.0, max(0.0, float(sk or 0.0)))
-    return f(a, b)
 
 
 # ---------------------------------------------------------------------------

@@ -72,6 +72,14 @@ class IntensityPrior:
     | `emo_int` | `node.emo_int`（0~1） | 同上 |
     | `TIME` | `freshness(age, half_life, floor)` | **降级不出分**（见下） |
 
+    ⚠️ **值域是 [0, 2], 不是 [0, 1]**（2026-09-20 用户裁决时把这条注释更正过来）:
+    `det` 是**两格之和**, 每格 ≤ 1×1 ⇒ 上界 2。`scale` 声明仍是 `SCALE_UNIT`
+    ——枚举没错, 错的是"`unit` 就等于 ≤1"这个旧读法（`channels.py` 那里也标了）。
+
+    **合成层因此不归一它**: 用户 2026-09-20 —— *"不必归一，这个矩阵携带的信息本身
+    就比较重很合理"*。`compose.py` 把它当**强度轴**原样用（`fuse(..., clamp=False)`,
+    **上界不夹**, 免得把 det>1 的上半段压平）。
+
     ## TIME 的判定（2026-09-17, `ESSAY_TIME_MODEL §10` 时间轴换代）
 
     ```
@@ -100,7 +108,8 @@ class IntensityPrior:
     **第三种的语义**: 一条旧档记忆的 `TIME` 无法判定, 但它的
     `emo_span·emo_int` 仍然有效 —— 所以**不是整条链路降级**, 而是该节点
     `raw=None`。`det` 的 `SIG·TIME` 项因此缺失, 由合成层决定怎么处理
-    （当前口径: 不带 TIME 的候选进"待补"集合, 不参与排序）。
+    （**2026-09-20 已落地**: `compose.py` 把它放进 `ComposeResult.pending`
+    = "待补" —— 有相关证据也**不参与排序**, 补上 `ts` 后自然回到排序里）。
     """
 
     name = "A_intensity"
@@ -109,7 +118,7 @@ class IntensityPrior:
     unit = "det"
 
     def gather(self, store, ctx: RecallContext) -> ChannelResult:
-        res = ChannelResult(channel=self.name, kind=self.kind)
+        res = ChannelResult(channel=self.name, kind=self.kind, scale=self.scale)
         try:
             from core.worldtime.age import age_days, date_of, freshness
             from core.brain.wiki_v2.recall_config import get as _knob
@@ -204,7 +213,7 @@ class EmotionRag:
     unit = "cos"
 
     def gather(self, store, ctx: RecallContext) -> ChannelResult:
-        res = ChannelResult(channel=self.name, kind=self.kind)
+        res = ChannelResult(channel=self.name, kind=self.kind, scale=self.scale)
         q = [k.strip() for k in (ctx.emo_now or [])
              if isinstance(k, str) and k.strip()]
         if not q:
@@ -298,7 +307,7 @@ class PlaceGate:
     unit = "place_fuse"
 
     def gather(self, store, ctx: RecallContext) -> ChannelResult:
-        res = ChannelResult(channel=self.name, kind=self.kind)
+        res = ChannelResult(channel=self.name, kind=self.kind, scale=self.scale)
         now_place = (ctx.place_now or "").strip()
         now_raw = (ctx.place_raw_now or "").strip()
         if not now_place:
@@ -403,7 +412,7 @@ class DejaVu:
     unit = "cos"
 
     def gather(self, store, ctx: RecallContext) -> ChannelResult:
-        res = ChannelResult(channel=self.name, kind=self.kind)
+        res = ChannelResult(channel=self.name, kind=self.kind, scale=self.scale)
         nodes = [n for n in store.all() if n.kind == "episode" and n.narration]
         if not nodes:
             res.degraded = True
@@ -459,7 +468,7 @@ class UnconsciousRag:
     unit = "cos"
 
     def gather(self, store, ctx: RecallContext) -> ChannelResult:
-        res = ChannelResult(channel=self.name, kind=self.kind)
+        res = ChannelResult(channel=self.name, kind=self.kind, scale=self.scale)
         res.degraded = True
         res.note = PLANNED[self.name]
         return res
