@@ -34,6 +34,12 @@ DOMAIN_BOXES: dict[str, list[str]] = {
     # 资产 slug 菜单会**框死** writer（"为了用上拉面店而写一场拉面店"）, 而
     # **世界区域是设定不是菜单**（overview.yml 里一个学院名都没有, writer 会凭空发明）;
     # "换场"这个能力由 rules_bond §五【换场】承担, 不需要菜单。
+    # 2026-09-19（PL2）: **加 bond_shots**（镜头与手法, 盒B 9→10 块）——把
+    # "怎么写更好看"从规则书里搬出来（原 §七 收尾组合 + §八 范本）, 外加用户要的
+    # 煽情场景写法 / switch 组合拳 / 镜头词。**紧挨 rules_bond**（规则的书与它的
+    # 手法手册放一起; schema 仍留在后面当契约）。
+    # ⚠️ 镜头词是**刻意给 writer 的例外**（"这些词能让 LLM 更好的写作"）——
+    # 与"零内容词表"不矛盾: 那条打的是 168 条资产菜单会框死 writer。
     "bond": [
         "greeting",            # 称呼行（v2 首段, 剧情行为规则指向）
         "persona_bond",        # 角色设定两层 + 行为规则
@@ -41,6 +47,7 @@ DOMAIN_BOXES: dict[str, list[str]] = {
         "story_tone",          # 本角色剧情基调
         "bond_tone",           # 羁绊剧情建议（条件）
         "rules_bond",          # 羁绊剧情规则书
+        "bond_shots",          # 镜头与手法（可选写法; PL2 2026-09-19）
         "schema",              # 输出契约（VN 记录流; 标题可换）
         "place_world",         # 世界区域·剧情地理（条件; 世界设定, 非可选空间）
         "brain",               # 记忆段（条件）

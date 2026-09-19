@@ -91,15 +91,17 @@ messages = [system] + history + [P16 羁绊进度注记] + [P17 system_note?]
 | 2 | `【世界常识】【世界规则】` | `world` 块（world_parser:70-89）| 同源重新注入 |
 | 3 | `【本角色剧情基调】` | `story_tone` 块 = load_story_tone（core/common/tone.py）| 与盒A同源 |
 | 4 | `【本角色羁绊剧情建议】` | `bond_tone` 块 = script.yml `SIG~bond_tone`（char.bond_tone）| 缺失 → 不注入（条件块） |
-| 5 | 羁绊剧情规则书 | `rules_bond` 块 = `bond_story_rules.md`（**`{char_id}`/`{char_name}` 按会话替换**） | **记录流 v2（2026-09-10）**：八节结构（视角/节奏/记录写法/群与密度/换场/纪念预告/收尾组合/范本）；**台词写纯文本（不包「」）**；范例说话人 = 真实 id；**不写"不要写 X 字段"式提醒**（决策 #24） |
-| 6 | 本轮输出契约（VN 记录流） | `schema` 块 = **`build_record_schema(char_id=…, char_display=…)`**（contract/schema.py；bond_story.py start_session）| **v2**：标题由 `BlockContext.schema_title` 换掉「可用动作 schema」（story 域无 action 外壳）；内容 = 七种取值 + 硬规则六条 + few-shot（**随会话渲染真实角色 id**）；`end` 明示"收尾字段、不是老师的话、可留空"；不再用 `build_schema(story registry)`（memorial exit schema 仍走 registry，纪念模式注记补喂） |
-| 7 | `【世界区域】` | `place_world` 块 = `regions.yml` 21 条 `zh` 主名（`core/parsing/place_regions.py`）| **2026-09-15（T16）取代 `place_palette`**：用户裁决"**主 LLM 零内容词表**"——资产 slug 菜单会**框死** writer（"为了用上拉面店而写一场拉面店"）；而**世界区域是设定不是菜单**（`overview.yml` 里一个学院名都没有, writer 会凭空发明）。判据 = "多给 writer 一个手段"还是"少给 writer 一个自由"。**"换场"这个能力由 `rules_bond` §五【换场】承担**（何时发/怎么发/同地点小动作不换场 + 三条示例）, 不需要菜单 |
-| 8 | brain 段 | `brain` 块 = `load_brain_segment`（momotalk.py:129-156）：出厂背景 + wiki 视图 | webgui 每次 start/replay 都重取（webgui/bond.py:401-406, 542-548）→ **剧情内固定**不随 digest 更新（条件块） |
+| 5 | 羁绊剧情规则书 | `rules_bond` 块 = `bond_story_rules.md`（**`{char_id}`/`{char_name}` 按会话替换**） | **记录流 v2（2026-09-10）**：七节结构（视角/节奏/记录写法/群与密度/换场/纪念预告/收尾）；**台词写纯文本（不包「」）**；范例说话人 = 真实 id；**不写"不要写 X 字段"式提醒**（决策 #24）。**PL2（2026-09-19）**：原 §七「收尾与收尾组合」的四种组合与 §八「范本」**搬去 `bond_shots`** —— 规则书只留硬规则, 手法归手法 |
+| 6 | **`【镜头与手法】`** | `bond_shots` 块 = `bond_shots.md`（PL2, 2026-09-19; `{char_id}`/`{char_name}` 同手替换）| **把"怎么写更好看"从规则书里搬出来**：① 镜头词（星空/夜空/黄昏/黄昏云彩/蓝天白云/流星雨/繁星夜空/纯黑）② switch 组合拳（开场/换气/空镜收束/同地点不换）③ 煽情场景写法 ④ 收尾几种收法 ⑤ 范本。**都是可选手法, 不是硬要求**。⚠️ 镜头词是**刻意给 writer 的例外** —— *"这些词能让 LLM 更好的写作"*（与"零内容词表"不矛盾: 那条打的是 168 条资产菜单会框死 writer）。⚠️ 那 8 个词**必须逐字是表的别名**（层1 0 调用）——`tests/core/test_bond_shots.py` 钉着 |
+| 7 | 本轮输出契约（VN 记录流） | `schema` 块 = **`build_record_schema(char_id=…, char_display=…)`**（contract/schema.py；bond_story.py start_session）| **v2**：标题由 `BlockContext.schema_title` 换掉「可用动作 schema」（story 域无 action 外壳）；内容 = 七种取值 + 硬规则六条 + few-shot（**随会话渲染真实角色 id**）；`end` 明示"收尾字段、不是老师的话、可留空"；不再用 `build_schema(story registry)`（memorial exit schema 仍走 registry，纪念模式注记补喂） |
+| 8 | `【世界区域】` | `place_world` 块 = `regions.yml` 21 条 `zh` 主名（`core/parsing/place_regions.py`）| **2026-09-15（T16）取代 `place_palette`**：用户裁决"**主 LLM 零内容词表**"——资产 slug 菜单会**框死** writer（"为了用上拉面店而写一场拉面店"）；而**世界区域是设定不是菜单**（`overview.yml` 里一个学院名都没有, writer 会凭空发明）。判据 = "多给 writer 一个手段"还是"少给 writer 一个自由"。**"换场"这个能力由 `rules_bond` §五【换场】承担**（何时发/怎么发/同地点小动作不换场 + 三条示例）, 不需要菜单 |
+| 9 | brain 段 | `brain` 块 = `load_brain_segment`（momotalk.py:129-156）：出厂背景 + wiki 视图 | webgui 每次 start/replay 都重取（webgui/bond.py:401-406, 542-548）→ **剧情内固定**不随 digest 更新（条件块） |
 
 > **`lexicon_emotion` 已退出盒B**（2026-09-10 决策 #24⑤）：记录流 v2 里 emotion 由标注层
 > **逐记录**判定（词表在标注层 prompt 里），writer 不写情绪 → 该块对创作无作用，且其
-> "你不用写 emotion"式提醒属白熊效应。盒B 由 10 块降为 **9 块**（块实现保留在
+> "你不用写 emotion"式提醒属白熊效应。盒B 由 10 块降为 9 块（块实现保留在
 > `blocks.BLOCKS`，供标注层/测试复用）。
+> **PL2（2026-09-19）后盒B = 10 块**（加 `bond_shots`）。
 
 **地点归属换代（2026-09-10 记录流 v2 / 2026-09-15 T16）**：主 LLM **发 `stage:switch`**
 （WHEN 归它，自然语言地点），**不再有任何地点字段**；翻译成资产键是标注层的事
@@ -253,7 +255,7 @@ emotion → emo_version++（引擎同步标注仅 CLI/测试用）。**导演层
 
 | 位置 | 说明 |
 |---|---|
-| `core/promptkit/box.py` | 盒装配（DOMAIN_BOXES["mmt"] 9 块清单, 盒A v2 称呼行首段） |
+| `core/promptkit/box.py` | 盒装配（DOMAIN_BOXES["mmt"] **10** 块清单, 盒A v2 称呼行首段） |
 | `core/promptkit/blocks.py` | 命名块实现（文案单一装配源） |
 | `core/promptkit/tail.py` | round_messages（每轮动态尾唯一入口） |
 | `core/momotalk.py:299-322` | start_session → build_box("mmt")（盒A v2） |
@@ -265,8 +267,8 @@ emotion → emo_version++（引擎同步标注仅 CLI/测试用）。**导演层
 | `core/bond/bond_story.py:298-339` | start_session → build_box("bond")（盒B v2） |
 | `core/bond/bond_story.py:341-537` | send_vn_scene（每场尾 → round_messages; 双 registry + 状态机 + 骨架 + 历史） |
 | `core/bond/bond_story.py` | _scene_task_kind（场卡 kind——**v2 恒为 scene**; memorial_exit 分支 2026-09-13 退役） |
-| `core/promptkit/box.py` | DOMAIN_BOXES（mmt 9 块 / bond **9** 块——lexicon_emotion 已出盒） |
-| `core/promptkit/blocks.py:110-141` | Bond 域块（persona_bond/bond_tone/rules_bond/brain; `_lexicon_emotion` 已不在盒内） |
+| `core/promptkit/box.py` | DOMAIN_BOXES（mmt **10** 块 / bond **10** 块——lexicon_emotion 已出盒, bond_shots PL2 进盒） |
+| `core/promptkit/blocks.py:118-215` | Bond 域块（persona_bond/bond_tone/rules_bond/**bond_shots**=143/place_world/brain; `_lexicon_emotion` 已不在盒内） |
 | `llm/prompts/task_bond.md` | Bond 场卡模板（**唯一**; task_bond_memorial_exit.md 2026-09-13 删除） |
 | `core/bond/bond_story.py:429-435` | 双 registry 按动作名分流 |
 | `core/parsing/dynamic_character_parser.py:386-417` | build_prompt 三模式 |
