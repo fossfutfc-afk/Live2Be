@@ -19,6 +19,13 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+import logging                                                    # noqa: E402
+
+#: 把 `[place]` 那几行日志放出来（PL3 的验收就看它: skip=no_cue / scan cue=…）
+logging.basicConfig(level=logging.INFO,
+                    format="%(asctime)s %(name)s %(levelname)s %(message)s",
+                    datefmt="%H:%M:%S")
+
 from core.bond.bond_story import BondStoryEngine            # noqa: E402
 from core.media.catalog import MediaCatalog                 # noqa: E402
 from core.media.place_table import load_table               # noqa: E402

@@ -199,12 +199,38 @@ def test_resolve_place_uses_place_task_level():
 # ---------------------------------------------------------------------------
 
 def test_judgement_mirror_between_rules_and_prompt():
-    """关键判据示例句必须同时存在于 编剧 rules 与 place prompt（防单侧漂移）。"""
+    """关键判据示例句必须同时存在于 编剧 rules 与 place prompt（防单侧漂移）。
+
+    PL3（2026-09-19）起**词表本身来自 `core.bond.place_cues.CORE_CUES`** ——
+    于是"引擎的预筛词" ↔ "两份 prompt 的判据"三处同源, 改一处不改另两处就红。
+    """
+    from core.bond.place_cues import CORE_CUES
     rules = load_prompt("bond_story_rules")
     place = load_prompt("place_annotate")
-    for token in ("从…走进", "推开", "转身", "来到"):
+    assert CORE_CUES, "核心线索词表不能为空"
+    for token in CORE_CUES:
         assert token in rules, f"rules 缺判据示例: {token}"
         assert token in place, f"place prompt 缺判据示例: {token}"
+    # 非换场动作也要两侧都在（"转身"是明确的不换场判据）
+    for token in ("转身",):
+        assert token in rules and token in place, token
+    print(f"    镜像: {len(CORE_CUES)} 个核心线索词三处同源 {list(CORE_CUES)}")
+
+
+def test_place_cues_table():
+    """`place_cues`: 换场线索词表（PL3 预筛用）——**故意排除"不换场"的动作词**。"""
+    from core.bond import place_cues as pc
+    # 换场线索 → 命中（返回命中的那个词, 供日志写清"为什么这板要扫"）
+    assert pc.has_cue(["她放下书包。"]) is None
+    assert pc.has_cue(["她走出教室。"]) == "走出"
+    assert pc.has_cue(["无关的一句。", "他推开那扇门。"]) == "推开"
+    assert pc.cue_in("") is None and pc.has_cue([]) is None
+    # ⚠️ `place_annotate.md` 明确判为"不换场"的词**不能进表** ——
+    # 收了它们等于把预筛关掉（每板都会命中）
+    for w in ("转身", "坐下", "蹲下", "走近", "掏出"):
+        assert w not in pc.CUES, f"{w} 是明确的不换场动作, 不该当线索词"
+    assert len(pc.CUES) >= 20 and len(set(pc.CUES)) == len(pc.CUES)
+    print(f"    place_cues: {len(pc.CUES)} 个线索词; 不换场动作已排除")
 
 
 # ---------------------------------------------------------------------------
@@ -437,3 +463,99 @@ def test_engine_uses_table_by_default():
     assert len(engine._place_keys) > 100, len(engine._place_keys)
     assert "classroom" in engine._place_keys
     print(f"    引擎: place 词表 = 表的 {len(engine._place_keys)} 条键")
+
+
+# ---------------------------------------------------------------------------
+# PL3（2026-09-19）: 两道 0 调用闸 —— 预筛（线索词）+ 句级层1
+# ---------------------------------------------------------------------------
+
+class ScanLLM:
+    """PL3 用例桩: 只应答 place 相关调用, 分别记下两类调用的次数。
+
+    * `地点 id JSON` → 换场翻译（① 板级）
+    * `变更句数组`   → 句级锚点（②）——**这两道闸要省的正是它**
+    """
+
+    def __init__(self, board, *, place_reply=None, annotate_reply=None):
+        self.board = board
+        self.place_reply = place_reply or {"place": ""}
+        self.annotate_reply = annotate_reply or []
+        self.place_calls: list[str] = []
+        self.annotate_calls: list[str] = []
+
+    def chat_full(self, messages, **kw):
+        return self.board
+
+    def chat(self, messages, **kw):
+        last = messages[-1]["content"] if len(messages) > 1 else ""
+        if "地点 id JSON" in last:
+            self.place_calls.append(last)
+            return self.place_reply
+        if "变更句数组" in last:
+            self.annotate_calls.append(last)
+            return self.annotate_reply
+        return []
+
+
+def _scan_engine(board, **kw):
+    from core.bond.bond_story import BondStoryEngine
+    llm = ScanLLM(board, **kw)
+    engine = BondStoryEngine(ROOT / "config" / "characters", llm)
+    engine.start_session(CHARACTER)
+    engine._lexicon_keys = []                    # 只关心 place 路
+    return engine, llm
+
+
+def test_prefilter_skips_board_without_cue():
+    """★ 闸1: 板内**没有换场线索词** → 整板跳过标注（**0 次 LLM 调用**）。
+
+    真机依据（2026-09-19 量）: 20 板 / 93 段正文里含线索词的板 **0/20**
+    —— 正文几乎全是对话, 位移都写在 `switch` 里（switch 不进 `paragraphs`）。
+    ⇒ 此前每板一次的 7022 字符调用**零收益**。
+    """
+    board = _scene(switch_to="教室", lines=["她放下书包。", "晚风很舒服。"])
+    engine, llm = _scan_engine(board)
+    scene = engine.send_vn_scene("（开场）", annotate=True)
+    assert scene.place == "classroom"            # ① 板级照常（层1, 0 调用）
+    assert llm.annotate_calls == [], "没有线索词却还是扫了"
+    assert llm.place_calls == [], "「教室」该被层1 直接解决"
+    assert not any("place" in p for p in scene.paragraphs)
+    print("    闸1: 无线索词 → 0 调用（板级地点照常解析）")
+
+
+def test_prefilter_layer1_anchor_without_calls():
+    """★ 闸2: 有线索, 但该句别名**唯一命中且 ≠ 当前** → 直接落锚（**0 调用**）。"""
+    board = _scene(switch_to="教室", lines=["她放下书包。", "她走进图书馆。"])
+    engine, llm = _scan_engine(board)
+    scene = engine.send_vn_scene("（开场）", annotate=True)
+    assert scene.place == "classroom"
+    assert llm.annotate_calls == [], "层1 能确定的事不该问 LLM"
+    assert scene.paragraphs[1].get("place") == "library", scene.paragraphs
+    assert engine._current_place == "library"    # 延续态顺延
+    print("    闸2: 线索句 + 唯一别名 → 0 调用直接锚")
+
+
+def test_prefilter_ambiguous_cue_falls_through_to_llm():
+    """★ 闸2 **从宽**: 线索句有歧义（`天台` → 3 个键）→ **整板交 LLM**。
+
+    这是 2026-09-19 踩过的坑: 「她拉着我**走出教室**，来到**天台**」里当前地点与
+    目的地同时出现, 若走 `place_annotate._layer1` 的"歧义∩当前 → keep"捷径,
+    整板会被判成"不用动" → **画面永远不切**。
+    """
+    board = _scene(switch_to="教室", lines=["她拉着我走出教室，来到天台。"])
+    engine, llm = _scan_engine(
+        board, annotate_reply=[{"sentence": 1, "place": "school_rooftop"}])
+    scene = engine.send_vn_scene("（开场）", annotate=True)
+    assert len(llm.annotate_calls) == 1, "歧义该交 LLM, 不能自作主张 keep"
+    assert scene.paragraphs[0].get("place") == "school_rooftop"
+    assert engine._current_place == "school_rooftop"
+    print("    闸2 从宽: 歧义线索句 → 交 LLM（1 次调用）")
+
+
+def test_prefilter_cue_with_same_place_falls_through():
+    """`她走出教室`（只写离开、目的地与当前相同）→ **也交 LLM**（从宽）。"""
+    board = _scene(switch_to="教室", lines=["她走出教室，背影消失在走廊尽头。"])
+    engine, llm = _scan_engine(board, annotate_reply=[])
+    engine.send_vn_scene("（开场）", annotate=True)
+    assert len(llm.annotate_calls) == 1
+    print("    闸2 从宽: 目的地未命名 → 交 LLM")
