@@ -4,6 +4,10 @@
 判定语义由 place_annotate.md prompt 承担（镜像编剧 rules 换场判据）; 本文件测
 模块行为: 调用形状/清洗规则（越界、词表外、与当前相同、重复）/失败 keep 语义/
 prompt 占位替换/与 rules 的判据镜像防漂移。
+
+**层1（C3, 2026-09-19）**: 表里的别名精确命中 = **0 调用**; 歧义（`天台`×3）与
+表外（`杂草屋`）**不许猜**，下沉层2 读 `note`; `place_keys` 是"允许哪些键"的真源，
+收窄时层1 不许越界。设计见 `docs/DESIGN_PLACE.md §6`。
 """
 import sys
 from pathlib import Path
@@ -271,3 +275,119 @@ def test_engine_sync_no_place_keys_no_call():
     scene = engine.send_vn_scene("（旁白）本章：测试。", annotate=True)
     assert scene.place is None
     assert llm.calls == []
+
+
+# ---------------------------------------------------------------------------
+# 层1 别名命中（C3, 2026-09-19）——**0 调用**; 歧义/表外才下沉层2
+# ---------------------------------------------------------------------------
+
+def _table():
+    from core.media.place_table import load_table
+    t = load_table()
+    assert t.ok, t.error
+    return t
+
+
+def test_layer1_hits_with_zero_calls():
+    """★ 层1: 别名命中 → **一次 LLM 都不调**（真机 `教室`/`街角的咖啡馆` 就是这类）。"""
+    _RESOLVE_CACHE.clear()
+    t = _table()
+    keys = t.keys()
+    for text, want in (("教室", "classroom"),
+                       ("街角的咖啡馆，靠窗的位子", "moderncafe"),
+                       ("学校天台", "school_rooftop"),
+                       ("星空", "view_sky")):
+        llm = ScriptedLLM()                      # 空脚本 —— 一旦被调就 IndexError
+        got = resolve_place(llm, text, keys, "", table=t)
+        assert got == want, f"{text!r} → {got!r}（期望 {want!r}）"
+        assert llm.calls == [], f"{text!r} 不该调用 LLM"
+    print(f"    layer1: 4 条真机话 0 调用命中（教室/咖啡馆/学校天台/星空）")
+
+
+def test_layer1_same_place_keeps_screen():
+    """层1 命中 == 当前地点 → `""`（画面不动, 同样 0 调用）。"""
+    _RESOLVE_CACHE.clear()
+    t = _table()
+    llm = ScriptedLLM()
+    assert resolve_place(llm, "教室", t.keys(), "classroom", table=t) == ""
+    assert llm.calls == []
+    print("    layer1: 命中即当前地点 → keep（0 调用）")
+
+
+def test_layer1_defers_ambiguity_and_out_of_table_to_layer2():
+    """★ 层1 **不猜**: 歧义（天台×3）与表外（杂草屋）都下沉层2（1 次调用）。"""
+    _RESOLVE_CACHE.clear()
+    t = _table()
+    for text in ("天台", "深夜的杂草屋", "某个不知名的地方"):
+        llm = ScriptedLLM('{"place": "school_rooftop"}')
+        got = resolve_place(llm, text, t.keys(), "", table=t)
+        assert got == "school_rooftop" and len(llm.calls) == 1, (text, got, llm.calls)
+    # 歧义但 current 就在候选里 → 已经在那一带 → keep（0 调用）
+    _RESOLVE_CACHE.clear()
+    llm = ScriptedLLM()
+    assert resolve_place(llm, "天台", t.keys(), "school_rooftop", table=t) == ""
+    assert llm.calls == []
+    print("    layer1: 歧义/表外 → 层2; 歧义∩当前 → keep")
+
+
+def test_layer1_never_leaves_the_allowed_key_set():
+    """★ `place_keys` 才是"允许哪些键"的真源（表只是语料）——收窄后层1 不许越界。"""
+    _RESOLVE_CACHE.clear()
+    t = _table()
+    llm = ScriptedLLM('{"place": "class_room"}')     # 收窄后的唯一键
+    got = resolve_place(llm, "教室", ["class_room"], "", table=t)
+    assert got == "class_room", got                   # 层1 的 classroom 被挡下 → 层2
+    assert len(llm.calls) == 1
+    print("    layer1: 键集收窄时以 place_keys 为准（两个真源不许打架）")
+
+
+def test_lexicon_text_carries_note_only_with_table():
+    """层2 词表: 有表 → 整表**含 note**; 无表 → 旧口径（裸 id, 降级用）。"""
+    _RESOLVE_CACHE.clear()
+    t = _table()
+    e = t.get("view_sky")
+    llm = ScriptedLLM('{"place": "view_sky"}')
+    resolve_place(llm, "表外地名甲乙丙", t.keys(), "", table=t)
+    sys_text = llm.calls[0]["messages"][0]["content"]
+    assert e.note in sys_text, "note 没进层2 词表 → 表外只能瞎猜"
+    assert "【SDIR_" in sys_text, "没按 sdir 分组"
+    # 无表: 退回裸 id 列表（老行为, 兼容）
+    _RESOLVE_CACHE.clear()
+    llm2 = ScriptedLLM('{"place": "rooftop"}')
+    resolve_place(llm2, "另一个表外地名", KEYS, "")
+    sys2 = llm2.calls[0]["messages"][0]["content"]
+    assert "rooftop" in sys2 and "【SDIR_" not in sys2
+    print("    lexicon: 有表带 note（含分组）; 无表退回裸 id")
+
+
+def test_engine_maps_place_key_to_asset_scene_id():
+    """★ 引擎把语义键翻成资产 scene_id 再喂导演（C5）——`classroom` → `class_room`。
+
+    不翻的话 `visual_for` 的 `place in background_scenes` 闸门会静默拦住一切，
+    背景永远停在 `neutral`（真机 20/20 板就是这个症状）。
+    """
+    from core.bond.bond_story import BondStoryEngine
+    llm = EngineLLM()
+    engine = BondStoryEngine(ROOT / "config" / "characters", llm)
+    engine.start_session(CHARACTER)
+    assert engine._place_scene_id("classroom") == "class_room"
+    assert engine._place_scene_id("68office") == "kohshinjo_room"
+    assert engine._place_scene_id("school_rooftop") == "school_rooftop"
+    assert engine._place_scene_id(None) is None
+    assert engine._place_scene_id("没这个键") == "没这个键"      # 原样传, 不阻断
+    print("    engine: 语义键 → 资产 scene_id（导演闸门才放行）")
+
+
+def test_engine_uses_table_by_default():
+    """引擎默认吃表（`_place_keys` = 表的键）; 表坏了才回落旧白名单。"""
+    from core.bond.bond_story import BondStoryEngine
+    from core.media.place_table import load_table
+    llm = EngineLLM()
+    engine = BondStoryEngine(ROOT / "config" / "characters", llm)
+    engine.start_session(CHARACTER)
+    t = load_table()
+    assert t.ok and engine._place_keys == t.keys(), "引擎没吃表"
+    assert engine._place_table is not None and len(engine._place_table) == len(t)
+    assert len(engine._place_keys) > 100, len(engine._place_keys)
+    assert "classroom" in engine._place_keys
+    print(f"    引擎: place 词表 = 表的 {len(engine._place_keys)} 条键")

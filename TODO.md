@@ -772,9 +772,23 @@ B = 今天的一句寒暄（SIG=0.50）
       （两条在 31 条裸 slug 时代全 MISS）· `学校天台`→school_rooftop ✔ ·
       `天台`→歧义 3 条（交层2）· `杂草屋`类→未命中（交层2 读 note）。
       层2 词表体量 = 整表 7022 字符（≈3.5k tokens, **只在层2 调用时付**）
-- [ ] **C2/C3/C4 接线**（下一步）: 词表来源换成 `load_table()`（`_place_keys` 仍作
-      webgui 门控, 语义变成"表非空"）+ `resolve_place`/`annotate_places` 加层1 +
-      两个标注 prompt 换成整表并**改掉"宁可空着/拿不准不标"**（用户: 第一版遗老）
+- [x] **C2/C3/C4 接线完成**（2026-09-19）: 引擎默认吃表（表坏才回落旧白名单）;
+      `resolve_place` 接**层1（别名 0 调用）**，歧义不猜下沉层2; 层2 词表换成
+      **整表含 `note`**（按 sdir 分组）; 两个标注 prompt 去掉"宁可空着/拿不准不标"
+      这条**第一版遗老**，改成"编剧自由写 → 读 note 挑语义最近的一张"。
+      ⚠️ 键集真源仍是 `place_keys`——层1 结果必须落在它里面（收窄时不越界）
+- [x] **C5 图能落地**（2026-09-19, **不接这步表键一张图都查不到**）:
+      表键（`classroom`）≠ 资产 scene_id（`class_room`）→ `PlaceEntry.scene_id()`
+      从 `files` 文件名派生; 引擎 `_place_scene_id()` 喂导演（否则 `visual_for` 的
+      `place in background_scenes` 闸门静默拦住一切 = 真机 20/20 板 `neutral`）;
+      路由 `_place_bg_url()` 表键→scene_id→catalog→URL。
+      实测全部出真 URL（含重命名条目 `68office→kohshinjo_room`）
+- [ ] **C6 `switch` 并入 place lane**: 现在仍是"首记录是 `switch` → `resolve_place`;
+      否则 → `annotate_places`"二选一早返回（`bond_story.fill_scene_places`）——
+      合成一条路, `current_place` 延续态跟着搬
+- [ ] **真机复测换场**（C2–C5 后第一件事）: 跑一场剧情看 `[place][SWITCH]` 是否
+      还有 MISS、`bond_anno_place anchors=y/n`、以及 board 级 `background` 是否
+      不再是 `neutral`。**层1 MISS 比例 = 层2 付费频率**（决定 7022 字符词表值不值）
 - [ ] **层2 词表体量优化**（7022 字符/次）: 层1 命中即 0 调用; 未命中才付。
       若要再压: 按 region 取子集 / 只对"有 note 才有区分度"的条目带 note。
       与 C6（`switch` 并入 place lane, 减少每板调用）同批看

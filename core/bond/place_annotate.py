@@ -37,6 +37,40 @@ _RESOLVE_CACHE: dict[str, str] = {}
 _RESOLVE_CACHE_MAX = 256
 
 
+def _layer1(text: str, table, current: str, key_set: set[str]) -> str | None:
+    """**层1: 别名精确命中（0 调用）** —— 命中就返回键; 不命中/歧义 → `None`（下沉层2）。
+
+    判据（`core/media/place_table.py:resolve_exact`）:
+    * 唯一命中且 ≠ 当前 → 直接用
+    * 唯一命中 == 当前 → `""`（画面不用动, 也省一次调用）
+    * **歧义（≥2 条）**→ 若 `current` 在里面也算"已经在那一带"→ `""`;
+      否则 `None`（交层2 读 `note` 判——层1 不猜）
+
+    ⚠️ **结果必须落在 `key_set` 里**（2026-09-19）: `place_keys` 才是"这次允许
+    用哪些键"的真源（webgui 门控 + 调用方可以收窄），表只是**语料**。
+    两者可能不一致（测试/子集场景）——此时以 `key_set` 为准，别让两个真源打架。
+    """
+    if table is None or not table:
+        return None
+    hits = [p for p in table.resolve_exact(text) if p in key_set]
+    if not hits:
+        return None
+    if len(hits) == 1:
+        return "" if hits[0] == current else hits[0]
+    return "" if (current and current in hits) else None
+
+
+def _lexicon_hint(place_keys: list[str], table) -> str:
+    """层2 的词表文本: 有表 → 整表（含 `note`）; 无表 → 旧口径（裸 id 列表）。
+
+    ⚠️ `note` 是**表外地点也能落位**的唯一依据（用户 2026-09-19）——没它模型
+    只能对着裸 slug 瞎猜, 真机 `杂草屋 → school_rooftop` 就是这么来的。
+    """
+    if table is not None and table:
+        return table.lexicon_text()
+    return "\n".join(f"  {k}" for k in place_keys)
+
+
 def _clean_anchors(
     raw: object,
     n_sentences: int,
@@ -74,6 +108,7 @@ def annotate_places(
     place_keys: list[str],
     current_place: str = "",
     *,
+    table=None,
     max_tokens: int | None = None,
     retries: int = 1,
 ) -> list[dict]:
@@ -81,8 +116,10 @@ def annotate_places(
 
     Args:
         sentences: 本场句子列表（引擎已切句, 1-based 输出对应其序号）
-        place_keys: 地点词表（closed, 如 _director_whitelist common_scenes）
+        place_keys: 地点词表（closed 键集; 有 `table` 时只用于校验输出合法性）
         current_place: 上一画面地点（空 = 初始/未知——首次出现的变更句即起始背景）
+        table: `PlaceTable`（C2, 2026-09-19）——有它则词表文本换成**整表含 note**;
+            None → 旧口径（裸 id 列表, 只为兼容/降级）
         max_tokens: None → task_levels 形态 "place"=256; 显式传值覆盖
         retries: 解析失败重试次数（每次附带"只输出 JSON 数组"提醒）; 0 = 不重试
     """
@@ -91,7 +128,7 @@ def annotate_places(
     if max_tokens is None:
         max_tokens = _tl_max_tokens("place")
     key_set = set(place_keys)
-    lexicon_hint = "\n".join(f"  {k}" for k in place_keys)
+    lexicon_hint = _lexicon_hint(place_keys, table)
     current = (current_place or "").strip()
 
     for attempt in range(retries + 1):
@@ -151,14 +188,27 @@ def resolve_place(
     place_keys: list[str],
     current_place: str = "",
     *,
+    table=None,
     max_tokens: int | None = None,
     retries: int = 1,
 ) -> str:
-    """`switch` 地点话 → 背景词表键（**P0-7 最小换场翻译**；P1-2 会用 tempo 导出视图替换词表）。
+    """`switch` 地点话 → 背景词表键（**层1 别名 0 调用 → 层2 LLM 就近推测**）。
 
     记录流 v2 的换场由 writer 发 `stage:switch`（自然语言地点），WHICH 归标注层:
-    这一步就是那一次翻译。命中进程内缓存 → 0 调用; 失败/词表外/与当前相同 → `""`
-    （keep——画面保持, 宁缺勿错）。
+    这一步就是那一次翻译。
+
+    ## 两层（C3, 2026-09-19）
+
+    * **层1**（`_layer1`）: 表里的 `keywords` 别名整串/最长别名命中 → **0 调用**。
+      真机实测: `教室`→`classroom`、`街角的咖啡馆，靠窗的位子`→`moderncafe`
+      （这两条在"31 条裸 slug"时代全是 MISS）。
+    * **层2**: 吃**整张表**（含 `note`）。**"词表里没有能对上"不是失败**——
+      writer 自由写（用户: *"writer 的自由不受限制……annotation-llm 只要看到 note
+      就能大致推测出地点"*），层2 的活就是**读 note 选语义最近的一张**。
+      ⚠️ 旧口径"宁可空着，不要硬凑"是**第一版为了让程序跑起来的遗老**（用户
+      2026-09-19 定性），已随 prompt 一并改掉。
+
+    `""` = 这次不切背景（keep）。命中进程内缓存 → 不再调用。
 
     Returns: 词表键; `""` = 这次不切背景。
     """
@@ -166,13 +216,19 @@ def resolve_place(
     current = (current_place or "").strip()
     if not text or not place_keys:
         return ""
-    cache_key = f"{current}|{text}"
+    cache_key = f"{current}|{text}|{len(place_keys)}"
     if cache_key in _RESOLVE_CACHE:
         return _RESOLVE_CACHE[cache_key]
+    key_set = set(place_keys)
+    # 层1: 纯字符串, 命中即返回（0 调用）; None = 下沉层2
+    hit = _layer1(text, table, current, key_set)
+    if hit is not None:
+        if len(_RESOLVE_CACHE) < _RESOLVE_CACHE_MAX:
+            _RESOLVE_CACHE[cache_key] = hit
+        return hit
     if max_tokens is None:
         max_tokens = _tl_max_tokens("place")
-    key_set = set(place_keys)
-    lexicon_hint = "\n".join(f"  {k}" for k in place_keys)
+    lexicon_hint = _lexicon_hint(place_keys, table)
     system = (load_prompt("place_resolve")
               .replace("{lexicon}", lexicon_hint)
               .replace("{current_place}", current or "（还没定）")

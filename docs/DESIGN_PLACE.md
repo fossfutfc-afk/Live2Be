@@ -21,14 +21,14 @@
 >    | **情景图**（`view_sky` 一类镜头） | ✅ 说明（**能力可见性**——不告诉它就永远不会用） | ⏸ 等 tempo 图片手写完成 |
 >    | **具体地点**（`place` 键） | ❌ 不给 → 归异步 lane | ⏸ 等 tempo 表 |
 >
-> **实现进度**（2026-09-19 复核）：
+> **实现进度**（2026-09-19 **C1–C5 接线完成**后的复核）：
 >
 > | 层 | 状态 |
 > |---|---|
 > | **粗粒度地理**（`region`） | ✅ **已接线**——盒B【世界区域】块 + 字符串归一（`core/parsing/place_regions.py`, T16） |
-> | **语义键表**（`place` 查表键） | ⏸ **表已出、未接线**——`_place_entities.json` 在 tempo 工作区，**168 条 active**（2026-09-17）；Live2Be 侧零消费方 |
-> | **情景图档** | ⏸ 挂起（等作者手写图片结束） |
-> | **现役词表** | ⚠️ 仍是 `assets/_director_whitelist.json` 的 `common_scenes` — **31 条裸 slug**，与 tempo 表**无交集**（见 §6） |
+> | **语义键表**（`place` 查表键） | ✅ **已接线**（C1–C5）——表落 `config/settings/world/place_entities.json`（168 条）; `core/media/place_table.py` 提供层1 别名索引 + 层2 整表语料; 引擎默认吃它 |
+> | **写作用词**（`black`/`星空`…） | ✅ 词在表里（`sdir=SDIR_Atmosphere` 4 条）; ⏸ 尚未作为一个块注入盒B |
+> | **现役词表** | `assets/_director_whitelist.json` 的 31 条裸 slug = **只剩降级兜底**（表缺失时用） |
 >
 > **表的实际形状**（与本节下方 §1② 的旧描述不同——以表为准）：
 >
@@ -215,14 +215,17 @@ time_of_day: LLM 可选（"night" 或省略=day）——夜晚是剧情氛围决
 > 后两行**不是对立的**：writer 的自由输出（无论表内表外）都归同一个 lane，
 > 表内命中率高、表外靠 `note` 推测——**表外不是失败路径，是设计主路径**。
 
-### ⚠️ 现役实现与这套逻辑的差距（2026-09-19 实测）
+### 现役实现：接线后（C1–C5, 2026-09-19）
 
-1. 词表是 **31 条裸 slug**（`assets/_director_whitelist.json` 的 `common_scenes`），
-   不是 168 条带别名与说明的表 → **真机 3/3 换场 MISS**，board 级 `place` 0 条
-2. 两个标注 prompt 只给 **id 列表**，**没给 `keywords` / `note`** ——
-   而 `note` 才是"这个地点适合什么戏"的判据
-3. **没有层1**：每次换场都是一次 LLM 调用（进程内缓存 `_RESOLVE_CACHE` 只省重复）
-4. `keywords` 分隔符 / `note` 不进导出 / 103 条 `place` 漏下划线 —— 见文首状态头
+| # | 项 | 状态 |
+|---|---|---|
+| 1 | 词表 = **168 条带别名与说明的表**（不再是 31 条裸 slug） | ✅ `bond_story.start_session`: `_place_keys = load_table().keys()`，表坏才回落旧白名单 |
+| 2 | 标注 prompt 拿到 **`keywords` / `note`** | ✅ `_lexicon_hint()` 有表走 `lexicon_text()`（含 note + 按 sdir 分组） |
+| 3 | **层1**（别名 0 调用） | ✅ `resolve_place` 先过 `_layer1`; 真机 `教室`/`街角的咖啡馆，靠窗的位子` 由 MISS 变 0 调用命中 |
+| 4 | **"宁可空着/拿不准不标"**（第一版遗老） | ✅ 两个 prompt 已改：**"词表里没有"不是失败，是层2 的活**（读 note 挑语义最近的一张） |
+| 5 | **图像落不下来**（表键 ≠ 资产 scene_id） | ✅ `PlaceEntry.scene_id()` 从 `files` 文件名派生 → 导演闸门放行 + `place_bg` 出 URL（`classroom → class_room`、`68office → kohshinjo_room`） |
+| 6 | 逐板词表体量 7022 字符 ≈ 3.5k tokens | ⏳ 只在层1 未命中时付; 待真机统计 MISS 比例 |
+| 7 | `switch` 与 `annotate` 二选一早返回（应合成一条路） | ⏳ 未做（C6） |
 
 > 未决项（用户 2026-09-19 表示"我自己也无法确认"）：**C 链路「同地」判据吃
 > `place` 还是 `region`** —— 两处代码口径相反（`core/parsing/place_regions.py:18`
