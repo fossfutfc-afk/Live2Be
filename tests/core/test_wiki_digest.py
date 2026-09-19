@@ -304,29 +304,32 @@ def test_place_materialized_from_board_pointer(tmp_path):
     ep = st.get(res.created[0])
     # 键序列: 板级 place 在前、句级锚点在后; **相邻去重**（同地反复会留多次）
     assert ep.place == ["classroom", "school_rooftop", "classroom"], ep.place
-    # 剧情地理 = 段内**最后一条 switch 原文**经 regions.yml 归一（纯字符串, 0 LLM）
-    assert ep.region == "格黑娜学院", ep.region
     # **叙事轴**: writer 原文序列（键不是地名的双射 → 判"同地"只能靠它做语义）
     assert ep.place_raw == ["格黑娜学院·放学后的教室", "傍晚的学校天台"], ep.place_raw
-    # 真源里 writer 本名照旧在（可回捞, 与 place_raw 同源）
-    print(f"    place 物化: {ep.place}  region={ep.region!r}  raw={ep.place_raw}")
+    # `region` 已撤（2026-09-19 用户: "基本没有太多作用，也不必落库"）
+    assert "region" not in ep.to_dict()
+    print(f"    place 物化: {ep.place}  raw={ep.place_raw}")
 
 
 def test_place_absent_when_no_place_data(tmp_path):
-    """没地点数据 → `[]` / `""`（**哨兵: 未采集 ≠ 某个地点**）, 绝不编。"""
+    """没地点数据 → `[]`（**哨兵: 未采集 ≠ 某个地点**）, 绝不编。"""
     st = _seed_store(tmp_path)
     events = _events(_mmt(3, "老师", "下次再去吃甜品吧"))
     res = digest_segment(st, FakeLLM(_a_episode(), _b_ok()), events)
     assert res.ok, res.errors
     ep = st.get(res.created[0])
-    assert ep.place == [] and ep.region == ""
-    assert "place" not in ep.to_dict() and "region" not in ep.to_dict(), \
+    assert ep.place == [] and ep.place_raw == []
+    assert "place" not in ep.to_dict() and "place_raw" not in ep.to_dict(), \
         "空值该被省略（行小）——也顺手钉住 to_dict 的省略口径"
-    print("    place: 无数据 → []/''（哨兵）, to_dict 省略")
+    print("    place: 无数据 → []（哨兵）, to_dict 省略")
 
 
-def test_place_region_sentinel_never_raw(tmp_path):
-    """`region` **绝不返回原文**（同 `place_regions` 的哨兵纪律）。"""
+def test_place_raw_keeps_writer_wording(tmp_path):
+    """★ 叙事轴: `place_raw` 存的是 **writer 的原话**（不归一、不改写）。
+
+    它是唯一能判"是不是同一个地方"的输入（键不是地名的双射）——
+    所以**必须原样保留**, 归一化留给检索时的语义比较。
+    """
     st = _seed_store(tmp_path)
     a = {"episodes": [{"narration": "在杂草屋", "title": "x", "event_seq": ["22"],
                        "tags": ["t"], "significance": 0.5}]}
@@ -338,9 +341,9 @@ def test_place_region_sentinel_never_raw(tmp_path):
     res = digest_segment(st, FakeLLM(a, b), events)
     assert res.ok, res.errors
     ep = st.get(res.created[0])
-    assert ep.place == ["ruinschoolcorridor"]
-    assert ep.region == "", f"原文不是 region（实得 {ep.region!r}）"
-    print("    region: 未命中 → ''（绝不把原文冒充 region）")
+    assert ep.place == ["ruinschoolcorridor"]           # 素材轴: 键
+    assert ep.place_raw == ["深夜的杂草屋"], ep.place_raw  # 叙事轴: 原话一字不动
+    print(f"    place_raw: 键={ep.place} 原话={ep.place_raw}（不归一）")
 
 
 # ---------------------------------------------------------------------------

@@ -50,7 +50,6 @@ from core.brain.wiki_v2.recall import (
 from core.brain.wiki_v2.render import render_cognition_list
 from core.brain.wiki_v2.revise import apply_decisions
 from core.brain.wiki_v2.store import WikiStoreV2
-from core.parsing.place_regions import load_regions
 from core.session.maintenance import exclude_abandoned
 from core.session.renderer import render_timeline
 from llm.prompts import load_prompt
@@ -373,9 +372,8 @@ def _create_a_nodes(store: WikiStoreV2, entries: list[dict], *, ts: str,
         # 板级情绪键序列（T15）——召回侧物化, **不进 LLM 上下文**
         if by_seq is not None:
             node.emo_shape = _emotion_shape(node.event_seq, by_seq)
-            # 地点键序列 + 剧情地理（M3, 2026-09-19）——同一手物化, 同一纪律
+            # 地点键序列（M3, 2026-09-19）——同一手物化, 同一纪律
             node.place = _place_shape(node.event_seq, by_seq)
-            node.region = _place_region(node.event_seq, by_seq)
             # 叙事轴: writer 原文（键不是地名的双射, 判"同地"只能靠语义）
             node.place_raw = _place_raw(node.event_seq, by_seq)
         node.aff_at_encoding = aff_at_encoding
@@ -651,26 +649,6 @@ def _place_raw(seqs: list, by_seq: dict) -> list[str]:
             if not out or out[-1] != h:
                 out.append(h)
     return out
-
-
-def _place_region(seqs: list, by_seq: dict) -> str:
-    """板指针 → **剧情地理主名**（M3）; 取不到 → `""`（哨兵: 不知道 ≠ 某个区域）。
-
-    拿段内**最后一条 `switch` 原文**（`payload.place_hint`）经 `regions.yml` 的
-    纯字符串归一（**0 LLM**）——"这段戏最后落在哪片地方"。
-    没提到任何学院/地区 → `""`, 绝不返回原文（同 `place_regions` 的哨兵纪律）。
-    """
-    region = ""
-    for seq in sorted(seqs or []):
-        ev = by_seq.get(seq)
-        if ev is None or ev.type != "bond":
-            continue
-        hint = ev.payload.get("place_hint")
-        if isinstance(hint, str) and hint.strip():
-            got = load_regions().normalize(hint)
-            if got:
-                region = got
-    return region
 
 
 def _clean_evidence(raw: Any, threshold: float) -> list[dict]:

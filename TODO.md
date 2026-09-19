@@ -787,10 +787,11 @@ B = 今天的一句寒暄（SIG=0.50）
 
       | 项 | 落地 |
       |---|---|
-      | `BrainNode.place: list[str]` | **地点键序列** + `region: str`（剧情地理主名）; 进 `to_dict`/`from_dict`（往返由 `test_every_serialized_field_is_parsed_back` 钉住） |
-      | digest 物化 | `_place_shape()` / `_place_region()` —— 照 `_emotion_shape` 那一手, 按 `event_seq` 从真源取 `payload.place` + `paragraphs[*].place`, **相邻去重保序**; region = 段内**最后一条 `switch` 原文**经 `regions.yml` 归一（**0 LLM**） |
-      | C 链路 | `PlaceGate.gather` **不再是 stub**: `place` 键相等 = 同素材 / `region` 相等 = 同一片地方; 两个坐标都落在节点上, **判据选哪个不必现在定** |
-      | `RecallContext.region_now` | 新增（与 `place_now` 对称） |
+      | `BrainNode.place: list[str]` | **地点键序列**（素材轴）; 进 `to_dict`/`from_dict`（往返由 `test_every_serialized_field_is_parsed_back` 钉住） |
+      | `BrainNode.place_raw: list[str]` | **writer 原文序列**（叙事轴, 2026-09-19 用户指出"二者缺一不可"后补落）—— 键不是地名的双射, 判"同地"只能靠它做语义 |
+      | ~~`BrainNode.region`~~ | **已撤**（用户 2026-09-19: *"只是用于判定在哪个学院的…基本没有太多作用，也不必落库"*）。它还是**派生视图**（`place_hint` → `regions.yml` 归一, 随时可从事件流重算）⇒ 落库 = 冗余的第二真源。真正用处仍在盒B【世界区域】块（T16）+ 未来地点体系 |
+      | digest 物化 | `_place_shape()` / `_place_raw()` —— 照 `_emotion_shape` 那一手, 按 `event_seq` 取 `payload.place`（+`paragraphs[*].place`）与 `payload.place_hint`, **相邻去重保序**; **0 LLM** |
+      | C 链路 | `PlaceGate.gather` **不再是 stub**: 准入 = 键相等（等值, 无阈值）; 语义轴**只给已准入的命中打分**（不参与准入） |
 
       **用户问"带的是 key 还是 writer 的本名" → 带 key。** 理由: C 链路比的是
       **相等**, 而「放学后的教室」/「教室里」/「回到教室」是同一张图、三个字符串,
@@ -801,9 +802,21 @@ B = 今天的一句寒暄（SIG=0.50）
       清掉三份孤儿产物的同一把尺子。
 
       ⭐ 真机闭环（`experiments/place_switch_real.py` 末段）: 真实 payload 物化得
-      `node.place = ['classroom', 'school_rooftop']` · `node.region = '格黑娜学院'`。
+      `node.place = ['classroom', 'school_rooftop']` ·
+      `node.place_raw = ['格黑娜学院·放学后的教室', '傍晚的学校天台']`。
       ⚠️ **旧档没有地点**: M3 之前的事件 `payload.place` 全是空（正是本次修的 bug）,
       所以现网存量 episode 的 `place` 恒 `[]` —— 要等新章。
+- [ ] **要不要做「AI 判过的地点映射」旁路（用户 2026-09-19 提出）**:
+      *"有没有必要把 AI 已经拍板过的部分地点映射表直接做成一个旁路/回灌入
+      anno-llm??"* —— 评估: **值得做, 且不必新落库**。
+      · 配对**已经在事件流里**（每板 `place_hint` 原文 + 解出的 `place`）→ 聚合即可,
+        像 `emo_shape`/`place` 那样是**可重建的物化视图**, 不是第三份真源
+      · 收益三条: ① 层1 命中率随使用自涨（省调用）② 同一句话永远同一个答案
+        （治实测到的"层2 两跑两样"）③ 把攒下的配对当 few-shot 回灌 anno-llm
+      · 风险一条: **把错判固化**（真机上真发生过 `杂草屋 → school_rooftop`）。
+        ⇒ 必须有优先级: **作者手写 `keywords` > AI 累积旁路 > 层2 现判**;
+        且旁路只对"当前表里还存在、且没被作者改过"的键生效（表更新即失效）
+      · 这其实就是最初那句"**地点重复**"通道的落地形态
 - [ ] **★★ 地名 ≠ key（用户 2026-09-19 指出）—— 判"同地"的路只有两条, 待裁**:
 
       用户原话: *"key 名不一定能代表实际含义？杂草屋和破房子两个地方可以对应
