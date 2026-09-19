@@ -65,6 +65,8 @@ DIRECTOR_WHITELIST_PATH = ASSETS_DIR / "_director_whitelist.json"
 
 # ── data/：运行时数据（gitignore）─────────────────────────────────────────
 DATA_DIR = ROOT / "data"
+#: 世界线根（`data/worlds/{world}/characters/{char}/…`; 首次运行才创建）
+WORLDS_DIR = DATA_DIR / "worlds"
 #: 诊断日志落盘（旁路, 不进事件流——见 `webgui/app.py:_setup_file_logging`）
 DIAG_DIR = DATA_DIR / "diag"
 DIAG_LOG_PATH = DIAG_DIR / "live2be.log"
@@ -81,5 +83,5 @@ __all__ = [
     "MMT_REGISTRY_PATH",
     "ASSETS_DIR", "BACKGROUND_DIR", "ILLUSTRATION_DIR", "MENU_DIR",
     "DIRECTOR_WHITELIST_PATH",
-    "DATA_DIR", "DIAG_DIR", "DIAG_LOG_PATH", "WEBGUI_STATIC_DIR",
+    "DATA_DIR", "WORLDS_DIR", "DIAG_DIR", "DIAG_LOG_PATH", "WEBGUI_STATIC_DIR",
 ]

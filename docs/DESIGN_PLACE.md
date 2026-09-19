@@ -241,7 +241,7 @@ time_of_day: LLM 可选（"night" 或省略=day）——夜晚是剧情氛围决
 | # | 项 | 状态 |
 |---|---|---|
 | 1 | 词表 = **168 条带别名与说明的表**（不再是 31 条裸 slug） | ✅ `bond_story.start_session`: `_place_keys = load_table().keys()`，表坏才回落旧白名单 |
-| 2 | 标注 prompt 拿到 **`keywords` / `note`** | ✅ `_lexicon_hint()` 有表走 `lexicon_text()`（含 note + 按 sdir 分组） |
+| 2 | 标注 prompt 拿到 **`keywords` / `note`** | ✅ `_lexicon_hint()` 有表走 `lexicon_text()`（含 note + 按 sdir 分组; **分组头 2026-09-19 起是中文**，`【社团】`/`【室外】`——用户裁决"直接换中文，保证一致性"，判据 `sdir` 本身仍是英文） |
 | 3 | **层1**（别名 0 调用） | ✅ `resolve_place` 先过 `_layer1`; 真机 `教室`/`街角的咖啡馆，靠窗的位子` 由 MISS 变 0 调用命中 |
 | 4 | **"宁可空着/拿不准不标"**（第一版遗老） | ✅ 两个 prompt 已改：**"词表里没有"不是失败，是层2 的活**（读 note 挑语义最近的一张） |
 | 5 | **图像落不下来**（表键 ≠ 资产 scene_id） | ✅ `PlaceEntry.scene_id()` 从 `files` 文件名派生 → 导演闸门放行 + `place_bg` 出 URL（`classroom → class_room`、`68office → kohshinjo_room`） |

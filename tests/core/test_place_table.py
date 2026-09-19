@@ -123,7 +123,12 @@ def test_asset_day_night_and_fallback():
 
 
 def test_lexicon_text_groups_by_sdir_and_carries_note():
-    """★ 层2 的词表文本: 按 `sdir` 分组 + **必须带 `note`**（表外落位全靠它）。"""
+    """★ 层2 的词表文本: 按 `sdir` 分组（**中文头**）+ **必须带 `note`**。
+
+    分组头 2026-09-19（PL6）从 `【SDIR_Clubs】` 换成 `【社团】`——用户裁决
+    *"直接换中文，不用对比了，保证一致性"*。⚠️ 换的只是**显示名**, `sdir` 本身
+    仍是英文（判据 + 资产路径都靠它）。
+    """
     t = _table()
     text = t.lexicon_text()
     assert text and text.startswith("【")
@@ -131,12 +136,27 @@ def test_lexicon_text_groups_by_sdir_and_carries_note():
     assert e is not None and e.note
     assert e.note in text, "note 没进词表文本 → 层2 只能瞎猜"
     assert "view_sky（" in text and "星空" in text
+    assert "【气氛镜头】" in text and "【社团】" in text, "分组头该是中文"
+    assert "SDIR_" not in text, "英文资产组织名不该出现在给 LLM 的文本里"
     # 限定分组（给"只要写作用词"一类子集用）
     only = t.lexicon_text(sdirs=(pt.WRITING_SDIR,))
     assert "view_sky" in only and "classroom" not in only
+    assert "【社团】" not in only, "限定分组后不该出现别的组"
     # 不带 note 的渲染也不能崩
     assert "view_sky" in t.lexicon_text(with_note=False)
-    print(f"    lexicon_text: {len(text)} 字符（含 note）, 分组 {len(pt.WRITING_SDIR)} 类限定可用")
+    print(f"    lexicon_text: {len(text)} 字符（含 note）, 分组头中文, 可限定 sdir")
+
+
+def test_sdir_labels_cover_the_real_table():
+    """★ 镜像: 表里出现的每个 `sdir` 都得有中文标签（新加一族 → 这里红）。
+
+    红了怎么修: 在 `place_table.SDIR_LABELS` 里给它加个中文名（**别改 `sdir` 本身**）。
+    """
+    t = _table()
+    missing = sorted({e.sdir for e in t.all() if e.sdir} - set(pt.SDIR_LABELS))
+    assert not missing, f"这些 sdir 没有中文标签: {missing}"
+    assert pt.sdir_label("SDIR_新族") == "SDIR_新族", "没登记的该原样回落, 不该抛"
+    print(f"    sdir 标签: {len(pt.SDIR_LABELS)} 个, 覆盖真表全部 {len({e.sdir for e in t.all() if e.sdir})} 类")
 
 
 def test_writing_words_judged_by_sdir():
@@ -249,6 +269,7 @@ if __name__ == "__main__":
     test_resolve_exact_leaves_out_of_table_alone()
     test_asset_day_night_and_fallback()
     test_lexicon_text_groups_by_sdir_and_carries_note()
+    test_sdir_labels_cover_the_real_table()
     test_writing_words_judged_by_sdir()
     test_by_region_only_nonempty()
     print("all place_table tests passed")

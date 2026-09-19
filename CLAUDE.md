@@ -194,6 +194,12 @@ v1 的 `MemorialProbe`/`memorial_exit` 动作已退役。**图是异步的 → �
   （LLM 后补）。**开场/恢复即预生成链**, 读屏期间生成下一场。
 - **维护工具**：`core/session/maintenance.py`（CLI: heal/supersede/audit, dry-run
   默认）——把废弃段用 vn_abandon 闭合, 新章自然接管；用法见该文件 docstring。
+  **地点改名** = `python -m core.media.place_rename --from X --to Y [--apply]`
+  （PL6, dry-run 默认）: 扫引用面（事件流 + 暂存 + `_place_review.json`）→ 改表那一行
+  → 给 `data/worlds/{world}/place_renames.jsonl` 留痕。**事件流不动**（append-only）;
+  台账的消费方 = `_place_bg()` 把"素材未找到"解释成 *"key 'X' 已改名为 'Y'"*
+  （`core/media/place_renames.py`）。⚠️ 表是 **tempo → repo** 单向同步, 就地改 repo
+  的表只对本机有效。
 - **选项回录（A1）**：引擎历史在生成时落库（picked 尚不存在）——裁决后
   `record_picked(picked)` 用同一渲染函数重渲尾部 → live 与事件渲染**逐字节同形**；
   分支内容仍不进 LLM 上下文（A2 留档）。CLI 不需回录（裁决文本即下轮 user）。

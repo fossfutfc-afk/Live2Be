@@ -130,12 +130,15 @@ def _resolve_scene(scene: dict | None, char_id: str) -> dict | None:
     #    所以缺图不会被"上一场恰好有图"掩盖掉）
     place = scene.get("place")
     if isinstance(place, str) and place.strip():
-        url, st = _place_bg(place.strip())
-        if st == "missing":
-            scene["missing_asset"] = {"key": place.strip()}
+        key = place.strip()
+        url, st = _place_bg(key)
+        if st != "ok":
+            # 缺素材 / 旧名 → 黑屏 + 回执（`_missing_info` 会带上改名解释）
+            info = _missing_info(key)
+            scene["missing_asset"] = info
             scene["background_url"] = _black_bg_url()
-            logger.error("[place][MISSING_ASSET] key=%r 查不到背景素材 → 黑屏占位",
-                         place.strip())
+            logger.error("[place][MISSING_ASSET] key=%r 查不到背景素材 → 黑屏占位%s",
+                         key, f"（{info.get('message')}）" if info.get("message") else "")
             return _finish_scene(scene, char_id)     # 已定背景, 段落特效照挂
     # ② 没有地点（或地点有图）→ 走老口径
     sid = scene.get("background")
@@ -175,12 +178,14 @@ def _finish_scene(scene: dict, char_id: str) -> dict:
                 pid = p.get("place")
                 if isinstance(pid, str) and pid.strip():
                     url, st = _place_bg(pid.strip())
-                    if st == "missing":
-                        # 缺图 → **黑屏 + 报出**（不再静默保持上一背景）
+                    if st != "ok":
+                        # 缺图（或旧名）→ **黑屏 + 报出**（不再静默保持上一背景）
                         p["place_bg"] = _black_bg_url()
-                        p["missing_asset"] = {"key": pid.strip()}
-                        logger.error("[place][MISSING_ASSET] 锚点 key=%r 缺素材 → 黑屏",
-                                     pid.strip())
+                        p["missing_asset"] = _missing_info(pid.strip())
+                        logger.error("[place][MISSING_ASSET] 锚点 key=%r → 黑屏%s",
+                                     pid.strip(),
+                                     f"（{p['missing_asset'].get('message')}）"
+                                     if p["missing_asset"].get("message") else "")
                     elif url:
                         p["place_bg"] = url
     return scene
@@ -207,8 +212,27 @@ def _black_bg_url() -> str | None:
     return _catalog_url(_MISSING_PLACEHOLDER) or _fallback_bg_url()
 
 
+def _missing_info(key: str) -> dict:
+    """缺素材回执（板级与锚点共用）——**能解释就解释**。
+
+    PL6（2026-09-19）: 先问改名台账（`data/worlds/*/place_renames.jsonl`）。
+    命中 → `message` = *"key 'X' 已改名为 'Y'"*（前端 alert 直接用这句）;
+    没命中 → 只给 `key`，前端回落成笼统的"素材未找到"。
+    """
+    info: dict = {"key": key}
+    try:
+        from core.media import place_renames
+        why = place_renames.explain(key)
+        if why:
+            info["message"] = why
+            info["renamed_to"] = place_renames.resolve(key)
+    except Exception:                                # noqa: BLE001 — 没台账就笼统报
+        pass
+    return info
+
+
 def _place_bg(key: str) -> tuple[str | None, str]:
-    """地点键 → `(URL, 状态)`。状态 = `"ok"` / `"missing"`。
+    """地点键 → `(URL, 状态)`。状态 = `"ok"` / `"missing"` / `"renamed"`。
 
     ## 素材缺失怎么办（用户 2026-09-19 裁决）
 
@@ -222,9 +246,20 @@ def _place_bg(key: str) -> tuple[str | None, str]:
 
     为什么会缺: `place` 键**不许改名**（用户 2026-09-19: *"key 是不可改的"*）,
     所以缺只可能来自**素材没进库/被移走**或**旧事件里的键在当前表里不存在**。
+    ⇒ PL6（2026-09-19）补上第二种的解释: 查不到时**先问改名台账**
+    （`core/media/place_renames.py`）, 命中就返回 `"renamed"` + 人话原因
+    （*"key 'X' 已改名为 'Y'"*）—— 那条黑屏 alert 于是直接告诉人该去改什么。
     """
     url = _catalog_url(_catalog_key(key))
-    return (url, "ok") if url else (None, "missing")
+    if url:
+        return (url, "ok")
+    try:
+        from core.media import place_renames
+        if place_renames.resolve(key):
+            return (None, "renamed")
+    except Exception:                                # noqa: BLE001 — 台账缺失不影响取图
+        pass
+    return (None, "missing")
 
 
 def _catalog_key(key: str) -> str:
