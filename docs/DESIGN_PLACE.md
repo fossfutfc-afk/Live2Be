@@ -95,14 +95,22 @@
    数量目标: 活跃 ~150-250（资产 ÷2 的现实值）; 键量由"语义归并 + 剔除"决定
    现状: 168 条 active / 246 条已审 / 468 组（覆盖 435 张图 = 全库 39%）
 
-③ 契约/查询层
-   story_scene payload 扩展:
+③ 契约/查询层  ⚠️ **整节作废（2026-09-19）——下面这几十行是 09-05 的旧设计，
+   读它会被带偏。真实形态见 §6「标注层」与文首状态头。**
+
+   ~~story_scene payload 扩展:
      place:        语义名（候选注入 = 活跃集上下文子集 ≤100 或自由描述）
      time_of_day:  "day" | "night"（可选字段, 缺省 day——LLM 显式表达剧情氛围）
    程序解析链（core/rag, 语料 = 语义键表同源）:
      语义名/描述 → 精确（id/name/别名）→ embedding（跨语言中英日）→ 阈值宁缺勿错
      → scene_id × time_of_day variant → 资产 URL（无夜景 → 静默降级 day）
-   切换保障: 候选含 60-100 语义名 + LLM 每场决策 → 剧情转场即换图（单调消除）
+   切换保障: 候选含 60-100 语义名 + LLM 每场决策 → 剧情转场即换图（单调消除）~~
+
+   **现在实际是**（一句话版）:
+     · 主 LLM **不写任何地点字段**，只发 `{"stage":"switch","text":"自然语言地点"}`
+     · 标注层翻成表里的 `place` 键（层1 别名 0 调用 → 层2 读 note 就近推测）
+     · 键 → `files` 的文件名 → 资产 scene_id → 图
+     · **没有 time_of_day**（日夜那套没实现，`files.night` 至今无消费方）
 ```
 
 ## 2. 日夜组织（独立字段, 不占键）
@@ -145,13 +153,23 @@ time_of_day: LLM 可选（"night" 或省略=day）——夜晚是剧情氛围决
    （工具: **`D:\myStuff\tempo\place_studio.py`**——看图/命名/region/剔除/进度/导出。
    仓库内不再放副本, 防双份漂移）
 
-## 5. 契约接线（整理完成后实施）
+## 5. ~~契约接线（整理完成后实施）~~ ⚠️ **整节作废（2026-09-19）**
 
-- story_scene schema: place 语义名白名单（soft）+ time_of_day 枚举
-- 注入: 活跃键表（region 子集 ≤100 中文名 + 分组标题 ~2k 字）
-- bond_story_rules / 词表指引: "每个场景标 place; 夜晚剧情写 time_of_day=night"
-- director: visual_for(place, time_of_day) → 变体选择
-- core/rag place.py 语料升级 = 语义键表（别名同源）
+> 这五条是 09-05 的旧计划，**一条都没按它做**，读它会被带偏：
+
+- ~~story_scene schema: place 语义名白名单（soft）+ time_of_day 枚举~~
+  → 实际: 主 LLM **不写地点字段**（记录流 v2），也没有 time_of_day
+- ~~注入: 活跃键表（region 子集 ≤100 中文名 + 分组标题 ~2k 字）~~
+  → 实际: **不注入任何地点键给主 LLM**（用户裁决"主 LLM 零内容词表"）；
+  【世界区域】块只给 21 条**学院主名**（世界设定，不是菜单）
+- ~~bond_story_rules / 词表指引: "每个场景标 place; 夜晚剧情写 time_of_day=night"~~
+  → 实际: rules 只教 `{"stage":"switch","text":"地点"}`；夜晚没有字段
+- ~~director: visual_for(place, time_of_day) → 变体选择~~
+  → 实际: `visual_for(scene_id)` 只查 scene，**变体参数生产里从没传过**
+- ~~core/rag place.py 语料升级 = 语义键表（别名同源）~~
+  → 实际: `PlaceRetriever` **生产零调用**；别名语料现在是表的 `keywords`
+
+**真实接线见 §6 + 文首状态头。**
 
 ## 6. 标注层：主 LLM 零内容词表 → 后台标注吃整表（2026-09-19 定稿）
 
