@@ -1217,8 +1217,36 @@ writer 根本不知道板存在, 它只是连着写记录、该换场就发 swit
 *"规则层整章 0~3 次、常单个直白（多数板无 choices）"* —— **v2 已废**, 真机 13/14 板
 有 choices。那条是 v1 口径, 会误导人（我就是被这类句子带偏的）。
 
-- [ ] `core/bond/place_cues.py` 共享线索词 + 预筛 + 句级层1
-- **验收**: 真机跑一场, 日志里有 `annotate skip=no_cue` 的板; 有线索的板照常调用
+- [x] **✅ PL3 完成（2026-09-19）—— 两道 0 调用闸, 真机验收通过**
+
+      **先量后做**: 真机 20 板 / 93 段正文 → 含换场线索词的板 **0/20**
+      （正文几乎全是对话, 位移都写在 `switch` 里, 而 switch 不进 `paragraphs`）
+      ⇒ 此前每板一次的 7022 字符调用 **20 次零收益**。
+
+      | 件 | 落地 |
+      |---|---|
+      | `core/bond/place_cues.py` | 换场线索词表（**取宽**: 穿过边界的位移动词 38 个）。**故意排除** `转身/坐下/蹲下/走近`（`place_annotate.md` 明确判为"不换场"——收了它们等于把预筛关掉）。`CORE_CUES` = 必须与两份 prompt 逐字一致的核心子集 |
+      | 闸1 线索预筛 | 板内无线索 → 整板跳过, 日志 `[place][SKIP] skip=no_cue` |
+      | 闸2 句级层1 | 有线索但**每句都能被别名唯一命中且 ≠ 当前** → 直接落锚, `skip=layer1_hit` |
+      | 兜底 | 两闸都过不了 → 照旧 `annotate_places`, 日志 `[place][SCAN] cue=…` |
+      | 镜像测试 | `test_judgement_mirror_between_rules_and_prompt` 改成**遍历 `CORE_CUES`** ⇒ 引擎预筛词 ↔ rules ↔ annotate prompt **三处同源**, 改一处不改另两处就红 |
+
+      ⚠️ **踩过的坑（已写成测试）**: 闸2 **不能用** `place_annotate._layer1` 的
+      "歧义∩当前 → keep"捷径 —— 句子级最常见的换场恰恰是
+      「她拉着我**走出教室**，来到**天台**」（当前与目的地同时出现）,
+      走捷径会把整板判成"不用动" → **画面永远不切**。故本闸只认"唯一命中且≠当前",
+      其余（歧义/表外/与当前相同）**一律交 LLM**。
+
+      **真机验收**（`experiments/place_switch_real.py`, 已给脚本加 `basicConfig` 让
+      `[place]` 可见）:
+      ```
+      [place][SWITCH] '放学后的教室'      → classroom          （层1, 0 调用）
+      [place][SKIP] skip=no_cue recs=2 / recs=3 / recs=1 / recs=3   ← 4 板全跳过
+      [place][SWITCH] '格黑娜学院·旧校舍天台' → school_rooftop    （层2, 1 调用: 天台歧义）
+      地点相关调用 1 次（此前同样 4–6 板要 4–6 次）
+      背景序列 ['class_room' ×3, 'school_rooftop'] —— 换场照常切
+      ```
+      测试 807 通过（+5）。
 
 ### PL4 旧物清账 —— **✅ 用户已定调：语义检索要留**（2026-09-19）
 

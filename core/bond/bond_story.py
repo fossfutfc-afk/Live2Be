@@ -54,6 +54,7 @@ from core.media.emotion_lexicon import (
 )
 from core.media.place_table import PlaceTable, load_table
 from core.bond.place_annotate import annotate_places, resolve_place
+from core.bond import place_cues                      # 换场线索词（PL3 预筛）
 from llm.client import LLMClient, feedback
 from llm.task_levels import max_tokens as task_levels_max_tokens
 from core.parsing.dynamic_character_parser import CharacterLoader, DynamicCharacter
@@ -1124,20 +1125,29 @@ class BondStoryEngine:
         ## 一条路（C6, 2026-09-19）
 
         此前是"**二选一 + 早返回**": 板首有 `switch` 就只做 `resolve_place`、
-        否则只做 `annotate_places`。后果是 **switch 板上的板内换场永远标不出来**
-        （writer 写了「她拉着我走出教室」而没有再发一条 switch → 画面不动）。
-
+        否则只做 `annotate_places` —— 于是 switch 板上的板内换场标不出来。
         现在**两件事都做, 顺序固定**:
           ① 板首 `switch`（writer 明说的地点）= **权威信号** → `resolve_place` →
              板级 `scene.place`（层1 别名 0 调用 / 层2 读 note 就近推测）
-          ② 句级 `annotate_places` 覆盖**板内后续换场** —— 带上 ① 之后的最新
-             `current_place`, 所以「第一步就走到了新地点」不会被重复标一次
+          ② 句级覆盖**板内后续换场**（带上 ① 之后的最新 `current_place`）
 
-        `switch` 记录**不在 `paragraphs` 里**（`from_board` 跳过 STAGE_SWITCH），
+        `switch` 记录**不在 `paragraphs` 里**（`from_board` 跳过 STAGE_SWITCH）,
         所以 ② 看不到它, 不会和 ① 撞车。
 
-        ⚠️ 代价: 每个板恒定一次 `annotate_places`（含 switch 板）。层1 让 ① 基本
-        免费, ② 是异步 lane 里的廉价调用（真机实测 0.4–0.7s, 不挡玩家）。
+        ## ② 的两道省钱闸（PL3, 2026-09-19）
+
+        ② 的**唯一用途**是救"writer 描述了移动却没发 switch"。它此前每板恒定一次
+        7022 字符调用, 而真机实测 **20 板 / 93 段正文里含换场线索词的板 = 0/20**
+        （正文几乎全是对话, 位移都写在 `switch` 里）⇒ 20 次调用零收益。两道闸:
+
+        * **闸1 线索预筛**（0 调用）: 板内没有任何换场线索词（`place_cues.has_cue`）
+          → 整板跳过, 日志 `skip=no_cue`
+        * **闸2 句级层1**（0 调用）: 有线索, 但**每个带线索的句子都能被表的别名唯一
+          解决** → 直接落锚, 日志 `skip=layer1_hit`
+        * 两道都过不了 → 照旧叫 `annotate_places`（日志 `scan cue=…`）
+
+        ⚠️ 闸2 **从宽**: 只要有一句带线索却解决不了（歧义/表外/与当前相同）就**整板
+        交 LLM** —— 省钱的代价只允许落在"确定无疑"的那些板上。
 
         判定语义在 `place_annotate.md`（镜像编剧 rules 换场判据）; 失败 → keep
         （画面保持, 不 raise）。branches/纪念文字不标（反应段与正文同场延续）。
@@ -1161,9 +1171,7 @@ class BondStoryEngine:
         # ② 句级锚点 —— 板内后续换场（switch 板也要跑, 见 docstring）
         texts = [(p.get("text") or "") if isinstance(p, dict) else ""
                  for p in scene.paragraphs]
-        anchors = annotate_places(
-            self.llm, texts, self._place_keys, self._current_place,
-            table=self._place_table)
+        anchors = self._scan_places(texts)
         for a in anchors:
             idx = a["sentence"] - 1
             if 0 <= idx < len(scene.paragraphs):
@@ -1174,6 +1182,56 @@ class BondStoryEngine:
             self._current_place = anchors[-1]["place"]     # 延续态: 终地点
             changed = True
         return changed
+
+    def _scan_places(self, texts: list[str]) -> list[dict]:
+        """板内换场扫描 —— **两道 0 调用闸**先过, 过不了才叫标注 LLM（PL3）。
+
+        见 `fill_scene_places` 的 docstring。返回 `[{sentence, place}]`。
+        """
+        cue = place_cues.has_cue(texts)
+        if not cue:
+            logger.info("[place][SKIP] skip=no_cue recs=%d", len(texts))
+            return []
+        quick = self._layer1_anchors(texts)
+        if quick is not None:
+            logger.info("[place][SKIP] skip=layer1_hit cue=%s anchors=%d",
+                        cue, len(quick))
+            return quick
+        logger.info("[place][SCAN] cue=%s recs=%d", cue, len(texts))
+        return annotate_places(
+            self.llm, texts, self._place_keys, self._current_place,
+            table=self._place_table)
+
+    def _layer1_anchors(self, texts: list[str]) -> list[dict] | None:
+        """**句级层1**（0 调用）: 带线索的句子**全都能被别名唯一命中** → 直接落锚。
+
+        返回锚点列表; **任何一句不够确定**就返回 `None` = 整板交 LLM。判据从宽:
+
+        | 该句的情况 | 处理 |
+        |---|---|
+        | 别名**唯一**命中且 ≠ 当前地点 | ✅ 直接锚（0 调用） |
+        | 歧义（`天台` → 3 个键） | ❌ 交 LLM |
+        | 表外（一个别名都不命中） | ❌ 交 LLM |
+        | 唯一命中 == 当前地点 | ❌ 交 LLM |
+
+        ⚠️ 最后一行**不能用 `place_annotate._layer1` 的"歧义∩当前 → keep"捷径**:
+        句子级最常见的换场恰恰是「她拉着我**走出教室**，来到**天台**」——
+        那里当前地点与目的地**同时出现**, 走捷径会把这一整板判成"不用动"
+        （2026-09-19 实测踩到, 就是本函数不用 `_layer1` 的原因）。
+        同理 `她走出教室`（只写离开、没写去哪）也交 LLM。
+        """
+        if not self._place_table:
+            return None
+        key_set = set(self._place_keys)
+        out: list[dict] = []
+        for i, t in enumerate(texts, start=1):
+            if not place_cues.cue_in(t):
+                continue
+            hits = [p for p in self._place_table.resolve_exact(t) if p in key_set]
+            if len(hits) != 1 or hits[0] == self._current_place:
+                return None
+            out.append({"sentence": i, "place": hits[0]})
+        return out
 
     # ------------------------------------------------------------------
     # 属性
