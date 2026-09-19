@@ -256,18 +256,21 @@ class PlaceGate:
     再交给 A/D 排序。这也是它与"逻辑召回"的关系: 同地点/同时间/同在场者
     都是**键命中**（不是相似度）, 见 §3.3 的三通路拓扑。
 
-    ## 2026-09-19（M3）: 链路通了
+    ## 判据（两根轴, 都**不声称"同一个地方"**）
 
-    此前必然降级（*"BrainNode 无 place 字段…链路未通因为背景系统没搞好"*）。
-    现在节点上有了 `digest` 物化的 **`node.place`（键序列）** 与 **`node.region`**,
-    于是本链路真的能分组。
+    ⚠️ **2026-09-19 更正（用户: *"真实地名和 key 大概率并不是一个双射"*）**:
+    `place` 键相等只声称 **"同一张图"** —— 表里 `ruinschoolcorridor` 的 note 自己
+    写着 *"也可以用做老屋子或者某种杂草秘密基地"*（一键多义: 真·走廊废墟与杂草屋
+    会成为同键）; 反过来别名 `天台` 指向 3 个键（一地多键: 都在天台却不同键）。
+    ⇒ **本链路现在能回答的是"素材/地区相关"，不是"同一个地方"。**
+    要判"同地"得引入**叙事身份**（原文走语义, 或作者的地点实体表）——
+    未决, 见 `TODO.md` 地点节。**别把 `by: place` 读成"同地"。**
 
-    **判据（两根轴, 都可选）**:
-    * `place` 键相等 → **同素材**（同一张图）——默认用它
-    * `region` 相等 → **同一片地方**（更粗; `place` 键为空的旧档也够用）
+    * `place` 键相等 → **同图**（弱: 一张图可能被两个叙事地点共用）
+    * `region` 相等 → **同一片地方**（粗: 整个阿拜迪多斯 = 一组; 且现表只有
+      20/168 条有 region）
 
-    两根轴都落在节点上, 谁当判据**不必现在定**（TODO 里那条未决项）:
-    `key_mode` 可传 `"place"` / `"region"` / `"both"`。
+    两根轴都落在节点上, 谁当判据**不必现在定**: `ctx` 给哪个就比哪个。
     """
 
     name = "C_place"
@@ -298,16 +301,18 @@ class PlaceGate:
             elif now_region and now_region and n.region == now_region:
                 hits.append(n)
         if not hits:
-            res.note = "同地无命中（这段记忆不在当前地点）"
+            res.note = "无相关命中（这段记忆不在当前素材/地区）"
             res.knobs = {"place_now": now_place, "region_now": now_region,
                          "n_nodes": len(nodes)}
             return res
         res.hits = [ChannelHit(node=n, raw=1.0, rank=i + 1,
                                detail={"place": list(n.place or []),
                                        "region": n.region,
-                                       "by": "place" if (now_place and
-                                                         now_place in (n.place or []))
-                                             else "region"})
+                                       # `by` 是可归因字段: 读日志的人必须能分清
+                                       # "同图"与"同一片地方"——它们都不是"同地"
+                                       "by": "same_image" if (
+                                           now_place and now_place in (n.place or []))
+                                             else "same_area"})
                     for i, n in enumerate(hits)]
         res.knobs = {"place_now": now_place, "region_now": now_region,
                      "n_nodes": len(nodes), "hit": len(hits)}
