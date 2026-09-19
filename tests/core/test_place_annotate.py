@@ -444,11 +444,11 @@ def test_engine_switch_board_also_gets_sentence_anchors():
     assert scene.paragraphs[1].get("place") == "school_rooftop", scene.paragraphs
     assert "place" not in scene.paragraphs[0], "第 1 句没换场, 不该有锚点"
     assert engine._current_place == "school_rooftop", "延续态该顺延到板内终地点"
-    # 调用数: ② 句级锚点 1 次 + **①′ 选图 1 次**（2026-09-19 起的第二遍:
-    # `classroom` 有多张图, 所以层1 命中之后仍要问一次"用哪一张"）;
+    # 调用数: ② 句级锚点 1 次 + **选图 2 次**（板首 classroom + 锚点 school_rooftop;
+    # 2026-09-19 起选图对"板首 switch"与"板内锚点"都发——两处都是换场）;
     # ① 换场翻译本身仍是层1 = 0 调用（PL3 的成果没被吃掉）
     assert sum("变更句数组" in c for c in llm.calls) == 1, llm.calls
-    assert sum("选中的文件名" in c for c in llm.calls) == 1, llm.calls
+    assert sum("选中的文件名" in c for c in llm.calls) == 2, llm.calls
     assert sum("地点 id JSON" in c for c in llm.calls) == 0, llm.calls
     # 视觉键不进叙事历史
     from core.session.renderer import render_bond_scene_text

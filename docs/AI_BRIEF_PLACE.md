@@ -66,7 +66,9 @@ writer 发  {"stage":"switch","text":"傍晚的学校天台"}
 scene.place = 键           ← 进事件流（回放/记忆用）
 scene.place_hint = 原话     ← 进事件流（检索/追溯用）
 scene.place_asset = 选中的文件（表内相对路径; 空 = 第一条默认图）  ← 也进事件流
-② 句级锚点 → annotate_places()  （同一块板内后续又换了地方时补刀; **不带选图**）
+② 句级锚点 → annotate_places()  （同一块板内后续又换了地方时补刀）
+   ↳ 锚点也是换场 ⇒ **同样会选图**, 只是落在**段落**上:
+     paragraphs[i].place = 键 + paragraphs[i].place_asset = 那张图
    ↓
 引擎 _place_scene_id()  键 → 资产 scene_id（school_rooftop → school_rooftop）
    ↓

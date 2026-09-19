@@ -317,10 +317,14 @@ class BondScene:
                     if isinstance(emotion, str) and emotion.strip():
                         item["emotion"] = emotion.strip()
                     # 视觉键透传（P3b-2）: place 锚点（句级）随回放场景保留——
-                    # 事件流 append-only 已定格, 回放渲染时间轴依赖它
+                    # 事件流 append-only 已定格, 回放渲染时间轴依赖它。
+                    # `place_asset`（第二遍选的图）同理, 只是**段落级**。
                     pid = p.get("place")
                     if isinstance(pid, str) and pid.strip():
                         item["place"] = pid.strip()
+                    passet = p.get("place_asset")
+                    if isinstance(passet, str) and passet.strip():
+                        item["place_asset"] = passet.strip()
                     paras.append(item)
         choices = [c for c in raw.get("choices", []) if isinstance(c, str)]
         branches: dict[str, list] = {}
@@ -1184,16 +1188,9 @@ class BondStoryEngine:
                 self._current_place = key
                 changed = True
                 # ①′ **第二遍: 选图**（时刻/天气/作者差分）——只有这个键真有别的图才发
-                entry = self._place_table.get(key) if self._place_table else None
-                if entry is not None and len(entry.image_candidates()) > 1:
-                    picked = pick_image(self.llm, scene.place_hint, entry,
-                                        current_image=self._current_asset)
-                    logger.info("[place][PICK] key=%s → %s",
-                                key, picked.rsplit("/", 1)[-1] if picked else "保持")
-                    if picked:
-                        scene.place_asset = picked
-                self._current_asset = scene.place_asset or (
-                    entry.asset() if entry is not None else "")
+                picked = self._pick_asset(scene.place_hint, key)
+                if picked:
+                    scene.place_asset = picked
         # ② 句级锚点 —— 板内后续换场（switch 板也要跑, 见 docstring）
         texts = [(p.get("text") or "") if isinstance(p, dict) else ""
                  for p in scene.paragraphs]
@@ -1204,10 +1201,35 @@ class BondStoryEngine:
                 item = scene.paragraphs[idx]
                 if isinstance(item, dict):
                     item["place"] = a["place"]
+                    # ②′ 锚点也是换场 ⇒ 同样要挑图（用**锚点那一句**当文本）;
+                    # 选图落在**段落**上（板级 place_asset 管的是板首那一段）
+                    picked = self._pick_asset(
+                        texts[idx] if idx < len(texts) else "", a["place"])
+                    if picked:
+                        item["place_asset"] = picked
         if anchors:
             self._current_place = anchors[-1]["place"]     # 延续态: 终地点
             changed = True
         return changed
+
+    def _pick_asset(self, text: str, key: str) -> str:
+        """**第二遍选图**（板首 `switch` 与句级锚点共用）→ 表内相对路径; `""` = 保持。
+
+        * 键只有一张图 → 不发调用（22/168）
+        * 作者 `note` 与候选清单由 `pick_image` 摆进 prompt（note 就是资源说明书）
+        * 失败/候选外/判不出 → `""`（保持当前画面, 宁缺勿错）
+        * 顺带推进 `_current_asset` 延续态（下次调用能说"当前画面用的是…"）
+        """
+        entry = self._place_table.get(key) if self._place_table else None
+        if entry is None:
+            return ""
+        picked = ""
+        if len(entry.image_candidates()) > 1:
+            picked = pick_image(self.llm, text, entry, current_image=self._current_asset)
+            logger.info("[place][PICK] key=%s → %s", key,
+                        picked.rsplit("/", 1)[-1] if picked else "保持")
+        self._current_asset = picked or entry.asset() or ""
+        return picked
 
     def _scan_places(self, texts: list[str]) -> list[dict]:
         """板内换场扫描 —— **两道 0 调用闸**先过, 过不了才叫标注 LLM（PL3）。

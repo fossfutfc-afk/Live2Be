@@ -176,8 +176,9 @@ tests/ core/ webgui/ llm/ 分别对应域; experiments/ 真 API 基准与探索�
 - **视觉键隔离**：`render_bond_scene_text` 只读 text/emotion/inner —— place / place_asset
   不进 LLM 上下文（resume 窗口不被视觉键污染）；但进 payload/事件流供回放时间轴。
 - **选图（第二遍, 2026-09-19）**：定键之后若该键 `files` 不止一张图 → 选图调用
-  （`variant_annotate.pick_image` + `place_variant.md`，详见 §3.3）→ `payload.place_asset`
-  = 表内相对路径；前端取图**优先走表的路径**（`_table_bg_url`），catalog 只作回落。
+  （`variant_annotate.pick_image` + `place_variant.md`，详见 §3.3）。**板首 `switch`
+  与句级锚点都发**（两处都是换场）：板首 → `payload.place_asset`；锚点 → 那一句的
+  `paragraphs[i].place_asset`（锚点用**锚点那一句**当文本）。前端取图**优先走表**。
 
 **双路 lane（webgui）**：Q_emo/W_emo 与 Q_place/W_place 独立队列消费者并行；
 推进门控 = **双路齐**（emotion 内容判完成 / place 靠 scene._place_done 标记, 含 keep）。
