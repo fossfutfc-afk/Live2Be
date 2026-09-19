@@ -256,21 +256,38 @@ class PlaceGate:
     再交给 A/D 排序。这也是它与"逻辑召回"的关系: 同地点/同时间/同在场者
     都是**键命中**（不是相似度）, 见 §3.3 的三通路拓扑。
 
-    ## 判据（两根轴, 都**不声称"同一个地方"**）
+    ## 判据（**三个坐标 = 检索的三个维度**, 2026-09-19）
 
-    ⚠️ **2026-09-19 更正（用户: *"真实地名和 key 大概率并不是一个双射"*）**:
-    `place` 键相等只声称 **"同一张图"** —— 表里 `ruinschoolcorridor` 的 note 自己
-    写着 *"也可以用做老屋子或者某种杂草秘密基地"*（一键多义: 真·走廊废墟与杂草屋
-    会成为同键）; 反过来别名 `天台` 指向 3 个键（一地多键: 都在天台却不同键）。
-    ⇒ **本链路现在能回答的是"素材/地区相关"，不是"同一个地方"。**
-    要判"同地"得引入**叙事身份**（原文走语义, 或作者的地点实体表）——
-    未决, 见 `TODO.md` 地点节。**别把 `by: place` 读成"同地"。**
+    ⚠️ **更正（用户: *"真实地名和 key 大概率并不是一个双射"*）**: `place` 键相等
+    只声称 **"同一张图"** —— 表里 `ruinschoolcorridor` 的 note 自己写着
+    *"也可以用做老屋子或者某种杂草秘密基地"*（一键多义）; 反过来别名 `天台`
+    指向 3 个键（一地多键）。
 
-    * `place` 键相等 → **同图**（弱: 一张图可能被两个叙事地点共用）
-    * `region` 相等 → **同一片地方**（粗: 整个阿拜迪多斯 = 一组; 且现表只有
-      20/168 条有 region）
+    用户进一步指出: *"key 需要用于回放，而 writer 名则需要用于检索，**二者缺一不可**。
+    但是 writer 名不像键名可以直接 literal compare……会不会是用于检索的两个维度？"*
+    —— 三个维度, 但**判据的资格不同**:
 
-    两根轴都落在节点上, 谁当判据**不必现在定**: `ctx` 给哪个就比哪个。
+    | 信号（`by`） | 载体 | 判据 | 声称 | 准入? |
+    |---|---|---|---|---|
+    | `same_image` | `node.place` | **字面相等**（键） | **同一张图**（素材轴 / 回放） | ✅ 是 |
+    | `same_area` | `node.region` | **字面相等** | 同一片地方（粗兜底） | ✅ 是 |
+    | `sem`（打分, 非信号） | `node.place_raw` vs `ctx.place_raw_now` | **语义相似度** | 有多像"同一个地方" | ❌ **不参与准入** |
+
+    **为什么语义轴暂时不参与准入**: 准入若要靠它, 就得有**相似度阈值**, 而
+    `tests/core/test_wiki_recall_ledger.py::test_no_threshold_knobs_left` 钉着
+    用户的 T17 裁决 —— *"三个阈值旋钮已删, 配置面不再有任何阈值"*（理由: 未标定的
+    硬闸门曾把新认知永远掐死）。语义轴现在只对**已由等值准入的命中**打分, 于是:
+    * `same_image` 高 `sem` → 确实同一个地方
+    * `same_image` 低 `sem` → **素材复用**（一张图被两个叙事地点共用）——这正是
+      用户担心的假阳性, 但下游能**看见**它, 而不是被隐藏
+    * ⚠️ **反向假阴性仍未解**（同地不同键: `school_rooftop` vs `rooftop`）——
+      键不等就不准入, 语义轴没机会。**这是一个未决项**（见 TODO）:
+      要么为语义轴破例开阈值, 要么改"取前 N 条"口径, 要么走地点实体表。
+
+    三维**信息上正交**, 组合才是信号（同 `emo_span × emo_int`、同"B/D 双链路都
+    召回 = 最重要"那条判据）。
+
+    无 `embed_fn` → 语义打分缺席（`raw` 退回 1.0）, 准入不受影响。
     """
 
     name = "C_place"
@@ -282,40 +299,65 @@ class PlaceGate:
         res = ChannelResult(channel=self.name, kind=self.kind)
         now_place = (ctx.place_now or "").strip()
         now_region = (ctx.region_now or "").strip()
-        if not now_place and not now_region:
+        now_raw = (ctx.place_raw_now or "").strip()
+        if not (now_place or now_region):
             res.degraded = True
             res.note = "无 place_now / region_now（当前地点未知）"
             return res
         nodes = [n for n in store.all()
                  if n.kind in ("episode", "belief", "experience")
-                 and (n.place or n.region)]
+                 and (n.place or n.region or n.place_raw)]
         if not nodes:
             res.degraded = True
-            res.note = "无节点带 place/region（旧档: M3 之前物化的节点没有这两个字段）"
+            res.note = "无节点带 place/place_raw/region（旧档: M3 之前物化的没有这些字段）"
             res.knobs = {"place_now": now_place, "region_now": now_region}
             return res
-        hits: list[BrainNode] = []
+        # ── 准入（**等值, 无阈值**）──
+        admitted: list[tuple[BrainNode, str]] = []
         for n in nodes:
             if now_place and now_place in (n.place or []):
-                hits.append(n)
-            elif now_region and now_region and n.region == now_region:
-                hits.append(n)
-        if not hits:
+                admitted.append((n, "same_image"))
+            elif now_region and n.region == now_region:
+                admitted.append((n, "same_area"))
+        if not admitted:
             res.note = "无相关命中（这段记忆不在当前素材/地区）"
             res.knobs = {"place_now": now_place, "region_now": now_region,
-                         "n_nodes": len(nodes)}
+                         "n_nodes": len(nodes), "sem": "n/a（无准入）"}
             return res
-        res.hits = [ChannelHit(node=n, raw=1.0, rank=i + 1,
-                               detail={"place": list(n.place or []),
+        # ── 叙事轴: 只给**已准入**的命中打分（不参与准入, 见 docstring）──
+        sem: dict[str, float] = {}
+        sem_note = ""
+        cand = [n for n, _ in admitted if n.place_raw]
+        if not now_raw:
+            sem_note = "无 place_raw_now"
+        elif ctx.embed_fn is None:
+            sem_note = "无 embed_fn（语义打分缺席）"
+        elif not cand:
+            sem_note = "无节点带 place_raw（旧档）"
+        else:
+            try:
+                from core.brain.wiki_v2.recall import _cosine
+                texts = [" ".join(n.place_raw) for n in cand]
+                vecs = ctx.embed_fn(texts + [now_raw])
+                qv = vecs[-1]
+                for n, v in zip(cand, vecs[:-1]):
+                    sem[n.id] = _cosine(qv, v)
+            except Exception as e:                   # noqa: BLE001 — 打分失败不拖垮准入
+                logger.warning("C_place 语义打分降级: %s", e)
+                sem_note = f"语义打分失败: {e}"
+        # 语义高的排前面（**排序**, 不是准入——全量参与, 无闸门）
+        admitted.sort(key=lambda t: -sem.get(t[0].id, 0.0))
+        res.hits = [ChannelHit(node=n, raw=float(sem.get(n.id, 1.0)), rank=i + 1,
+                               detail={"by": by,
+                                       "place": list(n.place or []),
                                        "region": n.region,
-                                       # `by` 是可归因字段: 读日志的人必须能分清
-                                       # "同图"与"同一片地方"——它们都不是"同地"
-                                       "by": "same_image" if (
-                                           now_place and now_place in (n.place or []))
-                                             else "same_area"})
-                    for i, n in enumerate(hits)]
+                                       "place_raw": list(n.place_raw or []),
+                                       "sem": (round(sem[n.id], 3)
+                                               if n.id in sem else None)})
+                    for i, (n, by) in enumerate(admitted)]
         res.knobs = {"place_now": now_place, "region_now": now_region,
-                     "n_nodes": len(nodes), "hit": len(hits)}
+                     "n_nodes": len(nodes), "hit": len(res.hits),
+                     "sem": sem_note or "ok"}
         return res
 
 

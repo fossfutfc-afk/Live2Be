@@ -150,6 +150,30 @@ class BrainNode:
     #: 用途: C 链路"同地"判据的**第二坐标**（`place` 键相等 = 同素材;
     #: `region` 相等 = 同一片地方）——两根轴都在节点上，判据选哪个不必现在定。
     region: str = ""
+    #: **writer 原文序列**（叙事轴, 2026-09-19 用户指出后补落）。
+    #:
+    #: 用户: *"key 需要用于回放，而 writer 名则需要用于检索，**二者缺一不可**。
+    #: 但是 writer 名不像键名可以直接 literal compare……会不会是用于检索的两个
+    #: 维度？"* —— **正是**。两根轴回答的是不同问题, 不竞争:
+    #:
+    #: | 轴 | 字段 | 判据 | 声称 | 回答 |
+    #: |---|---|---|---|---|
+    #: | **素材** | `place` | 字面相等 | 同一张图 | **回放**画哪张图 |
+    #: | **叙事** | `place_raw`（本字段） | **语义相似** | 同一个地方 | **检索**"是不是那儿" |
+    #: | 地理 | `region` | 字面相等 | 同一片地方 | 粗兜底 |
+    #:
+    #: 两根轴**信息上正交**（`same_image` 而无 `same_place` = 素材被两个叙事地点
+    #: 共用; `same_place` 而无 `same_image` = 同一地点的两个镜头），所以
+    #: **组合起来才是信号**——同 `emo_span × emo_int`、同"B/D 双链路都召回"那条判据。
+    #:
+    #: ⚠️ 为什么不能用键代替本字段: 键**不是地名的双射**（`ruinschoolcorridor`
+    #: 的 note 自称"也可以用做杂草秘密基地" → 一键多义; 别名「天台」→ 3 个键 →
+    #: 一地多键）。**语义轴只能由原文承担。**
+    #:
+    #: 来源: 板首 `switch` 的 `payload.place_hint`（writer 写的名词短语）。
+    #: 句级锚点的原文要用 `paragraphs[i].text`, 在事件流里, 需要时按 `event_seq` 取。
+    #: 🚫 **绝不进 LLM 上下文**（召回侧信号, 同 `emo_shape`）。
+    place_raw: list[str] = field(default_factory=list)
     title: str = ""             # episode 可选短标题（渲染压缩/回放/决策表引用）
     pattern: str = ""
     subject: str = ""
@@ -330,6 +354,7 @@ class BrainNode:
         for f in ("observer", "tags", "segment_id", "event_seq", "ts", "source",
                   "links", "contradictions", "notes", "narration", "verbatim",
                   "verbatim_seq", "title", "emo_shape", "place", "region",
+                  "place_raw",
                   "pattern", "subject", "count", "examples", "content", "growth",
                   "history", "source_key"):
             v = getattr(self, f)
@@ -374,6 +399,7 @@ class BrainNode:
         node.emo_shape = _str_list(raw.get("emo_shape"))
         node.place = _str_list(raw.get("place"))
         node.region = _str(raw.get("region"))
+        node.place_raw = _str_list(raw.get("place_raw"))
         node.title = _str(raw.get("title"))
         node.pattern = _str(raw.get("pattern"))
         node.subject = _str(raw.get("subject"))
