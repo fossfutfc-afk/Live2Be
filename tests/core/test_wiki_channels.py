@@ -281,6 +281,60 @@ def test_place_gate_groups_by_place_and_region(tmp_path):
     print("    C: 无坐标/旧档→降级; place 键命中 / region 兜底 / 不沾→空手")
 
 
+def test_place_gate_semantic_score_is_not_a_gate(tmp_path):
+    """★ C 链路的**语义轴只打分, 不参与准入**（2026-09-19）。
+
+    为什么: 准入靠语义就得有**阈值**, 而 T17 裁决钉着"配置面不许有阈值旋钮"
+    （`test_no_threshold_knobs_left`）。所以:
+
+    * `same_image`（键相等）**低语义分** = **素材复用**（一张图被两个叙事地点共用）
+      → 仍然命中, 但 `sem` 低到能被下游看见 —— 用户担心的假阳性**可见, 不被隐藏**
+    * `same_image` **高语义分** → 排前面（**排序**全量参与, 无闸门）
+    * ⚠️ **反向假阴性仍未解**（同地不同键）: 键不等 → 不准入, 语义轴没机会。
+      这是**已知的未决项**, 本用例顺手把它钉成事实, 免得以后误以为治好了。
+    """
+    st = _store(tmp_path)
+    # 两条记忆都用同一张图（`ruinschoolcorridor`）, 但叙事上是两个地方 ——
+    # 表里那条 note 自己写着"也可以用做老屋子或者某种杂草秘密基地"
+    st.add(make_node("episode", narration="她在走廊废墟里找到我", significance=0.7,
+                     place=["ruinschoolcorridor"], place_raw=["学校走廊废墟"],
+                     event_seq=[50]))
+    st.add(make_node("episode", narration="杂草屋里的那盏灯", significance=0.8,
+                     place=["ruinschoolcorridor"], place_raw=["深夜的杂草屋"],
+                     event_seq=[52]))
+    # 另一条: 同一个叙事地点（天台）但**不同键** → 反向假阴性
+    st.add(make_node("episode", narration="天台上的风", significance=0.6,
+                     place=["rooftop"], place_raw=["学校天台"], event_seq=[54]))
+
+    def fake_embed(texts):                      # 字符集袋（确定性, 无需后端）
+        vocab = sorted({ch for t in texts for ch in t})
+        return [[1.0 if ch in t else 0.0 for ch in vocab] for t in texts]
+
+    # ① 键准入 + 语义打分: 同键两条都进, 但"同话"的那条 sem 高、排前面
+    r = get_channel("C_place").gather(
+        st, _ctx(place_now="ruinschoolcorridor",
+                 place_raw_now="学校走廊废墟", embed_fn=fake_embed))
+    ids = [h.node.id for h in r.hits]
+    assert len(ids) == 2, ids                       # 同键两条都准入
+    assert r.hits[0].node.place_raw == ["学校走廊废墟"], "同话的该排前面"
+    assert r.hits[0].detail["sem"] > r.hits[1].detail["sem"], r.hits
+    assert r.hits[1].detail["sem"] == 0.0, "杂草屋 vs 走廊废墟: 一个字都不共"
+    assert {h.detail["by"] for h in r.hits} == {"same_image"}
+
+    # ② 语义轴**不新增准入**: 「学校天台」与库里那条 `school_rooftop` 语义相近,
+    #    但当前键是 `ruinschoolcorridor` → **捞不出来**（已知的假阴性）
+    r2 = get_channel("C_place").gather(
+        st, _ctx(place_now="ruinschoolcorridor", place_raw_now="学校天台",
+                 embed_fn=fake_embed))
+    assert [h.node.id for h in r2.hits] == ids, "语义轴不该偷偷放宽准入"
+    # ③ 无 embed_fn → 打分缺席, **准入不受影响**
+    r3 = get_channel("C_place").gather(
+        st, _ctx(place_now="ruinschoolcorridor", place_raw_now="学校走廊废墟"))
+    assert len(r3.hits) == 2 and r3.hits[0].detail["sem"] is None
+    assert "无 embed_fn" in r3.knobs["sem"]
+    print("    C: 语义只打分（同键低分=素材复用可见）; 不新增准入; 无 embed 照常准入")
+
+
 def test_unconscious_is_declared_not_implemented(tmp_path):
     st = _store(tmp_path)
     r = get_channel("E_unconscious").gather(st, _ctx())

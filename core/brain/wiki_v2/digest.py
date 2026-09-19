@@ -376,6 +376,8 @@ def _create_a_nodes(store: WikiStoreV2, entries: list[dict], *, ts: str,
             # 地点键序列 + 剧情地理（M3, 2026-09-19）——同一手物化, 同一纪律
             node.place = _place_shape(node.event_seq, by_seq)
             node.region = _place_region(node.event_seq, by_seq)
+            # 叙事轴: writer 原文（键不是地名的双射, 判"同地"只能靠语义）
+            node.place_raw = _place_raw(node.event_seq, by_seq)
         node.aff_at_encoding = aff_at_encoding
         dup = _find_duplicate(store, node)
         if dup is not None:
@@ -620,6 +622,34 @@ def _place_shape(seqs: list, by_seq: dict) -> list[str]:
         for k in keys:
             if not out or out[-1] != k:              # 相邻去重（保留"再次到访"）
                 out.append(k)
+    return out
+
+
+def _place_raw(seqs: list, by_seq: dict) -> list[str]:
+    """板指针 → **writer 原文序列**（叙事轴, 2026-09-19 用户指出后补落）。
+
+    取每板的 `payload.place_hint` —— **writer 自己写的那个名词短语**
+    （「放学后的教室」「傍晚的学校天台」），相邻去重保序。
+
+    为什么必须有它: 键**不是地名的双射**（一键多义 / 一地多键），所以判"**同地**"
+    只能靠语义, 而语义的输入就是原话 —— 见 `nodes.BrainNode.place_raw` 的两轴表。
+
+    ⚠️ 句级锚点的原文**不在这里**（锚点只存 `{sentence, place}`）——那条句子的
+    原文在 `payload.paragraphs[i].text`，与 `verbatim_seq` 同一手:
+    地址永久有效，要用时按 `event_seq` 回捞。
+
+    🚫 只进 `node.place_raw`（召回侧）——**绝不进 LLM 上下文**。
+    """
+    out: list[str] = []
+    for seq in sorted(seqs or []):
+        ev = by_seq.get(seq)
+        if ev is None or ev.type != "bond":
+            continue
+        hint = ev.payload.get("place_hint")
+        if isinstance(hint, str) and hint.strip():
+            h = hint.strip()
+            if not out or out[-1] != h:
+                out.append(h)
     return out
 
 

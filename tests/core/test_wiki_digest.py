@@ -306,8 +306,10 @@ def test_place_materialized_from_board_pointer(tmp_path):
     assert ep.place == ["classroom", "school_rooftop", "classroom"], ep.place
     # 剧情地理 = 段内**最后一条 switch 原文**经 regions.yml 归一（纯字符串, 0 LLM）
     assert ep.region == "格黑娜学院", ep.region
-    # 真源里 writer 本名照旧在（可回捞, 不落节点）
-    print(f"    place 物化: {ep.place}  region={ep.region!r}")
+    # **叙事轴**: writer 原文序列（键不是地名的双射 → 判"同地"只能靠它做语义）
+    assert ep.place_raw == ["格黑娜学院·放学后的教室", "傍晚的学校天台"], ep.place_raw
+    # 真源里 writer 本名照旧在（可回捞, 与 place_raw 同源）
+    print(f"    place 物化: {ep.place}  region={ep.region!r}  raw={ep.place_raw}")
 
 
 def test_place_absent_when_no_place_data(tmp_path):
