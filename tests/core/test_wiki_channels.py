@@ -268,16 +268,16 @@ def test_place_gate_groups_by_place_and_region(tmp_path):
     st.add(ep)
     r3 = get_channel("C_place").gather(st, _ctx(place_now="school_rooftop"))
     assert not r3.degraded and [h.node.id for h in r3.hits] == [ep.id]
-    assert r3.hits[0].detail["by"] == "place"
+    assert r3.hits[0].detail["by"] == "same_image"
     # ④ 键不相等 → 落到 region 轴（同一片地方）
     r4 = get_channel("C_place").gather(
         st, _ctx(place_now="moderncafe", region_now="阿拜多斯高级中学"))
     assert [h.node.id for h in r4.hits] == [ep.id]
-    assert r4.hits[0].detail["by"] == "region"
+    assert r4.hits[0].detail["by"] == "same_area"
     # ⑤ 都不沾 → 空手而归（**不编**）
     r5 = get_channel("C_place").gather(
         st, _ctx(place_now="onsen", region_now="格黑娜学院"))
-    assert not r5.hits and "同地无命中" in r5.note
+    assert not r5.hits and "无相关命中" in r5.note
     print("    C: 无坐标/旧档→降级; place 键命中 / region 兜底 / 不沾→空手")
 
 
