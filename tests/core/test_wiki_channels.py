@@ -292,17 +292,18 @@ def test_place_gate_groups_by_place_key(tmp_path):
     print("    C: 无坐标/旧档→降级; 键命中; 不沾→空手")
 
 
-def test_place_gate_semantic_score_is_not_a_gate(tmp_path):
-    """★ C 链路的**语义轴只打分, 不参与准入**（2026-09-19）。
+def test_place_gate_two_axis_fusion(tmp_path):
+    """★ C 链路 = **两轴融合**（2026-09-20 用户定: *"混合策略…magic function，
+    在 writer 词和 key 相似度都高的时候值高，反之一般"*）。
 
-    为什么: 准入靠语义就得有**阈值**, 而 T17 裁决钉着"配置面不许有阈值旋钮"
-    （`test_no_threshold_knobs_left`）。所以:
+    形状 = 调和平均（`core/media/place_fuse.py`）: 一轴为零 ⇒ 分为 0。于是四条语义:
 
-    * `same_image`（键相等）**低语义分** = **素材复用**（一张图被两个叙事地点共用）
-      → 仍然命中, 但 `sem` 低到能被下游看见 —— 用户担心的假阳性**可见, 不被隐藏**
-    * `same_image` **高语义分** → 排前面（**排序**全量参与, 无闸门）
-    * ⚠️ **反向假阴性仍未解**（同地不同键）: 键不等 → 不准入, 语义轴没机会。
-      这是**已知的未决项**, 本用例顺手把它钉成事实, 免得以后误以为治好了。
+    | 情形 | 结果 |
+    |---|---|
+    | 同键 + 说法像 | 最高（`same_image`, `axes=2`） |
+    | 同键 + 说法**字面完全不像** | **分 0 → 不出现在候选里**（形状自带, 不是闸门） |
+    | **不同键 + 别名相交**（`天台` 家族）+ 说法像 | **捞回来了** ← 修掉的那条反向假阴性 |
+    | 不同键 + 毫无字面关系 + 说法像 | 仍然不进（**语义轴不许单独放宽准入**） |
     """
     st = _store(tmp_path)
     # 两条记忆都用同一张图（`ruinschoolcorridor`）, 但叙事上是两个地方 ——
@@ -313,7 +314,7 @@ def test_place_gate_semantic_score_is_not_a_gate(tmp_path):
     st.add(make_node("episode", narration="杂草屋里的那盏灯", significance=0.8,
                      place=["ruinschoolcorridor"], place_raw=["深夜的杂草屋"],
                      event_seq=[52]))
-    # 另一条: 同一个叙事地点（天台）但**不同键** → 反向假阴性
+    # 同地不同键: `rooftop` 与 `school_rooftop` **别名相交**（都叫"天台"）
     st.add(make_node("episode", narration="天台上的风", significance=0.6,
                      place=["rooftop"], place_raw=["学校天台"], event_seq=[54]))
 
@@ -321,29 +322,60 @@ def test_place_gate_semantic_score_is_not_a_gate(tmp_path):
         vocab = sorted({ch for t in texts for ch in t})
         return [[1.0 if ch in t else 0.0 for ch in vocab] for t in texts]
 
-    # ① 键准入 + 语义打分: 同键两条都进, 但"同话"的那条 sem 高、排前面
+    # ① 同键 + 同话 → 顶格; 同键但**一个字都不共** → 融合为 0（形状语义）
     r = get_channel("C_place").gather(
         st, _ctx(place_now="ruinschoolcorridor",
                  place_raw_now="学校走廊废墟", embed_fn=fake_embed))
     ids = [h.node.id for h in r.hits]
-    assert len(ids) == 2, ids                       # 同键两条都准入
-    assert r.hits[0].node.place_raw == ["学校走廊废墟"], "同话的该排前面"
-    assert r.hits[0].detail["sem"] > r.hits[1].detail["sem"], r.hits
-    assert r.hits[1].detail["sem"] == 0.0, "杂草屋 vs 走廊废墟: 一个字都不共"
-    assert {h.detail["by"] for h in r.hits} == {"same_image"}
+    assert len(ids) == 1, ids
+    assert r.hits[0].node.place_raw == ["学校走廊废墟"], "同话的那条该在"
+    assert r.hits[0].detail["same_image"] is True and r.hits[0].detail["axes"] == 2
+    assert r.hits[0].raw == 1.0, r.hits[0].raw          # 两轴都满 → 1.0
+    two = get_channel("C_place").gather(
+        st, _ctx(place_now="ruinschoolcorridor",
+                 place_raw_now="学校走廊废墟", embed_fn=fake_embed))
+    weeds = [h for h in two.hits if h.node.place_raw == ["深夜的杂草屋"]]
+    assert not weeds, ("同键但说法字面零重叠 → 调和平均给 0（'一轴为零 ⇒ 没关系'）"
+                       "—— 这是**形状**的结果, 不是闸门: 真 embedder 下几乎是 0.x, 会留下")
 
-    # ② 语义轴**不新增准入**: 「学校天台」与库里那条 `school_rooftop` 语义相近,
-    #    但当前键是 `ruinschoolcorridor` → **捞不出来**（已知的假阴性）
+    # ② 不同键但**字面同族** + 说法像 → 现在能捞回来（2026-09-19 记的那条假阴性）
     r2 = get_channel("C_place").gather(
-        st, _ctx(place_now="ruinschoolcorridor", place_raw_now="学校天台",
+        st, _ctx(place_now="school_rooftop", place_raw_now="学校天台",
                  embed_fn=fake_embed))
-    assert [h.node.id for h in r2.hits] == ids, "语义轴不该偷偷放宽准入"
-    # ③ 无 embed_fn → 打分缺席, **准入不受影响**
+    ids2 = [h.node.id for h in r2.hits]
+    assert ids2, "同地不同键该被召回 —— 2026-09-19 记的那条假阴性"
+    h2 = r2.hits[0]
+    assert h2.node.place == ["rooftop"] and h2.detail["same_image"] is False
+    # ⚠️ 满分有两种来源: `rooftop` ⊆ `school_rooftop` 走 **token** 规则（不是 alias）
+    assert h2.detail["key_sim_by"] == "token" and h2.detail["key_sim"] == 1.0, h2.detail
+
+    # ②b 另一种来源: `building_roof_top` 与 `school_rooftop` **只有别名相交**（天台）
+    st.add(make_node("episode", narration="摩天大楼的楼顶", significance=0.5,
+                     place=["building_roof_top"], place_raw=["学校天台"],
+                     event_seq=[55]))
+    r2b = get_channel("C_place").gather(
+        st, _ctx(place_now="school_rooftop", place_raw_now="学校天台",
+                 embed_fn=fake_embed))
+    h2b = next(h for h in r2b.hits if h.node.place == ["building_roof_top"])
+    assert h2b.detail["key_sim_by"] == "alias" and 0.3 <= h2b.detail["key_sim"] <= 0.4
+    assert h2b.detail["same_image"] is False, "别名相交只声称'同族', 不是同一张图"
+
+    # ③ 语义像但**键毫无字面关系** → 不进（语义轴不许单独放宽准入）
+    st.add(make_node("episode", narration="温泉里的雾", significance=0.5,
+                     place=["onsen"], place_raw=["学校天台"], event_seq=[56]))
     r3 = get_channel("C_place").gather(
-        st, _ctx(place_now="ruinschoolcorridor", place_raw_now="学校走廊废墟"))
-    assert len(r3.hits) == 2 and r3.hits[0].detail["sem"] is None
-    assert "无 embed_fn" in r3.knobs["sem"]
-    print("    C: 语义只打分（同键低分=素材复用可见）; 不新增准入; 无 embed 照常准入")
+        st, _ctx(place_now="school_rooftop", place_raw_now="学校天台",
+                 embed_fn=fake_embed))
+    assert "onsen" not in [h.node.place[0] for h in r3.hits], r3.hits
+
+    # ④ 无 embed_fn → 叙事轴缺席, `raw` 退回素材轴那一半（准入不受影响）
+    r4 = get_channel("C_place").gather(
+        st, _ctx(place_now="school_rooftop", place_raw_now="学校天台"))
+    assert r4.hits and all(h.detail["axes"] == 1 for h in r4.hits)
+    assert r4.hits[0].raw == 1.0, "同键在小轴缺席时 = 素材轴满分"
+    assert "无 embed_fn" in r4.knobs["sem"]
+    print("    C 融合: 同键同话=1.0; 同键异话→0（形状）; 别名相交的异键捞回; "
+          "无语义轴→只用素材轴")
 
 
 def test_unconscious_is_declared_not_implemented(tmp_path):
