@@ -1045,6 +1045,121 @@ B = 今天的一句寒暄（SIG=0.50）
       （同 scene 的首选图仍解析到真图, 0 个场景落在 `.thumbs`）——**顺序偶然, 不是设计**。
       换成 SDIR/DIR 组织时 `.thumbs` 会跟着搬 → 加一行"跳过点目录"再动
 
+## 地点换代 PL0–PL8（**计划稿, 未开工** —— 用户 2026-09-19: *"允许你大刀阔斧做改动,
+然后同样的先列 TODO，不要做"*）
+
+> **读法**：这是把地点系统从"能跑"推到"干净且完整"的一条线。每条都写了
+> **验收判据**与**阻塞点**；最后 §"开工前必须先跟你讨论的 6 件事"是**我不确定、
+> 需要你先裁**的地方（用户要求：*"但凡你有任何的混淆都要先和我讨论"*）。
+>
+> **不碰的边界**（免得多线程互相踩）：MMT 主链 · v3 的 entity 层 · 日夜
+> （`files.night`/`time_of_day`, 至今无消费方）· region（用户已说撤, 只留盒B 块）。
+
+### PL0 资产换代：`assets/background/` → `SDIR_*/DIR_*`（**地基, 最大的一块**）
+
+- [ ] 把 tempo 工作区的 `SDIR_*/DIR_*` 树搬进 `assets/background/`（1094 张, **文件名不动**）
+- [ ] **排除 `.thumbs/`**（239 张 480px 缩略图, 现在被 `rglob("*")` 当资产扫进
+      `background_scenes()`——今天靠顺序偶然不赢, 不是设计）
+- [ ] `MediaCatalog._scan_backgrounds` **跳过点目录**（顺带修既有隐患）
+- [ ] `background_dirs()` / `background_scenes_in_dir()`：随目录名失效（**零消费方**
+      → 改成两级或直接删）
+- [ ] `_director_whitelist.json` 的 `common_dirs`（23 个 `BG_*`）废
+- **验收**: ① `background_scenes()` 仍 = 620（数量不变）② 随机抽 20 个 scene_id
+      `background(sid)` 出真图 ③ `_place_bg(key)` 对**表里 168 条全扫**一遍,
+      **0 条 missing**（现在是缺的, 因为 `files` 指 `SDIR_*/...` 而磁盘还是 `BG_*`）
+- **阻塞**: §讨论①（同步方向）
+
+### PL1 表与资产的路径对齐
+
+- [ ] PL0 之后, 表里 `files`（`SDIR_x/DIR_y/BG_z.jpg`）**可直接解析**；
+      `PlaceEntry.asset()` 从"给路径"变"给真存在的路径"
+- [ ] 新增自检：**表 ↔ 磁盘对账**（多少条的 `files` 找不到 → 那就是黑屏名单）
+- [ ] 该自检接进 `experiments/`（可复跑）, 不进运行时
+- **验收**: 168 条全对账通过; 对账脚本输出 `missing=0`
+- **阻塞**: PL0
+
+### PL2 写作用词成块（盒B 的**有意的例外**）
+
+- [ ] 表里 `sdir == "SDIR_Atmosphere"` 且 active 的 4 条（`view_sky`/`black`/
+      `view_constellation`/`view_dawnsky`）→ 一个新的盒B 块
+- **判据**（用户原话）: *"主 LLM 有部分词表……是某些特效比如说 black 或者星空这种词，
+      这是因为这些词能让 LLM 更好的写作"* —— **给词是刻意的**, 与"零内容词表"不矛盾
+      （那条裁决针对的是**资产 slug 菜单**会框死 writer）
+- **验收**: 盒B 10 块; 夹具刷新一次; `report.py describe("bond")` 里能看到新块
+- **阻塞**: §讨论⑥（块名/文案/与 rules §五【换场】的分工）
+
+### PL3 标注层减负：句级层1 + 一次调用（**省钱 vs 万无一失, 要你裁**）
+
+- 现状: 每板**恒定一次** `annotate_places`（7022 字符 prompt, 真机 0.4–0.7s）;
+      switch 板若层1 未命中再 +1 次 `resolve_place`
+- [ ] **句级层1**: 每句先做表别名命中 → 确定命中就 0 调用
+- [ ] **线索词预筛**: 板内没有"走出/走进/推开/来到/回到/穿过…"（rules §五 那串）
+      → 整板跳过标注（0 调用）
+- [ ] （可选）合并两份 prompt: 把 `switch` 原话当"第 0 行"喂进 annotate,
+      一次拿板级 + 句级
+- **收益**: 真机上"一板一次 7k 字符调用"→ 多数板 0 调用
+- **风险**: 预筛会**漏**（writer 用了没说过的换场句式）→ 漏了画面就不切
+- **阻塞**: §讨论②
+
+### PL4 退役旧物（清账）
+
+- [ ] `config/settings/world/places.yml` + `core/rag/place.py::PlaceRetriever`：
+      **生产零调用**（只 `experiments/rag_test.py`）, 语料与表的 `keywords` 重叠
+- [ ] `assets/_director_whitelist.json`：`common_scenes` 只剩"表读不出来时的降级兜底"
+- [ ] `emotion_lexicon.build_place_injection`（**生产零调用**）与
+      `load_place_lexicon`（降级路径）
+- [ ] `core/parsing/place_regions.py`：region 撤出记忆后只剩盒B 一块 →
+      是否并进 `promptkit/blocks.py`？
+- **阻塞**: §讨论③（删 vs 留）
+
+### PL5 C 链路通电（V3-3 的一部分）
+
+- 现状: `get_channel(...).gather(...)` **全库只在测试里出现**;
+      `ctx.place_now` / `place_raw_now` **无生产者**
+- [ ] 生产者: 从当前板/最近板取 `place` 与 `place_hint` → 构造 ctx
+- [ ] （可选）接进主链 + 合成层 + 台账
+- **我的倾向**: **只补生产者 + 测试, 不接主链** —— 半通电比不通电更难查
+- **阻塞**: §讨论④
+
+### PL6 工具：改名批量替换 + 重名检测
+
+- [ ] `tools/` 或 `experiments/` 一个小脚本：改一个 `place` 键时, 扫
+      **事件流 `payload.place` / `paragraphs[*].place`** + 表 + `_place_review.json`
+      （`place_hint` 是**原文, 不动**）
+- [ ] **重名检测（必须先跑）**: 新名是否已被占用 / 两个旧 key 是否撞成一个
+      → 撞 = **不可逆的信息合并**, 工具**拒绝执行**并要求人工确认
+- **阻塞**: §讨论⑤（重复键名策略）
+
+### PL7 表自身收尾（**作者侧**, 我只出清单）
+
+- [ ] `files.night` 归类：混进状态变体 25 张（ruin/erode/blur/off/dark/party/fake）
+      + 白天天气 7 张（fog/rain/cloudy/dawn/sky）; 只有 115/168 是真夜景
+- [ ] `tent_inside` 无 day 文件（唯一一条）
+- [ ] 覆盖率：435/1094 = 39%; `SDIR_Special` 59 组 **0 active**; `SDIR_Schools` 9/126
+- [ ] 写了 note 却没勾 active 的（`ruinpianoroom` 废弃琴房 / `abandoned_warehouse` …）
+- [ ] `region` 补全（现 20/168）——用户说"作用不大", 可做可不做
+
+### PL8 文档/夹具收尾
+
+- [ ] `CLAUDE.md §8` 的"**盒B 至此已无任何词表块**"要改成"唯一例外 = 写作用词"
+- [ ] `DESIGN_PLACE §2`（`time_of_day`）/`§3`（扩展性表）作废或改写
+- [ ] `docs/AI_BRIEF_PLACE.md` 跟着每次改动更新（**它是给 AI 的, 落后就会再被带偏**）
+- [ ] promptkit 夹具（PL2 加块后必刷）
+
+### 开工前必须先跟你讨论的 6 件事
+
+1. **PL0 的同步方向**：搬进 repo 之后, 作者还在 tempo 改图——**单向 tempo → repo**？
+   还是以后直接在 repo 改（tempo 退役）？`.thumbs` 要不要跟着搬？
+2. **PL3 的取舍**：句级层1 + 线索词预筛 = 省钱但**可能漏切画面**。你要省钱还是
+   万无一失？（可折中: 预筛只降级为"低优先", 不跳过）
+3. **PL4 删还是留**：`PlaceRetriever`/`places.yml` 生产零调用, 但它的**跨语言
+   embedding 检索**是 `DESIGN_PLACE §3`「玩家自由指定地点」的预留 → 删还是留？
+4. **PL5 要不要半通电**：C 链路只补生产者不接主链, 还是干脆等 v3 一起做？
+5. **PL6 重复键名策略**：两个旧 key 撞成一个新名 = 不可逆合并。禁止？还是允许并
+   在事件流里留痕？
+6. **PL2 的块名/文案**：新块叫什么、给词还是给"什么时候用"的说明、与 rules
+   §五【换场】怎么分工？
+
 ## 中期（蓝图 / 板块）
 
 - [ ] **回放功能**（事件流 → 自动播放）：
