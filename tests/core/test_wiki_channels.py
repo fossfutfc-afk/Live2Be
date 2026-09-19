@@ -231,20 +231,33 @@ def test_recall_side_fields_never_reach_llm(tmp_path):
 
     它们是**召回侧信号**——参与排序与筛选, 不参与写作。这里钉死的是
     「节点级」那一半: `render_*`（唯一往 prompt 里塞节点文本的地方）
-    不许输出 `emo_shape`, 哪怕它是满的。
+    不许输出这些字段, 哪怕它们是满的。
+
+    2026-09-19 扩到**地点两轴**: 用户问 *"我为什么要把 key 字段给到 LLM 的记忆？
+    喂给 llm 的时候我直接丢掉这个字段不就行了？"* —— 对, 而且**架构里已经这么做了**
+    （`render.py` 的四个视图只读 narration/verbatim/content/pattern/examples/
+    subject/growth/count/links/contradictions/significance/ts/observer）。
+    本用例把"已经这么做"从**假设**变成**被钉住的事实**。
     """
-    from core.brain.wiki_v2.render import render_character_view, render_organize_view
+    from core.brain.wiki_v2.render import (render_character_view,
+                                          render_cognition_list,
+                                          render_organize_view)
     st = _store(tmp_path)
     for n in st.all():
         n.emo_shape = ["outburst", "shout"]
+        n.place = ["ruinschoolcorridor"]
+        n.place_raw = ["WRITER_ORIGINAL_PHRASE"]
     view = render_character_view(st.all(), char_name="遥香")
     org = render_organize_view(st.all())
-    for text in (view, org):
+    cog = render_cognition_list(st)
+    for text in (view, org, cog):
         assert "outburst" not in text and "shout" not in text, text
-        assert "emo_shape" not in text
-    # 反向确认: 这两个视图确实渲染了节点（不是空串让断言假通过）
+        for leak in ("emo_shape", "place_raw", "ruinschoolcorridor",
+                     "WRITER_ORIGINAL_PHRASE"):
+            assert leak not in text, f"{leak} 漏进了 LLM 上下文:\n{text}"
+    # 反向确认: 这些视图确实渲染了节点（不是空串让断言假通过）
     assert "杂草屋" in view and "杂草屋" in org
-    print("    ★ 召回侧字段隔离: emo_shape 不进 render_character_view / organize_view")
+    print("    ★ 召回侧字段隔离: emo_shape / place / place_raw 都不进三个渲染视图")
 
 
 def test_place_gate_groups_by_place_key(tmp_path):
