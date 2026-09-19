@@ -143,13 +143,15 @@ class BrainNode:
     #: ① 落**原文**走语义相似（同 `D` 链路拿 `narration` 做向量那一手）
     #: ② 作者打**地点实体表**（真实地名 → entity）——即 v3 的 entity 中心模型
     #: 未决，见 `TODO.md` 地点节。
-    region: str = ""
-    #: **剧情地理**（M3）——`regions.yml` 的官方中文主名（`"阿拜多斯高级中学"`），
-    #: 由 `digest` 拿段内**最后一条 `switch` 原文**经纯字符串归一出（**0 LLM**）。
-    #: `""` = 未采集/没提到（**哨兵**: 不知道 ≠ 某个区域）。
-    #: 用途: C 链路"同地"判据的**第二坐标**（`place` 键相等 = 同素材;
-    #: `region` 相等 = 同一片地方）——两根轴都在节点上，判据选哪个不必现在定。
-    region: str = ""
+    #:
+    #: ⚠️ **原先这里有个 `region: str`，2026-09-19 撤掉了** —— 用户澄清:
+    #: *"region 只是用于判定在哪个学院的，作用并不大，是为以后可能的地点体系
+    #: 做铺垫的产物，现在其实基本没有太多作用，**也不必落库**。"*
+    #: 它还是**派生视图**（`place_hint` 原文 → `regions.yml` 纯字符串归一）,
+    #: 随时能从事件流重算 ⇒ 落库 = 冗余的第二真源。
+    #: 真正的用处仍在**盒B【世界区域】块**（T16）与未来的地点体系。
+    #: 旧档里若还有这个键 → `from_dict` 宽松忽略。
+    #:
     #: **writer 原文序列**（叙事轴, 2026-09-19 用户指出后补落）。
     #:
     #: 用户: *"key 需要用于回放，而 writer 名则需要用于检索，**二者缺一不可**。
@@ -160,8 +162,7 @@ class BrainNode:
     #: |---|---|---|---|---|
     #: | **素材** | `place` | 字面相等 | 同一张图 | **回放**画哪张图 |
     #: | **叙事** | `place_raw`（本字段） | **语义相似** | 同一个地方 | **检索**"是不是那儿" |
-    #: | 地理 | `region` | 字面相等 | 同一片地方 | 粗兜底 |
-    #:
+        #:
     #: 两根轴**信息上正交**（`same_image` 而无 `same_place` = 素材被两个叙事地点
     #: 共用; `same_place` 而无 `same_image` = 同一地点的两个镜头），所以
     #: **组合起来才是信号**——同 `emo_span × emo_int`、同"B/D 双链路都召回"那条判据。
@@ -353,7 +354,7 @@ class BrainNode:
         }
         for f in ("observer", "tags", "segment_id", "event_seq", "ts", "source",
                   "links", "contradictions", "notes", "narration", "verbatim",
-                  "verbatim_seq", "title", "emo_shape", "place", "region",
+                  "verbatim_seq", "title", "emo_shape", "place",
                   "place_raw",
                   "pattern", "subject", "count", "examples", "content", "growth",
                   "history", "source_key"):
@@ -398,7 +399,6 @@ class BrainNode:
         node.verbatim_seq = _str_list(raw.get("verbatim_seq"))
         node.emo_shape = _str_list(raw.get("emo_shape"))
         node.place = _str_list(raw.get("place"))
-        node.region = _str(raw.get("region"))
         node.place_raw = _str_list(raw.get("place_raw"))
         node.title = _str(raw.get("title"))
         node.pattern = _str(raw.get("pattern"))

@@ -265,13 +265,15 @@ class PlaceGate:
 
     用户进一步指出: *"key 需要用于回放，而 writer 名则需要用于检索，**二者缺一不可**。
     但是 writer 名不像键名可以直接 literal compare……会不会是用于检索的两个维度？"*
-    —— 三个维度, 但**判据的资格不同**:
+    —— **两个维度, 判据的资格不同**:
 
-    | 信号（`by`） | 载体 | 判据 | 声称 | 准入? |
+    | | 载体 | 判据 | 声称 | 准入? |
     |---|---|---|---|---|
     | `same_image` | `node.place` | **字面相等**（键） | **同一张图**（素材轴 / 回放） | ✅ 是 |
-    | `same_area` | `node.region` | **字面相等** | 同一片地方（粗兜底） | ✅ 是 |
     | `sem`（打分, 非信号） | `node.place_raw` vs `ctx.place_raw_now` | **语义相似度** | 有多像"同一个地方" | ❌ **不参与准入** |
+
+    （原先还有第三轴 `same_area`（`region` 相等）—— **2026-09-19 撤掉**:
+    用户澄清 region *"只是用于判定在哪个学院的…基本没有太多作用，也不必落库"*。）
 
     **为什么语义轴暂时不参与准入**: 准入若要靠它, 就得有**相似度阈值**, 而
     `tests/core/test_wiki_recall_ledger.py::test_no_threshold_knobs_left` 钉着
@@ -281,10 +283,9 @@ class PlaceGate:
     * `same_image` 低 `sem` → **素材复用**（一张图被两个叙事地点共用）——这正是
       用户担心的假阳性, 但下游能**看见**它, 而不是被隐藏
     * ⚠️ **反向假阴性仍未解**（同地不同键: `school_rooftop` vs `rooftop`）——
-      键不等就不准入, 语义轴没机会。**这是一个未决项**（见 TODO）:
-      要么为语义轴破例开阈值, 要么改"取前 N 条"口径, 要么走地点实体表。
+      键不等就不准入, 语义轴没机会。**这是一个未决项**（见 TODO）。
 
-    三维**信息上正交**, 组合才是信号（同 `emo_span × emo_int`、同"B/D 双链路都
+    两维**信息上正交**, 组合才是信号（同 `emo_span × emo_int`、同"B/D 双链路都
     召回 = 最重要"那条判据）。
 
     无 `embed_fn` → 语义打分缺席（`raw` 退回 1.0）, 准入不受影响。
@@ -298,36 +299,30 @@ class PlaceGate:
     def gather(self, store, ctx: RecallContext) -> ChannelResult:
         res = ChannelResult(channel=self.name, kind=self.kind)
         now_place = (ctx.place_now or "").strip()
-        now_region = (ctx.region_now or "").strip()
         now_raw = (ctx.place_raw_now or "").strip()
-        if not (now_place or now_region):
+        if not now_place:
             res.degraded = True
-            res.note = "无 place_now / region_now（当前地点未知）"
+            res.note = "无 place_now（当前地点未知）"
             return res
         nodes = [n for n in store.all()
                  if n.kind in ("episode", "belief", "experience")
-                 and (n.place or n.region or n.place_raw)]
+                 and (n.place or n.place_raw)]
         if not nodes:
             res.degraded = True
-            res.note = "无节点带 place/place_raw/region（旧档: M3 之前物化的没有这些字段）"
-            res.knobs = {"place_now": now_place, "region_now": now_region}
+            res.note = "无节点带 place/place_raw（旧档: M3 之前物化的没有这些字段）"
+            res.knobs = {"place_now": now_place}
             return res
         # ── 准入（**等值, 无阈值**）──
-        admitted: list[tuple[BrainNode, str]] = []
-        for n in nodes:
-            if now_place and now_place in (n.place or []):
-                admitted.append((n, "same_image"))
-            elif now_region and n.region == now_region:
-                admitted.append((n, "same_area"))
+        admitted = [n for n in nodes if now_place in (n.place or [])]
         if not admitted:
-            res.note = "无相关命中（这段记忆不在当前素材/地区）"
-            res.knobs = {"place_now": now_place, "region_now": now_region,
-                         "n_nodes": len(nodes), "sem": "n/a（无准入）"}
+            res.note = "无相关命中（这段记忆不在当前素材）"
+            res.knobs = {"place_now": now_place, "n_nodes": len(nodes),
+                         "sem": "n/a（无准入）"}
             return res
         # ── 叙事轴: 只给**已准入**的命中打分（不参与准入, 见 docstring）──
         sem: dict[str, float] = {}
         sem_note = ""
-        cand = [n for n, _ in admitted if n.place_raw]
+        cand = [n for n in admitted if n.place_raw]
         if not now_raw:
             sem_note = "无 place_raw_now"
         elif ctx.embed_fn is None:
@@ -346,18 +341,16 @@ class PlaceGate:
                 logger.warning("C_place 语义打分降级: %s", e)
                 sem_note = f"语义打分失败: {e}"
         # 语义高的排前面（**排序**, 不是准入——全量参与, 无闸门）
-        admitted.sort(key=lambda t: -sem.get(t[0].id, 0.0))
+        admitted.sort(key=lambda n: -sem.get(n.id, 0.0))
         res.hits = [ChannelHit(node=n, raw=float(sem.get(n.id, 1.0)), rank=i + 1,
-                               detail={"by": by,
+                               detail={"by": "same_image",
                                        "place": list(n.place or []),
-                                       "region": n.region,
                                        "place_raw": list(n.place_raw or []),
                                        "sem": (round(sem[n.id], 3)
                                                if n.id in sem else None)})
-                    for i, (n, by) in enumerate(admitted)]
-        res.knobs = {"place_now": now_place, "region_now": now_region,
-                     "n_nodes": len(nodes), "hit": len(res.hits),
-                     "sem": sem_note or "ok"}
+                    for i, n in enumerate(admitted)]
+        res.knobs = {"place_now": now_place, "n_nodes": len(nodes),
+                     "hit": len(res.hits), "sem": sem_note or "ok"}
         return res
 
 

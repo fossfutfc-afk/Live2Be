@@ -131,19 +131,18 @@ def main():
           f"（均 {llm.place_secs / max(llm.place_calls, 1):.2f}s）; "
           f"主生成 {llm.gen_calls} 次")
 
-    # ── M3 闭环: 真机 payload → 记忆节点的 place/region（物化是纯函数, 不调 API）──
+    # ── M3 闭环: 真机 payload → 记忆节点的两轴（物化是纯函数, 不调 API）──
     if payloads:
         from types import SimpleNamespace
-        from core.brain.wiki_v2.digest import _place_region, _place_shape
+        from core.brain.wiki_v2.digest import _place_raw, _place_shape
         by_seq = {i: SimpleNamespace(type="bond", payload=p)
                   for i, p in enumerate(payloads, start=1)}
         keys = _place_shape(list(by_seq), by_seq)
-        region = _place_region(list(by_seq), by_seq)
+        raws = _place_raw(list(by_seq), by_seq)
         print("\n" + "=" * 66)
         print("M3: 这份 payload 物化到记忆节点会长这样")
         print(f"    node.place  = {keys}")
-        print(f"    node.region = {region!r}")
-        print("    （writer 本名不入节点 —— 它在 payload.place_hint 里, event_seq 指得到）")
+        print(f"    node.place_raw = {raws}   ← 叙事轴（writer 原话）")
 
 
 if __name__ == "__main__":
