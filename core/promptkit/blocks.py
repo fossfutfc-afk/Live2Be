@@ -19,14 +19,15 @@ from typing import Any, Callable
 from core.common.tone import load_story_tone
 from core.media.emotion_lexicon import build_emotion_injection
 from core.mmt.mmt_executor import MmtExecError, load_interperson, self_entry_to_prompt
+from core import paths
 from core.parsing.place_regions import load_regions
 from core.parsing.world_parser import DEFAULT_WORLD_PATH, load_world, world_to_prompt
 from llm.prompts import load_prompt
 
 logger = logging.getLogger(__name__)
 
-#: assets 默认根（core/promptkit/blocks.py → 项目根/assets; 与 bond 引擎旧推导一致）
-_DEFAULT_ASSETS = Path(__file__).resolve().parents[2] / "assets"
+#: assets 默认根（`core/paths.py` 的宏; 与 bond 引擎同一处来源）
+_DEFAULT_ASSETS = paths.ASSETS_DIR
 
 
 @dataclass

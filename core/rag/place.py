@@ -22,14 +22,12 @@ from pathlib import Path
 
 import yaml
 
+from core import paths
 from core.common.errors import Live2BeError
 from core.rag.embedder import LocalEmbedder
 
-#: 语料默认路径（config/settings/world/places.yml）
-_DEFAULT_PLACES = (
-    Path(__file__).resolve().parent.parent.parent
-    / "config" / "settings" / "world" / "places.yml"
-)
+#: 语料默认路径（`config/settings/world/places.yml`; 值的来源 = `core/paths.py`）
+_DEFAULT_PLACES = paths.PLACES_PATH
 
 #: 默认最低置信（低于 → 不返回, 上层保持上一场景）; 调参见 experiments/rag_test.py
 DEFAULT_THRESHOLD = 0.40

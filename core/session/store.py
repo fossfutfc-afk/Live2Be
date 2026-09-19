@@ -42,6 +42,7 @@ from core.session.events import (
     marker,
     parse_events,
 )
+from core import paths
 from core.session.io import append_jsonl, atomic_write_json, read_jsonl
 from core.session.models import TYPE_CONVERSATION, SessionMeta
 from core.session.renderer import session_status
@@ -49,9 +50,9 @@ from core.session.renderer import session_status
 #: `ts` 的写侧单一真源（带固定时区; 2026-09-17 收敛）
 from core.worldtime.age import now_ts as _now_ts
 
-#: 数据根（项目根绝对, cwd 无关——uvicorn/IDE 从任意目录启动）
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
-DEFAULT_DATA_ROOT = _PROJECT_ROOT / "data"
+#: 数据根（`core/paths.py` 的宏——项目根绝对, cwd 无关）
+_PROJECT_ROOT = paths.ROOT
+DEFAULT_DATA_ROOT = paths.DATA_DIR
 
 #: 平行世界上限（槽位数）
 WORLD_LIMIT = 3

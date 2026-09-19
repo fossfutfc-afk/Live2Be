@@ -34,6 +34,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from contract import NON_PICKS
+from core import paths
 from core.bond.bond_story import BondScene, BondStoryEngine, SceneLoopError
 from core.media.gallery import GalleryStore
 from core.momotalk import load_brain_segment
@@ -2244,8 +2245,8 @@ def _discard_candidates(state: BondState) -> None:
     state.choice_candidates = []
 
 
-#: 运行时开关读取路径（settings.toml, gitignore——本机 GUI 设置文件）
-_CAND_SETTINGS_PATH = Path(__file__).resolve().parent.parent / "settings.toml"
+#: 运行时开关读取路径（`core/paths.py` 的宏 —— settings.toml, gitignore, 本机 GUI 设置文件）
+_CAND_SETTINGS_PATH = paths.SETTINGS_PATH
 
 
 def _choice_pregen_enabled() -> bool:

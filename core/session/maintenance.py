@@ -33,6 +33,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from core import paths
 from core.session.events import (
     TYPE_BOND,
     M_VN_ABANDON,
@@ -40,7 +41,7 @@ from core.session.events import (
     M_VN_EXIT,
 )
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+PROJECT_ROOT = paths.ROOT
 
 
 # ---------------------------------------------------------------------------

@@ -48,15 +48,12 @@ import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from core import paths
+
 logger = logging.getLogger(__name__)
 
-#: 项目根（绝对路径——cwd 无关，与 `place_regions` / `world_parser` 同规矩）
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
-
-#: 默认表路径（与 `regions.yml` / `places.yml` 同目录——都是"世界数据"）
-DEFAULT_TABLE_PATH = (
-    _PROJECT_ROOT / "config" / "settings" / "world" / "place_entities.json"
-)
+#: 默认表路径 = `core/paths.py` 的宏（**值的来源只有那一处**，用户 2026-09-19）
+DEFAULT_TABLE_PATH = paths.PLACE_TABLE_PATH
 
 #: 写作用词的判据（表自带 `sdir`，**不许另立名单**——用户 2026-09-19）
 WRITING_SDIR = "SDIR_Atmosphere"

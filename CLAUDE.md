@@ -337,6 +337,13 @@ v1 的 `MemorialProbe`/`memorial_exit` 动作已退役。**图是异步的 → �
   basetemp 需预建目录**（New-Item -ItemType Directory .testtmp/pw）, 否则 tmp 用例
   全挂；默认 tmp 清理有权限错。JS：`node --check webgui/static/js/*.js`。
 - 夹具：promptkit 基线夹具 tests/fixtures/promptkit/*.txt 刷新纪律见 §8。
+- **固定路径一律写进 `core/paths.py`**（2026-09-19 用户裁决：*"写成 macro 的形式
+  放在最上面……最后改成你用 grep 能直接全量定位的方法"*）：消费方
+  `from core import paths` → `paths.XXX_PATH`（**写全 `paths.`**）。全量定位两条 grep:
+  `grep -n "^[A-Z][A-Z_]* = " core/paths.py`（清单）/ `grep -rn "paths\.[A-Z]"`（消费点）。
+  **不许在函数体里现拼项目根路径**——`tests/core/test_paths.py` 扫 `core/ webgui/
+  llm/ contract/` 守门（现拼 `Path(__file__) / "assets"` 之类会直接红）。
+  包内相对资源（模块找自己目录下的文件）不在此列。
 - **web 端到端两层**（2026-09-11, 见 experiments/web_e2e/README.md）: ① **A 层 HTTP** =
   `tests/webgui/test_web_http.py`（httpx + ASGITransport 打真实 app, 桩 LLM/临时
   store 注入, ~1s, 随全量跑）——路由/状态码/响应头/静态挂载/JSON 契约/settings 往返;

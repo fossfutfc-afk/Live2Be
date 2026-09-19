@@ -30,6 +30,7 @@ from pathlib import Path
 
 import httpx
 
+from core import paths
 from core.common.errors import Live2BeError
 
 logger = logging.getLogger(__name__)
@@ -37,11 +38,11 @@ logger = logging.getLogger(__name__)
 #: 默认服务地址（LM Studio 的常见端口; **可被 [embed].base_url 覆盖**）
 DEFAULT_BASE_URL = "http://localhost:1234/v1"
 
-#: 项目根（core/rag/embedder.py → parents[2]）
-_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+#: 项目根 + settings.toml（`core/paths.py` 的宏）
+_PROJECT_ROOT = paths.ROOT
 
 #: settings.toml（与 `[llm]` / `[image]` / `[recall]` 同一份；缺失/损坏 → 默认）
-_SETTINGS_PATH = _PROJECT_ROOT / "settings.toml"
+_SETTINGS_PATH = paths.SETTINGS_PATH
 
 #: 环境变量（进程级; `.env` 亦被加载——见 `_load_dotenv_once`）
 ENV_BASE = "LIVE2BE_EMBED_BASE"

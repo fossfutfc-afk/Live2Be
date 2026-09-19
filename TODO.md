@@ -755,6 +755,13 @@ B = 今天的一句寒暄（SIG=0.50）
       两层, 但**生产零调用**（只 `experiments/rag_test.py` 用）; 且它读 `places.yml`
       （中英日别名）与 `resolve_place` 的裸 slug **互不相识** → 词表统一时收口
       （C1 的 `keywords` 正是它缺的语料 —— 很可能直接由 `place_table` 取代）
+- [x] **固定路径收成宏 + 可 grep 全量定位**（2026-09-19 用户裁决）: 新增
+      `core/paths.py`（**20 条路径的唯一清单**, 顶层平铺, 只依赖 pathlib 无环）;
+      `core/ webgui/ llm/ contract/` 里 23 处现拼路径全部改为 `paths.XXX`;
+      `tests/core/test_paths.py` 4 例守门（`__all__`↔常量一一对应 / 全绝对且在根下 /
+      **零现拼项目根路径** / 依赖只有 pathlib）。哨兵已验证会红。
+      全量定位: `grep -n "^[A-Z][A-Z_]* = " core/paths.py` +
+      `grep -rn "paths\.[A-Z]"`。约定写进 `CLAUDE.md §12`。
 - [x] **C1 `core/media/place_table.py` 已落地**（2026-09-19, **纯新增, 零行为变化**）:
       `PlaceEntry` + `PlaceTable`（`resolve_exact` 层1 / `lexicon_text` 层2 含 note /
       `writing_words` 按 `sdir` / `by_region`）+ `load_table`（**mtime 缓存**;

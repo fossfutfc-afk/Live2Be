@@ -47,10 +47,12 @@ import logging
 import tomllib
 from pathlib import Path
 
+from core import paths
+
 logger = logging.getLogger(__name__)
 
-#: 项目根 settings.toml（core/brain/wiki_v2/ → parents[3]）
-_SETTINGS_PATH = Path(__file__).resolve().parents[3] / "settings.toml"
+#: 项目根 settings.toml（`core/paths.py` 的宏）
+_SETTINGS_PATH = paths.SETTINGS_PATH
 
 #: 默认值 —— **全部非阈值**（只有"取几条"与"半衰期/下界"）
 DEFAULTS: dict[str, float] = {
