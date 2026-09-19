@@ -59,6 +59,28 @@ DEFAULT_TABLE_PATH = paths.PLACE_TABLE_PATH
 #: 写作用词的判据（表自带 `sdir`，**不许另立名单**——用户 2026-09-19）
 WRITING_SDIR = "SDIR_Atmosphere"
 
+#: 分组头的**中文标签**（只用于 `lexicon_text()` 给标注 LLM 的那份文本）。
+#: 用户 2026-09-19 看过后裁决: *"直接换中文，不用对比了，保证一致性"* ——
+#: `【SDIR_Clubs】` 这种英文资产组织名对 LLM 是噪声, 而整份 prompt 都是中文。
+#: ⚠️ 这只是**显示名**, `sdir` 本身（判据 + 资产路径）仍是英文, 不许改。
+#: 表里新加一族而这里没标签 → 回落原名（不报错）; `test_place_table` 有镜像断言盯着。
+SDIR_LABELS: dict[str, str] = {
+    "SDIR_Atmosphere": "气氛镜头",
+    "SDIR_Clubs": "社团",
+    "SDIR_Infrastructure": "基建",
+    "SDIR_Inner": "室内",
+    "SDIR_Nature": "自然",
+    "SDIR_Outer": "室外",
+    "SDIR_Public": "公共设施",
+    "SDIR_Schools": "学校",
+    "SDIR_Streets": "街道",
+}
+
+
+def sdir_label(sdir: str) -> str:
+    """`SDIR_*` → 中文分组头（没登记 → 原样返回, 不抛）。"""
+    return SDIR_LABELS.get(sdir, sdir)
+
 #: 层1 子串匹配的最短针长（单字别名只允许整串命中——否则"桥"满地误命中）
 _MIN_NEEDLE = 2
 
@@ -241,7 +263,7 @@ class PlaceTable:
             return ""
         lines: list[str] = []
         for sdir in sorted(groups):
-            lines.append(f"【{sdir}】")
+            lines.append(f"【{sdir_label(sdir)}】")
             lines += [f"  {e.line(with_note=with_note)}" for e in groups[sdir]]
         return "\n".join(lines)
 
@@ -292,6 +314,27 @@ def reset_cache() -> None:
     _CACHE.clear()
 
 
+def _loads_with_dup_check(text: str) -> tuple[object, list[str]]:
+    """`json.loads` + **重复键检测**（返回 `(对象, 重复键名列表)`）。
+
+    为什么需要: 手编 JSON 里同一个键写两遍, `json.loads` **不报错、静默保留最后
+    一个**（`.testtmp/probe_json_dupkey.py` 实测）——生成侧安全（dict 构造 +
+    tempo 的 A1 撞车保护）, 但**读取侧**可能被手编文件骗: 一个地点悄悄消失/被覆盖,
+    而表看起来"读成功了"。这里把它变成一条 WARNING + `PlaceTable.error`。
+    """
+    dups: list[str] = []
+
+    def _hook(pairs):
+        out: dict = {}
+        for k, v in pairs:
+            if k in out:
+                dups.append(str(k))
+            out[k] = v
+        return out
+
+    return json.loads(text, object_pairs_hook=_hook), dups
+
+
 def _parse(raw: object, path: Path) -> PlaceTable:
     """JSON 对象 → 表。**形状不符的条目逐条丢弃**（不因一条坏数据废掉整表）。"""
     if not isinstance(raw, dict):
@@ -336,11 +379,17 @@ def load_table(path: str | Path | None = None) -> PlaceTable:
     if hit is not None:
         return hit
     try:
-        raw = json.loads(p.read_text(encoding="utf-8"))
+        raw, dups = _loads_with_dup_check(p.read_text(encoding="utf-8"))
     except (OSError, ValueError) as e:
         logger.warning("[place_table] 表读取失败（地点标注降级）: %s", e)
         return PlaceTable(path=p, ok=False, error=f"读取失败: {e}")
     table = _parse(raw, p)
+    if dups:
+        # 手编 JSON 里写重复键 **不报错、静默保留最后一个**（探针实测）——
+        # 生成侧安全（dict + A1 撞车保护）, 读取侧要自己看见（一行的事）。
+        dup_msg = f"重复键 {dups}（json 只保留最后一个）"
+        logger.warning("[place_table][DUPKEY] %s: %s", p, dup_msg)
+        table.error = f"{table.error}; {dup_msg}" if table.error else dup_msg
     if len(_CACHE) >= _CACHE_MAX:                    # 简单 LRU: 满了清空
         _CACHE.clear()
     _CACHE[ck] = table
@@ -349,9 +398,11 @@ def load_table(path: str | Path | None = None) -> PlaceTable:
 
 __all__ = [
     "DEFAULT_TABLE_PATH",
+    "SDIR_LABELS",
     "WRITING_SDIR",
     "PlaceEntry",
     "PlaceTable",
     "load_table",
     "reset_cache",
+    "sdir_label",
 ]

@@ -1347,7 +1347,7 @@ writer 根本不知道板存在, 它只是连着写记录、该换场就发 swit
   `ctx.place_now` / `place_raw_now` 无生产者。**`node.place`/`place_raw` 的数据照常
   物化**（digest 那一手不受影响, 将来通电时数据是齐的）。
 
-### PL6 工具：改名批量替换 + 留痕 —— **✅ 用户: "允许留痕"；并澄清"表里不会有重名"**
+### PL6 改名工具 + 留痕 —— **✅ 完成（2026-09-19）**
 
 > **⚠️ 我原先写错了一条, 删掉**：我编了个"两个旧 key 撞成一个新名 = 不可逆合并"的
 > 场景。用户 2026-09-19 澄清: *"两个旧 key 对应同一个实际名，在 json 里不认为它会
@@ -1356,21 +1356,26 @@ writer 根本不知道板存在, 它只是连着写记录、该换场就发 swit
 > * A1 之后 `api_export` 还加了**撞车保护**（两个组算出同一个键 → 不写盘 + 报出）
 > ⇒ **"表里两条同名"不是要防的东西, 那条删掉。**
 
-- [ ] 工具只需三件事: **① 改表里那一行的 key ② 扫引用面 ③ 留痕**
-- [ ] 扫描面: 事件流 `payload.place` + `paragraphs[*].place` + 表 + `_place_review.json`；
-      **`place_hint` 是原文, 不动**
-- [ ] 留痕台账: `data/worlds/{world}/place_renames.jsonl`（append-only, 与事件流同卷可
-      grep）记 `{ts, 旧key, 新key, 原因, 影响事件条数}`；**事件流本身不改**
-      （append-only 铁律——改名只发生在表里, 台账解释"旧事件里的 key 为什么查不到"）
-- [ ] **✅ 决定: 台账 + 给它一个消费方**（不然又是一件孤儿产物）——
-      `_place_bg()` 查不到 key 时**先查台账**: 命中就报
-      `"key 'X' 已改名为 'Y'"`, 而不是笼统的"素材未找到"。
-      于是那条黑屏 `alert` 直接告诉人**该去改什么**。台账形态就此定为**独立 jsonl**
-      （不塞进表: 表是"当下的视图", 不背历史）
-- [ ] **小守卫**: **手编 JSON 里写重复键, `json.loads` 不报错、静默保留最后一个**
-      （探针 `.testtmp/probe_json_dupkey.py` 实测）。生成侧安全（dict + A1 撞车保护）,
-      但**读取侧**仍可能被手编文件骗 → `load_table` 用 `object_pairs_hook` 数重复键
-      并 WARNING（一行的事）
+**落地（四件 + 9 例测试）**
+
+| 件 | 形态 |
+|---|---|
+| **台账** | `core/media/place_renames.py` → `data/worlds/{world}/place_renames.jsonl`（**append-only**）: `{ts, from, to, reason, events}`; 按 mtime 缓存; **链回溯** `a→b→c`; 成环/同名/空名 → `ValueError`（拒绝落盘）; 缺文件/坏行 → 跳过不抛 |
+| **工具** | `python -m core.media.place_rename --from X --to Y [--reason …] [--apply] [--world w]`（**默认干跑**）: ① 扫引用面 ② 改表那一行 ③ 留台账。表**已经是新名**（你在 tempo 改过）→ 只扫 + 记台账 |
+| **扫引用面** | 事件流 `payload.place` + `paragraphs[*].place`（v1 句项/v2 记录同一处）+ `soul/staging/events.jsonl`（章内暂存, 分开报）+ `assets/background/_place_review.json`（246 条, 报告不代改——那是 tempo 的导出）。**`place_hint` 是 writer 原文, 不动**。事件流**一个字不改**（append-only） |
+| **改表纪律** | 先验证"用 `indent=1`/无尾换行能**逐字节复原**"才敢重写（**实测真表就是这么导的**）——有人手搓过 → **拒绝**并让你在 tempo 改（免得顺手重排整个文件, 那种 diff 没法审）; 目标键已存在 → 撞车拒绝 |
+| **消费方** | `_place_bg()` 查不到图时**先问台账** → 状态 `renamed`（不是 `missing`）; `missing_asset` 多带 `message` + `renamed_to` → 前端 alert 说 **"key 'X' 已改名为 'Y'（原因）"** 而不是笼统的"素材未找到"（板级与锚点级两条路都接了）。台账缺失 → 回落原样（宁缺勿错） |
+| **重复键守卫** | `load_table` 用 `object_pairs_hook` 数重复键 → WARNING + 写进 `PlaceTable.error`（`重复键 ['a']（json 只保留最后一个）`）。**读取侧手编文件骗不了人**了 |
+| **路径宏** | 新增 `paths.WORLDS_DIR`（`data/worlds`; 进 `MAY_MISS`——首次运行才创建） |
+| **顺手（用户裁决）** | 层2 词表的**分组头换中文**: `【SDIR_Clubs】` → `【社团】`（`SDIR_LABELS`, 9 类; 用户: *"直接换中文，不用对比了，保证一致性"*）。⚠️ 换的只是**显示名**, `sdir` 本身（判据 + 资产路径）仍英文; 表里新加一族没标签 → 原样回落, 由 `test_sdir_labels_cover_the_real_table` 盯着 |
+
+**测试** `tests/core/test_place_rename.py` 9 例: 台账链回溯/成环拒绝/坏行跳过 ·
+扫四个面（`place_hint` 不计）· **改表逐字节唯一**（`before.replace()` 相等）·
+非导出格式/撞车/源缺失全拒 · 干跑不落盘 → `--apply` 才改 · 消费方 `renamed` +
+人话 · 重复键守卫。全量 **831 通过**。
+
+⚠️ **同步方向提醒（写进工具输出）**: 表是 **tempo → repo 单向**。就地改 repo 的表
+只对本机有效, 下次从 tempo 同步会被覆盖 ⇒ `--apply` 时工具会提醒你在 tempo 侧也改。
 
 ### PL7 表自身收尾（**作者侧**, 我只出清单）
 
@@ -1409,8 +1414,8 @@ writer 根本不知道板存在, 它只是连着写记录、该换场就发 swit
    （改了会红, 见 `tests/core/test_bond_shots.py`）。
    附带那个小问已按"写进文件"处理: `black` 写成"纯黑用在角色走神、失神、
    一句话说不下去的地方, 不用来当普通转场"。
-2. **PL6 台账文件名/位置**（`data/worlds/{world}/place_renames.jsonl`）—— 我已定,
-   除非你想换个地方。
+2. ~~**PL6 台账文件名/位置**~~ **已落地**（`data/worlds/{world}/place_renames.jsonl`,
+   见 PL6 节; 新增 `paths.WORLDS_DIR` 宏）——若想换地方, 改一处宏即可。
 
 ## 中期（蓝图 / 板块）
 

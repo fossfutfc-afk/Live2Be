@@ -31,7 +31,7 @@ MUST_EXIST = (
     "DIRECTOR_WHITELIST_PATH",
 )
 #: 允许缺失（首次运行才创建）
-MAY_MISS = ("DIAG_DIR", "DIAG_LOG_PATH")
+MAY_MISS = ("WORLDS_DIR", "DIAG_DIR", "DIAG_LOG_PATH")
 
 #: 现拼路径的哨兵: `Path(__file__)` 同行还出现这些"项目根一级目录名" = 违规
 _ROOT_MARKERS = ('"assets"', '"data"', '"config"', '"webgui"', "settings.toml")

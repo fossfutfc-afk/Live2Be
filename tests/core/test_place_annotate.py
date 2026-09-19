@@ -376,14 +376,14 @@ def test_lexicon_text_carries_note_only_with_table():
     resolve_place(llm, "表外地名甲乙丙", t.keys(), "", table=t)
     sys_text = llm.calls[0]["messages"][0]["content"]
     assert e.note in sys_text, "note 没进层2 词表 → 表外只能瞎猜"
-    assert "【SDIR_" in sys_text, "没按 sdir 分组"
+    assert "【气氛镜头】" in sys_text, "没按 sdir 分组（PL6 起分组头换中文）"
     # 无表: 退回裸 id 列表（老行为, 兼容）
     _RESOLVE_CACHE.clear()
     llm2 = ScriptedLLM('{"place": "rooftop"}')
     resolve_place(llm2, "另一个表外地名", KEYS, "")
     sys2 = llm2.calls[0]["messages"][0]["content"]
-    assert "rooftop" in sys2 and "【SDIR_" not in sys2
-    print("    lexicon: 有表带 note（含分组）; 无表退回裸 id")
+    assert "rooftop" in sys2 and "【气氛镜头】" not in sys2
+    print("    lexicon: 有表带 note（含中文分组）; 无表退回裸 id")
 
 
 def test_engine_maps_place_key_to_asset_scene_id():

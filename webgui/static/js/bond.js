@@ -518,12 +518,16 @@ let lastSceneKey = "";
   const _missingAssetSeen = new Set();
   function reportMissingAsset(info) {
     const key = (info && info.key) || "?";
-    console.error(`[place] 素材未找到: key=${key}` +
+    // 服务端能解释原因时用它的原话（PL6: "key 'X' 已改名为 'Y'"——比"素材未找到"
+    // 有用得多: 直接告诉人该去改什么）; 解释不了才是笼统的"素材未找到"。
+    const why = (info && info.message) ||
+      `素材未找到: ${key}\n（背景已用黑屏占位；检查 assets/background 与地点表）`;
+    console.error(`[place] ${why}` +
                   (info && info.scene_id ? ` scene_id=${info.scene_id}` : "") +
                   " → 黑屏占位");
     if (!_missingAssetSeen.has(key)) {
       _missingAssetSeen.add(key);
-      alert(`素材未找到: ${key}\n（背景已用黑屏占位；检查 assets/background 与地点表）`);
+      alert(why);
     }
   }
 

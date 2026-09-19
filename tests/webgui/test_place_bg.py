@@ -54,11 +54,14 @@ def test_missing_asset_is_black_plus_notice():
 
     此前是**静默换成别的图**（`_fallback_bg_url()` → `class_room`）—— 真机那
     20/20 板"每次 VN 都在显示教室"就是这么来的：看起来正常，其实错了。
+
+    ⚠️ 这里用的键必须**真的没人用过**（不含改名台账里 —— PL6 起旧名会返回
+    `renamed` 而不是 `missing`, 见 `tests/core/test_place_rename.py`）。
     """
     from webgui.routers.bond import _black_bg_url, _place_bg
     black = _black_bg_url()
     assert black and "BG_Black" in black, black
-    for key in ("不存在的键", "nope_room", "已被改名的旧键"):
+    for key in ("不存在的键", "nope_room", "nope_room_the_second"):
         url, st = _place_bg(key)
         assert (url, st) == (None, "missing"), (key, url, st)
     print(f"    缺失 → 状态 missing; 黑屏占位 = {black.rsplit('/', 1)[-1]}")
@@ -68,12 +71,12 @@ def test_resolve_scene_missing_asset_goes_black():
     """板级: **有明确地点但没图** → 黑屏 + `missing_asset`（不再静默兜底）。"""
     scene = {
         "background": "neutral",          # 导演没换（缺资产时会保持）
-        "place": "已被改名的旧键",          # 但**地点意图是明确的**
+        "place": "nope_room_the_third",   # 但**地点意图是明确的**
         "is_end": False,
         "paragraphs": [{"text": "她推开门。"}],
     }
     out = _resolve_scene(scene, "igusa_haruka")
-    assert out["missing_asset"] == {"key": "已被改名的旧键"}, out.get("missing_asset")
+    assert out["missing_asset"] == {"key": "nope_room_the_third"}, out.get("missing_asset")
     assert "BG_Black" in (out.get("background_url") or ""), out.get("background_url")
     print(f"    板级缺失 → missing_asset={out['missing_asset']} + 黑屏")
 
