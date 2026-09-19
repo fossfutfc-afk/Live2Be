@@ -51,11 +51,15 @@ class _Char:
 # ---------------------------------------------------------------------------
 
 def test_lens_words_are_free_layer1_hits():
-    """★ 每个镜头词都必须是表的**唯一别名**且指向**写作用词**（层1 0 调用）。
+    """★ 每个镜头词都得在层1 **唯一命中**（0 调用）且指向**写作用词**。
+
+    ⚠️ "命中"不等于"逐字是别名": 层1（`PlaceTable.resolve_exact`）是**最长别名子串**
+    匹配——`海边夜空` 靠别名 `夜空` 命中, 也是 0 调用。要求的是**唯一**（歧义会被
+    层1 拒绝并下沉层2）, 以及落在 `sdir == SDIR_Atmosphere` 上（别指向一个真地点）。
 
     这一条红了怎么修（二选一, 别改测试）:
-      · 词写错了 → 改成表里的别名（`grep` 那张表 / `resolve_exact` 试一下）
-      · 表里确实少了这个词 → 作者侧（tempo 工作台）加别名后再同步表
+      · 词写错了 → 改成表里能唯一命中的说法
+      · 表里确实少了这个词 → 作者侧（tempo 工作台）加别名后同步表
     """
     t = load_table()
     assert t.ok, f"真表读不出来: {t.error}"
@@ -71,7 +75,7 @@ def test_lens_words_are_free_layer1_hits():
     for w in words:
         hits = t.resolve_exact(w)
         assert len(hits) == 1, (
-            f"镜头词 {w!r} 在表里不是唯一别名（命中 {hits}）——"
+            f"镜头词 {w!r} 层1 命中不唯一（{hits}）——"
             f"层1 不猜（歧义下沉层2）, 每次都会多花一次调用")
         key = _layer1(w, t, "", key_set)
         assert key, f"镜头词 {w!r} 层1 没命中（返回 {key!r}）——writer 照抄了也白搭"
