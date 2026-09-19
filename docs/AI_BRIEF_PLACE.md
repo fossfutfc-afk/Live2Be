@@ -34,6 +34,7 @@
 | **改名台账** | `data/worlds/{w}/place_renames.jsonl` + `core/media/place_renames.py` | key 不可改 ⇒ 改名 = 只改表 + 留痕；工具 `python -m core.media.place_rename` |
 | **旧白名单** | `assets/_director_whitelist.json` | 31 条裸 slug，**只剩降级兜底** |
 | **语义检索** | `core/rag/place.py` | 语料 = 同一张表；返回**表键**；**没接线** |
+| **两轴融合** | `core/media/place_fuse.py` | `magic(叙事轴, 素材轴)` = **调和平均**（无阈值/无旋钮）; 召回侧已接（C 链路）, 解析侧待注入 |
 | **写作用词** | `llm/prompts/bond_shots.md`【一】 | writer 手里的镜头词（**手写**，不是从表生成） |
 
 ---
@@ -101,3 +102,4 @@
 | C 链路通电（`channel_impl`） | 用户答"不"——并入 v3 |
 | 剧情状态类变体（erode/ruin/off/party…）进候选 | **没有信号源**（谁告诉它这场戏停电了？），先不放 |
 | 句级锚点的多图选择 | ✅ 已补（2026-09-20）——锚点也会选图，落 `paragraphs[i].place_asset` |
+| 两轴融合的**解析侧**注入（writer 原话 → 键） | ⏳ 函数已在（`place_fuse`）, 但**两边都需要数据**: 回灌表零条 + 本地 embedding 服务（1234/1235）不可达 |

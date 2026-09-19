@@ -10,7 +10,7 @@
 |---|---|---|
 | **A** `A_intensity` | ✅ **能** | 只需要 `ctx.story_now`（游标）+ 节点 `story_time`。**旧档节点**（无 `story_time`）逐条跳过 |
 | **B** `B_emotion_rag` | ✅ **能**（T15, 2026-09-15） | 需要 `ctx.emo_now` + 节点 `emo_shape`（digest 按板指针物化）+ `embed_fn` |
-| **C** `C_place` | ❌ 不能 | `BrainNode` **无 `place` 字段**（§2.3.2: 设计已定、实现待补） |
+| **C** `C_place` | ✅ **能**（2026-09-20 两轴融合） | `ctx.place_now` + 节点 `place`（字面轴, 0 调用）; 叙事轴那一半还要 `ctx.place_raw_now` + 节点 `place_raw` + `embed_fn`（缺则 `axes=1`, 只用素材轴） |
 | **D** `D_deja_vu` | ✅ **能** | 只需要 `narration` + `embed_fn`（两者都有） |
 | **E** `E_unconscious` | ⏳ 未立项 | 认知碎片（§6.4 的 `percepts`） |
 
@@ -249,52 +249,53 @@ class EmotionRag:
 # ---------------------------------------------------------------------------
 
 class PlaceGate:
-    """C 链路: `place` 字段的**查重/检测**——`GATE`, 不是分数。
+    """C 链路: 地点召回 —— **两轴融合**（`GATE` 的准入面 + 叙事轴的打分面）。
 
-    用户 2026-09-13 的定位是"**检测**"（"地点字段查重"）, 与 A/B/D 不同:
-    它不排序, 它**筛选/分组**——"同一地点的记忆"是一个集合, 集合内的成员
-    再交给 A/D 排序。这也是它与"逻辑召回"的关系: 同地点/同时间/同在场者
-    都是**键命中**（不是相似度）, 见 §3.3 的三通路拓扑。
+    用户 2026-09-13 的定位是"**检测**"（"地点字段查重"）。2026-09-20 用户又给了
+    融合口径: *"最好是混合策略，一个特殊的 magic function，在 writer 词和 key
+    相似度都高的时候值高，反之一般"* ⇒ 本链路现在**两根轴一起算分**
+    （`core/media/place_fuse.py` 的 `magic` = 调和平均, 无阈值）。
 
-    ## 判据（**三个坐标 = 检索的三个维度**, 2026-09-19）
+    ## 两根轴（判据资格不同, 别混）
 
-    ⚠️ **更正（用户: *"真实地名和 key 大概率并不是一个双射"*）**: `place` 键相等
-    只声称 **"同一张图"** —— 表里 `ruinschoolcorridor` 的 note 自己写着
-    *"也可以用做老屋子或者某种杂草秘密基地"*（一键多义）; 反过来别名 `天台`
-    指向 3 个键（一地多键）。
+    | | 载体 | 判据 | 声称 |
+    |---|---|---|---|
+    | `sk`（素材轴） | `node.place` ↔ `ctx.place_now` | **字面**（同名 / 别名相交 / 键名 token） | 有多像**同一张图** |
+    | `sw`（叙事轴） | `node.place_raw` ↔ `ctx.place_raw_now` | **语义**（embedding cos, 要 `embed_fn`） | 有多像**同一个地方的说法** |
 
-    用户进一步指出: *"key 需要用于回放，而 writer 名则需要用于检索，**二者缺一不可**。
-    但是 writer 名不像键名可以直接 literal compare……会不会是用于检索的两个维度？"*
-    —— **两个维度, 判据的资格不同**:
+    ⚠️ **更正（用户: *"真实地名和 key 大概率并不是一个双射"*）**: `place` 键相等只声称
+    **"同一张图"** —— `ruinschoolcorridor` 的 note 自己写着*"也可以用做老屋子或者某种
+    杂草秘密基地"*（一键多义）; 反过来别名 `天台` 指向 3 个键（一地多键）。
+    两维**信息上正交**, 组合才是信号（同 `emo_span × emo_int`、同"双链路都召回 = 最重要"）。
 
-    | | 载体 | 判据 | 声称 | 准入? |
-    |---|---|---|---|---|
-    | `same_image` | `node.place` | **字面相等**（键） | **同一张图**（素材轴 / 回放） | ✅ 是 |
-    | `sem`（打分, 非信号） | `node.place_raw` vs `ctx.place_raw_now` | **语义相似度** | 有多像"同一个地方" | ❌ **不参与准入** |
+    ## 融合出来的三条可读结论
 
-    （原先还有第三轴 `same_area`（`region` 相等）—— **2026-09-19 撤掉**:
-    用户澄清 region *"只是用于判定在哪个学院的…基本没有太多作用，也不必落库"*。）
+    * **同键 + 同说法**（`sk=1, sw` 高）→ 最高: 确实同一个地方
+    * **同键 + 说法不像**（`sk=1, sw` 低）→ 中: **素材复用**（一张图被两个叙事地点共用）
+      —— 用户担心的假阳性**可见**（`detail.sem` 低）, 而不是被隐藏
+    * **不同键 + 说法像**（`sk` 中, `sw` 高）→ 中高: **同地不同键** —— 这正是 2026-09-19
+      记下的那条**反向假阴性**（`school_rooftop` vs `rooftop`: 键不等就不准入, 语义轴
+      没机会）。现在靠 `sk` 的**字面**那一半（别名 / 键名 token）把它们连起来
+    * **一轴为零**（`sk=0` 或 `sw=0`）→ **0**: 融合形状自带的语义（不是"弱关系"）。
+      所以"只有措辞像、键八竿子打不着"的候选仍然进不来 —— 语义轴**没有**偷偷放宽准入
 
-    **为什么语义轴暂时不参与准入**: 准入若要靠它, 就得有**相似度阈值**, 而
-    `tests/core/test_wiki_recall_ledger.py::test_no_threshold_knobs_left` 钉着
-    用户的 T17 裁决 —— *"三个阈值旋钮已删, 配置面不再有任何阈值"*（理由: 未标定的
-    硬闸门曾把新认知永远掐死）。语义轴现在只对**已由等值准入的命中**打分, 于是:
-    * `same_image` 高 `sem` → 确实同一个地方
-    * `same_image` 低 `sem` → **素材复用**（一张图被两个叙事地点共用）——这正是
-      用户担心的假阳性, 但下游能**看见**它, 而不是被隐藏
-    * ⚠️ **反向假阴性仍未解**（同地不同键: `school_rooftop` vs `rooftop`）——
-      键不等就不准入, 语义轴没机会。**这是一个未决项**（见 TODO）。
+    ⚠️ **`key_sim` 满分有两种来源, 别混**: ① 键**字面相等**（`key_sim_by="same"`,
+    `detail.same_image=True` —— 这才是"同一张图"）; ② 键名 **token 包含**
+    （`rooftop` ⊆ `school_rooftop`, `key_sim_by="token"` —— "同一族图"）。
+    要严格分组请认 `detail.same_image`, 不要用 `key_sim == 1` 去推。
 
-    两维**信息上正交**, 组合才是信号（同 `emo_span × emo_int`、同"B/D 双链路都
-    召回 = 最重要"那条判据）。
+    ## 两条纪律
 
-    无 `embed_fn` → 语义打分缺席（`raw` 退回 1.0）, 准入不受影响。
+    * **不给分定阈值**（T17: 配置面不许有阈值旋钮）——本链路只出 `raw`;
+      **取前 k 条是合成层的事**（`channels.py` 纪律 #2/#3）
+    * **无 `embed_fn` / 无 `place_raw` → 叙事轴缺席**: `raw` 退回**素材轴那一半**
+      （`axes=1` 在 `detail` 里标出来）, 准入不受影响 —— 与"宁缺勿错"一致
     """
 
     name = "C_place"
     kind = KIND_GATE
     scale = SCALE_UNIT
-    unit = "place_hit"
+    unit = "place_fuse"
 
     def gather(self, store, ctx: RecallContext) -> ChannelResult:
         res = ChannelResult(channel=self.name, kind=self.kind)
@@ -312,21 +313,19 @@ class PlaceGate:
             res.note = "无节点带 place/place_raw（旧档: M3 之前物化的没有这些字段）"
             res.knobs = {"place_now": now_place}
             return res
-        # ── 准入（**等值, 无阈值**）──
-        admitted = [n for n in nodes if now_place in (n.place or [])]
-        if not admitted:
-            res.note = "无相关命中（这段记忆不在当前素材）"
-            res.knobs = {"place_now": now_place, "n_nodes": len(nodes),
-                         "sem": "n/a（无准入）"}
-            return res
-        # ── 叙事轴: 只给**已准入**的命中打分（不参与准入, 见 docstring）──
+        # ── 素材轴（字面, 0 调用）: 每个候选与当前键的相似度 ──
+        from core.media import place_fuse
+        sk: dict[str, tuple[float, str, str]] = {}
+        for n in nodes:
+            sk[n.id] = place_fuse.key_similarity_to_set(n.place, now_place)
+        # ── 叙事轴（语义, 要询问向量后端）: 只对**有原话可比**的候选算 ──
         sem: dict[str, float] = {}
         sem_note = ""
-        cand = [n for n in admitted if n.place_raw]
+        cand = [n for n in nodes if n.place_raw]
         if not now_raw:
             sem_note = "无 place_raw_now"
         elif ctx.embed_fn is None:
-            sem_note = "无 embed_fn（语义打分缺席）"
+            sem_note = "无 embed_fn（语义打分缺席 → 只用素材轴）"
         elif not cand:
             sem_note = "无节点带 place_raw（旧档）"
         else:
@@ -336,21 +335,43 @@ class PlaceGate:
                 vecs = ctx.embed_fn(texts + [now_raw])
                 qv = vecs[-1]
                 for n, v in zip(cand, vecs[:-1]):
-                    sem[n.id] = _cosine(qv, v)
+                    sem[n.id] = max(0.0, _cosine(qv, v))   # 负相关不是"弱相关" → 夹到 0
             except Exception as e:                   # noqa: BLE001 — 打分失败不拖垮准入
                 logger.warning("C_place 语义打分降级: %s", e)
                 sem_note = f"语义打分失败: {e}"
-        # 语义高的排前面（**排序**, 不是准入——全量参与, 无闸门）
-        admitted.sort(key=lambda n: -sem.get(n.id, 0.0))
-        res.hits = [ChannelHit(node=n, raw=float(sem.get(n.id, 1.0)), rank=i + 1,
-                               detail={"by": "same_image",
-                                       "place": list(n.place or []),
-                                       "place_raw": list(n.place_raw or []),
-                                       "sem": (round(sem[n.id], 3)
-                                               if n.id in sem else None)})
-                    for i, n in enumerate(admitted)]
+        # ── 融合（调和平均）──
+        hits: list[ChannelHit] = []
+        for n in nodes:
+            k_sim, k_by, k_key = sk[n.id]
+            s = sem.get(n.id)
+            if s is None:                            # 只有素材轴可算 → 用它的分
+                score = k_sim
+            else:                                    # 两轴齐 → magic（一轴为 0 ⇒ 0）
+                score = place_fuse.magic(s, k_sim)
+            if score <= 0.0:
+                continue                             # 两根轴都没关系 → 不编命中
+            # ⚠️ `same_image` **只认键字面相等**（`key_sim_by == "same"`）——
+            # `key_sim` 满分还有一种来源: 键名 token 包含（`rooftop` ⊆ `school_rooftop`）。
+            # 那种是"同一族图"，不是"同一张图"，别混。
+            same = k_by == "same"
+            hits.append(ChannelHit(
+                node=n, raw=float(score), rank=0,
+                detail={"by": "same_image" if same else "similar_key",
+                        "same_image": same,
+                        "key_sim": round(k_sim, 3), "key_sim_by": k_by,
+                        "key": k_key,
+                        "sem": (round(s, 3) if s is not None else None),
+                        "axes": 2 if s is not None else 1}))
+        hits.sort(key=lambda h: -h.raw)
+        for i, h in enumerate(hits, 1):
+            h.rank = i
+        res.hits = hits
+        if not hits:
+            res.note = "无相关命中（两轴都为零: 素材不相干, 且没有可比的 writer 原话）"
         res.knobs = {"place_now": now_place, "n_nodes": len(nodes),
-                     "hit": len(res.hits), "sem": sem_note or "ok"}
+                     "hit": len(hits), "same_image": sum(1 for h in hits
+                                                         if h.detail["same_image"]),
+                     "sem": sem_note or "ok"}
         return res
 
 
