@@ -247,16 +247,38 @@ def test_recall_side_fields_never_reach_llm(tmp_path):
     print("    ★ 召回侧字段隔离: emo_shape 不进 render_character_view / organize_view")
 
 
-def test_place_gate_needs_place_field(tmp_path):
+def test_place_gate_groups_by_place_and_region(tmp_path):
+    """★ C 链路（M3, 2026-09-19）: 节点有了 `place`/`region` → **真的能分组了**。
+
+    此前必然降级（*"BrainNode 无 place 字段…链路未通因为背景系统没搞好"*）。
+    现按两根轴命中: `place` 键相等 = **同素材**; `region` 相等 = **同一片地方**。
+    """
     st = _store(tmp_path)
-    # 没给 place_now → 另一条降级理由
+    # ① 两个坐标都没给 → 降级（当前地点未知）
     r1 = get_channel("C_place").gather(st, _ctx())
     assert r1.degraded and "place_now" in r1.note
-    # 给了 place_now, 但节点无 place 字段
-    r2 = get_channel("C_place").gather(st, _ctx(place_now="杂草屋"))
-    assert r2.degraded and "place 字段" in r2.note
-    assert r2.knobs.get("place_now") == "杂草屋"
-    print("    C: 两种降级理由分别说明（无 place_now / 节点无 place 字段）")
+    # ② 给了 place_now, 但节点是 M3 之前物化的（没有 place/region）→ 降级
+    r2 = get_channel("C_place").gather(st, _ctx(place_now="classroom"))
+    assert r2.degraded and "旧档" in r2.note
+    assert r2.knobs.get("place_now") == "classroom"
+    # ③ 节点带上地点 → 键相等命中
+    ep = make_node("episode", narration="在天台上看星星", significance=0.8,
+                   place=["classroom", "school_rooftop"],
+                   region="阿拜多斯高级中学", event_seq=[40])
+    st.add(ep)
+    r3 = get_channel("C_place").gather(st, _ctx(place_now="school_rooftop"))
+    assert not r3.degraded and [h.node.id for h in r3.hits] == [ep.id]
+    assert r3.hits[0].detail["by"] == "place"
+    # ④ 键不相等 → 落到 region 轴（同一片地方）
+    r4 = get_channel("C_place").gather(
+        st, _ctx(place_now="moderncafe", region_now="阿拜多斯高级中学"))
+    assert [h.node.id for h in r4.hits] == [ep.id]
+    assert r4.hits[0].detail["by"] == "region"
+    # ⑤ 都不沾 → 空手而归（**不编**）
+    r5 = get_channel("C_place").gather(
+        st, _ctx(place_now="onsen", region_now="格黑娜学院"))
+    assert not r5.hits and "同地无命中" in r5.note
+    print("    C: 无坐标/旧档→降级; place 键命中 / region 兜底 / 不沾→空手")
 
 
 def test_unconscious_is_declared_not_implemented(tmp_path):

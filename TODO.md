@@ -783,6 +783,30 @@ B = 今天的一句寒暄（SIG=0.50）
       `place in background_scenes` 闸门静默拦住一切 = 真机 20/20 板 `neutral`）;
       路由 `_place_bg_url()` 表键→scene_id→catalog→URL。
       实测全部出真 URL（含重命名条目 `68office→kohshinjo_room`）
+- [x] **M3: 记忆里带上地点**（2026-09-19, 用户: *"先加上 M3 记忆里带地点"*）:
+
+      | 项 | 落地 |
+      |---|---|
+      | `BrainNode.place: list[str]` | **地点键序列** + `region: str`（剧情地理主名）; 进 `to_dict`/`from_dict`（往返由 `test_every_serialized_field_is_parsed_back` 钉住） |
+      | digest 物化 | `_place_shape()` / `_place_region()` —— 照 `_emotion_shape` 那一手, 按 `event_seq` 从真源取 `payload.place` + `paragraphs[*].place`, **相邻去重保序**; region = 段内**最后一条 `switch` 原文**经 `regions.yml` 归一（**0 LLM**） |
+      | C 链路 | `PlaceGate.gather` **不再是 stub**: `place` 键相等 = 同素材 / `region` 相等 = 同一片地方; 两个坐标都落在节点上, **判据选哪个不必现在定** |
+      | `RecallContext.region_now` | 新增（与 `place_now` 对称） |
+
+      **用户问"带的是 key 还是 writer 的本名" → 带 key。** 理由: C 链路比的是
+      **相等**, 而「放学后的教室」/「教室里」/「回到教室」是同一张图、三个字符串,
+      拿本名做等值分组是废的。**本名不落节点** —— 它在事件流里
+      （`payload.place_hint` + 锚点句原文）, `event_seq` 指得到, 将来表改名要重解析
+      时按指针回捞即可（同 `verbatim_seq` 的纪律: 地址永久有效）。
+      不存本名的另一条理由: 那会是一个**没人消费的新字段** —— 正是前几天
+      清掉三份孤儿产物的同一把尺子。
+
+      ⭐ 真机闭环（`experiments/place_switch_real.py` 末段）: 真实 payload 物化得
+      `node.place = ['classroom', 'school_rooftop']` · `node.region = '格黑娜学院'`。
+      ⚠️ **旧档没有地点**: M3 之前的事件 `payload.place` 全是空（正是本次修的 bug）,
+      所以现网存量 episode 的 `place` 恒 `[]` —— 要等新章。
+- [ ] **C 链路仍未接线到运行时**: `Channel.gather` 至今**没有生产调用方**
+      （V3-0 只落了台账）—— 链路本身通了、数据也有了, 但"谁在什么时候调它"
+      还没做。这是 V3-3 的事
 - [x] **C6 `switch` 并入 place lane**（2026-09-19）: `fill_scene_places` 不再
       "二选一 + 早返回" —— ① 板首 `switch` → 板级地点（权威）② 句级锚点覆盖
       **板内后续换场**（switch 板也跑）。`switch` 记录不在 `paragraphs` 里

@@ -50,6 +50,7 @@ from core.brain.wiki_v2.recall import (
 from core.brain.wiki_v2.render import render_cognition_list
 from core.brain.wiki_v2.revise import apply_decisions
 from core.brain.wiki_v2.store import WikiStoreV2
+from core.parsing.place_regions import load_regions
 from core.session.maintenance import exclude_abandoned
 from core.session.renderer import render_timeline
 from llm.prompts import load_prompt
@@ -372,6 +373,9 @@ def _create_a_nodes(store: WikiStoreV2, entries: list[dict], *, ts: str,
         # 板级情绪键序列（T15）——召回侧物化, **不进 LLM 上下文**
         if by_seq is not None:
             node.emo_shape = _emotion_shape(node.event_seq, by_seq)
+            # 地点键序列 + 剧情地理（M3, 2026-09-19）——同一手物化, 同一纪律
+            node.place = _place_shape(node.event_seq, by_seq)
+            node.region = _place_region(node.event_seq, by_seq)
         node.aff_at_encoding = aff_at_encoding
         dup = _find_duplicate(store, node)
         if dup is not None:
@@ -575,6 +579,68 @@ def _emotion_shape(seqs: list, by_seq: dict) -> list[str]:
             if isinstance(k, str) and k.strip():
                 out.append(k.strip())
     return out
+
+
+def _place_shape(seqs: list, by_seq: dict) -> list[str]:
+    """板指针 → **地点键序列**（M3, 2026-09-19）; 取不到 → `[]`, 绝不编。
+
+    与 `_emotion_shape` 同一手（`digest` 按 `event_seq` 从真源物化，
+    因为 `Channel.gather` 只拿得到节点、翻不了板）:
+
+    * 每板取 `payload.place`（板首 `switch` 解出的**键**）
+    * 再取 `payload.paragraphs[*].place`（句级锚点, 板内后续换场）
+    * **相邻去重保序** —— 结果 = "这段去过哪些地方"的变化序列;
+      同地反复去会留下多个元素（`school_rooftop, classroom, school_rooftop`）
+
+    只收 bond 事件: 地点键由**标注层**产出, MMT 事件没有键。空键跳过
+    （标注失败与"这段没换场"在数据里不可分, 不补位——同 `emo_shape` 的取舍）。
+
+    ⚠️ **带的是键不是 writer 本名**（用户 2026-09-19 的疑问）:
+    C 链路比的是相等, 而「放学后的教室」/「教室里」/「回到教室」是同一张图、
+    三个字符串 —— 本名做等值分组是废的。本名留在事件流里
+    （`payload.place_hint` + 锚点句原文）, `event_seq` 指得到, 要重解析时回捞即可。
+
+    🚫 返回值只进 `node.place`（召回侧）——**绝不进 LLM 上下文**。
+    """
+    out: list[str] = []
+    for seq in sorted(seqs or []):
+        ev = by_seq.get(seq)
+        if ev is None or ev.type != "bond":
+            continue
+        keys: list[str] = []
+        board = ev.payload.get("place")
+        if isinstance(board, str) and board.strip():
+            keys.append(board.strip())
+        paras = ev.payload.get("paragraphs")
+        if isinstance(paras, list):
+            for p in paras:
+                k = p.get("place") if isinstance(p, dict) else None
+                if isinstance(k, str) and k.strip():
+                    keys.append(k.strip())
+        for k in keys:
+            if not out or out[-1] != k:              # 相邻去重（保留"再次到访"）
+                out.append(k)
+    return out
+
+
+def _place_region(seqs: list, by_seq: dict) -> str:
+    """板指针 → **剧情地理主名**（M3）; 取不到 → `""`（哨兵: 不知道 ≠ 某个区域）。
+
+    拿段内**最后一条 `switch` 原文**（`payload.place_hint`）经 `regions.yml` 的
+    纯字符串归一（**0 LLM**）——"这段戏最后落在哪片地方"。
+    没提到任何学院/地区 → `""`, 绝不返回原文（同 `place_regions` 的哨兵纪律）。
+    """
+    region = ""
+    for seq in sorted(seqs or []):
+        ev = by_seq.get(seq)
+        if ev is None or ev.type != "bond":
+            continue
+        hint = ev.payload.get("place_hint")
+        if isinstance(hint, str) and hint.strip():
+            got = load_regions().normalize(hint)
+            if got:
+                region = got
+    return region
 
 
 def _clean_evidence(raw: Any, threshold: float) -> list[dict]:

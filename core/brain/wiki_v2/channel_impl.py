@@ -256,8 +256,18 @@ class PlaceGate:
     再交给 A/D 排序。这也是它与"逻辑召回"的关系: 同地点/同时间/同在场者
     都是**键命中**（不是相似度）, 见 §3.3 的三通路拓扑。
 
-    ⚠️ **`BrainNode` 没有 `place` 字段**（§2.3.2 已澄明: 设计已定、实现待补,
-    链路未通因为背景系统没搞好）。所以现在必然降级。
+    ## 2026-09-19（M3）: 链路通了
+
+    此前必然降级（*"BrainNode 无 place 字段…链路未通因为背景系统没搞好"*）。
+    现在节点上有了 `digest` 物化的 **`node.place`（键序列）** 与 **`node.region`**,
+    于是本链路真的能分组。
+
+    **判据（两根轴, 都可选）**:
+    * `place` 键相等 → **同素材**（同一张图）——默认用它
+    * `region` 相等 → **同一片地方**（更粗; `place` 键为空的旧档也够用）
+
+    两根轴都落在节点上, 谁当判据**不必现在定**（TODO 里那条未决项）:
+    `key_mode` 可传 `"place"` / `"region"` / `"both"`。
     """
 
     name = "C_place"
@@ -267,14 +277,40 @@ class PlaceGate:
 
     def gather(self, store, ctx: RecallContext) -> ChannelResult:
         res = ChannelResult(channel=self.name, kind=self.kind)
-        if not ctx.place_now:
+        now_place = (ctx.place_now or "").strip()
+        now_region = (ctx.region_now or "").strip()
+        if not now_place and not now_region:
             res.degraded = True
-            res.note = "无 place_now（当前地点未知）"
+            res.note = "无 place_now / region_now（当前地点未知）"
             return res
-        res.degraded = True
-        res.note = "BrainNode 无 place 字段（§2.3.2 计划内）——地点查重无法执行"
-        res.knobs = {"place_now": ctx.place_now,
-                     "needs": "episode.place（narration 落库时取当时生效的 place）"}
+        nodes = [n for n in store.all()
+                 if n.kind in ("episode", "belief", "experience")
+                 and (n.place or n.region)]
+        if not nodes:
+            res.degraded = True
+            res.note = "无节点带 place/region（旧档: M3 之前物化的节点没有这两个字段）"
+            res.knobs = {"place_now": now_place, "region_now": now_region}
+            return res
+        hits: list[BrainNode] = []
+        for n in nodes:
+            if now_place and now_place in (n.place or []):
+                hits.append(n)
+            elif now_region and now_region and n.region == now_region:
+                hits.append(n)
+        if not hits:
+            res.note = "同地无命中（这段记忆不在当前地点）"
+            res.knobs = {"place_now": now_place, "region_now": now_region,
+                         "n_nodes": len(nodes)}
+            return res
+        res.hits = [ChannelHit(node=n, raw=1.0, rank=i + 1,
+                               detail={"place": list(n.place or []),
+                                       "region": n.region,
+                                       "by": "place" if (now_place and
+                                                         now_place in (n.place or []))
+                                             else "region"})
+                    for i, n in enumerate(hits)]
+        res.knobs = {"place_now": now_place, "region_now": now_region,
+                     "n_nodes": len(nodes), "hit": len(hits)}
         return res
 
 
