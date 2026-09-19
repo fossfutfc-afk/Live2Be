@@ -152,8 +152,13 @@ tests/ core/ webgui/ llm/ 分别对应域; experiments/ 真 API 基准与探索�
 - 标注层 prompt：`place_annotate.md`（判据与编剧 rules 镜像：从…走进/推开…门→换场；
   转身/坐下/同地点动作→keep；时间流逝/回忆/拿不准→keep）。输出锚点数组,
   引擎写回**变更句**句项 `place` 键（稀有）。
-- 消费：导演按锚点句切背景；前端段首切 + 晚到即切。词表 = `_director_whitelist.json`
-  common_scenes。
+- 消费：导演按锚点句切背景；前端段首切 + 晚到即切。**词表 = `config/settings/
+  world/place_entities.json`**（168 条语义键表, `core/media/place_table.py` 加载;
+  层1 `keywords` 别名 0 调用 → 层2 整表含 `note` 就近推测）。旧
+  `_director_whitelist.json`（31 条裸 slug）**只剩降级兜底**。
+  ⚠️ **表键 ≠ 资产 scene_id**（`classroom`↔`class_room`），翻译走 `files` 文件名。
+  缺素材 → **黑屏 `black` + 报"素材未找到"**（不静默换别的图）。
+  速查/防坑见 `docs/AI_BRIEF_PLACE.md`。
 - **视觉键隔离**：`render_bond_scene_text` 只读 text/emotion/inner —— place 不进
   LLM 上下文（resume 窗口不被视觉键污染）；但进 payload/事件流供回放时间轴。
 
@@ -299,7 +304,8 @@ v1 的 `MemorialProbe`/`memorial_exit` 动作已退役。**图是异步的 → �
   **测试默认硬关**（tests/conftest.py 会话级 autouse 设 `LIVE2BE_IMAGE=off`）——
   本机配着真 key 时跑测试也不会出图烧钱、不写 gallery。
 - **资产** assets/(gitignore)：illustration/{char}/{outfit}/emotions.yml + diff/spine、
-  background/、`_director_whitelist.json`(common_scenes 地点词表)。
+  background/、`_director_whitelist.json`（**旧 place 白名单, 只剩降级兜底** ——
+  现役词表 = `config/settings/world/place_entities.json`, 见 §3.3/§4）。
   **标准外观格式（2026-09-12 定稿）= `emotions.yml` + `portrait/` + `spine/` 三项必有,
   `diff/` 可选**（OC 不好做 spine 动画）; `spine/` 播差分, `portrait/` = 其他界面渲染资产。
   **MMT 列表头像 = 每个角色各取自己的** `portrait/*.png`（首选 `collection.png`）,
@@ -407,6 +413,9 @@ v1 的 `MemorialProbe`/`memorial_exit` 动作已退役。**图是异步的 → �
   （2026-09-05 定稿; **2026-09-15 补了状态头**——原先漏在本路由表外被绕读多轮。
   §1③/§5 的"主 LLM 写 place 字段 + 注入活跃键表"**已被记录流 v2 与
   "主 LLM 零内容词表"裁决取代**; §1② 语义键层与解析链仍有效）
+- **地点系统速查（⚠️ 给 AI 看的防坑版, 改地点代码前先读它）**：docs/AI_BRIEF_PLACE.md
+  （2026-09-19 用户要求建: *"把文档中误导你的重写成你理解的语言……这个是给你看的"*。
+  内含"会带偏你的旧话"逐条清单）
 - **回忆册（书页 + 角色页 + 只读回放, P0 已落地）**：docs/DESIGN_COLLECTION_BOOK.md
 - **记忆图 v3（实体中心 + 混合召回 + 时间架构 + 组合, 设计稿, V3-0 已落地）**：docs/DESIGN_WIKI_V3.md
 - **第四面墙 / creepiness / OS(Orwell'S)（立项稿, 只留接口不实现）**：docs/DESIGN_FOURTH_WALL.md

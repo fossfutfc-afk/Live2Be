@@ -505,9 +505,25 @@ let lastSceneKey = "";
   // 语义: 锚点句起进入新地点, 后续段落沿用, 直到下一锚点/场景结束。
   function applyPlaceForSeg(p) {
     if (!p || typeof p === "string") return;
+    if (p.missing_asset) reportMissingAsset(p.missing_asset);   // 缺素材 → 黑屏 + 报出
     if (p.place_bg && p.place && p.place !== appliedPlace) {
       setBg(p.place_bg);
       appliedPlace = p.place;
+    }
+  }
+
+  // ── 素材未找到（用户 2026-09-19 裁决: 黑屏 + alert/console.log 即可）──
+  // 背景此时已经是 `black`（服务端给的占位）——这里只负责**让人看见**。
+  // 每个 key 只 alert 一次（否则一板一句能把人弹疯）；console 每次都留痕。
+  const _missingAssetSeen = new Set();
+  function reportMissingAsset(info) {
+    const key = (info && info.key) || "?";
+    console.error(`[place] 素材未找到: key=${key}` +
+                  (info && info.scene_id ? ` scene_id=${info.scene_id}` : "") +
+                  " → 黑屏占位");
+    if (!_missingAssetSeen.has(key)) {
+      _missingAssetSeen.add(key);
+      alert(`素材未找到: ${key}\n（背景已用黑屏占位；检查 assets/background 与地点表）`);
     }
   }
 
@@ -583,6 +599,7 @@ let lastSceneKey = "";
     // 背景（scene_id → background_url; is_end 无背景 → 清空显示默认黑屏——官方结束样式）
     const bg = $("bond-bg");
     appliedPlace = null;              // 板级背景复位——锚点句到达才切换（P3b-2）
+    if (scene.missing_asset) reportMissingAsset(scene.missing_asset);
     if (scene.background_url) {
       bg.style.backgroundImage = `url("${scene.background_url}")`;
     } else if (!scene.background) {

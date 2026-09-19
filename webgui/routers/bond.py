@@ -16,7 +16,10 @@ POST /api/bond/finish  终结收尾（补录 + vn_exit + session_end + wrapup + 
 """
 from __future__ import annotations
 
+import logging
 from pathlib import Path
+
+logger = logging.getLogger("live2be.webgui")
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -112,6 +115,9 @@ def _speaker_name_map(char_id: str) -> dict[str, str]:
 def _resolve_scene(scene: dict | None, char_id: str) -> dict | None:
     """场景 dict 附带前端渲染信息:
     background_url — scene_id → 静态文件 URL（无背景 → 保持 None, 黑屏余韵）
+    missing_asset  — **有明确地点但素材找不到**时的回执 `{key, scene_id?}`——
+                     此时 background_url 给**黑屏 `black`**, 前端 `console.error`
+                     + 一次 `alert`（用户 2026-09-19 裁决: 宁可黑屏让人看见）
     paragraphs[].fx — emotion → 特效符号列表（EffectResolver 单源: 角色表→全局表→空;
                       前端 VN 立绘头顶浮现——官方冒爱心/音符/惊叹等 UI 层特效）。
     paragraphs[].speaker_name — 记录流 v2 说话人显示名（最小形态: 只有名字行,
@@ -120,14 +126,25 @@ def _resolve_scene(scene: dict | None, char_id: str) -> dict | None:
     if not scene:
         return None
     scene = dict(scene)
+    # ① **有明确地点** → 先按地点键取图（这一条与导演的"保持上一场"无关,
+    #    所以缺图不会被"上一场恰好有图"掩盖掉）
+    place = scene.get("place")
+    if isinstance(place, str) and place.strip():
+        url, st = _place_bg(place.strip())
+        if st == "missing":
+            scene["missing_asset"] = {"key": place.strip()}
+            scene["background_url"] = _black_bg_url()
+            logger.error("[place][MISSING_ASSET] key=%r 查不到背景素材 → 黑屏占位",
+                         place.strip())
+            return _finish_scene(scene, char_id)     # 已定背景, 段落特效照挂
+    # ② 没有地点（或地点有图）→ 走老口径
     sid = scene.get("background")
     if sid:
-        media = _catalog().background(sid)
-        if media is not None:
-            rel = media.path.relative_to(_catalog().assets_root)
-            scene["background_url"] = f"/assets/{rel.as_posix()}"
+        url = _catalog_url(sid)
+        if url:
+            scene["background_url"] = url
         elif not scene.get("is_end"):
-            # 占位/缺资产（如 neutral）→ 展示兜底真实场景（防纯黑; 锚点段仍会切）
+            # 占位/缺资产（如 neutral 冷启动）→ 展示兜底真实场景（防纯黑; 锚点段仍会切）
             fb = _fallback_bg_url()
             if fb:
                 scene["background_url"] = fb
@@ -135,6 +152,11 @@ def _resolve_scene(scene: dict | None, char_id: str) -> dict | None:
         fb = _fallback_bg_url()
         if fb:
             scene["background_url"] = fb
+    return _finish_scene(scene, char_id)
+
+
+def _finish_scene(scene: dict, char_id: str) -> dict:
+    """段落级附带信息（名字行 / 特效 / 锚点背景）——`_resolve_scene` 的收尾半段。"""
     paras = scene.get("paragraphs")
     if isinstance(paras, list):
         _names = _speaker_name_map(char_id) if scene.get("records") else {}
@@ -149,43 +171,77 @@ def _resolve_scene(scene: dict | None, char_id: str) -> dict | None:
                     if fx:
                         p["fx"] = fx
                 # place 锚点背景（DESIGN_BOND_CONTRACT_V2 P3b-2）: 换场句的背景
-                # 静态资源（表键 → **资产 scene_id** → catalog; 查不到 → 保持上一背景）
+                # 静态资源（表键 → **资产 scene_id** → catalog）
                 pid = p.get("place")
                 if isinstance(pid, str) and pid.strip():
-                    url = _place_bg_url(pid.strip())
-                    if url:
+                    url, st = _place_bg(pid.strip())
+                    if st == "missing":
+                        # 缺图 → **黑屏 + 报出**（不再静默保持上一背景）
+                        p["place_bg"] = _black_bg_url()
+                        p["missing_asset"] = {"key": pid.strip()}
+                        logger.error("[place][MISSING_ASSET] 锚点 key=%r 缺素材 → 黑屏",
+                                     pid.strip())
+                    elif url:
                         p["place_bg"] = url
     return scene
 
 
-def _place_bg_url(key: str) -> str | None:
-    """地点键 → 背景 URL（C5, 2026-09-19）。
-
-    表键（`classroom`/`moderncafe`/`view_sky`）**不是**资产 scene_id
-    （`class_room`/`modern_cafe`/`view_sky`）——表里 `files` 的文件名才是。
-    所以先经 `load_table().scene_id()` 翻一次，再走 catalog（老口径）。
-    任一步失败 → None（调用方保持上一背景, 宁缺勿错）。
-    """
+def _catalog_url(sid: str) -> str | None:
+    """`scene_id` → `/assets/...` URL（查不到 → None）。"""
     try:
         cat = _catalog()
+        media = cat.background(sid)
+        if media is None:
+            return None
+        return f"/assets/{media.path.relative_to(cat.assets_root).as_posix()}"
     except Exception:                                # noqa: BLE001 — 资产缺失降级
         return None
-    sid = key
+
+
+#: 素材缺失时的占位背景（用户 2026-09-19 裁决: **黑屏 + 报出来**）
+_MISSING_PLACEHOLDER = "black"
+
+
+def _black_bg_url() -> str | None:
+    """`black` 的 URL（素材缺失占位）; 连它都没有 → None（真没辙了）。"""
+    return _catalog_url(_MISSING_PLACEHOLDER) or _fallback_bg_url()
+
+
+def _place_bg(key: str) -> tuple[str | None, str]:
+    """地点键 → `(URL, 状态)`。状态 = `"ok"` / `"missing"`。
+
+    ## 素材缺失怎么办（用户 2026-09-19 裁决）
+
+    > *"假如发现资源库里没有这张图，就用黑屏 black，且 alert/console.log
+    > 素材未找到即可。"*
+
+    此前是**静默换成别的图**（`_fallback_bg_url()` → `class_room`）—— 症状就是
+    真机那 20/20 板"每次 VN 都在显示教室"：**看起来正常，其实错了**。
+    现在改成**黑屏 + 明确报出**（`missing_asset` 随场景下发, 前端 `console.error`
+    + 一次 `alert`）——**宁可黑屏让人看见, 不要拿一张错的图糊过去**。
+
+    为什么会缺: `place` 键**不许改名**（用户 2026-09-19: *"key 是不可改的"*）,
+    所以缺只可能来自**素材没进库/被移走**或**旧事件里的键在当前表里不存在**。
+    """
+    url = _catalog_url(_catalog_key(key))
+    return (url, "ok") if url else (None, "missing")
+
+
+def _catalog_key(key: str) -> str:
+    """地点键 → 资产 scene_id（先查表, 查不到原样交给 catalog 再试一次）。"""
     try:
         from core.media.place_table import load_table
         t = load_table()
         if t:
-            sid = t.scene_id(key) or key
+            return t.scene_id(key) or key
     except Exception:                                # noqa: BLE001 — 表缺失退回老口径
-        sid = key
-    for cand in (sid, key):
-        media = cat.background(cand)
-        if media is not None:
-            try:
-                return f"/assets/{media.path.relative_to(cat.assets_root).as_posix()}"
-            except Exception:                        # noqa: BLE001
-                return None
-    return None
+        pass
+    return key
+
+
+def _place_bg_url(key: str) -> str | None:
+    """兼容包装: 只要 URL（缺失 → None）。新代码请用 `_place_bg()` 拿状态。"""
+    return _place_bg(key)[0]
 
 
 class BondStartIn(BaseModel):
