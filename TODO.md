@@ -751,10 +751,12 @@ B = 今天的一句寒暄（SIG=0.50）
       用户同时给了更新机制的定性: *"想要直接更改为 active: true 就好，这不就是
       我之前说的支持更新吗？"* ⇒ **表更新 = 翻 `active`**（工具 + 动态读入已就位），
       不需要为某一个地点单独立项
-- [ ] **`PlaceRetriever` 接线**: `core/rag/place.py` 已经就是「精确兜底 + 语义兜底」
+- [x] **`PlaceRetriever` 接线**: `core/rag/place.py` 已经就是「精确兜底 + 语义兜底」
       两层, 但**生产零调用**（只 `experiments/rag_test.py` 用）; 且它读 `places.yml`
       （中英日别名）与 `resolve_place` 的裸 slug **互不相识** → 词表统一时收口
       （C1 的 `keywords` 正是它缺的语料 —— 很可能直接由 `place_table` 取代）
+      → **✅ 语料收口已做（PL4 2026-09-19）**: 语料 = 表（168 键/428 别名）,
+      `places.yml` 删; 返回**表键**。**接线仍未做**（等召回策略, 与 PL5 同批看）
 - [x] **固定路径收成宏 + 可 grep 全量定位**（2026-09-19 用户裁决）: 新增
       `core/paths.py`（**20 条路径的唯一清单**, 顶层平铺, 只依赖 pathlib 无环）;
       `core/ webgui/ llm/ contract/` 里 23 处现拼路径全部改为 `paths.XXX`;
@@ -1274,20 +1276,41 @@ writer 根本不知道板存在, 它只是连着写记录、该换场就发 swit
       ```
       测试 807 通过（+5）。
 
-### PL4 旧物清账 —— **✅ 用户已定调：语义检索要留**（2026-09-19）
+### PL4 旧物清账 —— **✅ 完成（2026-09-19）**
 
 > 用户原话: *"总之我们需要一个地点语义检索来体现既视感以增强我们的召回策略"*
 > ⇒ **能力保留, 只是换基座**: `PlaceRetriever` 的跨语言 embedding 检索是
 > "玩家自由指定地点 / 地点既视感"的预留, **不能删**。
 
-- [ ] **语料换基座**: `places.yml`（31 条手维护 scene slug）→ 由表的 `keywords` 生成
-      （260 个别名, 天然中英日混排的语义语料）; 别再手维护第二份
-- [ ] `PlaceRetriever` 的接线**等召回策略落地时**再做（现在接 = 空转; 与 PL5 同批看）
-- [ ] `assets/_director_whitelist.json`：`common_scenes` 只剩"表读不出来时的降级兜底"
-      → 保留但标明身份（或并入 `paths.py` 注释）
-- [ ] `emotion_lexicon.build_place_injection`（**生产零调用**）→ 删
-- [ ] `core/parsing/place_regions.py`：region 撤出记忆后只剩盒B 一块 →
-      是否并进 `promptkit/blocks.py`？（可不动）
+**落地（`core/rag/place.py` 重写 + 三处清账）**
+
+| 件 | 结果 |
+|---|---|
+| **语料换基座** | `places.yml`（31 条手维护资产 slug）**删除** → 语料 = `place_entities.json` 本身（**168 键 / 428 别名**, 与标注层层1/层2 同源; `table.aliases()` = `place`+`keywords`, **`note` 刻意不进**——那是元话语, 嵌进向量只是噪声） |
+| **返回单位** | 表键（不是资产 scene_id）; 翻译走新的 `asset_scene()` / `PlaceTable.scene_id()`。层1 命中（唯一别名）→ 1.0 且 **0 次 embedding**; **歧义不猜**（`天台` → 3 键）→ 下沉语义层, 服务不可用就 `[]` |
+| **打分改法** | 旧实现每键只留"平方范数最大"的**一条**别名向量（L2 归一化下 ≈"只留第一条别名", 同键其它别名全白扔）→ 现在**保留全部别名向量**, 取键内最大余弦（428 条放得下） |
+| **`build_place_injection`** | **删**（`emotion_lexicon` + `core/media/__init__` 导出 + 旧测试）——生产零调用, 且它宣传的"主 LLM 只从词表里选 place"早已被记录流 v2 + 零内容词表裁决废掉。新测试改成 **gone-API 哨兵** |
+| **`paths.PLACES_PATH`** | 删（清单只剩 21 条）; `test_paths.MUST_EXIST` 同步 |
+| **`_director_whitelist.json`** | **保留**（身份 = `bond_story._place_keys` 的降级兜底）; `paths.py` 那行过时注释已改（原写"现役 place 词表, 表接线后作废"——现在它已不是现役） |
+| **`place_regions.py`** | **不动**（并进 `blocks.py` 是纯搬家, 无行为收益——PL4 原话"可不动"） |
+
+测试: 新增 `tests/core/test_rag_place.py`（**9 例, 全用桩 embedder, 不碰本机服务**）:
+语料=表且旧 slug 不在其中 · `places.yml`/`PLACES_PATH` 已消失 · **428 个别名全进 embedding**
+（哨兵）· 唯一命中 0 调用 · 歧义下沉语义层（候选集 = 那 3 个键）· 歧义+无服务 → `[]`
+（不猜）· **"该赢的是第二条别名"哨兵**（旧实现在这条上会返回 `[]`）· 空表降级 ·
+`classroom → class_room` 翻译。全量 **822 通过**（+10）。
+
+**⚠️ 一个必须报给作者的发现（换基座的代价）**
+
+这版表里**一个假名别名都没有**（`grep` 实测: 428 个别名中 0 条含假名; 170 条拉丁
+别名**全是 slug**（`view_sky`/`big_plaza`）, 不是自然英语）。而删掉的 `places.yml`
+**有**（`屋上`/`廊下`/`ラーメン屋`/`コンビニ`…）——所以"跨语言"这条**从字面命中退化
+成纯靠 embedding 模型**（bge-m3 这类能桥, 但那是模型能力, 不是语料）。
+`experiments/rag_test.py` 已把这类 query 单列一节（**不计失败**, 只测模型能力,
+并在输出里写明"想要字面命中: 在 tempo 表里给该键加这条别名"）。
+另: 旧语料里的 `onsen`（温泉）**表里没有对应条目**、`gehenna_club_room` → 表里是
+`68office`、`class_room`/`ramen_ya` → 表键是 `classroom`/`foodcart_ramen`
+⇒ 这些都是"换基座"的必然结果（语料跟表走）。
 
 ### PL5 C 链路通电 —— **❌ 用户 2026-09-19 答"不"**
 

@@ -30,6 +30,7 @@
 | **旧白名单** | `assets/_director_whitelist.json` | 31 条裸 slug | **只是降级兜底**（表读不出来时才用）。别再把它当词表 |
 | **资产** | `assets/background/**` | 1094 张图 | 表的 `files` 里写的是**相对 `assets/background/` 的路径** |
 | **回放/显示** | `webgui/routers/bond.py::_resolve_scene` | key → 图 URL | 缺素材 → **黑屏 black + 报出来**（不再静默换别的图） |
+| **语义检索** | `core/rag/place.py` | `PlaceRetriever` | 自由话语 → **表键**（语料 = 同一张表, PL4 起）。**没接线**, 别以为它在跑 |
 
 **路径一律走 `core/paths.py` 的宏**，别自己拼（`grep -n "^[A-Z][A-Z_]* = " core/paths.py`）。
 
@@ -133,6 +134,8 @@ C 链路的 `by` 字段因此叫 `same_image`（不是"same_place"）。
 | 任何"place 键 = 地点"的说法 | 键是**素材**，不是地点。见 §4 |
 | 任何"缺素材就兜底一张别的图"的写法 | **已被用户否掉**：缺素材 → **黑屏 `black` + alert/console.log 报"素材未找到"** |
 | "想给 writer 加个镜头词？改表就行，盒B 会自动跟上" | **假的**。writer 手里那份是**手写**的 `llm/prompts/bond_shots.md`——表改了不会自动进盒, **两处都得动**。测试只守一个方向（文件里的词必须是表的别名）, 守不了"表里新加的图没人用"以外的另一半 |
+| "`PlaceRetriever` 返回 scene_id" | **PL4 起返回的是表键**（语料 = 表）。要图就走 `asset_scene(key)` / `PlaceTable.scene_id(key)`——`classroom` ↔ `class_room` 这对翻译别自己拼 |
+| "地点检索的语料在 `config/settings/world/places.yml`" | **文件已删（PL4 2026-09-19）**。语料 = `place_entities.json` 本身, `paths.PLACES_PATH` 宏也一并删了 |
 | `CLAUDE.md §6` 旧配额句"规则层整章 0~3 次、**多数板无 choices**" | **v1 口径, v2 已废**。真机 **13/14 板都有 choices**（板由选项点切）。已于 2026-09-19 改正 |
 
 ---
@@ -165,8 +168,9 @@ C 链路的 `by` 字段因此叫 `same_image`（不是"same_place"）。
 | 事 | 状态 |
 |---|---|
 | 语义轴"同地"的门槛（甲阈值 / 乙取前 N / 丙实体表） | **暂停**——C 没通电，做了也白做 |
+| ~~地点语义检索的语料~~ | **✅ 换基座了（PL4, 2026-09-19）**: `PlaceRetriever` 现在直接吃这张表（168 键 / 428 别名, 与层1 同源）, 手维护的 `places.yml` 删了。⚠️ 但**接线还是没做**（"现在接 = 空转", 与召回策略同批）——它返回**表键**, 且层1 唯一命中时 0 调用、歧义时**不猜**（有 embedding 就排序, 没有就 `[]`） |
 | 「AI 判过的映射」旁路 / 回灌 anno-llm | **用户说"先不干，把主要的弄完再说"** |
-| 情景图/写作用词**成块注入**盒B | **✅ 做了（PL2, 2026-09-19）**——但**不是**从表生成: 用户要的是一份**手写的小文件** `llm/prompts/bond_shots.md`（【镜头与手法】），盒B 第 7 块（紧挨规则书）。⚠️ **手写 = 会漂** ⇒ `tests/core/test_bond_shots.py` 钉住: 【一】那行的每个镜头词都必须是**表的别名**（层1 0 调用）, 且 4 张 atmosphere 图一个不落（写错字会红, 不会静默退化成"多花一次调用 + 可能挑错图"） |
+| 情景图/写作用词**成块注入**盒B | **✅ 做了（PL2, 2026-09-19）**——但**不是**从表生成: 用户要的是一份**手写的小文件** `llm/prompts/bond_shots.md`（【镜头与手法】），盒B 第 7 块（紧挨规则书）。⚠️ **手写 = 会漂** ⇒ `tests/core/test_bond_shots.py` 钉住: 【一】那行的每个镜头词都必须在**层1 唯一命中**（0 调用；层1 是"最长别名子串"匹配, 不必逐字相等）且落在写作用词上, 4 张 atmosphere 图一个不落（写错字会红, 不会静默退化成"多花一次调用 + 可能挑错图"） |
 | 谁把表里的写作用词**交给 writer** | `PlaceTable.writing_words()` **至今没有生产消费方**（只有测试/stats 在读）——真正到 writer 手里的是上面那份手写文件。别以为改了表就会自动进盒 |
 | `files.night`（日夜） | 无消费方，`time_of_day` 不存在 |
 | `ruinpianoroom`（废弃琴房）等**写了 note 却没勾 active** 的条目 | 作者侧一句话的事（翻 `active: true`） |

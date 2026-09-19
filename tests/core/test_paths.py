@@ -27,7 +27,7 @@ from core import paths                                           # noqa: E402
 #: 约定里"必须存在"的固定路径（运行时数据/诊断日志允许不存在——它们会被创建）
 MUST_EXIST = (
     "SETTINGS_PATH", "FESTIVALS_PATH", "WORLD_OVERVIEW_PATH", "REGIONS_PATH",
-    "PLACES_PATH", "PLACE_TABLE_PATH", "INTERPERSON_PATH", "MMT_REGISTRY_PATH",
+    "PLACE_TABLE_PATH", "INTERPERSON_PATH", "MMT_REGISTRY_PATH",
     "DIRECTOR_WHITELIST_PATH",
 )
 #: 允许缺失（首次运行才创建）

@@ -8,6 +8,8 @@
     emotion_lexicon                                  → emotions.yml 逐行解析（词表+示范+eg → 主 LLM 注入）
     place_table                                      → 地点语义键表（**标注层**语料: 层1 别名 0 调用
                                                        + 层2 整表含 note; 动态读入/mtime 缓存）
+    load_place_lexicon                               → 旧白名单 common_scenes（**只剩降级兜底**:
+                                                       表读不出来时当 place_keys 用）
 
 架构见 core/DESIGN_VISUAL.md §5-① + core/DESIGN_VISUAL_PROTOCOL.md。
 """
@@ -16,7 +18,6 @@ from core.media.catalog import MediaCatalog, MediaError
 from core.media.emotion_lexicon import (
     assets_root,
     build_emotion_injection,
-    build_place_injection,
     load_emotion_lexicon,
     load_place_lexicon,
     render_emotion_scale,
@@ -35,9 +36,11 @@ __all__ = [
     "BackgroundMedia", "derive_background",
     "SpinePack", "SpriteMedia",
     "load_emotion_lexicon", "build_emotion_injection",
-    "load_place_lexicon", "build_place_injection",
+    "load_place_lexicon",
     "assets_root", "render_emotion_scale",
-    # 地点语义键表（C1, 2026-09-19）——标注层的语料; 旧 load_place_lexicon 待退役
+    # 地点语义键表（C1, 2026-09-19）——标注层的语料
+    # （旧 `build_place_injection` 已于 PL4 删除: 生产零调用, 且它宣传的
+    #  "主 LLM 只从词表里选 place" 早已被记录流 v2 + 零内容词表裁决废掉）
     "PlaceTable", "PlaceEntry", "load_table", "DEFAULT_TABLE_PATH",
     "reset_place_cache",
 ]

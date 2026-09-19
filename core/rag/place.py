@@ -1,39 +1,49 @@
 # -*- coding: utf-8 -*-
-"""place.py — 地点检索（RAG 跨语言）: LLM 话语/意图 → scene_id（调背景用）。
+"""place.py — 地点检索（RAG 跨语言）: 自由话语/意图 → **地点表键**。
 
-背景管线的检索升级（DESIGN_VISUAL_PROTOCOL.md §5/§6 现状: place 必须**精确**
-命中 scene_id 否则静默保持——RAG 让"自由话语"也能映射到正确背景）:
-    query = 主 LLM 的 place 意图（词表内 id）或自由话语（"她们在天台看星星"）
-    → 精确兜底（id/别名子串, 零依赖）→ embedding 语义匹配（跨语言中英日）→
-    top-k 带分 → 阈值以下不返回（宁缺勿错: 上层保持上一场景）。
+## 它在地点系统里的位置（三层里的"语义层"）
 
-语料 = config/settings/world/places.yml（scene_id 对齐导演词表 common_scenes,
-别名中英日混排）。embedding 派生不落盘（别名改动零漂移——与 wiki recall 同哲学）;
-首次 resolve 时懒构建缓存。
+    层1  `PlaceTable.resolve_exact`       纯字符串别名命中, **0 调用**, 歧义不猜
+    层2  `place_annotate.resolve_place`   廉价 LLM 读整表（含 note）就近推测
+    本模块                                 跨语言 embedding 检索 —— 补前两层
+                                          都够不着的**自由说法**（"她们在教学楼
+                                          天台上看星星" / "屋上で星を見ている"）
+
+## PL4（2026-09-19）——语料换基座
+
+旧版读**手维护的第二份词表** `config/settings/world/places.yml`（31 条资产 scene slug
++ 中英日别名）, 与标注层的表**互不相识**（`class_room` vs `classroom`）。
+现在语料 = `config/settings/world/place_entities.json` 本身
+（**168 条语义键 × 428 个别名**, 作者在 tempo 工作台维护）——与层1/层2 **同一张表**,
+"别再手维护第二份"就此收口。
+
+⚠️ **返回的 `place` 是表键, 不是资产 scene_id**（`classroom` ↔ `class_room`）。
+查图请走 `PlaceTable.scene_id(key)` 或 `PlaceRetriever.asset_scene(key)`
+（这一层翻译是最容易搞错的地方, 见 `docs/AI_BRIEF_PLACE.md` §2）。
+
+⚠️ **`note` 刻意不进语料**: 它是写给人/标注 LLM 的用途说明（"engine 会处理的"这类
+元话语）, 嵌进向量只会引入噪声; 别名（`keywords`）才是"这个地方能被怎么称呼"。
+
+⚠️ **未接线**: 生产主链至今没有消费方（`get_channel(...).gather(...)` 是 C 链路,
+与本模块不是一回事）。本模块是"玩家自由指定地点 / 地点既视感召回"的预留——
+用户 2026-09-19: *"总之我们需要一个地点语义检索来体现既视感以增强我们的召回策略"*。
+接线时机见 `TODO.md` PL4（与召回策略同批）。
+
+宁缺勿错: 服务未起 / 表缺失 / 低分 → `[]`（上层保持上一场景, 绝不硬凑）。
 
 用法:
     retriever = PlaceRetriever()                    # 自动发现 embedding 模型
     retriever.resolve("她们在学校天台上看星星")        # → [("school_rooftop", 0.7x), ...]
-    retriever.resolve_one("ラーメン屋で待ち合わせ")     # → "ramen_ya" 或 None(低分)
+    retriever.asset_scene("school_rooftop")         # → 资产 scene_id（查图用）
 """
 from __future__ import annotations
 
-from pathlib import Path
-
-import yaml
-
-from core import paths
+from core.media.place_table import PlaceTable, load_table
 from core.common.errors import Live2BeError
 from core.rag.embedder import LocalEmbedder
 
-#: 语料默认路径（`config/settings/world/places.yml`; 值的来源 = `core/paths.py`）
-_DEFAULT_PLACES = paths.PLACES_PATH
-
 #: 默认最低置信（低于 → 不返回, 上层保持上一场景）; 调参见 experiments/rag_test.py
 DEFAULT_THRESHOLD = 0.40
-
-#: scene id 拆词分隔（class_room → "class room"; 驼峰已由目录派生归一为 snake）
-_SPLIT = str.maketrans({"_": " "})
 
 
 class PlaceError(Live2BeError):
@@ -41,21 +51,27 @@ class PlaceError(Live2BeError):
 
 
 class PlaceRetriever:
-    """scene 词表跨语言检索器（懒构建向量, 精确兜底优先）。"""
+    """地点表的跨语言语义检索器（懒构建向量, 层1 精确优先; 单位 = 表键）。"""
 
     def __init__(
         self,
         embedder: LocalEmbedder | None = None,
         *,
-        places_path: str | Path | None = None,
+        table: PlaceTable | None = None,
         threshold: float = DEFAULT_THRESHOLD,
     ) -> None:
+        """
+        Args:
+            embedder: None → `LocalEmbedder()`（走配置链 + 自动发现）
+            table: 语料表; None → `load_table()`（`config/settings/world/
+                place_entities.json`, 按 mtime 缓存）。空表 = 无语料（`resolve` → `[]`）
+            threshold: 语义命中最低余弦; 见 `DEFAULT_THRESHOLD`
+        """
         self._embedder = embedder or LocalEmbedder()
         self.threshold = threshold
-        self._places_path = Path(places_path) if places_path else _DEFAULT_PLACES
-        self._aliases: dict[str, list[str]] = {}      # scene_id → 别名
-        self._id2alias: dict[str, str] = {}           # 别名 → scene_id（精确兜底）
-        self._vectors: dict[str, list[float]] | None = None   # 懒构建缓存
+        self._table = table if table is not None else load_table()
+        self._aliases: dict[str, tuple[str, ...]] = {}      # 表键 → 别名（`place`+`keywords`）
+        self._vectors: dict[str, list[list[float]]] | None = None   # 懒构建缓存
         self._load()
 
     # ------------------------------------------------------------------
@@ -63,15 +79,19 @@ class PlaceRetriever:
     # ------------------------------------------------------------------
 
     def resolve(self, text: str, k: int = 3) -> list[tuple[str, float]]:
-        """文本 → [(scene_id, score)] 降序, k 截断, 阈值以上。空/低分 → []。"""
+        """文本 → [(表键, score)] 降序, k 截断, 阈值以上。空/低分 → []。
+
+        ① **精确兜底**（= 层1, 零依赖 0 调用）: 别名**唯一**命中 → 直接 1.0。
+           **歧义不猜**（`天台` 指着 3 个键）——照实下沉语义层排序, 宁可 [] 也不随手挑
+           一个（层1 同一条纪律）。想拿歧义全集的调用方直接用 `PlaceTable.resolve_exact`。
+        ② **语义层**: 跨语言 embedding（每键取"别名里最高的那个余弦"）。
+        """
         query = (text or "").strip()
         if not query:
             return []
-        # 1) 精确兜底（零依赖, 词表 id / 别名子串命中直接 1.0）
-        exact = self._exact(query)
-        if exact is not None:
-            return [(exact, 1.0)]
-        # 2) embedding 语义匹配（跨语言）
+        hits = self._table.resolve_exact(query)
+        if len(hits) == 1:
+            return [(hits[0], 1.0)]
         if not self._ensure_vectors():
             return []
         try:
@@ -81,89 +101,71 @@ class PlaceRetriever:
         if not qv:
             return []
         scored: list[tuple[str, float]] = []
-        for scene_id, v in self._vectors.items():
-            s = LocalEmbedder.cosine(qv, v)
-            if s >= self.threshold:
-                scored.append((scene_id, s))
+        for place, vectors in self._vectors.items():
+            best = max((LocalEmbedder.cosine(qv, v) for v in vectors), default=0.0)
+            if best >= self.threshold:
+                scored.append((place, best))
         scored.sort(key=lambda t: t[1], reverse=True)
         return scored[:k]
 
     def resolve_one(self, text: str) -> str | None:
-        """便捷: 最高分 scene_id（低于阈值 → None = 上层保持上一场景）。"""
+        """便捷: 最高分表键（低于阈值 → None = 上层保持上一场景）。"""
         hits = self.resolve(text, k=1)
         return hits[0][0] if hits else None
 
     def scenes(self) -> list[str]:
-        """语料全部 scene_id（与导演词表对齐; 排查用）。"""
+        """语料全部**表键**（排查用; 不是资产 scene_id）。"""
         return sorted(self._aliases)
+
+    def asset_scene(self, place: str) -> str | None:
+        """表键 → 资产 scene_id（下游查图/前端 URL 用; 不一致时按文件名翻译）。"""
+        return self._table.scene_id(place)
 
     # ------------------------------------------------------------------
     # 内部
     # ------------------------------------------------------------------
 
     def _load(self) -> None:
-        """读 places.yml → 别名表。缺失/损坏 → 空语料（宁缺勿错, 不阻断）。"""
-        try:
-            data = yaml.safe_load(self._places_path.read_text(encoding="utf-8"))
-        except (OSError, yaml.YAMLError):
-            return
-        raw = data.get("places") if isinstance(data, dict) else None
-        if not isinstance(raw, dict):
-            return
-        for scene_id, aliases in raw.items():
-            if not isinstance(scene_id, str) or not isinstance(aliases, list):
-                continue
-            clean = [a for a in aliases if isinstance(a, str) and a.strip()]
-            if not clean:
-                continue
-            self._aliases[scene_id] = clean
-            for a in clean:
-                self._id2alias.setdefault(a, scene_id)
+        """表 → 别名表（`PlaceEntry.aliases()` = `place` + `keywords`）。
 
-    def _exact(self, query: str) -> str | None:
-        """词表 id / 别名整串或子串命中 → scene_id（精确优先, 服务无关）。"""
-        q = query.lower()
-        # 整串命中（id 或别名）
-        if q in self._id2alias:
-            return self._id2alias[q]
-        if q in self._aliases:
-            return q
-        # 词表 id 原样在文本里出现（LLM 直接输出 place id 的情况）
-        for scene_id in self._aliases:
-            if scene_id in q:
-                return scene_id
-        return None
+        空表/无别名 → 空语料（宁缺勿错, 不阻断; `resolve` 一律 `[]`）。
+        """
+        for e in self._table.all():
+            aliases = e.aliases()
+            if aliases:
+                self._aliases[e.place] = aliases
 
     def _ensure_vectors(self) -> bool:
-        """懒构建: 每 scene 取别名向量最大值（合并成一个代表向量）。失败 → False。"""
+        """懒构建: **保留每条别名的向量**, 打分时取键内最大值。
+
+        2026-09-19（PL4）改法: 旧实现每 scene 只留"平方范数最大"的那**一条**别名
+        向量当代表——在 L2 归一化的模型下范数几乎相同 ⇒ 实际等价于"**只留第一条
+        别名**", 一个键的其它别名（`学校天台`/`天台`/`school_rooftop` 里的后两条）
+        全白扔。428 条别名 ×1 个向量完全放得下, 没有理由省这个。
+        """
         if self._vectors is not None:
             return True
         if not self._aliases:
             return False
         if not self._embedder.health():
             return False
+        flat: list[str] = []
+        for aliases in self._aliases.values():
+            flat.extend(aliases)
         try:
-            # 一次性批出全部别名向量, 再按 scene 取 max
-            flat: list[str] = []
-            for aliases in self._aliases.values():
-                flat.extend(aliases)
             vecs = self._embedder.embed(flat)
         except Exception:                            # noqa: BLE001 — 服务故障: 无语义层
             self._vectors = {}
             return False
-        out: dict[str, list[float]] = {}
+        if len(vecs) != len(flat):                   # 形状不符 → 别错位配对
+            self._vectors = {}
+            return False
+        out: dict[str, list[list[float]]] = {}
         idx = 0
-        for scene_id, aliases in self._aliases.items():
-            best: list[float] | None = None
-            best_s = -1.0
-            for _ in aliases:
-                v = vecs[idx]
-                idx += 1
-                s = sum(x * x for x in v)
-                if s > best_s:
-                    best_s = s
-                    best = v
-            if best is not None:
-                out[scene_id] = best
+        for place, aliases in self._aliases.items():
+            chunk = vecs[idx: idx + len(aliases)]
+            idx += len(aliases)
+            if chunk:
+                out[place] = chunk
         self._vectors = out
         return True
