@@ -354,8 +354,13 @@ async function main() {
   if (pickState.total === 0 || pickState.resolved !== pickState.total) {
     throw new Error(`裁决后选项组应留屏且转只读态: ${JSON.stringify(pickState)}`);
   }
-  if (pickState.disabled !== pickState.total) {
-    throw new Error(`live 侧已裁决的选项必须禁用（点它=再提交一次会改写历史）: `
+  // ⚠️ 2026-09-20 改（真机报障"还得点到选项**外面**才推进"）:
+  //    原先断言"已裁决的选项必须 disabled" —— 而 disabled 的按钮**吞掉点击**, 加上
+  //    onClick 又把 `.bond-choice` 排除在推进之外 ⇒ 点黄着的那句毫无反应。
+  //    现在点它 = 推进（绑的是 `goNext()` → 发"（继续）", **不会**重提交原选项文本,
+  //    所以"改写历史"那条风险并没有回来）。故断言反过来: **不该 disabled**。
+  if (pickState.disabled !== 0) {
+    throw new Error(`裁决后的选项不该被 disabled（点它要能推进）: `
       + JSON.stringify(pickState));
   }
   if (pickState.pickedText.trim() !== "我来了。") {
@@ -389,12 +394,15 @@ async function main() {
   //  裁决后点过一次推进**。而死锁恰好在那一下:
   //  `showInteraction` 给未裁决板置 `pendingChoice=true`, 裁决分支只重画了选项组、
   //  没复位它 ⇒ `advanceOrFinish` 见 `pendingChoice` 就 return ⇒ 点画面/点三角全被吞。
+  //  ⚠️ 点的是**黄着的那句选项本身**（不是画面）: 真机第二轮报障正是"必须点到选项
+  //     外面才走"——disabled 的按钮吞点击。这一下同时钉住两件事。
   {
     const before = await page.evaluate(() => {
       const ps = [...document.querySelectorAll("#bond-text .bond-para")];
       return ps.length ? ps[ps.length - 1].textContent.trim() : "";
     });
-    await page.locator("#bond-text").click({ position: { x: 30, y: 20 }, timeout: 5000 });
+    await page.locator("#bond-choices .bond-choice.picked").first()
+      .click({ timeout: 5000 });
     // 下一板到达 = 正文变了（或出现新的未裁决选项组）
     const advanced = await page.waitForFunction((prev) => {
       const ps = [...document.querySelectorAll("#bond-text .bond-para")];
@@ -415,12 +423,12 @@ async function main() {
     });
     record("裁决后可推进", {
       info: advanced
-        ? `✓ 点画面进下一板: 正文=${JSON.stringify(st.paras)} 选项=${st.choices}(未裁决)`
-        : `❌ 点画面**没反应**（pendingChoice 死锁回归）: ${JSON.stringify(st)}`,
+        ? `✓ 点**黄着的那句选项**也能进下一板: 正文=${JSON.stringify(st.paras)} 选项=${st.choices}(未裁决)`
+        : `❌ 点选项**没反应**（pendingChoice 死锁 / 选项被 disabled）: ${JSON.stringify(st)}`,
       shot: await shot(page, "vn-after-pick-advance"),
     });
     if (!advanced) {
-      throw new Error(`裁决后点画面不推进（pendingChoice 未复位）: ${JSON.stringify(st)}`);
+      throw new Error(`裁决后点选项不推进（pendingChoice 未复位 / 选项被 disabled）: ${JSON.stringify(st)}`);
     }
   }
 

@@ -728,8 +728,18 @@ let lastSceneKey = "";
           goNext();                    // 只读: 本地下一板, 不发任何请求
         });
       } else {
-        btn.disabled = true;
-        btn.title = on ? "（你选了这句）" : "（当时未选）";
+        // ⚠️ 2026-09-20 真机报障（"还得点到选项**外面**才推进"）:
+        //    原来这里是 `btn.disabled = true` —— 而 disabled 的按钮**吞掉点击**,
+        //    同时 onClick 又把 `.bond-choice` 排除在推进之外 ⇒ 玩家点黄着的那句
+        //    **毫无反应**, 只有点到别的画面才走。功能上"能继续", 但没人会那样点。
+        //    现在: 禁用改**不回填** —— 点它 = 推进（与只读回放同一手;
+        //    收敛链下两条选项通往同一后续, 决策 #41 "毕竟都是一句话"）。
+        //    不会重提交: 这里绑的是 goNext()（发"（继续）"）, 不是 submit(原选项文本)。
+        btn.title = on ? "（你选了这句——点一下继续）" : "（当时未选——点一下继续）";
+        btn.addEventListener("click", () => {
+          clearAutoTimer();
+          goNext();
+        });
       }
       box.appendChild(btn);
     });
