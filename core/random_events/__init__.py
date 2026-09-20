@@ -28,6 +28,7 @@ from core.random_events.events import build_default_events
 _ENABLED = True
 
 
+# EXT: random-events-introspection — 全局测试开关（当前无消费方; fire_event 才是活入口）; 勿删（docs/EXTENSION_POINTS.md）
 def set_enabled(flag: bool) -> None:
     """全局启用/禁用随机事件（测试/确定性场景禁用; 生产默认启用）。"""
     global _ENABLED

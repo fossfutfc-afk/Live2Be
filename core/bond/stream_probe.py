@@ -90,6 +90,7 @@ def _find_key_string(buf: str, key: str) -> str | None:
         return None                          # 流还没到闭合引号——继续等
 
 
+# EXT: v1-memorial-probe — v1 流式嗅探留档（决策 #39 退役, 主链不调用）; 勿删（docs/EXTENSION_POINTS.md）
 class MemorialProbe:
     """流式嗅探器: feed(token 增量) → 检测到 memorial_enter 的 prompt 定稿即触发回调。
 

@@ -124,6 +124,7 @@ def _try_batch(
 _ANNO_CALL_BUDGET = 4
 
 
+# EXT: emotion-batch-v1 — 批式标注入口（保留给协议单测/简单调用, 主链走 emo_text）; 勿删（docs/EXTENSION_POINTS.md）
 def annotate_emotions_smart(
     llm,
     sentences: list[str],
@@ -172,6 +173,7 @@ def _smart_rec(llm, sentences, lexicon_keys, lexicon_hint, character,
     return left + right
 
 
+# EXT: emotion-batch-v1 — 批式标注入口（保留给协议单测/简单调用）; 勿删（docs/EXTENSION_POINTS.md）
 def annotate_emotions(
     llm,
     sentences: list[str],
@@ -248,6 +250,7 @@ def _extract_array(raw: object) -> object:
         return None
 
 
+# EXT: emotion-batch-v1 — 批式补标入口（保留给协议单测/简单调用）; 勿删（docs/EXTENSION_POINTS.md）
 def fill_missing_emotions(
     paragraphs: list[dict],
     annotator,

@@ -108,6 +108,7 @@ class Affection:
         """满级（100 级后经验仍累计, 等级不动）。"""
         return self.level >= MAX_LEVEL
 
+    # EXT: affection-view — 好感可视化（进度条, 未立项）; 勿删（docs/EXTENSION_POINTS.md）
     def progress(self) -> float:
         """当前等级内进度 0-1（进度条用）; 满级 → 1.0。"""
         if self.is_max:
@@ -117,6 +118,7 @@ class Affection:
             return 0.0
         return min(1.0, max(0.0, (self.exp - total) / gap))
 
+    # EXT: affection-view — 好感可视化（升级差额, 未立项）; 勿删（docs/EXTENSION_POINTS.md）
     def exp_to_next(self) -> int:
         """升下一级还差多少 exp; 满级 → 0。"""
         if self.is_max:

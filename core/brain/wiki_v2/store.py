@@ -268,10 +268,12 @@ class WikiStoreV2:
         """恢复内存态（回滚用; 不落盘——调用方决定是否 save）。"""
         self._nodes = state
 
+    # EXT: save-point-r6 — 存档点语义（R6 未落地）; 勿删（docs/EXTENSION_POINTS.md）
     def snapshot_to(self, dest: str | Path) -> None:
         """快照 = 复制当前全部节点到 dest（R6 存档点语义: 自包含）。"""
         atomic_write_lines(Path(dest), (n.to_json_line() for n in self._nodes.values()))
 
+    # EXT: save-point-r6 — 存档点语义（R6 未落地）; 勿删（docs/EXTENSION_POINTS.md）
     def restore_from(self, src: str | Path) -> None:
         """从快照恢复（替换内存; 调用方随后 save() 落盘）。"""
         self._nodes = {}
@@ -288,6 +290,7 @@ class WikiStoreV2:
     # 图不变量审计（图算法正确性确认——冒烟/R6 完整性检查用）
     # ------------------------------------------------------------------
 
+    # EXT: save-point-r6 — 图不变量审计（冒烟/R6 完整性检查用）; 勿删（docs/EXTENSION_POINTS.md）
     def audit(self) -> list[str]:
         """图不变量审计: 返回违规列表（空 = 干净）。
 

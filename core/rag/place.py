@@ -50,6 +50,7 @@ class PlaceError(Live2BeError):
     """地点检索域错误（语料缺失/损坏等; 查询本身宁缺勿错不抛）。"""
 
 
+# EXT: place-semantic-pl4 — 地点语义检索（语料已备, 产品侧未接线: 层1 别名 0 调用）; 勿删（docs/EXTENSION_POINTS.md）
 class PlaceRetriever:
     """地点表的跨语言语义检索器（懒构建向量, 层1 精确优先; 单位 = 表键）。"""
 
