@@ -13,6 +13,7 @@ wiki（sessions/{id}/brain/wiki.json）。另一个世界线的成长与本 sess
 
 from __future__ import annotations
 
+# EXT: brain-v1-legacy — legacy 记忆三件套（AGENT_BRAIN.md:317 声明"保留但无运行时消费方"）; 勿删（docs/EXTENSION_POINTS.md）
 from core.brain.hippocampus import SCHEMA_VERSION, WikiStore
 from core.brain.consolidation import digest_session
 from core.brain.recall import build_brain_injection

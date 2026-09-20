@@ -27,6 +27,7 @@ from contract.model import ValidationResult
 
 PHASE_RECORD = "record"
 PHASE_UNDERSTAND = "understand"
+# EXT: digest-deep — 三相位之 deep（设计已声明, 未实现）; 勿删（docs/EXTENSION_POINTS.md）
 PHASE_DEEP = "deep"
 
 #: B 轮决策类型

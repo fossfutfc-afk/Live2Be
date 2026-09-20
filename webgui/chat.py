@@ -120,6 +120,7 @@ def open_session(char_id: str) -> dict:
     }
 
 
+# EXT: world-switch-m2 — 显式开新世界线（M2 未落地; 与 open_session 兜底分支逻辑重复）; 勿删（docs/EXTENSION_POINTS.md）
 def new_world(char_id: str) -> dict:
     """显式开新世界线（平行世界语义: 旧线保留, 新线从零开始）。"""
     engine = _engine(char_id)

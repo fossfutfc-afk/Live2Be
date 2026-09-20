@@ -546,6 +546,7 @@ def _last_seen_day(clock: dict | None) -> date | None:
         return None
 
 
+# EXT: anniversary — "周年"窗口用（闰年特例已实现, 当前无调用点）; 勿删（docs/EXTENSION_POINTS.md）
 def _minus_one_year(d: date) -> date:
     """`d` 往前一年（`2/29` 而目标年不是闰年 → 落到 `2/28`）。
 

@@ -116,6 +116,7 @@ class SessionStore:
     def progress_path(self, char_id: str, session_id: str = "") -> Path:
         return self.char_dir(char_id) / "progress.json"
 
+    # EXT: save-point-r6 — 存档点目录（v2 森林时点快照, 阶段 8/10 未落地）; 勿删（docs/EXTENSION_POINTS.md）
     def snapshots_dir(self, world_id: str | None = None) -> Path:
         """存档点目录（v2: 森林时点快照, 阶段 8/10——全量复制, 节点自包含）。"""
         return self.world_dir(world_id) / "snapshots"
@@ -144,6 +145,7 @@ class SessionStore:
             pass
         return {"id": world_id or self.world_id, "created_at": "", "active": False}
 
+    # EXT: world-switch-m2 — 平行世界切换器（M2 未落地）; 勿删（docs/EXTENSION_POINTS.md）
     def create_world(self, name: str = "") -> str:
         """新建平行世界（槽位 world1..world{N}, 上限 WORLD_LIMIT——满了拒绝）。
 
@@ -171,6 +173,7 @@ class SessionStore:
             f"平行世界上限 {WORLD_LIMIT} 个已满——请先归档/删除一个世界再新建"
         )
 
+    # EXT: world-switch-m2 — 平行世界切换器（M2 未落地）; 勿删（docs/EXTENSION_POINTS.md）
     def active_world(self) -> str:
         """当前活跃世界（world.json active=True; 无 → 唯一世界; 无世界 → world1）。"""
         worlds = self.list_worlds()

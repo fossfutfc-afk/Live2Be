@@ -45,5 +45,6 @@ def get_event(name: str) -> EventSpec | None:
     return _EVENTS.get(name)
 
 
+# EXT: random-events-introspection — 注册表内省（fire_event 才是活入口）; 勿删（docs/EXTENSION_POINTS.md）
 def all_events() -> list[EventSpec]:
     return list(_EVENTS.values())
