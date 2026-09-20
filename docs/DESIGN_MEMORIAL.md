@@ -128,7 +128,7 @@
 | M4 | **退出 = 块边界**（不变） | 新一块解析成功即复位；章末由 `bond_finish` 强闭合 |
 | M5 | **章内 ≤1**（不变） | 跨块第二次静默降级 |
 | M6 | **纪念轮默认不写 `end`** | **软建议**（写进规则书，不进契约校验）：收尾默认留到下一轮——*"除非你真的认为这样很有意境"* |
-| M7 | **不做"补写"** | 漏写 `art` 时**不**补调用。先改文案，用埋点**量配对命中率**，不够再议 |
+| M7 | **不做"补写"** | 漏写 `art` 时**不**补调用。先改文案，用埋点**量配对命中率**，不够再议。⚠️ 原来唯一那条"art 无 memorial"WARNING 在 `_build_record_boards` 里，而**流式路径根本不走那个函数** ⇒ 生产主链上是死的；命中率改由 `check_block` 的**软问题**统计（见 A11） |
 | M8 | 图未就绪 | 保持现状：进纪念即黑屏 + 文字，图就绪静默淡入，**无加载 UI** |
 
 ### 2.3 `memorial.text` 的写作要求（进规则书 §六，常驻）
@@ -155,20 +155,21 @@
 
 > 纪律：**每节点一提交，文档与代码同批**；人设/规则文案改动与夹具同批。
 
-### 节点 A — 契约与规则文案（零引擎改动）
+### 节点 A — 契约与规则文案（零引擎改动）　✅ **已落地 2026-09-20**
 
 | # | 改动 | 位置 |
 |---|---|---|
 | A1 | 注入给 LLM 的 stage 取值清单里**摘掉 `exit`**（v1 动作已退役；解析常量 `STAGE_VALUES` **保留**，旧档回放要认） | `contract/schema.py:157` `stage_shapes` |
-| A2 | `art` 的说明改成"**本轮纪念的画面意向（与 memorial 同轮，必配）**" | `schema.py` stage 取值段 |
+| A2 | `art` 的说明改成"**给画师**的画面意向（本轮最前一条）——**必须与 memorial 同轮成对出现**"；`memorial` 的说明改成"**这句会显示给玩家看**" | `schema.py` stage 取值段 |
 | A3 | **统一 art / switch 的先后**——现在四处在说三种话（硬规则 4 说"首条必须 switch，art 紧跟其后成为本轮首条"；rules `:64` 说 art 是"本轮第一条"；范本是 `art → switch`；实现两种都放行）。按范本定：**art 是本轮第一条** | `schema.py:253` + `bond_story_rules.md:64` |
-| A4 | 硬规则 5 补一句：`memorial` 之后到本轮结束都是纪念正文（**且本轮默认不收尾**） | `schema.py:254` |
+| A4 | 硬规则 5 保持**结构句**（`memorial` 之后到本轮结束为纪念正文）；**"本轮默认不收尾"不进硬规则**——它没有校验，放进"违反即被丢弃"就是假威胁 ⇒ 只进 §六 软建议 | `schema.py` 硬规则 5 |
 | A5 | **示例改成配对形状**：`art → switch → 铺垫 → memorial → 纪念正文`（示例是"形状"的来源，`:257-266` 现在教的是**光杆 memorial**） | `schema.py:188-201` |
 | A6 | §六 整段重写：分工（art 给画师 / memorial.text 给玩家）+ 配对必做 + §2.3 五条写法 + 位置 + **纪念区间内不换场**（契约已有 `STAGE_FORBIDDEN_IN_MEMORIAL`，规则书漏写） | `bond_story_rules.md:57-72` |
 | A7 | **删** `:72`「没声明也可以纪念」（唯一的"可省略"许可来源） | `bond_story_rules.md:72` |
-| A8 | §七 补 M6 软建议（原始措辞：*"建议不直接在 memo 结束，除非你真的认为这很有意境"*） | `bond_story_rules.md:74-79` |
-| A9 | 范本加长：纪念正文从 **1 条**补到 **3~6 条**，并点明"纪念那一轮 / 收尾那一轮"是**两轮** | `bond_shots.md:67-78` |
-| A10 | 夹具重生成（`PROMPTKIT_UPDATE_FIXTURES=1 pytest tests/core/test_promptkit_baseline.py`，人工审 diff）+ 加一条**共 token 断言**守"art↔memorial 配对"（schema 与 rules 两处都写，§12 现成手法） | `tests/fixtures/promptkit/bond_box.txt` 等 |
+| A8 | §六 补 M6 软建议（原始措辞：*"建议不直接在 memo 结束，除非你真的认为这很有意境"*） | `bond_story_rules.md` §六 + `bond_shots.md`（收法 ④ 同步标注为"例外，不是默认"） |
+| A9 | 范本加长：纪念正文从 **1 条**补到 **4 条**，并点明"纪念那一轮 / 收尾那一轮"是**两轮** | `bond_shots.md` 范本 |
+| A10 | 夹具重生成 + 断言守配对：`test_build_record_schema_covers_all_values` 断言三处都说到配对、且 `exit` **不在**注入文本里 | `tests/fixtures/promptkit/*.txt`、`tests/core/test_records.py` |
+| A11 | **`check_block` 新增两条软问题**（只记录/打日志，**绝不打回**）：① 有 memorial 却没 art（配对缺失）② memorial 与 end 同轮。同时在 `check_block` docstring 写明**软硬由标记串判**、加新问题串时不能撞 `HARD_BLOCK_ISSUE_MARKS`；`split_board_issues` 的日志措辞从"已切群处理"改成"不阻断"（它现在不只管群长） | `contract/records.py::check_block`、`core/bond/bond_story.py` |
 
 ### 节点 B — 记录级进入
 
@@ -217,7 +218,7 @@
    （`bond.py:1318/1342/1362` 标注门控、`:2446/2449/2475` lane、`:2602/2664` marker 落库），
    `_log_scene_meta` 的 `elif scene.memorial_exit:` **永远走不到**。这些死分支正是
    "链路看起来有 exit 动作"的来源（审计 A2 点过"三个恒假/恒空字段的活分支"）。
-3. **`art` 是"可选预告"** —— 只有 `bond_story_rules.md:72` 那一句这么说（**节点 A7 要删**）。
+3. **`art` 是"可选预告"** —— 只有 `bond_story_rules.md:72` 那一句这么说（**A7 已删，2026-09-20**）。
    契约的 stage 取值清单里它是有的，位置也有校验（必须块首）；**唯一真缺的是"配对"**。
 4. **`art` 不进 LLM 历史** —— 它被从记录流剔除（`bond_story.py:960`）、只落成板上的
    `art_hint`（`:990-992`）；历史由 `render_bond_scene_text(payload)` 现算、v2 只渲染

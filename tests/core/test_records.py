@@ -214,11 +214,17 @@ def test_sensei_run_over_limit_flagged():
 # ---------------------------------------------------------------------------
 
 def test_check_block_positions():
-    """art 块首 / end·exit 块尾 / 纪念区间禁换场 / 二次纪念 / 二次 art / 空块。"""
+    """art 块首 / end 块尾 / 纪念区间禁换场 / 二次纪念 / 二次 art / 空块 / 配对与章末（软）。"""
+    from core.bond.bond_story import split_board_issues
+
     ok = [_rec("switch", "开场景", KIND_STAGE), _rec("art", "意向", KIND_STAGE),
           _rec("igusa_haruka", "铺垫"), _rec("memorial", "触发", KIND_STAGE),
-          _rec("igusa_haruka", "纪念正文"), _rec("end", "收尾", KIND_STAGE)]
+          _rec("igusa_haruka", "纪念正文"), _rec("igusa_haruka", "纪念正文二")]
     assert check_block(ok) == [], check_block(ok)
+
+    # 收尾轮：另起一块（2026-09-20 M6: 纪念轮默认不写 end）——这才是推荐形状
+    ok_end = [_rec("igusa_haruka", "晚安。"), _rec("end", "收尾", KIND_STAGE)]
+    assert check_block(ok_end) == [], check_block(ok_end)
 
     bad_art = [_rec("igusa_haruka", "铺垫"), _rec("art", "意向", KIND_STAGE)]
     assert any("首条不是 switch" in i for i in check_block(bad_art))
@@ -237,8 +243,18 @@ def test_check_block_positions():
     two_art = [_rec("art", "一", KIND_STAGE), _rec("art", "二", KIND_STAGE)]
     assert any("2 条 art" in i for i in check_block(two_art))
 
+    # 软违规（2026-09-20）: 配对缺失 / 章末压在纪念轮 —— 记录但不打回
+    for issues in (check_block([_rec("memorial", "触发", KIND_STAGE),
+                                _rec("igusa_haruka", "正文")]),
+                   check_block([_rec("art", "意向", KIND_STAGE),
+                                _rec("memorial", "触发", KIND_STAGE),
+                                _rec("end", "收尾", KIND_STAGE)])):
+        soft = [i for i in issues if "没有 art" in i or "与 end 在同一轮" in i]
+        assert soft, issues
+        assert split_board_issues(issues)[1] == issues, f"软问题不该被判成硬: {issues}"
+
     assert check_block([]) == ["空块：没有任何记录"]
-    print("    block: 位置/区间/重复/空块 六项判定")
+    print("    block: 位置/区间/重复/空块 + 配对与章末（软）八项判定")
 
 
 def test_block_head_art_after_opening_switch():
@@ -254,12 +270,20 @@ def test_block_head_art_after_opening_switch():
 # ---------------------------------------------------------------------------
 
 def test_build_record_schema_covers_all_values():
-    """schema 文本覆盖全部取值 + 关键规则 + 三条文案纪律（用户裁决 #24）。"""
-    from contract.records import STAGE_VALUES
+    """schema 文本覆盖全部取值 + 关键规则 + 三条文案纪律（用户裁决 #24）。
+
+    ⚠️ `exit` **故意不在覆盖范围内**（2026-09-20, docs/DESIGN_MEMORIAL.md 节点 A1）:
+    它是 v1 遗留值，解析层 `STAGE_VALUES` 仍认（旧档回放要读），但**不再教给 LLM**
+    ——注入清单里有它就等于告诉模型"可以写 exit"，而 v2 里它恒不会被产出。
+    """
+    from contract.records import STAGE_EXIT, STAGE_VALUES
     from contract.schema import build_record_schema
 
     text = build_record_schema()
     for value in STAGE_VALUES:
+        if value == STAGE_EXIT:
+            assert f'"{value}"' not in text, "exit 是解析层遗留值, 不该出现在注入文本里"
+            continue
         assert f'"{value}"' in text, value
     for value in ("igusa_haruka", CHARACTER_NARRATOR, CHARACTER_SENSEI):
         assert value in text, value
@@ -267,8 +291,12 @@ def test_build_record_schema_covers_all_values():
     assert '\\"' in text                       # 转义示范（实战唯一真实错误源）
     assert f"1~{MAX_SENSEI_RUN} 条" in text     # 群上限
     assert "不要数组" in text and "不要围栏" in text
-    assert "stage=end / exit 外必填" in text    # end 的 text 可留空（收尾字段）
+    assert "stage=end 外必填" in text           # end 的 text 可留空（收尾字段）
     assert "不是老师的话" in text and "黑屏收尾" in text
+    # art ↔ memorial 配对（2026-09-20 M1）: 三处都要说到（取值说明/硬规则/示例）
+    assert "与 memorial 同轮成对出现" in text
+    assert "必须同轮成对" in text
+    assert text.count('"stage": "art"') >= 2    # 取值行 + 示例行
     # 文案纪律: 范例不出现「」; 不写"不要写地点/情绪字段"式负面提醒（白熊效应）
     assert "「" not in text and "」" not in text
     assert "地点键" not in text and "情绪键" not in text
@@ -442,6 +470,7 @@ def test_block_stream_parser_edge_cases():
 # ---------------------------------------------------------------------------
 
 _BLOCK_TEXT = "\n".join([
+    '{"stage": "art", "text": "她在坡道上回头，眼里有一点水光"}',   # art 必须块首（配对）
     '{"stage": "switch", "text": "深夜的杂草屋"}',
     '{"character": "igusa_haruka", "text": "……老师。"}',
     '{"character": "sensei", "text": "是我来晚了。"}',
@@ -454,17 +483,21 @@ _BLOCK_TEXT = "\n".join([
 
 
 def test_vn_block_derived_views():
-    """块载体：群 / 位置 / 前后切片 —— 位置元数据齐备，且与校验结论一致。"""
+    """块载体：群 / 位置 / 前后切片 —— 位置元数据齐备，且与校验结论一致。
+
+    ⚠️ 2026-09-20 起这块是**成对形状**（art 在首条 + memorial 在后）——art 与
+    memorial 必须同轮成对（docs/DESIGN_MEMORIAL.md M1），夹具跟着走。
+    """
     blk = VnBlock.from_text(_BLOCK_TEXT)
-    assert len(blk.records) == 8 and blk.is_valid and blk.issues == ()
-    assert blk.switch_at == 0 and blk.art_at is None and blk.memorial_at == 6
+    assert len(blk.records) == 9 and blk.is_valid and blk.issues == ()
+    assert blk.art_at == 0 and blk.switch_at == 1 and blk.memorial_at == 7
     assert blk.end_at is None and blk.exit_at is None
-    # 两群：run=1（第 3 条）+ run=2（第 5~6 条）
-    assert blk.groups == ((2,), (4, 5))
+    # 两群：run=1（第 4 条）+ run=2（第 6~7 条）
+    assert blk.groups == ((3,), (5, 6))
     assert blk.group_texts == (("是我来晚了。",), ("先坐下吧。", "要说的话，慢慢说。"))
     assert blk.has_choices
     # 纪念闸门切片：闸门前可渲染前缀 / 纪念区间本体
-    assert len(blk.before(blk.memorial_at)) == 6
+    assert len(blk.before(blk.memorial_at)) == 7
     assert [r.text for r in blk.after(blk.memorial_at)] == ["「那种话，我不想再听了。」"]
     assert blk.after(None) == ()
     print("    block: 群/位置/前后切片")
@@ -484,7 +517,8 @@ def test_vn_block_render_and_roundtrip():
     assert "老师：" not in blk.render_text(speaker=False)
     # 往返：payload → 块 → payload 逐字节一致
     payload = blk.to_dict()
-    assert payload["records"][0] == {"stage": "switch", "text": "深夜的杂草屋"}
+    assert payload["records"][0] == {"stage": "art", "text": "她在坡道上回头，眼里有一点水光"}
+    assert payload["records"][1] == {"stage": "switch", "text": "深夜的杂草屋"}
     back = VnBlock.from_dict(payload)
     assert back.records == blk.records and back.to_dict() == payload
     # 裸 list 也吃（历史存档里可能是纯数组）
