@@ -45,6 +45,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
+from contract import IssueCode  # noqa: E402
 from core.bond.bond_story import (  # noqa: E402
     MAX_BOARDS_PER_TURN,
     BondStoryEngine,
@@ -384,6 +385,6 @@ def test_stream_late_violation_pends_feedback_for_next_round():
 
     assert got and first is got[0]
     assert engine._pending_feedback, "advisory 问题必须记账待下一轮（不能只打日志）"
-    assert any("必须块尾" in i for i in engine._pending_feedback), \
+    assert any(i.code is IssueCode.BLOCK_TAIL for i in engine._pending_feedback), \
         engine._pending_feedback
     print("    parity: 流式 advisory → 记账待下一轮纠偏")

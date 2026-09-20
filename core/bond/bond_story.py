@@ -36,11 +36,12 @@ from enum import Enum
 from pathlib import Path
 from typing import Callable, Iterable
 
-from contract import (BlockStreamParser, CHARACTER_NARRATOR,
-                      KIND_CHARACTER, MAX_SENSEI_RUN, NON_PICKS, STAGE_ART,
-                      STAGE_END, STAGE_EXIT, STAGE_MEMORIAL, STAGE_SWITCH,
-                      VnBlock, VnRecord, build_record_schema,
-                      check_board, check_block, sensei_groups)
+from contract import (BlockStreamParser, CHARACTER_NARRATOR, Issue,
+                      IssueCode, KIND_CHARACTER, MAX_SENSEI_RUN, NON_PICKS,
+                      STAGE_ART, STAGE_END, STAGE_EXIT, STAGE_MEMORIAL,
+                      STAGE_SWITCH, VnBlock, VnRecord, build_record_schema,
+                      check_board, check_block, format_issues, sensei_groups,
+                      split_issues)
 from core.common import Live2BeError, err
 from core.media.emotion_lexicon import (
     assets_root,
@@ -79,21 +80,12 @@ MAX_SCENE_RETRIES = 3
 #: 里**无条件**打回重发（见那里的 `isinstance(response, dict)` 分支）; 复活 v1 动作通道时
 #: 别只删那个分支——把闸门一起加回来, 参考 git 历史里的这个开关。
 
-#: 记录流"硬"违规 → 打回重发（形状类: 说明模型没守约, 重发值得）
-HARD_BLOCK_ISSUE_MARKS = ("空块", "必须块尾", "必须块首", "首条不是 switch",
-                          "纪念区间内", "条 memorial", "条 art")
-
-
-def split_board_issues(issues: tuple[str, ...] | list[str]) -> tuple[list[str], list[str]]:
-    """把 `check_block` 的问题清单分成 (硬, 软)。
-
-    硬 = 形状类（块首/块尾/纪念区间/空块）→ 引擎打回重发;
-    软 = sensei 群过长 → **切群**（契约是硬上限, 但为一处超长整块重发代价太大,
-    切成多个 <=MAX_SENSEI_RUN 的槽即可, 内容零损失）。
-    """
-    hard = [i for i in issues if any(m in i for m in HARD_BLOCK_ISSUE_MARKS)]
-    soft = [i for i in issues if i not in hard]
-    return hard, soft
+#: 记录流"硬"违规 → 打回重发（形状类: 说明模型没守约, 重发值得）。
+#: ⚠️ 2026-09-21（节点 6）: 原来这里是一张**中文标记串**表（`HARD_BLOCK_ISSUE_MARKS`），
+#: 由 `split_board_issues` 做子串匹配判硬软——给软问题换个措辞就可能静默变成"整轮
+#: 重发"（ARCH_REVIEW P0-3）。现在分级是 `contract.records.ISSUE_SEVERITY` 里
+#: `IssueCode → IssueSeverity` 的显式声明，`split_issues` 只读 `Issue.severity`。
+#: 本文件**不再**有任何按问题文案判分级的代码（`tests/core/test_records.py` 有守门用例）。
 
 
 def _board_spans(records: tuple) -> list[tuple[int, int, tuple[int, ...]]]:
@@ -580,7 +572,7 @@ class BondStoryEngine:
         #: （打回重发会产出另一段文本 = 玩家看到"同一段戏讲两遍", 见
         #: `docs/DESIGN_RESEND.md` §3）→ 改成**下一轮注记纠偏**: 把问题带到下一轮,
         #: 让你模型自己避免。一次性（下轮注入后即清）; 干净块也会清。
-        self._pending_feedback: list[str] = []
+        self._pending_feedback: list[Issue] = []
 
     # ------------------------------------------------------------------
     # 会话生命周期
@@ -719,9 +711,10 @@ class BondStoryEngine:
             # 节点 3（2026-09-21）: 上一轮**已交付**但形状有问题（流式拦不住, 见
             # `DeliveryMode.STREAM`）→ 下一轮明说一次让模型纠偏; **一次性消费**
             # （此处清空, 下一轮若仍脏会重新置上）。放在场卡之前, 保持场卡在末位。
+            # 注入的是 `Issue.message`（人读中文）——给模型看的, 不是码。
             notes.append(
                 "（系统）上一轮输出的**形状**有这些问题: "
-                + "; ".join(self._pending_feedback)
+                + format_issues(self._pending_feedback)
                 + "。本轮请避免（形状规则见「本轮输出契约」）。")
             self._pending_feedback = []
         if self._task_on:                                   # 场卡 = 目标层（末位）
@@ -799,10 +792,10 @@ class BondStoryEngine:
                         gate_issues.extend(issues)
                         logger.warning(
                             "[vn][stream] 板级闸拦下首板（本 attempt 作废, 打回重发）: %s",
-                            "; ".join(issues))
+                            format_issues(issues))
                         return
                     logger.warning("[vn][stream] 板级违规（已交付 → 只记账, 不回滚）: %s",
-                                   "; ".join(issues))
+                                   format_issues(issues))
                 asm.set_block_art(stream.art_hint)
                 asm.set_notes(stream.notes)
                 _deliver(asm.push(board_records))
@@ -876,11 +869,14 @@ class BondStoryEngine:
                 self._trace.append({
                     "attempt": attempt, "action": "record_stream/board_gate",
                     "delivery_mode": mode.value,
-                    "parse_valid": False, "parse_errors": list(gate_issues),
+                    "parse_valid": False,
+                    # trace 保持 JSON 友好: 人读文本 + 机器码各一份
+                    "parse_errors": [str(i) for i in gate_issues],
+                    "issue_codes": [i.code.value for i in gate_issues],
                 })
                 feedback(
                     messages,
-                    "板级校验失败: " + "; ".join(gate_issues),
+                    "板级校验失败: " + format_issues(gate_issues),
                     "请按「本轮输出契约」重发整轮记录: end 必须放最后一条; "
                     "每轮至多一条 memorial, 且它之后不要再换场（switch）。",
                 )
@@ -897,14 +893,16 @@ class BondStoryEngine:
                     "delivery_mode": mode.value,
                     "records": len(stream.records), "boards": len(delivered),
                     "parse_valid": bool(stream.records),
-                    "issues": issues, "notes": list(stream.notes),
+                    "issues": [str(i) for i in issues],
+                    "issue_codes": [i.code.value for i in issues],
+                    "notes": list(stream.notes),
                 })
                 logger.info("[vn][stream] 完成 n=%d boards=%d issues=%d%s",
                             len(stream.records), len(delivered), len(issues),
                             # 节点 1（2026-09-21）: 问题**文本**也进日志。此前只打数量,
                             # 于是 CLAUDE.md §12 那条"grep 软问题串（如'含 memorial
                             # 但没有 art'）"在生产路径上永远 grep 不到——生产走流式。
-                            f" issues_txt={' | '.join(issues)}" if issues else "")
+                            f" issues_txt={format_issues(issues, ' | ')}" if issues else "")
                 # 节点 3: 记账 → **下一轮纠偏**（下一轮 notes 注入一次后自清）
                 self._pending_feedback = list(issues)
                 boards = delivered
@@ -913,7 +911,8 @@ class BondStoryEngine:
                 if not boards:
                     feedback(
                         messages,
-                        "记录流不合规: " + "; ".join(hard or ["空块：没有任何合法记录"]),
+                        "记录流不合规: "
+                        + (format_issues(hard) or "空块：没有任何合法记录"),
                         "请按「本轮输出契约」重发整轮记录: 一行一条 JSON（换场发 "
                         "stage=switch; 收尾 end 放最后一条; art 预告放首条; 老师的话连写 "
                         "1~3 条 sensei）——不要数组、不要围栏、不要动作 JSON。",
@@ -1039,8 +1038,8 @@ class BondStoryEngine:
         return {char.character_id: char.display_name} if char else {}
 
     def _build_record_boards(self, raw: str,
-                             attempt: int) -> tuple[list["BondScene"], list[str]]:
-        """LLM 原始记录流文本 → (板列表, 硬违规)。
+                             attempt: int) -> tuple[list["BondScene"], list[Issue]]:
+        """LLM 原始记录流文本 → (板列表, 硬违规 `Issue` 清单)。
 
         板列表首板本次发, 其余进待发队列; 每板的历史文本由
         `render_bond_scene_text(scene.to_dict())` 在交付时现算（唯一渲染源）。
@@ -1051,7 +1050,7 @@ class BondStoryEngine:
         aliases = self._main_aliases()
         block = VnBlock.from_text(raw, main_id=main_id, aliases=aliases)
         block_art = next((r.text for r in block.records if r.stage == STAGE_ART), "")
-        hard, soft = split_board_issues(block.issues)
+        hard, soft = split_issues(block.issues)
         drops = [n for n in block.notes if n.startswith("[DROP")]
         notes = [n for n in block.notes if not n.startswith("[DROP")]
         self._trace.append({
@@ -1060,9 +1059,10 @@ class BondStoryEngine:
             "delivery_mode": DeliveryMode.BLOCK.value,
             "records": len(block.records),
             "parse_valid": bool(block.records) and not hard,
-            "parse_errors": list(hard),
-            "issues": list(block.issues),
-            "soft": list(soft),
+            "parse_errors": [str(i) for i in hard],
+            "issue_codes": [i.code.value for i in block.issues],
+            "issues": [str(i) for i in block.issues],
+            "soft": [str(i) for i in soft],
             "notes": notes,
             "drops": drops,
         })
@@ -1072,11 +1072,11 @@ class BondStoryEngine:
         for d in drops:                          # 逐条坏行（原文前 100 字在 diag 里）
             logger.warning("[vn][records] 丢行 %s", d)
         if not block.records:
-            return [], ["空块：没有任何合法记录"]
+            return [], [Issue(IssueCode.BLOCK_EMPTY, "空块：没有任何合法记录")]
         if hard:
             return [], hard
         if soft:                                 # 超长群 → 切群; 其余（配对/章末）只记录
-            logger.info("[vn][records] 软违规（不阻断）: %s", "; ".join(soft))
+            logger.info("[vn][records] 软违规（不阻断）: %s", format_issues(soft))
         # 节点 3: 软问题只记录不打回 → 带到**下一轮**纠偏（硬问题已即时打回, 不重复纠偏）
         self._pending_feedback = list(soft)
         if block_art and not any(r.stage == STAGE_MEMORIAL for r in block.records):

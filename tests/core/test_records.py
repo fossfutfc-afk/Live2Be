@@ -12,15 +12,25 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from contract.records import (CHARACTER_NARRATOR, CHARACTER_SENSEI,  # noqa: E402
-                              KIND_CHARACTER, KIND_STAGE, MAX_SENSEI_RUN,
-                              VnBlock, VnRecord, check_block, is_main_speaker,
-                              normalize_main_character, parse_line,
-                              parse_stream, render_records, sensei_group_labels,
-                              sensei_groups)
+                              ISSUE_SEVERITY, KIND_CHARACTER, KIND_STAGE,
+                              MAX_SENSEI_RUN, VnBlock, VnRecord, Issue,
+                              IssueCode, IssueSeverity, check_block,
+                              is_main_speaker, normalize_main_character,
+                              parse_line, parse_stream, render_records,
+                              sensei_group_labels, sensei_groups, split_issues)
 
 
 def _rec(value, text="x", kind=KIND_CHARACTER, line_no=0) -> VnRecord:
     return VnRecord(kind=kind, value=value, text=text, line_no=line_no)
+
+
+def _has(issues, code: IssueCode) -> bool:
+    """问题清单里有没有这个**机器码**（节点 6: 断言看码, 不看中文文案）。"""
+    return any(i.code is code for i in issues)
+
+
+def _codes(issues) -> set:
+    return {i.code for i in issues}
 
 
 def test_is_main_speaker_judgement():
@@ -201,11 +211,11 @@ def test_sensei_groups_user_example():
 
 
 def test_sensei_run_over_limit_flagged():
-    """群长度上限 3：4 连 → 块校验报错。"""
+    """群长度上限 3：4 连 → 块校验报错（软：切群处理，不打回）。"""
     recs = [_rec("igusa_haruka", "铺垫"), *[_rec(CHARACTER_SENSEI, f"话{i}") for i in range(4)],
             _rec("igusa_haruka", "回应")]
     issues = check_block(recs)
-    assert any("sensei 群过长" in i for i in issues), issues
+    assert _has(issues, IssueCode.BLOCK_SENSEI_RUN_TOO_LONG), issues
     assert MAX_SENSEI_RUN == 3
     print("    groups: 4 连 → 报错")
 
@@ -215,9 +225,10 @@ def test_sensei_run_over_limit_flagged():
 # ---------------------------------------------------------------------------
 
 def test_check_block_positions():
-    """art 块首 / end 块尾 / 纪念区间禁换场 / 二次纪念 / 二次 art / 空块 / 配对与章末（软）。"""
-    from core.bond.bond_story import split_board_issues
+    """art 块首 / end 块尾 / 纪念区间禁换场 / 二次纪念 / 二次 art / 空块 / 配对与章末（软）。
 
+    断言一律看 **`IssueCode`**（节点 6）——文案改动不该动测试。
+    """
     ok = [_rec("switch", "开场景", KIND_STAGE), _rec("art", "意向", KIND_STAGE),
           _rec("igusa_haruka", "铺垫"), _rec("memorial", "触发", KIND_STAGE),
           _rec("igusa_haruka", "纪念正文"), _rec("igusa_haruka", "纪念正文二")]
@@ -228,34 +239,71 @@ def test_check_block_positions():
     assert check_block(ok_end) == [], check_block(ok_end)
 
     bad_art = [_rec("igusa_haruka", "铺垫"), _rec("art", "意向", KIND_STAGE)]
-    assert any("首条不是 switch" in i for i in check_block(bad_art))
+    assert _has(check_block(bad_art), IssueCode.BLOCK_HEAD_NOT_SWITCH)
     bad_art3 = [_rec("igusa_haruka", "一"), _rec("igusa_haruka", "二"), _rec("art", "意向", KIND_STAGE)]
-    assert any("art 必须块首" in i for i in check_block(bad_art3))
+    assert _has(check_block(bad_art3), IssueCode.BLOCK_HEAD)
 
     bad_tail = [_rec("end", "收尾", KIND_STAGE), _rec("igusa_haruka", "后面还有")]
-    assert any("end 必须块尾" in i for i in check_block(bad_tail))
+    assert _has(check_block(bad_tail), IssueCode.BLOCK_TAIL)
 
     bad_switch = [_rec("memorial", "触发", KIND_STAGE), _rec("switch", "换场", KIND_STAGE)]
-    assert any("纪念区间内出现 switch" in i for i in check_block(bad_switch))
+    assert _has(check_block(bad_switch), IssueCode.BLOCK_MEMORIAL_FORBIDDEN_STAGE)
 
     two_memorial = [_rec("memorial", "一", KIND_STAGE), _rec("memorial", "二", KIND_STAGE)]
-    assert any("2 条 memorial" in i for i in check_block(two_memorial))
+    assert _has(check_block(two_memorial), IssueCode.BLOCK_MEMORIAL_REPEAT)
 
     two_art = [_rec("art", "一", KIND_STAGE), _rec("art", "二", KIND_STAGE)]
-    assert any("2 条 art" in i for i in check_block(two_art))
+    assert _has(check_block(two_art), IssueCode.BLOCK_ART_REPEAT)
 
     # 软违规（2026-09-20）: 配对缺失 / 章末压在纪念轮 —— 记录但不打回
-    for issues in (check_block([_rec("memorial", "触发", KIND_STAGE),
-                                _rec("igusa_haruka", "正文")]),
-                   check_block([_rec("art", "意向", KIND_STAGE),
-                                _rec("memorial", "触发", KIND_STAGE),
-                                _rec("end", "收尾", KIND_STAGE)])):
-        soft = [i for i in issues if "没有 art" in i or "与 end 在同一轮" in i]
-        assert soft, issues
-        assert split_board_issues(issues)[1] == issues, f"软问题不该被判成硬: {issues}"
+    for issues, code in ((check_block([_rec("memorial", "触发", KIND_STAGE),
+                                       _rec("igusa_haruka", "正文")]),
+                          IssueCode.BLOCK_ART_PAIR_MISSING),
+                         (check_block([_rec("art", "意向", KIND_STAGE),
+                                       _rec("memorial", "触发", KIND_STAGE),
+                                       _rec("end", "收尾", KIND_STAGE)]),
+                          IssueCode.BLOCK_MEMORIAL_WITH_END)):
+        assert _has(issues, code), issues
+        hard, soft = split_issues(issues)
+        assert not hard and soft == issues, f"软问题不该被判成硬: {issues}"
 
-    assert check_block([]) == ["空块：没有任何记录"]
+    assert _has(check_block([]), IssueCode.BLOCK_EMPTY)
+    assert str(check_block([])[0]) == "空块：没有任何记录"   # 人读文案照旧
     print("    block: 位置/区间/重复/空块 + 配对与章末（软）八项判定")
+
+
+def test_issue_severity_is_declared_by_code_not_message():
+    """**守门用例**（节点 6）: 软硬只由 `IssueCode` 声明, 与中文文案**无关**。
+
+    历史隐患（ARCH_REVIEW P0-3, 2026-09-21 修）: 硬/软靠
+    `HARD_BLOCK_ISSUE_MARKS` 的**子串匹配** —— 给一条软问题换个措辞（哪怕只是
+    文案里出现"必须块尾"四个字）就会**静默**升级成"打回重发整轮"，没有任何测试
+    会发现。这里三件事一起钉：
+    ① 每条软问题**塞满硬关键词**后分级不变;
+    ② `ISSUE_SEVERITY` 覆盖全部 `IssueCode`（新增码忘了声明 → 直接红）;
+    ③ 源码里不再有任何"按问题文本判分级"的表/函数（防复活）。
+    """
+    hard_words = "空块 必须块尾 必须块首 首条不是 switch 纪念区间内 条 memorial 条 art"
+    soft_codes = [c for c, s in ISSUE_SEVERITY.items() if s is IssueSeverity.SOFT]
+    assert soft_codes, "至少要有软问题（配对缺失/章末/超长群）"
+    for code in soft_codes:
+        stuffed = Issue(code, hard_words)          # 文案里全是硬关键词
+        hard, soft = split_issues([stuffed])
+        assert not hard and soft == [stuffed], f"{code.value} 被文案带成硬违规了"
+        assert not stuffed.hard
+
+    # ② 码表完整（新增 `IssueCode` 必须显式声明严重度）
+    assert set(ISSUE_SEVERITY) == set(IssueCode), \
+        f"未声明严重度的码: {set(IssueCode) - set(ISSUE_SEVERITY)}"
+
+    # ③ 源码里不许再有"按文案判分级"的实现复活（**定义/调用**级扫描——
+    #    注释里提历史名是允许的, 那正是防漂说明本身）
+    root = Path(__file__).resolve().parent.parent.parent
+    for rel in ("core/bond/bond_story.py", "contract/records.py"):
+        src = (root / rel).read_text(encoding="utf-8")
+        assert "HARD_BLOCK_ISSUE_MARKS =" not in src, f"{rel} 复活了中文标记串表"
+        assert "split_board_issues(" not in src, f"{rel} 复活了子串分级函数"
+    print("    block: 软硬分级与文案解耦（守门）")
 
 
 def test_block_head_art_after_opening_switch():
@@ -563,14 +611,14 @@ def test_vn_block_keeps_issues_not_blocks():
             _rec(CHARACTER_SENSEI, "三"), _rec(CHARACTER_SENSEI, "四")]
     blk = VnBlock.from_records(recs)
     assert len(blk.records) == 7 and not blk.is_valid
-    assert any("必须块尾" in i for i in blk.issues), blk.issues
-    assert any("群过长" in i for i in blk.issues), blk.issues
+    assert _has(blk.issues, IssueCode.BLOCK_TAIL), blk.issues
+    assert _has(blk.issues, IssueCode.BLOCK_SENSEI_RUN_TOO_LONG), blk.issues
     assert blk.issues == tuple(check_block(recs))
     # ③ memorial 之后出现 switch → 纪念区间违规（switch 本身位置自由）
     mid = VnBlock.from_records([_rec("igusa_haruka", "开口"),
                                 _rec("memorial", "触发", KIND_STAGE),
                                 _rec("switch", "换场", KIND_STAGE)])
-    assert any("纪念区间" in i for i in mid.issues), mid.issues
+    assert _has(mid.issues, IssueCode.BLOCK_MEMORIAL_FORBIDDEN_STAGE), mid.issues
     # validate=False → 只当容器（引擎自行判定时用）
     assert VnBlock.from_records(recs, validate=False).issues == ()
     print("    block: 校验只出清单，不拦不修")
