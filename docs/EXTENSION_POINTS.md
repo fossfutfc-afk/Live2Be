@@ -44,6 +44,7 @@
 | `affection-view` | `core/affection/affection_calc.py` · `progress` / `exp_to_next` | 好感可视化（未立项） | docstring：*"当前等级内进度 0-1（**进度条用**）"*。数值层本身是活的（digest 结算走它） |
 | `place-semantic-pl4` | `core/rag/place.py` · `PlaceRetriever`（含 `resolve_one` / `asset_scene`） | **PL4 语义检索** | 语料已备（`config/settings/world/place_entities.json`），但产品侧只接了 `core.rag.brain`（`core/momotalk.py`）；place 侧对应"层1 别名 0 调用" |
 | `random-events-introspection` | `core/random_events/spec.py` · `all_events`；`core/random_events/__init__.py` · `set_enabled` | 事件作者侧内省 / 确定性测试 | `fire_event` 才是活入口（`MomoTalkEngine`、`vn_cli` 各一处）；注册表自省与全局开关暂无消费方 |
+| `affection-behavior` | `core/affection/affection_calc.py` · `load_raiser_table` / `add_behavior` | **"未来行为加好感"**（行为名 → exp） | `core/session/events.py` 的 `TYPE_AFFECTION` 注释写明 *"未来行为加好感同板块, subtype=行为名"*；审计台账 `AUDIT_2026-09-13_FULL.md` 已记为"无 live 调用"。注意配置里**还没有** raiser 表——接线时要连表一起落 |
 
 ---
 
@@ -68,6 +69,19 @@
     `ValidationResult.require_valid`；`catalog.has_sprite`/`has_background`/`background_variants`；
     `place_table.by_region`；`display.get_current_text`；`MAX_HISTORY_ROUNDS`（**两处**同名兼容别名）；
     `Store.sessions_dir`/`session_dir`（注释自称"v1 兼容路径"）。
+  - **已删 2026-09-21（节点 4 清理 · 测试独占 API）**：`WikiStoreV2._world_has_history` /
+    `by_kind` / `find_by_event_seq` / `reload`；`recall_config.py` **不算**（见下）；
+    `bond_actions.EMOTIVE_STEP`；`maintenance.PROJECT_ROOT`；`SessionStore.update_session_progress`
+    （自称"[废弃]…无人读"）；`GeneratedImage.as_dict`；`webgui/routers/bond._place_bg_url`
+    （"只要 URL"的兼容包装——测试断言已改打现役 `_place_bg()`）；`LocalEmbedder.model_from_config`；
+    `BondScene.para_emotions`（逐段 emotion 缺省延续——现役是标注层写 `paragraphs[].emotion`
+    + 前端 `applyEmotions`）；`BondScene._draft`（只写不读）；`Session.from_json`；
+    `MomoTalkEngine._characters_root`；测试侧 31 处未用导入。
+  - **删错又恢复的一例（教训）**：`core/brain/wiki_v2/recall_config.py::reload` —— 按"零消费者"
+    删掉后，全量测试立刻 13 errors: 它有 **11+ 处调用, 全在 `tests/core/test_wiki_recall_ledger.py`
+    的 autouse fixture**（进程级懒加载缓存必须逐用例清）。⇒ **测试基础设施也是消费者**；
+    且 `reload` 这种常见名**必须查调用点（`.reload(`）而不是只查定义处**——我第一遍就是
+    只看了定义。已恢复并在 docstring 里写明。
   - **两处"看起来死、其实是假阳性"（已核实并保留，勿再删）**：
     1. `core/session/events.py::TYPE_AFFECTION` —— 作为**名字**零引用，但它的**值**
        `"affection"` 是 `EVENT_TYPES` 白名单成员，而白名单在 `Event.from_dict` 里做**入库校验**

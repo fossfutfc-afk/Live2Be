@@ -12,11 +12,10 @@ send_vn_scene 双 registry 解析（story 域含 enter, memorial 域含 exit）:
 import sys
 from pathlib import Path
 
-import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-from core.bond.bond_story import BondStoryEngine, SceneLoopError
+from core.bond.bond_story import BondStoryEngine
 from core.momotalk import MomoTalkEngine
 from core.session import SessionStore
 from llm.image_gen import GeneratedImage
@@ -206,7 +205,6 @@ def test_state_resets_on_new_session():
 
 def test_run_vn_memorial_flow(tmp_path):
     """story_scene → memorial_enter（生图+立绘）→ memorial_exit → story_end 全流程。"""
-    from core.session import SessionStore
     from core.session.events import M_MEMORIAL_ENTER, M_MEMORIAL_EXIT
     from core.media.gallery import GalleryStore
     from core.ui.vn_cli import run_bond_story_vn
@@ -275,7 +273,6 @@ def test_run_vn_memorial_flow(tmp_path):
 
 def test_run_vn_memorial_exit_note_injected(tmp_path):
     """纪念模式内下一轮 system_note 注入 memorial_exit schema（LLM 知道怎么写 exit）。"""
-    from core.session import SessionStore
     from core.ui.vn_cli import run_bond_story_vn
 
     OPEN = {"action": "story_scene", "payload": {

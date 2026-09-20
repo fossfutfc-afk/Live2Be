@@ -22,7 +22,6 @@ from core.momotalk import MomoTalkEngine
 from core.session import SessionStore
 from tests.vn_fixtures import from_v1_scene as _rec  # noqa: E402
 from tests.vn_fixtures import scene  # noqa: E402
-from llm.image_gen import GeneratedImage
 from webgui import bond, chat
 
 ROOT = Path(__file__).resolve().parent.parent.parent

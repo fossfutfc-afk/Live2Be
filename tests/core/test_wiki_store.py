@@ -1,7 +1,7 @@
 """WikiStore v2 存储层测试（AGENT_BRAIN.md §2 / M1b）。"""
 import pytest
 
-from core.brain.wiki_v2 import BrainNode, WikiStoreV2, make_node
+from core.brain.wiki_v2 import WikiStoreV2, make_node
 from core.brain.wiki_v2.nodes import format_id
 
 
@@ -60,14 +60,16 @@ def test_duplicate_id_rejected(tmp_path):
         st.add(dup)
 
 
-def test_dedup_find_by_event_seq(tmp_path):
+def test_dedup_helper_removed(tmp_path):
+    """（2026-09-21）`find_by_event_seq` 是查重**辅助**, 全仓零产品消费者 → 已删。
+
+    现役去重 = `digested_seq` 水位（增量幂等）; 这里守门: 辅助不许无声回来
+    （要恢复就得连着它的消费者一起）。
+    """
     st = _store(tmp_path)
     st.add(make_node("episode", narration="第一次", event_seq=[10, 11]))
-    hit = st.find_by_event_seq("episode", 10)
-    assert hit is not None and hit.narration == "第一次"
-    assert st.find_by_event_seq("episode", 999) is None
-    # 同类不同事件 → 不是去重目标（accrue 走 experience, 见 revise）
-    assert st.find_by_event_seq("experience", 10) is None
+    assert not hasattr(st, "find_by_event_seq")
+    assert [n.narration for n in st.all()] == ["第一次"]
 
 
 def test_update_patch_and_unknown_field(tmp_path):
@@ -183,7 +185,8 @@ def test_all_insertion_order(tmp_path):
     st.add(make_node("episode", narration="b"))
     st.add(make_node("experience", pattern="p", subject="player"))
     assert [n.narration or n.pattern for n in st.all()] == ["a", "b", "p"]
-    assert [n.kind for n in st.by_kind("episode")] == ["episode", "episode"]
+    # 2026-09-21: `by_kind()` 零产品消费者 → 已删; 按 kind 过滤直接用 all()
+    assert [n.kind for n in st.all() if n.kind == "episode"] == ["episode", "episode"]
 
 
 def test_missing_file_empty(tmp_path):

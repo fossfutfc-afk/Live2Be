@@ -3,7 +3,7 @@ import copy
 
 import pytest
 
-from core.brain.wiki_v2 import BrainNode, WikiStoreV2, make_node
+from core.brain.wiki_v2 import WikiStoreV2, make_node
 from core.brain.wiki_v2.evolution import EvolutionLog
 from core.brain.wiki_v2.revise import apply_decisions, apply_revision_package
 

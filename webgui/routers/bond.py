@@ -315,11 +315,6 @@ def _table_bg_url(key: str, asset: str = "") -> str | None:
         return None
 
 
-def _place_bg_url(key: str) -> str | None:
-    """兼容包装: 只要 URL（缺失 → None）。新代码请用 `_place_bg()` 拿状态。"""
-    return _place_bg(key)[0]
-
-
 class BondStartIn(BaseModel):
     char_id: str
     session_id: str

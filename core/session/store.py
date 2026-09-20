@@ -251,12 +251,6 @@ class SessionStore:
         """append 一个 marker 事件（状态标记）。"""
         return self.append_event(char_id, session_id, marker(subtype, payload))
 
-    def update_session_progress(self, char_id: str, session_id: str = "", rounds: int = 0) -> None:
-        """[废弃] 写角色线轮数——旧语义（最近会话轮数, 覆盖写, 无人读）。
-        2026-09-02 起由 write_bond_gap 接管（决策字段 = 距上次完整 bond 剧情的
-        MMT 轮数）。保留方法体 = 迁移写 rounds_since_bond（调用方已切新 API）。"""
-        self.write_bond_gap(char_id, rounds)
-
     # ------------------------------------------------------------------
     # 距上次 bond 剧情的 MMT 轮数（2026-09-02 决策字段, 用户拍板）
     # ------------------------------------------------------------------

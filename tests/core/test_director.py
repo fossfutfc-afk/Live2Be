@@ -10,11 +10,9 @@ Director:  place → background 查表（合法 / 非法 / 缺失保持 / 冷启
 
 运行: python -m pytest tests/core/test_director.py
 """
-import json
 import sys
 from pathlib import Path
 
-import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 

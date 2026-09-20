@@ -4,7 +4,6 @@ from contract.digest_registry import (
     PHASE_UNDERSTAND,
     digest_registry,
 )
-from contract.model import ValidationResult
 
 
 # ---------------------------------------------------------------------------

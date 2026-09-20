@@ -8,7 +8,8 @@
     - 文件: data/worlds/{world}/characters/{char}/wiki.jsonl（一行一条 BrainNode）
     - 写: 内存操作（add/update/delete/link…）→ save() 原子整写（temp + os.replace）
     - 护栏: add/update 前过 node.validate()——无效节点拒绝（宁缺勿错, raise）
-    - 去重: find_by_event_seq（(kind, event_seq) 键——同事件重复消化去重）
+    - 去重: 水位 `digested_seq`（增量幂等）——⚠️ 原 `find_by_event_seq()` 查重辅助
+      2026-09-21 删（零调用者）
     - id: 前缀 + 4 位零填充（m=动态 episode/belief/relation, c=出厂基座, e=experience）
     - 快照: snapshot_to/restore_from = 整文件复制（R6 存档快照语义）
 """
@@ -94,10 +95,6 @@ class WikiStoreV2:
     # 现在是**现实日期**（`node.ts`），故整族无人调用、整族删除。
     # `digest` 侧同步: 推进块与游标提交都已删（见 `digest.py`）。
 
-    def _world_has_history(self) -> bool:
-        """该角色线是否已有记忆（有节点或有水位即算）。"""
-        return bool(self._nodes) or self.digested_seq > 0
-
     # ------------------------------------------------------------------
     # 载入 / 查询
     # ------------------------------------------------------------------
@@ -114,16 +111,6 @@ class WikiStoreV2:
     def all(self) -> list[BrainNode]:
         """全部节点（插入序 = 创建序）。"""
         return list(self._nodes.values())
-
-    def by_kind(self, kind: str) -> list[BrainNode]:
-        return [n for n in self._nodes.values() if n.kind == kind]
-
-    def find_by_event_seq(self, kind: str, seq: int) -> BrainNode | None:
-        """去重检查（AGENT_BRAIN.md §2）: 同 (kind, event_seq) 已存在 → 该事件已消化。"""
-        for n in self._nodes.values():
-            if n.kind == kind and seq in n.event_seq:
-                return n
-        return None
 
     def __len__(self) -> int:
         return len(self._nodes)
@@ -250,11 +237,6 @@ class WikiStoreV2:
     def save(self) -> None:
         """原子整写全部节点（temp + os.replace, 绝不半写）。"""
         atomic_write_lines(self.path, (n.to_json_line() for n in self._nodes.values()))
-
-    def reload(self) -> None:
-        """丢弃内存改动, 从磁盘重载（磁盘 = 最近一次 save 的提交态）。"""
-        self._nodes = {}
-        self._load()
 
     def clone_state(self) -> dict[str, BrainNode]:
         """深拷贝当前节点集（修订包执行前的原子性快照——revise.py 用）。

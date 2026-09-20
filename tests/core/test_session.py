@@ -28,7 +28,6 @@ from core.session import (
 from core.session.events import (
     TYPE_L2D,
     TYPE_MARKER,
-    Event,
     M_SESSION_END,
     M_SESSION_START,
     M_VN_ENTER,
@@ -425,7 +424,8 @@ def test_store_enter_vn_and_status(tmp_path):
     st.append_event("igusa_haruka", sid,
                     make_event("bond", "story_scene", {"paragraphs": ["她脸红了。"]}))
     st.append_marker("igusa_haruka", sid, "vn_state", {"round": 1, "seed": "继续"})
-    st.update_session_progress("igusa_haruka", sid, 2)   # 迁移兼容: 旧 API → rounds_since_bond
+    # 2026-09-21: 原 `update_session_progress()`（自称"[废弃]…无人读"的 v1 兼容方法）已删
+    st.write_bond_gap("igusa_haruka", 2)
     # 中断（未 finish）→ resume 推导 in_vn（同会话单流）
     r = st.resume("igusa_haruka", sid)
     assert r["meta"].type == "conversation"

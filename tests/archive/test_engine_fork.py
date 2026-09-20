@@ -123,7 +123,6 @@ def test_fork_send_independent_paths():
 # ----------------------------------------------------------------------------
 
 def test_fork_director_clone_independent():
-    from core.bond.bond_story import BondStoryEngine
     from core.director.director import Director
 
     class FakeCat:

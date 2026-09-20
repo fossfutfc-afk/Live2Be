@@ -16,7 +16,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from core.session import staging                                   # noqa: E402
-from core.session.events import make_event, marker                 # noqa: E402
+from core.session.events import make_event                 # noqa: E402
 from core.session.store import SessionStore                        # noqa: E402
 
 CHAR = "igusa_haruka"

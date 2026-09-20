@@ -146,8 +146,6 @@ class LocalEmbedder:
         # 但那样一来"名字打错"就没人发现了, 所以 health() 必须真探一次（见下）。
         cfg_model = (model or _cfg_str(cfg, "model")
                      or os.getenv(ENV_MODEL, "").strip())
-        #: 模型是"配来的"还是"发现的"——配来的要真探, 发现的免探
-        self.model_from_config = bool(cfg_model)
         self._healthy: bool | None = None            # health() 的探测缓存
         if cfg_model:
             self.model = cfg_model

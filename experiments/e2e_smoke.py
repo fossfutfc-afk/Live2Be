@@ -3,7 +3,7 @@
 
 验证板块（2026-08-23 架构）:
     MMT 动作列表（{"actions":[...]} 混合节奏）
-    bond 契约（paragraphs 内联 emotion / place）→ BondScene → para_emotions
+    bond 契约（paragraphs 内联 emotion / place）→ BondScene → 每段 emotion
     导演（place → background 查表）
     vn_cli run_bond_story_vn（段落渲染 + [表情] 标注 + 选项）
     事件流存档（单会话 enter_vn: mmt/bond 事件同文件）

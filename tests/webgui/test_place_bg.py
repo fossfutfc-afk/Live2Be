@@ -19,11 +19,15 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from webgui.routers.bond import _place_bg_url, _resolve_scene      # noqa: E402
+from webgui.routers.bond import _place_bg, _resolve_scene      # noqa: E402
 
 
 def test_table_keys_resolve_to_real_urls():
-    """★ 表键（语义键）→ 资产 scene_id → 真 URL。"""
+    """★ 表键（语义键）→ 资产 scene_id → 真 URL。
+
+    ⚠️ 2026-09-21: 原用 `_place_bg_url()`（只要 URL 的兼容包装, 零产品消费者）
+    ——包装已删, 断言改打**现役**的 `_place_bg()`（同一解析, 还能看状态）。
+    """
     cases = {
         "classroom": "BG_ClassRoom.jpg",              # classroom → class_room
         "moderncafe": "BG_ModernCafe.jpg",            # 旧 31 条白名单里没有这个键
@@ -32,17 +36,17 @@ def test_table_keys_resolve_to_real_urls():
         "black": "BG_Black.jpg",                      # 写作用词（纯色特效）
     }
     for key, want_part in cases.items():
-        url = _place_bg_url(key)
-        assert url is not None, f"{key} 没出 URL —— 表键又失配了"
-        assert url.startswith("/assets/background/"), url
+        url, st = _place_bg(key, None)
+        assert st == "ok", f"{key} 没出 URL（状态 {st}）—— 表键又失配了"
+        assert url and url.startswith("/assets/background/"), url
         assert want_part in url, f"{key} → {url}（期望含 {want_part}）"
     print(f"    表键 → URL: {len(cases)} 条全部命中真文件")
 
 
 def test_slug_keys_still_work():
     """slug 型键（表键 == 资产键）走老口径, 不受影响。"""
-    url = _place_bg_url("school_rooftop")
-    assert url and "BG_SchoolRooftop.jpg" in url, url
+    url, st = _place_bg("school_rooftop", None)
+    assert st == "ok" and url and "BG_SchoolRooftop.jpg" in url, (url, st)
     print(f"    slug 键: school_rooftop → {url.rsplit('/', 1)[-1]}")
 
 

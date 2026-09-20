@@ -22,7 +22,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 from core.mmt import mmt_preset
 from core.mmt.mmt_preset import (
     DEFAULT_PLAYER_NAME,
-    LoopResult,
     _name_problem,
     ensure_player_name,
     handle_command,

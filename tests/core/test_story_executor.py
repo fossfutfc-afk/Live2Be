@@ -8,7 +8,7 @@ parse_memorial_enter : prompt 必填 + 场景内容（§4.7, 纪念子模式进�
 build_story_registry : 三动作, 全 APPROVAL_AUTO, 无 validate, prompt_fields={action,payload}
 StoryExecutor     : 域分派 / mmt 域拒绝 / 未知动作拒绝
 BondScene.from_action : is_end 由动作类型推导; paragraphs 结构兼容
-para_emotions     : 逐段 emotion, 缺省延续（纯确定性, 零语义判断）
+para_emotions     : （2026-09-21 已删——全仓零产品消费者, 见文件末尾说明）
 
 运行: python -m pytest tests/core/test_story_executor.py
 """
@@ -297,31 +297,8 @@ def test_story_end_place_and_scene_carry():
 
 
 # ----------------------------------------------------------------------------
-# para_emotions: 逐段 emotion, 缺省延续（纯确定性, 零语义判断）
+# 2026-09-21 删: `BondScene.para_emotions()`（逐段 emotion 缺省延续）
 # ----------------------------------------------------------------------------
-
-def test_para_emotions_inherit():
-    # 无 emotion → 每段默认
-    s = BondScene.from_action(_action("story_scene", {
-        "paragraphs": [{"text": "a"}, {"text": "b"}]}))
-    assert s.para_emotions() == ["nomal", "nomal"]
-    # 段1 标 emotion → 后续缺省延续（慌乱 → 开心 例子）
-    s = BondScene.from_action(_action("story_scene", {
-        "paragraphs": [
-            {"text": "啊...我是不是又做错什么了", "emotion": "panic"},
-            {"text": "对不起..."},
-            {"text": "啊..没关系吗..欸嘿嘿", "emotion": "smile"},
-        ]}))
-    assert s.para_emotions() == ["panic", "panic", "smile"]
-    # 中途变化 + 尾段缺省延续
-    s = BondScene.from_action(_action("story_scene", {
-        "paragraphs": [
-            {"text": "a", "emotion": "embarrass"},
-            {"text": "b", "emotion": "giggle"},
-            {"text": "c"},
-        ]}))
-    assert s.para_emotions() == ["embarrass", "giggle", "giggle"]
-    # 旧 str 段落（兼容）→ 默认
-    s = BondScene.from_dict({"paragraphs": ["x", "y"]})
-    assert s.para_emotions() == ["nomal", "nomal"]
-    print("    para_emotions: 显式 emotion + 缺省延续（零语义判断）")
+# 它全仓**零产品消费者**——只有本文件在断言它自己, 另有 DESIGN_RENDERER 的设计描述。
+# 现役路径: 标注层按记录写 `paragraphs[].emotion`（core/bond/emo_text.py）,
+# 缺省延续由前端 applyEmotions / writePara 做。要恢复, 照 git 历史取回即可。

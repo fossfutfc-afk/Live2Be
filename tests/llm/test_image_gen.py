@@ -428,14 +428,16 @@ def test_image_persona_brief_from_personality(tmp_path):
 
 
 def test_generated_image_path_protocol(tmp_path):
-    """GeneratedImage 兼容 os.fspath/str（gallery.copy2 可直接吃）+ as_dict。"""
+    """GeneratedImage 兼容 os.fspath/str（gallery.copy2 可直接吃）。
+
+    ⚠️ 2026-09-21: 原 `as_dict()`（事件/画廊元数据用）全仓零产品消费者 → 已删;
+    gallery json 由 `core/media/gallery.py` 自己拼, 不经它。
+    """
     gi = GeneratedImage(path=tmp_path / "a.png", width=1920, height=1080,
                         size_bytes=123, backend="apiyi", elapsed_s=26.08)
     assert os.fspath(gi).endswith("a.png") and str(gi).endswith("a.png")
-    d = gi.as_dict()
-    assert (d["width"], d["height"], d["backend"], d["elapsed_s"]) == \
-        (1920, 1080, "apiyi", 26.08)
-    print("    result: 路径协议 + 元信息")
+    assert not hasattr(gi, "as_dict"), "as_dict 应已删（零消费者）"
+    print("    result: 路径协议（as_dict 已删）")
 
 
 def test_normalize_contain_and_cover(tmp_path):
