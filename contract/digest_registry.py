@@ -302,7 +302,7 @@ class DigestRegistry:
     # ------------------------------------------------------------------
 
     def build_schema(self, phase: str, *, include_examples: bool = True,
-                     domain: str = "mmt") -> str:
+                     domain: str = "mmt", chapter_count: int = 1) -> str:
         """渲染某一轮的输出格式文本。
 
         record:     {"episodes": [...]}
@@ -312,15 +312,23 @@ class DigestRegistry:
 
         | 段 | 边界 | Round A 产出 |
         |---|---|---|
-        | `bond` | `vn_enter`…`vn_exit`（**引擎已知**, 一章 = 作者写的有始有终的一段） | **恰好 1 条** = 这一章的总结 |
+        | `bond` | `vn_enter`…`vn_exit`（**引擎已知**, 一章 = 作者写的有始有终的一段） | **每章恰好 1 条** = 这一章的总结 |
         | `mmt` | 无作者单位（一次 digest 覆盖多轮碎聊） | 0~5 条原子 |
 
         用户原话: *"真正的 episode 一个就可以定下，需要被切分的是长篇 MMT 等；
         episode 应该 **informative but single**，belief 则是 **brief but descriptive**"*。
-        段类型由 `digest._segment_domain` 从 marker **派生**（不落库）。
+        段类型与**章分组**由 `digest._segment_domain` 从 marker **派生**（不落库）。
+
+        `chapter_count` > 1 = 这一段的窗口里有**多章**（水位被清 / 重跑时必然如此）——
+        契约要写成"**每章各 1 条**", 否则两章会被压成一条。
         """
         if phase == PHASE_RECORD:
             contract = _DOMAIN_CONTRACT.get(domain, _DOMAIN_CONTRACT["mmt"])
+            if domain == "bond" and chapter_count > 1:
+                contract = contract.replace(
+                    "→ **这一章恰好 1 条** episode, 它就是**这一章的总结**:",
+                    f"→ 本段含 **{chapter_count} 章** —— **每章各恰好 1 条** episode"
+                    f"（共 {chapter_count} 条）, 每条就是**它那一章的总结**:")
             lines = [
                 "输出 JSON（不要任何解释文字, 不要 ```json 代码块）:",
                 contract,

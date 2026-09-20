@@ -944,3 +944,42 @@ def test_bond_window_keeps_mmt_atoms(tmp_path):
     titles = sorted(st.get(i).title for i in res.created)
     assert titles == ["只属于两人的秘密场所", "老师约我明天去喂猫"], titles
     print(f"    bond 窗口: 聊天原子留着 + 本章收口成 1 条 → {titles} ✓")
+
+
+def test_two_chapters_in_one_window_each_get_one(tmp_path):
+    """★★ **窗口里可能有多章**（水位被清 / 重跑时**必然**如此）:
+    "一章一条"必须**按章**分组收口 —— 两章压成一条就丢了一整章。
+
+    这是 2026-09-20 用户要"删掉旧数据重跑 igusa_haruka"时暴露的场景:
+    水位归零 ⇒ 第一次 digest 的窗口 = 旧章的 31 条 + 新章的几十条 = **两章同窗**。
+    """
+    st = _seed_store(tmp_path)
+    # 两章: 章A 的 bond 块 = seq 5, 章B 的 bond 块 = seq 12
+    evs = _events(*_bond_span(3, 7, title="错误的地点"),
+                  _mmt(8, "老师", "……"),
+                  ("marker", "vn_enter", {"chapter_title": "错误的收信人"}, 10),
+                  ("bond", "story_scene",
+                   {"paragraphs": [{"text": "第1条", "emotion": "smile"}]}, 12),
+                  ("marker", "vn_exit", {"completed": True}, 13))
+    four = {"episodes": [
+        # 章A 的两条 → 该压成 1
+        {"narration": "章A 片段一", "title": "章A 的第一条记忆", "tags": ["a"],
+         "significance": 0.7, "event_seq": ["5"]},
+        {"narration": "章A 片段二", "title": "章A 的第二条记忆", "tags": ["a"],
+         "significance": 0.9, "event_seq": ["5"]},
+        # 章B 的两条 → 也该各自压成 1（不是被章A 一起吞掉）
+        {"narration": "章B 片段一", "title": "章B 的第一条记忆", "tags": ["b"],
+         "significance": 0.6, "event_seq": ["12"]},
+        {"narration": "章B 片段二", "title": "章B 的第二条记忆", "tags": ["b"],
+         "significance": 0.8, "event_seq": ["12"]}]}
+    b = {"decisions": [
+        {"episode": "m0003", "decision": "add", "kind": "experience",
+         "subject": "sensei", "pattern": "章A 的模式", "example": "「A」"},
+        {"episode": "m0004", "decision": "add", "kind": "experience",
+         "subject": "sensei", "pattern": "章B 的模式", "example": "「B」"}],
+        "evidence": [], "affection_exp_delta": 0}
+    res = digest_segment(st, FakeLLM(four, b), evs)
+    assert res.ok, res.errors
+    titles = sorted(st.get(i).title for i in res.created)
+    assert titles == ["章A 的第二条记忆", "章B 的第二条记忆"], titles   # 每章各留 sig 最高的
+    print(f"    两章同窗: 每章各收口成 1 条 → {titles} ✓")
