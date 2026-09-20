@@ -147,7 +147,7 @@ def digest_segment(
     if not new_events:
         return DigestResult(ok=True)                     # 无新增 → 0 次 LLM 调用
     # 段类型 + 章标题（2026-09-20）: **从 marker 派生, 不落库**。
-    domain, chapter_title = _segment_domain(new_all)
+    domain, chapter_title, bond_seqs = _segment_domain(new_all)
     interact_max = max(e.seq for e in new_events)
     result = DigestResult(ok=False)
     snapshot = store.clone_state()                       # 原子性: 失败 → 回滚
@@ -208,7 +208,7 @@ def digest_segment(
         for ent in entries:
             _resolve_verbatim(ent, by_seq)
         # 一章一个 episode（2026-09-20）—— 引擎确定性收口 + 可观测告警
-        entries = _collapse_bond_episodes(entries, domain)
+        entries = _collapse_bond_episodes(entries, domain, bond_seqs)
         # ── 时间推进：**已退役**（2026-09-17, `ESSAY_TIME_MODEL §10`）──
         # 旧实现读 Round A 的 `time_span` 推进 `WorldClock` 的**剧情游标**,
         # 再把新游标 stamp 到节点上（`story_time`）。整条链已废:
@@ -328,58 +328,71 @@ def _round_call(
 # 引擎侧: 建节点 / 渲染 / 清洗
 # ---------------------------------------------------------------------------
 
-def _segment_domain(events: list) -> tuple[str, str]:
-    """本段类型与章标题 —— **从 marker 派生, 不落库**（2026-09-20 用户裁决）。
+def _segment_domain(events: list) -> tuple[str, str, frozenset]:
+    """本段类型、章标题、**本章的事件块集合**（从 marker 与事件类型派生, 不落库）。
 
     用户原话: *"离散的是 mmt，但 bond story 不应该连续吗"* ⇒ **粒度跟着"作者单位"走**:
+    一章羁绊剧情 → **恰好 1 条**; MMT 碎聊 → 0~5 条（**需要切分的是它**）。
 
-    | 段 | 边界 | Round A 产出 |
-    |---|---|---|
-    | `bond` | 窗口里有 `vn_enter`/`vn_exit`（**引擎已知**, 一章 = 作者写的有始有终的一段） | **恰好 1 条** = 这一章的总结 |
-    | `mmt` | 没有（一次 digest 覆盖多轮碎聊） | 0~5 条原子（**需要切分的是它**） |
+    ⚠️ **窗口是"混的"—— 实测真档**（2026-09-20）: haruka 的窗口里 **13 条 MMT 聊天 +
+    5 块羁绊剧情**; mutsuki 是 **26 + 13**。所以**不能"整段按一个契约"**:
+    第一版按"窗口里有 `vn_enter` ⇒ 整段 bond"写, 会把聊天里的记忆也一起压成 1 条。
+    返回的 `bond_seqs`（窗口内 `type == "bond"` 的块号）就是给下游分辨
+    "**这条条目属不属于这一章**"用的 —— `event_seq` 与它相交的才算。
 
-    ⚠️ **为什么能派生而不落库**: 边界本来就在真源里（marker）; 段类型是它的纯函数,
-    落库就是第二个真源。与 `core/session/chapters.py` 认章的方式**同一套**。
-
-    Returns: `(domain, chapter_title)` —— 标题取 `vn_enter.payload.chapter_title`
-    （`chapters.py` 的同一字段; 旧档/异常 → 空串, 由消费方兜底）。
+    Returns: `(domain, chapter_title, bond_seqs)`
+        domain: `"bond"`（窗口里有 `vn_enter`/`vn_exit`）/ `"mmt"`
+        chapter_title: `vn_enter.payload.chapter_title`（与 `chapters.py` 同一字段;
+            旧档/异常 → 空串）
+        bond_seqs: 窗口内 bond 事件的 seq 集合（**空 = 这一章没有内容块, 不参与收口**）
     """
     from core.session.events import M_VN_ENTER, M_VN_EXIT
-    bond, title = False, ""
+    bond, title, seqs = False, "", set()
     for e in events:
-        if not getattr(e, "is_marker", False):
-            continue
-        if e.subtype == M_VN_ENTER:
-            bond = True
-            title = str((getattr(e, "payload", None) or {})
-                        .get("chapter_title") or "").strip()
-        elif e.subtype == M_VN_EXIT:
-            bond = True
-    return ("bond" if bond else "mmt"), title
+        if getattr(e, "is_marker", False):
+            if e.subtype == M_VN_ENTER:
+                bond = True
+                title = str((getattr(e, "payload", None) or {})
+                            .get("chapter_title") or "").strip()
+            elif e.subtype == M_VN_EXIT:
+                bond = True
+        elif getattr(e, "type", "") == "bond":
+            seqs.add(e.seq)
+    return ("bond" if bond else "mmt"), title, frozenset(seqs)
 
 
-def _collapse_bond_episodes(entries: list[dict], domain: str) -> list[dict]:
-    """`bond` 段: episode **只留 1 条** —— "一章一个 episode"的引擎侧收口。
+def _collapse_bond_episodes(entries: list[dict], domain: str,
+                            bond_seqs: frozenset = frozenset()) -> list[dict]:
+    """`bond` 段里**属于这一章**的 episode 只留 1 条 —— "一章一个 episode"的引擎侧收口。
 
-    契约在 `contract/digest_registry._DOMAIN_CONTRACT`（提示词侧）。引擎这一手是
-    **确定性兜底**: 提示词没压住时**留 significance 最高的那条**, 其余丢弃, 并留一行
+    契约在 `contract/digest_registry._DOMAIN_CONTRACT`（提示词侧）；引擎这一手是
+    **确定性兜底**: 提示词没压住时留 `significance` 最高的那条, 其余丢弃, 并留一行
     `WARNING`（可 grep）—— 免得契约被违反是**静默**的。
 
-    `experience`（玩家画像条目, MMT 专则）不算 episode, 原样保留。
-    为什么丢弃而不是合并: 合并文本是创作（要 LLM）, 引擎只做判定;
-    而"一章一条"的前提是那条总结**本来就该覆盖全章**。
+    ⚠️ **只收口"这一章"的条目**（`event_seq` 与 `bond_seqs` 相交的那些）:
+    窗口常同时含 MomoTalk 聊天（真档实测 13 / 26 条）, 那些条目**不是这一章**,
+    该按 0~5 条留着 —— 把整段压成 1 条会把聊天里的记忆一起丢掉（第一版就是这么写错的）。
+    `experience`（玩家画像）不算 episode。为什么丢弃而不是合并文本: 合并是创作（要 LLM）,
+    引擎只做判定; 而"一章一条"的前提是那条总结**本来就该覆盖全章**。
     """
-    if domain != "bond":
+    if domain != "bond" or not bond_seqs:
         return entries
+
+    def _is_chapter(e: dict) -> bool:
+        return any(int(s) in bond_seqs for s in (e.get("event_seq") or [])
+                   if isinstance(s, (int, str)) and str(s).lstrip("-").isdigit())
+
     eps = [e for e in entries if e.get("kind") != "experience"]
-    if len(eps) <= 1:
+    chapter = [e for e in eps if _is_chapter(e)]
+    if len(chapter) <= 1:
         return entries
-    keep = max(eps, key=lambda e: float(e.get("significance") or 0.0))
+    keep = max(chapter, key=lambda e: float(e.get("significance") or 0.0))
     logger.warning(
         "digest_a contract=bond entries=%d keep=%r（一章一条; 其余已丢。"
         "这行常出现 = 提示词没压住, 看 Round A 的【本段类型】产出契约）",
-        len(eps), keep.get("title") or str(keep.get("narration", ""))[:12])
-    return [e for e in entries if e.get("kind") == "experience"] + [keep]
+        len(chapter), keep.get("title") or str(keep.get("narration", ""))[:12])
+    dropped = {id(e) for e in chapter if e is not keep}
+    return [e for e in entries if id(e) not in dropped]
 
 
 def _create_a_nodes(store: WikiStoreV2, entries: list[dict], *, ts: str,
