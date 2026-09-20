@@ -26,8 +26,11 @@
    这是防止把同主题反复新建的唯一闸门（引擎已经把候选摆给你了, 决定权在你）。
 2. **subject 纪律**: 稳定维度命名（人/关系/互动模式/性格特征）——"XX 对亲密的看法"
    太窄, 并入更宽维度; 新认知是已有认知的子/超集 → **改宽已有 subject, 不新建**。
-3. **content 写结论不写事件**（≤200 字）; update 时新 content 应覆盖新旧理解,
-   重新表述为一个连贯结论; 只是再次印证 → 别改 content, 用 touch。
+3. **content 写结论不写事件**（≤200 字）—— **brief but descriptive**:
+   简短, 但**描述性**（写的是模式/结论/看法, 不是事件复述）。
+   与 episode 的分工: **episode = informative but single**（信息量足, 但只讲一件事）。
+   update 时新 content 应覆盖新旧理解, 重新表述为一个连贯结论;
+   只是再次印证 → 别改 content, 用 touch。
 4. **id 纪律**: episode/target 只能引用渲染列表里的 id——编造 id 整包拒。
 5. **经验层**: 同一模式反复出现（老师总说摸鱼、总约我去哪）→ `add kind=experience`
    （pattern 写模式句, example 写本次例子）。

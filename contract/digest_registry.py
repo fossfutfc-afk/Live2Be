@@ -84,6 +84,30 @@ class DigestAction:
 # 动作定义
 # ============================================================================
 
+#: 段类型 → **产出契约块**（进 Round A 的 `{{digest_schema}}`; 2026-09-20 用户裁决）
+#:
+#: 为什么按段类型给不同契约: `mmt` 是碎聊（**需要被切分**）, `bond` 是作者写的完整一章
+#: （**本身就是一个 episode**, 再切就是把一个 episode 切断）。用户原话:
+#: *"你细看这些 episode 像流水账一样，真正的 episode 一个就可以定下，需要被切分的是
+#: 长篇 MMT 等；episode 应该 informative but single，belief 则是 brief but descriptive"*
+_DOMAIN_CONTRACT = {
+    "bond": (
+        "【本段类型 = 羁绊剧情的一章（**作者单位**: 有始有终的完整一段）】\n"
+        "→ **恰好输出 1 条** episode, 它就是**这一章的总结**:\n"
+        "   · informative but single —— 把这一章讲透（起因/关键推进/落点都在里面）,\n"
+        "     但**只讲这一件事**; 不按时间把每个回合罗列一遍。\n"
+        "   · ⚠️ 时间线里的每一步**不是**要分别记的条目 —— 那会写成流水账, 是本轮的典型错误。\n"
+        "   · title 用**本章标题**（用户消息的【本章标题】给了）;\n"
+        "     event_seq 覆盖本章各块（可以写多个）; verbatim 仍只挑最关键的一句。"
+    ),
+    "mmt": (
+        "【本段类型 = MomoTalk 聊天（**无作者单位**: 一次覆盖多轮碎聊）】0~5 条\n"
+        "→ 长聊天**需要切分**: 一条 = 一件可独立复述的事（informative but single）。\n"
+        "   · 同一件事不拆两条; 两件事不并一条;\n"
+        "   · 没有值得记的 → `\"episodes\": []`（合法）。"
+    ),
+}
+
 RECORD_EPISODE = DigestAction(
     name="record_episode",
     phase=PHASE_RECORD,
@@ -98,7 +122,7 @@ RECORD_EPISODE = DigestAction(
         " 情绪词堆砌但无情节支撑 → 舍弃。"
     ),
     field_schema=(
-        '    {  // 一条记录, 最多一次输出 5 条; kind=episode 默认 //\n'
+        '    {  // 一条记录; **条数见上方【本段类型】的产出契约**（bond=恰好 1 / mmt=0~5）//\n'
         '      "kind": "episode",    // "episode"=经历 | "experience"=玩家画像专用\n'
         '                            //（玩家口癖/偏好/一次性个人信息——pattern 必填,\n'
         '                            //  subject 不用填, 引擎固定为 player）//\n'
@@ -274,15 +298,30 @@ class DigestRegistry:
     # schema 渲染（prompt 的 {{digest_schema}} 占位; 含内联约束 + 语义 + 范例）
     # ------------------------------------------------------------------
 
-    def build_schema(self, phase: str, *, include_examples: bool = True) -> str:
+    def build_schema(self, phase: str, *, include_examples: bool = True,
+                     domain: str = "mmt") -> str:
         """渲染某一轮的输出格式文本。
 
         record:     {"episodes": [...]}
         understand: {"decisions": [...], "evidence": [...], "affection_exp_delta": n}
+
+        `domain`（2026-09-20, 用户裁决）—— **粒度跟着"作者单位"走**:
+
+        | 段 | 边界 | Round A 产出 |
+        |---|---|---|
+        | `bond` | `vn_enter`…`vn_exit`（**引擎已知**, 一章 = 作者写的有始有终的一段） | **恰好 1 条** = 这一章的总结 |
+        | `mmt` | 无作者单位（一次 digest 覆盖多轮碎聊） | 0~5 条原子 |
+
+        用户原话: *"真正的 episode 一个就可以定下，需要被切分的是长篇 MMT 等；
+        episode 应该 **informative but single**，belief 则是 **brief but descriptive**"*。
+        段类型由 `digest._segment_domain` 从 marker **派生**（不落库）。
         """
         if phase == PHASE_RECORD:
+            contract = _DOMAIN_CONTRACT.get(domain, _DOMAIN_CONTRACT["mmt"])
             lines = [
                 "输出 JSON（不要任何解释文字, 不要 ```json 代码块）:",
+                contract,
+                "",
                 '    {"episodes": [',
             ]
             a = self.spec("record_episode")
@@ -318,6 +357,11 @@ class DigestRegistry:
                 "decisions 规则: 每个 episode 恰好一行; 必须覆盖全部 episode;",
                 "id 只能引用上方渲染列表里出现的 id（编造 id → 整包拒）;",
                 "引擎候选标注'疑似印证/疑似重复'时必须遵守（印证→touch, 重复→update）。",
+                "",
+                "两层写法（别混, 2026-09-20 用户定）:",
+                "  episode = **informative but single**（信息量足, 但只讲一件事）;",
+                "  认知（belief/experience）= **brief but descriptive**（简短, 但描述性 ——",
+                "  写的是模式/结论/看法, 不是事件; 不要复述剧情）;",
             ])
             if include_examples:
                 lines.append("")

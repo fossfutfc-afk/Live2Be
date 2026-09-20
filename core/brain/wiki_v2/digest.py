@@ -140,11 +140,14 @@ def digest_segment(
         extra_body = _tl_extra("digest")
     # 废弃段过滤（2026-09-07, maintenance）: 被压掉的中断段"未发生"——不进记忆
     events = exclude_abandoned(events)
-    new_events = [e for e in events
-                  if e.seq > store.digested_seq
-                  and not e.is_marker and e.type != "affection"]
+    # 本窗口 = 水位之后**全部**事件（含 marker）——段类型要从 marker 派生, 见下。
+    new_all = [e for e in events if e.seq > store.digested_seq]
+    new_events = [e for e in new_all
+                  if not e.is_marker and e.type != "affection"]
     if not new_events:
         return DigestResult(ok=True)                     # 无新增 → 0 次 LLM 调用
+    # 段类型 + 章标题（2026-09-20）: **从 marker 派生, 不落库**。
+    domain, chapter_title = _segment_domain(new_all)
     interact_max = max(e.seq for e in new_events)
     result = DigestResult(ok=False)
     snapshot = store.clone_state()                       # 原子性: 失败 → 回滚
@@ -183,9 +186,11 @@ def digest_segment(
     try:
         # ── Round A: 记录员 ──
         system_a = load_prompt("digest_v2_round_a").replace(
-            "{{digest_schema}}", digest_registry.build_schema(PHASE_RECORD))
+            "{{digest_schema}}",
+            digest_registry.build_schema(PHASE_RECORD, domain=domain))
         user_a = _join_sections([
             ("本段新增互动", timeline),
+            ("本章标题", chapter_title),          # bond 段才有; 空 → 该节自动跳过
             ("画面记忆", "\n".join(f"- {v}" for v in visuals)),
             ("角色人设（锚点）", character_prompt),
             ("本段情绪标尺", emotion_scale),
@@ -202,6 +207,8 @@ def digest_segment(
         # 索引 → 原文（T14）: parse 层拿不到事件流, 回填在这里做
         for ent in entries:
             _resolve_verbatim(ent, by_seq)
+        # 一章一个 episode（2026-09-20）—— 引擎确定性收口 + 可观测告警
+        entries = _collapse_bond_episodes(entries, domain)
         # ── 时间推进：**已退役**（2026-09-17, `ESSAY_TIME_MODEL §10`）──
         # 旧实现读 Round A 的 `time_span` 推进 `WorldClock` 的**剧情游标**,
         # 再把新游标 stamp 到节点上（`story_time`）。整条链已废:
@@ -320,6 +327,60 @@ def _round_call(
 # ---------------------------------------------------------------------------
 # 引擎侧: 建节点 / 渲染 / 清洗
 # ---------------------------------------------------------------------------
+
+def _segment_domain(events: list) -> tuple[str, str]:
+    """本段类型与章标题 —— **从 marker 派生, 不落库**（2026-09-20 用户裁决）。
+
+    用户原话: *"离散的是 mmt，但 bond story 不应该连续吗"* ⇒ **粒度跟着"作者单位"走**:
+
+    | 段 | 边界 | Round A 产出 |
+    |---|---|---|
+    | `bond` | 窗口里有 `vn_enter`/`vn_exit`（**引擎已知**, 一章 = 作者写的有始有终的一段） | **恰好 1 条** = 这一章的总结 |
+    | `mmt` | 没有（一次 digest 覆盖多轮碎聊） | 0~5 条原子（**需要切分的是它**） |
+
+    ⚠️ **为什么能派生而不落库**: 边界本来就在真源里（marker）; 段类型是它的纯函数,
+    落库就是第二个真源。与 `core/session/chapters.py` 认章的方式**同一套**。
+
+    Returns: `(domain, chapter_title)` —— 标题取 `vn_enter.payload.chapter_title`
+    （`chapters.py` 的同一字段; 旧档/异常 → 空串, 由消费方兜底）。
+    """
+    from core.session.events import M_VN_ENTER, M_VN_EXIT
+    bond, title = False, ""
+    for e in events:
+        if not getattr(e, "is_marker", False):
+            continue
+        if e.subtype == M_VN_ENTER:
+            bond = True
+            title = str((getattr(e, "payload", None) or {})
+                        .get("chapter_title") or "").strip()
+        elif e.subtype == M_VN_EXIT:
+            bond = True
+    return ("bond" if bond else "mmt"), title
+
+
+def _collapse_bond_episodes(entries: list[dict], domain: str) -> list[dict]:
+    """`bond` 段: episode **只留 1 条** —— "一章一个 episode"的引擎侧收口。
+
+    契约在 `contract/digest_registry._DOMAIN_CONTRACT`（提示词侧）。引擎这一手是
+    **确定性兜底**: 提示词没压住时**留 significance 最高的那条**, 其余丢弃, 并留一行
+    `WARNING`（可 grep）—— 免得契约被违反是**静默**的。
+
+    `experience`（玩家画像条目, MMT 专则）不算 episode, 原样保留。
+    为什么丢弃而不是合并: 合并文本是创作（要 LLM）, 引擎只做判定;
+    而"一章一条"的前提是那条总结**本来就该覆盖全章**。
+    """
+    if domain != "bond":
+        return entries
+    eps = [e for e in entries if e.get("kind") != "experience"]
+    if len(eps) <= 1:
+        return entries
+    keep = max(eps, key=lambda e: float(e.get("significance") or 0.0))
+    logger.warning(
+        "digest_a contract=bond entries=%d keep=%r（一章一条; 其余已丢。"
+        "这行常出现 = 提示词没压住, 看 Round A 的【本段类型】产出契约）",
+        len(eps), keep.get("title") or str(keep.get("narration", ""))[:12])
+    return [e for e in entries if e.get("kind") == "experience"] + [keep]
+
 
 def _create_a_nodes(store: WikiStoreV2, entries: list[dict], *, ts: str,
                     segment_id: str, event_seq: list[int],

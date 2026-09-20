@@ -355,7 +355,53 @@ Live2Be 现状是 `narration + verbatim + tags` **平铺**（`recall.py:_embed_t
 > **落法**：embed 文本 = **内容 + 元数据锚点**；情绪走**独立结构化通道**（§3.3 的
 > `emo_span`/`emo_int` + 情感召回的 family 匹配）。
 
-#### 2.3.2 `place` 字段：**计划内，不是缺口**（2026-09-13 澄清）
+#### ★★ 2.3.1′ **一章 = 一条 episode**（2026-09-20 用户裁决，推翻本节原先的"多条"口径）
+
+**用户原话**：
+
+> *"你细看这些 episode 像流水账一样，真正的 episode 一个就可以定下，需要被切分的是
+> 长篇 MMT 等；episode 应该 **informative but single**，belief 则是 **brief but descriptive**"*
+> *"离散的是 mmt，但 bond story 不应该连续吗"*
+> *"我们的 episode 不就是 bond story 吗??? 现在的做法等于把一个 episode 切断"*
+
+**为什么这是对的（三条证据，都不是推断）**：
+
+| # | 证据 | 位置 |
+|---|---|---|
+| ① | **边界是引擎已知的**，不需要 LLM 猜：digest 在 `vn_exit completed` 时触发，一次调用覆盖的**就是恰好一章** | `digest.py` 的 `new_events = seq > digested_seq` |
+| ② | **每章本来就有官方总结**：官方剧本**第 1 条记录**就是 `#title;잘못된 장소`；我们自己的 `mmt_trigger_bond_story` 也**强制带 `chapter_title`**（3–16 字） | `ba_1600008.json` / `contract/mmt_actions.py` |
+| ③ | **产品的单位全是"章"**：回忆册、回放、纪念窗口、`chapters.py` 认章——只有记忆层把章切成碎片 | `webapp/routers/collection.py` / `core/session/chapters.py` |
+
+**对照外部项目（2026-09-20 复查源码/论文，不是印象）**：
+
+| 项目 | 记忆单元 | 关键机制 |
+|---|---|---|
+| **AgentGal**（本机 `D:\MYCODE\github\AgentGal`） | **一段"闭合主题" = 一条**（`flow.py:322` 原话 *"对单个闭合 episode 生成一条记忆"*） | 有专门的 **`EpisodeClosureDetector`**（*"互动主题切分器"*）——因为它跑的是**连续大会话、没有结构断点**, 只能靠 LLM 判边界 |
+| **A-Mem**（arXiv 2502.12110） | 原子 note（Zettelkasten） | note 自带 **contextual descriptions** + **memory evolution**（新记忆**回头改写**旧 note 的上下文）——连贯性靠这两样, 不是靠合并 |
+| **BaiShou** | 未核实（README 取不到） | 只有我们文档的转述（"层级总结 + 拥抱冗余 + 时间感"）, **不当作依据** |
+
+⇒ 结论: **粒度跟着"作者单位"走**。`bond` = 作者写的有始有终的一章 → **1 条**;
+`mmt` = 没有作者的碎聊（一次覆盖多轮） → **0~5 条**（**需要切分的是它**）。
+
+**落地**（引擎侧, 零新字段、零新旋钮）：
+
+```
+digest._segment_domain(new_all)  →  ("bond"|"mmt", chapter_title)   # 从 marker 派生, 不落库
+contract._DOMAIN_CONTRACT[domain] → 进 Round A 的 {{digest_schema}} 产出契约
+digest._collapse_bond_episodes()  → 提示词没压住时留 sig 最高那条 + 一行 WARNING
+```
+
+**为什么派生而不落库**: 边界（`vn_enter`/`vn_exit`）本来就在真源里, 段类型是它的纯函数;
+落库 = 第二个真源。与 `chapters.py` 认章**同一套**。
+
+**代价（诚实记）**: 一条要装下一章（官档最长 109 条记录）→ **摘要必然丢信息**。
+缓解 = AgentGal 那一手（原文可寻址）: 我们的 `event_seq` 直接指回 `events.jsonl`,
+比它另存一份 `raw_dialogue` 更强。`MAX_NARRATION=300` 是硬上限。
+
+**实测支撑（`experiments/ba_corpus/ba_recall_probe.py`, 14 章 / 31 条）**:
+"片段认回自己的章" —— 原子 11/26、带标签原子 8/26、**章拼接 10/26**（n=26, 差异是噪声）
+⇒ **粒度对检索没有可测影响**; 决定它的是"单位该是什么", 不是"RAG 准不准"。
+
 
 用户澄清："**地点是 engine 直接写的，只是没写函数**；place 链路没进，因为现在
 **背景系统就没搞好**，这是计划，写进去即可。"

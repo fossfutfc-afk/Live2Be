@@ -265,6 +265,16 @@ v1 的 `MemorialProbe`/`memorial_exit` 动作已退役。**图是异步的 → �
 ## 7. 记忆与好感（digest / affection）
 
 - 出厂背景（experience.yml）**不进 wiki**——每会话直注；wiki 只存玩家参与后的事。
+- **两层写法与粒度（2026-09-20 用户裁决；改 digest prompt/契约前必读）**：
+  **`episode` = informative but single**（信息量足，但只讲一件事）、
+  **`belief`/`experience` = brief but descriptive**（简短，但描述性——写模式/结论，不复述事件）。
+  **粒度跟着"作者单位"走**：**一章羁绊剧情（`vn_enter`…`vn_exit`）= 1 条 episode**
+  （正文就是这一章的总结，`title` 用 `chapter_title`；**边界是引擎已知的**，不需要 LLM 猜），
+  **MMT 那种一次覆盖多轮的碎聊 = 0~5 条**（需要切分的是它）。段类型由
+  `digest._segment_domain` 从 marker **派生**（不落库，与 `session/chapters.py` 认章同一套）；
+  提示词没压住时 `_collapse_bond_episodes` 留 `significance` 最高的那条 +
+  打一行 `digest_a contract=bond` 告警（可 grep）。用户原话：
+  *"离散的是 mmt，但 bond story 不应该连续吗"*。
 - `digest_segment`（wiki_v2, RoundA 记录 + RoundB 组织 + 好感结算）触发点：
   ① bond 完整闭环（vn_exit completed）后 ② MMT 每 N=25 轮（in_vn/in_memorial 中
   不触发）。增量幂等（digested_seq 水位）；失败零损失。

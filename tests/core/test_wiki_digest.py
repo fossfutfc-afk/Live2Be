@@ -815,3 +815,93 @@ def test_dedupe_on_rerun(tmp_path):
     assert res2.ok
     assert len(st.all()) == n_before                   # 同内容 episode 去重, 不双写
     assert st.digested_seq == 3
+
+
+# ---------------------------------------------------------------------------
+# 段类型: 粒度跟着**作者单位**走（2026-09-20 用户裁决）
+#   bond = 一章羁绊剧情（`vn_enter`..`vn_exit`, 边界**引擎已知**）→ **恰好 1 条** episode
+#   mmt  = 碎聊（无作者单位）                                → 0~5 条, **需要切分的是它**
+#
+# 用户原话: *"离散的是 mmt，但 bond story 不应该连续吗"* /
+#           *"episode 应该 informative but single，belief 则是 brief but descriptive"*
+# ---------------------------------------------------------------------------
+
+def _bond_span(seq_in=3, seq_out=5, title="错误的地点"):
+    """一个 **bond 段**（一章）: 两条 marker 夹一段内容 —— 边界在真源里, 引擎不用猜。
+
+    ⚠️ 名字不叫 `_bond` —— 文件上方已有一个 `_bond`（"一板"的球面事件构造器,
+    情绪标尺那组用例在用）。**别撞名**: 撞了会静默覆盖, 表现为别处的用例莫名报错。
+    """
+    return [("marker", "vn_enter", {"chapter_title": title}, seq_in),
+            _mmt(seq_in + 1, "老师", "……"),
+            ("marker", "vn_exit", {"completed": True}, seq_out)]
+
+
+def _prompt(llm, i=0) -> str:
+    return "\n".join(str(m) for m in llm.calls[i])
+
+
+def test_bond_segment_asks_for_exactly_one_episode(tmp_path):
+    """★ bond 段: 产出契约 = **恰好 1 条** + 本章标题注入（title 用本章标题）。"""
+    st = _seed_store(tmp_path)
+    llm = FakeLLM(_a_episode(), _b_ok())
+    res = digest_segment(st, llm, _events(*_bond_span()))
+    assert res.ok, res.errors
+    a = _prompt(llm, 0)
+    assert "恰好输出 1 条" in a, a[:400]
+    assert "作者单位" in a
+    assert "informative but single" in a
+    assert "本章标题" in a and "错误的地点" in a        # 标题进了 user 段
+    assert len(res.created) == 1
+    print("    bond: 产出契约(恰好 1 条) + 本章标题注入 ✓")
+
+
+def test_mmt_segment_still_splits(tmp_path):
+    """★ mmt 段: 无作者单位 → 契约仍是 0~5 条（**不要**把切分能力一起改掉）。"""
+    st = _seed_store(tmp_path)
+    two = {"episodes": [
+        {"narration": "老师约我明天去喂猫", "title": "老师约我明天去喂猫",
+         "tags": ["约定", "猫"], "significance": 0.8},
+        {"narration": "老师说他也总忘带伞", "title": "老师说他也总忘带伞",
+         "tags": ["口癖"], "significance": 0.5}]}
+    # Round B 的决策必须**逐条覆盖**本轮 episode（引擎结构检查）——
+    # 建了两条就得给两条决策, 否则 B 被整包拒 + 反馈重试 → 假 LLM 响应耗尽。
+    b = _b_ok()
+    b["decisions"].append({"episode": "m0004", "decision": "add",
+                           "kind": "experience", "subject": "sensei",
+                           "pattern": "老师也总忘带伞", "example": "「我也总忘带伞」"})
+    llm = FakeLLM(two, b)
+    res = digest_segment(st, llm,
+                         _events(_mmt(3, "老师", "明天带猫粮去喂猫吧")))
+    assert res.ok, res.errors
+    a = _prompt(llm, 0)
+    assert "需要切分" in a
+    assert "恰好输出 1 条" not in a
+    assert len(res.created) == 2, res.created          # 两条都留下
+    print("    mmt: 契约仍是 0~5 条, 两条都建 ✓")
+
+
+def test_bond_extra_episodes_collapse_to_one(tmp_path, caplog):
+    """★ 提示词没压住时**引擎确定性收口**: 留 significance 最高的 + 留一行告警。
+
+    为什么丢弃而不是合并文本: 合并是创作（要 LLM）, 引擎只做判定; 而"一章一条"
+    的前提本来就是**那条总结该覆盖全章**。
+    """
+    st = _seed_store(tmp_path)
+    three = {"episodes": [
+        {"narration": "她照常去破房子照料杂草, 抬头发现老师站在那儿",
+         "title": "去破房子照料杂草", "tags": ["杂草"], "significance": 0.6},
+        {"narration": "老师说这里就是只属于我和他的秘密场所",
+         "title": "只属于两人的秘密场所", "tags": ["约定"], "significance": 0.9},
+        {"narration": "她又道歉了一次", "title": "她又道歉了一次",
+         "tags": ["道歉"], "significance": 0.4}]}
+    llm = FakeLLM(three, _b_ok())
+    with caplog.at_level("WARNING"):
+        res = digest_segment(st, llm, _events(*_bond_span()))
+    assert res.ok, res.errors
+    assert len(res.created) == 1, res.created           # 一章一条
+    ep = st.get(res.created[0])
+    assert ep.title == "只属于两人的秘密场所", ep.title               # 留 significance 最高的
+    msgs = [r.getMessage() for r in caplog.records]
+    assert any("contract=bond" in m for m in msgs), msgs
+    print("    bond: 3 条 → 1 条（留 sig 最高）+ 告警可 grep ✓")
