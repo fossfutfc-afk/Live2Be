@@ -493,6 +493,7 @@ v1 的 `MemorialProbe`/`memorial_exit` 动作已退役。**图是异步的 → �
   （2026-09-19 用户要求建: *"把文档中误导你的重写成你理解的语言……这个是给你看的"*。
   只放"最容易搞错的事 + 旧话清单 + 用户原话", **机制细节不重复**——重复就会漂）
 - **回忆册（书页 + 角色页 + 只读回放, P0 已落地）**：docs/DESIGN_COLLECTION_BOOK.md
+- **纪念链路（art / memorial / 黑屏缓冲 / 记录级进入; 设计稿定稿·代码未动, 改纪念前必读）**：docs/DESIGN_MEMORIAL.md
 - **记忆图 v3（实体中心 + 混合召回 + 时间架构 + 组合, 设计稿, V3-0 已落地）**：docs/DESIGN_WIKI_V3.md
 - **第四面墙 / creepiness / OS(Orwell'S)（立项稿, 只留接口不实现）**：docs/DESIGN_FOURTH_WALL.md
 - 召回阈值实验（nomic vs Qwen3 实测数据）：docs/EXPERIMENT_CAND_HIGH.md
