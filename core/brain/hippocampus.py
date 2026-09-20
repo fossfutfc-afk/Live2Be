@@ -26,7 +26,6 @@ from datetime import datetime
 from pathlib import Path
 
 from core.session.io import atomic_write_json
-from core.common import err
 
 DEFAULT_DATA_ROOT = Path("data")
 

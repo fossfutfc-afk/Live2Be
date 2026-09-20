@@ -56,7 +56,6 @@ data/worlds/{world}/characters/{char}/soul/staging/events.jsonl    ← 暂存（
 from __future__ import annotations
 
 import logging
-from datetime import datetime
 from pathlib import Path
 
 from core.session.events import (

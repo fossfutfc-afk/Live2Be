@@ -22,7 +22,7 @@ import logging
 import math
 import random
 from datetime import datetime
-from typing import Callable, Iterable
+from typing import Callable
 
 from core.brain.wiki_v2.nodes import PRECIOUS_THRESHOLD, BrainNode
 from core.brain.wiki_v2.store import WikiStoreV2

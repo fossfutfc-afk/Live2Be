@@ -43,7 +43,6 @@ low|medium|high = 显式覆盖（reasoning_effort）。
 """
 from __future__ import annotations
 
-from pathlib import Path
 
 from core import paths
 

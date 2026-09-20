@@ -24,7 +24,6 @@
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 
 from core import paths
 from core.common.errors import err

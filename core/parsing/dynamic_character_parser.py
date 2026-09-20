@@ -543,7 +543,6 @@ class CharacterLoader:
         # 元数据
         display_name = get_display_name(profile)
         official = is_official(profile)
-        completeness = get_completeness(profile)
         missing_req = check_required(profile) if strict else []
 
         # strict 模式下的警告

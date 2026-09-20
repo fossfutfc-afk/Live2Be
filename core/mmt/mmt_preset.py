@@ -47,7 +47,6 @@ import random
 import re
 import unicodedata
 from enum import Enum
-from pathlib import Path
 
 from core import paths
 from core.momotalk import MomoTalkEngine
@@ -349,7 +348,7 @@ def egg_reply_for(name: str) -> str | None:
         if not replies:
             break
         raw = random.choice(replies)
-        sign, text = raw[:3], raw[3:]
+        sign = raw[:3]
         if sign == REJECT_NAMING or sign == ACCEPT_NAMING:
             return raw                    # 带前缀原样返回（调用方解析）
         return raw

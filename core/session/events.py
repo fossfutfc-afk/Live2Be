@@ -19,7 +19,6 @@ marker subtype（状态标记, 替代状态机, §5.1）:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
 from typing import Any
 
 #: 板块类型（预留 official_story 官方剧情）

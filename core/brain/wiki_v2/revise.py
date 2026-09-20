@@ -227,7 +227,6 @@ def apply_revision_package(
         for i, raw in enumerate(revisions):
             if not isinstance(raw, dict) or raw.get("action") == "create":
                 continue
-            action = raw.get("action")
             if not _apply_action(store, raw, allowed, ref_map, pending_log,
                                  result, pkg=result.pkg):
                 return fail(f"revisions[{i}] {result.errors[-1]}")

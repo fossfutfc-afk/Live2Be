@@ -591,4 +591,5 @@ CLI/测试同步路径在引擎内串行。
 - 记忆体系总设计：根级 DESIGN_BRAIN.md（混合史, 慎读）；视觉协议：core/DESIGN_VISUAL_PROTOCOL.md
 - 模块级设计：core/DESIGN_{MMT_CHAT,GUI,SEGMENT,WORLD,MULTI_CHAR}.md（BOND_STORY 已归档）
   与 docs/archive/DESIGN_BOND_STORY.md（旧 VN 运行时）
+- 未来扩展和预留未调用函数 docs/EXTENSION_POINTS.md
 - 其他根级说明：README.md / CLAUDE_OPTIMIZE.md / TODO.md / ASKYOURSELF.yml / guidance/

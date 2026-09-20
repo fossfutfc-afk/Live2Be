@@ -31,7 +31,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 from dataclasses import dataclass, field
@@ -45,7 +44,7 @@ from contract import (AgentAction, BlockStreamParser, CHARACTER_NARRATOR,
                       build_schema, check_block, sensei_groups)
 from core.common import Live2BeError, err
 from core.bond.bond_actions import MAX_SCENE_RETRIES, build_story_registry
-from core.bond.bond_executor import StoryExecError, StoryExecutor
+from core.bond.bond_executor import StoryExecutor
 from core.bond.memorial_actions import build_memorial_registry
 from core.media.emotion_lexicon import (
     assets_root,
@@ -995,7 +994,6 @@ class BondStoryEngine:
             logger.warning("[vn][records] 本回合派生 %d 板 → 只发前 %d（其余丢弃）",
                            len(spans), MAX_BOARDS_PER_TURN)
             spans = spans[:MAX_BOARDS_PER_TURN]
-        names = self._speaker_names()
         boards: list[BondScene] = []
         spare: tuple = ()                        # 不可见板（纯 switch）→ 记录并入下一板
         for start, end, group in spans:

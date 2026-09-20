@@ -47,7 +47,6 @@ from contract import (
     MMTActionRegistry,
     ActionSpec,
     APPROVAL_AUTO,
-    RUNTIME_SHELL_FIELDS,
     ContractError,
     is_valid_identifier,
 )

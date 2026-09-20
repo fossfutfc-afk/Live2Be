@@ -31,7 +31,6 @@ VN 每场景就是一条 story_scene 或 story_end——纯输出契约, 程序�
 
 from __future__ import annotations
 
-import re
 from typing import Any
 
 from contract import (
