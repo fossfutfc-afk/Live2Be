@@ -53,13 +53,22 @@
   （"五组里除了第 1 组都保留"，第 1 组 = 本组）指向"归档/删除"。**目前只打了标记，没有动代码**；
   定下来之后要么删本行、要么把三件套移到 `archive/brain_v1/`（连同 `experiments/brain_real_run.py`
   的 import 与根级 `DESIGN_BRAIN.md` 的引用一起改）。
-- **不属于 EXT（本次已判定该删，从清单里排除）**：载体/契约的对称性访问器（`VnBlock` 的
-  `switch_at`/`art_at`/`end_at`/`exit_at`/`group_texts`/`has_choices`/`render_text`、
-  `BondScene.has_records`/`record_texts`、`requires_sources`/`require_valid`、
-  `catalog.has_sprite`/`has_background`/`background_variants`、`place_table.by_region`/`stats`、
-  `display.get_current_text`）；兼容别名（`MAX_HISTORY_ROUNDS`、`sessions_dir`/`session_dir`）；
-  退役残留（`memorial_img_ready`、`choices_used`、`legacy_action_enabled`、`_lane_writer_alive`、
-  JS `splitReplyChunks`、死 DOM `logo-img`/`panel-name`）。判据见 §1 第 3 条。
+- **不属于 EXT（判据见 §1 第 3 条）**：
+  - **已删 2026-09-21（节点 2 清理）**：`memorial_img_ready`、`choices_used`、
+    `legacy_action_enabled`（+ `LEGACY_ACTION_ENV`）、JS `splitReplyChunks`
+    （+ `MMT_CHUNK_MAX`/`MMT_CHUNK_FRAGMENT`）、死 DOM id `logo-img`/`panel-name`、
+    `contract/digest_registry.py` 的 `MAX_CONTENT`/`MAX_EXAMPLES`/`MAX_EVIDENCE`
+    （自称"parse 级边界"但零校验器消费）。
+  - **待删（节点 3）**：载体/契约的对称性访问器（`VnBlock` 的
+    `switch_at`/`art_at`/`end_at`/`exit_at`/`group_texts`/`has_choices`/`render_text`、
+    `BondScene.has_records`/`record_texts`、`requires_sources`/`require_valid`、
+    `catalog.has_sprite`/`has_background`/`background_variants`、`place_table.by_region`/`stats`、
+    `display.get_current_text`）；兼容别名（`MAX_HISTORY_ROUNDS`、`sessions_dir`/`session_dir`）。
+  - **重新判定为保留**：`webgui/bond.py::_lane_writer_alive` —— 起初按"只被测试引用"归入
+    退役残留，但它的 docstring 自己写着 *"保留本函数仅作观测/测试"*，且 `_gate_stalled`
+    的 docstring 引用它来解释那条非显然的不变量（线程死活**不能**当门控判据——真实会话里
+    恒为 True）。删掉会让那段结论失去唯一出处。**按 §1 第 3 条（有声明即留）保留；
+    不打 `# EXT:`**（它指向"观测/测试"，不是未来节点）。
 - **v1 动作通道**（`bond_actions`/`bond_executor`/`memorial_actions`/`sentence_splitter` +
   `BondScene.from_action` + `scene.memorial_exit` 的消费分支）：用户裁决**保留**。它们不是"未来节点"
   而是"旧代通道"，所以按 §1 第 3 条不打 `# EXT:`；如需复活的定位说明，读

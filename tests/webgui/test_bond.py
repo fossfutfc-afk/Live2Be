@@ -345,10 +345,13 @@ def test_system_note_v2_only_pacing_hints():
     from webgui.bond import BondState, _system_note
 
     vn = SimpleNamespace(in_memorial=False)
-    # 旧的"整段 2~3 次选项配额"注记已退役 —— 无论用过几次都不再念配额
-    for used in (1, 3, 9):
-        note = _system_note(BondState(vn=vn, choices_used=used)) or ""
-        assert "配额" not in note and "choices" not in note, note
+    # 旧的"整段 2~3 次选项配额"注记已退役 —— 2026-09-21 连**计数器**也删了
+    # （`choices_used` 只写不读）。与 `prev_emotions` 同款守门: 字段不许无声回来
+    st_quota = BondState(vn=vn, round=30)
+    assert not hasattr(st_quota, "choices_used"), \
+        "choices_used 应已随配额注记一并删除（要恢复配额, 字段与注记得同批回来）"
+    note = _system_note(st_quota) or ""
+    assert "配额" not in note and "choices" not in note, note
     # 中段轮: 仍应有收尾节奏提示（这是 v2 合理的"目标层"注记）
     mid = _system_note(BondState(vn=vn, round=30)) or ""
     assert "收束" in mid or "结尾" in mid, mid
@@ -932,7 +935,7 @@ def test_memorial_image_switch_gates_thread(monkeypatch):
     bond._make_memorial_cb(st, CHARACTER, "sid")("（纪念）她站在夕阳里。")
     time.sleep(0.1)
     assert st.memorial_img_busy is False, "关闭时不得开生图线程"
-    assert st.memorial_img_ready is False and st.memorial_img == ""
+    assert st.memorial_img == "", "关闭时不得留下图 URL"
 
     monkeypatch.setenv(ENV_SWITCH, "on")
     assert bond._image_generator() is not None

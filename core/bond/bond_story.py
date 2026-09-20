@@ -32,7 +32,6 @@
 from __future__ import annotations
 
 import logging
-import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
@@ -74,16 +73,10 @@ logger = logging.getLogger(__name__)
 #: 2~4 个槽; 24 板 ≈ 150 条记录, 只在模型彻底失控时兜底）
 MAX_BOARDS_PER_TURN = 24
 
-#: 旧动作输入兼容开关的环境变量名（**默认关**——决策 #27）。
-#: 打开后 `send_vn_scene` 才接受 `{"action": ...}` dict（story_scene/story_end/
-#: memorial_*）——仅供存量测试桩与开发通道; 生产/真机不设, 故只有记录流一条路。
-LEGACY_ACTION_ENV = "LIVE2BE_VN_LEGACY_ACTION"
-
-
-def legacy_action_enabled() -> bool:
-    """旧动作输入是否放行（环境变量显式开启; 缺省 False）。"""
-    return str(os.environ.get(LEGACY_ACTION_ENV, "")).strip().lower() in (
-        "1", "true", "yes", "on")
+#: ⚠️ 2026-09-21 删除: 原 `LEGACY_ACTION_ENV` / `legacy_action_enabled()`——**零调用者**
+#: （`grep legacy_action_enabled` 只剩定义与审计文档）。旧动作 JSON 在 `send_vn_scene`
+#: 里**无条件**打回重发（见那里的 `isinstance(response, dict)` 分支）; 复活 v1 动作通道时
+#: 别只删那个分支——把闸门一起加回来, 参考 git 历史里的这个开关。
 
 #: 记录流"硬"违规 → 打回重发（形状类: 说明模型没守约, 重发值得）
 HARD_BLOCK_ISSUE_MARKS = ("空块", "必须块尾", "必须块首", "首条不是 switch",

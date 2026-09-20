@@ -37,12 +37,13 @@ DECISIONS = ("touch", "update", "add")
 PLAYER_SUBJECT = "player"
 
 #: 边界（parse 级）
+#: ⚠️ 2026-09-21 删 `MAX_CONTENT` / `MAX_EXAMPLES` / `MAX_EVIDENCE`——全仓（含本文件）
+#: 零引用: 注释写着"parse 级边界", 但没有任何校验器消费它们, prompt 侧也没硬编码对应
+#: 数字 ⇒ 属"契约声明与执行脱钩"的残留。**要恢复边界必须同时落校验器**,
+#: 只把常量加回来 = 又留一处看起来生效的假边界。
 MAX_EPISODES = 5        # A 轮单包最多 episode 数
 MAX_NARRATION = 300     # narration 单行上限（汉字）
-MAX_CONTENT = 200       # belief content 上限（AgentGal write_rules 同款）
 MAX_TAGS = 4            # tags 检索词上限
-MAX_EXAMPLES = 3        # experience.examples 上限
-MAX_EVIDENCE = 5        # B 轮 evidence 上限
 
 #: ⚠️ **`TASK_TIMESPAN` 已于 2026-09-17 删除**（用户裁决）—— 连同 schema 里那行
 #: `"time_span": "halfday"`。
