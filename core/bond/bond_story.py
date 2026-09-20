@@ -32,14 +32,15 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from enum import Enum
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Iterable
 
 from contract import (BlockStreamParser, CHARACTER_NARRATOR,
                       KIND_CHARACTER, MAX_SENSEI_RUN, NON_PICKS, STAGE_ART,
                       STAGE_END, STAGE_EXIT, STAGE_MEMORIAL, STAGE_SWITCH,
                       VnBlock, VnRecord, build_record_schema,
-                      check_block, sensei_groups)
+                      check_board, check_block, sensei_groups)
 from core.common import Live2BeError, err
 from core.media.emotion_lexicon import (
     assets_root,
@@ -381,6 +382,130 @@ class BondScene:
         )
 
 
+class DeliveryMode(str, Enum):
+    """交付模式（节点 2′, 2026-09-21）——决定"校验违规时是**拦**还是**记**"。
+
+    · `BLOCK`（整块交付）: CLI / 无流式客户端。块级 `check_block` 与板级 `check_board`
+      **都拦**（打回重发整轮）。
+    · `STREAM`（增量交付）: webgui live（真机）。板级 `check_board` **只在"还没有任何板
+      交付出去"时拦**（那一板还没上屏, 拦得住）; 一旦交付过 → 一律 **advisory**
+      （只记账 + 日志）——因为"打回重发"产出的是**另一段文本**, 玩家侧表现为
+      "同一段戏讲两遍"（`docs/DESIGN_RESEND.md` §3）。块级 `check_block` 在流式下
+      同样只记账（板已上屏, 无法回滚）。
+    """
+
+    BLOCK = "block"
+    STREAM = "stream"
+
+
+class _BoardAssembler:
+    """记录 → 板 的**唯一装配器**——批式与流式共用一套语义（节点 2′, 2026-09-21）。
+
+    ## 改动前的分叉（现逐条钉在 `tests/core/test_pipeline_parity.py`）
+
+    两条流水线各写一份装配: 纯 `switch` 空板（批式 `spare` 合并 vs 流式照发）、
+    `MAX_BOARDS_PER_TURN`（24 vs 无）、`art` 挂载目标（含 memorial 的板 vs 首个交付板）。
+
+    ## 统一后的规则（本类 = 单源）
+
+    · **不可见板 → 向前合并**: 无可显示段落 + 无选项 + 非 end 的板, 其记录**并入下一板**
+      （真源不丢）。若它是块的**最后一板**（无处可并）→ **照原样成板**。
+      ⚠️ 原批式是"向后并入末板"; 改为向前合并是为了**不动流式的首板即时交付**——
+      向后并需要"扣住一板不交付"的前瞻, 会吃掉 §9 的首屏优化。
+    · **板上限**: 超出丢弃 + 一次 WARNING（两侧同）。
+    · **`art` 挂首个板**（块级声明; 流式原本如此, 批式对齐过来）。
+    · **章内第二次 memorial** → `_demote_repeat_memorial` 静默降级（两侧同）。
+
+    用法: 增量（流式）`push(闭合板记录)` → 返回本次可交付的板; 块尾 `finish()`。
+    批量（批式）: 依次 `push` 再 `finish`, 收 `boards`。
+    """
+
+    def __init__(self, engine: "BondStoryEngine", *, block_art: str = "",
+                 notes: Iterable[str] = (),
+                 max_boards: int = MAX_BOARDS_PER_TURN) -> None:
+        self._engine = engine
+        self._block_art = (block_art or "").strip()
+        self._notes = tuple(notes)
+        self._max_boards = max_boards
+        self._out: list[BondScene] = []
+        self._spare: tuple = ()
+        self._art_attached = False
+        self._cap_warned = False
+        self._memorial_logged = False
+
+    # -- 块级上下文（流式下随流到达）----------------------------------------
+    def set_block_art(self, art: str) -> None:
+        """块级画面意向（流式下 `art` 行到达后才知道）——首个板交付前有效。"""
+        if not self._art_attached and (art or "").strip():
+            self._block_art = art.strip()
+
+    def set_notes(self, notes: Iterable[str]) -> None:
+        """解析 NOTE（流式下随流累积）——板交付时带上当前值。"""
+        self._notes = tuple(notes)
+
+    # -- 内部 ---------------------------------------------------------------
+    @staticmethod
+    def _group(records: tuple) -> tuple[int, ...]:
+        """板内 sensei 群（= 本板候选项）——切板规则保证群在板尾。"""
+        return tuple(i for i, r in enumerate(records) if r.is_sensei)
+
+    def _cap_reached(self) -> bool:
+        if len(self._out) < self._max_boards:
+            return False
+        if not self._cap_warned:
+            self._cap_warned = True
+            logger.warning("[vn][records] 本回合派生超过 %d 板 → 只发前 %d（其余丢弃）",
+                           self._max_boards, self._max_boards)
+        return True
+
+    def _make(self, records: tuple) -> BondScene:
+        return BondScene.from_board(records, self._group(records),
+                                    notes=list(self._notes))
+
+    def _emit(self, scene: BondScene) -> BondScene:
+        if self._block_art and not self._art_attached:
+            scene.art_hint = self._block_art          # 块级声明 → 挂首个板
+            self._art_attached = True
+        if scene.memorial:
+            self._engine._memorial_used = True        # 章内 ≤1（区间 = 本板）
+            if not self._memorial_logged:
+                self._memorial_logged = True
+                logger.info("[vn][records] 本回合含纪念触发（区间 = 本板; v2 不切模式）")
+        self._out.append(scene)
+        return scene
+
+    # -- 对外 ---------------------------------------------------------------
+    def push(self, records: Iterable) -> list[BondScene]:
+        """喂一块**已闭合**的板记录 → 本次可交付的板（空 = 被挂起 / 超上限）。"""
+        recs = tuple(records or ())
+        if not recs:
+            return []
+        if self._spare:                               # 承接上一块的不可见记录
+            recs = self._spare + recs
+            self._spare = ()
+        recs = self._engine._demote_repeat_memorial(recs)
+        if self._cap_reached():
+            return []
+        scene = self._make(recs)
+        if not scene.paragraphs and not scene.choices and not scene.is_end:
+            self._spare = recs                        # 不可见 → 挂起, 并入下一板
+            return []
+        return [self._emit(scene)]
+
+    def finish(self) -> list[BondScene]:
+        """块尾: 挂起的不可见板**照原样成板**（无处可并; 与批式同规则）。"""
+        if not self._spare:
+            return []
+        recs, self._spare = self._spare, ()
+        if self._cap_reached():
+            return []
+        return [self._emit(self._make(recs))]
+
+    @property
+    def boards(self) -> list[BondScene]:
+        return list(self._out)
+
+
 class BondStoryEngine:
     """羁绊剧情对话引擎。
 
@@ -627,6 +752,46 @@ class BondStoryEngine:
                                        aliases=self._speaker_names()) \
                 if on_board is not None else None
             delivered: list["BondScene"] = []
+            # 交付模式（节点 2′）: 流式 = 增量交付（板级闸只在首板交付前拦）;
+            # 批式 = 整块交付（板级 + 块级全拦）。写进 trace 便于事后归因。
+            mode = DeliveryMode.STREAM if stream is not None else DeliveryMode.BLOCK
+            # 节点 2′: 板装配统一走 `_BoardAssembler`（与批式同一套语义）
+            asm = _BoardAssembler(self)
+            gate_issues: list[str] = []      # 板级闸拦下的违规（本 attempt 作废）
+
+            def _deliver(boards_now: list["BondScene"]) -> None:
+                for scene_b in boards_now:
+                    scene_b._streamed = True     # 已在流中交付, 调用方勿重复落地
+                    delivered.append(scene_b)
+                    logger.info("[vn][stream] 板提前交付 n=%d 累计=%d",
+                                len(scene_b.records), len(delivered))
+                    try:
+                        on_board(scene_b)
+                    except Exception as e:       # noqa: BLE001 — 交付回调异常不炸生成
+                        logger.warning("流式交付回调异常（继续收集）: %s", e)
+
+            def _accept(board_records) -> None:
+                """收一块**已闭合**的板: 过板级闸 → 装配 → 交付。
+
+                板级闸（`check_board`）**只在还没交付过任何板时拦**——那一板还没上屏,
+                拦得住; 一旦交付过 → 一律 advisory（打回重发会产出另一段文本,
+                玩家侧表现为"同一段戏讲两遍", 见 docs/DESIGN_RESEND.md §3）。
+                """
+                if gate_issues:                  # 本 attempt 已作废, 后续板不再交付
+                    return
+                issues = check_board(board_records)
+                if issues:
+                    if not delivered and mode is DeliveryMode.STREAM:
+                        gate_issues.extend(issues)
+                        logger.warning(
+                            "[vn][stream] 板级闸拦下首板（本 attempt 作废, 打回重发）: %s",
+                            "; ".join(issues))
+                        return
+                    logger.warning("[vn][stream] 板级违规（已交付 → 只记账, 不回滚）: %s",
+                                   "; ".join(issues))
+                asm.set_block_art(stream.art_hint)
+                asm.set_notes(stream.notes)
+                _deliver(asm.push(board_records))
 
             def _feed(text: str) -> None:
                 nonlocal memorial_fired
@@ -643,19 +808,7 @@ class BondStoryEngine:
                     self._fire_memorial_image(on_memorial_prompt,
                                               stream.records, stream.art_hint)
                 for board_records in stream.pop_ready():
-                    scene_b = self._scene_from_records(board_records, stream)
-                    if stream.art_hint and not delivered:      # 画面意向挂首个交付板
-                        scene_b.art_hint = stream.art_hint
-                    if scene_b.memorial:
-                        self._memorial_used = True             # 章内 ≤1（区间 = 本板）
-                    scene_b._streamed = True         # 已在流中交付, 调用方勿重复落地
-                    delivered.append(scene_b)
-                    logger.info("[vn][stream] 板提前交付 n=%d 累计=%d",
-                                len(board_records), len(delivered))
-                    try:
-                        on_board(scene_b)
-                    except Exception as e:           # noqa: BLE001 — 交付回调异常不炸生成
-                        logger.warning("流式交付回调异常（继续收集）: %s", e)
+                    _accept(board_records)
 
             try:
                 # 流式优先（chat_full = chat 的流式等价 + on_chunk 观察者）;
@@ -675,17 +828,11 @@ class BondStoryEngine:
                 if stream is not None:
                     stream.finish()                  # 收残余行 + 末板
                     for board_records in stream.pop_ready():
-                        scene_b = self._scene_from_records(board_records, stream)
-                        if stream.art_hint and not delivered:
-                            scene_b.art_hint = stream.art_hint
-                        if scene_b.memorial:
-                            self._memorial_used = True
-                        scene_b._streamed = True
-                        delivered.append(scene_b)
-                        try:
-                            on_board(scene_b)
-                        except Exception as e:       # noqa: BLE001
-                            logger.warning("流式交付回调异常（收尾）: %s", e)
+                        _accept(board_records)
+                    if not gate_issues:              # 块尾: 挂起的不可见板照原样成板
+                        asm.set_block_art(stream.art_hint)
+                        asm.set_notes(stream.notes)
+                        _deliver(asm.finish())
             except Exception as e:
                 logger.warning("LLM 调用失败（第 %d 次）: %s", attempt, e)
                 feedback(messages, f"LLM 调用失败: {e}\n请重试。")
@@ -709,6 +856,21 @@ class BondStoryEngine:
                     "stage=switch, 收尾用 stage=end, 纪念用 stage=memorial。",
                 )
                 continue
+            if mode is DeliveryMode.STREAM and gate_issues:
+                # 板级闸（DeliveryMode.STREAM）: 首板形状违规 → 本 attempt **一块都没交付**,
+                # 打回重发整轮——板没上屏, 所以拦得住（与批式的"硬违规打回"同语义）。
+                self._trace.append({
+                    "attempt": attempt, "action": "record_stream/board_gate",
+                    "delivery_mode": mode.value,
+                    "parse_valid": False, "parse_errors": list(gate_issues),
+                })
+                feedback(
+                    messages,
+                    "板级校验失败: " + "; ".join(gate_issues),
+                    "请按「本轮输出契约」重发整轮记录: end 必须放最后一条; "
+                    "每轮至多一条 memorial, 且它之后不要再换场（switch）。",
+                )
+                continue
             if delivered:
                 # 流式已交付（on_board 给过板）: **不再重复解析/交付**——校验只做记账。
                 # 注: 流式下"硬违规"无法回滚（板已在玩家屏上）, 故只 trace/日志,
@@ -716,6 +878,7 @@ class BondStoryEngine:
                 issues = check_block(tuple(stream.records))
                 self._trace.append({
                     "attempt": attempt, "action": "record_stream/streamed",
+                    "delivery_mode": mode.value,
                     "records": len(stream.records), "boards": len(delivered),
                     "parse_valid": bool(stream.records),
                     "issues": issues, "notes": list(stream.notes),
@@ -841,15 +1004,6 @@ class BondStoryEngine:
             for r in records
         )
 
-    def _scene_from_records(self, records: tuple, stream: "BlockStreamParser") -> BondScene:
-        """流式板块 → BondScene（与批式 `_build_record_boards` 同语义）。
-
-        群的判定: 板内所有 sensei 记录即本板候选（切板规则保证群在板尾）。
-        """
-        records = self._demote_repeat_memorial(records)
-        group = tuple(i for i, r in enumerate(records) if r.is_sensei)
-        return BondScene.from_board(records, group, notes=list(stream.notes))
-
     def _main_aliases(self) -> list[str]:
         """主角别名表（显示名 + 构造期注入的额外名字）——别名归一与 emo 标注
         "谁是自己"判定**同一份**（`contract.is_main_speaker`, 记录流 v2）。"""
@@ -885,6 +1039,7 @@ class BondStoryEngine:
         self._trace.append({
             "attempt": attempt,
             "action": "record_stream",
+            "delivery_mode": DeliveryMode.BLOCK.value,
             "records": len(block.records),
             "parse_valid": bool(block.records) and not hard,
             "parse_errors": list(hard),
@@ -908,43 +1063,14 @@ class BondStoryEngine:
             logger.warning("[vn][records] 声明了 art 但本回合没有 memorial（降级: 不发图）")
 
         # `art` 是**块级声明**（本轮画面意向）——不参与板切分（否则会切出一个纯声明
-        # 的空板）; 挂在含纪念的那一板上（无纪念则挂首板, 信息不丢）
+        # 的空板）。装配统一走 `_BoardAssembler`（节点 2′: 与流式**同一套语义**,
+        # 差异清单见 tests/core/test_pipeline_parity.py）
         flow = tuple(r for r in block.records if r.stage != STAGE_ART)
-        flow = self._demote_repeat_memorial(flow)     # 章内第二次纪念 → 静默降级
-        spans = _board_spans(flow)
-        if len(spans) > MAX_BOARDS_PER_TURN:
-            logger.warning("[vn][records] 本回合派生 %d 板 → 只发前 %d（其余丢弃）",
-                           len(spans), MAX_BOARDS_PER_TURN)
-            spans = spans[:MAX_BOARDS_PER_TURN]
-        boards: list[BondScene] = []
-        spare: tuple = ()                        # 不可见板（纯 switch）→ 记录并入下一板
-        for start, end, group in spans:
-            slice_ = flow[start:end]
-            group_local = tuple(i - start for i in group)
-            if spare:                            # 真源不丢: 空板的记录挂在下一板里
-                group_local = tuple(i + len(spare) for i in group_local)
-                slice_ = spare + slice_
-                spare = ()
-            scene = BondScene.from_board(slice_, group_local, notes=list(block.notes))
-            # 无可显示内容 → 并入下一板真源; 但**含 end/exit 的板必须保留**
-            #（"老师一句 → 空镜 → end 留空"这类收尾组合: 段落为空也要让玩家走到黑屏）
-            if not scene.paragraphs and not scene.choices and not scene.is_end:
-                spare = slice_
-                continue
-            boards.append(scene)
-        if spare:                                # 结尾只剩不可见记录 → 并入末板真源
-            if boards:
-                scene = boards[-1]
-                scene.records = [r.to_dict() for r in spare] + scene.records
-            else:
-                boards.append(BondScene.from_board(spare, (), notes=list(block.notes)))
-        if block_art:                            # 画面意向挂到含纪念的板（否则首板）
-            target = next((s for s in boards if s.memorial), boards[0])
-            target.art_hint = block_art
-        if any(scene.memorial for scene in boards):
-            self._memorial_used = True           # 章内 ≤1（区间 = 本板, 拍板 17: 降级为普通 VN）
-            logger.info("[vn][records] 本回合含纪念触发（区间 = 本板; v2 不切模式）")
-        return boards, []
+        asm = _BoardAssembler(self, block_art=block_art, notes=block.notes)
+        for start, end, _grp in _board_spans(flow):
+            asm.push(flow[start:end])
+        asm.finish()                                  # 块尾: 挂起的不可见板成板
+        return asm.boards, []
 
     def _finish_scene(self, scene: "BondScene", user_input: str, *,
                       payload: dict | None = None, fallback_text: str = "",

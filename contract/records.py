@@ -380,6 +380,53 @@ def check_block(records: Iterable[VnRecord]) -> list[str]:
     return issues
 
 
+def check_board(records: Iterable[VnRecord]) -> list[str]:
+    """**板级**校验（节点 2′, 2026-09-21）——只收**单板记录**就能判的规则。
+
+    ## 为什么需要单独一条通道
+
+    `check_block` 是**块级**（一次 LLM 调用的全部输出）。流式交付下板是逐块闭合、
+    边到边发给玩家的, 块级校验只能在整块收完后才跑——那时板**已经在玩家屏上**,
+    打回重发等于"同一段戏讲两遍"（LLM 不复现原文, 见 `docs/DESIGN_RESEND.md` §3）。
+    所以能在**交付前**判的规则必须单独成一条通道。
+
+    ## 单板可判（⇒ 能在交付前拦）
+
+    · `stage:end`/`exit` 之后还有记录（必须块尾）
+    · 同板出现多条 `memorial`（每板至多 1 条）
+    · 板内 `memorial` 之后出现 `switch`（纪念区间内禁换场）
+
+    ## 单板**判不了**（留块级 `check_block`；流式下只能是 advisory）
+
+    · `art` 写了但整块没有 `memorial`（配对——`memorial` 可能在本块后段才出现）
+    · `memorial` 与 `end` 同轮（跨板语义）
+    · 空块 / 块首不是 `switch` / `art` 不在块首（需要整块视角）
+
+    ⚠️ 本函数的问题串**不**经 `bond_story.split_board_issues` 的中文子串分级
+    （板级闸按"非空即拦"处理）, 所以不受 `HARD_BLOCK_ISSUE_MARKS` 约束。
+    """
+    recs = tuple(records)
+    issues: list[str] = []
+    if not recs:
+        return issues
+    n = len(recs)
+    # ① end/exit 之后不得再有记录（= 块尾规则的单板版）
+    for i, rec in enumerate(recs):
+        if rec.stage in STAGE_BLOCK_TAIL and i != n - 1:
+            issues.append(f"{rec.value} 必须块尾（板内第 {i + 1}/{n} 条）")
+    # ② 每板至多 1 条 memorial
+    n_mem = sum(1 for r in recs if r.stage == STAGE_MEMORIAL)
+    if n_mem > 1:
+        issues.append(f"同板出现 {n_mem} 条 memorial（每板至多 1）")
+    # ③ 板内 memorial 之后禁 switch/art（纪念区间内禁换场）
+    mem_at = next((i for i, r in enumerate(recs) if r.stage == STAGE_MEMORIAL), None)
+    if mem_at is not None:
+        for i in range(mem_at + 1, n):
+            if recs[i].stage in STAGE_FORBIDDEN_IN_MEMORIAL:
+                issues.append(f"纪念区间内出现 {recs[i].stage}（板内第 {i + 1} 条）")
+    return issues
+
+
 # ---------------------------------------------------------------------------
 # 块载体（P0-4）：记录数组 + 群 + 位置元数据 + 两种出口（落库 dict / 渲染文本）
 # ---------------------------------------------------------------------------
