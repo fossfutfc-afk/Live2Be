@@ -591,6 +591,12 @@ CLI/测试同步路径在引擎内串行。
 - 全量审计（分级 + 未决项台账）：docs/AUDIT_2026-09-13_FULL.md
 - 上下文窗口（120 单元语义）：docs/DESIGN_CONTEXT_WINDOW.md
 - 体感延迟工程：docs/EXEC_BOND_LATENCY.md
+- **单一记录流流水线（c′）执行计划**：docs/EXEC_PIPELINE_UNIFY.md（**计划稿, 未动代码**。
+  Decision 0 = c′（用户 2026-09-21）: 一份 `records → boards` 派生 + **板级闸** + 显式
+  交付模式; 节点 0–6, 每节点一提交。来源 = ARCH_REVIEW P0-2 的根治）
+- **重新生成 / 重发 的语义与固化线**：docs/DESIGN_RESEND.md（**设计稿, 未动代码**。
+  决策: MMT 提交边界 = **回合提交**; 两区 = 水位之上**丢弃** / 水位之下走
+  `wiki_v2/revise` **更正**; 含 `vn_abandon` 族退休方案——存量真源 0 条, 读路径空转）
 - 记忆体系总设计：根级 DESIGN_BRAIN.md（混合史, 慎读）；视觉协议：core/DESIGN_VISUAL_PROTOCOL.md
 - 模块级设计：core/DESIGN_{MMT_CHAT,GUI,SEGMENT,WORLD,MULTI_CHAR}.md（BOND_STORY 已归档）
   与 docs/archive/DESIGN_BOND_STORY.md（旧 VN 运行时）
