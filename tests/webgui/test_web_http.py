@@ -86,6 +86,20 @@ class ScriptedLLM:
         msgs.append({"role": "user", "content": user_message})
         return msgs
 
+    def chat_full(self, messages, temperature=0.8, max_tokens=4096,
+                  response_format="text", on_chunk=None, **kw):
+        """流式等价（**生产路径**）——节点 5（2026-09-21）: 按行喂 `on_chunk`,
+        板一闭合即交付（与真机 `LLMClient.chat_full` 同语义）。
+
+        此前本桩没有它 ⇒ A 层 HTTP 测试全走批式, 与真机不是同一条流水线。
+        """
+        out = self.chat(messages, temperature=temperature, max_tokens=max_tokens,
+                        response_format=response_format, **kw)
+        if on_chunk is not None and isinstance(out, str):
+            for line in out.splitlines(keepends=True):
+                on_chunk(line)
+        return out
+
 
 # ---------------------------------------------------------------------------
 # HTTP 夹具（ASGI 直连, 不开端口）
