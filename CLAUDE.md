@@ -70,7 +70,8 @@ core/          引擎层（无 web 依赖, CLI/实验同源复用）
 contract/       契约地基: ActionSpec/Registry/parse/schema（LLM 可见 schema 与运行时校验同源）
 llm/            client(超时/流式/usage 日志) · task_levels(档位真源) · prompts/文案仓库
 config/         人设六文件(REQ~/SIG~) · settings/world(overview.yml) · settings/relation
-data/           运行时数据(gitignore): worlds/*/characters/*/{events.jsonl,soul/,progress.json…}
+data/           运行时数据(gitignore): worlds/*/characters/*/{progress.json…} +
+                **soul/**（记忆层: events.jsonl + wiki.jsonl + wiki.meta.json + 变更史）
 tests/ core/ webgui/ llm/ 分别对应域; experiments/ 真 API 基准与探索脚本
 ```
 
@@ -202,8 +203,11 @@ v1 的 `MemorialProbe`/`memorial_exit` 动作已退役。**图是异步的 → �
 
 ## 5. 事件流与恢复语义（事实主线）
 
-- **存储**：`data/worlds/{world}/characters/{char}/events.jsonl`（每角色一条世界线,
-  session_id 来自 meta.json；append-only, 事件不可改删——**废弃段用 marker 遮断**）。
+- **存储**：`data/worlds/{world}/characters/{char}/**soul**/events.jsonl`
+  （每角色一条世界线, session_id 来自 meta.json；append-only, 事件不可改删——
+  **废弃段用 marker 遮断**）。⚠️ **路径在 `soul/` 下**（2026-09-04 拍板"记忆层自包含":
+  events 原材料 + wiki 成品 + meta 同居）——真源 `core/session/store.py:112`；
+  旧文档写的 `characters/{char}/events.jsonl` **是错的**（2026-09-20 更正）。
 - **事件**：`{type, subtype, payload}`。type: mmt / bond / l2d / affection；marker 是
   is_marker 的状态行（session_start/end、vn_enter/vn_exit、vn_abandon、vn_state、
   memorial_enter/exit、**memorial_image**＝纪念图异步落盘回执 {url,prompt,w,h}）。
@@ -272,6 +276,8 @@ v1 的 `MemorialProbe`/`memorial_exit` 动作已退役。**图是异步的 → �
   （正文就是这一章的总结，`title` 用 `chapter_title`；**边界是引擎已知的**，不需要 LLM 猜），
   **MMT 那种一次覆盖多轮的碎聊 = 0~5 条**（需要切分的是它）。段类型由
   `digest._segment_domain` 从 marker **派生**（不落库，与 `session/chapters.py` 认章同一套）；
+  ⚠️ **窗口是混的**（真档实测 haruka = 13 条聊天 + 5 块剧情，mutsuki = 26 + 13）——
+  "一章一条"**只收口属于这一章**的条目（`event_seq` 与 bond 块相交），聊天那些照 0~5 条留着；
   提示词没压住时 `_collapse_bond_episodes` 留 `significance` 最高的那条 +
   打一行 `digest_a contract=bond` 告警（可 grep）。用户原话：
   *"离散的是 mmt，但 bond story 不应该连续吗"*。

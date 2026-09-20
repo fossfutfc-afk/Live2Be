@@ -386,10 +386,29 @@ Live2Be 现状是 `narration + verbatim + tags` **平铺**（`recall.py:_embed_t
 **落地**（引擎侧, 零新字段、零新旋钮）：
 
 ```
-digest._segment_domain(new_all)  →  ("bond"|"mmt", chapter_title)   # 从 marker 派生, 不落库
+digest._segment_domain(new_all)  →  ("bond"|"mmt", chapter_title, bond_seqs)   # 从 marker/事件类型派生, 不落库
 contract._DOMAIN_CONTRACT[domain] → 进 Round A 的 {{digest_schema}} 产出契约
-digest._collapse_bond_episodes()  → 提示词没压住时留 sig 最高那条 + 一行 WARNING
+digest._collapse_bond_episodes(entries, domain, bond_seqs)                     # 确定性收口 + 一行 WARNING
 ```
+
+#### ⚠️ 落地时撞上的坑: **窗口是"混的"**（2026-09-20 清点真档）
+
+第一版按"窗口里有 `vn_enter` ⇒ 整段按 bond 契约（恰好 1 条）"写 —— **错的**。
+真档实测（`data/worlds/world1/characters/*/soul/events.jsonl`）：
+
+| 角色 | 窗口内容 | 水位 |
+|---|---|---|
+| haruka | **13 条 MMT 聊天 + 5 块羁绊剧情** | `digested_seq=30` |
+| mutsuki | **26 条聊天 + 13 块剧情** | `digested_seq=60` |
+
+一次 digest 覆盖的是"上次水位之后的全部"——玩家先聊 26 轮再触发羁绊剧情是**常态**,
+所以聊天与剧情**同处一个窗口**。haruka 那 4 条旧 episode 正好一半来自聊天
+（m0001 "老师发来消息…"、m0004 "之后我又在消息里向老师道谢"）一半来自剧情。
+
+⇒ 正确口径: **"一章一条"只收口属于这一章的那些条目** —— 判据 = 条目的 `event_seq`
+与 `bond_seqs`（窗口内 `type == "bond"` 的块号）相交; 聊天那些**不是这一章**,
+照 `mmt` 规则 0~5 条留着。提示词侧也照这个写（bond 契约块里显式说明"本段可能同时含
+MomoTalk 聊天"）。有两条用例钉着（收口 / 聊天原子不被压掉）。
 
 **为什么派生而不落库**: 边界（`vn_enter`/`vn_exit`）本来就在真源里, 段类型是它的纯函数;
 落库 = 第二个真源。与 `chapters.py` 认章**同一套**。

@@ -826,14 +826,20 @@ def test_dedupe_on_rerun(tmp_path):
 #           *"episode 应该 informative but single，belief 则是 brief but descriptive"*
 # ---------------------------------------------------------------------------
 
-def _bond_span(seq_in=3, seq_out=5, title="错误的地点"):
+def _bond_span(seq_in=3, seq_out=6, title="错误的地点", bond_seq=None):
     """一个 **bond 段**（一章）: 两条 marker 夹一段内容 —— 边界在真源里, 引擎不用猜。
 
     ⚠️ 名字不叫 `_bond` —— 文件上方已有一个 `_bond`（"一板"的球面事件构造器,
     情绪标尺那组用例在用）。**别撞名**: 撞了会静默覆盖, 表现为别处的用例莫名报错。
+
+    ⚠️ 里面**同时放了一条 MMT 聊天**（真档的窗口就是混的: haruka 13 聊天 + 5 剧情）——
+    "一章一条"只该管**这一章**的条目, 聊天那些要按 0~5 条留着。
     """
+    bs = seq_in + 2 if bond_seq is None else bond_seq
     return [("marker", "vn_enter", {"chapter_title": title}, seq_in),
             _mmt(seq_in + 1, "老师", "……"),
+            ("bond", "story_scene",
+             {"paragraphs": [{"text": "第1条", "emotion": "smile"}]}, bs),
             ("marker", "vn_exit", {"completed": True}, seq_out)]
 
 
@@ -848,7 +854,7 @@ def test_bond_segment_asks_for_exactly_one_episode(tmp_path):
     res = digest_segment(st, llm, _events(*_bond_span()))
     assert res.ok, res.errors
     a = _prompt(llm, 0)
-    assert "恰好输出 1 条" in a, a[:400]
+    assert "恰好 1 条" in a, a[:400]
     assert "作者单位" in a
     assert "informative but single" in a
     assert "本章标题" in a and "错误的地点" in a        # 标题进了 user 段
@@ -886,15 +892,20 @@ def test_bond_extra_episodes_collapse_to_one(tmp_path, caplog):
 
     为什么丢弃而不是合并文本: 合并是创作（要 LLM）, 引擎只做判定; 而"一章一条"
     的前提本来就是**那条总结该覆盖全章**。
+
+    ⚠️ 三条都**声明自己属于这一章**（`event_seq` 与 bond 块相交）才会被收口 ——
+    见下一条用例: 聊天那些不属于这一章, 不能被一起压掉。
     """
     st = _seed_store(tmp_path)
     three = {"episodes": [
         {"narration": "她照常去破房子照料杂草, 抬头发现老师站在那儿",
-         "title": "去破房子照料杂草", "tags": ["杂草"], "significance": 0.6},
+         "title": "去破房子照料杂草", "tags": ["杂草"], "significance": 0.6,
+         "event_seq": ["5"]},
         {"narration": "老师说这里就是只属于我和他的秘密场所",
-         "title": "只属于两人的秘密场所", "tags": ["约定"], "significance": 0.9},
+         "title": "只属于两人的秘密场所", "tags": ["约定"], "significance": 0.9,
+         "event_seq": ["5"]},
         {"narration": "她又道歉了一次", "title": "她又道歉了一次",
-         "tags": ["道歉"], "significance": 0.4}]}
+         "tags": ["道歉"], "significance": 0.4, "event_seq": ["5"]}]}
     llm = FakeLLM(three, _b_ok())
     with caplog.at_level("WARNING"):
         res = digest_segment(st, llm, _events(*_bond_span()))
@@ -905,3 +916,31 @@ def test_bond_extra_episodes_collapse_to_one(tmp_path, caplog):
     msgs = [r.getMessage() for r in caplog.records]
     assert any("contract=bond" in m for m in msgs), msgs
     print("    bond: 3 条 → 1 条（留 sig 最高）+ 告警可 grep ✓")
+
+
+def test_bond_window_keeps_mmt_atoms(tmp_path):
+    """★★ **窗口是混的**（真档实测: haruka 13 条聊天 + 5 块剧情, mutsuki 26 + 13）:
+    "一章一条"只收口**属于这一章**的条目 —— 聊天那些按 0~5 条留着。
+
+    第一版按"窗口里有 `vn_enter` ⇒ 整段 bond"写, 会把聊天里的记忆一起压成 1 条。
+    """
+    st = _seed_store(tmp_path)
+    mixed = {"episodes": [
+        # ① 聊天条目: event_seq 指向 seq 4（那条 mmt）, 不在本章的 bond 块里
+        {"narration": "老师约我明天去喂猫", "title": "老师约我明天去喂猫",
+         "tags": ["约定"], "significance": 0.8, "event_seq": ["4"]},
+        # ② 本章: 两条都指向 bond 块 5 → 收口成 1
+        {"narration": "她在破房子遇到老师", "title": "在破房子遇到老师",
+         "tags": ["杂草"], "significance": 0.7, "event_seq": ["5"]},
+        {"narration": "老师说这里是秘密场所", "title": "只属于两人的秘密场所",
+         "tags": ["约定"], "significance": 0.9, "event_seq": ["5"]}]}
+    b = _b_ok()
+    b["decisions"].append({"episode": "m0004", "decision": "add",
+                           "kind": "experience", "subject": "sensei",
+                           "pattern": "老师会约我喂猫", "example": "「明天带猫粮」"})
+    llm = FakeLLM(mixed, b)
+    res = digest_segment(st, llm, _events(*_bond_span()))
+    assert res.ok, res.errors
+    titles = sorted(st.get(i).title for i in res.created)
+    assert titles == ["只属于两人的秘密场所", "老师约我明天去喂猫"], titles
+    print(f"    bond 窗口: 聊天原子留着 + 本章收口成 1 条 → {titles} ✓")
