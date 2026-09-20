@@ -171,7 +171,7 @@
 | A10 | 夹具重生成 + 断言守配对：`test_build_record_schema_covers_all_values` 断言三处都说到配对、且 `exit` **不在**注入文本里 | `tests/fixtures/promptkit/*.txt`、`tests/core/test_records.py` |
 | A11 | **`check_block` 新增两条软问题**（只记录/打日志，**绝不打回**）：① 有 memorial 却没 art（配对缺失）② memorial 与 end 同轮。同时在 `check_block` docstring 写明**软硬由标记串判**、加新问题串时不能撞 `HARD_BLOCK_ISSUE_MARKS`；`split_board_issues` 的日志措辞从"已切群处理"改成"不阻断"（它现在不只管群长） | `contract/records.py::check_block`、`core/bond/bond_story.py` |
 
-### 节点 B — 记录级进入
+### 节点 B — 记录级进入　✅ **已落地 2026-09-20**
 
 | # | 改动 | 位置 |
 |---|---|---|
@@ -181,6 +181,24 @@
 | B4 | `_memorial_no_visuals` 改**段级**：含 memorial 那一板**只对 memorial 之后的记录**跳过标注——否则前半段（立绘正常显示）**没有表情数据、表情恒默认**（新设计引入的静默退化） | `bond.py:1285-1300`、`_want_emo/_want_place` `:2446-2475` |
 | B5 | 用例：`memorial_at` 透传（引擎 + 回放）、段级标注门控；冒烟 `experiments/web_e2e/smoke.mjs` 的纪念步骤按新切换点改 | `tests/core/test_vn_records_engine.py`、`test_chapters.py`、`experiments/web_e2e/smoke.mjs` |
 | B6 | 文档句更正：`chapters.py:112` 写着"触发板 = 该 marker 之前**最后一条 bond 事件**（`_log_scene` 先写板、`_log_scene_meta` 紧跟着写 marker）"——**与实现不符**（`_trigger_board` 实际认"离 marker 最近且带纪念标记的板"，真机正是 marker(21) 在前、板(23) 在后）。**代码对、文档错** | `chapters.py:112` |
+
+**落地形态与验证**（比原计划多做了两处）：
+
+* `memorial_at` 由 `BondScene.from_board` 算出（触发记录在 `paragraphs` 里的下标），
+  经 `to_dict` 进事件流 ⇒ **回放自动拿到**（不用另存字段）；触发记录**没带 text**（空串）
+  → 退回 `0`（整板即窗口，老行为）。
+* **前端不是"板渲染时切"，而是把它做成"每段上屏时判一次"**：`bond.js` 里
+  `syncMemorial` 只**缓存**状态（`memorialSt`），真正的判定在 `applyMemorial()` ——
+  `memorialNow() = in_memorial && (at === null || typeSeg >= at)`，由 `writePara()`
+  每段调用（外加轮询兜底）。这样黑屏**精确落在那一句上**。
+* 冒烟新增**两半断言**（缺一即退化成板级）：逐段取样（`capturePara` 记每段的
+  `memorial`/`stageHidden`）→ 「触发记录**之前**那几条是正常视觉」**且**
+  「触发记录那一段进了纪念视觉」。实测输出:
+  `首段="（她抬起头，指尖还沾着粉笔灰…" 立绘隐藏=false 背景清空=false 纪念层=false`
+  → `段="（她抬起头，第一次直视我的眼…" 图=已淡入 立绘隐藏=true 普通背景清空=true`。
+* `test_memorial_board_skips_annotation_lane` 按新语义重写（三条判据：进入点在板中 →
+  **照常标注**；在板首/旧档无字段 → 跳过；窗口从上板延续 → 跳过）——原来那条
+  "整板跳过"的断言正是 M3 要推翻的。
 
 ### 节点 C — 可归因埋点（量 M1 的配对命中率）
 

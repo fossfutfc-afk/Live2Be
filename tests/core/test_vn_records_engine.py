@@ -18,7 +18,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-from core.bond.bond_story import BondStoryEngine, SceneLoopError  # noqa: E402
+from core.bond.bond_story import BondScene, BondStoryEngine, SceneLoopError  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 CHARACTER = "igusa_haruka"
@@ -252,12 +252,13 @@ def test_memorial_fires_image_hook_with_art_intent():
     # 无 art 声明 → 退化为触发句（同样是"她在做什么"的一句话, 保证画面里有主角）
     block2 = "\n".join([
         '{"stage": "switch", "text": "教室"}',
-        '{"character": "igusa_haruka", "text": "……老师。"}',
         '{"stage": "memorial", "text": "（她抬起头，第一次直视我的眼睛。）"}',
+        '{"character": "igusa_haruka", "text": "……老师。"}',
     ])
     got2: list[str] = []
     engine2 = _engine(ScriptedLLM(block2))
-    engine2.send_vn_scene("（开场）", annotate=False, on_memorial_prompt=got2.append)
+    scene2 = engine2.send_vn_scene("（开场）", annotate=False,
+                                   on_memorial_prompt=got2.append)
     assert got2 == ["（她抬起头，第一次直视我的眼睛。）"], got2
 
     # 没有 memorial 的普通块 → **不开画**（模型写了 art 却没兑现 → 不浪费调用）
@@ -270,6 +271,18 @@ def test_memorial_fires_image_hook_with_art_intent():
     engine3 = _engine(ScriptedLLM(block3))
     engine3.send_vn_scene("（开场）", annotate=False, on_memorial_prompt=got3.append)
     assert got3 == [], got3
+
+    # 记录级进入点（2026-09-20 M3）: `memorial_at` = 触发记录在 paragraphs 里的下标
+    # ——前端据此**播到那一句**才切黑屏（它之前那几条仍是正常视觉 + 正常背景）。
+    assert scene.memorial_at == 1, scene.to_dict()
+    assert ([p["text"] for p in scene.paragraphs][scene.memorial_at]
+            == "（她第一次直视我的眼睛。）")
+    # 触发记录紧跟开场 switch → 下标 0 = 整板即窗口
+    assert scene2.memorial_at == 0, scene2.to_dict()
+    # 入档案: to_dict → from_dict 往返保留; 旧档没这个字段 → None（前端退回板级）
+    assert BondScene.from_dict(scene.to_dict()).memorial_at == scene.memorial_at
+    assert BondScene.from_dict(
+        {"paragraphs": [{"text": "（她抬起头。）"}], "memorial": True}).memorial_at is None
 
     # 流式路径: 触发发生在**喂完其余输出之前**（生图与 LLM 剩余输出并行——
     # 真机生图 ~26s, 玩家读纪念正文即缓冲）

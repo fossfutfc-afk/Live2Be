@@ -109,7 +109,7 @@ def _memorial_boards(events: list) -> dict[int, dict]:
     | 要什么 | 怎么算 |
     |---|---|
     | **窗口** | `memorial_enter` … 其后第一条 `memorial_exit`/`vn_exit`/`session_end`。v2 的区间 = "到本块块尾", 引擎在**下一块解析成功**时补 exit ⇒ 事件流里就是这一对（★ 所以"块尾"不需要额外信息） |
-    | **触发板** | 该 `memorial_enter` 之前**最后一条 bond 事件**——`_log_scene` 先写板、`_log_scene_meta` 紧跟着写 marker, 所以那块板就是触发它的那一板 |
+    | **触发板** | 见下面 `_trigger_board`——**不是**"marker 之前最后一条 bond 事件"（那句话曾写在这里, 是错的: `_log_scene_meta` 在板**落地**时写 marker, 而 `_log_scene` 在玩家**裁决/推进/收尾**时才写板正文 ⇒ 真机形状是 **marker 在前、板在后**（seq 21 marker → seq 23 板）, 按那句话判会挂到上一板）。实现认"**离 marker 最近且带纪念标记的板**", 并同时兼容预热/草稿的两种落地顺序 |
     | **图归哪板** | 图 marker 认**最近的前置 `memorial_enter`**（图晚到 26s, 常常晚于本章 `vn_exit`——按 seq 区间判会错挂到下一章, 与章级 `_memorial_urls` 同一条纪律） |
 
     **v1 档 / 图先于板落盘**（没有前置 `memorial_enter`）→ 这里不管, 由

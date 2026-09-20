@@ -458,17 +458,46 @@ let lastSceneKey = "";
   // （进入瞬间普通背景清空 = 黑屏兜底, 无加载 UI——图就绪静默淡入）;
   // 退出（in_memorial False）→ 淡出纪念层 + **把普通背景还回来**。
   // memorial 期间立绘隐藏（设计定稿: 纪念 = 图 + 文字, 无 spine/emotion/fx）。
+  //
+  // ★ **记录级进入点**（2026-09-20, docs/DESIGN_MEMORIAL.md M3）: 黑屏必须从
+  //   `stage:memorial` **那一句**开始——那句 text 本身就是黑屏期里唯一的内容
+  //   （也是转场句）。板级切换会把触发记录**之前**的几条正常对话也吞进黑屏
+  //   （真机: 那 4 句本来是看着立绘、在杂草屋背景里说的）。
+  //   所以状态先缓存, 真正的判定看 `typeSeg`（当前播到第几段）:
+  //   `memorial_at` = 触发记录在 paragraphs 里的下标（引擎给, 见 BondScene）;
+  //   没有这个字段（旧档/普通板）→ 退回板级（整板即窗口, 老行为）。
+  let memorialSt = { on: false, img: "", at: null };
+
   function syncMemorial(st) {
+    if (st) {
+      memorialSt.on = !!st.in_memorial;
+      if (st.memorial_img !== undefined) memorialSt.img = st.memorial_img || "";
+      // 两个来源: 状态对象（scene 里嵌套）/ 场景 dict 本身
+      const raw = (st.scene && st.scene.memorial_at !== undefined)
+        ? st.scene.memorial_at : st.memorial_at;
+      memorialSt.at = (memorialSt.on && typeof raw === "number") ? raw : null;
+    }
+    applyMemorial();
+  }
+
+  // 现在这一刻该不该是纪念视觉（板在窗口里 + 已播到进入点那一段）
+  function memorialNow() {
+    if (!memorialSt.on) return false;
+    return memorialSt.at === null || typeSeg >= memorialSt.at;
+  }
+
+  function applyMemorial() {
     const layer = $("bond-memorial");
     if (!layer) return;
     const stage = $("bond-stage");
     const bg = $("bond-bg");
-    if (st.in_memorial && stage) stage.classList.add("hidden");   // 纪念无立绘
-    if (st.in_memorial) {
+    const on = memorialNow();
+    if (on && stage) stage.classList.add("hidden");   // 纪念无立绘
+    if (on) {
       if (bg) bg.style.backgroundImage = "";                    // 黑屏兜底
-      if (st.memorial_img && layer.dataset.src !== st.memorial_img) {
-        layer.dataset.src = st.memorial_img;
-        layer.style.backgroundImage = `url("${st.memorial_img}")`;
+      if (memorialSt.img && layer.dataset.src !== memorialSt.img) {
+        layer.dataset.src = memorialSt.img;
+        layer.style.backgroundImage = `url("${memorialSt.img}")`;
         layer.classList.add("on");                                // 静默淡入
       }
     } else if (layer.classList.contains("on")) {
@@ -486,6 +515,8 @@ let lastSceneKey = "";
       if (bg && !bg.style.backgroundImage && curScene && curScene.background_url) {
         bg.style.backgroundImage = `url("${curScene.background_url}")`;
       }
+    } else if (stage && !on) {
+      stage.classList.remove("hidden");            // 未进窗口 → 立绘照常显示
     }
   }
 
@@ -875,6 +906,7 @@ let lastSceneKey = "";
   }
 
   function writePara() {
+    applyMemorial();          // 记录级进入点: 播到 memorial 那一段才切黑屏（M3）
     const p = typeParas[typeSeg];
     if (!p) { return finishType(); }
     dbg("writePara seg", typeSeg, "emotion", p && (p.emotion || null),

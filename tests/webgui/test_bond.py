@@ -844,13 +844,23 @@ def test_bond_stream_first_board_visible_before_block_done(tmp_path):
 
 
 def test_memorial_board_skips_annotation_lane(tmp_path):
-    """纪念窗口（v2, 2026-09-12）: 立绘隐藏 + 普通背景清空 → emo/place 不占 lane,
-    门控**直接就绪**; 引擎 `in_memorial` 由"板含 memorial"置位。
+    """纪念窗口（v2, 2026-09-12; **2026-09-20 M3 改判据**）: 整板在纪念里 → emo/place
+    不占 lane, 门控**直接就绪**; 引擎 `in_memorial` 由"板含 memorial"置位。
 
     背景: v1 靠 `memorial_enter` 动作置 `_in_memorial`——记录流下那条路不存在,
     实测该标志永为 False, 于是纪念视觉整条链（隐藏立绘/黑屏/纪念图淡入）死掉,
     而 emo/place 标注却照跑（每次纪念白花 1~2 次调用 + 门控白等）。
+
+    ⚠️ **M3 之后"整板"不再等于"含 memorial 的板"**: 进入点是**记录级**
+    （`memorial_at` = 触发记录在 paragraphs 里的下标）——触发记录**之前**的那几条
+    是在正常视觉下播的（立绘显示着、背景还在）, 所以它们**需要**表情键。
+    本用例钉住三条判据（缺一条就会退化成"立绘恒默认表情"）:
+      · 触发记录在板中（memorial_at>0）→ **照常标注**;
+      · 触发记录在板首（memorial_at==0 / 缺字段）→ 整板即窗口 → 跳过;
+      · 窗口从上一板延续（vn.in_memorial, 本板不含纪念）→ 跳过。
     """
+    from types import SimpleNamespace
+
     block = scene(switch_to="黄昏的坡道",
                   art_hint="她在坡道尽头回头，夕阳打在脸上",
                   lines=["老师，你看。"],
@@ -867,15 +877,18 @@ def test_memorial_board_skips_annotation_lane(tmp_path):
         # ① 纪念区间置位（v1 路径死后曾永为 False）+ 前端信号
         assert state.vn.in_memorial is True
         assert bond.bond_status(CHARACTER, sid)["in_memorial"] is True
-        # ② 无视觉键可标 → 判定"无需" + 门控直接就绪（不等标注）
-        assert bond._memorial_no_visuals(state, sc) is True
-        assert bond._scene_emotions_ready(state) is True
-        assert bond._scene_places_ready(state) is True
-        assert bond._scene_visual_ready(state) is True
-        # ③ 没真发调用: 段落保持无 emotion, emo 队列没被建/没货
-        assert all(not (p.get("emotion") or "") for p in sc.paragraphs)
-        assert state._anno_queue is None or state._anno_queue.empty()
-        print("    v2 纪念: in_memorial 置位 + 不占标注 lane（门控直接就绪）")
+        # ② **记录级进入点**: 触发记录之前还有一条正常对话 → 那一条要标
+        assert sc.memorial_at == 2, sc.to_dict()
+        assert bond._memorial_no_visuals(state, sc) is False
+        # ③ 进入点落在板首（或旧档没这个字段）→ 整板即窗口 → 无需标注 + 门控直接就绪
+        sc_head = SimpleNamespace(memorial=True, memorial_at=0)
+        assert bond._memorial_no_visuals(state, sc_head) is True
+        sc_legacy = SimpleNamespace(memorial=True, memorial_at=None)
+        assert bond._memorial_no_visuals(state, sc_legacy) is True
+        # ④ 窗口从上一板延续（本板不含纪念）→ 跳过
+        sc_next = SimpleNamespace(memorial=False, memorial_at=None)
+        assert bond._memorial_no_visuals(state, sc_next) is True
+        print("    v2 纪念: in_memorial 置位 + 记录级进入点决定是否跳过标注")
     finally:
         _cleanup()
 

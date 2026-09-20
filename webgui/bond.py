@@ -1283,20 +1283,29 @@ def _ensure_memorial_img(state: BondState, char_id: str, session_id: str) -> Non
 
 
 def _memorial_no_visuals(state: "BondState", scene=None) -> bool:
-    """纪念窗口内**不渲染任何视觉键** → 标注无意义, 判定为"无需标注"。
+    """这一板**整板**都在纪念视觉里（立绘隐藏 + 普通背景清空）→ 标注无意义。
 
-    依据（前端定稿行为, `bond.js::syncMemorial`）: `in_memorial` 期间立绘整层隐藏 +
+    依据（前端定稿行为, `bond.js::applyMemorial`）: 纪念窗口期间立绘整层隐藏 +
     普通背景清空（黑屏兜底, 只有纪念图淡入）——所以 emo（表情）与 place（背景）
     标了也没人看。跳过它们 = 每次纪念省 1~2 次调用, 也免掉门控白等 ~1s
     （2026-09-12 用户核对纪念行为时确认: 立绘不工作, emo lane 本不该跑）。
 
-    窗口 = 本板含 memorial 触发（`scene.memorial`——首板那一刻引擎的 in_memorial
-    可能还没翻）**或**引擎已在纪念中（`vn.in_memorial`, 覆盖其后到 exit 的所有板）。
+    ⚠️⚠️ **2026-09-20（M3 记录级进入点）改判据**: 原来是
+    `scene.memorial or vn.in_memorial` = **整板**跳过。但进入点改成
+    "黑屏从 `stage:memorial` **那一句**开始"之后, **触发记录之前的那几条是在
+    正常视觉下播的**（立绘显示着、背景还在）——整板跳过会让它们**永远拿不到表情键、
+    立绘恒默认**, 是一条静默的画质退化。所以现在:
+
+    * 本板自己触发 → 只有进入点落在**板首**（`memorial_at` 为 0 / 缺字段）才整板无视觉;
+    * 窗口从**上一板**延续过来（`vn.in_memorial`）→ 整板都在窗口里, 照旧跳过。
+
+    注意判定**必须先看本板自己的 `memorial_at`**: `vn.in_memorial` 在纪念板落地时
+    就已经是 True 了（`_scene_landed` 先置位、再入标注队列）, 先看它会误判。
     """
     if state.demo is not None or state.vn is None:
         return False
     if bool(getattr(scene, "memorial", False)):
-        return True
+        return getattr(scene, "memorial_at", None) in (None, 0)
     return bool(getattr(state.vn, "in_memorial", False))
 
 

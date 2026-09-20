@@ -69,11 +69,26 @@ async function capturePara(page, seen) {
     if (!box) return null;
     const sp = box.querySelector(".bond-speaker");
     const para = box.querySelector(".bond-para");
-    return { speaker: sp ? sp.textContent.trim() : "", text: para ? para.textContent.trim() : "" };
+    // ★ 段级纪念态（2026-09-20 M3）: 记录**这一段上屏那一刻**的视觉——
+    //   记录级进入点要求"触发记录之前那几条是正常视觉"（立绘在、背景在），
+    //   只有事后逐段取样才断得出来（板读完再断已经晚了）。
+    const layer = document.getElementById("bond-memorial");
+    const stage = document.getElementById("bond-stage");
+    const bg = document.getElementById("bond-bg");
+    return {
+      speaker: sp ? sp.textContent.trim() : "",
+      text: para ? para.textContent.trim() : "",
+      memorial: !!(layer && layer.classList.contains("on")),
+      stageHidden: !!(stage && stage.classList.contains("hidden")),
+      bgCleared: !(bg && bg.style.backgroundImage),
+    };
   });
   if (!cur || !cur.text) return;
   const norm = (s) => s.replace(/\s+/g, " ").trim();
-  const now = { speaker: norm(cur.speaker), text: norm(cur.text) };
+  const now = {
+    speaker: norm(cur.speaker), text: norm(cur.text),
+    memorial: cur.memorial, stageHidden: cur.stageHidden, bgCleared: cur.bgCleared,
+  };
   const last = seen[seen.length - 1];
   if (!last || norm(last.text) !== now.text || last.speaker !== now.speaker) seen.push(now);
 }
@@ -275,31 +290,58 @@ async function main() {
   }
   if (choices.length < 1) throw new Error("首板没有选项（记录流板切分异常?）");
 
-  // ── 5.5 纪念链路（v2, 2026-09-12）: in_memorial → 立绘隐藏 + 背景清空 + 图淡入 ──
+  // ── 5.5 纪念链路（v2, 2026-09-12; **2026-09-20 M3 记录级进入点**）─────────────
   // 桩块在首板里放了 `stage:memorial`, 生图走替身（离线 1×1 PNG）——验证的是
   // **整条接线**: 引擎 art/memorial → 生图回调 → gallery URL → bond_status →
   // 前端纪念层。旧版这条线在 v2 是断的（v1 探针只认 action=memorial_enter）。
+  //
+  // ★ M3: 黑屏必须从 `stage:memorial` **那一句**开始（那句 text 就是黑屏期里唯一
+  //   的内容 + 转场句）。桩块里触发记录是首板的**第 2 段**（第 1 段是角色台词）⇒
+  //   ① 第 1 段时**不该**进纪念视觉（立绘在、背景在）; ② 点到第 2 段才切。
+  //   两半都要断言——只断 ② 会漏掉"板级切换"的回退（那正是这次要修的东西）。
   {
-    // 等图就绪（替身是毫秒级, 但状态要过一轮轮询）
+    const readMemorial = () => page.evaluate(() => {
+      const layer = document.getElementById("bond-memorial");
+      const stage = document.getElementById("bond-stage");
+      const bg = document.getElementById("bond-bg");
+      return {
+        layerOn: !!(layer && layer.classList.contains("on")),
+        layerImg: (layer && layer.style.backgroundImage) || "",
+        stageHidden: !!(stage && stage.classList.contains("hidden")),
+        bgCleared: !(bg && bg.style.backgroundImage),
+        para: ((document.querySelector("#bond-text .bond-para") || {}).textContent || "").trim(),
+      };
+    });
+
+    // ① 触发记录**之前**那几条是正常视觉（立绘在 + 背景在 + 纪念层没开）。
+    //    判据取自**逐段取样**的正文（`capturePara` 记的 `memorial`/`stageHidden`）——
+    //    板读完再断已经晚了: 那一刻本来就该在纪念里。
+    const first = board1[0] || {};
+    const trigger = board1[board1.length - 1] || {};
+    record("纪念链路·触发前", {
+      info: `首段="${(first.text || "").slice(0, 14)}" 立绘隐藏=${first.stageHidden} `
+        + `背景清空=${first.bgCleared} 纪念层=${first.memorial}`,
+      first, trigger,
+    });
+    if (first.memorial || first.stageHidden || first.bgCleared) {
+      throw new Error("触发记录之前就进了纪念视觉（M3 记录级进入点失效?）: "
+        + JSON.stringify(first));
+    }
+    if (!trigger.memorial || !trigger.stageHidden) {
+      throw new Error("触发记录那一段没进纪念视觉（记录级进入点没生效?）: "
+        + JSON.stringify(trigger));
+    }
+
+    // ② 现在正停在触发记录那一段 → 立绘隐藏 + 背景清空 + 图淡入（等替身图就绪）
     let memOk = null;
     for (let i = 0; i < 60; i++) {
-      memOk = await page.evaluate(() => {
-        const layer = document.getElementById("bond-memorial");
-        const stage = document.getElementById("bond-stage");
-        const bg = document.getElementById("bond-bg");
-        return {
-          layerOn: !!(layer && layer.classList.contains("on")),
-          layerImg: (layer && layer.style.backgroundImage) || "",
-          stageHidden: !!(stage && stage.classList.contains("hidden")),
-          bgCleared: !(bg && bg.style.backgroundImage),
-        };
-      });
+      memOk = await readMemorial();
       if (memOk.layerOn && memOk.layerImg) break;
       await new Promise((r) => setTimeout(r, 100));
     }
     record("纪念链路", {
-      info: `图=${memOk.layerImg ? "已淡入" : "未就绪"} 立绘隐藏=${memOk.stageHidden} `
-        + `普通背景清空=${memOk.bgCleared}`,
+      info: `段="${memOk.para.slice(0, 14)}" 图=${memOk.layerImg ? "已淡入" : "未就绪"} `
+        + `立绘隐藏=${memOk.stageHidden} 普通背景清空=${memOk.bgCleared}`,
       shot: await shot(page, "vn-memorial"),
       memorial: memOk,
     });
