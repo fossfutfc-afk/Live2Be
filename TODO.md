@@ -1685,6 +1685,22 @@ fineday/cloudy/rain/fog）⇒ 上面这些**进不了候选、也不会误用**,
         档位现状: 真档只有 D+A 出分（B/C 的字段是 09-15 / 09-19 才落, 真档是 09-11/12 的）。
         见 `docs/DESIGN_WIKI_V3.md §3.3.4`
       - 原文回捞（滑动窗口外的按需调页）仍未做
+- [x] **一章 = 一条 episode（2026-09-20 用户裁决）** —— 粒度跟着**作者单位**走:
+      `bond`（`vn_enter`…`vn_exit`, 引擎已知边界）= **1 条**（正文 = 这一章的总结,
+      `title` 用 `chapter_title`）; `mmt`（无作者单位的碎聊）= 0~5 条（**需要切分的是它**）。
+      用户原话: *"你细看这些 episode 像流水账一样，真正的 episode 一个就可以定下…
+      episode 应该 informative but single，belief 则是 brief but descriptive"* /
+      *"离散的是 mmt，但 bond story 不应该连续吗"*。
+      落地: `digest._segment_domain`（从 marker **派生**, 不落库）+
+      `contract._DOMAIN_CONTRACT`（进 Round A 的产出契约）+
+      `digest._collapse_bond_episodes`（提示词没压住 → 留 sig 最高那条 + 一行
+      `digest_a contract=bond` 告警）; 三条用例钉着; 全量 873 passed。
+      证据: 官方剧本第 1 条就是 `#title;…`（每章有总结）; AgentGal 是"闭合主题一条"
+      （它要 closure detector 是因为它**没有**结构断点）; A-Mem 是原子 note 但靠
+      context + evolution 保连贯。实测（`experiments/ba_corpus/ba_recall_probe.py`）:
+      原子 11/26 / 带标签原子 8/26 / 章拼接 10/26 ⇒ **粒度对检索无可测影响**。
+      ⚠️ **仍未做**: 五章语料重跑 digest 验收（要真 API）+ 注入按 `segment_id` 分组
+      （连贯性/膨胀的另一半）。见 `docs/DESIGN_WIKI_V3.md §2.3.1′`
 - [ ] Virtual Brain 完整（Semantic Graph / Self-Model / Sleep 五阶段——当前 digest
       体系是其简化版; CLAUDE.md §3.2）
 - [ ] 官方剧情（剧本解析器 + 播放器）
