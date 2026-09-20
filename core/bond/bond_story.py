@@ -204,6 +204,12 @@ class BondScene:
     #: **不进 LLM 上下文**。
     place_asset: str | None = None
     memorial: bool = False
+    #: **记录级进入点**（2026-09-20, docs/DESIGN_MEMORIAL.md M3）: `stage:memorial`
+    #: 那条记录在 **`paragraphs` 里的下标**——前端据此在"播到那一段时"才切黑屏
+    #: （隐藏立绘 + 清空普通背景 + 图淡入）。语义见 `syncMemorial`:
+    #: **这句 text 本身就是黑屏期里唯一的内容**，所以黑屏必须从它开始。
+    #: None = 没有纪念记录（旧档/普通板）→ 前端按板级处理（整板即窗口）。
+    memorial_at: int | None = None
     art_hint: str = ""
     #: 已裁决的选项原文（决策 #37）: 只作**展示标记**——回放/续看时前端据此把选项组
     #: 画出来（锁定 + 高亮所选）; 绝不进 paragraphs（玩家的话语只体现为选项）。
@@ -232,21 +238,31 @@ class BondScene:
         - `records` = **真源**（含全部记录, 落库/回放用）。
         """
         paras: list[dict] = []
+        memorial_at: int | None = None
         for i, rec in enumerate(records):
             if i in group:
                 continue
             if rec.is_stage and rec.stage in (STAGE_SWITCH, STAGE_ART, STAGE_EXIT):
                 continue
             if rec.text:
+                if rec.is_stage and rec.stage == STAGE_MEMORIAL:
+                    # 记录级进入点（2026-09-20）: 记住它落在 paragraphs 的第几段
+                    memorial_at = len(paras)
                 item: dict = {"text": rec.text}
                 if not rec.is_stage:
                     item["speaker"] = rec.value        # 最小说话人形态（UI 样式留 P0-7）
                 paras.append(item)
+        is_memorial = any(r.stage == STAGE_MEMORIAL for r in records)
+        if is_memorial and memorial_at is None:
+            # 触发记录没带 text（空串）⇒ 屏上没有属于它的那一句 → 退回板级
+            # （整板即窗口, 与 2026-09-20 之前的行为一致; 宁缺勿错）
+            memorial_at = 0
         scene = cls(
             paragraphs=paras,
             choices=[records[i].text for i in group],
             is_end=any(r.stage in (STAGE_END, STAGE_EXIT) for r in records),
-            memorial=any(r.stage == STAGE_MEMORIAL for r in records),
+            memorial=is_memorial,
+            memorial_at=memorial_at,
             place_hint=(records[0].text if records and records[0].stage == STAGE_SWITCH
                         else None),
             records=[r.to_dict() for r in records],
@@ -274,6 +290,8 @@ class BondScene:
             d["place_hint"] = self.place_hint
         if self.memorial:
             d["memorial"] = True
+        if self.memorial_at is not None:
+            d["memorial_at"] = int(self.memorial_at)
         if self.art_hint:
             d["art_hint"] = self.art_hint
         if self.picked:
@@ -378,6 +396,9 @@ class BondScene:
             place_asset=(place_asset.strip()
                          if isinstance(place_asset, str) and place_asset.strip() else None),
             memorial=bool(raw.get("memorial", False)),
+            memorial_at=(raw.get("memorial_at")
+                         if isinstance(raw.get("memorial_at"), int)
+                         and raw.get("memorial_at") >= 0 else None),
             art_hint=art_hint if isinstance(art_hint, str) else "",
             picked=picked,
         )
