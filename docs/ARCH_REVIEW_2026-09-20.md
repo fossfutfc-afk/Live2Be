@@ -5,6 +5,8 @@
 > （`bond_actions`/`bond_executor`/`memorial_actions`/`sentence_splitter`/`stream_probe`
 > + `BondScene.from_action` + webgui 的 8 处 `memorial_exit` 恒假分支）与旧版记忆三件套
 > 已删除; 其余逐条处置（A/B 打 `# EXT:` 保留、C/D/E 删除）见 `docs/EXTENSION_POINTS.md`。
+> **P0-3（严重度靠中文串判）也已解决**（节点 6, 见该条的状态行）。
+> 单流水线收敛（P0-1 的根治方向 c′）进度见 `docs/EXEC_PIPELINE_UNIFY.md`。
 > **来源**：2026-09-20 那次纪念链路改动（docs/DESIGN_MEMORIAL.md 节点 A–D）
 > 亲历的摩擦——每一条都有这次的具体证据，不是泛泛而谈。
 > **怎么用**：新开一个对话解决时，把本文丢给它；下面的"方向"是**候选**，不是结论。
@@ -84,6 +86,13 @@ tests/     分域（core/webgui/llm/renderer）+ experiments/ 真 API 探针
 并加测试：「注入文本里不得出现解析层遗留常量」「恒假字段没有活分支（否则删字段）」。
 
 ### P0-3 契约的"严重度"语义放错了层
+
+> **已解决（2026-09-21, `docs/EXEC_PIPELINE_UNIFY.md` 节点 6）**：`contract/records.py`
+> 现在返回结构化 `Issue(code, message)`，严重度 = `ISSUE_SEVERITY[code]` 的显式声明；
+> `split_issues` 只读 `Issue.severity`，`HARD_BLOCK_ISSUE_MARKS` 已删。守门用例
+> `tests/core/test_records.py::test_issue_severity_is_declared_by_code_not_message`
+> 钉住三件事：文案塞满硬关键词也不改分级 / 每个 `IssueCode` 必须声明严重度 /
+> 源码里不许复活子串分级。
 
 **证据**：`check_block` 在 `contract/records.py` 产出**中文问题串**，而"硬/软"
 由 `core/bond/bond_story.py::split_board_issues` 按**字符串匹配**

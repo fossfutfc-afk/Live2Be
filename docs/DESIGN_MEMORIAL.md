@@ -169,7 +169,7 @@
 | A8 | §六 补 M6 软建议（原始措辞：*"建议不直接在 memo 结束，除非你真的认为这很有意境"*） | `bond_story_rules.md` §六 + `bond_shots.md`（收法 ④ 同步标注为"例外，不是默认"） |
 | A9 | 范本加长：纪念正文从 **1 条**补到 **4 条**，并点明"纪念那一轮 / 收尾那一轮"是**两轮** | `bond_shots.md` 范本 |
 | A10 | 夹具重生成 + 断言守配对：`test_build_record_schema_covers_all_values` 断言三处都说到配对、且 `exit` **不在**注入文本里 | `tests/fixtures/promptkit/*.txt`、`tests/core/test_records.py` |
-| A11 | **`check_block` 新增两条软问题**（只记录/打日志，**绝不打回**）：① 有 memorial 却没 art（配对缺失）② memorial 与 end 同轮。同时在 `check_block` docstring 写明**软硬由标记串判**、加新问题串时不能撞 `HARD_BLOCK_ISSUE_MARKS`；`split_board_issues` 的日志措辞从"已切群处理"改成"不阻断"（它现在不只管群长） | `contract/records.py::check_block`、`core/bond/bond_story.py` |
+| A11 | **`check_block` 新增两条软问题**（只记录/打日志，**绝不打回**）：① 有 memorial 却没 art（配对缺失）② memorial 与 end 同轮。~~同时在 `check_block` docstring 写明**软硬由标记串判**、加新问题串时不能撞 `HARD_BLOCK_ISSUE_MARKS`~~（⚠️ **2026-09-21 节点 6 已改**：软硬改成 `IssueCode → ISSUE_SEVERITY` 的**显式声明**，`HARD_BLOCK_ISSUE_MARKS` 与 `split_board_issues` 已删——A11 当时正是被那条子串规则逼着人肉避让 `条 memorial`/`条 art`）；`split_board_issues` 的日志措辞从"已切群处理"改成"不阻断"（它现在不只管群长） | `contract/records.py::check_block`、`core/bond/bond_story.py` |
 
 ### 节点 B — 记录级进入　✅ **已落地 2026-09-20**
 

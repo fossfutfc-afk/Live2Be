@@ -506,17 +506,27 @@ CLI/测试同步路径在引擎内串行。
   下 basetemp 需预建目录**（New-Item -ItemType Directory .testtmp/pw）, 否则 tmp 用例
   全挂；默认 tmp 清理有权限错。JS：`node --check webgui/static/js/*.js`。
 - 夹具：promptkit 基线夹具 tests/fixtures/promptkit/*.txt 刷新纪律见 §8。
-- **契约问题的软硬分级（改 `check_block` 前必读）**：`bond_story.split_board_issues`
-  按**标记串**（`HARD_BLOCK_ISSUE_MARKS`）判——命中即**硬**（引擎打回重发整轮），
-  否则一律**软**（只打日志/进 trace）。⇒ 加新问题串时**必须**确认它不含
-  "空块/必须块尾/必须块首/首条不是 switch/纪念区间内/条 memorial/条 art"，
-  否则一个笔误就把软问题变成"整轮重发"。现有软问题：超长 sensei 群（切群处理）、
-  **含 memorial 但没有 art**、**memorial 与 end 同轮**（后两条 2026-09-20 加,
-  是"art 配对命中率"的统计口径）。
+- **契约问题的软硬分级（改 `check_block` 前必读）**：`contract/records.py` 返回结构化
+  **`Issue(code, message)`**；**严重度只跟 `code` 走**（`ISSUE_SEVERITY: IssueCode →
+  IssueSeverity` 的显式声明），跟 `message` 中文文案**毫无关系**。
+  · **硬**（`打回重发整轮`）：`block.empty` · `block.tail` · `block.head` ·
+  `block.head-not-switch` · `block.memorial-repeat` · `block.memorial-forbidden-stage` ·
+  `block.art-repeat`；
+  · **软**（只记录/打日志）：`block.sensei-run-too-long`（切群处理）·
+  `block.art-pair-missing`（**含 memorial 但没有 art**）· `block.memorial-with-end`
+  （后两条是"art 配对命中率"的统计口径）；
+  · **板级** `board.*`（`check_board`）**全部硬**——板级闸"非空即拦"，但只在**首板
+  交付前**生效（流式已交付 ⇒ 一律 advisory，见 §3.2）。
+  新增规则 = 加 `IssueCode` + 在 `ISSUE_SEVERITY` 声明一行（忘了声明会被
+  `tests/core/test_records.py::test_issue_severity_is_declared_by_code_not_message`
+  拦下——那条用例还钉住"文案塞满硬关键词也不改分级"）。
+  ⚠️ **历史**：2026-09-21 之前硬/软靠 `HARD_BLOCK_ISSUE_MARKS` **中文子串匹配**，
+  给软问题换个措辞就会**静默**升级成"整轮重发"（ARCH_REVIEW P0-3 ⇒ 节点 6 修）。
   ⚠️ **"打回"只在整块未交付时可能**（流式已上屏 ⇒ advisory）——但**不是"算了"**：
   软问题（批式）与 advisory 问题（流式）都进 `_pending_feedback`，下一轮注记纠偏
   （节点 3，见 §3.2）。判"硬/软"只管**本回合**要不要重发。
-  ⚠️ **待办**：这套判定靠中文子串匹配（节点 6 要做成 `Issue(code, severity)`）。
+  ⚠️ 拼问题文本一律用 `contract.records.format_issues(...)`（`Issue` 不是 `str`，
+  直接 `"; ".join(issues)` 会 TypeError）。
 - **固定路径一律写进 `core/paths.py`**（2026-09-19 用户裁决：*"写成 macro 的形式
   放在最上面……最后改成你用 grep 能直接全量定位的方法"*）：消费方
   `from core import paths` → `paths.XXX_PATH`（**写全 `paths.`**）。全量定位两条 grep:
@@ -609,8 +619,8 @@ CLI/测试同步路径在引擎内串行。
   Decision 0 = c′（用户 2026-09-21）: 一份 `records → boards` 派生 + **板级闸** + 显式
   交付模式; 节点 0–6, 每节点一提交。**已落地: 0（协议）· 1（parity 测试网）·
   2′（`_BoardAssembler` + `check_board` + `DeliveryMode`）· 5（桩对齐生产路径）·
-  3（下一轮纠偏）**; 待做: 2″（板级 lifecycle）· 5b（桩结构化分派）· 4′（预生成同路）·
-  6（`Issue(code, severity)`）。来源 = ARCH_REVIEW P0-2 的根治）
+  3（下一轮纠偏）· 6（`Issue(code, severity)` 结构化）**; 待做: 2″（板级 lifecycle）·
+  5b（桩结构化分派）· 4′（预生成同路）。来源 = ARCH_REVIEW P0-2/P0-3 的根治）
 - **重新生成 / 重发 的语义与固化线**：docs/DESIGN_RESEND.md（**设计稿, 未动代码**。
   决策: MMT 提交边界 = **回合提交**; 两区 = 水位之上**丢弃** / 水位之下走
   `wiki_v2/revise` **更正**; 含 `vn_abandon` 族退休方案——存量真源 0 条, 读路径空转）

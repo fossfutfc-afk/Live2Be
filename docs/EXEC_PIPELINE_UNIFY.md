@@ -179,14 +179,16 @@ provisional ──校验通过──► delivered ──裁决/推进──► c
 | **5b**（新增, 待定） | **桩的结构化分派**（ARCH_REVIEW P2-8） | 桩现在按**自然语言关键字**分派（`情绪标签` / `变更句数组` / `地点 id JSON` / `选中的文件名` / `记录员`）——**改文案就静默不命中**。结构化做法 = 给 LLM 调用加 `task=` 元数据（**不进 messages**, 不改 prompt/夹具）, 桩按它分派 | 产品侧 **8 个调用点**（`emo_text` · `emotion_annotate`×2 · `place_annotate`×2 · `variant_annotate` · `wiki_v2/llm_call` · `momotalk` · `bond_story`）+ 客户端签名 + 各测试桩 | 中（动 LLM 客户端的公共签名） |
 | ✅ **3** | **守卫分层显式 + 下一轮纠偏** | ① `BondStoryEngine._pending_feedback`：**已交付**后发现的形状问题（流式 advisory 的硬问题 + 批式软问题）记账 ② 下一轮拼进 notes（场卡**之前**、注入后**自清**）——"（系统）上一轮输出的**形状**有这些问题: …" ③ `DeliveryMode` 下硬/软的语义写进注释（板级 ⊆ 块级 ⇒ 板级闸不新增拒绝） | 新用例 2 例：`test_vn_records_engine.py::test_soft_issues_become_next_round_note`（软问题 → 下一轮 notes 出现纠偏文本 + 自清）、`test_pipeline_parity.py::test_stream_late_violation_pends_feedback_for_next_round`（流式已交付后违规 → 记账 not 只打日志）；全量 **865 passed** | 低（已过） |
 | **4′** | **预生成与 live 同路径** | `_pregenerate` 走同一交付模式（把"增量交付"与"落库/门控"解耦）；语义升级为 **预生成 = provisional（未 adopt 即丢弃）**，与"拒绝/重发"共用 §3.1 协议 | 新用例：**同一记录流，live 与 pregen 的板载荷逐字节一致** | 中（预生成是 §9 主路径） |
-| **6** | **`Issue(code, severity)` 结构化** | `check_block` 返回结构化 Issue；`split_board_issues` 不再按中文子串判硬软；测试断言同步 | 新守门用例："加问题串不会静默变成硬违规"；全量绿 | 低 |
+| ✅ **6** | **`Issue(code, severity)` 结构化** | ① `contract/records.py`: `IssueCode`（`block.*`/`board.*`）+ `IssueSeverity` + **`ISSUE_SEVERITY: IssueCode → IssueSeverity` 唯一真源** + `Issue(code, message)`（`severity` 是派生属性）+ `format_issues`/`split_issues` ② `check_block`/`check_board` 返回 `list[Issue]`；`bond_story.HARD_BLOCK_ISSUE_MARKS` 与 `split_board_issues` **删除** ③ trace 里问题分两份：人读文本 `issues` + 机器码 `issue_codes` ④ 测试断言改成看 `IssueCode` | **守门用例** `test_records.py::test_issue_severity_is_declared_by_code_not_message`（软问题文案**塞满硬关键词**也不改分级 / 每个码必须声明严重度 / 源码不许复活子串分级）；全量 **866 passed** | 低（已过） |
 
-**顺序 = 0 → 1 → 2′ → 5 → 3 → 4′ → 6**，理由：
+**顺序 = 0 → 1 → 2′ → 5 → 3 → 6 → 4′**（6 与 4′ 都是低耦合收尾, 6 先做是因为它只是
+把已有的软硬语义搬到明面上；4′ 动性能主路径, 放最后单独验收），理由：
 
 - **1 必须先做**：现在没有任何测试证明两条路等价（§2.5），动刀前先建网；
 - **5 放在 2′ 之后、3/4′ 之前**：此时两条路已等价，不会一次爆几十个红；而它一旦生效，
   3/4′ 每一步都有**生产路径**的网；
-- **6 放最后**：它动 contract 层公共返回形状，等 3 把分层语义定死再结构化最省事。
+- **6 在 3 之后**：它动 contract 层公共返回形状，等 3 把分层语义定死再结构化最省事
+  （节点 3 引入的 `_pending_feedback` 正好是第一个"软硬都要走同一条路"的消费者）。
 
 ---
 
