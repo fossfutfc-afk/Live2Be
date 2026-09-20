@@ -510,6 +510,11 @@ CLI/测试同步路径在引擎内串行。
   ("记录员/整理者")→ 空包。新增标注任务 → 同步给 tests/webgui/test_bond.py、
   tests/core/test_vn_cli.py、tests/core/test_director.py 等桩补分支, 否则吞场景脚本
   （v1 存量用例连同 `tests/archive/` 已于 2026-09-21 整目录删除）。
+  ⚠️ **桩关键字有守门用例**（2026-09-21）: `tests/core/test_stub_keyword_guard.py`
+  把"桩依赖的中文关键字 ↔ 产出它的产品源"钉成一张表——你改文案（或搬文件）导致
+  某个关键字不再被产出 → **它直接红**，并指出该同步改哪些桩。配套两条: 表不腐烂
+  （每个关键字必须还有测试在用）+ 守门自身会红的自测。根治方案（`llm.chat(task=…)`
+  结构化分派）记在 `docs/EXEC_PIPELINE_UNIFY.md` 节点 5b。
 
 ---
 
