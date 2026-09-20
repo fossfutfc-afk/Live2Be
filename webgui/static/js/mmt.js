@@ -7,6 +7,38 @@
 let _profileSort = "affection";   // 资料模式排序
 let _chatSort = "recent";         // 对话模式排序
 
+// ── 好感自动刷新（2026-09-20 用户: *"前端的好感度建议最好能自动刷新，现在一定要
+//    重新排序或者重进才能看到"*）────────────────────────────────────────────
+// 为什么用轮询而不是事件驱动: 好感是 **digest** 写的（收尾话之后才落地, 后台异步）,
+// 客户端不知道它什么时候完成; 而两个列表都只是几十条 JSON —— 轮询最便宜也最稳。
+// 只在"MMT 可见 + 不在 VN 里 + 页面没被切走"时跑; 值没变就**不碰 DOM**（不闪）。
+const AFFECTION_REFRESH_MS = 10000;
+let _affectionSig = "";
+
+function sigOf(chars) {
+  return (chars || []).map((c) => `${c.id}:${expOf(c)}:${c.affection ? c.affection.level : 1}`)
+    .join("|");
+}
+
+setInterval(async () => {
+  if (document.hidden) return;
+  const v = $("view-mmt");
+  if (!v || v.classList.contains("hidden")) return;
+  const b = $("view-bond");
+  if (b && !b.classList.contains("hidden")) return;          // 剧情中不刷
+  const pl = $("mmt-profile-list"), cl = $("mmt-chat-list");
+  const profVisible = pl && pl.offsetParent !== null;
+  const chatVisible = cl && cl.offsetParent !== null;
+  if (!profVisible && !chatVisible) return;
+  try {
+    const data = await (await fetch("/api/mmt/characters")).json();
+    const sig = sigOf(data.characters || []);
+    if (sig === _affectionSig) return;                        // 没变 → 不动
+    _affectionSig = sig;
+    if (profVisible) await loadProfile(); else await loadChatList();
+  } catch (e) { /* 刷新失败静默（下次再来） */ }
+}, AFFECTION_REFRESH_MS);
+
 // ---------------------------------------------------------------------------
 // 渲染辅助
 // ---------------------------------------------------------------------------
@@ -43,6 +75,7 @@ async function loadProfile() {
       return;
     }
     chars = sortBy(chars, _profileSort);
+    _affectionSig = sigOf(chars);        // 记签名（自动刷新据此判"变没变"）
     list.innerHTML = "";
     for (const c of chars) {
       const card = document.createElement("div");
@@ -82,6 +115,7 @@ async function loadChatList() {
   try {
     const data = await (await fetch(`/api/mmt/characters?sort=${_chatSort}`)).json();
     const chars = data.characters || [];
+    _affectionSig = sigOf(chars);
     if (!chars.length) {
       list.innerHTML = '<p class="mmt-loading">没有角色</p>';
       return;
@@ -263,10 +297,7 @@ function applyBondDone(list) {
     const el = _bondEls.get(it.seq);
     if (!el) continue;
     _bondEls.delete(it.seq);
-    if (el._bondClick) {
-      el.removeEventListener("click", el._bondClick);
-      delete el._bondClick;
-    }
+    _unlockBondEl(el);
     el.classList.remove("bond-entry", "clickable");
     el.classList.add("bond-done");
     el.removeAttribute("role");
@@ -274,6 +305,30 @@ function applyBondDone(list) {
     el.textContent = it.text || "已完成羁绊剧情";
   }
 }
+
+function _unlockBondEl(el) {
+  if (el && el._bondClick) {
+    el.removeEventListener("click", el._bondClick);
+    delete el._bondClick;
+  }
+}
+
+/** ⭐ 立刻锁掉所有**未完成**的入口粉泡（去掉点击能力）。
+ *
+ *  2026-09-20 用户: *"结束羁绊剧情后那个粉色气泡有小段延迟才消失，这个时间是足够
+ *  手快的玩家直接重进，后果不堪设想"* —— 粉泡的完成翻转靠轮询（`applyBondDone`）,
+ *  finish → 轮询到达之间有个窗口, 窗口里它还是可点的。
+ *  `bond.js` 的 `finish(completed=true)` 在提交收尾**之前**调这个把窗口关掉;
+ *  视觉翻转仍交给轮询（文案/样式以服务端为准）。
+ *  **中途退出不调**（`completed=false`）——那种粉泡要保持可点, 再进 = 静默续章。
+ */
+window.mmtLockBondEntries = function () {
+  for (const el of _bondEls.values()) {
+    _unlockBondEl(el);
+    el.classList.remove("clickable");
+    el.classList.add("bond-locked");     // 视觉提示: 已在处理（不承诺"已完成"）
+  }
+};
 
 function renderBubble(b) {
   const box = $("mmt-bubbles");

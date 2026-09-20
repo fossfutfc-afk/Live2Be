@@ -568,6 +568,33 @@ def test_reentry_after_quit_is_silent(tmp_path):
         _cleanup()
 
 
+def test_completed_entry_refuses_reentry(tmp_path):
+    """★ 结局后粉泡翻转前的窗口里"手快重进" → **后端兜底拒绝**（用户 2026-09-20 报障）。
+
+    用户原话: *"结束羁绊剧情后那个粉色气泡有小段延迟才消失，这个时间是足够手快的
+    玩家直接重进，后果不堪设想"*。
+    前端: `finish(completed=true)` 立刻调 `window.mmtLockBondEntries()` 锁掉点击;
+    后端（本用例）: 只读事件流判定"这条入口已走完" → 绝不开新章。
+    ⚠️ 中途退出（`completed=False`）**不算走完** —— 那种要允许重进（静默续章）。
+    """
+    engine, st, sid, _llm = _setup(tmp_path, STORY_END)
+    try:
+        st.enter_vn(CHARACTER, sid, "已完成的章")
+        _interrupt_scene(st, sid, "唯一一场。")
+        st.append_marker(CHARACTER, sid, "vn_exit", {"completed": True})
+        assert bond._entry_already_done(CHARACTER, sid, st) is True
+        r = bond.bond_start(CHARACTER, sid)
+        assert r["accepted"] is False and "结束" in r.get("error", ""), r
+
+        # 中断章（completed=False）→ 不算走完, 仍可重进（静默续章）
+        st.append_marker(CHARACTER, sid, "vn_enter", {"chapter_title": "第二章"})
+        st.append_marker(CHARACTER, sid, "vn_exit", {"completed": False})
+        assert bond._entry_already_done(CHARACTER, sid, st) is False
+        print("    guard: 已完成入口拒绝重进; 中断入口仍可进（静默续章）✓")
+    finally:
+        _cleanup()
+
+
 def test_bond_interrupt_replay_single_scene_handoff(tmp_path):
     """中断单场: 重进 → 回放该场（主段落 + 所选分支顺接 + **选项组只读重现**）→ 预生成交棒。"""
     engine, st, sid, _llm = _setup(tmp_path, STORY_END)

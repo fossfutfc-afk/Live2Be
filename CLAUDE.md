@@ -386,13 +386,22 @@ v1 的 `MemorialProbe`/`memorial_exit` 动作已退役。**图是异步的 → �
   `_resolve_scene` 附 background_url/fx/place_bg）、`webgui/static/js/{bond,mmt,gui}.js`。
 - 关键交互语义：进入/回放零等待；turn 被拒 = busy（前端 waitTurnIdle 轮询 status,
   **绝不重发已消费的 submit**）；gate_busy = 双路标注未齐；emo/place 补切经版本号。
-  ⚠️ **裁决后点画面必须能进下一板**：`pendingChoice`（"本板还有未裁决选项"的门闩）
-  **必须在裁决分支复位** —— 2026-09-20 真机报障"选完选项变黄且不推进"的根因就是它
-  只由 `showInteraction` 置位、裁决后没人清；`advanceOrFinish` 见它即 return，
-  点画面/点三角全被吞（唯一出路只剩自动模式）。冒烟已补该步（`裁决后可推进`）。
-  ⚠️ **且裁决后的选项按钮不许 `disabled`**（第二轮报障"必须点到选项**外面**才走"）：
-  disabled 吞点击 + `onClick` 把 `.bond-choice` 排除在推进外 ⇒ 点黄着那句毫无反应。
-  现在点它 = `goNext()`（发"（继续）"），**不回填、不重提交原选项文本**。
+  ⚠️ **裁决后自动进下一板**（2026-09-20 用户: *"点了选项应该直接推进"*）:
+  点选项 → 选项组留屏转只读 + 高亮所选（决策 #41）,**但不再等第二次点击** ——
+  `PICK_ADVANCE_MS`（450ms, 只为让高亮可见）后自动 `goNext()`; 手动点画面/点选项
+  走同一函数（`busy` 防重复提交）。两条历史坑都钉在冒烟 `裁决后自动推进` 那一步:
+  ① `pendingChoice`（"本板还有未裁决选项"的门闩）**必须在裁决分支复位**, 否则
+  `advanceOrFinish` 见它即 return、点画面/点三角全被吞;
+  ② 裁决后的选项按钮**不许 `disabled`**（disabled 吞点击 + `onClick` 又排除
+  `.bond-choice` ⇒ 点黄着那句毫无反应）；绑定是 `goNext()`, **不回填、不重提交原文本**。
+  ⚠️ **结局后粉泡的"手快重进"窗口**（同日报障: *"有足够时间重进，后果不堪设想"*）:
+  完成翻转本来靠轮询（`applyBondDone`）→ 有窗口。两道闸: 前端 `finish(completed=true)`
+  **立刻**调 `window.mmtLockBondEntries()` 去掉点击；后端 `_entry_already_done()`
+  （**只看事件流**, 内存态重启即丢）拒绝重进已完成入口。
+  **中途退出（`completed=false`）两道闸都不生效** —— 那种要能再进（静默续章）。
+  ⚠️ **好感自动刷新**（同日）: `mmt.js` 每 10s 拉一次 `/api/mmt/characters`,
+  **只在 MMT 可见 + 不在 VN 里 + 页面未切走**时; 值没变**不碰 DOM**（不闪）。
+  为什么轮询而不是事件: 好感由 **digest** 后台写, 客户端不知道它何时落地。
 - 测试桩约定（**改引擎标注行为必读**）：各测试文件 ScriptedLLM 按 **user 尾部关键字**
   应答异步调用——emotion 标注（user 含 `情绪标签`）→ 全 nomal 数组, **条数从
   `恰 N 项` 取**（别用 `^\d+: ` 数 system 行: 模板【示范】也带编号行, 会恒多 4）;
