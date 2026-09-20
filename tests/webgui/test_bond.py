@@ -568,6 +568,31 @@ def test_reentry_after_quit_is_silent(tmp_path):
         _cleanup()
 
 
+def test_memorial_img_recovered_from_staging(tmp_path):
+    """★ 章进行中恢复纪念图: **必须读 overlay（真源 + 暂存）**。
+
+    真机报障（2026-09-20）: *"我才知道我跑的这一章生成了 memorial，但是我玩的时候
+    没见过啊"* —— 现场是**图在预热时（14:53:28）就生成并写回执, 而纪念板是收尾板
+    （14:58:45）**, 中间 5 分钟回执 marker 只在 `soul/staging/`（B0 整章暂存,
+    `vn_exit` 才提交）。旧实现只读真源 ⇒ 查不到 URL ⇒ 前端
+    `syncMemorial` 落在"in_memorial 但图为空"那一支 = 清背景 + 什么都不淡入 = **黑屏**。
+    """
+    engine, st, sid, _llm = _setup(tmp_path, STORY_END)
+    try:
+        from core.session.staging import staging_store
+        sg = staging_store(st)
+        # 章内暂存: 预热出的图回执 + 一场（真源此时**一条都没有**）
+        sg.append_marker(CHARACTER, sid, "memorial_image",
+                         {"url": "/gallery/w1/haruka/预热.png", "prompt": "p"})
+        sg.append_marker(CHARACTER, sid, "vn_enter", {"chapter_title": "纪念测试章"})
+        # 旧行为（只读真源）→ 空; 现状（读 overlay）→ 命中
+        assert bond._persisted_memorial_img(
+            CHARACTER, sid, st) == "/gallery/w1/haruka/预热.png"
+        print("    memorial: 暂存区的图回执也能恢复（overlay 读）✓")
+    finally:
+        _cleanup()
+
+
 def test_completed_entry_refuses_reentry(tmp_path):
     """★ 结局后粉泡翻转前的窗口里"手快重进" → **后端兜底拒绝**（用户 2026-09-20 报障）。
 

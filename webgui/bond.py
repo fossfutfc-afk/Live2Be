@@ -1239,9 +1239,18 @@ def _persisted_memorial_img(char_id: str, session_id: str, store=None) -> str:
     为什么**不**用"最近一次 `vn_enter` 之后"划范围: **预热会在 `vn_enter` 之前就出图**
     （触发轮结束即后台生成首场 → 板落地就写 marker; 玩家点进来才写 vn_enter）——
     B 层冒烟实测踩到: 按 vn_enter 划范围会把当前章自己的图排除掉。
+
+    ⚠️⚠️ **2026-09-20 修（真机报障"这一章生成了 memorial，但我玩的时候没见过"）**:
+    这里原先只读**真源**。而 B0 整章暂存下, 章内的 marker（含本条的 `memorial_image`）
+    **还在 `soul/staging/`**, 直到 `vn_exit` 才整段提交 ⇒ 章进行中查这里**恒为空**
+    → `_ensure_memorial_img` 填不上 `state.memorial_img` → 前端 `syncMemorial`
+    落在"**in_memorial=true 但图为空**"那一支 = 清空背景 + **什么都不淡入** = **黑屏**。
+    真机现场: 图 14:53:28（预热期间）生成入暂存, 纪念板 14:58:45（收尾板）,
+    中间 5 分钟真源里查不到 → 玩家只看到黑屏, 没看到纪念图。
+    **修法与 `replay_attempts` 同一条**: 读 **overlay**（真源 + 章内暂存）。
     """
     try:
-        evs = (store or _store()).events(char_id, session_id)
+        evs = staging_store(store or _store()).events(char_id, session_id)
     except Exception:                                # noqa: BLE001 — 读失败当没有
         return ""
     url = ""
