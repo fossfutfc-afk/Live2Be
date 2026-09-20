@@ -203,7 +203,6 @@ def test_bondstory():
     v = BondStoryOutput()
     for tok in ["（望向远方）", "\n\n我记得", "那年夏天。"]:
         v.feed(tok)
-    assert v.get_current_text() == "（望向远方）\n\n我记得那年夏天。"
     assert v.flush() == ["（望向远方）", "我记得那年夏天。"]
 
 

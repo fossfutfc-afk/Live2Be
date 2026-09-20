@@ -170,15 +170,15 @@ def test_writing_words_judged_by_sdir():
     print(f"    writing_words: {sorted(places)}")
 
 
-def test_by_region_only_nonempty():
-    """`region` 轴: 只收非空（空 region 是"未知", 不是"某个区域"）。"""
+def test_by_region_zero_consumer_gone():
+    """（2026-09-21）`by_region()` 全仓零消费者 → 已删; 这里守门不许无声回来。
+
+    同批**保留**了 `stats()`（有真实消费者: experiments/place_resolve_real.py）。
+    """
     t = _table()
-    by = t.by_region()
-    assert by, "真表里已有 region 标注"
-    assert all(k for k in by)
-    total = sum(len(v) for v in by.values())
-    assert total == sum(1 for e in t.all() if e.region)
-    print(f"    region: {len(by)} 个区域 / {total} 个 place")
+    assert not hasattr(t, "by_region")
+    assert isinstance(t.stats(), dict) and "n" in t.stats()
+    print("    region 轴: by_region 已删 / stats 保留（有消费者）")
 
 
 def test_scene_id_translates_table_key_to_asset_key():
@@ -271,5 +271,5 @@ if __name__ == "__main__":
     test_lexicon_text_groups_by_sdir_and_carries_note()
     test_sdir_labels_cover_the_real_table()
     test_writing_words_judged_by_sdir()
-    test_by_region_only_nonempty()
+    test_by_region_zero_consumer_gone()
     print("all place_table tests passed")

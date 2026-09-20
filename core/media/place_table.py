@@ -421,14 +421,8 @@ class PlaceTable:
         """
         return [e for e in self.entries.values() if e.sdir == WRITING_SDIR]
 
-    def by_region(self) -> dict[str, list[str]]:
-        """`region` → place 列表（只收**非空** region; 备 C 链路"同地"分组用）。"""
-        out: dict[str, list[str]] = {}
-        for e in self.entries.values():
-            if e.region:
-                out.setdefault(e.region, []).append(e.place)
-        return out
-
+    #: ⚠️ 2026-09-21 复核: 同批删掉了零消费者的 `by_region()`; **本法保留**——
+    #: 它有真实消费者（`experiments/place_resolve_real.py` 打印表自查）。
     def stats(self) -> dict[str, object]:
         """一行可打的自查（`place_table` 日志用）。"""
         n_kw = sum(len(e.keywords) for e in self.entries.values())

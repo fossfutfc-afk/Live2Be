@@ -319,7 +319,6 @@ def test_background_scenes_and_variants(tmp_path):
     assert c.background_scenes() == sorted(c.background_scenes())  # 有序
     assert "class_room" in c.background_scenes()
     assert "class_room_2" in c.background_scenes()
-    assert c.background_variants("class_room") == ["night"]
     # 脚本残留 .py 不进索引（派生出的空 id 不该出现）
     assert "" not in c.background_scenes()
     print("    background: 场景清单 + 变体清单 + 排除脚本残留")
@@ -419,12 +418,15 @@ def test_sprite_emotions_whitelist(tmp_path):
 
 
 def test_has_sprite_and_background(tmp_path):
+    """（2026-09-21 删主体）只保留"消费面不存在即不该有 API"的守门。
+
+    `has_sprite`/`has_background`/`background_variants` 三个布尔/清单辅助
+    全仓零消费者（原断言只验证它们自己），已随 C 类对称性访问器一并删除。
+    """
     c = _catalog(tmp_path)
-    assert c.has_sprite("igusa_haruka", "shout")
-    assert not c.has_sprite("igusa_haruka", "angry")
-    assert c.has_background("class_room")
-    assert not c.has_background("class_room", "snow")
-    print("    has_sprite / has_background: 布尔辅助")
+    assert not hasattr(c, "has_sprite") and not hasattr(c, "has_background")
+    assert not hasattr(c, "background_variants")
+    print("    catalog: 零消费者的布尔/清单辅助已删（字段不许无声回来）")
 
 
 def test_sprite_outfit_parallel_dirs(tmp_path):

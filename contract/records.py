@@ -43,7 +43,6 @@ KINDS = (KIND_CHARACTER, KIND_STAGE)
 #: `character` 的保留取值（其余一律视为角色 id）
 CHARACTER_NARRATOR = "narrator"
 CHARACTER_SENSEI = "sensei"
-CHARACTER_SPECIALS = (CHARACTER_NARRATOR, CHARACTER_SENSEI)
 
 STAGE_SWITCH = "switch"
 STAGE_ART = "art"
@@ -507,17 +506,6 @@ class VnBlock:
         return cls.from_records(records, notes=[str(x) for x in raw_notes])
 
     # --- 派生视图 ----------------------------------------------------------
-    @property
-    def groups(self) -> tuple[tuple[int, ...], ...]:
-        """sensei 群（连续 `sensei` 段的下标组）——run=1 单选项 / run≥2 多选项。"""
-        return tuple(tuple(g) for g in sensei_groups(self.records))
-
-    @property
-    def group_texts(self) -> tuple[tuple[str, ...], ...]:
-        """各群的候选台词（= 交互槽的选项文本）。"""
-        recs = self.records
-        return tuple(tuple(recs[i].text for i in g) for g in self.groups)
-
     def _first_stage(self, value: str) -> int | None:
         for i, rec in enumerate(self.records):
             if rec.stage == value:
@@ -525,40 +513,22 @@ class VnBlock:
         return None
 
     @property
-    def switch_at(self) -> int | None:
-        return self._first_stage(STAGE_SWITCH)
-
-    @property
-    def art_at(self) -> int | None:
-        return self._first_stage(STAGE_ART)
-
-    @property
     def memorial_at(self) -> int | None:
+        """纪念进入记录在块内的下标（前端黑屏从这一条开始, DESIGN_MEMORIAL M3）。
+
+        ⚠️ 2026-09-21: 这里曾**成套声明**位置访问器（`switch_at`/`art_at`/
+        `end_at`/`exit_at`）、群视图（`groups`/`group_texts`/`has_choices`）、
+        切片助手（`before`/`after`）与渲染包装（`render_text`）——全仓零消费者
+        （只剩测试在断言它们自己），**已删**。现役路径: 切板/群判定由
+        `sensei_groups`（模块函数）与 `bond_story._board_spans` 直接做;
+        渲染走 `render_records`（历史/回放的唯一渲染源）。
+        要恢复某个位置访问器, 照下面这一行写回即可。
+        """
         return self._first_stage(STAGE_MEMORIAL)
-
-    @property
-    def end_at(self) -> int | None:
-        return self._first_stage(STAGE_END)
-
-    @property
-    def exit_at(self) -> int | None:
-        return self._first_stage(STAGE_EXIT)
-
-    @property
-    def has_choices(self) -> bool:
-        return bool(self.groups)
 
     @property
     def is_valid(self) -> bool:
         return not self.issues
-
-    def before(self, index: int | None) -> tuple[VnRecord, ...]:
-        """`index` 之前的记录（index=None → 全部）——如纪念闸门前的可渲染前缀。"""
-        return self.records if index is None else self.records[:index]
-
-    def after(self, index: int | None) -> tuple[VnRecord, ...]:
-        """`index` 之后的记录（不含 index）——如纪念区间本体。"""
-        return () if index is None else self.records[index + 1:]
 
     # --- 出口 --------------------------------------------------------------
     def to_dict(self) -> dict[str, Any]:
@@ -567,17 +537,6 @@ class VnBlock:
         if self.notes:
             data["notes"] = list(self.notes)
         return data
-
-    def render_text(self, names: Mapping[str, str] | None = None, *,
-                    speaker: bool = True) -> str:
-        """**最小形态**渲染（块级——诊断/日志用）；板级（含槽与裁决）见 `render_records`。
-
-        - 角色/老师：`显示名：正文`（names 覆盖，默认 sensei→老师，角色 id→id）
-        - 旁白：正文（不加前缀）
-        - stage：`switch`/`memorial`/`end` 回显自己的文本；`art` 是**不可见声明**、
-          `exit` 无文本 → 跳过（视觉键不进 LLM 上下文，见 §4）
-        """
-        return render_records(self.records, names=names, speaker=speaker)
 
 
 #: 不算"裁决"的占位输入（渲染时跳过——与旧渲染函数同语义）

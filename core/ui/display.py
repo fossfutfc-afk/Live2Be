@@ -102,16 +102,15 @@ class BondStoryOutput:
     token 流式来 → 内部累积 → flush 时按双换行（段落）分割。
     不去括号（羁绊剧情允许动作描写），不断句，不加名字前缀。
 
-    UI 层在流式期间可通过 get_current_text() 轮询当前文本，
-    实现逐字打字动画；按 Enter 时跳过动画直接显示完整文本。
-
     用法:
         display = BondStoryOutput()
         for token in llm_stream:
             display.feed(token)
-            # 可选: UI 轮询 display.get_current_text() 做打字效果
         for i, para in enumerate(display.flush()):
             ui_show_paragraph(para, is_last=(i == len - 1))
+
+    ⚠️ 2026-09-21: 原 `get_current_text()`（"UI 层可轮询它做打字动画"）已删——
+    零消费者; webgui 的打字机自己维护缓冲, 不走这里。
     """
 
     def __init__(self):
@@ -125,10 +124,6 @@ class BondStoryOutput:
         """喂入 token 并累积。返回空列表（流中不 yield，由 UI 轮询）。"""
         self._buf += token
         return []
-
-    def get_current_text(self) -> str:
-        """返回当前累积的全部文本（供 UI 逐字渲染）。"""
-        return self._buf
 
     def flush(self) -> list[str]:
         """流结束，按段落分割返回完整文本列表。"""

@@ -39,11 +39,6 @@ class ValidationResult:
     def is_valid(self) -> bool:
         return not self.errors
 
-    def require_valid(self) -> None:
-        """校验失败时抛 ContractError（用于需要硬中断的调用方）。"""
-        if not self.is_valid:
-            raise ContractError("\n".join(self.errors))
-
 
 @dataclass(frozen=True)
 class AgentAction:

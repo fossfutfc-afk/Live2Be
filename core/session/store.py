@@ -98,13 +98,6 @@ class SessionStore:
     def char_dir(self, char_id: str, world_id: str | None = None) -> Path:
         return self.characters_dir(world_id) / char_id
 
-    # v1 兼容路径方法（session_id 不再参与路径——每角色一条线）
-    def sessions_dir(self, char_id: str) -> Path:
-        return self.char_dir(char_id)
-
-    def session_dir(self, char_id: str, session_id: str = "") -> Path:
-        return self.char_dir(char_id)
-
     def meta_path(self, char_id: str, session_id: str = "") -> Path:
         return self.char_dir(char_id) / "meta.json"
 
