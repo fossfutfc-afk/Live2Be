@@ -1272,6 +1272,13 @@ let lastSceneKey = "";
       if (curScene && Array.isArray(curScene.choices) && curScene.choices.length) {
         paintChoices(curScene.choices, data.picked, true);
       }
+      // ⚠️ 2026-09-20 修（真机报障: "选完选项变黄且不推进了"）:
+      //    **裁决生效 = 这一板不再有"未裁决选项"** ⇒ 必须清掉 pendingChoice。
+      //    它是 `advanceOrFinish` 的门闩（见 line ~996: `if (pendingChoice) return;`）,
+      //    不清 → 点画面、点右下三角**全被吞掉**, 唯一能走的只剩"自动模式"。
+      //    为什么以前没炸: 上面的 showInteraction 只在"未裁决"时置位,
+      //    而裁决分支只重画了选项组、没管这个闩。
+      pendingChoice = false;
       busy = false;
       hideContinue();
       showAdvance();
