@@ -1696,7 +1696,15 @@ def bond_status(char_id: str, session_id: str) -> dict:
 
 
 def _role_info(char_id: str) -> dict:
-    """当前角色显示屏信息 {name, club}——前端名字牌（官方: 名字 + 便利屋68）。"""
+    """角色显示屏信息 {name, club}——前端名字牌（官方: 名字 + 便利屋68）。
+
+    ⚠️ **2026-09-20 修（真机报障: 回忆册回放的名字牌显示 `igusa_haruka`）**:
+    原先只问 `chat._engine(char_id).current_character` —— 那是**内存里的 MMT 引擎**,
+    只在"这个角色的会话开过且没被清"时才有。玩家从**回忆册**直接进回放（没开聊天、
+    或服务端重启过）时取不到 → 回落到 id → 名字牌就成了 `igusa_haruka`。
+    现在**两级**: ① 内存引擎（最快, 且与 MMT 列表同源）→ ② **角色卡（磁盘）** ——
+    后者与 `collection.book` 取名字是同一条路（`CharacterLoader`）, 不依赖会话。
+    """
     try:
         ch = chat._engine(char_id).current_character
         if ch is not None:
@@ -1705,8 +1713,18 @@ def _role_info(char_id: str) -> dict:
                 "name": ch.display_name or char_id,
                 "club": str(club).split("（")[0].split("(")[0].strip(),
             }
-    except Exception:                                # noqa: BLE001 — 取不到降级用 id
+    except Exception:                                # noqa: BLE001 — 内存态取不到 → 走磁盘
         pass
+    try:                                             # ② 角色卡（无会话也能取）
+        from core.parsing.dynamic_character_parser import CharacterLoader
+        ch2 = CharacterLoader(paths.CHARACTERS_DIR).load(char_id, strict=False)
+        club = ch2.profile.get("club") or ch2.profile.get("SIG~club") or ""
+        return {
+            "name": ch2.display_name or char_id,
+            "club": str(club).split("（")[0].split("(")[0].strip(),
+        }
+    except Exception as e:                           # noqa: BLE001 — 取不到降级用 id
+        logger.debug("_role_info 角色卡读取失败 %s: %s", char_id, e)
     return {"name": char_id, "club": ""}
 
 

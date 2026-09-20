@@ -234,9 +234,21 @@ def _attach_memorial(scenes: list[dict], per_board: dict[int, dict],
     """把纪念态写进**板**（原地改 `scenes[i]["scene"]`）。
 
     * 窗口内的板 → `in_memorial: true`; 触发板 → 再带 `memorial_img`
-    * **v1 档回落**: 这一章有图、但没有板锚点（图先于板落盘 / 旧契约）→ 把图按序
-      挂到"带 `memorial`/`memorial_prompt` 的板"上（宁缺勿错: 没有这种板就不挂,
-      章级缩略图照旧还在）
+    * **章级回落**: 这一章有图、但**没挂到任何板**上（图先于板落盘 / 旧契约 /
+      **预热先出图**）→ 把图挂到"带 `memorial`/`memorial_prompt` 的板"上
+      （宁缺勿错: 没有这种板就不挂, 章级缩略图照旧还在）
+
+    ⚠️⚠️ **2026-09-20 修（真机报障"回放里也放不出来"）**: 回落的判据原先是
+    `if scene.get("in_memorial"): continue` —— 只补"**不在**窗口里的板"。但真机
+    这一局恰好是"**图在预热时就生成（早于 `vn_enter`）, 而板在窗口里**"：
+    * 板级：`memorial_enter`(21) → 收尾板(23, `memorial=True`) 在窗口内 ⇒ 拿到
+      `in_memorial: true`;
+    * 图级：图 marker(12) **前面没有任何 `memorial_enter`** ⇒ 挂不到板
+      （`_memorial_boards` 的纪律: 图认"最近的前置 `memorial_enter`"）,
+      于是它只能走本章的章级回落 —— 而回落**正好跳过了这块板**。
+    ⇒ 结果 `in_memorial=true` 但 `memorial_img` 为空 = 前端那一支"清背景 + 什么都不
+      淡入" = **黑屏**（live 与回放同一个症状）。
+    修法: 回落只看"**这块板还没有图**", 不管它是不是已经在窗口里。
     """
     attached = {url for info in per_board.values() if (url := info.get("img"))}
     for item in scenes:
@@ -253,7 +265,9 @@ def _attach_memorial(scenes: list[dict], per_board: dict[int, dict],
         return
     for item in scenes:
         scene = item.get("scene")
-        if not isinstance(scene, dict) or scene.get("in_memorial"):
+        if not isinstance(scene, dict):
+            continue
+        if scene.get("memorial_img"):                # 已有图 → 不动（不再看 in_memorial）
             continue
         if not (scene.get("memorial") or scene.get("memorial_prompt")):
             continue

@@ -183,6 +183,39 @@ def test_memorial_window_before_its_board():
     print("    预热顺序: marker 在板之前 → 图仍挂到触发板")
 
 
+def test_memorial_img_lands_on_board_already_in_window():
+    """★★ **真机形状**（2026-09-20 报障"回放里也放不出来"）: 图在**预热**时生成
+    （早于 `vn_enter`、且它前面**没有任何** `memorial_enter`）→ 板级挂不上, 只能走
+    本章的**章级回落**; 而那块板**已经在窗口里**（`in_memorial` 已 true）。
+
+    旧回落判据 `if scene.get("in_memorial"): continue` 恰好跳过它 ⇒
+    `in_memorial=true` 但 `memorial_img` 为空 ⇒ 前端"清背景 + 什么都不淡入" = 黑屏。
+    真机事件序（haruka 2026-09-20 那一局, seq 照抄）:
+        12 memorial_image（预热出图）
+        13 vn_enter
+        20 普通板 → 21 memorial_enter → 22 vn_state → 23 **收尾板(带 memorial)** → 24 memorial_exit
+    """
+    evs = [
+        marker("memorial_image", {"url": "/gallery/w/c/pre.png"}, seq=12),
+        marker("vn_enter", {"chapter_title": "甲"}, seq=13),
+        _board(20, "普通板"),
+        marker("memorial_enter", {"chapter_title": "甲", "v2": True}, seq=21),
+        marker("vn_state", {"round": 5}, seq=22),
+        make_event("bond", "story_end",
+                   {"paragraphs": [{"text": "（递过去）"}], "is_end": True,
+                    "memorial": True, "records": [{"stage": "memorial"}]}, seq=23),
+        marker("memorial_exit", {"v2": True, "auto": True}, seq=24),
+        marker("vn_exit", {"completed": True}, seq=25),
+    ]
+    ch = replayable_chapters(evs)[0]
+    by_seq = {x["seq"]: x["scene"] for x in ch["scenes"]}
+    s23 = by_seq[23]
+    assert s23.get("in_memorial") is True, s23
+    assert s23.get("memorial_img") == "/gallery/w/c/pre.png", s23
+    assert by_seq[20].get("in_memorial") is None, by_seq[20]     # 窗口外的板不许被染
+    print("    预热图 + 板已在窗口内: 图照样挂到那块板（旧判据会跳过它）✓")
+
+
 def test_memorial_window_closed_by_chapter_end_keeps_all_boards():
     """章在窗口内结束（`vn_exit` 收窗, 没有新块来收）→ 窗口内的板**全都**算纪念态。"""
     evs = [

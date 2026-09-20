@@ -39,6 +39,8 @@ SETTINGS_PATH = ROOT / "settings.toml"
 
 # ── config/：作者手编的数据 ────────────────────────────────────────────────
 CONFIG_DIR = ROOT / "config"
+#: 角色卡根目录（`config/characters/{char_id}/` 六文件; `CharacterLoader` 的 root）
+CHARACTERS_DIR = CONFIG_DIR / "characters"
 #: 特殊日期表（`core/worldtime/realtime.py`）
 EGGS_DIR = CONFIG_DIR / "eggs"
 FESTIVALS_PATH = EGGS_DIR / "festivals.json"
@@ -77,7 +79,7 @@ WEBGUI_STATIC_DIR = ROOT / "webgui" / "static"
 
 __all__ = [
     "ROOT", "SETTINGS_PATH",
-    "CONFIG_DIR", "EGGS_DIR", "FESTIVALS_PATH",
+    "CONFIG_DIR", "CHARACTERS_DIR", "EGGS_DIR", "FESTIVALS_PATH",
     "WORLD_DIR", "WORLD_OVERVIEW_PATH", "REGIONS_PATH",
     "PLACE_TABLE_PATH", "RELATION_DIR", "INTERPERSON_PATH",
     "MMT_REGISTRY_PATH",
