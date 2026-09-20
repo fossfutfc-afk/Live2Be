@@ -117,11 +117,21 @@ tests/ core/ webgui/ llm/ renderer/ 分别对应域; experiments/ 真 API 基准
   契约/执行四模块（`bond_actions`/`bond_executor`/`memorial_actions`/`sentence_splitter`）、
   `BondScene.from_action`、`stream_probe` **已于 2026-09-21 删除**（考古读 git 历史）。
   收尾 = `stage:end`；纪念 = **`stage:art` + `stage:memorial` 成对**（见 §4 纪念段）。
-- **messages 槽位**：`[system=盒B] + engine._history + [P17 约束注记?] + [场 task 卡 scene] + [user]`
+- **messages 槽位**：`[system=盒B] + engine._history + [P17 约束注记?] + [下一轮纠偏注记?]
+  + [场 task 卡 scene] + [user]`
   （task kind **恒 `scene`**；`task_bond_memorial_exit.md` 随 v1 动作于 2026-09-13 删除）。
 - 引擎判定：记录流解析（含坏行修复/丢行记账）→ 板派生 → 两遍式标注（emotion/place）
   → 导演视觉（place→背景）→ 契约校验（**硬违规打回重发 / 软违规只记录**，见 §12）
   → 失败重试（feedback ≤3）。**引擎不切句**（v2 一行一条记录）。
+- **两种交付模式**（`DeliveryMode`，2026-09-21 节点 2′）：批式 = `BLOCK`（整块先判后交，
+  **块级 + 板级**双闸都能拦）；流式 = `STREAM`（生产默认，板一闭合即上屏 ——
+  **只有首板交付前**能拦，其后**一律 advisory**）。⚠️ 板级规则 ⊆ 块级规则 ⇒
+  板级闸**不新增拒绝**（`art`↔`memorial` 配对等"只有块级能判"的规则在流式下天然是软问题）。
+- **下一轮纠偏（节点 3）**：advisory 不等于算了 —— 已交付后发现的形状问题记进
+  `BondStoryEngine._pending_feedback`，**下一轮**拼进 notes（场卡**之前**）念一次
+  "上一轮输出的**形状**有这些问题: …"，随即**自清**（下一轮仍脏才会重新置上）。
+  改动前那些问题只进日志/trace（注释写着"留给上层下一轮注记"，而那条注记从未实现）⇒
+  同一类形状错误会在整章每块重演。
 - **选项目前语义**（详见 §6）：每板 1 组 2~3 候选项 + 键一致的 branches（选中即显,
   零 LLM）；选项收敛同主线（"假选择/收敛链"）；A1 回录后 AI 只见选择行不见分支文本。
 
@@ -503,6 +513,10 @@ CLI/测试同步路径在引擎内串行。
   否则一个笔误就把软问题变成"整轮重发"。现有软问题：超长 sensei 群（切群处理）、
   **含 memorial 但没有 art**、**memorial 与 end 同轮**（后两条 2026-09-20 加,
   是"art 配对命中率"的统计口径）。
+  ⚠️ **"打回"只在整块未交付时可能**（流式已上屏 ⇒ advisory）——但**不是"算了"**：
+  软问题（批式）与 advisory 问题（流式）都进 `_pending_feedback`，下一轮注记纠偏
+  （节点 3，见 §3.2）。判"硬/软"只管**本回合**要不要重发。
+  ⚠️ **待办**：这套判定靠中文子串匹配（节点 6 要做成 `Issue(code, severity)`）。
 - **固定路径一律写进 `core/paths.py`**（2026-09-19 用户裁决：*"写成 macro 的形式
   放在最上面……最后改成你用 grep 能直接全量定位的方法"*）：消费方
   `from core import paths` → `paths.XXX_PATH`（**写全 `paths.`**）。全量定位两条 grep:
@@ -591,9 +605,12 @@ CLI/测试同步路径在引擎内串行。
 - 全量审计（分级 + 未决项台账）：docs/AUDIT_2026-09-13_FULL.md
 - 上下文窗口（120 单元语义）：docs/DESIGN_CONTEXT_WINDOW.md
 - 体感延迟工程：docs/EXEC_BOND_LATENCY.md
-- **单一记录流流水线（c′）执行计划**：docs/EXEC_PIPELINE_UNIFY.md（**计划稿, 未动代码**。
+- **单一记录流流水线（c′）执行计划**：docs/EXEC_PIPELINE_UNIFY.md（**执行中**。
   Decision 0 = c′（用户 2026-09-21）: 一份 `records → boards` 派生 + **板级闸** + 显式
-  交付模式; 节点 0–6, 每节点一提交。来源 = ARCH_REVIEW P0-2 的根治）
+  交付模式; 节点 0–6, 每节点一提交。**已落地: 0（协议）· 1（parity 测试网）·
+  2′（`_BoardAssembler` + `check_board` + `DeliveryMode`）· 5（桩对齐生产路径）·
+  3（下一轮纠偏）**; 待做: 2″（板级 lifecycle）· 5b（桩结构化分派）· 4′（预生成同路）·
+  6（`Issue(code, severity)`）。来源 = ARCH_REVIEW P0-2 的根治）
 - **重新生成 / 重发 的语义与固化线**：docs/DESIGN_RESEND.md（**设计稿, 未动代码**。
   决策: MMT 提交边界 = **回合提交**; 两区 = 水位之上**丢弃** / 水位之下走
   `wiki_v2/revise` **更正**; 含 `vn_abandon` 族退休方案——存量真源 0 条, 读路径空转）
