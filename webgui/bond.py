@@ -528,15 +528,22 @@ def _memorial_gen(state: BondState, char_id: str, session_id: str,
         char = eng.current_character
         name = char.display_name if char is not None else "角色"
         hints = eng.char_loader.load_illustration(char_id)   # illustration.yml（可选）
-        img = gen.generate(prompt, ref_images=collect_ref_images(char_id),
+        refs = collect_ref_images(char_id)
+        img = gen.generate(prompt, ref_images=refs,
                            character_name=name,
                            character_hint=hints.get("character_hint", ""),
                            halo_hint=hints.get("halo_hint", ""))
         logger.info("纪念立绘: %dx%d %.1fs %s", img.width, img.height,
                     img.elapsed_s, img.path.name)
+        # 可归因记账（2026-09-20 节点 C）: `prompt_source` = 这张图的 prompt 是
+        # `art` 画面意向还是降级的触发句 —— art 配对命中率就靠它算。
         sid = GalleryStore(_flow_store(state).data_root,
                            world_id=_flow_store(state).world_id).write(
-            char_id, prompt, session_id, img.path, width=img.width, height=img.height)
+            char_id, prompt, session_id, img.path, width=img.width, height=img.height,
+            prompt_source=getattr(eng, "memorial_prompt_source", "") or "",
+            refs=[Path(p).name for p in refs],
+            model=getattr(gen, "api_model", "") or "",
+            elapsed_ms=int(round((img.elapsed_s or 0) * 1000)))
         with state._lock:
             state.memorial_img = (
                 f"/gallery/{_flow_store(state).world_id}/{char_id}/{sid}.png")
