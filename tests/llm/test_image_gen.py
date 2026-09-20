@@ -311,7 +311,7 @@ def test_halo_and_character_hints_injected(tmp_path):
                              character_hint="紫色短发, 精灵耳发型",
                              halo_hint="三个互相分离的紫色钝角三角形")
     texts = [p["text"] for p in parts if "text" in p]
-    assert any("补充设定：紫色短发" in t for t in texts)
+    assert any("补充设定" in t and "紫色短发" in t for t in texts)
     assert any("三个互相分离的紫色钝角三角形" in t for t in texts)
     assert not any("形状与颜色照图；光环悬浮" in t for t in texts)   # 默认光环提示被替换
     # 未给 hint 时回落默认（普适配饰路径不受影响）
@@ -370,9 +370,61 @@ def test_end_to_end_yml_hint_reaches_request_body(tmp_path, monkeypatch):
                        character_name="测试角色", **hints)
     wire = _json.dumps(captured["body"], ensure_ascii=False)
     assert "三个互相分离的紫色钝角三角形" in wire, "halo_hint 未进入请求体"
-    assert "补充设定：紫色短发" in wire, "character_hint 未进入请求体"
+    assert "补充设定" in wire and "紫色短发" in wire, "character_hint 未进入请求体"
     assert (img.width, img.height) == (160, 90) and img.source_size == (1376, 768)
     print("    e2e: illustration.yml → 请求体 → 落盘归一化")
+
+
+def test_tail_carries_composition_and_lighting():
+    """提示词尾段必须有**构图**与**光线**两段（2026-09-20 D2）。
+
+    依据 Gemini 图像模型的提示词指南: "忘写构图"与"缺负向"是两条最常见的失误;
+    我们的尾段原本只有画幅/风格/负向 —— 缺的正是构图与光线（"怎么拍"这件事
+    原先**完全没人负责**）。
+    """
+    from llm.image_gen import _APIYI_TAIL
+
+    tail = _APIYI_TAIL.format(scene="她在坡道上回头", ratio="16:9", w=1920, h=1080)
+    assert "【构图】" in tail and "16:9" in tail and "1920x1080" in tail
+    assert "中近景" in tail                      # 默认景别（场景指令可覆盖）
+    assert "【光线与氛围】" in tail and "压暗" in tail
+    assert "【要求】" in tail and "不要文字" in tail      # 负向仍在（别被改丢）
+    assert "她在坡道上回头" in tail
+    print("    prompt: 尾段含构图 + 光线 + 负向")
+
+
+def test_image_persona_brief_from_personality(tmp_path):
+    """性格简卡（2026-09-20 D1）: 从 personality.yml 的 SIG~brief_traits 摘。
+
+    为什么是**必需**的: 生图模型不知道她是谁, 只喂外观参考图画不出"自卑/惶恐"
+    那层神态（真机那张纪念图被画成了明亮的笑）。`illustration.yml` 的
+    `character_hint` 非空时优先用它（作者手写版）, 两条路都要能用。
+    """
+    from core.parsing.dynamic_character_parser import CharacterLoader
+
+    char_root = tmp_path / "characters"
+    d = char_root / "brief_char"
+    d.mkdir(parents=True)
+    (d / "profile.yml").write_text("REQ~most_called_name: 简卡角色\n", encoding="utf-8")
+    (d / "personality.yml").write_text(
+        "SIG~brief_traits:\n"
+        "  - 高度自卑，认为自己一无是处\n"
+        "  - 紧张时会结巴\n"
+        "  - 被夸奖时不知所措\n",
+        encoding="utf-8")
+    char = CharacterLoader(char_root).load("brief_char", strict=False)
+    brief = char.image_persona_brief()
+    assert brief.startswith("- 高度自卑"), brief
+    assert "结巴" in brief and "不知所措" in brief
+    assert brief.count("\n") == 2                # 三条 → 三行
+    assert char.image_persona_brief(limit=1) == "- 高度自卑，认为自己一无是处"
+    # 没有人设 → 空串（调用方回落"不注入", 不报错）
+    no_p = char_root / "plain_char"
+    no_p.mkdir()
+    (no_p / "profile.yml").write_text("REQ~most_called_name: 无简卡\n", encoding="utf-8")
+    assert CharacterLoader(char_root).load("plain_char", strict=False)\
+        .image_persona_brief() == ""
+    print("    persona: brief_traits → 性格简卡（含缺省降级）")
 
 
 def test_generated_image_path_protocol(tmp_path):
