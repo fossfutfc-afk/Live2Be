@@ -285,8 +285,17 @@ class PlaceGate:
     * **不同键 + 说法像**（`sk` 中, `sw` 高）→ 中高: **同地不同键** —— 这正是 2026-09-19
       记下的那条**反向假阴性**（`school_rooftop` vs `rooftop`: 键不等就不准入, 语义轴
       没机会）。现在靠 `sk` 的**字面**那一半（别名 / 键名 token）把它们连起来
-    * **一轴为零**（`sk=0` 或 `sw=0`）→ **0**: 融合形状自带的语义（不是"弱关系"）。
-      所以"只有措辞像、键八竿子打不着"的候选仍然进不来 —— 语义轴**没有**偷偷放宽准入
+    * **有键但不符 + 说法像**（`sk=0`, `sw` 高）→ **0**（融合形状自带的语义: 不是
+      "弱关系"）—— "只有措辞像、键八竿子打不着"的候选**仍然进不来**, 语义轴
+      **没有**偷偷放宽准入（这是用户担心的假阳性的防线, 别拆）
+    * ⭐ **没有键**（`node.place` 为空 = 素材轴**不可算**）+ 说法像 → **走单轴**
+      （`raw = sw`, `detail.by="narrative_only"`, `detail.axes=1`）。
+      **用户 2026-09-20 裁决: *"还是走单轴"*** —— **键未知 ≠ 键不符**:
+      前者是"没采集到"（旧档 / 标注层没跑）, 后者才是反证据; 与另一侧早就有的降级
+      路径（无 `embed_fn`/无原话 → 只用素材轴）**对称**。
+      ⚠️ **为什么必须修**: 真档实测 `place` 键 **0 条**、只有 `payload.place_hint`
+      （2 条）—— 而 `magic(任意, 0) == 0` 会让这些记忆**永远进不来**（C 路恒空手）。
+      有 `keys.no_key` 计数可观测（台账里能看到"这次有多少条是单轴进来的"）。
 
     ⚠️ **`key_sim` 满分有两种来源, 别混**: ① 键**字面相等**（`key_sim_by="same"`,
     `detail.same_image=True` —— 这才是"同一张图"）; ② 键名 **token 包含**
@@ -348,38 +357,52 @@ class PlaceGate:
             except Exception as e:                   # noqa: BLE001 — 打分失败不拖垮准入
                 logger.warning("C_place 语义打分降级: %s", e)
                 sem_note = f"语义打分失败: {e}"
-        # ── 融合（调和平均）──
+        # ── 融合（调和平均; **缺的那根轴走单轴, 不当 0**）──
+        # ⭐ 2026-09-20 用户裁决（*"还是走单轴"*）: **键未知 ≠ 键不符**。
+        #   节点没有 `place` 键 = 素材轴**不可算**（旧档 / 标注层没跑）——与
+        #   "有键但不符"（`k_sim == 0`）是两件事。前者缺席, 后者才是反证据。
+        #   这与另一侧早就有降级路径对称（`s is None` → 只用素材轴）。
+        #   为什么必须修: 真档实测 `place` 键 **0 条**、只有 `place_hint`,
+        #   而 `magic(任意, 0) == 0` ⇒ 那些记忆**永远进不来**（C 路恒空手）。
         hits: list[ChannelHit] = []
         for n in nodes:
             k_sim, k_by, k_key = sk[n.id]
             s = sem.get(n.id)
+            has_key = bool(n.place)                  # 素材轴**可算**吗（≠"值是不是 0"）
+            # `detail.by` 标的是**键的来源**（不是轴的条数; 条数看 `axes`）:
+            #   `same_image` = 键字面相等 | `similar_key` = 别名/token 同族
+            #   `no_key` = 素材轴不可算（没有键）—— ⭐ 2026-09-20 新增
+            key_by = "same_image" if k_by == "same" else "similar_key"
             if s is None:                            # 只有素材轴可算 → 用它的分
-                score = k_sim
-            else:                                    # 两轴齐 → magic（一轴为 0 ⇒ 0）
-                score = place_fuse.magic(s, k_sim)
+                score, axes, by = k_sim, 1, key_by
+            elif not has_key:                        # 只有叙事轴可算 → 走单轴（用户裁决）
+                score, axes, by = s, 1, "no_key"
+            else:                                    # 两轴齐 → magic（一轴为零 ⇒ 0）
+                score, axes, by = place_fuse.magic(s, k_sim), 2, key_by
             if score <= 0.0:
-                continue                             # 两根轴都没关系 → 不编命中
+                continue                             # 能算的轴都给不出关系 → 不编命中
             # ⚠️ `same_image` **只认键字面相等**（`key_sim_by == "same"`）——
             # `key_sim` 满分还有一种来源: 键名 token 包含（`rooftop` ⊆ `school_rooftop`）。
-            # 那种是"同一族图"，不是"同一张图"，别混。
-            same = k_by == "same"
+            # 那种是"同一族图"，不是"同一张图"，别混。**没有键更不许声称**。
+            same = has_key and k_by == "same"
             hits.append(ChannelHit(
                 node=n, raw=float(score), rank=0,
-                detail={"by": "same_image" if same else "similar_key",
+                detail={"by": by,
                         "same_image": same,
                         "key_sim": round(k_sim, 3), "key_sim_by": k_by,
                         "key": k_key,
                         "sem": (round(s, 3) if s is not None else None),
-                        "axes": 2 if s is not None else 1}))
+                        "axes": axes}))
         hits.sort(key=lambda h: -h.raw)
         for i, h in enumerate(hits, 1):
             h.rank = i
         res.hits = hits
         if not hits:
-            res.note = "无相关命中（两轴都为零: 素材不相干, 且没有可比的 writer 原话）"
+            res.note = "无相关命中（能算的轴都为零: 素材不相干, 且没有可比的 writer 原话）"
         res.knobs = {"place_now": now_place, "n_nodes": len(nodes),
                      "hit": len(hits), "same_image": sum(1 for h in hits
                                                          if h.detail["same_image"]),
+                     "no_key": sum(1 for n in nodes if not n.place),
                      "sem": sem_note or "ok"}
         return res
 
