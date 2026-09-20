@@ -137,8 +137,9 @@
    两者的边界等价早已有测试：`tests/core/test_records.py::test_board_split_batch_stream_equivalence`）。
 2. **守卫与闸** ✅：`check_block`（块级，`contract/records.py`）与 `check_board`
    （板级，同文件）各一份实现，由 **`DeliveryMode`** 决定"违规时是拦还是记"。
-3. **板级 lifecycle（未提交/已交付/已提交）**：见 §3.1，它是 c′ 的板级闸、
-   也是 `docs/DESIGN_RESEND.md` 的"重发/拒绝"共用的底座。
+3. **板级 lifecycle**（**节点 2″ 已落地** ✅）：`webgui/bond.py::BoardLifecycle`
+   （`PROVISIONAL → DELIVERED → COMMITTED`）+ 唯一丢弃入口 `_discard_boards`；
+   它是 c′ 的板级闸、也是 `docs/DESIGN_RESEND.md` 的"重发/拒绝"共用的底座。
 
 **一个显式枚举**：
 
@@ -154,19 +155,27 @@
 **不变量**：**真源里永不出现"未提交"的板**——章级已由 `core/session/staging.py` 保证
 （章内一切先进 `soul/staging/events.jsonl`，见 `vn_exit` 才整段 append），**板级由本计划保证**。
 
-### 3.1 板级 lifecycle（协议草案）
+### 3.1 板级 lifecycle（**节点 2″ 已落地** ✅）
 
 ```
-provisional ──校验通过──► delivered ──裁决/推进──► committed（≈ 现在 scene_logged=True）
+PROVISIONAL ──交付上屏──► DELIVERED ──裁决/推进/收尾──► COMMITTED（旧 scene_logged=True）
      │                        │
-     └──校验不过──► 丢弃       └──玩家重发/被 supersede──► 作废（同"丢弃"语义）
+     └──丢弃──►（无痕）        └──重发/被 supersede──► 丢弃（同"无痕"语义）
 ```
 
-- **挂点**：已有的写入口 `webgui/bond.py::_stage_store` / `_flow_store`（注释已写明"只用于写"）；
-- **三类"丢弃"共用一条路**：① 违规板不交付（c′ 的闸）② 玩家重发（见 `DESIGN_RESEND.md`）
-  ③ 邀约被拒（整章丢暂存，`staging.py` 已实现）；
+- **落地形态**：`webgui/bond.py::BoardLifecycle`（`str` 枚举 + `committed` 属性）取值于
+  `BondState.scene_state`; `PROVISIONAL` 那一态由**预生成板**占据（`state.pregen_obj`,
+  不进 `scene_obj`）; 状态也随 `bond_status` 出（`scene_state=delivered|committed`）;
+- **唯一丢弃入口**：`_discard_boards(state, char_id, reason=…)`——清预生成板 + 候选支池
+  + 草稿旁路（"已生成未播放"的持久化落点）, 并打一行 `bond_boards_discarded reason=…`
+  作为**唯一痕迹**。⚠️ 它**不动当前板**（`DELIVERED` 已在玩家屏上, 丢它是产品决策）,
+  也**不动 `_prewarm_cache`**（那是章节入口的暂存首场, 新鲜度判据 `staged_seq`）;
+- **三类"丢弃"的关系**：① 违规板不交付（c′ 的闸——引擎侧根本不交付, 无内存可清）
+  ② 玩家重发（`DESIGN_RESEND.md`, 用 `_discard_boards`）③ 邀约被拒（整章丢暂存,
+  `staging.py` 已实现, 生命周期属"章"不属"板"）;
 - **不变量断言**：*任何"丢弃"都不需要写任何标记到真源*（这正是 `staging.py` 相对
-  `vn_abandon` 的核心优势——"漏一处就污染"变成"零过滤"）。
+  `vn_abandon` 的核心优势——"漏一处就污染"变成"零过滤"）。节点 2″ 的用例
+  `test_discard_boards_is_traceless` 直接比对丢弃前后 overlay 的事件 seq 列表。
 
 ---
 
@@ -177,7 +186,7 @@ provisional ──校验通过──► delivered ──裁决/推进──► c
 | ✅ **0** | **协议与设计**（本文 + `DESIGN_RESEND.md`） | 钉住现状、Decision 0、板级 lifecycle、forward-compat 约束 | 两份文档落地 + CLAUDE.md 路由登记（提交 `0393796`） | 无（未动代码） |
 | ✅ **1** | **特征化测试网 + 生产可观测** | ① `tests/core/test_pipeline_parity.py`（7 例）把 §2.2 的差异**显式写成期望值** ② 流式分支的问题**文本**进日志（`issues_txt=`）③ `tests/webgui/test_bond.py::test_scene_logged_is_provisional_until_pick` 钉住 provisional 状态 **+ 章级暂存两层边界** | 全量 **861 passed**（853 → +8）；**零行为改动** | 0 |
 | ✅ **2′** | **单一 `records → boards` + 板级闸 + 交付模式** | ① `_BoardAssembler`（不可见板向前合并 / 板上限 / `art` 挂首板 / 章内二次 memorial）两条路共用 ② `contract/records.py::check_board`（板级闸: `end` 后还有记录 / 同板多条 memorial / 纪念区间内换场）③ `DeliveryMode` 枚举（`STREAM`/`BLOCK`）写进 trace ④ 流式**首板交付前**拦、已交付后 advisory | 8 例 parity 全绿（差异集合 = **仅剩交付时机 + 有意的模式差异**）；全量 **862 passed** + **B 层 e2e 冒烟 PASS** | 中（已过: 批式行为变更无回归 + 全量绿） |
-| **2″**（新增, 未做） | **板级 lifecycle 显式化** | 把 `scene_logged`（裸 bool）升为显式状态机 `provisional → delivered → committed`（+ 统一"丢弃"入口, 挂在写入口 `_stage_store`/`_flow_store`） | 状态可断言; `docs/DESIGN_RESEND.md` 的"重发/拒绝"能挂上来 | 小-中 |
+| ✅ **2″** | **板级 lifecycle 显式化** | ① `webgui/bond.py::BoardLifecycle`（`PROVISIONAL`/`DELIVERED`/`COMMITTED` + `committed` 属性）取代裸 bool `scene_logged`（9 处迁移）② `_discard_boards(state, char_id, reason=…)` = **唯一丢弃入口**（预生成板 + 候选支池 + 草稿旁路; 打 `bond_boards_discarded` 一行 = 唯一痕迹; 不动当前板/预热缓存）③ 接进 `_pregenerate` 失败降级与 `bond_finish` 收尾 ④ `bond_status` 出 `scene_state` + `pregen_ready` | `test_bond.py`：`test_scene_logged_is_provisional_until_pick` 改成断言 `DELIVERED → COMMITTED`（原节点 1 的锚点）+ 新增 `test_discard_boards_is_traceless`（丢弃前后 overlay 事件 seq **一条不多一条不少**, 三处引用全清而当前板不动）；全量 **869 passed** | 小-中（已过） |
 | — | *为什么 2″ 单列*: 它是 `DESIGN_RESEND`（重发/拒绝）与"板级 lifecycle"的**地基**, 但**不是**流水线统一所必需——节点 2′（闸+交付模式）已经独立成立且可验收。拆开做可以避免"为将来的功能拖住当下的收敛"。 | | | |
 | ✅ **5** | **测试桩对齐生产** | 给 `test_web_http.py`（原 **0 个** `chat_full`）与 `test_bond.py` 的桩补 `chat_full`——**按行喂 `on_chunk`**（= 真机 `LLMClient.chat_full` 语义, 板一闭合即交付）; 新增 `test_webgui_runs_on_streaming_production_path` 断言 trace 是 `record_stream/streamed` 且 `delivery_mode=stream` | **webgui 37 例全绿**（切到生产路径**零失败** = 节点 2′ 统一为真的最强证据）+ 全量 **863 passed** | 小改动、**大暴露面**（已过: 零回归） |
 | **5b**（新增, 待定） | **桩的结构化分派**（ARCH_REVIEW P2-8） | 桩现在按**自然语言关键字**分派（`情绪标签` / `变更句数组` / `地点 id JSON` / `选中的文件名` / `记录员`）——**改文案就静默不命中**。结构化做法 = 给 LLM 调用加 `task=` 元数据（**不进 messages**, 不改 prompt/夹具）, 桩按它分派 | 产品侧 **8 个调用点**（`emo_text` · `emotion_annotate`×2 · `place_annotate`×2 · `variant_annotate` · `wiki_v2/llm_call` · `momotalk` · `bond_story`）+ 客户端签名 + 各测试桩 | 中（动 LLM 客户端的公共签名） |
@@ -185,8 +194,8 @@ provisional ──校验通过──► delivered ──裁决/推进──► c
 | ✅ **4′** | **预生成与 live 同路径** | `webgui/bond.py::_pregenerate` 补 `on_board=_on_pregen_board` ⇒ 预生成也走 `DeliveryMode.STREAM`（此前不传 ⇒ 退回批式, 同一份输出两条路给出**不同的板**）。回调**只记账不落库** = 预生成 **provisional**（真源/暂存的 `bond` 事件等玩家消费时 `_log_scene` 才写; "丢弃"不需要清任何东西）。新增台账 `bond_pregen_board board=N recs=N dur=ms`（预生成**首板**到达时刻, 与 `bond_pregen src=gen dur=` 的"整块写完"对照）。⚠️ 显式 lifecycle 枚举（provisional→delivered→committed）仍归节点 2″ | 新用例 2 例（`tests/webgui/test_bond.py`）：`test_pregen_uses_live_delivery_path`（同一记录流 live/pregen **板载荷逐字节一致** + 预生成 trace 是 `record_stream/streamed`/`delivery_mode=stream`; **去掉 `on_board` 即红**——已实测）、`test_pregen_board_is_provisional_until_adopted`（预生成不落库/在草稿旁路 → adopt 只是提升 → 再推进才写暂存, 真源仍无） | 中（已过: 全量 **868 passed** + B 层冒烟） |
 | ✅ **6** | **`Issue(code, severity)` 结构化** | ① `contract/records.py`: `IssueCode`（`block.*`/`board.*`）+ `IssueSeverity` + **`ISSUE_SEVERITY: IssueCode → IssueSeverity` 唯一真源** + `Issue(code, message)`（`severity` 是派生属性）+ `format_issues`/`split_issues` ② `check_block`/`check_board` 返回 `list[Issue]`；`bond_story.HARD_BLOCK_ISSUE_MARKS` 与 `split_board_issues` **删除** ③ trace 里问题分两份：人读文本 `issues` + 机器码 `issue_codes` ④ 测试断言改成看 `IssueCode` | **守门用例** `test_records.py::test_issue_severity_is_declared_by_code_not_message`（软问题文案**塞满硬关键词**也不改分级 / 每个码必须声明严重度 / 源码不许复活子串分级）；全量 **866 passed** | 低（已过） |
 
-**顺序 = 0 → 1 → 2′ → 5 → 3 → 6 → 4′**（**主链已全部落地**；剩下的是两个可选地基项
-2″/5b + `webgui/bond.py` 文件拆分），理由：
+**顺序 = 0 → 1 → 2′ → 5 → 3 → 6 → 4′ → 2″**（**全部落地**；唯一没做的是 5b——桩的结构化
+分派, 以及用户 2026-09-21 说"之后再做"的 `webgui/bond.py` 文件拆分），理由：
 
 - **1 必须先做**：现在没有任何测试证明两条路等价（§2.5），动刀前先建网；
 - **5 放在 2′ 之后、3/4′ 之前**：此时两条路已等价，不会一次爆几十个红；而它一旦生效，
@@ -195,6 +204,8 @@ provisional ──校验通过──► delivered ──裁决/推进──► c
   （节点 3 引入的 `_pending_feedback` 正好是第一个"软硬都要走同一条路"的消费者）；
 - **4′ 放最后**：它动性能主路径（预热/预生成链），单独验收更容易定位回归；
   且它的验收方式就是"与 live 逐字节一致"——前面的节点没落地时这条根本没意义。
+- **2″ 收尾**：它是三个"可选地基"里唯一被未来需求（重发 / 拒绝 / 多人）**反复踩到**的
+  那块——放在最后做, 正好把前面所有节点的状态语义一次性收进一个枚举。
 
 ---
 

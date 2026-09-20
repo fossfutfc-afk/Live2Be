@@ -31,6 +31,7 @@ import queue
 import threading
 import time
 from dataclasses import dataclass, field
+from enum import Enum
 from pathlib import Path
 
 from contract import NON_PICKS
@@ -145,6 +146,38 @@ class ChoiceCandidate:
     status: str = "generating"                   # generating | ready | failed
 
 
+class BoardLifecycle(str, Enum):
+    """**板级生命周期**（节点 2″, 2026-09-21）——取代裸 bool `scene_logged`。
+
+    讲的是"**当前板**（`state.scene_obj`）走到哪一步了":
+
+        PROVISIONAL ──交付上屏──► DELIVERED ──裁决/推进/收尾──► COMMITTED
+             │                        │
+             └──丢弃──►（无痕）        └──丢弃──►（无痕；"丢弃"不写任何标记）
+
+    · `PROVISIONAL`: 已生成、**没交付**——预生成的板（`state.pregen_obj`）就是这一态;
+    · `DELIVERED`:   已上屏, 正文**还没进事件流**（`_log_scene` 待写）;
+    · `COMMITTED`:   正文已 append 进事件流（进暂存还是真源由 B0 决定）。
+
+    ## 为什么值得显式化
+
+    `docs/DESIGN_RESEND.md` 的"重发 / 拒绝羁绊"要按**固化线**分两区处置:
+    `DELIVERED`（水位之上）**直接丢**——真源与暂存里本来什么都没有;
+    `COMMITTED`（水位之下）只能走 `wiki_v2/revise` **更正**。
+    一个 bool 让这两区的区别只活在注释里, 谁都能顺手 `= True`。
+    三态 + 唯一丢弃入口 `_discard_boards` 之后, 这条边界可断言、可 grep。
+    """
+
+    PROVISIONAL = "provisional"
+    DELIVERED = "delivered"
+    COMMITTED = "committed"
+
+    @property
+    def committed(self) -> bool:
+        """正文是否已进事件流（旧 `scene_logged=True` 的等价物）。"""
+        return self is BoardLifecycle.COMMITTED
+
+
 @dataclass
 class BondState:
     """一场羁绊剧情的驱动状态（per (char_id, session_id) 内存态）。"""
@@ -160,7 +193,10 @@ class BondState:
     scene_obj: BondScene | None = None  # 当前展示场景（运行时对象, 含 memorial 标记）
     scene: dict | None = None           # scene_obj.to_dict()（前端消费）
     scene_input: str = ""               # 生成 scene 用的输入（落库 input 字段）
-    scene_logged: bool = True           # scene 是否已落事件流（append-only: 玩家裁决时补录）
+    #: 板级生命周期（节点 2″, 2026-09-21; 原 `scene_logged: bool`）——见 `BoardLifecycle`。
+    #: 缺省 COMMITTED: 回放/预热缓存/草稿旁路这些"正文已在事件流里"的路径直接落地,
+    #: 真·新生成的板由 `_scene_landed` 显式降到 DELIVERED。
+    scene_state: BoardLifecycle = BoardLifecycle.COMMITTED
     error: str = ""
     completed: bool = False             # 剧情已终结（is_end 自然收尾 → True）
     #: 上次是**中途退出**（`vn_exit completed=False`）——进入时由
@@ -186,7 +222,7 @@ class BondState:
     t_staged: float = 0.0
     # 中断接入（2026-09-07）: 中断重进（无内存态）→ 回放已记录前缀（narrative-ized
     # 场景队列, 逐场本地推进, 0 LLM）; 队列尽 → 交棒常规 live 路径（promotion/生成）。
-    # 回放场景来自事件流（已落库, scene_logged=True 不重复落）; 最后一场展示即
+    # 回放场景来自事件流（已落库, `scene_state=COMMITTED` 不重复落）; 最后一场展示即
     # 预生成续写（读屏期间完成, handoff 零等待）。
     replay_scenes: list[dict] | None = None    # None = 非回放; [] = 队列尽待交棒
     # Storyloom bridge 式预生成（2026-08-30）: 纯叙事场（无 choices）渲染完成即
@@ -854,7 +890,7 @@ def _start_replay(state: BondState, replay_q: list[dict],
                   char_id: str, session_id: str) -> dict:
     """进入回放模式: 引擎就绪（handoff 用, 历史=事件流窗口）+ 首场入屏。
 
-    回放场景 scene_logged=True（事件流已落库, 不重复落）; 若队列只有一场（或
+    回放场景 `scene_state=COMMITTED`（正文来自事件流, 不重复落）; 若队列只有一场（或
     最后一场入屏后队列尽）→ 立即预生成续写（_pregenerate, 玩家读屏期间完成,
     handoff 时零等待）。不写 vn_enter（事件流已有在押的——沿用同一段）。
     """
@@ -899,7 +935,7 @@ def _start_replay(state: BondState, replay_q: list[dict],
     _ensure_memorial_img(state, char_id, session_id)     # 回放: 恢复档案纪念图
     state.scene = state.scene_obj.to_dict()
     state.round = 1
-    state.scene_logged = True                 # 已落库——回放不重复落
+    state.scene_state = BoardLifecycle.COMMITTED   # 正文来自事件流——回放不重复落
     _log_board_deliver(state, state.scene_obj, char_id, session_id, "replay")
     if not state.replay_scenes:
         # 单场（或最后一场）: 续写在读屏期间备好 → 交棒零等待。
@@ -1431,7 +1467,7 @@ def bond_turn(char_id: str, session_id: str, text: str) -> dict:
             _ensure_memorial_img(state, char_id, session_id)   # 回放: 恢复档案图
             state.scene = state.scene_obj.to_dict()
             state.round += 1
-            state.scene_logged = True          # 事件流已落库——回放不重复落
+            state.scene_state = BoardLifecycle.COMMITTED    # 正文来自事件流——回放不重复落
             _log_board_deliver(state, state.scene_obj, char_id, session_id, "replay")
             if not state.replay_scenes:
                 # 最后一场入屏 → 优先接续**草稿旁路**（已生成未播放, 0 LLM 续播,
@@ -1480,7 +1516,7 @@ def bond_turn(char_id: str, session_id: str, text: str) -> dict:
         state.scene_obj = state.pregen_obj
         state.scene = state.pregen_scene
         state.scene_input = state.pregen_input
-        state.scene_logged = False
+        state.scene_state = BoardLifecycle.DELIVERED
         state.pregen_obj = None
         state.pregen_scene = None
         state.pregen_input = ""
@@ -1564,7 +1600,7 @@ def bond_turn(char_id: str, session_id: str, text: str) -> dict:
             place=state.scene_obj.place,
         )
         state.scene = state.scene_obj.to_dict()
-        state.scene_logged = True    # 分支是场景一部分（已随场景落库）——继续时不重复落
+        state.scene_state = BoardLifecycle.COMMITTED   # 分支属场景一部分（已随场景落库）
         _log_board_deliver(state, state.scene_obj, char_id, session_id, "branch")
         # 分支反应段 = 同板延续（地点不重新判定, 主场景的 place 判定已随门控完成）;
         # 置就绪标记 → 不占 place lane（§7 gate 双路语义）
@@ -1612,7 +1648,7 @@ def bond_turn(char_id: str, session_id: str, text: str) -> dict:
         scene["choices"] = []
         scene["picked"] = text
         state.scene = scene
-        state.scene_logged = True                 # 本板已随裁决落库
+        state.scene_state = BoardLifecycle.COMMITTED   # 本板已随裁决落库
         # 裁决后立刻备料（P0-7c 修正）: 这里必须先 record_picked（上面已做）——
         # 预生成请求的历史要含物化裁决行。待发有货 → 0 LLM 领出反应板; 没货 →
         # 真生成下一拍（玩家读上一句的时间即缓冲桥）。
@@ -1679,6 +1715,10 @@ def bond_status(char_id: str, session_id: str) -> dict:
         "scene": state.scene,
         "error": state.error,
         "completed": state.completed,
+        # 板级生命周期（节点 2″）: delivered（已上屏未提交）/ committed（已进事件流）——
+        # 诊断用; "预生成待消费"由 pregen_wait/场景自身能否被提升体现
+        "scene_state": state.scene_state.value,
+        "pregen_ready": bool(pregen is not None),
         "name": role["name"],
         "club": role["club"],
         # 章节标题（2026-09-11）: 名字牌照常, 标题也随 status 一路带着——
@@ -1759,11 +1799,10 @@ def bond_finish(char_id: str, session_id: str) -> dict:
     logger.info("bond_finish 执行 %s/%s completed=%s（入口留痕）",
                 char_id, session_id, state.completed)
     _prewarm_cache_delete(char_id, _flow_store(state))   # 收尾: 旧首场缓存一并失效
-    _draft_delete(char_id, _flow_store(state))           # 收尾: 未播放草稿一并失效（#28b）
-    # SceneStream P1.5（中断/收尾防御, 2026-09-08 审计）: 会话收尾即清候选池
-    # ——后台候选（若仍在生成）作废孤儿, 停止烧 token; 未选支零落库由
-    # _log_scene 边界结构保证（候选从不触碰事件流）
-    _discard_candidates(state)
+    # 收尾: 未播放的预生成板/候选支/草稿一并作废（节点 2″: 走**唯一丢弃入口**——
+    # 后台候选若仍在生成即孤儿, 停止烧 token; 未选支零落库由 `_log_scene` 边界
+    # 结构保证：候选从不触碰事件流）
+    _discard_boards(state, char_id, reason="finish")
 
     # 收尾前等最后场景标注就绪（2026-09-02 emotion; P3b-1 双路齐）——append-only
     # 落库缺 emotion/place 不可补; 标注 worker 独立线程, 短等（失败兜底也回填/
@@ -1955,7 +1994,7 @@ def _open_vn_seq(char_id: str, session_id: str, store=None) -> int:
 def _draft_boards(state: "BondState") -> list[dict]:
     """当前草稿 = [未落库的当前板?] + 引擎待发板队列（播放顺序）。"""
     boards: list[dict] = []
-    if state.scene_obj is not None and not state.scene_logged:
+    if state.scene_obj is not None and not state.scene_state.committed:
         boards.append(state.scene_obj.to_dict())
     vn = state.vn
     for sc in list(getattr(vn, "_pending_boards", []) or []):
@@ -2105,7 +2144,7 @@ def _scene_landed(state: BondState, scene: BondScene, char_id: str,
     state.scene_obj = scene
     state.scene = scene.to_dict()
     state.scene_input = user_input
-    state.scene_logged = False
+    state.scene_state = BoardLifecycle.DELIVERED
     if scene.memorial and state.vn is not None:
         # 纪念区间置位（2026-09-12）: 引擎侧 `_finish_scene` 已置位, 但**预热缓存/
         # 草稿旁路/回放**这些“直接落地”的路径绕过它——统一在这里补一道（只置位,
@@ -2187,7 +2226,7 @@ def _generate(state: BondState, char_id: str, session_id: str, user_input: str) 
                     # 首板不必等整块写完（实测省 ~4-5s 首屏等待）。落地一次即止
                     # （`_streamed` 标记让下面的统一落地跳过它）。
                     def _on_board(scene_b: BondScene) -> None:
-                        if state.scene_obj is not None and not state.scene_logged:
+                        if state.scene_obj is not None and not state.scene_state.committed:
                             return          # 已有未播放板（不该发生）→ 不覆盖
                         scene_b._call_id = cid
                         _scene_landed(state, scene_b, char_id, session_id,
@@ -2345,9 +2384,7 @@ def _pregenerate(state: BondState, char_id: str, session_id: str) -> None:
         except Exception as e:                     # noqa: BLE001 — 预生成失败降级
             logger.warning("bond 预生成失败 (%dms, 降级为点击时再生成): %s",
                            _ms_since(t0), e)
-            state.pregen_obj = None
-            state.pregen_scene = None
-            state.pregen_input = ""
+            _discard_boards(state, char_id, reason="pregen-fail")
             _draft_save(state, char_id, session_id)    # 队列/当前板仍值得留（#28b）
         finally:
             state.busy = False
@@ -2356,6 +2393,36 @@ def _pregenerate(state: BondState, char_id: str, session_id: str) -> None:
     th = threading.Thread(target=run, daemon=True)
     state._pregen_thread = th                    # 看门狗存活判定用
     th.start()
+
+
+def _discard_boards(state: BondState, char_id: str, *, reason: str) -> None:
+    """**统一的"丢弃未提交内容"入口**（节点 2″, `EXEC_PIPELINE_UNIFY` §3.1 不变量）。
+
+    "丢" = **什么都不写**。append-only 真源与章内暂存里本来就没有未提交的板, 所以
+    丢弃只是一次内存/草稿引用的摘除——**没有任何标记要清**, 也就没有"漏一处就污染"
+    的问题（这正是 `staging.py` 相对 `vn_abandon` 的优势, 见 `docs/DESIGN_RESEND.md`）。
+
+    覆盖三类未提交内容:
+      ① **预生成板**（`pregen_obj/scene/input`）——生命周期里的 PROVISIONAL;
+      ② **候选支池**（未选支的 fork 结果, 纯内存孤儿）;
+      ③ **草稿旁路**（"已生成未播放"的持久化临时存储——预生成板的落点）。
+
+    ⚠️ **不动当前板**（`scene_obj` / `scene` / `scene_state`）: 它一旦 DELIVERED 就是
+    玩家屏上的内容, 要不要丢是**产品决策**（重发 / 拒绝邀约, 见 `docs/DESIGN_RESEND.md`
+    的两区语义）, 不是清理动作。所以这里**不**替调用方决定, 只清"没人看过的东西"。
+    ⚠️ 也不动 `_prewarm_cache`（那是**章节入口**的暂存首场, 生命周期属于"预热"而非
+    "板"——它的失效判据是新鲜度 `staged_seq`, 见 `_prewarm_cache_delete`）。
+    """
+    had_pregen = state.pregen_obj is not None or state.pregen_scene is not None
+    n_cands = len(state.choice_candidates or [])
+    state.pregen_obj = None
+    state.pregen_scene = None
+    state.pregen_input = ""
+    _discard_candidates(state)
+    _draft_delete(char_id, _flow_store(state))
+    # 丢弃的**唯一痕迹**就是这行日志（不写事件流——这正是 §3.1 那条不变量）
+    logger.info("bond_boards_discarded reason=%s pregen=%s candidates=%d %s",
+                reason, "yes" if had_pregen else "no", n_cands, char_id)
 
 
 def _discard_candidates(state: BondState) -> None:
@@ -2630,14 +2697,14 @@ def _log_scene(state: BondState, char_id: str, session_id: str, picked) -> None:
     与 CLI 落库格式一致: {**scene.to_dict(), "input": 本场输入, "picked": 玩家裁决}
     ——回放兼容（filter_bond → BondScene.from_dict + input/picked）。
 
-    2026-09-13 修正（审计 B6）: `scene_logged = True` 原先在 `try` **之外**，
+    2026-09-13 修正（审计 B6）: 置位 `scene_logged = True` 原先在 `try` **之外**，
     写失败（磁盘/权限/序列化）时仍置位 → 该板**永远不会再尝试落库**：
-    回忆册/回放缺这一板, 草稿旁路（只收 `not scene_logged` 的板）也不再含它。
-    现在只在 append 真正成功后置位——失败保持 False, 让下一次
-    `_log_scene`（下一次裁决/收尾/finish）重试。重复调用安全:
+    回忆册/回放缺这一板, 草稿旁路（只收 `not committed` 的板）也不再含它。
+    现在只在 append 真正成功后置位（`scene_state → COMMITTED`）——失败保持
+    DELIVERED, 让下一次 `_log_scene`（下一次裁决/收尾/finish）重试。重复调用安全:
     `_log_scene_meta` 只播 marker 不播板正文, 重试不会重复写板。
     """
-    if state.scene_logged or state.scene_obj is None:
+    if state.scene_state.committed or state.scene_obj is None:
         return
     scene = state.scene_obj
     sub = "story_end" if scene.is_end else "story_scene"
@@ -2648,7 +2715,7 @@ def _log_scene(state: BondState, char_id: str, session_id: str, picked) -> None:
     except Exception as e:                           # noqa: BLE001 — 写失败降级不阻断
         logger.warning("事件流 bond 写入失败（该板保持未落库, 下次裁决/收尾重试）: %s", e)
         return                                       # ← 不置位: 留一次重试机会
-    state.scene_logged = True
+    state.scene_state = BoardLifecycle.COMMITTED
 
 
 def _close_memorial_window(state: BondState, char_id: str, session_id: str,

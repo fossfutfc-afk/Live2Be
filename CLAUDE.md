@@ -465,6 +465,14 @@ CLI/测试同步路径在引擎内串行。
 - 结构：`webgui/bond.py`（BondState 状态机: busy/round/pregen/staged/replay/lanes/memorial…）、
   `webgui/chat.py`（每角色输入队列 worker + 预热挂钩）、`webgui/routers/*`（HTTP 壳,
   `_resolve_scene` 附 background_url/fx/place_bg）、`webgui/static/js/{bond,mmt,gui}.js`。
+- **板级生命周期（节点 2″, 2026-09-21）**：`webgui/bond.py::BoardLifecycle` 取代裸 bool
+  `scene_logged` —— `PROVISIONAL`（已生成未交付：预生成的板）→ `DELIVERED`（已上屏,
+  正文**还没**进事件流）→ `COMMITTED`（已 append 进暂存/真源）。取值于
+  `BondState.scene_state`, 也随 `bond_status` 出（`scene_state=delivered|committed`）。
+  **唯一丢弃入口** `_discard_boards(state, char_id, reason=…)`：清预生成板 + 候选支池 +
+  **草稿旁路**, 打一行 `bond_boards_discarded`（丢弃的**唯一痕迹**——真源/暂存零改动,
+  见 `docs/DESIGN_RESEND.md` §3 的两区语义：`DELIVERED` 直接丢 / `COMMITTED` 走 revise）。
+  ⚠️ 它**不动当前板**（已在玩家屏上 = 产品决策）也**不动预热缓存**（章入口的暂存首场）。
 - **预生成 = provisional（节点 4′, 2026-09-21）**：`_pregenerate` 与 live **同一条交付
   路径**（也传 `on_board` ⇒ `DeliveryMode.STREAM`——此前不传 ⇒ 批式, 同一份输出两条路
   给出**不同的板**）。它的 `on_board` 回调**只记账不落库**：板进 `state.pregen_scene`
@@ -624,14 +632,15 @@ CLI/测试同步路径在引擎内串行。
 - 体感延迟工程：docs/EXEC_BOND_LATENCY.md
 - **单一记录流流水线（c′）执行计划**：docs/EXEC_PIPELINE_UNIFY.md（**执行中**。
   Decision 0 = c′（用户 2026-09-21）: 一份 `records → boards` 派生 + **板级闸** + 显式
-  交付模式; 节点 0–6, 每节点一提交。**主链已全部落地: 0（协议）· 1（parity 测试网）·
+  交付模式; 节点 0–6, 每节点一提交。**全部落地: 0（协议）· 1（parity 测试网）·
   2′（`_BoardAssembler` + `check_board` + `DeliveryMode`）· 5（桩对齐生产路径）·
-  3（下一轮纠偏）· 6（`Issue(code, severity)` 结构化）· 4′（预生成与 live 同路径）**;
-  待做（可选地基）: 2″（板级 lifecycle 显式枚举）· 5b（桩结构化分派）; 另: `webgui/bond.py`
+  3（下一轮纠偏）· 6（`Issue(code, severity)` 结构化）· 4′（预生成与 live 同路径）·
+  2″（`BoardLifecycle` + `_discard_boards`）**; 未做: 5b（桩结构化分派）与 `webgui/bond.py`
   文件拆分（用户 2026-09-21 说"之后再做"）。来源 = ARCH_REVIEW P0-2/P0-3 的根治）
 - **重新生成 / 重发 的语义与固化线**：docs/DESIGN_RESEND.md（**设计稿, 未动代码**。
   决策: MMT 提交边界 = **回合提交**; 两区 = 水位之上**丢弃** / 水位之下走
-  `wiki_v2/revise` **更正**; 含 `vn_abandon` 族退休方案——存量真源 0 条, 读路径空转）
+  `wiki_v2/revise` **更正**; 板级那一半已由 `BoardLifecycle` + `_discard_boards` 落地;
+  含 `vn_abandon` 族退休方案——存量真源 0 条, 读路径空转）
 - 记忆体系总设计：根级 DESIGN_BRAIN.md（混合史, 慎读）；视觉协议：core/DESIGN_VISUAL_PROTOCOL.md
 - 模块级设计：core/DESIGN_{MMT_CHAT,GUI,SEGMENT,WORLD,MULTI_CHAR}.md（BOND_STORY 已归档）
   与 docs/archive/DESIGN_BOND_STORY.md（旧 VN 运行时）

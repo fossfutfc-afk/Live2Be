@@ -1004,16 +1004,15 @@ def test_webgui_runs_on_streaming_production_path(tmp_path):
 # ----------------------------------------------------------------------------
 
 def test_scene_logged_is_provisional_until_pick(tmp_path):
-    """两层边界一起钉住（节点 1, 2026-09-21）:
+    """两层边界一起钉住（节点 1 建立 → 节点 2″ 改成显式生命周期）:
 
-    · **板级**: `scene_logged` = "未提交"的现状锚点 —— 板交付（上屏）后仍是
-      provisional, 裁决后才提交进**暂存**;
+    · **板级**: `state.scene_state` = 板级生命周期 —— 板交付（上屏）后是 `DELIVERED`
+      （未提交）, 裁决后 `COMMITTED`（= 旧 `scene_logged=True`）;
     · **章级**: 章内一切事件进 `soul/staging/events.jsonl`, **真源**要等 `vn_exit`
       才整段 append（B0 整章暂存）。
 
     ⚠️ 所以断言必须读 **overlay**（`staging_store(st)`）——真源看不到章内事件。
-    这正是 ARCH_REVIEW P1-6 那条"读路径必须读 overlay"的隐性纪律在测试里的样子,
-    也是 `docs/EXEC_PIPELINE_UNIFY.md` 节点 2′（板级 lifecycle）要显式化的对象。
+    这正是 ARCH_REVIEW P1-6 那条"读路径必须读 overlay"的隐性纪律在测试里的样子。
     """
     from core.session.staging import staging_store
 
@@ -1031,16 +1030,63 @@ def test_scene_logged_is_provisional_until_pick(tmp_path):
 
         # ① 板级: 已交付（板对象就位, 前端能读）但**未提交**
         assert state.scene_obj is not None and state.scene is not None
-        assert state.scene_logged is False, "刚交付的板必须还是 provisional"
+        assert state.scene_state is bond.BoardLifecycle.DELIVERED, \
+            f"刚交付的板必须是 DELIVERED（未提交）, 实得 {state.scene_state}"
+        assert bond.bond_status(CHARACTER, sid)["scene_state"] == "delivered"
         assert not _bond_paras(overlay), "provisional: overlay 里也不该有正文"
         # ② 章级: 连真源都不该有（章内一切进暂存）
         assert not _bond_paras(st), "章内不该有任何 bond 正文进真源"
 
-        # 裁决 → 提交（写进**暂存**）
+        # 裁决 → 提交（`DELIVERED → COMMITTED`; 正文写进**暂存**）
         _turn_until_accepted(CHARACTER, sid, "选A")
         assert _bond_paras(overlay), "裁决后 overlay 里应有正文（已提交到暂存）"
         assert not _bond_paras(st), "但真源仍没有 —— 章内不进真源（B0 章暂存）"
-        print("    provisional: 交付未提交 → 裁决写暂存；真源等 vn_exit（两层边界）")
+        print("    lifecycle: DELIVERED（交付未提交）→ COMMITTED（裁决→暂存）；真源等 vn_exit")
+    finally:
+        _cleanup()
+
+
+def test_discard_boards_is_traceless(tmp_path):
+    """节点 2″: **统一丢弃入口** `_discard_boards` —— 丢 = 什么都不写。
+
+    预生成板（PROVISIONAL）落在三处: `state.pregen_*`、草稿旁路、候选支池。
+    §3.1 的不变量说"任何丢弃都不需要写标记到真源"——这条用例把它钉成可断言的事实:
+    丢弃前后事件流（overlay = 真源 + 暂存）**一条不多一条不少**, 而三处引用都清了。
+    """
+    from core.session.staging import staging_store
+
+    engine, st, sid, llm = _setup(tmp_path, _PLAIN_BLOCK, _PLAIN_BLOCK_2)
+    try:
+        bond.bond_start(CHARACTER, sid)
+        deadline = time.time() + 10.0
+        while time.time() < deadline and bond._state(CHARACTER, sid).pregen_scene is None:
+            time.sleep(0.05)
+        state = bond._state(CHARACTER, sid)
+        overlay = staging_store(st)
+        assert state.pregen_scene is not None, "第二场应被预生成（provisional）"
+        assert bond._draft_boards(state), "provisional 板应在草稿旁路里"
+        prov_text = [p["text"] for p in state.pregen_scene["paragraphs"]]
+        assert bond._draft_load(CHARACTER, sid, bond._flow_store(state)), \
+            "草稿旁路的**文件**里应有它（持久化的 provisional）"
+        before = [e.seq for e in overlay.events(CHARACTER, sid)]
+        cur_state = state.scene_state
+
+        bond._discard_boards(state, CHARACTER, reason="test")
+
+        after = [e.seq for e in overlay.events(CHARACTER, sid)]
+        assert after == before, f"丢弃不该写任何事件: {before} → {after}"
+        assert state.pregen_obj is None and state.pregen_scene is None
+        assert state.pregen_input == ""
+        assert state.choice_candidates == []
+        # provisional 板从草稿旁路（文件 + 派生视图）里一起消失……
+        assert not bond._draft_load(CHARACTER, sid, bond._flow_store(state)), \
+            "草稿旁路的文件应被删掉"
+        assert not [b for b in bond._draft_boards(state)
+                    if [p.get("text") for p in b.get("paragraphs", [])] == prov_text], \
+            "派生视图里也不该再有那张 provisional 板"
+        # ……但当前板（已在玩家屏上）**不在丢弃范围**: 状态不动
+        assert state.scene_obj is not None and state.scene_state is cur_state
+        print("    node2″: 丢弃 = 清引用 + 不写任何标记（当前板不动）")
     finally:
         _cleanup()
 
@@ -1146,7 +1192,7 @@ def test_pregen_board_is_provisional_until_adopted(tmp_path):
       （"已生成未播放"的临时存储）, 但事件流（overlay = 真源 + 章内暂存）里
       **没有**这一板的正文;
     · 玩家消费（`bond_turn("（继续）")` 的提升分支）→ 它成为当前板, 但仍与 live
-      交付的板**同一条规则**（`scene_logged=False`, 未提交）;
+      交付的板**同一条规则**（`scene_state=DELIVERED`, 未提交）;
     · 再推进一次 → `_log_scene` 写进**暂存**（真源仍要等 `vn_exit`, B0）。
 
     这条把"丢弃 = 什么都不用清"（`EXEC_PIPELINE_UNIFY` §3.1 不变量）钉成可断言事实。
@@ -1183,7 +1229,7 @@ def test_pregen_board_is_provisional_until_adopted(tmp_path):
         assert state2.scene_obj is not None
         assert [p["text"] for p in state2.scene["paragraphs"]] == provisional_text, \
             state2.scene
-        assert state2.scene_logged is False, "刚 adopt 的板仍是 provisional"
+        assert state2.scene_state is bond.BoardLifecycle.DELIVERED, "刚 adopt 的板仍是未提交"
         assert not [t for t in _texts(overlay) if t in provisional_text], \
             "adopt 只是提升, 还没提交"
         # 再推进一次 → 提交（写暂存; 真源仍无, B0 章内暂存）
