@@ -29,6 +29,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from core.momotalk import MomoTalkEngine  # noqa: E402
 from core.session import SessionStore  # noqa: E402
+from llm import task_labels as T  # noqa: E402
+from tests import stub_tasks  # noqa: E402
 from webgui import bond, chat  # noqa: E402
 from webgui.app import app  # noqa: E402
 
@@ -54,31 +56,24 @@ MMT_REPLY = {"messages": [{"text": "嗯……我、我其实很开心的！"}]}
 
 
 class ScriptedLLM:
-    """最小桩: 主生成给记录流 / MMT 轮给消息流, 标注与 digest 按关键字告空。"""
+    """最小桩: 主生成给记录流 / MMT 轮给消息流, 标注与 digest 按 **task** 告空。"""
 
     def __init__(self, *scripts):
         self._scripts = list(scripts) or [RECORD_BLOCK]
 
     def chat(self, messages, temperature=0.8, max_tokens=4096,
              response_format="text", **kw):
-        head = messages[0]["content"]
-        last = messages[-1]["content"] if len(messages) > 1 else ""
-        if "情绪标签" in last:                      # emotion 标注 → 全 nomal
-            m = re.search(r"恰 (\d+) 项", last)
-            n = int(m.group(1)) if m else 1
-            return ["nomal"] * n
-        if "变更句数组" in last:                        # place 标注 → 无变更
-            return []
-        if "地点 id JSON" in last:                      # 换场翻译 → 不切背景
-            return {"place": ""}
-        if "选中的文件名" in last:                # 选图（第二遍）→ 保持默认图
-            return {"image": ""}
-        if "记录员" in head or "整理者" in head:        # digest → 空包
-            return ({"episodes": []} if "记录员" in head
-                    else {"decisions": [], "evidence": [], "affection_exp_delta": 0})
-        if not self._scripts:
-            raise RuntimeError("ScriptedLLM 脚本耗尽")
-        return self._scripts.pop(0)
+        task = kw.get("task")
+        if task in (T.DIGEST_A, T.DIGEST_B):            # digest → 空包
+            return stub_tasks.annotation_reply(task, messages)
+        reply = stub_tasks.annotation_reply(task, messages)
+        if reply is not None:                           # 标注类 → 标准应答
+            return reply
+        if task in T.MAIN:
+            if not self._scripts:
+                raise RuntimeError("ScriptedLLM 脚本耗尽")
+            return self._scripts.pop(0)
+        raise stub_tasks.unknown_task(task)
 
     def format_messages(self, *, system_prompt, user_message, history=None):
         msgs = [{"role": "system", "content": system_prompt}]

@@ -32,6 +32,7 @@ import logging
 import re
 
 from llm.prompts import load_prompt
+from llm.task_labels import EMOTION
 from llm.task_levels import extra_body as _tl_extra
 from llm.task_levels import max_tokens as _tl_max_tokens
 
@@ -98,6 +99,7 @@ def _try_batch(
             temperature=0.2,
             max_tokens=max_tokens,
             extra_body=_tl_extra("emotion"),
+            task=EMOTION,                  # 调用身份（节点 5b: 桩按它分派）
         )
     except Exception as e:                     # noqa: BLE001 — 标注失败静默降级
         logger.warning("emotion 标注调用失败（降级）: %s", e)
@@ -215,6 +217,7 @@ def annotate_emotions(
             temperature=0.2,
             max_tokens=max_tokens,
             extra_body=_tl_extra("emotion"),
+            task=EMOTION,                  # 调用身份（节点 5b: 桩按它分派）
         )
     except Exception as e:                     # noqa: BLE001 — 标注失败静默降级
         logger.warning("emotion 标注调用失败（兜底延续）: %s", e)

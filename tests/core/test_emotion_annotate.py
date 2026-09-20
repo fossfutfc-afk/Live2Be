@@ -12,6 +12,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
+from llm import task_labels as T  # noqa: E402
+from tests import stub_tasks  # noqa: E402
 from tests.vn_fixtures import scene as _scene  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent.parent
@@ -24,11 +26,13 @@ class _AnnoLLM:
         self._s = list(scripts)
         self.calls = 0
         self.last_messages = None
+        self.last_task = None
 
     def chat(self, messages, temperature=0.2, max_tokens=256,
              response_format="json_object", **kw):
         self.calls += 1
         self.last_messages = [dict(m) for m in messages]
+        self.last_task = kw.get("task")        # 调用身份（节点 5b）
         if not self._s:
             raise RuntimeError("脚本耗尽")
         return self._s.pop(0)
@@ -50,6 +54,7 @@ def _annos(*scripts):
 def test_annotate_normal():
     llm, tags = _annos(["nomal", "smile", "embarrassed"])
     assert llm.calls == 1
+    assert llm.last_task == T.EMOTION, llm.last_task     # 调用身份（节点 5b）
     assert tags == ["nomal", "smile", "embarrassed"]
     # prompt 组装: 词表 + 句子行号都在
     sys_msg = llm.last_messages[0]["content"]
@@ -226,13 +231,19 @@ def test_engine_fill_passes_character():
             self.seen_system: str = ""
             self._scripts = [_scene(lines=["对不起……我又做错了……"])]
         def chat(self, messages, **kw):
+            task = kw.get("task")
             head = messages[0]["content"]
-            if "情绪标签" in (messages[-1]["content"] if len(messages) > 1 else ""):
+            if task == T.EMOTION:                    # 记录标注（节点 5b: 按 task 分派）
                 self.seen_system = head
                 return ["depressed"]
-            if not self._scripts:
-                raise RuntimeError("脚本耗尽")
-            return self._scripts.pop(0)
+            if task in T.MAIN:
+                if not self._scripts:
+                    raise RuntimeError("脚本耗尽")
+                return self._scripts.pop(0)
+            reply = stub_tasks.annotation_reply(task, messages)
+            if reply is not None:
+                return reply
+            raise stub_tasks.unknown_task(task)
         def format_messages(self, **kw):
             return []
 

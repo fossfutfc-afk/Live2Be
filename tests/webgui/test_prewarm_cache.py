@@ -20,6 +20,8 @@ from core.momotalk import MomoTalkEngine
 ROOT = Path(__file__).resolve().parent.parent.parent
 import sys  # noqa: E402
 sys.path.insert(0, str(ROOT))
+from llm import task_labels as T  # noqa: E402
+from tests import stub_tasks  # noqa: E402
 from tests.vn_fixtures import scene as _scene  # noqa: E402
 
 CHARACTER = "igusa_haruka"
@@ -30,7 +32,7 @@ SCENE2 = _scene(lines=["（LLM 现场生成的首场）"])
 
 
 class ScriptedLLM:
-    """计数 + 按序出场景; 标注/place 自动应答不消耗脚本。"""
+    """计数 + 按序出场景; 标注/place/digest 按 **task** 自动应答不消耗脚本。"""
 
     def __init__(self, *scripts):
         self._s = list(scripts)
@@ -38,23 +40,17 @@ class ScriptedLLM:
         self._lock = __import__("threading").Lock()
 
     def chat(self, messages, **kw):
-        last = messages[-1]["content"] if len(messages) > 1 else ""
-        head = messages[0]["content"]
-        if "情绪标签" in last:
-            import re
-            m = re.search(r"恰 (\d+) 项", last)
-            return ["nomal"] * (int(m.group(1)) if m else 1)
-        if "变更句数组" in last:
-            return []
-        if "选中的文件名" in last:                # 选图（第二遍）→ 保持默认图
-            return {"image": ""}
-        if "记录员" in head or "整理者" in head:
-            return {"episodes": []}
-        with self._lock:
-            self.calls += 1
-            if not self._s:
-                raise RuntimeError("脚本耗尽")
-            return self._s.pop(0)
+        task = kw.get("task")
+        reply = stub_tasks.annotation_reply(task, messages)
+        if reply is not None:                    # emotion/place/选图/digest → 标准应答
+            return reply
+        if task in T.MAIN:
+            with self._lock:
+                self.calls += 1
+                if not self._s:
+                    raise RuntimeError("脚本耗尽")
+                return self._s.pop(0)
+        raise stub_tasks.unknown_task(task)
 
 
 def _setup(tmp_path, *scripts):

@@ -55,7 +55,8 @@ class ScriptedLLM:
         self._scripts = list(scripts)
         self.snapshots: list[list[dict]] = []
 
-    def chat(self, messages, temperature=0.8, max_tokens=4096, response_format="text"):
+    def chat(self, messages, temperature=0.8, max_tokens=4096, response_format="text",
+             **kw):
         self.snapshots.append([dict(m) for m in messages])
         if not self._scripts:
             raise RuntimeError("ScriptedLLM 脚本耗尽: 预设回复已用完")

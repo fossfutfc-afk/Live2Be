@@ -27,6 +27,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(ROOT))
 
+from llm import task_labels as T  # noqa: E402
+
 #: 生图总开关: 界面冒烟绝不出图（纪念场景走纯文字降级）
 os.environ.setdefault("LIVE2BE_IMAGE", "off")
 
@@ -81,40 +83,43 @@ class StubLLM:
                 return c
         return ""
 
-    def _side_effect(self, system: str, note: str):
-        """标注/digest 旁路 → 合法空应答（不消耗主生成脚本）。"""
-        if "情绪标签" in note:
+    def _side_effect(self, task: str | None, note: str):
+        """标注/digest 旁路 → 合法空应答（不消耗主生成脚本）。
+
+        节点 5b（2026-09-21）: 判据从 prompt 中文关键字换成 `llm.chat(task=…)`
+        的**调用身份**——改文案不再让冒烟桩漂移（少一个分支的后果不是报错而是
+        **脚本漂移**: 调用落进主生成分支, 把 `bond_calls` 计数吃掉一轮）。
+        """
+        if task == T.EMOTION:
             m = re.search(r"恰 (\d+) 项", note)
             return ["nomal"] * (int(m.group(1)) if m else 1)
-        if "变更句数组" in note:
+        if task == T.PLACE:
             return []
-        if "地点 id JSON" in note:
+        if task == T.PLACE_BOARD:
             return {"place": ""}
-        if "选中的文件名" in note:
-            # 选图（第二遍, PL6′ 2026-09-19）→ 保持默认图。
-            # ⚠️ 少这一分支的后果不是"报错"而是**脚本漂移**: 选图调用会落进主生成分支,
-            # 把 `bond_calls` 计数吃掉一轮 → 后续每块都退化成兜底块（2026-09-20 实测:
-            # 冒烟的"重进回放·选项态"因此看不到选项）。
+        if task == T.PLACE_VARIANT:
+            # 选图（第二遍, PL6′ 2026-09-19）→ 保持默认图
             return {"image": ""}
-        if "记录员" in system:
+        if task == T.DIGEST_A:
             return {"episodes": []}
-        if "整理者" in system:
+        if task in (T.DIGEST_B, T.DIGEST):
             return {"decisions": [], "evidence": [], "affection_exp_delta": 0}
         return None
 
     # -- 契约（引擎只要求这两个方法）-----------------------------------------
     def chat(self, messages, temperature=0.8, max_tokens=4096,
              response_format="text", **kw):
+        task = kw.get("task")
         system = messages[0]["content"] if messages else ""
         note = self._last_note(messages)
-        side = self._side_effect(system, note)
+        side = self._side_effect(task, note)
         if side is not None:
             self.calls.append("side")
             return side
         # 全量文本（system_note 可能落在 system 段或独立 system 消息里——收尾轮
         # 的判据是"这段剧情刚结束/只进行到一半"这个**注记**, 不只看最后一条 user）
         joined = "\n".join(str(m.get("content") or "") for m in messages)
-        if "mmt_chat" in system or "MomoTalk" in system:
+        if task == T.MMT:
             self.mmt_calls += 1
             self.calls.append(f"mmt#{self.mmt_calls}")
             if self.mmt_calls == 1:
@@ -122,6 +127,10 @@ class StubLLM:
             if "羁绊剧情刚刚结束" in joined or "只进行到一半" in joined:
                 return WRAPUP_REPLY        # 收尾话（wrapup 轮）——区别于普通回复
             return MMT_REPLY
+        if task != T.BOND:
+            raise AssertionError(
+                f"冒烟桩不认识 task={task!r}（产品侧漏传或新增任务没补桩; "
+                f"system 首 40 字: {system[:40]!r}）")
         self.bond_calls += 1
         self.calls.append(f"bond#{self.bond_calls}")
         return BOND_BLOCK if self.bond_calls == 1 else BOND_FALLBACK

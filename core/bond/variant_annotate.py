@@ -36,6 +36,7 @@ import logging
 import re
 
 from llm.prompts import load_prompt
+from llm.task_labels import PLACE_VARIANT
 from llm.task_levels import extra_body as _tl_extra
 from llm.task_levels import max_tokens as _tl_max_tokens
 
@@ -107,6 +108,7 @@ def pick_image(
                 temperature=0.2,
                 max_tokens=max_tokens,
                 extra_body=_tl_extra("place"),
+                task=PLACE_VARIANT,        # 选图（节点 5b: 桩按它分派）
             )
         except Exception as e:                        # noqa: BLE001 — 失败静默降级
             logger.warning("选图调用失败（保持当前画面）: %s", e)

@@ -51,7 +51,8 @@ class StubLLM:
     def __init__(self):
         self.calls = 0
 
-    def chat(self, messages, temperature=0.8, max_tokens=4096, response_format="text"):
+    def chat(self, messages, temperature=0.8, max_tokens=4096, response_format="text",
+             **kw):
         self.calls += 1
         return {"action": "mmt_chat", "reply": "嗯！", "payload": {}}
 

@@ -23,6 +23,7 @@ import re
 
 from core.bond.emotion_annotate import _extract_array
 from llm.prompts import load_prompt
+from llm.task_labels import EMOTION
 from llm.task_levels import extra_body as _tl_extra
 from llm.task_levels import max_tokens as _tl_max_tokens
 
@@ -250,6 +251,7 @@ def annotate_items(
                 # 由引擎数项, 自纠错风暴不再触发
                 response_format="json_object",
                 extra_body=_tl_extra("emotion"),
+                task=EMOTION,              # 调用身份（节点 5b: 桩按它分派, 不进 payload）
             )
         except Exception as e:                  # noqa: BLE001 — 失败重试/板内延续
             logger.warning("emo 按板标注调用失败(第 %d/%d 次) group=%d: %s",

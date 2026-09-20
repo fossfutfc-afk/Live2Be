@@ -49,6 +49,7 @@ from pathlib import Path
 
 from core.common import Live2BeError, err
 from llm.client import LLMClient, feedback
+from llm.task_labels import MMT
 from llm.task_levels import max_tokens as task_levels_max_tokens
 from contract import APPROVAL_AUTO, DOMAIN_MMT, AgentAction, build_schema
 from core.bond.bond_progress import BondProgress
@@ -809,6 +810,7 @@ class MomoTalkEngine:
                 response = self.llm.chat(
                     messages, temperature=TEMP, max_tokens=MMT_MAX_TOKENS,
                     response_format="json_object",
+                    task=MMT,          # 主链调用身份（节点 5b: 桩按它分派）
                 )
             except Exception as e:
                 logger.warning("LLM 调用失败（step %d）: %s", step, e)

@@ -30,6 +30,7 @@ from core.bond.bond_story import BondStoryEngine            # noqa: E402
 from core.media.catalog import MediaCatalog                 # noqa: E402
 from core.media.place_table import load_table               # noqa: E402
 from core.ui.vn_cli import _build_director                  # noqa: E402
+from llm import task_labels as T                            # noqa: E402
 from llm.client import LLMClient                            # noqa: E402
 
 #: 默认种子刻意**邀请移动**（不换场就验不出"背景能不能切"）
@@ -47,9 +48,9 @@ class Counting:
         self.gen_calls = 0
 
     def chat(self, messages, **kw):
-        last = messages[-1]["content"] if len(messages) > 1 else ""
-        is_pick = "选中的文件名" in last
-        is_place = ("地点 id JSON" in last) or ("变更句数组" in last) or is_pick
+        task = kw.get("task")
+        is_pick = task == T.PLACE_VARIANT
+        is_place = task in (T.PLACE, T.PLACE_BOARD, T.PLACE_VARIANT)
         t0 = time.time()
         out = self.inner.chat(messages, **kw)
         dt = time.time() - t0
