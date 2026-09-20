@@ -720,8 +720,12 @@ class BondStoryEngine:
                     "parse_valid": bool(stream.records),
                     "issues": issues, "notes": list(stream.notes),
                 })
-                logger.info("[vn][stream] 完成 n=%d boards=%d issues=%d",
-                            len(stream.records), len(delivered), len(issues))
+                logger.info("[vn][stream] 完成 n=%d boards=%d issues=%d%s",
+                            len(stream.records), len(delivered), len(issues),
+                            # 节点 1（2026-09-21）: 问题**文本**也进日志。此前只打数量,
+                            # 于是 CLAUDE.md §12 那条"grep 软问题串（如'含 memorial
+                            # 但没有 art'）"在生产路径上永远 grep 不到——生产走流式。
+                            f" issues_txt={' | '.join(issues)}" if issues else "")
                 boards = delivered
             else:
                 boards, hard = self._build_record_boards(str(response), attempt)
