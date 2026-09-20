@@ -51,6 +51,15 @@
 | **水位之上**（`seq > digested_seq`）**未固化** | 只是记录，还没变成记忆 | **丢弃重来** —— 真源**零改动** | 复用 `staging.py` 的"删除变丢弃"：**让它从未提交** |
 | **水位之下**（已固化） | 已进 wiki 节点 + 好感快照 | **不是"撤销那句话"，而是"记忆更正"** | **不动 `events.jsonl`**；用 `wiki_v2/revise.py::apply_revision_package` + `evolution.py::EvolutionLog`（带审计、可回滚）表达更正 |
 
+⚠️ **板级的那一半已经落地**（2026-09-21, `EXEC_PIPELINE_UNIFY` 节点 2″）:
+`webgui/bond.py::BoardLifecycle` 把"未提交/已交付/已提交"变成显式三态
+（`PROVISIONAL → DELIVERED → COMMITTED`, 取代裸 bool `scene_logged`）,
+`_discard_boards(state, char_id, reason=…)` 是**唯一的丢弃入口**（预生成板 +
+候选支池 + 草稿旁路）——它的日志 `bond_boards_discarded` 是丢弃的**唯一痕迹**
+（真源/暂存零改动）。将来做"重发/拒绝"时:
+**`DELIVERED`（水位之上）→ `_discard_boards`** ; **`COMMITTED`（水位之下）→ revise**。
+判据不再是注释里的约定, 而是可断言的状态。
+
 ### 3.1 为什么"更正"是对的，而不是妥协
 
 它与你已裁过的一条**同构**（`TODO.md`）：
