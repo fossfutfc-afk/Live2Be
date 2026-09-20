@@ -35,10 +35,9 @@
 | slug | 位置（文件 · 符号） | 指向的节点 | 留的理由（证据原文） |
 |---|---|---|---|
 | `anniversary` | `core/worldtime/realtime.py` · `_minus_one_year` | "周年"窗口（未来需求） | docstring：*"当前没有调用点……留着是因为'周年'类需求迟早要用它，而闰年那一格是那种'不写就必然写错'的地方"* |
-| `v1-memorial-probe` | `core/bond/stream_probe.py` · `MemorialProbe` | v1 复活 / 考古 | 模块 docstring：*"已退役（决策 #39）：主链不再调用，留档供考古/复活参考"* |
-| `emotion-batch-v1` | `core/bond/emotion_annotate.py` · `annotate_emotions_smart` / `annotate_emotions` / `fill_missing_emotions`（+ prompt `llm/prompts/emotion_annotate.md`） | 协议单测 / 简单调用 | docstring：*"本函数保留给协议单测/简单调用"*。主链走 `emo_text.py`（按记录标注）；同模块的 `_extract_array` 是**活**的，被 `emo_text`/`place_annotate` 共用 |
+| `emotion-batch-v1` | `core/bond/emotion_annotate.py` · `annotate_emotions_smart` / `annotate_emotions` / `fill_missing_emotions`（+ prompt `llm/prompts/emotion_annotate.md`） | 协议单测 / 简单调用 | docstring：*"本函数保留给协议单测/简单调用"*。主链走 `emo_text.py`（按记录标注）；同模块的 `_extract_array` 是**活**的，被 `emo_text`/`place_annotate` 共用。⚠️ 2026-09-21 清 v1 时**没动它**（滑块名带 v1，但它是"留给测试"的声明式保留，不是 v1 契约的一部分）——要一起删说一声即可 |
 | `digest-deep` | `contract/digest_registry.py` · `PHASE_DEEP` | digest 三相位之 `deep` | 相位常量 `record`/`understand`/`deep` 已声明，`deep` 无实现 |
-| `brain-v1-legacy` | `core/brain/{hippocampus,consolidation,recall}.py` + `core/brain/__init__.py` 再导出 | 无（legacy 参考） | `core/brain/wiki_v2/AGENT_BRAIN.md`：*"legacy `core/brain/{consolidation,hippocampus,recall}` 保留但**无运行时消费方**"*。⚠️ **处置待定**：2026-09-21 曾判"不保留"，与上述文档声明冲突，见 §3 |
+| `brain-v1-legacy` | ~~`core/brain/{hippocampus,consolidation,recall}.py`~~ | — | **2026-09-21 已删除**（用户裁决"v1 整族删掉"）：三件套 + `llm/prompts/digest.md` + `contract/schema.build_digest_schema()` + `experiments/brain_real_run.py`。现役记忆 = `core/brain/wiki_v2/` |
 | `world-switch-m2` | `core/session/store.py` · `create_world` / `active_world`；`webgui/chat.py` · `new_world` | **M2 世界切换器** | docstring：*"切换由 M2 世界切换器负责"* / *"显式开新世界线（平行世界语义）"* |
 | `save-point-r6` | `core/session/store.py` · `snapshots_dir`；`core/brain/wiki_v2/store.py` · `snapshot_to` / `restore_from` / `audit` | **R6 存档点** / 阶段 8-10 | docstring：*"R6 存档点语义: 自包含"* / *"v2: 森林时点快照, 阶段 8/10"* / *"冒烟/R6 完整性检查用"* |
 | `affection-view` | `core/affection/affection_calc.py` · `progress` / `exp_to_next` | 好感可视化（未立项） | docstring：*"当前等级内进度 0-1（**进度条用**）"*。数值层本身是活的（digest 结算走它） |
@@ -50,10 +49,19 @@
 
 ## 3. 待定与边界
 
-- **`brain-v1-legacy` 处置未定**：`AGENT_BRAIN.md` 声明"保留"，而 2026-09-21 的一次裁决
-  （"五组里除了第 1 组都保留"，第 1 组 = 本组）指向"归档/删除"。**目前只打了标记，没有动代码**；
-  定下来之后要么删本行、要么把三件套移到 `archive/brain_v1/`（连同 `experiments/brain_real_run.py`
-  的 import 与根级 `DESIGN_BRAIN.md` 的引用一起改）。
+- **2026-09-21 · v1 整族退役（用户裁决"删掉 v1 和相关测试"）**——产品侧删除：
+  `core/bond/{bond_actions,bond_executor,memorial_actions,sentence_splitter,stream_probe}.py`、
+  `BondScene.from_action`、`BondScene.memorial_prompt`/`memorial_exit` 字段与 webgui 里
+  8 处 `memorial_exit` 恒假分支、`vn_cli` 的"纪念子模式 + exit schema 注入"、
+  `contract/schema.build_digest_schema`、`contract/constants` 的 `DOMAIN_STORY`/`DOMAIN_MEMORIAL`、
+  `contract/registry` 的 `StoryActionRegistry`/`MemorialActionRegistry`、
+  旧版记忆三件套 + `llm/prompts/digest.md` + `experiments/brain_real_run.py`。
+  **测试侧**：`tests/archive/` 整目录（9 文件）+ `test_story_executor.py` +
+  `test_sentence_splitter.py` 删除; `pytest.ini` 的 `norecursedirs` 一并去掉。
+  **效果**：`docs/ARCH_REVIEW_2026-09-20.md` 的 P0-2（恒假分支）就此消除。
+  考古读 git 历史（`git log --diff-filter=D --name-only`）。
+  这一节比 §2 的表重要：**§2 是"留着但没接线"的正面清单，本节是"曾经像死代码、
+  已确认删除"的负面清单**——两者合起来才是"哪些接口有主"的完整答案。
 - **不属于 EXT（判据见 §1 第 3 条）**：
   - **已删 2026-09-21（节点 2 清理）**：`memorial_img_ready`、`choices_used`、
     `legacy_action_enabled`（+ `LEGACY_ACTION_ENV`）、JS `splitReplyChunks`
@@ -93,7 +101,6 @@
     的 docstring 引用它来解释那条非显然的不变量（线程死活**不能**当门控判据——真实会话里
     恒为 True）。删掉会让那段结论失去唯一出处。**按 §1 第 3 条（有声明即留）保留；
     不打 `# EXT:`**（它指向"观测/测试"，不是未来节点）。
-- **v1 动作通道**（`bond_actions`/`bond_executor`/`memorial_actions`/`sentence_splitter` +
-  `BondScene.from_action` + `scene.memorial_exit` 的消费分支）：用户裁决**保留**。它们不是"未来节点"
-  而是"旧代通道"，所以按 §1 第 3 条不打 `# EXT:`；如需复活的定位说明，读
-  `core/bond/__init__.py` 的模块 docstring 与 `docs/ARCH_REVIEW_2026-09-20.md` P0-2。
+- **~~v1 动作通道~~**（`bond_actions`/`bond_executor`/`memorial_actions`/`sentence_splitter` +
+  `BondScene.from_action` + `scene.memorial_exit` 的消费分支）：2026-09-21 **已随 v1 整族删除**
+  （上一节）。原"保留为旧代通道"的裁决被用户后续裁决覆盖。

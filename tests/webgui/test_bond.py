@@ -444,12 +444,11 @@ def test_promote_gate_blocks_until_pregen_annotated():
     st2.vn = FakeVN(["nomal"], ["class_room"])
     assert _scene_obj_visual_ready(st2, _scene(
         [{"text": "句一。", "emotion": "nomal"}], done=True)) is True
-    # 纪念退出无需标注 → 就绪
-    exit_scene = BondScene.from_dict({"paragraphs": ["过渡。"]})
-    exit_scene.memorial_exit = True
+    # 纪念板（板级进入点 = `memorial_at` 缺省）无需标注 → 就绪
+    mem_scene = BondScene.from_dict({"paragraphs": ["过渡。"], "memorial": True})
     st3 = BondState()
     st3.vn = FakeVN(["nomal"], ["class_room"])
-    assert _scene_obj_visual_ready(st3, exit_scene) is True
+    assert _scene_obj_visual_ready(st3, mem_scene) is True
     print("    预生成消费门: 双路未齐拦截 → 齐（含 place keep 标记）放行")
 
 

@@ -1331,7 +1331,7 @@ def _scene_emotions_ready(state: BondState) -> bool:
     scene = state.scene_obj
     if scene is None:
         return True
-    if scene.memorial_exit or _memorial_no_visuals(state, scene):
+    if _memorial_no_visuals(state, scene):
         return True                            # 纪念: 立绘隐藏 → 无需 emotion
     groups = [scene.paragraphs] + list(scene.branches.values())
     for group in groups:
@@ -1355,7 +1355,7 @@ def _scene_places_ready(state: BondState) -> bool:
     scene = state.scene_obj
     if scene is None:
         return True
-    if scene.memorial_exit or _memorial_no_visuals(state, scene):
+    if _memorial_no_visuals(state, scene):
         return True                            # 纪念: 背景清空（黑屏/纪念图）→ 无需 place
     return bool(getattr(scene, "_place_done", False))
 
@@ -1375,7 +1375,7 @@ def _scene_obj_visual_ready(state: BondState, scene) -> bool:
     if scene is None or state.vn is None or state.demo is not None:
         return True
     vn = state.vn
-    if not scene.memorial_exit and not _memorial_no_visuals(state, scene):
+    if not _memorial_no_visuals(state, scene):
         if vn._lexicon_keys:
             for group in [scene.paragraphs, *scene.branches.values()]:
                 for p in group:
@@ -2452,10 +2452,10 @@ def _enqueue_annotate(state: BondState, scene: BondScene) -> None:
                     id(scene))
         return
     # 入队打点（2026-09-08 首板 nomal 排查）: 每场景标注意向一目了然（emo/place）
-    _want_emo = bool(state.vn._lexicon_keys and not scene.memorial_exit
+    _want_emo = bool(state.vn._lexicon_keys
                      and any(not p.get("emotion") for p in scene.paragraphs
                              if isinstance(p, dict)))
-    _want_place = bool(state.vn._place_keys and not scene.memorial_exit
+    _want_place = bool(state.vn._place_keys
                        and not getattr(scene, "_place_done", False))
     logger.info("bond_anno enq emo=%s place=%s scene=%s",
                 _want_emo, _want_place, id(scene))
@@ -2481,7 +2481,7 @@ def _enqueue_place_annotate(state: BondState, scene: BondScene) -> None:
     """
     if state.demo is not None or state.vn is None:
         return
-    if not state.vn._place_keys or scene.memorial_exit:
+    if not state.vn._place_keys:
         return
     if getattr(scene, "_place_done", False):
         return
@@ -2608,12 +2608,7 @@ def _log_scene(state: BondState, char_id: str, session_id: str, picked) -> None:
     if state.scene_logged or state.scene_obj is None:
         return
     scene = state.scene_obj
-    if scene.memorial_exit:
-        sub = "memorial_exit"
-    elif scene.memorial_prompt:
-        sub = "memorial_enter"
-    else:
-        sub = "story_end" if scene.is_end else "story_scene"
+    sub = "story_end" if scene.is_end else "story_scene"
     try:
         _flow_store(state).append_event(char_id, session_id, make_event(
             "bond", sub,
@@ -2664,15 +2659,11 @@ def _log_scene_meta(state: BondState, char_id: str, session_id: str,
     """每场 marker 落库: 纪念子模式 + vn_state 恢复点（与 CLI 对齐）。"""
     store = _flow_store(state)
     try:
-        if scene.memorial_prompt or scene.memorial:
-            # v1: memorial_enter 动作带 prompt; v2: 板含 `stage:memorial`（区间 = 本块内）
+        if scene.memorial:
+            # v2: 板含 `stage:memorial`（区间 = 本块内）
             store.append_marker(char_id, session_id, M_MEMORIAL_ENTER,
-                                {"chapter_title": state.chapter_title,
-                                 "v2": bool(scene.memorial)})
+                                {"chapter_title": state.chapter_title, "v2": True})
             state.memorial_logged = True
-        elif scene.memorial_exit:
-            store.append_marker(char_id, session_id, M_MEMORIAL_EXIT)
-            state.memorial_logged = False
         else:
             # v2 窗口结束（新生成一块 = 区间到块尾）: 补一条 exit —— marker 栈
             # （`session_status.in_memorial`）与现实一致（mmt_preset 的"纪念中"标签、

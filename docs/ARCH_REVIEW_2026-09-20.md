@@ -1,6 +1,10 @@
 # ARCH_REVIEW — 组织形式与可扩展性问题（2026-09-20）
 
-> **状态**：评审稿，**未动任何代码**。
+> **状态**：评审稿。
+> **2026-09-21 更新**：**P0-2（退役只删调用点、不删能力）已解决**——v1 动作契约整族
+> （`bond_actions`/`bond_executor`/`memorial_actions`/`sentence_splitter`/`stream_probe`
+> + `BondScene.from_action` + webgui 的 8 处 `memorial_exit` 恒假分支）与旧版记忆三件套
+> 已删除; 其余逐条处置（A/B 打 `# EXT:` 保留、C/D/E 删除）见 `docs/EXTENSION_POINTS.md`。
 > **来源**：2026-09-20 那次纪念链路改动（docs/DESIGN_MEMORIAL.md 节点 A–D）
 > 亲历的摩擦——每一条都有这次的具体证据，不是泛泛而谈。
 > **怎么用**：新开一个对话解决时，把本文丢给它；下面的"方向"是**候选**，不是结论。

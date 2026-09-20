@@ -69,10 +69,10 @@ webgui/        FastAPI 壳 + 会话状态机（bond.py BondState / chat.py 输�
 core/          引擎层（无 web 依赖, CLI/实验同源复用）
    ├ momotalk.py             MMT 引擎（消息流动作循环）
    ├ bond/bond_story.py      Bond 引擎（记录流解析 + 板派生 + 状态机 + 历史 + 生图钩子）
-   ├ bond/                   标注层与契约件: emo_text/emotion_annotate（情绪按记录）、
-   │                         place_annotate/place_cues（换场锚点）、variant_annotate（选图）、
-   │                         bond_actions/bond_executor/memorial_actions（契约与执行）、
-   │                         stream_probe（v1 留档, 主链不调用）
+   ├ bond/                   标注层与契约件: emo_text（情绪按记录）、
+   │                         place_annotate/place_cues（换场锚点）、variant_annotate（选图）。
+   │                         ⚠️ bond_actions/bond_executor/memorial_actions/stream_probe/
+   │                         sentence_splitter（v1 契约与执行）已于 2026-09-21 删除
    ├ session/                事件流: store(events.jsonl)/renderer(叙事化)/chapters(认章+回放)/maintenance
    ├ brain/wiki_v2/          digest 记忆（RoundA/B 提炼 + 好感结算 + 注入视图）
    ├ promptkit/              提示词装配: box/tail/task/report（见 §8）
@@ -89,8 +89,8 @@ tests/ core/ webgui/ llm/ renderer/ 分别对应域; experiments/ 真 API 基准
 ```
 
 注：`core/bond_story.py`/`web/` 是历史名，**不存在**；现为 `core/bond/bond_story.py`
-与 `webgui/`。`core/brain/{consolidation,hippocampus,recall}.py` = 旧版记忆
-（digest v1）**仅实验/参考用**；运行主链 = `core/brain/wiki_v2/`。根级
+与 `webgui/`。⚠️ `core/brain/{consolidation,hippocampus,recall}.py`（旧版记忆 digest v1）
+与 **v1 动作契约整族已于 2026-09-21 删除**；记忆主链 = `core/brain/wiki_v2/`。根级
 `DESIGN_BRAIN.md` 为记忆体系总设计（历史+现网混合，读前看文首状态）。
 
 ---
@@ -112,8 +112,10 @@ tests/ core/ webgui/ llm/ renderer/ 分别对应域; experiments/ 真 API 基准
 - **每场输出**：**记录流**——一行一条 JSON，从上往下读就是这一段的完整演出
   （文法与约束见契约 `contract/schema.py::build_record_schema` 注入的"本轮输出契约"，
   设计见 docs/DESIGN_VN_UPGRADE.md）。
-  ⚠️ **v1 的动作 JSON 已全部退役**：`story_scene`/`story_end`/`memorial_enter`/
-  `memorial_exit` 收到 dict 一律**打回重发**（`bond_story.py` 的 legacy_action_rejected）。
+  ⚠️ **v1 的动作 JSON 已整族退役**：`story_scene`/`story_end`/`memorial_enter`/
+  `memorial_exit` 收到 dict 一律**打回重发**（`bond_story.py` 的 legacy_action_rejected）；
+  契约/执行四模块（`bond_actions`/`bond_executor`/`memorial_actions`/`sentence_splitter`）、
+  `BondScene.from_action`、`stream_probe` **已于 2026-09-21 删除**（考古读 git 历史）。
   收尾 = `stage:end`；纪念 = **`stage:art` + `stage:memorial` 成对**（见 §4 纪念段）。
 - **messages 槽位**：`[system=盒B] + engine._history + [P17 约束注记?] + [场 task 卡 scene] + [user]`
   （task kind **恒 `scene`**；`task_bond_memorial_exit.md` 随 v1 动作于 2026-09-13 删除）。
@@ -484,7 +486,7 @@ CLI/测试同步路径在引擎内串行。
   **选图("选中的文件名")→ `{"image": ""}`**（2026-09-19 第二遍）; digest
   ("记录员/整理者")→ 空包。新增标注任务 → 同步给 tests/webgui/test_bond.py、
   tests/core/test_vn_cli.py、tests/core/test_director.py 等桩补分支, 否则吞场景脚本
-  （`test_memorial_mode.py` 已归档到 tests/archive/, 别再去改它）。
+  （v1 存量用例连同 `tests/archive/` 已于 2026-09-21 整目录删除）。
 
 ---
 
@@ -525,7 +527,8 @@ CLI/测试同步路径在引擎内串行。
 - **生图默认硬关**（tests/conftest.py 会话级 autouse 置 `LIVE2BE_IMAGE=off`, §10）：
   用例天然不出图、不写 gallery——**不再依赖"本机没配 key"这种偶然保护**。需要真走
   生图分支的用例显式 `monkeypatch.setenv("LIVE2BE_IMAGE", "on")` 并给
-  `bond._image_generator` 替身（老例见 tests/archive/test_bond_retired_v1.py）。
+  `bond._image_generator` 替身（v1 老例 `tests/archive/test_bond_retired_v1.py` 已删;
+  现役例子看 `tests/webgui/test_bond.py`）。
   **测试进程硬闸**（2026-09-11 误触计费事故后加）: 闸门在唯一 HTTP 出口
   `ImageGenerator._post_api` 上——pytest 进程里一律拒绝（`PYTEST_CURRENT_TEST` /
   `sys.modules['pytest']` 判定），要真调必须显式 `LIVE2BE_IMAGE_ALLOW_REAL=1`;

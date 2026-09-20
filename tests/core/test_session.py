@@ -333,7 +333,7 @@ def test_render_timeline_indexed():
     # 一记录一行（现行形态是一事件一行 + `" / "` 拼接）
     assert len(lines) == 7, lines
     assert not any(" / " in ln for ln in lines)
-    # 缺省形态不变（consolidation legacy 仍走它）
+    # 缺省形态不变（上下文窗口 / 回放仍走它）
     assert " / " in render_timeline(evs)
     assert "[28.0]" not in render_timeline(evs)
     # ★ 不变量: indexed 形态下**每一行都必须可寻址**（LLM 指得到才叫索引）

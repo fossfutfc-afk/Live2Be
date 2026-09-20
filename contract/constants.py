@@ -23,8 +23,9 @@ APPROVAL_NEVER    = "never"      # 只读/抓取：直接执行（fetch_url 等�
 
 DOMAIN_IDE = "ide"       # 辅助项目（配置写入）
 DOMAIN_MMT = "mmt"       # MomoTalk 运行时（未来 agent：模拟手机操作）
-DOMAIN_STORY = "story"   # 羁绊剧情运行时（表情/背景切换）
-DOMAIN_MEMORIAL = "memorial"  # 纪念立绘（bond 剧情中的纪念瞬间, 独立域 2026-08-24）
+# ⚠️ 2026-09-21: `DOMAIN_STORY` / `DOMAIN_MEMORIAL` 已删——它们只服务 v1 动作契约的
+# 两个 registry（`StoryActionRegistry`/`MemorialActionRegistry`），随 v1 整族退役。
+# 记录流 v2 的 Bond 不走动作注册表（契约由 `contract/schema.build_record_schema` 注入）。
 
 # ============================================================================
 # 通用约束
