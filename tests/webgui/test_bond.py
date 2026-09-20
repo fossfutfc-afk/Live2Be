@@ -1043,3 +1043,155 @@ def test_scene_logged_is_provisional_until_pick(tmp_path):
         print("    provisional: 交付未提交 → 裁决写暂存；真源等 vn_exit（两层边界）")
     finally:
         _cleanup()
+
+
+# ----------------------------------------------------------------------------
+# 预生成与 live 同路径（节点 4′, 2026-09-21）
+# ----------------------------------------------------------------------------
+
+#: 一份**首板干净、后续板违规**的记录流（`end` 之后还有记录 = 板级硬违规）。
+#: 用它当探针: 违规落在**已交付之后**——live 按 advisory 照常交付, 批式则整体打回。
+_LATE_VIOLATION_BLOCK = "\n".join([
+    '{"stage": "switch", "text": "教室"}',
+    '{"character": "igusa_haruka", "text": "（首板）她抬起头。"}',
+    '{"character": "sensei", "text": "选A"}',          # ← 板 1 在此闭合（干净, 已交付）
+    '{"character": "igusa_haruka", "text": "（次板）她笑了。"}',
+    '{"stage": "end", "text": ""}',
+    '{"character": "igusa_haruka", "text": "（end 之后还有记录 = 违规）"}',
+])
+_PLAIN_BLOCK = "\n".join([
+    '{"stage": "switch", "text": "走廊"}',
+    '{"character": "igusa_haruka", "text": "（纯叙事板）她低头看鞋尖。"}',
+])
+_PLAIN_BLOCK_2 = "\n".join([
+    '{"stage": "switch", "text": "天台"}',
+    '{"character": "igusa_haruka", "text": "（第二板）夜风把她的头发吹起来。"}',
+])
+_PLAIN_BLOCK_3 = "\n".join([
+    '{"stage": "switch", "text": "校门口"}',
+    '{"character": "igusa_haruka", "text": "（第三板）她挥了挥手。"}',
+])
+
+
+def _boards_of(state, first=None) -> list:
+    """"已生成未播放"的板（首板 + 引擎待发队列）→ payload 列表。
+
+    `first` 缺省取 `state.scene_obj`; 预生成场景要显式传 `state.pregen_obj`
+    （那时 `scene_obj` 还是上一场）。
+    """
+    obj = first if first is not None else state.scene_obj
+    out = [obj.to_dict()] if obj is not None else []
+    for sc in list(getattr(state.vn, "_pending_boards", None) or []):
+        out.append(sc.to_dict())
+    return out
+
+
+def test_pregen_uses_live_delivery_path(tmp_path, monkeypatch):
+    """节点 4′: **同一记录流, live 与 pregen 的板载荷逐字节一致**。
+
+    历史分叉: `_pregenerate` 不传 `on_board` ⇒ 引擎走批式（`DeliveryMode.BLOCK`）,
+    于是"首板已交付之后才出现的形状违规"在两侧结论相反 —— live（流式）advisory
+    照常交付 2 板, 预生成却把整块打回 3 次 → `SceneLoopError` → **预生成失败**
+    （玩家点继续时又得等一次完整生成）。预生成承诺的正是"玩家点继续时看到什么",
+    所以必须与 live 同源。
+
+    标注旁路被置空（`_enqueue_annotate`）: 它与本用例无关, 却是唯一会让两条路
+    的 `to_dict()` 出现时间差（emotion 回填先后）的地方——掐掉才能严格逐字节比。
+    """
+    monkeypatch.setattr(bond, "_enqueue_annotate", lambda state, scene: None)
+
+    # ① live: 同一块作为**首场**走 `_generate`（流式, 首板经 on_board 落地）
+    engine, st, sid, llm = _setup(tmp_path / "live", _LATE_VIOLATION_BLOCK)
+    try:
+        bond.bond_start(CHARACTER, sid)
+        _wait_status(CHARACTER, sid)
+        live_state = bond._state(CHARACTER, sid)
+        live_boards = _boards_of(live_state)
+        live_trace = [dict(t) for t in (live_state.vn.trace or [])]
+    finally:
+        _cleanup()
+    assert len(live_boards) == 2, f"live 应交付 2 板（后续板违规只 advisory）: {live_boards}"
+    assert any(t.get("action") == "record_stream/streamed" for t in live_trace), live_trace
+
+    # ② pregen: 同一块作为**第二场**（首场纯叙事无 choices → 落地即自动预生成）
+    engine, st, sid, llm = _setup(tmp_path / "pregen", _PLAIN_BLOCK, _LATE_VIOLATION_BLOCK)
+    try:
+        bond.bond_start(CHARACTER, sid)
+        deadline = time.time() + 10.0
+        while time.time() < deadline and bond._state(CHARACTER, sid).pregen_scene is None:
+            time.sleep(0.05)
+        pg_state = bond._state(CHARACTER, sid)
+        assert pg_state.pregen_scene is not None, \
+            "预生成应成功（同一份输出在 live 侧只是 advisory, 不该把整块打回）"
+        pregen_boards = _boards_of(pg_state, pg_state.pregen_obj)
+        pregen_trace = [dict(t) for t in (pg_state.vn.trace or [])]
+
+        # 同一交付路径: 预生成也走 STREAM（此前是 record_stream + delivery_mode=block）
+        assert any(t.get("action") == "record_stream/streamed" for t in pregen_trace), \
+            f"预生成应走流式: {pregen_trace}"
+        assert all(t.get("delivery_mode") == "stream" for t in pregen_trace
+                   if str(t.get("action", "")).startswith("record_stream")), pregen_trace
+        # 逐字节一致（板载荷 = records/paragraphs/choices/is_end/…）
+        assert pregen_boards == live_boards, \
+            f"同一记录流两条路必须同板:\nlive={live_boards}\npregen={pregen_boards}"
+        print(f"    node4′: 预生成 = live 同路径同板（{len(live_boards)} 板逐字节一致）")
+    finally:
+        _cleanup()
+
+
+def test_pregen_board_is_provisional_until_adopted(tmp_path):
+    """节点 4′: 预生成 = **provisional**（未 adopt 即丢弃）——不落库。
+
+    · 预生成完成时: 板载荷已就绪（`pregen_scene`）、落在**草稿旁路**
+      （"已生成未播放"的临时存储）, 但事件流（overlay = 真源 + 章内暂存）里
+      **没有**这一板的正文;
+    · 玩家消费（`bond_turn("（继续）")` 的提升分支）→ 它成为当前板, 但仍与 live
+      交付的板**同一条规则**（`scene_logged=False`, 未提交）;
+    · 再推进一次 → `_log_scene` 写进**暂存**（真源仍要等 `vn_exit`, B0）。
+
+    这条把"丢弃 = 什么都不用清"（`EXEC_PIPELINE_UNIFY` §3.1 不变量）钉成可断言事实。
+    """
+    from core.session.staging import staging_store
+
+    engine, st, sid, llm = _setup(tmp_path, _PLAIN_BLOCK, _PLAIN_BLOCK_2, _PLAIN_BLOCK_3)
+    try:
+        bond.bond_start(CHARACTER, sid)
+        deadline = time.time() + 10.0
+        while time.time() < deadline and bond._state(CHARACTER, sid).pregen_scene is None:
+            time.sleep(0.05)
+        state = bond._state(CHARACTER, sid)
+        assert state.pregen_scene is not None, "第二场应被预生成"
+        overlay = staging_store(st)
+
+        def _texts(store):
+            return [p["text"] for e in store.events(CHARACTER, sid)
+                    if e.type == "bond"
+                    for p in ((e.payload or {}).get("paragraphs") or [])]
+
+        provisional_text = [p["text"] for p in state.pregen_scene["paragraphs"]]
+        assert provisional_text and "走廊" not in provisional_text, state.pregen_scene
+        assert not [t for t in _texts(overlay) if t in provisional_text], \
+            f"provisional 板不该进事件流: {_texts(overlay)}"
+        # 草稿旁路（临时存储）里**有**它 —— 这才是"已生成未播放"的落点
+        drafts = [b for b in bond._draft_boards(state)
+                  if [p.get("text") for p in b.get("paragraphs", [])] == provisional_text]
+        assert drafts, "预生成板应在草稿旁路里（未 adopt 的临时存储）"
+
+        # 消费（adopt）→ 成为当前板, 未提交（与 live 同规则）
+        _turn_until_accepted(CHARACTER, sid, "（继续）")
+        state2 = bond._state(CHARACTER, sid)
+        assert state2.scene_obj is not None
+        assert [p["text"] for p in state2.scene["paragraphs"]] == provisional_text, \
+            state2.scene
+        assert state2.scene_logged is False, "刚 adopt 的板仍是 provisional"
+        assert not [t for t in _texts(overlay) if t in provisional_text], \
+            "adopt 只是提升, 还没提交"
+        # 再推进一次 → 提交（写暂存; 真源仍无, B0 章内暂存）
+        _turn_until_accepted(CHARACTER, sid, "（继续）")
+        assert [t for t in _texts(overlay) if t in provisional_text], \
+            "推进后应写进暂存（provisional → committed）"
+        assert not [t for t in _texts(st) if t in provisional_text], \
+            "章内仍不进真源（B0）"
+        print("    node4′: 预生成 provisional（不落库）→ adopt → 推进才写暂存")
+    finally:
+        _cleanup()

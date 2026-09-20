@@ -465,6 +465,11 @@ CLI/测试同步路径在引擎内串行。
 - 结构：`webgui/bond.py`（BondState 状态机: busy/round/pregen/staged/replay/lanes/memorial…）、
   `webgui/chat.py`（每角色输入队列 worker + 预热挂钩）、`webgui/routers/*`（HTTP 壳,
   `_resolve_scene` 附 background_url/fx/place_bg）、`webgui/static/js/{bond,mmt,gui}.js`。
+- **预生成 = provisional（节点 4′, 2026-09-21）**：`_pregenerate` 与 live **同一条交付
+  路径**（也传 `on_board` ⇒ `DeliveryMode.STREAM`——此前不传 ⇒ 批式, 同一份输出两条路
+  给出**不同的板**）。它的 `on_board` 回调**只记账不落库**：板进 `state.pregen_scene`
+  与**草稿旁路**, 事件的 `bond` 正文要等玩家消费后**再推进一次**才写（`_log_scene`）。
+  ⇒ "丢弃一个预生成"不需要清任何东西（`docs/EXEC_PIPELINE_UNIFY.md` §3.1 不变量）。
 - **纪念视觉在前端的三件事都由 `applyMemorial()` 做**（`bond.js`）：隐藏立绘层 +
   清空 `#bond-bg`（黑屏兜底）+ 图就绪淡入。判定 `memorialNow() = in_memorial &&
   (memorial_at === null || typeSeg >= memorial_at)`——**每段上屏都调一次**
@@ -562,7 +567,9 @@ CLI/测试同步路径在引擎内串行。
   ① `bond_board_deliver src=stream|gen|queue|prewarm|draft|replay board=N recs=N
   call=xxxx dur=ms`——**每板一行**, 标明这一板是怎么到玩家眼前的（0 LLM 路径的
   call 为 `-`, 队列板带"当初写它的那次调用" id）; `bond_pregen src=queue|gen call=…`
-  区分"领队列"与"真调用";
+  区分"领队列"与"真调用"; **`bond_pregen_board board=N recs=N dur=ms`**（节点 4′）
+  = 预生成**首板**到达时刻——与 `bond_pregen src=gen dur=ms`（**整块**写完）一比,
+  就知道预生成的收益有多少来自"增量交付"而不是"整体更快";
   ② `llm chat/chat_full` 日志补 `out=/in=`（completion/prompt tokens）——此前只看得到
   prompt 侧 cache 命中, 判断"单块还能写多长"只能靠记录条数估;
   ③ **图像侧**（2026-09-20）: gallery json 的 `prompt_source`（`art` / `memorial_text`）
@@ -617,10 +624,11 @@ CLI/测试同步路径在引擎内串行。
 - 体感延迟工程：docs/EXEC_BOND_LATENCY.md
 - **单一记录流流水线（c′）执行计划**：docs/EXEC_PIPELINE_UNIFY.md（**执行中**。
   Decision 0 = c′（用户 2026-09-21）: 一份 `records → boards` 派生 + **板级闸** + 显式
-  交付模式; 节点 0–6, 每节点一提交。**已落地: 0（协议）· 1（parity 测试网）·
+  交付模式; 节点 0–6, 每节点一提交。**主链已全部落地: 0（协议）· 1（parity 测试网）·
   2′（`_BoardAssembler` + `check_board` + `DeliveryMode`）· 5（桩对齐生产路径）·
-  3（下一轮纠偏）· 6（`Issue(code, severity)` 结构化）**; 待做: 2″（板级 lifecycle）·
-  5b（桩结构化分派）· 4′（预生成同路）。来源 = ARCH_REVIEW P0-2/P0-3 的根治）
+  3（下一轮纠偏）· 6（`Issue(code, severity)` 结构化）· 4′（预生成与 live 同路径）**;
+  待做（可选地基）: 2″（板级 lifecycle 显式枚举）· 5b（桩结构化分派）; 另: `webgui/bond.py`
+  文件拆分（用户 2026-09-21 说"之后再做"）。来源 = ARCH_REVIEW P0-2/P0-3 的根治）
 - **重新生成 / 重发 的语义与固化线**：docs/DESIGN_RESEND.md（**设计稿, 未动代码**。
   决策: MMT 提交边界 = **回合提交**; 两区 = 水位之上**丢弃** / 水位之下走
   `wiki_v2/revise` **更正**; 含 `vn_abandon` 族退休方案——存量真源 0 条, 读路径空转）
