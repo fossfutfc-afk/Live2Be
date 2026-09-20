@@ -62,22 +62,32 @@
 > 注: 流式下'硬违规'无法回滚（板已在玩家屏上）, 故只 trace/日志, 不打回重发
 > （真机守形 0 违规; 反馈留给上层下一轮注记）。"*
 
-### 2.2 两条流水线的差异（"守卫只长在一条路上"）
+### 2.2 两条流水线的差异（**节点 2′ 已统一** ✅）
 
-| 守卫 / 行为 | 批式 `_build_record_boards` | 流式 `_scene_from_records` |
+改动前的分叉逐条列在下面（本表 = 历史 + 现状对照）:
+
+| 守卫 / 行为 | 改动前（批式 / 流式） | 现状（节点 2′ 之后） |
 |---|---|---|
-| `check_block` 硬违规 → 打回重发 | **有** | **无**（仅记账） |
-| 软问题**文本**进日志 | **有** | ✅ **节点 1 已补**（此前只有 `issues=%d`） |
-| 纯 `switch` 空板 → `spare` 并入下一板 | **有** | **无** |
-| `MAX_BOARDS_PER_TURN` 上限 | **有** | **无** |
-| `art` 挂载目标 = "含 memorial 的板" | **有** | 挂"首个交付板"（另一条规则） |
-| `art` 写了但整块无 memorial → WARNING | **有** | **无** |
-| `_demote_repeat_memorial`（章内 ≤1） | 有 | 有 |
-| `_memorial_used` 置位 | 有 | 有 |
+| 板装配 | 各写一份（`_build_record_boards` / `_scene_from_records`） | ✅ **`_BoardAssembler` 单源**（两条路同一个类） |
+| `check_block` 硬违规 → 打回重发 | 有 / **无（仅记账）** | ✅ 批式仍拦；流式改由**板级闸 `check_board`** 拦（仅首板交付前） |
+| 软/硬问题**文本**进日志 | 有 / 无（只有 `issues=%d`） | ✅ **节点 1 已补**（`issues_txt=`） |
+| 纯 `switch` 空板 | `spare` 并入下一板 / **交付空板** | ✅ 两侧都**向前合并** |
+| 块尾纯 `switch` | 向后并入末板 / 单独成板 | ✅ 两侧都**末板自成一板**（不引入前瞻, 保首屏） |
+| `MAX_BOARDS_PER_TURN` 上限 | 有 / **无** | ✅ 两侧都有 |
+| `art` 挂载目标 | "含 memorial 的板" / "首个交付板" | ✅ 两侧都挂**首个板** |
+| `art` 写了但整块无 memorial | WARNING / 无 | ✅ 两侧都进 `check_block` 软问题（流式经 `issues_txt` 可 grep） |
+| `_demote_repeat_memorial`（章内 ≤1） | 有 / 有 | 不变 |
+| `_memorial_used` 置位 | 有 / 有 | 不变（现由装配器统一置位） |
 
-**玩家可见的具体分叉**：相邻两条 `switch` → `BlockStreamParser._close()` 把 `[switch A]`
-单独成板 → `BondScene.from_board` 跳过 switch → **交付一个空板**；批式的 `spare` 合并
-正是为这个场景写的。**同一段内容，走哪条路取决于"这次是玩家点击生成的、还是预生成拿的"。**
+**仅存的差异 = 两类, 且都是有意**（由 `DeliveryMode` 表达）:
+
+1. **交付时机**: 流式增量交付 / 批式整块交付;
+2. **已交付之后的校验是 advisory**: 流式拦不住已上屏的板——"打回重发"产出的是**另一段
+   文本**, 玩家侧表现为"同一段戏讲两遍"（`docs/DESIGN_RESEND.md` §3）。
+
+**改动前的玩家可见分叉（已消除）**：相邻两条 `switch` → `BlockStreamParser._close()` 把
+`[switch A]` 单独成板 → `BondScene.from_board` 跳过 switch → **交付一个空板**。
+**同一段内容，走哪条路取决于"这次是玩家点击生成的、还是预生成拿的"** —— 现在不再如此。
 
 ### 2.3 调用方矩阵
 
@@ -117,14 +127,16 @@
 
 ---
 
-## 3. 目标形态
+## 3. 目标形态（**节点 2′ 已落地** ✅）
 
 **三个"只有一份"**：
 
-1. **`records → boards` 派生**：切板边界、`spare` 合并、`MAX_BOARDS_PER_TURN`、`art` 挂载规则，
-   收进**一个**函数，两条路都调；`BlockStreamParser` 退化为纯"逐行解析 + 板闭合通知"。
-2. **守卫与闸**：`check_block`（块级）与新增的 `check_board`（板级）各一份实现，
-   由**交付模式**决定"违规时是拦还是记"。
+1. **`records → boards` 派生** ✅：`_BoardAssembler`（`core/bond/bond_story.py`）单源——
+   不可见板向前合并、`MAX_BOARDS_PER_TURN`、`art` 挂首个板、章内二次 memorial 降级，
+   两条路都调。切板仍由两条切板器负责（`_board_spans` / `BlockStreamParser`，
+   两者的边界等价早已有测试：`tests/core/test_records.py::test_board_split_batch_stream_equivalence`）。
+2. **守卫与闸** ✅：`check_block`（块级，`contract/records.py`）与 `check_board`
+   （板级，同文件）各一份实现，由 **`DeliveryMode`** 决定"违规时是拦还是记"。
 3. **板级 lifecycle（未提交/已交付/已提交）**：见 §3.1，它是 c′ 的板级闸、
    也是 `docs/DESIGN_RESEND.md` 的"重发/拒绝"共用的底座。
 
@@ -160,7 +172,9 @@ provisional ──校验通过──► delivered ──裁决/推进──► c
 |---|---|---|---|---|
 | ✅ **0** | **协议与设计**（本文 + `DESIGN_RESEND.md`） | 钉住现状、Decision 0、板级 lifecycle、forward-compat 约束 | 两份文档落地 + CLAUDE.md 路由登记（提交 `0393796`） | 无（未动代码） |
 | ✅ **1** | **特征化测试网 + 生产可观测** | ① `tests/core/test_pipeline_parity.py`（7 例）把 §2.2 的差异**显式写成期望值** ② 流式分支的问题**文本**进日志（`issues_txt=`）③ `tests/webgui/test_bond.py::test_scene_logged_is_provisional_until_pick` 钉住 provisional 状态 **+ 章级暂存两层边界** | 全量 **861 passed**（853 → +8）；**零行为改动** | 0 |
-| **2′** | **单一 `records → boards` + 板级闸 + 板级 lifecycle** | ① 抽出共用派生函数（含 `spare` 合并、上限、`art` 挂载规则）② 流式的纯 switch 板改为"挂起到下一板闭合" ③ 新增 `check_board`（板级闸）④ 引入 `DeliveryMode` 枚举并把 §3 的表写进代码注释 | 节点 1 的差异集合**缩小到只剩"交付时机"**；空板分叉消失；闸有正/反用例 | 中（动交付时机 → 需 B 层 e2e 冒烟 `experiments/web_e2e/run.py`） |
+| ✅ **2′** | **单一 `records → boards` + 板级闸 + 交付模式** | ① `_BoardAssembler`（不可见板向前合并 / 板上限 / `art` 挂首板 / 章内二次 memorial）两条路共用 ② `contract/records.py::check_board`（板级闸: `end` 后还有记录 / 同板多条 memorial / 纪念区间内换场）③ `DeliveryMode` 枚举（`STREAM`/`BLOCK`）写进 trace ④ 流式**首板交付前**拦、已交付后 advisory | 8 例 parity 全绿（差异集合 = **仅剩交付时机 + 有意的模式差异**）；全量 **862 passed** + **B 层 e2e 冒烟 PASS** | 中（已过: 批式行为变更无回归 + 全量绿） |
+| **2″**（新增, 未做） | **板级 lifecycle 显式化** | 把 `scene_logged`（裸 bool）升为显式状态机 `provisional → delivered → committed`（+ 统一"丢弃"入口, 挂在写入口 `_stage_store`/`_flow_store`） | 状态可断言; `docs/DESIGN_RESEND.md` 的"重发/拒绝"能挂上来 | 小-中 |
+| — | *为什么 2″ 单列*: 它是 `DESIGN_RESEND`（重发/拒绝）与"板级 lifecycle"的**地基**, 但**不是**流水线统一所必需——节点 2′（闸+交付模式）已经独立成立且可验收。拆开做可以避免"为将来的功能拖住当下的收敛"。 | | | |
 | **5** | **测试桩对齐生产** | 给 `test_web_http.py`（0 个）与 `test_bond.py` 的桩补 `chat_full`；顺手把桩的"按自然语言关键字应答"换成**结构化标记分派**（ARCH_REVIEW P2-8） | webgui 用例**跑在生产路径上**（可断言 `engine.trace` 里是 `record_stream/streamed`）+ 全量绿 | 小改动、**大暴露面**（这是本计划最强的验收放大器） |
 | **3** | **守卫分层显式 + 生产可观测** | 把硬/软在两种交付模式下的语义写成**显式策略**（枚举 + 注释 + 契约文案同步）；流式硬违规 → 日志 + trace + **下一轮 feedback**；软问题文本可 grep（CLAUDE.md §12 现在让 grep 一个生产不打的串） | 新用例：流式硬违规有日志/trace、玩家不受影响；文档口径同步 | 低 |
 | **4′** | **预生成与 live 同路径** | `_pregenerate` 走同一交付模式（把"增量交付"与"落库/门控"解耦）；语义升级为 **预生成 = provisional（未 adopt 即丢弃）**，与"拒绝/重发"共用 §3.1 协议 | 新用例：**同一记录流，live 与 pregen 的板载荷逐字节一致** | 中（预生成是 §9 主路径） |
