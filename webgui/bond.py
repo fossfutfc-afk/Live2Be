@@ -198,9 +198,9 @@ class BondState:
     # 展示即 spawn——每候选项一个 fork 草稿引擎后台预生成（不占 busy）;
     # 裁决命中且就绪 → N2b 消费提升; 新板/换板 → _spawn_candidates 起点清池
     choice_candidates: list = field(default_factory=list)
-    # 选项配额（整段剧情 2~3 次选择——LLM 每场给选项的疲劳问题）: 已用计数,
-    # 注入 system_note 提醒; 预生成场景的 choices 同样计入
-    choices_used: int = 0
+    # 2026-09-21: `choices_used` 已删——它是"选项配额注记"的计数侧, 而那条注记
+    # 2026-09-10（P0-7c）随记录流 v2 退役, 字段从此**只写不读**（没有任何读点）。
+    # 留着会让人误以为引擎还在逐轮念配额; 真要恢复配额, 字段与注记得一起回来。
     # 2026-09-13（审计 B8）: `prev_emotions` 已删——它唯一的消费者是那条
     # "上一场 emotion 全同 → 请切换 emotion"注记, 而 v2 的 emotion 由标注层给、
     # 写作者无字段可写。留着只会让人误以为主 LLM 还参与表情决策。
@@ -224,7 +224,8 @@ class BondState:
     # 纪念立绘异步生成（方案 A 2026-09-01）: 流式嗅探到 memorial_enter 的 prompt
     # 定稿即后台生图（与 LLM 剩余输出并行）——玩家看到纪念场景时图已就绪, 淡入
     memorial_img: str = ""                     # 前端 URL（/gallery/{char}/{sid}.png）; 空 = 未就绪/失败
-    memorial_img_ready: bool = False           # 图已落盘可展示
+    # 2026-09-21: `memorial_img_ready` 已删——只写不读（全仓唯一读点在
+    # tests/webgui/test_bond.py）; 前端就绪判据一直是 `memorial_img` 非空。
     memorial_img_busy: bool = False            # 生图中（防重复触发; 重试 attempt 可能重复回调）
     #: 纪念窗口 marker 记账（2026-09-12）: 已写过 `memorial_enter` 且还没写 `exit`。
     #: 状态创建时从事件流初始化（跨重启: 上一次进程可能死在窗口里）——据此在窗口
@@ -550,7 +551,6 @@ def _memorial_gen(state: BondState, char_id: str, session_id: str,
         with state._lock:
             state.memorial_img = (
                 f"/gallery/{_flow_store(state).world_id}/{char_id}/{sid}.png")
-            state.memorial_img_ready = True
         # 异步回执落真源（append-only: 图后到, 不能补写原 bond 事件）——
         # 回放/重启据此恢复纪念图（`_ensure_memorial_img`）。写失败只降级: 本进程
         # 内存里仍有图, 只是重启后回放看不到（宁缺勿错）。
@@ -566,7 +566,6 @@ def _memorial_gen(state: BondState, char_id: str, session_id: str,
         logger.warning("纪念立绘生成失败（降级纯文字）: %s", e)
         with state._lock:
             state.memorial_img = ""
-            state.memorial_img_ready = False
     finally:
         with state._lock:
             state.memorial_img_busy = False
@@ -588,7 +587,6 @@ def _make_memorial_cb(state: BondState, char_id: str, session_id: str):
                 return
             state.memorial_img_busy = True
             state.memorial_img = ""
-            state.memorial_img_ready = False
         threading.Thread(target=_memorial_gen,
                          args=(state, char_id, session_id, prompt),
                          daemon=True).start()
@@ -1288,7 +1286,6 @@ def _ensure_memorial_img(state: BondState, char_id: str, session_id: str) -> Non
     url = _persisted_memorial_img(char_id, session_id, _flow_store(state))
     if url:
         state.memorial_img = url
-        state.memorial_img_ready = True
         logger.info("纪念立绘: 事件流恢复 %s", url)
 
 
@@ -1556,8 +1553,6 @@ def bond_turn(char_id: str, session_id: str, text: str) -> dict:
             state.pregen_obj = nxt
             state.pregen_scene = nxt.to_dict()
             state.pregen_input = "（继续）"
-            if nxt.choices:                      # 统计对齐 _pregenerate
-                state.choices_used += 1
             logger.info("bond_cand hit %s/%s picked=%s", char_id, session_id, text)
         else:
             _discard_candidates(state)           # 无命中候选 → 老路 + 池作废
@@ -2121,9 +2116,6 @@ def _scene_landed(state: BondState, scene: BondScene, char_id: str,
         state.completed = True       # 仅自然 story_end 才 completed
     _log_board_deliver(state, scene, char_id, session_id, source,
                        dur_ms=_ms_since(t0) if t0 else -1)
-    # 选项配额（供下一场 system_note 参考）
-    if scene.choices:
-        state.choices_used += 1
     _log_scene_meta(state, char_id, session_id, scene)
     # 两遍式 C 异步标注: 骨架先显示, emotion 解析入队补标（不阻塞玩家）
     _enqueue_annotate(state, scene)
@@ -2317,8 +2309,6 @@ def _pregenerate(state: BondState, char_id: str, session_id: str) -> None:
                 state.pregen_obj = scene
                 state.pregen_scene = scene.to_dict()
                 state.pregen_input = "（继续）"
-                if scene.choices:
-                    state.choices_used += 1
                 # 预生成场景同样异步标注（与主场景同一队列串行, 玩家消费时表情就绪）
                 _enqueue_annotate(state, scene)
                 _draft_save(state, char_id, session_id)   # 草稿旁路刷新（#28b）
@@ -2736,7 +2726,7 @@ def _system_note(state: BondState) -> str | None:
     #    当前**没有消费者**。
     # 记录流 v2（P0-7c）: 旧的"整段剧情 2~3 次选项配额"注记退役——v2 的交互密度
     # 由 rules 引导（一段戏里老师开口 3~5 次）, 引擎不再逐轮念配额（注记进 prompt,
-    # 提旧概念只会干扰守形）。choices_used 仍计数（统计/诊断用）。
+    # 提旧概念只会干扰守形）。计数器 `choices_used` 2026-09-21 一并删（只写不读）。
     # 2026-09-13（审计 B8）: "上一场 emotion 全同 → 请切换 emotion 并切新单元"
     # 注记**一并退役**——emotion 由标注层按记录逐条给（决策 #27）; 写作者既看不见
     # 也没有 emotion 字段可写（v2 schema 只有 character/stage + text）。那条注记

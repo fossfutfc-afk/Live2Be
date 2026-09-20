@@ -175,35 +175,8 @@ const BUBBLE_GAP_MS = 600;     // 逐块冒出间隔（第一块 TTFT 立即, �
 
 // ── 分块打字节奏（2026-08-30: 复刻 core/ui/streaming.py + text_processors.py 的
 // publish_reply 语义——webgui 未消费 TurnResult.steps 的补位）─────────────
-// split_reply_chunks（字数+随机数切块）: 强断点。！？必切; 逗号/省略号按
-// 随机阈值 6~10 字切（丢逗号）; 硬上限 30 字; 尾部 ≤4 字碎片并入上一块。
-// chunk_typing_time: 块字数 × 每字随机 80~200ms + 200ms 基础停顿。
-const MMT_CHUNK_MAX = 30;
-const MMT_CHUNK_FRAGMENT = 4;
-
-function splitReplyChunks(text) {
-  const chunks = [];
-  let buf = "";
-  const threshold = () => 6 + Math.floor(Math.random() * 5);   // 6~10
-  for (const ch of text) {
-    buf += ch;
-    if ("。！？!?".includes(ch)) { chunks.push(buf); buf = ""; }
-    else if (ch === "…") {
-      if (buf.length >= threshold()) { chunks.push(buf); buf = ""; }
-    } else if ("，、,;；".includes(ch)) {
-      if (buf.length >= threshold()) { chunks.push(buf.slice(0, -1)); buf = ""; }
-    } else if (buf.length >= MMT_CHUNK_MAX) { chunks.push(buf); buf = ""; }
-  }
-  if (buf) {
-    if (buf.length <= MMT_CHUNK_FRAGMENT && chunks.length) {
-      chunks[chunks.length - 1] += buf;         // 尾部碎片并入上一块
-    } else {
-      chunks.push(buf);
-    }
-  }
-  return chunks.filter(Boolean);
-}
-
+// 2026-09-21 删: `splitReplyChunks()` 及其 `MMT_CHUNK_MAX`/`MMT_CHUNK_FRAGMENT`
+// ——全仓零调用者（打字机链路上的 `chunkTypingTime` 仍在用）。
 // 该块打字时长（秒）: 字数 × 每字随机延迟 + 基础停顿（对齐 chunk_typing_time）
 function chunkTypingTime(chunk) {
   const perChar = (80 + Math.random() * 120) / 1000;   // 80~200ms
