@@ -91,6 +91,10 @@ let lastSceneKey = "";
   //   板内还有段 → 下一段; 板读完 → 下一板; is_end → 收尾。
   // 例外: 板上有**未裁决**的选项时点画面不推进（等玩家点选项）。
   let pendingChoice = false;    // 当前板有未裁决选项（点画面不推进）
+  // 裁决后自动进下一板的短延时（2026-09-20 用户: *"点了选项应该直接推进"*）——
+  // 留这一小段只为让玩家看见"选了哪句"的高亮, 之后自动 goNext（不必再点一次）。
+  const PICK_ADVANCE_MS = 450;
+  let pickTimer = null;
   let curScene = null;          // 当前板（裁决后就地重画选项组, 不重播正文）
 
   // 打字机状态（renderScene → typeOut → 打完 → showInteraction）
@@ -611,6 +615,7 @@ let lastSceneKey = "";
     busy = false;
     curScene = scene;                 // 裁决后就地重画选项组（不重播正文）
     pendingChoice = false;            // 新板: 未裁决态由 showInteraction 按需置位
+    clearPickTimer();                 // 新板到达 → 旧"裁决后自动推进"作废（防跨板乱推）
     lastSceneKey = sceneKey(scene);   // 记指纹: 轮询里同内容不再重渲染
     dbg("renderScene paras=", (scene.paragraphs || []).map(
         (p) => (p && p.emotion) || "-"), "is_end", !!scene.is_end);
@@ -753,7 +758,7 @@ let lastSceneKey = "";
       showContinue();
       const tri = $("bond-continue");
       if (tri) tri.classList.add("ready");
-      setTimeout(() => finish(), END_HOLD_MS);
+      setTimeout(() => finish(true), END_HOLD_MS);   // 自然收尾（is_end）
       return;
     }
     if (scene.choices && scene.choices.length) {
@@ -798,6 +803,11 @@ let lastSceneKey = "";
 
   function clearAutoTimer() {
     if (autoTimer) { clearTimeout(autoTimer); autoTimer = null; }
+  }
+
+  /** 裁决后"自动进下一板"的定时器（2026-09-20）——新板/收尾/退出时必须清掉。 */
+  function clearPickTimer() {
+    if (pickTimer) { clearTimeout(pickTimer); pickTimer = null; }
   }
 
   function scheduleAutoChoice(choices) {
@@ -1002,7 +1012,7 @@ let lastSceneKey = "";
   function advanceOrFinish() {
     if (typeState === "typing") return;      // 打字中点击无操作（渲染完成是推进前提）
     if (_moreParas()) { advance(); return; } // 本板还有段 → 先读完
-    if (sceneIsEnd) { finish(); return; }    // 段读完了且是收尾板 → 收尾
+    if (sceneIsEnd) { finish(true); return; }  // 段读完了且是收尾板 → 收尾（完成）
     if (pendingChoice) return;               // 未裁决的选项板: 等玩家点选项（点画面不推进）
     goNext();                                // 板读完 → 下一板（决策 #41: 点画面即推进）
   }
@@ -1127,7 +1137,7 @@ let lastSceneKey = "";
         break;
       case "end":
         toggleMenu(false);
-        finish();                  // 完整收尾（事件流 vn_exit + wrapup + digest）
+        finish(false);             // 玩家按"结束剧情" = **中途退出**（不是完成）
         break;
       case "back": showMenuMain(); break;
       case "close": default: toggleMenu(false); break;
@@ -1292,6 +1302,15 @@ let lastSceneKey = "";
       busy = false;
       hideContinue();
       showAdvance();
+      // ⭐ 2026-09-20 用户: *"假如我第一次点了选项，应该直接推进"* ——
+      //    不再等第二次点击（真机观感 = "黄色选项又跳出来, 强迫我再选一次"）。
+      //    留 PICK_ADVANCE_MS 让高亮可见, 然后自动进下一板;
+      //    玩家手快先点画面/点选项也走同一条 goNext（busy 防重复提交）。
+      clearPickTimer();
+      pickTimer = setTimeout(() => {
+        pickTimer = null;
+        if (!busy && !readonly && !finished) goNext();
+      }, PICK_ADVANCE_MS);
       return;
     }
     $("bond-text").innerHTML = "";
@@ -1301,10 +1320,19 @@ let lastSceneKey = "";
     await waitScene();
   }
 
-  async function finish() {
+  async function finish(completed) {
     if (readonly) { roEnd(); return; }   // 只读: 收尾 = 播完本板（不写 vn_exit/wrapup/digest）
     if (finished) return;
     finished = true;
+    clearPickTimer();                    // 收尾 → 旧"裁决后自动推进"作废
+    // ⚠️ 2026-09-20 用户: *"结束后那个粉色气泡有小段延迟才消失，这个时间是足够手快的
+    //    玩家直接重进，后果不堪设想"* —— 粉泡的**完成翻转靠轮询**（`applyBondDone`），
+    //    finish → 轮询到达之间有个窗口。这里在 finish 那一刻**先锁**（去掉点击能力）,
+    //    视觉翻转仍交给轮询（文案/样式以服务端为准）。
+    //    只在**完成**时锁: 中途退出要保持可点（再进 = 静默续章）。
+    if (completed && typeof window.mmtLockBondEntries === "function") {
+      window.mmtLockBondEntries();
+    }
     try {
       await fetch("/api/bond/finish", {
         method: "POST",

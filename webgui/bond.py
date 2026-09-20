@@ -928,6 +928,30 @@ def _last_mmt_seq(char_id: str, session_id: str, store=None) -> int:
         return 0
 
 
+def _entry_already_done(char_id: str, session_id: str, store=None) -> bool:
+    """这条羁绊入口的剧情**已经完整走完**了吗？（后端兜底, 只看真源）
+
+    判据（倒序扫事件）: 先遇到 `vn_exit` 还是 `mmt_trigger_bond_story`——
+    * 先遇到 `vn_exit` 且 `completed=True` ⇒ 这次触发已经走完（其后没有更新的触发）;
+    * 先遇到**更新的触发** ⇒ 这是新一章, 放行;
+    * 什么都没有 ⇒ 放行（全新进入）。
+
+    ⚠️ `BondState.completed` 是**内存态**（重启即丢）; 这条是它的**事件流版本**,
+    用来堵"结局粉泡翻转前的窗口里手快重进"（用户 2026-09-20 报障）。
+    中途退出（`completed=False`）**不算走完** —— 那种要允许重进（静默续章）。
+    """
+    try:
+        evs = (store or _flow_store(_state(char_id, session_id))).events(char_id, session_id)
+    except Exception:                                # noqa: BLE001 — 读失败不拦
+        return False
+    for e in reversed(list(evs)):
+        if e.is_marker and e.subtype == M_VN_EXIT:
+            return bool((e.payload or {}).get("completed"))
+        if e.type == "mmt" and e.subtype == "mmt_trigger_bond_story":
+            return False                             # 更新的触发在 vn_exit 之后
+    return False
+
+
 def bond_start(char_id: str, session_id: str, *,
                staged: bool = False) -> dict:
     """进入羁绊剧情: 构造引擎 + vn_enter marker + 后台生成首场。
@@ -946,6 +970,16 @@ def bond_start(char_id: str, session_id: str, *,
     if state.completed:
         return {"accepted": False, "completed": True,
                 "error": "这段羁绊剧情已经完成"}
+    # ⚠️ 2026-09-20 用户: *"结束后那个粉色气泡有小段延迟才消失，这个时间是足够手快的
+    #    玩家直接重进，后果不堪设想"* —— 前端在 finish 那一刻已即时锁粉泡
+    #    （`window.mmtLockBondEntries`）; 这里是**后端兜底**, 防"锁还没生效就点进来"
+    #    或服务端重启后内存态没了的同类窗口。
+    #    只看事件流（`state.completed` 只是内存态, 重启即丢）:
+    #    最近一条 `vn_exit completed=True` 之后**没有更新的触发** ⇒ 这条入口已走完。
+    if _entry_already_done(char_id, session_id, _flow_store(state)):
+        logger.info("bond_start 拒绝: 入口已完成（幂等兜底） %s/%s", char_id, session_id)
+        return {"accepted": False, "completed": True,
+                "error": "这段羁绊剧情已经结束（无需重进）"}
 
     # ── 预热 adopt（staged 态 + 玩家点击 / 再次 staged 调用）────────
     if state.vn is not None and state.staged_seq is not None:
