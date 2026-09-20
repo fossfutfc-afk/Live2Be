@@ -533,6 +533,47 @@ def _interrupt_scene(st, sid, text, *, choices=None, picked=None, title=""):
         "bond", "story_scene", payload))
 
 
+def test_reentry_after_quit_is_marked_as_return(tmp_path):
+    """★ 中途退出后再进 = **「回来」**（用户 2026-09-20 裁决）。
+
+    用户原话: *"原来中途退出会直接触发离场嘛…中途退出的借口保留，但是这种时候的
+    中途退出等于之后回来"* ——
+
+    * **送客借口保留**: `_wrapup_inner` 的 completed=False 话术不动（她说"下次再继续"）；
+    * **再进必须写成回来**: 否则前后矛盾（她刚道别完, 老师又"第一次"进门）。
+      实现 = 进入时判"上一次 vn_exit 是否 completed=False" → 下一块板注入**一次性**注记。
+
+    为什么判据放真源: 进程重启后内存态没了, 而 `vn_exit` 的 completed 标志还在流里。
+    """
+    engine, st, sid, _llm = _setup(tmp_path, STORY_END)
+    try:
+        # 第一次: 走了一场就中途退出（vn_exit completed=False）
+        st.enter_vn(CHARACTER, sid, "中断的约定")
+        _interrupt_scene(st, sid, "第一场。", choices=["A", "B"], picked="A")
+        try:
+            st.exit_vn(CHARACTER, sid, completed=False)      # 若store有这个 API
+        except AttributeError:
+            st.append_marker(CHARACTER, sid, "vn_exit", {"completed": False})
+
+        r = bond.bond_start(CHARACTER, sid)
+        assert r["accepted"], r
+        # 中途退出（completed=False）在后端被判成 `interrupted` ⇒ 走**回放续章**
+        # （不新开 vn_enter）——这就是"等于之后回来"的机制面。
+        assert r.get("replay") is True, r
+        # ① 判据那一半: 倒序找最近一条 vn_exit, completed=False ⇒ "上次是中途退出"
+        st2 = bond._state(CHARACTER, sid)
+        assert bond._prev_chapter_quit(
+            CHARACTER, sid, bond._flow_store(st2)) is True
+        # ② 注记那一半: 「回来」要写进这一轮, 且**一次性**（否则每轮都念）
+        st2.quit_resume = True                 # 等价于进入路径打上的那个标记
+        note = bond._system_note(st2)
+        assert note and "现在是老师回来了" in note and "中途离开" in note, note
+        assert "回来" not in (bond._system_note(st2) or ""), "「回来」注记必须只用一次"
+        print("    reentry: 中断续章 + 「老师回来了」注记（一次性）✓")
+    finally:
+        _cleanup()
+
+
 def test_bond_interrupt_replay_single_scene_handoff(tmp_path):
     """中断单场: 重进 → 回放该场（主段落 + 所选分支顺接 + **选项组只读重现**）→ 预生成交棒。"""
     engine, st, sid, _llm = _setup(tmp_path, STORY_END)
