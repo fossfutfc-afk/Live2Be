@@ -49,7 +49,6 @@ from pathlib import Path
 
 from core.common import Live2BeError, err
 from llm.client import LLMClient, feedback
-from llm.task_levels import extra_body as _task_extra
 from llm.task_levels import max_tokens as task_levels_max_tokens
 from contract import APPROVAL_AUTO, DOMAIN_MMT, AgentAction, build_schema
 from core.bond.bond_progress import BondProgress
@@ -73,7 +72,7 @@ from core.promptkit import (
 )
 from core.session import SessionStore
 from core.session.events import make_event
-from core.session.renderer import render_events, session_status, window_messages
+from core.session.renderer import session_status, window_messages
 from core.brain.wiki_v2.digest import digest_segment
 from core.affection import Affection, load_affection_from_events
 from core.brain.wiki_v2.render import render_background_experience, render_character_view
@@ -1079,7 +1078,6 @@ class MomoTalkEngine:
         self._maybe_mmt_digest()
 
         last = actions[-1]
-        last_reply = (last.reply or "").strip()
         return TurnResult(
             ok=True,
             steps=steps,

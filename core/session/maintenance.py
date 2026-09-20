@@ -31,7 +31,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 
 from core import paths
 from core.session.events import (

@@ -21,7 +21,6 @@ from typing import Iterable
 from core.brain.wiki_v2.nodes import BrainNode, format_id
 from core.common import err
 from core.session.io import atomic_write_json, atomic_write_lines, read_jsonl
-from core.worldtime.age import now_ts as _now_ts
 
 logger = logging.getLogger(__name__)
 

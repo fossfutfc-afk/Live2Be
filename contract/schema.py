@@ -20,7 +20,6 @@ from contract.records import (
     MAX_SENSEI_RUN,
     STAGE_ART,
     STAGE_END,
-    STAGE_EXIT,
     STAGE_MEMORIAL,
     STAGE_SWITCH,
 )

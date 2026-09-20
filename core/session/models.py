@@ -15,9 +15,12 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
-#: 会话类型（= 会话内主导事件板块, 与 events.py 的板块命名统一）
-TYPE_MMT = "mmt"
-TYPE_BOND = "bond"
+from core.session.events import TYPE_MMT   # 板块类型值单源（见下方注释; events.py 才是真源）
+
+#: 会话类型（= 会话内主导事件板块）——**板块词表真源 = `events.py`**。
+#: ⚠️ 原 `TYPE_MMT = "mmt"` / `TYPE_BOND = "bond"` 两份本模块副本 2026-09-21 合并:
+#: `TYPE_MMT` 改为从 events import; `TYPE_BOND` 删（本模块无消费者——要 bond 板块
+#: 常量去 events.py 拿, 那边是唯一真源）。
 TYPE_CONVERSATION = "conversation"   # ★ 2026-08-24: 单事件流会话（mmt+bond+l2d 全板块一目录）
 
 

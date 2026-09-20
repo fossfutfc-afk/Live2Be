@@ -19,14 +19,12 @@
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
 from core.session.events import (
     M_MEMORIAL_ENTER,
     M_MEMORIAL_EXIT,
     M_SESSION_END,
-    M_SESSION_START,
     M_VN_ABANDON,
     M_VN_ENTER,
     M_VN_EXIT,

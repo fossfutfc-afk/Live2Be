@@ -12,7 +12,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Callable
 
 #: 触发时机常量（引擎钩子名）

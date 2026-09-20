@@ -43,7 +43,6 @@ from core.session.events import (
     M_MEMORIAL_EXIT,
     M_MEMORIAL_IMAGE,
     M_SESSION_END,
-    M_VN_ENTER,
     M_VN_ABANDON,
     M_VN_EXIT,
     M_VN_STATE,
@@ -2729,7 +2728,6 @@ def _system_note(state: BondState) -> str | None:
     记录流 v2 里纪念是块内区间（`stage:memorial` 之后到块尾）, 没有 exit 动作——
     那条注记会把"输出动作 JSON"喂给只吃记录流的引擎（打回重发 → 反馈回环）。
     """
-    vn = state.vn
     notes: list[str] = []
     # ⚠️ 2026-09-20（用户裁决）: **中途退出后再进 = 静默重进, 不注任何信息**。
     #    曾经在这里注入过「老师上一轮是中途离开的…现在是老师回来了」——
