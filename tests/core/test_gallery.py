@@ -26,6 +26,35 @@ def test_write_creates_pair(tmp_path):
     print(f"    write: {sid} → png + json 成对")
 
 
+def test_write_attribution_fields(tmp_path):
+    """可归因字段（2026-09-20 节点 C）: prompt_source / refs / model / elapsed_ms。
+
+    **art 配对命中率**（`prompt_source == "art"` 的比例）是"画面指令质量"目前唯一
+    能自动算的代理指标——它必须真的落盘。同时钉住向后兼容: 不传这些字段时
+    json 形状与老档**逐字段一致**（老 json 也不能被读挂）。
+    """
+    st = GalleryStore(tmp_path)
+    sid = st.write("igusa_haruka", "（她抬起头。）", "sess_1", _fake_png(tmp_path),
+                   width=1920, height=1080,
+                   prompt_source="art",
+                   refs=["sprite_1.png", "style_1.png"],
+                   model="gemini-3.1-flash-lite-image",
+                   elapsed_ms=26400)
+    meta = st.get("igusa_haruka", sid)
+    assert meta["prompt_source"] == "art"
+    assert meta["refs"] == ["sprite_1.png", "style_1.png"]
+    assert meta["model"] == "gemini-3.1-flash-lite-image"
+    assert meta["elapsed_ms"] == 26400
+
+    # 缺省（老调用形状）→ 这些键**不出现**（老 json 形状不变）
+    sid2 = st.write("igusa_haruka", "（她抬起头。）", "sess_1", _fake_png(tmp_path),
+                    width=1920, height=1080)
+    meta2 = st.get("igusa_haruka", sid2)
+    for k in ("prompt_source", "refs", "model", "elapsed_ms"):
+        assert k not in meta2, f"{k} 不该凭空出现: {meta2}"
+    print("    write: 可归因字段落盘 + 缺省不写（向后兼容）")
+
+
 def test_write_meta_fields(tmp_path):
     st = GalleryStore(tmp_path, world_id="world2")
     sid = st.write("igusa_haruka", "天台上的遥香", "sess_1", _fake_png(tmp_path),

@@ -75,11 +75,23 @@ class GalleryStore:
         scene_id: str | None = None,
         width: int | None = None,
         height: int | None = None,
+        prompt_source: str = "",
+        refs: list[str] | None = None,
+        model: str = "",
+        elapsed_ms: int = 0,
     ) -> str:
         """落一张画廊图（png + json 成对, §4.5 格式）。
 
         顺序: 先复制 png → {scene_id}.png, 再原子写 {scene_id}.json
         （list 只认成对; 半套 = 中断, 可带 scene_id 重试补全）。返回 scene_id。
+
+        **可归因字段（2026-09-20, docs/DESIGN_MEMORIAL.md 节点 C）**——都可缺省,
+        老 json 照样读（`list`/`get` 不做字段校验）:
+            prompt_source — prompt 从哪来: `art`（画面意向, 配对成功）/
+                            `memorial_text`（降级: 用触发句顶替）
+            refs          — 喂了哪些参考图（文件名）; model / elapsed_ms — 出图元信息
+        用途: **art 配对命中率** = `prompt_source == "art"` 的比例——这是"画面指令
+        质量"目前唯一能自动算的代理指标。
         """
         if not prompt or not prompt.strip():
             raise ValueError(f"[gallery.py][GalleryStore][prompt 不能为空]")
@@ -104,6 +116,15 @@ class GalleryStore:
         if width and height:                    # 生图尺寸（= 屏幕尺寸; 前端布局/校验用）
             meta["width"] = int(width)
             meta["height"] = int(height)
+        # 可归因（缺省不写 → 老 json 形状不变）
+        if prompt_source:
+            meta["prompt_source"] = str(prompt_source)
+        if refs:
+            meta["refs"] = [str(r) for r in refs]
+        if model:
+            meta["model"] = str(model)
+        if elapsed_ms:
+            meta["elapsed_ms"] = int(elapsed_ms)
         atomic_write_json(self.meta_path(char_id, sid), meta)
         return sid
 

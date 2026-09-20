@@ -491,6 +491,9 @@ class BondStoryEngine:
         self._history: list[dict[str, str]] = []
         self._trace: list[dict] = []      # 最近一次 send_vn_scene 的动作轨迹（追溯/调试）
         self._in_memorial = False         # 纪念子模式状态（enter 后 True, exit 后 False, §4.7）
+        #: 最近一张纪念图的 prompt 来源（`art` / `memorial_text`）——见
+        #: `_fire_memorial_image`。回调侧同步读走, 用于可归因记账（节点 C）。
+        self.memorial_prompt_source = ""
         self._memorial_used = False       # 一段剧情至多 1 次 memorial（enter 已用 = True）
         self._lexicon_keys: list[str] = []     # 两遍式 C: 角色词表键（标注层用）
         self._lexicon_hint: str = ""           # 词表注入文本（few-shot 示范, 标注 prompt 用）
@@ -868,7 +871,14 @@ class BondStoryEngine:
         if not prompt:
             logger.warning("[vn][memorial] 没拿到画面意向/触发句 → 不开画（纯文字降级）")
             return
-        logger.info("[vn][memorial] 开画 prompt=%r", prompt[:60])
+        #: 本张图的 prompt 来源——`art` = 画面意向（配对成功）/ `memorial_text` = 降级
+        #: （触发句顶替）。回调侧据此记账（gallery json 的 `prompt_source`），用来量
+        #: art↔memorial **配对命中率**（docs/DESIGN_MEMORIAL.md 节点 C）。
+        #: 只在 `_fire_memorial_image` 里赋值、由 cb 同步读走（同一线程内）。
+        self.memorial_prompt_source = (
+            "art" if (art_hint or "").strip() else "memorial_text")
+        logger.info("[vn][memorial] 开画 prompt=%r src=%s",
+                    prompt[:60], self.memorial_prompt_source)
         try:
             cb(prompt)
         except Exception as e:                     # noqa: BLE001 — 生图触发失败不炸生成

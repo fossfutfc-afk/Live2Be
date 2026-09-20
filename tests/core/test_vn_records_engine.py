@@ -248,6 +248,9 @@ def test_memorial_fires_image_hook_with_art_intent():
                                  on_memorial_prompt=got.append)      # 批式（无 on_board）
     assert scene.memorial is True
     assert got == ["她在开满杂草的坡道上回头，夕阳打在脸上"], got   # 意向优先
+    # prompt 来源记账（节点 C）: 配对成功 = `art` —— gallery json 的 prompt_source
+    # 与 art 配对命中率都读它
+    assert engine.memorial_prompt_source == "art"
 
     # 无 art 声明 → 退化为触发句（同样是"她在做什么"的一句话, 保证画面里有主角）
     block2 = "\n".join([
@@ -260,6 +263,8 @@ def test_memorial_fires_image_hook_with_art_intent():
     scene2 = engine2.send_vn_scene("（开场）", annotate=False,
                                    on_memorial_prompt=got2.append)
     assert got2 == ["（她抬起头，第一次直视我的眼睛。）"], got2
+    # 降级路径的记账: prompt 来自 memorial 的**转场句**, 不是画面意向
+    assert engine2.memorial_prompt_source == "memorial_text"
 
     # 没有 memorial 的普通块 → **不开画**（模型写了 art 却没兑现 → 不浪费调用）
     block3 = "\n".join([
