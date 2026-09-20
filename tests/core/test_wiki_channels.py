@@ -374,8 +374,25 @@ def test_place_gate_two_axis_fusion(tmp_path):
     assert r4.hits and all(h.detail["axes"] == 1 for h in r4.hits)
     assert r4.hits[0].raw == 1.0, "同键在小轴缺席时 = 素材轴满分"
     assert "无 embed_fn" in r4.knobs["sem"]
+
+    # ⑤ ⭐ **键未知 ≠ 键不符**（用户 2026-09-20: *"还是走单轴"*）——
+    #    没有 `place` 键 = 素材轴**不可算** → `raw = sw`（`narrative_only`）,
+    #    而不是被 `magic(s, 0) == 0` 判死。真档实测 `place` 键 0 条、只有
+    #    `place_hint` ⇒ 不修这条路, C 在真档上**恒空手**。
+    st.add(make_node("episode", narration="杂草屋的第一次", significance=0.8,
+                     place_raw=["深夜的杂草屋"], event_seq=[58]))   # **故意不给 place**
+    r5 = get_channel("C_place").gather(
+        st, _ctx(place_now="school_rooftop", place_raw_now="深夜的杂草屋",
+                 embed_fn=fake_embed))
+    h5 = next(h for h in r5.hits if h.node.event_seq == [58])
+    assert h5.detail["by"] == "no_key" and h5.detail["axes"] == 1, h5.detail
+    assert h5.raw > 0.0 and abs(h5.raw - 1.0) < 1e-9, h5.detail   # sem 满分（同一句话）
+    assert h5.detail["same_image"] is False, "没有键就绝不能声称'同一张图'"
+    assert r5.knobs["no_key"] >= 1, r5.knobs
+    # 反向确认: **有键但不符**（③ 的 `onsen`）仍进不来 —— 防线没被这次放宽拆掉
+    assert "onsen" not in [p for h in r5.hits for p in (h.node.place or [])], r5.hits
     print("    C 融合: 同键同话=1.0; 同键异话→0（形状）; 别名相交的异键捞回; "
-          "无语义轴→只用素材轴")
+          "无语义轴→只用素材轴; **无键→叙事轴单轴**")
 
 
 def test_unconscious_is_declared_not_implemented(tmp_path):
