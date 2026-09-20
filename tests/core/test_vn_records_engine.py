@@ -544,3 +544,38 @@ def test_soft_violation_overlong_slot_is_chunked():
     assert second.choices == ["四", "五"]                    # 尾槽接着发
     assert len(llm.snapshots) == 1
     print("    engine: 超长群切槽（软违规不重发）")
+
+
+def test_soft_issues_become_next_round_note():
+    """节点 3（2026-09-21）: 软问题 → **下一轮注记纠偏**（一次性, 注入后自清）。
+
+    改动前: 软问题只进日志/trace, 模型永远看不到 —— 上层注释写着
+    "反馈留给上层下一轮注记", 但那条注记从来没实现过; 于是同一类形状错误
+    会在每块里重复出现（改坏一处 ⇒ 全章坏）。改动后: 记账到
+    `_pending_feedback`, 下一轮拼进 notes（场卡之前）, 然后清空。
+    """
+    # 第一轮: 有 memorial 但没有 art ⇒ 软问题（交付, 不打回）
+    soft_bad = "\n".join([
+        '{"stage": "switch", "text": "教室"}',
+        '{"character": "igusa_haruka", "text": "……"}',
+        '{"stage": "memorial", "text": "（她抬起头。）"}',
+        '{"stage": "end", "text": ""}',
+    ])
+    clean = "\n".join([
+        '{"stage": "switch", "text": "教室"}',
+        '{"character": "igusa_haruka", "text": "……"}',
+        '{"stage": "end", "text": ""}',
+    ])
+    llm = ScriptedLLM(soft_bad, clean)
+    engine = _engine(llm)
+
+    first = engine.send_vn_scene("（开场）", annotate=False)
+    assert first.memorial, "软问题不该拦交付"
+    assert engine._pending_feedback, "软问题应记账待下一轮纠偏"
+
+    engine.send_vn_scene("（继续）", annotate=False)
+    second_notes = "\n".join(m["content"] for m in llm.snapshots[1])
+    assert "上一轮输出的**形状**有这些问题" in second_notes, second_notes
+    assert "含 memorial 但没有 art" in second_notes, second_notes
+    assert engine._pending_feedback == [], "注记注入后应自清（不重复唠叨）"
+    print("    engine: 软问题 → 下一轮注记纠偏（一次性）")

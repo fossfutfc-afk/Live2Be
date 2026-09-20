@@ -21,6 +21,10 @@
 · **已交付后的校验是 advisory**（流式拦不住已上屏的板；打回重发会产出另一段文本
   = 玩家看到"同一段戏讲两遍"，见 `docs/DESIGN_RESEND.md` §3）。
 
+⚠️ **advisory ≠ 算了**（节点 3）：已交付后的问题记账到 `_pending_feedback`，
+**下一轮**拼进 notes 交给模型（一次性）——见
+`test_stream_late_violation_pends_feedback_for_next_round`。
+
 ## 节点 2′ 消掉的分叉（本文件逐条钉住）
 
 | 差异 | 改动前 | 改动后 |
@@ -353,3 +357,33 @@ def test_stream_logs_block_issue_text_for_greppability():
     assert serr is None and stream, "块级软问题不拦"
     assert "含 memorial 但没有 art" in logs, logs
     print("    parity: 流式日志含块级软问题文本（art 配对命中率可 grep）")
+
+
+def test_stream_late_violation_pends_feedback_for_next_round():
+    """流式 advisory 的问题**不能只进日志**——下一轮得让模型知道（节点 3）。
+
+    流式已交付 ⇒ 不能打回重发（见上一条），但这不意味着"模型永远学不到":
+    问题记账到 `_pending_feedback`, **下一轮**拼进 notes 注入一次（见
+    `test_vn_records_engine.py::test_soft_issues_become_next_round_note`）。
+    历史缺陷: 上层注释写着"反馈留给上层下一轮注记", 而那条注记从未实现 ⇒
+    同一类形状错误（如本块 `end` 后又写记录）会在整章每块重复。
+    """
+    block = _lines(
+        _switch("教室"),
+        _haruka("一"),
+        _sensei("A"),                      # ← 板 1 在此闭合（已交付）
+        _haruka("二"),
+        '{"stage": "end", "text": ""}',
+        _haruka("三"),                     # ← 违规落在板 2（已交付后 → advisory）
+    )
+    llm = _StreamLLM(block)
+    engine = BondStoryEngine(ROOT / "config" / "characters", llm)
+    engine.start_session(CHARACTER)
+    got: list = []
+    first = engine.send_vn_scene("（开场）", annotate=False, on_board=got.append)
+
+    assert got and first is got[0]
+    assert engine._pending_feedback, "advisory 问题必须记账待下一轮（不能只打日志）"
+    assert any("必须块尾" in i for i in engine._pending_feedback), \
+        engine._pending_feedback
+    print("    parity: 流式 advisory → 记账待下一轮纠偏")

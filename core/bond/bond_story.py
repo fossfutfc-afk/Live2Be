@@ -576,6 +576,11 @@ class BondStoryEngine:
         #: 可归因性（决策 #35）: 上一次 `send_vn_scene` 是否**领的待发队列**（0 LLM）
         #: ——调用方据此标注 `bond_board_deliver src=`（queue/draft 而非 gen）。
         self._served_from_pending = False
+        #: 上一块留下的**形状问题**（节点 3, 2026-09-21）: 流式下**已交付**的板拦不住
+        #: （打回重发会产出另一段文本 = 玩家看到"同一段戏讲两遍", 见
+        #: `docs/DESIGN_RESEND.md` §3）→ 改成**下一轮注记纠偏**: 把问题带到下一轮,
+        #: 让你模型自己避免。一次性（下轮注入后即清）; 干净块也会清。
+        self._pending_feedback: list[str] = []
 
     # ------------------------------------------------------------------
     # 会话生命周期
@@ -710,6 +715,15 @@ class BondStoryEngine:
         notes: list[str] = []
         if system_note:                                     # 约束注记（纪念 exit schema/
             notes.append(system_note)                       # 配额/收尾提醒, webgui/vn_cli 拼）
+        if self._pending_feedback:
+            # 节点 3（2026-09-21）: 上一轮**已交付**但形状有问题（流式拦不住, 见
+            # `DeliveryMode.STREAM`）→ 下一轮明说一次让模型纠偏; **一次性消费**
+            # （此处清空, 下一轮若仍脏会重新置上）。放在场卡之前, 保持场卡在末位。
+            notes.append(
+                "（系统）上一轮输出的**形状**有这些问题: "
+                + "; ".join(self._pending_feedback)
+                + "。本轮请避免（形状规则见「本轮输出契约」）。")
+            self._pending_feedback = []
         if self._task_on:                                   # 场卡 = 目标层（末位）
             card = task_card("bond", self._scene_task_kind(),
                              char=self._current_char.display_name
@@ -874,7 +888,9 @@ class BondStoryEngine:
             if delivered:
                 # 流式已交付（on_board 给过板）: **不再重复解析/交付**——校验只做记账。
                 # 注: 流式下"硬违规"无法回滚（板已在玩家屏上）, 故只 trace/日志,
-                # 不打回重发（真机守形 0 违规; 反馈留给上层下一轮注记）。
+                # 不打回重发（真机守形 0 违规）。
+                # 节点 3（2026-09-21）: 记账 → **下一轮注记纠偏**（`_pending_feedback`,
+                # 见 notes 装配处）——这是"拦不住"之下唯一还能纠偏的通道。
                 issues = check_block(tuple(stream.records))
                 self._trace.append({
                     "attempt": attempt, "action": "record_stream/streamed",
@@ -889,6 +905,8 @@ class BondStoryEngine:
                             # 于是 CLAUDE.md §12 那条"grep 软问题串（如'含 memorial
                             # 但没有 art'）"在生产路径上永远 grep 不到——生产走流式。
                             f" issues_txt={' | '.join(issues)}" if issues else "")
+                # 节点 3: 记账 → **下一轮纠偏**（下一轮 notes 注入一次后自清）
+                self._pending_feedback = list(issues)
                 boards = delivered
             else:
                 boards, hard = self._build_record_boards(str(response), attempt)
@@ -1059,6 +1077,8 @@ class BondStoryEngine:
             return [], hard
         if soft:                                 # 超长群 → 切群; 其余（配对/章末）只记录
             logger.info("[vn][records] 软违规（不阻断）: %s", "; ".join(soft))
+        # 节点 3: 软问题只记录不打回 → 带到**下一轮**纠偏（硬问题已即时打回, 不重复纠偏）
+        self._pending_feedback = list(soft)
         if block_art and not any(r.stage == STAGE_MEMORIAL for r in block.records):
             logger.warning("[vn][records] 声明了 art 但本回合没有 memorial（降级: 不发图）")
 
