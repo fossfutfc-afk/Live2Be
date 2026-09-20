@@ -144,8 +144,12 @@
 
 | 交付模式 | 增量交付 | 板级闸（`check_board`） | 块级校验（`check_block`） |
 |---|---|---|---|
-| `DeliveryMode.STREAM`（live、真机 `chat_full`） | ✅ | **拦**（不交付 + feedback） | **advisory**（记账 + 日志 + 下一轮注记） |
+| `DeliveryMode.STREAM`（live、真机 `chat_full`、**预生成**——节点 4′ 起） | ✅ | **拦**（不交付 + feedback） | **advisory**（记账 + 日志 + 下一轮注记） |
 | `DeliveryMode.BLOCK`（CLI / 无流式客户端） | ✗（整块） | 拦 | **拦**（打回重发） |
+
+⚠️ **预生成必须与 live 同一格**（节点 4′）: 预测"玩家点继续时会看到什么"的东西,
+不能比 live 更严——否则同一份输出在两侧给出不同的板（历史: 预生成走批式, 对
+"首板之后的形状违规"直接打回 3 次 ⇒ 预生成失败, 而 live 是 advisory 照常交付）。
 
 **不变量**：**真源里永不出现"未提交"的板**——章级已由 `core/session/staging.py` 保证
 （章内一切先进 `soul/staging/events.jsonl`，见 `vn_exit` 才整段 append），**板级由本计划保证**。
@@ -178,17 +182,19 @@ provisional ──校验通过──► delivered ──裁决/推进──► c
 | ✅ **5** | **测试桩对齐生产** | 给 `test_web_http.py`（原 **0 个** `chat_full`）与 `test_bond.py` 的桩补 `chat_full`——**按行喂 `on_chunk`**（= 真机 `LLMClient.chat_full` 语义, 板一闭合即交付）; 新增 `test_webgui_runs_on_streaming_production_path` 断言 trace 是 `record_stream/streamed` 且 `delivery_mode=stream` | **webgui 37 例全绿**（切到生产路径**零失败** = 节点 2′ 统一为真的最强证据）+ 全量 **863 passed** | 小改动、**大暴露面**（已过: 零回归） |
 | **5b**（新增, 待定） | **桩的结构化分派**（ARCH_REVIEW P2-8） | 桩现在按**自然语言关键字**分派（`情绪标签` / `变更句数组` / `地点 id JSON` / `选中的文件名` / `记录员`）——**改文案就静默不命中**。结构化做法 = 给 LLM 调用加 `task=` 元数据（**不进 messages**, 不改 prompt/夹具）, 桩按它分派 | 产品侧 **8 个调用点**（`emo_text` · `emotion_annotate`×2 · `place_annotate`×2 · `variant_annotate` · `wiki_v2/llm_call` · `momotalk` · `bond_story`）+ 客户端签名 + 各测试桩 | 中（动 LLM 客户端的公共签名） |
 | ✅ **3** | **守卫分层显式 + 下一轮纠偏** | ① `BondStoryEngine._pending_feedback`：**已交付**后发现的形状问题（流式 advisory 的硬问题 + 批式软问题）记账 ② 下一轮拼进 notes（场卡**之前**、注入后**自清**）——"（系统）上一轮输出的**形状**有这些问题: …" ③ `DeliveryMode` 下硬/软的语义写进注释（板级 ⊆ 块级 ⇒ 板级闸不新增拒绝） | 新用例 2 例：`test_vn_records_engine.py::test_soft_issues_become_next_round_note`（软问题 → 下一轮 notes 出现纠偏文本 + 自清）、`test_pipeline_parity.py::test_stream_late_violation_pends_feedback_for_next_round`（流式已交付后违规 → 记账 not 只打日志）；全量 **865 passed** | 低（已过） |
-| **4′** | **预生成与 live 同路径** | `_pregenerate` 走同一交付模式（把"增量交付"与"落库/门控"解耦）；语义升级为 **预生成 = provisional（未 adopt 即丢弃）**，与"拒绝/重发"共用 §3.1 协议 | 新用例：**同一记录流，live 与 pregen 的板载荷逐字节一致** | 中（预生成是 §9 主路径） |
+| ✅ **4′** | **预生成与 live 同路径** | `webgui/bond.py::_pregenerate` 补 `on_board=_on_pregen_board` ⇒ 预生成也走 `DeliveryMode.STREAM`（此前不传 ⇒ 退回批式, 同一份输出两条路给出**不同的板**）。回调**只记账不落库** = 预生成 **provisional**（真源/暂存的 `bond` 事件等玩家消费时 `_log_scene` 才写; "丢弃"不需要清任何东西）。新增台账 `bond_pregen_board board=N recs=N dur=ms`（预生成**首板**到达时刻, 与 `bond_pregen src=gen dur=` 的"整块写完"对照）。⚠️ 显式 lifecycle 枚举（provisional→delivered→committed）仍归节点 2″ | 新用例 2 例（`tests/webgui/test_bond.py`）：`test_pregen_uses_live_delivery_path`（同一记录流 live/pregen **板载荷逐字节一致** + 预生成 trace 是 `record_stream/streamed`/`delivery_mode=stream`; **去掉 `on_board` 即红**——已实测）、`test_pregen_board_is_provisional_until_adopted`（预生成不落库/在草稿旁路 → adopt 只是提升 → 再推进才写暂存, 真源仍无） | 中（已过: 全量 **868 passed** + B 层冒烟） |
 | ✅ **6** | **`Issue(code, severity)` 结构化** | ① `contract/records.py`: `IssueCode`（`block.*`/`board.*`）+ `IssueSeverity` + **`ISSUE_SEVERITY: IssueCode → IssueSeverity` 唯一真源** + `Issue(code, message)`（`severity` 是派生属性）+ `format_issues`/`split_issues` ② `check_block`/`check_board` 返回 `list[Issue]`；`bond_story.HARD_BLOCK_ISSUE_MARKS` 与 `split_board_issues` **删除** ③ trace 里问题分两份：人读文本 `issues` + 机器码 `issue_codes` ④ 测试断言改成看 `IssueCode` | **守门用例** `test_records.py::test_issue_severity_is_declared_by_code_not_message`（软问题文案**塞满硬关键词**也不改分级 / 每个码必须声明严重度 / 源码不许复活子串分级）；全量 **866 passed** | 低（已过） |
 
-**顺序 = 0 → 1 → 2′ → 5 → 3 → 6 → 4′**（6 与 4′ 都是低耦合收尾, 6 先做是因为它只是
-把已有的软硬语义搬到明面上；4′ 动性能主路径, 放最后单独验收），理由：
+**顺序 = 0 → 1 → 2′ → 5 → 3 → 6 → 4′**（**主链已全部落地**；剩下的是两个可选地基项
+2″/5b + `webgui/bond.py` 文件拆分），理由：
 
 - **1 必须先做**：现在没有任何测试证明两条路等价（§2.5），动刀前先建网；
 - **5 放在 2′ 之后、3/4′ 之前**：此时两条路已等价，不会一次爆几十个红；而它一旦生效，
   3/4′ 每一步都有**生产路径**的网；
 - **6 在 3 之后**：它动 contract 层公共返回形状，等 3 把分层语义定死再结构化最省事
-  （节点 3 引入的 `_pending_feedback` 正好是第一个"软硬都要走同一条路"的消费者）。
+  （节点 3 引入的 `_pending_feedback` 正好是第一个"软硬都要走同一条路"的消费者）；
+- **4′ 放最后**：它动性能主路径（预热/预生成链），单独验收更容易定位回归；
+  且它的验收方式就是"与 live 逐字节一致"——前面的节点没落地时这条根本没意义。
 
 ---
 

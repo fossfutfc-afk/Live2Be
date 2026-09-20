@@ -2272,6 +2272,18 @@ def _pregenerate(state: BondState, char_id: str, session_id: str) -> None:
     （清 pregen, 玩家点击时走正常生成路径, 不阻断剧情）。预生成场景同样计入
     选项配额/表情统计（供后续 system_note 参考）。演示模式不预生成（即时弹出）。
     入口原子抢占（2026-09-02 修复: 与 _generate 同款锁——防并发双启动）。
+
+    ⚠️ **节点 4′（2026-09-21）: 预生成与 live 走同一条交付路径**。
+    此前这里**不传 `on_board`** ⇒ 引擎退回批式（`DeliveryMode.BLOCK`）——于是同一份
+    LLM 输出在两条路上**给出不同的板**: "首板已交付之后的形状违规"在 live（流式）是
+    advisory（照常交付）, 在预生成（批式）却是硬违规（打回 3 次 → `SceneLoopError`
+    → 预生成失败）。预生成承诺的正是"玩家点继续时会看到什么", 所以必须与 live 同源:
+    现在传 `on_board`（`_on_pregen_board`）⇒ `DeliveryMode.STREAM`。
+
+    **预生成 = provisional（未 adopt 即丢弃）**: 那个回调只记账**不落库**——板进
+    `state.pregen_scene` / 草稿旁路, 真源与暂存的 `bond` 事件要等玩家真的消费
+    （`bond_turn` 的提升分支 → `_log_scene`）才写。"丢弃"不需要清任何东西
+    （`docs/EXEC_PIPELINE_UNIFY.md` §3.1: 任何丢弃都不写标记）。
     """
     with state._lock:
         if state.busy or state.pregen_scene is not None \
@@ -2284,12 +2296,29 @@ def _pregenerate(state: BondState, char_id: str, session_id: str) -> None:
         t0 = time.monotonic()                    # 计时埋点（§6.1）
         cid = f"{int(time.time() * 1000) % 0xFFFF:04x}"
         state._call_id = cid
+        delivered: list[BondScene] = []          # 流式回调收到的板（**provisional**）
+
+        def _on_pregen_board(scene_b: BondScene) -> None:
+            """预生成板的流式交付点——**只记账, 不落库**（节点 4′）。
+
+            · 不落库 = provisional: `_log_scene` 在玩家消费时才调用（见函数 docstring）;
+            · 记 `_call_id`: 板上要留"是哪次调用写的"（台账/草稿旁路都读它）;
+            · `bond_pregen_board` 一行 = 预生成板的到达时刻（首板 TTFT 可比对
+              `bond_pregen src=gen dur=ms`, 后者是**整块**写完的时刻）。
+            """
+            scene_b._call_id = cid
+            delivered.append(scene_b)
+            logger.info("bond_pregen_board board=%d recs=%d dur=%dms %s/%s",
+                        len(delivered), len(scene_b.records), _ms_since(t0),
+                        char_id, session_id)
+
         try:
             with chat._lock(char_id):
                 scene = state.vn.send_vn_scene(
                     "（继续）", system_note=_system_note(state), annotate=False,
                     on_memorial_prompt=_make_memorial_cb(
-                        state, char_id, session_id))
+                        state, char_id, session_id),
+                    on_board=_on_pregen_board)
                 # 台账（2026-09-11）: 这次预生成是**领队列**（0 LLM）还是**真调用**?
                 # 引擎的 trace 写得很清楚（record_stream/pending = 从待发板拿出）。
                 # 领队列时板上的 `_call_id` 保留"当初写它的那次调用"。
@@ -2304,8 +2333,9 @@ def _pregenerate(state: BondState, char_id: str, session_id: str) -> None:
                     scene._call_id = cid
                     for _b in getattr(state.vn, "_pending_boards", None) or []:
                         _b._call_id = cid
-                    logger.info("bond_pregen src=gen call=%s %s/%s dur=%dms",
-                                cid, char_id, session_id, _ms_since(t0))
+                    logger.info("bond_pregen src=gen call=%s boards=%d %s/%s dur=%dms",
+                                cid, len(delivered), char_id, session_id,
+                                _ms_since(t0))
                 state.pregen_obj = scene
                 state.pregen_scene = scene.to_dict()
                 state.pregen_input = "（继续）"
