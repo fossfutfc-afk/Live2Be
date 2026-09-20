@@ -398,6 +398,23 @@ class DynamicCharacter:
     mmt_tone: str = ""
     bond_tone: str = ""
 
+    def image_persona_brief(self, limit: int = 4) -> str:
+        """生图用的**性格简卡**（2026-09-20, docs/DESIGN_MEMORIAL.md 节点 D1）。
+
+        为什么需要: 生图模型**不知道她是谁**——只喂外观参考图, 它画得出服装发型,
+        画不出"自卑/惶恐/不敢对视"那层神态（真机那张纪念图被画成了明亮的笑,
+        用户: *"图不像人不是 VN 的问题，更像是生图 LLM 没把握住神态"*）。
+
+        料 = `personality.yml` 的 `SIG~brief_traits`（人设里本来就有的短句清单）。
+        **只给性格, 不给外貌**——外貌有参考图, 描述细节反而会跟参考图打架。
+        `illustration.yml` 的 `character_hint` 非空时优先用它（作者手写版）。
+        """
+        traits = self.personality.get(f"{PREFIX_SIG}brief_traits", [])
+        if not isinstance(traits, list):
+            return ""
+        lines = [str(t).strip() for t in traits if str(t).strip()][:max(0, limit)]
+        return "\n".join(f"- {t}" for t in lines)
+
     def build_prompt(self, mode: str = "momotalk") -> str:
         """根据模式构建 System Prompt。
 

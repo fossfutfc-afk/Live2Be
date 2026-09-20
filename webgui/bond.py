@@ -528,10 +528,14 @@ def _memorial_gen(state: BondState, char_id: str, session_id: str,
         char = eng.current_character
         name = char.display_name if char is not None else "角色"
         hints = eng.char_loader.load_illustration(char_id)   # illustration.yml（可选）
+        # 性格简卡（2026-09-20 D1）: 作者手写优先; 没写 → 从 personality.yml 的
+        # SIG~brief_traits 自动摘。生图模型不知道人设就画不出神态。
+        persona = (hints.get("character_hint") or "").strip() or (
+            char.image_persona_brief() if char is not None else "")
         refs = collect_ref_images(char_id)
         img = gen.generate(prompt, ref_images=refs,
                            character_name=name,
-                           character_hint=hints.get("character_hint", ""),
+                           character_hint=persona,
                            halo_hint=hints.get("halo_hint", ""))
         logger.info("纪念立绘: %dx%d %.1fs %s", img.width, img.height,
                     img.elapsed_s, img.path.name)

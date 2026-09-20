@@ -207,15 +207,19 @@
 | C1 | gallery json 补字段（**都可缺省, 老 json 形状不变**）：**`prompt_source`** = `art` / `memorial_text`（降级）、`refs`（喂了哪些参考图）、`model`、`elapsed_ms`。来源: 引擎在 `_fire_memorial_image` 里把"这张图的 prompt 是画面意向还是触发句"记到 `engine.memorial_prompt_source`，`_memorial_gen` 同步读走交给 `GalleryStore.write` |
 | C2 | **统计口径**（三个口径互为印证）：<br>① **art 配对命中率** = gallery json 里 `prompt_source == "art"` 的比例（最权威——它记的是**真出图的那一次**）<br>② 契约软问题计数: `grep "含 memorial 但没有 art"`（`check_block` 的软问题, **流式路径也有**）<br>③ WARNING `grep "声明了 art 但本回合没有 memorial"` —— ⚠️ 这条**只覆盖批式路径**（在 `_build_record_boards` 里, 流式不走那个函数）, 别单独拿它下结论 |
 
-### 节点 D — 图像质量（前几轮已定，与纪念链路解耦）
+### 节点 D — 图像质量（前几轮已定，与纪念链路解耦）　✅ **D1/D2 已落地 2026-09-20；D3 关闭**
 
 | # | 改动 |
 |---|---|
-| D1 | **性格简卡进 `character_hint`**（用户裁决：*"简卡放在 character_hint 吧，神态参考图不必了"*）。料 = `personality.yml:1` 的 `SIG~brief_traits`（"高度自卑，认为自己一无是处…"）。**同批改 `illustration.yml` 那句注释**「写形状, **不写性格**」——不改的话下一个人会照注释清掉它 |
-| D2 | `llm/image_gen.py` 的 `_APIYI_TAIL` 补**构图/镜头 + 光线**（指南点名的两个缺口；现有尾段已有画幅/风格/负向，缺的就是这两样） |
-| D3 | 14:21 那张**孤儿图**处置（`GalleryStore` 无删除/回收、前端也不列 gallery）——审计工具（dry-run 默认）或手删 |
+| D1 | **性格简卡进 `character_hint`**（用户裁决：*"简卡放在 character_hint 吧，神态参考图不必了"*）。实现是**两条路**：<br>① **作者手写**——`illustration.yml` 的 `character_hint`（haruka 已按 `personality.yml` 的 `SIG~brief_traits` 写好，四条：高度自卑／低头缩肩／结巴硬撑／怯生生的高兴）。⚠️ 同批改了那句注释「写形状, **不写性格**」——不改的话下一个人会照注释把它清掉。<br>② **引擎兜底**——`DynamicCharacter.image_persona_brief()` 从 `SIG~brief_traits` 摘前 4 条；`character_hint` 为空时自动用它（**其余三个角色立刻受益**，不必逐个手写）。<br>注入形态: `_APIYI_ROLE_HINT` 从"补充设定：{hint}"改成独立一行 **【补充设定（画神态时照此，外貌仍以参考图为准）】**——原来那句挂在【角色本体】标签下、通篇"别画错设计", 性格塞进去语义会混 |
+| D2 | `llm/image_gen.py` 的 `_APIYI_TAIL` 补 **【构图】**（默认中近景、她占画面主要位置、场景指令可覆盖、不要多人同框/分格）与 **【光线与氛围】**（按时间与情绪定光、情绪低落时压暗收窄）——指南点名的两个缺口（"忘写构图"是常见失误） |
+| D3 | ~~14:21 那张孤儿图处置~~ —— **用户裁决"不用删"（2026-09-20）**，关闭。现状留在盘上（`GalleryStore` 无删除/回收）；真要清理时它仍是个孤儿（全仓 0 引用） |
 
 ### 节点 E — 文档同步（随各节点提交，不单独成节点）
+
+> ⚠️ **`CLAUDE.md` 的两处改动留给用户自己做**（2026-09-20 用户：*"先不要编辑 CLAUDE.md，
+> 每次一编辑就会给你注入一次"*——编辑它会触发全文重注入, 很吃上下文）。需要改的是下面
+> 两条, 以及 §13 路由表里本文那一行已经加好了。
 
 | 位置 | 改什么 |
 |---|---|

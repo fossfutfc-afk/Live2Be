@@ -307,15 +307,21 @@ def run_bond_story_vn(
             print("[纪念立绘 生成中…]", flush=True)
             try:
                 hints = engine.char_loader.load_illustration(char.character_id)
+                persona = (hints.get("character_hint") or "").strip() or (
+                    char.image_persona_brief())      # 性格简卡兜底（D1）
+                refs = collect_ref_images(char.character_id)
                 img = image_gen.generate(
                     scene.memorial_prompt, seed=memorial_seed,
-                    ref_images=collect_ref_images(char.character_id),
+                    ref_images=refs,
                     character_name=char.display_name,
-                    character_hint=hints.get("character_hint", ""),
+                    character_hint=persona,
                     halo_hint=hints.get("halo_hint", ""))
                 sid = gallery_store.write(
                     char.character_id, scene.memorial_prompt, vn_sid or "", img.path,
-                    width=img.width, height=img.height)
+                    width=img.width, height=img.height,
+                    prompt_source=getattr(engine, "memorial_prompt_source", "") or "",
+                    refs=[Path(p).name for p in refs],
+                    model=getattr(image_gen, "api_model", "") or "")
                 memorial_images = [str(gallery_store.png_path(char.character_id, sid))]
                 print(f"[纪念立绘] {memorial_images[0]} "
                       f"({img.width}x{img.height}, {img.elapsed_s:.1f}s)", flush=True)
