@@ -236,7 +236,6 @@ def test_worldtime_does_not_import_project_modules():
 
 
 if __name__ == "__main__":
-    import tempfile
 
     for fn in (test_phases_and_units, test_calendar_derives_from_sim_day,
                test_month_rollover_at_four_weeks, test_year_rollover,

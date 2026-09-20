@@ -18,7 +18,6 @@
 运行: python -m pytest tests/webgui/test_web_http.py
 """
 import asyncio
-import json
 import re
 import sys
 import time
@@ -30,7 +29,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from core.momotalk import MomoTalkEngine  # noqa: E402
 from core.session import SessionStore  # noqa: E402
-from tests.vn_fixtures import scene as rec_scene  # noqa: E402
 from webgui import bond, chat  # noqa: E402
 from webgui.app import app  # noqa: E402
 

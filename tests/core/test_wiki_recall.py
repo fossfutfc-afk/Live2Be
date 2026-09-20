@@ -2,7 +2,7 @@
 import random
 from datetime import datetime, timedelta
 
-from core.brain.wiki_v2 import BrainNode, WikiStoreV2, make_node
+from core.brain.wiki_v2 import WikiStoreV2, make_node
 from core.brain.wiki_v2.recall import (
     recommend_candidates,
     recall_subgraph,

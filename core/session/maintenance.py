@@ -32,16 +32,12 @@
 from __future__ import annotations
 
 
-from core import paths
 from core.session.events import (
     TYPE_BOND,
     M_VN_ABANDON,
     M_VN_ENTER,
     M_VN_EXIT,
 )
-
-PROJECT_ROOT = paths.ROOT
-
 
 # ---------------------------------------------------------------------------
 # 段扫描（与 webgui.replay_attempts 同构的纯事件逻辑; 这里补 closing 类型）

@@ -67,6 +67,8 @@ def load_affection_table() -> dict[str, tuple[int, int]]:
     return table
 
 
+# EXT: affection-behavior — "未来行为加好感"（events.py 的 TYPE_AFFECTION 注释）的接口;
+# 当前无 live 调用（审计台账已记）——接线前不要删（docs/EXTENSION_POINTS.md）
 def load_raiser_table() -> dict[str, int]:
     """读行为加好感表 → {行为名: exp}（AffectionRaiser; 缺失 → 空 dict, 不阻塞）。"""
     if not _AFFECTION_JSON.is_file():
@@ -149,6 +151,8 @@ class Affection:
         """
         return math.tanh(self.exp / SCALAR_SCALE)
 
+    # EXT: affection-behavior — "未来行为加好感"（行为名 → exp）的接口; 接线前不要删
+    # （docs/EXTENSION_POINTS.md）——当前零调用者（审计台账已记）
     def add_behavior(self, behavior: str, raiser: dict[str, int] | None = None) -> int:
         """按行为加好感（AffectionRaiser 表, 如 gift_orange_l=60）→ 返回加的 exp。
 

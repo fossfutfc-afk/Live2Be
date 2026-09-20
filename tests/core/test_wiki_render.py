@@ -5,7 +5,7 @@
 """
 from datetime import datetime, timedelta
 
-from core.brain.wiki_v2 import BrainNode, make_node
+from core.brain.wiki_v2 import make_node
 from core.brain.wiki_v2.render import render_character_view, render_organize_view
 
 

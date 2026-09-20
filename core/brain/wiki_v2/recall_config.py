@@ -107,7 +107,12 @@ def get(name: str) -> float:
 
 
 def reload() -> None:
-    """丢弃缓存（设置变更/测试用——下次 get 重新读盘）。"""
+    """丢弃缓存（设置变更/**测试**用——下次 get 重新读盘）。
+
+    ⚠️ 2026-09-21 复核: 一度被当作"零消费者"删掉——**错的**: 它有 11+ 处调用,
+    全在 `tests/core/test_wiki_recall_ledger.py` 的 autouse fixture 里（进程级懒加载
+    缓存必须逐用例清, 否则用例间串味）。**测试基础设施也是消费者**。
+    """
     global _cache
     _cache = None
 

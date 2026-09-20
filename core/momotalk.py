@@ -298,17 +298,6 @@ class Session:
                 "messages": self.history,
             }, fh, ensure_ascii=False, indent=2)
 
-    @staticmethod
-    def from_json(path: Path) -> "Session":
-        with open(path, "r", encoding="utf-8") as fh:
-            data = json.load(fh)
-        return Session(
-            character_id=data.get("character_id", ""),
-            character_name=data.get("character_name", ""),
-            history=data.get("messages", []),
-            created_at=data.get("created_at", ""),
-        )
-
 
 @dataclass
 class TurnResult:
@@ -352,7 +341,6 @@ class MomoTalkEngine:
         task_card: bool | None = None,   # None = settings [promptkit].task_card（默认 true）
     ):
         self.char_loader = CharacterLoader(characters_root)
-        self._characters_root = Path(characters_root)   # seed（出厂 digest）读 config 用
         self.llm = llm_client
         self.registry = build_mmt_registry()
         # 滑动窗口（轮数, 每轮 2 条消息）——玩家可配（docs/DESIGN_MEMORY.md Step 1）

@@ -422,24 +422,6 @@ class BondScene:
             scene.memorial_exit = True
         return scene
 
-    def para_emotions(self, default: str = "nomal") -> list[str]:
-        """逐段表情（per-para sprite, 2026-08-23 架构定稿）。
-
-        情绪内联进 paragraphs（{text, emotion?}）——**AI 在写文本的同一时刻标注**
-        （只有它知道语义）; 算法只做**确定性延续**: emotion → 用; 无 → 继承上一段;
-        首段无 → default。零语义判断, 零算法猜测。
-        渲染端逐段用 emotion 查 emotions.yml（catalog.sprite）拿图（表情不经导演）。
-        """
-        out: list[str] = []
-        current = default
-        for p in self.paragraphs:
-            emotion = p.get("emotion") if isinstance(p, dict) else ""
-            if emotion:
-                current = emotion
-            out.append(current)
-        return out
-
-
 class BondStoryEngine:
     """羁绊剧情对话引擎。
 
@@ -507,9 +489,6 @@ class BondStoryEngine:
         # 方案A-A1 选项回录（DESIGN_PROMPTKIT §5, Phase 4）: 最近一次成功动作的
         # payload（生成时落库, picked 尚不存在）——裁决后 record_picked 重渲尾部
         self._last_payload: dict | None = None
-        # SceneStream P1.5 候选草稿标记（DESIGN_CHOICE_PREGEN §2）:
-        # fork_for_pick 产物 = True——消费方据此跳过重复 record_picked
-        self._draft = False
         # 记录流 v2（P0-4b）: 上一次调用切出的尾板（0 LLM 待发——记录里已经写好了
         # 后续内容, 玩家点继续即领下一板; 天然"预生成", 见 §6 板派生）
         self._pending_boards: list[BondScene] = []
@@ -1424,7 +1403,6 @@ class BondStoryEngine:
             carry/seed/para_seq（两路链分岔预期内）; place 延续态;
             视觉导演克隆（catalog 只读 + _state 延续记忆——两路视觉
             记忆互不污染）
-          - _draft 标记: 消费方据此跳过重复 record_picked（fork 历史已内嵌）
 
         Returns: fork 引擎; 守卫失败（未开场/无上一板/无 payload/空白
         picked/纪念模式中）→ None（安全 no-op）。
@@ -1473,7 +1451,6 @@ class BondStoryEngine:
             except Exception as e:               # noqa: BLE001
                 logger.warning("fork 导演克隆失败（候选支降级无导演）: %s", e)
                 fork.director = None
-        fork._draft = True                       # 候选草稿标记（消费方语义用）
         return fork
 
     @property

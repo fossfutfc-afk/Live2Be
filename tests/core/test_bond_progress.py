@@ -13,7 +13,6 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-import pytest
 
 import core.bond.bond_progress as bp_mod
 from core.bond.bond_progress import BondProgress

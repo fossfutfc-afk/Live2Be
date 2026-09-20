@@ -3,7 +3,8 @@
 
 策略（DESIGN_RENDERER.md §十一）:
     背景解算: scene_id → 图/过渡; 缺失 → 保持; 相同 → 不切换
-    差分解算: para_emotions 延续（emotion 缺省继承）; 词表外 → 保持（确定性）
+    差分解算: 每段 emotion（标注层写入）; 词表外 → 保持（确定性）
+    （⚠️ 2026-09-21: 原 Python 侧 `BondScene.para_emotions()` 已删——零消费者）
     特效映射: 每 emotion → 期望特效; 缺省 → 无
     同构验证: 同一场景 dict 走 from_live 与 from_event → RenderOutput 一致
     CLI 输出: 标签/特效符号/选项渲染
@@ -13,7 +14,6 @@
 import sys
 from pathlib import Path
 
-import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
@@ -22,7 +22,6 @@ from renderer import (
     BackgroundResolver,
     BackgroundResult,
     EffectResolver,
-    RenderOutput,
     RenderScene,
     Renderer,
     RenderState,

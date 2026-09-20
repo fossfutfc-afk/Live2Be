@@ -150,7 +150,6 @@ def test_effort_invalid_ignored(monkeypatch):
 
 def test_effort_injected_on_chat(monkeypatch):
     """extra_body=None → settings 默认档注入 payload; 显式 {} 关闭。"""
-    import llm.client as client_mod
     c = _client_with_effort(monkeypatch, "medium")
     sent: list[dict] = []
 

@@ -21,7 +21,7 @@ from core.promptkit import (
     round_messages,
     task_card,
 )
-from core.promptkit.blocks import BLOCKS, render_block
+from core.promptkit.blocks import render_block
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 CHARACTER = "igusa_haruka"

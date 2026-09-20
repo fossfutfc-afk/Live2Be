@@ -48,10 +48,6 @@ MAX_SCENE_CHOICES = 3
 MAX_SCENE_RETRIES = 3
 
 
-# 煽情值封顶 / 单次增长（2026-08-30: 情感尺度控制——从日常逐步解锁情感场景）
-EMOTIVE_STEP = 15
-
-
 def _parse_paragraphs(payload: dict[str, Any]) -> list[dict]:
     """必填 paragraphs 白名单校验 + 机器侧容错（硬错误抛 ContractError）。
 

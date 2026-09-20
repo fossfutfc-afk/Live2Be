@@ -12,7 +12,6 @@ wrapup_after_vn    : 剧情结束后的手机收尾（不变）
 全部用 ScriptedLLM（不碰 API）; 存档验证走 SessionStore 事件流（tmp_path, 不污染 data/）。
 运行: python -m pytest tests/core/test_vn_cli.py
 """
-import json
 import sys
 import tempfile
 from pathlib import Path
@@ -20,7 +19,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from core.momotalk import MomoTalkEngine
-from core.bond.bond_story import BondScene, BondStoryEngine, SceneLoopError
+from core.bond.bond_story import BondScene, BondStoryEngine
 from core.session import SessionStore
 from core.session.events import M_VN_EXIT
 from core.ui.vn_cli import run_bond_story_vn, simulate_vn_scene

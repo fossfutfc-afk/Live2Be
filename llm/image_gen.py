@@ -225,20 +225,6 @@ class GeneratedImage:
     def __str__(self) -> str:
         return str(self.path)
 
-    def as_dict(self) -> dict:
-        """事件/画廊元数据用（扁平, 可直接进 payload）。"""
-        return {
-            "path": str(self.path),
-            "width": self.width,
-            "height": self.height,
-            "size_bytes": self.size_bytes,
-            "backend": self.backend,
-            "elapsed_s": round(self.elapsed_s, 2),
-            "source_size": list(self.source_size) if self.source_size else None,
-            "screen_size": list(self.screen_size) if self.screen_size else None,
-            "fit": self.fit,
-        }
-
 
 # ---------------------------------------------------------------------------
 # APIYI 提示词框架（引擎侧拼接, 不依赖 LLM 每次写）

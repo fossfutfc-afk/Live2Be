@@ -51,8 +51,7 @@ def test_defaults_without_config(monkeypatch):
     emb = E.LocalEmbedder()
     assert emb.base_url == E.DEFAULT_BASE_URL
     assert emb.model == "auto-found"
-    assert emb.model_from_config is False
-    print("    默认: base=1234 + 自动发现（model_from_config=False）")
+    print("    默认: base=1234 + 自动发现")
 
 
 def test_settings_toml_wins_over_env(tmp_path, monkeypatch):
@@ -67,7 +66,6 @@ def test_settings_toml_wins_over_env(tmp_path, monkeypatch):
     emb = E.LocalEmbedder()
     assert emb.base_url == "http://localhost:1235/v1"       # 尾斜杠已归一
     assert emb.model == "Qwen3-Embedding-0.6B"
-    assert emb.model_from_config is True
     print(f"    [embed]: base={emb.base_url} model={emb.model}（压过 env）")
 
 

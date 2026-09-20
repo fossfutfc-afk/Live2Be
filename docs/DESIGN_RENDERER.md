@@ -88,7 +88,7 @@ class RenderState:
 ```
 render(scene: RenderScene) -> RenderOutput
   ├─ ① 背景解算:   scene.background → MediaCatalog.background() → 图 + 过渡
-  ├─ ② 差分解算:   para_emotions（确定性延续）→ 每段 emotion → catalog.sprite() → 图序列
+  ├─ ② 差分解算:   每段 emotion（**标注层按记录写入**）→ catalog.sprite() → 图序列
   ├─ ③ 特效解算:   每段 emotion → 特效映射表（查表, 算法）→ 特效序列
   ├─ ④ 音频解算:   scene.audio / 未来 → AudioRequest（占位）
   └─ ⑤ 文本+选项:  paragraphs / choices 透传（平台渲染）
@@ -160,7 +160,8 @@ core/media/sprite_player.py（播放层, 独立于 renderer）:
 class SpriteResolver:
     """意图层: 段落 emotion → emotion 序列（不查图——播放由 sprite_player 负责）。"""
     def resolve(self, paragraphs: list[dict]) -> list[str]:
-        # para_emotions(): emotion → 用; 无 → 继承上一段; 首段无 → default
+        # 每段 emotion 由标注层给（core/bond/emo_text.py）; 缺省延续在前端做
+        # （⚠️ 2026-09-21: 原 Python 侧 `BondScene.para_emotions()` 已删——零消费者）
         # 词表外 → 保持上一段（静默降级）
         # 返回 emotion 序列（如 ["nomal", "smile", "smile", "embarrass"]）
 ```
@@ -442,7 +443,7 @@ out.choices → 按钮（live）
 | 测试 | 内容 |
 |---|---|
 | 背景解算 | scene_id → 图/过渡; 缺失 → 保持; 相同 → 不切换（纯函数断言） |
-| 差分解算 | para_emotions 延续（emotion 缺省继承）; 词表外 → 保持（确定性） |
+| 差分解算 | 每段 emotion 由标注层给（缺省继承在前端）; 词表外 → 保持（确定性） |
 | 特效映射 | 每 emotion → 期望特效（查表断言）; 缺省 → 无 |
 | 同构验证 | 同一场景 dict 走 from_live 与 from_event → RenderOutput 一致（回放=实时） |
 | CLI 输出 | 打字/标签/选项渲染（迁移 vn_cli 后现有测试改指向 renderer/cli） |

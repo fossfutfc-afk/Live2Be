@@ -12,7 +12,6 @@ wrapup_after_vn    : 剧情结束后的手机收尾（不变）
 全部用 ScriptedLLM（不碰 API）; 存档验证走 SessionStore 事件流（tmp_path, 不污染 data/）。
 运行: python -m pytest tests/core/test_vn_cli.py
 """
-import json
 import sys
 import tempfile
 from pathlib import Path

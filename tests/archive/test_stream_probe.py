@@ -9,7 +9,6 @@ v2 行为由 `tests/core/test_vn_records_engine.py::test_memorial_fires_image_ho
 要点: 值闭合即定稿（触发点可靠）; 分块边界任意; 非目标动作永不误触发;
 只触发一次; 乱序退化为"action 确认后立即触发"（不亏）; 回调异常不炸流。
 """
-import pytest
 
 from core.bond.stream_probe import MemorialProbe, _find_key_string
 
