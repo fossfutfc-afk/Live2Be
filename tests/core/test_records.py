@@ -15,7 +15,8 @@ from contract.records import (CHARACTER_NARRATOR, CHARACTER_SENSEI,  # noqa: E40
                               KIND_CHARACTER, KIND_STAGE, MAX_SENSEI_RUN,
                               VnBlock, VnRecord, check_block, is_main_speaker,
                               normalize_main_character, parse_line,
-                              parse_stream, sensei_group_labels, sensei_groups)
+                              parse_stream, render_records, sensei_group_labels,
+                              sensei_groups)
 
 
 def _rec(value, text="x", kind=KIND_CHARACTER, line_no=0) -> VnRecord:
@@ -343,7 +344,7 @@ def test_end_text_is_optional_and_separate_from_sensei():
     assert [r.stage or r.value for r in res.records] == ["sensei", "switch", "end"]
     assert check_block(res.records) == [], check_block(res.records)
     # 空 text 不进渲染文本（不留空行）
-    assert VnBlock.from_records(res.records).render_text() == "老师：你看那边，多漂亮啊\n星空"
+    assert render_records(res.records) == "老师：你看那边，多漂亮啊\n星空"
     print("    parse: end 的 text 可留空（收尾字段, 组合技巧可解析）")
 
 
@@ -483,38 +484,43 @@ _BLOCK_TEXT = "\n".join([
 
 
 def test_vn_block_derived_views():
-    """块载体：群 / 位置 / 前后切片 —— 位置元数据齐备，且与校验结论一致。
+    """块载体：**纪念位置** + 校验结论（唯一存活的位置访问器）。
+
+    ⚠️ 2026-09-21: 位置访问器只剩 `memorial_at`（唯一有消费者的那个）——
+    对称声明出来的 `switch_at`/`art_at`/`end_at`/`exit_at`、群视图
+    （`groups`/`group_texts`/`has_choices`）与切片助手（`before`/`after`）
+    全仓零消费者（只有本用例在断言它们自己），已删。切板/群判定由
+    `sensei_groups`（模块函数）与 `_board_spans` 直接做。
 
     ⚠️ 2026-09-20 起这块是**成对形状**（art 在首条 + memorial 在后）——art 与
     memorial 必须同轮成对（docs/DESIGN_MEMORIAL.md M1），夹具跟着走。
     """
     blk = VnBlock.from_text(_BLOCK_TEXT)
     assert len(blk.records) == 9 and blk.is_valid and blk.issues == ()
-    assert blk.art_at == 0 and blk.switch_at == 1 and blk.memorial_at == 7
-    assert blk.end_at is None and blk.exit_at is None
-    # 两群：run=1（第 4 条）+ run=2（第 6~7 条）
-    assert blk.groups == ((3,), (5, 6))
-    assert blk.group_texts == (("是我来晚了。",), ("先坐下吧。", "要说的话，慢慢说。"))
-    assert blk.has_choices
-    # 纪念闸门切片：闸门前可渲染前缀 / 纪念区间本体
-    assert len(blk.before(blk.memorial_at)) == 7
-    assert [r.text for r in blk.after(blk.memorial_at)] == ["「那种话，我不想再听了。」"]
-    assert blk.after(None) == ()
-    print("    block: 群/位置/前后切片")
+    # 纪念进入点：前端黑屏从这一条记录开始（DESIGN_MEMORIAL M3）
+    assert blk.memorial_at == 7
+    assert blk.records[blk.memorial_at].stage == "memorial"
+    # 群语义仍在（由模块函数 sensei_groups 提供，记录下标从 0 起）
+    assert sensei_groups(blk.records) == [[3], [5, 6]]
+    print("    block: 纪念位置 + 群语义 + 校验结论")
 
 
 def test_vn_block_render_and_roundtrip():
-    """两种出口：渲染文本（最小说话人形态）与 to_dict/from_dict 往返稳定。"""
+    """块出口：`render_records` 最小说话人形态 + to_dict/from_dict 往返稳定。
+
+    ⚠️ 2026-09-21: 原 `VnBlock.render_text()` 包装器已删（零消费者）——
+    断言改打**现役**的 `render_records`（同一个函数, 只是不再经过包装器）。
+    """
     blk = VnBlock.from_text(_BLOCK_TEXT)
-    text = blk.render_text()
+    text = render_records(blk.records)
     assert "老师：是我来晚了。" in text
     assert "haruka：「……」" in text            # 未给名字表 → 回落到 id
     assert "深夜的杂草屋" in text                # switch 回显自己的话
     assert "（她抬起头。）" in text              # memorial 文本照常显示
-    assert "春香：「……」" in blk.render_text({"igusa_haruka": "春香"})       # 名字表覆盖 id
-    assert "haruka：" not in blk.render_text({"igusa_haruka": "春香"})
-    assert "是我来晚了。" in blk.render_text(speaker=False)           # 关前缀 → 纯文本
-    assert "老师：" not in blk.render_text(speaker=False)
+    assert "春香：「……」" in render_records(blk.records, names={"igusa_haruka": "春香"})
+    assert "haruka：" not in render_records(blk.records, names={"igusa_haruka": "春香"})
+    assert "是我来晚了。" in render_records(blk.records, speaker=False)   # 关前缀 → 纯文本
+    assert "老师：" not in render_records(blk.records, speaker=False)
     # 往返：payload → 块 → payload 逐字节一致
     payload = blk.to_dict()
     assert payload["records"][0] == {"stage": "art", "text": "她在坡道上回头，眼里有一点水光"}

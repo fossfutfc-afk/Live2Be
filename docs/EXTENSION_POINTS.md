@@ -59,11 +59,21 @@
     （+ `MMT_CHUNK_MAX`/`MMT_CHUNK_FRAGMENT`）、死 DOM id `logo-img`/`panel-name`、
     `contract/digest_registry.py` 的 `MAX_CONTENT`/`MAX_EXAMPLES`/`MAX_EVIDENCE`
     （自称"parse 级边界"但零校验器消费）。
-  - **待删（节点 3）**：载体/契约的对称性访问器（`VnBlock` 的
-    `switch_at`/`art_at`/`end_at`/`exit_at`/`group_texts`/`has_choices`/`render_text`、
-    `BondScene.has_records`/`record_texts`、`requires_sources`/`require_valid`、
-    `catalog.has_sprite`/`has_background`/`background_variants`、`place_table.by_region`/`stats`、
-    `display.get_current_text`）；兼容别名（`MAX_HISTORY_ROUNDS`、`sessions_dir`/`session_dir`）。
+  - **已删 2026-09-21（节点 3 清理 · C 类对称性访问器 + D 类兼容别名）**：
+    `VnBlock` 的 `switch_at`/`art_at`/`end_at`/`exit_at`（位置访问器——只留**唯一有消费者的
+    `memorial_at`**）、`group_texts`/`has_choices` 与**连带**的 `groups`（群视图；群判定改由
+    模块函数 `sensei_groups` 与 `_board_spans` 直接做）、`before`/`after`（切片助手）、
+    `render_text`（渲染包装——现役唯一渲染源是 `render_records`，测试断言已改打它）、
+    `CHARACTER_SPECIALS`；`BondScene.has_records`/`record_texts`；`ActionSpec.requires_sources`；
+    `ValidationResult.require_valid`；`catalog.has_sprite`/`has_background`/`background_variants`；
+    `place_table.by_region`；`display.get_current_text`；`MAX_HISTORY_ROUNDS`（**两处**同名兼容别名）；
+    `Store.sessions_dir`/`session_dir`（注释自称"v1 兼容路径"）。
+  - **两处"看起来死、其实是假阳性"（已核实并保留，勿再删）**：
+    1. `core/session/events.py::TYPE_AFFECTION` —— 作为**名字**零引用，但它的**值**
+       `"affection"` 是 `EVENT_TYPES` 白名单成员，而白名单在 `Event.from_dict` 里做**入库校验**
+       （`typ not in EVENT_TYPES → 丢弃`）。删掉它 = 好感事件被静默丢弃。**这是"枚举成员当校验白名单"的典型**。
+    2. `core/media/place_table.py::stats` —— 起初按"只被测试引用"归入 C 类，复核发现
+       `experiments/place_resolve_real.py` 真在用它打印表自查 ⇒ 有消费者即非死代码，保留。
   - **重新判定为保留**：`webgui/bond.py::_lane_writer_alive` —— 起初按"只被测试引用"归入
     退役残留，但它的 docstring 自己写着 *"保留本函数仅作观测/测试"*，且 `_gate_stalled`
     的 docstring 引用它来解释那条非显然的不变量（线程死活**不能**当门控判据——真实会话里

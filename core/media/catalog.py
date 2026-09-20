@@ -110,10 +110,6 @@ class MediaCatalog:
                 return e
         return entries[0]  # 无默认版 → 任取其一（仍有可用背景）
 
-    def background_variants(self, scene_id: str) -> list[str]:
-        """某场景已有全部变体（供 ② prompt 白名单）。"""
-        return sorted(e.variant for e in self._backgrounds.get(scene_id, []) if e.variant)
-
     def background_scenes(self) -> list[str]:
         """全部已登记场景 id。"""
         return sorted(self._backgrounds)
@@ -134,14 +130,6 @@ class MediaCatalog:
         """外观已登记情绪（给 ② 播放协议 parse 白名单 / 导演 prompt）。首次查该外观才扫描。"""
         self._ensure_character(char_id, outfit)
         return sorted(self._sprites.get((char_id, outfit), {}))
-
-    def has_sprite(self, char_id: str, emotion: str,
-                   outfit: str = "default") -> bool:
-        self._ensure_character(char_id, outfit)
-        return emotion in self._sprites.get((char_id, outfit), {})
-
-    def has_background(self, scene_id: str, variant: str | None = None) -> bool:
-        return self.background(scene_id, variant) is not None
 
     # ------------------------------------------------------------------
     # 内部: 扫描

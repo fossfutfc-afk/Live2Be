@@ -142,8 +142,6 @@ def _personality_summary(char: "DynamicCharacter") -> str:
 
 #: 滑动窗口默认轮数（同 momotalk——40 轮 = 80 条消息; 构造参数 history_rounds 可配）
 DEFAULT_HISTORY_ROUNDS = 40
-# 兼容旧名
-MAX_HISTORY_ROUNDS = DEFAULT_HISTORY_ROUNDS
 
 
 class SceneLoopError(Live2BeError):
@@ -208,14 +206,6 @@ class BondScene:
     picked: str = ""
     #: 运行时标记: 该板已在**流式**过程中交付给调用方（勿重复落地）——不进序列化
     _streamed: bool = False
-
-    @property
-    def has_records(self) -> bool:
-        return bool(self.records)
-
-    def record_texts(self) -> list[str]:
-        """各记录文本（诊断/回放用）。"""
-        return [str(r.get("text", "")) for r in self.records]
 
     @classmethod
     def from_board(cls, records: tuple, group: tuple[int, ...] = (), *,

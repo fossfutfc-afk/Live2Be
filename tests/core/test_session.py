@@ -396,7 +396,7 @@ def test_store_create_and_append(tmp_path):
     assert meta.type == "conversation" and meta.character_id == "igusa_haruka"
     assert meta.session_id, "应生成 session_id"
     # create 已写 meta + session_start marker
-    assert (st.session_dir("igusa_haruka", meta.session_id) / "meta.json").exists()
+    assert (st.char_dir("igusa_haruka") / "meta.json").exists()
     evs = st.events("igusa_haruka", meta.session_id)
     assert len(evs) == 1 and evs[0].subtype == "session_start" and evs[0].seq == 1
     # append seq 递增

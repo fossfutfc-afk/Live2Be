@@ -70,8 +70,3 @@ class ActionSpec:
         if "action" not in self.prompt_fields:
             raise ValueError(err("MissingActionField", "prompt_fields 必须包含 action"))
         self.payload_schema = payload_schema
-
-    @property
-    def requires_sources(self) -> bool:
-        """是否要求 sources 证据（由 prompt_fields 声明派生）。"""
-        return "sources" in self.prompt_fields

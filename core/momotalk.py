@@ -247,8 +247,6 @@ def _log_read_ledger(char_id: str) -> None:
 #: 滑动窗口默认轮数（每轮 = user+assistant 2 条消息; 40 轮 = 80 条消息）。
 #: 玩家可配（引擎构造参数 history_rounds 传入; 设置页接入见 docs/DESIGN_MEMORY.md Step 1）
 DEFAULT_HISTORY_ROUNDS = 40
-# 兼容旧名（历史引用）
-MAX_HISTORY_ROUNDS = DEFAULT_HISTORY_ROUNDS
 # 会话存档走角色根目录（DESIGN_SAVE.md §三）: data/{char_id}/sessions/
 
 # agent loop 参数
