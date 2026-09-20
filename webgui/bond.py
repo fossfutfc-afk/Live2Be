@@ -2377,7 +2377,9 @@ def _spawn_candidates(state: BondState, scene: BondScene,
         return
     if not _choice_pregen_enabled():             # 开关（N2d）: off → 老路
         return
-    if not scene.choices or scene.is_end or scene.memorial_prompt:
+    if not scene.choices or scene.is_end or scene.memorial:
+        # 2026-09-21: 原判据含 v1 的 `scene.memorial_prompt`（字段已删）→ 改 v2 的
+        # `scene.memorial`（同一意图: 纪念板不预生成候选支）
         return
     cands: list[ChoiceCandidate] = []
     for picked in scene.choices:
