@@ -104,6 +104,22 @@ class ScriptedLLM:
         msgs.append({"role": "user", "content": user_message})
         return msgs
 
+    def chat_full(self, messages, temperature=0.8, max_tokens=4096,
+                  response_format="text", on_chunk=None, **kw):
+        """流式等价（**生产路径**）——节点 5（2026-09-21）。
+
+        此前本桩只有 `chat()` ⇒ `send_vn_scene` 里 `chat_full is None` ⇒ `delivered`
+        恒空 ⇒ **回退批式**, 于是 webgui 状态机测试系统性验证的是**生产不跑**的那条路径。
+        这里把整块结果**按行喂** `on_chunk`: 板一闭合即交付（与真机 `LLMClient.chat_full`
+        同语义）。标注/digest 调用不传 `on_chunk`, 走 `chat()` 原样。
+        """
+        out = self.chat(messages, temperature=temperature, max_tokens=max_tokens,
+                        response_format=response_format, **kw)
+        if on_chunk is not None and isinstance(out, str):
+            for line in out.splitlines(keepends=True):
+                on_chunk(line)
+        return out
+
 
 def _setup(tmp_path, *scripts):
     """引擎 + 事件流会话（tmp_path）+ chat 引擎/store 注入（bond 落库走 chat._store）。"""
@@ -952,6 +968,35 @@ def test_session_switch_blocks_configured_key():
         pytest.skip("本机未配 IMAGE_API_KEY——本用例无出图风险可证")
     assert bond._image_generator() is None, "会话级生图开关必须压过已配置的 key"
     print("    switch: 配了 key 也不出图（conftest 会话级硬关生效）")
+
+
+# ----------------------------------------------------------------------------
+# 测试桩 = 生产路径（节点 5, 2026-09-21）
+# ----------------------------------------------------------------------------
+
+def test_webgui_runs_on_streaming_production_path(tmp_path):
+    """webgui 的生成走**流式（生产）路径**——把"测试 = 生产"变成可断言的事实。
+
+    为什么单列一条: 桩此前没有 `chat_full`, 于是 webgui 状态机测试**系统性验证的是
+    生产不跑的那条流水线**（`delivered` 恒空 → 回退批式 `_build_record_boards`）。
+    节点 2′ 统一了两条路, 节点 5 把测试接到生产路上——这条用例钉住它别再漂回去。
+    """
+    engine, st, sid, llm = _setup(tmp_path, SCENE_A, STORY_END, MMT_REPLY)
+    try:
+        bond.bond_start(CHARACTER, sid)
+        _wait_status(CHARACTER, sid)
+        vn = bond._state(CHARACTER, sid).vn
+        assert vn is not None
+        traces = [t for t in vn.trace
+                  if str(t.get("action", "")).startswith("record_stream")]
+        assert traces, f"应有解析 trace: {vn.trace}"
+        actions = [t["action"] for t in traces]
+        assert "record_stream/streamed" in actions, \
+            f"webgui 应走流式（生产路径）, 实际: {actions}"
+        assert all(t.get("delivery_mode") == "stream" for t in traces), traces
+        print(f"    node5: webgui 走生产路径（{actions} / delivery_mode=stream）")
+    finally:
+        _cleanup()
 
 
 # ----------------------------------------------------------------------------
