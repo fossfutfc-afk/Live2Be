@@ -384,6 +384,46 @@ async function main() {
     throw new Error(`裁决后名字牌不该变（BA: 名字不用变）: ${JSON.stringify(plateAfterPick)}`);
   }
 
+  // ── 6.4★ 裁决后**必须能推进**（2026-09-20 补; 真机报障"选完选项变黄且不推进"）──
+  //  为什么以前没抓到: 这一步下面立刻"丢内存态 + 刷新"去验回放 —— **从来没在
+  //  裁决后点过一次推进**。而死锁恰好在那一下:
+  //  `showInteraction` 给未裁决板置 `pendingChoice=true`, 裁决分支只重画了选项组、
+  //  没复位它 ⇒ `advanceOrFinish` 见 `pendingChoice` 就 return ⇒ 点画面/点三角全被吞。
+  {
+    const before = await page.evaluate(() => {
+      const ps = [...document.querySelectorAll("#bond-text .bond-para")];
+      return ps.length ? ps[ps.length - 1].textContent.trim() : "";
+    });
+    await page.locator("#bond-text").click({ position: { x: 30, y: 20 }, timeout: 5000 });
+    // 下一板到达 = 正文变了（或出现新的未裁决选项组）
+    const advanced = await page.waitForFunction((prev) => {
+      const ps = [...document.querySelectorAll("#bond-text .bond-para")];
+      const last = ps.length ? ps[ps.length - 1].textContent.trim() : "";
+      const bs = [...document.querySelectorAll("#bond-choices .bond-choice")];
+      const fresh = bs.length > 0 && bs.every((b) => !b.classList.contains("resolved"));
+      return last !== prev || fresh;
+    }, before, { timeout: 60000 }).then(() => true).catch(() => false);
+    const st = await page.evaluate(() => {
+      const bs = [...document.querySelectorAll("#bond-choices .bond-choice")];
+      return {
+        paras: [...document.querySelectorAll("#bond-text .bond-para")]
+          .map((p) => p.textContent.trim().slice(0, 24)),
+        choices: bs.length,
+        stillResolved: bs.filter((b) => b.classList.contains("resolved")).length,
+        triReady: !!document.querySelector("#bond-continue.ready"),
+      };
+    });
+    record("裁决后可推进", {
+      info: advanced
+        ? `✓ 点画面进下一板: 正文=${JSON.stringify(st.paras)} 选项=${st.choices}(未裁决)`
+        : `❌ 点画面**没反应**（pendingChoice 死锁回归）: ${JSON.stringify(st)}`,
+      shot: await shot(page, "vn-after-pick-advance"),
+    });
+    if (!advanced) {
+      throw new Error(`裁决后点画面不推进（pendingChoice 未复位）: ${JSON.stringify(st)}`);
+    }
+  }
+
   // ── 6.5 中途退出重进 → 回放里"选项态"必须看得见（2026-09-12 用户要求）────
   // 场景: 玩家选了选项后关掉页面（硬退出, 事件流里那条 bond 场景已带 picked）→
   // 重进 → 回放该场。此时正文仍不许出现玩家那句（决策 #37）, 但**选项组要画出来**

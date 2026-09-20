@@ -386,6 +386,10 @@ v1 的 `MemorialProbe`/`memorial_exit` 动作已退役。**图是异步的 → �
   `_resolve_scene` 附 background_url/fx/place_bg）、`webgui/static/js/{bond,mmt,gui}.js`。
 - 关键交互语义：进入/回放零等待；turn 被拒 = busy（前端 waitTurnIdle 轮询 status,
   **绝不重发已消费的 submit**）；gate_busy = 双路标注未齐；emo/place 补切经版本号。
+  ⚠️ **裁决后点画面必须能进下一板**：`pendingChoice`（"本板还有未裁决选项"的门闩）
+  **必须在裁决分支复位** —— 2026-09-20 真机报障"选完选项变黄且不推进"的根因就是它
+  只由 `showInteraction` 置位、裁决后没人清；`advanceOrFinish` 见它即 return，
+  点画面/点三角全被吞（唯一出路只剩自动模式）。冒烟已补该步（`裁决后可推进`）。
 - 测试桩约定（**改引擎标注行为必读**）：各测试文件 ScriptedLLM 按 **user 尾部关键字**
   应答异步调用——emotion 标注（user 含 `情绪标签`）→ 全 nomal 数组, **条数从
   `恰 N 项` 取**（别用 `^\d+: ` 数 system 行: 模板【示范】也带编号行, 会恒多 4）;

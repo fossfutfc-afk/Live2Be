@@ -577,7 +577,11 @@ async function pollLoop() {
       _polling = false;
       break;
     }
-    showTyping();                           // 还在处理（或排队）, 保持打字指示
+    // ⚠️ 2026-09-20 真机报障（"触发羁绊剧情粉色气泡后, 底部还闪三个点"）:
+    //    粉泡已上屏 = 轮到**玩家点击**进剧情, 此时不该再谎报"对方正在输入"
+    //    （触发轮的尾巴 + **预热生成首场**还在跑, `running` 仍为 true → 原来必闪）。
+    //    `_bondEls` = 未完成的入口气泡（翻转成 bond_done 时注销）—— 有它就静默。
+    if (_bondEls.size === 0) showTyping(); else hideTyping();
   }
   setInputEnabled(true);
 }
