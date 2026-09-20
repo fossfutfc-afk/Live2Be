@@ -252,72 +252,12 @@ def _t_bond_scene():
 
 
 # ----------------------------------------------------------------------------
-# story_executor: 双动作 story_scene→story_end, is_end 动作推导 + 引擎 trace
+# 2026-09-21 删: `_t_story_executor` / `_t_director` 两条 **v1 冒烟**
 # ----------------------------------------------------------------------------
-
-def _t_story_executor():
-    from core.bond.bond_story import BondStoryEngine
-    from core.bond.bond_executor import StoryExecutor
-
-    scene = {"action": "story_scene", "payload": {
-        "paragraphs": ["遥香坐在天台边缘……"],
-        "choices": ["陪她坐一会儿", "问她怎么了"]}}
-    end = {"action": "story_end", "payload": {
-        "paragraphs": ["她笑了，靠在你肩上。今晚，谢谢你。"]}}
-    vn = BondStoryEngine(ROOT / "config" / "characters", ScriptedLLM(scene, end))
-    vn.start_session(CHARACTER)
-    assert isinstance(vn.executor, StoryExecutor), "引擎应持有 StoryExecutor（双核）"
-
-    s1 = vn.send_vn_scene("（开场）")
-    assert not s1.is_end and s1.choices == ["陪她坐一会儿", "问她怎么了"], s1
-    assert vn.trace[-1]["action"] == "story_scene" and vn.trace[-1]["exec_ok"] is True
-
-    s2 = vn.send_vn_scene("陪她坐一会儿")
-    assert s2.is_end, "story_end 动作应推导 is_end=True"
-    assert not s2.choices and s2.paragraphs == ["她笑了，靠在你肩上。今晚，谢谢你。"]
-    t = vn.trace
-    assert t[-1]["action"] == "story_end"
-    assert t[-1]["exec_message"] == "收尾场景已就绪, 剧情将结束"
-    print("    story_executor: story_scene→story_end, is_end 推导 + trace 2 场")
-
-
-# ----------------------------------------------------------------------------
-# director: 导演组件 → BondScene 视觉字段 + 历史不含（不污染主 LLM 契约）
-# ----------------------------------------------------------------------------
-
-def _t_director():
-    import json as _json
-
-    from core.bond.bond_story import BondStoryEngine
-    from core.director import Director
-    from core.media import MediaCatalog
-
-    scene = {"action": "story_scene", "payload": {
-        "paragraphs": ["她脸红了，低下头。"],
-        "beats": [{"text": "她脸红了", "emotion": "embarrass"},
-                  {"text": "对不起…", "emotion": "smile"}],
-        "place": "class_room",
-        "choices": []}}
-    director = Director(MediaCatalog(), CHARACTER)
-    vn = BondStoryEngine(
-        ROOT / "config" / "characters", ScriptedLLM(scene), director=director)
-    vn.start_session(CHARACTER)
-    s = vn.send_vn_scene("（开场）")
-    assert s.background == "class_room", s
-    assert s.audio is None, s                          # 占位恒 None
-    assert s.beats == [{"text": "她脸红了", "emotion": "embarrass"},
-                       {"text": "对不起…", "emotion": "smile"}], s
-    assert s.place == "class_room"
-    hist = _json.loads(vn.history[-1]["content"])
-    assert "background" not in hist and "audio" not in hist, "导演输出不进主 LLM 历史（单向）"
-    print(f"    director: background={s.background} audio={s.audio} 历史不含导演字段")
-
-    # 纯文本模式（无导演注入）
-    vn2 = BondStoryEngine(ROOT / "config" / "characters", ScriptedLLM(scene))
-    vn2.start_session(CHARACTER)
-    s2 = vn2.send_vn_scene("（开场）")
-    assert s2.background is None and s2.audio is None
-    print("    director: 无导演 → 纯文本, 无视觉字段")
+# 前者测 v1 动作契约（story_scene→story_end + StoryExecutor trace），后者喂 v1 dict
+# （含已删的 `beats` 与"主 LLM 写 place"字段）——v1 整族退役后它们的断言已不成立。
+# 现役覆盖: `tests/core/test_director.py`（导演视觉）+ `tests/core/test_vn_records_engine.py`
+# （记录流端到端 + 生图钩子）。
 
 
 def main() -> None:
@@ -331,8 +271,6 @@ def main() -> None:
     check("trigger→bond_story", _t_trigger)
     check("trigger 不拦+注记建议", _t_trigger_suggestion)
     check("bond_scene 解析(段/选项/完)", _t_bond_scene)
-    check("story 双动作 scene→end 推导+trace", _t_story_executor)
-    check("导演组件 BondScene 视觉字段", _t_director)
     print("=" * 46)
     if FAIL:
         print(f"结果: {PASS} PASS / {FAIL} FAIL")

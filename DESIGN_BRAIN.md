@@ -1,5 +1,9 @@
 # Live2Be Brain 设计（合并版）
 
+> ⚠️ **2026-09-21 状态**: 本文档里的 **digest v1（Sleep 式）算法描述已整体作废**——
+> `core/brain/{consolidation,hippocampus,recall}.py`、`llm/prompts/digest.md`、
+> `contract/schema.build_digest_schema()` 均已删除; 现役记忆 = `core/brain/wiki_v2/`
+> （读 `core/brain/wiki_v2/AGENT_BRAIN.md`）。**本文只当历史读**。
 > **2026-09-02 合并**: 由 `core/DESIGN_BRAIN.md`（digest 算法设计）+ `docs/DESIGN_MEMORY.md`
 > （记忆架构/业界查证/升级路径）合并而来，放置根目录统一维护。
 > **一切以代码为准**——本文档描述的是当前实现（✅）与规划（🔧）/废案（⛔）。
@@ -7,8 +11,9 @@
 >
 > 关联文档: `core/DESIGN_SEGMENT.md`（段模型, digest 边界）· `core/DESIGN_WORLD.md`
 > （世界对齐）· `docs/archive/DESIGN_SAVE.md §4.6`（存储, 已归档）· `docs/archive/world_model_evolution.md`（已归档）
-> （世界模型演进史）· `llm/prompts/digest.md`（digest 规则）·
-> `contract/schema.py: build_digest_schema`（输出契约单源真值）。
+> （世界模型演进史）· ~~`llm/prompts/digest.md`（digest 规则）~~ / ~~`build_digest_schema`~~
+> （两者 2026-09-21 随 digest v1 删除; 现役 = `digest_v2_round_a/b.md` +
+> `contract/digest_registry.py`）。
 
 ---
 

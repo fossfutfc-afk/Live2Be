@@ -314,8 +314,9 @@ apply_revision_package 复用, digest_registry 注册 deep 动作集）。
   （幂等键 interact_max, `_interact_max` 助手——真源 events.jsonl）
 - bond/vn_cli 剧情注入 + random_events memory_flash 同步切 wiki_v2
   （`load_brain_segment` 公共 helper / `random_flash_segment` 双通道随机摘段）
-- legacy core/brain/{consolidation,hippocampus,recall} 保留但**无运行时消费方**
-  （仅 experiments/测试/导出引用——最后清理轮次删除）
+- ~~legacy core/brain/{consolidation,hippocampus,recall} 保留但无运行时消费方~~
+  **2026-09-21 已整族删除**（连同 `llm/prompts/digest.md`、`contract/schema.build_digest_schema()`、
+  `experiments/brain_real_run.py`）
 
 **reasoning_effort 生产档（2026-09-02 拍板: high）**——digest 质量实验矩阵
 （deepseek-v4-flash thinking, smoke 两最小 unit）:

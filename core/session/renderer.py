@@ -270,8 +270,11 @@ def render_timeline(events: list[Event], *, indexed: bool = False) -> str:
 
       | `indexed` | 形态 | 消费者 |
       |---|---|---|
-      | `False`（默认） | **每事件一行**, 记录用 `" / "` 拼 | `consolidation.py`（digest v1 legacy） |
+      | `False`（默认） | **每事件一行**, 记录用 `" / "` 拼 | 上下文窗口 / 回放（`window_messages`、CLI） |
       | `True` | **每记录一行**, 行首带行索引 | `digest.py`（Round A 唯一输入） |
+
+      ⚠️ 2026-09-21: 该表原把 `consolidation.py`（digest v1 legacy）列为 `False` 形态的
+      消费者——v1 记忆已整体删除, 现役消费者是上下文窗口/回放。
 
       `indexed=True` 的形态（词汇表见 `contract/timeline_index.py`）::
 

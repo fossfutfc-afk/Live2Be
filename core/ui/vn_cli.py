@@ -31,7 +31,6 @@ from core.media.gallery import GalleryStore
 from core.session import SessionStore
 from core.session.events import (
     M_MEMORIAL_ENTER,
-    M_MEMORIAL_EXIT,
     M_VN_EXIT,
     M_VN_STATE,
     make_event,
@@ -258,17 +257,10 @@ def run_bond_story_vn(
                     system_note = flash
             except Exception:                                # noqa: BLE001 — 静默跳过
                 system_note = None
-        if vn.in_memorial and not vn._last_payload:
-            # 纪念子模式（§4.7）: 本场只输出 memorial_exit——临时注入 exit schema。
-            # **仅旧契约路径**（vocab: 记录流 v2 的纪念是块内区间, 没有 exit 动作,
-            # 引擎也不吃动作 JSON）——`_last_payload` 在 v2 每条板都会置位, 故用它
-            # 区分; 否则这里会把动作 schema 喂给只吃记录流的引擎（2026-09-12 修正）。
-            system_note = (
-                "（系统）当前处于**纪念模式**——纪念场景已结束, 本场请输出"
-                " memorial_exit 动作回到 bond（可选过渡文字, 不要输出其他动作）。\n"
-                f"可用动作 schema:\n{vn.memorial_exit_schema()}"
-            )
-        elif i == remind_rounds:
+        # 2026-09-21: 原"纪念子模式 → 注入 memorial_exit 动作 schema"分支已随 v1 动作
+        # 整族退役删除（v2 的纪念是**块内区间**——`stage:memorial` 之后到块尾, 没有
+        # exit 动作; 引擎也只吃记录流, 注入动作 schema 会被打回重发）。
+        if i == remind_rounds:
             system_note = (
                 f"（系统）剧情已推进 {i} 轮，剩余约 {end_rounds - i} 轮。"
                 "请开始把剧情向结尾收束——感情到位、约定达成、道别告别的时刻"
@@ -303,7 +295,11 @@ def run_bond_story_vn(
         # ref 图 = collect_ref_images（sprite_* 角色 → style_* 画风 → 其余 配饰, 顺序固定）
         # 生图失败 → 降级纯文字, 不阻断剧情（宁缺勿错）
         memorial_images: list[str] = []
-        if scene.memorial_prompt and image_gen is not None:
+        # v2 生图 prompt = 块级 `art` 画面意向 → 缺省退化用触发句; **复用引擎那条唯一实现**
+        # （与 webgui 同源）。2026-09-21: 原 `scene.memorial_prompt`（v1 字段）已删。
+        memorial_prompt = (vn._memorial_image_prompt(scene.records, scene.art_hint)
+                           if scene.memorial else "")
+        if memorial_prompt and image_gen is not None:
             print("[纪念立绘 生成中…]", flush=True)
             try:
                 hints = engine.char_loader.load_illustration(char.character_id)
@@ -311,13 +307,13 @@ def run_bond_story_vn(
                     char.image_persona_brief())      # 性格简卡兜底（D1）
                 refs = collect_ref_images(char.character_id)
                 img = image_gen.generate(
-                    scene.memorial_prompt, seed=memorial_seed,
+                    memorial_prompt, seed=memorial_seed,
                     ref_images=refs,
                     character_name=char.display_name,
                     character_hint=persona,
                     halo_hint=hints.get("halo_hint", ""))
                 sid = gallery_store.write(
-                    char.character_id, scene.memorial_prompt, vn_sid or "", img.path,
+                    char.character_id, memorial_prompt, vn_sid or "", img.path,
                     width=img.width, height=img.height,
                     prompt_source=getattr(engine, "memorial_prompt_source", "") or "",
                     refs=[Path(p).name for p in refs],
@@ -337,20 +333,15 @@ def run_bond_story_vn(
         # + 纪念 marker/l2d 事件（§4.7）+ vn_state marker（恢复点: round/seed/visual）
         if store is not None and vn_sid is not None:
             try:
-                if scene.memorial_exit:
-                    sub = "memorial_exit"
-                elif scene.memorial_prompt:
-                    sub = "memorial_enter"
-                else:
-                    sub = "story_end" if scene.is_end else "story_scene"
+                sub = "story_end" if scene.is_end else "story_scene"
                 store.append_event(char.character_id, vn_sid, make_event(
                     "bond", sub,
                     {**scene.to_dict(), "input": user_input, "picked": choice},
                 ))
-                # 纪念子模式 marker + l2d 事件（立绘资产; 生图失败 → 无 l2d 事件, 剧情照走）
-                if scene.memorial_prompt:
+                # v2 纪念 marker + l2d 事件（立绘资产; 生图失败 → 无 l2d 事件, 剧情照走）
+                if scene.memorial:
                     store.append_marker(char.character_id, vn_sid, M_MEMORIAL_ENTER,
-                                        {"chapter_title": title})
+                                        {"chapter_title": title, "v2": True})
                     if memorial_images:
                         store.append_event(char.character_id, vn_sid, make_event(
                             "l2d", "memorial_enter",
@@ -358,8 +349,6 @@ def run_bond_story_vn(
                                             if isinstance(p, dict)],
                              "choices": scene.choices,
                              "images": memorial_images}))
-                elif scene.memorial_exit:
-                    store.append_marker(char.character_id, vn_sid, M_MEMORIAL_EXIT)
                 visual = vn.director.state.to_dict() if vn.director is not None else {}
                 store.append_marker(char.character_id, vn_sid, M_VN_STATE, {
                     "round": i, "seed": choice or "", "visual": visual})

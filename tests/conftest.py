@@ -12,7 +12,8 @@
       引擎只接受记录流字符串, 旧动作 JSON 会被打回重发（决策 #27/§11 P0-7c）。
       仍在写 v1 形状 dict 的存量桩由 `tests.vn_fixtures.from_v1_scene()` **测试侧**
       适配（产品侧没有这条通道）, 新用例请直接用 `scene(...)`。
-    - 已退役机制的用例在 `tests/archive/`（不收集, 见该目录 README）。
+    - 已退役机制的用例原本在 `tests/archive/`——**2026-09-21 随 v1 整族退役一并删除**
+      （v1 动作契约/记忆三件套已从产品侧移除, 留档在 git 历史里）。
     - **生图默认硬关**（见下 `_no_image_gen`: 环境变量 `LIVE2BE_IMAGE=off` 会话级
       autouse）——测试绝不会真的调生图 API 出图烧钱, 也绝不写 gallery。
 """

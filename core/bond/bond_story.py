@@ -5,17 +5,16 @@
     - 不断句（段落为单位，非气泡）
     - 不加 [名字]: 前缀（UI 层单独显示角色名）
 
-场景契约（2026-08-22 JSON 契约化 + 双核升级, 用户拍板）:
-    每场景 = 单个 story 动作 JSON: 中段 story_scene {paragraphs: [str], choices: [str]}
-    或收尾 story_end {paragraphs: [str]}。is_end 由动作类型推导——story_scene 隐含
-    False, story_end 隐含 True; 收尾成为一等动作, 结构上保证「收尾必无选项」。
-    LLM 直接输出场景 JSON——contract.py 既规范输出也规范处理; 选项收敛到同一主线
-    （无论选哪个, 剧情走向同一结局, 只影响紧接着的对白语气/细节）。
-    双核（镜像 momotalk）: contract 层 core/bond/bond_actions.py（build_story_registry）
-    + 执行层 core/bond/bond_executor.py（StoryExecutor/StoryExecError）, 引擎记 trace。
-    BondScene 是契约解析后的程序侧结构; to_dict/from_dict 是序列化唯一路径——
-    **一解析器两用**: 运行时 from_action（动作类型推导 is_end）+ 读存档 json[] 回放
-    from_dict（存档显式 is_end）（DESIGN_BOND_STORY.md）。
+场景契约（**v2 记录流, 2026-09-10 起唯一形态**）:
+    一次 LLM 调用输出**一行一条 JSON 记录**（character/stage + text）; 引擎解析成块
+    → 派生板（`_board_spans` / `BlockStreamParser`）→ BondScene。
+    收尾 = `stage:end`; 纪念 = `stage:art` + `stage:memorial` 成对（DESIGN_MEMORIAL）。
+    ⚠️ **v1 的"单动作 JSON"契约已整体退役**（2026-09-21 删除）: 原
+    `core/bond/{bond_actions,bond_executor,memorial_actions,sentence_splitter}.py`
+    与 `BondScene.from_action` 一并移除; 现在收到动作 dict **一律打回重发**
+    （见 `send_vn_scene` 的 `isinstance(response, dict)` 分支）。
+    BondScene 是解析后的程序侧结构; to_dict/from_dict 是序列化唯一路径
+    （读存档 json[] 回放与运行时同一条路径）。
     双空格/【选择】/【完】等自由文本标记解析已删除——结构由 JSON 字段强制。
     行为规则在 llm/prompts/bond_story_rules.md; 契约 schema 由 build_record_schema 注入
     （2026-09-10 记录流 v2——story 域不再用 build_schema 的单动作外壳）。
@@ -36,15 +35,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
-from contract import (AgentAction, BlockStreamParser, CHARACTER_NARRATOR,
+from contract import (BlockStreamParser, CHARACTER_NARRATOR,
                       KIND_CHARACTER, MAX_SENSEI_RUN, NON_PICKS, STAGE_ART,
                       STAGE_END, STAGE_EXIT, STAGE_MEMORIAL, STAGE_SWITCH,
                       VnBlock, VnRecord, build_record_schema,
-                      build_schema, check_block, sensei_groups)
+                      check_block, sensei_groups)
 from core.common import Live2BeError, err
-from core.bond.bond_actions import MAX_SCENE_RETRIES, build_story_registry
-from core.bond.bond_executor import StoryExecutor
-from core.bond.memorial_actions import build_memorial_registry
 from core.media.emotion_lexicon import (
     assets_root,
     build_emotion_injection,
@@ -72,6 +68,10 @@ logger = logging.getLogger(__name__)
 #: 一次 LLM 回合最多切几板（记录流 v2 防御: 模型写飞了也不无限排队。正常一拍
 #: 2~4 个槽; 24 板 ≈ 150 条记录, 只在模型彻底失控时兜底）
 MAX_BOARDS_PER_TURN = 24
+
+#: 单场景解析的最大重试次数（原在 `bond_actions.py`——该模块 2026-09-21 随 v1 退役删除,
+#: 常量搬到唯一消费者这里; 值不变）
+MAX_SCENE_RETRIES = 3
 
 #: ⚠️ 2026-09-21 删除: 原 `LEGACY_ACTION_ENV` / `legacy_action_enabled()`——**零调用者**
 #: （`grep legacy_action_enabled` 只剩定义与审计文档）。旧动作 JSON 在 `send_vn_scene`
@@ -159,9 +159,6 @@ class BondScene:
     background — 导演层视觉字段（背景 scene_id; None = 纯文本模式）
     audio      — 导演层音频字段（占位; 当前恒 None, 未来背景/音乐仲裁填）
     place      — 主 LLM 意图字段（场景级地点 scene_id, 协议 §5; None = 未标注/保持）
-    memorial_prompt — memorial_enter 轮: 生图场景总结（非空 = 本场是纪念进入轮）;
-                      仅运行时标记, **不进 to_dict/from_dict 序列化**（立绘走 l2d 事件）
-    memorial_exit   — memorial_exit 轮: 纪念模式收尾（过渡文字）; 同上仅运行时标记
     """
 
     paragraphs: list[dict] = field(default_factory=list)   # [{text, emotion?}]
@@ -177,8 +174,6 @@ class BondScene:
     # SceneStream P1（2026-09-08）: 段分组边界（句平铺列表里每个自然段的终点下标）。
     # 仅引擎侧标注流水消费——**不进 to_dict/from_dict**（事件/回放不携带）
     segments: list[int] | None = None
-    memorial_prompt: str = ""
-    memorial_exit: bool = False
     # 记录流 v2（2026-09-10, P0-4b）: 本板记录（真源）+ 解析记账。
     # paragraphs/choices 由记录**派生**（过渡期：老 renderer/前端照旧吃派生字段,
     # 消费者迁移见 §11 P0-7）；空 = 本场景来自旧动作路径（回放旧档/开发通道）。
@@ -385,42 +380,6 @@ class BondScene:
             picked=picked,
         )
 
-    @classmethod
-    def from_action(cls, action: "AgentAction") -> "BondScene":
-        """运行时契约解析: AgentAction → BondScene, is_end 由动作类型推导。
-
-        story_scene 隐含 is_end=False; story_end 隐含 is_end=True。payload 已过
-        parse 白名单（干净字段）, 仍逐字段容错（宁缺勿错）——坏数据降级为空场景。
-        memorial_enter → memorial_prompt（生图总结）; memorial_exit → memorial_exit
-        标记（过渡文字; paragraphs 兼容纯字符串, exit 的 parse 输出是 [str]）。
-        """
-        payload = action.payload
-        paras: list[dict] = []
-        for p in payload.get("paragraphs", []):
-            if isinstance(p, str) and p.strip():
-                paras.append({"text": p.strip()})
-            elif isinstance(p, dict):
-                item = dict(p)
-                if item.get("text"):
-                    paras.append(item)
-        scene = cls(
-            paragraphs=paras,
-            choices=[c for c in payload.get("choices", []) if isinstance(c, str)],
-            branches=payload.get("branches") or {},
-            is_end=(action.action == "story_end"),
-            place=payload.get("place") if isinstance(payload.get("place"), str) else None,
-        )
-        # SceneStream P1: 段边界随 parse 结果携带（引擎侧, 不进事件/回放）
-        _segs = payload.get("_seg_ends")
-        if isinstance(_segs, list):
-            scene.segments = [int(x) for x in _segs if isinstance(x, int) and x > 0]
-        if action.action == "memorial_enter":
-            prompt = payload.get("prompt")
-            if isinstance(prompt, str):
-                scene.memorial_prompt = prompt
-        elif action.action == "memorial_exit":
-            scene.memorial_exit = True
-        return scene
 
 class BondStoryEngine:
     """羁绊剧情对话引擎。
@@ -442,9 +401,6 @@ class BondStoryEngine:
     ):
         self.char_loader = CharacterLoader(characters_root)
         self.llm = llm_client
-        self.registry = build_story_registry()
-        self.memorial_registry = build_memorial_registry()
-        self.executor = StoryExecutor()
         self.director = director          # 视觉导演（可注入; None = 纯文本模式）
         self._brain_segment = brain_segment   # Brain 记忆段（DESIGN_BRAIN.md）: VN 开场注入
         self._history_rounds = max(1, int(history_rounds))  # 滑动窗口（轮数, 玩家可配）
@@ -1012,14 +968,14 @@ class BondStoryEngine:
         })
         self._trim_history()
         # 两遍式 C + SceneStream P1 按段流水（正文逐段标注; annotate=False → webgui emo lane）
-        if annotate and self._lexicon_keys and not scene.memorial_exit:
+        if annotate and self._lexicon_keys:
             try:
                 self.fill_scene_emotions_text(scene)
             except Exception as e:             # noqa: BLE001 — 标注异常不阻断剧情
                 logger.warning("emotion 标注异常（兜底延续）: %s", e)
         # place 标注（同步路径）: 换场句锚点写回（记录流路径沿用现网标注器; switch →
         # 资产键的翻译是 P1-2 的事, 本期 place_hint 只随 payload 落库）
-        if annotate and self._place_keys and not scene.memorial_exit:
+        if annotate and self._place_keys:
             try:
                 self.fill_scene_places(scene)
             except Exception as e:             # noqa: BLE001 — 标注异常不阻断剧情
@@ -1057,9 +1013,9 @@ class BondStoryEngine:
         日志 `scene_anno group=…`（§8）。branches 逐分支一组（上下文 = 主线尾板;
         不更新链——分支是主线外反应, 展示链仍以主线为准）。
 
-        Returns: 是否触发过标注（False = 无词表 / memorial_exit / 无正文 / 已齐）。
+        Returns: 是否触发过标注（False = 无词表 / 无正文 / 已齐）。
         """
-        if not self._lexicon_keys or scene.memorial_exit or not scene.paragraphs:
+        if not self._lexicon_keys or not scene.paragraphs:
             return False
         if self._scene_emo_complete(scene):
             return False                                # 幂等: 已全带 → 不再调用
@@ -1203,11 +1159,10 @@ class BondStoryEngine:
 
         判定语义在 `place_annotate.md`（镜像编剧 rules 换场判据）; 失败 → keep
         （画面保持, 不 raise）。branches/纪念文字不标（反应段与正文同场延续）。
-        memorial_exit 跳过。
 
         Returns: 是否有地点变化（板级 place 或任一句级锚点）。
         """
-        if not self._place_keys or scene.memorial_exit:
+        if not self._place_keys:
             return False
         changed = False
         # ① 板首 `switch` → 板级地点（权威; 决定这一板用哪张图）
@@ -1326,11 +1281,6 @@ class BondStoryEngine:
     def in_memorial(self) -> bool:
         """是否处于纪念子模式（enter 后 True, exit 后 False——vn_cli 据此分支渲染）。"""
         return self._in_memorial
-
-    def memorial_exit_schema(self) -> str:
-        """memorial 域 schema 文本（进入纪念模式后, vn_cli 作 system_note 注入
-        给 LLM——本场可输出动作的 JSON 写法, §4.7）。"""
-        return build_schema(self.memorial_registry)
 
     def _scene_task_kind(self) -> str:
         """场卡 kind（DESIGN_PROMPTKIT §4）——**v2 恒为 `scene`**。
