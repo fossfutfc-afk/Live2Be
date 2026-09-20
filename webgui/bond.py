@@ -164,7 +164,10 @@ class BondState:
     scene_logged: bool = True           # scene 是否已落事件流（append-only: 玩家裁决时补录）
     error: str = ""
     completed: bool = False             # 剧情已终结（is_end 自然收尾 → True）
-    #: 上次是**中途退出**、这次是「回来」——下一块板注入一次性注记（用户 2026-09-20）
+    #: 上次是**中途退出**（`vn_exit completed=False`）——进入时由
+    #: `_prev_chapter_quit()` 打标。⚠️ **当前没有消费者**: 用户 2026-09-20 裁决
+    #: *"不需要任何信息，直接**静默重进**就可以了，但这个 API 可以留着"*
+    #: （先前用它注过「老师回来了」, 已撤）。留着当事实, 不做注入。
     quit_resume: bool = False
     finished: bool = False              # finish 已执行（幂等, 2026-09-09 审计:
                                         # 重复 finish 曾刷重复 vn_exit/wrapup/兜底话）
@@ -2619,12 +2622,13 @@ def _log_scene_meta(state: BondState, char_id: str, session_id: str,
 def _prev_chapter_quit(char_id: str, session_id: str, store=None) -> bool:
     """上一次羁绊剧情是不是**中途退出**的（`vn_exit completed=False`）？
 
-    用户 2026-09-20: *"中途退出的借口保留，但是这种时候的中途退出等于之后回来"* ——
-    送客那几句（`_wrapup_inner` 的 completed=False 话术）保留不动;
-    但**再进必须写成"回来"**, 否则前后矛盾（她刚道别完, 老师又"第一次"进门）。
+    ⚠️ **当前没有消费者**（用户 2026-09-20 裁决: *"不需要任何信息，直接静默重进
+    就可以了，但这个 API 可以留着"*）——曾经拿它给 writer 注过「老师回来了」,
+    **已撤**。留着是因为这是个干净的**事实查询**（只看真源, 倒序找最近一条 `vn_exit`）,
+    以后要用来做"续章标记 / 统计 / 回忆册分组"都直接能用。
 
-    判据只看真源: 倒序找**最近一条 `vn_exit`**, `payload.completed is False` = 上次是中断。
-    没有 vn_exit（全新触发）→ False。
+    判据: 倒序找**最近一条 `vn_exit`**; `payload.completed is False` = 上次是中断。
+    没有 `vn_exit`（全新触发）→ False。
     """
     try:
         evs = (store or _flow_store(_state(char_id, session_id))).events(char_id, session_id)
@@ -2646,19 +2650,11 @@ def _system_note(state: BondState) -> str | None:
     """
     vn = state.vn
     notes: list[str] = []
-    # ⭐ 2026-09-20（用户裁决: *"这种时候的中途退出等于之后回来"*）:
-    #    上一次是**中途退出** → 这一轮必须点明"老师回来了"。
-    #    为什么必须写出来: 送客那几句在 `_wrapup_inner`（她说了"下次再继续""路上请小心"）,
-    #    而再进会开新章 —— writer 若不知道"这是回来", 很容易写成"第一次进门"（前后矛盾）。
-    #    **一次性**: 只在回来后的**第一块板**注入, 之后清掉（否则每轮都念）。
-    if getattr(state, "quit_resume", False):
-        state.quit_resume = False
-        notes.append(
-            "（系统）老师上一轮是**中途离开**的——她当时已经在手机上道别过"
-            "（「下次再继续」「路上请小心」，见上文）。"
-            "**现在是老师回来了**：请从「她重新见到老师 / 再次开门」接上，"
-            "不要当作没发生过，也不要从头重演已经读过的那一段。"
-        )
+    # ⚠️ 2026-09-20（用户裁决）: **中途退出后再进 = 静默重进, 不注任何信息**。
+    #    曾经在这里注入过「老师上一轮是中途离开的…现在是老师回来了」——
+    #    **已撤**（用户: *"不用这样设计啊，不需要任何信息，直接静默重进就可以了"*）。
+    #    `state.quit_resume` / `_prev_chapter_quit()` 作为 **API 保留**（见那里的注释）,
+    #    当前**没有消费者**。
     # 记录流 v2（P0-7c）: 旧的"整段剧情 2~3 次选项配额"注记退役——v2 的交互密度
     # 由 rules 引导（一段戏里老师开口 3~5 次）, 引擎不再逐轮念配额（注记进 prompt,
     # 提旧概念只会干扰守形）。choices_used 仍计数（统计/诊断用）。
