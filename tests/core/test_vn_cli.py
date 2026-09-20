@@ -23,7 +23,9 @@ from core.bond.bond_story import BondScene, BondStoryEngine
 from core.session import SessionStore
 from core.session.events import M_VN_EXIT
 from core.ui.vn_cli import run_bond_story_vn, simulate_vn_scene
+from llm import task_labels as T
 
+from tests import stub_tasks
 from tests.vn_fixtures import scene  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent.parent
@@ -44,32 +46,23 @@ class ScriptedLLM:
     def __init__(self, *scripts: dict):
         self._scripts = list(scripts)
         self.snapshots: list[list[dict]] = []
+        self.tasks: list[str | None] = []
 
     def chat(self, messages, temperature=0.8, max_tokens=4096, response_format="text",
              **kw):
+        task = kw.get("task")
         self.snapshots.append([dict(m) for m in messages])
-        head = messages[0]["content"]
-        last = messages[-1]["content"] if len(messages) > 1 else ""
-        if "情绪标签" in last:               # emotion 标注 → 全 nomal 数组
-            import re as _re
-            m = _re.search(r"恰 (\d+) 项", last)
-            n = int(m.group(1)) if m else 1
-            return ["nomal"] * n
-        if "变更句数组" in last:                  # place 标注（P3a）→ 无变更
-            return []
-        if "记录员" in head:                       # digest Round A → 空 episodes
-            return {"episodes": []}
-        if "整理者" in head:                       # digest Round B → 空 decisions
-            return {"decisions": [], "evidence": [], "affection_exp_delta": 0}
-        if "地点 id JSON" in last:                # 换场翻译（P0-7）→ 不切背景
-            return {"place": ""}
-        if "选中的文件名" in last:                # 选图（第二遍, 2026-09-19）→ 保持默认图
-            return {"image": ""}
-        if not self._scripts:
-            raise RuntimeError("ScriptedLLM 脚本耗尽")
-        # 注: 内联 dict 场景的用例仍走**旧动作开关**（P0-7c 收尾项: 脚本计数需按
-        # v2 板数重算后再接适配器）; 常量 SCENE_A/STORY_END 已是记录流。
-        return self._scripts.pop(0)
+        self.tasks.append(task)
+        reply = stub_tasks.annotation_reply(task, messages)
+        if reply is not None:                # 标注/digest 两轮 → 标准应答
+            return reply
+        if task in T.MAIN:
+            if not self._scripts:
+                raise RuntimeError("ScriptedLLM 脚本耗尽")
+            # 注: 内联 dict 场景的用例仍走**旧动作开关**（P0-7c 收尾项: 脚本计数需按
+            # v2 板数重算后再接适配器）; 常量 SCENE_A/STORY_END 已是记录流。
+            return self._scripts.pop(0)
+        raise stub_tasks.unknown_task(task)
 
     def format_messages(self, *, system_prompt, user_message, history=None):
         msgs = [{"role": "system", "content": system_prompt}]
@@ -80,14 +73,13 @@ class ScriptedLLM:
 
 def _seen_notes(llm: ScriptedLLM) -> list[list[str]]:
     """每次**场景轮** chat 调用的系统**约束注记**（= 第一个 system 主 prompt 之后的
-    system 消息）。emotion 标注调用（user 含"情绪标签", 2026-09-02 全量
-    回填）不算场景轮, 过滤掉; task 卡（本场任务, 目标层——2026-09-07 promptkit
+    system 消息）。emotion/place 标注调用（按 `task` 判, 2026-09-21 节点 5b 起不再
+    认文案）不算场景轮, 过滤掉; task 卡（本场任务, 目标层——2026-09-07 promptkit
     §4）也不属于约束注记, 过滤掉（卡槽位由 test_promptkit_baseline 锁定）。"""
     out: list[list[str]] = []
-    for msgs in llm.snapshots:
-        last = msgs[-1]["content"] if len(msgs) > 1 else ""
-        if "情绪标签" in last or "变更句数组" in last:
-            continue                      # emotion/place 标注调用不产生场景轮
+    for msgs, task in zip(llm.snapshots, llm.tasks):
+        if task not in T.MAIN:
+            continue                      # 标注/翻译/选图/digest 不产生场景轮
         notes = [m["content"] for m in msgs if m["role"] == "system"][1:]
         out.append([n for n in notes
                     if not n.startswith("本场任务：")
@@ -291,17 +283,12 @@ class _FailFirst(ScriptedLLM):
 
     def chat(self, messages, temperature=0.8, max_tokens=4096,
              response_format="text", **kw):
-        head = messages[0]["content"]
-        last = messages[-1]["content"] if len(messages) > 1 else ""
-        if "情绪标签" in last:               # 标注自动应答（不耗脚本/不耗失败）
-            import re as _re
-            m = _re.search(r"恰 (\d+) 项", last)
-            n = int(m.group(1)) if m else 1
-            return ["nomal"] * n
-        if "变更句数组" in last:
-            return []
-        if "选中的文件名" in last:            # 选图（第二遍）→ 保持默认图
-            return {"image": ""}
+        task = kw.get("task")
+        reply = stub_tasks.annotation_reply(task, messages)
+        if reply is not None:                # 标注类自动应答（不耗脚本/不耗失败）
+            return reply
+        if task not in T.MAIN:
+            raise stub_tasks.unknown_task(task)
         if self._fails > 0:
             self._fails -= 1
             raise RuntimeError("api down")

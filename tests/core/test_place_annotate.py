@@ -16,8 +16,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from core.bond.place_annotate import (_RESOLVE_CACHE, _clean_anchors,  # noqa: E402
                                       annotate_places, resolve_place)
+from llm import task_labels as T  # noqa: E402
 from llm.prompts import load_prompt
 from llm.task_levels import max_tokens as tl_max_tokens
+from tests import stub_tasks  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 CHARACTER = "igusa_haruka"
@@ -142,6 +144,7 @@ def test_annotate_places_max_tokens_truth_source():
     llm = ScriptedLLM([])
     annotate_places(llm, SENTENCES, KEYS, "", max_tokens=64)
     assert llm.calls[0]["kw"]["max_tokens"] == 64
+    assert llm.calls[0]["kw"]["task"] == T.PLACE            # 调用身份（节点 5b）
     llm2 = ScriptedLLM([])
     annotate_places(llm2, SENTENCES, KEYS, "")
     assert llm2.calls[0]["kw"]["max_tokens"] == 256
@@ -157,6 +160,7 @@ def test_resolve_place_translates_and_caches():
     llm = ScriptedLLM('{"place": "rooftop"}')
     assert resolve_place(llm, "放学后的天台", KEYS, "") == "rooftop"
     assert len(llm.calls) == 1
+    assert llm.calls[0]["kw"]["task"] == T.PLACE_BOARD      # 调用身份（节点 5b）
     assert resolve_place(llm, "放学后的天台", KEYS, "") == "rooftop"
     assert len(llm.calls) == 1                       # 缓存命中 → 不再调用
     # prompt 占位替换（词表 + 地点话 + 当前地点）
@@ -421,18 +425,22 @@ def test_engine_switch_board_also_gets_sentence_anchors():
     class TwoStageLLM:
         def __init__(self):
             self.calls = []
+            self.tasks = []
 
         def chat_full(self, messages, **kw):
             return board
 
         def chat(self, messages, **kw):
-            last = messages[-1]["content"] if len(messages) > 1 else ""
-            self.calls.append(last)
-            if "变更句数组" in last:                  # ② 句级锚点
+            task = kw.get("task")
+            self.tasks.append(task)
+            self.calls.append(messages[-1]["content"] if len(messages) > 1 else "")
+            if task == T.PLACE:                       # ② 句级锚点
                 return [{"sentence": 2, "place": "school_rooftop"}]
-            if "选中的文件名" in last:                # ①′ 选图（第二遍）→ 保持默认图
+            if task == T.PLACE_VARIANT:               # ①′ 选图 → 保持默认图
                 return {"image": ""}
-            return []                                 # 其他（含 ① 若被调用）
+            if task == T.PLACE_BOARD:                 # ① 换场翻译（层1 命中 → 不该被调用）
+                return {"place": ""}
+            raise stub_tasks.unknown_task(task)
 
     llm = TwoStageLLM()
     engine = BondStoryEngine(ROOT / "config" / "characters", llm)
@@ -447,9 +455,9 @@ def test_engine_switch_board_also_gets_sentence_anchors():
     # 调用数: ② 句级锚点 1 次 + **选图 2 次**（板首 classroom + 锚点 school_rooftop;
     # 2026-09-19 起选图对"板首 switch"与"板内锚点"都发——两处都是换场）;
     # ① 换场翻译本身仍是层1 = 0 调用（PL3 的成果没被吃掉）
-    assert sum("变更句数组" in c for c in llm.calls) == 1, llm.calls
-    assert sum("选中的文件名" in c for c in llm.calls) == 2, llm.calls
-    assert sum("地点 id JSON" in c for c in llm.calls) == 0, llm.calls
+    assert sum(t == T.PLACE for t in llm.tasks) == 1, llm.tasks
+    assert sum(t == T.PLACE_VARIANT for t in llm.tasks) == 2, llm.tasks
+    assert sum(t == T.PLACE_BOARD for t in llm.tasks) == 0, llm.tasks
     # 视觉键不进叙事历史
     from core.session.renderer import render_bond_scene_text
     text = render_bond_scene_text(scene.to_dict())
@@ -479,8 +487,8 @@ def test_engine_uses_table_by_default():
 class ScanLLM:
     """PL3 用例桩: 只应答 place 相关调用, 分别记下两类调用的次数。
 
-    * `地点 id JSON` → 换场翻译（① 板级）
-    * `变更句数组`   → 句级锚点（②）——**这两道闸要省的正是它**
+    * `T.PLACE_BOARD` → 换场翻译（① 板级）
+    * `T.PLACE`       → 句级锚点（②）——**这两道闸要省的正是它**
     """
 
     def __init__(self, board, *, place_reply=None, annotate_reply=None):
@@ -494,16 +502,20 @@ class ScanLLM:
         return self.board
 
     def chat(self, messages, **kw):
+        task = kw.get("task")
         last = messages[-1]["content"] if len(messages) > 1 else ""
-        if "地点 id JSON" in last:
+        if task == T.PLACE_BOARD:
             self.place_calls.append(last)
             return self.place_reply
-        if "变更句数组" in last:
+        if task == T.PLACE:
             self.annotate_calls.append(last)
             return self.annotate_reply
-        if "选中的文件名" in last:                     # 选图（第二遍）→ 保持默认图
+        if task == T.PLACE_VARIANT:                    # 选图（第二遍）→ 保持默认图
             return {"image": ""}
-        return []
+        reply = stub_tasks.annotation_reply(task, messages)   # emotion → nomal
+        if reply is not None:
+            return reply
+        raise stub_tasks.unknown_task(task)
 
 
 def _scan_engine(board, **kw):

@@ -19,7 +19,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 from core.bond.bond_story import BondStoryEngine
 from core.director import Director, VisualState, build_director
 from core.media import MediaCatalog
+from llm import task_labels as T
 
+from tests import stub_tasks
 from tests.vn_fixtures import scene as _scene  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent.parent
@@ -67,7 +69,11 @@ def _director(tmp_path, **kw) -> Director:
 
 
 class _MainLLM:
-    """引擎集成测试用的主 LLM stub（记录流脚本; 标注/翻译调用按关键字应答）。"""
+    """引擎集成测试用的主 LLM stub（记录流脚本; 标注/翻译调用按 **task** 应答）。
+
+    节点 5b（2026-09-21）: 分派键从中文关键字换成 `llm.chat(task=…)` 的调用身份
+    —— 改 prompt 文案不再让桩静默不命中。
+    """
 
     def __init__(self, script):
         self._script = script
@@ -75,20 +81,15 @@ class _MainLLM:
 
     def chat(self, messages, temperature=0.8, max_tokens=4096, response_format="text",
              **kw):
-        import re as _re
-        head = messages[0]["content"]
-        last = messages[-1]["content"] if len(messages) > 1 else ""
-        if "情绪标签" in last:               # emotion 标注 → 全 nomal
-            m = _re.search(r"恰 (\d+) 项", last)
-            n = int(m.group(1)) if m else 1
-            return ["nomal"] * n
-        if "地点 id JSON" in last:                # 换场翻译（P0-7）
+        task = kw.get("task")
+        if task == T.PLACE_BOARD:            # 换场翻译（P0-7）——用例会改 place_reply
             return self.place_reply
-        if "变更句数组" in last:                  # 旧 place 标注（v1 通道）→ 无变更
-            return []
-        if "选中的文件名" in last:                # 选图（第二遍）→ 保持默认图
-            return {"image": ""}
-        return self._script
+        reply = stub_tasks.annotation_reply(task, messages)
+        if reply is not None:                # emotion / 句级 place / 选图 → 标准应答
+            return reply
+        if task in T.MAIN:
+            return self._script
+        raise stub_tasks.unknown_task(task)
 
     def format_messages(self, *, system_prompt, user_message, history=None):
         msgs = [{"role": "system", "content": system_prompt}]

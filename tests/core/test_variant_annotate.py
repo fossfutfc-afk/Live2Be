@@ -30,7 +30,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 from core.bond.variant_annotate import pick_image                 # noqa: E402
 from core.media.place_table import (MOMENT_VARIANTS, load_table,  # noqa: E402
                                     moment_label, moment_token)
+from llm import task_labels as T                                  # noqa: E402
 from llm.prompts import load_prompt                               # noqa: E402
+from tests import stub_tasks                                      # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 
@@ -179,13 +181,18 @@ def test_engine_records_place_asset_in_payload():
             return board
 
         def chat(self, messages, **kw):
-            last = messages[-1]["content"] if len(messages) > 1 else ""
-            if "选中的文件名" in last:
+            task = kw.get("task")
+            if task == T.PLACE_VARIANT:
                 self.pick_calls += 1
                 return {"image": want_night}
-            if "变更句数组" in last:
+            if task == T.PLACE:
                 return []
-            return {"place": "school_rooftop"}          # 层2（该句歧义）
+            if task == T.PLACE_BOARD:
+                return {"place": "school_rooftop"}      # 层2（该句歧义）
+            reply = stub_tasks.annotation_reply(task, messages)
+            if reply is not None:                       # emotion → nomal
+                return reply
+            raise stub_tasks.unknown_task(task)
 
     llm = LLM()
     engine = BondStoryEngine(ROOT / "config" / "characters", llm)
@@ -227,15 +234,18 @@ def test_anchor_switch_also_picks_image():
             return board
 
         def chat(self, messages, **kw):
+            task = kw.get("task")
             head = messages[0]["content"]                    # 候选清单在 system 里
-            last = messages[-1]["content"] if len(messages) > 1 else ""
-            if "选中的文件名" in last:
+            if task == T.PLACE_VARIANT:
                 self.picks.append(head)
                 # 板首（教室）给默认图, 锚点（天台）给夜景
                 return {"image": want if "BG_SchoolRooftop" in head else ""}
-            if "变更句数组" in last:                          # ② 句级锚点
+            if task == T.PLACE:                              # ② 句级锚点
                 return [{"sentence": 2, "place": "school_rooftop"}]
-            return []
+            reply = stub_tasks.annotation_reply(task, messages)
+            if reply is not None:                            # 其余标注 → 标准应答
+                return reply
+            raise stub_tasks.unknown_task(task)
 
     llm = LLM()
     engine = BondStoryEngine(ROOT / "config" / "characters", llm)

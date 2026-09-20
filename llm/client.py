@@ -154,6 +154,7 @@ class LLMClient:
         response_format: str = "text",
         extra_body: dict[str, Any] | None = None,
         timeout: float | None = None,
+        task: str | None = None,
     ) -> str | dict[str, Any]:
         """发送 chat completion 请求（批次模式）。
 
@@ -163,6 +164,9 @@ class LLMClient:
 
         timeout: per-call 超时覆盖（None = 构造时的 self.timeout）。后台长任务
         （digest high 档长考可达 ~2min）用它放宽, 主对话快速失败语义不受影响。
+
+        task: **调用身份**（`llm/task_labels.py` 的常量）——**不进 messages/payload**
+        （前缀缓存零影响）, 只进日志 + 供测试桩分派（节点 5b, 2026-09-21）。
         """
         extra_body = self._resolve_extra(extra_body)   # None → settings 默认档
         effective_model = model or self.model
@@ -187,7 +191,8 @@ class LLMClient:
             # 一章 ≈ 52 条 / ~1000 字, 但 completion_tokens 一直不可见）。
             _u = _LAST_USAGE or {}
             logger.info(
-                "llm chat ms=%d json=y cache_hit=%d cache_miss=%d out=%d in=%d",
+                "llm chat task=%s ms=%d json=y cache_hit=%d cache_miss=%d out=%d in=%d",
+                task or "-",
                 int((time.monotonic() - _t0) * 1000),
                 int(_u.get("prompt_cache_hit_tokens") or -1),
                 int(_u.get("prompt_cache_miss_tokens") or -1),
@@ -217,12 +222,15 @@ class LLMClient:
         response_format: str = "text",
         extra_body: dict[str, Any] | None = None,
         on_chunk: Callable[[str], None] | None = None,
+        task: str | None = None,
     ) -> str | dict[str, Any]:
         """流式 chat completion — 收集完整文本, 返回与 chat 完全一致。
 
         与 chat 的区别只在传输: SSE 流式（token 逐块到达, on_chunk 每块增量
         回调——观察者/流式嗅探用）。json_object 时同样走 LLM 自纠错
         （_extract_json_with_llm_correction, 纠错阶段为非流式请求）。
+
+        task: 调用身份, 同 `chat`（不进 payload, 只进日志/测试桩分派）。
         """
         extra_body = self._resolve_extra(extra_body)   # None → settings 默认档
         effective_model = model or self.model
@@ -255,7 +263,8 @@ class LLMClient:
         # out/in = 输出/输入 token（2026-09-11 补: 记录流一章 ≈ 52 条, 有了它才能
         # 量化"单块还能写多长 / 章长该不该拆"）
         logger.info(
-            "llm chat_full ms=%d ttft=%dms json=%s cache_hit=%d cache_miss=%d out=%d in=%d",
+            "llm chat_full task=%s ms=%d ttft=%dms json=%s cache_hit=%d cache_miss=%d out=%d in=%d",
+            task or "-",
             int((time.monotonic() - _t0) * 1000),
             int(_ttft[0] * 1000) if _ttft[0] is not None else -1,
             "y" if response_format == "json_object" else "n",

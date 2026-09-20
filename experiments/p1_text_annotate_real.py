@@ -25,6 +25,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from core.bond.bond_story import BondStoryEngine, SceneLoopError  # noqa: E402
+from llm import task_labels as T  # noqa: E402
 from llm.client import LLMClient  # noqa: E402
 
 logging.basicConfig(
@@ -54,11 +55,10 @@ def _wrapped(llm, items, lexicon_keys, lexicon_hint, character,
         orig_chat = llm.chat
 
         def _spy(messages, **kw):
-            last = messages[-1]["content"] if len(messages) > 1 else ""
             m = _re.search(r"共 (\d+) 条记录", messages[0]["content"])
             expect = int(m.group(1)) if m else -1
             raw = orig_chat(messages, **kw)
-            if "情绪标签" in last:
+            if kw.get("task") == T.EMOTION:       # 调用身份（节点 5b）
                 import json as _json
                 got = "?"
                 if isinstance(raw, list):

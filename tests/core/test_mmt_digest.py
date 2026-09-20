@@ -13,26 +13,28 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from core.momotalk import MMT_DIGEST_INTERVAL, MomoTalkEngine
 from core.session import SessionStore
+from tests import stub_tasks
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 CHARACTER = "igusa_haruka"
 
 
 class ScriptedLLM:
-    """chat 记录调用; 两轮 digest 返回空包（与 test_bond 同构）。"""
+    """chat 记录调用; 两轮 digest 按 **task** 返回空包（与 test_bond 同构）。"""
 
     def __init__(self):
         self.snapshots: list[list[dict]] = []
+        self.tasks: list[str | None] = []
 
     def chat(self, messages, temperature=0.8, max_tokens=4096, response_format="text",
              **kw):
+        task = kw.get("task")
         self.snapshots.append([dict(m) for m in messages])
-        head = messages[0]["content"]
-        if "记录员" in head:
-            return {"episodes": []}
-        if "整理者" in head:
-            return {"decisions": [], "evidence": [], "affection_exp_delta": 5}
-        raise RuntimeError("非 digest 调用不应发生")
+        self.tasks.append(task)
+        reply = stub_tasks.annotation_reply(task, messages, digest_b_delta=5)
+        if reply is not None:
+            return reply
+        raise RuntimeError(f"非 digest 调用不应发生（task={task!r}）")
 
     @property
     def llm_calls(self) -> int:

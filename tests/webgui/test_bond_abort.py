@@ -18,6 +18,8 @@ from core.momotalk import MomoTalkEngine
 sys_path_root = Path(__file__).resolve().parent.parent.parent
 import sys  # noqa: E402
 sys.path.insert(0, str(sys_path_root))
+from llm import task_labels as T  # noqa: E402
+from tests import stub_tasks  # noqa: E402
 from tests.vn_fixtures import scene as _scene  # noqa: E402
 
 ROOT = sys_path_root
@@ -28,19 +30,20 @@ SCENE = _scene(lines=["她轻轻点了点头，夜色里声音也软了下来。
 
 class FailThenOK:
     """前 fail_calls 次 LLM 调用抛异常（模拟 send 内每 attempt 一次）,
-    之后按队列返回场景。标注类调用自动应答不消耗计数（本测试 annotate=False,
-    实际不会触发）。"""
+    之后按队列返回场景。标注类调用按 **task** 自动应答, 不消耗计数（本测试
+    annotate=False, 实际不会触发）。"""
 
     def __init__(self, fail_calls: int, *ok_scripts):
         self._left = fail_calls
         self._ok = list(ok_scripts)
 
     def chat(self, messages, **kw):
-        last = messages[-1]["content"] if len(messages) > 1 else ""
-        if "情绪标签" in last or "变更句数组" in last:
-            return []
-        if "选中的文件名" in last:                # 选图（第二遍, 2026-09-19）→ 保持默认图
-            return {"image": ""}
+        task = kw.get("task")
+        reply = stub_tasks.annotation_reply(task, messages)
+        if reply is not None:                    # 标注类（emotion/place/选图）
+            return reply
+        if task not in T.MAIN:
+            raise stub_tasks.unknown_task(task)
         if self._left > 0:
             self._left -= 1
             raise RuntimeError("api down")

@@ -19,6 +19,7 @@ import logging
 import time
 
 from core.common import err
+from llm.task_labels import digest_label
 
 logger = logging.getLogger(__name__)
 
@@ -70,7 +71,10 @@ def llm_chat(
             resp = llm.chat(
                 list(messages),
                 model=model, temperature=temperature, max_tokens=max_tokens,
-                response_format="json_object", extra_body=extra_body, timeout=timeout)
+                response_format="json_object", extra_body=extra_body, timeout=timeout,
+                # 调用身份（节点 5b）: label 已有（digest / round_a / round_b）,
+                # 直接映射成 task 标签——测试桩据此分 A/B 轮, 不再认中文关键字
+                task=digest_label(label))
             return resp, None
         except Exception as e:                       # noqa: BLE001
             last_err = e

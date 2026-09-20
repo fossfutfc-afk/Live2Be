@@ -81,7 +81,7 @@ core/          引擎层（无 web 依赖, CLI/实验同源复用）
    └ parsing/ director/ media/ mmt/ ui/ random_events/ affection/ rag/
 contract/       契约地基: records(记录文法+块校验) · schema(LLM 可见文本) · spec/registry/model(动作契约)
                 · digest_registry · timeline_index · constants
-llm/            client(超时/流式/usage 日志) · image_gen(生图) · task_levels(档位真源) · prompts/文案仓库
+llm/            client(超时/流式/usage 日志) · task_labels(**调用身份**) · task_levels(档位真源) · prompts/文案仓库
 config/         人设六文件(REQ~/SIG~) + illustration.yml · settings/world(overview.yml) · settings/relation
 data/           运行时数据(gitignore): worlds/*/characters/*/{progress.json…} +
                 **soul/**（记忆层: events.jsonl + wiki.jsonl + wiki.meta.json + 变更史）
@@ -502,19 +502,23 @@ CLI/测试同步路径在引擎内串行。
   ⚠️ **好感自动刷新**（同日）: `mmt.js` 每 10s 拉一次 `/api/mmt/characters`,
   **只在 MMT 可见 + 不在 VN 里 + 页面未切走**时; 值没变**不碰 DOM**（不闪）。
   为什么轮询而不是事件: 好感由 **digest** 后台写, 客户端不知道它何时落地。
-- 测试桩约定（**改引擎标注行为必读**）：各测试文件 ScriptedLLM 按 **user 尾部关键字**
-  应答异步调用——emotion 标注（user 含 `情绪标签`）→ 全 nomal 数组, **条数从
-  `恰 N 项` 取**（别用 `^\d+: ` 数 system 行: 模板【示范】也带编号行, 会恒多 4）;
-  place 标注("变更句数组")→ []；换场翻译("地点 id JSON")→ `{"place": ""}`；
-  **选图("选中的文件名")→ `{"image": ""}`**（2026-09-19 第二遍）; digest
-  ("记录员/整理者")→ 空包。新增标注任务 → 同步给 tests/webgui/test_bond.py、
-  tests/core/test_vn_cli.py、tests/core/test_director.py 等桩补分支, 否则吞场景脚本
-  （v1 存量用例连同 `tests/archive/` 已于 2026-09-21 整目录删除）。
-  ⚠️ **桩关键字有守门用例**（2026-09-21）: `tests/core/test_stub_keyword_guard.py`
-  把"桩依赖的中文关键字 ↔ 产出它的产品源"钉成一张表——你改文案（或搬文件）导致
-  某个关键字不再被产出 → **它直接红**，并指出该同步改哪些桩。配套两条: 表不腐烂
-  （每个关键字必须还有测试在用）+ 守门自身会红的自测。根治方案（`llm.chat(task=…)`
-  结构化分派）记在 `docs/EXEC_PIPELINE_UNIFY.md` 节点 5b。
+- 测试桩约定（**改引擎标注行为必读**）：各测试文件的 `ScriptedLLM` **按 `task` 身份
+  分派**（节点 5b, 2026-09-21）——产品侧在 `llm.chat(..., task=…)` / `chat_full(...)` 上
+  声明调用身份（`llm/task_labels.py`, `kw["task"]` 读它; 共享应答助手 =
+  `tests/stub_tasks.py`）。标签：`emotion`（记录级标注 + v1 整场批标）· `place`
+  （句级锚点）· `place_board`（板级换场翻译）· `place_variant`（选图）·
+  `digest.round_a` / `digest.round_b` · `mmt` / `bond`（主链）。
+  ⚠️ **标签不进 messages/payload**（前缀缓存与夹具零影响）, 只进日志
+  （`llm chat task=emotion …` —— 生产侧"这次调用是谁"从此可查）与桩分派。
+  ⚠️ **别再按中文关键字分派**（旧写法: `if "情绪标签" in last`）——那正是 5b 要根除的
+  耦合：改一次 prompt 措辞就让桩**静默不命中**（轻则吞脚本, 重则全程兜底还全绿;
+  同类事故已发生过一次——桩数 system 编号行 → 恒多 4 条）。三条守门用例在
+  `tests/core/test_stub_dispatch_guard.py`：产品调用点必须带 `task=` / 标签必须在
+  词表内 / 测试里不许再有中文串分派（**实测删掉一处 `task=` → 立刻红**）。
+  新增标注任务 → 在 `llm/task_labels.py` 加标签（含 `PROFILE_OF` 形态映射）+
+  在 `tests/stub_tasks.py::annotation_reply` 给标准应答 + 同步各桩（漏了会在
+  **那次调用**上炸, `unknown_task` 的报错会指路）。
+  v1 存量用例连同 `tests/archive/` 已于 2026-09-21 整目录删除。
 
 ---
 
@@ -584,7 +588,9 @@ CLI/测试同步路径在引擎内串行。
   = 预生成**首板**到达时刻——与 `bond_pregen src=gen dur=ms`（**整块**写完）一比,
   就知道预生成的收益有多少来自"增量交付"而不是"整体更快";
   ② `llm chat/chat_full` 日志补 `out=/in=`（completion/prompt tokens）——此前只看得到
-  prompt 侧 cache 命中, 判断"单块还能写多长"只能靠记录条数估;
+  prompt 侧 cache 命中, 判断"单块还能写多长"只能靠记录条数估; **`task=`**（节点 5b）
+  标明**这次调用是谁**（`emotion` / `place` / `place_board` / `place_variant` /
+  `digest.round_a|b` / `mmt` / `bond`）——此前只能从 `json=y` + `max_tokens` 猜;
   ③ **图像侧**（2026-09-20）: gallery json 的 `prompt_source`（`art` / `memorial_text`）
   = **art 配对命中率**; `[vn][memorial] 开画 prompt=… src=…` 一行日志同源。
   用途: 真机"玩家几乎零卡顿"里有多少是生成、多少是缓存/回放, 一眼可查。
@@ -640,8 +646,9 @@ CLI/测试同步路径在引擎内串行。
   交付模式; 节点 0–6, 每节点一提交。**全部落地: 0（协议）· 1（parity 测试网）·
   2′（`_BoardAssembler` + `check_board` + `DeliveryMode`）· 5（桩对齐生产路径）·
   3（下一轮纠偏）· 6（`Issue(code, severity)` 结构化）· 4′（预生成与 live 同路径）·
-  2″（`BoardLifecycle` + `_discard_boards`）**; 未做: 5b（桩结构化分派）与 `webgui/bond.py`
-  文件拆分（用户 2026-09-21 说"之后再做"）。来源 = ARCH_REVIEW P0-2/P0-3 的根治）
+  2″（`BoardLifecycle` + `_discard_boards`）· **5b（`task=` 结构化分派 + 三条守门）** **;
+  未做: `webgui/bond.py` 文件拆分（用户 2026-09-21 说"之后再做"）。
+  来源 = ARCH_REVIEW P0-2/P0-3/P2-8 的根治）
 - **重新生成 / 重发 的语义与固化线**：docs/DESIGN_RESEND.md（**设计稿, 未动代码**。
   决策: MMT 提交边界 = **回合提交**; 两区 = 水位之上**丢弃** / 水位之下走
   `wiki_v2/revise` **更正**; 板级那一半已由 `BoardLifecycle` + `_discard_boards` 落地;

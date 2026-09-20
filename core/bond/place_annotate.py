@@ -26,6 +26,7 @@ import re
 
 from core.bond.emotion_annotate import _extract_array  # 共享文本模式数组提取
 from llm.prompts import load_prompt
+from llm.task_labels import PLACE, PLACE_BOARD
 from llm.task_levels import extra_body as _tl_extra
 from llm.task_levels import max_tokens as _tl_max_tokens
 
@@ -154,6 +155,7 @@ def annotate_places(
                 temperature=0.2,
                 max_tokens=max_tokens,
                 extra_body=_tl_extra("place"),
+                task=PLACE,               # 句级锚点（节点 5b: 与板级翻译区分）
             )
         except Exception as e:                    # noqa: BLE001 — 失败静默降级
             logger.warning("place 标注调用失败（keep 兜底）: %s", e)
@@ -243,6 +245,7 @@ def resolve_place(
                 temperature=0.2,
                 max_tokens=max_tokens,
                 extra_body=_tl_extra("place"),
+                task=PLACE_BOARD,         # 板级换场翻译（节点 5b: 与句级锚点区分）
             )
         except Exception as e:                    # noqa: BLE001 — 失败静默降级（keep）
             logger.warning("place 翻译调用失败（keep 兜底）: %s", e)

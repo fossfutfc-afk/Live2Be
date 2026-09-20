@@ -19,6 +19,8 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from core.bond.bond_story import BondScene, BondStoryEngine, SceneLoopError  # noqa: E402
+from llm import task_labels as T  # noqa: E402
+from tests import stub_tasks  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 CHARACTER = "igusa_haruka"
@@ -38,8 +40,8 @@ TWO_GROUP_BLOCK = "\n".join([
 
 
 class ScriptedLLM:
-    """场景轮按脚本返回**记录流字符串**；标注调用（emotion/place/换场翻译）按关键字
-    自动应答, 不消耗脚本。每个脚本用完即提示（防静默多发调用）。"""
+    """场景轮按脚本返回**记录流字符串**；标注调用（emotion/place/换场翻译/选图）
+    按 **task 身份**自动应答, 不消耗脚本。每个脚本用完即提示（防静默多发调用）。"""
 
     def __init__(self, *scripts, place_reply: str = ""):
         self._scripts = list(scripts)
@@ -50,23 +52,18 @@ class ScriptedLLM:
         return self.chat(messages, **kw)
 
     def chat(self, messages, **kw):
+        task = kw.get("task")
         self.snapshots.append([dict(m) for m in messages])
-        last = messages[-1]["content"] if messages else ""
-        head = messages[0]["content"] if messages else ""
-        if "情绪标签" in last:                       # emotion 标注 → 全 nomal
-            import re as _re
-            m = _re.search(r"恰 (\d+) 项", last)
-            n = int(m.group(1)) if m else 1
-            return ["nomal"] * n
-        if "地点 id JSON" in last:                       # switch → 背景键（P0-7）
+        if task == T.PLACE_BOARD:                    # switch → 背景键（P0-7）
             return {"place": self.place_reply}
-        if "变更句数组" in last:                          # 旧 place 标注 → 无变更
-            return []
-        if "选中的文件名" in last:                # 选图（第二遍）→ 保持默认图
-            return {"image": ""}
-        if not self._scripts:
-            raise AssertionError("ScriptedLLM 脚本耗尽——引擎多发了一次 LLM 调用")
-        return self._scripts.pop(0)
+        reply = stub_tasks.annotation_reply(task, messages)
+        if reply is not None:                        # emotion / 句级 place / 选图
+            return reply
+        if task in T.MAIN:
+            if not self._scripts:
+                raise AssertionError("ScriptedLLM 脚本耗尽——引擎多发了一次 LLM 调用")
+            return self._scripts.pop(0)
+        raise stub_tasks.unknown_task(task)
 
 
 def _engine(llm) -> BondStoryEngine:

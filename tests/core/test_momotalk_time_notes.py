@@ -16,25 +16,30 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from core.momotalk import MomoTalkEngine        # noqa: E402
 from core.session.store import SessionStore     # noqa: E402
+from llm import task_labels as T                # noqa: E402
+from tests import stub_tasks                    # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 CHARACTER = "igusa_haruka"
 
 
 class ScriptedLLM:
-    """捕获每次调用的 messages（digest 轮给空包, 其余给一句台词）。"""
+    """捕获每次调用的 messages（digest 轮按 **task** 给空包, 主链给一句台词）。"""
 
     def __init__(self):
         self.snapshots: list[list[dict]] = []
+        self.tasks: list[str | None] = []
 
     def chat(self, messages, **kw):
+        task = kw.get("task")
         self.snapshots.append([dict(m) for m in messages])
-        head = messages[0]["content"]
-        if "记录员" in head:
-            return {"episodes": []}
-        if "整理者" in head:
-            return {"decisions": [], "evidence": [], "affection_exp_delta": 0}
-        return {"messages": [{"text": "嗯……早、早上好！"}]}
+        self.tasks.append(task)
+        reply = stub_tasks.annotation_reply(task, messages)
+        if reply is not None:                    # digest 两轮 → 空包
+            return reply
+        if task in T.MAIN:
+            return {"messages": [{"text": "嗯……早、早上好！"}]}
+        raise stub_tasks.unknown_task(task)
 
 
 def _engine(tmp_path, llm) -> MomoTalkEngine:

@@ -15,6 +15,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from core.momotalk import MomoTalkEngine
+from llm import task_labels as T
+from tests import stub_tasks
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 CHARACTER = "igusa_haruka"
@@ -26,14 +28,16 @@ class ScriptedLLM:
         self.snapshots = []
 
     def chat(self, messages, **kw):
+        task = kw.get("task")
         self.snapshots.append([dict(m) for m in messages])
-        head = messages[0]["content"]
-        if "记录员" in head or "整理者" in head:
-            return {"episodes": []} if "记录员" in head \
-                else {"decisions": [], "evidence": [], "affection_exp_delta": 0}
-        if not self._scripts:
-            raise RuntimeError("脚本耗尽")
-        return self._scripts.pop(0)
+        reply = stub_tasks.annotation_reply(task, messages)
+        if reply is not None:                    # digest 两轮 → 空包
+            return reply
+        if task in T.MAIN:
+            if not self._scripts:
+                raise RuntimeError("脚本耗尽")
+            return self._scripts.pop(0)
+        raise stub_tasks.unknown_task(task)
 
     def format_messages(self, **kw):
         return []

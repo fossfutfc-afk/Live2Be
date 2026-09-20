@@ -20,6 +20,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from core.momotalk import MomoTalkEngine
 from core.session import SessionStore
+from llm import task_labels as T  # noqa: E402
+from tests import stub_tasks  # noqa: E402
 from tests.vn_fixtures import from_v1_scene as _rec  # noqa: E402
 from tests.vn_fixtures import scene  # noqa: E402
 from webgui import bond, chat
@@ -59,44 +61,40 @@ MMT_TRIGGER = {"actions": [{"action": "mmt_trigger_bond_story",
 MMT_REPLY = {"actions": [{"action": "mmt_chat", "reply": "嗯，今晚很开心。", "payload": {}}]}
 # 空消化桩（digest_v2 两轮）: Round A 空 episodes; Round B 空 decisions + 好感 5
 # （affection_exp_delta=5 → 触发好感事件落库; delta=0 不写事件——好感无变化无需记录）
-def _digest_stub(messages):
-    """两轮 digest 的假响应（按 system 首行特征区分 A/B 轮）。"""
-    head = messages[0]["content"]
-    if "记录员" in head:                       # digest_v2_round_a
+def _digest_stub(task):
+    """两轮 digest 的假响应（**按 task 区分 A/B 轮**, 节点 5b——不再认 prompt 文案）。"""
+    if task == T.DIGEST_A:                     # digest_v2_round_a
         return {"episodes": []}
     return {"decisions": [], "evidence": [], "affection_exp_delta": 5}   # round_b
 
 
 class ScriptedLLM:
     """带 chat(json_object) 的脚本化 LLM——agent_turn / send_vn_scene / digest 都走它。
-    emotion 标注调用（2026-09-02: 骨架 emotion 丢弃 → 异步标注全量回填）自动
-    返回全 nomal 数组（从 system 编号行数推断句数）, 不消耗脚本。"""
+
+    标注类调用（emotion / place / 换场翻译 / 选图 / digest 两轮）按 **`task` 身份**
+    自动应答（节点 5b, 2026-09-21: 此前按中文关键字分派——改 prompt 文案就静默不命中）,
+    不消耗脚本。"""
 
     def __init__(self, *scripts):
         self._scripts = list(scripts)
         self.snapshots = []
+        self.tasks: list[str | None] = []
 
     def chat(self, messages, temperature=0.8, max_tokens=4096, response_format="text",
              **kw):
+        task = kw.get("task")
         self.snapshots.append([dict(m) for m in messages])
-        head = messages[0]["content"]
-        last = messages[-1]["content"] if len(messages) > 1 else ""
-        if "情绪标签" in last:               # emotion 标注 → 全 nomal
-            import re as _re
-            m = _re.search(r"恰 (\d+) 项", last)
-            n = int(m.group(1)) if m else 1
-            return ["nomal"] * n
-        if "变更句数组" in last:                  # place 标注（P3a）→ 无变更
-            return []
-        if "记录员" in head or "整理者" in head:
-            return _digest_stub(messages)              # digest 调用 → 两轮空包
-        if "地点 id JSON" in last:                # 换场翻译（P0-7）→ 不切背景
-            return {"place": ""}
-        if "选中的文件名" in last:                # 选图（第二遍）→ 保持默认图
-            return {"image": ""}
-        if not self._scripts:
-            raise RuntimeError("ScriptedLLM 脚本耗尽")
-        return _rec(self._scripts.pop(0))         # v1 桩 → 记录流（P0-7c 适配器）
+        self.tasks.append(task)
+        if task in (T.DIGEST_A, T.DIGEST_B):
+            return _digest_stub(task)                  # digest → 两轮空包
+        reply = stub_tasks.annotation_reply(task, messages)
+        if reply is not None:                          # 标注类 → 标准应答
+            return reply
+        if task in T.MAIN:
+            if not self._scripts:
+                raise RuntimeError("ScriptedLLM 脚本耗尽")
+            return _rec(self._scripts.pop(0))          # v1 桩 → 记录流（P0-7c 适配器）
+        raise stub_tasks.unknown_task(task)
 
     def format_messages(self, *, system_prompt, user_message, history=None):
         msgs = [{"role": "system", "content": system_prompt}]
@@ -111,7 +109,7 @@ class ScriptedLLM:
         此前本桩只有 `chat()` ⇒ `send_vn_scene` 里 `chat_full is None` ⇒ `delivered`
         恒空 ⇒ **回退批式**, 于是 webgui 状态机测试系统性验证的是**生产不跑**的那条路径。
         这里把整块结果**按行喂** `on_chunk`: 板一闭合即交付（与真机 `LLMClient.chat_full`
-        同语义）。标注/digest 调用不传 `on_chunk`, 走 `chat()` 原样。
+        同语义）。标注/digest 调用不传 `on_chunk`, 走 `chat()` 原样（`task=` 也一并转交）。
         """
         out = self.chat(messages, temperature=temperature, max_tokens=max_tokens,
                         response_format=response_format, **kw)
@@ -167,15 +165,12 @@ def _cleanup():
 
 
 def _scene_calls(llm) -> list:
-    """桩里**主生成**调用（排除 emotion/place 标注、换场翻译与选图——那些是廉价旁路）。"""
-    out = []
-    for snap in llm.snapshots:
-        last = snap[-1]["content"] if snap else ""
-        if ("情绪标签" in last or "变更句数组" in last or "地点 id JSON" in last
-                or "选中的文件名" in last):
-            continue
-        out.append(snap)
-    return out
+    """桩里**主生成**调用（按 `task` 过滤：标注/换场翻译/选图/digest 都是廉价旁路）。
+
+    节点 5b: 判据从"user 里有没有中文关键字"换成调用身份——**文案改了也不影响**。
+    """
+    main = T.MAIN | {T.DIGEST, T.DIGEST_A, T.DIGEST_B}
+    return [snap for snap, task in zip(llm.snapshots, llm.tasks) if task not in main]
 
 
 # ----------------------------------------------------------------------------
@@ -263,9 +258,11 @@ def test_bond_demo_replay_resets(tmp_path):
 def test_bond_scene_error_abort_no_closing(tmp_path):
     class BadLLM(ScriptedLLM):
         def chat(self, messages, **kw):
+            task = kw.get("task")
             self.snapshots.append([dict(m) for m in messages])
-            if "记录员" in messages[0]["content"] or "整理者" in messages[0]["content"]:
-                return _digest_stub(messages)
+            self.tasks.append(task)
+            if task in (T.DIGEST_A, T.DIGEST_B):     # digest 照常应答（收尾链要用）
+                return _digest_stub(task)
             raise RuntimeError("LLM 挂了")          # 每次调用都炸 → 重试耗尽
     engine, st, sid, _ = _setup(tmp_path, SCENE_A)  # 占位（BadLLM 覆盖）
     chat._engines[CHARACTER] = MomoTalkEngine(ROOT / "config" / "characters",

@@ -54,6 +54,7 @@ from core.bond.place_annotate import annotate_places, resolve_place
 from core.bond.variant_annotate import pick_image           # 第二遍: 选图（时刻/差分）
 from core.bond import place_cues                      # 换场线索词（PL3 预筛）
 from llm.client import LLMClient, feedback
+from llm.task_labels import BOND
 from llm.task_levels import max_tokens as task_levels_max_tokens
 from core.parsing.dynamic_character_parser import CharacterLoader, DynamicCharacter
 from core.promptkit import (
@@ -826,11 +827,13 @@ class BondStoryEngine:
                         messages, temperature=0.8, max_tokens=max_tokens,
                         response_format=resp_format,
                         on_chunk=_feed if stream is not None else None,
+                        task=BOND,       # 主链调用身份（节点 5b: 桩按它分派）
                     )
                 else:
                     response = self.llm.chat(
                         messages, temperature=0.8, max_tokens=max_tokens,
                         response_format=resp_format,
+                        task=BOND,
                     )
                 if stream is not None:
                     stream.finish()                  # 收残余行 + 末板
