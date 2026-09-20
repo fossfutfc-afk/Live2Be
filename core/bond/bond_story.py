@@ -950,8 +950,8 @@ class BondStoryEngine:
             return [], ["空块：没有任何合法记录"]
         if hard:
             return [], hard
-        if soft:                                 # 超长群 → 切群（内容零损失）
-            logger.info("[vn][records] 软违规（已切群处理）: %s", "; ".join(soft))
+        if soft:                                 # 超长群 → 切群; 其余（配对/章末）只记录
+            logger.info("[vn][records] 软违规（不阻断）: %s", "; ".join(soft))
         if block_art and not any(r.stage == STAGE_MEMORIAL for r in block.records):
             logger.warning("[vn][records] 声明了 art 但本回合没有 memorial（降级: 不发图）")
 

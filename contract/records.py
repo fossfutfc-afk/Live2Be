@@ -320,7 +320,13 @@ def sensei_group_labels(records: Iterable[VnRecord]) -> list[list[str]]:
 
 
 def check_block(records: Iterable[VnRecord]) -> list[str]:
-    """块内结构校验（返回问题描述；空 = 合规）。**不做配额/状态判定**。"""
+    """块内结构校验（返回问题描述；空 = 合规）。**不做配额/状态判定**。
+
+    问题串分软硬两类，判据在 `core/bond/bond_story.split_board_issues`（按标记串）——
+    硬 = 形状类（块首/块尾/纪念区间/空块）→ 打回重发；
+    软 = 超长群（切群）/ **art↔memorial 配对缺失** / **memorial 与 end 同轮**（只记录）。
+    加新问题串时**必须**确认它不含硬标记串，否则会把软问题变成打回。
+    """
     recs = list(records)
     if not recs:
         return ["空块：没有任何记录"]
@@ -350,6 +356,23 @@ def check_block(records: Iterable[VnRecord]) -> list[str]:
     n_art = sum(1 for r in recs if r.stage == STAGE_ART)
     if n_art > 1:
         issues.append(f"同块出现 {n_art} 条 art（每块至多 1）")
+
+    # ---- 下面两条是**软**违规（只记录/打日志, 不打回）-------------------------
+    # ⚠️ 软硬之分由 `bond_story.split_board_issues` 按**标记串**判：新加的文案
+    # **不能**含 "空块/必须块尾/必须块首/首条不是 switch/纪念区间内/条 memorial/条 art"，
+    # 否则会被当成硬违规打回重发。
+    #
+    # ① 配对缺失（2026-09-20 M1/M7）: 有 memorial 却没有 art ⇒ 生图 prompt 退回用
+    #    memorial 的**转场句**当画面意向（真机那一章就是这样出的图）。
+    #    为什么放这里而不是 `_build_record_boards` 里的 WARNING: **流式路径根本不走
+    #    那个函数**（板由 `_feed` 交付）, 那条 WARNING 在生产主链上是死的。
+    if memorial_at and n_art == 0:
+        issues.append("含 memorial 但没有 art（画面意向缺失, 生图将退回用转场句当 prompt）")
+
+    # ② 章末压在纪念轮（2026-09-20 用户裁决）: *"硬要这样也行，不拒绝，但不建议
+    #    ——建议不直接在 memo 结束，除非你真的认为这很有意境"* ⇒ 软记录, 供 grep 统计。
+    if memorial_at and any(r.stage == STAGE_END for r in recs):
+        issues.append("memorial 与 end 在同一轮（建议纪念之后再留一轮收尾）")
 
     for g in sensei_groups(recs):
         if len(g) > MAX_SENSEI_RUN:

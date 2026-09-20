@@ -157,13 +157,13 @@ def build_record_schema(*, with_examples: bool = True, char_id: str = "igusa_har
     stage_shapes = [
         (STAGE_SWITCH, '"目标地点"', "换场（用你自己的话，写具体名词短语）"),
         (STAGE_ART, '"画面意向（1~2 句）"',
-         f"本章纪念时刻的预告（本轮首条；一章至多一次）——**画面里必须有 {char_id} 本人**"
-         "（写她的样子与动作; 只写风景/空镜/物件不合格）"),
-        (STAGE_MEMORIAL, '"（触发句）"', "纪念触发；其后到本轮结束为纪念正文"),
+         f"**给画师**的画面意向（本轮最前一条；一章至多一次）——**必须与 memorial 同轮成对"
+         f"出现**；**画面里必须有 {char_id} 本人**（写她的样子与动作; 只写风景/空镜/物件不合格）"),
+        (STAGE_MEMORIAL, '"（转场的那一句）"',
+         "纪念进入；**这句会显示给玩家看**，之后到本轮结束都是纪念正文"),
         (STAGE_END, '"（收尾字段，可留空）"',
          "收尾——**这里不是老师的话**，是本轮最后的收束文字（旁白/余韵）；"
          "留空字符串 = 直接黑屏收尾（本轮最后一条）"),
-        (STAGE_EXIT, '""', "仅纪念域（可留空）"),
     ]
     lines = [
         "你以**一行一条 JSON 记录**的形式输出本轮内容（一行一条，不要数组、不要围栏）:",
@@ -176,19 +176,21 @@ def build_record_schema(*, with_examples: bool = True, char_id: str = "igusa_har
         lines.append("")
     lines += [
         "硬规则（违反即被丢弃）:",
-        "1. 一行一条完整记录；字段只有那两个；text 除 stage=end / exit 外必填。",
+        "1. 一行一条完整记录；字段只有那两个；text 除 stage=end 外必填。",
         '2. text 里的半角双引号与反斜杠必须转义（写成 \\" 与 \\\\）——这是最常见的错误。',
         "3. 老师要说话就直接写 sensei 记录（连续 1~%d 条）——那几句就是玩家会看到、会挑的话。"
         % MAX_SENSEI_RUN,
-        "4. 本章第一条必须是 stage=switch（交代开场景）；若本轮含纪念，"
-        "则 stage=art 紧跟其后成为本轮首条。",
-        "5. stage=end / exit 必须是本轮最后一条；stage=memorial 之后到本轮结束都属于纪念正文。",
+        "4. 本章第一条必须是 stage=switch（交代开场地点）。**含纪念的那一轮："
+        "art 放最前（switch 紧随其后）**——art 与 memorial **必须同轮成对**："
+        "写了 art 就要写 memorial，写了 memorial 就要有 art。",
+        "5. stage=end 必须是本轮最后一条；stage=memorial 之后到本轮结束都属于纪念正文。",
         "6. 篇幅：一轮约 %d 行（写下你觉得完整的一段戏）。" % 40,
     ]
     if with_examples:
         lines += [
             "",
-            "示例（第 3 行演示转义引号；连续两条 sensei = 一个群）:",
+            "示例（**含纪念的那一轮**；第 3 行演示转义引号；连续两条 sensei = 一个群）:",
+            '    {"stage": "art", "text": "她在开满杂草的坡道上回头，夕阳打在脸上，眼里有一点水光"}',
             '    {"stage": "switch", "text": "放学后的天台"}',
             f'    {{"character": "{char_id}", "text": "……老师，你、你来了。"}}',
             f'    {{"character": "{char_id}", "text": "他说 \\"别担心\\" 的时候，我、我却差点搞砸。"}}',
@@ -196,8 +198,9 @@ def build_record_schema(*, with_examples: bool = True, char_id: str = "igusa_har
             '    {"character": "sensei", "text": "你不想让我陪着吗？"}',
             f'    {{"character": "{char_id}", "text": "……！！"}}',
             '    {"character": "narrator", "text": "（她把手藏到身后，又慢慢拿出来。）"}',
-            '    {"stage": "memorial", "text": "（她忽然抬起头，朝我笑了一下。）"}',
+            '    {"stage": "memorial", "text": "（她抬起头，第一次直视我的眼睛。）"}',
             f'    {{"character": "{char_id}", "text": "老师，谢谢你今天来。"}}',
+            f'    {{"character": "{char_id}", "text": "……所以，我也可以再撑一会儿。"}}',
         ]
     return "\n".join(lines)
 
