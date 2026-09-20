@@ -952,3 +952,49 @@ def test_session_switch_blocks_configured_key():
         pytest.skip("本机未配 IMAGE_API_KEY——本用例无出图风险可证")
     assert bond._image_generator() is None, "会话级生图开关必须压过已配置的 key"
     print("    switch: 配了 key 也不出图（conftest 会话级硬关生效）")
+
+
+# ----------------------------------------------------------------------------
+# 板级 provisional 状态（节点 1, 2026-09-21）
+# ----------------------------------------------------------------------------
+
+def test_scene_logged_is_provisional_until_pick(tmp_path):
+    """两层边界一起钉住（节点 1, 2026-09-21）:
+
+    · **板级**: `scene_logged` = "未提交"的现状锚点 —— 板交付（上屏）后仍是
+      provisional, 裁决后才提交进**暂存**;
+    · **章级**: 章内一切事件进 `soul/staging/events.jsonl`, **真源**要等 `vn_exit`
+      才整段 append（B0 整章暂存）。
+
+    ⚠️ 所以断言必须读 **overlay**（`staging_store(st)`）——真源看不到章内事件。
+    这正是 ARCH_REVIEW P1-6 那条"读路径必须读 overlay"的隐性纪律在测试里的样子,
+    也是 `docs/EXEC_PIPELINE_UNIFY.md` 节点 2′（板级 lifecycle）要显式化的对象。
+    """
+    from core.session.staging import staging_store
+
+    engine, st, sid, llm = _setup(tmp_path, SCENE_A, STORY_END, MMT_REPLY)
+    try:
+        bond.bond_start(CHARACTER, sid)
+        _wait_status(CHARACTER, sid)
+        state = bond._state(CHARACTER, sid)
+        overlay = staging_store(st)          # = 真源 + 章内暂存（读路径的唯一入口）
+
+        def _bond_paras(store):
+            return [e for e in store.events(CHARACTER, sid)
+                    if e.type == "bond"
+                    and (e.payload or {}).get("paragraphs")]
+
+        # ① 板级: 已交付（板对象就位, 前端能读）但**未提交**
+        assert state.scene_obj is not None and state.scene is not None
+        assert state.scene_logged is False, "刚交付的板必须还是 provisional"
+        assert not _bond_paras(overlay), "provisional: overlay 里也不该有正文"
+        # ② 章级: 连真源都不该有（章内一切进暂存）
+        assert not _bond_paras(st), "章内不该有任何 bond 正文进真源"
+
+        # 裁决 → 提交（写进**暂存**）
+        _turn_until_accepted(CHARACTER, sid, "选A")
+        assert _bond_paras(overlay), "裁决后 overlay 里应有正文（已提交到暂存）"
+        assert not _bond_paras(st), "但真源仍没有 —— 章内不进真源（B0 章暂存）"
+        print("    provisional: 交付未提交 → 裁决写暂存；真源等 vn_exit（两层边界）")
+    finally:
+        _cleanup()

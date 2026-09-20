@@ -67,7 +67,7 @@
 | 守卫 / 行为 | 批式 `_build_record_boards` | 流式 `_scene_from_records` |
 |---|---|---|
 | `check_block` 硬违规 → 打回重发 | **有** | **无**（仅记账） |
-| 软问题**文本**进日志 | **有** | 无（只有 `issues=%d`） |
+| 软问题**文本**进日志 | **有** | ✅ **节点 1 已补**（此前只有 `issues=%d`） |
 | 纯 `switch` 空板 → `spare` 并入下一板 | **有** | **无** |
 | `MAX_BOARDS_PER_TURN` 上限 | **有** | **无** |
 | `art` 挂载目标 = "含 memorial 的板" | **有** | 挂"首个交付板"（另一条规则） |
@@ -158,8 +158,8 @@ provisional ──校验通过──► delivered ──裁决/推进──► c
 
 | # | 节点 | 目标 / 改动 | 验收（可自动判定） | 风险 |
 |---|---|---|---|---|
-| **0** | **协议与设计**（本文 + `DESIGN_RESEND.md`） | 钉住现状、Decision 0、板级 lifecycle、forward-compat 约束 | 两份文档落地 + CLAUDE.md 路由登记 | 无（未动代码） |
-| **1** | **特征化测试网 + 生产可观测** | ① 同一段记录流分别跑 `_scene_from_records` 与 `_build_record_boards`，断言**板数/每板 records/art_hint/memorial/choices/notes** 的差异集合，并把 §2.2 的已知差异**显式写成期望值**；② 流式分支的软/硬问题**文本**进日志（现在只有 `issues=%d`）；③ `scene_logged` 这类 provisional 状态可断言 | 新用例绿 + 全量绿；**零行为改动** | 0 |
+| ✅ **0** | **协议与设计**（本文 + `DESIGN_RESEND.md`） | 钉住现状、Decision 0、板级 lifecycle、forward-compat 约束 | 两份文档落地 + CLAUDE.md 路由登记（提交 `0393796`） | 无（未动代码） |
+| ✅ **1** | **特征化测试网 + 生产可观测** | ① `tests/core/test_pipeline_parity.py`（7 例）把 §2.2 的差异**显式写成期望值** ② 流式分支的问题**文本**进日志（`issues_txt=`）③ `tests/webgui/test_bond.py::test_scene_logged_is_provisional_until_pick` 钉住 provisional 状态 **+ 章级暂存两层边界** | 全量 **861 passed**（853 → +8）；**零行为改动** | 0 |
 | **2′** | **单一 `records → boards` + 板级闸 + 板级 lifecycle** | ① 抽出共用派生函数（含 `spare` 合并、上限、`art` 挂载规则）② 流式的纯 switch 板改为"挂起到下一板闭合" ③ 新增 `check_board`（板级闸）④ 引入 `DeliveryMode` 枚举并把 §3 的表写进代码注释 | 节点 1 的差异集合**缩小到只剩"交付时机"**；空板分叉消失；闸有正/反用例 | 中（动交付时机 → 需 B 层 e2e 冒烟 `experiments/web_e2e/run.py`） |
 | **5** | **测试桩对齐生产** | 给 `test_web_http.py`（0 个）与 `test_bond.py` 的桩补 `chat_full`；顺手把桩的"按自然语言关键字应答"换成**结构化标记分派**（ARCH_REVIEW P2-8） | webgui 用例**跑在生产路径上**（可断言 `engine.trace` 里是 `record_stream/streamed`）+ 全量绿 | 小改动、**大暴露面**（这是本计划最强的验收放大器） |
 | **3** | **守卫分层显式 + 生产可观测** | 把硬/软在两种交付模式下的语义写成**显式策略**（枚举 + 注释 + 契约文案同步）；流式硬违规 → 日志 + trace + **下一轮 feedback**；软问题文本可 grep（CLAUDE.md §12 现在让 grep 一个生产不打的串） | 新用例：流式硬违规有日志/trace、玩家不受影响；文档口径同步 | 低 |
