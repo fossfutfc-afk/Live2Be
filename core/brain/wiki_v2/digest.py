@@ -147,7 +147,7 @@ def digest_segment(
     if not new_events:
         return DigestResult(ok=True)                     # 无新增 → 0 次 LLM 调用
     # 段类型 + 章标题（2026-09-20）: **从 marker 派生, 不落库**。
-    domain, chapter_title, bond_seqs = _segment_domain(new_all)
+    domain, chapters, _bond_seqs = _segment_domain(new_all)
     interact_max = max(e.seq for e in new_events)
     result = DigestResult(ok=False)
     snapshot = store.clone_state()                       # 原子性: 失败 → 回滚
@@ -187,10 +187,10 @@ def digest_segment(
         # ── Round A: 记录员 ──
         system_a = load_prompt("digest_v2_round_a").replace(
             "{{digest_schema}}",
-            digest_registry.build_schema(PHASE_RECORD, domain=domain))
+            digest_registry.build_schema(PHASE_RECORD, domain=domain, chapter_count=len(chapters)))
         user_a = _join_sections([
             ("本段新增互动", timeline),
-            ("本章标题", chapter_title),          # bond 段才有; 空 → 该节自动跳过
+            ("本章标题", " / ".join(c["title"] for c in chapters if c["title"])),  # 多章都列; 空 → 跳过
             ("画面记忆", "\n".join(f"- {v}" for v in visuals)),
             ("角色人设（锚点）", character_prompt),
             ("本段情绪标尺", emotion_scale),
@@ -208,7 +208,7 @@ def digest_segment(
         for ent in entries:
             _resolve_verbatim(ent, by_seq)
         # 一章一个 episode（2026-09-20）—— 引擎确定性收口 + 可观测告警
-        entries = _collapse_bond_episodes(entries, domain, bond_seqs)
+        entries = _collapse_bond_episodes(entries, chapters)
         # ── 时间推进：**已退役**（2026-09-17, `ESSAY_TIME_MODEL §10`）──
         # 旧实现读 Round A 的 `time_span` 推进 `WorldClock` 的**剧情游标**,
         # 再把新游标 stamp 到节点上（`story_time`）。整条链已废:
@@ -328,70 +328,88 @@ def _round_call(
 # 引擎侧: 建节点 / 渲染 / 清洗
 # ---------------------------------------------------------------------------
 
-def _segment_domain(events: list) -> tuple[str, str, frozenset]:
-    """本段类型、章标题、**本章的事件块集合**（从 marker 与事件类型派生, 不落库）。
+def _segment_domain(events: list) -> tuple[str, list[dict], frozenset]:
+    """本段类型、**每一章的分组**、章块并集（从 marker 与事件类型派生, 不落库）。
 
     用户原话: *"离散的是 mmt，但 bond story 不应该连续吗"* ⇒ **粒度跟着"作者单位"走**:
     一章羁绊剧情 → **恰好 1 条**; MMT 碎聊 → 0~5 条（**需要切分的是它**）。
 
     ⚠️ **窗口是"混的"—— 实测真档**（2026-09-20）: haruka 的窗口里 **13 条 MMT 聊天 +
-    5 块羁绊剧情**; mutsuki 是 **26 + 13**。所以**不能"整段按一个契约"**:
-    第一版按"窗口里有 `vn_enter` ⇒ 整段 bond"写, 会把聊天里的记忆也一起压成 1 条。
-    返回的 `bond_seqs`（窗口内 `type == "bond"` 的块号）就是给下游分辨
-    "**这条条目属不属于这一章**"用的 —— `event_seq` 与它相交的才算。
+    5 块羁绊剧情**; mutsuki 是 **26 + 13**。所以不能"整段按一个契约"。
 
-    Returns: `(domain, chapter_title, bond_seqs)`
-        domain: `"bond"`（窗口里有 `vn_enter`/`vn_exit`）/ `"mmt"`
-        chapter_title: `vn_enter.payload.chapter_title`（与 `chapters.py` 同一字段;
-            旧档/异常 → 空串）
-        bond_seqs: 窗口内 bond 事件的 seq 集合（**空 = 这一章没有内容块, 不参与收口**）
+    ⚠️⚠️ **窗口里还可能有"多章"** —— 水位被清 / 重跑时**必然**如此。
+    所以"一章一条"必须**按章分组**收口; 拿全窗口的 bond 块当一个章, 会把两章压成一条。
+
+    Returns: `(domain, chapters, bond_seqs)`
+        domain: `"bond"`（窗口里有 `vn_enter`）/ `"mmt"`
+        chapters: `[{"title": str, "seqs": frozenset[int]}]` —— **一章一块**
+            （`vn_enter` … `vn_exit` 之间的 bond 事件）; 不在任何章里的 bond 块
+            自成一组（旧档/异常, 标题为空）
+        bond_seqs: 全部章块的并集（"这条条目属不属于某一章"的粗判用）
     """
     from core.session.events import M_VN_ENTER, M_VN_EXIT
-    bond, title, seqs = False, "", set()
+    chapters: list[dict] = []
+    cur: dict | None = None
+    orphan: set = set()
     for e in events:
         if getattr(e, "is_marker", False):
             if e.subtype == M_VN_ENTER:
-                bond = True
-                title = str((getattr(e, "payload", None) or {})
-                            .get("chapter_title") or "").strip()
+                cur = {"title": str((getattr(e, "payload", None) or {})
+                                    .get("chapter_title") or "").strip(),
+                       "seqs": set()}
+                chapters.append(cur)
             elif e.subtype == M_VN_EXIT:
-                bond = True
-        elif getattr(e, "type", "") == "bond":
-            seqs.add(e.seq)
-    return ("bond" if bond else "mmt"), title, frozenset(seqs)
+                cur = None
+            continue
+        if getattr(e, "type", "") == "bond":
+            (cur["seqs"] if cur is not None else orphan).add(e.seq)
+    if orphan:
+        chapters.append({"title": "", "seqs": orphan})
+    chapters = [{"title": c["title"], "seqs": frozenset(c["seqs"])} for c in chapters]
+    union = (frozenset().union(*[c["seqs"] for c in chapters]) if chapters
+             else frozenset())
+    return ("bond" if chapters else "mmt"), chapters, union
 
 
-def _collapse_bond_episodes(entries: list[dict], domain: str,
-                            bond_seqs: frozenset = frozenset()) -> list[dict]:
-    """`bond` 段里**属于这一章**的 episode 只留 1 条 —— "一章一个 episode"的引擎侧收口。
+def _in_seqs(e: dict, seqs: frozenset) -> bool:
+    """条目声明的 `event_seq` 是否落在给的那组块里。"""
+    return any(int(s) in seqs for s in (e.get("event_seq") or [])
+               if isinstance(s, (int, str)) and str(s).lstrip("-").isdigit())
 
-    契约在 `contract/digest_registry._DOMAIN_CONTRACT`（提示词侧）；引擎这一手是
+
+def _collapse_bond_episodes(entries: list[dict], chapters: list[dict]) -> list[dict]:
+    """**按章**收口: 每一章的 episode 只留 1 条 —— "一章一个 episode"的引擎侧兜底。
+
+    契约在 `contract/digest_registry._DOMAIN_CONTRACT`（提示词侧）；这里是
     **确定性兜底**: 提示词没压住时留 `significance` 最高的那条, 其余丢弃, 并留一行
     `WARNING`（可 grep）—— 免得契约被违反是**静默**的。
 
-    ⚠️ **只收口"这一章"的条目**（`event_seq` 与 `bond_seqs` 相交的那些）:
-    窗口常同时含 MomoTalk 聊天（真档实测 13 / 26 条）, 那些条目**不是这一章**,
-    该按 0~5 条留着 —— 把整段压成 1 条会把聊天里的记忆一起丢掉（第一版就是这么写错的）。
+    ⚠️ **逐章收口**, 不是"整段收口"（见 `_segment_domain` 的两条警告）:
+    * 窗口常同时含 MomoTalk 聊天（真档实测 13 / 26 条）—— 那些条目**不属于任何章**,
+      照 0~5 条留着（把整段压成 1 条会把聊天里的记忆一起丢掉）;
+    * 窗口还可能有**多章**（水位清空后必然）—— **每章各留 1 条**。
+
     `experience`（玩家画像）不算 episode。为什么丢弃而不是合并文本: 合并是创作（要 LLM）,
     引擎只做判定; 而"一章一条"的前提是那条总结**本来就该覆盖全章**。
     """
-    if domain != "bond" or not bond_seqs:
+    if not chapters:
         return entries
-
-    def _is_chapter(e: dict) -> bool:
-        return any(int(s) in bond_seqs for s in (e.get("event_seq") or [])
-                   if isinstance(s, (int, str)) and str(s).lstrip("-").isdigit())
-
-    eps = [e for e in entries if e.get("kind") != "experience"]
-    chapter = [e for e in eps if _is_chapter(e)]
-    if len(chapter) <= 1:
-        return entries
-    keep = max(chapter, key=lambda e: float(e.get("significance") or 0.0))
-    logger.warning(
-        "digest_a contract=bond entries=%d keep=%r（一章一条; 其余已丢。"
-        "这行常出现 = 提示词没压住, 看 Round A 的【本段类型】产出契约）",
-        len(chapter), keep.get("title") or str(keep.get("narration", ""))[:12])
-    dropped = {id(e) for e in chapter if e is not keep}
+    dropped: set[int] = set()
+    for ch in chapters:
+        seqs = ch["seqs"]
+        if not seqs:
+            continue
+        group = [e for e in entries
+                 if e.get("kind") != "experience" and _in_seqs(e, seqs)]
+        if len(group) <= 1:
+            continue
+        keep = max(group, key=lambda e: float(e.get("significance") or 0.0))
+        logger.warning(
+            "digest_a contract=bond chapter=%r entries=%d keep=%r（一章一条; 其余已丢。"
+            "这行常出现 = 提示词没压住, 看 Round A 的【本段类型】产出契约）",
+            ch["title"] or "-", len(group),
+            keep.get("title") or str(keep.get("narration", ""))[:12])
+        dropped |= {id(e) for e in group if e is not keep}
     return [e for e in entries if id(e) not in dropped]
 
 
