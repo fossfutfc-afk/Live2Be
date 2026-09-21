@@ -124,7 +124,7 @@ def build_emotion_injection(char_dir: Path) -> str:
 def assets_root() -> Path:
     """`assets/` 根（唯一解析点）——`bond_story` 与 digest 词表注入共用。
 
-    此前 `core/bond/bond_story.py:501` 与 `core/media/catalog.py` 各自拼过一次
+    此前 `core/bond/bond_story/engine.py` 与 `core/media/catalog.py` 各自拼过一次
     同样的三层 `parents` 路径；集中到这里，换布局只改一处。
     **值现在来自 `core/paths.py` 的宏**（2026-09-19: 路径不许再散着拼）。
     """
@@ -171,7 +171,7 @@ def render_emotion_scale(lexicon: dict[str, dict], keys) -> str:
 def load_place_lexicon(whitelist_path: str | Path | None = None) -> list[str]:
     """旧白名单 `common_scenes`（31 条裸 slug）——**表读不出来时的兜底键集**。
 
-    唯一消费方 = `core/bond/bond_story.py` 的
+    唯一消费方 = `core/bond/bond_story/engine.py` 的
     `self._place_keys = self._place_table.keys() or load_place_lexicon()`。
     正常路径（表在位）它一次都不会被调用。缺失/损坏 → []（宁缺勿错）。
     """

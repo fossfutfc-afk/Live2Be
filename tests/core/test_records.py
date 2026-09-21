@@ -298,9 +298,25 @@ def test_issue_severity_is_declared_by_code_not_message():
 
     # ③ 源码里不许再有"按文案判分级"的实现复活（**定义/调用**级扫描——
     #    注释里提历史名是允许的, 那正是防漂说明本身）
+    #    ⚠️ C9: `bond_story` 已从单文件拆成包 —— 扫**整个包**（比原来那个文件更严）。
+    #    ⚠️ C10: `contract/records` 也会变成包 —— 用同一招（模块/包都能收）。
     root = Path(__file__).resolve().parent.parent.parent
-    for rel in ("core/bond/bond_story.py", "contract/records.py"):
-        src = (root / rel).read_text(encoding="utf-8")
+
+    def _sources(p: Path) -> list[Path]:
+        """模块 → `[自己.py]`; 包 → 包内所有 `*.py`（拆分节点不该让守门失明）。
+        入参可写 `x/records` 或 `x/records.py`; 两者都认。"""
+        if p.is_dir():
+            return sorted(p.glob("*.py"))
+        py = p if p.suffix == ".py" else p.with_suffix(".py")
+        return [py] if py.exists() else []
+
+    targets = _sources(root / "core" / "bond" / "bond_story")
+    assert targets, "找不到 core/bond/bond_story/（C9 起它是包）"
+    contract_records = _sources(root / "contract" / "records")
+    assert contract_records, "找不到 contract/records(.py | /)（C10 起是包）"
+    for path in [*targets, *contract_records]:
+        rel = path.relative_to(root).as_posix()
+        src = path.read_text(encoding="utf-8")
         assert "HARD_BLOCK_ISSUE_MARKS =" not in src, f"{rel} 复活了中文标记串表"
         assert "split_board_issues(" not in src, f"{rel} 复活了子串分级函数"
     print("    block: 软硬分级与文案解耦（守门）")
