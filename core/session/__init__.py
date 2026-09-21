@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """会话存储 — 统一互动会话（MomoTalk + Bond Story）的持久化与恢复。
 
-设计: core/DESIGN_SAVE.md（统一会话目录 + events.jsonl 事件流唯一真源 + marker 状态标记）。
+设计: core/docs/archive/DESIGN_SAVE.md（统一会话目录 + events.jsonl 事件流唯一真源 + marker 状态标记）。
 分层: io（原语）→ models（meta 纯索引 + VN 恢复点）→ events/renderer → store（待实现）。
 
 当前已落地: io 原子写/append/行级容错 + SessionMeta（纯索引）/VNState（marker payload）。

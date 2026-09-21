@@ -273,7 +273,7 @@ def render_chat_events(events, display_name: str = "",
     kind="bond_done": 该次剧情已完整走完（vn_exit completed=True）→ 淡行
     "已完成羁绊剧情：{标题}", 不可点击（bond_done: {触发 seq: 文本} 由调用方
     从完整事件流预计算——增量轮询时触发事件与收尾 marker 不在同一批, 需要全量视角）。
-    其余: 复用 CLI 的文本处理（core/ui/text_processors）——角色回复去动作括号 →
+    其余: 复用 CLI 的文本处理（core/tui/text_processors）——角色回复去动作括号 →
     split_reply_chunks 字数+随机切块（模拟真人一条条发消息）——每个 chunk 一个
     气泡。玩家消息不切（原样）。rng 用事件 seq 作种子（同一条回复每次切块一致,
     历史重放稳定; 不同事件切块不同, 保留"真人节奏"的随机感）。

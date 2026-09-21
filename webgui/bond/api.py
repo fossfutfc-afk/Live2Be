@@ -10,7 +10,7 @@
 
 ## 原 `webgui/bond.py` 的模块说明（逐字保留 —— 这一层就是它的对外契约）
 
-    webgui 羁绊剧情驱动 — CLI run_bond_story_vn（core/ui/vn_cli.py）的异步化状态机。
+    webgui 羁绊剧情驱动 — CLI run_bond_story_vn（apps/vn_cli.py）的异步化状态机。
     
     CLI 是同步循环（send_vn_scene → 渲染 → 玩家输入 → 下一场）; webgui 拆成
     请求驱动的状态机（与 chat.py 的后台线程 + 轮询模式一致）:

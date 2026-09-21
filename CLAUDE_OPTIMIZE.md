@@ -1,15 +1,21 @@
 # Live2Be 优化总览（CLAUDE_OPTIMIZE）
 
+> ⚠️ **2026-09-21 除锈说明**：本表停在 2026-08-27，**结构与概念都已漂移** ——
+> `core/momotalk.py` → `core/mmt/engine.py` · `core/bond/bond_story.py` → `core/bond/bond_story/` ·
+> `web/` → `webgui/`；第二板块描述的 **v1 双动作（`story_scene`/`story_end`）已整族退役**
+> （现役 = 记录流 v2）。**现状以 `CLAUDE.md` + `docs/` 为准**；本表只当"历史优化方向清单"读，
+> "已实现/已设计"的判定可能过期。
+>
 > 2026-08-27 建立。目的：把散落在各设计文档里的优化方向**按板块分门别类**，
 > 一眼看清"已实现 / 已设计待实施 / 规划中 / 被否决"。每个方向标注状态：
 > - ✅ 已实现　- 🔧 已设计（有方案, 待实施）　- 📋 规划中（有蓝图, 未细化）
 > - ⛔ 被否决（及原因）
 >
-> 关联文档: CLAUDE.md（总纲）/ TODO.md（旧待办）/ docs/DESIGN_*.md / docs/DESIGN_*.md
+> 关联文档: CLAUDE.md（总纲）/ TODO.md（旧待办）/ docs/DESIGN_*.md
 
 ---
 
-## 一、MMT 聊天域（core/momotalk.py + webgui/chat.py + mmt.js）
+## 一、MMT 聊天域（core/mmt/engine.py + webgui/chat.py + mmt.js）
 
 **现状**: 动作列表闭环（chat/send_media/inspect/trigger_bond）✅ · 排队 + 插嘴提示 ✅ ·
 气泡切块复用 CLI ✅ · 微信式失败重发/删除 ✅ · bond 入口粉色横幅 + 触发轮完整渲染 ✅ ·
@@ -24,7 +30,7 @@
 | 随机事件 want_to_speak 参数化 | 🔧 | 引擎已有钩子, 频率/内容可配置化 |
 | 称呼 list 注入 rules | ✅ | character_names 参数（分饰多角预留） |
 
-## 二、Bond Story 域（core/bond/bond_story.py + 契约）
+## 二、Bond Story 域（core/bond/bond_story/ + 契约）—— ⚠️ 本节是 v1 双动作时代的状态
 
 **现状**: story_scene/story_end 双动作 + 双核 loop ✅ · 视觉意图协议（emotion/place）✅ ·
 memorial 状态机（enter/exit + 生图）✅ · 双层收尾兜底 ✅ · async_digest（闭环后消化）✅

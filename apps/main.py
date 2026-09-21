@@ -108,7 +108,7 @@ def main() -> None:
 
         try:
             name = engine.start_session(char_id)
-            # 事件流会话（保存/恢复, DESIGN_SAVE.md §4）: 每角色新对话 = 新会话
+            # 事件流会话（保存/恢复, docs/archive/DESIGN_SAVE.md §4）: 每角色新对话 = 新会话
             root = engine._store.create(char_id, name)
             engine.attach_session(root.session_id)
             print(f"\n[系统] 正在与 {name} 对话...")

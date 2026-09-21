@@ -6,7 +6,7 @@
   - agent_turn 返回的显示步骤 / 对白 / 历史
   - save_session 前后 history 是否变化（不变 = 系统消息不进 LLM context）
 
-用法: python core/ui/_mmt_real.py   （需项目根环境, .env 有 LLM_API_KEY）
+用法: python experiments/mmt_real.py   （需项目根环境, .env 有 LLM_API_KEY）
 """
 import sys
 from pathlib import Path

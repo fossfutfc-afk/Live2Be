@@ -364,15 +364,21 @@ C. RAG 回忆（Phase 2 🔧）: embedding 检索与新增语义相关的旧事�
 
 ## 12. 代码锚点
 
+> ⚠️ **2026-09-21 除锈**：下表**前三行是 v1 记忆栈（`core/brain/{hippocampus,consolidation,recall}.py`，
+> 已随 v1 退休删除）**，只作考古锚点；现网记忆主链 = **`core/brain/wiki_v2/`**
+> （`digest.py` 提炼 · `recall*.py` 召回 · `channels.py` 五链路 · `compose.py` 合成 · `render.py` 注入视图），
+> 见 `CLAUDE.md` §7。`core/momotalk.py` 两行已改指现网真家（行号不写——会漂）。
+
 | 位置 | 说明 |
 |---|---|
-| `core/brain/hippocampus.py` | WikiStore（worlds 路径读写, schema_version 2, 空模板兜底） |
-| `core/brain/consolidation.py` | digest_session（增量 + 联想 + 双通道回忆 + 好感幂等 + 清洗合并） |
-| `core/brain/recall.py` | build_brain_injection（第一人称 + 量控 10/5/5）+ recall_related（tags 轻量召回） |
+| ~~`core/brain/hippocampus.py`~~（v1, 已删） | WikiStore（worlds 路径读写, schema_version 2, 空模板兜底） |
+| ~~`core/brain/consolidation.py`~~（v1, 已删） | digest_session（增量 + 联想 + 双通道回忆 + 好感幂等 + 清洗合并） |
+| ~~`core/brain/recall.py`~~（v1, 已删） | build_brain_injection（第一人称 + 量控 10/5/5）+ recall_related（tags 轻量召回） |
+| `core/brain/wiki_v2/`（现网） | digest / recall / channels / compose / render / store / revise（记忆主链） |
 | `llm/prompts/digest.md` | digest 规则（价值取向/提炼/锚点/禁止升华/significance/好感标准） |
 | `contract/schema.py:107` | build_digest_schema（输出契约单源真值） |
-| `core/momotalk.py:274` | `_inject_brain`（resume 只注入 / digest=True 先消化再注入） |
-| `core/momotalk.py:311` | `async_digest`（bond 闭环后台线程, 唯一触发点） |
+| `core/mmt/engine.py` | `_inject_brain`（resume 只注入 / digest=True 先消化再注入） |
+| `core/mmt/engine.py` | `async_digest`（bond 闭环后台线程, 唯一触发点） |
 | `core/session/store.py` | SessionStore v2（worlds 槽位 / 角色线 / snapshots 预留） |
 | `core/session/renderer.py` | render_timeline（digest 输入叙事化） |
 | `docs/DESIGN_SEGMENT.md` | 段模型（最小单元 / digest 边界 / affection×significance 正交） |

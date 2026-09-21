@@ -4,7 +4,7 @@
 io:     atomic_write_json（原子替换）/ append_jsonl（追加不重写）/ read_jsonl 行级容错
 models: SessionMeta / VNState to_dict/from_dict 往返 + 坏字段降级
 
-设计: core/DESIGN_SAVE.md（统一会话目录 + jsonl + 状态机）。
+设计: core/docs/archive/DESIGN_SAVE.md（统一会话目录 + jsonl + 状态机）。
 
 运行: python -m pytest tests/core/test_session.py
 """
@@ -542,7 +542,7 @@ def test_engine_mmt_no_store_no_events(tmp_path):
 
 
 # ----------------------------------------------------------------------------
-# 事件流恢复入口（store.resume + engine.resume_session, DESIGN_SAVE.md §六）
+# 事件流恢复入口（store.resume + engine.resume_session, docs/archive/DESIGN_SAVE.md §六）
 # ----------------------------------------------------------------------------
 
 def test_engine_resume_rebuilds_history(tmp_path):

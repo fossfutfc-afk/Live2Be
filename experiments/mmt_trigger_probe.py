@@ -7,7 +7,7 @@
   2) 输出能否被正确解析
   3) 是模型能力问题还是 prompt/schema 问题
 
-用法: python core/ui/_mmt_trigger_probe.py [trials]
+用法: python experiments/mmt_trigger_probe.py [trials]
 """
 import json
 import sys
