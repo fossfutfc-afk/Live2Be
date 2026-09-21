@@ -58,6 +58,7 @@ webgui.bond	_lanes_idle	function	webgui.bond.watchdog
 webgui.bond	_last_bond_seq	function	webgui.bond.stores
 webgui.bond	_last_mmt_seq	function	webgui.bond.stores
 webgui.bond	_log_board_deliver	function	webgui.bond.pregen
+webgui.bond	_log_pick	function	webgui.bond.stores
 webgui.bond	_log_scene	function	webgui.bond.stores
 webgui.bond	_log_scene_meta	function	webgui.bond.stores
 webgui.bond	_make_memorial_cb	function	webgui.bond.memorial

@@ -37,6 +37,7 @@ from core.session.events import (
     M_VN_ABANDON,
     M_VN_ENTER,
     M_VN_EXIT,
+    is_board_event,
 )
 
 # ---------------------------------------------------------------------------
@@ -63,7 +64,7 @@ def attempt_spans(events: list) -> list[dict]:
         if not e.is_marker:
             if cur is not None:
                 cur["range_end"] = e.seq          # 段尾 = 段内最后一条内容事件
-                if e.type == TYPE_BOND:
+                if is_board_event(e):
                     cur["scenes"] += 1
             continue
         if e.subtype == M_VN_ENTER:

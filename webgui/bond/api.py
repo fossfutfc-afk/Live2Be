@@ -90,6 +90,7 @@ from webgui.bond.stores import (
     _draft_queue,
     _draft_save,
     _flow_store,
+    _log_pick,
     _log_scene,
     _log_scene_meta,
     _prewarm_cache_delete,
@@ -144,6 +145,7 @@ def bond_turn(char_id: str, session_id: str, text: str) -> dict:
             nxt = state.replay_scenes.pop(0)
             state.scene_obj = BondScene.from_dict(nxt)
             state.scene_obj._place_done = True    # 回放: 视觉键定格, 不占 lane
+            state.vn.adopt_replayed(state.scene_obj)   # 回录基准（补裁决要重渲历史尾部）
             # 纪念板 → 进纪念态（同 `_start_replay`: 重放纪念段时立绘隐藏/背景清空）
             state.vn._in_memorial = bool(state.scene_obj.memorial)
             _ensure_memorial_img(state, char_id, session_id)   # 回放: 恢复档案图
@@ -154,7 +156,9 @@ def bond_turn(char_id: str, session_id: str, text: str) -> dict:
             if not state.replay_scenes:
                 # 最后一场入屏 → 优先接续**草稿旁路**（已生成未播放, 0 LLM 续播,
                 # 决策 #28b）: **排队**进待发队列（不 adopt 上屏——那会顶掉刚回放的
-                # 这一场, 2026-09-12 修正）; 没草稿/过期 → 续写预生成（读屏期间完成）
+                # 这一场, 2026-09-12 修正）; 没草稿/过期 → 续写预生成（读屏期间完成）。
+                # ⚠️ 这板还等着裁决也照常预生成 —— **有意为之**（收敛链下选项只是幌子,
+                #    续写与选哪句无关; 见 `_start_replay` 同款注释）。
                 if not _draft_queue(state, char_id, session_id):
                     _pregenerate(state, char_id, session_id)
             # 场景一起回（2026-09-11）: 回放是纯本地 0 LLM, 前端拿到即上屏——
@@ -312,7 +316,15 @@ def bond_turn(char_id: str, session_id: str, text: str) -> dict:
     if (state.scene_obj is not None and state.scene_obj.records
             and text in (state.scene_obj.choices or [])
             and not (state.scene or {}).get("picked")):
+        # ★ 2026-09-21: 这板**可能已经落过库**（退出补录: `bond_finish` 在玩家没裁决时
+        #   就把它以 picked=None 记了真源, 并置 COMMITTED）——`_log_scene` 的 COMMITTED
+        #   守卫这时会静默 no-op, 于是"重进后补的这次裁决"本来哪里都进不去（真机实测:
+        #   模型窗口缺裁决行 + 那板永远显示未裁决 → 每次重进都能再选一次）。
+        #   正文不能改（append-only）⇒ 补一条**裁决事件**（`_log_pick`）。
+        was_committed = state.scene_state.committed
         _log_scene(state, char_id, session_id, picked=text)
+        if was_committed:
+            _log_pick(state, char_id, session_id, text)
         if state.vn is not None:
             state.vn.record_picked(text)          # 历史尾部物化（live == 回放/续写）
         _discard_candidates(state)                # v2 不 fork（内容已在待发队列）

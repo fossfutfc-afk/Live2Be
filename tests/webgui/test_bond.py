@@ -676,6 +676,114 @@ def test_bond_interrupt_replay_single_scene_handoff(tmp_path):
         _cleanup()
 
 
+def test_quit_on_unpicked_board_then_pick_is_recorded(tmp_path):
+    """★★ 退出时那一板**还没裁决** → 重进后补的那次裁决**必须进事件流**（2026-09-21）。
+
+    修前（探针实测的系统性漏记）: `bond_finish` 把未裁决的选项板以 `picked=None`
+    补录进真源并置 COMMITTED（板 = 演出, 事实正确）→ 重进后玩家点选项 → `_log_scene`
+    被 COMMITTED 守卫挡下（append-only, 正文不可改）⇒ 那次选择**哪里都进不去**:
+    模型窗口缺裁决行、digest 看不见, 而且那板永远"未裁决"（每次重进都能再选一次
+    → 同一份日志下会长出两条互斥的后续）。
+    修后: 板事件照旧; 补一条 `bond/story_pick {picked, board_seq}`（归属按 `records`
+    逐字定位, 不靠"顺序相邻"）; 读侧 `pick_supplements` 把它并回"板 + 老师那句"。
+    """
+    engine, st, sid, llm = _setup(tmp_path, RECORD_BLOCK, STORY_END)
+    try:
+        bond.bond_start(CHARACTER, sid)
+        _wait_status(CHARACTER, sid)
+        board = bond.bond_status(CHARACTER, sid)["scene"]
+        assert board["choices"] and not board.get("picked"), board
+        bond.bond_finish(CHARACTER, sid)                 # ← 玩家点"结束剧情"（未裁决）
+        overlay = bond._flow_store(bond._state(CHARACTER, sid))
+        boards = [e for e in overlay.events(CHARACTER, sid) if e.type == "bond"]
+        assert len(boards) == 1 and not (boards[0].payload.get("picked") or ""), boards
+        board_seq = boards[0].seq
+
+        r = bond.bond_start(CHARACTER, sid)              # ← 重进
+        assert r["accepted"], r
+        back = bond.bond_status(CHARACTER, sid)["scene"]
+        assert back["choices"] == board["choices"] and not back.get("picked"), back
+        resp = _turn_until_accepted(CHARACTER, sid, RECORD_PICK)    # ← 补裁决
+        assert resp.get("picked") == RECORD_PICK, resp
+        time.sleep(0.5)
+
+        picks = [e for e in overlay.events(CHARACTER, sid) if e.subtype == "story_pick"]
+        assert len(picks) == 1, [e.subtype for e in overlay.events(CHARACTER, sid)]
+        assert picks[0].payload == {"picked": RECORD_PICK, "board_seq": board_seq}
+        # 读侧: 补录 + 板 → 回放/窗口看到的就是"板 + 老师那句"
+        from core.session.events import pick_supplements
+        assert pick_supplements(overlay.events(CHARACTER, sid)) == {board_seq: RECORD_PICK}
+        print("    退出于未裁决板 → 重进补裁决: 落成 bond/story_pick（板事件不动）✓")
+    finally:
+        _cleanup()
+
+
+def test_restart_replay_then_pick_materializes_into_history(tmp_path):
+    """★★ 服务端重启后（走 resume 型回放）在同一板上补裁决: 事件流 + **引擎历史**都要有。
+
+    `record_picked`（A1 物化 `老师：X`）靠 `_last_payload` 重渲历史尾部 —— 回放的板
+    不是本引擎生成的, 不设基准时它就是**空转**（下一轮生成看不到裁决行）。
+    修法: `BondStoryEngine.adopt_replayed`（回放交棒处设基准）。
+    """
+    engine, st, sid, llm = _setup(tmp_path, RECORD_BLOCK, STORY_END)
+    try:
+        bond.bond_start(CHARACTER, sid)
+        _wait_status(CHARACTER, sid)
+        bond.bond_finish(CHARACTER, sid)                 # 退出（未裁决）
+        bond._bonds.pop((CHARACTER, sid), None)          # ← 模拟服务端重启（丢内存态）
+
+        r = bond.bond_start(CHARACTER, sid)              # ← 重进（回放前缀）
+        assert r["accepted"] and r.get("replay") is True, r
+        state = bond._state(CHARACTER, sid)
+        assert state.scene.get("choices") and not state.scene.get("picked"), state.scene
+        _turn_until_accepted(CHARACTER, sid, RECORD_PICK)
+        time.sleep(0.5)
+        evs = bond._flow_store(state).events(CHARACTER, sid)
+        assert [e for e in evs if e.subtype == "story_pick"], [e.subtype for e in evs]
+        hist = "\n".join(str(m.get("content", "")) for m in state.vn._history)
+        assert RECORD_PICK in hist, "补的裁决必须物化进引擎历史（否则下一轮看不到）"
+        print("    重启回放末板补裁决: 事件流有 story_pick + 引擎历史已物化 ✓")
+    finally:
+        _cleanup()
+
+
+def test_live_pick_writes_no_story_pick(tmp_path):
+    """对照: **正常**裁决（板还没落库）仍走 `_log_scene`, 不产生任何补录事件。"""
+    engine, st, sid, llm = _setup(tmp_path, RECORD_BLOCK, STORY_END)
+    try:
+        bond.bond_start(CHARACTER, sid)
+        _wait_status(CHARACTER, sid)
+        resp = _turn_until_accepted(CHARACTER, sid, RECORD_PICK)
+        assert resp.get("picked") == RECORD_PICK, resp
+        time.sleep(0.5)
+        evs = bond._flow_store(bond._state(CHARACTER, sid)).events(CHARACTER, sid)
+        assert not [e for e in evs if e.subtype == "story_pick"], evs
+        logged = [e for e in evs if e.type == "bond"]
+        assert len(logged) == 1 and logged[0].payload["picked"] == RECORD_PICK, logged
+        print("    正常裁决: 零新增事件类型（仍是一条板事件带 picked）✓")
+    finally:
+        _cleanup()
+
+
+def test_log_pick_without_logged_board_writes_nothing(tmp_path):
+    """守门（宁缺勿错）: 板**还没落库**时 `_log_pick` 不写任何东西。
+
+    正常裁决的板此刻不在事件流里（裁决才落库）——补录事件只服务于"已落库但未裁决"的板;
+    定位判据（`records` 逐字相同）拿不到归属时**宁可什么都不写**, 绝不把裁决挂错板。
+    """
+    engine, st, sid, llm = _setup(tmp_path, RECORD_BLOCK, STORY_END)
+    try:
+        bond.bond_start(CHARACTER, sid)
+        _wait_status(CHARACTER, sid)
+        state = bond._state(CHARACTER, sid)
+        before = len(bond._flow_store(state).events(CHARACTER, sid))
+        assert bond._log_pick(state, CHARACTER, sid, "选A") == 0
+        assert len(bond._flow_store(state).events(CHARACTER, sid)) == before
+        print("    补录归属拿不到 → 一个事件都不写（不猜、不挂错板）✓")
+    finally:
+        _cleanup()
+
+
 def test_bond_interrupt_replay_multi_scene_then_live(tmp_path):
     """中断多场: 逐场回放（本地推进）→ 队列尽 → LLM 续写后补。"""
     engine, st, sid, _llm = _setup(tmp_path, STORY_END)

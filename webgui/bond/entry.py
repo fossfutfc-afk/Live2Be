@@ -266,6 +266,7 @@ def _start_replay(state: BondState, replay_q: list[dict],
     first = state.replay_scenes.pop(0)
     state.scene_obj = BondScene.from_dict(first)
     state.scene_obj._place_done = True    # 回放场景来自事件流（视觉键已定格）——不占 lane
+    vn.adopt_replayed(state.scene_obj)    # 回录基准指向它（补裁决要重渲历史尾部, 2026-09-21）
     # 回放的纪念板也进纪念态（2026-09-12）: 否则重放纪念段时立绘照常显示、背景照常亮
     # （v2 区间 = 本块内, 其后从草稿/待发队列领出的板会沿用这个标志, 直到新生成一块）
     state.vn._in_memorial = bool(state.scene_obj.memorial)
@@ -280,6 +281,10 @@ def _start_replay(state: BondState, replay_q: list[dict],
         # 内容不丢, 排队不动屏上场景）→ 没有再预生成。此前这里直接 `_pregenerate`,
         # 于是"选了选项后关页面再进"会把已生成的后继板丢掉、重新生成一份
         # （实测: `bond_pregen src=gen` 紧跟 `bond_board_deliver src=replay`）。
+        # ⚠️ 这板**还等着裁决**也照常预生成 —— **有意为之**（不要"修"它）:
+        #    收敛链下选项只是幌子（老师的"一句话拆成两句"）, 续写与选哪句**无关**
+        #    （§6.5 拍板定稿; 规则书也是这么要求 writer 的）⇒ 交棒即备料是对的,
+        #    玩家读完前缀时后继板已就绪。裁决行本身照旧进历史/真源（A1 物化）。
         if not _draft_queue(state, char_id, session_id):
             _pregenerate(state, char_id, session_id)
     return {"accepted": True, "busy": state.busy, "resumed": True,

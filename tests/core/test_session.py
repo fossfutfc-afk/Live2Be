@@ -248,6 +248,34 @@ def test_render_events_roundtrip_with_engine_format():
     print("    render_events: 与引擎 history 格式一致（恢复零转换）")
 
 
+def test_render_events_merges_story_pick_supplement():
+    """★ **补录裁决**在模型窗口里同样物化（2026-09-21）——与正常裁决过的板**逐字同形**。
+
+    退出补录的板（`picked=None`）+ 后来补的 `bond/story_pick` ⇒ 渲染出来的
+    assistant 行必须与"板自带 picked"的那次一模一样（否则 A1"live 与回放同形"就破了）;
+    补录事件自己**不产生**任何消息（它不是板）。
+    """
+    recs = [{"character": "igusa_haruka", "text": "……老师，你来了。"},
+            {"character": "sensei", "text": "选A"},
+            {"character": "sensei", "text": "选B"}]
+    payload = {"records": recs, "paragraphs": [{"text": "……老师，你来了。"}],
+               "choices": ["选A", "选B"], "input": "（种子）"}
+    split = parse_events([
+        make_event("bond", "story_scene", payload, seq=1).to_dict(),
+        make_event("bond", "story_pick",
+                   {"picked": "选B", "board_seq": 1}, seq=2).to_dict(),
+    ])
+    inline = parse_events([
+        make_event("bond", "story_scene",
+                   {**payload, "picked": "选B"}, seq=1).to_dict(),
+    ])
+    got, want = render_events(split), render_events(inline)
+    assert got == want, (got, want)
+    assert any("选B" in m["content"] for m in got)      # 物化成"老师：选B"
+    assert not any("选A" in m["content"] for m in got)  # 未选候选不出现（同 v2 口径）
+    print("    render_events: 补录裁决与板内 picked 逐字同形（补录本身不产生消息）✓")
+
+
 def test_filter_bond_and_status():
     evs = parse_events([e.to_dict() for e in _session_events()])
     bonds = filter_bond(evs)

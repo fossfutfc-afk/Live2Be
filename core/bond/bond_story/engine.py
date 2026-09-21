@@ -1078,6 +1078,16 @@ class BondStoryEngine:
         """
         return "scene"
 
+    def adopt_replayed(self, scene: "BondScene | None") -> None:
+        """接入一块**来自事件流**的板（回放/续看）: 把回录基准指向它（2026-09-21）。
+
+        为什么需要它: `record_picked`（A1 物化 `老师：X`）靠 `self._last_payload`
+        重渲历史尾部; 而回放的板**不是本引擎生成的** ⇒ 不设基准时, 玩家在回放末板
+        补的那次裁决**进不了引擎历史** —— 下一轮生成看不到裁决行（A1 那个洞的翻版,
+        真机/探针都在: 重进回放末板补裁决后, 模型的历史里没有"老师：X"）。
+        """
+        self._last_payload = scene.to_dict() if scene is not None else None
+
     def record_picked(self, picked: str) -> None:
         """方案A-A1 选项回录（DESIGN_PROMPTKIT §5；记录流 v2 版 = **裁决物化**）。
 

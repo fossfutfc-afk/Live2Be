@@ -65,6 +65,7 @@ from webgui.bond.stores import (          # C3: 落库层
     _flow_store,
     _last_bond_seq,
     _last_mmt_seq,
+    _log_pick,
     _log_scene,
     _log_scene_meta,
     _open_vn_seq,
