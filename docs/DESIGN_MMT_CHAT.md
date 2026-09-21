@@ -32,9 +32,9 @@
 
 | 资产 | 位置 | 用法 |
 |---|---|---|
-| 引擎 | `core/momotalk.py` `MomoTalkEngine` | `MomoTalkEngine(char_root, llm, store=SessionStore)` |
-| 会话创建 | `store.create(char_id)` → meta | 新世界线 |
-| 会话恢复 | `engine.resume_session(char_id, sid)` | 含 brain 记忆注入（resume 只注入不消化, 平行世界——digest 只在 bond 闭环, 见根目录 DESIGN_BRAIN.md） |
+| 引擎 | `core/mmt/engine.py` `MomoTalkEngine`（C12a 起从 `core/momotalk.py` 搬来） | `MomoTalkEngine(char_root, llm, store=SessionStore)` |
+| 会话创建 | `store.create(char_id)` → meta | 新世界线（**创建后必须注入一次 brain** —— `_inject_brain_on_open`，见下行） |
+| 会话恢复 | `engine.resume_session(char_id, sid)` | 含 brain 记忆注入（resume 只注入不消化, 平行世界——digest 只在 bond 闭环, 见根目录 DESIGN_BRAIN.md）。⚠️ **新世界线分支同样要注入**（`webgui/chat.py::_inject_brain_on_open`, 2026-09-21 修 P1: 章末 `finish(ended=True)` 后必走该分支, 漏注入 = 空 brain——角色连出厂背景段和全部 wiki 都没有） |
 | 进行中列表 | `store.list_open()` → [SessionMeta] | 判断"恢复 or 新开" |
 | 一轮对话 | `engine.agent_turn(text)` → TurnResult | `steps/reply/actions/bond_story` |
 | 事件流 | `store.events(char_id, sid)` | 渲染历史 + 轮询新回复 |

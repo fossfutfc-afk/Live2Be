@@ -377,8 +377,10 @@ CLI/测试同步路径在引擎内串行。
 - 结算 delta → `affection|digest` 事件（events.jsonl 为真源）+ wiki 好感快照；
   数值**不直接喂 LLM**（无数字概念, 防讨好/数值化）——未来 relationship_view
   （阶段词）是规划方向。`core/affection/affection_calc.py` 数值层。
-- 注入形态：MMT 每轮拼 system 尾（digest 后**下轮**生效）；Bond 开场构造注入（剧情内
-  固定）。resume 只注入不消化。
+- 注入形态：MMT **会话打开即装填一次**（`open_session` 两支都注, 2026-09-21 修 P1）+
+  每轮拼 system 尾（digest 后**下轮**生效）；Bond 开场构造注入（剧情内固定）。
+  resume 只注入不消化。⚠️ 装填只有两个时刻（开会话 / digest 完成）——`start_session`
+  不清空旧串, 所以**进程重启后**第一个会话全靠"开会话那次装填"（此前缺 = 空 brain）。
 
 ---
 
@@ -541,10 +543,9 @@ CLI/测试同步路径在引擎内串行。
   就让桩**静默不命中**, 轻则吞脚本重则全程兜底还全绿）。三条守门用例在
   `tests/core/test_stub_dispatch_guard.py`：产品调用点必须带 `task=` / 标签必须在
   词表内 / 测试里不许再有中文串分派（**实测删掉一处 `task=` → 立刻红**）。
-  新增标注任务 → 在 `llm/task_labels.py` 加标签（含 `PROFILE_OF` 形态映射）+
-  在 `tests/stub_tasks.py::annotation_reply` 给标准应答 + 同步各桩（漏了会在
-  **那次调用**上炸, `unknown_task` 的报错会指路）。
-  v1 存量用例连同 `tests/archive/` 已于 2026-09-21 整目录删除。
+  新增标注任务 → `llm/task_labels.py` 加标签（含 `PROFILE_OF`）+ `tests/stub_tasks.py::
+  annotation_reply` 给标准应答 + 同步各桩（漏了会在**那次调用**上炸）。
+  v1 存量用例与 `tests/archive/` 已于 2026-09-21 整目录删除。
 
 ---
 
@@ -605,12 +606,9 @@ CLI/测试同步路径在引擎内串行。
   ——pytest 进程里一律拒绝（`PYTEST_CURRENT_TEST`）, 要真调必须 `LIVE2BE_IMAGE_ALLOW_REAL=1`;
   探针/实验用干跑 `LIVE2BE_IMAGE=dry`（构造请求 + 打日志, 不发 HTTP, 不落盘）。
 - **可归因性埋点**（2026-09-11, 回答"这内容从哪来"）:
-  ① `bond_board_deliver src=stream|gen|queue|prewarm|draft|replay board=N recs=N
-  call=xxxx dur=ms`——**每板一行**, 标明这一板是怎么到玩家眼前的（0 LLM 路径的
-  call 为 `-`, 队列板带"当初写它的那次调用" id）; `bond_pregen src=queue|gen call=…`
-  区分"领队列"与"真调用"; **`bond_pregen_board board=N recs=N dur=ms`**（节点 4′）
-  = 预生成**首板**到达时刻——与 `bond_pregen src=gen dur=ms`（**整块**写完）一比,
-  就知道预生成的收益有多少来自"增量交付"而不是"整体更快";
+  ① `bond_board_deliver src=stream|gen|queue|prewarm|draft|replay …`——**每板一行**, 标明
+  这一板怎么到玩家眼前的（0 LLM 的 call 为 `-`）; `bond_pregen src=queue|gen` 区分"领队列"
+  与"真调用"; **`bond_pregen_board`**（节点 4′）= 预生成**首板**到达时刻;
   ② `llm chat/chat_full` 日志补 `out=/in=`（completion/prompt tokens）——此前只看得到
   prompt 侧 cache 命中, 判断"单块还能写多长"只能靠记录条数估; **`task=`**（节点 5b）
   标明**这次调用是谁**（`emotion` / `place` / `place_board` / `place_variant` /
@@ -641,7 +639,7 @@ CLI/测试同步路径在引擎内串行。
 |---|---|
 | Bond contract v2（**已归档 2026-09-10**） | docs/archive/DESIGN_BOND_CONTRACT_V2.md |
 | **VN 契约形式换代（记录流 v2）** | docs/DESIGN_VN_UPGRADE.md（**P0–P2 已落地, 真机在跑**; P3/P4 未做; **§14 渲染层 = 多人同框站位/动作, 设计稿未实现（决策 #36, 暂缓）**） |
-| **纪念链路（art↔memorial 配对 / 记录级进入 / 埋点 / 生图质量）** | docs/DESIGN_MEMORIAL.md（**节点 A–D 已落地 2026-09-20**）。**剩两件**：① **量 art 配对命中率**——改文案后要真机跑一章才知道有没有用（历史基准 **0/5 块**），看 gallery `prompt_source` 或 `grep "含 memorial 但没有 art"`；② **漏写 art 的"补写"方案**——用户裁决"现在不做"，设计稿 §2.4 记了否掉的理由（补出来的板必须排在 `end` 板**之前**，`end` 一落地 `completed=True`、前端即停轮询并 finish，补的板播不出来） |
+| **纪念链路（art↔memorial 配对 / 记录级进入 / 埋点 / 生图质量）** | docs/DESIGN_MEMORIAL.md（**节点 A–D 已落地 2026-09-20**）。**剩两件**：① **量 art 配对命中率**——改文案后要真机跑一章才知道有没有用（历史基准 **0/5 块**），看 gallery `prompt_source` 或 `grep "含 memorial 但没有 art"`；② **漏写 art 的"补写"方案**——用户裁决"现在不做"（补的板必须排在 `end` **之前**, 而 `end` 一落地即 finish ⇒ 播不出来） |
 | 真分歧 vs 收敛链 | **已定稿: 不立项**（收敛链即终局, 见 §6.5）; 自由度移交 DESIGN_MEETUP.md |
 | reasoning 档位 / SSE / choice 板全预生成（已关闭 2026-09-10, sibling 为终态） | §9 表与 v2 §5.4 |
 | 好感可视化（relationship_view 阶段词） | §7; 未立项 |

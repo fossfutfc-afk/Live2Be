@@ -133,6 +133,7 @@ webgui.chat	_bond_done_map	function	webgui.chat
 webgui.chat	_engine	function	webgui.chat
 webgui.chat	_engines	data	-
 webgui.chat	_external_busy	data	-
+webgui.chat	_inject_brain_on_open	function	webgui.chat
 webgui.chat	_lock	function	webgui.chat
 webgui.chat	_locks	data	-
 webgui.chat	_queues	data	-
