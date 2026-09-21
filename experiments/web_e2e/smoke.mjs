@@ -350,75 +350,96 @@ async function main() {
     if (!memOk.bgCleared) throw new Error(`纪念期间普通背景未清空: ${JSON.stringify(memOk)}`);
   }
 
-  // ── 6. 裁决 → 玩家那句话**不上屏**（选项组留在屏上转只读态）─────────────
+  // ── 6. 裁决 → **第一次点击后直接推进**（2026-09-21 用户裁决）; 玩家那句永不上屏 ──
   // 语义定稿（2026-09-12, 用户核对 BA）: **玩家的话语永远只体现为选项**——
   // 裁决后正文保持"上一句角色台词/旁白", 名字牌/立绘都不动; 把玩家那句当正文念
   // 出来就会被读成"角色说了玩家的话"（真机报障: 睦月/便利屋68 + 你还打算对我怎么恶作剧？）。
-  // 决策 #41（同日）: **"▼ 继续"按钮已删** —— 裁决后选项组**不消失**, 转只读态
-  // （压暗 + 高亮所选 + live 侧禁用）, 推进 = 点画面。
+  // ⚠️ **2026-09-21 用户裁决（收窄决策 #41 的 live 半边）**: 真机报障 *"点击选项过后，
+  //    会弹出一次黄色的已选择选项按钮和灰色的未选按钮"* —— 根因**不是回放**, 而是
+  //    `waitTurnIdle` 等待期 `showWaitDots` 把 `#bond-choices` 清空, 只读黄灰组要等
+  //    忙等结束才被补画（`bond.js` 的 `data.picked` 分支）。用户口径: *"只要前端的逻辑
+  //    是第一次点击后直接推进即可，不要渲染第二次的那个黄色"*。
+  //    判据随之改了（**旧的写法正是漏掉这个 bug 的原因**: 原来这里
+  //    `waitForFunction(…bs.every(resolved))` = **主动等黄组出现** 20s, 于是"迟到几秒
+  //    才弹出"在冒烟里永远是绿的）:
+  //      ① 选项组**当场收掉**; ② 整个 live 裁决过程 `.resolved/.picked` **一次都不许出现**;
+  //      ③ 不点第二次就进下一板。回放/续看侧的"只读 + 高亮所选"在 6.5 步断言
+  //      （那才是真需要它的地方）。
+  //    为什么用 MutationObserver 全程盯: ①②都是"**不许发生**"的判据 —— 只在某个时刻
+  //    取样, 正好会漏掉"闪一下又没了"。
   const lastLineBefore = board1[board1.length - 1].text;
-  await page.locator("#bond-choices .bond-choice").first().click();
-  await page.waitForFunction(() => {
-    const bs = [...document.querySelectorAll("#bond-choices .bond-choice")];
-    return bs.length > 0 && bs.every((b) => b.classList.contains("resolved"));
-  }, { timeout: 20000 }).catch(() => { /* 下面统一判定 */ });
-  const pickState = await page.evaluate(() => {
-    const bs = [...document.querySelectorAll("#bond-choices .bond-choice")];
-    return {
-      total: bs.length,
-      resolved: bs.filter((b) => b.classList.contains("resolved")).length,
-      pickedText: (bs.find((b) => b.classList.contains("picked")) || {}).textContent || "",
-      disabled: bs.filter((b) => b.disabled).length,
-      continueBtn: document.querySelectorAll("#bond-choices .bond-continue-btn").length,
-      triReady: !!document.querySelector("#bond-continue.ready"),
+  const plateBeforePick = await page.evaluate(() => ({
+    name: (document.querySelector("#bond-name") || {}).textContent || "",
+    club: (document.querySelector("#bond-club") || {}).textContent || "",
+  }));
+  await page.evaluate(() => {
+    const box = document.getElementById("bond-choices");
+    const txt = document.getElementById("bond-text");
+    window.__pickTrace = { resolved: 0, picked: 0, continueBtn: 0, wiped: 0, leaked: [] };
+    const scanChoices = () => {
+      const bs = [...box.querySelectorAll(".bond-choice")];
+      if (bs.some((b) => b.classList.contains("resolved"))) window.__pickTrace.resolved++;
+      if (bs.some((b) => b.classList.contains("picked"))) window.__pickTrace.picked++;
+      if (!bs.length) window.__pickTrace.wiped++;
+      window.__pickTrace.continueBtn += box.querySelectorAll(".bond-continue-btn").length;
     };
+    const scanText = () => {
+      [...txt.querySelectorAll(".bond-para")].forEach((p) => {
+        // 桩世界里 "我来了。" **只是选项文本**（sensei 记录 = 老师的选项组）,
+        // 正文里出现它 = 把玩家那句当正文念了（决策 #37 禁止）
+        const t = p.textContent.trim();
+        if (t.includes("我来了")) window.__pickTrace.leaked.push(t.slice(0, 40));
+      });
+    };
+    new MutationObserver(scanChoices).observe(box, {
+      childList: true, subtree: true, attributes: true, attributeFilter: ["class"] });
+    new MutationObserver(scanText).observe(txt, {
+      childList: true, subtree: true, characterData: true });
+    scanChoices(); scanText();
   });
-  const afterPick = [];
-  await capturePara(page, afterPick);
-  const leaked = afterPick.filter((p) => p.text.includes("我来了"));
-  record("裁决不上屏", {
-    info: leaked.length
-      ? `❌ 玩家那句被当正文渲染: ${JSON.stringify(leaked.map((p) => p.text))}`
-      : `正文保持上一句=${JSON.stringify(afterPick.map((p) => p.text.slice(0, 20)))}; `
-        + `选项留屏 ${pickState.resolved}/${pickState.total} 只读, 高亮=`
-        + `${JSON.stringify(pickState.pickedText)}, 继续按钮=${pickState.continueBtn}`,
+  await page.locator("#bond-choices .bond-choice").first().click();
+  // ① 选项组**当场收掉**（不再"留屏转只读"）
+  const collected = await page.waitForFunction(
+    () => document.querySelectorAll("#bond-choices .bond-choice").length === 0,
+    null, { timeout: 20000 }).then(() => true).catch(() => false);
+  // ② **不点任何东西** → 下一板到达（正文换新 或 新板自己的选项出现）。
+  //    必须在 ① 之后才判 `bs.length > 0`——否则"还没收掉的旧组"会被当成新板。
+  const advanced = await page.waitForFunction((prev) => {
+    const ps = [...document.querySelectorAll("#bond-text .bond-para")];
+    const last = ps.length ? ps[ps.length - 1].textContent.trim() : "";
+    const bs = [...document.querySelectorAll("#bond-choices .bond-choice")];
+    return last !== prev || bs.length > 0;
+  }, lastLineBefore, { timeout: 20000 }).then(() => true).catch(() => false);
+  const pickTrace = await page.evaluate(() => window.__pickTrace);
+  const pickState = { collected, advanced, ...pickTrace };
+  record("裁决：直接推进（不画第二次黄组）", {
+    info: `选项组当场收掉=${collected}; 不点第二次就进下一板=${advanced}; `
+      + `黄组出现 resolved=${pickTrace.resolved} picked=${pickTrace.picked}（须 0）; `
+      + `等待期清空 ${pickTrace.wiped} 次; `
+      + `玩家那句上屏=${JSON.stringify(pickTrace.leaked)}（须空）; `
+      + `继续按钮=${pickTrace.continueBtn}（须 0）`,
     shot: await shot(page, "vn-after-pick"),
-    transcript: afterPick, pickState,
+    pickState,
   });
-  if (leaked.length) {
-    throw new Error(`裁决后玩家那句被当正文渲染（应只体现为选项）: ${JSON.stringify(leaked)}`);
+  if (pickTrace.leaked.length) {
+    throw new Error(`裁决后玩家那句被当正文渲染（应只体现为选项）: `
+      + JSON.stringify(pickTrace.leaked));
   }
-  // 正文停在上一句角色台词/旁白: 整屏只有那一段, 不许重播板正文
-  if (afterPick.length !== 1 || afterPick[0].text !== lastLineBefore) {
-    throw new Error(`裁决后正文应保持上一句（期望 1 段 ${JSON.stringify(lastLineBefore)}）`
-      + `: ${JSON.stringify(afterPick)}`);
+  if (pickTrace.resolved || pickTrace.picked) {
+    throw new Error(`live 裁决后不该再画只读黄灰组（2026-09-21 用户: `
+      + `"不要渲染第二次的那个黄色"）: ${JSON.stringify(pickTrace)}`);
   }
-  if (pickState.total === 0 || pickState.resolved !== pickState.total) {
-    throw new Error(`裁决后选项组应留屏且转只读态: ${JSON.stringify(pickState)}`);
+  if (!collected) {
+    throw new Error("点了选项但选项组没被收掉（应点下去直接推进）");
   }
-  // ⚠️ 2026-09-20 改（真机报障"还得点到选项**外面**才推进"）:
-  //    原先断言"已裁决的选项必须 disabled" —— 而 disabled 的按钮**吞掉点击**, 加上
-  //    onClick 又把 `.bond-choice` 排除在推进之外 ⇒ 点黄着的那句毫无反应。
-  //    现在点它 = 推进（绑的是 `goNext()` → 发"（继续）", **不会**重提交原选项文本,
-  //    所以"改写历史"那条风险并没有回来）。故断言反过来: **不该 disabled**。
-  if (pickState.disabled !== 0) {
-    throw new Error(`裁决后的选项不该被 disabled（点它要能推进）: `
+  if (!advanced) {
+    throw new Error(`裁决后没有直接进下一板（用户要求: 第一次点击后直接推进）: `
       + JSON.stringify(pickState));
   }
-  if (pickState.pickedText.trim() !== "我来了。") {
-    throw new Error(`裁决后没高亮所选: ${JSON.stringify(pickState)}`);
+  if (pickTrace.continueBtn) {
+    throw new Error(`决策 #41: "▼ 继续"按钮应已删除, 却仍在屏上: ${pickTrace.continueBtn}`);
   }
-  if (pickState.continueBtn !== 0) {
-    throw new Error(`决策 #41: "▼ 继续"按钮应已删除, 却仍在屏上: ${JSON.stringify(pickState)}`);
-  }
-  if (!pickState.triReady) {
-    throw new Error(`板读完应亮右下三角（.ready）: ${JSON.stringify(pickState)}`);
-  }
-  const strayLabels = afterPick.filter((p) => p.speaker).map((p) => p.speaker);
-  if (strayLabels.length) {
-    throw new Error(`裁决节点仍画了名字行（应无）: ${JSON.stringify(strayLabels)}`);
-  }
-  // 名字牌必须仍是角色（用户核对 BA: "名字什么的都不用变"）
+  // 名字牌仍是角色（用户核对 BA: "名字什么的都不用变"）——裁决不该碰它
   const plateAfterPick = await page.evaluate(() => {
     const np = document.querySelector(".bond-nameplate");
     return {
@@ -427,47 +448,16 @@ async function main() {
       hidden: !!(np && np.classList.contains("hidden")),
     };
   });
-  if (plateAfterPick.hidden || !plateAfterPick.name.trim()) {
-    throw new Error(`裁决后名字牌不该变（BA: 名字不用变）: ${JSON.stringify(plateAfterPick)}`);
+  if (plateAfterPick.name !== plateBeforePick.name
+      || plateAfterPick.club !== plateBeforePick.club) {
+    throw new Error(`裁决后名字牌不该变（BA: 名字不用变）: `
+      + `${JSON.stringify(plateBeforePick)} → ${JSON.stringify(plateAfterPick)}`);
   }
 
-  // ── 6.4★ 裁决后**自动**推进（2026-09-20; 真机两轮报障都出在这一下）──────────
-  //  为什么以前没抓到: 这一步下面立刻"丢内存态 + 刷新"去验回放 —— **从来没在
-  //  裁决后等过一次推进**。两次真机报障: ① `pendingChoice` 没复位 ⇒ 点画面/点三角
-  //  全被吞; ② 已裁决的选项被 `disabled` ⇒ 点黄着那句毫无反应。
-  //  现在语义（用户 2026-09-20: *"点了选项应该直接推进"*）: 裁决后**自动**进下一板,
-  //  不需要第二次点击 —— 所以本步**什么都不点**, 只等屏上变化。
-  {
-    const before = await page.evaluate(() => {
-      const ps = [...document.querySelectorAll("#bond-text .bond-para")];
-      return ps.length ? ps[ps.length - 1].textContent.trim() : "";
-    });
-    const advanced = await page.waitForFunction((prev) => {
-      const ps = [...document.querySelectorAll("#bond-text .bond-para")];
-      const last = ps.length ? ps[ps.length - 1].textContent.trim() : "";
-      const bs = [...document.querySelectorAll("#bond-choices .bond-choice")];
-      const fresh = bs.length > 0 && bs.every((b) => !b.classList.contains("resolved"));
-      return last !== prev || fresh;
-    }, before, { timeout: 20000 }).then(() => true).catch(() => false);
-    const st = await page.evaluate(() => {
-      const bs = [...document.querySelectorAll("#bond-choices .bond-choice")];
-      return {
-        paras: [...document.querySelectorAll("#bond-text .bond-para")]
-          .map((p) => p.textContent.trim().slice(0, 24)),
-        choices: bs.length,
-        stillResolved: bs.filter((b) => b.classList.contains("resolved")).length,
-      };
-    });
-    record("裁决后自动推进", {
-      info: advanced
-        ? `✓ 不点任何东西也进了下一板: 正文=${JSON.stringify(st.paras)} 选项=${st.choices}`
-        : `❌ 裁决后**没自动推进**（用户要求"点了选项直接推进"）: ${JSON.stringify(st)}`,
-      shot: await shot(page, "vn-after-pick-advance"),
-    });
-    if (!advanced) {
-      throw new Error(`裁决后没有自动进下一板: ${JSON.stringify(st)}`);
-    }
-  }
+  // （6.4★「裁决后自动推进」2026-09-20 那条已并进上面的 ② —
+  //  2026-09-21 起裁决后**当场**推进, 不再有"只读黄组留屏 → 450ms 后自动走"这一步,
+  //  所以也没有"等它自己走"可等的了。）
+
 
   // ── 6.5 中途退出重进 → 回放里"选项态"必须看得见（2026-09-12 用户要求）────
   // 场景: 玩家选了选项后关掉页面（硬退出, 事件流里那条 bond 场景已带 picked）→
@@ -527,6 +517,15 @@ async function main() {
     }
     if (locked.pickedText.trim() !== "我来了。") {
       throw new Error(`重进回放没高亮所选: ${JSON.stringify(locked)}`);
+    }
+    // ⚠️ 2026-09-20 真机报障（"还得点到选项**外面**才推进"）的守门搬到这里:
+    //    原来它断言在 **live 裁决**那一步（"已裁决的选项不该 disabled"）——而 2026-09-21
+    //    起 live 侧根本不再画只读组了, 只读组只剩**回放/续看**这一处, 所以判据跟着搬:
+    //    `disabled` 的按钮**吞掉点击**, 而回放里点选项 = 推进（本地下一板）——
+    //    一旦被 disabled, 回放里"另一个选项也能点"（决策 #41）就没了。
+    if (locked.disabled !== 0) {
+      throw new Error(`回放里的只读选项不该被 disabled（点它要能推进）: `
+        + JSON.stringify(locked));
     }
     // 回放的**纪念板**同样要进纪念态（立绘隐藏 + 普通背景清空）,
     // 且**档案图要能恢复**（2026-09-12: 图是异步生成的 → 单开 `memorial_image`

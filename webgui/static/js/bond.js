@@ -91,11 +91,14 @@ let lastSceneKey = "";
   //   板内还有段 → 下一段; 板读完 → 下一板; is_end → 收尾。
   // 例外: 板上有**未裁决**的选项时点画面不推进（等玩家点选项）。
   let pendingChoice = false;    // 当前板有未裁决选项（点画面不推进）
-  // 裁决后自动进下一板的短延时（2026-09-20 用户: *"点了选项应该直接推进"*）——
-  // 留这一小段只为让玩家看见"选了哪句"的高亮, 之后自动 goNext（不必再点一次）。
-  const PICK_ADVANCE_MS = 450;
-  let pickTimer = null;
-  let curScene = null;          // 当前板（裁决后就地重画选项组, 不重播正文）
+  // ⚠️ **live 侧裁决语义（2026-09-21 用户裁决, 收窄决策 #41）: 点下去直接推进**。
+  //    真机报障原文: *"点击选项过后，会弹出一次黄色的已选择选项按钮和灰色的未选按钮"*。
+  //    根因不是回放, 而是 `showWaitDots` 在等待期把 `#bond-choices` 清空 + 只读态
+  //    迟到几秒才画（`submit` 的 `data.busy` 分支）→ 观感 = 按钮先消失、再"弹出"黄灰组。
+  //    现在: 裁决响应到达即收掉选项组并 `goNext()`, **不重画**只读态、也不再等
+  //    `PICK_ADVANCE_MS`。只读态 + 高亮所选留给**回放/续看**
+  //    （`showInteraction` 的 `scene.picked` 分支——那里"当时选了哪句"才是信息）。
+  let curScene = null;          // 当前板（回放/续看按需重画只读选项组）
 
   // 打字机状态（renderScene → typeOut → 打完 → showInteraction）
   let typeTimer = null;
@@ -644,9 +647,8 @@ let lastSceneKey = "";
 
   async function renderScene(scene) {
     busy = false;
-    curScene = scene;                 // 裁决后就地重画选项组（不重播正文）
+    curScene = scene;                 // 回放/续看按需就地重画只读选项组（不重播正文）
     pendingChoice = false;            // 新板: 未裁决态由 showInteraction 按需置位
-    clearPickTimer();                 // 新板到达 → 旧"裁决后自动推进"作废（防跨板乱推）
     lastSceneKey = sceneKey(scene);   // 记指纹: 轮询里同内容不再重渲染
     dbg("renderScene paras=", (scene.paragraphs || []).map(
         (p) => (p && p.emotion) || "-"), "is_end", !!scene.is_end);
@@ -834,11 +836,6 @@ let lastSceneKey = "";
 
   function clearAutoTimer() {
     if (autoTimer) { clearTimeout(autoTimer); autoTimer = null; }
-  }
-
-  /** 裁决后"自动进下一板"的定时器（2026-09-20）——新板/收尾/退出时必须清掉。 */
-  function clearPickTimer() {
-    if (pickTimer) { clearTimeout(pickTimer); pickTimer = null; }
   }
 
   function scheduleAutoChoice(choices) {
@@ -1318,31 +1315,20 @@ let lastSceneKey = "";
       // 定稿）——正文停在上一句角色台词/旁白, 名字牌/立绘都不动。这里**绝不**碰
       // #bond-text、绝不 renderScene（那会把玩家那句当正文念出来, 真机报障:
       // "睦月/便利屋68 + 你还打算对我怎么恶作剧？"）。
-      // 决策 #41（2026-09-12）: 选项组**留在屏上**转只读态 + 高亮所选（不再消失,
-      // 也没有"▼ 继续"按钮）——点画面即进下一板。
+      // ⚠️ **live 侧裁决语义（2026-09-21 用户裁决）**: 点下去**直接推进**——
+      //    选项组当场收掉, **不再**重画"只读黄灰组"（真机报障: *"点击选项过后，
+      //    会弹出一次黄色的已选择选项按钮和灰色的未选按钮"*; 那次弹出的真身 =
+      //    等待期 `showWaitDots` 清空了 `#bond-choices`, 只读态几秒后才被补画）。
+      //    2026-09-20 的 `PICK_ADVANCE_MS` 延时也就没有意义了（它只为让高亮可见）:
+      //    现在响应到达即 `goNext()`——下一板没就绪时 `submit` 自己忙等（与点画面同路）。
+      //    只读态 + 高亮所选留给**回放/续看**（`showInteraction` 的 `scene.picked` 分支）。
+      // ⚠️ `pendingChoice = false` 必须保留（2026-09-20 真机报障: "选完选项变黄且不推进了"）:
+      //    它是 `advanceOrFinish` 的门闩, 不清 → 点画面/点右下三角**全被吞掉**。
       $("bond-choices").innerHTML = "";
-      if (curScene && Array.isArray(curScene.choices) && curScene.choices.length) {
-        paintChoices(curScene.choices, data.picked, true);
-      }
-      // ⚠️ 2026-09-20 修（真机报障: "选完选项变黄且不推进了"）:
-      //    **裁决生效 = 这一板不再有"未裁决选项"** ⇒ 必须清掉 pendingChoice。
-      //    它是 `advanceOrFinish` 的门闩（见 line ~996: `if (pendingChoice) return;`）,
-      //    不清 → 点画面、点右下三角**全被吞掉**, 唯一能走的只剩"自动模式"。
-      //    为什么以前没炸: 上面的 showInteraction 只在"未裁决"时置位,
-      //    而裁决分支只重画了选项组、没管这个闩。
       pendingChoice = false;
       busy = false;
       hideContinue();
-      showAdvance();
-      // ⭐ 2026-09-20 用户: *"假如我第一次点了选项，应该直接推进"* ——
-      //    不再等第二次点击（真机观感 = "黄色选项又跳出来, 强迫我再选一次"）。
-      //    留 PICK_ADVANCE_MS 让高亮可见, 然后自动进下一板;
-      //    玩家手快先点画面/点选项也走同一条 goNext（busy 防重复提交）。
-      clearPickTimer();
-      pickTimer = setTimeout(() => {
-        pickTimer = null;
-        if (!busy && !readonly && !finished) goNext();
-      }, PICK_ADVANCE_MS);
+      if (!finished) goNext();          // 直接推进（不再有"第二次渲染黄组"这一步）
       return;
     }
     $("bond-text").innerHTML = "";
@@ -1356,7 +1342,6 @@ let lastSceneKey = "";
     if (readonly) { roEnd(); return; }   // 只读: 收尾 = 播完本板（不写 vn_exit/wrapup/digest）
     if (finished) return;
     finished = true;
-    clearPickTimer();                    // 收尾 → 旧"裁决后自动推进"作废
     // ⚠️ 2026-09-20 用户: *"结束后那个粉色气泡有小段延迟才消失，这个时间是足够手快的
     //    玩家直接重进，后果不堪设想"* —— 粉泡的**完成翻转靠轮询**（`applyBondDone`），
     //    finish → 轮询到达之间有个窗口。这里在 finish 那一刻**先锁**（去掉点击能力）,
