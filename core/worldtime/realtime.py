@@ -108,6 +108,7 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from core import paths
+from core.common.atomic import replace_with_retry
 
 logger = logging.getLogger(__name__)
 
@@ -517,7 +518,7 @@ def save_clock(world_dir: str | Path, clock: dict) -> None:
         tmp = p.with_suffix(".json.tmp")
         tmp.write_text(json.dumps(clock, ensure_ascii=False, indent=1),
                        encoding="utf-8")
-        tmp.replace(p)
+        replace_with_retry(tmp, p)
     except OSError as e:
         logger.warning("台账写失败（本轮不记）: %s — %s", p, e)
 

@@ -27,6 +27,7 @@ import time
 from pathlib import Path
 
 from core.bond.bond_story import BondScene
+from core.common.atomic import replace_with_retry
 from core.session.events import (
     M_MEMORIAL_ENTER,
     M_MEMORIAL_EXIT,
@@ -170,7 +171,7 @@ def _draft_save(state: "BondState", char_id: str, session_id: str) -> None:
         }
         tmp = path.with_suffix(".tmp")
         tmp.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
-        tmp.replace(path)
+        replace_with_retry(tmp, path)
     except Exception as e:                         # noqa: BLE001 — 缓存失败降级
         logger.warning("草稿旁路写失败（降级, 不影响剧情）: %s", e)
 
@@ -271,7 +272,7 @@ def _prewarm_cache_save(char_id: str, session_id: str, scene_dict: dict,
         tmp = path.with_suffix(".tmp")
         tmp.write_text(json.dumps(payload, ensure_ascii=False),
                        encoding="utf-8")
-        tmp.replace(path)
+        replace_with_retry(tmp, path)
     except Exception as e:                         # noqa: BLE001 — 缓存失败降级
         logger.warning("prewarm 缓存写失败（降级, 不影响剧情）: %s", e)
 
