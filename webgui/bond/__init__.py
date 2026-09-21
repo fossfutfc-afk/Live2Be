@@ -14,11 +14,12 @@
 | `memorial.py` | 纪念生图 |
 | `pregen.py` | 生成 / 预生成 / 候选支 / 丢弃 + 每轮系统注记 |
 | `watchdog.py` | 看门狗（忙态 / 视觉门 / 预生成消费门 → 降级放行） |
-| `api.py` | 对外动作: `bond_start` / `turn` / `status` / `finish` + 收尾 + 回放编排 |
+| `entry.py` | 开场与场景载荷: `bond_start` / `bond_start_demo` / `DEMO_SCRIPT` / `_start_replay` / `_entry_already_done` / `_ready_scene_payload` / `_role_info`（**○C8b**）|
+| `api.py` | 轮次 / 查询 / 收尾: `bond_turn` / `bond_status` / `bond_finish` + `_wrapup*` + 被拒诊断（方向 **api → entry**）|
 | `util.py` | 跨模块纯小工具（`_ms_since`） |
 | `deps.py`（**包外**） | 显式接缝: store / 生图器 / 看门狗阈值 / choice 开关 / 标注钩子 |
 
-本文件把这 9 个模块的对外名字**一个不少地**再导出 —— import 路径 `webgui.bond` 不变 ⇒
+本文件把这 10 个模块的对外名字**一个不少地**再导出 —— import 路径 `webgui.bond` 不变 ⇒
 13 个引用点（routers / chat / deps / tests / experiments / l2d-demo）**一个字都不用改**。
 
 ## 为什么是"逐个显式再导出"而不是 `from .api import *`
@@ -131,19 +132,22 @@ from webgui.bond.pregen import (          # C7: 生成/预生成/候选/丢弃
     _system_note,
 )
 
-from webgui.bond.api import (          # C8: 对外动作层
+from webgui.bond.entry import (          # ○C8b: 开场与场景载荷
     DEMO_SCRIPT,
-    _clear_rejects,
     _entry_already_done,
-    _note_reject,
     _ready_scene_payload,
     _role_info,
     _start_replay,
+    bond_start,
+    bond_start_demo,
+)
+
+from webgui.bond.api import (          # C8: 轮次 / 查询 / 收尾
+    _clear_rejects,
+    _note_reject,
     _wrapup,
     _wrapup_inner,
     bond_finish,
-    bond_start,
-    bond_start_demo,
     bond_status,
     bond_turn,
     logger,

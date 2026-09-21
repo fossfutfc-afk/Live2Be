@@ -18,6 +18,7 @@
 运行: python -m pytest tests/core/test_split_safety.py
 """
 import ast
+import builtins
 import importlib
 import inspect
 import os
@@ -276,3 +277,84 @@ def test_patch_whitelist_is_not_stale():
         + "\n  ".join(stale))
     print(f"    split-guard: 待收敛 {len(ALLOWED_PATCHES)} 处 / "
           f"确认安全 {len(SAFE_PATCHES)} 处")
+
+
+# ---------------------------------------------------------------------------
+# ③ 拆分后的**跨模块名字泄漏**（忘了 import）—— 2026-09-21 ○C8b 实测抓到的真 bug
+# ---------------------------------------------------------------------------
+#: 被拆出来的包（搬块时最容易漏 import 的地方）
+SPLIT_PKGS = ("webgui/bond", "core/bond/bond_story", "contract/records")
+
+#: 这些**项目模块名**如果被用到却没绑定, 一律报（`chat` 就是这么漏的:
+#: 它不属于任何包内兄弟模块, 靠上面的兄弟名扫描抓不到）
+KNOWN_MODULE_NAMES = frozenset({
+    "chat", "deps", "paths", "store", "registry", "schema", "client",
+    "state", "boards", "scene", "engine", "errors", "util",
+})
+
+_IMPLICIT = frozenset({
+    "__name__", "__file__", "__doc__", "__package__", "__spec__", "__loader__",
+    "__builtins__", "__debug__", "__class__", "__dict__", "self", "cls",
+}) | frozenset(dir(builtins))          # `round` / `len` 这类内建名不算泄漏
+
+
+def _names_in(path: pathlib.Path) -> tuple[set[str], set[str]]:
+    """→ (本文件绑定的顶层名字, 运行期读取的裸名字)。
+
+    `from __future__ import annotations` 下的**字符串注解**（`x: "Foo"`）是
+    `ast.Constant`, 天然不计入"运行期读取"—— 这正是我们要的（那种写法的名字
+    不评估, 不会 NameError; 见 `renderer/state.py` 的 `# noqa: F821` 先例）。
+    """
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    bound: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
+            bound.add(node.id)
+        elif isinstance(node, ast.arg):
+            bound.add(node.arg)
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            bound.add(node.name)
+        elif isinstance(node, ast.ExceptHandler) and node.name:
+            bound.add(node.name)
+        elif isinstance(node, (ast.Import, ast.ImportFrom)):
+            for a in node.names:
+                bound.add(a.asname or a.name.split(".")[0])
+        elif isinstance(node, ast.Global):
+            bound |= set(node.names)
+        elif isinstance(node, ast.Lambda):
+            bound |= {a.arg for a in node.args.args}
+    loaded = {n.id for n in ast.walk(tree)
+              if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load)}
+    return bound, loaded
+
+
+def test_no_cross_module_name_leaks():
+    """③ 搬块时"名字跟着走了、import 没跟"→ 运行期 `NameError`。
+
+    为什么单开这条守门（○C8b 实测）: C4 把 `_ms_since` 搬进 `util.py` 时**漏了
+    `lanes.py` 的 import**, C5 把 `chat` 从原 `bond.py` 搬走时也漏了一处 —— 两处都在
+    `except Exception`（"宁缺勿错"保活）里面, 于是**测试全绿、功能静默失效**:
+    标注 worker 每次都在写回状态前抛 NameError, `emo_version` 永不递增。
+
+    判据: 包内某模块**运行期读了**一个裸名字, 而它既不绑定在本模块, 也不是内建/隐式名 ——
+    却绑定在同一包的**兄弟模块**里（或名字命中 `KNOWN_MODULE_NAMES`）⇒ 报"八成漏了 import"。
+    """
+    problems: list[str] = []
+    for pkg in SPLIT_PKGS:
+        files = [p for p in sorted((ROOT / pkg).glob("*.py"))]
+        per_file: dict[pathlib.Path, tuple[set[str], set[str]]] = {
+            p: _names_in(p) for p in files}
+        for p, (bound, loaded) in per_file.items():
+            siblings: set[str] = set()
+            for q, (qb, _ql) in per_file.items():
+                if q != p:
+                    siblings |= qb
+            for name in sorted(loaded - bound - _IMPLICIT):
+                if name in siblings or name in KNOWN_MODULE_NAMES:
+                    problems.append(
+                        f"{p.relative_to(ROOT).as_posix()}: 用了 `{name}` 但本模块没绑定"
+                        f"（同包别的模块里有/是项目模块名）—— 漏 import?")
+    assert not problems, (
+        "拆分后疑似漏 import（运行期会 NameError, 而宽 except 会把它静默吞掉）:\n  "
+        + "\n  ".join(problems))
+    print("    split-guard: 拆分包内无跨模块名字泄漏（漏 import 守门）")
