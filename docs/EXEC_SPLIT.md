@@ -2,8 +2,8 @@
 
 > **状态**：执行中。**C0（安全网 + 工具纪律）+ C1a（接缝收敛 `webgui/deps.py`）+
 > C1b（`webgui/bond.py` → 包, 纯移动）+ C2（搬 `state.py`, 叶子优先）+
-> C3（搬 `stores.py`, 落库层）+ C4（搬 `lanes.py` + `util.py`）已落地
-> 2026-09-21**；C5 起未动。
+> C3（搬 `stores.py`, 落库层）+ C4（搬 `lanes.py` + `util.py`）+
+> C5（搬 `replay.py`, 回放层）已落地 2026-09-21**；C6 起未动。
 > **怎么用**：每个节点 = **一次提交 + 全量测试 + （涉 webgui 时）B 层冒烟**；
 > 节点内**只做"移动"**，任何行为改动单独开节点。行号一律不写（会漂），写 `file.py::symbol`。
 > **相关**：`docs/EXEC_PIPELINE_UNIFY.md`（流水线收敛，已全部落地）· `CLAUDE.md` §2/§11/§12。
@@ -81,6 +81,7 @@ webgui/bond/             ← webgui/bond.py（模块→包；13 个引用点零�
   util.py                `_ms_since` —— **跨模块纯小工具**（C4 新开；不放 state: 那是
                          状态模型; 不放 lanes: 别的模块凭什么从 lane 借计时器）
   replay.py              replay_attempts/chapter_replay/_start_replay/_narrativize/标题
+                         （**C5 已落地**；`_start_replay` 是编排, 留到 C8 `api.py`）
   pregen.py              _generate/_pregenerate/候选/丢弃/_scene_landed
   memorial.py            生图工厂 + _memorial_gen + _persisted_memorial_img
   api.py                 bond_start/turn/status/finish + wrapup（HTTP 门面）
@@ -110,7 +111,7 @@ tests/webgui/bond/       ← test_bond.py 按主题拆 + tests/stubs/ 收共享 
 | ✅ **C2** | **搬 `state.py`（叶子优先 —— 原计划排在 C7, 实测必须提前）** | `ChoiceCandidate` / `BoardLifecycle` / `BondState` / `_bonds` / `_state` / `_memorial_open_in_events` 逐字搬进 `webgui/bond/state.py`（唯一改动: `_store()` → `deps.store()`）; `_impl.py` 只留一行 import; 门面**零改动** | 全量 **880 passed**; 冒烟 **PASS**; 门面/夹具**零 diff**; 身份自检（`webgui.bond.X is webgui.bond.state.X` / `_bonds` 同一个 dict）|
 | ✅ **C3** | **搬 `stores.py`（落库层）** | 22 个符号逐字搬进 `webgui/bond/stores.py`: `_store`/`_flow_store`/`_stage_store` · `_last_bond_seq`/`_last_mmt_seq`/`_open_vn_seq` · `_draft_*` · `_prewarm_cache_*` · `_log_scene`/`_log_scene_meta`/`_close_memorial_window`。**新纪律**: 门面改从 `stores` 收这 22 个名字（`_impl` 只收它自己还在调用的 15 个）; 顺手清掉 `_impl` 里早已无人用的 3 个事件常量与 `image_enabled`（门面继续给, 指向真家 `core.session.events` / `llm.image_gen`） | 全量 **880 passed**; 冒烟 **PASS**; 门面 117 名 + 夹具**零 diff**; 身份自检（`webgui.bond.X is webgui.bond.stores.X`）|
 | ✅ **C4** | **搬 `lanes.py` + `util.py`** | 13 个符号逐字搬进 `webgui/bond/lanes.py`（就绪门控 `_memorial_no_visuals`/`_scene_*_ready`/`_scene_ready_or_busy`/`_wait_annotated` + 双路 lane `_ensure_lane`/`_enqueue_annotate`/`_enqueue_place_annotate`/`_anno_worker`/`_place_worker`/`_fallback_fill`）; **新开 `util.py`** 放 `_ms_since`（4 个模块要用的纯小工具 —— 塞 state 属位置放错）; `deps.enqueue_annotate` 的懒转发目标改指 `webgui.bond.lanes`（C1a 就预留了这句话） | 全量 **880 passed**; 冒烟 **PASS**; 门面 117 名 + 夹具**零 diff**; 身份自检 |
-| **C5** | 搬 `replay.py` | 回放/标题 | 绿（回放用例是网） |
+| ✅ **C5** | **搬 `replay.py`（回放层）** | 8 个符号逐字搬进 `webgui/bond/replay.py`: `_narrativize` · `replay_attempts` · `_interrupted_replay_queue` · `chapter_replay`（**只读回放**, 与 resume 型回放是两件事）· `_pending_in_vn` · `_title_from_events` · `_enter_title` · `_prev_chapter_quit`。`_start_replay` **不搬**（同时抓 pregen/memorial/payload/draft, 属编排 → C8 `api.py`）; 顺手把 `NON_PICKS`/`abandoned_ranges`/`replayable_chapters` 从 `_impl` 的清成"门面直指真家" | 全量 **880 passed**; 冒烟 **PASS**; 门面 117 名 + 夹具**零 diff**; 8 个名字身份自检 |
 | **C6** | 搬 `pregen.py` | 预热/预生成/候选/丢弃 | 绿（节点 4′/2″ 用例是网） |
 | **C7** | 搬 `memorial.py` | 纪念生图 | 绿 |
 | **C8** | 搬 `api.py`/`watchdog.py` | `_impl.py` 消失 | 绿；2950 行 → 9 个 100~650 行模块 |
