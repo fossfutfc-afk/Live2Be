@@ -2,7 +2,7 @@
 """MMT 输出规范演示 — 字数+随机数逐块 + "…"等待指示（不依赖 LLM）。
 
 跑一遍看效果:
-    python core/ui/_demo_typing.py
+    python experiments/demo_typing.py
 
 展示三条回复的输出节奏: 每条 = 若干"…"(打字指示) 被真实气泡依次覆盖。
 """

@@ -483,7 +483,7 @@ CLI/测试同步路径在引擎内串行。
 
 ## 11. WebGUI 运行与前端
 
-- 启动：`python -m uvicorn webgui.app:app --host 127.0.0.1 --port 8000`（见 entrance/）。
+- 启动：`python -m uvicorn webgui.app:app --host 127.0.0.1 --port 8000`（`webgui/app.py`）。
 - 结构：`webgui/bond/`（**C1b–C8 拆分完成**：门面 `__init__.py` 按"真家"分块再导出 117 名
   ⇒ import 路径不变、13 个引用点零改动; 内部 = `state`（状态模型）· `stores`（落库层）·
   `lanes`（双路 lane + 门控）· `replay`（回放层）· `memorial`（纪念生图）· `pregen`

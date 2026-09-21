@@ -337,7 +337,7 @@ renderer/
 ├── effects.py            # EffectResolver（特效查表: 角色表 → 全局表 → 空, 确定性）
 ├── audio.py              # AudioRequest + 音频状态（未来占位接口）
 ├── core.py               # Renderer（渲染管线: scene → RenderOutput; 双用途入口）
-├── cli.py                # CLI 输出（迁移 core/ui/vn_cli.py 的渲染部分: 打字/标签/选项）
+├── cli.py                # CLI 输出（迁移 apps/vn_cli.py 的渲染部分: 打字/标签/选项）
 └── tests/                # 单测（纯函数友好: scene dict → output 断言）
 
 core/media/
@@ -346,10 +346,11 @@ core/media/
                           #   play_spine(char_id, emotion) → spine/ 骨骼动画包（API 2, 未来）
 ```
 
-**与现有组件关系**：
-- 复用：`core/media/catalog.py`（MediaCatalog: 背景查库）、`core/media/background.py`（derive_background）、`core/media/sprites.py`（SpinePack/find_spine_packs——spine API 的资产扫描基础）、`core/ui/display.py` 的 BondStoryOutput（文本缓冲）
+**与现有组件关系**（⚠️ 2026-09-21 除锈：路径已按 C11/C12b 更新 —— `core/ui/display.py` → `core/tui/display.py`、
+`core/ui/vn_cli.py` → `apps/vn_cli.py`）：
+- 复用：`core/media/catalog.py`（MediaCatalog: 背景查库）、`core/media/background.py`（derive_background）、`core/media/sprites.py`（SpinePack/find_spine_packs——spine API 的资产扫描基础）、`core/tui/display.py` 的 BondStoryOutput（文本缓冲）
 - 新增：`core/media/sprite_player.py`（差分播放——diff/spine 双 API, 供 renderer 外任何调用方使用）
-- 迁移：`core/ui/vn_cli.py` 的 `simulate_vn_scene`/`_print_visual`/`_type_paragraph` → `renderer/cli.py`（CLI 输出统一收编）
+- 迁移：`apps/vn_cli.py` 的 `simulate_vn_scene`/`_print_visual`/`_type_paragraph` → `renderer/cli.py`（CLI 输出统一收编）
 - 引擎不动：BondStoryEngine 继续输出 BondScene——渲染器在引擎之外新增
 
 ---

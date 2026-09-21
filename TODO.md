@@ -313,7 +313,7 @@ B = 今天的一句寒暄（SIG=0.50）
 - **落点** = **每轮动态尾**（`round_messages` 的注记槽），**不是盒块** ——
   盒在 `start_session` **一次拼死、每轮逐字节复用**（前缀稳定），而节日注记只在
   那一天出现 ⇒ 进盒就会破缓存前缀。判据: **盒 = 会话级静态; 尾 = 每轮**
-- `core/momotalk.py` 的 P17 块里、`time_notes` 之后调用
+- `core/mmt/engine.py`（C12a 前名 `core/momotalk.py`）的 P17 块里、`time_notes` 之后调用
   `realtime_notes(char_id, store.world_dir())`，与 `time_notes` 同一个
   `try/except`（静默降级）; `char_id` 必须是 **slug**（台账按它分桶）
 - ⚠️ **`agent_turn` 新增 `now` 形参**，三条注记**共用一个"现在"** —— 接线时探针
@@ -439,7 +439,7 @@ B = 今天的一句寒暄（SIG=0.50）
       （`test_bond.py` 16 / `test_web_http.py` 2，AST 精确摘除）；
       新增 `tests/webgui/test_bond_staging.py` 3 例钉住新架构
       —— ⭐ **其中一例当场抓到 `_pending_in_vn` 漏改**（真 bug，已修）
-- [ ] **CLI 路径同步**：`core/ui/vn_cli.py` ×7 写点仍走本地 `store`（真源）
+- [ ] **CLI 路径同步**：`apps/vn_cli.py`（C12b 前名 `core/ui/vn_cli.py`）×7 写点仍走本地 `store`（真源）
 - [ ] **`_log_scene` / `_log_scene_meta` 复核**：它们用 `store = _flow_store(state)`
       ⇒ 已自动走 overlay ✓（无需改动，但要确认行为）
 - [ ] **语义修正**：中断 → `vn_exit completed=False` 替换
@@ -468,7 +468,7 @@ B = 今天的一句寒暄（SIG=0.50）
       **渲染层（多人同框站位/动作 #36, §14）暂缓实现——5 条待拍板见 §14.8**
 - [ ] **未做**: P3 蓝图 planner · P4 生图异步完善（v2 memorial→生图重接线）
 
-### 世界线语义定稿实施（core/DESIGN_WORLD.md §9, 2026-09-04 定稿——法则共享/历史固化/overlay 三层）
+### 世界线语义定稿实施（docs/DESIGN_WORLD.md §9, 2026-09-04 定稿——法则共享/历史固化/overlay 三层）
 
 - [ ] **行为层现状核对**：config 单一真源实时读 = 定稿形态（无副本）——核对所有
       角色消费点是否"显式经过当前世界"（角色实例解析器: world_id+card_id → 基座+

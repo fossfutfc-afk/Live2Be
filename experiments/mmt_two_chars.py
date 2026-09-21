@@ -2,7 +2,7 @@
 """真实 LLM 对话冒烟 — 火宫千夏（长文本） + 伊草遥香（紧张短句）断句效果。
 
 每角色一轮对话, 打印 agent_turn 返回的气泡（断句结果）。
-用法: python core/ui/_mmt_two_chars.py   （项目根环境, .env 有 LLM_API_KEY）
+用法: python experiments/mmt_two_chars.py   （项目根环境, .env 有 LLM_API_KEY）
 """
 import sys
 from pathlib import Path

@@ -103,14 +103,18 @@ def window_messages(events, *, max_units=120):
 
 ## 4. 挂接点（实施清单, 每文件独立 commit）
 
+> ⚠️ **2026-09-21 除锈**：下表是当时的文件路径，已随拆分/归位改名（**改动内容本身仍有效**）：
+> `core/bond/bond_story.py` → `core/bond/bond_story/engine.py` · `webgui/bond.py` →
+> `webgui/bond/api.py` · `core/momotalk.py` → `core/mmt/engine.py` · `core/ui/vn_cli.py` → `apps/vn_cli.py`。
+
 | 文件 | 改动 |
 |---|---|
 
 | `core/session/renderer.py` | ① `render_bond_scene_text(payload)`（§2.1 提取——段落带 emotion/标题/选项/picked/结束标）② `render_events` bond 段与 l2d 段改用提取（不再 json.dumps 全 payload）③ `window_messages()`（§3.3, 单元数计量）④ 单测 |
-| `core/bond/bond_story.py` | `_history` append 的 assistant 内容改 `render_bond_scene_text(action.payload)`（与 render_events 同格式——bond 内历史与统一渲染同构, 滑动无缝） |
-| `webgui/bond.py` | `bond_start` 构造 vn 后灌 `window_messages(store.events(char_id))` 进 `_history`（落库已终态, 无需标注回写） |
-| `core/momotalk.py` | `resume_session` 窗口截取改 `window_messages`（单元预算） |
-| `core/ui/vn_cli.py` | 恢复路径同款灌窗口 |
+| `core/bond/bond_story/engine.py`（原名 `core/bond/bond_story.py`） | `_history` append 的 assistant 内容改 `render_bond_scene_text(action.payload)`（与 render_events 同格式——bond 内历史与统一渲染同构, 滑动无缝） |
+| `webgui/bond/api.py`（原名 `webgui/bond.py`） | `bond_start` 构造 vn 后灌 `window_messages(store.events(char_id))` 进 `_history`（落库已终态, 无需标注回写） |
+| `core/mmt/engine.py`（原名 `core/momotalk.py`） | `resume_session` 窗口截取改 `window_messages`（单元预算） |
+| `apps/vn_cli.py`（原名 `core/ui/vn_cli.py`） | 恢复路径同款灌窗口 |
 
 ## 5. 收益与边界
 

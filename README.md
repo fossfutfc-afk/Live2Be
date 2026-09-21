@@ -9,45 +9,43 @@
 **羁绊剧情**（视觉小说模式）→ 关键时刻生成/展示 **L2D 立绘**。角色由五件套 YAML
 人设卡 ＋ 扮演手册 script.yml 驱动，人际关系由权重表控制信息访问。
 
-## 三个入口
+## 两个入口
 
 | 入口 | 命令 | 说明 |
 |------|------|------|
-| MomoTalk 聊天 (CLI) | `python main.py` | 选角色 → 手机聊天 → 羁绊剧情 VN |
-| IDE 角色撰写 (CLI) | `python -m ide.ide_agent` | 自然语言让 AI 查资料/写角色档/改关系 |
-| IDE 角色撰写 (GUI) | `python -m web` | 浏览器界面（`IDE_MOCK=1` 走 mock 不烧 API） |
-
-双击启动脚本在 `entrance/`（IDE_CLI.bat / IDE_GUI.bat / IDE_GUI_mock.bat），
-使用手册见 [entrance/USAGE.md](entrance/USAGE.md)。
+| **Web GUI（主入口）** | `python -m uvicorn webgui.app:app --host 127.0.0.1 --port 8000` | 浏览器里：登录 → MomoTalk 聊天 → 羁绊剧情 VN → 回忆册（`webgui/`） |
+| MomoTalk CLI | `python main.py` | 终端版：选角色 → 手机聊天 → 羁绊剧情 VN（真代码在 `apps/`） |
 
 需要 API key：项目根 `.env` 里配 `LLM_API_KEY`（OpenAI 兼容接口，默认 DeepSeek）。
+生图另需 `[image]` 段配置（`settings.toml` 或 GUI 设置页）；`LIVE2BE_IMAGE=off` 可整体关掉。
 
 ## 目录速查
 
 ```
-main.py                 启动壳（转调 apps/main.py）; apps/ = MomoTalk CLI（main.py + vn_cli.py）
-config/                 静态配置：characters/ 角色五件套+扮演手册 · settings/ 关系+世界观 · stories/ 剧本(空)
-contract/               【地基】契约层：ActionSpec 单源真值驱动 schema/校验/渲染
-core/                   核心引擎：mmt/engine(聊天) · bond/bond_story(VN) · bond/bond_progress(羁绊轮数)
-                        common/ 错误格式 · parsing/ 解析层 · mmt/ MMT 动作集+引擎 · tui/ 终端展示层
-                        media/ 媒体查库(MediaCatalog) · director/ 视觉导演(②)
-                        story_actions/story_executor (Story 双动作 + 执行层)
-ide/                    IDE agent 引擎（原 fetch/，2026 重构改名）
-llm/                    LLM 客户端 + json 清洗 + prompts 仓库
-web/                    Web GUI 壳（FastAPI + SSE，当前服务 ide 域）
-tests/                  自动化测试（pytest，按域分子目录）
-experiments/            实验脚本 + 运行记录（非核心，手工运行）
-entrance/               启动脚本 + 使用手册
-tools/                  开发者工具（fetch_kivo 等，gitignore 不入库）
-assets/                 静态资源（曾名 resources/）：illustration/{char}/diff+emotions.yml · background/ · _director_whitelist.json
-data/                   运行时数据（sessions 对话 · basic 玩家名/羁绊轮数，gitignore）
+main.py                 启动壳（转调 apps/main.py）——`python main.py` 就是 CLI 入口
+apps/                   CLI 应用：main.py（对话循环）· vn_cli.py（VN 终端驱动；唯一依赖 renderer 的地方）
+webgui/                 Web 壳 + 会话状态机：app.py · deps.py（显式接缝）· bond/（BondState 状态机 / lane / 回放 / 生图 / 收尾）·
+                        chat.py（每角色输入队列 worker）· routers/（HTTP）· static/js/{bond,mmt,gui}.js
+core/                   引擎层（无 web 依赖）：mmt/engine(聊天引擎) · bond/bond_story(VN 引擎) · bond/(标注层: 情绪/换场/选图) ·
+                        session/(事件流 events.jsonl + 叙事化 + 认章 + 维护) · brain/wiki_v2/(digest 记忆) · promptkit/(提示词装配) ·
+                        tui/(终端展示层) · media/ · director/(视觉导演) · parsing/ · worldtime/(三层时钟) · rag/ · common/
+contract/               契约地基：records/(记录流文法 + 解析 + 块/板校验 + 载体) · schema/registry/spec/model(动作契约) · errors · json_cleaner
+llm/                    LLM 客户端（超时/流式/usage）+ task_levels(档位) + task_labels(调用身份) + prompts/ 文案仓库
+renderer/               终端渲染管线（CLI 用：背景/立绘/特效/打字/选项）
+docs/                   设计文档（DESIGN_*.md）· 执行计划（EXEC_*.md）· 审计（AUDIT_*.md）· 归档（archive/）
+config/                 静态配置：characters/（人设六文件 + illustration.yml）· settings/（世界 overview.yml + 关系权重表）
+tests/                  自动化测试（pytest，按域分 core/ webgui/ llm/ renderer/）
+experiments/            真 API 基准与探究脚本（手工运行，烧 token）· web_e2e/（浏览器冒烟）
+archive/                历史代码（旧 IDE 编辑器）；tools/ = 本机工具（gitignore）
+assets/  data/          资源与运行时数据（均 gitignore；data/ 下 worlds/*/characters/*/soul/ = 事件流与记忆）
 ```
 
 ## 测试
 
 ```bash
 pip install -r requirements-dev.txt   # 含 pytest
-python -m pytest                      # 全部离线测试（~150 个）
+python -m pytest                      # 全部离线测试（880 个）
+python experiments/web_e2e/run.py     # B 层浏览器冒烟（Playwright 驱动本机 Chrome/Edge）
 ```
 
 需要真实 API 的验证脚本（e2e / 建卡 / API 连通）在 `experiments/`，手工运行、烧 token。
@@ -56,14 +54,15 @@ python -m pytest                      # 全部离线测试（~150 个）
 
 | 文档 | 内容 |
 |------|------|
-| [CLAUDE.md](CLAUDE.md) | 总架构：四大板块 / Virtual Brain / 契约层 / 开发阶段 |
-| [entrance/USAGE.md](entrance/USAGE.md) | IDE 使用手册（五件套 / REQ~SIG~ 约定 / 常见问题） |
+| [CLAUDE.md](CLAUDE.md) | **主文档**：架构 / 契约 / 事件流 / 提示词装配 / 配置 / 测试纪律 —— 第一份该读的 |
+| [docs/EXEC_SPLIT.md](docs/EXEC_SPLIT.md) | 文件拆分与位置规划（C0–C12b 执行记录 + 陷阱清单） |
+| [docs/EXEC_PIPELINE_UNIFY.md](docs/EXEC_PIPELINE_UNIFY.md) | 单一记录流流水线（records → boards）执行记录 |
+| [docs/DESIGN_VN_UPGRADE.md](docs/DESIGN_VN_UPGRADE.md) | VN 契约形式换代（记录流 v2：character/stage + switch/标注分工） |
+| [docs/DESIGN_MEMORIAL.md](docs/DESIGN_MEMORIAL.md) | 纪念链路（art / memorial / 黑屏缓冲 / 记录级进入 / 生图质量） |
+| [docs/DESIGN_PLACE.md](docs/DESIGN_PLACE.md) · [docs/AI_BRIEF_PLACE.md](docs/AI_BRIEF_PLACE.md) | 地点系统（设计稿 · 给 AI 的速查一页纸） |
+| [docs/DESIGN_COLLECTION_BOOK.md](docs/DESIGN_COLLECTION_BOOK.md) | 回忆册（书页 UI / 角色页 / 只读回放） |
+| [docs/DESIGN_WIKI_V3.md](docs/DESIGN_WIKI_V3.md) | 记忆图 v3（实体中心 + 混合召回 + 时间架构 + 组合） |
 | [docs/DESIGN_CONTRACT.md](docs/DESIGN_CONTRACT.md) | 契约层设计（ActionSpec / 审批策略 / 数据流） |
-| [ide/README.md](ide/README.md) | IDE agent 快速上手 |
-| [web/DESIGN.md](web/DESIGN.md) | Web GUI 设计（SSE 并发 / 审批桥） |
-| [docs/DESIGN_VN_UPGRADE.md](docs/DESIGN_VN_UPGRADE.md) | VN 契约形式换代（记录流 v2：character/stage 两分法 + switch/标注分工 + registry 关系） |
-| [docs/archive/DESIGN_BOND_STORY.md](docs/archive/DESIGN_BOND_STORY.md) | ⚠️ 已归档（旧 VN 运行时：story_scene/story_end 双动作 + 执行层） |
-| [docs/DESIGN_VISUAL.md](docs/DESIGN_VISUAL.md) | ② 视觉导演设计（已实现：导演定 sprite/background） |
-| [docs/DESIGN_VISUAL_PROTOCOL.md](docs/DESIGN_VISUAL_PROTOCOL.md) | 视觉意图协议（emotion/place 意图 + 情绪词表，设计定稿待实现） |
-| [docs/archive/DESIGN_AGENT.md](docs/archive/DESIGN_AGENT.md) | ⚠️ 已归档（算法做导演早期方案，被视觉意图协议取代，历史参考） |
-| 各目录 `.exp` | 目录级说明（人类 + LLM 共读） |
+| [docs/](docs/) | 其余设计稿：`DESIGN_{MMT_CHAT,GUI,SEGMENT,WORLD,MULTI_CHAR,VISUAL,VISUAL_PROTOCOL,PROMPTKIT,RESEND,MEETUP,FOURTH_WALL,CONTEXT_WINDOW}.md` |
+| [docs/archive/](docs/archive/) | 已归档设计稿（v1 动作契约 / 旧 VN 运行时 / 旧记忆栈 / 旧 IDE 方案 …） |
+| [TODO.md](TODO.md) · [DESIGN_BRAIN.md](DESIGN_BRAIN.md) · [CLAUDE_OPTIMIZE.md](CLAUDE_OPTIMIZE.md) | 历史待办 · 记忆体系总纲 · 优化方向清单 —— **都已过时，读前看各自状态头** |
