@@ -34,10 +34,8 @@ from pathlib import Path
 
 from core import paths
 from core.bond.bond_story import BondScene, BondStoryEngine, SceneLoopError
-from core.media.gallery import GalleryStore
 from core.momotalk import load_brain_segment
 from core.session.events import (
-    M_MEMORIAL_IMAGE,
     M_SESSION_END,
     M_VN_ABANDON,
     M_VN_EXIT,
@@ -52,7 +50,6 @@ from core.session.staging import (
     truth_store,
 )
 from core.ui.vn_cli import _build_director, _trigger_title
-from llm.image_gen import collect_ref_images
 from webgui import chat, deps                    # deps = 显式接缝（C1a）
 from webgui.bond.state import (                # C2: 状态模型（叶子模块）
     BoardLifecycle,
@@ -97,6 +94,10 @@ from webgui.bond.replay import (         # C5: 回放层（0 LLM 两条读路径
     _title_from_events,
     _enter_title,
     _prev_chapter_quit,
+)
+from webgui.bond.memorial import (       # C6: 纪念生图
+    _make_memorial_cb,
+    _ensure_memorial_img,
 )
 from webgui.bond.util import _ms_since                  # C4: 跨模块纯小工具
 
@@ -329,87 +330,6 @@ def _clear_rejects(state: "BondState", char_id: str, session_id: str) -> None:
 
 #: 生图器 / 看门狗阈值 / choice 开关已搬到 `webgui/deps.py`（C1a 接缝收敛）——
 #: 消费方一律 `deps.xxx`（调用时属性查找 ⇒ 测试 patch `deps.xxx` 才生效）。
-
-
-def _memorial_gen(state: BondState, char_id: str, session_id: str,
-                  prompt: str) -> None:
-    """纪念立绘异步生成（方案 A）: generate → 画廊落盘 → 写回 state。
-
-    触发早于契约校验——动作最终可能被拒（频率限制/坏 JSON → 图作废, 接受浪费）。
-    失败降级: 不设置 memorial_img（前端纯文字, 剧情照走）。写回持短锁;
-    场景已推进不影响（前端只在纪念场景显示图）。总开关关 → 调用方已不开线程。
-    """
-    try:
-        gen = deps.image_generator()
-        if gen is None:
-            return                              # 未配 key → 降级纯文字
-        eng = chat._engine(char_id)
-        char = eng.current_character
-        name = char.display_name if char is not None else "角色"
-        hints = eng.char_loader.load_illustration(char_id)   # illustration.yml（可选）
-        # 性格简卡（2026-09-20 D1）: 作者手写优先; 没写 → 从 personality.yml 的
-        # SIG~brief_traits 自动摘。生图模型不知道人设就画不出神态。
-        persona = (hints.get("character_hint") or "").strip() or (
-            char.image_persona_brief() if char is not None else "")
-        refs = collect_ref_images(char_id)
-        img = gen.generate(prompt, ref_images=refs,
-                           character_name=name,
-                           character_hint=persona,
-                           halo_hint=hints.get("halo_hint", ""))
-        logger.info("纪念立绘: %dx%d %.1fs %s", img.width, img.height,
-                    img.elapsed_s, img.path.name)
-        # 可归因记账（2026-09-20 节点 C）: `prompt_source` = 这张图的 prompt 是
-        # `art` 画面意向还是降级的触发句 —— art 配对命中率就靠它算。
-        sid = GalleryStore(_flow_store(state).data_root,
-                           world_id=_flow_store(state).world_id).write(
-            char_id, prompt, session_id, img.path, width=img.width, height=img.height,
-            prompt_source=getattr(eng, "memorial_prompt_source", "") or "",
-            refs=[Path(p).name for p in refs],
-            model=getattr(gen, "api_model", "") or "",
-            elapsed_ms=int(round((img.elapsed_s or 0) * 1000)))
-        with state._lock:
-            state.memorial_img = (
-                f"/gallery/{_flow_store(state).world_id}/{char_id}/{sid}.png")
-        # 异步回执落真源（append-only: 图后到, 不能补写原 bond 事件）——
-        # 回放/重启据此恢复纪念图（`_ensure_memorial_img`）。写失败只降级: 本进程
-        # 内存里仍有图, 只是重启后回放看不到（宁缺勿错）。
-        try:
-            _flow_store(state).append_marker(
-                char_id, session_id, M_MEMORIAL_IMAGE,
-                {"url": f"/gallery/{_flow_store(state).world_id}/{char_id}/{sid}.png",
-                 "prompt": str(prompt)[:200], "width": img.width, "height": img.height,
-                 "scene_id": sid})
-        except Exception as e:                       # noqa: BLE001 — 回执写失败不阻断
-            logger.warning("纪念图回执 marker 写失败（回放将看不到这张图）: %s", e)
-    except Exception as e:                       # noqa: BLE001 — 失败降级纯文字
-        logger.warning("纪念立绘生成失败（降级纯文字）: %s", e)
-        with state._lock:
-            state.memorial_img = ""
-    finally:
-        with state._lock:
-            state.memorial_img_busy = False
-
-
-def _make_memorial_cb(state: BondState, char_id: str, session_id: str):
-    """流式嗅探回调: prompt 定稿 → 重置图状态 + 开生图线程（不阻塞 LLM 收集线程）。
-
-    在 LLM 收集线程内被调用（持 chat._lock）——只开线程, 不做重活。
-    防重复: memorial_img_busy 时跳过（重试 attempt 可能再次触发, 第一张作废）。
-    """
-    def cb(prompt: str) -> None:
-        if state.demo is not None:
-            return
-        if deps.image_generator() is None:
-            return                       # 总开关关 / 未配 key → 不开线程（纯文字降级）
-        with state._lock:
-            if state.memorial_img_busy:
-                return
-            state.memorial_img_busy = True
-            state.memorial_img = ""
-        threading.Thread(target=_memorial_gen,
-                         args=(state, char_id, session_id, prompt),
-                         daemon=True).start()
-    return cb
 
 
 # ---------------------------------------------------------------------------
@@ -839,60 +759,6 @@ def bond_start_demo(char_id: str, session_id: str) -> dict:
         logger.warning("事件流 vn_enter 写入失败: %s", e)
     _generate(state, char_id, session_id, "（演示开始）")
     return {"accepted": True, "busy": True, "resumed": False}
-
-
-def _persisted_memorial_img(char_id: str, session_id: str, store=None) -> str:
-    """从事件流恢复纪念图 URL（2026-09-12）: 最近一条**仍属当前章**的
-    `memorial_image` marker。
-
-    为什么单开一条 marker: 图是异步生成完才有的, 不能补写进原 bond 事件
-    （append-only 不可改）→ 生成成功即 append 回执（`_memorial_gen`）。
-
-    **范围判据 = "其后没有本章结束"**（`vn_exit`/`vn_abandon`/`session_end`）:
-    章内 ≤1 次纪念, 上一章的图不能错挂到新章 → 只看其后未闭合的那条。
-    为什么**不**用"最近一次 `vn_enter` 之后"划范围: **预热会在 `vn_enter` 之前就出图**
-    （触发轮结束即后台生成首场 → 板落地就写 marker; 玩家点进来才写 vn_enter）——
-    B 层冒烟实测踩到: 按 vn_enter 划范围会把当前章自己的图排除掉。
-
-    ⚠️⚠️ **2026-09-20 修（真机报障"这一章生成了 memorial，但我玩的时候没见过"）**:
-    这里原先只读**真源**。而 B0 整章暂存下, 章内的 marker（含本条的 `memorial_image`）
-    **还在 `soul/staging/`**, 直到 `vn_exit` 才整段提交 ⇒ 章进行中查这里**恒为空**
-    → `_ensure_memorial_img` 填不上 `state.memorial_img` → 前端 `syncMemorial`
-    落在"**in_memorial=true 但图为空**"那一支 = 清空背景 + **什么都不淡入** = **黑屏**。
-    真机现场: 图 14:53:28（预热期间）生成入暂存, 纪念板 14:58:45（收尾板）,
-    中间 5 分钟真源里查不到 → 玩家只看到黑屏, 没看到纪念图。
-    **修法与 `replay_attempts` 同一条**: 读 **overlay**（真源 + 章内暂存）。
-    """
-    try:
-        evs = staging_store(store or _store()).events(char_id, session_id)
-    except Exception:                                # noqa: BLE001 — 读失败当没有
-        return ""
-    url = ""
-    for e in evs:
-        if not getattr(e, "is_marker", False):
-            continue
-        if e.subtype in (M_VN_EXIT, M_VN_ABANDON, M_SESSION_END):
-            url = ""                                 # 本章结束 → 之前那张作废
-        elif e.subtype == M_MEMORIAL_IMAGE:
-            u = (e.payload or {}).get("url")
-            if isinstance(u, str) and u.strip():
-                url = u.strip()
-    return url
-
-
-def _ensure_memorial_img(state: BondState, char_id: str, session_id: str) -> None:
-    """纪念窗口内还没有图 → 从事件流补一次（回放 / 重启 / 重进: 图由上一进程生成）。
-
-    只在纪念窗口内 + 图为空时查（每次进板一次, 事件流很小）; 命中即写回 state,
-    随后 `bond_status`/`_ready_scene_payload` 自然把它带给前端（前端 `syncMemorial`
-    据此淡入）。查不到就什么都不做（纯文字降级, 宁缺勿错）。
-    """
-    if state.memorial_img or state.vn is None or not state.vn.in_memorial:
-        return
-    url = _persisted_memorial_img(char_id, session_id, _flow_store(state))
-    if url:
-        state.memorial_img = url
-        logger.info("纪念立绘: 事件流恢复 %s", url)
 
 
 def bond_turn(char_id: str, session_id: str, text: str) -> dict:
