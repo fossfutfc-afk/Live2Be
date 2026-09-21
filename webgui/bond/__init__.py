@@ -40,9 +40,7 @@ from webgui.bond._impl import (
     BondStoryEngine,
     ChoiceCandidate,
     DEMO_SCRIPT,
-    GalleryStore,
     MAX_GEN_FAILURES,
-    M_MEMORIAL_IMAGE,
     M_SESSION_END,
     M_VN_ABANDON,
     M_VN_EXIT,
@@ -58,7 +56,6 @@ from webgui.bond._impl import (
     _clear_rejects,
     _discard_boards,
     _discard_candidates,
-    _ensure_memorial_img,
     _entry_already_done,
     _force_scene_ready,
     _gate_stalled,
@@ -66,11 +63,8 @@ from webgui.bond._impl import (
     _lane_writer_alive,
     _lanes_idle,
     _log_board_deliver,
-    _make_memorial_cb,
-    _memorial_gen,
     _memorial_open_in_events,
     _note_reject,
-    _persisted_memorial_img,
     _pregenerate,
     _ready_scene_payload,
     _role_info,
@@ -90,7 +84,6 @@ from webgui.bond._impl import (
     bond_status,
     bond_turn,
     close_open_attempts,
-    collect_ref_images,
     commit_staging,
     exclude_abandoned,
     load_brain_segment,
@@ -100,6 +93,13 @@ from webgui.bond._impl import (
     staging_store,
     truth_store,
     window_messages,
+)
+
+from webgui.bond.memorial import (            # C6: 纪念生图
+    _persisted_memorial_img,
+    _memorial_gen,
+    _make_memorial_cb,
+    _ensure_memorial_img,
 )
 
 from webgui.bond.replay import (              # C5: 回放层
@@ -156,15 +156,17 @@ from webgui.bond.stores import (              # C3: 落库层
     _close_memorial_window,
 )
 
-# 下面这些名字**定义处不在 bond 包内**（C3/C5 顺手清: `_impl.py` 里它们早就没人用了,
-# 只是当年作为"bond 的对外面"一路被再导出——C5 把最后三个用点也搬进了 `replay.py`）
+# 下面这些名字**定义处不在 bond 包内**（C3/C5/C6 顺手清: `_impl.py` 里它们早就没人用了,
+# 只是当年作为"bond 的对外面"一路被再导出——最后一个用点分别搬进了 replay / memorial）
 # —— 门面继续给, 但指向真家。
 from contract import NON_PICKS                     # noqa: E402
+from core.media.gallery import GalleryStore        # noqa: E402
 from core.session.chapters import replayable_chapters          # noqa: E402
 from core.session.events import (             # noqa: E402
     M_MEMORIAL_ENTER,
     M_MEMORIAL_EXIT,
+    M_MEMORIAL_IMAGE,
     M_VN_STATE,
 )
 from core.session.maintenance import abandoned_ranges          # noqa: E402
-from llm.image_gen import image_enabled       # noqa: E402
+from llm.image_gen import collect_ref_images, image_enabled     # noqa: E402
