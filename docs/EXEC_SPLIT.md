@@ -1,8 +1,8 @@
 # EXEC_SPLIT — 文件拆分与位置规划（执行计划）
 
 > **状态**：执行中。**C0（安全网 + 工具纪律）+ C1a（接缝收敛 `webgui/deps.py`）+
-> C1b（`webgui/bond.py` → 包, 纯移动）+ C2（搬 `state.py`, 叶子优先）已落地
-> 2026-09-21**；C3 起未动。
+> C1b（`webgui/bond.py` → 包, 纯移动）+ C2（搬 `state.py`, 叶子优先）+
+> C3（搬 `stores.py`, 落库层）已落地 2026-09-21**；C4 起未动。
 > **怎么用**：每个节点 = **一次提交 + 全量测试 + （涉 webgui 时）B 层冒烟**；
 > 节点内**只做"移动"**，任何行为改动单独开节点。行号一律不写（会漂），写 `file.py::symbol`。
 > **相关**：`docs/EXEC_PIPELINE_UNIFY.md`（流水线收敛，已全部落地）· `CLAUDE.md` §2/§11/§12。
@@ -74,6 +74,7 @@ webgui/bond/             ← webgui/bond.py（模块→包；13 个引用点零�
   watchdog.py            看门狗判定 + _watchdog / _lanes_idle / _gate_stalled / _force_scene_ready
                          （**阈值常量**留在 `deps.py`——测试要改它们）
   stores.py              _flow_store/_stage_store/_log_scene/_log_scene_meta/marker/prewarm/draft
+                         （**C3 已落地**——含 `_store` 与 `_*_seq` 读点）
   lanes.py               双路 lane + 就绪门控 + _memorial_no_visuals
   replay.py              replay_attempts/chapter_replay/_start_replay/_narrativize/标题
   pregen.py              _generate/_pregenerate/候选/丢弃/_scene_landed
@@ -103,7 +104,7 @@ tests/webgui/bond/       ← test_bond.py 按主题拆 + tests/stubs/ 收共享 
 | ✅ **C1a** | **接缝收敛（`webgui/deps.py`）** | 新建 `webgui/deps.py`（store / 生图器 / 看门狗阈值 / choice 开关 / `enqueue_annotate` 钩子）; `bond.py`/`chat.py`/`routers/collection.py` 全部改读 `deps.xxx`（**调用时**属性查找）; **16 个 patch 点全部改打 `deps.*`**; `ALLOWED_PATCHES` 清空 + 新增 `SAFE_PATCHES`（3 条: 调用点在包外的 patch）; 快照加盯 `webgui.deps`（`SNAPSHOT = TARGETS + ("webgui.deps",)`——`deps` **不能**进 `TARGETS`, 否则"patch 接缝"会被守门当成违规）; owner 列归一（`_owner_of` 去掉私有段, 免得换解释器抖 + C1b 要求快照零 diff） | 全量 **880 passed**; 冒烟 **PASS**（含纪念生图链路）; patch 白名单 0 条; 快照 diff = 只此 10 个名字搬家 |
 | ✅ **C1b** | **`webgui/bond.py` → 包（原样）** | `git mv webgui/bond.py webgui/bond/_impl.py`（**逐字未改**）+ 新 `webgui/bond/__init__.py`：**逐个显式**再导出 117 个名字（含私有名, 列表**从 API 面快照生成**, 见 §5 陷阱 8）; 13 个引用点**一个字未改** | `git diff -M` = **rename 100%** + 只有门面新增; `tests/fixtures/api_surface.txt` **零 diff**; 全量 **880 passed**; 冒烟 **PASS** |
 | ✅ **C2** | **搬 `state.py`（叶子优先 —— 原计划排在 C7, 实测必须提前）** | `ChoiceCandidate` / `BoardLifecycle` / `BondState` / `_bonds` / `_state` / `_memorial_open_in_events` 逐字搬进 `webgui/bond/state.py`（唯一改动: `_store()` → `deps.store()`）; `_impl.py` 只留一行 import; 门面**零改动** | 全量 **880 passed**; 冒烟 **PASS**; 门面/夹具**零 diff**; 身份自检（`webgui.bond.X is webgui.bond.state.X` / `_bonds` 同一个 dict）|
-| **C3** | 搬 `stores.py` | 落库/事件流/marker/prewarm/draft（`_store`/`_flow_store`/`_stage_store`/`_log_scene*`/`_close_memorial_window`/`_draft_*`/`_prewarm_cache_*`/`_*_seq`/`_memorial_open_in_events` 之外的读点） | 绿 |
+| ✅ **C3** | **搬 `stores.py`（落库层）** | 22 个符号逐字搬进 `webgui/bond/stores.py`: `_store`/`_flow_store`/`_stage_store` · `_last_bond_seq`/`_last_mmt_seq`/`_open_vn_seq` · `_draft_*` · `_prewarm_cache_*` · `_log_scene`/`_log_scene_meta`/`_close_memorial_window`。**新纪律**: 门面改从 `stores` 收这 22 个名字（`_impl` 只收它自己还在调用的 15 个）; 顺手清掉 `_impl` 里早已无人用的 3 个事件常量与 `image_enabled`（门面继续给, 指向真家 `core.session.events` / `llm.image_gen`） | 全量 **880 passed**; 冒烟 **PASS**; 门面 117 名 + 夹具**零 diff**; 身份自检（`webgui.bond.X is webgui.bond.stores.X`）|
 | **C4** | 搬 `lanes.py` | 双路 lane + 就绪门控 | 绿 |
 | **C5** | 搬 `replay.py` | 回放/标题 | 绿（回放用例是网） |
 | **C6** | 搬 `pregen.py` | 预热/预生成/候选/丢弃 | 绿（节点 4′/2″ 用例是网） |
@@ -210,6 +211,14 @@ python -m compileall -q core webgui llm contract tests   # 全仓可编译
     ⚠️ 判据要看**运行期**引用: `from __future__ import annotations` 之后, 只出现在
     注解里的名字（`state: BondState`）不构成运行期依赖, 可以在类型模块里 `TYPE_CHECKING`
     或干脆不导入 —— 别把"注解里出现"误判成"必须同模块"。
+11. **"名字的搬运"与"门面的来源"要一起想**（C3 定下的做法）：搬走一块之后,
+    1) 新模块只 import **它自己用得到的**东西; 2) `_impl.py` 只从新模块收**它自己还在
+    调用的**名字; 3) **门面（`__init__.py`）直接指向新家** —— 于是 `_impl.py` 不会
+    攒下一堆"只为再导出而 import"的死名字（C8 它消失时也就没有额外迁移成本）。
+    ⚠️ 对外面**一个名字都不能少**: 搬完后立刻用 `dir()`/API 面夹具核对
+    （本项目 117 名 = `_impl` 收 N 个 + 门面从新模块收 M 个）;
+    ⚠️ 也顺手清掉"当年为再导出而留、如今全仓无人用"的名字（C3 清了 `_impl` 里
+    3 个事件常量 + `image_enabled`）—— 但**门面继续给**（它是对外面的一部分）。
 
 ---
 
