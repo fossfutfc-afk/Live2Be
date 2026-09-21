@@ -10,6 +10,7 @@ ScriptedLLM（不碰 API）:
 运行: python -m pytest tests/webgui/test_bond.py
 """
 import json
+import logging
 import sys
 import time
 from pathlib import Path
@@ -1039,6 +1040,36 @@ def test_scene_logged_is_provisional_until_pick(tmp_path):
         assert _bond_paras(overlay), "裁决后 overlay 里应有正文（已提交到暂存）"
         assert not _bond_paras(st), "但真源仍没有 —— 章内不进真源（B0 章暂存）"
         print("    lifecycle: DELIVERED（交付未提交）→ COMMITTED（裁决→暂存）；真源等 vn_exit")
+    finally:
+        _cleanup()
+
+
+def test_emo_lane_actually_publishes(tmp_path, caplog):
+    """标注 lane **真的把结果写回状态**（不只是"门控就绪"）。
+
+    为什么单开这条（○C8b 实测抓到的真 bug）: C4 把 `_ms_since` 搬进 `util.py` 时漏了
+    `lanes.py` 的 import ⇒ 标注 worker 在**写回那块之前**抛 `NameError`, 被
+    `except Exception`（保活）吞成一行 WARNING; 而门控靠 `_fallback_fill` 照样"就绪"
+    —— 于是 **功能静默失效 + 测试全绿**（`emo_version` 永不递增, 前端永远拿不到标注）。
+    这里钉两件: ① `emo_version` 至少涨 1（= 走完了写回块）② 日志里没有"标注处理异常"。
+    """
+    engine, st, sid, llm = _setup(tmp_path, _PLAIN_BLOCK, _PLAIN_BLOCK_2)
+    try:
+        with caplog.at_level(logging.WARNING):
+            bond.bond_start(CHARACTER, sid)
+            deadline = time.time() + 10.0
+            while time.time() < deadline and bond._state(CHARACTER, sid).emo_version < 1:
+                time.sleep(0.05)
+        state = bond._state(CHARACTER, sid)
+        assert state.emo_version >= 1, (
+            f"emo lane 没写回: emo_version={state.emo_version}（写回块被异常跳过了?）"
+            f"\n日志: {caplog.text[-800:]}")
+        assert "标注处理异常" not in caplog.text, (
+            "标注 worker 抛异常（宽 except 会把它吞成 WARNING）:\n" + caplog.text[-800:])
+        assert state.scene is not None and state.scene["paragraphs"][0].get("emotion"), \
+            "写回的板应带标注好的 emotion"
+        print(f"    lane 写回: emo_version={state.emo_version}, 首段 emotion="
+              f"{state.scene['paragraphs'][0].get('emotion')}")
     finally:
         _cleanup()
 

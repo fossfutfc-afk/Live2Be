@@ -46,7 +46,7 @@ webgui.bond	_enqueue_place_annotate	function	webgui.bond.lanes
 webgui.bond	_ensure_lane	function	webgui.bond.lanes
 webgui.bond	_ensure_memorial_img	function	webgui.bond.memorial
 webgui.bond	_enter_title	function	webgui.bond.replay
-webgui.bond	_entry_already_done	function	webgui.bond.api
+webgui.bond	_entry_already_done	function	webgui.bond.entry
 webgui.bond	_fallback_fill	function	webgui.bond.lanes
 webgui.bond	_flow_store	function	webgui.bond.stores
 webgui.bond	_force_scene_ready	function	webgui.bond.watchdog
@@ -77,8 +77,8 @@ webgui.bond	_prewarm_cache_delete	function	webgui.bond.stores
 webgui.bond	_prewarm_cache_load	function	webgui.bond.stores
 webgui.bond	_prewarm_cache_path	function	webgui.bond.stores
 webgui.bond	_prewarm_cache_save	function	webgui.bond.stores
-webgui.bond	_ready_scene_payload	function	webgui.bond.api
-webgui.bond	_role_info	function	webgui.bond.api
+webgui.bond	_ready_scene_payload	function	webgui.bond.entry
+webgui.bond	_role_info	function	webgui.bond.entry
 webgui.bond	_scene_emotions_ready	function	webgui.bond.lanes
 webgui.bond	_scene_landed	function	webgui.bond.pregen
 webgui.bond	_scene_obj_visual_ready	function	webgui.bond.lanes
@@ -87,7 +87,7 @@ webgui.bond	_scene_ready_or_busy	function	webgui.bond.lanes
 webgui.bond	_scene_visual_ready	function	webgui.bond.lanes
 webgui.bond	_spawn_candidates	function	webgui.bond.pregen
 webgui.bond	_stage_store	function	webgui.bond.stores
-webgui.bond	_start_replay	function	webgui.bond.api
+webgui.bond	_start_replay	function	webgui.bond.entry
 webgui.bond	_state	function	webgui.bond.state
 webgui.bond	_store	function	webgui.bond.stores
 webgui.bond	_system_note	function	webgui.bond.pregen
@@ -100,8 +100,8 @@ webgui.bond	_wrapup	function	webgui.bond.api
 webgui.bond	_wrapup_inner	function	webgui.bond.api
 webgui.bond	abandoned_ranges	function	core.session.maintenance
 webgui.bond	bond_finish	function	webgui.bond.api
-webgui.bond	bond_start	function	webgui.bond.api
-webgui.bond	bond_start_demo	function	webgui.bond.api
+webgui.bond	bond_start	function	webgui.bond.entry
+webgui.bond	bond_start_demo	function	webgui.bond.entry
 webgui.bond	bond_status	function	webgui.bond.api
 webgui.bond	bond_turn	function	webgui.bond.api
 webgui.bond	chapter_replay	function	webgui.bond.replay

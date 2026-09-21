@@ -29,6 +29,7 @@ import logging
 
 from core.bond.bond_story import BondScene
 from webgui.bond.state import BondState
+from webgui.bond.util import _ms_since      # ⚠️ C4 漏了这一行（见 tests/core/test_split_safety.py 的泄漏守门）
 
 logger = logging.getLogger(__name__)
 

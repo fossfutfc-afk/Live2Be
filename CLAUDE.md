@@ -69,8 +69,12 @@ webgui/        FastAPI 壳 + 会话状态机（**bond/ 包** = BondState 状态�
    │           `state.py`（状态模型）· `stores.py`（落库层: 事件流读写唯一出口）·
    │           `lanes.py`（双路 lane + 就绪门控）· `replay.py`（回放层）·
    │           `memorial.py`（纪念生图）· `pregen.py`（生成/预生成/候选/丢弃）·
-   │           `watchdog.py`（卡住 → 降级放行）· `api.py`（对外动作: start/turn/status/finish
-   │           + 收尾 + 回放编排）· `util.py`（`_ms_since`）。**`_impl.py` 已于 C8 消失**
+   │           `watchdog.py`（卡住 → 降级放行）·
+   │           **`entry.py`（○C8b: 开场与场景载荷 = `bond_start`/`bond_start_demo`/`DEMO_SCRIPT`/
+   │           `_start_replay`/`_entry_already_done`/`_ready_scene_payload`/`_role_info`）·**
+   │           **`api.py`（○C8b: 轮次/查询/收尾 = `bond_turn`/`bond_status`/`bond_finish` +
+   │           `_wrapup*` + 被拒诊断 —— 方向 api → entry）** · `util.py`（`_ms_since`）。
+   │           **`_impl.py` 已于 C8 消失**
    ├ routers/  路由层: 请求→驱动层; _resolve_scene 给场景附前端渲染信息(bg/fx/place_bg)
    └ store.py  运行时配置读写(settings.toml)
 core/          引擎层（无 web 依赖, CLI/实验同源复用）
@@ -484,10 +488,11 @@ CLI/测试同步路径在引擎内串行。
 ## 11. WebGUI 运行与前端
 
 - 启动：`python -m uvicorn webgui.app:app --host 127.0.0.1 --port 8000`（`webgui/app.py`）。
-- 结构：`webgui/bond/`（**C1b–C8 拆分完成**：门面 `__init__.py` 按"真家"分块再导出 117 名
+- 结构：`webgui/bond/`（**C1b–C8 + ○C8b 拆分完成**：门面 `__init__.py` 按"真家"分块再导出 117 名
   ⇒ import 路径不变、13 个引用点零改动; 内部 = `state`（状态模型）· `stores`（落库层）·
   `lanes`（双路 lane + 门控）· `replay`（回放层）· `memorial`（纪念生图）· `pregen`
-  （生成/预生成/候选/丢弃）· `watchdog`（卡住→降级放行）· `api`（对外动作 + 收尾）·
+  （生成/预生成/候选/丢弃）· `watchdog`（卡住→降级放行）· `entry`（开场与场景载荷）·
+  `api`（轮次 / 查询 / 收尾；方向 api → entry）·
   `util`; 原 `_impl.py` 已消失）、`webgui/deps.py`（显式接缝: 测试/桩替换 store 与生图器等）、
   `webgui/chat.py`（每角色输入队列 worker + 预热挂钩）、`webgui/routers/*`（HTTP 壳,
   `_resolve_scene` 附 background_url/fx/place_bg）、`webgui/static/js/{bond,mmt,gui}.js`。
@@ -688,11 +693,18 @@ CLI/测试同步路径在引擎内串行。
     **已归位**：`core/mmt/engine.py`（C12a）· `core/tui/`（C11）· `core/director/wiring.py`（C11）·
     `contract/{errors,json_cleaner}.py`（C10）· `apps/{main,vn_cli}.py`（C12b）· `docs/DESIGN_*.md`（C12b）。
   · **两条守门**（`tests/core/`）：`test_import_direction.py`（分层方向；**白名单 C12b 起是空表**，
-    含“谁都不许 import `apps`”）· `test_split_safety.py`（API 面快照 + patch 点台账）。
+    含“谁都不许 import `apps`”）· `test_split_safety.py`（API 面快照 + patch 点台账 +
+    **跨模块名字泄漏**＝"漏 import"静态守门, 见 §12）。
+  · ⚠️ **拆完一个包要静态扫"漏 import"**（○C8b 实测: 宽 `except` 会把 `NameError` 吞成一行
+    WARNING ⇒ 功能静默失效、测试全绿）: `uvx pyflakes core webgui contract apps` 只看
+    `undefined name`; 长期守门 = `test_split_safety.py::test_no_cross_module_name_leaks`;
+    **断言要落在"结果真的写回了"上**（如 `test_bond.py::test_emo_lane_actually_publishes`
+    断言 `emo_version` 涨），别只断言"门控就绪/能推进"（兜底路径会粉饰）。
   · **拆分纪律**（拆包节点通用）：叶子优先 · 门面逐个显式再导出（不定义 `__all__`）·
     门面只指向“名字的真家” · 接缝走 `webgui/deps.py` · 每节点一提交 + 全量 + 冒烟。
-  · 余下：**只有可选项** —— C14/C15（`llm/client.py` · `core/brain/wiki_v2/` 再分）与 ○C8b（`api.py` 再分）；
-    **C13 测试拆分经用户 2026-09-21 裁决不做**（连同 `tests/stubs/` 共享桩；共享桩已有 `tests/stub_tasks.py`）。
+  · 余下：**只有可选项** —— C15（`core/brain/wiki_v2/` 再分）；
+    **C13 测试拆分经用户 2026-09-21 裁决不做**（连同 `tests/stubs/` 共享桩；共享桩已有 `tests/stub_tasks.py`）；
+    **C14（两个 llm 文件）用户已明确"不用动"**；**○C8b 已落地**（`api.py` 1123 → `entry.py` 563 + `api.py` 624）。
 - **重新生成 / 重发 的语义与固化线**：docs/DESIGN_RESEND.md（**设计稿, 未动代码**。
   决策: MMT 提交边界 = **回合提交**; 两区 = 水位之上**丢弃** / 水位之下走
   `wiki_v2/revise` **更正**; 板级那一半已由 `BoardLifecycle` + `_discard_boards` 落地;

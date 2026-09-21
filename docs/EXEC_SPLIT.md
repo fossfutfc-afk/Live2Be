@@ -8,9 +8,10 @@
 > C10 `contract/records/`（grammar/parse/check/carrier）+ 错误原语下沉 + `json_cleaner` 归位 ·
 > C11 `core/tui/`（展示层搬出 `core/ui`）+ `core/director/wiring.py`（解 webgui→CLI）·
 > C12a `core/momotalk.py` → `core/mmt/engine.py`（无兼容壳）·
-> C12b `apps/{main,vn_cli}.py` + `docs/DESIGN_*.md`（**分层白名单归零**）。
+> C12b `apps/{main,vn_cli}.py` + `docs/DESIGN_*.md`（**分层白名单归零**）·
+> ○C8b `webgui/bond/api.py`(1123) → `entry.py` + `api.py`（用户点名要拆的一个）。
 > **拆分类工作到此结束**：C13 测试拆分经用户 2026-09-21 裁决**不做**（"测试不用拆了"）;
-> 余下只有**可选**项：C14/C15（`llm/client.py` · `core/brain/wiki_v2/`）与 ○C8b（`api.py` 再分）。
+> 余下只有**可选**项：C14/C15（`llm/client.py` · `core/brain/wiki_v2/` —— 用户已明确"两个 llm 都不用动了"）。
 > **收尾（2026-09-21, 体检后）**：跑了一次"重构后全量体检"（148 模块 import 全扫 0 失败 ·
 > vulture 高置信度仅 1 条既有项 · 守门变异测试仍会红 · 880 passed + 冒烟 PASS）, 并做了一个
 > **文档除锈**节点（README 三张表重写 · 活文档过期指路 · 归档稿 `DESIGN_SAVE.md` 链接改真家）。
@@ -97,8 +98,11 @@ webgui/bond/             ← webgui/bond.py（模块→包；13 个引用点零�
                          含 `_system_note` 与收尾/重试常量）
   watchdog.py            忙态/视觉门/预生成消费门的兜底放行 + _watchdog（**C8 已落地**；
                          阈值常量在 `deps.py`——测试要改它们）
-  api.py                 bond_start/turn/status/finish + _start_replay + wrapup（**C8 已落地**；
-                         1051 行 —— 若嫌大, 见 §3 的 ○C8b 可选节点）
+  api.py                 轮次 / 查询 / 收尾: `bond_turn` / `bond_status` / `bond_finish` +
+                         `_wrapup*` + 被拒诊断（**C8 已落地**; **○C8b 起 624 行**）
+  entry.py               开场与场景载荷: `bond_start` / `bond_start_demo` / `DEMO_SCRIPT` /
+                         `_start_replay` / `_entry_already_done` / `_ready_scene_payload` /
+                         `_role_info`（**○C8b 已落地**; 563 行; 方向 **api → entry**）
 core/bond/bond_story/    ← 模块→包（27 个引用点零改动）—— **C9 已落地**
   __init__.py            门面: 54 名按"真家"分块再导出（含私有名; 不定义 `__all__`）
   scene.py               BondScene / SceneLoopError（**C9**；264 行）
@@ -149,7 +153,9 @@ tests/webgui/bond/       ← ~~test_bond.py 按主题拆 + tests/stubs/ 收共�
 | ✅ **C6** | **搬 `memorial.py`（纪念生图）** | 4 个符号逐字搬进 `webgui/bond/memorial.py`: `_persisted_memorial_img`（从事件流/overlay 捡回异步落盘的图）· `_memorial_gen`（真开画, 生图器走 `deps`）· `_make_memorial_cb` · `_ensure_memorial_img`。**注意 C6/C7 对调了**（见下）; 顺手把 `GalleryStore`/`collect_ref_images`/`M_MEMORIAL_IMAGE` 清成"门面直指真家" | 全量 **880 passed**; 冒烟 **PASS**; 门面 117 名 + 夹具**零 diff**; 4 个名字身份自检 |
 | ✅ **C7** | **搬 `pregen.py`（生成 / 预生成 / 候选 / 丢弃）** | 15 个符号逐字搬进 `webgui/bond/pregen.py`: 常量 `_CLOSING_TEXT`/`_CLOSING_PARA`/`MAX_GEN_FAILURES`/`_REMIND_ROUNDS`/`_END_ROUNDS` + `_generate`/`_pregenerate`/`_scene_landed`/`_log_board_deliver` + 候选支 `_choice_pregen_enabled`/`_spawn_candidates`/`_candidate_worker` + 丢弃入口 `_discard_boards`/`_discard_candidates` + `_system_note`（产品侧只有生成两处调用, 故住这里）。顺手把 `ChoiceCandidate`/`staging_store`/`M_SESSION_END`/`M_VN_ABANDON` 清成"门面直指真家" | 全量 **880 passed**; 冒烟 **PASS**; 门面 117 名 + 夹具**零 diff**; 15 个名字身份自检; `_impl.py` 1204 行 |
 | ✅ **C8** | **搬 `api.py` + `watchdog.py`；`_impl.py` 消失** | `watchdog.py`（144 行）= `_watchdog`/`_lanes_idle`/`_lane_writer_alive`/`_gate_stalled`/`_force_scene_ready`/`_thread_alive`（单向: 只依赖 lanes/deps/util）; `api.py` = `bond_start/turn/status/finish` + `bond_start_demo` + `_start_replay` + `_ready_scene_payload`/`_role_info` + `_entry_already_done` + `_note_reject`/`_clear_rejects` + `_wrapup`/`_wrapup_inner` + `DEMO_SCRIPT`（原 `bond.py` 的模块说明逐字搬进来当"对外契约"一节）。**门面按"名字的真家"整体重建**（117 名 → 9 个包内模块 + 11 个核心/契约/llm 真家, 分块列出）; `_impl.py` 删除 | 全量 **880 passed**; 冒烟 **PASS**; **快照刷新后 diff = 只有 owner 列**（模块+名字+种类零变化, 已逐列核对）; `import webgui.bond._impl` → ModuleNotFoundError |
-| ○ **C8b**（可选） | `api.py` 再分 | `api.py` 实测 **1051 行**（比计划里的 ≤460 大一倍多）—— 可选切成 `entry.py`（`bond_start`/`_start_replay`/负载/演示）+ `api.py`（`bond_turn`/`status`/`finish`/`_wrapup*`）, 方向 api → entry | 绿 |
+| ✅ **○C8b** | **`api.py` 再分 → `entry.py` + `api.py`** | 用户 2026-09-21 裁决"先把 api.py 拆一下"。1123 行按**原计划的两文件切法**拆: `entry.py`（**563 行**）= `bond_start` / `bond_start_demo` / `DEMO_SCRIPT` / `_start_replay` / `_entry_already_done` / `_ready_scene_payload` / `_role_info`（开场 + **前端要的场景载荷**）; `api.py`（**624 行**）= `bond_turn` / `bond_status` / `bond_finish` / `_wrapup` / `_wrapup_inner` / `_note_reject` / `_clear_rejects`（轮次 / 查询 / 收尾）。**方向 api → entry**（`bond_turn` 用载荷、`bond_status` 用角色卡; entry **不**反向 import api——AST 核实）。符号块**逐字搬**; `api.py` 的 import 头按"只留自己用得到的"重建; 门面 `__init__.py` 把 7 名改指 `entry`（新增 `from webgui.bond.entry import …` 块, api 块只剩 7 名 + logger）; 两边的模块 docstring 各写清"放什么 / 另一半在哪" | 全量 **886 passed**; 冒烟 **PASS**; `compileall` 绿; **符号逐字自检 15/15 通过**（脚本比对 git HEAD 的原文）; 门面身份自检（`webgui.bond.X is webgui.bond.{entry,api}.X`）; 快照刷新后 **前 3 列 373 行逐行完全一致**, 只有 6 行 owner 列变化（`webgui.bond.api` → `.entry`; `DEMO_SCRIPT` 的 owner 本来就是 `-`）|
+| ✅ **○C8b 附带（真 bug 两处 + 新守门）** | **拆包暴露的"漏 import"回归** | 拆 api.py 时全量测试红了一条（`test_discard_boards_is_traceless`）→ 追下去发现**两处拆分线早期引入、被宽 `except` 静默吞掉**的 `NameError`（都不是 ○C8b 造成的, 是 C4/C5 留下的）: ① **`lanes.py` 用了 `_ms_since` 却没 import**（C4 把它搬进 `util.py` 时漏了这行）—— 标注 worker 每次都在**写回状态前**抛异常, 于是 `emo_version` 永不递增、前端永远拿不到标注, 而门控靠 `_fallback_fill` 照样"就绪" ⇒ **功能静默失效 + 测试全绿**; ② **`replay.py` 用了 `chat` 却没 import**（C5 从原 `bond.py` 搬块时漏了）—— `_enter_title` 的内存态标题查询每次抛异常（被 `except` 吞掉后退化成"只查事件流", 所以没人发现）。**修法**: 补两行 import。**防复发**: ① `test_split_safety.py` 新增第三条守门 `test_no_cross_module_name_leaks`（静态扫三个拆出来的包: 运行期读了裸名字、本模块没绑定、而同包兄弟模块里有 → 报"漏 import"; **变异验证**: 删掉 lanes 的 import → 立刻红）; ② `test_bond.py` 新增 `test_emo_lane_actually_publishes`（断言 `emo_version` 真涨 + 日志无"标注处理异常"—— 旧用例只看"门控就绪", 兜底路径也能就绪, 所以抓不到）| 全量 **887 passed**（886 + 1）; 冒烟 **PASS**; 两遍全量连跑稳定; 变异验证两条守门都会红 |
+| ⚠️ **观察（未修, 供后续节点）** | `_discard_boards` vs **迟到落地的预生成** | `test_discard_boards_is_traceless` 对时序敏感: 若在 `_discard_boards` 之后还有一个在飞的预生成线程跑完 `_scene_landed`, 它会**再写一次草稿旁路**（丢弃"唯一痕迹"就白打了）。目前靠"lane 正常 → 不会触发兜底再预生成"避开; 真要根治 = 给 `BondState` 加一个 `board_epoch`（丢弃时 +1），`_scene_landed`/`_draft_save` 丢掉过期 epoch 的落地（**行为改动, 单开节点**）|
 | ✅ **C9** | **`core/bond/bond_story.py` → 包** | `git mv` 模块成 `core/bond/bond_story/{scene,boards,engine}.py`（逐字搬, 只改 import 行: 无相对导入, 故 `from core.bond.bond_story.{scene,boards} import …` 需补全限定名）+ 门面 `__init__.py` **逐个显式**再导出 54 名（含私有名; 列表**从 API 面夹具的该段生成**, **不定义 `__all__`**）。门面按"真家"分块: 3 个包内模块 + 43 个 core/contract/llm 真家（后者**整体重建**, 因为原模块是一次性 import 了一大票外部名）; `max_tokens as task_levels_max_tokens` 是本次唯一的重名别名（真家里叫 `max_tokens`）。**27 个引用点一个字未改** | 全量 **880 passed**; 冒烟 **PASS**; **快照刷新后 diff = 只有 owner 列 13 行**（模块+名字+种类零变化, 已逐列核对）; `python -m compileall` 全仓绿; 4 个名字身份自检 |
 | ✅ **C10** | **`contract/records.py` → 包 + 错误原语下沉 + `json_cleaner` 归位** | ① **拆包**: 原文件七个 `# ---` 分区**逐字**切成四块（36–153 → `grammar.py` · 154–295 + 816–910 → `parse.py` · 296–545 → `check.py` · 548–815 → `carrier.py`, `git rename` 锚点 = 最大片段）; 门面 `__init__.py` = **原模块 docstring 逐字** + 52 名按"真家"分块再导出（**全是本包自有名**, 无借用名）。② **违规定夺（用户裁决 A）**: `core/common/errors.py` `git mv` → `contract/errors.py`（真家; `core/common/errors.py` 留薄再导出壳, 20+ 处旧路径零改动）, `contract/{model,registry,spec}.py` 改指真家; ③ `llm/json_cleaner.py` → `contract/json_cleaner.py`（3 个调用点改指）; ④ `test_import_direction.py` 白名单 **5 → 1 条** | 全量 **880 passed**; 冒烟 **PASS**; 快照刷新后 diff **只有 owner 列 44 行**（前 3 列 374 行逐行比对零变化）; `compileall` 全仓绿; 分层守门"白名单没过期"用例逼着删掉 4 条（**红的正是它该红的地方**） |
 | ✅ **C11** | **展示层搬 `core/tui/` + 接线层上提 `core/director/wiring.py`** | ① `core/ui/{__init__,display,streaming,text_processors}.py` → `core/tui/`（**真搬家**: 不留 `core/ui` 兼容壳——那个包只剩 `vn_cli.py`, C12 整个消失）; 13 个文件里的 `core.ui.{display,streaming,text_processors}` → `core.tui.*`（含 `core/momotalk.py` · `core/session/renderer.py` · `webgui/chat.py` · `main.py` · tests · experiments · archive）; ② 新建 `core/director/wiring.py` = `_build_director`/`_trigger_title` **逐字搬来**（`MomoTalkEngine` 只作注解 → `TYPE_CHECKING`, **不 import `renderer`**）, `vn_cli.py` 与 webgui 3 处（`bond/api.py` · `bond/replay.py` · bond 门面）+ 3 个 experiments 改指真家 | 全量 **880 passed**; 冒烟 **PASS**; `compileall` 全仓绿; 快照刷新 diff = **11 处 owner 列 + 1 个名字消失**（`core.ui.vn_cli::build_director`：它本来是**路过式再导出**，唯一的用户随之上提 ⇒ 有意变更, 已核对）|
@@ -293,6 +299,19 @@ python -m compileall -q core webgui llm contract tests   # 全仓可编译
     **webgui → CLI** 的反向耦合。做法: 每个节点开始前把验收里那句话翻译成"哪一行代码会
     因此消失", 对不上就**当场改计划并在本文档写明为什么**（用户 2026-09-21 裁决 A:
     宁可节点诚实, 不要为凑验收把两次搬迁塞进一个提交）。
+15. **"漏 import"是拆包最阴的一类错: 宽 `except` 会把它吞成一行 WARNING**（○C8b 实测抓到
+    两处, 都是 C4/C5 留下的、**测试全绿了 9 个节点**）: `lanes.py` 用了 `_ms_since`
+    （C4 搬进 `util.py` 时漏 import）⇒ 标注 worker 在**写回状态之前**抛 `NameError`,
+    被"保活"的 `except Exception` 吞掉 ⇒ `emo_version` 永不递增、前端永远拿不到标注,
+    **而门控靠 `_fallback_fill` 照样就绪**（用例只看"能不能推进", 于是全绿）。
+    `replay.py` 的 `chat` 同理（退化成"只查事件流", 功能看似正常）。两条教训:
+    ① 拆完一个包, **静态扫一遍"运行期读了但没绑定的名字"** —— 现役工具 `uvx pyflakes`
+    （只关心 `undefined name`; 字符串注解是 `Constant`, 天然不误报）, 长期守门是本文件
+    §3 提到的 pytest 第三条 `test_no_cross_module_name_leaks`（"同包兄弟模块里有的裸名字
+    = 八成漏 import"）;
+    ② **断言要落在"结果真的写回了"上**, 不能只断言"门控就绪 / 能推进" —— 兜底路径
+    （`_fallback_fill` / 看门狗）会把"功能已死"粉饰成"流程通"。范例:
+    `test_emo_lane_actually_publishes`（断言 `emo_version` 涨 + 日志无"标注处理异常"）。
 
 ---
 

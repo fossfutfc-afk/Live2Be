@@ -34,7 +34,7 @@ from core.session.events import M_VN_EXIT
 from core.session.maintenance import abandoned_ranges
 from core.session.staging import staging_store
 from core.director.wiring import _trigger_title      # C11: 接线层（此前借道 apps.vn_cli）
-from webgui import deps
+from webgui import chat, deps                        # chat: 取内存态章节标题（_enter_title）
 from webgui.bond.state import (
     BondState,
     _state,
