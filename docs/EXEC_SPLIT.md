@@ -1,7 +1,7 @@
 # EXEC_SPLIT — 文件拆分与位置规划（执行计划）
 
-> **状态**：执行中。**C0（安全网 + 工具纪律）+ C1a（接缝收敛 `webgui/deps.py`）已落地
-> 2026-09-21**；C1b 起未动。
+> **状态**：执行中。**C0（安全网 + 工具纪律）+ C1a（接缝收敛 `webgui/deps.py`）+
+> C1b（`webgui/bond.py` → 包, 纯移动）已落地 2026-09-21**；C2 起未动。
 > **怎么用**：每个节点 = **一次提交 + 全量测试 + （涉 webgui 时）B 层冒烟**；
 > 节点内**只做"移动"**，任何行为改动单独开节点。行号一律不写（会漂），写 `file.py::symbol`。
 > **相关**：`docs/EXEC_PIPELINE_UNIFY.md`（流水线收敛，已全部落地）· `CLAUDE.md` §2/§11/§12。
@@ -99,7 +99,7 @@ tests/webgui/bond/       ← test_bond.py 按主题拆 + tests/stubs/ 收共享 
 |---|---|---|---|
 | ✅ **C0** | **安全网 + 工具纪律** | ① `tests/core/test_import_direction.py`（4 条分层规则 + 6 处白名单 + 不腐烂 + 自测）② `tests/core/test_split_safety.py`（API 面快照 367 名 / 16 个 patch 点台账）③ 本文档 | 两个守门绿 + **实测会红**（删一个名字/加一个 patch 点）；全量 **880 passed** |
 | ✅ **C1a** | **接缝收敛（`webgui/deps.py`）** | 新建 `webgui/deps.py`（store / 生图器 / 看门狗阈值 / choice 开关 / `enqueue_annotate` 钩子）; `bond.py`/`chat.py`/`routers/collection.py` 全部改读 `deps.xxx`（**调用时**属性查找）; **16 个 patch 点全部改打 `deps.*`**; `ALLOWED_PATCHES` 清空 + 新增 `SAFE_PATCHES`（3 条: 调用点在包外的 patch）; 快照加盯 `webgui.deps`（`SNAPSHOT = TARGETS + ("webgui.deps",)`——`deps` **不能**进 `TARGETS`, 否则"patch 接缝"会被守门当成违规）; owner 列归一（`_owner_of` 去掉私有段, 免得换解释器抖 + C1b 要求快照零 diff） | 全量 **880 passed**; 冒烟 **PASS**（含纪念生图链路）; patch 白名单 0 条; 快照 diff = 只此 10 个名字搬家 |
-| **C1b** | `webgui/bond.py` → 包（**先原样**） | 全部逻辑逐字进 `webgui/bond/_impl.py`；`__init__.py` 全量再导出（含私有名）；**13 个引用点零改动** | `git diff -M` 呈**纯移动**；`tests/fixtures/api_surface.txt` **零 diff**（`_owner_of` 已归一）; 全量 + 冒烟绿 |
+| ✅ **C1b** | **`webgui/bond.py` → 包（原样）** | `git mv webgui/bond.py webgui/bond/_impl.py`（**逐字未改**）+ 新 `webgui/bond/__init__.py`：**逐个显式**再导出 117 个名字（含私有名, 列表**从 API 面快照生成**, 见 §5 陷阱 8）; 13 个引用点**一个字未改** | `git diff -M` = **rename 100%** + 只有门面新增; `tests/fixtures/api_surface.txt` **零 diff**; 全量 **880 passed**; 冒烟 **PASS** |
 | **C2** | 搬 `stores.py` | 落库/事件流/marker/prewarm/draft | 绿 |
 | **C3** | 搬 `lanes.py` | 双路 lane + 就绪门控 | 绿 |
 | **C4** | 搬 `replay.py` | 回放/标题 | 绿（回放用例是网） |
@@ -186,6 +186,17 @@ python -m compileall -q core webgui llm contract tests   # 全仓可编译
 7. **快照只记"class / function / data"三态**：不能用 `type(obj).__name__`——
    `core.momotalk._EMBED_REPORTED` 这类**运行期可变标志**导入时是 `None`、某用例跑完
    变 `bool`, 快照会抖（C0 落地当天就被守门抓出来, 这是"守门真的在工作"的证据）。
+8. **门面（`__init__.py`）必须"逐个显式再导出"**（C1b 实测三条理由）：
+   ① `from ._impl import *` **不带下划线名**, 而外部真在用私有名
+   （`webgui/deps.py` 懒转发 `_enqueue_annotate`、测试 `from webgui.bond import _state`);
+   ② 守门按**字面名字**扫, `import *` 只会被读到一个 `*` ⇒ API 面快照误报"全丢 117 个";
+   ③ **不要在门面里定义 `__all__`** —— 它本身会被快照记成一个名字
+   （`webgui.bond __all__`）, 而 C1b 的验收是**夹具零 diff**; 那块显式 import 列表
+   就是白名单。生成办法：直接拿 `api_surface.txt` 里该段的名字当 import 列表
+   （判据即来源, 逐名对齐; 生成脚本是一次性的, 不入库）。
+9. **门面里绝不能放"可替换依赖"**：包内子模块读的是**自己的全局**, 打**包属性**
+   （`monkeypatch.setattr(webgui.bond, "X", …)`）会**静默失效**。那类东西一律走
+   `webgui/deps.py`（C1a 已收敛 16 个点, `ALLOWED_PATCHES` 空表即证据）。
 
 ---
 
