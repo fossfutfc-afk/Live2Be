@@ -88,13 +88,13 @@ def image_generator() -> ImageGenerator | None:
 # ---------------------------------------------------------------------------
 
 def enqueue_annotate(state: Any, scene: Any) -> None:
-    """场景入队异步标注（默认转发到 bond 的真实实现）。
+    """场景入队异步标注（默认转发到 `webgui.bond.lanes` 的真实实现）。
 
     为什么绕一层: 测试需要"关掉标注 lane"（`setattr(deps, "enqueue_annotate", noop)`）,
-    而真实实现依赖 bond 的内部状态。C4 把 lane 搬进 `webgui.bond.lanes` 时,
-    只改这里的转发目标即可。
+    而真实实现依赖 bond 的内部状态。C4 把 lane 搬进 `webgui.bond.lanes` 后,
+    转发目标已指向新家（C8 拆 `api.py` 时若再挪, 只改这一行）。
     """
-    from webgui.bond import _enqueue_annotate as _impl
+    from webgui.bond.lanes import _enqueue_annotate as _impl
     _impl(state, scene)
 
 
