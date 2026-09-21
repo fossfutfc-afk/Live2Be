@@ -69,6 +69,7 @@ webgui/        FastAPI 壳 + 会话状态机（**bond/ 包** = BondState 状态�
    │           （原 bond.py 逐字, C3 起按职责拆）+ `state.py`（C2: BondState /
    │           BoardLifecycle / ChoiceCandidate / 注册表）+ `stores.py`（C3: 落库层
    │           —— 事件流读写唯一出口: `_flow_store`/`_log_scene`/draft/prewarm）
+   │           + `lanes.py`（C4: 双路标注 lane + 就绪门控）+ `util.py`（`_ms_since`）
    ├ routers/  路由层: 请求→驱动层; _resolve_scene 给场景附前端渲染信息(bg/fx/place_bg)
    └ store.py  运行时配置读写(settings.toml)
 core/          引擎层（无 web 依赖, CLI/实验同源复用）
@@ -657,7 +658,7 @@ CLI/测试同步路径在引擎内串行。
   2″（`BoardLifecycle` + `_discard_boards`）· **5b（`task=` 结构化分派 + 三条守门）** **;
   文件拆分另立 docs/EXEC_SPLIT.md（C1b 已把 `webgui/bond.py` 变成包）。
   来源 = ARCH_REVIEW P0-2/P0-3/P2-8 的根治）
-- **文件拆分与位置规划（C0 + C1a + C1b + C2 + C3 已落地）**：docs/EXEC_SPLIT.md（**执行计划**。C0 = 安全网 +
+- **文件拆分与位置规划（C0 + C1a + C1b + C2 + C3 + C4 已落地）**：docs/EXEC_SPLIT.md（**执行计划**。C0 = 安全网 +
   工具纪律：`tests/core/test_import_direction.py`（4 条分层规则）·
   `tests/core/test_split_safety.py`（API 面快照 + patch 点台账）·
   rope 实测结论（只用于真搬家, 拆包不能用它）。**C1a = 接缝收敛**：新建
