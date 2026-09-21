@@ -1,63 +1,144 @@
 # -*- coding: utf-8 -*-
-"""`webgui.bond` 包**门面** —— 模块→包转换（C1b, `docs/EXEC_SPLIT.md`）。
+"""`webgui.bond` 包**门面** —— 模块→包转换 + 内部拆分（C1b–C8, `docs/EXEC_SPLIT.md`）。
 
 ## 这是什么
 
-拆分前 `webgui/bond.py` 是一个 2900 行的单文件模块; C1b 起它是**包**:
-原文件**逐字**搬进 `webgui/bond/_impl.py`（`git diff -M` 呈 100% 相似度的纯移动）,
-本文件负责把它的对外名字**一个不少地**再导出 —— import 路径不变 ⇒
-13 个引用点（`webgui/routers/*`、`webgui/chat.py`、`webgui/deps.py`、
-`tests/webgui/*`、`experiments/`、`l2d-demo/`）**一个字都不用改**。
+拆分前 `webgui/bond.py` 是一个 2900 行的单文件模块。现在它是包:
 
-## 为什么是"逐个显式再导出"而不是 `from ._impl import *`
+| 模块 | 管什么 |
+|---|---|
+| `state.py` | 状态模型: `BondState` / `BoardLifecycle` / `ChoiceCandidate` / 注册表 |
+| `stores.py` | 落库层（事件流读写唯一出口 / 草稿旁路 / 预热缓存） |
+| `lanes.py` | 双路标注 lane + 就绪门控 |
+| `replay.py` | 回放层（resume 型回放 / 只读回放 / 认章定位） |
+| `memorial.py` | 纪念生图 |
+| `pregen.py` | 生成 / 预生成 / 候选支 / 丢弃 + 每轮系统注记 |
+| `watchdog.py` | 看门狗（忙态 / 视觉门 / 预生成消费门 → 降级放行） |
+| `api.py` | 对外动作: `bond_start` / `turn` / `status` / `finish` + 收尾 + 回放编排 |
+| `util.py` | 跨模块纯小工具（`_ms_since`） |
+| `deps.py`（**包外**） | 显式接缝: store / 生图器 / 看门狗阈值 / choice 开关 / 标注钩子 |
+
+本文件把这 9 个模块的对外名字**一个不少地**再导出 —— import 路径 `webgui.bond` 不变 ⇒
+13 个引用点（routers / chat / deps / tests / experiments / l2d-demo）**一个字都不用改**。
+
+## 为什么是"逐个显式再导出"而不是 `from .api import *`
 
 三件事会当场坏掉:
 1. **私有名会丢** —— `_enqueue_annotate` / `_state` / `_END_ROUNDS` / `_system_note` …
-   外部真的在用（`webgui/deps.py` 的懒转发、`tests/webgui/test_bond*.py` 直接 import）;
-   `import *` 不带下划线名。
+   外部真的在用（`webgui/deps.py` 的懒转发、测试直接 import）; `import *` 不带下划线名。
 2. **API 面守门会误报"全丢"** —— `tests/core/test_split_safety.py` 的名字扫描按
-   **字面名字**认（`from webgui.bond._impl import *` 只会被它读到一个 `*`）。
-3. **静态可读** —— 想知道"这个包对外有什么", 读这一块就够, 不用去跑 `dir()`。
+   **字面名字**认（`import *` 只会被它读到一个 `*`）。
+3. **静态可读** —— 想知道"这个包对外有什么、住在哪", 读这一块就够。
 
 ## 纪律
 
-· 本文件**只做再导出**, 不放逻辑（逻辑在 `_impl.py`; C3 起按职责拆到
-  `stores.py` / `lanes.py` / … , 每拆一块只改**这里的一行来源**）;
-· ⚠️ **不定义 `__all__`** —— 它会被 API 面快照记成一个新名字（`webgui.bond __all__`）,
-  而 C1b 的验收标准之一是**快照零 diff**（= "纯搬家"的硬证据）; 这块显式 import 列表
-  本身就是白名单。
+· 本文件**只做再导出**, 不放逻辑;
+· ⚠️ **不定义 `__all__`** —— 它会被 API 面快照记成一个新名字, 而"夹具零 diff"是 C1b–C8
+  每个节点的验收之一; 这块显式 import 列表本身就是白名单;
 · ⚠️ **不要在这里放"可替换依赖"**（store / 生图器 / 看门狗阈值…）: 包内子模块读的是
-  自己的全局, 打**包属性**会静默失效 —— 那类东西一律走 `webgui.deps`（C1a）。
-· 往 `_impl.py` 加/删对外名字时同步这里; 漏了会被守门当场指出
-  （`webgui.bond: 丢了 X` / `多出 X`）。
+  自己的全局, 打**包属性**会静默失效 —— 那类东西一律走 `webgui/deps`（C1a）;
+· 名字增删请同步这里与 `tests/fixtures/api_surface.txt`（`SPLIT_API_UPDATE=1` 刷新）,
+  漏了会被守门当场指出（`webgui.bond: 丢了 X` / `多出 X`）。
 """
-from __future__ import annotations
 
-from webgui.bond._impl import (
+from webgui.bond.state import (          # C2: 状态模型
     BoardLifecycle,
-    BondScene,
     BondState,
-    BondStoryEngine,
-    DEMO_SCRIPT,
-    M_VN_EXIT,
-    SceneLoopError,
+    ChoiceCandidate,
     _bonds,
-    _build_director,
+    _memorial_open_in_events,
+    _state,
+)
+
+from webgui.bond.stores import (          # C3: 落库层
+    _DRAFT_FILE,
+    _PREWARM_FILE,
+    _close_memorial_window,
+    _draft_boards,
+    _draft_delete,
+    _draft_load,
+    _draft_path,
+    _draft_pending,
+    _draft_queue,
+    _draft_save,
+    _flow_store,
+    _last_bond_seq,
+    _last_mmt_seq,
+    _log_scene,
+    _log_scene_meta,
+    _open_vn_seq,
+    _prewarm_cache_delete,
+    _prewarm_cache_load,
+    _prewarm_cache_path,
+    _prewarm_cache_save,
+    _stage_store,
+    _store,
+)
+
+from webgui.bond.lanes import (          # C4: 双路 lane + 就绪门控
+    _anno_worker,
+    _enqueue_annotate,
+    _enqueue_place_annotate,
+    _ensure_lane,
+    _fallback_fill,
+    _memorial_no_visuals,
+    _place_worker,
+    _scene_emotions_ready,
+    _scene_obj_visual_ready,
+    _scene_places_ready,
+    _scene_ready_or_busy,
+    _scene_visual_ready,
+    _wait_annotated,
+)
+
+from webgui.bond.util import (          # C4: 跨模块纯小工具
+    _ms_since,
+)
+
+from webgui.bond.replay import (          # C5: 回放层
+    _enter_title,
+    _interrupted_replay_queue,
+    _narrativize,
+    _pending_in_vn,
+    _prev_chapter_quit,
+    _title_from_events,
+    chapter_replay,
+    replay_attempts,
+)
+
+from webgui.bond.memorial import (          # C6: 纪念生图
+    _ensure_memorial_img,
+    _make_memorial_cb,
+    _memorial_gen,
+    _persisted_memorial_img,
+)
+
+from webgui.bond.pregen import (          # C7: 生成/预生成/候选/丢弃
+    MAX_GEN_FAILURES,
+    _CLOSING_PARA,
+    _CLOSING_TEXT,
+    _END_ROUNDS,
+    _REMIND_ROUNDS,
+    _candidate_worker,
+    _choice_pregen_enabled,
+    _discard_boards,
+    _discard_candidates,
+    _generate,
+    _log_board_deliver,
+    _pregenerate,
+    _scene_landed,
+    _spawn_candidates,
+    _system_note,
+)
+
+from webgui.bond.api import (          # C8: 对外动作层
+    DEMO_SCRIPT,
     _clear_rejects,
     _entry_already_done,
-    _force_scene_ready,
-    _gate_stalled,
-    _lane_writer_alive,
-    _lanes_idle,
-    _memorial_open_in_events,
     _note_reject,
     _ready_scene_payload,
     _role_info,
     _start_replay,
-    _state,
-    _thread_alive,
-    _trigger_title,
-    _watchdog,
     _wrapup,
     _wrapup_inner,
     bond_finish,
@@ -65,111 +146,74 @@ from webgui.bond._impl import (
     bond_start_demo,
     bond_status,
     bond_turn,
-    close_open_attempts,
-    commit_staging,
-    exclude_abandoned,
-    load_brain_segment,
     logger,
-    make_event,
-    render_bond_scene_text,
-    truth_store,
-    window_messages,
 )
 
-from webgui.bond.pregen import (              # C7: 生成 / 预生成 / 候选 / 丢弃
-    _CLOSING_TEXT,
-    _CLOSING_PARA,
-    MAX_GEN_FAILURES,
-    _REMIND_ROUNDS,
-    _END_ROUNDS,
-    _generate,
-    _pregenerate,
-    _scene_landed,
-    _log_board_deliver,
-    _choice_pregen_enabled,
-    _spawn_candidates,
-    _candidate_worker,
-    _discard_boards,
-    _discard_candidates,
-    _system_note,
+from webgui.bond.watchdog import (          # C8: 看门狗
+    _force_scene_ready,
+    _gate_stalled,
+    _lane_writer_alive,
+    _lanes_idle,
+    _thread_alive,
+    _watchdog,
 )
 
-from webgui.bond.memorial import (            # C6: 纪念生图
-    _persisted_memorial_img,
-    _memorial_gen,
-    _make_memorial_cb,
-    _ensure_memorial_img,
+from contract import (          # 定义处不在 bond 包内（当年作为「对外面」一路被再导出 → 直指真家）
+    NON_PICKS,
 )
 
-from webgui.bond.replay import (              # C5: 回放层
-    _narrativize,
-    replay_attempts,
-    _interrupted_replay_queue,
-    chapter_replay,
-    _pending_in_vn,
-    _title_from_events,
-    _enter_title,
-    _prev_chapter_quit,
+from core.bond.bond_story import (          # 定义处不在 bond 包内（当年作为「对外面」一路被再导出 → 直指真家）
+    BondScene,
+    BondStoryEngine,
+    SceneLoopError,
 )
 
-from webgui.bond.lanes import (               # C4: 双路 lane + 就绪门控
-    _memorial_no_visuals,
-    _scene_emotions_ready,
-    _scene_places_ready,
-    _scene_visual_ready,
-    _scene_obj_visual_ready,
-    _scene_ready_or_busy,
-    _wait_annotated,
-    _ensure_lane,
-    _enqueue_annotate,
-    _enqueue_place_annotate,
-    _anno_worker,
-    _place_worker,
-    _fallback_fill,
+from core.media.gallery import (          # 定义处不在 bond 包内（当年作为「对外面」一路被再导出 → 直指真家）
+    GalleryStore,
 )
 
-from webgui.bond.util import _ms_since                   # C4: 跨模块纯小工具
-
-from webgui.bond.stores import (              # C3: 落库层
-    _store,
-    _flow_store,
-    _stage_store,
-    _last_bond_seq,
-    _last_mmt_seq,
-    _open_vn_seq,
-    _DRAFT_FILE,
-    _draft_path,
-    _draft_boards,
-    _draft_save,
-    _draft_delete,
-    _draft_load,
-    _draft_pending,
-    _draft_queue,
-    _PREWARM_FILE,
-    _prewarm_cache_path,
-    _prewarm_cache_save,
-    _prewarm_cache_load,
-    _prewarm_cache_delete,
-    _log_scene,
-    _log_scene_meta,
-    _close_memorial_window,
+from core.momotalk import (          # 定义处不在 bond 包内（当年作为「对外面」一路被再导出 → 直指真家）
+    load_brain_segment,
 )
 
-# 下面这些名字**定义处不在 bond 包内**（C3/C5/C6/C7 顺手清: `_impl.py` 里它们早就没人用了,
-# 只是当年作为"bond 的对外面"一路被再导出——最后一个用点陆续搬进了
-# replay / memorial / pregen）—— 门面继续给, 但指向真家。
-from contract import NON_PICKS                     # noqa: E402
-from core.media.gallery import GalleryStore        # noqa: E402
-from core.session.chapters import replayable_chapters          # noqa: E402
-from core.session.events import (             # noqa: E402
+from core.session.chapters import (          # 定义处不在 bond 包内（当年作为「对外面」一路被再导出 → 直指真家）
+    replayable_chapters,
+)
+
+from core.session.events import (          # 定义处不在 bond 包内（当年作为「对外面」一路被再导出 → 直指真家）
     M_MEMORIAL_ENTER,
     M_MEMORIAL_EXIT,
     M_MEMORIAL_IMAGE,
     M_SESSION_END,
     M_VN_ABANDON,
+    M_VN_EXIT,
     M_VN_STATE,
+    make_event,
 )
-from core.session.maintenance import abandoned_ranges          # noqa: E402
-from core.session.staging import staging_store     # noqa: E402
-from llm.image_gen import collect_ref_images, image_enabled     # noqa: E402
-from webgui.bond.state import ChoiceCandidate      # noqa: E402
+
+from core.session.maintenance import (          # 定义处不在 bond 包内（当年作为「对外面」一路被再导出 → 直指真家）
+    abandoned_ranges,
+    exclude_abandoned,
+)
+
+from core.session.renderer import (          # 定义处不在 bond 包内（当年作为「对外面」一路被再导出 → 直指真家）
+    render_bond_scene_text,
+    window_messages,
+)
+
+from core.session.staging import (          # 定义处不在 bond 包内（当年作为「对外面」一路被再导出 → 直指真家）
+    close_open_attempts,
+    commit_staging,
+    staging_store,
+    truth_store,
+)
+
+from core.ui.vn_cli import (          # 定义处不在 bond 包内（当年作为「对外面」一路被再导出 → 直指真家）
+    _build_director,
+    _trigger_title,
+)
+
+from llm.image_gen import (          # 定义处不在 bond 包内（当年作为「对外面」一路被再导出 → 直指真家）
+    collect_ref_images,
+    image_enabled,
+)
