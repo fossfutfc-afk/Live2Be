@@ -649,6 +649,12 @@ CLI/测试同步路径在引擎内串行。
   2″（`BoardLifecycle` + `_discard_boards`）· **5b（`task=` 结构化分派 + 三条守门）** **;
   未做: `webgui/bond.py` 文件拆分（用户 2026-09-21 说"之后再做"）。
   来源 = ARCH_REVIEW P0-2/P0-3/P2-8 的根治）
+- **文件拆分与位置规划（C0 已落地）**：docs/EXEC_SPLIT.md（**执行计划**。C0 = 安全网 +
+  工具纪律：`tests/core/test_import_direction.py`（4 条分层规则）·
+  `tests/core/test_split_safety.py`（API 面快照 367 名 + 16 个 patch 点台账）·
+  rope 实测结论（只用于真搬家, 拆包不能用它）。节点 C1–C14：`webgui/bond/` →
+  `core/bond/bond_story/` → `contract/records/` → `core/mmt` 合并 / `apps/` / `docs/` 归位
+  → 测试拆分; 每节点一提交 + 全量 + 冒烟）
 - **重新生成 / 重发 的语义与固化线**：docs/DESIGN_RESEND.md（**设计稿, 未动代码**。
   决策: MMT 提交边界 = **回合提交**; 两区 = 水位之上**丢弃** / 水位之下走
   `wiki_v2/revise` **更正**; 板级那一半已由 `BoardLifecycle` + `_discard_boards` 落地;
