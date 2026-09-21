@@ -38,41 +38,23 @@ from webgui.bond._impl import (
     BondScene,
     BondState,
     BondStoryEngine,
-    ChoiceCandidate,
     DEMO_SCRIPT,
-    MAX_GEN_FAILURES,
-    M_SESSION_END,
-    M_VN_ABANDON,
     M_VN_EXIT,
     SceneLoopError,
-    _CLOSING_PARA,
-    _CLOSING_TEXT,
-    _END_ROUNDS,
-    _REMIND_ROUNDS,
     _bonds,
     _build_director,
-    _candidate_worker,
-    _choice_pregen_enabled,
     _clear_rejects,
-    _discard_boards,
-    _discard_candidates,
     _entry_already_done,
     _force_scene_ready,
     _gate_stalled,
-    _generate,
     _lane_writer_alive,
     _lanes_idle,
-    _log_board_deliver,
     _memorial_open_in_events,
     _note_reject,
-    _pregenerate,
     _ready_scene_payload,
     _role_info,
-    _scene_landed,
-    _spawn_candidates,
     _start_replay,
     _state,
-    _system_note,
     _thread_alive,
     _trigger_title,
     _watchdog,
@@ -90,9 +72,26 @@ from webgui.bond._impl import (
     logger,
     make_event,
     render_bond_scene_text,
-    staging_store,
     truth_store,
     window_messages,
+)
+
+from webgui.bond.pregen import (              # C7: 生成 / 预生成 / 候选 / 丢弃
+    _CLOSING_TEXT,
+    _CLOSING_PARA,
+    MAX_GEN_FAILURES,
+    _REMIND_ROUNDS,
+    _END_ROUNDS,
+    _generate,
+    _pregenerate,
+    _scene_landed,
+    _log_board_deliver,
+    _choice_pregen_enabled,
+    _spawn_candidates,
+    _candidate_worker,
+    _discard_boards,
+    _discard_candidates,
+    _system_note,
 )
 
 from webgui.bond.memorial import (            # C6: 纪念生图
@@ -156,9 +155,9 @@ from webgui.bond.stores import (              # C3: 落库层
     _close_memorial_window,
 )
 
-# 下面这些名字**定义处不在 bond 包内**（C3/C5/C6 顺手清: `_impl.py` 里它们早就没人用了,
-# 只是当年作为"bond 的对外面"一路被再导出——最后一个用点分别搬进了 replay / memorial）
-# —— 门面继续给, 但指向真家。
+# 下面这些名字**定义处不在 bond 包内**（C3/C5/C6/C7 顺手清: `_impl.py` 里它们早就没人用了,
+# 只是当年作为"bond 的对外面"一路被再导出——最后一个用点陆续搬进了
+# replay / memorial / pregen）—— 门面继续给, 但指向真家。
 from contract import NON_PICKS                     # noqa: E402
 from core.media.gallery import GalleryStore        # noqa: E402
 from core.session.chapters import replayable_chapters          # noqa: E402
@@ -166,7 +165,11 @@ from core.session.events import (             # noqa: E402
     M_MEMORIAL_ENTER,
     M_MEMORIAL_EXIT,
     M_MEMORIAL_IMAGE,
+    M_SESSION_END,
+    M_VN_ABANDON,
     M_VN_STATE,
 )
 from core.session.maintenance import abandoned_ranges          # noqa: E402
+from core.session.staging import staging_store     # noqa: E402
 from llm.image_gen import collect_ref_images, image_enabled     # noqa: E402
+from webgui.bond.state import ChoiceCandidate      # noqa: E402
