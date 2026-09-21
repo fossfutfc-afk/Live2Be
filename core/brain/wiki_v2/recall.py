@@ -72,7 +72,6 @@ def recall_subgraph(
     n_precious: int = 2,
     n_random: int = 1,
     cap: int = 15,
-    hop: int = 1,
     embed_fn: EmbedFn | None = None,
     rng: random.Random | None = None,
 ) -> list[BrainNode]:
@@ -81,6 +80,10 @@ def recall_subgraph(
     query: 通道1 的查询文本（digest 传时间线全文; 空 → 跳过通道1）。
     embed_fn: 批式 embedding 后端; None → tags 词面降级。
     rng: 通道3 的随机源（测试注入固定种子）。
+
+    注（2026-09-21）: 旧签名有个 `hop: int = 1` 参数, 但函数体**从未读它**
+    （下面的一跳扩展恒做）—— 一个"传了也没用"的旋钮（静默 no-op）。全仓无调用方传它,
+    故删除; 要恢复可配深度, 请让下面的扩展读参数并在 `recall_config.DEFAULTS` 立台账。
     """
     rng = rng or random.Random()
     nodes = list(store.all())

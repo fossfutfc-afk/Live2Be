@@ -39,6 +39,8 @@ os.environ["SSL_CERT_FILE"] = certifi.where()
 
 # 加载 .env
 _project_root = Path(__file__).resolve().parents[1]
+# 返回值不用（要的是 `load_dotenv` 把 .env 灌进 os.environ 这个**副作用**）; 名字保留是因为
+# 它在 API 面快照里（`tests/fixtures/api_surface.txt`）——顺手可当"有没有找到 .env"的探针。
 _load_dotenv_result = load_dotenv(_project_root / ".env")
 
 #: settings.toml 位置（项目根——GUI 设置页存档; 非空字段优先于 .env）
