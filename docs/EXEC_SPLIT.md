@@ -9,7 +9,8 @@
 > C11 `core/tui/`（展示层搬出 `core/ui`）+ `core/director/wiring.py`（解 webgui→CLI）·
 > C12a `core/momotalk.py` → `core/mmt/engine.py`（无兼容壳）·
 > C12b `apps/{main,vn_cli}.py` + `docs/DESIGN_*.md`（**分层白名单归零**）。
-> **下一步 = C13（测试拆分 + 共享桩）**；可选 C14/C15 与 ○C8b 见 §3。
+> **拆分类工作到此结束**：C13 测试拆分经用户 2026-09-21 裁决**不做**（"测试不用拆了"）;
+> 余下只有**可选**项：C14/C15（`llm/client.py` · `core/brain/wiki_v2/`）与 ○C8b（`api.py` 再分）。
 > **怎么用**：每个节点 = **一次提交 + 全量测试 + （涉 webgui 时）B 层冒烟**；
 > 节点内**只做"移动"**，任何行为改动单独开节点。行号一律不写（会漂），写 `file.py::symbol`。
 > **相关**：`docs/EXEC_PIPELINE_UNIFY.md`（流水线收敛，已全部落地）· `CLAUDE.md` §2/§11/§12。
@@ -125,7 +126,8 @@ apps/                    ← main.py + vn_cli.py（CLI 应用）—— **C12b �
                            （仓根 `main.py` 留 3 行**转调壳**, `python main.py` 照旧可用;
                            `core/ui/` 整个包随之消失 ⇒ 白名单归零）
 docs/                    ← core/DESIGN_*.md(7) + contract/DESIGN.md（**C12b 已落地**）
-tests/webgui/bond/       ← test_bond.py 按主题拆 + tests/stubs/ 收共享 ScriptedLLM
+tests/webgui/bond/       ← ~~test_bond.py 按主题拆 + tests/stubs/ 收共享 ScriptedLLM~~
+                           **不做**（C13, 用户 2026-09-21 裁决）
 ```
 
 ---
@@ -150,8 +152,8 @@ tests/webgui/bond/       ← test_bond.py 按主题拆 + tests/stubs/ 收共享 
 | ✅ **C11** | **展示层搬 `core/tui/` + 接线层上提 `core/director/wiring.py`** | ① `core/ui/{__init__,display,streaming,text_processors}.py` → `core/tui/`（**真搬家**: 不留 `core/ui` 兼容壳——那个包只剩 `vn_cli.py`, C12 整个消失）; 13 个文件里的 `core.ui.{display,streaming,text_processors}` → `core.tui.*`（含 `core/momotalk.py` · `core/session/renderer.py` · `webgui/chat.py` · `main.py` · tests · experiments · archive）; ② 新建 `core/director/wiring.py` = `_build_director`/`_trigger_title` **逐字搬来**（`MomoTalkEngine` 只作注解 → `TYPE_CHECKING`, **不 import `renderer`**）, `vn_cli.py` 与 webgui 3 处（`bond/api.py` · `bond/replay.py` · bond 门面）+ 3 个 experiments 改指真家 | 全量 **880 passed**; 冒烟 **PASS**; `compileall` 全仓绿; 快照刷新 diff = **11 处 owner 列 + 1 个名字消失**（`core.ui.vn_cli::build_director`：它本来是**路过式再导出**，唯一的用户随之上提 ⇒ 有意变更, 已核对）|
 | ✅ **C12a** | **`core/momotalk.py` → `core/mmt/engine.py`（真搬家, 无兼容壳）** | 1170 行逐字搬（git rename）; **47 处引用一次性改指** `core.momotalk` → `core.mmt.engine`（37 个文件: `main.py` · `webgui/{chat,bond/*,routers}` · `core/{tui,director/wiring,mmt/mmt_preset}` · 13 个 tests · 11 个 experiments · 3 个 l2d-demo）; `core/mmt/__init__.py` 从空文件变**包说明**（不再导出名字, 路径显式）; 顺手改 3 处"指路路径"注释。⚠️ **唯一外部可见变化**: `MmtLoopError` 的串由 `[momotalk.py][…]` 变 `[engine.py][…]`（文件名由类所在模块派生, 与 `contract.model → model.py` 同一条口径）| 全量 **880 passed**; 冒烟 **PASS**; `compileall` 全仓 + `node --check` 绿; 快照: `core.momotalk` 段**整体改名**为 `core.mmt.engine`（59 名逐名一致）+ 5 处 owner 列; `import core.momotalk` → ModuleNotFoundError |
 | ✅ **C12b** | **`apps/` 归位 + `docs/` 归位（白名单归零）** | ① `core/ui/vn_cli.py` → `apps/vn_cli.py`（`core/ui/` 整个包消失——**真搬家**, 不留壳）, `main.py` → `apps/main.py` **+ 仓根 3 行转调壳**（用户 2026-09-21 裁决: `python main.py` 是 README/使用习惯里的命令, 保住它, 真代码一律进 `apps/`）; 12 处 `core.ui.vn_cli` → `apps.vn_cli`; ② 7 篇 `core/DESIGN_*.md` + `contract/DESIGN.md`（→ `docs/DESIGN_CONTRACT.md`）搬 `docs/`, 顺手改 22 处"指路路径"（README / CLAUDE.md / CLAUDE_OPTIMIZE / DESIGN_BRAIN / 3 篇 docs / 4 处代码 docstring）; ③ `test_import_direction.py`: `ALLOWED` **清空** + 每条规则加"不许 import `apps`"; `test_split_safety.py` 的 `TARGETS` 换 `apps.vn_cli` | 全量 **880 passed**; 冒烟 **PASS**; `compileall` 全仓 + `node --check` 绿; 快照: `core.ui.vn_cli` 段**整体改名** `apps.vn_cli`（28 名逐名一致）; `import core.ui` → ModuleNotFoundError; **分层白名单 0 条** |
-| **C13** | 测试拆分 + 共享桩 | `tests/webgui/bond/*`；`tests/stubs/scripted_llm.py`（与 5b 的 `stub_tasks.py` 合流） | 单测文件全部 < 400 行；绿 |
-| **C14** | `llm/client.py` / `llm/image_gen.py`（可选） | 按职责再分 | 绿 |
+| ○ **C13**（**不做**） | 测试拆分 + 共享桩 | ~~`tests/webgui/bond/*`；`tests/stubs/scripted_llm.py`（与 5b 的 `stub_tasks.py` 合流）~~ | **用户 2026-09-21 裁决: "测试不用拆了"** —— 现状 74 文件 / 20975 行, >400 行的 15 个（最大 `test_bond.py` 1240）; 拆分收益（可读性）低于 9000 行 diff 的审阅/回归风险。**已落地的共享桩 = `tests/stub_tasks.py`**（节点 5b）|
+| ○ **C14**（可选） | `llm/client.py` / `llm/image_gen.py` | 按职责再分 | 绿 |
 | **C15** | `core/brain/wiki_v2/*`（可选） | digest/nodes/channel 再分 | 绿 |
 
 顺序理由：**自上层往下**（webgui 最安全、收益最快；`contract/` 是所有人依赖的地基，放后面）；

@@ -685,7 +685,8 @@ CLI/测试同步路径在引擎内串行。
     含“谁都不许 import `apps`”）· `test_split_safety.py`（API 面快照 + patch 点台账）。
   · **拆分纪律**（拆包节点通用）：叶子优先 · 门面逐个显式再导出（不定义 `__all__`）·
     门面只指向“名字的真家” · 接缝走 `webgui/deps.py` · 每节点一提交 + 全量 + 冒烟。
-  · 余下：C13 测试拆分（可选 C14/C15）；○C8b（`api.py` 再分）与若干“非阻塞”小项见该文。
+  · 余下：**只有可选项** —— C14/C15（`llm/client.py` · `core/brain/wiki_v2/` 再分）与 ○C8b（`api.py` 再分）；
+    **C13 测试拆分经用户 2026-09-21 裁决不做**（连同 `tests/stubs/` 共享桩；共享桩已有 `tests/stub_tasks.py`）。
 - **重新生成 / 重发 的语义与固化线**：docs/DESIGN_RESEND.md（**设计稿, 未动代码**。
   决策: MMT 提交边界 = **回合提交**; 两区 = 水位之上**丢弃** / 水位之下走
   `wiki_v2/revise` **更正**; 板级那一半已由 `BoardLifecycle` + `_discard_boards` 落地;
