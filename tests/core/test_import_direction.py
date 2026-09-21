@@ -3,12 +3,14 @@
 
 ## 规则（`docs/EXEC_SPLIT.md` §2）
 
-    contract/  最底层: 不得依赖 core / llm / webgui / renderer / tests / experiments
-    llm/       传输层: 不得依赖 webgui / renderer / tests / experiments;
-                       对 core 只允许薄横切 core.paths / core.common（见 ALLOWED）
-    core/      引擎层: 不得依赖 webgui / renderer / tests / experiments
-    renderer/  表现层: 不得依赖 webgui / tests / experiments
-    webgui/    壳    : 不得依赖 tests / experiments
+    contract/  最底层: 不得依赖 core / llm / webgui / renderer / tests / experiments / apps
+    llm/       传输层: 不得依赖 webgui / renderer / tests / experiments / apps;
+                       对 core 只允许薄横切 core.paths / core.common（见 LLM_CORE_ALLOWED）
+    core/      引擎层: 不得依赖 webgui / renderer / tests / experiments / apps
+    renderer/  表现层: 不得依赖 webgui / tests / experiments / apps
+    webgui/    壳    : 不得依赖 tests / experiments / apps
+    apps/      应用层: **没人可以 import 它**（C12b 起把这条加进上面每一条的禁用表;
+                       它是最上游: `apps/{main,vn_cli}.py` 可以 import 任何东西）
 
 ## 为什么用自写守门而不是 import-linter / tach
 
@@ -17,8 +19,8 @@
 
 ## 白名单纪律
 
-`ALLOWED` 里每一条都是**今天的既存违规 + 归宿节点**; 第二条用例反向检查
-"白名单是不是已经过期"——搬完就该删条目, 忘了删会红。
+`ALLOWED` 里每一条都是**既存违规 + 归宿节点**; 第二条用例反向检查"白名单是不是已经过期"
+——搬完就该删条目, 忘了删会红。**C12b 起它是空表**: 分层规则零例外。
 
 运行: python -m pytest tests/core/test_import_direction.py
 """
@@ -31,28 +33,26 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent.parent))
 ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
 
 #: 被扫描的包 → 它**禁止**依赖的顶层包
+#: ⚠️ C12b 起每一条都多一个 `apps`: **应用层谁都不许 import**（它是方向的最上游;
+#: C11 之前 `webgui → core.ui.vn_cli` 正是这么反过来的, 现在被这条钉住）。
 RULES: dict[str, frozenset[str]] = {
-    "contract": frozenset({"core", "llm", "webgui", "renderer", "tests", "experiments"}),
-    "llm": frozenset({"webgui", "renderer", "tests", "experiments"}),
-    "core": frozenset({"webgui", "renderer", "tests", "experiments"}),
-    "renderer": frozenset({"webgui", "tests", "experiments"}),
-    "webgui": frozenset({"tests", "experiments"}),
+    "contract": frozenset({"core", "llm", "webgui", "renderer", "tests", "experiments", "apps"}),
+    "llm": frozenset({"webgui", "renderer", "tests", "experiments", "apps"}),
+    "core": frozenset({"webgui", "renderer", "tests", "experiments", "apps"}),
+    "renderer": frozenset({"webgui", "tests", "experiments", "apps"}),
+    "webgui": frozenset({"tests", "experiments", "apps"}),
 }
 
 #: `llm/` 对 `core` 的**薄横切**豁免（`core.paths` = 固定路径宏, `core.common` = err）
 LLM_CORE_ALLOWED = frozenset({"core.paths", "core.common"})
 
 #: 既存违规白名单: (相对路径, 被 import 的顶层包) → 归宿（`docs/EXEC_SPLIT.md` 节点）
-#: ✅ C10 清掉 4 条: 错误原语下沉 `contract/errors.py`（3 条 contract→core）、
-#: `json_cleaner` 搬到 `contract/`（1 条 contract→llm）。剩最后 1 条等 C11。
-ALLOWED: dict[tuple[str, str], str] = {
-    ("core/ui/vn_cli.py", "renderer"):
-        "vn_cli 是 CLI **应用**不是引擎（C12 搬 apps/ 时这条规则消失）。"
-        "⚠️ C11 实测修正: 原计划写\"C11 减 1 条\"做不到——真正用 renderer 的是 vn_cli 自己的"
-        "显示路径（`simulate_vn_scene`/`run_bond_story_vn`）, 而 C11 上提的 "
-        "`_build_director`/`_trigger_title` 只依赖 core.director; C11 解掉的是"
-        "**webgui → CLI** 的反向耦合",
-}
+#: ✅ **C12b 起是空表** —— 6 处既存违规全部有归宿并已消:
+#: 3 条 contract→core（C10: 错误原语下沉 `contract/errors.py`）·
+#: 1 条 contract→llm（C10: `json_cleaner` 归位）·
+#: 1 条 core→renderer（C12b: `vn_cli.py` 搬 `apps/`, 它本来就是 CLI 应用）。
+#: 保持空表 = 分层规则**零例外**; 新违规必须修代码, 不是登记白名单。
+ALLOWED: dict[tuple[str, str], str] = {}
 
 
 def _package_of(path: pathlib.Path) -> str:

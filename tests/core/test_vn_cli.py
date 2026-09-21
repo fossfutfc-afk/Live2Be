@@ -22,7 +22,7 @@ from core.mmt.engine import MomoTalkEngine
 from core.bond.bond_story import BondScene, BondStoryEngine
 from core.session import SessionStore
 from core.session.events import M_VN_EXIT
-from core.ui.vn_cli import run_bond_story_vn, simulate_vn_scene
+from apps.vn_cli import run_bond_story_vn, simulate_vn_scene
 from llm import task_labels as T
 
 from tests import stub_tasks
@@ -355,7 +355,7 @@ def test_run_vn_remind_then_natural_end(tmp_path):
 
 def test_wrapup_after_vn():
     from core.bond.bond_progress import BondProgress
-    from core.ui.vn_cli import wrapup_after_vn
+    from apps.vn_cli import wrapup_after_vn
 
     # 动作列表格式（2026-08-23: MMT 输出 {"actions": [...]}——兼容仍解析）
     # 2026-09-05: trigger payload = chapter_title（reason 退役）

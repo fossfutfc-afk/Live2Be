@@ -19,7 +19,7 @@ scene_id 由**文件名**派生, 与目录层级无关（用户同步的是 `SDI
 需要"某目录下有哪些 scene"用 `background_scenes()` 自行过滤。
 
 架构: 背景=命名派生（零 manifest）; 差分=manifest 映射（情绪白名单真源）。
-详见 core/DESIGN_VISUAL.md §5-①。
+详见 docs/DESIGN_VISUAL.md §5-①。
 """
 from __future__ import annotations
 

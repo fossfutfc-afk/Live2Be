@@ -36,7 +36,7 @@ TARGETS = (
     "core.bond.bond_story",
     "contract.records",
     "core.mmt.engine",
-    "core.ui.vn_cli",
+    "apps.vn_cli",
     "llm.client",
 )
 

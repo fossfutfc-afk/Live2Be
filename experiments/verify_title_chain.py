@@ -14,7 +14,7 @@ from core.mmt.engine import MomoTalkEngine
 from core.session import SessionStore
 from core.session.renderer import render_bond_scene_text, window_messages
 from core.director.wiring import _trigger_title
-from core.ui.vn_cli import run_bond_story_vn, wrapup_after_vn
+from apps.vn_cli import run_bond_story_vn, wrapup_after_vn
 from llm.client import LLMClient
 
 CHAR = "igusa_haruka"

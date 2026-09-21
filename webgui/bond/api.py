@@ -62,7 +62,7 @@ from core.session.staging import (
     commit_staging,
     truth_store,
 )
-from core.director.wiring import (          # C11: 接线层（此前借道 core.ui.vn_cli）
+from core.director.wiring import (          # C11: 接线层（此前借道 apps.vn_cli）
     _build_director,
     _trigger_title,
 )

@@ -3,7 +3,7 @@
 > **归档政策（2026-09-02）**: 被取代/过时的设计文档移入本目录，**不再更新**。
 > 一切以代码为准；活文档在根目录与 `core/`、`docs/` 中维护。
 > **（2026-09-12 补充）** 归档前先看"这是规范还是史料"：仍是现网真源的文档
-> （如 `core/DESIGN_VISUAL_PROTOCOL.md` 的 emotions.yml 词表形态）**留在原位**，
+> （如 `docs/DESIGN_VISUAL_PROTOCOL.md` 的 emotions.yml 词表形态）**留在原位**，
 > 只修过时段落；已经只具史料价值的（讨论稿/实验记录/演进史）移入本目录。
 
 | 文件 | 归档日期 | 原因 | 取代者 |
@@ -18,6 +18,6 @@
 | `DESIGN_BOND_STORY.md` | 2026-09-10 | VN 引擎旧运行时（双动作 + 双 registry） | 同上（§8 registry 关系清单） |
 | `maXEmo-miNDelay.md` | 2026-09-12 | 情绪精度 × 延迟早期讨论稿（写作时 emotion 还是"主 LLM 逐句内联"） | `docs/EXEC_BOND_LATENCY.md` + `docs/DESIGN_VN_UPGRADE.md` + `CLAUDE.md §4` |
 | `reasoning_experiment.md` | 2026-09-12 | 一次性 A/B 实验记录（bond 触发措辞 ×3 遍） | `llm/task_levels.py` + `llm/prompts/task_bond.md` |
-| `world_model_evolution.md` | 2026-09-12 | 世界线模型思想演进史（阶段 0~15, 史料非规范） | `core/session/store.py` + `core/DESIGN_WORLD.md` |
+| `world_model_evolution.md` | 2026-09-12 | 世界线模型思想演进史（阶段 0~15, 史料非规范） | `core/session/store.py` + `docs/DESIGN_WORLD.md` |
 
 > 历史版本保留在 git 中；本目录存的是归档时刻的最后版本。

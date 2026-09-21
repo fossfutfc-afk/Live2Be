@@ -93,9 +93,12 @@ core/          引擎层（无 web 依赖, CLI/实验同源复用）
    └ parsing/ director/ media/ mmt/ tui/ random_events/ affection/ rag/
      · **`core/tui/`（C11）** = 终端展示层: display / streaming / text_processors
        （纯逻辑零引擎依赖; 从 `core/ui/` 搬来, 与 web GUI 的 `webgui/` 分开命名）
-     · `core/ui/` 只剩 CLI 应用 `vn_cli.py`（**唯一 `core→renderer` 依赖**; C12 搬 `apps/`）
      · `core/director/` = 视觉导演 + **`wiring.py`（C11）**: `_build_director`/`_trigger_title`
        （webgui 与 CLI 共用的两个接线函数——放 `vn_cli` 里会形成 webgui→CLI 反向依赖）
+apps/          应用层（**C12b**）: `main.py`（MomoTalk CLI 主流程）· `vn_cli.py`
+               （羁绊剧情 VN 的终端驱动 —— **唯一依赖 `renderer` 的地方**）。
+               ⚠️ 引擎层与 webgui **都不许 import `apps`**（`test_import_direction.py` 已钉住）;
+               启动: `python main.py`（仓根转调壳）或 `python -m apps.main`
 contract/       契约地基: **records/（C10 起是包）** = grammar(取值表+记录形状)/parse(行解析+
                 增量解析)/check(群分组+Issue 软硬分级+块/板校验)/carrier(VnBlock+渲染取选项)
                 · **errors(错误原语真家)** · **json_cleaner(纯 JSON 修复)** · schema(LLM 可见文本)
@@ -104,7 +107,7 @@ llm/            client(超时/流式/usage 日志) · task_labels(**调用身份
 config/         人设六文件(REQ~/SIG~) + illustration.yml · settings/world(overview.yml) · settings/relation
 data/           运行时数据(gitignore): worlds/*/characters/*/{progress.json…} +
                 **soul/**（记忆层: events.jsonl + wiki.jsonl + wiki.meta.json + 变更史）
-tests/ core/ webgui/ llm/ renderer/ 分别对应域; experiments/ 真 API 基准与探索脚本
+tests/ core/ webgui/ llm/ renderer/ apps/ 分别对应域; experiments/ 真 API 基准与探索脚本
 ```
 
 注：`core/bond_story.py`/`web/` 是历史名，**不存在**；现为 `core/bond/bond_story/`（**C9 起是包**）
@@ -674,41 +677,21 @@ CLI/测试同步路径在引擎内串行。
   2″（`BoardLifecycle` + `_discard_boards`）· **5b（`task=` 结构化分派 + 三条守门）** **;
   文件拆分另立 docs/EXEC_SPLIT.md（C1b 已把 `webgui/bond.py` 变成包）。
   来源 = ARCH_REVIEW P0-2/P0-3/P2-8 的根治）
-- **文件拆分与位置规划（C0 + C1a–C11 已落地 —— 三个大文件都拆完了, 位置错的件也在归位）**：docs/EXEC_SPLIT.md（**执行计划**。C0 = 安全网 +
-  工具纪律：`tests/core/test_import_direction.py`（4 条分层规则）·
-  `tests/core/test_split_safety.py`（API 面快照 + patch 点台账）·
-  rope 实测结论（只用于真搬家, 拆包不能用它）。**C1a = 接缝收敛**：新建
-  `webgui/deps.py`（显式接缝: store / 生图器 / 看门狗阈值 / choice 开关 / 标注钩子）,
-  `bond.py`/`chat.py`/**测试/冒烟桩**一律改读 `deps.xxx`——**模块→包之后
-  `monkeypatch.setattr(包, 名字)` 会静默失效**（测试照旧绿、覆盖全丢）, 这是拆分的头号坑,
-  守门见 `test_split_safety.py` 的空 `ALLOWED_PATCHES`。**C1b = `webgui/bond.py` → 包**：
-  `git mv` 成 `webgui/bond/_impl.py`（100% rename）+ 门面 `webgui/bond/__init__.py`
-  **逐个显式**再导出 117 个名字（含私有名; 列表从 API 面快照生成, **不定义 `__all__`**
-  ——否则快照会多一个名字）⇒ 引用点零改动 + 夹具零 diff。**C2 = 搬 `webgui/bond/state.py`**
-  （BondState / BoardLifecycle / ChoiceCandidate / `_bonds` / `_state`）——**拆包必须叶子
-  优先**: `BoardLifecycle` 被状态模型与落库**运行期**同时用, 放谁那里都成环, 故把
-  `state.py` 从原 C8 提前到 C2。**C9 = `core/bond/bond_story.py` → 包**（`scene.py` 264 +
-  `boards.py` 184 + `engine.py` 1195 + 门面 129 行, 54 名; 27 个引用点零改动）——
-  ⚠️ 拆包会暴露测试里的"这是个单文件"假设（守门写死 `…/bond_story.py` 会
-  `FileNotFoundError`, 见该文 §5 陷阱 12）。**C10 = `contract/records.py` → 包 +
-  两处"位置放错"归位**（`grammar/parse/check/carrier` 四块按原文件的分区逐字切;
-  错误原语下沉 `contract/errors.py`（用户裁决 A, `core/common/errors.py` 留薄壳）;
-  `llm/json_cleaner.py` → `contract/json_cleaner.py`）—— 分层白名单 **5 → 1 条**
-  （只剩 `core/ui/vn_cli.py → renderer`, 归 C12）。**C11 = 展示层搬 `core/tui/` +
-  接线层上提 `core/director/wiring.py`**（`_build_director`/`_trigger_title` 从 `vn_cli` 搬到
-  `core/director/wiring.py` ⇒ 解掉 **webgui→CLI**; ⚠️ 原计划"白名单减 1 条"实测做不到——
-  renderer 依赖在 vn_cli 自己的显示路径里, 见该文 §5 陷阱 14）。**C12 拆成两节点（用户
-  2026-09-21 裁决）**: **C12a = `core/momotalk.py` → `core/mmt/engine.py`**（47 处引用
-  一次性改指, **不留兼容壳**; 唯一外部可见变化 = `MmtLoopError` 的串从 `[momotalk.py]…`
-  变 `[engine.py]…`, 名字由类所在模块派生）; **C12b = `main.py`/`vn_cli.py` → `apps/` +
-  `core/*.md` → `docs/`**（那是 `core→renderer` 白名单条目消失的节点）。节点 C13–C15：
-  测试拆分; 每节点一提交 + 全量 + 冒烟）
+- **文件拆分与位置规划（C0 + C1a–C12b 已落地 —— 三个大文件都拆完 + 位置错的件已归位）**：docs/EXEC_SPLIT.md（**执行计划 + 全部验收记录**；节点表与陷阱清单在那边，这里只留指针）。要点：
+  · **已拆成包**：`webgui/bond/`（C1b–C8，117 名门面）· `core/bond/bond_story/`（C9）· `contract/records/`（C10）；
+    **已归位**：`core/mmt/engine.py`（C12a）· `core/tui/`（C11）· `core/director/wiring.py`（C11）·
+    `contract/{errors,json_cleaner}.py`（C10）· `apps/{main,vn_cli}.py`（C12b）· `docs/DESIGN_*.md`（C12b）。
+  · **两条守门**（`tests/core/`）：`test_import_direction.py`（分层方向；**白名单 C12b 起是空表**，
+    含“谁都不许 import `apps`”）· `test_split_safety.py`（API 面快照 + patch 点台账）。
+  · **拆分纪律**（拆包节点通用）：叶子优先 · 门面逐个显式再导出（不定义 `__all__`）·
+    门面只指向“名字的真家” · 接缝走 `webgui/deps.py` · 每节点一提交 + 全量 + 冒烟。
+  · 余下：C13 测试拆分（可选 C14/C15）；○C8b（`api.py` 再分）与若干“非阻塞”小项见该文。
 - **重新生成 / 重发 的语义与固化线**：docs/DESIGN_RESEND.md（**设计稿, 未动代码**。
   决策: MMT 提交边界 = **回合提交**; 两区 = 水位之上**丢弃** / 水位之下走
   `wiki_v2/revise` **更正**; 板级那一半已由 `BoardLifecycle` + `_discard_boards` 落地;
   含 `vn_abandon` 族退休方案——存量真源 0 条, 读路径空转）
-- 记忆体系总设计：根级 DESIGN_BRAIN.md（混合史, 慎读）；视觉协议：core/DESIGN_VISUAL_PROTOCOL.md
-- 模块级设计：core/DESIGN_{MMT_CHAT,GUI,SEGMENT,WORLD,MULTI_CHAR}.md（BOND_STORY 已归档）
+- 记忆体系总设计：根级 DESIGN_BRAIN.md（混合史, 慎读）；视觉协议：docs/DESIGN_VISUAL_PROTOCOL.md
+- 模块级设计：docs/DESIGN_{MMT_CHAT,GUI,SEGMENT,WORLD,MULTI_CHAR,VISUAL,VISUAL_PROTOCOL}.md + docs/DESIGN_CONTRACT.md（C12b 起; BOND_STORY 已归档）
   与 docs/archive/DESIGN_BOND_STORY.md（旧 VN 运行时）
 - 未来扩展和预留未调用函数 docs/EXTENSION_POINTS.md
 - 其他根级说明：README.md / CLAUDE_OPTIMIZE.md / TODO.md / ASKYOURSELF.yml / guidance/

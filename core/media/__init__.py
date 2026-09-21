@@ -11,7 +11,7 @@
     load_place_lexicon                               → 旧白名单 common_scenes（**只剩降级兜底**:
                                                        表读不出来时当 place_keys 用）
 
-架构见 core/DESIGN_VISUAL.md §5-① + core/DESIGN_VISUAL_PROTOCOL.md。
+架构见 docs/DESIGN_VISUAL.md §5-① + docs/DESIGN_VISUAL_PROTOCOL.md。
 """
 from core.media.background import BackgroundMedia, derive_background
 from core.media.catalog import MediaCatalog, MediaError

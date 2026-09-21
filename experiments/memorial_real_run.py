@@ -17,7 +17,7 @@ from llm.client import LLMClient
 from llm.image_gen import ImageGenerator
 from core.mmt.engine import MomoTalkEngine
 from core.session import SessionStore
-from core.ui.vn_cli import run_bond_story_vn
+from apps.vn_cli import run_bond_story_vn
 
 CHAR = sys.argv[1] if len(sys.argv) > 1 else "igusa_haruka"
 ROOT = Path(__file__).resolve().parent.parent

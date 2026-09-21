@@ -2759,7 +2759,7 @@ haruka 的 `outburst` 注释原文含「**角色灵魂表情**」——**作者�
 - **不让**主 LLM 写 `id`/`story_time`/`occurrences`/`history`（引擎字段，防幻觉）
 - **不引入**向量数据库依赖（当前是 JSONL + 进程内向量；要换后端只换 `embed_fn`，
   与 v2 预留接口一致）
-- **不做**多角色的 NPC 记忆网络（那是 `core/DESIGN_MULTI_CHAR.md` 的线，v3 不碰）
+- **不做**多角色的 NPC 记忆网络（那是 `docs/DESIGN_MULTI_CHAR.md` 的线，v3 不碰）
 
 ### 11.1 时间项的边界（§4 专属）
 

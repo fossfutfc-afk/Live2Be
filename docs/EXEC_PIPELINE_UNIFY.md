@@ -235,7 +235,7 @@ PROVISIONAL ──交付上屏──► DELIVERED ──裁决/推进/收尾─�
 | 真分歧 / A2 分支叙事化 | 2026-09-10 已定稿关闭（收敛链即终局） | `docs/archive/DESIGN_BOND_CONTRACT_V2.md` |
 | 候选支预生成（DESIGN_CHOICE_PREGEN）是否退役 | 独立裁决：v2 下唯一调用点被 `if not scene.records:` 挡住，只剩"v1 旧档回放"这条冻结路径能到达 | 独立节点 |
 | 测试侧 16 处 F841 + 1 处 F811 | 与流水线无关；且**不能**批量跑 `ruff --unsafe-fixes`（会把 `r = st.resume(...)` 这类带副作用的调用一起删） | 独立小节点 |
-| MMT 重发 / 邀约 / 多人 **实现** | 只做 §5 的口子，不做功能 | `docs/DESIGN_RESEND.md` / `docs/DESIGN_MEETUP.md` / `core/DESIGN_MULTI_CHAR.md` |
+| MMT 重发 / 邀约 / 多人 **实现** | 只做 §5 的口子，不做功能 | `docs/DESIGN_RESEND.md` / `docs/DESIGN_MEETUP.md` / `docs/DESIGN_MULTI_CHAR.md` |
 
 ---
 

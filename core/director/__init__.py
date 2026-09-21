@@ -12,7 +12,7 @@ llm/client.py 的 LLMClient 填 audio）。
     vs = director.visual_for(place="class_room")
     # vs.background / vs.audio → 合并进 BondScene
 
-架构见 core/DESIGN_VISUAL_PROTOCOL.md + core/DESIGN_VISUAL.md。
+架构见 docs/DESIGN_VISUAL_PROTOCOL.md + docs/DESIGN_VISUAL.md。
 """
 from core.director.director import Director
 from core.director.state import DEFAULT_BACKGROUND, VisualState
