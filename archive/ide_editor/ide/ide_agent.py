@@ -41,7 +41,7 @@ from ide.ide_events import (
 )
 from ide.ide_executor import ExecError, Executor
 from llm.client import feedback
-from core.ui.display import IDEOutput
+from core.tui.display import IDEOutput
 
 MAX_STEPS = 12          # 单轮 agent 最大动作步数（防死循环）
 HISTORY_MAX = 30        # 跨轮记忆条数上限（去掉 system 后）

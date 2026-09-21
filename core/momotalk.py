@@ -80,9 +80,9 @@ from core.brain.wiki_v2.render import render_background_experience, render_chara
 from core.brain.wiki_v2.store import WikiStoreV2
 from core.rag.brain import make_embed_fn
 from core.rag.embedder import LocalEmbedder
-from core.ui.display import MomoTalkOutput
-from core.ui.streaming import DisplayStep
-from core.ui.text_processors import _process_for_momotalk, _strip_action_brackets, split_reply_chunks
+from core.tui.display import MomoTalkOutput
+from core.tui.streaming import DisplayStep
+from core.tui.text_processors import _process_for_momotalk, _strip_action_brackets, split_reply_chunks
 
 logger = logging.getLogger(__name__)
 

@@ -27,7 +27,7 @@ from core.bond.bond_story import BondStoryEngine  # noqa: E402
 from core.momotalk import MomoTalkEngine  # noqa: E402
 from core.session import SessionStore  # noqa: E402
 from core.session.renderer import window_messages  # noqa: E402
-from core.ui.vn_cli import _build_director, _trigger_title  # noqa: E402
+from core.director.wiring import _build_director, _trigger_title  # noqa: E402  (C11: 真家)
 from llm.client import LLMClient  # noqa: E402
 
 CHAR_ROOT = ROOT / "config" / "characters"

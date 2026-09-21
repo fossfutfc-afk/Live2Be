@@ -1,50 +1,12 @@
-"""ui — 展示层（纯逻辑，零引擎依赖）。
+# -*- coding: utf-8 -*-
+"""`core/ui` —— **空壳**: C11 起展示层已搬到 `core.tui`, 这里只剩 CLI **应用** `vn_cli.py`。
 
-从 core/ 移出的可复用展示组件:
-    streaming        LineBuffer 断句 + TypingDelay 打字延迟
-    text_processors  MomoTalk 文本处理（去括号/断句/前缀格式化）
-    display          MomoTalkOutput / BondStoryOutput / IDEOutput 三种渲染策略
+| 想要什么 | 去哪 |
+|---|---|
+| 展示组件（display / streaming / text_processors） | `core.tui.*` |
+| `vn_cli`（CLI 应用: 跑一场 VN） | 还在原路径, **C12 会搬 `apps/`**（它依赖 `renderer`, 是 core→renderer 唯一来源） |
+| webgui 要的 `_build_director` / `_trigger_title` | **C11 起在 `core.director.wiring`**（解掉 webgui→CLI 的反向耦合） |
 
-供主项目（core.momotalk / core.bond_story）与 web/ GUI 复用。
+⚠️ 本包**不再**再导出展示层名字（`from core.ui import MomoTalkOutput` 已作废,
+请改 `from core.tui import MomoTalkOutput`）——只有一层名字, 免得两个入口漂移。
 """
-
-from __future__ import annotations
-
-from core.ui.display import BondStoryOutput, IDEDisplayItem, IDEOutput, MomoTalkOutput
-from core.ui.streaming import (
-    DisplayStep,
-    LineBuffer,
-    TypingDelay,
-    chunk_typing_time,
-    simulate_steps,
-    simulate_typing,
-)
-from core.ui.text_processors import (
-    _process_for_momotalk,
-    _split_for_momotalk,
-    _strip_action_brackets,
-    format_momotalk_bubble,
-    format_momotalk_reply,
-    split_reply_chunks,
-    strip_name_prefix,
-)
-
-__all__ = [
-    "BondStoryOutput",
-    "DisplayStep",
-    "IDEDisplayItem",
-    "IDEOutput",
-    "LineBuffer",
-    "MomoTalkOutput",
-    "TypingDelay",
-    "_process_for_momotalk",
-    "_split_for_momotalk",
-    "_strip_action_brackets",
-    "chunk_typing_time",
-    "format_momotalk_bubble",
-    "format_momotalk_reply",
-    "simulate_steps",
-    "simulate_typing",
-    "split_reply_chunks",
-    "strip_name_prefix",
-]

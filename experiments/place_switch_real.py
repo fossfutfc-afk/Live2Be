@@ -29,7 +29,7 @@ logging.basicConfig(level=logging.INFO,
 from core.bond.bond_story import BondStoryEngine            # noqa: E402
 from core.media.catalog import MediaCatalog                 # noqa: E402
 from core.media.place_table import load_table               # noqa: E402
-from core.ui.vn_cli import _build_director                  # noqa: E402
+from core.director.wiring import _build_director            # noqa: E402  (C11: 真家)
 from llm import task_labels as T                            # noqa: E402
 from llm.client import LLMClient                            # noqa: E402
 
