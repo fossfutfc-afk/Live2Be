@@ -7,7 +7,7 @@
     text_processors  MomoTalk 文本处理（去括号/断句/前缀格式化）
     display          MomoTalkOutput / BondStoryOutput / IDEOutput 三种渲染策略
 
-供 `core.momotalk` / `core.session.renderer` / `webgui.chat` 与 CLI/实验脚本复用。
+供 `core.mmt.engine` / `core.session.renderer` / `webgui.chat` 与 CLI/实验脚本复用。
 ⚠️ **不 import `renderer`**（那是 CLI 应用 `core/ui/vn_cli.py` 的事, 归 C12 搬 `apps/`）。
 """
 

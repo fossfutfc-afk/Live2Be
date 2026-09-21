@@ -5,7 +5,7 @@ from pathlib import Path
 ROOT = Path(".").resolve()
 sys.path.insert(0, str(ROOT))
 from core.session import SessionStore
-from core.momotalk import MomoTalkEngine
+from core.mmt.engine import MomoTalkEngine
 import webgui.bond as bond
 import webgui.chat as chat
 from webgui import deps

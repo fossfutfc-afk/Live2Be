@@ -13,7 +13,7 @@ from pathlib import Path
 
 from webgui import bond, chat, deps
 from core.session.store import SessionStore
-from core.momotalk import MomoTalkEngine
+from core.mmt.engine import MomoTalkEngine
 
 sys_path_root = Path(__file__).resolve().parent.parent.parent
 import sys  # noqa: E402

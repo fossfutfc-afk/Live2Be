@@ -11,7 +11,7 @@
                     字数+随机数切块 split_reply_chunks（宁缺勿错不丢字）
     streaming       非流式步骤 DisplayStep / chunk_typing_time / simulate_steps
     display         非流式 publish_reply（切块 + "…"等待指示 + 气泡交替）
-    集成            import core.ui + core.momotalk + core.bond_story
+    集成            import core.ui + core.mmt.engine + core.bond_story
 
 运行: python -m pytest tests/core/test_display.py
 """
@@ -491,10 +491,10 @@ def test_ide_unknown():
 # 集成
 # ============================================================================
 
-@check("集成 import: ui + core.momotalk + core.bond_story")
+@check("集成 import: ui + core.mmt.engine + core.bond_story")
 def test_integration_import():
     import core.bond.bond_story  # noqa: F401
-    import core.momotalk    # noqa: F401
+    import core.mmt.engine    # noqa: F401
 
 
 def main() -> None:

@@ -96,7 +96,7 @@
 | `real_clock.json` 台账（`last_seen_date` / `rewind_count` / 按角色的 `fired`） | ❌ 补发（q5: 不补发 —— 新角色零补发, 只有"她上次在场之后"的日子算） |
 | 生日读 `profile.yml` 的 `SIG~birthday`（走 `OccasionSource` 扩展点, **尚未接**） | ❌ 农历 / `nth_weekday` 匹配器（扩展点已留, 未实现） |
 
-⚠️ **接入尚未做**: `momotalk.py` 那个 MMT 每轮装配点上**还没有**调 `due_notes`。
+⚠️ **接入尚未做**: `core/mmt/engine.py` 那个 MMT 每轮装配点上**还没有**调 `due_notes`。
 落地位置已定（P17 时间注记之后、P18 随机事件之前）, 是独立的一步。
 """
 from __future__ import annotations

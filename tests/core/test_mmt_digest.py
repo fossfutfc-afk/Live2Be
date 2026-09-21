@@ -11,7 +11,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-from core.momotalk import MMT_DIGEST_INTERVAL, MomoTalkEngine
+from core.mmt.engine import MMT_DIGEST_INTERVAL, MomoTalkEngine
 from core.session import SessionStore
 from tests import stub_tasks
 

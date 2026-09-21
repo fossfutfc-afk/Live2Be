@@ -13,7 +13,7 @@ import sys
 
 from llm.client import LLMClient
 from llm.image_gen import ImageGenerator
-from core.momotalk import MomoTalkEngine
+from core.mmt.engine import MomoTalkEngine
 from core.session import SessionStore
 from core.mmt.mmt_preset import (
     LoopResult,

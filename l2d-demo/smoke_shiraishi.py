@@ -22,7 +22,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from llm.client import LLMClient                      # noqa: E402
-from core.momotalk import MomoTalkEngine              # noqa: E402
+from core.mmt.engine import MomoTalkEngine              # noqa: E402
 from core.session import SessionStore                 # noqa: E402
 from core.ui.vn_cli import run_bond_story_vn          # noqa: E402
 

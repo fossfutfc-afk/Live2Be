@@ -24,7 +24,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from core.bond.bond_story import BondStoryEngine  # noqa: E402
-from core.momotalk import MomoTalkEngine  # noqa: E402
+from core.mmt.engine import MomoTalkEngine  # noqa: E402
 from core.session import SessionStore  # noqa: E402
 from core.session.renderer import window_messages  # noqa: E402
 from core.director.wiring import _build_director, _trigger_title  # noqa: E402  (C11: 真家)

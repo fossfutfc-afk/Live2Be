@@ -68,7 +68,7 @@ CHARACTERS = ROOT / "config" / "characters"
 
 
 def _engine():
-    from core.momotalk import MomoTalkEngine
+    from core.mmt.engine import MomoTalkEngine
     return MomoTalkEngine(CHARACTERS, StubLLM())
 
 
@@ -406,7 +406,7 @@ def test_cmd_unknown_returns_none():
 
 def test_no_player_name_inject():
     """玩家名只系统显示, 不注入 system prompt（学生不会直呼玩家自定义名）。"""
-    from core.momotalk import MomoTalkEngine
+    from core.mmt.engine import MomoTalkEngine
 
     engine = MomoTalkEngine(CHARACTERS, StubLLM())
     engine.start_session("igusa_haruka")
