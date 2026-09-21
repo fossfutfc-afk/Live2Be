@@ -91,6 +91,34 @@ def reset_engines() -> None:
 # 会话生命周期
 # ---------------------------------------------------------------------------
 
+def _inject_brain_on_open(engine: MomoTalkEngine, char_id: str, session_id: str) -> None:
+    """**会话打开即装填 brain 段**（★ P1, 2026-09-21）。
+
+    病灶: `start_session` **不清空也不重读** `_brain_injection`（`engine.py:374` 只把它
+    初始化成 `""`），而 `_inject_brain` 此前只有 **digest 完成** 与 **resume** 两个调用点
+    ⇒ **新世界线会话的 brain 段是空串**：出厂背景段 + 全部 wiki 记忆都不进 prompt
+    （盒A 的六文件人设 dump 不受影响——那走 `_persona_mmt`）。
+
+    ⚠️ 这在真机上**是常态不是边角**: `bond_finish` 会 `finish(..., ended=True)`
+    （`webgui/bond/api.py:504`）⇒ **每完成一章该会话即"结束"** ⇒ 章之后（以及任何一次
+    进程重启之后）打开 MMT 必然走新分支 ⇒ 角色"完全不记得刚跑完的那章"。
+    实测指纹（2026-09-21）: 22:16:40 那次 digest 有 `recall_read`；而 23:00 / 23:18 三次
+    `新会话` 之后**一行 `recall_read` 都没有** —— 那三个会话全程无记忆。
+
+    只读（`digest=False`: 不消化、不写库）；失败静默（`_inject_brain` 内部已兜底，
+    这里再兜一层防伪 store/坏档把"开会话"整条打挂）。顺带打一行 INFO，让"这次打开注入了
+    什么"在 diag 里可归因——与 `recall_read` 那行配套读。
+    """
+    try:
+        engine._inject_brain(char_id, session_id)        # 与 webgui 其它接线同款（碰私有名）
+    except Exception as e:                              # noqa: BLE001 — 注入失败不阻断开会话
+        logger.warning("新会话 brain 注入失败（照常开会话）: %s", e)
+        return
+    seg = getattr(engine, "_brain_injection", "") or ""
+    logger.info("新会话 brain 注入: %s/%s seg=%d 字%s", char_id, session_id, len(seg),
+                "" if seg else "（空: wiki 无节点且出厂背景为空）")
+
+
 def open_session(char_id: str) -> dict:
     """打开某角色的会话: 有进行中 → resume; 无 → 新开世界线。
 
@@ -112,6 +140,7 @@ def open_session(char_id: str) -> dict:
     meta = deps.store().create(char_id)
     display_name = engine.start_session(char_id)
     engine.attach_session(meta.session_id)
+    _inject_brain_on_open(engine, char_id, meta.session_id)   # ★ P1: 新分支也要装填
     return {
         "session_id": meta.session_id,
         "display_name": display_name,
@@ -127,6 +156,7 @@ def new_world(char_id: str) -> dict:
     meta = deps.store().create(char_id)
     display_name = engine.start_session(char_id)
     engine.attach_session(meta.session_id)
+    _inject_brain_on_open(engine, char_id, meta.session_id)   # ★ P1: 同款（别漏这条）
     return {"session_id": meta.session_id, "display_name": display_name, "new": True}
 
 
