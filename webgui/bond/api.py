@@ -1,121 +1,127 @@
 # -*- coding: utf-8 -*-
-"""webgui 羁绊剧情驱动 — CLI run_bond_story_vn（core/ui/vn_cli.py）的异步化状态机。
+"""`webgui.bond` 的**对外动作层**（C8, `docs/EXEC_SPLIT.md`）—— HTTP 门面 + 收尾。
 
-CLI 是同步循环（send_vn_scene → 渲染 → 玩家输入 → 下一场）; webgui 拆成
-请求驱动的状态机（与 chat.py 的后台线程 + 轮询模式一致）:
+## 放什么
 
-    bond_start    → 构造 BondStoryEngine（复用引擎 llm + director + brain 注入）
-                    + 落 vn_enter marker + 首场 seed → 后台生成首场
-    bond_turn     → 玩家裁决（选项/自由输入）→ 补录上一场事件（append-only:
-                    本场事件在玩家裁决时落库, 带 picked）→ 后台生成下一场
-    bond_status   → 轮询: busy / scene / error / completed
-    bond_finish   → 补录最后一场（is_end, picked=None）+ vn_exit + session_end
-                    + wrapup 收尾（agent_turn 收尾话, 落 mmt 事件）→ async_digest
-                    （digest 唯一触发点: bond 闭环）
+`bond_start` / `bond_turn` / `bond_status` / `bond_finish`（路由层调用的全部动作）·
+`bond_start_demo`（演示剧本）· `_start_replay`（回放编排）· `_ready_scene_payload` /
+`_role_info`（场景载荷）· `_entry_already_done`（重进闸）· `_note_reject` / `_clear_rejects`
+（被拒诊断）· `_wrapup` / `_wrapup_inner`（收尾话 + digest 唯一触发点）· `DEMO_SCRIPT`。
 
-与 CLI 对齐的语义:
-    - 收尾兜底（remind/end 系统注记; 2026-09-09 起无超限伪收场）
-    - 纪念子模式（in_memorial → 注入 exit schema; 无生图 → 纯文字, 剧情照走）
-    - 失败降级（SceneLoopError → closing 场景落库 + completed, 宁缺勿错）
-    - 事件流: bond 事件 {input, picked, ...scene} + memorial/vn_state marker
-      （与 CLI 落库格式一致, 回放兼容）
+## 原 `webgui/bond.py` 的模块说明（逐字保留 —— 这一层就是它的对外契约）
 
-注意: BondStoryEngine 实例在内存（单用户本机, 同 chat.py 引擎管理）;
-重启服务丢内存态, 事件流在——中断的 VN 通过 vn_state marker 可重建（M3 回放）。
+    webgui 羁绊剧情驱动 — CLI run_bond_story_vn（core/ui/vn_cli.py）的异步化状态机。
+    
+    CLI 是同步循环（send_vn_scene → 渲染 → 玩家输入 → 下一场）; webgui 拆成
+    请求驱动的状态机（与 chat.py 的后台线程 + 轮询模式一致）:
+    
+        bond_start    → 构造 BondStoryEngine（复用引擎 llm + director + brain 注入）
+                        + 落 vn_enter marker + 首场 seed → 后台生成首场
+        bond_turn     → 玩家裁决（选项/自由输入）→ 补录上一场事件（append-only:
+                        本场事件在玩家裁决时落库, 带 picked）→ 后台生成下一场
+        bond_status   → 轮询: busy / scene / error / completed
+        bond_finish   → 补录最后一场（is_end, picked=None）+ vn_exit + session_end
+                        + wrapup 收尾（agent_turn 收尾话, 落 mmt 事件）→ async_digest
+                        （digest 唯一触发点: bond 闭环）
+    
+    与 CLI 对齐的语义:
+        - 收尾兜底（remind/end 系统注记; 2026-09-09 起无超限伪收场）
+        - 纪念子模式（in_memorial → 注入 exit schema; 无生图 → 纯文字, 剧情照走）
+        - 失败降级（SceneLoopError → closing 场景落库 + completed, 宁缺勿错）
+        - 事件流: bond 事件 {input, picked, ...scene} + memorial/vn_state marker
+          （与 CLI 落库格式一致, 回放兼容）
+    
+    注意: BondStoryEngine 实例在内存（单用户本机, 同 chat.py 引擎管理）;
+    重启服务丢内存态, 事件流在——中断的 VN 通过 vn_state marker 可重建（M3 回放）。
 """
+
+
 from __future__ import annotations
 
 import json
-import logging
-import queue
 import threading
 import time
-
+import logging
 from core import paths
-from core.bond.bond_story import BondScene, BondStoryEngine, SceneLoopError
+from core.bond.bond_story import (
+    BondScene,
+    BondStoryEngine,
+)
 from core.momotalk import load_brain_segment
 from core.session.events import (
     M_VN_EXIT,
     make_event,
 )
 from core.session.maintenance import exclude_abandoned
-from core.session.renderer import render_bond_scene_text, window_messages
+from core.session.renderer import (
+    render_bond_scene_text,
+    window_messages,
+)
 from core.session.staging import (
     close_open_attempts,
     commit_staging,
     truth_store,
 )
-from core.ui.vn_cli import _build_director, _trigger_title
-from webgui import chat, deps                    # deps = 显式接缝（C1a）
-from webgui.bond.state import (                # C2: 状态模型（叶子模块）
+from core.ui.vn_cli import (
+    _build_director,
+    _trigger_title,
+)
+from webgui import chat, deps
+from webgui.bond.lanes import (
+    _anno_worker,
+    _ensure_lane,
+    _place_worker,
+    _scene_emotions_ready,
+    _scene_obj_visual_ready,
+    _scene_places_ready,
+    _scene_ready_or_busy,
+    _scene_visual_ready,
+    _wait_annotated,
+)
+from webgui.bond.memorial import _ensure_memorial_img
+from webgui.bond.pregen import (
+    _discard_boards,
+    _discard_candidates,
+    _generate,
+    _log_board_deliver,
+    _pregenerate,
+    _scene_landed,
+    _spawn_candidates,
+)
+from webgui.bond.replay import (
+    _enter_title,
+    _interrupted_replay_queue,
+    _pending_in_vn,
+    _prev_chapter_quit,
+    _title_from_events,
+)
+from webgui.bond.state import (
     BoardLifecycle,
     BondState,
     _bonds,
-    _memorial_open_in_events,
     _state,
 )
-from webgui.bond.stores import (           # C3: 落库层（事件流读写唯一出口）
-    _store,
-    _flow_store,
-    _stage_store,
-    _last_bond_seq,
-    _last_mmt_seq,
-    _draft_save,
+from webgui.bond.stores import (
+    _close_memorial_window,
     _draft_pending,
     _draft_queue,
-    _prewarm_cache_load,
-    _prewarm_cache_delete,
+    _draft_save,
+    _flow_store,
+    _last_bond_seq,
+    _last_mmt_seq,
     _log_scene,
     _log_scene_meta,
-    _close_memorial_window,
+    _prewarm_cache_delete,
+    _prewarm_cache_load,
+    _stage_store,
+    _store,
 )
-from webgui.bond.lanes import (           # C4: 双路 lane + 就绪门控
-    _scene_emotions_ready,
-    _scene_places_ready,
-    _scene_visual_ready,
-    _scene_obj_visual_ready,
-    _scene_ready_or_busy,
-    _wait_annotated,
-    _ensure_lane,
-    _anno_worker,
-    _place_worker,
-    _fallback_fill,
-)
-from webgui.bond.replay import (         # C5: 回放层（0 LLM 两条读路径）
-    _interrupted_replay_queue,
-    _pending_in_vn,
-    _title_from_events,
-    _enter_title,
-    _prev_chapter_quit,
-)
-from webgui.bond.memorial import (       # C6: 纪念生图
-    _ensure_memorial_img,
-)
-from webgui.bond.pregen import (         # C7: 生成 / 预生成 / 候选 / 丢弃
-    _generate,
-    _pregenerate,
-    _scene_landed,
-    _log_board_deliver,
-    _spawn_candidates,
-    _discard_boards,
-    _discard_candidates,
-)
-from webgui.bond.util import _ms_since                  # C4: 跨模块纯小工具
+from webgui.bond.util import _ms_since
+from webgui.bond.watchdog import _watchdog
 
 logger = logging.getLogger(__name__)
 
 
-#: 收尾注记轮数（与 CLI 默认一致）: _REMIND_ROUNDS 起给收束提示,
-#: _END_ROUNDS 起每轮强制收尾注记（_system_note）——**不再有超限伪收场**
-#: （2026-09-09 语义修正: 伪收场会把中断伪装成完成, 触发 digest/完整收尾话/
-#: 自动 finish——见 _generate 失败中止注释）; 模型持续不收尾 = 玩家可离开
-#: （中场退出, 重进续写）, 不伪终结。记录流 v2 里注记指向 `stage=end` 记录。
-#: 程序兜底 closing 文案（demo 剧本耗尽收尾 / CLI 兜底用; 2026-09-09 起
-#: webgui 生成失败路径不再用它——见 _generate）
-#: 场景生成连续失败上限（2026-09-02: 偶发 JSON 失败给重试机会, 超限才 closing）
-
-#: 演示模式预设剧本（不调 LLM——前端 VN 体验/联调用; 3 场: 选项 → 选项 → is_end,
-#: 覆盖背景切换/emotion 变化/收尾。BondScene 契约格式, 键用最新词表名）
 DEMO_SCRIPT: list[dict] = [
     {
         "title": "放学后的约定",        # 章节标题 → 开场标题面板（对齐官方"预先应对"样式）
@@ -161,146 +167,6 @@ DEMO_SCRIPT: list[dict] = [
 ]
 
 
-#: 看门狗阈值已搬到 `webgui/deps.py`（`deps.BUSY_WATCHDOG_MS` 等）——C1a 接缝收敛：
-#: 测试调小/调负它们时 patch `deps.*` 才生效（模块→包后 patch 包属性会静默失效）。
-
-
-def _thread_alive(th) -> bool:
-    try:
-        return bool(th is not None and th.is_alive())
-    except Exception:                                # noqa: BLE001 — 判定失败按不活
-        return False
-
-
-def _lanes_idle(state: "BondState") -> bool:
-    """标注 lane 是否**真的**空闲（无积压 且 无在途）。
-
-    2026-09-13 修正（审计 A6）: 原先只看 `qsize()`——worker 一旦把场景从队列取走、
-    正在 `await` 标注 LLM, `qsize()==0` 就返回 True。于是**一次健康的、只是慢
-    （>25s）的标注调用期间**, 看门狗就会开火强推兜底（不需要 worker 卡死）。
-    """
-    if getattr(state, "_lane_inflight", 0) > 0:
-        return False                                 # 有 worker 正在标注（在途）
-    for q in (state._anno_queue, state._place_queue):
-        try:
-            if q is not None and q.qsize() > 0:
-                return False
-        except Exception:                            # noqa: BLE001
-            continue
-    return True
-
-
-def _lane_writer_alive(state: "BondState") -> bool:
-    """是否还有标注 worker 线程在跑（诊断/测试用, **不是**兜底判据）。
-
-    ⚠️ 2026-09-13 复核: 这个信号在真实会话里**恒为 True**, 不能拿来做"没人会再来标"
-    的判据。证据链: 两个 worker 只在收到 `None` 哨兵时 `break`
-    （`_anno_worker`/`_place_worker` 的 `if scene is None`）, 而全仓 `.put(` 只有
-    两处、都是投场景（`_anno_queue.put(scene)` / `_place_queue.put(scene)`）——
-    **没有任何地方投 `None`**（`grep put(None)` 零命中）。所以 worker 一旦启动就
-    阻塞在 `q.get()` 上活到进程结束, `_anno_started`/`_place_started` 永不复位。
-    曾用它做 `_gate_stalled` 的合项 → ②③ 看门狗在稳态**永不触发**, 把真阳性
-    （lane 再也不回来 = 真机"已等待 110s"那个形态）也一起关掉了。
-    保留本函数仅作观测/测试。
-    """
-    if state._anno_started and _thread_alive(state._anno_thread):
-        return True
-    if state._place_started and _thread_alive(state._place_thread):
-        return True
-    return False
-
-
-def _gate_stalled(state: "BondState") -> bool:
-    """视觉门兜底的**前置条件**: 没有积压、也没有在途标注。
-
-    `_lanes_idle` 本身已经是 A6 要的语义（2026-09-13 收紧: 队列深度 **且** 在途
-    计数）——worker 把场景取走正在 `await` 时 `_lane_inflight > 0`, 不会被误判成
-    空闲。所以这里**不再**叠加"线程死活"判据（那会让兜底在稳态永不触发, 见
-    `_lane_writer_alive` 的说明）。
-
-    代价评估: 若 lane 真的挂住（worker 死在 `await` 里, 线程对象仍"存活" →
-    在途计数不归零）, 兜底不会开火 → `bond_turn` 被 `_scene_ready_or_busy` 一直拒
-    → 玩家卡在"视觉标注中"。此时仍有 ①忙态看门狗、前端 90s 软上限与 8s 降级渲染
-    兜着, 不至于全黑。更保守的做法是改判"**无进展 N 秒**"（如 90s）而不是"无线程"
-    ——留作后续（需要给 lane 记最后进展时间戳）。
-    """
-    return _lanes_idle(state)
-
-
-def _force_scene_ready(state: "BondState", scene) -> None:
-    """强制把场景标成视觉就绪（兜底放行用）: 空 emotion 回填 + place 标记。"""
-    if scene is None:
-        return
-    try:
-        _fallback_fill(scene)
-    except Exception:                                # noqa: BLE001 — 兜底失败也要放行
-        pass
-    try:
-        scene._place_done = True
-    except Exception:                                # noqa: BLE001
-        pass
-
-
-def _watchdog(state: "BondState", char_id: str, session_id: str) -> None:
-    """看门狗（bond_status 顺手调用）: 把"卡住=永久卡住"变成"卡住=降级放行"。
-
-    三类异常各有兜底:
-      ① **忙态卡死**: busy 超 BUSY_WATCHDOG_MS 且生成/预生成线程都不在 → 复位
-         （线程丢失/异常退出的兜底; 活着的线程不抢——它还在生成）。
-      ② **视觉门卡死**: 当前场景 emotion/place 连续 GATE_WATCHDOG_MS 未就绪且
-         **没有积压/没有在途标注**（见 `_gate_stalled`）→ 强制兜底就绪
-         （表情精度损失换"能推进"）。
-      ③ **预生成消费门卡死**: 同 ② 作用于 pregen 场景（否则"继续"键永久无响应）。
-
-    **2026-09-13（审计 A6）**: ②③ 原先只判 `_lanes_idle`（= 队列深度为 0）——
-    那在"worker 正把场景取走并 await 标注"时也成立, 于是**一次健康的慢调用
-    （>25s）就会被强制兜底**; 而兜底产物会随 `_log_scene` 进 append-only 真源
-    （假 `nomal`/假 `_place_done`）, 晚到的真标注再也回不去。
-    修法 = 给 `_lanes_idle` 加**在途判据**（`_lane_inflight`）: 慢但在途 → 等它;
-    积压/在途都没有 → 降级。**注意别再加"线程死活"合项**——那会让兜底在稳态
-    永不触发（原因见 `_lane_writer_alive`）。
-    """
-    now = time.monotonic()
-    # ① 忙态
-    if state.busy:
-        state.busy_since = state.busy_since or now
-        if (_ms_since(state.busy_since) > deps.BUSY_WATCHDOG_MS
-                and not _thread_alive(state._gen_thread)
-                and not _thread_alive(state._pregen_thread)):
-            logger.warning(
-                "bond 看门狗: 忙态 %dms 且生成线程均不在 → 复位（防点击永久无响应） %s/%s",
-                _ms_since(state.busy_since), char_id, session_id)
-            state.busy = False
-            state.busy_since = 0.0
-    else:
-        state.busy_since = 0.0
-    # ② 视觉门
-    if _scene_visual_ready(state):
-        state.gate_since = 0.0
-    else:
-        state.gate_since = state.gate_since or now
-        if (_ms_since(state.gate_since) > deps.GATE_WATCHDOG_MS and _gate_stalled(state)
-                and not state.busy):
-            logger.warning(
-                "bond 看门狗: 视觉门 %dms 未就绪且无积压/无在途 → 兜底放行 %s/%s",
-                _ms_since(state.gate_since), char_id, session_id)
-            _force_scene_ready(state, state.scene_obj)
-            state.gate_since = 0.0
-    # ③ 预生成消费门
-    pregen = getattr(state, "pregen_obj", None)
-    if pregen is None or _scene_obj_visual_ready(state, pregen):
-        state.pregen_gate_since = 0.0
-    else:
-        state.pregen_gate_since = state.pregen_gate_since or now
-        if (_ms_since(state.pregen_gate_since) > deps.PREGEN_GATE_WATCHDOG_MS
-                and _gate_stalled(state) and not state.busy):
-            logger.warning(
-                "bond 看门狗: 预生成消费门 %dms 未通过且无积压/无在途 → 兜底放行 %s/%s",
-                _ms_since(state.pregen_gate_since), char_id, session_id)
-            _force_scene_ready(state, pregen)
-            state.pregen_gate_since = 0.0
-
-
 def _note_reject(state: "BondState", reason: str, char_id: str,
                  session_id: str) -> None:
     """推进被拒留痕（2026-09-11）: 前端会重试, 后端不记就等于没发生。
@@ -324,32 +190,28 @@ def _clear_rejects(state: "BondState", char_id: str, session_id: str) -> None:
     state.turn_rejects = {}
 
 
-#: 生图器 / 看门狗阈值 / choice 开关已搬到 `webgui/deps.py`（C1a 接缝收敛）——
-#: 消费方一律 `deps.xxx`（调用时属性查找 ⇒ 测试 patch `deps.xxx` 才生效）。
+def _entry_already_done(char_id: str, session_id: str, store=None) -> bool:
+    """这条羁绊入口的剧情**已经完整走完**了吗？（后端兜底, 只看真源）
 
+    判据（倒序扫事件）: 先遇到 `vn_exit` 还是 `mmt_trigger_bond_story`——
+    * 先遇到 `vn_exit` 且 `completed=True` ⇒ 这次触发已经走完（其后没有更新的触发）;
+    * 先遇到**更新的触发** ⇒ 这是新一章, 放行;
+    * 什么都没有 ⇒ 放行（全新进入）。
 
-# ---------------------------------------------------------------------------
-# 回放接口（2026-09-07, 纯读）: 会话内已记录的羁绊剧情逐场回放
-# 原料 = 事件流里的 bond 事件——落库即终态（裁决时落库 + 门控保证标注就绪,
-# 段落自带 emotion）, 与 live 渲染同源, 0 LLM 可完整回放。
-# 消费方: ① 回放 UI ② 中断剧情"回放前缀 + LLM 后补"（attempt 分段复用）
-# ---------------------------------------------------------------------------
-
-
-# ---------------------------------------------------------------------------
-# 回忆册只读回放（DESIGN_COLLECTION_BOOK, 2026-09-12）
-#   与上面的 resume 型 replay 的区别: **播完即停**——0 LLM、不碰 BondState、
-#   不写事件流、不改玩家当前进度。原料同一份（事件流里的 bond 板, 落库即终态）,
-#   所以复用 `_narrativize` 保证"回放看到的 = 当时看到的"。
-# ---------------------------------------------------------------------------
-
-
-# ---------------------------------------------------------------------------
-# 中断接入（2026-09-07）: 中断剧情重进 = 回放已记录前缀 + LLM 后补
-#   无内存态 + 有内容的未完成段 → 逐场回放事件流里已落库的场景（0 LLM）;
-#   队列尽 → 交棒常规 live 路径。语义: "从头开始播放已有的半截剧情,
-#   后续剧情 LLM 生成后补"——确定性前缀, 生成只发生在断点之后。
-# ---------------------------------------------------------------------------
+    ⚠️ `BondState.completed` 是**内存态**（重启即丢）; 这条是它的**事件流版本**,
+    用来堵"结局粉泡翻转前的窗口里手快重进"（用户 2026-09-20 报障）。
+    中途退出（`completed=False`）**不算走完** —— 那种要允许重进（静默续章）。
+    """
+    try:
+        evs = (store or _flow_store(_state(char_id, session_id))).events(char_id, session_id)
+    except Exception:                                # noqa: BLE001 — 读失败不拦
+        return False
+    for e in reversed(list(evs)):
+        if e.is_marker and e.subtype == M_VN_EXIT:
+            return bool((e.payload or {}).get("completed"))
+        if e.type == "mmt" and e.subtype == "mmt_trigger_bond_story":
+            return False                             # 更新的触发在 vn_exit 之后
+    return False
 
 
 def _ready_scene_payload(state: BondState, char_id: str = "") -> dict:
@@ -453,33 +315,37 @@ def _start_replay(state: BondState, replay_q: list[dict],
             **_ready_scene_payload(state, char_id)}
 
 
-# ---------------------------------------------------------------------------
-# 公开 API（路由层调用）
-# ---------------------------------------------------------------------------
+def _role_info(char_id: str) -> dict:
+    """角色显示屏信息 {name, club}——前端名字牌（官方: 名字 + 便利屋68）。
 
-
-def _entry_already_done(char_id: str, session_id: str, store=None) -> bool:
-    """这条羁绊入口的剧情**已经完整走完**了吗？（后端兜底, 只看真源）
-
-    判据（倒序扫事件）: 先遇到 `vn_exit` 还是 `mmt_trigger_bond_story`——
-    * 先遇到 `vn_exit` 且 `completed=True` ⇒ 这次触发已经走完（其后没有更新的触发）;
-    * 先遇到**更新的触发** ⇒ 这是新一章, 放行;
-    * 什么都没有 ⇒ 放行（全新进入）。
-
-    ⚠️ `BondState.completed` 是**内存态**（重启即丢）; 这条是它的**事件流版本**,
-    用来堵"结局粉泡翻转前的窗口里手快重进"（用户 2026-09-20 报障）。
-    中途退出（`completed=False`）**不算走完** —— 那种要允许重进（静默续章）。
+    ⚠️ **2026-09-20 修（真机报障: 回忆册回放的名字牌显示 `igusa_haruka`）**:
+    原先只问 `chat._engine(char_id).current_character` —— 那是**内存里的 MMT 引擎**,
+    只在"这个角色的会话开过且没被清"时才有。玩家从**回忆册**直接进回放（没开聊天、
+    或服务端重启过）时取不到 → 回落到 id → 名字牌就成了 `igusa_haruka`。
+    现在**两级**: ① 内存引擎（最快, 且与 MMT 列表同源）→ ② **角色卡（磁盘）** ——
+    后者与 `collection.book` 取名字是同一条路（`CharacterLoader`）, 不依赖会话。
     """
     try:
-        evs = (store or _flow_store(_state(char_id, session_id))).events(char_id, session_id)
-    except Exception:                                # noqa: BLE001 — 读失败不拦
-        return False
-    for e in reversed(list(evs)):
-        if e.is_marker and e.subtype == M_VN_EXIT:
-            return bool((e.payload or {}).get("completed"))
-        if e.type == "mmt" and e.subtype == "mmt_trigger_bond_story":
-            return False                             # 更新的触发在 vn_exit 之后
-    return False
+        ch = chat._engine(char_id).current_character
+        if ch is not None:
+            club = ch.profile.get("club") or ch.profile.get("SIG~club") or ""
+            return {
+                "name": ch.display_name or char_id,
+                "club": str(club).split("（")[0].split("(")[0].strip(),
+            }
+    except Exception:                                # noqa: BLE001 — 内存态取不到 → 走磁盘
+        pass
+    try:                                             # ② 角色卡（无会话也能取）
+        from core.parsing.dynamic_character_parser import CharacterLoader
+        ch2 = CharacterLoader(paths.CHARACTERS_DIR).load(char_id, strict=False)
+        club = ch2.profile.get("club") or ch2.profile.get("SIG~club") or ""
+        return {
+            "name": ch2.display_name or char_id,
+            "club": str(club).split("（")[0].split("(")[0].strip(),
+        }
+    except Exception as e:                           # noqa: BLE001 — 取不到降级用 id
+        logger.debug("_role_info 角色卡读取失败 %s: %s", char_id, e)
+    return {"name": char_id, "club": ""}
 
 
 def bond_start(char_id: str, session_id: str, *,
@@ -1063,39 +929,6 @@ def bond_status(char_id: str, session_id: str) -> dict:
     }
 
 
-def _role_info(char_id: str) -> dict:
-    """角色显示屏信息 {name, club}——前端名字牌（官方: 名字 + 便利屋68）。
-
-    ⚠️ **2026-09-20 修（真机报障: 回忆册回放的名字牌显示 `igusa_haruka`）**:
-    原先只问 `chat._engine(char_id).current_character` —— 那是**内存里的 MMT 引擎**,
-    只在"这个角色的会话开过且没被清"时才有。玩家从**回忆册**直接进回放（没开聊天、
-    或服务端重启过）时取不到 → 回落到 id → 名字牌就成了 `igusa_haruka`。
-    现在**两级**: ① 内存引擎（最快, 且与 MMT 列表同源）→ ② **角色卡（磁盘）** ——
-    后者与 `collection.book` 取名字是同一条路（`CharacterLoader`）, 不依赖会话。
-    """
-    try:
-        ch = chat._engine(char_id).current_character
-        if ch is not None:
-            club = ch.profile.get("club") or ch.profile.get("SIG~club") or ""
-            return {
-                "name": ch.display_name or char_id,
-                "club": str(club).split("（")[0].split("(")[0].strip(),
-            }
-    except Exception:                                # noqa: BLE001 — 内存态取不到 → 走磁盘
-        pass
-    try:                                             # ② 角色卡（无会话也能取）
-        from core.parsing.dynamic_character_parser import CharacterLoader
-        ch2 = CharacterLoader(paths.CHARACTERS_DIR).load(char_id, strict=False)
-        club = ch2.profile.get("club") or ch2.profile.get("SIG~club") or ""
-        return {
-            "name": ch2.display_name or char_id,
-            "club": str(club).split("（")[0].split("(")[0].strip(),
-        }
-    except Exception as e:                           # noqa: BLE001 — 取不到降级用 id
-        logger.debug("_role_info 角色卡读取失败 %s: %s", char_id, e)
-    return {"name": char_id, "club": ""}
-
-
 def bond_finish(char_id: str, session_id: str) -> dict:
     """剧情终结收尾: 补录最后场景 + vn_exit + session_end + wrapup + digest。"""
     state = _state(char_id, session_id)
@@ -1182,30 +1015,6 @@ def bond_finish(char_id: str, session_id: str) -> dict:
                      daemon=True).start()
     state.finished = True               # 幂等标记（本内存态生命周期内只收尾一次）
     return {"completed": True}
-
-
-# ---------------------------------------------------------------------------
-# 内部: 生成 / 落库 / 收尾
-# ---------------------------------------------------------------------------
-
-#: 跨重启预热缓存（2026-09-09, 旁路非真源）: 首场生成成功即落盘
-#: soul/prewarm.json——进程重启后玩家再点入时直接作为首场（0 LLM）,
-#: 覆盖"首场已生成但从未裁决/从未 adopt"的冷等。LLM 不读（不在事件流,
-#: 上下文从事件流构建）; 真源仍在裁决时落库（picked/回放/append-only 原样）。
-
-
-# ---------------------------------------------------------------------------
-# 草稿旁路（bond_draft.json, 2026-09-10 决策 #28 选项 b）
-#   "已生成但未播放"的内容 = 当前未落库板 + 引擎待发板队列。它们不是真源（裁决才
-#   落库）, 但**重新生成要钱要时间**（一拍可达 ~10 板 / 13~30s）——落旁路后重进
-#   0 LLM 继续播。新鲜判据: 同一 vn_enter 段 + 其后没有新的 bond 事件落库。
-# ---------------------------------------------------------------------------
-
-#: 草稿旁路文件名（与 prewarm.json 同目录: soul/）
-
-
-#: choice 候选预生成开关已搬到 `webgui/deps.py::choice_pregen_enabled()`（C1a 接缝收敛）。
-#: `_choice_pregen_enabled()` 保留为**测试友好的别名**（老测试/新测试都读得到同一处实现）。
 
 
 def _wrapup(char_id: str, session_id: str, title: str, completed: bool) -> None:

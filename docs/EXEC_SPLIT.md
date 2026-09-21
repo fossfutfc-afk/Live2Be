@@ -1,10 +1,9 @@
 # EXEC_SPLIT — 文件拆分与位置规划（执行计划）
 
-> **状态**：执行中。**C0（安全网 + 工具纪律）+ C1a（接缝收敛 `webgui/deps.py`）+
-> C1b（`webgui/bond.py` → 包, 纯移动）+ C2（搬 `state.py`, 叶子优先）+
-> C3（搬 `stores.py`, 落库层）+ C4（搬 `lanes.py` + `util.py`）+
-> C5（搬 `replay.py`, 回放层）+ C6（搬 `memorial.py`, 纪念生图）+
-> C7（搬 `pregen.py`, 生成/预生成/候选/丢弃）已落地 2026-09-21**；C8 起未动。
+> **状态**：执行中。**C0–C8 已落地 2026-09-21 —— `webgui/bond.py`（2950 行单文件）的拆分
+> 全部完成**: C0 安全网 · C1a 接缝 · C1b 模块→包 · C2 `state.py` · C3 `stores.py` ·
+> C4 `lanes.py`+`util.py` · C5 `replay.py` · C6 `memorial.py` · C7 `pregen.py` ·
+> C8 `api.py`+`watchdog.py`（`_impl.py` 消失）。**C9 起未动**（下一步 = `core/bond/bond_story.py`）。
 > **怎么用**：每个节点 = **一次提交 + 全量测试 + （涉 webgui 时）B 层冒烟**；
 > 节点内**只做"移动"**，任何行为改动单独开节点。行号一律不写（会漂），写 `file.py::symbol`。
 > **相关**：`docs/EXEC_PIPELINE_UNIFY.md`（流水线收敛，已全部落地）· `CLAUDE.md` §2/§11/§12。
@@ -68,27 +67,25 @@ webgui/deps.py           ← 显式接缝（C1a 已落地: store / 生图器 / �
                            `enqueue_annotate` 钩子）。⚠️ **放包外**（`webgui/deps.py`）不放
                            `webgui/bond/deps.py`: `chat.py` 也要用 store 接缝, 而
                            `chat → bond` 会成环（现在只有 `bond → chat` 单向）。
-webgui/bond/             ← webgui/bond.py（模块→包；13 个引用点零改动）
-  __init__.py            门面: 全量再导出（含私有名）
-  _impl.py               C1b: 原文件逐字搬进来（一个字的逻辑都不改）
+webgui/bond/             ← webgui/bond.py（模块→包；13 个引用点零改动）—— **C1b–C8 全部落地**
+  __init__.py            门面: 117 名按"真家"分块再导出（含私有名; 不定义 `__all__`）
   state.py               BondState / BoardLifecycle / ChoiceCandidate / _state / 注册表
                          （**C2 已落地** —— 见 §5 陷阱 10: 它必须**最先**拆）
-  watchdog.py            看门狗判定 + _watchdog / _lanes_idle / _gate_stalled / _force_scene_ready
-                         （**阈值常量**留在 `deps.py`——测试要改它们）
-  stores.py              _flow_store/_stage_store/_log_scene/_log_scene_meta/marker/prewarm/draft
-                         （**C3 已落地**——含 `_store` 与 `_*_seq` 读点）
-  lanes.py               双路 lane + 就绪门控 + _memorial_no_visuals
-                         （**C4 已落地**）
+  stores.py              落库层（**事件流读写唯一出口**）: _flow_store/_stage_store/
+                         _log_scene/_log_scene_meta/marker/prewarm/draft（**C3 已落地**）
+  lanes.py               双路 lane + 就绪门控 + _memorial_no_visuals（**C4 已落地**）
   util.py                `_ms_since` —— **跨模块纯小工具**（C4 新开；不放 state: 那是
                          状态模型; 不放 lanes: 别的模块凭什么从 lane 借计时器）
-  replay.py              replay_attempts/chapter_replay/_start_replay/_narrativize/标题
-                         （**C5 已落地**；`_start_replay` 是编排, 留到 C8 `api.py`）
-  pregen.py              _generate/_pregenerate/候选/丢弃/_scene_landed
-                         （**C7 已落地**；含 `_system_note` 与收尾/重试常量）
+  replay.py              resume 型回放 / 只读回放 / 认章定位 / _narrativize（**C5 已落地**）
   memorial.py            生图工厂 + _memorial_gen + _persisted_memorial_img
                          （**C6 已落地**；⚠️ 与原计划 C6/C7 对调: 它是叶子, 而 pregen
                          的 `_generate`/`_pregenerate` 要用它的 `_make_memorial_cb`）
-  api.py                 bond_start/turn/status/finish + wrapup（HTTP 门面）
+  pregen.py              _generate/_pregenerate/候选/丢弃/_scene_landed（**C7 已落地**；
+                         含 `_system_note` 与收尾/重试常量）
+  watchdog.py            忙态/视觉门/预生成消费门的兜底放行 + _watchdog（**C8 已落地**；
+                         阈值常量在 `deps.py`——测试要改它们）
+  api.py                 bond_start/turn/status/finish + _start_replay + wrapup（**C8 已落地**；
+                         1051 行 —— 若嫌大, 见 §3 的 ○C8b 可选节点）
 core/bond/bond_story/    ← 模块→包（27 个引用点零改动）
   scene.py               BondScene / SceneLoopError
   boards.py              DeliveryMode / _board_spans / _BoardAssembler
@@ -118,7 +115,9 @@ tests/webgui/bond/       ← test_bond.py 按主题拆 + tests/stubs/ 收共享 
 | ✅ **C5** | **搬 `replay.py`（回放层）** | 8 个符号逐字搬进 `webgui/bond/replay.py`: `_narrativize` · `replay_attempts` · `_interrupted_replay_queue` · `chapter_replay`（**只读回放**, 与 resume 型回放是两件事）· `_pending_in_vn` · `_title_from_events` · `_enter_title` · `_prev_chapter_quit`。`_start_replay` **不搬**（同时抓 pregen/memorial/payload/draft, 属编排 → C8 `api.py`）; 顺手把 `NON_PICKS`/`abandoned_ranges`/`replayable_chapters` 从 `_impl` 的清成"门面直指真家" | 全量 **880 passed**; 冒烟 **PASS**; 门面 117 名 + 夹具**零 diff**; 8 个名字身份自检 |
 | ✅ **C6** | **搬 `memorial.py`（纪念生图）** | 4 个符号逐字搬进 `webgui/bond/memorial.py`: `_persisted_memorial_img`（从事件流/overlay 捡回异步落盘的图）· `_memorial_gen`（真开画, 生图器走 `deps`）· `_make_memorial_cb` · `_ensure_memorial_img`。**注意 C6/C7 对调了**（见下）; 顺手把 `GalleryStore`/`collect_ref_images`/`M_MEMORIAL_IMAGE` 清成"门面直指真家" | 全量 **880 passed**; 冒烟 **PASS**; 门面 117 名 + 夹具**零 diff**; 4 个名字身份自检 |
 | ✅ **C7** | **搬 `pregen.py`（生成 / 预生成 / 候选 / 丢弃）** | 15 个符号逐字搬进 `webgui/bond/pregen.py`: 常量 `_CLOSING_TEXT`/`_CLOSING_PARA`/`MAX_GEN_FAILURES`/`_REMIND_ROUNDS`/`_END_ROUNDS` + `_generate`/`_pregenerate`/`_scene_landed`/`_log_board_deliver` + 候选支 `_choice_pregen_enabled`/`_spawn_candidates`/`_candidate_worker` + 丢弃入口 `_discard_boards`/`_discard_candidates` + `_system_note`（产品侧只有生成两处调用, 故住这里）。顺手把 `ChoiceCandidate`/`staging_store`/`M_SESSION_END`/`M_VN_ABANDON` 清成"门面直指真家" | 全量 **880 passed**; 冒烟 **PASS**; 门面 117 名 + 夹具**零 diff**; 15 个名字身份自检; `_impl.py` 1204 行 |
-| **C8** | 搬 `api.py`/`watchdog.py` | `_impl.py` 消失（剩 21 个符号: `bond_start/turn/status/finish` · `_start_replay` · `_ready_scene_payload` · `_role_info` · `_wrapup*` · 看门狗族 `_watchdog`/`_lanes_idle`/`_gate_stalled`/`_lane_writer_alive`/`_thread_alive`/`_force_scene_ready` · `_note_reject`/`_clear_rejects` · `_entry_already_done` · `DEMO_SCRIPT`） | 绿；`webgui/bond/` = 9 个 100~460 行模块 |
+| ✅ **C8** | **搬 `api.py` + `watchdog.py`；`_impl.py` 消失** | `watchdog.py`（144 行）= `_watchdog`/`_lanes_idle`/`_lane_writer_alive`/`_gate_stalled`/`_force_scene_ready`/`_thread_alive`（单向: 只依赖 lanes/deps/util）; `api.py` = `bond_start/turn/status/finish` + `bond_start_demo` + `_start_replay` + `_ready_scene_payload`/`_role_info` + `_entry_already_done` + `_note_reject`/`_clear_rejects` + `_wrapup`/`_wrapup_inner` + `DEMO_SCRIPT`（原 `bond.py` 的模块说明逐字搬进来当"对外契约"一节）。**门面按"名字的真家"整体重建**（117 名 → 9 个包内模块 + 11 个核心/契约/llm 真家, 分块列出）; `_impl.py` 删除 | 全量 **880 passed**; 冒烟 **PASS**; **快照刷新后 diff = 只有 owner 列**（模块+名字+种类零变化, 已逐列核对）; `import webgui.bond._impl` → ModuleNotFoundError |
+| ○ **C8b**（可选） | `api.py` 再分 | `api.py` 实测 **1051 行**（比计划里的 ≤460 大一倍多）—— 可选切成 `entry.py`（`bond_start`/`_start_replay`/负载/演示）+ `api.py`（`bond_turn`/`status`/`finish`/`_wrapup*`）, 方向 api → entry | 绿 |
+| **C9** | `core/bond/bond_story.py` → 包 | scene/boards/engine | 27 个引用点零改动；绿 |
 | **C9** | `core/bond/bond_story.py` → 包 | scene/boards/engine | 27 个引用点零改动；绿 |
 | **C10** | `contract/records.py` → 包 + `json_cleaner` 归位 | grammar/parse/check/carrier；**顺带消掉 4 处 contract 违规** | 分层白名单减 3 条；绿 |
 | **C11** | `core/ui` 拆 + `wiring` 上提 | `core/tui/`；`_build_director/_trigger_title` → `core/director/wiring.py` | 分层白名单减 1 条（core→renderer 消失）；绿 |
@@ -187,9 +186,14 @@ python -m compileall -q core webgui llm contract tests   # 全仓可编译
    `core/bond/bond_story.py`→`core/bond/bond_story/`、`contract/records.py`→`contract/records/`
    —— import 路径不变 ⇒ 13/27/其他引用点**一个字都不用改**。
 3. **既有名字一个都不能丢**：`tests/fixtures/api_surface.txt`（7 拆分目标 + 接缝
-   `webgui.deps` 的 367→377 个自有名字）守门。owner 列由 `_owner_of` **去掉私有段**
+   `webgui.deps` 的自有名字）守门。owner 列由 `_owner_of` **去掉私有段**
    （`pathlib._local`→`pathlib`, `webgui.bond._impl`→`webgui.bond`）⇒ 与解释器版本、
    与"包内实现文件怎么分"解耦, C1b 的验收是**夹具零 diff**。
+   ⚠️ **C8 之后 owner 列本来就该变**（实现文件不再是私有的 `_impl.py`, 而是
+   `webgui.bond.api` / `.state` / …）—— 判据始终是**模块 + 名字 + 种类**三列;
+   C8 就是拿这一点做的验收: 刷新快照后 diff 只有 owner 列, 前两列逐行比对零变化。
+   ⚠️ 快照的**名字列**永远取自门面（`__init__.py` 的显式 import 列表）——
+   所以"门面 = 对外面的唯一真源"这条纪律是守门成立的前提。
 4. **文档行号冻结**：`docs/ARCH_REVIEW_*` / `docs/AUDIT_*` 里的 `file.py:行号` 是历史记录,
    不追改; 新文档写 `file.py::symbol`。
 5. **`core/paths.py` 未决**：上提为顶层会动 `tests/core/test_paths.py` 与 20+ 消费点,

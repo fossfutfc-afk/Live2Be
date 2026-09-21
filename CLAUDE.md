@@ -65,14 +65,12 @@
    │  REST + 轮询（无 SSE——未立项）
 webgui/        FastAPI 壳 + 会话状态机（**bond/ 包** = BondState 状态机 / chat.py 输入队列 worker）
    ├ deps.py   显式接缝（store / 生图器 / 看门狗阈值 / choice 开关 / 标注钩子——测试与桩替换这些）
-   ├ bond/     门面 `__init__.py`（全量再导出; C3 起**直接指向各新家**）+ `_impl.py`
-   │           （原 bond.py 逐字, C3 起按职责拆）+ `state.py`（C2: BondState /
-   │           BoardLifecycle / ChoiceCandidate / 注册表）+ `stores.py`（C3: 落库层
-   │           —— 事件流读写唯一出口: `_flow_store`/`_log_scene`/draft/prewarm）
-   │           + `lanes.py`（C4: 双路标注 lane + 就绪门控）+ `util.py`（`_ms_since`）
-   │           + `replay.py`（C5: 回放层 —— resume 型回放 / 只读回放 / 认章定位）
-   │           + `memorial.py`（C6: 纪念生图 —— 开画 / 异步回执捡回 / 回调工厂）
-   │           + `pregen.py`（C7: 生成/预生成/候选支/丢弃 + `_system_note`）
+   ├ bond/     门面 `__init__.py`（117 名按"真家"分块再导出; C8 起 = 对外面地图）+
+   │           `state.py`（状态模型）· `stores.py`（落库层: 事件流读写唯一出口）·
+   │           `lanes.py`（双路 lane + 就绪门控）· `replay.py`（回放层）·
+   │           `memorial.py`（纪念生图）· `pregen.py`（生成/预生成/候选/丢弃）·
+   │           `watchdog.py`（卡住 → 降级放行）· `api.py`（对外动作: start/turn/status/finish
+   │           + 收尾 + 回放编排）· `util.py`（`_ms_since`）。**`_impl.py` 已于 C8 消失**
    ├ routers/  路由层: 请求→驱动层; _resolve_scene 给场景附前端渲染信息(bg/fx/place_bg)
    └ store.py  运行时配置读写(settings.toml)
 core/          引擎层（无 web 依赖, CLI/实验同源复用）
@@ -471,10 +469,11 @@ CLI/测试同步路径在引擎内串行。
 ## 11. WebGUI 运行与前端
 
 - 启动：`python -m uvicorn webgui.app:app --host 127.0.0.1 --port 8000`（见 entrance/）。
-- 结构：`webgui/bond/`（**C1b 起是包**：门面 `__init__.py` 全量再导出 + `_impl.py` = 原
-  `bond.py` 逐字; BondState 状态机: busy/round/pregen/staged/replay/lanes/memorial…;
-  C2–C8 按职责拆成 state/stores/lanes/replay/pregen/memorial/api 等, 门面保持不变 ⇒
-  引用点零改动）、`webgui/deps.py`（显式接缝: 测试/桩替换 store 与生图器等）、
+- 结构：`webgui/bond/`（**C1b–C8 拆分完成**：门面 `__init__.py` 按"真家"分块再导出 117 名
+  ⇒ import 路径不变、13 个引用点零改动; 内部 = `state`（状态模型）· `stores`（落库层）·
+  `lanes`（双路 lane + 门控）· `replay`（回放层）· `memorial`（纪念生图）· `pregen`
+  （生成/预生成/候选/丢弃）· `watchdog`（卡住→降级放行）· `api`（对外动作 + 收尾）·
+  `util`; 原 `_impl.py` 已消失）、`webgui/deps.py`（显式接缝: 测试/桩替换 store 与生图器等）、
   `webgui/chat.py`（每角色输入队列 worker + 预热挂钩）、`webgui/routers/*`（HTTP 壳,
   `_resolve_scene` 附 background_url/fx/place_bg）、`webgui/static/js/{bond,mmt,gui}.js`。
 - **板级生命周期（节点 2″, 2026-09-21）**：`webgui.bond::BoardLifecycle` 取代裸 bool
@@ -661,7 +660,7 @@ CLI/测试同步路径在引擎内串行。
   2″（`BoardLifecycle` + `_discard_boards`）· **5b（`task=` 结构化分派 + 三条守门）** **;
   文件拆分另立 docs/EXEC_SPLIT.md（C1b 已把 `webgui/bond.py` 变成包）。
   来源 = ARCH_REVIEW P0-2/P0-3/P2-8 的根治）
-- **文件拆分与位置规划（C0 + C1a + C1b + C2 + C3 + C4 + C5 + C6 + C7 已落地）**：docs/EXEC_SPLIT.md（**执行计划**。C0 = 安全网 +
+- **文件拆分与位置规划（C0 + C1a–C8 已落地 —— `webgui/bond.py` 拆分完成）**：docs/EXEC_SPLIT.md（**执行计划**。C0 = 安全网 +
   工具纪律：`tests/core/test_import_direction.py`（4 条分层规则）·
   `tests/core/test_split_safety.py`（API 面快照 + patch 点台账）·
   rope 实测结论（只用于真搬家, 拆包不能用它）。**C1a = 接缝收敛**：新建
