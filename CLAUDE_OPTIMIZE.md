@@ -5,7 +5,7 @@
 > - ✅ 已实现　- 🔧 已设计（有方案, 待实施）　- 📋 规划中（有蓝图, 未细化）
 > - ⛔ 被否决（及原因）
 >
-> 关联文档: CLAUDE.md（总纲）/ TODO.md（旧待办）/ core/DESIGN_*.md / docs/DESIGN_*.md
+> 关联文档: CLAUDE.md（总纲）/ TODO.md（旧待办）/ docs/DESIGN_*.md / docs/DESIGN_*.md
 
 ---
 

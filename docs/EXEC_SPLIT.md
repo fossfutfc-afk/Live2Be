@@ -1,15 +1,15 @@
 # EXEC_SPLIT — 文件拆分与位置规划（执行计划）
 
-> **状态**：执行中。**C0–C11 + C12a 已落地 2026-09-21 —— 三个"什么都装"的文件都拆完了, 位置错的件也在归位**:
+> **状态**：执行中。**C0–C12b 已落地 2026-09-21 —— 三个"什么都装"的文件都拆完了, 位置错的件也都归位了**:
 > C0 安全网 · C1a 接缝 · C1b 模块→包 · C2 `state.py` · C3 `stores.py` ·
 > C4 `lanes.py`+`util.py` · C5 `replay.py` · C6 `memorial.py` · C7 `pregen.py` ·
 > C8 `api.py`+`watchdog.py`（`webgui/bond.py` 的 `_impl.py` 消失）·
 > C9 `core/bond/bond_story/`（scene/boards/engine）·
 > C10 `contract/records/`（grammar/parse/check/carrier）+ 错误原语下沉 + `json_cleaner` 归位 ·
 > C11 `core/tui/`（展示层搬出 `core/ui`）+ `core/director/wiring.py`（解 webgui→CLI）·
-> C12a `core/momotalk.py` → `core/mmt/engine.py`（47 处引用改指, 无兼容壳）。
-> **下一步 = C12b（`main.py`/`vn_cli.py` → `apps/` + `core/*.md` → `docs/`;
-> 那是 `core→renderer` 白名单条目归零的节点）**。
+> C12a `core/momotalk.py` → `core/mmt/engine.py`（无兼容壳）·
+> C12b `apps/{main,vn_cli}.py` + `docs/DESIGN_*.md`（**分层白名单归零**）。
+> **下一步 = C13（测试拆分 + 共享桩）**；可选 C14/C15 与 ○C8b 见 §3。
 > **怎么用**：每个节点 = **一次提交 + 全量测试 + （涉 webgui 时）B 层冒烟**；
 > 节点内**只做"移动"**，任何行为改动单独开节点。行号一律不写（会漂），写 `file.py::symbol`。
 > **相关**：`docs/EXEC_PIPELINE_UNIFY.md`（流水线收敛，已全部落地）· `CLAUDE.md` §2/§11/§12。
@@ -55,13 +55,16 @@ renderer/   表现层   不得依赖 webgui / tests / experiments
 webgui/     壳      不得依赖 tests / experiments
 ```
 
-### 2.2 今天的既存违规（**只有 6 处**, 全部有归宿）
+### 2.2 今天的既存违规（**只有 6 处**, 全部有归宿）—— ✅ **C12b 起 0 处**
 
 | 违规 | 处数 | 归宿 |
 |---|---|---|
 | ✅ `contract/{model,registry,spec}.py` → `core.common`（`err`） | 3 | **C10 已消**：错误原语下沉 `contract/errors.py`（`core/common/errors.py` 只剩薄再导出壳） |
 | ✅ `contract/registry.py` → `llm.json_cleaner` | 1 | **C10 已消**：`json_cleaner` 搬到 `contract/json_cleaner.py`（**位置放错**的实证） |
-| ⚠️ `core/ui/vn_cli.py` → `renderer` | 2 | **C11 部分处理**: `_build_director`/`_trigger_title` 上提到 `core/director/wiring.py`（解掉 **webgui→CLI** 的反向耦合）; 但**这条违规本身归 C12**——用 renderer 的是 vn_cli 自己的显示路径（见 §5 陷阱 14 的实测修正） |
+| ✅ `core/ui/vn_cli.py` → `renderer` | 2 | **C12b 已消**：`vn_cli` 是 CLI 应用 ⇒ 搬 `apps/`（C11 先上提了 `wiring`，解掉的是 webgui→CLI） |
+
+⇒ `tests/core/test_import_direction.py` 的 `ALLOWED` 现在是**空表**（分层规则零例外），
+并且每条规则都多了一条禁用项：**谁都不许 import `apps`**（应用层是最上游）。
 
 （`llm/task_levels.py` → `core.paths` 属薄横切豁免。**未决**：`core/paths.py` 是否上提为
 顶层 `paths.py`——那会动 `test_paths.py` 守门与 20+ 消费点，先不动，记在 §5。）
@@ -115,11 +118,13 @@ core/common/errors.py    → 薄再导出壳（保 20+ 处旧 import 路径; **C
 core/mmt/                ← core/momotalk.py 并入既有 core/mmt/（engine.py）—— **C12a 已落地**
                           （`__init__.py` 从空文件变成包说明; **旧路径 `core.momotalk` 无兼容壳**）
 core/tui/                ← core/ui/{display,streaming,text_processors} —— **C11 已落地**
-                          终端展示层（display/streaming/text_processors）; `core/ui/` 只剩
-                          CLI 应用 `vn_cli.py`（C12 搬 `apps/`）
+                          终端展示层（display/streaming/text_processors）;
+                          **C12b 起 `core/ui/` 已整个消失**（`vn_cli.py` 搬去 `apps/`）
 core/director/wiring.py  ← `_build_director`/`_trigger_title`（**C11 已落地**; 解 webgui→CLI）
-apps/                    ← main.py + vn_cli.py（CLI 应用）—— C12
-docs/                    ← core/DESIGN_*.md(7) + contract/DESIGN.md
+apps/                    ← main.py + vn_cli.py（CLI 应用）—— **C12b 已落地**
+                           （仓根 `main.py` 留 3 行**转调壳**, `python main.py` 照旧可用;
+                           `core/ui/` 整个包随之消失 ⇒ 白名单归零）
+docs/                    ← core/DESIGN_*.md(7) + contract/DESIGN.md（**C12b 已落地**）
 tests/webgui/bond/       ← test_bond.py 按主题拆 + tests/stubs/ 收共享 ScriptedLLM
 ```
 
@@ -144,7 +149,7 @@ tests/webgui/bond/       ← test_bond.py 按主题拆 + tests/stubs/ 收共享 
 | ✅ **C10** | **`contract/records.py` → 包 + 错误原语下沉 + `json_cleaner` 归位** | ① **拆包**: 原文件七个 `# ---` 分区**逐字**切成四块（36–153 → `grammar.py` · 154–295 + 816–910 → `parse.py` · 296–545 → `check.py` · 548–815 → `carrier.py`, `git rename` 锚点 = 最大片段）; 门面 `__init__.py` = **原模块 docstring 逐字** + 52 名按"真家"分块再导出（**全是本包自有名**, 无借用名）。② **违规定夺（用户裁决 A）**: `core/common/errors.py` `git mv` → `contract/errors.py`（真家; `core/common/errors.py` 留薄再导出壳, 20+ 处旧路径零改动）, `contract/{model,registry,spec}.py` 改指真家; ③ `llm/json_cleaner.py` → `contract/json_cleaner.py`（3 个调用点改指）; ④ `test_import_direction.py` 白名单 **5 → 1 条** | 全量 **880 passed**; 冒烟 **PASS**; 快照刷新后 diff **只有 owner 列 44 行**（前 3 列 374 行逐行比对零变化）; `compileall` 全仓绿; 分层守门"白名单没过期"用例逼着删掉 4 条（**红的正是它该红的地方**） |
 | ✅ **C11** | **展示层搬 `core/tui/` + 接线层上提 `core/director/wiring.py`** | ① `core/ui/{__init__,display,streaming,text_processors}.py` → `core/tui/`（**真搬家**: 不留 `core/ui` 兼容壳——那个包只剩 `vn_cli.py`, C12 整个消失）; 13 个文件里的 `core.ui.{display,streaming,text_processors}` → `core.tui.*`（含 `core/momotalk.py` · `core/session/renderer.py` · `webgui/chat.py` · `main.py` · tests · experiments · archive）; ② 新建 `core/director/wiring.py` = `_build_director`/`_trigger_title` **逐字搬来**（`MomoTalkEngine` 只作注解 → `TYPE_CHECKING`, **不 import `renderer`**）, `vn_cli.py` 与 webgui 3 处（`bond/api.py` · `bond/replay.py` · bond 门面）+ 3 个 experiments 改指真家 | 全量 **880 passed**; 冒烟 **PASS**; `compileall` 全仓绿; 快照刷新 diff = **11 处 owner 列 + 1 个名字消失**（`core.ui.vn_cli::build_director`：它本来是**路过式再导出**，唯一的用户随之上提 ⇒ 有意变更, 已核对）|
 | ✅ **C12a** | **`core/momotalk.py` → `core/mmt/engine.py`（真搬家, 无兼容壳）** | 1170 行逐字搬（git rename）; **47 处引用一次性改指** `core.momotalk` → `core.mmt.engine`（37 个文件: `main.py` · `webgui/{chat,bond/*,routers}` · `core/{tui,director/wiring,mmt/mmt_preset}` · 13 个 tests · 11 个 experiments · 3 个 l2d-demo）; `core/mmt/__init__.py` 从空文件变**包说明**（不再导出名字, 路径显式）; 顺手改 3 处"指路路径"注释。⚠️ **唯一外部可见变化**: `MmtLoopError` 的串由 `[momotalk.py][…]` 变 `[engine.py][…]`（文件名由类所在模块派生, 与 `contract.model → model.py` 同一条口径）| 全量 **880 passed**; 冒烟 **PASS**; `compileall` 全仓 + `node --check` 绿; 快照: `core.momotalk` 段**整体改名**为 `core.mmt.engine`（59 名逐名一致）+ 5 处 owner 列; `import core.momotalk` → ModuleNotFoundError |
-| **C12b** | `apps/` + `docs/` 归位 | `main.py` + `core/ui/vn_cli.py` → `apps/`；`core/*.md`(7) + `contract/DESIGN.md` → `docs/` | 分层白名单**归零**（core→renderer 随 vn_cli 搬走而消失）；全仓 `compileall`；绿 |
+| ✅ **C12b** | **`apps/` 归位 + `docs/` 归位（白名单归零）** | ① `core/ui/vn_cli.py` → `apps/vn_cli.py`（`core/ui/` 整个包消失——**真搬家**, 不留壳）, `main.py` → `apps/main.py` **+ 仓根 3 行转调壳**（用户 2026-09-21 裁决: `python main.py` 是 README/使用习惯里的命令, 保住它, 真代码一律进 `apps/`）; 12 处 `core.ui.vn_cli` → `apps.vn_cli`; ② 7 篇 `core/DESIGN_*.md` + `contract/DESIGN.md`（→ `docs/DESIGN_CONTRACT.md`）搬 `docs/`, 顺手改 22 处"指路路径"（README / CLAUDE.md / CLAUDE_OPTIMIZE / DESIGN_BRAIN / 3 篇 docs / 4 处代码 docstring）; ③ `test_import_direction.py`: `ALLOWED` **清空** + 每条规则加"不许 import `apps`"; `test_split_safety.py` 的 `TARGETS` 换 `apps.vn_cli` | 全量 **880 passed**; 冒烟 **PASS**; `compileall` 全仓 + `node --check` 绿; 快照: `core.ui.vn_cli` 段**整体改名** `apps.vn_cli`（28 名逐名一致）; `import core.ui` → ModuleNotFoundError; **分层白名单 0 条** |
 | **C13** | 测试拆分 + 共享桩 | `tests/webgui/bond/*`；`tests/stubs/scripted_llm.py`（与 5b 的 `stub_tasks.py` 合流） | 单测文件全部 < 400 行；绿 |
 | **C14** | `llm/client.py` / `llm/image_gen.py`（可选） | 按职责再分 | 绿 |
 | **C15** | `core/brain/wiki_v2/*`（可选） | digest/nodes/channel 再分 | 绿 |
@@ -162,7 +167,7 @@ tests/webgui/bond/       ← test_bond.py 按主题拆 + tests/stubs/ 收共享 
 
 | 工具 | 实测 | 用在哪 |
 |---|---|---|
-| **rope 1.14**（`uvx --from rope python tools/rope_move.py`） | ✅ 打开 2950 行文件 0.03s，`has_errors=False`；两次 dry-run 共 15s；`ChangeSet.get_description()` **直接给 diff**（先审后落） | **只用于 C11/C12 的"真搬家"**（跨包移动 + 全仓改 import） |
+| **rope 1.14**（`uvx --from rope python tools/rope_move.py`） | ✅ 打开 2950 行文件 0.03s，`has_errors=False`；两次 dry-run 共 15s；`ChangeSet.get_description()` **直接给 diff**（先审后落） | **只用于 C11/C12 的"真搬家"**（跨包移动 + 全仓改 import）。⚠️ 实测:C11/C12a/C12b 最终都用**手写脚本**做的（改名是纯字符串替换 + 逐处复核更可控; rope 的 dry-run 结论仍成立, 只是没必要） |
 | `ruff analyze graph` | ✅ 已有 ruff 自带 | C0 依赖盘点 + 事后核对（`uvx ruff@latest analyze graph`） |
 | `vulture`（仓库已在用） | ✅ | 每步搬完查"变成死引用"的名字 |
 | `tach` 0.35.1 / `import-linter` 2.15 | ✅ 秒装 | **暂不用**：只有 4 条规则，自写守门更省；规则涨到十条再换 |

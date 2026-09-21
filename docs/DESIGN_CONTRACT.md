@@ -140,4 +140,4 @@ prompt_fields / payload_schema）。Python 端是唯一执行引擎，但定义�
 ## 9. 下一步（Story 契约演进）
 
 - `story_scene/story_end` payload 加可选 `beats: [{text, emotion}]` + `place`（视觉意图协议，
-  见 [core/DESIGN_VISUAL_PROTOCOL.md](../core/DESIGN_VISUAL_PROTOCOL.md) §3，设计定稿待实现）
+  见 [DESIGN_VISUAL_PROTOCOL.md](DESIGN_VISUAL_PROTOCOL.md) §3，设计定稿待实现）

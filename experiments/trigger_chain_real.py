@@ -26,7 +26,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from core.mmt.engine import MomoTalkEngine
 from core.bond.bond_progress import BondProgress
-from core.ui.vn_cli import run_bond_story_vn, wrapup_after_vn
+from apps.vn_cli import run_bond_story_vn, wrapup_after_vn
 from llm.client import LLMClient
 
 ROOT = Path(__file__).resolve().parent.parent

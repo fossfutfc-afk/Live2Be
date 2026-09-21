@@ -841,7 +841,7 @@ scale(t) = slot_scale    * s(t)
 - **不加** `stage: enter/leave` 文法（除非将来真要显式进出场——那才动契约 + rules + 夹具）;
 - **不让**主 LLM 写任何视觉/动作字段（emotion/place/act 全在标注层）;
 - **不做** 3 人以上同框的站位维持（走"整屏定格"）;
-- 多角色的**记忆/NPC table** 属另一条线（决策 #8 与 `core/DESIGN_MULTI_CHAR.md`），本节不碰。
+- 多角色的**记忆/NPC table** 属另一条线（决策 #8 与 `docs/DESIGN_MULTI_CHAR.md`），本节不碰。
 
 ---
 
