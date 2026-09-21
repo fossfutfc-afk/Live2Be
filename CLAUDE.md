@@ -86,10 +86,13 @@ core/          引擎层（无 web 依赖, CLI/实验同源复用）
    ├ brain/wiki_v2/          digest 记忆（RoundA/B 提炼 + 好感结算 + 注入视图）
    ├ promptkit/              提示词装配: box/tail/task/report（见 §8）
    ├ worldtime/              时间：三层时钟（剧情/现实日历/壁钟, DESIGN_WIKI_V3 §4）
-   ├ common/                 横切: errors（`[file][ErrType][信息]`）/ fuse（形状唯一实现）
+   ├ common/                 横切: errors（**C10 起只是薄再导出壳** → 真家 `contract/errors.py`）/
+   │                         fuse（形状唯一实现）
    └ parsing/ director/ media/ mmt/ ui/ random_events/ affection/ rag/
-contract/       契约地基: records(记录文法+块校验) · schema(LLM 可见文本) · spec/registry/model(动作契约)
-                · digest_registry · timeline_index · constants
+contract/       契约地基: **records/（C10 起是包）** = grammar(取值表+记录形状)/parse(行解析+
+                增量解析)/check(群分组+Issue 软硬分级+块/板校验)/carrier(VnBlock+渲染取选项)
+                · **errors(错误原语真家)** · **json_cleaner(纯 JSON 修复)** · schema(LLM 可见文本)
+                · spec/registry/model(动作契约) · digest_registry · timeline_index · constants
 llm/            client(超时/流式/usage 日志) · task_labels(**调用身份**) · task_levels(档位真源) · prompts/文案仓库
 config/         人设六文件(REQ~/SIG~) + illustration.yml · settings/world(overview.yml) · settings/relation
 data/           运行时数据(gitignore): worlds/*/characters/*/{progress.json…} +
@@ -332,7 +335,7 @@ CLI/测试同步路径在引擎内串行。
    记录流 v2 起交互密度**由 rules 引导**（*"一段戏里老师开口 3~5 次"*），
    引擎不再逐轮念配额（P0-7c 退役那条注记）。
    真机实测（2026-09-19 量 9/11–9/12 的档）：**5/6 与 13/14 的板都带 choices**
-   —— 因为 `sensei` 群结束就切板（`records.py`），**板主要是选项点切的, 不是 switch**。
+   —— 因为 `sensei` 群结束就切板（`contract/records/check.py::sensei_groups`），**板主要是选项点切的, 不是 switch**。
    一段戏 30~45 条记录 ÷ 3~5 个选项点 ≈ **每板 3~9 条**（真机均 5.1~8.7）。
    ⇒ **板数 ≈ 交互密度, 是产品参数, 不是 bug**；每板固定开销 = emotion 一次 + place 一次
    （都廉价且在异步 lane, 不挡玩家）。
@@ -541,7 +544,8 @@ CLI/测试同步路径在引擎内串行。
   下 basetemp 需预建目录**（New-Item -ItemType Directory .testtmp/pw）, 否则 tmp 用例
   全挂；默认 tmp 清理有权限错。JS：`node --check webgui/static/js/*.js`。
 - 夹具：promptkit 基线夹具 tests/fixtures/promptkit/*.txt 刷新纪律见 §8。
-- **契约问题的软硬分级（改 `check_block` 前必读）**：`contract/records.py` 返回结构化
+- **契约问题的软硬分级（改 `check_block` 前必读）**：`contract/records/check.py`（C10 起; 原
+  `contract/records.py`）返回结构化
   **`Issue(code, message)`**；**严重度只跟 `code` 走**（`ISSUE_SEVERITY: IssueCode →
   IssueSeverity` 的显式声明），跟 `message` 中文文案**毫无关系**。
   · **硬**（`打回重发整轮`）：`block.empty` · `block.tail` · `block.head` ·
@@ -611,7 +615,8 @@ CLI/测试同步路径在引擎内串行。
 - experiments/：真 API 基准（bond_bench_thinking / e2e_bs_bench / promptkit_card_ab /
   two_pass_real …）与 smoke；用 conda env python 运行, 先确认 settings.toml。
 - 提交纪律：**每节点一提交**；文档与代码同节点更新；人设/rules 内容改动与夹具同批。
-- 错误格式：`[file.py][ErrType][信息]`（core/common/errors.py）；失败静默降级打
+- 错误格式：`[file.py][ErrType][信息]`（**真家 `contract/errors.py`**；`core/common/errors.py`
+  是薄再导出壳, 两者都可 import）；失败静默降级打
   WARNING 单行可 grep（计时/缓存等 INFO 埋点按 §6.1 约定）。
 - 开发哲学：宁缺勿错 > 完美兜底；append-only 不可补 → 门控保证落库前视觉键就绪。
 
@@ -662,7 +667,7 @@ CLI/测试同步路径在引擎内串行。
   2″（`BoardLifecycle` + `_discard_boards`）· **5b（`task=` 结构化分派 + 三条守门）** **;
   文件拆分另立 docs/EXEC_SPLIT.md（C1b 已把 `webgui/bond.py` 变成包）。
   来源 = ARCH_REVIEW P0-2/P0-3/P2-8 的根治）
-- **文件拆分与位置规划（C0 + C1a–C9 已落地 —— `webgui/bond.py` 与 `core/bond/bond_story.py` 都拆完了）**：docs/EXEC_SPLIT.md（**执行计划**。C0 = 安全网 +
+- **文件拆分与位置规划（C0 + C1a–C10 已落地 —— `webgui/bond.py` · `core/bond/bond_story.py` · `contract/records.py` 都拆完了）**：docs/EXEC_SPLIT.md（**执行计划**。C0 = 安全网 +
   工具纪律：`tests/core/test_import_direction.py`（4 条分层规则）·
   `tests/core/test_split_safety.py`（API 面快照 + patch 点台账）·
   rope 实测结论（只用于真搬家, 拆包不能用它）。**C1a = 接缝收敛**：新建
@@ -678,8 +683,13 @@ CLI/测试同步路径在引擎内串行。
   `state.py` 从原 C8 提前到 C2。**C9 = `core/bond/bond_story.py` → 包**（`scene.py` 264 +
   `boards.py` 184 + `engine.py` 1195 + 门面 129 行, 54 名; 27 个引用点零改动）——
   ⚠️ 拆包会暴露测试里的"这是个单文件"假设（守门写死 `…/bond_story.py` 会
-  `FileNotFoundError`, 见该文 §5 陷阱 12）。节点 C10–C15：`contract/records/` →
-  `core/mmt` 合并 / `apps/` / `docs/` 归位 → 测试拆分; 每节点一提交 + 全量 + 冒烟）
+  `FileNotFoundError`, 见该文 §5 陷阱 12）。**C10 = `contract/records.py` → 包 +
+  两处"位置放错"归位**（`grammar/parse/check/carrier` 四块按原文件的分区逐字切;
+  错误原语下沉 `contract/errors.py`（用户裁决 A, `core/common/errors.py` 留薄壳）;
+  `llm/json_cleaner.py` → `contract/json_cleaner.py`）—— 分层白名单 **5 → 1 条**
+  （只剩 `core/ui/vn_cli.py → renderer`, 归 C11）。节点 C11–C15：
+  `core/tui/` 拆 + `wiring` 上提 → `core/mmt` 合并 / `apps/` / `docs/` 归位 →
+  测试拆分; 每节点一提交 + 全量 + 冒烟）
 - **重新生成 / 重发 的语义与固化线**：docs/DESIGN_RESEND.md（**设计稿, 未动代码**。
   决策: MMT 提交边界 = **回合提交**; 两区 = 水位之上**丢弃** / 水位之下走
   `wiki_v2/revise` **更正**; 板级那一半已由 `BoardLifecycle` + `_discard_boards` 落地;

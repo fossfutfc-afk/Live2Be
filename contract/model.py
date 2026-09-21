@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from core.common import Live2BeError
+from contract.errors import Live2BeError
 
 
 class ContractError(Live2BeError, ValueError):

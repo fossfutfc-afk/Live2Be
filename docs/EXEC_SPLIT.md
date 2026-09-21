@@ -1,10 +1,12 @@
 # EXEC_SPLIT — 文件拆分与位置规划（执行计划）
 
-> **状态**：执行中。**C0–C9 已落地 2026-09-21 —— 两个"什么都装"的文件都拆完了**:
+> **状态**：执行中。**C0–C10 已落地 2026-09-21 —— 三个"什么都装"的文件都拆完了**:
 > C0 安全网 · C1a 接缝 · C1b 模块→包 · C2 `state.py` · C3 `stores.py` ·
 > C4 `lanes.py`+`util.py` · C5 `replay.py` · C6 `memorial.py` · C7 `pregen.py` ·
 > C8 `api.py`+`watchdog.py`（`webgui/bond.py` 的 `_impl.py` 消失）·
-> C9 `core/bond/bond_story/`（scene/boards/engine）。**下一步 = C10 `contract/records/`**。
+> C9 `core/bond/bond_story/`（scene/boards/engine）·
+> C10 `contract/records/`（grammar/parse/check/carrier）+ 错误原语下沉 + `json_cleaner` 归位。
+> **下一步 = C11（`core/tui/` + `_build_director` 上提）**。
 > **怎么用**：每个节点 = **一次提交 + 全量测试 + （涉 webgui 时）B 层冒烟**；
 > 节点内**只做"移动"**，任何行为改动单独开节点。行号一律不写（会漂），写 `file.py::symbol`。
 > **相关**：`docs/EXEC_PIPELINE_UNIFY.md`（流水线收敛，已全部落地）· `CLAUDE.md` §2/§11/§12。
@@ -54,9 +56,9 @@ webgui/     壳      不得依赖 tests / experiments
 
 | 违规 | 处数 | 归宿 |
 |---|---|---|
-| `contract/{model,registry,spec}.py` → `core.common`（`err`） | 3 | C10 定夺：把错误原语上提（`contract` 自带 / 新 `common/`）或正式白名单为"共享内核" |
-| `contract/registry.py` → `llm.json_cleaner` | 1 | C10：`json_cleaner` 是纯 JSON 修复，归 `contract/`（**位置放错**的实证） |
-| `core/ui/vn_cli.py` → `renderer` | 2 | C14：`vn_cli` 是 CLI **应用** ⇒ 搬出 `core/` → `apps/` |
+| ✅ `contract/{model,registry,spec}.py` → `core.common`（`err`） | 3 | **C10 已消**：错误原语下沉 `contract/errors.py`（`core/common/errors.py` 只剩薄再导出壳） |
+| ✅ `contract/registry.py` → `llm.json_cleaner` | 1 | **C10 已消**：`json_cleaner` 搬到 `contract/json_cleaner.py`（**位置放错**的实证） |
+| `core/ui/vn_cli.py` → `renderer` | 2 | C11：`_build_director`/`_trigger_title` 上提到 `core/director/wiring.py`（C12 再把 `vn_cli` 搬 `apps/`） |
 
 （`llm/task_levels.py` → `core.paths` 属薄横切豁免。**未决**：`core/paths.py` 是否上提为
 顶层 `paths.py`——那会动 `test_paths.py` 守门与 20+ 消费点，先不动，记在 §5。）
@@ -93,8 +95,20 @@ core/bond/bond_story/    ← 模块→包（27 个引用点零改动）—— **
   boards.py              DeliveryMode / _board_spans / _BoardAssembler + 板级闸（**C9**；184 行）
   engine.py              BondStoryEngine / _personality_summary / MAX_SCENE_RETRIES /
                          DEFAULT_HISTORY_ROUNDS / logger（**C9**；1195 行）
-contract/records/        ← 模块→包
-  grammar.py / parse.py / check.py / carrier.py
+contract/records/        ← 模块→包（28 个引用点零改动）—— **C10 已落地**
+  __init__.py            门面: 52 名按"真家"分块再导出 + 原模块 docstring（115 行; 含私有名;
+                         不定义 `__all__`）；**全是本包自有名**, 无"路过"的借用名
+  grammar.py             取值表（kind/stage/speaker/上限 + 正则）+ VnRecord/ParseDiag/
+                         ParseResult（**C10**；134 行, 叶子）
+  parse.py               行 → 记录（五条容错纪律）+ parse_line/parse_stream +
+                         BlockStreamParser（**C10**；276 行）
+  check.py               sensei_groups/group_labels + Issue 软硬分级 +
+                         check_block/check_board（**C10**；284 行）
+  carrier.py             VnBlock + 说话人身份 + render_records/materialize_pick/
+                         pick_insert_index（**C10**；308 行）
+contract/errors.py       ← 错误原语真家（C10 从 core/common 下沉; 只 import stdlib）
+contract/json_cleaner.py ← 纯 JSON 修复（C10 从 llm/ 归位）
+core/common/errors.py    → 薄再导出壳（保 20+ 处旧 import 路径; **C10**）
 core/mmt/                ← core/momotalk.py 并入既有 core/mmt/（engine.py）
 core/tui/                ← core/ui/{display,streaming,text_processors}
 core/director/wiring.py  ← 上提 _build_director/_trigger_title（解掉 webgui→CLI）
@@ -121,7 +135,7 @@ tests/webgui/bond/       ← test_bond.py 按主题拆 + tests/stubs/ 收共享 
 | ✅ **C8** | **搬 `api.py` + `watchdog.py`；`_impl.py` 消失** | `watchdog.py`（144 行）= `_watchdog`/`_lanes_idle`/`_lane_writer_alive`/`_gate_stalled`/`_force_scene_ready`/`_thread_alive`（单向: 只依赖 lanes/deps/util）; `api.py` = `bond_start/turn/status/finish` + `bond_start_demo` + `_start_replay` + `_ready_scene_payload`/`_role_info` + `_entry_already_done` + `_note_reject`/`_clear_rejects` + `_wrapup`/`_wrapup_inner` + `DEMO_SCRIPT`（原 `bond.py` 的模块说明逐字搬进来当"对外契约"一节）。**门面按"名字的真家"整体重建**（117 名 → 9 个包内模块 + 11 个核心/契约/llm 真家, 分块列出）; `_impl.py` 删除 | 全量 **880 passed**; 冒烟 **PASS**; **快照刷新后 diff = 只有 owner 列**（模块+名字+种类零变化, 已逐列核对）; `import webgui.bond._impl` → ModuleNotFoundError |
 | ○ **C8b**（可选） | `api.py` 再分 | `api.py` 实测 **1051 行**（比计划里的 ≤460 大一倍多）—— 可选切成 `entry.py`（`bond_start`/`_start_replay`/负载/演示）+ `api.py`（`bond_turn`/`status`/`finish`/`_wrapup*`）, 方向 api → entry | 绿 |
 | ✅ **C9** | **`core/bond/bond_story.py` → 包** | `git mv` 模块成 `core/bond/bond_story/{scene,boards,engine}.py`（逐字搬, 只改 import 行: 无相对导入, 故 `from core.bond.bond_story.{scene,boards} import …` 需补全限定名）+ 门面 `__init__.py` **逐个显式**再导出 54 名（含私有名; 列表**从 API 面夹具的该段生成**, **不定义 `__all__`**）。门面按"真家"分块: 3 个包内模块 + 43 个 core/contract/llm 真家（后者**整体重建**, 因为原模块是一次性 import 了一大票外部名）; `max_tokens as task_levels_max_tokens` 是本次唯一的重名别名（真家里叫 `max_tokens`）。**27 个引用点一个字未改** | 全量 **880 passed**; 冒烟 **PASS**; **快照刷新后 diff = 只有 owner 列 13 行**（模块+名字+种类零变化, 已逐列核对）; `python -m compileall` 全仓绿; 4 个名字身份自检 |
-| **C10** | `contract/records.py` → 包 + `json_cleaner` 归位 | grammar/parse/check/carrier；**顺带消掉 4 处 contract 违规** | 分层白名单减 3 条；绿 |
+| ✅ **C10** | **`contract/records.py` → 包 + 错误原语下沉 + `json_cleaner` 归位** | ① **拆包**: 原文件七个 `# ---` 分区**逐字**切成四块（36–153 → `grammar.py` · 154–295 + 816–910 → `parse.py` · 296–545 → `check.py` · 548–815 → `carrier.py`, `git rename` 锚点 = 最大片段）; 门面 `__init__.py` = **原模块 docstring 逐字** + 52 名按"真家"分块再导出（**全是本包自有名**, 无借用名）。② **违规定夺（用户裁决 A）**: `core/common/errors.py` `git mv` → `contract/errors.py`（真家; `core/common/errors.py` 留薄再导出壳, 20+ 处旧路径零改动）, `contract/{model,registry,spec}.py` 改指真家; ③ `llm/json_cleaner.py` → `contract/json_cleaner.py`（3 个调用点改指）; ④ `test_import_direction.py` 白名单 **5 → 1 条** | 全量 **880 passed**; 冒烟 **PASS**; 快照刷新后 diff **只有 owner 列 44 行**（前 3 列 374 行逐行比对零变化）; `compileall` 全仓绿; 分层守门"白名单没过期"用例逼着删掉 4 条（**红的正是它该红的地方**） |
 | **C11** | `core/ui` 拆 + `wiring` 上提 | `core/tui/`；`_build_director/_trigger_title` → `core/director/wiring.py` | 分层白名单减 1 条（core→renderer 消失）；绿 |
 | **C12** | `core/mmt` 合并 + `apps/` + `docs/` 归位 | `core/momotalk.py`→`core/mmt/engine.py`；`main.py`/`vn_cli.py`→`apps/`；`core/*.md`→`docs/` | 全仓 `compileall`；绿 |
 | **C13** | 测试拆分 + 共享桩 | `tests/webgui/bond/*`；`tests/stubs/scripted_llm.py`（与 5b 的 `stub_tasks.py` 合流） | 单测文件全部 < 400 行；绿 |
@@ -241,10 +255,19 @@ python -m compileall -q core webgui llm contract tests   # 全仓可编译
     "规则被违反"**, 看报错容易误判成拆坏了）。做法: 扫源码的守门一律走
     "模块 → `[自己]` / 包 → 包内 `*.py`"的小助手（现役范例 = 该文件里的 `_sources`）;
     ⚠️ **取不到必须 assert**（返回空列表 = 静默不再检查任何文件 = 守门失明, 比红更危险）。
-    同一条规矩对 C10 的 `contract/records.py` 已经预置好了。定位命令:
+    同一条规矩对 C10 的 `contract/records.py` 已经预置好了（C10 落地时它直接生效:
+    守门自动改扫 `contract/records/*.py`）。定位命令:
     `grep -rn "<模块名>\.py" tests/ core/ webgui/` —— 文档/注释里的历史提及不必改,
     但**指路用的路径**要顺手改成新家（C9 就地更新了 `core/bond/__init__.py` ·
     `core/media/emotion_lexicon.py` · `webgui/bond/replay.py` 三处）。
+13. **搬 docstring 时引号必须成对闭合**（两次实际踩到, 都表现为"编译期
+    `SyntaxError: invalid character '（'`"——**报错行是中文注释那行, 真因在几十行之前**）:
+    ① C5: 给新模块写的头部 docstring 少一个结尾 `"""` ⇒ 后面的 import 全被吞进字符串;
+    ② C10: 门面模板写成 `"""...{orig}\n## 包结构..."""`, 而 `{orig}` **本身就是一整段
+    带开闭引号的 docstring** ⇒ 第一个 `"""` 提前收尾, `## 包结构` 变成代码, 末尾那个
+    `"""` 反而**开了**一个吞掉全部 import 的字符串。做法: 插入前 `strip()` 掉源 docstring
+    的开闭引号（`orig[3:-3]`）, 并在写盘后**立刻** `python -m compileall <新文件>`——
+    这个错不会在生成脚本里报, 只在新文件被 import 时才炸。
 
 ---
 
