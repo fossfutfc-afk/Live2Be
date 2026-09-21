@@ -7,6 +7,9 @@
     - history.jsonl / scenes.jsonl: append_jsonl（open("a") 单行追加, 不重写全文件）
       + read_jsonl（逐行 try/except, 坏行/半行丢弃, 宁缺勿错）
     - 写失败 re-raise（上层 try 包裹降级为"本轮不记录", 不阻断主流程）
+    - ⚠️ 替换走 `core.common.atomic.replace_with_retry`：Windows 上"目标被别的进程
+      短暂占用"会让 `os.replace` 抛 PermissionError —— 那不是写坏了, 重试几十毫秒即可
+      （实测过一次真实红: 测试期 temp churn）。
 
 注: atomic_write_json 模式与 core/bond/bond_save.py 的 _atomic_write_json 相同;
 session 是独立底层, 不 import bond_save（避免依赖方向 bond→session→bond）, 故下沉于此。
@@ -20,9 +23,11 @@ import tempfile
 from pathlib import Path
 from typing import Any, Iterable
 
+from core.common.atomic import replace_with_retry
+
 
 def atomic_write_json(path: str | Path, data: dict, *, indent: int = 2) -> None:
-    """原子写 JSON: temp 与目标同目录 → os.replace（Windows 同卷原子替换）。
+    """原子写 JSON: temp 与目标同目录 → replace_with_retry（Windows 同卷原子替换）。
 
     异常清理 tmp 后 re-raise。
     """
@@ -32,7 +37,7 @@ def atomic_write_json(path: str | Path, data: dict, *, indent: int = 2) -> None:
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
             json.dump(data, fh, ensure_ascii=False, indent=indent)
-        os.replace(tmp, path)
+        replace_with_retry(tmp, path)
     except BaseException:
         try:
             os.unlink(tmp)
@@ -42,7 +47,7 @@ def atomic_write_json(path: str | Path, data: dict, *, indent: int = 2) -> None:
 
 
 def atomic_write_lines(path: str | Path, lines: Iterable[str]) -> None:
-    """原子写文本行（jsonl 整写用）: temp 同目录 → os.replace, 行尾自动补 \\n。
+    """原子写文本行（jsonl 整写用）: temp 同目录 → replace_with_retry, 行尾自动补 \\n。
 
     与 atomic_write_json 同款中断语义——绝不半写。wiki_v2 整写（AGENT_BRAIN.md §2）。
     """
@@ -53,7 +58,7 @@ def atomic_write_lines(path: str | Path, lines: Iterable[str]) -> None:
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
             for line in lines:
                 fh.write(line if line.endswith("\n") else line + "\n")
-        os.replace(tmp, path)
+        replace_with_retry(tmp, path)
     except BaseException:
         try:
             os.unlink(tmp)

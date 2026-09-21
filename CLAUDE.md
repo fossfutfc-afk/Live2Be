@@ -625,6 +625,12 @@ CLI/测试同步路径在引擎内串行。
 - experiments/：真 API 基准（bond_bench_thinking / e2e_bs_bench / promptkit_card_ab /
   two_pass_real …）与 smoke；用 conda env python 运行, 先确认 settings.toml。
 - 提交纪律：**每节点一提交**；文档与代码同节点更新；人设/rules 内容改动与夹具同批。
+- **原子写带 Windows 占用重试**（2026-09-21）：`core/common/atomic.py::replace_with_retry` ——
+  `os.replace` 遇 `PermissionError` / WinError 5·32·33（目标被别的进程/线程**短暂打开**：杀软、
+  索引器、另一端刚读过）→ 30ms 起指数退避, 默认 **5 次尝试**; 用尽**原样抛出**（不吞, 上层照旧
+  "本轮不记"降级）。**所有 temp→replace 的地方都用它**：`core/session/io.py`（meta/vn_state/wiki 整写）·
+  `webgui/bond/stores.py`（草稿旁路 / prewarm 缓存）· `core/worldtime/realtime.py`（节日台账）。
+  回归用例 `tests/core/test_atomic_io.py`（被占用 N 次仍落盘 / 用尽抛出 / 非瞬时错误不重试 / 无 temp 残渣）。
 - 错误格式：`[file.py][ErrType][信息]`（**真家 `contract/errors.py`**；`core/common/errors.py`
   是薄再导出壳, 两者都可 import）；失败静默降级打
   WARNING 单行可 grep（计时/缓存等 INFO 埋点按 §6.1 约定）。
