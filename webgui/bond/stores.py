@@ -148,30 +148,46 @@ def _draft_boards(state: "BondState") -> list[dict]:
     return boards
 
 
-def _draft_save(state: "BondState", char_id: str, session_id: str) -> None:
-    """落草稿旁路（原子写）。无可存内容 → 删旧档（宁缺勿错, 不留过期草稿）。"""
+def _draft_save(state: "BondState", char_id: str, session_id: str,
+                *, epoch: int | None = None) -> None:
+    """落草稿旁路（原子写）。无可存内容 → 删旧档（宁缺勿错, 不留过期草稿）。
+
+    `epoch`（○C8c）= 调用方（后台生成线程）的**出生世代** —— 复核与写盘在
+    `state._lock` 里做, 而 `_discard_boards` 也在同一把锁里推进世代 + 删档 ⇒
+    "丢弃"与"这次落地"**互斥**。为什么非这样不可（不是洁癖, 是全量跑时真红过）:
+    落地流程是"先写 `pregen_scene`（对轮询可见）→ 再落草稿", 快照用例轮询到前者
+    就立刻丢弃, 于是那次 `_draft_save` 在丢弃**之后**把草稿文件又写了回来 ——
+    旧板复活, 而 `bond_boards_discarded` 那行"唯一痕迹"白打。
+    `epoch=None` = 同步路径（请求线程里的裁决/推进/重进）: 世代不可能在它脚下变,
+    照常写（丢弃后也有**有意保留**的一次: 预生成失败降级那条, 见 `_pregenerate`）。
+    """
     try:
         store = _flow_store(state)
         path = _draft_path(char_id, store)
         if path is None:
             return
-        boards = _draft_boards(state)
-        if not boards:
-            if path.is_file():
-                path.unlink()
-            return
-        path.parent.mkdir(parents=True, exist_ok=True)
-        payload = {
-            "boards": boards,
-            "input": state.scene_input,
-            "base_seq": _last_bond_seq(char_id, session_id, store),
-            "vn_enter_seq": _open_vn_seq(char_id, session_id, store),
-            "round": state.round,
-            "ts": time.time(),
-        }
-        tmp = path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
-        replace_with_retry(tmp, path)
+        with state._lock:                             # ← 与 `_discard_boards` 互斥
+            if epoch is not None and epoch != state.board_epoch:
+                logger.info("bond_draft_stale epoch=%s now=%d %s/%s",
+                            epoch, state.board_epoch, char_id, session_id)
+                return
+            boards = _draft_boards(state)
+            if not boards:
+                if path.is_file():
+                    path.unlink()
+                return
+            path.parent.mkdir(parents=True, exist_ok=True)
+            payload = {
+                "boards": boards,
+                "input": state.scene_input,
+                "base_seq": _last_bond_seq(char_id, session_id, store),
+                "vn_enter_seq": _open_vn_seq(char_id, session_id, store),
+                "round": state.round,
+                "ts": time.time(),
+            }
+            tmp = path.with_suffix(".tmp")
+            tmp.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+            replace_with_retry(tmp, path)
     except Exception as e:                         # noqa: BLE001 — 缓存失败降级
         logger.warning("草稿旁路写失败（降级, 不影响剧情）: %s", e)
 

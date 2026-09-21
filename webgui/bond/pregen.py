@@ -29,7 +29,6 @@
 
 from __future__ import annotations
 
-import json
 import threading
 import logging
 import time
@@ -75,6 +74,31 @@ _REMIND_ROUNDS = 30
 _END_ROUNDS = 50
 
 
+def _board_epoch_stale(state: BondState, epoch: int | None, char_id: str,
+                       session_id: str, where: str) -> bool:
+    """**世代复核**（○C8c, 2026-09-21）: 这张板出生之后是否发生过 `_discard_boards`。
+
+    "丢弃"（`_discard_boards`）只清得掉**当时在内存里**的引用 —— 一个已经飞出去的
+    后台线程（预生成 / live 流式 / 候选支）随后跑完, 会把刚清掉的 `pregen_obj` /
+    `pregen_scene` / 草稿旁路**写回来**: 旧板复活, 而 `bond_boards_discarded` 那行
+    "唯一痕迹"白打。`test_discard_boards_is_traceless` 就是这么偶发红的（它轮询到
+    `pregen_scene` 非 None 就立刻丢弃, 而预生成线程还剩"落草稿"没做）。
+
+    判据: 产者在**出生时**记下 `state.board_epoch`, 落地前拿到这里比对 —— 世代不等
+    ⇒ 期间丢过 ⇒ 这张板属于被丢弃的那一代, 一律不许落地（不写引用、不落草稿、
+    不入标注队列）。`epoch=None` = 调用方是**同步路径**（请求线程里当场落地:
+    预热缓存/草稿旁路/回放）, 世代不可能在它脚下变, 不检查。
+
+    留一行 INFO `bond_board_stale`: 丢弃有痕迹, **丢弃之后试图落地的东西**也要有
+    痕迹 —— 否则"板怎么又冒出来了"只能靠猜。与 `bond_boards_discarded` 成对 grep。
+    """
+    if epoch is None or epoch == state.board_epoch:
+        return False
+    logger.info("bond_board_stale where=%s epoch=%s now=%d %s/%s",
+                where, epoch, state.board_epoch, char_id, session_id)
+    return True
+
+
 def _generate(state: BondState, char_id: str, session_id: str, user_input: str) -> bool:
     """后台线程: 生成下一场 → 更新 state（场景/事件/兜底）。
 
@@ -92,6 +116,9 @@ def _generate(state: BondState, char_id: str, session_id: str, user_input: str) 
 
     def run():
         t0 = time.monotonic()                    # 计时埋点（§6.1）
+        # 本次生成的**出生世代**（○C8c）: 期间若发生丢弃（`_discard_boards` 推进
+        # `board_epoch`）, 下面每个落地点都要复核对不上 → 不落地。
+        epoch = state.board_epoch
         # 本次调用的台账短 id（2026-09-11）: 打给本块产出的每一板, 交付台账据此
         # 回答"这一板是哪次调用写的"（0 LLM 路径为 `-`）
         cid = f"{int(time.time() * 1000) % 0xFFFF:04x}"
@@ -113,10 +140,13 @@ def _generate(state: BondState, char_id: str, session_id: str, user_input: str) 
                     def _on_board(scene_b: BondScene) -> None:
                         if state.scene_obj is not None and not state.scene_state.committed:
                             return          # 已有未播放板（不该发生）→ 不覆盖
+                        if _board_epoch_stale(state, epoch, char_id, session_id,
+                                              "live-stream"):
+                            return          # ○C8c: 期间丢过 → 这一板不许上屏
                         scene_b._call_id = cid
                         _scene_landed(state, scene_b, char_id, session_id,
                                       user_input, t0=t0, save_cache=first_scene,
-                                      source="stream")
+                                      source="stream", epoch=epoch)
                         logger.info("bond_stream_first %s/%s dur=%dms",
                                     char_id, session_id, _ms_since(t0))
 
@@ -136,7 +166,8 @@ def _generate(state: BondState, char_id: str, session_id: str, user_input: str) 
                         _b._call_id = cid
                 if getattr(scene, "_streamed", False):
                     state.fail_count = 0        # 流式已落地（含标注/日志）→ 只清失败计数
-                else:
+                elif not _board_epoch_stale(state, epoch, char_id, session_id, "live"):
+                    # ○C8c: 世代已被丢弃推走 → 整块跳过（这块的尾板也不落地）。
                     # 台账来源: 领待发队列（0 LLM——本回合早先那次调用切的尾板, 或
                     # 重进时草稿旁路灌回的板）→ 标 queue/draft, 别一律记 gen
                     # （决策 #35 可归因性: "这一板从哪来"要一眼可查）。
@@ -145,7 +176,8 @@ def _generate(state: BondState, char_id: str, session_id: str, user_input: str) 
                                                       False):
                         src = "draft" if getattr(scene, "_from_draft", False) else "queue"
                     _scene_landed(state, scene, char_id, session_id, user_input,
-                                  t0=t0, save_cache=first_scene, source=src)
+                                  t0=t0, save_cache=first_scene, source=src,
+                                  epoch=epoch)
         except (SceneLoopError, ValueError) as e:
             # 模型连语义校验都过不了 → 偶发失败先给重试机会（2026-09-02:
             # 一败就 closing 会把偶发 JSON 错误变成"剧情突然结束"——上一场保持
@@ -181,7 +213,11 @@ def _generate(state: BondState, char_id: str, session_id: str, user_input: str) 
                     and not state.completed
                     and state.scene_obj is not None
                     and not state.scene_obj.choices
-                    and not state.scene_obj.is_end):
+                    and not state.scene_obj.is_end
+                    and not _board_epoch_stale(state, epoch, char_id, session_id,
+                                               "pregen-trigger")):
+                # ○C8c: 期间丢过 → **连备料都不许开**（丢弃的全部意义就是
+                # "别再往玩家眼前送这一代的东西"）
                 _pregenerate(state, char_id, session_id)
 
     th = threading.Thread(target=run, daemon=True)
@@ -218,6 +254,7 @@ def _pregenerate(state: BondState, char_id: str, session_id: str) -> None:
 
     def run():
         t0 = time.monotonic()                    # 计时埋点（§6.1）
+        epoch = state.board_epoch                # ○C8c: 出生世代（落地前复核）
         cid = f"{int(time.time() * 1000) % 0xFFFF:04x}"
         state._call_id = cid
         delivered: list[BondScene] = []          # 流式回调收到的板（**provisional**）
@@ -260,17 +297,28 @@ def _pregenerate(state: BondState, char_id: str, session_id: str) -> None:
                     logger.info("bond_pregen src=gen call=%s boards=%d %s/%s dur=%dms",
                                 cid, len(delivered), char_id, session_id,
                                 _ms_since(t0))
-                state.pregen_obj = scene
-                state.pregen_scene = scene.to_dict()
-                state.pregen_input = "（继续）"
+                # ○C8c: **落地是临界区** —— 世代复核与"写引用"必须原子（丢弃也在
+                # `state._lock` 里推进世代并清引用）: 否则复核通过之后、写之前插进
+                # 一次丢弃, 引用就又回来了。草稿写盘由 `_draft_save(epoch=…)` 在
+                # 同一把锁里再复核一次（见那里的注释: 它才是"草稿文件复活"的关口）。
+                with state._lock:
+                    if _board_epoch_stale(state, epoch, char_id, session_id, "pregen"):
+                        return
+                    state.pregen_obj = scene
+                    state.pregen_scene = scene.to_dict()
+                    state.pregen_input = "（继续）"
                 # 预生成场景同样异步标注（与主场景同一队列串行, 玩家消费时表情就绪）
                 deps.enqueue_annotate(state, scene)
-                _draft_save(state, char_id, session_id)   # 草稿旁路刷新（#28b）
+                _draft_save(state, char_id, session_id, epoch=epoch)   # 草稿旁路（#28b）
         except Exception as e:                     # noqa: BLE001 — 预生成失败降级
-            logger.warning("bond 预生成失败 (%dms, 降级为点击时再生成): %s",
-                           _ms_since(t0), e)
-            _discard_boards(state, char_id, reason="pregen-fail")
-            _draft_save(state, char_id, session_id)    # 队列/当前板仍值得留（#28b）
+            # ○C8c: 世代已前进 = 这次失败属于**被丢弃的那一代** —— 连"降级"都不做
+            # （再 `_discard_boards` 一次只会多打一行误导的 `bond_boards_discarded`,
+            # 而 `_draft_save` 会把刚被丢掉的东西写回草稿旁路）。
+            if not _board_epoch_stale(state, epoch, char_id, session_id, "pregen-fail"):
+                logger.warning("bond 预生成失败 (%dms, 降级为点击时再生成): %s",
+                               _ms_since(t0), e)
+                _discard_boards(state, char_id, reason="pregen-fail")
+                _draft_save(state, char_id, session_id)    # 队列/当前板仍值得留（#28b）
         finally:
             state.busy = False
             state.busy_since = 0.0
@@ -282,7 +330,8 @@ def _pregenerate(state: BondState, char_id: str, session_id: str) -> None:
 
 def _scene_landed(state: BondState, scene: BondScene, char_id: str,
                   session_id: str, user_input: str, *, t0: float,
-                  save_cache: bool, source: str = "gen") -> None:
+                  save_cache: bool, source: str = "gen",
+                  epoch: int | None = None) -> None:
     """场景落地公共路径（_generate 成功块与跨重启缓存命中共用, 2026-09-09）:
 
     设置 scene_obj/scene/input/落库就绪标记 + 配额/prev/meta/异步标注/候选
@@ -291,6 +340,10 @@ def _scene_landed(state: BondState, scene: BondScene, char_id: str,
 
     source（2026-09-11）: 交付来源——"stream"/"gen"/"prewarm"/"draft"/"demo"，
     透传给 `_log_board_deliver` 台账（调用方各自注明; 缺省 gen）。
+
+    epoch（○C8c）: 后台线程（`_generate`）传自己的**出生世代** —— 透传给末尾的
+    `_draft_save`, 让它在和丢弃同一把锁里复核（"丢弃删了档、这次落地又把档写回来"
+    的窗口就在这一段）。**同步路径**（预热缓存/草稿旁路/回放/请求线程）不传。
     """
     state.scene_obj = scene
     state.scene = scene.to_dict()
@@ -339,7 +392,7 @@ def _scene_landed(state: BondState, scene: BondScene, char_id: str,
                             store=_flow_store(state))
     # 草稿旁路（#28b）: 每次板落地都刷新"未播放内容"（当前未落库板 + 待发队列）
     if state.demo is None:
-        _draft_save(state, char_id, session_id)
+        _draft_save(state, char_id, session_id, epoch=epoch)
 
 
 def _log_board_deliver(state: BondState, scene: BondScene | None, char_id: str,
@@ -419,11 +472,14 @@ def _candidate_worker(state: BondState, cand: ChoiceCandidate,
                       char_id: str, session_id: str) -> None:
     """候选支生成线程: fork 引擎预生成下一板（同步标注）; 写回带池身份检查。"""
     t0 = time.monotonic()                     # 计时埋点（§6.1）
+    epoch = state.board_epoch                 # ○C8c: 出生世代（落地前复核）
     try:
         scene = cand.engine.send_vn_scene("（继续）", annotate=True)
         with state._lock:
-            # 池身份检查: 已被换板/作废 → 结果丢弃（孤儿, 不可达即 GC）
-            if any(c is cand for c in state.choice_candidates):
+            # 池身份 + 世代双检: 已被换板/作废/丢弃 → 结果丢弃（孤儿, 不可达即 GC）
+            if (any(c is cand for c in state.choice_candidates)
+                    and not _board_epoch_stale(state, epoch, char_id, session_id,
+                                               "candidate")):
                 cand.scene_obj = scene
                 cand.status = "ready"
                 logger.info("bond_cand ready %s/%s picked=%s dur=%dms para=%d",
@@ -449,22 +505,35 @@ def _discard_boards(state: BondState, char_id: str, *, reason: str) -> None:
       ② **候选支池**（未选支的 fork 结果, 纯内存孤儿）;
       ③ **草稿旁路**（"已生成未播放"的持久化临时存储——预生成板的落点）。
 
+    ○C8c **世代前进**: 每次调用 `board_epoch += 1` —— 从这一刻起, **所有更早出生
+    的板**（在飞的预生成 / live 流式 / 候选支 / 标注写回）都不许再落地, 落地前一律
+    被 `_board_epoch_stale` / `_draft_save(epoch=…)` 拦下。只清引用是不够的:
+    清的是"当时在内存里的那一份", 而丢弃的**全部意义**是"这一代内容不再送到玩家
+    眼前"——一个随后跑完的后台线程会把 `pregen_scene` 甚至草稿文件写回来。
+    清引用与删草稿在 `state._lock` 里做, 与 `_draft_save` 的"复核+写盘"同一临界区
+    ⇒ **丢弃与落地互斥**（否则仍有"板已可见、草稿还没落"的窗口）。
+
     ⚠️ **不动当前板**（`scene_obj` / `scene` / `scene_state`）: 它一旦 DELIVERED 就是
     玩家屏上的内容, 要不要丢是**产品决策**（重发 / 拒绝邀约, 见 `docs/DESIGN_RESEND.md`
     的两区语义）, 不是清理动作。所以这里**不**替调用方决定, 只清"没人看过的东西"。
     ⚠️ 也不动 `_prewarm_cache`（那是**章节入口**的暂存首场, 生命周期属于"预热"而非
     "板"——它的失效判据是新鲜度 `staged_seq`, 见 `_prewarm_cache_delete`）。
     """
-    had_pregen = state.pregen_obj is not None or state.pregen_scene is not None
-    n_cands = len(state.choice_candidates or [])
-    state.pregen_obj = None
-    state.pregen_scene = None
-    state.pregen_input = ""
-    _discard_candidates(state)
-    _draft_delete(char_id, _flow_store(state))
-    # 丢弃的**唯一痕迹**就是这行日志（不写事件流——这正是 §3.1 那条不变量）
-    logger.info("bond_boards_discarded reason=%s pregen=%s candidates=%d %s",
-                reason, "yes" if had_pregen else "no", n_cands, char_id)
+    with state._lock:
+        # 世代前进必须与清引用**同一临界区**（与 `_draft_save` 的复核+写盘互斥）
+        state.board_epoch += 1
+        had_pregen = state.pregen_obj is not None or state.pregen_scene is not None
+        n_cands = len(state.choice_candidates or [])
+        state.pregen_obj = None
+        state.pregen_scene = None
+        state.pregen_input = ""
+        _discard_candidates(state)
+        _draft_delete(char_id, _flow_store(state))
+    # 丢弃的**唯一痕迹**就是这行日志（不写事件流——这正是 §3.1 那条不变量）;
+    # `epoch` 让"丢弃之后还有板落地"能在日志里对上（`bond_board_stale`）
+    logger.info("bond_boards_discarded reason=%s pregen=%s candidates=%d epoch=%d %s",
+                reason, "yes" if had_pregen else "no", n_cands, state.board_epoch,
+                char_id)
 
 
 def _discard_candidates(state: BondState) -> None:

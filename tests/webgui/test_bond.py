@@ -12,6 +12,7 @@ ScriptedLLM（不碰 API）:
 import json
 import logging
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -120,10 +121,14 @@ class ScriptedLLM:
         return out
 
 
-def _setup(tmp_path, *scripts):
-    """引擎 + 事件流会话（tmp_path）+ 引擎/store 注入（bond 落库走 deps.store()）。"""
+def _setup(tmp_path, *scripts, llm=None):
+    """引擎 + 事件流会话（tmp_path）+ 引擎/store 注入（bond 落库走 deps.store()）。
+
+    `llm=`（○C8c）: 换掉桩（如带闸门的 `_GatedLLM`）——用于把"丢弃插在生成在途"
+    这种时序变成确定性的。
+    """
     st = SessionStore(tmp_path)
-    llm = ScriptedLLM(*scripts)
+    llm = llm or ScriptedLLM(*scripts)
     engine = MomoTalkEngine(ROOT / "config" / "characters", llm, store=st)
     engine.start_session(CHARACTER)
     root = st.create(CHARACTER)
@@ -1269,3 +1274,159 @@ def test_pregen_board_is_provisional_until_adopted(tmp_path):
         print("    node4′: 预生成 provisional（不落库）→ adopt → 推进才写暂存")
     finally:
         _cleanup()
+
+
+# ----------------------------------------------------------------------------
+# 丢弃世代（○C8c, 2026-09-21）: `_discard_boards` 之后, 在途的落地一律作废
+# ----------------------------------------------------------------------------
+
+
+class _GatedLLM(ScriptedLLM):
+    """在第 `block_main` 次**主生成**调用上阻塞（放行由测试决定）。
+
+    ○C8c 的竞态只在"丢弃发生在预生成**在途**"时出现 —— 靠 sleep 撞时序必然 flake,
+    所以把闸门装进桩里: 主生成一进 LLM 调用就 `entered.set()`, 测试做完丢弃再
+    `gate.set()`。标注类调用（`place`/`emotion`）不在 `T.MAIN` 里, 不受影响。
+    """
+
+    def __init__(self, *scripts, block_main: int = 2):
+        super().__init__(*scripts)
+        self.entered = threading.Event()      # 第 block_main 次主生成已进入调用
+        self.gate = threading.Event()         # 测试放行
+        self._block_main = block_main
+        self._n_main = 0
+
+    def chat(self, messages, temperature=0.8, max_tokens=4096,
+             response_format="text", **kw):
+        if kw.get("task") in T.MAIN:
+            self._n_main += 1
+            if self._n_main == self._block_main:
+                self.entered.set()
+                assert self.gate.wait(10.0), "测试没放行（闸门超时）"
+        return super().chat(messages, temperature=temperature,
+                            max_tokens=max_tokens,
+                            response_format=response_format, **kw)
+
+
+def test_stale_pregen_landing_is_dropped(tmp_path, caplog):
+    """○C8c: **丢弃之后在途落地的预生成板不许复活**（`board_epoch` 世代复核）。
+
+    形态: 首板落地 → `_generate` 的 finally 开始预生成（busy=True）→ 丢弃这时插进来
+    （`_discard_boards` 是唯一丢弃入口; `DESIGN_RESEND` 的重发/拒绝邀约就是这么调的）
+    → 预生成线程随后跑完。**没有世代复核时**它会把 `pregen_scene` 与草稿文件原样写回:
+    板在玩家眼前复活, 而 `bond_boards_discarded` 那行"唯一痕迹"白打。
+
+    后半段还钉住反向: 世代只作废**更早出生**的落地, **不封禁**后续生成。
+    """
+    caplog.set_level(logging.INFO)
+    engine, st, sid, llm = _setup(
+        tmp_path, llm=_GatedLLM(_PLAIN_BLOCK, _PLAIN_BLOCK_2, _PLAIN_BLOCK_3))
+    try:
+        bond.bond_start(CHARACTER, sid)
+        assert llm.entered.wait(10.0), "第二块（预生成）应进入 LLM 调用"
+        state = bond._state(CHARACTER, sid)
+        epoch0 = state.board_epoch
+        assert state.pregen_scene is None, "预生成还没落地"
+
+        bond._discard_boards(state, CHARACTER, reason="test-stale")
+        assert state.board_epoch == epoch0 + 1, "丢弃必须推进世代（board_epoch）"
+        llm.gate.set()
+
+        deadline = time.time() + 10.0
+        while time.time() < deadline and state.busy:
+            time.sleep(0.05)
+        assert not state.busy, "预生成线程应已结束"
+        assert state.pregen_obj is None and state.pregen_scene is None, \
+            f"陈旧落地复活了预生成板: {state.pregen_scene}"
+        assert not bond._draft_load(CHARACTER, sid, bond._flow_store(state)), \
+            "陈旧落地把草稿旁路写回来了"
+        assert "bond_board_stale" in caplog.text, \
+            f"陈旧落地必须留一行痕迹（可 grep）: {caplog.text}"
+
+        # 反向: 丢弃之后的**新**生成照常落地（世代不是永久封禁）
+        bond._pregenerate(state, CHARACTER, sid)
+        deadline = time.time() + 10.0
+        while time.time() < deadline and state.pregen_scene is None:
+            time.sleep(0.05)
+        assert state.pregen_scene is not None, "丢弃只作废更早的落地, 不该封禁后续生成"
+        print("    ○C8c: 丢弃后陈旧预生成被拦（无残留）; 新一代预生成照常落地")
+    finally:
+        _cleanup()
+
+
+def test_discard_inside_pregen_landing_window(tmp_path, caplog, monkeypatch):
+    """○C8c 细窗口: 板**已写进** `pregen_scene`、草稿**还没落** → 丢弃插在中间。
+
+    这就是 `test_discard_boards_is_traceless` 全量跑偶发红的精确形态: 它轮询到
+    `pregen_scene` 非 None 就立刻丢弃, 而预生成线程还剩一次 `_draft_save` 没做 ——
+    于是草稿文件在丢弃**之后**被写回来（旧板复活, 单跑常绿/全量偶发红 = 典型时序 flake）。
+
+    把它钉成确定性的: 在预生成那次 `_draft_save` 入口先丢弃, 再让它照常执行 ——
+    世代复核（与丢弃同一把 `state._lock`）必须让它写不进去。
+    """
+    from webgui.bond import pregen as pregen_mod
+
+    caplog.set_level(logging.INFO)
+    engine, st, sid, llm = _setup(tmp_path, _PLAIN_BLOCK, _PLAIN_BLOCK_2)
+    real = pregen_mod._draft_save
+    fired: list[int] = []
+
+    def gated_draft_save(state, char_id, session_id, *, epoch=None):
+        # **只对预生成落地**那次动手: 那时 `pregen_obj` 已经被写进去; 首板落地时
+        # （`_scene_landed`）它还是 None —— 那条路不是本用例要模拟的窗口。
+        if epoch is not None and state.pregen_obj is not None:
+            fired.append(state.board_epoch)
+            bond._discard_boards(state, char_id, reason="window")
+        return real(state, char_id, session_id, epoch=epoch)
+
+    monkeypatch.setattr(pregen_mod, "_draft_save", gated_draft_save)
+    try:
+        bond.bond_start(CHARACTER, sid)
+        state = bond._state(CHARACTER, sid)
+        deadline = time.time() + 10.0
+        while time.time() < deadline and (state.busy or not fired):
+            time.sleep(0.05)
+        assert fired, "预生成落地那次 `_draft_save` 应被触发（用例前提）"
+        assert state.pregen_obj is None and state.pregen_scene is None, \
+            "丢弃后的落盘窗口里不许留下预生成引用"
+        assert not bond._draft_load(CHARACTER, sid, bond._flow_store(state)), \
+            "草稿文件不许被「写完状态、再落草稿」的窗口复活"
+        assert "bond_draft_stale" in caplog.text, \
+            f"被拦下的落盘要留痕: {caplog.text}"
+        print("    ○C8c: 'pregen_scene 已可见、草稿未落' 的窗口里丢弃 → 草稿不复活")
+    finally:
+        _cleanup()
+
+
+def test_draft_helpers_are_not_called_holding_state_lock():
+    """○C8c 静态守门: `_draft_save` / `_discard_boards` 自己取 `BondState._lock`。
+
+    任何**已经持有同一把锁**的调用点都是同线程死锁（`threading.Lock` 不可重入）。
+    为什么值得钉: 这两个函数的"复核 + 写盘/清引用"临界区, 正是"丢弃与落地互斥"
+    的**唯一**依据（○C8c 修的就是这个窗口）——而"顺手把 `_draft_save` 挪进某个
+    `with state._lock:` 块"读起来无害, 跑起来直接挂死, 且只在特定路径上出现。
+    """
+    import ast
+
+    bad: list[str] = []
+    for path in sorted((ROOT / "webgui").rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for fn in ast.walk(tree):
+            if not isinstance(fn, ast.FunctionDef):
+                continue
+            for node in ast.walk(fn):
+                if not isinstance(node, ast.With):
+                    continue
+                if not any(isinstance(it.context_expr, ast.Attribute)
+                           and it.context_expr.attr == "_lock"
+                           for it in node.items):
+                    continue
+                for sub in ast.walk(node):
+                    if isinstance(sub, ast.Call) and isinstance(sub.func, ast.Name) \
+                            and sub.func.id in ("_draft_save", "_discard_boards"):
+                        bad.append(f"{path.relative_to(ROOT).as_posix()}:{sub.lineno}"
+                                   f"（{fn.name} 的 with _lock 块内）")
+    assert not bad, (
+        "这些地方在**已持有** `state._lock` 时又去取它（threading.Lock 不可重入 → "
+        "死锁）:\n  " + "\n  ".join(bad))
+    print("    ○C8c: 草稿/丢弃助手没有「持锁再取锁」的调用点")
