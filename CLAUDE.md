@@ -51,7 +51,7 @@
 | 两遍式 C | 主 LLM 写骨架 → 标注层异步回填视觉键（emotion 按板全覆盖、一条记录一个键；place 事件型锚点） |
 | task 卡 | 每回合"目标层"注记（见 §8），= 对"AI 只有规则书没有任务"的修复 |
 | 回录（record_picked） | 裁决后把"（选择了: X）"写回引擎历史尾部，live 与 resume 同形（A1） |
-| 玩家话语（**只体现为选项**） | 选项居中显示; 选项时刻正文停在上一句角色台词/旁白, 名字牌不动; **裁决后选项组留在屏上转只读态**（压暗 + 高亮所选; live 侧禁用, 只读回放侧可点=只推进）——玩家那句永不当正文上屏（决策 #37/#41）; 事件 payload 的 `picked` 与引擎历史的 `老师：X` 物化照旧（AI/回放锚点） |
+| 玩家话语（**只体现为选项**） | 选项居中显示; 选项时刻正文停在上一句角色台词/旁白, 名字牌不动; **裁决后选项组当场收掉并直接推进**（live, 2026-09-21）——**只读态**（压暗 + 高亮所选 + 可点=只推进）**只剩回放/续看**; 玩家那句永不当正文上屏（决策 #37/#41）; 事件 payload 的 `picked` 与引擎历史的 `老师：X` 物化照旧（AI/回放锚点） |
 | 推进（**点画面**） | **没有"▼ 继续"按钮**（决策 #41 删除）: 点画面/点右下 ▾ 三角 = 板内下一段 → 板读完进下一板 → `is_end` 收尾; 板上有**未裁决**选项时点画面不推进（等玩家点选项）; 三角带 `.ready` = "整板读完"（自动化据它判定） |
 | 回忆册 / 角色页 / 章节条目 | **P0 已落地**（docs/DESIGN_COLLECTION_BOOK.md）: 书页 UI（两半页 × 3行4列, **一格 = 一角色**, `collection.png` 封面, 空格留白）→ 点格子进**角色页**（该角色**已结束**章节的标题列表）→ **章节条目**旁的按钮进回放 |
 | 只读回放 | 回忆册里的回放（`BondVN.enterReadonly`）: 播完即停、**0 LLM**、不碰 `BondState`/不写事件流——与现网"中断重进 → 回放前缀 → LLM 续写"的 resume 型 replay 是两件事 |
@@ -326,10 +326,12 @@ CLI/测试同步路径在引擎内串行。
 
 1. 契约层：`choices` = 选项文本数组(1~3)；`branches` = dict, **键即选项原文**, 值 =
    同 paragraphs 格式的反应段（1~3 句, 无嵌套选项）。每个中段板 1 组选项。
-2. 点击选项 X（记录流 v2）：**玩家那句不上屏**——选项组**留在屏上**转只读态（压暗 +
-   高亮所选; live 侧禁用, 只读回放侧可点=只推进）, 正文停在
-   上一句; 同时落库(整板 payload+picked=X) → A1 回录 → 立即预生成下一板（输入"（继续）",
-   历史已含物化裁决行）。v1 旧档仍是"分支内容当屏直显（零 LLM）"（冻结不改, 决策 #37/#41）。
+2. 点击选项 X（记录流 v2）：**玩家那句不上屏**——选项组**当场收掉**并**直接推进**
+   （live, 2026-09-21 用户: *"第一次点击后直接推进即可，不要渲染第二次的那个黄色"*;
+   旧口径"留屏转只读态"在真机表现为"等待期被清空 → 几秒后黄灰组弹出一次"）,
+   正文停在上一句; 同时落库(整板 payload+picked=X) → A1 回录 → 立即预生成下一板（输入"（继续）",
+   历史已含物化裁决行）。**只读态只剩回放/续看**（压暗 + 高亮所选 + 可点=只推进）。
+   v1 旧档仍是"分支内容当屏直显（零 LLM）"（冻结不改, 决策 #37/#41）。
 3. ~~自由输入~~（2026-09-10 锁死）: **产品内 VN 没有自由打字通道**——纯叙事板
    点画面推进（固定输入"（继续）", 2026-08-30 起已替代输入框; 按钮本身已于 #41 删除）; 玩家的"话"只经
    选项说出——**老师的台词 = 选项文本**（给了选项 = 老师在开口）。CLI/API 层
@@ -345,11 +347,10 @@ CLI/测试同步路径在引擎内串行。
    ⚠️ **旧口径"规则层整章 0~3 次、多数板无 choices"已作废（v1 的）**——
    记录流 v2 起交互密度**由 rules 引导**（*"一段戏里老师开口 3~5 次"*），
    引擎不再逐轮念配额（P0-7c 退役那条注记）。
-   真机实测（2026-09-19 量 9/11–9/12 的档）：**5/6 与 13/14 的板都带 choices**
-   —— 因为 `sensei` 群结束就切板（`contract/records/check.py::sensei_groups`），**板主要是选项点切的, 不是 switch**。
-   一段戏 30~45 条记录 ÷ 3~5 个选项点 ≈ **每板 3~9 条**（真机均 5.1~8.7）。
-   ⇒ **板数 ≈ 交互密度, 是产品参数, 不是 bug**；每板固定开销 = emotion 一次 + place 一次
-   （都廉价且在异步 lane, 不挡玩家）。
+   真机实测（09-19 量 9/11–9/12 的档）：**板主要是选项点切的, 不是 switch**（`sensei` 群
+   结束就切板, `contract/records/check.py::sensei_groups`）——5/6 与 13/14 的板都带 choices;
+   一段戏 30~45 条 ÷ 3~5 个选项点 ≈ **每板 3~9 条**（真机均 5.1~8.7）⇒ **板数 ≈ 交互密度,
+   是产品参数不是 bug**；每板固定开销 = emotion + place 各一次（异步 lane, 不挡玩家）。
 
 ---
 
@@ -475,10 +476,8 @@ CLI/测试同步路径在引擎内串行。
   角色的 `ref/` 目录（`sprite_*` 外观 / `style_*` 画风基准 / `halo.png`）是**生图参考图**,
   由 `llm/image_gen.collect_ref_images` 按名字约定收集。
   **portrait/ 五件套补齐工具**（本地, tools/ 被 gitignore）: `python tools/sync_portrait.py`
-  干跑 → `--apply` 拷贝 → `--verify` 查标准 → `--audit` 与官方源逐字节比对; 源 =
-  `D:\myStuff\tools\Blue-Archive-Asset-Downloader\JP_Android_Extracted\Bundle\Texture2D`
-  （或 `LIVE2BE_BA_DUMP`; 官方名 `Student_Portrait_{Name}_Collection.png` 等 → 本地标准名,
-  尺寸固定 404x456/252x204/182x144/304x240/172x136; 外观 = 名字中缀 `_Newyear`）。
+  干跑 → `--apply` → `--verify` → `--audit`（对官方源逐字节比对; 源 = `LIVE2BE_BA_DUMP`
+  或本机 BA 解包目录; 尺寸 404x456/252x204/182x144/304x240/172x136; 外观 = 名中缀 `_Newyear`）。
 
 ---
 
@@ -514,14 +513,15 @@ CLI/测试同步路径在引擎内串行。
   `scene.memorial_at` / 场景 dict 自身的 `memorial_at`。
 - 关键交互语义：进入/回放零等待；turn 被拒 = busy（前端 waitTurnIdle 轮询 status,
   **绝不重发已消费的 submit**）；gate_busy = 双路标注未齐；emo/place 补切经版本号。
-  ⚠️ **裁决后自动进下一板**（2026-09-20 用户: *"点了选项应该直接推进"*）:
-  点选项 → 选项组留屏转只读 + 高亮所选（决策 #41）,**但不再等第二次点击** ——
-  `PICK_ADVANCE_MS`（450ms, 只为让高亮可见）后自动 `goNext()`; 手动点画面/点选项
-  走同一函数（`busy` 防重复提交）。两条历史坑都钉在冒烟 `裁决后自动推进` 那一步:
-  ① `pendingChoice`（"本板还有未裁决选项"的门闩）**必须在裁决分支复位**, 否则
-  `advanceOrFinish` 见它即 return、点画面/点三角全被吞;
-  ② 裁决后的选项按钮**不许 `disabled`**（disabled 吞点击 + `onClick` 又排除
-  `.bond-choice` ⇒ 点黄着那句毫无反应）；绑定是 `goNext()`, **不回填、不重提交原文本**。
+  ⚠️ **裁决 = 点下去直接推进**（2026-09-21 用户裁决, 收窄 09-20 口径）: 点选项 →
+  **选项组当场收掉 → 立即 `goNext()`**; **不再画只读黄灰组**、也不再等 `PICK_ADVANCE_MS`。
+  真机报障原文: *"点击选项过后，会弹出一次黄色的已选择选项按钮和灰色的未选按钮"*——
+  弹出的真身 = 等待期 `showWaitDots` 清空 `#bond-choices` + 只读态迟到几秒才补画
+  （**与回放无关**）。两条历史坑仍有守门: ① `pendingChoice`（"本板还有未裁决选项"的
+  门闩）**必须在裁决分支复位**, 否则 `advanceOrFinish` 见它即 return、点画面/点三角全被吞;
+  ② **只读组（如今只剩回放/续看）不许 `disabled`**（吞点击）——冒烟改用 MutationObserver
+  全程盯"live 裁决不得出现 `.resolved/.picked` 且不点第二次就进下一板"（旧断言
+  `waitForFunction(…resolved)` = **主动等黄组出现**, 所以这个 bug 在冒烟里一直是绿的）。
   ⚠️ **结局后粉泡的"手快重进"窗口**（同日报障: *"有足够时间重进，后果不堪设想"*）:
   完成翻转本来靠轮询（`applyBondDone`）→ 有窗口。两道闸: 前端 `finish(completed=true)`
   **立刻**调 `window.mmtLockBondEntries()` 去掉点击；后端 `_entry_already_done()`
@@ -538,9 +538,8 @@ CLI/测试同步路径在引擎内串行。
   `digest.round_a` / `digest.round_b` · `mmt` / `bond`（主链）。
   ⚠️ **标签不进 messages/payload**（前缀缓存与夹具零影响）, 只进日志
   （`llm chat task=emotion …` —— 生产侧"这次调用是谁"从此可查）与桩分派。
-  ⚠️ **别再按中文关键字分派**（旧写法: `if "情绪标签" in last`）——那正是 5b 要根除的
-  耦合：改一次 prompt 措辞就让桩**静默不命中**（轻则吞脚本, 重则全程兜底还全绿;
-  同类事故已发生过一次——桩数 system 编号行 → 恒多 4 条）。三条守门用例在
+  ⚠️ **别再按中文关键字分派**（旧写法 `if "情绪标签" in last`——改一次 prompt 措辞
+  就让桩**静默不命中**, 轻则吞脚本重则全程兜底还全绿）。三条守门用例在
   `tests/core/test_stub_dispatch_guard.py`：产品调用点必须带 `task=` / 标签必须在
   词表内 / 测试里不许再有中文串分派（**实测删掉一处 `task=` → 立刻红**）。
   新增标注任务 → 在 `llm/task_labels.py` 加标签（含 `PROFILE_OF` 形态映射）+
@@ -594,21 +593,18 @@ CLI/测试同步路径在引擎内串行。
   错误/失败请求（`.testtmp/webtest/<ts>/`）。**VN 是点击推进制 + 逐段替换渲染**:
   一次只显示一段, 段末等左键（继续三角带无限 bob 动画 → 脚本别点它, 点 `#bond-text`;
   **板读完的机器可读信号 = `#bond-continue.ready`**（按钮已删, 决策 #41）;
-  点选项后**选项组留在屏上转只读态**——别等它清空, 直接点画面推进）。
+  点选项后选项组**当场收掉**（2026-09-21: 点下去直接推进, 不再画只读黄组））。
   ⚠️ **要断言"某一段上屏那一刻"的视觉状态, 必须逐段取样**（`capturePara` 每次
   `_tick` 前读一次）——"板读完再查"已经晚了, 那一刻本来就该是终态（2026-09-20
   纪念 M3 的冒烟就是这么改的）。注: harness 放 `experiments/`（tracked）而非
   `tools/`（.gitignore 忽略的本机工具目录）。
 - **生图默认硬关**（tests/conftest.py 会话级 autouse 置 `LIVE2BE_IMAGE=off`, §10）：
-  用例天然不出图、不写 gallery——**不再依赖"本机没配 key"这种偶然保护**。需要真走
-  生图分支的用例显式 `monkeypatch.setenv("LIVE2BE_IMAGE", "on")` 并给接缝模块
-  `webgui.deps` 的生图器替身（**C1a 起别打 `bond._image_generator`——静默 no-op**;
-  现役例子看 `tests/webgui/test_bond.py` 与冒烟桩 `experiments/web_e2e/stub_world.py`）。
-  **测试进程硬闸**（2026-09-11 误触计费事故后加）: 闸门在唯一 HTTP 出口
-  `ImageGenerator._post_api` 上——pytest 进程里一律拒绝（`PYTEST_CURRENT_TEST` /
-  `sys.modules['pytest']` 判定），要真调必须显式 `LIVE2BE_IMAGE_ALLOW_REAL=1`;
-  用例请 monkeypatch `_post_api`；**探针/实验请用干跑** `LIVE2BE_IMAGE=dry`
-  （构造完整请求 + 打日志, 不发 HTTP, 返回占位 GeneratedImage 不落盘）。
+  用例天然不出图、不写 gallery。要真走生图分支 → 显式 `monkeypatch.setenv("LIVE2BE_IMAGE",
+  "on")` + 给接缝模块 `webgui.deps` 的生图器替身（**C1a 起别打 `bond._image_generator`
+  ——静默 no-op**; 例子见 `tests/webgui/test_bond.py` 与 `experiments/web_e2e/stub_world.py`）。
+  **测试进程硬闸**（2026-09-11 计费事故后加）: 闸门在唯一 HTTP 出口 `ImageGenerator._post_api`
+  ——pytest 进程里一律拒绝（`PYTEST_CURRENT_TEST`）, 要真调必须 `LIVE2BE_IMAGE_ALLOW_REAL=1`;
+  探针/实验用干跑 `LIVE2BE_IMAGE=dry`（构造请求 + 打日志, 不发 HTTP, 不落盘）。
 - **可归因性埋点**（2026-09-11, 回答"这内容从哪来"）:
   ① `bond_board_deliver src=stream|gen|queue|prewarm|draft|replay board=N recs=N
   call=xxxx dur=ms`——**每板一行**, 标明这一板是怎么到玩家眼前的（0 LLM 路径的
