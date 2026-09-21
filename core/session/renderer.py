@@ -36,7 +36,7 @@ from core.session.events import (
     Event,
 )
 from core.session.models import VNState
-from core.ui.text_processors import _strip_action_brackets, split_reply_chunks
+from core.tui.text_processors import _strip_action_brackets, split_reply_chunks
 from contract.records import render_records
 from contract.timeline_index import REC_PICKED, format_event, format_record
 

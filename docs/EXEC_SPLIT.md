@@ -1,12 +1,14 @@
 # EXEC_SPLIT — 文件拆分与位置规划（执行计划）
 
-> **状态**：执行中。**C0–C10 已落地 2026-09-21 —— 三个"什么都装"的文件都拆完了**:
+> **状态**：执行中。**C0–C11 已落地 2026-09-21 —— 三个"什么都装"的文件都拆完了, 位置错的件也在归位**:
 > C0 安全网 · C1a 接缝 · C1b 模块→包 · C2 `state.py` · C3 `stores.py` ·
 > C4 `lanes.py`+`util.py` · C5 `replay.py` · C6 `memorial.py` · C7 `pregen.py` ·
 > C8 `api.py`+`watchdog.py`（`webgui/bond.py` 的 `_impl.py` 消失）·
 > C9 `core/bond/bond_story/`（scene/boards/engine）·
-> C10 `contract/records/`（grammar/parse/check/carrier）+ 错误原语下沉 + `json_cleaner` 归位。
-> **下一步 = C11（`core/tui/` + `_build_director` 上提）**。
+> C10 `contract/records/`（grammar/parse/check/carrier）+ 错误原语下沉 + `json_cleaner` 归位 ·
+> C11 `core/tui/`（展示层搬出 `core/ui`）+ `core/director/wiring.py`（解 webgui→CLI）。
+> **下一步 = C12（`core/momotalk.py` → `core/mmt/engine.py`；`main.py`/`vn_cli.py` → `apps/`；
+> `core/*.md` → `docs/`）**。
 > **怎么用**：每个节点 = **一次提交 + 全量测试 + （涉 webgui 时）B 层冒烟**；
 > 节点内**只做"移动"**，任何行为改动单独开节点。行号一律不写（会漂），写 `file.py::symbol`。
 > **相关**：`docs/EXEC_PIPELINE_UNIFY.md`（流水线收敛，已全部落地）· `CLAUDE.md` §2/§11/§12。
@@ -58,7 +60,7 @@ webgui/     壳      不得依赖 tests / experiments
 |---|---|---|
 | ✅ `contract/{model,registry,spec}.py` → `core.common`（`err`） | 3 | **C10 已消**：错误原语下沉 `contract/errors.py`（`core/common/errors.py` 只剩薄再导出壳） |
 | ✅ `contract/registry.py` → `llm.json_cleaner` | 1 | **C10 已消**：`json_cleaner` 搬到 `contract/json_cleaner.py`（**位置放错**的实证） |
-| `core/ui/vn_cli.py` → `renderer` | 2 | C11：`_build_director`/`_trigger_title` 上提到 `core/director/wiring.py`（C12 再把 `vn_cli` 搬 `apps/`） |
+| ⚠️ `core/ui/vn_cli.py` → `renderer` | 2 | **C11 部分处理**: `_build_director`/`_trigger_title` 上提到 `core/director/wiring.py`（解掉 **webgui→CLI** 的反向耦合）; 但**这条违规本身归 C12**——用 renderer 的是 vn_cli 自己的显示路径（见 §5 陷阱 14 的实测修正） |
 
 （`llm/task_levels.py` → `core.paths` 属薄横切豁免。**未决**：`core/paths.py` 是否上提为
 顶层 `paths.py`——那会动 `test_paths.py` 守门与 20+ 消费点，先不动，记在 §5。）
@@ -110,9 +112,11 @@ contract/errors.py       ← 错误原语真家（C10 从 core/common 下沉; �
 contract/json_cleaner.py ← 纯 JSON 修复（C10 从 llm/ 归位）
 core/common/errors.py    → 薄再导出壳（保 20+ 处旧 import 路径; **C10**）
 core/mmt/                ← core/momotalk.py 并入既有 core/mmt/（engine.py）
-core/tui/                ← core/ui/{display,streaming,text_processors}
-core/director/wiring.py  ← 上提 _build_director/_trigger_title（解掉 webgui→CLI）
-apps/                    ← main.py + vn_cli.py（CLI 应用）
+core/tui/                ← core/ui/{display,streaming,text_processors} —— **C11 已落地**
+                          终端展示层（display/streaming/text_processors）; `core/ui/` 只剩
+                          CLI 应用 `vn_cli.py`（C12 搬 `apps/`）
+core/director/wiring.py  ← `_build_director`/`_trigger_title`（**C11 已落地**; 解 webgui→CLI）
+apps/                    ← main.py + vn_cli.py（CLI 应用）—— C12
 docs/                    ← core/DESIGN_*.md(7) + contract/DESIGN.md
 tests/webgui/bond/       ← test_bond.py 按主题拆 + tests/stubs/ 收共享 ScriptedLLM
 ```
@@ -136,8 +140,8 @@ tests/webgui/bond/       ← test_bond.py 按主题拆 + tests/stubs/ 收共享 
 | ○ **C8b**（可选） | `api.py` 再分 | `api.py` 实测 **1051 行**（比计划里的 ≤460 大一倍多）—— 可选切成 `entry.py`（`bond_start`/`_start_replay`/负载/演示）+ `api.py`（`bond_turn`/`status`/`finish`/`_wrapup*`）, 方向 api → entry | 绿 |
 | ✅ **C9** | **`core/bond/bond_story.py` → 包** | `git mv` 模块成 `core/bond/bond_story/{scene,boards,engine}.py`（逐字搬, 只改 import 行: 无相对导入, 故 `from core.bond.bond_story.{scene,boards} import …` 需补全限定名）+ 门面 `__init__.py` **逐个显式**再导出 54 名（含私有名; 列表**从 API 面夹具的该段生成**, **不定义 `__all__`**）。门面按"真家"分块: 3 个包内模块 + 43 个 core/contract/llm 真家（后者**整体重建**, 因为原模块是一次性 import 了一大票外部名）; `max_tokens as task_levels_max_tokens` 是本次唯一的重名别名（真家里叫 `max_tokens`）。**27 个引用点一个字未改** | 全量 **880 passed**; 冒烟 **PASS**; **快照刷新后 diff = 只有 owner 列 13 行**（模块+名字+种类零变化, 已逐列核对）; `python -m compileall` 全仓绿; 4 个名字身份自检 |
 | ✅ **C10** | **`contract/records.py` → 包 + 错误原语下沉 + `json_cleaner` 归位** | ① **拆包**: 原文件七个 `# ---` 分区**逐字**切成四块（36–153 → `grammar.py` · 154–295 + 816–910 → `parse.py` · 296–545 → `check.py` · 548–815 → `carrier.py`, `git rename` 锚点 = 最大片段）; 门面 `__init__.py` = **原模块 docstring 逐字** + 52 名按"真家"分块再导出（**全是本包自有名**, 无借用名）。② **违规定夺（用户裁决 A）**: `core/common/errors.py` `git mv` → `contract/errors.py`（真家; `core/common/errors.py` 留薄再导出壳, 20+ 处旧路径零改动）, `contract/{model,registry,spec}.py` 改指真家; ③ `llm/json_cleaner.py` → `contract/json_cleaner.py`（3 个调用点改指）; ④ `test_import_direction.py` 白名单 **5 → 1 条** | 全量 **880 passed**; 冒烟 **PASS**; 快照刷新后 diff **只有 owner 列 44 行**（前 3 列 374 行逐行比对零变化）; `compileall` 全仓绿; 分层守门"白名单没过期"用例逼着删掉 4 条（**红的正是它该红的地方**） |
-| **C11** | `core/ui` 拆 + `wiring` 上提 | `core/tui/`；`_build_director/_trigger_title` → `core/director/wiring.py` | 分层白名单减 1 条（core→renderer 消失）；绿 |
-| **C12** | `core/mmt` 合并 + `apps/` + `docs/` 归位 | `core/momotalk.py`→`core/mmt/engine.py`；`main.py`/`vn_cli.py`→`apps/`；`core/*.md`→`docs/` | 全仓 `compileall`；绿 |
+| ✅ **C11** | **展示层搬 `core/tui/` + 接线层上提 `core/director/wiring.py`** | ① `core/ui/{__init__,display,streaming,text_processors}.py` → `core/tui/`（**真搬家**: 不留 `core/ui` 兼容壳——那个包只剩 `vn_cli.py`, C12 整个消失）; 13 个文件里的 `core.ui.{display,streaming,text_processors}` → `core.tui.*`（含 `core/momotalk.py` · `core/session/renderer.py` · `webgui/chat.py` · `main.py` · tests · experiments · archive）; ② 新建 `core/director/wiring.py` = `_build_director`/`_trigger_title` **逐字搬来**（`MomoTalkEngine` 只作注解 → `TYPE_CHECKING`, **不 import `renderer`**）, `vn_cli.py` 与 webgui 3 处（`bond/api.py` · `bond/replay.py` · bond 门面）+ 3 个 experiments 改指真家 | 全量 **880 passed**; 冒烟 **PASS**; `compileall` 全仓绿; 快照刷新 diff = **11 处 owner 列 + 1 个名字消失**（`core.ui.vn_cli::build_director`：它本来是**路过式再导出**，唯一的用户随之上提 ⇒ 有意变更, 已核对）|
+| **C12** | `core/mmt` 合并 + `apps/` + `docs/` 归位 | `core/momotalk.py`→`core/mmt/engine.py`；`main.py`/`vn_cli.py`→`apps/`；`core/*.md`→`docs/` | 分层白名单**归零**（core→renderer 随 vn_cli 搬走而消失）；全仓 `compileall`；绿 |
 | **C13** | 测试拆分 + 共享桩 | `tests/webgui/bond/*`；`tests/stubs/scripted_llm.py`（与 5b 的 `stub_tasks.py` 合流） | 单测文件全部 < 400 行；绿 |
 | **C14** | `llm/client.py` / `llm/image_gen.py`（可选） | 按职责再分 | 绿 |
 | **C15** | `core/brain/wiki_v2/*`（可选） | digest/nodes/channel 再分 | 绿 |
@@ -268,6 +272,14 @@ python -m compileall -q core webgui llm contract tests   # 全仓可编译
     `"""` 反而**开了**一个吞掉全部 import 的字符串。做法: 插入前 `strip()` 掉源 docstring
     的开闭引号（`orig[3:-3]`）, 并在写盘后**立刻** `python -m compileall <新文件>`——
     这个错不会在生成脚本里报, 只在新文件被 import 时才炸。
+14. **动手前先核"验收条件"本身成不成立**（C11 实测修正了一处计划错误）: 原 C11 的验收写着
+    "分层白名单减 1 条（core→renderer 消失）", 但侦察发现那条依赖是 `core/ui/vn_cli.py` 的
+    **模块级** import, 而真正用 renderer 的是它自己的显示路径（`simulate_vn_scene` /
+    `run_bond_story_vn`）——C11 要上提的 `_build_director`/`_trigger_title` 只依赖
+    `core.director`, **够不着**那条规则（归 C12 搬 `apps/` 时消失）。C11 真正解掉的是
+    **webgui → CLI** 的反向耦合。做法: 每个节点开始前把验收里那句话翻译成"哪一行代码会
+    因此消失", 对不上就**当场改计划并在本文档写明为什么**（用户 2026-09-21 裁决 A:
+    宁可节点诚实, 不要为凑验收把两次搬迁塞进一个提交）。
 
 ---
 

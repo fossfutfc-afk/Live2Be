@@ -27,7 +27,7 @@ webgui.bond	_PREWARM_FILE	data	-
 webgui.bond	_REMIND_ROUNDS	data	-
 webgui.bond	_anno_worker	function	webgui.bond.lanes
 webgui.bond	_bonds	data	-
-webgui.bond	_build_director	function	core.ui.vn_cli
+webgui.bond	_build_director	function	core.director.wiring
 webgui.bond	_candidate_worker	function	webgui.bond.pregen
 webgui.bond	_choice_pregen_enabled	function	webgui.bond.pregen
 webgui.bond	_clear_rejects	function	webgui.bond.api
@@ -93,7 +93,7 @@ webgui.bond	_store	function	webgui.bond.stores
 webgui.bond	_system_note	function	webgui.bond.pregen
 webgui.bond	_thread_alive	function	webgui.bond.watchdog
 webgui.bond	_title_from_events	function	webgui.bond.replay
-webgui.bond	_trigger_title	function	core.ui.vn_cli
+webgui.bond	_trigger_title	function	core.director.wiring
 webgui.bond	_wait_annotated	function	webgui.bond.lanes
 webgui.bond	_watchdog	function	webgui.bond.watchdog
 webgui.bond	_wrapup	function	webgui.bond.api
@@ -135,7 +135,7 @@ webgui.chat	_external_busy	data	-
 webgui.chat	_lock	function	webgui.chat
 webgui.chat	_locks	data	-
 webgui.chat	_queues	data	-
-webgui.chat	_strip_action_brackets	function	core.ui.text_processors
+webgui.chat	_strip_action_brackets	function	core.tui.text_processors
 webgui.chat	_tasks	data	-
 webgui.chat	_worker	function	webgui.chat
 webgui.chat	_worker_running	data	-
@@ -146,7 +146,7 @@ webgui.chat	new_world	function	webgui.chat
 webgui.chat	open_session	function	webgui.chat
 webgui.chat	render_chat_events	function	webgui.chat
 webgui.chat	reset_engines	function	webgui.chat
-webgui.chat	split_reply_chunks	function	core.ui.text_processors
+webgui.chat	split_reply_chunks	function	core.tui.text_processors
 webgui.chat	task_begin	function	webgui.chat
 webgui.chat	task_end	function	webgui.chat
 webgui.chat	task_status	function	webgui.chat
@@ -268,7 +268,7 @@ core.momotalk	CharacterLoader	class	core.parsing.dynamic_character_parser
 core.momotalk	DEFAULT_HISTORY_ROUNDS	data	-
 core.momotalk	DIGEST_LLM_TIMEOUT	data	-
 core.momotalk	DOMAIN_MMT	data	-
-core.momotalk	DisplayStep	class	core.ui.streaming
+core.momotalk	DisplayStep	class	core.tui.streaming
 core.momotalk	DynamicCharacter	class	core.parsing.dynamic_character_parser
 core.momotalk	ExecResult	class	core.mmt.mmt_executor
 core.momotalk	LLMClient	class	llm.client
@@ -282,7 +282,7 @@ core.momotalk	MmtExecError	class	core.mmt.mmt_executor
 core.momotalk	MmtExecutor	class	core.mmt.mmt_executor
 core.momotalk	MmtLoopError	class	core.momotalk
 core.momotalk	MomoTalkEngine	class	core.momotalk
-core.momotalk	MomoTalkOutput	class	core.ui.display
+core.momotalk	MomoTalkOutput	class	core.tui.display
 core.momotalk	SUGGEST_BOND_ROUNDS	data	-
 core.momotalk	Session	class	core.momotalk
 core.momotalk	SessionStore	class	core.session.store
@@ -295,8 +295,8 @@ core.momotalk	_get_embed_fn	function	core.momotalk
 core.momotalk	_interact_max	function	core.momotalk
 core.momotalk	_log_read_ledger	function	core.momotalk
 core.momotalk	_name_aliases	function	core.momotalk
-core.momotalk	_process_for_momotalk	function	core.ui.text_processors
-core.momotalk	_strip_action_brackets	function	core.ui.text_processors
+core.momotalk	_process_for_momotalk	function	core.tui.text_processors
+core.momotalk	_strip_action_brackets	function	core.tui.text_processors
 core.momotalk	build_box	function	core.promptkit.box
 core.momotalk	build_mmt_registry	function	core.mmt.mmt_actions
 core.momotalk	build_schema	function	contract.schema
@@ -312,7 +312,7 @@ core.momotalk	render_background_experience	function	core.brain.wiki_v2.render
 core.momotalk	render_character_view	function	core.brain.wiki_v2.render
 core.momotalk	round_messages	function	core.promptkit.tail
 core.momotalk	session_status	function	core.session.renderer
-core.momotalk	split_reply_chunks	function	core.ui.text_processors
+core.momotalk	split_reply_chunks	function	core.tui.text_processors
 core.momotalk	task_card	function	core.promptkit.task
 core.momotalk	task_card_enabled	function	core.promptkit.config
 core.momotalk	task_levels_max_tokens	function	llm.task_levels
@@ -333,10 +333,9 @@ core.ui.vn_cli	Renderer	class	renderer.core
 core.ui.vn_cli	SceneLoopError	class	core.bond.bond_story.scene
 core.ui.vn_cli	SessionStore	class	core.session.store
 core.ui.vn_cli	WikiStoreV2	class	core.brain.wiki_v2.store
-core.ui.vn_cli	_build_director	function	core.ui.vn_cli
+core.ui.vn_cli	_build_director	function	core.director.wiring
 core.ui.vn_cli	_speaker_names	function	core.ui.vn_cli
-core.ui.vn_cli	_trigger_title	function	core.ui.vn_cli
-core.ui.vn_cli	build_director	function	core.director
+core.ui.vn_cli	_trigger_title	function	core.director.wiring
 core.ui.vn_cli	collect_ref_images	function	llm.image_gen
 core.ui.vn_cli	load_brain_segment	function	core.momotalk
 core.ui.vn_cli	logger	data	logging
@@ -345,7 +344,7 @@ core.ui.vn_cli	read_choice	function	renderer.cli
 core.ui.vn_cli	read_free_input	function	renderer.cli
 core.ui.vn_cli	render_scene	function	renderer.cli
 core.ui.vn_cli	run_bond_story_vn	function	core.ui.vn_cli
-core.ui.vn_cli	simulate_steps	function	core.ui.streaming
+core.ui.vn_cli	simulate_steps	function	core.tui.streaming
 core.ui.vn_cli	simulate_vn_scene	function	core.ui.vn_cli
 core.ui.vn_cli	wrapup_after_vn	function	core.ui.vn_cli
 # ---- llm.client ----

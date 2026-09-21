@@ -88,7 +88,12 @@ core/          引擎层（无 web 依赖, CLI/实验同源复用）
    ├ worldtime/              时间：三层时钟（剧情/现实日历/壁钟, DESIGN_WIKI_V3 §4）
    ├ common/                 横切: errors（**C10 起只是薄再导出壳** → 真家 `contract/errors.py`）/
    │                         fuse（形状唯一实现）
-   └ parsing/ director/ media/ mmt/ ui/ random_events/ affection/ rag/
+   └ parsing/ director/ media/ mmt/ tui/ random_events/ affection/ rag/
+     · **`core/tui/`（C11）** = 终端展示层: display / streaming / text_processors
+       （纯逻辑零引擎依赖; 从 `core/ui/` 搬来, 与 web GUI 的 `webgui/` 分开命名）
+     · `core/ui/` 只剩 CLI 应用 `vn_cli.py`（**唯一 `core→renderer` 依赖**; C12 搬 `apps/`）
+     · `core/director/` = 视觉导演 + **`wiring.py`（C11）**: `_build_director`/`_trigger_title`
+       （webgui 与 CLI 共用的两个接线函数——放 `vn_cli` 里会形成 webgui→CLI 反向依赖）
 contract/       契约地基: **records/（C10 起是包）** = grammar(取值表+记录形状)/parse(行解析+
                 增量解析)/check(群分组+Issue 软硬分级+块/板校验)/carrier(VnBlock+渲染取选项)
                 · **errors(错误原语真家)** · **json_cleaner(纯 JSON 修复)** · schema(LLM 可见文本)
@@ -667,7 +672,7 @@ CLI/测试同步路径在引擎内串行。
   2″（`BoardLifecycle` + `_discard_boards`）· **5b（`task=` 结构化分派 + 三条守门）** **;
   文件拆分另立 docs/EXEC_SPLIT.md（C1b 已把 `webgui/bond.py` 变成包）。
   来源 = ARCH_REVIEW P0-2/P0-3/P2-8 的根治）
-- **文件拆分与位置规划（C0 + C1a–C10 已落地 —— `webgui/bond.py` · `core/bond/bond_story.py` · `contract/records.py` 都拆完了）**：docs/EXEC_SPLIT.md（**执行计划**。C0 = 安全网 +
+- **文件拆分与位置规划（C0 + C1a–C11 已落地 —— 三个大文件都拆完了, 位置错的件也在归位）**：docs/EXEC_SPLIT.md（**执行计划**。C0 = 安全网 +
   工具纪律：`tests/core/test_import_direction.py`（4 条分层规则）·
   `tests/core/test_split_safety.py`（API 面快照 + patch 点台账）·
   rope 实测结论（只用于真搬家, 拆包不能用它）。**C1a = 接缝收敛**：新建
@@ -687,9 +692,12 @@ CLI/测试同步路径在引擎内串行。
   两处"位置放错"归位**（`grammar/parse/check/carrier` 四块按原文件的分区逐字切;
   错误原语下沉 `contract/errors.py`（用户裁决 A, `core/common/errors.py` 留薄壳）;
   `llm/json_cleaner.py` → `contract/json_cleaner.py`）—— 分层白名单 **5 → 1 条**
-  （只剩 `core/ui/vn_cli.py → renderer`, 归 C11）。节点 C11–C15：
-  `core/tui/` 拆 + `wiring` 上提 → `core/mmt` 合并 / `apps/` / `docs/` 归位 →
-  测试拆分; 每节点一提交 + 全量 + 冒烟）
+  （只剩 `core/ui/vn_cli.py → renderer`, 归 C12）。**C11 = 展示层搬 `core/tui/` +
+  接线层上提 `core/director/wiring.py`**（`_build_director`/`_trigger_title` 从 `vn_cli` 搬到
+  `core/director/wiring.py` ⇒ 解掉 **webgui→CLI**; ⚠️ 原计划"白名单减 1 条"实测做不到——
+  renderer 依赖在 vn_cli 自己的显示路径里, 见该文 §5 陷阱 14）。节点 C12–C15：
+  `core/momotalk.py` → `core/mmt/engine.py` / `main.py`+`vn_cli.py` → `apps/` /
+  `core/*.md` → `docs/` → 测试拆分; 每节点一提交 + 全量 + 冒烟）
 - **重新生成 / 重发 的语义与固化线**：docs/DESIGN_RESEND.md（**设计稿, 未动代码**。
   决策: MMT 提交边界 = **回合提交**; 两区 = 水位之上**丢弃** / 水位之下走
   `wiki_v2/revise` **更正**; 板级那一半已由 `BoardLifecycle` + `_discard_boards` 落地;

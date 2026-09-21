@@ -8,7 +8,7 @@ BondStoryOutput — 视觉小说: 累积全文, 按段落分割, UI 层控制打
     Display 负责: 如何把 token 流变成可显示单元
 
 用法:
-    from core.ui.display import MomoTalkOutput, BondStoryOutput
+    from core.tui.display import MomoTalkOutput, BondStoryOutput
 """
 
 from __future__ import annotations
@@ -17,8 +17,8 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
-from core.ui.streaming import DisplayStep, LineBuffer, TypingDelay, chunk_typing_time
-from core.ui.text_processors import (
+from core.tui.streaming import DisplayStep, LineBuffer, TypingDelay, chunk_typing_time
+from core.tui.text_processors import (
     _strip_action_brackets,
     format_momotalk_bubble,
     split_reply_chunks,

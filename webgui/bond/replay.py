@@ -33,7 +33,7 @@ from core.session.chapters import replayable_chapters
 from core.session.events import M_VN_EXIT
 from core.session.maintenance import abandoned_ranges
 from core.session.staging import staging_store
-from core.ui.vn_cli import _trigger_title
+from core.director.wiring import _trigger_title      # C11: 接线层（此前借道 core.ui.vn_cli）
 from webgui import deps
 from webgui.bond.state import (
     BondState,

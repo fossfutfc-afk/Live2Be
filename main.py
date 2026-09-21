@@ -22,7 +22,7 @@ from core.mmt.mmt_preset import (
     load_player_name,
     select_character,
 )
-from core.ui.streaming import simulate_steps
+from core.tui.streaming import simulate_steps
 from core.ui.vn_cli import run_bond_story_vn, wrapup_after_vn
 
 

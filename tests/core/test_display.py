@@ -20,7 +20,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-from core.ui import (
+from core.tui import (
     BondStoryOutput,
     IDEDisplayItem,
     IDEOutput,
@@ -363,8 +363,8 @@ def test_chunks_orphan_punct():
 # 非流式显示步骤（DisplayStep / 打字时长 / publish_reply）
 # ============================================================================
 
-from core.ui.display import MomoTalkOutput  # noqa: E402
-from core.ui.streaming import DisplayStep, chunk_typing_time  # noqa: E402
+from core.tui.display import MomoTalkOutput  # noqa: E402
+from core.tui.streaming import DisplayStep, chunk_typing_time  # noqa: E402
 
 @check("chunk_typing_time 恒正 + 长句时长更长（字数+随机数）")
 def test_typing_time():
@@ -398,7 +398,7 @@ def test_publish_reply_empty():
 def test_simulate_steps():
     import io  # noqa: PLC0415
     from unittest.mock import patch  # noqa: PLC0415
-    from core.ui.streaming import simulate_steps  # noqa: PLC0415
+    from core.tui.streaming import simulate_steps  # noqa: PLC0415
 
     steps = [
         DisplayStep("…", 0.5, typing=True),

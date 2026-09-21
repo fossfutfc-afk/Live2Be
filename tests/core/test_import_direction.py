@@ -47,8 +47,11 @@ LLM_CORE_ALLOWED = frozenset({"core.paths", "core.common"})
 #: `json_cleaner` 搬到 `contract/`（1 条 contract→llm）。剩最后 1 条等 C11。
 ALLOWED: dict[tuple[str, str], str] = {
     ("core/ui/vn_cli.py", "renderer"):
-        "vn_cli 是 CLI **应用**不是引擎: C11 把 `_build_director`/`_trigger_title` 上提"
-        "（C12 再把 vn_cli 本身搬 apps/）—— 这条规则随之消失",
+        "vn_cli 是 CLI **应用**不是引擎（C12 搬 apps/ 时这条规则消失）。"
+        "⚠️ C11 实测修正: 原计划写\"C11 减 1 条\"做不到——真正用 renderer 的是 vn_cli 自己的"
+        "显示路径（`simulate_vn_scene`/`run_bond_story_vn`）, 而 C11 上提的 "
+        "`_build_director`/`_trigger_title` 只依赖 core.director; C11 解掉的是"
+        "**webgui → CLI** 的反向耦合",
 }
 
 

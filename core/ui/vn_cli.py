@@ -26,7 +26,7 @@ from pathlib import Path
 from core.momotalk import MomoTalkEngine, load_brain_segment
 from core.bond.bond_story import BondScene, BondStoryEngine, SceneLoopError
 from core.brain.wiki_v2.store import WikiStoreV2
-from core.director import build_director
+from core.director.wiring import _build_director, _trigger_title   # C11: 接线层（webgui 也用它）
 from core.media.gallery import GalleryStore
 from core.session import SessionStore
 from core.session.events import (
@@ -35,7 +35,7 @@ from core.session.events import (
     M_VN_STATE,
     make_event,
 )
-from core.ui.streaming import simulate_steps
+from core.tui.streaming import simulate_steps
 from llm.image_gen import ImageGenerator, collect_ref_images
 from renderer import RenderScene, Renderer
 from renderer.cli import PARA_CHAR_MS, read_choice, read_free_input, render_scene
@@ -95,18 +95,9 @@ def simulate_vn_scene(
 # ---------------------------------------------------------------------------
 # VN 主循环
 # ---------------------------------------------------------------------------
-
-def _build_director(char):
-    """构建视觉导演（v2 纯查表模式, 无辅助 LLM; 任何失败 → None 纯文本）。
-
-    情感由主 LLM 在段落内联 emotion 给出, 导演只做 place→背景查表;
-    背景/音乐等未来非情感决策若需语义仲裁, 直接用 llm/client.py 的 LLMClient。
-    """
-    try:
-        return build_director(char)
-    except Exception as e:
-        logger.warning("视觉导演构建失败, 本次 VN 纯文本模式: %s", e)
-        return None
+# ⚠️ C11: `_build_director` / `_trigger_title` 已搬到 `core.director.wiring`
+#    （webgui 也要用它们, 留在 CLI 里会形成 webgui → CLI 的反向依赖）;
+#    上面已 import 回来, 本文件内的调用点一个字未改。
 
 
 def run_bond_story_vn(
@@ -475,15 +466,5 @@ def wrapup_after_vn(engine: MomoTalkEngine,
         engine.async_digest()                 # 仅完整剧情消化（中断不提炼）
 
 
-def _trigger_title(engine: MomoTalkEngine) -> str:
-    """从最近一轮动作轨迹里取触发动作的 chapter_title（找不到 → 空串）。
+# ⚠️ C11: `_trigger_title` 见文件头的 import（真家 = `core.director.wiring`）。
 
-    2026-09-05: reason 退役——payload 带 chapter_title（触发即命题）。
-    """
-    if not engine.trace:
-        return ""
-    for step in reversed(engine.trace):
-        if step.get("action") == "mmt_trigger_bond_story":
-            payload = step.get("payload") or {}
-            return str(payload.get("chapter_title") or "").strip()
-    return ""

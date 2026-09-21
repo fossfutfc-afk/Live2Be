@@ -208,7 +208,7 @@ from core.session.staging import (          # 定义处不在 bond 包内（当�
     truth_store,
 )
 
-from core.ui.vn_cli import (          # 定义处不在 bond 包内（当年作为「对外面」一路被再导出 → 直指真家）
+from core.director.wiring import (          # 定义处不在 bond 包内（C11 起真家=接线层; 不再借道 CLI）
     _build_director,
     _trigger_title,
 )
