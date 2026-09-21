@@ -65,7 +65,8 @@
    │  REST + 轮询（无 SSE——未立项）
 webgui/        FastAPI 壳 + 会话状态机（**bond/ 包** = BondState 状态机 / chat.py 输入队列 worker）
    ├ deps.py   显式接缝（store / 生图器 / 看门狗阈值 / choice 开关 / 标注钩子——测试与桩替换这些）
-   ├ bond/     门面 `__init__.py`（全量再导出）+ `_impl.py`（原 bond.py 逐字, C2 起按职责拆）
+   ├ bond/     门面 `__init__.py`（全量再导出）+ `_impl.py`（原 bond.py 逐字, C3 起按职责拆）
+   │           + `state.py`（C2: BondState / BoardLifecycle / ChoiceCandidate / 注册表）
    ├ routers/  路由层: 请求→驱动层; _resolve_scene 给场景附前端渲染信息(bg/fx/place_bg)
    └ store.py  运行时配置读写(settings.toml)
 core/          引擎层（无 web 依赖, CLI/实验同源复用）
@@ -466,7 +467,7 @@ CLI/测试同步路径在引擎内串行。
 - 启动：`python -m uvicorn webgui.app:app --host 127.0.0.1 --port 8000`（见 entrance/）。
 - 结构：`webgui/bond/`（**C1b 起是包**：门面 `__init__.py` 全量再导出 + `_impl.py` = 原
   `bond.py` 逐字; BondState 状态机: busy/round/pregen/staged/replay/lanes/memorial…;
-  C2–C7 按职责拆成 stores/lanes/replay/pregen/memorial/api 等, 门面保持不变 ⇒
+  C2–C8 按职责拆成 state/stores/lanes/replay/pregen/memorial/api 等, 门面保持不变 ⇒
   引用点零改动）、`webgui/deps.py`（显式接缝: 测试/桩替换 store 与生图器等）、
   `webgui/chat.py`（每角色输入队列 worker + 预热挂钩）、`webgui/routers/*`（HTTP 壳,
   `_resolve_scene` 附 background_url/fx/place_bg）、`webgui/static/js/{bond,mmt,gui}.js`。
@@ -654,7 +655,7 @@ CLI/测试同步路径在引擎内串行。
   2″（`BoardLifecycle` + `_discard_boards`）· **5b（`task=` 结构化分派 + 三条守门）** **;
   文件拆分另立 docs/EXEC_SPLIT.md（C1b 已把 `webgui/bond.py` 变成包）。
   来源 = ARCH_REVIEW P0-2/P0-3/P2-8 的根治）
-- **文件拆分与位置规划（C0 + C1a + C1b 已落地）**：docs/EXEC_SPLIT.md（**执行计划**。C0 = 安全网 +
+- **文件拆分与位置规划（C0 + C1a + C1b + C2 已落地）**：docs/EXEC_SPLIT.md（**执行计划**。C0 = 安全网 +
   工具纪律：`tests/core/test_import_direction.py`（4 条分层规则）·
   `tests/core/test_split_safety.py`（API 面快照 + patch 点台账）·
   rope 实测结论（只用于真搬家, 拆包不能用它）。**C1a = 接缝收敛**：新建
@@ -664,8 +665,11 @@ CLI/测试同步路径在引擎内串行。
   守门见 `test_split_safety.py` 的空 `ALLOWED_PATCHES`。**C1b = `webgui/bond.py` → 包**：
   `git mv` 成 `webgui/bond/_impl.py`（100% rename）+ 门面 `webgui/bond/__init__.py`
   **逐个显式**再导出 117 个名字（含私有名; 列表从 API 面快照生成, **不定义 `__all__`**
-  ——否则快照会多一个名字）⇒ 引用点零改动 + 夹具零 diff。节点 C2–C14：`webgui/bond/` 拆
-  9 个模块 → `core/bond/bond_story/` → `contract/records/` → `core/mmt` 合并 / `apps/` /
+  ——否则快照会多一个名字）⇒ 引用点零改动 + 夹具零 diff。**C2 = 搬 `webgui/bond/state.py`**
+  （BondState / BoardLifecycle / ChoiceCandidate / `_bonds` / `_state`）——**拆包必须叶子
+  优先**: `BoardLifecycle` 被状态模型与落库**运行期**同时用, 放谁那里都成环, 故把
+  `state.py` 从原 C8 提前到 C2。节点 C3–C15：`webgui/bond/` 拆
+  8 个模块 → `core/bond/bond_story/` → `contract/records/` → `core/mmt` 合并 / `apps/` /
   `docs/` 归位 → 测试拆分; 每节点一提交 + 全量 + 冒烟）
 - **重新生成 / 重发 的语义与固化线**：docs/DESIGN_RESEND.md（**设计稿, 未动代码**。
   决策: MMT 提交边界 = **回合提交**; 两区 = 水位之上**丢弃** / 水位之下走
