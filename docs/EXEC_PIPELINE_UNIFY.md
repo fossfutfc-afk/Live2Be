@@ -170,12 +170,22 @@ PROVISIONAL ──交付上屏──► DELIVERED ──裁决/推进/收尾─�
   + 草稿旁路（"已生成未播放"的持久化落点）, 并打一行 `bond_boards_discarded reason=…`
   作为**唯一痕迹**。⚠️ 它**不动当前板**（`DELIVERED` 已在玩家屏上, 丢它是产品决策）,
   也**不动 `_prewarm_cache`**（那是章节入口的暂存首场, 新鲜度判据 `staged_seq`）;
+- **丢弃必须挡住"在途落地"**（**○C8c 补的洞**, 2026-09-21 —— 见 `EXEC_SPLIT` §5 陷阱 16）:
+  只清引用是不够的, 一个已经飞出去的后台线程（预生成 / live 流式 / 候选支）跑完后会把
+  刚清掉的东西写回来（`pregen_scene` 甚至草稿文件复活 ⇒ "唯一痕迹"白打）。补法 =
+  `BondState.board_epoch`: `_discard_boards` 每次 **+1**（= 这一刻之前出生的板全部作废）,
+  后台产者**出生时记世代、落地前复核**（`_board_epoch_stale` → 一行 `bond_board_stale`）;
+  写盘的复核与删除在**同一把 `state._lock`** 里 ⇒ 丢弃与落地互斥。副产品: 这条把
+  "板级生命周期的丢弃"从"清内存"升级成**一个可断言的状态机不变量**;
 - **三类"丢弃"的关系**：① 违规板不交付（c′ 的闸——引擎侧根本不交付, 无内存可清）
-  ② 玩家重发（`DESIGN_RESEND.md`, 用 `_discard_boards`）③ 邀约被拒（整章丢暂存,
+  ② 玩家重发（`DESIGN_RESEND.md`, 用 `_discard_boards`——**唯一会与在途生成并发的调用者**,
+  所以 ○C8c 的世代复核正是它的前置条件）③ 邀约被拒（整章丢暂存,
   `staging.py` 已实现, 生命周期属"章"不属"板"）;
 - **不变量断言**：*任何"丢弃"都不需要写任何标记到真源*（这正是 `staging.py` 相对
   `vn_abandon` 的核心优势——"漏一处就污染"变成"零过滤"）。节点 2″ 的用例
-  `test_discard_boards_is_traceless` 直接比对丢弃前后 overlay 的事件 seq 列表。
+  `test_discard_boards_is_traceless` 直接比对丢弃前后 overlay 的事件 seq 列表;
+  ○C8c 再加两条: `test_stale_pregen_landing_is_dropped`（在途落地被拦 + 新一代照常落地）与
+  `test_discard_inside_pregen_landing_window`（"板已可见、草稿未落"的窗口里丢弃）。
 
 ---
 

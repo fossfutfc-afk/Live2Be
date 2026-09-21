@@ -9,7 +9,9 @@
 > C11 `core/tui/`（展示层搬出 `core/ui`）+ `core/director/wiring.py`（解 webgui→CLI）·
 > C12a `core/momotalk.py` → `core/mmt/engine.py`（无兼容壳）·
 > C12b `apps/{main,vn_cli}.py` + `docs/DESIGN_*.md`（**分层白名单归零**）·
-> ○C8b `webgui/bond/api.py`(1123) → `entry.py` + `api.py`（用户点名要拆的一个）。
+> ○C8b `webgui/bond/api.py`(1123) → `entry.py` + `api.py`（用户点名要拆的一个）·
+> **○C8c 丢弃世代 `board_epoch`**（唯一非拆分节点: 拆包暴露的**竞态**根治, 记在这里
+> 是因为它的入口 `_discard_boards` 是节点 2″/C7 的产物 —— 见节点表与 §5 陷阱 15/16）。
 > **拆分类工作到此结束**：C13 测试拆分经用户 2026-09-21 裁决**不做**（"测试不用拆了"）;
 > 余下只有**可选**项：C14/C15（`llm/client.py` · `core/brain/wiki_v2/` —— 用户已明确"两个 llm 都不用动了"）。
 > **收尾（2026-09-21, 体检后）**：跑了一次"重构后全量体检"（148 模块 import 全扫 0 失败 ·
@@ -155,7 +157,7 @@ tests/webgui/bond/       ← ~~test_bond.py 按主题拆 + tests/stubs/ 收共�
 | ✅ **C8** | **搬 `api.py` + `watchdog.py`；`_impl.py` 消失** | `watchdog.py`（144 行）= `_watchdog`/`_lanes_idle`/`_lane_writer_alive`/`_gate_stalled`/`_force_scene_ready`/`_thread_alive`（单向: 只依赖 lanes/deps/util）; `api.py` = `bond_start/turn/status/finish` + `bond_start_demo` + `_start_replay` + `_ready_scene_payload`/`_role_info` + `_entry_already_done` + `_note_reject`/`_clear_rejects` + `_wrapup`/`_wrapup_inner` + `DEMO_SCRIPT`（原 `bond.py` 的模块说明逐字搬进来当"对外契约"一节）。**门面按"名字的真家"整体重建**（117 名 → 9 个包内模块 + 11 个核心/契约/llm 真家, 分块列出）; `_impl.py` 删除 | 全量 **880 passed**; 冒烟 **PASS**; **快照刷新后 diff = 只有 owner 列**（模块+名字+种类零变化, 已逐列核对）; `import webgui.bond._impl` → ModuleNotFoundError |
 | ✅ **○C8b** | **`api.py` 再分 → `entry.py` + `api.py`** | 用户 2026-09-21 裁决"先把 api.py 拆一下"。1123 行按**原计划的两文件切法**拆: `entry.py`（**563 行**）= `bond_start` / `bond_start_demo` / `DEMO_SCRIPT` / `_start_replay` / `_entry_already_done` / `_ready_scene_payload` / `_role_info`（开场 + **前端要的场景载荷**）; `api.py`（**624 行**）= `bond_turn` / `bond_status` / `bond_finish` / `_wrapup` / `_wrapup_inner` / `_note_reject` / `_clear_rejects`（轮次 / 查询 / 收尾）。**方向 api → entry**（`bond_turn` 用载荷、`bond_status` 用角色卡; entry **不**反向 import api——AST 核实）。符号块**逐字搬**; `api.py` 的 import 头按"只留自己用得到的"重建; 门面 `__init__.py` 把 7 名改指 `entry`（新增 `from webgui.bond.entry import …` 块, api 块只剩 7 名 + logger）; 两边的模块 docstring 各写清"放什么 / 另一半在哪" | 全量 **886 passed**; 冒烟 **PASS**; `compileall` 绿; **符号逐字自检 15/15 通过**（脚本比对 git HEAD 的原文）; 门面身份自检（`webgui.bond.X is webgui.bond.{entry,api}.X`）; 快照刷新后 **前 3 列 373 行逐行完全一致**, 只有 6 行 owner 列变化（`webgui.bond.api` → `.entry`; `DEMO_SCRIPT` 的 owner 本来就是 `-`）|
 | ✅ **○C8b 附带（真 bug 两处 + 新守门）** | **拆包暴露的"漏 import"回归** | 拆 api.py 时全量测试红了一条（`test_discard_boards_is_traceless`）→ 追下去发现**两处拆分线早期引入、被宽 `except` 静默吞掉**的 `NameError`（都不是 ○C8b 造成的, 是 C4/C5 留下的）: ① **`lanes.py` 用了 `_ms_since` 却没 import**（C4 把它搬进 `util.py` 时漏了这行）—— 标注 worker 每次都在**写回状态前**抛异常, 于是 `emo_version` 永不递增、前端永远拿不到标注, 而门控靠 `_fallback_fill` 照样"就绪" ⇒ **功能静默失效 + 测试全绿**; ② **`replay.py` 用了 `chat` 却没 import**（C5 从原 `bond.py` 搬块时漏了）—— `_enter_title` 的内存态标题查询每次抛异常（被 `except` 吞掉后退化成"只查事件流", 所以没人发现）。**修法**: 补两行 import。**防复发**: ① `test_split_safety.py` 新增第三条守门 `test_no_cross_module_name_leaks`（静态扫三个拆出来的包: 运行期读了裸名字、本模块没绑定、而同包兄弟模块里有 → 报"漏 import"; **变异验证**: 删掉 lanes 的 import → 立刻红）; ② `test_bond.py` 新增 `test_emo_lane_actually_publishes`（断言 `emo_version` 真涨 + 日志无"标注处理异常"—— 旧用例只看"门控就绪", 兜底路径也能就绪, 所以抓不到）| 全量 **887 passed**（886 + 1）; 冒烟 **PASS**; 两遍全量连跑稳定; 变异验证两条守门都会红 |
-| ⚠️ **观察（未修, 供后续节点）** | `_discard_boards` vs **迟到落地的预生成** | `test_discard_boards_is_traceless` 对时序敏感: 若在 `_discard_boards` 之后还有一个在飞的预生成线程跑完 `_scene_landed`, 它会**再写一次草稿旁路**（丢弃"唯一痕迹"就白打了）。目前靠"lane 正常 → 不会触发兜底再预生成"避开; 真要根治 = 给 `BondState` 加一个 `board_epoch`（丢弃时 +1），`_scene_landed`/`_draft_save` 丢掉过期 epoch 的落地（**行为改动, 单开节点**）|
+| ✅ **○C8c（观察转正）** | **`_discard_boards` vs 迟到落地的生成 —— `board_epoch` 世代复核** | 上一条观察的根治（用户 2026-09-21 裁决"做 A"）。**病灶**（不是理论: `test_discard_boards_is_traceless` 全量跑偶发红、单跑常绿）: 预生成落地是"先写 `pregen_scene`（**对轮询可见**）→ 再落草稿 → 再入标注队列", 用例/玩家轮询到前者就丢弃, 而线程还剩两件事没做 ⇒ **草稿文件在丢弃之后被写回来**（旧板复活, `bond_boards_discarded` 那行"唯一痕迹"白打）。**修法**（三个动作）: ① `BondState` 新增 `board_epoch`, `_discard_boards` 每次 **+1** = "丢弃那一刻之前出生的板全部作废"; ② 每个后台产者（`_generate` 的流式回调与尾板、`_pregenerate` 落地与失败降级、`_candidate_worker`）**出生时记下世代、落地前复核**（`_board_epoch_stale` → 一行 `bond_board_stale` 留痕; 世代只作废更早的落地, **不封禁**后续生成）; ③ `_draft_save(epoch=…)` 把"复核 + 写盘"放进 `state._lock`, 而 `_discard_boards` 也在**同一把锁**里推进世代 + 删档 ⇒ **丢弃与落地互斥**（否则仍有"板已可见、草稿未落"的窗口）。顺手删掉 `pregen.py` 里拆分遗留的未用 `import json` | 全量 **891 passed**（888 + 3）; 冒烟 **PASS**; 三条新用例: `test_stale_pregen_landing_is_dropped`（闸门桩把"丢弃插在预生成在途"变成**确定性时序** + 反向断言"新一代照常落地"）· `test_discard_inside_pregen_landing_window`（把细窗口钉死: 在预生成那次 `_draft_save` 入口先丢弃）· `test_draft_helpers_are_not_called_holding_state_lock`（静态守门: 持锁再取锁 = 同线程死锁）; **变异验证**: 分别拆掉两处复核 → 各自红 |
 | ✅ **C9** | **`core/bond/bond_story.py` → 包** | `git mv` 模块成 `core/bond/bond_story/{scene,boards,engine}.py`（逐字搬, 只改 import 行: 无相对导入, 故 `from core.bond.bond_story.{scene,boards} import …` 需补全限定名）+ 门面 `__init__.py` **逐个显式**再导出 54 名（含私有名; 列表**从 API 面夹具的该段生成**, **不定义 `__all__`**）。门面按"真家"分块: 3 个包内模块 + 43 个 core/contract/llm 真家（后者**整体重建**, 因为原模块是一次性 import 了一大票外部名）; `max_tokens as task_levels_max_tokens` 是本次唯一的重名别名（真家里叫 `max_tokens`）。**27 个引用点一个字未改** | 全量 **880 passed**; 冒烟 **PASS**; **快照刷新后 diff = 只有 owner 列 13 行**（模块+名字+种类零变化, 已逐列核对）; `python -m compileall` 全仓绿; 4 个名字身份自检 |
 | ✅ **C10** | **`contract/records.py` → 包 + 错误原语下沉 + `json_cleaner` 归位** | ① **拆包**: 原文件七个 `# ---` 分区**逐字**切成四块（36–153 → `grammar.py` · 154–295 + 816–910 → `parse.py` · 296–545 → `check.py` · 548–815 → `carrier.py`, `git rename` 锚点 = 最大片段）; 门面 `__init__.py` = **原模块 docstring 逐字** + 52 名按"真家"分块再导出（**全是本包自有名**, 无借用名）。② **违规定夺（用户裁决 A）**: `core/common/errors.py` `git mv` → `contract/errors.py`（真家; `core/common/errors.py` 留薄再导出壳, 20+ 处旧路径零改动）, `contract/{model,registry,spec}.py` 改指真家; ③ `llm/json_cleaner.py` → `contract/json_cleaner.py`（3 个调用点改指）; ④ `test_import_direction.py` 白名单 **5 → 1 条** | 全量 **880 passed**; 冒烟 **PASS**; 快照刷新后 diff **只有 owner 列 44 行**（前 3 列 374 行逐行比对零变化）; `compileall` 全仓绿; 分层守门"白名单没过期"用例逼着删掉 4 条（**红的正是它该红的地方**） |
 | ✅ **C11** | **展示层搬 `core/tui/` + 接线层上提 `core/director/wiring.py`** | ① `core/ui/{__init__,display,streaming,text_processors}.py` → `core/tui/`（**真搬家**: 不留 `core/ui` 兼容壳——那个包只剩 `vn_cli.py`, C12 整个消失）; 13 个文件里的 `core.ui.{display,streaming,text_processors}` → `core.tui.*`（含 `core/momotalk.py` · `core/session/renderer.py` · `webgui/chat.py` · `main.py` · tests · experiments · archive）; ② 新建 `core/director/wiring.py` = `_build_director`/`_trigger_title` **逐字搬来**（`MomoTalkEngine` 只作注解 → `TYPE_CHECKING`, **不 import `renderer`**）, `vn_cli.py` 与 webgui 3 处（`bond/api.py` · `bond/replay.py` · bond 门面）+ 3 个 experiments 改指真家 | 全量 **880 passed**; 冒烟 **PASS**; `compileall` 全仓绿; 快照刷新 diff = **11 处 owner 列 + 1 个名字消失**（`core.ui.vn_cli::build_director`：它本来是**路过式再导出**，唯一的用户随之上提 ⇒ 有意变更, 已核对）|
@@ -312,6 +314,20 @@ python -m compileall -q core webgui llm contract tests   # 全仓可编译
     ② **断言要落在"结果真的写回了"上**, 不能只断言"门控就绪 / 能推进" —— 兜底路径
     （`_fallback_fill` / 看门狗）会把"功能已死"粉饰成"流程通"。范例:
     `test_emo_lane_actually_publishes`（断言 `emo_version` 涨 + 日志无"标注处理异常"）。
+16. **"丢弃"必须能挡住**在途线程的落地 —— 只清引用是不够的**（○C8c）**。拆包把一个
+    2900 行的文件切成十个模块之后, "谁在什么时候写 `state.pregen_*`"从"往下翻 300 行"
+    变成了"跨 4 个文件", 于是**落地路径不再是原子的**: `_pregenerate` 是"写
+    `pregen_scene` → 落草稿 → 入标注队列"三步, 中间任何一步之后插进一次
+    `_discard_boards`, 前面清掉的东西就会被后面那步写回来。三条通用教训:
+    ① **后台产者要盖章、落地处要复核**（`board_epoch` + `_board_epoch_stale`, 与
+    `_call_id` 同款）—— "产者出生时记一个世代, 落地前比对"能挡住**整条**在途链;
+    ② **互斥要落在"写盘"这一步上**: 光在落地入口复核还不够, 因为"复核通过 → 写盘"
+    之间仍有窗口, 所以 `_draft_save` 的复核与写盘、`_discard_boards` 的推进世代与
+    删档, 必须在**同一把锁**里（否则窗口只是变窄, 没有消失）;
+    ③ **时序 flake 要钉成确定性用例**: 用带闸门的桩（`_GatedLLM`）把"丢弃插在生成
+    在途"变成可复现的两步, 用"在写盘入口先丢弃"的白盒桩把细窗口钉死 —— 靠 sleep
+    撞时序的用例只能证明"今天没撞上"。⚠️ 这类用例**必须配变异验证**（拆掉复核 →
+    用例红）, 否则它可能只是碰巧绿。
 
 ---
 

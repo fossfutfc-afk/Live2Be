@@ -70,11 +70,8 @@ webgui/        FastAPI 壳 + 会话状态机（**bond/ 包** = BondState 状态�
    │           `lanes.py`（双路 lane + 就绪门控）· `replay.py`（回放层）·
    │           `memorial.py`（纪念生图）· `pregen.py`（生成/预生成/候选/丢弃）·
    │           `watchdog.py`（卡住 → 降级放行）·
-   │           **`entry.py`（○C8b: 开场与场景载荷 = `bond_start`/`bond_start_demo`/`DEMO_SCRIPT`/
-   │           `_start_replay`/`_entry_already_done`/`_ready_scene_payload`/`_role_info`）·**
-   │           **`api.py`（○C8b: 轮次/查询/收尾 = `bond_turn`/`bond_status`/`bond_finish` +
-   │           `_wrapup*` + 被拒诊断 —— 方向 api → entry）** · `util.py`（`_ms_since`）。
-   │           **`_impl.py` 已于 C8 消失**
+   │           `entry.py`（**○C8b** 开场 / 场景载荷）· `api.py`（**○C8b** 轮次 / 查询 / 收尾；
+   │           方向 api → entry）· `util.py`（`_ms_since`）。**`_impl.py` 已于 C8 消失**
    ├ routers/  路由层: 请求→驱动层; _resolve_scene 给场景附前端渲染信息(bg/fx/place_bg)
    └ store.py  运行时配置读写(settings.toml)
 core/          引擎层（无 web 依赖, CLI/实验同源复用）
@@ -489,11 +486,8 @@ CLI/测试同步路径在引擎内串行。
 
 - 启动：`python -m uvicorn webgui.app:app --host 127.0.0.1 --port 8000`（`webgui/app.py`）。
 - 结构：`webgui/bond/`（**C1b–C8 + ○C8b 拆分完成**：门面 `__init__.py` 按"真家"分块再导出 117 名
-  ⇒ import 路径不变、13 个引用点零改动; 内部 = `state`（状态模型）· `stores`（落库层）·
-  `lanes`（双路 lane + 门控）· `replay`（回放层）· `memorial`（纪念生图）· `pregen`
-  （生成/预生成/候选/丢弃）· `watchdog`（卡住→降级放行）· `entry`（开场与场景载荷）·
-  `api`（轮次 / 查询 / 收尾；方向 api → entry）·
-  `util`; 原 `_impl.py` 已消失）、`webgui/deps.py`（显式接缝: 测试/桩替换 store 与生图器等）、
+  ⇒ import 路径不变、13 个引用点零改动; 内部模块分工见 §2 树, `_impl.py` 已消失）、
+  `webgui/deps.py`（显式接缝: 测试/桩替换 store 与生图器等）、
   `webgui/chat.py`（每角色输入队列 worker + 预热挂钩）、`webgui/routers/*`（HTTP 壳,
   `_resolve_scene` 附 background_url/fx/place_bg）、`webgui/static/js/{bond,mmt,gui}.js`。
 - **板级生命周期（节点 2″, 2026-09-21）**：`webgui.bond::BoardLifecycle` 取代裸 bool
@@ -504,6 +498,9 @@ CLI/测试同步路径在引擎内串行。
   **草稿旁路**, 打一行 `bond_boards_discarded`（丢弃的**唯一痕迹**——真源/暂存零改动,
   见 `docs/DESIGN_RESEND.md` §3 的两区语义：`DELIVERED` 直接丢 / `COMMITTED` 走 revise）。
   ⚠️ 它**不动当前板**（已在玩家屏上 = 产品决策）也**不动预热缓存**（章入口的暂存首场）。
+  ⚠️ **丢弃 = 世代前进**（○C8c）：`BondState.board_epoch` +1，在途的预生成/live/候选
+  落地前复核（`_board_epoch_stale` → `bond_board_stale`）, `_draft_save(epoch=…)` 与丢弃
+  共用一把锁 ⇒ **丢了的不许被写回来**（`docs/EXEC_SPLIT.md` §5 陷阱 16）。
 - **预生成 = provisional（节点 4′, 2026-09-21）**：`_pregenerate` 与 live **同一条交付
   路径**（也传 `on_board` ⇒ `DeliveryMode.STREAM`——此前不传 ⇒ 批式, 同一份输出两条路
   给出**不同的板**）。它的 `on_board` 回调**只记账不落库**：板进 `state.pregen_scene`
@@ -647,10 +644,10 @@ CLI/测试同步路径在引擎内串行。
 
 | 项 | 状态/位置 |
 |---|---|
-| Bond contract v2（段/换场/背景标注分层; 反应段外置; end 形态; 语法 A/B） | docs/archive/DESIGN_BOND_CONTRACT_V2.md §8/§9（**已归档 2026-09-10**） |
+| Bond contract v2（**已归档 2026-09-10**） | docs/archive/DESIGN_BOND_CONTRACT_V2.md |
 | **VN 契约形式换代（记录流 v2）** | docs/DESIGN_VN_UPGRADE.md（**P0–P2 已落地, 真机在跑**; P3/P4 未做; **§14 渲染层 = 多人同框站位/动作, 设计稿未实现（决策 #36, 暂缓）**） |
 | **纪念链路（art↔memorial 配对 / 记录级进入 / 埋点 / 生图质量）** | docs/DESIGN_MEMORIAL.md（**节点 A–D 已落地 2026-09-20**）。**剩两件**：① **量 art 配对命中率**——改文案后要真机跑一章才知道有没有用（历史基准 **0/5 块**），看 gallery `prompt_source` 或 `grep "含 memorial 但没有 art"`；② **漏写 art 的"补写"方案**——用户裁决"现在不做"，设计稿 §2.4 记了否掉的理由（补出来的板必须排在 `end` 板**之前**，`end` 一落地 `completed=True`、前端即停轮询并 finish，补的板播不出来） |
-| 真分歧 vs 收敛链（分支/事件流分叉） | **已定稿（2026-09-10）: VN 收敛链即终局, 真分歧不立项**——玩家自由度移交邀约扩展（DESIGN_MEETUP.md）; A2 分支叙事化关闭 |
+| 真分歧 vs 收敛链 | **已定稿: 不立项**（收敛链即终局, 见 §6.5）; 自由度移交 DESIGN_MEETUP.md |
 | reasoning 档位 / SSE / choice 板全预生成（已关闭 2026-09-10, sibling 为终态） | §9 表与 v2 §5.4 |
 | 好感可视化（relationship_view 阶段词） | §7; 未立项 |
 | 官方固定剧情（XML/剧本管线） | 未动工（与动态契约并列的另一条线） |
@@ -680,18 +677,15 @@ CLI/测试同步路径在引擎内串行。
 - 全量审计（分级 + 未决项台账）：docs/AUDIT_2026-09-13_FULL.md
 - 上下文窗口（120 单元语义）：docs/DESIGN_CONTEXT_WINDOW.md
 - 体感延迟工程：docs/EXEC_BOND_LATENCY.md
-- **单一记录流流水线（c′）执行计划**：docs/EXEC_PIPELINE_UNIFY.md（**执行中**。
-  Decision 0 = c′（用户 2026-09-21）: 一份 `records → boards` 派生 + **板级闸** + 显式
-  交付模式; 节点 0–6, 每节点一提交。**全部落地: 0（协议）· 1（parity 测试网）·
-  2′（`_BoardAssembler` + `check_board` + `DeliveryMode`）· 5（桩对齐生产路径）·
-  3（下一轮纠偏）· 6（`Issue(code, severity)` 结构化）· 4′（预生成与 live 同路径）·
-  2″（`BoardLifecycle` + `_discard_boards`）· **5b（`task=` 结构化分派 + 三条守门）** **;
-  文件拆分另立 docs/EXEC_SPLIT.md（C1b 已把 `webgui/bond.py` 变成包）。
-  来源 = ARCH_REVIEW P0-2/P0-3/P2-8 的根治）
-- **文件拆分与位置规划（C0 + C1a–C12b 已落地 —— 三个大文件都拆完 + 位置错的件已归位）**：docs/EXEC_SPLIT.md（**执行计划 + 全部验收记录**；节点表与陷阱清单在那边，这里只留指针）。要点：
-  · **已拆成包**：`webgui/bond/`（C1b–C8，117 名门面）· `core/bond/bond_story/`（C9）· `contract/records/`（C10）；
-    **已归位**：`core/mmt/engine.py`（C12a）· `core/tui/`（C11）· `core/director/wiring.py`（C11）·
-    `contract/{errors,json_cleaner}.py`（C10）· `apps/{main,vn_cli}.py`（C12b）· `docs/DESIGN_*.md`（C12b）。
+- **单一记录流流水线（c′）执行计划**：docs/EXEC_PIPELINE_UNIFY.md（**全部落地**: 0 协议 ·
+  1 parity · 2′ `_BoardAssembler`+板级闸+`DeliveryMode` · 5 桩对齐 · 3 下一轮纠偏 ·
+  6 `Issue(code,severity)` · 4′ 预生成同路径 · 2″ `BoardLifecycle`; 来源 = ARCH_REVIEW
+  P0-2/P0-3/P2-8）。文件拆分另立 docs/EXEC_SPLIT.md。
+- **文件拆分与位置规划（C0 + C1a–C12b + ○C8b/○C8c 已落地）**：docs/EXEC_SPLIT.md
+  （**执行计划 + 全部验收记录**；节点表与陷阱清单在那边，这里只留指针）。要点：
+  · **已拆成包**：`webgui/bond/` · `core/bond/bond_story/` · `contract/records/`；
+    **已归位**：`core/mmt/engine.py` · `core/tui/` · `core/director/wiring.py` ·
+    `contract/{errors,json_cleaner}.py` · `apps/{main,vn_cli}.py` · `docs/DESIGN_*.md`。
   · **两条守门**（`tests/core/`）：`test_import_direction.py`（分层方向；**白名单 C12b 起是空表**，
     含“谁都不许 import `apps`”）· `test_split_safety.py`（API 面快照 + patch 点台账 +
     **跨模块名字泄漏**＝"漏 import"静态守门, 见 §12）。
@@ -713,4 +707,4 @@ CLI/测试同步路径在引擎内串行。
 - 模块级设计：docs/DESIGN_{MMT_CHAT,GUI,SEGMENT,WORLD,MULTI_CHAR,VISUAL,VISUAL_PROTOCOL}.md + docs/DESIGN_CONTRACT.md（C12b 起; BOND_STORY 已归档）
   与 docs/archive/DESIGN_BOND_STORY.md（旧 VN 运行时）
 - 未来扩展和预留未调用函数 docs/EXTENSION_POINTS.md
-- 其他根级说明：README.md / CLAUDE_OPTIMIZE.md / TODO.md / ASKYOURSELF.yml / guidance/
+- 其他根级说明：README.md / CLAUDE_OPTIMIZE.md / TODO.md / guidance/（ASKYOURSELF.yml 已删）

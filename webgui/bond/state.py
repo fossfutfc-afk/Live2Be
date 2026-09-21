@@ -104,6 +104,15 @@ class BondState:
     #: 缺省 COMMITTED: 回放/预热缓存/草稿旁路这些"正文已在事件流里"的路径直接落地,
     #: 真·新生成的板由 `_scene_landed` 显式降到 DELIVERED。
     scene_state: BoardLifecycle = BoardLifecycle.COMMITTED
+    #: **板世代**（○C8c, 2026-09-21）: `_discard_boards` 每调用一次 +1 —— "丢弃那一刻
+    #: **之前出生**的板全部作废"。异步落地（预生成/live 流式/候选支）都必须先复核自己
+    #: 出生时的世代（`pregen._board_epoch_stale`）, 草稿旁路的写盘由
+    #: `stores._draft_save(epoch=…)` 在同一临界区里复核。
+    #: 为什么需要: "丢弃"只清得掉**当时在内存里**的引用, 一个在飞的线程随后就会把板
+    #: 写回来（`pregen_scene` 复活 + 草稿文件复活）——全量跑时
+    #: `test_discard_boards_is_traceless` 偶发红就是这条竞态（单跑常绿）。
+    #: 与 `_call_id` 同款思路: **产者盖章、落地处复核**。
+    board_epoch: int = 0
     error: str = ""
     completed: bool = False             # 剧情已终结（is_end 自然收尾 → True）
     #: 上次是**中途退出**（`vn_exit completed=False`）——进入时由
