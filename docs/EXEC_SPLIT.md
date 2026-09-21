@@ -1,9 +1,10 @@
 # EXEC_SPLIT — 文件拆分与位置规划（执行计划）
 
-> **状态**：执行中。**C0–C8 已落地 2026-09-21 —— `webgui/bond.py`（2950 行单文件）的拆分
-> 全部完成**: C0 安全网 · C1a 接缝 · C1b 模块→包 · C2 `state.py` · C3 `stores.py` ·
+> **状态**：执行中。**C0–C9 已落地 2026-09-21 —— 两个"什么都装"的文件都拆完了**:
+> C0 安全网 · C1a 接缝 · C1b 模块→包 · C2 `state.py` · C3 `stores.py` ·
 > C4 `lanes.py`+`util.py` · C5 `replay.py` · C6 `memorial.py` · C7 `pregen.py` ·
-> C8 `api.py`+`watchdog.py`（`_impl.py` 消失）。**C9 起未动**（下一步 = `core/bond/bond_story.py`）。
+> C8 `api.py`+`watchdog.py`（`webgui/bond.py` 的 `_impl.py` 消失）·
+> C9 `core/bond/bond_story/`（scene/boards/engine）。**下一步 = C10 `contract/records/`**。
 > **怎么用**：每个节点 = **一次提交 + 全量测试 + （涉 webgui 时）B 层冒烟**；
 > 节点内**只做"移动"**，任何行为改动单独开节点。行号一律不写（会漂），写 `file.py::symbol`。
 > **相关**：`docs/EXEC_PIPELINE_UNIFY.md`（流水线收敛，已全部落地）· `CLAUDE.md` §2/§11/§12。
@@ -86,10 +87,12 @@ webgui/bond/             ← webgui/bond.py（模块→包；13 个引用点零�
                          阈值常量在 `deps.py`——测试要改它们）
   api.py                 bond_start/turn/status/finish + _start_replay + wrapup（**C8 已落地**；
                          1051 行 —— 若嫌大, 见 §3 的 ○C8b 可选节点）
-core/bond/bond_story/    ← 模块→包（27 个引用点零改动）
-  scene.py               BondScene / SceneLoopError
-  boards.py              DeliveryMode / _board_spans / _BoardAssembler
-  engine.py              BondStoryEngine
+core/bond/bond_story/    ← 模块→包（27 个引用点零改动）—— **C9 已落地**
+  __init__.py            门面: 54 名按"真家"分块再导出（含私有名; 不定义 `__all__`）
+  scene.py               BondScene / SceneLoopError（**C9**；264 行）
+  boards.py              DeliveryMode / _board_spans / _BoardAssembler + 板级闸（**C9**；184 行）
+  engine.py              BondStoryEngine / _personality_summary / MAX_SCENE_RETRIES /
+                         DEFAULT_HISTORY_ROUNDS / logger（**C9**；1195 行）
 contract/records/        ← 模块→包
   grammar.py / parse.py / check.py / carrier.py
 core/mmt/                ← core/momotalk.py 并入既有 core/mmt/（engine.py）
@@ -117,8 +120,7 @@ tests/webgui/bond/       ← test_bond.py 按主题拆 + tests/stubs/ 收共享 
 | ✅ **C7** | **搬 `pregen.py`（生成 / 预生成 / 候选 / 丢弃）** | 15 个符号逐字搬进 `webgui/bond/pregen.py`: 常量 `_CLOSING_TEXT`/`_CLOSING_PARA`/`MAX_GEN_FAILURES`/`_REMIND_ROUNDS`/`_END_ROUNDS` + `_generate`/`_pregenerate`/`_scene_landed`/`_log_board_deliver` + 候选支 `_choice_pregen_enabled`/`_spawn_candidates`/`_candidate_worker` + 丢弃入口 `_discard_boards`/`_discard_candidates` + `_system_note`（产品侧只有生成两处调用, 故住这里）。顺手把 `ChoiceCandidate`/`staging_store`/`M_SESSION_END`/`M_VN_ABANDON` 清成"门面直指真家" | 全量 **880 passed**; 冒烟 **PASS**; 门面 117 名 + 夹具**零 diff**; 15 个名字身份自检; `_impl.py` 1204 行 |
 | ✅ **C8** | **搬 `api.py` + `watchdog.py`；`_impl.py` 消失** | `watchdog.py`（144 行）= `_watchdog`/`_lanes_idle`/`_lane_writer_alive`/`_gate_stalled`/`_force_scene_ready`/`_thread_alive`（单向: 只依赖 lanes/deps/util）; `api.py` = `bond_start/turn/status/finish` + `bond_start_demo` + `_start_replay` + `_ready_scene_payload`/`_role_info` + `_entry_already_done` + `_note_reject`/`_clear_rejects` + `_wrapup`/`_wrapup_inner` + `DEMO_SCRIPT`（原 `bond.py` 的模块说明逐字搬进来当"对外契约"一节）。**门面按"名字的真家"整体重建**（117 名 → 9 个包内模块 + 11 个核心/契约/llm 真家, 分块列出）; `_impl.py` 删除 | 全量 **880 passed**; 冒烟 **PASS**; **快照刷新后 diff = 只有 owner 列**（模块+名字+种类零变化, 已逐列核对）; `import webgui.bond._impl` → ModuleNotFoundError |
 | ○ **C8b**（可选） | `api.py` 再分 | `api.py` 实测 **1051 行**（比计划里的 ≤460 大一倍多）—— 可选切成 `entry.py`（`bond_start`/`_start_replay`/负载/演示）+ `api.py`（`bond_turn`/`status`/`finish`/`_wrapup*`）, 方向 api → entry | 绿 |
-| **C9** | `core/bond/bond_story.py` → 包 | scene/boards/engine | 27 个引用点零改动；绿 |
-| **C9** | `core/bond/bond_story.py` → 包 | scene/boards/engine | 27 个引用点零改动；绿 |
+| ✅ **C9** | **`core/bond/bond_story.py` → 包** | `git mv` 模块成 `core/bond/bond_story/{scene,boards,engine}.py`（逐字搬, 只改 import 行: 无相对导入, 故 `from core.bond.bond_story.{scene,boards} import …` 需补全限定名）+ 门面 `__init__.py` **逐个显式**再导出 54 名（含私有名; 列表**从 API 面夹具的该段生成**, **不定义 `__all__`**）。门面按"真家"分块: 3 个包内模块 + 43 个 core/contract/llm 真家（后者**整体重建**, 因为原模块是一次性 import 了一大票外部名）; `max_tokens as task_levels_max_tokens` 是本次唯一的重名别名（真家里叫 `max_tokens`）。**27 个引用点一个字未改** | 全量 **880 passed**; 冒烟 **PASS**; **快照刷新后 diff = 只有 owner 列 13 行**（模块+名字+种类零变化, 已逐列核对）; `python -m compileall` 全仓绿; 4 个名字身份自检 |
 | **C10** | `contract/records.py` → 包 + `json_cleaner` 归位 | grammar/parse/check/carrier；**顺带消掉 4 处 contract 违规** | 分层白名单减 3 条；绿 |
 | **C11** | `core/ui` 拆 + `wiring` 上提 | `core/tui/`；`_build_director/_trigger_title` → `core/director/wiring.py` | 分层白名单减 1 条（core→renderer 消失）；绿 |
 | **C12** | `core/mmt` 合并 + `apps/` + `docs/` 归位 | `core/momotalk.py`→`core/mmt/engine.py`；`main.py`/`vn_cli.py`→`apps/`；`core/*.md`→`docs/` | 全仓 `compileall`；绿 |
@@ -232,6 +234,17 @@ python -m compileall -q core webgui llm contract tests   # 全仓可编译
     （本项目 117 名 = `_impl` 收 N 个 + 门面从新模块收 M 个）;
     ⚠️ 也顺手清掉"当年为再导出而留、如今全仓无人用"的名字（C3 清了 `_impl` 里
     3 个事件常量 + `image_enabled`）—— 但**门面继续给**（它是对外面的一部分）。
+12. **"这是个单文件"是测试里的隐含假设**（C9 实测踩到, "拆包"独有的坑）: 动手前先
+    grep 一遍**测试里现拼模块路径**的地方。`tests/core/test_records.py` 的软硬分级守门
+    原来写死 `root / "contract" / "records.py"` 与 `core/bond/bond_story.py` ——
+    C9 把后者变成包的那一刻它就 `FileNotFoundError`（**红在"文件不存在", 而不是
+    "规则被违反"**, 看报错容易误判成拆坏了）。做法: 扫源码的守门一律走
+    "模块 → `[自己]` / 包 → 包内 `*.py`"的小助手（现役范例 = 该文件里的 `_sources`）;
+    ⚠️ **取不到必须 assert**（返回空列表 = 静默不再检查任何文件 = 守门失明, 比红更危险）。
+    同一条规矩对 C10 的 `contract/records.py` 已经预置好了。定位命令:
+    `grep -rn "<模块名>\.py" tests/ core/ webgui/` —— 文档/注释里的历史提及不必改,
+    但**指路用的路径**要顺手改成新家（C9 就地更新了 `core/bond/__init__.py` ·
+    `core/media/emotion_lexicon.py` · `webgui/bond/replay.py` 三处）。
 
 ---
 

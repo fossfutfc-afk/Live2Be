@@ -54,7 +54,7 @@ def _narrativize(scene: dict, picked) -> dict:
     "睦月/便利屋68 + 你还打算对我怎么恶作剧？"）。所以回放里:
       · `choices` **保留**（用户 2026-09-12 反馈: 续看重进时"选哪个选项都一样",
         看不出去别 → 恢复选项组, 由前端画成锁定态 + 高亮 `picked`）;
-      · `picked` 随场景带回（`BondScene.picked`, 见 core/bond/bond_story.py）;
+      · `picked` 随场景带回（`BondScene.picked`, 见 core/bond/bond_story/scene.py）;
       · v1 旧档的 branches 顺接保持不变（旧档冻结）——分支段落是**剧情内容**
         （角色的反应）, 不是玩家的话, 该留。
     """

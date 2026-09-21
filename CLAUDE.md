@@ -75,7 +75,9 @@ webgui/        FastAPI 壳 + 会话状态机（**bond/ 包** = BondState 状态�
    └ store.py  运行时配置读写(settings.toml)
 core/          引擎层（无 web 依赖, CLI/实验同源复用）
    ├ momotalk.py             MMT 引擎（消息流动作循环）
-   ├ bond/bond_story.py      Bond 引擎（记录流解析 + 板派生 + 状态机 + 历史 + 生图钩子）
+   ├ bond/bond_story/        Bond 引擎（**C9 起是包**）: scene.py（BondScene/SceneLoopError）+
+   │                         boards.py（DeliveryMode/_board_spans/_BoardAssembler + 板级闸）+
+   │                         engine.py（BondStoryEngine: 记录流解析 + 状态机 + 历史 + 生图钩子）
    ├ bond/                   标注层与契约件: emo_text（情绪按记录）、
    │                         place_annotate/place_cues（换场锚点）、variant_annotate（选图）。
    │                         ⚠️ bond_actions/bond_executor/memorial_actions/stream_probe/
@@ -95,7 +97,7 @@ data/           运行时数据(gitignore): worlds/*/characters/*/{progress.json
 tests/ core/ webgui/ llm/ renderer/ 分别对应域; experiments/ 真 API 基准与探索脚本
 ```
 
-注：`core/bond_story.py`/`web/` 是历史名，**不存在**；现为 `core/bond/bond_story.py`
+注：`core/bond_story.py`/`web/` 是历史名，**不存在**；现为 `core/bond/bond_story/`（**C9 起是包**）
 与 `webgui/`。⚠️ `core/brain/{consolidation,hippocampus,recall}.py`（旧版记忆 digest v1）
 与 **v1 动作契约整族已于 2026-09-21 删除**；记忆主链 = `core/brain/wiki_v2/`。根级
 `DESIGN_BRAIN.md` 为记忆体系总设计（历史+现网混合，读前看文首状态）。
@@ -120,7 +122,7 @@ tests/ core/ webgui/ llm/ renderer/ 分别对应域; experiments/ 真 API 基准
   （文法与约束见契约 `contract/schema.py::build_record_schema` 注入的"本轮输出契约"，
   设计见 docs/DESIGN_VN_UPGRADE.md）。
   ⚠️ **v1 的动作 JSON 已整族退役**：`story_scene`/`story_end`/`memorial_enter`/
-  `memorial_exit` 收到 dict 一律**打回重发**（`bond_story.py` 的 legacy_action_rejected）；
+  `memorial_exit` 收到 dict 一律**打回重发**（`bond_story/engine.py` 的 legacy_action_rejected）；
   契约/执行四模块（`bond_actions`/`bond_executor`/`memorial_actions`/`sentence_splitter`）、
   `BondScene.from_action`、`stream_probe` **已于 2026-09-21 删除**（考古读 git 历史）。
   收尾 = `stage:end`；纪念 = **`stage:art` + `stage:memorial` 成对**（见 §4 纪念段）。
@@ -383,7 +385,7 @@ CLI/测试同步路径在引擎内串行。
   的写作"*。与"零内容词表"不矛盾（那条打的是**从 168 条资产菜单里挑**）。
   地点/背景系统见 docs/DESIGN_PLACE.md + docs/AI_BRIEF_PLACE.md。
 - 每轮动态尾唯一入口 `round_messages`（实测签名是 `system/user/history/notes/brain`，
-  **没有 task 槽**——场卡由**调用方**作 `notes` 末位追加，`bond_story.py` / `momotalk.py`
+  **没有 task 槽**——场卡由**调用方**作 `notes` 末位追加，`bond_story/engine.py` / `momotalk.py`
   各一处；审计 C4 记过这个文档与实现的差）。
 - task 卡模板（目标层, 不重复规则书）：`llm/prompts/task_<domain>.md` =
   默认 kind（mmt→chat, bond→scene）；`task_<domain>_<kind>.md` = 其余
@@ -660,7 +662,7 @@ CLI/测试同步路径在引擎内串行。
   2″（`BoardLifecycle` + `_discard_boards`）· **5b（`task=` 结构化分派 + 三条守门）** **;
   文件拆分另立 docs/EXEC_SPLIT.md（C1b 已把 `webgui/bond.py` 变成包）。
   来源 = ARCH_REVIEW P0-2/P0-3/P2-8 的根治）
-- **文件拆分与位置规划（C0 + C1a–C8 已落地 —— `webgui/bond.py` 拆分完成）**：docs/EXEC_SPLIT.md（**执行计划**。C0 = 安全网 +
+- **文件拆分与位置规划（C0 + C1a–C9 已落地 —— `webgui/bond.py` 与 `core/bond/bond_story.py` 都拆完了）**：docs/EXEC_SPLIT.md（**执行计划**。C0 = 安全网 +
   工具纪律：`tests/core/test_import_direction.py`（4 条分层规则）·
   `tests/core/test_split_safety.py`（API 面快照 + patch 点台账）·
   rope 实测结论（只用于真搬家, 拆包不能用它）。**C1a = 接缝收敛**：新建
@@ -673,9 +675,11 @@ CLI/测试同步路径在引擎内串行。
   ——否则快照会多一个名字）⇒ 引用点零改动 + 夹具零 diff。**C2 = 搬 `webgui/bond/state.py`**
   （BondState / BoardLifecycle / ChoiceCandidate / `_bonds` / `_state`）——**拆包必须叶子
   优先**: `BoardLifecycle` 被状态模型与落库**运行期**同时用, 放谁那里都成环, 故把
-  `state.py` 从原 C8 提前到 C2。节点 C3–C15：`webgui/bond/` 拆
-  8 个模块 → `core/bond/bond_story/` → `contract/records/` → `core/mmt` 合并 / `apps/` /
-  `docs/` 归位 → 测试拆分; 每节点一提交 + 全量 + 冒烟）
+  `state.py` 从原 C8 提前到 C2。**C9 = `core/bond/bond_story.py` → 包**（`scene.py` 264 +
+  `boards.py` 184 + `engine.py` 1195 + 门面 129 行, 54 名; 27 个引用点零改动）——
+  ⚠️ 拆包会暴露测试里的"这是个单文件"假设（守门写死 `…/bond_story.py` 会
+  `FileNotFoundError`, 见该文 §5 陷阱 12）。节点 C10–C15：`contract/records/` →
+  `core/mmt` 合并 / `apps/` / `docs/` 归位 → 测试拆分; 每节点一提交 + 全量 + 冒烟）
 - **重新生成 / 重发 的语义与固化线**：docs/DESIGN_RESEND.md（**设计稿, 未动代码**。
   决策: MMT 提交边界 = **回合提交**; 两区 = 水位之上**丢弃** / 水位之下走
   `wiki_v2/revise` **更正**; 板级那一半已由 `BoardLifecycle` + `_discard_boards` 落地;
