@@ -46,7 +46,6 @@ from webgui.bond._impl import (
     M_SESSION_END,
     M_VN_ABANDON,
     M_VN_EXIT,
-    NON_PICKS,
     SceneLoopError,
     _CLOSING_PARA,
     _CLOSING_TEXT,
@@ -60,24 +59,19 @@ from webgui.bond._impl import (
     _discard_boards,
     _discard_candidates,
     _ensure_memorial_img,
-    _enter_title,
     _entry_already_done,
     _force_scene_ready,
     _gate_stalled,
     _generate,
-    _interrupted_replay_queue,
     _lane_writer_alive,
     _lanes_idle,
     _log_board_deliver,
     _make_memorial_cb,
     _memorial_gen,
     _memorial_open_in_events,
-    _narrativize,
     _note_reject,
-    _pending_in_vn,
     _persisted_memorial_img,
     _pregenerate,
-    _prev_chapter_quit,
     _ready_scene_payload,
     _role_info,
     _scene_landed,
@@ -86,18 +80,15 @@ from webgui.bond._impl import (
     _state,
     _system_note,
     _thread_alive,
-    _title_from_events,
     _trigger_title,
     _watchdog,
     _wrapup,
     _wrapup_inner,
-    abandoned_ranges,
     bond_finish,
     bond_start,
     bond_start_demo,
     bond_status,
     bond_turn,
-    chapter_replay,
     close_open_attempts,
     collect_ref_images,
     commit_staging,
@@ -106,11 +97,20 @@ from webgui.bond._impl import (
     logger,
     make_event,
     render_bond_scene_text,
-    replay_attempts,
-    replayable_chapters,
     staging_store,
     truth_store,
     window_messages,
+)
+
+from webgui.bond.replay import (              # C5: 回放层
+    _narrativize,
+    replay_attempts,
+    _interrupted_replay_queue,
+    chapter_replay,
+    _pending_in_vn,
+    _title_from_events,
+    _enter_title,
+    _prev_chapter_quit,
 )
 
 from webgui.bond.lanes import (               # C4: 双路 lane + 就绪门控
@@ -156,11 +156,15 @@ from webgui.bond.stores import (              # C3: 落库层
     _close_memorial_window,
 )
 
-# 下面这些名字**定义处不在 bond 包内**（C3 顺手清: `_impl.py` 里它们早就没人用了,
-# 只是当年作为"bond 的对外面"一路被再导出）—— 门面继续给, 但指向真家。
+# 下面这些名字**定义处不在 bond 包内**（C3/C5 顺手清: `_impl.py` 里它们早就没人用了,
+# 只是当年作为"bond 的对外面"一路被再导出——C5 把最后三个用点也搬进了 `replay.py`）
+# —— 门面继续给, 但指向真家。
+from contract import NON_PICKS                     # noqa: E402
+from core.session.chapters import replayable_chapters          # noqa: E402
 from core.session.events import (             # noqa: E402
     M_MEMORIAL_ENTER,
     M_MEMORIAL_EXIT,
     M_VN_STATE,
 )
+from core.session.maintenance import abandoned_ranges          # noqa: E402
 from llm.image_gen import image_enabled       # noqa: E402
