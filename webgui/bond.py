@@ -59,8 +59,8 @@ from core.session.staging import (
     truth_store,
 )
 from core.ui.vn_cli import _build_director, _trigger_title
-from llm.image_gen import ImageGenerator, collect_ref_images, image_enabled
-from webgui import chat
+from llm.image_gen import collect_ref_images, image_enabled
+from webgui import chat, deps                    # deps = 显式接缝（C1a）
 
 logger = logging.getLogger(__name__)
 
@@ -183,7 +183,7 @@ class BondState:
     """一场羁绊剧情的驱动状态（per (char_id, session_id) 内存态）。"""
 
     #: 流程绑定的 store（`_state()` 创建时捕获）——长流程（后台生成线程）可能活过
-    #: 测试的 store 切换/多开/重启, 写入时再读全局 `chat._store` 会写进别的世界线
+    #: 测试的 store 切换/多开/重启, 写入时再读全局 `deps.store()` 会写进别的世界线
     #: （2026-09-11 真机事故: 流式测试的生成线程把 vn_state 写进真实 events.jsonl）。
     store: object = None
     vn: BondStoryEngine | None = None
@@ -285,7 +285,7 @@ _bonds: dict[tuple[str, str], BondState] = {}
 def _state(char_id: str, session_id: str) -> BondState:
     """懒创建 bond 状态（每 (char, session) 一场剧情）。
 
-    **store 在此绑定**（而非写入时再读 `chat._store`）: 后台生成线程可能活过
+    **store 在此绑定**（而非写入时再读 `deps.store()`）: 后台生成线程可能活过
     调用方的 store 切换（测试注入/多开/重启）, 那时再读全局就会写进别的世界线。
     """
     key = (char_id, session_id)
@@ -330,7 +330,7 @@ def _flow_store(state: "BondState | None"):
     ★ **章外（暂存为空）逐字节等价于真源** —— 所以这里**无条件**返回 overlay:
     调用方不需要判断"章在不在进行中"，也就不会有"漏改一个读点"的幽灵。
 
-    缺省回落到全局 `chat._store`（`BondState.store` 优先——决策 #31）。
+    缺省回落到全局 `deps.store()`（`BondState.store` 优先——决策 #31）。
     """
     return staging_store(getattr(state, "store", None) or _store())
 
@@ -348,10 +348,8 @@ def _stage_store(state: "BondState | None"):
     return _flow_store(state)
 
 
-#: 看门狗阈值（2026-09-11）: 忙态/视觉门卡住多久算异常 → 兜底放行
-BUSY_WATCHDOG_MS = 300_000     # 5min（LLM client 超时 240s + 余量）: 超时且线程不在 → 复位
-GATE_WATCHDOG_MS = 25_000      # 视觉门 25s 未就绪且 lane 空闲 → 强制兜底就绪
-PREGEN_GATE_WATCHDOG_MS = 25_000   # 预生成消费门 25s 未通过 → 强制兜底就绪并消费
+#: 看门狗阈值已搬到 `webgui/deps.py`（`deps.BUSY_WATCHDOG_MS` 等）——C1a 接缝收敛：
+#: 测试调小/调负它们时 patch `deps.*` 才生效（模块→包后 patch 包属性会静默失效）。
 
 
 def _thread_alive(th) -> bool:
@@ -453,7 +451,7 @@ def _watchdog(state: "BondState", char_id: str, session_id: str) -> None:
     # ① 忙态
     if state.busy:
         state.busy_since = state.busy_since or now
-        if (_ms_since(state.busy_since) > BUSY_WATCHDOG_MS
+        if (_ms_since(state.busy_since) > deps.BUSY_WATCHDOG_MS
                 and not _thread_alive(state._gen_thread)
                 and not _thread_alive(state._pregen_thread)):
             logger.warning(
@@ -468,7 +466,7 @@ def _watchdog(state: "BondState", char_id: str, session_id: str) -> None:
         state.gate_since = 0.0
     else:
         state.gate_since = state.gate_since or now
-        if (_ms_since(state.gate_since) > GATE_WATCHDOG_MS and _gate_stalled(state)
+        if (_ms_since(state.gate_since) > deps.GATE_WATCHDOG_MS and _gate_stalled(state)
                 and not state.busy):
             logger.warning(
                 "bond 看门狗: 视觉门 %dms 未就绪且无积压/无在途 → 兜底放行 %s/%s",
@@ -481,7 +479,7 @@ def _watchdog(state: "BondState", char_id: str, session_id: str) -> None:
         state.pregen_gate_since = 0.0
     else:
         state.pregen_gate_since = state.pregen_gate_since or now
-        if (_ms_since(state.pregen_gate_since) > PREGEN_GATE_WATCHDOG_MS
+        if (_ms_since(state.pregen_gate_since) > deps.PREGEN_GATE_WATCHDOG_MS
                 and _gate_stalled(state) and not state.busy):
             logger.warning(
                 "bond 看门狗: 预生成消费门 %dms 未通过且无积压/无在途 → 兜底放行 %s/%s",
@@ -514,38 +512,15 @@ def _clear_rejects(state: "BondState", char_id: str, session_id: str) -> None:
 
 
 def _store():
-    return chat._store
+    """当前会话存储（接缝转发——测试换 store 请 `deps.set_store()`/patch `deps._store`）。
 
-
-#: 生图器懒初始化缓存（首次纪念触发才构造——无 key 环境零开销）
-_image_gen: ImageGenerator | None = None
-
-
-def _image_generator() -> ImageGenerator | None:
-    """懒初始化生图器。总开关关 / 未配 IMAGE_API_KEY → None = 纪念降级纯文字。
-
-    本地 diffusers 兜底已于 2026-09-10 移除（出图"不像人类"）——只有 APIYI 一条路。
-    **总开关**（`image_enabled`: `LIVE2BE_IMAGE=off` / settings `[image].enabled=false`,
-    2026-09-11）在此设卡: 关闭即**不构造、不开生图线程**——跑测试/离线调试的确定性
-    关闭（key 配着时否则真会出图烧钱）。
+    保留这个名字只为**可读性**（bond 里到处 `_store()`）; 真实来源在 `webgui/deps.py`。
     """
-    global _image_gen
-    if not image_enabled():
-        if _image_gen is None or _image_gen.enabled:
-            logger.info("生图总开关为关（LIVE2BE_IMAGE/settings [image].enabled）"
-                        "——纪念场景降级纯文字")
-        return None
-    if _image_gen is None:
-        try:
-            _image_gen = ImageGenerator()
-        except Exception as e:                   # noqa: BLE001 — 构造失败降级
-            logger.warning("生图器初始化失败（纪念降级纯文字）: %s", e)
-            return None
-    else:
-        _image_gen.enabled = True                # 开关回调（关过又开）——缓存实例跟手
-    if not _image_gen.available:
-        return None
-    return _image_gen
+    return deps.store()
+
+
+#: 生图器 / 看门狗阈值 / choice 开关已搬到 `webgui/deps.py`（C1a 接缝收敛）——
+#: 消费方一律 `deps.xxx`（调用时属性查找 ⇒ 测试 patch `deps.xxx` 才生效）。
 
 
 def _memorial_gen(state: BondState, char_id: str, session_id: str,
@@ -557,7 +532,7 @@ def _memorial_gen(state: BondState, char_id: str, session_id: str,
     场景已推进不影响（前端只在纪念场景显示图）。总开关关 → 调用方已不开线程。
     """
     try:
-        gen = _image_generator()
+        gen = deps.image_generator()
         if gen is None:
             return                              # 未配 key → 降级纯文字
         eng = chat._engine(char_id)
@@ -616,7 +591,7 @@ def _make_memorial_cb(state: BondState, char_id: str, session_id: str):
     def cb(prompt: str) -> None:
         if state.demo is not None:
             return
-        if _image_generator() is None:
+        if deps.image_generator() is None:
             return                       # 总开关关 / 未配 key → 不开线程（纯文字降级）
         with state._lock:
             if state.memorial_img_busy:
@@ -1606,7 +1581,7 @@ def bond_turn(char_id: str, session_id: str, text: str) -> dict:
         # 置就绪标记 → 不占 place lane（§7 gate 双路语义）
         state.scene_obj._place_done = True
         # 分支段落可能是骨架（branches 未标注）→ 入队异步标注（与主场景同队列）
-        _enqueue_annotate(state, state.scene_obj)
+        deps.enqueue_annotate(state, state.scene_obj)
         # 2026-09-02 修复: 分支渲染后前端不轮询 status（turn 直接返回 scene）——
         # 若返回未标注骨架, 立绘 default 且标注完成无补切通道; 同步短等标注
         # （修复后标注 ~1-3s, 上限 8s 兜底——标注层失败也有 _fallback_fill 保证就绪）
@@ -2157,7 +2132,7 @@ def _scene_landed(state: BondState, scene: BondScene, char_id: str,
                        dur_ms=_ms_since(t0) if t0 else -1)
     _log_scene_meta(state, char_id, session_id, scene)
     # 两遍式 C 异步标注: 骨架先显示, emotion 解析入队补标（不阻塞玩家）
-    _enqueue_annotate(state, scene)
+    deps.enqueue_annotate(state, scene)
     # SceneStream P1.5（N2a）: 本板若带 choices → 候选支 spawn
     # （读板期后台预生成, 不占 busy; spawn 内部先清旧池）
     # 记录流 v2（P0-7c 修正）: 不 spawn——后继板已在引擎待发队列（0 LLM）,
@@ -2379,7 +2354,7 @@ def _pregenerate(state: BondState, char_id: str, session_id: str) -> None:
                 state.pregen_scene = scene.to_dict()
                 state.pregen_input = "（继续）"
                 # 预生成场景同样异步标注（与主场景同一队列串行, 玩家消费时表情就绪）
-                _enqueue_annotate(state, scene)
+                deps.enqueue_annotate(state, scene)
                 _draft_save(state, char_id, session_id)   # 草稿旁路刷新（#28b）
         except Exception as e:                     # noqa: BLE001 — 预生成失败降级
             logger.warning("bond 预生成失败 (%dms, 降级为点击时再生成): %s",
@@ -2433,26 +2408,13 @@ def _discard_candidates(state: BondState) -> None:
     state.choice_candidates = []
 
 
-#: 运行时开关读取路径（`core/paths.py` 的宏 —— settings.toml, gitignore, 本机 GUI 设置文件）
-_CAND_SETTINGS_PATH = paths.SETTINGS_PATH
+#: choice 候选预生成开关已搬到 `webgui/deps.py::choice_pregen_enabled()`（C1a 接缝收敛）。
+#: `_choice_pregen_enabled()` 保留为**测试友好的别名**（老测试/新测试都读得到同一处实现）。
 
 
 def _choice_pregen_enabled() -> bool:
-    """choice_pregen 开关（DESIGN_CHOICE_PREGEN §4, N2d）:
-
-    settings.toml [bond] choice_pregen = "off" | "sibling" | "tree"
-    - sibling: 单层候选预生成（当前实现; tree 暂同 sibling——递归展开未做,
-      预判收益趋零不做）; off: 关闭（走分支播放期单路 pregen 老路）。
-    - 读取失败/缺省 → True（sibling——功能默认开, 不稳可一键关）。
-    """
-    try:
-        import tomllib
-        text = _CAND_SETTINGS_PATH.read_text(encoding="utf-8")
-        mode = str(((tomllib.loads(text).get("bond") or {})
-                    .get("choice_pregen") or "sibling")).strip().lower()
-        return mode in ("sibling", "tree")
-    except Exception:                              # noqa: BLE001 — 缺省开
-        return True
+    """choice_pregen 开关（转发到 `deps.choice_pregen_enabled()`）。"""
+    return deps.choice_pregen_enabled()
 
 
 def _spawn_candidates(state: BondState, scene: BondScene,
@@ -2472,7 +2434,7 @@ def _spawn_candidates(state: BondState, scene: BondScene,
     """
     if state.demo is not None or state.vn is None:
         return
-    if not _choice_pregen_enabled():             # 开关（N2d）: off → 老路
+    if not deps.choice_pregen_enabled():         # 开关（N2d）: off → 老路
         return
     if not scene.choices or scene.is_end or scene.memorial:
         # 2026-09-21: 原判据含 v1 的 `scene.memorial_prompt`（字段已删）→ 改 v2 的
@@ -2876,7 +2838,7 @@ def _wrapup_inner(char_id: str, session_id: str, title: str, completed: bool) ->
     """
     state = _state(char_id, session_id)
     # daemon 线程长生命周期——**store 快照**（2026-09-09 审计: wrapup 在 finish
-    # 后异步执行, 期间全局 chat._store 可能已被替换（测试 cleanup/未来多线）,
+    # 后异步执行, 期间全局 deps.store() 可能已被替换（测试 cleanup/未来多线）,
     # 迟到的兜底写入曾落错 store（真实 data 被测试污染）; 线程内一律用快照,
     # 与"谁调起它"时的归属一致。
     # 2026-09-13 修正（审计 B18）: 取的是**流程绑定的** store（`_flow_store`）,

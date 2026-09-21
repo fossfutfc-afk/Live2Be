@@ -3,17 +3,17 @@
 
 ## ① API 面快照（`tests/fixtures/api_surface.txt`）
 
-记下 7 个"要拆/要搬"的模块**今天**对外的每个名字 + 种类。拆分时:
-**丢名字 / 种类变了 → 红**（搬家的名字只是 owner 变了, 不算丢）。
+记下 7 个"要拆/要搬"的模块 + 1 个接缝模块（`webgui.deps`）**今天**对外的每个名字 + 种类。
+拆分时: **丢名字 / 种类变了 → 红**（搬家的名字只是 owner 变了, 不算丢）。
 刷新: `SPLIT_API_UPDATE=1 pytest tests/core/test_split_safety.py`（刷完人工审 diff）。
 
 ## ② 禁止 patch 被拆包的属性
 
-测试里 7 处 `monkeypatch.setattr(bond, …)`（`_store` / `_image_gen` / `GATE_WATCHDOG_MS` …）
-是模块→包转换的**头号杀手**: 代码搬进 `webgui/bond/stores.py` 后, 子模块读的是
-自己的全局, patch **包属性会静默不生效**（测试照旧绿, 覆盖全丢）。⇒ 拆分第一步
-（C1）要把这些接缝收进 `webgui/bond/deps.py` 并把测试改成 patch `deps.*`;
-在那之前, 这条守门用 `ALLOWED_PATCHES` 把既存 7 处登记在案 + 反向检查白名单过期。
+测试里原本 16 处 `monkeypatch.setattr(bond, …)`（`_store` / `_image_gen` /
+`GATE_WATCHDOG_MS` …）是模块→包转换的**头号杀手**: 代码搬进 `webgui/bond/stores.py`
+后, 子模块读的是自己的全局, patch **包属性会静默不生效**（测试照旧绿, 覆盖全丢）。
+⇒ **C1a 已把这 16 处全部改成 patch `webgui.deps.*`**（接缝模块）, 故 `ALLOWED_PATCHES`
+现在是空表——保持空表就是本节点之后的验收; 新增 patch 点必须打 `deps.*` 或登记理由。
 
 运行: python -m pytest tests/core/test_split_safety.py
 """
@@ -40,30 +40,26 @@ TARGETS = (
     "llm.client",
 )
 
-#: 既存 patch 点白名单: (相对路径, 属性) → C1/C12 里的归宿
-#: （实测 16 处 / 8 个测试文件; 比"grep setattr(bond," 多——还有 `chat._store = st`
-#:   这类直接赋值, 以及 `llm.client._settings_toml`）
-ALLOWED_PATCHES: dict[tuple[str, str], str] = {
-    # —— webgui.bond: 6 处 ——
-    ("tests/webgui/test_bond.py", "_choice_pregen_enabled"): "C1 → 接缝 webgui/deps.py",
-    ("tests/webgui/test_bond.py", "ImageGenerator"): "C1 → 接缝 webgui/deps.py",
-    ("tests/webgui/test_bond.py", "_image_gen"): "C1 → 接缝 webgui/deps.py",
-    ("tests/webgui/test_bond.py", "_enqueue_annotate"): "C1 → 接缝 webgui/deps.py",
-    ("tests/webgui/test_web_http.py", "GATE_WATCHDOG_MS"): "C1 → 接缝 webgui/deps.py",
-    ("tests/webgui/test_web_http.py", "BUSY_WATCHDOG_MS"): "C1 → 接缝 webgui/deps.py",
-    # —— webgui.chat: 8 处（`chat._store = st` 直接赋值, 7 文件）+ reset_engines 2 处 ——
-    ("tests/webgui/test_bond.py", "_store"): "C1/C12 → 接缝 webgui/deps.py（chat 同用）",
-    ("tests/webgui/test_bond_abort.py", "_store"): "C1/C12 → 接缝 webgui/deps.py",
-    ("tests/webgui/test_bond_replay.py", "_store"): "C1/C12 → 接缝 webgui/deps.py",
-    ("tests/webgui/test_bond_staging.py", "_store"): "C1/C12 → 接缝 webgui/deps.py",
-    ("tests/webgui/test_chat_events.py", "_store"): "C1/C12 → 接缝 webgui/deps.py",
-    ("tests/webgui/test_prewarm_cache.py", "_store"): "C1/C12 → 接缝 webgui/deps.py",
-    ("tests/webgui/test_web_http.py", "_store"): "C1/C12 → 接缝 webgui/deps.py",
-    ("tests/webgui/test_settings_store.py", "reset_engines"): "C1/C12 → 接缝 webgui/deps.py",
-    ("tests/webgui/test_web_http.py", "reset_engines"): "C1/C12 → 接缝 webgui/deps.py",
-    # —— llm.client: 1 处 ——
-    ("tests/llm/test_client_stream.py", "_settings_toml"):
-        "C14（若拆 llm/client）: settings 读取接缝",
+#: 快照里**额外**盯住的模块: 显式接缝模块 `webgui/deps.py`（C1a 起）。
+#: 为什么不并进 `TARGETS`: `TARGETS` 同时是"被拆包"名单（patch 扫描按它认别名）,
+#: 而 patch `deps.*` **正是**合法姿势——并进去会把守门变成反的。
+#: 盯它的理由: 接缝名字被"顺手删掉"要留痕（虽会当场炸测试, 但快照 diff 更早更清楚）。
+SNAPSHOT = TARGETS + ("webgui.deps",)
+
+#: **待收敛** patch 点白名单: (相对路径, 目标模块, 属性) → 归宿。
+#: ✅ C1a 已清空（16 处全部改成 patch `webgui.deps`）——保持空表是本节点的验收之一。
+ALLOWED_PATCHES: dict[tuple[str, str, str], str] = {}
+
+#: **无需收敛**的 patch 点（(相对路径, 目标模块, 属性) → 理由）。
+#: 它们不构成"模块→包后静默失效"风险: 调用点在包**外**、按模块属性查找,
+#: 或者被 patch 的名字本来就属于另一个尚未拆分的模块。
+SAFE_PATCHES: dict[tuple[str, str, str], str] = {
+    ("tests/webgui/test_settings_store.py", "webgui.chat", "reset_engines"):
+        "调用点在包外（routers/settings.py 的 chat.reset_engines()）——patch 依然生效",
+    ("tests/webgui/test_web_http.py", "webgui.chat", "reset_engines"):
+        "同上",
+    ("tests/llm/test_client_stream.py", "llm.client", "_settings_toml"):
+        "llm/client.py 的拆分是 C14（可选）; 届时把它也搬进接缝模块即可",
 }
 
 _MISSING = object()
@@ -126,6 +122,20 @@ def _kind_of(obj) -> str:
     return "data"
 
 
+def _owner_of(obj) -> str:
+    """定义处（**只供审阅**, 不参与比对）——私有实现段一律并到父模块。
+
+    两个理由:
+    · `pathlib._local`（py3.13 起 `Path` 的实现模块）这类**解释器内部**路径会让
+      owner 列在换解释器时整片抖动（实测: 3.12 的 `pathlib` → 3.13 的 `pathlib._local`）;
+    · C1b 那种"模块 → 包 + `_impl.py`"的搬家, owner 从 `webgui.bond` 变成
+      `webgui.bond._impl` —— 归一后**快照零 diff**, "纯搬家"这条验收才硬。
+    """
+    mod = getattr(obj, "__module__", "-") or "-"
+    parts = [p for p in mod.split(".") if not p.startswith("_")]
+    return ".".join(parts) or mod
+
+
 def _surface(module_name: str) -> list[tuple[str, str, str]]:
     """模块**自有**对外面 → [(名字, 种类, 定义处)]（跳过 stdlib/第三方的借用名）。"""
     mod = importlib.import_module(module_name)
@@ -135,12 +145,12 @@ def _surface(module_name: str) -> list[tuple[str, str, str]]:
         obj = getattr(mod, name, _MISSING)
         if obj is _MISSING or inspect.ismodule(obj):
             continue
-        rows.append((name, _kind_of(obj), getattr(obj, "__module__", "-") or "-"))
+        rows.append((name, _kind_of(obj), _owner_of(obj)))
     return sorted(rows)
 
 
 def _snapshot() -> dict[str, list[tuple[str, str, str]]]:
-    return {m: _surface(m) for m in TARGETS}
+    return {m: _surface(m) for m in SNAPSHOT}
 
 
 def _read_fixture() -> dict[str, list[tuple[str, str]]]:
@@ -160,7 +170,7 @@ def _write_fixture(snap: dict[str, list[tuple[str, str, str]]]) -> None:
         "# 刷新: SPLIT_API_UPDATE=1 pytest tests/core/test_split_safety.py",
         "# 格式: 模块<TAB>名字<TAB>种类<TAB>定义处",
     ]
-    for module in TARGETS:
+    for module in SNAPSHOT:
         lines.append(f"# ---- {module} ----")
         lines += [f"{module}\t{n}\t{k}\t{o}" for n, k, o in snap[module]]
     FIXTURE.parent.mkdir(parents=True, exist_ok=True)
@@ -180,7 +190,7 @@ def test_api_surface_matches_snapshot():
     want = _read_fixture()
     problems: list[str] = []
     total = 0
-    for module in TARGETS:
+    for module in SNAPSHOT:
         got = {(n, k) for n, k, _o in snap[module]}
         exp = set(want.get(module, []))
         total += len(exp)
@@ -191,7 +201,7 @@ def test_api_surface_matches_snapshot():
     assert not problems, (
         "API 面与快照不一致（拆分时最容易静默出错的地方）:\n  " + "\n  ".join(problems)
         + "\n确认是有意变更后: SPLIT_API_UPDATE=1 跑本文件刷新并人工审 git diff。")
-    print(f"    split-guard: {len(TARGETS)} 个模块 / {total} 个对外名字与快照一致")
+    print(f"    split-guard: {len(SNAPSHOT)} 个模块 / {total} 个对外名字与快照一致")
 
 
 def _package_aliases(tree: ast.AST) -> dict[str, str]:
@@ -211,9 +221,9 @@ def _package_aliases(tree: ast.AST) -> dict[str, str]:
     return out
 
 
-def _patch_points() -> list[tuple[str, str, int]]:
-    """[(相对路径, 属性, 行号)]——`setattr(别名, "x", …)` 与 `别名.x = …`。"""
-    hits: list[tuple[str, str, int]] = []
+def _patch_points() -> list[tuple[str, str, str, int]]:
+    """[(相对路径, 目标模块, 属性, 行号)]——`setattr(别名, "x", …)` 与 `别名.x = …`。"""
+    hits: list[tuple[str, str, str, int]] = []
     for path in sorted((ROOT / "tests").rglob("*.py")):
         if "__pycache__" in path.parts:
             continue
@@ -232,31 +242,37 @@ def _patch_points() -> list[tuple[str, str, int]]:
                     target, attr = node.args[0], node.args[1]
                     if isinstance(target, ast.Name) and target.id in aliases \
                             and isinstance(attr, ast.Constant) and isinstance(attr.value, str):
-                        hits.append((rel, attr.value, node.lineno))
+                        hits.append((rel, aliases[target.id], attr.value, node.lineno))
             elif isinstance(node, ast.Assign):
                 for t in node.targets:
                     if isinstance(t, ast.Attribute) and isinstance(t.value, ast.Name) \
                             and t.value.id in aliases:
-                        hits.append((rel, t.attr, node.lineno))
+                        hits.append((rel, aliases[t.value.id], t.attr, node.lineno))
     return hits
 
 
 def test_no_patching_split_targets_without_whitelist():
-    """② 不得新增"patch 被拆包属性"的点（新增 → 红, 必须改 patch `deps.*`）。"""
-    live = {(rel, attr) for rel, attr, _ln in _patch_points()}
-    new = [f"{rel}  patch {attr}" for rel, attr in sorted(live - set(ALLOWED_PATCHES))]
+    """② 不得新增"patch 被拆包属性"的点（新增 → 红, 必须改 patch `webgui/deps.*`）。"""
+    live = {(rel, module, attr) for rel, module, attr, _ln in _patch_points()}
+    known = set(ALLOWED_PATCHES) | set(SAFE_PATCHES)
+    new = [f"{rel}  patch {module}.{attr}"
+           for rel, module, attr in sorted(live - known)]
     assert not new, (
         "新增了对被拆包的属性 patch —— 模块→包转换后它会**静默失效**:\n  "
         + "\n  ".join(new)
-        + "\n修法: patch 目标改成显式接缝模块（C1 起是 `webgui.bond.deps`）。")
+        + "\n修法: patch 目标改成显式接缝模块（`webgui/deps`）; 若确认调用点在包外"
+          "（patch 依然生效）, 登记进 SAFE_PATCHES 并写明理由。")
 
 
 def test_patch_whitelist_is_not_stale():
-    """反向判据: 白名单里每条都必须仍然是真实 patch 点（C1 改完后应清空）。"""
-    live = {(rel, attr) for rel, attr, _ln in _patch_points()}
-    stale = [f"{rel}  patch {attr}（{why}）" for (rel, attr), why in ALLOWED_PATCHES.items()
-             if (rel, attr) not in live]
+    """反向判据: 白名单里每条都必须仍然是真实 patch 点（搬完就该删, 忘了删 → 红）。"""
+    live = {(rel, module, attr) for rel, module, attr, _ln in _patch_points()}
+    stale = [f"{rel}  patch {module}.{attr}（{why}）"
+             for (rel, module, attr), why in
+             {**ALLOWED_PATCHES, **SAFE_PATCHES}.items()
+             if (rel, module, attr) not in live]
     assert not stale, (
         "patch 白名单已过期（这些点已经不 patch 被拆包了, 请删条目）:\n  "
         + "\n  ".join(stale))
-    print(f"    split-guard: 既存 patch 点 {len(ALLOWED_PATCHES)} 处已登记（C1 逐个消）")
+    print(f"    split-guard: 待收敛 {len(ALLOWED_PATCHES)} 处 / "
+          f"确认安全 {len(SAFE_PATCHES)} 处")

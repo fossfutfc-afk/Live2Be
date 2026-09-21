@@ -11,7 +11,7 @@
 import time
 from pathlib import Path
 
-from webgui import bond, chat
+from webgui import bond, chat, deps
 from core.session.store import SessionStore
 from core.momotalk import MomoTalkEngine
 
@@ -61,7 +61,7 @@ def _setup(tmp_path, *scripts):
     root = st.create(CHARACTER)
     engine.attach_session(root.session_id)
     chat._engines[CHARACTER] = engine
-    chat._store = st
+    deps.set_store(st)
     return engine, st, root.session_id, llm
 
 
@@ -149,7 +149,7 @@ def test_bond_finish_idempotent(tmp_path):
     root = st.create(CHARACTER)
     engine.attach_session(root.session_id)
     chat._engines[CHARACTER] = engine
-    chat._store = st
+    deps.set_store(st)
     try:
         bond.bond_start(CHARACTER, sid := root.session_id)
         _wait_idle(CHARACTER, sid)

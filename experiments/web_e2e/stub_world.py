@@ -6,7 +6,7 @@
 （见 docs/EXEC_BOND_LATENCY.md 的真机数据）。
 
 **隔离**: 事件流落 `.testtmp/webtest/run-*/data`（临时 SessionStore 注入
-`webgui.chat`）——绝不写真实 data/; settings.toml 只读（生图默认已被
+接缝模块 `webgui.deps`）——绝不写真实 data/; settings.toml 只读（生图默认已被
 tests/conftest 的开关关掉这里不适用, 故这里显式置 `LIVE2BE_IMAGE=off`）。
 
 用法（一般由 run.py 调, 也可单独起）:
@@ -173,7 +173,7 @@ _PNG_1PX = (
 
 
 def build_world(data_root: Path):
-    """临时世界线 + 注入 chat（引擎/store 都指向 data_root）。
+    """临时世界线 + 注入 chat/deps（引擎/store 都指向 data_root）。
 
     **硬隔离（2026-09-11 事故）**: 冒烟会在登录页取名 → `POST /api/name` →
     `mmt_preset.save_player_name()` 写的是**模块级常量 PLAYER_JSON**（真实
@@ -186,7 +186,7 @@ def build_world(data_root: Path):
     from core.mmt import mmt_preset
     from core.momotalk import MomoTalkEngine
     from core.session import SessionStore
-    from webgui import chat
+    from webgui import chat, deps
 
     data_root.mkdir(parents=True, exist_ok=True)
     basic = data_root / "basic"
@@ -201,12 +201,12 @@ def build_world(data_root: Path):
     sid = st.create(CHARACTER).session_id
     engine.attach_session(sid)
     chat._engines[CHARACTER] = engine
-    chat._store = st
+    deps.set_store(st)          # C1a: store 接缝在 `webgui.deps`（`chat._store` 已不存在）
     # 纪念生图替身（2026-09-12）: 离线出图, 让"引擎 art/memorial → gallery URL →
     # 前端纪念层淡入"整条线在冒烟里真的跑一遍（`LIVE2BE_IMAGE=off` 也拦不住它,
-    # 因为这里直接替换了 `_image_generator` 的返回值, 不碰网络也不写真实 gallery）。
-    from webgui import bond as bond_mod
-    bond_mod._image_generator = lambda: _FakeImageGen()
+    # 因为这里直接替换了 `deps.image_generator` 的返回值, 不碰网络也不写真实 gallery）。
+    # ⚠️ C1a: 必须打**接缝模块**——打 `bond_mod._image_generator` 从今往后是静默 no-op。
+    deps.image_generator = lambda: _FakeImageGen()
     return st, sid, engine, llm
 
 

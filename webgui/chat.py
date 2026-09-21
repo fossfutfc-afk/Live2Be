@@ -21,24 +21,24 @@ import threading
 from pathlib import Path
 
 from core.momotalk import MomoTalkEngine
-from core.session import SessionStore
 from core.session.events import M_VN_ENTER, M_VN_EXIT
 from core.ui.text_processors import _strip_action_brackets, split_reply_chunks
 from llm.client import LLMClient
+from webgui import deps                       # 接缝（C1a）: store 等可替换依赖
 
 logger = logging.getLogger(__name__)
 
 # 项目根绝对路径（cwd 无关——uvicorn 从任意目录启动）
 ROOT = Path(__file__).resolve().parent.parent
 CHAR_ROOT = ROOT / "config" / "characters"
-DATA_ROOT = ROOT / "data"
+# 数据根 (`DATA_ROOT`) 与 `SessionStore` 实例已随 C1a 搬到 `webgui/deps.py`
+# ——这里不再留副本（同一事实两个来源 = 迟早对不上）。
 INTERPERSON_PATH = ROOT / "config" / "settings" / "relation" / "interperson.json"
 
 # ---------------------------------------------------------------------------
 # 引擎管理（每 char 独立实例 + 同 char 串行锁）
 # ---------------------------------------------------------------------------
 
-_store = SessionStore(DATA_ROOT)
 _engines: dict[str, MomoTalkEngine] = {}
 _locks: dict[str, threading.Lock] = {}
 # 后台任务状态 + 输入队列（排队连发）: (char_id, session_id) → ...
@@ -59,7 +59,7 @@ def _engine(char_id: str) -> MomoTalkEngine:
             CHAR_ROOT,
             LLMClient(),
             interperson_path=INTERPERSON_PATH,
-            store=_store,
+            store=deps.store(),                  # 接缝（C1a）: 测试换 store 后即时生效
         )
     return _engines[char_id]
 
@@ -99,7 +99,7 @@ def open_session(char_id: str) -> dict:
     engine = _engine(char_id)
     # 找进行中会话（list_open 按 created_at 倒序, 取最近）
     open_meta = next(
-        (m for m in _store.list_open() if m.character_id == char_id), None)
+        (m for m in deps.store().list_open() if m.character_id == char_id), None)
     if open_meta is not None:
         res = engine.resume_session(char_id, open_meta.session_id)  # 含 brain digest
         return {
@@ -109,7 +109,7 @@ def open_session(char_id: str) -> dict:
             "in_vn": res["status"].get("in_vn", False),
         }
     # 新世界线
-    meta = _store.create(char_id)
+    meta = deps.store().create(char_id)
     display_name = engine.start_session(char_id)
     engine.attach_session(meta.session_id)
     return {
@@ -124,7 +124,7 @@ def open_session(char_id: str) -> dict:
 def new_world(char_id: str) -> dict:
     """显式开新世界线（平行世界语义: 旧线保留, 新线从零开始）。"""
     engine = _engine(char_id)
-    meta = _store.create(char_id)
+    meta = deps.store().create(char_id)
     display_name = engine.start_session(char_id)
     engine.attach_session(meta.session_id)
     return {"session_id": meta.session_id, "display_name": display_name, "new": True}
@@ -325,7 +325,7 @@ def events_after(char_id: str, session_id: str, since: int = 0,
 
     since=0 → 全量（打开聊天窗时拉历史）。display_name 供 bond_entry 横幅。
     """
-    events = _store.events(char_id, session_id)
+    events = deps.store().events(char_id, session_id)
     new_events = [e for e in events if e.seq > since]
     status = task_status(char_id, session_id)
     # 完成态视角 = 全量事件流（触发与收尾 marker 可能跨多次轮询才到齐）

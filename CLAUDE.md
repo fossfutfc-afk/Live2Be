@@ -572,9 +572,9 @@ CLI/测试同步路径在引擎内串行。
   `tools/`（.gitignore 忽略的本机工具目录）。
 - **生图默认硬关**（tests/conftest.py 会话级 autouse 置 `LIVE2BE_IMAGE=off`, §10）：
   用例天然不出图、不写 gallery——**不再依赖"本机没配 key"这种偶然保护**。需要真走
-  生图分支的用例显式 `monkeypatch.setenv("LIVE2BE_IMAGE", "on")` 并给
-  `bond._image_generator` 替身（v1 老例 `tests/archive/test_bond_retired_v1.py` 已删;
-  现役例子看 `tests/webgui/test_bond.py`）。
+  生图分支的用例显式 `monkeypatch.setenv("LIVE2BE_IMAGE", "on")` 并给接缝模块
+  `webgui.deps` 的生图器替身（**C1a 起别打 `bond._image_generator`——静默 no-op**;
+  现役例子看 `tests/webgui/test_bond.py` 与冒烟桩 `experiments/web_e2e/stub_world.py`）。
   **测试进程硬闸**（2026-09-11 误触计费事故后加）: 闸门在唯一 HTTP 出口
   `ImageGenerator._post_api` 上——pytest 进程里一律拒绝（`PYTEST_CURRENT_TEST` /
   `sys.modules['pytest']` 判定），要真调必须显式 `LIVE2BE_IMAGE_ALLOW_REAL=1`;
@@ -649,12 +649,16 @@ CLI/测试同步路径在引擎内串行。
   2″（`BoardLifecycle` + `_discard_boards`）· **5b（`task=` 结构化分派 + 三条守门）** **;
   未做: `webgui/bond.py` 文件拆分（用户 2026-09-21 说"之后再做"）。
   来源 = ARCH_REVIEW P0-2/P0-3/P2-8 的根治）
-- **文件拆分与位置规划（C0 已落地）**：docs/EXEC_SPLIT.md（**执行计划**。C0 = 安全网 +
+- **文件拆分与位置规划（C0 + C1a 已落地）**：docs/EXEC_SPLIT.md（**执行计划**。C0 = 安全网 +
   工具纪律：`tests/core/test_import_direction.py`（4 条分层规则）·
-  `tests/core/test_split_safety.py`（API 面快照 367 名 + 16 个 patch 点台账）·
-  rope 实测结论（只用于真搬家, 拆包不能用它）。节点 C1–C14：`webgui/bond/` →
-  `core/bond/bond_story/` → `contract/records/` → `core/mmt` 合并 / `apps/` / `docs/` 归位
-  → 测试拆分; 每节点一提交 + 全量 + 冒烟）
+  `tests/core/test_split_safety.py`（API 面快照 + patch 点台账）·
+  rope 实测结论（只用于真搬家, 拆包不能用它）。**C1a = 接缝收敛**：新建
+  `webgui/deps.py`（显式接缝: store / 生图器 / 看门狗阈值 / choice 开关 / 标注钩子）,
+  `bond.py`/`chat.py`/**测试/冒烟桩**一律改读 `deps.xxx`——**模块→包之后
+  `monkeypatch.setattr(包, 名字)` 会静默失效**（测试照旧绿、覆盖全丢）, 这是拆分的头号坑,
+  守门见 `test_split_safety.py` 的空 `ALLOWED_PATCHES`。节点 C1b–C14：`webgui/bond/` 拆
+  9 个模块 → `core/bond/bond_story/` → `contract/records/` → `core/mmt` 合并 / `apps/` /
+  `docs/` 归位 → 测试拆分; 每节点一提交 + 全量 + 冒烟）
 - **重新生成 / 重发 的语义与固化线**：docs/DESIGN_RESEND.md（**设计稿, 未动代码**。
   决策: MMT 提交边界 = **回合提交**; 两区 = 水位之上**丢弃** / 水位之下走
   `wiki_v2/revise` **更正**; 板级那一半已由 `BoardLifecycle` + `_discard_boards` 落地;

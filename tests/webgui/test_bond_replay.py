@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from core.session import SessionStore
 from core.session.events import make_event
-from webgui import bond, chat
+from webgui import bond, chat, deps
 
 CHARACTER = "igusa_haruka"
 TITLE_A = "放学后的约定"
@@ -21,10 +21,10 @@ TITLE_B = "雨天的杂草"
 
 
 def _with_store(tmp_path):
-    """SessionStore(tmp) + chat._store 注入（bond._store 读 chat._store）。"""
-    old = chat._store
+    """SessionStore(tmp) + deps store 注入（bond 落库读 deps.store()）。"""
+    old = deps.store()
     st = SessionStore(tmp_path)
-    chat._store = st
+    deps.set_store(st)
     return st, old
 
 
@@ -74,7 +74,7 @@ def test_replay_completed_attempt(tmp_path):
         assert at["scenes"][1]["picked"] is None
         print("    replay: 完整段单段 2 场, scene 去 input/picked, picked 单独带")
     finally:
-        chat._store = old
+        deps.set_store(old)
 
 
 def test_replay_interrupted_then_second_attempt(tmp_path):
@@ -101,7 +101,7 @@ def test_replay_interrupted_then_second_attempt(tmp_path):
         assert a2["from_seq"] > a1["from_seq"]
         print("    replay: 中断段 → 新段开; 流尾未关段 = 中断")
     finally:
-        chat._store = old
+        deps.set_store(old)
 
 
 def test_replay_graceful_midquit_is_interrupted(tmp_path):
@@ -119,7 +119,7 @@ def test_replay_graceful_midquit_is_interrupted(tmp_path):
         assert ats[0]["interrupted"] is True
         print("    replay: 中途退出段 completed=False")
     finally:
-        chat._store = old
+        deps.set_store(old)
 
 
 def test_replay_reads_staging_overlay(tmp_path):
@@ -158,7 +158,7 @@ def test_replay_reads_staging_overlay(tmp_path):
         assert ats2 and ats2[0]["completed"] is True and not ats2[0]["interrupted"]
         print(f"    replay: 暂存期看得到 {len(ats[0]['scenes'])} 场前缀; commit 后 completed")
     finally:
-        chat._store = old
+        deps.set_store(old)
 
 
 def test_replay_empty_session(tmp_path):
@@ -170,4 +170,4 @@ def test_replay_empty_session(tmp_path):
         assert bond.replay_attempts("no_such_char") == []
         print("    replay: 空会话 → []")
     finally:
-        chat._store = old
+        deps.set_store(old)

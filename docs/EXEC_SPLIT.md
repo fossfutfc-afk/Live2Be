@@ -1,6 +1,7 @@
 # EXEC_SPLIT — 文件拆分与位置规划（执行计划）
 
-> **状态**：执行中。**C0（安全网 + 工具纪律）已落地 2026-09-21**；C1 起未动。
+> **状态**：执行中。**C0（安全网 + 工具纪律）+ C1a（接缝收敛 `webgui/deps.py`）已落地
+> 2026-09-21**；C1b 起未动。
 > **怎么用**：每个节点 = **一次提交 + 全量测试 + （涉 webgui 时）B 层冒烟**；
 > 节点内**只做"移动"**，任何行为改动单独开节点。行号一律不写（会漂），写 `file.py::symbol`。
 > **相关**：`docs/EXEC_PIPELINE_UNIFY.md`（流水线收敛，已全部落地）· `CLAUDE.md` §2/§11/§12。
@@ -60,11 +61,16 @@ webgui/     壳      不得依赖 tests / experiments
 ### 2.3 目标树（**要搬的**）
 
 ```
+webgui/deps.py           ← 显式接缝（C1a 已落地: store / 生图器 / 看门狗阈值 / choice 开关 /
+                           `enqueue_annotate` 钩子）。⚠️ **放包外**（`webgui/deps.py`）不放
+                           `webgui/bond/deps.py`: `chat.py` 也要用 store 接缝, 而
+                           `chat → bond` 会成环（现在只有 `bond → chat` 单向）。
 webgui/bond/             ← webgui/bond.py（模块→包；13 个引用点零改动）
   __init__.py            门面: 全量再导出（含私有名）
-  deps.py                ← 显式接缝（16 个 patch 点收敛到这里, §5）
+  _impl.py               C1b: 原文件逐字搬进来（一个字的逻辑都不改）
   state.py               BondState / BoardLifecycle / ChoiceCandidate / _state / 注册表
-  watchdog.py            看门狗阈值 + _watchdog / _lanes_idle / _gate_stalled / _force_scene_ready
+  watchdog.py            看门狗判定 + _watchdog / _lanes_idle / _gate_stalled / _force_scene_ready
+                         （**阈值常量**留在 `deps.py`——测试要改它们）
   stores.py              _flow_store/_stage_store/_log_scene/_log_scene_meta/marker/prewarm/draft
   lanes.py               双路 lane + 就绪门控 + _memorial_no_visuals
   replay.py              replay_attempts/chapter_replay/_start_replay/_narrativize/标题
@@ -92,7 +98,8 @@ tests/webgui/bond/       ← test_bond.py 按主题拆 + tests/stubs/ 收共享 
 | # | 节点 | 内容 | 验收 |
 |---|---|---|---|
 | ✅ **C0** | **安全网 + 工具纪律** | ① `tests/core/test_import_direction.py`（4 条分层规则 + 6 处白名单 + 不腐烂 + 自测）② `tests/core/test_split_safety.py`（API 面快照 367 名 / 16 个 patch 点台账）③ 本文档 | 两个守门绿 + **实测会红**（删一个名字/加一个 patch 点）；全量 **880 passed** |
-| **C1** | `webgui/bond.py` → 包（**先原样**） | 全部逻辑逐字进 `webgui/bond/_impl.py`；`__init__.py` 全量再导出；**同时**把 16 个 patch 点收敛进 `webgui/deps.py` 并改测试；`test_split_safety` 白名单清空 | `git diff -M` 呈**纯移动**；13 个引用点零改动；全量 + 冒烟绿；patch 白名单 0 条 |
+| ✅ **C1a** | **接缝收敛（`webgui/deps.py`）** | 新建 `webgui/deps.py`（store / 生图器 / 看门狗阈值 / choice 开关 / `enqueue_annotate` 钩子）; `bond.py`/`chat.py`/`routers/collection.py` 全部改读 `deps.xxx`（**调用时**属性查找）; **16 个 patch 点全部改打 `deps.*`**; `ALLOWED_PATCHES` 清空 + 新增 `SAFE_PATCHES`（3 条: 调用点在包外的 patch）; 快照加盯 `webgui.deps`（`SNAPSHOT = TARGETS + ("webgui.deps",)`——`deps` **不能**进 `TARGETS`, 否则"patch 接缝"会被守门当成违规）; owner 列归一（`_owner_of` 去掉私有段, 免得换解释器抖 + C1b 要求快照零 diff） | 全量 **880 passed**; 冒烟 **PASS**（含纪念生图链路）; patch 白名单 0 条; 快照 diff = 只此 10 个名字搬家 |
+| **C1b** | `webgui/bond.py` → 包（**先原样**） | 全部逻辑逐字进 `webgui/bond/_impl.py`；`__init__.py` 全量再导出（含私有名）；**13 个引用点零改动** | `git diff -M` 呈**纯移动**；`tests/fixtures/api_surface.txt` **零 diff**（`_owner_of` 已归一）; 全量 + 冒烟绿 |
 | **C2** | 搬 `stores.py` | 落库/事件流/marker/prewarm/draft | 绿 |
 | **C3** | 搬 `lanes.py` | 双路 lane + 就绪门控 | 绿 |
 | **C4** | 搬 `replay.py` | 回放/标题 | 绿（回放用例是网） |
@@ -108,7 +115,7 @@ tests/webgui/bond/       ← test_bond.py 按主题拆 + tests/stubs/ 收共享 
 | **C14** | `core/brain/wiki_v2/*`（可选） | digest/nodes/channel 再分 | 绿 |
 
 顺序理由：**自上层往下**（webgui 最安全、收益最快；`contract/` 是所有人依赖的地基，放后面）；
-**先拆接缝再搬文件**（C1 把 16 个 patch 点收敛，之后搬块不再有静默失效风险）。
+**先拆接缝再搬文件**（C1a 已把 16 个 patch 点收敛, 之后搬块不再有静默失效风险）。
 
 ---
 
@@ -149,17 +156,27 @@ python -m compileall -q core webgui llm contract tests   # 全仓可编译
 
 ## 5. 陷阱清单（拆分前必读）
 
-1. **16 个 patch 点**（`tests/core/test_split_safety.py::ALLOWED_PATCHES` 已登记）：
+1. **16 个 patch 点**（C1a 已全部收敛; `tests/core/test_split_safety.py` 的
+   `ALLOWED_PATCHES` 现在**是空表**——它就是"收敛完了"的机器证据）：
    `webgui.bond` 6 处（`_store`/`_choice_pregen_enabled`/`ImageGenerator`/`_image_gen`/
    `_enqueue_annotate`/2 个看门狗常量）+ `webgui.chat._store` 7 文件 8 处 + `reset_engines` 2 处
    + `llm.client._settings_toml` 1 处。
-   ⇒ **C1 必须先把它们收敛到 `webgui/deps.py`**（消费方写 `deps.store()` 而非
-   `from .deps import store`——**调用时属性查找** patch 才生效）, 否则模块→包之后
-   patch 静默失效（测试照旧绿, 覆盖全丢）。
+   ⇒ 收敛到 `webgui/deps.py`（消费方写 `deps.store()` 而非 `from .deps import store`
+   ——**调用时属性查找** patch 才生效）, 否则模块→包之后 patch 静默失效（测试照旧绿,
+   覆盖全丢）。
+   ⚠️ **接缝外还有"非测试"的 patch 点**（不在守门扫描范围: 它只扫 `tests/`）:
+   `experiments/web_e2e/stub_world.py` 的 `chat._store = st` 与
+   `bond_mod._image_generator = …`、`l2d-demo/{async_time,ab_branch}.py` 的 `chat._store = st`
+   ——C1a 一并改成 `deps.set_store()` / `deps.image_generator = …`
+   （**不改成静默 no-op**: 前者的后果是冒烟写真实 data/, 后者是纪念生图链路在冒烟里
+   假装跑通）。以后新增桩/脚本请照这两条改。
 2. **门面 = 模块→包转换**（不是 shim 文件）: `webgui/bond.py`→`webgui/bond/`、
    `core/bond/bond_story.py`→`core/bond/bond_story/`、`contract/records.py`→`contract/records/`
    —— import 路径不变 ⇒ 13/27/其他引用点**一个字都不用改**。
-3. **既有名字一个都不能丢**：`tests/fixtures/api_surface.txt`（367 个自有名字）守门。
+3. **既有名字一个都不能丢**：`tests/fixtures/api_surface.txt`（7 拆分目标 + 接缝
+   `webgui.deps` 的 367→377 个自有名字）守门。owner 列由 `_owner_of` **去掉私有段**
+   （`pathlib._local`→`pathlib`, `webgui.bond._impl`→`webgui.bond`）⇒ 与解释器版本、
+   与"包内实现文件怎么分"解耦, C1b 的验收是**夹具零 diff**。
 4. **文档行号冻结**：`docs/ARCH_REVIEW_*` / `docs/AUDIT_*` 里的 `file.py:行号` 是历史记录,
    不追改; 新文档写 `file.py::symbol`。
 5. **`core/paths.py` 未决**：上提为顶层会动 `tests/core/test_paths.py` 与 20+ 消费点,
@@ -175,7 +192,7 @@ python -m compileall -q core webgui llm contract tests   # 全仓可编译
 ## 6. 明确不做（本计划边界）
 
 - **不改 HTTP 契约 / JSON / JS**（前端零改动）。
-- **不在拆分节点里改行为**；唯一例外是 C1 的接缝显式化（行为等价, 有全量测试 + 冒烟兜底）。
+- **不在拆分节点里改行为**；唯一例外是 C1a 的接缝显式化（行为等价, 有全量测试 + 冒烟兜底）。
 - **不重命名对外符号**（`bond_start`/`bond_turn`/`BondStoryEngine`/`check_block`…）。
 - **不解决"引擎依赖终端 UI"**（`core/momotalk.py` → `core/ui/*`）与"盒B 只注入两文件"
   这类**行为级**问题——本计划只搬位置; 那些另立设计。
