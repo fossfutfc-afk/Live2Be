@@ -3,8 +3,8 @@
 > **状态**：执行中。**C0（安全网 + 工具纪律）+ C1a（接缝收敛 `webgui/deps.py`）+
 > C1b（`webgui/bond.py` → 包, 纯移动）+ C2（搬 `state.py`, 叶子优先）+
 > C3（搬 `stores.py`, 落库层）+ C4（搬 `lanes.py` + `util.py`）+
-> C5（搬 `replay.py`, 回放层）+ C6（搬 `memorial.py`, 纪念生图）已落地
-> 2026-09-21**；C7 起未动。
+> C5（搬 `replay.py`, 回放层）+ C6（搬 `memorial.py`, 纪念生图）+
+> C7（搬 `pregen.py`, 生成/预生成/候选/丢弃）已落地 2026-09-21**；C8 起未动。
 > **怎么用**：每个节点 = **一次提交 + 全量测试 + （涉 webgui 时）B 层冒烟**；
 > 节点内**只做"移动"**，任何行为改动单独开节点。行号一律不写（会漂），写 `file.py::symbol`。
 > **相关**：`docs/EXEC_PIPELINE_UNIFY.md`（流水线收敛，已全部落地）· `CLAUDE.md` §2/§11/§12。
@@ -84,6 +84,7 @@ webgui/bond/             ← webgui/bond.py（模块→包；13 个引用点零�
   replay.py              replay_attempts/chapter_replay/_start_replay/_narrativize/标题
                          （**C5 已落地**；`_start_replay` 是编排, 留到 C8 `api.py`）
   pregen.py              _generate/_pregenerate/候选/丢弃/_scene_landed
+                         （**C7 已落地**；含 `_system_note` 与收尾/重试常量）
   memorial.py            生图工厂 + _memorial_gen + _persisted_memorial_img
                          （**C6 已落地**；⚠️ 与原计划 C6/C7 对调: 它是叶子, 而 pregen
                          的 `_generate`/`_pregenerate` 要用它的 `_make_memorial_cb`）
@@ -116,8 +117,8 @@ tests/webgui/bond/       ← test_bond.py 按主题拆 + tests/stubs/ 收共享 
 | ✅ **C4** | **搬 `lanes.py` + `util.py`** | 13 个符号逐字搬进 `webgui/bond/lanes.py`（就绪门控 `_memorial_no_visuals`/`_scene_*_ready`/`_scene_ready_or_busy`/`_wait_annotated` + 双路 lane `_ensure_lane`/`_enqueue_annotate`/`_enqueue_place_annotate`/`_anno_worker`/`_place_worker`/`_fallback_fill`）; **新开 `util.py`** 放 `_ms_since`（4 个模块要用的纯小工具 —— 塞 state 属位置放错）; `deps.enqueue_annotate` 的懒转发目标改指 `webgui.bond.lanes`（C1a 就预留了这句话） | 全量 **880 passed**; 冒烟 **PASS**; 门面 117 名 + 夹具**零 diff**; 身份自检 |
 | ✅ **C5** | **搬 `replay.py`（回放层）** | 8 个符号逐字搬进 `webgui/bond/replay.py`: `_narrativize` · `replay_attempts` · `_interrupted_replay_queue` · `chapter_replay`（**只读回放**, 与 resume 型回放是两件事）· `_pending_in_vn` · `_title_from_events` · `_enter_title` · `_prev_chapter_quit`。`_start_replay` **不搬**（同时抓 pregen/memorial/payload/draft, 属编排 → C8 `api.py`）; 顺手把 `NON_PICKS`/`abandoned_ranges`/`replayable_chapters` 从 `_impl` 的清成"门面直指真家" | 全量 **880 passed**; 冒烟 **PASS**; 门面 117 名 + 夹具**零 diff**; 8 个名字身份自检 |
 | ✅ **C6** | **搬 `memorial.py`（纪念生图）** | 4 个符号逐字搬进 `webgui/bond/memorial.py`: `_persisted_memorial_img`（从事件流/overlay 捡回异步落盘的图）· `_memorial_gen`（真开画, 生图器走 `deps`）· `_make_memorial_cb` · `_ensure_memorial_img`。**注意 C6/C7 对调了**（见下）; 顺手把 `GalleryStore`/`collect_ref_images`/`M_MEMORIAL_IMAGE` 清成"门面直指真家" | 全量 **880 passed**; 冒烟 **PASS**; 门面 117 名 + 夹具**零 diff**; 4 个名字身份自检 |
-| **C7** | 搬 `pregen.py` | 预热/预生成/候选/丢弃（依赖 C6 的 `_make_memorial_cb`/`_ensure_memorial_img`; `_system_note` 的归宿届时定） | 绿（节点 4′/2″ 用例是网） |
-| **C8** | 搬 `api.py`/`watchdog.py` | `_impl.py` 消失 | 绿；2950 行 → 9 个 100~650 行模块 |
+| ✅ **C7** | **搬 `pregen.py`（生成 / 预生成 / 候选 / 丢弃）** | 15 个符号逐字搬进 `webgui/bond/pregen.py`: 常量 `_CLOSING_TEXT`/`_CLOSING_PARA`/`MAX_GEN_FAILURES`/`_REMIND_ROUNDS`/`_END_ROUNDS` + `_generate`/`_pregenerate`/`_scene_landed`/`_log_board_deliver` + 候选支 `_choice_pregen_enabled`/`_spawn_candidates`/`_candidate_worker` + 丢弃入口 `_discard_boards`/`_discard_candidates` + `_system_note`（产品侧只有生成两处调用, 故住这里）。顺手把 `ChoiceCandidate`/`staging_store`/`M_SESSION_END`/`M_VN_ABANDON` 清成"门面直指真家" | 全量 **880 passed**; 冒烟 **PASS**; 门面 117 名 + 夹具**零 diff**; 15 个名字身份自检; `_impl.py` 1204 行 |
+| **C8** | 搬 `api.py`/`watchdog.py` | `_impl.py` 消失（剩 21 个符号: `bond_start/turn/status/finish` · `_start_replay` · `_ready_scene_payload` · `_role_info` · `_wrapup*` · 看门狗族 `_watchdog`/`_lanes_idle`/`_gate_stalled`/`_lane_writer_alive`/`_thread_alive`/`_force_scene_ready` · `_note_reject`/`_clear_rejects` · `_entry_already_done` · `DEMO_SCRIPT`） | 绿；`webgui/bond/` = 9 个 100~460 行模块 |
 | **C9** | `core/bond/bond_story.py` → 包 | scene/boards/engine | 27 个引用点零改动；绿 |
 | **C10** | `contract/records.py` → 包 + `json_cleaner` 归位 | grammar/parse/check/carrier；**顺带消掉 4 处 contract 违规** | 分层白名单减 3 条；绿 |
 | **C11** | `core/ui` 拆 + `wiring` 上提 | `core/tui/`；`_build_director/_trigger_title` → `core/director/wiring.py` | 分层白名单减 1 条（core→renderer 消失）；绿 |
