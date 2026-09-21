@@ -183,6 +183,41 @@ def test_memorial_window_before_its_board():
     print("    预热顺序: marker 在板之前 → 图仍挂到触发板")
 
 
+def test_story_pick_supplement_merges_into_board():
+    """★ **补录裁决**（`bond/story_pick`）→ 并回它那一板（2026-09-21）。
+
+    场景: 玩家在**未裁决的选项板**上退出 → `bond_finish` 以 `picked=None` 把板补录
+    （板 = 演出, 当时确实没裁决）→ 重进后补的那次裁决落成**独立事件**。回忆册与段计数
+    必须把它当"板 + 老师那句": 补录**不算一块板**, 但那一板的 `picked` 要补上。
+    归属规则只有 `core.session.events.pick_supplements()` 一处（按 `board_seq`）。
+    """
+    from core.session.maintenance import attempt_spans
+    evs = [
+        marker("vn_enter", {"chapter_title": "甲"}, seq=2),
+        make_event("bond", "story_scene", {
+            "paragraphs": [{"text": "……老师，你来了。"}],
+            "records": [{"character": "igusa_haruka", "text": "……老师，你来了。"},
+                        {"character": "sensei", "text": "选A"},
+                        {"character": "sensei", "text": "选B"}],
+            "choices": ["选A", "选B"], "input": "（种子）"}, seq=3),      # 退出补录（无 picked）
+        make_event("bond", "story_pick",
+                   {"picked": "选B", "board_seq": 3}, seq=4),
+        marker("vn_exit", {"completed": True}, seq=5),
+    ]
+    ch = replayable_chapters(evs)[0]
+    assert ch["boards"] == 1, ch["boards"]              # 补录事件**不算板**
+    assert ch["scenes"][0]["seq"] == 3
+    assert ch["scenes"][0]["picked"] == "选B", ch["scenes"][0]
+    assert attempt_spans(evs)[0]["scenes"] == 1         # 段计数同样不把补录当板
+
+    # 宁缺勿错: 指不到任何一板（board_seq 对不上）→ 不合并, 板保持未裁决
+    bogus = list(evs)
+    bogus[2] = make_event("bond", "story_pick",
+                          {"picked": "选B", "board_seq": 99}, seq=4)
+    assert replayable_chapters(bogus)[0]["scenes"][0]["picked"] is None
+    print("    story_pick: 补录不算板 + 并回对应板的高亮; 指不到就不合并 ✓")
+
+
 def test_memorial_img_lands_on_board_already_in_window():
     """★★ **真机形状**（2026-09-20 报障"回放里也放不出来"）: 图在**预热**时生成
     （早于 `vn_enter`、且它前面**没有任何** `memorial_enter`）→ 板级挂不上, 只能走

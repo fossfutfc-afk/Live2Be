@@ -30,7 +30,7 @@ import json
 import time
 from contract import NON_PICKS
 from core.session.chapters import replayable_chapters
-from core.session.events import M_VN_EXIT
+from core.session.events import M_VN_EXIT, is_board_event, pick_supplements
 from core.session.maintenance import abandoned_ranges
 from core.session.staging import staging_store
 from core.director.wiring import _trigger_title      # C11: 接线层（此前借道 apps.vn_cli）
@@ -127,6 +127,8 @@ def replay_attempts(char_id: str, session_id: str = "") -> list[dict]:
                 attempts.append(cur)
                 cur = None
         elif t == "bond":
+            if not is_board_event(e):
+                continue                    # 补录裁决不是板（流尾统一并回去, 见下）
             if cur is None:                 # 兼容旧事件: 无 vn_enter 直接开段
                 open_attempt(e.seq, "")
             payload = e.payload or {}
@@ -139,6 +141,13 @@ def replay_attempts(char_id: str, session_id: str = "") -> list[dict]:
                 "scene": scene,
             })
     close_interrupted()                     # 流尾未关段 → 中断
+    # 补录裁决（`bond/story_pick`）→ 并回它所属那一板: 回放画出来与"正常裁决过的板"
+    # 逐字同形（前端据此高亮所选; 规则只有 `pick_supplements` 一处）。
+    picks = pick_supplements(evs)
+    for at in attempts:
+        for s in at["scenes"]:
+            if not (s["picked"] or "") and picks.get(s["seq"]):
+                s["picked"] = picks[s["seq"]]
     return attempts
 
 

@@ -31,7 +31,8 @@ from core.session.events import (
     M_SESSION_END,
     M_VN_ABANDON,
     M_VN_EXIT,
-    TYPE_BOND,
+    is_board_event,
+    pick_supplements,
 )
 from core.session.maintenance import abandoned_ranges, attempt_spans
 
@@ -115,7 +116,7 @@ def _memorial_boards(events: list) -> dict[int, dict]:
     **v1 档 / 图先于板落盘**（没有前置 `memorial_enter`）→ 这里不管, 由
     `replayable_chapters` 用章级判据挂到"带 `memorial`/`memorial_prompt` 的板"上。
     """
-    bonds = [e for e in events if getattr(e, "type", None) == TYPE_BOND]
+    bonds = [e for e in events if is_board_event(e)]
 
     def _memorial_flag(e) -> bool:
         p = e.payload or {}
@@ -210,13 +211,17 @@ def replayable_chapters(events: list) -> list[dict]:
                 if s["completed"] and s["scenes"] > 0 and not _abandoned(s, ranges)]
     if not chapters:
         return []
-    bonds = [e for e in events if getattr(e, "type", None) == TYPE_BOND]
+    bonds = [e for e in events if is_board_event(e)]
     images = _memorial_urls(events, spans)
     per_board = _memorial_boards(events)
+    picks = pick_supplements(events)          # 补录裁决 → 并回它那一板（读侧唯一规则）
     out: list[dict] = []
     for s in chapters:
         lo, hi = s["enter_seq"], (s["close_seq"] or _OPEN_END)
         scenes = [_scene_of(e) for e in bonds if lo <= e.seq <= hi]
+        for sc in scenes:                     # 退出补录的板 + 后来补的裁决 = 正常裁决过的板
+            if not (sc.get("picked") or "") and picks.get(sc["seq"]):
+                sc["picked"] = picks[sc["seq"]]
         _attach_memorial(scenes, per_board, images.get(lo, []))
         out.append({
             "from_seq": lo,

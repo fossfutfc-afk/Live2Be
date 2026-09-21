@@ -32,6 +32,9 @@ from core.session.events import (
     M_MEMORIAL_ENTER,
     M_MEMORIAL_EXIT,
     M_VN_STATE,
+    S_STORY_PICK,
+    TYPE_BOND,
+    is_board_event,
     make_event,
 )
 from core.session.staging import staging_store
@@ -351,6 +354,59 @@ def _log_scene(state: BondState, char_id: str, session_id: str, picked) -> None:
         logger.warning("事件流 bond 写入失败（该板保持未落库, 下次裁决/收尾重试）: %s", e)
         return                                       # ← 不置位: 留一次重试机会
     state.scene_state = BoardLifecycle.COMMITTED
+
+
+def _unpicked_board_seq(state: "BondState", char_id: str,
+                        session_id: str) -> int | None:
+    """当前屏上这一板在事件流里的 seq —— **仅当它以 `picked` 为空落过库**（= 退出补录）。
+
+    身份判据 = `records` **逐字相同**（不是"顺序相邻"那种隐式约定）: 最近一条板事件
+    对不上就直接返回 None。**宁缺勿错**: 宁可这次补录不写, 也绝不把裁决挂到别的板上。
+    """
+    recs = list(getattr(state.scene_obj, "records", None) or [])
+    if not recs:
+        return None
+    try:
+        for e in reversed(_flow_store(state).events(char_id, session_id)):
+            if not is_board_event(e):
+                continue
+            p = e.payload or {}
+            if (p.get("picked") or "").strip():
+                return None                  # 最近一板已裁决 → 当前板不是它（异常路径）
+            return e.seq if list(p.get("records") or []) == recs else None
+    except Exception as e:                   # noqa: BLE001 — 读失败不写
+        logger.warning("补录裁决定位失败（跳过）: %s", e)
+    return None
+
+
+def _log_pick(state: "BondState", char_id: str, session_id: str, picked: str) -> int:
+    """**补录裁决**（`bond/story_pick`）→ 写入事件的 seq（`0` = 没写）。
+
+    为什么需要它（2026-09-21 探针实测的系统性漏记）: 玩家在**未裁决的选项板**上点
+    "结束剧情" → `bond_finish` 把这板以 `picked=None` 补录进真源并置 COMMITTED →
+    重进后玩家再点选项 → `_log_scene` 被 COMMITTED 守卫挡下（append-only, 正文不可改）
+    ⇒ 那次选择**哪里都进不去**: 模型窗口少一行裁决、digest 看不见, 而且那板永远显示
+    "未裁决"（每次重进都能再选一次 → 同一份日志下会长出两条互斥的后续）。
+
+    语义分工: **板事件 = 演出**（当时确实没裁决, `picked=None` 是事实）;
+    **本事件 = 之后补上的裁决**（append-only 下的新事实）。
+    读侧唯一规则 = `core.session.events.pick_supplements()`（合并回"板 + 老师那句"）。
+    ⚠️ 只用于**已落库且 picked 为空**的板; 正常裁决走 `_log_scene`（零新增事件）。
+    """
+    seq = _unpicked_board_seq(state, char_id, session_id)
+    if seq is None:
+        logger.warning("补录裁决无归属板（跳过, 不写事件）: %s/%s picked=%r",
+                       char_id, session_id, picked)
+        return 0
+    try:
+        ev = _flow_store(state).append_event(char_id, session_id, make_event(
+            TYPE_BOND, S_STORY_PICK, {"picked": picked, "board_seq": seq}))
+    except Exception as e:                   # noqa: BLE001 — 写失败降级（记忆缺一条, 不改主链）
+        logger.warning("补录裁决写入失败: %s", e)
+        return 0
+    logger.info("bond_story_pick board=%d picked=%r %s/%s",
+                seq, picked, char_id, session_id)
+    return ev.seq
 
 
 def _log_scene_meta(state: BondState, char_id: str, session_id: str,

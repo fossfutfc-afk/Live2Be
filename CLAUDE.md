@@ -50,7 +50,7 @@
 | 事件（event）/ 标记（marker） | events.jsonl 两类行：普通事件（type/subtype/payload）与状态标记（vn_enter 等）；marker 驱动 session_status 推导 |
 | 两遍式 C | 主 LLM 写骨架 → 标注层异步回填视觉键（emotion 按板全覆盖、一条记录一个键；place 事件型锚点） |
 | task 卡 | 每回合"目标层"注记（见 §8），= 对"AI 只有规则书没有任务"的修复 |
-| 回录（record_picked） | 裁决后把"（选择了: X）"写回引擎历史尾部，live 与 resume 同形（A1） |
+| 回录（record_picked） | 裁决后把"（选择了: X）"写回引擎历史尾部，live 与 resume 同形（A1）。⚠️ 退出补录（`picked=None`）的板另有 `bond/story_pick`（§6.2） |
 | 玩家话语（**只体现为选项**） | 选项居中显示; 选项时刻正文停在上一句角色台词/旁白, 名字牌不动; **裁决后选项组当场收掉并直接推进**（live, 2026-09-21）——**只读态**（压暗 + 高亮所选 + 可点=只推进）**只剩回放/续看**; 玩家那句永不当正文上屏（决策 #37/#41）; 事件 payload 的 `picked` 与引擎历史的 `老师：X` 物化照旧（AI/回放锚点） |
 | 推进（**点画面**） | **没有"▼ 继续"按钮**（决策 #41 删除）: 点画面/点右下 ▾ 三角 = 板内下一段 → 板读完进下一板 → `is_end` 收尾; 板上有**未裁决**选项时点画面不推进（等玩家点选项）; 三角带 `.ready` = "整板读完"（自动化据它判定） |
 | 回忆册 / 角色页 / 章节条目 | **P0 已落地**（docs/DESIGN_COLLECTION_BOOK.md）: 书页 UI（两半页 × 3行4列, **一格 = 一角色**, `collection.png` 封面, 空格留白）→ 点格子进**角色页**（该角色**已结束**章节的标题列表）→ **章节条目**旁的按钮进回放 |
@@ -174,12 +174,11 @@ tests/ core/ webgui/ llm/ renderer/ apps/ 分别对应域; experiments/ 真 API 
 无变体图，区别写在 `note` 里：*"请使用差分2"*、*"2则有圣诞树"*）。此前引擎走
 `catalog.background(sid, variant=None)` = **永远第一条**，两条轴都选不了。
 现在：候选 = 该键 `files` 的每一张（标签机器派生：`夜` / `默认·差分2`），
-**作者 `note` 原样进 prompt**（用户：*"我的部分 note 里面本身就会教 LLM 某些特殊
-常用的夜景以及差分的区别"*），输出必须是候选之一（否则丢弃 = 保持）。
-⚠️ **不走关键词表**（用户当场否掉）：时刻词在文本里 ≠ 时刻
-（「这些灯光，感觉像在白天一样呢~」其实是夜；「私は夜の散歩が一番好きです」是意愿句）
-——那四句反例写进了 prompt。选中的文件落 `payload.place_asset`（旧事件没有 → 默认图,
-回放安全）；取图**优先走表的路径**（catalog 的 scene_id 派生会漏 6 张）。
+**作者 `note` 原样进 prompt**（用户: 他的 note 本身就会教 LLM 夜景/差分的区别），
+输出必须是候选之一（否则丢弃 = 保持）。
+⚠️ **不走关键词表**（用户当场否掉）: 时刻词在文本里 ≠ 时刻（"这些灯光像在白天"其实是夜）
+——反例写进了 prompt。选中的文件落 `payload.place_asset`（旧事件 → 默认图, 回放安全）;
+取图**优先走表的路径**（catalog 派生会漏 6 张）。
 
 **生图三条（2026-09-20 节点 C/D, docs/DESIGN_MEMORIAL.md）**：
 ① **画面意向 = `art`**（块首条、**不上屏**、一章至多一次）；缺 `art` → 降级用
@@ -202,10 +201,8 @@ tests/ core/ webgui/ llm/ renderer/ apps/ 分别对应域; experiments/ 真 API 
 判定单元, 引擎不再切句**（docs/DESIGN_VN_UPGRADE.md §6）。
 
 **emotion（按板一次, 一条记录一个键 —— 2026-09-11 口径修正）**
-- 标注层 prompt：`emotion_text_annotate.md`（词表键+示范+人设摘要防"逞强笑"误判）
-  + 原语 `core/bond/emo_text.py:annotate_items` + engine
-  `fill_scene_emotions_text`（取代整场批标 `emotion_annotate.md`，后者仅存于
-  单测/存档路径）。
+- prompt = `emotion_text_annotate.md`（词表键+示范+人设摘要防"逞强笑"误判）; 原语
+  `core/bond/emo_text.py:annotate_items` + engine `fill_scene_emotions_text`。
 - **单元 = 记录, 分组 = 一板一组一次调用**（真机板 3~12 条; `scene.segments` 在 v2
   恒为 None——`_seg_ends` 只由旧动作契约 parse 产生）。**一条记录一个键**：记录内
   多句也只占一行（模板显式写明"行数是记录条数, 不是句子数"——旧模板自称"每行
@@ -219,7 +216,7 @@ tests/ core/ webgui/ llm/ renderer/ apps/ 分别对应域; experiments/ 真 API 
 - 输出 = 与**记录条数**等长的词表键数组；逐项容错 + 板内延续兜底（前一条键 →
   carry; **永不整批 None**）。
 - 消费：立绘**按记录**切（每条记录一个表情键）、typing 节奏; 前端 emo_version
-  感知补切已显示段。真机一章 6 板 = 6 次调用（875/922/1031ms, `retry=0`）。
+  感知补切已显示段。真机一章 6 板 = 6 次调用（`retry=0`）。
 - 质量日志: `scene_anno group= n= npc= retry= fallback_items= carry=→out=`。
 - **测试桩口径**：桩从 user 消息 `恰 N 项` 取条数（**别**用 `^\d+: ` 数 system 行
   ——模板【示范】也带编号行, 会恒多 4 条, 让用例全程走兜底路径还不报错）。
@@ -309,7 +306,7 @@ CLI/测试同步路径在引擎内串行。
   ⇒ 只读真源会让"章进行中重进"看不到任何段（2026-09-20 修 `replay_attempts` /
   `_interrupted_replay_queue`; `_pending_in_vn` 当时改对了）。
 - **维护工具**：`core/session/maintenance.py`（CLI: heal/supersede/audit, dry-run
-  默认）——把废弃段用 vn_abandon 闭合, 新章自然接管；用法见该文件 docstring。
+  默认; 旧档 vn_abandon 族）, 用法见 docstring。
   **地点改名** = `python -m core.media.place_rename --from X --to Y [--apply]`
   （PL6, dry-run 默认）: 扫引用面（事件流 + 暂存 + `_place_review.json`）→ 改表那一行
   → 给 `data/worlds/{world}/place_renames.jsonl` 留痕。**事件流不动**（append-only）;
@@ -331,6 +328,10 @@ CLI/测试同步路径在引擎内串行。
    旧口径"留屏转只读态"在真机表现为"等待期被清空 → 几秒后黄灰组弹出一次"）,
    正文停在上一句; 同时落库(整板 payload+picked=X) → A1 回录 → 立即预生成下一板（输入"（继续）",
    历史已含物化裁决行）。**只读态只剩回放/续看**（压暗 + 高亮所选 + 可点=只推进）。
+   ⚠️ **退出补录**（2026-09-21, 决策 #42）: 在**未裁决的选项板**上退出 → `bond_finish`
+   以 `picked=None` 补录（板 = 演出）→ 重进后补的裁决**单开一条** `bond/story_pick
+   {picked, board_seq}`（板正文不可改）; 归属按 `records` 逐字定位（拿不到不写）,
+   读侧 `pick_supplements()` 并回"板 + 老师那句" ⇒ 与正常裁决过的板**逐字同形**。
    v1 旧档仍是"分支内容当屏直显（零 LLM）"（冻结不改, 决策 #37/#41）。
 3. ~~自由输入~~（2026-09-10 锁死）: **产品内 VN 没有自由打字通道**——纯叙事板
    点画面推进（固定输入"（继续）", 2026-08-30 起已替代输入框; 按钮本身已于 #41 删除）; 玩家的"话"只经
@@ -367,8 +368,7 @@ CLI/测试同步路径在引擎内串行。
   ⚠️ **窗口是混的**（真档实测 haruka = 13 条聊天 + 5 块剧情，mutsuki = 26 + 13）——
   "一章一条"**只收口属于这一章**的条目（`event_seq` 与 bond 块相交），聊天那些照 0~5 条留着；
   提示词没压住时 `_collapse_bond_episodes` 留 `significance` 最高的那条 +
-  打一行 `digest_a contract=bond` 告警（可 grep）。用户原话：
-  *"离散的是 mmt，但 bond story 不应该连续吗"*。
+  打一行 `digest_a contract=bond` 告警（可 grep）。
 - `digest_segment`（wiki_v2, RoundA 记录 + RoundB 组织 + 好感结算）触发点：
   ① bond 完整闭环（vn_exit completed）后 ② MMT 每 N=25 轮（in_vn/in_memorial 中
   不触发）。增量幂等（digested_seq 水位）；失败零损失。
@@ -472,7 +472,6 @@ CLI/测试同步路径在引擎内串行。
   **MMT 列表头像 = 每个角色各取自己的** `portrait/*.png`（首选 `collection.png`）,
   缺 portrait/ 才回落 `diff/*Idle*.png`（`webgui/routers/mmt.py:_find_avatar`）。
   **`mmt/` 目录已退役删除**（代码不再读; 遥香那张待机帧迁到 `diff/haruka_spr_Idle_01.png`）。
-  （历史: 一度改成"全角色共用遥香那一张", 属过度解读, 已回退。）
   角色的 `ref/` 目录（`sprite_*` 外观 / `style_*` 画风基准 / `halo.png`）是**生图参考图**,
   由 `llm/image_gen.collect_ref_images` 按名字约定收集。
   **portrait/ 五件套补齐工具**（本地, tools/ 被 gitignore）: `python tools/sync_portrait.py`

@@ -29,11 +29,13 @@ from core.session.events import (
     M_VN_ENTER,
     M_VN_EXIT,
     M_VN_STATE,
+    S_STORY_PICK,
     TYPE_BOND,
     TYPE_L2D,
     TYPE_MMT,
     TYPE_OFFICIAL,
     Event,
+    pick_supplements,
 )
 from core.session.models import VNState
 from core.tui.text_processors import _strip_action_brackets, split_reply_chunks
@@ -118,6 +120,19 @@ def render_bond_scene_text(payload: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _with_pick(e: Event, picks: dict[int, str]) -> dict[str, Any]:
+    """板 payload + **补录裁决**（`bond/story_pick`）合并（2026-09-21）。
+
+    板自己带 `picked`（正常裁决）→ 原样; 板 `picked` 为空但有补录 → 并进去 ——
+    于是"退出补录过的板 + 后来补的裁决"与"正常裁决过的板"**逐字同形**。
+    """
+    have = e.payload.get("picked")
+    if isinstance(have, str) and have.strip():
+        return e.payload
+    sup = picks.get(e.seq)
+    return dict(e.payload, picked=sup) if sup else e.payload
+
+
 def render_events(events: list[Event]) -> list[dict[str, str]]:
     """事件流 → LLM 消息（[{role, content}]）, 与引擎 history 格式一致。
 
@@ -129,6 +144,7 @@ def render_events(events: list[Event]) -> list[dict[str, str]]:
     marker/affection: 跳过（状态标记与系统结算不进对话上下文）
     """
     out: list[dict[str, str]] = []
+    picks = pick_supplements(events)          # 补录裁决 → 并进它那一板（见 `_with_pick`）
     for e in events:
         if e.type == TYPE_MMT:
             player = e.payload.get("player", "")
@@ -146,10 +162,12 @@ def render_events(events: list[Event]) -> list[dict[str, str]]:
             else:
                 out.append({"role": "assistant", "content": f"[{e.subtype}]"})
         elif e.type == TYPE_BOND:
+            if e.subtype == S_STORY_PICK:
+                continue                     # 补录裁决不是板: 已并进那一板的渲染（picks）
             inp = e.payload.get("input", "")
             if isinstance(inp, str) and inp.strip():
                 out.append({"role": "user", "content": inp.strip()})
-            text = render_bond_scene_text(e.payload)
+            text = render_bond_scene_text(_with_pick(e, picks))
             if text:
                 out.append({"role": "assistant", "content": text})
         elif e.type == TYPE_L2D:
@@ -308,6 +326,7 @@ def render_timeline(events: list[Event], *, indexed: bool = False) -> str:
     现在换成真正可指的 `indexed`, 不留死旋钮。
     """
     lines: list[str] = []
+    picks = pick_supplements(events)         # 补录裁决 → 并进它那一板（见 `_with_pick`）
     for e in events:
         if e.is_marker:
             continue
@@ -326,8 +345,11 @@ def render_timeline(events: list[Event], *, indexed: bool = False) -> str:
                 parts.append(f"角色: {reply}")
             lines.append(f"{label} {' / '.join(parts)}")
         elif e.type == TYPE_BOND:
-            paras = e.payload.get("paragraphs", [])
-            picked = e.payload.get("picked")
+            if e.subtype == S_STORY_PICK:
+                continue                     # 补录裁决不是板: 已并进那一板的渲染（picks）
+            payload = _with_pick(e, picks)
+            paras = payload.get("paragraphs", [])
+            picked = payload.get("picked")
             # 玩家裁决行（记录流 v2: 物化成 `老师：X` 记录, 但不在派生 paragraphs 里）
             # ——digest 消化"这段戏说了什么"时, 玩家那句同样是内容（v1 也漏, 顺手补）
             has_picked = isinstance(picked, str) and bool(picked.strip())

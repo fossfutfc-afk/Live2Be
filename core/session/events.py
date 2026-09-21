@@ -51,10 +51,48 @@ M_MEMORIAL_IMAGE = "memorial_image"  # ★ 纪念图**异步落盘**回执（202
                                      # 据此恢复纪念图（见 webgui `_ensure_memorial_img`）
 M_SESSION_END = "session_end"  # payload: {ended: true}
 
+#: bond 板块的 subtype —— **板事件**（= 一次演出的单位）与**补录裁决**
+S_STORY_SCENE = "story_scene"
+S_STORY_END = "story_end"
+S_STORY_PICK = "story_pick"    # ★ 补录裁决（2026-09-21）: payload {picked, board_seq}
+                               # 为什么单开一条: 板事件是**演出**（append-only 不可改,
+                               # 当时确实没裁决 → `picked=None`）, 而"玩家后来补上的
+                               # 那次裁决"是**之后发生的事实**。写侧见
+                               # `webgui/bond/stores.py::_log_pick`, 读侧唯一规则 =
+                               # `pick_supplements()`（合并回"板 + 老师那句"）。
+BOARD_SUBTYPES: tuple[str, ...] = (S_STORY_SCENE, S_STORY_END)
+
 MARKER_SUBTYPES: tuple[str, ...] = (
     M_SESSION_START, M_VN_ENTER, M_VN_EXIT, M_VN_ABANDON, M_VN_STATE,
     M_MEMORIAL_ENTER, M_MEMORIAL_EXIT, M_MEMORIAL_IMAGE, M_SESSION_END,
 )
+
+
+def is_board_event(e: Any) -> bool:
+    """是**板**事件吗（演出单位——`bond/story_pick` 不是板, 别当场景渲染/计数）。"""
+    return (getattr(e, "type", None) == TYPE_BOND
+            and getattr(e, "subtype", "") in BOARD_SUBTYPES)
+
+
+def pick_supplements(events: list) -> dict[int, str]:
+    """补录裁决 → `{board_seq: picked}`（2026-09-21）——**读侧唯一规则**。
+
+    场景: 玩家在**未裁决的选项板**上退出 → `bond_finish` 以 `picked=None` 把板补录
+    （板 = 演出, 当时确实没裁决, 事实正确）; 重进后玩家补的那次裁决落成一条独立的
+    `bond/story_pick`。渲染 / 认章 / 回放**一律把两者合并回"板 + 老师那句"**:
+    合并后与"正常裁决过的板"逐字同形, 所以规则只有这一处（不再有"顺序相邻"这类隐式约定）。
+    """
+    out: dict[int, str] = {}
+    for e in events:
+        if getattr(e, "type", None) != TYPE_BOND \
+                or getattr(e, "subtype", "") != S_STORY_PICK:
+            continue
+        p = getattr(e, "payload", None) or {}
+        picked = p.get("picked")
+        seq = p.get("board_seq")
+        if isinstance(picked, str) and picked.strip() and isinstance(seq, int):
+            out[seq] = picked.strip()
+    return out
 
 
 def now_iso() -> str:
