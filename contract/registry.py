@@ -10,11 +10,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from core.common import err
 from contract.constants import (
     DOMAIN_IDE, DOMAIN_MMT,
     MAX_BASIS_COUNT, MAX_REPLY_LENGTH, MAX_SOURCE_COUNT, MAX_SUMMARY_LENGTH,
 )
+from contract.errors import err
 from contract.model import AgentAction, ContractError, ValidationResult
 from contract.spec import ActionSpec
 
@@ -177,12 +177,12 @@ class MMTActionRegistry(ActionRegistry):
 def parse_action_text(
     registry: ActionRegistry, response_text: str
 ) -> tuple[AgentAction | None, ValidationResult]:
-    """从 LLM 原始响应文本直接解析动作（内部走主项目 llm.json_cleaner 清洗管道）。
+    """从 LLM 原始响应文本直接解析动作（内部走 `contract.json_cleaner` 清洗管道）。
 
     用法:
         action, result = parse_action_text(registry, llm_raw_text)
     """
-    from llm.json_cleaner import extract_json
+    from contract.json_cleaner import extract_json
 
     try:
         raw = extract_json(response_text)

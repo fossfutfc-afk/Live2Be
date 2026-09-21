@@ -26,8 +26,8 @@ import certifi
 import httpx
 from dotenv import load_dotenv
 
+from contract.json_cleaner import extract_json
 from core.common import err
-from llm.json_cleaner import extract_json
 
 logger = logging.getLogger(__name__)
 

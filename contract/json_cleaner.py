@@ -1,5 +1,8 @@
 """JSON 清洗管道 — 从 LLM 返回文本中提取并解析 JSON。
 
+⚠️ **位置**（C10, `docs/EXEC_SPLIT.md`）: 纯 JSON 修复、无传输/无网络 ⇒ 归 `contract/`
+（此前住在 `llm/`，害得 `contract/registry.py` 反向依赖 `llm`）。
+
 LLM 不听话的常见表现:
     - markdown 包裹  (```json ... ```)
     - 前后废话       ("好的，这是你要的JSON：{...}")
@@ -10,7 +13,7 @@ LLM 不听话的常见表现:
 本模块的 extract_json() 用分层管道处理上述情况。
 
 用法:
-    from llm.json_cleaner import extract_json
+    from contract.json_cleaner import extract_json
     data = extract_json(llm_response_text)
 """
 
@@ -21,7 +24,7 @@ import json
 import re
 from typing import Any
 
-from core.common import err
+from contract.errors import err
 
 
 def extract_json(response_text: str) -> dict[str, Any]:

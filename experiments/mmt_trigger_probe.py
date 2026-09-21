@@ -19,7 +19,7 @@ from core.momotalk import MomoTalkEngine
 from core.bond.bond_progress import BondProgress
 from llm.client import LLMClient
 
-from llm.json_cleaner import extract_json
+from contract.json_cleaner import extract_json
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 CHAR = "rikuhachima_aru"

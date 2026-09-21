@@ -14,8 +14,8 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from core.common import err
 from contract.constants import ALL_SHELL_FIELDS
+from contract.errors import err
 from contract.model import ValidationResult
 
 

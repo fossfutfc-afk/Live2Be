@@ -23,6 +23,9 @@
 contract/
 ├── __init__.py     # 集中 re-export 公共 API（from contract import ...）
 ├── constants.py    # 审批策略 / 动作域 / 字段上限 / is_valid_identifier
+├── errors.py       # **错误原语真家**（Live2BeError / err()，统一错误格式；C10 从 core/common 下沉）
+├── json_cleaner.py # JSON 清洗管道（纯文本修复，无传输；C10 从 llm/ 归位）
+├── records/        # VN 记录流契约（C10 起是包：grammar / parse / check / carrier）
 ├── model.py        # 纯数据对象：AgentAction / ValidationResult / ContractError
 ├── spec.py         # ActionSpec（单动作注册声明）
 ├── registry.py     # ActionRegistry + 三个具名域 + parse_action_text
@@ -31,7 +34,8 @@ contract/
 
 依赖方向：`schema → registry → spec → model/constants`。各子模块内部一律用
 `contract.xxx` 完整路径互导，不依赖 `__init__` 的执行顺序。
-唯一外部依赖：`core/common/errors.py`（`Live2BeError` / `err()`，统一错误格式）。
+**外部依赖：无**（C10 起）——错误原语与 JSON 清洗都在本层内；`core/common/errors.py`
+只剩一个薄再导出壳（保旧 import 路径）。
 
 ## 3. 核心机制：ActionSpec 单一真源
 
@@ -70,7 +74,7 @@ registry.register(ActionSpec(
 
 ```
 LLM 原始响应文本
-   │  parse_action_text(registry, text)     ← 内部走 llm.json_cleaner.extract_json
+   │  parse_action_text(registry, text)     ← 内部走 contract.json_cleaner.extract_json
    ▼
 {action, summary, payload, ...} (dict)
    │  registry.parse(raw)
@@ -115,9 +119,11 @@ prompt_fields / payload_schema）。Python 端是唯一执行引擎，但定义�
 
 ## 7. 与其他模块的契约
 
-- **errors**：`ContractError(Live2BeError, ValueError)` 多继承 ValueError，
+- **errors**：`contract/errors.py` 是错误原语的**唯一真家**（C10）——
+  `ContractError(Live2BeError, ValueError)` 多继承 ValueError，
   保留既有 `except ValueError` 捕获语义；`__str__` 输出 `[model.py][ContractError][info]`。
-- **llm.json_cleaner**：`parse_action_text` 依赖其 `extract_json` 从原始文本提取 JSON。
+- **contract.json_cleaner**（C10 从 `llm/` 归位）：`parse_action_text` 依赖其
+  `extract_json` 从原始文本提取 JSON。
 - **ide/ide_agent.py**：`client.chat(response_format="json_object")` 返回 dict 时直接
   `registry.parse(response)`，不走 `parse_action_text`（那是对原始文本的入口）。
 

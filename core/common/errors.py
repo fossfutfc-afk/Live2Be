@@ -1,47 +1,16 @@
-"""统一错误格式 — [xxx.py][errtype][errinfo]
+"""core/common.errors — **薄再导出**（C10, `docs/EXEC_SPLIT.md`）。
 
-全项目错误消息统一携带来源文件与错误类型，报错即知来自哪个文件（追溯/调试）。
+真家已下沉到 `contract/errors.py`（`contract` 是最底层, 不再依赖 `core`）。
+本文件只为**保住既有 import 路径**:
+`from core.common import err` / `from core.common.errors import Live2BeError` 照旧可用——
+全仓 20+ 处消费点一个字都不用改。
 
-两种用法（不改动现有异常捕获语义）:
-    1. 域异常 —— 定义 Live2BeError 子类（类留在各自域文件里，分散定义、统一继承）。
-       __str__ 自动产出 [file.py][ClassName][info]：file 从类所在模块推导
-       （contract.model → model.py），errtype 默认类名。
-    2. 标准异常 —— raise ValueError(err("NotFound", "档案不存在"))：
-       保持原异常类型（except ValueError 照常命中），err() 只格式化消息字符串，
-       file 从调用帧自动取（err() 在 raise 表达式里直接调用）。
-
-约定: 全项目 raise 的错误消息必须符合该格式——域异常继承 Live2BeError，
-标准异常用 err() 包装。这是项目追溯性的地基，勿绕开。
+⚠️ 新代码（尤其 `contract/` 内）请直接 `from contract.errors import ...`;
+`core/` 与 `llm/` 侧继续用这里也可以（`core.common` 是薄横切豁免项）。
 """
 
 from __future__ import annotations
 
-import sys
-from pathlib import Path
+from contract.errors import Live2BeError, err
 
-
-def _module_file(cls: type) -> str:
-    """从异常类所在模块推导文件名（contract.model → model.py）。"""
-    module = cls.__module__.rsplit(".", 1)[-1]
-    return f"{module}.py" if module else "???.py"
-
-
-class Live2BeError(Exception):
-    """统一错误基类：__str__ 自动产出 [xxx.py][errtype][errinfo]。
-
-    errtype 默认 = 类名（如 ExecError / ContractError / NotInSessionError）。
-    """
-
-    def __str__(self) -> str:
-        info = self.args[0] if self.args else ""
-        return f"[{_module_file(type(self))}][{type(self).__name__}][{info}]"
-
-
-def err(errtype: str, info: str) -> str:
-    """标准异常场合：生成 [xxx.py][errtype][errinfo] 格式消息（不改异常类型）。
-
-    file 从调用帧自动取——err() 必须在 raise 表达式里直接调用，勿包进中间函数。
-    """
-    frame = sys._getframe(1)
-    fname = Path(frame.f_code.co_filename).name
-    return f"[{fname}][{errtype}][{info}]"
+__all__ = ["Live2BeError", "err"]

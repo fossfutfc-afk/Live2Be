@@ -43,17 +43,12 @@ RULES: dict[str, frozenset[str]] = {
 LLM_CORE_ALLOWED = frozenset({"core.paths", "core.common"})
 
 #: 既存违规白名单: (相对路径, 被 import 的顶层包) → 归宿（`docs/EXEC_SPLIT.md` 节点）
+#: ✅ C10 清掉 4 条: 错误原语下沉 `contract/errors.py`（3 条 contract→core）、
+#: `json_cleaner` 搬到 `contract/`（1 条 contract→llm）。剩最后 1 条等 C11。
 ALLOWED: dict[tuple[str, str], str] = {
-    ("contract/model.py", "core"):
-        "共享内核 core.common(err)——C9 定夺: 上提 err 或正式白名单",
-    ("contract/registry.py", "core"):
-        "共享内核 core.common(err)——C9",
-    ("contract/spec.py", "core"):
-        "共享内核 core.common(err)——C9",
-    ("contract/registry.py", "llm"):
-        "llm.json_cleaner 位置错: 它是纯 JSON 修复, 应归 contract（C9）",
     ("core/ui/vn_cli.py", "renderer"):
-        "vn_cli 是 CLI **应用**不是引擎: C13 搬到 apps/（顺带解掉 core→renderer）",
+        "vn_cli 是 CLI **应用**不是引擎: C11 把 `_build_director`/`_trigger_title` 上提"
+        "（C12 再把 vn_cli 本身搬 apps/）—— 这条规则随之消失",
 }
 
 
