@@ -54,7 +54,7 @@ def _load_dotenv_once() -> None:
     """懒加载项目根 `.env`（**只一次**, 失败静默）。
 
     为什么不学 `llm/client.py` 在模块级 `load_dotenv`: 那样"有没有 .env"取决于
-    **谁先被 import**。而 embedder 被 `core/momotalk.py` 与 `core/rag/*` 共用,
+    **谁先被 import**。而 embedder 被 `core/mmt/engine.py` 与 `core/rag/*` 共用,
     调用序不固定（测试里尤其）→ 显式加载一次, **不靠 import 顺序**。
     """
     global _DOTENV_DONE

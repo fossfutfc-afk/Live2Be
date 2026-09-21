@@ -18,7 +18,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-from core.momotalk import MomoTalkEngine
+from core.mmt.engine import MomoTalkEngine
 from core.bond.bond_story import BondScene, BondStoryEngine
 from core.session import SessionStore
 from core.session.events import M_VN_EXIT

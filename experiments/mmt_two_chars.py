@@ -10,7 +10,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from llm.client import LLMClient
-from core.momotalk import MomoTalkEngine
+from core.mmt.engine import MomoTalkEngine
 from core.tui.text_processors import strip_name_prefix
 
 PAIRS = [

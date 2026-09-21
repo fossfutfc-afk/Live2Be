@@ -273,7 +273,7 @@ DIGEST_LLM_TIMEOUT = 300.0
 class MmtLoopError(Live2BeError):
     """MomoTalk agent loop 错误（步数耗尽等）。message 供调用方展示/重试。
 
-    __str__ 自动产出 [momotalk.py][MmtLoopError][message]。
+    __str__ 自动产出 [engine.py][MmtLoopError][message]（C12a: 模块从 core/momotalk.py 搬到 core/mmt/engine.py）。
     """
 
 

@@ -47,7 +47,7 @@ from core.bond.bond_story import (
     BondScene,
     BondStoryEngine,
 )
-from core.momotalk import load_brain_segment
+from core.mmt.engine import load_brain_segment
 from core.session.events import (
     M_VN_EXIT,
     make_event,

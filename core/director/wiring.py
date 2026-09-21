@@ -29,7 +29,7 @@ from typing import TYPE_CHECKING
 from core.director import build_director
 
 if TYPE_CHECKING:                      # 只为注解（`annotations` 未来导入）——避免运行期循环
-    from core.momotalk import MomoTalkEngine
+    from core.mmt.engine import MomoTalkEngine
 
 logger = logging.getLogger(__name__)
 

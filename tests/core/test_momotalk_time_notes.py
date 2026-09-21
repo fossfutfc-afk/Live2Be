@@ -14,7 +14,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from core.momotalk import MomoTalkEngine        # noqa: E402
+from core.mmt.engine import MomoTalkEngine        # noqa: E402
 from core.session.store import SessionStore     # noqa: E402
 from llm import task_labels as T                # noqa: E402
 from tests import stub_tasks                    # noqa: E402
@@ -119,7 +119,7 @@ def test_vn_brain_segment_carries_time_but_no_phone(tmp_path):
     2026-09-17（时间轴换代）: 原断言"VN 有**剧情时间**注记"已作废 ——
     剧情时间注记整条删除; VN 现在只剩**现实间隔**（壁钟派生, 同源）。
     """
-    from core.momotalk import load_brain_segment
+    from core.mmt.engine import load_brain_segment
     store = SessionStore(data_root=tmp_path)
     root = store.create(CHARACTER, "测试")
     store.append_event(CHARACTER, root.session_id,
@@ -223,7 +223,7 @@ def test_realtime_not_wired_into_vn(tmp_path, monkeypatch):
     "老师，今天是圣诞节呢"而场景里连圣诞树都没有。
     """
     _pin_table(monkeypatch, tmp_path)
-    from core.momotalk import load_brain_segment
+    from core.mmt.engine import load_brain_segment
     store = SessionStore(data_root=tmp_path)
     root = store.create(CHARACTER, "测试")
     store.append_event(CHARACTER, root.session_id,

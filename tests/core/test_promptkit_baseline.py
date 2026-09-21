@@ -19,7 +19,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from core.bond.bond_story import BondStoryEngine
-from core.momotalk import MomoTalkEngine
+from core.mmt.engine import MomoTalkEngine
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 CHARACTER = "igusa_haruka"

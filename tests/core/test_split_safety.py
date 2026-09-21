@@ -35,7 +35,7 @@ TARGETS = (
     "webgui.chat",
     "core.bond.bond_story",
     "contract.records",
-    "core.momotalk",
+    "core.mmt.engine",
     "core.ui.vn_cli",
     "llm.client",
 )
@@ -111,7 +111,7 @@ def _own_names(module_name: str) -> set[str]:
 def _kind_of(obj) -> str:
     """对外面的**稳定**种类: class / function / data。
 
-    ⚠️ 不能直接用 `type(obj).__name__`: `core.momotalk._EMBED_REPORTED` 这类
+    ⚠️ 不能直接用 `type(obj).__name__`: `core.mmt.engine._EMBED_REPORTED` 这类
     **运行期可变标志**在导入时是 `None`、跑过某用例后变 `bool` —— 快照会抖
     （2026-09-21 实测被守门抓出来）。三态足够表达"丢名字/种类变了"。
     """

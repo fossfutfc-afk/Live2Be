@@ -172,7 +172,7 @@ from core.media.gallery import (          # 定义处不在 bond 包内（当年
     GalleryStore,
 )
 
-from core.momotalk import (          # 定义处不在 bond 包内（当年作为「对外面」一路被再导出 → 直指真家）
+from core.mmt.engine import (          # 定义处不在 bond 包内（当年作为「对外面」一路被再导出 → 直指真家）
     load_brain_segment,
 )
 

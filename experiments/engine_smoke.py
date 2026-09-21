@@ -15,7 +15,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from core.momotalk import MomoTalkEngine
+from core.mmt.engine import MomoTalkEngine
 from core.tui.text_processors import _strip_action_brackets, strip_name_prefix
 
 ROOT = Path(__file__).resolve().parent.parent

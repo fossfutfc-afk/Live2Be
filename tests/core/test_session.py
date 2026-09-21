@@ -473,7 +473,7 @@ def test_store_meta_tolerance(tmp_path):
 
 def test_engine_mmt_records_events(tmp_path):
     from core.bond.bond_progress import BondProgress
-    from core.momotalk import MomoTalkEngine
+    from core.mmt.engine import MomoTalkEngine
 
     class LLM:
         def chat(self, messages, **kw):
@@ -523,7 +523,7 @@ def test_engine_mmt_records_events(tmp_path):
 def test_engine_mmt_no_store_no_events(tmp_path):
     """store 未注入 → 不落事件（向后兼容, 现有引擎行为不变）。"""
     from core.bond.bond_progress import BondProgress
-    from core.momotalk import MomoTalkEngine
+    from core.mmt.engine import MomoTalkEngine
 
     class LLM:
         def chat(self, messages, **kw):
@@ -547,7 +547,7 @@ def test_engine_mmt_no_store_no_events(tmp_path):
 
 def test_engine_resume_rebuilds_history(tmp_path):
     """中断会话 resume: 重建 history（render_events 同格式）→ 继续聊天续写同一会话。"""
-    from core.momotalk import MomoTalkEngine
+    from core.mmt.engine import MomoTalkEngine
     from core.session import SessionStore
 
     class Scripted:
@@ -587,7 +587,7 @@ def test_engine_resume_rebuilds_history(tmp_path):
 
 def test_engine_resume_rejects_ended(tmp_path):
     import pytest
-    from core.momotalk import MomoTalkEngine
+    from core.mmt.engine import MomoTalkEngine
     from core.session import SessionStore
 
     class LLM:
@@ -615,7 +615,7 @@ def test_engine_resume_history_window(tmp_path):
 
     造 80 轮 mmt 事件（160 条, 远超 120 单元）→ resume → 截断为最近 120 条。
     """
-    from core.momotalk import MomoTalkEngine
+    from core.mmt.engine import MomoTalkEngine
     from core.session import SessionStore
     from core.session.events import make_event
 

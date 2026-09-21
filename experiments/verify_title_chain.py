@@ -10,7 +10,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from core.momotalk import MomoTalkEngine
+from core.mmt.engine import MomoTalkEngine
 from core.session import SessionStore
 from core.session.renderer import render_bond_scene_text, window_messages
 from core.director.wiring import _trigger_title

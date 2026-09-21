@@ -74,7 +74,9 @@ webgui/        FastAPI 壳 + 会话状态机（**bond/ 包** = BondState 状态�
    ├ routers/  路由层: 请求→驱动层; _resolve_scene 给场景附前端渲染信息(bg/fx/place_bg)
    └ store.py  运行时配置读写(settings.toml)
 core/          引擎层（无 web 依赖, CLI/实验同源复用）
-   ├ momotalk.py             MMT 引擎（消息流动作循环）
+   ├ mmt/engine.py           MMT 引擎（消息流动作循环）——**C12a 起从 `core/momotalk.py` 搬来**
+   │                         （同包: mmt_actions 契约 / mmt_executor 执行 / mmt_preset 预设+玩家名 /
+   │                         ranking 排名; 旧路径 `core.momotalk` 已消失, 无兼容壳）
    ├ bond/bond_story/        Bond 引擎（**C9 起是包**）: scene.py（BondScene/SceneLoopError）+
    │                         boards.py（DeliveryMode/_board_spans/_BoardAssembler + 板级闸）+
    │                         engine.py（BondStoryEngine: 记录流解析 + 状态机 + 历史 + 生图钩子）
@@ -393,7 +395,7 @@ CLI/测试同步路径在引擎内串行。
   的写作"*。与"零内容词表"不矛盾（那条打的是**从 168 条资产菜单里挑**）。
   地点/背景系统见 docs/DESIGN_PLACE.md + docs/AI_BRIEF_PLACE.md。
 - 每轮动态尾唯一入口 `round_messages`（实测签名是 `system/user/history/notes/brain`，
-  **没有 task 槽**——场卡由**调用方**作 `notes` 末位追加，`bond_story/engine.py` / `momotalk.py`
+  **没有 task 槽**——场卡由**调用方**作 `notes` 末位追加，`bond_story/engine.py` / `mmt/engine.py`
   各一处；审计 C4 记过这个文档与实现的差）。
 - task 卡模板（目标层, 不重复规则书）：`llm/prompts/task_<domain>.md` =
   默认 kind（mmt→chat, bond→scene）；`task_<domain>_<kind>.md` = 其余
@@ -695,9 +697,12 @@ CLI/测试同步路径在引擎内串行。
   （只剩 `core/ui/vn_cli.py → renderer`, 归 C12）。**C11 = 展示层搬 `core/tui/` +
   接线层上提 `core/director/wiring.py`**（`_build_director`/`_trigger_title` 从 `vn_cli` 搬到
   `core/director/wiring.py` ⇒ 解掉 **webgui→CLI**; ⚠️ 原计划"白名单减 1 条"实测做不到——
-  renderer 依赖在 vn_cli 自己的显示路径里, 见该文 §5 陷阱 14）。节点 C12–C15：
-  `core/momotalk.py` → `core/mmt/engine.py` / `main.py`+`vn_cli.py` → `apps/` /
-  `core/*.md` → `docs/` → 测试拆分; 每节点一提交 + 全量 + 冒烟）
+  renderer 依赖在 vn_cli 自己的显示路径里, 见该文 §5 陷阱 14）。**C12 拆成两节点（用户
+  2026-09-21 裁决）**: **C12a = `core/momotalk.py` → `core/mmt/engine.py`**（47 处引用
+  一次性改指, **不留兼容壳**; 唯一外部可见变化 = `MmtLoopError` 的串从 `[momotalk.py]…`
+  变 `[engine.py]…`, 名字由类所在模块派生）; **C12b = `main.py`/`vn_cli.py` → `apps/` +
+  `core/*.md` → `docs/`**（那是 `core→renderer` 白名单条目消失的节点）。节点 C13–C15：
+  测试拆分; 每节点一提交 + 全量 + 冒烟）
 - **重新生成 / 重发 的语义与固化线**：docs/DESIGN_RESEND.md（**设计稿, 未动代码**。
   决策: MMT 提交边界 = **回合提交**; 两区 = 水位之上**丢弃** / 水位之下走
   `wiki_v2/revise` **更正**; 板级那一半已由 `BoardLifecycle` + `_discard_boards` 落地;

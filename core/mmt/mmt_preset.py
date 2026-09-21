@@ -49,7 +49,7 @@ import unicodedata
 from enum import Enum
 
 from core import paths
-from core.momotalk import MomoTalkEngine
+from core.mmt.engine import MomoTalkEngine
 from core.common import err
 
 # 玩家名存储——`core/paths.py` 的宏（项目根绝对路径, cwd 无关）

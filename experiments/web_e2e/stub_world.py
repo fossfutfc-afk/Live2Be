@@ -184,7 +184,7 @@ def build_world(data_root: Path):
     Returns: (store, session_id, engine, llm)
     """
     from core.mmt import mmt_preset
-    from core.momotalk import MomoTalkEngine
+    from core.mmt.engine import MomoTalkEngine
     from core.session import SessionStore
     from webgui import chat, deps
 

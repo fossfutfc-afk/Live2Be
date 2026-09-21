@@ -23,7 +23,7 @@ import logging
 import threading
 from pathlib import Path
 
-from core.momotalk import MomoTalkEngine, load_brain_segment
+from core.mmt.engine import MomoTalkEngine, load_brain_segment
 from core.bond.bond_story import BondScene, BondStoryEngine, SceneLoopError
 from core.brain.wiki_v2.store import WikiStoreV2
 from core.director.wiring import _build_director, _trigger_title   # C11: 接线层（webgui 也用它）

@@ -18,7 +18,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from core.bond.bond_progress import BondProgress
-from core.momotalk import MomoTalkEngine
+from core.mmt.engine import MomoTalkEngine
 from llm.client import LLMClient
 
 ROOT = Path(__file__).resolve().parent.parent

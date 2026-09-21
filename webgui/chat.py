@@ -20,7 +20,7 @@ import random
 import threading
 from pathlib import Path
 
-from core.momotalk import MomoTalkEngine
+from core.mmt.engine import MomoTalkEngine
 from core.session.events import M_VN_ENTER, M_VN_EXIT
 from core.tui.text_processors import _strip_action_brackets, split_reply_chunks
 from llm.client import LLMClient
