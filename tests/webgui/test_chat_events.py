@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from core.session import SessionStore
 from core.session.events import make_event
-from webgui import chat
+from webgui import chat, deps
 
 CHARACTER = "igusa_haruka"
 TITLE = "放学后的约定"
@@ -80,9 +80,9 @@ def test_bond_interrupted_keeps_clickable(tmp_path):
 
 def test_events_after_carries_bond_done_for_flip(tmp_path):
     """events_after: 完成态从全量事件流算——增量轮询也能拿到 [{seq,text}] 翻转粉泡。"""
-    old_store = chat._store
+    old_store = deps.store()
     st, sid = _store_with(tmp_path)
-    chat._store = st
+    deps.set_store(st)
     try:
         trig = _trigger(st, sid)                 # 只触发, 尚未走剧情
         r1 = chat.events_after(CHARACTER, sid, since=0, display_name="遥香")
@@ -104,7 +104,7 @@ def test_events_after_carries_bond_done_for_flip(tmp_path):
                  if b.get("kind") in ("bond_entry", "bond_done")}
         assert kinds == {"bond_done"}
     finally:
-        chat._store = old_store
+        deps.set_store(old_store)
 
 
 def test_bond_done_title_fallback(tmp_path):

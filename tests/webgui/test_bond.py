@@ -24,7 +24,7 @@ from llm import task_labels as T  # noqa: E402
 from tests import stub_tasks  # noqa: E402
 from tests.vn_fixtures import from_v1_scene as _rec  # noqa: E402
 from tests.vn_fixtures import scene  # noqa: E402
-from webgui import bond, chat
+from webgui import bond, chat, deps
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 CHARACTER = "igusa_haruka"
@@ -32,7 +32,7 @@ CHARACTER = "igusa_haruka"
 #: 模块级 store 快照（2026-09-09 审计）: cleanup 一律恢复此值（= 真实 data 默认,
 #: import 发生在任何测试运行前）——**禁止硬编码另建 SessionStore**（曾导致
 #: wrapup daemon 线程把兜底话写进真实 data/events.jsonl, 测试污染真源）
-_ORIG_STORE = chat._store
+_ORIG_STORE = deps.store()
 
 
 @pytest.fixture(autouse=True)
@@ -41,7 +41,7 @@ def _no_choice_pregen(monkeypatch):
     N2d: 候选 spawn 默认开）——候选 fork 会消耗 ScriptedLLM 脚本打乱断言;
     关闭候选（老路回归语义由 test_bond_candidates 的 off 用例与回退用例覆盖）。
     """
-    monkeypatch.setattr(bond, "_choice_pregen_enabled", lambda: False)
+    monkeypatch.setattr(deps, "choice_pregen_enabled", lambda: False)
 
 # 契约动作（与 test_vn_cli.py 同构; 2026-08-30 契约强化: emotion 必填 + 按句切分）
 SCENE_A = {"action": "story_scene", "payload": {
@@ -120,7 +120,7 @@ class ScriptedLLM:
 
 
 def _setup(tmp_path, *scripts):
-    """引擎 + 事件流会话（tmp_path）+ chat 引擎/store 注入（bond 落库走 chat._store）。"""
+    """引擎 + 事件流会话（tmp_path）+ 引擎/store 注入（bond 落库走 deps.store()）。"""
     st = SessionStore(tmp_path)
     llm = ScriptedLLM(*scripts)
     engine = MomoTalkEngine(ROOT / "config" / "characters", llm, store=st)
@@ -128,7 +128,7 @@ def _setup(tmp_path, *scripts):
     root = st.create(CHARACTER)
     engine.attach_session(root.session_id)
     chat._engines[CHARACTER] = engine          # 注入（wrapup 复用引擎）
-    chat._store = st                           # 注入（bond 落库到 tmp_path, 不污染 data/）
+    deps.set_store(st)                         # 注入（bond 落库到 tmp_path, 不污染 data/）
     return engine, st, root.session_id, llm
 
 
@@ -161,7 +161,7 @@ def _turn_until_accepted(char_id, sid, text, timeout=10.0):
 
 def _cleanup():
     chat._engines.pop(CHARACTER, None)
-    chat._store = _ORIG_STORE      # 恢复模块快照（禁硬编码真 data）
+    deps.set_store(_ORIG_STORE)    # 恢复模块快照（禁硬编码真 data）
 
 
 def _scene_calls(llm) -> list:
@@ -474,7 +474,7 @@ def test_bond_midway_finish_no_digest(tmp_path):
     root = st.create(CHARACTER)
     engine.attach_session(root.session_id)
     chat._engines[CHARACTER] = engine
-    chat._store = st
+    deps.set_store(st)
     sid = root.session_id
     try:
         bond.bond_start(CHARACTER, sid)
@@ -504,7 +504,7 @@ def test_bond_midway_finish_no_digest(tmp_path):
         print("    bond 中途退出: vn_exit completed=False + wrapup 收尾话 + 不 digest")
     finally:
         chat._engines.pop(CHARACTER, None)
-        chat._store = _ORIG_STORE
+        deps.set_store(_ORIG_STORE)
 
 
 # ----------------------------------------------------------------------------
@@ -936,11 +936,11 @@ def test_memorial_image_switch_gates_thread(monkeypatch):
             self.available = True
             self.is_api_mode = True
 
-    monkeypatch.setattr(bond, "ImageGenerator", FakeGen)
-    monkeypatch.setattr(bond, "_image_gen", None)
+    monkeypatch.setattr(deps, "ImageGenerator", FakeGen)
+    monkeypatch.setattr(deps, "_image_gen", None)
 
     monkeypatch.setenv(ENV_SWITCH, "off")
-    assert bond._image_generator() is None
+    assert deps.image_generator() is None
     assert made == [], "关闭时不得构造生图器"
     st = bond.BondState()
     bond._make_memorial_cb(st, CHARACTER, "sid")("（纪念）她站在夕阳里。")
@@ -949,9 +949,9 @@ def test_memorial_image_switch_gates_thread(monkeypatch):
     assert st.memorial_img == "", "关闭时不得留下图 URL"
 
     monkeypatch.setenv(ENV_SWITCH, "on")
-    assert bond._image_generator() is not None
+    assert deps.image_generator() is not None
     assert made == [1], "打开后应恰好构造一次"
-    assert bond._image_generator() is not None and made == [1], "第二次走缓存, 不重复构造"
+    assert deps.image_generator() is not None and made == [1], "第二次走缓存, 不重复构造"
     print("    switch: 关=不构造/不开线程, 开=构造一次并复用")
 
 
@@ -963,7 +963,7 @@ def test_session_switch_blocks_configured_key():
     from llm.image_gen import ImageGenerator
     if not ImageGenerator().is_api_mode:
         pytest.skip("本机未配 IMAGE_API_KEY——本用例无出图风险可证")
-    assert bond._image_generator() is None, "会话级生图开关必须压过已配置的 key"
+    assert deps.image_generator() is None, "会话级生图开关必须压过已配置的 key"
     print("    switch: 配了 key 也不出图（conftest 会话级硬关生效）")
 
 
@@ -1141,7 +1141,7 @@ def test_pregen_uses_live_delivery_path(tmp_path, monkeypatch):
     标注旁路被置空（`_enqueue_annotate`）: 它与本用例无关, 却是唯一会让两条路
     的 `to_dict()` 出现时间差（emotion 回填先后）的地方——掐掉才能严格逐字节比。
     """
-    monkeypatch.setattr(bond, "_enqueue_annotate", lambda state, scene: None)
+    monkeypatch.setattr(deps, "enqueue_annotate", lambda state, scene: None)
 
     # ① live: 同一块作为**首场**走 `_generate`（流式, 首板经 on_board 落地）
     engine, st, sid, llm = _setup(tmp_path / "live", _LATE_VIOLATION_BLOCK)

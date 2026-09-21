@@ -8,6 +8,7 @@ from core.session import SessionStore
 from core.momotalk import MomoTalkEngine
 import webgui.bond as bond
 import webgui.chat as chat
+from webgui import deps
 from llm.client import LLMClient
 
 CHAR = "igusa_haruka"
@@ -18,7 +19,7 @@ engine.start_session(CHAR)
 root = st.create(CHAR)
 engine.attach_session(root.session_id)
 chat._engines[CHAR] = engine
-chat._store = st
+deps.set_store(st)          # C1a: store 接缝搬到了 webgui/deps（chat._store 已不存在）
 
 bond.bond_start(CHAR, root.session_id)
 t0 = time.time()

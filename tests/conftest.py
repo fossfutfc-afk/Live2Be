@@ -72,8 +72,10 @@ def _no_image_gen():
     用例（2026-09-11 事故同型: 后台线程写错世界线）。环境变量优先级最高
     （> settings `[image].enabled`）, 且读在**调用时**（不受模块导入顺序影响）,
     所以新增用例/新文件无需各自打桩即天然安全; 需要真出图的用例显式
-    `monkeypatch.setenv(LIVE2BE_IMAGE, "on")` + `monkeypatch.setattr(
-    bond, "_image_generator", fake)` 覆盖（见 tests/archive 的老用例）。
+    `monkeypatch.setenv(LIVE2BE_IMAGE, "on")` + 替换接缝模块的生图器
+    （`monkeypatch.setattr(deps, "ImageGenerator", FakeGen)` / `deps.image_generator`
+    —— 见 `tests/webgui/test_bond.py`；C1a 起**别**再打 `bond._image_generator`,
+    那是静默 no-op）。
     """
     old = os.environ.get(_IMG_SWITCH)
     os.environ[_IMG_SWITCH] = "off"

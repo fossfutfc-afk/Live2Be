@@ -31,7 +31,7 @@ from core.momotalk import MomoTalkEngine  # noqa: E402
 from core.session import SessionStore  # noqa: E402
 from llm import task_labels as T  # noqa: E402
 from tests import stub_tasks  # noqa: E402
-from webgui import bond, chat  # noqa: E402
+from webgui import bond, chat, deps  # noqa: E402
 from webgui.app import app  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent.parent
@@ -40,7 +40,7 @@ CHARACTER = "igusa_haruka"
 CHAPTER_TITLE = "放学后的约定"
 
 #: 模块级 store 快照（禁硬编码真 data——见 test_bond.py 的同类注释）
-_ORIG_STORE = chat._store
+_ORIG_STORE = deps.store()
 
 #: 记录流 v2 桩: 首板带一组选项 + 反应板 + 收尾（与 test_bond.py 的 RECORD_BLOCK 同形）
 RECORD_BLOCK = "\n".join([
@@ -122,14 +122,14 @@ def _setup(tmp_path):
     root = st.create(CHARACTER)
     engine.attach_session(root.session_id)
     chat._engines[CHARACTER] = engine
-    chat._store = st
+    deps.set_store(st)
     bond._bonds.pop((CHARACTER, root.session_id), None)
     return st, root.session_id
 
 
 def _teardown():
     chat._engines.pop(CHARACTER, None)
-    chat._store = _ORIG_STORE
+    deps.set_store(_ORIG_STORE)
     for key in [k for k in bond._bonds if k[0] == CHARACTER]:
         bond._bonds.pop(key, None)
 
@@ -508,7 +508,7 @@ def test_bond_watchdogs_self_heal_stuck_gate(web, monkeypatch):
 
     _make_unready()
     assert bond._scene_visual_ready(state) is False, "前置: 场景确实卡在未就绪"
-    monkeypatch.setattr(bond, "GATE_WATCHDOG_MS", -1)        # 视为已超时
+    monkeypatch.setattr(deps, "GATE_WATCHDOG_MS", -1)        # 视为已超时
 
     # ① 有 worker 正在 await 标注（在途）→ **不得**抢它的活: 等真标注回来
     monkeypatch.setattr(state, "_lane_inflight", 1)
@@ -552,7 +552,7 @@ def test_bond_busy_watchdog_resets_lost_thread(web, monkeypatch):
     state.busy_since = time.monotonic()
     state._gen_thread = None
     state._pregen_thread = None
-    monkeypatch.setattr(bond, "BUSY_WATCHDOG_MS", -1)
+    monkeypatch.setattr(deps, "BUSY_WATCHDOG_MS", -1)
     st_after = bond.bond_status(CHARACTER, sid)
     assert st_after["busy"] is False, st_after
     print("    web: 忙态看门狗复位（线程丢失不再让点击永久无响应）")

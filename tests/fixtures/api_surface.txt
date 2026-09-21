@@ -2,16 +2,13 @@
 # 刷新: SPLIT_API_UPDATE=1 pytest tests/core/test_split_safety.py
 # 格式: 模块<TAB>名字<TAB>种类<TAB>定义处
 # ---- webgui.bond ----
-webgui.bond	BUSY_WATCHDOG_MS	data	-
 webgui.bond	BoardLifecycle	class	webgui.bond
 webgui.bond	BondScene	class	core.bond.bond_story
 webgui.bond	BondState	class	webgui.bond
 webgui.bond	BondStoryEngine	class	core.bond.bond_story
 webgui.bond	ChoiceCandidate	class	webgui.bond
 webgui.bond	DEMO_SCRIPT	data	-
-webgui.bond	GATE_WATCHDOG_MS	data	-
 webgui.bond	GalleryStore	class	core.media.gallery
-webgui.bond	ImageGenerator	class	llm.image_gen
 webgui.bond	MAX_GEN_FAILURES	data	-
 webgui.bond	M_MEMORIAL_ENTER	data	-
 webgui.bond	M_MEMORIAL_EXIT	data	-
@@ -21,9 +18,7 @@ webgui.bond	M_VN_ABANDON	data	-
 webgui.bond	M_VN_EXIT	data	-
 webgui.bond	M_VN_STATE	data	-
 webgui.bond	NON_PICKS	data	-
-webgui.bond	PREGEN_GATE_WATCHDOG_MS	data	-
 webgui.bond	SceneLoopError	class	core.bond.bond_story
-webgui.bond	_CAND_SETTINGS_PATH	data	pathlib
 webgui.bond	_CLOSING_PARA	data	-
 webgui.bond	_CLOSING_TEXT	data	-
 webgui.bond	_DRAFT_FILE	data	-
@@ -57,8 +52,6 @@ webgui.bond	_flow_store	function	webgui.bond
 webgui.bond	_force_scene_ready	function	webgui.bond
 webgui.bond	_gate_stalled	function	webgui.bond
 webgui.bond	_generate	function	webgui.bond
-webgui.bond	_image_gen	data	-
-webgui.bond	_image_generator	function	webgui.bond
 webgui.bond	_interrupted_replay_queue	function	webgui.bond
 webgui.bond	_lane_writer_alive	function	webgui.bond
 webgui.bond	_lanes_idle	function	webgui.bond
@@ -128,7 +121,6 @@ webgui.bond	truth_store	function	core.session.staging
 webgui.bond	window_messages	function	core.session.renderer
 # ---- webgui.chat ----
 webgui.chat	CHAR_ROOT	data	pathlib
-webgui.chat	DATA_ROOT	data	pathlib
 webgui.chat	INTERPERSON_PATH	data	pathlib
 webgui.chat	LLMClient	class	llm.client
 webgui.chat	M_VN_ENTER	data	-
@@ -136,7 +128,6 @@ webgui.chat	M_VN_EXIT	data	-
 webgui.chat	MomoTalkEngine	class	core.momotalk
 webgui.chat	PREWARM_ENABLED	data	-
 webgui.chat	ROOT	data	pathlib
-webgui.chat	SessionStore	class	core.session.store
 webgui.chat	_bond_done_map	function	webgui.chat
 webgui.chat	_engine	function	webgui.chat
 webgui.chat	_engines	data	-
@@ -144,7 +135,6 @@ webgui.chat	_external_busy	data	-
 webgui.chat	_lock	function	webgui.chat
 webgui.chat	_locks	data	-
 webgui.chat	_queues	data	-
-webgui.chat	_store	data	core.session.store
 webgui.chat	_strip_action_brackets	function	core.ui.text_processors
 webgui.chat	_tasks	data	-
 webgui.chat	_worker	function	webgui.chat
@@ -375,3 +365,21 @@ llm.client	err	function	core.common.errors
 llm.client	extract_json	function	llm.json_cleaner
 llm.client	feedback	function	llm.client
 llm.client	logger	data	logging
+# ---- webgui.deps ----
+webgui.deps	BUSY_WATCHDOG_MS	data	-
+webgui.deps	CAND_SETTINGS_PATH	data	pathlib
+webgui.deps	DATA_ROOT	data	pathlib
+webgui.deps	GATE_WATCHDOG_MS	data	-
+webgui.deps	ImageGenerator	class	llm.image_gen
+webgui.deps	PREGEN_GATE_WATCHDOG_MS	data	-
+webgui.deps	SessionStore	class	core.session.store
+webgui.deps	__all__	data	-
+webgui.deps	_image_gen	data	-
+webgui.deps	_store	data	core.session.store
+webgui.deps	choice_pregen_enabled	function	webgui.deps
+webgui.deps	enqueue_annotate	function	webgui.deps
+webgui.deps	image_enabled	function	llm.image_gen
+webgui.deps	image_generator	function	webgui.deps
+webgui.deps	logger	data	logging
+webgui.deps	set_store	function	webgui.deps
+webgui.deps	store	function	webgui.deps

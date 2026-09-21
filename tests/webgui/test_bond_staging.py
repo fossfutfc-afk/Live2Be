@@ -18,16 +18,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from core.session.events import make_event                      # noqa: E402
 from core.session.store import SessionStore                     # noqa: E402
-from webgui import bond                                         # noqa: E402
+from webgui import bond, deps                                   # noqa: E402
 from webgui.bond import BondState                               # noqa: E402
 
 CHAR = "igusa_haruka"
 
 
 def _mk(tmp_path, monkeypatch):
-    """tmp 世界线 + 把 `bond._store()` 指过去（`_pending_in_vn` 用它兜底）。"""
+    """tmp 世界线 + 把 `deps._store` 指过去（`_pending_in_vn` 用它兜底）。"""
     st = SessionStore(tmp_path, world_id="w1")
-    monkeypatch.setattr(bond, "_store", lambda: st)
+    monkeypatch.setattr(deps, "_store", st)
     return st, BondState(store=st)
 
 

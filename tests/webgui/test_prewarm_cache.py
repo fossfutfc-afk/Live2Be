@@ -13,7 +13,7 @@ import json
 import time
 from pathlib import Path
 
-from webgui import bond, chat
+from webgui import bond, chat, deps
 from core.session.store import SessionStore
 from core.momotalk import MomoTalkEngine
 
@@ -61,7 +61,7 @@ def _setup(tmp_path, *scripts):
     root = st.create(CHARACTER)
     engine.attach_session(root.session_id)
     chat._engines[CHARACTER] = engine
-    chat._store = st
+    deps.set_store(st)
     # 制造"刚触发"上下文: 事件流一条 mmt + 引擎 trace 带 chapter_title
     from core.session.events import make_event
     st.append_event(CHARACTER, root.session_id, make_event(

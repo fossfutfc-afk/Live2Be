@@ -22,7 +22,7 @@ from fastapi import APIRouter, HTTPException
 from core.common.mmt_registry import load_mmt_registry
 from core.parsing.dynamic_character_parser import CharacterLoader
 from core.session.chapters import chapter_index
-from webgui import bond
+from webgui import bond, deps
 from webgui.routers.bond import _resolve_scene
 from webgui.routers.mmt import collection_cover
 
@@ -38,7 +38,7 @@ BOOK_COLS = 4
 
 def _events(cid: str) -> list:
     """该角色在当前世界线的事件流（读失败 → 空; 宁缺勿错: 册子少一格不报错）。"""
-    store = bond._store()
+    store = deps.store()
     try:
         sid = store.meta(cid).session_id or ""
         return store.events(cid, sid)
