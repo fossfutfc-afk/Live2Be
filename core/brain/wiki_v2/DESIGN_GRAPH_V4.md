@@ -10,8 +10,8 @@
 > 现状差距：代码仍是 v2 形状（3 kind、无 entity、`links` 无类型、`subject` 是自由字符串）。
 > 真机只有 5 个节点（world1/haruka）⇒ **迁移成本≈0**，所以现在改模型是最便宜的时候。
 >
-> 📍 **当前讨论位置**：§9 未定剩 **3 项**；边/存储已定案（§2.1），落地从 **G1（只读 `graph.py`）** 起步。
-> 全文 200 行，读完即可接手讨论（不需要会话上下文）。
+> 📍 **当前讨论位置**：§9 未定剩 **3 项**；边/存储已定案（§2.1）；**G1 已落地（2026-09-21）**，
+> 下一步 **G2**。全文 200 余行，读完即可接手讨论（不需要会话上下文）。
 
 ---
 
@@ -83,8 +83,17 @@ by_rel: dict[str, list[Edge]]   # rel → edges    "所有 about 边"
 | belief B 的支撑经历 | `[e.src for e in inc[B] if e.rel == "supports"]` |
 | promise P 的共有经历 / 双方 | `[e.dst for e in out[P] if e.rel == "formed_by"]` / `rel in ("from","to")` |
 | 1-hop 扩展（召回） | `out[n] + inc[n]` |
-| **未归属清单** | 有节点的集合 − `{e.src for e in by_rel["about"]}`（复查队列直接用它） |
+| **未归属清单** | **非 entity** 节点 − `{e.src for e in by_rel["about"]}`（复查队列直接用它） |
 | 删节点 | 节点表删 + 边表过滤一遍 ⇒ **"悬空引用/双向一致"在构造上不可能存在** |
+
+⚠️ **未归属清单要排掉 entity 自己**（G1 落地时复核出来）：`about` 边的方向是"节点 → entity"，
+所以 entity **永远不会**是 `about` 的 `src` —— 不排的话每个 entity 都会冒充"未归属"。
+
+**推断层的 `unknown`（G1 专有）**：今天那根无类型 `links` 判不出类型的对
+（`belief`↔`belief` · `belief`↔`experience` · `episode`↔`episode`）发一条 `rel="unknown"` ——
+**不猜**（`evolved_from` 的语义是"新看法取代旧的"，一条无向边说不出谁取代谁，猜错方向比不判贵），
+但**也不丢弃**（丢了会让 1-hop 比今天的 `links` 更窄）。G3 落盘后写路径总是知道 rel
+⇒ `stats()["unknown"]` 应当归零，**它就是那条验收线**。
 
 **三条边界（写死，免得以后反复）**：
 
@@ -101,9 +110,9 @@ by_rel: dict[str, list[Edge]]   # rel → edges    "所有 about 边"
 
 | 步 | 内容 | 触及 | 风险 |
 |---|---|---|---|
-| **G1** | 新文件 `graph.py`：从现有 `links`/`contradictions` **推断**类型化边（对端是 belief ⇒ `supports`，是 entity ⇒ `about`…）+ 三索引 + 上面的查询（**只读、不落盘**） | **0 处现有代码** | 低 |
+| **G1** ✅ **已落地 2026-09-21** | 新文件 `graph.py`：`Edge(rel,src,dst,ts)` + 八种 rel + `infer_edges`（对端是 episode ⇒ `supports`、是 entity ⇒ `about`；**判不出的发 `unknown` 不猜**）+ 三索引 + 六类查询 + `graph_of`/`iter_edges`（**G3 的换装点**）。**只读、不落盘** | `graph.py` + `test_wiki_graph.py`（**0 处现有代码**，连 `__init__` 都不加导出） | 低 ✅ |
 | **G2** | 边查询接进叶子消费者：`store.audit`/`delete` 的入边清理 · `recall` 的 1-hop 扩展 | `store.py` · `recall.py` | 低（可单步回退） |
-| **G3** | `edges.jsonl` 落盘 + 自举（有边表读边表，无则从节点推断）+ 写路径 | `store.py` · `session/io.py` | 中 |
+| **G3** | `edges.jsonl` 落盘 + 自举（有边表读边表，无则从节点推断）+ 写路径 ⚠️ **写路径要给 `add_edge(rel, src, dst)` 立名**——今天的 `store.add_link(a,b)` **不带 rel**（digest 的 touch/update/add · accrue · create-links 三处都在调它） | `store.py` · `session/io.py` | 中 |
 | **G4** | 节点内边字段降级为**纯渲染**（组织视图照旧印 `links:`）或删除 | `render.py` + 测试 | 中 |
 
 💡 G1 的价值：**零风险**地把"查询接口够不够用"验证掉 —— 够用再谈落盘。
@@ -259,3 +268,4 @@ about_state      → resolved / uncertain / none   ← **点的属性**（不是
 | 2026-09-21 | **边的存储与索引（§9-3 → §2.1）** | ✅ **点边分离两文件**（`wiki.jsonl` 不动 + 新 `edges.jsonl`）× **运行时三索引**（out/inc/by_rel）；运行时纯 stdlib、**磁盘格式自持**、**不做双写**；落地分四步 **G1–G4**（G1 只读零风险起步） |
 | 2026-09-21 | 运行时用 networkx | ❌ **不做**（磁盘格式被绑 + 运行时依赖；dev 侧照旧）→ §10 |
 | 2026-09-21 | `uncertain` 挂边还是挂点 | ✅ **挂点**（`about_state` 枚举：resolved/uncertain/none）——`uncertain` 恰恰意味着"还没有边"；复查轮次不落字段，从 evolution 数 |
+| 2026-09-21 | **落地 G1**（只读 `graph.py`） | ✅ 落地：`Edge(rel,src,dst,ts)` + 八种 rel + `infer_edges`（`episode → 认知` = `supports` · `→ entity` = `about` · 判不出 = `unknown` **不猜**）+ 三索引 + 六类查询 + `graph_of`/`iter_edges`（G3 换装点）。**0 处现有代码改动**；真机 5 个点推断出 **3 条 `supports` / 0 `about` / 0 `unknown`**。顺带修 §2.1「未归属清单」的宇宙（要排掉 entity 自己） |
