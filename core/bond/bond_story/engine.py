@@ -119,6 +119,39 @@ def _personality_summary(char: "DynamicCharacter") -> str:
 #: 滑动窗口默认轮数（同 momotalk——40 轮 = 80 条消息; 构造参数 history_rounds 可配）
 DEFAULT_HISTORY_ROUNDS = 40
 
+#: 纪念总开关的环境变量（同 `LIVE2BE_IMAGE` 的约定: 进程级, 优先于配置文件）
+MEMORIAL_ENV = "LIVE2BE_MEMORIAL"
+
+
+def memorial_allowed() -> bool:
+    """**纪念总开关**（2026-09-23）: 环境变量 `LIVE2BE_MEMORIAL` > settings `[bond].memorial` > 默认 True。
+
+    关掉的效果 = **桥段降级为旁白、画不画都不谈**:
+    `stage:memorial` 记录被静默降级（不置 `in_memorial` / 不写 `memorial_enter` /
+    不触发生图 / 不进回忆册）, **文字照常上屏**——观感与"章内第二次纪念"的既有
+    降级完全一致（复用同一条通道, 见 `_demote_repeat_memorial`）。
+
+    ⚠️ 与 `[image].enabled`（生图总开关）**不是一回事**: 那个关掉后纪念演出照旧
+    （仍黑屏 + 转场句, 只是没插画）; 本开关关掉后**连桥段一起没有**。
+
+    读取失败/缺省 → True（与 `choice_pregen`/`image_enabled` 同一姿势: 不配 = 现状）。
+    """
+    import os
+    env = str(os.environ.get(MEMORIAL_ENV, "") or "").strip().lower()
+    if env in ("off", "0", "false", "no"):
+        return False
+    if env in ("on", "1", "true", "yes"):
+        return True
+    try:
+        import tomllib
+        from core import paths
+        text = paths.SETTINGS_PATH.read_text(encoding="utf-8")
+        cfg = (tomllib.loads(text).get("bond") or {})
+        val = cfg.get("memorial", True)
+        return bool(val) if isinstance(val, bool) else True
+    except Exception:                              # noqa: BLE001 — 缺省开
+        return True
+
 
 class BondStoryEngine:
     """羁绊剧情对话引擎。
@@ -137,6 +170,7 @@ class BondStoryEngine:
         character_names: list[str] | None = None,
         history_rounds: int = DEFAULT_HISTORY_ROUNDS,
         task_card: bool | None = None,   # None = settings [promptkit].task_card（默认 true）
+        memorial_enabled: bool | None = None,   # None = settings [bond].memorial（默认 true）
     ):
         self.char_loader = CharacterLoader(characters_root)
         self.llm = llm_client
@@ -154,6 +188,11 @@ class BondStoryEngine:
         #: `_fire_memorial_image`。回调侧同步读走, 用于可归因记账（节点 C）。
         self.memorial_prompt_source = ""
         self._memorial_used = False       # 一段剧情至多 1 次 memorial（enter 已用 = True）
+        #: **纪念总开关**（2026-09-23）: 关 → 所有 `stage:memorial` 记录静默降级为旁白
+        #: （不置位 / 不写 marker / 不触发生图 / 不进回忆册; **文字照常上屏**）。
+        #: 判据复用 M5 的既有降级通道（`_demote_repeat_memorial`）——不是新机制。
+        self._memorial_enabled = (memorial_allowed() if memorial_enabled is None
+                                  else bool(memorial_enabled))
         self._lexicon_keys: list[str] = []     # 两遍式 C: 角色词表键（标注层用）
         self._lexicon_hint: str = ""           # 词表注入文本（few-shot 示范, 标注 prompt 用）
         self._character_hint: str = ""         # 角色人设摘要（标注层用, 2026-09-02:
@@ -632,12 +671,18 @@ class BondStoryEngine:
           改成 `narrator` 记录后**观感逐字节不变**, 只是不再有纪念语义:
           不置 `in_memorial` / 不写 `memorial_enter` / 不触发生图 / 不进回忆册的图列表。
         """
-        if not self._memorial_used:
-            return records
         if not any(getattr(r, "stage", "") == STAGE_MEMORIAL for r in records):
             return records
-        logger.info("[vn][memorial] 章内第二次纪念 → 静默拒绝"
-                    "（降级为旁白; 不生图/不置位/不写 marker）")
+        if not self._memorial_enabled:
+            # 总开关为关（2026-09-23）: 与"章内第二次"走**同一条**降级通道 ——
+            # 文字照常上屏, 只是不再有纪念语义（不生图/不置位/不写 marker/不进回忆册）。
+            logger.info("[vn][memorial] 总开关为关 → 静默降级为旁白"
+                        "（settings [bond].memorial=false / LIVE2BE_MEMORIAL=off）")
+        elif self._memorial_used:
+            logger.info("[vn][memorial] 章内第二次纪念 → 静默拒绝"
+                        "（降级为旁白; 不生图/不置位/不写 marker）")
+        else:
+            return records
         return tuple(
             VnRecord(KIND_CHARACTER, CHARACTER_NARRATOR, r.text,
                      getattr(r, "line_no", 0))
