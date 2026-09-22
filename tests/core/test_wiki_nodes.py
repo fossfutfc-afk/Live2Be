@@ -62,8 +62,8 @@ def test_every_serialized_field_is_parsed_back():
     # 每个可序列化字段都填一个非空值（哨兵值, 值本身不重要）
     probes = {
         "observer": "老师", "tags": ["x"], "segment_id": "seg-1",
-        "event_seq": [1], "ts": "2026-09-01T20:00:00", "source": "experience",
-        "links": ["m0002"], "contradictions": ["m0003"], "notes": ["n"],
+        "event_seq": [1], "ts": "2026-09-01T20:00:00",
+        "links": ["m0002"], "contradictions": ["m0003"],
         "narration": "n", "verbatim": "v", "verbatim_seq": ["1.1"],
         "title": "t", "emo_shape": ["smile"], "pattern": "p", "subject": "player",
         "count": 2, "examples": ["e"], "content": "c", "growth": "g",
@@ -169,19 +169,9 @@ def test_episode_epistemic_guard():
     assert any("episode 节点 epistemic 只能是 observed_fact/reported_fact" in e for e in errs)
 
 
-def test_seed_episode_rules():
-    """出厂基座（fact 退役 2026-09-02）: 出厂 = episode(source=experience) + 溯源。"""
-    ok = make_node("episode", narration="遥香曾因拆炸弹事件对 sensei 建立信任",
-                   significance=0.95, source="experience")
-    assert ok.validate() == []
-    assert ok.is_seed() is True
-    # 护栏: 出厂基座必须有 source=experience（运行时 episode 非 seed）
-    runtime = make_node("episode", narration="x")
-    assert runtime.validate() == []
-    assert runtime.is_seed() is False
-    # episode epistemic 只能是 observed/reported（inferred_belief 拒）
-    bad_epi = make_node("episode", narration="x", epistemic="inferred_belief")
-    assert any("observed_fact/reported_fact" in e for e in bad_epi.validate())
+# ⏸ `is_seed()` / `source` / `notes` —— 2026-09-21 整族删除。原 `test_seed_episode_rules`
+# 随之一并删（它钉的是"出厂基座 = episode(source=experience)"，而那个生产者已归档、
+# 出厂记忆自 2026-09-05 起不进 wiki）。epistemic 护栏那一半并入上面的用例。
 
 
 def test_belief_requires_support():

@@ -281,6 +281,9 @@ C. RAG 回忆（Phase 2 🔧）: embedding 检索与新增语义相关的旧事�
   `canon_fact` 只来自 R3 出厂基座（experience/knowledge 种子）
 - 修订契约（§5.1 组织 pass）中 update 不允许把 `inferred_belief` 改写成 `canon_fact`——认知升级只能经 digest 重新提炼
 - 出厂基座条目的 update 只允许"追加注记", 不允许改原文（平行世界共享出厂设定的保护）
+  ⏸ **已退役 2026-09-21**：`source`/`is_seed()`/`notes` 整族删除——出厂记忆自 2026-09-05
+  起不进 wiki（`render_background_experience` 直注 yml 原文），唯一生产者已归档，
+  真机 0 个 seed 节点。若将来要"作者写死、运行时不可改"的记忆，纪律落在**配置层**。
 
 **observer 观察者（规划）**: 广播落库时每条视角记忆标 `observer`（该线角色）;
 多角色同框落地后（DESIGN_MULTI_CHAR）, 以 observer + 虚边（event_id）支撑信息差

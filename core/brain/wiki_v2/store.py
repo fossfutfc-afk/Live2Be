@@ -156,19 +156,19 @@ class WikiStoreV2:
         return node.id
 
     def update(self, nid: str, patch: dict) -> BrainNode:
-        """打补丁更新（patch 键必须是节点字段; 出厂基座只允许 notes 追加）。返回新节点。"""
+        """打补丁更新（patch 键必须是节点字段）。返回新节点。
+
+        ⚠️ 原"出厂基座只允许 notes 追加"守卫（SeedImmutable）2026-09-21 删——
+        它判的是 `is_seed()`（`source == "experience"`），而出厂记忆早已不进 wiki
+        （见 `nodes.py` 模块 docstring）。节点现在没有不可变区。
+        """
         node = self._nodes.get(nid)
         if node is None:
             raise KeyError(err("NotFound", f"节点不存在: {nid}"))
         unknown = set(patch) - _FIELDS
         if unknown:
             raise ValueError(err("BadPatch", f"未知字段: {sorted(unknown)}"))
-        if node.is_seed() and set(patch) - {"notes"}:
-            raise ValueError(err("SeedImmutable",
-                                 "出厂基座不可改——只允许 notes 追加（§5 规则 2）"))
         new = BrainNode.from_dict({**node.to_dict(), **patch})
-        if node.is_seed() and patch.get("notes"):
-            new.notes = node.notes + [str(patch["notes"])]
         errors = new.validate()
         if errors:
             raise ValueError(err("InvalidNode",

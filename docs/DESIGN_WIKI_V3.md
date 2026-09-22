@@ -20,7 +20,7 @@
 | 轴 | v2 现状 | v3 目标 |
 |---|---|---|
 | **图的中心** | **以非 belief 节点为中心**：episode 是主体，belief 挂在它下面、彼此无边（利于 agent-memory，**不利于 RP**） | **实体中心的两层图**：`entity`（谁/什么/哪里/哪条知识）为持久参照物，episode/belief 都指向它 |
-| **节点** | 4 个 kind 混用（`episode`/`experience`/`belief` + `source=experience`），一词四义 | **2 kind**：`entity` + `episode`/`belief`（同为经验层）；**`experience` kind 归并**（规律 = belief + `nature=pattern`，物品 = `entity(etype=item)` + 边状态） |
+| **节点** | 4 个 kind 混用（`episode`/`experience`/`belief` + `source=experience`），一词四义。⚠️ `source=experience` 那一支 **2026-09-21 已删**（出厂记忆不进 wiki, 真机 0 节点）⇒ 现网剩 3 kind | **2 kind**：`entity` + `episode`/`belief`（同为经验层）；**`experience` kind 归并**（规律 = belief + `nature=pattern`，物品 = `entity(etype=item)` + 边状态） |
 | **归属** | `subject` 是自由字符串 → 同一实体裂成多种写法（真机：老师 ×4 种） | `about`（引擎管，指向 entity，保证归堆）+ `aspect`（LLM 写，保留侧面区分度） |
 | **认知分层** | 无 | 第四轴 `nature`：`self_image`（内核，**不合并**）/ `other`（合并）/ `relationship`（有时效）/ `pattern`（计数聚合） |
 | **时间** | **零游戏内时间**，只有壁钟 `ts` | **三层各司其职**：剧情时间（角色口径，离散槽位游标）+ 现实日历（只做生日/节日触发器）+ 壁钟（只做审计）；渲染模糊成"三周前"；两钟冲突走**目标日吸附** |
@@ -37,7 +37,7 @@
 | 出现位置 | 实际含义 | 归属层 |
 |---|---|---|
 | `nodes.KINDS` 的 `kind="experience"` | 重复模式 / 口癖 | **图节点** |
-| `nodes.is_seed()` 判据 `source="experience"`（挂在 **episode** 上） | 出厂预设经历 | **图节点的来源字段** |
+| ~~`nodes.is_seed()` 判据 `source="experience"`（挂在 **episode** 上）~~ ⏸ **2026-09-21 已删**（`is_seed`/`source`/`notes` 整族退役——生产者已归档, 出厂记忆不进 wiki） | 出厂预设经历 | ~~**图节点的来源字段**~~ ⇒ v3 要恢复这一支时用 `origin=seed`（见 §迁移表） |
 | `render_background_experience(ch.experience)` | `experience.yml` 角色档案 | **配置文件**（不进 wiki） |
 | `mmt_inspect_character` 的 L3 `+experience` | 故知层人设资料 | **检视深度** |
 

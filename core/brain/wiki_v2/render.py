@@ -10,10 +10,11 @@
 
 格式约定（决策 #7）: id 无 # 无下划线（m0003）——组织视图行首即 id, 防 markdown 标题歧义。
 player experience（§4.4）: 组织视图带 [关于老师] 标记; 角色视图独立【老师的事】段。
-出厂 episode（2026-09-02 v3）: 角色视图渲染为独立【久远的记忆】段（cap 5 低配常驻）;
-运行时 episode 独占 珍贵/最近 段（玩家羁绊主窗口）——出厂不挤占玩家记忆。
-（2026-09-05 解耦: 出厂记忆不进 wiki——主进程注入用 render_background_experience
-（yml 原文直注）; 本文件的出厂渲染分支保留给可能的手动出厂库。）
+⚠️ **出厂 episode / seed 桶 2026-09-21 删**（"出厂基座"机制退役）: 2026-09-05 解耦后
+出厂记忆**不进 wiki**（主进程注入走 `render_background_experience` 直注 yml 原文）,
+真机 0 个 seed 节点 ⇒ 本文件那条 `source == "experience"` 的分支（含【久远的记忆】段
+与组织视图的"canon 只读"标记）一直在空转。**将来若真要"手动出厂库"**, 请以
+`config/characters/*/experience.yml` 为准扩那一条注入链, 不要回 wiki 造第二真源。
 """
 from __future__ import annotations
 
@@ -103,7 +104,8 @@ def render_organize_view(nodes: Iterable[BrainNode], *, timeline: str = "") -> s
 def _organize_line(node: BrainNode) -> str:
     """一行: `m0003 [episode, sig 0.80, links: m0009, c: m0005] 内容`。
 
-    player experience 的 kind 标签带 [关于老师]; 出厂 episode 带只读标记。
+    player experience 的 kind 标签带 [关于老师]。
+    （原"出厂 episode 带只读标记"2026-09-21 删——`is_seed()` 随 `source` 退役。）
     """
     meta = [node.kind]
     if node.is_player_experience:
@@ -115,8 +117,6 @@ def _organize_line(node: BrainNode) -> str:
         meta.append("links: " + " ".join(node.links))
     if node.contradictions:
         meta.append("c: " + " ".join(node.contradictions))
-    if node.is_seed():
-        meta.append("canon 只读")
     head = f"{node.id} [{', '.join(meta)}] {_organize_text(node)}"
     extra = _organize_extra(node)
     return head + extra
@@ -184,17 +184,15 @@ def _bucket_view(nodes: Iterable[BrainNode]) -> dict:
     """
     all_nodes = list(nodes)
     bucket = {
-        "seed": lambda n: n.kind == "episode" and n.source == "experience",
+        # ⚠️ 原 "seed" 桶（`source == "experience"`）2026-09-21 删——出厂记忆不进 wiki,
+        # 真机零节点, 见模块 docstring。
         "episode": lambda n: (n.kind == "episode"
-                              and n.epistemic == "observed_fact"
-                              and n.source != "experience"),
+                              and n.epistemic == "observed_fact"),
         "belief": lambda n: n.kind == "belief",
         "player": lambda n: n.is_player_experience,
         "reported": lambda n: (n.kind == "episode"
                                and n.epistemic == "reported_fact"),
     }
-    seed_eps = sorted((n for n in all_nodes if bucket["seed"](n)),
-                      key=lambda n: n.significance, reverse=True)
     episodes = sorted((n for n in all_nodes if bucket["episode"](n)),
                       key=lambda n: (n.is_precious, n.ts or ""), reverse=True)
     beliefs = sorted((n for n in all_nodes if bucket["belief"](n)),
@@ -204,14 +202,12 @@ def _bucket_view(nodes: Iterable[BrainNode]) -> dict:
     reported = [n for n in all_nodes if bucket["reported"](n)]
     return {
         "total": len(all_nodes),
-        "seed_eps": seed_eps,
         "episodes": episodes,
         "beliefs": beliefs,
         "players": players,
         "reported": reported,
         # 台账口径: 桶名 → 注入条数（cap 已删 → 桶内全量, 无"选中/候选"之分）
         "buckets": {
-            "seed": len(seed_eps),
             "episode": len(episodes),
             "belief": len(beliefs),
             "player": len(players),
@@ -230,15 +226,13 @@ def render_character_view(
 ) -> str:
     """角色注入视图: 分层排序渲染（2026-09-13: **cap 全删**, 见 `_bucket_view`）。
 
-    分层（出厂/运行时分区, 决定**注入顺序**而非截断）:
-        - 久远的记忆（出厂 episode, source=experience）: 按 sig——角色底色;
-          出厂经历是"游戏开始前的过去"
-        - 我记得的事（珍贵的/最近）: **运行时独占**（珍贵档 + ts 降序）;
-          出厂 episode 永不进此段
-        - 我心里渐渐觉得（belief）: 按 sig（出厂种子 + 运行时 digest 产物混排）
+    分层（运行时分区, 决定**注入顺序**而非截断）:
+        - 我记得的事（珍贵的/最近）: 珍贵档 + ts 降序
+        - 我心里渐渐觉得（belief）: 按 sig
         - 老师的事（player experience 口癖）: count 降序
         - 我听说的（reported）: 兜底
         - knowledge 不再出厂化（世界观知识 = config 档案, system prompt 注入）
+        （原"久远的记忆"段 2026-09-21 删——出厂 episode 不进 wiki, 见模块 docstring）
     第一人称转换: char_name + char_aliases（yml 原文多用简称, 如"遥香"）→ 我。
     （**v3 将废弃该转换**——见 DESIGN_WIKI_V3 §2.11; 本节暂不动。）
 
@@ -259,7 +253,6 @@ def render_character_view(
     b = _bucket_view(nodes)
     episodes, beliefs, players, reported = (
         b["episodes"], b["beliefs"], b["players"], b["reported"])
-    seed_eps = b["seed_eps"]
     _last_view_account.append(b)
 
     blocks: list[str] = ["【角色记忆（brain）】"]
@@ -285,9 +278,6 @@ def render_character_view(
     if reported:
         blocks.append("我听说的：\n" + "\n".join(
             _reported_line(n, char_name, char_aliases) for n in reported))
-    if seed_eps:
-        blocks.append("久远的记忆：\n" + "\n".join(
-            _memory_line(n, char_name, char_aliases) for n in seed_eps))
     return "\n\n".join(blocks)
 
 

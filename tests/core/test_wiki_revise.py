@@ -95,18 +95,8 @@ def test_update_rules(tmp_path):
                                        "patch": {"epistemic": "observed_fact"}}],
                                  subgraph_ids=scope)
     assert not res.ok and any("epistemic" in e for e in res.errors)
-    # 出厂基座只允许 notes（出厂 episode, source=experience; _store 已占 m0001-3/e0001）
-    st.add(make_node("episode", narration="出厂经历", source="experience",
-                     significance=0.9))
-    scope.add("m0004")
-    res = apply_revision_package(st, [{"action": "update", "id": "m0004",
-                                       "patch": {"significance": 1.0}}],
-                                 subgraph_ids=scope)
-    assert not res.ok and any("出厂基座" in e for e in res.errors)
-    res = apply_revision_package(st, [{"action": "update", "id": "m0004",
-                                       "patch": {"notes": "世界线 1 验证过"}}],
-                                 subgraph_ids=scope)
-    assert res.ok and st.get("m0004").notes == ["世界线 1 验证过"]
+    # ⏸ 原"出厂基座只允许 notes 追加"那半段 2026-09-21 删——`is_seed()`/`source`/`notes`
+    # 整族退役（生产者已归档, 真机 0 个 seed 节点）。update 现在只受字段白名单约束。
 
 
 def test_merge_inherits_and_deletes_sources(tmp_path):
