@@ -9,7 +9,7 @@ G1 的边界（写死, 免得这一步膨胀）:
       `links` / `contradictions` **推断**出类型与方向（`infer_edges`）
 
 为什么先写这一层（§2.1 的验收口径）: 把"§2.1 那六类查询够不够用"**零风险**地验掉
-——够用再谈落盘。推断表见 `_classify`。
+——够用再谈落盘。推断表见 `classify_pair`。
 
 ⚠️ 今天**还没有 `entity`**（v4 §1 的新 kind 未落地）⇒ 真机上推断产出 **0 条 `about`**;
 entity 车道的查询在 G1 阶段只能验形状（测试里用直接构造的 entity 节点验）。
@@ -39,7 +39,7 @@ REL_SOURCE = "source"                # fact → episode（她怎么知道的）
 REL_FROM = "from"                    # promise → entity（承诺方）
 REL_TO = "to"                        # promise → entity（被承诺方）
 
-#: 全部合法 rel（**唯一清单**; 新增边类型只改这里 + `_classify` 的判据）
+#: 全部合法 rel（**唯一清单**; 新增边类型只改这里 + `classify_pair` 的判据）
 RELS: tuple[str, ...] = (REL_ABOUT, REL_SUPPORTS, REL_FORMED_BY, REL_CONTRADICTS,
                          REL_EVOLVED_FROM, REL_SOURCE, REL_FROM, REL_TO)
 
@@ -80,6 +80,11 @@ class Edge:
         if self.ts:
             d["ts"] = self.ts
         return d
+
+    def to_json_line(self) -> str:
+        """jsonl 一行（紧凑, 中文不转义——与 `BrainNode.to_json_line` 同款）。"""
+        import json
+        return json.dumps(self.to_dict(), ensure_ascii=False, separators=(",", ":"))
 
     @classmethod
     def from_dict(cls, raw: Any) -> "Edge | None":
@@ -136,12 +141,16 @@ def _emit(out: list[Edge], seen: set, by_id: dict, a: str, b: str, *,
     if symmetric:
         rel, src, dst = REL_CONTRADICTS, key[0], key[1]
     else:
-        rel, src, dst = _classify(by_id[a], by_id[b])
+        rel, src, dst = classify_pair(by_id[a], by_id[b])
     out.append(Edge(rel=rel, src=src, dst=dst, ts=_edge_ts(by_id, src, dst)))
 
 
-def _classify(a: BrainNode, b: BrainNode) -> tuple[str, str, str]:
-    """一条无向邻接对 → `(rel, src, dst)`。
+def classify_pair(a: BrainNode, b: BrainNode) -> tuple[str, str, str]:
+    """一条无向邻接对 → `(rel, src, dst)`。**唯一**的分类表。
+
+    两个调用方: ① 旧档**自举**（`infer_edges` 从 `links`/`contradictions` 推）
+    ② 写路径的**旧接口 shim**（`store.add_link` —— 那条窄路径只知道"这两条挨着",
+    不知道 rel）。活路径**一律走 `store.add_edge(rel, …)`**, 显式 rel 才有"类型化"。
 
     ## 推断表（今天能判的只有这些）
 
@@ -157,19 +166,19 @@ def _classify(a: BrainNode, b: BrainNode) -> tuple[str, str, str]:
     """
     if a.kind == KIND_ENTITY or b.kind == KIND_ENTITY:
         if a.kind == KIND_ENTITY and b.kind == KIND_ENTITY:
-            return REL_UNKNOWN, *_canonical(a.id, b.id)
+            return REL_UNKNOWN, *canonical_pair(a.id, b.id)
         ent, other = (a, b) if a.kind == KIND_ENTITY else (b, a)
         if other.kind in _ABOUTABLE:
             return REL_ABOUT, other.id, ent.id
-        return REL_UNKNOWN, *_canonical(a.id, b.id)
+        return REL_UNKNOWN, *canonical_pair(a.id, b.id)
     if a.kind == "episode" and b.kind in _COGNITION:
         return REL_SUPPORTS, a.id, b.id
     if b.kind == "episode" and a.kind in _COGNITION:
         return REL_SUPPORTS, b.id, a.id
-    return REL_UNKNOWN, *_canonical(a.id, b.id)
+    return REL_UNKNOWN, *canonical_pair(a.id, b.id)
 
 
-def _canonical(a: str, b: str) -> tuple[str, str]:
+def canonical_pair(a: str, b: str) -> tuple[str, str]:
     """无方向可言的边 → 端点规范化（id 小的当 src; 保证可复现）。"""
     return (a, b) if a <= b else (b, a)
 
@@ -339,16 +348,16 @@ class Graph:
 
 
 # ---------------------------------------------------------------------------
-# 与 store 的接缝（G2/G3 的换装点）
+# 与 store 的接缝（2026-09-21 G3: 换装已完成）
 # ---------------------------------------------------------------------------
 
 def graph_of(store) -> Graph:
-    """`WikiStoreV2` → `Graph`。
+    """`WikiStoreV2` → `Graph`（= store 内存里的**点 + 边**）。
 
-    ⚠️ **G3 的换装点**: 今天恒走 `from_nodes`（推断）; 有了 `edges.jsonl` 之后
-    这里改成"**有边表读边表, 无边表回落到推断**"——调用方零改动。
+    ⚠️ **G3 起边的真源是 `soul/edges.jsonl`**（`store._edges`）; 推断只在
+    **没有边表的旧档**上发生, 而且那一步在 `store._load_edges`（自举）, 不在这里。
     """
-    return Graph.from_nodes(store.all())
+    return store.graph()
 
 
 def iter_edges(store, *, rel: str | None = None) -> Iterator[Edge]:
@@ -378,6 +387,8 @@ __all__ = [
     "REL_UNKNOWN",
     "Edge",
     "Graph",
+    "canonical_pair",
+    "classify_pair",
     "graph_of",
     "infer_edges",
     "iter_edges",

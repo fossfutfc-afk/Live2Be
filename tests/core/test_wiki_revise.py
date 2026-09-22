@@ -49,10 +49,12 @@ def test_create_and_link_package(tmp_path):
     assert res.ok, res.errors
     assert res.created == {"n1": "m0004", "n2": "m0005"}
     ep = st.get("m0004")
-    # 双向语义: n2 链入 n1 → n1.links 含 n2（反向边正确补挂）
-    assert ep.text == "老师带我去甜品店" and ep.links == ["m0002", "m0005"]
+    # 两条出边都在（G3: 边表）—— n1→m0002 与 belief 的支撑链 supports→m0005
+    assert ep.text == "老师带我去甜品店"
+    assert set(st.graph().targets("m0004", "supports")) == {"m0002", "m0005"}
     bel = st.get("m0005")
-    assert bel.text == "老师会认真听我说话" and bel.links == ["m0004"]
+    assert bel.text == "老师会认真听我说话"
+    assert st.graph().supporters("m0005") == ["m0004"]
     assert st.audit() == []                      # 全链路后图干净
     # evolution log
     entries = _log(st).read()
@@ -110,10 +112,10 @@ def test_merge_inherits_and_deletes_sources(tmp_path):
     merged = st.get("m0004")
     assert merged is not None and merged.text == "和老师的两次难忘日常"
     assert merged.event_seq == [1, 2]
-    # 出边继承（m0003 原有支撑 m0002）+ 入边重接（e0001 曾指向 m0003 → 改指 merged）
-    assert set(merged.links) == {"m0002", "e0001"}
-    assert st.get("m0002").links == ["m0004"]            # belief 支撑不断链
-    assert st.get("e0001").links == ["m0004"]            # 入边重接
+    # 出边继承（m0001/m0003 原有支撑 m0002）+ 端点 remap 到产物（G3: 边表）
+    assert set(st.graph().targets("m0004", "supports")) == {"m0002", "e0001"}
+    assert "m0004" in st.graph().supporters("m0002")     # belief 支撑不断链
+    assert st.graph().supporters("e0001") == ["m0004"]   # 入边重接
     assert st.get("m0001") is None and st.get("m0003") is None
     entries = _log(st).read()
     assert entries[-1]["action"] == "merge" and entries[-1]["ids"] == ["m0001", "m0003"]
@@ -128,7 +130,7 @@ def test_merge_orphan_rejected(tmp_path):
                                        "into": {"kind": "episode",
                                                 "text": "合并"}}],
                                  subgraph_ids=scope)
-    assert not res.ok and any("至少 1 条链接" in e for e in res.errors)
+    assert not res.ok and any("至少 1 条边" in e for e in res.errors)
     assert len(st) == 2                                   # 原子
 
 
@@ -140,14 +142,15 @@ def test_link_unlink_contradict_resolve(tmp_path):
         {"action": "contradict", "a": "m0001", "b": "m0003"},
     ], subgraph_ids=scope)
     assert ok.ok
-    assert "m0003" in st.get("m0001").links
-    assert "m0003" in st.get("m0001").contradictions
+    assert "m0003" in st.neighbors("m0001")
+    assert st.graph().edges_from("m0001", "contradicts")
     ok = apply_revision_package(st, [
         {"action": "unlink", "from": "m0001", "to": "m0003"},
         {"action": "resolve", "a": "m0001", "b": "m0003"},
     ], subgraph_ids=scope)
     assert ok.ok
-    assert st.get("m0001").links == ["m0002"] and st.get("m0001").contradictions == []
+    assert st.graph().targets("m0001") == ["m0002"]
+    assert st.graph().edges_from("m0001", "contradicts") == []
 
 
 def test_accrue_counts_by_engine(tmp_path):
@@ -164,8 +167,7 @@ def test_accrue_counts_by_engine(tmp_path):
     assert res.ok, res.errors
     exp = st.get("e0001")
     assert exp.event_seq == [2, 7]                        # 从证据 episode 继承
-    assert exp.links == ["m0003", "m0004"]                # 证据 episode 链入
-    assert exp.count == 2                                 # 引擎计数 = len(links)
+    assert st.graph().supporters("e0001") == ["m0003", "m0004"]   # 证据 episode 链入
     assert "「这周又忙成狗了」" in exp.examples
     # accrue 无证据 → 拒绝
     res = apply_revision_package(st, [{"action": "accrue", "id": "e0001",
@@ -183,8 +185,8 @@ def test_accrue_existing_episode_by_id(tmp_path):
                                  subgraph_ids=scope)
     assert res.ok, res.errors
     exp = st.get("e0001")
-    assert exp.links == ["m0003", "m0001"] and exp.event_seq == [2, 1]
-    assert exp.count == 2
+    assert st.graph().supporters("e0001") == ["m0003", "m0001"]
+    assert exp.event_seq == [2, 1]
 
 
 def test_ids_outside_subgraph_rejected(tmp_path):
@@ -257,7 +259,7 @@ def test_decisions_update_logs_before_after(tmp_path):
     bel = st.get("m0002")
     assert bel.text == "老师会记得我的喜好" and bel.significance == 0.95
     assert not hasattr(bel, "history")                  # 字段已退役
-    assert "m0004" in bel.links and "m0002" in st.get("m0004").links
+    assert "m0004" in st.graph().supporters("m0002")
     row = _log(st).read()[-1]
     assert row["action"] == "update" and row["target"] == "m0002"
     assert row["changed"]["text"][1] == "老师会记得我的喜好"   # after
@@ -292,7 +294,7 @@ def test_decisions_update_patch_outside_whitelist_rejected(tmp_path):
 
 
 def test_decisions_add_belief_linked_before_store(tmp_path):
-    """add belief: 引擎归属 epistemic + 先链后入仓（belief 校验 links ≥1）。"""
+    """add belief: 引擎归属 epistemic + 入仓后立刻补 supports 边（G3: 边表）。"""
     st = _store(tmp_path)
     _episode(st, text="老师把猫抱到我腿边")
     rows = [{"episode": "m0004", "decision": "add", "kind": "belief",
@@ -301,7 +303,7 @@ def test_decisions_add_belief_linked_before_store(tmp_path):
     assert created == ["m0005"]                          # belief 与 episode 同 m 前缀
     bel = st.get("m0005")
     assert bel.epistemic == "inferred_belief"            # 引擎归属
-    assert bel.links == ["m0004"] and "m0005" in st.get("m0004").links
+    assert st.graph().supporters("m0005") == ["m0004"]
     assert st.audit() == []
 
 

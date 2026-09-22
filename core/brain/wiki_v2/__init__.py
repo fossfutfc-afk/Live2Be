@@ -27,6 +27,7 @@ from core.brain.wiki_v2.nodes import (
     make_node,
 )
 from core.brain.wiki_v2.store import WikiStoreV2
+from core.brain.wiki_v2.graph import Edge, Graph, graph_of
 from core.brain.wiki_v2.evolution import EvolutionLog
 from core.brain.wiki_v2.revise import RevisionResult, apply_revision_package
 from core.brain.wiki_v2.render import render_background_experience, render_character_view, render_organize_view
@@ -62,6 +63,9 @@ __all__ = [
     "BrainNode",
     "make_node",
     "WikiStoreV2",
+    "Edge",
+    "Graph",
+    "graph_of",
     "EvolutionLog",
     "RevisionResult",
     "apply_revision_package",

@@ -116,8 +116,8 @@ def test_full_pipeline(tmp_path):
     assert bel.significance == 0.95
     exp = st.get("e0002")
     assert exp.kind == "experience" and exp.text == "老师会带我去吃甜品"
-    assert exp.count == 1                              # links = [m0003]
-    assert "e0002" in ep.links and "m0002" in ep.links
+    assert st.graph().supporters("e0002") == ["m0003"]   # 次数 = supports 入边（G3）
+    assert set(st.graph().targets("m0003")) == {"e0002", "m0002"}   # episode 的两条出边
     # evidence: 低置信度丢弃
     assert [e["function"] for e in res.evidence] == ["fe"]
     assert res.affection_delta == 30
@@ -142,7 +142,7 @@ def test_touch_decision_links_only(tmp_path):
     assert res.ok, res.errors
     bel = st.get("m0002")
     assert bel.significance == 0.9                     # touch 不改内容
-    assert "m0003" in bel.links                        # 只连边
+    assert "m0003" in st.graph().supporters("m0002")   # 只连边（G3: supports 入边）
 
 
 # ---------------------------------------------------------------------------
@@ -469,8 +469,8 @@ def test_cold_start_add_belief(tmp_path):
     bel = st.get("m0002")                              # 空库 belief → m0002
     assert bel.kind == "belief"
     assert bel.epistemic == "inferred_belief"          # 引擎归属, 非 LLM
-    assert "m0001" in bel.links                        # 先链后入仓（validate 通过）
-    assert "m0002" in st.get("m0001").links            # 反向边
+    # 支撑不变量（G3: 入仓后立刻补 supports 边; 字段层不再判它）
+    assert st.graph().supporters("m0002") == ["m0001"]
     # 冷启动 B 输入提示"尚无稳定认知"
     assert "尚无稳定认知" in llm.calls[1][1]["content"]
 

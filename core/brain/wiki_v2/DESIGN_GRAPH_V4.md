@@ -10,8 +10,8 @@
 > 现状差距：代码仍是 v2 形状（3 kind、无 entity、`links` 无类型、`subject` 是自由字符串）。
 > 真机只有 5 个节点（world1/haruka）⇒ **迁移成本≈0**，所以现在改模型是最便宜的时候。
 >
-> 📍 **当前讨论位置**：§9 未定剩 **3 项**；边/存储已定案（§2.1）；**G1 已落地（2026-09-21）**，
-> 下一步 **G2**。全文 200 余行，读完即可接手讨论（不需要会话上下文）。
+> 📍 **当前讨论位置**：§9 未定剩 **3 项**；边/存储已定案（§2.1）；**G1 + G3 已落地（2026-09-21）**，
+> 下一步 **G4**（纯机械删 `links` 字段）。全文 200 余行，读完即可接手讨论（不需要会话上下文）。
 
 ---
 
@@ -104,20 +104,27 @@ by_rel: dict[str, list[Edge]]   # rel → edges    "所有 about 边"
 2. **磁盘格式自持**：不用第三方序列化（nx 的 `node_link_data` 就是活例子——3.x 把 `links` 键改名成 `edges`）。
    我们的纪律是"**旧档宽容读、无迁移脚本**"，格式一旦外包，库的升级就变成我们的数据迁移。
 3. **不做双写**：不搞"边表与节点内 `links` 并存一段时间"——那是第二个真源。数据 5 节点 / 消费者 12 文件
-   ⇒ 一步到位比长期双真源干净。
+   ⇒ 一步到位比长期双真源干净。**G3 已按这条落地**：写路径只写边表，`links`/`contradictions`
+   在点表里变成"**读得进、写不出**"（旧档自举还要读它，见 G3 行）。
+4. **两个文件不是一次事务**（G3 加）：`save()` 是两次 `atomic_write_lines`，写序 = **先点后边**
+   —— 点写成功而边写失败, 后果是"边表陈旧（少几条新边）", 记忆正文完好、可重算;
+   反过来会留下一批悬空边。两条都只降级不损坏, 但前者更好收拾。
+   一致性靠**读侧宽容**（悬空边保留, 由 `audit()` / `Graph.dangling()` 报），不靠事务。
 
 **落地分步（叶子优先，每步一提交 + 全量 + B 层冒烟）**：
 
 | 步 | 内容 | 触及 | 风险 |
 |---|---|---|---|
 | **G1** ✅ **已落地 2026-09-21** | 新文件 `graph.py`：`Edge(rel,src,dst,ts)` + 八种 rel + `infer_edges`（对端是 episode ⇒ `supports`、是 entity ⇒ `about`；**判不出的发 `unknown` 不猜**）+ 三索引 + 六类查询 + `graph_of`/`iter_edges`（**G3 的换装点**）。**只读、不落盘** | `graph.py` + `test_wiki_graph.py`（**0 处现有代码**，连 `__init__` 都不加导出） | 低 ✅ |
-| **G2** | 边查询接进叶子消费者：`store.audit`/`delete` 的入边清理 · `recall` 的 1-hop 扩展 | `store.py` · `recall.py` | 低（可单步回退） |
-| **G3** | `edges.jsonl` 落盘 + 自举（有边表读边表，无则从节点推断）+ 写路径 ⚠️ **写路径要给 `add_edge(rel, src, dst)` 立名**——今天的 `store.add_link(a,b)` **不带 rel**（digest 的 touch/update/add · accrue · create-links 三处都在调它） | `store.py` · `session/io.py` | 中 |
-| **G4** | 节点内边字段降级为**纯渲染**（组织视图照旧印 `links:`）或删除 | `render.py` + 测试 | 中 |
+| ~~G2~~ **并入 G3** | 原计划"边查询接进叶子消费者"——查调用方发现两个目标**都是死的**（`store.audit()` 生产零调用；`store.delete()` 唯一生产路径在同样零调用的 `apply_revision_package` 里）⇒ 在边表存在之前重构它们 = 把死代码改成一种马上要删的中间表示 | — | 取消 |
+| **G3** ✅ **已落地 2026-09-21** | `soul/edges.jsonl` 落盘（`{"rel","src","dst","ts"}`）+ **自举**（无边界表的旧档载入时从 `links` 推断, 下一次 `save()` 落盘 ⇒ 无迁移脚本）+ 写路径 `store.add_edge(rel,src,dst)`（**拒悬空/自环**）+ `delete`/`audit`/`clone_state`/`snapshot_to` 全部改走边表 + `links`/`contradictions` **停止写出** + `count` 改边表派生（`render._count_of`）+ 组织视图印**类型化边** | `store.py` · `nodes.py` · `revise.py` · `render.py` · `recall.py` · 6 个测试文件 | 中 ✅ |
+| **G4** | 纯机械收尾：**删** `nodes.links`/`contradictions` 字段（连同 `from_dict` 的读入、`_build_merged`/`_parse_create` 里的残留用法、`store.add_link` 系列 shim） | `nodes.py` · `store.py` · `revise.py` + 少数 fixture | 低 |
 
 💡 G1 的价值：**零风险**地把"查询接口够不够用"验证掉 —— 够用再谈落盘。
 💡 测试面的好消息：现有 3827 行相关测试里，真正碰边的是 `test_wiki_store`/`audit`/`revise`/`recall`
 （约 **1000 行**）；`test_wiki_digest`(985) / `test_wiki_channels`(474) / `test_wiki_compose`(314) 基本不受影响。
+💡 G3 的实测：真正要改的断言 = **28 处**（散在 7 个文件）——比预估的 1000 行小得多；
+其中 **3 条整个删掉**（它们测的是"已经不可能存在的世界"：非双向一致 ×1、`count` 派生 ×2）。
 
 ## 3. entity 载荷
 
@@ -269,3 +276,6 @@ about_state      → resolved / uncertain / none   ← **点的属性**（不是
 | 2026-09-21 | 运行时用 networkx | ❌ **不做**（磁盘格式被绑 + 运行时依赖；dev 侧照旧）→ §10 |
 | 2026-09-21 | `uncertain` 挂边还是挂点 | ✅ **挂点**（`about_state` 枚举：resolved/uncertain/none）——`uncertain` 恰恰意味着"还没有边"；复查轮次不落字段，从 evolution 数 |
 | 2026-09-21 | **落地 G1**（只读 `graph.py`） | ✅ 落地：`Edge(rel,src,dst,ts)` + 八种 rel + `infer_edges`（`episode → 认知` = `supports` · `→ entity` = `about` · 判不出 = `unknown` **不猜**）+ 三索引 + 六类查询 + `graph_of`/`iter_edges`（G3 换装点）。**0 处现有代码改动**；真机 5 个点推断出 **3 条 `supports` / 0 `about` / 0 `unknown`**。顺带修 §2.1「未归属清单」的宇宙（要排掉 entity 自己） |
+| 2026-09-21 | **G2 并入 G3**（用户同意收窄） | ❌ 取消 G2：两个目标**都是死代码**（`store.audit()` 生产零调用；`store.delete()` 只在同样零调用的 `apply_revision_package` 里被调）——在边表存在前重构它们 = 把死代码改成马上要删的中间表示 |
+| 2026-09-21 | **落地 G3**（边表落盘 + 自举 + 写路径 + 消费者切换） | ✅ 落地：`soul/edges.jsonl`（点边分离两文件）+ 无边界表的旧档**载入时自举、下次 `save()` 落盘**（无迁移脚本）+ `add_edge` 拒悬空/自环 + `delete`/`audit`/`clone_state`/`snapshot_to`（**快照带边**）全改走边表 + **`links`/`contradictions` 停止写出**（读得进、写不出）+ `count` 改边表派生 + 组织视图印类型化边。真机自举演练：3 条 `supports`、`audit()` 干净、点表不再含 `links`。全量 904 · B 层冒烟 PASS |
+| 2026-09-21 | 快照要不要带边表 | ✅ **带**（G3 落地）：`snapshot_to`/`restore_from` 改成点 + 边两个文件。判据 = **点不可再生、边可重算** ⇒ 只写点的快照捞回来是"断连的记忆"；且 R6 未落地、零调用者 ⇒ 改它零成本 |

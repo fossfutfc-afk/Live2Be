@@ -202,7 +202,8 @@ def load_brain_segment(store: SessionStore, char_id: str, char_name: str = "",
                              char_id=char_id)
         wiki_seg = render_character_view(wstore.all(), char_name=char_name,
                                          char_aliases=aliases,
-                                         now=datetime.now()) or ""
+                                         now=datetime.now(),
+                                         graph=wstore.graph()) or ""
         _log_read_ledger(char_id)
         if wiki_seg:
             seg_parts.append(wiki_seg)
@@ -567,7 +568,9 @@ class MomoTalkEngine:
                 # 防失忆注记（T3）: 给"现在" → 每条 episode 前置"（3 周前）"。
                 # 2026-09-17（ESSAY §10）: 年龄按**现实日期**算（node.ts），
                 # 不再读剧情游标 —— 故这里给的是壁钟，不是 `wstore.clock()`。
-                now=datetime.now())
+                now=datetime.now(),
+                # 边表（G3）: experience 的 count = supports 入边数, 不再走节点字段
+                graph=wstore.graph())
             _log_read_ledger(character_id)               # V3-0 读路径台账
             if wiki_seg:
                 seg_parts.append(wiki_seg)

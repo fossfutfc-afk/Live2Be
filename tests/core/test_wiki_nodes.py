@@ -58,13 +58,13 @@ def test_every_serialized_field_is_parsed_back():
     """
     from dataclasses import fields as _dc_fields
 
-    node = BrainNode(id="m0001", kind="belief", text="老师是值得信赖的大人",
-                     links=["m0002"])
+    node = BrainNode(id="m0001", kind="belief", text="老师是值得信赖的大人")
     # 每个可序列化字段都填一个非空值（哨兵值, 值本身不重要）
+    # ⚠️ `links`/`contradictions` **不在探针里**（2026-09-21 G3）: 边已搬到
+    # `edges.jsonl`, 点表**读得进、写不出** —— 拿它们做往返断言会失败, 那是设计。
     probes = {
         "observer": "老师", "tags": ["x"],
         "event_seq": [1], "ts": "2026-09-01T20:00:00",
-        "links": ["m0002"], "contradictions": ["m0003"],
         "text": "n", "verbatim": "v", "verbatim_seq": ["1.1"],
         "title": "t", "emo_shape": ["smile"], "text": "p", "subject": "player",
         "examples": ["e"], "text": "c", "growth": "g",
@@ -80,6 +80,12 @@ def test_every_serialized_field_is_parsed_back():
     back = BrainNode.from_dict(node.to_dict())
     lost = [k for k, v in probes.items() if getattr(back, k) != v]
     assert not lost, f"这些字段落库后读不回来: {lost}"
+
+    # 那条**有意的不对称**（G3）: 旧档读得进、新档写不出 —— 别顺手"修"回去
+    assert "links" not in node.to_dict() and "contradictions" not in node.to_dict()
+    legacy = BrainNode.from_dict({"id": "m0009", "kind": "belief",
+                                  "links": ["m0001"], "contradictions": ["m0002"]})
+    assert legacy.links == ["m0001"] and legacy.contradictions == ["m0002"]
 
     # 反向: `to_dict` 的清单里不该有"探针没覆盖"的字段（新增字段要一起补）
     serialized = set(node.to_dict())
@@ -174,25 +180,25 @@ def test_episode_epistemic_guard():
 # 出厂记忆自 2026-09-05 起不进 wiki）。epistemic 护栏那一半并入上面的用例。
 
 
-def test_belief_requires_support():
-    # 无支撑升华拒绝
-    node = make_node("belief", text="老师是第一个不会嫌弃我的人", subject="sensei")
-    assert any("links ≥1" in e for e in node.validate())
-    # 有支撑通过 + epistemic 护栏
-    ok = make_node("belief", text="老师是第一个不会嫌弃我的人", subject="sensei",
-                   significance=0.9, epistemic="inferred_belief",
-                   links=["m0003", "m0001"], growth="从自卑到被需要")
-    assert ok.validate() == []
-    bad = make_node("belief", text="x", epistemic="observed_fact", links=["m0001"])
+def test_belief_support_is_not_a_field_concern():
+    """`belief 必须有支撑` 2026-09-21（G3）**搬出 `validate()`** —— 支撑住在边表里。
+
+    原用例（`test_belief_requires_support`）钉的是字段级 `links ≥1`; 边搬到
+    `edges.jsonl` 后字段校验看不见它。新家两处: 写路径
+    （`revise.apply_decisions` 建完节点立刻补 `supports` 边）+ 全局兜底
+    （`store.audit()` 的"belief 无支撑"—— `test_wiki_audit.py` 守着）。
+    """
+    node = make_node("belief", text="老师是第一个不会嫌弃我的人", subject="sensei",
+                     epistemic="inferred_belief")
+    assert node.validate() == []            # 字段层不再判支撑
+    bad = make_node("belief", text="x", epistemic="observed_fact")
     assert any("inferred_belief" in e for e in bad.validate())
 
 
 def test_experience_and_player_emphasis():
-    # 普通 experience: count = len(links)（2026-09-21 起是派生属性）
     exp = make_node("experience", text="sensei 提到工作繁忙", subject="sensei",
                     examples=["「这周又忙成狗了」"], links=["m0011", "m0015", "m0020"])
     assert exp.validate() == []
-    assert exp.count == 3
     assert exp.is_player_experience is False
     # player experience（R5 强调点）: subject=player
     pe = make_node("experience", text="摸鱼", subject=PLAYER_SUBJECT,
@@ -231,14 +237,10 @@ def test_title_and_text_are_shared_by_all_kinds():
     assert (ep.text, exp.text, bel.text) == ("公园散步", "p", "出厂认知")
 
 
-def test_count_is_derived_not_stored():
-    """`count` 2026-09-21 起是派生属性 `len(links)`：不落库、旧档的键被忽略。"""
-    exp = make_node("experience", text="p", subject="s",
-                    links=["m0001", "m0002"], count=99)     # 旧档塞的 count 无效
-    assert exp.count == 2
-    assert "count" not in exp.to_dict()
-    back = BrainNode.from_dict({**exp.to_dict(), "count": 7})
-    assert back.count == 2
+# ⏸ `test_count_is_derived_not_stored` —— 2026-09-21（G3）**删**: `count` 这个派生属性
+# 本身没了（它原是 `len(links)`, 而 `links` 已停止写入 ⇒ 留着只会恒返回 0）。
+# 次数的新家 = `supports` **入边数**（`render._count_of(node, graph)`），由
+# `test_wiki_render.py` 的角色视图用例守着（"老师的事（count N）"）。
 
 
 def test_significance_clamp_and_precious():
