@@ -10,13 +10,13 @@ from core.brain.wiki_v2.revise import apply_revision_package
 def _store(tmp_path) -> WikiStoreV2:
     """真实流程同款 fixture: belief/experience 带支撑 links 创建, 再 add_link 补双向。"""
     st = WikiStoreV2(tmp_path, world_id="world1", char_id="c")
-    st.add(make_node("episode", narration="拆炸弹初遇", event_seq=[1]))
-    st.add(make_node("belief", content="老师是第一个不会嫌弃我的人", subject="sensei",
+    st.add(make_node("episode", text="拆炸弹初遇", event_seq=[1]))
+    st.add(make_node("belief", text="老师是第一个不会嫌弃我的人", subject="sensei",
                      epistemic="inferred_belief", significance=0.9,
                      links=["m0001"], event_seq=[1]))
-    st.add(make_node("experience", pattern="提到工作繁忙", subject="sensei",
+    st.add(make_node("experience", text="提到工作繁忙", subject="sensei",
                      significance=0.85, links=["m0001"], event_seq=[1]))
-    st.add(make_node("episode", narration="出厂经历", significance=0.9))
+    st.add(make_node("episode", text="出厂经历", significance=0.9))
     st.add_link("m0001", "m0002")
     st.add_link("m0001", "e0001")
     return st
@@ -58,13 +58,13 @@ def test_belief_orphan_after_delete_detected(tmp_path):
 def test_merge_and_delete_keep_graph_clean(tmp_path):
     """merge 删源 + 入边清理后, 图保持全不变量。"""
     st = _store(tmp_path)
-    st.add(make_node("episode", narration="天台夜谈", event_seq=[2]))
+    st.add(make_node("episode", text="天台夜谈", event_seq=[2]))
     st.add_link("m0004", "m0002")
     st.add_link("m0004", "e0001")
     scope = {n.id for n in st.all()}
     res = apply_revision_package(st, [
         {"action": "merge", "ids": ["m0001", "m0003"],
-         "into": {"kind": "episode", "narration": "和老师的两次难忘日常"}},
+         "into": {"kind": "episode", "text": "和老师的两次难忘日常"}},
     ], subgraph_ids=scope)
     assert res.ok, res.errors
     # 源 m0001 的入边（m0002/e0001 → m0001）被 delete 清理 → 图干净
@@ -77,10 +77,10 @@ def test_full_revision_chain_audit_clean(tmp_path):
     scope = {n.id for n in st.all()}
     res = apply_revision_package(st, [
         {"action": "create", "ref": "n1", "entry": {
-            "kind": "episode", "narration": "老师带我去甜品店", "event_seq": [3],
+            "kind": "episode", "text": "老师带我去甜品店", "event_seq": [3],
             "links": ["m0002"]}},
         {"action": "create", "ref": "n2", "entry": {
-            "kind": "belief", "content": "老师会认真听我说话", "subject": "sensei",
+            "kind": "belief", "text": "老师会认真听我说话", "subject": "sensei",
             "epistemic": "inferred_belief", "links": ["n1"]}},
         {"action": "accrue", "id": "e0001",
          "occurrence": {"episode_ref": "n1", "example": "「这家店不错」"}},
@@ -97,10 +97,10 @@ def test_refs_unique_by_default(tmp_path):
     scope = {n.id for n in st.all()}
     pkg = [
         {"action": "create", "entry": {
-            "kind": "episode", "narration": "甜品店", "event_seq": [3],
+            "kind": "episode", "text": "甜品店", "event_seq": [3],
             "links": ["m0002"]}},
         {"action": "create", "entry": {
-            "kind": "episode", "narration": "天台夜谈", "event_seq": [4],
+            "kind": "episode", "text": "天台夜谈", "event_seq": [4],
             "links": ["m0002"]}},
         {"action": "accrue", "id": "e0001",
          "occurrence": {"episode_ref": "n2", "example": "第二次"}},

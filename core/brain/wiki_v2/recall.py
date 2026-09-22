@@ -202,7 +202,7 @@ def _keyword_candidates(nodes: list[BrainNode], query: str,
             s = max(s, 0.6 + 0.1 * (len(hits) - 1))
         if n.subject and n.subject in query:
             s = max(s, 0.85)
-        body = n.main_text + (" " + n.growth if n.growth else "")
+        body = n.text + (" " + n.growth if n.growth else "")
         d = _dice(q2, _bigrams(body))
         if d > 0.35:
             s = max(s, d)
@@ -253,7 +253,7 @@ def _tags_hits(nodes: list[BrainNode], query: str, k: int) -> list[BrainNode]:
 
 def _embed_text(node: BrainNode) -> str:
     """节点的可嵌入文本（主文本 + 附属 + 关键词; 与渲染口径一致）。"""
-    body = node.main_text
+    body = node.text
     if node.kind == "episode" and node.verbatim:
         body += " " + node.verbatim
     elif node.kind == "experience" and node.examples:

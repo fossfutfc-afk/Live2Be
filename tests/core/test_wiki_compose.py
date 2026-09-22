@@ -51,7 +51,7 @@ from core.media import place_fuse as pf                # noqa: E402
 # ---------------------------------------------------------------------------
 
 def _ep(nid: str, **kw):
-    return make_node("episode", id=nid, narration=f"第 {nid} 段记忆", **kw)
+    return make_node("episode", id=nid, text=f"第 {nid} 段记忆", **kw)
 
 
 def _res(channel: str, kind: str, scale: str, pairs, *,
@@ -294,9 +294,9 @@ def test_recall_now_end_to_end(tmp_path):
     `ChannelResult` 必须携带 `scale` —— 否则合成层拿到结果也不知道怎么归一。
     """
     st = WikiStoreV2(tmp_path, world_id="w1", char_id="c")
-    st.add(make_node("episode", id="m1", narration="老师陪我在杂草屋看苔藓",
+    st.add(make_node("episode", id="m1", text="老师陪我在杂草屋看苔藓",
                      significance=0.9, ts="2026-09-19T10:00:00", event_seq=[14]))
-    st.add(make_node("episode", id="m2", narration="误发短信把老师叫到现场",
+    st.add(make_node("episode", id="m2", text="误发短信把老师叫到现场",
                      significance=0.6, ts="2026-09-19T11:00:00", event_seq=[30]))
     ctx = RecallContext(now="2026-09-20", query="她又想起那天的杂草屋",
                         char_id="c", embed_fn=_stub_embed)

@@ -111,10 +111,10 @@ def test_key_similarity_degrades_and_guards():
 # ③ 融合进 C 链路（召回侧）——两轴怎么合、缺一轴怎么办
 # ---------------------------------------------------------------------------
 
-def _node(nid: str, *, place=None, place_raw=None, narration="一"):
+def _node(nid: str, *, place=None, place_raw=None, text="一"):
     from core.brain.wiki_v2.nodes import BrainNode
     return BrainNode(id=nid, kind="episode", epistemic="observed_fact",
-                     significance=0.7, narration=narration,
+                     significance=0.7, text=text,
                      place=place or [], place_raw=place_raw or [], event_seq=[1])
 
 
@@ -138,11 +138,11 @@ def test_c_link_fuses_both_axes(tmp_path):
     from core.brain.wiki_v2.channel_impl import PlaceGate
     st = _store_with([
         _node("m1", place=["school_rooftop"], place_raw=["傍晚的学校天台"],
-              narration="天台上的风"),
+              text="天台上的风"),
         _node("m2", place=["building_roof_top"], place_raw=["学校天台"],
-              narration="另一栋楼的天台"),                      # 同地不同键（别名相交）
+              text="另一栋楼的天台"),                      # 同地不同键（别名相交）
         _node("m3", place=["classroom"], place_raw=["傍晚的学校天台"],
-              narration="教室里的傍晚"),                        # 只像说法, 键不相干
+              text="教室里的傍晚"),                        # 只像说法, 键不相干
     ], tmp_path)
     ctx = RecallContext(char_id="c", query="", now="2026-09-20",
                         place_now="school_rooftop", place_raw_now="傍晚的学校天台",
@@ -183,7 +183,7 @@ def test_c_link_still_degrades_honestly(tmp_path):
     """没坐标 / 旧档（无 place 字段）→ 照旧降级, 不编分。"""
     from core.brain.wiki_v2.channels import RecallContext
     from core.brain.wiki_v2.channel_impl import PlaceGate
-    st = _store_with([_node("m1", narration="没有地点字段")], tmp_path)
+    st = _store_with([_node("m1", text="没有地点字段")], tmp_path)
     r1 = PlaceGate().gather(st, RecallContext(char_id="c", query="", now="2026-09-20"))
     assert r1.degraded and "place_now" in r1.note
     r2 = PlaceGate().gather(st, RecallContext(char_id="c", query="", now="2026-09-20",

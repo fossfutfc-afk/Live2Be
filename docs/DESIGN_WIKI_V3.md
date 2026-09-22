@@ -28,6 +28,15 @@
 | **LLM 动作** | Round A 记录 + Round B 三选一（add/touch/update） | **多步**：时间推进 → 记录 → 实体消解/登记 → 组织决策（含**链接/矛盾/组合**）→ 好感；动作集扩到 9 |
 | **组合** | `merge`/`accrue` 代码全套 ✅ 但**零生产调用** | 两档：**无损聚合**（digest 内）与**深度重组**（独立阶段，带溯源与撤销）；合并策略**按 `nature` 分派** |
 
+> ⚠️ **读本文时的字段名对照（2026-09-21 三槽合流）**：v2 的 `narration`(episode) /
+> `pattern`(experience) / `content`(belief) 已合成一个 **`text`**（理由见 `nodes.py`
+> 模块 docstring：三者编码同一件事, 差别只来自 `kind`; 契约侧还消除了"按 kind 选槽位,
+> 选错即静默丢正文"）。**下文凡把这三个名字当作 v2 节点字段来讲的地方, 一律读作 `text`**;
+> 但 v3 **自己的** `pattern`/`nature`（第四轴：`self_image`/`other`/`relationship`/`pattern`）
+> 与 `content`（AgentGal 对照表的左列）**不受影响**——那是另一层语义。
+> ⚠️ 同理: `main_text` 属性、`is_seed()`、`source`、`notes`、`segment_id`、`emo_valence`、
+> `history`、`count`（改派生）已于同日删除或改造, 见 `nodes.py` 的"字段删除台账"。
+
 ---
 
 ## 1. 为什么 v3 必须换节点层
@@ -79,7 +88,7 @@
  "verbatim": "库呼呼～老师你可千万别告诉她哦", "subject": "阿露", "tags": ["阿露","苦咖啡","牛奶","恶作剧"]}
 ```
 
-`observer="老师"` 意味着"这是老师说的事"，但 `narration` 写的是**阿露的行为**，
+`observer="老师"` 意味着"这是老师说的事"，但正文（今名 `text`）写的是**阿露的行为**，
 `verbatim` 是**睦月自己**说的话。**"谁经历的 / 谁说的 / 关于谁"三个轴被压进了一条记录**，
 而渲染时（`render.py` 的 `_reported_line`）只会加一句"（听老师说的）"——**主体是谁读不出来**。
 
@@ -263,7 +272,7 @@ entity 只存身份与索引（名字/别名/类型/关系阶段），**关于�
 
 | 语义 | AgentGal | Live2Be 现状（真机实测） | 判断 |
 |---|---|---|---|
-| 正文 | `content` | `narration` **51~191 字** | ✅ **粒度健康**（见下：还要更长） |
+| 正文 | `content` | `text`（**2026-09-21 三槽合流**：原 `narration`(episode)/`pattern`(experience)/`content`(belief) 合一）**51~191 字** | ✅ **粒度健康**（见下：还要更长） |
 | 标题 | `title` | `title` **8~10 字** | ⚠️ **要加长**（v3 给它加了新职责） |
 | 关键词 | `keywords` **≤8** | `tags` **24~31 字符** | ✅ **不怕**——v3 有无意识策略（Q28 关键词索引） |
 | 重要度 | `importance` 1-5 | `significance` 0~1 | ✅ 等价 |
@@ -274,7 +283,7 @@ entity 只存身份与索引（名字/别名/类型/关系阶段），**关于�
 | 上次被想起 | `last_recalled_at`（**DB 里**） | 无 | 🔧 v3 计划；**且该放物化层**（AgentGal 的做法印证，见 §3.3） |
 | 归属者 | `memory_owner` | 隐含（每角色一份） | ✅ 无需 |
 
-**① `narration` 再长一点**（用户裁决 2026-09-13）
+**① 正文（`text`）再长一点**（用户裁决 2026-09-13；原写 `narration`，2026-09-21 三槽合流后统一叫 `text`）
 
 现状 51~191 字，实测 **embed 文本 87~238 字**。用户判断**可以再长**——采纳。
 两条支撑：
@@ -639,7 +648,7 @@ BFS 第一层就有内容可给，而不是"先展开才看到东西"。
 **只声明了"她/他"不替换，没有任何子串保护**。而 docstring 自述"yml 原文多用简称"
 ——正说明这个函数的用武之地是**第三人称的出厂 yml**。
 
-**关键事实：v2 运行期根本不需要它。** 真机 4 条 episode 的 `narration`
+**关键事实：v2 运行期根本不需要它。** 真机 4 条 episode 的正文（`text`）
 **本来就是第一人称**（"想拜托**我**帮忙"），`_me` 对它们**是空操作**。
 引擎转换只在出厂 yml 那条路上真正干活。
 
@@ -1294,7 +1303,7 @@ mood_congruence = 1 − |aff_now − aff_at_encoding| / 量程        ← 用绝
 
 | 用户叫法 | 链路 | `kind` | `raw` |
 |---|---|---|---|
-| 剧情语义 RAG | `D_deja_vu` | `SIMILARITY` | `narration` cos |
+| 剧情语义 RAG | `D_deja_vu` | `SIMILARITY` | `text`（原 `narration`）cos |
 | 情绪相似度 RAG | `B_emotion_rag` | `SIMILARITY` | `emo_shape` 键序列 cos |
 | **正交矩阵** | `A_intensity` | `PRIOR` | `det = SIG·TIME + emo_span·emo_int` |
 | 地点调和平均 | `C_place` | `GATE` | 两轴 `magic`（素材字面 × 叙事语义） |
@@ -2613,7 +2622,7 @@ recall_write char=igusa_haruka eps=4 collide=12 forced=100% med_only=0 none=0
 这类板尾落点与 `老师: X` 裁决行首先被砍）。成本 **×1.11~×1.50**（§8.1 实测）。
 
 **仍未做**：`digest.py:349-350` 的**第二处** 120 字硬编码（Round B 素材里
-`node.narration` 的头部截断）——同一类补丁，**未在 Q26 范围内**，另行拍板。
+`node.text`（原 `node.narration`）的头部截断）——同一类补丁，**未在 Q26 范围内**，另行拍板。
 
 ### 9.4 好感度带符号 + `aff_at_encoding` 落地记录（2026-09-13，三个独立提交）
 

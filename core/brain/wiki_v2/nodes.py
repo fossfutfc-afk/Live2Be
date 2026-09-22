@@ -1,8 +1,8 @@
 """图式 wiki 节点数据结构（AGENT_BRAIN.md §1）。
 
 3 种节点（kind, 2026-09-02 fact 退役——出厂与运行时同构, 记忆 = 经历 + 认知）:
-    episode    一次性经历（narration 第一人称浓缩 + verbatim 原话; 质感优先不升华）
-    experience 重复模式（pattern + count 聚合; subject=player = 玩家口癖, R5 强调点）
+    episode    一次性经历（text 第一人称浓缩 + verbatim 原话; 质感优先不升华）
+    experience 重复模式（text 写规律 + count 聚合; subject=player = 玩家口癖, R5 强调点）
     belief     抽象认知（inferred_belief, links 必须 ≥1 支撑）
 
 通用字段: id / kind / significance / epistemic / observer / tags / event_seq / ts /
@@ -26,8 +26,17 @@ observer 语义（2026-09-02 收敛）: 单视角世界线里 observed_fact 的�
     `emo_valence`   有生产（Round A）零消费; 极性由 `emo_shape` 逐键承担
     `history`       只写不读，且记的是**改写后**的内容（原文丢失）⇒ 改由
                     `evolution.jsonl` 的 before/after 承担（那才是审计该待的地方）
-    `title`         ⚠️ **未删, 待裁决**——它是 Round A 的必填项且承载"本章标题"
-                    （`digest._collapse_bond_episodes` 用它收口）
+    `main_text`     属性随三槽合流一并删（它只是"按 kind 分派"的间接层）
+    `title`         ⚠️ **保留**（用户 2026-09-21 裁决）——Round A 必填, 承载"本章标题"
+
+**三槽合流（2026-09-21）**: `narration`(episode) / `pattern`(experience) /
+`content`(belief) → **`text`**。三者编码的是同一件事（正文）, 差别只来自 `kind`——
+而 kind 已是字段。契约侧收益更大: 模型不必"按 kind 选槽位"（选错 = 静默丢正文）。
+⚠️ 为什么**没有**配一个 `nature` 来区分三种文本形态: 那与 `kind` 是**双射**
+（narrative/pattern/conclusion ↔ episode/experience/belief）= 换词不换信息, 反而多一个
+必须与 kind 同步的字段。v3 的 `nature` 是**认知层第四轴**（`self_image`/`other`/
+`relationship`/`pattern`, 管**合并策略**）, 前提是 experience 并进 belief 的 2-kind
+模型 —— 那属于批 3（见 `docs/DESIGN_WIKI_V3.md §2.3–2.5`）。
     旧档里这些键 → `from_dict` 宽松忽略（无迁移脚本）。
 
 关键规则（引擎侧强制, 此处提供 validate/normalize 支撑）:
@@ -60,11 +69,14 @@ PRECIOUS_THRESHOLD = 0.8
 #: player experience 的 subject 固定值（玩家口癖/习惯, R5）
 PLAYER_SUBJECT = "player"
 
-#: 各 kind 的必填字段（validate 用）
+#: 各 kind 的必填字段（validate 用）——**正文统一叫 `text`**（2026-09-21 合流:
+#: 原 narration(episode)/pattern(experience)/content(belief) 三槽合一）。
+#: 三个名字编码的是同一件事（这条记忆的正文）, 差别只来自 kind——而 kind 已经是字段。
+#: 合并的另一半收益在契约侧: Round A 不必判断"我是哪种 kind 该填哪个槽"（填错是静默错）。
 _REQUIRED: dict[str, tuple[str, ...]] = {
-    "episode": ("narration",),
-    "experience": ("pattern", "subject"),
-    "belief": ("content",),
+    "episode": ("text",),
+    "experience": ("text", "subject"),
+    "belief": ("text",),
 }
 
 
@@ -77,11 +89,11 @@ def format_id(prefix: str, seq: int) -> str:
 class BrainNode:
     """一条图式 wiki 节点（宽松 dataclass: 全部字段可缺省, 校验走 validate()）。
 
-    按 kind 取用的专属字段:
-        episode:    narration(必填) / verbatim(可选原话, +verbatim_seq 索引) /
-                    title(可选短标题 8-16 字) / emo_shape · place · place_raw(召回侧物化)
-        experience: pattern(必填) / subject(必填) / examples(≤3) / count(派生=len(links))
-        belief:     content(必填) / subject(认知对象, 可空) / growth
+    按 kind 取用的专属字段（**正文一律 `text`**——2026-09-21 三槽合流）:
+        episode:    text(必填) / title(必填短标题 8-16 字) / verbatim(可选原话,
+                    +verbatim_seq 索引) / emo_shape · place · place_raw(召回侧物化)
+        experience: text(必填, 写规律) / subject(必填) / examples(≤3) / count(派生)
+        belief:     text(必填, 写结论) / subject(认知对象, 可空) / growth
     """
 
     id: str = ""
@@ -116,8 +128,14 @@ class BrainNode:
     #: ⚠️ **重新立项深整理时走"带类型的边"**（矛盾是二元关系, 天然是边, 节点数组只是邻接表
     #: 实现）——见 `stores`/`DESIGN_WIKI_V3` 的 entity 中心模型; 不要回到"belief 上挂数组"。
     contradictions: list[str] = field(default_factory=list)
-    # ── kind 专属 ──
-    narration: str = ""
+    # ── 正文（三种 kind 共用一槽）──
+    #: **这条记忆的正文**——2026-09-21 合流: 原 `narration`(episode) / `pattern`
+    #: (experience) / `content`(belief) 三槽合一。三者编码的是同一件事, 差别只来自
+    #: `kind`; 而契约侧要求模型按 kind 选槽位（选错 = 静默丢正文）。
+    #: 写作口径仍按 kind 分（episode=第一人称浓缩、experience=规律、belief=结论）,
+    #: 但那由 rules/schema 的语义承担, 不再由字段名承担。
+    #: 旧档的 `narration`/`pattern`/`content` 键由 `from_dict` 兼容读入。
+    text: str = ""
     verbatim: str = ""
     #: `verbatim` 的**索引通道**（T14, 2026-09-15）——`["28.3", "20.p"]`。
     #: 语义: 这条 episode 的"关键几句"在**时间线上的地址**（词汇表见
@@ -174,7 +192,7 @@ class BrainNode:
     #: ⇒ **键相等只声称「同一张图」，绝不声称「同一个地方」。**
     #: 判"同地"需要**叙事身份**，而那东西**推不出来**（一地多键的知识——两张不同的图
     #: 代表同一个叙事地点——不在资产结构里，只在语言侧）。两条路:
-    #: ① 落**原文**走语义相似（同 `D` 链路拿 `narration` 做向量那一手）
+    #: ① 落**原文**走语义相似（同 `D` 链路拿 `text` 做向量那一手）
     #: ② 作者打**地点实体表**（真实地名 → entity）——即 v3 的 entity 中心模型
     #: 未决，见 `TODO.md` 地点节。
     #:
@@ -209,11 +227,9 @@ class BrainNode:
     #: 句级锚点的原文要用 `paragraphs[i].text`, 在事件流里, 需要时按 `event_seq` 取。
     #: 🚫 **绝不进 LLM 上下文**（召回侧信号, 同 `emo_shape`）。
     place_raw: list[str] = field(default_factory=list)
-    title: str = ""             # episode 可选短标题（⚠️ 待裁决: Round A 必填, 承载本章标题）
-    pattern: str = ""
+    title: str = ""             # episode 可选短标题（Round A 必填, 承载本章标题）
     subject: str = ""
     examples: list[str] = field(default_factory=list)
-    content: str = ""
     growth: str = ""
     #: 编码时好感标量 ∈ [−1, 1]（`Affection.to_scalar()`, §3.3.3）——**快照**:
     #: 写入时定、之后**永不改**（故与"节点 append-only"不冲突）。
@@ -299,15 +315,9 @@ class BrainNode:
         """珍贵档（保底通道）: significance ≥ 0.8。"""
         return self.significance >= PRECIOUS_THRESHOLD
 
-    @property
-    def main_text(self) -> str:
-        """节点主文本（渲染/检索/去重的主内容）: episode→narration, experience→pattern,
-        其余→content。全模块经此取文本——不做逐处 kind 分支。"""
-        if self.kind == "episode":
-            return self.narration
-        if self.kind == "experience":
-            return self.pattern
-        return self.content
+    # ⏸ `main_text` 属性 2026-09-21 删——它存在的唯一理由是"三槽按 kind 分派,
+    # 让调用方不必逐处判断"（原 docstring: *"全模块经此取文本——不做逐处 kind 分支"*）。
+    # 三槽合流成 `text` 之后, 这层间接就不需要了: 直接读 `.text`（7 个消费点已改）。
 
     @property
     def is_player_experience(self) -> bool:
@@ -344,10 +354,10 @@ class BrainNode:
             "epistemic": self.epistemic,
         }
         for f in ("observer", "tags", "event_seq", "ts",
-                  "links", "contradictions", "narration", "verbatim",
+                  "links", "contradictions", "text", "verbatim",
                   "verbatim_seq", "title", "emo_shape", "place",
                   "place_raw",
-                  "pattern", "subject", "examples", "content", "growth"):
+                  "subject", "examples", "growth"):
             v = getattr(self, f)
             if v in (None, "", [], 0):
                 continue
@@ -380,18 +390,17 @@ class BrainNode:
         node.ts = _str(raw.get("ts"))
         node.links = _str_list(raw.get("links"))
         node.contradictions = _str_list(raw.get("contradictions"))
-        # kind 专属
-        node.narration = _str(raw.get("narration"))
+        # 正文（三槽合流; 旧档兼容: 依次回落到 narration/pattern/content）
+        node.text = (_str(raw.get("text")) or _str(raw.get("narration"))
+                     or _str(raw.get("pattern")) or _str(raw.get("content")))
         node.verbatim = _str(raw.get("verbatim"))
         node.verbatim_seq = _str_list(raw.get("verbatim_seq"))
         node.emo_shape = _str_list(raw.get("emo_shape"))
         node.place = _str_list(raw.get("place"))
         node.place_raw = _str_list(raw.get("place_raw"))
         node.title = _str(raw.get("title"))
-        node.pattern = _str(raw.get("pattern"))
         node.subject = _str(raw.get("subject"))
         node.examples = _str_list(raw.get("examples"))
-        node.content = _str(raw.get("content"))
         node.growth = _str(raw.get("growth"))
         node.aff_at_encoding = _opt_clamp(raw.get("aff_at_encoding"), -1.0, 1.0)
         node.emo_int = _opt_clamp(raw.get("emo_int"), 0.0, 1.0)

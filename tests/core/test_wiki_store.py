@@ -11,9 +11,9 @@ def _store(tmp_path, char="igusa_haruka") -> WikiStoreV2:
 
 def test_add_save_reload_roundtrip(tmp_path):
     st = _store(tmp_path)
-    n1 = make_node("episode", narration="天台夜谈", significance=0.8,
+    n1 = make_node("episode", text="天台夜谈", significance=0.8,
                    event_seq=[42, 58], observer="igusa_haruka")
-    n2 = make_node("belief", content="我被需要", epistemic="inferred_belief",
+    n2 = make_node("belief", text="我被需要", epistemic="inferred_belief",
                    links=["m0001"])
     st.add(n1)
     st.add(n2)
@@ -21,7 +21,7 @@ def test_add_save_reload_roundtrip(tmp_path):
     # 重载
     st2 = _store(tmp_path)
     assert len(st2) == 2
-    assert st2.get("m0001").narration == "天台夜谈"
+    assert st2.get("m0001").text == "天台夜谈"
     assert st2.get("m0002").kind == "belief"
     # id 自动分配按前缀
     assert st2.get("m0001").id == "m0001" and st2.get("m0002").id == "m0002"
@@ -29,10 +29,10 @@ def test_add_save_reload_roundtrip(tmp_path):
 
 def test_id_allocation_prefixes(tmp_path):
     st = _store(tmp_path)
-    assert st.add(make_node("episode", narration="拆炸弹")) == "m0001"
-    assert st.add(make_node("episode", narration="x")) == "m0002"
-    assert st.add(make_node("experience", pattern="摸鱼", subject="player")) == "e0001"
-    assert st.add(make_node("belief", content="y", epistemic="inferred_belief",
+    assert st.add(make_node("episode", text="拆炸弹")) == "m0001"
+    assert st.add(make_node("episode", text="x")) == "m0002"
+    assert st.add(make_node("experience", text="摸鱼", subject="player")) == "e0001"
+    assert st.add(make_node("belief", text="y", epistemic="inferred_belief",
                             links=["m0001"])) == "m0003"
     assert st.next_id("m") == "m0004"
     assert st.next_id("e") == "e0002"
@@ -42,18 +42,18 @@ def test_id_allocation_prefixes(tmp_path):
 def test_add_rejects_invalid_node(tmp_path):
     st = _store(tmp_path)
     with pytest.raises(ValueError):
-        st.add(make_node("belief", content="无支撑升华"))      # links 空
+        st.add(make_node("belief", text="无支撑升华"))      # links 空
     with pytest.raises(ValueError):
-        st.add(make_node("episode"))                            # 缺 narration
+        st.add(make_node("episode"))                            # 缺 text
     with pytest.raises(ValueError):
-        st.add(make_node("episode", narration="x",
+        st.add(make_node("episode", text="x",
                          epistemic="inferred_belief"))          # 认知不伪装成经历
 
 
 def test_duplicate_id_rejected(tmp_path):
     st = _store(tmp_path)
-    st.add(make_node("episode", narration="a"))
-    dup = make_node("episode", narration="b")
+    st.add(make_node("episode", text="a"))
+    dup = make_node("episode", text="b")
     dup.id = "m0001"
     with pytest.raises(ValueError):
         st.add(dup)
@@ -66,20 +66,20 @@ def test_dedup_helper_removed(tmp_path):
     （要恢复就得连着它的消费者一起）。
     """
     st = _store(tmp_path)
-    st.add(make_node("episode", narration="第一次", event_seq=[10, 11]))
+    st.add(make_node("episode", text="第一次", event_seq=[10, 11]))
     assert not hasattr(st, "find_by_event_seq")
-    assert [n.narration for n in st.all()] == ["第一次"]
+    assert [n.text for n in st.all()] == ["第一次"]
 
 
 def test_update_patch_and_unknown_field(tmp_path):
     st = _store(tmp_path)
-    st.add(make_node("episode", narration="a", significance=0.5))
+    st.add(make_node("episode", text="a", significance=0.5))
     node = st.update("m0001", {"significance": 0.9, "links": ["m0002"]})
     assert node.significance == 0.9 and node.links == ["m0002"]
     with pytest.raises(ValueError):
         st.update("m0001", {"imaginary_field": 1})            # 未知字段拒绝
     with pytest.raises(ValueError):
-        st.update("m0001", {"narration": ""})                  # 更新后无效
+        st.update("m0001", {"text": ""})                  # 更新后无效
 
 
 # ⏸ `test_seed_immutable_notes_only` —— 2026-09-21 删：它钉的"出厂基座只允许 notes
@@ -89,9 +89,9 @@ def test_update_patch_and_unknown_field(tmp_path):
 
 def test_edge_primitives(tmp_path):
     st = _store(tmp_path)
-    st.add(make_node("episode", narration="e1", event_seq=[1]))
-    st.add(make_node("episode", narration="e2", event_seq=[2]))
-    st.add(make_node("belief", content="b", epistemic="inferred_belief",
+    st.add(make_node("episode", text="e1", event_seq=[1]))
+    st.add(make_node("episode", text="e2", event_seq=[2]))
+    st.add(make_node("belief", text="b", epistemic="inferred_belief",
                      links=["m0001"]))
     st.add_link("m0001", "m0002")
     st.add_link("m0001", "m0002")                      # 幂等
@@ -106,7 +106,7 @@ def test_edge_primitives(tmp_path):
 
 def test_delete(tmp_path):
     st = _store(tmp_path)
-    st.add(make_node("episode", narration="a"))
+    st.add(make_node("episode", text="a"))
     assert st.delete("m0001") is True
     assert st.delete("m0001") is False
     assert "m0001" not in st
@@ -115,9 +115,9 @@ def test_delete(tmp_path):
 def test_delete_cleans_inbound_references(tmp_path):
     """邻接表闭环: 删节点 → 他人 links/contradictions 里的悬空 id 一并清除。"""
     st = _store(tmp_path)
-    st.add(make_node("episode", narration="hub", event_seq=[1]))
-    st.add(make_node("episode", narration="a", event_seq=[2], links=["m0001"]))
-    st.add(make_node("belief", content="b", epistemic="inferred_belief",
+    st.add(make_node("episode", text="hub", event_seq=[1]))
+    st.add(make_node("episode", text="a", event_seq=[2], links=["m0001"]))
+    st.add(make_node("belief", text="b", epistemic="inferred_belief",
                      links=["m0001", "m0002"]))
     st.add_contradiction("m0001", "m0003")
     assert st.get("m0002").links == ["m0001"]
@@ -137,10 +137,10 @@ def test_experience_count_is_derived(tmp_path):
     读它永远是当下 links 的长度（连 audit 那条不变量检查都不需要了）。
     """
     st = _store(tmp_path)
-    st.add(make_node("experience", pattern="提到工作繁忙", subject="sensei",
+    st.add(make_node("experience", text="提到工作繁忙", subject="sensei",
                      significance=0.7, event_seq=[1]))
     assert st.get("e0001").count == 0
-    st.add(make_node("episode", narration="老师又说忙", event_seq=[2]))
+    st.add(make_node("episode", text="老师又说忙", event_seq=[2]))
     st.add_link("m0001", "e0001")                          # episode 链入 experience
     exp = st.get("e0001")
     assert exp.links == ["m0001"] and exp.count == 1
@@ -152,12 +152,12 @@ def test_experience_count_is_derived(tmp_path):
 
 def test_snapshot_restore(tmp_path):
     st = _store(tmp_path)
-    st.add(make_node("episode", narration="a", event_seq=[1]))
-    st.add(make_node("belief", content="b", epistemic="inferred_belief", links=["m0001"]))
+    st.add(make_node("episode", text="a", event_seq=[1]))
+    st.add(make_node("belief", text="b", epistemic="inferred_belief", links=["m0001"]))
     snap = tmp_path / "snap_001.jsonl"
     st.snapshot_to(snap)
     # 继续演化后回滚
-    st.add(make_node("episode", narration="c", event_seq=[2]))
+    st.add(make_node("episode", text="c", event_seq=[2]))
     assert len(st) == 3
     st.restore_from(snap)
     assert len(st) == 2
@@ -166,21 +166,21 @@ def test_snapshot_restore(tmp_path):
 
 def test_bad_lines_skipped_on_load(tmp_path):
     st = _store(tmp_path)
-    st.add(make_node("episode", narration="ok"))
+    st.add(make_node("episode", text="ok"))
     st.save()
     # 混入坏行
     with open(st.path, "a", encoding="utf-8") as fh:
         fh.write("{broken json\n")
     st2 = _store(tmp_path)
-    assert len(st2) == 1 and st2.get("m0001").narration == "ok"
+    assert len(st2) == 1 and st2.get("m0001").text == "ok"
 
 
 def test_all_insertion_order(tmp_path):
     st = _store(tmp_path)
-    st.add(make_node("episode", narration="a"))
-    st.add(make_node("episode", narration="b"))
-    st.add(make_node("experience", pattern="p", subject="player"))
-    assert [n.narration or n.pattern for n in st.all()] == ["a", "b", "p"]
+    st.add(make_node("episode", text="a"))
+    st.add(make_node("episode", text="b"))
+    st.add(make_node("experience", text="p", subject="player"))
+    assert [n.text or n.text for n in st.all()] == ["a", "b", "p"]
     # 2026-09-21: `by_kind()` 零产品消费者 → 已删; 按 kind 过滤直接用 all()
     assert [n.kind for n in st.all() if n.kind == "episode"] == ["episode", "episode"]
 

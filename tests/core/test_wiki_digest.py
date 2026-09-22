@@ -32,12 +32,12 @@ def _events(*items):
 def _seed_store(tmp_path) -> WikiStoreV2:
     """预置: m0001 episode + m0002 belief + e0001 experience（含 link）。"""
     st = WikiStoreV2(tmp_path, world_id="world1", char_id="c")
-    st.add(make_node("episode", narration="天台夜谈", event_seq=[2], ts="2026-09-01T10:00:00",
+    st.add(make_node("episode", text="天台夜谈", event_seq=[2], ts="2026-09-01T10:00:00",
                      links=["m0002"]))
-    st.add(make_node("belief", content="老师是第一个不会嫌弃我的人", subject="sensei",
+    st.add(make_node("belief", text="老师是第一个不会嫌弃我的人", subject="sensei",
                      epistemic="inferred_belief", significance=0.9,
                      links=["m0001"], event_seq=[2]))
-    st.add(make_node("experience", pattern="提到工作繁忙", subject="sensei",
+    st.add(make_node("experience", text="提到工作繁忙", subject="sensei",
                      significance=0.85, links=["m0001"], event_seq=[2]))
     return st
 
@@ -46,19 +46,19 @@ def _mmt(seq, player, reply):
     return ("mmt", "chat", {"player": player, "reply": reply}, seq)
 
 
-def _a_episode(narration="老师请我吃了甜品，还说下次再去", sig=0.8, title="甜点之约",
+def _a_episode(text="老师请我吃了甜品，还说下次再去", sig=0.8, title="甜点之约",
                verbatim="下次再去吃甜品吧", tags=("甜品", "老师")):
     return {"episodes": [
-        {"narration": narration, "title": title, "verbatim": verbatim,
+        {"text": text, "title": title, "verbatim": verbatim,
          "tags": list(tags), "significance": sig}]}
 
 
 def _b_ok(**over):
     out = {"decisions": [
         {"episode": "m0003", "decision": "update", "target": "u0001",
-         "patch": {"content": "老师会记得我的喜好——连甜品店也会挑好", "significance": 0.95}},
+         "patch": {"text": "老师会记得我的喜好——连甜品店也会挑好", "significance": 0.95}},
         {"episode": "m0003", "decision": "add", "kind": "experience",
-         "subject": "sensei", "pattern": "老师会带我去吃甜品", "example": "「这家店不错吧」"},
+         "subject": "sensei", "text": "老师会带我去吃甜品", "example": "「这家店不错吧」"},
     ], "evidence": [
         {"function": "fe", "confidence": 0.85, "quote": "下次再去吃甜品吧"},
         {"function": "ni", "confidence": 0.5, "quote": "低置信度应该被丢"},
@@ -115,7 +115,7 @@ def test_full_pipeline(tmp_path):
     bel = st.get("m0002")
     assert bel.significance == 0.95
     exp = st.get("e0002")
-    assert exp.kind == "experience" and exp.pattern == "老师会带我去吃甜品"
+    assert exp.kind == "experience" and exp.text == "老师会带我去吃甜品"
     assert exp.count == 1                              # links = [m0003]
     assert "e0002" in ep.links and "m0002" in ep.links
     # evidence: 低置信度丢弃
@@ -126,14 +126,14 @@ def test_full_pipeline(tmp_path):
     entries = EvolutionLog.for_store(st).read()
     assert [e["action"] for e in entries] == ["update", "add"]
     upd = entries[0]
-    assert upd["target"] == "m0002" and upd["changed"]["content"][1]
-    assert upd["changed"]["content"][0] != upd["changed"]["content"][1]
+    assert upd["target"] == "m0002" and upd["changed"]["text"][1]
+    assert upd["changed"]["text"][0] != upd["changed"]["text"][1]
 
 
 def test_touch_decision_links_only(tmp_path):
     st = _seed_store(tmp_path)
     llm = FakeLLM(
-        _a_episode(narration="又和老师在天台安静坐着"),
+        _a_episode(text="又和老师在天台安静坐着"),
         {"decisions": [{"episode": "m0003", "decision": "touch", "target": "u0001",
                         "note": "又是安静的陪伴"}],
          "evidence": [], "affection_exp_delta": 5})
@@ -157,7 +157,7 @@ def test_event_seq_pointer_and_verbatim_resolve(tmp_path):
     """★ 板指针真的落库（不再被覆写成常量）+ 索引解析出**逐字原文**。"""
     st = _seed_store(tmp_path)
     a = {"episodes": [{
-        "narration": "老师突然约我去咖啡厅, 说好久没见要请我吃甜点。",
+        "text": "老师突然约我去咖啡厅, 说好久没见要请我吃甜点。",
         "title": "咖啡厅的甜点陷阱",
         "event_seq": ["9", "11"],
         # `9.p` 是 MMT 事件、没有裁决行 → 取不到原文, **静默跳过**（绝不编）;
@@ -193,7 +193,7 @@ def test_verbatim_text_channel_wins_over_index(tmp_path):
     """
     st = _seed_store(tmp_path)
     a = {"episodes": [{
-        "narration": "她递给我一块甜点。", "title": "甜点",
+        "text": "她递给我一块甜点。", "title": "甜点",
         "event_seq": ["11"],
         "verbatim": "……这块，给你。",            # 文本通道
         "verbatim_seq": ["11.99"],              # 越界索引（取不到）
@@ -209,7 +209,7 @@ def test_verbatim_text_channel_wins_over_index(tmp_path):
     assert ep.verbatim_seq == ["11.99"]                   # 索引留着（可追溯）
     # 全坏索引且**无文本** → verbatim 留空（绝不编）
     st2 = _seed_store(tmp_path / "b")
-    a2 = {"episodes": [{"narration": "只有坏索引", "title": "x", "event_seq": ["11"],
+    a2 = {"episodes": [{"text": "只有坏索引", "title": "x", "event_seq": ["11"],
                         "verbatim": ["11.99"], "tags": ["t"], "significance": 0.5}]}
     res2 = digest_segment(st2, FakeLLM(a2, b), events)
     assert res2.ok, res2.errors
@@ -236,7 +236,7 @@ def test_emo_shape_materialized_from_board_pointer(tmp_path):
     """
     st = _seed_store(tmp_path)
     a = {"episodes": [{
-        "narration": "杂草屋里她第一次笑出来。", "title": "杂草屋",
+        "text": "杂草屋里她第一次笑出来。", "title": "杂草屋",
         "event_seq": ["20", "22", "24"],   # 20 是 MMT → 无键; 22/24 是板
         "tags": ["杂草屋"], "significance": 0.7}]}
     b = {"decisions": [{"episode": "m0003", "decision": "touch", "target": "u0001"}],
@@ -285,7 +285,7 @@ def test_place_materialized_from_board_pointer(tmp_path):
     """
     st = _seed_store(tmp_path)
     a = {"episodes": [{
-        "narration": "她带我去了天台。", "title": "天台",
+        "text": "她带我去了天台。", "title": "天台",
         "event_seq": ["20", "22", "24"],
         "tags": ["天台"], "significance": 0.8}]}
     b = {"decisions": [{"episode": "m0003", "decision": "touch", "target": "u0001"}],
@@ -333,7 +333,7 @@ def test_place_raw_keeps_writer_wording(tmp_path):
     所以**必须原样保留**, 归一化留给检索时的语义比较。
     """
     st = _seed_store(tmp_path)
-    a = {"episodes": [{"narration": "在杂草屋", "title": "x", "event_seq": ["22"],
+    a = {"episodes": [{"text": "在杂草屋", "title": "x", "event_seq": ["22"],
                        "tags": ["t"], "significance": 0.5}]}
     b = {"decisions": [{"episode": "m0003", "decision": "touch", "target": "u0001"}],
          "evidence": [], "affection_exp_delta": 0}
@@ -358,8 +358,8 @@ def _cat_store(tmp_path) -> WikiStoreV2:
     id: episode m0001 / belief m0002（A 轮新 episode 顺延 m0003）。
     """
     st = WikiStoreV2(tmp_path, world_id="world1", char_id="c")
-    st.add(make_node("episode", narration="喂猫旧事", event_seq=[2]))
-    st.add(make_node("belief", content="老师会记得给猫带猫粮", subject="老师与猫的约定",
+    st.add(make_node("episode", text="喂猫旧事", event_seq=[2]))
+    st.add(make_node("belief", text="老师会记得给猫带猫粮", subject="老师与猫的约定",
                      epistemic="inferred_belief", significance=0.9, tags=["猫"],
                      links=["m0001"], event_seq=[2]))
     return st
@@ -376,10 +376,10 @@ def test_high_candidate_no_longer_forces_touch_update(tmp_path):
     """
     st = _cat_store(tmp_path)
     llm = FakeLLM(
-        _a_episode(narration="老师带猫粮来喂猫, 猫绕着我转了两圈"),
+        _a_episode(text="老师带猫粮来喂猫, 猫绕着我转了两圈"),
         {"decisions": [
             {"episode": "m0003", "decision": "add", "kind": "belief",
-             "subject": "猫", "content": "老师会带猫粮来喂猫",
+             "subject": "猫", "text": "老师会带猫粮来喂猫",
              "note": "与候选只是字面像, 不是同一件事"},
          ], "evidence": [], "affection_exp_delta": 5},
     )
@@ -391,7 +391,7 @@ def test_high_candidate_no_longer_forces_touch_update(tmp_path):
     assert "候选" in llm.calls[1][1]["content"]
     assert "禁 add" not in llm.calls[1][1]["content"]
     # add 真的落地了（新认知长出来了——这正是删阈值的直接目的）
-    added = [n for n in st.all() if n.kind == "belief" and n.content == "老师会带猫粮来喂猫"]
+    added = [n for n in st.all() if n.kind == "belief" and n.text == "老师会带猫粮来喂猫"]
     assert added, "add 被引擎拦掉了——结构强制没删干净"
     print("    候选仅提示: add 不再被拒（新认知能长出来）")
 
@@ -400,10 +400,10 @@ def test_no_candidate_when_unrelated(tmp_path):
     """无关键词关联 → 无候选提示行 → LLM 自由 add（本来也不再有强制）。"""
     st = _cat_store(tmp_path)
     llm = FakeLLM(
-        _a_episode(narration="老师送我一盆新的杂草", tags=("杂草",)),
+        _a_episode(text="老师送我一盆新的杂草", tags=("杂草",)),
         {"decisions": [
             {"episode": "m0003", "decision": "add", "kind": "belief",
-             "subject": "杂草", "content": "杂草是遥香安心的事物"},
+             "subject": "杂草", "text": "杂草是遥香安心的事物"},
          ], "evidence": [], "affection_exp_delta": 3})
     events = _events(_mmt(3, "x", "这盆杂草送给你"))
     res = digest_segment(st, llm, events)
@@ -422,16 +422,16 @@ def test_player_portrait_entry_lands_and_hides_from_round_b(tmp_path):
     st = WikiStoreV2(tmp_path, world_id="world1", char_id="c")
     llm = FakeLLM(
         {"episodes": [
-            {"narration": "老师说下周放假带我去看烟火大会, 我紧张得直结巴还是答应了",
+            {"text": "老师说下周放假带我去看烟火大会, 我紧张得直结巴还是答应了",
              "title": "烟火大会之约", "verbatim": "下周放假, 一起去看烟火吧",
              "tags": ["约定", "烟火"], "significance": 0.85},
-            {"kind": "experience", "pattern": "玩家的生日是 5 月 20 日",
+            {"kind": "experience", "text": "玩家的生日是 5 月 20 日",
              "verbatim": "我生日是 5 月 20 日哦", "tags": ["玩家生日"],
              "significance": 0.7},
         ]},
         {"decisions": [
             {"episode": "m0001", "decision": "add", "kind": "belief",
-             "subject": "和老师的约定", "content": "老师会认真对待与我的约定"},
+             "subject": "和老师的约定", "text": "老师会认真对待与我的约定"},
          ], "evidence": [], "affection_exp_delta": 15})
     events = _events(_mmt(3, "老师", "下周放假, 一起去看烟火吧"))
     res = digest_segment(st, llm, events)
@@ -439,7 +439,7 @@ def test_player_portrait_entry_lands_and_hides_from_round_b(tmp_path):
     assert res.created == ["m0001"]                    # episode 正常建
     p = st.get("e0001")                                # 画像条目 → subject=player experience
     assert p is not None and p.kind == "experience"
-    assert p.subject == "player" and p.pattern.startswith("玩家的生日")
+    assert p.subject == "player" and p.text.startswith("玩家的生日")
     assert p.verbatim == "我生日是 5 月 20 日哦"        # 原话直存（无 episode 载体）
     assert p.event_seq == [3]
     # B 的认知列表不含刚建的画像条目（冷启动提示仍在 = 无认知可组织）
@@ -456,10 +456,10 @@ def test_player_portrait_entry_lands_and_hides_from_round_b(tmp_path):
 def test_cold_start_add_belief(tmp_path):
     st = WikiStoreV2(tmp_path, world_id="world1", char_id="c")   # 空库
     llm = FakeLLM(
-        _a_episode(narration="老师帮我把杂草搬回了家"),
+        _a_episode(text="老师帮我把杂草搬回了家"),
         {"decisions": [
             {"episode": "m0001", "decision": "add", "kind": "belief",
-             "subject": "老师对我的照顾", "content": "老师会记得我随口提过的事",
+             "subject": "老师对我的照顾", "text": "老师会记得我随口提过的事",
              "tags": ["老师"], "significance": 0.85}],
          "evidence": [], "affection_exp_delta": 10})
     events = _events(_mmt(3, "x", "杂草我帮你搬"))
@@ -532,7 +532,7 @@ def test_budget_check_between_rounds(tmp_path):
 def test_round_a_rejected_retried_with_feedback(tmp_path):
     st = _seed_store(tmp_path)
     llm = FakeLLM(
-        {"episodes": [{"title": "缺正文"}]},            # parse 拒绝（无 narration）
+        {"episodes": [{"title": "缺正文"}]},            # parse 拒绝（无 text）
         _a_episode(),
         _b_ok(),
     )
@@ -866,16 +866,16 @@ def test_mmt_segment_still_splits(tmp_path):
     """★ mmt 段: 无作者单位 → 契约仍是 0~5 条（**不要**把切分能力一起改掉）。"""
     st = _seed_store(tmp_path)
     two = {"episodes": [
-        {"narration": "老师约我明天去喂猫", "title": "老师约我明天去喂猫",
+        {"text": "老师约我明天去喂猫", "title": "老师约我明天去喂猫",
          "tags": ["约定", "猫"], "significance": 0.8},
-        {"narration": "老师说他也总忘带伞", "title": "老师说他也总忘带伞",
+        {"text": "老师说他也总忘带伞", "title": "老师说他也总忘带伞",
          "tags": ["口癖"], "significance": 0.5}]}
     # Round B 的决策必须**逐条覆盖**本轮 episode（引擎结构检查）——
     # 建了两条就得给两条决策, 否则 B 被整包拒 + 反馈重试 → 假 LLM 响应耗尽。
     b = _b_ok()
     b["decisions"].append({"episode": "m0004", "decision": "add",
                            "kind": "experience", "subject": "sensei",
-                           "pattern": "老师也总忘带伞", "example": "「我也总忘带伞」"})
+                           "text": "老师也总忘带伞", "example": "「我也总忘带伞」"})
     llm = FakeLLM(two, b)
     res = digest_segment(st, llm,
                          _events(_mmt(3, "老师", "明天带猫粮去喂猫吧")))
@@ -898,13 +898,13 @@ def test_bond_extra_episodes_collapse_to_one(tmp_path, caplog):
     """
     st = _seed_store(tmp_path)
     three = {"episodes": [
-        {"narration": "她照常去破房子照料杂草, 抬头发现老师站在那儿",
+        {"text": "她照常去破房子照料杂草, 抬头发现老师站在那儿",
          "title": "去破房子照料杂草", "tags": ["杂草"], "significance": 0.6,
          "event_seq": ["5"]},
-        {"narration": "老师说这里就是只属于我和他的秘密场所",
+        {"text": "老师说这里就是只属于我和他的秘密场所",
          "title": "只属于两人的秘密场所", "tags": ["约定"], "significance": 0.9,
          "event_seq": ["5"]},
-        {"narration": "她又道歉了一次", "title": "她又道歉了一次",
+        {"text": "她又道歉了一次", "title": "她又道歉了一次",
          "tags": ["道歉"], "significance": 0.4, "event_seq": ["5"]}]}
     llm = FakeLLM(three, _b_ok())
     with caplog.at_level("WARNING"):
@@ -927,17 +927,17 @@ def test_bond_window_keeps_mmt_atoms(tmp_path):
     st = _seed_store(tmp_path)
     mixed = {"episodes": [
         # ① 聊天条目: event_seq 指向 seq 4（那条 mmt）, 不在本章的 bond 块里
-        {"narration": "老师约我明天去喂猫", "title": "老师约我明天去喂猫",
+        {"text": "老师约我明天去喂猫", "title": "老师约我明天去喂猫",
          "tags": ["约定"], "significance": 0.8, "event_seq": ["4"]},
         # ② 本章: 两条都指向 bond 块 5 → 收口成 1
-        {"narration": "她在破房子遇到老师", "title": "在破房子遇到老师",
+        {"text": "她在破房子遇到老师", "title": "在破房子遇到老师",
          "tags": ["杂草"], "significance": 0.7, "event_seq": ["5"]},
-        {"narration": "老师说这里是秘密场所", "title": "只属于两人的秘密场所",
+        {"text": "老师说这里是秘密场所", "title": "只属于两人的秘密场所",
          "tags": ["约定"], "significance": 0.9, "event_seq": ["5"]}]}
     b = _b_ok()
     b["decisions"].append({"episode": "m0004", "decision": "add",
                            "kind": "experience", "subject": "sensei",
-                           "pattern": "老师会约我喂猫", "example": "「明天带猫粮」"})
+                           "text": "老师会约我喂猫", "example": "「明天带猫粮」"})
     llm = FakeLLM(mixed, b)
     res = digest_segment(st, llm, _events(*_bond_span()))
     assert res.ok, res.errors
@@ -963,20 +963,20 @@ def test_two_chapters_in_one_window_each_get_one(tmp_path):
                   ("marker", "vn_exit", {"completed": True}, 13))
     four = {"episodes": [
         # 章A 的两条 → 该压成 1
-        {"narration": "章A 片段一", "title": "章A 的第一条记忆", "tags": ["a"],
+        {"text": "章A 片段一", "title": "章A 的第一条记忆", "tags": ["a"],
          "significance": 0.7, "event_seq": ["5"]},
-        {"narration": "章A 片段二", "title": "章A 的第二条记忆", "tags": ["a"],
+        {"text": "章A 片段二", "title": "章A 的第二条记忆", "tags": ["a"],
          "significance": 0.9, "event_seq": ["5"]},
         # 章B 的两条 → 也该各自压成 1（不是被章A 一起吞掉）
-        {"narration": "章B 片段一", "title": "章B 的第一条记忆", "tags": ["b"],
+        {"text": "章B 片段一", "title": "章B 的第一条记忆", "tags": ["b"],
          "significance": 0.6, "event_seq": ["12"]},
-        {"narration": "章B 片段二", "title": "章B 的第二条记忆", "tags": ["b"],
+        {"text": "章B 片段二", "title": "章B 的第二条记忆", "tags": ["b"],
          "significance": 0.8, "event_seq": ["12"]}]}
     b = {"decisions": [
         {"episode": "m0003", "decision": "add", "kind": "experience",
-         "subject": "sensei", "pattern": "章A 的模式", "example": "「A」"},
+         "subject": "sensei", "text": "章A 的模式", "example": "「A」"},
         {"episode": "m0004", "decision": "add", "kind": "experience",
-         "subject": "sensei", "pattern": "章B 的模式", "example": "「B」"}],
+         "subject": "sensei", "text": "章B 的模式", "example": "「B」"}],
         "evidence": [], "affection_exp_delta": 0}
     res = digest_segment(st, FakeLLM(four, b), evs)
     assert res.ok, res.errors

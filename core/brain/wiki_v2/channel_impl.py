@@ -436,7 +436,7 @@ class DejaVu:
 
     def gather(self, store, ctx: RecallContext) -> ChannelResult:
         res = ChannelResult(channel=self.name, kind=self.kind, scale=self.scale)
-        nodes = [n for n in store.all() if n.kind == "episode" and n.narration]
+        nodes = [n for n in store.all() if n.kind == "episode" and n.text]
         if not nodes:
             res.degraded = True
             res.note = "无 episode 可检索"

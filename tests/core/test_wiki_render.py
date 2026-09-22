@@ -16,9 +16,9 @@ def _ids(nodes):
     return nodes
 
 
-def _ep(narration, sig=0.5, ts="", verbatim="", links=None, epistemic="observed_fact",
+def _ep(text, sig=0.5, ts="", verbatim="", links=None, epistemic="observed_fact",
         event_seq=None, observer="igusa_haruka"):
-    kw = dict(narration=narration, significance=sig, ts=ts, observer=observer,
+    kw = dict(text=text, significance=sig, ts=ts, observer=observer,
               epistemic=epistemic)
     if verbatim:
         kw["verbatim"] = verbatim
@@ -43,10 +43,10 @@ def test_organize_view_episode_line():
 
 
 def test_organize_view_experience_and_player():
-    exp = make_node("experience", pattern="提到工作繁忙", subject="sensei",
+    exp = make_node("experience", text="提到工作繁忙", subject="sensei",
                     significance=0.7, examples=["「这周又忙成狗了」"],
                     links=["m0011", "m0015", "m0020"], event_seq=[61])
-    pe = make_node("experience", pattern="总说「摸鱼」", subject="player",
+    pe = make_node("experience", text="总说「摸鱼」", subject="player",
                    significance=0.75, examples=["今天也摸鱼"],
                    links=["m0030", "m0033"], event_seq=[70])
     out = render_organize_view(_ids([exp, pe]))
@@ -59,9 +59,9 @@ def test_organize_view_experience_and_player():
 
 
 def test_organize_view_episode_belief():
-    ep = make_node("episode", narration="遥香曾因拆炸弹事件对 sensei 建立信任",
+    ep = make_node("episode", text="遥香曾因拆炸弹事件对 sensei 建立信任",
                    significance=0.95)
-    belief = make_node("belief", content="老师是第一个不会嫌弃我的人", subject="sensei",
+    belief = make_node("belief", text="老师是第一个不会嫌弃我的人", subject="sensei",
                        epistemic="inferred_belief", significance=0.9,
                        links=["m0001"], event_seq=[42])
     out = render_organize_view(_ids([ep, belief]))
@@ -98,10 +98,10 @@ def test_character_view_sections_and_first_person():
         _ep("和老师拆炸弹那次，老师没有苛责我", sig=0.95, ts="2026-08-01T10:00:00",
             verbatim="没关系，我陪你拆完。", event_seq=[1]),
         _ep("老师带我去吃甜品", sig=0.6, ts="2026-09-01T20:00:00", event_seq=[2]),
-        make_node("belief", content="伊草遥香开始相信自己被需要", subject="sensei",
+        make_node("belief", text="伊草遥香开始相信自己被需要", subject="sensei",
                   epistemic="inferred_belief", significance=0.9,
                   growth="从自卑到被需要", links=["m0001"], event_seq=[1]),
-        make_node("experience", pattern="总说「摸鱼」", subject="player",
+        make_node("experience", text="总说「摸鱼」", subject="player",
                   significance=0.75, links=["m0002", "m0003", "m0004"], event_seq=[2]),
     ]
     out = render_character_view(nodes, char_name="伊草遥香",
@@ -145,11 +145,11 @@ def test_character_view_no_caps_all_rendered():
 
 def test_character_view_belief_and_player_all_rendered():
     """belief / player 两桶同样全量（旧 cap_beliefs / cap_player 默认 5）。"""
-    beliefs = [make_node("belief", content=f"信念{i}", subject="sensei",
+    beliefs = [make_node("belief", text=f"信念{i}", subject="sensei",
                          epistemic="inferred_belief", significance=0.9 - i * 0.1,
                          links=["m0001"], event_seq=[1]) for i in range(7)]
     # 行数 = 序号（count 现在是派生属性 = len(links), 所以靠 links 条数造成降序差异）
-    players = [make_node("experience", pattern=f"口癖{i}", subject="player",
+    players = [make_node("experience", text=f"口癖{i}", subject="player",
                          significance=0.6,
                          links=[f"m{j:04d}" for j in range(1, 8 - i)],
                          event_seq=[1]) for i in range(7)]

@@ -134,23 +134,23 @@ def main() -> int:
             # 中/日/英混合的记忆（模拟 digest 产物: episode/experience/belief）
             BrainNode(id=format_id("m", 1), kind="episode", epistemic="observed_fact",
                       significance=0.9, tags=["拆弹", "第一次"],
-                      narration="第一次帮老师拆炸弹, 手抖得厉害, 但老师说相信我",
+                      text="第一次帮老师拆炸弹, 手抖得厉害, 但老师说相信我",
                       event_seq=[1]),
             BrainNode(id=format_id("m", 2), kind="episode", epistemic="observed_fact",
                       significance=0.7, tags=["礼物", "杂草"],
-                      narration="送了一盆杂草给老师当谢礼",
+                      text="送了一盆杂草给老师当谢礼",
                       event_seq=[2]),
             BrainNode(id=format_id("m", 3), kind="episode", epistemic="observed_fact",
                       significance=0.6, tags=["拉面", "夜"],
-                      narration="深夜和老师蹲在路边摊吃拉面, 热气腾腾",
+                      text="深夜和老师蹲在路边摊吃拉面, 热气腾腾",
                       event_seq=[3]),
             BrainNode(id=format_id("m", 4), kind="belief", epistemic="inferred_belief",
                       significance=0.85, tags=["信任"],
-                      content="老师是唯一不会嫌弃我的人, 我愿意为他做任何事",
+                      text="老师是唯一不会嫌弃我的人, 我愿意为他做任何事",
                       links=["m0001"]),
             BrainNode(id=format_id("m", 5), kind="experience", epistemic="observed_fact",
                       significance=0.5, subject="player", tags=["口头禅"],
-                      pattern="老师每次夸我, 我都会慌慌张张地道歉", count=5),
+                      text="老师每次夸我, 我都会慌慌张张地道歉"),
         ]
         for n in seed_nodes:
             errors = n.validate()

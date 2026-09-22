@@ -22,9 +22,9 @@ def _store(tmp_path, nodes) -> WikiStoreV2:
     return st
 
 
-def _ep(narration, sig=0.5, tags=None, ts=None, links=None, contradictions=None,
+def _ep(text, sig=0.5, tags=None, ts=None, links=None, contradictions=None,
         event_seq=None):
-    kw = dict(narration=narration, significance=sig)
+    kw = dict(text=text, significance=sig)
     if tags:
         kw["tags"] = tags
     if ts:
@@ -94,7 +94,7 @@ def test_precious_floor_and_episodes(tmp_path):
     nodes = _ids([
         _ep("日常闲聊", sig=0.5),
         _ep("天台夜谈", sig=0.9),
-        make_node("episode", narration="拆炸弹的出厂经历",
+        make_node("episode", text="拆炸弹的出厂经历",
                   significance=0.9),
     ])
     st = _store(tmp_path, nodes)
@@ -201,13 +201,13 @@ def _cog_store(tmp_path) -> WikiStoreV2:
     id: episode m0001 / belief m0002 / experience e0001 / 出厂 episode m0003。
     """
     st = WikiStoreV2(tmp_path, world_id="world1", char_id="c")
-    st.add(make_node("episode", narration="天台旧事", event_seq=[1]))
-    st.add(make_node("belief", content="老师会记得给猫带猫粮的约定", subject="老师与我的约定",
+    st.add(make_node("episode", text="天台旧事", event_seq=[1]))
+    st.add(make_node("belief", text="老师会记得给猫带猫粮的约定", subject="老师与我的约定",
                      epistemic="inferred_belief", significance=0.9, tags=["猫", "约定"],
                      links=["m0001"], event_seq=[1]))
-    st.add(make_node("experience", pattern="老师总说摸鱼", subject="sensei",
+    st.add(make_node("experience", text="老师总说摸鱼", subject="sensei",
                      significance=0.85, tags=["摸鱼"], links=["m0001"], event_seq=[1]))
-    st.add(make_node("episode", narration="遥香喜欢杂草"))
+    st.add(make_node("episode", text="遥香喜欢杂草"))
     return st
 
 
