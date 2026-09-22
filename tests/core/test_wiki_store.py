@@ -101,6 +101,7 @@ def test_edge_primitives(tmp_path):
     st.add_link("m0001", "m0002")            # 幂等
     # episode ↔ episode 判不出类型 → unknown（**不猜**, 见 graph.classify_pair）
     assert [(e.rel, e.src, e.dst) for e in st.edges()] == [("unknown", "m0001", "m0002")]
+    assert st.edges()[0].ts                   # 不给 ts → 取当下（边总有时刻）
     assert st.neighbors("m0001") == ["m0002"]         # 无向: 两边都算邻居
     assert st.neighbors("m0002") == ["m0001"]
     st.add_link("m0002", "m0003")            # episode → belief = supports

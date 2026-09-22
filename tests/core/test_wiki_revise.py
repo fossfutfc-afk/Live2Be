@@ -302,6 +302,9 @@ def test_decisions_add_belief_linked_before_store(tmp_path):
     bel = st.get("m0005")
     assert bel.epistemic == "inferred_belief"            # 引擎归属
     assert st.graph().supporters("m0005") == ["m0004"]
+    # 边带**本段日期**（digest 传的 ts, 不是"写库时刻"）—— 2026-09-22 补
+    e = st.graph().edges_to("m0005", "supports")[0]
+    assert e.ts == _ctx_kw()["ts"]
     assert st.audit() == []
 
 
