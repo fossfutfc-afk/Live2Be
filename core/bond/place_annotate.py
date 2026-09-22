@@ -38,6 +38,12 @@ _RESOLVE_CACHE: dict[str, str] = {}
 _RESOLVE_CACHE_MAX = 256
 
 
+#: 层2 的显式"不换场"标记（prompt 里唯一的合法出口）——语义 = "编剧说的就是当前这个地方"。
+#: ⚠️ 与"给空串"分开（2026-09-23）: 空串曾是模型偷懒的出口（真机 '夜晚的模型店橱窗前'
+#: 三块板都空 ⇒ 画面卡在上一张）。标记化之后"确实是同一处"与"判不出来"在数据里分家。
+_SAME_TOKEN = "same"
+
+
 def _layer1(text: str, table, current: str, key_set: set[str]) -> str | None:
     """**层1: 别名精确命中（0 调用）** —— 命中就返回键; 不命中/歧义 → `None`（下沉层2）。
 
@@ -228,6 +234,9 @@ def resolve_place(
         if len(_RESOLVE_CACHE) < _RESOLVE_CACHE_MAX:
             _RESOLVE_CACHE[cache_key] = hit
         return hit
+    layer1_hit = False
+    reason = "failed"                             # 默认: 调用异常/解析失败耗尽
+    result = ""
     if max_tokens is None:
         max_tokens = _tl_max_tokens("place")
     lexicon_hint = _lexicon_hint(place_keys, table)
@@ -236,7 +245,6 @@ def resolve_place(
               .replace("{current_place}", current or "（还没定）")
               .replace("{text}", text))
     user = "请输出地点 id JSON。"
-    result = ""
     for attempt in range(retries + 1):
         try:
             raw = llm.chat(
@@ -252,11 +260,31 @@ def resolve_place(
             continue
         place = _extract_place_obj(raw)
         if place is None:                         # 解析失败 → 重试一次
+            if not isinstance(raw, str):
+                logger.info("place_resolve 解析失败（第 %d 次）: %r",
+                            attempt + 1, str(raw)[:80])
             continue
+        if place == _SAME_TOKEN:                  # "就是当前这个地方" → 显式不换
+            reason = "same"
+            break
         if place and place in key_set and place != current:
             result = place
+            reason = "ok"
+        elif place and place in key_set:
+            reason = "same"                       # 与当前相同 → 画面不用动
+        elif place:
+            reason = f"bad_key={place}"           # ⭐ 表外键: **记下来**（模型想说什么）
+        else:
+            reason = "empty"                      # 模型给了空串（prompt 已不许, 兜底可见）
         break
-    if len(_RESOLVE_CACHE) < _RESOLVE_CACHE_MAX:
+    # ⚠️ **只缓存成功的结果**（2026-09-23）: 空/表外键/调用失败都**不缓存**——
+    # 原先连 `""` 一起缓存, 一次偷懒就把同一句话整章钉死（真机 '夜晚的模型店橱窗前'
+    # 三块板全是 MISS, 再没有第二次机会）。
+    if result and len(_RESOLVE_CACHE) < _RESOLVE_CACHE_MAX:
         _RESOLVE_CACHE[cache_key] = result
+    if reason != "ok":
+        logger.info("place_resolve reason=%s text=%r current=%r duration=%s",
+                    reason, text[:40], current or "-",
+                    "（层1 命中, 未调用 LLM）" if layer1_hit else "LLM")
     return result
 
