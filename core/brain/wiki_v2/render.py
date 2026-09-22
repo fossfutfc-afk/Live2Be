@@ -87,36 +87,44 @@ def _strip_prefix(key: str) -> str:
 # 组织视图（digest/组织 LLM 消费）
 # ---------------------------------------------------------------------------
 
-def render_organize_view(nodes: Iterable[BrainNode], *, timeline: str = "") -> str:
+def render_organize_view(nodes: Iterable[BrainNode], *, timeline: str = "",
+                         graph=None) -> str:
     """组织视图: 【本次新经历】时间线 + 【相关旧记忆】子图（id + 邻接表）。
 
     节点顺序 = 传入顺序（引擎已按显著性/召回排序）。
+
+    `graph`: 边视图（`core.brain.wiki_v2.graph.Graph`）。**G3 起边不在节点里**
+    （`links`/`contradictions` 只作旧档读入、不再被写出）⇒ 不给 graph 就**不印边**
+    （这是有意的空: 印一个恒空的 `links:` 会让人以为"这条记忆没有邻居"）。
     """
     blocks: list[str] = []
     if timeline:
         blocks.append(f"【本次新经历】\n{timeline.strip()}")
-    lines = [_organize_line(n) for n in nodes if n.id]
+    lines = [_organize_line(n, graph) for n in nodes if n.id]
     if lines:
         blocks.append("【相关旧记忆（供组织决策）】\n" + "\n".join(lines))
     return "\n\n".join(blocks)
 
 
-def _organize_line(node: BrainNode) -> str:
-    """一行: `m0003 [episode, sig 0.80, links: m0009, c: m0005] 内容`。
+def _organize_line(node: BrainNode, graph=None) -> str:
+    """一行: `m0003 [episode, sig 0.80, edges: supports→m0009 contradicts→m0005] 内容`。
 
     player experience 的 kind 标签带 [关于老师]。
-    （原"出厂 episode 带只读标记"2026-09-21 删——`is_seed()` 随 `source` 退役。）
+    ⚠️ 边的**类型印出来**（G3）—— 旧版印的是无类型的 `links: m0009` + `c: m0005`,
+    "谁支撑谁"读不出来; 现在 `supports→m0009` 一眼可判方向。
     """
     meta = [node.kind]
     if node.is_player_experience:
         meta[0] = "experience·关于老师"
     meta.append(f"sig {node.significance:.2f}")
     if node.kind == "experience":
-        meta.append(f"count {node.count}")
-    if node.links:
-        meta.append("links: " + " ".join(node.links))
-    if node.contradictions:
-        meta.append("c: " + " ".join(node.contradictions))
+        meta.append(f"count {_count_of(node, graph)}")
+    if graph is not None:
+        # 出边（我指向谁）+ 入边（谁指向我）——无向边的时代两边都有, 这里都印
+        rels = [f"{e.rel}→{e.dst}" for e in graph.edges_from(node.id)]
+        rels += [f"{e.rel}←{e.src}" for e in graph.edges_to(node.id)]
+        if rels:
+            meta.append("edges: " + " ".join(rels))
     head = f"{node.id} [{', '.join(meta)}] {node.text}"
     extra = _organize_extra(node)
     return head + extra
@@ -158,7 +166,19 @@ def take_last_view_account() -> dict | None:
     return _last_view_account.pop() if _last_view_account else None
 
 
-def _bucket_view(nodes: Iterable[BrainNode]) -> dict:
+def _count_of(node: BrainNode, graph) -> int:
+    """experience 的出现次数 = **`supports` 入边数**（G3 起不再读节点字段）。
+
+    语义: experience 是"重复模式", 每被印证一次就多一条 `supports` 入边
+    （digest 的 add/accrue/touch 各加一条 —— `revise` 里都是 `add_edge(REL_SUPPORTS,…)`）。
+
+    `graph=None`（调用方没给边表）→ **0**, 不去读那个已停止写入的旧 `links` 字段:
+    读了会得到一个"看起来很真"的假计数（0 至少一眼看得出是没接线）。
+    """
+    return len(graph.supporters(node.id)) if graph is not None else 0
+
+
+def _bucket_view(nodes: Iterable[BrainNode], graph=None) -> dict:
     """**唯一**分桶实现（2026-09-13 **cap 全删**）。
 
     抽出来是为了让台账（V3-0）与渲染共用同一份分桶结果——否则两条路径会漂移,
@@ -193,7 +213,7 @@ def _bucket_view(nodes: Iterable[BrainNode]) -> dict:
     beliefs = sorted((n for n in all_nodes if bucket["belief"](n)),
                      key=lambda n: n.significance, reverse=True)
     players = sorted((n for n in all_nodes if bucket["player"](n)),
-                     key=lambda n: n.count, reverse=True)
+                     key=lambda n: _count_of(n, graph), reverse=True)
     reported = [n for n in all_nodes if bucket["reported"](n)]
     return {
         "total": len(all_nodes),
@@ -218,6 +238,7 @@ def render_character_view(
     char_aliases: tuple[str, ...] = (),
     summary: str = "",
     now=None,
+    graph=None,
 ) -> str:
     """角色注入视图: 分层排序渲染（2026-09-13: **cap 全删**, 见 `_bucket_view`）。
 
@@ -245,7 +266,7 @@ def render_character_view(
     （`node.ts`），不再读 `node.story_time` / 剧情游标。`now` 传的是当前
     **时刻**（`datetime` 或 `ts` 串）—— 形状没变, 语义从"剧情时间槽"变成"今天"。
     """
-    b = _bucket_view(nodes)
+    b = _bucket_view(nodes, graph)
     episodes, beliefs, players, reported = (
         b["episodes"], b["beliefs"], b["players"], b["reported"])
     _last_view_account.append(b)
@@ -268,7 +289,7 @@ def render_character_view(
             _belief_line(n, char_name, char_aliases) for n in beliefs))
     if players:
         blocks.append("老师的事：\n" + "\n".join(
-            f"- {_me(n.text, char_name, char_aliases)}（count {n.count}）"
+            f"- {_me(n.text, char_name, char_aliases)}（count {_count_of(n, graph)}）"
             for n in players))
     if reported:
         blocks.append("我听说的：\n" + "\n".join(
@@ -401,13 +422,15 @@ def render_cognition_list(store: WikiStoreV2, cap: int = 12,
     nodes = [n for n in store.all()
              if n.kind in ("belief", "experience") and n.id not in exclude]
     nodes.sort(key=lambda n: (-n.significance, n.id))
+    graph = store.graph()                       # experience 的次数 = supports 入边数
     lines: list[str] = []
     local_of: dict[str, str] = {}
     for i, n in enumerate(nodes[:cap], start=1):
         local = f"u{i:04d}"
         local_of[n.id] = local
+        cnt = _count_of(n, graph)
         body = n.text if n.kind == "belief" else (
-            f"{n.text}（次数 {n.count}）" if n.count > 1 else n.text)
+            f"{n.text}（次数 {cnt}）" if cnt > 1 else n.text)
         if len(body) > 100:
             body = body[:100] + "…"
         sig = f", sig {n.significance:.2f}" if n.is_precious else ""

@@ -1,17 +1,27 @@
-"""WikiStore v2 — 图式 wiki 存储（AGENT_BRAIN.md §2 / M1b）。
+"""WikiStore v2 — 图式 wiki 存储（AGENT_BRAIN.md §2 / M1b + DESIGN_GRAPH_V4 §2.1 **G3**）。
 
 职责（单一）: jsonl 读写 + 原子整写 + id 分配 + 内存索引 + 快照 + 去重检查。
 不做: 修订契约校验/执行（revise.py）· 渲染（render.py）· 召回（recall.py）·
       出厂 digest（seed.py）——引擎侧流程在 revise.py 编排。
 
 规则:
-    - 文件: data/worlds/{world}/characters/{char}/wiki.jsonl（一行一条 BrainNode）
-    - 写: 内存操作（add/update/delete/link…）→ save() 原子整写（temp + os.replace）
+    - 文件（**点边分离两文件**, DESIGN_GRAPH_V4 §2.1）:
+        soul/wiki.jsonl    点 —— 一行一条 BrainNode（**边不再写在这里**）
+        soul/edges.jsonl   边 —— 一行一条 Edge `{rel,src,dst,ts}`（**2026-09-21 G3 起**）
+    - 写: 内存操作（add/update/delete/add_edge…）→ save() 原子整写**两个文件**
     - 护栏: add/update 前过 node.validate()——无效节点拒绝（宁缺勿错, raise）
     - 去重: 水位 `digested_seq`（增量幂等）——⚠️ 原 `find_by_event_seq()` 查重辅助
       2026-09-21 删（零调用者）
-    - id: 前缀 + 4 位零填充（m=动态 episode/belief/relation, c=出厂基座, e=experience）
-    - 快照: snapshot_to/restore_from = 整文件复制（R6 存档快照语义）
+    - id: 前缀 + 4 位零填充（m=episode/belief, e=experience）
+    - 快照: snapshot_to/restore_from = **点 + 边**两个文件（R6 存档快照语义）
+    - **自举**: 没有 `edges.jsonl` 的旧档 → 载入时从 `links`/`contradictions`
+      **推断**出边（`graph.infer_edges`, 只读点上残留的旧字段）; 下一次 `save()`
+      把它落盘 —— 迁移就完成了（**无迁移脚本**, 与"旧档宽容读"同一条纪律）
+
+⚠️ 两个文件**不是一次事务**（两次 replace）。一致性靠**读侧宽容**: 边指向不存在的
+点 → 保留, 但在 `audit()` / `Graph.dangling()` 里可见。写序 = **先点后边** ——
+点写成功而边写失败, 后果是"边表陈旧（少几条新边）", 而记忆正文完好可重算;
+反过来则会留下一批悬空边。两条都只降级不损坏, 但前者更好收拾。
 """
 from __future__ import annotations
 
@@ -19,6 +29,14 @@ import logging
 from pathlib import Path
 from typing import Iterable
 
+from core.brain.wiki_v2.graph import (
+    REL_CONTRADICTS,
+    Edge,
+    Graph,
+    canonical_pair,
+    classify_pair,
+    infer_edges,
+)
 from core.brain.wiki_v2.nodes import BrainNode, format_id
 from core.common import err
 from core.session.io import atomic_write_json, atomic_write_lines, read_jsonl
@@ -30,6 +48,9 @@ _PREFIX = {"experience": "e", "episode": "m", "belief": "m"}
 
 #: 节点字段白名单（update patch 只接受这些——防任意字段注入）
 _FIELDS = set(BrainNode.__dataclass_fields__.keys())
+
+#: 边表文件名（与 wiki.jsonl 同目录 —— 记忆层自包含, §0.1）
+EDGES_NAME = "edges.jsonl"
 
 
 class WikiStoreV2:
@@ -44,12 +65,15 @@ class WikiStoreV2:
         self.path = Path(path) if path is not None else (
             Path(data_root) / "worlds" / world_id / "characters"
             / char_id / "soul" / "wiki.jsonl")
+        #: 边表（点边分离的另一半 —— **2026-09-21 G3 起边的唯一落盘处**）
+        self.edges_path = self.path.with_name(EDGES_NAME)
         self.meta_path = self.path.with_name("wiki.meta.json")
         #: 世界根定位
         self._data_root = Path(data_root)
         self._world_id = world_id
         self.meta: dict = self._load_meta()
         self._nodes: dict[str, BrainNode] = {}
+        self._edges: list[Edge] = []
         self._load()
 
     # ------------------------------------------------------------------
@@ -104,6 +128,22 @@ class WikiStoreV2:
             node = BrainNode.from_dict(raw)
             if node.id and not node.validate():      # 坏条目跳过（宁缺勿错）
                 self._nodes[node.id] = node
+        self._edges = self._load_edges()
+
+    def _load_edges(self) -> list[Edge]:
+        """边表 → 内存。**有边表读边表, 没有则从点自举**（旧档, §2.1）。
+
+        自举只在内存里发生（读路径不写盘）; 落盘交给下一次 `save()`。
+        """
+        got = _read_edge_file(self.edges_path)
+        if got is not None:
+            return got
+        edges = infer_edges(self._nodes.values())     # 自举: 旧档只有点
+        if edges:
+            logger.info("wiki 边表自举: %s ← 点上残留的 links/contradictions %d 条"
+                        "（下一次 save() 落盘, 之后就与节点字段无关了）",
+                        self.edges_path.name, len(edges))
+        return edges
 
     def get(self, nid: str) -> BrainNode | None:
         return self._nodes.get(nid)
@@ -178,86 +218,144 @@ class WikiStoreV2:
         return new
 
     def delete(self, nid: str) -> bool:
-        """删除节点 + 清理入边（返回是否存在）。
+        """删除节点 + **过滤边表**（返回是否存在）。
 
-        邻接表策略的闭环: 他人 links/contradictions 里指向被删节点的悬空 id
-        一并清除——merge 删源/R6 回滚后不留死引用（组织视图不出现幽灵 id,
-        revise 的"不存在"报错只可能是真幻觉）。
+        §2.1 的闭环: 删节点 = 点表删 + 边表过滤一遍 ⇒ **"悬空引用"与"双向一致"
+        在构造上不可能存在**。旧版那套"遍历他人 `links`/`contradictions` 清死引用"
+        的补丁随之删除（它服务的无向边已经不存在了）。
         """
         if nid not in self._nodes:
             return False
         self._nodes.pop(nid)
-        for node in self._nodes.values():
-            if nid in node.links:
-                node.links.remove(nid)
-            if nid in node.contradictions:
-                node.contradictions.remove(nid)
+        self._edges = [e for e in self._edges if e.src != nid and e.dst != nid]
         return True
 
-    # ── 图边原语（虚边操作; 校验在 revise.py 的引用级, 这里只保证存在性） ──
+    # ------------------------------------------------------------------
+    # 边（DESIGN_GRAPH_V4 §2.1）—— **2026-09-21 G3 起边的唯一真源**
+    # ------------------------------------------------------------------
+
+    def edges(self) -> list[Edge]:
+        """全部边（插入序 = 建立序）。"""
+        return list(self._edges)
+
+    def graph(self) -> Graph:
+        """当前内存态的边视图（查询走 §2.1 那六类; 每次现构造, 不缓存）。"""
+        return Graph(edges=self._edges, nodes=self._nodes.values())
+
+    def neighbors(self, nid: str) -> list[str]:
+        """1-hop 邻居（任意 rel; 去重保序）—— 召回的一跳扩展走这里。"""
+        out: dict[str, None] = {}
+        for e in self._edges:
+            if e.src == nid:
+                out.setdefault(e.dst, None)
+            elif e.dst == nid:
+                out.setdefault(e.src, None)
+        return list(out)
+
+    def add_edge(self, rel: str, src: str, dst: str, *, ts: str = "") -> None:
+        """加一条类型化边（幂等: 同 `(rel, src, dst)` 已存在则跳过）。
+
+        ⚠️ **两端必须存在**（悬空即拒）——"悬空引用在构造上不可能存在"（§2.1）
+        靠的就是写路径在这里关门; 读路径（`_load_edges`）相反, **宽容保留**,
+        因为那是旧档（宽容读 ≠ 允许写坏）。
+        """
+        if src not in self._nodes or dst not in self._nodes:
+            raise ValueError(err("DanglingEdge",
+                                 f"边端点不存在: {src} -{rel}-> {dst}"))
+        if src == dst:
+            raise ValueError(err("SelfEdge", f"边不能自环: {src}"))
+        for e in self._edges:
+            if e.rel == rel and e.src == src and e.dst == dst:
+                return                                # 幂等
+        self._edges.append(Edge(rel=rel, src=src, dst=dst, ts=ts))
+
+    def remove_edge(self, rel: str, src: str, dst: str) -> None:
+        self._edges = [e for e in self._edges
+                       if not (e.rel == rel and e.src == src and e.dst == dst)]
+
+    # ── 旧接口 shim（无向 link/contradiction）──
+    # 给**死路径**（`apply_revision_package` 的 create-link / `merge` 的入边重接）
+    # 与存量测试留的窄接口: 它们只知道"这两条挨着", 不知道 rel ⇒ 用与旧档自举
+    # **同一张**分类表（`graph.classify_pair`）推。活路径请直接用 `add_edge`。
 
     def add_link(self, a: str, b: str) -> None:
-        """双向 link（无向边; 已存在则幂等）。
-
-        （原"刷新 experience.count 不变量"两行 2026-09-21 删——count 已是派生属性
-        `len(links)`, 不需要同步。）
-        """
-        for src, dst in ((a, b), (b, a)):
-            node = self._nodes.get(src)
-            if node is not None and dst not in node.links and dst in self._nodes:
-                node.links.append(dst)
+        """无向 link → 按两端 kind 推断 rel（`episode → 认知` = supports）。"""
+        rel, src, dst = classify_pair(self._require(a), self._require(b))
+        self.add_edge(rel, src, dst)
 
     def remove_link(self, a: str, b: str) -> None:
-        for src, dst in ((a, b), (b, a)):
-            node = self._nodes.get(src)
-            if node is not None and dst in node.links:
-                node.links.remove(dst)
+        """删掉 a/b 之间**任意方向、任意 rel** 的那条边（旧语义: 无向）。"""
+        self._edges = [e for e in self._edges
+                       if {e.src, e.dst} != {a, b}]
 
     def add_contradiction(self, a: str, b: str) -> None:
-        """双向 contradiction（已存在则幂等）。"""
-        for src, dst in ((a, b), (b, a)):
-            node = self._nodes.get(src)
-            if node is not None and dst not in node.contradictions and dst in self._nodes:
-                node.contradictions.append(dst)
+        """矛盾边（对称 ⇒ 端点规范化, 与自举一致）。"""
+        self._require(a)
+        self._require(b)
+        src, dst = canonical_pair(a, b)
+        self.add_edge(REL_CONTRADICTS, src, dst)
 
     def remove_contradiction(self, a: str, b: str) -> None:
-        for src, dst in ((a, b), (b, a)):
-            node = self._nodes.get(src)
-            if node is not None and dst in node.contradictions:
-                node.contradictions.remove(dst)
+        src, dst = canonical_pair(a, b)
+        self.remove_edge(REL_CONTRADICTS, src, dst)
+
+    def _require(self, nid: str) -> BrainNode:
+        node = self._nodes.get(nid)
+        if node is None:
+            raise KeyError(err("NotFound", f"节点不存在: {nid}"))
+        return node
 
     # ------------------------------------------------------------------
     # 持久化 / 快照
     # ------------------------------------------------------------------
 
     def save(self) -> None:
-        """原子整写全部节点（temp + os.replace, 绝不半写）。"""
+        """原子整写**两个文件**（点 + 边; 写序理由见模块 docstring）。"""
         atomic_write_lines(self.path, (n.to_json_line() for n in self._nodes.values()))
+        atomic_write_lines(self.edges_path, (e.to_json_line() for e in self._edges))
 
-    def clone_state(self) -> dict[str, BrainNode]:
-        """深拷贝当前节点集（修订包执行前的原子性快照——revise.py 用）。
+    def clone_state(self) -> tuple[dict[str, BrainNode], list[Edge]]:
+        """深拷贝当前**点 + 边**（修订包/digest 的原子性快照——revise.py 用）。
 
-        节点会被原地铁改（add_link 等）, 所以必须深拷贝而非浅拷贝 dict。
+        ⚠️ **边必须一起拷**: 只拷点的话, 失败回滚会把这一轮新加的边**留在原地**
+        （节点没了边还在 ⇒ 悬空 + "回滚没回干净"）。节点会被原地铁改（add_edge 等）,
+        所以点也要深拷贝而非浅拷 dict。
         """
-        return {nid: BrainNode.from_dict(n.to_dict()) for nid, n in self._nodes.items()}
+        return ({nid: BrainNode.from_dict(n.to_dict()) for nid, n in self._nodes.items()},
+                [Edge(e.rel, e.src, e.dst, e.ts) for e in self._edges])
 
-    def restore_state(self, state: dict[str, BrainNode]) -> None:
-        """恢复内存态（回滚用; 不落盘——调用方决定是否 save）。"""
-        self._nodes = state
+    def restore_state(self, state: tuple[dict[str, BrainNode], list[Edge]]) -> None:
+        """恢复内存态（点 + 边; 回滚用——不落盘, 调用方决定是否 save）。"""
+        self._nodes, self._edges = state
 
     # EXT: save-point-r6 — 存档点语义（R6 未落地）; 勿删（docs/EXTENSION_POINTS.md）
     def snapshot_to(self, dest: str | Path) -> None:
-        """快照 = 复制当前全部节点到 dest（R6 存档点语义: 自包含）。"""
-        atomic_write_lines(Path(dest), (n.to_json_line() for n in self._nodes.values()))
+        """快照 = **点 + 边**两个文件（`dest` 是点表路径, 边表 = 同目录 `edges.jsonl`）。
+
+        R6 存档点语义: 自包含。⚠️ **只写点的话, 快照回来的记忆是断连的**
+        （entity 车道 / 支撑链 / promise 的共有经历全空）——而边是可重算的派生物,
+        点不是, 所以快照必须两样都带。
+        """
+        dest = Path(dest)
+        atomic_write_lines(dest, (n.to_json_line() for n in self._nodes.values()))
+        atomic_write_lines(dest.with_name(EDGES_NAME),
+                           (e.to_json_line() for e in self._edges))
 
     # EXT: save-point-r6 — 存档点语义（R6 未落地）; 勿删（docs/EXTENSION_POINTS.md）
     def restore_from(self, src: str | Path) -> None:
-        """从快照恢复（替换内存; 调用方随后 save() 落盘）。"""
+        """从快照恢复（点 + 同目录边表; 调用方随后 save() 落盘）。
+
+        无边界表的**旧快照** → 从点上残留的旧字段自举（宽容读）。⚠️ 不改编
+        `self.edges_path`——恢复完还是要写回本世界线自己的边表。
+        """
+        src = Path(src)
         self._nodes = {}
-        for raw in read_jsonl(Path(src)):
+        for raw in read_jsonl(src):
             node = BrainNode.from_dict(raw)
             if node.id and not node.validate():
                 self._nodes[node.id] = node
+        side = _read_edge_file(src.with_name(EDGES_NAME))
+        self._edges = side if side is not None else infer_edges(self._nodes.values())
 
     def lines(self) -> Iterable[str]:
         """当前全部节点的 jsonl 行（调试/审计用）。"""
@@ -269,27 +367,34 @@ class WikiStoreV2:
 
     # EXT: save-point-r6 — 图不变量审计（冒烟/R6 完整性检查用）; 勿删（docs/EXTENSION_POINTS.md）
     def audit(self) -> list[str]:
-        """图不变量审计: 返回违规列表（空 = 干净）。
+        """图不变量审计: 返回违规列表（空 = 干净）。**2026-09-21 G3 起走边表**。
 
-        检查项（邻接表策略的闭环定义）:
-          - 悬空引用: links/contradictions 目标必须存在（delete 已清入边, 再出现即 bug）
-          - 双向一致: 无向边两端共识（a.links 含 b ⇔ b.links 含 a; contradiction 同款）
-          - belief 支撑: belief.links ≥ 1（删除路径可能抽走最后支撑——审计检出）
-        （原 "count 不变量: experience.count == len(links)" 2026-09-21 删——
-        `count` 已是派生属性, 那条不变量在类型上就不可能被破坏。）
+        检查项:
+          - **悬空引用**: 边端点必须存在（`add_edge` 已拒; 再出现即 bug 或旧档）
+          - **belief 支撑**: 每条 belief 至少 1 条 `supports` 入边 —— 这条从
+            `nodes.validate` **搬来**（支撑关系住在边表里, 字段级校验看不见它）
+
+        （删除的两条: "link/contradiction 双向一致" —— 点边分离后无向边不存在,
+        那条不变量在构造上不可能被破坏; "count == len(links)" 更早已是派生属性。）
         """
-        problems: list[str] = []
+        g = self.graph()
+        problems = [f"悬空引用: {e.src} -{e.rel}-> {e.dst}" for e in g.dangling()]
         for nid, node in self._nodes.items():
-            for other in node.links + node.contradictions:
-                if other not in self._nodes:
-                    problems.append(f"悬空引用: {nid} → {other}")
-            for other in node.links:
-                if other in self._nodes and nid not in self._nodes[other].links:
-                    problems.append(f"link 非双向: {nid} ↔ {other}")
-            for other in node.contradictions:
-                if other in self._nodes \
-                        and nid not in self._nodes[other].contradictions:
-                    problems.append(f"contradiction 非双向: {nid} ↔ {other}")
-            if node.kind == "belief" and not node.links:
-                problems.append(f"belief 无支撑链接: {nid}")
+            if node.kind == "belief" and not g.supporters(nid):
+                problems.append(f"belief 无支撑: {nid}")
         return problems
+
+
+def _read_edge_file(path: Path) -> list[Edge] | None:
+    """读边表 → `[Edge]`; **文件不存在 → None**（= 该自举, 与"读出来是空的"区分）。
+
+    坏行逐条丢弃（宁缺勿错）; 指向不存在的点的边**保留**（读侧宽容, 由 audit 报）。
+    """
+    if not path.is_file():
+        return None
+    out: list[Edge] = []
+    for raw in read_jsonl(path):
+        e = Edge.from_dict(raw)
+        if e is not None:
+            out.append(e)
+    return out

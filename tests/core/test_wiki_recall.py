@@ -142,21 +142,21 @@ def test_random_channel_precious_branch_deterministic(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# 一跳扩展（links ∪ contradictions——D5）
+# 一跳扩展（**边表**的任意 rel——G3 起不再是节点上的 links ∪ contradictions）
 # ---------------------------------------------------------------------------
 
-def test_hop_expands_links_and_contradictions(tmp_path):
-    nodes = _ids([
-        _ep("拆炸弹的初遇", sig=0.9, tags=["炸弹"],
-            links=["m0002"], contradictions=["m0003"]),
+def test_hop_expands_edges(tmp_path):
+    st = _store(tmp_path, _ids([
+        _ep("拆炸弹的初遇", sig=0.9, tags=["炸弹"]),
         _ep("信任的支撑", sig=0.7),
         _ep("和初遇矛盾的记忆", sig=0.6),
         _ep("无关的日常", sig=0.4),
-    ])
-    st = _store(tmp_path, nodes)
+    ]))
+    st.add_edge("supports", "m0001", "m0002")          # 一跳: 支撑
+    st.add_contradiction("m0001", "m0003")             # 一跳: 矛盾（对称边）
     out = recall_subgraph(st, query="炸弹", n_precious=0, n_random=0)
     ids = {n.id for n in out}
-    assert "m0002" in ids and "m0003" in ids        # 一跳带出 link + contradiction
+    assert "m0002" in ids and "m0003" in ids        # 一跳带出 support + contradiction
     assert "m0004" not in ids                       # 二跳外的不到
 
 

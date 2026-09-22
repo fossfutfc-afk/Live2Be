@@ -10,7 +10,7 @@
                （不排除 fact——预设经历 = 作者明示"角色必须记住的"）
     3 随机摘段: 30% 珍贵（sig 加权）/ 70% 对数正态(ts 年龄)加权抽 1 段
                （数学照搬 legacy random_recall_segment; age = ts 差, 小时）
-    合并: 去重(id) → 沿 links ∪ contradictions 一跳扩展（否则 c: 标记悬空）
+    合并: 去重(id) → 沿**边表**一跳扩展（G3 起; 旧版是节点上的 links ∪ contradictions）
           → significance 降序（暂定）→ 截断 cap
 
 embedding 派生不落盘（修订改内容零漂移）——每次召回对当前内容冷算;
@@ -108,9 +108,12 @@ def recall_subgraph(
         if seg is not None:
             picked.setdefault(seg.id, seg)
 
-    # 一跳扩展: links ∪ contradictions（D5）
+    # 一跳扩展: **边表的 1-hop**（G3 起边在 edges.jsonl——任意 rel 都算一跳,
+    # 不再只认旧字段 links ∪ contradictions）
+    from core.brain.wiki_v2.graph import graph_of
+    g = graph_of(store)
     for n in list(picked.values()):
-        for tgt in n.links + n.contradictions:
+        for tgt in g.neighbors(n.id):
             other = store.get(tgt)
             if other is not None and other.id not in picked:
                 picked[other.id] = other

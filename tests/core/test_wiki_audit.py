@@ -1,24 +1,29 @@
-"""store.audit() 图不变量测试——图算法正确性确认（邻接表策略闭环定义）。
+"""store.audit() 图不变量测试（**2026-09-21 G3 起走边表**）。
 
-覆盖: 干净图零违规 / 悬空引用 / 非双向 / belief 支撑 /
-      merge+delete 后仍干净 / revise 全链路后审计干净 / ref 唯一性回归。
+覆盖: 干净图零违规 / 悬空引用 / belief 无支撑 / merge+delete 后仍干净 /
+      revise 全链路后审计干净 / ref 唯一性回归。
+
+⏸ 已删的两条（测的是不再存在的世界）:
+  · `test_non_bidirectional_detected` —— 点边分离后**无向边不存在**, "双向共识"
+    这条不变量在构造上不可能被破坏（一个方向一条边, 查两端都走 `out`/`inc`）。
+  · `test_count_invariant_detected_and_repaired` —— `count` 连属性本身都没了。
 """
 from core.brain.wiki_v2 import WikiStoreV2, make_node
+from core.brain.wiki_v2.graph import Edge
 from core.brain.wiki_v2.revise import apply_revision_package
 
 
 def _store(tmp_path) -> WikiStoreV2:
-    """真实流程同款 fixture: belief/experience 带支撑 links 创建, 再 add_link 补双向。"""
+    """真实流程同款 fixture: episode 支撑 belief/experience 各一条 supports 边。"""
     st = WikiStoreV2(tmp_path, world_id="world1", char_id="c")
     st.add(make_node("episode", text="拆炸弹初遇", event_seq=[1]))
     st.add(make_node("belief", text="老师是第一个不会嫌弃我的人", subject="sensei",
-                     epistemic="inferred_belief", significance=0.9,
-                     links=["m0001"], event_seq=[1]))
+                     epistemic="inferred_belief", significance=0.9, event_seq=[1]))
     st.add(make_node("experience", text="提到工作繁忙", subject="sensei",
-                     significance=0.85, links=["m0001"], event_seq=[1]))
+                     significance=0.85, event_seq=[1]))
     st.add(make_node("episode", text="出厂经历", significance=0.9))
-    st.add_link("m0001", "m0002")
-    st.add_link("m0001", "e0001")
+    st.add_edge("supports", "m0001", "m0002")
+    st.add_edge("supports", "m0001", "e0001")
     return st
 
 
@@ -28,46 +33,38 @@ def test_clean_graph_no_violations(tmp_path):
 
 
 def test_dangling_reference_detected(tmp_path):
+    """悬空边——`add_edge` 会拒, 所以这里直接塞进内存态（模拟旧档/坏档）。"""
     st = _store(tmp_path)
-    st.get("m0002").links.append("ghost999")       # 手工制造悬空
+    st._edges.append(Edge(rel="supports", src="m0002", dst="ghost999"))
     bad = st.audit()
-    assert any("悬空引用: m0002 → ghost999" in b for b in bad)
-
-
-def test_non_bidirectional_detected(tmp_path):
-    st = _store(tmp_path)
-    st.get("e0001").links.remove("m0001")          # 手工破坏双向共识
-    bad = st.audit()
-    assert any("link 非双向: m0001 ↔ e0001" in b for b in bad)
-
-
-# ⏸ `test_count_invariant_detected_and_repaired` —— 2026-09-21 删：`count` 已是派生属性
-# `len(links)`, "引擎计数被破坏"这种状态在类型上就不可能存在（连同 audit 那条检查、
-# `add_link`/`remove_link`/`normalize` 三处手工刷新一起删掉）。
-# 派生属性本身由 `test_wiki_store.py::test_experience_count_is_derived` 守着。
+    assert any("悬空引用: m0002 -supports-> ghost999" in b for b in bad)
 
 
 def test_belief_orphan_after_delete_detected(tmp_path):
-    """删除 belief 的唯一支撑 episode → 入边清理后 belief 无支撑——审计检出。"""
+    """删掉 belief 的唯一支撑 episode → 边被过滤 → 审计检出"无支撑"。
+
+    这条不变量 2026-09-21（G3）从 `nodes.validate` **搬到这里**（支撑住在边表,
+    字段级校验看不见它）。
+    """
     st = _store(tmp_path)
     st.delete("m0001")
     bad = st.audit()
-    assert any("belief 无支撑链接: m0002" in b for b in bad)
+    assert any("belief 无支撑: m0002" in b for b in bad)
 
 
 def test_merge_and_delete_keep_graph_clean(tmp_path):
-    """merge 删源 + 入边清理后, 图保持全不变量。"""
+    """merge 删源 + 边重接后, 图保持全不变量。"""
     st = _store(tmp_path)
     st.add(make_node("episode", text="天台夜谈", event_seq=[2]))
-    st.add_link("m0004", "m0002")
-    st.add_link("m0004", "e0001")
+    st.add_edge("supports", "m0004", "m0002")
+    st.add_edge("supports", "m0004", "e0001")
     scope = {n.id for n in st.all()}
     res = apply_revision_package(st, [
         {"action": "merge", "ids": ["m0001", "m0003"],
          "into": {"kind": "episode", "text": "和老师的两次难忘日常"}},
     ], subgraph_ids=scope)
     assert res.ok, res.errors
-    # 源 m0001 的入边（m0002/e0001 → m0001）被 delete 清理 → 图干净
+    # 源 m0001 的 supports 出边（→ m0002 / e0001）remap 到产物 ⇒ belief 仍有支撑
     assert st.audit() == []
 
 
@@ -109,4 +106,5 @@ def test_refs_unique_by_default(tmp_path):
     assert res.ok, res.errors
     # n1→第一个 episode(m0004), n2→第二个(m0005); accrue 证据 = n2(天台夜谈, seq 4)
     exp = st.get("e0001")
-    assert exp.links == ["m0001", "m0005"] and exp.event_seq == [1, 4]
+    assert exp.event_seq == [1, 4]
+    assert set(st.graph().supporters("e0001")) == {"m0001", "m0005"}

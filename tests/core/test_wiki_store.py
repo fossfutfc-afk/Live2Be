@@ -88,20 +88,50 @@ def test_update_patch_and_unknown_field(tmp_path):
 
 
 def test_edge_primitives(tmp_path):
+    """边原语（G3 起边住在 `edges.jsonl`; 节点上的 `links` 只作旧档读入）。"""
     st = _store(tmp_path)
     st.add(make_node("episode", text="e1", event_seq=[1]))
     st.add(make_node("episode", text="e2", event_seq=[2]))
-    st.add(make_node("belief", text="b", epistemic="inferred_belief",
-                     links=["m0001"]))
-    st.add_link("m0001", "m0002")
-    st.add_link("m0001", "m0002")                      # 幂等
-    assert st.get("m0001").links == ["m0002"]
-    assert st.get("m0002").links == ["m0001"]
+    st.add(make_node("belief", text="b", epistemic="inferred_belief"))
+    st.add_link("m0001", "m0002")            # 无向 link → rel 由两端 kind 推断
+    st.add_link("m0001", "m0002")            # 幂等
+    # episode ↔ episode 判不出类型 → unknown（**不猜**, 见 graph.classify_pair）
+    assert [(e.rel, e.src, e.dst) for e in st.edges()] == [("unknown", "m0001", "m0002")]
+    assert st.neighbors("m0001") == ["m0002"]         # 无向: 两边都算邻居
+    assert st.neighbors("m0002") == ["m0001"]
+    st.add_link("m0002", "m0003")            # episode → belief = supports
+    assert ("supports", "m0002", "m0003") in [(e.rel, e.src, e.dst) for e in st.edges()]
     st.add_contradiction("m0001", "m0003")
-    assert st.get("m0001").contradictions == ["m0003"]
+    assert ("contradicts", "m0001", "m0003") in [(e.rel, e.src, e.dst) for e in st.edges()]
     st.remove_link("m0001", "m0002")
+    st.remove_link("m0002", "m0003")
     st.remove_contradiction("m0001", "m0003")
-    assert st.get("m0001").links == [] and st.get("m0001").contradictions == []
+    assert st.edges() == []
+
+
+def test_add_edge_rejects_dangling_and_self(tmp_path):
+    """写路径关门: 悬空 / 自环一律拒（"悬空引用在构造上不可能存在", §2.1）。"""
+    st = _store(tmp_path)
+    st.add(make_node("episode", text="a"))
+    with pytest.raises(ValueError):
+        st.add_edge("supports", "m0001", "m9999")     # 对端不存在
+    with pytest.raises(ValueError):
+        st.add_edge("supports", "m0001", "m0001")     # 自环
+    assert st.edges() == []
+
+
+def test_edges_persist_and_reload(tmp_path):
+    """边表落盘 ⇄ 读回（点边两个文件; 再载入不再走推断）。"""
+    st = _store(tmp_path)
+    st.add(make_node("episode", text="a", event_seq=[1]))
+    st.add(make_node("belief", text="b", epistemic="inferred_belief"))
+    st.add_edge("supports", "m0001", "m0002", ts="2026-09-21T10:00:00")
+    st.save()
+    assert st.edges_path.is_file() and st.edges_path.name == "edges.jsonl"
+    st2 = _store(tmp_path)
+    assert [(e.rel, e.src, e.dst) for e in st2.edges()] == [("supports", "m0001", "m0002")]
+    assert st2.graph().supporters("m0002") == ["m0001"]
+    assert st2.audit() == []
 
 
 def test_delete(tmp_path):
@@ -112,56 +142,53 @@ def test_delete(tmp_path):
     assert "m0001" not in st
 
 
-def test_delete_cleans_inbound_references(tmp_path):
-    """邻接表闭环: 删节点 → 他人 links/contradictions 里的悬空 id 一并清除。"""
+def test_delete_filters_edges(tmp_path):
+    """删节点 = 点表删 + **边表过滤一遍** ⇒ 悬空引用在构造上不可能存在。"""
     st = _store(tmp_path)
     st.add(make_node("episode", text="hub", event_seq=[1]))
-    st.add(make_node("episode", text="a", event_seq=[2], links=["m0001"]))
-    st.add(make_node("belief", text="b", epistemic="inferred_belief",
-                     links=["m0001", "m0002"]))
+    st.add(make_node("episode", text="a", event_seq=[2]))
+    st.add(make_node("belief", text="b", epistemic="inferred_belief"))
+    st.add_link("m0002", "m0001")
+    st.add_link("m0003", "m0001")
     st.add_contradiction("m0001", "m0003")
-    assert st.get("m0002").links == ["m0001"]
-    assert st.get("m0003").links == ["m0001", "m0002"]
-    assert st.get("m0001").contradictions == ["m0003"]
+    assert len(st.edges()) == 3
     st.delete("m0001")
-    assert st.get("m0002").links == []                     # 入边清理
-    assert st.get("m0003").links == ["m0002"]              # 只清 m0001
-    assert st.get("m0003").contradictions == []            # 矛盾边也清理
+    assert st.edges() == []                    # 三条边全部触及 hub → 全清
+    # 支撑随边一起没了 → 全局兜底（audit）看得见, 不再是静默
+    assert st.audit() == ["belief 无支撑: m0003"]
 
 
-def test_experience_count_is_derived(tmp_path):
-    """`count` = 派生属性 `len(links)`（2026-09-21 起不再落库）。
-
-    原用例名 `test_add_link_refreshes_experience_count`——那时 count 是存储字段,
-    靠 `add_link`/`remove_link`/`normalize` 三处手工刷新。现在同一个事实只有一份,
-    读它永远是当下 links 的长度（连 audit 那条不变量检查都不需要了）。
-    """
+def test_experience_count_comes_from_edges(tmp_path):
+    """次数（原 `count`）的**新家** = `supports` 入边数（`render._count_of`）。"""
+    from core.brain.wiki_v2.render import _count_of
     st = _store(tmp_path)
-    st.add(make_node("experience", text="提到工作繁忙", subject="sensei",
-                     significance=0.7, event_seq=[1]))
-    assert st.get("e0001").count == 0
+    st.add(make_node("experience", text="提到工作繁忙", subject="sensei", event_seq=[1]))
     st.add(make_node("episode", text="老师又说忙", event_seq=[2]))
-    st.add_link("m0001", "e0001")                          # episode 链入 experience
-    exp = st.get("e0001")
-    assert exp.links == ["m0001"] and exp.count == 1
-    st.remove_link("m0001", "e0001")
-    assert st.get("e0001").count == 0
-    assert "count" not in st.get("e0001").to_dict()         # 不落库
-    assert st.audit() == []
+    g = st.graph()
+    assert _count_of(st.get("e0001"), g) == 0
+    st.add_edge("supports", "m0001", "e0001")
+    assert _count_of(st.get("e0001"), st.graph()) == 1
+    st.remove_edge("supports", "m0001", "e0001")
+    assert _count_of(st.get("e0001"), st.graph()) == 0
+    assert _count_of(st.get("e0001"), None) == 0       # 没给边表 → 0（不编）
 
 
 def test_snapshot_restore(tmp_path):
+    """快照 = **点 + 边**两个文件（只写点的话, 捞回来的记忆是断连的）。"""
     st = _store(tmp_path)
     st.add(make_node("episode", text="a", event_seq=[1]))
-    st.add(make_node("belief", text="b", epistemic="inferred_belief", links=["m0001"]))
+    st.add(make_node("belief", text="b", epistemic="inferred_belief"))
+    st.add_edge("supports", "m0001", "m0002")
     snap = tmp_path / "snap_001.jsonl"
     st.snapshot_to(snap)
+    assert (tmp_path / "edges.jsonl").is_file()        # 边表跟着走
     # 继续演化后回滚
     st.add(make_node("episode", text="c", event_seq=[2]))
     assert len(st) == 3
     st.restore_from(snap)
     assert len(st) == 2
     assert st.get("m0001") is not None and st.get("m0003") is None
+    assert st.graph().supporters("m0002") == ["m0001"]  # 边也回来了
 
 
 def test_bad_lines_skipped_on_load(tmp_path):

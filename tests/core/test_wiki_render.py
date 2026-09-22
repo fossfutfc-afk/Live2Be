@@ -6,6 +6,7 @@
 from datetime import datetime, timedelta
 
 from core.brain.wiki_v2 import make_node
+from core.brain.wiki_v2.graph import Edge, Graph
 from core.brain.wiki_v2.render import render_character_view, render_organize_view
 
 
@@ -14,6 +15,14 @@ def _ids(nodes):
     for i, n in enumerate(nodes, 1):
         n.id = f"m{i:04d}"
     return nodes
+
+
+def _g(*triples) -> Graph:
+    """手工边表（G3 起边住在 `edges.jsonl`，不在节点字段里）。
+
+    三元组 = `(rel, src, dst)`；渲染只查邻居, 所以不给 nodes 也够用。
+    """
+    return Graph(edges=[Edge(rel=r, src=s, dst=d) for r, s, d in triples])
 
 
 def _ep(text, sig=0.5, ts="", verbatim="", links=None, epistemic="observed_fact",
@@ -35,23 +44,27 @@ def _ep(text, sig=0.5, ts="", verbatim="", links=None, epistemic="observed_fact"
 
 def test_organize_view_episode_line():
     n = _ep("天台夜谈", sig=0.8, verbatim="地砖里长出的苔藓也可以是花",
-            links=["m0009"], event_seq=[42])
-    out = render_organize_view(_ids([n]))
-    assert "m0001 [episode, sig 0.80, links: m0009] 天台夜谈" in out
+            event_seq=[42])
+    out = render_organize_view(_ids([n]), graph=_g(("supports", "m0001", "m0009")))
+    assert "m0001 [episode, sig 0.80, edges: supports→m0009] 天台夜谈" in out
     assert "〝「地砖里长出的苔藓也可以是花」〞" in out
     assert not out.lstrip().startswith("#")        # 决策 #7: 无 # 前缀
+    # 不给边表 → **不印边**（不是印一个空的 `edges:` —— 那会读成"这条没有邻居"）
+    assert "edges:" not in render_organize_view(_ids([n]))
 
 
 def test_organize_view_experience_and_player():
     exp = make_node("experience", text="提到工作繁忙", subject="sensei",
-                    significance=0.7, examples=["「这周又忙成狗了」"],
-                    links=["m0011", "m0015", "m0020"], event_seq=[61])
+                    significance=0.7, examples=["「这周又忙成狗了」"], event_seq=[61])
     pe = make_node("experience", text="总说「摸鱼」", subject="player",
-                   significance=0.75, examples=["今天也摸鱼"],
-                   links=["m0030", "m0033"], event_seq=[70])
-    out = render_organize_view(_ids([exp, pe]))
-    # count 由引擎归一 = len(links)（normalize 不变量）
-    assert "m0001 [experience, sig 0.70, count 3, links: m0011 m0015 m0020] 提到工作繁忙" in out
+                   significance=0.75, examples=["今天也摸鱼"], event_seq=[70])
+    nodes = _ids([exp, pe])
+    # count（G3 起）= `supports` **入边数**，不再读节点字段
+    g = _g(("supports", "m0011", "m0001"), ("supports", "m0015", "m0001"),
+           ("supports", "m0020", "m0001"),
+           ("supports", "m0030", "m0002"), ("supports", "m0033", "m0002"))
+    out = render_organize_view(nodes, graph=g)
+    assert "m0001 [experience, sig 0.70, count 3" in out
     assert "〝「「这周又忙成狗了」」〞" not in out            # 已带「」不重复包裹
     assert "〝「「今天也摸鱼」」〞" not in out
     assert "〝「今天也摸鱼」〞" in out
@@ -62,21 +75,21 @@ def test_organize_view_episode_belief():
     ep = make_node("episode", text="遥香曾因拆炸弹事件对 sensei 建立信任",
                    significance=0.95)
     belief = make_node("belief", text="老师是第一个不会嫌弃我的人", subject="sensei",
-                       epistemic="inferred_belief", significance=0.9,
-                       links=["m0001"], event_seq=[42])
-    out = render_organize_view(_ids([ep, belief]))
-    assert "[episode, sig 0.95]" in out
-    assert "[belief, sig 0.90, links: m0001]" in out
+                       epistemic="inferred_belief", significance=0.9, event_seq=[42])
+    nodes = _ids([ep, belief])
+    out = render_organize_view(nodes, graph=_g(("supports", "m0001", "m0002")))
+    assert "[episode, sig 0.95, edges: supports→m0002]" in out
+    # 入边印成 `supports←m0001`（"这条看法是谁支撑的"一眼可读 —— 旧版只有无类型的 links:）
+    assert "[belief, sig 0.90, edges: supports←m0001]" in out
     # ⏸ 原 "canon 只读" 标记 2026-09-21 删（is_seed()/source 退役）——不该再出现
     assert "canon" not in out
 
 
 def test_organize_view_contradiction_marker():
-    a = _ep("雨天散步", event_seq=[1])
-    b = _ep("讨厌下雨", event_seq=[2])
-    b.contradictions = ["m0001"]
-    out = render_organize_view(_ids([a, b]))
-    assert "c: m0001" in out
+    nodes = _ids([_ep("雨天散步", event_seq=[1]), _ep("讨厌下雨", event_seq=[2])])
+    out = render_organize_view(nodes, graph=_g(("contradicts", "m0001", "m0002")))
+    assert "contradicts→m0002" in out          # a 侧: 出边
+    assert "contradicts←m0001" in out          # b 侧: 入边
 
 
 def test_organize_view_timeline_and_empty():
@@ -94,18 +107,22 @@ def test_organize_view_timeline_and_empty():
 # ---------------------------------------------------------------------------
 
 def test_character_view_sections_and_first_person():
-    nodes = [
+    nodes = _ids([
         _ep("和老师拆炸弹那次，老师没有苛责我", sig=0.95, ts="2026-08-01T10:00:00",
             verbatim="没关系，我陪你拆完。", event_seq=[1]),
         _ep("老师带我去吃甜品", sig=0.6, ts="2026-09-01T20:00:00", event_seq=[2]),
         make_node("belief", text="伊草遥香开始相信自己被需要", subject="sensei",
                   epistemic="inferred_belief", significance=0.9,
-                  growth="从自卑到被需要", links=["m0001"], event_seq=[1]),
+                  growth="从自卑到被需要", event_seq=[1]),
         make_node("experience", text="总说「摸鱼」", subject="player",
-                  significance=0.75, links=["m0002", "m0003", "m0004"], event_seq=[2]),
-    ]
+                  significance=0.75, event_seq=[2]),
+    ])
+    # count（G3 起）= supports 入边数: 三条经历印证过这个口癖
+    g = _g(("supports", "m0001", "m0004"), ("supports", "m0002", "m0004"),
+           ("supports", "m0003", "m0004"))
     out = render_character_view(nodes, char_name="伊草遥香",
-                                summary="天台夜谈后，伊草遥香开始相信自己被需要")
+                                summary="天台夜谈后，伊草遥香开始相信自己被需要",
+                                graph=g)
     assert out.startswith("【角色记忆（brain）】")
     assert "我记得那段日子：天台夜谈后，我开始相信自己被需要" in out
     assert "我记得的事（珍贵的）：" in out
@@ -147,12 +164,11 @@ def test_character_view_belief_and_player_all_rendered():
     """belief / player 两桶同样全量（旧 cap_beliefs / cap_player 默认 5）。"""
     beliefs = [make_node("belief", text=f"信念{i}", subject="sensei",
                          epistemic="inferred_belief", significance=0.9 - i * 0.1,
-                         links=["m0001"], event_seq=[1]) for i in range(7)]
-    # 行数 = 序号（count 现在是派生属性 = len(links), 所以靠 links 条数造成降序差异）
-    players = [make_node("experience", text=f"口癖{i}", subject="player",
-                         significance=0.6,
-                         links=[f"m{j:04d}" for j in range(1, 8 - i)],
                          event_seq=[1]) for i in range(7)]
+    # 不给边表 ⇒ 计数恒 0（桶内排序退化为插入序）—— 那条轴不在这条用例的射程内,
+    # 这条用例只管"桶内**全量**注入"（旧 cap 5 会丢两条）。
+    players = [make_node("experience", text=f"口癖{i}", subject="player",
+                         significance=0.6, event_seq=[1]) for i in range(7)]
     out = render_character_view([*beliefs, *players])
     assert out.count("\n- 对sensei：信念") == 7        # 7 条全在（旧 cap 5 会丢 2 条）
     assert out.count("（count ") == 7

@@ -18,6 +18,7 @@ from datetime import datetime
 from typing import Any
 
 from core.brain.wiki_v2.evolution import EvolutionLog
+from core.brain.wiki_v2.graph import REL_SUPPORTS
 from core.brain.wiki_v2.nodes import BrainNode, KINDS, make_node
 from core.brain.wiki_v2.store import WikiStoreV2
 from core.common import err
@@ -78,7 +79,7 @@ def apply_decisions(
         decision = row["decision"]
         if decision == "touch":
             _ensure_cognition(store, real)
-            store.add_link(ep_id, real)
+            store.add_edge(REL_SUPPORTS, ep_id, real)
             log.append({"pkg": "digest", "action": "touch", "episode": ep_id,
                         "target": real, "ts": ts})
         elif decision == "update":
@@ -101,7 +102,7 @@ def apply_decisions(
             before = {k: getattr(node, k, None) for k in patch
                       if getattr(node, k, None) != patch[k]}
             new = store.update(real, patch)
-            store.add_link(ep_id, real)
+            store.add_edge(REL_SUPPORTS, ep_id, real)
             log.append({"pkg": "digest", "action": "update", "episode": ep_id,
                         "target": real,
                         "changed": {k: [v, getattr(new, k, None)]
@@ -126,16 +127,17 @@ def apply_decisions(
             # 崩溃窗口重跑幂等: (kind, event_seq, 主文本) 命中 → 只补链, 不双写
             dup = _find_duplicate(store, node)
             if dup is not None:
-                store.add_link(ep_id, dup.id)
+                store.add_edge(REL_SUPPORTS, ep_id, dup.id)
                 continue
-            node.links = [ep_id]                # belief 校验需 links ≥1——先链后入仓
-            errors = node.validate()
+            errors = node.validate()            # supports 边已不在字段校验里（G3）
             if errors:
                 raise ValueError(err("InvalidNode",
                                      f"add 节点无效: {'; '.join(errors)}"))
             nid = store.add(node)
             created.append(nid)
-            store.add_link(ep_id, nid)          # ep 侧反向边
+            # belief 的支撑不变量（原在 `nodes.validate`: links ≥ 1）—— 现在住在边表,
+            # 所以**先入仓再补边**（§2.1: add_edge 拒悬空 ⇒ 点必须先在）
+            store.add_edge(REL_SUPPORTS, ep_id, nid)
             log.append({"pkg": "digest", "action": "add", "episode": ep_id,
                         "id": nid, "kind": kind, "ts": ts})
     return created
@@ -322,28 +324,25 @@ def _apply_action(store: WikiStoreV2, raw: dict, scope: set[str],
         merged = _build_merged(store, ids, into)
         if merged is None:
             return _err(result, "merge: into.kind 缺失且源 kind 不一致")
-        if not merged.links:
-            return _err(result, "merge 产物必须至少 1 条链接（无孤立节点）")
         merged.ts = datetime.now().isoformat(timespec="seconds")
         new_id = store.add(merged)
         scope.add(new_id)                    # merge 产物可被包内后续动作引用
-        # 入边重接: 指向源节点的 link/contradiction 改指 merged——合并 = 源被产物
-        # 替代, 图连通性与 belief 支撑不丢（只继承出边会断掉入边的支撑链）
-        for other in store.all():
-            if other.id == new_id or other.id in ids:
+        # ── 边重接（G3: 边在边表里, 不在节点字段里）──
+        # 指向源节点的边**改指产物**（只继承出边会断掉入边的支撑链）, rel 原样保留;
+        # 源之间的内部边变自环 → 丢。先收集再删源（delete 会过滤掉所有触及源的边）。
+        remap = {i: new_id for i in ids}
+        keep: list[tuple[str, str, str]] = []
+        for e in store.edges():
+            src, dst = remap.get(e.src, e.src), remap.get(e.dst, e.dst)
+            if src == dst or (e.rel, src, dst) in keep:
                 continue
-            had_link = any(i in other.links for i in ids)
-            had_contr = any(i in other.contradictions for i in ids)
-            if not (had_link or had_contr):
-                continue
-            other.links = [x for x in other.links if x not in ids]
-            other.contradictions = [x for x in other.contradictions if x not in ids]
-            if had_link:
-                store.add_link(new_id, other.id)
-            if had_contr:
-                store.add_contradiction(new_id, other.id)
+            keep.append((e.rel, src, dst))
         for i in ids:
             store.delete(i)
+        for rel, src, dst in keep:
+            store.add_edge(rel, src, dst)
+        if not any(e.src == new_id or e.dst == new_id for e in store.edges()):
+            return _err(result, "merge 产物必须至少 1 条边（无孤立节点）")
         pending_log.append({"pkg": pkg, "action": "merge",
                             "ids": ids, "into": new_id, "kind": merged.kind})
         return True
@@ -408,7 +407,7 @@ def _apply_accrue(store: WikiStoreV2, raw: dict, scope: set[str],
         return _err(result,
                     "accrue 必须指向 episode 证据（occurrence.episode_ref 包内 ref "
                     "或 episode_id 子图 id——同类判定必须指向证据）")
-    store.add_link(eid, ep.id)
+    store.add_edge(REL_SUPPORTS, ep.id, eid)          # 经历 → 认知（G3: 边表）
     merged_seq = list(dict.fromkeys(exp.event_seq + ep.event_seq))   # 去重保序
     store.update(eid, {"event_seq": merged_seq})
     if occ.get("example"):
@@ -419,7 +418,10 @@ def _apply_accrue(store: WikiStoreV2, raw: dict, scope: set[str],
 
 
 def _build_merged(store: WikiStoreV2, ids: list[str], into: dict) -> BrainNode | None:
-    """merge 产物: into 字段 + 继承源条目的 links/contradictions/event_seq 并集。"""
+    """merge 产物: into 字段 + 继承源条目的 `event_seq` 并集。
+
+    ⚠️ **边不在这里继承**（G3）—— 边住在 `edges.jsonl`, 由调用方 remap 端点后重接。
+    """
     sources = [store.get(i) for i in ids]
     into = {k: v for k, v in into.items() if k not in _IGNORED_ON_CREATE}
     kind = str(into.get("kind", "")).strip() or (
@@ -427,9 +429,6 @@ def _build_merged(store: WikiStoreV2, ids: list[str], into: dict) -> BrainNode |
     if not kind or kind not in KINDS:
         return None
     node = make_node(kind, **{k: v for k, v in into.items() if k != "kind"})
-    node.links = sorted({l for s in sources for l in s.links if l not in ids})
-    node.contradictions = sorted(
-        {c for s in sources for c in s.contradictions if c not in ids})
     node.event_seq = sorted({seq for s in sources for seq in s.event_seq})
     node.epistemic = str(into.get("epistemic", "")).strip() or sources[0].epistemic
     return node
@@ -440,15 +439,19 @@ def _build_merged(store: WikiStoreV2, ids: list[str], into: dict) -> BrainNode |
 # ---------------------------------------------------------------------------
 
 def _connection_rule_violations(store: WikiStoreV2, ref_map: dict) -> list[str]:
-    """规则 7: 每条新 episode 必须 links 含 belief/experience（已有或新建）。"""
+    """规则 7: 每条新 episode 必须与 belief/experience 相连（已有或新建）。
+
+    G3 起"相连"看**边表**（点上的 `links` 已不再被写）。
+    """
     created_ids = set(ref_map.values())
+    g = store.graph()
     bad: list[str] = []
     for n in store.all():
         if n.id not in created_ids or n.kind != "episode":
             continue
         supported = any(
-            store.get(l) is not None and store.get(l).kind in ("belief", "experience")
-            for l in n.links)
+            store.get(t) is not None and store.get(t).kind in ("belief", "experience")
+            for t in g.neighbors(n.id))
         if not supported:
             bad.append(n.id)
     return bad
