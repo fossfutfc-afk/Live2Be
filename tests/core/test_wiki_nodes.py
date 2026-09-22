@@ -21,7 +21,7 @@ def test_episode_roundtrip():
                      verbatim="「地砖里长出的苔藓也可以是花」",
                      significance=0.8, tags=["老师", "杂草屋"],
                      observer="igusa_haruka", event_seq=[42, 58],
-                     ts="2026-09-01T20:00:00", links=["m0009"])
+                     ts="2026-09-01T20:00:00")
     assert node.validate() == []
     assert node.is_precious is True
     assert node.dedup_key() == ("episode", (42, 58))
@@ -81,11 +81,13 @@ def test_every_serialized_field_is_parsed_back():
     lost = [k for k, v in probes.items() if getattr(back, k) != v]
     assert not lost, f"这些字段落库后读不回来: {lost}"
 
-    # 那条**有意的不对称**（G3）: 旧档读得进、新档写不出 —— 别顺手"修"回去
+    # 那两个已删的键（G4）: 旧档读得进 = **读不出来**（字段没了）, 但也不抛。
+    # 真正的自举在**文件格式层**（`graph.infer_edges(rows)`）, 见 `test_wiki_graph.py`。
     assert "links" not in node.to_dict() and "contradictions" not in node.to_dict()
     legacy = BrainNode.from_dict({"id": "m0009", "kind": "belief",
                                   "links": ["m0001"], "contradictions": ["m0002"]})
-    assert legacy.links == ["m0001"] and legacy.contradictions == ["m0002"]
+    assert legacy.id == "m0009" and legacy.validate() != []   # 除旧键外照常解析
+    assert not hasattr(legacy, "links") and not hasattr(legacy, "contradictions")
 
     # 反向: `to_dict` 的清单里不该有"探针没覆盖"的字段（新增字段要一起补）
     serialized = set(node.to_dict())

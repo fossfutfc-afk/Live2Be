@@ -10,8 +10,9 @@
 > 现状差距：代码仍是 v2 形状（3 kind、无 entity、`links` 无类型、`subject` 是自由字符串）。
 > 真机只有 5 个节点（world1/haruka）⇒ **迁移成本≈0**，所以现在改模型是最便宜的时候。
 >
-> 📍 **当前讨论位置**：§9 未定剩 **3 项**；边/存储已定案（§2.1）；**G1 + G3 已落地（2026-09-21）**，
-> 下一步 **G4**（纯机械删 `links` 字段）。全文 200 余行，读完即可接手讨论（不需要会话上下文）。
+> 📍 **当前讨论位置**：§9 未定剩 **3 项**；边/存储已定案（§2.1）；**G1 + G3 + G4 已落地（2026-09-21）
+> ⇒ 边层整体完成**，`links`/`contradictions` 字段已从节点上消失。下一步回到 **§9 未定 3 项**
+> （常驻层的界 / fact 提升 / `experience` 并入）或 **§3 entity 载荷**。全文 200 余行，读完即可接手讨论。
 
 ---
 
@@ -118,7 +119,7 @@ by_rel: dict[str, list[Edge]]   # rel → edges    "所有 about 边"
 | **G1** ✅ **已落地 2026-09-21** | 新文件 `graph.py`：`Edge(rel,src,dst,ts)` + 八种 rel + `infer_edges`（对端是 episode ⇒ `supports`、是 entity ⇒ `about`；**判不出的发 `unknown` 不猜**）+ 三索引 + 六类查询 + `graph_of`/`iter_edges`（**G3 的换装点**）。**只读、不落盘** | `graph.py` + `test_wiki_graph.py`（**0 处现有代码**，连 `__init__` 都不加导出） | 低 ✅ |
 | ~~G2~~ **并入 G3** | 原计划"边查询接进叶子消费者"——查调用方发现两个目标**都是死的**（`store.audit()` 生产零调用；`store.delete()` 唯一生产路径在同样零调用的 `apply_revision_package` 里）⇒ 在边表存在之前重构它们 = 把死代码改成一种马上要删的中间表示 | — | 取消 |
 | **G3** ✅ **已落地 2026-09-21** | `soul/edges.jsonl` 落盘（`{"rel","src","dst","ts"}`）+ **自举**（无边界表的旧档载入时从 `links` 推断, 下一次 `save()` 落盘 ⇒ 无迁移脚本）+ 写路径 `store.add_edge(rel,src,dst)`（**拒悬空/自环**）+ `delete`/`audit`/`clone_state`/`snapshot_to` 全部改走边表 + `links`/`contradictions` **停止写出** + `count` 改边表派生（`render._count_of`）+ 组织视图印**类型化边** | `store.py` · `nodes.py` · `revise.py` · `render.py` · `recall.py` · 6 个测试文件 | 中 ✅ |
-| **G4** | 纯机械收尾：**删** `nodes.links`/`contradictions` 字段（连同 `from_dict` 的读入、`_build_merged`/`_parse_create` 里的残留用法、`store.add_link` 系列 shim） | `nodes.py` · `store.py` · `revise.py` + 少数 fixture | 低 |
+| **G4** ✅ **已落地 2026-09-21** | 纯机械收尾：**删** `nodes.links`/`contradictions` 字段; **自举搬到文件层**（`infer_edges(rows)` 读原始 jsonl 行 —— 字段没了, 读对象就读不到了）; `Graph.from_nodes` → `from_rows`; 分类表改成吃 kind（`classify_pair(ka,kb,a_id,b_id)`）; 清理测试里已变成静默 no-op 的 `links=` 参数 | `nodes.py` · `graph.py` · `store.py` · `revise.py` + 8 个测试文件 | 低 ✅ |
 
 💡 G1 的价值：**零风险**地把"查询接口够不够用"验证掉 —— 够用再谈落盘。
 💡 测试面的好消息：现有 3827 行相关测试里，真正碰边的是 `test_wiki_store`/`audit`/`revise`/`recall`
@@ -279,3 +280,4 @@ about_state      → resolved / uncertain / none   ← **点的属性**（不是
 | 2026-09-21 | **G2 并入 G3**（用户同意收窄） | ❌ 取消 G2：两个目标**都是死代码**（`store.audit()` 生产零调用；`store.delete()` 只在同样零调用的 `apply_revision_package` 里被调）——在边表存在前重构它们 = 把死代码改成马上要删的中间表示 |
 | 2026-09-21 | **落地 G3**（边表落盘 + 自举 + 写路径 + 消费者切换） | ✅ 落地：`soul/edges.jsonl`（点边分离两文件）+ 无边界表的旧档**载入时自举、下次 `save()` 落盘**（无迁移脚本）+ `add_edge` 拒悬空/自环 + `delete`/`audit`/`clone_state`/`snapshot_to`（**快照带边**）全改走边表 + **`links`/`contradictions` 停止写出**（读得进、写不出）+ `count` 改边表派生 + 组织视图印类型化边。真机自举演练：3 条 `supports`、`audit()` 干净、点表不再含 `links`。全量 904 · B 层冒烟 PASS |
 | 2026-09-21 | 快照要不要带边表 | ✅ **带**（G3 落地）：`snapshot_to`/`restore_from` 改成点 + 边两个文件。判据 = **点不可再生、边可重算** ⇒ 只写点的快照捞回来是"断连的记忆"；且 R6 未落地、零调用者 ⇒ 改它零成本 |
+| 2026-09-21 | **落地 G4**（删 `links`/`contradictions` 字段） | ✅ 落地：两个字段从 `BrainNode` 上**删除**；**自举搬到文件格式层**（`infer_edges(rows)` 读 `read_jsonl` 的原始行 —— 字段一删，从对象上就读不到了）；`Graph.from_nodes` → `from_rows`；分类表改吃 kind（`classify_pair(ka,kb,a_id,b_id)`）；自举**不做 `KINDS` 归一**（`entity`/`promise` 一落地就自动一致，归一反而会把新 kind 当成 episode）。`store.add_link` 四个 shim **保留**（`apply_revision_package` 的通用 `link` 动作说不出 rel，删了会废掉已规划的深整理路径 V3-6）。真机演练复跑：3 条 `supports`、audit 干净。全量 906 · B 层冒烟 PASS |

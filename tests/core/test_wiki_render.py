@@ -25,14 +25,12 @@ def _g(*triples) -> Graph:
     return Graph(edges=[Edge(rel=r, src=s, dst=d) for r, s, d in triples])
 
 
-def _ep(text, sig=0.5, ts="", verbatim="", links=None, epistemic="observed_fact",
+def _ep(text, sig=0.5, ts="", verbatim="", epistemic="observed_fact",
         event_seq=None, observer="igusa_haruka"):
     kw = dict(text=text, significance=sig, ts=ts, observer=observer,
               epistemic=epistemic)
     if verbatim:
         kw["verbatim"] = verbatim
-    if links:
-        kw["links"] = links
     if event_seq:
         kw["event_seq"] = event_seq
     return make_node("episode", **kw)

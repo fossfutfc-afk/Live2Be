@@ -22,17 +22,14 @@ def _store(tmp_path, nodes) -> WikiStoreV2:
     return st
 
 
-def _ep(text, sig=0.5, tags=None, ts=None, links=None, contradictions=None,
-        event_seq=None):
+def _ep(text, sig=0.5, tags=None, ts=None, event_seq=None):
+    """一个 episode 节点（`links`/`contradictions` 字段 2026-09-21 G4 已删 —— 边用
+    `store.add_edge(...)` 建）。"""
     kw = dict(text=text, significance=sig)
     if tags:
         kw["tags"] = tags
     if ts:
         kw["ts"] = ts
-    if links:
-        kw["links"] = links
-    if contradictions:
-        kw["contradictions"] = contradictions
     if event_seq:
         kw["event_seq"] = event_seq
     return make_node("episode", **kw)
@@ -204,9 +201,9 @@ def _cog_store(tmp_path) -> WikiStoreV2:
     st.add(make_node("episode", text="天台旧事", event_seq=[1]))
     st.add(make_node("belief", text="老师会记得给猫带猫粮的约定", subject="老师与我的约定",
                      epistemic="inferred_belief", significance=0.9, tags=["猫", "约定"],
-                     links=["m0001"], event_seq=[1]))
+                     event_seq=[1]))
     st.add(make_node("experience", text="老师总说摸鱼", subject="sensei",
-                     significance=0.85, tags=["摸鱼"], links=["m0001"], event_seq=[1]))
+                     significance=0.85, tags=["摸鱼"], event_seq=[1]))
     st.add(make_node("episode", text="遥香喜欢杂草"))
     return st
 
