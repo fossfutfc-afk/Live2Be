@@ -201,6 +201,32 @@ def _ep(**over):
     return base
 
 
+def test_round_a_hint_and_items():
+    """D1: `about_hint`（归属线索, **不落库**）与 `items`（物品台账）的契约形状。
+
+    三层判据: ① schema 必须**写明**这两个字段（文案漂移守门, 同下面那条 pointer 用例）
+    ② 正常值透传 ③ 坏形态/超限的处理（空 hint 不落字段、items 截到 3、非字符串项丢弃）。
+    """
+    text = digest_registry.build_schema(PHASE_RECORD)
+    assert "about_hint" in text and "三个月后再提到它" in text
+    assert '"items"' in text and "得到/失去了什么实物" in text
+
+    items, result = digest_registry.parse_round_a({"episodes": [
+        _ep(about_hint=" 老师 ", items=["一盆杂草", "锈饼干盒", "", 7])]})
+    assert result.is_valid, result.errors
+    assert items[0]["about_hint"] == "老师"                   # 去空白
+    assert items[0]["items"] == ["一盆杂草", "锈饼干盒"]        # 非字符串项丢弃
+    # 缺/空 → **整条字段不存在**（不是空串/空数组）
+    items2, _ = digest_registry.parse_round_a({"episodes": [
+        _ep(about_hint="  ", items=[])]})
+    assert "about_hint" not in items2[0] and "items" not in items2[0]
+    # 超限截断
+    items3, _ = digest_registry.parse_round_a({"episodes": [
+        _ep(items=["1", "2", "3", "4"])]})
+    assert items3[0]["items"] == ["1", "2", "3"]
+    print("    about_hint/items: schema 已文档化 + 清洗（空省略 / 截断 / 坏项丢弃）")
+
+
 def test_round_a_emo_fields_pass_through():
     items, result = digest_registry.parse_round_a({"episodes": [
         _ep(emo_int=0.8, emo_span=0.7)]})

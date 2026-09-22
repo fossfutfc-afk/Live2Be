@@ -81,6 +81,10 @@ class DigestResult:
     evidence: list[dict] = field(default_factory=list)   # 成长证据（清洗后）
     affection_delta: int = 0
     llm_calls: int = 0
+    #: ⭐ **归属线索**（D1, §8.2）: `[{"node": "m0005", "hint": "老师"}]` ——
+    #: 第 1 轮给的自然名字, **不落库**（不是节点字段）, 由第 3 轮做 hint→id 映射。
+    #: D1 只收集（`_create_a_nodes` 返回）; 消费在 D3（那时才有候选表可映射）。
+    hints: list[dict] = field(default_factory=list)
 
 
 def digest_segment(
@@ -219,10 +223,17 @@ def digest_segment(
         #    "保留但不消费", 而**新衰减模型的输入是活跃日/会话, 不是它**;
         #    加上 parse 层从来没取过它（连落库都没有）, 留着就是白付 token。
         #    枚举定义仍留在 `core/worldtime/span.py`。详见 `contract/digest_registry.py`。
-        episode_ids, player_ids = _create_a_nodes(
+        episode_ids, player_ids, hints = _create_a_nodes(
             store, entries, ts=now_ts,
             event_seq=[interact_max], aff_at_encoding=aff_at_encoding,
             by_seq=by_seq)
+        result.hints = hints
+        # 台账（D1）: 归属线索与物品台账**开始有了**, 但这一版还不消费 hint。
+        # 可 grep: 恒 0 说明第 1 轮没按契约写, 不是"这段没有可归属的东西"。
+        logger.info("digest_hint eps=%d hint=%d items=%d（hint 待第 3 轮映射）",
+                    len(episode_ids), len(hints),
+                    sum(len(e.get("items") or []) for e in entries
+                        if e.get("kind") != "experience"))
 
         # ── Round B: 理解者（引擎候选推荐 + 决策表）──
         cog_text, local_of = render_cognition_list(
@@ -417,7 +428,7 @@ def _create_a_nodes(store: WikiStoreV2, entries: list[dict], *, ts: str,
                     event_seq: list[int],
                     aff_at_encoding: float | None = None,
                     by_seq: dict | None = None
-                    ) -> tuple[list[str], list[str]]:
+                    ) -> tuple[list[str], list[str], list[dict]]:
     """Round A 条目 → 节点（引擎字段归属——确定性归引擎, 防幻觉）。
 
     kind=episode  → episode 节点
@@ -435,12 +446,22 @@ def _create_a_nodes(store: WikiStoreV2, entries: list[dict], *, ts: str,
     （`Affection.to_scalar()`, [−1,1]）——快照, 写入后永不改。
     调用方传 None = 未采集（旧档/CLI 路径）→ 字段不落库, 与 `0.0`（中性）区分。
 
-    Returns: (episode_ids, player_ids)——episode_ids 供 B 覆盖检查。
+    ⭐ D1（2026-09-22）:
+      · `items`（§3.1 物品台账）**随条目自动落库** —— 它在契约层已清洗, 节点字段也已存在。
+      · `about_hint`（§8.2 归属线索）**必须在这里摘掉, 不许进 `make_node`** ——
+        否则它就是一个被 `from_dict` 静默忽略的未知键（这个项目最恨的静默 no-op）;
+        它由第 3 轮消费, 所以随返回值交出去。
+
+    Returns: `(episode_ids, player_ids, hints)`——episode_ids 供 B 覆盖检查;
+        hints = `[{"node": id, "hint": 自然名字}]`（**去重后的条目也会记**, 它照样是一条记忆）。
     """
     from core.brain.wiki_v2.revise import _find_duplicate
     episode_ids: list[str] = []
     player_ids: list[str] = []
+    hints: list[dict] = []
     for ent in entries:
+        # ⚠️ 先摘 hint（不落库）; `items` 留着, 它是真字段
+        hint = str(ent.pop("about_hint", "") or "").strip()
         if ent.get("kind") == "experience":
             node = make_node("experience",
                              text=ent["text"], subject=ent.get("subject", "player"),
@@ -470,9 +491,14 @@ def _create_a_nodes(store: WikiStoreV2, entries: list[dict], *, ts: str,
         dup = _find_duplicate(store, node)
         if dup is not None:
             episode_ids.append(dup.id)
+            if hint:
+                hints.append({"node": dup.id, "hint": hint})
             continue
-        episode_ids.append(store.add(node))
-    return episode_ids, player_ids
+        nid = store.add(node)
+        episode_ids.append(nid)
+        if hint:
+            hints.append({"node": nid, "hint": hint})
+    return episode_ids, player_ids, hints
 
 
 def _round_b_material(store: WikiStoreV2, episode_ids: list[str],
