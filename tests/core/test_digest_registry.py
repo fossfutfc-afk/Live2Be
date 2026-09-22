@@ -302,7 +302,7 @@ def test_round_b_id_discipline():
 def test_round_b_update_guards():
     raw = {"decisions": [
         {"episode": "m0001", "decision": "update", "target": "u0001",
-         "patch": {"epistemic": "speculation"}},          # epistemic 禁改
+         "patch": {"epistemic": "observed_fact"}},         # epistemic 禁改
         {"episode": "m0002", "decision": "update", "target": "u0001",
          "patch": {}},                                     # 空 patch
         {"episode": "m0003", "decision": "add", "kind": "experience",

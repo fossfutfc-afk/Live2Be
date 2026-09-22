@@ -274,7 +274,7 @@ C. RAG 回忆（Phase 2 🔧）: embedding 检索与新增语义相关的旧事�
 | `observed_fact` | 角色亲眼/亲身经历 | "我记得……" |
 | `reported_fact` | 听说的（带 `source`） | "我听说……" |
 | `inferred_belief` | 角色自己推断的认知 | "我总觉得……" |
-| `speculation` | 猜测/不确定 | "我猜……" |
+| ~~`speculation`~~ | **已退役 2026-09-21**（零生产者/零消费者/零真机数据） | — |
 
 **护栏**（规划）:
 - 动态 digest 只能产出 `observed_fact`（本线亲历）/ `reported_fact` / `inferred_belief`;
