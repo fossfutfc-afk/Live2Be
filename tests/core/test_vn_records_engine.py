@@ -552,6 +552,40 @@ def test_soft_violation_overlong_slot_is_chunked():
     print("    engine: 超长群切槽（软违规不重发）")
 
 
+def test_memorial_switch_off_demotes_to_narration():
+    """⭐ **纪念总开关**（2026-09-23）: 关 → `stage:memorial` 静默降级为旁白。
+
+    与"章内第二次纪念"走**同一条**降级通道（`_demote_repeat_memorial`）:
+    **文字照常上屏**, 但没有纪念语义 —— 不生图 / 不置位 / 不写 marker。
+    ⚠️ 与 `[image].enabled`（生图总开关）不是一回事: 那个关掉后黑屏转场照旧。
+    """
+    block = "\n".join([
+        '{"stage": "art", "text": "她在夕阳里回头"}',
+        '{"stage": "switch", "text": "黄昏的坡道"}',
+        '{"character": "igusa_haruka", "text": "老师，你看。"}',
+        '{"stage": "memorial", "text": "（她第一次直视我的眼睛。）"}',
+        '{"character": "igusa_haruka", "text": "……这句话我想说很久了。"}',
+    ])
+    fired: list[str] = []
+    engine = BondStoryEngine(ROOT / "config" / "characters", ScriptedLLM(block),
+                             memorial_enabled=False)
+    engine.start_session(CHARACTER)
+    scene = engine.send_vn_scene("（开场）", annotate=False,
+                                 on_memorial_prompt=fired.append)
+    assert scene.memorial is False and scene.memorial_at is None, scene.to_dict()
+    assert scene.in_memorial is False
+    assert fired == [], "总开关为关 → 不开画"
+    assert engine.in_memorial is False, "不置纪念态"
+    # 文字照常上屏（降级成旁白记录 —— 观感逐字节不变）
+    assert any("第一次直视我的眼睛" in (p.get("text") or "")
+               for p in scene.paragraphs), scene.paragraphs
+
+    # 默认（不传）→ 走 settings（本机没配 = 开）
+    assert BondStoryEngine(ROOT / "config" / "characters",
+                           ScriptedLLM(block))._memorial_enabled is True
+    print("    memorial 总开关: 关 → 降级为旁白（不生图/不置位）")
+
+
 def test_soft_issues_become_next_round_note():
     """节点 3（2026-09-21）: 软问题 → **下一轮注记纠偏**（一次性, 注入后自清）。
 
