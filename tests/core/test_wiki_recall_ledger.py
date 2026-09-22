@@ -247,7 +247,7 @@ def _store(tmp_path) -> WikiStoreV2:
                      significance=0.6, tags=["命名"]))
     st.add(make_node("belief", subject="被老师需要", text="只要老师需要我就会答应。",
                      significance=0.8, epistemic="inferred_belief",
-                     tags=["老师"], links=[st.all()[0].id]))
+                     tags=["老师"]))
     return st
 
 

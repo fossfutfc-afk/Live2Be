@@ -124,21 +124,26 @@ class WikiStoreV2:
     # ------------------------------------------------------------------
 
     def _load(self) -> None:
+        rows: list[dict] = []
         for raw in read_jsonl(self.path):
             node = BrainNode.from_dict(raw)
             if node.id and not node.validate():      # 坏条目跳过（宁缺勿错）
                 self._nodes[node.id] = node
-        self._edges = self._load_edges()
+                if isinstance(raw, dict):
+                    rows.append(raw)                 # 自举只看**读进来的那些行**
+        self._edges = self._load_edges(rows)
 
-    def _load_edges(self) -> list[Edge]:
-        """边表 → 内存。**有边表读边表, 没有则从点自举**（旧档, §2.1）。
+    def _load_edges(self, rows: list[dict]) -> list[Edge]:
+        """边表 → 内存。**有边表读边表, 没有则从点表的原始行自举**（旧档, §2.1）。
 
+        ⚠️ G4 起自举吃的是**原始行**（`graph.infer_edges(rows)`）而不是节点对象 ——
+        `links`/`contradictions` 字段已从 `BrainNode` 删除, 自举因此活在**文件格式层**。
         自举只在内存里发生（读路径不写盘）; 落盘交给下一次 `save()`。
         """
         got = _read_edge_file(self.edges_path)
         if got is not None:
             return got
-        edges = infer_edges(self._nodes.values())     # 自举: 旧档只有点
+        edges = infer_edges(rows)                     # 自举: 旧档只有点
         if edges:
             logger.info("wiki 边表自举: %s ← 点上残留的 links/contradictions %d 条"
                         "（下一次 save() 落盘, 之后就与节点字段无关了）",
@@ -274,13 +279,16 @@ class WikiStoreV2:
                        if not (e.rel == rel and e.src == src and e.dst == dst)]
 
     # ── 旧接口 shim（无向 link/contradiction）──
-    # 给**死路径**（`apply_revision_package` 的 create-link / `merge` 的入边重接）
-    # 与存量测试留的窄接口: 它们只知道"这两条挨着", 不知道 rel ⇒ 用与旧档自举
-    # **同一张**分类表（`graph.classify_pair`）推。活路径请直接用 `add_edge`。
+    # 给**死路径**（`apply_revision_package` 的 create-link / `link` 动作 / `merge`
+    # 的入边重接）与存量测试留的窄接口: 它们只知道"这两条挨着", 不知道 rel
+    # ⇒ 用与旧档自举**同一张**分类表（`graph.classify_pair`）推。活路径请直接用
+    # `add_edge`。⚠️ **不删**: 删了就得把那条已规划的深整理路径（V3-6）的连线能力
+    # 一起废掉 —— 而它说不出 rel, 只能靠这张表。
 
     def add_link(self, a: str, b: str) -> None:
         """无向 link → 按两端 kind 推断 rel（`episode → 认知` = supports）。"""
-        rel, src, dst = classify_pair(self._require(a), self._require(b))
+        na, nb = self._require(a), self._require(b)
+        rel, src, dst = classify_pair(na.kind, nb.kind, na.id, nb.id)
         self.add_edge(rel, src, dst)
 
     def remove_link(self, a: str, b: str) -> None:
@@ -350,12 +358,15 @@ class WikiStoreV2:
         """
         src = Path(src)
         self._nodes = {}
+        rows: list[dict] = []
         for raw in read_jsonl(src):
             node = BrainNode.from_dict(raw)
             if node.id and not node.validate():
                 self._nodes[node.id] = node
+                if isinstance(raw, dict):
+                    rows.append(raw)
         side = _read_edge_file(src.with_name(EDGES_NAME))
-        self._edges = side if side is not None else infer_edges(self._nodes.values())
+        self._edges = side if side is not None else infer_edges(rows)
 
     def lines(self) -> Iterable[str]:
         """当前全部节点的 jsonl 行（调试/审计用）。"""

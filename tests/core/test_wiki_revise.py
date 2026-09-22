@@ -13,12 +13,10 @@ def _store(tmp_path) -> WikiStoreV2:
     # 固定子图: m0001 episode(拆炸弹) + m0002 belief(信任) + m0003 episode(天台) + e0001 experience
     st.add(make_node("episode", text="拆炸弹初遇", event_seq=[1], ts="2026-08-01T00:00:00"))
     st.add(make_node("belief", text="老师是第一个不会嫌弃我的人", subject="sensei",
-                     epistemic="inferred_belief", significance=0.9,
-                     links=["m0001"], event_seq=[1]))
-    st.add(make_node("episode", text="天台夜谈", event_seq=[2], ts="2026-08-02T00:00:00",
-                     links=["m0002"]))
+                     epistemic="inferred_belief", significance=0.9, event_seq=[1]))
+    st.add(make_node("episode", text="天台夜谈", event_seq=[2], ts="2026-08-02T00:00:00"))
     st.add(make_node("experience", text="提到工作繁忙", subject="sensei",
-                     significance=0.7, links=["m0003"], event_seq=[2]))
+                     significance=0.7, event_seq=[2]))
     # 真实流程同款: 双向边走 add_link（audit 不变量要求双向共识）
     st.add_link("m0001", "m0002")
     st.add_link("m0003", "m0002")

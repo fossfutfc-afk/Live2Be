@@ -24,8 +24,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Iterable, Iterator
 
-from core.brain.wiki_v2.nodes import BrainNode
-
 # ---------------------------------------------------------------------------
 # 边类型（`DESIGN_GRAPH_V4.md` §2 的八种）
 # ---------------------------------------------------------------------------
@@ -103,36 +101,54 @@ class Edge:
 # 推断（G1 的过渡手段; G3 起由 edges.jsonl 取代）
 # ---------------------------------------------------------------------------
 
-def infer_edges(nodes: Iterable[BrainNode]) -> list[Edge]:
-    """从今天那根无类型的 `links` / `contradictions` 推断类型化边。
+def infer_edges(rows: Iterable[Any]) -> list[Edge]:
+    """从**旧档点表的原始行**推断类型化边（没有边表时的自举）。
 
-    ## 两条去重纪律（都源于"今天的边是**无向**的"）
+    ## 为什么吃"原始行"而不是节点对象（2026-09-21 G4）
 
-    1. `links` / `contradictions` 都是**双向存**的（`store.add_link` 两边都写）
-       ⇒ 无向对只出一条边（否则每个关系都翻倍）。
-    2. 对称 rel（`contradicts`）**规范化到 id 小的那头当 src** —— 不规范化的话
-       边的方向取决于字典遍历顺序, 同一份数据能给出两种结果（不可复现）。
+    `links` / `contradictions` 两个字段**已从 `BrainNode` 删除** —— 自举因此必须活在
+    **文件格式层**: 盘上还留着那些键（旧档），对象上已经没有了。传 `read_jsonl` 的原始
+    dict 即可（任何能 `get` 出同样键的对象都行）。
 
-    Returns: 边的顺序 = 节点插入序 × 邻接表序（**稳定**; 测试与 diff 可依赖）。
+    ## 判据按**盘上的 kind 字符串**，不做 `KINDS` 归一
+
+    这样 `entity` / `promise` 一落地，自举与运行时就自动一致；而按 `KINDS` 归一会把
+    "还没进 `KINDS` 的新 kind" 悄悄当成 episode 处理（`from_dict` 的兜底就是那么做的，
+    那是**读点**的事，不该污染**读边**）。
+
+    ## 两条去重纪律（都源于"旧档的边是**无向**的"）
+
+    1. `links` / `contradictions` 都是**双向存**的 ⇒ 无向对只出一条边（否则翻倍）。
+    2. 对称 rel（`contradicts`）**规范化到 id 小的那头当 src** —— 不规范化的话，
+       方向取决于字典遍历顺序，同一份数据能给出两种结果（不可复现）。
+
+    Returns: 边的顺序 = 行序 × 邻接表序（**稳定**；测试与 diff 可依赖）。
     """
-    by_id = {n.id: n for n in nodes if getattr(n, "id", "")}
+    meta: dict[str, tuple[str, str]] = {}            # id → (kind, ts)
+    for raw in rows:
+        nid = _s(raw, "id")
+        if nid and nid not in meta:
+            meta[nid] = (_s(raw, "kind"), _s(raw, "ts"))
     out: list[Edge] = []
     # ⚠️ 两个 seen **不能合并**: `links` 与 `contradictions` 是两种关系,
     # 同一对节点可以既是 link 又是 contradiction（旧 `audit` 也是分开查的）。
     seen_link: set[tuple[str, str]] = set()
     seen_contr: set[tuple[str, str]] = set()
-    for nid, node in by_id.items():
-        for other in list(getattr(node, "links", []) or []):
-            _emit(out, seen_link, by_id, nid, other, symmetric=False)
-        for other in list(getattr(node, "contradictions", []) or []):
-            _emit(out, seen_contr, by_id, nid, other, symmetric=True)
+    for raw in rows:
+        nid = _s(raw, "id")
+        if nid not in meta:
+            continue
+        for other in _list(raw, "links"):
+            _emit(out, seen_link, meta, nid, other, symmetric=False)
+        for other in _list(raw, "contradictions"):
+            _emit(out, seen_contr, meta, nid, other, symmetric=True)
     return out
 
 
-def _emit(out: list[Edge], seen: set, by_id: dict, a: str, b: str, *,
+def _emit(out: list[Edge], seen: set, meta: dict, a: str, b: str, *,
           symmetric: bool) -> None:
     """一对邻接引用 → 至多一条边（不存在的对端 / 自环 / 已发过的对 → 跳过）。"""
-    if b not in by_id or a == b:
+    if b not in meta or a == b:
         return
     key = (a, b) if a <= b else (b, a)
     if key in seen:
@@ -141,16 +157,16 @@ def _emit(out: list[Edge], seen: set, by_id: dict, a: str, b: str, *,
     if symmetric:
         rel, src, dst = REL_CONTRADICTS, key[0], key[1]
     else:
-        rel, src, dst = classify_pair(by_id[a], by_id[b])
-    out.append(Edge(rel=rel, src=src, dst=dst, ts=_edge_ts(by_id, src, dst)))
+        rel, src, dst = classify_pair(meta[a][0], meta[b][0], a, b)
+    out.append(Edge(rel=rel, src=src, dst=dst, ts=_edge_ts(meta, src, dst)))
 
 
-def classify_pair(a: BrainNode, b: BrainNode) -> tuple[str, str, str]:
-    """一条无向邻接对 → `(rel, src, dst)`。**唯一**的分类表。
+def classify_pair(ka: str, kb: str, a_id: str, b_id: str) -> tuple[str, str, str]:
+    """两端 kind + 两个 id → `(rel, src, dst)`。**唯一**的分类表。
 
-    两个调用方: ① 旧档**自举**（`infer_edges` 从 `links`/`contradictions` 推）
-    ② 写路径的**旧接口 shim**（`store.add_link` —— 那条窄路径只知道"这两条挨着",
-    不知道 rel）。活路径**一律走 `store.add_edge(rel, …)`**, 显式 rel 才有"类型化"。
+    两个调用方: ① 旧档**自举**（`infer_edges` 从盘上的 `links`/`contradictions` 推）
+    ② 写路径的**旧接口 shim**（`store.add_link` —— 那条窄路径只知道"这两条挨着"，
+    不知道 rel）。活路径**一律走 `store.add_edge(rel, …)`**，显式 rel 才有"类型化"。
 
     ## 推断表（今天能判的只有这些）
 
@@ -161,21 +177,24 @@ def classify_pair(a: BrainNode, b: BrainNode) -> tuple[str, str, str]:
     | 其余（`belief`↔`belief`、`belief`↔`experience`、`episode`↔`episode`、`entity`↔`entity`） | `unknown` | **不猜** |
 
     ⚠️ 为什么 `belief`↔`belief` 不判成 `evolved_from`: 那条边的语义是"**新看法取代
-    旧的**", 而一条无向边说不出谁取代谁 —— **猜错方向比不判更贵**（错的方向会让
+    旧的**"，而一条无向边说不出谁取代谁 —— **猜错方向比不判更贵**（错的方向会让
     "认知演化链"倒着长）。`evolved_from` 只能由知道作者意图的写路径产生。
     """
-    if a.kind == KIND_ENTITY or b.kind == KIND_ENTITY:
-        if a.kind == KIND_ENTITY and b.kind == KIND_ENTITY:
-            return REL_UNKNOWN, *canonical_pair(a.id, b.id)
-        ent, other = (a, b) if a.kind == KIND_ENTITY else (b, a)
-        if other.kind in _ABOUTABLE:
-            return REL_ABOUT, other.id, ent.id
-        return REL_UNKNOWN, *canonical_pair(a.id, b.id)
-    if a.kind == "episode" and b.kind in _COGNITION:
-        return REL_SUPPORTS, a.id, b.id
-    if b.kind == "episode" and a.kind in _COGNITION:
-        return REL_SUPPORTS, b.id, a.id
-    return REL_UNKNOWN, *canonical_pair(a.id, b.id)
+    if ka == KIND_ENTITY and kb == KIND_ENTITY:
+        return REL_UNKNOWN, *canonical_pair(a_id, b_id)
+    if ka == KIND_ENTITY or kb == KIND_ENTITY:
+        ent_first = ka == KIND_ENTITY
+        other = kb if ent_first else ka
+        if other in _ABOUTABLE:
+            # 方向恒为"节点 → entity"（entity 永远当 dst）
+            return ((REL_ABOUT, b_id, a_id) if ent_first
+                    else (REL_ABOUT, a_id, b_id))
+        return REL_UNKNOWN, *canonical_pair(a_id, b_id)
+    if ka == "episode" and kb in _COGNITION:
+        return REL_SUPPORTS, a_id, b_id
+    if kb == "episode" and ka in _COGNITION:
+        return REL_SUPPORTS, b_id, a_id
+    return REL_UNKNOWN, *canonical_pair(a_id, b_id)
 
 
 def canonical_pair(a: str, b: str) -> tuple[str, str]:
@@ -183,15 +202,32 @@ def canonical_pair(a: str, b: str) -> tuple[str, str]:
     return (a, b) if a <= b else (b, a)
 
 
-def _edge_ts(by_id: dict, src: str, dst: str) -> str:
+def _edge_ts(meta: dict, src: str, dst: str) -> str:
     """推断边的时刻 —— 取两端 `ts` 中**较晚**的那个（≈ 这条关系形成的时刻）。
 
-    今天没有边表, 这是**近似值**; G3 起由写路径如实落。两端都没有 `ts` → `""`
+    旧档没有边表, 这是**近似值**; G3 起的写路径如实落。两端都没有 `ts` → `""`
     （哨兵纪律: **不编**一个时刻 —— 与 `render._time_phrase` 同一条）。
     """
-    ts = [t for t in (getattr(by_id.get(src), "ts", ""),
-                      getattr(by_id.get(dst), "ts", "")) if t]
+    ts = [t for t in (meta.get(src, ("", ""))[1], meta.get(dst, ("", ""))[1]) if t]
     return max(ts) if ts else ""
+
+
+def _s(raw: Any, key: str) -> str:
+    """原始行取值（非 dict / 非 str / 空白 → `""`，绝不抛）。"""
+    if not isinstance(raw, dict):
+        return ""
+    v = raw.get(key)
+    return v.strip() if isinstance(v, str) else ""
+
+
+def _list(raw: Any, key: str) -> list[str]:
+    """原始行的字符串数组（坏项逐条丢弃，与 `nodes._str_list` 同纪律）。"""
+    if not isinstance(raw, dict):
+        return []
+    v = raw.get(key)
+    if not isinstance(v, list):
+        return []
+    return [x.strip() for x in v if isinstance(x, str) and x.strip()]
 
 
 # ---------------------------------------------------------------------------
@@ -227,14 +263,17 @@ class Graph:
     # ── 构造 ──
 
     @classmethod
-    def from_nodes(cls, nodes: Iterable[BrainNode]) -> "Graph":
-        """**G1 主入口**: 只有节点（今天的样子）→ 推断边 + 建索引。"""
-        nodes = list(nodes)
-        return cls(edges=infer_edges(nodes), nodes=nodes)
+    def from_rows(cls, rows: Iterable[Any], nodes: Iterable[Any] = ()) -> "Graph":
+        """**旧档自举入口**: 点表的原始行 → 推断出的边 + 索引。
+
+        （原 `from_nodes` 于 G4 删除 —— 它从 `BrainNode.links` 推断, 而那个字段没了;
+        自举改在**文件格式层**做, 见 `infer_edges`。）
+        """
+        return cls(edges=infer_edges(rows), nodes=list(nodes))
 
     @classmethod
-    def from_edges(cls, edges: Iterable[Any], nodes: Iterable[BrainNode] = ()) -> "Graph":
-        """**G3 入口**（预置）: 读到的边表 → 建索引（坏行逐条丢弃, 不抛）。"""
+    def from_edges(cls, edges: Iterable[Any], nodes: Iterable[Any] = ()) -> "Graph":
+        """**读边表入口**: 磁盘上的边（dict 或 `Edge`）→ 建索引（坏行逐条丢弃, 不抛）。"""
         parsed = [e if isinstance(e, Edge) else Edge.from_dict(e) for e in edges]
         return cls(edges=[e for e in parsed if e is not None], nodes=list(nodes))
 

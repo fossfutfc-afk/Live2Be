@@ -74,12 +74,16 @@ def test_dedup_helper_removed(tmp_path):
 def test_update_patch_and_unknown_field(tmp_path):
     st = _store(tmp_path)
     st.add(make_node("episode", text="a", significance=0.5))
-    node = st.update("m0001", {"significance": 0.9, "links": ["m0002"]})
-    assert node.significance == 0.9 and node.links == ["m0002"]
+    node = st.update("m0001", {"significance": 0.9, "tags": ["杂草"]})
+    assert node.significance == 0.9 and node.tags == ["杂草"]
     with pytest.raises(ValueError):
         st.update("m0001", {"imaginary_field": 1})            # 未知字段拒绝
     with pytest.raises(ValueError):
         st.update("m0001", {"text": ""})                  # 更新后无效
+    # `links` 现在是**未知字段**（G4 删了它; 边一律走 `add_edge`）—— 顺手钉住,
+    # 免得有人"顺手"把它加回节点上
+    with pytest.raises(ValueError):
+        st.update("m0001", {"links": ["m0002"]})
 
 
 # ⏸ `test_seed_immutable_notes_only` —— 2026-09-21 删：它钉的"出厂基座只允许 notes

@@ -30,15 +30,15 @@ def _events(*items):
 
 
 def _seed_store(tmp_path) -> WikiStoreV2:
-    """预置: m0001 episode + m0002 belief + e0001 experience（含 link）。"""
+    """预置: m0001 episode 支撑 m0002 belief + e0001 experience（边走边表）。"""
     st = WikiStoreV2(tmp_path, world_id="world1", char_id="c")
-    st.add(make_node("episode", text="天台夜谈", event_seq=[2], ts="2026-09-01T10:00:00",
-                     links=["m0002"]))
+    st.add(make_node("episode", text="天台夜谈", event_seq=[2], ts="2026-09-01T10:00:00"))
     st.add(make_node("belief", text="老师是第一个不会嫌弃我的人", subject="sensei",
-                     epistemic="inferred_belief", significance=0.9,
-                     links=["m0001"], event_seq=[2]))
+                     epistemic="inferred_belief", significance=0.9, event_seq=[2]))
     st.add(make_node("experience", text="提到工作繁忙", subject="sensei",
-                     significance=0.85, links=["m0001"], event_seq=[2]))
+                     significance=0.85, event_seq=[2]))
+    st.add_edge("supports", "m0001", "m0002")
+    st.add_edge("supports", "m0001", "e0001")
     return st
 
 
@@ -361,7 +361,7 @@ def _cat_store(tmp_path) -> WikiStoreV2:
     st.add(make_node("episode", text="喂猫旧事", event_seq=[2]))
     st.add(make_node("belief", text="老师会记得给猫带猫粮", subject="老师与猫的约定",
                      epistemic="inferred_belief", significance=0.9, tags=["猫"],
-                     links=["m0001"], event_seq=[2]))
+                     event_seq=[2]))
     return st
 
 

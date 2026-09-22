@@ -281,10 +281,12 @@ def _parse_create(raw: dict, scope: set[str], ref_map: dict,
     entry.pop("links", None)
     entry.pop("contradictions", None)
     node = make_node(kind, **entry)
-    node.links = [ref_map.get(x, x) for x in raw_links]
-    node.contradictions = [ref_map.get(x, x) for x in raw_contr]
     node.ts = datetime.now().isoformat(timespec="seconds")
-    return node, ref, {"links": node.links, "contradictions": node.contradictions}
+    # ⚠️ 边**不落在节点上**（G4: `links`/`contradictions` 字段已删）——解析好的真实 id
+    # 交回调用方, 由它 `store.add_link` / `add_contradiction` 落进边表。
+    resolved = {"links": [ref_map.get(x, x) for x in raw_links],
+                "contradictions": [ref_map.get(x, x) for x in raw_contr]}
+    return node, ref, resolved
 
 
 # ---------------------------------------------------------------------------

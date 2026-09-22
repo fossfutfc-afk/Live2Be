@@ -15,8 +15,9 @@
 
 ⚠️ 2026-09-21 大化简（判据 = 生产者/消费者/真机数据三方核对）——**删过的别再捡回来**:
     source_key · observation · speculation · source（连同 is_seed/notes/seed 桶/不可变守卫）·
-    count（→派生 len(links)）· segment_id · emo_valence · history（→evolution 的 before/after）·
-    main_text（属性）; 三槽 narration/pattern/content → **text**。
+    count（→派生 len(links)，后随边表再搬到 `render._count_of`）· segment_id · emo_valence ·
+    history（→evolution 的 before/after）· main_text（属性）; 三槽 narration/pattern/content → **text**;
+    **`links` / `contradictions`（G4 删——边整体搬到 `soul/edges.jsonl`，见 `graph.py`）**。
     ⚠️ 为什么没给三种正文形态配 `nature`: 它与 kind 双射 = 换词不换信息; v3 的 nature 是
     **认知层第四轴**（管合并策略）, 需 2-kind 模型 ⇒ 批 3（DESIGN_WIKI_V3 §2.3–2.5）。
     旧档里的这些键由 `from_dict` 宽松忽略（无迁移脚本）。
@@ -72,12 +73,9 @@ class BrainNode:
     tags: list[str] = field(default_factory=list)
     event_seq: list[int] = field(default_factory=list)
     ts: str = ""
-    #: ⏸ **旧档读入专用**（2026-09-21 G3）: 边已搬到 `soul/edges.jsonl`（类型化 +
-    #: 有向）, 本字段**不再被写出**（`to_dict` 不产它）; 只剩一个用途 —— 无边界表的
-    #: 旧档**自举**时被 `graph.infer_edges` 读一次（读不出来的类型发 `unknown`）。
-    links: list[str] = field(default_factory=list)
-    #: ⏸ 同上（旧档读入专用）; 今天零生产者、真机零数据, 自举时映射成 `contradicts` 边。
-    contradictions: list[str] = field(default_factory=list)
+    # ⏸ `links` / `contradictions` 两个字段 2026-09-21（G4）**删** —— 边已整体搬到
+    # `soul/edges.jsonl`（类型化 + 有向 + 三索引）。旧档盘上还留着这两个键,
+    # 由 `graph.infer_edges(rows)` 在**文件格式层**读一次（自举）, 与节点对象无关。
     #: **这条记忆的正文**（三种 kind 共用一槽; 原 `narration`/`pattern`/`content` 2026-09-21 合流）。
     #: 写作口径仍按 kind 分（episode=第一人称浓缩 / experience=规律 / belief=结论）——那是
     #: rules/schema 的语义, 不再由字段名承担。旧档的旧名由 `from_dict` 兼容读入。
@@ -231,8 +229,6 @@ class BrainNode:
         node.tags = _str_list(raw.get("tags"))
         node.event_seq = _int_list(raw.get("event_seq"))
         node.ts = _str(raw.get("ts"))
-        node.links = _str_list(raw.get("links"))
-        node.contradictions = _str_list(raw.get("contradictions"))
         # 正文（三槽合流; 旧档兼容: 依次回落到 narration/pattern/content）
         node.text = (_str(raw.get("text")) or _str(raw.get("narration"))
                      or _str(raw.get("pattern")) or _str(raw.get("content")))
