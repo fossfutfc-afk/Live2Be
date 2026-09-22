@@ -221,7 +221,9 @@ B = 今天的一句寒暄（SIG=0.50）
 `pkg`（`evolution.jsonl` 的操作批次）· `place_hint` / `art_hint` / `seed` / `visual` /
 `input` / `round`（`vn_state` 恢复点）· `created_at`（`list_open` 排序 + 登录页显示）·
 `digested_seq`（增量水位）· `rounds_since_bond`。
-（原列表里的 `source` 与 `source_key` 见 §上面：`source_key` 已删；`source` 是常量待处理。）
+（原列表里的 `source` 与 `source_key` **都已删**——`source_key` 见上面表格; `source` 连同
+`is_seed()`/`notes` 与 render 的 seed 桶/`canon 只读` 标记、store/revise 两条不可变守卫
+于 2026-09-21 整族删除，理由见 `nodes.py` 模块 docstring。）
 
 **查过是旧数据不是孤儿**: `progress.json` 里的 `rounds`（kayoko 那份）——
 `read_bond_gap` docstring 明写"旧版文件（仅 rounds 键, 死数据）→ 视为 0"，

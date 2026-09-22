@@ -1,14 +1,12 @@
 """图式 wiki 节点数据结构（AGENT_BRAIN.md §1）。
 
 3 种节点（kind, 2026-09-02 fact 退役——出厂与运行时同构, 记忆 = 经历 + 认知）:
-    episode    一次性经历（narration 第一人称浓缩 + verbatim 原话; 质感优先不升华）;
-               出厂基座（source=experience, immutable）+ 运行期 digest 双来源
+    episode    一次性经历（narration 第一人称浓缩 + verbatim 原话; 质感优先不升华）
     experience 重复模式（pattern + count 聚合; subject=player = 玩家口癖, R5 强调点）
-    belief     抽象认知（inferred_belief, links 必须 ≥1 支撑; history 记录改写溯源）;
-               出厂（beliefs.yml, 种子——不 immutable, 运行时 touch/update 演化）
+    belief     抽象认知（inferred_belief, links 必须 ≥1 支撑; history 记录改写溯源）
 
 通用字段: id / kind / significance / epistemic / observer / tags / segment_id /
-          event_seq / ts / source / links / contradictions / aff_at_encoding /
+          event_seq / ts / links / contradictions / aff_at_encoding /
           emo_int / emo_span / emo_valence
 专属字段: episode.title(可选短标题) / belief.subject / belief.growth /
           belief.history[{episode_id, content, ts}]
@@ -16,9 +14,15 @@ observer 语义（2026-09-02 收敛）: 单视角世界线里 observed_fact 的�
 角色本人——引擎填 char_id, 不交给 LLM; reported_fact 的 observer = 转述者
 （LLM 判断, 渲染为"听 X 说的"）。
 
+⚠️ **`source` / `is_seed()` / `notes` 2026-09-21 整族删除**（"出厂基座"机制退役）:
+出厂记忆自 2026-09-05 起**不进 wiki**（`render_background_experience` 直注 yml 原文），
+唯一的生产者 `archive/factory_memory/seed_engine.py` 早已归档 ⇒ `source` 在活路径上
+恒为 `"digest"` 这个常量，而它带出的 `is_seed()` 不可变守卫与 `notes` 追加通道
+（全仓唯一读者）都是给一个不存在的生产者写的。真机 0 个 seed 节点。
+
 关键规则（引擎侧强制, 此处提供 validate/normalize 支撑）:
     - epistemic: observed_fact | reported_fact | inferred_belief
-      （canon_fact 随 fact 退役, 2026-09-02——出厂基座 = episode(source=experience);
+      （canon_fact 随 fact 退役, 2026-09-02;
       **speculation 2026-09-21 删**——零生产者零消费者零真机数据, 见字段区）
     - belief.epistemic == inferred_belief（护栏）
     - belief.links 非空（无支撑升华拒绝, §5 校验规则 4）
@@ -80,7 +84,13 @@ class BrainNode:
     segment_id: str | None = None
     event_seq: list[int] = field(default_factory=list)
     ts: str = ""
-    source: str = "digest"
+    #: ⏸ `source: str = "digest"` —— **已删（2026-09-21）**：活路径上它是常量。
+    #: 唯一写入点曾有两个:`make_node` 的默认值（"digest"）与修订包的 `node.source =
+    #: "digest"`;而"出厂基座"那一支（`source="experience"`）的生产者
+    #: `archive/factory_memory/seed_engine.py` 已归档, 真机 0 个 seed 节点。
+    #: 它带出的整族一起删: `is_seed()` · `render` 的 seed 桶与"canon 只读"标记 ·
+    #: `store.update`/`revise` 的不可变守卫 · `notes`（唯一读者就是那条守卫）。
+    #: 旧档里若还有这个键 → `from_dict` 宽松忽略。
     links: list[str] = field(default_factory=list)
     #: ⏸ **休眠字段 + 休眠路径（2026-09-21 用户裁决"接受整块休眠"）**。
     #:
@@ -105,7 +115,10 @@ class BrainNode:
     #: ⚠️ **重新立项深整理时走"带类型的边"**（矛盾是二元关系, 天然是边, 节点数组只是邻接表
     #: 实现）——见 `stores`/`DESIGN_WIKI_V3` 的 entity 中心模型; 不要回到"belief 上挂数组"。
     contradictions: list[str] = field(default_factory=list)
-    notes: list[str] = field(default_factory=list)   # 出厂基座只允许追加注记（§5 规则 2）
+    #: ⏸ `notes: list[str]` —— **已删（2026-09-21）**：它唯一的存在理由是"出厂基座
+    #: 只允许追加注记"（§5 规则 2），**全仓唯一的读者就是 `store.update` 里那条
+    #: `is_seed()` 守卫**——渲染不输出、召回不读、真机零数据。出厂基座机制随
+    #: `source` 一起退役 ⇒ 它没有任何读者了。
     # ── kind 专属 ──
     narration: str = ""
     verbatim: str = ""
@@ -330,14 +343,12 @@ class BrainNode:
         """去重键 = (kind, event_seq)——同事件重复消化去重; 不同事件同类走 accrue 不删。"""
         return (self.kind, tuple(self.event_seq))
 
-    def is_seed(self) -> bool:
-        """出厂基座（immutable——update 只允许 notes 追加, 2026-09-02 定稿）:
-        experience.yml 出厂 episode（source=experience, 预设记忆 = 角色记得的经历）。
-        knowledge 不再出厂化（世界观知识 = config 档案职责——system prompt 注入 +
-        interperson 读取, wiki 只存记忆）; beliefs.yml 出厂 belief **不 immutable**
-        （认知种子, 运行时 digest 的 touch/update 挂新经历——认知基线演化）。
-        """
-        return self.kind == "episode" and self.source == "experience"
+    # ⏸ `is_seed()` —— **已删（2026-09-21）**: 判据是 `source == "experience"`, 随
+    # `source` 一起退役（出厂基座机制: 出厂记忆自 2026-09-05 起不进 wiki）。
+    # 它带走的两个守卫: `store.update` 的 SeedImmutable（只允许 notes 追加）与
+    # `revise._apply_action` 的同款守卫——两者都对着一个不存在的生产者。
+    # 若将来真要"作者写死的、运行时不可改"的记忆, 那条纪律应落在**配置层**
+    # （`config/characters/*/experience.yml` 直注）, 不要回 wiki 里做不可变节点。
 
     # ------------------------------------------------------------------
     # 序列化
@@ -351,8 +362,8 @@ class BrainNode:
             "significance": self.significance,
             "epistemic": self.epistemic,
         }
-        for f in ("observer", "tags", "segment_id", "event_seq", "ts", "source",
-                  "links", "contradictions", "notes", "narration", "verbatim",
+        for f in ("observer", "tags", "segment_id", "event_seq", "ts",
+                  "links", "contradictions", "narration", "verbatim",
                   "verbatim_seq", "title", "emo_shape", "place",
                   "place_raw",
                   "pattern", "subject", "count", "examples", "content", "growth",
@@ -388,10 +399,8 @@ class BrainNode:
         node.segment_id = _str(raw.get("segment_id")) or None
         node.event_seq = _int_list(raw.get("event_seq"))
         node.ts = _str(raw.get("ts"))
-        node.source = _str(raw.get("source")) or "digest"
         node.links = _str_list(raw.get("links"))
         node.contradictions = _str_list(raw.get("contradictions"))
-        node.notes = _str_list(raw.get("notes"))
         # kind 专属
         node.narration = _str(raw.get("narration"))
         node.verbatim = _str(raw.get("verbatim"))

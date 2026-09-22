@@ -301,8 +301,8 @@ def _apply_action(store: WikiStoreV2, raw: dict, scope: set[str],
         node = store.get(nid)
         if node is None:
             return _err(result, f"update 目标不存在: {nid}")
-        if node.is_seed() and set(patch) - {"notes"}:
-            return _err(result, "update 不得修改出厂基座（只允许 notes 追加）")
+        # ⚠️ 原"update 不得修改出厂基座（只允许 notes 追加）"守卫 2026-09-21 删——
+        # 判据 `is_seed()` 随 `source` 退役（出厂记忆不进 wiki, 见 nodes.py docstring）。
         if "epistemic" in patch and patch["epistemic"] != node.epistemic:
             return _err(result, "update 不得改变 epistemic")
         before = {k: v for k, v in patch.items() if v != getattr(node, k, None)}
@@ -431,7 +431,6 @@ def _build_merged(store: WikiStoreV2, ids: list[str], into: dict) -> BrainNode |
         {c for s in sources for c in s.contradictions if c not in ids})
     node.event_seq = sorted({seq for s in sources for seq in s.event_seq})
     node.epistemic = str(into.get("epistemic", "")).strip() or sources[0].epistemic
-    node.source = "digest"
     return node
 
 

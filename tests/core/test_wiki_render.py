@@ -58,16 +58,17 @@ def test_organize_view_experience_and_player():
     assert "m0002 [experience·关于老师, sig 0.75, count 2" in out        # §4.4 标记
 
 
-def test_organize_view_seed_episode_belief():
-    seed_ep = make_node("episode", narration="遥香曾因拆炸弹事件对 sensei 建立信任",
-                        source="experience",
-                        significance=0.95)
+def test_organize_view_episode_belief():
+    ep = make_node("episode", narration="遥香曾因拆炸弹事件对 sensei 建立信任",
+                   significance=0.95)
     belief = make_node("belief", content="老师是第一个不会嫌弃我的人", subject="sensei",
                        epistemic="inferred_belief", significance=0.9,
                        links=["m0001"], event_seq=[42])
-    out = render_organize_view(_ids([seed_ep, belief]))
-    assert "[episode, sig 0.95, canon 只读]" in out      # 出厂 episode 只读标记
+    out = render_organize_view(_ids([ep, belief]))
+    assert "[episode, sig 0.95]" in out
     assert "[belief, sig 0.90, links: m0001]" in out
+    # ⏸ 原 "canon 只读" 标记 2026-09-21 删（is_seed()/source 退役）——不该再出现
+    assert "canon" not in out
 
 
 def test_organize_view_contradiction_marker():
@@ -102,9 +103,6 @@ def test_character_view_sections_and_first_person():
                   growth="从自卑到被需要", links=["m0001"], event_seq=[1]),
         make_node("experience", pattern="总说「摸鱼」", subject="player",
                   significance=0.75, links=["m0002", "m0003", "m0004"], event_seq=[2]),
-        # 出厂 episode（source=experience）→ 独立"久远的记忆"段, 不占运行时窗口
-        make_node("episode", narration="伊草遥香曾因拆炸弹事件对 sensei 建立信任",
-                  source="experience", significance=0.95),
     ]
     out = render_character_view(nodes, char_name="伊草遥香",
                                 summary="天台夜谈后，伊草遥香开始相信自己被需要")
@@ -115,9 +113,9 @@ def test_character_view_sections_and_first_person():
     assert "最近的事：\n- 老师带我去吃甜品" in out
     assert "我心里渐渐觉得：\n- 对sensei：我开始相信自己被需要（——从自卑到被需要）" in out
     assert "老师的事：\n- 总说「摸鱼」（count 3）" in out
-    assert "久远的记忆：\n- 我曾因拆炸弹事件对 sensei 建立信任" in out
-    # 出厂 episode 不进"珍贵的"段（运行时窗口独占）; knowledge 不再出厂化（无"我知道的事"段）
-    assert out.index("久远的记忆") > out.index("我记得的事（珍贵的）")
+    # ⏸ 原"久远的记忆"段（出厂 episode）2026-09-21 删——出厂记忆不进 wiki;
+    # knowledge 不再出厂化（无"我知道的事"段）
+    assert "久远的记忆" not in out
     assert "我知道的事" not in out
     # 无 id / 无链接泄漏
     assert "m0001" not in out and "links" not in out
