@@ -302,6 +302,7 @@ core.mmt.engine	_strip_action_brackets	function	core.tui.text_processors
 core.mmt.engine	build_box	function	core.promptkit.box
 core.mmt.engine	build_mmt_registry	function	core.mmt.mmt_actions
 core.mmt.engine	build_schema	function	contract.schema
+core.mmt.engine	char_names	function	core.parsing.names
 core.mmt.engine	digest_segment	function	core.brain.wiki_v2.digest
 core.mmt.engine	err	function	contract.errors
 core.mmt.engine	feedback	function	llm.client
@@ -348,6 +349,7 @@ apps.vn_cli	render_scene	function	renderer.cli
 apps.vn_cli	run_bond_story_vn	function	apps.vn_cli
 apps.vn_cli	simulate_steps	function	core.tui.streaming
 apps.vn_cli	simulate_vn_scene	function	apps.vn_cli
+apps.vn_cli	speaker_names	function	core.parsing.names
 apps.vn_cli	wrapup_after_vn	function	apps.vn_cli
 # ---- llm.client ----
 llm.client	LLMClient	class	llm.client

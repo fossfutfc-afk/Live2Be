@@ -25,6 +25,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from core.media.catalog import MediaCatalog
+from core.parsing.names import speaker_names        # 名字接口（N1）
 from renderer.effects import EffectResolver
 from webgui import bond
 
@@ -98,18 +99,16 @@ def warm_render(char_id: str) -> None:
 
 
 def _speaker_name_map(char_id: str) -> dict[str, str]:
-    """记录流 v2: 说话人取值 → 显示名（最小形态——前端只负责把名字行画出来）。
+    """记录流 v2: 说话人取值 → 显示名（**实现已收敛到 `core.parsing.names`**, N1）。
 
     角色 id → 人设 display_name; `sensei` → 老师; `narrator` → 空串
     （旁白不加名字行）。取不到人设 → 回落 id（宁缺勿错）。
     """
-    from contract import CHARACTER_NARRATOR, SPEAKER_SENSEI_LABEL
     try:
         who = bond._role_info(char_id).get("name") or char_id
     except Exception:                                # noqa: BLE001 — 取不到用 id
         who = char_id
-    return {char_id: who, "sensei": SPEAKER_SENSEI_LABEL,
-            CHARACTER_NARRATOR: ""}
+    return speaker_names(char_id=char_id, display=who, with_narrator=True)
 
 
 def _resolve_scene(scene: dict | None, char_id: str) -> dict | None:
