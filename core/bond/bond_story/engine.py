@@ -57,6 +57,7 @@ from llm.client import LLMClient, feedback
 from llm.task_labels import BOND
 from llm.task_levels import max_tokens as task_levels_max_tokens
 from core.parsing.dynamic_character_parser import CharacterLoader, DynamicCharacter
+from core.parsing.names import names_of        # 名字接口（N1）
 from core.promptkit import (
     BlockContext,
     build_box,
@@ -651,14 +652,16 @@ class BondStoryEngine:
         return ([char.display_name] if char else []) + list(self._character_names or [])
 
     def _speaker_names(self) -> dict[str, str]:
-        """历史渲染的说话人名字表（角色 id → 显示名)——仅诊断/日志用。
+        """**流式解析器**的说话人名字表（角色 id → 显示名）——别名归一动用。
 
-        历史与回放的**唯一**渲染源是 `render_bond_scene_text(payload)`：它只看
-        payload（说话人用记录里的取值，老师固定「老师」），故 live 与 resume
-        逐字节同形；显示名替换是 UI 层的事（P0-7）。
+        ⚠️ 这里**只给自己一个键**（不给 `sensei`/`narrator`）: 解析器拿它做别名归一,
+        多塞键会改变归一结果。读名字的实现已收敛到 `core.parsing.names`（N1）——
+        本方法是那张**表**的构造, 不再是"怎么读人设"的第二份实现。
         """
         char = self._current_char
-        return {char.character_id: char.display_name} if char else {}
+        if char is None:
+            return {}
+        return {char.character_id: names_of(char).display}
 
     def _build_record_boards(self, raw: str,
                              attempt: int) -> tuple[list["BondScene"], list[Issue]]:

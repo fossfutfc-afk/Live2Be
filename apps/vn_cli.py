@@ -28,6 +28,7 @@ from core.bond.bond_story import BondScene, BondStoryEngine, SceneLoopError
 from core.brain.wiki_v2.store import WikiStoreV2
 from core.director.wiring import _build_director, _trigger_title   # C11: 接线层（webgui 也用它）
 from core.media.gallery import GalleryStore
+from core.parsing.names import speaker_names          # 名字接口（N1）
 from core.session import SessionStore
 from core.session.events import (
     M_MEMORIAL_ENTER,
@@ -48,16 +49,13 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 def _speaker_names(char) -> dict[str, str]:
-    """记录流 v2 说话人显示名映射（最小形态）: 角色 id → display_name, sensei → 老师。
+    """记录流 v2 说话人显示名映射（**实现已收敛到 `core.parsing.names`**, N1）:
+    角色 id → display_name, sensei → 老师。
 
-    narrator 不在表里（`speaker_name` 缺失 → CLI 不画名字行）。
+    ⚠️ `with_narrator=False` —— CLI 靠"**缺键**"决定不画名字行（webgui 那边是
+    `narrator` → 空串; 两套约定都是现网行为, 不统一）。
     """
-    from contract import CHARACTER_SENSEI, SPEAKER_SENSEI_LABEL
-    names = {CHARACTER_SENSEI: SPEAKER_SENSEI_LABEL}
-    cid = getattr(char, "character_id", "") if char is not None else ""
-    if cid:
-        names[cid] = getattr(char, "display_name", "") or cid
-    return names
+    return speaker_names(char, with_narrator=False)
 
 
 def simulate_vn_scene(

@@ -64,6 +64,7 @@ from core.parsing.dynamic_character_parser import (
     DynamicCharacter,
     yaml_to_prompt,
 )
+from core.parsing.names import char_names          # 名字接口（N1: 别名/显示名的唯一实现）
 from core.promptkit import (
     BlockContext,
     build_box,
@@ -156,21 +157,12 @@ def _interact_max(events: list, digested_seq: int) -> int:
 
 
 def _name_aliases(profile: dict) -> tuple[str, ...]:
-    """角色称喟别名（第一人称化用——yml 原文多用简称, 2026-09-02）:
-    profile 的 most_called_name / other_names / jp_name / en_name 拆分去重。
-    键兼容带/不带 SIG~ 前缀两种存储形态; 单字/两字全名排除（太长会误伤文本）。
+    """角色称喟别名（第一人称化用）—— **薄壳**: 真家搬去 `core/parsing/names.py`（N1）。
+
+    保留本函数只为不改调用点签名; 新代码请直接用 `names.names_of(char).aliases`
+    （或 `char_names(profile)`）。
     """
-    names: list[str] = []
-    for f in ("most_called_name", "other_names", "jp_name", "en_name",
-              "SIG~most_called_name", "SIG~other_names"):
-        v = str((profile or {}).get(f) or "").strip()
-        if not v:
-            continue
-        for part in re.split(r"[，,、/;；]", v):
-            part = part.strip()
-            if part and part not in names and len(part) <= 8:
-                names.append(part)
-    return tuple(names)
+    return char_names(profile).aliases
 
 
 def load_brain_segment(store: SessionStore, char_id: str, char_name: str = "",
