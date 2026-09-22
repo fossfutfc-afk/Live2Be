@@ -95,7 +95,7 @@ def test_precious_floor_and_episodes(tmp_path):
         _ep("日常闲聊", sig=0.5),
         _ep("天台夜谈", sig=0.9),
         make_node("episode", narration="拆炸弹的出厂经历", source="experience",
-                  source_key="self.regular.1", significance=0.9),
+                  significance=0.9),
     ])
     st = _store(tmp_path, nodes)
     out = recall_subgraph(st, query="", n_precious=2, n_random=0)
@@ -207,8 +207,7 @@ def _cog_store(tmp_path) -> WikiStoreV2:
                      links=["m0001"], event_seq=[1]))
     st.add(make_node("experience", pattern="老师总说摸鱼", subject="sensei",
                      significance=0.85, tags=["摸鱼"], links=["m0001"], event_seq=[1]))
-    st.add(make_node("episode", narration="遥香喜欢杂草", source="experience",
-                     source_key="self.regular.1"))
+    st.add(make_node("episode", narration="遥香喜欢杂草", source="experience"))
     return st
 
 

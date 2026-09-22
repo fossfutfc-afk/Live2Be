@@ -444,7 +444,8 @@ MomoTalk 聊天"）。有两条用例钉着（收口 / 聊天原子不被压掉�
 
 ```
 轴一 kind      —— 节点的"形状"      : entity | episode | belief
-轴二 epistemic —— "我怎么知道的"    : observed_fact | reported_fact | inferred_belief | speculation
+轴二 epistemic —— "我怎么知道的"    : observed_fact | reported_fact | inferred_belief
+                                       （`speculation` **2026-09-21 删**——零生产者/零消费者/零真机数据）
 轴三 etype     —— 实体是"哪种东西"  : self | person | place | item | knowledge   （仅 entity）
 轴四 nature    —— 认知"是哪一类"    : self_image | other | relationship | pattern （仅 belief）
 ```

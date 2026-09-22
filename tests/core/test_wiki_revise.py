@@ -97,7 +97,7 @@ def test_update_rules(tmp_path):
     assert not res.ok and any("epistemic" in e for e in res.errors)
     # 出厂基座只允许 notes（出厂 episode, source=experience; _store 已占 m0001-3/e0001）
     st.add(make_node("episode", narration="出厂经历", source="experience",
-                     source_key="k", significance=0.9))
+                     significance=0.9))
     scope.add("m0004")
     res = apply_revision_package(st, [{"action": "update", "id": "m0004",
                                        "patch": {"significance": 1.0}}],
@@ -225,7 +225,7 @@ def test_failure_writes_no_log_and_reloads(tmp_path):
     pkg = [
         {"action": "create", "entry": {"kind": "episode", "narration": "会成功的",
                                        "event_seq": [3], "links": ["m0002"]}},
-        {"action": "update", "id": "m0002", "patch": {"epistemic": "speculation"}},
+        {"action": "update", "id": "m0002", "patch": {"epistemic": "observed_fact"}},
     ]
     res = apply_revision_package(st, pkg, subgraph_ids=_scope(st))
     assert not res.ok

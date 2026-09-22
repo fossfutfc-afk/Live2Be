@@ -17,7 +17,7 @@ def _store(tmp_path) -> WikiStoreV2:
     st.add(make_node("experience", pattern="提到工作繁忙", subject="sensei",
                      significance=0.85, links=["m0001"], event_seq=[1]))
     st.add(make_node("episode", narration="出厂经历", source="experience",
-                     source_key="self.regular.1", significance=0.9))
+                     significance=0.9))
     st.add_link("m0001", "m0002")
     st.add_link("m0001", "e0001")
     return st

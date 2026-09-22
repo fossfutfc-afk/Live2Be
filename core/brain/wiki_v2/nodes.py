@@ -11,15 +11,15 @@
           event_seq / ts / source / links / contradictions / aff_at_encoding /
           emo_int / emo_span / emo_valence
 专属字段: episode.title(可选短标题) / belief.subject / belief.growth /
-          belief.history[{episode_id, content, ts}] /
-          belief.observation[]（⏸ **已声明未投产** —— 见字段区）
+          belief.history[{episode_id, content, ts}]
 observer 语义（2026-09-02 收敛）: 单视角世界线里 observed_fact 的观察者恒为
 角色本人——引擎填 char_id, 不交给 LLM; reported_fact 的 observer = 转述者
 （LLM 判断, 渲染为"听 X 说的"）。
 
 关键规则（引擎侧强制, 此处提供 validate/normalize 支撑）:
-    - epistemic: observed_fact | reported_fact | inferred_belief | speculation
-      （canon_fact 随 fact 退役, 2026-09-02——出厂基座 = episode(source=experience)）
+    - epistemic: observed_fact | reported_fact | inferred_belief
+      （canon_fact 随 fact 退役, 2026-09-02——出厂基座 = episode(source=experience);
+      **speculation 2026-09-21 删**——零生产者零消费者零真机数据, 见字段区）
     - belief.epistemic == inferred_belief（护栏）
     - belief.links 非空（无支撑升华拒绝, §5 校验规则 4）
     - significance: decimal 0~1, 珍贵档 ≥ PRECIOUS_THRESHOLD(0.8)（保底通道）
@@ -37,8 +37,11 @@ from typing import Any
 
 #: 节点类型（fact 已退役, 2026-09-02——出厂与 digest 同构: 记忆 = 经历 + 认知）
 KINDS = ("episode", "experience", "belief")
-#: 认知类型（DESIGN_BRAIN.md §7; canon_fact 随 fact 退役）
-EPISTEMICS = ("observed_fact", "reported_fact", "inferred_belief", "speculation")
+#: 认知类型（DESIGN_BRAIN.md §7; canon_fact 随 fact 退役;
+#: **speculation 2026-09-21 删**——零生产者/零消费者/零真机数据, 是 4 值枚举里
+#: 唯一没人用的。belief 的 inferred_belief 与 episode/experience 的 observed/reported
+#: 都由 validate 护栏强制, 所以 `speculation` 从来没被写进来过。）
+EPISTEMICS = ("observed_fact", "reported_fact", "inferred_belief")
 #: 珍贵档阈值（保底通道 / 对应 neuron 草稿的 memo 档）
 PRECIOUS_THRESHOLD = 0.8
 #: player experience 的 subject 固定值（玩家口癖/习惯, R5）
@@ -66,7 +69,6 @@ class BrainNode:
         experience: pattern(必填) / subject(必填) / count(引擎数 links) / examples(≤3)
         belief:     content(必填) / subject(认知对象, 可空) / growth
                     / history[改写溯源]（2026-09-02: {episode_id, content, ts} 数组）
-                    ⏸ observation[]（**已声明、未投产** —— 见字段区说明）
     """
 
     id: str = ""
@@ -80,6 +82,28 @@ class BrainNode:
     ts: str = ""
     source: str = "digest"
     links: list[str] = field(default_factory=list)
+    #: ⏸ **休眠字段 + 休眠路径（2026-09-21 用户裁决"接受整块休眠"）**。
+    #:
+    #: 三方核对（审计结论）:
+    #: | 三方 | |
+    #: |---|---|
+    #: | 生产者 | ❌ **活路径上没有**：`DECISIONS = touch\|update\|add`（`contract/digest_registry.py`），写它的 `contradict`/`resolve`/`merge`/create-with-contradictions 全在 `apply_revision_package` 里，而那个函数**零生产调用者**（只有门面再导出与测试）；`phase=deep` 至今未注册 |
+    #: | 消费者 | ✅ 有（`render.py` 组织视图的 `c:` 行 · `recall.py` 一跳扩展 · `store.py` 双向一致性 audit） |
+    #: | 真机数据 | ❌ 零条（`wiki.jsonl` 全库无此键） |
+    #:
+    #: ## 为什么**不删**（别的死字段都删了, 它留）
+    #:
+    #: 它跟那些字段不是一类：`source_key`/`observation` 是**真死**（有活路径却不读 / 是常量 /
+    #: 是派生），而 `contradictions` 是**整条路径休眠**——字段与执行器同生共死。删字段就得
+    #: 同时改 `revise.py:282/430`（会给不存在的字段赋值 → AttributeError）、删 store 的三个
+    #: 原语与 audit 规则、删 render/recall 的读取点，而那条路径**正是 `DESIGN_RESEND`
+    #: （重发/更正）规划的执行器**（`merge` 将来要用于"水位之下更正"）⇒ 删它 = 替尚未立项的
+    #: 深度整理**提前做一半设计**，将来还要再改一次。
+    #:
+    #: ⇒ 本期**整块休眠**：字段与路径都留，只在需要时一并重做。它体积 0 B、不进 LLM 上下文
+    #: （`emo_shape`/`place` 那条纪律），代价只是 4 处 kind 判断。
+    #: ⚠️ **重新立项深整理时走"带类型的边"**（矛盾是二元关系, 天然是边, 节点数组只是邻接表
+    #: 实现）——见 `stores`/`DESIGN_WIKI_V3` 的 entity 中心模型; 不要回到"belief 上挂数组"。
     contradictions: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)   # 出厂基座只允许追加注记（§5 规则 2）
     # ── kind 专属 ──
@@ -182,47 +206,22 @@ class BrainNode:
     examples: list[str] = field(default_factory=list)
     content: str = ""
     growth: str = ""
-    #: ⏸ **`observation: list[str]` —— 已声明、未投产（2026-09-17 用户裁决）**。
+    #: ⏸ `observation: list[str]` —— **已删（2026-09-21 用户裁决）**。
     #:
-    #: *"把 observation 暂时留着，但是标明一下没有投入生产，以后多人模式这个可能会
-    #: 很有用；现在我们的 digest 模式还没处理，只是在做前置。"*
+    #: 它 2026-09-17 被删过一次又恢复为"声明保留但不投产"的挂点（零生产者、零消费者、
+    #: 不落库、零真机数据）。2026-09-21 复盘的裁决是**直接删**：
+    #: *"observation(其实 narrator 只要写清楚，LLM 一定能懂，没必要)"*。
     #:
-    #: ## 现状（审计结论，2026-09-17）
-    #:
-    #: | 三方 | |
-    #: |---|---|
-    #: | 生产者 | ❌ 无（Round B 契约里**没有这个字段**，LLM 输出不了） |
-    #: | 消费者 | ❌ 无（全库没有读取点） |
-    #: | 真机数据 | ❌ 零节点（`wiki.jsonl` 里一条都没有） |
-    #:
-    #: ⇒ **它不落库**（不在 `to_dict` 清单里）—— 一个没人生产、没人消费的字段占用
-    #: 每行 jsonl 是纯浪费。旧档里若还有这个键 → `from_dict` 宽松忽略。
-    #: ⇒ 但**声明保留**，因为它有明确的未来用途。
-    #:
-    #: ## 未来用途：多人模式（**与实体的"观察者"维度相关**）
-    #:
-    #: 现在一条世界线是**单视角**的（`observer` 恒为角色本人, 见上面 observer 语义）。
-    #: 多人模式里同一个实体会被**多个观察者**看到，而"谁观察到了什么"需要落成字段 ——
-    #: 那时 `observation` 的语义才立得住（"这个实体, 我这个视角观察到的几条"）。
-    #:
-    #: ## ⚠️ 但那套模型落地时，它**大概率不留在 belief 上**
-    #:
-    #: 记忆图 v3 的中心是**实体**（`docs/DESIGN_WIKI_V3.md §2.1` "实体中心的两层图" /
-    #: `§2.2` entity 层 / `§3.5` BFS `entity → belief → episode`，即"总-分-证"）。那套
-    #: 模型里"对某对象的观察"已经有归属机制：`about`（引擎管，指向 entity）+
-    #: `aspect`（LLM 写）+ `nature`（规律 = belief + `nature=pattern`），
-    #: 而 `entity.overview` 承担"总体感觉"那一行。
-    #:
-    #: ⇒ **本字段是 v2 形状的占位**。v3 落地时应当把它**折进实体模型**
-    #: （按 `about` 归堆 + `aspect` 区分侧面），而不是平移成 belief 的一个字段。
-    #: 保留声明是为了让那个设计有一个可见的挂点，**不是**为了在 v2 上把它填起来。
-    #:
-    #: ⚠️ **不许因为"看着没用"删掉它**（已被删过一次, 2026-09-17 恢复）;
-    #: 也**不许在没人消费它的情况下开始写它** —— 两条都由
-    #: `tests/core/test_wiki_nodes.py::test_observation_stays_dormant` 钉住。
-    observation: list[str] = field(default_factory=list)
+    #: ⇒ "对某对象的观察"这件事**不需要一个字段**：主 LLM 写清 narrator 就懂。真要做
+    #: 多人模式的"谁观察到什么"，那是 v3 的实体模型（`about` 归堆 + `aspect` 分侧面 +
+    #: `entity.overview`），到时候按实体落，**不要**回到 belief 上平移一个数组。
+    #: 旧档里若还有这个键 → `from_dict` 宽松忽略。
     history: list[dict] = field(default_factory=list)   # belief 改写溯源（见 docstring）
-    source_key: str = ""
+    #: ⏸ `source_key: str` —— **已删（2026-09-21）**：零生产者零消费者零真机数据。
+    #: 出厂链（`archive/factory_memory/seed_engine.py`）写它；`render.py` 里的那个
+    #: `source_key` 是 yml 拍平的**局部变量名**（与字段无关）。出厂记忆自 2026-09-05
+    #: 起不进 wiki（改走 `render_background_experience` 直注 yml 原文）⇒ 早已没人写它。
+    #: 旧档里若还有这个键 → `from_dict` 宽松忽略。
     #: 编码时好感标量 ∈ [−1, 1]（`Affection.to_scalar()`, §3.3.3）——**快照**:
     #: 写入时定、之后**永不改**（故与"节点 append-only"不冲突）。
     #: `None` = 旧档/未采集; `0.0` = 中性。两者**必须能区分**——否则旧档会被
@@ -357,7 +356,7 @@ class BrainNode:
                   "verbatim_seq", "title", "emo_shape", "place",
                   "place_raw",
                   "pattern", "subject", "count", "examples", "content", "growth",
-                  "history", "source_key"):
+                  "history"):
             v = getattr(self, f)
             if v in (None, "", [], 0):
                 continue
@@ -408,7 +407,6 @@ class BrainNode:
         node.content = _str(raw.get("content"))
         node.growth = _str(raw.get("growth"))
         node.history = _dict_list(raw.get("history"))
-        node.source_key = _str(raw.get("source_key"))
         node.aff_at_encoding = _opt_clamp(raw.get("aff_at_encoding"), -1.0, 1.0)
         node.emo_int = _opt_clamp(raw.get("emo_int"), 0.0, 1.0)
         node.emo_span = _opt_clamp(raw.get("emo_span"), 0.0, 1.0)

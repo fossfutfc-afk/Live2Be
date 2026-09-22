@@ -60,7 +60,7 @@ def test_organize_view_experience_and_player():
 
 def test_organize_view_seed_episode_belief():
     seed_ep = make_node("episode", narration="遥香曾因拆炸弹事件对 sensei 建立信任",
-                        source="experience", source_key="self.regular.1",
+                        source="experience",
                         significance=0.95)
     belief = make_node("belief", content="老师是第一个不会嫌弃我的人", subject="sensei",
                        epistemic="inferred_belief", significance=0.9,
@@ -104,7 +104,7 @@ def test_character_view_sections_and_first_person():
                   significance=0.75, links=["m0002", "m0003", "m0004"], event_seq=[2]),
         # 出厂 episode（source=experience）→ 独立"久远的记忆"段, 不占运行时窗口
         make_node("episode", narration="伊草遥香曾因拆炸弹事件对 sensei 建立信任",
-                  source="experience", source_key="self.regular.1", significance=0.95),
+                  source="experience", significance=0.95),
     ]
     out = render_character_view(nodes, char_name="伊草遥香",
                                 summary="天台夜谈后，伊草遥香开始相信自己被需要")
