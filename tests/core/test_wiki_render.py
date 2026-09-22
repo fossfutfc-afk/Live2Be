@@ -148,8 +148,10 @@ def test_character_view_belief_and_player_all_rendered():
     beliefs = [make_node("belief", content=f"信念{i}", subject="sensei",
                          epistemic="inferred_belief", significance=0.9 - i * 0.1,
                          links=["m0001"], event_seq=[1]) for i in range(7)]
+    # 行数 = 序号（count 现在是派生属性 = len(links), 所以靠 links 条数造成降序差异）
     players = [make_node("experience", pattern=f"口癖{i}", subject="player",
-                         significance=0.6, count=7 - i, links=["m0001"],
+                         significance=0.6,
+                         links=[f"m{j:04d}" for j in range(1, 8 - i)],
                          event_seq=[1]) for i in range(7)]
     out = render_character_view([*beliefs, *players])
     assert out.count("\n- 对sensei：信念") == 7        # 7 条全在（旧 cap 5 会丢 2 条）

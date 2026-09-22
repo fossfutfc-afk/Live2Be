@@ -1,6 +1,6 @@
 """store.audit() 图不变量测试——图算法正确性确认（邻接表策略闭环定义）。
 
-覆盖: 干净图零违规 / 悬空引用 / 非双向 / count 不变量 / belief 支撑 /
+覆盖: 干净图零违规 / 悬空引用 / 非双向 / belief 支撑 /
       merge+delete 后仍干净 / revise 全链路后审计干净 / ref 唯一性回归。
 """
 from core.brain.wiki_v2 import WikiStoreV2, make_node
@@ -41,13 +41,10 @@ def test_non_bidirectional_detected(tmp_path):
     assert any("link 非双向: m0001 ↔ e0001" in b for b in bad)
 
 
-def test_count_invariant_detected_and_repaired(tmp_path):
-    st = _store(tmp_path)
-    st.get("e0001").count = 5                      # 手工破坏引擎计数
-    bad = st.audit()
-    assert any("count 不变量破坏: e0001" in b for b in bad)
-    st.update("e0001", {"significance": 0.8})      # update 后 normalize 修复
-    assert st.audit() == []
+# ⏸ `test_count_invariant_detected_and_repaired` —— 2026-09-21 删：`count` 已是派生属性
+# `len(links)`, "引擎计数被破坏"这种状态在类型上就不可能存在（连同 audit 那条检查、
+# `add_link`/`remove_link`/`normalize` 三处手工刷新一起删掉）。
+# 派生属性本身由 `test_wiki_store.py::test_experience_count_is_derived` 守着。
 
 
 def test_belief_orphan_after_delete_detected(tmp_path):

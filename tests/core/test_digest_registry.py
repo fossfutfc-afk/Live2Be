@@ -190,7 +190,8 @@ def test_schema_documents_pointer_and_channels():
 
 
 # ---------------------------------------------------------------------------
-# Round A 情绪两标量 emo_int / emo_valence（§3.3.3, 2026-09-13）
+# Round A 情绪两标量 emo_int / emo_span（§3.3.3, 2026-09-13）
+# （`emo_valence` 2026-09-21 删——有生产零消费; 极性由 `emo_shape` 逐键承担）
 # ---------------------------------------------------------------------------
 
 def _ep(**over):
@@ -202,12 +203,11 @@ def _ep(**over):
 
 def test_round_a_emo_fields_pass_through():
     items, result = digest_registry.parse_round_a({"episodes": [
-        _ep(emo_int=0.8, emo_span=0.7, emo_valence=-0.6)]})
+        _ep(emo_int=0.8, emo_span=0.7)]})
     assert result.is_valid, result.errors
     assert items[0]["emo_int"] == 0.8
     assert items[0]["emo_span"] == 0.7
-    assert items[0]["emo_valence"] == -0.6
-    print("    emo_int/emo_span/emo_valence: 原样透传")
+    print("    emo_int/emo_span: 原样透传")
 
 
 def test_round_a_emo_absent_stays_absent():
@@ -220,30 +220,28 @@ def test_round_a_emo_absent_stays_absent():
 
 
 def test_round_a_emo_zero_is_kept():
-    """0.0 是合法值（无波澜 / 全程一个调子 / 中性色彩）——必须保留。"""
+    """0.0 是合法值（无波澜 / 全程一个调子）——必须保留。"""
     items, result = digest_registry.parse_round_a({"episodes": [
-        _ep(emo_int=0.0, emo_span=0.0, emo_valence=0.0)]})
+        _ep(emo_int=0.0, emo_span=0.0)]})
     assert result.is_valid
     assert items[0]["emo_int"] == 0.0
     assert items[0]["emo_span"] == 0.0
-    assert items[0]["emo_valence"] == 0.0
     print("    emo_*: 0.0 保留（不是缺省）")
 
 
 def test_round_a_emo_clamped_and_bad_ignored():
     # 越界 → 夹紧（值仍可用, 不整条丢）
     items, _ = digest_registry.parse_round_a({"episodes": [
-        _ep(emo_int=9, emo_span=9, emo_valence=-9)]})
+        _ep(emo_int=9, emo_span=9)]})
     assert items[0]["emo_int"] == 1.0
     assert items[0]["emo_span"] == 1.0, "emo_span 上界 1.0"
-    assert items[0]["emo_valence"] == -1.0
     # ★ emo_span 声明非负: 负值被夹到 0（不是丢字段）
     items, _ = digest_registry.parse_round_a({"episodes": [_ep(emo_span=-0.5)]})
     assert items[0]["emo_span"] == 0.0, "emo_span 负值应夹到 0（是幅度不是方向）"
     # 坏值 → 忽略该字段（不折成 0.0）, 条目本身仍有效
     for bad in ("abc", True, float("nan"), [], {}):
         items, result = digest_registry.parse_round_a({"episodes": [
-            _ep(emo_int=bad, emo_span=bad, emo_valence=bad)]})
+            _ep(emo_int=bad, emo_span=bad)]})
         assert result.is_valid, f"{bad!r} 不该让整条失效"
         for f in ("emo_int", "emo_span", "emo_valence"):
             assert f not in items[0], f"{bad!r} 的 {f} 应被忽略而非折成 0.0"

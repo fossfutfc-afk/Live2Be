@@ -35,10 +35,10 @@ def _store(tmp_path) -> WikiStoreV2:
     st = WikiStoreV2(tmp_path, world_id="w1", char_id="c")
     st.add(make_node("episode", narration="老师陪我在杂草屋看苔藓",
                      significance=0.9, emo_span=0.9, emo_int=0.85,
-                     emo_valence=0.7, event_seq=[14]))
+                     event_seq=[14]))
     st.add(make_node("episode", narration="误发短信把老师叫到现场",
                      significance=0.6, emo_span=0.5, emo_int=0.8,
-                     emo_valence=-0.6, event_seq=[30]))
+                     event_seq=[30]))
     return st
 
 

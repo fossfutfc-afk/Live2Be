@@ -110,11 +110,10 @@ def test_full_pipeline(tmp_path):
     assert res.created == ["m0003"]
     ep = st.get("m0003")
     assert ep.kind == "episode" and ep.event_seq == [3]
-    assert ep.segment_id == "seg-3" and ep.ts and ep.title == "甜点之约"
-    # B: update → 认知改写 + history 溯源; add → 新 experience 链回 episode
+    assert ep.ts and ep.title == "甜点之约"
+    # B: update → 认知改写（变更进 evolution 日志）; add → 新 experience 链回 episode
     bel = st.get("m0002")
     assert bel.significance == 0.95
-    assert bel.history and bel.history[0]["episode_id"] == "m0003"
     exp = st.get("e0002")
     assert exp.kind == "experience" and exp.pattern == "老师会带我去吃甜品"
     assert exp.count == 1                              # links = [m0003]
@@ -123,9 +122,12 @@ def test_full_pipeline(tmp_path):
     assert [e["function"] for e in res.evidence] == ["fe"]
     assert res.affection_delta == 30
     assert st.digested_seq == 3
-    # evolution log（apply_decisions 追加）
+    # evolution log（apply_decisions 追加）: update 那行带 before/after
     entries = EvolutionLog.for_store(st).read()
     assert [e["action"] for e in entries] == ["update", "add"]
+    upd = entries[0]
+    assert upd["target"] == "m0002" and upd["changed"]["content"][1]
+    assert upd["changed"]["content"][0] != upd["changed"]["content"][1]
 
 
 def test_touch_decision_links_only(tmp_path):
@@ -139,7 +141,7 @@ def test_touch_decision_links_only(tmp_path):
     res = digest_segment(st, llm, events)
     assert res.ok, res.errors
     bel = st.get("m0002")
-    assert bel.history == []                           # touch 不改内容
+    assert bel.significance == 0.9                     # touch 不改内容
     assert "m0003" in bel.links                        # 只连边
 
 
@@ -439,7 +441,7 @@ def test_player_portrait_entry_lands_and_hides_from_round_b(tmp_path):
     assert p is not None and p.kind == "experience"
     assert p.subject == "player" and p.pattern.startswith("玩家的生日")
     assert p.verbatim == "我生日是 5 月 20 日哦"        # 原话直存（无 episode 载体）
-    assert p.event_seq == [3] and p.segment_id == "seg-3"
+    assert p.event_seq == [3]
     # B 的认知列表不含刚建的画像条目（冷启动提示仍在 = 无认知可组织）
     b_user = llm.calls[1][1]["content"]
     assert "玩家的生日" not in b_user
@@ -665,7 +667,8 @@ def test_aff_at_encoding_zero_is_written(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# 情绪三标量 emo_int / emo_span / emo_valence 落到 episode 节点（§3.3.3）
+# 情绪两标量 emo_int / emo_span 落到 episode 节点（§3.3.3）
+# （`emo_valence` 2026-09-21 删——有生产零消费; 极性由 emo_shape 逐键承担）
 # ---------------------------------------------------------------------------
 
 def test_emo_scalars_land_on_episode_nodes(tmp_path):
@@ -674,16 +677,13 @@ def test_emo_scalars_land_on_episode_nodes(tmp_path):
     a = _a_episode()
     a["episodes"][0]["emo_int"] = 0.85
     a["episodes"][0]["emo_span"] = 0.9
-    a["episodes"][0]["emo_valence"] = -0.4
     llm = FakeLLM(a, _b_ok())
     res = digest_segment(st, llm, _events(_mmt(3, "x", "y")))
     assert res.ok and res.created
     ep = st.get(res.created[0])
     assert ep.emo_int == 0.85, f"emo_int 未落节点: {ep.emo_int}"
     assert ep.emo_span == 0.9, f"emo_span 未落节点: {ep.emo_span}"
-    assert ep.emo_valence == -0.4, f"emo_valence 未落节点: {ep.emo_valence}"
-    print(f"    emo_*: 落节点 {res.created[0]} int={ep.emo_int} "
-          f"span={ep.emo_span} val={ep.emo_valence}")
+    print(f"    emo_*: 落节点 {res.created[0]} int={ep.emo_int} span={ep.emo_span}")
 
 
 def test_emo_scalars_absent_when_llm_silent(tmp_path):
@@ -692,7 +692,7 @@ def test_emo_scalars_absent_when_llm_silent(tmp_path):
     llm = FakeLLM(_a_episode(), _b_ok())
     res = digest_segment(st, llm, _events(_mmt(3, "x", "y")))
     ep = st.get(res.created[0])
-    assert ep.emo_int is None and ep.emo_span is None and ep.emo_valence is None
+    assert ep.emo_int is None and ep.emo_span is None
     d = ep.to_dict()
     for f in ("emo_int", "emo_span", "emo_valence"):
         assert f not in d, f"{f} 不该落库"
@@ -700,17 +700,17 @@ def test_emo_scalars_absent_when_llm_silent(tmp_path):
 
 
 def test_emo_scalars_zero_is_written(tmp_path):
-    """0.0 是合法值（事务性寒暄 / 全程一个调子 / 中性色彩）——必须落库。"""
+    """0.0 是合法值（事务性寒暄 / 全程一个调子）——必须落库。"""
     st = _seed_store(tmp_path)
     a = _a_episode()
-    for f in ("emo_int", "emo_span", "emo_valence"):
+    for f in ("emo_int", "emo_span"):
         a["episodes"][0][f] = 0.0
     llm = FakeLLM(a, _b_ok())
     res = digest_segment(st, llm, _events(_mmt(3, "x", "y")))
     ep = st.get(res.created[0])
-    assert ep.emo_int == 0.0 and ep.emo_span == 0.0 and ep.emo_valence == 0.0
+    assert ep.emo_int == 0.0 and ep.emo_span == 0.0
     d = ep.to_dict()
-    for f in ("emo_int", "emo_span", "emo_valence"):
+    for f in ("emo_int", "emo_span"):
         assert f in d, f"{f} 0.0 应落库"
     print("    emo_*: 0.0 落库（≠ 未采集）")
 

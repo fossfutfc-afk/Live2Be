@@ -26,7 +26,7 @@ from core.common import err
 _REF_KEY = "ref"
 #: create entry 里引擎忽略的字段（id/ts 由引擎分配——确定性归引擎）
 _IGNORED_ON_CREATE = ("id", "ts")
-#: update.patch 允许的字段（图边/epistemic/history 引擎管理, LLM 不可碰）
+#: update.patch 允许的字段（图边/epistemic 引擎管理, LLM 不可碰）
 _PATCH_FIELDS = ("subject", "content", "pattern", "significance", "tags", "growth")
 
 
@@ -51,7 +51,6 @@ def apply_decisions(
     id_map: dict[str, str],
     log: EvolutionLog | None = None,
     ts: str | None = None,
-    segment_id: str = "",
     event_seq: list[int] | None = None,
 ) -> list[str]:
     """执行 Round B 决策表（板块 4a）: touch / update / add 行 → 图操作。
@@ -59,13 +58,13 @@ def apply_decisions(
     行已过 registry.parse_round_b 结构校验（episode/target 引用、覆盖检查）;
     本函数只做执行语义:
         touch  —— add_link(episode → 认知)（不动原文）
-        update —— 部分字段合并（空=保留; patch 白名单）+ content 变更 → history 追加
+        update —— 部分字段合并（空=保留; patch 白名单）+ **before/after 进 evolution 日志**
                   + 自动链 episode
         add    —— 新建 belief/experience（引擎字段归属）+ 链回 episode
 
     Args:
         id_map: 渲染本地 id（u0001..）→ 真实节点 id
-        ts/segment_id/event_seq: 引擎字段（digest 上下文; add 建节点用）
+        ts/event_seq: 引擎字段（digest 上下文; add 建节点用）
 
     Returns: 新建节点 id 列表。执行中抛 ValueError → 编排层快照回滚。
     """
@@ -92,18 +91,22 @@ def apply_decisions(
                 # 在这里被滤空 → 行无操作 = 静默违约, 宁缺勿错: 整包拒
                 raise ValueError(err("BadPatch",
                                      f"update 的 patch 不含可改字段: {sorted((row.get('patch') or {}).keys())}"))
-            history = list(node.history)
-            new_content = patch.get("content")
-            if isinstance(new_content, str) and new_content.strip() \
-                    and new_content.strip() != node.content:
-                history.append({"episode_id": ep_id, "content": new_content.strip(),
-                                "ts": ts})
-            if history != node.history:
-                patch["history"] = history
-            store.update(real, patch)
+            # 变更审计（2026-09-21）: before/after 落 evolution.jsonl。
+            # 原实现是把"改写后的 content"追加进节点字段 `history`——它只写不读,
+            # 且记的是**新值**（原文丢失）, 所以那不是一个可用的溯源。审计该待的地方
+            # 是 evolution 日志（append-only + 带包归属 + 不进 LLM 上下文）,
+            # 形状与修订包路径的 `changed: {k: [before, after]}` 对齐。
+            # `changed` 只收**真的变了**的键 ⇒ 崩溃窗口重跑（before == after）
+            # 落在日志里就是一个空 dict, 一眼可判"这次没改任何东西"。
+            before = {k: getattr(node, k, None) for k in patch
+                      if getattr(node, k, None) != patch[k]}
+            new = store.update(real, patch)
             store.add_link(ep_id, real)
             log.append({"pkg": "digest", "action": "update", "episode": ep_id,
-                        "target": real, "changed": sorted(patch), "ts": ts})
+                        "target": real,
+                        "changed": {k: [v, getattr(new, k, None)]
+                                    for k, v in before.items()},
+                        "ts": ts})
         else:                                   # add
             kind = row.get("kind", "belief")
             fields: dict[str, Any] = {}
@@ -118,8 +121,6 @@ def apply_decisions(
             # epistemic 引擎归属（LLM 不产——belief 必须是 inferred_belief, 护栏）
             node.epistemic = "inferred_belief" if kind == "belief" else "observed_fact"
             node.ts = ts
-            if segment_id:
-                node.segment_id = segment_id
             if event_seq:
                 node.event_seq = list(event_seq)
             # 崩溃窗口重跑幂等: (kind, event_seq, 主文本) 命中 → 只补链, 不双写

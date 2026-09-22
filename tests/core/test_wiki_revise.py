@@ -229,17 +229,23 @@ def test_failure_writes_no_log_and_reloads(tmp_path):
 # ============================================================================
 
 def _ctx_kw():
-    """决策执行的引擎字段（apply_decisions 的 ts/segment_id/event_seq）。"""
-    return {"ts": "2026-09-02T12:00:00", "segment_id": "seg-3", "event_seq": [3]}
+    """决策执行的引擎字段（apply_decisions 的 ts/event_seq）。"""
+    return {"ts": "2026-09-02T12:00:00", "event_seq": [3]}
 
 
 def _episode(st, narration="老师请我吃甜品"):
     """决策行引用的 episode 已由 Round A 建好（本测试直接预置）。"""
     st.add(make_node("episode", narration=narration, event_seq=[3],
-                     ts="2026-09-02T12:00:00", segment_id="seg-3"))
+                     ts="2026-09-02T12:00:00"))
 
 
-def test_decisions_update_adds_history_and_links(tmp_path):
+def test_decisions_update_logs_before_after(tmp_path):
+    """update 的溯源**落在 evolution 日志**（before/after）, 不在节点字段里。
+
+    2026-09-21 之前是往 `belief.history` 追加"改写后的 content"——那个字段只写不读,
+    且记的是**新值**（原文丢失）, 不是可用的溯源。现在同一件事记在 evolution.jsonl,
+    形状与修订包路径的 `changed: {k: [before, after]}` 对齐。
+    """
     st = _store(tmp_path)
     _episode(st)
     rows = [
@@ -250,13 +256,17 @@ def test_decisions_update_adds_history_and_links(tmp_path):
     assert created == []
     bel = st.get("m0002")
     assert bel.content == "老师会记得我的喜好" and bel.significance == 0.95
-    assert bel.history == [{"episode_id": "m0004", "content": "老师会记得我的喜好",
-                            "ts": "2026-09-02T12:00:00"}]
+    assert not hasattr(bel, "history")                  # 字段已退役
     assert "m0004" in bel.links and "m0002" in st.get("m0004").links
+    row = _log(st).read()[-1]
+    assert row["action"] == "update" and row["target"] == "m0002"
+    assert row["changed"]["content"][1] == "老师会记得我的喜好"   # after
+    assert row["changed"]["content"][0] != "老师会记得我的喜好"  # before（旧正文）
+    assert row["changed"]["significance"] == [0.9, 0.95]
 
 
-def test_decisions_update_history_not_duplicated_on_rerun(tmp_path):
-    """崩溃窗口重跑: 同 content 重放 → history 不重复追加（幂等）。"""
+def test_decisions_update_rerun_logs_nothing_changed(tmp_path):
+    """崩溃窗口重跑: 同 content 重放 → before == after ⇒ `changed` 是空 dict（幂等可判）。"""
     st = _store(tmp_path)
     _episode(st)
     rows = [{"episode": "m0004", "decision": "update", "target": "u0001",
@@ -264,7 +274,11 @@ def test_decisions_update_history_not_duplicated_on_rerun(tmp_path):
     for _ in range(2):
         apply_decisions(st, rows, id_map={"u0001": "m0002"}, **_ctx_kw())
     bel = st.get("m0002")
-    assert len(bel.history) == 1
+    assert bel.content == "老师会记得我的喜好"
+    rows_log = [r for r in _log(st).read() if r.get("action") == "update"]
+    assert len(rows_log) == 2
+    assert rows_log[0]["changed"]["content"][1] == "老师会记得我的喜好"   # 首次: 真改了
+    assert rows_log[1]["changed"] == {}                                  # 重跑: 无变化
 
 
 def test_decisions_update_patch_outside_whitelist_rejected(tmp_path):

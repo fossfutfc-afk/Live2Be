@@ -181,7 +181,8 @@ B = 今天的一句寒暄（SIG=0.50）
       同一个现实下午（age 全 0、TIME 全 1.0）⇒ 章与章之间**时间维度完全不起作用**，
       召回只靠 `SIG` 与 `emo_span·emo_int`。这是"段内无区分度"（约束 2）的放大版：
       从**段内**扩到**一整天**。
-- [ ] （可选）章节序数，从 `segment_id` 推
+- [x] ~~（可选）章节序数，从 `segment_id` 推~~ —— `segment_id` 2026-09-21 删（零读者）;
+  章节归属本来就由 marker 派生（`digest._segment_domain` / `session/chapters.py`）
 
 ### ✅ 孤儿字段审计（2026-09-17，与 `time_span` 同批）
 
@@ -216,7 +217,7 @@ B = 今天的一句寒暄（SIG=0.50）
 **查过是活的（留档, 免得下次重查）**: `contradictions`（`recall.py:110` 一跳扩展。
 ⚠️ **字段与路径整块休眠**——真机零数据、活路径零生产者，2026-09-21 用户裁决"留着，
 等深整理/`DESIGN_RESEND` 立项时一次做对"，别当死字段删）·
-`history`（belief 改写溯源）· `growth` · `emo_shape`（B 链路）· `verbatim_seq`（**2026-09-21
+`growth` · `emo_shape`（B 链路）· `verbatim_seq`（**2026-09-21
 用户裁决保留**：它是 `verbatim` 的上游索引，坏索引时文本兜底）·
 `pkg`（`evolution.jsonl` 的操作批次）· `place_hint` / `art_hint` / `seed` / `visual` /
 `input` / `round`（`vn_state` 恢复点）· `created_at`（`list_open` 排序 + 登录页显示）·
@@ -1706,8 +1707,9 @@ fineday/cloudy/rain/fog）⇒ 上面这些**进不了候选、也不会误用**,
       （它要 closure detector 是因为它**没有**结构断点）; A-Mem 是原子 note 但靠
       context + evolution 保连贯。实测（`experiments/ba_corpus/ba_recall_probe.py`）:
       原子 11/26 / 带标签原子 8/26 / 章拼接 10/26 ⇒ **粒度对检索无可测影响**。
-      ⚠️ **仍未做**: 五章语料重跑 digest 验收（要真 API）+ 注入按 `segment_id` 分组
-      （连贯性/膨胀的另一半）。见 `docs/DESIGN_WIKI_V3.md §2.3.1′`
+      ⚠️ **仍未做**: 五章语料重跑 digest 验收（要真 API）+ 注入按章分组
+      （连贯性/膨胀的另一半；原写"按 `segment_id` 分组"——该字段 2026-09-21 删,
+      分组依据改用 marker 派生）。见 `docs/DESIGN_WIKI_V3.md §2.3.1′`
 - [ ] Virtual Brain 完整（Semantic Graph / Self-Model / Sleep 五阶段——当前 digest
       体系是其简化版; CLAUDE.md §3.2）
 - [ ] 官方剧情（剧本解析器 + 播放器）

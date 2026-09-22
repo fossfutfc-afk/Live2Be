@@ -3,27 +3,36 @@
 3 种节点（kind, 2026-09-02 fact 退役——出厂与运行时同构, 记忆 = 经历 + 认知）:
     episode    一次性经历（narration 第一人称浓缩 + verbatim 原话; 质感优先不升华）
     experience 重复模式（pattern + count 聚合; subject=player = 玩家口癖, R5 强调点）
-    belief     抽象认知（inferred_belief, links 必须 ≥1 支撑; history 记录改写溯源）
+    belief     抽象认知（inferred_belief, links 必须 ≥1 支撑）
 
-通用字段: id / kind / significance / epistemic / observer / tags / segment_id /
-          event_seq / ts / links / contradictions / aff_at_encoding /
-          emo_int / emo_span / emo_valence
-专属字段: episode.title(可选短标题) / belief.subject / belief.growth /
-          belief.history[{episode_id, content, ts}]
+通用字段: id / kind / significance / epistemic / observer / tags / event_seq / ts /
+          links / contradictions / aff_at_encoding / emo_int / emo_span
+专属字段: episode.title(可选短标题) / episode.verbatim(+verbatim_seq 索引) /
+          episode.emo_shape · place · place_raw（召回侧物化, 不进 LLM 上下文）/
+          belief.subject · belief.growth
 observer 语义（2026-09-02 收敛）: 单视角世界线里 observed_fact 的观察者恒为
 角色本人——引擎填 char_id, 不交给 LLM; reported_fact 的 observer = 转述者
 （LLM 判断, 渲染为"听 X 说的"）。
 
-⚠️ **`source` / `is_seed()` / `notes` 2026-09-21 整族删除**（"出厂基座"机制退役）:
-出厂记忆自 2026-09-05 起**不进 wiki**（`render_background_experience` 直注 yml 原文），
-唯一的生产者 `archive/factory_memory/seed_engine.py` 早已归档 ⇒ `source` 在活路径上
-恒为 `"digest"` 这个常量，而它带出的 `is_seed()` 不可变守卫与 `notes` 追加通道
-（全仓唯一读者）都是给一个不存在的生产者写的。真机 0 个 seed 节点。
+字段删除台账（2026-09-21 大化简；判据 = 生产者/消费者/真机数据三方核对）:
+    `source_key`    零生产零消费零数据（生产企业链已归档）
+    `observation`   2026-09-17 的"声明保留但不投产"挂点 ⇒ 删（写清 narrator 即可）
+    `speculation`   EPISTEMICS 第 4 值, 其余三值都被护栏强制 ⇒ 从未被写入
+    `source`        活路径上恒为 "digest"; 连同 `is_seed()`·`notes`·render 的 seed 桶
+     /`is_seed`     /"canon 只读"标记·store+revise 两条不可变守卫（出厂记忆不进 wiki）
+    `notes`         全仓唯一读者是上面那条守卫 ⇒ 守卫没了它没有读者
+    `count`         = len(links)，改为**派生属性**（删字段 + 2 处手工刷新 + 1 条 audit）
+    `segment_id`    零读者（段边界本来就由 marker 派生: `digest._segment_domain`）
+    `emo_valence`   有生产（Round A）零消费; 极性由 `emo_shape` 逐键承担
+    `history`       只写不读，且记的是**改写后**的内容（原文丢失）⇒ 改由
+                    `evolution.jsonl` 的 before/after 承担（那才是审计该待的地方）
+    `title`         ⚠️ **未删, 待裁决**——它是 Round A 的必填项且承载"本章标题"
+                    （`digest._collapse_bond_episodes` 用它收口）
+    旧档里这些键 → `from_dict` 宽松忽略（无迁移脚本）。
 
 关键规则（引擎侧强制, 此处提供 validate/normalize 支撑）:
     - epistemic: observed_fact | reported_fact | inferred_belief
-      （canon_fact 随 fact 退役, 2026-09-02;
-      **speculation 2026-09-21 删**——零生产者零消费者零真机数据, 见字段区）
+      （canon_fact 随 fact 退役, 2026-09-02）
     - belief.epistemic == inferred_belief（护栏）
     - belief.links 非空（无支撑升华拒绝, §5 校验规则 4）
     - significance: decimal 0~1, 珍贵档 ≥ PRECIOUS_THRESHOLD(0.8)（保底通道）
@@ -69,10 +78,10 @@ class BrainNode:
     """一条图式 wiki 节点（宽松 dataclass: 全部字段可缺省, 校验走 validate()）。
 
     按 kind 取用的专属字段:
-        episode:    narration(必填) / verbatim(可选原话) / title(可选短标题 8-16 字)
-        experience: pattern(必填) / subject(必填) / count(引擎数 links) / examples(≤3)
+        episode:    narration(必填) / verbatim(可选原话, +verbatim_seq 索引) /
+                    title(可选短标题 8-16 字) / emo_shape · place · place_raw(召回侧物化)
+        experience: pattern(必填) / subject(必填) / examples(≤3) / count(派生=len(links))
         belief:     content(必填) / subject(认知对象, 可空) / growth
-                    / history[改写溯源]（2026-09-02: {episode_id, content, ts} 数组）
     """
 
     id: str = ""
@@ -81,16 +90,8 @@ class BrainNode:
     epistemic: str = "observed_fact"
     observer: str = ""          # observed → 角色本人(引擎填); reported → 转述者(LLM)
     tags: list[str] = field(default_factory=list)
-    segment_id: str | None = None
     event_seq: list[int] = field(default_factory=list)
     ts: str = ""
-    #: ⏸ `source: str = "digest"` —— **已删（2026-09-21）**：活路径上它是常量。
-    #: 唯一写入点曾有两个:`make_node` 的默认值（"digest"）与修订包的 `node.source =
-    #: "digest"`;而"出厂基座"那一支（`source="experience"`）的生产者
-    #: `archive/factory_memory/seed_engine.py` 已归档, 真机 0 个 seed 节点。
-    #: 它带出的整族一起删: `is_seed()` · `render` 的 seed 桶与"canon 只读"标记 ·
-    #: `store.update`/`revise` 的不可变守卫 · `notes`（唯一读者就是那条守卫）。
-    #: 旧档里若还有这个键 → `from_dict` 宽松忽略。
     links: list[str] = field(default_factory=list)
     #: ⏸ **休眠字段 + 休眠路径（2026-09-21 用户裁决"接受整块休眠"）**。
     #:
@@ -115,10 +116,6 @@ class BrainNode:
     #: ⚠️ **重新立项深整理时走"带类型的边"**（矛盾是二元关系, 天然是边, 节点数组只是邻接表
     #: 实现）——见 `stores`/`DESIGN_WIKI_V3` 的 entity 中心模型; 不要回到"belief 上挂数组"。
     contradictions: list[str] = field(default_factory=list)
-    #: ⏸ `notes: list[str]` —— **已删（2026-09-21）**：它唯一的存在理由是"出厂基座
-    #: 只允许追加注记"（§5 规则 2），**全仓唯一的读者就是 `store.update` 里那条
-    #: `is_seed()` 守卫**——渲染不输出、召回不读、真机零数据。出厂基座机制随
-    #: `source` 一起退役 ⇒ 它没有任何读者了。
     # ── kind 专属 ──
     narration: str = ""
     verbatim: str = ""
@@ -212,29 +209,12 @@ class BrainNode:
     #: 句级锚点的原文要用 `paragraphs[i].text`, 在事件流里, 需要时按 `event_seq` 取。
     #: 🚫 **绝不进 LLM 上下文**（召回侧信号, 同 `emo_shape`）。
     place_raw: list[str] = field(default_factory=list)
-    title: str = ""             # episode 可选短标题（渲染压缩/回放/决策表引用）
+    title: str = ""             # episode 可选短标题（⚠️ 待裁决: Round A 必填, 承载本章标题）
     pattern: str = ""
     subject: str = ""
-    count: int = 0
     examples: list[str] = field(default_factory=list)
     content: str = ""
     growth: str = ""
-    #: ⏸ `observation: list[str]` —— **已删（2026-09-21 用户裁决）**。
-    #:
-    #: 它 2026-09-17 被删过一次又恢复为"声明保留但不投产"的挂点（零生产者、零消费者、
-    #: 不落库、零真机数据）。2026-09-21 复盘的裁决是**直接删**：
-    #: *"observation(其实 narrator 只要写清楚，LLM 一定能懂，没必要)"*。
-    #:
-    #: ⇒ "对某对象的观察"这件事**不需要一个字段**：主 LLM 写清 narrator 就懂。真要做
-    #: 多人模式的"谁观察到什么"，那是 v3 的实体模型（`about` 归堆 + `aspect` 分侧面 +
-    #: `entity.overview`），到时候按实体落，**不要**回到 belief 上平移一个数组。
-    #: 旧档里若还有这个键 → `from_dict` 宽松忽略。
-    history: list[dict] = field(default_factory=list)   # belief 改写溯源（见 docstring）
-    #: ⏸ `source_key: str` —— **已删（2026-09-21）**：零生产者零消费者零真机数据。
-    #: 出厂链（`archive/factory_memory/seed_engine.py`）写它；`render.py` 里的那个
-    #: `source_key` 是 yml 拍平的**局部变量名**（与字段无关）。出厂记忆自 2026-09-05
-    #: 起不进 wiki（改走 `render_background_experience` 直注 yml 原文）⇒ 早已没人写它。
-    #: 旧档里若还有这个键 → `from_dict` 宽松忽略。
     #: 编码时好感标量 ∈ [−1, 1]（`Affection.to_scalar()`, §3.3.3）——**快照**:
     #: 写入时定、之后**永不改**（故与"节点 append-only"不冲突）。
     #: `None` = 旧档/未采集; `0.0` = 中性。两者**必须能区分**——否则旧档会被
@@ -255,14 +235,14 @@ class BrainNode:
     #: ★ **不是**板级极差的聚合——板不是必需的粒度（2026-09-13 修正）:
     #:   Round A 看得到每条记录的 `(情绪键)`, 而它能读注释语义
     #:   （作者写 `sigh`「一看就知道是装可怜」——**字面极差读不出"装"**）。
-    #:   故与 `emo_int`/`emo_valence`/`significance` 同为 episode 级 LLM 标量,
+    #:   故与 `emo_int`/`significance` 同为 episode 级 LLM 标量,
     #:   **不需要板链**（Q34 因此不阻塞任何字段）。
     emo_span: float | None = None
-    #: 整体情绪色彩 ∈ [−1, 1]（带符号, Round A 出值）——**不进矩阵**。
-    #: 矩阵第二格是 `emo_span`（无符号幅度）; 极性在这里, 供**情感召回的同频匹配**用
-    #: （"现在难过" ↔ "这条记忆是难过的"）。
-    #: 分级: 明显正面 → 0.5~1.0; 中性 → 0.0; 明显负面 → −0.5~−1.0。
-    emo_valence: float | None = None
+    # ⏸ `emo_valence: float | None` —— **已删（2026-09-21）**: 有生产（Round A）**零消费**
+    # ——全仓没有任何读取点（B 链路用 `emo_shape` 逐键、A 链路用 `emo_int`/`emo_span`）。
+    # 它原本写着"供情感召回的同频匹配用"，那个消费者从未建; 而极性信息在 `emo_shape`
+    # 的情绪键里逐键带着（`smile` / `depressed`），比一个标量更有分辨力。
+    # 旧档里若还有这个键 → `from_dict` 宽松忽略。
     # ── 剧情时间点（`story_time`）：**已整族退役**（2026-09-17, `ESSAY_TIME_MODEL §10`）──
     # 删掉的是 `story_time: dict | None` 字段、`_parse_story_time()` 与 `to_dict` 里的
     # 特例分支。它存的是**剧情日历**的快照（`{year,month,week,phase,sim_day}`），
@@ -292,26 +272,21 @@ class BrainNode:
         if self.kind in ("episode", "experience") \
                 and self.epistemic not in ("observed_fact", "reported_fact"):
             errors.append(f"{self.kind} 节点 epistemic 只能是 observed_fact/reported_fact")
-        # history 只属于 belief（改写溯源, 引擎写入）
-        if self.history and self.kind != "belief":
-            errors.append("history 字段只属于 belief 节点（改写溯源）")
         # 数量边界
-        if len(self.examples) > 3:
+        if self.kind == "experience" and len(self.examples) > 3:
             errors.append("experience.examples 最多 3 条")
-        if self.count < 0:
-            errors.append("experience.count 不能为负")
         # significance 边界（decimal 0~1）
         if not (0.0 <= self.significance <= 1.0):
             errors.append(f"significance 越界: {self.significance}（须 0~1）")
         return errors
 
     def normalize(self) -> "BrainNode":
-        """引擎侧归一（不校验, 只修不变量）:
-        significance clamp 0~1; experience.count = len(links); examples 截断 3。
+        """引擎侧归一（不校验, 只修不变量）: significance clamp 0~1; examples 截断 3。
+
+        （原"experience.count = len(links)"一行 2026-09-21 删——count 已是派生属性。）
         """
         self.significance = max(0.0, min(1.0, float(self.significance)))
         if self.kind == "experience":
-            self.count = len(self.links)
             self.examples = self.examples[:3]
         return self
 
@@ -339,44 +314,49 @@ class BrainNode:
         """玩家口癖/习惯节点（R5 强调点, §4.4 去重豁免）。"""
         return self.kind == "experience" and self.subject == PLAYER_SUBJECT
 
+    @property
+    def count(self) -> int:
+        """experience 的**出现次数**——2026-09-21 起是**派生属性** `= len(links)`。
+
+        原为存储字段，靠三处手工同步（`add_link` / `remove_link` / `normalize`）
+        维护、再由 `store.audit()` 查"不变量有没有被破坏"。同一个事实存两份、
+        再写三处同步 + 一条自检，是纯粹的维护面。真机数据里它恒等于 `len(links)`。
+        """
+        return len(self.links)
+
     def dedup_key(self) -> tuple:
         """去重键 = (kind, event_seq)——同事件重复消化去重; 不同事件同类走 accrue 不删。"""
         return (self.kind, tuple(self.event_seq))
-
-    # ⏸ `is_seed()` —— **已删（2026-09-21）**: 判据是 `source == "experience"`, 随
-    # `source` 一起退役（出厂基座机制: 出厂记忆自 2026-09-05 起不进 wiki）。
-    # 它带走的两个守卫: `store.update` 的 SeedImmutable（只允许 notes 追加）与
-    # `revise._apply_action` 的同款守卫——两者都对着一个不存在的生产者。
-    # 若将来真要"作者写死的、运行时不可改"的记忆, 那条纪律应落在**配置层**
-    # （`config/characters/*/experience.yml` 直注）, 不要回 wiki 里做不可变节点。
 
     # ------------------------------------------------------------------
     # 序列化
     # ------------------------------------------------------------------
 
     def to_dict(self) -> dict[str, Any]:
-        """→ dict（空/缺省可选字段省略——行小; id/kind/significance/epistemic 恒在）。"""
+        """→ dict（空/缺省可选字段省略——行小; id/kind/significance/epistemic 恒在）。
+
+        ⚠️ `count` **不再落库**（派生属性, 见上）——旧档里的那个键由 `from_dict` 忽略。
+        """
         d: dict[str, Any] = {
             "id": self.id,
             "kind": self.kind,
             "significance": self.significance,
             "epistemic": self.epistemic,
         }
-        for f in ("observer", "tags", "segment_id", "event_seq", "ts",
+        for f in ("observer", "tags", "event_seq", "ts",
                   "links", "contradictions", "narration", "verbatim",
                   "verbatim_seq", "title", "emo_shape", "place",
                   "place_raw",
-                  "pattern", "subject", "count", "examples", "content", "growth",
-                  "history"):
+                  "pattern", "subject", "examples", "content", "growth"):
             v = getattr(self, f)
             if v in (None, "", [], 0):
                 continue
             d[f] = v
-        # aff_at_encoding / emo_int / emo_span / emo_valence **不进上面那圈
+        # aff_at_encoding / emo_int / emo_span **不进上面那圈
         # "空值省略"** —— 它们用 None 当"未采集"哨兵, 而 0.0 是合法值
-        # （中性好感 / 无波澜 / 中性色彩）。
+        # （中性好感 / 无波澜）。
         # 旧口径的 `v in (..., 0)` 会把合法的 0.0 一起省掉。
-        for f in ("aff_at_encoding", "emo_int", "emo_valence", "emo_span"):
+        for f in ("aff_at_encoding", "emo_int", "emo_span"):
             v = getattr(self, f)
             if v is not None:
                 d[f] = v
@@ -396,7 +376,6 @@ class BrainNode:
         node.epistemic = epi if epi in EPISTEMICS else "observed_fact"
         node.observer = _str(raw.get("observer"))
         node.tags = _str_list(raw.get("tags"))
-        node.segment_id = _str(raw.get("segment_id")) or None
         node.event_seq = _int_list(raw.get("event_seq"))
         node.ts = _str(raw.get("ts"))
         node.links = _str_list(raw.get("links"))
@@ -411,16 +390,14 @@ class BrainNode:
         node.title = _str(raw.get("title"))
         node.pattern = _str(raw.get("pattern"))
         node.subject = _str(raw.get("subject"))
-        node.count = _int(raw.get("count"))
         node.examples = _str_list(raw.get("examples"))
         node.content = _str(raw.get("content"))
         node.growth = _str(raw.get("growth"))
-        node.history = _dict_list(raw.get("history"))
         node.aff_at_encoding = _opt_clamp(raw.get("aff_at_encoding"), -1.0, 1.0)
         node.emo_int = _opt_clamp(raw.get("emo_int"), 0.0, 1.0)
         node.emo_span = _opt_clamp(raw.get("emo_span"), 0.0, 1.0)
-        node.emo_valence = _opt_clamp(raw.get("emo_valence"), -1.0, 1.0)
-        # `story_time` 已退役（2026-09-17）——旧档里若还有这个键, **此处直接忽略** ✓
+        # 已退役的键在此**直接忽略**（旧档宽容, 不抛）: `count`（现为派生属性）·
+        # `segment_id` · `emo_valence` · `history` · `story_time`(2026-09-17)
         return node
 
     def to_json_line(self) -> str:
@@ -461,13 +438,6 @@ def _str_list(v: Any) -> list[str]:
     return [x.strip() for x in v if isinstance(x, str) and x.strip()]
 
 
-def _dict_list(v: Any) -> list[dict]:
-    """history 等 dict 数组的宽松读取（宁缺勿错: 只收 dict, 不收坏项）。"""
-    if not isinstance(v, list):
-        return []
-    return [x for x in v if isinstance(x, dict)]
-
-
 def _int_list(v: Any) -> list[int]:
     if not isinstance(v, list):
         return []
@@ -480,13 +450,6 @@ def _int_list(v: Any) -> list[int]:
     return out
 
 
-def _int(v: Any) -> int:
-    try:
-        return int(v)
-    except (TypeError, ValueError):
-        return 0
-
-
 def _clamp_sig(v: Any) -> float:
     try:
         f = float(v)
@@ -496,7 +459,7 @@ def _clamp_sig(v: Any) -> float:
 
 
 def _opt_clamp(v: Any, lo: float, hi: float) -> float | None:
-    """可选 [lo, hi] 标量（`aff_at_encoding` / `emo_int` / `emo_span` / `emo_valence`）
+    """可选 [lo, hi] 标量（`aff_at_encoding` / `emo_int` / `emo_span`）
     ——**缺/坏 → None, 不折成 0.0**。
 
     与 `_clamp_sig` 的关键差别: 后者的默认 0.5 是一个真实档位;
