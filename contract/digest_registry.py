@@ -44,6 +44,7 @@ PLAYER_SUBJECT = "player"
 MAX_EPISODES = 5        # A 轮单包最多 episode 数
 MAX_TEXT = 300          # 正文（text）单行上限（汉字）——三槽合流后两种 kind 共用
 MAX_TAGS = 4            # tags 检索词上限
+MAX_ITEMS = 3           # items（物品台账, §3.1）单条上限
 
 #: ⚠️ **`TASK_TIMESPAN` 已于 2026-09-17 删除**（用户裁决）—— 连同 schema 里那行
 #: `"time_span": "halfday"`。
@@ -147,6 +148,14 @@ RECORD_EPISODE = DigestAction(
         '                          // 所以想用①就**别写字符串**, 别两条都给 //\n'
         '      "tags": ["…"],     // 必填 1-4 个; 检索导向——未来玩家输入/叙事可能出现的词\n'
         '                          //（人名/地点/物品/动作/话题）; 不含时间词; 从最重要排起 //\n'
+        '      "about_hint": "老师",  // 可选; 这条记忆**是关于谁的**——写你心里那个自然名字\n'
+        '                          //（"老师"/"睦月"/"杂草屋"）。\n'
+        '                          // 判据: **三个月后再提到它, 需要它前后一致吗?** 需要才写。\n'
+        '                          // ⚠️ 一次性道具**不写**（那顶帽子/只去过一次的饭馆）——\n'
+        '                          // 它们留在 text 里就够, 写进来只会造出一堆没有下文的身份 //\n'
+        '      "items": ["一盆杂草"],  // 可选; 这件事里她**得到/失去了什么实物**\n'
+        '                          //（一盆杂草/一本笔记/一个挂件）。\n'
+        '                          // 情绪、对话、"发生的事"都不算; 最多 3 件; 没有就不写 //\n'
         '      "significance": 0~1,  // 行为锚点: 0.9+ 改变认知/极深刻（初遇/告白）;\n'
         '                          // 0.7~0.9 重要约定/特别难忘的日常; <0.7 普通但角色在意的细节;\n'
         '                          // 拿不准往低给 //\n'
@@ -168,11 +177,14 @@ RECORD_EPISODE = DigestAction(
     ),
     example=(
         '{"text": "老师约我去公园散步, 我紧张但努力答应了; 在长椅上一起喝热茶时,'
-        ' 一只流浪猫来蹭老师的裤脚, 我鼓起勇气摸了摸它, 回家路上嘴角一直藏着笑。",'
+        ' 一只流浪猫来蹭老师的裤脚, 我鼓起勇气摸了摸它。回家时老师把没喝完的纸杯'
+        ' 塞给我说「拿着暖手」, 我一路捧着它, 嘴角一直藏着笑。",'
         ' "title": "和老师的公园散步",'
         ' "event_seq": ["31", "33"],'
         ' "verbatim": ["33.2", "33.p"],'
         ' "tags": ["公园", "流浪猫", "热茶"],'
+        ' "about_hint": "老师",'
+        ' "items": ["老师给的纸杯"],'
         ' "significance": 0.8,'
         ' "emo_int": 0.6, "emo_span": 0.7}'
     ),
@@ -680,6 +692,20 @@ def _clean_episode_item(e: dict, i: int, errors: list[str], warnings: list[str],
         item["tags"] = tags
     else:
         warnings.append(f"episodes[{i}] 缺 tags（检索导向 1-4 个）")
+    # 归属线索（§8.2, D1）: `about_hint` = **自然名字**, 空/坏 → 不落字段。
+    # ⚠️ 它**不落库**（引擎在 `digest._create_a_nodes` 里摘走, 传给第 3 轮做映射）——
+    # 所以这里只负责清洗成一个干净字符串, 不是节点字段。
+    hint = e.get("about_hint")
+    if isinstance(hint, str) and hint.strip():
+        item["about_hint"] = hint.strip()
+    # 物品台账（§3.1, D1）: 裸字符串数组, 截断到 MAX_ITEMS; 空 → 不落字段。
+    raw_items = e.get("items")
+    if isinstance(raw_items, list):
+        got = [x.strip() for x in raw_items if isinstance(x, str) and x.strip()]
+        if len(got) > MAX_ITEMS:
+            warnings.append(f"episodes[{i}].items 超过 {MAX_ITEMS} 件——截断")
+        if got[:MAX_ITEMS]:
+            item["items"] = got[:MAX_ITEMS]
     sig = e.get("significance")
     try:
         sig_f = float(sig) if sig is not None else 0.5

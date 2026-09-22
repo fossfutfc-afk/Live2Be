@@ -71,6 +71,28 @@ def _b_ok(**over):
 # 增量 / 无新增
 # ---------------------------------------------------------------------------
 
+def test_round_a_items_land_and_hint_is_not_stored(tmp_path):
+    """D1: `items` 落库（节点字段）; `about_hint` **不落库**（摘走交给第 3 轮做映射）。
+
+    ⚠️ 两件事都容易做错、而且**都会静默**: items 忘了在契约层清洗 → 落进未声明的键;
+    hint 忘了摘 → 进 `make_node` 后变成被 `from_dict` 忽略的未知键
+    （测试照样绿, 但第 3 轮拿不到线索）。
+    """
+    st = _seed_store(tmp_path)
+    llm = FakeLLM(
+        {"episodes": [{"text": "老师说这个给你。", "title": "送我一盆杂草",
+                       "tags": ["杂草"], "significance": 0.7,
+                       "about_hint": "老师", "items": ["一盆杂草", "锈饼干盒"]}]},
+        {"decisions": [{"episode": "m0003", "decision": "touch", "target": "u0001"}],
+         "evidence": [], "affection_exp_delta": 0})   # B 必须覆盖全部 episode（结构检查）
+    res = digest_segment(st, llm, _events(_mmt(3, "x", "送你一盆杂草")))
+    assert res.ok, res.errors
+    ep = st.get(res.created[0])
+    assert ep.items == ["一盆杂草", "锈饼干盒"]                    # 落库
+    assert "about_hint" not in ep.to_dict()                       # 不落库
+    assert res.hints == [{"node": res.created[0], "hint": "老师"}]  # 交给第 3 轮（D3 才消费）
+
+
 def test_no_new_events_no_llm_call(tmp_path):
     st = _seed_store(tmp_path)
     st.meta["digested_seq"] = 99
