@@ -31,7 +31,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 #: 节点类型（fact 已退役, 2026-09-02——出厂与 digest 同构: 记忆 = 经历 + 认知）
-KINDS = ("episode", "experience", "belief")
+KINDS = ("episode", "experience", "belief", "entity")
 #: 认知类型（canon_fact 随 fact 退役; speculation 2026-09-21 删——三值全由护栏强制）
 EPISTEMICS = ("observed_fact", "reported_fact", "inferred_belief")
 #: 珍贵档阈值（保底通道 / 对应 neuron 草稿的 memo 档）
@@ -44,6 +44,9 @@ _REQUIRED: dict[str, tuple[str, ...]] = {
     "episode": ("text",),
     "experience": ("text", "subject"),
     "belief": ("text",),
+    # ⚠️ entity **只要求 `name`** —— `text`（立场/成长基线）允许空着出生:
+    # `ensure_entities` 建 self/sensei 时还没有任何记忆, 立场是第 3 轮从记忆里长出来的。
+    "entity": ("name",),
 }
 
 
@@ -58,10 +61,11 @@ class BrainNode:
 
     字段分组:
         共用    id / kind / significance / text / epistemic / observer / tags /
-                event_seq / ts / links / contradictions(休眠)
-        episode title / verbatim / verbatim_seq / emo_shape / place / place_raw /
+                event_seq / ts
+        episode title / verbatim / verbatim_seq / items / emo_shape / place / place_raw /
                 aff_at_encoding / emo_int / emo_span
         认知     subject / examples / growth        （experience / belief）
+        entity  name / aliases / state             （`text` = 立场/成长基线, 属共用槽）
     """
 
     # ── 共用（三种 kind 都有）──
@@ -79,6 +83,9 @@ class BrainNode:
     #: **这条记忆的正文**（三种 kind 共用一槽; 原 `narration`/`pattern`/`content` 2026-09-21 合流）。
     #: 写作口径仍按 kind 分（episode=第一人称浓缩 / experience=规律 / belief=结论）——那是
     #: rules/schema 的语义, 不再由字段名承担。旧档的旧名由 `from_dict` 兼容读入。
+    #: ⭐ **entity 也用这一槽**：它的 `text` = **立场 / 成长基线**（原 `overview` 的语义,
+    #: 2026-09-21 用户裁决"overview 就是 text"）—— 所以 entity 不新增字段、`text` 也不必
+    #: 从"共用"里降级出去。
     text: str = ""
     # ── episode 专属 ──
     verbatim: str = ""
@@ -102,10 +109,25 @@ class BrainNode:
     place_raw: list[str] = field(default_factory=list)
     #: episode 可选短标题（Round A 必填, 承载本章标题）
     title: str = ""
+    #: ⭐ **物品台账**（§3.1, 2026-09-21）——**痕迹**而不是状态: "这件事里她得到了什么实物"
+    #: （`["一盆杂草", "锈饼干盒"]`）。裸字符串, 与 `tags` 同款。
+    #: 不做 kind、不做边、**不进常驻层**（"她此刻手边有什么"由 entity 的 `state` 满足）。
+    #: 再次出现的同一件东西由 LLM 在正文里自己连 —— 引擎不需要机械地知道它们是同一个。
+    items: list[str] = field(default_factory=list)
     # ── 认知专属（experience / belief）──
     subject: str = ""
     examples: list[str] = field(default_factory=list)
     growth: str = ""
+    # ── entity 专属（§3.0; `text` 与 `state` 是它的两个载荷）──
+    #: 主名字（"老师"）——**消解的目标**: 别名都归到它这里; 新 entity 必填。
+    name: str = ""
+    #: 别名（"sensei" / "他" / "遥香"）—— 第 3 轮映射 hint 时的查表入口。
+    #: ⚠️ **不造自动维护机制**（2026-09-21 裁决: 那是效率优化不是能力）——初始化写死几个,
+    #: 第 3 轮在它已经判定"hint 就是这个人"时**顺手**写进去。
+    aliases: list[str] = field(default_factory=list)
+    #: **物理状况句清单**（世界侧: 身体 / 外观 / 随身）——"手上多了道划痕" "今天戴了眼镜"。
+    #: 与 `text`（立场/成长基线, 心智侧）分工; 会变、**会自愈**（谁判它过期 = §9-4 未定）。
+    state: list[str] = field(default_factory=list)
     # ── episode 数值（None = 未采集; 0.0 是合法值——两者不可合并）──
     #: 编码时好感标量 ∈ [−1, 1]（`Affection.to_scalar()`）——**快照**: 写入时定、永不改。
     #: 真源是 `affection` 事件流, 本字段只是省掉每次召回重放。
@@ -199,9 +221,10 @@ class BrainNode:
         }
         for f in ("observer", "tags", "event_seq", "ts",
                   "text", "verbatim",
-                  "verbatim_seq", "title", "emo_shape", "place",
+                  "verbatim_seq", "title", "items", "emo_shape", "place",
                   "place_raw",
-                  "subject", "examples", "growth"):
+                  "subject", "examples", "growth",
+                  "name", "aliases", "state"):
             v = getattr(self, f)
             if v in (None, "", [], 0):
                 continue
@@ -238,9 +261,13 @@ class BrainNode:
         node.place = _str_list(raw.get("place"))
         node.place_raw = _str_list(raw.get("place_raw"))
         node.title = _str(raw.get("title"))
+        node.items = _str_list(raw.get("items"))
         node.subject = _str(raw.get("subject"))
         node.examples = _str_list(raw.get("examples"))
         node.growth = _str(raw.get("growth"))
+        node.name = _str(raw.get("name"))
+        node.aliases = _str_list(raw.get("aliases"))
+        node.state = _str_list(raw.get("state"))
         node.aff_at_encoding = _opt_clamp(raw.get("aff_at_encoding"), -1.0, 1.0)
         node.emo_int = _opt_clamp(raw.get("emo_int"), 0.0, 1.0)
         node.emo_span = _opt_clamp(raw.get("emo_span"), 0.0, 1.0)
