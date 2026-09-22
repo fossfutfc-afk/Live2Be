@@ -4,8 +4,10 @@
 口径（DESIGN_COLLECTION_BOOK §1/§3）:
     · 章 = vn_enter…vn_exit; **只收 vn_exit completed=True**
     · 未完(open) / 主动中断(completed=False) / 废弃(vn_abandon) / 空壳(无板) → 都不收
-    · 纪念图归属: 章区间内 → 该章; vn_enter 之前（预热先出图 #40）→ 紧随其后的章;
-      中间夹 vn_abandon → 作废; 无后续章 = 孤儿 → 不显示
+    · 纪念图归属: **按图自己的 seq 定位**（落在章区间内 → 该章的窗口;
+      落不到区间 → 最近的窗口）。⚠️ 两条旧判据都栽过: 按区间 → 图**晚到**挂下一章;
+      最近的前置 `memorial_enter` → 图**早到**（预热, 决策 #40）挂上一章（2026-09-23 真机）。
+      中间夹 vn_abandon → 作废; 无任何窗口 = 孤儿 → 不显示
 
 运行: python -m pytest tests/core/test_chapters.py
 """
@@ -181,6 +183,45 @@ def test_memorial_window_before_its_board():
     s = [x["scene"] for x in ch["scenes"]]
     assert s[0].get("in_memorial") is True and s[0].get("memorial_img") == "/gallery/w/c/pre.png"
     print("    预热顺序: marker 在板之前 → 图仍挂到触发板")
+
+
+def test_memorial_image_lands_before_its_own_enter():
+    """★ 真机形状（2026-09-23 报障）: **图早于本章自己的 `memorial_enter`**（预热）。
+
+    事件流实测（第 3 章）: `vn_enter`=99 → **图 seq=101** → 本章 `memorial_enter`=117
+    → 触发板 119。旧判据"最近的前置 `memorial_enter`"在图那个位置上只看得到**上一章**
+    的锚点 ⇒ 两个后果（都在真机上发生了）:
+      · 上一章的纪念板亮出**这一章**的图（错位）;
+      · 这一章的纪念板图空 ⇒ 前端"清背景 + 什么都不淡入" = **黑屏**（消失）。
+    正确判据 = 按**图自己的 seq** 定位归属（落在某章区间内 → 该章的窗口;
+    落在区间外（预热早于 `vn_enter` / 晚于 `vn_exit`）→ 最近的那个窗口）。
+    """
+    evs = [
+        # 第 1 章（图的正常顺序: 窗口 → 图）
+        marker("vn_enter", {"chapter_title": "甲"}, seq=2),
+        make_event("bond", "story_scene",
+                   {"paragraphs": [{"text": "甲·触发"}], "memorial": True}, seq=3),
+        marker("memorial_enter", {"chapter_title": "甲", "v2": True}, seq=4),
+        marker("memorial_image", {"url": "/gallery/w/c/jia.png"}, seq=5),
+        marker("memorial_exit", {"v2": True, "auto": True}, seq=6),
+        marker("vn_exit", {"completed": True}, seq=7),
+        # 第 2 章: 图**早于**本章 memorial_enter（预热——真机三次全是这个形状）
+        marker("vn_enter", {"chapter_title": "乙"}, seq=9),
+        marker("memorial_image", {"url": "/gallery/w/c/yi.png"}, seq=10),
+        marker("memorial_enter", {"chapter_title": "乙", "v2": True}, seq=11),
+        make_event("bond", "story_scene",
+                   {"paragraphs": [{"text": "乙·触发"}], "memorial": True}, seq=12),
+        marker("memorial_exit", {"v2": True, "auto": True}, seq=13),
+        marker("vn_exit", {"completed": True}, seq=14),
+    ]
+    jia, yi = replayable_chapters(evs)
+    assert jia["images"] == ["/gallery/w/c/jia.png"], f"甲拿了别人的图: {jia['images']}"
+    assert yi["images"] == ["/gallery/w/c/yi.png"], f"乙的图丢了: {yi['images']}"
+    boards = {x["seq"]: x["scene"] for x in yi["scenes"]}
+    assert boards[12].get("memorial_img") == "/gallery/w/c/yi.png", \
+        f"乙的纪念板没亮自己的图: {boards[12]}"
+    assert boards[12].get("in_memorial") is True
+    print("    预热早到: 图归本章（不错挂上一章、也不丢）")
 
 
 def test_story_pick_supplement_merges_into_board():

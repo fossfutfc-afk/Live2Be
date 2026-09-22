@@ -66,6 +66,33 @@ def _next_span(spans: list[dict], seq: int) -> dict | None:
     return next((s for s in spans if s["enter_seq"] > seq), None)
 
 
+def _owner_anchor(anchors: list[int], spans: list[dict], seq: int) -> int | None:
+    """图 marker → 它属于**哪个纪念窗口**（返回该窗口 `memorial_enter` 的 seq）。
+
+    ⚠️ **这条判据有两条前科，都别再回头**（2026-09-23 真机报障结案）:
+
+    | 旧判据 | 什么时候错 | 错成什么 |
+    |---|---|---|
+    | 按 seq 区间（`enter ≤ img ≤ exit`） | 图**晚到**（生成 20~30s，常晚于本章 `vn_exit`） | 挂到**下一章** |
+    | 最近的前置 `memorial_enter` | 图**早到**（预热在 `memorial_enter` 写盘**之前**就出图，决策 #40） | 挂到**上一章** |
+
+    真机 2026-09-23: 三次出图**全部早到**（图 seq 12/101/164 都早于各自的
+    `memorial_enter` 21/117/170）⇒ 第 1 章的板亮了第 3 章的图、第 2/4 章的纪念板
+    图空（前端"清背景 + 什么都不淡入" = 黑屏）。
+
+    **现在的判据**: 先看"图落在哪一章的区间里"——在区间内就用**该章区间内的锚点**
+    （图早到、正常、晚到落回本章时都对）; 落不到任何区间（预热早于 `vn_enter` /
+    晚于 `vn_exit`）才退回"离图最近的锚点"。
+    """
+    span = _holding(spans, seq)
+    if span is not None:
+        end = span["close_seq"] or _OPEN_END
+        inside = [a for a in anchors if span["enter_seq"] <= a <= end]
+        if inside:
+            return inside[0]                     # 一章至多一个窗口（M5）
+    return min(anchors, key=lambda a: abs(a - seq)) if anchors else None
+
+
 def _memorial_urls(events: list, spans: list[dict]) -> dict[int, list[str]]:
     """纪念图 → 归属章的 `enter_seq`（见模块 docstring 的归属规则）。"""
     out: dict[int, list[str]] = {}
@@ -78,11 +105,11 @@ def _memorial_urls(events: list, spans: list[dict]) -> dict[int, list[str]]:
         url = str((m.payload or {}).get("url") or "").strip()
         if not url:
             continue
-        # ① 触发它的那块板（最近的前置 memorial_enter）决定归属
-        anchor = next((a for a in reversed(anchors) if a < m.seq), None)
+        # ① 图 → **它自己的那个窗口**（判据见 `_owner_anchor`; 图早到是预热常态）
+        anchor = _owner_anchor(anchors, spans, m.seq)
         owner = _holding(spans, anchor) if anchor is not None else None
         if owner is None and anchor is not None:
-            owner = _next_span(spans, anchor)      # 预热板: 章前触发 → 归下一章
+            owner = _next_span(spans, anchor)      # 预热板: marker 早于 `vn_enter`
             if owner is not None and any(anchor < a < owner["enter_seq"]
                                          for a in abandons):
                 continue                           # 中间夹废弃 → 那是废弃章的图
@@ -98,7 +125,7 @@ def _memorial_urls(events: list, spans: list[dict]) -> dict[int, list[str]]:
     return out
 
 
-def _memorial_boards(events: list) -> dict[int, dict]:
+def _memorial_boards(events: list, spans: list[dict]) -> dict[int, dict]:
     """**板级**纪念归属（P1①, 2026-09-20）: `{bond 事件 seq: {"img": url}}`。
 
     只读回放要和 live 看到的一样——live 的纪念态是"进窗口即隐藏立绘 + 清空普通背景
@@ -171,7 +198,9 @@ def _memorial_boards(events: list) -> dict[int, dict]:
         if not (m.is_marker and m.subtype == M_MEMORIAL_IMAGE):
             continue
         url = str((m.payload or {}).get("url") or "").strip()
-        anchor = next((a for a in reversed(anchors) if a < m.seq), None)
+        # ⚠️ 归属判据 = `_owner_anchor`（**不是**"最近的前置 enter"——那会把预热早到的图
+        # 记到上一章头上; 2026-09-23 真机结案, 见该函数 docstring）
+        anchor = _owner_anchor(anchors, spans, m.seq)
         if not (url and anchor):
             continue                                    # v1 档 → 留给章级回落
         w = next((x for x in windows if x["enter"] == anchor), None)
@@ -213,7 +242,7 @@ def replayable_chapters(events: list) -> list[dict]:
         return []
     bonds = [e for e in events if is_board_event(e)]
     images = _memorial_urls(events, spans)
-    per_board = _memorial_boards(events)
+    per_board = _memorial_boards(events, spans)
     picks = pick_supplements(events)          # 补录裁决 → 并回它那一板（读侧唯一规则）
     out: list[dict] = []
     for s in chapters:
