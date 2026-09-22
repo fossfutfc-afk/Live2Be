@@ -189,6 +189,31 @@ def test_resolve_place_keep_on_bad_output():
     print("    resolve: 词表外/同地点/坏输出/异常 → keep")
 
 
+def test_resolve_place_same_token_and_no_cache_on_failure():
+    """⭐ 2026-09-23（真机 '夜晚的模型店橱窗前' 三块板全 MISS 结案）:
+
+    * `{"place": "same"}` = **显式的"就是当前这个地方"**（prompt 里唯一的合法出口）——
+      与"给空串"分开，这样"确实是同一处"与"判不出来"在数据里分家;
+    * **失败不缓存**: 空/词表外键**不进缓存** ⇒ 同一句话下次还有机会（原先连 `""`
+      一起缓存, 一次偷懒把整章钉死）; 成功的结果照旧缓存。
+    """
+    _RESOLVE_CACHE.clear()
+    assert resolve_place(ScriptedLLM('{"place": "same"}'), "老师的办公室里", KEYS,
+                         "classroom") == ""
+    assert _RESOLVE_CACHE == {}, "same 是判定, 但也不该把空结果缓存"
+
+    # 第一次给词表外的键（模型"想说的词"不在表里）→ 空; **不缓存**
+    bad = ScriptedLLM('{"place": "model_shop"}', '{"place": "model_shop"}')
+    assert resolve_place(bad, "夜晚的模型店橱窗前", KEYS, "hallway") == ""
+    assert _RESOLVE_CACHE == {}, f"失败不该被缓存: {_RESOLVE_CACHE}"
+    # 同一句话**再问一次** → 真的又调用了（有机会给出有效键）
+    good = ScriptedLLM('{"place": "rooftop"}')
+    assert resolve_place(good, "夜晚的模型店橱窗前", KEYS, "") == "rooftop"
+    assert len(good.calls) == 1
+    assert _RESOLVE_CACHE, "成功的才缓存"
+    print("    resolve: same 显式标记 + 失败不缓存（下次还有机会）")
+
+
 def test_resolve_place_uses_place_task_level():
     """档位复用 place 形态（thinking off + 256），与标注层同源。"""
     _RESOLVE_CACHE.clear()

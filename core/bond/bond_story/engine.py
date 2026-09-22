@@ -943,7 +943,7 @@ class BondStoryEngine:
             key = resolve_place(self.llm, scene.place_hint, self._place_keys,
                                 self._current_place,
                                 table=self._place_table)
-            logger.info("[place][SWITCH] %r → %s", scene.place_hint, key or "MISS(keep)")
+            logger.info("[place][SWITCH] %r → %s", scene.place_hint, key or "keep（不换场）")
             if key:
                 scene.place = key
                 self._current_place = key
