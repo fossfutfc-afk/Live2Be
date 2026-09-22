@@ -1005,6 +1005,15 @@ def test_memorial_board_skips_annotation_lane(tmp_path):
         # ① 纪念区间置位（v1 路径死后曾永为 False）+ 前端信号
         assert state.vn.in_memorial is True
         assert bond.bond_status(CHARACTER, sid)["in_memorial"] is True
+        # ⭐ 2026-09-23 真机报障的回归: 前端那个值必须来自**板自己的窗口快照**,
+        # 而不是引擎"解析到哪了"的活标志。预热/预生成会提前解析后面的块 ⇒ 交付纪念板时
+        # 活标志早被翻回 False ⇒ 前端不黑屏、不淡入图（真机症状: "纪念图没给我放"）。
+        # 这里手工把活标志打回 False 来复现那个时刻, 前端信号必须**不受影响**。
+        state.vn._in_memorial = False
+        assert sc.in_memorial is True, "板自带窗口快照"
+        assert bond.bond_status(CHARACTER, sid)["in_memorial"] is True, \
+            "活标志被提前翻掉时, 前端信号仍必须为真（板级快照说了算）"
+        state.vn._in_memorial = True
         # ② **记录级进入点**: 触发记录之前还有一条正常对话 → 那一条要标
         assert sc.memorial_at == 2, sc.to_dict()
         assert bond._memorial_no_visuals(state, sc) is False

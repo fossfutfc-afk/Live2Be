@@ -78,6 +78,14 @@ class BondScene:
     #: **这句 text 本身就是黑屏期里唯一的内容**，所以黑屏必须从它开始。
     #: None = 没有纪念记录（旧档/普通板）→ 前端按板级处理（整板即窗口）。
     memorial_at: int | None = None
+    #: ⭐ **板级纪念窗口快照**（2026-09-23, 真机报障结案）: 这块板**在不在纪念窗口里**。
+    #: 窗口 = 本块的 `memorial` 记录之后 → 本块块尾（同块后续板都还在窗口里）。
+    #: 由组装器**造板那一刻**算好（`boards._BoardAssembler`）——那一刻它必然知道。
+    #: ⚠️ 为什么不直接问引擎的 `_in_memorial`: 那是"**解析**到哪了"的活标志, 而
+    #: 预热/预生成会**提前解析后面的块** ⇒ 纪念板真正交付时它早被翻回 False, 前端于是
+    #: 不点亮纪念层（不黑屏、不淡入图）。快照到板上就与解析/交付顺序彻底解耦。
+    #: 与 `memorial` 的分工: `memorial` = "**本板含**触发记录"; 本字段 = "本板在窗口里"。
+    in_memorial: bool = False
     art_hint: str = ""
     #: 已裁决的选项原文（决策 #37）: 只作**展示标记**——回放/续看时前端据此把选项组
     #: 画出来（锁定 + 高亮所选）; 绝不进 paragraphs（玩家的话语只体现为选项）。
@@ -87,7 +95,8 @@ class BondScene:
 
     @classmethod
     def from_board(cls, records: tuple, group: tuple[int, ...] = (), *,
-                   notes: list[str] | None = None) -> "BondScene":
+                   notes: list[str] | None = None,
+                   in_memorial: bool = False) -> "BondScene":
         """一块记录（板切片）→ BondScene（记录流 v2, P0-4b）。
 
         - `paragraphs` **由记录派生**（一记录 = 一判定/显示单元）:
@@ -96,6 +105,10 @@ class BondScene:
         - `choices` = 本板群内候选台词（run=1 也弹, 拍板 18）;
         - `is_end` = 本板含 `stage:end`/`exit`（记录是块尾, 故只可能落在末板）;
         - `records` = **真源**（含全部记录, 落库/回放用）。
+        - `in_memorial` = **板级窗口快照**（2026-09-23）: "这块板在不在纪念窗口里"。
+          由组装器在**造板那一刻**给定（窗口 = 本块 memoir 记录之后到块尾）——
+          ⚠️ **不是**引擎那个"解析到哪了"的活标志: 预热会提前解析后面的块, 交付纪念板时
+          它早被翻回 False ⇒ 前端不点亮纪念层（真机报障）。见 `boards._BoardAssembler`。
         """
         paras: list[dict] = []
         memorial_at: int | None = None
@@ -123,6 +136,7 @@ class BondScene:
             is_end=any(r.stage in (STAGE_END, STAGE_EXIT) for r in records),
             memorial=is_memorial,
             memorial_at=memorial_at,
+            in_memorial=bool(in_memorial),
             place_hint=(records[0].text if records and records[0].stage == STAGE_SWITCH
                         else None),
             records=[r.to_dict() for r in records],
@@ -150,6 +164,8 @@ class BondScene:
             d["place_hint"] = self.place_hint
         if self.memorial:
             d["memorial"] = True
+        if self.in_memorial:
+            d["in_memorial"] = True
         if self.memorial_at is not None:
             d["memorial_at"] = int(self.memorial_at)
         if self.art_hint:
@@ -256,6 +272,7 @@ class BondScene:
             place_asset=(place_asset.strip()
                          if isinstance(place_asset, str) and place_asset.strip() else None),
             memorial=bool(raw.get("memorial", False)),
+            in_memorial=bool(raw.get("in_memorial", False)),
             memorial_at=(raw.get("memorial_at")
                          if isinstance(raw.get("memorial_at"), int)
                          and raw.get("memorial_at") >= 0 else None),

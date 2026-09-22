@@ -286,6 +286,15 @@ def test_memorial_fires_image_hook_with_art_intent():
     assert BondScene.from_dict(
         {"paragraphs": [{"text": "（她抬起头。）"}], "memorial": True}).memorial_at is None
 
+    # ⭐ 板级纪念窗口快照（2026-09-23 真机报障结案）: 触发板 **与同块后续板** 都是
+    # `in_memorial=True`（live 的窗口 = 本块块尾）, 且**入档案往返保留**。
+    # ⚠️ 为什么必须是板自己的属性: 前端原来读引擎那个"解析到哪了"的活标志, 而预热会
+    # 提前解析后面的块 ⇒ 纪念板交付时它早被翻回 False ⇒ 不黑屏不淡入图。
+    assert scene.in_memorial is True, scene.to_dict()
+    assert BondScene.from_dict(scene.to_dict()).in_memorial is True
+    assert BondScene.from_dict({"paragraphs": [{"text": "x"}]}).in_memorial is False, \
+        "旧档没有该字段 → False（不凭空开窗口）"
+
     # 流式路径: 触发发生在**喂完其余输出之前**（生图与 LLM 剩余输出并行——
     # 真机生图 ~26s, 玩家读纪念正文即缓冲）
     class _StreamLLM:

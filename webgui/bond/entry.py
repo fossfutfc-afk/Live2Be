@@ -48,7 +48,7 @@ from core.session.staging import (
     truth_store,
 )
 from webgui import chat
-from webgui.bond.memorial import _ensure_memorial_img
+from webgui.bond.memorial import _ensure_memorial_img, board_in_memorial
 from webgui.bond.pregen import (
     _generate,
     _log_board_deliver,
@@ -177,7 +177,7 @@ def _ready_scene_payload(state: BondState, char_id: str = "") -> dict:
     # 背景清空/图淡入都在前端 `syncMemorial` 里——不带这几个字段就会"纪念板照常
     # 显示立绘 + 普通背景"（B 层冒烟实测抓到）。与 `/api/bond/status` 同源。
     if state.vn is not None:
-        out["in_memorial"] = bool(state.vn.in_memorial)
+        out["in_memorial"] = board_in_memorial(state)
         out["memorial_img"] = state.memorial_img or None
         out["memorial_img_busy"] = state.memorial_img_busy
     if char_id:
@@ -269,7 +269,7 @@ def _start_replay(state: BondState, replay_q: list[dict],
     vn.adopt_replayed(state.scene_obj)    # 回录基准指向它（补裁决要重渲历史尾部, 2026-09-21）
     # 回放的纪念板也进纪念态（2026-09-12）: 否则重放纪念段时立绘照常显示、背景照常亮
     # （v2 区间 = 本块内, 其后从草稿/待发队列领出的板会沿用这个标志, 直到新生成一块）
-    state.vn._in_memorial = bool(state.scene_obj.memorial)
+    state.vn._in_memorial = bool(state.scene_obj.in_memorial or state.scene_obj.memorial)
     _ensure_memorial_img(state, char_id, session_id)     # 回放: 恢复档案纪念图
     state.scene = state.scene_obj.to_dict()
     state.round = 1
