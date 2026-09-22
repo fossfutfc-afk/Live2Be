@@ -71,7 +71,7 @@ from webgui.bond.lanes import (
     _scene_visual_ready,
     _wait_annotated,
 )
-from webgui.bond.memorial import _ensure_memorial_img
+from webgui.bond.memorial import _ensure_memorial_img, board_in_memorial
 from webgui.bond.pregen import (
     _discard_boards,
     _discard_candidates,
@@ -147,7 +147,8 @@ def bond_turn(char_id: str, session_id: str, text: str) -> dict:
             state.scene_obj._place_done = True    # 回放: 视觉键定格, 不占 lane
             state.vn.adopt_replayed(state.scene_obj)   # 回录基准（补裁决要重渲历史尾部）
             # 纪念板 → 进纪念态（同 `_start_replay`: 重放纪念段时立绘隐藏/背景清空）
-            state.vn._in_memorial = bool(state.scene_obj.memorial)
+            state.vn._in_memorial = bool(state.scene_obj.in_memorial
+                                         or state.scene_obj.memorial)
             _ensure_memorial_img(state, char_id, session_id)   # 回放: 恢复档案图
             state.scene = state.scene_obj.to_dict()
             state.round += 1
@@ -428,10 +429,12 @@ def bond_status(char_id: str, session_id: str) -> dict:
             "place_pending": state._place_queue.qsize() if state._place_queue else 0,
             "scene_id": id(state.scene_obj) if state.scene_obj else None,
         },
-        # 纪念立绘（方案 A）: in_memorial = 纪念模式中（前端保持图背景）;
+        # 纪念立绘（方案 A）: in_memorial = **当前这块板在不在纪念窗口里**（板自带快照）;
         # memorial_img = 图 URL（None = 未就绪/失败 → 纯文字降级）;
         # memorial_img_busy = 生图中（防重/调试可见）
-        "in_memorial": bool(state.vn is not None and state.vn.in_memorial),
+        # ⚠️ 判据在 `board_in_memorial`（**不是** `state.vn.in_memorial` 那个"解析到哪了"的
+        # 活标志——预热会提前解析后面的块, 交付纪念板时它早被翻回 False; 2026-09-23 真机）
+        "in_memorial": board_in_memorial(state),
         "memorial_img": state.memorial_img or None,
         "memorial_img_busy": state.memorial_img_busy,
         # 候选支诊断（DESIGN_CHOICE_PREGEN, N2c）: 只暴露 {picked,status}——

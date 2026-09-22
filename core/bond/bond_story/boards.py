@@ -18,6 +18,7 @@ import logging
 
 from contract import (
     MAX_SENSEI_RUN,
+    STAGE_MEMORIAL,
     STAGE_SWITCH,
     sensei_groups,
 )
@@ -110,6 +111,8 @@ class _BoardAssembler:
         self._art_attached = False
         self._cap_warned = False
         self._memorial_logged = False
+        #: 本块是否已见过 `memorial` 记录（→ 之后的板都在纪念窗口里; 见 `_make`）
+        self._memorial_seen = False
 
     # -- 块级上下文（流式下随流到达）----------------------------------------
     def set_block_art(self, art: str) -> None:
@@ -137,8 +140,21 @@ class _BoardAssembler:
         return True
 
     def _make(self, records: tuple) -> BondScene:
-        return BondScene.from_board(records, self._group(records),
-                                    notes=list(self._notes))
+        """造板（**批式与流式唯一的造板口**）。
+
+        ⭐ 在这里给 `in_memorial` 拍快照（2026-09-23）: "这块板在不在纪念窗口里"
+        —— 窗口 = 本块的 `memorial` 记录之后到块尾, 所以**本块此后每一板都算**。
+        这个事实只有组装器知道（它按块切片）, 而**造板这一刻它必然知道** ⇒
+        不再依赖引擎那个会被预热提前翻掉的活标志（真机报障: 交付纪念板时前端不亮）。
+        ⚠️ `push()` 里**先降级再调本函数**, 所以被 M5 静默拒绝的第二个 memorial
+        已经变成旁白记录 ⇒ 它**不会**误开窗口（降级判据见 `_demote_repeat_memorial`）。
+        """
+        has_memorial = any(getattr(r, "stage", "") == STAGE_MEMORIAL for r in records)
+        scene = BondScene.from_board(records, self._group(records),
+                                     notes=list(self._notes),
+                                     in_memorial=bool(has_memorial or self._memorial_seen))
+        self._memorial_seen = self._memorial_seen or has_memorial   # 窗口开到块尾
+        return scene
 
     def _emit(self, scene: BondScene) -> BondScene:
         if self._block_art and not self._art_attached:

@@ -144,6 +144,23 @@ def _memorial_gen(state: BondState, char_id: str, session_id: str,
             state.memorial_img_busy = False
 
 
+def board_in_memorial(state: BondState) -> bool:
+    """前端要的 `in_memorial` = **当前这块板在不在纪念窗口里**。
+
+    ⚠️ **不要**改用 `state.vn.in_memorial`（引擎的活标志 = "**解析**到哪了"）:
+    预热/预生成会提前解析后面的块, 纪念板真正交付给玩家时它早被翻回 False ⇒
+    前端不点亮纪念层（不黑屏、不淡入图）。真机 2026-09-23 报障即此。
+    板自己带的快照（`BondScene.in_memorial`, 组装器造板时算好）与解析/交付顺序无关。
+
+    兜底两处: 旧档/旧草稿没有该字段 → 看 `memorial`（"本板含触发"也算在窗口里）;
+    还没有当前板（生成中 / 回放开始前）→ 退回活标志, 免得空窗期状态抖动。
+    """
+    sc = state.scene_obj
+    if sc is not None:
+        return bool(getattr(sc, "in_memorial", False) or getattr(sc, "memorial", False))
+    return bool(state.vn is not None and state.vn.in_memorial)
+
+
 def _make_memorial_cb(state: BondState, char_id: str, session_id: str):
     """流式嗅探回调: prompt 定稿 → 重置图状态 + 开生图线程（不阻塞 LLM 收集线程）。
 

@@ -135,6 +135,8 @@ def _digest(scene) -> dict:
         "is_end": bool(scene.is_end),
         "memorial": bool(scene.memorial),
         "memorial_at": scene.memorial_at,
+        # 板级纪念窗口快照（2026-09-23）: 批式与流式必须在**造板那一刻**算出同一个值
+        "in_memorial": bool(scene.in_memorial),
         "art": scene.art_hint,
         "recs": len(scene.records),
     }
