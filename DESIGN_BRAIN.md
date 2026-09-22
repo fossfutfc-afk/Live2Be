@@ -254,16 +254,18 @@ C. RAG 回忆（Phase 2 🔧）: embedding 检索与新增语义相关的旧事�
 
 ```jsonc
 // data/worlds/{world_id}/characters/{char_id}/wiki.jsonl  ← 规划: jsonl 逐条（一行一条目）
+// ⚠️ 下面这份是**v1 形状的历史示例**（`layer`/`segment_id`/`source` 都已换代或删除:
+//    kind 取代 layer（2026-09-02）· segment_id/source 2026-09-21 删——见 nodes.py 台账）
 {"id": "m_0001", "layer": "episode", "epistemic": "observed_fact", "observer": "igusa_haruka",
  "content": "老师在杂草屋说：地砖里长出的苔藓也可以是花",
  "significance": 0.9, "tags": ["老师", "杂草屋"],
- "segment_id": "s_0003", "event_seq": [42, 58], "ts": "2026-09-01T20:00:00",
- "source": "digest", "links": []}
+ "event_seq": [42, 58], "ts": "2026-09-01T20:00:00",
+ "links": []}
 {"id": "m_0002", "layer": "belief", "epistemic": "inferred_belief",
  "content": "遥香第一次觉得自己在老师眼里很特别",
  "significance": 0.85, "tags": ["自我肯定"],
- "segment_id": "s_0003", "event_seq": [42, 58], "ts": "2026-09-01T20:00:00",
- "source": "digest", "links": ["m_0001"]}
+ "event_seq": [42, 58], "ts": "2026-09-01T20:00:00",
+ "links": ["m_0001"]}
 ```
 
 **epistemic 认知类型（规划语义）**:

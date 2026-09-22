@@ -163,10 +163,6 @@ RECORD_EPISODE = DigestAction(
         '                          // 先炸后真心笑（爆发→释然）→ 两个都高;\n'
         '                          // 缓慢的起伏（不安→期待→不安）→ span 高 int 低;\n'
         '                          // 全程一个调子 → 0。**必须非负**（是幅度不是方向）//\n'
-        '      "emo_valence": -1~1,  // 整体情绪色彩（带符号）: 这段经历总体上让她更好受还是\n'
-        '                          // 更难受。明显正面 0.5~1.0; 中性 0.0; 明显负面 -0.5~-1.0。\n'
-        '                          // **与 emo_int 是两件事**: 撕心裂肺的争吵 val 很负但 int 很高;\n'
-        '                          // 平静的告别 val 略负但 int 低 //\n'
         '    }'
     ),
     example=(
@@ -177,7 +173,7 @@ RECORD_EPISODE = DigestAction(
         ' "verbatim": ["33.2", "33.p"],'
         ' "tags": ["公园", "流浪猫", "热茶"],'
         ' "significance": 0.8,'
-        ' "emo_int": 0.6, "emo_span": 0.7, "emo_valence": 0.7}'
+        ' "emo_int": 0.6, "emo_span": 0.7}'
     ),
 )
 
@@ -517,11 +513,13 @@ def _clean_episode(e: Any, i: int, seq_set: set[int] | None = None
     warnings: list[str] = []
     if not isinstance(e, dict):
         return None, [f"episodes[{i}] 必须是对象"], []
-    # 引擎字段一律不收（id/ts/segment_id——LLM 塞了也丢弃）
+    # 引擎字段一律不收（id/ts——LLM 塞了也丢弃）
     # ⚠️ `event_seq` **已从这份名单移出**（T14, 2026-09-15）: 它现在是**板指针**,
     #    是 §3.3.1 里 LLM 唯一的"指位置"输出之一。旧版把它当引擎字段丢弃,
     #    而 `digest.py` 又把它覆写成常量 → 两者相加 = 板指针从来没存在过。
-    for f in ("id", "ts", "segment_id"):
+    # ⚠️ `segment_id` 2026-09-21 移出: 那个字段本身已退役（引擎不再落它）,
+    #    把它继续当"引擎字段"警告是历史残留。
+    for f in ("id", "ts"):
         if f in e:
             warnings.append(f"episodes[{i}] 含引擎字段 {f}——已忽略")
     kind = str(e.get("kind", "episode")).strip()
@@ -669,10 +667,10 @@ def _clean_episode_item(e: dict, i: int, errors: list[str], warnings: list[str],
         warnings.append(f"episodes[{i}].significance 非数字——取 0.5")
         sig_f = 0.5
     item["significance"] = max(0.0, min(1.0, sig_f))
-    # 情绪三标量（§3.3.3）: **缺/坏 → 不落字段**（None 哨兵）, 不折成 0.0——
-    # 「未采集」与「真的毫无波澜 / 中性色彩」是两件事, 合并会让旧档在召回里冒充后者。
-    for fname, lo, hi in (("emo_int", 0.0, 1.0), ("emo_span", 0.0, 1.0),
-                          ("emo_valence", -1.0, 1.0)):
+    # 情绪两标量（§3.3.3）: **缺/坏 → 不落字段**（None 哨兵）, 不折成 0.0——
+    # 「未采集」与「真的毫无波澜」是两件事, 合并会让旧档在召回里冒充后者。
+    # （`emo_valence` 2026-09-21 删——有生产零消费, 极性由 `emo_shape` 逐键承担。）
+    for fname, lo, hi in (("emo_int", 0.0, 1.0), ("emo_span", 0.0, 1.0)):
         raw_v = e.get(fname)
         if raw_v is None:
             continue

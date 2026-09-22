@@ -61,15 +61,14 @@ def test_every_serialized_field_is_parsed_back():
                      links=["m0002"])
     # 每个可序列化字段都填一个非空值（哨兵值, 值本身不重要）
     probes = {
-        "observer": "老师", "tags": ["x"], "segment_id": "seg-1",
+        "observer": "老师", "tags": ["x"],
         "event_seq": [1], "ts": "2026-09-01T20:00:00",
         "links": ["m0002"], "contradictions": ["m0003"],
         "narration": "n", "verbatim": "v", "verbatim_seq": ["1.1"],
         "title": "t", "emo_shape": ["smile"], "pattern": "p", "subject": "player",
-        "count": 2, "examples": ["e"], "content": "c", "growth": "g",
-        "history": [{"episode_id": "m0002", "content": "c", "ts": "t"}],
+        "examples": ["e"], "content": "c", "growth": "g",
         "aff_at_encoding": 0.5, "emo_int": 0.5,
-        "emo_span": 0.5, "emo_valence": 0.5,
+        "emo_span": 0.5,
     }
     declared = {f.name for f in _dc_fields(BrainNode)}
     unknown = set(probes) - declared
@@ -188,11 +187,11 @@ def test_belief_requires_support():
 
 
 def test_experience_and_player_emphasis():
-    # 普通 experience: count 由引擎 = len(links)
+    # 普通 experience: count = len(links)（2026-09-21 起是派生属性）
     exp = make_node("experience", pattern="sensei 提到工作繁忙", subject="sensei",
                     examples=["「这周又忙成狗了」"], links=["m0011", "m0015", "m0020"])
     assert exp.validate() == []
-    assert exp.count == 3          # normalize 后 count = len(links)
+    assert exp.count == 3
     assert exp.is_player_experience is False
     # player experience（R5 强调点）: subject=player
     pe = make_node("experience", pattern="摸鱼", subject=PLAYER_SUBJECT,
@@ -214,27 +213,28 @@ def test_relation_kind_removed():
     assert any("narration" in e for e in node.validate())
 
 
-def test_title_and_history_fields():
-    # episode.title 可选
+def test_title_and_main_text_fields():
+    # episode.title 可选（⚠️ 待裁决是否保留——它承载 Round A 的"本章标题"）
     ep = make_node("episode", narration="公园散步", title="和老师的公园散步")
     assert ep.validate() == []
     assert ep.title == "和老师的公园散步"
     assert ep.main_text == "公园散步"
-    # belief.history 改写溯源
-    bel = make_node("belief", content="老师会认真听我说话", subject="sensei",
-                    epistemic="inferred_belief", links=["m0001"],
-                    history=[{"episode_id": "m0001", "content": "初版", "ts": "t1"}])
-    assert bel.validate() == []
-    assert bel.history[0]["episode_id"] == "m0001"
-    # history 只属于 belief
-    bad = make_node("episode", narration="x", history=[{"content": "y"}])
-    assert any("history" in e for e in bad.validate())
     # main_text 收敛: episode→narration / experience→pattern / belief→content
     exp = make_node("experience", pattern="p", subject="s")
     assert exp.main_text == "p"
     bel = make_node("belief", content="出厂认知", epistemic="inferred_belief",
                     links=["m0001"])
     assert bel.main_text == "出厂认知"
+
+
+def test_count_is_derived_not_stored():
+    """`count` 2026-09-21 起是派生属性 `len(links)`：不落库、旧档的键被忽略。"""
+    exp = make_node("experience", pattern="p", subject="s",
+                    links=["m0001", "m0002"], count=99)     # 旧档塞的 count 无效
+    assert exp.count == 2
+    assert "count" not in exp.to_dict()
+    back = BrainNode.from_dict({**exp.to_dict(), "count": 7})
+    assert back.count == 2
 
 
 def test_significance_clamp_and_precious():

@@ -141,7 +141,7 @@ class WikiStoreV2:
         """新增节点（自动分配 id; 无效节点拒绝）。返回 id。
 
         入仓前 normalize——create 路径的 links 可能在构造后才补挂
-        （revise._parse_create）, 不变量（experience.count = len(links)）必须入仓时钉死。
+        （revise._parse_create）, 不变量（examples ≤3）必须入仓时钉死。
         """
         if not node.id:
             node.id = self.next_id(_PREFIX.get(node.kind, "m"))
@@ -173,7 +173,7 @@ class WikiStoreV2:
         if errors:
             raise ValueError(err("InvalidNode",
                                  f"更新后节点无效: {'; '.join(errors)}"))
-        new.normalize()                        # 维护不变量（experience.count = len(links) 等）
+        new.normalize()                        # 维护不变量（examples ≤3 等）
         self._nodes[nid] = new
         return new
 
@@ -199,23 +199,19 @@ class WikiStoreV2:
     def add_link(self, a: str, b: str) -> None:
         """双向 link（无向边; 已存在则幂等）。
 
-        边变化会破坏 experience.count = len(links) 不变量——受影响端点立即刷新
-        （accrue/包内后建节点链入等路径都在这里闭环, audit 恒干净）。
+        （原"刷新 experience.count 不变量"两行 2026-09-21 删——count 已是派生属性
+        `len(links)`, 不需要同步。）
         """
         for src, dst in ((a, b), (b, a)):
             node = self._nodes.get(src)
             if node is not None and dst not in node.links and dst in self._nodes:
                 node.links.append(dst)
-                if node.kind == "experience":
-                    node.count = len(node.links)
 
     def remove_link(self, a: str, b: str) -> None:
         for src, dst in ((a, b), (b, a)):
             node = self._nodes.get(src)
             if node is not None and dst in node.links:
                 node.links.remove(dst)
-                if node.kind == "experience":
-                    node.count = len(node.links)
 
     def add_contradiction(self, a: str, b: str) -> None:
         """双向 contradiction（已存在则幂等）。"""
@@ -278,8 +274,9 @@ class WikiStoreV2:
         检查项（邻接表策略的闭环定义）:
           - 悬空引用: links/contradictions 目标必须存在（delete 已清入边, 再出现即 bug）
           - 双向一致: 无向边两端共识（a.links 含 b ⇔ b.links 含 a; contradiction 同款）
-          - count 不变量: experience.count == len(links)（引擎计数, update 后 normalize）
           - belief 支撑: belief.links ≥ 1（删除路径可能抽走最后支撑——审计检出）
+        （原 "count 不变量: experience.count == len(links)" 2026-09-21 删——
+        `count` 已是派生属性, 那条不变量在类型上就不可能被破坏。）
         """
         problems: list[str] = []
         for nid, node in self._nodes.items():
@@ -293,9 +290,6 @@ class WikiStoreV2:
                 if other in self._nodes \
                         and nid not in self._nodes[other].contradictions:
                     problems.append(f"contradiction 非双向: {nid} ↔ {other}")
-            if node.kind == "experience" and node.count != len(node.links):
-                problems.append(f"count 不变量破坏: {nid} count={node.count} "
-                                f"links={len(node.links)}")
             if node.kind == "belief" and not node.links:
                 problems.append(f"belief 无支撑链接: {nid}")
         return problems

@@ -11,10 +11,10 @@
     1. 增量: new_events = seq > store.digested_seq（无新增 → 0 次 LLM 调用）
     2. 公共输入: 时间线(**记录级带行索引**, T14) + 视觉记忆 + 人设锚点（A 用）;
        时间线同时供 B 的 evidence quote 逐字引用
-    3. Round A: llm_chat → parse_round_a → 建 episode（引擎字段归属: ts/segment_id/
+    3. Round A: llm_chat → parse_round_a → 建 episode（引擎字段归属: ts/event_seq;
        event_seq=[interact_max]; 防幻觉——LLM 不产这些字段, 4a 不做每 episode 溯源）
     4. Round B: episodes 摘要 + 认知渲染(u0001.. 本地 id) → llm_chat → parse_round_b
-       （引用纪律/覆盖检查在 parse 层）→ apply_decisions（图操作 + history 溯源）
+       （引用纪律/覆盖检查在 parse 层）→ apply_decisions（图操作 + evolution 变更审计）
     5. evidence（置信度阈值/quote 非空）→ 返回（罗盘应用后置, 无罗盘则丢弃）
     6. affection_exp_delta 返回（事件幂等写由调用方——运行时集成层）
     7. A/B 任一失败 → clone_state 快照回滚, 水位不推进（宁缺勿错, 可重算）
@@ -176,7 +176,8 @@ def digest_segment(
     from core.worldtime.age import now_ts as _now_ts      # 写侧单一真源（带时区）
     now_ts = ((new_events[-1].ts or "").strip()
               or _now_ts())
-    segment_id = f"seg-{interact_max}"
+    # （原 `segment_id = f"seg-{interact_max}"` 2026-09-21 删——段边界本来就由 marker
+    #   派生（`_segment_domain`），落库的那份零读者。）
 
     # 时间预算: A+B 全程共享一个 deadline（宁缺勿错——水位不推进, 可重算）
     import time as _time
@@ -219,7 +220,7 @@ def digest_segment(
         #    加上 parse 层从来没取过它（连落库都没有）, 留着就是白付 token。
         #    枚举定义仍留在 `core/worldtime/span.py`。详见 `contract/digest_registry.py`。
         episode_ids, player_ids = _create_a_nodes(
-            store, entries, ts=now_ts, segment_id=segment_id,
+            store, entries, ts=now_ts,
             event_seq=[interact_max], aff_at_encoding=aff_at_encoding,
             by_seq=by_seq)
 
@@ -250,7 +251,7 @@ def digest_segment(
             return _rollback(store, snapshot, result)
         apply_decisions(store, rows,
                         id_map={v: k for k, v in local_of.items()},   # local→real
-                        ts=now_ts, segment_id=segment_id,
+                        ts=now_ts,
                         event_seq=[interact_max])
     except ValueError as e:                              # store 层拒绝 → 回滚
         result.errors.append(str(e))
@@ -413,7 +414,7 @@ def _collapse_bond_episodes(entries: list[dict], chapters: list[dict]) -> list[d
 
 
 def _create_a_nodes(store: WikiStoreV2, entries: list[dict], *, ts: str,
-                    segment_id: str, event_seq: list[int],
+                    event_seq: list[int],
                     aff_at_encoding: float | None = None,
                     by_seq: dict | None = None
                     ) -> tuple[list[str], list[str]]:
@@ -448,7 +449,6 @@ def _create_a_nodes(store: WikiStoreV2, entries: list[dict], *, ts: str,
                              tags=ent.get("tags", []),
                              significance=ent.get("significance", 0.5))
             node.ts = ts
-            node.segment_id = segment_id
             node.event_seq = list(ent.get("event_seq") or event_seq)
             dup = _find_duplicate(store, node)
             if dup is not None:
@@ -458,7 +458,6 @@ def _create_a_nodes(store: WikiStoreV2, entries: list[dict], *, ts: str,
             continue
         node = make_node("episode", **{k: v for k, v in ent.items() if k != "kind"})
         node.ts = ts
-        node.segment_id = segment_id
         node.event_seq = list(ent.get("event_seq") or event_seq)
         # 板级情绪键序列（T15）——召回侧物化, **不进 LLM 上下文**
         if by_seq is not None:

@@ -51,7 +51,7 @@
 
 ```json
 {"id": "e0001", "kind": "experience", "subject": "player", "significance": 0.5,
- "epistemic": "observed_fact", "links": null, "event_seq": [60], "segment_id": "seg-60",
+ "epistemic": "observed_fact", "links": null, "event_seq": [60],
  "pattern": "老师总靠喝浓缩咖啡硬撑工作, 自称到了需要它才有精力的程度",
  "verbatim": "我已经到了需要喝浓缩咖啡才能有精力工作的程度了呢",
  "tags": ["浓缩咖啡", "工作", "老师"]}
@@ -581,7 +581,9 @@ I8  nature == self_image 的 belief **不参与 merge**（只可 update/accrue�
 I9  entity 合并只走"别名软合并"：`merged_into` 单向、目标必须存在、不得成环    ★ v3 新增
 I10 story_time 单调不减（同世界线按 event_seq 排序不得倒退）                 ★ v3 新增
 I11 superseded_by / merged_into 指向存在的节点；被取代者**保留在图里**       ✅ v3 初稿
-I12 history 只增不改（改写溯源）                                            ✅ v2 已有
+I12 ~~history 只增不改（改写溯源）~~ **2026-09-21 删**——该字段只写不读且记的是
+    改写**后**的内容（原文丢失）; 溯源改由 `evolution.jsonl` 的 `changed: {k:[before,after]}`
+    承担（已落地）。v3 若还要"节点内溯源", 应作为**边/事件**而非节点数组           ⏸ 已废
 I13 entity.overview 是被受限字段（≤200 字），每次改写走 history（§2.10）      ★ v3 新增
 I14 **禁止**任何渲染层做"人称字符串替换"（§2.11）                            ★ v3 新增
 I15 links 展开**只向下**（belief → 其支撑），永不向上（§3.6）                ★ v3 新增
@@ -1104,7 +1106,8 @@ det = SIG·TIME + emo_span·emo_int          ← 恒 ≥ 0（四格均非负、�
 | `SIG`（`significance`） | ✅ 已有 |
 | `emo_int` | ✅ 已落地（§9.6） |
 | `emo_span` | ✅ 已落地（§9.7） |
-| `emo_valence` | ✅ 已落地（§9.6）——**不进矩阵**，只服务情感召回的同频匹配 |
+| ~~`emo_valence`~~ | ⏸ **2026-09-21 删**——有生产（Round A）零消费; 极性由 `emo_shape` 逐键承担 |
+| ~~`segment_id`~~ | ⏸ **2026-09-21 删**——零读者; 段边界由 marker 派生（`digest._segment_domain`） |
 
 #### ★★ `emo_span` **不需要板**（2026-09-13 修正，**Q34 因此不阻塞任何字段**）
 
@@ -1837,7 +1840,8 @@ on_trigger(festival | birthday) where tier == strong:
 
 ### 4.10 与现有字段的关系
 
-- `segment_id` / `event_seq` ✅ 保留（工程溯源；游标是**语义**时间，两者并存）
+- `event_seq` ✅ 保留（板指针/工程溯源；游标是**语义**时间，两者并存）;
+  ~~`segment_id`~~ ⏸ **2026-09-21 删**（零读者——它想承担的"段落归属"由 marker 派生）
 - 现有节点的 `ts` 保留不动（③ 只做审计）
 - **没有 `story_time` 的旧节点**（线上 13 条全部没有）：迁移时按 `event_seq` 单调
   **外插**到游标（Q8 倾向外插，不置 `null`——置 null 会让全部旧记忆退化成"很久以前"，

@@ -129,8 +129,13 @@ def test_delete_cleans_inbound_references(tmp_path):
     assert st.get("m0003").contradictions == []            # 矛盾边也清理
 
 
-def test_add_link_refreshes_experience_count(tmp_path):
-    """回归: 后建节点链入 experience（add_link 路径）→ count 立即刷新（不变量）。"""
+def test_experience_count_is_derived(tmp_path):
+    """`count` = 派生属性 `len(links)`（2026-09-21 起不再落库）。
+
+    原用例名 `test_add_link_refreshes_experience_count`——那时 count 是存储字段,
+    靠 `add_link`/`remove_link`/`normalize` 三处手工刷新。现在同一个事实只有一份,
+    读它永远是当下 links 的长度（连 audit 那条不变量检查都不需要了）。
+    """
     st = _store(tmp_path)
     st.add(make_node("experience", pattern="提到工作繁忙", subject="sensei",
                      significance=0.7, event_seq=[1]))
@@ -141,6 +146,7 @@ def test_add_link_refreshes_experience_count(tmp_path):
     assert exp.links == ["m0001"] and exp.count == 1
     st.remove_link("m0001", "e0001")
     assert st.get("e0001").count == 0
+    assert "count" not in st.get("e0001").to_dict()         # 不落库
     assert st.audit() == []
 
 
