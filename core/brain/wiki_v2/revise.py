@@ -79,7 +79,7 @@ def apply_decisions(
         decision = row["decision"]
         if decision == "touch":
             _ensure_cognition(store, real)
-            store.add_edge(REL_SUPPORTS, ep_id, real)
+            store.add_edge(REL_SUPPORTS, ep_id, real, ts=ts)
             log.append({"pkg": "digest", "action": "touch", "episode": ep_id,
                         "target": real, "ts": ts})
         elif decision == "update":
@@ -102,7 +102,7 @@ def apply_decisions(
             before = {k: getattr(node, k, None) for k in patch
                       if getattr(node, k, None) != patch[k]}
             new = store.update(real, patch)
-            store.add_edge(REL_SUPPORTS, ep_id, real)
+            store.add_edge(REL_SUPPORTS, ep_id, real, ts=ts)
             log.append({"pkg": "digest", "action": "update", "episode": ep_id,
                         "target": real,
                         "changed": {k: [v, getattr(new, k, None)]
@@ -127,7 +127,7 @@ def apply_decisions(
             # 崩溃窗口重跑幂等: (kind, event_seq, 主文本) 命中 → 只补链, 不双写
             dup = _find_duplicate(store, node)
             if dup is not None:
-                store.add_edge(REL_SUPPORTS, ep_id, dup.id)
+                store.add_edge(REL_SUPPORTS, ep_id, dup.id, ts=ts)
                 continue
             errors = node.validate()            # supports 边已不在字段校验里（G3）
             if errors:
@@ -137,7 +137,7 @@ def apply_decisions(
             created.append(nid)
             # belief 的支撑不变量（原在 `nodes.validate`: links ≥ 1）—— 现在住在边表,
             # 所以**先入仓再补边**（§2.1: add_edge 拒悬空 ⇒ 点必须先在）
-            store.add_edge(REL_SUPPORTS, ep_id, nid)
+            store.add_edge(REL_SUPPORTS, ep_id, nid, ts=ts)
             log.append({"pkg": "digest", "action": "add", "episode": ep_id,
                         "id": nid, "kind": kind, "ts": ts})
     return created
@@ -330,19 +330,22 @@ def _apply_action(store: WikiStoreV2, raw: dict, scope: set[str],
         new_id = store.add(merged)
         scope.add(new_id)                    # merge 产物可被包内后续动作引用
         # ── 边重接（G3: 边在边表里, 不在节点字段里）──
-        # 指向源节点的边**改指产物**（只继承出边会断掉入边的支撑链）, rel 原样保留;
+        # 指向源节点的边**改指产物**（只继承出边会断掉入边的支撑链）; rel 与 **ts**
+        # 都原样保留（merge 是端点 remap, 不是"新建一条边"—— 重置时刻会丢掉历史）;
         # 源之间的内部边变自环 → 丢。先收集再删源（delete 会过滤掉所有触及源的边）。
         remap = {i: new_id for i in ids}
-        keep: list[tuple[str, str, str]] = []
+        keep: list[tuple[str, str, str, str]] = []
+        seen: set[tuple[str, str, str]] = set()
         for e in store.edges():
             src, dst = remap.get(e.src, e.src), remap.get(e.dst, e.dst)
-            if src == dst or (e.rel, src, dst) in keep:
+            if src == dst or (e.rel, src, dst) in seen:
                 continue
-            keep.append((e.rel, src, dst))
+            seen.add((e.rel, src, dst))
+            keep.append((e.rel, src, dst, e.ts))
         for i in ids:
             store.delete(i)
-        for rel, src, dst in keep:
-            store.add_edge(rel, src, dst)
+        for rel, src, dst, ts in keep:
+            store.add_edge(rel, src, dst, ts=ts)
         if not any(e.src == new_id or e.dst == new_id for e in store.edges()):
             return _err(result, "merge 产物必须至少 1 条边（无孤立节点）")
         pending_log.append({"pkg": pkg, "action": "merge",

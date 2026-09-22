@@ -263,6 +263,11 @@ class WikiStoreV2:
         ⚠️ **两端必须存在**（悬空即拒）——"悬空引用在构造上不可能存在"（§2.1）
         靠的就是写路径在这里关门; 读路径（`_load_edges`）相反, **宽容保留**,
         因为那是旧档（宽容读 ≠ 允许写坏）。
+
+        `ts` = 这条边**建立**的时刻。不给 → 取当下（2026-09-22: 原先默认空串, 结果
+        写路径产的边全没有 ts —— 真机一轮后 `edges.jsonl` 里一半有、一半没有）。
+        调用方知道更准的时刻就显式传（digest 传的是**本段日期**, 不是"写库时刻"）。
+        ⚠️ 读侧不编: 旧档边表里没有 `ts` 的仍保持空串（哨兵纪律）。
         """
         if src not in self._nodes or dst not in self._nodes:
             raise ValueError(err("DanglingEdge",
@@ -272,6 +277,9 @@ class WikiStoreV2:
         for e in self._edges:
             if e.rel == rel and e.src == src and e.dst == dst:
                 return                                # 幂等
+        if not ts:
+            from datetime import datetime
+            ts = datetime.now().isoformat(timespec="seconds")
         self._edges.append(Edge(rel=rel, src=src, dst=dst, ts=ts))
 
     def remove_edge(self, rel: str, src: str, dst: str) -> None:
