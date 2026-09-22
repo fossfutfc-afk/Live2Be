@@ -381,6 +381,12 @@ about_state      → resolved / uncertain / none   ← **点的属性**（不是
 `store._PREFIX`），删一个字段要改 5 处——2026-09-21 的化简里已经反复踩到。
 ⚠️ 成本提醒：这条替代方案本身也要 ~1 提交 + 契约夹具，**要动时先讨论**。
 
+## 待办（**已定、未开工** —— 不是未定项，只是排在链路之后）
+
+| # | 项 | 内容 | 为什么单列 |
+|---|---|---|---|
+| **N1** | **名字接口归一** | 把散在 **4~5 处**的"角色名 / 别名 / 说话人显示名"收敛成一个接口：`char_names(profile) -> (display, aliases)` + `speaker_name(char_id)`（含 `sensei`→老师、`narrator`→空）。今天重复在：`parsing/dynamic_character_parser.get_display_name`（真源）· `mmt/engine._name_aliases`（**私有**）· `webgui/routers/bond.py:103` · `apps/vn_cli.py:51`（同一段又写一遍）· `bond_story/engine.py:661`（第三遍，还不处理 sensei/narrator） | 用户 2026-09-22 指出"**多人模式的显示名**也要用" ⇒ 该上升为接口。⚠️ 两条为什么现在不做：① 它会动 `promptkit` 的 `names`（进 system prompt ⇒ **要刷夹具**）② 与 D0/D1 的"零行为变化"验收冲突。**用户裁决：先把 digest 链路打通再说。** |
+
 ## 变更记录
 
 | 日期 | 动了哪一点 | 讨论结论 |
