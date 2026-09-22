@@ -408,7 +408,7 @@ def _collapse_bond_episodes(entries: list[dict], chapters: list[dict]) -> list[d
             "digest_a contract=bond chapter=%r entries=%d keep=%r（一章一条; 其余已丢。"
             "这行常出现 = 提示词没压住, 看 Round A 的【本段类型】产出契约）",
             ch["title"] or "-", len(group),
-            keep.get("title") or str(keep.get("narration", ""))[:12])
+            keep.get("title") or str(keep.get("text", ""))[:12])
         dropped |= {id(e) for e in group if e is not keep}
     return [e for e in entries if id(e) not in dropped]
 
@@ -443,7 +443,7 @@ def _create_a_nodes(store: WikiStoreV2, entries: list[dict], *, ts: str,
     for ent in entries:
         if ent.get("kind") == "experience":
             node = make_node("experience",
-                             pattern=ent["pattern"], subject=ent.get("subject", "player"),
+                             text=ent["text"], subject=ent.get("subject", "player"),
                              verbatim=ent.get("verbatim", ""),
                              verbatim_seq=ent.get("verbatim_seq", []),
                              tags=ent.get("tags", []),
@@ -481,7 +481,7 @@ def _round_b_material(store: WikiStoreV2, episode_ids: list[str],
                       *, char_id: str = "") -> str:
     """Round B 输入: 新经历摘要 + 每条引擎候选提示（板块 5）。
 
-    每条 episode 用 main_text 走 recommend_candidates 与现有认知碰撞,
+    每条 episode 用 text 走 recommend_candidates 与现有认知碰撞,
     把最像的几条**列出来给 LLM 参考**（`→ 候选(sim 0.xx): u0002 …`）。
 
     ⚠️ **候选只是提示, 不分档、不强制**（2026-09-15 T17）: 原先
@@ -506,14 +506,14 @@ def _round_b_material(store: WikiStoreV2, episode_ids: list[str],
         node = store.get(nid)
         if node is None:
             continue
-        head = node.narration
+        head = node.text
         if len(head) > 120:
             head = head[:120] + "…"
         title = node.title or "（无题）"
         lines.append(f"{node.id} 「{title}」 {head}")
         if node.verbatim:
             lines.append(f"    原话: {node.verbatim}")
-        query = f"{node.narration} {node.verbatim}".strip()
+        query = f"{node.text} {node.verbatim}".strip()
         cands = recommend_candidates(store, query, embed_fn=embed_fn,
                                      mode_out=modes)
         cands = [(c, s) for c, s in cands if c.id in local_of]   # 只标已渲染的

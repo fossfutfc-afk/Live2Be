@@ -33,10 +33,10 @@ from core.brain.wiki_v2.channels import KINDS, SCALES   # noqa: E402
 
 def _store(tmp_path) -> WikiStoreV2:
     st = WikiStoreV2(tmp_path, world_id="w1", char_id="c")
-    st.add(make_node("episode", narration="老师陪我在杂草屋看苔藓",
+    st.add(make_node("episode", text="老师陪我在杂草屋看苔藓",
                      significance=0.9, emo_span=0.9, emo_int=0.85,
                      event_seq=[14]))
-    st.add(make_node("episode", narration="误发短信把老师叫到现场",
+    st.add(make_node("episode", text="误发短信把老师叫到现场",
                      significance=0.6, emo_span=0.5, emo_int=0.8,
                      event_seq=[30]))
     return st
@@ -235,7 +235,7 @@ def test_recall_side_fields_never_reach_llm(tmp_path):
 
     2026-09-19 扩到**地点两轴**: 用户问 *"我为什么要把 key 字段给到 LLM 的记忆？
     喂给 llm 的时候我直接丢掉这个字段不就行了？"* —— 对, 而且**架构里已经这么做了**
-    （`render.py` 的四个视图只读 narration/verbatim/content/pattern/examples/
+    （`render.py` 的四个视图只读 text/verbatim/examples/
     subject/growth/count/links/contradictions/significance/ts/observer）。
     本用例把"已经这么做"从**假设**变成**被钉住的事实**。
     """
@@ -279,7 +279,7 @@ def test_place_gate_groups_by_place_key(tmp_path):
     assert r2.degraded and "旧档" in r2.note
     assert r2.knobs.get("place_now") == "classroom"
     # ③ 节点带上地点 → 键相等命中
-    ep = make_node("episode", narration="在天台上看星星", significance=0.8,
+    ep = make_node("episode", text="在天台上看星星", significance=0.8,
                    place=["classroom", "school_rooftop"],
                    place_raw=["放学后的教室", "傍晚的学校天台"], event_seq=[40])
     st.add(ep)
@@ -308,14 +308,14 @@ def test_place_gate_two_axis_fusion(tmp_path):
     st = _store(tmp_path)
     # 两条记忆都用同一张图（`ruinschoolcorridor`）, 但叙事上是两个地方 ——
     # 表里那条 note 自己写着"也可以用做老屋子或者某种杂草秘密基地"
-    st.add(make_node("episode", narration="她在走廊废墟里找到我", significance=0.7,
+    st.add(make_node("episode", text="她在走廊废墟里找到我", significance=0.7,
                      place=["ruinschoolcorridor"], place_raw=["学校走廊废墟"],
                      event_seq=[50]))
-    st.add(make_node("episode", narration="杂草屋里的那盏灯", significance=0.8,
+    st.add(make_node("episode", text="杂草屋里的那盏灯", significance=0.8,
                      place=["ruinschoolcorridor"], place_raw=["深夜的杂草屋"],
                      event_seq=[52]))
     # 同地不同键: `rooftop` 与 `school_rooftop` **别名相交**（都叫"天台"）
-    st.add(make_node("episode", narration="天台上的风", significance=0.6,
+    st.add(make_node("episode", text="天台上的风", significance=0.6,
                      place=["rooftop"], place_raw=["学校天台"], event_seq=[54]))
 
     def fake_embed(texts):                      # 字符集袋（确定性, 无需后端）
@@ -350,7 +350,7 @@ def test_place_gate_two_axis_fusion(tmp_path):
     assert h2.detail["key_sim_by"] == "token" and h2.detail["key_sim"] == 1.0, h2.detail
 
     # ②b 另一种来源: `building_roof_top` 与 `school_rooftop` **只有别名相交**（天台）
-    st.add(make_node("episode", narration="摩天大楼的楼顶", significance=0.5,
+    st.add(make_node("episode", text="摩天大楼的楼顶", significance=0.5,
                      place=["building_roof_top"], place_raw=["学校天台"],
                      event_seq=[55]))
     r2b = get_channel("C_place").gather(
@@ -361,7 +361,7 @@ def test_place_gate_two_axis_fusion(tmp_path):
     assert h2b.detail["same_image"] is False, "别名相交只声称'同族', 不是同一张图"
 
     # ③ 语义像但**键毫无字面关系** → 不进（语义轴不许单独放宽准入）
-    st.add(make_node("episode", narration="温泉里的雾", significance=0.5,
+    st.add(make_node("episode", text="温泉里的雾", significance=0.5,
                      place=["onsen"], place_raw=["学校天台"], event_seq=[56]))
     r3 = get_channel("C_place").gather(
         st, _ctx(place_now="school_rooftop", place_raw_now="学校天台",
@@ -379,7 +379,7 @@ def test_place_gate_two_axis_fusion(tmp_path):
     #    没有 `place` 键 = 素材轴**不可算** → `raw = sw`（`narrative_only`）,
     #    而不是被 `magic(s, 0) == 0` 判死。真档实测 `place` 键 0 条、只有
     #    `place_hint` ⇒ 不修这条路, C 在真档上**恒空手**。
-    st.add(make_node("episode", narration="杂草屋的第一次", significance=0.8,
+    st.add(make_node("episode", text="杂草屋的第一次", significance=0.8,
                      place_raw=["深夜的杂草屋"], event_seq=[58]))   # **故意不给 place**
     r5 = get_channel("C_place").gather(
         st, _ctx(place_now="school_rooftop", place_raw_now="深夜的杂草屋",

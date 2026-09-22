@@ -13,7 +13,7 @@ from contract.digest_registry import (
 def test_schema_record_phase():
     text = digest_registry.build_schema(PHASE_RECORD)
     assert '"episodes": [' in text
-    assert "narration" in text and "内联约束" in text or "必填" in text
+    assert "text" in text and "内联约束" in text or "必填" in text
     assert "title" in text and "verbatim" in text and "tags" in text
     assert "significance" in text
     # 内联约束注释（A-MEM 式: 规则贴字段）
@@ -53,39 +53,39 @@ def test_unknown_phase_rejected():
 
 def test_round_a_valid_entries():
     raw = {"episodes": [
-        {"narration": "老师约我去公园散步, 我紧张但努力答应了。", "title": "公园散步",
+        {"text": "老师约我去公园散步, 我紧张但努力答应了。", "title": "公园散步",
          "tags": ["公园"], "significance": 0.8},
-        {"narration": "听睦月说阿露昨天又翻车了", "title": "阿露翻车",
+        {"text": "听睦月说阿露昨天又翻车了", "title": "阿露翻车",
          "tags": ["睦月", "阿露"], "epistemic": "reported_fact",
          "observer": "asagi_mutsuki", "significance": 0.6},
     ]}
     items, result = digest_registry.parse_round_a(raw)
     assert result.is_valid, result.errors
     assert len(items) == 2
-    assert items[0]["narration"].startswith("老师约我")
+    assert items[0]["text"].startswith("老师约我")
     assert items[1]["epistemic"] == "reported_fact"
     assert items[1]["observer"] == "asagi_mutsuki"
 
 
 def test_round_a_rejects_bad_entries():
     raw = {"episodes": [
-        {"title": "没有正文"},                       # 缺 narration
-        {"narration": "x" * 400},                    # 超长
-        {"narration": "转述却没写转述者", "epistemic": "reported_fact"},
-        {"narration": "ok", "title": "t", "id": "m9999"},   # 引擎字段应被忽略(警告)
+        {"title": "没有正文"},                       # 缺 text
+        {"text": "x" * 400},                    # 超长
+        {"text": "转述却没写转述者", "epistemic": "reported_fact"},
+        {"text": "ok", "title": "t", "id": "m9999"},   # 引擎字段应被忽略(警告)
     ]}
     items, result = digest_registry.parse_round_a(raw)
     assert not result.is_valid
-    assert any("narration" in e for e in result.errors)          # 缺正文
+    assert any("text" in e for e in result.errors)          # 缺正文
     assert any("300 字" in e for e in result.errors)             # 超长
     assert any("observer" in e for e in result.errors)           # reported 缺转述者
     assert any("引擎字段" in w for w in result.warnings)         # id 忽略
     # 坏条目丢弃, 好的保留
-    assert len(items) == 1 and items[0]["narration"] == "ok"
+    assert len(items) == 1 and items[0]["text"] == "ok"
 
 
 def test_round_a_caps_and_defaults():
-    raw = {"episodes": [{"narration": f"e{i}", "title": f"t{i}"} for i in range(7)]}
+    raw = {"episodes": [{"text": f"e{i}", "title": f"t{i}"} for i in range(7)]}
     items, result = digest_registry.parse_round_a(raw)
     assert len(items) == 5                       # MAX_EPISODES 截断
     assert items[0]["significance"] == 0.5       # 缺省
@@ -99,24 +99,24 @@ def test_round_a_not_dict():
 
 
 def test_round_a_player_portrait_entry():
-    """MMT 专则: kind=experience（玩家画像）条目——pattern 必填, subject 引擎固定。"""
+    """MMT 专则: kind=experience（玩家画像）条目——text 必填, subject 引擎固定。"""
     raw = {"episodes": [
-        {"kind": "experience", "pattern": "玩家的生日是 5 月 20 日",
+        {"kind": "experience", "text": "玩家的生日是 5 月 20 日",
          "verbatim": "我生日是 5 月 20 日哦", "tags": ["玩家"], "significance": 0.7},
-        {"kind": "experience", "title": "忘了 pattern"},       # 缺 pattern → 拒
+        {"kind": "experience", "title": "忘了 text"},          # 缺 text → 拒
     ]}
     items, result = digest_registry.parse_round_a(raw)
     assert not result.is_valid
-    assert any("pattern" in e for e in result.errors)
+    assert any("text" in e for e in result.errors)
     assert len(items) == 1
     assert items[0]["kind"] == "experience"
     assert items[0]["subject"] == "player"          # 引擎固定, 不信任 LLM
-    assert items[0]["pattern"].startswith("玩家的生日")
+    assert items[0]["text"].startswith("玩家的生日")
 
 
 def test_round_a_bad_kind_rejected():
     items, result = digest_registry.parse_round_a({"episodes": [
-        {"kind": "belief", "content": "不是合法形态"},
+        {"kind": "belief", "text": "不是合法形态"},
     ]})
     assert not result.is_valid
     assert any("kind 非法" in e for e in result.errors)
@@ -195,7 +195,7 @@ def test_schema_documents_pointer_and_channels():
 # ---------------------------------------------------------------------------
 
 def _ep(**over):
-    base = {"kind": "episode", "narration": "她笑了一下。", "title": "测试条目",
+    base = {"kind": "episode", "text": "她笑了一下。", "title": "测试条目",
             "tags": ["测试"]}
     base.update(over)
     return base
@@ -256,9 +256,9 @@ def test_round_b_valid_decisions():
     raw = {"decisions": [
         {"episode": "m0001", "decision": "touch", "target": "u0001"},
         {"episode": "m0002", "decision": "update", "target": "u0002",
-         "patch": {"content": "新表述", "significance": 0.9}},
+         "patch": {"text": "新表述", "significance": 0.9}},
         {"episode": "m0003", "decision": "add", "kind": "belief",
-         "subject": "我对老师的信任", "content": "老师是第一个不嫌弃我的人",
+         "subject": "我对老师的信任", "text": "老师是第一个不嫌弃我的人",
          "tags": ["信任"], "significance": 0.85},
     ], "evidence": [{"function": "fe", "confidence": 0.9,
                      "quote": "老师把猫抱到我腿边"}],
@@ -269,8 +269,8 @@ def test_round_b_valid_decisions():
     assert result.is_valid, result.errors
     assert len(rows) == 3
     assert rows[0] == {"episode": "m0001", "decision": "touch", "target": "u0001"}
-    assert rows[1]["patch"]["content"] == "新表述"
-    assert rows[2]["kind"] == "belief" and rows[2]["content"]
+    assert rows[1]["patch"]["text"] == "新表述"
+    assert rows[2]["kind"] == "belief" and rows[2]["text"]
 
 
 def test_round_b_coverage_required():
@@ -288,7 +288,7 @@ def test_round_b_id_discipline():
         {"episode": "ghost001", "decision": "touch", "target": "u0001"},  # 编造 episode
         {"episode": "m0001", "decision": "touch", "target": "u0099"},      # 编造 target
         {"episode": "m0002", "decision": "add", "kind": "belief",
-         "subject": "s", "content": "c"},
+         "subject": "s", "text": "c"},
     ]}
     rows, result = digest_registry.parse_round_b(
         raw, episode_ids={"m0001", "m0002"}, target_ids={"u0001"})
@@ -304,7 +304,7 @@ def test_round_b_update_guards():
         {"episode": "m0002", "decision": "update", "target": "u0001",
          "patch": {}},                                     # 空 patch
         {"episode": "m0003", "decision": "add", "kind": "experience",
-         "pattern": "老师总说摸鱼"},                        # experience 无 content 可
+         "text": "老师总说摸鱼"},                        # experience 也认 text（三槽合流）
     ]}
     rows, result = digest_registry.parse_round_b(
         raw, episode_ids={"m0001", "m0002", "m0003"}, target_ids={"u0001"})
@@ -337,7 +337,7 @@ def test_round_b_add_is_never_gated():
     """
     raw = {"decisions": [
         {"episode": "m0001", "decision": "add", "kind": "belief",
-         "subject": "s", "content": "一条全新的认知", "note": "与候选只是字面像"},
+         "subject": "s", "text": "一条全新的认知", "note": "与候选只是字面像"},
     ]}
     rows, result = digest_registry.parse_round_b(
         raw, episode_ids={"m0001"}, target_ids={"u0001"})

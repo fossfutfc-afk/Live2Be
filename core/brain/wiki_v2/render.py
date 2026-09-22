@@ -117,18 +117,13 @@ def _organize_line(node: BrainNode) -> str:
         meta.append("links: " + " ".join(node.links))
     if node.contradictions:
         meta.append("c: " + " ".join(node.contradictions))
-    head = f"{node.id} [{', '.join(meta)}] {_organize_text(node)}"
+    head = f"{node.id} [{', '.join(meta)}] {node.text}"
     extra = _organize_extra(node)
     return head + extra
 
 
-def _organize_text(node: BrainNode) -> str:
-    """主文本（按 kind）: narration / pattern / content。"""
-    if node.kind == "episode":
-        return node.narration
-    if node.kind == "experience":
-        return node.pattern
-    return node.content
+# ⏸ `_organize_text()` 2026-09-21 删——它按 kind 从 narration/pattern/content 里挑正文;
+# 三槽合流成 `text` 后挑选这步没了（调用点直接用 `node.text`）。
 
 
 def _organize_extra(node: BrainNode) -> str:
@@ -273,7 +268,7 @@ def render_character_view(
             _belief_line(n, char_name, char_aliases) for n in beliefs))
     if players:
         blocks.append("老师的事：\n" + "\n".join(
-            f"- {_me(n.pattern, char_name, char_aliases)}（count {n.count}）"
+            f"- {_me(n.text, char_name, char_aliases)}（count {n.count}）"
             for n in players))
     if reported:
         blocks.append("我听说的：\n" + "\n".join(
@@ -302,7 +297,7 @@ def render_background_experience(data: dict, *, cap: int = 6) -> str:
 
 def _reported_line(node: BrainNode, char_name: str,
                    aliases: tuple[str, ...] = ()) -> str:
-    line = f"- {_me(node.narration, char_name, aliases)}"
+    line = f"- {_me(node.text, char_name, aliases)}"
     if node.observer:
         line += f"（听{node.observer}说的）"
     return line
@@ -331,7 +326,7 @@ def _memory_line(node: BrainNode, char_name: str,
     节点无 `ts`（空串/坏值）→ 同样不加——**不编一个"很久以前"**,
     那会让"未采集"与"真的很旧"混为一谈。
     """
-    line = f"- {_me(node.narration, char_name, aliases)}"
+    line = f"- {_me(node.text, char_name, aliases)}"
     phrase = _time_phrase(node, now)
     if phrase:
         line = f"- （{phrase}）" + line[2:]
@@ -361,9 +356,9 @@ def _time_phrase(node: BrainNode, now) -> str:
 
 def _belief_line(node: BrainNode, char_name: str,
                  aliases: tuple[str, ...] = ()) -> str:
-    content = _me(node.content, char_name, aliases)
-    line = f"- 对{_me(node.subject, char_name, aliases)}：{content}" \
-        if node.subject else f"- {content}"
+    body = _me(node.text, char_name, aliases)
+    line = f"- 对{_me(node.subject, char_name, aliases)}：{body}" \
+        if node.subject else f"- {body}"
     if node.growth:
         line += f"（——{_me(node.growth, char_name, aliases)}）"
     return line
@@ -411,8 +406,8 @@ def render_cognition_list(store: WikiStoreV2, cap: int = 12,
     for i, n in enumerate(nodes[:cap], start=1):
         local = f"u{i:04d}"
         local_of[n.id] = local
-        body = n.content if n.kind == "belief" else (
-            f"{n.pattern}（次数 {n.count}）" if n.count > 1 else n.pattern)
+        body = n.text if n.kind == "belief" else (
+            f"{n.text}（次数 {n.count}）" if n.count > 1 else n.text)
         if len(body) > 100:
             body = body[:100] + "…"
         sig = f", sig {n.significance:.2f}" if n.is_precious else ""

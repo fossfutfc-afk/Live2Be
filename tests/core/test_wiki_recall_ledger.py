@@ -241,11 +241,11 @@ def test_ledger_never_raises(caplog):
 
 def _store(tmp_path) -> WikiStoreV2:
     st = WikiStoreV2(tmp_path)
-    st.add(make_node("episode", narration="老师约我去看杂草。", title="看杂草",
+    st.add(make_node("episode", text="老师约我去看杂草。", title="看杂草",
                      significance=0.7, tags=["杂草"]))
-    st.add(make_node("episode", narration="我给草取了名字。", title="取名字",
+    st.add(make_node("episode", text="我给草取了名字。", title="取名字",
                      significance=0.6, tags=["命名"]))
-    st.add(make_node("belief", subject="被老师需要", content="只要老师需要我就会答应。",
+    st.add(make_node("belief", subject="被老师需要", text="只要老师需要我就会答应。",
                      significance=0.8, epistemic="inferred_belief",
                      tags=["老师"], links=[st.all()[0].id]))
     return st

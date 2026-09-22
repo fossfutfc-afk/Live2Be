@@ -27,7 +27,7 @@ _REF_KEY = "ref"
 #: create entry 里引擎忽略的字段（id/ts 由引擎分配——确定性归引擎）
 _IGNORED_ON_CREATE = ("id", "ts")
 #: update.patch 允许的字段（图边/epistemic 引擎管理, LLM 不可碰）
-_PATCH_FIELDS = ("subject", "content", "pattern", "significance", "tags", "growth")
+_PATCH_FIELDS = ("subject", "text", "significance", "tags", "growth")
 
 
 @dataclass
@@ -110,7 +110,7 @@ def apply_decisions(
         else:                                   # add
             kind = row.get("kind", "belief")
             fields: dict[str, Any] = {}
-            for f in ("subject", "content", "pattern", "example", "tags",
+            for f in ("subject", "text", "example", "tags",
                       "significance", "growth"):
                 v = row.get(f)
                 if v not in (None, "", []):
@@ -458,11 +458,11 @@ def _find_duplicate(store: WikiStoreV2, node: BrainNode) -> BrainNode | None:
     """(kind, event_seq 交集, 主文本相同) 去重——digest 崩溃窗口重跑防双写。"""
     if not node.event_seq:
         return None
-    main = node.main_text
+    main = node.text
     for n in store.all():
         if n.kind != node.kind or not (set(n.event_seq) & set(node.event_seq)):
             continue
-        if n.main_text == main:
+        if n.text == main:
             return n
     return None
 

@@ -28,8 +28,10 @@ def _memory_flash_fire(ctx: dict[str, Any]) -> str | None:
     seg = ctx.get("segment")
     if seg is None:
         return None
-    text = (seg.narration if seg.kind == "episode" else seg.main_text) \
-        if hasattr(seg, "kind") else str(seg)
+    # 2026-09-21: 原为 `seg.narration if seg.kind=="episode" else seg.main_text`——
+    # 那个三元是**死分支**（`main_text` 的 episode 分支本来就是 narration）;
+    # 三槽合流成 `text` 后直接取，非节点（调用方也可能塞字符串）照旧回落 str()。
+    text = seg.text if hasattr(seg, "kind") else str(seg)
     if not text:
         return None
     return (f"（在剧情开始前，你突然想起了一件事：{text}。"

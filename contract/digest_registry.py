@@ -42,7 +42,7 @@ PLAYER_SUBJECT = "player"
 #: 数字 ⇒ 属"契约声明与执行脱钩"的残留。**要恢复边界必须同时落校验器**,
 #: 只把常量加回来 = 又留一处看起来生效的假边界。
 MAX_EPISODES = 5        # A 轮单包最多 episode 数
-MAX_NARRATION = 300     # narration 单行上限（汉字）
+MAX_TEXT = 300          # 正文（text）单行上限（汉字）——三槽合流后两种 kind 共用
 MAX_TAGS = 4            # tags 检索词上限
 
 #: ⚠️ **`TASK_TIMESPAN` 已于 2026-09-17 删除**（用户裁决）—— 连同 schema 里那行
@@ -129,10 +129,11 @@ RECORD_EPISODE = DigestAction(
     field_schema=(
         '    {  // 一条记录; **条数见上方【本段类型】的产出契约**（bond=恰好 1 / mmt=0~5）//\n'
         '      "kind": "episode",    // "episode"=经历 | "experience"=玩家画像专用\n'
-        '                            //（玩家口癖/偏好/一次性个人信息——pattern 必填,\n'
+        '                            //（玩家口癖/偏好/一次性个人信息——text 写画像句,\n'
         '                            //  subject 不用填, 引擎固定为 player）//\n'
-        '      "narration": "…",  // kind=episode 必填; 单行 ≤300 字; 浓缩不流水账 //\n'
-        '      "pattern": "…",    // kind=experience 必填; 玩家画像句, 如"玩家的生日是\n'
+        '      "text": "…",        // 必填（两种 kind 同一个字段名）; 单行 ≤300 字;\n'
+        '                          // kind=episode → 第一人称浓缩, 不流水账;\n'
+        '                          // kind=experience → 玩家画像句, 如"玩家的生日是\n'
         '                          // 5 月 20 日""玩家总说摸鱼" //\n'
         '      "title": "…",      // kind=episode 必填; 8-16 字短标题; 拿不准也给朴素标题 //\n'
         '      "event_seq": ["28", "30"],  // 本条覆盖了哪几块——抄时间线的事件头编号\n'
@@ -166,7 +167,7 @@ RECORD_EPISODE = DigestAction(
         '    }'
     ),
     example=(
-        '{"narration": "老师约我去公园散步, 我紧张但努力答应了; 在长椅上一起喝热茶时,'
+        '{"text": "老师约我去公园散步, 我紧张但努力答应了; 在长椅上一起喝热茶时,'
         ' 一只流浪猫来蹭老师的裤脚, 我鼓起勇气摸了摸它, 回家路上嘴角一直藏着笑。",'
         ' "title": "和老师的公园散步",'
         ' "event_seq": ["31", "33"],'
@@ -208,8 +209,8 @@ UPDATE = DigestAction(
         "何时用: 找到同主题认知, 新经历改变/丰富了它;\n"
         "怎么改: patch 部分字段合并改写——只写要变的字段, 空=保留旧值;"
         " 新认知是已有认知的子/超集 → 改宽已有 subject, 不新建;\n"
-        " 新 content 应覆盖新旧理解, 重新表述为连贯结论;\n"
-        "禁什么: 不复制原文进 content; 不改 epistemic; 不碰出厂基座(canon 只读)。"
+        " 新 text 应覆盖新旧理解, 重新表述为连贯结论;\n"
+        "禁什么: 不复制原文进 text; 不改 epistemic; 不碰出厂基座(canon 只读)。"
     ),
     field_schema=(
         '    {  // 每个 episode 恰好一行 //\n'
@@ -218,7 +219,7 @@ UPDATE = DigestAction(
         '      "target": "u0002",    // 必填: 目标认知 id //\n'
         '      "patch": {            // 部分字段, 空=保留; 至少一个非空 //\n'
         '        "subject": "…",     // 可选; 认知主体, 不按情境命名（太窄→并入更宽维度）//\n'
-        '        "content": "…",     // 可选; 结论式 ≤200 字, 不描述事件 //\n'
+        '        "text": "…",        // 可选; 结论式 ≤200 字, 不描述事件 //\n'
         '        "significance": 0~1,// 可选; 行为锚点同 A 轮 //\n'
         '        "tags": ["…"],      // 可选; 检索导向 //\n'
         '        "growth": "…"       // 可选; 认知的成长方向（一句）//\n'
@@ -227,7 +228,7 @@ UPDATE = DigestAction(
     ),
     example=(
         '{"episode": "m0002", "decision": "update", "target": "u0001",'
-        ' "patch": {"content": "和老师在一起可以安静相处, 沉默也是自然的——现在连'
+        ' "patch": {"text": "和老师在一起可以安静相处, 沉默也是自然的——现在连'
         ' 带猫粮喂猫这种小事, 我都敢主动约老师一起做了。"}}'
     ),
 )
@@ -239,7 +240,8 @@ ADD = DigestAction(
     semantics=(
         "何时用: 候选里没有同主题认知, 且新经历形成了稳定结论或可复用模式;\n"
         "怎么改: subject 用稳定维度命名（人/关系/互动模式/性格特征）;"
-        " content 写结论不写事件; 反复出现的模式 → kind=experience（pattern 句 + 首个 example）;\n"
+        " text 写结论/模式不写事件（两种 kind 同一个字段名）;"
+        " 反复出现的模式 → kind=experience（text 写模式句 + 首个 example）;\n"
         "禁什么: 与已有认知同抽象层或更窄 → 应 update 已有而非 add;"
         " 只印证不新增 → 应 touch; 引擎标注'疑似重复'仍 add → 整包拒。"
     ),
@@ -249,8 +251,8 @@ ADD = DigestAction(
         '      "decision": "add",\n'
         '      "kind": "belief",     // belief=认知结论 | experience=重复模式 //\n'
         '      "subject": "…",       // 必填; 稳定维度命名, 不按情境 //\n'
-        '      "content": "…",       // belief 必填: 结论式 ≤200 字 //\n'
-        '      "pattern": "…",       // experience 必填: 模式句 //\n'
+        '      "text": "…",          // 必填; belief→结论式 ≤200 字 /'
+        ' experience→模式句 //\n'
         '      "example": "…",       // experience 可选: 本次的具体例子一句 //\n'
         '      "tags": ["…"],        // 可选; 检索导向 //\n'
         '      "significance": 0~1,  // 可选; 行为锚点 //\n'
@@ -260,7 +262,7 @@ ADD = DigestAction(
     example=(
         '{"episode": "m0003", "decision": "add", "kind": "belief",'
         ' "subject": "我对老师的信任",'
-        ' "content": "老师是第一个不嫌弃我的人——把猫抱到我腿边这种小事, 都让我'
+        ' "text": "老师是第一个不嫌弃我的人——把猫抱到我腿边这种小事, 都让我'
         ' 觉得自己也被放在心上。", "significance": 0.9}'
     ),
 )
@@ -482,16 +484,13 @@ class DigestRegistry:
                     errors.append(f"decisions[{i}].kind 非法: {kind!r}（belief|experience）")
                     continue
                 item["kind"] = kind
-                for f in ("subject", "content", "pattern", "example", "tags",
+                for f in ("subject", "text", "example", "tags",
                           "significance", "growth"):
                     v = row.get(f)
                     if v not in (None, "", []):
                         item[f] = v
-                if kind == "belief" and not _nonempty_str(item.get("content")):
-                    errors.append(f"decisions[{i}]: add(belief) 必须填 content")
-                    continue
-                if kind == "experience" and not _nonempty_str(item.get("pattern")):
-                    errors.append(f"decisions[{i}]: add(experience) 必须填 pattern")
+                if not _nonempty_str(item.get("text")):
+                    errors.append(f"decisions[{i}]: add({kind}) 必须填 text")
                     continue
                 if not _nonempty_str(item.get("subject")):
                     warnings.append(f"decisions[{i}]: add 缺 subject（建议稳定维度命名）")
@@ -530,11 +529,11 @@ def _clean_episode(e: Any, i: int, seq_set: set[int] | None = None
             item["kind"] = "episode"
         return item, errors, warnings
     if kind == "experience":
-        # 玩家画像条目（MMT 专则, 2026-09-02）: pattern 必填, subject 引擎固定 player
-        pattern = e.get("pattern")
-        if not isinstance(pattern, str) or not pattern.strip():
-            return None, [f"episodes[{i}]: kind=experience（玩家画像）必须填 pattern"], []
-        item: dict = {"kind": "experience", "pattern": pattern.strip(),
+        # 玩家画像条目（MMT 专则, 2026-09-02）: text 必填, subject 引擎固定 player
+        text = _read_text(e, i, warnings)
+        if not text:
+            return None, [f"episodes[{i}]: kind=experience（玩家画像）必须填 text"], []
+        item: dict = {"kind": "experience", "text": text,
                       "subject": PLAYER_SUBJECT}
         # 画像条目无 episode 载体——原话直接存（两条通道: 文本 / 索引）
         _fill_verbatim(item, e, i, warnings, seq_set)
@@ -630,18 +629,39 @@ def _fill_verbatim(item: dict, e: dict, i: int, warnings: list[str],
         item["verbatim"] = raw_text.strip()
 
 
+def _read_text(e: dict, i: int, warnings: list[str]) -> str:
+    """条目正文 —— 主字段 `text`（2026-09-21 三槽合流）, 兼容旧名 `narration`/
+    `pattern`/`content`。
+
+    ## 为什么兼容旧名（这是一个**安全**决定, 不是留恋旧形状）
+
+    契约文案改名的那个版本落地时, 模型有惯性（也可能命中**旧的 prompt 缓存**）——
+    若只认 `text`, 一次惯性就**整条丢弃**（episode/experience 都是"缺正文即丢"）,
+    代价是整包重发 + 反馈重试。兼容读 + **一行 warning** 把这件事变成可观测:
+    长期还在出现旧名 → grep `用了旧字段名` 就能发现（同 §8"示例才是形状来源"那条纪律）。
+    """
+    for key in ("text", "narration", "pattern", "content"):
+        v = e.get(key)
+        if isinstance(v, str) and v.strip():
+            if key != "text":
+                warnings.append(
+                    f"episodes[{i}] 用了旧字段名 {key}——已按 text 收下"
+                    f"（schema 已改名, 若长期出现请查 prompt 缓存）")
+            return v.strip()
+    return ""
+
+
 def _clean_episode_item(e: dict, i: int, errors: list[str], warnings: list[str],
                         seq_set: set[int] | None = None
                         ) -> tuple[dict | None, list[str], list[str]]:
-    """kind=episode 条目的字段清洗（缺 narration 整条丢弃, 宁缺勿错）。"""
-    narration = e.get("narration")
-    if not isinstance(narration, str) or not narration.strip():
-        return None, errors + [f"episodes[{i}] 缺 narration"], warnings
-    narration = narration.strip()
-    if len(narration) > MAX_NARRATION:
+    """kind=episode 条目的字段清洗（缺 text 整条丢弃, 宁缺勿错）。"""
+    text = _read_text(e, i, warnings)
+    if not text:
+        return None, errors + [f"episodes[{i}] 缺 text"], warnings
+    if len(text) > MAX_TEXT:
         # 宁缺勿错: 整条丢弃（包已无效 → 反馈重试会让 LLM 重写整包, 截断反而静默改内容）
-        return None, errors + [f"episodes[{i}].narration 超过 {MAX_NARRATION} 字——整条丢弃"], warnings
-    item: dict = {"narration": narration}
+        return None, errors + [f"episodes[{i}].text 超过 {MAX_TEXT} 字——整条丢弃"], warnings
+    item: dict = {"text": text}
     title = e.get("title")
     if isinstance(title, str) and title.strip():
         item["title"] = title.strip()
