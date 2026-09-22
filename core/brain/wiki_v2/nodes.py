@@ -1,55 +1,25 @@
-"""图式 wiki 节点数据结构（AGENT_BRAIN.md §1）。
+"""图式 wiki 节点（AGENT_BRAIN.md §1）。
 
-3 种节点（kind, 2026-09-02 fact 退役——出厂与运行时同构, 记忆 = 经历 + 认知）:
+三种 kind（2026-09-02 fact 退役——记忆 = 经历 + 认知）:
     episode    一次性经历（text 第一人称浓缩 + verbatim 原话; 质感优先不升华）
-    experience 重复模式（text 写规律 + count 聚合; subject=player = 玩家口癖, R5 强调点）
-    belief     抽象认知（inferred_belief, links 必须 ≥1 支撑）
+    experience 重复模式（text 写规律）; subject="player" = 玩家口癖/画像（R5）
+    belief     抽象认知（text 写结论; links ≥1 支撑; 可选 growth 成长方向）
 
-通用字段: id / kind / significance / epistemic / observer / tags / event_seq / ts /
-          links / contradictions / aff_at_encoding / emo_int / emo_span
-专属字段: episode.title(可选短标题) / episode.verbatim(+verbatim_seq 索引) /
-          episode.emo_shape · place · place_raw（召回侧物化, 不进 LLM 上下文）/
-          belief.subject · belief.growth
-observer 语义（2026-09-02 收敛）: 单视角世界线里 observed_fact 的观察者恒为
-角色本人——引擎填 char_id, 不交给 LLM; reported_fact 的 observer = 转述者
-（LLM 判断, 渲染为"听 X 说的"）。
+不变量（validate/normalize 强制）:
+    - epistemic: belief 恒 inferred_belief; episode/experience 只能 observed/reported
+    - belief.links 非空（无支撑升华拒绝）; experience.examples ≤ 3
+    - significance ∈ 0~1, 珍贵档 ≥ PRECIOUS_THRESHOLD(0.8); 越界 clamp
+    - 去重键 = (kind, event_seq); player experience 永不被内容去重/合并（§4.4）
 
-字段删除台账（2026-09-21 大化简；判据 = 生产者/消费者/真机数据三方核对）:
-    `source_key`    零生产零消费零数据（生产企业链已归档）
-    `observation`   2026-09-17 的"声明保留但不投产"挂点 ⇒ 删（写清 narrator 即可）
-    `speculation`   EPISTEMICS 第 4 值, 其余三值都被护栏强制 ⇒ 从未被写入
-    `source`        活路径上恒为 "digest"; 连同 `is_seed()`·`notes`·render 的 seed 桶
-     /`is_seed`     /"canon 只读"标记·store+revise 两条不可变守卫（出厂记忆不进 wiki）
-    `notes`         全仓唯一读者是上面那条守卫 ⇒ 守卫没了它没有读者
-    `count`         = len(links)，改为**派生属性**（删字段 + 2 处手工刷新 + 1 条 audit）
-    `segment_id`    零读者（段边界本来就由 marker 派生: `digest._segment_domain`）
-    `emo_valence`   有生产（Round A）零消费; 极性由 `emo_shape` 逐键承担
-    `history`       只写不读，且记的是**改写后**的内容（原文丢失）⇒ 改由
-                    `evolution.jsonl` 的 before/after 承担（那才是审计该待的地方）
-    `main_text`     属性随三槽合流一并删（它只是"按 kind 分派"的间接层）
-    `title`         ⚠️ **保留**（用户 2026-09-21 裁决）——Round A 必填, 承载"本章标题"
+⚠️ 2026-09-21 大化简（判据 = 生产者/消费者/真机数据三方核对）——**删过的别再捡回来**:
+    source_key · observation · speculation · source（连同 is_seed/notes/seed 桶/不可变守卫）·
+    count（→派生 len(links)）· segment_id · emo_valence · history（→evolution 的 before/after）·
+    main_text（属性）; 三槽 narration/pattern/content → **text**。
+    ⚠️ 为什么没给三种正文形态配 `nature`: 它与 kind 双射 = 换词不换信息; v3 的 nature 是
+    **认知层第四轴**（管合并策略）, 需 2-kind 模型 ⇒ 批 3（DESIGN_WIKI_V3 §2.3–2.5）。
+    旧档里的这些键由 `from_dict` 宽松忽略（无迁移脚本）。
 
-**三槽合流（2026-09-21）**: `narration`(episode) / `pattern`(experience) /
-`content`(belief) → **`text`**。三者编码的是同一件事（正文）, 差别只来自 `kind`——
-而 kind 已是字段。契约侧收益更大: 模型不必"按 kind 选槽位"（选错 = 静默丢正文）。
-⚠️ 为什么**没有**配一个 `nature` 来区分三种文本形态: 那与 `kind` 是**双射**
-（narrative/pattern/conclusion ↔ episode/experience/belief）= 换词不换信息, 反而多一个
-必须与 kind 同步的字段。v3 的 `nature` 是**认知层第四轴**（`self_image`/`other`/
-`relationship`/`pattern`, 管**合并策略**）, 前提是 experience 并进 belief 的 2-kind
-模型 —— 那属于批 3（见 `docs/DESIGN_WIKI_V3.md §2.3–2.5`）。
-    旧档里这些键 → `from_dict` 宽松忽略（无迁移脚本）。
-
-关键规则（引擎侧强制, 此处提供 validate/normalize 支撑）:
-    - epistemic: observed_fact | reported_fact | inferred_belief
-      （canon_fact 随 fact 退役, 2026-09-02）
-    - belief.epistemic == inferred_belief（护栏）
-    - belief.links 非空（无支撑升华拒绝, §5 校验规则 4）
-    - significance: decimal 0~1, 珍贵档 ≥ PRECIOUS_THRESHOLD(0.8)（保底通道）
-    - 去重键 = (kind, event_seq): 同事件重复消化 → 去重; 不同事件同类 → accrue（不删）
-    - player experience（subject=player）永不被内容去重/合并掉（§4.4）
-
-id 格式（决策 #7）: 前缀 + 4 位零填充, 无 # 无下划线 —— e0002 / m0003 / m0003。
-序列化: jsonl 一行一条（to_json_line / from_json_line）。
+id: 前缀 + 4 位零填充（e0002 / m0003）; 序列化: jsonl 一行一条。
 """
 from __future__ import annotations
 
@@ -59,20 +29,14 @@ from typing import Any
 
 #: 节点类型（fact 已退役, 2026-09-02——出厂与 digest 同构: 记忆 = 经历 + 认知）
 KINDS = ("episode", "experience", "belief")
-#: 认知类型（DESIGN_BRAIN.md §7; canon_fact 随 fact 退役;
-#: **speculation 2026-09-21 删**——零生产者/零消费者/零真机数据, 是 4 值枚举里
-#: 唯一没人用的。belief 的 inferred_belief 与 episode/experience 的 observed/reported
-#: 都由 validate 护栏强制, 所以 `speculation` 从来没被写进来过。）
+#: 认知类型（canon_fact 随 fact 退役; speculation 2026-09-21 删——三值全由护栏强制）
 EPISTEMICS = ("observed_fact", "reported_fact", "inferred_belief")
 #: 珍贵档阈值（保底通道 / 对应 neuron 草稿的 memo 档）
 PRECIOUS_THRESHOLD = 0.8
 #: player experience 的 subject 固定值（玩家口癖/习惯, R5）
 PLAYER_SUBJECT = "player"
 
-#: 各 kind 的必填字段（validate 用）——**正文统一叫 `text`**（2026-09-21 合流:
-#: 原 narration(episode)/pattern(experience)/content(belief) 三槽合一）。
-#: 三个名字编码的是同一件事（这条记忆的正文）, 差别只来自 kind——而 kind 已经是字段。
-#: 合并的另一半收益在契约侧: Round A 不必判断"我是哪种 kind 该填哪个槽"（填错是静默错）。
+#: 各 kind 的必填字段（validate 用; 正文统一叫 `text`）
 _REQUIRED: dict[str, tuple[str, ...]] = {
     "episode": ("text",),
     "experience": ("text", "subject"),
@@ -87,183 +51,73 @@ def format_id(prefix: str, seq: int) -> str:
 
 @dataclass
 class BrainNode:
-    """一条图式 wiki 节点（宽松 dataclass: 全部字段可缺省, 校验走 validate()）。
+    """一条图式 wiki 节点（宽松 dataclass: 字段可缺省, 校验走 validate()）。
 
-    按 kind 取用的专属字段（**正文一律 `text`**——2026-09-21 三槽合流）:
-        episode:    text(必填) / title(必填短标题 8-16 字) / verbatim(可选原话,
-                    +verbatim_seq 索引) / emo_shape · place · place_raw(召回侧物化)
-        experience: text(必填, 写规律) / subject(必填) / examples(≤3) / count(派生)
-        belief:     text(必填, 写结论) / subject(认知对象, 可空) / growth
+    字段分组:
+        共用    id / kind / significance / text / epistemic / observer / tags /
+                event_seq / ts / links / contradictions(休眠)
+        episode title / verbatim / verbatim_seq / emo_shape / place / place_raw /
+                aff_at_encoding / emo_int / emo_span
+        认知     subject / examples / growth        （experience / belief）
     """
 
+    # ── 共用（三种 kind 都有）──
     id: str = ""
     kind: str = "episode"
     significance: float = 0.5
     epistemic: str = "observed_fact"
-    observer: str = ""          # observed → 角色本人(引擎填); reported → 转述者(LLM)
+    observer: str = ""          # 信息来源: 空 = 亲历; 非空 = 转述者（LLM 填, 渲染"听X说的"）
     tags: list[str] = field(default_factory=list)
     event_seq: list[int] = field(default_factory=list)
     ts: str = ""
     links: list[str] = field(default_factory=list)
-    #: ⏸ **休眠字段 + 休眠路径（2026-09-21 用户裁决"接受整块休眠"）**。
-    #:
-    #: 三方核对（审计结论）:
-    #: | 三方 | |
-    #: |---|---|
-    #: | 生产者 | ❌ **活路径上没有**：`DECISIONS = touch\|update\|add`（`contract/digest_registry.py`），写它的 `contradict`/`resolve`/`merge`/create-with-contradictions 全在 `apply_revision_package` 里，而那个函数**零生产调用者**（只有门面再导出与测试）；`phase=deep` 至今未注册 |
-    #: | 消费者 | ✅ 有（`render.py` 组织视图的 `c:` 行 · `recall.py` 一跳扩展 · `store.py` 双向一致性 audit） |
-    #: | 真机数据 | ❌ 零条（`wiki.jsonl` 全库无此键） |
-    #:
-    #: ## 为什么**不删**（别的死字段都删了, 它留）
-    #:
-    #: 它跟那些字段不是一类：`source_key`/`observation` 是**真死**（有活路径却不读 / 是常量 /
-    #: 是派生），而 `contradictions` 是**整条路径休眠**——字段与执行器同生共死。删字段就得
-    #: 同时改 `revise.py:282/430`（会给不存在的字段赋值 → AttributeError）、删 store 的三个
-    #: 原语与 audit 规则、删 render/recall 的读取点，而那条路径**正是 `DESIGN_RESEND`
-    #: （重发/更正）规划的执行器**（`merge` 将来要用于"水位之下更正"）⇒ 删它 = 替尚未立项的
-    #: 深度整理**提前做一半设计**，将来还要再改一次。
-    #:
-    #: ⇒ 本期**整块休眠**：字段与路径都留，只在需要时一并重做。它体积 0 B、不进 LLM 上下文
-    #: （`emo_shape`/`place` 那条纪律），代价只是 4 处 kind 判断。
-    #: ⚠️ **重新立项深整理时走"带类型的边"**（矛盾是二元关系, 天然是边, 节点数组只是邻接表
-    #: 实现）——见 `stores`/`DESIGN_WIKI_V3` 的 entity 中心模型; 不要回到"belief 上挂数组"。
+    # ── 休眠字段 + 休眠路径（2026-09-21 用户裁决"整块休眠"）──
+    #: 活路径上**零生产者**（写它的 `contradict`/`resolve`/`merge` 全在零调用的
+    #: `apply_revision_package` 里, `phase=deep` 未注册）、真机零数据; 消费者 = render 的
+    #: `c:` 行 · recall 一跳扩展 · store 双向 audit。字段与执行器**同生共死** ⇒ 留到深整理 /
+    #: 更正（`DESIGN_RESEND`）立项时一起重做（届时走**带类型的边**, 别再挂在 belief 上）。
     contradictions: list[str] = field(default_factory=list)
-    # ── 正文（三种 kind 共用一槽）──
-    #: **这条记忆的正文**——2026-09-21 合流: 原 `narration`(episode) / `pattern`
-    #: (experience) / `content`(belief) 三槽合一。三者编码的是同一件事, 差别只来自
-    #: `kind`; 而契约侧要求模型按 kind 选槽位（选错 = 静默丢正文）。
-    #: 写作口径仍按 kind 分（episode=第一人称浓缩、experience=规律、belief=结论）,
-    #: 但那由 rules/schema 的语义承担, 不再由字段名承担。
-    #: 旧档的 `narration`/`pattern`/`content` 键由 `from_dict` 兼容读入。
+    #: **这条记忆的正文**（三种 kind 共用一槽; 原 `narration`/`pattern`/`content` 2026-09-21 合流）。
+    #: 写作口径仍按 kind 分（episode=第一人称浓缩 / experience=规律 / belief=结论）——那是
+    #: rules/schema 的语义, 不再由字段名承担。旧档的旧名由 `from_dict` 兼容读入。
     text: str = ""
+    # ── episode 专属 ──
     verbatim: str = ""
-    #: `verbatim` 的**索引通道**（T14, 2026-09-15）——`["28.3", "20.p"]`。
-    #: 语义: 这条 episode 的"关键几句"在**时间线上的地址**（词汇表见
-    #: `contract/timeline_index.py`）。地址**永久有效**——`paragraphs` 落在
-    #: append-only 的 `events.jsonl` 里, 永不改删, 所以索引能被无限次重新解析。
-    #: `[]` = 未采集 / LLM 只给了文本通道。
-    #: ⚠️ **`verbatim`（文本）才是消费字段**——`render.py`/`recall.py` 只拿到节点、
-    #: 拿不到事件流, 解析不了索引。本字段服务的是**可追溯性 / 板归属 / 重解析**。
+    #: `verbatim` 的**索引通道**（地址如 `"28.3"`/`"20.p"`, 词表 = `contract/timeline_index.py`）。
+    #: 上游: 引擎据此回填文本; 地址永久有效（`events.jsonl` append-only）⇒ 可重解析。
+    #: ⚠️ 消费字段是 `verbatim`（文本）——索引解析不出时以文本兜底。
     verbatim_seq: list[str] = field(default_factory=list)
-    #: **板级情绪键序列**（T15, 2026-09-15）——`["tease", "smile", "smile_2"]`。
-    #: 由 `digest` 按 `event_seq`（板指针）从真源**物化**: 那几块的
-    #: `payload.paragraphs[*].emotion` 按 seq 序拼接。B 链路（情绪序列 RAG）的唯一输入。
-    #:
-    #: 为什么物化而不是召回时现取: `Channel.gather(store, ctx)` **只拿得到节点,
-    #: 拿不到事件流**——链路无法去翻板。而 §3.3/§3.9 本来就定了这一手
-    #: （"板级 affect 物化缓存（一次算，索引表里存）…可从真源重建"）。
-    #: 有 `event_seq` 就能重算, 所以它不是第二真源。
-    #:
-    #: 🚫 **绝不进 LLM 上下文**（用户 2026-09-15 裁决）——它是**召回侧信号**,
-    #: 与 `place` 同类: 参与排序, 不参与写作。`render_*` 一律不输出它。
+    #: **板级情绪键序列**（如 `["tease","smile"]`）——B 链路（情绪序列 RAG）唯一输入。
+    #: 由 digest 按 `event_seq` 从真源物化（能重算 ⇒ 不是第二真源）。
+    #: 🚫 **绝不进 LLM 上下文**（召回侧信号; `render_*` 一律不输出）。
     emo_shape: list[str] = field(default_factory=list)
-    #: **地点键序列**（M3, 2026-09-19）——`["classroom", "school_rooftop"]`。
-    #: 由 `digest` 按 `event_seq`（板指针）从真源**物化**: 那几板的
-    #: `payload.place`（板首 `switch` 解出的键）+ `payload.paragraphs[*].place`
-    #: （句级锚点），**相邻去重保序** —— 于是它同时是"她这段去过哪些地方"的变化
-    #: 序列（重复次数也留着: 同一个地点去了两次 = 两个元素）。
-    #:
-    #: ## 带的是**键**，不是 writer 的本名
-    #:
-    #: 用户 2026-09-19 问 *"带的是 key 还是 writer 的本名?"* —— 这里带**键**
-    #: （C 链路的"同图"判据比的是相等，本名三个字符串同一张图，做不了等值分组）。
-    #: writer 本名留在事件流里（`payload.place_hint` + 锚点句原文），
-    #: `event_seq` 指得到。
-    #:
-    #: ⚠️ **但键不等于地名**（见上一条 `place` 的更正）——若要判"**同地**"
-    #: 而不是"同图"，需要原文走语义（该字段尚未落，待裁决，见 TODO）。
-    #:
-    #: 🚫 **绝不进 LLM 上下文**（用户 2026-09-15 裁决同 `emo_shape`）——召回侧信号。
-    place: list[str] = field(default_factory=list)
-    #: ⚠️ **`place` 是「素材轴」，不是「地名」**（2026-09-19 用户指出后更正）。
-    #:
-    #: 用户: *"key 名不一定能代表实际含义？杂草屋和破房子两个地方可以对应同一个
-    #: key；也就是真实地名和 key 大概率并不是一个双射。"* —— **实测证实，两个方向
-    #: 都在表里活着**:
-    #:
-    #: | 方向 | 实例 | 后果 |
-    #: |---|---|---|
-    #: | **一键多义**（假阳性） | `ruinschoolcorridor` 的 note 自己写着 *"也可以用做老屋子或者某种杂草秘密基地"* —— 一个键**声明**服务多个叙事地点 | 真·走廊废墟与杂草屋两条记忆键相同 → 判成同地 |
-    #: | **一地多键**（假阴性） | 别名 `天台` 指向 3 个键（`school_rooftop`/`rooftop`/`building_roof_top`） | 都在天台, 键不同 → 判成不同地 |
-    #:
-    #: 9 条 note 自称"通用/也可以用作"，其中 **8 条 region 未知** ⇒ 无从消歧;
-    #: 而 `region` 本身只有 20/168 非空。
-    #:
-    #: ⇒ **键相等只声称「同一张图」，绝不声称「同一个地方」。**
-    #: 判"同地"需要**叙事身份**，而那东西**推不出来**（一地多键的知识——两张不同的图
-    #: 代表同一个叙事地点——不在资产结构里，只在语言侧）。两条路:
-    #: ① 落**原文**走语义相似（同 `D` 链路拿 `text` 做向量那一手）
-    #: ② 作者打**地点实体表**（真实地名 → entity）——即 v3 的 entity 中心模型
-    #: 未决，见 `TODO.md` 地点节。
-    #:
-    #: ⚠️ **原先这里有个 `region: str`，2026-09-19 撤掉了** —— 用户澄清:
-    #: *"region 只是用于判定在哪个学院的，作用并不大，是为以后可能的地点体系
-    #: 做铺垫的产物，现在其实基本没有太多作用，**也不必落库**。"*
-    #: 它还是**派生视图**（`place_hint` 原文 → `regions.yml` 纯字符串归一）,
-    #: 随时能从事件流重算 ⇒ 落库 = 冗余的第二真源。
-    #: 真正的用处仍在**盒B【世界区域】块**（T16）与未来的地点体系。
-    #: 旧档里若还有这个键 → `from_dict` 宽松忽略。
-    #:
-    #: **writer 原文序列**（叙事轴, 2026-09-19 用户指出后补落）。
-    #:
-    #: 用户: *"key 需要用于回放，而 writer 名则需要用于检索，**二者缺一不可**。
-    #: 但是 writer 名不像键名可以直接 literal compare……会不会是用于检索的两个
-    #: 维度？"* —— **正是**。两根轴回答的是不同问题, 不竞争:
-    #:
-    #: | 轴 | 字段 | 判据 | 声称 | 回答 |
-    #: |---|---|---|---|---|
-    #: | **素材** | `place` | 字面相等 | 同一张图 | **回放**画哪张图 |
-    #: | **叙事** | `place_raw`（本字段） | **语义相似** | 同一个地方 | **检索**"是不是那儿" |
-        #:
-    #: 两根轴**信息上正交**（`same_image` 而无 `same_place` = 素材被两个叙事地点
-    #: 共用; `same_place` 而无 `same_image` = 同一地点的两个镜头），所以
-    #: **组合起来才是信号**——同 `emo_span × emo_int`、同"B/D 双链路都召回"那条判据。
-    #:
-    #: ⚠️ 为什么不能用键代替本字段: 键**不是地名的双射**（`ruinschoolcorridor`
-    #: 的 note 自称"也可以用做杂草秘密基地" → 一键多义; 别名「天台」→ 3 个键 →
-    #: 一地多键）。**语义轴只能由原文承担。**
-    #:
-    #: 来源: 板首 `switch` 的 `payload.place_hint`（writer 写的名词短语）。
-    #: 句级锚点的原文要用 `paragraphs[i].text`, 在事件流里, 需要时按 `event_seq` 取。
+    #: **地点键序列**（素材轴）——板首 switch 的键 + 句级锚点, 相邻去重保序; 由 digest
+    #: 按 `event_seq` 从真源物化（能重算 ⇒ 不是第二真源）。
+    #: ⚠️ 键相等只声称"**同一张图**", 不声称"同一个地方"（语义轴见 `place_raw`）。
     #: 🚫 **绝不进 LLM 上下文**（召回侧信号, 同 `emo_shape`）。
+    place: list[str] = field(default_factory=list)
+    #: **writer 原文序列**（叙事轴）——板首 `place_hint` 的名词短语, 由 digest 物化。
+    #: 与 `place` 是两根**正交**轴: `place` 字面相等 = 同一张图（判回放画哪张）;
+    #: 本字段走语义相似 = 同一个地方（判"是不是那儿"）。键**不是**地名的双射
+    #: （一键多义 / 一地多键都实测存在）⇒ 两根轴不可互替。🚫 不进 LLM 上下文。
     place_raw: list[str] = field(default_factory=list)
-    title: str = ""             # episode 可选短标题（Round A 必填, 承载本章标题）
+    #: episode 可选短标题（Round A 必填, 承载本章标题）
+    title: str = ""
+    # ── 认知专属（experience / belief）──
     subject: str = ""
     examples: list[str] = field(default_factory=list)
     growth: str = ""
-    #: 编码时好感标量 ∈ [−1, 1]（`Affection.to_scalar()`, §3.3.3）——**快照**:
-    #: 写入时定、之后**永不改**（故与"节点 append-only"不冲突）。
-    #: `None` = 旧档/未采集; `0.0` = 中性。两者**必须能区分**——否则旧档会被
-    #: 误读成"当时关系中性", 同频召回会捞出一堆假匹配。
-    #: 用途: `mood_congruence = 1 − |aff_now − aff_at_encoding| / 2`（值域宽 2）。
-    #: 真源仍是 `affection` 事件流（`load_affection_from_events` 可按 seq 回放），
-    #: 本字段只是省掉每次召回重放。
+    # ── episode 数值（None = 未采集; 0.0 是合法值——两者不可合并）──
+    #: 编码时好感标量 ∈ [−1, 1]（`Affection.to_scalar()`）——**快照**: 写入时定、永不改。
+    #: 真源是 `affection` 事件流, 本字段只是省掉每次召回重放。
     aff_at_encoding: float | None = None
-    #: 峰值情绪强度 ∈ [0, 1]（Round A 出值, §3.3.3 矩阵第二行）——**峰值**不是均值。
-    #: 判据由 `【本段情绪标尺】`（作者注释, §3.3.2）提供。
-    #: `None` = 未采集（旧档 / LLM 没给）; **`0.0` 也是合法值**（确实毫无波澜,
-    #: 如纯事务性寒暄）。两者不可合并——故用 `None` 哨兵而非 `0` 当缺省。
+    #: 峰值情绪强度 ∈ [0, 1]（Round A 出值）——**峰值**不是均值。
+    #: None = 未采集; **0.0 也是合法值**（确实毫无波澜）。
     emo_int: float | None = None
-    #: 情绪**摆幅** ∈ [0, 1]（Round A 出值, §3.3.3 矩阵第二格）——**非负**。
-    #: "从最低摆到最高跨了多远"。与 `emo_int` 的区别:
-    #:   span 高 int 高 = `outburst→smile`（先炸后真心笑）;
-    #:   span 高 int 低 = 缓慢的起伏; int 高 span 低 = 一直很猛但没转折。
-    #: ★ **不是**板级极差的聚合——板不是必需的粒度（2026-09-13 修正）:
-    #:   Round A 看得到每条记录的 `(情绪键)`, 而它能读注释语义
-    #:   （作者写 `sigh`「一看就知道是装可怜」——**字面极差读不出"装"**）。
-    #:   故与 `emo_int`/`significance` 同为 episode 级 LLM 标量,
-    #:   **不需要板链**（Q34 因此不阻塞任何字段）。
+    #: 情绪**摆幅** ∈ [0, 1]（Round A 出值）——**非负**、无符号（方向在 emo_shape 的键里）。
+    #: span 高 int 高 = 先炸后真心笑; span 高 int 低 = 缓慢起伏; int 高 span 低 = 一直很猛没转折。
     emo_span: float | None = None
-    # ⏸ `emo_valence: float | None` —— **已删（2026-09-21）**: 有生产（Round A）**零消费**
-    # ——全仓没有任何读取点（B 链路用 `emo_shape` 逐键、A 链路用 `emo_int`/`emo_span`）。
-    # 它原本写着"供情感召回的同频匹配用"，那个消费者从未建; 而极性信息在 `emo_shape`
-    # 的情绪键里逐键带着（`smile` / `depressed`），比一个标量更有分辨力。
-    # 旧档里若还有这个键 → `from_dict` 宽松忽略。
-    # ── 剧情时间点（`story_time`）：**已整族退役**（2026-09-17, `ESSAY_TIME_MODEL §10`）──
-    # 删掉的是 `story_time: dict | None` 字段、`_parse_story_time()` 与 `to_dict` 里的
-    # 特例分支。它存的是**剧情日历**的快照（`{year,month,week,phase,sim_day}`），
-    # 而唯一日期轴现在是**现实日期**（`ts`，由 `age.age_days` 算年龄）。
-    # ⚠️ 旧档里仍可能有这个键 —— `from_dict` 宽松解析，**多余的键自动忽略**（不抛）。
+    # ⏸ 已删/退役（旧档键由 from_dict 忽略）: emo_valence(2026-09-21) · story_time(2026-09-17)
 
     # ------------------------------------------------------------------
     # 校验（字段级; 契约层/组织 pass 在引擎侧再叠加引用级校验）
@@ -297,10 +151,7 @@ class BrainNode:
         return errors
 
     def normalize(self) -> "BrainNode":
-        """引擎侧归一（不校验, 只修不变量）: significance clamp 0~1; examples 截断 3。
-
-        （原"experience.count = len(links)"一行 2026-09-21 删——count 已是派生属性。）
-        """
+        """引擎侧归一: significance clamp 0~1; examples 截断 3。"""
         self.significance = max(0.0, min(1.0, float(self.significance)))
         if self.kind == "experience":
             self.examples = self.examples[:3]
@@ -315,10 +166,6 @@ class BrainNode:
         """珍贵档（保底通道）: significance ≥ 0.8。"""
         return self.significance >= PRECIOUS_THRESHOLD
 
-    # ⏸ `main_text` 属性 2026-09-21 删——它存在的唯一理由是"三槽按 kind 分派,
-    # 让调用方不必逐处判断"（原 docstring: *"全模块经此取文本——不做逐处 kind 分支"*）。
-    # 三槽合流成 `text` 之后, 这层间接就不需要了: 直接读 `.text`（7 个消费点已改）。
-
     @property
     def is_player_experience(self) -> bool:
         """玩家口癖/习惯节点（R5 强调点, §4.4 去重豁免）。"""
@@ -326,12 +173,7 @@ class BrainNode:
 
     @property
     def count(self) -> int:
-        """experience 的**出现次数**——2026-09-21 起是**派生属性** `= len(links)`。
-
-        原为存储字段，靠三处手工同步（`add_link` / `remove_link` / `normalize`）
-        维护、再由 `store.audit()` 查"不变量有没有被破坏"。同一个事实存两份、
-        再写三处同步 + 一条自检，是纯粹的维护面。真机数据里它恒等于 `len(links)`。
-        """
+        """experience 的出现次数 —— **派生属性** `= len(links)`（2026-09-21 起不落库）。"""
         return len(self.links)
 
     def dedup_key(self) -> tuple:
@@ -343,10 +185,7 @@ class BrainNode:
     # ------------------------------------------------------------------
 
     def to_dict(self) -> dict[str, Any]:
-        """→ dict（空/缺省可选字段省略——行小; id/kind/significance/epistemic 恒在）。
-
-        ⚠️ `count` **不再落库**（派生属性, 见上）——旧档里的那个键由 `from_dict` 忽略。
-        """
+        """→ dict（空/缺省字段省略以缩小行; count 派生不落库, 旧键由 from_dict 忽略）。"""
         d: dict[str, Any] = {
             "id": self.id,
             "kind": self.kind,
@@ -362,10 +201,7 @@ class BrainNode:
             if v in (None, "", [], 0):
                 continue
             d[f] = v
-        # aff_at_encoding / emo_int / emo_span **不进上面那圈
-        # "空值省略"** —— 它们用 None 当"未采集"哨兵, 而 0.0 是合法值
-        # （中性好感 / 无波澜）。
-        # 旧口径的 `v in (..., 0)` 会把合法的 0.0 一起省掉。
+        # 这三个用 None 当"未采集"哨兵, 而 0.0 是合法值 ⇒ 不进上面的空值省略
         for f in ("aff_at_encoding", "emo_int", "emo_span"):
             v = getattr(self, f)
             if v is not None:
@@ -405,8 +241,7 @@ class BrainNode:
         node.aff_at_encoding = _opt_clamp(raw.get("aff_at_encoding"), -1.0, 1.0)
         node.emo_int = _opt_clamp(raw.get("emo_int"), 0.0, 1.0)
         node.emo_span = _opt_clamp(raw.get("emo_span"), 0.0, 1.0)
-        # 已退役的键在此**直接忽略**（旧档宽容, 不抛）: `count`（现为派生属性）·
-        # `segment_id` · `emo_valence` · `history` · `story_time`(2026-09-17)
+        # 已退役的键在此直接忽略（旧档宽容, 不抛）: count/segment_id/emo_valence/history/story_time
         return node
 
     def to_json_line(self) -> str:
@@ -423,10 +258,7 @@ class BrainNode:
 
 
 def make_node(kind: str, **kw) -> BrainNode:
-    """构造 + 归一（引擎写入前用）: normalize() 后返回。
-
-    调用方负责 validate()（make_node 不抛——校验决策留给引擎/契约层）。
-    """
+    """构造 + 归一（引擎写入前用）。调用方负责 validate()（本函数不抛）。"""
     raw = dict(kw)
     raw["kind"] = kind
     node = BrainNode.from_dict(raw)
@@ -468,12 +300,10 @@ def _clamp_sig(v: Any) -> float:
 
 
 def _opt_clamp(v: Any, lo: float, hi: float) -> float | None:
-    """可选 [lo, hi] 标量（`aff_at_encoding` / `emo_int` / `emo_span`）
-    ——**缺/坏 → None, 不折成 0.0**。
+    """可选 [lo, hi] 标量 —— **缺/坏 → None, 不折成 0.0**。
 
-    与 `_clamp_sig` 的关键差别: 后者的默认 0.5 是一个真实档位;
-    而这里 `None`（未采集）与 `0.0`（中性/无波澜）是**两个不同的事实**,
-    合并会让旧档在召回里冒充"当时关系中性 / 毫无波澜"。
+    与 `_clamp_sig` 的差别: 后者的默认 0.5 是真实档位; 而这里 `None`（未采集）与
+    `0.0`（中性/无波澜）是**两个不同的事实**——合并会让旧档冒充"当时关系中性"。
     """
     if v is None or isinstance(v, bool):
         return None
