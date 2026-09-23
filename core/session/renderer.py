@@ -35,6 +35,7 @@ from core.session.events import (
     TYPE_MMT,
     TYPE_OFFICIAL,
     Event,
+    is_content_event,
     pick_supplements,
 )
 from core.session.models import VNState
@@ -141,7 +142,8 @@ def render_events(events: list[Event]) -> list[dict[str, str]]:
            2026-09-05: 不再整 payload JSON——上下文只放"发生过什么的叙事+情绪",
            不放 place/emotion 外的结构元数据）
     l2d:   payload 带 paragraphs（纪念时刻文字）→ 同提取, 行首标（画面）; 纯资产 → 跳过
-    marker/affection: 跳过（状态标记与系统结算不进对话上下文）
+    marker/affection/note: 跳过（状态标记 · 系统结算 · 她自己的备忘录 —— 都不是剧情,
+           判据 = `events.is_content_event`）
     """
     out: list[dict[str, str]] = []
     picks = pick_supplements(events)          # 补录裁决 → 并进它那一板（见 `_with_pick`）
@@ -176,7 +178,11 @@ def render_events(events: list[Event]) -> list[dict[str, str]]:
             if text:
                 out.append({"role": "assistant",
                             "content": "（纪念画面出现——）\n" + text})
-        # marker / affection / 其余 → 跳过
+        elif not is_content_event(e):
+            # marker（状态标记）· affection（好感结算）· note（她的备忘录操作）
+            # —— 都不是剧情: 不进对话上下文。判据收在 `events.is_content_event`。
+            continue
+        # 其余类型（如预留的 official_story）→ 无渲染分支, 落到循环尾自然跳过
     return out
 
 
@@ -278,6 +284,9 @@ def session_status(events: list[Event]) -> dict[str, Any]:
 def render_timeline(events: list[Event], *, indexed: bool = False) -> str:
     """事件流 → 叙事时间线文本（brain 消化输入, §4.6; 含板块标签, **不截断**）。
 
+    **非叙事账目不进时间线**（marker · `affection` · `note`）—— 判据 `events.is_content_event`;
+    digest 侧已经先滤过一遍, 这里挡的是"任何调用方把全量事件流递进来"。
+
     设计（2026-08-27 修正）:
     - **紧凑文本, 非 jsonl**——省 token（无 JSON 键名/结构开销）; 叙事流不被
       数据结构打断（角色扮演语境, 不 rigid）。
@@ -328,7 +337,11 @@ def render_timeline(events: list[Event], *, indexed: bool = False) -> str:
     lines: list[str] = []
     picks = pick_supplements(events)         # 补录裁决 → 并进它那一板（见 `_with_pick`）
     for e in events:
-        if e.is_marker:
+        if not is_content_event(e):
+            # marker（状态标记）· affection（好感结算）· note（她的备忘录操作）。
+            # ⚠️ 此前这里只排 marker, 未知类型会被下面那行 `_LABELS.get` 的兜底
+            # 印成 `【affection】` / `【note】` —— 而本函数是 digest Round A 的
+            # **唯一输入**, 一条账目就是一段"她经历过的剧情"的假象。
             continue
         label = _LABELS.get(e.type, f"【{e.type}】")
         if e.type == TYPE_MMT:

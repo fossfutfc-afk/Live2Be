@@ -74,7 +74,7 @@ from core.promptkit import (
     task_card_enabled,
 )
 from core.session import SessionStore
-from core.session.events import make_event
+from core.session.events import is_content_event, make_event
 from core.session.renderer import session_status, window_messages
 from core.brain.wiki_v2.digest import digest_segment
 from core.brain.wiki_v2.entities import ensure_entities
@@ -151,10 +151,15 @@ def _get_embed_fn():
 
 def _interact_max(events: list, digested_seq: int) -> int:
     """本段互动 max seq（好感事件幂等键——affection 事件自身的 seq 会漂移,
-    不能作键; 重复 digest 同区间时 interact_max 不变, 同 legacy 语义）。"""
+    不能作键; 重复 digest 同区间时 interact_max 不变, 同 legacy 语义）。
+
+    ⚠️ 判据 = `events.is_content_event`（非 marker / 非账目）—— 与 digest 的
+    `new_events` **同一个谓词**。别在这里单独写 `type != ...`: `note` 那种账目
+    一旦漏进来, 幂等键会被顶到一条没有内容的操作上。
+    """
     return max(
         (e.seq for e in events
-         if e.seq > digested_seq and not e.is_marker and e.type != "affection"),
+         if e.seq > digested_seq and is_content_event(e)),
         default=0)
 
 

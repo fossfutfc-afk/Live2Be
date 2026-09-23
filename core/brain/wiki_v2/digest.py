@@ -49,6 +49,7 @@ from core.brain.wiki_v2.recall import (
 from core.brain.wiki_v2.render import render_cognition_list
 from core.brain.wiki_v2.revise import apply_decisions
 from core.brain.wiki_v2.store import WikiStoreV2
+from core.session.events import is_content_event
 from core.session.maintenance import exclude_abandoned
 from core.session.renderer import render_timeline
 from llm.prompts import load_prompt
@@ -145,8 +146,9 @@ def digest_segment(
     events = exclude_abandoned(events)
     # 本窗口 = 水位之后**全部**事件（含 marker）——段类型要从 marker 派生, 见下。
     new_all = [e for e in events if e.seq > store.digested_seq]
-    new_events = [e for e in new_all
-                  if not e.is_marker and e.type != "affection"]
+    # 内容事件 = 非 marker 且非"账目"（affection / note）——判据收在
+    # `events.is_content_event` 一处（note 落地前的 `type != "affection"` 已删）。
+    new_events = [e for e in new_all if is_content_event(e)]
     if not new_events:
         return DigestResult(ok=True)                     # 无新增 → 0 次 LLM 调用
     # 段类型 + 章标题（2026-09-20）: **从 marker 派生, 不落库**。

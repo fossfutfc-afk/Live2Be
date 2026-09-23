@@ -17,8 +17,9 @@ Live2Be = Blue Archive 式叙事引擎（MMT 聊天 + Bond 视觉小说 + digest
 **图 / note（随身笔记）/ 台账（inventory）** 三种组织形式；而 MMT 的 `function_call`
 （她主动 `recall`）让"**边的走法**"第一次有了消费者。
 
-**最新提交**：`44dd378`(docs) · `a9a612c`(D2b 执行器) · `785acda`(玩家 config) ·
-`73ddb9b`(D3a) · `f2ac5f3`(D2a)。**工作树干净，全量 922 passed。**
+**最新提交**：**①-第一步（note 事件登记 + 内容事件判据收敛）** · `a0ebe2f`(PROCEED) ·
+`44dd378`(docs) · `a9a612c`(D2b 执行器) · `785acda`(玩家 config) · `73ddb9b`(D3a) · `f2ac5f3`(D2a)。
+**工作树干净，全量 930 passed。**
 
 ---
 
@@ -47,7 +48,9 @@ Live2Be = Blue Archive 式叙事引擎（MMT 聊天 + Bond 视觉小说 + digest
 ① note  →  ② 消解无用 kind  →  ③ 正常 digest  →  ④ 时序  →  ⑤ 注入提示词时间重排  →  ⑥ 优化 MMT
 ```
 
-**当前位置 = ①（note）的设计已闭合，代码一个字没动。**
+**当前位置 = ①（note）**：**第一步（事件层）已落地** —— `type:"note"` 已登记 + 内容事件判据
+收成 `events.is_content_event` 一处（`tests/core/test_note_events.py` 8 条守门）。
+**下一步 = ①-第二步（折叠 + `soul/notes.json` + 渲染 + 注入）**，仍未动代码。
 
 ### ① note 的开工清单（设计见 `DESIGN_GRAPH_V4` §3.2 / §6 / §8.6）
 
@@ -80,6 +83,10 @@ Live2Be = Blue Archive 式叙事引擎（MMT 聊天 + Bond 视觉小说 + digest
 ---
 
 ## 3. 未决账（**动手前必须问用户**）
+
+**✅ 2026-09-23 已裁**（我读完设计稿发现的矛盾）：**`promise` 开放期不做 kind**（它住在 note 里，
+是当前值）· **闭合期固化进图 = `promise` 节点**（届时 `nodes.KINDS` 加它）—— 用户原话
+*"promise 在 note 里，一旦完成，退化进入 graph 成为长期记忆的一部分"*。§9-10 的措辞已澄清。
 
 **A. `DESIGN_GRAPH_V4` §9-12 的 ①-⑧ —— 全部待裁**（问过两次都没答，别当成已定）：
 
@@ -133,6 +140,14 @@ R2 视野（13，`cap=12` → 按相关度）· **`self` 无条件进命中集�
 22. ⭐ **`emo_shape` 是逐记录的情绪数组**（真机最长 129 个键），**空键跳过、不补位** ⇒
     位置对齐丢失；`nodes.py` 的注释写"板级"是**错的**（实现是记录级）。
 23. ⭐ **不要把图当列表用**：`about`/`supports` 有数据但**零消费者** ⇒ 没有 traverse 者时图 ≈ 带 id 的列表。
+24. ⭐ **"非剧情事件"的判据只有一处** = `core/session/events.py::is_content_event`（排 marker /
+    `NON_CONTENT_TYPES`）。它原来以 `e.type != "affection"` 的形式**抄在两处**（`digest.new_events` ·
+    `mmt.engine._interact_max`）—— `note` 一落地就会漏进去（她的笔记操作被当剧情消化 + 好感幂等键被顶到账目上）。
+    ⚠️ `render_timeline` 的兜底标签会把未知类型**印成 `【affection】` / `【note】`**（它不炸，只是假数据），
+    现在也一起排掉了。新增此类类型**只改 `NON_CONTENT_TYPES`**，有静态守门
+    （`test_note_events.py::test_content_filter_is_not_reimplemented_elsewhere`）。
+25. ⭐ **新事件类型不登记进 `EVENT_TYPES` = 静默丢失**：`Event.from_dict` 对白名单外的 type 直接
+    返回 `None`（`events.py` 的 `from_dict`）—— 写得进磁盘、读回来是空气，且一声不响。
 
 ---
 
