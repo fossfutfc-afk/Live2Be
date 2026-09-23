@@ -12,9 +12,10 @@
 >
 > 📍 **当前讨论位置**：边层已落地（G1+G3+G4）；**§3.0「entity 字段与初始化」2026-09-21 定稿**；
 > §3.1 准入与解耦判据定案；§9 未定 **8 项**。
-> **下一步：把 digest 按 v4 形状打通**（§8 三轮 + entity 真正出生）—— D0 / D1 / **D2a**
-> 已落地，**下一步 D2b = 第 3 轮执行器 `revise.apply_attribution`**；落地节点见
-> **`DIGEST_HANDBOOK.md`**（现状 / D0–D5 / 陷阱清单 / 验证配方; **压缩后先读它**）。
+> **下一步：把 digest 按 v4 形状打通**（§8 三轮 + entity 真正出生）—— D0 / D1 / **D2a** /
+> **D2b** / **D3a** 已落地，**下一步 D3 = 三轮编排接线**（`digest_segment` 接第 3 轮 +
+> `digest.round_3` 标签 + 桩应答）；落地节点见 **`DIGEST_HANDBOOK.md`**
+> （现状 / D0–D5 / 陷阱清单 / 验证配方; **压缩后先读它**）。
 > 全文 400 余行，读完即可接手讨论。
 
 ---
@@ -456,3 +457,4 @@ about_state      → resolved / uncertain / none   ← **点的属性**（不是
 | 2026-09-23 | **落地 D3a**（entity 初始化接线） | ✅ `MmtEngine._ensure_char_entities`: 角色名/别名走 N1 接口（`names_of`）、玩家名走真源（`load_player_name`，延迟导入避环）、幂等 ⇒ 平时零写盘、只在真建了时 `save()`; 失败只降级（一行 warning）**不带走整轮 digest** |
 | 2026-09-23 | **玩家也走 config**（sensei 的 name/aliases 从哪来） | ✅ 新增 `config/player/profile.yml`（**一个目录一个文件**，字段与角色档案同一套: `REQ~most_called_name` / `other_names` / `REQ~is_official_character` / `SIG~club`）+ `core/parsing/player_profile.py`（读 yml → `char_names`）+ `paths.PLAYER_DIR`。**与 `data/basic/player.json` 不合并**（作者层 vs 运行时数据）: config 给主名+作者别名，player.json 的自取名追加成一条别名。`entities.SENSEI_NAMES` 字面量**删**（"老师"只剩 contract 一份兜底）。⏳ 未定: 改名不会回填（§9-7） |
 | 2026-09-23 | 玩家档案**读失败**要不要兜底 | ❌ **不兜底**（用户: *"静默兜底有点不负责任"*）: 文件不存在 / YAML 坏 / 缺 `REQ~most_called_name` 一律抛，调用方打 ERROR 并**中止本轮 digest**（水位不推进 ⇒ 修好即恢复）。判据: 它决定"她叫她最重要的人什么"，坏文件必须**看得见** |
+| 2026-09-23 | **落地 D2b**（第 3 轮执行器） | ✅ `revise.apply_attribution`: 三种行 `attach`（写 `about` 边 = 归属的唯一落地形式；`hint` 顺手写回别名，>8 字不写）/ `new_entity`（**必给 reason**、同名复用 = 崩溃窗口幂等、**保留号不在则跳过**）/ `rewrite`（`text`/`state`，**空值 = 保留**）。行级违约一律抛（编排层有快照 ⇒ 整包回滚）；`experience` 暂列可归属（今天的玩家画像落在它上面，§9-3 后删） |

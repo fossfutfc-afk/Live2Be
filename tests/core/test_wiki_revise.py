@@ -1,11 +1,14 @@
 """revise.py 修订契约测试（AGENT_BRAIN.md §5 / M2b / 板块 4b 决策执行器）。"""
 import copy
+import logging
 
 import pytest
 
 from core.brain.wiki_v2 import WikiStoreV2, make_node
+from core.brain.wiki_v2.entities import candidate_table, ensure_entities
 from core.brain.wiki_v2.evolution import EvolutionLog
-from core.brain.wiki_v2.revise import apply_decisions, apply_revision_package
+from core.brain.wiki_v2.revise import (apply_attribution, apply_decisions,
+                                       apply_revision_package)
 
 
 def _store(tmp_path) -> WikiStoreV2:
@@ -323,3 +326,121 @@ def test_decisions_empty_rows_noop(tmp_path):
     assert apply_decisions(st, [], id_map={}, **_ctx_kw()) == []
     after = {n.id: n.to_dict() for n in st.all()}
     assert after == before
+
+
+# ---------------------------------------------------------------------------
+# D2b —— 第 3 轮执行器（归属 + entity 维护）
+# ---------------------------------------------------------------------------
+
+def _attr_store(tmp_path) -> WikiStoreV2:
+    """`_store` + 两个初始化 entity（`self`/`sensei`）—— 第 3 轮的前提。"""
+    st = _store(tmp_path)
+    ensure_entities(st, char_name="伊草 遥香", aliases=("遥香",), player_name="阿宅")
+    return st
+
+
+def test_attribution_attaches_and_writes_alias(tmp_path):
+    """`attach` = 归属的唯一落地形式（写 `about` 边）+ hint 顺手写回别名。"""
+    st = _attr_store(tmp_path)
+    _, local_of = candidate_table(st)
+    rows = [
+        {"action": "attach", "entity": local_of["x0001"], "hint": "老师",
+         "nodes": ["u0001", "u0003"]},                    # "老师" 已是主名 → 不写
+        {"action": "attach", "entity": local_of["x0000"], "hint": "先生",
+         "nodes": ["u0002"]},                             # 新称呼 → 写回别名
+    ]
+    assert apply_attribution(st, rows, id_map={"u0001": "m0001", "u0002": "m0002",
+                                               "u0003": "m0003"},
+                             local_of=local_of, **_ctx_kw()) == []
+    g = st.graph()
+    assert g.targets("m0001", "about") == ["x0001"]        # 边方向 = 节点 → entity
+    assert g.targets("m0003", "about") == ["x0001"]
+    assert g.targets("m0002", "about") == ["x0000"]
+    assert st.get("x0000").aliases[-1] == "先生"
+    assert st.audit() == []
+    # 幂等: 同一份表重跑 → 边不重复、别名不重复
+    apply_attribution(st, rows, id_map={"u0001": "m0001", "u0002": "m0002",
+                                        "u0003": "m0003"},
+                      local_of=local_of, **_ctx_kw())
+    assert len(g := st.graph().edges_from("m0001", "about")) == 1
+    assert st.get("x0000").aliases.count("先生") == 1
+    # 台账: 每条 attach 一行（含写了几条边 / 是否写了别名）
+    entries = [e for e in _log(st).read() if e["action"] == "attach"]
+    assert [e["nodes"] for e in entries] == [2, 1, 2, 1]
+    assert [e["alias"] for e in entries] == [False, True, False, False]
+
+
+def test_attribution_new_entity_needs_reason_and_is_idempotent(tmp_path):
+    """`new_entity`: 必给理由 + 载荷可随行给 + 重跑复用（崩溃窗口幂等）。"""
+    st = _attr_store(tmp_path)
+    _, local_of = candidate_table(st)
+    rows = [{"action": "new_entity", "name": "小玉", "aliases": ["tama"],
+             "reason": "本章登场两次, 三个月后再提到要一致",
+             "text": "杂草屋隔壁的孩子", "state": ["抱着一只破旧的兔子玩偶"],
+             "nodes": ["u0002"]}]
+    assert apply_attribution(st, rows, id_map={"u0002": "m0002"},
+                             local_of=local_of, **_ctx_kw()) == ["x0002"]
+    n = st.get("x0002")
+    assert (n.kind, n.name, n.aliases, n.text, n.state) == (
+        "entity", "小玉", ["tama"], "杂草屋隔壁的孩子", ["抱着一只破旧的兔子玩偶"])
+    assert st.graph().targets("m0002", "about") == ["x0002"]
+    assert st.next_id("x") == "x0003"                    # 保留号仍挡住 0/1
+    entry = _log(st).read()[-1]
+    assert entry["action"] == "new_entity" and "三个月" in entry["reason"]
+
+    # 重跑: 同名 → 复用（**不建第二个**）, 边也不重复, created 为空
+    assert apply_attribution(st, rows, id_map={"u0002": "m0002"},
+                             local_of=local_of, **_ctx_kw()) == []
+    assert [x.id for x in st.all() if x.kind == "entity"] == ["x0000", "x0001", "x0002"]
+    assert len(st.graph().edges_to("x0002", "about")) == 1
+    assert _log(st).read()[-1]["action"] == "new_entity.dup"
+
+    # 准入门槛: 缺理由 → 拒（§3.0）
+    with pytest.raises(ValueError, match="必须给一句理由"):
+        apply_attribution(st, [{"action": "new_entity", "name": "小玉二号",
+                                "nodes": ["u0002"]}],
+                          id_map={"u0002": "m0002"}, local_of=local_of, **_ctx_kw())
+
+
+def test_attribution_rewrite_and_guards(tmp_path, caplog):
+    """`rewrite` 重写载荷（空值=保留）+ 三道闸: 保留号 / 候选表 / 可归属 kind。"""
+    st = _attr_store(tmp_path)
+    _, local_of = candidate_table(st)
+    apply_attribution(st, [{"action": "rewrite", "entity": local_of["x0001"],
+                            "text": "他是第一个不会嫌弃我的人",
+                            "state": ["今天戴了眼镜"]}],
+                      id_map={}, local_of=local_of, **_ctx_kw())
+    assert st.get("x0001").text == "他是第一个不会嫌弃我的人"
+    # 空 state（None/[]）→ **保留**（今天没有"删掉一条 state"的机制 —— §9-4 未定）
+    apply_attribution(st, [{"action": "rewrite", "entity": local_of["x0001"],
+                            "text": "他是唯一会等我的人"}],
+                      id_map={}, local_of=local_of, **_ctx_kw())
+    assert st.get("x0001").state == ["今天戴了眼镜"]
+    assert _log(st).read()[-1]["changed"]["text"][0] == "他是第一个不会嫌弃我的人"
+    # rewrite 什么都不给 → 拒（不是静默 no-op）
+    with pytest.raises(ValueError, match="没给可改字段"):
+        apply_attribution(st, [{"action": "rewrite", "entity": local_of["x0001"]}],
+                          id_map={}, local_of=local_of, **_ctx_kw())
+
+    with pytest.raises(ValueError, match="候选表"):
+        apply_attribution(st, [{"action": "attach", "entity": "c0099",
+                                "nodes": ["u0001"]}],
+                          id_map={"u0001": "m0001"}, local_of=local_of, **_ctx_kw())
+    with pytest.raises(ValueError, match="只能归属"):     # entity 自己不是可归属对象
+        apply_attribution(st, [{"action": "attach", "entity": local_of["x0001"],
+                                "nodes": ["u0009"]}],
+                          id_map={"u0009": "x0000"}, local_of=local_of, **_ctx_kw())
+    with pytest.raises(ValueError, match="未知动作"):
+        apply_attribution(st, [{"action": "mentions", "entity": local_of["x0001"]}],
+                          id_map={}, local_of=local_of, **_ctx_kw())
+
+    # 保留号不在（= D3a 没跑过）→ **跳过 new_entity** 并告警（归属边照写）
+    bare = _store(tmp_path / "bare")
+    _, none_local = candidate_table(bare)
+    with caplog.at_level(logging.WARNING):
+        assert apply_attribution(
+            bare, [{"action": "new_entity", "name": "小玉", "reason": "r",
+                    "nodes": ["u0001"]}],
+            id_map={"u0001": "m0001"}, local_of=none_local) == []
+    assert [n.id for n in bare.all() if n.kind == "entity"] == []
+    assert any("x0001" in r.getMessage() for r in caplog.records)
