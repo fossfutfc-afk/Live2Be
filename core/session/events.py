@@ -3,6 +3,8 @@
 
 Event 骨架: {seq, ts, type, subtype, payload}
     type    — 板块: mmt | bond | l2d | marker（预留 official_story）
+              · **非叙事账目**（是"账目"不是"剧情", 不进上下文也不进 digest 时间线）:
+                affection（好感结算）| note（她自己的备忘录操作）—— 见 `is_content_event`
     subtype — 动作名（mmt_chat / story_scene / generate / vn_state …）; 新板块只加 subtype
     payload — 板块固定 schema（文档定档; 解析层宽松, 字段级校验留给消费方/渲染器）
 
@@ -27,11 +29,21 @@ TYPE_BOND = "bond"
 TYPE_L2D = "l2d"
 TYPE_MARKER = "marker"
 TYPE_AFFECTION = "affection"   # 好感变化（digest 产出; 未来行为加好感同板块, subtype=行为名）
+TYPE_NOTE = "note"             # ★ 她自己的备忘录操作（2026-09-23, DESIGN_GRAPH_V4 §3.2）:
+                               # append-only 的**操作**事件, 折叠成 `soul/notes.json`
+                               # （派生缓存）。**不是剧情** ⇒ 见 NON_CONTENT_TYPES
 TYPE_OFFICIAL = "official_story"
 
 EVENT_TYPES: tuple[str, ...] = (
-    TYPE_MMT, TYPE_BOND, TYPE_L2D, TYPE_MARKER, TYPE_AFFECTION, TYPE_OFFICIAL,
+    TYPE_MMT, TYPE_BOND, TYPE_L2D, TYPE_MARKER, TYPE_AFFECTION, TYPE_NOTE,
+    TYPE_OFFICIAL,
 )
+
+#: **非叙事账目** —— 是"账目"不是"剧情"（好感结算 / 她的备忘录操作）。
+#: 既不进 LLM 上下文（`renderer.render_events`）, 也不进 digest 的时间线
+#: （`digest.new_events` · `mmt.engine._interact_max`）。
+#: ⚠️ **新增此类类型只改这里** —— 三处消费点都读 `is_content_event`。
+NON_CONTENT_TYPES: tuple[str, ...] = (TYPE_AFFECTION, TYPE_NOTE)
 
 #: marker subtype（状态标记）
 M_SESSION_START = "session_start"
@@ -62,6 +74,15 @@ S_STORY_PICK = "story_pick"    # ★ 补录裁决（2026-09-21）: payload {pick
                                # `pick_supplements()`（合并回"板 + 老师那句"）。
 BOARD_SUBTYPES: tuple[str, ...] = (S_STORY_SCENE, S_STORY_END)
 
+#: note 板块的 subtype —— 备忘录的**操作**（DESIGN_GRAPH_V4 §3.2: 真源 = 操作事件,
+#: `soul/notes.json` = 折叠出来的派生缓存）:
+#: `add` 加一条 · `done` 划掉一条（**done = 移除, 不留状态 ⇒ 没有状态机**）·
+#: `rewrite` 整体重写（全景轮写 B 类快照槽）。条目的 `id` 由**引擎**分配/折叠。
+N_ADD = "add"
+N_DONE = "done"
+N_REWRITE = "rewrite"
+NOTE_SUBTYPES: tuple[str, ...] = (N_ADD, N_DONE, N_REWRITE)
+
 MARKER_SUBTYPES: tuple[str, ...] = (
     M_SESSION_START, M_VN_ENTER, M_VN_EXIT, M_VN_ABANDON, M_VN_STATE,
     M_MEMORIAL_ENTER, M_MEMORIAL_EXIT, M_MEMORIAL_IMAGE, M_SESSION_END,
@@ -72,6 +93,21 @@ def is_board_event(e: Any) -> bool:
     """是**板**事件吗（演出单位——`bond/story_pick` 不是板, 别当场景渲染/计数）。"""
     return (getattr(e, "type", None) == TYPE_BOND
             and getattr(e, "subtype", "") in BOARD_SUBTYPES)
+
+
+def is_content_event(e: Any) -> bool:
+    """是**叙事内容**事件吗 —— digest 时间线与"本段互动"的**唯一判据**。
+
+    排除两类: `marker`（状态标记）· `NON_CONTENT_TYPES`（好感结算 / note 操作）。
+
+    ⚠️ **2026-09-23 收敛**: 这条判据此前以 `e.type != "affection"` 的形式**抄在两处**
+    （`digest.new_events` · `mmt.engine._interact_max`）。`note` 一落地就会从那儿漏进去
+    —— 她的笔记操作会被**当成一段剧情消化掉**, 还会把"本段互动 max seq"（好感事件的
+    幂等键）顶到一条没有内容的账目上。故收成一处: **新增非叙事类型只改
+    `NON_CONTENT_TYPES`, 三处消费点自动生效。**
+    """
+    return (not getattr(e, "is_marker", False)
+            and getattr(e, "type", None) not in NON_CONTENT_TYPES)
 
 
 def pick_supplements(events: list) -> dict[int, str]:
