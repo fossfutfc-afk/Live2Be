@@ -293,6 +293,7 @@ core.mmt.engine	TurnResult	class	core.mmt.engine
 core.mmt.engine	WikiStoreV2	class	core.brain.wiki_v2.store
 core.mmt.engine	_EMBED_FN	data	-
 core.mmt.engine	_EMBED_REPORTED	data	-
+core.mmt.engine	_ensure_char_entities	function	core.mmt.engine
 core.mmt.engine	_get_embed_fn	function	core.mmt.engine
 core.mmt.engine	_interact_max	function	core.mmt.engine
 core.mmt.engine	_log_read_ledger	function	core.mmt.engine
@@ -304,6 +305,7 @@ core.mmt.engine	build_mmt_registry	function	core.mmt.mmt_actions
 core.mmt.engine	build_schema	function	contract.schema
 core.mmt.engine	char_names	function	core.parsing.names
 core.mmt.engine	digest_segment	function	core.brain.wiki_v2.digest
+core.mmt.engine	ensure_entities	function	core.brain.wiki_v2.entities
 core.mmt.engine	err	function	contract.errors
 core.mmt.engine	feedback	function	llm.client
 core.mmt.engine	load_affection_from_events	function	core.affection.affection_calc
@@ -311,6 +313,7 @@ core.mmt.engine	load_brain_segment	function	core.mmt.engine
 core.mmt.engine	logger	data	logging
 core.mmt.engine	make_embed_fn	function	core.rag.brain
 core.mmt.engine	make_event	function	core.session.events
+core.mmt.engine	names_of	function	core.parsing.names
 core.mmt.engine	render_background_experience	function	core.brain.wiki_v2.render
 core.mmt.engine	render_character_view	function	core.brain.wiki_v2.render
 core.mmt.engine	round_messages	function	core.promptkit.tail

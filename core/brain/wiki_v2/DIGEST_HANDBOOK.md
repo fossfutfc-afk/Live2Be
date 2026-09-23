@@ -58,6 +58,8 @@
 **已定的边界**（别顺手实现）：`about_state` 三态**退回未定**（归属 = 有边/没边）·
 `fact` 先不产（§9-2 未定）· `experience` 先不动（§9-3）· `etype` 不做（只留 `x0000`=self）·
 place 挂起（§9-5）。
+⚠️ **entity 现在是"只写不读"**：`render._bucket_view` 的四个桶是 episode/belief/player/reported,
+**没有 entity 桶** ⇒ 载荷**不进提示词**（§4 的常驻层注入还没做）。别以为建出来就"活了"。
 
 ---
 
@@ -69,7 +71,8 @@ place 挂起（§9-5）。
 | **D1** | 第 1 轮产出 `about_hint`（**不落库**）+ `items`（落库）; `DigestResult.hints` 作 D3 的接缝; 台账 `digest_hint eps= hint= items=` | ✅ `915c26e` |
 | **D2a** | 第 3 轮的**输入侧**三件套（纯函数 + 单测, 零接线零落盘）: `entities.candidate_table`（全量身份 + 本地 id `c0001` + `local_of`）· `hit_set`（确定性命中集）· `payload_block`（只给命中集的 `立场`/`现状`） | ✅ 2026-09-23 |
 | **D2b** ← **下一步** | 第 3 轮**执行器**: `revise.apply_attribution()` —— hint→id 映射、写 `about` 边（`belief/fact/promise/episode → entity`）、`new_entity`（**要理由**）、重写 entity `text`/`state`、别名顺手写。**先做成独立执行器 + 单测**（当年 `apply_decisions` 就是这么起的） | ⬜ |
-| **D3** | 三轮**编排**接线: `digest_segment` 接第 3 轮（共享 deadline、共用同一份 `clone_state` 快照、`ensure_entities` 首次接线 —— ⚠️ **§9-7 未定, 动前先要用户裁一句**）; `llm/task_labels` 加 `digest.round_3`; `tests/stub_tasks` 加标准应答 | ⬜ |
+| **D3a** | **entity 初始化接线**（从 D3 拆出 —— 用户 2026-09-23 要求提前落地）: `MmtEngine._ensure_char_entities` 接在 `_inject_brain(digest=True)` 最前面 ⇒ **第一次 digest 的 LLM 调用之前**建 `self`+`sensei` 并落盘。⚠️ **顺序是正确性**: 空表时 `next_id("x")` 返回 **x0001** = sensei 的保留号 | ✅ 2026-09-23 |
+| **D3** | 三轮**编排**接线: `digest_segment` 接第 3 轮（共享 deadline、共用同一份 `clone_state` 快照）; `llm/task_labels` 加 `digest.round_3`; `tests/stub_tasks` 加标准应答 | ⬜ |
 | **D4** | **belief 的产出搬到第 1 轮**（§8.1 的真正落地）+ 第 2 轮摘掉 `add`（必须同一步, 否则功能断档） | ⬜ |
 | **D5** | 端到端验收（桩 LLM 跑完整三轮: entity 出生 / `about` 边 / `items` / 载荷重写）+ 真机演练 + 更新 `AGENT_BRAIN.md` 与 `DESIGN_GRAPH_V4.md` §8 | ⬜ |
 
@@ -122,9 +125,9 @@ python experiments/web_e2e/run.py
 ```
 **真机数据现状**（验收基准, world1/haruka; **2026-09-23 刷新**）: **14 节点**
 （11 episode / 2 belief / 1 experience）+ **11 条边** / `digested_seq=206` / 三张纪念图。
-⚠️ **entity 一条都没有** —— `ensure_entities` **生产零调用**（全仓只有测试调它）,
-那是 D3 的活; 所以第 3 轮现在跑起来会**只有 `new_entity` 没有映射对象**,
-单测要自己把 `ensure_entities` 先跑一遍。
+⚠️ **entity 一条都没有** —— 初始化**刚接线**（D3a, 2026-09-23）: 下一次 digest 才会建出来
+（bond 闭环 / mmt 每 25 轮任一触发）。**老档不会自动补**（没跑过 digest 的世界线就是空表）,
+所以碰第 3 轮的单测要自己先跑 `ensure_entities`。
 `.testtmp/check_*.py` 里有几个只读探针脚本可复用（改路径即可）。
 
 **提交纪律**：一节点一提交; 提交信息用 `git commit -F <文件>`（CJK 会炸 `-m`）。

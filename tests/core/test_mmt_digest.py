@@ -4,6 +4,7 @@
     - _maybe_mmt_digest: 25 轮触发 → 后台 digest 闭环（seed+提炼+好感事件落库）
     - 剧情中（in_vn）不触发
     - digest 增量: 无新增事件 → 0 次 LLM 调用（空跑无害）
+    - **第一次 digest 前建 self/sensei 两个 entity**（§3.0 / §9-7, 2026-09-23）
 """
 import sys
 import time
@@ -128,6 +129,47 @@ def test_digest_idempotent_no_new_events(tmp_path):
     assert _wait(lambda: engine._brain_injection != ""), "注入段应存在"
     time.sleep(0.5)
     assert llm.llm_calls == calls_after_first   # 空跑无害
+
+
+def test_first_digest_creates_char_entities(tmp_path, monkeypatch):
+    """**第一次 digest 开始前**把 self(x0000) + sensei(x0001) 建出来并落盘（§3.0 / §9-7）。
+
+    用户 2026-09-23 裁决的时刻 = vn_finish 之后、digest 的 LLM 调用之前; 接线点选在
+    `_inject_brain(digest=True)` ⇒ bond 闭环与 mmt 每 25 轮**两个触发点都覆盖**。
+
+    ⚠️ 顺序是**正确性**问题（不是风格）: 表里没有 entity 时 `next_id("x")` 返回的是
+    **x0001** —— sensei 的保留号。谁先建谁占坑; 漏了的话第 3 轮 `new_entity` 建的第一个人
+    会顶掉 sensei, 而 `ensure_entities` 按 id 判幂等 ⇒ **sensei 永远不再被建**。
+    """
+    from core.brain.wiki_v2.entities import SELF_ID, SENSEI_ID
+    from core.brain.wiki_v2.store import WikiStoreV2
+    from core.mmt import mmt_preset
+    from core.parsing.names import names_of
+
+    monkeypatch.setattr(mmt_preset, "load_player_name", lambda: "阿宅")
+    engine, st, llm = _engine(tmp_path)
+    char = engine._current_char
+    _mmt_event(st, CHARACTER, 1)
+    engine._session_rounds = MMT_DIGEST_INTERVAL
+    engine._maybe_mmt_digest()
+    assert _wait(lambda: llm.llm_calls == 2), "首次 digest 应 A+B 两轮"
+
+    # 重新载入 = 断言"真的写回盘上了"（内存里建过不算）
+    ws = WikiStoreV2(st.data_root, world_id=st.world_id, char_id=CHARACTER)
+    assert [n.id for n in ws.all() if n.kind == "entity"] == [SELF_ID, SENSEI_ID]
+    assert ws.get(SELF_ID).name == names_of(char).display        # 角色自己的显示名
+    assert set(names_of(char).aliases) <= set(ws.get(SELF_ID).aliases)
+    assert ws.get(SELF_ID).text == ""                            # 立场留给第 3 轮
+    assert ws.get(SENSEI_ID).name == "老师"
+    assert {"sensei", "阿宅"} <= set(ws.get(SENSEI_ID).aliases)   # 玩家名进了别名
+    assert ws.next_id("x") == "x0002"                            # 保留号挡住了 0/1
+
+    # 幂等: 再触发一次（水位已推进 → 0 新增早退）不重复建、不删
+    engine._session_rounds = MMT_DIGEST_INTERVAL * 2
+    engine._maybe_mmt_digest()
+    time.sleep(0.3)
+    again = WikiStoreV2(st.data_root, world_id=st.world_id, char_id=CHARACTER)
+    assert [n.id for n in again.all() if n.kind == "entity"] == [SELF_ID, SENSEI_ID]
 
 
 # ---------------------------------------------------------------------------
