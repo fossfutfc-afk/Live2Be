@@ -63,14 +63,14 @@ place 挂起（§9-5）。
 
 ---
 
-## 3. 落地节点（**D0/D1/D2a 已落地**）
+## 3. 落地节点（**D0/D1/D2a/D2b/D3a 已落地**）
 
 | # | 内容 | 状态 |
 |---|---|---|
 | **D0** | `entity` kind + 字段（`name`/`aliases`/`state` + episode 的 `items`）+ `_PREFIX` 的 `x` + `entities.ensure_entities`（保留号 `x0000`=self / `x0001`=sensei, 幂等, 不写盘） | ✅ `9a78337` |
 | **D1** | 第 1 轮产出 `about_hint`（**不落库**）+ `items`（落库）; `DigestResult.hints` 作 D3 的接缝; 台账 `digest_hint eps= hint= items=` | ✅ `915c26e` |
 | **D2a** | 第 3 轮的**输入侧**三件套（纯函数 + 单测, 零接线零落盘）: `entities.candidate_table`（全量身份 + 本地 id `c0001` + `local_of`）· `hit_set`（确定性命中集）· `payload_block`（只给命中集的 `立场`/`现状`） | ✅ 2026-09-23 |
-| **D2b** ← **下一步** | 第 3 轮**执行器**: `revise.apply_attribution()` —— hint→id 映射、写 `about` 边（`belief/fact/promise/episode → entity`）、`new_entity`（**要理由**）、重写 entity `text`/`state`、别名顺手写。**先做成独立执行器 + 单测**（当年 `apply_decisions` 就是这么起的） | ⬜ |
+| **D2b** | 第 3 轮**执行器** `revise.apply_attribution`（独立执行器 + 3 条单测, 零接线）: `attach`（写 `about` 边 + `hint` 顺手写别名）· `new_entity`（**必给理由**; 同名复用 = 崩溃窗口幂等; 保留号不在则整体跳过）· `rewrite`（载荷, 空值=保留）。行形状 = 该函数 docstring | ✅ 2026-09-23 |
 | **D3a** | **entity 初始化接线**（从 D3 拆出 —— 用户 2026-09-23 要求提前落地）: `MmtEngine._ensure_char_entities` 接在 `_inject_brain(digest=True)` 最前面 ⇒ **第一次 digest 的 LLM 调用之前**建 `self`+`sensei` 并落盘。名字: `self` ← 角色档案 / `sensei` ← `config/player/profile.yml`（+ `data/basic/player.json` 当别名）。⚠️ **顺序是正确性**: 空表时 `next_id("x")` 返回 **x0001** = sensei 的保留号 | ✅ 2026-09-23 |
 | **D3** | 三轮**编排**接线: `digest_segment` 接第 3 轮（共享 deadline、共用同一份 `clone_state` 快照）; `llm/task_labels` 加 `digest.round_3`; `tests/stub_tasks` 加标准应答 | ⬜ |
 | **D4** | **belief 的产出搬到第 1 轮**（§8.1 的真正落地）+ 第 2 轮摘掉 `add`（必须同一步, 否则功能断档） | ⬜ |
@@ -117,6 +117,12 @@ place 挂起（§9-5）。
     **不是硬编码**（原 `entities.SENSEI_NAMES` 已删）。
 17. **玩家名有两个来源, 别合并**: `config/player/profile.yml`（作者层, 进 git）给**主名 +
     作者别名**; `data/basic/player.json`（玩家自己在 GUI 改的, gitignored）**追加成一条别名**。
+18. **第 3 轮执行器（D2b）有三道闸 + 一条口径**: ① `entity` 必须是**候选表里的本地 id**
+    （`local_of` 换一份 = 换了对象）; ② 可归属 kind = `episode`/`belief` **+ `experience`**
+    （今天的玩家画像落在 experience 上 —— §9-3 并进 belief 之后要删掉这一项）;
+    ③ `new_entity` **缺 reason 即拒**, 且**保留号不在时整体跳过**（空表 `next_id("x")` =
+    **x0001** = sensei 的坑位）; ④ `rewrite` 的空值 = **保留** —— 今天**没有**"删掉一条
+    `state`"的机制（"谁判它过期" = §9-4 未定）, 想删只能整段重写。
 
 ---
 
