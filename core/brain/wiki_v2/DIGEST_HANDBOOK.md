@@ -61,14 +61,15 @@ place 挂起（§9-5）。
 
 ---
 
-## 3. 落地节点（**D0/D1 已落地**）
+## 3. 落地节点（**D0/D1/D2a 已落地**）
 
 | # | 内容 | 状态 |
 |---|---|---|
 | **D0** | `entity` kind + 字段（`name`/`aliases`/`state` + episode 的 `items`）+ `_PREFIX` 的 `x` + `entities.ensure_entities`（保留号 `x0000`=self / `x0001`=sensei, 幂等, 不写盘） | ✅ `9a78337` |
 | **D1** | 第 1 轮产出 `about_hint`（**不落库**）+ `items`（落库）; `DigestResult.hints` 作 D3 的接缝; 台账 `digest_hint eps= hint= items=` | ✅ `915c26e` |
-| **D2** ← **下一步** | 第 3 轮执行器 + 候选表渲染: `entities.py` 加**候选表（只给身份）**与**命中集载荷**（确定性规则 = `about_hint` ∪ 别名命中正文）; `revise.apply_attribution()`: hint→id 映射、写 `about` 边、`new_entity`（要理由）、重写 entity `text`/`state`、别名顺手写。**先做成独立执行器 + 单测**（当年 `apply_decisions` 就是这么起的） | ⬜ |
-| **D3** | 三轮**编排**接线: `digest_segment` 接第 3 轮（共享 deadline、共用同一份 `clone_state` 快照、`ensure_entities` 首次接线）; `llm/task_labels` 加 `digest.round_3`; `tests/stub_tasks` 加标准应答 | ⬜ |
+| **D2a** | 第 3 轮的**输入侧**三件套（纯函数 + 单测, 零接线零落盘）: `entities.candidate_table`（全量身份 + 本地 id `c0001` + `local_of`）· `hit_set`（确定性命中集）· `payload_block`（只给命中集的 `立场`/`现状`） | ✅ 2026-09-23 |
+| **D2b** ← **下一步** | 第 3 轮**执行器**: `revise.apply_attribution()` —— hint→id 映射、写 `about` 边（`belief/fact/promise/episode → entity`）、`new_entity`（**要理由**）、重写 entity `text`/`state`、别名顺手写。**先做成独立执行器 + 单测**（当年 `apply_decisions` 就是这么起的） | ⬜ |
+| **D3** | 三轮**编排**接线: `digest_segment` 接第 3 轮（共享 deadline、共用同一份 `clone_state` 快照、`ensure_entities` 首次接线 —— ⚠️ **§9-7 未定, 动前先要用户裁一句**）; `llm/task_labels` 加 `digest.round_3`; `tests/stub_tasks` 加标准应答 | ⬜ |
 | **D4** | **belief 的产出搬到第 1 轮**（§8.1 的真正落地）+ 第 2 轮摘掉 `add`（必须同一步, 否则功能断档） | ⬜ |
 | **D5** | 端到端验收（桩 LLM 跑完整三轮: entity 出生 / `about` 边 / `items` / 载荷重写）+ 真机演练 + 更新 `AGENT_BRAIN.md` 与 `DESIGN_GRAPH_V4.md` §8 | ⬜ |
 
@@ -100,6 +101,12 @@ place 挂起（§9-5）。
     （契约清洗/schema 文档化）。**没有 promptkit 夹具**（digest 的 prompt 不在盒里）。
 13. **`llm_call.llm_chat` 有 feedback 语义**：被拒 → 把 LLM 自己的输出追加成 assistant 位 +
     引擎错误, 同一上下文重试 1 次。
+14. **命中集的字面匹配有下限**（D2a）: 扫正文的称呼要求 **≥2 字**（`entities.MIN_HIT_LEN`）
+    —— 中文没有词边界, 别名里混进"他/她/它"这类单字就会**每一段正文都命中所有人**。
+    hint 走**精确相等**, 不受这条限制（模型自己写的单字称呼是真称呼）。
+15. **第 3 轮的候选表与载荷区必须共用同一份 `local_of`**（D2a）: 两套本地 id 会让模型
+    把同一个人的两行当成两个人; `payload_block` 对不在 `local_of` 里的 id **一律不印**
+    （没在候选表露过面的对象, 模型无法引用它）。
 
 ---
 
@@ -113,7 +120,11 @@ python -m pytest tests/core tests/webgui tests/llm tests/renderer -q --basetemp=
 python -m compileall -q core contract webgui apps llm tests main.py
 python experiments/web_e2e/run.py
 ```
-**真机数据现状**（验收基准, world1/haruka）: 9 节点 / 6 边 / `digested_seq=130` /
-三张纪念图；`.testtmp/check_*.py` 里有几个只读探针脚本可复用（改路径即可）。
+**真机数据现状**（验收基准, world1/haruka; **2026-09-23 刷新**）: **14 节点**
+（11 episode / 2 belief / 1 experience）+ **11 条边** / `digested_seq=206` / 三张纪念图。
+⚠️ **entity 一条都没有** —— `ensure_entities` **生产零调用**（全仓只有测试调它）,
+那是 D3 的活; 所以第 3 轮现在跑起来会**只有 `new_entity` 没有映射对象**,
+单测要自己把 `ensure_entities` 先跑一遍。
+`.testtmp/check_*.py` 里有几个只读探针脚本可复用（改路径即可）。
 
 **提交纪律**：一节点一提交; 提交信息用 `git commit -F <文件>`（CJK 会炸 `-m`）。
