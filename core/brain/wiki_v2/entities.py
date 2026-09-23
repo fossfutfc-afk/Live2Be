@@ -30,6 +30,16 @@ x0001 = sensei   （老师/玩家）
 是纯 stdlib 叶子, **不知道**角色配置（yml）与资产布局 —— 名字由调用方取好传进来
 （`CharacterLoader` 的 `char.display_name` + 别名助手）。
 
+**两个 entity 各读各的档案**（2026-09-23 用户裁决 —— 玩家也走 config, 与角色对称）:
+
+| | 主名 / 别名来源 |
+|---|---|
+| `self` | `config/characters/{id}/profile.yml`（经 `names.names_of(char)`） |
+| `sensei` | `config/player/profile.yml`（经 `player_profile.player_names()`） + `data/basic/player.json` 的玩家自取名（**运行时数据, 只作别名**） |
+
+⇒ "老师"这个字面量本文件**不再持有**（原 `SENSEI_NAMES` 已删），只剩
+`contract.DEFAULT_SPEAKER_NAMES` 那一份兜底。
+
 ⚠️ 名字读取**已于 2026-09-23 归一**（N1 → `core/parsing/names.py` 的 `char_names(profile)`
 / `names_of(char)`）—— 本文件的调用方直接把那个接口的结果当参数传进来即可,
 **本文件仍然只收参数**（`core/brain/` 是纯 stdlib 叶子, 不反向读 `config/`）。
@@ -39,6 +49,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+from contract import CHARACTER_SENSEI, DEFAULT_SPEAKER_NAMES
 from core.brain.wiki_v2.nodes import BrainNode, format_id
 
 if TYPE_CHECKING:                       # 仅注解求值期可见（避免运行时循环导入）
@@ -50,25 +61,33 @@ logger = logging.getLogger(__name__)
 SELF_ID = "x0000"
 SENSEI_ID = "x0001"
 
-#: sensei 的默认别名（角色视角怎么称呼玩家）
-SENSEI_NAMES = ("老师", "sensei")
+#: sensei 的**兜底**名/别名 —— 真源 = `contract.DEFAULT_SPEAKER_NAMES`（"老师"全项目只此一份;
+#: 原 `SENSEI_NAMES = ("老师", "sensei")` 是第二份字面量, 2026-09-23 删）。
+#: ⚠️ 现网的名字**不从这里来**: 由 `config/player/profile.yml` 经
+#: `core/parsing/player_profile.player_names()` 当参数传进来（玩家也走 config, 与角色档案
+#: 同一套前缀约定）。这两个常量只服务"调用方没给"的场合（如本模块的单测）—— 引擎侧不许靠它。
+SENSEI_FALLBACK_NAME = DEFAULT_SPEAKER_NAMES[CHARACTER_SENSEI]
+SENSEI_FALLBACK_ALIASES = (CHARACTER_SENSEI,)
 
 
 def ensure_entities(store, *, char_name: str = "", aliases=(), player_name: str = "",
-                    player_aliases=()) -> list[str]:
+                    player_aliases=(), sensei_name: str = "", sensei_aliases=()) -> list[str]:
     """**初始化**: 没有就建 self(x0000) + sensei(x0001); 返回**本次新建**的 id 列表。
 
     幂等: 按 id 判存在, 已有则跳过 —— 反复调用不写盘、不改数据（调用方自己决定 save）。
-    名字全空也能建（`name` 是唯一必填, 但 `validate` 只认"非空白字符串"——
-    所以这里兜一个 `char_id`/占位名, 免得整条被拒）。
 
     Args:
-        char_name: 角色自己的显示名（`REQ~most_called_name`）; 空 → 不建 self 的 name?
-            ⚠️ 不 —— `name` 是 entity 的**必填**, 空名字的 entity 会被 `store.add` 拒。
-            所以 char_name 为空时**跳过建 self**（宁缺勿错: 宁可不建, 不建一个没名字的）。
-        aliases: 角色别名（`other_names`/`jp_name`/`en_name` 切分后的; 由调用方给）
-        player_name: 玩家自己的名字（GUI 可配; 会进 sensei 的 aliases）
+        char_name: 角色自己的**主名**（= `config/characters/{id}/profile.yml` 的
+            `REQ~most_called_name`, 由调用方经 `names.names_of(char).display` 给）。
+            ⚠️ 空 → **跳过建 self**: `name` 是 entity 的必填, 空名字的 entity 会被
+            `store.add` 拒 —— 宁可不建, 也不建一个没名字的。
+        aliases: 角色的别名（同档案的 `other_names`/`jp_name`/`en_name` 切分后）
+        player_name: 玩家**自己取的名字**（GUI/CLI 可改）—— 追加成 sensei 的一条别名
         player_aliases: 玩家名的其它说法
+        sensei_name: sensei 的**主名**（= `config/player/profile.yml` 的
+            `REQ~most_called_name`, 经 `player_profile.player_names()` 给）。
+            空 → 退回 `SENSEI_FALLBACK_NAME`（= contract 的 "老师"）
+        sensei_aliases: 作者给 sensei 的别名（同档案的 `other_names` 等）
     """
     out: list[str] = []
     if SELF_ID not in store and char_name.strip():
@@ -78,11 +97,15 @@ def ensure_entities(store, *, char_name: str = "", aliases=(), player_name: str 
                        "name 是 entity 的必填, 宁可不建也不建个没名字的", SELF_ID)
 
     if SENSEI_ID not in store:
-        aliases_s = list(SENSEI_NAMES[1:])                  # "sensei"（"老师"当主名）
-        for extra in (*player_aliases, player_name):
-            if extra and extra.strip() and extra.strip() not in (SENSEI_NAMES[0], *aliases_s):
-                aliases_s.append(extra.strip())
-        out.append(store.add(_entity(SENSEI_ID, SENSEI_NAMES[0], aliases_s)))
+        name_s = sensei_name.strip() or SENSEI_FALLBACK_NAME
+        aliases_s: list[str] = []
+        # 顺序 = 作者别名（config）→ contract 兜底 → 玩家自取名/别名; 先到先得（去重）
+        for extra in (*sensei_aliases, *SENSEI_FALLBACK_ALIASES,
+                      *player_aliases, player_name):
+            extra = str(extra or "").strip()
+            if extra and extra != name_s and extra not in aliases_s:
+                aliases_s.append(extra)
+        out.append(store.add(_entity(SENSEI_ID, name_s, aliases_s)))
     return out
 
 

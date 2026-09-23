@@ -186,8 +186,23 @@ ts: str              # 首次形成的时刻（"认识多久了" + §9-1 的陈�
   ⚠️ **必须在任何"自动建 entity"之前**：空表时 `store.next_id("x")` 返回的是 **x0001**
   —— 正是 sensei 的保留号（扫不到同前缀就从 1 起）⇒ 让它先占坑；否则第 3 轮 `new_entity`
   建的第一个人会顶掉 sensei，而 `ensure_entities` 按 id 判幂等 ⇒ **sensei 永远不再被建**。
-  ⚠️ sensei 的名字是可配置的（玩家名在 GUI 里能改）⇒ `name` 取角色视角的"老师"，
-  `aliases` 收 `sensei` / 玩家名 —— 玩家改名时怎么办**未定**。
+  ✅ **两个 entity 的名字各有各的档案**（用户 2026-09-23 裁决 —— **玩家也走 config**，与角色对称）：
+
+  | entity | 主名 / 别名 | 谁写 |
+  |---|---|---|
+  | `self`(x0000) | `config/characters/{id}/profile.yml`（经 `names.names_of`） | 作者（进 git） |
+  | `sensei`(x0001) | `config/player/profile.yml`（经 `player_profile.player_names()`） + `data/basic/player.json` 的玩家自取名 | 作者 **+ 玩家自己** |
+
+  ⚠️ **两处载荷写在 gitignore 边界的两侧，所以绝不合并**：`config/` 是作者层（进 git），
+  `data/basic/player.json` 是**玩家在 GUI/CLI 里改的名字**（运行时数据 + 长度/符号校验 +
+  取名彩蛋）⇒ 让 GUI 去写 config 会把作者内容与运行时数据搅在一起，而且**玩家改个名就把
+  工作树弄脏**。分工：**config 给主名 + 作者别名；player.json 的自取名追加成一条别名**。
+  于是"老师"这个字面量在代码里**只剩 `contract.DEFAULT_SPEAKER_NAMES` 一份兜底**
+  （原 `wiki_v2/entities.SENSEI_NAMES` 是第二份，已删）。
+  ⚠️ 该档案**读失败直接报错、不静默兜底**（用户: *"静默兜底有点不负责任"*）⇒ 坏一个 yml
+  = 该轮 digest 中止、水位不推进（修好即恢复；聊天/剧情/回放不读它，全不受影响）。
+  ⏳ **仍未定**：玩家在 GUI 里改名后，已建好的 entity 的 `aliases` **不会回填**
+  （`ensure_entities` 幂等 ⇒ 只建一次）—— 要不要每次 digest 顺手补齐，见 §9-7。
 - **`text` 的初值** = 建 entity 时写"她对他的初印象"一句；之后按 §8.3 只喂"旧基线 + 本轮新增"。
 - **`new_entity` 准入**（用户裁决）：**必须给一句理由**（照 §8.1"判 add 要在 note 里说明理由"
   的先例）+ 那句自检题"**三个月后再提到，需要一致吗？**"
@@ -384,7 +399,7 @@ about_state      → resolved / uncertain / none   ← **点的属性**（不是
 | 4 | **`state` 的清理** | 物理状况会自愈（伤好了）/ 会改（又换了发型）—— **谁判它过期**？候选: ① 读侧按年龄降级措辞（借 §6 promise 那套）② 第 3 轮维护时顺手删。⚠️ 它是常驻层里**唯一应该自己淡化**的信息 |
 | 5 | **place 归位** | 承认"键表 + entity 两份身份"是问题（同一个"杂草屋"既是 `place` 键又是 `x0007`）; ⚠️ **但它牵扯另一套 LLM 图体系, 2026-09-21 用户裁决"暂不决策"** —— 这里只记着, 不动 |
 | 6 | **`about_state` / 复查队列** | ⏸ **2026-09-21 由"定案"退回未定**（用户："先不做这个，再考虑考虑"）。现状：**归属退化成"有边 / 没边"**，判不出的条目不建边也不追踪。待定：要不要队列（要的话记在哪 —— 点字段 / `evolution.jsonl` / 只活内存）· N/K 是否仍需自终止 |
-| 7 | **entity 初始化的时机与玩家名** | ✅ **时机已定并落地**（2026-09-23）: **第一次 digest 开始前**，接在 `_inject_brain(digest=True)`（§3.0）。**剩下一半仍待定**: **玩家名可配置**（GUI 能改，真源 = `mmt_preset.load_player_name`）⇒ sensei 的 `aliases` 要不要跟着改、谁改。倾向: 引擎每次 digest 把**配置名补齐**、模型只 append 它新判定的称呼（两边都 append-only ⇒ 不互相覆盖）；⚠️ 但那等于 `aliases` **两个写者**，动前先与"entity 载荷写者唯一 = 第 3 轮"（§8.1）那条纪律对齐 |
+| 7 | **entity 初始化的时机与玩家名** | ✅ **两侧都已定并落地**（2026-09-23）: ① 时机 = **第一次 digest 开始前**，接在 `_inject_brain(digest=True)`（§3.0）；② 名字 = **玩家也走 config**（`config/player/profile.yml`，与角色档案同一套前缀约定），玩家自取名（`data/basic/player.json`）**追加成一条别名** —— 两个写者分居 gitignore 两侧，不合并。**仅剩**: 玩家在 GUI 改名后**已建好的 entity 不会回填别名**（`ensure_entities` 幂等只建一次）—— 候选: 每次 digest 顺手把配置名补齐（⚠️ 那等于 `aliases` 有两个写者，与 §8.1"载荷写者唯一"要先对齐）、或接受不回填（别名只是效率优化） |
 | 8 | **用户档案 / 用户提示词的归位**（2026-09-23 新增） | 起因: 用户要"digest 过程中 LLM **自主整理用户习惯**, 并与将来的 `全局提示词 / 用户提示词` 放一起"。**已议定的部分**: 先拆三样 —— ① **她对他的了解**（per 角色、可错、可分叉; 今天 = `experience subject=player` →【老师的事】, v4 归到 `about→sensei` 的辐射里, **不需要新机制**）② **引擎对玩家的观察**（全局、必须一致）③ **人写的用户提示词**（全局、指令）。**②③ 不进 entity**: entity 是**每角色一条世界线**（真机 3 份独立 `wiki.jsonl`, 仓里没有全局 store）, 而用户提示词是**全局**的 —— 塞进去 ⇒ 每个角色各学一份且必然分叉, 且被"她的视角可错"污染（指令不许错）。形态 = **同一节、两段、各带来源标头**（人写的那段引擎永不改, 天然优先级更高）+ **注入走动态尾**（进盒的话每次 digest 都打掉前缀缓存）。也**不该是新 kind**: 它是被反复覆盖的**当前值**（§3.1 第二问）⇒ 一个文件 + 一节注入。**未定**: ② 全局一份还是每世界线一份（多角色并发写同一文件 = 覆盖风险）· 唯一写者 = 第 3 轮顺手还是单开旁路调用。**2026-09-23 用户裁决: 暂时先不做**（等 D5 三轮跑通再落） |
 
 ## 10. 已否决（别再提）
@@ -439,3 +454,5 @@ about_state      → resolved / uncertain / none   ← **点的属性**（不是
 | 2026-09-23 | **落地 D2a**（第 3 轮输入侧） | ✅ `entities.py` 三个纯函数: `candidate_table`（全量身份 + 本地 id `c0001`, `local_of` 映射）· `hit_set`（确定性: hint 精确/包含 ∪ 称呼 ≥2 字命中正文）· `payload_block`（只给命中集; `立场` + `现状` 逐行, 表外 id 一律不印）。执行器 `apply_attribution` = D2b, 未动 |
 | 2026-09-23 | **entity 建的时刻**（§9-7 的上一半） | ✅ **第一次 digest 开始前**（用户裁决）: 接在 `MmtEngine._inject_brain(digest=True)` 最前面 ⇒ bond 闭环与 mmt 每 25 轮**两个触发点都覆盖**; 读路径不建（不写盘）。⚠️ **顺序是正确性**: 空表时 `next_id("x")` = **x0001** = sensei 的保留号 |
 | 2026-09-23 | **落地 D3a**（entity 初始化接线） | ✅ `MmtEngine._ensure_char_entities`: 角色名/别名走 N1 接口（`names_of`）、玩家名走真源（`load_player_name`，延迟导入避环）、幂等 ⇒ 平时零写盘、只在真建了时 `save()`; 失败只降级（一行 warning）**不带走整轮 digest** |
+| 2026-09-23 | **玩家也走 config**（sensei 的 name/aliases 从哪来） | ✅ 新增 `config/player/profile.yml`（**一个目录一个文件**，字段与角色档案同一套: `REQ~most_called_name` / `other_names` / `REQ~is_official_character` / `SIG~club`）+ `core/parsing/player_profile.py`（读 yml → `char_names`）+ `paths.PLAYER_DIR`。**与 `data/basic/player.json` 不合并**（作者层 vs 运行时数据）: config 给主名+作者别名，player.json 的自取名追加成一条别名。`entities.SENSEI_NAMES` 字面量**删**（"老师"只剩 contract 一份兜底）。⏳ 未定: 改名不会回填（§9-7） |
+| 2026-09-23 | 玩家档案**读失败**要不要兜底 | ❌ **不兜底**（用户: *"静默兜底有点不负责任"*）: 文件不存在 / YAML 坏 / 缺 `REQ~most_called_name` 一律抛，调用方打 ERROR 并**中止本轮 digest**（水位不推进 ⇒ 修好即恢复）。判据: 它决定"她叫她最重要的人什么"，坏文件必须**看得见** |

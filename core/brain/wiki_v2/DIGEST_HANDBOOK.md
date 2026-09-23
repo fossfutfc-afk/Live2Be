@@ -71,7 +71,7 @@ place 挂起（§9-5）。
 | **D1** | 第 1 轮产出 `about_hint`（**不落库**）+ `items`（落库）; `DigestResult.hints` 作 D3 的接缝; 台账 `digest_hint eps= hint= items=` | ✅ `915c26e` |
 | **D2a** | 第 3 轮的**输入侧**三件套（纯函数 + 单测, 零接线零落盘）: `entities.candidate_table`（全量身份 + 本地 id `c0001` + `local_of`）· `hit_set`（确定性命中集）· `payload_block`（只给命中集的 `立场`/`现状`） | ✅ 2026-09-23 |
 | **D2b** ← **下一步** | 第 3 轮**执行器**: `revise.apply_attribution()` —— hint→id 映射、写 `about` 边（`belief/fact/promise/episode → entity`）、`new_entity`（**要理由**）、重写 entity `text`/`state`、别名顺手写。**先做成独立执行器 + 单测**（当年 `apply_decisions` 就是这么起的） | ⬜ |
-| **D3a** | **entity 初始化接线**（从 D3 拆出 —— 用户 2026-09-23 要求提前落地）: `MmtEngine._ensure_char_entities` 接在 `_inject_brain(digest=True)` 最前面 ⇒ **第一次 digest 的 LLM 调用之前**建 `self`+`sensei` 并落盘。⚠️ **顺序是正确性**: 空表时 `next_id("x")` 返回 **x0001** = sensei 的保留号 | ✅ 2026-09-23 |
+| **D3a** | **entity 初始化接线**（从 D3 拆出 —— 用户 2026-09-23 要求提前落地）: `MmtEngine._ensure_char_entities` 接在 `_inject_brain(digest=True)` 最前面 ⇒ **第一次 digest 的 LLM 调用之前**建 `self`+`sensei` 并落盘。名字: `self` ← 角色档案 / `sensei` ← `config/player/profile.yml`（+ `data/basic/player.json` 当别名）。⚠️ **顺序是正确性**: 空表时 `next_id("x")` 返回 **x0001** = sensei 的保留号 | ✅ 2026-09-23 |
 | **D3** | 三轮**编排**接线: `digest_segment` 接第 3 轮（共享 deadline、共用同一份 `clone_state` 快照）; `llm/task_labels` 加 `digest.round_3`; `tests/stub_tasks` 加标准应答 | ⬜ |
 | **D4** | **belief 的产出搬到第 1 轮**（§8.1 的真正落地）+ 第 2 轮摘掉 `add`（必须同一步, 否则功能断档） | ⬜ |
 | **D5** | 端到端验收（桩 LLM 跑完整三轮: entity 出生 / `about` 边 / `items` / 载荷重写）+ 真机演练 + 更新 `AGENT_BRAIN.md` 与 `DESIGN_GRAPH_V4.md` §8 | ⬜ |
@@ -110,6 +110,13 @@ place 挂起（§9-5）。
 15. **第 3 轮的候选表与载荷区必须共用同一份 `local_of`**（D2a）: 两套本地 id 会让模型
     把同一个人的两行当成两个人; `payload_block` 对不在 `local_of` 里的 id **一律不印**
     （没在候选表露过面的对象, 模型无法引用它）。
+16. **`config/player/profile.yml` 坏了 → 本轮 digest 直接中止**（2026-09-23）:
+    读失败**不兜底**（用户裁决: *"静默兜底有点不负责任"*）, 打一条 ERROR 后抛出去,
+    水位不推进 ⇒ 修好即恢复。所以"digest 忽然什么都不做"时**先看这个文件**
+    （在不在 / `REQ~most_called_name` 有没有）。⚠️ `sensei` 的名字这一半也来自它 ——
+    **不是硬编码**（原 `entities.SENSEI_NAMES` 已删）。
+17. **玩家名有两个来源, 别合并**: `config/player/profile.yml`（作者层, 进 git）给**主名 +
+    作者别名**; `data/basic/player.json`（玩家自己在 GUI 改的, gitignored）**追加成一条别名**。
 
 ---
 

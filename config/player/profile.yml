@@ -1,0 +1,17 @@
+# 玩家（老师）档案 —— 这个目录下**只有这一个文件**（2026-09-23 用户裁决）。
+#
+# 字段约定与 config/characters/*/profile.yml **同一套**（REQ~ 必填 / SIG~ 重要 / 裸键 普通），
+# 所以读取直接走 core.parsing.names.char_names（裸键 → SIG~ → REQ~ 三级回落 + 别名切分）。
+#
+# ⚠️ 与 data/basic/player.json 的分工（别合并）:
+#     · 本文件 = **作者层**（进 git）→ sensei entity 的**主名**与作者别名
+#     · player.json = **玩家自己在 GUI/CLI 改的名字**（运行时数据, gitignored）→ 追加成一条别名
+#
+# ⚠️ 本文件**读失败直接报错、不兜底**（文件不存在 / YAML 坏 / 缺 REQ~most_called_name）:
+#    它决定"她叫她最重要的人什么", 静默退回"老师"会让一个坏文件永远不被人发现。
+#    错误语义见 core/parsing/player_profile.py; 调用方 = MmtEngine._ensure_char_entities。
+
+REQ~is_official_character: true    # 老师 = BA 正典角色（false 才是 OC; 供 config 侧判断用）
+REQ~most_called_name: 老师          # 角色视角怎么称呼他 = sensei entity 的主名
+other_names: sensei                # 别名（分隔符可用 ，,、/;；）
+SIG~club: 夏莱                     # 他所属的机构（后续可能要用）

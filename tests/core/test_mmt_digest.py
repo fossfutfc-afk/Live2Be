@@ -145,10 +145,12 @@ def test_first_digest_creates_char_entities(tmp_path, monkeypatch):
     from core.brain.wiki_v2.store import WikiStoreV2
     from core.mmt import mmt_preset
     from core.parsing.names import names_of
+    from core.parsing.player_profile import player_names
 
     monkeypatch.setattr(mmt_preset, "load_player_name", lambda: "阿宅")
     engine, st, llm = _engine(tmp_path)
     char = engine._current_char
+    player = player_names()                                   # 主名/别名来自 config
     _mmt_event(st, CHARACTER, 1)
     engine._session_rounds = MMT_DIGEST_INTERVAL
     engine._maybe_mmt_digest()
@@ -160,8 +162,9 @@ def test_first_digest_creates_char_entities(tmp_path, monkeypatch):
     assert ws.get(SELF_ID).name == names_of(char).display        # 角色自己的显示名
     assert set(names_of(char).aliases) <= set(ws.get(SELF_ID).aliases)
     assert ws.get(SELF_ID).text == ""                            # 立场留给第 3 轮
-    assert ws.get(SENSEI_ID).name == "老师"
-    assert {"sensei", "阿宅"} <= set(ws.get(SENSEI_ID).aliases)   # 玩家名进了别名
+    assert ws.get(SENSEI_ID).name == player.display              # 玩家主名: config/player
+    assert set(player.aliases) <= set(ws.get(SENSEI_ID).aliases)  # 作者别名
+    assert "阿宅" in ws.get(SENSEI_ID).aliases                    # 玩家自取名（player.json）
     assert ws.next_id("x") == "x0002"                            # 保留号挡住了 0/1
 
     # 幂等: 再触发一次（水位已推进 → 0 新增早退）不重复建、不删
