@@ -3,6 +3,18 @@
 > 2026-09-23 建立。**读法**：先读这份（现状 + 下一步 + 陷阱），再读同目录
 > `DESIGN_GRAPH_V4.md`（设计稿 = 目标形状 + 未定项 + 已否决项）。
 > 这份只写"**怎么跑、动哪里、别踩什么**"，设计争论不在这里。
+>
+> ⚠️ **2026-09-23 当天发生了结构性重议**（一整天）：图 / 笔记 / 台账三种组织形式 ·
+> 边的走法 · **note（随身笔记）** · inventory 预留 · MMT 的 `function_call` 与动作面 ·
+> 外部调研。**结论全部在 `DESIGN_GRAPH_V4` 的 §1.1 / §2.2 / §3.2 / §3.3 / §8.6 / §11 / §12**，
+> 本手册不重复。
+>
+> 🧭 **链路顺序（用户 2026-09-23 定）**：**① note → ② 消解无用 kind → ③ 正常 digest
+> → ④ 时序 → ⑤ 注入提示词时间重排 → ⑥ 优化 MMT**。
+> ⇒ **D3（三轮接线）排在 ③，不再是"下一步"**；①之前先别动 digest 的代码。
+>
+> 📌 **本手册的退役约定**（用户 2026-09-23）：**下次用户说"compact"之后，删掉本文件，
+> 改写成仓根 `PROCEED.md`**（按我的工作方式重写：现状锚点 → 下一步 → 陷阱 → 验证配方 → 未决账）。
 
 ---
 
@@ -72,8 +84,8 @@ place 挂起（§9-5）。
 | **D2a** | 第 3 轮的**输入侧**三件套（纯函数 + 单测, 零接线零落盘）: `entities.candidate_table`（全量身份 + 本地 id `c0001` + `local_of`）· `hit_set`（确定性命中集）· `payload_block`（只给命中集的 `立场`/`现状`） | ✅ 2026-09-23 |
 | **D2b** | 第 3 轮**执行器** `revise.apply_attribution`（独立执行器 + 3 条单测, 零接线）: `attach`（写 `about` 边 + `hint` 顺手写别名）· `new_entity`（**必给理由**; 同名复用 = 崩溃窗口幂等; 保留号不在则整体跳过）· `rewrite`（载荷, 空值=保留）。行形状 = 该函数 docstring | ✅ 2026-09-23 |
 | **D3a** | **entity 初始化接线**（从 D3 拆出 —— 用户 2026-09-23 要求提前落地）: `MmtEngine._ensure_char_entities` 接在 `_inject_brain(digest=True)` 最前面 ⇒ **第一次 digest 的 LLM 调用之前**建 `self`+`sensei` 并落盘。名字: `self` ← 角色档案 / `sensei` ← `config/player/profile.yml`（+ `data/basic/player.json` 当别名）。⚠️ **顺序是正确性**: 空表时 `next_id("x")` 返回 **x0001** = sensei 的保留号 | ✅ 2026-09-23 |
-| **D3** | 三轮**编排**接线: `digest_segment` 接第 3 轮（共享 deadline、共用同一份 `clone_state` 快照）; `llm/task_labels` 加 `digest.round_3`; `tests/stub_tasks` 加标准应答 | ⬜ |
-| **D4** | **belief 的产出搬到第 1 轮**（§8.1 的真正落地）+ 第 2 轮摘掉 `add`（必须同一步, 否则功能断档） | ⬜ |
+| **D3** | 三轮**编排**接线: `digest_segment` 接第 3 轮（共享 deadline、共用同一份 `clone_state` 快照）; `llm/task_labels` 加 `digest.round_3`; `tests/stub_tasks` 加标准应答。⚠️ **2026-09-23 起排在链路 ③**（note → 消解 kind → **digest** → 时序 → 注入重排 → MMT），不是下一步 | ⬜ |
+| **D4** | **belief 的产出搬到第 1 轮**（§8.1 的真正落地）+ 第 2 轮摘掉 `add`（必须同一步, 否则功能断档）。⚠️ **顺序应改为 D4 → D3**（§9-12 ⑧：否则 R2 产的节点没有 `about_hint`，归属漏一批且**永久补不回**） | ⬜ |
 | **D5** | 端到端验收（桩 LLM 跑完整三轮: entity 出生 / `about` 边 / `items` / 载荷重写）+ 真机演练 + 更新 `AGENT_BRAIN.md` 与 `DESIGN_GRAPH_V4.md` §8 | ⬜ |
 
 ---
