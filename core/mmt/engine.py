@@ -64,7 +64,7 @@ from core.parsing.dynamic_character_parser import (
     DynamicCharacter,
     yaml_to_prompt,
 )
-from core.parsing.names import char_names          # 名字接口（N1: 别名/显示名的唯一实现）
+from core.parsing.names import char_names, names_of   # 名字接口（N1: 别名/显示名的唯一实现）
 from core.promptkit import (
     BlockContext,
     build_box,
@@ -76,6 +76,7 @@ from core.session import SessionStore
 from core.session.events import make_event
 from core.session.renderer import session_status, window_messages
 from core.brain.wiki_v2.digest import digest_segment
+from core.brain.wiki_v2.entities import ensure_entities
 from core.affection import Affection, load_affection_from_events
 from core.brain.wiki_v2.render import render_background_experience, render_character_view
 from core.brain.wiki_v2.store import WikiStoreV2
@@ -163,6 +164,40 @@ def _name_aliases(profile: dict) -> tuple[str, ...]:
     （或 `char_names(profile)`）。
     """
     return char_names(profile).aliases
+
+
+def _ensure_char_entities(wstore: WikiStoreV2, char, character_id: str) -> None:
+    """把 `self`(x0000) + `sensei`(x0001) 两个 entity 建出来（§3.0; §9-7 的落地）。
+
+    **建的时刻**（用户 2026-09-23 裁决）: **第一次 digest 开始前** —— 也就是
+    bond `vn_finish` 之后、digest 的 LLM 调用之前。接在 `_inject_brain(digest=True)`
+    里（不是接在 `bond/api.py`）是为了**两个触发点都覆盖**: bond 闭环 **与** mmt 每 25 轮
+    —— 只接 bond 的话, 第一次 digest 若是 mmt 触发的, entity 就还不存在。
+
+    ⚠️ **必须在任何"自动建 entity"之前**（这就是"初始化"的含义）: 表里一个 entity 都没有时
+    `store.next_id("x")` 返回的是 **x0001** —— 正是 sensei 的保留号（扫不到同前缀就从 1 起）。
+    让它先占坑, 否则第 3 轮 `new_entity` 建的第一个人会**顶掉 sensei**（此后
+    `ensure_entities` 按 id 判幂等 ⇒ sensei 永远不会被建）。
+
+    ⚠️ 失败**只降级**（打一行 warning 继续 digest）。别让一次 entity 初始化把整轮消化带走:
+    本函数被 `_inject_brain` 那个宽 except 罩着, 而它会直接 `return`。
+
+    ⚠️ **只有真建了才写盘**（幂等 ⇒ 平时零写盘）。不写的话 entity 只活在内存里, 下一次
+    digest 再建一遍 —— 盘上永远没有, 看起来"建了又没了"。
+    """
+    try:
+        # 延迟导入: `mmt_preset` 反向 import 本模块（它在顶层 `from core.mmt.engine import
+        # MomoTalkEngine`）⇒ 模块级导入会成环。玩家名的唯一真源就是它（读写都在那儿,
+        # webgui 的 `routers/name.py` 也走它）。
+        from core.mmt.mmt_preset import load_player_name
+        n = names_of(char)
+        made = ensure_entities(wstore, char_name=n.display, aliases=n.aliases,
+                               player_name=load_player_name())
+        if made:
+            wstore.save()
+            logger.info("[%s] entity 初始化: %s", character_id, ", ".join(made))
+    except Exception as e:                            # noqa: BLE001 — 宁缺勿错
+        logger.warning("[%s] entity 初始化失败（照常 digest）: %s", character_id, e)
 
 
 def load_brain_segment(store: SessionStore, char_id: str, char_name: str = "",
@@ -519,6 +554,9 @@ class MomoTalkEngine:
             wstore = WikiStoreV2(store.data_root, world_id=store.world_id,
                                  char_id=character_id)
             if digest:
+                # entity 初始化（§3.0 / §9-7）: **第一次 digest 开始前** —— 必须在下面
+                # 任何"新建 entity"之前跑, 见 `_ensure_char_entities` 的撞号警告。
+                _ensure_char_entities(wstore, char, character_id)
                 events = store.events(character_id)
                 interact_max = _interact_max(events, wstore.digested_seq)
                 # 编码时好感快照（§3.3.3）: 本段**开始之前**的累计好感标量。
