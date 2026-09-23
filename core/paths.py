@@ -41,6 +41,12 @@ SETTINGS_PATH = ROOT / "settings.toml"
 CONFIG_DIR = ROOT / "config"
 #: 角色卡根目录（`config/characters/{char_id}/` 六文件; `CharacterLoader` 的 root）
 CHARACTERS_DIR = CONFIG_DIR / "characters"
+#: 玩家（老师）档案目录 —— **只有这一个文件**（2026-09-23）: 身份/称呼, 与角色档案同一套
+#: 字段前缀约定（所以直接吃 `core/parsing/names.char_names`）。
+#: ⚠️ 与 `data/basic/player.json` 分工: 这里是**作者层**（进 git, 给 sensei entity 的主名+
+#: 别名）; player.json 是玩家自己在 GUI 里改的名字（运行时数据, 追加成一条别名）。
+PLAYER_DIR = CONFIG_DIR / "player"
+PLAYER_PROFILE_PATH = PLAYER_DIR / "profile.yml"
 #: 特殊日期表（`core/worldtime/realtime.py`）
 EGGS_DIR = CONFIG_DIR / "eggs"
 FESTIVALS_PATH = EGGS_DIR / "festivals.json"
@@ -79,7 +85,8 @@ WEBGUI_STATIC_DIR = ROOT / "webgui" / "static"
 
 __all__ = [
     "ROOT", "SETTINGS_PATH",
-    "CONFIG_DIR", "CHARACTERS_DIR", "EGGS_DIR", "FESTIVALS_PATH",
+    "CONFIG_DIR", "CHARACTERS_DIR", "PLAYER_DIR", "PLAYER_PROFILE_PATH",
+    "EGGS_DIR", "FESTIVALS_PATH",
     "WORLD_DIR", "WORLD_OVERVIEW_PATH", "REGIONS_PATH",
     "PLACE_TABLE_PATH", "RELATION_DIR", "INTERPERSON_PATH",
     "MMT_REGISTRY_PATH",

@@ -314,6 +314,7 @@ core.mmt.engine	logger	data	logging
 core.mmt.engine	make_embed_fn	function	core.rag.brain
 core.mmt.engine	make_event	function	core.session.events
 core.mmt.engine	names_of	function	core.parsing.names
+core.mmt.engine	player_names	function	core.parsing.player_profile
 core.mmt.engine	render_background_experience	function	core.brain.wiki_v2.render
 core.mmt.engine	render_character_view	function	core.brain.wiki_v2.render
 core.mmt.engine	round_messages	function	core.promptkit.tail

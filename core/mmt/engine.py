@@ -65,6 +65,7 @@ from core.parsing.dynamic_character_parser import (
     yaml_to_prompt,
 )
 from core.parsing.names import char_names, names_of   # 名字接口（N1: 别名/显示名的唯一实现）
+from core.parsing.player_profile import player_names   # 玩家档案（config/player/profile.yml）
 from core.promptkit import (
     BlockContext,
     build_box,
@@ -184,19 +185,39 @@ def _ensure_char_entities(wstore: WikiStoreV2, char, character_id: str) -> None:
 
     ⚠️ **只有真建了才写盘**（幂等 ⇒ 平时零写盘）。不写的话 entity 只活在内存里, 下一次
     digest 再建一遍 —— 盘上永远没有, 看起来"建了又没了"。
+
+    ## 名字从哪来（2026-09-23 用户裁决: 玩家也走 config, 与角色对称）
+
+    | entity | 主名 / 别名 | 谁写 |
+    |---|---|---|
+    | `self`(x0000) | `config/characters/{id}/profile.yml` | 作者（进 git） |
+    | `sensei`(x0001) | `config/player/profile.yml` + `data/basic/player.json` | 作者 + 玩家自己 |
+
+    ⚠️ **玩家档案读失败 = 报错, 不兜底**（用户 2026-09-23: *"静默兜底有点不负责任"*）:
+    打一条 ERROR 再抛出去 ⇒ 本轮 digest 中止。代价是"config 坏一天就一天不消化",
+    但那正是要的 —— 否则一个坏文件会永远不被人发现（水位不推进 ⇒ 修好即恢复;
+    聊天/剧情/回放全不受影响, 它们不读这个文件）。
     """
+    try:
+        player = player_names()
+    except Exception as e:                            # noqa: BLE001 — 记录后原样抛
+        logger.error("[%s] 玩家档案读取失败 → 本轮 digest 中止（修好 config/player/"
+                     "profile.yml 即恢复）: %s", character_id, e)
+        raise
     try:
         # 延迟导入: `mmt_preset` 反向 import 本模块（它在顶层 `from core.mmt.engine import
         # MomoTalkEngine`）⇒ 模块级导入会成环。玩家名的唯一真源就是它（读写都在那儿,
-        # webgui 的 `routers/name.py` 也走它）。
+        # webgui 的 `routers/name.py` 也走它）—— 注意它是**玩家自取名**, 只作别名。
         from core.mmt.mmt_preset import load_player_name
         n = names_of(char)
         made = ensure_entities(wstore, char_name=n.display, aliases=n.aliases,
+                               sensei_name=player.display, sensei_aliases=player.aliases,
                                player_name=load_player_name())
         if made:
             wstore.save()
-            logger.info("[%s] entity 初始化: %s", character_id, ", ".join(made))
-    except Exception as e:                            # noqa: BLE001 — 宁缺勿错
+            logger.info("[%s] entity 初始化: %s（sensei=%s）", character_id,
+                        ", ".join(made), player.display)
+    except Exception as e:                            # noqa: BLE001 — 建/写盘失败才降级
         logger.warning("[%s] entity 初始化失败（照常 digest）: %s", character_id, e)
 
 

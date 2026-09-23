@@ -105,7 +105,8 @@ contract/       契约地基: **records/（C10 起是包）** = grammar(取值�
                 · **errors(错误原语真家)** · **json_cleaner(纯 JSON 修复)** · schema(LLM 可见文本)
                 · spec/registry/model(动作契约) · digest_registry · timeline_index · constants
 llm/            client(超时/流式/usage 日志) · task_labels(**调用身份**) · task_levels(档位真源) · prompts/文案仓库
-config/         人设六文件(REQ~/SIG~) + illustration.yml · settings/world(overview.yml) · settings/relation
+config/         人设六文件(REQ~/SIG~) + illustration.yml · **player/profile.yml(玩家档案)** ·
+                settings/world(overview.yml) · settings/relation
 data/           运行时数据(gitignore): worlds/*/characters/*/{progress.json…} +
                 **soul/**（记忆层: events.jsonl + wiki.jsonl + wiki.meta.json + 变更史）
 tests/ core/ webgui/ llm/ renderer/ apps/ 分别对应域; experiments/ 真 API 基准与探索脚本
@@ -449,6 +450,9 @@ CLI/测试同步路径在引擎内串行。
   ⚠️ **盒B 只注入 `{profile + personality}` 两层**（`build_prompt("bond_story")`）——
   VN 里的 writer **看不到** typical/knowledge/experience（MMT 才是六文件全量）。
   这是"人设把握不完全"的一个已知来源，改它要连带考虑 system 变长与缓存重建。
+- **玩家档案（配置层第 8 件，2026-09-23）**：`config/player/profile.yml`（只有这一个文件）——
+  与角色 profile 同一套字段，读 `core/parsing/player_profile.py`；用途 = `sensei` entity 的主名+别名。
+  ⚠️ 两条纪律（不与 `data/basic/player.json` 合并 · 读失败即报错不兜底）见 `DESIGN_GRAPH_V4.md` §3.0。
 - **`illustration.yml`（第 7 个可选文件，专供生图）**：`halo_hint`（非典型光环形状）
   + `character_hint`（**外观要点 + 性格简卡**）。⚠️ 2026-09-20 起性格那一半是必需的；
   为空时引擎用 `DynamicCharacter.image_persona_brief()`（`SIG~brief_traits`）兜底。
