@@ -596,18 +596,28 @@ def render_note_block(state: NotesState, *, now: object | None = None) -> str:
             continue                                  # 空槽不印抬头（常驻预算是硬约束）
         lines.append(f"{_LEAD_INDENT}{GROUP_LEADS[slot]}")
         for it in _sorted_by([it for it in items if not it.closed], "since"):
-            lines.append(f"{_ITEM_INDENT}{it.id} {it.text}"
-                         f"{_refs_suffix(it)}{_since_suffix(it, now)}")
+            lines.append(f"{_ITEM_INDENT}{render_item(it, now=now)}")
         # 结清组按**结清时刻**排（刚做完的在上）—— 按 `since` 排会让"刚做完的老约定"沉底
         for it in _sorted_by([it for it in items if it.closed], "closed_at"):
-            lines.append(f"{_ITEM_INDENT}{it.id} {it.text}"
-                         f"{_refs_suffix(it)}{_closed_suffix(it)}")
+            lines.append(f"{_ITEM_INDENT}{render_item(it)}")
     if state.on_mind is not None:
         lines.append(f"{_LEAD_INDENT}{GROUP_LEADS[SLOT_ON_MIND]}")
         lines.append(f"{_ITEM_INDENT}{state.on_mind.text}")
     if not lines:
         return ""
     return "\n".join([TITLE] + lines)
+
+
+def render_item(item: NoteItem, *, now: object | None = None) -> str:
+    """**一行条目**（不含缩进与抬头）—— 注入块与**全景轮的输入**共用这一份行格式。
+
+    `n3 周六模型店 (m0009)  ← 记于 3 天前`; 已结清的尾巴换成 `← 已结清（理由）`。
+    `id` 为空（`on_mind` 那条散文）→ 只有正文。
+    """
+    if not item.id:
+        return item.text
+    tail = _closed_suffix(item) if item.closed else _since_suffix(item, now)
+    return f"{item.id} {item.text}{_refs_suffix(item)}{tail}"
 
 
 def _closed_suffix(it: NoteItem) -> str:
