@@ -76,12 +76,14 @@ BOARD_SUBTYPES: tuple[str, ...] = (S_STORY_SCENE, S_STORY_END)
 
 #: note 板块的 subtype —— 备忘录的**操作**（DESIGN_GRAPH_V4 §3.2: 真源 = 操作事件,
 #: `soul/notes.json` = 折叠出来的派生缓存）:
-#: `add` 加一条 · `done` 划掉一条（**done = 移除, 不留状态 ⇒ 没有状态机**）·
-#: `rewrite` 整体重写（全景轮写 B 类快照槽）。条目的 `id` 由**引擎**分配/折叠。
+#: `add` 加一条（**不需要理由**）· `close` 闭合一条（**必须给理由** —— 闭合即固化进图（§6）,
+#: 没有理由就判不出 `kept`/`broken`/`superseded`; **close = 移除, 不留状态**）·
+#: `rewrite` 整体重写（全景轮写 **B 类快照槽**, 不碰 `promise`）。
+#: 条目的 `id` 由**引擎**在折叠时分配（`wiki_v2/notes.fold`）。
 N_ADD = "add"
-N_DONE = "done"
+N_CLOSE = "close"
 N_REWRITE = "rewrite"
-NOTE_SUBTYPES: tuple[str, ...] = (N_ADD, N_DONE, N_REWRITE)
+NOTE_SUBTYPES: tuple[str, ...] = (N_ADD, N_CLOSE, N_REWRITE)
 
 MARKER_SUBTYPES: tuple[str, ...] = (
     M_SESSION_START, M_VN_ENTER, M_VN_EXIT, M_VN_ABANDON, M_VN_STATE,

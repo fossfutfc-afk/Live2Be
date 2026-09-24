@@ -26,7 +26,7 @@ from core.session import make_event
 from core.session.events import (
     EVENT_TYPES,
     N_ADD,
-    N_DONE,
+    N_CLOSE,
     NON_CONTENT_TYPES,
     NOTE_SUBTYPES,
     TYPE_NOTE,
@@ -72,12 +72,12 @@ def _mmt(seq, player="老师好", reply="啊、老师好……"):
 
 def test_note_type_is_registered_and_roundtrips():
     assert TYPE_NOTE in EVENT_TYPES
-    assert NOTE_SUBTYPES == (N_ADD, N_DONE, "rewrite")
+    assert NOTE_SUBTYPES == (N_ADD, N_CLOSE, "rewrite")
 
-    e = _note(7, sub=N_DONE)
+    e = _note(7, sub=N_CLOSE)
     back = Event.from_dict(e.to_dict())
     assert back is not None
-    assert (back.type, back.subtype, back.seq) == (TYPE_NOTE, N_DONE, 7)
+    assert (back.type, back.subtype, back.seq) == (TYPE_NOTE, N_CLOSE, 7)
     assert back.payload["text"] == "周六模型店"
 
     # 反证（"必须登记"的理由本身）: 换成一个没登记的 type → 整条被丢掉
@@ -134,7 +134,7 @@ def test_interact_max_ignores_note_and_affection():
 def test_note_only_window_digests_to_nothing(tmp_path):
     st = WikiStoreV2(tmp_path, world_id="world1", char_id="c")
     llm = FakeLLM()                                       # 一被调用就炸
-    res = digest_segment(st, llm, [_note(1), _note(2, sub=N_DONE)])
+    res = digest_segment(st, llm, [_note(1), _note(2, sub=N_CLOSE)])
 
     assert res.ok and res.llm_calls == 0
     assert llm.calls == []
@@ -146,7 +146,7 @@ def test_note_in_window_does_not_disturb_digest(tmp_path):
     st = WikiStoreV2(tmp_path, world_id="world1", char_id="c")
     llm = FakeLLM({"episodes": []},
                   {"decisions": [], "evidence": [], "affection_exp_delta": 0})
-    res = digest_segment(st, llm, [_mmt(3), _note(4, sub=N_DONE)])
+    res = digest_segment(st, llm, [_mmt(3), _note(4, sub=N_CLOSE)])
 
     assert res.ok, res.errors
     assert res.llm_calls == 2                             # 内容照常走完两轮
