@@ -226,6 +226,34 @@ def _ensure_char_entities(wstore: WikiStoreV2, char, character_id: str) -> None:
         logger.warning("[%s] entity 初始化失败（照常 digest）: %s", character_id, e)
 
 
+def load_note_segment(store: SessionStore, char_id: str, *,
+                      wstore: WikiStoreV2 | None = None,
+                      events: list | None = None) -> str:
+    """随身笔记注入块（DESIGN_GRAPH_V4 §3.2; 0 LLM）—— **常驻层**, 每轮都在。
+
+    它是**当前值不是事件**: 固定标题（"这是你自己记的, 不是别人给你的任务"）+
+    固定顺序（约定 → 惯例 → 最近在想）, ⚠️ **不进按时间排序的记忆流**
+    （`render_character_view` 那些带"（3 周前）"的条目是另一块）。
+
+    与 wiki 视图**同源同频**（都在 digest / 开场这两处重建）, 所以两处调用点
+    （`load_brain_segment` 给 bond 开场 · `_inject_brain` 给 MMT）拼的顺序一致:
+    **出厂背景 → wiki 视图 → 笔记块**（放最后 —— 最贴近本轮对话的是"此刻"）。
+
+    失败/空 → `""`（零注入不阻断, 宁缺勿错）; `wstore`/`events` 给了就复用
+    （省一次读盘 —— 调用方手上本来就有）。
+    """
+    try:
+        from core.brain.wiki_v2.notes import render_note_block   # 局部导入（同 time_notes 那处）
+        if wstore is None:
+            wstore = WikiStoreV2(store.data_root, world_id=store.world_id,
+                                 char_id=char_id)
+        evs = store.events(char_id) if events is None else events
+        return render_note_block(wstore.notes_state(evs), now=datetime.now())
+    except Exception as e:                            # noqa: BLE001 — 注入绝不阻断
+        logger.warning("笔记注入失败（不注）: %s", e)
+        return ""
+
+
 def load_brain_segment(store: SessionStore, char_id: str, char_name: str = "",
                        characters_root: str | Path | None = None) -> str:
     """角色注入段（0 LLM）——bond 开场/剧情引擎共用（webgui.bond/vn_cli）。
@@ -260,6 +288,10 @@ def load_brain_segment(store: SessionStore, char_id: str, char_name: str = "",
         _log_read_ledger(char_id)
         if wiki_seg:
             seg_parts.append(wiki_seg)
+        # 随身笔记（§3.2）: 常驻层, 放在 wiki 视图**之后**（当前值比事件流更贴近此刻）
+        note_seg = load_note_segment(store, char_id, wstore=wstore)
+        if note_seg:
+            seg_parts.append(note_seg)
         # 时间注记（VN: 不含手机日期）
         try:
             from core.worldtime import time_notes
@@ -579,11 +611,12 @@ class MomoTalkEngine:
                 seg_parts.append(bg)
             wstore = WikiStoreV2(store.data_root, world_id=store.world_id,
                                  char_id=character_id)
+            # 本段事件（digest 与笔记注入共用 —— 提到 if 之前, 两条路都要）
+            events = store.events(character_id)
             if digest:
                 # entity 初始化（§3.0 / §9-7）: **第一次 digest 开始前** —— 必须在下面
                 # 任何"新建 entity"之前跑, 见 `_ensure_char_entities` 的撞号警告。
                 _ensure_char_entities(wstore, char, character_id)
-                events = store.events(character_id)
                 interact_max = _interact_max(events, wstore.digested_seq)
                 # 编码时好感快照（§3.3.3）: 本段**开始之前**的累计好感标量。
                 # 按 digested_seq 过滤（不是 interact_max）——只算**已消化**的部分,
@@ -630,6 +663,12 @@ class MomoTalkEngine:
             _log_read_ledger(character_id)               # V3-0 读路径台账
             if wiki_seg:
                 seg_parts.append(wiki_seg)
+            # 随身笔记（§3.2）: 常驻层, 放在 wiki 视图**之后**（当前值比事件流更贴近此刻）。
+            # ⚠️ 写完一条 note 之后要**重建这一段**（`_brain_injection` 是缓存的串）。
+            note_seg = load_note_segment(store, character_id,
+                                         wstore=wstore, events=events)
+            if note_seg:
+                seg_parts.append(note_seg)
             self._brain_injection = "\n\n".join(seg_parts)
         except Exception as e:                       # noqa: BLE001 — 宁缺勿错
             logger.warning("brain 注入失败 (%s): %s", character_id, e)

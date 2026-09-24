@@ -311,6 +311,7 @@ core.mmt.engine	feedback	function	llm.client
 core.mmt.engine	is_content_event	function	core.session.events
 core.mmt.engine	load_affection_from_events	function	core.affection.affection_calc
 core.mmt.engine	load_brain_segment	function	core.mmt.engine
+core.mmt.engine	load_note_segment	function	core.mmt.engine
 core.mmt.engine	logger	data	logging
 core.mmt.engine	make_embed_fn	function	core.rag.brain
 core.mmt.engine	make_event	function	core.session.events

@@ -75,10 +75,18 @@ MAX_TEXT = 20
 #: 所以不逐条报; 超过这个数才说明"收口没跑到 / 图侧一直没接住"。
 MAX_CLOSED_PENDING = 3
 
-#: 注入块标题（§3.2 的版式; "编号是索引"这句是**必需**的 —— 否则她不会去查编号）
-TITLE = "【你自己记的备忘录】（编号是索引, 细节去查那些编号）"
-#: `on_mind` 行首（它不是索引条目, 是她自己的口吻）
-ON_MIND_LEAD = "（最近在想）"
+#: 注入块标题 —— ⚠️ 必须**说清这是什么**（是她自己记的, 不是系统/别人派的任务; 编号是索引）,
+#: 且**不含任何结构化痕迹**（无 JSON / 无键名 / 无波括号 —— **存 JSON, 看中文**, §3.2）。
+TITLE = ("【你自己记的备忘录】（你自己随手记下的, 不是别人给你的任务; "
+         "括号里是编号, 指回你记忆里的那件事）")
+#: 槽 → 小节抬头（**自然语言**, 用设计稿自己的词: 约定 / 惯例 / 最近在想）。
+#: ⚠️ **空槽不印抬头**（否则每个空槽都白占一行常驻预算）。
+GROUP_LEADS: dict[str, str] = {SLOT_PROMISE: "· 你自己记下的约定",
+                               SLOT_HABITS: "· 你们之间的惯例",
+                               SLOT_ON_MIND: "· 最近在想"}
+#: 抬头缩进 / 条目缩进（两级 —— 一瞥看得出手上开着几条）
+_LEAD_INDENT = "  "
+_ITEM_INDENT = "    "
 #: 时间短语前缀（`§3.2` 渲染示例: `← 记于 3 天前`）
 SINCE_LEAD = "  ← 记于 "
 #: 结清行的状态词 —— ⚠️ **中性**: `close` 也覆盖**失约 / 不做了**（图里那个节点的
@@ -551,33 +559,52 @@ def check(state: NotesState, known: Iterable[str] | None = None) -> list[str]:
 def render_note_block(state: NotesState, *, now: object | None = None) -> str:
     """笔记 → **注入块**（常驻层; 空状态 → `""` = 一个字的块都不出现）。
 
-    固定标题 + 固定顺序（`promise` → `habits` → `on_mind`）; 槽内**按 `since` 降序**
-    （新的在上面 —— 三槽一致, 没有"这条为什么在上面"的解释成本）。
+    **形态 = 自然语言小节, 不是数据**（2026-09-23 用户: *"注入的时候记得要剥离 json
+    等结构, 更符合自然语言, 且告诉 LLM 这是什么"*）::
 
-    ⚠️ **开着的排在已结清的前面**: 这个块要回答的第一件事是"我手上还开着什么",
-       结清的那些只是"刚做完、还没归档"。混在一起排会把第一眼读坏。
-    ⚠️ **`id` 必须印出来**（否则她只能靠文本匹配去 `close` ⇒ 不可靠）; 抬头那句
-       "编号是索引" 就是为此。
-    ⚠️ **结清行的尾巴是理由, 不是时间**（"为什么不再开着"比"记于多久"有用）,
-       并且带一个**中性状态词** `已结清` —— 不能用"已完成": `close` 也覆盖
-       **失约 / 不做了**（图里那个节点的 `state` 就是 kept/broken/superseded 三值）。
-    ⚠️ **频次绝不印**（既有纪律: 数值不直接喂 LLM, 防讨好/数值化）—— 要不要说
-       "好多次/每次都"由 writer 决定。
-    ⚠️ **`on_mind` 不印编号也不印 refs**: 它是她自己的口吻, 一行散文（refs 照存,
-       给 recall 与审计用）。**`due` 同理不印**（见 `NoteItem`）。
+        【你自己记的备忘录】（你自己随手记下的, 不是别人给你的任务; 括号里是编号, 指回你记忆里的那件事）
+          · 你自己记下的约定
+            n3 周六模型店 (m0009)  ← 记于 3 天前
+            n1 买花 (m0014)  ← 已结清（送出去了）
+          · 你们之间的惯例
+            n7 他买东西时总先问我想要哪个 (m0005, m0010)
+          · 最近在想
+            我不想再只是隔着玻璃看
+
+    - **标题明说这是什么**（她自己的备忘 · 不是任务; 括号里是编号）—— 系统里同时住着
+      规则书与 task 卡, 不说清就会被读成"引擎要她做的事"。
+    - **小节抬头是自然语言**（约定 / 惯例 / 最近在想）, 且**空槽不印**。
+    - **零结构化痕迹**: 无 JSON、无键名（`promise`/`habits`/`on_mind` 一个字都不出现）、
+      无波括号 —— 字段名是引擎的词汇, 不是她的。
+    - 槽内**按 `since` 降序**（新的在上面）; **开着的排在已结清前面**（这个块第一句要回答
+      "我手上还开着什么", 混排会把第一眼读坏）。
+    - **`id` 必须印出来**（否则她只能靠文本匹配去 `close` ⇒ 不可靠）。
+    - **结清行的尾巴是理由不是时间**, 状态词**中性** —— 不能用"已完成": `close` 也覆盖
+      **失约 / 不做了**（图里那个节点的 `state` 就是 kept/broken/superseded 三值）。
+    - **频次绝不印**（既有纪律: 数值不直接喂 LLM, 防讨好/数值化）—— 要不要说
+      "好多次/每次都"由 writer 决定。
+    - **`on_mind` 不印编号也不印 refs**: 它是她自己的口吻, 一行散文（refs 照存,
+      给 recall 与审计用）。**`due` 同理不印**（见 `NoteItem`）。
+
     `now=None` → 不加时间短语（同 `render._time_phrase` 的哨兵纪律: 未接线时保持原形态,
     不给一个假的"很久以前"）。
     """
     lines: list[str] = []
     for slot in (SLOT_PROMISE, SLOT_HABITS):
         items = state.items(slot)
+        if not items:
+            continue                                  # 空槽不印抬头（常驻预算是硬约束）
+        lines.append(f"{_LEAD_INDENT}{GROUP_LEADS[slot]}")
         for it in _sorted_by([it for it in items if not it.closed], "since"):
-            lines.append(f"  {it.id} {it.text}{_refs_suffix(it)}{_since_suffix(it, now)}")
+            lines.append(f"{_ITEM_INDENT}{it.id} {it.text}"
+                         f"{_refs_suffix(it)}{_since_suffix(it, now)}")
         # 结清组按**结清时刻**排（刚做完的在上）—— 按 `since` 排会让"刚做完的老约定"沉底
         for it in _sorted_by([it for it in items if it.closed], "closed_at"):
-            lines.append(f"  {it.id} {it.text}{_refs_suffix(it)}{_closed_suffix(it)}")
+            lines.append(f"{_ITEM_INDENT}{it.id} {it.text}"
+                         f"{_refs_suffix(it)}{_closed_suffix(it)}")
     if state.on_mind is not None:
-        lines.append(f"  {ON_MIND_LEAD}{state.on_mind.text}")
+        lines.append(f"{_LEAD_INDENT}{GROUP_LEADS[SLOT_ON_MIND]}")
+        lines.append(f"{_ITEM_INDENT}{state.on_mind.text}")
     if not lines:
         return ""
     return "\n".join([TITLE] + lines)

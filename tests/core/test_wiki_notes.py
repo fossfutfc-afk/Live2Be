@@ -293,12 +293,46 @@ def test_render_shape_ids_refs_and_time_phrase():
     block = notes.render_note_block(st, now=NOW)
     lines = block.splitlines()
 
-    assert lines[0] == notes.TITLE and "编号是索引" in lines[0]
-    assert lines[1] == "  n2 还他笔记 (m0011)  ← 记于 昨天"        # 槽内 since 降序
-    assert lines[2] == "  n1 周六模型店 (m0009)  ← 记于 3 天前"
-    assert lines[3] == "  n3 他总先问我想要哪个 (m0005, m0010)  ← 记于 昨天"
-    assert lines[4] == "  （最近在想）我不想再隔着玻璃看"          # on_mind: 无编号、无 refs
+    assert lines[0] == notes.TITLE
+    assert lines[1] == "  · 你自己记下的约定"                      # 小节抬头 = 自然语言
+    assert lines[2] == "    n2 还他笔记 (m0011)  ← 记于 昨天"       # 槽内 since 降序
+    assert lines[3] == "    n1 周六模型店 (m0009)  ← 记于 3 天前"
+    assert lines[4] == "  · 你们之间的惯例"
+    assert lines[5] == "    n3 他总先问我想要哪个 (m0005, m0010)  ← 记于 昨天"
+    assert lines[6] == "  · 最近在想"
+    assert lines[7] == "    我不想再隔着玻璃看"                     # on_mind: 无编号、无 refs
     assert "次" not in block and "%" not in block                 # 频次/数值绝不进注入
+
+
+def test_render_is_natural_language_and_says_what_it_is():
+    """用户要求: **剥离 JSON 等结构**（存 JSON、看中文）+ **告诉她这是什么**。"""
+    st = notes.fold([_add(1),
+                     _ev(2, N_REWRITE, {"habits": [{"text": "惯例", "refs": ["m1"]}],
+                                        "on_mind": "一句话"}, ts=T1)])
+    block = notes.render_note_block(st, now=NOW)
+
+    # 说清这是什么: 她自己的备忘（不是引擎的 task 卡 / 规则书）+ 编号是干什么的
+    assert "不是别人给你的任务" in block
+    assert "指回你记忆里的那件事" in block
+    for lead in notes.GROUP_LEADS.values():
+        assert lead in block
+
+    # 零结构化痕迹: 无 JSON / 无键名 / 无波括号（字段名是引擎的词汇, 不是她的）
+    for junk in ("{", "}", "[", "]", '"', "promise", "habits", "on_mind",
+                 "refs", "text", "since", "closed_at"):
+        assert junk not in block, junk
+
+
+def test_render_skips_empty_slots_entirely():
+    """空槽**不印抬头** —— 常驻预算的每一行都要有内容。"""
+    only_promise = notes.render_note_block(notes.fold([_add(1)]), now=NOW)
+    assert notes.GROUP_LEADS[notes.SLOT_PROMISE] in only_promise
+    assert notes.GROUP_LEADS[notes.SLOT_HABITS] not in only_promise
+    assert notes.GROUP_LEADS[notes.SLOT_ON_MIND] not in only_promise
+
+    only_mind = notes.render_note_block(
+        notes.fold([_ev(1, N_REWRITE, {"on_mind": "只有这句"}, ts=T0)]), now=NOW)
+    assert only_mind.splitlines()[1] == "  · 最近在想"
 
 
 def test_render_closed_items_after_open_ones_with_neutral_word():
@@ -312,14 +346,15 @@ def test_render_closed_items_after_open_ones_with_neutral_word():
     ])
     lines = notes.render_note_block(st, now=NOW).splitlines()
 
-    assert lines[1] == "  n2 还他笔记 (m0011)  ← 记于 昨天"          # 开着的在前
-    assert lines[2] == "  n1 周六模型店 (m0009)  ← 已结清（周六真的去了）"   # 结清组按结清时刻
-    assert lines[3] == "  n3 买花 (m0014)  ← 已结清（送出去了）"
+    assert lines[1] == "  · 你自己记下的约定"
+    assert lines[2] == "    n2 还他笔记 (m0011)  ← 记于 昨天"          # 开着的在前
+    assert lines[3] == "    n1 周六模型店 (m0009)  ← 已结清（周六真的去了）"   # 结清组按结清时刻
+    assert lines[4] == "    n3 买花 (m0014)  ← 已结清（送出去了）"
     assert "已完成" not in "".join(lines)      # 中性词: close 也覆盖失约/不做了
 
     # 没理由的结清（读侧容忍）→ 只印状态词, 不印空括号
     bare = notes.fold([_add(1), _ev(2, N_CLOSE, {"id": "n1"})])
-    assert notes.render_note_block(bare).splitlines()[1] == "  n1 周六模型店 (m0009)  ← 已结清"
+    assert notes.render_note_block(bare).splitlines()[2] == "    n1 周六模型店 (m0009)  ← 已结清"
 
 
 def test_render_is_empty_when_nothing_is_noted():
@@ -330,13 +365,13 @@ def test_render_is_empty_when_nothing_is_noted():
 def test_render_without_now_omits_time_phrase():
     """`now` 缺席 → 不编一个"很久以前"（哨兵纪律, 同 `render._time_phrase`）。"""
     st = notes.fold([_add(1)])
-    assert notes.render_note_block(st, now=None).splitlines()[1] == "  n1 周六模型店 (m0009)"
+    assert notes.render_note_block(st, now=None).splitlines()[2] == "    n1 周六模型店 (m0009)"
 
 
 def test_render_survives_broken_since():
     st = notes.NotesState(promise=[notes.NoteItem(id="n1", text="条目",
                                                   refs=["m1"], since="不是时间")])
-    assert notes.render_note_block(st, now=NOW).splitlines()[1] == "  n1 条目 (m1)"
+    assert notes.render_note_block(st, now=NOW).splitlines()[2] == "    n1 条目 (m1)"
 
 
 # ---------------------------------------------------------------------------
