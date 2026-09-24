@@ -5,7 +5,7 @@ note 是**三种组织形式**里的第二种（图 / **笔记** / 台账, §1.1
 **图管"可查的细节", note 管"此刻"**。它不是记忆（不改写历史）、不是人设（不装设定）、
 也不是图的镜像 —— 只装**她自己挑过的**。
 
-    真源   `soul/events.jsonl`   append-only 的**操作**（`add` / `close` / `rewrite`）
+    真源   `soul/events.jsonl`   append-only 的**操作**（`add` / `close` / `retire` / `rewrite`）
     缓存   `soul/notes.json`     `fold()` 的结果 + `up_to_seq` 水位（可随时重建）
 
 ⇒ **并发安全**（主 LLM 与 digest 同时写不丢更新）· **可回放** · **与水位同频**。
@@ -14,17 +14,23 @@ note 是**三种组织形式**里的第二种（图 / **笔记** / 台账, §1.1
 
 | 槽 | 类 | 装什么 | 更新模型 | 写者 |
 |---|---|---|---|---|
-| `promise` | **A 操作式** | 还没做的事（约定 / 承诺） | `add` / `close`（**close = 移除, 不留状态**） | 加 = 当场（MMT 可选字段）· 收口 = digest |
+| `promise` | **A 操作式** | 还没做的事（约定 / 承诺） | `add` / **`close` 结清** / **`retire` 退场** | 加 · 结清 = 当场（MMT 输出字段）或 digest 收口 · 退场 = 固化那一批 |
 | `habits` | **B 快照式** | 我们之间的惯例 / 他的习惯 | 全景轮**整段替换** | 只全景轮 |
 | `on_mind` | **B 快照式** | 我最近在意的（一段散文） | 全景轮**整段替换** | 只全景轮 |
 
-**三条纪律**（写进形状里, 不靠自觉）:
+**四条纪律**（写进形状里, 不靠自觉）:
 
-1. **`close` 必须给理由, `add` 不用** —— "为什么这条不再开着了"是**固化那一步**
-   （promise 两段式: 闭合即进图, §6）的唯一原料。读侧遇到没理由的 close **照做但记响**
-   （不认它反而会让本子停在过去）, 写侧直接拒。
-2. **`id` 只增不复用** —— `close` 只带 `id`, 复用会让旧引用指错条目。故计数器 `next_n`
-   必须随状态走, **不能从"活着的条目"推**（关掉 n3 之后活着的是 n1/n2）。
+0. ⭐ **`close` 是"结清", 不是"划掉"；划掉是 `retire`** —— 承诺是唯一"note 是它唯一落脚点"
+   的东西（图里要等固化才有它, 而上下文窗口从来不是保证）。所以两段式:
+   **结清 ⇒ 条目留在块里（尾巴换成理由）→ 图侧接住 ⇒ `retire` 才真删**。
+   ⇒ **不变量: 一条承诺任何时刻至少在一个可见面上**（note 或图）, 永不在两者之外。
+1. **`close` 必须给理由, `add` / `retire` 不用** —— "为什么这条不再开着了"既是**固化那一步**
+   （§6: 判 `kept`/`broken`/`superseded`）的唯一原料, 也是她读到的那句话。读侧遇到没理由的
+   close **照做但记响**（不认它反而会让本子停在过去）, 写侧直接拒。
+   ⚠️ **已结清的不再覆盖**: 块里印着 id, 若二次 close 能改写 `reason`, 就是给"拿幻觉理由
+   覆盖真实理由"开后门 ⇒ 第二次只告警（幂等 = 忽略）。
+2. **`id` 只增不复用** —— `close`/`retire` 只带 `id`, 复用会让旧引用指错条目。故计数器 `next_n`
+   必须随状态走, **不能从"活着的条目"推**（结清 n3 之后活着的是 n1/n2）。
 3. **物品一个字都不进 note** —— 痕迹 → `episode.items`; 当前持有 → `inventory`（§3.3）;
    情感意义 → 就在那条 episode 的正文里。**没有 `gifts` 槽**。
 
@@ -38,7 +44,14 @@ from dataclasses import dataclass, field
 from typing import Any, Iterable
 
 from core.common import err
-from core.session.events import N_ADD, N_CLOSE, N_REWRITE, TYPE_NOTE, make_event
+from core.session.events import (
+    N_ADD,
+    N_CLOSE,
+    N_RETIRE,
+    N_REWRITE,
+    TYPE_NOTE,
+    make_event,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +71,9 @@ MAX_HABITS = 5
 MAX_ON_MIND = 1
 #: 条目正文上限（§3.2: **名词短语 ≤20 字, 不写陈述句** —— 免得与 episode 的叙述竞争）
 MAX_TEXT = 20
+#: "结清未退场"的积压上限（**只告警**）—— 它是**正常态**（就是固化的待办队列）,
+#: 所以不逐条报; 超过这个数才说明"收口没跑到 / 图侧一直没接住"。
+MAX_CLOSED_PENDING = 3
 
 #: 注入块标题（§3.2 的版式; "编号是索引"这句是**必需**的 —— 否则她不会去查编号）
 TITLE = "【你自己记的备忘录】（编号是索引, 细节去查那些编号）"
@@ -65,6 +81,9 @@ TITLE = "【你自己记的备忘录】（编号是索引, 细节去查那些编
 ON_MIND_LEAD = "（最近在想）"
 #: 时间短语前缀（`§3.2` 渲染示例: `← 记于 3 天前`）
 SINCE_LEAD = "  ← 记于 "
+#: 结清行的状态词 —— ⚠️ **中性**: `close` 也覆盖**失约 / 不做了**（图里那个节点的
+#: `state` 是 kept/broken/superseded 三值）, 所以不能用"已完成"。理由跟在括号里。
+CLOSED_LEAD = "  ← 已结清"
 
 #: 槽 → 上限（`check` 用）
 _CAPS: dict[str, int] = {SLOT_PROMISE: MAX_PROMISE,
@@ -78,7 +97,7 @@ _CAPS: dict[str, int] = {SLOT_PROMISE: MAX_PROMISE,
 
 @dataclass
 class NoteItem:
-    """一条笔记（三槽共用形状: `{id, text, refs, since(, due)}`）。
+    """一条笔记（三槽共用形状: `{id, text, refs, since(, due)}` + 结清两字段）。
 
     `id`    —— 引擎在**折叠**时分配（`n1`/`n2`…, 全槽共享一个计数器, 只增不复用）。
                `on_mind` 是**单条散文**（不是索引条目, 没人会去 `close` 它）⇒ **无 id**。
@@ -87,6 +106,8 @@ class NoteItem:
     `since` —— 记于何时（引擎填 = 那条操作的 `ts`; 渲染成"记于 N 天前"）。
     `due`   —— `promise` 可选; ⚠️ **只存不渲染**（渲染成日期会诱使她"数日子",
                与 `worldtime.age` 那条"绝不输出精确值"直接冲突）。
+    `closed_at` / `reason` —— **结清**（非空 = 已结清）: 她做完了 / 失约了 / 不做了,
+               以及"为什么"。⚠️ **结清 ≠ 从 note 消失**（见 `_apply_close`）。
     """
 
     id: str = ""
@@ -94,10 +115,18 @@ class NoteItem:
     refs: list[str] = field(default_factory=list)
     since: str = ""
     due: str = ""
+    closed_at: str = ""
+    reason: str = ""
+
+    @property
+    def closed(self) -> bool:
+        """已结清（**还在 note 里**, 等图侧接住才退场）。"""
+        return bool(self.closed_at)
 
     def copy(self) -> "NoteItem":
         return NoteItem(id=self.id, text=self.text, refs=list(self.refs),
-                        since=self.since, due=self.due)
+                        since=self.since, due=self.due,
+                        closed_at=self.closed_at, reason=self.reason)
 
     def to_dict(self) -> dict:
         d: dict[str, Any] = {"text": self.text, "refs": list(self.refs),
@@ -106,6 +135,10 @@ class NoteItem:
             d["id"] = self.id
         if self.due:
             d["due"] = self.due
+        if self.closed_at:
+            d["closed_at"] = self.closed_at
+        if self.reason:
+            d["reason"] = self.reason
         return d
 
     @classmethod
@@ -122,7 +155,9 @@ class NoteItem:
                    text=text,
                    refs=_str_list(raw.get("refs")),
                    since=str(raw.get("since") or "").strip(),
-                   due=str(raw.get("due") or "").strip())
+                   due=str(raw.get("due") or "").strip(),
+                   closed_at=str(raw.get("closed_at") or "").strip(),
+                   reason=str(raw.get("reason") or "").strip())
 
 
 @dataclass
@@ -204,7 +239,9 @@ def fold(events: Iterable[Any], *, base: NotesState | None = None) -> NotesState
         if sub == N_ADD:
             _apply_add(st, payload, ts, seq)
         elif sub == N_CLOSE:
-            _apply_close(st, payload, seq)
+            _apply_close(st, payload, ts, seq)
+        elif sub == N_RETIRE:
+            _apply_retire(st, payload, seq)
         elif sub == N_REWRITE:
             _apply_rewrite(st, payload, ts, seq)
         else:
@@ -224,11 +261,24 @@ def _apply_add(st: NotesState, payload: dict, ts: str, seq: int) -> None:
                                due=str(payload.get("due") or "").strip()))
 
 
-def _apply_close(st: NotesState, payload: dict, seq: int) -> None:
-    """闭合一条 = **从 note 移除**（不留状态 —— 没有状态机）。
+def _apply_close(st: NotesState, payload: dict, ts: str, seq: int) -> None:
+    """**结清**一条 —— ⚠️ **不是从 note 移除**。
 
+    为什么不能立刻删（2026-09-23 用户裁决）: 承诺是**唯一"note 是它唯一落脚点"**的东西
+    —— 图里要等固化才有它, 而上下文窗口（120 单元滚动）**从来不是保证**。close 一删,
+    它就**三处全无**。所以两段式（与 promise 本身同构）:
+
+        `close` = 结清（本子上还在, 注入块里照旧显示, 尾巴换成理由）
+        `retire` = 退场（图侧接住了才划掉 —— 见 `_apply_retire`）
+
+    ⇒ **不变量: 一条承诺任何时刻至少在一个可见面上** —— 开着 / 已结清 ⇒ 在 note;
+      已固化 ⇒ 在图。永不在两者之外。
+
+    ⚠️ **已结清的不再覆盖**: 块里印着 `id`, 若允许二次 close 改写 `reason`,
+       就等于给"拿幻觉理由覆盖真实理由"开了个后门 ⇒ 第二次只告警（幂等 = 忽略）。
+       还开着的那条**照旧覆盖**（当场结清 → digest 补判, 后写的更准）。
     ⚠️ 只作用于 **A 类槽**: B 类由 `rewrite` 整段替换, 让 `close` 也能改它就是两个写者
-    抢同一份数据（§3.2"同一段只有一个写者"）。
+       抢同一份数据（§3.2"同一段只有一个写者"）。
     ⚠️ **理由缺失照做, 但把账记响**: 事件说的就是"这条不再开着了", 不认它会让本子停在过去;
        而"为什么"缺失只影响**固化进图**那一步（§6）, 那是另一处的账。
     """
@@ -236,16 +286,49 @@ def _apply_close(st: NotesState, payload: dict, seq: int) -> None:
     if not nid:
         logger.warning("note/close 缺 id（跳过）: seq=%s", seq)
         return
-    if not str(payload.get("reason") or "").strip():
+    reason = str(payload.get("reason") or "").strip()
+    if not reason:
         logger.warning("note/close 缺理由（照做; 固化那一步将无从判断为什么）: id=%s seq=%s",
                        nid, seq)
     for slot in OPSLOTS:
-        items = list(getattr(st, slot) or [])
-        kept = [it for it in items if it.id != nid]
-        if len(kept) != len(items):
-            setattr(st, slot, kept)
+        for it in list(getattr(st, slot) or []):
+            if it.id != nid:
+                continue
+            if it.closed:
+                logger.warning("note/close 重复（忽略, 不覆盖已有理由）: id=%s seq=%s", nid, seq)
+                return
+            it.closed_at = ts or it.closed_at
+            it.reason = reason
             return
     logger.warning("note/close 指不到任何条目（跳过）: id=%s seq=%s", nid, seq)
+
+
+def _apply_retire(st: NotesState, payload: dict, seq: int) -> None:
+    """**退场** —— 真正从 note 划掉（图里已经有了）。
+
+    写者 = **固化那一批**: digest 收口建好 `promise` 节点 + `from`/`to`/`formed_by` 边、
+    事务 `ok` 之后, 由引擎补写这条事件（同好感事件那个模式: `digest` 只返回决定,
+    事件由引擎在成功之后落 —— 事件流不随 `clone_state` 回滚）。
+
+    ⚠️ **只对已结清的条目生效**: 退场一条"还开着"的承诺 = 把它从唯一的落脚点删掉
+       （图里根本没有它）—— 那正是两段式要堵的洞。撞上就告警 + 跳过。
+    """
+    nid = str(payload.get("id") or "").strip()
+    if not nid:
+        logger.warning("note/retire 缺 id（跳过）: seq=%s", seq)
+        return
+    for slot in OPSLOTS:
+        items = list(getattr(st, slot) or [])
+        hit = [it for it in items if it.id == nid]
+        if not hit:
+            continue
+        if not hit[0].closed:
+            logger.warning("note/retire 指向一条还开着的条目（跳过 —— 先 close, 且图里要先接住）:"
+                           " id=%s seq=%s", nid, seq)
+            return
+        setattr(st, slot, [it for it in items if it.id != nid])
+        return
+    logger.warning("note/retire 指不到任何条目（跳过）: id=%s seq=%s", nid, seq)
 
 
 def _apply_rewrite(st: NotesState, payload: dict, ts: str, seq: int) -> None:
@@ -327,12 +410,23 @@ def add_op(text: str, refs: Iterable[str], *, due: str = "") -> dict:
 
 
 def close_op(item_id: str, reason: str) -> dict:
-    """`close` 操作 —— **必须给理由**（"为什么这条不再开着了"）。
+    """`close` 操作 = **结清** —— **必须给理由**（"为什么这条不再开着了"）。
 
-    这是 §6 固化那一步的原料: 图里那个 `promise` 节点的 `state`
-    （`kept` / `broken` / `superseded`）就从这句话里判。没有理由 = 判不出来。
+    ⚠️ 结清**不等于**从本子上划掉（那是 `retire_op`）: 条目留在 note 里继续注入,
+    直到图侧接住它。理由既是 §6 固化那一步判 `kept`/`broken`/`superseded` 的原料,
+    也是结清行要显示给她的那句话。
     """
     return _checked({"action": N_CLOSE, "id": item_id, "reason": reason})
+
+
+def retire_op(item_id: str) -> dict:
+    """`retire` 操作 = **退场**（图里已经有了 ⇒ 本子上才划掉）。
+
+    写者 = **固化那一批**（digest 事务 `ok` 之后由引擎补写）; 也允许全景轮
+    核对"图里已经有这条承诺"之后顺手退场（那是**核对**, 不是判定）。
+    **不加理由** —— 它是机械确认, 不是判断。
+    """
+    return _checked({"action": N_RETIRE, "id": item_id})
 
 
 def rewrite_op(*, habits: list | None = None, on_mind: Any = None) -> dict:
@@ -367,7 +461,8 @@ def validate_ops(ops: list[dict]) -> None:
     """写侧硬门槛（**抛 `ValueError`**）。
 
     查的是"**事件自身是否自足**"（一 append 就不可改, 残缺的写不进去）:
-    动作名 · `add` 的 `text` + `refs` · **`close` 的 `id` + `reason`** · `rewrite` 的槽形状。
+    动作名 · `add` 的 `text` + `refs` · **`close` 的 `id` + `reason`** · `retire` 的 `id` ·
+    `rewrite` 的槽形状。
     **不查** `refs` 是否存在 —— "世上有没有那个节点"要看世界, 归 `check()` 告警。
     """
     for i, op in enumerate(ops):
@@ -387,6 +482,9 @@ def validate_ops(ops: list[dict]) -> None:
                 raise ValueError(err("NoReason",
                                      f"note 操作[{i}] close 缺理由（闭合即固化进图, 没有理由就判不出"
                                      " kept/broken/superseded）"))
+        elif action == N_RETIRE:
+            if not str(op.get("id") or "").strip():
+                raise ValueError(err("BadNoteOp", f"note 操作[{i}] retire 缺 id"))
         elif action == N_REWRITE:
             for slot in SNAPSHOT_SLOTS:
                 if slot not in op or op[slot] is None:
@@ -410,12 +508,16 @@ def _checked(op: dict) -> dict:
 def check(state: NotesState, known: Iterable[str] | None = None) -> list[str]:
     """读侧告警清单（**不阻断** —— 调用方打日志/记账, 照 `store.audit()` 的做法）。
 
-    查三件:
+    查四件:
     ① 每项至少一个 `refs`（§3.2 不变量①: 每条都要能指回一段经历）
     ② `refs` 指向**现存节点**（悬空 → 记一笔; **不删条目、不改写** —— 那条线索失效不是
        她的错, 而"删掉"是判定）
-    ③ 上限 `5 / 5 / 1` —— **超限只告警不截断**（丢哪条交全景轮）
+    ③ 上限 `5 / 5 / 1` —— **只算还开着的**（结清的是"等退场", 不该再占她的注意力预算）,
+       且**超限只告警不截断**（丢哪条交全景轮）
     ④ 正文超 `MAX_TEXT` 字（该写名词短语, 不写陈述句）
+
+    ⚠️ **`promise` 的"结清未退场"是正常态**（它就是固化的待办队列）⇒ 不逐条告警;
+       只在**积压**时报一句（那才说明收口没跑到）。
 
     `known=None` → 跳过 ②（调用方没有图的时候, 比如单测折叠本身）。
     """
@@ -423,9 +525,15 @@ def check(state: NotesState, known: Iterable[str] | None = None) -> list[str]:
     out: list[str] = []
     for slot in SLOTS:
         items = state.items(slot)
+        live = [it for it in items if not it.closed]
         cap = _CAPS[slot]
-        if len(items) > cap:
-            out.append(f"{slot} 超上限（{len(items)} > {cap}）—— 不截断, 取舍交全景轮")
+        if len(live) > cap:
+            out.append(f"{slot} 超上限（{len(live)} > {cap}, 只算还开着的）"
+                       "—— 不截断, 取舍交全景轮")
+        pending = [it for it in items if it.closed]
+        if len(pending) > MAX_CLOSED_PENDING:
+            out.append(f"{slot} 结清未退场积压（{len(pending)} > {MAX_CLOSED_PENDING}）"
+                       "—— 图侧接住之后要补 retire")
         for it in items:
             tag = it.id or slot
             if not it.refs:
@@ -446,8 +554,13 @@ def render_note_block(state: NotesState, *, now: object | None = None) -> str:
     固定标题 + 固定顺序（`promise` → `habits` → `on_mind`）; 槽内**按 `since` 降序**
     （新的在上面 —— 三槽一致, 没有"这条为什么在上面"的解释成本）。
 
+    ⚠️ **开着的排在已结清的前面**: 这个块要回答的第一件事是"我手上还开着什么",
+       结清的那些只是"刚做完、还没归档"。混在一起排会把第一眼读坏。
     ⚠️ **`id` 必须印出来**（否则她只能靠文本匹配去 `close` ⇒ 不可靠）; 抬头那句
        "编号是索引" 就是为此。
+    ⚠️ **结清行的尾巴是理由, 不是时间**（"为什么不再开着"比"记于多久"有用）,
+       并且带一个**中性状态词** `已结清` —— 不能用"已完成": `close` 也覆盖
+       **失约 / 不做了**（图里那个节点的 `state` 就是 kept/broken/superseded 三值）。
     ⚠️ **频次绝不印**（既有纪律: 数值不直接喂 LLM, 防讨好/数值化）—— 要不要说
        "好多次/每次都"由 writer 决定。
     ⚠️ **`on_mind` 不印编号也不印 refs**: 它是她自己的口吻, 一行散文（refs 照存,
@@ -457,8 +570,12 @@ def render_note_block(state: NotesState, *, now: object | None = None) -> str:
     """
     lines: list[str] = []
     for slot in (SLOT_PROMISE, SLOT_HABITS):
-        for it in _sorted_by_since(state.items(slot)):
+        items = state.items(slot)
+        for it in _sorted_by([it for it in items if not it.closed], "since"):
             lines.append(f"  {it.id} {it.text}{_refs_suffix(it)}{_since_suffix(it, now)}")
+        # 结清组按**结清时刻**排（刚做完的在上）—— 按 `since` 排会让"刚做完的老约定"沉底
+        for it in _sorted_by([it for it in items if it.closed], "closed_at"):
+            lines.append(f"  {it.id} {it.text}{_refs_suffix(it)}{_closed_suffix(it)}")
     if state.on_mind is not None:
         lines.append(f"  {ON_MIND_LEAD}{state.on_mind.text}")
     if not lines:
@@ -466,9 +583,16 @@ def render_note_block(state: NotesState, *, now: object | None = None) -> str:
     return "\n".join([TITLE] + lines)
 
 
-def _sorted_by_since(items: list[NoteItem]) -> list[NoteItem]:
-    """槽内排序: `since` 降序（新的在上面）; 无 `since` 的排在最后（`id` 号大者在前）。"""
-    return sorted(items, key=lambda it: (it.since or "", _id_num(it.id)), reverse=True)
+def _closed_suffix(it: NoteItem) -> str:
+    """`  ← 已结清（理由）` —— 状态词中性（失约也算结清, 见 `render_note_block`）。"""
+    return f"{CLOSED_LEAD}（{it.reason}）" if it.reason else CLOSED_LEAD
+
+
+def _sorted_by(items: list[NoteItem], field: str) -> list[NoteItem]:
+    """组内排序: `field`（`since` / `closed_at`）降序 —— 新的在上面;
+    无该字段的排在最后（`id` 号大者在前）。"""
+    return sorted(items, key=lambda it: (getattr(it, field) or "", _id_num(it.id)),
+                  reverse=True)
 
 
 def _refs_suffix(it: NoteItem) -> str:

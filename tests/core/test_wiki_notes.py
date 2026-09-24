@@ -18,7 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from core.brain.wiki_v2 import notes
 from core.session import make_event
-from core.session.events import N_ADD, N_CLOSE, N_REWRITE, TYPE_NOTE
+from core.session.events import N_ADD, N_CLOSE, N_RETIRE, N_REWRITE, TYPE_NOTE
 
 NOW = datetime(2026, 9, 23, 12, 0, 0)
 T0 = "2026-09-20T21:04:11+09:00"          # 3 天前
@@ -70,27 +70,57 @@ def test_incremental_fold_equals_full_fold():
     assert notes.fold(events, base=full).to_dict() == full.to_dict()
 
 
-def test_close_removes_and_id_is_never_reused():
+def test_close_keeps_the_item_and_retire_removes_it():
+    """⭐ 两段式: **结清 ≠ 划掉** —— 结清后条目仍在块里, 图侧接住才 `retire`。"""
     st = notes.fold([
-        _add(1),                                       # n1
-        _ev(2, N_CLOSE, {"id": "n1", "reason": "周六去了模型店"}),   # 闭合 = 移除
-        _add(3, text="还他笔记", refs=("m0011",), ts=T1),            # 下一个是 n2, **不复用 n1**
+        _add(1),                                                    # n1
+        _ev(2, N_CLOSE, {"id": "n1", "reason": "周六去了模型店"}, ts=T1),
     ])
 
-    assert [it.id for it in st.promise] == ["n2"]
-    assert st.next_n == 3
-    assert "n1" not in [it.id for it in st.promise]
+    assert [it.id for it in st.promise] == ["n1"]        # **还在**（不变量: 至少一个可见面）
+    assert st.promise[0].closed is True
+    assert st.promise[0].reason == "周六去了模型店"
+    assert st.promise[0].text == "周六模型店"             # 文本没丢 ⇒ 固化要用它
+    assert "n1" in notes.render_note_block(st, now=NOW)  # 注入块里照旧看得见
+
+    st = notes.fold([_ev(3, N_RETIRE, {"id": "n1"})], base=st)
+    assert st.promise == []                              # 图里已经有了 ⇒ 这才划掉
+    assert st.next_n == 2                                # 号照旧只增不复用
+
+
+def test_retire_only_applies_to_closed_items(caplog):
+    """退场一条**还开着**的承诺 = 把它从唯一落脚点删掉（图里根本没有它）⇒ 拒。"""
+    st = notes.fold([_add(1), _ev(2, N_RETIRE, {"id": "n1"})])
+    assert [it.id for it in st.promise] == ["n1"]
+    assert "还开着" in caplog.text
+
+    # 没结清过的 id / 根本不存在的 id → 只告警
+    assert notes.fold([_ev(3, N_RETIRE, {"id": "n99"})], base=st).promise != []
+    with pytest.raises(ValueError, match="retire 缺 id"):
+        notes.retire_op("  ")
+
+
+def test_second_close_does_not_overwrite_the_reason(caplog):
+    """块里印着 id ⇒ 必须防"二次 close 用幻觉理由覆盖真实理由"。"""
+    st = notes.fold([
+        _add(1),
+        _ev(2, N_CLOSE, {"id": "n1", "reason": "真的去了"}, ts=T1),
+        _ev(3, N_CLOSE, {"id": "n1", "reason": "其实没去"}, ts=T1),
+    ])
+    assert st.promise[0].reason == "真的去了"
+    assert "不覆盖" in caplog.text
 
 
 def test_close_without_reason_applies_but_is_loud(caplog):
-    """**写侧拒, 读侧照做**: 事件说的是"这条不再开着了", 不认它会让本子停在过去。"""
+    """**写侧拒, 读侧照做**: 事件说的就是"这条不再开着了", 不认它会让本子停在过去。"""
     st = notes.fold([_add(1), _ev(2, N_CLOSE, {"id": "n1"})])
-    assert st.promise == []
+    assert st.promise[0].closed is True and st.promise[0].reason == ""
 
-    # 写侧硬门槛（`close` 必须给理由; `add` 不用）
+    # 写侧硬门槛（`close` 必须给理由; `add` / `retire` 不用）
     with pytest.raises(ValueError, match="缺理由"):
         notes.close_op("n1", "   ")
     assert notes.add_op("周六模型店", ["m0009"])["action"] == N_ADD
+    assert notes.retire_op("n1") == {"action": N_RETIRE, "id": "n1"}
 
 
 def test_close_only_touches_the_operation_slot(caplog):
@@ -104,7 +134,7 @@ def test_close_only_touches_the_operation_slot(caplog):
 
     st2 = notes.fold([_ev(3, N_CLOSE, {"id": habit_id, "reason": "不成立了"})], base=st)
     assert len(st2.habits) == 1                       # 没被动
-    assert len(st2.promise) == 1
+    assert st2.promise[0].closed is False             # A 类也没被误伤（id 对不上）
 
 
 def test_add_rejects_missing_refs_on_read_side(caplog):
@@ -233,6 +263,21 @@ def test_check_reports_dangling_refs_missing_refs_and_caps():
     assert any("名词短语" in p for p in notes.check(long_text))
 
 
+def test_check_caps_count_only_open_items_and_flag_closed_backlog():
+    """"结清未退场"是**正常态**（固化的待办队列）⇒ 不逐条报, 只在积压时报。"""
+    # 5 条开着 + 2 条结清: 没超上限（上限只算开着的）, 积压也没到线
+    st = notes.fold([_add(i, text=f"第{i}条", refs=("m0009",)) for i in range(1, 6)] +
+                    [_ev(6, N_CLOSE, {"id": "n1", "reason": "做完了"}),
+                     _ev(7, N_CLOSE, {"id": "n2", "reason": "不做了"})])
+    assert notes.check(st) == []
+
+    # 积压超过 MAX_CLOSED_PENDING → 报一句（说明收口/固化没跑到）
+    st = notes.fold([_ev(8, N_CLOSE, {"id": "n3", "reason": "做完了"}),
+                     _ev(9, N_CLOSE, {"id": "n4", "reason": "做完了"})], base=st)
+    problems = notes.check(st)
+    assert len(problems) == 1 and "结清未退场积压" in problems[0]
+
+
 # ---------------------------------------------------------------------------
 # 渲染: 注入块
 # ---------------------------------------------------------------------------
@@ -254,6 +299,27 @@ def test_render_shape_ids_refs_and_time_phrase():
     assert lines[3] == "  n3 他总先问我想要哪个 (m0005, m0010)  ← 记于 昨天"
     assert lines[4] == "  （最近在想）我不想再隔着玻璃看"          # on_mind: 无编号、无 refs
     assert "次" not in block and "%" not in block                 # 频次/数值绝不进注入
+
+
+def test_render_closed_items_after_open_ones_with_neutral_word():
+    """开着的在前（这个块先回答"我手上还开着什么"）; 结清行尾巴 = **中性状态词 + 理由**。"""
+    st = notes.fold([
+        _add(1, text="周六模型店", refs=("m0009",)),
+        _add(2, text="还他笔记", refs=("m0011",), ts=T1),
+        _add(3, text="买花", refs=("m0014",)),                        # 更老的约定
+        _ev(4, N_CLOSE, {"id": "n3", "reason": "送出去了"}, ts=T0),   # 早结清
+        _ev(5, N_CLOSE, {"id": "n1", "reason": "周六真的去了"}, ts=T1),  # 晚结清
+    ])
+    lines = notes.render_note_block(st, now=NOW).splitlines()
+
+    assert lines[1] == "  n2 还他笔记 (m0011)  ← 记于 昨天"          # 开着的在前
+    assert lines[2] == "  n1 周六模型店 (m0009)  ← 已结清（周六真的去了）"   # 结清组按结清时刻
+    assert lines[3] == "  n3 买花 (m0014)  ← 已结清（送出去了）"
+    assert "已完成" not in "".join(lines)      # 中性词: close 也覆盖失约/不做了
+
+    # 没理由的结清（读侧容忍）→ 只印状态词, 不印空括号
+    bare = notes.fold([_add(1), _ev(2, N_CLOSE, {"id": "n1"})])
+    assert notes.render_note_block(bare).splitlines()[1] == "  n1 周六模型店 (m0009)  ← 已结清"
 
 
 def test_render_is_empty_when_nothing_is_noted():

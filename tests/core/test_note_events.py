@@ -27,6 +27,7 @@ from core.session.events import (
     EVENT_TYPES,
     N_ADD,
     N_CLOSE,
+    N_RETIRE,
     NON_CONTENT_TYPES,
     NOTE_SUBTYPES,
     TYPE_NOTE,
@@ -72,7 +73,7 @@ def _mmt(seq, player="老师好", reply="啊、老师好……"):
 
 def test_note_type_is_registered_and_roundtrips():
     assert TYPE_NOTE in EVENT_TYPES
-    assert NOTE_SUBTYPES == (N_ADD, N_CLOSE, "rewrite")
+    assert NOTE_SUBTYPES == (N_ADD, N_CLOSE, N_RETIRE, "rewrite")
 
     e = _note(7, sub=N_CLOSE)
     back = Event.from_dict(e.to_dict())
