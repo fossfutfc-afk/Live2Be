@@ -222,3 +222,88 @@ def test_missing_file_empty(tmp_path):
     assert len(st) == 0
     st.save()                                     # 空库也能原子落盘
     assert st.path.is_file()
+
+
+# ---------------------------------------------------------------------------
+# 随身笔记的落盘（§3.2 —— `notes.py` 的派生缓存, 真源是事件流的 note 操作）
+# ---------------------------------------------------------------------------
+
+def _note_events(*items):
+    """`(seq, subtype, payload)` → note 事件列表。"""
+    from core.session import make_event
+    from core.session.events import TYPE_NOTE
+    return [make_event(TYPE_NOTE, sub, payload, seq=seq, ts="2026-09-20T21:04:11+09:00")
+            for seq, sub, payload in items]
+
+
+def _two_notes():
+    from core.session.events import N_ADD, N_CLOSE
+    return _note_events(
+        (1, N_ADD, {"text": "周六模型店", "refs": ["m0001"]}),
+        (2, N_ADD, {"text": "还他笔记", "refs": ["m0002"]}),
+        (3, N_CLOSE, {"id": "n1", "reason": "去过了"}),
+    )
+
+
+def test_notes_path_sits_beside_the_other_two(tmp_path):
+    st = _store(tmp_path)
+    assert st.notes_path.name == "notes.json"
+    assert st.notes_path.parent == st.path.parent == st.edges_path.parent
+
+
+def test_notes_state_folds_without_a_cache_and_does_not_write(tmp_path):
+    st = _store(tmp_path)
+    state = st.notes_state(_two_notes())
+
+    assert [it.id for it in state.promise] == ["n1", "n2"]
+    assert state.promise[0].closed is True
+    # ⚠️ 读路径**不写盘**（缓存由写者在事件 append 之后落）
+    assert not st.notes_path.exists()
+
+
+def test_save_notes_roundtrip_and_cache_hit(tmp_path):
+    st = _store(tmp_path)
+    events = _two_notes()
+    state = st.notes_state(events)
+    st.save_notes(state)
+
+    assert st.notes_path.is_file()
+    assert st.read_notes().to_dict() == state.to_dict()
+    assert st.notes_path.read_text(encoding="utf-8").rstrip().endswith("}")   # 是一个对象
+    # 缓存已覆盖全部操作 ⇒ 直接用它（增量折叠与全量重折结果相同）
+    assert st.notes_state(events).to_dict() == state.to_dict()
+    assert st.notes_state([]).to_dict() == state.to_dict()      # 给空列表也不倒退回空状态
+
+
+def test_notes_state_refolds_incrementally_and_recovers_from_loss(tmp_path):
+    from core.session.events import N_RETIRE
+    st = _store(tmp_path)
+    events = _two_notes()
+    st.save_notes(st.notes_state(events))
+
+    tail = _note_events((4, N_RETIRE, {"id": "n1"}))
+    st.save_notes(st.notes_state(events + tail))
+    assert [it.id for it in st.read_notes().promise] == ["n2"]
+
+    # 缓存丢了 → 全量重折, 结果与缓存**逐字节一致**（"可重建"这句话的证据）
+    before = st.read_notes().to_dict()
+    st.notes_path.unlink()
+    assert not st.notes_path.exists()
+    assert st.notes_state(events + tail).to_dict() == before
+
+    # 缓存坏了 → 当没有（不炸）, 也现折回来
+    st.notes_path.write_text("{不是 json", encoding="utf-8")
+    assert st.read_notes() is None
+    assert st.notes_state(events + tail).to_dict() == before
+
+
+def test_notes_are_not_part_of_save_or_snapshot(tmp_path):
+    """note 的真源是**事件流** —— 并进图事务/快照 = digest 一次回滚带走她的本子。"""
+    st = _store(tmp_path)
+    st.add(make_node("episode", text="a"))
+    st.save_notes(st.notes_state(_two_notes()))
+
+    st.save()                                          # 图那一半
+    st.snapshot_to(tmp_path / "snap.jsonl")
+    assert not (tmp_path / "snap.jsonl").with_name("notes.json").exists()
+    assert st.notes_path.is_file()                     # 但它自己还在（没被 save 清掉）
