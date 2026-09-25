@@ -361,7 +361,13 @@ CLI/测试同步路径在引擎内串行。
 - 出厂背景（experience.yml）**不进 wiki**——每会话直注；wiki 只存玩家参与后的事。
 - **两层写法与粒度（2026-09-20 用户裁决；改 digest prompt/契约前必读）**：
   **`episode` = informative but single**（信息量足，但只讲一件事）、
-  **`belief`/`experience` = brief but descriptive**（简短，但描述性——写模式/结论，不复述事件）。
+  **`belief` = brief but descriptive**（简短，但描述性——写模式/结论，不复述事件）。
+  ⚠️ **`experience` 2026-09-25 定名"玩家画像专用"**（"关于老师的事"，`subject` 恒 `player`）：
+  写者只有 Round A（R2 的 `add kind=experience` **已收掉** —— "反复出现的模式"写成 **belief 的模式句**）；
+  读侧（`_bucket_view` 的 player 桶）**按 kind 收、不看 `subject`** —— 旧口径拿自由文本路由，
+  真机 haruka `e0001` 因此**从来没进过她的上下文**（已迁移成 belief）。⚠️ **图里只有 4 种 kind**
+  （`episode/experience/belief/entity/promise`）：`fact` 早在 2026-09-02 退役、`source` 边随之删除
+  （边表现在是 **7 条**）。见 `DESIGN_GRAPH_V4.md` §2/§5/§5.1。
   **粒度跟着"作者单位"走**：**一章羁绊剧情（`vn_enter`…`vn_exit`）= 1 条 episode**
   （正文就是这一章的总结，`title` 用 `chapter_title`；**边界是引擎已知的**，不需要 LLM 猜），
   **MMT 那种一次覆盖多轮的碎聊 = 0~5 条**（需要切分的是它）。段类型由

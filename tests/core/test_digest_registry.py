@@ -466,15 +466,32 @@ def test_round_b_update_guards():
          "patch": {"epistemic": "observed_fact"}},         # epistemic 禁改
         {"episode": "m0002", "decision": "update", "target": "u0001",
          "patch": {}},                                     # 空 patch
-        {"episode": "m0003", "decision": "add", "kind": "experience",
-         "text": "老师总说摸鱼"},                        # experience 也认 text（三槽合流）
+        {"episode": "m0003", "decision": "add", "kind": "belief",
+         "text": "老师总说摸鱼"},                          # add 走 belief（含模式句）
     ]}
     rows, result = digest_registry.parse_round_b(
         raw, episode_ids={"m0001", "m0002", "m0003"}, target_ids={"u0001"})
     assert not result.is_valid
     assert any("epistemic" in e for e in result.errors)
     assert any("patch" in e for e in result.errors)
-    assert len(rows) == 1 and rows[0]["kind"] == "experience"
+    assert len(rows) == 1 and rows[0]["kind"] == "belief"
+
+
+def test_round_b_add_experience_is_rejected():
+    """⭐ 2026-09-25（§5.1）: `add kind=experience` **被拒** —— 那个 kind 是
+    玩家画像专用（写者只有第 1 轮），"反复出现的模式"要写成 `belief` 的模式句（§9-10）。
+
+    为什么不是"悄悄降级成 belief": 契约要**教会**模型这条边界, 静默改 kind 会让它
+    一直以为自己在写 experience（下次还写）; 拒一次带反馈, 它才学得会。
+    """
+    raw = {"decisions": [
+        {"episode": "m0001", "decision": "add", "kind": "experience",
+         "subject": "我表达善意时的习惯", "text": "我总先说好意再道歉"},
+    ]}
+    rows, result = digest_registry.parse_round_b(
+        raw, episode_ids={"m0001"}, target_ids=set())
+    assert not result.is_valid and rows == []
+    assert any("kind 非法" in e and "belief" in e for e in result.errors)
 
 
 def test_round_b_bad_decision_kind():

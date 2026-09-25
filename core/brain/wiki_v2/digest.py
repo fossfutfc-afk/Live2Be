@@ -51,7 +51,7 @@ from contract.digest_registry import (
     digest_registry,
 )
 from core.brain.wiki_v2.llm_call import llm_chat
-from core.brain.wiki_v2.nodes import make_node
+from core.brain.wiki_v2.nodes import PLAYER_SUBJECT, make_node
 from core.brain.wiki_v2.panorama import build_input
 from core.brain.wiki_v2.recall import (
     EmbedFn,
@@ -573,8 +573,12 @@ def _create_a_nodes(store: WikiStoreV2, entries: list[dict], *, ts: str,
         # ⚠️ 先摘 hint（不落库）; `items` 留着, 它是真字段
         hint = str(ent.pop("about_hint", "") or "").strip()
         if ent.get("kind") == "experience":
+            # ⚠️ `subject` **强制**成 `player`（§5.1）: `experience` 只有一个意思
+            # （"关于老师的事"），而 `subject` 是自由文本 —— 契约层已经强制过一次,
+            # 这里再强制一次是因为**可见性曾经挂在它上面**（真机 haruka e0001 就是
+            # 被一个自造的 subject 藏起来的）。别再让它有第二个写者。
             node = make_node("experience",
-                             text=ent["text"], subject=ent.get("subject", "player"),
+                             text=ent["text"], subject=PLAYER_SUBJECT,
                              verbatim=ent.get("verbatim", ""),
                              verbatim_seq=ent.get("verbatim_seq", []),
                              tags=ent.get("tags", []),

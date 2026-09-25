@@ -62,7 +62,9 @@ def test_organize_view_experience_and_player():
            ("supports", "m0020", "m0001"),
            ("supports", "m0030", "m0002"), ("supports", "m0033", "m0002"))
     out = render_organize_view(nodes, graph=g)
-    assert "m0001 [experience, sig 0.70, count 3" in out
+    # ⭐ 2026-09-25（§5.1）: 标记按 **kind** —— `experience` 就是"关于老师的事",
+    # `subject` 写歪了也照印（旧口径按 subject 路由 ⇒ 真机 haruka e0001 静默消失）
+    assert "m0001 [experience·关于老师, sig 0.70, count 3" in out
     assert "〝「「这周又忙成狗了」」〞" not in out            # 已带「」不重复包裹
     assert "〝「「今天也摸鱼」」〞" not in out
     assert "〝「今天也摸鱼」〞" in out

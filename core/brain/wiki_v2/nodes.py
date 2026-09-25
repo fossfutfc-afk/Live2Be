@@ -211,8 +211,16 @@ class BrainNode:
 
     @property
     def is_player_experience(self) -> bool:
-        """玩家口癖/习惯节点（R5 强调点, §4.4 去重豁免）。"""
-        return self.kind == "experience" and self.subject == PLAYER_SUBJECT
+        """玩家画像节点（"关于老师的事"）—— ⭐ **就是 `kind == "experience"`**。
+
+        ⚠️ **2026-09-25 改**（DESIGN_GRAPH_V4 §5.1）: 原先还要求 `subject == "player"`，
+        而 `subject` 是**自由文本** ⇒ 真机 haruka 那条（`subject="关于 我道歉的习惯"`，
+        R2 早期写的"她的模式"）**四个桶全不收**：内容写在盘上、却从来不进她的上下文
+        （它还挂着 3 条 `supports`）。⇒ **可见性不许挂在一个自由文本字段上**；
+        `subject` 由写侧强制成 `PLAYER_SUBJECT`（`digest._create_a_nodes`），
+        但它不再决定"看不看得见"。
+        """
+        return self.kind == "experience"
 
     # ⏸ `count` 属性 2026-09-21（G3）**删** —— 它原是 `len(links)` 的派生属性, 而
     # `links` 已停止写入（边搬到 `edges.jsonl`）⇒ 留着它只会恒返回 0（静默假数据）。
