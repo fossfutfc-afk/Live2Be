@@ -231,7 +231,7 @@ def test_worth_running_needs_new_material(tmp_path):
 
     assert build_input(st, _note_state(), new_ids=[new.id]).worth_running is True
     # 没有新料 ⇒ 别跑（哪怕她本子上有东西要变 —— 那不是这一轮的职责）
-    closed = notes.NoteItem(id="n1", text="买花", closed_at="x", reason="送出去了")
+    closed = notes.NoteItem(id="n1", text="买花", closed_at="x", afterwards="送出去了")
     habits = [notes.NoteItem(id="n2", text="惯例", refs=["m0001"])]
     assert build_input(st, _note_state(promise=[closed]), new_ids=[]).worth_running is False
     assert build_input(st, _note_state(habits=habits), new_ids=[]).worth_running is False

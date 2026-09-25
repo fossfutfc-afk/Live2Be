@@ -74,12 +74,12 @@ def test_close_keeps_the_item_and_retire_removes_it():
     """⭐ 两段式: **结清 ≠ 划掉** —— 结清后条目仍在块里, 图侧接住才 `retire`。"""
     st = notes.fold([
         _add(1),                                                    # n1
-        _ev(2, N_CLOSE, {"id": "n1", "reason": "周六去了模型店"}, ts=T1),
+        _ev(2, N_CLOSE, {"id": "n1", "afterwards": "周六去了模型店"}, ts=T1),
     ])
 
     assert [it.id for it in st.promise] == ["n1"]        # **还在**（不变量: 至少一个可见面）
     assert st.promise[0].closed is True
-    assert st.promise[0].reason == "周六去了模型店"
+    assert st.promise[0].afterwards == "周六去了模型店"
     assert st.promise[0].text == "周六模型店"             # 文本没丢 ⇒ 固化要用它
     assert "n1" in notes.render_note_block(st, now=NOW)  # 注入块里照旧看得见
 
@@ -100,25 +100,25 @@ def test_retire_only_applies_to_closed_items(caplog):
         notes.retire_op("  ")
 
 
-def test_second_close_does_not_overwrite_the_reason(caplog):
+def test_second_close_does_not_overwrite_what_came_after(caplog):
     """块里印着 id ⇒ 必须防"二次 close 用幻觉理由覆盖真实理由"。"""
     st = notes.fold([
         _add(1),
-        _ev(2, N_CLOSE, {"id": "n1", "reason": "真的去了"}, ts=T1),
-        _ev(3, N_CLOSE, {"id": "n1", "reason": "其实没去"}, ts=T1),
+        _ev(2, N_CLOSE, {"id": "n1", "afterwards": "真的去了"}, ts=T1),
+        _ev(3, N_CLOSE, {"id": "n1", "afterwards": "其实没去"}, ts=T1),
     ])
-    assert st.promise[0].reason == "真的去了"
+    assert st.promise[0].afterwards == "真的去了"
     assert "不覆盖" in caplog.text
 
 
-def test_close_without_reason_applies_but_is_loud(caplog):
+def test_close_without_afterwards_applies_but_is_loud(caplog):
     """**写侧拒, 读侧照做**: 事件说的就是"这条不再开着了", 不认它会让本子停在过去。"""
     st = notes.fold([_add(1), _ev(2, N_CLOSE, {"id": "n1"})])
-    assert st.promise[0].closed is True and st.promise[0].reason == ""
+    assert st.promise[0].closed is True and st.promise[0].afterwards == ""
     assert st.promise[0].state == ""                    # 旧事件没 state → 用中性兜底渲染
 
     # 写侧硬门槛（`close` 必须给理由 + 给结局; `add` / `retire` 不用）
-    with pytest.raises(ValueError, match="缺理由"):
+    with pytest.raises(ValueError, match="缺 afterwards"):
         notes.close_op("n1", "   ", "kept")
     with pytest.raises(ValueError, match="state 非法"):
         notes.close_op("n1", "去了", "done")
@@ -135,7 +135,7 @@ def test_close_only_touches_the_operation_slot(caplog):
     habit_id = st.habits[0].id
     assert habit_id                                   # B 类也发号（渲染成索引）
 
-    st2 = notes.fold([_ev(3, N_CLOSE, {"id": habit_id, "reason": "不成立了"})], base=st)
+    st2 = notes.fold([_ev(3, N_CLOSE, {"id": habit_id, "afterwards": "不成立了"})], base=st)
     assert len(st2.habits) == 1                       # 没被动
     assert st2.promise[0].closed is False             # A 类也没被误伤（id 对不上）
 
@@ -270,13 +270,13 @@ def test_check_caps_count_only_open_items_and_flag_closed_backlog():
     """"结清未退场"是**正常态**（固化的待办队列）⇒ 不逐条报, 只在积压时报。"""
     # 5 条开着 + 2 条结清: 没超上限（上限只算开着的）, 积压也没到线
     st = notes.fold([_add(i, text=f"第{i}条", refs=("m0009",)) for i in range(1, 6)] +
-                    [_ev(6, N_CLOSE, {"id": "n1", "reason": "做完了"}),
-                     _ev(7, N_CLOSE, {"id": "n2", "reason": "不做了"})])
+                    [_ev(6, N_CLOSE, {"id": "n1", "afterwards": "做完了"}),
+                     _ev(7, N_CLOSE, {"id": "n2", "afterwards": "不做了"})])
     assert notes.check(st) == []
 
     # 积压超过 MAX_CLOSED_PENDING → 报一句（说明收口/固化没跑到）
-    st = notes.fold([_ev(8, N_CLOSE, {"id": "n3", "reason": "做完了"}),
-                     _ev(9, N_CLOSE, {"id": "n4", "reason": "做完了"})], base=st)
+    st = notes.fold([_ev(8, N_CLOSE, {"id": "n3", "afterwards": "做完了"}),
+                     _ev(9, N_CLOSE, {"id": "n4", "afterwards": "做完了"})], base=st)
     problems = notes.check(st)
     assert len(problems) == 1 and "结清未退场积压" in problems[0]
 
@@ -344,8 +344,8 @@ def test_render_closed_items_after_open_ones_with_neutral_word():
         _add(1, text="周六模型店", refs=("m0009",)),
         _add(2, text="还他笔记", refs=("m0011",), ts=T1),
         _add(3, text="买花", refs=("m0014",)),                        # 更老的约定
-        _ev(4, N_CLOSE, {"id": "n3", "reason": "送出去了", "state": "kept"}, ts=T0),   # 早结清
-        _ev(5, N_CLOSE, {"id": "n1", "reason": "那天我忘了", "state": "broken"}, ts=T1),
+        _ev(4, N_CLOSE, {"id": "n3", "afterwards": "送出去了", "state": "kept"}, ts=T0),   # 早结清
+        _ev(5, N_CLOSE, {"id": "n1", "afterwards": "那天我忘了", "state": "broken"}, ts=T1),
     ])
     lines = notes.render_note_block(st, now=NOW).splitlines()
 
@@ -363,7 +363,7 @@ def test_render_closed_items_after_open_ones_with_neutral_word():
 def test_render_superseded_tail():
     """被取代也算结清 —— 三种 state 各有说法（用户 2026-09-25 定）。"""
     st = notes.fold([_add(1),
-                     _ev(2, N_CLOSE, {"id": "n1", "reason": "改成一起整理",
+                     _ev(2, N_CLOSE, {"id": "n1", "afterwards": "改成一起整理",
                                       "state": "superseded"}, ts=T1)])
     assert notes.render_note_block(st).splitlines()[2] \
         == "    n1 周六模型店 (m0009)  ← 被新的取代了（改成一起整理）"

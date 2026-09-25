@@ -255,7 +255,7 @@ def _two_notes():
     return _note_events(
         (1, N_ADD, {"text": "周六模型店", "refs": ["m0001"]}),
         (2, N_ADD, {"text": "还他笔记", "refs": ["m0002"]}),
-        (3, N_CLOSE, {"id": "n1", "reason": "去过了"}),
+        (3, N_CLOSE, {"id": "n1", "afterwards": "去过了", "state": "kept"}),
     )
 
 

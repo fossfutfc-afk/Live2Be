@@ -18,7 +18,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Iterable
+from typing import Any
 
 from core.brain.wiki_v2 import notes as note_ops
 from core.brain.wiki_v2.entities import SELF_ID, SENSEI_ID, surface_forms
@@ -415,7 +415,6 @@ def apply_closures(
     rows: list[dict],
     *,
     note_state: NotesState,
-    new_episode_ids: Iterable[str] = (),
     log: EvolutionLog | None = None,
     ts: str | None = None,
     event_seq: list[int] | None = None,
@@ -424,30 +423,35 @@ def apply_closures(
 
     两种行（形状见 `contract.digest_registry.parse_close`）::
 
-        {"action": "add",   "text": "周六模型店", "refs": ["m0013"], "due": "…"}
-        {"action": "close", "id": "n1", "state": "kept", "reason": "周六真的去了"}
+        {"action": "add",   "text": "周六模型店，有点等不及", "refs": ["m0013"], "due": "…"}
+        {"action": "close", "id": "n1", "state": "kept", "refs": ["m0013"],
+         "afterwards": "周六真的去了"}
 
     分工与纪律:
         · `add`   = 开放期的约定 ⇒ **只产 note 操作**（开放期住 note, 不进图 —— §6 两段式）
-        · `close` = 结清 ⇒ **固化**: 建 `promise` 节点（`outcome` = 那条结局）+ 四条边
-          （`from`/`to` = self↔sensei · `formed_by` = note 的 refs ∪ **本段新增 episode**）
-          ⇒ 再产一条 `note/close` 操作（含 `state`/`reason`）。
+        · `close` = 结清 ⇒ **固化**: 建 `promise` 节点 + 四条边
+          （`from`/`to` = self↔sensei · `formed_by` = note 的 refs ∪ **这一行的 refs**）
+          ⇒ 再产一条 `note/close` 操作（含 `state`/`afterwards`）。
           ⚠️ `supports`（R2）与 `about`（R3）**不在这里写** —— 那是后面两轮对**这个新节点**的活,
           所以 R4 必须排在它们之前（§8 的批内顺序）。
+        · ⭐ **节点正文 = 条目的 `text` + " —— " + `afterwards`**（2026-09-25 用户裁决）:
+          条目那句是"要做什么", `afterwards` 那句是"后来怎么了"（她自己的口吻）——
+          合起来才是一条**记得住的**小回忆。⚠️ 早先那句只留在 note 事件里,
+          **退场之后她再也看不到它**（图里没有它）。
+        · ⭐ **`formed_by` 用两条 refs 拼, 不并"本段全部 episode"**（2026-09-25）:
+          "这一行的 refs" = **finish episode**（哪条经历把它了结了）由 LLM 指出 ⇒ 精确;
+          指不出（失约那种"没有那一刻"）就不连。§9-17 那条"MMT 段会多连"的观察项因此结案。
         · ⚠️ **节点面在这里落, note 面交给调用方**: 节点随 digest 事务提交,
           note 操作必须等 `ok` 之后才 append（先固化、后退场; 见 `ClosureResult`）。
         · ⚠️ **世界校验剔掉、不拒整包**: 引用指不到的 ⇒ 剔那条 ref; 剔完没 refs 的条目
           整条丢; `close` 指向"不还开着"的条目 ⇒ 丢这一行。都进 `warnings` 记账。
 
     Args:
-        note_state: 折叠出来的笔记状态（`close.id` 在这里查; 节点文本直接取条目 `text`）
-        new_episode_ids: 本段 R1 新建的 episode（`formed_by` 的**后半段** ——
-            "哪条经历了结了它"由引擎确定性连接, LLM 不判, 见 §6）
+        note_state: 折叠出来的笔记状态（`close.id` 在这里查; 节点正文取条目 `text` + 行里的 `afterwards`）
     """
     log = log or EvolutionLog.for_store(store)
     ts = ts or datetime.now().isoformat(timespec="seconds")
     event_seq = list(event_seq or [])
-    new_ep = [i for i in new_episode_ids if store.get(i) is not None]
     open_items = {it.id: it for it in note_state.promise if not it.closed}
     out = ClosureResult()
     # 承诺双方（保留号）—— 缺了就不写这两条边（同 `_entities_ready` 的降级口径）
@@ -458,7 +462,7 @@ def apply_closures(
     for row in rows:
         action = row.get("action")
         if action == "close":
-            _close_one(store, row, open_items, new_ep, ends, log=log, ts=ts,
+            _close_one(store, row, open_items, ends, log=log, ts=ts,
                        event_seq=event_seq, out=out)
         elif action == "add":
             _add_one(store, row, out)
@@ -484,21 +488,32 @@ def _add_one(store: WikiStoreV2, row: dict, out: ClosureResult) -> None:
                                    due=str(row.get("due") or "")))
 
 
-def _close_one(store: WikiStoreV2, row: dict, open_items: dict, new_ep: list[str],
+def _close_one(store: WikiStoreV2, row: dict, open_items: dict,
                ends: list[str], *, log: EvolutionLog, ts: str,
                event_seq: list[int], out: ClosureResult) -> None:
-    """`close`: 固化（节点 + 四条边）+ 产一条 `note/close` 操作。"""
+    """`close`: 固化（节点 + 四条边）+ 产一条 `note/close` 操作。
+
+    节点正文 = 条目的 `text` + ` —— ` + `afterwards`（"后来怎么了"那句）——
+    合起来才是她将来 recall 得到的那条小回忆。
+    """
     nid = str(row.get("id") or "")
     item = open_items.get(nid)
     if item is None:
         out.warnings.append(f"close {nid!r}: 不在「还开着」的约定里 → 丢这一行")
         return
-    node = make_node("promise", text=item.text, outcome=str(row.get("state") or ""),
+    afterwards = str(row.get("afterwards") or "").strip()
+    node = make_node("promise", text=_promise_text(item.text, afterwards),
+                     outcome=str(row.get("state") or ""),
                      event_seq=event_seq, ts=ts)
     real = store.add(node)
     for dst in ends:                                   # from / to（承诺双方）
         store.add_edge(REL_FROM if dst == SELF_ID else REL_TO, real, dst, ts=ts)
-    formed = list(dict.fromkeys(list(item.refs) + new_ep))    # refs ∪ 本段新增（保序去重）
+    # ⭐ `formed_by` = 说定那些（条目 refs）∪ **了结那一刻**（这一行的 refs, 由 LLM 指）
+    closed_by = [r for r in (row.get("refs") or []) if _is_episode(store, r)]
+    for r in row.get("refs") or []:
+        if r not in closed_by:
+            out.warnings.append(f"close {nid!r}: finish episode 不是现存经历 → 剔掉 {r!r}")
+    formed = list(dict.fromkeys(list(item.refs) + closed_by))     # 保序去重
     for ep in formed:
         if store.get(ep) is not None:
             store.add_edge(REL_FORMED_BY, real, ep, ts=ts)
@@ -506,8 +521,17 @@ def _close_one(store: WikiStoreV2, row: dict, open_items: dict, new_ep: list[str
                 "outcome": node.outcome, "formed_by": formed, "ts": ts})
     out.nodes.append(real)
     out.pairs.append((nid, real))
-    out.ops.append(note_ops.close_op(nid, str(row.get("reason") or ""),
-                                     str(row.get("state") or "")))
+    out.ops.append(note_ops.close_op(nid, afterwards, str(row.get("state") or "")))
+
+
+def _is_episode(store: WikiStoreV2, nid: Any) -> bool:
+    node = store.get(str(nid))
+    return node is not None and node.kind == "episode"
+
+
+def _promise_text(text: str, afterwards: str) -> str:
+    """承诺节点的正文 = 约定那句 + ` —— ` + 后来那句（缺一半就用有的那一半）。"""
+    return f"{text} —— {afterwards}" if text and afterwards else (text or afterwards)
 
 
 def apply_revision_package(

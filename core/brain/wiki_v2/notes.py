@@ -24,11 +24,11 @@ note 是**三种组织形式**里的第二种（图 / **笔记** / 台账, §1.1
    的东西（图里要等固化才有它, 而上下文窗口从来不是保证）。所以两段式:
    **结清 ⇒ 条目留在块里（尾巴换成理由）→ 图侧接住 ⇒ `retire` 才真删**。
    ⇒ **不变量: 一条承诺任何时刻至少在一个可见面上**（note 或图）, 永不在两者之外。
-1. **`close` 必须给理由, `add` / `retire` 不用** —— "为什么这条不再开着了"既是**固化那一步**
-   （§6: 判 `kept`/`broken`/`superseded`）的唯一原料, 也是她读到的那句话。读侧遇到没理由的
+1. **`close` 必须给 `afterwards`（"这件事后来怎么了"）, `add` / `retire` 不用** —— 它既是
+   她读到的那句话, 也是**固化那一步**并进节点正文的那半句（§6）。读侧遇到没给它的
    close **照做但记响**（不认它反而会让本子停在过去）, 写侧直接拒。
-   ⚠️ **已结清的不再覆盖**: 块里印着 id, 若二次 close 能改写 `reason`, 就是给"拿幻觉理由
-   覆盖真实理由"开后门 ⇒ 第二次只告警（幂等 = 忽略）。
+   ⚠️ **已结清的不再覆盖**: 块里印着 id, 若二次 close 能改写 `afterwards`, 就是给"拿幻觉的一句话
+   覆盖真实的那句话"开后门 ⇒ 第二次只告警（幂等 = 忽略）。
 2. **`id` 只增不复用** —— `close`/`retire` 只带 `id`, 复用会让旧引用指错条目。故计数器 `next_n`
    必须随状态走, **不能从"活着的条目"推**（结清 n3 之后活着的是 n1/n2）。
 3. **物品一个字都不进 note** —— 痕迹 → `episode.items`; 当前持有 → `inventory`（§3.3）;
@@ -118,8 +118,10 @@ class NoteItem:
     `since` —— 记于何时（引擎填 = 那条操作的 `ts`; 渲染成"记于 N 天前"）。
     `due`   —— `promise` 可选; ⚠️ **只存不渲染**（渲染成日期会诱使她"数日子",
                与 `worldtime.age` 那条"绝不输出精确值"直接冲突）。
-    `closed_at` / `reason` / `state` —— **结清**（`closed_at` 非空 = 已结清）:
-               她做完了 / 没成 / 被新的取代了（`state` = `kept`/`broken`/`superseded`）, 以及"为什么"。
+    `closed_at` / `afterwards` / `state` —— **结清**（`closed_at` 非空 = 已结清）:
+               她做完了 / 没成 / 被新的取代了（`state` = `kept`/`broken`/`superseded`）,
+               以及 **`afterwards`** = "这件事后来怎么了"那句话（她自己的口吻;
+               ⚠️ 早先叫 `reason` —— 用户 2026-09-25: *"reason 太理性了"*）。
                ⚠️ 字段名在这里是 **`state`**（节点侧叫 `outcome` —— entity 的 `state` 是 list, 撞类型;
                而 note 条目没有那个字段, 所以沿用它。两处同义不同名）。
     """
@@ -130,7 +132,7 @@ class NoteItem:
     since: str = ""
     due: str = ""
     closed_at: str = ""
-    reason: str = ""
+    afterwards: str = ""
     state: str = ""
 
     @property
@@ -141,7 +143,7 @@ class NoteItem:
     def copy(self) -> "NoteItem":
         return NoteItem(id=self.id, text=self.text, refs=list(self.refs),
                         since=self.since, due=self.due,
-                        closed_at=self.closed_at, reason=self.reason,
+                        closed_at=self.closed_at, afterwards=self.afterwards,
                         state=self.state)
 
     def to_dict(self) -> dict:
@@ -153,8 +155,8 @@ class NoteItem:
             d["due"] = self.due
         if self.closed_at:
             d["closed_at"] = self.closed_at
-        if self.reason:
-            d["reason"] = self.reason
+        if self.afterwards:
+            d["afterwards"] = self.afterwards
         if self.state:
             d["state"] = self.state
         return d
@@ -175,7 +177,7 @@ class NoteItem:
                    since=str(raw.get("since") or "").strip(),
                    due=str(raw.get("due") or "").strip(),
                    closed_at=str(raw.get("closed_at") or "").strip(),
-                   reason=str(raw.get("reason") or "").strip(),
+                   afterwards=str(raw.get("afterwards") or "").strip(),
                    state=str(raw.get("state") or "").strip())
 
 
@@ -287,37 +289,38 @@ def _apply_close(st: NotesState, payload: dict, ts: str, seq: int) -> None:
     —— 图里要等固化才有它, 而上下文窗口（120 单元滚动）**从来不是保证**。close 一删,
     它就**三处全无**。所以两段式（与 promise 本身同构）:
 
-        `close` = 结清（本子上还在, 注入块里照旧显示, 尾巴换成理由）
+        `close` = 结清（本子上还在, 注入块里照旧显示, 尾巴换成 `afterwards` 那句话）
         `retire` = 退场（图侧接住了才划掉 —— 见 `_apply_retire`）
 
     ⇒ **不变量: 一条承诺任何时刻至少在一个可见面上** —— 开着 / 已结清 ⇒ 在 note;
       已固化 ⇒ 在图。永不在两者之外。
 
-    ⚠️ **已结清的不再覆盖**: 块里印着 `id`, 若允许二次 close 改写 `reason`,
-       就等于给"拿幻觉理由覆盖真实理由"开了个后门 ⇒ 第二次只告警（幂等 = 忽略）。
+    ⚠️ **已结清的不再覆盖**: 块里印着 `id`, 若允许二次 close 改写 `afterwards`,
+       就等于给"拿幻觉的一句话覆盖真实的那句话"开了个后门 ⇒ 第二次只告警（幂等 = 忽略）。
        还开着的那条**照旧覆盖**（当场结清 → digest 补判, 后写的更准）。
     ⚠️ 只作用于 **A 类槽**: B 类由 `rewrite` 整段替换, 让 `close` 也能改它就是两个写者
        抢同一份数据（§3.2"同一段只有一个写者"）。
-    ⚠️ **理由缺失照做, 但把账记响**: 事件说的就是"这条不再开着了", 不认它会让本子停在过去;
-       而"为什么"缺失只影响**固化进图**那一步（§6）, 那是另一处的账。
+    ⚠️ **`afterwards` 缺失照做, 但把账记响**: 事件说的就是"这条不再开着了", 不认它会让本子停在过去;
+       而那句话缺失只影响**固化进图**那一步（§6 要把它并进节点 `text`）, 那是另一处的账。
     """
     nid = str(payload.get("id") or "").strip()
     if not nid:
         logger.warning("note/close 缺 id（跳过）: seq=%s", seq)
         return
-    reason = str(payload.get("reason") or "").strip()
-    if not reason:
-        logger.warning("note/close 缺理由（照做; 固化那一步将无从判断为什么）: id=%s seq=%s",
-                       nid, seq)
+    afterwards = str(payload.get("afterwards") or "").strip()
+    if not afterwards:
+        logger.warning("note/close 缺 afterwards（照做; 固化那一步没法把它并进正文）:"
+                       " id=%s seq=%s", nid, seq)
     for slot in OPSLOTS:
         for it in list(getattr(st, slot) or []):
             if it.id != nid:
                 continue
             if it.closed:
-                logger.warning("note/close 重复（忽略, 不覆盖已有理由）: id=%s seq=%s", nid, seq)
+                logger.warning("note/close 重复（忽略, 不覆盖已有的那句话）: id=%s seq=%s",
+                               nid, seq)
                 return
             it.closed_at = ts or it.closed_at
-            it.reason = reason
+            it.afterwards = afterwards
             it.state = str(payload.get("state") or "").strip()
             return
     logger.warning("note/close 指不到任何条目（跳过）: id=%s seq=%s", nid, seq)
@@ -429,14 +432,15 @@ def add_op(text: str, refs: Iterable[str], *, due: str = "") -> dict:
     return _checked(op)
 
 
-def close_op(item_id: str, reason: str, state: str) -> dict:
-    """`close` 操作 = **结清** —— **理由必填** + **结局必填**（`kept`/`broken`/`superseded`）。
+def close_op(item_id: str, afterwards: str, state: str) -> dict:
+    """`close` 操作 = **结清** —— **`afterwards` 必填**（"这件事后来怎么了", 她自己的口吻）
+    + **结局必填**（`kept`/`broken`/`superseded`）。
 
     ⚠️ 结清**不等于**从本子上划掉（那是 `retire_op`）: 条目留在 note 里继续注入,
-    直到图侧接住它。理由既是 §6 固化那一步的原料, 也是**注入块上那句话**
-    （渲染按 `state` 分三种说法, 见 `CLOSED_WORDS`）。
+    直到图侧接住它。`afterwards` 有两个去处: 注入块上那句话（见 `CLOSED_WORDS`）
+    + **固化时并进节点 `text`**（§6 —— 否则退场之后"后来怎么了"就没人看得见了）。
     """
-    return _checked({"action": N_CLOSE, "id": item_id, "reason": reason,
+    return _checked({"action": N_CLOSE, "id": item_id, "afterwards": afterwards,
                      "state": state})
 
 
@@ -482,8 +486,8 @@ def validate_ops(ops: list[dict]) -> None:
     """写侧硬门槛（**抛 `ValueError`**）。
 
     查的是"**事件自身是否自足**"（一 append 就不可改, 残缺的写不进去）:
-    动作名 · `add` 的 `text` + `refs` · **`close` 的 `id` + `reason`** · `retire` 的 `id` ·
-    `rewrite` 的槽形状。
+    动作名 · `add` 的 `text` + `refs` · **`close` 的 `id` + `afterwards` + `state`** ·
+    `retire` 的 `id` · `rewrite` 的槽形状。
     **不查** `refs` 是否存在 —— "世上有没有那个节点"要看世界, 归 `check()` 告警。
     """
     for i, op in enumerate(ops):
@@ -499,10 +503,10 @@ def validate_ops(ops: list[dict]) -> None:
         elif action == N_CLOSE:
             if not str(op.get("id") or "").strip():
                 raise ValueError(err("BadNoteOp", f"note 操作[{i}] close 缺 id"))
-            if not str(op.get("reason") or "").strip():
-                raise ValueError(err("NoReason",
-                                     f"note 操作[{i}] close 缺理由（闭合即固化进图, 没有理由就判不出"
-                                     " kept/broken/superseded）"))
+            if not str(op.get("afterwards") or "").strip():
+                raise ValueError(err("NoAfterwards",
+                                     f"note 操作[{i}] close 缺 afterwards（「这件事后来怎么了」）"
+                                     " —— 它会进注入块, 固化时还会并进节点正文"))
             state = str(op.get("state") or "").strip()
             if state not in PROMISE_OUTCOMES:
                 raise ValueError(err("BadNoteOp",
@@ -640,9 +644,9 @@ def render_item(item: NoteItem, *, now: object | None = None) -> str:
 
 
 def _closed_suffix(it: NoteItem) -> str:
-    """`  ← 已兑现（理由）` —— 状态词按 `state` 分三种; 没有 `state` → 中性兜底。"""
+    """`  ← 已兑现（后来那句话）` —— 状态词按 `state` 分三种; 没有 `state` → 中性兜底。"""
     head = f"  ← {CLOSED_WORDS[it.state]}" if it.state in CLOSED_WORDS else CLOSED_LEAD
-    return f"{head}（{it.reason}）" if it.reason else head
+    return f"{head}（{it.afterwards}）" if it.afterwards else head
 
 
 def _sorted_by(items: list[NoteItem], field: str) -> list[NoteItem]:
