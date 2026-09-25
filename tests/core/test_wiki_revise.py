@@ -477,31 +477,47 @@ def _close_store(tmp_path):
 
 
 def test_apply_closures_solidifies_node_and_edges(tmp_path):
-    """`close` ⇒ 固化: promise 节点（`outcome`）+ `from`/`to`/`formed_by` 四条边 + note 操作。"""
+    """`close` ⇒ 固化: promise 节点 + `from`/`to`/`formed_by` 四条边 + note 操作。
+
+    ⭐ 节点正文 = 条目的 `text` + ` —— ` + `afterwards`（"后来怎么了"那句）——
+    合起来才是她将来 recall 得到的那条小回忆。
+    """
     st, state = _close_store(tmp_path)
     res = apply_closures(st, [{"action": "close", "id": "n1", "state": "kept",
-                               "reason": "周六真的去了"}],
-                         note_state=state, new_episode_ids=["m0003"],
+                               "afterwards": "周六真的去了", "refs": ["m0003"]}],
+                         note_state=state,
                          event_seq=[7], ts="2026-09-10T12:00:00")
 
     assert res.nodes == ["p0001"] and res.pairs == [("n1", "p0001")]
     assert res.warnings == []
     node = st.get("p0001")
-    assert (node.kind, node.text, node.outcome) == ("promise", "周六模型店", "kept")
+    assert node.kind == "promise" and node.outcome == "kept"
+    assert node.text == "周六模型店 —— 周六真的去了"
     assert (node.ts, node.event_seq) == ("2026-09-10T12:00:00", [7])
     g = st.graph()
     assert g.targets("p0001", "from") == ["x0000"] and g.targets("p0001", "to") == ["x0001"]
-    # `formed_by` = note 的 refs ∪ **本段新增**（"哪条经历了结了它"由引擎连, LLM 不判）
+    # `formed_by` = 说定那些（条目 refs）∪ **了结那一刻**（这一行的 refs = finish episode）
     assert sorted(g.targets("p0001", "formed_by")) == ["m0001", "m0003"]
     # ⚠️ `about`(R3) / `supports`(R2) **不在这里写** —— 那是后面两轮对这个新节点的活
     assert g.targets("p0001", "about") == [] and g.targets("p0001", "supports") == []
     # note 面: 只**产**操作, 不落库（调用方等事务 ok 之后 append）
-    assert res.ops == [{"action": "close", "id": "n1", "reason": "周六真的去了",
+    assert res.ops == [{"action": "close", "id": "n1", "afterwards": "周六真的去了",
                         "state": "kept"}]
     # 审计留痕（`evolution.jsonl` 同目录）
     rows = EvolutionLog.for_store(st).read()
     assert [r["action"] for r in rows] == ["solidify"]
     assert (rows[0]["note"], rows[0]["node"], rows[0]["outcome"]) == ("n1", "p0001", "kept")
+
+
+def test_apply_closures_close_without_finish_episode(tmp_path):
+    """失约那种"没有那一刻" ⇒ `refs` 不给: `formed_by` 只连说定那些, 不硬拉一条。"""
+    st, state = _close_store(tmp_path)
+    res = apply_closures(st, [{"action": "close", "id": "n1", "state": "broken",
+                               "afterwards": "那天我忘了"}], note_state=state)
+
+    assert res.warnings == [] and res.nodes == ["p0001"]
+    assert st.get("p0001").text == "周六模型店 —— 那天我忘了"
+    assert st.graph().targets("p0001", "formed_by") == ["m0001"]
 
 
 def test_apply_closures_add_stays_in_note(tmp_path):
@@ -523,7 +539,7 @@ def test_apply_closures_drops_bad_rows_with_warnings(tmp_path):
     """世界校验**剔掉不拒整包**: 指不到的 close / 剔完没引用的 add。"""
     st, state = _close_store(tmp_path)
     res = apply_closures(st, [
-        {"action": "close", "id": "n7", "state": "kept", "reason": "不存在这条"},
+        {"action": "close", "id": "n7", "state": "kept", "afterwards": "不存在这条"},
         {"action": "add", "text": "无凭无据", "refs": ["m9999"]},
     ], note_state=state)
 
@@ -539,7 +555,7 @@ def test_apply_closures_degrades_without_entities(tmp_path, caplog):
     state = notes.NotesState(promise=[notes.NoteItem(id="n1", text="周六模型店",
                                                      refs=["m0001"])])
     res = apply_closures(st, [{"action": "close", "id": "n1", "state": "broken",
-                               "reason": "没去成"}], note_state=state)
+                               "afterwards": "没去成", "refs": ["m0001"]}], note_state=state)
 
     assert res.nodes == ["p0001"]
     assert any("from/to" in w for w in res.warnings)
@@ -556,7 +572,7 @@ def test_apply_closures_refuses_to_reclose(tmp_path):
     `retire` 带上节点 id，要么在固化前核对图里有没有同一个承诺 —— 见 §9-17 旁边的账。
     """
     st, state = _close_store(tmp_path)
-    rows = [{"action": "close", "id": "n1", "state": "kept", "reason": "去了"}]
+    rows = [{"action": "close", "id": "n1", "state": "kept", "afterwards": "去了"}]
     first = apply_closures(st, rows, note_state=state, event_seq=[7])
     ev = notes.note_event(first.ops[0])
     ev.seq = 1                                          # seq 由 store 分配; 折叠要 > 水位

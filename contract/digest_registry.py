@@ -408,22 +408,26 @@ class DigestRegistry:
                 '        {"text": "周六模型店", "refs": ["m0013"], "due": "2026-09-26"}',
                 "     ],",
                 '     "close": [ // 已经不再开着的约定（没有就写 []）;',
-                '        {"id": "n1", "state": "kept", "reason": "周六真的去了模型店"}',
+                '        {"id": "n1", "state": "kept", "refs": ["m0013"],',
+                '         "afterwards": "周六我们真的去了"}',
                 "     ]",
                 "    }",
                 "",
                 "两个键**都要在**（没有就写空数组 []）。",
                 "",
                 "add 一行 = 一条新约定:",
-                "  text  —— 一句短语（≤20 字）, 写「要做什么」, 不是陈述句;",
+                "  text  —— 一句短语（≤20 字）: 写「要做什么」+ 你此刻对它的那点意思（有人味, 但别复述事件）;",
                 "  refs  —— 说定它的经历编号（≥1, 只能引用上面列出的编号）;",
                 '  due   —— 可选, 说好的日子（没有就省略这个键）。',
                 "",
                 "close 一行 = 一条约定翻篇了:",
-                "  id     —— 备忘录上的编号（上面「还开着」名单里的）;",
-                "  state  —— kept（兑现了）/ broken（没成: 失约, 或你自己作罢）/",
-                "            superseded（被新定的那条盖过去了）;",
-                "  reason —— 一句话说清为什么（**必填**——它会原样出现在她的备忘录上）。",
+                "  id         —— 备忘录上的编号（上面「还开着」名单里的）;",
+                "  state      —— kept（兑现了）/ broken（没成: 失约, 或你自己作罢）/",
+                "                superseded（被新定的那条盖过去了）;",
+                "  afterwards —— 一句话说「这件事后来怎么了」（**必填** —— 它会原样出现在她的备忘录上,"
+                " 归档时还会并进那条记忆的正文）;",
+                "  refs       —— 可选: **了结它的那条经历**（指得出就写, 指不出就不写 ——"
+                " 别为了填字段硬拉一条无关的经历）。",
                 "",
                 "规则:",
                 "  只引用上面出现过的编号; 编造的编号会被丢弃;",
@@ -478,7 +482,7 @@ class DigestRegistry:
 
         Returns: `(rows, ValidationResult)` —— `errors` 非空 = **整包拒 + 带反馈重试**。
         行形状: `{"action": "add", "text", "refs", "due"?}`
-                `{"action": "close", "id", "state", "reason"}`
+                `{"action": "close", "id", "state", "afterwards", "refs"?}`
         """
         errors: list[str] = []
         warnings: list[str] = []
@@ -622,7 +626,10 @@ def _clean_add(row: dict, i: int, errors: list[str]) -> dict | None:
 
 
 def _clean_close(row: dict, i: int, errors: list[str]) -> dict | None:
-    """`close` 一行（R4）: 编号 + 结局 + 理由（**理由必填** —— 用户 2026-09-23 裁的）。"""
+    """`close` 一行（R4）: 编号 + 结局 + **`afterwards`**（"这件事后来怎么了"）· `refs` 可选。
+
+    ⚠️ 早先那个字段叫 `reason` —— 用户 2026-09-25: *"reason 太理性了"*。
+    """
     nid = str(row.get("id") or "").strip()
     if not nid:
         errors.append(f"close[{i}] 缺 id")
@@ -632,11 +639,18 @@ def _clean_close(row: dict, i: int, errors: list[str]) -> dict | None:
         errors.append(f"close[{i}].state 非法: {state!r}"
                       f"（可用: {', '.join(PROMISE_OUTCOMES)}）")
         return None
-    reason = str(row.get("reason") or "").strip()
-    if not reason:
-        errors.append(f"close[{i}] 缺理由 —— 没有理由就判不出这条是怎么翻篇的")
+    afterwards = str(row.get("afterwards") or "").strip()
+    if not afterwards:
+        errors.append(f"close[{i}] 缺 afterwards —— 一句话说这件事后来怎么了（必填）")
         return None
-    return {"action": "close", "id": nid, "state": state, "reason": reason}
+    item: dict = {"action": "close", "id": nid, "state": state,
+                  "afterwards": afterwards}
+    #: `refs` = **finish episode**（了结它的那条经历）—— 可选（失约那种"没有那一刻"就不给）
+    refs = [str(r).strip() for r in row.get("refs") or []
+            if isinstance(r, (str, int)) and str(r).strip()]
+    if refs:
+        item["refs"] = refs
+    return item
 
 
 def _clean_episode(e: Any, i: int, seq_set: set[int] | None = None

@@ -18,7 +18,7 @@ def test_schema_close_phase():
     assert "两个键**都要在**" in text
     for w in PROMISE_OUTCOMES:
         assert w in text
-    assert "必填" in text                       # reason 必填
+    assert "必填" in text                       # afterwards 必填
     # 示例只有一种形状（设计稿陷阱 3/4）: 契约里出现的示例行就是那两行
     assert text.count('"text": "周六模型店"') == 1
     assert text.count('"id": "n1"') == 1
@@ -28,13 +28,13 @@ def test_parse_close_keeps_good_rows():
     rows, res = digest_registry.parse_close({
         "add": [{"text": "周六模型店", "refs": ["m0013"], "due": "2026-09-26"},
                 {"text": "还他笔记", "refs": ["m0004", "m0005"]}],
-        "close": [{"id": "n1", "state": "kept", "reason": "周六真的去了"}]})
+        "close": [{"id": "n1", "state": "kept", "afterwards": "周六真的去了"}]})
     assert res.errors == ()
     assert rows[0] == {"action": "add", "text": "周六模型店", "refs": ["m0013"],
                        "due": "2026-09-26"}
     assert "due" not in rows[1]                 # 空 due 不落键
     assert rows[2] == {"action": "close", "id": "n1", "state": "kept",
-                       "reason": "周六真的去了"}
+                       "afterwards": "周六真的去了"}
 
 
 def test_parse_close_shape_errors_reject_the_package():
@@ -46,10 +46,10 @@ def test_parse_close_shape_errors_reject_the_package():
         ({"add": ["x"], "close": []}, "add[0] 必须是对象"),
         ({"add": [{"refs": ["m1"]}], "close": []}, "add[0] 缺 text"),
         ({"add": [{"text": "x"}], "close": []}, "add[0] 缺 refs"),
-        ({"add": [], "close": [{"state": "kept", "reason": "x"}]}, "close[0] 缺 id"),
-        ({"add": [], "close": [{"id": "n1", "state": "done", "reason": "x"}]},
+        ({"add": [], "close": [{"state": "kept", "afterwards": "x"}]}, "close[0] 缺 id"),
+        ({"add": [], "close": [{"id": "n1", "state": "done", "afterwards": "x"}]},
          "state 非法"),
-        ({"add": [], "close": [{"id": "n1", "state": "kept"}]}, "缺理由"),
+        ({"add": [], "close": [{"id": "n1", "state": "kept"}]}, "缺 afterwards"),
     ]
     for raw, want in cases:
         rows, res = digest_registry.parse_close(raw)
@@ -60,8 +60,8 @@ def test_parse_close_shape_errors_reject_the_package():
 def test_parse_close_dedupes_with_warning():
     rows, res = digest_registry.parse_close({
         "add": [], "close": [
-            {"id": "n1", "state": "kept", "reason": "去了"},
-            {"id": "n1", "state": "broken", "reason": "没去"}]})
+            {"id": "n1", "state": "kept", "afterwards": "去了"},
+            {"id": "n1", "state": "broken", "afterwards": "没去"}]})
     assert res.errors == () and len(rows) == 1 and rows[0]["state"] == "kept"
     assert any("重复" in w for w in res.warnings)
 
