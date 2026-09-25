@@ -31,7 +31,11 @@ from dataclasses import dataclass, field
 from typing import Any
 
 #: 节点类型（fact 已退役, 2026-09-02——出厂与 digest 同构: 记忆 = 经历 + 认知）
-KINDS = ("episode", "experience", "belief", "entity")
+#: ⚠️ **`promise` 2026-09-25 加入**（DESIGN_GRAPH_V4 §6）: 闭合的承诺**固化进图** ——
+#: 开放期它住在 note 里（是**当前值**不是节点），闭合那一刻才落成节点 + `outcome` + 四条边。
+KINDS = ("episode", "experience", "belief", "entity", "promise")
+#: promise 的**结局**（字段是 `outcome`，不是 `state` —— 见 `BrainNode.state` 的注释）
+PROMISE_OUTCOMES = ("kept", "broken", "superseded")
 #: 认知类型（canon_fact 随 fact 退役; speculation 2026-09-21 删——三值全由护栏强制）
 EPISTEMICS = ("observed_fact", "reported_fact", "inferred_belief")
 #: 珍贵档阈值（保底通道 / 对应 neuron 草稿的 memo 档）
@@ -47,6 +51,8 @@ _REQUIRED: dict[str, tuple[str, ...]] = {
     # ⚠️ entity **只要求 `name`** —— `text`（立场/成长基线）允许空着出生:
     # `ensure_entities` 建 self/sensei 时还没有任何记忆, 立场是第 3 轮从记忆里长出来的。
     "entity": ("name",),
+    # promise: 正文 + 结局（`kept`/`broken`/`superseded`）—— 结局是**固化那一次写死**的
+    "promise": ("text", "outcome"),
 }
 
 
@@ -66,6 +72,7 @@ class BrainNode:
                 aff_at_encoding / emo_int / emo_span
         认知     subject / examples / growth        （experience / belief）
         entity  name / aliases / state             （`text` = 立场/成长基线, 属共用槽）
+        promise outcome                            （`text` = 那条约定的内容; §6 固化那一刻写死）
     """
 
     # ── 共用（三种 kind 都有）──
@@ -127,7 +134,15 @@ class BrainNode:
     aliases: list[str] = field(default_factory=list)
     #: **物理状况句清单**（世界侧: 身体 / 外观 / 随身）——"手上多了道划痕" "今天戴了眼镜"。
     #: 与 `text`（立场/成长基线, 心智侧）分工; 会变、**会自愈**（谁判它过期 = §9-4 未定）。
+    #: ⚠️ **这是 entity 专属、且是 list** —— promise 的结局**不能**塞进来:
+    #: `from_dict` 对 `state` 一律走 `_str_list()`，写 `"kept"` 进去会**读回空列表**
+    #: （静默丢结局）。所以 promise 用下面那个独立字段。
     state: list[str] = field(default_factory=list)
+    # ── promise 专属（§6 两段式: 闭合那一刻固化, 结局只写一次）──
+    #: 结局: `kept`（兑现）/ `broken`（没成: 失约或她自己作罢）/ `superseded`（被新定的盖过）。
+    #: ⚠️ 字段名是 **`outcome` 而不是 `state`** —— 与 entity 的 `state`（list）撞类型
+    #: （用户 2026-09-25 裁决）。
+    outcome: str = ""
     # ── episode 数值（None = 未采集; 0.0 是合法值——两者不可合并）──
     #: 编码时好感标量 ∈ [−1, 1]（`Affection.to_scalar()`）——**快照**: 写入时定、永不改。
     #: 真源是 `affection` 事件流, 本字段只是省掉每次召回重放。
@@ -168,6 +183,11 @@ class BrainNode:
         # 数量边界
         if self.kind == "experience" and len(self.examples) > 3:
             errors.append("experience.examples 最多 3 条")
+        # promise 的结局（枚举; 空值由 `_REQUIRED` 那条兜住）
+        if self.kind == "promise" and self.outcome \
+                and self.outcome not in PROMISE_OUTCOMES:
+            errors.append(f"promise.outcome 非法: {self.outcome!r}"
+                          f"（可用: {', '.join(PROMISE_OUTCOMES)}）")
         # significance 边界（decimal 0~1）
         if not (0.0 <= self.significance <= 1.0):
             errors.append(f"significance 越界: {self.significance}（须 0~1）")
@@ -224,7 +244,7 @@ class BrainNode:
                   "verbatim_seq", "title", "items", "emo_shape", "place",
                   "place_raw",
                   "subject", "examples", "growth",
-                  "name", "aliases", "state"):
+                  "name", "aliases", "state", "outcome"):
             v = getattr(self, f)
             if v in (None, "", [], 0):
                 continue
@@ -268,6 +288,7 @@ class BrainNode:
         node.name = _str(raw.get("name"))
         node.aliases = _str_list(raw.get("aliases"))
         node.state = _str_list(raw.get("state"))
+        node.outcome = _str(raw.get("outcome"))
         node.aff_at_encoding = _opt_clamp(raw.get("aff_at_encoding"), -1.0, 1.0)
         node.emo_int = _opt_clamp(raw.get("emo_int"), 0.0, 1.0)
         node.emo_span = _opt_clamp(raw.get("emo_span"), 0.0, 1.0)

@@ -339,6 +339,22 @@ def _attr_store(tmp_path) -> WikiStoreV2:
     return st
 
 
+def test_attribution_accepts_promise_nodes(tmp_path):
+    """固化出来的 `promise` 节点也要能被归属（§6: "关于他的承诺"是 entity 车道要答的问题）。
+
+    ⚠️ `_ATTACHABLE` 2026-09-25 加了 `promise` —— 漏了这一项, 承诺进了图却没人认领。
+    """
+    st = _attr_store(tmp_path)
+    pid = st.add(make_node("promise", text="周六模型店", outcome="kept",
+                           event_seq=[3], ts="2026-09-02T12:00:00"))
+    _, local_of = candidate_table(st)
+
+    assert apply_attribution(st, [{"action": "attach", "entity": local_of["x0001"],
+                                   "hint": "老师", "nodes": ["u0001"]}],
+                             id_map={"u0001": pid}, local_of=local_of, **_ctx_kw()) == []
+    assert st.graph().targets(pid, "about") == ["x0001"]
+
+
 def test_attribution_attaches_and_writes_alias(tmp_path):
     """`attach` = 归属的唯一落地形式（写 `about` 边）+ hint 顺手写回别名。"""
     st = _attr_store(tmp_path)

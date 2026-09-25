@@ -38,7 +38,9 @@ _PATCH_FIELDS = ("subject", "text", "significance", "tags", "growth")
 #: `about` 边的可归属 kind（§2: belief → entity · episode → entity）。
 #: ⚠️ **含 `experience`**: 今天的"玩家画像"（`subject=player`）就落在它上面, 它显然是
 #: "关于老师的"; §9-3 把 experience 并成 `belief + nature=pattern` 之后删掉这一项。
-_ATTACHABLE = ("episode", "belief", "experience")
+#: ⚠️ **含 `promise`**（2026-09-25）: 固化出来的承诺节点也要被归属（`about` → entity），
+#: 否则它进了图却没人认领 —— 而"关于他的承诺"正是 entity 车道要回答的问题（§6）。
+_ATTACHABLE = ("episode", "belief", "experience", "promise")
 #: hint 写回别名的长度上限 —— 超过这个长度的东西**不是称呼, 是一句话**。
 #: （同 `core.parsing.names.MAX_NAME_LEN` 的口径; 本模块**不 import 它** ——
 #: `wiki_v2` 的运行时依赖要保持纯 stdlib, 而 names 会拖进 yaml。）

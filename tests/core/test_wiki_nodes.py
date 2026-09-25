@@ -39,6 +39,27 @@ def test_episode_required_text():
     assert "episode 缺少必填字段: text" in node.validate()
 
 
+def test_promise_node_needs_outcome_and_enum(tmp_path=None):
+    """promise 节点（§6 固化产物）: **正文 + 结局都必填**, 且结局限三值。
+
+    ⚠️ 结局字段是 **`outcome` 而不是 `state`** —— entity 的 `state` 是 `list[str]`,
+    而 `from_dict` 对 `state` 一律走 `_str_list()`: 把 `"kept"` 写进去会**读回空列表**。
+    """
+    from core.brain.wiki_v2.nodes import PROMISE_OUTCOMES
+
+    ok = make_node("promise", text="周六模型店", outcome="kept")
+    assert ok.validate() == []
+    assert [make_node("promise", text="x", outcome=o).validate() for o in PROMISE_OUTCOMES] \
+        == [[], [], []]
+
+    assert "promise 缺少必填字段: outcome" in make_node("promise", text="x").validate()
+    assert any("outcome 非法" in e
+               for e in make_node("promise", text="x", outcome="done").validate())
+    # 落库 ⇄ 读回（`outcome` 必须在 `to_dict` 与 `from_dict` 两边都在）
+    back = BrainNode.from_dict(make_node("promise", text="约定", outcome="broken").to_dict())
+    assert (back.kind, back.outcome, back.state) == ("promise", "broken", [])
+
+
 # ---------------------------------------------------------------------------
 # ★ 序列化字段的三方一致（2026-09-17 补 —— 孤儿字段就是这么藏住的）
 # ---------------------------------------------------------------------------

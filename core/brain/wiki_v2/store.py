@@ -50,7 +50,9 @@ logger = logging.getLogger(__name__)
 
 #: kind → id 前缀（AGENT_BRAIN.md §2 + v4 §3.0 的 `x`; relation/fact 已砍——c 前缀退役 2026-09-02）
 #: ⚠️ `x0000`（self）/ `x0001`（sensei）是**保留号**, 见 `entities.py` —— `next_id("x")` 因此从 x0002 起。
-_PREFIX = {"experience": "e", "episode": "m", "belief": "m", "entity": "x"}
+#: ⚠️ `p` = promise 节点（§6 固化产物, 2026-09-25 加）—— 与 `m`/`e`/`x` 都不撞。
+_PREFIX = {"experience": "e", "episode": "m", "belief": "m", "entity": "x",
+           "promise": "p"}
 
 #: 节点字段白名单（update patch 只接受这些——防任意字段注入）
 _FIELDS = set(BrainNode.__dataclass_fields__.keys())
