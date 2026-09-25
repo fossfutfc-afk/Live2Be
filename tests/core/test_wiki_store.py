@@ -39,6 +39,20 @@ def test_id_allocation_prefixes(tmp_path):
     assert format_id("m", 3) == "m0003"
 
 
+def test_promise_prefix_and_persistence(tmp_path):
+    """promise 节点（§6 固化产物）: 自己的前缀 `p`, 且**结局落库可读回**。"""
+    st = _store(tmp_path)
+    nid = st.add(make_node("promise", text="周六模型店", outcome="kept",
+                           event_seq=[42], ts="2026-09-20T10:00:00+09:00"))
+    assert nid == "p0001" and st.next_id("p") == "p0002"
+    st.save()
+
+    reloaded = _store(tmp_path).get("p0001")
+    assert (reloaded.kind, reloaded.text, reloaded.outcome) \
+        == ("promise", "周六模型店", "kept")
+    assert reloaded.event_seq == [42]
+
+
 def test_add_rejects_invalid_node(tmp_path):
     st = _store(tmp_path)
     with pytest.raises(ValueError):
