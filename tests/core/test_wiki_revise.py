@@ -4,10 +4,11 @@ import logging
 
 import pytest
 
-from core.brain.wiki_v2 import WikiStoreV2, make_node
+from core.brain.wiki_v2 import WikiStoreV2, make_node, notes
 from core.brain.wiki_v2.entities import candidate_table, ensure_entities
 from core.brain.wiki_v2.evolution import EvolutionLog
-from core.brain.wiki_v2.revise import (apply_attribution, apply_decisions,
+from core.brain.wiki_v2.revise import (apply_attribution, apply_closures,
+                                       apply_decisions,
                                        apply_revision_package)
 
 
@@ -460,3 +461,108 @@ def test_attribution_rewrite_and_guards(tmp_path, caplog):
             id_map={"u0001": "m0001"}, local_of=none_local) == []
     assert [n.id for n in bare.all() if n.kind == "entity"] == []
     assert any("x0001" in r.getMessage() for r in caplog.records)
+
+
+# ---------------------------------------------------------------------------
+# R4 收口执行器（promise 记账 + 固化）—— DESIGN_GRAPH_V4 §6/§8
+# ---------------------------------------------------------------------------
+
+def _close_store(tmp_path):
+    """`_attr_store`（含 self/sensei）+ 一条还开着的约定（引用 m0001）。"""
+    st = _attr_store(tmp_path)
+    state = notes.NotesState(promise=[
+        notes.NoteItem(id="n1", text="周六模型店", refs=["m0001"],
+                       since="2026-09-01T10:00:00")])
+    return st, state
+
+
+def test_apply_closures_solidifies_node_and_edges(tmp_path):
+    """`close` ⇒ 固化: promise 节点（`outcome`）+ `from`/`to`/`formed_by` 四条边 + note 操作。"""
+    st, state = _close_store(tmp_path)
+    res = apply_closures(st, [{"action": "close", "id": "n1", "state": "kept",
+                               "reason": "周六真的去了"}],
+                         note_state=state, new_episode_ids=["m0003"],
+                         event_seq=[7], ts="2026-09-10T12:00:00")
+
+    assert res.nodes == ["p0001"] and res.pairs == [("n1", "p0001")]
+    assert res.warnings == []
+    node = st.get("p0001")
+    assert (node.kind, node.text, node.outcome) == ("promise", "周六模型店", "kept")
+    assert (node.ts, node.event_seq) == ("2026-09-10T12:00:00", [7])
+    g = st.graph()
+    assert g.targets("p0001", "from") == ["x0000"] and g.targets("p0001", "to") == ["x0001"]
+    # `formed_by` = note 的 refs ∪ **本段新增**（"哪条经历了结了它"由引擎连, LLM 不判）
+    assert sorted(g.targets("p0001", "formed_by")) == ["m0001", "m0003"]
+    # ⚠️ `about`(R3) / `supports`(R2) **不在这里写** —— 那是后面两轮对这个新节点的活
+    assert g.targets("p0001", "about") == [] and g.targets("p0001", "supports") == []
+    # note 面: 只**产**操作, 不落库（调用方等事务 ok 之后 append）
+    assert res.ops == [{"action": "close", "id": "n1", "reason": "周六真的去了",
+                        "state": "kept"}]
+    # 审计留痕（`evolution.jsonl` 同目录）
+    rows = EvolutionLog.for_store(st).read()
+    assert [r["action"] for r in rows] == ["solidify"]
+    assert (rows[0]["note"], rows[0]["node"], rows[0]["outcome"]) == ("n1", "p0001", "kept")
+
+
+def test_apply_closures_add_stays_in_note(tmp_path):
+    """`add` = 开放期的约定 ⇒ **不进图**, 只产 note 操作。"""
+    st, state = _close_store(tmp_path)
+    res = apply_closures(st, [{"action": "add", "text": "还他笔记",
+                               "refs": ["m0003", "m9999"], "due": "2026-09-30"}],
+                         note_state=state)
+
+    assert res.nodes == [] and [n.kind for n in st.all()] == ["episode", "belief",
+                                                              "episode", "experience",
+                                                              "entity", "entity"]
+    assert "引用不是现存经历" in res.warnings[0]           # 幻觉 ref 剔掉 + 记账
+    assert res.ops == [{"action": "add", "text": "还他笔记", "refs": ["m0003"],
+                        "due": "2026-09-30"}]
+
+
+def test_apply_closures_drops_bad_rows_with_warnings(tmp_path):
+    """世界校验**剔掉不拒整包**: 指不到的 close / 剔完没引用的 add。"""
+    st, state = _close_store(tmp_path)
+    res = apply_closures(st, [
+        {"action": "close", "id": "n7", "state": "kept", "reason": "不存在这条"},
+        {"action": "add", "text": "无凭无据", "refs": ["m9999"]},
+    ], note_state=state)
+
+    assert res.nodes == [] and res.ops == []
+    assert any("不在「还开着」" in w for w in res.warnings)
+    assert any("整条丢" in w for w in res.warnings)
+    assert [n.id for n in st.all() if n.kind == "promise"] == []
+
+
+def test_apply_closures_degrades_without_entities(tmp_path, caplog):
+    """self/sensei 没就位（D3a 没跑过）⇒ 节点照建, `from`/`to` 不写 + 告警。"""
+    st = _store(tmp_path)                                  # 无 entity
+    state = notes.NotesState(promise=[notes.NoteItem(id="n1", text="周六模型店",
+                                                     refs=["m0001"])])
+    res = apply_closures(st, [{"action": "close", "id": "n1", "state": "broken",
+                               "reason": "没去成"}], note_state=state)
+
+    assert res.nodes == ["p0001"]
+    assert any("from/to" in w for w in res.warnings)
+    assert st.graph().targets("p0001", "from") == []
+    assert st.graph().targets("p0001", "formed_by") == ["m0001"]   # 这条照写
+
+
+def test_apply_closures_refuses_to_reclose(tmp_path):
+    """已经结清的条目**不在**「还开着」名单里 ⇒ 重复的 close 行被丢掉（不建第二个节点）。
+
+    固化过没有，判据落在 **note 的 `closed` 位**上 —— 先固化、后退场，所以退场之前它一直算"已结清"，
+    调用方喂进来的永远只有还开着的那几条（`note_state.promise` 里 `closed` 为假）。
+    ⏳ 真正的崩溃窗口（提交成功、`retire` 事件却没落）留给"结清未退场"那条队列：到时要么让
+    `retire` 带上节点 id，要么在固化前核对图里有没有同一个承诺 —— 见 §9-17 旁边的账。
+    """
+    st, state = _close_store(tmp_path)
+    rows = [{"action": "close", "id": "n1", "state": "kept", "reason": "去了"}]
+    first = apply_closures(st, rows, note_state=state, event_seq=[7])
+    ev = notes.note_event(first.ops[0])
+    ev.seq = 1                                          # seq 由 store 分配; 折叠要 > 水位
+    closed = notes.fold([ev], base=state)               # 折叠后 n1 已结清
+
+    second = apply_closures(st, rows, note_state=closed, event_seq=[7])
+    assert first.nodes == ["p0001"] and second.nodes == []
+    assert second.ops == [] and any("不在「还开着」" in w for w in second.warnings)
+    assert [n.id for n in st.all() if n.kind == "promise"] == ["p0001"]

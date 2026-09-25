@@ -27,11 +27,18 @@ from contract.model import ValidationResult
 
 PHASE_RECORD = "record"
 PHASE_UNDERSTAND = "understand"
+#: R4 收口（DESIGN_GRAPH_V4 §8: promise 记账）—— 每段的第 4 步，**窄调用**，
+#: 只判"这条约定还开着吗"，不碰正文/认知。
+PHASE_CLOSE = "close"
 # EXT: digest-deep — 三相位之 deep（设计已声明, 未实现）; 勿删（docs/EXTENSION_POINTS.md）
 PHASE_DEEP = "deep"
 
 #: B 轮决策类型
 DECISIONS = ("touch", "update", "add")
+
+#: promise 的结局（与 `core.brain.wiki_v2.nodes.PROMISE_OUTCOMES` 对齐 ——
+#: 契约层**不依赖 core**, 所以这里独立声明一份, 由这条注释钉住"两处同源"）
+PROMISE_OUTCOMES = ("kept", "broken", "superseded")
 
 #: 玩家画像条目的 subject 固定值（与 nodes.PLAYER_SUBJECT 对齐, 契约层不依赖 core）
 PLAYER_SUBJECT = "player"
@@ -393,6 +400,37 @@ class DigestRegistry:
                                   "【范例】", a.example, ""])
             return "\n".join(lines)
 
+        if phase == PHASE_CLOSE:
+            return "\n".join([
+                "输出 JSON（不要任何解释文字, 不要 ```json 代码块）:",
+                "    {",
+                '     "add": [ // 这一段新说定的约定（没有就写 []）;',
+                '        {"text": "周六模型店", "refs": ["m0013"], "due": "2026-09-26"}',
+                "     ],",
+                '     "close": [ // 已经不再开着的约定（没有就写 []）;',
+                '        {"id": "n1", "state": "kept", "reason": "周六真的去了模型店"}',
+                "     ]",
+                "    }",
+                "",
+                "两个键**都要在**（没有就写空数组 []）。",
+                "",
+                "add 一行 = 一条新约定:",
+                "  text  —— 一句短语（≤20 字）, 写「要做什么」, 不是陈述句;",
+                "  refs  —— 说定它的经历编号（≥1, 只能引用上面列出的编号）;",
+                '  due   —— 可选, 说好的日子（没有就省略这个键）。',
+                "",
+                "close 一行 = 一条约定翻篇了:",
+                "  id     —— 备忘录上的编号（上面「还开着」名单里的）;",
+                "  state  —— kept（兑现了）/ broken（没成: 失约, 或你自己作罢）/",
+                "            superseded（被新定的那条盖过去了）;",
+                "  reason —— 一句话说清为什么（**必填**——它会原样出现在她的备忘录上）。",
+                "",
+                "规则:",
+                "  只引用上面出现过的编号; 编造的编号会被丢弃;",
+                "  close 只针对「还开着」的那些; 名单里没有的不要写;",
+                "  同一件事不要写两遍; 这条约定还开着就**不要**写进 close。",
+            ])
+
         raise ValueError(f"未知 digest phase: {phase!r}")
 
     # ------------------------------------------------------------------
@@ -423,6 +461,53 @@ class DigestRegistry:
             errors.extend(item_errs)
             warnings.extend(item_warns)
             if item is not None:
+                out.append(item)
+        return out, ValidationResult(tuple(errors), tuple(warnings))
+
+    def parse_close(self, raw: Any) -> tuple[list[dict], ValidationResult]:
+        """R4 收口: `{"add": […], "close": […]}` → 归一化行。
+
+        **只做形状校验**（键在不在 / 是不是数组 / 值域 / 必填字段）。
+        "那个编号存不存在""这条还开着吗"是**世界校验** —— 归执行器
+        （`revise.apply_closures`），那里**剔掉 + 记账、不拒整包**：
+        形状错重试有用（模型没按契约说话），"看错了世界"重试大概率还是错。
+
+        ⚠️ 与 `parse_round_b` 把引用错误当 `errors` 的口径**故意不同**（2026-09-25 定）；
+        那里的引用是本轮渲染出来的闭集，这里的 `refs` 是"这一段的经历"，
+        指错更像"它记错了"而不是"它没读契约"。
+
+        Returns: `(rows, ValidationResult)` —— `errors` 非空 = **整包拒 + 带反馈重试**。
+        行形状: `{"action": "add", "text", "refs", "due"?}`
+                `{"action": "close", "id", "state", "reason"}`
+        """
+        errors: list[str] = []
+        warnings: list[str] = []
+        if not isinstance(raw, dict):
+            return [], ValidationResult(errors=("收口轮输出必须是 JSON 对象",))
+
+        out: list[dict] = []
+        seen: set[tuple[str, str]] = set()
+        for key in ("add", "close"):
+            if key not in raw:
+                errors.append(f"缺键 {key!r}（两个键都要在, 没有就写空数组）")
+                continue
+            rows = raw.get(key)
+            if not isinstance(rows, list):
+                errors.append(f"{key} 必须是数组")
+                continue
+            for i, row in enumerate(rows):
+                if not isinstance(row, dict):
+                    errors.append(f"{key}[{i}] 必须是对象")
+                    continue
+                item = (_clean_add(row, i, errors) if key == "add"
+                        else _clean_close(row, i, errors))
+                if item is None:
+                    continue
+                mark = (key, item.get("id") or item.get("text") or "")
+                if mark in seen:
+                    warnings.append(f"{key}[{i}] 重复（只留第一条）: {mark[1]!r}")
+                    continue
+                seen.add(mark)
                 out.append(item)
         return out, ValidationResult(tuple(errors), tuple(warnings))
 
@@ -517,6 +602,42 @@ class DigestRegistry:
 # ============================================================================
 # 内部清洗（宁缺勿错: 坏项丢弃 + 报错; 质量项 warning 不阻断）
 # ============================================================================
+
+def _clean_add(row: dict, i: int, errors: list[str]) -> dict | None:
+    """`add` 一行（R4）: 正文短语 + ≥1 个引用; `due` 可选。"""
+    text = str(row.get("text") or "").strip()
+    if not text:
+        errors.append(f"add[{i}] 缺 text")
+        return None
+    refs = [str(r).strip() for r in row.get("refs") or []
+            if isinstance(r, (str, int)) and str(r).strip()]
+    if not refs:
+        errors.append(f"add[{i}] 缺 refs（至少一个：这条约定是说在哪件事里的）")
+        return None
+    item: dict = {"action": "add", "text": text, "refs": refs}
+    due = str(row.get("due") or "").strip()
+    if due:
+        item["due"] = due
+    return item
+
+
+def _clean_close(row: dict, i: int, errors: list[str]) -> dict | None:
+    """`close` 一行（R4）: 编号 + 结局 + 理由（**理由必填** —— 用户 2026-09-23 裁的）。"""
+    nid = str(row.get("id") or "").strip()
+    if not nid:
+        errors.append(f"close[{i}] 缺 id")
+        return None
+    state = str(row.get("state") or "").strip()
+    if state not in PROMISE_OUTCOMES:
+        errors.append(f"close[{i}].state 非法: {state!r}"
+                      f"（可用: {', '.join(PROMISE_OUTCOMES)}）")
+        return None
+    reason = str(row.get("reason") or "").strip()
+    if not reason:
+        errors.append(f"close[{i}] 缺理由 —— 没有理由就判不出这条是怎么翻篇的")
+        return None
+    return {"action": "close", "id": nid, "state": state, "reason": reason}
+
 
 def _clean_episode(e: Any, i: int, seq_set: set[int] | None = None
                    ) -> tuple[dict | None, list[str], list[str]]:

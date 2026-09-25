@@ -1,9 +1,69 @@
 """digest_registry 测试（AGENT_BRAIN.md §3 重构 / 板块 2）——LLM 契约层单源。"""
 from contract.digest_registry import (
+    PHASE_CLOSE,
     PHASE_RECORD,
     PHASE_UNDERSTAND,
+    PROMISE_OUTCOMES,
     digest_registry,
 )
+
+
+# ---------------------------------------------------------------------------
+# R4 收口（`{"add": […], "close": […]}`）
+# ---------------------------------------------------------------------------
+
+def test_schema_close_phase():
+    text = digest_registry.build_schema(PHASE_CLOSE)
+    assert '"add": [' in text and '"close": [' in text
+    assert "两个键**都要在**" in text
+    for w in PROMISE_OUTCOMES:
+        assert w in text
+    assert "必填" in text                       # reason 必填
+    # 示例只有一种形状（设计稿陷阱 3/4）: 契约里出现的示例行就是那两行
+    assert text.count('"text": "周六模型店"') == 1
+    assert text.count('"id": "n1"') == 1
+
+
+def test_parse_close_keeps_good_rows():
+    rows, res = digest_registry.parse_close({
+        "add": [{"text": "周六模型店", "refs": ["m0013"], "due": "2026-09-26"},
+                {"text": "还他笔记", "refs": ["m0004", "m0005"]}],
+        "close": [{"id": "n1", "state": "kept", "reason": "周六真的去了"}]})
+    assert res.errors == ()
+    assert rows[0] == {"action": "add", "text": "周六模型店", "refs": ["m0013"],
+                       "due": "2026-09-26"}
+    assert "due" not in rows[1]                 # 空 due 不落键
+    assert rows[2] == {"action": "close", "id": "n1", "state": "kept",
+                       "reason": "周六真的去了"}
+
+
+def test_parse_close_shape_errors_reject_the_package():
+    """**形状错 = 拒整包**（重试有用）: 缺键 / 不是数组 / 行不是对象 / 值域 / 必填。"""
+    cases = [
+        (["nope"], "必须是 JSON 对象"),
+        ({"add": []}, "缺键 'close'"),
+        ({"add": {}, "close": []}, "add 必须是数组"),
+        ({"add": ["x"], "close": []}, "add[0] 必须是对象"),
+        ({"add": [{"refs": ["m1"]}], "close": []}, "add[0] 缺 text"),
+        ({"add": [{"text": "x"}], "close": []}, "add[0] 缺 refs"),
+        ({"add": [], "close": [{"state": "kept", "reason": "x"}]}, "close[0] 缺 id"),
+        ({"add": [], "close": [{"id": "n1", "state": "done", "reason": "x"}]},
+         "state 非法"),
+        ({"add": [], "close": [{"id": "n1", "state": "kept"}]}, "缺理由"),
+    ]
+    for raw, want in cases:
+        rows, res = digest_registry.parse_close(raw)
+        assert any(want in e for e in res.errors), (raw, res.errors)
+        assert rows == [], raw
+
+
+def test_parse_close_dedupes_with_warning():
+    rows, res = digest_registry.parse_close({
+        "add": [], "close": [
+            {"id": "n1", "state": "kept", "reason": "去了"},
+            {"id": "n1", "state": "broken", "reason": "没去"}]})
+    assert res.errors == () and len(rows) == 1 and rows[0]["state"] == "kept"
+    assert any("重复" in w for w in res.warnings)
 
 
 # ---------------------------------------------------------------------------
