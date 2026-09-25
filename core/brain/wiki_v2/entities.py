@@ -135,6 +135,10 @@ def _entity(nid: str, name: str, aliases):
 #: 候选表的**本地 id** 前缀 —— 真 entity id 是 `x`（`x0000`/`x0001` 还是保留号）,
 #: 本地号必须换个前缀, 否则第 3 轮分不清"它复述的"和"我们真有的"。
 LOCAL_PREFIX = "c"
+#: **本轮新节点**的本地 id 前缀（`new_nodes_block`）—— ⚠️ 与 `LOCAL_PREFIX` **必须分开**:
+#: 同一次调用里有两套本地号（对象 `c0001` / 节点 `u0001`）, 混用就等于让模型
+#: 把"挂谁"和"挂在谁身上"写反, 而那种错**看起来完全正常**。
+NODE_PREFIX = "u"
 #: 字面匹配的**最小长度**。⚠️ 中文没有词边界: 单字称呼（"他"/"她"/"它"）**会命中
 #: 每一段正文**; 而别名无论初始化还是"顺手写回"给的都是**名字**（"sensei"/"遥香"）,
 #: 砍掉 1 字不丢真命中。hint 走精确相等, **不受此限**。
@@ -256,6 +260,48 @@ def payload_block(store: WikiStoreV2, ids, local_of: dict[str, str]) -> str:
             block += [f"    - {s}" for s in states]
         blocks.append("\n".join(block))
     return "\n".join(blocks)
+
+
+def new_nodes_block(store: WikiStoreV2, ids) -> tuple[str, dict[str, str]]:
+    """第 3 轮的第三块料: **本轮新节点**（本地 id `u0001..`）—— 归属的对象。
+
+    ```
+    u0001 [episode] 「模型店」 我把老师带到我路过很多年的那家模型店…
+    u0002 [promise·kept] 周六模型店，有点等不及 —— 周六真的去了
+    ```
+
+    ⚠️ **只给本轮新节点**（§8 第 3 轮那栏）: R1 的 episode/画像 · R4 物化的 promise ·
+    R2 新建的认知。**"被改写的旧节点"不在内**（§9-12 ⑤ 那条待裁 —— 它们今天归属不了,
+    这是已知的洞, 不是遗漏）。
+    ⚠️ 本地 id 前缀 `u`（与 R2 的认知列表**同款但不同一次调用**, 不会撞）——
+    `local_of` 交给执行器解析（`apply_attribution(id_map=…)`）。
+    ⚠️ 没有可归属的节点 → `("", {})`（调用方据此**不发**这次调用）。
+
+    Returns: `(text, local_of)` —— `local_of` = 真实 id → 本地 id。
+    """
+    lines: list[str] = []
+    local_of: dict[str, str] = {}
+    i = 0
+    for nid in ids:
+        node = store.get(str(nid))
+        if node is None or node.id in local_of:
+            continue
+        i += 1
+        local = format_id(NODE_PREFIX, i)
+        local_of[node.id] = local
+        head = node.text.strip() if node.text else ""
+        if node.title:
+            head = f"「{node.title}」 {head}"
+        if len(head) > 120:
+            head = head[:120] + "…"
+        lines.append(f"{local} {_node_tag(node)} {head}".rstrip())
+    return "\n".join(lines), local_of
+
+
+def _node_tag(node: BrainNode) -> str:
+    """`[episode]` / `[belief]` / `[promise·已兑现]` —— 与 `render._kind_tag` 同形（一份口径）。"""
+    from core.brain.wiki_v2.render import _kind_tag
+    return _kind_tag(node)
 
 
 def _hint_hits(hint: str, forms: list[str]) -> bool:

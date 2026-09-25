@@ -395,7 +395,10 @@ CLI/测试同步路径在引擎内串行。
   `render_cognition_list` 收 `promise`（标签 `[promise·已兑现]`）+ `must_include` 不受 cap 截断；
   R2 输出多一个**可选键 `links`**（`supports`/`contradicts`/`evolved_from`，两端是渲染列表里的
   本地 id）—— ⚠️ **两个 id 空间**：能 `touch`/`update` 的只有看法，能 `link` 的含承诺。
-  ⏳ 最后一步：**R3 归属接线**。
+  **R3 归属**也已接线（`digest.attr`，排在**最后**）：料 = `entities.py` 四块纯函数
+  （候选表 `c0001` / 命中集 / 载荷 / 本轮新节点 **`u0001`**）⇒ `about` 边 + `new_entity` +
+  entity 载荷；⚠️ **两套本地号必须分开**（混用会让"挂谁"与"挂在谁身上"写反）。
+  ⇒ **每段四步 `R1 → R4 → R2 → R3` 全部落地**（链路 ③ 完成）。
 - 结算 delta → `affection|digest` 事件（events.jsonl 为真源）+ wiki 好感快照；
   数值**不直接喂 LLM**（无数字概念, 防讨好/数值化）——未来 relationship_view
   （阶段词）是规划方向。`core/affection/affection_calc.py` 数值层。

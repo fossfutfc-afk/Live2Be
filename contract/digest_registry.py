@@ -33,6 +33,10 @@ PHASE_CLOSE = "close"
 #: **全景轮**（§8.6: 写卡）—— **低频**（章闭环 / 每 N 段），不在每段那一批里。
 #: 它不碰 A 类槽、不碰图，只重写 note 的 B 类两槽（`habits` / `on_mind`）。
 PHASE_PANORAMA = "panorama"
+#: **R3 归属轮**（§8 第 3 行: 归属 + entity 维护）—— 每段的**最后一步**。
+#: 它写 `about`（hint/正文 → 候选表里的对象）、`new_entity` 提案、entity 载荷改写；
+#: ⚠️ **不碰正文**（改正文是 R2 的活）、**不合并节点**（§9-12 ④ 未裁）。
+PHASE_ATTRIBUTE = "attribute"
 # EXT: digest-deep — 三相位之 deep（设计已声明, 未实现）; 勿删（docs/EXTENSION_POINTS.md）
 PHASE_DEEP = "deep"
 
@@ -52,6 +56,7 @@ PLAYER_SUBJECT = "player"
 #: 数字 ⇒ 属"契约声明与执行脱钩"的残留。**要恢复边界必须同时落校验器**,
 #: 只把常量加回来 = 又留一处看起来生效的假边界。
 MAX_EPISODES = 5        # A 轮单包最多 episode 数
+MAX_ALIASES = 8         # `new_entity` 的别名上限（超了截断 + warning —— 别名是效率优化）
 MAX_TEXT = 300          # 正文（text）单行上限（汉字）——三槽合流后两种 kind 共用
 MAX_TAGS = 4            # tags 检索词上限
 MAX_ITEMS = 3           # items（物品台账, §3.1）单条上限
@@ -488,6 +493,42 @@ class DigestRegistry:
                 "  人设卡里已经有的别写 —— 那是设定, 不是你的观察。",
             ])
 
+        if phase == PHASE_ATTRIBUTE:
+            return "\n".join([
+                "输出 JSON（不要任何解释文字, 不要 ```json 代码块）:",
+                '    {"attributions": [ // 没有可归属的就写 [] //',
+                '        {"action": "attach", "entity": "c0001", "hint": "老师",',
+                '         "nodes": ["u0001", "u0003"]},',
+                '        {"action": "new_entity", "name": "小玉", "aliases": ["tama"],',
+                '         "reason": "她第一次出场, 之后还会来", "nodes": ["u0002"]},',
+                '        {"action": "rewrite", "entity": "c0001",',
+                '         "text": "他是第一个不嫌弃我的人。",',
+                '         "state": ["今天戴了眼镜"]}',
+                "    ]}",
+                "",
+                "三件事（一行一件）:",
+                "  attach     —— 把【本轮新节点】挂到某个对象上（**有边 = 归好了**）:",
+                "    entity —— 候选表里的编号（c0001…）;",
+                "    hint   —— 【本轮新节点】里那句自然称呼（写了就顺手记进别名, 没有就省略）;",
+                "    nodes  —— 要挂上去的节点编号（u0001…, 至少一个）。",
+                "  new_entity —— 候选表里**确实没有**的人/地方/东西:",
+                "    name   —— 它的名字（必填）; aliases 可选;",
+                "    reason —— **为什么值得建**（必填, 一句话）;",
+                "    nodes  —— 顺手把这批节点挂上去（可选）。",
+                "  rewrite    —— 改写某个对象的【当前载荷】（立场 / 现状）:",
+                "    entity —— 候选表里的编号;",
+                "    text   —— 立场（她的看法, 慢变量; 空 = 保留原文）;",
+                "    state  —— 现状（物理状况清单; 空 = 保留）。",
+                "",
+                "规则:",
+                "  ⚠️ 候选表里**已经有**的别新建 —— 同一个人/地方/东西只能有一个对象;",
+                "  ⚠️ 只挂**本轮新节点**（u 编号只在本轮有效, 别引用别处的）;",
+                "  ⚠️ **判不出来就别挂**（宁缺勿错: 没边 ≠ 错, 挂错才要花成本修）;",
+                "  ⚠️ `rewrite` 是**增量改写**: state 只给**变了的那几行**（原样照抄其余的）,"
+                " 立场重写一次就够, 没变就别写这一行;",
+                "  ⚠️ 立场（text）没变就别动 —— 它是慢变量。",
+            ])
+
         raise ValueError(f"未知 digest phase: {phase!r}")
 
     # ------------------------------------------------------------------
@@ -608,6 +649,60 @@ class DigestRegistry:
         return {"habits": kept,
                 "drop": [{"id": nid, "afterwards": why} for nid, why in dropped.items()],
                 "on_mind": on_mind}, ValidationResult(())
+
+    def parse_attribution(self, raw: Any, *, entity_ids: set[str],
+                          node_ids: set[str]) -> tuple[list[dict], ValidationResult]:
+        """R3 归属轮: `{"attributions": […]}` → 归一化行（形状见 `apply_attribution`）。
+
+        三种行::
+
+            {"action": "attach",     "entity": "c0001", "hint": "老师", "nodes": ["u0001"]}
+            {"action": "new_entity", "name": "小玉", "aliases": ["tama"],
+                                     "reason": "…", "nodes": ["u0002"]}
+            {"action": "rewrite",    "entity": "c0001", "text": "…", "state": ["…"]}
+
+        **形状错与引用错都拒整包**（同 Round B 的口径 —— 这里的 id 是引擎**渲染出来的闭集**,
+        指错就是"没读输入"）; 而"这个对象该不该存在""这条归得对不对"是**判断**, 引擎不管。
+
+        Args:
+            entity_ids: 候选表里的本地 id 集（`c0001..`）
+            node_ids: 本轮新节点的本地 id 集（`u0001..`）
+
+        ⚠️ `hint` / `aliases` / `reason` 的**空值口径**: `hint` 与 `aliases` 空 = 不写
+        （可选）; `reason` 空 ⇒ **拒**（它是 `new_entity` 的准入门槛, §3.0）。
+        `rewrite` 的 `text`/`state` 都空 ⇒ **拒**（那一行什么都没说 = 白跑一趟）。
+        """
+        errors: list[str] = []
+        warnings: list[str] = []
+        if not isinstance(raw, dict):
+            return [], ValidationResult(errors=("归属轮输出必须是 JSON 对象",))
+        rows = raw.get("attributions")
+        if rows is None:
+            # 空包是合法的（这一段没有可归属的）—— 但**缺键**与"写空数组"要分得开
+            errors.append("缺键 'attributions'（没有可归属的就写 []）")
+            return [], ValidationResult(tuple(errors))
+        if not isinstance(rows, list):
+            return [], ValidationResult(errors=("attributions 必须是数组",))
+
+        out: list[dict] = []
+        for i, row in enumerate(rows):
+            if not isinstance(row, dict):
+                errors.append(f"attributions[{i}] 必须是对象")
+                continue
+            action = str(row.get("action", "")).strip()
+            if action == "attach":
+                item = _clean_attach(row, i, entity_ids, node_ids, errors)
+            elif action == "new_entity":
+                item = _clean_new_entity(row, i, node_ids, errors, warnings)
+            elif action == "rewrite":
+                item = _clean_rewrite(row, i, entity_ids, errors)
+            else:
+                errors.append(f"attributions[{i}].action 非法: {action!r}"
+                              "（attach|new_entity|rewrite）")
+                continue
+            if item is not None:
+                out.append(item)
+        return out, ValidationResult(tuple(errors), tuple(warnings))
 
     def parse_round_b(self, raw: Any, *, episode_ids: set[str],
                       target_ids: set[str],
@@ -773,6 +868,103 @@ def _parse_links(raw: Any, link_ids: set[str], errors: list[str],
             continue
         seen.add(key)
         out.append({"action": "link", "rel": rel, "from": src, "to": dst})
+    return out
+
+
+def _clean_attach(row: dict, i: int, entity_ids: set[str], node_ids: set[str],
+                  errors: list[str]) -> dict | None:
+    """`attach`: 把本轮新节点挂到某个对象上（`about` 边的唯一入口）。"""
+    ent = str(row.get("entity", "")).strip()
+    if ent not in entity_ids:
+        errors.append(f"attributions[{i}].entity 不在候选表内: {ent!r}")
+        return None
+    nodes = _local_nodes(row.get("nodes"), i, node_ids, errors)
+    if nodes is None:
+        return None
+    item: dict = {"action": "attach", "entity": ent, "nodes": nodes}
+    hint = str(row.get("hint", "") or "").strip()
+    if hint:
+        item["hint"] = hint
+    return item
+
+
+def _clean_new_entity(row: dict, i: int, node_ids: set[str], errors: list[str],
+                      warnings: list[str]) -> dict | None:
+    """`new_entity`: 候选表里确实没有的对象（`name` + **`reason`** 必填）。"""
+    name = str(row.get("name", "") or "").strip()
+    if not name:
+        errors.append(f"attributions[{i}]: new_entity 必须填 name")
+        return None
+    reason = str(row.get("reason", "") or "").strip()
+    if not reason:
+        # 准入门槛（§3.0）: 建对象是**永久成本**（此后每轮都在候选表里）, 得说清为什么
+        errors.append(f"attributions[{i}]: new_entity 必须填 reason（为什么值得建）")
+        return None
+    item: dict = {"action": "new_entity", "name": name, "reason": reason}
+    aliases = [a.strip() for a in (row.get("aliases") or [])
+               if isinstance(a, str) and a.strip()]
+    if aliases:
+        item["aliases"] = aliases[:MAX_ALIASES]
+        if len(aliases) > MAX_ALIASES:
+            warnings.append(f"attributions[{i}].aliases 超过 {MAX_ALIASES} 条——截断")
+    if row.get("nodes") is None:
+        return item                                        # 顺手挂节点是可选的
+    nodes = _local_nodes(row.get("nodes"), i, node_ids, errors, optional=True)
+    if nodes is None:
+        return None
+    if nodes:
+        item["nodes"] = nodes
+    return item
+
+
+def _clean_rewrite(row: dict, i: int, entity_ids: set[str],
+                   errors: list[str]) -> dict | None:
+    """`rewrite`: 改写对象的**当前载荷**（`text` 立场 / `state` 现状）—— 空值 = 保留。"""
+    ent = str(row.get("entity", "")).strip()
+    if ent not in entity_ids:
+        errors.append(f"attributions[{i}].entity 不在候选表内: {ent!r}")
+        return None
+    text = str(row.get("text", "") or "").strip()
+    raw_state = row.get("state")
+    state: list[str] = []
+    if isinstance(raw_state, list):
+        state = [s.strip() for s in raw_state if isinstance(s, str) and s.strip()]
+    elif raw_state not in (None, ""):
+        errors.append(f"attributions[{i}].state 必须是字符串数组")
+        return None
+    if not text and not state:
+        # 行级"什么都没说"= 白跑一趟（`apply_attribution` 那边也会当成空 patch 拒）
+        errors.append(f"attributions[{i}]: rewrite 至少要给 text 或 state 之一")
+        return None
+    item: dict = {"action": "rewrite", "entity": ent}
+    if text:
+        item["text"] = text
+    if state:
+        item["state"] = state
+    return item
+
+
+def _local_nodes(raw: Any, i: int, node_ids: set[str], errors: list[str],
+                 optional: bool = False) -> list[str] | None:
+    """`nodes` 字段清洗: 本地 id 数组（`u0001..`）。
+
+    Returns: 归一化后的 id 列表; `None` = 有错（调用方丢这一行）。
+    ⚠️ `optional=True`（`new_entity` 的顺手挂）时**空数组合法** —— 建对象本身就有价值。
+    """
+    if not isinstance(raw, list):
+        errors.append(f"attributions[{i}].nodes 必须是数组（本地 id, 如 [\"u0001\"]）")
+        return None
+    out: list[str] = []
+    for nid in raw:
+        s = str(nid).strip()
+        if s not in node_ids:
+            errors.append(f"attributions[{i}].nodes 里的 {s!r} 不在本轮新节点里")
+            return None
+        if s not in out:
+            out.append(s)
+    if not out and not optional:
+        errors.append(f"attributions[{i}]: nodes 不能是空的（挂谁上去?）")
+        return None
     return out
 
 

@@ -45,12 +45,14 @@ from pathlib import Path
 from typing import Any, Callable
 
 from contract.digest_registry import (
+    PHASE_ATTRIBUTE,
     PHASE_CLOSE,
     PHASE_PANORAMA,
     PHASE_RECORD,
     PHASE_UNDERSTAND,
     digest_registry,
 )
+from core.brain.wiki_v2.entities import candidate_table, hit_set, new_nodes_block, payload_block
 from core.brain.wiki_v2.llm_call import llm_chat
 from core.brain.wiki_v2.nodes import PLAYER_SUBJECT, make_node
 from core.brain.wiki_v2.panorama import build_input
@@ -59,7 +61,12 @@ from core.brain.wiki_v2.recall import (
     recommend_candidates,
 )
 from core.brain.wiki_v2.render import render_cognition_list
-from core.brain.wiki_v2.revise import apply_closures, apply_decisions, apply_panorama
+from core.brain.wiki_v2.revise import (
+    apply_attribution,
+    apply_closures,
+    apply_decisions,
+    apply_panorama,
+)
 from core.brain.wiki_v2.store import WikiStoreV2
 from core.session.events import is_content_event
 from core.session.maintenance import exclude_abandoned
@@ -112,6 +119,8 @@ class DigestResult:
     notes_warnings: list[str] = field(default_factory=list)
     #: R4 物化的 promise 节点 id（R2/R3 要对它们写边 —— §8 的批内顺序就是为这个）
     promise_nodes: list[str] = field(default_factory=list)
+    #: R3 新建的 entity id（`new_entity` 的产物; 归属边在那边一起写）
+    created_entities: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -420,10 +429,50 @@ def digest_segment(
             result=result)
         if rows is None:
             return _rollback(store, snapshot, result)
-        apply_decisions(store, rows,
-                        id_map={v: k for k, v in local_of.items()},   # local→real
-                        ts=now_ts,
-                        event_seq=[interact_max])
+        r2_created = apply_decisions(store, rows,
+                                     id_map={v: k for k, v in local_of.items()},  # local→real
+                                     ts=now_ts,
+                                     event_seq=[interact_max])
+
+        # ── Round R3: 归属 + entity 维护（§8 的第 3 行 —— 每段的最后一步）──
+        # 为什么在最后: 它要挂的是**本轮全部新节点**（R1 的经历/画像 + R4 的承诺 +
+        # R2 新建的认知）⇒ 前面几轮都落地了它才看得全（§8 的批内顺序 R1→R4→R2→R3）。
+        new_ids = ([*episode_ids, *player_ids, *r2_created, *result.promise_nodes])
+        node_text, node_local = new_nodes_block(store, new_ids)
+        if not node_text:
+            logger.info("digest_attr 跳过（本段没有新节点可归属）")
+        else:
+            table_text, ent_local = candidate_table(store)
+            hits = hit_set(store,
+                           hints=[h.get("hint", "") for h in result.hints],
+                           texts=_node_texts(store, new_ids))
+            payload = payload_block(store, hits, ent_local)
+            system_d = load_prompt("digest_v2_round_attr").replace(
+                "{{digest_schema}}", digest_registry.build_schema(PHASE_ATTRIBUTE))
+            user_d = _join_sections([
+                ("候选对象", table_text or "（还没有任何对象）"),
+                ("这几个对象的当前情况", payload),
+                ("本轮新节点", node_text),
+                ("角色人设（锚点）", character_prompt),
+            ])
+            rows_d, resp_d = _round_call(
+                llm, system_d, user_d,
+                model=model, temperature=temperature, max_tokens=max_tokens,
+                llm_timeout=llm_timeout, extra_body=extra_body, deadline=deadline,
+                label="attr",
+                parse_fn=lambda r: digest_registry.parse_attribution(
+                    r, entity_ids=set(ent_local.values()),
+                    node_ids=set(node_local.values())),
+                result=result)
+            if rows_d is None:
+                return _rollback(store, snapshot, result)
+            result.created_entities = apply_attribution(
+                store, rows_d,
+                id_map={v: k for k, v in node_local.items()},   # local→real
+                local_of=ent_local, ts=now_ts, event_seq=[interact_max])
+            logger.info("digest_attr table=%d hit=%d payload=%d rows=%d new=%d",
+                        len(ent_local), len(hits), len(payload.splitlines()),
+                        len(rows_d), len(result.created_entities))
     except ValueError as e:                              # store 层拒绝 → 回滚
         result.errors.append(str(e))
         return _rollback(store, snapshot, result)
@@ -666,6 +715,23 @@ def _create_a_nodes(store: WikiStoreV2, entries: list[dict], *, ts: str,
         if hint:
             hints.append({"node": nid, "hint": hint})
     return episode_ids, player_ids, hints
+
+
+def _node_texts(store: WikiStoreV2, ids: list[str]) -> list[str]:
+    """本轮新节点的正文（喂 `entities.hit_set` 扫称呼用）。
+
+    连 `title` / `verbatim` 一起给 —— 称呼常出现在这两处（"老师"多半在标题或原话里,
+    而不在她自己那句总结里）。取不到 → 跳过（绝不编）。
+    """
+    out: list[str] = []
+    for nid in ids:
+        node = store.get(str(nid))
+        if node is None:
+            continue
+        for t in (node.text, node.title, node.verbatim):
+            if isinstance(t, str) and t.strip():
+                out.append(t)
+    return out
 
 
 def _open_promises_text(items: list) -> str:
@@ -1001,8 +1067,10 @@ def _rollback(store: WikiStoreV2, snapshot: dict,
     ⭐ 2026-09-25: **R4 的 note 操作一并作废**（§8: 失败 = 整批回滚 ⇒ 那条约定原样开着）。
     节点面靠 `restore_state` 回去; note 面必须在这里清空 —— 事件 append **不可撤销**,
     调用方只要看到 `ok=False` 就不写, 但结果对象里留着它就是一颗雷。
+    同理清掉 `created_entities`（R3 建的 entity 也随快照回去了）。
     """
     store.restore_state(snapshot)
     result.notes_ops = []
     result.promise_nodes = []
+    result.created_entities = []
     return result
