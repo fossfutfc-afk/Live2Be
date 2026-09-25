@@ -67,7 +67,8 @@ def test_candidate_must_share_an_anchor(tmp_path):
     inp = build_input(st, _note_state(), new_ids=[new.id])
 
     assert [c.id for c in inp.candidates] == ["m0003"]
-    assert [n.id for n in inp.others] == ["m0001"]        # 无关的落进"其余"索引
+    # ⚠️ 无关的那条**不出现**（索引默认关）—— 她看不到内容的条目不该被摆出来诱惑引用
+    assert inp.others == [] and "m0001" not in inp.render()
 
 
 def test_generic_anchor_is_capped_per_anchor(tmp_path):
@@ -223,15 +224,16 @@ def test_others_index_drops_candidates_and_reports_truncation(tmp_path):
     assert "还有 2 条更早的没有列出来" in inp.render()
 
 
-def test_worth_running_needs_new_material_or_pending_close(tmp_path):
+def test_worth_running_needs_new_material(tmp_path):
+    """⭐ 只看有没有**新材料** —— 结清/固化不归它（那是 R4 的活），所以"待结清"不算理由。"""
     st = _store(tmp_path)
     new = _ep(st, "新的", tags=["模型店"])
 
     assert build_input(st, _note_state(), new_ids=[new.id]).worth_running is True
+    # 没有新料 ⇒ 别跑（哪怕她本子上有东西要变 —— 那不是这一轮的职责）
     closed = notes.NoteItem(id="n1", text="买花", closed_at="x", reason="送出去了")
-    assert build_input(st, _note_state(promise=[closed]), new_ids=[]).worth_running is True
-    # 只有新旧惯例、没有新料也没有待结清 ⇒ 别跑（跑了只是措辞空转）
     habits = [notes.NoteItem(id="n2", text="惯例", refs=["m0001"])]
+    assert build_input(st, _note_state(promise=[closed]), new_ids=[]).worth_running is False
     assert build_input(st, _note_state(habits=habits), new_ids=[]).worth_running is False
 
 
@@ -241,32 +243,26 @@ def test_worth_running_needs_new_material_or_pending_close(tmp_path):
 
 def test_render_is_natural_language_with_evidence_and_caveats(tmp_path):
     st = _store(tmp_path)
-    _ep(st, "旧的：橱窗", tags=["模型店"], sig=0.9)
+    _ep(st, "旧的：橱窗", tags=["模型店"], sig=0.9)          # 被锚点连上（也是惯例的引用）
     _ep(st, "旧的：无关的一条", tags=["别的"])
     new = _ep(st, "新的：又路过那家店", tags=["模型店"])
     state = _note_state(
-        promise=[notes.NoteItem(id="n1", text="周六模型店", refs=["m0001"],
-                                since="2026-09-20T10:00:00+09:00"),
-                 notes.NoteItem(id="n2", text="买花", refs=["m0001"],
-                                closed_at="2026-09-21T10:00:00+09:00",
-                                reason="送出去了")],
         habits=[notes.NoteItem(id="n4", text="他总先问我想要哪个", refs=["m0001"])],
-        on_mind=notes.NoteItem(text="我不想再隔着玻璃看", refs=["m0001"]))
+        on_mind=notes.NoteItem(id="", text="我不想再隔着玻璃看", refs=["m0001"]))
 
-    text = build_input(st, state, new_ids=[new.id]).render(now=NOW)
+    text = build_input(st, state, new_ids=[new.id]).render()
     lines = text.splitlines()
 
-    assert lines[0].startswith("【你手上还开着的约定】")
-    assert "  n1 周六模型店 (m0001)  ← 记于 5 天前" in lines
-    assert any(l.startswith("【已经结清、图里还没接住的】") for l in lines)
-    assert any("  n2 买花 (m0001)  ← 已结清（送出去了）" == l for l in lines)
-    assert any(l.startswith("【你之前记下的惯例】") for l in lines)
-    assert any(l.startswith("【你最近在想】") for l in lines)
+    assert lines[0].startswith("【你上次给自己写的卡】")
+    assert "  · 惯例" in lines and "  · 最近在想" in lines
+    assert "    他总先问我想要哪个（m0001）" in lines          # 卡上：正文 + refs
+    assert "    我不想再隔着玻璃看（m0001）" in lines
     assert any(l.startswith("【这次新消化的经历】") for l in lines)
     assert any("**不一定是同一件事**" in l for l in lines)      # 如实说"这不是判据"
-    assert any(l.startswith("【其余的经历】") for l in lines)
-    assert any("（与 m0003 同 tag: 模型店" in l for l in lines)     # 来源标注 = 圆括号
-    assert any("你上次引用了它）" in l for l in lines)            # 递归那一半也标出来
+    assert any("（与 m0003 同 tag: 模型店" in l for l in lines)   # 来源标注 = 圆括号
+    assert any("你上次引用了它）" in l for l in lines)          # 递归那一半也标出来
+    # ⭐ 卡上不印编号、不印时间（契约里没有 id；时间对"还成立吗"不是判据）
+    assert "n4 " not in text and "记于" not in text
     for junk in ("{", "}", "[", "]", '"', "promise", "habits", "on_mind", "refs"):
         assert junk not in text, junk
 
@@ -277,21 +273,10 @@ def test_render_omits_empty_blocks(tmp_path):
     text = build_input(st, _note_state(), new_ids=[new.id]).render()
 
     assert "【这次新消化的经历】" in text
-    for absent in ("【你手上还开着的约定】", "【已经结清、图里还没接住的】",
-                   "【你之前记下的惯例】", "【你最近在想】", "【可能相关的旧经历】"):
+    for absent in ("【你上次给自己写的卡】", "【可能相关的旧经历】", "【其余的经历】"):
         assert absent not in text
 
 
 def test_empty_library_renders_nothing(tmp_path):
     inp = build_input(_store(tmp_path), _note_state(), new_ids=["m9999"])
     assert inp.render() == "" and inp.worth_running is False
-
-
-def test_render_without_now_omits_time_phrase(tmp_path):
-    st = _store(tmp_path)
-    new = _ep(st, "新的", tags=["模型店"])
-    state = _note_state(promise=[notes.NoteItem(id="n1", text="约定", refs=["m0001"],
-                                                since="2026-09-20T10:00:00+09:00")])
-    text = build_input(st, state, new_ids=[new.id]).render(now=None)
-    assert "  n1 约定 (m0001)\n" in text                  # 不加时间短语, 也不编一个
-    assert "记于" not in text
