@@ -543,7 +543,8 @@ def check(state: NotesState, known: Iterable[str] | None = None) -> list[str]:
     ④ 正文超 `MAX_TEXT` 字（该写名词短语, 不写陈述句）
 
     ⚠️ **`promise` 的"结清未退场"是正常态**（它就是固化的待办队列）⇒ 不逐条告警;
-       只在**积压**时报一句（那才说明收口没跑到）。
+       只在**积压**时报一句。⚠️ 2026-09-25 起 `retire` 暂未启用（读路径没接上, §3.2）⇒
+       那一句的含义从"收口没跑到"变成"积压到什么规模了"（**预期内的观察值, 不是故障**）。
 
     `known=None` → 跳过 ②（调用方没有图的时候, 比如单测折叠本身）。
     """
@@ -559,7 +560,7 @@ def check(state: NotesState, known: Iterable[str] | None = None) -> list[str]:
         pending = [it for it in items if it.closed]
         if len(pending) > MAX_CLOSED_PENDING:
             out.append(f"{slot} 结清未退场积压（{len(pending)} > {MAX_CLOSED_PENDING}）"
-                       "—— 图侧接住之后要补 retire")
+                       "—— 读路径（recall）接上之前这是**预期**的: `retire` 暂未启用（§3.2）")
         for it in items:
             tag = it.id or slot
             if not it.refs:
