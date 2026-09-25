@@ -285,6 +285,8 @@ core.mmt.engine	MmtExecutor	class	core.mmt.mmt_executor
 core.mmt.engine	MmtLoopError	class	core.mmt.engine
 core.mmt.engine	MomoTalkEngine	class	core.mmt.engine
 core.mmt.engine	MomoTalkOutput	class	core.tui.display
+core.mmt.engine	PANORAMA_COUNTER_KEY	data	-
+core.mmt.engine	PANORAMA_EVERY	data	-
 core.mmt.engine	SUGGEST_BOND_ROUNDS	data	-
 core.mmt.engine	Session	class	core.mmt.engine
 core.mmt.engine	SessionStore	class	core.session.store
@@ -320,6 +322,7 @@ core.mmt.engine	player_names	function	core.parsing.player_profile
 core.mmt.engine	render_background_experience	function	core.brain.wiki_v2.render
 core.mmt.engine	render_character_view	function	core.brain.wiki_v2.render
 core.mmt.engine	round_messages	function	core.promptkit.tail
+core.mmt.engine	run_panorama	function	core.brain.wiki_v2.digest
 core.mmt.engine	session_status	function	core.session.renderer
 core.mmt.engine	split_reply_chunks	function	core.tui.text_processors
 core.mmt.engine	task_card	function	core.promptkit.task

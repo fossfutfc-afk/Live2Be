@@ -104,6 +104,10 @@ class StubLLM:
             return {"episodes": []}
         if task in (T.DIGEST_B, T.DIGEST):
             return {"decisions": [], "evidence": [], "affection_exp_delta": 0}
+        if task == T.DIGEST_CLOSE:                      # R4 收口 → 没什么要记的
+            return {"add": [], "close": []}
+        if task == T.DIGEST_PANORAMA:                   # 全景轮（写卡）→ 空卡
+            return {"habits": [], "drop": [], "on_mind": None}
         return None
 
     # -- 契约（引擎只要求这两个方法）-----------------------------------------

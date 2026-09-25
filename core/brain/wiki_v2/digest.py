@@ -6,6 +6,8 @@
     Round B「理解者」: 新经历 + 现有认知（本地 id 渲染）→ 决策表 decisions
                       （touch=印证 / update=深化改写+history / add=新建）
                       → apply_decisions 执行 → 原子提交
+（另有两轮不在本函数里: **R4 收口**在每段那一批的第 4 步; **全景轮（写卡）**是
+ 低频轮 —— 见下。）
 
 编排（digest_segment）:
     1. 增量: new_events = seq > store.digested_seq（无新增 → 0 次 LLM 调用）
@@ -19,6 +21,13 @@
     6. affection_exp_delta 返回（事件幂等写由调用方——运行时集成层）
     7. A/B 任一失败 → clone_state 快照回滚, 水位不推进（宁缺勿错, 可重算）
     8. 成功 → store.save()（原子整写）+ 推进 meta.digested_seq + save_meta
+
+全景轮（`run_panorama`, DESIGN_GRAPH_V4 §8.6, 2026-09-25 接线）:
+    **低频 · 写卡** —— 只重写 note 的 B 类两槽（`habits` / `on_mind`）。
+    ⭐ 它**不碰图** ⇒ **不进事务、不拍快照**: 产出是一条 `rewrite` 操作, 由调用方
+    （`mmt.engine._maybe_card_round`）append 进真源 → `save_notes` → 重建注入。
+    触发 = `wiki.meta.json` 的段计数器（每消化成功一段 +1, 到 `PANORAMA_EVERY` 跑一次）,
+    **没跑成不清零**（下一段再试）。
 
 反馈回灌（2026-09-02 采纳 llm.client.feedback 语义）: 被拒轮把 LLM 自己的输出
 追加为 assistant 位 + 引擎错误, 同一上下文重试 1 次——模型能看见自己错在哪
@@ -36,18 +45,20 @@ from pathlib import Path
 from typing import Any, Callable
 
 from contract.digest_registry import (
+    PHASE_PANORAMA,
     PHASE_RECORD,
     PHASE_UNDERSTAND,
     digest_registry,
 )
 from core.brain.wiki_v2.llm_call import llm_chat
 from core.brain.wiki_v2.nodes import make_node
+from core.brain.wiki_v2.panorama import build_input
 from core.brain.wiki_v2.recall import (
     EmbedFn,
     recommend_candidates,
 )
 from core.brain.wiki_v2.render import render_cognition_list
-from core.brain.wiki_v2.revise import apply_decisions
+from core.brain.wiki_v2.revise import apply_decisions, apply_panorama
 from core.brain.wiki_v2.store import WikiStoreV2
 from core.session.events import is_content_event
 from core.session.maintenance import exclude_abandoned
@@ -70,6 +81,13 @@ COGNITION_CAP = 12
 #: 放开下界的理由见 docs/DESIGN_WIKI_V3.md §3.3.3: 关系能变坏是玩法语义,
 #: 且同频召回需要 `aff_at_encoding` 的符号。
 _AFF_MIN, _AFF_MAX = -100, 100
+#: 全景轮的触发间隔（**段数**）—— 2026-09-25 用户裁决: N=10 段跑一次写卡;
+#: **章闭环不插队**, 它只算那一段（触发点唯一 ⇒ 时序可预测）。
+PANORAMA_EVERY = 10
+#: `wiki.meta.json` 里的段计数器键（"距上次写卡消化了几段"）
+PANORAMA_COUNTER_KEY = "segments_since_card"
+#: 全景轮单次调用的时间预算（它比一轮 A/B 轻 —— 一次调用, 无反馈重试以外的步骤）
+PANORAMA_DEADLINE = 180.0
 
 
 @dataclass
@@ -86,6 +104,93 @@ class DigestResult:
     #: 第 1 轮给的自然名字, **不落库**（不是节点字段）, 由第 3 轮做 hint→id 映射。
     #: D1 只收集（`_create_a_nodes` 返回）; 消费在 D3（那时才有候选表可映射）。
     hints: list[dict] = field(default_factory=list)
+
+
+@dataclass
+class PanoramaRunResult:
+    """一次**全景轮（写卡）**的结果（§8.6）。
+
+    `ran=False` = **没调那次 LLM**（没有新材料 —— 重写一遍只是让措辞空转）。
+    `ok=True` 时才有 `op`（调用方据此 append 事件 + `save_notes`）。
+    """
+
+    ran: bool = False
+    ok: bool = False
+    card: dict = field(default_factory=dict)             # 归一化的那张卡（parse 层产出）
+    op: dict = field(default_factory=dict)               # note 的 `rewrite` 操作
+    warnings: list[str] = field(default_factory=list)    # 世界校验的记账（剔/丢/只剩一条…）
+    errors: list[str] = field(default_factory=list)
+    llm_calls: int = 0
+    applied: Any = None                                  # `revise.PanoramaResult`（账）
+
+
+def run_panorama(
+    store: WikiStoreV2,
+    llm,
+    note_state,
+    *,
+    new_ids: Any = (),
+    embed_fn: EmbedFn | None = None,
+    model: str | None = None,
+    temperature: float = 0.3,
+    max_tokens: int | None = None,
+    extra_body: dict | None = None,
+    deadline_seconds: float = PANORAMA_DEADLINE,
+    llm_timeout: float | None = None,
+) -> PanoramaRunResult:
+    """全景轮（写卡）: 取料 → 一次调用 → parse → 执行器 → 返回那条 `rewrite` 操作。
+
+    ⚠️ **它不落任何盘**（不 append 事件、不 save_notes、不碰图）—— 提交顺序是
+    "先真源后缓存", 而那两件事只有拿得到 `SessionStore` 的调用方能做
+    （`mmt.engine._maybe_card_round`）。本函数只把**该写什么**算出来。
+
+    ⚠️ **无新材料 ⇒ 直接不跑**（`ran=False` 且 `ok=False`, 记一行 INFO）:
+    调用方据此**不清零计数器**, 下一段再试。
+
+    Args:
+        note_state: 当前笔记状态（`store.notes_state(events)`）—— 上一版那张卡就是它
+        new_ids: 本轮新增的 episode id（`DigestResult.created`）
+        embed_fn: 语义后端; 没给/失败 → 降级字面锚点（同 recall 的降级口径）
+    """
+    if max_tokens is None:                       # 真源: task_levels 形态 digest
+        max_tokens = _tl_max_tokens("digest")
+    if extra_body is None:                       # 真源档位: digest = high（同 A/B 轮）
+        extra_body = _tl_extra("digest")
+    out = PanoramaRunResult()
+    inp = build_input(store, note_state, new_ids=new_ids, embed_fn=embed_fn)
+    if not inp.worth_running:
+        out.errors.append("没有新消化的经历（重写一遍只是措辞空转）→ 本次不跑")
+        logger.info("panorama_skip 无新材料（0 次 LLM 调用）")
+        return out
+    system = load_prompt("panorama").replace(
+        "{{digest_schema}}", digest_registry.build_schema(PHASE_PANORAMA))
+    user = inp.render()
+    import time as _time
+    deadline = _time.monotonic() + deadline_seconds
+    card, _resp = _round_call(
+        llm, system, user,
+        model=model, temperature=temperature, max_tokens=max_tokens,
+        llm_timeout=llm_timeout, extra_body=extra_body, deadline=deadline,
+        label="panorama",
+        # 覆盖检查要拿"上一版卡上的编号集" —— 少了它, "沉默 = 删除"那个洞就还在
+        parse_fn=lambda r: digest_registry.parse_panorama(
+            r, habit_ids={it.id for it in note_state.habits if it.id}),
+        result=out)
+    out.ran = True
+    if card is None:
+        return out                               # `_round_call` 已把原因写进 errors
+    applied = apply_panorama(store, card, note_state=note_state)
+    out.ok = True
+    out.card = card
+    out.op = applied.op
+    out.warnings = list(applied.warnings)
+    out.applied = applied
+    for w in applied.warnings:                   # 世界校验的记账: 一行一条, 可 grep
+        logger.warning("panorama: %s", w)
+    logger.info("panorama_card kept=%d added=%d dropped=%d on_mind=%s warn=%d mode=%s",
+                len(applied.kept), len(applied.added), len(applied.dropped),
+                bool(applied.op.get("on_mind")), len(applied.warnings), inp.mode)
+    return out
 
 
 def digest_segment(
@@ -299,9 +404,12 @@ def _round_call(
     deadline: float,
     label: str,
     parse_fn: Callable[[dict], tuple[Any, Any]],
-    result: DigestResult,
+    result: DigestResult | PanoramaRunResult,
 ) -> tuple[Any | None, dict | None]:
     """一轮 LLM 调用: 调用 → parse → 结构被拒 → assistant 原文 + 错误回灌重试 1 次。
+
+    `result` 只用到 `errors` / `llm_calls` 两个字段 ⇒ A/B 轮（`DigestResult`）与
+    全景轮（`PanoramaRunResult`）**共用这一条调用路径**（反馈回灌语义随之统一）。
 
     Returns:
         (parsed, last_resp): parsed None = 该轮失败（result.errors 已填, 调用方回滚）
