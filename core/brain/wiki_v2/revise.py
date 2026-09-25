@@ -66,6 +66,21 @@ class RevisionResult:
 
 
 @dataclass
+class PanoramaResult:
+    """全景轮（写卡）的执行结果 —— 它**不碰图** ⇒ 只有一条 note 操作 + 账。
+
+    `op` 由调用方 append（先真源）→ `save_notes`（后缓存）→ 重建注入;
+    **没有事务门槛**（不像 R4 的固化要先等 `ok`）。
+    """
+
+    op: dict = field(default_factory=dict)              # `rewrite` 操作（B 类两槽整段替换）
+    warnings: list[str] = field(default_factory=list)   # 世界校验剔掉的东西（记账）
+    kept: list[str] = field(default_factory=list)       # 留下的（上一版编号）
+    added: list[str] = field(default_factory=list)      # 新加的条目正文
+    dropped: list[tuple[str, str]] = field(default_factory=list)   # (编号, 淘汰那句话)
+
+
+@dataclass
 class ClosureResult:
     """R4 收口的执行结果 —— **节点面与 note 面分开**（两处的提交时机不同）。
 
@@ -532,6 +547,90 @@ def _is_episode(store: WikiStoreV2, nid: Any) -> bool:
 def _promise_text(text: str, afterwards: str) -> str:
     """承诺节点的正文 = 约定那句 + ` —— ` + 后来那句（缺一半就用有的那一半）。"""
     return f"{text} —— {afterwards}" if text and afterwards else (text or afterwards)
+
+
+def apply_panorama(
+    store: WikiStoreV2,
+    card: dict,
+    *,
+    note_state: NotesState,
+    log: EvolutionLog | None = None,
+    ts: str | None = None,
+) -> PanoramaResult:
+    """执行全景轮那张卡（写 note 的 B 类两槽）—— 见 DESIGN_GRAPH_V4 §8.6。
+
+    `card` = `contract.digest_registry.parse_panorama` 的产出::
+
+        {"habits": [{"id"?, "text", "refs"}], "drop": [{"id", "afterwards"}], "on_mind": {}|None}
+
+    分工与纪律:
+        · **只写 B 类两槽**（`habits` / `on_mind`）—— A 类（promise）归 R4 ✓
+        · ⭐ **它不碰图** ⇒ **没有 digest 事务门槛**: 调用方拿到 `op` 直接 append（先真源）→
+          `save_notes`（后缓存）→ 重建注入。
+        · ⚠️ **世界校验剔掉 + 记账**（形状 / 引用 / 覆盖检查已在 parse 层做完）:
+          `refs` 指不到现存经历的 ⇒ 剔那条; **剔完没 refs 的条目整条丢**（结论没有实例支撑）;
+          剔完只剩一条 ⇒ **留 + 记账**（"惯例至少两条"是 prompt 的硬要求, 引擎不硬拒）。
+        · ⚠️ **`on_mind` 是例外**: 它是她的一句心情（不是"有实例支撑的结论"）⇒ refs 全指不到时
+          **留着正文、refs 记空** + 记账 —— 不因为一条坏引用就静默清空她此刻在想的事。
+        · ⭐ **身份延续交给 `fold`**: 行里给了 `id` 的按 id 认（措辞可改、`记于` 不重置）;
+          没给才退回文本匹配（那条会换号, `fold` 打一行 INFO 可 grep）。
+        · 账: `kept` / `added` / `dropped`(编号 + 那句话) / `warnings`, 并往 audit log 写一行。
+    """
+    log = log or EvolutionLog.for_store(store)
+    ts = ts or datetime.now().isoformat(timespec="seconds")
+    out = PanoramaResult()
+
+    habits: list[dict] = []
+    for it in card.get("habits") or []:
+        text = str(it.get("text") or "").strip()
+        refs = _valid_episodes(store, it.get("refs") or [], out, f"habit {text!r}")
+        if not refs:
+            out.warnings.append(f"habit {text!r}: 引用全都指不到经历 → 整条丢"
+                                "（它的结论没有实例支撑）")
+            continue
+        if len(refs) < 2:
+            out.warnings.append(f"habit {text!r}: 只剩 {len(refs)} 条实例（惯例该有 ≥2）"
+                                " —— 先留着, 记一笔")
+        row: dict = {"text": text, "refs": refs}
+        if str(it.get("id") or "").strip():
+            row["id"] = it["id"]
+            out.kept.append(it["id"])
+        else:
+            out.added.append(text)
+        habits.append(row)
+
+    # `on_mind`: 空串 = 明确清空（`rewrite_op` 的口径: 不传 = 本次不动）
+    on_mind: Any = ""
+    mind = card.get("on_mind")
+    if isinstance(mind, dict) and str(mind.get("text") or "").strip():
+        refs = _valid_episodes(store, mind.get("refs") or [], out, "on_mind")
+        if not refs:
+            out.warnings.append("on_mind: 引用全都指不到经历 —— 正文留着, refs 记空")
+        on_mind = {"text": str(mind["text"]).strip(), "refs": refs}
+
+    out.dropped = [(str(d.get("id")), str(d.get("afterwards") or ""))
+                   for d in card.get("drop") or []]
+    if not habits and note_state.habits:
+        out.warnings.append(f"⚠️ 空卡: 一次清掉上一版的 {len(note_state.habits)} 条惯例"
+                            "（每条都点名了才走到这里）")
+    out.op = note_ops.rewrite_op(habits=habits, on_mind=on_mind)
+    log.append({"pkg": "panorama", "action": "write_card",
+                "kept": list(out.kept), "added": list(out.added),
+                "dropped": [nid for nid, _ in out.dropped],
+                "on_mind": bool(on_mind), "ts": ts})
+    return out
+
+
+def _valid_episodes(store: WikiStoreV2, refs: list, out: PanoramaResult,
+                    who: str) -> list[str]:
+    """`refs` 剔成"现存经历"（幻觉 / 非 episode ⇒ 剔 + 记账）。"""
+    ok: list[str] = []
+    for r in refs:
+        if _is_episode(store, r):
+            ok.append(str(r))
+        else:
+            out.warnings.append(f"{who}: 引用不是现存经历 → 剔掉 {r!r}")
+    return ok
 
 
 def apply_revision_package(

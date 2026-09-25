@@ -195,6 +195,14 @@ class NotesState:
     habits: list[NoteItem] = field(default_factory=list)
     on_mind: NoteItem | None = None
 
+    def __post_init__(self) -> None:
+        """护栏: **发号器至少比现有 id 大**（纪律 2"只增不复用"的兜底）。
+
+        正常路径（`fold`）不会踩到; 手工构造的状态 / 旧档推错的 `next_n` 会 —— 那会发出
+        **重号**, 而 `close`/`retire` 只按号找人 ⇒ 旧引用指错条目（静默）。
+        """
+        self.next_n = max(self.next_n, _derive_next_n(self.promise + self.habits))
+
     def items(self, slot: str) -> list[NoteItem]:
         """槽 → 条目列表（`on_mind` 折成 0/1 条的列表, 便于统一校验/渲染）。"""
         if slot == SLOT_ON_MIND:
@@ -376,24 +384,36 @@ def _apply_rewrite(st: NotesState, payload: dict, ts: str, seq: int) -> None:
 
 def _inherit(st: NotesState, old: list[NoteItem],
              new: list[NoteItem], ts: str) -> list[NoteItem]:
-    """`rewrite` 的 `id`/`since` 延续 —— **按 `text` 精确匹配**上一版。
+    """`rewrite` 的身份延续 —— **先认行里的 `id`, 再退回按 `text` 精确匹配**。
 
     匹配上 → 继承 `id`/`since`; 匹配不上 → 新条目（新号 + `since = 本次重写时刻`）。
-    ⇒ 全景轮的 prompt 里必须写明"**延续的条目照抄上一版的原文措辞**": 改了措辞的那条
-    会退化成"新条目"（无害 —— 只是 `记于` 重置 + 换一个号, 不会报错也不会丢内容）。
+
+    ⭐ **`id` 优先**（2026-09-25）: 全景轮的契约要求延续的条目**照抄编号** ⇒ 她**改措辞也算同一条**
+    （`记于` 不重置、不会"掉了一阵又回来就变年轻"）。
+    `text` 匹配是**兜底**（旧格式 / 模型没抄编号）—— 那条仍会换号, 所以要打一行日志（可 grep）。
     """
+    by_id = {it.id: it for it in old if it.id}
     by_text = {it.text: it for it in old}
     used: set[str] = set()
     out: list[NoteItem] = []
     for it in new:
-        prev = by_text.get(it.text)
+        prev = by_id.get(it.id) if it.id else None
+        via = "id"
+        if prev is None:
+            prev = by_text.get(it.text)
+            via = "text"
         if prev is not None and prev.id and prev.id not in used:
+            if via == "text" and it.id == "":
+                logger.info("note/rewrite: 这条靠**文本**匹配延续（契约要求照抄编号）: %r",
+                            it.text)
             it.id = prev.id
             it.since = prev.since or ts
             it.due = it.due or prev.due
             used.add(prev.id)
         else:
-            if prev is not None:
+            if it.id:
+                logger.warning("note/rewrite: 行里的编号 %r 不在上一版里（当新条目）", it.id)
+            elif prev is not None:
                 logger.warning("note/rewrite 出现重复正文（%r）—— 只继承一条的编号", it.text)
             it.id = _alloc_id(st)
             it.since = it.since or ts

@@ -172,6 +172,48 @@ def test_rewrite_replaces_b_slots_and_inherits_id_and_since():
     assert st.next_n == 4
 
 
+def test_rewrite_honours_the_id_so_rewording_keeps_since():
+    """⭐ 行里带 `id` = 还是那一条：**措辞改了也算延续**（`记于` 不重置）。
+
+    这是"掉了一阵又回来就变年轻 / 改个措辞就换号"那两个病的解药（2026-09-25 全景轮契约）。
+    """
+    st = notes.fold([_ev(1, N_REWRITE,
+                         {"habits": [{"text": "他总先问我想要哪个", "refs": ["m1"]}]}, ts=T0)])
+    assert (st.habits[0].id, st.habits[0].since) == ("n1", T0)
+
+    st2 = notes.fold([_ev(2, N_REWRITE, {"habits": [
+        {"id": "n1", "text": "他买东西时总先问我想要哪个", "refs": ["m1", "m2"]}]}, ts=T1)],
+        base=st)
+    assert st2.habits[0].id == "n1"                       # 号没变
+    assert st2.habits[0].since == T0                      # `记于` 没重置
+    assert st2.habits[0].text == "他买东西时总先问我想要哪个"
+    assert st2.habits[0].refs == ["m1", "m2"]
+
+
+def test_rewrite_with_unknown_id_becomes_a_new_item(caplog):
+    """行里的号不在上一版里 ⇒ 当新条目（不炸）—— 但要出声。"""
+    st = notes.fold([_ev(1, N_REWRITE,
+                         {"habits": [{"id": "n9", "text": "新的", "refs": ["m1"]}]}, ts=T0)])
+    assert st.habits[0].id == "n1"
+    assert "不在上一版里" in caplog.text
+
+
+def test_rewrite_without_id_still_falls_back_to_text():
+    """没抄编号的（旧格式 / 模型漏抄）仍按文本延续 —— 退路留着。"""
+    st = notes.fold([_ev(1, N_REWRITE, {"habits": [{"text": "惯例", "refs": ["m1"]}]}, ts=T0)])
+    st2 = notes.fold([_ev(2, N_REWRITE, {"habits": [{"text": "惯例", "refs": ["m1"]}]}, ts=T1)],
+                     base=st)
+    assert (st2.habits[0].id, st2.habits[0].since) == ("n1", T0)
+
+
+def test_next_n_guard_prevents_id_reuse():
+    """护栏: `next_n` 落后于现有 id（手工构造 / 旧档推错）时也不会发出重号。"""
+    st = notes.NotesState(next_n=1, promise=[notes.NoteItem(id="n7", text="老条目")])
+    assert st.next_n == 8
+    assert notes.fold([_ev(1, N_ADD, {"text": "新条目", "refs": ["m1"]})],
+                      base=st).promise[-1].id == "n8"
+
+
 def test_rewrite_absent_slot_is_kept_and_empty_value_clears():
     st = notes.fold([_ev(1, N_REWRITE, {"habits": [{"text": "惯例", "refs": ["m1"]}],
                                         "on_mind": {"text": "我不想再隔着玻璃看",

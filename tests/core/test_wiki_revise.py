@@ -8,7 +8,7 @@ from core.brain.wiki_v2 import WikiStoreV2, make_node, notes
 from core.brain.wiki_v2.entities import candidate_table, ensure_entities
 from core.brain.wiki_v2.evolution import EvolutionLog
 from core.brain.wiki_v2.revise import (apply_attribution, apply_closures,
-                                       apply_decisions,
+                                       apply_decisions, apply_panorama,
                                        apply_revision_package)
 
 
@@ -461,6 +461,92 @@ def test_attribution_rewrite_and_guards(tmp_path, caplog):
             id_map={"u0001": "m0001"}, local_of=none_local) == []
     assert [n.id for n in bare.all() if n.kind == "entity"] == []
     assert any("x0001" in r.getMessage() for r in caplog.records)
+
+
+# ---------------------------------------------------------------------------
+# 全景轮执行器（写卡）—— DESIGN_GRAPH_V4 §8.6
+# ---------------------------------------------------------------------------
+
+def _pano_store(tmp_path):
+    """`_attr_store`（m0001/m0002/m0003 + e0001 + self/sensei）+ 上一版那张卡。"""
+    st = _attr_store(tmp_path)
+    state = notes.NotesState(
+        habits=[notes.NoteItem(id="n4", text="他总先问我想要哪个",
+                               refs=["m0001", "m0003"], since="2026-09-01T10:00:00")],
+        on_mind=notes.NoteItem(text="旧的一句", refs=["m0001"],
+                               since="2026-09-01T10:00:00"))
+    return st, state
+
+
+def _card(habits, drop=(), on_mind=None):
+    return {"habits": list(habits), "drop": list(drop), "on_mind": on_mind}
+
+
+def test_apply_panorama_writes_one_rewrite_op(tmp_path):
+    """它**不碰图** ⇒ 只产一条 `rewrite`（两个 B 类槽），且带上照抄的编号。"""
+    st, state = _pano_store(tmp_path)
+    res = apply_panorama(st, _card(
+        [{"id": "n4", "text": "他买东西时总先问我想要哪个", "refs": ["m0001", "m0003"]},
+         {"text": "周四晚上会发晚安", "refs": ["m0001", "m0003"]}],
+        on_mind={"text": "我不想再隔着玻璃看", "refs": ["m0001"]}), note_state=state)
+
+    assert res.op == {"action": "rewrite",
+                      "habits": [{"text": "他买东西时总先问我想要哪个",
+                                  "refs": ["m0001", "m0003"], "id": "n4"},
+                                 {"text": "周四晚上会发晚安", "refs": ["m0001", "m0003"]}],
+                      "on_mind": {"text": "我不想再隔着玻璃看", "refs": ["m0001"]}}
+    assert (res.kept, res.added) == (["n4"], ["周四晚上会发晚安"])
+    assert res.warnings == []
+    # 图**一点没动**
+    assert [n.id for n in st.all() if n.kind == "promise"] == []
+    assert EvolutionLog.for_store(st).read()[0]["action"] == "write_card"
+
+
+def test_apply_panorama_filters_bad_refs_and_drops_bare_items(tmp_path):
+    """幻觉 ref 剔掉; **剔完没 refs 的条目整条丢**; 剩一条 ⇒ 留 + 记一笔。"""
+    st, state = _pano_store(tmp_path)
+    res = apply_panorama(st, _card(
+        [{"id": "n4", "text": "他总先问我想要哪个", "refs": ["m0001", "m0003"]},
+         {"text": "只剩一条实例", "refs": ["m0003", "m9999"]},
+         {"text": "全是幻觉", "refs": ["m9999"]}]), note_state=state)
+
+    assert [h["text"] for h in res.op["habits"]] == ["他总先问我想要哪个", "只剩一条实例"]
+    assert res.op["habits"][1]["refs"] == ["m0003"]
+    assert any("剔掉 'm9999'" in w for w in res.warnings)
+    assert any("整条丢" in w for w in res.warnings)
+    assert any("只剩 1 条实例" in w for w in res.warnings)
+
+
+def test_apply_panorama_on_mind_degrades_instead_of_clearing(tmp_path):
+    """`on_mind` 是她的**一句心情**（不是"有实例支撑的结论"）⇒ refs 全断也留着正文。"""
+    st, state = _pano_store(tmp_path)
+    res = apply_panorama(st, _card([], on_mind={"text": "还在想那件事",
+                                                "refs": ["m9999"]}),
+                         note_state=state)
+
+    assert res.op["on_mind"] == {"text": "还在想那件事", "refs": []}
+    assert any("正文留着" in w for w in res.warnings)
+
+
+def test_apply_panorama_reports_the_diff_and_flags_an_empty_card(tmp_path):
+    st, state = _pano_store(tmp_path)
+    res = apply_panorama(st, _card([], drop=[{"id": "n4", "afterwards": "他最近不了"}]),
+                         note_state=state)
+
+    assert res.dropped == [("n4", "他最近不了")]
+    assert res.op["habits"] == [] and res.op["on_mind"] == ""     # 空串 = 明确清空
+    assert any("空卡" in w for w in res.warnings)                 # 一次清空要出声
+    entry = EvolutionLog.for_store(st).read()[0]
+    assert entry["kept"] == [] and entry["dropped"] == ["n4"] and entry["on_mind"] is False
+
+
+def test_apply_panorama_is_a_noop_op_without_changes(tmp_path):
+    """上一版也空 ⇒ 仍产一条 rewrite（明确"这张卡是空的"）, 但不报警。"""
+    st = _store(tmp_path)
+    res = apply_panorama(st, _card([]), note_state=notes.NotesState())
+
+    assert res.op == {"action": "rewrite", "habits": [], "on_mind": ""}
+    assert res.warnings == [] and res.kept == [] and res.added == []
 
 
 # ---------------------------------------------------------------------------
