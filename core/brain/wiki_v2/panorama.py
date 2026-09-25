@@ -1,20 +1,24 @@
 # -*- coding: utf-8 -*-
 """panorama.py — **全景轮**（DESIGN_GRAPH_V4 §8.6）: 取料。
 
-全景轮 = 低频 · **全量视野** · 遍历后的一次整理: 把 note 的 B 类两槽
-（`habits` / `on_mind`）**整体重写**, 顺手结清已经了结的约定。
-⭐ 它**不碰图** ⇒ 不进 digest 事务、不需要 `clone_state` 快照、失败也不带走 digest。
+全景轮 = 低频 · 遍历后的一次整理: 把 note 的 B 类两槽（`habits` / `on_mind`）
+**整体重写** —— **写卡**。⭐ 它**不碰图、也不碰 A 类槽** ⇒ 不进 digest 事务、
+不需要 `clone_state` 快照、失败也不带走 digest。
 
 本模块**只做取料**: 纯函数、零 IO、零 LLM —— 把料摆到她面前, **判断全交给那一次调用**。
-（调用侧: `llm/prompts/panorama.md` + `digest.panorama` 标签 + 解析/执行器 —— 下一步。）
+（调用侧: `llm/prompts/panorama.md` + 解析/执行器 —— 下一步。）
 
-## 料从哪来（递归金字塔, §12.1 学 BaiShou）
+## 料从哪来（**输入一张卡，输出一张卡** —— 2026-09-23 定形）
 
-    上一版 `habits`（她自己归纳的, 承载长周期 —— 递归的那一半）
-  ∪ 候选池（与本轮**新增** episode 相关的旧 episode —— 跨时段发现新"同类"）
-  ∪ 本轮新增（正文）
-  ∪ 还开着的约定 / 已结清未退场的（顺手结清 + 交回退场）
-  ∪ `on_mind`（还成立就照抄原文, `since` 才保得住）
+    【你上次给自己写的卡】（`habits` + `on_mind`；**不印编号、不印时间**）
+  ∪ 【这次新消化的经历】（本轮新增 episode 的正文）
+  ∪ 【可能相关的旧经历】（候选池 —— 跨时段发现新"同类"）
+
+⚠️ **promise 不在这条链上**（同日定形）：结清 / 固化 / 退场全归 **R4 收口**（§8），
+全景轮不碰 A 类槽。所以这里**不做**"还开着的约定""已结清未退场"那两块 ——
+它们当初是为 `close`/`retire` 存在的，而那不是这一轮的活。
+⚠️ **索引（"其余的经历"）默认关**（`index_cap=0`）：那些条目她**看不到内容** ⇒
+索引给的是"引用的诱惑"，不是"判断的依据"。旋钮留着，真机上发现"明显相关的经历没被抬出来"再开。
 
 ## 候选池的两条通道
 
@@ -36,7 +40,7 @@ from dataclasses import dataclass, field
 from typing import Any, Iterable
 
 from core.brain.wiki_v2.nodes import BrainNode
-from core.brain.wiki_v2.notes import NoteItem, NotesState, render_item
+from core.brain.wiki_v2.notes import NoteItem, NotesState
 from core.brain.wiki_v2.store import WikiStoreV2
 # 与 recall 共用"什么文本会被嵌入"和余弦 —— 两份实现必然漂移（镜像纪律）
 from core.brain.wiki_v2.recall import _cosine, _embed_text
@@ -47,8 +51,9 @@ logger = logging.getLogger(__name__)
 DEFAULT_CAP_PER_ANCHOR = 3
 #: 候选池总数上限（超了按稀有度/显著性截断）
 DEFAULT_MAX_CANDIDATES = 12
-#: "其余经历"索引上限（只有 id + 开头; 超了如实说明还有多少没列）
-DEFAULT_INDEX_CAP = 40
+#: "其余经历"索引上限 —— ⚠️ **默认 0 = 关**（2026-09-23 定形）：那些条目她**看不到内容**,
+#: 索引给的是"引用的诱惑"而不是"判断的依据"。旋钮留着, 真机上发现"明显相关的没被抬出来"再开。
+DEFAULT_INDEX_CAP = 0
 #: 索引里每条截断到几个字（够认出是哪件事就行）
 INDEX_CHARS = 24
 
@@ -75,55 +80,48 @@ class Candidate:
 
 @dataclass
 class PanoramaInput:
-    """全景轮的输入（四块 + 索引 + 候选池）。`render()` 出来就是喂给那一次调用的料。"""
+    """全景轮的输入（**上次那张卡 + 本轮新增 + 候选池**）。`render()` 出来就是喂给那一次调用的料。"""
 
     new: list[BrainNode] = field(default_factory=list)          # 本轮新增的 episode
     candidates: list[Candidate] = field(default_factory=list)   # 候选旧经历（跨时段）
-    others: list[BrainNode] = field(default_factory=list)       # 其余经历（只有 id + 开头）
+    others: list[BrainNode] = field(default_factory=list)       # 其余经历（**默认关**, 见 `index_cap`）
     others_dropped: int = 0                                     # 索引被截掉几条（如实说明）
-    promise: list[NoteItem] = field(default_factory=list)       # 还开着的约定
-    closed: list[NoteItem] = field(default_factory=list)        # 已结清、等图侧接住
-    habits: list[NoteItem] = field(default_factory=list)        # 上一版惯例（递归的那一半）
-    on_mind: NoteItem | None = None
+    habits: list[NoteItem] = field(default_factory=list)        # 上次卡上的惯例
+    on_mind: NoteItem | None = None                             # 上次卡上的"最近在想"
     #: 实际走的通道: `semantic` / `anchor` / `none`（可观测 —— 同 recall 的 `mode_out`）
     mode: str = "none"
 
     @property
     def worth_running(self) -> bool:
-        """值不值得跑这一次调用。
+        """值不值得跑这一次调用 —— **只看有没有新材料**。
 
-        **有新材料**（本轮新增）或**有待结清**（已结清未退场 ⇒ 交回固化）才值得;
-        两者都空时重写一遍只会让 `since` 与措辞空转（该不该跑的**时机**是另一回事,
-        由触发频率决定 —— 这里是"有没有料"）。
+        没有本轮新增时重写一遍只是让措辞空转。（"什么时候该跑"是另一回事，由触发频率决定；
+        这里答的是"有没有料"。）⚠️ **"待结清"不再是理由**（2026-09-23）：结清/固化/退场归 R4。
         """
-        return bool(self.new or self.closed)
+        return bool(self.new)
 
-    def render(self, *, now: object | None = None) -> str:
+    def render(self) -> str:
         """→ 喂给那一次调用的**料**（自然语言小节; 空块整块不出现）。
 
-        ⚠️ **调用方先看 `worth_running`** —— 没料时这里照样会渲出"其余的经历"索引
-        （它是纯渲染, 不做决定）; 而没料就不该花那一次调用。
+        ⚠️ **调用方先看 `worth_running`**（它是纯渲染, 不做决定）。
+        ⚠️ 卡上**不印编号、不印时间**：契约里没有 `id`（延续只靠"照抄原文"），
+        印了只会诱使模型去抄；时间对"这条还成立吗"也不是判据。
 
         这一段是**证据**, 不是指令: 任务、严苛三判据、输出契约在
         `llm/prompts/panorama.md`（下一步）。这里只保证"她看得见该看见的东西,
         且看得见每一条**为什么**被摆到她面前"。
         """
         blocks: list[str] = []
-        if self.promise:
-            blocks.append(
-                "【你手上还开着的约定】（顺手看: 哪些其实已经了结了 —— 了结的必须写理由）\n"
-                + "\n".join(f"  {render_item(it, now=now)}" for it in self.promise))
-        if self.closed:
-            blocks.append(
-                "【已经结清、图里还没接住的】（核对过确实已经进长期记忆的, 报编号退场）\n"
-                + "\n".join(f"  {render_item(it)}" for it in self.closed))
+        card: list[str] = []
         if self.habits:
-            blocks.append(
-                "【你之前记下的惯例】（延续的**照抄原文与编号**; 不再成立的不要写回来）\n"
-                + "\n".join(f"  {render_item(it, now=now)}" for it in self.habits))
+            card.append("  · 惯例")
+            card += [f"    {_card_line(it)}" for it in self.habits]
         if self.on_mind is not None:
-            blocks.append("【你最近在想】（还成立就照抄原文）\n"
-                          f"  {self.on_mind.text}")
+            card.append("  · 最近在想")
+            card.append(f"    {_card_line(self.on_mind)}")
+        if card:
+            blocks.append("【你上次给自己写的卡】（延续的**照抄原文**; 不再成立的不要写回来）\n"
+                          + "\n".join(card))
         if self.new:
             blocks.append("【这次新消化的经历】\n"
                           + "\n".join(f"  {n.id} {n.text}" for n in self.new))
@@ -139,6 +137,12 @@ class PanoramaInput:
             blocks.append("【其余的经历】（只给编号与开头; 要引用哪条直接用编号）\n"
                           + "\n".join(lines))
         return "\n\n".join(blocks)
+
+
+def _card_line(item: NoteItem) -> str:
+    """卡上的一行: `正文（refs）` —— ⚠️ 与注入块的 `notes.render_item` **故意不同**：
+    不印 `n` 编号（契约里没有 `id`）、不印时间（对"还成立吗"不是判据）。"""
+    return f"{item.text}（{', '.join(item.refs)}）" if item.refs else item.text
 
 
 def build_input(store: WikiStoreV2, note_state: NotesState, *,
@@ -187,8 +191,6 @@ def build_input(store: WikiStoreV2, note_state: NotesState, *,
     return PanoramaInput(
         new=new, candidates=ordered,
         others=rest[:index_cap], others_dropped=max(0, len(rest) - index_cap),
-        promise=[it for it in note_state.promise if not it.closed],
-        closed=[it for it in note_state.promise if it.closed],
         habits=list(note_state.habits), on_mind=note_state.on_mind,
         mode=mode)
 
