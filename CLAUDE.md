@@ -388,6 +388,11 @@ CLI/测试同步路径在引擎内串行。
   **不碰图**（无事务门槛）, 提交 = 先真源（`note/rewrite` 事件）后缓存。⚠️ R4 收口**只发
   `close` 不发 `retire`**（退场要等读路径召回接通, 链路 ⑥）。设计/代码索引：
   `core/brain/wiki_v2/DESIGN_GRAPH_V4.md` §3.2 / §6 / §8 / §8.6。
+- **每段四步（`R1 → R4 → R2 → R3`）**：R4 收口 2026-09-25 已接线（`digest.close`, 位置在
+  R1 之后/R2 之前 —— promise 节点要先就位才有边可写）；⚠️ 它产的 note 操作**不在
+  `digest_segment` 里 append**，挂在 `DigestResult.notes_ops` 上由调用方在**整批 ok 后**写
+  （失败 = 整批回滚 ⇒ 那条约定原样开着）。⏳ 余下两步：**R2 视野**（promise 要发进认知列表）、
+  **R3 归属接线**。
 - 结算 delta → `affection|digest` 事件（events.jsonl 为真源）+ wiki 好感快照；
   数值**不直接喂 LLM**（无数字概念, 防讨好/数值化）——未来 relationship_view
   （阶段词）是规划方向。`core/affection/affection_calc.py` 数值层。

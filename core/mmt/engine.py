@@ -656,6 +656,11 @@ class MomoTalkEngine:
                         # 同样要落事件, 否则"能变坏"只存在于数值层、进不了真源。
                         self._write_affection_event(store, character_id, events,
                                                     interact_max, res.affection_delta)
+                    if res.notes_ops:
+                        # R4 收口的 note 操作（§8）: **整批 ok 之后**才 append ——
+                        # 事件不可撤销, 提前写就把"整批回滚"变成了半截状态。
+                        events = self._write_note_ops(store, wstore, character_id,
+                                                      events, res.notes_ops)
                     if interact_max:
                         # 全景轮（§8.6）: 真消化了一段才计数; 到 N 段写一次卡。
                         events = self._maybe_card_round(
@@ -683,6 +688,32 @@ class MomoTalkEngine:
             self._brain_injection = "\n\n".join(seg_parts)
         except Exception as e:                       # noqa: BLE001 — 宁缺勿错
             logger.warning("brain 注入失败 (%s): %s", character_id, e)
+
+    def _write_note_ops(self, session_store: SessionStore, wstore: WikiStoreV2,
+                        character_id: str, events: list, ops: list[dict]) -> list:
+        """把 note 操作写进真源 + 刷缓存（**先真源后缓存**）—— 返回重读后的事件流。
+
+        两个写者共用这一处（R4 的收口操作 / 全景轮的那条 `rewrite`）:
+        顺序是**正确性**而不是风格 —— `notes.json` 只是派生缓存,
+        **事件流才是真源**; 反过来写会出现"本子上有、事件流没有", 而那条笔记
+        没有人能重建它（§3.2）。
+
+        失败静默降级（宁缺勿错）: 写不进去 = 这次没记上, 本子留旧版, 绝不阻断消化;
+        返回值保持调用方原先的那份 `events`（没变就别假装变了）。
+        """
+        try:
+            from core.brain.wiki_v2.notes import note_event   # 局部导入（同笔记注入那处）
+            for op in ops:
+                session_store.append_event(character_id, "", note_event(op))
+        except Exception as e:                       # noqa: BLE001 — 写失败 = 这次没记上
+            logger.warning("note 操作写入失败（%s; 本子留旧版）: %s", character_id, e)
+            return events
+        events = session_store.events(character_id)  # 真源已变 → 重读（注入块要用新的）
+        try:
+            wstore.save_notes(wstore.notes_state(events))
+        except Exception as e:                       # noqa: BLE001 — 只是缓存, 真源是事件流
+            logger.warning("笔记缓存写入失败（事件流已是真源, 下次现折）: %s", e)
+        return events
 
     def _maybe_card_round(self, session_store: SessionStore, wstore: WikiStoreV2,
                           character_id: str, events: list, *,
@@ -718,18 +749,12 @@ class MomoTalkEngine:
                            character_id, count, " | ".join(run.errors) or "无产出")
             self._save_card_counter(wstore, count)
             return events
-        try:
-            from core.brain.wiki_v2.notes import note_event   # 局部导入（同笔记注入那处）
-            session_store.append_event(character_id, "", note_event(run.op))
-        except Exception as e:                       # noqa: BLE001 — 写失败 = 本轮没写卡
-            logger.warning("全景轮事件写入失败（%s; 本子留旧版）: %s", character_id, e)
+        before = events
+        events = self._write_note_ops(session_store, wstore, character_id,
+                                      events, [run.op])   # 先真源后缓存（唯一实现）
+        if events is before:                         # 没写进去（降级）⇒ 本轮没写卡
             self._save_card_counter(wstore, count)
             return events
-        events = session_store.events(character_id)  # 真源已变 → 重读（注入块要用新的）
-        try:
-            wstore.save_notes(wstore.notes_state(events))
-        except Exception as e:                       # noqa: BLE001 — 只是缓存, 真源是事件流
-            logger.warning("笔记缓存写入失败（事件流已是真源, 下次现折）: %s", e)
         self._save_card_counter(wstore, 0)
         applied = run.applied
         logger.info("panorama_card 已写卡 (%s): kept=%d added=%d dropped=%d warn=%d",

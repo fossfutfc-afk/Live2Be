@@ -668,8 +668,20 @@ add kind=experience"）⇒ 它的 `subject` 不是 `player` ⇒ 旧读侧（按 
 3. ⚠️ **重复 close 不建第二个节点** —— 已经结清的条目不在"还开着"名单里, 重复行被丢掉
    （"固化过没有"的判据落在 note 的 `closed` 位上）。⏳ 真正的崩溃窗口见 §9-18。
 
-**还没做的**：R4 的**编排**（在 digest 里真的发这第四次调用 + 提示词 + 事件 append + retire）
-—— 那是链路 ③（D3）的活, 与三轮接线同批。本节点只落"可单测的纯件"（同 D2a/D2b 的做法）。
+**落地（2026-09-25 ③-1: R4 编排）**：`digest_segment` 里真的发这第四次调用（`label="close"`
+⇒ task `digest.close`），位置**在 R1 之后、R2 之前**；提示词 = `llm/prompts/digest_v2_round_close.md`
++ `build_schema(PHASE_CLOSE)`，料 = **还开着的约定**（`notes.render_item` 那份行格式，带编号）
++ **本段新增的经历**（真 id）。
+
+| 事 | 定案 |
+|---|---|
+| **什么时候不发** | ⭐ **没有开着的约定 且 本段没有新经历** ⇒ 这一轮必然空转（`add` 没有可引用的经历、`close` 没有可翻篇的条目）⇒ **0 次调用** |
+| **note 操作怎么落** | ⭐ **`digest_segment` 不 append**（它拿不到 `SessionStore`）: 产出的 `add`/`close` 挂在 `DigestResult.notes_ops` 上, **调用方在整批 `ok` 之后**才写（`mmt.engine._write_note_ops`, 先真源后缓存 + 重建注入） |
+| **失败** | ⭐ `_rollback` **把 `notes_ops` 一并清空** —— §8 那句"失败 = 整批回滚 ⇒ 那条约定原样开着"要成立, 就必须让 note 面也回得去（事件 append **不可撤销**, 提前写就成了半截状态） |
+| **顺手** | promise 节点的 id 也交出去（`DigestResult.promise_nodes`）—— R2/R3 要用它对**这个新节点**写边 |
+
+> ✅ 至此 `R1 → R4` 已接；**R2 的视野**（把 promise 发进 `render_cognition_list`, 否则
+> `supports(promise→belief)` / `evolved_from` 永远打不出来）与 **R3 接线**是 ③ 的后两步（§9-13）。
 
 ## 7. 时间
 
@@ -1150,6 +1162,7 @@ about_state      → resolved / uncertain / none   ← **点的属性**（不是
 | 2026-09-25 | ⭐ **落地全景轮调用侧**（链路① 收尾） | ✅ 四块拼齐: ① `llm/prompts/panorama.md`（任务 + 严苛三判据 + **"不要盲删"** + 输出纪律）② `digest.run_panorama()`（取料 → 一次调用（label `panorama` ⇒ task `digest.panorama`）→ `parse_panorama(habit_ids=上一版编号)` → `apply_panorama`; ⚠️ **它自己不落任何盘** —— 提交要 `SessionStore`, 只有调用方有）③ `MmtEngine._maybe_card_round`（触发 + **先真源后缓存**的提交 + 写卡后**重读事件流** ⇒ 这一轮的注入块里就有新卡）④ `wiki.meta.json` 的 **`segments_since_card`** 计数器。**用户裁决的语义**: 每 **10 段**一次 · **章闭环不插队**（它只算那一段）· ⭐ **第一次直接到点**（meta 里还没有那个键 = 从没写过卡 ⇒ 第一次消化就把卡建起来）· ⭐ **没跑成 / 没料 ⇒ 计数器不清零**（停在阈值之上 ⇒ 下一段立刻再试）。⚠️ 顺带修掉一处**契约漂移**: `_card_line` 过去**不印编号**（"契约里没有 id"那个旧口径），而新契约要求"照抄编号 = 延续" —— 不印就等于让模型没法延续（时间照旧不印）。旁: 冒烟桩与 `experiments/web_e2e/stub_world.py` 补 `digest.panorama`/`digest.close` 的空应答; `test_mmt_digest` 那条注入断言改成**等**（写卡计数器多一次落盘把"好感事件落地"与"注入重建"拉开）; API 面快照 +3 行（`digest` 的三个名字进 `core.mmt.engine`）。11 条新用例 · 全量 1019 · B 层冒烟 PASS |
 | 2026-09-25 | ⭐ **链路② 第一步：消解死引用 + `experience` 定名**（零行为变化） | ✅ 三件都是从代码里查出来的**事实**，不是新设计: ① **`fact` 早在 2026-09-02 就退役了**（`nodes.py` 原文「fact 已退役 —— 记忆 = 经历 + 认知」），设计稿 §5 那节「fact（暂时）」是**没同步的残留** ⇒ 重写 §5（**它当年那三件事今天各有落点**: 关于人的事实 → `experience`/`about→sensei` 的 belief · 她怎么知道的 → `episode.epistemic`+`observer` · 世界规律 → canon 在 `overview.yml` / 她眼中的版本在 `belief`）+ 清掉 `graph._ABOUTABLE` 里的死项 `"fact"` + §9-2 结案。② ⭐ **删 `source` 边（8 → 7）**（用户裁决）: 它唯一的形状是 `fact → episode`，起点 kind 已退役 ⇒ **永远不会有走法**（§2.2 的判据）; `REL_SOURCE`/`RELS`/`__all__` 全清 + 两条守门用例（7 条词汇量 · `fact` 与 entity 的旧档对判 `unknown`）。⚠️ 与 `contradicts`/`evolved_from` 的区别写进代码注释: **"还没有走法"≠"永远不会有走法"**。③ **`aspect` 删**（它不是 kind —— 全仓只有 §8 R1 那一格提到、代码零定义/零消费）。④ ⭐ **新增 §5.1 `experience` = 玩家画像专用**（用户裁决: 关掉 §9-3 的"并入 `belief + nature=pattern`"提案）+ §9-3 结案 + §1 的 kind 图重画（图里只剩 4 种 kind）。⚠️ 同时查出**真机 haruka `e0001` 从来不进她的上下文**（R2 把它写成了"她的模式"、`subject≠player` ⇒ 四个桶全不收; 它还挂着 3 条 supports）—— 那条的**代码修正与数据迁移**放下一步（②-第二步） |
 | 2026-09-25 | ⭐ **链路② 第二步：`experience` 落成"玩家画像专用"** | ✅ 四处 + 一次数据迁移（详见 §5.1）: ① **契约**: `parse_round_b` 的 `add` **只收 `belief`**（写 `experience` ⇒ **拒整包 + 反馈** —— 不静默降级, 静默改 kind 会让模型下次还这么写）+ `ADD` 的 role/semantics/field_schema/示例与 prompt `digest_v2_round_b.md` 第 5 条**同批改**（"反复出现的模式 → belief 的模式句"）。② **写侧**: `_create_a_nodes` 与 `revise` 的 add 路把 `subject` **强制**成 `player`。③ **读侧**: `_bucket_view` 的 player 桶**按 kind**、`is_player_experience` 改成 `kind == "experience"` —— ⭐ 这就是那个洞的正解: **可见性不许挂在一个自由文本字段上**。④ **数据**: 真机 `haruka e0001`（*"我开口前常常先道歉……"*）迁移 `experience → belief` + `epistemic → inferred_belief`（**id 保留**: 3 条 `supports` 指着它），一次性脚本（本机 `tools/`, dry-run 默认 + 写前 `.bak`）。**迁移后渲染实测**: `audit()` 干净、那条**第一次出现在她的注入视图里**（「我心里渐渐觉得」）。守门: 1 条新用例（`add kind=experience` 必被拒）+ 3 条既有用例按新口径更新（真机"subject 写歪也照样可见"成了回归断言）。全量 1022 · B 层冒烟 PASS |
+| 2026-09-25 | ⭐ **链路③-1：R4 收口的编排** | ✅ `digest_segment` 里真的发第 4 次调用（`label="close"` ⇒ task **`digest.close`**），**位置在 R1 之后、R2 之前**（§8 的顺序理由: `close` 物化的 promise 节点要靠 R2/R3 写边 ⇒ 节点必须先就位）+ 新提示词 `llm/prompts/digest_v2_round_close.md` + 料 = 还开着的约定（`notes.render_item` 那份行格式, 带编号）+ 本段新增经历（真 id）。四条纪律: ① **没有开着的约定 且 本段没有新经历 ⇒ 不发这次调用**（那一轮必然空转）② ⭐ **note 操作不在这里 append**（本函数拿不到 `SessionStore`）—— 挂在 `DigestResult.notes_ops` 上, **调用方在整批 `ok` 之后**才写（新的 `_write_note_ops` 是**唯一实现**: R4 的收口操作与全景轮那条 `rewrite` 共用, 先真源后缓存 + 重建注入）③ ⭐ **`_rollback` 把 `notes_ops` 一并清空** —— "失败 = 整批回滚 ⇒ 那条约定原样开着"要成立就必须让 note 面也回得去（事件 append 不可撤销）④ `promise_nodes` 交出去给 R2/R3 写边用。旁: 测试桩（`test_wiki_digest.FakeLLM` 与冒烟桩）按 task 把 R4 短路成标准空包 ⇒ 位置队列里仍只排 A/B; 6 条新用例（`test_round_close.py`: 顺序/料/产出/跳过/形状错回滚/后轮失败丢 ops/引擎端到端）。全量 1028 · B 层冒烟 PASS |
 | 2026-09-23 | **取料代码对齐定形** | ✅ `panorama.py`: 去掉 `promise`/已结清两块与 `PanoramaInput` 上的两字段 · **索引默认关**（`DEFAULT_INDEX_CAP: 40 → 0`）· `worth_running` 只看新材料 · 卡改用 `_card_line`（**不印编号、不印时间**）· **`render(now=…)` 的 `now` 删掉**（卡不印时间 ⇒ 死旋钮）。真机演练（haruka 11 条）: 三块成形、候选 4 条带来源标注、索引 0（没列 4）、空料 `render()==""`。16 条用例 |
 | 2026-09-23 | **"note 与 VN 并发"不做**（用户: *"就是顺序 digest 即可，原来时序"*） | ✅ §8 记四条事实（VN 注入段整章固定 ⇒ 章内更新它看不见 · 中断的章不触发 digest · 章内板不在真源要读 overlay · 抢玩家等待路径的配额），收益只剩"中断章也能记" ⇒ 不做。⚠️ **接受一条限制**: "中断后既没续完也没被废弃"的章里的约定不记（与现状一致，`vn_abandon` 真机存量 0）。⭐ 顺带消掉"废弃回溯"整个问题（note 事件只落在章结束之后）。§9 新增 **15/16/17**（R4 是否独立调用 · 第三方承诺的 `from`/`to` · MMT 段 `formed_by` 多连的观察项） |
 
