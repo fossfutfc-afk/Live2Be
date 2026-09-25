@@ -1,11 +1,88 @@
 """digest_registry 测试（AGENT_BRAIN.md §3 重构 / 板块 2）——LLM 契约层单源。"""
 from contract.digest_registry import (
     PHASE_CLOSE,
+    PHASE_PANORAMA,
     PHASE_RECORD,
     PHASE_UNDERSTAND,
     PROMISE_OUTCOMES,
     digest_registry,
 )
+
+
+# ---------------------------------------------------------------------------
+# 全景轮（写卡）—— `{"habits": […], "drop": […], "on_mind": {…}|null}`
+# ---------------------------------------------------------------------------
+
+def _card(**over):
+    card = {"habits": [{"id": "n4", "text": "他总先问我想要哪个",
+                        "refs": ["m0005", "m0010"]},
+                       {"text": "周四晚上会发晚安", "refs": ["m0012", "m0013"]}],
+            "drop": [{"id": "n7", "afterwards": "他最近不怎么喝咖啡了"}],
+            "on_mind": {"text": "我不想再只是隔着玻璃看", "refs": ["m0009"]}}
+    card.update(over)
+    return card
+
+
+def test_schema_panorama_phase():
+    text = digest_registry.build_schema(PHASE_PANORAMA)
+    for key in ('"habits": [', '"drop": [', '"on_mind": {'):
+        assert key in text
+    assert "三个键都要在" in text
+    assert "不要盲删" in text and "漏写" in text          # 两条硬规则都在契约里
+    assert "照抄" in text and "编号" in text              # 延续靠 id
+    # 示例只有一种形状（设计稿陷阱 3/4）
+    assert text.count('"id": "n4"') == 1 and text.count('"id": "n7"') == 1
+
+
+def test_parse_panorama_normalizes_the_card():
+    card, res = digest_registry.parse_panorama(_card(), habit_ids={"n4", "n7"})
+    assert res.errors == ()
+    assert card["habits"][0] == {"id": "n4", "text": "他总先问我想要哪个",
+                                 "refs": ["m0005", "m0010"]}
+    assert card["habits"][1]["id"] == ""                  # 新条目不写 id
+    assert card["drop"] == [{"id": "n7", "afterwards": "他最近不怎么喝咖啡了"}]
+    assert card["on_mind"]["text"] == "我不想再只是隔着玻璃看"
+
+
+def test_parse_panorama_rejects_silent_drop():
+    """⭐ 上一版有一条既没留也没删 ⇒ **拒整包**（沉默不是删除, 是漏写）。"""
+    card, res = digest_registry.parse_panorama(_card(drop=[]), habit_ids={"n4", "n7"})
+    assert card == {} and any("漏写" in e and "n7" in e for e in res.errors)
+
+
+def test_parse_panorama_shape_and_reference_errors():
+    cases = [
+        (["nope"], "必须是 JSON 对象"),
+        ({"habits": [], "drop": []}, "缺键 'on_mind'"),
+        (_card(habits={}), "habits 必须是数组"),
+        (_card(habits=["x"]), "habits[0] 必须是对象"),
+        (_card(habits=[{"id": "n4"}]), "habits[0] 缺 text"),
+        (_card(habits=[{"id": "n9", "text": "x"}]), "不在上一版的编号里"),
+        (_card(habits=[{"id": "n4", "text": "a"}, {"id": "n4", "text": "b"}]),
+         "id 重复"),
+        (_card(drop=[{"id": "n4", "afterwards": "y"},
+                     {"id": "n7", "afterwards": "z"}]), "既在 habits 又在 drop"),
+        (_card(drop=[{"id": "n7"}]), "缺 afterwards"),
+        (_card(drop=[{"id": "n9", "afterwards": "x"}]), "不在上一版的编号里"),
+        (_card(on_mind="一句话"), "必须是对象或 null"),
+        (_card(on_mind={"refs": ["m1"]}), "on_mind 缺 text"),
+    ]
+    for raw, want in cases:
+        card, res = digest_registry.parse_panorama(raw, habit_ids={"n4", "n7"})
+        assert any(want in e for e in res.errors), (raw, res.errors)
+        assert card == {}, raw
+
+
+def test_parse_panorama_clearing_and_empty_previous_card():
+    # 上一版是空的 ⇒ 三个键都空也合法（没有覆盖压力）
+    card, res = digest_registry.parse_panorama(
+        {"habits": [], "drop": [], "on_mind": None}, habit_ids=set())
+    assert res.errors == () and card == {"habits": [], "drop": [], "on_mind": None}
+    # 全删（每条都在 drop 里点名）也合法 —— 但**必须点名**
+    card2, res2 = digest_registry.parse_panorama(
+        {"habits": [], "drop": [{"id": "n4", "afterwards": "不再成立了"}],
+         "on_mind": None}, habit_ids={"n4"})
+    assert res2.errors == () and card2["habits"] == []
 
 
 # ---------------------------------------------------------------------------
