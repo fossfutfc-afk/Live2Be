@@ -30,6 +30,9 @@ PHASE_UNDERSTAND = "understand"
 #: R4 收口（DESIGN_GRAPH_V4 §8: promise 记账）—— 每段的第 4 步，**窄调用**，
 #: 只判"这条约定还开着吗"，不碰正文/认知。
 PHASE_CLOSE = "close"
+#: **全景轮**（§8.6: 写卡）—— **低频**（章闭环 / 每 N 段），不在每段那一批里。
+#: 它不碰 A 类槽、不碰图，只重写 note 的 B 类两槽（`habits` / `on_mind`）。
+PHASE_PANORAMA = "panorama"
 # EXT: digest-deep — 三相位之 deep（设计已声明, 未实现）; 勿删（docs/EXTENSION_POINTS.md）
 PHASE_DEEP = "deep"
 
@@ -435,6 +438,43 @@ class DigestRegistry:
                 "  同一件事不要写两遍; 这条约定还开着就**不要**写进 close。",
             ])
 
+        if phase == PHASE_PANORAMA:
+            return "\n".join([
+                "输出 JSON（不要任何解释文字, 不要 ```json 代码块）:",
+                "    {",
+                '     "habits": [ // 这一版**留着**的惯例（照抄编号 = 还是那一条; 不带编号 = 新条目）//',
+                '        {"id": "n4", "text": "他买东西时总先问我想要哪个",'
+                ' "refs": ["m0005", "m0010"]},',
+                '        {"text": "周四晚上会发晚安", "refs": ["m0012", "m0013"]}',
+                "     ],",
+                '     "drop": [ // 淘汰掉的惯例（**每一条都要在这里点名**）//',
+                '        {"id": "n7", "afterwards": "他最近不怎么喝咖啡了"}',
+                "     ],",
+                '     "on_mind": { // 你最近在想的那件事（想不出就写 null）//',
+                '        "text": "我不想再只是隔着玻璃看", "refs": ["m0009"]}',
+                "    }",
+                "",
+                "三个键都要在（没有就写空数组 [] / null）。",
+                "",
+                "habits 一行 = 一条留着的惯例:",
+                "  id    —— 延续的**照抄上一版的编号**（措辞可以改, 「记于」不会重置）;"
+                " 新的条目不写这个键;",
+                "  text  —— 一句短语（≤20 字）: 写**具体做法** + 你此刻那点意思, 不写抽象类别词;",
+                "  refs  —— **至少两条**经历（≥2）: 一条不足以叫「惯例」; 只能引用上面列出的编号。",
+                "drop 一行 = 一条淘汰的惯例:",
+                "  id         —— 上一版的编号;",
+                "  afterwards —— 一句话说它后来怎么了（必填）。",
+                "on_mind 只有一条: 你的一句话 + refs（哪条经历让你这么想）。",
+                "",
+                "规则:",
+                "  ⭐ 上一版的**每一条**惯例: 要么写进 habits（留）, 要么写进 drop（淘汰）——",
+                "     两边都没提到 = 漏写, 整包退回重写。",
+                "  ⭐ **不要盲删**: 「这一段没提到它」**不是**淘汰的理由（惯例本来就不是每次都提）;",
+                "     只有出现**与它相反的事**、或它**被另一条吸收了**（后者留在 habits 里就够）,"
+                " 才写进 drop。",
+                "  人设卡里已经有的别写 —— 那是设定, 不是你的观察。",
+            ])
+
         raise ValueError(f"未知 digest phase: {phase!r}")
 
     # ------------------------------------------------------------------
@@ -514,6 +554,47 @@ class DigestRegistry:
                 seen.add(mark)
                 out.append(item)
         return out, ValidationResult(tuple(errors), tuple(warnings))
+
+    def parse_panorama(self, raw: Any, *, habit_ids: set[str]
+                       ) -> tuple[dict, ValidationResult]:
+        """全景轮: `{"habits": […], "drop": […], "on_mind": {…}|null}` → 归一化的一张卡。
+
+        ⚠️ 与另外几轮不同: 它的产出是**一份快照（整张卡）**而不是"决策行列表", 所以返回
+        `dict` 而不是 `list[dict]`。
+
+        **全部当 `errors`（拒整包 + 带反馈重试）**—— 包括引用与覆盖检查:
+        编造的编号、同一条既留又删、**上一版的某条两边都没提到**（漏写 = 沉默被当成删除,
+        而那正是这套契约要堵的洞）。可修正的错 ⇒ 打回比默默删掉好。
+
+        ⚠️ "那个编号存不存在于**图**里"（`refs` 指向的经历）不在这里查 —— 那是执行器的活。
+
+        Args:
+            habit_ids: **上一版卡上的编号集**（`note_state.habits` 的 id）—— 覆盖检查用。
+        """
+        errors: list[str] = []
+        if not isinstance(raw, dict):
+            return {}, ValidationResult(errors=("全景轮输出必须是 JSON 对象",))
+        for key in ("habits", "drop", "on_mind"):
+            if key not in raw:
+                errors.append(f"缺键 {key!r}（三个键都要在, 没有就写空数组 / null）")
+        if errors:
+            return {}, ValidationResult(tuple(errors))
+
+        kept, kept_ids = _clean_panorama_habits(raw.get("habits"), habit_ids, errors)
+        dropped = _clean_panorama_drop(raw.get("drop"), habit_ids, errors)
+        on_mind = _clean_panorama_mind(raw.get("on_mind"), errors)
+
+        for nid in sorted(habit_ids - kept_ids - set(dropped)):
+            errors.append(f"漏写: {nid} 既没写进 habits（留）也没写进 drop（淘汰）"
+                          " —— 上一版的每一条都要有交代（「这段没提到」不是淘汰的理由）")
+        for nid in sorted(kept_ids & set(dropped)):
+            errors.append(f"{nid} 既在 habits 又在 drop —— 一条只能留或删")
+
+        if errors:
+            return {}, ValidationResult(tuple(errors))
+        return {"habits": kept,
+                "drop": [{"id": nid, "afterwards": why} for nid, why in dropped.items()],
+                "on_mind": on_mind}, ValidationResult(())
 
     def parse_round_b(self, raw: Any, *, episode_ids: set[str],
                       target_ids: set[str],
@@ -606,6 +687,92 @@ class DigestRegistry:
 # ============================================================================
 # 内部清洗（宁缺勿错: 坏项丢弃 + 报错; 质量项 warning 不阻断）
 # ============================================================================
+
+def _clean_panorama_habits(raw: Any, habit_ids: set[str],
+                           errors: list[str]) -> tuple[list[dict], set[str]]:
+    """`habits` 行: 可选 `id`（必须来自上一版）+ 非空 `text` + `refs` 数组。
+
+    Returns: `(归一化行, 被引用的上一版编号集)` —— 后者供覆盖检查。
+    """
+    if not isinstance(raw, list):
+        errors.append("habits 必须是数组")
+        return [], set()
+    out: list[dict] = []
+    seen: set[str] = set()
+    for i, row in enumerate(raw):
+        if not isinstance(row, dict):
+            errors.append(f"habits[{i}] 必须是对象")
+            continue
+        text = str(row.get("text") or "").strip()
+        if not text:
+            errors.append(f"habits[{i}] 缺 text")
+            continue
+        item: dict = {"id": "", "text": text,
+                      "refs": _id_list(row.get("refs"))}
+        nid = str(row.get("id") or "").strip()
+        if nid:
+            if nid not in habit_ids:
+                errors.append(f"habits[{i}].id 不在上一版的编号里: {nid!r}"
+                              "（延续的照抄编号; 新条目就别写 id）")
+                continue
+            if nid in seen:
+                errors.append(f"habits[{i}].id 重复: {nid!r}")
+                continue
+            seen.add(nid)
+            item["id"] = nid
+        out.append(item)
+    return out, seen
+
+
+def _clean_panorama_drop(raw: Any, habit_ids: set[str],
+                         errors: list[str]) -> dict[str, str]:
+    """`drop` 行: `id`（必须来自上一版）+ `afterwards`（必填）→ `{id: afterwards}`。"""
+    if not isinstance(raw, list):
+        errors.append("drop 必须是数组")
+        return {}
+    out: dict[str, str] = {}
+    for i, row in enumerate(raw):
+        if not isinstance(row, dict):
+            errors.append(f"drop[{i}] 必须是对象")
+            continue
+        nid = str(row.get("id") or "").strip()
+        if not nid:
+            errors.append(f"drop[{i}] 缺 id")
+            continue
+        if nid not in habit_ids:
+            errors.append(f"drop[{i}].id 不在上一版的编号里: {nid!r}")
+            continue
+        if nid in out:
+            errors.append(f"drop[{i}].id 重复: {nid!r}")
+            continue
+        why = str(row.get("afterwards") or "").strip()
+        if not why:
+            errors.append(f"drop[{i}] 缺 afterwards —— 一句话说它后来怎么了（必填）")
+            continue
+        out[nid] = why
+    return out
+
+
+def _clean_panorama_mind(raw: Any, errors: list[str]) -> dict | None:
+    """`on_mind`: 对象或 `null`（`null` = 清空）。"""
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        errors.append("on_mind 必须是对象或 null")
+        return None
+    text = str(raw.get("text") or "").strip()
+    if not text:
+        errors.append("on_mind 缺 text（想清空就整块写 null）")
+        return None
+    return {"text": text, "refs": _id_list(raw.get("refs"))}
+
+
+def _id_list(v: Any) -> list[str]:
+    """宽松取 id 数组（非列表 → 空; 元素转字符串去空白）。"""
+    if not isinstance(v, (list, tuple)):
+        return []
+    return [str(x).strip() for x in v if isinstance(x, (str, int)) and str(x).strip()]
+
 
 def _clean_add(row: dict, i: int, errors: list[str]) -> dict | None:
     """`add` 一行（R4）: 正文短语 + ≥1 个引用; `due` 可选。"""
