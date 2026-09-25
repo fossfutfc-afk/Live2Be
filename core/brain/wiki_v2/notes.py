@@ -43,6 +43,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any, Iterable
 
+from core.brain.wiki_v2.nodes import PROMISE_OUTCOMES   # 结局枚举的运行时真源（同包）
 from core.common import err
 from core.session.events import (
     N_ADD,
@@ -89,8 +90,11 @@ _LEAD_INDENT = "  "
 _ITEM_INDENT = "    "
 #: 时间短语前缀（`§3.2` 渲染示例: `← 记于 3 天前`）
 SINCE_LEAD = "  ← 记于 "
-#: 结清行的状态词 —— ⚠️ **中性**: `close` 也覆盖**失约 / 不做了**（图里那个节点的
-#: `state` 是 kept/broken/superseded 三值）, 所以不能用"已完成"。理由跟在括号里。
+#: 结清行的状态词 —— ⚠️ **按 `state` 分三种说法**（2026-09-25）: `close` 也覆盖
+#: **失约 / 不做了 / 被取代**, 所以光板一句"已完成"会撒谎。缺 `state`（旧事件）→ 中性兜底。
+CLOSED_WORDS: dict[str, str] = {"kept": "已兑现", "broken": "没做到",
+                                "superseded": "被新的取代了"}
+#: 兜底状态词（没有 `state` 时）
 CLOSED_LEAD = "  ← 已结清"
 
 #: 槽 → 上限（`check` 用）
@@ -114,8 +118,10 @@ class NoteItem:
     `since` —— 记于何时（引擎填 = 那条操作的 `ts`; 渲染成"记于 N 天前"）。
     `due`   —— `promise` 可选; ⚠️ **只存不渲染**（渲染成日期会诱使她"数日子",
                与 `worldtime.age` 那条"绝不输出精确值"直接冲突）。
-    `closed_at` / `reason` —— **结清**（非空 = 已结清）: 她做完了 / 失约了 / 不做了,
-               以及"为什么"。⚠️ **结清 ≠ 从 note 消失**（见 `_apply_close`）。
+    `closed_at` / `reason` / `state` —— **结清**（`closed_at` 非空 = 已结清）:
+               她做完了 / 没成 / 被新的取代了（`state` = `kept`/`broken`/`superseded`）, 以及"为什么"。
+               ⚠️ 字段名在这里是 **`state`**（节点侧叫 `outcome` —— entity 的 `state` 是 list, 撞类型;
+               而 note 条目没有那个字段, 所以沿用它。两处同义不同名）。
     """
 
     id: str = ""
@@ -125,6 +131,7 @@ class NoteItem:
     due: str = ""
     closed_at: str = ""
     reason: str = ""
+    state: str = ""
 
     @property
     def closed(self) -> bool:
@@ -134,7 +141,8 @@ class NoteItem:
     def copy(self) -> "NoteItem":
         return NoteItem(id=self.id, text=self.text, refs=list(self.refs),
                         since=self.since, due=self.due,
-                        closed_at=self.closed_at, reason=self.reason)
+                        closed_at=self.closed_at, reason=self.reason,
+                        state=self.state)
 
     def to_dict(self) -> dict:
         d: dict[str, Any] = {"text": self.text, "refs": list(self.refs),
@@ -147,6 +155,8 @@ class NoteItem:
             d["closed_at"] = self.closed_at
         if self.reason:
             d["reason"] = self.reason
+        if self.state:
+            d["state"] = self.state
         return d
 
     @classmethod
@@ -165,7 +175,8 @@ class NoteItem:
                    since=str(raw.get("since") or "").strip(),
                    due=str(raw.get("due") or "").strip(),
                    closed_at=str(raw.get("closed_at") or "").strip(),
-                   reason=str(raw.get("reason") or "").strip())
+                   reason=str(raw.get("reason") or "").strip(),
+                   state=str(raw.get("state") or "").strip())
 
 
 @dataclass
@@ -307,6 +318,7 @@ def _apply_close(st: NotesState, payload: dict, ts: str, seq: int) -> None:
                 return
             it.closed_at = ts or it.closed_at
             it.reason = reason
+            it.state = str(payload.get("state") or "").strip()
             return
     logger.warning("note/close 指不到任何条目（跳过）: id=%s seq=%s", nid, seq)
 
@@ -417,14 +429,15 @@ def add_op(text: str, refs: Iterable[str], *, due: str = "") -> dict:
     return _checked(op)
 
 
-def close_op(item_id: str, reason: str) -> dict:
-    """`close` 操作 = **结清** —— **必须给理由**（"为什么这条不再开着了"）。
+def close_op(item_id: str, reason: str, state: str) -> dict:
+    """`close` 操作 = **结清** —— **理由必填** + **结局必填**（`kept`/`broken`/`superseded`）。
 
     ⚠️ 结清**不等于**从本子上划掉（那是 `retire_op`）: 条目留在 note 里继续注入,
-    直到图侧接住它。理由既是 §6 固化那一步判 `kept`/`broken`/`superseded` 的原料,
-    也是结清行要显示给她的那句话。
+    直到图侧接住它。理由既是 §6 固化那一步的原料, 也是**注入块上那句话**
+    （渲染按 `state` 分三种说法, 见 `CLOSED_WORDS`）。
     """
-    return _checked({"action": N_CLOSE, "id": item_id, "reason": reason})
+    return _checked({"action": N_CLOSE, "id": item_id, "reason": reason,
+                     "state": state})
 
 
 def retire_op(item_id: str) -> dict:
@@ -490,6 +503,11 @@ def validate_ops(ops: list[dict]) -> None:
                 raise ValueError(err("NoReason",
                                      f"note 操作[{i}] close 缺理由（闭合即固化进图, 没有理由就判不出"
                                      " kept/broken/superseded）"))
+            state = str(op.get("state") or "").strip()
+            if state not in PROMISE_OUTCOMES:
+                raise ValueError(err("BadNoteOp",
+                                     f"note 操作[{i}] close 的 state 非法: {state!r}"
+                                     f"（可用: {', '.join(PROMISE_OUTCOMES)}）"))
         elif action == N_RETIRE:
             if not str(op.get("id") or "").strip():
                 raise ValueError(err("BadNoteOp", f"note 操作[{i}] retire 缺 id"))
@@ -621,8 +639,9 @@ def render_item(item: NoteItem, *, now: object | None = None) -> str:
 
 
 def _closed_suffix(it: NoteItem) -> str:
-    """`  ← 已结清（理由）` —— 状态词中性（失约也算结清, 见 `render_note_block`）。"""
-    return f"{CLOSED_LEAD}（{it.reason}）" if it.reason else CLOSED_LEAD
+    """`  ← 已兑现（理由）` —— 状态词按 `state` 分三种; 没有 `state` → 中性兜底。"""
+    head = f"  ← {CLOSED_WORDS[it.state]}" if it.state in CLOSED_WORDS else CLOSED_LEAD
+    return f"{head}（{it.reason}）" if it.reason else head
 
 
 def _sorted_by(items: list[NoteItem], field: str) -> list[NoteItem]:

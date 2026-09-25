@@ -115,10 +115,13 @@ def test_close_without_reason_applies_but_is_loud(caplog):
     """**写侧拒, 读侧照做**: 事件说的就是"这条不再开着了", 不认它会让本子停在过去。"""
     st = notes.fold([_add(1), _ev(2, N_CLOSE, {"id": "n1"})])
     assert st.promise[0].closed is True and st.promise[0].reason == ""
+    assert st.promise[0].state == ""                    # 旧事件没 state → 用中性兜底渲染
 
-    # 写侧硬门槛（`close` 必须给理由; `add` / `retire` 不用）
+    # 写侧硬门槛（`close` 必须给理由 + 给结局; `add` / `retire` 不用）
     with pytest.raises(ValueError, match="缺理由"):
-        notes.close_op("n1", "   ")
+        notes.close_op("n1", "   ", "kept")
+    with pytest.raises(ValueError, match="state 非法"):
+        notes.close_op("n1", "去了", "done")
     assert notes.add_op("周六模型店", ["m0009"])["action"] == N_ADD
     assert notes.retire_op("n1") == {"action": N_RETIRE, "id": "n1"}
 
@@ -216,7 +219,7 @@ def test_write_side_gate_rejects_incomplete_ops():
     with pytest.raises(ValueError, match="缺 refs"):
         notes.add_op("周六模型店", [])
     with pytest.raises(ValueError, match="缺 id"):
-        notes.close_op("", "理由")
+        notes.close_op("", "理由", "kept")
     with pytest.raises(ValueError, match="未知动作"):
         notes.validate_ops([{"action": "done", "id": "n1"}])
     with pytest.raises(ValueError, match="必须是数组"):
@@ -341,20 +344,29 @@ def test_render_closed_items_after_open_ones_with_neutral_word():
         _add(1, text="周六模型店", refs=("m0009",)),
         _add(2, text="还他笔记", refs=("m0011",), ts=T1),
         _add(3, text="买花", refs=("m0014",)),                        # 更老的约定
-        _ev(4, N_CLOSE, {"id": "n3", "reason": "送出去了"}, ts=T0),   # 早结清
-        _ev(5, N_CLOSE, {"id": "n1", "reason": "周六真的去了"}, ts=T1),  # 晚结清
+        _ev(4, N_CLOSE, {"id": "n3", "reason": "送出去了", "state": "kept"}, ts=T0),   # 早结清
+        _ev(5, N_CLOSE, {"id": "n1", "reason": "那天我忘了", "state": "broken"}, ts=T1),
     ])
     lines = notes.render_note_block(st, now=NOW).splitlines()
 
     assert lines[1] == "  · 你自己记下的约定"
     assert lines[2] == "    n2 还他笔记 (m0011)  ← 记于 昨天"          # 开着的在前
-    assert lines[3] == "    n1 周六模型店 (m0009)  ← 已结清（周六真的去了）"   # 结清组按结清时刻
-    assert lines[4] == "    n3 买花 (m0014)  ← 已结清（送出去了）"
-    assert "已完成" not in "".join(lines)      # 中性词: close 也覆盖失约/不做了
+    assert lines[3] == "    n1 周六模型店 (m0009)  ← 没做到（那天我忘了）"   # 结清组按结清时刻
+    assert lines[4] == "    n3 买花 (m0014)  ← 已兑现（送出去了）"
+    assert "已完成" not in "".join(lines)      # 光板"已完成"对失约是假话 ⇒ 按 state 分说法
 
-    # 没理由的结清（读侧容忍）→ 只印状态词, 不印空括号
+    # 没理由 / 没 state（旧事件）→ 中性兜底, 不印空括号
     bare = notes.fold([_add(1), _ev(2, N_CLOSE, {"id": "n1"})])
     assert notes.render_note_block(bare).splitlines()[2] == "    n1 周六模型店 (m0009)  ← 已结清"
+
+
+def test_render_superseded_tail():
+    """被取代也算结清 —— 三种 state 各有说法（用户 2026-09-25 定）。"""
+    st = notes.fold([_add(1),
+                     _ev(2, N_CLOSE, {"id": "n1", "reason": "改成一起整理",
+                                      "state": "superseded"}, ts=T1)])
+    assert notes.render_note_block(st).splitlines()[2] \
+        == "    n1 周六模型店 (m0009)  ← 被新的取代了（改成一起整理）"
 
 
 def test_render_is_empty_when_nothing_is_noted():

@@ -18,12 +18,20 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any
+from typing import Any, Iterable
 
+from core.brain.wiki_v2 import notes as note_ops
 from core.brain.wiki_v2.entities import SELF_ID, SENSEI_ID, surface_forms
 from core.brain.wiki_v2.evolution import EvolutionLog
-from core.brain.wiki_v2.graph import REL_ABOUT, REL_SUPPORTS
+from core.brain.wiki_v2.graph import (
+    REL_ABOUT,
+    REL_FORMED_BY,
+    REL_FROM,
+    REL_SUPPORTS,
+    REL_TO,
+)
 from core.brain.wiki_v2.nodes import BrainNode, KINDS, make_node
+from core.brain.wiki_v2.notes import NotesState
 from core.brain.wiki_v2.store import WikiStoreV2
 from core.common import err
 
@@ -55,6 +63,20 @@ class RevisionResult:
     errors: list[str] = field(default_factory=list)
     created: dict[str, str] = field(default_factory=dict)   # ref → 真实 id
     pkg: str = ""
+
+
+@dataclass
+class ClosureResult:
+    """R4 收口的执行结果 —— **节点面与 note 面分开**（两处的提交时机不同）。
+
+    节点面（`nodes`）在 digest 事务**内**提交（跟图一起 save/回滚）；
+    note 面（`ops`）必须等事务 `ok` **之后**才 append（事件流 append-only, 不回滚）。
+    """
+
+    nodes: list[str] = field(default_factory=list)               # 新建的 promise 节点 id
+    pairs: list[tuple[str, str]] = field(default_factory=list)   # (note id, 节点 id) —— retire 用
+    ops: list[dict] = field(default_factory=list)                # 待落库的 note 操作（add 先, close 后）
+    warnings: list[str] = field(default_factory=list)            # 世界校验剔掉的东西（记账）
 
 
 # ---------------------------------------------------------------------------
@@ -386,6 +408,106 @@ def _rewrite(store: WikiStoreV2, row: dict, i: int, by_local: dict[str, str], *,
     log.append({"pkg": "digest", "action": "rewrite", "id": real,
                 "changed": {k: [v, getattr(new, k, None)] for k, v in before.items()},
                 "ts": ts})
+
+
+def apply_closures(
+    store: WikiStoreV2,
+    rows: list[dict],
+    *,
+    note_state: NotesState,
+    new_episode_ids: Iterable[str] = (),
+    log: EvolutionLog | None = None,
+    ts: str | None = None,
+    event_seq: list[int] | None = None,
+) -> ClosureResult:
+    """执行 R4 收口决策表（promise 记账 + 固化）—— 见 DESIGN_GRAPH_V4 §6/§8。
+
+    两种行（形状见 `contract.digest_registry.parse_close`）::
+
+        {"action": "add",   "text": "周六模型店", "refs": ["m0013"], "due": "…"}
+        {"action": "close", "id": "n1", "state": "kept", "reason": "周六真的去了"}
+
+    分工与纪律:
+        · `add`   = 开放期的约定 ⇒ **只产 note 操作**（开放期住 note, 不进图 —— §6 两段式）
+        · `close` = 结清 ⇒ **固化**: 建 `promise` 节点（`outcome` = 那条结局）+ 四条边
+          （`from`/`to` = self↔sensei · `formed_by` = note 的 refs ∪ **本段新增 episode**）
+          ⇒ 再产一条 `note/close` 操作（含 `state`/`reason`）。
+          ⚠️ `supports`（R2）与 `about`（R3）**不在这里写** —— 那是后面两轮对**这个新节点**的活,
+          所以 R4 必须排在它们之前（§8 的批内顺序）。
+        · ⚠️ **节点面在这里落, note 面交给调用方**: 节点随 digest 事务提交,
+          note 操作必须等 `ok` 之后才 append（先固化、后退场; 见 `ClosureResult`）。
+        · ⚠️ **世界校验剔掉、不拒整包**: 引用指不到的 ⇒ 剔那条 ref; 剔完没 refs 的条目
+          整条丢; `close` 指向"不还开着"的条目 ⇒ 丢这一行。都进 `warnings` 记账。
+
+    Args:
+        note_state: 折叠出来的笔记状态（`close.id` 在这里查; 节点文本直接取条目 `text`）
+        new_episode_ids: 本段 R1 新建的 episode（`formed_by` 的**后半段** ——
+            "哪条经历了结了它"由引擎确定性连接, LLM 不判, 见 §6）
+    """
+    log = log or EvolutionLog.for_store(store)
+    ts = ts or datetime.now().isoformat(timespec="seconds")
+    event_seq = list(event_seq or [])
+    new_ep = [i for i in new_episode_ids if store.get(i) is not None]
+    open_items = {it.id: it for it in note_state.promise if not it.closed}
+    out = ClosureResult()
+    # 承诺双方（保留号）—— 缺了就不写这两条边（同 `_entities_ready` 的降级口径）
+    ends = [i for i in (SELF_ID, SENSEI_ID) if store.get(i) is not None]
+    if len(ends) < 2:
+        out.warnings.append("self/sensei 未就位 —— 承诺的 from/to 边本次不写")
+
+    for row in rows:
+        action = row.get("action")
+        if action == "close":
+            _close_one(store, row, open_items, new_ep, ends, log=log, ts=ts,
+                       event_seq=event_seq, out=out)
+        elif action == "add":
+            _add_one(store, row, out)
+        else:                                       # 形状错本该在 parse 层拦下
+            out.warnings.append(f"未知动作（跳过）: {action!r}")
+
+    return out
+
+
+def _add_one(store: WikiStoreV2, row: dict, out: ClosureResult) -> None:
+    """`add`: 引用剔干净后产一条 note 操作（开放期**不进图**）。"""
+    refs: list[str] = []
+    for r in row.get("refs") or []:
+        node = store.get(r)
+        if node is None or node.kind != "episode":
+            out.warnings.append(f"add {row.get('text')!r}: 引用不是现存经历 → 剔掉 {r!r}")
+            continue
+        refs.append(r)
+    if not refs:
+        out.warnings.append(f"add {row.get('text')!r}: 剔完没有有效引用 → 整条丢")
+        return
+    out.ops.append(note_ops.add_op(str(row.get("text") or ""), refs,
+                                   due=str(row.get("due") or "")))
+
+
+def _close_one(store: WikiStoreV2, row: dict, open_items: dict, new_ep: list[str],
+               ends: list[str], *, log: EvolutionLog, ts: str,
+               event_seq: list[int], out: ClosureResult) -> None:
+    """`close`: 固化（节点 + 四条边）+ 产一条 `note/close` 操作。"""
+    nid = str(row.get("id") or "")
+    item = open_items.get(nid)
+    if item is None:
+        out.warnings.append(f"close {nid!r}: 不在「还开着」的约定里 → 丢这一行")
+        return
+    node = make_node("promise", text=item.text, outcome=str(row.get("state") or ""),
+                     event_seq=event_seq, ts=ts)
+    real = store.add(node)
+    for dst in ends:                                   # from / to（承诺双方）
+        store.add_edge(REL_FROM if dst == SELF_ID else REL_TO, real, dst, ts=ts)
+    formed = list(dict.fromkeys(list(item.refs) + new_ep))    # refs ∪ 本段新增（保序去重）
+    for ep in formed:
+        if store.get(ep) is not None:
+            store.add_edge(REL_FORMED_BY, real, ep, ts=ts)
+    log.append({"pkg": "digest", "action": "solidify", "note": nid, "node": real,
+                "outcome": node.outcome, "formed_by": formed, "ts": ts})
+    out.nodes.append(real)
+    out.pairs.append((nid, real))
+    out.ops.append(note_ops.close_op(nid, str(row.get("reason") or ""),
+                                     str(row.get("state") or "")))
 
 
 def apply_revision_package(
