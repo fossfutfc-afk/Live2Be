@@ -120,6 +120,11 @@ def apply_decisions(
         update —— 部分字段合并（空=保留; patch 白名单）+ **before/after 进 evolution 日志**
                   + 自动链 episode
         add    —— 新建 belief/experience（引擎字段归属）+ 链回 episode
+        link   —— ⭐ **补充边**（§9-13, 2026-09-25）: `{"action":"link","rel","from","to"}`
+                  两端是**本地 id**（`u0001..`）—— 让"承诺 → 看法"（`supports`）、
+                  "新承诺盖过旧的"（`evolved_from`）、"这两条打架"（`contradicts`）
+                  有处可写。⚠️ 这是**决策行之外的第二种行**, 它没有 `episode`,
+                  也不参与覆盖统计（`parse_round_b` 已按 `link_ids` 校验过两端）。
 
     Args:
         id_map: 渲染本地 id（u0001..）→ 真实节点 id
@@ -132,6 +137,16 @@ def apply_decisions(
     event_seq = list(event_seq or [])
     created: list[str] = []
     for row in rows:
+        if row.get("action") == "link":          # 补充边（没有 episode 字段）
+            src, dst = id_map.get(row["from"]), id_map.get(row["to"])
+            if not src or not dst:
+                # parse 层已按 link_ids 校验; 走到这里 = 调用方与契约不同步（宁缺勿错: 拒）
+                raise ValueError(err("BadLink",
+                                     f"link 端点解析不出真实 id: {row!r}"))
+            store.add_edge(row["rel"], src, dst, ts=ts)     # 幂等 + 拒悬空/自环
+            log.append({"pkg": "digest", "action": "link", "rel": row["rel"],
+                        "from": src, "to": dst, "ts": ts})
+            continue
         ep_id = row["episode"]
         real = id_map.get(row["target"]) if row.get("target") else None
         decision = row["decision"]

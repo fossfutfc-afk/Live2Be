@@ -378,6 +378,12 @@ class DigestRegistry:
                     lines.append("    , // ——或—— //")
             lines.extend([
                 "    ],",
+                '     "links": [ // 可选; 额外的边——把**上面列表里已有**的两条连起来;',
+                '               // 只这三种 rel, 两端都必须是列表里出现过的本地 id;',
+                '               // 没有就写 []（或省略这个键）//',
+                '        {"from": "u0007", "rel": "supports", "to": "u0002"},',
+                '        {"from": "u0009", "rel": "evolved_from", "to": "u0007"}',
+                "     ],",
                 '     "evidence": [ // 可选; 成长证据——只输出有明确原文支撑的;',
                 '                    // confidence < 0.7 会被引擎丢弃; quote 必须逐字来自时间线 //',
                 '        {"function": "fe", "confidence": 0.8, "quote": "…原文…", "note": "…"}',
@@ -389,6 +395,14 @@ class DigestRegistry:
                 "decisions 规则: 每个 episode 恰好一行; 必须覆盖全部 episode;",
                 "id 只能引用上方渲染列表里出现的 id（编造 id → 整包拒）;",
                 "引擎候选标注'疑似印证/疑似重复'时必须遵守（印证→touch, 重复→update）。",
+                "",
+                "links 规则（**可选的补充边**, 别拿它当主力）:",
+                "  supports      —— 「这条承诺/这件事, 长出了那个看法」（承诺 → 看法）;",
+                "  contradicts   —— 「这两条互相打架」（无向: 写一次就够）;",
+                "  evolved_from  —— 「这条是新的, 它把旧的盖过去了」（新 → 旧）;",
+                "  ⚠️ 方向别写反（`from` 是新/被支撑的那一头）; 两端都不能是本轮新建的条目",
+                "    （列表是这一轮**开始前**的样子 —— 新建的下一轮才连得上）;",
+                "  ⚠️ 承诺（promise）**只**能用 links 连: 它不是看法, 不要 touch/update 它。",
                 "",
                 "两层写法（别混, 2026-09-20 用户定）:",
                 "  episode = **informative but single**（信息量足, 但只讲一件事）;",
@@ -597,11 +611,19 @@ class DigestRegistry:
 
     def parse_round_b(self, raw: Any, *, episode_ids: set[str],
                       target_ids: set[str],
+                      link_ids: set[str] | None = None,
                       ) -> tuple[list[dict], ValidationResult]:
-        """Round B: {"decisions": [...], "evidence": [...], "affection_exp_delta": n}。
+        """Round B: `{"decisions": [...], "links": [...], "evidence": [...],
+        "affection_exp_delta": n}`。
 
         episode_ids: 本轮 Round A 产出的真实 episode id 集（引用检查）。
-        target_ids: 渲染给 LLM 的认知本地 id 集（u0001..; 引用检查）。
+        target_ids: **可被 `touch`/`update` 的**本地 id 集（u0001..; 只有看法）。
+        link_ids: **可出现在 `links` 两端的**本地 id 集（看法 ∪ **承诺**）。
+            ⚠️ 两个集合**故意不同**（2026-09-25, §5.1/§9-13）: 承诺也是"稳定下来的东西"
+            ⇒ R2 要看得见它（才能写出 `supports`/`evolved_from`），但它**不是看法**
+            ⇒ 不能被 `touch`/`update`（那句"这条经历支撑这条承诺"是 `formed_by` 的活,
+            而且承诺的正文在固化那一刻就写死了）。`None` → 退化成 `target_ids`
+            （老调用方/单测不必改）。
 
         ⚠️ **`must_touch` 参数已删**（2026-09-15 T17）: 它曾是"引擎候选 ≥ 阈值 →
         该 episode 禁 `add`"的**结构强制**，而那个阈值从未标定过、实测两模型下
@@ -609,6 +631,8 @@ class DigestRegistry:
         已裁"取消结构强制, 候选仅作提示"）。现在候选只是输入里的一行提示,
         判 add/touch/update 全归 LLM, **引擎不设闸门**。
         """
+        if link_ids is None:
+            link_ids = target_ids
         errors: list[str] = []
         warnings: list[str] = []
         if not isinstance(raw, dict):
@@ -638,7 +662,11 @@ class DigestRegistry:
                     errors.append(f"decisions[{i}]: {decision} 必须填 target")
                     continue
                 if target not in target_ids:
-                    errors.append(f"decisions[{i}].target 不在渲染列表内: {target!r}")
+                    # ⚠️ 措辞带上"承诺要用 links"—— 2026-09-25 起 `target_ids` 只含
+                    # **看法**（belief/experience），而 promise 会出现在**渲染列表**里
+                    # ⇒ 模型完全可能 touch 它。这条消息是给它的指路牌。
+                    errors.append(f"decisions[{i}].target 不在可 touch/update 的列表内"
+                                  f"（只有看法; 承诺不是看法 —— 用 links 连它）: {target!r}")
                     continue
                 item["target"] = target
                 if decision == "touch":
@@ -685,12 +713,68 @@ class DigestRegistry:
         missing = sorted(episode_ids - seen)
         if missing:
             errors.append(f"decisions 未覆盖全部 episode: 漏 {', '.join(missing)}")
+        # 可选的补充边（`links`）—— 形状错同样**拒整包**（rel 是契约词汇的一部分）
+        out.extend(_parse_links(raw.get("links"), link_ids, errors, warnings))
         return out, ValidationResult(tuple(errors), tuple(warnings))
 
 
 # ============================================================================
 # 内部清洗（宁缺勿错: 坏项丢弃 + 报错; 质量项 warning 不阻断）
 # ============================================================================
+
+#: `links` 允许的 rel（**只有这三种** —— 见 DESIGN_GRAPH_V4 §2 的边表）。
+#: ⚠️ 别加 `about`（那是第 3 轮的活, 走候选表映射）· 别加 `formed_by`/`from`/`to`
+#: （承诺固化时引擎自己写）· 别加 `source`（已删）。
+LINK_RELS: tuple[str, ...] = ("supports", "contradicts", "evolved_from")
+
+
+def _parse_links(raw: Any, link_ids: set[str], errors: list[str],
+                 warnings: list[str]) -> list[dict]:
+    """R2 的可选补充边 `[{"from","rel","to"}]` → 执行器认的行（`action="link"`）。
+
+    与决策行**同一个数组**交出去（`apply_decisions` 一个循环处理两类行）—— 但那两类行的
+    校验口径不同: 决策行必须覆盖每个 episode, `link` 行**不参与覆盖统计**（它没有 episode）。
+
+    形状错 = **拒整包**（rel 是契约词汇、两端是渲染列表里的编号 —— 都是"没读契约"）;
+    重复的边只留一条（warning, 不算错: 模型多说了一遍同一件事）。
+    """
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        errors.append("links 必须是数组（没有就写 [] 或省略这个键）")
+        return []
+    out: list[dict] = []
+    seen: set[tuple[str, str, str]] = set()
+    for i, row in enumerate(raw):
+        if not isinstance(row, dict):
+            errors.append(f"links[{i}] 必须是对象")
+            continue
+        src = str(row.get("from", "")).strip()
+        dst = str(row.get("to", "")).strip()
+        rel = str(row.get("rel", "")).strip()
+        if rel not in LINK_RELS:
+            errors.append(f"links[{i}].rel 非法: {rel!r}（只有 "
+                          f"{'|'.join(LINK_RELS)}）")
+            continue
+        bad = [lbl for lbl, val in (("from", src), ("to", dst))
+               if val not in link_ids]
+        for lbl, val in (("from", src), ("to", dst)):
+            if lbl in bad:
+                errors.append(f"links[{i}].{lbl} 不在渲染列表内: {val!r}"
+                              "（承诺也得先在列表里出现过; 本轮新建的连不上）")
+        if bad:
+            continue
+        if src == dst:
+            errors.append(f"links[{i}] 两端相同: {src!r}（边不能自环）")
+            continue
+        key = (rel, src, dst)
+        if key in seen:
+            warnings.append(f"links[{i}] 重复（只留一条）: {src} -{rel}-> {dst}")
+            continue
+        seen.add(key)
+        out.append({"action": "link", "rel": rel, "from": src, "to": dst})
+    return out
+
 
 def _clean_panorama_habits(raw: Any, habit_ids: set[str],
                            errors: list[str]) -> tuple[list[dict], set[str]]:

@@ -407,14 +407,25 @@ def _me(text: str, char_name: str, aliases: tuple[str, ...] = ()) -> str:
 # ---------------------------------------------------------------------------
 
 def render_cognition_list(store: WikiStoreV2, cap: int = 12,
-                          exclude: set[str] | None = None
+                          exclude: set[str] | None = None,
+                          must_include: Iterable[str] = ()
                           ) -> tuple[str, dict[str, str]]:
     """Round B 输入: 现有稳定认知渲染（本地 id u0001..; 排序: significance 降序）。
 
-    只挑 belief/experience（episode 是流水不参与组织, fact 是出厂基座不可
-    touch/update）; 渲染层守 _ensure_cognition 语义, 引擎不给 LLM 不可选之物。
-    exclude: 本轮 A 刚建的 id 集（player 画像条目——本段产物不进本轮认知列表,
+    只挑 belief/experience/**promise**（episode 是流水不参与组织 —— 它是"支撑"的**起点**
+    而不是被 touch 的对象）; 渲染层守 `_ensure_cognition` 语义, 引擎不给 LLM 不可选之物。
+
+    ⭐ **promise 2026-09-25 加进来**（§9-13 的洞）: 固化后的承诺也是"稳定下来的东西",
+    而 R2 要写 `supports(promise → belief)`（"这条承诺长出了看法"）与
+    `evolved_from(promise → 旧 promise)`（"新的盖过旧的"）—— **看不见就写不出**,
+    那两条边就永远打不出来。⚠️ 但它**不能被 `touch`/`update``（不是看法）⇒
+    `digest` 那边把可 touch 的集与可 link 的集分开传（`parse_round_b` 的
+    `target_ids` / `link_ids`）。
+
+    `exclude`: 本轮 A 刚建的 id 集（player 画像条目——本段产物不进本轮认知列表,
     B 只组织 episode, 画像留待后续轮次参与组织）。
+    `must_include`: **本轮 R4 物化的 promise 节点** —— 它们必须出现在列表里
+    （不受 `cap` 截断）, 否则 R2 又一次"看不见刚要写边的东西"。
 
     Returns:
         (text, local_of): local_of = 真实 id → 本地 id（候选标注/执行器解析用;
@@ -422,12 +433,20 @@ def render_cognition_list(store: WikiStoreV2, cap: int = 12,
     """
     exclude = exclude or set()
     nodes = [n for n in store.all()
-             if n.kind in ("belief", "experience") and n.id not in exclude]
+             if n.kind in ("belief", "experience", "promise")
+             and n.id not in exclude]
     nodes.sort(key=lambda n: (-n.significance, n.id))
+    picked = nodes[:cap]
+    have = {n.id for n in picked}
+    for nid in must_include:                     # 必进的（本轮新物化的承诺）
+        node = store.get(nid)
+        if node is not None and node.id not in have:
+            picked.append(node)
+            have.add(node.id)
     graph = store.graph()                       # experience 的次数 = supports 入边数
     lines: list[str] = []
     local_of: dict[str, str] = {}
-    for i, n in enumerate(nodes[:cap], start=1):
+    for i, n in enumerate(picked, start=1):
         local = f"u{i:04d}"
         local_of[n.id] = local
         cnt = _count_of(n, graph)
@@ -444,4 +463,13 @@ def render_cognition_list(store: WikiStoreV2, cap: int = 12,
 
 
 def _kind_tag(node: BrainNode) -> str:
+    """kind 标签（模型在组织轮的输入里看到的那一格）。
+
+    ⚠️ `promise` 带上结局（`[promise·已兑现]`）: 它只有一个词 `promise`, 而"兑现了 /
+    没做到 / 被取代了"正是 R2 判断"这条承诺长出了什么"的**必要信息**（同一个词表
+    与注入块共用 —— `notes.CLOSED_WORDS`）。
+    """
+    if node.kind == "promise" and node.outcome:
+        from core.brain.wiki_v2.notes import CLOSED_WORDS
+        return f"[promise·{CLOSED_WORDS.get(node.outcome, node.outcome)}]"
     return f"[{node.kind}]"

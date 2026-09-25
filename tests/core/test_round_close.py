@@ -239,6 +239,66 @@ class EngineLLM:
         raise RuntimeError(f"意外调用 task={task!r}")
 
 
+def test_r2_sees_the_promise_and_can_link_it(tmp_path):
+    """⭐ §9-13（2026-09-25）: R4 物化的承诺**当场就进 R2 的视野**, 而且 R2 有动作面
+    去写那两条边（`links`: `supports(promise → belief)` / `evolved_from`）。
+
+    不补视野 = 刚物化的节点看不见; 不补动作面 = 看得见却说不出口（决策表的三个动作
+    一律只写 `supports(episode → target)`）。两件一起才闭合。
+    """
+    st = _store(tmp_path)
+    st.add(make_node("belief", text="老师答应的事都做到了", subject="sensei",
+                     epistemic="inferred_belief", significance=0.9, event_seq=[2]))
+    st.add(make_node("promise", text="周日一起去看海 —— 还没去",
+                     outcome="superseded", event_seq=[2], ts="2026-09-19T10:00:00"))
+    st.save()
+    note = _open_promise()
+    close = {"add": [], "close": [{"id": "n1", "state": "superseded",
+                                   "afterwards": "被新的那条盖过去了"}]}
+    # 列表顺序（significance 降序）: u0001=看法, u0002=旧承诺; R4 新物化的承诺 = u0003
+    # R2: 一条 add（覆盖本段的 episode m0002）+ 两条 link
+    b = _b(["m0002"])
+    b["links"] = [{"from": "u0003", "rel": "supports", "to": "u0001"},
+                  {"from": "u0003", "rel": "evolved_from", "to": "u0002"}]
+    llm = RoundLLM(_a("模型店门口"), close, b)
+
+    res = digest_segment(st, llm, _events(note, _mmt(3)))
+    assert res.ok, res.errors
+
+    # ⭐ 视野: R2 的输入里看得见承诺（带结局的标签）+ note 里那条旧条目
+    r2 = llm.user_of(T.DIGEST_B)
+    assert "[promise·被新的取代了]" in r2
+    assert "周六模型店" in r2
+    # ⭐ 动作面: 两条边真的写出来了（按文本找 id, 不赌编号）
+    belief_id = next(n.id for n in st.all()
+                     if n.kind == "belief" and n.text.startswith("老师答应的事"))
+    old_p = next(n.id for n in st.all()
+                 if n.kind == "promise" and "看海" in n.text)
+    new_p = res.promise_nodes[0]
+    g = st.graph()
+    assert g.targets(new_p, "supports") == [belief_id]        # 新承诺 → 看法
+    assert g.targets(new_p, "evolved_from") == [old_p]        # 新承诺 → 旧承诺
+    assert st.audit() == []
+
+
+def test_cognition_list_must_include_bypasses_cap(tmp_path):
+    """`must_include`（本轮 R4 物化的承诺）**不受 cap 截断** —— 否则 R2 又一次
+    "看不见刚要写边的东西"（承诺的 significance 默认为 0.5, 真机上排在看法后面）。"""
+    from core.brain.wiki_v2.render import render_cognition_list
+    st = _store(tmp_path)
+    for i in range(3):
+        st.add(make_node("belief", text=f"看法{i}", subject="sensei",
+                         epistemic="inferred_belief", significance=0.9 - i * 0.1))
+    pid = st.add(make_node("promise", text="周六模型店 —— 真的去了", outcome="kept"))
+    st.save()
+
+    text, local_of = render_cognition_list(st, cap=1, must_include=[pid])
+
+    assert pid in local_of and "周六模型店" in text
+    assert len(local_of) == 2                       # cap=1 的那条 + 必进的承诺
+    assert "[promise·已兑现]" in text
+
+
 def test_engine_writes_note_ops_into_the_truth(tmp_path):
     """端到端: digest 成功 ⇒ 引擎把 note 操作 append 进**真源**、刷 `notes.json`,
     并且这一轮的注入块里就有那条约定（先真源后缓存 + 重建注入）。"""

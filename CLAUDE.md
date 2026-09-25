@@ -391,8 +391,11 @@ CLI/测试同步路径在引擎内串行。
 - **每段四步（`R1 → R4 → R2 → R3`）**：R4 收口 2026-09-25 已接线（`digest.close`, 位置在
   R1 之后/R2 之前 —— promise 节点要先就位才有边可写）；⚠️ 它产的 note 操作**不在
   `digest_segment` 里 append**，挂在 `DigestResult.notes_ops` 上由调用方在**整批 ok 后**写
-  （失败 = 整批回滚 ⇒ 那条约定原样开着）。⏳ 余下两步：**R2 视野**（promise 要发进认知列表）、
-  **R3 归属接线**。
+  （失败 = 整批回滚 ⇒ 那条约定原样开着）。**R2 的视野与动作面** 2026-09-25 也已补（③-2）：
+  `render_cognition_list` 收 `promise`（标签 `[promise·已兑现]`）+ `must_include` 不受 cap 截断；
+  R2 输出多一个**可选键 `links`**（`supports`/`contradicts`/`evolved_from`，两端是渲染列表里的
+  本地 id）—— ⚠️ **两个 id 空间**：能 `touch`/`update` 的只有看法，能 `link` 的含承诺。
+  ⏳ 最后一步：**R3 归属接线**。
 - 结算 delta → `affection|digest` 事件（events.jsonl 为真源）+ wiki 好感快照；
   数值**不直接喂 LLM**（无数字概念, 防讨好/数值化）——未来 relationship_view
   （阶段词）是规划方向。`core/affection/affection_calc.py` 数值层。

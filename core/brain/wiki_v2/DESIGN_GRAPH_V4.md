@@ -680,8 +680,37 @@ add kind=experience"）⇒ 它的 `subject` 不是 `player` ⇒ 旧读侧（按 
 | **失败** | ⭐ `_rollback` **把 `notes_ops` 一并清空** —— §8 那句"失败 = 整批回滚 ⇒ 那条约定原样开着"要成立, 就必须让 note 面也回得去（事件 append **不可撤销**, 提前写就成了半截状态） |
 | **顺手** | promise 节点的 id 也交出去（`DigestResult.promise_nodes`）—— R2/R3 要用它对**这个新节点**写边 |
 
-> ✅ 至此 `R1 → R4` 已接；**R2 的视野**（把 promise 发进 `render_cognition_list`, 否则
-> `supports(promise→belief)` / `evolved_from` 永远打不出来）与 **R3 接线**是 ③ 的后两步（§9-13）。
+> ✅ 至此 `R1 → R4` 已接；**R2 的视野与动作面**（2026-09-25 ③-2）见下；
+> **R3 接线**是 ③ 的最后一步。
+
+#### R2 的视野与动作面（2026-09-25 ③-2 —— §9-13 结案）
+
+⭐ **这两件事必须一起做**，只做一件都是空的：
+
+| 缺哪件 | 后果 |
+|---|---|
+| 只补视野（promise 进列表） | 看得见，但**说不出口** —— 决策表只有 `touch`/`update`/`add`，**三个动作一律只写 `supports(episode → target)`** ⇒ §8 要的那两条边永远打不出来 |
+| 只补动作面 | 无话可说 —— 承诺不在列表里, 模型引用不到它 |
+
+**做法**：
+
+1. **视野**：`render_cognition_list` 收 `promise`（`[promise·已兑现]` / `·没做到` / `·被新的取代了`
+   —— 标签里的结局与注入块**共用 `notes.CLOSED_WORDS`** 一份词表）；⭐ 新增
+   `must_include` 参数（= R4 本轮物化的那些）—— 它们**不受 `cap` 截断**（承诺的
+   `significance` 默认 0.5, 真机上排在看法后面 ⇒ 不强制就会出现"刚建好就看不见"）。
+2. **动作面**：R2 输出多一个**可选**键 `links: [{"from","rel","to"}]`
+   （`rel` ∈ `supports` / `contradicts` / `evolved_from`；两端都是列表里的本地 id）。
+   与决策行**同一个数组**交出去（执行器一个循环处理两类行）, 但 `link` 行
+   **不参与覆盖统计**（它没有 episode）。重复只留一条（warning）;
+   rel 非法 / 端点不在列表 / 自环 ⇒ **拒整包**（rel 是契约词汇的一部分）。
+3. ⭐ **两个 id 空间故意不同**：`target_ids`（可 `touch`/`update`）= **只有看法**；
+   `link_ids`（可出现在 `links` 两端）= **看法 ∪ 承诺**。承诺不是看法 ——
+   它的正文在固化那一刻就写死了, 而"这条经历支撑这条承诺"是 `formed_by` 的活。
+   ⚠️ 报错文案带指路牌（*"承诺不是看法 —— 用 links 连它"*）: 承诺**会出现**在列表里,
+   模型完全可能去 touch 它 —— 拒的同时得告诉它该怎么办。
+4. ⚠️ **一处已知局限**（有计划的解）: `links` 两端**不能是本轮新建的条目**
+   （列表是这一轮**开始前**的样子）⇒ "新承诺 supports 本轮新写的看法"这一种连不上。
+   它的解就是 §9-12 ⑧（把 belief 的产出搬到 R1）—— 届时所有该连的节点都已经在列表里。
 
 ## 7. 时间
 
@@ -983,7 +1012,7 @@ about_state      → resolved / uncertain / none   ← **点的属性**（不是
 | 10 | ~~**`experience` 的归宿**~~ ✅ **2026-09-23 结案** | **不做 kind**。"模式"的两个尺度各有落点：**段内重复 → R1/R2 直接写成 `belief` 的模式句**（那是"她的看法"）；**跨段重复 → note 的 `habits`**（§8.6 取料机制 v3）。连带：`degree ≥ 2 浮现` **不做**（沿 `supports` 数即可）；`promise` **在开放期不做 kind**（§6 两段式：它此刻住在 note 里 —— 是**当前值**不是节点，见下方澄清）。⏳ 仍待定：**严苛三判据（同细节 / 人设里没有 / 非泛词）怎么落进全景轮的 prompt** —— 并入 §9-9 |
 | 11 | **动作面与 `recall` 的返回形态**（§11） | 已定：**4 → 5**（只加 `mmt_recall{scope}`）+ 判据四条。待定：**返回什么** —— 一行摘要 / 全文 / **邻接表**（"这条还连着 4 条…"）？⚠️ 它**反过来决定 R1 的写作纪律**（每条 `text` 要不要自足） |
 | 12 | **digest 三轮的增补**（⏳ **①-⑧ 待裁**；⑦ 已结案） | ① `evidence` 删（零消费者 + 逼 R2 重喂时间线）② `affection_delta` 留 R2（输入换成"episode 摘要 + 情绪标量"，不喂时间线）③ R2 加 **`detach`**（裁错边；§8 R2 写了但执行器没有）④ R3 加 **`merge_entity`**（窄口：只合并 entity；否则重复 entity 永远无法合并）⑤ R3 也看"**本轮被改写的旧节点**"（否则它们永远没归属）⑥ 补归属（复查队列）**不做**，但把"永久没归"的后果写进文档 ⑦ ~~**`aspect` 从设计稿删**~~ ✅ **2026-09-25 已删**（它**不是 kind** —— 全仓只有 §8 R1 那一格提到它, 代码零定义/零消费; 当年大概想说"这条记忆的侧面", 那个角色今天由 `subject` + `tags` 承担）⑧ **顺序 D4 → D3**（先把 belief 的产出搬到 R1，再接第 3 轮：否则 R2 产的节点没有 `about_hint`，归属会漏一批且**永久补不回**） |
-| 13 | **R2 的视野** | 今天 `render_cognition_list(cap=12)` + 按 `significance` 排序 ⇒ **"相关但不显著"的旧认知看不见** ⇒ `contradicts` / `evolved_from` 会大量漏判。**倾向：改成按相关度召回**（它是这两条边落地的前置条件） |
+| 13 | ~~**R2 的视野**~~ ✅ **2026-09-25 结案（③-2）** | 原顾虑：`render_cognition_list(cap=12)` + `significance` 排序 ⇒ "相关但不显著"的旧认知看不见。**本轮结的是另一半**（承诺进不进得来）—— 查出来的真相是 ⭐ **视野与动作面必须一起补**：决策表那三个动作**一律只写 `supports(episode → target)`** ⇒ 承诺即使进了列表，"这条承诺长出了看法"也**没处可写**。做法：`render_cognition_list` 收 `promise`（标签带结局）+ `must_include`（R4 本轮物化的不受 cap 截断）· R2 输出加可选键 **`links`**（三种 rel、两端为列表里的本地 id）· 两个 id 空间分开（`target_ids` 只有看法 / `link_ids` 含承诺）。⚠️ **仍开着的那一半**：按**相关度**召回（而不是 `significance` 前 12）—— 它是 `contradicts`/`evolved_from` 大量漏判的近因, 也是 R3 的候选表将来的形态 |
 | 14 | **`self` 进不进命中集** | `hit_set` = `about_hint` ∪ 别名命中正文，而她的名字几乎**不出现在第一人称正文**里 ⇒ **`entity(self)` 的载荷（含 inventory / `state`）今天永远没人维护**（`ensure_entities` 建出来之后一直空着）。**倾向：`self` 无条件进命中集** |
 | 15 | **R4 是独立窄调用还是搭 R3**（2026-09-23 新增） | R4 的活极小（≤5 条开着的约定 × 本段新增），单开一次调用 = 多一份 token/延迟；搭进 R3 = 一次调用干两件事（R3 是"归属 + entity 维护"，与"这条约定还开着吗"是两种判断）。⚠️ 本仓的老教训是"拆轮次以保护注意力"，但也有"别为省一次调用把两件事塞一起"。**倾向：先单开**（窄、可单独重跑），跑一段看成本再合 |
 | 16 | **第三方承诺的 `from`/`to`**（2026-09-23 新增） | 固化时默认 `self` ↔ `sensei`（保留号，引擎手里有）。但"我答应了阿露帮她……"这种**双方不是老师**的承诺怎么办？候选：① R4 带一个 `who` 提示、走候选表映射（同 R3 的机制）② 先不支持，遇到就写 `self` ↔ `sensei`（错）③ 先不支持，遇到就不建 `from`/`to`（少两条边） |
@@ -1163,6 +1192,7 @@ about_state      → resolved / uncertain / none   ← **点的属性**（不是
 | 2026-09-25 | ⭐ **链路② 第一步：消解死引用 + `experience` 定名**（零行为变化） | ✅ 三件都是从代码里查出来的**事实**，不是新设计: ① **`fact` 早在 2026-09-02 就退役了**（`nodes.py` 原文「fact 已退役 —— 记忆 = 经历 + 认知」），设计稿 §5 那节「fact（暂时）」是**没同步的残留** ⇒ 重写 §5（**它当年那三件事今天各有落点**: 关于人的事实 → `experience`/`about→sensei` 的 belief · 她怎么知道的 → `episode.epistemic`+`observer` · 世界规律 → canon 在 `overview.yml` / 她眼中的版本在 `belief`）+ 清掉 `graph._ABOUTABLE` 里的死项 `"fact"` + §9-2 结案。② ⭐ **删 `source` 边（8 → 7）**（用户裁决）: 它唯一的形状是 `fact → episode`，起点 kind 已退役 ⇒ **永远不会有走法**（§2.2 的判据）; `REL_SOURCE`/`RELS`/`__all__` 全清 + 两条守门用例（7 条词汇量 · `fact` 与 entity 的旧档对判 `unknown`）。⚠️ 与 `contradicts`/`evolved_from` 的区别写进代码注释: **"还没有走法"≠"永远不会有走法"**。③ **`aspect` 删**（它不是 kind —— 全仓只有 §8 R1 那一格提到、代码零定义/零消费）。④ ⭐ **新增 §5.1 `experience` = 玩家画像专用**（用户裁决: 关掉 §9-3 的"并入 `belief + nature=pattern`"提案）+ §9-3 结案 + §1 的 kind 图重画（图里只剩 4 种 kind）。⚠️ 同时查出**真机 haruka `e0001` 从来不进她的上下文**（R2 把它写成了"她的模式"、`subject≠player` ⇒ 四个桶全不收; 它还挂着 3 条 supports）—— 那条的**代码修正与数据迁移**放下一步（②-第二步） |
 | 2026-09-25 | ⭐ **链路② 第二步：`experience` 落成"玩家画像专用"** | ✅ 四处 + 一次数据迁移（详见 §5.1）: ① **契约**: `parse_round_b` 的 `add` **只收 `belief`**（写 `experience` ⇒ **拒整包 + 反馈** —— 不静默降级, 静默改 kind 会让模型下次还这么写）+ `ADD` 的 role/semantics/field_schema/示例与 prompt `digest_v2_round_b.md` 第 5 条**同批改**（"反复出现的模式 → belief 的模式句"）。② **写侧**: `_create_a_nodes` 与 `revise` 的 add 路把 `subject` **强制**成 `player`。③ **读侧**: `_bucket_view` 的 player 桶**按 kind**、`is_player_experience` 改成 `kind == "experience"` —— ⭐ 这就是那个洞的正解: **可见性不许挂在一个自由文本字段上**。④ **数据**: 真机 `haruka e0001`（*"我开口前常常先道歉……"*）迁移 `experience → belief` + `epistemic → inferred_belief`（**id 保留**: 3 条 `supports` 指着它），一次性脚本（本机 `tools/`, dry-run 默认 + 写前 `.bak`）。**迁移后渲染实测**: `audit()` 干净、那条**第一次出现在她的注入视图里**（「我心里渐渐觉得」）。守门: 1 条新用例（`add kind=experience` 必被拒）+ 3 条既有用例按新口径更新（真机"subject 写歪也照样可见"成了回归断言）。全量 1022 · B 层冒烟 PASS |
 | 2026-09-25 | ⭐ **链路③-1：R4 收口的编排** | ✅ `digest_segment` 里真的发第 4 次调用（`label="close"` ⇒ task **`digest.close`**），**位置在 R1 之后、R2 之前**（§8 的顺序理由: `close` 物化的 promise 节点要靠 R2/R3 写边 ⇒ 节点必须先就位）+ 新提示词 `llm/prompts/digest_v2_round_close.md` + 料 = 还开着的约定（`notes.render_item` 那份行格式, 带编号）+ 本段新增经历（真 id）。四条纪律: ① **没有开着的约定 且 本段没有新经历 ⇒ 不发这次调用**（那一轮必然空转）② ⭐ **note 操作不在这里 append**（本函数拿不到 `SessionStore`）—— 挂在 `DigestResult.notes_ops` 上, **调用方在整批 `ok` 之后**才写（新的 `_write_note_ops` 是**唯一实现**: R4 的收口操作与全景轮那条 `rewrite` 共用, 先真源后缓存 + 重建注入）③ ⭐ **`_rollback` 把 `notes_ops` 一并清空** —— "失败 = 整批回滚 ⇒ 那条约定原样开着"要成立就必须让 note 面也回得去（事件 append 不可撤销）④ `promise_nodes` 交出去给 R2/R3 写边用。旁: 测试桩（`test_wiki_digest.FakeLLM` 与冒烟桩）按 task 把 R4 短路成标准空包 ⇒ 位置队列里仍只排 A/B; 6 条新用例（`test_round_close.py`: 顺序/料/产出/跳过/形状错回滚/后轮失败丢 ops/引擎端到端）。全量 1028 · B 层冒烟 PASS |
+| 2026-09-25 | ⭐ **链路③-2：R2 的视野 + 动作面**（§9-13） | ✅ 查出来的真相: **这两件事必须一起做** —— 决策表只有 `touch`/`update`/`add`，而**三个动作一律只写 `supports(episode → target)`**（`apply_decisions` 里三处）⇒ 光把 promise 放进列表，§8 要的 `supports(promise→belief)` / `evolved_from(promise→旧 promise)` **仍然没处可写**。做法: ① **视野**: `render_cognition_list` 收 `promise`（标签 `[promise·已兑现]` —— 与注入块共用 `notes.CLOSED_WORDS` 一份词表）+ 新参数 **`must_include`**（R4 本轮物化的承诺**不受 `cap` 截断**: 它 `significance` 默认 0.5, 真机排在看法后面）② **动作面**: R2 输出多一个**可选键** `links: [{"from","rel","to"}]`（`rel` 只三种; 与决策行同一数组交出去, 但**不参与覆盖统计**; rel 非法/端点不在列表/自环 ⇒ **拒整包**）③ ⭐ **两个 id 空间故意不同**: `parse_round_b(target_ids, link_ids)` —— 可 `touch`/`update` 的**只有看法**, 可 `link` 的**含承诺**（承诺正文固化那一刻写死; "这类经历支撑这条承诺"是 `formed_by` 的活）, 报错文案带指路牌 *"承诺不是看法 —— 用 links 连它"*。⚠️ **一处已知局限**（有计划的解）: `links` 两端不能是本轮新建的条目 ⇒ "新承诺 supports 本轮新看法"连不上 —— 解就是 §9-12 ⑧（belief 产出搬到 R1 后, 该连的都在列表里）。旁: **不能偷懒**把 promise 塞进 `graph._COGNITION` 让 `classify_pair` 自动推断（那张表是"episode → 认知", 会推出 `supports(episode → promise)`, 与 §2 冲突）。守门: 3 条契约用例（links 三种 rel / 形状错拒整包 / 承诺可 link 不可 touch）+ 2 条执行器用例 + 2 条渲染与集成用例（含"R4 物化 → 当场进 R2 视野 → 两条边真的写出来"）。全量 1035 · B 层冒烟 PASS |
 | 2026-09-23 | **取料代码对齐定形** | ✅ `panorama.py`: 去掉 `promise`/已结清两块与 `PanoramaInput` 上的两字段 · **索引默认关**（`DEFAULT_INDEX_CAP: 40 → 0`）· `worth_running` 只看新材料 · 卡改用 `_card_line`（**不印编号、不印时间**）· **`render(now=…)` 的 `now` 删掉**（卡不印时间 ⇒ 死旋钮）。真机演练（haruka 11 条）: 三块成形、候选 4 条带来源标注、索引 0（没列 4）、空料 `render()==""`。16 条用例 |
 | 2026-09-23 | **"note 与 VN 并发"不做**（用户: *"就是顺序 digest 即可，原来时序"*） | ✅ §8 记四条事实（VN 注入段整章固定 ⇒ 章内更新它看不见 · 中断的章不触发 digest · 章内板不在真源要读 overlay · 抢玩家等待路径的配额），收益只剩"中断章也能记" ⇒ 不做。⚠️ **接受一条限制**: "中断后既没续完也没被废弃"的章里的约定不记（与现状一致，`vn_abandon` 真机存量 0）。⭐ 顺带消掉"废弃回溯"整个问题（note 事件只落在章结束之后）。§9 新增 **15/16/17**（R4 是否独立调用 · 第三方承诺的 `from`/`to` · MMT 段 `formed_by` 多连的观察项） |
 
