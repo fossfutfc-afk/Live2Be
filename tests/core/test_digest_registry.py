@@ -457,7 +457,7 @@ def test_round_b_id_discipline():
         raw, episode_ids={"m0001", "m0002"}, target_ids={"u0001"})
     assert not result.is_valid
     assert any("episode 不在本轮" in e for e in result.errors)
-    assert any("target 不在渲染列表" in e for e in result.errors)
+    assert any("target 不在可 touch/update 的列表内" in e for e in result.errors)
 
 
 def test_round_b_update_guards():
@@ -492,6 +492,74 @@ def test_round_b_add_experience_is_rejected():
         raw, episode_ids={"m0001"}, target_ids=set())
     assert not result.is_valid and rows == []
     assert any("kind 非法" in e and "belief" in e for e in result.errors)
+
+
+def test_round_b_links_are_extra_edges():
+    """⭐ 2026-09-25（§9-13）: R2 的**补充边** `links` —— 让"承诺 → 看法"有处可写。
+
+    ⚠️ 它与决策行**同一个数组**交出去（执行器一个循环处理两类）, 但**不参与覆盖统计**
+    （`link` 行没有 episode —— 覆盖检查说的还是"每个 episode 恰好一行 decision"）。
+    """
+    raw = {"decisions": [{"episode": "m0001", "decision": "add", "kind": "belief",
+                          "subject": "sensei", "text": "老师答应的事都做到了"}],
+           "links": [{"from": "u0009", "rel": "supports", "to": "u0002"},
+                     {"from": "u0007", "rel": "evolved_from", "to": "u0009"},
+                     {"from": "u0003", "rel": "contradicts", "to": "u0005"},
+                     {"from": "u0009", "rel": "supports", "to": "u0002"}]}   # 重复
+    rows, result = digest_registry.parse_round_b(
+        raw, episode_ids={"m0001"}, target_ids={"u0002"},
+        link_ids={"u0002", "u0003", "u0005", "u0007", "u0009"})
+
+    assert result.is_valid, result.errors
+    links = [r for r in rows if r.get("action") == "link"]
+    assert links == [
+        {"action": "link", "rel": "supports", "from": "u0009", "to": "u0002"},
+        {"action": "link", "rel": "evolved_from", "from": "u0007", "to": "u0009"},
+        {"action": "link", "rel": "contradicts", "from": "u0003", "to": "u0005"}]
+    assert any("重复" in w for w in result.warnings)          # 多说一遍 = warning 不是错
+    assert [r for r in rows if r.get("action") != "link"][0]["decision"] == "add"
+
+
+def test_round_b_links_reject_bad_shape():
+    """形状错同样**拒整包**: rel 是契约词汇的一部分, 两端是列表里的编号。"""
+    def _parse(links, **kw):
+        return digest_registry.parse_round_b(
+            {"decisions": [{"episode": "m0001", "decision": "add", "kind": "belief",
+                            "subject": "s", "text": "t"}], "links": links},
+            episode_ids={"m0001"}, target_ids={"u0001"},
+            link_ids=kw.get("link_ids", {"u0001", "u0002"}))
+
+    _, r = _parse([{"from": "u0001", "rel": "about", "to": "u0002"}])
+    assert not r.is_valid and any("rel 非法" in e for e in r.errors)
+    _, r = _parse([{"from": "u0009", "rel": "supports", "to": "u0002"}])
+    assert not r.is_valid and any("不在渲染列表内" in e for e in r.errors)
+    _, r = _parse([{"from": "u0001", "rel": "supports", "to": "u0001"}])
+    assert not r.is_valid and any("自环" in e for e in r.errors)
+    _, r = _parse({"from": "u0001"})
+    assert not r.is_valid and any("links 必须是数组" in e for e in r.errors)
+    # 省略这个键 = 合法（可选）
+    rows, r = digest_registry.parse_round_b(
+        {"decisions": [{"episode": "m0001", "decision": "add", "kind": "belief",
+                        "subject": "s", "text": "t"}]},
+        episode_ids={"m0001"}, target_ids={"u0001"})
+    assert r.is_valid and not [x for x in rows if x.get("action") == "link"]
+
+
+def test_promise_can_be_linked_but_not_touched():
+    """⭐ 两个 id 空间**故意不同**（§5.1/§9-13）: 承诺进 `link_ids`（它要能被连）,
+    但**不进 `target_ids`**（它不是看法, 正文在固化那一刻写死了）。"""
+    rows, result = digest_registry.parse_round_b(
+        {"decisions": [{"episode": "m0001", "decision": "touch", "target": "u0009"}]},
+        episode_ids={"m0001"}, target_ids={"u0001"}, link_ids={"u0001", "u0009"})
+    assert not result.is_valid
+    assert any("不在可 touch/update 的列表内" in e for e in result.errors)
+    # 同一条承诺走 links 就合法
+    rows, result = digest_registry.parse_round_b(
+        {"decisions": [{"episode": "m0001", "decision": "add", "kind": "belief",
+                        "subject": "s", "text": "t"}],
+         "links": [{"from": "u0009", "rel": "supports", "to": "u0001"}]},
+        episode_ids={"m0001"}, target_ids={"u0001"}, link_ids={"u0001", "u0009"})
+    assert result.is_valid, result.errors
 
 
 def test_round_b_bad_decision_kind():

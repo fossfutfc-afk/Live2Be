@@ -103,6 +103,42 @@ def test_update_rules(tmp_path):
     # 整族退役（生产者已归档, 真机 0 个 seed 节点）。update 现在只受字段白名单约束。
 
 
+def test_apply_decisions_link_rows_write_extra_edges(tmp_path):
+    """⭐ `link` 行（§9-13, 2026-09-25）: 决策表之外的补充边。
+
+    动机是 R2 的**视野之外还有动作面**: `touch`/`update`/`add` 一律只写
+    `supports(episode → target)` ⇒ "这条承诺长出了看法"（`supports(promise → belief)`）
+    与"新的盖过旧的"（`evolved_from(promise → 旧 promise)`）**根本没处可写**。
+    """
+    st = _store(tmp_path)
+    pid = st.add(make_node("promise", text="周六模型店 —— 真的去了",
+                           outcome="kept", event_seq=[5], ts="2026-09-25T10:00:00"))
+    old = st.add(make_node("promise", text="周六去游乐园 —— 临时改期",
+                           outcome="superseded", event_seq=[4], ts="2026-09-24T10:00:00"))
+
+    apply_decisions(st, [
+        {"action": "link", "rel": "supports", "from": "u0001", "to": "u0002"},
+        {"action": "link", "rel": "evolved_from", "from": "u0001", "to": "u0003"},
+    ], id_map={"u0001": pid, "u0002": "m0002", "u0003": old}, ts="2026-09-25T10:00:00")
+
+    g = st.graph()
+    assert g.targets(pid, "supports") == ["m0002"]          # 承诺 → 看法
+    assert g.targets(pid, "evolved_from") == [old]          # 新承诺 → 旧承诺
+    assert st.audit() == []
+    entries = _log(st).read()
+    assert [e["action"] for e in entries] == ["link", "link"]
+    assert entries[0]["rel"] == "supports" and entries[0]["from"] == pid
+
+
+def test_apply_decisions_link_endpoint_must_resolve(tmp_path):
+    """端点解析不出真实 id ⇒ **抛**（编排层有快照 ⇒ 整包回滚）—— 宁缺勿错。"""
+    st = _store(tmp_path)
+    with pytest.raises(ValueError, match="link 端点"):
+        apply_decisions(st, [{"action": "link", "rel": "supports",
+                              "from": "u0009", "to": "m0002"}],
+                        id_map={"u0002": "m0002"})
+
+
 def test_merge_inherits_and_deletes_sources(tmp_path):
     st = _store(tmp_path)
     scope = _scope(st)

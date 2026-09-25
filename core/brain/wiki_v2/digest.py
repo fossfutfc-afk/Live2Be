@@ -388,8 +388,16 @@ def digest_segment(
             logger.info("digest_close 跳过（没有开着的约定, 本段也没有新经历）")
 
         # ── Round B: 理解者（引擎候选推荐 + 决策表）──
+        # ⭐ `must_include` = 本轮 R4 刚物化的 promise（§9-13）: 它们必须在列表里,
+        # 否则 R2 又一次"看不见刚要写边的东西"（`supports`/`evolved_from` 永远打不出来）。
         cog_text, local_of = render_cognition_list(
-            store, cap=COGNITION_CAP, exclude=set(player_ids))   # 本轮画像条目不进认知列表
+            store, cap=COGNITION_CAP, exclude=set(player_ids),
+            must_include=result.promise_nodes)
+        # ⚠️ 两个 id 空间**故意不同**: `touch`/`update` 只认看法（promise 不是看法,
+        # 它的正文在固化那一刻写死）; `links` 认"看法 ∪ 承诺"。
+        target_ids = {local for real, local in local_of.items()
+                      if getattr(store.get(real), "kind", "") in ("belief", "experience")}
+        link_ids = set(local_of.values())
         ep_text = _round_b_material(store, episode_ids, local_of,
                                     embed_fn=embed_fn,
                                     char_id=getattr(store, "char_id", ""))
@@ -408,7 +416,7 @@ def digest_segment(
             extra_body=extra_body, deadline=deadline, label="round_b",
             parse_fn=lambda r: digest_registry.parse_round_b(
                 r, episode_ids=set(episode_ids),
-                target_ids=set(local_of.values())),      # local_of: real→local, 取 values
+                target_ids=target_ids, link_ids=link_ids),
             result=result)
         if rows is None:
             return _rollback(store, snapshot, result)
