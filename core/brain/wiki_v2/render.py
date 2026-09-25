@@ -204,7 +204,9 @@ def _bucket_view(nodes: Iterable[BrainNode], graph=None) -> dict:
         "episode": lambda n: (n.kind == "episode"
                               and n.epistemic == "observed_fact"),
         "belief": lambda n: n.kind == "belief",
-        "player": lambda n: n.is_player_experience,
+        # ⚠️ 2026-09-25（§5.1）: 按 **kind** 收，**不再看 `subject`** —— 那是自由文本,
+        # 拿它当路由会让"subject 被写坏"变成"这条记忆静默消失"（真机 haruka e0001 就是）。
+        "player": lambda n: n.kind == "experience",
         "reported": lambda n: (n.kind == "episode"
                                and n.epistemic == "reported_fact"),
     }

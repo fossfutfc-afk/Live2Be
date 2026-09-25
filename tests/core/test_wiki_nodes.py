@@ -222,13 +222,17 @@ def test_experience_and_player_emphasis():
     exp = make_node("experience", text="sensei 提到工作繁忙", subject="sensei",
                     examples=["「这周又忙成狗了」"], links=["m0011", "m0015", "m0020"])
     assert exp.validate() == []
-    assert exp.is_player_experience is False
-    # player experience（R5 强调点）: subject=player
+    # ⭐ 2026-09-25（DESIGN_GRAPH_V4 §5.1）: **按 kind 判，不看 `subject`** ——
+    # 可见性不许挂在自由文本上（真机 haruka e0001 就是被一个自造的 subject 藏起来的）。
+    assert exp.is_player_experience is True
     pe = make_node("experience", text="摸鱼", subject=PLAYER_SUBJECT,
                    examples=["「今天也摸鱼」"], links=["m0030", "m0033"])
     assert pe.validate() == []
     assert pe.is_player_experience is True
     assert pe.dedup_key() == ("experience", tuple(pe.event_seq))  # 空 event_seq 不去重冲突
+    # 别的 kind 一律不是（桶只收 experience）
+    assert make_node("belief", text="老师会等我", epistemic="inferred_belief"
+                     ).is_player_experience is False
     # examples 超限截断
     many = make_node("experience", text="p", subject="s",
                      examples=["1", "2", "3", "4"], links=["m0001"])

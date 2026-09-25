@@ -258,12 +258,12 @@ UPDATE = DigestAction(
 ADD = DigestAction(
     name="add",
     phase=PHASE_UNDERSTAND,
-    role="无同主题认知——新建一条（belief 或 experience）并连回 episode。",
+    role="无同主题认知——新建一条 belief 并连回 episode。",
     semantics=(
         "何时用: 候选里没有同主题认知, 且新经历形成了稳定结论或可复用模式;\n"
         "怎么改: subject 用稳定维度命名（人/关系/互动模式/性格特征）;"
-        " text 写结论/模式不写事件（两种 kind 同一个字段名）;"
-        " 反复出现的模式 → kind=experience（text 写模式句 + 首个 example）;\n"
+        " text 写结论/模式不写事件 —— ⭐ **反复出现的模式也写成 belief 的模式句**"
+        "（没有单独的 kind: 模式 = 她的看法, 见 DESIGN_GRAPH_V4 §5.1/§9-10）;\n"
         "禁什么: 与已有认知同抽象层或更窄 → 应 update 已有而非 add;"
         " 只印证不新增 → 应 touch; 引擎标注'疑似重复'仍 add → 整包拒。"
     ),
@@ -271,14 +271,13 @@ ADD = DigestAction(
         '    {  // 每个 episode 恰好一行 //\n'
         '      "episode": "m0001",   // 真实 id //\n'
         '      "decision": "add",\n'
-        '      "kind": "belief",     // belief=认知结论 | experience=重复模式 //\n'
+        '      "kind": "belief",     // 只有 belief（模式也写成 belief 的模式句）//\n'
         '      "subject": "…",       // 必填; 稳定维度命名, 不按情境 //\n'
-        '      "text": "…",          // 必填; belief→结论式 ≤200 字 /'
-        ' experience→模式句 //\n'
-        '      "example": "…",       // experience 可选: 本次的具体例子一句 //\n'
+        '      "text": "…",          // 必填; 结论式/模式句, ≤200 字, 不复述事件 //\n'
+        '      "example": "…",       // 可选; 本次的具体例子一句 //\n'
         '      "tags": ["…"],        // 可选; 检索导向 //\n'
         '      "significance": 0~1,  // 可选; 行为锚点 //\n'
-        '      "growth": "…"         // belief 可选; 成长方向 //\n'
+        '      "growth": "…"         // 可选; 成长方向 //\n'
         '    }'
     ),
     example=(
@@ -662,8 +661,13 @@ class DigestRegistry:
                     item["patch"] = patch
             else:  # add
                 kind = str(row.get("kind", "belief")).strip()
-                if kind not in ("belief", "experience"):
-                    errors.append(f"decisions[{i}].kind 非法: {kind!r}（belief|experience）")
+                # ⚠️ **只有 belief**（2026-09-25, DESIGN_GRAPH_V4 §5.1）: `experience`
+                # 已定名 **玩家画像专用**（"关于老师的事"），写者只有第 1 轮 ⇒ 这一轮
+                # 想写"反复出现的模式"就写成 **belief 的模式句**（§9-10）。
+                if kind != "belief":
+                    errors.append(f"decisions[{i}].kind 非法: {kind!r}（只有 belief ——"
+                                  " 模式也写成 belief 的模式句; experience 是玩家画像专用，"
+                                  " 由第 1 轮产出）")
                     continue
                 item["kind"] = kind
                 for f in ("subject", "text", "example", "tags",

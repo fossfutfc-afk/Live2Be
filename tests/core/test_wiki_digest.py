@@ -57,7 +57,7 @@ def _b_ok(**over):
     out = {"decisions": [
         {"episode": "m0003", "decision": "update", "target": "u0001",
          "patch": {"text": "老师会记得我的喜好——连甜品店也会挑好", "significance": 0.95}},
-        {"episode": "m0003", "decision": "add", "kind": "experience",
+        {"episode": "m0003", "decision": "add", "kind": "belief",
          "subject": "sensei", "text": "老师会带我去吃甜品", "example": "「这家店不错吧」"},
     ], "evidence": [
         {"function": "fe", "confidence": 0.85, "quote": "下次再去吃甜品吧"},
@@ -133,13 +133,15 @@ def test_full_pipeline(tmp_path):
     ep = st.get("m0003")
     assert ep.kind == "episode" and ep.event_seq == [3]
     assert ep.ts and ep.title == "甜点之约"
-    # B: update → 认知改写（变更进 evolution 日志）; add → 新 experience 链回 episode
+    # B: update → 认知改写（变更进 evolution 日志）; add → 新 belief 链回 episode
     bel = st.get("m0002")
     assert bel.significance == 0.95
-    exp = st.get("e0002")
-    assert exp.kind == "experience" and exp.text == "老师会带我去吃甜品"
-    assert st.graph().supporters("e0002") == ["m0003"]   # 次数 = supports 入边（G3）
-    assert set(st.graph().targets("m0003")) == {"e0002", "m0002"}   # episode 的两条出边
+    added = [n for n in st.all()
+             if n.kind == "belief" and n.text == "老师会带我去吃甜品"]
+    assert len(added) == 1 and added[0].epistemic == "inferred_belief"
+    nid = added[0].id
+    assert st.graph().supporters(nid) == ["m0003"]       # 次数 = supports 入边（G3）
+    assert set(st.graph().targets("m0003")) == {nid, "m0002"}   # episode 的两条出边
     # evidence: 低置信度丢弃
     assert [e["function"] for e in res.evidence] == ["fe"]
     assert res.affection_delta == 30
@@ -896,7 +898,7 @@ def test_mmt_segment_still_splits(tmp_path):
     # 建了两条就得给两条决策, 否则 B 被整包拒 + 反馈重试 → 假 LLM 响应耗尽。
     b = _b_ok()
     b["decisions"].append({"episode": "m0004", "decision": "add",
-                           "kind": "experience", "subject": "sensei",
+                           "kind": "belief", "subject": "sensei",
                            "text": "老师也总忘带伞", "example": "「我也总忘带伞」"})
     llm = FakeLLM(two, b)
     res = digest_segment(st, llm,
@@ -958,7 +960,7 @@ def test_bond_window_keeps_mmt_atoms(tmp_path):
          "tags": ["约定"], "significance": 0.9, "event_seq": ["5"]}]}
     b = _b_ok()
     b["decisions"].append({"episode": "m0004", "decision": "add",
-                           "kind": "experience", "subject": "sensei",
+                           "kind": "belief", "subject": "sensei",
                            "text": "老师会约我喂猫", "example": "「明天带猫粮」"})
     llm = FakeLLM(mixed, b)
     res = digest_segment(st, llm, _events(*_bond_span()))
@@ -995,10 +997,10 @@ def test_two_chapters_in_one_window_each_get_one(tmp_path):
         {"text": "章B 片段二", "title": "章B 的第二条记忆", "tags": ["b"],
          "significance": 0.8, "event_seq": ["12"]}]}
     b = {"decisions": [
-        {"episode": "m0003", "decision": "add", "kind": "experience",
-         "subject": "sensei", "text": "章A 的模式", "example": "「A」"},
-        {"episode": "m0004", "decision": "add", "kind": "experience",
-         "subject": "sensei", "text": "章B 的模式", "example": "「B」"}],
+        {"episode": "m0003", "decision": "add", "kind": "belief",
+         "subject": "章A 的模式", "text": "章A 的模式", "example": "「A」"},
+        {"episode": "m0004", "decision": "add", "kind": "belief",
+         "subject": "章B 的模式", "text": "章B 的模式", "example": "「B」"}],
         "evidence": [], "affection_exp_delta": 0}
     res = digest_segment(st, FakeLLM(four, b), evs)
     assert res.ok, res.errors

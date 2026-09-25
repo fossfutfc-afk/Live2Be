@@ -30,7 +30,12 @@ from core.brain.wiki_v2.graph import (
     REL_SUPPORTS,
     REL_TO,
 )
-from core.brain.wiki_v2.nodes import BrainNode, KINDS, make_node
+from core.brain.wiki_v2.nodes import (
+    PLAYER_SUBJECT,
+    BrainNode,
+    KINDS,
+    make_node,
+)
 from core.brain.wiki_v2.notes import NotesState
 from core.brain.wiki_v2.store import WikiStoreV2
 from core.common import err
@@ -171,6 +176,11 @@ def apply_decisions(
                     fields[f] = v
             if kind == "experience" and fields.get("example"):
                 fields["examples"] = [fields.pop("example")]
+            if kind == "experience":
+                # ⚠️ §5.1: `experience` = 玩家画像 ⇒ `subject` **强制** `player`
+                # （可见性不许挂在自由文本上; 今天这一路的产品写者已收掉,
+                #  但 `apply_revision_package` 等口径仍可能传进来自造的 subject）。
+                fields["subject"] = PLAYER_SUBJECT
             node = make_node(kind, **fields)
             # epistemic 引擎归属（LLM 不产——belief 必须是 inferred_belief, 护栏）
             node.epistemic = "inferred_belief" if kind == "belief" else "observed_fact"
