@@ -40,6 +40,8 @@ DIGEST_A = "digest.round_a"
 DIGEST_B = "digest.round_b"
 #: R4 收口（promise 记账）—— 每段的第 4 步
 DIGEST_CLOSE = "digest.close"
+#: R3 归属（把本轮新节点挂到 entity 上 + 维护载荷）—— 每段的最后一步
+DIGEST_ATTR = "digest.attr"
 #: 全景轮（写卡）—— **低频**, 不在每段那一批里（§8.6）
 DIGEST_PANORAMA = "digest.panorama"
 #: 主链（创作）——MMT 消息流 / Bond 记录流
@@ -49,7 +51,7 @@ BOND = "bond"
 #: 全部合法标签（源码扫描守门用）
 ALL: frozenset[str] = frozenset({
     EMOTION, PLACE, PLACE_BOARD, PLACE_VARIANT,
-    DIGEST, DIGEST_A, DIGEST_B, DIGEST_CLOSE, DIGEST_PANORAMA, MMT, BOND,
+    DIGEST, DIGEST_A, DIGEST_B, DIGEST_CLOSE, DIGEST_ATTR, DIGEST_PANORAMA, MMT, BOND,
 })
 
 #: 主链（输出是"创作"本身, 桩按脚本队列回）
@@ -70,6 +72,7 @@ PROFILE_OF: dict[str, str] = {
     DIGEST_A: "digest",
     DIGEST_B: "digest",
     DIGEST_CLOSE: "digest",
+    DIGEST_ATTR: "digest",
     DIGEST_PANORAMA: "digest",
     MMT: "mmt",
     BOND: "bond",

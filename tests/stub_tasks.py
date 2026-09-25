@@ -69,6 +69,8 @@ def annotation_reply(task: str | None, messages, *,
         return {"decisions": [], "evidence": [], "affection_exp_delta": digest_b_delta}
     if task == T.DIGEST_CLOSE:          # R4 收口 → 没什么要记的
         return {"add": [], "close": []}
+    if task == T.DIGEST_ATTR:           # R3 归属 → 没有可归属的
+        return {"attributions": []}
     if task == T.DIGEST_PANORAMA:       # 全景轮 → 空卡（三个键都要在）
         return {"habits": [], "drop": [], "on_mind": None}
     return None

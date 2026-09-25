@@ -27,10 +27,11 @@ CHAR = "c"
 
 
 class RoundLLM:
-    """四轮可控: A / R4 / B 各给一份应答（R4 不在位置队列里, 按 task 分派）。"""
+    """四轮可控: A / R4 / B / R3 各给一份应答（R3 默认空包 —— 那些用例不测归属）。"""
 
-    def __init__(self, a, close, b):
+    def __init__(self, a, close, b, attr=None):
         self.a, self.close, self.b = a, close, b
+        self.attr = {"attributions": []} if attr is None else attr
         self.calls: list[list[dict]] = []
         self.tasks: list[str | None] = []
 
@@ -44,6 +45,8 @@ class RoundLLM:
             return self.close
         if task in (T.DIGEST_B, T.DIGEST):
             return self.b
+        if task == T.DIGEST_ATTR:
+            return self.attr
         raise RuntimeError(f"意外调用 task={task!r}")
 
     def user_of(self, task: str | None = None) -> str:
@@ -121,8 +124,8 @@ def test_r4_runs_after_r1_and_before_r2(tmp_path):
     res = digest_segment(st, llm, _events(note, _mmt(3)))
     assert res.ok, res.errors
 
-    # 三次调用 + 顺序: A → close → B
-    assert llm.tasks == [T.DIGEST_A, T.DIGEST_CLOSE, T.DIGEST_B], llm.tasks
+    # 三次调用 + 顺序: A → close → B（R3 归属也跑了, 但那些用例不测它）
+    assert llm.tasks[:3] == [T.DIGEST_A, T.DIGEST_CLOSE, T.DIGEST_B], llm.tasks
     # ⭐ R4 的料 = 还开着的约定（带编号）+ 本段新增经历（真 id）
     r4 = llm.user_of(T.DIGEST_CLOSE)
     assert "周六模型店" in r4 and "n1" in r4
@@ -169,7 +172,7 @@ def test_r4_runs_without_new_episodes_when_something_is_open(tmp_path):
 
     res = digest_segment(st, llm, _events(note, _mmt(3)))
     assert res.ok, res.errors
-    assert llm.tasks == [T.DIGEST_A, T.DIGEST_CLOSE, T.DIGEST_B]
+    assert llm.tasks[:3] == [T.DIGEST_A, T.DIGEST_CLOSE, T.DIGEST_B]
     assert res.notes_ops[0]["state"] == "broken"
     assert "refs" not in res.notes_ops[0]         # 指不出 finish episode ⇒ 连这个键都没有
     nid = res.promise_nodes[0]
@@ -217,7 +220,7 @@ def test_later_round_failure_drops_note_ops(tmp_path):
 # ---------------------------------------------------------------------------
 
 class EngineLLM:
-    """引擎级: A/R4/B 三份应答（其余旁路走标准桩）。"""
+    """引擎级: A/R4/B 三份应答（其余旁路走标准桩 —— 含 R3 归属）。"""
 
     def __init__(self, a, close, b):
         self.a, self.close, self.b = a, close, b

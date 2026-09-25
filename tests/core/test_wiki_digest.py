@@ -18,8 +18,9 @@ CLOSE_EMPTY = {"add": [], "close": []}
 class FakeLLM:
     """假 LLM: 按序吐出预置响应（A 轮/反馈/B 轮…）; 记录调用。
 
-    R4（`task == digest.close`）**不进位置队列** —— 它按 task 短路成 `close` 应答
-    （默认空包）。`close_calls` 单独记, 免得"R4 有没有真的被调"要靠数位置。
+    R4（`task == digest.close`）与 R3（`digest.attr`）**不进位置队列** —— 按 task 短路成
+    标准空包（"这一段没有约定的事 / 没有可归属的"）。`close_calls` 单独记,
+    免得"R4 有没有真的被调"要靠数位置。
     """
 
     def __init__(self, *responses, close=None):
@@ -29,9 +30,12 @@ class FakeLLM:
         self.close_calls = 0
 
     def chat(self, messages, **kw):
-        if kw.get("task") == T.DIGEST_CLOSE:
+        task = kw.get("task")
+        if task == T.DIGEST_CLOSE:
             self.close_calls += 1
             return self.close
+        if task == T.DIGEST_ATTR:
+            return {"attributions": []}
         self.calls.append(messages)
         if self.responses:
             return self.responses.pop(0)
@@ -146,7 +150,7 @@ def test_full_pipeline(tmp_path):
     events = _events(_mmt(3, "老师", "下次再去吃甜品吧"))
     res = digest_segment(st, llm, events)
     assert res.ok, res.errors
-    assert res.llm_calls == 3                          # A + R4（收口）+ B
+    assert res.llm_calls == 4                          # A + R4（收口）+ B + R3（归属）
     # A: episode 建好, 引擎字段归属
     assert res.created == ["m0003"]
     ep = st.get("m0003")
@@ -429,7 +433,7 @@ def test_high_candidate_no_longer_forces_touch_update(tmp_path):
     events = _events(_mmt(3, "x", "猫粮带来了"))
     res = digest_segment(st, llm, events)
     assert res.ok, res.errors
-    assert res.llm_calls == 3                          # A + R4 + B（**没有**拒绝重试）
+    assert res.llm_calls == 4                          # A + R4 + B + R3（**没有**拒绝重试）
     # 候选提示仍在输入里（只是不再带"禁 add"的措辞）
     assert "候选" in llm.calls[1][1]["content"]
     assert "禁 add" not in llm.calls[1][1]["content"]
@@ -536,6 +540,10 @@ def test_deadline_budget_fails_atomically(tmp_path):
                 time.sleep(0.2)
                 self.calls += 1
                 return CLOSE_EMPTY
+            if kw.get("task") == T.DIGEST_ATTR:        # R3 同理
+                time.sleep(0.2)
+                self.calls += 1
+                return {"attributions": []}
             time.sleep(0.2)                            # 每次调用都超预算
             self.calls += 1
             if self.responses:
@@ -586,7 +594,7 @@ def test_round_a_rejected_retried_with_feedback(tmp_path):
     events = _events(_mmt(3, "x", "y"))
     res = digest_segment(st, llm, events)
     assert res.ok, res.errors
-    assert res.llm_calls == 4                          # A1(拒) + A2(过) + R4 + B
+    assert res.llm_calls == 5                          # A1(拒) + A2(过) + R4 + B + R3
     # 反馈追加在同一上下文: system,user,assistant,user(反馈)
     msgs = llm.calls[1]
     assert len(msgs) == 4 and msgs[2]["role"] == "assistant"
@@ -604,7 +612,7 @@ def test_round_b_rejected_retried_with_feedback(tmp_path):
     events = _events(_mmt(3, "x", "y"))
     res = digest_segment(st, llm, events)
     assert res.ok, res.errors
-    assert res.llm_calls == 4                          # A + R4 + B1(拒) + B2(过)
+    assert res.llm_calls == 5                          # A + R4 + B1(拒) + B2(过) + R3
     assert "引擎校验反馈" in llm.calls[2][-1]["content"]
     assert st.digested_seq == 3
 
