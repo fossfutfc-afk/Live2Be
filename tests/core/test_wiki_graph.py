@@ -220,3 +220,34 @@ def test_real_shaped_store(tmp_path):
     assert set(g.unattributed()) == {"m0001", "m0002", "m0003", "m0004", "e0001"}
     assert len(list(iter_edges(st, rel=REL_SUPPORTS))) == 3
     assert list(iter_edges(st, rel=REL_ABOUT)) == []
+
+
+# ---------------------------------------------------------------------------
+# 边表词汇量（2026-09-25 用户裁决: 删 `source`）
+# ---------------------------------------------------------------------------
+
+def test_edge_vocabulary_is_the_seven():
+    """⭐ 边 = **7 条**（删掉 `source`）。
+
+    `source` 唯一的形状是 `fact → episode`，而 **`fact` 这个 kind 早在 2026-09-02 就退役**了
+    （`nodes.KINDS` 里没有它 ⇒ 节点根本建不出来）⇒ 那是一条**永远不会有走法**的边。
+    §2.2 的判据 = "边的存在理由 = 有一条能走的路"; 而 `contradicts` / `evolved_from`
+    今天虽零写者, 但 kind 都在、**将来会有**走法 —— "还没有"与"永远不会有"是两件事。
+    """
+    from core.brain.wiki_v2 import graph as G
+
+    assert set(G.RELS) == {"about", "supports", "formed_by", "contradicts",
+                           "evolved_from", "from", "to"}
+    assert len(G.RELS) == 7 and len(set(G.RELS)) == 7
+    assert not hasattr(G, "REL_SOURCE"), "source 已删（连常量都不留）"
+
+
+def test_fact_is_not_aboutable():
+    """`fact` 从 `_ABOUTABLE` 摘掉 —— 那是**死配置**（kind 已退役, 白名单永远匹配不到）。
+
+    行为判据（不只看表）: 一个 fact 与 entity 的旧档对 → `unknown`（不猜成 `about`）。
+    """
+    assert classify_pair("entity", "fact", "x0001", "m0001") == (REL_UNKNOWN, "m0001", "x0001")
+    assert classify_pair("fact", "entity", "m0001", "x0001") == (REL_UNKNOWN, "m0001", "x0001")
+    # 同形状的活 kind 照旧判 about（防"顺手把整条路也关了"）
+    assert classify_pair("entity", "experience", "x0001", "e0001") == (REL_ABOUT, "e0001", "x0001")

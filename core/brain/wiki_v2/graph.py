@@ -28,18 +28,24 @@ from typing import Any, Iterable, Iterator
 # 边类型（`DESIGN_GRAPH_V4.md` §2 的八种）
 # ---------------------------------------------------------------------------
 
-REL_ABOUT = "about"                  # belief/fact/promise/episode → entity（归属）
+REL_ABOUT = "about"                  # belief/episode/experience/promise → entity（归属）
 REL_SUPPORTS = "supports"            # episode → belief · promise → belief（支撑）
 REL_FORMED_BY = "formed_by"          # promise → episode × N（这条承诺怎么一次次说定）
 REL_CONTRADICTS = "contradicts"      # 同层之间（她后来发现不对; **对称**）
 REL_EVOLVED_FROM = "evolved_from"    # belief → belief（新看法取代旧的）
-REL_SOURCE = "source"                # fact → episode（她怎么知道的）
 REL_FROM = "from"                    # promise → entity（承诺方）
 REL_TO = "to"                        # promise → entity（被承诺方）
 
 #: 全部合法 rel（**唯一清单**; 新增边类型只改这里 + `classify_pair` 的判据）
+#: ⭐ **7 条**（2026-09-25 删 `source`）: 它唯一的形状是 `fact → episode`，而 **`fact`
+#: 这个 kind 早在 2026-09-02 就退役了**（`nodes.KINDS` 里没有它 ⇒ 建都建不出来）
+#: ⇒ 那是一条**永远不会有走法**的边（§2.2 的判据: 没走法的边是装饰）。用户裁决删。
+#: （`contradicts` / `evolved_from` 今天同样零写者，但它们的 kind 都在、将来会有走法
+#: —— "还没有走法"与"永远不会有走法"是两件事。）
+#: ⚠️ 盘上若真有旧 `source` 行，**照旧读得进**（`Edge.from_dict` 不校验 rel 名单），
+#: 只是不再有任何写者/分类器产生它。
 RELS: tuple[str, ...] = (REL_ABOUT, REL_SUPPORTS, REL_FORMED_BY, REL_CONTRADICTS,
-                         REL_EVOLVED_FROM, REL_SOURCE, REL_FROM, REL_TO)
+                         REL_EVOLVED_FROM, REL_FROM, REL_TO)
 
 #: ⚠️ 推断层兜底 —— **不在 `RELS` 里**（见模块 docstring 的第二条警告）
 REL_UNKNOWN = "unknown"
@@ -47,10 +53,13 @@ REL_UNKNOWN = "unknown"
 #: v4 §1 的 entity（今天不在 `nodes.KINDS` 里; G1 只认 kind 字符串, 不碰那张表）
 KIND_ENTITY = "entity"
 
-#: 会挂 `about` 的 kind（§2: belief/fact/promise/episode; experience 按 §9-3 的
-#: 合并预案一并算入 —— 这条判断是"押 §9-3", 在测试与变更记录里都标了名）
-_ABOUTABLE = ("belief", "episode", "experience", "fact", "promise")
-#: 认知侧（`supports` 的 dst; §2 + §9-3 的 experience 合并预案）
+#: 会挂 `about` 的 kind（§2: belief/episode/experience/promise）。
+#: ⚠️ `fact` 2026-09-25 摘掉 —— 它是**死配置**（kind 已退役 ⇒ 这条白名单永远匹配不到
+#: 任何节点）。`experience` **留着**，但理由换了: 不再是"押 §9-3 的合并预案"（那条
+#: 2026-09-25 由用户关掉），而是**它本身就是"关于老师的事"** ⇒ 该被 `about → sensei`
+#: 指着（§9-8）。
+_ABOUTABLE = ("belief", "episode", "experience", "promise")
+#: 认知侧（`supports` 的 dst）: 她的结论 + 玩家画像（两者都是"稳定下来的东西"）
 _COGNITION = ("belief", "experience")
 
 
@@ -173,7 +182,7 @@ def classify_pair(ka: str, kb: str, a_id: str, b_id: str) -> tuple[str, str, str
     | 对 | 判成 | 依据 |
     |---|---|---|
     | `episode` ↔ `belief` / `experience` | `supports`（**经历 → 认知**） | §2; 方向由 kind 定, 不是猜 |
-    | `entity` ↔ `belief` / `episode` / `experience` / `fact` / `promise` | `about`（**对方 → entity**） | §2 归属 |
+    | `entity` ↔ `belief` / `episode` / `experience` / `promise` | `about`（**对方 → entity**） | §2 归属 |
     | 其余（`belief`↔`belief`、`belief`↔`experience`、`episode`↔`episode`、`entity`↔`entity`） | `unknown` | **不猜** |
 
     ⚠️ 为什么 `belief`↔`belief` 不判成 `evolved_from`: 那条边的语义是"**新看法取代
@@ -420,7 +429,6 @@ __all__ = [
     "REL_EVOLVED_FROM",
     "REL_FORMED_BY",
     "REL_FROM",
-    "REL_SOURCE",
     "REL_SUPPORTS",
     "REL_TO",
     "REL_UNKNOWN",
