@@ -88,8 +88,10 @@ def test_mmt_window_trigger_digests(tmp_path):
         e.type == "affection" and e.subtype == "digest"
         for e in st.events(CHARACTER))), "25 轮触发后应有好感事件"
     assert llm.llm_calls == 2                   # 恰好 A+B 两轮
-    # 注入段已刷新: 出厂背景（yml 直注）+ 无出厂节点落 wiki（空包 digest 零产物）
-    assert "【背景经历" in engine._brain_injection
+    # 注入段已刷新: 出厂背景（yml 直注）+ 无出厂节点落 wiki（空包 digest 零产物）。
+    # ⚠️ 注入是**后台线程**的最后一步 —— 好感事件落地 ≠ 注入已重建（2026-09-25:
+    # 写卡计数器那一次落盘把两者拉开了几毫秒, 这条断言就红了）。等它, 别赌时序。
+    assert _wait(lambda: "【背景经历" in engine._brain_injection), "digest 完成后应重建注入段"
     assert "遥香" in engine._brain_injection or "sensei" in engine._brain_injection
 
 

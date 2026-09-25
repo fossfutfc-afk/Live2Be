@@ -255,14 +255,14 @@ def test_render_is_natural_language_with_evidence_and_caveats(tmp_path):
 
     assert lines[0].startswith("【你上次给自己写的卡】")
     assert "  · 惯例" in lines and "  · 最近在想" in lines
-    assert "    他总先问我想要哪个（m0001）" in lines          # 卡上：正文 + refs
-    assert "    我不想再隔着玻璃看（m0001）" in lines
+    assert "    n4 他总先问我想要哪个（m0001）" in lines        # 卡上：编号 + 正文 + refs
+    assert "    我不想再隔着玻璃看（m0001）" in lines            # 没有编号的（手工构造）就不印
     assert any(l.startswith("【这次新消化的经历】") for l in lines)
     assert any("**不一定是同一件事**" in l for l in lines)      # 如实说"这不是判据"
     assert any("（与 m0003 同 tag: 模型店" in l for l in lines)   # 来源标注 = 圆括号
     assert any("你上次引用了它）" in l for l in lines)          # 递归那一半也标出来
-    # ⭐ 卡上不印编号、不印时间（契约里没有 id；时间对"还成立吗"不是判据）
-    assert "n4 " not in text and "记于" not in text
+    # ⭐ 卡上**印编号**（照抄 = 延续, 2026-09-25 契约）但**不印时间**（对"还成立吗"不是判据）
+    assert "照抄编号" in text and "记于" not in text
     for junk in ("{", "}", "[", "]", '"', "promise", "habits", "on_mind", "refs"):
         assert junk not in text, junk
 

@@ -375,6 +375,13 @@ CLI/测试同步路径在引擎内串行。
   不触发）。增量幂等（digested_seq 水位）；失败零损失。
   ⚠️ **digest 的唯一触发点是 `if completed:`**（webgui `_wrapup_inner`）——而
   `completed` 只可能来自 `stage:end`（`is_end`）⇒ **没有 end 的章永远不进记忆**。
+- **随身笔记（note）+ 全景轮（写卡, 2026-09-25 落地）**：`soul/notes.json` 是**派生缓存**，
+  真源 = 事件流的 note 操作; 注入块常驻（bond 开场与 MMT 各一处, 0 LLM）。全景轮 = **低频
+  digest 轮**: **每 10 段**一次（计数器 `wiki.meta.json: segments_since_card`; 章闭环只算
+  那一段; **第一次直接到点**; 失败不清零 ⇒ 下一段再试）, 只重写 `habits`/`on_mind` 两槽、
+  **不碰图**（无事务门槛）, 提交 = 先真源（`note/rewrite` 事件）后缓存。⚠️ R4 收口**只发
+  `close` 不发 `retire`**（退场要等读路径召回接通, 链路 ⑥）。设计/代码索引：
+  `core/brain/wiki_v2/DESIGN_GRAPH_V4.md` §3.2 / §6 / §8 / §8.6。
 - 结算 delta → `affection|digest` 事件（events.jsonl 为真源）+ wiki 好感快照；
   数值**不直接喂 LLM**（无数字概念, 防讨好/数值化）——未来 relationship_view
   （阶段词）是规划方向。`core/affection/affection_calc.py` 数值层。

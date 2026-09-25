@@ -5,12 +5,12 @@
 **整体重写** —— **写卡**。⭐ 它**不碰图、也不碰 A 类槽** ⇒ 不进 digest 事务、
 不需要 `clone_state` 快照、失败也不带走 digest。
 
-本模块**只做取料**: 纯函数、零 IO、零 LLM —— 把料摆到她面前, **判断全交给那一次调用**。
-（调用侧: `llm/prompts/panorama.md` + 解析/执行器 —— 下一步。）
+本模块**只做取料**: 纯函数、零 IO、零 LLM —— 把料摆到她面前, **判断全交给那一次调用**
+（调用侧 = `digest.run_panorama` + `llm/prompts/panorama.md` + `revise.apply_panorama`）。
 
 ## 料从哪来（**输入一张卡，输出一张卡** —— 2026-09-23 定形）
 
-    【你上次给自己写的卡】（`habits` + `on_mind`；**不印编号、不印时间**）
+    【你上次给自己写的卡】（`habits` + `on_mind`；**印编号**（照抄 = 延续）、不印时间）
   ∪ 【这次新消化的经历】（本轮新增 episode 的正文）
   ∪ 【可能相关的旧经历】（候选池 —— 跨时段发现新"同类"）
 
@@ -107,12 +107,12 @@ class PanoramaInput:
         """→ 喂给那一次调用的**料**（自然语言小节; 空块整块不出现）。
 
         ⚠️ **调用方先看 `worth_running`**（它是纯渲染, 不做决定）。
-        ⚠️ 卡上**不印编号、不印时间**：契约里没有 `id`（延续只靠"照抄原文"），
-        印了只会诱使模型去抄；时间对"这条还成立吗"也不是判据。
+        ⚠️ 卡上**印编号**（`n4`）—— 契约里"照抄编号 = 还是那一条"（2026-09-25），
+        不印就等于让模型没法延续。⚠️ 但**不印时间**：时间对"这条还成立吗"不是判据。
 
         这一段是**证据**, 不是指令: 任务、严苛三判据、输出契约在
-        `llm/prompts/panorama.md`（下一步）。这里只保证"她看得见该看见的东西,
-        且看得见每一条**为什么**被摆到她面前"。
+        `llm/prompts/panorama.md`（任务）+ `contract.build_schema(PHASE_PANORAMA)`（形状）。
+        这里只保证"她看得见该看见的东西, 且看得见每一条**为什么**被摆到她面前"。
         """
         blocks: list[str] = []
         card: list[str] = []
@@ -123,7 +123,8 @@ class PanoramaInput:
             card.append("  · 最近在想")
             card.append(f"    {_card_line(self.on_mind)}")
         if card:
-            blocks.append("【你上次给自己写的卡】（延续的**照抄原文**; 不再成立的不要写回来）\n"
+            blocks.append("【你上次给自己写的卡】（延续的那条**照抄编号** ——"
+                          " 措辞可以改, 编号照抄了它就还是同一条）\n"
                           + "\n".join(card))
         if self.new:
             blocks.append("【这次新消化的经历】\n"
@@ -143,9 +144,10 @@ class PanoramaInput:
 
 
 def _card_line(item: NoteItem) -> str:
-    """卡上的一行: `正文（refs）` —— ⚠️ 与注入块的 `notes.render_item` **故意不同**：
-    不印 `n` 编号（契约里没有 `id`）、不印时间（对"还成立吗"不是判据）。"""
-    return f"{item.text}（{', '.join(item.refs)}）" if item.refs else item.text
+    """卡上的一行: `编号 正文（refs）` —— ⚠️ 与注入块的 `notes.render_item` **故意不同**：
+    这里的编号**必须印**（契约要求延续的照抄编号）; 但**不印时间**（对"还成立吗"不是判据）。"""
+    refs = f"（{', '.join(item.refs)}）" if item.refs else ""
+    return f"{item.id} {item.text}{refs}" if item.id else f"{item.text}{refs}"
 
 
 def build_input(store: WikiStoreV2, note_state: NotesState, *,
