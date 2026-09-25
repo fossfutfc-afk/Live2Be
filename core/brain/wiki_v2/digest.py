@@ -45,6 +45,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from contract.digest_registry import (
+    PHASE_CLOSE,
     PHASE_PANORAMA,
     PHASE_RECORD,
     PHASE_UNDERSTAND,
@@ -58,7 +59,7 @@ from core.brain.wiki_v2.recall import (
     recommend_candidates,
 )
 from core.brain.wiki_v2.render import render_cognition_list
-from core.brain.wiki_v2.revise import apply_decisions, apply_panorama
+from core.brain.wiki_v2.revise import apply_closures, apply_decisions, apply_panorama
 from core.brain.wiki_v2.store import WikiStoreV2
 from core.session.events import is_content_event
 from core.session.maintenance import exclude_abandoned
@@ -104,6 +105,13 @@ class DigestResult:
     #: 第 1 轮给的自然名字, **不落库**（不是节点字段）, 由第 3 轮做 hint→id 映射。
     #: D1 只收集（`_create_a_nodes` 返回）; 消费在 D3（那时才有候选表可映射）。
     hints: list[dict] = field(default_factory=list)
+    #: ⭐ **R4 收口的 note 操作**（`add` / `close`）—— ⚠️ **调用方在整批 `ok` 之后才 append**
+    #: （§8: 失败 = 整批回滚 ⇒ 那条约定原样开着; 事件 append 不可撤销, 提前写就回不去了）。
+    notes_ops: list[dict] = field(default_factory=list)
+    #: R4 的世界校验记账（剔掉的引用 / 丢掉的 close 行…）—— 不阻断, 但要看得见
+    notes_warnings: list[str] = field(default_factory=list)
+    #: R4 物化的 promise 节点 id（R2/R3 要对它们写边 —— §8 的批内顺序就是为这个）
+    promise_nodes: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -341,6 +349,43 @@ def digest_segment(
                     len(episode_ids), len(hints),
                     sum(len(e.get("items") or []) for e in entries
                         if e.get("kind") != "experience"))
+
+        # ── Round R4: 收口（promise 记账）—— §8 的批内顺序是 R1 → **R4** → R2 → R3 ──
+        # 为什么必须夹在这里: `close` 会**物化 promise 节点**, 而它需要的边由后两轮写
+        # （`supports`/`evolved_from` 归 R2、`about` 归 R3）⇒ 节点先就位, 否则它
+        # "永远没边、永远没归属"（§9-12 ⑤ 那条"漏一批且永久补不回"的同款错误）。
+        note_state = store.notes_state(events)            # 本段之前的备忘录（缓存优先）
+        open_promises = [it for it in note_state.promise if not it.closed]
+        if episode_ids or open_promises:
+            system_c = load_prompt("digest_v2_round_close").replace(
+                "{{digest_schema}}", digest_registry.build_schema(PHASE_CLOSE))
+            user_c = _join_sections([
+                ("还开着的约定", _open_promises_text(open_promises)),
+                ("本段新增的经历", _episode_lines(store, episode_ids)),
+            ])
+            rows_c, resp_c = _round_call(
+                llm, system_c, user_c,
+                model=model, temperature=temperature, max_tokens=max_tokens,
+                llm_timeout=llm_timeout, extra_body=extra_body, deadline=deadline,
+                label="close", parse_fn=digest_registry.parse_close, result=result)
+            if rows_c is None:
+                return _rollback(store, snapshot, result)
+            closures = apply_closures(store, rows_c, note_state=note_state,
+                                      ts=now_ts, event_seq=[interact_max])
+            result.notes_ops = list(closures.ops)          # ⚠️ 调用方等 ok 之后才 append
+            result.notes_warnings = list(closures.warnings)
+            result.promise_nodes = list(closures.nodes)
+            for w in closures.warnings:
+                logger.warning("digest_close: %s", w)
+            logger.info("digest_close open=%d add=%d close=%d node=%d warn=%d",
+                        len(open_promises),
+                        sum(1 for o in closures.ops if o.get("action") == "add"),
+                        sum(1 for o in closures.ops if o.get("action") == "close"),
+                        len(closures.nodes), len(closures.warnings))
+        else:
+            # 没有开着的约定 **且** 本段没有新经历 ⇒ `add` 没有可引用的经历、
+            # `close` 没有可翻篇的条目 ⇒ 这一轮**必然空转** ⇒ 省掉这次调用（0 次）。
+            logger.info("digest_close 跳过（没有开着的约定, 本段也没有新经历）")
 
         # ── Round B: 理解者（引擎候选推荐 + 决策表）──
         cog_text, local_of = render_cognition_list(
@@ -613,6 +658,29 @@ def _create_a_nodes(store: WikiStoreV2, entries: list[dict], *, ts: str,
         if hint:
             hints.append({"node": nid, "hint": hint})
     return episode_ids, player_ids, hints
+
+
+def _open_promises_text(items: list) -> str:
+    """R4 输入之一: **还开着的约定**（带编号 —— 它要照着 `id` 写 `close`）。
+
+    行格式复用注入块的 `notes.render_item`（`n3 周六模型店 (m0009)  ← 记于 3 天前`）——
+    ⚠️ **一份行格式只有一个实现**（两个写者必然漂移）。
+    """
+    from core.brain.wiki_v2.notes import render_item
+    return "\n".join(f"- {render_item(it)}" for it in items)
+
+
+def _episode_lines(store: WikiStoreV2, episode_ids: list[str]) -> str:
+    """R4 输入之二: **本段新增的经历**（真 id —— `add`/`close` 的 `refs` 只能引它们）。"""
+    lines: list[str] = []
+    for nid in episode_ids:
+        node = store.get(nid)
+        if node is None:
+            continue
+        head = node.text if len(node.text) <= 120 else node.text[:120] + "…"
+        title = node.title or "（无题）"
+        lines.append(f"- {node.id} 「{title}」 {head}")
+    return "\n".join(lines)
 
 
 def _round_b_material(store: WikiStoreV2, episode_ids: list[str],
@@ -921,6 +989,12 @@ def _rollback(store: WikiStoreV2, snapshot: dict,
     2026-09-17（`ESSAY_TIME_MODEL §10`）: 原先还要还原 `WorldClock` 的**内存游标**
     （§4.11 I-a 的配套 —— 否则重试会二次推进时钟）。剧情游标整族退役后
     这一步没了, `snapshot_clock` 参数一并删除。
+
+    ⭐ 2026-09-25: **R4 的 note 操作一并作废**（§8: 失败 = 整批回滚 ⇒ 那条约定原样开着）。
+    节点面靠 `restore_state` 回去; note 面必须在这里清空 —— 事件 append **不可撤销**,
+    调用方只要看到 `ok=False` 就不写, 但结果对象里留着它就是一颗雷。
     """
     store.restore_state(snapshot)
+    result.notes_ops = []
+    result.promise_nodes = []
     return result
