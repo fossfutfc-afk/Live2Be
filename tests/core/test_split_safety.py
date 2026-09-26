@@ -117,10 +117,20 @@ def _kind_of(obj) -> str:
     ⚠️ 不能直接用 `type(obj).__name__`: `core.mmt.engine._EMBED_REPORTED` 这类
     **运行期可变标志**在导入时是 `None`、跑过某用例后变 `bool` —— 快照会抖
     （2026-09-21 实测被守门抓出来）。三态足够表达"丢名字/种类变了"。
+
+    ⚠️ **闭包不算 API**（2026-09-27 同类第二次；症状更重）: `core.mmt.engine._EMBED_FN`
+    是"懒构造的 RAG 后端"缓存槽——导入时 `None`、跑过 digest 后变成 `make_embed_fn`
+    里的**闭包** ⇒ `data` → `function`。这与 `_EMBED_REPORTED` 是同一种病，但**仅在
+    本机 embedding 服务在跑时才发作**（服务不在时 `_get_embed_fn()` 恒 None，
+    谁也翻不动它）⇒ 真机一起服务，守门就红。判据：`__qualname__` 带 `<locals>`
+    （函数内定义的闭包）/ `lambda` ⇒ 它是**运行时缓存**，不是模块声明的接口面。
     """
     if inspect.isclass(obj):
         return "class"
     if callable(obj):
+        qn = getattr(obj, "__qualname__", "") or ""
+        if "<locals>" in qn or getattr(obj, "__name__", "") == "<lambda>":
+            return "data"
         return "function"
     return "data"
 

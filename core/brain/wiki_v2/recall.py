@@ -26,6 +26,7 @@ from typing import Callable
 
 from core.brain.wiki_v2.nodes import PRECIOUS_THRESHOLD, BrainNode
 from core.brain.wiki_v2.store import WikiStoreV2
+from core.worldtime.age import REAL_TZ, parse_ts
 
 logger = logging.getLogger(__name__)
 
@@ -292,13 +293,27 @@ def _random_segment(nodes: list[BrainNode],
     daily = [n for n in nodes if n.ts]
     if not daily:
         return None
-    now = datetime.now()
+    # ★ 时区对齐（2026-09-27 修）——**必做**：`ts` 2026-09-17 收敛到带时区
+    #   （`now_ts()` 写 `+08:00`），而这里原来是 `now = datetime.now()`（朴素）
+    #   ⇒ `now - datetime.fromisoformat(n.ts)` 抛 **TypeError**（aware − naive），
+    #   而下面的 `except ValueError` **抓不住它** ⇒ 直接冒泡出 `_random_segment`。
+    #   ⚠️ 爆炸半径**不止随机那一支**：`recall_subgraph` 里这一句没有 try 包裹 ⇒
+    #   通道 1/2 的结果全丢、**整个召回作废**（真机 haruka 实测 12 个 seed 崩 8 次）。
+    #   真机后果: CLI 的 `memory_flash`（"剧情开始前突然想起一件事"）被外层
+    #   `except Exception: 静默跳过` 吞掉 ⇒ 实际概率 25% → ≈7.5%（0.25 × 0.30），
+    #   零日志（webgui 侧没接 random_events, 所以网页版没踩到）。
+    #   同款 bug 在 `core/worldtime/prompt_time.py` 2026-09-17 已修过一次
+    #   （症状: 时间注记整条静默消失）——**这里是那次收敛漏掉的第二处**。
+    #   纪律: 统一走 `age.parse_ts`（朴素按 `REAL_TZ` 解释; 缺/坏 → None, 不抛），
+    #   与 `age_days` / `render_relative` 同一个真源, 别在这里手写 fromisoformat。
+    now = datetime.now(REAL_TZ)
     weights = []
     for n in daily:
-        try:
-            age = max((now - datetime.fromisoformat(n.ts)).total_seconds() / 3600, 0)
-        except ValueError:
-            age = 1e9                            # ts 异常 → 视为远古, 权重趋零
+        ts = parse_ts(n.ts)
+        if ts is None:                           # ts 异常 → 视为远古, 权重趋零
+            age = 1e9
+        else:
+            age = max((now - ts).total_seconds() / 3600, 0)
         x = math.log(age + 1)                    # 对数年龄（避免 log 0）
         w = math.exp(-((x - MU) ** 2) / (2 * SIGMA * SIGMA)) / (age + 1)
         weights.append(max(w, 1e-9))
