@@ -42,6 +42,11 @@ ACTION_TRIGGER = "mmt_trigger_bond_story"
 #: 静默推理动作名（整轮只有它一条行）
 ACTION_INSPECT = "mmt_inspect_character"
 
+#: 修不了的**操作行**里，哪些可以"丢行"（软）——判据 = **丢掉之后模型会不会带着错的前提继续**
+#: · `mmt_send_media`：只是图没发出去（"话说了图没发"完全可接受）⇒ 丢行 + 下一轮注记；
+#: · 其余（inspect / trigger）：会让模型以为"查过了""进剧情了" ⇒ **必须回灌**（硬）。
+DROPPABLE_ACTIONS: frozenset[str] = frozenset({"mmt_send_media"})
+
 
 class MmtIssueCode(str, Enum):
     """MMT 的问题**机器码**（稳定标识：测试断言 / 日志 grep / 下一轮纠偏都认它）。

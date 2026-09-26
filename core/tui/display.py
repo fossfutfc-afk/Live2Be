@@ -91,6 +91,22 @@ class MomoTalkOutput:
             steps.append(DisplayStep(formatted, 0.0))
         return steps
 
+    def publish_line(self, line: str) -> list[DisplayStep]:
+        """**行协议**（⑥-2d）: 一行 = 一个气泡 —— **不切块**。
+
+        与 `publish_reply` 的唯一差别: 不做 `split_reply_chunks`
+        （气泡边界由模型给的行边界决定；`DESIGN_STREAM_CONTRACT.md` §2 / §10.4 D1）。
+        切句器保留为未调用件（§6：将来真要用，回退位置是"行内二次切分"）。
+        """
+        text = _strip_action_brackets(line).strip()
+        if not text:
+            return []
+        formatted = format_momotalk_bubble(text, self._name)
+        if not formatted:
+            return []
+        return [DisplayStep("…", chunk_typing_time(text), typing=True),
+                DisplayStep(formatted, 0.0)]
+
 
 # ============================================================================
 # 羁绊剧情显示策略
