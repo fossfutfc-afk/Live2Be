@@ -47,6 +47,17 @@ ACTION_INSPECT = "mmt_inspect_character"
 #: · 其余（inspect / trigger）：会让模型以为"查过了""进剧情了" ⇒ **必须回灌**（硬）。
 DROPPABLE_ACTIONS: frozenset[str] = frozenset({"mmt_send_media"})
 
+#: **必须整轮可见才能办理的动作**（⑥-3a 流式交付的暂存集）。
+#:
+#: 判据 = "这一行的合法性/后果**取决于同一轮里还有没有别的行**"：
+#: · `mmt_inspect_character` / `mmt_trigger_bond_story` 都是**独占**行——单看自己
+#:   永远合法，混排才违规（见下面的 `mmt.exclusive-violation`）。
+#: ⇒ 流式下内容行（`text` / `mmt_send_media`）到达即交付，这两条**攒到块尾**
+#: 等整轮写完再判/执行——否则"独占被破坏"这类硬问题会被流式绕过，而且
+#: `trigger` 一旦跑出去就收不回（模式切换）。
+#: ⚠️ 新增动作时想清楚放哪一边：独占/有整轮前置条件的进这里，纯内容行不用。
+WHOLE_TURN_ACTIONS: frozenset[str] = frozenset({ACTION_TRIGGER, ACTION_INSPECT})
+
 
 class MmtIssueCode(str, Enum):
     """MMT 的问题**机器码**（稳定标识：测试断言 / 日志 grep / 下一轮纠偏都认它）。

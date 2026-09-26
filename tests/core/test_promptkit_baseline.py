@@ -49,7 +49,11 @@ class ScriptedLLM:
         resp = self._scripts.pop(0)
         on_chunk = kw.get("on_chunk")
         if on_chunk is not None:
-            on_chunk(json.dumps(resp, ensure_ascii=False))
+            # ⚠️ 喂给 on_chunk 的必须是**返回的那段文本本身**（生产客户端就是内容增量）——
+            #    脚本是 str 时再 `json.dumps` 一次 = 双重编码 ⇒ 行协议一行都解析不出来
+            #    （⑥-3a 实测: 三个 MMT 基线用例因此跑到 MAX_STEPS 才报错）。
+            on_chunk(resp if isinstance(resp, str)
+                     else json.dumps(resp, ensure_ascii=False))
         return resp
 
     def format_messages(self, **kw):
