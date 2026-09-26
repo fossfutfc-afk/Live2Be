@@ -13,6 +13,7 @@ tests/fixtures/promptkit/*.txt（生成后人工审 diff 再提交）。
 import json
 import os
 import sys
+import tempfile
 from datetime import datetime
 from pathlib import Path
 
@@ -25,6 +26,9 @@ ROOT = Path(__file__).resolve().parent.parent.parent
 CHARACTER = "igusa_haruka"
 DISPLAY = "伊草 遥香"
 FIXT = ROOT / "tests" / "fixtures" / "promptkit"
+#: ⚠️ 进度落盘走**临时目录**——`BondProgress` 的 data_root 指到真机 `data/` 会把
+#: `data/basic/bond_progress.json` 里真实角色的累计轮数刷上去（2026-09-26 实测）。
+_PROGRESS_ROOT = Path(tempfile.mkdtemp(prefix="promptkit_progress_"))
 
 UPDATE = os.environ.get("PROMPTKIT_UPDATE_FIXTURES") == "1"
 
@@ -56,7 +60,7 @@ class ScriptedLLM:
 def _mmt_engine(llm, store=None):
     from core.bond.bond_progress import BondProgress
     engine = MomoTalkEngine(ROOT / "config" / "characters", llm,
-                            bond_progress=BondProgress(data_root=ROOT / "data"),
+                            bond_progress=BondProgress(data_root=_PROGRESS_ROOT),
                             store=store)
     engine.start_session(CHARACTER)
     return engine

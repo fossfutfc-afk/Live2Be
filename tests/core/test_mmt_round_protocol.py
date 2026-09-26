@@ -13,6 +13,7 @@
 `tests/core/test_mmt_lines_protocol.py`。
 """
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -25,6 +26,9 @@ from tests import stub_tasks
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 CHARACTER = "igusa_haruka"
+#: ⚠️ 进度落盘走**临时目录**——`BondProgress` 的 data_root 指到真机 `data/` 会把
+#: `data/basic/bond_progress.json` 里真实角色的累计轮数刷上去（2026-09-26 实测刷到 50）。
+_PROGRESS_ROOT = Path(tempfile.mkdtemp(prefix="mmt_proto_progress_"))
 
 
 class ScriptedLLM:
@@ -53,7 +57,7 @@ class ScriptedLLM:
 def _engine(llm, store=None):
     from core.bond.bond_progress import BondProgress
     engine = MomoTalkEngine(ROOT / "config" / "characters", llm,
-                            bond_progress=BondProgress(data_root=ROOT / "data"),
+                            bond_progress=BondProgress(data_root=_PROGRESS_ROOT),
                             store=store)
     engine.start_session(CHARACTER)
     return engine
