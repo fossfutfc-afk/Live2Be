@@ -74,6 +74,20 @@ VN 的控制行玩家看得见（丢了立刻穿帮），MMT 的控制行玩家�
 
 ## 4. 失败兜底（定稿）
 
+### 4.0 ⭐ 办理顺序（d 阶段踩出来的，**顺序是正确性**）
+
+一轮的行要按这个顺序办（`engine._run_lines` 的四阶段）：
+
+| 阶段 | 做什么 | 为什么必须在这个位置 |
+|---|---|---|
+| ① **自愈** | 逐操作行 `repair_line` | **必须早于 `registry.parse`**（inspect 的 `character_id` / send_media 的 `media_type` 都是 registry 硬拒绝——晚一步就没机会修） |
+| ② **组合校验** | `check_turn(自愈后的行)` | **必须在自愈之后**：`chapter_title` 超长会被截断救回，先判会误报 `control-invalid`（d 实测踩到） |
+| ③ **parse + 执行** | `registry.parse` → `executor.execute` | 执行很轻（读资料 / 占位 / 确认），先执行才知道这一行到底行不行 |
+| ④ **交付** | 逐行 append 事件 + 历史（**保持行序**：话→图→话 不能变成 话话图） | 只有前面全绿才交付——`inspect` 混排时**绝不先把话放出去** |
+
+⚠️ ①–③ 任一处"修不了"（且动作不可丢）⇒ **整轮不交付** + 回灌；丢了不影响前提的软操作行
+（`DROPPABLE_ACTIONS = {mmt_send_media}`）⇒ 丢行 + 下一轮注记，气泡照常交付。
+
 ### 4.1 内容行
 
 丢行 + `ParseDiag` 记账，**其余行照常交付**。绝不因为一行坏而作废整轮。
@@ -220,9 +234,10 @@ VN 的控制行玩家看得见（丢了立刻穿帮），MMT 的控制行玩家�
 | # | 定论 |
 |---|---|
 | C1 | **给 LLM**：位置不变 = 盒A 的 `schema` 块（`core/mmt/engine.py:490` 换新函数，开场拼死、逐字节稳定）。**组合约束（`inspect` 单独一轮 / `trigger` 是唯一 action 行）写进契约块的硬规则**，不放 rules 的自然语言里 |
-| C2 | **给引擎**：`行 → registry.parse(dict) → AgentAction → executor.execute()` 链**零改动**；⭐ **智能矫正落点 = `core/mmt/mmt_repair.py`**（`character_id` 归一化：`interperson` 键 + 角色 id/显示名，**唯一命中才用、有歧义不猜**）。放 `core/mmt/` 而非 contract 层——contract 是纯校验、executor 是执行 |
-| C3 | **回灌（行级续写轮）**：assistant 位放**本轮已产出行原文**（模型看得见自己写了什么）；user 位放"失败的那一行 + 原因 + **只输出缺失的操作行、不要重复已经说过的话**"；**续写轮只收控制行**（text 行一律丢 ⇒ 零重复气泡）；续写产物**接在本轮行序之后**；**复用同一个 messages 列表**（吃前缀缓存 + 模型看得见自己刚写的） |
-| C4 | ⭐ **行交付即 append 事件（用户裁决）** ⇒ 前端 `events_after` 轮询天然拿到增量，**不需要 SSE**。语义 = "**话已经发出去了**"：半轮产物入真源（角色说了话、后面的 action 失败），与"内容行无副作用"一致 |
+| C2 | **给引擎**：`行 → registry.parse(dict) → AgentAction → executor.execute()` 链**零改动**；⭐ **智能矫正落点 = `core/mmt/mmt_repair.py`**（`character_id` 归一化：`interperson` 键 + 角色 id/显示名，**唯一命中才用、有歧义不猜**）。放 `core/mmt/` 而非 contract 层——contract 是纯校验、executor 是执行。✅ **已接线（d）**：`_run_lines` 阶段① 逐行 `repair_line`，跑在 `registry.parse` 之前 |
+| C3 | **回灌（行级续写轮）**：assistant 位放**本轮已产出行原文**（模型看得见自己写了什么）；user 位放"失败的那一行 + 原因 + **只输出缺失的操作行、不要重复已经说过的话**"；**续写轮只收控制行**（text 行一律丢 ⇒ 零重复气泡）；续写产物**接在本轮行序之后**；**复用同一个 messages 列表**（吃前缀缓存 + 模型看得见自己刚写的）。✅ **已接线（d）**：`LINE_REASK_MAX=1`；形状级 `SHAPE_RETRY_MAX=2`（整段不是 JSONL） |
+| C4 | ⭐ **行交付即 append 事件（用户裁决）** ⇒ 前端 `events_after` 轮询天然拿到增量，**不需要 SSE**。语义 = "**话已经发出去了**"：半轮产物入真源（角色说了话、后面的 action 失败），与"内容行无副作用"一致。✅ **已接线（d）**：`_deliver_line` 逐行 `append_event`；软丢行 ⇒ `_line_notes` 下一轮注记（自清，同 VN 的 `_pending_feedback`） |
+| C5 | ⭐ **B9 的洞已接上（d）**：`mmt_inspect_character` 查到的资料**回灌**后**继续这一轮**（旧路径 `return _finish_turn_list(...)` 把它丢了——`AUDIT §B9`）。用户 2026-09-25 口径：**只在行协议里接**，旧路径不动（它随 e/f 退役） |
 
 ### 10.4 顺带
 
@@ -245,6 +260,7 @@ VN 的控制行玩家看得见（丢了立刻穿帮），MMT 的控制行玩家�
 | 2026-09-25 | **⑥-2a 落地**（契约渲染器）：`build_line_schema(registry, *, with_examples=True)`——两类行判别键 · 6 条硬规则（含"气泡粒度由你定"与两个独占约束）· 动作表运行时渲染 · 三条示范（交错 / 触发 / 独占）。`test_line_schema.py` 4 条（含**示范必须合法 JSON 且判别键唯一**）。纯新增，未接线（引擎仍在旧协议） |
 | 2026-09-25 | **⑥-2b 落地**（MMT 行解析）：`core/mmt/mmt_lines.py`（`MmtLine` / `line_from_obj` 判别 / `MmtStream` **行即交付单元** / `to_action_raw` 桥 / `parse_lines`），9 条单测覆盖分块喂入·丢行记账·数组行拍平（共用 `line_no`）·不做转义救援。**实测两条写进 §10.2 B5**：自愈必须早于 `registry.parse`；`chapter_title` 的必填 registry 不管（该由 `mmt_check` 加）。纯新增，未接线 |
 | 2026-09-25 | **⑥-2c 落地**（校验 + 自愈）：`core/mmt/mmt_check.py`（5 码 + 软硬表 + `check_turn`：空轮 / 两个独占约束 / **`chapter_title` 3-16** / 丢行汇总软记账）+ `core/mmt/mmt_repair.py`（`character_id` 归一【精确→折叠→子串，**唯一命中才用**】· `media_type` 纠错 · 标题截断 · `repair_line` 分派）；13 条单测；反文案分级守门扩到 MMT 码表。纯新增，未接线 |
+| 2026-09-25 | **⑥-2d 落地**（引擎接线，双读）：`MomoTalkEngine(line_protocol=…)`（临时件，⑥-2f 删；**默认 False ⇒ 真机零行为变化**）；新路径 = 裸文本 → 行解析 → **四阶段办理**（自愈 → 组合校验 → parse+执行 → **保持行序**交付）+ `_deliver_line` 逐行落事件/历史 + 三段式兜底（行级 1 / 形状级 2）+ 软丢行下一轮注记；`MomoTalkOutput.publish_line`（一行一气泡，不切句）；`MmtLine.to_dict/to_line`。⭐ **AUDIT §B9 已接上**（inspect 资料回灌后继续这一轮）。9 条新用例（含"旧路径一字未动"） |
 
 ---
 

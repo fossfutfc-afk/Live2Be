@@ -26,6 +26,7 @@ VN 把行聚合成**板**；MMT **一行就是一条消息**（`MmtStream._accep
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterable
 from dataclasses import dataclass, field, replace
 from typing import Any
@@ -63,6 +64,16 @@ class MmtLine:
     @property
     def is_action(self) -> bool:
         return self.kind == KIND_ACTION
+
+    def to_dict(self) -> dict[str, Any]:
+        """回写为 LLM 可见的 wire 形状（`{"text": …}` / `{"action": …, "payload": {…}}`）。"""
+        if self.kind == KIND_TEXT:
+            return {KIND_TEXT: self.text}
+        return {KIND_ACTION: self.action, "payload": dict(self.payload)}
+
+    def to_line(self) -> str:
+        """回写为**一行 JSONL**（续写轮的 assistant 位 / trace / 探针用）。"""
+        return json.dumps(self.to_dict(), ensure_ascii=False)
 
 
 def line_from_obj(obj: Any) -> tuple[MmtLine | None, str]:

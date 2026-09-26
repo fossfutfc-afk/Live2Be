@@ -52,12 +52,22 @@ from llm.client import LLMClient, feedback
 from llm.task_labels import MMT
 from llm.task_levels import max_tokens as task_levels_max_tokens
 from contract import APPROVAL_AUTO, DOMAIN_MMT, AgentAction, build_schema
+from contract.issues import format_issues, split_issues
 from core.bond.bond_progress import BondProgress
 from core.mmt.mmt_actions import build_mmt_registry
+from core.mmt.mmt_check import (
+    ACTION_INSPECT,
+    ACTION_TRIGGER,
+    DROPPABLE_ACTIONS,
+    check_turn,
+)
+from core.mmt.mmt_lines import MmtLine, parse_lines, to_action_raw
+from core.mmt.mmt_repair import build_candidates, repair_line
 from core.mmt.mmt_executor import (
     ExecResult,
     MmtExecError,
     MmtExecutor,
+    load_interperson,
 )
 from core.parsing.dynamic_character_parser import (
     CharacterLoader,
@@ -343,10 +353,23 @@ DEFAULT_HISTORY_ROUNDS = 40
 
 # agent loop 参数
 MAX_STEPS = 6          # 单轮动作步数上限（含 inspect 静默轮）
+# 行协议（⑥-2d）的重试预算 —— 用户 2026-09-25 裁决"行级 1 次 + 形状级 2 次"
+# （旧路径原来是 6 次**整轮**重发 = 最坏 6×4096 token 还什么都给不出）
+LINE_REASK_MAX = 1     # ② 行级续写（只补缺失的操作行）
+SHAPE_RETRY_MAX = 2    # ③ 形状级整轮重发（整段不是 JSONL）
 TEMP = 0.8             # 与旧 send_message 一致
 # max_tokens 真源 = llm/task_levels.py 形态 "mmt"（4096——动作 JSON + 对白,
 # 推理模型需大 max_tokens, 勿改小; 2026-09-02 集中管理——本别名随真源联动）
 MMT_MAX_TOKENS = task_levels_max_tokens("mmt")
+
+
+@dataclass
+class _LineOutcome:
+    """行协议一轮办理的结果（`_run_lines` 内部用）。"""
+
+    need_more: bool = False      # inspect 查完 → 这一轮还要再问一次（带着资料说话）
+    fatal: str = ""              # 修不了 ⇒ **不交付** + 行级续写（回灌）
+    dropped: str = ""            # 丢了软操作行 ⇒ 记账 + 下一轮注记
 # 羁绊剧情时机建议线（2026-09-02 v2 用户拍板: 引擎建议不拦截）: 距上次完整剧情
 # ≥ SUGGEST_BOND_ROUNDS 轮 → 每轮注记主动建议发起剧情; 不足 → 只报事实+沉淀,
 # 不拦（紧急场面 LLM 自行判断随时可触发, 见 momotalk_rules 触发专段）
@@ -431,6 +454,7 @@ class MomoTalkEngine:
         character_names: list[str] | None = None,
         history_rounds: int = DEFAULT_HISTORY_ROUNDS,
         task_card: bool | None = None,   # None = settings [promptkit].task_card（默认 true）
+        line_protocol: bool = False,     # ⑥-2d 行协议（临时双读件; ⑥-2f 删）
     ):
         self.char_loader = CharacterLoader(characters_root)
         self.llm = llm_client
@@ -471,6 +495,13 @@ class MomoTalkEngine:
         # （默认 true; false = 现网无卡行为, A/B 对照用）——start_session 时定值
         self._task_card_override: bool | None = task_card
         self._task_on = True
+
+        # ⭐ 行协议（⑥-2d）: True = `一行一条 JSON`（`_turn_lines`）; False = 旧
+        # `{"messages":[…]}` 路径（今天的默认, 真机走它）。
+        # **临时双读件**：⑥-2e 翻转契约时改默认值, ⑥-2f 删旧路径与这个开关。
+        self._line_protocol = bool(line_protocol)
+        # 行协议丢掉软操作行（如"图没发出去"）→ **下一轮**注记念一次（自清）
+        self._line_notes: list[str] = []
 
     # ------------------------------------------------------------------
     # 公共 API — 会话生命周期
@@ -996,9 +1027,14 @@ class MomoTalkEngine:
                 char=self._current_char.display_name if self._current_char else "")
             if card:
                 notes.append(card)
+        notes.extend(self._take_line_notes())     # 行协议：上一轮丢掉的软操作行（自清）
         messages = round_messages(
             system=self._system_prompt, history=self._history,
             notes=notes, brain=brain, user=user_input)
+
+        # ⭐ 行协议分派（⑥-2d）: 开关打开才走新路径（真机默认关 ⇒ 本步零行为变化）
+        if self._line_protocol:
+            return self._turn_lines(messages, user_input, record_input=record_input)
 
         for step in range(MAX_STEPS):
             # 1) LLM 决策（json_object 已内置 JSON 清洗与修正重试, 返回 dict）
@@ -1295,6 +1331,293 @@ class MomoTalkEngine:
                     char_id, self._session_id, make_event("mmt", action.action, payload))
         except Exception as e:                      # 宁缺勿错: 存档失败不阻断对话
             logger.warning("事件流落盘失败, 本轮不记录: %s", e)
+
+    # ------------------------------------------------------------------
+    # 行协议（⑥-2d）—— 一行一条 JSON: 逐行交付 / 逐行落库 / 三段式兜底
+    #
+    # ⚠️ **临时双读件**：`line_protocol=True` 才走这里（真机默认关 ⇒ 本步零行为变化）。
+    # ⑥-2e 翻转契约（prompt/schema/response_format）、⑥-2f 删旧路径与开关之后，
+    # 这块就是唯一路径 —— 那时删掉"双读"字样与构造函数里的参数。
+    #
+    # 与旧路径的差别（`DESIGN_STREAM_CONTRACT.md` §3/§4/§10.3）:
+    # · 交付单元 = **行**：text 行 = 一个气泡，解析出来就落事件（C4"行交付即 append"）；
+    # · 操作行**先自愈再校验**（自愈必须早于 `registry.parse` —— §10.2 B5 发现②）；
+    # · **有硬问题就不交付**（`inspect` 混排时绝不先把话放出去）；
+    # · ⭐ **inspect 查到的资料回灌后继续这一轮**（AUDIT §B9 的洞：旧路径把它丢了）；
+    # · 重试三段：① 自愈（零 LLM 成本）② 行级续写（只收控制行）③ 形状级整轮重发。
+    # ------------------------------------------------------------------
+
+    def _take_line_notes(self) -> list[str]:
+        """取走（并清空）上一轮行协议留下的软注记——只念一次（同 VN 的 `_pending_feedback`）。"""
+        notes, self._line_notes = self._line_notes, []
+        return notes
+
+    def _line_candidates(self) -> dict[str, tuple[str, ...]]:
+        """自愈用的角色候选表：角色注册表（id + 显示名）+ 关系记录（interperson）的键。
+
+        读失败一律降级（少几个候选 = 少救回几个写歪的 id, 不影响主链）。
+        """
+        ids: list[str] = []
+        try:
+            ids = list(self.char_loader.list_characters())
+        except Exception as e:                       # noqa: BLE001 — 候选表读不到就少救几个
+            logger.warning("角色注册表读取失败（归一化候选减少）: %s", e)
+        names: dict[str, list[str]] = {}
+        for cid in ids:
+            try:
+                names[cid] = [self.char_loader.load(cid).display_name]
+            except Exception:                        # noqa: BLE001 — 单个角色坏了不拖累别人
+                continue
+        try:
+            ids.extend(load_interperson(self.executor.interperson_path))
+        except Exception as e:                       # noqa: BLE001 — 关系记录可缺
+            logger.warning("关系记录读取失败（归一化候选减少）: %s", e)
+        return build_candidates(dict.fromkeys(ids), names)
+
+    def _turn_lines(self, messages: list[dict], user_input: str, *,
+                    record_input: bool) -> TurnResult:
+        """行协议一轮：`一行一条 JSON` → 逐行交付 + 逐行落库 + 三段式兜底。"""
+        candidates = self._line_candidates()
+        delivered: list[AgentAction] = []      # 已交付（顺序 = 行序）
+        reask = False                          # 下一轮是"行级续写"轮（只收控制行）
+        line_reask = 0
+        shape_retry = 0
+
+        for step in range(MAX_STEPS):
+            try:
+                raw = self.llm.chat(
+                    messages, temperature=TEMP, max_tokens=MMT_MAX_TOKENS,
+                    # 裸文本：JSONL 整段**不是**合法单对象 ⇒ 不能走 json_object
+                    # （那条路会触发 `_extract_json_with_llm_correction` 再调 3 次 LLM）
+                    response_format="text",
+                    task=MMT,
+                )
+            except Exception as e:
+                logger.warning("LLM 调用失败（行协议 step %d）: %s", step, e)
+                feedback(messages, f"LLM 调用失败: {e}\n请重试。")
+                continue
+            text = raw if isinstance(raw, str) else str(raw)
+            messages.append({"role": "assistant", "content": text})
+
+            lines, diags = parse_lines(text)
+            if reask:
+                # ⭐ 续写轮**只收控制行**：消息行一律丢（零重复气泡）
+                kept = [ln for ln in lines if ln.is_action]
+                if len(kept) != len(lines):
+                    self._trace.append({
+                        "step": step, "action": "-", "summary": "", "reply": "",
+                        "payload": None, "parse_valid": True,
+                        "parse_errors": ["续写轮的消息行已忽略（不重复上屏）"]})
+                lines, reask = kept, False
+
+            hard, _soft = split_issues(check_turn(lines, diags))
+
+            # ③ 形状级：整段没解析出任何行（不是 JSONL）⇒ 整轮重发
+            if not lines and hard:
+                shape_retry += 1
+                if shape_retry > SHAPE_RETRY_MAX:
+                    raise MmtLoopError(
+                        f"行协议: 输出不是可解析的行流（形状级重发 {shape_retry} 次仍失败）: "
+                        f"{format_issues(hard)}")
+                logger.warning("行协议形状级重发 %d/%d: %s",
+                               shape_retry, SHAPE_RETRY_MAX, format_issues(hard))
+                feedback(messages, f"上一轮输出不是「一行一条 JSON」: {format_issues(hard)}",
+                         "请只输出 JSON 行（一行一个对象, 不要数组、不要围栏）。")
+                continue
+
+            outcome = self._run_lines(
+                lines, messages, step=step, candidates=candidates, delivered=delivered,
+                user_input=user_input, record_input=record_input)
+
+            if outcome.fatal:                    # ② 行级续写：只补缺失的操作行
+                line_reask += 1
+                if line_reask > LINE_REASK_MAX:
+                    raise MmtLoopError(
+                        f"行协议: {outcome.fatal}（行级续写 {line_reask} 次仍失败）")
+                logger.warning("行协议行级续写 %d/%d: %s",
+                               line_reask, LINE_REASK_MAX, outcome.fatal)
+                feedback(messages, f"你这一轮有一行操作没能执行: {outcome.fatal}",
+                         "请只补**缺失的那一条操作行**（一行 JSON）——"
+                         "上面已经说出去的话不要再重复。")
+                reask = True
+                continue
+
+            if outcome.need_more:                # inspect 查完 → 带着资料继续这一轮
+                continue
+
+            if outcome.dropped:                  # 软丢行 → 记账 + 下一轮注记
+                logger.info("行协议: 丢了操作行（下一轮注记）: %s", outcome.dropped)
+                self._line_notes.append(
+                    "上一轮有一行操作没执行（" + outcome.dropped
+                    + "）——不要重复它；玩家问起就如实说明。")
+
+            return self._finish_turn_lines(delivered, user_input,
+                                           record_input=record_input)
+
+        raise MmtLoopError(f"行协议: 单轮超过 {MAX_STEPS} 步仍未产出可见回复")
+
+    def _run_lines(self, lines: list[MmtLine], messages: list[dict], *, step: int,
+                   candidates: dict[str, tuple[str, ...]],
+                   delivered: list[AgentAction], user_input: str,
+                   record_input: bool) -> _LineOutcome:
+        """按行序办理一轮的输出（**四阶段**，顺序是正确性）。
+
+        | 阶段 | 做什么 | 为什么这个顺序 |
+        |---|---|---|
+        | ① 自愈 | 逐操作行 `repair_line` | **必须早于 registry.parse**（inspect 的 id / send_media 的 media_type 都是硬拒绝 —— §10.2 B5 发现②） |
+        | ② 组合校验 | `check_turn(自愈后的行)` | 必须在**【自愈后】**：`chapter_title` 超长会被截断救回，先判就会误报 `control-invalid` |
+        | ③ parse + 执行 | `registry.parse` → `executor` | 执行很轻（读资料 / 占位 / 确认），先执行才能知道这一行到底行不行 |
+        | ④ 交付 | 逐行 `_deliver_line` | **只有前面全绿才交付**——`inspect` 混排时绝不先把话放出去 |
+
+        ⚠️ **有硬问题（②）或修不了的操作行（①③）⇒ 整轮不交付** + 回灌；
+        丢得起的软问题（`DROPPABLE_ACTIONS`）则**丢行 + 记账**，气泡照常交付。
+        """
+        out = _LineOutcome()
+        droppable: list[str] = []
+
+        # ---- ① 自愈（零 LLM 成本）------------------------------------------
+        fixed_lines: list[MmtLine] = []
+        for ln in lines:
+            if ln.is_text:
+                fixed_lines.append(ln)
+                continue
+            fixed, note = repair_line(ln, candidates=candidates)
+            if fixed is None:
+                if ln.action in DROPPABLE_ACTIONS:
+                    droppable.append(f"{ln.action}: {note}")
+                    continue
+                out.fatal = f"{ln.action} 这一行修不了 —— {note}"
+                return out
+            if note:                                  # 自愈过 → 留痕（可 grep）
+                logger.info("mmt 行协议自愈: %s", note)
+            fixed_lines.append(fixed)
+
+        # ---- ② 组合校验（自愈**之后**才判）----------------------------------
+        hard, _soft = split_issues(check_turn(fixed_lines))
+        if hard:
+            out.fatal = format_issues(hard)
+            return out
+
+        # ---- ③ parse + 执行（**顺序 = 行序**）-------------------------------
+        plan: list[tuple[str, MmtLine | AgentAction]] = []   # 交付计划（保持行序）
+        for ln in fixed_lines:
+            if ln.is_text:
+                plan.append(("text", ln))
+                self._trace.append({"step": step, "action": "mmt_chat", "summary": "",
+                                    "reply": ln.text, "payload": {}, "parse_valid": True,
+                                    "parse_errors": []})
+                continue
+            action, result = self.registry.parse(to_action_raw(ln))
+            if action is None or not result.is_valid:
+                why = "; ".join(result.errors) if result is not None else "动作解析失败"
+                if ln.action in DROPPABLE_ACTIONS:
+                    droppable.append(f"{ln.action} 不合法: {why}")
+                    continue
+                out.fatal = f"{ln.action} 不合法 —— {why}"
+                return out
+            try:
+                exec_result = self.executor.execute(action)
+            except MmtExecError as e:
+                if action.action in DROPPABLE_ACTIONS:
+                    droppable.append(f"{action.action} 执行被拒: {e}")
+                    continue
+                out.fatal = f"{action.action} 执行被拒 —— {e}"
+                return out
+            self._trace.append({"step": step, "action": action.action, "summary": "",
+                                "reply": action.reply or "",
+                                "payload": dict(action.payload), "parse_valid": True,
+                                "parse_errors": [],
+                                "exec_ok": exec_result.ok,
+                                "exec_message": exec_result.message})
+            if not exec_result.ok:
+                if action.action in DROPPABLE_ACTIONS:
+                    droppable.append(f"{action.action} 执行失败: {exec_result.message}")
+                    continue
+                out.fatal = f"{action.action} 执行失败 —— {exec_result.message}"
+                return out
+            if action.action == ACTION_INSPECT:
+                # ⭐ AUDIT §B9 的洞：查到的资料**必须回灌** —— 旧路径把它丢了，
+                #    模型以为查过了却没资料（"答不上来 → 瞎编"的源头）。
+                #    inspect 是静默轮（独占约束保证行序里只有它）⇒ 直接继续这一轮。
+                feedback(messages, exec_result.message)
+                out.need_more = True
+                return out
+            plan.append(("action", action))
+
+        # ---- ④ 交付（**保持行序**：话 → 图 → 话 就是 话 → 图 → 话）----------
+        for kind, item in plan:
+            if kind == "text":
+                act = AgentAction(action="mmt_chat", domain=DOMAIN_MMT,
+                                  approval=APPROVAL_AUTO, reply=item.text, payload={})
+            else:
+                act = item
+            self._deliver_line(act, user_input=user_input,
+                               record_input=record_input, first=not delivered)
+            delivered.append(act)
+
+        if not delivered:                            # 全被丢光（如只有一张空描述的图）
+            out.fatal = f"本轮没有产出任何可见内容（{'; '.join(droppable)}）"
+            return out
+        out.dropped = "; ".join(droppable)
+        return out
+
+    def _deliver_line(self, action: AgentAction, *, user_input: str,
+                      record_input: bool, first: bool) -> None:
+        """**行交付**：事件即时落库（C4）+ 一行一条进历史。
+
+        ⚠️ 与旧路径的差别：事件在**行交付时**就 append（不是整轮成功才落）——
+        前端 `events_after` 轮询因此天然拿到增量（**不需要 SSE**）；语义 =
+        "话已经发出去了"（半轮产物入真源）。
+        """
+        reply = (action.reply or "").strip()
+        if first and record_input:
+            self._history.append({"role": "user", "content": user_input})
+        shown = _strip_action_brackets(reply).strip()
+        self._history.append({
+            "role": "assistant",
+            "content": f"[{action.action}] {shown}" if shown else f"[{action.action}]"})
+        if self._store is None or not self._session_id:
+            return
+        char_id = self._current_char.character_id if self._current_char else ""
+        try:
+            payload = dict(action.payload)
+            payload["reply"] = reply
+            if first and record_input:
+                payload["player"] = user_input
+            self._store.append_event(char_id, self._session_id,
+                                     make_event("mmt", action.action, payload))
+        except Exception as e:                      # 宁缺勿错: 存档失败不阻断对话
+            logger.warning("事件流落盘失败, 该行不记录: %s", e)
+
+    def _finish_turn_lines(self, delivered: list[AgentAction], user_input: str, *,
+                           record_input: bool) -> TurnResult:
+        """收尾：渲染步骤（**一行一个气泡**）+ 轮数 + digest 判定 → TurnResult。
+
+        ⚠️ 事件与历史**已经在交付时逐行写过了**（`_deliver_line`）——这里不再记一遍
+        （旧路径的 `_record_events` 是整轮一次性写）。
+        """
+        display = MomoTalkOutput(_process_for_momotalk, self._current_char.display_name)
+        steps: list[DisplayStep] = []
+        reply_blocks: list[str] = []
+        actions_view: list[dict] = []
+        for action in delivered:
+            reply = (action.reply or "").strip()
+            if reply:
+                reply_blocks.append(reply)
+                steps.extend(display.publish_line(reply))     # ⭐ 一行一个气泡（不切句）
+            actions_view.append({"action": action.action, "reply": reply,
+                                 "payload": dict(action.payload)})
+        self._trim_history()
+        if self._current_char is not None:
+            self.bond_progress.record_turn(self._current_char.character_id)
+        self._advance_round(self._char_id)
+        self._maybe_mmt_digest()
+        last = delivered[-1]
+        return TurnResult(
+            ok=True, steps=steps, reply="\n".join(reply_blocks),
+            action=last.action, payload=dict(last.payload),
+            bond_story=any(a.action == ACTION_TRIGGER for a in delivered),
+            actions=actions_view)
 
     def _advance_round(self, char_id: str) -> None:
         """成功一轮后推进计数（2026-09-02 v2）: 距上次完整 bond 剧情 +1。
