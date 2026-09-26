@@ -718,6 +718,9 @@ CLI/测试同步路径在引擎内串行。
   只放"最容易搞错的事 + 旧话清单 + 用户原话", **机制细节不重复**——重复就会漂）
 - **回忆册（书页 + 角色页 + 只读回放, P0 已落地）**：docs/DESIGN_COLLECTION_BOOK.md
 - **纪念链路（art / memorial / 黑屏缓冲 / 记录级进入 / 生图质量; 节点 A–D 已落地）**：docs/DESIGN_MEMORIAL.md
+- **回忆动作 `mmt_recall`（读路径召回; 四支 scope / `when` / 结果生命周期; **设计稿, 代码未动**）**：
+  docs/DESIGN_RECALL.md（§1 契约形式 · §2 用例情景 · §4 生命周期 = `type="tool"` 落库）。
+  ⚠️ 它是 `retire` 的许可证，且**开工前**先看 PROCEED §3 的两条前置（已处置）
 - **记忆图 v3（实体中心 + 混合召回 + 时间架构 + 组合, 设计稿, V3-0 已落地）**：docs/DESIGN_WIKI_V3.md
 - **第四面墙 / creepiness / OS(Orwell'S)（立项稿, 只留接口不实现）**：docs/DESIGN_FOURTH_WALL.md
 - 召回阈值实验（nomic vs Qwen3 实测数据）：docs/EXPERIMENT_CAND_HIGH.md
