@@ -135,7 +135,7 @@ tests/ core/ webgui/ llm/ renderer/ apps/ 分别对应域; experiments/ 真 API 
 ### 3.2 Bond（BondStoryEngine, `send_vn_scene`）
 - **每场输出**：**记录流**——一行一条 JSON，从上往下读就是这一段的完整演出
   （文法与约束见契约 `contract/schema.py::build_record_schema` 注入的"本轮输出契约"，
-  设计见 docs/DESIGN_VN_UPGRADE.md）。
+  设计见 docs/DESIGN_STREAM_CONTRACT.md）。
   ⚠️ **v1 的动作 JSON 已整族退役**：`story_scene`/`story_end`/`memorial_enter`/
   `memorial_exit` 收到 dict 一律**打回重发**（`bond_story/engine.py` 的 legacy_action_rejected）；
   契约/执行四模块（`bond_actions`/`bond_executor`/`memorial_actions`/`sentence_splitter`）、
@@ -199,7 +199,7 @@ tests/ core/ webgui/ llm/ renderer/ apps/ 分别对应域; experiments/ 真 API 
 
 **切句权移交（2026-09-02 定稿；v2 已被记录流取代）**：v1 主 LLM 只写"自然段"、
 契约 parse 层 `split_paragraph` 切句；**记录流 v2 起一行 = 一条记录 = 一个显示/
-判定单元, 引擎不再切句**（docs/DESIGN_VN_UPGRADE.md §6）。
+判定单元, 引擎不再切句**（docs/DESIGN_STREAM_CONTRACT.md §6）。
 
 **emotion（按板一次, 一条记录一个键 —— 2026-09-11 口径修正）**
 - prompt = `emotion_text_annotate.md`（词表键+示范+人设摘要防"逞强笑"误判）; 原语
@@ -666,7 +666,7 @@ CLI/测试同步路径在引擎内串行。
 | 项 | 状态/位置 |
 |---|---|
 | Bond contract v2（**已归档 2026-09-10**） | docs/archive/DESIGN_BOND_CONTRACT_V2.md |
-| **VN 契约形式换代（记录流 v2）** | docs/DESIGN_VN_UPGRADE.md（**P0–P2 已落地, 真机在跑**; P3/P4 未做; **§14 渲染层 = 多人同框站位/动作, 设计稿未实现（决策 #36, 暂缓）**） |
+| **流式契约形式（MMT + VN 统一, 2026-09-25 定稿）** | docs/DESIGN_STREAM_CONTRACT.md（主文 = 契约形式六条 / 兜底分级 / MMT 旧协议退役清单; **附录 A = VN 记录流 v2** = 原 DESIGN_VN_UPGRADE.md 全文, P0–P2 已落地真机在跑, P3/P4 未做, 附录 A §14 渲染层未实现（决策 #36 暂缓））。⚠️ **MMT 换 JSONL + 开流式尚未落地**（链路 ⑥, 见 PROCEED.md §2） |
 | **纪念链路（art↔memorial 配对 / 记录级进入 / 埋点 / 生图质量）** | docs/DESIGN_MEMORIAL.md（**节点 A–D 已落地 2026-09-20**）。**剩两件**：① **量 art 配对命中率**——改文案后要真机跑一章才知道有没有用（历史基准 **0/5 块**），看 gallery `prompt_source` 或 `grep "含 memorial 但没有 art"`；② **漏写 art 的"补写"方案**——用户裁决"现在不做"（补的板必须排在 `end` **之前**, 而 `end` 一落地即 finish ⇒ 播不出来） |
 | 真分歧 vs 收敛链 | **已定稿: 不立项**（收敛链即终局, 见 §6.5）; 自由度移交 DESIGN_MEETUP.md |
 | reasoning 档位 / SSE / choice 板全预生成（已关闭 2026-09-10, sibling 为终态） | §9 表与 v2 §5.4 |
@@ -682,7 +682,7 @@ CLI/测试同步路径在引擎内串行。
 - 注入地图（现网事实）：docs/PROMPT_INJECTION_MAP.md
 - 提示词装配 + task 卡：docs/DESIGN_PROMPTKIT.md
 - Bond 契约 v2（段/换场/place 标注层, **已归档 2026-09-10**）：docs/archive/DESIGN_BOND_CONTRACT_V2.md
-- **VN 契约形式换代（记录流 v2, 当前主线设计）**：docs/DESIGN_VN_UPGRADE.md
+- **流式契约形式（MMT + VN 统一, 2026-09-25 定稿）**：docs/DESIGN_STREAM_CONTRACT.md（附录 A = VN 记录流 v2 全文）
 - **地点 / 背景系统（资产层 → 语义键层 → 两遍判定 → 取图）**：docs/DESIGN_PLACE.md
   （**2026-09-20 重写**: 旧稿是"09-05 定稿 + 两次状态头 + 三次补丁"的千层饼, 已删。
   新稿只写现网事实: 表/两遍判定（层1 别名 0 调用 → 层2 整表 → **第二遍选图**）/
@@ -725,7 +725,7 @@ CLI/测试同步路径在引擎内串行。
   `wiki_v2/revise` **更正**; 板级那一半已由 `BoardLifecycle` + `_discard_boards` 落地;
   含 `vn_abandon` 族退休方案——存量真源 0 条, 读路径空转）
 - 记忆体系总设计：根级 DESIGN_BRAIN.md（混合史, 慎读）；视觉协议：docs/DESIGN_VISUAL_PROTOCOL.md
-- 模块级设计：docs/DESIGN_{MMT_CHAT,GUI,SEGMENT,WORLD,MULTI_CHAR,VISUAL,VISUAL_PROTOCOL}.md + docs/DESIGN_CONTRACT.md（C12b 起; BOND_STORY 已归档）
+- 模块级设计：docs/DESIGN_{GUI,SEGMENT,WORLD,MULTI_CHAR,VISUAL,VISUAL_PROTOCOL}.md + docs/DESIGN_STREAM_CONTRACT.md（**流式契约形式 = MMT + VN 统一**; C12b 起 docs/; BOND_STORY 已归档）
   与 docs/archive/DESIGN_BOND_STORY.md（旧 VN 运行时）
 - 未来扩展和预留未调用函数 docs/EXTENSION_POINTS.md
 - 其他根级说明：README.md / CLAUDE_OPTIMIZE.md / TODO.md / guidance/（ASKYOURSELF.yml 已删）

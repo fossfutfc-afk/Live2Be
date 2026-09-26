@@ -111,7 +111,7 @@ messages = [system] + history + [P16 羁绊进度注记] + [P17 system_note?]
 **盒B 至此已无任何词表块**（`lexicon_emotion` 2026-09-10 退出、`place_palette`
 2026-09-15 换成世界设定块）：情绪归标注层逐记录判、地点归标注层翻译，
 writer 只写自然语言。旧契约见 docs/archive/DESIGN_BOND_CONTRACT_V2.md；
-新契约见 docs/DESIGN_VN_UPGRADE.md §5 与 docs/DESIGN_PLACE.md（三层框架）。
+新契约见 docs/DESIGN_STREAM_CONTRACT.md §5 与 docs/DESIGN_PLACE.md（三层框架）。
 
 双 registry 分流（bond_story.py:429-435）：按**动作名归属**——story 域 spec 命中 →
 story parse；否则 memorial 域。parse 失败仍留本域反馈（不能按 parse 结果分流）。

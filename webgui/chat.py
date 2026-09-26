@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """MMT 聊天域 — 引擎管理 + 会话生命周期 + 后台任务 + 事件查询。
 
-设计（docs/DESIGN_MMT_CHAT.md）:
+设计（docs/DESIGN_STREAM_CONTRACT.md）:
   - 每 char 一个独立引擎实例（并行多角色: 不同 char 各自线程跑 agent_turn,
     互不干扰; 同 char 串行锁防并发）——切换角色不取消后台任务, 回复落事件流,
     前端切回拉取补全。

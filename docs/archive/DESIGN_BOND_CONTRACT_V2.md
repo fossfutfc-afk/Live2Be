@@ -1,7 +1,7 @@
 # DESIGN_BOND_CONTRACT_V2 — 段·换场·背景标注分层（定稿草案）
 
 > ⚠️ **已归档（2026-09-10）**：本文描述**旧契约**（单动作 JSON + 板级粒度）。
-> 契约形式换代见 **`docs/DESIGN_VN_UPGRADE.md`**（记录流 v2）。
+> 契约形式换代见 **`docs/DESIGN_STREAM_CONTRACT.md`**（记录流 v2）。
 > 仍有价值且被继承的部分：换场/背景判据（§5，判据本体仍在 `llm/prompts/place_annotate.md`）、
 > 板作为提交单元的思路（新文档 §6 改为引擎派生）、两遍式视觉键隔离原则。
 > 留作历史与设计意图参考，不再更新。

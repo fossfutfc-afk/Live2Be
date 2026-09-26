@@ -1,7 +1,7 @@
 > **已归档（2026-09-12）**：世界线/存档/多角色模型的**思想演进史**（阶段 0~15）。
 > 历史价值在"推翻过程", **不是现网规范**——现网以代码为准。
 > 取代者：`core/session/store.py`（worlds/ v2 存储）· `docs/DESIGN_WORLD.md`（多角色同框时空对齐）
-> · `docs/DESIGN_VN_UPGRADE.md`（记录流 v2）。
+> · `docs/DESIGN_STREAM_CONTRACT.md`（记录流 v2）。
 
 # 世界 / 存档 / 多角色 —— 模型演进史与图论建模
 

@@ -2,7 +2,7 @@
 
 > **⚠️ 记录流 v2 后（2026-09-10）**：本文的"一场 = 一板 = 一次 LLM 调用"前提变了——
 > 现在一次调用产出一整块（~40 条记录, 可派生 ~10 板）, 板间靠引擎**待发队列** 0 LLM,
-> 预生成/桥的语义更新见 `docs/DESIGN_VN_UPGRADE.md` §10.4 与 §13 决策 #28:
+> 预生成/桥的语义更新见 `docs/DESIGN_STREAM_CONTRACT.md` §10.4 与 §13 决策 #28:
 > · **入口预热 / 跨重启缓存**（`prewarm.json`）不变（存 `scene.to_dict()`）;
 > · **会话内桥** = 无槽板预生成 + 预生成链 + **裁决后立即预生成**（有槽板不预生成）;
 > · 候选 fork（sibling 预生成）对记录流板已退役（后继板本来就在手）;
@@ -277,4 +277,4 @@ post-bridge 分支）。缺口 = 入口段（A）+ 少量语义修正（B）+ �
 - 本问题归因链：webgui/bond.py `_generate`/send_vn_scene 调用、core/bond/bond_story.py
   `send_vn_scene`（406-449）、llm/client.py `chat_full`（181-222）、llm/task_levels.py、
   settings.toml `reasoning_effort=high`、archive/maXEmo-miNDelay.md（已归档）（流式 vs 退火取舍）、
-  docs/DESIGN_MMT_CHAT.md / docs/archive/DESIGN_BOND_STORY.md（M3/两遍式 C 背景）。
+  docs/archive/DESIGN_BOND_STORY.md（两遍式 C 背景）、CLAUDE.md §4（两遍式 C 现网口径）。

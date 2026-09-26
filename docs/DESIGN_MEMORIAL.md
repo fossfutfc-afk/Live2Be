@@ -8,7 +8,7 @@
 > 动作早已退役，但 CLAUDE.md §3.2、`chapters.py:112` 那句表格、`scene.memorial_exit`
 > 的 6 处活分支都还留着"看起来有 exit"的样子）——不先钉住现状，改动一定跑偏。
 >
-> **相关**：`docs/DESIGN_VN_UPGRADE.md` 决策 #39/#40（纪念链路接通 + 两个真源缺口）、
+> **相关**：`docs/DESIGN_STREAM_CONTRACT.md` 决策 #39/#40（纪念链路接通 + 两个真源缺口）、
 > `docs/DESIGN_COLLECTION_BOOK.md`（回放侧怎么读纪念态）、`docs/DESIGN_PLACE.md`（背景系统）。
 
 ---
@@ -225,7 +225,7 @@
 |---|---|
 | `CLAUDE.md` §3.2（:100-103） | **v1 描述**："纪念域 `memorial_enter`（独占轮）/`memorial_exit`（回 bond）……槽位 `[场 task 卡 scene\|memorial_exit]`" —— 动作已退役、场卡恒 `scene`（§8 已改、§3.2 漏改）。CLAUDE.md 自称"以本文为准"，这段会带偏 |
 | `CLAUDE.md` §4 纪念段 | "窗口"从板级改成**记录级**（M3） |
-| `docs/DESIGN_VN_UPGRADE.md` | 追加决策记录（本页 = 设计稿，落地后补状态） |
+| `docs/DESIGN_STREAM_CONTRACT.md` | 追加决策记录（本页 = 设计稿，落地后补状态） |
 | `docs/PROMPT_INJECTION_MAP.md` | 盒 B 块清单/描述若有 art、memorial 相关条目一并校对 |
 | `TODO.md` | 纪念相关条目收敛到本页 |
 | `CLAUDE.md` §13 / §4 路由 | 登记本文 |

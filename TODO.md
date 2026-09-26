@@ -466,7 +466,7 @@ B = 今天的一句寒暄（SIG=0.50）
 
 ### VN 契约形式换代（记录流 v2, 2026-09-10 设计整理——**P0–P2 已落地, 真机在跑**）
 
-- 理论/分步规划/未决清单: **docs/DESIGN_VN_UPGRADE.md**
+- 理论/分步规划/未决清单: **docs/DESIGN_STREAM_CONTRACT.md**
   （§11 分步规划 · §12 蓝图待决 14 问 · §13 决策记录 #1–#36 · **§14 渲染层设计稿=未实现**）
 - 已归档旧 VN 文档: DESIGN_BOND_CONTRACT_V2 / DESIGN_CHOICE_PREGEN /
   DESIGN_SCENE_STREAM / DESIGN_BOND_STORY（→ docs/archive/）
@@ -678,7 +678,7 @@ B = 今天的一句寒暄（SIG=0.50）
        邀约扩展 DESIGN_MEETUP.md）
 - [ ] **D. P2 流式渐进（段闭合即发布）**：选项/继续等待的终态解——TTFT+首段即读;
        见 docs/archive/DESIGN_SCENE_STREAM §2/§10（已归档; 记录流 v2 见
-       docs/DESIGN_VN_UPGRADE.md §11.3）
+       docs/DESIGN_STREAM_CONTRACT.md §11.3）
 - [ ] **E. 空闲时段复测 P1 验收**：兜底句数≈0 / 重试率 / 单段耗时 p50
        （`P1_MAX_BOARDS=6` 全量; 今晚负载噪声不可信）
 - [ ] **F. client json_object 空 raw 快速失败短路**：空响应根因已除（thinking

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """VN 记录流契约（记录流 v2）——"行 → 记录"解析 + 群/位置校验。
 
-设计: `docs/DESIGN_VN_UPGRADE.md` §2（文法）/ §6（群与推进）/ §8（与 registry 的关系）。
+设计: `docs/DESIGN_STREAM_CONTRACT.md` §2（文法）/ §6（群与推进）/ §8（与 registry 的关系）。
 本模块只做**行级解析**与**块内结构校验**；配额、状态机、标注门控是引擎的活。
 
 记录形状（每条恰好含 `character` 或 `stage` 之一 + `text`）::
