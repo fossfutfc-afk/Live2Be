@@ -88,6 +88,20 @@ Live2Be = Blue Archive 式叙事引擎（MMT 聊天 + Bond 视觉小说 + digest
 | ⑥-2 MMT 契约 | 契约 / 规则书 / 示例改 JSONL + 行级解析（**先不流式**）；"整轮原子"收窄成"**action 行必须全有效才执行**、text 行可部分交付" | 桩要按 `task` 补；`test_mmt_*` 跟着改 |
 | ⑥-3 流式交付 | 接 `chat_full(on_chunk=…)` + 气泡逐条上屏（`webgui/chat.py` 的 `events_after` 轮询链要动） | B 层冒烟要能测到"第一个气泡早于整轮完成" |
 
+### ⑥-2 的七小步（用户要求"**保证每一步都可调试**"，故拆细；**每步全量绿、产品在每步边界都可用**）
+
+| 步 | 做什么 | 主要文件 | 状态 |
+|---|---|---|---|
+| **a₀ 共用校验原语** | `IssueSeverity`/`Issue`/`format_issues`/`split_issues` → `contract/issues.py`；每域 `declare_severity(自己的表)` 登记（未声明→KeyError 带指路；同码两种严重度→ValueError） | `contract/issues.py`（新）· `records/check.py`（再导出）· 快照 · `test_issues.py`（新） | ✅ 已落地 |
+| **a 契约渲染器** | `build_line_schema(registry, *, with_examples=True)`：行文法 + 判别键 + 内容/控制二分 + 动作表（运行时生成）+ 一条交错示范 | `contract/schema.py` · `tests/core/test_line_schema.py`（新） | ⏳ 下一步 |
+| **b MMT 行解析** | `MmtLine` + `classify` + `MmtStream(LineStreamBase)`（**行即交付单元**）+ `to_action_raw()` | `core/mmt/mmt_lines.py`（新）· `test_mmt_lines.py`（新） | |
+| **c 校验 + 自愈** | 5 个 `mmt.*` 码 + 软硬表 · `character_id` 归一化（**唯一命中才用**） | `core/mmt/mmt_check.py`、`mmt_repair.py`（新）+ 单测 | |
+| **d 引擎接线（双读）** | 行路径**旁挂**：JSONL 段走行解析 → 逐行 parse/执行 → **逐行 append 事件**；三段式兜底 + 预算（行级 1 / 形状级 2）；history 一行一条；**旧 `{"messages"}` 分支原样留着** | `core/mmt/engine.py` · `test_mmt_lines_protocol.py`（新） | |
+| **e 翻转契约** ⭐ | `engine.py:490` 换新渲染器 · `response_format` **json_object → text** · `momotalk_rules.md` **拆风格/形状** · 夹具刷新（人工审）· `PROMPT_INJECTION_MAP.md` | `core/mmt/engine.py` · `llm/prompts/momotalk_rules.md` · `tests/fixtures/promptkit/*` | ⚠️ 真换（需真机跑一轮） |
+| **f 清旧协议** | 删 `reply`/`actions` 分支 + `mmt_send_media` 的"轮级 reply 字段"；四处桩改 JSONL；旧形状用例改成"必须被拒" | `core/mmt/engine.py` · `mmt_actions.py` · 4 处桩 | |
+
+⚠️ **顺序是正确性**：a–d 期间真机仍走旧路径（双读）⇒ 产品不坏；**e 才是换代**；f 删的是"已无人走"的分支。
+
 ### 复用判定表（我拆过一遍的结论）
 
 | 件 | 位置 | 复用性 |

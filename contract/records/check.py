@@ -2,23 +2,35 @@
 """`contract.records` 的**校验层**（C10, `docs/EXEC_SPLIT.md`）。
 
 `sensei_groups` / `sensei_group_labels`（把记录流切成"老师群"——群是换板与选项的判据）·
-契约问题的**结构化载体**（节点 6, 2026-09-21）: `IssueSeverity` / `IssueCode` /
-`ISSUE_SEVERITY`（**严重度只跟 code 走**，与中文文案无关）/ `Issue` /
-`format_issues` / `split_issues` · `check_block`（块级硬软判定）· `check_board`（板级闸）。
+**VN 的码表** `IssueCode` / `ISSUE_SEVERITY`（**严重度只跟 code 走**，与中文文案无关）·
+`check_block`（块级硬软判定）· `check_board`（板级闸）。
+
+⭐ **机制上提了**（a₀, 2026-09-25）：`IssueSeverity` / `Issue` / `format_issues` /
+`split_issues` 的真家 = **`contract/issues.py`**（跨域共用：机制共用、**码表各自声明**）。
+本模块 import 它们并**再导出**（`contract.records` 对外面不变），并在 import 时把
+VN 的表 `declare_severity(ISSUE_SEVERITY)` 声明进去。
 
 ## 纪律
 
-· 依赖方向: `check` → `grammar`; **不许** import `parse` / `carrier`
+· 依赖方向: `check` → `grammar` · `contract.issues`; **不许** import `parse` / `carrier`
   （`carrier` 反过来用这里的 `check_block`）;
+· 新增 VN 规则 = 加码 + 在 `ISSUE_SEVERITY` 显式声明一行（忘了 → 守门用例直接红，
+  且 `Issue.severity` 查表会炸）;
 · 搬进来的代码**逐字未改**。
 """
 
 from __future__ import annotations
 
 from collections.abc import Iterable
-from dataclasses import dataclass
 from enum import Enum
 
+from contract.issues import (                    # a₀: 机制真家在 contract/issues.py
+    Issue,
+    IssueSeverity,
+    declare_severity,
+    format_issues,
+    split_issues,
+)
 from contract.records.grammar import (
     MAX_SENSEI_RUN,
     STAGE_ART,
@@ -59,19 +71,8 @@ def sensei_group_labels(records: Iterable[VnRecord]) -> list[list[str]]:
 
 
 # ---------------------------------------------------------------------------
-# 契约问题的**结构化**载体（节点 6, 2026-09-21）
+# VN 的码表（机制在 `contract.issues`；**码与严重度是 VN 自己的**）
 # ---------------------------------------------------------------------------
-
-class IssueSeverity(str, Enum):
-    """问题严重度——决定引擎对它的**本回合**处置。
-
-    · `HARD`: 形状类（块首/块尾/纪念区间/空块/板上 end 后有记录）→ **打回重发整轮**;
-    · `SOFT`: 只记录（切群 / 统计口径 / 建议）——流式已交付时硬问题也降级走这条路。
-    """
-
-    HARD = "hard"
-    SOFT = "soft"
-
 
 class IssueCode(str, Enum):
     """问题**机器码**（稳定标识: 测试断言 / 日志 grep / 未来策略表都认它）。
@@ -98,13 +99,16 @@ class IssueCode(str, Enum):
     BOARD_MEMORIAL_FORBIDDEN_STAGE = "board.memorial-forbidden-stage"
 
 
-#: **软硬唯一真源**：severity 只跟 `code` 走，跟 `message` 文案无关。
+#: **VN 的软硬真源**：severity 只跟 `code` 走，跟 `message` 文案无关。
 #:
 #: 为什么这样设计（节点 6；来源 ARCH_REVIEW P0-3）：2026-09-21 之前硬/软由
 #: `bond_story.HARD_BLOCK_ISSUE_MARKS` 的**中文子串**匹配判——给一条软问题换个措辞
 #: （哪怕只是写进"必须块尾"四个字）就会**静默**变成"整轮重发"。现在文案随便改，
 #: 分级不动；新增规则必须在这里显式声明严重度（`tests/core/test_records.py`
 #: 有一条守门用例扫这张表的完整性）。
+#:
+#: ⭐ a₀ 起这张表**声明进 `contract.issues`**（`Issue.severity` 查那张总表）——
+#: 机制共用、码表各自声明；MMT 的表在 `core/mmt/mmt_check.py`。
 ISSUE_SEVERITY: dict[IssueCode, IssueSeverity] = {
     IssueCode.BLOCK_EMPTY: IssueSeverity.HARD,
     IssueCode.BLOCK_TAIL: IssueSeverity.HARD,
@@ -121,45 +125,7 @@ ISSUE_SEVERITY: dict[IssueCode, IssueSeverity] = {
     IssueCode.BOARD_MEMORIAL_FORBIDDEN_STAGE: IssueSeverity.HARD,
 }
 
-
-@dataclass(frozen=True)
-class Issue:
-    """一条契约问题：`code`（机器）+ `message`（人读中文）。
-
-    `severity` 是**派生属性**（查 `ISSUE_SEVERITY`）——想改分级只能改那张表，
-    没法在构造点"顺手"把它变成硬/软，也没法靠文案影响它。
-    """
-
-    code: IssueCode
-    message: str
-
-    @property
-    def severity(self) -> IssueSeverity:
-        return ISSUE_SEVERITY[self.code]
-
-    @property
-    def hard(self) -> bool:
-        return self.severity is IssueSeverity.HARD
-
-    def __str__(self) -> str:                        # 日志/反馈/注记直接 f-string 即可
-        return self.message
-
-
-def format_issues(issues: Iterable[Issue], sep: str = "; ") -> str:
-    """问题清单 → 一行文本（日志 / trace / feedback / 下一轮注记的**唯一出口**）。
-
-    ⚠️ 别写 `sep.join(issues)`——`Issue` 不是 `str`（只有 `__str__`），join 会 TypeError。
-    """
-    return sep.join(str(i) for i in issues)
-
-
-def split_issues(issues: Iterable[Issue]) -> tuple[list[Issue], list[Issue]]:
-    """问题清单 → (硬, 软)。判据**只是** `Issue.severity`（不读文案）。"""
-    hard: list[Issue] = []
-    soft: list[Issue] = []
-    for i in issues:
-        (hard if i.hard else soft).append(i)
-    return hard, soft
+declare_severity(ISSUE_SEVERITY)      # a₀: 把 VN 的码表登记给共用层
 
 
 def check_block(records: Iterable[VnRecord]) -> list[Issue]:
