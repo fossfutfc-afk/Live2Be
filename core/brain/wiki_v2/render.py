@@ -210,8 +210,14 @@ def _bucket_view(nodes: Iterable[BrainNode], graph=None) -> dict:
         "reported": lambda n: (n.kind == "episode"
                                and n.epistemic == "reported_fact"),
     }
+    # ⭐ 经历 = **一条河（旧→新）**（2026-09-25, 链路 ⑤）: 从前按 `(珍贵, ts)` 降序,
+    # 于是"同一个时刻的事"被 `is_precious` 劈到两段里 ⇒ 河的时间轴断掉。
+    # 「难忘」现在只是**行内标记**（见 `_memory_line`）, 不再参与排序。
+    # ⚠️ 无 `ts` 的（旧档/未采集）排在**河首**: `_time_phrase` 对它们**不印短语**
+    # （哨兵纪律: 不编"很久以前"）⇒ 放在"现在"那一端会被读成"刚发生的事",
+    # 放在开头的误读代价更小。
     episodes = sorted((n for n in all_nodes if bucket["episode"](n)),
-                      key=lambda n: (n.is_precious, n.ts or ""), reverse=True)
+                      key=lambda n: (bool(n.ts), n.ts or "", n.id))
     beliefs = sorted((n for n in all_nodes if bucket["belief"](n)),
                      key=lambda n: n.significance, reverse=True)
     players = sorted((n for n in all_nodes if bucket["player"](n)),
@@ -245,10 +251,11 @@ def render_character_view(
     """角色注入视图: 分层排序渲染（2026-09-13: **cap 全删**, 见 `_bucket_view`）。
 
     分层（运行时分区, 决定**注入顺序**而非截断）:
-        - 我记得的事（珍贵的/最近）: 珍贵档 + ts 降序
+        - 我记得的事（**一条河, 从早到晚**）: episode 全量按 `ts` 升序（2026-09-25 链路 ⑤）
         - 我心里渐渐觉得（belief）: 按 sig
         - 老师的事（player experience 口癖）: count 降序
-        - 我听说的（reported）: 兜底
+        - 我听说的（reported）: 兜底 —— ⚠️ **不进河**: 那是"听说的事"不是她经历的
+          （用户 2026-09-25 裁决: 当前值/旁证各自成块, 河只管 episode）
         - knowledge 不再出厂化（世界观知识 = config 档案, system prompt 注入）
         （原"久远的记忆"段 2026-09-21 删——出厂 episode 不进 wiki, 见模块 docstring）
     第一人称转换: char_name + char_aliases（yml 原文多用简称, 如"遥香"）→ 我。
@@ -276,16 +283,17 @@ def render_character_view(
     blocks: list[str] = ["【角色记忆（brain）】"]
     if summary:
         blocks.append(f"我记得那段日子：{_me(summary, char_name, char_aliases)}")
-    precious = [n for n in episodes if n.is_precious]
-    recent = [n for n in episodes if not n.is_precious]
-    if precious:
-        blocks.append("我记得的事（珍贵的）：\n" + "\n".join(
-            _memory_line(n, char_name, char_aliases, now)
-            for n in precious))
-    if recent:
-        blocks.append("最近的事：\n" + "\n".join(
-            _memory_line(n, char_name, char_aliases, now)
-            for n in recent))
+    # ⭐ **一条河**（2026-09-25, 链路 ⑤）: 经历不再按"珍贵的/最近的"切成两块 ——
+    # 那会把**同一个时刻的事劈到两段里**, 读不出先后（真机: 3 天前既在「珍贵的」里
+    # 又在「最近的事」里 = 两条并行的时间线）。现在按时间**从早到晚**排成一条,
+    # 「难忘」降级为**行内标记**（`（3 天前·难忘）`）。
+    # ⚠️ 方向是 **旧→新**（用户 2026-09-25 裁决）: 河尾紧挨着下面的笔记块与对话历史
+    # ⇒ "过去 → 现在"一路流到此刻, 接缝连续; 而且最新的事落在**离生成点最近的那一端**
+    # （`Lost in the Middle`: 上下文两头的信息利用率最高）; 新条目追加在河尾
+    # ⇒ 河的前段逐字节稳定（前缀缓存友好）。
+    if episodes:
+        blocks.append("我记得的事（从早到晚）：\n" + "\n".join(
+            _memory_line(n, char_name, char_aliases, now) for n in episodes))
     if beliefs:
         blocks.append("我心里渐渐觉得：\n" + "\n".join(
             _belief_line(n, char_name, char_aliases) for n in beliefs))
@@ -333,6 +341,10 @@ def _memory_line(node: BrainNode, char_name: str,
 
     形态: `- （3 周前）她拉着我在杂草屋蹲了一下午。（「原话」）`
 
+    ⭐ **难忘的带一个标记**（2026-09-25, 链路 ⑤）: 从前 `is_precious` 把经历**劈成两块**
+    （「珍贵的」/「最近的事」）⇒ 河的时间轴断了。现在它降级成行内标记
+    （`（3 天前·难忘）`）—— **信息不丢, 时间轴完整**。
+
     **为什么短语在最前而不是最后**（2026-09-13）: 这是**防失忆注记**——
     LLM 需要先看到"这是多久以前的事"再读内容, 才好判断"这件事讲过了/该不该重提"。
     放最后等于读完才知道远近。
@@ -351,6 +363,8 @@ def _memory_line(node: BrainNode, char_name: str,
     """
     line = f"- {_me(node.text, char_name, aliases)}"
     phrase = _time_phrase(node, now)
+    if node.is_precious:
+        phrase = f"{phrase}·难忘" if phrase else "难忘"
     if phrase:
         line = f"- （{phrase}）" + line[2:]
     if node.verbatim:
