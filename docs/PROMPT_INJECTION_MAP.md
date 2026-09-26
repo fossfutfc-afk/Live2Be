@@ -41,8 +41,8 @@
 | 4 | `【本角色 MMT 风格】` | `mmt_tone` 块 = script.yml `SIG~mmt_tone`（char.mmt_tone）| 缺失 → 不注入（条件块） |
 | 5 | 人际层自表 | `interperson` 块 = interperson.json self 条目（load_interperson + self_entry_to_prompt）| 便利屋68 权重 2；损坏 → 跳过不挡启动 |
 | 6 | MMT 环境 | `environment_mmt` 块 = `momotalk_environment.md` | 虚拟手机场景 |
-| 7 | MMT 规则 | `rules_mmt` 块 = `momotalk_rules.md` | rules 内含消息流协议、单人模式、契机导向触发规则、触发 JSON 示范 1~4 |
-| 8 | 可用动作 schema | `schema` 块 = `build_schema(mmt_registry, action_list=True)`（contract/schema.py:34-92）| ⚠️ **消息流协议渲染**：`{"messages":[{text}|{action,payload}]}`（2026-09-02 协议），非旧 `{"actions":[...]}` |
+| 7 | MMT 规则 | `rules_mmt` 块 = `momotalk_rules.md` | 单人模式、语气/内容示范（**风格**）、契机导向触发规则；⚠️ **形状不在这里**（⑥-2e 拆分：形状只在下一行的契约块） |
+| 8 | 本轮输出契约 | `schema` 块 = **`build_line_schema(mmt_registry)`**（`contract/schema.py`）| ⚠️ **行流契约**（⑥-2e）：一行一条 JSON——`{"text": …}` 消息行 / `{"action": …, "payload": {…}}` 操作行 + 6 条硬规则 + **动作表（运行时渲染）** + 3 条示范 |
 
 ---
 
@@ -223,7 +223,7 @@ emotion → emo_version++（引擎同步标注仅 CLI/测试用）。**导演层
 
 | # | 旧表述 | 现网事实 |
 |---|---|---|
-| 1 | MMT 输出 `{"actions":[...]}` | 2026-09-02 **消息流协议** `{"messages":[{text}/{action}]}`；schema 段/rules 书已同步 |
+| 1 | MMT 输出 `{"actions":[...]}` | **2026-09-25 起 = 行流契约**（`一行一条 JSON`：`{"text": …}` / `{"action": …, "payload": {…}}`）。中间形态 `{"messages":[{text}/{action}]}`（2026-09-02）**已退役**（⑥-2e）；schema 段/rules 书已同步 |
 | 2 | "SIG~ 键双重出现" | 实为盒A dump 含 script.yml 全量 → tone 内容以 yaml 键值出现 + 专段再注；且 **bond_tone 也在盒A dump 出现一次**（无专段）；yaml_to_prompt 实际剥前缀显示 |
 | 3 | P15 记忆注入描述 | 已解耦为出厂背景直注 + wiki 两段（2026-09-05）；MMT 每轮拼 system 尾；Bond 由调用方构造注入、剧情内固定 |
 | 4 | P17 "MMT 每轮 + Bond 每场" | MMT 主聊天轮恒不传（仅收尾轮）；Bond 聚合器含选项配额/表情单调等新条目 |

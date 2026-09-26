@@ -56,14 +56,12 @@ BOND_FALLBACK = "\n".join([
     f'{{"character": "{CHARACTER}", "text": "（窗外的天色又暗了一点。）"}}',
     '{"stage": "end", "text": ""}',
 ])
-MMT_TRIGGER = {"messages": [
-    {"text": "我们当面说吧！"},
-    {"action": "mmt_trigger_bond_story",
-     "payload": {"reason": "邀约", "chapter_title": CHAPTER_TITLE}},
-]}
-MMT_REPLY = {"messages": [{"text": "嗯……我、我其实很开心的！"}]}
+MMT_TRIGGER = ('{"text": "我们当面说吧！"}\n'
+               '{"action": "mmt_trigger_bond_story",'
+               f' "payload": {{"chapter_title": "{CHAPTER_TITLE}"}}}}')
+MMT_REPLY = '{"text": "嗯……我、我其实很开心的！"}'
 #: 羁绊收尾话（wrapup）——文本独立, 冒烟据此断言"收尾气泡不用切页就能到"
-WRAPUP_REPLY = {"messages": [{"text": "（收尾话）老师，今天真的很谢谢你。"}]}
+WRAPUP_REPLY = '{"text": "（收尾话）老师，今天真的很谢谢你。"}'
 
 
 class StubLLM:

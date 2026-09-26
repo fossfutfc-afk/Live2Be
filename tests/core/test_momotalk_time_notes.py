@@ -38,7 +38,7 @@ class ScriptedLLM:
         if reply is not None:                    # digest 两轮 → 空包
             return reply
         if task in T.MAIN:
-            return {"messages": [{"text": "嗯……早、早上好！"}]}
+            return '{"text": "嗯……早、早上好！"}'
         raise stub_tasks.unknown_task(task)
 
 

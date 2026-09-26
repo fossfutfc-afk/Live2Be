@@ -326,8 +326,8 @@ core.mmt.engine	_process_for_momotalk	function	core.tui.text_processors
 core.mmt.engine	_strip_action_brackets	function	core.tui.text_processors
 core.mmt.engine	build_box	function	core.promptkit.box
 core.mmt.engine	build_candidates	function	core.mmt.mmt_repair
+core.mmt.engine	build_line_schema	function	contract.schema
 core.mmt.engine	build_mmt_registry	function	core.mmt.mmt_actions
-core.mmt.engine	build_schema	function	contract.schema
 core.mmt.engine	char_names	function	core.parsing.names
 core.mmt.engine	check_turn	function	core.mmt.mmt_check
 core.mmt.engine	digest_segment	function	core.brain.wiki_v2.digest

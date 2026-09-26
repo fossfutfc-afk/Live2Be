@@ -357,14 +357,9 @@ def test_wrapup_after_vn():
     from core.bond.bond_progress import BondProgress
     from apps.vn_cli import wrapup_after_vn
 
-    # 动作列表格式（2026-08-23: MMT 输出 {"actions": [...]}——兼容仍解析）
-    # 2026-09-05: trigger payload = chapter_title（reason 退役）
-    trig = {"actions": [
-        {"action": "mmt_trigger_bond_story",
-         "payload": {"chapter_title": "天台的气氛"}}]}
-    wrap = {"actions": [
-        {"action": "mmt_chat",
-         "reply": "今天去了天台……我很开心。下次再一起吧！", "payload": {}}]}
+    # 行协议（⑥-2e）: 一行一条 JSON; trigger payload = chapter_title
+    trig = '{"action": "mmt_trigger_bond_story", "payload": {"chapter_title": "天台的气氛"}}'
+    wrap = '{"text": "今天去了天台……我很开心。下次再一起吧！"}'
 
     with tempfile.TemporaryDirectory() as d:
         progress = BondProgress(data_root=Path(d))
@@ -378,8 +373,8 @@ def test_wrapup_after_vn():
         assert engine.history_length == 2
         wrapup_after_vn(engine)
         # 收尾只记 assistant（record_input=False, 不污染假 user 消息）;
-        # 回复会被切片成多条（split_reply_chunks）→ 只断言 ≥3 且内容完整
-        assert engine.history_length >= 3, f"收尾应 +至少 1 条历史: {engine.history_length}"
+        # ⑥-2e 起一行 = 一个气泡（不再切片）→ 收尾正好 +1 条历史
+        assert engine.history_length == 3, f"收尾应 +1 条历史: {engine.history_length}"
         wrap_tail = engine.history[2:]
         assert any(h["content"].startswith("[mmt_chat]") for h in wrap_tail)
         assert "下次再一起吧" in "".join(h["content"] for h in wrap_tail)
@@ -389,7 +384,7 @@ def test_wrapup_after_vn():
         note = tail[-3]["content"]                        # P17 收尾注记
         assert "羁绊剧情" in note and "收尾" in note and "本章: 天台的气氛" in note, note
         assert tail[-2]["content"].startswith("本回合任务：")   # wrapup 卡
-        assert "只许 mmt_chat" in tail[-2]["content"]
+        assert "只发**消息行**" in tail[-2]["content"]
         print("    wrapup_after_vn: 收尾 +1 历史(仅 assistant), 注记引述章名, 回几段话")
 
 
@@ -437,10 +432,8 @@ def test_vn_event_stream(tmp_path):
 # LLM 输出 trigger 即放行; 时机靠每轮注记分级建议（gap<6 沉淀事实 / ≥6 主动提示）
 # ----------------------------------------------------------------------------
 
-_TRIG = {"actions": [
-    {"action": "mmt_trigger_bond_story", "payload": {"reason": "气氛到了"}}]}
-_CHAT = {"actions": [
-    {"action": "mmt_chat", "reply": "嗯……好啊。", "payload": {}}]}
+_TRIG = '{"action": "mmt_trigger_bond_story", "payload": {"chapter_title": "气氛到了"}}'
+_CHAT = '{"text": "嗯……好啊。"}'
 
 
 def test_trigger_no_gate_and_suggestion_notes():
