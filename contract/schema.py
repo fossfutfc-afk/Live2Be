@@ -124,6 +124,71 @@ def export_definitions(registry: ActionRegistry) -> dict[str, Any]:
     }
 
 
+def build_line_schema(registry: ActionRegistry, *, with_examples: bool = True) -> str:
+    """渲染 **MMT 行流契约**（LLM 可见）——`build_schema` 的第四种形态（⑥-2a）。
+
+    三个并列形态：单动作 JSON（story/IDE, `build_schema`）· 记录流（VN,
+    `build_record_schema`）· **行流（MMT, 本函数）**。
+    设计: `docs/DESIGN_STREAM_CONTRACT.md` §1（契约形式六条）/ §2（两域对照）/
+    §10.2 B1·B3。
+
+    与 `build_record_schema` 的结构差别：记录文法**不依赖动作注册表**（所以那个函数
+    是独立入口），而行流的**操作行**要用注册表里的动作 ⇒ 本函数收 `registry`
+    （新增动作**自动进 prompt**，不手写清单）。
+
+    ⚠️ 与 `build_schema(action_list=True)`（旧的 `{"messages":[…]}` 消息流）**并存到
+    ⑥-2e**：那一步引擎切到行流、同时删掉 `action_list` 分支（"旧协议统统改掉"）。
+
+    文案纪律（同用户裁决 #24）：不写"不要写 X 字段"式负面提醒；示范里戏词不包「」。
+    """
+    lines = [
+        "你以**一行一条 JSON** 的形式输出本轮内容（一行一条，不要数组、不要围栏）:",
+        "",
+        "两类行（看行里的键就知道是哪一类）:",
+        '    {"text": "角色说的话"}                     —— **消息行**: 一条行 = 一个气泡',
+        '    {"action": "<动作名>", "payload": {...}}   —— **操作行**: 不上屏, 程序去执行',
+        "",
+        "硬规则（形状不对的行会被丢掉; 操作行不对会被要求重发）:",
+        "1. 一行一个完整 JSON 对象；消息行与操作行可以任意交错（话→图→话 的节奏没问题）。",
+        "2. **气泡粒度由你定**：想连发就写多条消息行（一条行 = 独立的一条手机消息）。",
+        '3. 话里的半角双引号与反斜杠必须转义（写成 \\" 与 \\\\）——这是最常见的错误。',
+        "4. `mmt_trigger_bond_story` 是模式切换：它必须是**唯一**的操作行，"
+        "见面的话写在它**前面**的消息行里。",
+        "5. `mmt_inspect_character` 是**单独一轮**：那一轮只有它一条行"
+        "（不夹消息行、也不夹别的操作行）。",
+        "6. 本轮至少要有一条行（说话或做事）。",
+        "",
+        "可用操作:",
+    ]
+    for name in registry.action_names():
+        spec = registry.spec(name)
+        note = _APPROVAL_NOTES.get(spec.approval, spec.approval)
+        lines.append(f"  - {name}  [{note}]")
+        if spec.payload_schema:
+            lines.append(f"      payload: {spec.payload_schema}")
+        else:
+            lines.append("      payload: （未提供描述）")
+    lines.append("")
+    if with_examples:
+        lines += [
+            "示例（话 → 发图 → 话；第 3 行演示转义引号）:",
+            '    {"text": "老师你看这个！"}',
+            '    {"action": "mmt_send_media",'
+            ' "payload": {"image": "天台拍到的夕阳", "media_type": "image"}}',
+            '    {"text": "他说 \\"好看\\" 的时候，我才真的放心了。"}',
+            "",
+            "触发羁绊剧情那一轮（见面的话在前, trigger 是唯一操作行）:",
+            '    {"text": "诶嘿～老师，我正好也在这一节车厢哦？"}',
+            '    {"action": "mmt_trigger_bond_story",'
+            ' "payload": {"chapter_title": "电车上的零食"}}',
+            "",
+            "深挖资料那一轮（整轮只有这一条行）:",
+            '    {"action": "mmt_inspect_character",'
+            ' "payload": {"character_id": "rikuhachima_aru"}}',
+        ]
+    return "\n".join(lines)
+
+
 def build_record_schema(*, with_examples: bool = True, char_id: str = "igusa_haruka",
                         char_display: str = "") -> str:
     """渲染 **VN 记录流契约**（LLM 可见）——`build_schema` 的第三种形态。
