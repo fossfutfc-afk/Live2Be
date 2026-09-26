@@ -3,7 +3,7 @@
 > **状态（2026-09-12 校准）：部分过时, 读前先看这里。**
 > - **已作废**：§2「主 LLM 出 emotion/place 意图（beats[].emotion）」——记录流 v2 起
 >   主 LLM **不写任何视觉字段**（emotion 由标注层按板标注、一条记录一个键; place 由
->   标注层出换场锚点）。现网口径见 `CLAUDE.md §4` 与 `docs/DESIGN_VN_UPGRADE.md §6/§9`。
+>   标注层出换场锚点）。现网口径见 `CLAUDE.md §4` 与 `docs/DESIGN_STREAM_CONTRACT.md §6/§9`。
 > - **仍生效**：§4/§8 的 `emotions.yml`（键 + 注释 + 词表外兜底）与双投影资产形态——
 >   `core/media/manifest.py` / `emotion_lexicon.py` / `core/director/` 的词表真源,
 >   资产填写手册见 `docs/EMOTIONS_CONFIG.md`。

@@ -57,12 +57,11 @@ python experiments/web_e2e/run.py     # B 层浏览器冒烟（Playwright 驱动
 | [CLAUDE.md](CLAUDE.md) | **主文档**：架构 / 契约 / 事件流 / 提示词装配 / 配置 / 测试纪律 —— 第一份该读的 |
 | [docs/EXEC_SPLIT.md](docs/EXEC_SPLIT.md) | 文件拆分与位置规划（C0–C12b 执行记录 + 陷阱清单） |
 | [docs/EXEC_PIPELINE_UNIFY.md](docs/EXEC_PIPELINE_UNIFY.md) | 单一记录流流水线（records → boards）执行记录 |
-| [docs/DESIGN_VN_UPGRADE.md](docs/DESIGN_VN_UPGRADE.md) | VN 契约形式换代（记录流 v2：character/stage + switch/标注分工） |
+| [docs/DESIGN_STREAM_CONTRACT.md](docs/DESIGN_STREAM_CONTRACT.md) | **流式契约形式（MMT + VN 统一）**：JSONL 行流 / 判别键 / 兜底分级 / 重试三段式；**附录 A = VN 记录流 v2 全文** |
 | [docs/DESIGN_MEMORIAL.md](docs/DESIGN_MEMORIAL.md) | 纪念链路（art / memorial / 黑屏缓冲 / 记录级进入 / 生图质量） |
 | [docs/DESIGN_PLACE.md](docs/DESIGN_PLACE.md) · [docs/AI_BRIEF_PLACE.md](docs/AI_BRIEF_PLACE.md) | 地点系统（设计稿 · 给 AI 的速查一页纸） |
 | [docs/DESIGN_COLLECTION_BOOK.md](docs/DESIGN_COLLECTION_BOOK.md) | 回忆册（书页 UI / 角色页 / 只读回放） |
 | [docs/DESIGN_WIKI_V3.md](docs/DESIGN_WIKI_V3.md) | 记忆图 v3（实体中心 + 混合召回 + 时间架构 + 组合） |
-| [docs/DESIGN_CONTRACT.md](docs/DESIGN_CONTRACT.md) | 契约层设计（ActionSpec / 审批策略 / 数据流） |
-| [docs/](docs/) | 其余设计稿：`DESIGN_{MMT_CHAT,GUI,SEGMENT,WORLD,MULTI_CHAR,VISUAL,VISUAL_PROTOCOL,PROMPTKIT,RESEND,MEETUP,FOURTH_WALL,CONTEXT_WINDOW}.md` |
+| [docs/](docs/) | 其余设计稿：`DESIGN_{GUI,SEGMENT,WORLD,MULTI_CHAR,VISUAL,VISUAL_PROTOCOL,PROMPTKIT,RESEND,MEETUP,FOURTH_WALL,CONTEXT_WINDOW}.md` |
 | [docs/archive/](docs/archive/) | 已归档设计稿（v1 动作契约 / 旧 VN 运行时 / 旧记忆栈 / 旧 IDE 方案 …） |
 | [TODO.md](TODO.md) · [DESIGN_BRAIN.md](DESIGN_BRAIN.md) · [CLAUDE_OPTIMIZE.md](CLAUDE_OPTIMIZE.md) | 历史待办 · 记忆体系总纲 · 优化方向清单 —— **都已过时，读前看各自状态头** |

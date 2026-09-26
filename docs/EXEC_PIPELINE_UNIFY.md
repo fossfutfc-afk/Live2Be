@@ -230,7 +230,7 @@ PROVISIONAL ──交付上屏──► DELIVERED ──裁决/推进/收尾─�
 
 | 未来需求 | 不许写死的假设 | 现在留的最小口子 |
 |---|---|---|
-| **多人模式** | ① `records → boards` 不得假设"一个主说话人"（现在是 `contract.is_main_speaker` + 别名归一）② 板载荷不得假设"一板一立绘/一背景"（`DESIGN_VN_UPGRADE` §14：**站位是持久状态**，需 cast/站位快照）③ engine/state 不得假设 `(char, session)` 一对一（`webgui/bond.py::_bonds`、`BondStoryEngine.fork_for_pick`） | 载荷加**可选** `cast` 槽位（空着不填）；说话人归一改成"查 cast 表"的函数签名（默认单元素 cast）。纯签名级，零行为改动 |
+| **多人模式** | ① `records → boards` 不得假设"一个主说话人"（现在是 `contract.is_main_speaker` + 别名归一）② 板载荷不得假设"一板一立绘/一背景"（`DESIGN_STREAM_CONTRACT.md` 附录 A §14：**站位是持久状态**，需 cast/站位快照）③ engine/state 不得假设 `(char, session)` 一对一（`webgui/bond.py::_bonds`、`BondStoryEngine.fork_for_pick`） | 载荷加**可选** `cast` 槽位（空着不填）；说话人归一改成"查 cast 表"的函数签名（默认单元素 cast）。纯签名级，零行为改动 |
 | **重发 / 重新生成** | supersede 的**消费面必须一次定齐**（否则又是"漏一处就污染"） | 见 `DESIGN_RESEND.md` §6 的清单；"丢弃"路径**不需要**任何消费面改动 |
 | **邀约 / 拒绝** | 入口意图不得与 VN 生命周期耦合；"拒绝"必须**不写 VN 事件** | 邀请做成一等事件（pending/accepted/declined/expired）；`staging.py` 的"丢缓存=从未发生"已就位 |
 | **本计划自身** | 板级闸不得变成"卡死" | 复用 `MAX_SCENE_RETRIES`（现定义在 `bond_story.py`，值 3），**超限放行**（宁可显示别卡死，符合"宁缺勿错"） |

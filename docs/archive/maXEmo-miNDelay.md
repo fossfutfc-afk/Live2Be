@@ -1,6 +1,6 @@
 > **已归档（2026-09-12）**：情绪精度 × 延迟的早期取舍讨论稿（写作时 emotion 还是
 > "主 LLM 逐句内联"形态）。**不再更新, 以代码为准**。
-> 取代者：`docs/EXEC_BOND_LATENCY.md`（体感延迟工程现网）· `docs/DESIGN_VN_UPGRADE.md`（记录流 v2）
+> 取代者：`docs/EXEC_BOND_LATENCY.md`（体感延迟工程现网）· `docs/DESIGN_STREAM_CONTRACT.md`（记录流 v2）
 > · `CLAUDE.md §4`（emotion 现网口径：按板一次、一条记录一个键、标注层做）。
 
 # 核心矛盾:

@@ -144,8 +144,8 @@ P3: 显式世界管理（未来回放/多周目 UI）
 
 > 关联文档: `docs/archive/DESIGN_SAVE.md`（保存系统, 已归档）、
 > `DESIGN_MULTI_CHAR.md`（多角色 A/B, 其"同框"依赖本模型的对齐）、
-> `DESIGN_BRAIN.md`（根目录, 记忆 per 世界线）、`DESIGN_MMT_CHAT.md`（聊天核心, 其
-> §5 会话管理需改为"当前世界世界线恢复/新建"）。
+> `DESIGN_BRAIN.md`（根目录, 记忆 per 世界线）、`CLAUDE.md` §5（事件流与恢复语义 ——
+> 会话管理需改为"当前世界世界线恢复/新建"）。
 
 ---
 

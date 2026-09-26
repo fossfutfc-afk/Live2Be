@@ -129,7 +129,7 @@ def build_record_schema(*, with_examples: bool = True, char_id: str = "igusa_har
     """渲染 **VN 记录流契约**（LLM 可见）——`build_schema` 的第三种形态。
 
     与"单动作 JSON"（story 旧契约）和"messages 消息流"（MMT, `action_list=True`）并列。
-    设计: `docs/DESIGN_VN_UPGRADE.md` §2（文法）/ §10.4（`art` 预告制）。
+    设计: `docs/DESIGN_STREAM_CONTRACT.md` §2（文法）/ §10.4（`art` 预告制）。
     文案单源: 取值与约束全部取自 `contract.records` 常量。
 
     不进 `build_schema()` 是因为记录文法**不依赖动作注册表**（参数是角色 id 与状态约束，
