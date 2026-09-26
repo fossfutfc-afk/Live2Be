@@ -88,7 +88,7 @@ VN 的控制行玩家看得见（丢了立刻穿帮），MMT 的控制行玩家�
 | `inspect` 角色真的不存在 | 整轮重发 | **② 行级续写**（现有文案已写"不要查玩家或胡编的名字"） |
 | `inspect` **素不相识（level 0）** | **抛异常 → 整轮重发** | **① 改成"查阅结果"**（`ok=True`，正文 = "与你素不相识，用公开信息和你的知识回答"）⇒ 模型**直接作答**，零重发 |
 | `send_media` 缺 `image` / `media_type=video` | 整轮重发 | ① `media_type` 纠回 `image`；`image` 空 ⇒ **丢该行** + 记账 + 下一轮纠偏注记；**气泡照常交付**（"话说了、图没发"） |
-| `trigger` 的 `chapter_title` 缺 / 超长 | 整轮重发 | ① 去空白 / 截断；仍不合 ⇒ **② 行级续写**（**模式切换不能降级**）；耗尽 ⇒ 本轮**当普通聊天交付、不切模式** |
+| `trigger` 的 `chapter_title` 缺 / 超长 | 整轮重发 | ① 去空白 / 截断；仍不合 ⇒ **② 行级续写**（**模式切换不能降级**）；耗尽 ⇒ 本轮**当普通聊天交付、不切模式**。⚠️ **registry 不校验这个字段**（b 实测：只校验类型、空标题放行）⇒ 检查在 `mmt_check.py` |
 
 - `level 0` 那条本来就有意如此（`core/mmt/mmt_executor.py:212-217` 的正文就是"用公开信息回答"），
   只是被实现成了异常 ⇒ 代价从"整轮重发"降到"零重发"。
@@ -212,7 +212,7 @@ VN 的控制行玩家看得见（丢了立刻穿帮），MMT 的控制行玩家�
 | B2 | ⭐ **形状单源**：`momotalk_rules.md` 现在**同时**是"风格样本"与"形状样本" ⇒ **拆开**——风格样本留 rules（**去掉 `{"messages":[…]}` 外壳**，写成"玩家: … / 你: …" + 方括号点评；4 个触发示范同样保留风格、标"此刻触发"），**形状（完整 JSONL 示范）只在契约块存一份**。用户注：*"这个比较特别，因为包含语言风格指导，不过暂时先进行拆分即可"* ⇒ 是**拆分**不是删除；真机若发现形状学偏，再把示范搬回去 |
 | B3 | 契约块 = 行文法 + 判别键 + 内容/控制二分 + **可用动作表（运行时由 `registry.spec().payload_schema` 生成，不手写）** + 一条 `text → action → text` 交错的完整示范。新增动作**自动进 prompt** 的机制保持 |
 | B4 | ✅ **机制已上提（a₀, 2026-09-25）**：`IssueSeverity` / `Issue` / `split_issues` / `format_issues` 的真家 = **`contract/issues.py`**；每域 import 时 `declare_severity(自己的表)` 登记（未声明的码查表直接 KeyError、同码两种严重度直接 ValueError）⇒ **机制共用、码表各自声明**。VN 的表仍在 `records/check.py`（`ISSUE_SEVERITY`，再导出、对外面不变）。MMT 的表将放 **`core/mmt/mmt_check.py`**：`mmt.line-bad`(软·丢行) · `mmt.control-invalid`(硬) · `mmt.exclusive-violation`(硬) · `mmt.empty-turn`(硬) · `mmt.control-unexecuted`(软·下一轮纠偏) |
-| B5 | **两段式校验，不新增第三处**：形状（是 dict / action 非空）在行解析；字段（`character_id` / `chapter_title` / `image`）在 `registry.parse` |
+| B5 | **两段式校验，不新增第三处**：形状（是 dict / 判别键合法且非空 / `payload` 是对象）在行解析（`mmt_lines.py`）；字段（`character_id` / `chapter_title` / `image`）在 `registry.parse`。⚠️ **b 阶段实测的两条**（写进 c/d 的规格）：① **自愈（归一化 / 纠错）必须跑在 `registry.parse` 之前**——`inspect` 的 `character_id`（`[a-z0-9_]+`）与 `send_media` 的 `media_type`/`image` 都是 registry **硬拒绝**，晚一步就没机会修；② **`chapter_title` 的"必填 3-16 字"registry 不管**（`parse_mmt_trigger_bond_story` 只校验"是字符串"，空标题放行、执行器兜底成无标题）⇒ 这条检查由 **`mmt_check.py`** 自己加 |
 | B6 | "行对象 → `registry.parse` 的 raw dict" 转换函数放 **MMT 侧**（contract 只认 dict 契约） |
 
 ### 10.3 action 信息的三个注入点
@@ -243,6 +243,7 @@ VN 的控制行玩家看得见（丢了立刻穿帮），MMT 的控制行玩家�
 | 2026-09-25 | **⑥-1 落地**：`contract/streams/`（域无关行流层：lines + stream）+ `records/` 退化成"注入判别 / 救援 / 切板"；快照刷新（2 处真家 + 新段 5 名）；新增域无关守门（含变异验证）。**零行为变化** |
 | 2026-09-25 | **⑥-2a₀ 落地**（共用校验原语）：`contract/issues.py`（`IssueSeverity`/`Issue`/`format_issues`/`split_issues` + `declare_severity` 域表登记）；`records/check.py` 只留 VN 码表 + 两个校验函数，机制件**再导出**（对外面不变）；反文案分级守门跟到新家；新增 `test_issues.py`。**零行为变化** |
 | 2026-09-25 | **⑥-2a 落地**（契约渲染器）：`build_line_schema(registry, *, with_examples=True)`——两类行判别键 · 6 条硬规则（含"气泡粒度由你定"与两个独占约束）· 动作表运行时渲染 · 三条示范（交错 / 触发 / 独占）。`test_line_schema.py` 4 条（含**示范必须合法 JSON 且判别键唯一**）。纯新增，未接线（引擎仍在旧协议） |
+| 2026-09-25 | **⑥-2b 落地**（MMT 行解析）：`core/mmt/mmt_lines.py`（`MmtLine` / `line_from_obj` 判别 / `MmtStream` **行即交付单元** / `to_action_raw` 桥 / `parse_lines`），9 条单测覆盖分块喂入·丢行记账·数组行拍平（共用 `line_no`）·不做转义救援。**实测两条写进 §10.2 B5**：自愈必须早于 `registry.parse`；`chapter_title` 的必填 registry 不管（该由 `mmt_check` 加）。纯新增，未接线 |
 
 ---
 
