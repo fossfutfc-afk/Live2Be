@@ -304,7 +304,10 @@ def run_bond_story_vn(
                 sid = gallery_store.write(
                     char.character_id, memorial_prompt, vn_sid or "", img.path,
                     width=img.width, height=img.height,
-                    prompt_source=getattr(engine, "memorial_prompt_source", "") or "",
+                    # ⚠️ 写者是**触发那一次的 `BondStoryEngine`**（`vn`, 见
+                    # `_fire_memorial_image`）——与 webgui 同款修正（2026-09-27）:
+                    # 原先读 MMT `engine` 的属性 ⇒ 字段从来不写、art 命中率没得算。
+                    prompt_source=getattr(vn, "memorial_prompt_source", "") or "",
                     refs=[Path(p).name for p in refs],
                     model=getattr(image_gen, "api_model", "") or "")
                 memorial_images = [str(gallery_store.png_path(char.character_id, sid))]

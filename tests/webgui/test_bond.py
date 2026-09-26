@@ -613,6 +613,49 @@ def test_memorial_img_recovered_from_staging(tmp_path):
         _cleanup()
 
 
+def test_memorial_gallery_records_prompt_source(tmp_path, monkeypatch):
+    """★ `gallery json.prompt_source` 必须取自**触发那一次的 BondStoryEngine**。
+
+    回归（2026-09-27 真机发现）: `_memorial_gen` 原先读 `chat._engine(char_id)`
+    = **MomoTalkEngine**（另一个类, 从没这个属性）⇒ `getattr` 恒落默认 `""`
+    ⇒ `GalleryStore.write` 的"缺省不写"分支生效 ⇒ **字段从来没进过 gallery json**
+    （真机 6 张图 + 冒烟世界全部缺）⇒ `art` 配对命中率这个唯一代理指标无法统计。
+    写者其实是 `state.vn`（`bond_story/engine.py::_fire_memorial_image`）。
+
+    守门方式: 两个对象上放**不同的值**（MMT 上放错值）——写错源就会立刻红。
+    """
+    from types import SimpleNamespace
+
+    monkeypatch.setenv("LIVE2BE_IMAGE", "on")     # 会话级 autouse 默认 off
+    engine, _st, sid, _llm = _setup(tmp_path, STORY_END)
+    try:
+        png = tmp_path / "gen.png"
+        png.write_bytes(b"\x89PNG\r\n\x1a\n")     # write() 只 copy 字节, 不解析
+
+        class _Gen:
+            api_model = "stub-model"
+
+            def generate(self, prompt, **kw):
+                return SimpleNamespace(path=png, width=512, height=768,
+                                       elapsed_s=0.25)
+
+        monkeypatch.setattr(deps, "image_generator", lambda: _Gen())
+        state = bond._state(CHARACTER, sid)
+        state.vn = SimpleNamespace(in_memorial=True, memorial_prompt_source="art")
+        engine.memorial_prompt_source = "错的值（MMT engine 上的）"
+        bond._memorial_gen(state, CHARACTER, sid, "画面意向")
+
+        metas = list((tmp_path / "worlds").glob("*/characters/*/gallery/*.json"))
+        assert len(metas) == 1, f"应恰好落一张画廊图: {metas}"
+        meta = json.loads(metas[0].read_text(encoding="utf-8"))
+        assert meta.get("prompt_source") == "art", (
+            f"prompt_source 必须取 state.vn（BondStoryEngine）的那个: {meta}")
+        assert state.memorial_img, "图 URL 应写回 state（前端淡入用）"
+        print("    memorial: prompt_source 归因取自 state.vn ✓")
+    finally:
+        _cleanup()
+
+
 def test_completed_entry_refuses_reentry(tmp_path):
     """★ 结局后粉泡翻转前的窗口里"手快重进" → **后端兜底拒绝**（用户 2026-09-20 报障）。
 
