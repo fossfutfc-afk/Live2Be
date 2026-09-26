@@ -90,6 +90,46 @@ def _b_ok(**over):
     return out
 
 
+def _mmt_at(seq, ts, player="老师", reply="嗯"):
+    """一条带**指定时刻**的 mmt 事件（④-① 的用例要能区分先后）。"""
+    e = make_event("mmt", "chat", {"player": player, "reply": reply})
+    e.seq, e.ts = seq, ts
+    return e
+
+
+def test_node_ts_follows_its_own_events(tmp_path):
+    """⭐ ④-①（2026-09-25）: 一条节点的时刻 = **它自己指向的那些事件里最后一条**,
+    不再"整段一个 ts"（那会让一批记忆共享同一天, 读不出先后）。
+
+    ⚠️ 只有**第 1 轮的节点**（episode / 玩家画像）走这条 —— 它们手里有真事件指针;
+    第 2/4 轮的信念/承诺继续用段 ts（"她什么时候想明白的 = 消化那一刻"）。
+    """
+    st = _seed_store(tmp_path)
+    evs = [_mmt_at(3, "2026-09-20T10:00:00", "老师", "第一件事"),
+           _mmt_at(4, "2026-09-21T20:00:00", "老师", "第二件事")]
+    a = {"episodes": [
+        {"text": "第一件事", "title": "第一件事", "tags": ["a"], "event_seq": [3]},
+        {"text": "第二件事", "title": "第二件事", "tags": ["b"], "event_seq": [4]},
+        {"text": "跨两块的那条", "title": "跨两块", "tags": ["c"], "event_seq": [3, 4]},
+        {"text": "没有指针的那条", "title": "无指针", "tags": ["d"]}]}
+    b = {"decisions": [{"episode": f"m000{i}", "decision": "add", "kind": "belief",
+                        "subject": "sensei", "text": f"关于 m000{i}"}
+                       for i in (3, 4, 5, 6)],
+         "evidence": [], "affection_exp_delta": 0}
+
+    res = digest_segment(st, FakeLLM(a, b), evs)
+
+    assert res.ok, res.errors
+    got = {st.get(i).title: st.get(i).ts for i in res.created}
+    assert got == {
+        "第一件事": "2026-09-20T10:00:00",           # 它自己那块
+        "第二件事": "2026-09-21T20:00:00",
+        "跨两块": "2026-09-21T20:00:00",             # 多指针 → 取**最后**一条
+        "无指针": "2026-09-21T20:00:00"}             # 回落段 ts（= 段内最后一条内容事件）
+    # 认知（R2 产的）**仍然是段 ts** —— 只有第 1 轮的节点按自己的事件算
+    assert st.get("m0007").ts == "2026-09-21T20:00:00"
+
+
 # ---------------------------------------------------------------------------
 # 增量 / 无新增
 # ---------------------------------------------------------------------------

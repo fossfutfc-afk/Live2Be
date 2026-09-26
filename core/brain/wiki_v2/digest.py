@@ -636,6 +636,34 @@ def _collapse_bond_episodes(entries: list[dict], chapters: list[dict]) -> list[d
     return [e for e in entries if id(e) not in dropped]
 
 
+def _node_ts(seqs: Any, by_seq: dict | None, default: str) -> str:
+    """一条节点的时刻 = **它自己指向的那些事件里最后一条**的 ts（取不到 → 传进来的段 ts）。
+
+    ⭐ 2026-09-25（链路 ④-①）: 从前**整段一个 ts** —— 那批记忆共享同一天, 读不出先后。
+    取"最后一条"的理由与"段 ts = 段内最后一条内容事件"**同源**: 那一刻才是这条记忆
+    "到这儿为止"的样子。
+
+    ⚠️ **只改第 1 轮产的节点**（episode / 玩家画像）: 它们手里有 LLM 指的**真事件指针**。
+    第 2/4 轮产的节点（信念 / 承诺）指针本来就是段级的 `[interact_max]`, 且"她什么时候
+    想明白的 = 消化那一刻"语义没错 ⇒ 继续用段 ts。
+    ⚠️ **真机实测: 羁绊章内的跨度只有分钟级**（haruka 那批 75 条事件跨 12 分钟）⇒
+    「（3 周前）」这类短语**不会变**（按日历日算）; 这条改动的收益在
+    **① 批内排序**（从 id 序 → 真实时刻序）**② MMT 段**（一次消化覆盖 25 轮、可能横跨几天,
+    从前全部被标成"最后那条消息那一天"）。
+    """
+    best, best_seq = "", -1
+    for s in seqs or []:
+        try:
+            seq = int(s)
+        except (TypeError, ValueError):
+            continue
+        ev = (by_seq or {}).get(seq)
+        t = str(getattr(ev, "ts", "") or "").strip() if ev is not None else ""
+        if t and seq >= best_seq:
+            best, best_seq = t, seq
+    return best or default
+
+
 def _create_a_nodes(store: WikiStoreV2, entries: list[dict], *, ts: str,
                     event_seq: list[int],
                     aff_at_encoding: float | None = None,
@@ -685,8 +713,8 @@ def _create_a_nodes(store: WikiStoreV2, entries: list[dict], *, ts: str,
                              verbatim_seq=ent.get("verbatim_seq", []),
                              tags=ent.get("tags", []),
                              significance=ent.get("significance", 0.5))
-            node.ts = ts
             node.event_seq = list(ent.get("event_seq") or event_seq)
+            node.ts = _node_ts(node.event_seq, by_seq, ts)   # ⭐ 自己的时刻（④-①）
             dup = _find_duplicate(store, node)
             if dup is not None:
                 player_ids.append(dup.id)
@@ -694,8 +722,8 @@ def _create_a_nodes(store: WikiStoreV2, entries: list[dict], *, ts: str,
             player_ids.append(store.add(node))
             continue
         node = make_node("episode", **{k: v for k, v in ent.items() if k != "kind"})
-        node.ts = ts
         node.event_seq = list(ent.get("event_seq") or event_seq)
+        node.ts = _node_ts(node.event_seq, by_seq, ts)       # ⭐ 自己的时刻（④-①）
         # 板级情绪键序列（T15）——召回侧物化, **不进 LLM 上下文**
         if by_seq is not None:
             node.emo_shape = _emotion_shape(node.event_seq, by_seq)
