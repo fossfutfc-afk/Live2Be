@@ -188,6 +188,48 @@ VN 的控制行玩家看得见（丢了立刻穿帮），MMT 的控制行玩家�
 - **note 的"顺手记一笔"**（主 LLM 当场 add 约定，配合 R4 兜底）。
 - 记忆图侧未决账见 `DESIGN_GRAPH_V4.md` §9 与 `PROCEED.md` §3。
 
+## 10. 落地细节（2026-09-25 逐条定，**动 ⑥-1 前确认**）
+
+### 10.1 解析层：共用层怎么切
+
+| # | 定论 |
+|---|---|
+| A1 | 共用层**两个文件**：`contract/streams/lines.py`（行骨架 + 判别注入 + `ParseDiag`）· `contract/streams/stream.py`（增量缓冲基类） |
+| A2 | ⭐ base **只做行级**（`feed` 缓冲切行 → 逐行解析 → 交给子类钩子），**交付单元由子类定**：`BlockStreamParser` 变子类，公开 API 与行为**逐字节不变**；MMT 子类每行即时可取 |
+| A3 | `ParseResult` **留在 `records`**（VN 的返回类型，字段绑 `VnRecord`）；只有 `ParseDiag` 上提共用层（不上提泛型化，收益为零、动面大） |
+| A4 | 判别签名 = `classify(obj) -> (item \| None, reason)`（即现 `_record_from_obj` 的形状，VN 实现**逐字保留**，改为参数注入） |
+| A5 | MMT **不做**自己的 `_rescape_repair`（⑥-2 视真机再定）；要做也独立实现，不硬塞进 VN 那个（它靠 `^\{"(character\|stage)":` 头） |
+| A6 | 数组行拍平后**多条共用同一 `line_no`**（VN 现状即如此）；⇒ **气泡序号不能用 `line_no`**，落库时按"已交付行计数"另给 |
+| A7 | `tests/fixtures/api_surface.txt` 的"真家"列会变 ⇒ `SPLIT_API_UPDATE=1` 刷新 + 人工审 diff。**刷新快照 ≠ 行为变化**，提交信息须写明 |
+
+### 10.2 契约层
+
+| # | 定论 |
+|---|---|
+| B1 | 新增 `build_line_schema(registry, *, with_examples=True)`（与 `build_record_schema` 并列的第三形态）；**删** `build_schema(action_list=True)` 的 MMT 分支；`build_schema` 自身保留给单动作域（story/IDE） |
+| B2 | ⭐ **形状单源**：`momotalk_rules.md` 现在**同时**是"风格样本"与"形状样本" ⇒ **拆开**——风格样本留 rules（**去掉 `{"messages":[…]}` 外壳**，写成"玩家: … / 你: …" + 方括号点评；4 个触发示范同样保留风格、标"此刻触发"），**形状（完整 JSONL 示范）只在契约块存一份**。用户注：*"这个比较特别，因为包含语言风格指导，不过暂时先进行拆分即可"* ⇒ 是**拆分**不是删除；真机若发现形状学偏，再把示范搬回去 |
+| B3 | 契约块 = 行文法 + 判别键 + 内容/控制二分 + **可用动作表（运行时由 `registry.spec().payload_schema` 生成，不手写）** + 一条 `text → action → text` 交错的完整示范。新增动作**自动进 prompt** 的机制保持 |
+| B4 | `Issue` / `IssueSeverity` / `split_issues` / `format_issues` 上提共用层，**码表各自声明**；MMT 码表放 **`core/mmt/mmt_check.py`**（要用 registry 与 exec 语义）：`mmt.line-bad`(软·丢行) · `mmt.control-invalid`(硬) · `mmt.exclusive-violation`(硬) · `mmt.empty-turn`(硬) · `mmt.control-unexecuted`(软·下一轮纠偏) |
+| B5 | **两段式校验，不新增第三处**：形状（是 dict / action 非空）在行解析；字段（`character_id` / `chapter_title` / `image`）在 `registry.parse` |
+| B6 | "行对象 → `registry.parse` 的 raw dict" 转换函数放 **MMT 侧**（contract 只认 dict 契约） |
+
+### 10.3 action 信息的三个注入点
+
+| # | 定论 |
+|---|---|
+| C1 | **给 LLM**：位置不变 = 盒A 的 `schema` 块（`core/mmt/engine.py:490` 换新函数，开场拼死、逐字节稳定）。**组合约束（`inspect` 单独一轮 / `trigger` 是唯一 action 行）写进契约块的硬规则**，不放 rules 的自然语言里 |
+| C2 | **给引擎**：`行 → registry.parse(dict) → AgentAction → executor.execute()` 链**零改动**；⭐ **智能矫正落点 = `core/mmt/mmt_repair.py`**（`character_id` 归一化：`interperson` 键 + 角色 id/显示名，**唯一命中才用、有歧义不猜**）。放 `core/mmt/` 而非 contract 层——contract 是纯校验、executor 是执行 |
+| C3 | **回灌（行级续写轮）**：assistant 位放**本轮已产出行原文**（模型看得见自己写了什么）；user 位放"失败的那一行 + 原因 + **只输出缺失的操作行、不要重复已经说过的话**"；**续写轮只收控制行**（text 行一律丢 ⇒ 零重复气泡）；续写产物**接在本轮行序之后**；**复用同一个 messages 列表**（吃前缀缓存 + 模型看得见自己刚写的） |
+| C4 | ⭐ **行交付即 append 事件（用户裁决）** ⇒ 前端 `events_after` 轮询天然拿到增量，**不需要 SSE**。语义 = "**话已经发出去了**"：半轮产物入真源（角色说了话、后面的 action 失败），与"内容行无副作用"一致 |
+
+### 10.4 顺带
+
+| # | 定论 |
+|---|---|
+| D1 | CLI 展示路径同步"一行一气泡"（避免 CLI / web 分叉）；`format_momotalk_reply`（切句版）留作**未调用件** |
+| D2 | 前端 `BUBBLE_GAP_MS=600` 假节奏退场（保留 CSS 入场动画，**不加人为 sleep**）；真机觉得突兀再加 |
+| D3 | **JSONL 不是"一行一轮"**：一次 `agent_turn` 仍是一轮（轮数 +1 一次） |
+
 ---
 
 ## 变更记录
@@ -195,6 +237,7 @@ VN 的控制行玩家看得见（丢了立刻穿帮），MMT 的控制行玩家�
 | 日期 | 变更 |
 |---|---|
 | 2026-09-25 | 建立：契约形式六条 · 两域对照 · 控制行永不静默丢弃 · 兜底分级与重试三段式（行级 1 + 形状级 2）· MMT 旧协议退役清单 · 切句接口处置 · 复用判定表 · ⑥ 三小步。并入并删除 `DESIGN_VN_UPGRADE.md`（→ 附录 A）/ `DESIGN_MMT_CHAT.md` / `DESIGN_CONTRACT.md` |
+| 2026-09-25 | 补 §10 落地细节（动 ⑥-1 前逐条确认）：A1–A7 解析层切法（base 只做行级 / 交付单元留子类 / `ParseResult` 不上提）· B1–B6 契约层（新 `build_line_schema` / **形状单源 = rules 拆风格与形状** / MMT 码表在 `core/mmt/mmt_check.py`）· C1–C4 三个注入点（**智能矫正 = `core/mmt/mmt_repair.py`** / 续写轮只收控制行 / **行交付即 append 事件**）· D1–D3 |
 
 ---
 
