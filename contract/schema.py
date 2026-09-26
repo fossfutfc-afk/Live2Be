@@ -42,13 +42,13 @@ _APPROVAL_NOTES = {
 }
 
 
-def build_schema(registry: ActionRegistry, *, action_list: bool = False) -> str:
-    """生成该域给 LLM 的动作 schema（输入层裁剪）。
+def build_schema(registry: ActionRegistry) -> str:
+    """生成该域给 LLM 的动作 schema（输入层裁剪）—— **单动作形态**。
 
-    action_list=True（MMT 域, 2026-09-02 消息流协议）: 输出"消息流"格式——
-    聊天 = 消息序列, text 单元说话 + action 单元操作任意交错（话→图→话）。
-    其他域（story/IDE）保持单动作输出。示例只给结构骨架——外壳字段以各
-    动作声明为准。
+    用于 story / IDE 这类"一轮一个动作"的域。⚠️ **MMT 不用它**（⑥-2f 起）：
+    手机聊天走 `build_line_schema`（一行一条 JSON 的行流），旧 `action_list=True`
+    的"messages 消息流"分支已随 `{"messages":[…]}` 协议**整段删除**。
+    示例只给结构骨架——外壳字段以各动作声明为准。
     """
     names = registry.action_names()
     if not names:
@@ -58,19 +58,7 @@ def build_schema(registry: ActionRegistry, *, action_list: bool = False) -> str:
     for name in names:
         union |= set(registry.spec(name).prompt_fields)
 
-    if action_list:
-        lines = [
-            "你以单个 JSON 对象输出本轮**消息流**（2026-09-02 协议, 聊天 = 消息序列）:",
-            '    {"messages": [消息1, 消息2, ...]}',
-            "单元类型:",
-            '    {"text": "角色说的话"}              —— text 单元: 说话（任意条数）',
-            '    {"action": "<动作名>", "payload": {...}}  —— action 单元: 需要程序',
-            "        执行的操作（可任意夹在 text 之间——话→图→话 的节奏没问题）",
-            "text 单元不是动作（程序直接渲染为消息气泡）; action 单元字段如下。",
-            "",
-        ]
-    else:
-        lines = ["你必须以单个 JSON 对象输出一个动作。", ""]
+    lines = ["你必须以单个 JSON 对象输出一个动作。", ""]
     lines.append("外壳字段:")
     for f in sorted(union):
         desc = _SHELL_FIELD_DESCRIPTIONS.get(f, "")
@@ -87,19 +75,8 @@ def build_schema(registry: ActionRegistry, *, action_list: bool = False) -> str:
         else:
             lines.append("      payload: （未提供描述）")
     lines.append("")
-    if action_list:
-        lines.append(
-            '消息流示例: {"messages": [{"text": "老师你看这个！"}, '
-            '{"action": "mmt_send_media", "payload": {"image": "天台拍到的夕阳"}}, '
-            '{"text": "是我特意拍的…好看吧？"}]}'
-        )
-        lines.append("action 单元按顺序执行并渲染（text 单元直接渲染为气泡）; "
-                     "mmt_trigger_bond_story 独占操作（只能有它一个 action 单元, "
-                     "text 邀约话可放它前面）;")
-        lines.append("mmt_inspect_character 单独一轮（静默推理, 不与 text/其他动作混排）。")
-    else:
-        lines.append('格式示例: {"action": "<动作名>", "payload": {...}}'
-                     '（外壳字段以各动作声明为准）')
+    lines.append('格式示例: {"action": "<动作名>", "payload": {...}}'
+                 '（外壳字段以各动作声明为准）')
     return "\n".join(lines)
 
 
@@ -136,8 +113,9 @@ def build_line_schema(registry: ActionRegistry, *, with_examples: bool = True) -
     是独立入口），而行流的**操作行**要用注册表里的动作 ⇒ 本函数收 `registry`
     （新增动作**自动进 prompt**，不手写清单）。
 
-    ⚠️ 与 `build_schema(action_list=True)`（旧的 `{"messages":[…]}` 消息流）**并存到
-    ⑥-2e**：那一步引擎切到行流、同时删掉 `action_list` 分支（"旧协议统统改掉"）。
+    ⚠️ 旧的 `build_schema(action_list=True)`（`{"messages":[…]}` 消息流）**已整段删除**
+    （⑥-2f："旧协议统统改掉"）——三个形态现在是: 单动作 JSON（story/IDE）· 行流
+    （MMT, 本函数）· 记录流（VN, `build_record_schema`）。
 
     文案纪律（同用户裁决 #24）：不写"不要写 X 字段"式负面提醒；示范里戏词不包「」。
     """
@@ -200,7 +178,7 @@ def build_record_schema(*, with_examples: bool = True, char_id: str = "igusa_har
                         char_display: str = "") -> str:
     """渲染 **VN 记录流契约**（LLM 可见）——`build_schema` 的第三种形态。
 
-    与"单动作 JSON"（story 旧契约）和"messages 消息流"（MMT, `action_list=True`）并列。
+    与"单动作 JSON"（story/IDE）和"行流"（MMT, `build_line_schema`）并列。
     设计: `docs/DESIGN_STREAM_CONTRACT.md` §2（文法）/ §10.4（`art` 预告制）。
     文案单源: 取值与约束全部取自 `contract.records` 常量。
 

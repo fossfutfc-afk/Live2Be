@@ -223,7 +223,7 @@ emotion → emo_version++（引擎同步标注仅 CLI/测试用）。**导演层
 
 | # | 旧表述 | 现网事实 |
 |---|---|---|
-| 1 | MMT 输出 `{"actions":[...]}` | **2026-09-25 起 = 行流契约**（`一行一条 JSON`：`{"text": …}` / `{"action": …, "payload": {…}}`）。中间形态 `{"messages":[{text}/{action}]}`（2026-09-02）**已退役**（⑥-2e）；schema 段/rules 书已同步 |
+| 1 | MMT 输出 `{"actions":[...]}` | **2026-09-25 起 = 行流契约**（`一行一条 JSON`：`{"text": …}` / `{"action": …, "payload": {…}}`）。中间形态 `{"messages":[{text}/{action}]}`（2026-09-02）**已退役**（⑥-2e/f）；schema 段/rules 书已同步。⚠️ 调用形态也跟着变：MMT 走 **`response_format="text"`**（裸文本）, 不再 `json_object`（那会触发行级解析前的 LLM JSON 自纠错） |
 | 2 | "SIG~ 键双重出现" | 实为盒A dump 含 script.yml 全量 → tone 内容以 yaml 键值出现 + 专段再注；且 **bond_tone 也在盒A dump 出现一次**（无专段）；yaml_to_prompt 实际剥前缀显示 |
 | 3 | P15 记忆注入描述 | 已解耦为出厂背景直注 + wiki 两段（2026-09-05）；MMT 每轮拼 system 尾；Bond 由调用方构造注入、剧情内固定 |
 | 4 | P17 "MMT 每轮 + Bond 每场" | MMT 主聊天轮恒不传（仅收尾轮）；Bond 聚合器含选项配额/表情单调等新条目 |

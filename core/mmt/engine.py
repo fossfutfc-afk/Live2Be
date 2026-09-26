@@ -1,21 +1,19 @@
 """
-MomoTalk 对话引擎 — 全 JSON agent loop（消息流协议）。
+MomoTalk 对话引擎 — **行协议** agent loop（一行一条 JSON; ⑥-2e 起）。
 
-每轮对话（agent_turn, 2026-09-02 定稿: 聊天 = 消息序列, 说话不是动作）:
-    用户输入 → LLM 输出消息流 JSON:
-        {"messages": [
-            {"text": "话1"},                              # text 单元 = 说话
-            {"action": "mmt_send_media", "payload": …},   # action 单元 = 真操作
-            {"text": "话2"},
-        ]}                            —— 任意交错（话→图→话 微信节奏）
-    → 消息流解析（text 单元包装成隐含 mmt_chat; inspect 独占 / trigger 不与他
-      操作混排）→ action 单元全量 parse（原子）→ 顺序执行 → 渲染 + 记历史
-      + 轮数 +1 → 触发羁绊剧情（trigger 单元）才切换模式。
-    旧协议兼容: {"reply": …} / {"actions": [mmt_chat 动作…]} → 归一为消息单元。
+每轮对话（agent_turn）:
+    用户输入 → LLM 输出**行流**（裸文本, 每行一个 JSON 对象）:
+        {"text": "话1"}                               # 消息行 = 说话（一条行 = 一个气泡）
+        {"action": "mmt_send_media", "payload": …}    # 操作行 = 需要引擎执行的操作
+        {"text": "话2"}                               # 任意交错（话→图→话 微信节奏）
+    → 行解析（`mmt_lines`；坏行丢行 + 记账）→ **四阶段办理**（自愈 → 组合校验 →
+      parse+执行 → **保持行序**交付）→ 逐行落事件/历史 + 轮数 +1
+      → 触发羁绊剧情（trigger 行）才切换模式。
+    契约与设计: `docs/DESIGN_STREAM_CONTRACT.md`（§1 六条 / §4 兜底分级 / §10.3 三个注入点）。
 
-历史格式（每轮至少记动作名 + reply, 可追溯 agent 干了什么）:
+历史格式（每行一条, 可追溯 agent 干了什么）:
     user:      用户说的话
-    assistant: "[mmt_chat] 话1" / "[mmt_send_media] …"（text 单元记为 [mmt_chat],
+    assistant: "[mmt_chat] 话1" / "[mmt_send_media] …"（消息行记为 [mmt_chat],
                事件流同款, 渲染零改动）
 
 五层认知（与 mmt_actions / mmt_executor 一致）:
@@ -25,7 +23,7 @@ MomoTalk 对话引擎 — 全 JSON agent loop（消息流协议）。
     L3 深挖层   mmt_inspect_character（静默推理轮, 权重分级）→ 仅此入口
 
 MomoTalk 与羁绊剧情的区别:
-    - MomoTalk = 手机聊天, 无动作描写, 短消息, 逐块输出（…打字指示 + 气泡）
+    - MomoTalk = 手机聊天, 无动作描写, 短消息, 逐行输出（…打字指示 + 气泡）
     - 羁绊剧情 = 视觉小说, 允许动作描写（括号）, 长对白（BondStoryEngine）
 
 用法:
@@ -64,7 +62,6 @@ from core.mmt.mmt_check import (
 from core.mmt.mmt_lines import MmtLine, parse_lines, to_action_raw
 from core.mmt.mmt_repair import build_candidates, repair_line
 from core.mmt.mmt_executor import (
-    ExecResult,
     MmtExecError,
     MmtExecutor,
     load_interperson,
@@ -100,7 +97,10 @@ from core.rag.brain import make_embed_fn
 from core.rag.embedder import LocalEmbedder
 from core.tui.display import MomoTalkOutput
 from core.tui.streaming import DisplayStep
-from core.tui.text_processors import _process_for_momotalk, _strip_action_brackets, split_reply_chunks
+# ⚠️ `split_reply_chunks` 不再进引擎（⑥-2e 起一行 = 一个气泡, 不再切句）——
+# 切句器本体与单测按用户裁决**保留**（`core/tui/text_processors.py`; 见
+# DESIGN_STREAM_CONTRACT §6: 将来真要用, 回退位置是"行内二次切分"）。
+from core.tui.text_processors import _process_for_momotalk, _strip_action_brackets
 
 logger = logging.getLogger(__name__)
 
@@ -454,7 +454,6 @@ class MomoTalkEngine:
         character_names: list[str] | None = None,
         history_rounds: int = DEFAULT_HISTORY_ROUNDS,
         task_card: bool | None = None,   # None = settings [promptkit].task_card（默认 true）
-        line_protocol: bool = True,      # ⑥-2e 起默认行协议（⑥-2f 删旧路径与这个开关）
     ):
         self.char_loader = CharacterLoader(characters_root)
         self.llm = llm_client
@@ -496,9 +495,6 @@ class MomoTalkEngine:
         self._task_card_override: bool | None = task_card
         self._task_on = True
 
-        # ⭐ 行协议（⑥-2e 起**默认**）: True = `一行一条 JSON`（`_turn_lines`）;
-        # False = 旧 `{"messages":[…]}` 路径（**已无人走**, 仅留到 ⑥-2f 删）。
-        self._line_protocol = bool(line_protocol)
         # 行协议丢掉软操作行（如"图没发出去"）→ **下一轮**注记念一次（自清）
         self._line_notes: list[str] = []
 
@@ -584,7 +580,7 @@ class MomoTalkEngine:
     def _count_session_turns(self, char_id: str) -> int:
         """本会话已落库的 mmt 轮数（`_session_rounds` 的重启恢复值）。
 
-        每成功一轮落一条 `mmt_chat` 事件（`_finish_turn_list` → `_log_events`）,
+        每成功一轮落一条 `mmt_chat` 事件（`_deliver_line` 逐行写）,
         故"条数"即"轮数"（invariant 有单测钉住）。无 store / 无会话 / 读失败
         → 0（宁缺勿错: 从 0 起只是窗口晚一点, 不阻断对话）。
         """
@@ -945,19 +941,21 @@ class MomoTalkEngine:
         task_kind: str = "",          # 本回合任务卡 kind（"" → 域默认 chat）; 收尾轮传 "wrapup"
         now: datetime | None = None,  # 本轮"现在"（None → 读壁钟）; 时间注记**共用**它
     ) -> TurnResult:
-        """一轮 agent 对话：LLM 输出**消息流**, 逐单元执行, 直到用户可见输出。
+        """一轮 agent 对话：LLM 输出**行流**, 逐行办理, 直到用户可见输出。
 
-        消息流协议（2026-09-02 定稿）: 聊天 = 消息序列, 任意交错——
-        {"messages": [{"text": "话1"}, {"action": 真操作, "payload": …}, {"text": "话2"}]}
-        ——text 单元 = 说话（默认产物, 引擎包装成隐含 mmt_chat, 事件流/历史/
-        渲染零改动）; action 单元只承载需要引擎介入的操作（send_media /
-        inspect / trigger）。旧协议（reply/actions/mm_chat 动作）解析层兼容归一。
+        行协议（⑥-2e 起）: 一行一条 JSON, 任意交错——
+            {"text": "话1"}                              # 消息行（一条行 = 一个气泡）
+            {"action": "mmt_send_media", "payload": …}   # 操作行（不上屏）
+            {"text": "话2"}
+        消息行 → 隐含 `mmt_chat`（事件流/历史/渲染零改动）; 操作行只承载需要引擎
+        介入的事（send_media / inspect / trigger）。
 
-        循环内（MAX_STEPS 步）:
-            LLM 决策（json_object）→ 消息流解析（结构 + 约束: inspect 独占 /
-            trigger 不与其他操作混排）→ **全量 parse（原子: 任一无效 → 整轮回灌）**
-            → 顺序执行（执行失败 → 该动作 feedback, 本轮重试, 已执行副作用保留）
-            → 全部成功 → 渲染所有步骤 + 记历史 + 轮数 +1（列表整体算一轮）
+        轮内（`_turn_lines`, 上限 MAX_STEPS 步）:
+            LLM 决策（**裸文本**）→ 行解析（坏行丢行记账）→ 四阶段办理
+            （① 自愈 ② 组合校验 ③ parse+执行 ④ **保持行序**交付）
+            → 逐行落事件 + 记历史 → 全部办完 → 轮数 +1（一次 agent_turn = 一轮）
+        兜底三段: ① 引擎自愈（零 LLM）② 行级续写（只收控制行; ≤LINE_REASK_MAX）
+        ③ 形状级整轮重发（≤SHAPE_RETRY_MAX）; 耗尽 → MmtLoopError。
 
         system_note: 本轮额外系统注记（只进 LLM context, 不入历史）。
         record_input: False 时不把 user_input 记入历史（自动收尾等系统触发轮）。
@@ -1033,314 +1031,18 @@ class MomoTalkEngine:
             system=self._system_prompt, history=self._history,
             notes=notes, brain=brain, user=user_input)
 
-        # ⭐ 行协议分派（⑥-2d）: 开关打开才走新路径（真机默认关 ⇒ 本步零行为变化）
-        if self._line_protocol:
-            return self._turn_lines(messages, user_input, record_input=record_input)
-
-        for step in range(MAX_STEPS):
-            # 1) LLM 决策（json_object 已内置 JSON 清洗与修正重试, 返回 dict）
-            try:
-                response = self.llm.chat(
-                    messages, temperature=TEMP, max_tokens=MMT_MAX_TOKENS,
-                    response_format="json_object",
-                    task=MMT,          # 主链调用身份（节点 5b: 桩按它分派）
-                )
-            except Exception as e:
-                logger.warning("LLM 调用失败（step %d）: %s", step, e)
-                feedback(messages, f"LLM 调用失败: {e}\n请重试。")
-                continue
-            messages.append({"role": "assistant", "content": str(response)})
-
-            # 2) 消息流解析（结构 + 约束违规 → feedback 整轮重试）
-            units = self._parse_messages(response, messages)
-            if units is None:
-                continue
-
-            # 3) 单元 → AgentAction（text 单元 = 隐含 mmt_chat, 不经 registry;
-            #    action 单元全量 parse, 原子: 任一无效 → 整轮回灌, 不执行任何动作）
-            parsed: list[AgentAction] = []
-            parse_ok = True
-            for unit in units:
-                if unit["kind"] == "text":
-                    parsed.append(AgentAction(
-                        action="mmt_chat", domain=DOMAIN_MMT, approval=APPROVAL_AUTO,
-                        reply=unit["text"], payload={},
-                    ))
-                    self._trace.append({
-                        "step": step,
-                        "action": "mmt_chat",
-                        "summary": "",
-                        "reply": unit["text"],
-                        "payload": {},
-                        "parse_valid": True,
-                        "parse_errors": [],
-                    })
-                    continue
-                action, result = self.registry.parse(unit["raw"])
-                self._trace.append({
-                    "step": step,
-                    "action": action.action if action else None,
-                    "summary": action.summary if action else "",
-                    "reply": action.reply if action else "",
-                    "payload": action.payload if action else None,
-                    "parse_valid": result.is_valid,
-                    "parse_errors": list(result.errors),
-                })
-                if not result.is_valid:
-                    parse_ok = False
-                    feedback(
-                        messages,
-                        f"动作无效: {'; '.join(result.errors)}",
-                        "请严格按 schema 重新输出（所有动作都必须有效）。",
-                    )
-                    break
-                parsed.append(action)
-            if not parse_ok:
-                continue
-
-            # 4) 顺序执行（执行失败 → 该动作 feedback, 本轮重试）
-            exec_results: list[ExecResult] = []
-            exec_ok = True
-            for i, action in enumerate(parsed):
-                try:
-                    exec_result = self.executor.execute(action)
-                except MmtExecError as e:
-                    self._trace[-1]["exec_message"] = str(e)
-                    feedback(messages, str(e))
-                    exec_ok = False
-                    break
-                self._trace[-1]["exec_ok"] = exec_result.ok
-                self._trace[-1]["exec_message"] = exec_result.message
-                if not exec_result.ok:
-                    feedback(messages, exec_result.message)
-                    exec_ok = False
-                    break
-                exec_results.append(exec_result)
-            if not exec_ok:
-                continue
-
-            # 5) 全部成功 → 渲染全部步骤 + 历史 + TurnResult
-            return self._finish_turn_list(
-                parsed, exec_results, user_input, record_input)
-
-        raise MmtLoopError(f"单轮动作循环超过 {MAX_STEPS} 步仍未产出可见回复")
+        # 行协议（⑥-2e 起唯一路径）: 一行一条 JSON → 逐行交付 + 逐行落库 + 三段式兜底
+        return self._turn_lines(messages, user_input, record_input=record_input)
 
     # ------------------------------------------------------------------
     # 内部
     # ------------------------------------------------------------------
 
-    def _parse_messages(self, response, messages: list[dict]):
-        """解析 LLM 轮级返回 → 消息单元列表 | None。
-
-        消息流协议（2026-09-02 拍板）: 聊天 = 消息序列, 任意交错:
-            {"messages": [
-                {"text": "话1"},                          # text 单元 = 说话
-                {"action": "mmt_send_media", "payload": …},  # action 单元 = 真操作
-                {"text": "话2"},
-            ]}
-        text 单元不是动作（引擎渲染/落库为 mmt_chat 事件）; action 单元只承载
-        需要引擎介入的操作（payload 校验在 registry.parse）。
-        兼容旧协议: {"reply": …} / {"actions": [动作…]}（含 mmt_chat 动作与
-        动作内 reply 字段）→ 归一为消息单元。
-        结构错误 / 空轮 / 约束违规（inspect 混入 / trigger 不独占）→ feedback
-        并返回 None（整轮重试, 原子性）。
-        """
-        if not isinstance(response, dict):
-            feedback(messages, "输出必须是 JSON 对象: {\"messages\": [消息1, ...]}——"
-                               "text 单元说话, action 单元执行操作（可任意交错）")
-            return None
-
-        # --- 归一: 新旧协议 → 消息单元序列 ---
-        units: list[dict] = []
-        if "messages" in response:
-            raw = response.get("messages")
-            if not isinstance(raw, list) or not raw:
-                feedback(messages, "messages 必须是数组（至少一个 text 或 action 单元）")
-                return None
-            for m in raw:
-                if not isinstance(m, dict):
-                    feedback(messages, f"消息单元必须是 JSON 对象: {m!r}")
-                    return None
-                units.append(m)
-        else:
-            # 旧协议兼容: reply + actions（2026-08-23 版）
-            reply = response.get("reply", "")
-            if not isinstance(reply, str):
-                feedback(messages, "reply 必须是字符串（兼容旧协议字段）")
-                return None
-            raw_actions = response.get("actions") or []
-            if not isinstance(raw_actions, list):
-                feedback(messages, "actions 必须是数组（兼容旧协议字段）")
-                return None
-            for a in raw_actions:
-                if not isinstance(a, dict):
-                    continue                       # 坏项交给后续校验
-                if a.get("action") == "mmt_chat":  # 旧文本动作 → text 单元
-                    r = a.get("reply", "")
-                    if isinstance(r, str) and r.strip():
-                        units.append({"text": r.strip()})
-                    continue
-                r = a.get("reply", "")             # 动作附带话 → 前置 text 单元
-                if isinstance(r, str) and r.strip():
-                    units.append({"text": r.strip()})
-                units.append({k: v for k, v in a.items() if k != "reply"})
-            if reply.strip():
-                units.insert(0, {"text": reply.strip()})
-            if not units:
-                feedback(messages, "本轮没有任何消息——至少要说话或做一件事")
-                return None
-
-        # --- 归一后: 统一结构校验 ---
-        normalized: list[dict] = []
-        for m in units:
-            text = m.get("text")
-            action_raw = m.get("action")
-            if isinstance(text, str) and text.strip():
-                normalized.append({"kind": "text", "text": text.strip()})
-                continue
-            if isinstance(action_raw, str) and action_raw.strip():
-                if "payload" in m and not isinstance(m.get("payload"), dict):
-                    feedback(messages, f"动作 {action_raw} 的 payload 必须是对象")
-                    return None
-                normalized.append({"kind": "action",
-                                   "raw": {"action": action_raw,
-                                           "payload": m.get("payload", {})}})
-                continue
-            feedback(messages,
-                     "消息单元无效: 需要 {\"text\": \"话\"} 或 "
-                     "{\"action\": \"动作名\", \"payload\": {...}}——"
-                     + repr(m))
-            return None
-        if not normalized:
-            feedback(messages, "本轮没有任何有效消息——至少要说话或做一件事")
-            return None
-
-        # 约束: inspect 是静默推理轮（查完回灌继续）——messages 只能有它一个单元
-        actions_n = [u for u in normalized if u["kind"] == "action"]
-        if len(actions_n) == 1 and actions_n[0]["raw"].get("action") == \
-                "mmt_inspect_character" and len(normalized) > 1:
-            feedback(messages, "mmt_inspect_character 是静默推理轮——messages 里只能有它"
-                               "一个单元, 不能夹 text 或其他动作（查完回灌给你后继续说话）")
-            return None
-        # 约束: trigger 是模式切换——messages 里不能有其他 action 单元
-        # （text 邀约话可放在它前面: 切换前最后一条手机消息 = 见面的话）
-        if any(u["raw"].get("action") == "mmt_trigger_bond_story"
-               for u in actions_n) and len(actions_n) > 1:
-            feedback(messages, "mmt_trigger_bond_story 必须独占操作（模式切换, 之后不再是手机消息）"
-                               "——messages 里只能有一个 action 单元（trigger）; "
-                               "邀约的见面话可以用 text 单元放在它前面, 但不要再夹发图等其他动作")
-            return None
-        return normalized
-
-    def _finish_turn_list(
-        self,
-        actions: list[AgentAction],
-        exec_results: list[ExecResult],
-        user_input: str,
-        record_input: bool = True,
-    ) -> TurnResult:
-        """动作列表全部成功 → 渲染显示步骤 + 存档历史 + 组装 TurnResult。
-
-        列表整体算一轮对话（用户一句输入 → LLM 一次返回 → N 个动作）:
-            - 轮数只 +1 一次
-            - 历史: 每动作一条 assistant 消息（对齐事件流: 每动作一事件）
-            - steps: 每动作的 reply 气泡块拼接（媒体由 GUI 用 TurnResult.actions 渲染）
-            - actions: [{action, reply, payload}] —— GUI 依序渲染媒体/切换
-            - action/payload: 列表最后一个动作（兼容现有 GUI/调用方）
-            - bond_story: 列表含 mmt_trigger_bond_story
-        """
-        display = MomoTalkOutput(_process_for_momotalk, self._current_char.display_name)
-        steps: list[DisplayStep] = []
-        reply_blocks: list[str] = []
-        actions_view: list[dict] = []
-
-        for action, _exec in zip(actions, exec_results):
-            reply = (action.reply or "").strip()
-            if reply:
-                reply_blocks.append(reply)
-                steps.extend(display.publish_reply(reply))
-            actions_view.append({
-                "action": action.action,
-                "reply": reply,
-                "payload": dict(action.payload),
-            })
-
-        # 历史: 每轮至少记动作名 + reply（可追溯 agent 干了什么）;
-        # record_input=False（自动收尾等系统轮）不记假 user 消息, 只记回复
-        # 切片回灌（与 render_events 一致）: reply 去括号 + 切块, 只第一块带动作名
-        if record_input:
-            self._history.append({"role": "user", "content": user_input})
-        for action in actions:
-            reply = (action.reply or "").strip()
-            text = _strip_action_brackets(reply).strip()
-            chunks = split_reply_chunks(text) if text else []
-            if chunks:
-                for i, chunk in enumerate(chunks):
-                    prefix = f"[{action.action}] " if i == 0 else ""
-                    self._history.append({"role": "assistant", "content": f"{prefix}{chunk}"})
-            else:
-                self._history.append({
-                    "role": "assistant",
-                    "content": f"[{action.action}]",
-                })
-        self._trim_history()
-
-        # 列表整体算一轮 → 轮数 +1 一次（落盘跨会话累计）
-        if self._current_char is not None:
-            self.bond_progress.record_turn(self._current_char.character_id)
-
-        # 事件流落盘（store 注入 + attach_session 后）: 每动作一条事件,
-        # 同轮第一个动作带 player（render_events 去重约定, docs/archive/DESIGN_SAVE.md §4.2）
-        self._record_events(actions, user_input, record_input)
-
-        # 轮数推进（成功一轮 +1）: 时机建议注记的基准（无 store 同样累计）
-        self._advance_round(self._char_id)
-        # mmt 会话窗口 digest（蓝图 §3.1: 每 N=25 轮; 内部判定+剧情保护）
-        self._maybe_mmt_digest()
-
-        last = actions[-1]
-        return TurnResult(
-            ok=True,
-            steps=steps,
-            reply="\n".join(reply_blocks),
-            action=last.action,
-            payload=dict(last.payload),
-            bond_story=any(a.action == "mmt_trigger_bond_story" for a in actions),
-            actions=actions_view,
-        )
-
-    def _record_events(
-        self, actions: list[AgentAction], user_input: str, record_input: bool,
-    ) -> None:
-        """mmt 事件流落盘（docs/archive/DESIGN_SAVE.md §4.2）: 每动作一条 type=mmt 事件。
-
-        同轮第一个动作带 player（后续空 → render_events 不重复 user 消息）;
-        payload = 干净动作字段 + reply; 写失败静默降级（不阻断对话）。
-        轮数推进（_session_rounds/_bond_gap）在 _finish_turn_list 统一做——
-        无 store 会话同样累计（供时机注记; store 会话另落盘 progress.json）。
-        """
-        if self._store is None or not self._session_id:
-            return
-        char_id = self._current_char.character_id if self._current_char else ""
-        try:
-            for i, action in enumerate(actions):
-                payload = dict(action.payload)
-                payload["reply"] = (action.reply or "").strip()
-                if i == 0 and record_input:
-                    payload["player"] = user_input
-                self._store.append_event(
-                    char_id, self._session_id, make_event("mmt", action.action, payload))
-        except Exception as e:                      # 宁缺勿错: 存档失败不阻断对话
-            logger.warning("事件流落盘失败, 本轮不记录: %s", e)
-
     # ------------------------------------------------------------------
-    # 行协议（⑥-2d）—— 一行一条 JSON: 逐行交付 / 逐行落库 / 三段式兜底
+    # 行协议（唯一路径）—— 一行一条 JSON: 逐行交付 / 逐行落库 / 三段式兜底
     #
-    # ⚠️ **临时双读件**：`line_protocol=True` 才走这里（真机默认关 ⇒ 本步零行为变化）。
-    # ⑥-2e 翻转契约（prompt/schema/response_format）、⑥-2f 删旧路径与开关之后，
-    # 这块就是唯一路径 —— 那时删掉"双读"字样与构造函数里的参数。
-    #
-    # 与旧路径的差别（`DESIGN_STREAM_CONTRACT.md` §3/§4/§10.3）:
+    # 契约: `docs/DESIGN_STREAM_CONTRACT.md` §1（六条）/ §2（两域对照）/ §4（兜底分级）/
+    # §10.3（三个注入点）。要点:
     # · 交付单元 = **行**：text 行 = 一个气泡，解析出来就落事件（C4"行交付即 append"）；
     # · 操作行**先自愈再校验**（自愈必须早于 `registry.parse` —— §10.2 B5 发现②）；
     # · **有硬问题就不交付**（`inspect` 混排时绝不先把话放出去）；
@@ -1608,7 +1310,7 @@ class MomoTalkEngine:
         """收尾：渲染步骤（**一行一个气泡**）+ 轮数 + digest 判定 → TurnResult。
 
         ⚠️ 事件与历史**已经在交付时逐行写过了**（`_deliver_line`）——这里不再记一遍
-        （旧路径的 `_record_events` 是整轮一次性写）。
+        （messages 时代是整轮一次性写）。
         """
         display = MomoTalkOutput(_process_for_momotalk, self._current_char.display_name)
         steps: list[DisplayStep] = []

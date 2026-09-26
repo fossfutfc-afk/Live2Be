@@ -9,7 +9,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-from contract import build_schema
+from contract import build_line_schema
 from core.mmt.mmt_actions import build_mmt_registry
 from core.parsing.dynamic_character_parser import CharacterLoader
 from core.promptkit import (
@@ -64,7 +64,7 @@ def _ctx():
         char=char,
         names=[char.display_name],
         greeting_suffix="——以下是你的行为规则，请严格遵守：",
-        schema=build_schema(build_mmt_registry(), action_list=True),
+        schema=build_line_schema(build_mmt_registry()),
         interperson_path=ROOT / "config" / "settings" / "relation" / "interperson.json",
     )
 

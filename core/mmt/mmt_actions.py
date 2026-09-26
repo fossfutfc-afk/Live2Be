@@ -1,17 +1,18 @@
 """MMT 域动作 — MomoTalk 运行时（动作名带 mmt_ 前缀）。
 
-动作集（v2, 2026-09-02 协议重构——对白不再是动作）:
-    说一句话 = 一轮的**默认产物**（轮级 reply 字段）, 不是动作;
-    动作只承载**需要引擎介入的操作**:
+动作集（对白不是动作）:
+    说一句话 = 一行**消息行**（`{"text": …}`）, 不是动作;
+    动作只承载**需要引擎介入的操作**（**操作行**）:
     mmt_inspect_character    深挖后备: 查角色私密资料（静默推理轮, 权重分级）
     mmt_send_media           发图片（禁视频; 图片先查资源库, 库内没有才生成）
-    mmt_trigger_bond_story   判定进入羁绊剧情（bool 触发器: 轮数门槛 + LLM 决策）
+    mmt_trigger_bond_story   判定进入羁绊剧情（模式切换: 独占操作行）
 
-消息流协议（见 momotalk._parse_messages）:
-    {"messages": [{"text": "话"}, {"action": 真操作, "payload": …}, {"text": "话"}]}
-    —— text 单元说话（不是动作, 引擎渲染为气泡）; action 单元只放需引擎介入的
-    操作, 外壳只有 {action, payload}; 任意交错（话→图→话 微信节奏）。
-    旧输出兼容: reply/actions/mmt_chat 动作 → 解析层归一为消息单元。
+行协议（⑥-2e 起; 解析见 `core/mmt/mmt_lines.py`, 契约见
+`docs/DESIGN_STREAM_CONTRACT.md`）:
+    {"text": "话"}                                    ← 消息行（一行 = 一个气泡）
+    {"action": "<动作名>", "payload": {…}}            ← 操作行（不上屏）
+    任意交错（话→图→话 微信节奏）; 操作行外壳只有 {action, payload}。
+    ⚠️ 旧形状（`{"messages": […]}` / `{"reply","actions"}`）**已整段退役**（⑥-2f）。
 
 信息架构（v2 五层认知）:
     L0 自我层   角色设定（五件套）+ 世界观 → 常驻 system prompt
@@ -27,9 +28,9 @@
 设计决策:
     - mmt_ 前缀: 动作名自带域标识——LLM 输出 / schema 渲染 / 历史记载
       一眼可辨是 MMT 动作, 不依赖额外 domain 字段。
-    - 2026-09-02 协议重构: mmt_chat 不再是动作（说话 = 默认产物, 轮级 reply）;
-      summary/operation 移除（MMT 域零消费的死字段）; 动作外壳 = {action, payload}。
-      隐含 mmt_chat 由 momotalk 解析层构造（事件流/历史/渲染零改动）。
+    - 2026-09-02 协议重构 + ⑥-2e 行协议: `mmt_chat` 从来不是动作（说话 = 消息行）;
+      summary/operation 移除（MMT 域零消费的死字段）; 操作行外壳 = {action, payload}。
+      隐含 mmt_chat 由引擎的行办理层构造（`_run_lines`; 事件流/历史/渲染零改动）。
     - 禁视频: 项目没有视频生成能力——mmt_send_media 只允许图片,
       media_type 白名单 = {'image'}, 传 video 会被硬性拒绝并回灌给 LLM。
     - 图片管线: 先查资源库（library_id）, 库内没有现成图才按 image 描述生成。
@@ -51,7 +52,7 @@ from contract import (
     is_valid_identifier,
 )
 
-# MMT 动作外壳: {action, payload}——对白一律走轮级 reply（2026-09-02）;
+# MMT 操作行外壳: {action, payload}——对白一律走消息行（`{"text": …}`）;
 # summary 也不出现在 MMT（IDE 域残留语义, MMT 零消费）
 MMT_RUNTIME_FIELDS = frozenset({"action", "payload"})
 

@@ -137,17 +137,17 @@ VN 的控制行玩家看得见（丢了立刻穿帮），MMT 的控制行玩家�
 
 | # | 位置 | 动作 | 状态 |
 |---|---|---|---|
-| 1 | `core/mmt/engine.py` 的 `_parse_messages` | 删 `reply` / `actions` 归一分支 + 相关 feedback 文案 + 文件头 docstring 里的旧协议说明 | ⏳ **⑥-2f** |
+| 1 | `core/mmt/engine.py` 的 `_parse_messages` | 删 `reply` / `actions` 归一分支 + 相关 feedback 文案 + 文件头 docstring 里的旧协议说明 | ✅ **⑥-2f**（整个方法与旧循环/`_finish_turn_list`/`_record_events` 一并删除, −296 行） |
 | 2 | `core/mmt/mmt_actions.py`（`mmt_send_media` / `mmt_trigger_bond_story` 的 `payload_schema`） | 改掉"附带的话写在**轮级 reply 字段**"与"邀约的话写 **text 单元**"（两处**都会进 prompt**） | ✅ **⑥-2e** |
-| 3 | `contract/schema.py::build_schema(action_list=True)` | 调用点换成 `build_line_schema`（引擎侧已换）；`action_list` **分支代码**本身待删 | ✅ 调用点（⑥-2e）／⏳ 分支删除（⑥-2f） |
+| 3 | `contract/schema.py::build_schema(action_list=True)` | 调用点换成 `build_line_schema`（引擎侧已换）；`action_list` **参数与分支整段删除** | ✅ **⑥-2f**（`build_schema` 只剩单动作形态, 给 story/IDE） |
 | 4 | `llm/prompts/momotalk_rules.md` | 拆风格/形状：4 条闲聊例与 4 个触发示范去掉 JSON 外壳、改成"玩家:/你:"（**风格**），形状只在契约块一份 | ✅ **⑥-2e** |
 | 5 | `core/mmt/engine.py` 的隐含 `mmt_chat` 映射 | 定义点收成一处（`_run_lines` 里 消息行 → `mmt_chat` 事件 + history 行） | ✅ **⑥-2d/e** |
-| 6 | 测试 | 桩全改 JSONL（19 个文件）；旧形状用例 → "**旧形状必须被拒**" | ✅ 桩（⑥-2e）／⏳ 旧形状分支用例（⑥-2f） |
+| 6 | 测试 | 桩全改 JSONL（19 个文件）；旧形状用例 → "**旧形状必须被拒**"；双读开关用例随开关删除 | ✅ **⑥-2e/f** |
 | 7 | `docs/PROMPT_INJECTION_MAP.md`（MMT schema 行 / 旧协议对照行） | 事实同步 | ✅ **⑥-2e** |
-| 8 | `CLAUDE.md` §3.1（"每轮输出：单个 JSON 消息流"）+ §2 的 `contract/` 树 | ⚠️ **改前先改名**（其指令预算已满，编辑会截掉尾部） | ⏳ **⑥-2f** |
+| 8 | `CLAUDE.md` §3.1 | 改前**先改名**（其指令预算已满，编辑会截掉尾部） | ✅ **⑥-2f** |
 | 9 | `llm/prompts/task_mmt.md` / `task_mmt_wrapup.md` | 去掉"消息流"/"只许 mmt_chat"旧词（改"一行一条消息"/"只发消息行"） | ✅ **⑥-2e** |
 
-⚠️ **旧档回放不受影响**：回放读事件流、不走 LLM 解析 ⇒ 删兼容分支安全。
+⚠️ **旧档回放不受影响**：回放读事件流、不走 LLM 解析 ⇒ 删兼容分支安全（已删）。
 
 ---
 
@@ -187,7 +187,7 @@ VN 的控制行玩家看得见（丢了立刻穿帮），MMT 的控制行玩家�
 | 步 | 做什么 | 判据 |
 |---|---|---|
 | **⑥-1 抽取** | ✅ **已落地 2026-09-25**：通用件 → `contract/streams/`（`lines.py` 行骨架 + 判别注入 + `ParseDiag`/`tail_repair` · `stream.py` 增量缓冲基类）；`records/` 只留 VN 判别 / 转义救援 / **切板**（交付单元），3 个通用件改再导出 | ⭐ 纯搬家、**零行为变化** ✅（全量 + B 冒烟；快照刷新 + 新守门 `test_streams_layer_stays_domain_free`） |
-| **⑥-2 MMT 契约** | 契约 / 规则书 / 示例改 JSONL + 行级解析（**先不流式**）；"整轮原子"换成 §4 的兜底分级与重试三段式 | 桩按 `task` 补；`test_mmt_*` 跟着改；旧形状必须被拒 |
+| **⑥-2 MMT 契约** | ✅ **已落地（a₀–f, 2026-09-25/26）**：共用层抽取 → 契约渲染器 → 行解析 → 校验+自愈 → 引擎接线（双读）→ **翻转契约** → **删旧路径**（−296 行: 旧循环 / `_parse_messages` / `_finish_turn_list` / `_record_events` / `line_protocol` 开关 / `build_schema(action_list=…)`） | 全量 + B 冒烟；桩全改 JSONL；"旧形状必须被拒"有用例 |
 | **⑥-3 流式交付** | 接 `chat_full(on_chunk=…)` + 气泡逐条上屏（`webgui/chat.py` 的 `events_after` 轮询链要动） | B 层冒烟要能测到"第一个气泡早于整轮完成" |
 
 ⚠️ 传输层已经就绪：MMT 本就是 `chat_async` 后台线程 + 前端轮询 `/api/mmt/events?since=`
@@ -263,6 +263,8 @@ VN 的控制行玩家看得见（丢了立刻穿帮），MMT 的控制行玩家�
 | 2026-09-25 | **⑥-2c 落地**（校验 + 自愈）：`core/mmt/mmt_check.py`（5 码 + 软硬表 + `check_turn`：空轮 / 两个独占约束 / **`chapter_title` 3-16** / 丢行汇总软记账）+ `core/mmt/mmt_repair.py`（`character_id` 归一【精确→折叠→子串，**唯一命中才用**】· `media_type` 纠错 · 标题截断 · `repair_line` 分派）；13 条单测；反文案分级守门扩到 MMT 码表。纯新增，未接线 |
 | 2026-09-25 | **⑥-2d 落地**（引擎接线，双读）：`MomoTalkEngine(line_protocol=…)`（临时件，⑥-2f 删；**默认 False ⇒ 真机零行为变化**）；新路径 = 裸文本 → 行解析 → **四阶段办理**（自愈 → 组合校验 → parse+执行 → **保持行序**交付）+ `_deliver_line` 逐行落事件/历史 + 三段式兜底（行级 1 / 形状级 2）+ 软丢行下一轮注记；`MomoTalkOutput.publish_line`（一行一气泡，不切句）；`MmtLine.to_dict/to_line`。⭐ **AUDIT §B9 已接上**（inspect 资料回灌后继续这一轮）。9 条新用例（含"旧路径一字未动"） |
 | 2026-09-25 | **⑥-2e 落地**（⭐ 翻转契约）：盒A 的 `schema` 块 → `build_line_schema`；`line_protocol` **默认改 True**；`momotalk_rules.md` **拆风格/形状**（示范去 JSON 外壳、形状只在契约块）；`mmt_actions.py` 两处旧协议残句修正；`task_mmt*.md` 去旧词；**19 个文件的桩改 JSONL**；promptkit 夹具刷新（人工审 diff）+ 快照刷新 + 注入地图同步。两条实测记录：① 旧路径经 `split_reply_chunks` 会**规范化标点**（`……`→`…`），新路径逐字保留；② 续写轮模型若改口"不补那一行、直接说话"⇒ **收下它的话**（兜底优先）+ 记"操作没执行"注记（原"只收控制行"会让整轮白费） |
+| 2026-09-26 | **⑥-2f 落地**（清旧协议，−296 行）：删旧循环 + `_parse_messages`（含 `reply`/`actions` 归一）+ `_finish_turn_list` + `_record_events` + `line_protocol` 开关；`build_schema` 去掉 `action_list` 参数与整个 MMT 分支（只剩单动作形态给 story/IDE）；`mmt_actions` / `blocks.py` / `schema.py` 的协议描述同步；双读用例删除；`CLAUDE.md` §3.1 改写（⑥-2f 收尾）。**旧形状 ⇒ 形状级重发耗尽 ⇒ 拒**（有用例钉住） |
+| 2026-09-26 | **顺带修一个前端真机 bug**（不在 ⑥ 计划内）：**章中途的 memorial 板不上屏**——`/turn` 直返场景那条路漏了 `syncMemorial`（`/start` 与轮询两条路都有），后端那刻已把 `in_memorial`/`memorial_img` 放进响应；"名字隐藏了"是 `is_end` 让名字牌隐藏、与纪念无关（所以看起来只做对了一半）。修复 = 补一行 + `syncMemorial` 加场景快照兜底；**冒烟覆盖缺口同时补上**（桩块把纪念挪到第二板 ⇒ 走 `/turn` 直返；变异验证：去掉修复冒烟立刻红）+ 回放两条路改为"逐段播过去"再断言 |
 
 ---
 
