@@ -131,3 +131,28 @@ def test_scan_can_actually_fail():
     finally:
         probe.unlink(missing_ok=True)
     print(f"    layering: 规则 {len(RULES)} 条 / 白名单 {len(ALLOWED)} 条 / 扫描可失败")
+
+
+#: **包内单向依赖**（⑥-1, 2026-09-25）: 通用流层不得认识任何域 ——
+#: `contract/streams/` 只允许 import stdlib 与它自己；判别函数/已知字段/救援
+#: 全部由调用方**注入**（`docs/DESIGN_STREAM_CONTRACT.md` §7 / §10.1）。
+#: 反向依赖（streams → records）会立刻变成循环，且等于把"通用层"变成 VN 的一部分。
+def test_streams_layer_stays_domain_free():
+    """`contract/streams/` 只 import stdlib 与 `contract.streams.*`。"""
+    base = ROOT / "contract" / "streams"
+    bad: list[str] = []
+    for path in sorted(base.rglob("*.py")):
+        if "__pycache__" in path.parts:
+            continue
+        rel = path.relative_to(ROOT).as_posix()
+        own = _package_of(path)                      # contract.streams（包内文件同名）
+        for line, name in _imports(path):
+            if not name.startswith("contract."):
+                continue                             # stdlib / 空 import
+            if name == own or name.startswith(own + "."):
+                continue
+            bad.append(f"{rel}:{line}  import {name}")
+    assert not bad, (
+        "通用流层出现了域依赖（它必须保持域无关, 判别/字段/救援靠注入）:\n  "
+        + "\n  ".join(bad) + "\n见 docs/DESIGN_STREAM_CONTRACT.md §7 复用判定表。")
+    print("    layering: contract/streams 域无关 ✓")

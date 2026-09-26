@@ -221,7 +221,7 @@ contract.records	KIND_CHARACTER	data	-
 contract.records	KIND_STAGE	data	-
 contract.records	MAX_SENSEI_RUN	data	-
 contract.records	NON_PICKS	data	-
-contract.records	ParseDiag	class	contract.records.grammar
+contract.records	ParseDiag	class	contract.streams.lines
 contract.records	ParseResult	class	contract.records.grammar
 contract.records	SPEAKER_SENSEI_LABEL	data	-
 contract.records	STAGE_ART	data	-
@@ -246,7 +246,7 @@ contract.records	_record_from_obj	function	contract.records.parse
 contract.records	_rescape_repair	function	contract.records.parse
 contract.records	_speaker_key	function	contract.records.carrier
 contract.records	_speaker_line	function	contract.records.carrier
-contract.records	_tail_repair	function	contract.records.parse
+contract.records	_tail_repair	function	contract.streams.lines
 contract.records	check_block	function	contract.records.check
 contract.records	check_board	function	contract.records.check
 contract.records	format_issues	function	contract.records.check
@@ -260,6 +260,12 @@ contract.records	render_records	function	contract.records.carrier
 contract.records	sensei_group_labels	function	contract.records.check
 contract.records	sensei_groups	function	contract.records.check
 contract.records	split_issues	function	contract.records.check
+# ---- contract.streams ----
+contract.streams	LineStreamBase	class	contract.streams.stream
+contract.streams	ParseDiag	class	contract.streams.lines
+contract.streams	TAIL_REPAIRS	data	-
+contract.streams	parse_line_items	function	contract.streams.lines
+contract.streams	tail_repair	function	contract.streams.lines
 # ---- core.mmt.engine ----
 core.mmt.engine	APPROVAL_AUTO	data	-
 core.mmt.engine	Affection	class	core.affection.affection_calc

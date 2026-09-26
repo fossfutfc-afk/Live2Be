@@ -171,7 +171,7 @@ VN 的控制行玩家看得见（丢了立刻穿帮），MMT 的控制行玩家�
 
 | 步 | 做什么 | 判据 |
 |---|---|---|
-| **⑥-1 抽取** | 通用件从 `contract/records/parse.py` 提到 `contract/streams/`：`ParseDiag`/`ParseResult` · `_tail_repair` · 行骨架 · 增量缓冲；`records/` 改成**注入判别函数 + 切板策略** | ⭐ **纯搬家、零行为变化**：全量 + B 冒烟逐字节等价（`api_surface` 快照与 split 守门跟着走） |
+| **⑥-1 抽取** | ✅ **已落地 2026-09-25**：通用件 → `contract/streams/`（`lines.py` 行骨架 + 判别注入 + `ParseDiag`/`tail_repair` · `stream.py` 增量缓冲基类）；`records/` 只留 VN 判别 / 转义救援 / **切板**（交付单元），3 个通用件改再导出 | ⭐ 纯搬家、**零行为变化** ✅（全量 + B 冒烟；快照刷新 + 新守门 `test_streams_layer_stays_domain_free`） |
 | **⑥-2 MMT 契约** | 契约 / 规则书 / 示例改 JSONL + 行级解析（**先不流式**）；"整轮原子"换成 §4 的兜底分级与重试三段式 | 桩按 `task` 补；`test_mmt_*` 跟着改；旧形状必须被拒 |
 | **⑥-3 流式交付** | 接 `chat_full(on_chunk=…)` + 气泡逐条上屏（`webgui/chat.py` 的 `events_after` 轮询链要动） | B 层冒烟要能测到"第一个气泡早于整轮完成" |
 
@@ -190,17 +190,19 @@ VN 的控制行玩家看得见（丢了立刻穿帮），MMT 的控制行玩家�
 
 ## 10. 落地细节（2026-09-25 逐条定，**动 ⑥-1 前确认**）
 
-### 10.1 解析层：共用层怎么切
+### 10.1 解析层：共用层怎么切　✅ **已落地（⑥-1, 2026-09-25）**
 
 | # | 定论 |
 |---|---|
-| A1 | 共用层**两个文件**：`contract/streams/lines.py`（行骨架 + 判别注入 + `ParseDiag`）· `contract/streams/stream.py`（增量缓冲基类） |
-| A2 | ⭐ base **只做行级**（`feed` 缓冲切行 → 逐行解析 → 交给子类钩子），**交付单元由子类定**：`BlockStreamParser` 变子类，公开 API 与行为**逐字节不变**；MMT 子类每行即时可取 |
-| A3 | `ParseResult` **留在 `records`**（VN 的返回类型，字段绑 `VnRecord`）；只有 `ParseDiag` 上提共用层（不上提泛型化，收益为零、动面大） |
-| A4 | 判别签名 = `classify(obj) -> (item \| None, reason)`（即现 `_record_from_obj` 的形状，VN 实现**逐字保留**，改为参数注入） |
+| A1 | 共用层**两个文件**：`contract/streams/lines.py`（行骨架 + 判别注入 + `ParseDiag` / `tail_repair`）· `contract/streams/stream.py`（增量缓冲基类 `LineStreamBase`）· `__init__.py`（再导出）。注入三样：`classify` / `known_keys` / `rescue` |
+| A2 | ⭐ base **只做行级**（`feed` 缓冲切行 → 逐行解析 → 子类钩子 `_accept`/`_flush`），**交付单元由子类定**：`BlockStreamParser` 已是 `LineStreamBase` 子类，公开 API 与行为**逐字节不变**；MMT 子类每行即时可取 |
+| A3 | `ParseResult` **留在 `records`**（VN 的返回类型，字段绑 `VnRecord`）；只有 `ParseDiag` 上提共用层（`records` 再导出，对外面稳定） |
+| A4 | 判别签名 = `classify(obj) -> (item \| None, reason)`（即原 `_record_from_obj` 的形状，VN 实现**逐字未改**，改为参数注入） |
 | A5 | MMT **不做**自己的 `_rescape_repair`（⑥-2 视真机再定）；要做也独立实现，不硬塞进 VN 那个（它靠 `^\{"(character\|stage)":` 头） |
 | A6 | 数组行拍平后**多条共用同一 `line_no`**（VN 现状即如此）；⇒ **气泡序号不能用 `line_no`**，落库时按"已交付行计数"另给 |
-| A7 | `tests/fixtures/api_surface.txt` 的"真家"列会变 ⇒ `SPLIT_API_UPDATE=1` 刷新 + 人工审 diff。**刷新快照 ≠ 行为变化**，提交信息须写明 |
+| A7 | `tests/fixtures/api_surface.txt` 已刷新（真家列变化 2 处 + 新增 `contract.streams` 段 5 名；`records` 其余名字一个未动）；`contract.streams` 已进 `TARGETS` 与 `SPLIT_PKGS`；新增守门 `test_streams_layer_stays_domain_free`（**变异验证**：塞一条 `from contract.records import …` 立刻红） |
+
+⚠️ **搬家时诊断文案也是行为**：`ParseDiag.error` 的中文串被用例逐字钉住（我改了一处"数组行内无合法记录"→"无合法行对象"当场面红）⇒ 通用层保留 VN 原文案，**不为了措辞漂亮去动它**。
 
 ### 10.2 契约层
 
@@ -238,6 +240,7 @@ VN 的控制行玩家看得见（丢了立刻穿帮），MMT 的控制行玩家�
 |---|---|
 | 2026-09-25 | 建立：契约形式六条 · 两域对照 · 控制行永不静默丢弃 · 兜底分级与重试三段式（行级 1 + 形状级 2）· MMT 旧协议退役清单 · 切句接口处置 · 复用判定表 · ⑥ 三小步。并入并删除 `DESIGN_VN_UPGRADE.md`（→ 附录 A）/ `DESIGN_MMT_CHAT.md` / `DESIGN_CONTRACT.md` |
 | 2026-09-25 | 补 §10 落地细节（动 ⑥-1 前逐条确认）：A1–A7 解析层切法（base 只做行级 / 交付单元留子类 / `ParseResult` 不上提）· B1–B6 契约层（新 `build_line_schema` / **形状单源 = rules 拆风格与形状** / MMT 码表在 `core/mmt/mmt_check.py`）· C1–C4 三个注入点（**智能矫正 = `core/mmt/mmt_repair.py`** / 续写轮只收控制行 / **行交付即 append 事件**）· D1–D3 |
+| 2026-09-25 | **⑥-1 落地**：`contract/streams/`（域无关行流层：lines + stream）+ `records/` 退化成"注入判别 / 救援 / 切板"；快照刷新（2 处真家 + 新段 5 名）；新增域无关守门（含变异验证）。**零行为变化** |
 
 ---
 

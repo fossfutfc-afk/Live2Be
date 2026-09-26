@@ -30,10 +30,15 @@ run=1 单选项、run=2~3 多选项；群一律弹选项（不做"自动播的�
 
 | 模块 | 管什么 |
 |---|---|
-| `grammar.py` | 取值表（kind/stage/speaker/上限 + 正则）+ `VnRecord` / `ParseDiag` / `ParseResult` —— **叶子** |
-| `parse.py` | 行 → 记录（五条容错纪律）+ `parse_line` / `parse_stream` / `BlockStreamParser` |
+| `grammar.py` | 取值表（kind/stage/speaker/上限 + 正则）+ `VnRecord` / `ParseResult` —— **叶子** |
+| `parse.py` | 行 → 记录（五条容错纪律的 VN 绑定）+ `parse_line` / `parse_stream` / `BlockStreamParser`（切板 = 交付单元） |
 | `check.py` | `sensei_groups` + `Issue` 软硬分级 + `check_block` / `check_board` |
 | `carrier.py` | `VnBlock` + 说话人身份 + `render_records` / `materialize_pick` / `pick_insert_index` |
+
+⭐ **通用件不住在这里了**（⑥-1, 2026-09-25）：行骨架（跳空行围栏 / 数组行拍平 /
+坏行记账）· 末行悬空修复 · `ParseDiag` · 增量缓冲基类 —— 全在 **`contract.streams`**
+（域无关，判别/已知字段/救援靠注入；MMT 的手机消息流与 VN 共用它）。
+`docs/DESIGN_STREAM_CONTRACT.md` §7 复用判定表 / §10.1。
 
 import 路径 `contract.records` **不变** ⇒ 全仓 28 处引用（`contract/__init__.py` ·
 `contract/schema.py` · `core/session/renderer.py` · `core/bond/bond_story/engine.py` ·
@@ -44,7 +49,8 @@ import 路径 `contract.records` **不变** ⇒ 全仓 28 处引用（`contract/
 · 本文件**只做再导出**; 名字增删请同步这里与 `tests/fixtures/api_surface.txt`
   （`SPLIT_API_UPDATE=1` 刷新）—— 守门会以"丢了/多出 X"指路;
 · ⚠️ **不定义 `__all__`**（它会被 API 面快照记成一个新名字）;
-· 52 个名字**全部**在本包四个模块里（无"路过"的借用名）。
+· 49 个名字在本包四个模块里 + **3 个通用件**（`ParseDiag` / `_TAIL_REPAIRS` /
+  `_tail_repair`）从 `contract.streams` **再导出**（真家在那儿; 快照第四列记录真家）。
 """
 
 from __future__ import annotations
