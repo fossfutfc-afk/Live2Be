@@ -138,6 +138,35 @@ def test_random_channel_precious_branch_deterministic(tmp_path):
     assert a == b and 1 <= len(a) <= 2   # 两次抽取可能抽中同一节点（去重后 ≥1）
 
 
+def test_random_channel_handles_aware_ts(tmp_path):
+    """★ 2026-09-27: `ts` **带时区**（真机形态）也不能崩——含新旧混排。
+
+    回归: `_random_segment` 原写 `now = datetime.now()`（朴素）−
+    `datetime.fromisoformat(n.ts)`（`now_ts()` 写的 `+08:00`）⇒ **TypeError**，
+    而 `except ValueError` 抓不住 ⇒ 直接冒泡。⚠️ `recall_subgraph` 里这一句没有
+    try 包裹 ⇒ **整个召回作废**（通道 1/2 的结果全丢）；真机 haruka 实测
+    12 个 seed 崩 8 次。
+
+    ⚠️ 老用例为什么全绿: `_now_iso()` 造的是 `datetime.now() - timedelta(...)`
+    = **naive** ts，永远不会触发这条 —— 本用例专门喂真机形态（aware + 混排）。
+    """
+    from core.worldtime.age import now_ts
+
+    aware = now_ts()                                  # 真机写侧形态（+08:00）
+    nodes = _ids([_ep("新的（带时区）", sig=0.5, ts=aware),
+                  _ep("旧的（朴素本地时间）", sig=0.5, ts=_now_iso(2)),
+                  _ep("坏 ts", sig=0.5, ts="不是时间"),
+                  _ep("没有 ts", sig=0.5)])
+    st = _store(tmp_path, nodes)
+    # 多抽几次: 珍贵分支（30%）不走 ts 计算, 只抽一次可能碰巧绕过回归
+    for seed in range(12):
+        out = recall_subgraph(st, query="", n_precious=0, n_random=1,
+                              rng=random.Random(seed))
+        assert len(out) == 1, f"seed={seed} 抽空了: {out}"
+        assert out[0].id in {"m0001", "m0002", "m0003", "m0004"}, out[0].id
+    print("    recall: 带时区 / 朴素 / 坏 ts 混排都不崩（12 个 seed）")
+
+
 # ---------------------------------------------------------------------------
 # 一跳扩展（**边表**的任意 rel——G3 起不再是节点上的 links ∪ contradictions）
 # ---------------------------------------------------------------------------

@@ -172,6 +172,14 @@ MMT 已换**行协议**（一行一条 JSON、逐行交付/落库、四阶段办
 **拟拆**：`a` 只读接通（动作面 + 契约 + 执行器 + 事件 + `WHOLE_TURN_ACTIONS` + 单测）·
 `b` 真机量命中率/条数/token（台账加 `surface=recall`）· 后续另开节点才动 `retire`。
 
+⚠️ **开工前的两条前置（2026-09-27 查清，均已处置）**：
+
+1. **`recall_subgraph` 是这条链的落点，而它在生产从没跑过 + 70% 概率抛** —— 已修
+   （陷阱 37：`_random_segment` 时区混算）。修完真机 12/12 不崩。
+2. **embedding 服务**：用户裁决**保持 LM Studio 开着**（1235，`lms server start`）——
+   配置一行不用改（`[embed].base_url` 就是 1235，model 自动发现 nomic）。
+   实测语义化后候选覆盖 39% → 100%（陷阱 38）。
+
 **C. 待清的死件**（我查出来的，都很小，但都是"看起来生效"的假旋钮）：
 `core/worldtime/age.py::render_relative(age, significance)` 的 **`significance` 从未被使用**；
 `age.is_precious` + `_SIG_PRECIOUS` **零消费者**；`graph.REL_UNKNOWN` 之外的旧 `entry`……
@@ -271,6 +279,29 @@ README 与 v3.0.0 更新日志，**都没写注入顺序**（它是"工具派"�
     正确判据 = "**后端说 `running=false` 却还在跳 >0.8s**"（直读 `/api/mmt/events`）。
     同一条纪律：断言超时时要**留证真身**（回忆册那次补了"列表原文"⇒ 一次就分清
     "加载中 / 空的 / 读不到"）。
+37. ⭐ **时区混算 = 一类会"静默杀功能"的 bug，别再手写 `fromisoformat`**
+    （2026-09-27 修 `recall.py` 时抓到的第二处）：
+    `ts` 2026-09-17 收敛到带时区（`now_ts()` 写 `+08:00`），而旧码里
+    `datetime.now()`（朴素）− `datetime.fromisoformat(ts)`（aware）抛 **TypeError**
+    ——`except ValueError` **抓不住它**。
+    · 第一处（`core/worldtime/prompt_time.py`，09-17 已修）症状 = **时间注记整条静默消失**；
+    · 第二处（`core/brain/wiki_v2/recall.py::_random_segment`，09-27 修）症状 =
+      `recall_subgraph` **整个召回作废**（那一句没有 try 包裹 ⇒ 通道 1/2 结果全丢），
+      真机 haruka **12 个 seed 崩 8 次**（那 70% 的"遗忘曲线"分支）⇒ 唯一生产调用点
+      CLI 的 `memory_flash` 被外层 `except Exception: 静默跳过` 吞掉，
+      **实际概率 25% → ≈7.5%，零日志**。
+    · 纪律：**统一 `age.parse_ts`**（朴素按 `REAL_TZ` 解释; 缺/坏 → None, 不抛）+
+      `datetime.now(REAL_TZ)`。⚠️ 老用例为什么全绿：`_now_iso()` 造的是 **naive** ts
+      ⇒ **测试数据形状与真机不一致**，回归永远看不见（新守门用例专喂 aware + 混排 + 坏 ts）。
+38. ⭐ **digest 的语义召回依赖本机 embedding 服务，服务不在就静默降级**
+    （2026-09-27 实测）：`[embed].base_url` 指 **1235**（LM Studio 恰好也服务在 1235，
+    `model` 留空自动发现 `text-embedding-nomic-embed-text-v1.5`）——**服务 OFF 时**
+    `_get_embed_fn()` 返回 None、`digest_embed fn=none reason=model_missing`，
+    Round B 的候选提示退化成 tags/2-gram 字面命中。真机 haruka（18 episode / 4 belief）
+    实测：**抬得出候选的 episode 39% → 100%**，分数中位 0.60 → 0.84。
+    ⇒ 排查"记忆只增不并"先看这一行日志; 起服务 = `lms server start`（配置不用改）。
+    ⚠️ nomic 的无关对基线就有 0.60 ⇒ 台账 `best=0.8~0.94` **不是阈值**（T17 已删阈值，
+    候选只是提示）。
 
 ---
 

@@ -498,8 +498,15 @@ CLI/测试同步路径在引擎内串行。
   3=+experience——runtime 现网消费）。
 - **运行时配置** settings.toml（gitignore, GUI 设置页读写）：`[llm]`(api/base/model/
   reasoning_effort) · `[llm.tasks.*]`(按形态覆盖档位/max_tokens, 真源 llm/task_levels.py)
-  · `[image]`(api/model/screen_size/**enabled 生图总开关**) · `[promptkit]`(task_card)。
+  · `[image]`(api/model/screen_size/**enabled 生图总开关**) · `[promptkit]`(task_card)
+  · `[recall]`(召回旋钮, 真源 `core/brain/wiki_v2/recall_config.py`) · `[embed]`(语义检索后端,
+  真源 `core/rag/embedder.py`)。
   优先级 构造参数 > settings.toml > .env > 默认。
+  ⚠️ **`[embed]` 服务不在 = digest 语义召回静默降级**（2026-09-27 实测）：`base_url`
+  指 **1235**（本机 = LM Studio, `lms server start`；model 留空自动发现
+  `text-embedding-nomic-embed-text-v1.5`），服务 OFF → `digest_embed fn=none
+  reason=model_missing` → Round B 候选退化成字面命中（真机 haruka 候选覆盖
+  **39% → 100%**）。排查"记忆只增不并"先 grep 这一行（PROCEED 陷阱 38）。
   **生图总开关**：`[image].enabled=false`（GUI 复选框）或环境变量 `LIVE2BE_IMAGE=off`
   （优先, 进程级）→ `llm.image_gen.image_enabled()` False → 纪念场景降级纯文字
   （webgui 不开生图线程 / vn_cli 当没注入 / 直接 `generate()` 明确报错）。
