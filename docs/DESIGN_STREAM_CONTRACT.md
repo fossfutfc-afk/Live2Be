@@ -220,7 +220,19 @@ VN 的控制行玩家看得见（丢了立刻穿帮），MMT 的控制行玩家�
 | **⑥-1 抽取** | ✅ **已落地 2026-09-25**：通用件 → `contract/streams/`（`lines.py` 行骨架 + 判别注入 + `ParseDiag`/`tail_repair` · `stream.py` 增量缓冲基类）；`records/` 只留 VN 判别 / 转义救援 / **切板**（交付单元），3 个通用件改再导出 | ⭐ 纯搬家、**零行为变化** ✅（全量 + B 冒烟；快照刷新 + 新守门 `test_streams_layer_stays_domain_free`） |
 | **⑥-2 MMT 契约** | ✅ **已落地（a₀–f, 2026-09-25/26）**：共用层抽取 → 契约渲染器 → 行解析 → 校验+自愈 → 引擎接线（双读）→ **翻转契约** → **删旧路径**（−296 行: 旧循环 / `_parse_messages` / `_finish_turn_list` / `_record_events` / `line_protocol` 开关 / `build_schema(action_list=…)`） | 全量 + B 冒烟；桩全改 JSONL；"旧形状必须被拒"有用例 |
 | **⑥-3 流式交付** | **a) 引擎** ✅ **已落地 2026-09-27**：`chat_full(on_chunk=…)` + `MmtStream`，内容行一行前瞻即时交付、独占行攒块尾、已交付不回滚（§4.5） | 全量 1090 + B 冒烟；新增 4 条流式守门用例（前瞻 / 独占攒块尾 / inspect 混排丢手里那行 / 已交付后硬问题不抛） |
-| | **b) 前端节奏 + 冒烟判据**：`POLL_MS` 生成期 1000→250ms、行间人为打字延迟退场（到达即渲染）、删 `BUBBLE_GAP_MS` 死代码；冒烟桩 `chat_full` 逐行喂 | B 层冒烟要能测到"第一个气泡早于整轮完成" |
+| | | **b) 前端节奏 + 冒烟判据** ✅ **已落地 2026-09-27**：`mmt.js` 生成期轮询 `POLL_MS_BUSY=250`、行间人为打字延迟退场（**到达即渲染**）、删 `BUBBLE_GAP_MS`/`renderBubbles(stream:true)` 死代码；冒烟桩 `chat_full` 逐行喂（`MMT_STREAM_GAP_S=0.3`）+ 新判据"**首泡上屏时后端仍在跑**"（直读 `/api/mmt/events` 的 `running`）。⚠️ 顺带修掉这条提速**暴露的两个真机竞态**（见下） | B 层冒烟 3/3 PASS（首泡 t≈620-670ms, running=true, 整轮 t≈1450-1550ms） |
+
+⚠️ **⑥-3b 暴露的两个真机竞态**（都在 `bond_start` 的"并发 init skip"分支，同一个成因：
+玩家在 worker 的 staged 预热**正在构造**时点进粉泡——1s 轮询时点击早过了预热窗口，
+250ms 之后点得中了）：
+
+| # | 症状 | 根因 |
+|---|---|---|
+| ① | 标题屏显示兜底"羁绊剧情" | 这条返回路径漏 `chapter_title`（2026-09-11 那次修复只补了 adopt/resumed/busy_wait） |
+| ② | 回忆册"已结束的故事 **0 章**" | staged 预热**不落** `vn_enter`（防未点击被推导 in_vn），而这一支直接 return ⇒ **整章没有 enter**，`chapter_index` 认不出（真机事件流实测: `vn_exit`=1 而 `vn_enter`=0） |
+
+修法 = 该分支按 `not staged` 补做 adopt 记账（补落 `vn_enter` + 清 staged 态 + 删预热缓存）
+并必带 `chapter_title`。
 
 ⚠️ 传输层已经就绪：MMT 本就是 `chat_async` 后台线程 + 前端轮询 `/api/mmt/events?since=`
 （`webgui/routers/mmt.py:186-198`）⇒ **逐条上屏不需要 SSE**，只差"引擎解析出一行就落一条事件"。
@@ -298,6 +310,7 @@ VN 的控制行玩家看得见（丢了立刻穿帮），MMT 的控制行玩家�
 | 2026-09-26 | **⑥-2f 落地**（清旧协议，−296 行）：删旧循环 + `_parse_messages`（含 `reply`/`actions` 归一）+ `_finish_turn_list` + `_record_events` + `line_protocol` 开关；`build_schema` 去掉 `action_list` 参数与整个 MMT 分支（只剩单动作形态给 story/IDE）；`mmt_actions` / `blocks.py` / `schema.py` 的协议描述同步；双读用例删除；`CLAUDE.md` §3.1 改写（⑥-2f 收尾）。**旧形状 ⇒ 形状级重发耗尽 ⇒ 拒**（有用例钉住） |
 | 2026-09-26 | **顺带修一个前端真机 bug**（不在 ⑥ 计划内）：**章中途的 memorial 板不上屏**——`/turn` 直返场景那条路漏了 `syncMemorial`（`/start` 与轮询两条路都有），后端那刻已把 `in_memorial`/`memorial_img` 放进响应；"名字隐藏了"是 `is_end` 让名字牌隐藏、与纪念无关（所以看起来只做对了一半）。修复 = 补一行 + `syncMemorial` 加场景快照兜底；**冒烟覆盖缺口同时补上**（桩块把纪念挪到第二板 ⇒ 走 `/turn` 直返；变异验证：去掉修复冒烟立刻红）+ 回放两条路改为"逐段播过去"再断言 |
 | 2026-09-27 | **⑥-3a 落地**（引擎流式交付）：`_turn_lines` 接 `chat_full(on_chunk=…)` + `MmtStream`（**行即交付单元**）+ **一行前瞻**（内容行压到下一行到达才交付，见到 `inspect` 就把手里那行丢掉 ⇒ "没查到就先答"这条纪律原样保住）；`WHOLE_TURN_ACTIONS={trigger, inspect}` **攒到块尾**判/执行（独占性要整轮可见）；`_plan_line`（单行办理，与 `_run_lines` 同一个失败文案出口 `_line_failure`）+ `_run_lines(check_rows=…)`（**校验面 = 整轮**，执行面 = 剩余未办行）；**已交付后判出的硬问题不回滚、不抛**（记账 + 下一轮注记）；埋点 `mmt_stream_first` / `mmt_turn`（§4.5）。`LineStreamBase` 补结构化 `diags`（`notes` 是人读串）。4 条新守门用例 + API 快照刷新（5 名）。顺带修桩：`test_promptkit_baseline` 的 `chat_full` 把 str 又 `json.dumps` 一次（双重编码 ⇒ 行协议一行都解析不出来，三个 MMT 基线用例跑到 `MAX_STEPS` 才炸） |
+| 2026-09-27 | **⑥-3b 落地**（前端节奏 + 冒烟判据）：`mmt.js` 生成期轮询 1000→250ms（`POLL_MS_BUSY`）、`pollLoop` 里"行间人为打字延迟 + 为它而生的 `chunkTypingTime`"整段退场（**到达即渲染** —— 真节奏 = LLM 的生成速度）、删 `BUBBLE_GAP_MS` 与 `renderBubbles(stream:true)` 死代码；冒烟桩补 `chat_full`（MMT 逐行喂 + 行间 0.3s）+ 新判据"**第一个气泡上屏时后端仍在跑**"（直读 `running`，不是推断）。⚠️ 提速**暴露两个真机竞态**（同上表: 标题屏兜底 / 整章缺 `vn_enter` ⇒ 回忆册 0 章），同节点修掉；冒烟的两条旧断言也随之收窄（打字指示改判"**后端说没在跑却还在跳**"，章节列表超时改为**带列表原文留证**——"加载中/空/读不到"三种真身一次分清） |
 
 ---
 

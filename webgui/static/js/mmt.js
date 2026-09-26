@@ -169,19 +169,17 @@ let _pollGraceUntil = 0;
 //: 后续气泡, 但不再显示"对方正在输入…"）。
 let _graceGotBubbles = false;
 
-const POLL_MS = 1000;          // 轮询间隔
+const POLL_MS = 1000;          // 轮询间隔（宽限窗口/空闲态）
+//: ⑥-3b 生成期轮询间隔 —— 后端**逐条**落气泡（⑥-3a 流式交付），1s 轮询会把
+//: 2~3 条并成一批，流式收益被吃掉一半（真机一轮 8 条短气泡）。
+const POLL_MS_BUSY = 250;
 const POLL_RESUME_GRACE_MS = 25 * 1000;   // VN 退出后继续轮询的宽限窗口
-const BUBBLE_GAP_MS = 600;     // 逐块冒出间隔（第一块 TTFT 立即, 后续块此间隔）
 
-// ── 分块打字节奏（2026-08-30: 复刻 core/ui/streaming.py + text_processors.py 的
-// publish_reply 语义——webgui 未消费 TurnResult.steps 的补位）─────────────
-// 2026-09-21 删: `splitReplyChunks()` 及其 `MMT_CHUNK_MAX`/`MMT_CHUNK_FRAGMENT`
-// ——全仓零调用者（打字机链路上的 `chunkTypingTime` 仍在用）。
-// 该块打字时长（秒）: 字数 × 每字随机延迟 + 基础停顿（对齐 chunk_typing_time）
-function chunkTypingTime(chunk) {
-  const perChar = (80 + Math.random() * 120) / 1000;   // 80~200ms
-  return chunk.length * perChar + 0.2;
-}
+// ── 气泡节奏 = **到达即渲染**（⑥-3b, 2026-09-27）─────────────────────────
+// 后端从 ⑥-3a 起**逐条**落气泡（`chat_full(on_chunk=…)` 边收边交付），所以
+// "下一句多久到"由 LLM 的真实生成速度决定 —— 前端再叠一层人为打字延迟只会
+// 让玩家等两遍。`chunkTypingTime()`（字数 × 随机延迟）与 `BUBBLE_GAP_MS`
+// 一并退役；"对方正在输入…"指示器保留（它由 `running` 驱动，是真实状态）。
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function openChat(charId, name) {
@@ -348,34 +346,27 @@ function unlockChat() {
   if (send) send.disabled = false;
 }
 
-// 渲染规则: 历史(stream=false)一次性批量渲染（fragment + 无动画 + 一次滚动,
-// 避免逐个 append + N 个入场动画压渲染——"载入存档慢"的根因）;
-// 新回复(stream=true)逐块冒出（第一块立即=TTFT, 后续块间隔 + 入场动画）
-async function renderBubbles(bubbles, { stream = false } = {}) {
+// 渲染规则: 历史一次性批量渲染（fragment + 无动画 + 一次滚动, 避免逐个 append +
+// N 个入场动画压渲染——"载入存档慢"的根因）；**新回复**由 `pollLoop` 逐条
+// `renderBubble`（到达即渲染, 见那里的 ⑥-3b 注释）。
+// 2026-09-27 删: `renderBubbles(bubbles, {stream:true})` 那一支 + `BUBBLE_GAP_MS`
+// ——全仓零调用者的死代码（真节奏早已由后端逐条交付驱动）。
+function renderBubbles(bubbles) {
   const box = $("mmt-bubbles");
   if (!box) return;
-  if (!stream) {
-    const frag = document.createDocumentFragment();
-    for (const b of bubbles) {
-      const div = document.createElement("div");
-      div.className = "mmt-bubble " + bubbleKindClass(b);
-      div.style.animation = "none";          // 历史无入场动画
-      div.textContent = b.text;
-      // 历史粉泡同样可点击进入（后端裁决: 进行中 resumed 续进）;
-      // 已完成剧情 = bond_done 淡行（无装饰, 不可点）
-      decorateBubble(div, b);
-      frag.appendChild(div);
-    }
-    box.appendChild(frag);
-    scrollBubbles();                          // 一次滚动
-    return;
+  const frag = document.createDocumentFragment();
+  for (const b of bubbles) {
+    const div = document.createElement("div");
+    div.className = "mmt-bubble " + bubbleKindClass(b);
+    div.style.animation = "none";          // 历史无入场动画
+    div.textContent = b.text;
+    // 历史粉泡同样可点击进入（后端裁决: 进行中 resumed 续进）;
+    // 已完成剧情 = bond_done 淡行（无装饰, 不可点）
+    decorateBubble(div, b);
+    frag.appendChild(div);
   }
-  for (let i = 0; i < bubbles.length; i++) {
-    renderBubble(bubbles[i]);                 // 新回复保留入场动画 + 逐块
-    if (i > 0) {
-      await sleep(BUBBLE_GAP_MS);             // 第一块 TTFT, 后续块等待间隔
-    }
-  }
+  box.appendChild(frag);
+  scrollBubbles();                          // 一次滚动
 }
 
 function scrollBubbles() {
@@ -537,8 +528,11 @@ async function sendMessage() {
 }
 
 async function pollLoop() {
+  // ⑥-3b: 生成期用**快档**（250ms）——气泡是逐条落库的, 慢档会把它们攒成一批。
+  // 进循环时通常刚发完消息（一定在跑）, 所以先按快档起; 每轮按 `running` 调整。
+  let wait = POLL_MS_BUSY;
   while (_polling) {
-    await sleep(POLL_MS);
+    await sleep(wait);
     let data;
     try {
       data = await (await fetch(
@@ -557,28 +551,17 @@ async function pollLoop() {
       markFailedBubble(data.failed.text, data.failed.error);
       break;
     }
+    wait = data.running ? POLL_MS_BUSY : POLL_MS;   // ⑥-3b: 生成期快档
     if (data.bubbles && data.bubbles.length) {
       hideTyping();
       _graceGotBubbles = true;       // 宽限窗口内已见新气泡 → 收尾话到了（见下）
       _lastSeq = data.last_seq;
       // 增量轮询: 跳过 player 气泡（sendMessage 已乐观渲染, 避免重复渲染;
       // 全量加载 openChat(since=0) 仍渲染 player——历史重建需要）
-      // 分块节奏（对齐 publish_reply）: 后端已按 split_reply_chunks 切块（每条
-      // 事件一块）→ 第一条直接出（TTFT/生成等待已充当自然延迟）, 后续每块前
-      // "对方正在输入…" + 按字数延迟（chunk_typing_time）——"不同段根据字数
-      // 多少 bubble 等待"（2026-08-30 修复: 之前逐条直接渲染, 块间零延迟）
-      const renderable = data.bubbles.filter((b) => b.side !== "player");
-      for (let i = 0; i < renderable.length; i++) {
-        const b = renderable[i];
-        if (b.kind === "bond_entry" || b.kind === "bond_done") {
-          renderBubble(b);
-          continue;
-        }
-        if (i > 0) {
-          showTyping();
-          await sleep(chunkTypingTime(b.text) * 1000);
-          hideTyping();
-        }
+      // 节奏（⑥-3b）: **到达即渲染**——一批里几条就直接画几条（后端逐条交付,
+      // 批内多条只说明两次轮询之间到了几条, 再插人为延迟 = 让玩家等两遍）。
+      for (const b of data.bubbles) {
+        if (b.side === "player") continue;
         renderBubble(b);
       }
       scrollBubbles();

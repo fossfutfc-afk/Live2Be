@@ -396,10 +396,33 @@ def bond_start(char_id: str, session_id: str, *,
     # 状态分叉 → ver 恒 0 / gate 恒 true / 表情整板 nomal 的一类根因）。
     with state._lock:
         if state.vn is not None or state.demo is not None:
-            # 并发下另一路已先初始化 → 放弃本次, 按现状返回（busy 由前端轮询）
-            logger.info("bond_click concurrent init skip %s/%s busy=%s",
-                        char_id, session_id, "y" if state.busy else "n")
+            # 并发下另一路已先初始化（通常是 worker 的 staged 预热抢先建好 vn）→
+            # 放弃本次构造, 按现状返回（busy 由前端轮询）。
+            # ⚠️ 2026-09-27（⑥-3b 冒烟抓到, 这条分支漏了两件事——同一竞态的先后两个后果）:
+            #    ① **`chapter_title` 必带**——2026-09-11 那次"标题就是四个大字『羁绊剧情』"
+            #       的修复漏了这条返回路径; ② 玩家**已经点了**, 就得把 adopt 的记账补上:
+            #       staged 预热**不落** `vn_enter`（防未点击被推导 in_vn）, 而这里原来
+            #       直接 return ⇒ 整章**一个 enter 都没有**: `chapter_index` 要 enter/exit
+            #       配对 ⇒ 真机表现为回忆册里"已结束的故事 **0 章**"（`in_vn` 推导同样错）。
+            #    为什么现在才露头: 前端 1s 轮询时"粉泡出现→点击"早过了预热窗口; ⑥-3b
+            #    把轮询提到 250ms（气泡也更早上屏）⇒ 点击正落在预热**构造中**。
+            if not staged and state.demo is None and not state.vn_enter_written:
+                store = _flow_store(state)
+                try:
+                    store.enter_vn(char_id, session_id, state.chapter_title)
+                    state.vn_enter_written = True
+                except Exception as e:               # noqa: BLE001 — 写失败降级不阻断
+                    logger.warning("并发 adopt vn_enter 写入失败: %s", e)
+                state.t_staged = 0.0
+                state.staged_seq = None
+                _prewarm_cache_delete(char_id, store)   # adopt 消费（首场已进玩家视野）
+                logger.info("bond_click concurrent adopt %s/%s（补落 vn_enter）",
+                            char_id, session_id)
+            logger.info("bond_click concurrent init skip %s/%s busy=%s staged=%s",
+                        char_id, session_id, "y" if state.busy else "n",
+                        "y" if staged else "n")
             return {"accepted": True, "busy": state.busy,
+                    "chapter_title": _enter_title(state, char_id, session_id),
                     "resumed": state.vn is not None}
 
         engine = chat._engine(char_id)
