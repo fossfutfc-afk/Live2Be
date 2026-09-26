@@ -1,21 +1,26 @@
 # -*- coding: utf-8 -*-
-"""`contract.records` 的**解析层**（C10, `docs/EXEC_SPLIT.md`）。
+"""`contract.records` 的**解析层**（C10 拆分；⑥-1 起通用件来自 `contract.streams`）。
 
 **行 → 记录**：`_record_from_obj`（字典 → `VnRecord` 的形状归一）· 五条容错纪律的
-实现（`_rescape_repair` 辅助转义 / `_tail_repair` 末行悬空 / `_parse_line_multi`
-代码围栏与数组行）· `parse_line` / `parse_stream` 两个对外入口 ·
-`BlockStreamParser`（增量解析: chunk → 完整行 → 板闭合即交付）。
+**VN 侧绑定**（`_rescape_repair` 辅助转义 / `_parse_line_multi` = 通用行骨架 + VN 判别
+注入）· `parse_line` / `parse_stream` 两个对外入口 ·
+`BlockStreamParser`（增量解析: chunk → 完整行 → **板闭合即交付**）。
+
+⭐ **通用件已上提**（⑥-1, `docs/DESIGN_STREAM_CONTRACT.md` §7 复用判定表 / §10.1）：
+行骨架（跳空行围栏 / 数组行拍平 / 坏行记账）· 末行悬空修复 · `ParseDiag` ·
+增量缓冲基类 `LineStreamBase` —— 都在 `contract.streams`，**逐字未改**。
+本模块只留**VN 专有**的三样：判别（`character`/`stage`）· 辅助转义救援 ·
+**切板规则**（交付单元 = 板）。
 
 ## 纪律
 
-· 依赖方向: `parse` → `grammar`（取值表 / `VnRecord` / `ParseDiag`）;
+· 依赖方向: `parse` → `streams`（通用层）· `grammar`（取值表 / `VnRecord` / `ParseResult`）;
   **不许** import `check` / `carrier`（它俩反过来用这里的解析器）;
-· 搬进来的代码**逐字未改**（坏行一律丢行 + 记 `ParseDiag`, 不抛异常）。
+· 坏行一律丢行 + 记 `ParseDiag`, 不抛异常。
 """
 
 from __future__ import annotations
 
-import json
 from collections.abc import Iterable
 from typing import Any
 
@@ -32,9 +37,13 @@ from contract.records.grammar import (
     VnRecord,
     _JSON_ISH_RE,
     _RECORD_HEAD_RE,
-    _TAIL_REPAIRS,
     _TEXT_FIELD_RE,
 )
+from contract.streams import LineStreamBase, parse_line_items
+from contract.streams import tail_repair as _tail_repair
+
+#: VN 认得的字段（行里多出来的字段 → 记一条 `dropped=False` 的 note）
+_VN_KNOWN_KEYS = frozenset({KIND_CHARACTER, KIND_STAGE, "text"})
 
 
 # ---------------------------------------------------------------------------
@@ -79,6 +88,10 @@ def _rescape_repair(line: str) -> tuple[VnRecord | None, str]:
     判别符前缀 + `"text": "` 定界 → 去掉行尾可选的 `}` / `"` → 直接用 dict 重建
     对象走正常校验（引号已在数据层，无需再拼 JSON 字符串）。
     不适用/救不回 → (None, "")，交回原有诊断。
+
+    ⚠️ **本函数是 VN 专用的**（⑥-1 没上提）：它靠 `^\\{"(character|stage)":` 这条
+    **记录文法**。MMT 的 action 行 `payload` 在 `text` 之后 ⇒ 前提不成立
+    （`DESIGN_STREAM_CONTRACT.md` §7 复用判定表）。
     """
     m = _RECORD_HEAD_RE.match(line)
     if not m:
@@ -106,55 +119,19 @@ def _rescape_repair(line: str) -> tuple[VnRecord | None, str]:
     return rec, note
 
 
-def _tail_repair(line: str) -> Any | None:
-    """末行悬空修复：补 `"}` / `}`（EOF 处无歧义）。失败返回 None。"""
-    if line.endswith("}"):
-        return None
-    for suffix in _TAIL_REPAIRS:
-        try:
-            return json.loads(line + suffix)
-        except json.JSONDecodeError:
-            continue
-    return None
-
-
 def _parse_line_multi(line: str, line_no: int) -> tuple[list[VnRecord], ParseDiag | None]:
-    """一行 → 记录列表（数组行拍平）+ 诊断。围栏/空行 → 空列表。"""
-    text = (line or "").strip().lstrip("\ufeff")
-    if not text or text.startswith("```"):
-        return [], None
-    try:
-        obj = json.loads(text)
-    except json.JSONDecodeError as e:
-        rec, note = _rescape_repair(text)
-        if rec is not None:
-            return [rec], ParseDiag(line_no, text, note, dropped=False)
-        repaired = _tail_repair(text)
-        if repaired is None:
-            return [], ParseDiag(line_no, text, f"JSON 解析失败: {e.msg}")
-        rec, why = _record_from_obj(repaired)
-        if rec is None:
-            return [], ParseDiag(line_no, text, f"JSON 解析失败: {e.msg}（修复后仍不合法: {why}）")
-        return [rec], ParseDiag(line_no, text, '末行悬空 → 补 `"}` 救回', dropped=False)
+    """一行 → 记录列表（数组行拍平）+ 诊断。围栏/空行 → 空列表。
 
-    if isinstance(obj, list):                     # 数组行 → 拍平
-        out: list[VnRecord] = []
-        for item in obj:
-            rec, why = _record_from_obj(item)
-            if rec is not None:
-                out.append(rec)
-        if not out:
-            return [], ParseDiag(line_no, text, "数组行内无合法记录")
-        note = ParseDiag(line_no, text, f"数组行 → 拍平 {len(out)} 条", dropped=False)
-        return out, note
-
-    rec, why = _record_from_obj(obj)
-    if rec is None:
-        return [], ParseDiag(line_no, text, why)
-    extra = set(obj) - {KIND_CHARACTER, KIND_STAGE, "text"}
-    if extra:
-        return [rec], ParseDiag(line_no, text, f"多余字段已丢弃: {sorted(extra)}", dropped=False)
-    return [rec], None
+    = 通用行骨架（`contract.streams.parse_line_items`）+ **VN 的三样注入**
+    （判别 / 已知字段 / 辅助转义）。保留本名与签名 ⇒ `records` 的对外面不变。
+    """
+    items, diag = parse_line_items(
+        line, line_no,
+        classify=_record_from_obj,
+        known_keys=_VN_KNOWN_KEYS,
+        rescue=_rescape_repair,
+    )
+    return list(items), diag
 
 
 def parse_line(raw: str, line_no: int = 0) -> tuple[VnRecord | None, ParseDiag | None]:
@@ -184,73 +161,42 @@ def parse_stream(source: str | Iterable[str]) -> ParseResult:
 # ---------------------------------------------------------------------------
 
 
-class BlockStreamParser:
+class BlockStreamParser(LineStreamBase):
     """**流式**块解析器: 逐 chunk 喂入, 板一闭合即可取走（`pop_ready()`）。
 
     为什么现在才可能: 记录流是**行分隔**的——chunk 里出现换行就能解析那一行;
     旧契约是"整回复单个 JSON 对象", 半个 JSON 无法解析, 只能等全量收完。
+
+    ⭐ 缓冲/解析/记账在基类 `contract.streams.LineStreamBase`（⑥-1 上提）；
+    **本类只定义交付单元**（`_accept` / `_flush`）——即下面这套切板规则。
 
     切板规则与批式 `_board_spans` **同源**（只是增量推进）:
         · 槽挂板尾: sensei 连续段结束（后一行不是 sensei）= 板结束, 后一行开新板
         · 换场前必切: `switch` 开新板
         · 超长群: 满 MAX_SENSEI_RUN 先收槽, 新群从下一条起
         · `art` 是块级声明 → 不参与切板（由调用方挂到 scene.art_hint）
-    容错与批式一致: 复用 `_parse_line_multi`（围栏/数组/辅助转义/丢行记账）。
+    容错与批式一致: 基类复用通用行骨架（围栏/数组/辅助转义/丢行记账）。
     """
 
     def __init__(self, *, main_id: str = "", aliases: Iterable[str] = ()) -> None:
+        super().__init__(parse_row=_parse_line_multi)
         self._main_id = main_id
         self._aliases = tuple(aliases)
-        self._text_buf = ""                     # 未闭合的行缓冲
         self._cur: list[VnRecord] = []          # 当前板缓冲（不含尾部群）
         self._run: list[VnRecord] = []          # 当前尾部 sensei 群
         self._art = ""                          # 块级画面意向
-        self._ready: list[tuple[VnRecord, ...]] = []
-        self._notes: list[str] = []
-        self.records: list[VnRecord] = []       # 全量（诊断/trace）
-        self.line_no = 0
-
-    # --- 喂入 --------------------------------------------------------------
-    def feed(self, chunk: str) -> None:
-        """喂一段文本（可以切在行中间）——完整行即时解析、满板即时闭合。"""
-        self._text_buf += chunk or ""
-        while "\n" in self._text_buf:
-            line, self._text_buf = self._text_buf.split("\n", 1)
-            self._consume_line(line)
-
-    def finish(self) -> None:
-        """流结束: 收残余行 + 闭合最后一个板。"""
-        if self._text_buf.strip():
-            self._consume_line(self._text_buf)
-            self._text_buf = ""
-        self._close()
 
     # --- 产出 --------------------------------------------------------------
-    def pop_ready(self) -> list[tuple[VnRecord, ...]]:
-        """取走已闭合的板（可多次调用; 返回自上次以来新闭合的）。"""
-        out, self._ready = self._ready, []
-        return out
-
-    @property
-    def notes(self) -> tuple[str, ...]:
-        return tuple(self._notes)
-
     @property
     def art_hint(self) -> str:
         return self._art
 
-    # --- 内部 --------------------------------------------------------------
-    def _consume_line(self, raw: str) -> None:
-        self.line_no += 1
-        recs, diag = _parse_line_multi(raw, self.line_no)
-        if diag is not None:
-            tag = "DROP" if diag.dropped else "NOTE"
-            self._notes.append(f"[{tag} line {diag.line_no}] {diag.error}")
-        for rec in recs:
-            self._push(rec)
+    def all_boards(self) -> list[tuple[VnRecord, ...]]:
+        """当前累计的板（含已取走的? 否——仅未取走的; 全量见 `records`）。"""
+        return list(self._ready)
 
-    def _push(self, rec: VnRecord) -> None:
-        self.records.append(rec)
+    # --- 交付单元 = 板（基类只做行级） --------------------------------------
+    def _accept(self, rec: VnRecord) -> None:
         if rec.is_stage and rec.stage == STAGE_ART:
             self._art = rec.text                # 块级声明（不切板）
             return
@@ -265,12 +211,11 @@ class BlockStreamParser:
             self._close()                       # 换场前必切
         self._cur.append(rec)
 
+    def _flush(self) -> None:
+        self._close()
+
     def _close(self) -> None:
         board = self._cur + self._run
         self._cur, self._run = [], []
         if board:
             self._ready.append(tuple(board))
-
-    def all_boards(self) -> list[tuple[VnRecord, ...]]:
-        """当前累计的板（含已取走的? 否——仅未取走的; 全量见 `records`）。"""
-        return list(self._ready)

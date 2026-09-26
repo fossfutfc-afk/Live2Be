@@ -25,7 +25,10 @@ Live2Be = Blue Archive 式叙事引擎（MMT 聊天 + Bond 视觉小说 + digest
 ⭐ **note（随身笔记）整条链已通**：事件登记 → `notes.py` 折叠 → `soul/notes.json` 缓存 →
 注入块 → 全景轮（写卡，每 10 段一次）→ R4 收口（promise 记账 + 固化）。
 ⭐ **契约形式已定稿**（2026-09-25）：MMT 与 VN 合成**一条流式契约**，全文落进
-`docs/DESIGN_STREAM_CONTRACT.md`（旧三份设计稿已删并改指）。**代码还没动** —— 下一步是 ⑥-1 抽取。
+`docs/DESIGN_STREAM_CONTRACT.md`（旧三份设计稿已删并改指）。
+⭐ **⑥-1 共用层已落地**（同日，**零行为变化**）：通用行流层 = **`contract/streams/`**
+（`lines.py` 行骨架 + 判别注入 · `stream.py` 增量缓冲基类）；`contract/records/` 只剩
+**VN 判别 / 转义救援 / 切板**。**代码下一步 = ⑥-2 MMT 契约换 JSONL**。
 
 ---
 
@@ -81,7 +84,7 @@ Live2Be = Blue Archive 式叙事引擎（MMT 聊天 + Bond 视觉小说 + digest
 
 | 步 | 做什么 | 判据 |
 |---|---|---|
-| **⑥-1 抽取** | 把通用件从 `contract/records/parse.py` 提到 `contract/streams/`：`ParseDiag`/`ParseResult` · `_tail_repair`（末行悬空） · 行骨架（跳空行/围栏 · 数组行拍平 · 坏行记账） · 增量缓冲（`feed`/`finish`/`pop_ready`）。`records/` 改成**注入判别函数 + 切板策略** | ⭐ **纯搬家、零行为变化**；全量 + B 冒烟逐字节等价（`api_surface` 快照 / split 守门要跟着走） |
+| **⑥-1 抽取** ✅ | **已落地**：通用件 → `contract/streams/`（`lines.py` 行骨架 + `classify`/`known_keys`/`rescue` 注入 + `ParseDiag`/`tail_repair`；`stream.py` 增量缓冲基类 `LineStreamBase`）；`records/` 只留 VN 判别 / 转义救援 / **切板规则**（交付单元 = 板），3 个通用件改**再导出**（对外面不变） | ⭐ **纯搬家、零行为变化** ✅：全量 + B 冒烟；快照刷新（2 处真家 + 新段 5 名）+ 新守门 `test_streams_layer_stays_domain_free`（变异验证） |
 | ⑥-2 MMT 契约 | 契约 / 规则书 / 示例改 JSONL + 行级解析（**先不流式**）；"整轮原子"收窄成"**action 行必须全有效才执行**、text 行可部分交付" | 桩要按 `task` 补；`test_mmt_*` 跟着改 |
 | ⑥-3 流式交付 | 接 `chat_full(on_chunk=…)` + 气泡逐条上屏（`webgui/chat.py` 的 `events_after` 轮询链要动） | B 层冒烟要能测到"第一个气泡早于整轮完成" |
 
@@ -180,6 +183,15 @@ README 与 v3.0.0 更新日志，**都没写注入顺序**（它是"工具派"�
     挤成一行（`IndentationError` 立刻红）；**优先用 edit 工具而不是脚本替换**。
 28. ⚠️ **测试里的 id 顺序别赌**：预置节点会占号（`_store` 先建 `x0000/x0001`、
     `make_node("belief")` 也吃 `m` 前缀）⇒ 断言按**文本**查 id，别写死 `m0001`。
+29. ⚠️ **搬家时"诊断文案"也是行为**：`ParseDiag.error` 的中文串被用例逐字钉住
+    （⑥-1 我把"数组行内无合法记录"改成"…行对象"→ 当场面红）⇒ 通用层照抄 VN 原文案，
+    **不为措辞漂亮去动它**。
+30. ⚠️ **`tests/fixtures/api_surface.txt` 第四列 = "真家"**：搬件后必须
+    `SPLIT_API_UPDATE=1 pytest tests/core/test_split_safety.py` 刷新 + **人工审 diff**
+    （刷新快照 ≠ 行为变化，提交信息要写明）。`contract.streams` 已进 `TARGETS` 与 `SPLIT_PKGS`。
+31. ⭐ **通用层不许认识域**：`contract/streams/` 只 import stdlib 与自身——判别 / 已知字段 /
+    救援**全部靠注入**；守门 `test_import_direction.py::test_streams_layer_stays_domain_free`
+    （已变异验证：塞一条 `from contract.records import …` 立刻红）。
 
 ---
 

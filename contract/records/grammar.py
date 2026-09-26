@@ -1,19 +1,25 @@
 # -*- coding: utf-8 -*-
 """`contract.records` 的**文法层**（C10, `docs/EXEC_SPLIT.md`）。
 
-单一真源的取值表（kind / stage / speaker / 上限）+ 三个**纯叶子**数据对象:
-`VnRecord`（一条记录）· `ParseDiag`（一条坏行诊断）· `ParseResult`（一次解析的结果）。
+单一真源的取值表（kind / stage / speaker / 上限）+ 两个**纯叶子**数据对象:
+`VnRecord`（一条记录）· `ParseResult`（一次解析的结果）。
 
 ## 纪律
 
-· 本模块是包的**最底层**: 只 import stdlib（`re` / `dataclasses`），
-  同包其它三个模块都往下看它; 搬进来的代码**逐字未改**。
+· 本模块几乎是最底层: 只 import stdlib（`re` / `dataclasses`）——**例外是
+  `contract.streams`**（⑥-1 起 `ParseDiag` / `_TAIL_REPAIRS` 的真家在那儿，
+  这里只**再导出**以稳住 `contract.records` 的对外面）;
+· `ParseResult` **不上提**（它绑 `VnRecord`，是 VN 的返回类型）；
+  搬进来的代码**逐字未改**。
 """
 
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+
+from contract.streams.lines import ParseDiag      # ⑥-1: 真家上提，此处再导出
+from contract.streams.lines import TAIL_REPAIRS as _TAIL_REPAIRS   # 同上
 
 
 # ---------------------------------------------------------------------------
@@ -45,8 +51,6 @@ TEXT_OPTIONAL_STAGES = (STAGE_END, STAGE_EXIT)
 
 #: sensei 群上限（最长连续段）
 MAX_SENSEI_RUN = 3
-#: 末行悬空修复候选（依次尝试）
-_TAIL_REPAIRS = ('"}', "}")
 #: 辅助转义用：判别符前缀（`text` 是最后字段，我们 few-shot 的形状）
 _RECORD_HEAD_RE = re.compile(
     r'^\{\s*"(?P<kind>character|stage)"\s*:\s*"(?P<value>[^"]*)"\s*,')
@@ -94,20 +98,6 @@ class VnRecord:
     def to_dict(self) -> dict[str, str]:
         """回写为 LLM 可见 wire 形状（落库 / 回放 / 历史渲染共用）。"""
         return {self.kind: self.value, "text": self.text}
-
-
-@dataclass(frozen=True)
-class ParseDiag:
-    """一条解析诊断（dropped=True 表示该行被丢弃）。"""
-
-    line_no: int
-    raw: str
-    error: str
-    dropped: bool = True
-
-    def __str__(self) -> str:                        # pragma: no cover - 展示用
-        tag = "DROP" if self.dropped else "NOTE"
-        return f"[line {self.line_no}][{tag}] {self.error} | {self.raw[:80]}"
 
 
 @dataclass(frozen=True)

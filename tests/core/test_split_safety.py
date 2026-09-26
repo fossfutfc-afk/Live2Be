@@ -36,6 +36,7 @@ TARGETS = (
     "webgui.chat",
     "core.bond.bond_story",
     "contract.records",
+    "contract.streams",
     "core.mmt.engine",
     "apps.vn_cli",
     "llm.client",
@@ -283,7 +284,7 @@ def test_patch_whitelist_is_not_stale():
 # ③ 拆分后的**跨模块名字泄漏**（忘了 import）—— 2026-09-21 ○C8b 实测抓到的真 bug
 # ---------------------------------------------------------------------------
 #: 被拆出来的包（搬块时最容易漏 import 的地方）
-SPLIT_PKGS = ("webgui/bond", "core/bond/bond_story", "contract/records")
+SPLIT_PKGS = ("webgui/bond", "core/bond/bond_story", "contract/records", "contract/streams")
 
 #: 这些**项目模块名**如果被用到却没绑定, 一律报（`chat` 就是这么漏的:
 #: 它不属于任何包内兄弟模块, 靠上面的兄弟名扫描抓不到）
