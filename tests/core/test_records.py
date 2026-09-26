@@ -318,7 +318,11 @@ def test_issue_severity_is_declared_by_code_not_message():
     #    否则"按文案判分级"在**新家**复活就没人拦。
     contract_issues = _sources(root / "contract" / "issues")
     assert contract_issues, "找不到 contract/issues.py（a₀ 起 severity 机制在这儿）"
-    for path in [*targets, *contract_records, *contract_issues]:
+    # ⚠️ ⑥-2c（同日）: MMT 有了自己的码表（`core/mm/mmt_check.py`）—— 同一条纪律,
+    #    新域也要被扫, 不然"MMT 版子串分级"复活同样没人拦。
+    mmt_check = _sources(root / "core" / "mmt" / "mmt_check")
+    assert mmt_check, "找不到 core/mmt/mmt_check.py（⑥-2c 起 MMT 码表在这儿）"
+    for path in [*targets, *contract_records, *contract_issues, *mmt_check]:
         rel = path.relative_to(root).as_posix()
         src = path.read_text(encoding="utf-8")
         assert "HARD_BLOCK_ISSUE_MARKS =" not in src, f"{rel} 复活了中文标记串表"

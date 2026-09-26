@@ -95,8 +95,8 @@ Live2Be = Blue Archive 式叙事引擎（MMT 聊天 + Bond 视觉小说 + digest
 | **a₀ 共用校验原语** | `IssueSeverity`/`Issue`/`format_issues`/`split_issues` → `contract/issues.py`；每域 `declare_severity(自己的表)` 登记（未声明→KeyError 带指路；同码两种严重度→ValueError） | `contract/issues.py`（新）· `records/check.py`（再导出）· 快照 · `test_issues.py`（新） | ✅ 已落地 |
 | **a 契约渲染器** | `build_line_schema(registry, *, with_examples=True)`：行文法 + 判别键 + 内容/控制二分 + 动作表（运行时生成）+ 一条交错示范 | `contract/schema.py` · `tests/core/test_line_schema.py`（新） | ✅ 已落地 |
 | **b MMT 行解析** | `MmtLine` + `classify` + `MmtStream(LineStreamBase)`（**行即交付单元**）+ `to_action_raw()` | `core/mmt/mmt_lines.py`（新）· `test_mmt_lines.py`（新） | ✅ 已落地 |
-| **c 校验 + 自愈** | 5 个 `mmt.*` 码 + 软硬表 · `character_id` 归一化（**唯一命中才用**）· ⚠️ **自愈必须在 `registry.parse` 之前**（inspect 的 id / send_media 的 media_type 都是 registry 硬拒绝）· ⚠️ **`chapter_title` 的必填 3-16 要自己加**（registry 只管类型、空标题放行——b 实测） | `core/mmt/mmt_check.py`、`mmt_repair.py`（新）+ 单测 | ⏳ 下一步 |
-| **d 引擎接线（双读）** | 行路径**旁挂**：JSONL 段走行解析 → 逐行 parse/执行 → **逐行 append 事件**；三段式兜底 + 预算（行级 1 / 形状级 2）；history 一行一条；**旧 `{"messages"}` 分支原样留着** | `core/mmt/engine.py` · `test_mmt_lines_protocol.py`（新） | |
+| **c 校验 + 自愈** | 5 个 `mmt.*` 码 + 软硬表 · `character_id` 归一化（**唯一命中才用**）· ⚠️ **自愈必须在 `registry.parse` 之前**（inspect 的 id / send_media 的 media_type 都是 registry 硬拒绝）· ⚠️ **`chapter_title` 的必填 3-16 要自己加**（registry 只管类型、空标题放行——b 实测） | `core/mmt/mmt_check.py`、`mmt_repair.py`（新）+ 单测 | ✅ 已落地 |
+| **d 引擎接线（双读）** | 行路径**旁挂**：JSONL 段走行解析 → 逐行 parse/执行 → **逐行 append 事件**；三段式兜底 + 预算（行级 1 / 形状级 2）；history 一行一条；**旧 `{"messages"}` 分支原样留着** | `core/mmt/engine.py` · `test_mmt_lines_protocol.py`（新） | ⏳ 下一步 |
 | **e 翻转契约** ⭐ | `engine.py:490` 换新渲染器 · `response_format` **json_object → text** · `momotalk_rules.md` **拆风格/形状** · ⚠️ **顺带修 `mmt_actions.py` 两处旧协议残句**（"附带的话写在轮级 reply 字段" · "邀约的话写 text 单元"——它们会一起注入）· 夹具刷新（人工审）· `PROMPT_INJECTION_MAP.md` | `core/mmt/engine.py` · `llm/prompts/momotalk_rules.md` · `core/mmt/mmt_actions.py` · `tests/fixtures/promptkit/*` | ⚠️ 真换（需真机跑一轮） |
 | **f 清旧协议** | 删 `reply`/`actions` 分支；四处桩改 JSONL；旧形状用例改成"必须被拒" | `core/mmt/engine.py` · 4 处桩 | |
 
