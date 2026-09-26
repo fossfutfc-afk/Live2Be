@@ -314,7 +314,11 @@ def test_issue_severity_is_declared_by_code_not_message():
     assert targets, "找不到 core/bond/bond_story/（C9 起它是包）"
     contract_records = _sources(root / "contract" / "records")
     assert contract_records, "找不到 contract/records(.py | /)（C10 起是包）"
-    for path in [*targets, *contract_records]:
+    # ⚠️ a₀（2026-09-25）: severity 机制搬到 `contract/issues.py` —— 守门跟着搬,
+    #    否则"按文案判分级"在**新家**复活就没人拦。
+    contract_issues = _sources(root / "contract" / "issues")
+    assert contract_issues, "找不到 contract/issues.py（a₀ 起 severity 机制在这儿）"
+    for path in [*targets, *contract_records, *contract_issues]:
         rel = path.relative_to(root).as_posix()
         src = path.read_text(encoding="utf-8")
         assert "HARD_BLOCK_ISSUE_MARKS =" not in src, f"{rel} 复活了中文标记串表"

@@ -211,7 +211,7 @@ VN 的控制行玩家看得见（丢了立刻穿帮），MMT 的控制行玩家�
 | B1 | 新增 `build_line_schema(registry, *, with_examples=True)`（与 `build_record_schema` 并列的第三形态）；**删** `build_schema(action_list=True)` 的 MMT 分支；`build_schema` 自身保留给单动作域（story/IDE） |
 | B2 | ⭐ **形状单源**：`momotalk_rules.md` 现在**同时**是"风格样本"与"形状样本" ⇒ **拆开**——风格样本留 rules（**去掉 `{"messages":[…]}` 外壳**，写成"玩家: … / 你: …" + 方括号点评；4 个触发示范同样保留风格、标"此刻触发"），**形状（完整 JSONL 示范）只在契约块存一份**。用户注：*"这个比较特别，因为包含语言风格指导，不过暂时先进行拆分即可"* ⇒ 是**拆分**不是删除；真机若发现形状学偏，再把示范搬回去 |
 | B3 | 契约块 = 行文法 + 判别键 + 内容/控制二分 + **可用动作表（运行时由 `registry.spec().payload_schema` 生成，不手写）** + 一条 `text → action → text` 交错的完整示范。新增动作**自动进 prompt** 的机制保持 |
-| B4 | `Issue` / `IssueSeverity` / `split_issues` / `format_issues` 上提共用层，**码表各自声明**；MMT 码表放 **`core/mmt/mmt_check.py`**（要用 registry 与 exec 语义）：`mmt.line-bad`(软·丢行) · `mmt.control-invalid`(硬) · `mmt.exclusive-violation`(硬) · `mmt.empty-turn`(硬) · `mmt.control-unexecuted`(软·下一轮纠偏) |
+| B4 | ✅ **机制已上提（a₀, 2026-09-25）**：`IssueSeverity` / `Issue` / `split_issues` / `format_issues` 的真家 = **`contract/issues.py`**；每域 import 时 `declare_severity(自己的表)` 登记（未声明的码查表直接 KeyError、同码两种严重度直接 ValueError）⇒ **机制共用、码表各自声明**。VN 的表仍在 `records/check.py`（`ISSUE_SEVERITY`，再导出、对外面不变）。MMT 的表将放 **`core/mmt/mmt_check.py`**：`mmt.line-bad`(软·丢行) · `mmt.control-invalid`(硬) · `mmt.exclusive-violation`(硬) · `mmt.empty-turn`(硬) · `mmt.control-unexecuted`(软·下一轮纠偏) |
 | B5 | **两段式校验，不新增第三处**：形状（是 dict / action 非空）在行解析；字段（`character_id` / `chapter_title` / `image`）在 `registry.parse` |
 | B6 | "行对象 → `registry.parse` 的 raw dict" 转换函数放 **MMT 侧**（contract 只认 dict 契约） |
 
@@ -241,6 +241,7 @@ VN 的控制行玩家看得见（丢了立刻穿帮），MMT 的控制行玩家�
 | 2026-09-25 | 建立：契约形式六条 · 两域对照 · 控制行永不静默丢弃 · 兜底分级与重试三段式（行级 1 + 形状级 2）· MMT 旧协议退役清单 · 切句接口处置 · 复用判定表 · ⑥ 三小步。并入并删除 `DESIGN_VN_UPGRADE.md`（→ 附录 A）/ `DESIGN_MMT_CHAT.md` / `DESIGN_CONTRACT.md` |
 | 2026-09-25 | 补 §10 落地细节（动 ⑥-1 前逐条确认）：A1–A7 解析层切法（base 只做行级 / 交付单元留子类 / `ParseResult` 不上提）· B1–B6 契约层（新 `build_line_schema` / **形状单源 = rules 拆风格与形状** / MMT 码表在 `core/mmt/mmt_check.py`）· C1–C4 三个注入点（**智能矫正 = `core/mmt/mmt_repair.py`** / 续写轮只收控制行 / **行交付即 append 事件**）· D1–D3 |
 | 2026-09-25 | **⑥-1 落地**：`contract/streams/`（域无关行流层：lines + stream）+ `records/` 退化成"注入判别 / 救援 / 切板"；快照刷新（2 处真家 + 新段 5 名）；新增域无关守门（含变异验证）。**零行为变化** |
+| 2026-09-25 | **⑥-2a₀ 落地**（共用校验原语）：`contract/issues.py`（`IssueSeverity`/`Issue`/`format_issues`/`split_issues` + `declare_severity` 域表登记）；`records/check.py` 只留 VN 码表 + 两个校验函数，机制件**再导出**（对外面不变）；反文案分级守门跟到新家；新增 `test_issues.py`。**零行为变化** |
 
 ---
 
