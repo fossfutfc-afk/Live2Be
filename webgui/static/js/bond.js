@@ -473,7 +473,13 @@ let lastSceneKey = "";
 
   function syncMemorial(st) {
     if (st) {
-      memorialSt.on = !!st.in_memorial;
+      // `in_memorial` 优先取顶层（status / `/start` / `turn` 三个来源都带）；缺失时
+      // **退回场景快照**（板自己就带 `memorial` / `in_memorial`，见 BondScene.to_dict）
+      // ——少喂一个字段不该让整条纪念链失效。
+      const onRaw = (st.in_memorial !== undefined)
+        ? st.in_memorial
+        : !!((st.scene && (st.scene.in_memorial || st.scene.memorial)) || false);
+      memorialSt.on = !!onRaw;
       if (st.memorial_img !== undefined) memorialSt.img = st.memorial_img || "";
       // 两个来源: 状态对象（scene 里嵌套）/ 场景 dict 本身
       const raw = (st.scene && st.scene.memorial_at !== undefined)
@@ -1308,6 +1314,14 @@ let lastSceneKey = "";
       $("bond-choices").innerHTML = "";
       hideContinue();
       renderScene(data.scene);
+      // ⚠️ **纪念态必须一起同步**（2026-09-26 真机修复）: 这条"turn 直返场景"的路
+      //    与 `/start` 那条**长得一样**，但 2026-09-12 只在 `/start` 补了
+      //    `syncMemorial`（那条注释写着"不同步就会看到纪念板照常显示立绘+普通背景"）
+      //    ——这里漏了 ⇒ **章中途的纪念板**（走预生成领出 = 本分支）永远不切黑屏：
+      //    立绘照常 + 普通背景照常 + 图不淡入（真机 2026-09-26 报障，图其实早已生成）。
+      //    名字牌倒是隐藏了——那是 `renderScene` 里 `is_end` 的效果，与纪念无关，
+      //    所以看起来"只做对了一半"。
+      syncMemorial(data);
       return;
     }
     if (data.picked) {

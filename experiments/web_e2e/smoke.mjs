@@ -40,6 +40,11 @@ const benignNotices = [];        // 明确无害的噪音（如浏览器自动�
 const failedRequests = [];
 const badResponses = [];
 const bondWrites = [];            // 回忆册只读回放期间不该出现的 bond 写请求
+//: `/api/bond/turn` **直返场景**的响应体（预生成领出 / 分支消费）。
+//: 为什么要盯它: "章中途的纪念板"只走这条路，而前端曾在这条路上漏 `syncMemorial`
+//: ⇒ 纪念板照常显示立绘 + 普通背景（2026-09-26 真机报障）。轮询那条路一直是对的，
+//: 所以**只断言纪念视觉**抓不到这个 bug —— 必须同时断言"这一板是 /turn 直返的"。
+const turnSceneDeliveries = [];
 const allowedNotices = [];       // 白名单内的非 2xx（如 /api/spine 404 = 无 spine 降级）
 //: 允许的非 2xx: /api/spine 404 = 无 spine 资源 → 前端按纯文字降级（合法）
 const ALLOWED_4XX = [/\/api\/spine\//];
@@ -198,6 +203,14 @@ async function main() {
     if (ALLOWED_4XX.some((re) => re.test(r.url()))) { allowedNotices.push(line); return; }
     badResponses.push(line);
   });
+  // `/api/bond/turn` 直返场景留痕（纪念修复的判据路径, 见 `turnSceneDeliveries` 注释）
+  page.on("response", async (r) => {
+    if (r.request().method() !== "POST" || !/\/api\/bond\/turn/.test(r.url())) return;
+    try {
+      const body = await r.text();
+      if (body.includes('"scene"')) turnSceneDeliveries.push(body.slice(0, 160));
+    } catch (e) { /* body 读不到（中断/重定向）→ 跳过 */ }
+  });
 
   // ── 1. 登录页 ─────────────────────────────────────────────────────────
   await page.goto(baseUrl, { waitUntil: "domcontentloaded" });
@@ -290,64 +303,38 @@ async function main() {
   }
   if (choices.length < 1) throw new Error("首板没有选项（记录流板切分异常?）");
 
-  // ── 5.5 纪念链路（v2, 2026-09-12; **2026-09-20 M3 记录级进入点**）─────────────
-  // 桩块在首板里放了 `stage:memorial`, 生图走替身（离线 1×1 PNG）——验证的是
-  // **整条接线**: 引擎 art/memorial → 生图回调 → gallery URL → bond_status →
-  // 前端纪念层。旧版这条线在 v2 是断的（v1 探针只认 action=memorial_enter）。
-  //
-  // ★ M3: 黑屏必须从 `stage:memorial` **那一句**开始（那句 text 就是黑屏期里唯一
-  //   的内容 + 转场句）。桩块里触发记录是首板的**第 2 段**（第 1 段是角色台词）⇒
-  //   ① 第 1 段时**不该**进纪念视觉（立绘在、背景在）; ② 点到第 2 段才切。
-  //   两半都要断言——只断 ② 会漏掉"板级切换"的回退（那正是这次要修的东西）。
+  // ── 5.5 纪念链路（**2026-09-26 起覆盖 `/turn` 直返那条路**）───────────────
+  // ⚠️ 纪念现在在**第二板**（桩块挪过位置, 见 `stub_world.BOND_BLOCK`）:
+  //    首板走 `/api/bond/start` 直返（那条路 2026-09-12 已补 `syncMemorial`），
+  //    **第二板走 `/api/bond/turn` 直返**（预生成领出）——真机 2026-09-26 报障的
+  //    正是后者（纪念板照常显示立绘+普通背景、图不淡入; 名字牌倒是被 `is_end`
+  //    隐藏了, 所以看起来"只做对了一半"）。本节只断言"首板全段都是正常视觉";
+  //    第二板的纪念断言在裁决推进之后（"6.6 纪念链路·第二板"）。
+  const readMemorial = () => page.evaluate(() => {
+    const layer = document.getElementById("bond-memorial");
+    const stage = document.getElementById("bond-stage");
+    const bg = document.getElementById("bond-bg");
+    return {
+      layerOn: !!(layer && layer.classList.contains("on")),
+      layerImg: (layer && layer.style.backgroundImage) || "",
+      stageHidden: !!(stage && stage.classList.contains("hidden")),
+      bgCleared: !(bg && bg.style.backgroundImage),
+      para: ((document.querySelector("#bond-text .bond-para") || {}).textContent || "").trim(),
+    };
+  });
   {
-    const readMemorial = () => page.evaluate(() => {
-      const layer = document.getElementById("bond-memorial");
-      const stage = document.getElementById("bond-stage");
-      const bg = document.getElementById("bond-bg");
-      return {
-        layerOn: !!(layer && layer.classList.contains("on")),
-        layerImg: (layer && layer.style.backgroundImage) || "",
-        stageHidden: !!(stage && stage.classList.contains("hidden")),
-        bgCleared: !(bg && bg.style.backgroundImage),
-        para: ((document.querySelector("#bond-text .bond-para") || {}).textContent || "").trim(),
-      };
-    });
-
-    // ① 触发记录**之前**那几条是正常视觉（立绘在 + 背景在 + 纪念层没开）。
-    //    判据取自**逐段取样**的正文（`capturePara` 记的 `memorial`/`stageHidden`）——
-    //    板读完再断已经晚了: 那一刻本来就该在纪念里。
     const first = board1[0] || {};
-    const trigger = board1[board1.length - 1] || {};
-    record("纪念链路·触发前", {
-      info: `首段="${(first.text || "").slice(0, 14)}" 立绘隐藏=${first.stageHidden} `
-        + `背景清空=${first.bgCleared} 纪念层=${first.memorial}`,
-      first, trigger,
+    record("纪念链路·首板（应无纪念）", {
+      info: `段数=${board1.length} 首段="${(first.text || "").slice(0, 14)}" `
+        + `立绘隐藏=${first.stageHidden} 背景清空=${first.bgCleared} 纪念层=${first.memorial}`,
+      shot: await shot(page, "vn-board1-nomemorial"),
+      first, transcript: board1,
     });
-    if (first.memorial || first.stageHidden || first.bgCleared) {
-      throw new Error("触发记录之前就进了纪念视觉（M3 记录级进入点失效?）: "
-        + JSON.stringify(first));
+    const leaked = board1.filter((p) => p.memorial || p.stageHidden || p.bgCleared);
+    if (leaked.length) {
+      throw new Error("首板就出现了纪念视觉（纪念不该在首板——桩块被改回去了?）: "
+        + JSON.stringify(leaked));
     }
-    if (!trigger.memorial || !trigger.stageHidden) {
-      throw new Error("触发记录那一段没进纪念视觉（记录级进入点没生效?）: "
-        + JSON.stringify(trigger));
-    }
-
-    // ② 现在正停在触发记录那一段 → 立绘隐藏 + 背景清空 + 图淡入（等替身图就绪）
-    let memOk = null;
-    for (let i = 0; i < 60; i++) {
-      memOk = await readMemorial();
-      if (memOk.layerOn && memOk.layerImg) break;
-      await new Promise((r) => setTimeout(r, 100));
-    }
-    record("纪念链路", {
-      info: `段="${memOk.para.slice(0, 14)}" 图=${memOk.layerImg ? "已淡入" : "未就绪"} `
-        + `立绘隐藏=${memOk.stageHidden} 普通背景清空=${memOk.bgCleared}`,
-      shot: await shot(page, "vn-memorial"),
-      memorial: memOk,
-    });
-    if (!memOk.layerImg) throw new Error(`纪念图未淡入（生图链断?）: ${JSON.stringify(memOk)}`);
-    if (!memOk.stageHidden) throw new Error(`纪念期间立绘未隐藏: ${JSON.stringify(memOk)}`);
-    if (!memOk.bgCleared) throw new Error(`纪念期间普通背景未清空: ${JSON.stringify(memOk)}`);
   }
 
   // ── 6. 裁决 → **第一次点击后直接推进**（2026-09-21 用户裁决）; 玩家那句永不上屏 ──
@@ -368,6 +355,7 @@ async function main() {
   //    为什么用 MutationObserver 全程盯: ①②都是"**不许发生**"的判据 —— 只在某个时刻
   //    取样, 正好会漏掉"闪一下又没了"。
   const lastLineBefore = board1[board1.length - 1].text;
+  const turnSceneAtPick = turnSceneDeliveries.length;      // 裁决前快照（6.6 判据用）
   const plateBeforePick = await page.evaluate(() => ({
     name: (document.querySelector("#bond-name") || {}).textContent || "",
     club: (document.querySelector("#bond-club") || {}).textContent || "",
@@ -454,9 +442,87 @@ async function main() {
       + `${JSON.stringify(plateBeforePick)} → ${JSON.stringify(plateAfterPick)}`);
   }
 
-  // （6.4★「裁决后自动推进」2026-09-20 那条已并进上面的 ② —
-  //  2026-09-21 起裁决后**当场**推进, 不再有"只读黄组留屏 → 450ms 后自动走"这一步,
-  //  所以也没有"等它自己走"可等的了。）
+  // ── 6.6 纪念链路·第二板（**`/turn` 直返**）——真机 2026-09-26 报障的那条路 ────
+  // 两个判据缺一不可:
+  //   ① 这一板确实是 `/api/bond/turn` **直返场景**送来的。轮询那条路一直有
+  //      `syncMemorial` ⇒ **只断言纪念视觉抓不到这个 bug**（首板就这么漏过去的）;
+  //   ② 触发段**之前**是正常视觉, 触发段起 = 立绘隐藏 + 普通背景清空 + 图淡入。
+  // 只读到触发那一段就停——后面 6.5 要的是"中途退出"的状态（别把板读完）。
+  {
+    const delivered = turnSceneDeliveries.length > turnSceneAtPick;
+    // ⚠️ 取样**只做一次**（裁决后那一段 = 触发前）: 再用"边播边轮询要断言的状态"——
+    //    按段数计数会抖（打字中点屏会被吞, 2026-09-26 实测 `段数=1` 偶发失败）。
+    const board2 = [];
+    await capturePara(page, board2);
+    const before = board2[0] || {};
+    let trig = null;
+    for (let i = 0; i < 30; i++) {
+      trig = await page.evaluate(() => {
+        const stage = document.getElementById("bond-stage");
+        const bg = document.getElementById("bond-bg");
+        const layer = document.getElementById("bond-memorial");
+        return {
+          text: ((document.querySelector("#bond-text .bond-para") || {}).textContent || "").trim(),
+          memorial: !!(layer && layer.classList.contains("on")),
+          stageHidden: !!(stage && stage.classList.contains("hidden")),
+          bgCleared: !(bg && bg.style.backgroundImage),
+        };
+      });
+      if (trig.memorial) break;
+      await _tick(page);
+      await new Promise((r) => setTimeout(r, 120));
+    }
+    record("纪念链路·第二板（/turn 直返）", {
+      info: `/turn 直返=${delivered} `
+        + `触发前="${(before.text || "").slice(0, 12)}"(立绘隐藏=${before.stageHidden} `
+        + `背景清空=${before.bgCleared} 纪念层=${before.memorial}) `
+        + `触发段="${(trig.text || "").slice(0, 12)}"(立绘隐藏=${trig.stageHidden} `
+        + `背景清空=${trig.bgCleared} 纪念层=${trig.memorial})`,
+      shot: await shot(page, "vn-memorial-turn"),
+      delivered, before, trigger: trig,
+    });
+    if (!delivered) {
+      throw new Error("裁决后这一板不是 /api/bond/turn 直返的（本用例前提不成立: "
+        + "桩块/预生成路径变了?）—— /turn 直返那条路的纪念修复就没人守了");
+    }
+    if (before.memorial || before.stageHidden || before.bgCleared) {
+      throw new Error("触发记录之前就进了纪念视觉（M3 记录级进入点失效?）: "
+        + JSON.stringify(before));
+    }
+    if (!trig.memorial || !trig.stageHidden) {
+      throw new Error("**章中途的纪念板没切黑屏**（`/turn` 直返漏 syncMemorial?）: "
+        + JSON.stringify(trig));
+    }
+    if (!trig.bgCleared) {
+      throw new Error("**章中途的纪念板没清普通背景**（`/turn` 直返漏 syncMemorial?）: "
+        + JSON.stringify(trig));
+    }
+    let memOk = null;
+    for (let i = 0; i < 60; i++) {
+      memOk = await readMemorial();
+      if (memOk.layerOn && memOk.layerImg) break;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    if (!memOk || !memOk.layerImg) {
+      throw new Error(`纪念图未淡入（/turn 直返路——生图链或纪念同步断?）: `
+        + JSON.stringify(memOk));
+    }
+    // 把这一板**裁决掉**（点它的老师群选项）——目的是让它**落库**（`_log_scene`
+    // 发生在玩家推进时）: 6.5 的"中途退出重进"只回放**已落库的前缀**, 纪念板不落库
+    // 就回放不到, 那条路上的纪念同步也就没人守了。
+    // ⚠️ 切板只能用老师群（纪念区间内 `switch`/`art` 是硬违规）。
+    for (let i = 0; i < 8; i++) {
+      const bs = await page.locator("#bond-choices .bond-choice").count();
+      if (bs) break;
+      await _tick(page);
+    }
+    if (await page.locator("#bond-choices .bond-choice").count()) {
+      await page.locator("#bond-choices .bond-choice").first().click();
+      await page.waitForFunction(
+        () => document.querySelectorAll("#bond-choices .bond-choice").length === 0,
+        null, { timeout: 20000 }).catch(() => {});
+    }
+  }
 
 
   // ── 6.5 中途退出重进 → 回放里"选项态"必须看得见（2026-09-12 用户要求）────
@@ -530,6 +596,26 @@ async function main() {
     // 回放的**纪念板**同样要进纪念态（立绘隐藏 + 普通背景清空）,
     // 且**档案图要能恢复**（2026-09-12: 图是异步生成的 → 单开 `memorial_image`
     // marker 落真源, 回放/重启据此恢复——这就是"重进还能看到那张纪念图"）
+    //
+    // ⚠️ 2026-09-26: 纪念板现在是回放的**第二板**（桩块把纪念挪到第二板以覆盖
+    //    `/turn` 直返那条路）⇒ 先**推进过去**再看。回放里点只读选项 = 本地推进下一板
+    //    （决策 #41）, 而这条推进走的正是 `/api/bond/turn` 的**回放分支（直返场景）**
+    //    ——也就是 live 侧曾经漏 `syncMemorial` 的同一条路, 所以这里连"直返"一起断言。
+    const turnSceneBeforeReplayMem = turnSceneDeliveries.length;
+    await page.locator("#bond-choices .bond-choice").first().click();
+    // 等这一次推进的 /turn 直返到达（**别抢跑**——点击后响应是异步的;
+    // 2026-09-26 第一版就是立刻查, 恒 false）
+    let replayTurnDelivered = false;
+    for (let i = 0; i < 40; i++) {
+      if (turnSceneDeliveries.length > turnSceneBeforeReplayMem) {
+        replayTurnDelivered = true;
+        break;
+      }
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    // ⭐ 记录级进入点（M3）: 黑屏从 `stage:memorial` **那一段**开始 —— 所以回放里
+    //    也必须**逐段播过去**才该看到纪念视觉（只轮询不推进 = 永远停在触发前那一段,
+    //    那是 2026-09-26 第一版的第二个错）。
     let replayMem = null;
     for (let i = 0; i < 30; i++) {
       replayMem = await page.evaluate(() => {
@@ -544,13 +630,17 @@ async function main() {
         };
       });
       if (replayMem.layerOn && replayMem.layerImg) break;
+      await _tick(page);          // ⭐ 记录级进入点: 必须逐段播到 memorial 那一段
       await new Promise((r) => setTimeout(r, 100));
     }
     record("回放·纪念态", {
       info: `立绘隐藏=${replayMem.stageHidden} 背景清空=${replayMem.bgCleared} `
-        + `档案图=${replayMem.layerImg ? "已恢复" : "缺失"}`,
-      replayMemorial: replayMem,
+        + `档案图=${replayMem.layerImg ? "已恢复" : "缺失"} 这一板/turn直返=${replayTurnDelivered}`,
+      replayMemorial: replayMem, replayTurnDelivered,
     });
+    if (!replayTurnDelivered) {
+      throw new Error("回放推进不是 /api/bond/turn 直返的（用例前提不成立: 回放队列变了?）");
+    }
     if (!replayMem.stageHidden || !replayMem.bgCleared) {
       throw new Error(`回放的纪念板未进纪念态: ${JSON.stringify(replayMem)}`);
     }
@@ -701,18 +791,27 @@ async function main() {
   });
   // P1①（2026-09-20）: **只读回放里的纪念板 = live**（立绘隐藏 + 普通背景清空 +
   // 档案纪念图淡入）。此前这三件事只在 live 的 `syncMemorial` 里做, 回放只挂章缩略图
-  // ⇒ 册子里播到纪念段是"普通板 + 没有图"。桩章的首板就带 `stage:memorial`。
-  const roMem = await page.evaluate(() => {
-    const layer = document.getElementById("bond-memorial");
-    const stage = document.getElementById("bond-stage");
-    const bg = document.getElementById("bond-bg");
-    return {
-      on: !!(layer && layer.classList.contains("on")),
-      img: (layer && layer.dataset.src) || "",
-      stageHidden: !!(stage && stage.classList.contains("hidden")),
-      bgCleared: !bg || !bg.style.backgroundImage,
-    };
-  });
+  // ⇒ 册子里播到纪念段是"普通板 + 没有图"。
+  // ⚠️ 2026-09-26: 纪念板现在在**第二板**（桩块为覆盖 `/turn` 直返挪过位置）,
+  //    且记录级进入点（M3）要求"播到 `stage:memorial` **那一段**才切" ⇒ 只读回放也
+  //    必须**逐段播过去**（只读态点画面 = 本地推进, 不发任何请求）。
+  let roMem = null;
+  for (let i = 0; i < 40; i++) {
+    roMem = await page.evaluate(() => {
+      const layer = document.getElementById("bond-memorial");
+      const stage = document.getElementById("bond-stage");
+      const bg = document.getElementById("bond-bg");
+      return {
+        on: !!(layer && layer.classList.contains("on")),
+        img: (layer && layer.dataset.src) || "",
+        stageHidden: !!(stage && stage.classList.contains("hidden")),
+        bgCleared: !bg || !bg.style.backgroundImage,
+      };
+    });
+    if (roMem.on && roMem.img) break;
+    await _tick(page);
+    await new Promise((r) => setTimeout(r, 100));
+  }
   record("只读回放·纪念板", {
     info: `纪念层=${roMem.on ? "淡入" : "❌未开"} 图=${roMem.img || "（无）"}`
       + ` 立绘隐藏=${roMem.stageHidden} 普通背景清空=${roMem.bgCleared}`,
