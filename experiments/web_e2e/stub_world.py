@@ -68,12 +68,18 @@ BOND_FALLBACK = "\n".join([
     f'{{"character": "{CHARACTER}", "text": "（窗外的天色又暗了一点。）"}}',
     '{"stage": "end", "text": ""}',
 ])
-MMT_TRIGGER = ('{"text": "我们当面说吧！"}\n'
+MMT_TRIGGER = ('{"text": "老师，你现在方便吗？"}\n'
+               '{"text": "有件事……我想当面和你说。"}\n'
+               '{"text": "在手机上说不清楚。"}\n'
                '{"action": "mmt_trigger_bond_story",'
                f' "payload": {{"chapter_title": "{CHAPTER_TITLE}"}}}}')
 MMT_REPLY = '{"text": "嗯……我、我其实很开心的！"}'
 #: 羁绊收尾话（wrapup）——文本独立, 冒烟据此断言"收尾气泡不用切页就能到"
 WRAPUP_REPLY = '{"text": "（收尾话）老师，今天真的很谢谢你。"}'
+#: ⑥-3b: 冒烟桩的 MMT 逐行间隔（秒）——生产是 LLM 的真实生成速度;
+#: 这里给一个**比前端轮询间隔大**的值, 好让"第一个气泡早于整轮完成"可断言
+#: （首行到达时整轮还剩 ~0.9s）。要改就改这里一处。
+MMT_STREAM_GAP_S = 0.3
 
 
 class StubLLM:
@@ -148,6 +154,24 @@ class StubLLM:
         self.bond_calls += 1
         self.calls.append(f"bond#{self.bond_calls}")
         return BOND_BLOCK if self.bond_calls == 1 else BOND_FALLBACK
+
+    def chat_full(self, messages, temperature=0.8, max_tokens=4096,
+                  response_format="text", on_chunk=None, **kw):
+        """⑥-3b: 流式等价 —— **MMT 逐行喂 + 行间 sleep**（生产形状）。
+
+        为什么 MMT 要带间隔: 引擎 ⑥-3a 起"行一到就交付"，冒烟要能断言
+        **第一个气泡早于整轮完成**（前后端一起改，没有这个间隔就测不到）。
+        bond 那一侧一次性喂完（VN 的板级流式另有断言, 不必拖慢冒烟）。
+        """
+        out = self.chat(messages, temperature=temperature, max_tokens=max_tokens,
+                        response_format=response_format, **kw)
+        is_mmt = kw.get("task") == T.MMT
+        if on_chunk is not None and isinstance(out, str):
+            for i, line in enumerate(out.splitlines(keepends=True)):
+                if is_mmt and i:
+                    time.sleep(MMT_STREAM_GAP_S)      # 行间（首行不睡: TTFT 立即）
+                on_chunk(line)
+        return out
 
     def format_messages(self, *, system_prompt, user_message, history=None):
         msgs = [{"role": "system", "content": system_prompt}]

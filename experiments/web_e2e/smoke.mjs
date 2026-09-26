@@ -45,6 +45,9 @@ const bondWrites = [];            // 回忆册只读回放期间不该出现的 
 //: ⇒ 纪念板照常显示立绘 + 普通背景（2026-09-26 真机报障）。轮询那条路一直是对的，
 //: 所以**只断言纪念视觉**抓不到这个 bug —— 必须同时断言"这一板是 /turn 直返的"。
 const turnSceneDeliveries = [];
+//: ⑥-3b: MMT 会话 id（从 `/api/mmt/session` 响应里抓）——"第一个气泡早于整轮完成"
+//: 的判据要**直接问后端** `running`（与前端轮询同一个接口、同一个字段）。
+let mmtSessionId = "";
 const allowedNotices = [];       // 白名单内的非 2xx（如 /api/spine 404 = 无 spine 降级）
 //: 允许的非 2xx: /api/spine 404 = 无 spine 资源 → 前端按纯文字降级（合法）
 const ALLOWED_4XX = [/\/api\/spine\//];
@@ -123,6 +126,49 @@ function cleanTranscript(seen) {
 /** 交互就绪选择器（**决策 #41**: "▼ 继续"按钮已删——板读完的信号 = 右下三角带
  *  `.ready`, 板内"还有下一段"的三角不带它, 所以能区分"板读完"与"板内推进"）。 */
 const INTERACTIVE = "#bond-choices .bond-choice, #bond-continue.ready";
+
+/** ⑥-3b 流式判据: 盯住一轮 MMT 的**上屏时间线**（每 ~40ms 一次, 在页面内跑）。
+
+ *  为什么要盯: 前端 ⑥-3b 起"到达即渲染"、后端 ⑥-3a 起"行一到就交付"——若哪一端
+ *  退回批式, 气泡会**一次性**出现（旧行为: 整轮收完 / 1s 轮询攒成一批）, 而那
+ *  在肉眼与旧断言里都完全看不出问题。
+ *  判据 = 第一个气泡上屏那一刻, **后端还在跑这一轮**（直接问 `/api/mmt/events`
+ *  的 `running`, 与前端同一个字段——不是推断）。整轮的最后一行是触发行,
+ *  它的粉泡（`.bond-entry`）出现即"整轮办完"。
+ */
+/** ⑥-3b: 直接问后端"这一轮还在跑吗"（与前端轮询同一个接口/同一个字段）。
+ *  拿不到会话 id 或请求失败 → null（判据据此**不算谎报**, 宁缺勿错）。 */
+async function runningNow(page) {
+  if (!mmtSessionId) return null;
+  return await page.evaluate(async (sid) => {
+    try {
+      const r = await fetch(`/api/mmt/events?char_id=igusa_haruka&session_id=${sid}&since=999999`);
+      return (await r.json()).running;
+    } catch (e) { return null; }
+  }, mmtSessionId);
+}
+
+async function watchMmtStream(page, sessionId, charId, timeoutMs = 10000) {  return await page.evaluate(async ({ limit, sid, cid }) => {
+    const t0 = performance.now();
+    const samples = [];
+    while (performance.now() - t0 < limit) {
+      const w = document.getElementById("mmt-chat-window");
+      const chars = w ? w.querySelectorAll(".mmt-bubble.char:not(.typing)").length : 0;
+      const entry = !!document.querySelector(".bond-entry");
+      const s = { t: Math.round(performance.now() - t0), chars, entry, running: null };
+      if (chars >= 1 && sid) {
+        try {
+          const r = await fetch(`/api/mmt/events?char_id=${cid}&session_id=${sid}&since=999999`);
+          s.running = (await r.json()).running;
+        } catch (e) { /* 读不到就不算数（判据会因此判失败, 正是我们要的） */ }
+      }
+      samples.push(s);
+      if (entry) break;                       // 粉泡 = 最后一行办完 → 整轮结束
+      await new Promise((r) => setTimeout(r, 40));
+    }
+    return samples;
+  }, { limit: timeoutMs, sid: sessionId, cid: charId });
+}
 
 /** 等交互区清空 = 上一板的选项/板读完态已撤（新板开始渲染）。 */
 async function waitInteractionReset(page, timeout = 40000) {
@@ -211,6 +257,11 @@ async function main() {
       if (body.includes('"scene"')) turnSceneDeliveries.push(body.slice(0, 160));
     } catch (e) { /* body 读不到（中断/重定向）→ 跳过 */ }
   });
+  // MMT 会话 id 留痕（⑥-3b 的流式判据要拿它直读 `running`）
+  page.on("response", async (r) => {
+    if (!/\/api\/mmt\/session/.test(r.url()) || r.status() >= 400) return;
+    try { mmtSessionId = (await r.json()).session_id || mmtSessionId; } catch (e) { /* 忽略 */ }
+  });
 
   // ── 1. 登录页 ─────────────────────────────────────────────────────────
   await page.goto(baseUrl, { waitUntil: "domcontentloaded" });
@@ -240,6 +291,35 @@ async function main() {
   await page.waitForSelector("#mmt-input", { timeout: 15000 });
   await page.fill("#mmt-input", "在吗？");
   await page.click("#mmt-send");
+
+  // ── 4b. ⑥-3b: 气泡**逐条**上屏（第一个气泡早于整轮完成）─────────────────
+  // 桩的 MMT 回复 4 行、行间 0.3s（`MMT_STREAM_GAP_S`）; 批式实现下 4 条会挤在
+  // 同一次轮询里出现（`firstBubble.running` 也会是 false）。
+  const stream = await watchMmtStream(page, mmtSessionId, "igusa_haruka");
+  const firstBubble = stream.find((s) => s.chars >= 1) || null;
+  const last = stream[stream.length - 1] || {};
+  const leadMs = firstBubble && last.entry ? last.t - firstBubble.t : -1;
+  record("MMT 流式交付", {
+    info: firstBubble
+      ? `首泡 t=${firstBubble.t}ms（当时 running=${firstBubble.running}, ${firstBubble.chars} 条）`
+        + `; 整轮 t=${last.t}ms（${last.chars} 条）; 提前 ${leadMs}ms`
+      : "❌ 没看到任何角色气泡",
+    streamed: !!firstBubble && firstBubble.running === true,
+    leadMs, samples: stream.length,
+  });
+  if (!firstBubble) throw new Error("MMT 一轮没有任何角色气泡上屏");
+  if (firstBubble.running !== true) {
+    throw new Error(
+      `第一个气泡上屏时这一轮**已经跑完**（running=${firstBubble.running}）——`
+      + `流式交付退回了批式: ${JSON.stringify(stream.slice(0, 6))}`);
+  }
+  if (firstBubble.entry) {
+    throw new Error("第一个气泡与触发粉泡同一刻出现（整轮一次性落地）");
+  }
+  if (leadMs < 250) {
+    throw new Error(`首泡与整轮结束只差 ${leadMs}ms（前端 250ms 轮询都吃不满, 像批式）`);
+  }
+
   await page.waitForSelector(".bond-entry", { timeout: 30000 });
   record("MMT 一轮 + 羁绊入口", {
     info: "桩 LLM 回邀约 → 入口粉泡出现",
@@ -707,19 +787,31 @@ async function main() {
   }
   // 收尾话到了之后**不该再显示"对方正在输入…"**（2026-09-12 真机报障: 话已经
   // 全部显示完了, 三个点还在跳, 半分钟后静默消失——旧逻辑在 25s 宽限窗口里
-  // 无条件 showTyping）。观察 3.5s: **期间任何一次出现**都算残留（轮询 1s 一次,
-  // 只看"当下有没有"会错过它下一拍又冒出来）。
-  let typingSeen = false;
+  // 无条件 showTyping）。
+  // ⚠️ 2026-09-27（⑥-3b）判据收窄: 轮询提到 250ms 后, 前端**可能在"这一轮还真的
+  //    在跑"时**短暂显示三个点（那是诚实的状态, 不是谎报）⇒ 只认"**后端说没在跑**
+  //    却还在跳"，且要持续 >0.8s（前端最长 250ms 才轮到下一拍）+ 留证当时的 running。
+  let lieMs = 0, lieSample = null, typingSeen = false;
   for (let i = 0; i < 35; i++) {
-    typingSeen = await page.evaluate(() => !!document.getElementById("mmt-typing"));
-    if (typingSeen) break;
+    const st = await page.evaluate(() => ({ typing: !!document.getElementById("mmt-typing") }));
+    if (!st.typing) { lieMs = 0; await new Promise((r) => setTimeout(r, 100)); continue; }
+    typingSeen = true;
+    const running = await runningNow(page);
+    if (running !== false) { lieMs = 0; await new Promise((r) => setTimeout(r, 100)); continue; }
+    lieMs += 100;
+    lieSample = { running, lieMs };
+    if (lieMs > 800) break;
     await new Promise((r) => setTimeout(r, 100));
   }
   record("收尾后打字指示", {
-    info: typingSeen ? "❌ 收尾话已到, 三个点仍在跳" : "收尾话落地即消失（观察 3.5s）",
+    info: lieMs > 800
+      ? `❌ 收尾话已到且后端已停（running=false）, 三个点仍跳 ${lieMs}ms`
+      : (typingSeen ? "三个点只在该轮真在跑时出现（诚实状态）" : "收尾话落地即消失（观察 3.5s）"),
+    lieSample,
   });
-  if (typingSeen) {
-    throw new Error("收尾话已显示完, 打字指示（mmt-typing）仍残留 —— 宽限窗口谎报");
+  if (lieMs > 800) {
+    throw new Error(`收尾话已显示完且 running=false, 打字指示（mmt-typing）仍残留 `
+      + `${lieMs}ms —— 宽限窗口谎报: ${JSON.stringify(lieSample)}`);
   }
 
   // ── 9. 回忆册: 书页 → 角色页 → 只读回放（DESIGN_COLLECTION_BOOK）────────
@@ -757,7 +849,15 @@ async function main() {
 
   await page.click(`.col-grid [data-char="${CHAR}"]`);
   await page.waitForSelector("#col-char:not(.hidden)", { timeout: 10000 });
-  await page.waitForSelector("#col-chapters .col-chapter", { timeout: 20000 });
+  // ⚠️ 留证（2026-09-27）: 这条 20s 等待偶发超时, 而"超时"本身分不清三种真身——
+  //    列表停在"加载中…"（请求没回来）/ "还没有结束的故事。"（后端返回空）/
+  //    "读不到她的故事: …"（请求失败）。失败信息带上列表原文, 一次就能定位。
+  await page.waitForSelector("#col-chapters .col-chapter", { timeout: 20000 })
+    .catch(async (e) => {
+      const txt = await page.evaluate(() =>
+        ((document.getElementById("col-chapters") || {}).innerText || "").slice(0, 200));
+      throw new Error(`角色页没列出章节（列表原文=${JSON.stringify(txt)}）: ${e.message}`);
+    });
   const chapterTitles = await page.locator("#col-chapters .col-chapter-name").allInnerTexts();
   const hasThumb = await page.locator("#col-chapters .col-chapter-thumb").count();
   record("回忆册角色页", {
