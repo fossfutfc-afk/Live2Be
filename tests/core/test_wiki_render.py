@@ -125,9 +125,13 @@ def test_character_view_sections_and_first_person():
                                 graph=g)
     assert out.startswith("【角色记忆（brain）】")
     assert "我记得那段日子：天台夜谈后，我开始相信自己被需要" in out
-    assert "我记得的事（珍贵的）：" in out
-    assert "和老师拆炸弹那次，老师没有苛责我（「没关系，我陪你拆完。」）" in out
-    assert "最近的事：\n- 老师带我去吃甜品" in out
+    # ⭐ **一条河（从早到晚）**（2026-09-25, 链路 ⑤）: 经历不再按"珍贵的/最近的"切两块;
+    # `is_precious` 降级成**行内标记**（`（难忘）` / `（3 天前·难忘）`）。
+    river = out.split("我记得的事（从早到晚）：\n")[1].split("\n\n")[0]
+    assert "- （难忘）和老师拆炸弹那次，老师没有苛责我（「没关系，我陪你拆完。」）" in river
+    assert "- 老师带我去吃甜品" in river
+    # 无 ts 的排河首、有 ts 的按时间在后（旧→新）
+    assert river.index("拆炸弹") < river.index("吃甜品")
     assert "我心里渐渐觉得：\n- 对sensei：我开始相信自己被需要（——从自卑到被需要）" in out
     assert "老师的事：\n- 总说「摸鱼」（count 3）" in out
     # ⏸ 原"久远的记忆"段（出厂 episode）2026-09-21 删——出厂记忆不进 wiki;
@@ -152,7 +156,7 @@ def test_character_view_no_caps_all_rendered():
     ]
     out = render_character_view(nodes)
     assert "我听说的：\n- 听睦月说阿露昨天又翻车了（听asagi_mutsuki说的）" in out
-    assert "最近的事：" in out
+    assert "我记得的事（从早到晚）：" in out
     assert out.count("\n- 日常") == 12         # 12 条 observed 全部注入（旧 cap 6/10 会截断）
     # 空段省略
     out2 = render_character_view([])
@@ -189,6 +193,36 @@ def _ts(days_ago: int) -> str:
     return (_NOW - timedelta(days=days_ago)).isoformat(timespec="seconds")
 
 
+def test_river_is_one_timeline_old_to_new():
+    """⭐ 链路 ⑤（2026-09-25）: 经历是**一条河, 从早到晚**。
+
+    从前按 `(珍贵, ts)` 降序 + 用 `is_precious` 切成「珍贵的」/「最近的事」两块 ⇒
+    **同一个时刻的事被劈到两段里**, 读不出先后（真机 haruka: 「3 天前」既在珍贵的里
+    又在最近的事里）。现在: 一条, 旧→新; 「难忘」只是**行内标记**。
+    """
+    nodes = [
+        _ep("最早的事", sig=0.5, ts="2026-09-01T10:00:00", event_seq=[1]),
+        _ep("中间的事（难忘）", sig=0.9, ts="2026-09-03T10:00:00", event_seq=[2]),
+        _ep("最晚的事", sig=0.5, ts="2026-09-05T10:00:00", event_seq=[3]),
+    ]
+    out = render_character_view(nodes)
+    river = out.split("我记得的事（从早到晚）：\n")[1]
+
+    assert "珍贵的" not in out and "最近的事" not in out      # 两块合并了
+    order = [river.index(t) for t in ("最早的事", "中间的事", "最晚的事")]
+    assert order == sorted(order), river                      # 旧 → 新
+    assert "- （难忘）中间的事（难忘）" in river                # 无 now → 只剩标记
+    assert "- 最早的事" in river and "- 最晚的事" in river
+
+
+def test_river_marker_and_phrase_together():
+    """`now` 给了 → 难忘的写成 `（3 天前·难忘）`（短语 + 标记, 一个括号）。"""
+    nodes = [_ep("难忘的那件", sig=0.9, event_seq=[1])]
+    nodes[0].ts = _ts(3)
+    out = render_character_view(nodes, now=_NOW)
+    assert "- （3 天前·难忘）难忘的那件" in out, out
+
+
 def test_time_phrase_prefixed_and_vague():
     """★ 短语挂在**最前**（先看到远近再读内容），且**绝不出现精确值**。
 
@@ -217,7 +251,7 @@ def test_time_phrase_absent_without_now():
     nodes = [_ep("老师带我去吃甜品", sig=0.6, event_seq=[1])]
     nodes[0].ts = _ts(0)
     out = render_character_view(nodes)
-    assert out == ("【角色记忆（brain）】\n\n最近的事：\n- 老师带我去吃甜品"), out
+    assert out == ("【角色记忆（brain）】\n\n我记得的事（从早到晚）：\n- 老师带我去吃甜品"), out
     print("    T3: 无 now → 零变化（旧调用方不受影响）")
 
 
@@ -227,7 +261,7 @@ def test_time_phrase_absent_for_unstamped_old_nodes():
     nodes = [_ep("旧档记忆", sig=0.6, event_seq=[1])]      # ts 缺省 = ""
     out = render_character_view(nodes, now=_NOW)
     assert "- 旧档记忆" in out
-    assert "很久以前" not in out and "（" not in out.split("最近的事：")[1]
+    assert "很久以前" not in out and "（" not in out.split("我记得的事（从早到晚）：")[1]
     print("    T3: 缺 ts 的节点不加短语（不编'很久以前'）")
 
 
