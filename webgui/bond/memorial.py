@@ -114,10 +114,16 @@ def _memorial_gen(state: BondState, char_id: str, session_id: str,
                     img.elapsed_s, img.path.name)
         # 可归因记账（2026-09-20 节点 C）: `prompt_source` = 这张图的 prompt 是
         # `art` 画面意向还是降级的触发句 —— art 配对命中率就靠它算。
+        # ⚠️ 2026-09-27 修: 写者是**触发那一次的 `BondStoryEngine`**（`state.vn`，
+        #    见 `bond_story/engine.py::_fire_memorial_image`），这里原先读的是
+        #    `chat._engine(char_id)`（**MomoTalkEngine**——另一个类）⇒ `getattr`
+        #    永远落到默认 `""` ⇒ **字段从来没写进 gallery json**（真机 6 张图 +
+        #    冒烟世界全部缺该字段；art 命中率因此无法统计）。
+        src = getattr(state.vn, "memorial_prompt_source", "") or ""
         sid = GalleryStore(_flow_store(state).data_root,
                            world_id=_flow_store(state).world_id).write(
             char_id, prompt, session_id, img.path, width=img.width, height=img.height,
-            prompt_source=getattr(eng, "memorial_prompt_source", "") or "",
+            prompt_source=src,
             refs=[Path(p).name for p in refs],
             model=getattr(gen, "api_model", "") or "",
             elapsed_ms=int(round((img.elapsed_s or 0) * 1000)))

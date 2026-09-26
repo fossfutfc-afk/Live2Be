@@ -204,7 +204,7 @@
 
 | # | 改动 |
 |---|---|
-| C1 | gallery json 补字段（**都可缺省, 老 json 形状不变**）：**`prompt_source`** = `art` / `memorial_text`（降级）、`refs`（喂了哪些参考图）、`model`、`elapsed_ms`。来源: 引擎在 `_fire_memorial_image` 里把"这张图的 prompt 是画面意向还是触发句"记到 `engine.memorial_prompt_source`，`_memorial_gen` 同步读走交给 `GalleryStore.write` |
+| C1 | gallery json 补字段（**都可缺省, 老 json 形状不变**）：**`prompt_source`** = `art` / `memorial_text`（降级）、`refs`（喂了哪些参考图）、`model`、`elapsed_ms`。来源: 引擎在 `_fire_memorial_image` 里把"这张图的 prompt 是画面意向还是触发句"记到 `engine.memorial_prompt_source`，`_memorial_gen` 同步读走交给 `GalleryStore.write`。⚠️ **2026-09-27 修**："同步读走"读的必须是**触发那一次的 `BondStoryEngine`**（`state.vn`）——写者与读者一度不是同一个对象（读者取 `chat._engine(char_id)` = **MomoTalkEngine**）⇒ `getattr` 恒落默认 `""` ⇒ 字段**从来没写进 json**（真机 6 张图全缺）。守门用例 `test_bond.py::test_memorial_gallery_records_prompt_source`（两个对象上放不同值） |
 | C2 | **统计口径**（三个口径互为印证）：<br>① **art 配对命中率** = gallery json 里 `prompt_source == "art"` 的比例（最权威——它记的是**真出图的那一次**）<br>② 契约软问题计数: `grep "含 memorial 但没有 art"`（`check_block` 的软问题, **流式路径也有**）<br>③ WARNING `grep "声明了 art 但本回合没有 memorial"` —— ⚠️ 这条**只覆盖批式路径**（在 `_build_record_boards` 里, 流式不走那个函数）, 别单独拿它下结论 |
 
 ### 节点 D — 图像质量（前几轮已定，与纪念链路解耦）　✅ **D1/D2 已落地 2026-09-20；D3 关闭**
