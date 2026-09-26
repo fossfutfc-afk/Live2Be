@@ -52,7 +52,7 @@ RECORD_BLOCK = "\n".join([
     '{"stage": "end", "text": ""}',
 ])
 PICK = "我来了。"
-MMT_REPLY = {"messages": [{"text": "嗯……我、我其实很开心的！"}]}
+MMT_REPLY = '{"text": "嗯……我、我其实很开心的！"}'
 
 
 class ScriptedLLM:

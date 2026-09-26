@@ -229,14 +229,15 @@ def test_droppable_action_row_is_noted_next_turn(tmp_path):
 
 
 def test_old_path_untouched_when_flag_off(tmp_path):
-    """默认关：旧 `{\"messages\":[…]}` 路径照旧（双读的"另一边"）。"""
+    """显式关掉行协议时，旧 `{"messages":[…]}` 路径仍可用（**⑥-2f 删它**）。"""
     llm = ScriptedLLM({"messages": [{"text": "嗯……我、我其实很开心的！"}]})
     st = SessionStore(tmp_path)
-    engine = MomoTalkEngine(ROOT / "config" / "characters", llm, store=st)   # line_protocol 默认 False
+    engine = MomoTalkEngine(ROOT / "config" / "characters", llm, store=st,
+                            line_protocol=False)          # ← ⑥-2e 起默认已翻成 True
     engine.start_session(CHARACTER)
     root = st.create(CHARACTER)
     engine.attach_session(root.session_id)
     r = engine.agent_turn("你好呀")
     assert r.ok and r.action == "mmt_chat" and "很开心" in r.reply
     assert llm.kwargs[0]["response_format"] == "json_object"      # 旧路径不动
-    print("    flag off: 旧路径一字未动（json_object + 整轮原子）")
+    print("    flag off: 旧路径仍可用（json_object + 整轮原子; ⑥-2f 删）")

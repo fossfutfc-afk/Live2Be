@@ -110,10 +110,10 @@ def test_task_card_chat_default_and_char_replace():
 
 
 def test_task_card_wrapup_kind():
-    """收尾轮 kind=wrapup: 只许 mmt_chat 的任务约束。"""
+    """收尾轮 kind=wrapup: 只发消息行（不触发剧情）的任务约束。"""
     card = task_card("mmt", "wrapup", char="遥香", enabled=True)
     assert card is not None
-    assert "只许 mmt_chat" in card and "不要再次触发剧情" in card
+    assert "只发**消息行**" in card and "不要再次触发剧情" in card
 
 
 def test_task_card_bond_kinds():

@@ -85,7 +85,7 @@ def parse_mmt_send_media(payload: dict[str, Any]) -> dict[str, Any]:
 
     禁视频: media_type 白名单只有 'image'——传 video 直接拒绝, 让 LLM 修正。
     图片管线: 先查资源库（library_id）, 库内没有才按 image 描述生成。
-    附带的话走**轮级 reply**（2026-09-02: 动作不再带文本字段）。
+    附带的话走**另一行消息行**（⑥-2e 起：行流契约里"话"永远是独立的一行）。
     """
     media_type = payload.get("media_type", "image")
     if media_type not in MMT_MEDIA_TYPES:
@@ -173,7 +173,7 @@ def build_mmt_registry() -> MMTActionRegistry:
             "      填了且库中命中则直接发这张\n"
             "media_type: 可选, 只能 'image'（MMT 禁发视频——项目没有视频生成能力, "
             "传 video 会被拒绝）\n"
-            "附带的话写在轮级 reply 字段（不是本动作的字段）"
+            "附带的话**另起一行消息行**（操作行不上屏, 只负责把图发出去）"
         ),
     ))
     registry.register(ActionSpec(
@@ -188,7 +188,7 @@ def build_mmt_registry() -> MMTActionRegistry:
             "      『夏莱的邀请函』『雨中的秘密』）——它是章节标题卡与剧情记录的来源\n"
             "用途: 把对话从手机聊天切换到当面相见的羁绊剧情——面对面推进。\n"
             "      当你判断手机消息进行不下去/共处契机出现时, 可以发起;\n"
-            "      邀约的话写 text 单元（见到老师时说的话——不是告别, 是见面的话）\n"
+            "      邀约/见面的话写在它**前面的消息行**里（见到老师时说的话——不是告别, 是见面的话）\n"
             "[系统] 节奏是**建议不是拦截**: 程序不会拒绝你的触发——每轮注记会\n"
             "      提示当前时机（距上次剧情轮数）; 紧急/危险场面（sensei 遇险等）\n"
             "      你判断该去就去, 不必等轮数; 刚演完剧情也别立刻连开, 自然沉淀"

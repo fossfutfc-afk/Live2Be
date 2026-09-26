@@ -135,16 +135,17 @@ VN 的控制行玩家看得见（丢了立刻穿帮），MMT 的控制行玩家�
 
 ## 5. MMT 旧协议退役清单（"旧协议统统改掉"）
 
-| # | 位置 | 动作 |
-|---|---|---|
-| 1 | `core/mmt/engine.py:1128-1154` | 删 `reply` / `actions` 归一分支 + 相关 feedback 文案 + 文件头 docstring 里的旧协议说明 |
-| 2 | `core/mmt/mmt_actions.py`（`mmt_send_media` 的 `payload_schema`） | 删"附带的话写在**轮级 reply 字段**"——⚠️ 它**今天还活在真机注入文本里** |
-| 3 | `contract/schema.py::build_schema(action_list=True)` | MMT 分支改成渲染 JSONL 契约（VN 的 `build_record_schema` 保持独立入口） |
-| 4 | `llm/prompts/momotalk_rules.md` | 【输出格式】+ **4 个触发示范** + 4 条闲聊例（`{"messages":[…]}` → JSONL 行） |
-| 5 | `core/mmt/engine.py` 的隐含 `mmt_chat` 映射 | 定义点收成一处（text 行 → `mmt_chat` 事件 + history 行） |
-| 6 | 测试 | `tests/core/test_mmt_round_protocol.py` 等：旧形状用例改成"**旧形状必须被拒**" |
-| 7 | `docs/PROMPT_INJECTION_MAP.md`（MMT schema 行 / 旧协议对照行） | 事实同步 |
-| 8 | `CLAUDE.md` §3.1 | ⚠️ **改前先改名**（其指令预算已满，编辑会截掉尾部） |
+| # | 位置 | 动作 | 状态 |
+|---|---|---|---|
+| 1 | `core/mmt/engine.py` 的 `_parse_messages` | 删 `reply` / `actions` 归一分支 + 相关 feedback 文案 + 文件头 docstring 里的旧协议说明 | ⏳ **⑥-2f** |
+| 2 | `core/mmt/mmt_actions.py`（`mmt_send_media` / `mmt_trigger_bond_story` 的 `payload_schema`） | 改掉"附带的话写在**轮级 reply 字段**"与"邀约的话写 **text 单元**"（两处**都会进 prompt**） | ✅ **⑥-2e** |
+| 3 | `contract/schema.py::build_schema(action_list=True)` | 调用点换成 `build_line_schema`（引擎侧已换）；`action_list` **分支代码**本身待删 | ✅ 调用点（⑥-2e）／⏳ 分支删除（⑥-2f） |
+| 4 | `llm/prompts/momotalk_rules.md` | 拆风格/形状：4 条闲聊例与 4 个触发示范去掉 JSON 外壳、改成"玩家:/你:"（**风格**），形状只在契约块一份 | ✅ **⑥-2e** |
+| 5 | `core/mmt/engine.py` 的隐含 `mmt_chat` 映射 | 定义点收成一处（`_run_lines` 里 消息行 → `mmt_chat` 事件 + history 行） | ✅ **⑥-2d/e** |
+| 6 | 测试 | 桩全改 JSONL（19 个文件）；旧形状用例 → "**旧形状必须被拒**" | ✅ 桩（⑥-2e）／⏳ 旧形状分支用例（⑥-2f） |
+| 7 | `docs/PROMPT_INJECTION_MAP.md`（MMT schema 行 / 旧协议对照行） | 事实同步 | ✅ **⑥-2e** |
+| 8 | `CLAUDE.md` §3.1（"每轮输出：单个 JSON 消息流"）+ §2 的 `contract/` 树 | ⚠️ **改前先改名**（其指令预算已满，编辑会截掉尾部） | ⏳ **⑥-2f** |
+| 9 | `llm/prompts/task_mmt.md` / `task_mmt_wrapup.md` | 去掉"消息流"/"只许 mmt_chat"旧词（改"一行一条消息"/"只发消息行"） | ✅ **⑥-2e** |
 
 ⚠️ **旧档回放不受影响**：回放读事件流、不走 LLM 解析 ⇒ 删兼容分支安全。
 
@@ -261,6 +262,7 @@ VN 的控制行玩家看得见（丢了立刻穿帮），MMT 的控制行玩家�
 | 2026-09-25 | **⑥-2b 落地**（MMT 行解析）：`core/mmt/mmt_lines.py`（`MmtLine` / `line_from_obj` 判别 / `MmtStream` **行即交付单元** / `to_action_raw` 桥 / `parse_lines`），9 条单测覆盖分块喂入·丢行记账·数组行拍平（共用 `line_no`）·不做转义救援。**实测两条写进 §10.2 B5**：自愈必须早于 `registry.parse`；`chapter_title` 的必填 registry 不管（该由 `mmt_check` 加）。纯新增，未接线 |
 | 2026-09-25 | **⑥-2c 落地**（校验 + 自愈）：`core/mmt/mmt_check.py`（5 码 + 软硬表 + `check_turn`：空轮 / 两个独占约束 / **`chapter_title` 3-16** / 丢行汇总软记账）+ `core/mmt/mmt_repair.py`（`character_id` 归一【精确→折叠→子串，**唯一命中才用**】· `media_type` 纠错 · 标题截断 · `repair_line` 分派）；13 条单测；反文案分级守门扩到 MMT 码表。纯新增，未接线 |
 | 2026-09-25 | **⑥-2d 落地**（引擎接线，双读）：`MomoTalkEngine(line_protocol=…)`（临时件，⑥-2f 删；**默认 False ⇒ 真机零行为变化**）；新路径 = 裸文本 → 行解析 → **四阶段办理**（自愈 → 组合校验 → parse+执行 → **保持行序**交付）+ `_deliver_line` 逐行落事件/历史 + 三段式兜底（行级 1 / 形状级 2）+ 软丢行下一轮注记；`MomoTalkOutput.publish_line`（一行一气泡，不切句）；`MmtLine.to_dict/to_line`。⭐ **AUDIT §B9 已接上**（inspect 资料回灌后继续这一轮）。9 条新用例（含"旧路径一字未动"） |
+| 2026-09-25 | **⑥-2e 落地**（⭐ 翻转契约）：盒A 的 `schema` 块 → `build_line_schema`；`line_protocol` **默认改 True**；`momotalk_rules.md` **拆风格/形状**（示范去 JSON 外壳、形状只在契约块）；`mmt_actions.py` 两处旧协议残句修正；`task_mmt*.md` 去旧词；**19 个文件的桩改 JSONL**；promptkit 夹具刷新（人工审 diff）+ 快照刷新 + 注入地图同步。两条实测记录：① 旧路径经 `split_reply_chunks` 会**规范化标点**（`……`→`…`），新路径逐字保留；② 续写轮模型若改口"不补那一行、直接说话"⇒ **收下它的话**（兜底优先）+ 记"操作没执行"注记（原"只收控制行"会让整轮白费） |
 
 ---
 

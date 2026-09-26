@@ -51,7 +51,7 @@ from core.common import Live2BeError, err
 from llm.client import LLMClient, feedback
 from llm.task_labels import MMT
 from llm.task_levels import max_tokens as task_levels_max_tokens
-from contract import APPROVAL_AUTO, DOMAIN_MMT, AgentAction, build_schema
+from contract import APPROVAL_AUTO, DOMAIN_MMT, AgentAction, build_line_schema
 from contract.issues import format_issues, split_issues
 from core.bond.bond_progress import BondProgress
 from core.mmt.mmt_actions import build_mmt_registry
@@ -454,7 +454,7 @@ class MomoTalkEngine:
         character_names: list[str] | None = None,
         history_rounds: int = DEFAULT_HISTORY_ROUNDS,
         task_card: bool | None = None,   # None = settings [promptkit].task_card（默认 true）
-        line_protocol: bool = False,     # ⑥-2d 行协议（临时双读件; ⑥-2f 删）
+        line_protocol: bool = True,      # ⑥-2e 起默认行协议（⑥-2f 删旧路径与这个开关）
     ):
         self.char_loader = CharacterLoader(characters_root)
         self.llm = llm_client
@@ -496,9 +496,8 @@ class MomoTalkEngine:
         self._task_card_override: bool | None = task_card
         self._task_on = True
 
-        # ⭐ 行协议（⑥-2d）: True = `一行一条 JSON`（`_turn_lines`）; False = 旧
-        # `{"messages":[…]}` 路径（今天的默认, 真机走它）。
-        # **临时双读件**：⑥-2e 翻转契约时改默认值, ⑥-2f 删旧路径与这个开关。
+        # ⭐ 行协议（⑥-2e 起**默认**）: True = `一行一条 JSON`（`_turn_lines`）;
+        # False = 旧 `{"messages":[…]}` 路径（**已无人走**, 仅留到 ⑥-2f 删）。
         self._line_protocol = bool(line_protocol)
         # 行协议丢掉软操作行（如"图没发出去"）→ **下一轮**注记念一次（自清）
         self._line_notes: list[str] = []
@@ -518,7 +517,9 @@ class MomoTalkEngine:
             char=char,
             names=self._character_names or [char.display_name],
             greeting_suffix="——以下是你的行为规则，请严格遵守：",
-            schema=build_schema(self.registry, action_list=True),
+            # ⑥-2e: 行流契约（`一行一条 JSON`）——取代 2026-09-02 的 messages 消息流。
+            # 动作表由 registry **运行时**渲染（新增动作自动进 prompt）。
+            schema=build_line_schema(self.registry),
             interperson_path=self.executor.interperson_path,
         ))
 
@@ -1380,6 +1381,7 @@ class MomoTalkEngine:
         candidates = self._line_candidates()
         delivered: list[AgentAction] = []      # 已交付（顺序 = 行序）
         reask = False                          # 下一轮是"行级续写"轮（只收控制行）
+        reask_note = ""                        # 上一轮为什么没成（模型改口说话时记进注记）
         line_reask = 0
         shape_retry = 0
 
@@ -1401,14 +1403,26 @@ class MomoTalkEngine:
 
             lines, diags = parse_lines(text)
             if reask:
-                # ⭐ 续写轮**只收控制行**：消息行一律丢（零重复气泡）
+                # 续写轮**优先只收控制行**（消息行会重复上屏）；但模型若改口"不补那一行、
+                # 直接说话"，就**收下它的话**（兜底优先——比整轮失败好），同时记一条
+                # "那个操作没执行"的注记，别让它以为做过了（下一轮念一次）。
                 kept = [ln for ln in lines if ln.is_action]
-                if len(kept) != len(lines):
+                if kept:
+                    if len(kept) != len(lines):
+                        self._trace.append({
+                            "step": step, "action": "-", "summary": "", "reply": "",
+                            "payload": None, "parse_valid": True,
+                            "parse_errors": ["续写轮的消息行已忽略（不重复上屏）"]})
+                    lines = kept
+                elif lines:
+                    self._line_notes.append(
+                        "上一轮有一行操作没执行（" + reask_note
+                        + "）——不要重复它；玩家问起就如实说明。")
                     self._trace.append({
                         "step": step, "action": "-", "summary": "", "reply": "",
                         "payload": None, "parse_valid": True,
-                        "parse_errors": ["续写轮的消息行已忽略（不重复上屏）"]})
-                lines, reask = kept, False
+                        "parse_errors": ["续写轮未补控制行 → 改收消息行（兜底）"]})
+                reask = False
 
             hard, _soft = split_issues(check_turn(lines, diags))
 
@@ -1439,7 +1453,7 @@ class MomoTalkEngine:
                 feedback(messages, f"你这一轮有一行操作没能执行: {outcome.fatal}",
                          "请只补**缺失的那一条操作行**（一行 JSON）——"
                          "上面已经说出去的话不要再重复。")
-                reask = True
+                reask, reask_note = True, outcome.fatal
                 continue
 
             if outcome.need_more:                # inspect 查完 → 带着资料继续这一轮

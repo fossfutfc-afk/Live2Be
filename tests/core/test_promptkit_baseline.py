@@ -195,8 +195,8 @@ def test_mmt_round_tail_baseline(monkeypatch):
     ⚠️ 壁钟**冻住** —— 手机日期取 `datetime.now()`, 不冻则夹具每天失效。
     """
     _freeze_wall_clock(monkeypatch, datetime(2026, 9, 13, 20, 41))
-    llm = ScriptedLLM({"messages": [{"text": "嗯……我、我有点紧张。"}]},
-                      {"messages": [{"text": "老师你听我慢慢说。"}]})
+    llm = ScriptedLLM('{"text": "嗯……我、我有点紧张。"}',
+                      '{"text": "老师你听我慢慢说。"}')
     engine = _mmt_engine(llm)
     box = engine._system_prompt
 
@@ -222,7 +222,7 @@ def test_mmt_round_tail_baseline(monkeypatch):
 
 def test_mmt_round_tail_task_off():
     """task 卡 off（引擎参数）: 尾部无卡。"""
-    llm = ScriptedLLM({"messages": [{"text": "嗯……我、我有点紧张。"}]})
+    llm = ScriptedLLM('{"text": "嗯……我、我有点紧张。"}')
     engine = _mmt_engine(llm)
     engine._task_on = False
     engine.agent_turn("你好呀，在吗")
@@ -234,7 +234,7 @@ def test_mmt_round_tail_task_off():
 def test_mmt_wrapup_tail_card():
     """收尾轮（task_kind="wrapup"）: 注记之后是收尾卡, 卡内容 = task_mmt_wrapup.md。"""
     from core.promptkit import task_card as _card
-    llm = ScriptedLLM({"messages": [{"text": "嗯…今晚的事我会记住的。"}]})
+    llm = ScriptedLLM('{"text": "嗯…今晚的事我会记住的。"}')
     engine = _mmt_engine(llm)
     note = "（系统）羁绊剧情刚刚结束，回到手机聊天。只使用 mmt_chat 动作。"
     r = engine.agent_turn("（自动收尾）", system_note=note, record_input=False,

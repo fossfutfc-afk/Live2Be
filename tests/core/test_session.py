@@ -505,14 +505,11 @@ def test_engine_mmt_records_events(tmp_path):
 
     class LLM:
         def chat(self, messages, **kw):
-            # 消息流协议（2026-09-02）: text 单元说话 + action 单元操作, 任意交错;
-            # send_media 单元带旧字段 reply（兼容: 前置成 text 单元）
-            return {"messages": [
-                {"text": "第一句"},
-                {"action": "mmt_send_media", "reply": "第二句（旧字段前置）",
-                 "payload": {"media_type": "image", "image": "天台夕阳"}},
-                {"text": "第三句"},
-            ]}
+            # 行协议（⑥-2e）: 一行一条 JSON —— 消息行说话 / 操作行做事, 任意交错
+            return ('{"text": "第一句"}\n'
+                    '{"action": "mmt_send_media",'
+                    ' "payload": {"media_type": "image", "image": "天台夕阳"}}\n'
+                    '{"text": "第三句"}')
 
         def format_messages(self, **kw):
             return []
@@ -526,16 +523,15 @@ def test_engine_mmt_records_events(tmp_path):
     r = engine.agent_turn("你好呀")
 
     evs = st.events("igusa_haruka", meta.session_id)
-    # 消息流顺序 = 事件流顺序: 话1 → send_media → 话2（旧字段 reply 前置成 text）
+    # 行序 = 事件序: 话1 → send_media → 话2
     assert [e.subtype for e in evs] == [
         "session_start", "mmt_chat", "mmt_send_media", "mmt_chat"]
-    assert evs[1].payload["player"] == "你好呀"        # 第一条 text 挂 player
-    assert "player" not in evs[2].payload              # 后续单元不带（render 去重约定）
+    assert evs[1].payload["player"] == "你好呀"        # 第一条消息行挂 player
+    assert "player" not in evs[2].payload              # 后续行不带（render 去重约定）
     assert evs[2].payload["image"] == "天台夕阳"        # 干净动作字段保留
     assert evs[1].payload["reply"] == "第一句"
     assert evs[3].payload["reply"] == "第三句"          # 交错: 图后还能说话
-    # 旧字段 reply 前置成独立 text 单元（消息不丢）
-    assert evs[2].payload["reply"] == ""               # 动作自身不带文本（落库空串, 历史格式）
+    assert evs[2].payload["reply"] == ""               # 操作行不上屏（落库空串, 历史格式）
     # session progress = 距上次 bond 剧情的轮数（rounds_since_bond, 列表整体一轮）
     import json as _json
     prog = _json.loads(st.progress_path("igusa_haruka", meta.session_id).read_text(encoding="utf-8"))
@@ -555,7 +551,7 @@ def test_engine_mmt_no_store_no_events(tmp_path):
 
     class LLM:
         def chat(self, messages, **kw):
-            return {"actions": [{"action": "mmt_chat", "reply": "嗯", "payload": {}}]}
+            return '{"text": "嗯"}'
 
         def format_messages(self, **kw):
             return []
@@ -591,14 +587,14 @@ def test_engine_resume_rebuilds_history(tmp_path):
             return []
 
     st = SessionStore(tmp_path)
-    chat1 = {"actions": [{"action": "mmt_chat", "reply": "你好呀", "payload": {}}]}
+    chat1 = '{"text": "你好呀"}'
     engine = MomoTalkEngine(ROOT / "config" / "characters", Scripted(chat1), store=st)
     engine.start_session("igusa_haruka")
     root = st.create("igusa_haruka", "遥香")
     engine.attach_session(root.session_id)
     engine.agent_turn("你好")                     # 1 轮; 不 finish = 中断
 
-    chat2 = {"actions": [{"action": "mmt_chat", "reply": "继续呀", "payload": {}}]}
+    chat2 = '{"text": "继续呀"}'
     engine2 = MomoTalkEngine(ROOT / "config" / "characters", Scripted(chat2), store=st)
     info = engine2.resume_session("igusa_haruka", root.session_id)
     assert info["status"]["ended"] is False
@@ -620,7 +616,7 @@ def test_engine_resume_rejects_ended(tmp_path):
 
     class LLM:
         def chat(self, messages, **kw):
-            return {"actions": [{"action": "mmt_chat", "reply": "嗯", "payload": {}}]}
+            return '{"text": "嗯"}'
         def format_messages(self, **kw):
             return []
 
@@ -652,7 +648,7 @@ def test_engine_resume_history_window(tmp_path):
             if "记忆巩固" in messages[0]["content"]:      # digest 分支（resume 不触发, 防御）
                 return {"summary": "（空）", "facts": [], "beliefs": [],
                         "relations": [], "affection_exp_delta": 0}
-            return {"actions": [{"action": "mmt_chat", "reply": "嗯嗯", "payload": {}}]}
+            return '{"text": "嗯嗯"}'
         def format_messages(self, **kw):
             return []
 
