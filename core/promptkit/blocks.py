@@ -100,7 +100,11 @@ def _environment_mmt(ctx: BlockContext) -> str:
 
 
 def _rules_mmt(ctx: BlockContext) -> str:
-    """momotalk_rules.md: 消息流协议 + 单人模式 + 契机导向触发规则。"""
+    """momotalk_rules.md: 行为与**风格**（单人模式 / 连发节奏 / 契机导向触发规则）。
+
+    ⚠️ 形状（行文法 / 可用操作 / 示范）**不在这里**——⑥-2e 起只在紧随其后的
+    `schema` 块（`build_line_schema` 渲染）：形状单源，见 `DESIGN_STREAM_CONTRACT` §10.2 B2。
+    """
     return load_prompt("momotalk_rules")
 
 

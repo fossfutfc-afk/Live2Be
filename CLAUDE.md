@@ -75,7 +75,7 @@ webgui/        FastAPI 壳 + 会话状态机（**bond/ 包** = BondState 状态�
    ├ routers/  路由层: 请求→驱动层; _resolve_scene 给场景附前端渲染信息(bg/fx/place_bg)
    └ store.py  运行时配置读写(settings.toml)
 core/          引擎层（无 web 依赖, CLI/实验同源复用）
-   ├ mmt/engine.py           MMT 引擎（消息流动作循环）——**C12a 起从 `core/momotalk.py` 搬来**
+   ├ mmt/engine.py           MMT 引擎（**行协议**动作循环; ⑥-2e 起）——**C12a 起从 `core/momotalk.py` 搬来**
    │                         （同包: mmt_actions 契约 / mmt_executor 执行 / mmt_preset 预设+玩家名 /
    │                         ranking 排名; 旧路径 `core.momotalk` 已消失, 无兼容壳）
    ├ bond/bond_story/        Bond 引擎（**C9 起是包**）: scene.py（BondScene/SceneLoopError）+
@@ -122,15 +122,19 @@ tests/ core/ webgui/ llm/ renderer/ apps/ 分别对应域; experiments/ 真 API 
 ## 3. 契约与 LLM 调用点总表（各注入什么、输出什么、谁判）
 
 ### 3.1 MMT（MomoTalkEngine, `agent_turn`）
-- **每轮输出**：单个 JSON 消息流 `{"messages":[{"text":…},{"action","payload"}]}`
-  （2026-09-02 协议；text 单元=说话隐含 mmt_chat；action 单元=引擎介入操作）。
-- **可用动作**：`mmt_chat`(隐含) / `mmt_send_media` / `mmt_inspect_character`
-  （静默推理轮, 按 interperson 权重访问他人人设）/ `mmt_trigger_bond_story`
-  （**唯一模式切换动作**, 独占轮, 必须带 chapter_title 3-16 字）。
+- **每轮输出**：**行流**——一行一条 JSON（⑥-2e 起）：`{"text":…}` 消息行（一条行 =
+  一个气泡）/ `{"action":…,"payload":{…}}` 操作行（不上屏，引擎执行），任意交错。
+  契约由 `contract/schema.py::build_line_schema(registry)` 渲染（动作表运行时生成）；
+  ⚠️ 旧 `{"messages":[…]}` / `{"reply","actions"}` 已**整段退役**（⑥-2f）。
+- **可用动作**：`mmt_send_media` / `mmt_inspect_character`
+  （静默推理轮, 按 interperson 权重访问他人人设; **查到的资料回灌后继续这一轮**）/
+  `mmt_trigger_bond_story`（**唯一模式切换动作**, 独占操作行, 必须带 chapter_title 3-16 字）。
 - **messages 槽位**（`promptkit.round_messages` 唯一入口）：
   `[system=盒A(+brain 记忆段尾拼)] + history + [P16 羁绊进度注记] + [P17 系统注记?]
    + [P18 随机 want_to_speak?] + [task 卡 chat/wrapup] + [user 原文]`
-- 引擎判定：消息流解析/独占约束/全量 parse 原子回灌/事件落库（每动作一条）。
+- 引擎判定（`_turn_lines` **四阶段**：自愈 → 组合校验 → parse+执行 → **保持行序**交付）：
+  坏行丢行记账（`mmt_lines`）· 独占约束与 `chapter_title` 长度由 `mmt_check` 判 ·
+  **行交付即落事件**（每行一条）· 兜底三段（引擎自愈零成本 → 行级续写 ≤1 → 形状级重发 ≤2）。
 
 ### 3.2 Bond（BondStoryEngine, `send_vn_scene`）
 - **每场输出**：**记录流**——一行一条 JSON，从上往下读就是这一段的完整演出
@@ -666,7 +670,7 @@ CLI/测试同步路径在引擎内串行。
 | 项 | 状态/位置 |
 |---|---|
 | Bond contract v2（**已归档 2026-09-10**） | docs/archive/DESIGN_BOND_CONTRACT_V2.md |
-| **流式契约形式（MMT + VN 统一, 2026-09-25 定稿）** | docs/DESIGN_STREAM_CONTRACT.md（主文 = 契约形式六条 / 兜底分级 / MMT 旧协议退役清单; **附录 A = VN 记录流 v2** = 原 DESIGN_VN_UPGRADE.md 全文, P0–P2 已落地真机在跑, P3/P4 未做, 附录 A §14 渲染层未实现（决策 #36 暂缓））。⚠️ **MMT 换 JSONL + 开流式尚未落地**（链路 ⑥, 见 PROCEED.md §2） |
+| **流式契约形式（MMT + VN 统一, 2026-09-25 定稿）** | docs/DESIGN_STREAM_CONTRACT.md（主文 = 契约形式六条 / 兜底分级 / MMT 旧协议退役清单; **附录 A = VN 记录流 v2** = 原 DESIGN_VN_UPGRADE.md 全文, P0–P2 已落地真机在跑, P3/P4 未做, 附录 A §14 渲染层未实现（决策 #36 暂缓））。⚠️ **MMT 行流已落地**（⑥-2, 2026-09-26 真机在跑：一行一条 JSON / 逐行交付落库 / 旧 messages 路径已删）; **只剩 ⑥-3 流式交付**（`chat_full(on_chunk=…)` + 气泡逐条上屏）——见 PROCEED.md §2 |
 | **纪念链路（art↔memorial 配对 / 记录级进入 / 埋点 / 生图质量）** | docs/DESIGN_MEMORIAL.md（**节点 A–D 已落地 2026-09-20**）。**剩两件**：① **量 art 配对命中率**——改文案后要真机跑一章才知道有没有用（历史基准 **0/5 块**），看 gallery `prompt_source` 或 `grep "含 memorial 但没有 art"`；② **漏写 art 的"补写"方案**——用户裁决"现在不做"（补的板必须排在 `end` **之前**, 而 `end` 一落地即 finish ⇒ 播不出来） |
 | 真分歧 vs 收敛链 | **已定稿: 不立项**（收敛链即终局, 见 §6.5）; 自由度移交 DESIGN_MEETUP.md |
 | reasoning 档位 / SSE / choice 板全预生成（已关闭 2026-09-10, sibling 为终态） | §9 表与 v2 §5.4 |

@@ -1,11 +1,8 @@
 # -*- coding: utf-8 -*-
-"""MMT **行协议**接线（`line_protocol=True`，⑥-2d 2026-09-25）。
+"""MMT **行协议**接线（⑥-2d 接线 / ⑥-2f 起是唯一路径）。
 
 契约: `docs/DESIGN_STREAM_CONTRACT.md` §3（内容行/控制行）/ §4（兜底分级 +
-重试三段式）/ §10.3（三个注入点）。
-
-⚠️ 这是**双读过渡件**：真机默认 `line_protocol=False`（旧路径，本文件不碰它）。
-本文件只钉新路径的行为：
+重试三段式）/ §10.3（三个注入点）。本文件钉新路径的行为：
 
     逐行交付      text 行 = 一个气泡；事件**行交付即 append**（C4）；历史一行一条
     丢行隔离      坏行只丢自己（软, 不触发回灌）
@@ -66,7 +63,7 @@ def _engine(llm, tmp_path):
     st = SessionStore(tmp_path)
     engine = MomoTalkEngine(ROOT / "config" / "characters", llm,
                             bond_progress=BondProgress(data_root=tmp_path),
-                            store=st, line_protocol=True)
+                            store=st)
     engine.start_session(CHARACTER)
     root = st.create(CHARACTER)
     engine.attach_session(root.session_id)
@@ -227,17 +224,3 @@ def test_droppable_action_row_is_noted_next_turn(tmp_path):
                    for m in llm.snapshots[2] if m["role"] == "system"), "注记应自清（只念一次）"
     print("    drop: 丢行 + 下一轮注记念一次（自清）")
 
-
-def test_old_path_untouched_when_flag_off(tmp_path):
-    """显式关掉行协议时，旧 `{"messages":[…]}` 路径仍可用（**⑥-2f 删它**）。"""
-    llm = ScriptedLLM({"messages": [{"text": "嗯……我、我其实很开心的！"}]})
-    st = SessionStore(tmp_path)
-    engine = MomoTalkEngine(ROOT / "config" / "characters", llm, store=st,
-                            line_protocol=False)          # ← ⑥-2e 起默认已翻成 True
-    engine.start_session(CHARACTER)
-    root = st.create(CHARACTER)
-    engine.attach_session(root.session_id)
-    r = engine.agent_turn("你好呀")
-    assert r.ok and r.action == "mmt_chat" and "很开心" in r.reply
-    assert llm.kwargs[0]["response_format"] == "json_object"      # 旧路径不动
-    print("    flag off: 旧路径仍可用（json_object + 整轮原子; ⑥-2f 删）")

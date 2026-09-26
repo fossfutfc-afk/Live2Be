@@ -290,7 +290,6 @@ core.mmt.engine	DOMAIN_MMT	data	-
 core.mmt.engine	DROPPABLE_ACTIONS	data	-
 core.mmt.engine	DisplayStep	class	core.tui.streaming
 core.mmt.engine	DynamicCharacter	class	core.parsing.dynamic_character_parser
-core.mmt.engine	ExecResult	class	core.mmt.mmt_executor
 core.mmt.engine	LINE_REASK_MAX	data	-
 core.mmt.engine	LLMClient	class	llm.client
 core.mmt.engine	Live2BeError	class	contract.errors
@@ -353,7 +352,6 @@ core.mmt.engine	round_messages	function	core.promptkit.tail
 core.mmt.engine	run_panorama	function	core.brain.wiki_v2.digest
 core.mmt.engine	session_status	function	core.session.renderer
 core.mmt.engine	split_issues	function	contract.issues
-core.mmt.engine	split_reply_chunks	function	core.tui.text_processors
 core.mmt.engine	task_card	function	core.promptkit.task
 core.mmt.engine	task_card_enabled	function	core.promptkit.config
 core.mmt.engine	task_levels_max_tokens	function	llm.task_levels
