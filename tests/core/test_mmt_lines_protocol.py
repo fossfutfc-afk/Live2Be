@@ -12,6 +12,7 @@
     行级预算      修不了的操作行 → 续写 ≤ LINE_REASK_MAX 次 → 失败
     软丢行注记    send_media 修不了 ⇒ 丢行 + **下一轮**注记念一次（自清）
 """
+import json
 import sys
 from pathlib import Path
 
@@ -76,6 +77,145 @@ def _last_user(llm, call: int) -> str:
 
 def _joined(llm, call: int) -> str:
     return "\n".join(m.get("content") or "" for m in llm.snapshots[call])
+
+
+# ---------------------------------------------------------------------------
+# ⑥-3a 流式交付（`chat_full(on_chunk=…)`）
+# ---------------------------------------------------------------------------
+
+class StreamingLLM(ScriptedLLM):
+    """有 `chat_full` 的桩 —— **逐行喂** `on_chunk`（生产形状: 真客户端就是流式）。
+
+    `on_row(line)` 在每一行喂完之后调用: 测试在**那一刻**读事件流, 于是"哪个气泡
+    什么时候上屏"成为可断言的事实（批式桩永远断言不到）。
+    """
+
+    def __init__(self, *scripts, on_row=None):
+        super().__init__(*scripts)
+        self.on_row = on_row
+
+    def chat_full(self, messages, temperature=0.8, max_tokens=4096,
+                  response_format="text", on_chunk=None, **kw):
+        out = self.chat(messages, temperature=temperature, max_tokens=max_tokens,
+                        response_format=response_format, **kw)
+        if not isinstance(out, str) or on_chunk is None:
+            return out
+        for line in out.splitlines(keepends=True):
+            on_chunk(line)
+            if self.on_row is not None:
+                self.on_row(line)
+        return out
+
+
+def _streamed_engine(tmp_path, *scripts, probe=None):
+    """带探针的流式引擎: `probe(mmt 事件子类型, 刚喂完的那一行)`。
+
+    探针读的是**当时**的事件流（= 玩家此刻能轮询到的东西）。
+    """
+    box: dict = {}
+
+    def on_row(line):
+        if probe is not None:
+            probe([e.subtype for e in box["st"].events(CHARACTER, box["sid"])
+                   if e.type == "mmt"], line)
+
+    llm = StreamingLLM(*scripts, on_row=on_row)
+    engine, st, sid = _engine(llm, tmp_path)
+    box["st"], box["sid"] = st, sid
+    return llm, engine, st, sid
+
+
+def _rows(*objs: dict) -> str:
+    """若干行对象 → JSONL 文本（每行都带换行 —— 流式下"行一完整就交付"）。"""
+    return "\n".join(json.dumps(o, ensure_ascii=False) for o in objs) + "\n"
+
+
+def test_content_rows_deliver_one_row_behind(tmp_path):
+    """⭐ ⑥-3a **一行前瞻**: 内容行在**下一行**到达时上屏（不是整段收完才一口气发）。
+
+    前瞻是"能收回"的代价与手段: 下一行可能是 `inspect`，那时这一行必须还没上屏
+    （见 `test_inspect_mixed_drops_held_row_mid_stream`）。
+    """
+    seen: list[int] = []
+
+    def probe(subs, _line):
+        seen.append(subs.count("mmt_chat"))
+
+    _llm, engine, _st, _sid = _streamed_engine(
+        tmp_path,
+        _rows({"text": "第一句"}, {"text": "第二句"}, {"text": "第三句"}),
+        probe=probe)
+    r = engine.agent_turn("在吗")
+    assert r.ok and r.reply == "第一句\n第二句\n第三句"
+    # 喂完第 1 行: 0 条（压着）; 第 2 行: 1 条（第 1 句出）; 第 3 行: 2 条（第 2 句出）
+    assert seen == [0, 1, 2], seen
+    print("    stream: 内容行一行前瞻（第 N 句在第 N+1 行到达时上屏）")
+
+
+def test_whole_turn_action_waits_until_block_end(tmp_path):
+    """独占行（`trigger`）**不在流中间执行** —— 它要整轮可见才判得出"我是不是唯一操作行"。"""
+    seen: list[list[str]] = []
+
+    def probe(subs, _line):
+        seen.append(list(subs))
+
+    _llm, engine, st, sid = _streamed_engine(
+        tmp_path,
+        _rows({"text": "我们当面说吧！"},
+              {"action": "mmt_trigger_bond_story",
+               "payload": {"chapter_title": "当面说清楚"}}),
+        probe=probe)
+    r = engine.agent_turn("好啊")
+    assert r.ok and r.bond_story
+    # 第 1 行（话）压着 → 第 2 行（trigger）到达时话才上屏, 而 trigger 自己还没执行
+    assert seen == [[], ["mmt_chat"]], seen
+    assert [e.subtype for e in st.events(CHARACTER, sid) if e.type == "mmt"] == \
+        ["mmt_chat", "mmt_trigger_bond_story"]
+    print("    stream: 独占行攒到块尾（流中间不执行）")
+
+
+def test_inspect_mixed_drops_held_row_mid_stream(tmp_path):
+    """流式下 `inspect` 混排: 手里压着的那句**丢掉**（整轮不交付）—— 一行前瞻就是为它。"""
+    insp = {"action": "mmt_inspect_character",
+            "payload": {"character_id": "rikuhachima_aru"}}
+    seen: list[list[str]] = []
+
+    def probe(subs, _line):
+        seen.append(list(subs))
+
+    _llm, engine, st, sid = _streamed_engine(
+        tmp_path,
+        _rows({"text": "我想想…"}, insp),         # ① 混排（违规: 静默轮只能有它一条）
+        _rows(insp),                              # ② 续写轮: 只补那一条控制行
+        _rows({"text": "阿露她啊，是个爱热闹的人。"}),   # ③ 拿到资料后说话
+        probe=probe)
+    r = engine.agent_turn("阿露是个什么样的人？")
+    assert r.ok and r.reply == "阿露她啊，是个爱热闹的人。"
+    # 喂完第 1 行: 压着; 喂完第 2 行（inspect）: **丢掉, 一句都没上屏**
+    assert seen[:2] == [[], []], seen
+    assert [e.subtype for e in st.events(CHARACTER, sid) if e.type == "mmt"] == ["mmt_chat"]
+    assert all("我想想" not in (h.get("content") or "") for h in engine.history)
+    print("    stream: inspect 混排 → 压着的那句丢掉（整轮不交付）")
+
+
+def test_late_hard_issue_after_delivery_does_not_rollback(tmp_path):
+    """⭐ 已交付后判出的硬问题**不回滚、也不抛**（⑥-3a 折中方案）。
+
+    真机语义: 话已经说出去了 —— 独占行不执行 + 记账 + **下一轮**念一次注记;
+    整轮**不能**标成"发送失败"（前端会把玩家的消息画成感叹号, 而角色明明回了话）。
+    """
+    bad = _rows({"text": "我们当面说吧！"},
+                {"action": "mmt_trigger_bond_story", "payload": {"chapter_title": "雨"}})
+    llm = ScriptedLLM(bad, bad)              # 续写轮也修不好 → 行级预算耗尽
+    engine, st, sid = _engine(llm, tmp_path)
+    r = engine.agent_turn("好啊")            # ⚠️ 以前这里会抛 MmtLoopError
+    assert r.ok and r.reply == "我们当面说吧！" and not r.bond_story
+    assert [e.subtype for e in st.events(CHARACTER, sid) if e.type == "mmt"] == ["mmt_chat"]
+    assert any("上一轮有一行操作没执行" in n for n in engine._line_notes), \
+        "控制行没执行 → 必须记账（下一轮念一次）"
+    assert any(t.get("action") == "line_stream/streamed" for t in engine.trace), \
+        f"trace 里要有『已交付后判出问题』的留痕: {engine.trace}"
+    print("    stream: 已交付后的硬问题不回滚、不抛（记账 + 下一轮注记）")
 
 
 # ---------------------------------------------------------------------------

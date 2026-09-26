@@ -44,6 +44,10 @@ class LineStreamBase:
         self._ready: list[Any] = []             # 已交付待取（子类往里放）
         self._notes: list[str] = []             # 坏行/修复记账（`[DROP line N] …`）
         self.records: list[Any] = []            # **全量**行对象（诊断/trace）
+        #: **结构化**诊断（与 `notes` 同源）——`notes` 是人读串（日志/台账），
+        #: 这里是 `ParseDiag` 本体: 校验层要按 `dropped`/`line_no`/`error` 分级
+        #: （⑥-3a 起 MMT 的 `check_turn(lines, diags)` 直接吃它）。
+        self.diags: list[ParseDiag] = []
         self.line_no = 0
 
     # --- 喂入 --------------------------------------------------------------
@@ -76,6 +80,7 @@ class LineStreamBase:
         self.line_no += 1
         items, diag = self._parse_row(raw, self.line_no)
         if diag is not None:
+            self.diags.append(diag)                  # 结构化（校验层用）
             tag = "DROP" if diag.dropped else "NOTE"
             self._notes.append(f"[{tag} line {diag.line_no}] {diag.error}")
         for item in items:

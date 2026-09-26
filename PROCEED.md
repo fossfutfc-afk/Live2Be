@@ -28,8 +28,12 @@ Live2Be = Blue Archive 式叙事引擎（MMT 聊天 + Bond 视觉小说 + digest
 `docs/DESIGN_STREAM_CONTRACT.md`（旧三份设计稿已删并改指）。
 ⭐ **⑥-2 全部落地**（2026-09-25/26，a₀–f 七步）：共用层 = **`contract/streams/`**；
 MMT 已换**行协议**（一行一条 JSON、逐行交付/落库、四阶段办理 + 三段式兜底）；
-**旧 messages 路径整段删除**（−296 行）。**代码下一步 = ⑥-3 流式交付**
-（`chat_full(on_chunk=…)` + 气泡逐条上屏）。
+**旧 messages 路径整段删除**（−296 行）。
+⭐ **⑥-3a 已落地**（2026-09-27）：引擎接 `chat_full(on_chunk=…)` + `MmtStream`，
+**内容行一行前瞻即时交付 / 独占行攒块尾 / 已交付不回滚**（设计稿 §4.5）。
+**代码下一步 = ⑥-3b 前端节奏 + 冒烟判据**（`POLL_MS` 1000→250ms、行间人为打字
+延迟退场、删 `BUBBLE_GAP_MS` 死代码、冒烟桩 `chat_full` 逐行喂 + 断言"第一个气泡
+早于整轮完成"）。
 
 ---
 
@@ -88,6 +92,13 @@ MMT 已换**行协议**（一行一条 JSON、逐行交付/落库、四阶段办
 | **⑥-1 抽取** ✅ | **已落地**：通用件 → `contract/streams/`（`lines.py` 行骨架 + `classify`/`known_keys`/`rescue` 注入 + `ParseDiag`/`tail_repair`；`stream.py` 增量缓冲基类 `LineStreamBase`）；`records/` 只留 VN 判别 / 转义救援 / **切板规则**（交付单元 = 板），3 个通用件改**再导出**（对外面不变） | ⭐ **纯搬家、零行为变化** ✅：全量 + B 冒烟；快照刷新（2 处真家 + 新段 5 名）+ 新守门 `test_streams_layer_stays_domain_free`（变异验证） |
 | ⑥-2 MMT 契约 | 契约 / 规则书 / 示例改 JSONL + 行级解析（**先不流式**）；"整轮原子"收窄成"**action 行必须全有效才执行**、text 行可部分交付" | 桩要按 `task` 补；`test_mmt_*` 跟着改 |
 | ⑥-3 流式交付 | 接 `chat_full(on_chunk=…)` + 气泡逐条上屏（`webgui/chat.py` 的 `events_after` 轮询链要动） | B 层冒烟要能测到"第一个气泡早于整轮完成" |
+
+### ⑥-3 的两小步（2026-09-27 用户拍板"折中方案 A + 前端 250ms"）
+
+| 步 | 做什么 | 状态 |
+|---|---|---|
+| **a 引擎流式交付** | `_turn_lines` 接 `chat_full(on_chunk=…)` + `MmtStream`：**内容行一行前瞻**（下一行到达时交付；见到 `inspect` 就把手里那行丢掉 ⇒ "没查到就先答"原样保住）· **独占行（`WHOLE_TURN_ACTIONS`）攒块尾**判/执行 · `_plan_line` 单行办理 + `_run_lines(check_rows=…)`（**校验面=整轮 / 执行面=剩余行**）· **已交付后的硬问题不回滚、不抛**（记账 + 下一轮注记）· 埋点 `mmt_stream_first` / `mmt_turn` | ✅ **已落地**（全量 1090 + B 冒烟 + 4 条流式守门用例；设计稿 §4.5） |
+| **b 前端节奏 + 冒烟判据** | `mmt.js`：`POLL_MS` 生成期 1000→250ms · 行间人为 `chunkTypingTime` 延迟**退场**（到达即渲染，真节奏 = LLM 的节奏）· 删 `BUBBLE_GAP_MS` + `renderBubbles(stream:true)` 死代码 · 冒烟桩补 `chat_full`（逐行喂 + 行间 sleep）+ 新断言"第一个气泡早于整轮完成" | ⏳ 未做 |
 
 ### ⑥-2 的七小步（用户要求"**保证每一步都可调试**"，故拆细；**每步全量绿、产品在每步边界都可用**）
 
@@ -215,6 +226,16 @@ README 与 v3.0.0 更新日志，**都没写注入顺序**（它是"工具派"�
 31. ⭐ **通用层不许认识域**：`contract/streams/` 只 import stdlib 与自身——判别 / 已知字段 /
     救援**全部靠注入**；守门 `test_import_direction.py::test_streams_layer_stays_domain_free`
     （已变异验证：塞一条 `from contract.records import …` 立刻红）。
+32. ⚠️ **桩的 `chat_full` 必须喂"它返回的那段文本"**（⑥-3a 实测）：`on_chunk(json.dumps(resp))`
+    在 `resp` 已是 str 时 = **双重编码** ⇒ 行协议一行都解析不出来，一路跑到 `MAX_STEPS`
+    才报"单轮超过 6 步仍未产出可见回复"（三个 promptkit 基线用例当场红）。真客户端的
+    `on_chunk` 就是内容增量 ⇒ 桩照它写。
+33. ⭐ **流式下"校验面"与"执行面"不是一个东西**（⑥-3a）：块尾只剩独占行没办，但
+    **组合校验必须看整轮**（独占性是"同一轮还有没有别的行"）⇒ `_run_lines(check_rows=…)`。
+    另：`inspect` 单独一轮**本来就不产出可见内容**，"没有可交付的行"那条 fatal 必须把
+    `need_more` 排除在外（否则静默轮被当成失败）。
+34. ⭐ **已交付 ⇒ 只记账，不抛 `MmtLoopError`**（用户裁决"折中方案 A"）：玩家已经看见气泡时
+    把整轮标成失败，前端会把**玩家的**消息画成感叹号（"发送失败"），而角色明明回了话。
 
 ---
 
