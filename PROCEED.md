@@ -1,6 +1,7 @@
 # PROCEED.md —— 接续指南（给压缩后的我）
 
 > 建立 2026-09-23，**取代 `core/brain/wiki_v2/DIGEST_HANDBOOK.md`（已删，别去找）**。
+> 2026-09-25 **整篇重写**（链路 ①–⑤ 已落地，位置搬到 ⑥）。
 > **读法**：先读这份（拿回上下文 ≤5 分钟）→ 需要细节时按 §6 的文档地图跳进去。
 > **设计争论不在这里** —— 全部在 `core/brain/wiki_v2/DESIGN_GRAPH_V4.md`。
 
@@ -10,144 +11,164 @@
 
 Live2Be = Blue Archive 式叙事引擎（MMT 聊天 + Bond 视觉小说 + digest 记忆）。
 
-**当前主线 = 记忆图 v4 落地**（`core/brain/wiki_v2/`）：边层 G1/G3/G4 已落地；digest 三轮改造走到
-**D2a / D2b / D3a**（第 3 轮的输入侧 + 执行器 + entity 初始化接线都已备好，**编排未接**）。
+**当前主线 = 记忆图 v4 落地**（`core/brain/wiki_v2/`）。用户定的链路
+**① note → ② 消解无用 kind → ③ 正常 digest → ④ 时序 → ⑤ 注入时间重排 → ⑥ 优化 MMT**
+里，**①–⑤ 全部落地**（每步一提交、全量 + B 冒烟），**现在站在 ⑥ 的门口**。
 
-⭐ **2026-09-23 发生了一次结构性重议**：结论是"**图不是唯一形式**" ——
-**图 / note（随身笔记）/ 台账（inventory）** 三种组织形式；而 MMT 的 `function_call`
-（她主动 `recall`）让"**边的走法**"第一次有了消费者。
+**最新提交**：`86c5de6`(⑤ 一条河) · `97a8ce6`(④-① per-node ts) · `f2432e0`(③-3 R3 接线) ·
+`9a372f1`(③-2 R2 视野+动作面) · `2c08827`(③-1 R4 编排) · `63b6a1b`(②-2 experience 落地) ·
+`ad0e038`(②-1 消解死引用) · `e04a998`(① 收尾 全景轮调用侧) · `c3a9762`(① 全景轮执行器) ·
+`99d2b5b`(① 全景轮契约) · `b206b1e`(reason→afterwards) …
+**工作树干净，全量 1047 passed。**
 
-**最新提交**：**①-第一步（note 事件登记 + 内容事件判据收敛）** · `a0ebe2f`(PROCEED) ·
-`44dd378`(docs) · `a9a612c`(D2b 执行器) · `785acda`(玩家 config) · `73ddb9b`(D3a) · `f2ac5f3`(D2a)。
-**工作树干净，全量 930 passed。**
+⭐ **每段 digest 现在是四步 `R1 → R4 → R2 → R3`，全部接线**（契约 / 提示词 / 编排 / 执行器 / 桩 / 用例）。
+⭐ **note（随身笔记）整条链已通**：事件登记 → `notes.py` 折叠 → `soul/notes.json` 缓存 →
+注入块 → 全景轮（写卡，每 10 段一次）→ R4 收口（promise 记账 + 固化）。
 
 ---
 
 ## 1. 工作约定（用户明确要求过的，别违反）
 
 1. **动手前先说做什么；动手后报告"做了什么 / 遇到什么问题 / 下一步"**；⚠️ **一旦遇到歧义，停下讨论**。
+   ⭐ 复杂节点**先把逻辑整理给用户**（他会说"你先整理一下下一步的逻辑吧，万一有什么不确定的呢"）——
+   2026-09-25 那次"先整理逻辑"直接救掉一个错判（我以为改 ts 能改「（3 周前）」，实测章内只有分钟级跨度）。
 2. **一节点一提交**；提交信息用 `git commit -F <文件>`（**CJK 会炸 `-m`**）；只 stage 明确路径。
 3. ⭐ **改 `CLAUDE.md` 前先把它改成别的名字**（用户 2026-09-23 要求）—— 否则每次编辑都会触发整个文件
-   重新注入上下文。改完再改回来。
+   重新注入上下文（**它的预算已经满了，每次编辑都在截掉尾部**）。改完再改回来。
 4. **每个节点必跑验证**（§5 四件套）。
 5. **设计稿纪律**：`DESIGN_GRAPH_V4.md` = "已达成一致的形状"。**动之前先与用户讨论**，动完在文末
    **变更记录**留一行；**未定的点写在 §9 —— 不要顺手实现**。
-6. 测试**别贪多**（用户："我们测试超级多了诶"）；**遇到失败的旧用例可直接删**（若它测的是"已不可能存在的世界"）。
+6. 测试**别贪多**；**遇到失败的旧用例可直接删**（若它测的是"已不可能存在的世界"）。
 7. 不跑 `ruff --fix`；不提交 `config/characters/*/illustration.yml`；`tools/` 是 gitignore 的本机工具目录。
 8. 用户会**自己改人设/提示词** —— 改了之后 promptkit 夹具要刷新
    （`PROMPTKIT_UPDATE_FIXTURES=1 pytest tests/core/test_promptkit_baseline.py` + **人工审 diff**）。
-9. **本文件**是压缩后的第一读物；它取代的那份 handbook 已删。
+9. **本文件**是压缩后的第一读物；用户说"不用同步，下一次 digest 的时候你删掉重写即可" ⇒ **整篇重写**，别补丁。
 
 ---
 
-## 2. 现在在哪 / 下一步
+## 2. 现在在哪 / 下一步（⑥ 的已裁方案）
 
-**用户定的链路**（2026-09-23）：
+**用户 2026-09-25 就 ⑥ 的第一件拍了板**：*"换真 jsonl 开流吧……MMT 的契约和 vn 其实就一样了，
+只是字段不同，先不要考虑其他的，考虑能否复用以及契约形式吧"*。
 
-```
-① note  →  ② 消解无用 kind  →  ③ 正常 digest  →  ④ 时序  →  ⑤ 注入提示词时间重排  →  ⑥ 优化 MMT
-```
-
-**当前位置 = ①（note）**：**第一步（事件层）已落地** —— `type:"note"` 已登记 + 内容事件判据
-收成 `events.is_content_event` 一处（`tests/core/test_note_events.py` 8 条守门）。
-**下一步 = ①-第二步（折叠 + `soul/notes.json` + 渲染 + 注入）**，仍未动代码。
-
-### ① note 的开工清单（设计见 `DESIGN_GRAPH_V4` §3.2 / §6 / §8.6）
-
-- **事件**：`type:"note"`（append-only，**不进 `window_messages` 历史** —— 同 `affection` 的处理），
-  subtype = `add` / `done` / `rewrite`。
-- **折叠**：事件序列 → `soul/notes.json`（带 `up_to_seq` 缓存水位；**不存在就现折**；可随时重建）。
-  ⇒ 并发安全（主 LLM 与 digest 同时写不丢更新）+ 可回放。
-- **三个槽**：`promise`（**操作式**：add/done，done = 移除、无状态机）·
-  `habits`（**快照式**，全景轮整段替换）· `on_mind`（一段散文，她的口吻）。
-  ⚠️ **物品一个字都不进 note**（痕迹 → `episode.items`；当前持有 → inventory）。
-- **渲染**（拼在 system 尾、固定标题、**不进按时间排序的记忆流**）：
-  ```
-  【你自己记的备忘录】（编号是索引, 细节去查那些编号）
-    n3 周六模型店 (m0009)  ← 记于 3 天前
-  ```
-  ⚠️ **编号必须渲染**（否则她只能靠文本匹配去 tick）；⚠️ **频次不进注入**（数值不喂 LLM 的既有纪律）。
-- **校验**：每项 ≥1 个 `refs` 且指向现存节点（悬空 → 记账告警，**不阻断**）；上限 `5 / 5 / 1`，**超限只告警**。
-- **写者分工**：加 = 当场（MMT 主 LLM 的可选字段；bond 侧由 digest 兜底）· 收口 = digest ·
-  归纳（B 类整体重写）= **全景轮**（低频）。
-
-### ⏳ §9-9 还开着的四个小口子（我给了默认值，用户没反对就照此实现）
-
-| 口子 | 默认 |
+| 裁决 | 内容 |
 |---|---|
-| B 类槽超限丢哪条 | **全景轮决定**（引擎只告警，不截断） |
-| 全景轮频率 | **每 N=10 段**（或章闭环时） |
-| note 事件进不进 `window_messages` 排除表 | **进**（不进上下文历史） |
-| MMT 的"顺手记一笔"可选字段 | **排在链路 ⑥**，现在不做 |
+| **MMT 输出格式** | **换真 JSONL（一行一条）+ 开流式**（现在是 `{"messages":[…]}` + `json_object` + 整轮原子） |
+| **复用方式** | ⭐ **抽取共用层**（动 VN 那条已上线的流式链），不另写一份（本仓明文：两份实现必然漂移） |
+| **判别键** | MMT 的内容行**保持 `{"text": …}`**（不新增 `say` 之类）; VN 保持 `character`/`stage` |
+
+### 契约形式六条（我提的，**待写进设计稿再动代码**）
+
+1. **一行一个 JSON 对象**，不包外层数组；
+2. 行内**判别键**决定这是哪一类行（VN: `character`\|`stage`；MMT: `text`\|`action`）；
+3. **内容行 / 控制行**二分 —— 内容行**无副作用**（可即时交付），控制行**有副作用**（过校验才执行）；
+4. 坏行**丢行 + 记账**（`ParseDiag`），不抛、不毁别的行；
+5. **交付与提交分离**（显示即时 / 事件在边界提交）；
+6. 校验问题分**硬/软**（`Issue(code,severity)`，硬度跟 `code` 走、不看文案）。
+
+### 下一步（三小步，每步一提交）
+
+| 步 | 做什么 | 判据 |
+|---|---|---|
+| **⑥-1 抽取** | 把通用件从 `contract/records/parse.py` 提到 `contract/streams/`：`ParseDiag`/`ParseResult` · `_tail_repair`（末行悬空） · 行骨架（跳空行/围栏 · 数组行拍平 · 坏行记账） · 增量缓冲（`feed`/`finish`/`pop_ready`）。`records/` 改成**注入判别函数 + 切板策略** | ⭐ **纯搬家、零行为变化**；全量 + B 冒烟逐字节等价（`api_surface` 快照 / split 守门要跟着走） |
+| ⑥-2 MMT 契约 | 契约 / 规则书 / 示例改 JSONL + 行级解析（**先不流式**）；"整轮原子"收窄成"**action 行必须全有效才执行**、text 行可部分交付" | 桩要按 `task` 补；`test_mmt_*` 跟着改 |
+| ⑥-3 流式交付 | 接 `chat_full(on_chunk=…)` + 气泡逐条上屏（`webgui/chat.py` 的 `events_after` 轮询链要动） | B 层冒烟要能测到"第一个气泡早于整轮完成" |
+
+### 复用判定表（我拆过一遍的结论）
+
+| 件 | 位置 | 复用性 |
+|---|---|---|
+| `ParseDiag` / `ParseResult` | `records/grammar.py` | ⭐ 通用（只是命名带 records） |
+| `_tail_repair`（补 `"}`） | `records/parse.py` | ⭐ 通用 |
+| 行骨架（strip→跳空行/围栏→`json.loads`→数组行拍平→坏行记账） | `records/parse.py::_parse_line_multi` | ⭐ 通用（中间只调一次记录判别） |
+| 增量缓冲 `feed`/`finish`/`pop_ready` | `BlockStreamParser` | ⭐ 骨架通用；**切板规则 VN 专用** |
+| `Issue(code,severity)` + `split_issues`/`format_issues` | `records/check.py` | ⭐ 机制通用（码表各自声明） |
+| action 契约（`registry.parse` + `spec.py`） | `contract/registry.py` | ⭐ **MMT 已有**，吃 dict ⇒ 行解析出来直接喂 |
+| `_record_from_obj`（character/stage 判别） | `records/parse.py` | ❌ VN 专用 |
+| `_rescape_repair`（辅助转义） | `records/parse.py` | ❌ 靠"`text` 恒为最后字段"这条记录文法；MMT 的 `payload` 在后 ⇒ 前提不成立 |
+| `check_block`/`check_board` | `records/check.py` | ❌ VN 专用 |
+
+### ⏳ ⑥ 里还开着、用户没圈的（别顺手做）
+
+- **读路径召回 + `mmt_recall{scope}`**（设计稿 §11 的正题）——⭐ 它同时是 **`retire` 的许可证**
+  （R4 现在**只发 `close` 不发 `retire`**，就是在等这条读路径接通）。连带 §9-11（recall 返回什么形状）
+  与 §9-14（`self` 要不要无条件进命中集）。
+- **note 的"顺手记一笔"**（主 LLM 当场 add 约定，配合 R4 兜底）。
 
 ---
 
 ## 3. 未决账（**动手前必须问用户**）
 
-**✅ 2026-09-23 已裁**（我读完设计稿发现的矛盾）：**`promise` 开放期不做 kind**（它住在 note 里，
-是当前值）· **闭合期固化进图 = `promise` 节点**（届时 `nodes.KINDS` 加它）—— 用户原话
-*"promise 在 note 里，一旦完成，退化进入 graph 成为长期记忆的一部分"*。§9-10 的措辞已澄清。
+**A. §9-12 的 ①-⑧**（⑦ 已结案；其余仍待裁）：① `evidence` 删 · ② `affection_delta` 收窄输入 ·
+③ R2 加 `detach` · ④ R3 加 `merge_entity` · ⑤ ⭐ **R3 也看"本轮被改写的旧节点"**
+（**这是 ③-3 留下的唯一残留洞**：R3 只看本轮新节点 ⇒ 被 R2 改写的旧节点这一轮归属不了、且**不会再回来**）·
+⑥ 复查队列不做 · ⑧ **D4：把 belief 的产出从 R2 搬到 R1**（§8 的 R2"禁止"栏写着"R2 不建节点"，
+现状不符；搬到 R1 后 `about_hint` 才齐、`links` 的两端限制也自然消失）。
 
-**A. `DESIGN_GRAPH_V4` §9-12 的 ①-⑧ —— 全部待裁**（问过两次都没答，别当成已定）：
+**B. §9 其余未定**（读原文再答，别凭记忆）：1 常驻层的界 · 4 `state` 清理 · 5 place 归位 ·
+6 `about_state`/复查队列 · 7 玩家改名回填 · 8 用户档案/用户提示词（**已裁"暂时先不做"**）·
+11 `recall` 返回形态 · 14 `self` 无条件进命中集 · 15 R4 是否独立调用 · 16 第三方承诺的 `from`/`to` ·
+18 **`retire` 的开关**（等读路径召回）。
 
-| # | 项 | 我的提案 |
-|---|---|---|
-| ① | `evidence`（成长证据） | **删**（零消费者 + 逼 R2 重喂时间线） |
-| ② | `affection_delta` | **留 R2**，输入换成"episode 摘要 + 情绪标量"，不喂时间线 |
-| ③ | R2 加 **`detach`**（裁错边） | 加（§8 写了但执行器没有） |
-| ④ | R3 加 **`merge_entity`**（窄口，只合并 entity） | 加（否则重复 entity 永远无法合并） |
-| ⑤ | R3 也看"**本轮被改写的旧节点**" | 加（否则它们永远没归属） |
-| ⑥ | 补归属（复查队列） | **不做**，但把"永久没归"的后果写进文档 |
-| ⑦ | `aspect`（设计稿里出现两次、代码零定义） | 从设计稿**删** |
-| ⑧ | **顺序 D4 → D3** | 认（否则 R2 产的节点没有 `about_hint`，归属漏一批且**永久补不回**） |
+**C. 待清的死件**（我查出来的，都很小，但都是"看起来生效"的假旋钮）：
+`core/worldtime/age.py::render_relative(age, significance)` 的 **`significance` 从未被使用**；
+`age.is_precious` + `_SIG_PRECIOUS` **零消费者**；`graph.REL_UNKNOWN` 之外的旧 `entry`……
 
-**B. §9 其余未定项（共 13 项，动手前读原文，别凭记忆答）**：
-常驻层的界（1）· fact 的提升（2）· `state` 清理（4）· place 归位（5）· `about_state`（6）·
-玩家改名回填（7）· 用户档案/用户提示词（8）· note 落地（9）· `recall` 返回形态（11）·
-R2 视野（13，`cap=12` → 按相关度）· **`self` 无条件进命中集（14）**。
+**D. 文档引用纠正**：设计稿 §12.1 说 BaiShou"注入时按日期排序拼成一整段共同回忆" —— 查过它的
+README 与 v3.0.0 更新日志，**都没写注入顺序**（它是"工具派"：摘要走 `summary_read` 工具 + RAG 检索）。
+那句**来源存疑，别当依据**（已在 §12.1 标掉）。
 
 ---
 
 ## 4. 陷阱清单（踩过的 + 设计写死的）
 
-1. **`about_hint` 必须显式摘掉**再进 `make_node` —— 否则被 `from_dict` 静默忽略，测试全绿、线索全丢。
-2. **Round B 有"覆盖全部 episode"的结构检查** ⇒ 测试里给 `decisions: []` 会触反馈重试、把桩耗尽 → 红。给一条 `touch`。
-3. **契约层改字段要三处同改**：取值清单 + 硬规则 + **示例**。⚠️ **示例才是形状的来源**（真机 `art` 命中率 0/5 的教训）。
-4. **给 LLM 的示例全仓只能有一种形状**，讲评/注释放形状**外面**；改完用 `json.loads` 验一遍。
-5. **JSON 换行只放成员之间**（字符串里折行 = 示范本身非法）。
-6. **`_collapse_bond_episodes` 是逐章收口**（不是整段）：窗口常同时含 MMT 聊天与**多章**。
-7. **`experience` 有两种语义**（R1 的玩家画像 / R2 的重复模式）—— 本日已裁 **不做 kind**（§9-10），改法是链路 ②。
-8. **`count` 已删**：次数 = `supports` **入边数**（真机 m0003 入边 6 / e0001 入边 3）。
-9. **水位是单一整数 `digested_seq`**；第 3 轮失败会**整体回滚**（含前两轮产出）。
-10. **边的 `ts` = 本段日期**（`new_events[-1].ts`），不是"写库时刻"。
-11. **`_find_duplicate`** = (同 kind, `event_seq` 有交集, 主文本相同) → 复用 id（崩溃窗口重跑的幂等靠它）。
-12. **改 digest prompt 必跑**：`tests/core/test_wiki_digest.py` + `test_digest_registry.py`；
+1. **新事件类型不登记进 `EVENT_TYPES` = 静默丢失**（`Event.from_dict` 对白名单外的 type 返回 `None`）。
+2. **"非剧情事件"的判据只有一处** = `core/session/events.py::is_content_event`（静态守门在
+   `test_note_events.py::test_content_filter_is_not_reimplemented_elsewhere`）。
+3. **契约层改字段要三处同改**：取值清单 + 硬规则 + **示例**。⚠️ **示例才是形状的来源**。
+4. **给 LLM 的示例全仓只能有一种形状**；JSON 换行只放成员之间（字符串里折行 = 示范本身非法）。
+5. **note 的提交顺序 = 先真源（`note/*` 事件 append）后缓存（`notes.json`）**；反过来会出现
+   "本子上有、事件流没有"（没人能重建它）。唯一实现 = `mmt.engine._write_note_ops`。
+6. ⭐ **R4 的 note 操作不在 `digest_segment` 里 append** —— 它拿不到 `SessionStore`；挂在
+   `DigestResult.notes_ops` 上，**调用方在整批 `ok` 之后**才写（`_rollback` 会清空它）。
+7. ⭐ **全景轮的计数器不清零**（没跑成 / 没料 ⇒ 下一段再试）；**第一次直接到点**（`wiki.meta.json`
+   里还没有那个键 = 从没写过卡）；**写卡后要重读事件流**（注入块才看得到新卡）。
+8. **`experience` = 玩家画像专用**（写者只有 R1；R2 的 `add kind=experience` **被拒**）；
+   读侧**按 kind 收、不看 `subject`**（旧口径拿自由文本路由 ⇒ 真机 haruka `e0001` 静默不可见）。
+9. ⭐ **两个 id 空间不许混**：R2 的 `target_ids`（可 touch/update，**只有看法**）vs `link_ids`
+   （可 `links` 两端，**含承诺**）；R3 的 `c0001`（对象）vs `u0001`（节点）。
+   混用会让模型把"挂谁"与"挂在谁身上"写反，而那种错**看起来完全正常**。
+10. **每段四步的批内顺序 `R1 → R4 → R2 → R3` 是正确性**：R4 物化的 promise 节点要先就位，
+    R2/R3 才有边可写（否则它"永远没边、永远没归属"）。
+11. **第 1 轮节点的 `ts` = 它自己 `event_seq` 里最后一条事件的时刻**；第 2/4 轮仍是段 ts
+    （"什么时候想明白的 = 消化那一刻"）。`event_seq` 空/指不到 ⇒ 回落段 ts。
+12. **注入视图是"一条河"，从早到晚**（旧→新）：「难忘」只是行内标记 `（3 天前·难忘）`；
+    无 `ts` 的排河首；belief / 玩家画像 / reported **不进河**（当前值与旁证各自成块）。
+13. **`about_hint` 必须显式摘掉**再进 `make_node`（否则被 `from_dict` 静默忽略）。
+14. **Round B 有"覆盖全部 episode"的结构检查** ⇒ 桩里 `decisions: []` 而 episode 非空 ⇒ 反馈重试、
+    把桩耗尽。给每个 episode 一条决策。
+15. **桩必须按 `task` 分派**（`llm/task_labels.py`）；**新任务要补四处**：`tests/stub_tasks.py` ·
+    `tests/core/test_wiki_digest.py::FakeLLM` · `tests/core/test_round_*.py` 的桩 ·
+    `experiments/web_e2e/stub_world.py`。`tests/core/test_stub_dispatch_guard.py` 会扫源码守门。
+16. **`llm_call.llm_chat` 有 feedback 语义**：被拒 → 追加 assistant 位 + 引擎错误，同上下文重试 1 次。
+17. **水位是单一整数 `digested_seq`**；任一轮失败 ⇒ **整体回滚**（含 R4 的判定与 R3 的新 entity）。
+18. **`_find_duplicate`** = (同 kind, `event_seq` 有交集, 主文本相同) → 复用 id（崩溃窗口幂等）。
+19. **改 digest prompt 必跑** `test_wiki_digest.py` + `test_digest_registry.py`；
     **digest 的 prompt 不在 promptkit 盒里 ⇒ 没有夹具**。
-13. **`llm_call.llm_chat` 有 feedback 语义**：被拒 → 追加 assistant 位 + 引擎错误，同上下文重试 1 次。
-14. **`hit_set` 扫正文的称呼要求 ≥2 字**（单字"他/她/它"会命中每一段正文）；hint 走精确相等不受此限。
-15. **候选表与载荷区必须共用同一份 `local_of`**（两套本地 id 会让模型把一个人当成两个人）。
-16. **`config/player/profile.yml` 坏了 → 本轮 digest 直接中止**（**不兜底**，用户裁决）；
-    `sensei` 的名字来自它 + `data/basic/player.json`（只当别名）—— **不是硬编码**。
-17. **玩家名两个来源别合并**（config = 作者层进 git；`player.json` = 玩家自取，gitignored）。
-18. **第 3 轮执行器三道闸**：`entity` 必须是候选表里的本地 id · 可归属 kind 限 episode/belief/experience ·
-    **保留号防撞**（self/sensei 不在 ⇒ **跳过全部 `new_entity`** + WARNING）。
-19. ⭐ **空表时 `next_id("x")` 返回 `x0001`** = **sensei 的保留号**，谁先建谁占坑 ⇒
-    `ensure_entities` 必须在任何"自动建 entity"**之前**（D3a 已接在 digest 入口最前面）。
-20. ⭐ **`self` 几乎永远不会进命中集**（她的名字不出现在第一人称正文里）⇒
-    `entity(self)` 的载荷/state/inventory **今天没人维护**（待裁 §9-14：`self` 无条件进）。
-21. ⭐ **别拿"真机数据频率"论证价值** —— 用户原话：*"真机数据我都是完全顺着 AI，几乎不给它增加外部负担的"*。
-    没压过的地方就是 0（例：`items` 只有 1 条，但那不代表机制没用）。
-22. ⭐ **`emo_shape` 是逐记录的情绪数组**（真机最长 129 个键），**空键跳过、不补位** ⇒
-    位置对齐丢失；`nodes.py` 的注释写"板级"是**错的**（实现是记录级）。
-23. ⭐ **不要把图当列表用**：`about`/`supports` 有数据但**零消费者** ⇒ 没有 traverse 者时图 ≈ 带 id 的列表。
-24. ⭐ **"非剧情事件"的判据只有一处** = `core/session/events.py::is_content_event`（排 marker /
-    `NON_CONTENT_TYPES`）。它原来以 `e.type != "affection"` 的形式**抄在两处**（`digest.new_events` ·
-    `mmt.engine._interact_max`）—— `note` 一落地就会漏进去（她的笔记操作被当剧情消化 + 好感幂等键被顶到账目上）。
-    ⚠️ `render_timeline` 的兜底标签会把未知类型**印成 `【affection】` / `【note】`**（它不炸，只是假数据），
-    现在也一起排掉了。新增此类类型**只改 `NON_CONTENT_TYPES`**，有静态守门
-    （`test_note_events.py::test_content_filter_is_not_reimplemented_elsewhere`）。
-25. ⭐ **新事件类型不登记进 `EVENT_TYPES` = 静默丢失**：`Event.from_dict` 对白名单外的 type 直接
-    返回 `None`（`events.py` 的 `from_dict`）—— 写得进磁盘、读回来是空气，且一声不响。
+20. **`hit_set` 扫正文的称呼要求 ≥2 字**；hint 走精确相等不受此限。候选表与载荷区**必须共用同一份
+    `local_of`**。
+21. **`config/player/profile.yml` 坏了 → 本轮 digest 直接中止**（**不兜底**，用户裁决）。
+22. ⭐ **空表时 `next_id("x")` 返回 `x0001`** = sensei 的保留号 ⇒ `ensure_entities` 必须在任何
+    "自动建 entity"**之前**跑（现接在 `_inject_brain(digest=True)` 最前面）。
+23. ⭐ **真机存档里 `entity` 现在还是 0 条** —— 下一次 digest 才会建 `x0000`/`x0001`
+    （R3 的候选表到那时才是 `c0001 伊草 遥香（…遥香…）` + `c0002 老师（sensei）`）。
+24. ⭐ **别拿"真机数据频率"论证价值**（用户原话：*"真机数据我都是完全顺着 AI"*）—— 没压过的地方就是 0。
+25. ⭐ **不要把图当列表用**：`about`/`supports` 有数据但消费者极少 ⇒ 没有 traverse 者时图 ≈ 带 id 的列表。
+26. **`emo_shape` 是逐记录的情绪数组**（真机最长 129 键），空键跳过、不补位。
+27. ⚠️ **编辑坑（我自己踩了三次）**：用 `.Replace()` 时若把行尾换行也吃掉，`def` 会与 docstring
+    挤成一行（`IndentationError` 立刻红）；**优先用 edit 工具而不是脚本替换**。
+28. ⚠️ **测试里的 id 顺序别赌**：预置节点会占号（`_store` 先建 `x0000/x0001`、
+    `make_node("belief")` 也吃 `m` 前缀）⇒ 断言按**文本**查 id，别写死 `m0001`。
 
 ---
 
@@ -155,7 +176,7 @@ R2 视野（13，`cap=12` → 按相关度）· **`self` 无条件进命中集�
 
 ```powershell
 # 单测（快，改 wiki 层时先跑这个）
-python -m pytest tests/core/test_wiki_entities.py tests/core/test_wiki_revise.py tests/core/test_wiki_graph.py tests/core/test_wiki_digest.py tests/core/test_digest_registry.py -q --basetemp=.testtmp/pw_graph
+python -m pytest tests/core/test_wiki_digest.py tests/core/test_digest_registry.py tests/core/test_round_close.py tests/core/test_round_attr.py tests/core/test_wiki_render.py tests/core/test_wiki_revise.py -q --basetemp=.testtmp/pw_graph
 
 # 全量（每节点必跑；⚠️ .testtmp/pw 目录要先建）
 python -m pytest tests/core tests/webgui tests/llm tests/renderer -q --basetemp=.testtmp/pw
@@ -164,12 +185,20 @@ node --check webgui/static/js/bond.js
 python experiments/web_e2e/run.py          # B 层冒烟（Playwright，本机已装浏览器）
 ```
 
-**真机基准**（`world1/igusa_haruka`，2026-09-23 量）：
-**14 节点**（11 episode / 2 belief / 1 experience）+ **11 条边**（全是 `supports`）·
-`digested_seq ≈ 206` · **0 条 entity**（D3a 之后下一次 digest 才会长出来）· 三张纪念图。
-另一条线：`asagi_mutsuki` 5 节点（**没有 `edges.jsonl`**，探针要容错）；`onikata_kayoko` 0。
+**真机基准**（2026-09-25 量，`data/worlds/world1`）：
 
-**只读探针**：`.testtmp/probe_nodes.py`（我写的，改路径即可复用）。
+| 角色 | 节点 | 边 | meta | notes | 事件 |
+|---|---|---|---|---|---|
+| `igusa_haruka` | **14**（11 episode + 3 belief，含迁移过来的 `e0001`） | 11（全 `supports`） | `digested_seq=206` | 无 | 207 |
+| `asagi_mutsuki` | 5（2 episode + 1 experience + 2 belief） | 0（**没有 `edges.jsonl`**，探针要容错） | `digested_seq=60` | 无 | 61 |
+| `onikata_kayoko` | 0 | 0 | `{}` | 无 | 3 |
+
+⚠️ **两边都还没有 `notes.json`、没有任何 `entity`、没有 `source` 之外的边** ⇒ 全量 1047 是**唯一**的回归面；
+真机验证要等下一次真实互动（R4 的第一次 `add`、R3 的第一次 `attach`）。
+
+**只读探针**（我写的，改路径即用）：`.testtmp/baseline_probe.py`（节点/边/meta/notes 计数）·
+`.testtmp/view_now.py`（渲染真机注入视图，带 `now`）· `.testtmp/r3_dryrun.py` / `r3_table_preview.py`
+（R3 的料）· `.testtmp/ts_scan.py` / `ts_spread.py`（各批的 ts 跨度）。
 
 ---
 
@@ -178,9 +207,9 @@ python experiments/web_e2e/run.py          # B 层冒烟（Playwright，本机�
 | 文档 | 管什么 |
 |---|---|
 | **本文件 `PROCEED.md`** | 压缩后的第一读物：现状 / 约定 / 未决 / 陷阱 / 配方 |
-| `core/brain/wiki_v2/DESIGN_GRAPH_V4.md`（80 KB） | **设计稿**：§1.1 三种组织形式 · §2 边与**走法** · §3 entity/**note**/inventory · §4 注入两档 · §5 fact · §6 **promise 两段式** · §7 时间 · §8 digest 三轮 · **§8.6 全景轮 + `habits` v3** · **§9 未定 13 项** · §10 已否决 · **§11 `function_call` 与动作面** · §12 外部参照（**§12.1 BaiShou 设计哲学**） |
-| `CLAUDE.md`（仓根，⚠️ **改前先改名**） | 项目主文档；§12 是测试/路径/提交纪律 |
+| `core/brain/wiki_v2/DESIGN_GRAPH_V4.md`（~95 KB） | **设计稿**：§1.1 三种组织形式 · §2 边与**走法**（**7 条**，`source` 已删） · §3 entity/**note**/inventory · §3/§5.1 **`experience` = 玩家画像** · §4 注入两档 · §5 **fact 已退役** · §6 **promise 两段式** · §7 时间（**per-node ts**）· §8 **每段四步 + R2 视野与动作面 + R3 归属** · **§8.6 全景轮（写卡）** · §9 未定 · §11 `function_call` 与动作面 · §12 外部参照（§12.1 BaiShou，⚠️ 其中"按日期排序"一句已标存疑） |
+| `CLAUDE.md`（仓根，⚠️ **改前先改名**；预算已满） | 项目主文档；§7 记忆与好感 · §12 测试/路径/提交纪律 |
 | `docs/PROMPT_INJECTION_MAP.md` | 现网注入事实（改盒/加注记前看） |
 | `docs/AI_BRIEF_PLACE.md` | 改地点代码前先扫它 |
 | `docs/DESIGN_MEMORIAL.md` | 纪念链路（A–D 已落地） |
-| `.testtmp/research/` | 09-23 的外部调研材料（AgentGal / BaiShou 源码，含它们的 AGENTS.md）—— **gitignore，可能被清** |
+| `.testtmp/research/` | 09-23 的外部调研材料（AgentGal / BaiShou 源码）—— **gitignore，可能被清** |
