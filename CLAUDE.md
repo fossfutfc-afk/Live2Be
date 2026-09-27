@@ -692,7 +692,7 @@ CLI/测试同步路径在引擎内串行。
 | 项 | 状态/位置 |
 |---|---|
 | Bond contract v2（**已归档 2026-09-10**） | docs/archive/DESIGN_BOND_CONTRACT_V2.md |
-| **流式契约形式（MMT + VN 统一, 2026-09-25 定稿）** | docs/DESIGN_STREAM_CONTRACT.md（主文 = 契约形式六条 / 兜底分级 / MMT 旧协议退役清单; **附录 A = VN 记录流 v2** = 原 DESIGN_VN_UPGRADE.md 全文, P0–P2 已落地真机在跑, P3/P4 未做, 附录 A §14 渲染层未实现（决策 #36 暂缓））。⚠️ **MMT 行流已落地**（⑥-2, 2026-09-26 真机在跑：一行一条 JSON / 逐行交付落库 / 旧 messages 路径已删）; **⑥-3 流式交付整条已落地**（a 引擎 2026-09-27：一行前瞻 / 独占行攒块尾 / 已交付不回滚, §4.5；b 前端：生成期轮询 250ms + 到达即渲染，§11）——**⑥（优化 MMT）三步走完**，下一步见 PROCEED.md §2/§3 |
+| **流式契约形式（MMT + VN 统一, 2026-09-25 定稿）** | docs/DESIGN_STREAM_CONTRACT.md（主文 = 契约形式六条 / 兜底分级 / MMT 旧协议退役清单; **附录 A = VN 记录流 v2** = 原 DESIGN_VN_UPGRADE.md 全文, P0–P2 已落地真机在跑, P3/P4 未做, 附录 A §14 渲染层未实现（决策 #36 暂缓））。⚠️ **MMT 行流已落地**（⑥-2, 2026-09-26 真机在跑：一行一条 JSON / 逐行交付落库 / 旧 messages 路径已删）; **⑥-3 流式交付整条已落地**（a 引擎 2026-09-27：一行前瞻 / 独占行攒块尾 / 已交付不回滚, §4.5；b 前端：生成期轮询 250ms + 到达即渲染，§11）——**⑥（优化 MMT）三步走完**；**当前主线已换成 note 重做 + 图升级**（见 PROCEED.md §0/§1/§5） |
 | **纪念链路（art↔memorial 配对 / 记录级进入 / 埋点 / 生图质量）** | docs/DESIGN_MEMORIAL.md（**节点 A–D 已落地 2026-09-20**）。**剩两件**：① **量 art 配对命中率**——改文案后要真机跑一章才知道有没有用（历史基准 **0/5 块**），看 gallery `prompt_source` 或 `grep "含 memorial 但没有 art"`；② **漏写 art 的"补写"方案**——用户裁决"现在不做"（补的板必须排在 `end` **之前**, 而 `end` 一落地即 finish ⇒ 播不出来） |
 | 真分歧 vs 收敛链 | **已定稿: 不立项**（收敛链即终局, 见 §6.5）; 自由度移交 DESIGN_MEETUP.md |
 | reasoning 档位 / SSE / choice 板全预生成（已关闭 2026-09-10, sibling 为终态） | §9 表与 v2 §5.4 |
@@ -720,7 +720,7 @@ CLI/测试同步路径在引擎内串行。
 - **纪念链路（art / memorial / 黑屏缓冲 / 记录级进入 / 生图质量; 节点 A–D 已落地）**：docs/DESIGN_MEMORIAL.md
 - **回忆动作 `mmt_recall`（读路径召回; 四支 scope / `when` / 结果生命周期; **设计稿, 代码未动**）**：
   docs/DESIGN_RECALL.md（§1 契约形式 · §2 用例情景 · §4 生命周期 = `type="tool"` 落库）。
-  ⚠️ 它是 `retire` 的许可证，且**开工前**先看 PROCEED §3 的两条前置（已处置）
+  ⚠️ 它是 `retire` 的许可证；**与"note 重做"是两条链**（PROCEED.md §0 有分界）
 - **记忆图 v3（实体中心 + 混合召回 + 时间架构 + 组合, 设计稿, V3-0 已落地）**：docs/DESIGN_WIKI_V3.md
 - **第四面墙 / creepiness / OS(Orwell'S)（立项稿, 只留接口不实现）**：docs/DESIGN_FOURTH_WALL.md
 - 召回阈值实验（nomic vs Qwen3 实测数据）：docs/EXPERIMENT_CAND_HIGH.md

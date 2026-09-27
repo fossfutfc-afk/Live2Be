@@ -14,7 +14,9 @@
 >
 > 相关：`core/brain/wiki_v2/DESIGN_GRAPH_V4.md` §11（能力面）/ §9-11 / §9-14 ·
 > `docs/DESIGN_STREAM_CONTRACT.md` §4.5（流式交付，动作行怎么被办理）·
-> `PROCEED.md` §3（未决账里的这四条）。
+> `PROCEED.md` §7（本稿的提交与裁决记档在那边一行）。
+> ⚠️ **与"note 重做 + 图升级"是两条链**（PROCEED.md §0 有分界）：本稿是**读路径**，
+> 那条链是**写路径**（她怎么攒出规律与态度）。
 
 ---
 
