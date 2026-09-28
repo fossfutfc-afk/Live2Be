@@ -939,6 +939,7 @@ vs 无关基线 ≤0.753 ⇒ 分数带压缩、硬阈值不可分；且同一条
 | `eaa1b63` | 补 **§4.4b belief 会不会膨胀** —— 实测（余弦 / 预算拆账）+ 三条准入机制 |
 | （本提交） | ⭐ **§4.7 digest 重排（三层）+ §4.4c "不够 abstract" 实测 + §5 拆分表按 L1→L2→L3 重排** |
 | （本提交 2） | ⭐⭐ **embedding 换模型：nomic → Qwen3-Embedding-0.6B**（陷阱 38 全节重写 + §4.4b 加更正 + 探针 15）—— `settings.toml [embed].model` **钉死**（本机两个 embedder 都含 "embed"，自动发现不可靠） |
+| （本提交 3） | ⭐⭐ **`docs/DESIGN_DIGEST_LAYERS.md`（动工文档）+ `docs/DESIGN_NOTE.md`（note 定位）** —— 三层规格 · 候选池"窄而深" · **note 第三槽 `index`（指向群的指针）** · `habits` 槽取消 |
 
 ---
 
@@ -1102,7 +1103,9 @@ supports 入度: m0003←7  e0001←5  m0008←5  m0018←3
 | **本文件 `PROCEED.md`** | 压缩后的第一读物：**新 note 机制 + graph 升级** / 验收样本 / **§4 推理链** / 三刀 / 调研 / 陷阱 / 配方 |
 | ⭐ `core/brain/wiki_v2/DESIGN_GRAPH_V4.md`（~95 KB） | **设计稿（本主题的主战场）**：§1.1 三种组织形式 · §2 边与**走法**（7 条）· **§3.2 note** · §3.3 inventory · **§4 注入两档** · §5 `fact` 已退役 / §5.1 `experience`=玩家画像 · §6 **promise 两段式** · §7 时间 · §8 **每段四步** · **§8.6 全景轮** · §9 未定（§9-11/§9-14/§9-18 已裁）· §11 能力面 · §12 外部参照 |
 | ⭐ `docs/DESIGN_WIKI_V3.md`（~2.8k 行） | **V3 设计稿**：**§2.4 四条轴 / §2.5 第四轴 `nature`**（`self_image`/`other`/`relationship`/`pattern` + `occurrences`）· §3.3 四条召回道路与合成层 · §5 修订动作（含 `accrue`） |
-| `docs/DESIGN_RECALL.md`（2026-09-27 新建，**代码未动**） | **另一条链（读路径）**：回忆动作 `mmt_recall`（四支 scope / `when` / 结果生命周期 / 拆分 a–d）——本主题不碰 |
+| ⭐ `docs/DESIGN_DIGEST_LAYERS.md`（2026-09-27 新建，**动工文档 · 代码未动**） | **本主题的施工文档**：L1/L2/L3 三层规格（契约 json / 引擎侧处理 / 禁令 / 判据）· 候选池"窄而深"（语料×匹配×证据融合×预算）· 边与图（`same_kind` + `aspect` + `about` 两条边）· **10 个节点拆分与验收判据** |
+| ⭐ `docs/DESIGN_NOTE.md`（2026-09-27 新建，**代码未动**） | **note 的真正定位**：人为什么写 note（外置记忆 / 外置思考 / **索引**三类）· LLM 为什么需要 note（三条差别）· **三条合一的存在判据** · 新增第三槽 **`index`（指向群的指针）** · `habits` 槽取消 |
+| `docs/DESIGN_RECALL.md`（2026-09-27 新建，**代码未动**） | **另一条链（读路径）**：回忆动作 `mmt_recall`（四支 scope / `when` / 结果生命周期 / 拆分 a–d）——本主题不碰。⚠️ **`DESIGN_NOTE.md` 的 `index` 成立前提 = 它有走法** ⇒ 与本条直接相关（见该文 §5.2） |
 | `docs/DESIGN_STREAM_CONTRACT.md` | 流式契约形式（MMT + VN 统一）：§4.5 流式交付；附录 A = VN 记录流 v2 全文 |
 | `docs/DESIGN_MEMORIAL.md` | 纪念链路（A–D 已落地）· `art`↔`memorial` 配对与 `prompt_source` 命中率 |
 | `docs/PROMPT_INJECTION_MAP.md` | 现网注入事实（改盒/加注记前看） |
