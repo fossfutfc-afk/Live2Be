@@ -6,51 +6,84 @@
 
 ---
 
-## 0. 顺序原则（三句话）
+## 0. 顺序原则（四句话）
 
 1. **输入面先修**（L1 的切分形状）—— 不修的话，后面每一步的输入都是脏的（材料漏 40%、切分交错）
-2. **免费的先做**（边属性 / 视野补齐）—— 它们零 LLM 成本，且是好几个节点的前置
-3. **花钱的放最后**（`ignite` / 取用重排）—— 前面没通，花了钱也白花
+2. **免费的先做**（边属性 / 视野补齐 / **MMT 的发现**）—— 它们零或极低 LLM 成本，且是好几个节点的前置
+3. **花钱的放最后**（`collision` / 取用重排）—— 前面没通，花了钱也白花
+4. ⭐ **`L-M`（MMT 发现）要早做** —— 它把 link 的成本降到接近 0，**L2 因此不必自己找组**（`DESIGN_DIGEST_LAYERS §0.1(f)`）
 
 ---
 
-## 1. 简表（14 步）
+## 1. 简表（15 步）
 
 | # | 步 | 做什么（一句话） | 改动面 | 判据（可测） | 依赖 | 量级 |
 |---|---|---|---|---|---|---|
-| **N1** | **边加属性** | `Edge` 加 `aspect`/`conf`；`RELS` 加 `same_kind`；`store.groups_of()` | `graph.py` · `store.py` | 同 aspect 成组 · **不同 aspect 不误合并** · 链式 N−1 条读出 N 个成员 · 旧档读得进 | — | ~80 行 |
-| **N2** | **视野补齐（"深"）** | 接线 `render_organize_view` 的**边渲染**；`render_cognition_list` 给 belief **印被引数**；候选带 **why** | `render.py` · `digest.py` | L2 的输入里**能看到边、被引数、why** | — | ~40 行 |
-| **N3** | **L1 区间化** | 契约 `event_seq` → `span:[from,to]`；引擎 `_expand_spans` / `_resolve_overlaps` / `_backfill_unclaimed` | `contract/digest_registry.py` · `digest.py` · prompt | ⭐ **覆盖率 100%** · 密度 1.0 · 交错 0 · 旧档兼容 | — | ~50 行 **下游零改动** |
+| **N1** | **边加属性** | `Edge` 加 `aspect`/`conf`；`RELS` 加 `same_kind`；`groups_of()`；**对称 rel 规范化** | `graph.py` · `store.py` | 同 aspect 成组 · **不同 aspect 不误合并** · 链式 N−1 条读出 N 个成员 · **`clone_state` 不丢属性** · 旧档读得进 | — | ~90 行 |
+| **N2** | **视野补齐（"深"）** | 接线 `render_organize_view` 的**边渲染**；`render_cognition_list` 给 belief **印被引数**；候选带 **why** | `render.py` · `digest.py` | 输入里**能看到边、被引数、why** | — | ~40 行 |
+| **N3** | **L1 区间化** | `event_seq` → `span:[from,to]`；引擎 `_expand_spans` / `_resolve_overlaps` / `_backfill_unclaimed` | `contract/digest_registry.py` · `digest.py` · prompt | ⭐ **覆盖率 100%** · 密度 1.0 · 交错 0 · 旧档兼容 | — | ~50 行 **下游零改动** |
 | **N4** | **L1 记账合并** | `promise` + `on_mind` 并进 L1 同一次调用；**`habits` 槽删掉** | `digest.py` · `notes.py` · 契约 | L1 产 promise ops + on_mind · `habits` 全仓只剩退役注释 | N3 | ~60 行（含删） |
-| **N5** | **候选池 `gather_evidence`** | 把 `panorama.py` 的候选池**抬成通用件**：参数化语料 + `why` + 两层深度 + **token 预算装填** | `panorama.py` → 新模块 · `recall.py` | 真机 5 个真组抬得出来 · 噪音组进 `rejected` · 按预算装 | N2 | ~120 行 ⚠️ **最大一块** |
-| **N6** | **L2-a 分群** | 新 `PHASE_GROUP` 契约 + prompt；`join` / `merge` / `contradicts`；**引擎 join 快路（低 conf）** | `contract/digest_registry.py` · `digest.py` · 新 prompt | `add`/`update` **不在契约里** · 引擎 join 的边 `conf=0.5` · **只有 `conf≥0.8` 的边推动 ignite** | N1 N5 | ~100 行 |
-| **N7** | **L2-b `ignite`** | 覆盖判据（`covered`/`gap`）+ **单独一次调用** + 落节点 + N 条边 + `about_hint` 两条边 | `digest.py` · 新 prompt | 成员<3 或全在同段 ⇒ **不产节点** · 已有 belief **逐字节不变** · 每条新 belief 的 `about` 边 ≥1 且含 `x0000`/`x0001` | N6 | ~90 行 |
-| **N8** | **冲突候选通道** | 同一对象/主题下挑**相似度最低**的 belief；连同边与被引数摆到眼前 | `digest.py`（`_round_b_material` 旁） | 造一个"世界变了"的夹具 ⇒ **`contradicts` 能被写出来**（今天 0 次） | N2 | ~40 行 |
-| **N9** | **轮级通道** | 玩家回合语义近邻（**确定性**）⇒ L2 第二条语料；证据指针支持 **seq 区间** | `recall.py` 或新模块 | `PROCEED §1.3` 那 5 条真机原话：**字面零重叠但聚成一组** | N5 | ~80 行 |
-| **N10** | **L3 实体摘要** | `about` 边 → `soul/entity_summary.json`（**异步 · 可重建 · 不进事务**） | 新模块 · `render.py` | ⭐ **删缓存重跑，结果一致** | N2 | ~70 行 |
-| **N11** | **refs 走法** | `index` 派生（topic+次数+时间范围+refs）；引擎按 refs **注入时预取** + **超时兜底** | `notes.py` · `render.py` · `digest.py` | 预取有**超时降级** · 无命中 ⇒ 退化成"最近 N 条"（**不是空**） | N1 N5 | ~90 行 |
-| **N12** | **取用重排（步 1）** | ⭐ **只加不砍**：注入 = 静态人设 + **L3 基线** + episode **骨架** + note | `render.py` · `promptkit` | 注入台账可查**每层 token** · 总量 ≤ 5000 字 | N10 N11 | ~60 行 |
-| **N13** | **取用重排（步 2）** | ⭐ **砍正文**（等 N11 的命中率数据） | `render.py` | 预取命中率 ≥ 阈值 ⇒ 4293 → **~1500 字** | N12 + **真机数据** | ~30 行 |
-| **N14** | **验收** | `PROCEED §1` 两个样本跑真机 | —— | ① 送花串 → 那句台词的材料**能凑齐**（能点名 N 个实例）② 玩家重复同一意思 ⇒ **她能觉察**；反例不再出现 | 全部 | —— |
+| ⭐ **N5** | **L-M：MMT 的「想起 + 发现」** | ① 引擎召回 **1~2 条旧 episode**（接线 `recall_subgraph`，今天零调用者）② 注入一段"你想起的事" ③ prompt 给她一个动作 ④ 她引用 ⇒ **锚点校验** ⑤ 落**待挂记录** | `mmt/engine.py` · `promptkit` · `render.py` · `store.py`（待挂） | ① 召回有接线（非零调用者）② **编造的引用被丢**（锚点校验单测）③ 待挂记录可查 | N1 N3 | ~110 行 ⭐ **本主题的价值核心** |
+| **N6** | **候选池 `gather_evidence`** | 抬 `panorama.py` 成通用件：参数化语料 + `why` + 两层深度 + **token 预算装填** | `panorama.py` → 新模块 · `recall.py` | 真机 5 个真组抬得出来 · 噪音组进 `rejected` · 按预算装 | N2 | ~120 行 |
+| **N7** | **L2-a 分群** | ⭐ **主要吃 N5 连出来的边**（不再自己找组）+ `merge` + `contradicts` | `contract/digest_registry.py` · `digest.py` · 新 prompt | `add`/`update` **不在契约里** · 只有 `conf≥0.8` 的边推动 collision | N1 N5 | ~100 行 |
+| **N8** | **L2-b `collision`** | 覆盖判据（`covered`/`gap`）+ **单独一次调用** + 派生出 C + 落节点 + N 条边 + 两条 `about` | `digest.py` · 新 prompt | 成员<3 或全在同段 ⇒ **不产节点** · 已有 belief **逐字节不变** · ⭐ **模式判断（频率词）在 n≥2 前不许出现** | N7 | ~90 行 |
+| **N9** | **冲突候选通道** | 同一对象/主题下挑**相似度最低**的 belief；连同边与被引数摆出来 | `digest.py`（`_round_b_material` 旁） | 造一个"世界变了"的夹具 ⇒ **`contradicts` 能被写出来**（今天 0 次） | N2 | ~40 行 |
+| **N10** | **轮级通道** | 玩家回合语义近邻（**确定性**）⇒ L2 第二条语料；证据指针支持 **seq 区间** | `recall.py` 或新模块 | `PROCEED §1.3` 那 5 条真机原话：**字面零重叠但聚成一组** | N6 | ~80 行 |
+| **N11** | **L3 实体摘要** | `about` 边 → `soul/entity_summary.json`（**异步 · 可重建 · 不进事务**） | 新模块 · `render.py` | ⭐ **删缓存重跑，结果一致** | N2 | ~70 行 |
+| **N12** | **refs 走法** | `index` 派生（topic+次数+时间范围+refs）；引擎按 refs **注入时预取** + **超时兜底** | `notes.py` · `render.py` · `digest.py` | 预取有**超时降级** · 无命中 ⇒ 退化成"最近 N 条"（**不是空**） | N1 N6 | ~90 行 |
+| **N13** | **取用重排（步 1）** | ⭐ **只加不砍**：静态人设 + **L3 基线** + episode **骨架** + note | `render.py` · `promptkit` | 注入台账可查**每层 token** · 总量 ≤ 5000 字 | N11 N12 | ~60 行 |
+| **N14** | **取用重排（步 2）** | ⭐ **砍正文**（等 N12 的命中率数据） | `render.py` | 预取命中率 ≥ 阈值 ⇒ 4293 → **~1500 字** | N13 + **真机数据** | ~30 行 |
+| **N15** | **验收** | `PROCEED §1` 两个样本跑真机 | —— | ① 送花串 → 那句台词的材料**能凑齐**（能点名 N 个实例）② 玩家重复同一意思 ⇒ **她能觉察**；反例不再出现 | 全部 | —— |
 
 ---
 
 ## 2. 每步的细化（按需展开）
 
+### ⭐ N5 L-M：MMT 的「想起 + 发现」（**本主题的价值核心**）
+
+> 依据：`DESIGN_DIGEST_LAYERS §0.1(f)` —— **link 移交 MMT**（一石五鸟：绕开 O(wiki) 的 LLM 成本 ·
+> 不预建类别 · 当下即触发 · 保留细节 · 可校验），且**打破"先分组才能派生"的循环**。
+
+```
+① 引擎召回 1~2 条旧 episode（按当前对话）
+   ⚠️ 接线 recall_subgraph —— 它今天**零产品调用者**（只有 experiments）
+   · 真机 18 条 episode ⇒ 召回预算按 token（不是条数）
+② 注入一段"你想起的事"（render 加一段；与 note / brain 并列，不混）
+③ prompt 给她一个动作（⚠️ 正面给例子 —— 陷阱 40：反例会把要的行为禁掉）
+   "如果你发现现在这件事和你想起的某件事【是同一件】，就说出来 —— 引用那件事的细节"
+④ 她说了 ⇒ 引擎**锚点校验**：她引用的实例必须真实存在（编造的引用直接丢）
+⑤ 落一条【待挂记录】（不是边）—— 因为此刻"当下这件事"还没成为 episode
+   · 待挂记录 = {旧 episode id, 本轮的 event_seq, 她的说法}
+   · ⭐ **L1 建完 episode 后，引擎补边**（两端都是 episode，语义一致、幂等好做）
+判据
+  · 召回有接线（非零调用者）
+  · **编造的引用被丢**（锚点校验单测）
+  · 待挂记录可查、补边幂等（同一条发现补两次只出一条边）
+  · ⚠️ **不许把它做成"每轮都调 LLM"** —— 召回是引擎的，发现是她说话时的自然产物
+```
+
+⚠️ **待裁（见 `DESIGN_DIGEST_LAYERS §0.1(i)`）**：她引用的"当下"还没有 episode id ⇒ 用**待挂记录 + L1 后补边**（倾向），还是边的一端直接用 seq 区间。
+
 ### N1 边加属性
 
 ```
 graph.py
-  · Edge 加 aspect: str = "" / conf: float = 0.0
-  · to_dict / from_dict 带上这两个键        ⚠️ from_dict 今天**静默丢弃**多余键 ⇒ 必须同批改读写两侧
+  · Edge 加 aspect: str = "" / conf: float = 1.0   ⚠️ 加在 ts **之后**（位置参数兼容）
+  · to_dict / from_dict 带上这两个键   ⚠️ from_dict 今天**静默丢弃**多余键 ⇒ 必须同批改读写两侧
   · RELS: 7 → 8 条（+ same_kind）· 走法注释写进 §2.2 那张表
+  · ⭐ SYMMETRIC_RELS = (contradicts, same_kind) —— **一个常量，_emit 与 add_edge 共用**（防两份实现漂移）
 store.py
-  · add_edge(rel, src, dst, *, ts="", aspect="", conf=0.0)
+  · add_edge(rel, src, dst, *, ts="", aspect="", conf=1.0)
+  · ⭐ **对称 rel 先 canonical_pair**（今天 add_edge 的幂等是**有向**的 ⇒ 反向会写出两条）
   · groups_of() -> dict[str, list[str]]     # aspect → 成员（两端并集），**零算法**
+  · ⚠️ **雷**：clone_state 里 `Edge(e.rel, e.src, e.dst, e.ts)` 是**位置参数** ⇒ 加字段后会**静默丢属性**
+    （而 clone_state 是 digest 事务回滚的基础）⇒ 必须改成 from_dict(to_dict()) + 守门用例
 判据
   · 同 aspect 成组；不同 aspect 不误合并
   · 链式 N−1 条边能读出 N 个成员
-  · 旧 edges.jsonl（无 aspect）照旧读得进
+  · ⭐ clone_state → restore_state 后**属性仍在**
+  · ⭐ add_edge("same_kind", B, A) 与 (A, B) **只留一条**
+  · 旧 edges.jsonl（无 aspect）照旧读得进，且 conf 得 1.0
 ```
 
 ### N2 视野补齐（这条最便宜、收益最直接）
