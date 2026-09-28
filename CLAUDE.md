@@ -503,10 +503,14 @@ CLI/测试同步路径在引擎内串行。
   真源 `core/rag/embedder.py`)。
   优先级 构造参数 > settings.toml > .env > 默认。
   ⚠️ **`[embed]` 服务不在 = digest 语义召回静默降级**（2026-09-27 实测）：`base_url`
-  指 **1235**（本机 = LM Studio, `lms server start`；model 留空自动发现
-  `text-embedding-nomic-embed-text-v1.5`），服务 OFF → `digest_embed fn=none
+  指 **1235**（本机 = LM Studio, `lms server start`），服务 OFF → `digest_embed fn=none
   reason=model_missing` → Round B 候选退化成字面命中（真机 haruka 候选覆盖
   **39% → 100%**）。排查"记忆只增不并"先 grep 这一行（PROCEED 陷阱 38）。
+  ⭐ **`model` 钉死 = `text-embedding-qwen3-embedding-0.6b`**（2026-09-27 换掉 nomic）：
+  本机**同时装着两个 embedder**，两个 id 都含 `"embed"`，而自动发现只取 `/v1/models` 里
+  **排前面的那个** ⇒ 顺序不可靠，必须写死。**nomic 在中文上不可用**（无关句 0.865 >
+  相关句 0.848，区间交叠；Qwen3 干净分开 0.507 < 0.521，见 `docs/EXPERIMENT_CAND_HIGH.md`
+  的 C1/C4）。换模型**不需要重建索引**（embedding 派生不落盘）。
   **生图总开关**：`[image].enabled=false`（GUI 复选框）或环境变量 `LIVE2BE_IMAGE=off`
   （优先, 进程级）→ `llm.image_gen.image_enabled()` False → 纪念场景降级纯文字
   （webgui 不开生图线程 / vn_cli 当没注入 / 直接 `generate()` 明确报错）。
