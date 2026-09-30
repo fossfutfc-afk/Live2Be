@@ -1078,3 +1078,75 @@ def test_two_chapters_in_one_window_each_get_one(tmp_path):
     titles = sorted(st.get(i).title for i in res.created)
     assert titles == ["章A 的第二条记忆", "章B 的第二条记忆"], titles   # 每章各留 sig 最高的
     print(f"    两章同窗: 每章各收口成 1 条 → {titles} ✓")
+
+
+# ---------------------------------------------------------------------------
+# ⭐ N3（2026-09-29）: 位置 = **区间** —— 引擎把 `span` 展开成区间内全部内容 seq
+#    真机病根: LLM 逐点挑选必然漏 —— 覆盖率只有 67.9%（218 条内容事件里 70 条没进任何记忆）,
+#    缺口动辄 12~18 处（`m0004` 36 点/跨度 50 · `m0009` 19 点/跨度 40）
+# ---------------------------------------------------------------------------
+
+def _span_episode(span, *, text="老师带我去看了瓦片缝里的苔藓",
+                  title="瓦片缝里的苔藓", sig=0.7):
+    return {"episodes": [{"text": text, "title": title, "span": list(span),
+                          "tags": ["苔藓"], "significance": sig}]}
+
+
+def test_expand_spans_fills_gap_and_pops_the_key():
+    """⭐ 区间展开成**全部**内容 seq；`span` 就地摘掉；未认领与共享**如实报告**。
+
+    ⚠️ `span` 必须被 `pop`：`_create_a_nodes` 走 `make_node("episode", **ent)`，
+    留在条目里的 `span` 会被 `from_dict` **静默忽略**（这个项目最恨的静默 no-op ——
+    `about_hint` 当年就是为这个专门 pop 的）。
+    """
+    from core.brain.wiki_v2.digest import _expand_spans
+
+    entries = [{"span": [10, 13], "text": "a"}, {"span": [12, 14], "text": "b"}]
+    unclaimed, shared = _expand_spans(entries, {10, 11, 12, 13, 14, 20})
+    assert entries[0]["event_seq"] == [10, 11, 12, 13]      # 缺口被填满
+    assert entries[1]["event_seq"] == [12, 13, 14]
+    assert all("span" not in e for e in entries)
+    assert unclaimed == [20]                                # 谁也没认领的那条
+    assert shared == 2                                      # 12/13 被两条共享（⚠️ **不裁**）
+    # 旧形状（逐点）**不展开**：那是她自己挑的点，展开等于替她加上她没声称的事件
+    legacy = [{"event_seq": [10, 12, 14]}]
+    un2, sh2 = _expand_spans(legacy, {10, 11, 12, 13, 14})
+    assert legacy[0]["event_seq"] == [10, 12, 14] and un2 == [11, 13] and sh2 == 0
+    print("    _expand_spans: 填缺口 / pop span / 未认领 / 共享只记账 / 旧形状不动")
+
+
+def test_span_expansion_runs_before_bond_collapse():
+    """⚠️ **结构性守门**: `_expand_spans` 必须排在 `_collapse_bond_episodes` **之前**。
+
+    为什么：那一章的归属判据 `_in_seqs` 靠"条目的 `event_seq` 与章块的**相交**" ——
+    展开前条目只有 `span`（还没有 `event_seq`）⇒ 相交恒为 False ⇒ **整章那一条会被判成
+    "不属于本章"**（`_collapse_bond_episodes` 收口也就跟着失效）。
+    """
+    import ast
+    import inspect
+    import textwrap
+    from core.brain.wiki_v2.digest import digest_segment
+
+    fn = ast.parse(textwrap.dedent(inspect.getsource(digest_segment))).body[0]
+    code = ast.unparse(fn)
+    assert "_expand_spans(" in code and "_collapse_bond_episodes(" in code, \
+        "digest_segment 里少了展开或收口"
+    assert code.index("_expand_spans(") < code.index("_collapse_bond_episodes("), \
+        "_expand_spans 必须在 _collapse_bond_episodes 之前（否则章的归属判据恒假）"
+    print("    结构: _expand_spans 在 _collapse_bond_episodes 之前 ✓")
+
+
+def test_span_end_to_end_expands_and_sets_node_time(tmp_path):
+    """端到端: Round A 给 `span` ⇒ 落库节点 `event_seq` = **展开后的区间**，
+    且 `ts` 取区间**最后一条**（`_node_ts` 的既有语义, 一行没改）。"""
+    st = _seed_store(tmp_path)
+    evs = _events(_mmt(10, "老师", "一"), _mmt(11, "老师", "二"),
+                  _mmt(12, "老师", "三"), _mmt(13, "老师", "四"))
+    res = digest_segment(st, FakeLLM(_span_episode([10, 12]), _b_ok()), evs)
+    assert res.ok, res.errors
+    node = st.get(res.created[0])
+    assert node.event_seq == [10, 11, 12], node.event_seq     # ⭐ 不是 [10, 12]
+    assert node.ts == evs[2].ts                               # 区间最后一条 ⇒ 自己的时刻
+    # 未认领的 13 **不落节点**（归闲聊）—— 本段只建了 1 条 episode
+    assert len(res.created) == 1
+    print("    span 端到端: event_seq 展开 + ts 取区间末尾 + 未认领不落节点 ✓")

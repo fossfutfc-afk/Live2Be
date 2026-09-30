@@ -116,7 +116,8 @@ _DOMAIN_CONTRACT = {
         "     但**只讲这一件事**; 不按时间把每个回合罗列一遍。\n"
         "   · ⚠️ 时间线里的每一步**不是**要分别记的条目 —— 那会写成流水账, 是本轮的典型错误。\n"
         "   · title 用**本章标题**（用户消息的【本章标题】给了）;\n"
-        "     event_seq 抄**本章**的块号（可以多个）; verbatim 仍只挑最关键的一句。\n"
+        "     span 给**本章的起止**块号（`[起, 止]`）——整章都算这一条覆盖;"
+        " verbatim 仍只挑最关键的一句。\n"
         "⚠️ 本段**可能同时含 MomoTalk 聊天**（时间线里那些不是剧情画面的来回消息）:\n"
         "   那部分**不属于这一章** —— 按 `mmt` 规则 0~5 条**另行记录**（约定/玩家画像/\n"
         "   值得记的对话）, 与本章那一条分开; 既不要并进章总结, 也不要漏记。"
@@ -136,8 +137,8 @@ RECORD_EPISODE = DigestAction(
     semantics=(
         "何时用: 时间线里形成了完整经历（有起有落/有情感细节/值得以后想起）;\n"
         "怎么改: 第一人称浓缩——起点→关键推进→落点, 保留角色当时的感受与反应;\n"
-        "指位置（T14, 2026-09-15）: 只抄时间线的行号, 不打分——"
-        " event_seq 抄 `[28]` 这类事件头（本条覆盖了哪几块）;"
+        "指位置（T14 → ⭐ **N3**, 2026-09-29）: 给出**区间**, 不打分——"
+        " span 写 `[28, 30]` = 本条覆盖**从 28 到 30 这一整段**（起止两块的事件头编号）;"
         " verbatim 抄 `[28.3]`/`[28.p]` 这类记录行号（关键的几句）;\n"
         "禁什么: 不升华成人生感悟; 不记寒暄流水账; 不写旧记忆里已有的事;"
         " 情绪词堆砌但无情节支撑 → 舍弃。"
@@ -152,9 +153,10 @@ RECORD_EPISODE = DigestAction(
         '                          // kind=experience → 玩家画像句, 如"玩家的生日是\n'
         '                          // 5 月 20 日""玩家总说摸鱼" //\n'
         '      "title": "…",      // kind=episode 必填; 8-16 字短标题; 拿不准也给朴素标题 //\n'
-        '      "event_seq": ["28", "30"],  // 本条覆盖了哪几块——抄时间线的事件头编号\n'
+        '      "span": [28, 30],   // ⭐ **本条覆盖【哪一段】**——起止两块的事件头编号\n'
         '                          //（`[28] 【羁绊剧情】` 里的 28）。**这是指位置, 不是打分**;\n'
-        '                          // 抄错/抄不存在的编号会被丢弃。拿不准就少写, 别硬凑 //\n'
+        '                          // 区间内的事件**全部**算你覆盖了, 不必逐块列;\n'
+        '                          // 两端必须真实存在、且 起 ≤ 止。拿不准就把区间写宽一点 //\n'
         '      "verbatim": "…",   // 可选; **两条通道, 给一条即可**:\n'
         '                          //  ① 列表 = 抄时间线的记录行号（推荐）——\n'
         '                          //     ["28.3", "20.p"]; 引擎据此取回**逐字原文**\n'
@@ -195,7 +197,7 @@ RECORD_EPISODE = DigestAction(
         ' 一只流浪猫来蹭老师的裤脚, 我鼓起勇气摸了摸它。回家时老师把没喝完的纸杯'
         '塞给我说「拿着暖手」, 我一路捧着它, 嘴角一直藏着笑。",'
         ' "title": "和老师的公园散步",'
-        ' "event_seq": ["31", "33"],'
+        ' "span": [31, 33],'
         ' "verbatim": ["33.2", "33.p"],'
         ' "tags": ["公园", "流浪猫", "热茶"],'
         ' "about_hint": "老师",'
@@ -1194,6 +1196,61 @@ def _clean_seq_list(raw: Any, seq_set: set[int] | None, *,
     return out
 
 
+def _clean_span(raw: Any, seq_set: set[int] | None, *, label: str,
+                warnings: list[str]) -> list[int] | None:
+    """⭐ 区间清洗（**N3**, 2026-09-29）—— `[28, 30]` → `[28, 30]`；坏形状 → `None`。
+
+    规矩:
+      · 收 **2 个端点**的数组；单值也收（退化成 `[n, n]`）；>2 个 ⇒ **只取首尾** + 告警
+      · 端点必须是**事件级** seq（`"28"`）；记录级 `"28.3"` 取它的 seq 部分 + 告警
+      · `起 ≤ 止`；**反了 ⇒ 丢弃**（⚠️ **不自动交换** —— 静默改她的意思比报错贵）
+      · `seq_set` 非空时**两端都必须存在**（抄不存在的编号 → 丢弃）
+
+    ⚠️ **只校验两端的存在性，不逐块校验** —— 区间是"这一段"，引擎按 `seq_set` 求交即可；
+    逐块校验会把"区间里夹着 marker（marker 不在 `seq_set` 里）"误判成坏区间。
+
+    ⚠️ **一律告警、不废整包**（与 `_clean_seq_list` 同纪律）: 一个坏区间不该让她重写整段,
+    而"本条没有位置"是**可见的**（节点 `event_seq` 为空 ⇒ `_node_ts` 回落到段 ts）。
+    """
+    from contract.timeline_index import parse_index
+    if raw is None:
+        return None
+    if isinstance(raw, (str, int)):
+        items: list = [raw]
+    elif isinstance(raw, (list, tuple)):
+        items = list(raw)
+    else:
+        warnings.append(f"{label} 不是数组——丢弃")
+        return None
+    if not items:
+        warnings.append(f"{label} 是空数组——丢弃")
+        return None
+    if len(items) > 2:
+        warnings.append(f"{label} 给了 {len(items)} 个端点——只取首尾")
+        items = [items[0], items[-1]]
+    seqs: list[int] = []
+    for it in items:
+        norm = _norm_index(it)
+        if norm is None:
+            warnings.append(f"{label} 的 {it!r} 不是合法编号——丢弃整个区间")
+            return None
+        seq = parse_index(norm)[0]
+        if "." in norm:
+            warnings.append(f"{label} 收了记录级索引 {norm!r}——已按事件 {seq} 收下")
+        seqs.append(seq)
+    if len(seqs) == 1:
+        seqs.append(seqs[0])                      # 单值 ⇒ 退化成一块
+    lo, hi = seqs
+    if lo > hi:
+        warnings.append(f"{label} 起止反了（{lo} > {hi}）——丢弃（不自动交换）")
+        return None
+    missing = [s for s in (lo, hi) if seq_set is not None and s not in seq_set]
+    if missing:
+        warnings.append(f"{label} 的端点 {missing} 不在本段时间线里——丢弃")
+        return None
+    return [lo, hi]
+
+
 def _fill_verbatim(item: dict, e: dict, i: int, warnings: list[str],
                    seq_set: set[int] | None) -> None:
     """`verbatim` 的**两条通道**（T14, 用户 2026-09-15 裁决: 保文本通道）。
@@ -1261,12 +1318,25 @@ def _clean_episode_item(e: dict, i: int, errors: list[str], warnings: list[str],
         item["title"] = title.strip()
     else:
         warnings.append(f"episodes[{i}] 缺 title（建议 8-16 字短标题）")
-    # 板指针（§3.3.1）——"这条 episode 覆盖了哪几块", 收事件级 seq
-    seqs = _clean_seq_list(e.get("event_seq"), seq_set,
-                           label=f"episodes[{i}].event_seq",
-                           warnings=warnings, record_level=False)
-    if seqs:
-        item["event_seq"] = [int(s) for s in seqs]
+    # ⭐ 位置 = **区间**（N3, 2026-09-29）: `span: [28, 30]` = 本条覆盖从 28 到 30 **这一整段**。
+    # 为什么不让 LLM 逐块列: 真机实测"挑点"必然漏 —— 覆盖率只有 **67.9%**
+    # （218 条内容事件里 70 条没进任何记忆），缺口动辄 12~18 处；
+    # 而人的"那次"本来就是**一段**，不是若干个点。展开在 `digest._expand_spans`。
+    span = _clean_span(e.get("span"), seq_set, label=f"episodes[{i}].span",
+                       warnings=warnings)
+    if span is not None:
+        item["span"] = span
+    else:
+        # 旧形状 `event_seq: ["28","30"]` **仍收**（防契约漂移时整条丢位置），
+        # ⚠️ 但**不展开成区间** —— 那是她**自己挑的点**, 展开等于替她加上她没声称的事件
+        # （宁缺勿错）。只告警, 让契约漂移**可见**。
+        seqs = _clean_seq_list(e.get("event_seq"), seq_set,
+                               label=f"episodes[{i}].event_seq",
+                               warnings=warnings, record_level=False)
+        if seqs:
+            item["event_seq"] = [int(s) for s in seqs]
+            warnings.append(f"episodes[{i}] 用的是旧形状 event_seq（逐点挑选）——"
+                            f"契约已改成 span: [起, 止]（区间，引擎负责展开）")
     # verbatim 两条通道（索引 / 文本）
     _fill_verbatim(item, e, i, warnings, seq_set)
     tags = [t for t in e.get("tags", []) if isinstance(t, str) and t.strip()][:MAX_TAGS]

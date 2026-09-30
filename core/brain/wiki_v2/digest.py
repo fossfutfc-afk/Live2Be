@@ -335,6 +335,13 @@ def digest_segment(
         # 索引 → 原文（T14）: parse 层拿不到事件流, 回填在这里做
         for ent in entries:
             _resolve_verbatim(ent, by_seq)
+        # ⭐ N3（2026-09-29）: `span` → 区间内全部内容 seq。
+        # ⚠️ **必须在 `_collapse_bond_episodes` 之前** —— 那一章的归属靠 `event_seq`
+        #    与章块**相交**, 展开前只有两个端点, 章块夹在中间时会漏判。
+        _unclaimed, _shared = _expand_spans(entries, seq_set)
+        logger.info("digest_span eps=%d 认领=%d 未认领=%d 共享=%d（共享只记账, 不裁）",
+                    len(entries), len(seq_set) - len(_unclaimed),
+                    len(_unclaimed), _shared)
         # 一章一个 episode（2026-09-20）—— 引擎确定性收口 + 可观测告警
         entries = _collapse_bond_episodes(entries, chapters)
         # ── 时间推进：**已退役**（2026-09-17, `ESSAY_TIME_MODEL §10`）──
@@ -600,6 +607,44 @@ def _in_seqs(e: dict, seqs: frozenset) -> bool:
                if isinstance(s, (int, str)) and str(s).lstrip("-").isdigit())
 
 
+def _expand_spans(entries: list[dict], seq_set: set[int]) -> tuple[list[int], int]:
+    """⭐ `span` → 区间内**全部**内容 seq（**N3**, 2026-09-29）—— 就地改写成 `event_seq`。
+
+    ⚠️ **必须 `pop` 掉 `span`**: `_create_a_nodes` 走
+    `make_node("episode", **{k: v for k, v in ent.items() if k != "kind"})` ——
+    留在条目里的 `span` 会被 `from_dict` **静默忽略**（这个项目最恨的静默 no-op;
+    `about_hint` 当年就是为这个专门 `pop` 的）。
+
+    ⚠️ **必须在 `_collapse_bond_episodes` 之前跑**: 那一章的归属判据 `_in_seqs` 靠
+    "条目的 `event_seq` 与章块的**相交**" —— 展开前只有两个端点, 章块夹在中间
+    （span `[80, 100]` / 章 `86..97`）时**两个端点全在章外** ⇒ 那条会被误判成"不属于本章"。
+
+    Returns: `(未认领的 seq 升序, 被 ≥2 条 episode 共享的 seq 数)`
+
+    ⭐ **重叠如实报告、不裁**: 同一段事件本来就可以同时是两件事（真机 `m0015`
+    「约老师来看苔藓」`[208..235]` 与 `m0016`「老师说我很重要」`[214..223]` **整段嵌套**;
+    裁掉"先到先得"会让 `m0016` 丢掉它**唯一的位置证据**）。
+    而"未认领"才是真病 —— 真机 218 条内容事件里 **70 条（32%）没进任何记忆**。
+    """
+    counts: dict[int, int] = {}
+    for ent in entries:
+        span = ent.pop("span", None)
+        if span is None:
+            # 旧形状（`event_seq` 逐点）或没给位置 —— 原样计入, **不展开**
+            for s in ent.get("event_seq") or []:
+                counts[s] = counts.get(s, 0) + 1
+            continue
+        lo, hi = int(span[0]), int(span[1])
+        seqs = sorted(s for s in seq_set if lo <= s <= hi)
+        if seqs:
+            ent["event_seq"] = seqs
+            for s in seqs:
+                counts[s] = counts.get(s, 0) + 1
+    unclaimed = sorted(seq_set - set(counts))
+    shared = sum(1 for n in counts.values() if n > 1)
+    return unclaimed, shared
+
+
 def _collapse_bond_episodes(entries: list[dict], chapters: list[dict]) -> list[dict]:
     """**按章**收口: 每一章的 episode 只留 1 条 —— "一章一个 episode"的引擎侧兜底。
 
@@ -678,6 +723,9 @@ def _create_a_nodes(store: WikiStoreV2, entries: list[dict], *, ts: str,
 
     event_seq（T14, 2026-09-15）: **条目自带就用条目自带的**（Round A 抄的行号,
     已在 parse 层校验 ⊆ 本段）, 否则回落到段级 `[interact_max]`。
+    ⭐ **N3（2026-09-29）后, "条目自带的"是引擎展开好的区间**（`_expand_spans` 把
+    `span` 换成区间内全部内容 seq）—— 本函数**一行没改**: 字段名与形状都没变,
+    变的只是它的**来源**（从"她挑的点"变成"引擎算的区间"）。
     旧版**无条件覆写**成 `[interact_max]`——实测 mutsuki 全段 `[60]` 而板最大 55,
     它指向一条 MMT 消息、不指向任何一板, 于是板指针从来没存在过,
     而 `migrate_time` 的唯一排序信号也一起死掉（全部节点同键 → 退化成插入序）。
