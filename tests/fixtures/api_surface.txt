@@ -313,6 +313,7 @@ core.mmt.engine	SUGGEST_BOND_ROUNDS	data	-
 core.mmt.engine	Session	class	core.mmt.engine
 core.mmt.engine	SessionStore	class	core.session.store
 core.mmt.engine	TEMP	data	-
+core.mmt.engine	TYPE_NOTICED	data	-
 core.mmt.engine	TurnResult	class	core.mmt.engine
 core.mmt.engine	WHOLE_TURN_ACTIONS	data	-
 core.mmt.engine	WikiStoreV2	class	core.brain.wiki_v2.store
@@ -339,6 +340,7 @@ core.mmt.engine	digest_segment	function	core.brain.wiki_v2.digest
 core.mmt.engine	ensure_entities	function	core.brain.wiki_v2.entities
 core.mmt.engine	err	function	contract.errors
 core.mmt.engine	feedback	function	llm.client
+core.mmt.engine	find_episode	function	core.brain.wiki_v2.address
 core.mmt.engine	format_issues	function	contract.issues
 core.mmt.engine	is_content_event	function	core.session.events
 core.mmt.engine	load_affection_from_events	function	core.affection.affection_calc

@@ -72,9 +72,11 @@ def test_examples_are_valid_json_objects():
     for row in rows:
         obj = json.loads(row)                       # 不合法直接抛
         assert isinstance(obj, dict), row
-        assert ("text" in obj) ^ ("action" in obj), row      # 恰好一个判别键
-    kinds = [("action" if "action" in json.loads(r) else "text") for r in rows]
-    assert "action" in kinds and "text" in kinds    # 两类行都有示范
+        # ⭐ 判别键**恰好其一**（三类行互斥, N5b 起含想起行）
+        assert sum(k in obj for k in ("text", "action", "noticed")) == 1, row
+    kinds = [next(k for k in ("text", "action", "noticed") if k in json.loads(r))
+             for r in rows]
+    assert {"action", "text", "noticed"} <= set(kinds)   # 三类行都有示范
     # 交错顺序：文本示范里第一条是 text、第二条是 action（话→图→话 的演示）
     assert kinds[0] == "text" and kinds[1] == "action"
     print(f"    line-schema: {len(rows)} 条示范行全部合法 JSON 且判别键唯一")

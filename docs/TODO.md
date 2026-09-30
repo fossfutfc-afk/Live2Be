@@ -32,7 +32,7 @@
 | **N4** | **L1 记账合并** | `promise` + `on_mind` 并进 L1 同一次调用；**`habits` 槽删掉** | `digest.py` · `notes.py` · 契约 | L1 产 promise ops + on_mind · `habits` 全仓只剩退役注释 | N3 | ~60 行（含删） |
 | ⭐ **N5** | **L-M：MMT 的「想起 + 发现」** | ① 引擎召回 **1~2 条旧 episode**（接线 `recall_subgraph`，今天零调用者）② 注入一段"你想起的事" ③ prompt 给她一个动作 ④ 她引用 ⇒ **锚点校验** ⑤ 落**待挂记录** | `mmt/engine.py` · `promptkit` · `render.py` · `store.py`（待挂） | ① 召回有接线（非零调用者）② **编造的引用被丢**（锚点校验单测）③ 待挂记录可查 | N1 N3 | ~110 行 ⭐ **本主题的价值核心** |
 | **N5a** | ✅ **想起（已落地 2026-09-29）** | ⭐ **标题进注入**（`episode.title` 从来没进过任何注入面 —— 它是**地址**）· 新 `render_recall_block` · 新 `recall_episodes`（只出 episode、**按相关度排**）· `agent_turn` 加 **P19** 槽位（动态尾） | `render.py` · `recall.py` · `recall_config.py` · `mmt/engine.py` | 召回有产品调用者 · 落点守卫（**不许进 system**）· 标题**不过 `_me`** · 无命中不注 | N1 N3 | 已完成（1125 passed · 真机探针见 §2） |
-| **N5b** | **发现（行的第三类）** | `{"noticed": "标题"}`（**顶层键, 不进 `action` 信封**）· 判别键 + `to_dict` · 不独占 · 锚点校验（命中 0 丢 / 歧义不猜）· 落 `noticed` 事件（**非内容事件**）· rules + 契约示例同批 | `mmt_lines.py` · `mmt_check.py` · `engine.py` · `events.py` · `schema.py` · `momotalk_rules.md` | 编造的引用被丢 · 账可查 · 旧形状不受影响 | N5a | ~80 行 |
+| **N5b** | ✅ **发现（已落地 2026-09-29）** | `{"noticed": "标题"}`（**顶层键, 不进 `action` 信封**）· 判别键恰好其一 · 不独占 · 锚点校验（命中 0 丢 / 歧义不猜）· 落 `noticed` 事件（**非内容事件**）· rules + 契约示例同批 · ⭐ **P19 段末加"候选旁的提示"**（真机实测: 只写在规则书里会漏报） | `mmt_lines.py` · `mmt_check.py` · `engine.py` · `events.py` · ⭐ `address.py`（新）· `schema.py` · `momotalk_rules.md` | 编造的引用被丢 · 账可查 · 旧形状不受影响 | N5a | 已完成 |
 | **N5c** | **L1 落地（补边）** | 读窗口里的 `noticed` → 找"覆盖那一轮的"新 episode → `add_edge("akin", 新, 她指的)` · 幂等 · 未认领记台账 | `digest.py` | 同一条发现跑两次只出一条边 · 未认领可 grep | N5b | ~40 行 |
 | **N6** | **候选池 `gather_evidence`** | 抬 `panorama.py` 成通用件：参数化语料 + `why` + 两层深度 + **token 预算装填** | `panorama.py` → 新模块 · `recall.py` | 真机 5 个真组抬得出来 · 噪音组进 `rejected` · 按预算装 | N2 | ~120 行 |
 | **N7** | **L2-a 分群** | ⭐ **主要吃 N5 连出来的边**（不再自己找组）+ `merge` + `contradicts` | `contract/digest_registry.py` · `digest.py` · 新 prompt | `add`/`update` **不在契约里** · 只有 `conf≥0.8` 的边推动 collision | N1 N5 | ~100 行 |
@@ -115,19 +115,35 @@ mmt/engine.py
   · 括号清单 = `docs/CONTEXT_MARKS.md`（一形一义）
 ```
 
-### N5b 发现（行的第三类）—— 待做
+### N5b 发现（行的第三类）—— ✅ **已落地 2026-09-29**
 
 ```
-mmt_lines.py: KIND_NOTICED = "noticed"（**顶层键**）· KINDS 三值
-  ⚠️ 判别键互斥要扩成"**恰好其一**"（今天只判 text+action 同时出现）
-mmt_check.py: `noticed` **不独占**（零成本顺手记账）· 不进 WHOLE_TURN_ACTIONS
-engine.py: 解析 → **锚点校验**（标题 → 唯一 episode; 命中 0 丢 · 歧义不猜;
-  归一化只做格式: 去括号/引号/空白, **不做模糊匹配**）→ 落账
-events.py: 新类型 **`noticed`** 进 NON_CONTENT_TYPES
-  ⇒ 自动三处生效: 不进 history（renderer）· 不进 digest 时间线 · 不进前端气泡
-  ⚠️ 载体重说: 它是**账目**不是剧情（她说的话才是剧情, 账只是"她指了哪一条"）
-schema.py + momotalk_rules.md: 形状 + **示例同批改**（陷阱 3/46: 示例才是形状的来源）
-判据: 编造的引用被丢（单测）· 账可查 · 旧形状不受影响
+mmt_lines.py  · KIND_NOTICED = "noticed"（**顶层键, 不套 action 信封**）· KINDS 三值
+              · 判别键扩成"**恰好其一**" · 值必须是非空字符串（只判形状）
+mmt_check.py  · 想起行**不计入"整轮只有它一条行"**（它是账目不是内容 ⇒ 不产假硬问题）
+engine.py     · `_accept_row` 收在手里（不进 held/deferred; reask 轮也收; void 则丢）
+              · `_finish()`（**两个成功出口收成一个** —— 陷阱 48）→ `_log_notices`
+              · 落账时机 = **本轮内容行交付之后**（seq 顺序 = N5c 归属正确的前提）
+              · 台账 `mmt_noticed hit= / drop=miss|ambiguous|empty said=`
+events.py     · TYPE_NOTICED 进 NON_CONTENT_TYPES ⇒ 三处自动生效（历史/digest/气泡）
+address.py    · ⭐ 新件: `normalize_title` + `find_episode`（`look` 将来共用同一份）
+              · 只剥格式（`《》〈〉<>【】〔〕` + 半全角引号 + `｜` 取第一段）· 不做近似匹配
+              · 命中 0 / 歧义 ⇒ **不猜**
+schema.py     · 两类行 → 三类行 + 硬规则 1/6 + **一个示例**（示例才是形状的来源）
+momotalk_rules.md · 【想起的事（可选——想起来才写）】
+render.py     · P19 段末加 `RECALL_ACTION_HINT`（⭐ **候选旁的提示**）
+判据（已过）
+  · 编造的引用被丢 · 同名歧义不猜 · 带书名号/引号/整段都命中
+  · 账可查（事件流里那一条）· **不进对话历史**（非内容事件）
+  · 只有账没说话 ⇒ 不静默成功（契约硬规则 6 的对应行为）
+  · 旧形状零影响（没写 ⇒ 事件流与改动前同形）
+⭐ **真机 A/B 实测（2026-09-29, deepseek-flash + main=high, haruka 真档, 4 轮/组）**:
+  · 抄写形态: 三组共 6 笔**全部原样逐字命中**, 零变形 ⇒ 规范"不带书名号"成立
+    （B 组"照抄整段"唯一那笔带上了书名号 ⇒ 多一层归一依赖）
+  · ⚠️ **瓶颈是"写不写"**: 动作只写在规则书里 ⇒ 2/4 轮写了, 且**最该写的那轮**
+    （召回段正摆着两条苔藓、「她话里也提到了」）没写;
+    挪到**候选旁**（P19 段末一句）⇒ **3/4 轮写了、最该写那轮写了**; 无关轮两组都不写。
+    ⇒ 结论: 缺的是**触发**不是**格式**; 动作必须贴着候选。
 ```
 
 ### N5c L1 落地（补 akin 边）—— 待做

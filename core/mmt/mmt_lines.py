@@ -4,10 +4,11 @@
 契约形式: `docs/DESIGN_STREAM_CONTRACT.md` §1（六条）/ §2（两域对照）/
 §10.2 B5（两段式校验）。
 
-两类行（判别键行内可判）::
+三类行（判别键**恰好其一**）::
 
     {"text": "角色说的话"}                      → MmtLine(kind="text",  text=…)
     {"action": "<动作名>", "payload": {…}}      → MmtLine(kind="action", action=…, payload={…})
+    {"noticed": "那条旧事的名字"}               → MmtLine(kind="noticed", noticed=…)   ← N5b
 
 ⭐ 与 VN 共用 `contract/streams`（行骨架 + 增量缓冲），**唯一差别是交付单元**：
 VN 把行聚合成**板**；MMT **一行就是一条消息**（`MmtStream._accept` 直接进 `_ready`）。
@@ -33,13 +34,17 @@ from typing import Any
 
 from contract.streams import LineStreamBase, ParseDiag, parse_line_items
 
-#: 判别键 = 行的类别（行内可判）
+#: 判别键 = 行的类别（行内可判）——⚠️ **恰好其一**（三类互斥, 见 `line_from_obj`）
 KIND_TEXT = "text"
 KIND_ACTION = "action"
-KINDS = (KIND_TEXT, KIND_ACTION)
+#: ⭐ **想起行**（N5b, 2026-09-29）—— **顶层键, 不套 `action` 信封**: 它不是"动作"。
+#: 动作 = "需要引擎介入的操作"（发图 / 查资料 / 切剧情）; 而这一行是**顺手记的一笔账**
+#: （零成本, 不上屏, 不独占）—— 见 `DESIGN_MMT_NEW_ACTION §1/§4`。
+KIND_NOTICED = "noticed"
+KINDS = (KIND_TEXT, KIND_ACTION, KIND_NOTICED)
 
 #: 本域认得的字段（多出来的 → 记一条 `dropped=False` 的 note）
-KNOWN_KEYS = frozenset({KIND_TEXT, KIND_ACTION, "payload"})
+KNOWN_KEYS = frozenset({KIND_TEXT, KIND_ACTION, "payload", KIND_NOTICED})
 
 
 @dataclass(frozen=True)
@@ -51,10 +56,11 @@ class MmtLine:
     ⚠️ `payload` 是普通 dict ⇒ **action 行不可 hash**（别把它塞进 set / dict 键）。
     """
 
-    kind: str                                         # KIND_TEXT | KIND_ACTION
+    kind: str                                         # KIND_TEXT | KIND_ACTION | KIND_NOTICED
     text: str = ""                                    # text 行：气泡正文
     action: str = ""                                  # action 行：动作名
     payload: dict[str, Any] = field(default_factory=dict)
+    noticed: str = ""                                 # noticed 行：她指的那条旧事的名字
     line_no: int = field(default=0, compare=False)
 
     @property
@@ -65,10 +71,17 @@ class MmtLine:
     def is_action(self) -> bool:
         return self.kind == KIND_ACTION
 
+    @property
+    def is_noticed(self) -> bool:
+        return self.kind == KIND_NOTICED
+
     def to_dict(self) -> dict[str, Any]:
-        """回写为 LLM 可见的 wire 形状（`{"text": …}` / `{"action": …, "payload": {…}}`）。"""
+        """回写为 LLM 可见的 wire 形状（`{"text": …}` / `{"action": …, "payload": {…}}`
+        / `{"noticed": …}`）。"""
         if self.kind == KIND_TEXT:
             return {KIND_TEXT: self.text}
+        if self.kind == KIND_NOTICED:
+            return {KIND_NOTICED: self.noticed}
         return {KIND_ACTION: self.action, "payload": dict(self.payload)}
 
     def to_line(self) -> str:
@@ -80,23 +93,38 @@ def line_from_obj(obj: Any) -> tuple[MmtLine | None, str]:
     """dict → MmtLine（**只判形状**）；违规返回 (None, 原因)。
 
     注入给 `contract.streams.parse_line_items` 的 `classify`。
+
+    ⚠️ **判别键恰好其一**: 三类行（消息 / 操作 / 想起）**互斥**——同时含两个必然
+    是模型抄错了形状, 与其猜它想写哪个, 不如丢行记账（宁缺勿错）。
     """
     if not isinstance(obj, dict):
         return None, f"行必须是 JSON 对象（实得 {type(obj).__name__}）"
     keys = set(obj)
-    has_text, has_action = KIND_TEXT in keys, KIND_ACTION in keys
-    if has_text and has_action:
-        return None, "一行同时含 text 与 action（必须恰好其一）"
-    if not (has_text or has_action):
-        return None, "行既无 text 也无 action"
+    present = [k for k in KINDS if k in keys]
+    if len(present) > 1:
+        return None, f"一行同时含 {' 与 '.join(present)}（必须恰好其一）"
+    if not present:
+        return None, "行既无 text、也无 action 也无 noticed"
 
-    if has_text:
+    if KIND_TEXT in keys:
         text = obj.get(KIND_TEXT)
         if not isinstance(text, str):
             return None, f"text 必须是字符串（实得 {type(text).__name__}）"
         if not text.strip():
             return None, "text 不能为空（空行直接别写）"
         return MmtLine(kind=KIND_TEXT, text=text.strip()), ""
+
+    if KIND_NOTICED in keys:
+        # ⭐ 想起行: 一个字段、**一个字符串**（她只做"指一下是哪条"——
+        # 定位 / 校验 / 归并维度全是引擎的, 见 `DESIGN_MMT_NEW_ACTION §4.1`）。
+        # ⇒ 这里只判"是非空字符串"; **名字解不解得开是引擎的事**
+        #   （命中 0 / 歧义 ⇒ 丢, 在 `engine._log_notices` 里判）。
+        noticed = obj.get(KIND_NOTICED)
+        if not isinstance(noticed, str):
+            return None, f"noticed 必须是字符串（实得 {type(noticed).__name__}）"
+        if not noticed.strip():
+            return None, "noticed 不能为空（想不起来就别写这一行）"
+        return MmtLine(kind=KIND_NOTICED, noticed=noticed.strip()), ""
 
     action = obj.get(KIND_ACTION)
     if not isinstance(action, str):
