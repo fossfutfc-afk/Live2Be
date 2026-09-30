@@ -270,7 +270,7 @@ def test_r2_sees_the_promise_and_can_link_it(tmp_path):
 
     # ⭐ 视野: R2 的输入里看得见承诺（带结局的标签）+ note 里那条旧条目
     r2 = llm.user_of(T.DIGEST_B)
-    assert "[promise·被新的取代了]" in r2
+    assert "｜promise·被新的取代了｜" in r2
     assert "周六模型店" in r2
     # ⭐ 动作面: 两条边真的写出来了（按文本找 id, 不赌编号）
     belief_id = next(n.id for n in st.all()
@@ -299,7 +299,8 @@ def test_cognition_list_must_include_bypasses_cap(tmp_path):
 
     assert pid in local_of and "周六模型店" in text
     assert len(local_of) == 2                       # cap=1 的那条 + 必进的承诺
-    assert "[promise·已兑现]" in text
+    # ⭐ N2（2026-09-29）: kind 进了元信息段（`〔u0002｜promise·已兑现｜被引 0〕…`）
+    assert "〔u0002｜promise·已兑现｜被引 0〕" in text, text
 
 
 def test_engine_writes_note_ops_into_the_truth(tmp_path):

@@ -596,22 +596,85 @@ def render_cognition_list(store: WikiStoreV2, cap: int = 12,
             picked.append(node)
             have.add(node.id)
     graph = store.graph()                       # experience 的次数 = supports 入边数
-    lines: list[str] = []
+    # ⭐ **N2（2026-09-29）: 元信息进 `〔〕`，被引与边都印出来** ——
+    #   形态: `〔u0001｜belief｜被引 3〕关于 sensei: 老师是第一个不会嫌弃我的人`
+    #         + 缩进续行 `        edges: supports←m0004 contradicts→u0003`
+    #   为什么（`PROCEED §1` 那条"看不见两端的 LLM 写不出那条边"）:
+    #   R2 要写 `supports`/`contradicts`/`evolved_from`，**它必须先看得见边**;
+    #   而"被引 N"是它判"这条看法成熟了没有"的唯一依据（今天只有 experience 印次数）。
     local_of: dict[str, str] = {}
     for i, n in enumerate(picked, start=1):
-        local = f"u{i:04d}"
-        local_of[n.id] = local
-        cnt = _count_of(n, graph)
-        body = n.text if n.kind == "belief" else (
-            f"{n.text}（次数 {cnt}）" if cnt > 1 else n.text)
-        if len(body) > 100:
-            body = body[:100] + "…"
-        sig = f", sig {n.significance:.2f}" if n.is_precious else ""
-        subject = f" 关于 {n.subject}:" if n.subject else ""
-        lines.append(f"{local} {_kind_tag(n)}{subject} {body}{sig}")
+        local_of[n.id] = f"u{i:04d}"
+    lines: list[str] = []
+    for n in picked:
+        lines.extend(render_cognition_line(store, n, graph, local_of))
     if not lines:
         return "（尚无稳定认知——这是第一次理解, 直接 add）", local_of
     return "\n".join(lines), local_of
+
+
+def render_cognition_line(store: WikiStoreV2, node: BrainNode, graph,
+                          local_of: dict[str, str], *,
+                          max_body: int = 100, indent: str = "") -> list[str]:
+    """**一条认知的渲染行**（主行 + 边续行）—— 两个调用者共用同一份。
+
+    `render_cognition_list`（认知列表, `max_body=100`）与
+    `digest._round_b_material`（候选提示, `max_body=60` + 缩进）——
+    ⚠️ **两处各写一份必然漂**, 而漂了就是"同一张图在两处长得不一样"。
+    """
+    meta = [local_of[node.id], _kind_tag(node).strip("[]"),
+            f"被引 {_count_of(node, graph)}"]
+    if node.is_precious:
+        meta.append(f"sig {node.significance:.2f}")
+    # ⚠️ `subject` **原样**印 + 全角冒号 —— 不前置"关于":
+    # 它是 R2 的自由文本，真机里本来就写成「关于 我道歉的习惯」，
+    # 前置就变成「关于 关于 我道歉的习惯:」（老形态的老毛病，顺手修）。
+    subject = f"{node.subject}：" if node.subject else ""
+    body = node.text if len(node.text) <= max_body else node.text[:max_body] + "…"
+    out = [f"{indent}〔{'｜'.join(meta)}〕{subject}{body}"]
+    edge_line = _cognition_edges(store, node, graph, local_of)
+    if edge_line:
+        out.append(f"{indent}{_INDENT}{edge_line}")
+    return out
+
+
+#: 一条认知最多印几条边（超出的只计数）——被引 20 条时印 20 行没人读得下去,
+#: 而"有几条"已经写在 `被引 N` 里了（**少花 ≠ 少信息**）。
+_COGNITION_EDGES_MAX = 6
+
+
+def _cognition_edges(store: WikiStoreV2, node: BrainNode, graph,
+                     local_of: dict[str, str]) -> str:
+    """一条认知的边（`supports←m0004 contradicts→u0003`）—— 空串 = 不印。
+
+    ⚠️ **只印"能指认的"两端**（这是本地 id 纪律的延伸）:
+      · 认知 → **本地号**（`u0003`; 只它在列表里时才有 —— 不在列表里就是"看不见"）；
+      · episode → **真实 id**（`m0004`: R2 的 decisions 本来就用真实 id 指 episode）；
+      · 其余（entity/group…）→ 只计数（`（另有 N 条边指向列表外）`），
+        **绝不编一个它看不到正文的号**。
+    """
+    rels = [(e.rel, e.dst, "→") for e in graph.edges_from(node.id)]
+    rels += [(e.rel, e.src, "←") for e in graph.edges_to(node.id)]
+    shown: list[str] = []
+    outside = 0
+    for rel, other, arrow in rels:
+        if other in local_of:
+            shown.append(f"{rel}{arrow}{local_of[other]}")
+            continue
+        dst = store.get(other)
+        if dst is not None and dst.kind == "episode":
+            shown.append(f"{rel}{arrow}{other}")
+            continue
+        outside += 1
+    if not shown and not outside:
+        return ""
+    head = " ".join(shown[:_COGNITION_EDGES_MAX])
+    if len(shown) > _COGNITION_EDGES_MAX:
+        head += f" …（另有 {len(shown) - _COGNITION_EDGES_MAX} 条）"
+    if outside:
+        tail = f"（另有 {outside} 条边指向列表外）"
+        head = f"{head} {tail}" if head else tail.strip()
+    return f"edges: {head}"
 
 
 def _kind_tag(node: BrainNode) -> str:
