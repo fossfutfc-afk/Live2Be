@@ -30,8 +30,13 @@ from core.brain.wiki_v2.store import WikiStoreV2
 from core.brain.wiki_v2.graph import Edge, Graph, graph_of
 from core.brain.wiki_v2.evolution import EvolutionLog
 from core.brain.wiki_v2.revise import RevisionResult, apply_revision_package
-from core.brain.wiki_v2.render import render_background_experience, render_character_view, render_organize_view
-from core.brain.wiki_v2.recall import recall_subgraph
+from core.brain.wiki_v2.render import (
+    render_background_experience,
+    render_character_view,
+    render_organize_view,
+    render_recall_block,
+)
+from core.brain.wiki_v2.recall import recall_episodes, recall_subgraph
 from core.brain.wiki_v2 import recall_config, recall_ledger
 from core.brain.wiki_v2.channels import (
     CHANNELS,
@@ -70,6 +75,7 @@ __all__ = [
     "RevisionResult",
     "apply_revision_package",
     "recall_subgraph",
+    "recall_episodes",
     "recall_config",
     "recall_ledger",
     "CHANNELS",
@@ -93,4 +99,5 @@ __all__ = [
     "render_background_experience",
     "render_character_view",
     "render_organize_view",
+    "render_recall_block",
 ]

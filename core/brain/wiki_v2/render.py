@@ -326,6 +326,71 @@ def render_background_experience(data: dict, *, cap: int = 6) -> str:
             "这是她的底色, 不必每轮提起）】\n" + body)
 
 
+#: 「你想起的事」段头（N5）。
+#: ⚠️ **段头自己带边界**（"跟你现在要说的话有没有关系, 由你判断"）: 它是**候选**
+#: 不是**待办** —— 少了这句, "引擎每轮都摆"会被读成"每轮都该提一件旧事"
+#: （同 `look` 那条"回忆是动作, 不是习惯"）。
+RECALL_HEADER = (
+    "【你想起的事（此刻浮上来的旧事——跟你现在要说的话有没有关系, 由你判断）】")
+
+#: 该段的字符预算（`[recall].turn_budget` 的回落值）。真闸门是它, 不是条数
+#: （一条 episode 长短不均; 设计原话 = "召回预算按 token（不是条数）"）。
+RECALL_BUDGET = 700
+
+
+def _recall_budget(override: int | None) -> int:
+    """取字符预算（显式 > `[recall].turn_budget` > 模块常量）。读配置失败不阻断。"""
+    if override is not None:
+        return int(override)
+    try:
+        from core.brain.wiki_v2.recall_config import get
+        return int(get("turn_budget"))
+    except Exception:                            # noqa: BLE001 — 配置层不阻断注入
+        return RECALL_BUDGET
+
+
+def render_recall_block(nodes: Iterable[BrainNode], *,
+                        char_name: str = "",
+                        char_aliases: tuple[str, ...] = (),
+                        now=None,
+                        budget: int | None = None) -> str:
+    """⭐ **N5** · 「你想起的事」—— 引擎每轮摆的 1~2 条旧 episode（空 → 不注入）。
+
+    与 `render_character_view` 的**三条差别**（所以是**两个函数**, 别合并）:
+
+    | | 角色视图（常驻） | 本段（每轮） |
+    |---|---|---|
+    | 选面 | **全部**记得的事（一条河） | **按当下这句话召回的 1~2 条** |
+    | 落点 | `system`（盒 + brain） | **动态尾**（history 之后） |
+    | 变化节奏 | digest 之后才变（前缀缓存友好） | **每轮都变** |
+
+    ⚠️ **它进动态尾是硬要求, 不是排版偏好**: 这一段的输入里有**玩家这一句**
+    （`recall_episodes(query=…)`）⇒ 它每轮必然不同 ⇒ 一旦拼进 `system` 就**逐轮
+    破前缀缓存**（`core/promptkit/tail.py` 的不变式: "动态一切发生在 history 之后"）。
+
+    ⚠️ **一次调用只渲染一次**: `agent_turn` 在拼 messages 之前调它一次, 这一轮内
+    的重试/续写**复用同一份 messages**——召回不会在轮中途换内容（换了就等于
+    "她刚才想起的"与"她现在想起的"不是同一件事）。
+
+    `budget` 那一条是**按行累积**的（不是先算总长再砍）: 宁可少摆一条, 也不把
+    一条 episode 截半——半条记忆比没有更坏（截断处正好是细节, 而"引用细节"正是
+    这一段存在的理由）。
+    """
+    picked = [n for n in nodes if n.kind == "episode"]
+    if not picked:
+        return ""
+    limit = _recall_budget(budget)
+    lines: list[str] = []
+    used = 0
+    for n in picked:
+        line = _memory_line(n, char_name, char_aliases, now)
+        if lines and used + len(line) > limit:   # 第一条永远留（预算是闸门不是否决）
+            break
+        lines.append(line)
+        used += len(line)
+    return RECALL_HEADER + "\n" + "\n".join(lines)
+
+
 def _reported_line(node: BrainNode, char_name: str,
                    aliases: tuple[str, ...] = ()) -> str:
     line = f"- {_me(node.text, char_name, aliases)}"
@@ -339,15 +404,27 @@ def _memory_line(node: BrainNode, char_name: str,
                  now=None) -> str:
     """一条 episode 的记忆行 —— **时间短语挂在最前**（§3.8 / §4.11）。
 
-    形态: `- （3 周前）她拉着我在杂草屋蹲了一下午。（「原话」）`
+    形态: `- （3 周前）【苔藓的约定】她拉着我在杂草屋蹲了一下午。（「原话」）`
 
     ⭐ **难忘的带一个标记**（2026-09-25, 链路 ⑤）: 从前 `is_precious` 把经历**劈成两块**
     （「珍贵的」/「最近的事」）⇒ 河的时间轴断了。现在它降级成行内标记
     （`（3 天前·难忘）`）—— **信息不丢, 时间轴完整**。
 
+    ⭐ **标题从 N5（2026-09-29）起印出来**（`【…】`, 紧跟时间短语）——
+    在此之前 `title` **从来没进过任何注入面**（`PROCEED §1` 事实 #1: 契约要求 8-16 字、
+    真机 18 条都唯一且都含具体名词, 但一个读者都没有）。
+
+    **为什么它必须可见**（地址地基, `PROCEED §2` #10/#11）:
+    引擎与她的**唯一地址空间就是标题**——编号（`m0014`）退回引擎内部。而她要用标题
+    做的那件事是**指认**: `{"noticed": "苔藓的约定"}`（"这不就是同一件事吗"）。
+    标题不可见 ⇒ 那个动作**无从说起**（她无法指一个看不见的名字）。
+    ⇒ ⚠️ **标题一律原样（不过 `_me`）**: 它是**地址**, 她抄下来的串必须与库里的
+    `node.title` 逐字相同; 做了第一人称转换（"遥香的秘密"→"我的秘密"）就会
+    让每一次指认都落空, 且**静默**。
+
     **为什么短语在最前而不是最后**（2026-09-13）: 这是**防失忆注记**——
     LLM 需要先看到"这是多久以前的事"再读内容, 才好判断"这件事讲过了/该不该重提"。
-    放最后等于读完才知道远近。
+    放最后等于读完才知道远近。标题紧随其后（"哪一条 + 多久以前"先立住, 再读正文）。
 
     **为什么挂短语不影响 Q24 的"只给标题"**：Q24 砍的是**正文体积**
     （episode 内容进 writer 视图要压缩）; 短语是**几到十个字**, 不在被砍之列,
@@ -361,15 +438,16 @@ def _memory_line(node: BrainNode, char_name: str,
     节点无 `ts`（空串/坏值）→ 同样不加——**不编一个"很久以前"**,
     那会让"未采集"与"真的很旧"混为一谈。
     """
-    line = f"- {_me(node.text, char_name, aliases)}"
+    body = _me(node.text, char_name, aliases)
+    if node.verbatim:
+        body += f"（「{node.verbatim}」）"
     phrase = _time_phrase(node, now)
     if node.is_precious:
         phrase = f"{phrase}·难忘" if phrase else "难忘"
-    if phrase:
-        line = f"- （{phrase}）" + line[2:]
-    if node.verbatim:
-        line += f"（「{node.verbatim}」）"
-    return line
+    head = f"（{phrase}）" if phrase else ""
+    if node.title:
+        head += f"【{node.title}】"
+    return f"- {head}{body}"
 
 
 def _time_phrase(node: BrainNode, now) -> str:

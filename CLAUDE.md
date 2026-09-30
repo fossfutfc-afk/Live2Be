@@ -130,8 +130,12 @@ tests/ core/ webgui/ llm/ renderer/ apps/ 分别对应域; experiments/ 真 API 
   （静默推理轮, 按 interperson 权重访问他人人设; **查到的资料回灌后继续这一轮**）/
   `mmt_trigger_bond_story`（**唯一模式切换动作**, 独占操作行, 必须带 chapter_title 3-16 字）。
 - **messages 槽位**（`promptkit.round_messages` 唯一入口）：
-  `[system=盒A(+brain 记忆段尾拼)] + history + [P16 羁绊进度注记] + [P17 系统注记?]
+  `[system=盒A(+brain 记忆段尾拼)] + history + [P16 羁绊进度注记] + [P17 时间注记]
+   + [P19 你想起的事?] + [P17 系统注记?]
    + [P18 随机 want_to_speak?] + [task 卡 chat/wrapup] + [user 原文]`
+  ⚠️ **P19「你想起的事」（N5a, 2026-09-29）必须留在动态尾**：它的查询是玩家这一句
+  ⇒ 每轮都变 ⇒ 拼进 system 就逐轮破前缀缓存。内容 = 每轮召回的 1~2 条旧 episode
+  （**带标题 `【…】`** —— 标题是引擎与她之间唯一的地址空间，她要照抄进 `{"noticed": …}`）。
 - 引擎判定（`_turn_lines` **⑥-3a 起流式**：`chat_full(on_chunk=…)` 边收边解析，行一到就分流）：
   ① **内容行**（消息行 / `send_media`）**一行前瞻**交付——下一行到达时才上屏；下一行是
   `inspect` 就把手里那行**丢掉**（静默推理轮一句话都不该上屏——"没查到就先答"）；
