@@ -128,7 +128,7 @@ def test_character_view_sections_and_first_person():
     # ⭐ **一条河（从早到晚）**（2026-09-25, 链路 ⑤）: 经历不再按"珍贵的/最近的"切两块;
     # `is_precious` 降级成**行内标记**（`（难忘）` / `（3 天前·难忘）`）。
     river = out.split("我记得的事（从早到晚）：\n")[1].split("\n\n")[0]
-    assert "- （难忘）和老师拆炸弹那次，老师没有苛责我（「没关系，我陪你拆完。」）" in river
+    assert "- 〔难忘〕和老师拆炸弹那次，老师没有苛责我（「没关系，我陪你拆完。」）" in river
     assert "- 老师带我去吃甜品" in river
     # 无 ts 的排河首、有 ts 的按时间在后（旧→新）
     assert river.index("拆炸弹") < river.index("吃甜品")
@@ -211,22 +211,23 @@ def test_river_is_one_timeline_old_to_new():
     assert "珍贵的" not in out and "最近的事" not in out      # 两块合并了
     order = [river.index(t) for t in ("最早的事", "中间的事", "最晚的事")]
     assert order == sorted(order), river                      # 旧 → 新
-    assert "- （难忘）中间的事（难忘）" in river                # 无 now → 只剩标记
+    assert "- 〔难忘〕中间的事（难忘）" in river                # 无 now → 只剩标记
     assert "- 最早的事" in river and "- 最晚的事" in river
 
 
 def test_river_marker_and_phrase_together():
-    """`now` 给了 → 难忘的写成 `（3 天前·难忘）`（短语 + 标记, 一个括号）。"""
+    """`now` 给了 → 元信息段 = `《名》｜相对｜绝对｜难忘`（2026-09-29 定稿形态）。"""
     nodes = [_ep("难忘的那件", sig=0.9, event_seq=[1])]
     nodes[0].ts = _ts(3)
     out = render_character_view(nodes, now=_NOW)
-    assert "- （3 天前·难忘）难忘的那件" in out, out
+    assert "- 〔3 天前｜9/14｜难忘〕难忘的那件" in out, out
 
 
 def test_time_phrase_prefixed_and_vague():
-    """★ 短语挂在**最前**（先看到远近再读内容），且**绝不出现精确值**。
+    """★ 元信息段在**最前**（先看到远近再读内容），且**绝不出现精确值**。
 
     2026-09-17（`ESSAY_TIME_MODEL §10`）: 年龄按**现实日**算（`node.ts`）。
+    2026-09-29（N5）: 旁边多一个**绝对日期**（引擎坐标）——两者都要（`PROCEED §2 #16`）。
     """
     nodes = [
         _ep("今天刚发生的事", sig=0.5, event_seq=[1]),
@@ -237,13 +238,14 @@ def test_time_phrase_prefixed_and_vague():
     nodes[1].ts = _ts(2)                    # age = 2 → 2 天前
     nodes[2].ts = _ts(20)                   # age = 20 → 3 周前
     out = render_character_view(nodes, now=_NOW)
-    assert "（今天）今天刚发生的事" in out, out
-    assert "（2 天前）前几天的事" in out, out
-    assert "（3 周前）三周前的事" in out, out
-    # I-c: 不得出现精确日/周数以外的刻度、不得出现日期
-    for bad in ("格", "分钟", "小时", "0 天", "年-", "sim_day"):
+    assert "〔今天｜9/17〕今天刚发生的事" in out, out
+    assert "〔2 天前｜9/15〕前几天的事" in out, out
+    assert "〔3 周前｜8/28〕三周前的事" in out, out
+    # I-c: **相对短语**里不得出现精确刻度/日期（绝对日期是引擎坐标, 不在此列）
+    for bad in ("格", "分钟", "小时", "0 天", "sim_day"):
         assert bad not in out, f"短语里出现了精确形态: {bad}"
-    print("    T3: 短语前置且虚化（今天/2 天前/3 周前）")
+    assert "2026/9/17" not in out, "今年的日期不印年份（跨年才印）"
+    print("    T3: 元信息前置 = 相对短语 + 绝对日期（虚化那条纪律不破）")
 
 
 def test_time_phrase_absent_without_now():
@@ -282,15 +284,58 @@ def _titled(text, title, **kw):
     return make_node("episode", text=text, title=title, **kw)
 
 
-def test_episode_title_is_rendered_after_the_time_phrase():
-    """★ `title` 印成 `【…】`, **紧跟时间短语**（"哪一条 + 多久以前"先立住, 再读正文）。"""
+def test_episode_meta_head_shape():
+    """⭐ 元信息段形态（2026-09-29 用户定稿）: `〔《事件名》｜多久以前｜日期｜难忘〕`。
+
+    标题**第一个**（摘抄起点固定 —— `noticed` 与将来的 `look` 都从这一行抄名字）,
+    字段之间是全角 `｜`（**不是 `·`**）、书名号标出事件名。
+    """
     n = _titled("她拉着我在杂草屋蹲了一下午", "苔藓的约定", significance=0.6,
                 event_seq=[1])
     n.ts = _ts(20)
     out = render_character_view([n], now=_NOW)
-    assert "- （3 周前）【苔藓的约定】她拉着我在杂草屋蹲了一下午" in out, out
+    assert "- 〔《苔藓的约定》｜3 周前｜8/28〕她拉着我在杂草屋蹲了一下午" in out, out
+    # ⚠️ 分隔符纪律: 元信息里的字段分隔必须是 `｜` —— `·` 会出现在事件名里
+    #（真机风格: "星空 · 夜空 · 黄昏"）, 用它当边界 ⇒ 她抄多抄少 ⇒ 查库静默落空
+    head = out.splitlines()[-1].split("〕")[0]
+    assert "·" not in head, f"元信息段里混进了 `·`: {head}"
     # 没标题的节点逐字不变（旧档/旧夹具零影响）
     assert "- 老师带我去吃甜品" in render_character_view([_ep("老师带我去吃甜品")])
+
+
+def test_episode_meta_head_missing_fields():
+    """⭐ **书名号在, 名字才在** —— 缺 `title` 的行不出名字段（`episode` 只必填 text）。
+
+    所以规则是"照抄它的 `《…》`"（**按书名号找, 不按位置找**）:
+    位置规则在缺字段的行上会让她把时间段当成事件名。
+    """
+    now = _NOW
+    # 无标题 / 有时间
+    n = _ep("无标题的一条", event_seq=[1])
+    n.ts = _ts(2)
+    assert "- 〔2 天前｜9/15〕无标题的一条" in render_character_view([n], now=now)
+    # 只有标题（没 ts）→ 只剩名字那一段
+    n2 = _titled("孤零零", "只剩名字", event_seq=[2])
+    assert "- 〔《只剩名字》〕孤零零" in render_character_view([n2], now=now)
+    # 一个字段都没有 → **整段不出现**（与本改动前逐字节相同）
+    n3 = _ep("什么都没有", event_seq=[3])
+    assert "- 什么都没有" in render_character_view([n3], now=now)
+    assert "- 什么都没有" in render_character_view([n3])          # 无 now 同理
+
+
+def test_episode_meta_head_absolute_date():
+    """绝对日期 = **引擎坐标**（与相对短语两个都要, `PROCEED §2 #16`）; 跨年才印年份。"""
+    n = _titled("去年的那天", "去年的事", event_seq=[1])
+    n.ts = "2025-09-26T10:00:00"
+    out = render_character_view([n], now=_NOW)
+    assert "〔《去年的事》｜1 年前｜2025/9/26〕" in out, out
+    # 坏 ts / 不给 now → 时间段不出现, 但**标题仍在**（地址不受时间影响）
+    n2 = _titled("坏时间", "坏 ts 的那条", event_seq=[2])
+    n2.ts = "坏值"
+    assert "〔《坏 ts 的那条》〕坏时间" in render_character_view([n2], now=_NOW)
+    n3 = _titled("没给 now", "没 now 的那条", event_seq=[3])
+    n3.ts = _ts(1)
+    assert "〔《没 now 的那条》〕没给 now" in render_character_view([n3])
 
 
 def test_episode_title_is_never_first_person_converted():
@@ -301,8 +346,8 @@ def test_episode_title_is_never_first_person_converted():
     """
     n = _titled("遥香把伞留给了老师", "遥香的秘密", significance=0.6, event_seq=[1])
     out = render_character_view([n], char_name="伊草 遥香", char_aliases=("遥香",))
-    assert "【遥香的秘密】" in out, out
-    assert "【我的秘密】" not in out, out
+    assert "《遥香的秘密》" in out, out
+    assert "《我的秘密》" not in out, out
     # 对照: 正文**照常**转换（别为了标题把正文那条纪律一起丢了）
     assert "我把伞留给了老师" in out, out
 
@@ -318,15 +363,15 @@ def test_recall_block_shape_and_budget():
 
     out = render_recall_block([e1, e2, belief], now=_NOW, char_name="伊草 遥香")
     assert out.startswith(RECALL_HEADER)
-    assert "【苔藓的约定】" in out and "【屋顶的苔藓】" in out
+    assert "《苔藓的约定》" in out and "《屋顶的苔藓》" in out
     assert "我觉得老师很可靠" not in out              # belief 不是"想起的事"
-    assert "（7 天前）" in out                       # 时间短语照旧（同一个 _memory_line）
+    assert "〔《苔藓的约定》｜7 天前｜9/10〕" in out    # 同一个 `_memory_line`（相对 + 绝对）
 
     # 预算是**装填停止条件**: 摆不下第二条 ⇒ 只摆第一条, 绝不截半条
     tight = render_recall_block([e1, e2], now=_NOW, budget=len(out.splitlines()[1]) + 2)
-    assert "【苔藓的约定】" in tight and "【屋顶的苔藓】" not in tight
+    assert "《苔藓的约定》" in tight and "《屋顶的苔藓》" not in tight
     # 一条都装不下（预算 0）→ 仍然给第一条（预算是闸门, 不是否决）
-    assert "【苔藓的约定】" in render_recall_block([e1], now=_NOW, budget=0)
+    assert "《苔藓的约定》" in render_recall_block([e1], now=_NOW, budget=0)
 
     # 空 / 只有非 episode → **不注入**（返回空串, 不返回一个空段头）
     assert render_recall_block([], now=_NOW) == ""
@@ -342,8 +387,8 @@ def test_recall_budget_reads_config_knob(monkeypatch):
     e2 = _titled("第二件事", "二号", event_seq=[2])
     monkeypatch.setattr(rc, "_cache", {"turn_budget": 1.0}, raising=False)
     out = render_recall_block([e1, e2])
-    assert "【一号】" in out and "【二号】" not in out
+    assert "《一号》" in out and "《二号》" not in out
     monkeypatch.setattr(rc, "_cache", {"turn_budget": 9999.0}, raising=False)
     out2 = render_recall_block([e1, e2])
-    assert "【一号】" in out2 and "【二号】" in out2
+    assert "《一号》" in out2 and "《二号》" in out2
     print("    T3: 坏 ts / 坏 now → 跳过短语, 不抛")

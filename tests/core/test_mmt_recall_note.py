@@ -90,7 +90,7 @@ def test_recall_note_reaches_messages(tmp_path):
     eng.agent_turn("我今天又去杂草屋那边了")
     joined = _joined(llm)
     assert HEADER in joined, joined[-500:]
-    assert "【苔藓的约定】" in joined                 # ⭐ 标题 = 她要指的地址
+    assert "《苔藓的约定》" in joined                 # ⭐ 标题 = 她要指的地址
     assert "老师陪我在杂草屋蹲了一下午" in joined
     print("    N5: 「你想起的事」进了 messages（带标题）")
 
@@ -135,11 +135,11 @@ def test_query_is_this_player_line(tmp_path):
 
     eng.agent_turn("我今天又去杂草屋那边了")
     first = _joined(llm)
-    assert "【苔藓的约定】" in first and "【第一顿高级料理】" not in first
+    assert "《苔藓的约定》" in first and "《第一顿高级料理》" not in first
 
     eng.agent_turn("上次那家餐厅的料理真好吃")
     second = _joined(llm)
-    assert "【第一顿高级料理】" in second and "【苔藓的约定】" not in second
+    assert "《第一顿高级料理》" in second and "《苔藓的约定》" not in second
     print("    N5: 查询随玩家这一句变（杂草屋 → 苔藓 / 料理 → 高级料理）")
 
 
@@ -179,5 +179,5 @@ def test_recall_uses_the_now_of_the_turn(tmp_path):
           tags=("杂草",), ts="2026-09-20T10:00:00")
     eng.agent_turn("我今天又去杂草屋那边了",
                    now=datetime.fromisoformat("2026-09-21T10:00:00"))
-    assert "（昨天）" in _joined(llm), _joined(llm)[-400:]
+    assert "〔《苔藓的约定》｜昨天｜9/20〕" in _joined(llm), _joined(llm)[-400:]
     print("    N5: 短语用本轮 now（昨天）")

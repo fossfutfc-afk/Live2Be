@@ -60,6 +60,7 @@ from core.worldtime.age import (
     is_precious,
     now_ts,
     parse_ts,
+    render_date,
     render_relative,
 )
 from core.worldtime.prompt_time import (
@@ -84,6 +85,9 @@ __all__ = [
     "date_of",
     "freshness",
     "render_relative",
+    # ⭐ N5（2026-09-29）: **绝对日期**（引擎坐标）—— 与虚化短语两个都要
+    # （模糊是她的口吻, 绝对是坐标; 见 `PROCEED §2 #16`）
+    "render_date",
     "is_precious",
     "now_ts",
     "parse_ts",

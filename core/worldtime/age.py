@@ -312,6 +312,31 @@ def render_relative(age: int | None, significance: float = 0.5) -> str:
     return "很久以前"
 
 
+def render_date(node_ts: object, *, now: object, tz: timezone = REAL_TZ) -> str:
+    """`ts` → **绝对日期**（今年 `9/27` / 跨年 `2025/9/26`）；取不到 → `""`。
+
+    ⭐ **为什么与 `render_relative` 两个都要**（`PROCEED §2 #16` 已裁）:
+    **模糊短语是她的口吻, 绝对日期是引擎的坐标**——
+      · 口吻: "3 周前"才是人说出来的样子（精确日期会让她"数日子"、诱导做算术）;
+      · 坐标: 她要按时间定位（"中秋那天"到底是哪天）、要把两条记忆对齐、
+        也才能在注入面上把"这一条"和"某个具体日子"对上 ——
+        光有相对短语办不到（**它每天都在变**, 今天叫"4 天前", 明天叫"5 天前"）。
+    ⇒ 渲染层固定顺序 **相对 → 绝对**（先说多久以前, 再给更精确的那一个）。
+
+    ⚠️ **没有 `now` 就没有绝对日期**: 不知道"今天"就不知道是哪一年 ⇒ 不猜年份
+    （与 `render_relative` / `age_days` 同一条纪律: `now` 必填, 不许偷偷读壁钟——
+    这正是 `render_relative` 那条"不编很久以前"的同一个形状）。
+    ⚠️ 只在**跨年**时印年份: 今年的事印全 `2026/9/27` 是白花的字, 而
+    "3 周前"之上的年份信息由相对短语（"去年"）已经承担。
+    """
+    d = date_of(node_ts, tz=tz)
+    today = date_of(now, tz=tz) if now is not None else None
+    if d is None or today is None:
+        return ""
+    return (f"{d.month}/{d.day}" if d.year == today.year
+            else f"{d.year}/{d.month}/{d.day}")
+
+
 def _phrase(days: float, singular: str, plural: str) -> str:
     """桶内取词 —— 含 `N` 的按数量替换（数量已取整为人类口径）。
 
