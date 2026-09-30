@@ -12,9 +12,9 @@
 | | |
 |---|---|
 | **主线** | **新 note 机制 + graph 升级**（digest 按视野三层重排） |
-| **代码** | ⭐ **一行未动**（用户明确"不动代码，先想清楚"） |
-| **设计** | 一轮讨论已收口：**9 条已裁**（§2）· **3 条待裁**（§3）· 5 份设计文档（§5） |
-| ⏭️ **下一步（compact 后从这里继续）** | ⭐ **讨论「wiki 的注入形式」** —— 进而得到 **MMT action 的设计** |
+| **代码** | ⭐ **已开工**：**N1a**（`akin` + 对称规范化）· **N1b**（`group` + `member_of`）已落地并提交（`6eb89e1` / `d08f2ae`）⇒ 全量 **1101 passed** · B 冒烟 PASS |
+| **设计** | 讨论已收口：**19 条已裁**（§2）· **7 条待裁**（§3）· 动工文档 `docs/DESIGN_MMT_NEW_ACTION.md`（§5） |
+| ⏭️ **下一步** | ⭐ 按 `TODO.md` 的依赖序往下：**N3（L1 区间化）→ N5（MMT 想起 + 发现）**；MMT 的 `when` 语法（`DESIGN_MMT_NEW_ACTION §7 a`）独立、可随时插空 |
 
 ---
 
@@ -210,7 +210,10 @@ python experiments/web_e2e/run.py
 | `02dab87` | L2 规格落五动作 + 新建 `TODO.md` |
 | `ec5c0fc` · `c037e33` | **Link 移交 MMT**（§0.1 根因与最终分工） |
 | `fbcf654` | **新建 `MMT_DESIGN.md`**（三种行 / inspect / link） |
-| （本次） | ⭐ **PROCEED 瘦身成"接续用"**（1135 → ~200 行）：陷阱 → `docs/TRAPS.md` · 调研 → `docs/RESEARCH_MEMORY_SURVEY.md` · **§1/§2/§4 → `docs/REASONING_LOG.md`** |
+| `d22a5f6` | ⭐ **PROCEED 瘦身成"接续用"**（1135 → 226 行）：陷阱 → `docs/TRAPS.md` · 调研 → `docs/RESEARCH_MEMORY_SURVEY.md` · **§1/§2/§4 → `docs/REASONING_LOG.md`** |
+| `fd00aae` | ⭐ **新建 `DESIGN_MMT_NEW_ACTION.md`**（动作规格：`when` 语法冻结 / `look` / `noticed` / **群**）· 推翻 §2 #2（边属性 → 群是节点 + `member_of`） |
+| `6eb89e1` | ⭐ **N1a**：`akin` 边（7→8）· `SYMMETRIC_RELS` + `canonical_for`（对称性唯一一份）· 顺手修 `clone_state` 位置参数 |
+| `d08f2ae` | ⭐ **N1b**：`group` kind（前缀 `g`）· `member_of`（8→9）· `_ABOUTABLE` 加 group |
 
 ---
 
