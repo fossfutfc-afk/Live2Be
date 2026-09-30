@@ -20,6 +20,7 @@ from core.worldtime import (                        # noqa: E402
     date_of,
     freshness,
     parse_span,
+    render_date,
     render_relative,
 )
 from core.worldtime.age import DEFAULT_HALF_LIFE_DAYS   # noqa: E402
@@ -182,6 +183,39 @@ def test_render_relative_never_exposes_precise_values():
 def test_render_relative_none_is_vague():
     assert render_relative(None) == "很久以前"
     print("    render_relative: 缺 ts(None) → '很久以前'（不暴露'未知'）")
+
+
+# ---------------------------------------------------------------------------
+# 5b. ⭐ N5: 绝对日期（引擎坐标）—— 与相对短语**两个都要**
+# ---------------------------------------------------------------------------
+
+def test_render_date_same_year_and_cross_year():
+    """今年印 `9/27`（不印年份 = 省字）；**跨年才印全** `2025/9/26`。
+
+    为什么要它（`PROCEED §2 #16` 已裁）: 相对短语是**她的口吻**（"3 周前"）,
+    而它是**引擎的坐标** —— 相对短语每天都在变, 光靠它没法把一条记忆
+    钉到"具体哪一天"（对齐、检索、写时间条件都要坐标）。
+    """
+    now = datetime(2026, 10, 1, 12, 0)
+    assert render_date("2026-09-27T10:00:00", now=now) == "9/27"
+    assert render_date("2026-01-05T10:00:00", now=now) == "1/5"      # 不补前导零
+    assert render_date("2025-09-26T10:00:00", now=now) == "2025/9/26"
+    assert render_date(datetime(2026, 1, 5), now="2026-10-01T00:00:00+08:00") == "1/5"
+    print("    render_date: 今年 9/27 · 跨年 2025/9/26")
+
+
+def test_render_date_never_invents():
+    """**取不到就不印**（同 `render_relative` 的哨兵纪律）: 缺 `now` / 坏 ts → `""`。
+
+    ⚠️ 缺 `now` 就不能猜年份 —— 这与 `age_days(*, now)` 不留默认值是同一条纪律。
+    """
+    now = datetime(2026, 10, 1, 12, 0)
+    assert render_date("", now=now) == ""
+    assert render_date("坏值", now=now) == ""
+    assert render_date(None, now=now) == ""
+    assert render_date("2026-09-27T10:00:00", now=None) == ""        # 不猜年份
+    assert render_date({"nope": 1}, now=now) == ""
+    print("    render_date: 缺 now / 坏 ts → 空串（不编日期、不猜年份）")
 
 
 # ---------------------------------------------------------------------------
