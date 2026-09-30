@@ -62,12 +62,18 @@ def test_no_threshold_knobs_left():
     ⚠️ **`time_freshness_floor`（2026-09-17 新增）不是阈值**: 阈值是"过线/不过线"
     的**硬闸门**（`cand_high` 就是那样把新认知永远掐死的）; 而 `floor` 是
     `freshness` 曲线的**渐近下界**, 只影响分数不影响准入 —— 排序仍然全量参与。
+
+    ⚠️ **`turn_k` / `turn_budget`（N5, 2026-09-29 新增）也不是阈值**:
+    它们是 `cand_k` 那一类（"取几条"）——`turn_budget` 是**装填停止条件**
+    （按字符累计到预算就少摆一条）, 一条已经命中的 episode **不会**因为分数低
+    被它丢掉（"准入"这件事在这一层根本不存在: 命中即摆, 只是摆不下几条）。
     """
     from core.brain.wiki_v2 import recall as R
     snap = rc.snapshot()
-    assert set(snap) == {"cand_k", "sim_k", "time_half_life_days",
-                         "time_freshness_floor"}, snap
+    assert set(snap) == {"cand_k", "sim_k", "turn_k", "turn_budget",
+                         "time_half_life_days", "time_freshness_floor"}, snap
     assert snap["cand_k"] == float(R.CAND_K) == 3.0
+    assert snap["turn_k"] == float(R.TURN_K) == 2.0
     for gone in ("cand_high", "cand_med", "accept_hit_rate"):
         assert gone not in snap
         assert not hasattr(R, gone.upper())
@@ -76,8 +82,8 @@ def test_no_threshold_knobs_left():
             raise AssertionError(f"{gone} 仍可读——没删干净")
         except KeyError:
             pass                              # 未知键 → KeyError（防拼错静默走默认）
-    print("    旋钮: cand_k/sim_k/time_half_life_days/time_freshness_floor"
-          "（三个阈值已删）")
+    print("    旋钮: cand_k/sim_k/turn_k/turn_budget/time_half_life_days/"
+          "time_freshness_floor（三个阈值已删）")
 
 
 def test_time_half_life_default_and_override(tmp_path, monkeypatch):

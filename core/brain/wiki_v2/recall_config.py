@@ -33,6 +33,8 @@ v2 的记忆召回参数是**散落的模块常量**，后果有两条:
     [recall]
       cand_k    = 3         # Round B 每条 episode 最多带几个候选（提示条数）
       sim_k     = 5         # 读路径语义通道 top-k
+      turn_k    = 2         # ⭐ N5: MMT 每轮"你想起的事"摆几条（`recall.recall_episodes`）
+      turn_budget = 700     # ⭐ N5: 那一段的**字符**预算（真闸门; "按 token 不按条数"）
       time_half_life_days  = 5.0   # A 链路新鲜度半衰期（**现实日**）
       time_freshness_floor = 0.25  # A 链路新鲜度**下界**（0 = 关掉下界）
 
@@ -57,6 +59,15 @@ _SETTINGS_PATH = paths.SETTINGS_PATH
 DEFAULTS: dict[str, float] = {
     "cand_k": 3.0,              # Round B 候选提示条数（recall.CAND_K）
     "sim_k": 5.0,               # recall_subgraph k_sim
+    #: ⭐ N5（2026-09-29）: MMT 每轮"你想起的事"摆几条（`recall.recall_episodes`）。
+    #: 与 `cand_k` 同类（"取几条"）; ⚠️ **它与下面那个预算是两道闸, 先撞到谁算谁**
+    #: —— 条数是"顶多几条", 预算是"顶多几字", 真机那条 episode 长短不均, 两个都要。
+    "turn_k": 2.0,
+    #: ⭐ N5: 「你想起的事」那一段的**字符**预算（`render.render_recall_block`）。
+    #: 设计原话是"召回预算按 token（不是条数）"（`docs/TODO.md` N5 ①）——
+    #: 这里用字符是因为注入面本来就是按字符记台账的（`render` 的读数口径一致）,
+    #: 中文下 1 字 ≈ 1 token, 换算不引入误差。
+    "turn_budget": 700.0,
     #: `A_intensity` 链路的时间半衰期（**单位 = 现实日**）。
     #: 语义 = **新鲜度**（用户裁决 2026-09-13: *"TIME 做新鲜度语义, 这遗忘曲线
     #: 没办法适用了, 60 天跨度太大了"*）。

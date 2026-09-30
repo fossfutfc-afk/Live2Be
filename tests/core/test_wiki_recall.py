@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 
 from core.brain.wiki_v2 import WikiStoreV2, make_node
 from core.brain.wiki_v2.recall import (
+    recall_episodes,
     recommend_candidates,
     recall_subgraph,
 )
@@ -319,3 +320,89 @@ def test_candidates_backend_failure_degrades_to_keyword(tmp_path):
 
     out = recommend_candidates(st, "今天又和老师去喂猫了", embed_fn=broken)
     assert out and out[0][0].id == "m0002"             # 降级到关键词, 不炸
+
+
+# ---------------------------------------------------------------------------
+# ⭐ N5: `recall_episodes` —— MMT 每轮"你想起的事"（2026-09-29）
+# ---------------------------------------------------------------------------
+
+def test_recall_episodes_only_returns_episodes(tmp_path):
+    """★ 选面 = **只有 episode** —— belief 是"看法"不是"另一件旧事"。
+
+    这一条是 N5 与 Round B 的**唯一**差别: 同一套打分, 换 `kinds`
+    （`recommend_episodes` 的 docstring 写着为什么不能合并成一个"召回"）。
+    """
+    nodes = _ids([
+        _ep("老师陪我在杂草屋蹲了一下午", tags=["杂草"]),
+        make_node("belief", text="杂草屋是我最安心的地方", tags=["杂草"],
+                  epistemic="inferred_belief", subject="杂草屋"),
+    ])
+    st = _store(tmp_path, nodes)
+    out = recall_episodes(st, query="今天又去杂草屋了", embed_fn=None)
+    assert [n.id for n in out] == ["m0001"], [n.kind for n in out]
+    # 同一句话问 Round B → 拿到的是**认知**（两条路各取所需, 互不干扰）
+    cand = recommend_candidates(st, "今天又去杂草屋了", embed_fn=None)
+    assert [n.id for n, _ in cand] == ["m0002"]
+
+
+def test_recall_episodes_ranks_by_relevance_not_significance(tmp_path):
+    """★ **按当下这句话排序** —— 不是"总是想起最重要的那件"。
+
+    按 significance 排的后果不是"差一点", 是**机制失效**: 同一条每次都被想起
+    ⇒ `noticed` 永远连同一对 ⇒ 群长不出成员（`DESIGN_MMT_NEW_ACTION §4.2`）。
+    """
+    nodes = _ids([
+        _ep("拆炸弹的初遇", sig=0.9, tags=["炸弹"]),
+        _ep("杂草屋的下午", sig=0.3, tags=["杂草"]),
+    ])
+    st = _store(tmp_path, nodes)
+    out = recall_episodes(st, query="杂草屋那边怎么样了", embed_fn=None, k=1)
+    assert [n.id for n in out] == ["m0002"]            # 低 sig 但**相关**
+    print("    召回: 相关度优先（sig 0.3 压过 0.9）")
+
+
+def test_recall_episodes_semantic_and_degrade(tmp_path):
+    """语义通道优先; 后端故障 → **自动退词面**（不是不召回）。"""
+    nodes = _ids([
+        _ep("拆炸弹的初遇", tags=["炸弹"]),
+        _ep("甜品店约会", tags=["甜品"]),
+    ])
+    st = _store(tmp_path, nodes)
+
+    def embed(texts):
+        return [[1.0 if "甜品" in t else 0.0, 1.0 if "炸弹" in t else 0.0]
+                for t in texts]
+
+    mode: list[str] = []
+    out = recall_episodes(st, query="又去甜品店了", embed_fn=embed, k=1,
+                          mode_out=mode)
+    assert [n.id for n in out] == ["m0002"] and mode[-1] == "semantic"
+
+    def boom(texts):
+        raise RuntimeError("embed down")
+
+    mode2: list[str] = []
+    out2 = recall_episodes(st, query="又去甜品店了", embed_fn=boom, mode_out=mode2)
+    assert [n.id for n in out2] == ["m0002"] and mode2[-1] == "keyword"
+
+
+def test_recall_episodes_empty_cases(tmp_path):
+    """宁缺勿错: 空 query / 空库 / 一条都不像 ⇒ **返 []**（不拿"最近一条"凑）。"""
+    st = _store(tmp_path, _ids([_ep("杂草屋的下午", tags=["杂草"])]))
+    assert recall_episodes(st, query="", embed_fn=None) == []            # 空 query
+    assert recall_episodes(st, query="今天天气不错", embed_fn=None) == []  # 都不像
+    empty = WikiStoreV2(tmp_path / "empty", world_id="world1", char_id="c")
+    assert recall_episodes(empty, query="杂草", embed_fn=None) == []      # 空库
+
+
+def test_recall_episodes_k_defaults_to_the_knob(tmp_path, monkeypatch):
+    """条数缺省 = `[recall].turn_k`（**"取几条"类旋钮, 不是阈值**）。"""
+    from core.brain.wiki_v2 import recall as R
+    from core.brain.wiki_v2 import recall_config as rc
+
+    st = _store(tmp_path, _ids([_ep(f"苔藓第{i}次", tags=["苔藓"]) for i in range(4)]))
+    monkeypatch.setattr(rc, "_cache", {"turn_k": 1.0}, raising=False)
+    assert len(recall_episodes(st, query="苔藓", embed_fn=None)) == 1
+    monkeypatch.setattr(rc, "_cache", {"turn_k": 3.0}, raising=False)
+    assert len(recall_episodes(st, query="苔藓", embed_fn=None)) == 3
+    assert float(R.TURN_K) == 2.0                       # 模块默认（回落值）

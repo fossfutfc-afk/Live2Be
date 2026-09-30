@@ -13,8 +13,10 @@
 |---|---|
 | **主线** | **新 note 机制 + graph 升级**（digest 按视野三层重排） |
 | **代码** | **N1a**（`akin` + 对称规范化）`6eb89e1` · **N1b**（`group` + `member_of`）`d08f2ae` · ⭐ **N3（位置字段 `span` 区间化）`327821c`** · ⭐ **修既有竞态**（章 `vn_enter` 漏落 / 假 `vn_exit`）⇒ 全量 **1110 passed** · B 冒烟 **PASS** |
+| **N5 拆三** | ⭐ **N5a「想起」已落地（工作树，待提交）**：标题进注入 · `render_recall_block` · `recall_episodes` · `agent_turn` 加 **P19 槽位**（动态尾）· 全量 **1125 passed** + B 冒烟 PASS。⬜ **N5b「发现」**（`{"noticed": "标题"}` 行 + 锚点校验 + 落账）· **N5c「L1 落地」**（补 `akin` 边） |
 | **设计** | 已裁 **19 条**（§2）· 待裁 **7 条**（§3）· 动工文档 `docs/DESIGN_MMT_NEW_ACTION.md`（§5） |
-| ⏭️ **下一步** | **N5（MMT 想起 + 发现）** —— 主链价值核心（`TODO.md`：N5 只依赖 N1a + N3, 两者都已落地）· MMT 的 `when` 语法（`DESIGN_MMT_NEW_ACTION §7 a`）独立、可随时插空 |
+| ⏭️ **下一步** | ⭐ **N5b「发现」** —— `{"noticed": "标题"}` 行（**顶层键, 不进 `action` 信封**）· 锚点校验（命中 0 丢 / 歧义不猜）· 落 `noticed` 事件（**非内容事件**）· rules + 契约示例**同批改**。然后 **N5c**（L1 补 `akin` 边）⇒ **N5 整体收口时才跑全量四件套**（§8） |
+| **支线** | MMT 的 `when` 语法（`DESIGN_MMT_NEW_ACTION §7 a`）独立、可随时插空 |
 
 ---
 
@@ -126,6 +128,23 @@ embed  : text-embedding-qwen3-embedding-0.6b（nomic 已换，见 TRAPS 38）
 | `inspect` 使用率 | **0 / 157 轮** |
 | `contradicts` | **0 条**（机制齐全、零数据） |
 
+### ⭐ N5a 探针（2026-09-29 重测，`.testtmp/probe_n5_recall.py`）
+
+```
+18 条 episode: **标题全唯一、全非空**（地址地基在真机上成立）
+brain 段: 4309 → **4487** 字（18 个标题共 **+178 字**, ≈ +4%）
+embed_fn: **无（退词面）** ← 本机 LM Studio 没起（TRAPS 38 那条静默降级）
+每轮召回命中（8 句真问题）: **4 / 8**
+  ✓ "杂草屋那边发生过什么" → 中秋的杂草屋 · 杂草屋的环境调研
+  ✓ "我今天又去看了看那片苔藓" → 瓦片缝里的苔藓 · 约老师来看苔藓
+  ✗ "上周你都干了些什么"  → 0（**时间类问题不是 N5 的活**：那是 `look` + `when`）
+  ✗ "上次在餐厅那回"      → 0（真身 = m0004「和老师的第一顿高级料理」——**语义通道关掉就抓不到**）
+一条 episode 正文: **300~570 字** ⇒ `turn_budget=700` 实际就是"1~2 条"
+```
+
+⭐ **用户裁决（2026-09-29）**：召回段**照旧全文注入** ——
+*"就是要全文注入，实在不行 digest 的时候让 LLM 精简即可；后续会考虑如何常驻信息，但这不是现在的问题。"*
+
 ---
 
 ## 5. 文档地图（**关键内容在哪**）
@@ -166,27 +185,49 @@ embed  : text-embedding-qwen3-embedding-0.6b（nomic 已换，见 TRAPS 38）
 7. ⭐ **改契约必须同批改示例**（陷阱 **3/46**）—— **示例才是形状的来源**
 8. ⭐ **调研结论要带出处 + 标检索边界**（*"在能读到的范围内没有"* **≠** "不存在"）
 9. ⭐ **答复用户要具体**（他两次说"没咋听懂"）：**不堆比喻**，直接说问题在哪 / 能不能解决 / 代价是什么；**用真机数字说话**
+10. ⭐⭐ **测试分两级**（2026-09-29 用户裁决）：**子节点只跑小回归，大节点收口才跑全量四件套**（§8）。全量 ≈ 5 分 20 秒，别在半成品上烧它
 
 ---
 
-## 8. 验证配方（每节点必跑）
+## 8. 验证配方（**分两级**）
+
+> ⭐⭐ **2026-09-29 用户裁决：全量四件套只在「大节点收口」时跑。**
+> **子节点**（`N5a/N5b/N5c` 这种拆出来的步）**只跑相关小回归**；一个**大节点**（N5 整体）
+> 做完才跑一次全量。理由：全量 ≈ **5 分 20 秒**，拆一步跑一次 = 把时间花在还没做完的东西上。
+> ⚠️ 跑全量时**别加 `| Select-Object -Last N`** —— 管道要等进程结束才吐字，
+> 中途 `job_output` 永远是空的（看不到进度，像卡死）。
+
+**① 子节点：小回归**（只跑改动面那一片；下面是常用几组）
 
 ```powershell
 New-Item -ItemType Directory -Force .testtmp/pw | Out-Null   # ⚠️ Windows 下要先建
 
-# 小回归（改 wiki 层时先跑）
+# 改 wiki 层（render / recall / digest / store / graph）
 python -m pytest tests/core/test_wiki_digest.py tests/core/test_digest_registry.py `
-  tests/core/test_round_close.py tests/core/test_round_attr.py tests/core/test_wiki_render.py `
+  tests/core/test_wiki_graph.py tests/core/test_wiki_store.py tests/core/test_wiki_render.py `
+  tests/core/test_wiki_recall.py tests/core/test_round_close.py tests/core/test_round_attr.py `
   tests/core/test_wiki_revise.py -q --basetemp=.testtmp/pw_graph
 
-# 全量四件套
+# 改 MMT 轮/行协议/注记
+python -m pytest tests/core/test_mmt_recall_note.py tests/core/test_momotalk_time_notes.py `
+  tests/core/test_mmt_round_protocol.py tests/core/test_mmt_lines.py tests/core/test_mmt_check.py `
+  tests/core/test_split_safety.py -q --basetemp=.testtmp/pw_graph
+
+# 改 bond / webgui 章内
+python -m pytest tests/webgui -q --basetemp=.testtmp/pw_bond
+```
+
+**② 大节点收口：全量四件套**
+
+```powershell
 python -m pytest tests/core tests/webgui tests/llm tests/renderer -q --basetemp=.testtmp/pw
 python -m compileall -q core contract webgui apps llm tests main.py
 node --check webgui/static/js/bond.js
 python experiments/web_e2e/run.py
 ```
 
-**最近一次已知绿**：全量 **1110 passed**（`5779c31`）· `compileall` 绿 · `node --check` 绿 · **B 层冒烟 PASS**。
+**最近一次已知绿**：全量 **1125 passed**（`N5a` 工作树，321s）· `compileall` 绿 · `node --check` 绿 ·
+**B 层冒烟 PASS**（2026-10-01 00:21 产物目录 `.testtmp/webtest/20261001_002114`）。
 
 **只读探针**（`.testtmp/` 是 gitignore，可能被清 ⇒ 结论已抄进各文档）：
 `probe_mmt_view.py`（**真机注入 dump**）· `probe_bfs_purity.py`（dense 判不了同类的决定性证据）·

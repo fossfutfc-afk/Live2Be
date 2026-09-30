@@ -55,6 +55,12 @@ EmbedFn = Callable[[list[str]], list[list[float]]]
 #: 判断留给 LLM，而且**判 add 要在 note 里说明理由**（写进 Round B prompt）。
 CAND_K = 3                  # 每 episode 最多候选数
 
+#: ⭐ N5（2026-09-29）: **MMT 每轮"你想起的事"**摆几条（`[recall].turn_k`）。
+#: 为什么是 2 而不是更多: 这一段进的是**主对话每轮**的动态尾, 与 `cand_k`（喂给
+#: digest 的提示）不同 —— 摆多了她会"每轮都在回忆", 而这一段的全部价值是
+#: "当下 ↔ 某一条旧事"的**具体关联**（`DESIGN_MMT_NEW_ACTION §3.7`）。
+TURN_K = 2
+
 
 def _thr(name: str, fallback: float) -> float:
     """取召回旋钮（配置优先; 配置层异常 → 回落模块常量, 绝不上抛）。"""
@@ -131,25 +137,32 @@ def recall_subgraph(
 def recommend_candidates(store: WikiStoreV2, query: str, *,
                          embed_fn: EmbedFn | None = None,
                          k: int | None = None,
+                         kinds: tuple[str, ...] = ("belief", "experience"),
                          mode_out: list | None = None) -> list[tuple[BrainNode, float]]:
-    """Round B 候选推荐（板块 5）: episode query → 认知候选（相似度降序, **top-k**）。
+    """按 query 打分取 top-k 的**通用**检索（两个调用者, 判据不同）。
 
-    服务: digest Round B 输入——引擎先把每条新经历与现有稳定认知碰撞,
-    把最像的几条**列出来给 LLM 参考**（A-MEM/AgentGal 同款"引擎先筛
-    再让 LLM 逐条判定"）。
+    | 调用者 | `kinds` | 要什么 |
+    |---|---|---|
+    | digest Round B（本函数的原职） | `belief` / `experience` | "这条新经历该并入哪条已有认知" |
+    | ⭐ **MMT 每轮想起**（N5, `recall_episodes`） | `episode` | "此刻这句话让她想起哪条旧事" |
 
+    打分与降级**两边同一份**（这正是它值得收成一个函数的原因）: 语义（embed_fn）
+    → 故障/缺省退**词面**（tags ∩ + subject 命中 + 正文 2-gram Dice, 保守——
+    宁缺勿错: 不标注比标错好）。
+
+    原职语义（**别丢**）: 服务 digest Round B——引擎先把每条新经历与现有稳定认知碰撞,
+    把最像的几条**列出来给 LLM 参考**（A-MEM/AgentGal 同款"引擎先筛再让 LLM 逐条判定"）。
+    那时只挑稳定认知（belief/experience）——episode 是流水不参与组织, fact 是
+    出厂基座不可被 touch/update（守 revise._ensure_cognition 语义）。
     ⚠️ **候选只是提示, 没有阈值、也没有结构强制**（2026-09-15 T17 删 `CAND_HIGH`）:
     排序取 top-k, `s > 0` 挡掉零/负相似; 判 touch/update/add 全在 LLM。
     `add` 需在 note 里说明理由（写进 Round B prompt）。理由见 `CAND_K` 上方注释。
-
-    只挑稳定认知（belief/experience）——episode 是流水不参与组织, fact 是
-    出厂基座不可被 touch/update（守 revise._ensure_cognition 语义）。
+    ⚠️ **N5 起 `kinds` 可换**, 但上面那条"episode 不参与组织"**没有被推翻** ——
+    变的只是**谁在问**: Round B 问的是"归到哪条认知", N5 问的是"想起哪条旧事"。
 
     **RAG 升级接口（2026-09-02 决策）**: embed_fn 即检索后端——未来上
     ChromaDB/FAISS/rerank 只换 embed_fn 实现（或其内部加向量库/重排）,
     调用方零改动。embedding 派生不落盘, 每次冷算（内容改动零漂移）。
-    None → 关键词降级（tags∩ + subject 命中 + 正文 2-gram Dice, 保守——
-    宁缺勿错: 不标注比标错好）。
 
     **降级可观测（2026-09-13 审计拆分点 A）**: 语义后端故障时打一行
     `recall_cand fallback=keyword reason=…`——此前的静默降级会让"引擎抬不出候选"
@@ -157,6 +170,7 @@ def recommend_candidates(store: WikiStoreV2, query: str, *,
 
     Args:
         k: None → 读 `[recall].cand_k`（默认 3）
+        kinds: 选面（节点 kind 白名单）——缺省 = Round B 的稳定认知
         mode_out: 可选传出参数——本函数会把实际走的通道 **append** 进去
             （`"semantic"` / `"keyword"`），供调用方汇总成召回台账（V3-0）。
             用列表而非返回值，是为了不改既有返回签名（测试与调用方零改动）。
@@ -165,7 +179,7 @@ def recommend_candidates(store: WikiStoreV2, query: str, *,
     """
     if k is None:
         k = int(_thr("cand_k", CAND_K))
-    nodes = [n for n in store.all() if n.kind in ("belief", "experience")]
+    nodes = [n for n in store.all() if n.kind in kinds]
     query = (query or "").strip()
     if not nodes or not query:
         return []
@@ -186,6 +200,35 @@ def recommend_candidates(store: WikiStoreV2, query: str, *,
     if mode_out is not None:
         mode_out.append("keyword")
     return _keyword_candidates(nodes, query, k)
+
+
+def recall_episodes(store: WikiStoreV2, *, query: str = "", k: int | None = None,
+                    embed_fn: EmbedFn | None = None,
+                    mode_out: list | None = None) -> list[BrainNode]:
+    """⭐ **N5** · MMT 每轮"她想起的旧事" —— **只出 episode, 按当下这句话取 1~2 条**。
+
+    ⚠️ **与 `recall_subgraph` 的分工（别把两者合并成一个"召回"）**:
+      · `recall_subgraph` = **digest 组织视图**的入口。三通道混合 + 沿边一跳,
+        要的是"给我一块能拿去归纳的子图"——**所以它把 belief/entity 一起带进来是对的**,
+        排序按 `significance`（D4 暂定, 组织视图的口径）;
+      · 本函数 = **主对话每轮**的入口。要的是"此刻跟老师这句话有关的旧事",
+        所以 ① **只要 episode**（当下要连的是"另一件旧事", 不是一条看法）
+        ② 排序按**相关度**（"按当前对话"就是这句话的意思, 按 significance 排会变成
+        "总是想起最重要的那件"——同一条每次都被想起 ⇒ 永远长不出新边）。
+      ⇒ 检索原语**同一份**: 直接复用 `recommend_candidates` 的打分与降级
+      （语义 → 故障退词面 tags/Dice）, 不新造第三条检索链。
+
+    宁缺勿错: 没有 query / 空库 / 一条都不像 ⇒ **返 []（这一轮就不注）**,
+    **不拿"最近一条"或随机一条来凑**——摆一条无关的旧事 = 逼她强行联想,
+    产生的还是一条**脏边**（而边是要进图的, 比少说一句贵）。
+
+    Returns: 相关度降序的 episode 节点（最多 `k` 条, 缺省 `[recall].turn_k`）。
+    """
+    if k is None:
+        k = int(_thr("turn_k", TURN_K))
+    picked = recommend_candidates(store, query, embed_fn=embed_fn, k=k,
+                                  kinds=("episode",), mode_out=mode_out)
+    return [n for n, _score in picked]
 
 
 def _keyword_candidates(nodes: list[BrainNode], query: str,

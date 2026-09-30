@@ -272,4 +272,78 @@ def test_time_phrase_survives_bad_values():
     assert "- 坏值节点" in render_character_view(nodes, now=_NOW)
     nodes[0].ts = _ts(0)
     assert "- 坏值节点" in render_character_view(nodes, now={"nope": 1})
+
+
+# ---------------------------------------------------------------------------
+# ⭐ N5: 标题进注入（地址地基）+「你想起的事」段（2026-09-29）
+# ---------------------------------------------------------------------------
+
+def _titled(text, title, **kw):
+    return make_node("episode", text=text, title=title, **kw)
+
+
+def test_episode_title_is_rendered_after_the_time_phrase():
+    """★ `title` 印成 `【…】`, **紧跟时间短语**（"哪一条 + 多久以前"先立住, 再读正文）。"""
+    n = _titled("她拉着我在杂草屋蹲了一下午", "苔藓的约定", significance=0.6,
+                event_seq=[1])
+    n.ts = _ts(20)
+    out = render_character_view([n], now=_NOW)
+    assert "- （3 周前）【苔藓的约定】她拉着我在杂草屋蹲了一下午" in out, out
+    # 没标题的节点逐字不变（旧档/旧夹具零影响）
+    assert "- 老师带我去吃甜品" in render_character_view([_ep("老师带我去吃甜品")])
+
+
+def test_episode_title_is_never_first_person_converted():
+    """⭐⭐ **标题是地址, 一律原样** —— 过了 `_me` 她就再也指不回库里那一条。
+
+    这是本改动里最容易静默出错的一处: 正文转换（"遥香"→"我"）看起来"顺便也该
+    转标题", 而后果是**每一次指认都落空**（她抄下来的串在库里不存在）。
+    """
+    n = _titled("遥香把伞留给了老师", "遥香的秘密", significance=0.6, event_seq=[1])
+    out = render_character_view([n], char_name="伊草 遥香", char_aliases=("遥香",))
+    assert "【遥香的秘密】" in out, out
+    assert "【我的秘密】" not in out, out
+    # 对照: 正文**照常**转换（别为了标题把正文那条纪律一起丢了）
+    assert "我把伞留给了老师" in out, out
+
+
+def test_recall_block_shape_and_budget():
+    """「你想起的事」: 段头 + 只收 episode + 预算按行累积（**第一条永远留**）。"""
+    from core.brain.wiki_v2.render import RECALL_HEADER, render_recall_block
+
+    e1 = _titled("她拉着我在杂草屋蹲了一下午", "苔藓的约定", event_seq=[1])
+    e2 = _titled("屋顶的瓦片缝里也有", "屋顶的苔藓", event_seq=[2])
+    e1.ts = e2.ts = _ts(7)
+    belief = make_node("belief", text="我觉得老师很可靠", significance=0.9)
+
+    out = render_recall_block([e1, e2, belief], now=_NOW, char_name="伊草 遥香")
+    assert out.startswith(RECALL_HEADER)
+    assert "【苔藓的约定】" in out and "【屋顶的苔藓】" in out
+    assert "我觉得老师很可靠" not in out              # belief 不是"想起的事"
+    assert "（7 天前）" in out                       # 时间短语照旧（同一个 _memory_line）
+
+    # 预算是**装填停止条件**: 摆不下第二条 ⇒ 只摆第一条, 绝不截半条
+    tight = render_recall_block([e1, e2], now=_NOW, budget=len(out.splitlines()[1]) + 2)
+    assert "【苔藓的约定】" in tight and "【屋顶的苔藓】" not in tight
+    # 一条都装不下（预算 0）→ 仍然给第一条（预算是闸门, 不是否决）
+    assert "【苔藓的约定】" in render_recall_block([e1], now=_NOW, budget=0)
+
+    # 空 / 只有非 episode → **不注入**（返回空串, 不返回一个空段头）
+    assert render_recall_block([], now=_NOW) == ""
+    assert render_recall_block([belief], now=_NOW) == ""
+
+
+def test_recall_budget_reads_config_knob(monkeypatch):
+    """预算的**真源**是 `[recall].turn_budget`（显式参数 > 配置 > 模块常量）。"""
+    from core.brain.wiki_v2 import recall_config as rc
+    from core.brain.wiki_v2.render import render_recall_block
+
+    e1 = _titled("第一件事", "一号", event_seq=[1])
+    e2 = _titled("第二件事", "二号", event_seq=[2])
+    monkeypatch.setattr(rc, "_cache", {"turn_budget": 1.0}, raising=False)
+    out = render_recall_block([e1, e2])
+    assert "【一号】" in out and "【二号】" not in out
+    monkeypatch.setattr(rc, "_cache", {"turn_budget": 9999.0}, raising=False)
+    out2 = render_recall_block([e1, e2])
+    assert "【一号】" in out2 and "【二号】" in out2
     print("    T3: 坏 ts / 坏 now → 跳过短语, 不抛")

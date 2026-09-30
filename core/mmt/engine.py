@@ -42,9 +42,11 @@ import logging
 import re
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 from core.common import Live2BeError, err
 from llm.client import LLMClient, feedback
@@ -93,7 +95,12 @@ from core.brain.wiki_v2.digest import (
 )
 from core.brain.wiki_v2.entities import ensure_entities
 from core.affection import Affection, load_affection_from_events
-from core.brain.wiki_v2.render import render_background_experience, render_character_view
+from core.brain.wiki_v2.recall import recall_episodes
+from core.brain.wiki_v2.render import (
+    render_background_experience,
+    render_character_view,
+    render_recall_block,
+)
 from core.brain.wiki_v2.store import WikiStoreV2
 from core.rag.brain import make_embed_fn
 from core.rag.embedder import LocalEmbedder
@@ -405,6 +412,12 @@ SUGGEST_BOND_ROUNDS = 6
 #: 每 N 轮后台消化一次, 节流而非精确窗口; bond 剧情闭环触发不变）
 MMT_DIGEST_INTERVAL = 25
 
+#: ⭐ N5（2026-09-29）: 每轮"你想起的事"的**查询文本长度上限**。
+#: 只拿玩家这一句（多余的部分对相似度是噪声——真机一段闲聊 200 字里
+#: 通常只有一句在说事）; 召回**不看**她的上一句, 因为"想起"是由**老师这句话**
+#: 触发的那一下（她自己的回应还在生成中, 那时还不存在）。
+RECALL_QUERY_CHARS = 200
+
 #: digest 单次 LLM 调用的超时覆盖（per-call; 共享客户端的 60s 主对话超时会掐掉
 #: high 档长考——digest 是后台任务, 放宽到 5min, 快速失败由 digest deadline 兜底）
 DIGEST_LLM_TIMEOUT = 300.0
@@ -480,6 +493,12 @@ class MomoTalkEngine:
         character_names: list[str] | None = None,
         history_rounds: int = DEFAULT_HISTORY_ROUNDS,
         task_card: bool | None = None,   # None = settings [promptkit].task_card（默认 true）
+        embed_fn: Callable[[], Any] | None = None,
+        #  ↑ ⭐ N5 接缝: "取语义后端"的**可换入口**（缺省 = 模块级 `_get_embed_fn`）。
+        #    为什么要一个构造参数而不是让测试 patch 模块属性: `core.mmt.engine` 在
+        #    `tests/core/test_split_safety.py` 的 TARGETS 里（将来可能被拆成包），
+        #    那时 patch 模块属性会**静默失效**——那正是那条守门要拦的事。
+        #    与 `digest_segment(embed_fn=…)` 同一个姿势: 后端由调用方给, 引擎不自选。
     ):
         self.char_loader = CharacterLoader(characters_root)
         self.llm = llm_client
@@ -497,6 +516,9 @@ class MomoTalkEngine:
         self.bond_progress = bond_progress or BondProgress(
             getattr(store, "data_root", None))
         self.executor = MmtExecutor(characters_root, interperson_path)
+        # 语义召回后端入口（N5）: 缺省 = 模块级探测（服务没起 → None → 词面降级）。
+        # 存成**实例属性**（不是模块全局）——测试/实验可以整只换掉，不用碰模块。
+        self.embed_fn: Callable[[], Any] = embed_fn or _get_embed_fn
         # 事件流存档（docs/archive/DESIGN_SAVE.md §4）: store 注入 + attach_session 后,
         # 每轮 agent_turn 落 mmt 事件 + 会话内轮数; None = 不记录（向后兼容）
         self._store = store
@@ -1000,6 +1022,11 @@ class MomoTalkEngine:
         # ★ "手机上的日期"给归因（她是掏手机看, 不是知道现实世界）+ 使用边界
         #   （问起才引用）—— 否则模型会主动提日期、破第四面墙。
         # 位置: P16 之后、P18/task 卡之前（时间事实比随机事件更基础）。
+        # ⚠️ `wstore` 提到 try 外面: 下面 P19 的召回要**复用它**（同一个"这一轮的 wiki
+        #    视图"）—— 每轮多读一遍 wiki.jsonl 是白花的钱, 而且两份快照可能不同源。
+        #    `WikiStoreV2` 定义了 `__len__`（节点数）⇒ **空库是假值**,
+        #    所以判空一律 `is not None`, 绝不能写 `if wstore`（真机踩到过）。
+        wstore: WikiStoreV2 | None = None
         try:
             from core.worldtime import realtime_notes, time_notes
             # ★ **一次取一个"现在", 三条注记共用**（2026-09-17 接线时踩到）:
@@ -1010,10 +1037,6 @@ class MomoTalkEngine:
             #   `now` 形参是这条纪律的出口（同 `age_days(*, now)` 不留默认值）:
             #   生产传 None（读壁钟）, 测试传一个钉死的时刻。
             _now = now or datetime.now()
-            # ⚠️ `WikiStoreV2` 定义了 `__len__`（节点数）→ **空库是假值**。
-            # 所以这里必须 `is not None`，不能写 `if wstore`——
-            # 那会让"空记忆的新角色"永远拿不到时间注记（真机踩到过）。
-            wstore = None
             if self._store is not None:
                 wstore = WikiStoreV2(self._store.data_root,
                                      world_id=self._store.world_id,
@@ -1036,6 +1059,20 @@ class MomoTalkEngine:
                     notes.append(_n)
         except Exception as e:                       # noqa: BLE001 — 注记绝不阻断
             logger.warning("时间注记失败（本轮不注）: %s", e)
+        # ⭐ P19「你想起的事」（**N5**, 2026-09-29）—— 引擎每轮摆 1~2 条旧 episode。
+        # 两个"为什么"（别改回去）:
+        #  ① **为什么进 notes 不进 brain**: 这一段的查询是**玩家这一句** ⇒ 每轮都不同;
+        #     拼进 system（盒 + brain 的稳定前缀）就逐轮破上下文缓存 —— 而"稳定前缀"
+        #     是 §9 体感主线的地基。notes 全部落在 history **之后**（tail.py 的不变式）。
+        #  ② **它排在时间注记之后、task 卡之前**: 时间事实（"现在几点/今天几号"）
+        #     比"我想起了什么"更基础; 而 task 卡是目标层, 恒定压在所有材料之后。
+        # 宁缺勿错: 召回失败/空库/没有一条像 ⇒ 不注（少一段上下文, 剧情照走）。
+        try:
+            _recall = self._recall_note(user_input, _now, wstore=wstore)
+            if _recall:
+                notes.append(_recall)
+        except Exception as e:                       # noqa: BLE001 — 召回绝不阻断对话
+            logger.warning("每轮召回失败（本轮不注）: %s", e)
         if system_note:                                     # P17 本轮系统注记
             notes.append(system_note)
         if self._store is not None:          # P18 随机事件（概率性, soft——低频惊喜）
@@ -1082,6 +1119,51 @@ class MomoTalkEngine:
         """取走（并清空）上一轮行协议留下的软注记——只念一次（同 VN 的 `_pending_feedback`）。"""
         notes, self._line_notes = self._line_notes, []
         return notes
+
+    def _recall_note(self, user_input: str, now: datetime,
+                     *, wstore: WikiStoreV2 | None = None) -> str:
+        """本轮的「你想起的事」段（**N5**）—— 空串 = 不注入（宁缺勿错）。
+
+        ⭐ **为什么候选必须由引擎摆**（`DESIGN_MMT_NEW_ACTION §3.7`）:
+        她是"想起来"的那一方, 但**摆哪几条**是引擎的活 —— 否则她要么凭印象瞎指
+        （引用了不存在的事 ⇒ 锚点校验直接丢）, 要么每轮多花一次调用去查
+        （那是 `look` 的活, 固有成本 2 次主调用, 只该在她"必须知道才能说下一句"时用）。
+
+        ⭐ **这一步今天还多干一件事: 把标题送到她眼前**（`_memory_line` 的 `【…】`）。
+        在 N5 之前 `episode.title` **从来没进过任何注入面** —— 而引擎与她的唯一
+        地址空间就是标题（编号退回引擎内部）。她要做的动作是"指一下是哪条"
+        （`{"noticed": "苔藓的约定"}`）, 指不到看不见的名字。
+
+        ⚠️ **embed_fn 走 `self.embed_fn`**（构造参数优先, 缺省 = 模块级探测;
+        与 digest 同一个后端、同一个降级）: 服务没起 ⇒ 自动退词面（tags/Dice）,
+        **不是不召回**; 代价是命中率下降（真机实测: 8 句里 3 句的命中依赖语义）,
+        真机数字出来再定要不要补"最近 N 条"兜底（`docs/TODO.md` N12）。
+
+        `wstore`: 调用方手里这一轮的 wiki 视图（复用 —— 每轮重读一遍是白花的钱）。
+        """
+        if self._store is None or self._current_char is None:
+            return ""
+        query = (user_input or "").strip()[:RECALL_QUERY_CHARS]
+        if not query:
+            return ""
+        char = self._current_char
+        if wstore is None:
+            wstore = WikiStoreV2(self._store.data_root, world_id=self._store.world_id,
+                                 char_id=char.character_id)
+        mode: list[str] = []
+        nodes = recall_episodes(wstore, query=query, embed_fn=self.embed_fn(),
+                                mode_out=mode)
+        if not nodes:
+            return ""
+        seg = render_recall_block(nodes, char_name=char.display_name or "",
+                                  char_aliases=_name_aliases(char.profile), now=now)
+        # 台账（可 grep）: 摆了几条 / 多少字 / 走的哪条通道 / 摆了谁（**标题**——
+        # 编号是她看不到的东西, 排查时要看的是她看到的那个串）。
+        logger.info("mmt_recall %s/%s eps=%d chars=%d mode=%s titles=%s",
+                    char.character_id, self._session_id, len(nodes), len(seg),
+                    mode[-1] if mode else "-",
+                    " / ".join(n.title or n.id for n in nodes))
+        return seg
 
     def _line_candidates(self) -> dict[str, tuple[str, ...]]:
         """自愈用的角色候选表：角色注册表（id + 显示名）+ 关系记录（interperson）的键。
