@@ -52,6 +52,22 @@ def test_clean_turn_has_no_issues():
     print("    check: 正常轮（交错 / trigger 带前置消息）= 无问题")
 
 
+def test_noticed_row_does_not_break_inspect_exclusivity():
+    """⭐ N5b: **想起行不计入"整轮只有它一条行"** —— 它是账目不是内容。
+
+    那条规则的目的是"静默轮**一句话都不该上屏**"（内容是问题）, 而想起行不上屏、
+    零成本、不触发任何调用。把它算进去只会产出**假硬问题** ⇒ 整轮回灌重发一次
+    （白跑）。⇒ 她和 `inspect` 同轮顺手记一笔, 是允许的。
+    """
+    rows = [_action("mmt_inspect_character", character_id="rikuhachima_aru"),
+            MmtLine(kind="noticed", noticed="瓦片缝里的苔藓")]
+    assert check_turn(rows) == [], _codes(check_turn(rows))
+    # 对照: 夹一条**消息行**仍然违规（内容才是问题）
+    bad = [*rows, _text("诶……")]
+    assert MmtIssueCode.EXCLUSIVE_VIOLATION in _codes(check_turn(bad))
+    print("    N5b: 想起行不算「别的行」（inspect 独占不误伤）")
+
+
 def test_empty_turn_is_hard():
     issues = check_turn([])
     assert _codes(issues) == [MmtIssueCode.EMPTY_TURN]

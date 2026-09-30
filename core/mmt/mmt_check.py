@@ -114,15 +114,24 @@ def check_turn(lines: Iterable[MmtLine], diags: Iterable[ParseDiag] = ()) -> lis
 
     actions = [ln for ln in rows if ln.kind == KIND_ACTION]
     n_text = sum(1 for ln in rows if ln.is_text)
+    n_notice = sum(1 for ln in rows if ln.is_noticed)
+    # ⭐ **想起行不计入"行数"**（N5b）: 它是**账目**不是内容 —— 见下面的独占约束。
+    shown = [ln for ln in rows if not ln.is_noticed]
 
     # ---- 独占约束（组合级：单行看不出来）--------------------------------
+    # ⚠️ **"整轮只有它一条行"里的"行" = 内容行 + 操作行, 不含想起行**（N5b 口径）:
+    #   那条规则的目的是"静默轮**一句话都不该上屏**"（内容是问题）, 而想起行
+    #   不上屏、零成本、不触发任何调用。把它算进去只会产出**假硬问题**
+    #   ⇒（`inspect` 混排 ⇒ 整轮回灌重发）白跑一次续写。
+    #   ⇒ 她和 `inspect` 同轮顺手记一笔, 是允许的（账照落, 见 `engine._log_notices`）。
     inspects = [a for a in actions if a.action == ACTION_INSPECT]
     triggers = [a for a in actions if a.action == ACTION_TRIGGER]
-    if inspects and (len(rows) > 1 or len(inspects) > 1):
+    if inspects and (len(shown) > 1 or len(inspects) > 1):
         issues.append(Issue(
             MmtIssueCode.EXCLUSIVE_VIOLATION,
             f"{ACTION_INSPECT} 是静默推理轮——那一轮只能有它一条行"
-            f"（实得 {len(rows)} 行: {n_text} 条消息 + {len(actions)} 条操作）"))
+            f"（实得 {len(shown)} 行: {n_text} 条消息 + {len(actions)} 条操作"
+            + (f" + {n_notice} 条想起" if n_notice else "") + "）"))
     if triggers and (len(actions) > 1 or len(triggers) > 1):
         others = [a.action for a in actions if a.action != ACTION_TRIGGER]
         issues.append(Issue(

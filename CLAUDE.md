@@ -123,8 +123,11 @@ tests/ core/ webgui/ llm/ renderer/ apps/ 分别对应域; experiments/ 真 API 
 
 ### 3.1 MMT（MomoTalkEngine, `agent_turn`）
 - **每轮输出**：**行流**——一行一条 JSON（⑥-2e 起）：`{"text":…}` 消息行（一条行 =
-  一个气泡）/ `{"action":…,"payload":{…}}` 操作行（不上屏，引擎执行），任意交错。
-  契约由 `contract/schema.py::build_line_schema(registry)` 渲染（动作表运行时生成）；
+  一个气泡）/ `{"action":…,"payload":{…}}` 操作行（不上屏，引擎执行）/
+  ⭐ `{"noticed": "事件名"}` **想起行**（N5b，不上屏 · 不独占 · 零成本：她认出
+  "这件事 = 记忆里某一条"时记的一笔账 ⇒ `noticed` 事件 ⇒ L1 补 `akin` 边），任意交错。
+  ⚠️ **判别键恰好其一**（三类互斥）；契约由 `contract/schema.py::build_line_schema(registry)`
+  渲染（动作表运行时生成）；
   ⚠️ 旧 `{"messages":[…]}` / `{"reply","actions"}` 已**整段退役**（⑥-2f）。
 - **可用动作**：`mmt_send_media` / `mmt_inspect_character`
   （静默推理轮, 按 interperson 权重访问他人人设; **查到的资料回灌后继续这一轮**）/
@@ -306,7 +309,9 @@ CLI/测试同步路径在引擎内串行。
   **废弃段用 marker 遮断**）。⚠️ **路径在 `soul/` 下**（2026-09-04 拍板"记忆层自包含":
   events 原材料 + wiki 成品 + meta 同居）——真源 `core/session/store.py:112`；
   旧文档写的 `characters/{char}/events.jsonl` **是错的**（2026-09-20 更正）。
-- **事件**：`{type, subtype, payload}`。type: mmt / bond / l2d / affection；marker 是
+- **事件**：`{type, subtype, payload}`。type: mmt / bond / l2d / affection /
+  **`noticed`**（N5b: 她指认的一笔账 `{title, hit}`，**非内容事件** ⇒ 不进上下文/时间线/气泡）；
+  marker 是
   is_marker 的状态行（session_start/end、vn_enter/vn_exit、vn_abandon、vn_state、
   memorial_enter/exit、**memorial_image**＝纪念图异步落盘回执 {url,prompt,w,h}）。
   ⚠️ **v2 的 `memorial_exit` 是引擎补写的**（payload `{"v2":true,"auto":true}`），

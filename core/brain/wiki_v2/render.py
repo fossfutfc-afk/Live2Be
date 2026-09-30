@@ -333,6 +333,17 @@ def render_background_experience(data: dict, *, cap: int = 6) -> str:
 RECALL_HEADER = (
     "【你想起的事（此刻浮上来的旧事——跟你现在要说的话有没有关系, 由你判断）】")
 
+#: ⭐ 候选旁的**动作提示**（N5b）——拼在候选**之后**（离她要做决定的地方最近）。
+#: 为什么不只写在规则书里（**2026-09-29 真机 A/B 实测**）:
+#: 只写在规则书 ⇒ 4 轮里 2 轮该写没写, 而且**最该写的那一轮**（召回段正摆着两条
+#: 苔藓相关, 她话里也提到了）照样没写; 挪到候选旁边 ⇒ 3/4 轮写了、最该写那轮写了。
+#: **她认得出、也说得出, 就是不记** —— 所以这一句必须贴着候选。
+#: ⚠️ 实测口径: 两组的**抄写形态**都零变形（`{"noticed": "名字"}` 全部原样命中）,
+#: 只有"写不写"有差别 ⇒ 缺的是**触发**, 不是**格式**。
+RECALL_ACTION_HINT = (
+    '（认出其中哪一条正是老师说的这件事——或者你想拿它来说事——就照抄《》里那几个字，'
+    '单独写一行 {"noticed": "名字"}；认不出就不用写。）')
+
 #: 该段的字符预算（`[recall].turn_budget` 的回落值）。真闸门是它, 不是条数
 #: （一条 episode 长短不均; 设计原话 = "召回预算按 token（不是条数）"）。
 RECALL_BUDGET = 700
@@ -388,7 +399,7 @@ def render_recall_block(nodes: Iterable[BrainNode], *,
             break
         lines.append(line)
         used += len(line)
-    return RECALL_HEADER + "\n" + "\n".join(lines)
+    return RECALL_HEADER + "\n" + "\n".join(lines) + "\n" + RECALL_ACTION_HINT
 
 
 def _reported_line(node: BrainNode, char_name: str,

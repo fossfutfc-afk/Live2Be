@@ -33,17 +33,23 @@ TYPE_NOTE = "note"             # ★ 她自己的备忘录操作（2026-09-23, D
                                # append-only 的**操作**事件, 折叠成 `soul/notes.json`
                                # （派生缓存）。**不是剧情** ⇒ 见 NON_CONTENT_TYPES
 TYPE_OFFICIAL = "official_story"
+#: ⭐ **她顺手记的一笔账**（N5b, 2026-09-29, `DESIGN_MMT_NEW_ACTION §4`）:
+#: payload `{title, hit}` —— `hit` = 引擎解析出的 episode id（命中 0 / 歧义 ⇒ 压根没这条）。
+#: ⚠️ **它不是剧情, 是账目**: 她说的话才是剧情, 这一行只是"她指了哪一条"。
+#: ⇒ 见 `NON_CONTENT_TYPES`（不进对话历史 · 不进 digest 时间线 · 不上前端气泡）。
+#: 消费方: L1 建完 episode 之后**补 `akin` 边**（N5c; 账本来就在事件流里, 零新存储）。
+TYPE_NOTICED = "noticed"
 
 EVENT_TYPES: tuple[str, ...] = (
     TYPE_MMT, TYPE_BOND, TYPE_L2D, TYPE_MARKER, TYPE_AFFECTION, TYPE_NOTE,
-    TYPE_OFFICIAL,
+    TYPE_OFFICIAL, TYPE_NOTICED,
 )
 
-#: **非叙事账目** —— 是"账目"不是"剧情"（好感结算 / 她的备忘录操作）。
+#: **非叙事账目** —— 是"账目"不是"剧情"（好感结算 / 她的备忘录操作 / 她指认的一笔）。
 #: 既不进 LLM 上下文（`renderer.render_events`）, 也不进 digest 的时间线
 #: （`digest.new_events` · `mmt.engine._interact_max`）。
 #: ⚠️ **新增此类类型只改这里** —— 三处消费点都读 `is_content_event`。
-NON_CONTENT_TYPES: tuple[str, ...] = (TYPE_AFFECTION, TYPE_NOTE)
+NON_CONTENT_TYPES: tuple[str, ...] = (TYPE_AFFECTION, TYPE_NOTE, TYPE_NOTICED)
 
 #: marker subtype（状态标记）
 M_SESSION_START = "session_start"
@@ -102,7 +108,8 @@ def is_board_event(e: Any) -> bool:
 def is_content_event(e: Any) -> bool:
     """是**叙事内容**事件吗 —— digest 时间线与"本段互动"的**唯一判据**。
 
-    排除两类: `marker`（状态标记）· `NON_CONTENT_TYPES`（好感结算 / note 操作）。
+    排除两类: `marker`（状态标记）· `NON_CONTENT_TYPES`（好感结算 / note 操作 /
+    她指认的一笔）。
 
     ⚠️ **2026-09-23 收敛**: 这条判据此前以 `e.type != "affection"` 的形式**抄在两处**
     （`digest.new_events` · `mmt.engine._interact_max`）。`note` 一落地就会从那儿漏进去

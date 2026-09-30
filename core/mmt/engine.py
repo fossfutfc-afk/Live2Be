@@ -85,7 +85,7 @@ from core.promptkit import (
     task_card_enabled,
 )
 from core.session import SessionStore
-from core.session.events import is_content_event, make_event
+from core.session.events import TYPE_NOTICED, is_content_event, make_event
 from core.session.renderer import session_status, window_messages
 from core.brain.wiki_v2.digest import (
     PANORAMA_COUNTER_KEY,
@@ -95,6 +95,7 @@ from core.brain.wiki_v2.digest import (
 )
 from core.brain.wiki_v2.entities import ensure_entities
 from core.affection import Affection, load_affection_from_events
+from core.brain.wiki_v2.address import find_episode
 from core.brain.wiki_v2.recall import recall_episodes
 from core.brain.wiki_v2.render import (
     render_background_experience,
@@ -1195,6 +1196,7 @@ class MomoTalkEngine:
         |---|---|---|
         | 内容行（消息行 / `send_media`） | **一行前瞻**：下一行到达时交付 | 有前瞻才收得回"下一行其实是 `inspect`"（见下） |
         | 独占行（`WHOLE_TURN_ACTIONS`） | **块尾**（整轮写完） | 合法性取决于"同一轮还有没有别的行"，早判必错判 |
+        | ⭐ 想起行（`{"noticed": …}`） | **收在手里, 轮末统一落账** | 它是**账目不是内容**（不上屏/不独占/不调 LLM）——见 `_log_notices` |
         | 坏行 / 空轮 / 形状 | 块尾 | 同理：形状要整段才看得出来 |
 
         ⭐ **一行前瞻**（与 VN 切板同款手法）: 内容行**不立刻**交付，压到**下一行**解析
@@ -1210,6 +1212,7 @@ class MomoTalkEngine:
         """
         candidates = self._line_candidates()
         delivered: list[AgentAction] = []      # 已交付（顺序 = 行序）
+        notices: list[MmtLine] = []            # ⭐ 本轮已并入的想起行（N5b）
         reask = False                          # 下一轮是"行级续写"轮（只收控制行）
         reask_note = ""                        # 上一轮为什么没成（模型改口说话时记进注记）
         line_reask = 0
@@ -1224,6 +1227,19 @@ class MomoTalkEngine:
             deferred: list[MmtLine] = []       # 独占行（块尾判）
             held: list[MmtLine] = []           # 一行前瞻压着的行（0~1 条）
             void: list[bool] = [False]         # 本步已作废（inspect 混排 ⇒ 内容行一句不交）
+            step_notices: list[MmtLine] = []   # ⭐ 本步的想起行（账目, 块尾并入本轮）
+
+            def _finish() -> TurnResult:
+                """**本轮唯一的成功出口**（两条 return 都走它）——账目在这里并入。
+
+                ⚠️ 为什么收成一个出口（陷阱 **48**: "同一状态的记账散在多支分支 ⇒
+                少一支就是静默丢数据路径"）: `_turn_lines` 有两个成功 return
+                （正常完成 / 已交付后仍有办不了的行），账目若各写一遍,
+                加第三个分支时必漏。这里把"并入"收在一处, 两个 return 都调它。
+                """
+                return self._finish_turn_lines(
+                    delivered, user_input, record_input=record_input,
+                    notices=[*notices, *step_notices])
 
             def _plan_row(ln: MmtLine) -> None:
                 """**真正办理**压着的行（自愈 → parse → 执行 → 交付）。"""
@@ -1247,6 +1263,13 @@ class MomoTalkEngine:
 
             def _accept_row(ln: MmtLine) -> None:
                 """**一行解析出来**（⑥-3a 的分流口）——只在这里决定时机，不在这里判。"""
+                # ⭐ 想起行（N5b）: **不进前瞻机制、不占 held/deferred** —— 它是账目,
+                # 与"哪一行什么时候上屏"无关。收在手里, 轮末统一落账（`_log_notices`）。
+                # ⚠️ 放在 `reask` 判断**之前**: 续写轮也照样收（账目与续写规则无关）。
+                if ln.is_noticed:
+                    if not void[0]:            # 本步已作废（inspect 混排）⇒ 账也不落
+                        step_notices.append(ln)
+                    return
                 if reask:
                     return                     # 续写轮按批式办理（"只收控制行"要整轮可见）
                 if ln.is_action and ln.action == ACTION_INSPECT and not void[0]:
@@ -1257,6 +1280,7 @@ class MomoTalkEngine:
                             "payload": None, "parse_valid": True,
                             "parse_errors": ["inspect 混排: 本轮内容行不交付（整轮回灌）"]})
                         held.clear()
+                    step_notices.clear()       # 整轮作废 ⇒ 顺手记的那一笔也不算数
                     void[0] = True
                 if void[0]:                    # 本步作废：只有独占行还值得留给块尾判
                     if ln.is_action and ln.action in WHOLE_TURN_ACTIONS:
@@ -1301,9 +1325,13 @@ class MomoTalkEngine:
             for ln in stream.pop_ready():      # 残余行（末尾没有换行的那条）
                 _accept_row(ln)
 
-            lines = list(stream.records)
-            rows_total += len(lines)
+            all_rows = list(stream.records)
+            rows_total += len(all_rows)
             diags = list(stream.diags)
+            # ⭐ 想起行**不进办理流水线**（它是账目）——但 `check_turn` 仍要看**整轮**
+            # （含它）：否则"整轮只有一笔账"会被判成 `mmt.empty-turn`（硬）,
+            # 而真相是"她什么都没说"（走下面那条更准的可见内容判定）。
+            lines = [ln for ln in all_rows if not ln.is_noticed]
 
             if reask:
                 # 续写轮**优先只收控制行**（消息行会重复上屏）；但模型若改口"不补那一行、
@@ -1334,10 +1362,10 @@ class MomoTalkEngine:
                 #（含已经即时交付的内容行）——独占性是"同一轮还有没有别的行"。
                 batch_rows, check_rows = deferred, lines
 
-            hard, _soft = split_issues(check_turn(lines, diags))
+            hard, _soft = split_issues(check_turn(all_rows, diags))
 
             # ③ 形状级：整段没解析出任何行（不是 JSONL）⇒ 整轮重发
-            if not lines and hard:
+            if not all_rows and hard:
                 shape_retry += 1
                 if shape_retry > SHAPE_RETRY_MAX:
                     raise MmtLoopError(
@@ -1396,8 +1424,7 @@ class MomoTalkEngine:
                                 len(delivered),
                                 int((first_at[0] - t0) * 1000) if first_at else -1,
                                 int((time.monotonic() - t0) * 1000))
-                    return self._finish_turn_lines(delivered, user_input,
-                                                   record_input=record_input)
+                    return _finish()
                 raise MmtLoopError(
                     f"行协议: {outcome.fatal}（行级续写 {line_reask} 次仍失败）")
 
@@ -1415,8 +1442,7 @@ class MomoTalkEngine:
                         len(delivered),
                         int((first_at[0] - t0) * 1000) if first_at else -1,
                         int((time.monotonic() - t0) * 1000))
-            return self._finish_turn_lines(delivered, user_input,
-                                           record_input=record_input)
+            return _finish()
 
         raise MmtLoopError(f"行协议: 单轮超过 {MAX_STEPS} 步仍未产出可见回复")
 
@@ -1589,13 +1615,67 @@ class MomoTalkEngine:
         except Exception as e:                      # 宁缺勿错: 存档失败不阻断对话
             logger.warning("事件流落盘失败, 该行不记录: %s", e)
 
+    def _log_notices(self, notices: Iterable[MmtLine]) -> None:
+        """⭐ **想起行的落账**（N5b）—— 一行一句, 编造的引用直接丢。
+
+        链路（`DESIGN_MMT_NEW_ACTION §4.3`, 已裁 = **只记账 + L1 落地**）::
+
+            她写 {"noticed": "名字"} → ① 引擎拿名字找**唯一**那条 episode
+                                    ② 找不到 / 有多条 ⇒ **丢**（不猜）+ 台账
+                                    ③ 找到 ⇒ 落一条 `noticed` 事件（**非内容事件**）
+                                    ④ N5c: L1 建完本段 episode 后**补 akin 边**
+
+        ⚠️ **这一笔不是边**: 此刻"当下这件事"还没成为 episode（`add_edge` 拒悬空,
+        而"当下"是 seq 不是节点）⇒ 原设计的"seq 边"在边表里没有合法表示。
+        账本来就在事件流里（零新存储）—— L1 从窗口里读它。
+
+        ⚠️ **落账时机 = 本轮内容行都交付之后**（`_finish_turn_lines` 里调）:
+        `noticed` 事件的 seq 因此落在**这一轮她自己的话之后** ⇒ N5c 判"这笔账属于哪条
+        新 episode"时（取"它之前最近的内容事件"）才会落回**本轮**而不是上一轮。
+
+        `hit` 存的是**引擎解析出来的**节点 id + 规范标题 —— 她写歪的形态只进日志
+        （台账可 grep: `mmt_noticed`）。
+        """
+        rows = list(notices)
+        if not rows or self._store is None or not self._session_id:
+            return
+        char = self._current_char
+        if char is None:
+            return
+        try:
+            wstore = WikiStoreV2(self._store.data_root, world_id=self._store.world_id,
+                                 char_id=char.character_id)
+        except Exception as e:                       # noqa: BLE001 — 宁缺勿错
+            logger.warning("想起行落账失败（读不到 wiki, 本笔丢）: %s", e)
+            return
+        for ln in rows:
+            node, why = find_episode(wstore, ln.noticed)
+            if node is None:
+                # 命中 0（编的 / 抄错字）或 ≥2（同名歧义）⇒ **丢, 不猜**
+                logger.info("mmt_noticed drop=%s said=%r", why, ln.noticed)
+                continue
+            try:
+                self._store.append_event(char.character_id, self._session_id,
+                                         make_event(TYPE_NOTICED, TYPE_NOTICED,
+                                                    {"title": node.title, "hit": node.id}))
+            except Exception as e:                   # noqa: BLE001 — 存不上不阻断对话
+                logger.warning("想起行落盘失败（本笔丢）: %s", e)
+                continue
+            logger.info("mmt_noticed hit=%s title=%r said=%r", node.id, node.title,
+                        ln.noticed)
+
     def _finish_turn_lines(self, delivered: list[AgentAction], user_input: str, *,
-                           record_input: bool) -> TurnResult:
+                           record_input: bool,
+                           notices: Iterable[MmtLine] = ()) -> TurnResult:
         """收尾：渲染步骤（**一行一个气泡**）+ 轮数 + digest 判定 → TurnResult。
 
         ⚠️ 事件与历史**已经在交付时逐行写过了**（`_deliver_line`）——这里不再记一遍
         （messages 时代是整轮一次性写）。
+        ⚠️ **想起行的唯一落账口**（`notices`）: 放在最前 —— 它的 seq 要落在本轮内容行
+        之后（见 `_log_notices` 的时机说明）, 而这里正是"内容行已经写完"的第一个点。
+        两个成功出口都由 `_turn_lines._finish()` 调到, 所以只有这一处（陷阱 48）。
         """
+        self._log_notices(notices)
         display = MomoTalkOutput(_process_for_momotalk, self._current_char.display_name)
         steps: list[DisplayStep] = []
         reply_blocks: list[str] = []

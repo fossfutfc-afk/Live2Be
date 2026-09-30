@@ -90,7 +90,11 @@ def test_note_is_not_a_content_event():
     assert not is_content_event(make_event("marker", "vn_enter", {}))
     assert not is_content_event(make_event("affection", "digest", {"delta": 1}))
     assert is_content_event(_mmt(2))
-    assert NON_CONTENT_TYPES == ("affection", TYPE_NOTE)
+    # ⭐ N5b（2026-09-29）: `noticed`（她顺手记的那一笔账）也是账目, 不是剧情 ——
+    # 一处登记 ⇒ 三处自动生效（不进历史 / 不进 digest 时间线 / 不上前端气泡）。
+    assert not is_content_event(make_event("noticed", "noticed",
+                                           {"title": "苔藓", "hit": "m0001"}))
+    assert NON_CONTENT_TYPES == ("affection", TYPE_NOTE, "noticed")
 
 
 # ---------------------------------------------------------------------------
