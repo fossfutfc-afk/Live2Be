@@ -186,7 +186,7 @@ node --check webgui/static/js/bond.js
 python experiments/web_e2e/run.py
 ```
 
-**最近一次已知绿**：全量 **1091 passed**（`8bc0cf0` 之后；其后都是文档提交）。
+**最近一次已知绿**：全量 **1110 passed**（`5779c31`）· `compileall` 绿 · `node --check` 绿 · **B 层冒烟 PASS**。
 
 **只读探针**（`.testtmp/` 是 gitignore，可能被清 ⇒ 结论已抄进各文档）：
 `probe_mmt_view.py`（**真机注入 dump**）· `probe_bfs_purity.py`（dense 判不了同类的决定性证据）·
@@ -214,6 +214,8 @@ python experiments/web_e2e/run.py
 | `fd00aae` | ⭐ **新建 `DESIGN_MMT_NEW_ACTION.md`**（动作规格：`when` 语法冻结 / `look` / `noticed` / **群**）· 推翻 §2 #2（边属性 → 群是节点 + `member_of`） |
 | `6eb89e1` | ⭐ **N1a**：`akin` 边（7→8）· `SYMMETRIC_RELS` + `canonical_for`（对称性唯一一份）· 顺手修 `clone_state` 位置参数 |
 | `d08f2ae` | ⭐ **N1b**：`group` kind（前缀 `g`）· `member_of`（8→9）· `_ABOUTABLE` 加 group |
+| `327821c` | ⭐ **N3**：位置字段 `event_seq`（逐点挑选）→ **`span`（区间）**；引擎 `_expand_spans` 展开 + 未认领/重叠台账。真机覆盖率 **67.9%** 是它的立项理由 |
+| `5779c31` | ⭐ **修章内两个既有竞态**（陷阱 **48/49**）：`resumed` 支漏落 `vn_enter`（回忆册 0 章）· staged 预热支**无条件收尾**补假 `vn_exit`（完成淡行不出现）。两处修 + 2 用例；B 冒烟从红转 **PASS** |
 
 ---
 
