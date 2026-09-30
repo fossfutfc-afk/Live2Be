@@ -12,9 +12,9 @@
 | | |
 |---|---|
 | **主线** | **新 note 机制 + graph 升级**（digest 按视野三层重排） |
-| **代码** | ⭐ **已开工**：**N1a**（`akin` + 对称规范化）· **N1b**（`group` + `member_of`）已落地并提交（`6eb89e1` / `d08f2ae`）⇒ 全量 **1101 passed** · B 冒烟 PASS |
-| **设计** | 讨论已收口：**19 条已裁**（§2）· **7 条待裁**（§3）· 动工文档 `docs/DESIGN_MMT_NEW_ACTION.md`（§5） |
-| ⏭️ **下一步** | ⭐ 按 `TODO.md` 的依赖序往下：**N3（L1 区间化）→ N5（MMT 想起 + 发现）**；MMT 的 `when` 语法（`DESIGN_MMT_NEW_ACTION §7 a`）独立、可随时插空 |
+| **代码** | **N1a**（`akin` + 对称规范化）`6eb89e1` · **N1b**（`group` + `member_of`）`d08f2ae` · ⭐ **N3（位置字段 `span` 区间化）`327821c`** · ⭐ **修既有竞态**（章 `vn_enter` 漏落 / 假 `vn_exit`）⇒ 全量 **1110 passed** · B 冒烟 **PASS** |
+| **设计** | 已裁 **19 条**（§2）· 待裁 **7 条**（§3）· 动工文档 `docs/DESIGN_MMT_NEW_ACTION.md`（§5） |
+| ⏭️ **下一步** | **N5（MMT 想起 + 发现）** —— 主链价值核心（`TODO.md`：N5 只依赖 N1a + N3, 两者都已落地）· MMT 的 `when` 语法（`DESIGN_MMT_NEW_ACTION §7 a`）独立、可随时插空 |
 
 ---
 
