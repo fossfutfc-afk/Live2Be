@@ -50,6 +50,40 @@ def normalize_title(raw: object) -> str:
     return s.strip(_STRIP_CHARS).strip()
 
 
+def unique_title(store: WikiStoreV2, title: str, *, kind: str = "episode") -> str:
+    """⭐ **唯一性写入时强制**（2026-09-29, `PROCEED §2 #10` 已裁的那条）——
+    与既有名字冲突就**加数字**（`中秋的杂草屋` → `中秋的杂草屋 2`）。
+
+    ⭐ **为什么它住在"地址"这一件里**（而不是写入方）: 唯一性是**地址空间的不变量**,
+    不是某个写者的私事。解析（`find_episode`）与写入（本函数）必须在同一个模块里 ——
+    否则"谁能被指到"这件事就散成了两处约定。
+
+    ⭐ **判据链**（为什么值得做）: 引擎与她之间唯一的地址空间就是名字; 而 `find_episode`
+    遇到同名 ≥2 **一律不猜**（丢）⇒ **重名不会出错, 只会漏**（命中率）。
+    ⇒ 唯一性是**命中率的地基**, 在此之前它靠"LLM 起名恰好不撞"（真机 18/18 唯一）。
+
+    ⚠️ **只增不重排**: 既有节点**一个都不动**（改的是**新来那条**）——
+    否则她昨天抄下来的名字今天就指不到了（静默, 且只有真机看得出来）。
+    ⚠️ **只管一个 kind 的命名空间**: `find_episode` 今天只在自己的 kind 里解析,
+       跨 kind 唯一性**还没有消费者**（`§10` 说的"跨 kind"等 `look` 要多 kind 解析时再补）。
+    ⚠️ 空名字**跳过**（`episode` 的必填只有 `text`; 没名字的节点本来就指不到,
+       给它编一个"未命名 2"反而是替 LLM 创作）。
+    """
+    name = (title or "").strip()
+    if not name:
+        return name
+    taken = {n.title for n in store.all() if n.kind == kind and n.title}
+    if name not in taken:
+        return name
+    i = 2
+    while f"{name} {i}" in taken:
+        i += 1
+    import logging
+    logging.getLogger(__name__).info(
+        "title_unique dedupe=%r → %r（写入时强制, 只增不重排）", name, f"{name} {i}")
+    return f"{name} {i}"
+
+
 def find_episode(store: WikiStoreV2, raw: object) -> tuple[BrainNode | None, str]:
     """名字 → **唯一** episode 节点。
 
