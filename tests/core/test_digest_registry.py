@@ -318,12 +318,90 @@ def test_round_a_verbatim_two_channels():
 
 
 def test_schema_documents_pointer_and_channels():
-    """schema 文案必须描述 T14 的两个字段（镜像防漂移）。"""
+    """schema 文案必须描述位置字段与 verbatim 两通道（镜像防漂移）。
+
+    ⭐ **N3（2026-09-29）改了位置字段的形状**: `event_seq: ["28","30"]`（逐点挑选）
+    → **`span: [28, 30]`**（区间, 引擎负责展开）。⚠️ 示例才是形状的来源（陷阱 3/46）
+    ⇒ 这条镜像断言必须跟着改，否则文案漂了没人知道。
+    """
     text = digest_registry.build_schema(PHASE_RECORD)
-    assert "event_seq" in text and "指位置, 不是打分" in text
+    assert "span" in text and "指位置, 不是打分" in text
+    assert "覆盖【哪一段】" in text
     assert "28.3" in text and "20.p" in text
     assert "给一条即可" in text
-    print("    schema: 板指针 + verbatim 两通道 已文档化")
+    # ⚠️ 旧形状**不再**出现在给 LLM 看的文案里（只在 parse 层作兼容收下）
+    assert '"event_seq"' not in text
+    print("    schema: 位置区间(span) + verbatim 两通道 已文档化")
+
+
+# ---------------------------------------------------------------------------
+# ⭐ N3（2026-09-29）: 位置 = **区间** `span: [起, 止]`（原来是逐点挑选 `event_seq`）
+#    病根真机实测: 挑点必然漏 —— 覆盖率只有 67.9%（218 条内容事件里 70 条没进任何记忆）
+# ---------------------------------------------------------------------------
+
+def test_span_accepts_interval_and_degenerates():
+    """`span: [28, 30]` 收下；**单值退化成一块**；>2 端点只取首尾。"""
+    items, res = digest_registry.parse_round_a(
+        {"episodes": [_ep(span=[28, 30])]}, seq_set={28, 29, 30, 31})
+    assert items[0]["span"] == [28, 30] and not res.errors
+    items2, _ = digest_registry.parse_round_a(
+        {"episodes": [_ep(span=28)]}, seq_set={28})
+    assert items2[0]["span"] == [28, 28]
+    items3, res3 = digest_registry.parse_round_a(
+        {"episodes": [_ep(span=[28, 29, 30, 31])]}, seq_set={28, 31})
+    assert items3[0]["span"] == [28, 31]
+    assert any("只取首尾" in w for w in res3.warnings)
+    print("    span: 区间 / 单值退化 / 多端点取首尾")
+
+
+def test_span_rejects_bad_shape_without_killing_the_pack():
+    """⚠️ 坏区间**告警不废整包** —— 一个坏区间不该让她重写整段（与 `_clean_seq_list` 同纪律）。
+
+    坏法逐条: 起止反了（**不自动交换**）· 端点不存在 · 非数组 · 坏编号 · 空数组。
+    四种坏法下 **`text` 都还在**（位置丢了 ≠ 记忆丢了）。
+    """
+    for bad, why in (([30, 28], "起止反了"), ([28, 99], "端点不存在"),
+                     ("x", "不是编号"), ([], "空数组"), ({"a": 1}, "不是数组")):
+        items, res = digest_registry.parse_round_a(
+            {"episodes": [_ep(span=bad)]}, seq_set={28, 29, 30})
+        assert len(items) == 1, f"{why}: 整条被丢了"
+        assert items[0]["text"] and "span" not in items[0]
+        assert res.warnings, f"{why}: 没告警"
+    # 起止反了**不被偷偷交换**
+    items, _ = digest_registry.parse_round_a(
+        {"episodes": [_ep(span=[30, 28])]}, seq_set={28, 30})
+    assert "span" not in items[0]
+    print("    span: 五种坏法 ⇒ 告警 + 只丢位置, 丢不了记忆")
+
+
+def test_span_accepts_record_level_index_with_warning():
+    """端点写成记录级 `"28.3"` ⇒ 取事件部分 `28` + 告警（与 `_clean_seq_list` 同款）。"""
+    items, res = digest_registry.parse_round_a(
+        {"episodes": [_ep(span=["28.3", "30.p"])]}, seq_set={28, 30})
+    assert items[0]["span"] == [28, 30]
+    assert any("记录级" in w for w in res.warnings)
+    print("    span: 记录级索引取事件部分")
+
+
+def test_legacy_event_seq_still_accepted_but_warned():
+    """⭐ **旧形状仍收**（防契约漂移时整条丢位置）, **但不展开** + 告警（宁缺勿错）。
+
+    ⚠️ 为什么不把 `["14","16","18"]` 自动转成 `[14, 18]` 区间: 那是她**自己挑的点**,
+    转区间 = **替她加上她没声称的事件**。位置形状的漂移要**看得见**（告警）, 不能替她猜。
+    """
+    items, res = digest_registry.parse_round_a(
+        {"episodes": [_ep(event_seq=["14", "16", "18"])]}, seq_set={14, 16, 18})
+    assert items[0]["event_seq"] == [14, 16, 18] and "span" not in items[0]
+    assert any("旧形状 event_seq" in w for w in res.warnings)
+    # `span` 优先: 两个都给 ⇒ 只收 span
+    items2, _ = digest_registry.parse_round_a(
+        {"episodes": [_ep(span=[14, 18], event_seq=["14", "16"])]},
+        seq_set={14, 16, 18})
+    assert items2[0]["span"] == [14, 18] and "event_seq" not in items2[0]
+    # 两个都不给 ⇒ 没有位置（节点 `event_seq` 为空 ⇒ `_node_ts` 回落段 ts）
+    items3, _ = digest_registry.parse_round_a({"episodes": [_ep()]}, seq_set={14})
+    assert "span" not in items3[0] and "event_seq" not in items3[0]
+    print("    span 优先 / 旧形状兼容 + 告警 / 都不给 = 没位置")
 
 
 # ---------------------------------------------------------------------------
