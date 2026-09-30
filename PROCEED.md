@@ -13,9 +13,9 @@
 |---|---|
 | **主线** | **新 note 机制 + graph 升级**（digest 按视野三层重排） |
 | **代码** | **N1a**（`akin` + 对称规范化）`6eb89e1` · **N1b**（`group` + `member_of`）`d08f2ae` · ⭐ **N3（位置字段 `span` 区间化）`327821c`** · ⭐ **修既有竞态**（章 `vn_enter` 漏落 / 假 `vn_exit`）⇒ 全量 **1110 passed** · B 冒烟 **PASS** |
-| **N5 拆三** | ⭐ **N5a「想起」已落地**：`483e99b`（标题进注入 · `render_recall_block` · `recall_episodes` · `agent_turn` 加 **P19 槽位**）+ `28d8abf`（**元信息段定稿** `〔《事件名》｜相对｜绝对｜难忘〕` · `age.render_date` · `docs/CONTEXT_MARKS.md`）· ⭐ **N5b「发现」已落地**（工作树）：`{"noticed": …}` 第三类行 · `address.py`（唯一解析件）· `noticed` 非内容事件 · 契约三类行 + rules 同批 · **P19 段末"候选旁的提示"**。⬜ **N5c「L1 落地」**（补 `akin` 边） |
+| **N5 拆三** | ✅ **N5 已走完（2026-09-29）**：**N5a** `483e99b`（标题进注入 · `render_recall_block` · `recall_episodes` · **P19 槽位**）· **N5a-2** `28d8abf`（元信息定稿 `〔《事件名》｜相对｜绝对｜难忘〕` · `age.render_date` · `CONTEXT_MARKS`）· **N5b** `cf24562`（`{"noticed": …}` 第三类行 · ⭐ `address.py` · `noticed` 非内容事件 · 契约/rules 同批）· **N5c**（`digest._link_akin` 补 `akin` 边，工作树待提交） |
 | **设计** | 已裁 **19 条**（§2）· 待裁 **7 条**（§3）· 动工文档 `docs/DESIGN_MMT_NEW_ACTION.md`（§5） |
-| ⏭️ **下一步** | ⭐ **N5c「L1 落地」** —— 读窗口里的 `noticed` 事件（**在 `new_all` 里, 不在 `new_events`**）→ 找"覆盖那一轮的"新 episode（其 `event_seq` 里 ≤ noticed.seq 的最大者）→ `add_edge("akin", 新, 她指的)` · 幂等 · 未认领记台账。⇒ **N5 三步走完才跑全量四件套**（§8） |
+| ⏭️ **下一步** | ⭐ **N5 已完成** —— 下一步按 `docs/TODO.md` 选：**N2（视野补齐，最便宜）** / **N6（候选池 `gather_evidence`）** / **N7（L2-a 分群，吃 N5 连出来的 `akin` 边）**。⚠️ 开工前先看那一步的"判据"与依赖 |
 | **支线** | MMT 的 `when` 语法（`DESIGN_MMT_NEW_ACTION §7 a`）独立、可随时插空 |
 
 ---
