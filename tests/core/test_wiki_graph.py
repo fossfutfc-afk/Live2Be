@@ -223,23 +223,59 @@ def test_real_shaped_store(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# 边表词汇量（2026-09-25 用户裁决: 删 `source`）
+# 边表词汇量（2026-09-25 用户裁决: 删 `source`；2026-09-29 N1a: 加 `akin`）
 # ---------------------------------------------------------------------------
 
-def test_edge_vocabulary_is_the_seven():
-    """⭐ 边 = **7 条**（删掉 `source`）。
+def test_edge_vocabulary_is_the_eight():
+    """⭐ 边 = **8 条**（删掉 `source` · 加 `akin`）。
 
     `source` 唯一的形状是 `fact → episode`，而 **`fact` 这个 kind 早在 2026-09-02 就退役**了
     （`nodes.KINDS` 里没有它 ⇒ 节点根本建不出来）⇒ 那是一条**永远不会有走法**的边。
     §2.2 的判据 = "边的存在理由 = 有一条能走的路"; 而 `contradicts` / `evolved_from`
     今天虽零写者, 但 kind 都在、**将来会有**走法 —— "还没有"与"永远不会有"是两件事。
+
+    `akin`（N1a）：她发现"这两条是同一类事" ⇒ **`noticed` 记录行的落点**
+    （`DESIGN_MMT_NEW_ACTION §4.3`），写者只有她（经 L1 补边）。
     """
     from core.brain.wiki_v2 import graph as G
 
     assert set(G.RELS) == {"about", "supports", "formed_by", "contradicts",
-                           "evolved_from", "from", "to"}
-    assert len(G.RELS) == 7 and len(set(G.RELS)) == 7
+                           "evolved_from", "from", "to", "akin"}
+    assert len(G.RELS) == 8 and len(set(G.RELS)) == 8
     assert not hasattr(G, "REL_SOURCE"), "source 已删（连常量都不留）"
+
+
+def test_symmetric_rels_are_one_list_and_canonical_for_obeys_it():
+    """⭐ 对称性**只有一份清单**（`SYMMETRIC_RELS`），`canonical_for` 是它的唯一实现。
+
+    为什么要有这条用例: 对称性原来**只活在自举的调用方**（按"来自 `links` 还是
+    `contradictions`"传 `symmetric=`），而 `store.add_edge` 完全不知道 ⇒
+    `akin(B, A)` 与 `akin(A, B)` 会被当成两条边各写一条。
+    """
+    from core.brain.wiki_v2 import graph as G
+
+    assert G.SYMMETRIC_RELS == frozenset({"contradicts", "akin"})
+    # 对称 → 端点规范化
+    assert G.canonical_for("akin", "m0009", "m0003") == ("m0003", "m0009")
+    assert G.canonical_for("contradicts", "m0009", "m0003") == ("m0003", "m0009")
+    # ⚠️ 有向边**原样返回** —— 顺手规范化会悄悄改掉方向语义（formed_by / supports）
+    assert G.canonical_for("formed_by", "p0001", "m0003") == ("p0001", "m0003")
+    assert G.canonical_for("supports", "m0009", "m0003") == ("m0009", "m0003")
+    # 幂等
+    assert G.canonical_for("akin", "m0003", "m0009") == ("m0003", "m0009")
+
+
+def test_akin_is_deliberately_not_inferred():
+    """⭐ `episode ↔ episode` **不进推断表**（有意为之, 别"修"）。
+
+    旧档的 `links` 只声称"这两条**挨着 / 相关**"，而 `akin` 声称"**同类**" —— 那是**判断**。
+    推断表替旧数据做判断就是猜（与"`belief↔belief` 不判 `evolved_from`"同一条纪律）。
+    ⇒ 旧档的 `episode↔episode` 继续落 `unknown`，在 `stats()["unknown"]` 里如实可见。
+    """
+    assert classify_pair("episode", "episode", "m0001", "m0002") == \
+        (REL_UNKNOWN, "m0001", "m0002")
+    assert classify_pair("belief", "belief", "m0003", "m0008") == \
+        (REL_UNKNOWN, "m0003", "m0008")
 
 
 def test_fact_is_not_aboutable():

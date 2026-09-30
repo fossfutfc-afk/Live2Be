@@ -35,9 +35,24 @@ REL_CONTRADICTS = "contradicts"      # 同层之间（她后来发现不对; **�
 REL_EVOLVED_FROM = "evolved_from"    # belief → belief（新看法取代旧的）
 REL_FROM = "from"                    # promise → entity（承诺方）
 REL_TO = "to"                        # promise → entity（被承诺方）
+#: ⭐ **`akin`（N1a, 2026-09-29）：她发现"这两条是同一类事"** —— episode ↔ episode，**对称**。
+#:
+#: 它是 **`noticed` 记录行的落点**（`docs/DESIGN_MMT_NEW_ACTION.md §4.3`）：她在对话里指一条
+#: 旧 episode，L1 建完新 episode 之后由引擎落这条边。⇒ **写者只有她（经 L1）**，不是推断层。
+#:
+#: ⚠️ **为什么叫 `akin` 而不是 `same_kind`**：`kind` 在本项目里已经**确切地**指"节点类型"
+#: （episode / belief / entity / promise / group）⇒ `same_kind(A, B)` 会被读成
+#: *"这两条 kind 相同"*（一句废话），而它真正说的是"**同一类事**"（语义同类）。
+#:
+#: ⚠️ **`episode ↔ episode` 为什么不进 `classify_pair` 的推断表**（有意为之, 别"修"）:
+#: 旧档的 `links` 只声称"这两条**挨着 / 相关**"，而 `akin` 声称"**同类**" —— 那是**判断**。
+#: 推断表替旧数据做判断就是猜（与"`belief↔belief` 不判 `evolved_from`"同一条纪律）;
+#: 旧档的 `episode↔episode` 继续落 `REL_UNKNOWN`，在 `stats()["unknown"]` 里如实可见。
+REL_AKIN = "akin"
 
 #: 全部合法 rel（**唯一清单**; 新增边类型只改这里 + `classify_pair` 的判据）
-#: ⭐ **7 条**（2026-09-25 删 `source`）: 它唯一的形状是 `fact → episode`，而 **`fact`
+#: ⭐ **8 条**（2026-09-25 删 `source` · **2026-09-29 N1a 加 `akin`**; `member_of` 见 N1b）:
+#: `source` 唯一的形状是 `fact → episode`，而 **`fact`
 #: 这个 kind 早在 2026-09-02 就退役了**（`nodes.KINDS` 里没有它 ⇒ 建都建不出来）
 #: ⇒ 那是一条**永远不会有走法**的边（§2.2 的判据: 没走法的边是装饰）。用户裁决删。
 #: （`contradicts` / `evolved_from` 今天同样零写者，但它们的 kind 都在、将来会有走法
@@ -45,7 +60,16 @@ REL_TO = "to"                        # promise → entity（被承诺方）
 #: ⚠️ 盘上若真有旧 `source` 行，**照旧读得进**（`Edge.from_dict` 不校验 rel 名单），
 #: 只是不再有任何写者/分类器产生它。
 RELS: tuple[str, ...] = (REL_ABOUT, REL_SUPPORTS, REL_FORMED_BY, REL_CONTRADICTS,
-                         REL_EVOLVED_FROM, REL_FROM, REL_TO)
+                         REL_EVOLVED_FROM, REL_FROM, REL_TO, REL_AKIN)
+
+#: ⭐ **对称 rel 的唯一清单**（2026-09-29 N1a）。
+#:
+#: 为什么必须有这个常量: 对称性原来**只活在自举的调用方**（`infer_edges` 按"这一对来自
+#: `links` 还是 `contradictions`"传 `symmetric=`），而 **`store.add_edge` 完全不知道这件事**
+#: ⇒ `add_edge("akin", B, A)` 与 `add_edge("akin", A, B)` 会被当成两条不同的边
+#: （幂等键是 `(rel, src, dst)`，而且是**有向**的）。
+#: ⇒ 现在 `store.add_edge` / `store.remove_edge` / 自举 `_emit` **共用这一份**（两份实现必漂）。
+SYMMETRIC_RELS: frozenset[str] = frozenset({REL_CONTRADICTS, REL_AKIN})
 
 #: ⚠️ 推断层兜底 —— **不在 `RELS` 里**（见模块 docstring 的第二条警告）
 REL_UNKNOWN = "unknown"
@@ -167,6 +191,8 @@ def _emit(out: list[Edge], seen: set, meta: dict, a: str, b: str, *,
         rel, src, dst = REL_CONTRADICTS, key[0], key[1]
     else:
         rel, src, dst = classify_pair(meta[a][0], meta[b][0], a, b)
+    # ⭐ 对称性**只在 `canonical_for` 一处判**（`store.add_edge` 走同一个函数, 防两份实现漂）
+    src, dst = canonical_for(rel, src, dst)
     out.append(Edge(rel=rel, src=src, dst=dst, ts=_edge_ts(meta, src, dst)))
 
 
@@ -209,6 +235,20 @@ def classify_pair(ka: str, kb: str, a_id: str, b_id: str) -> tuple[str, str, str
 def canonical_pair(a: str, b: str) -> tuple[str, str]:
     """无方向可言的边 → 端点规范化（id 小的当 src; 保证可复现）。"""
     return (a, b) if a <= b else (b, a)
+
+
+def canonical_for(rel: str, src: str, dst: str) -> tuple[str, str]:
+    """按 `rel` 规范化端点 —— ⭐ **对称性的唯一实现处**（N1a, 2026-09-29）。
+
+    * **对称 rel**（`SYMMETRIC_RELS`: `contradicts` / `akin`）→ `canonical_pair`
+    * 其余 → **原样返回**（有向边不许被"顺手"规范化 —— 那会悄悄改掉 `formed_by`
+      这类边的方向语义）
+
+    ⚠️ **必须在幂等检查之前调用**：`add_edge` 的幂等键是 `(rel, src, dst)` 且**有向**，
+    不先规范化的话，`akin(B, A)` 与 `akin(A, B)` 会被当成两条不同的边，各写一条
+    （真机后果: 同一次"她发现同类"在边表里出现两行，L2 分群时数两遍）。
+    """
+    return canonical_pair(src, dst) if rel in SYMMETRIC_RELS else (src, dst)
 
 
 def _edge_ts(meta: dict, src: str, dst: str) -> str:
@@ -424,7 +464,9 @@ def iter_edges(store, *, rel: str | None = None) -> Iterator[Edge]:
 __all__ = [
     "KIND_ENTITY",
     "RELS",
+    "SYMMETRIC_RELS",
     "REL_ABOUT",
+    "REL_AKIN",
     "REL_CONTRADICTS",
     "REL_EVOLVED_FROM",
     "REL_FORMED_BY",
@@ -434,6 +476,7 @@ __all__ = [
     "REL_UNKNOWN",
     "Edge",
     "Graph",
+    "canonical_for",
     "canonical_pair",
     "classify_pair",
     "graph_of",

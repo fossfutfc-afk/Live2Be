@@ -2,6 +2,7 @@
 import pytest
 
 from core.brain.wiki_v2 import WikiStoreV2, make_node
+from core.brain.wiki_v2.graph import Edge
 from core.brain.wiki_v2.nodes import format_id
 
 
@@ -126,6 +127,65 @@ def test_edge_primitives(tmp_path):
     st.remove_link("m0002", "m0003")
     st.remove_contradiction("m0001", "m0003")
     assert st.edges() == []
+
+
+def test_add_edge_symmetric_is_canonicalised(tmp_path):
+    """⭐ 对称 rel（`contradicts` / `akin`）正反只留一条；**有向边不许被交换**（N1a）。
+
+    实机后果（不修的话）: 同一次"她发现同类"在边表里写成**两行** ⇒ L2 分群时数两遍；
+    而 `remove_edge` 反着传删不掉 ⇒ 留下一条谁也删不掉的边。
+    """
+    st = _store(tmp_path)
+    st.add(make_node("episode", text="a", event_seq=[1]))
+    st.add(make_node("episode", text="b", event_seq=[2]))
+    st.add_edge("akin", "m0002", "m0001", ts="2026-09-29T10:00:00")   # 反着传
+    st.add_edge("akin", "m0001", "m0002")                            # 正着传 → 幂等命中
+    assert [(e.rel, e.src, e.dst) for e in st.edges()] == [("akin", "m0001", "m0002")]
+    # ⚠️ 有向边**不许**被规范化 —— 方向就是语义（这里 m0003 > m0001, 规范化会把它翻过来）
+    st.add(make_node("belief", text="c", epistemic="inferred_belief"))
+    st.add_edge("supports", "m0003", "m0001")
+    assert ("supports", "m0003", "m0001") in [(e.rel, e.src, e.dst) for e in st.edges()]
+    # 反着传也删得掉（与 `add_edge` 共用同一个规范化）
+    st.remove_edge("akin", "m0002", "m0001")
+    assert all(e.rel != "akin" for e in st.edges())
+
+
+def test_clone_state_copies_edges_field_complete(tmp_path):
+    """⚠️ 守门（N1a）: `clone_state` 的边必须**逐字段**拷 —— 它是 digest 事务回滚的基础。
+
+    历史坑: 原来是 `Edge(e.rel, e.src, e.dst, e.ts)` **位置参数** ⇒ 给 `Edge` 加字段时
+    会**静默丢掉**那个字段（回滚把状态回成"少了一半属性"，而且一声不吭）。
+    """
+    import dataclasses
+    import inspect
+
+    st = _store(tmp_path)
+    st.add(make_node("episode", text="a", event_seq=[1]))
+    st.add(make_node("episode", text="b", event_seq=[2]))
+    st.add_edge("akin", "m0001", "m0002", ts="2026-09-29T10:00:00")
+    expected = {"rel": "akin", "src": "m0001", "dst": "m0002", "ts": "2026-09-29T10:00:00"}
+    assert st.edges()[0].to_dict() == expected
+    _nodes, edges = st.clone_state()
+    st.delete("m0001")                                # 破坏现场（点删掉、边被筛掉）
+    assert st.edges() == []
+    st.restore_state((_nodes, edges))
+    assert st.edges()[0].to_dict() == expected        # ⭐ 回滚后字段一个不少
+    for f in dataclasses.fields(Edge):
+        assert getattr(st.edges()[0], f.name) == getattr(edges[0], f.name)
+    # ⭐ 结构性断言: 本函数**不许手工构造 Edge** —— 谁改回位置参数, 这条立刻红。
+    #   ⚠️ 必须先剥掉 docstring 再扫: 上一版直接 `getsource` 扫，
+    #   结果被**注释里那句 `Edge(e.rel, e.src, e.dst, e.ts)`** 自己绊倒。
+    import ast
+    import inspect
+    import textwrap
+
+    fn = ast.parse(textwrap.dedent(
+        inspect.getsource(WikiStoreV2.clone_state))).body[0]
+    fn.body = [n for n in fn.body
+               if not (isinstance(n, ast.Expr) and isinstance(n.value, ast.Constant)
+                       and isinstance(n.value.value, str))]
+    assert "Edge(" not in ast.unparse(fn), \
+        "clone_state 必须走 Edge.from_dict(e.to_dict()) —— 位置参数会在加字段时静默丢属性"
 
 
 def test_add_edge_rejects_dangling_and_self(tmp_path):
