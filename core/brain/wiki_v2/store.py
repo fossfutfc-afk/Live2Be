@@ -36,7 +36,7 @@ from core.brain.wiki_v2.graph import (
     REL_CONTRADICTS,
     Edge,
     Graph,
-    canonical_pair,
+    canonical_for,
     classify_pair,
     infer_edges,
 )
@@ -276,6 +276,10 @@ class WikiStoreV2:
         靠的就是写路径在这里关门; 读路径（`_load_edges`）相反, **宽容保留**,
         因为那是旧档（宽容读 ≠ 允许写坏）。
 
+        ⭐ **对称 rel 先规范化**（2026-09-29 N1a）: `contradicts` / `akin` 走
+        `graph.canonical_for`（对称性的**唯一实现处**）—— 必须在幂等检查**之前**,
+        否则 `akin(B, A)` 与 `akin(A, B)` 会被当成两条边各写一条。
+
         `ts` = 这条边**建立**的时刻。不给 → 取当下（2026-09-22: 原先默认空串, 结果
         写路径产的边全没有 ts —— 真机一轮后 `edges.jsonl` 里一半有、一半没有）。
         调用方知道更准的时刻就显式传（digest 传的是**本段日期**, 不是"写库时刻"）。
@@ -286,6 +290,7 @@ class WikiStoreV2:
                                  f"边端点不存在: {src} -{rel}-> {dst}"))
         if src == dst:
             raise ValueError(err("SelfEdge", f"边不能自环: {src}"))
+        src, dst = canonical_for(rel, src, dst)      # ⭐ 幂等检查之前
         for e in self._edges:
             if e.rel == rel and e.src == src and e.dst == dst:
                 return                                # 幂等
@@ -295,6 +300,8 @@ class WikiStoreV2:
         self._edges.append(Edge(rel=rel, src=src, dst=dst, ts=ts))
 
     def remove_edge(self, rel: str, src: str, dst: str) -> None:
+        """删一条边（**对称 rel 反着传也删得掉** —— 同 `add_edge` 共用规范化）。"""
+        src, dst = canonical_for(rel, src, dst)
         self._edges = [e for e in self._edges
                        if not (e.rel == rel and e.src == src and e.dst == dst)]
 
@@ -317,15 +324,14 @@ class WikiStoreV2:
                        if {e.src, e.dst} != {a, b}]
 
     def add_contradiction(self, a: str, b: str) -> None:
-        """矛盾边（对称 ⇒ 端点规范化, 与自举一致）。"""
+        """矛盾边（对称 ⇒ 端点规范化**在 `add_edge` 里做** —— 唯一一处, 见 N1a）。"""
         self._require(a)
         self._require(b)
-        src, dst = canonical_pair(a, b)
-        self.add_edge(REL_CONTRADICTS, src, dst)
+        self.add_edge(REL_CONTRADICTS, a, b)
 
     def remove_contradiction(self, a: str, b: str) -> None:
-        src, dst = canonical_pair(a, b)
-        self.remove_edge(REL_CONTRADICTS, src, dst)
+        """（对称 ⇒ 反着传也删得掉, 同上。）"""
+        self.remove_edge(REL_CONTRADICTS, a, b)
 
     def _require(self, nid: str) -> BrainNode:
         node = self._nodes.get(nid)
@@ -352,9 +358,16 @@ class WikiStoreV2:
         ⚠️ **边必须一起拷**: 只拷点的话, 失败回滚会把这一轮新加的边**留在原地**
         （节点没了边还在 ⇒ 悬空 + "回滚没回干净"）。节点会被原地铁改（add_edge 等）,
         所以点也要深拷贝而非浅拷 dict。
+
+        ⭐ **两边都走 `from_dict(to_dict())`，不手抄字段**（2026-09-29 N1a 修）:
+        边原来是 `Edge(e.rel, e.src, e.dst, e.ts)` —— **位置参数**，给 `Edge` 加字段时
+        会**静默丢掉**那个字段（而它是 digest 事务回滚的基础 ⇒ 回滚把状态回成"少了一半属性"）。
+        与点侧同一写法之后，"加字段忘了改这里"这一类 bug 在**构造上**不可能存在。
+        守门用例: `tests/core/test_wiki_store.py::test_clone_state_copies_edges_field_complete`
+        （含一条**结构性**断言: 本函数源码里不许再出现 `Edge(`）。
         """
         return ({nid: BrainNode.from_dict(n.to_dict()) for nid, n in self._nodes.items()},
-                [Edge(e.rel, e.src, e.dst, e.ts) for e in self._edges])
+                [Edge.from_dict(e.to_dict()) for e in self._edges])
 
     def restore_state(self, state: tuple[dict[str, BrainNode], list[Edge]]) -> None:
         """恢复内存态（点 + 边; 回滚用——不落盘, 调用方决定是否 save）。"""
