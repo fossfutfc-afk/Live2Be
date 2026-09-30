@@ -293,6 +293,34 @@ def _start_replay(state: BondState, replay_q: list[dict],
             **_ready_scene_payload(state, char_id)}
 
 
+def _close_stale_attempts(flow_store, char_id: str, session_id: str,
+                          *, moved: int) -> None:
+    """收尾**真源里的陈旧未闭合段**（B0 整章暂存的那一半收尾动作）。
+
+    ⚠️ **只在 `moved == 0`（暂存为空、什么都没搬）时才收** —— 这条条件是本函数的全部要点。
+
+    为什么（2026-09-30 修，真机 bug）:
+      `commit_staging` 内部**自带**一次"有条件的收尾"（只在暂存自带 `vn_enter` 时跑，
+      收的是**真源里的旧**未闭合段）。刚搬完的那一批如果带着**本章**的 `vn_enter`，
+      此刻真源里唯一的未闭合段**就是这一章本身** ⇒ 这里再无条件收一次 = 把
+      **玩家正在玩的那一章**判成"没读完"，补一条
+      `vn_exit {completed: false, reason: "staging:superseded"}`。
+
+    真机后果（两条，同一个假 marker 引起）:
+      · `webgui/chat.py::_bond_done_map` 是**顺序配对**（trigger → 其后第一个 `vn_exit`）
+        ⇒ 被这条提前关闭 ⇒ MMT 里"已完成羁绊剧情"淡行**永不出现**
+      · `core/session/chapters.py::replayable_chapters` 认不出这一章 ⇒ 回忆册 **0 章**
+
+    `moved` 由调用方传 `commit_staging` 的返回值（搬了几条）。
+    """
+    if moved:
+        return
+    try:
+        close_open_attempts(truth_store(flow_store), char_id, session_id)
+    except Exception as e:                       # noqa: BLE001 — 收尾失败降级
+        logger.warning("真源陈旧未闭合段收尾失败: %s", e)
+
+
 def bond_start(char_id: str, session_id: str, *,
                staged: bool = False) -> dict:
     """进入羁绊剧情: 构造引擎 + vn_enter marker + 后台生成首场。
@@ -363,6 +391,27 @@ def bond_start(char_id: str, session_id: str, *,
         # 计时埋点（§6.1）: 内存态续玩（resumed）——即时可用
         logger.info("bond_click resumed %s/%s busy=%s",
                     char_id, session_id, "y" if state.busy else "n")
+        # ⭐ **补落 `vn_enter`**（2026-09-30 修 —— 陷阱 35 的**漏网分支**）:
+        #   staged 预热**不落** `vn_enter`（防"没点也被拉进 VN"）, 交给玩家点击时补 ——
+        #   `adopt`(上面) / `concurrent`(下面) 两支都有这份记账, **这一支原来没有**。
+        #   落到这一支的条件是"`state.vn` 还在, 但 `staged_seq` 已被消费/为 None"
+        #   ⇒ adopt 分支**进不来** ⇒ **整章永远没有 `vn_enter`**:
+        #   剧情演得完、`vn_exit` 也照落, 但 `replayable_chapters` 认不出这一章
+        #   ⇒ **回忆册里"0 章"**（真机报障症状, 陷阱 35 原文写的正是它）。
+        #   ⚠️ 三支必须**同一份记账**, 少一支就是一条静默的丢章路径。
+        #   ⚠️ 写的是 `_flow_store`（= overlay）⇒ 章内落暂存, 由 `vn_exit` 那次 commit 搬进真源。
+        if state.demo is None and not state.vn_enter_written:
+            if _pending_in_vn(char_id, session_id):
+                state.vn_enter_written = True          # 事件流已有该段 vn_enter
+            else:
+                try:
+                    _flow_store(state).enter_vn(char_id, session_id,
+                                                state.chapter_title)
+                    state.vn_enter_written = True
+                    logger.info("bond_click resumed %s/%s（补落 vn_enter）",
+                                char_id, session_id)
+                except Exception as e:                 # noqa: BLE001 — 写失败降级不阻断
+                    logger.warning("resumed vn_enter 写入失败: %s", e)
         if state.demo is None:
             _draft_save(state, char_id, session_id)    # 草稿旁路保持新鲜（#28b）
         # chapter_title 必带（2026-09-09: resumed/adopt 就绪同样展示章节标题屏）;
@@ -490,8 +539,12 @@ def bond_start(char_id: str, session_id: str, *,
         # 两头都做完，「真源里不留未闭合段」这条不变量恒成立。
         try:
             _fs = _flow_store(state)
-            commit_staging(_fs, char_id, session_id, completed=False)
-            close_open_attempts(truth_store(_fs), char_id, session_id)
+            # ⚠️ **顺序不能反，且收尾要带条件** —— `commit_staging` 自带一次"有条件的
+            # 收尾"（收真源里的**旧**未闭合段）; 搬完之后真源里那个未闭合段
+            # **就是刚提交的这一章本身** ⇒ 这里只能收"没有东西可搬"时剩下的陈旧残留
+            # （`_close_stale_attempts` 的长注释里有真机 bug 的完整来龙去脉）。
+            moved = commit_staging(_fs, char_id, session_id, completed=False)
+            _close_stale_attempts(_fs, char_id, session_id, moved=moved)
         except Exception as e:                       # noqa: BLE001 — 收尾失败降级
             logger.warning("旧在押段收尾失败: %s", e)
         state.staged_seq = _last_mmt_seq(char_id, session_id, _flow_store(state))
