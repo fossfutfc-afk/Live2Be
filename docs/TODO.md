@@ -19,7 +19,14 @@
 
 | # | 步 | 做什么（一句话） | 改动面 | 判据（可测） | 依赖 | 量级 |
 |---|---|---|---|---|---|---|
-| **N1** | **边加属性** | `Edge` 加 `aspect`/`conf`；`RELS` 加 `same_kind`；`groups_of()`；**对称 rel 规范化** | `graph.py` · `store.py` | 同 aspect 成组 · **不同 aspect 不误合并** · 链式 N−1 条读出 N 个成员 · **`clone_state` 不丢属性** · 旧档读得进 | — | ~90 行 |
+| **N1a** | ✅ **已落地 2026-09-29** —— 加 `akin` + 对称 rel 规范化 | `REL_AKIN`（episode ↔ episode，对称）· `RELS` 7→8 · ⭐ `SYMMETRIC_RELS` + `canonical_for`（**对称性的唯一实现处**）· 顺手修 `clone_state` 位置参数 | `graph.py` · `store.py` | 对称正反只留一条 · 有向边不被交换 · `akin` **不进推断表**（旧档的 `links` 是"相关"不是"同类"，不猜）· `clone_state` 逐字段 + **结构性守门** | — | 已完成（全量 1095 passed · B 冒烟 PASS） |
+| **N1b** | **群（`group` kind + `member_of`）** | `KINDS` + `"group"`（`title` 必填 · 前缀 `g`）· `REL_MEMBER_OF` 进 `RELS`（8→9） | `graph.py` · `nodes.py` | 群节点往返稳定 · 成员 = `edges_to(gid, "member_of")` · **多归属** · `audit` 不把 group 当 belief | N1a | ~40 行 |
+
+> ⚠️ **原 N1「边加属性」已作废**（2026-09-29 用户裁决）：`Edge` 加 `aspect`/`conf` + `groups_of()` 那套
+> 被 **`DESIGN_MMT_NEW_ACTION.md` §4.5** 取代 —— **群 = 节点 + `member_of` 边，边不带属性**。
+> 理由：① 成员**会生长、各有自己的时刻**（"什么时候加入的"是信息，`aspect` 存不下）
+> ② `akin`（她觉得像）与 `member_of`（L2 判定）**是输入与输出，不能合并**。
+> ⇒ **N5 只依赖 N1a**（她发现 → 落 `akin` 边）；群是 **N7**（L2 分群）才建的，走 **N1b**。
 | **N2** | **视野补齐（"深"）** | 接线 `render_organize_view` 的**边渲染**；`render_cognition_list` 给 belief **印被引数**；候选带 **why** | `render.py` · `digest.py` | 输入里**能看到边、被引数、why** | — | ~40 行 |
 | **N3** | **L1 区间化** | `event_seq` → `span:[from,to]`；引擎 `_expand_spans` / `_resolve_overlaps` / `_backfill_unclaimed` | `contract/digest_registry.py` · `digest.py` · prompt | ⭐ **覆盖率 100%** · 密度 1.0 · 交错 0 · 旧档兼容 | — | ~50 行 **下游零改动** |
 | **N4** | **L1 记账合并** | `promise` + `on_mind` 并进 L1 同一次调用；**`habits` 槽删掉** | `digest.py` · `notes.py` · 契约 | L1 产 promise ops + on_mind · `habits` 全仓只剩退役注释 | N3 | ~60 行（含删） |
@@ -64,26 +71,46 @@
 
 ⚠️ **待裁（见 `DESIGN_DIGEST_LAYERS §0.1(i)`）**：她引用的"当下"还没有 episode id ⇒ 用**待挂记录 + L1 后补边**（倾向），还是边的一端直接用 seq 区间。
 
-### N1 边加属性
+### N1a 加 `akin` + 对称 rel 规范化（✅ **2026-09-29 已落地**）
 
 ```
 graph.py
-  · Edge 加 aspect: str = "" / conf: float = 1.0   ⚠️ 加在 ts **之后**（位置参数兼容）
-  · to_dict / from_dict 带上这两个键   ⚠️ from_dict 今天**静默丢弃**多余键 ⇒ 必须同批改读写两侧
-  · RELS: 7 → 8 条（+ same_kind）· 走法注释写进 §2.2 那张表
-  · ⭐ SYMMETRIC_RELS = (contradicts, same_kind) —— **一个常量，_emit 与 add_edge 共用**（防两份实现漂移）
+  · ⭐ REL_AKIN = "akin"（episode ↔ episode, **对称**）= noticed 记录行的落点
+    ⚠️ 定名理由: `kind` 在本项目已确切指"节点类型" ⇒ `same_kind` 会被读成"两条 kind 相同"（废话）
+  · RELS: 7 → 8 条
+  · ⭐ SYMMETRIC_RELS = frozenset({contradicts, akin}) —— **对称性的唯一清单**
+  · ⭐ canonical_for(rel, src, dst) —— **对称性的唯一实现处**
+    （原来对称性只活在自举的调用方: 按"来自 links 还是 contradictions"传 symmetric=,
+     而 store.add_edge 完全不知道 ⇒ akin(B,A) 与 akin(A,B) 会各写一条）
+  · ⚠️ **`episode ↔ episode` 不进 classify_pair**（有意, 别"修"）: 旧档的 links 只声称
+    "挨着/相关", 而 akin 声称"同类" —— 那是**判断**。旧档继续落 unknown, 在 stats() 里如实可见。
 store.py
-  · add_edge(rel, src, dst, *, ts="", aspect="", conf=1.0)
-  · ⭐ **对称 rel 先 canonical_pair**（今天 add_edge 的幂等是**有向**的 ⇒ 反向会写出两条）
-  · groups_of() -> dict[str, list[str]]     # aspect → 成员（两端并集），**零算法**
-  · ⚠️ **雷**：clone_state 里 `Edge(e.rel, e.src, e.dst, e.ts)` 是**位置参数** ⇒ 加字段后会**静默丢属性**
-    （而 clone_state 是 digest 事务回滚的基础）⇒ 必须改成 from_dict(to_dict()) + 守门用例
+  · add_edge: 对称 rel 先 canonical_for（⭐ **必须在幂等检查之前** —— 幂等键 (rel,src,dst) 是有向的）
+  · remove_edge: 同一个规范化（⇒ 反着传也删得掉）
+  · add_contradiction / remove_contradiction: 不再自己 canonical_pair（唯一一处）
+  · ⚠️ **顺手修的雷**: clone_state 的 `Edge(e.rel, e.src, e.dst, e.ts)` **位置参数**
+    → `Edge.from_dict(e.to_dict())`（与点侧同款）⇒ 加字段时"静默丢属性"在构造上不可能
+判据（已过）
+  · ⭐ add_edge("akin", B, A) 与 (A, B) **只留一条**；有向边**不被交换**（supports m0003→m0001 保持原样）
+  · ⭐ clone_state → restore_state 后**逐字段不变**（含一条**结构性**断言: 源码里不许再出现 `Edge(`）
+  · akin 不进推断表（classify_pair("episode","episode") == unknown）
+  · 旧 edges.jsonl / 旧 links 自举照旧读得进
+```
+
+### N1b 群（`group` kind + `member_of`）—— 待做
+
+```
+nodes.py
+  · KINDS + "group" · _REQUIRED["group"] = ("title",)（text 允许空, 同 entity）· _PREFIX + "g"
+  · validate(): group 不走 belief/experience 的 epistemic 护栏
+graph.py
+  · REL_MEMBER_OF = "member_of"（episode → group）· RELS: 8 → 9 条 · **有向**（不进 SYMMETRIC_RELS）
+  · _ABOUTABLE 加 "group"（群可归属 entity; 今天零写者 —— 先开接口, 别锁死）
+渲染 / 契约 / bucket: ✅ **零改动**（群不进常驻注入，只是 index 的原料）
 判据
-  · 同 aspect 成组；不同 aspect 不误合并
-  · 链式 N−1 条边能读出 N 个成员
-  · ⭐ clone_state → restore_state 后**属性仍在**
-  · ⭐ add_edge("same_kind", B, A) 与 (A, B) **只留一条**
-  · 旧 edges.jsonl（无 aspect）照旧读得进，且 conf 得 1.0
+  · group 节点 to_dict/from_dict 往返稳定；没 title 被拒
+  · 成员 = edges_to(gid, "member_of")；⭐ **一个 episode 可同时在两个群里**（多归属）
+  · audit() 不把 group 当 belief 报"无支撑"
 ```
 
 ### N2 视野补齐（这条最便宜、收益最直接）
