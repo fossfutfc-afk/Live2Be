@@ -70,6 +70,7 @@ from core.brain.wiki_v2.revise import (
     apply_decisions,
     apply_panorama,
 )
+from core.brain.wiki_v2.address import unique_title
 from core.brain.wiki_v2.graph import REL_AKIN
 from core.brain.wiki_v2.store import WikiStoreV2
 from core.session.events import TYPE_NOTICED, is_content_event
@@ -784,6 +785,9 @@ def _create_a_nodes(store: WikiStoreV2, entries: list[dict], *, ts: str,
             player_ids.append(store.add(node))
             continue
         node = make_node("episode", **{k: v for k, v in ent.items() if k != "kind"})
+        # ⭐ **N2b**: 标题唯一性**写入时强制**（冲突加数字; 只增不重排）——
+        # 解析与写入都在 `address.py` 里（那边是"谁能被指到"的唯一约定）。
+        node.title = unique_title(store, node.title)
         node.event_seq = list(ent.get("event_seq") or event_seq)
         node.ts = _node_ts(node.event_seq, by_seq, ts)       # ⭐ 自己的时刻（④-①）
         # 板级情绪键序列（T15）——召回侧物化, **不进 LLM 上下文**

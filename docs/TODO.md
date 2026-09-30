@@ -28,7 +28,8 @@
 > ② `akin`（她觉得像）与 `member_of`（L2 判定）**是输入与输出，不能合并**。
 > ⇒ **N5 只依赖 N1a**（她发现 → 落 `akin` 边）；群是 **N7**（L2 分群）才建的，走 **N1b**。
 | **N2** | ✅ **视野补齐（"深"）（已落地 2026-09-29）** | ⭐ `render_cognition_line`（两处共用）: 元信息进 `〔〕` + **边续行** + belief/promise 也印被引；`_round_b_material` 候选带**正文 + 被引 + 边 + why**；`recommend_candidates` 加 `why_out` | `render.py` · `digest.py` · `recall.py` | 真机输入里 **grep 得到 `edges:` 与「被引」**（零 LLM 渲染即可验） | — | 已完成 |
-| **N3** | **L1 区间化** | `event_seq` → `span:[from,to]`；引擎 `_expand_spans` / `_resolve_overlaps` / `_backfill_unclaimed` | `contract/digest_registry.py` · `digest.py` · prompt | ⭐ **覆盖率 100%** · 密度 1.0 · 交错 0 · 旧档兼容 | — | ~50 行 **下游零改动** |
+| **N2b** | ✅ **标题唯一性·写入时强制（已落地 2026-09-29）** | `address.unique_title`: 与既有名字冲突就加数字（`名字` → `名字 2`）· **只增不重排**（旧的改都不改）· 解析与写入**同住 `address.py`** | `address.py` · `digest.py` | 撞名后**两个名字各自唯一解析**（在此之前是 `ambiguous` ⇒ 她那笔直接丢） | N2 | 已完成 |
+| **N3** | ✅ **L1 区间化（已落地 `327821c`）** | `event_seq` → `span:[from,to]`；引擎 `_expand_spans` + 未认领/重叠台账 | `contract/digest_registry.py` · `digest.py` · prompt | ⭐ **覆盖率** · 重叠如实报告不裁 · 旧档兼容 | — | 已完成 **下游零改动** |
 | **N4** | **L1 记账合并** | `promise` + `on_mind` 并进 L1 同一次调用；**`habits` 槽删掉** | `digest.py` · `notes.py` · 契约 | L1 产 promise ops + on_mind · `habits` 全仓只剩退役注释 | N3 | ~60 行（含删） |
 | ⭐ **N5** | ✅ **已落地 2026-09-29（拆三: N5a/N5b/N5c）** | ① 引擎召回 **1~2 条旧 episode** ② 注入"你想起的事" ③ 给她一个动作 ④ **锚点校验** ⑤ 落账 → **L1 补 `akin` 边** | `render.py` · `recall.py` · `mmt/*` · ⭐ `address.py`（新）· `digest.py` · `events.py` · `contract/schema.py` · rules | 召回有调用者 · **编造的引用被丢** · 账可查 · 补边幂等 · 未认领可 grep | N1 N3 | ⭐ **本主题的价值核心** |
 | **N5a** | ✅ **想起（已落地 2026-09-29）** | ⭐ **标题进注入**（`episode.title` 从来没进过任何注入面 —— 它是**地址**）· 新 `render_recall_block` · 新 `recall_episodes`（只出 episode、**按相关度排**）· `agent_turn` 加 **P19** 槽位（动态尾） | `render.py` · `recall.py` · `recall_config.py` · `mmt/engine.py` | 召回有产品调用者 · 落点守卫（**不许进 system**）· 标题**不过 `_me`** · 无命中不注 | N1 N3 | 已完成（1125 passed · 真机探针见 §2） |
