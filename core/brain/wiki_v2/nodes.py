@@ -33,7 +33,11 @@ from typing import Any
 #: 节点类型（fact 已退役, 2026-09-02——出厂与 digest 同构: 记忆 = 经历 + 认知）
 #: ⚠️ **`promise` 2026-09-25 加入**（DESIGN_GRAPH_V4 §6）: 闭合的承诺**固化进图** ——
 #: 开放期它住在 note 里（是**当前值**不是节点），闭合那一刻才落成节点 + `outcome` + 四条边。
-KINDS = ("episode", "experience", "belief", "entity", "promise")
+#: ⭐ **`group` 2026-09-29 加入**（N1b · `DESIGN_MMT_NEW_ACTION §4.5`）: **群**是 L2 归纳出来的
+#: "一类事"，成员靠 `member_of` 边指过来（**不在节点上存列表** —— 成员会生长、各有自己的 `ts`）。
+#: ⚠️ **它只装"名字 + 成员"，不装"关键信息"** —— "这一类说明了什么"是 **belief** 的活;
+#: 两处都写就是双真源，L2 改了 belief 那份不会跟着改（必漂）。
+KINDS = ("episode", "experience", "belief", "entity", "promise", "group")
 #: promise 的**结局**（字段是 `outcome`，不是 `state` —— 见 `BrainNode.state` 的注释）
 PROMISE_OUTCOMES = ("kept", "broken", "superseded")
 #: 认知类型（canon_fact 随 fact 退役; speculation 2026-09-21 删——三值全由护栏强制）
@@ -53,6 +57,11 @@ _REQUIRED: dict[str, tuple[str, ...]] = {
     "entity": ("name",),
     # promise: 正文 + 结局（`kept`/`broken`/`superseded`）—— 结局是**固化那一次写死**的
     "promise": ("text", "outcome"),
+    # ⭐ group: **只要 `title`（类名）** —— `text` 允许空（同 entity）:
+    # 群上不放"关键信息"，判断归 belief（见 `KINDS` 的注释）。
+    # ⚠️ `title` 的唯一性今天**还没强制**（契约未查）；`look` / `noticed` 命中歧义时
+    # 一律"不猜"（落到检索 / 丢弃），所以缺唯一性只影响命中率，不影响正确性。
+    "group": ("title",),
 }
 
 

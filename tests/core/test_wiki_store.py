@@ -188,6 +188,77 @@ def test_clone_state_copies_edges_field_complete(tmp_path):
         "clone_state 必须走 Edge.from_dict(e.to_dict()) —— 位置参数会在加字段时静默丢属性"
 
 
+def test_every_kind_has_an_explicit_id_prefix():
+    """⭐ 结构性守门（N1b）: `KINDS` 里**每一个 kind** 都必须在 `_PREFIX` 里有前缀。
+
+    为什么必须有这条: `add()` 走 `_PREFIX.get(kind, "m")` —— 漏登记的 kind 会**静默拿到
+    `m` 号**，与 episode/belief 撞号。而 id 是边的端点 ⇒ **撞号会让边指错记忆**
+    （真机后果: "她发现同类"落到另一条 episode 上，而且不报错）。
+    """
+    from core.brain.wiki_v2 import store as S
+    from core.brain.wiki_v2.nodes import KINDS
+
+    missing = [k for k in KINDS if k not in S._PREFIX]
+    assert not missing, f"这些 kind 没登记 id 前缀（会静默落到 m 号）: {missing}"
+    # `m` 被 episode/belief **有意**共用（同一族"记忆条目"）；其余前缀两两不同
+    others = [p for k, p in S._PREFIX.items() if p != "m"]
+    assert len(set(others)) == len(others), f"前缀撞车: {sorted(others)}"
+
+
+def test_group_node_prefix_and_roundtrip(tmp_path):
+    """群节点（N1b）: 前缀 `g` · 只要 `title` · 落盘读回稳定。"""
+    st = _store(tmp_path)
+    assert st.add(make_node("group", title="苔藓")) == "g0001"
+    st.add(make_node("episode", text="a", event_seq=[1]))
+    assert st.add(make_node("belief", text="b", epistemic="inferred_belief")) == "m0002"
+    st.save()
+    st2 = _store(tmp_path)
+    assert st2.get("g0001").kind == "group" and st2.get("g0001").title == "苔藓"
+
+
+def test_group_without_title_is_rejected(tmp_path):
+    """群**必须有类名**（`_REQUIRED["group"] = ("title",)`）—— 没名字的群不可被指向。"""
+    st = _store(tmp_path)
+    with pytest.raises(ValueError):
+        st.add(make_node("group", text="只有正文没有名字"))
+
+
+def test_member_of_edges_and_multi_membership(tmp_path):
+    """⭐ 成员靠 `member_of` 边；**一个 episode 可以同时在两个群里**（多归属）。
+
+    为什么不是"群节点上存 `members` 列表": 成员是**随时间一次次建立的**，每条**各有自己的
+    `ts`** —— "什么时候加入的"是信息，列表只能给出群节点的 `ts`（见
+    `DESIGN_MMT_NEW_ACTION §4.5.3`，那里记着我判错过一次）。
+    """
+    st = _store(tmp_path)
+    st.add(make_node("episode", text="a", event_seq=[1]))       # m0001
+    st.add(make_node("group", title="苔藓"))                    # g0001
+    st.add(make_node("group", title="夏莱"))                    # g0002
+    st.add_edge("member_of", "m0001", "g0001", ts="2026-09-29T10:00:00")
+    st.add_edge("member_of", "m0001", "g0002", ts="2026-09-29T11:00:00")
+    g = st.graph()
+    assert g.sources("g0001", "member_of") == ["m0001"]
+    assert g.sources("g0002", "member_of") == ["m0001"]          # ⭐ 多归属
+    # 每条加入**各自的时刻**都留着
+    assert [e.ts for e in st.edges() if e.rel == "member_of"] == \
+        ["2026-09-29T10:00:00", "2026-09-29T11:00:00"]
+    # ⚠️ `member_of` 是**有向**的（不在 SYMMETRIC_RELS）⇒ 反着写不会被规范化成同一条
+    #   （方向由写路径保证 —— store 有意不做 rel/kind 配对校验, 那是契约层的事）
+    st.add_edge("member_of", "g0001", "m0001")
+    assert len([e for e in st.edges() if e.rel == "member_of"]) == 3
+    # ⭐ `supports` 查询**不会**把群捞出来（`member_of` 是自己的 rel, 没混进认知侧）
+    assert g.supporters("g0001") == [] and g.supporters("g0002") == []
+
+
+def test_audit_does_not_treat_group_as_belief(tmp_path):
+    """`audit()` 的"belief 必须有 supports 入边"**不适用于 group** —— 群不是认知。"""
+    st = _store(tmp_path)
+    st.add(make_node("group", title="苔藓"))
+    st.add(make_node("episode", text="a", event_seq=[1]))
+    st.add_edge("member_of", "m0001", "g0001")
+    assert st.audit() == []
+
+
 def test_add_edge_rejects_dangling_and_self(tmp_path):
     """写路径关门: 悬空 / 自环一律拒（"悬空引用在构造上不可能存在", §2.1）。"""
     st = _store(tmp_path)
