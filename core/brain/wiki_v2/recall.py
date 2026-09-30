@@ -138,7 +138,8 @@ def recommend_candidates(store: WikiStoreV2, query: str, *,
                          embed_fn: EmbedFn | None = None,
                          k: int | None = None,
                          kinds: tuple[str, ...] = ("belief", "experience"),
-                         mode_out: list | None = None) -> list[tuple[BrainNode, float]]:
+                         mode_out: list | None = None,
+                         why_out: list | None = None) -> list[tuple[BrainNode, float]]:
     """按 query 打分取 top-k 的**通用**检索（两个调用者, 判据不同）。
 
     | 调用者 | `kinds` | 要什么 |
@@ -174,6 +175,11 @@ def recommend_candidates(store: WikiStoreV2, query: str, *,
         mode_out: 可选传出参数——本函数会把实际走的通道 **append** 进去
             （`"semantic"` / `"keyword"`），供调用方汇总成召回台账（V3-0）。
             用列表而非返回值，是为了不改既有返回签名（测试与调用方零改动）。
+        why_out: ⭐ **N2（2026-09-29）**: 可选传出参数——**为什么推荐它**
+            （与返回值**等长同序**：`语义 0.72` / `tags[苔藓,杂草屋] 命中` /
+             `subject 点名` / `2-gram 0.41`）。同样用列表传出而不改返回签名。
+            为什么要它: Round B 的候选提示原来只有编号, LLM 判"要不要并"时
+            **看不见理由**; 而理由正好是引擎手里现成的那点信息（少花 ≠ 少信息）。
 
     Returns: [(node, score), ...] 降序, score > 0; 空 query/空认知 → []。
     """
@@ -192,14 +198,17 @@ def recommend_candidates(store: WikiStoreV2, query: str, *,
                 key=lambda t: t[0], reverse=True)
             if mode_out is not None:
                 mode_out.append("semantic")
-            return [(n, s) for s, n in scored[:k] if s > 0]
+            hit = [(n, s) for s, n in scored[:k] if s > 0]
+            if why_out is not None:              # 与返回值等长同序
+                why_out.extend(f"语义 {s:.2f}" for _n, s in hit)
+            return hit
         except Exception as e:                  # noqa: BLE001 — 后端故障降级
             logger.info("recall_cand fallback=keyword reason=embed_error err=%s "
                         "nodes=%d（Round B 抬不出候选 → 该段只能凭 LLM 自己判断）",
                         e, len(nodes))
     if mode_out is not None:
         mode_out.append("keyword")
-    return _keyword_candidates(nodes, query, k)
+    return _keyword_candidates(nodes, query, k, why_out=why_out)
 
 
 def recall_episodes(store: WikiStoreV2, *, query: str = "", k: int | None = None,
@@ -231,32 +240,39 @@ def recall_episodes(store: WikiStoreV2, *, query: str = "", k: int | None = None
     return [n for n, _score in picked]
 
 
-def _keyword_candidates(nodes: list[BrainNode], query: str,
-                        k: int) -> list[tuple[BrainNode, float]]:
+def _keyword_candidates(nodes: list[BrainNode], query: str, k: int, *,
+                        why_out: list | None = None) -> list[tuple[BrainNode, float]]:
     """零依赖降级（保守, 宁缺勿错: 不标注比标错好——假阳性会逼 LLM 错 update）:
 
     - tags 命中（检索导向, 最强信号）→ 0.6 + 0.1 × (命中数-1)
     - subject 整体出现在 query（正文点名主题词）→ 0.85
     - 正文 2-gram Dice（verbatim/近句重现）→ 取原始 Dice（>0.35 才认）
     取各项最大值; score ≤ 0 → 不推荐。
+
+    `why_out`（⭐ N2）: 传出**哪一路赢了**（`tags[...] 命中` / `subject 点名` /
+    `2-gram 0.41`）—— 与返回值等长同序。⚠️ 用 `if s > best` 逐个比较来记录,
+    **不能事后重算**（重算一份就是第二个真源, 迟早与这里的 max 语义漂开）。
     """
     q2 = _bigrams(query)
-    out: list[tuple[BrainNode, float]] = []
+    out: list[tuple[BrainNode, float, str]] = []
     for n in nodes:
-        s = 0.0
+        s, why = 0.0, ""
         hits = [t for t in n.tags if t and t in query]
         if hits:
-            s = max(s, 0.6 + 0.1 * (len(hits) - 1))
-        if n.subject and n.subject in query:
-            s = max(s, 0.85)
+            s, why = 0.6 + 0.1 * (len(hits) - 1), f"tags[{','.join(hits)}] 命中"
+        if n.subject and n.subject in query and 0.85 > s:
+            s, why = 0.85, "subject 点名"
         body = n.text + (" " + n.growth if n.growth else "")
         d = _dice(q2, _bigrams(body))
-        if d > 0.35:
-            s = max(s, d)
+        if d > 0.35 and d > s:
+            s, why = d, f"2-gram {d:.2f}"
         if s > 0:
-            out.append((n, s))
+            out.append((n, s, why))
     out.sort(key=lambda t: (t[1], t[0].significance), reverse=True)
-    return out[:k]
+    kept = out[:k]
+    if why_out is not None:
+        why_out.extend(w for _n, _s, w in kept)
+    return [(n, s) for n, s, _w in kept]
 
 
 def _bigrams(text: str) -> set[str]:

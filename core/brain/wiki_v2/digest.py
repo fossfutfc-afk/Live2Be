@@ -60,7 +60,10 @@ from core.brain.wiki_v2.recall import (
     EmbedFn,
     recommend_candidates,
 )
-from core.brain.wiki_v2.render import render_cognition_list
+from core.brain.wiki_v2.render import (
+    render_cognition_line,
+    render_cognition_list,
+)
 from core.brain.wiki_v2.revise import (
     apply_attribution,
     apply_closures,
@@ -917,7 +920,14 @@ def _round_b_material(store: WikiStoreV2, episode_ids: list[str],
     """Round B 输入: 新经历摘要 + 每条引擎候选提示（板块 5）。
 
     每条 episode 用 text 走 recommend_candidates 与现有认知碰撞,
-    把最像的几条**列出来给 LLM 参考**（`→ 候选(sim 0.xx): u0002 …`）。
+    把最像的几条**列出来给 LLM 参考**（⭐ N2 起: 带正文 + 被引 + 边 + 为什么）。
+
+    ⭐ **N2（2026-09-29）两处形态变化**（都是"看不见就写不出来"那条）:
+      · 新经历行: `m0025 「标题」 正文` → **`〔m0025｜《标题》〕正文`**
+        （编号是钥匙、书名号里是 gist; 顺带修 `「」` 与她视图里"逐字原话"的同形不同义）
+      · 候选行: `→ 候选(sim 0.72): u0001 u0003` → **每条候选一行**,
+        带 `〔u0001｜belief｜被引 3〕正文` + 边续行 + `为什么: tags[…]/语义 …`
+        （旧形态要求 LLM 自己去翻上面那张表, 而"为什么推荐"完全看不见）
 
     ⚠️ **候选只是提示, 不分档、不强制**（2026-09-15 T17）: 原先
     `≥CAND_HIGH` 会标【疑似同主题】并让 parse 层**结构强制**禁 `add`——
@@ -944,21 +954,36 @@ def _round_b_material(store: WikiStoreV2, episode_ids: list[str],
         head = node.text
         if len(head) > 120:
             head = head[:120] + "…"
-        title = node.title or "（无题）"
-        lines.append(f"{node.id} 「{title}」 {head}")
+        # ⭐ N2: 元信息进 `〔〕` —— `〔m0025｜《今天的杂草屋》〕正文`。
+        # 编号是**钥匙**（R2 的 decisions 用它指 episode, 真实 id）；
+        # 书名号里是**gist**（正文被截到 120 字, 8~16 字的名字是"这是哪件事"的压缩）。
+        # ⚠️ 原来标题用 `「」` —— 而 `「」` 在她那份视图里是**逐字原话**
+        #    （`（「原话」）`）⇒ 同形不同义，正是 `docs/CONTEXT_MARKS.md` 要拦的。
+        meta = f"{node.id}｜《{node.title}》" if node.title else node.id
+        lines.append(f"〔{meta}〕{head}")
         if node.verbatim:
             lines.append(f"    原话: {node.verbatim}")
         query = f"{node.text} {node.verbatim}".strip()
+        why: list[str] = []
         cands = recommend_candidates(store, query, embed_fn=embed_fn,
-                                     mode_out=modes)
+                                     mode_out=modes, why_out=why)
         cands = [(c, s) for c, s in cands if c.id in local_of]   # 只标已渲染的
         acc.episode(n_cand=len(cands),
                     best_sim=(cands[0][1] if cands else 0.0))
         if cands:
-            ids = " ".join(local_of[c.id] for c, _ in cands)
-            lines.append(
-                f"    → 候选(sim {cands[0][1]:.2f}): {ids}"
-                " —— 仅供参照, 同主题就 touch/update, 不同主题就 add")
+            # ⭐ N2: 候选不再只给编号 —— **编号 + 正文 + 被引 + 边 + 为什么被推荐**。
+            # 旧形态 `→ 候选(sim 0.72): u0001 u0003` 要求它自己去翻上面那张表,
+            # 而"为什么推荐"（tags 命中 / 语义）今天完全看不见 —— 看不见就判不准。
+            best = cands[0][1]
+            reason = why[0] if why else ""
+            lines.append(f"    → 候选 {best:.2f}（为什么: {reason}）:")
+            graph = store.graph()
+            for i, (c, _s) in enumerate(cands):
+                rows = render_cognition_line(store, c, graph, local_of, max_body=60,
+                                             indent="       ")
+                # ⭐ 只有第一个候选带边续行（后面几个是备选, 印全了纯占地方）
+                lines.extend(rows if i == 0 else rows[:1])
+            lines.append("       （仅供参照, 同主题就 touch/update, 不同主题就 add）")
 
     # 通道口径: 全程 semantic / 全程 keyword / 混合（部分 episode 失败降级）
     if modes and all(m == "semantic" for m in modes):

@@ -27,7 +27,7 @@
 > 理由：① 成员**会生长、各有自己的时刻**（"什么时候加入的"是信息，`aspect` 存不下）
 > ② `akin`（她觉得像）与 `member_of`（L2 判定）**是输入与输出，不能合并**。
 > ⇒ **N5 只依赖 N1a**（她发现 → 落 `akin` 边）；群是 **N7**（L2 分群）才建的，走 **N1b**。
-| **N2** | **视野补齐（"深"）** | 接线 `render_organize_view` 的**边渲染**；`render_cognition_list` 给 belief **印被引数**；候选带 **why** | `render.py` · `digest.py` | 输入里**能看到边、被引数、why** | — | ~40 行 |
+| **N2** | ✅ **视野补齐（"深"）（已落地 2026-09-29）** | ⭐ `render_cognition_line`（两处共用）: 元信息进 `〔〕` + **边续行** + belief/promise 也印被引；`_round_b_material` 候选带**正文 + 被引 + 边 + why**；`recommend_candidates` 加 `why_out` | `render.py` · `digest.py` · `recall.py` | 真机输入里 **grep 得到 `edges:` 与「被引」**（零 LLM 渲染即可验） | — | 已完成 |
 | **N3** | **L1 区间化** | `event_seq` → `span:[from,to]`；引擎 `_expand_spans` / `_resolve_overlaps` / `_backfill_unclaimed` | `contract/digest_registry.py` · `digest.py` · prompt | ⭐ **覆盖率 100%** · 密度 1.0 · 交错 0 · 旧档兼容 | — | ~50 行 **下游零改动** |
 | **N4** | **L1 记账合并** | `promise` + `on_mind` 并进 L1 同一次调用；**`habits` 槽删掉** | `digest.py` · `notes.py` · 契约 | L1 产 promise ops + on_mind · `habits` 全仓只剩退役注释 | N3 | ~60 行（含删） |
 | ⭐ **N5** | ✅ **已落地 2026-09-29（拆三: N5a/N5b/N5c）** | ① 引擎召回 **1~2 条旧 episode** ② 注入"你想起的事" ③ 给她一个动作 ④ **锚点校验** ⑤ 落账 → **L1 补 `akin` 边** | `render.py` · `recall.py` · `mmt/*` · ⭐ `address.py`（新）· `digest.py` · `events.py` · `contract/schema.py` · rules | 召回有调用者 · **编造的引用被丢** · 账可查 · 补边幂等 · 未认领可 grep | N1 N3 | ⭐ **本主题的价值核心** |
@@ -212,18 +212,36 @@ graph.py
   · audit() 不把 group 当 belief 报"无支撑"
 ```
 
-### N2 视野补齐（这条最便宜、收益最直接）
+### N2 视野补齐（这条最便宜、收益最直接）—— ✅ **已落地 2026-09-29**
 
 ```
 render.py
-  · render_cognition_list：belief 也印「被引 N 条」（今天只对 experience 印"次数"）
-  · 接线 render_organize_view 的边渲染（`edges: supports→m0009 contradicts←m0001`）
-    ⚠️ 它今天**零调用者**（只有测试）—— 边渲染已经写好了，接上就有"深"
+  · ⭐ render_cognition_line()（**新, 两个调用者共用**）:
+      认知行 = `〔u0001｜belief｜被引 3｜sig 0.97〕subject：正文` + 缩进续行 `edges: …`
+      · 「被引」对 belief/promise 也印（今天只对 experience 印"次数"）
+      · 边只印**能指认的**两端: 认知→本地号 · episode→**真实 id** · 其余只计数
+        （`（另有 N 条边指向列表外）` —— **绝不编一个看不到正文的号**）
+      · 边封顶 6 条（`被引 N` 已经说明有几条 —— 少花 ≠ 少信息）
+      · ⚠️ 顺手修: `subject` 不再前置"关于"（真机里它本来就写成「关于 我道歉的习惯」⇒ 老形态是「关于 关于 …」）
+  · render_cognition_list 改用它; render_organize_view **本体不动**
 digest.py
-  · _round_b_material 的候选从「只给本地 id」改成「id + 正文 + 边 + 被引数 + why」
-判据
-  · 真机跑一次，L2 的输入里 **grep 得到 `edges:`** 与「被引」
+  · `_round_b_material`: 新经历行 `m0025 「标题」 正文` → `〔m0025｜《标题》〕正文`
+    ⚠️ 原来 `「」` 与她视图里"逐字原话"**同形不同义**（`CONTEXT_MARKS` 的活）
+  · 候选行从「只有编号」→ **每条一行**: `〔u0001｜belief｜被引 3〕正文` + 边续行 + `为什么: …`
+recall.py
+  · `recommend_candidates` 加 `why_out`（**可选传出, 不改返回签名**）:
+    `语义 0.72` / `tags[…] 命中` / `subject 点名` / `2-gram 0.41`
+    ⚠️ `_keyword_candidates` 里必须**逐次比较时记**（事后重算 = 第二个真源）
+判据（已过）
+  · 真机渲染一次（**零 LLM 调用**: 纯函数）: `edges:` **4 行** · `被引` **4 处** ✓
+  · ⚠️ 真机候选为**空**（embed 服务没起 ⇒ 词面路径 0 命中）—— 陷阱 38 的又一次现身;
+    why/候选正文这一半在真机上要等 `lms server start` 才看得见
 ```
+
+> ⚠️ **原 N2 那条"接线 render_organize_view 的边渲染"的落实方式**（2026-09-29 判断）:
+> **不去调用那个函数**（它是零产品调用者的**旧**组织视图: 印真实 id、无本地映射、
+> 分不出"能 touch / 能 link"）, 而是把它的**边渲染语法**接进真正在跑的
+> `render_cognition_list`。函数本体保留（N6 候选池 / 将来组织视图还要用）。
 
 ### N3 L1 区间化（**下游零改动**是它的卖点）
 
