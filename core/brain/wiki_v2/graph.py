@@ -49,6 +49,19 @@ REL_TO = "to"                        # promise → entity（被承诺方）
 #: 推断表替旧数据做判断就是猜（与"`belief↔belief` 不判 `evolved_from`"同一条纪律）;
 #: 旧档的 `episode↔episode` 继续落 `REL_UNKNOWN`，在 `stats()["unknown"]` 里如实可见。
 REL_AKIN = "akin"
+#: ⭐ **`member_of`（N1b, 2026-09-29）：L2 判定"这条经历属于这一类"** —— episode → group，**有向**。
+#:
+#: 与 `akin` 的分工（**两条都要, 不许合并**）:
+#:     `akin(ep ↔ ep)`      = ⭐ **她的原始发现**（"这两条像"）—— 有噪音、可能只是两两
+#:     `member_of(ep → grp)` = ⭐ **L2 的归纳判定**（"它属于这一类"）—— 可合并 / 拆分 / 多归属
+#: **前者是输入，后者是输出。** 混成一条会让"她觉得像"和"判定同类"不可区分
+#: （真机证据: dense 相似度组内最低 < 组外最高，最差 **0.425** ⇒ 她的"像"必须被复判）。
+#:
+#: ⚠️ **为什么成员不能存成群节点上的 `members` 列表**：成员是**随时间一次次建立的**，
+#: 每条**各有自己的 `ts`**（"什么时候加入的"是信息，列表只能给出群节点的 `ts`）;
+#: 而且边是 append + 幂等，列表是读-改-写。⚠️ 这一格我在设计时判错过一次，记档在
+#: `docs/DESIGN_MMT_NEW_ACTION.md §4.5.3`。
+REL_MEMBER_OF = "member_of"
 
 #: 全部合法 rel（**唯一清单**; 新增边类型只改这里 + `classify_pair` 的判据）
 #: ⭐ **8 条**（2026-09-25 删 `source` · **2026-09-29 N1a 加 `akin`**; `member_of` 见 N1b）:
@@ -60,7 +73,8 @@ REL_AKIN = "akin"
 #: ⚠️ 盘上若真有旧 `source` 行，**照旧读得进**（`Edge.from_dict` 不校验 rel 名单），
 #: 只是不再有任何写者/分类器产生它。
 RELS: tuple[str, ...] = (REL_ABOUT, REL_SUPPORTS, REL_FORMED_BY, REL_CONTRADICTS,
-                         REL_EVOLVED_FROM, REL_FROM, REL_TO, REL_AKIN)
+                         REL_EVOLVED_FROM, REL_FROM, REL_TO, REL_AKIN,
+                         REL_MEMBER_OF)
 
 #: ⭐ **对称 rel 的唯一清单**（2026-09-29 N1a）。
 #:
@@ -69,21 +83,30 @@ RELS: tuple[str, ...] = (REL_ABOUT, REL_SUPPORTS, REL_FORMED_BY, REL_CONTRADICTS
 #: ⇒ `add_edge("akin", B, A)` 与 `add_edge("akin", A, B)` 会被当成两条不同的边
 #: （幂等键是 `(rel, src, dst)`，而且是**有向**的）。
 #: ⇒ 现在 `store.add_edge` / `store.remove_edge` / 自举 `_emit` **共用这一份**（两份实现必漂）。
+#: ⚠️ `member_of` **不在**这里 —— 它是 `episode → group` 的**有向**边（"谁属于哪一类"）。
 SYMMETRIC_RELS: frozenset[str] = frozenset({REL_CONTRADICTS, REL_AKIN})
 
 #: ⚠️ 推断层兜底 —— **不在 `RELS` 里**（见模块 docstring 的第二条警告）
 REL_UNKNOWN = "unknown"
 
-#: v4 §1 的 entity（今天不在 `nodes.KINDS` 里; G1 只认 kind 字符串, 不碰那张表）
+#: v4 §1 的 entity（G1 起只认 kind 字符串, 不碰 `nodes.KINDS` 那张表）
 KIND_ENTITY = "entity"
+#: ⭐ N1b（2026-09-29）: 群 —— **L2 归纳出来的"一类事"**，成员靠 `member_of` 指过来。
+#: ⚠️ 它**不在 `_COGNITION` 里**：群不是"稳定下来的认知"（那是 belief/experience），
+#: 而是**分类**。所以 `member_of` 必须是自己的 rel，不能混进 `supports`
+#: （混了会让 `graph.supporters()` 把群也捞出来 —— 而它今天用来算"被引数"）。
+KIND_GROUP = "group"
 
 #: 会挂 `about` 的 kind（§2: belief/episode/experience/promise）。
 #: ⚠️ `fact` 2026-09-25 摘掉 —— 它是**死配置**（kind 已退役 ⇒ 这条白名单永远匹配不到
 #: 任何节点）。`experience` **留着**，但理由换了: 不再是"押 §9-3 的合并预案"（那条
 #: 2026-09-25 由用户关掉），而是**它本身就是"关于老师的事"** ⇒ 该被 `about → sensei`
 #: 指着（§9-8）。
-_ABOUTABLE = ("belief", "episode", "experience", "promise")
+#: ⭐ `group`（N1b）**加进来** —— 群也能归属 entity（"苔藓"属于老师那条线）。
+#: 今天**零写者**（要 L2 才写），这是"先开接口、别锁死"。
+_ABOUTABLE = ("belief", "episode", "experience", "promise", "group")
 #: 认知侧（`supports` 的 dst）: 她的结论 + 玩家画像（两者都是"稳定下来的东西"）
+#: ⚠️ **群不在这里** —— 见 `KIND_GROUP` 的注释。
 _COGNITION = ("belief", "experience")
 
 
@@ -463,6 +486,7 @@ def iter_edges(store, *, rel: str | None = None) -> Iterator[Edge]:
 
 __all__ = [
     "KIND_ENTITY",
+    "KIND_GROUP",
     "RELS",
     "SYMMETRIC_RELS",
     "REL_ABOUT",
@@ -471,6 +495,7 @@ __all__ = [
     "REL_EVOLVED_FROM",
     "REL_FORMED_BY",
     "REL_FROM",
+    "REL_MEMBER_OF",
     "REL_SUPPORTS",
     "REL_TO",
     "REL_UNKNOWN",

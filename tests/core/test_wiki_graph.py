@@ -226,23 +226,39 @@ def test_real_shaped_store(tmp_path):
 # 边表词汇量（2026-09-25 用户裁决: 删 `source`；2026-09-29 N1a: 加 `akin`）
 # ---------------------------------------------------------------------------
 
-def test_edge_vocabulary_is_the_eight():
-    """⭐ 边 = **8 条**（删掉 `source` · 加 `akin`）。
+def test_edge_vocabulary_is_the_nine():
+    """⭐ 边 = **9 条**（删掉 `source` · 加 `akin`(N1a) · 加 `member_of`(N1b)）。
 
     `source` 唯一的形状是 `fact → episode`，而 **`fact` 这个 kind 早在 2026-09-02 就退役**了
     （`nodes.KINDS` 里没有它 ⇒ 节点根本建不出来）⇒ 那是一条**永远不会有走法**的边。
     §2.2 的判据 = "边的存在理由 = 有一条能走的路"; 而 `contradicts` / `evolved_from`
     今天虽零写者, 但 kind 都在、**将来会有**走法 —— "还没有"与"永远不会有"是两件事。
 
-    `akin`（N1a）：她发现"这两条是同一类事" ⇒ **`noticed` 记录行的落点**
-    （`DESIGN_MMT_NEW_ACTION §4.3`），写者只有她（经 L1 补边）。
+    `akin`（N1a）：她发现"这两条是同一类事" ⇒ **`noticed` 记录行的落点**。
+    `member_of`（N1b）：**L2 判定"它属于这一类"** ⇒ 与 `akin` 是**输入与输出**，不能合并。
     """
     from core.brain.wiki_v2 import graph as G
 
     assert set(G.RELS) == {"about", "supports", "formed_by", "contradicts",
-                           "evolved_from", "from", "to", "akin"}
-    assert len(G.RELS) == 8 and len(set(G.RELS)) == 8
+                           "evolved_from", "from", "to", "akin", "member_of"}
+    assert len(G.RELS) == 9 and len(set(G.RELS)) == 9
     assert not hasattr(G, "REL_SOURCE"), "source 已删（连常量都不留）"
+
+
+def test_member_of_is_directed_and_group_is_aboutable():
+    """`member_of` **有向**（不进 `SYMMETRIC_RELS`）；`group` 进 `_ABOUTABLE`（群可归属 entity）。"""
+    from core.brain.wiki_v2 import graph as G
+
+    assert G.REL_MEMBER_OF == "member_of"
+    assert "member_of" not in G.SYMMETRIC_RELS
+    # 有向 ⇒ 原样返回（不被"顺手"规范化）
+    assert G.canonical_for("member_of", "g0001", "m0001") == ("g0001", "m0001")
+    # 群 → entity 判 about（先开接口; 今天零写者, 要 L2 才写）
+    assert classify_pair("entity", "group", "x0001", "g0001") == (REL_ABOUT, "g0001", "x0001")
+    assert classify_pair("group", "entity", "g0001", "x0001") == (REL_ABOUT, "g0001", "x0001")
+    # ⚠️ 群**不是认知** —— episode ↔ group 判不出 supports（那是 member_of 的活, 写路径显式写）
+    assert classify_pair("episode", "group", "m0001", "g0001") == \
+        (REL_UNKNOWN, "g0001", "m0001")
 
 
 def test_symmetric_rels_are_one_list_and_canonical_for_obeys_it():
