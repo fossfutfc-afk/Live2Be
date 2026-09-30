@@ -30,10 +30,10 @@
 | **N2** | **视野补齐（"深"）** | 接线 `render_organize_view` 的**边渲染**；`render_cognition_list` 给 belief **印被引数**；候选带 **why** | `render.py` · `digest.py` | 输入里**能看到边、被引数、why** | — | ~40 行 |
 | **N3** | **L1 区间化** | `event_seq` → `span:[from,to]`；引擎 `_expand_spans` / `_resolve_overlaps` / `_backfill_unclaimed` | `contract/digest_registry.py` · `digest.py` · prompt | ⭐ **覆盖率 100%** · 密度 1.0 · 交错 0 · 旧档兼容 | — | ~50 行 **下游零改动** |
 | **N4** | **L1 记账合并** | `promise` + `on_mind` 并进 L1 同一次调用；**`habits` 槽删掉** | `digest.py` · `notes.py` · 契约 | L1 产 promise ops + on_mind · `habits` 全仓只剩退役注释 | N3 | ~60 行（含删） |
-| ⭐ **N5** | **L-M：MMT 的「想起 + 发现」** | ① 引擎召回 **1~2 条旧 episode**（接线 `recall_subgraph`，今天零调用者）② 注入一段"你想起的事" ③ prompt 给她一个动作 ④ 她引用 ⇒ **锚点校验** ⑤ 落**待挂记录** | `mmt/engine.py` · `promptkit` · `render.py` · `store.py`（待挂） | ① 召回有接线（非零调用者）② **编造的引用被丢**（锚点校验单测）③ 待挂记录可查 | N1 N3 | ~110 行 ⭐ **本主题的价值核心** |
+| ⭐ **N5** | ✅ **已落地 2026-09-29（拆三: N5a/N5b/N5c）** | ① 引擎召回 **1~2 条旧 episode** ② 注入"你想起的事" ③ 给她一个动作 ④ **锚点校验** ⑤ 落账 → **L1 补 `akin` 边** | `render.py` · `recall.py` · `mmt/*` · ⭐ `address.py`（新）· `digest.py` · `events.py` · `contract/schema.py` · rules | 召回有调用者 · **编造的引用被丢** · 账可查 · 补边幂等 · 未认领可 grep | N1 N3 | ⭐ **本主题的价值核心** |
 | **N5a** | ✅ **想起（已落地 2026-09-29）** | ⭐ **标题进注入**（`episode.title` 从来没进过任何注入面 —— 它是**地址**）· 新 `render_recall_block` · 新 `recall_episodes`（只出 episode、**按相关度排**）· `agent_turn` 加 **P19** 槽位（动态尾） | `render.py` · `recall.py` · `recall_config.py` · `mmt/engine.py` | 召回有产品调用者 · 落点守卫（**不许进 system**）· 标题**不过 `_me`** · 无命中不注 | N1 N3 | 已完成（1125 passed · 真机探针见 §2） |
 | **N5b** | ✅ **发现（已落地 2026-09-29）** | `{"noticed": "标题"}`（**顶层键, 不进 `action` 信封**）· 判别键恰好其一 · 不独占 · 锚点校验（命中 0 丢 / 歧义不猜）· 落 `noticed` 事件（**非内容事件**）· rules + 契约示例同批 · ⭐ **P19 段末加"候选旁的提示"**（真机实测: 只写在规则书里会漏报） | `mmt_lines.py` · `mmt_check.py` · `engine.py` · `events.py` · ⭐ `address.py`（新）· `schema.py` · `momotalk_rules.md` | 编造的引用被丢 · 账可查 · 旧形状不受影响 | N5a | 已完成 |
-| **N5c** | **L1 落地（补边）** | 读窗口里的 `noticed` → 找"覆盖那一轮的"新 episode → `add_edge("akin", 新, 她指的)` · 幂等 · 未认领记台账 | `digest.py` | 同一条发现跑两次只出一条边 · 未认领可 grep | N5b | ~40 行 |
+| **N5c** | ✅ **L1 落地（已落地 2026-09-29）** | 读窗口里的 `noticed` → 归属（"该账之前最近的有主内容"）→ `add_edge("akin", 新, 她指的)` · 幂等 · 未认领记台账 | `digest.py` | 同一条发现跑两次只出一条边 · 未认领可 grep | N5b | 已完成 |
 | **N6** | **候选池 `gather_evidence`** | 抬 `panorama.py` 成通用件：参数化语料 + `why` + 两层深度 + **token 预算装填** | `panorama.py` → 新模块 · `recall.py` | 真机 5 个真组抬得出来 · 噪音组进 `rejected` · 按预算装 | N2 | ~120 行 |
 | **N7** | **L2-a 分群** | ⭐ **主要吃 N5 连出来的边**（不再自己找组）+ `merge` + `contradicts` | `contract/digest_registry.py` · `digest.py` · 新 prompt | `add`/`update` **不在契约里** · 只有 `conf≥0.8` 的边推动 collision | N1 N5 | ~100 行 |
 | **N8** | **L2-b `collision`** | 覆盖判据（`covered`/`gap`）+ **单独一次调用** + 派生出 C + 落节点 + N 条边 + 两条 `about` | `digest.py` · 新 prompt | 成员<3 或全在同段 ⇒ **不产节点** · 已有 belief **逐字节不变** · ⭐ **模式判断（频率词）在 n≥2 前不许出现** | N7 | ~90 行 |
@@ -146,15 +146,28 @@ render.py     · P19 段末加 `RECALL_ACTION_HINT`（⭐ **候选旁的提示**
     ⇒ 结论: 缺的是**触发**不是**格式**; 动作必须贴着候选。
 ```
 
-### N5c L1 落地（补 akin 边）—— 待做
+### N5c L1 落地（补 akin 边）—— ✅ **已落地 2026-09-29**
 
 ```
-digest.py（紧挨 _create_a_nodes）: 读窗口里的 `noticed` 事件（**在 new_all 里,
-不在 new_events** —— 它是非内容事件）→ 找"覆盖那一轮的"新 episode
-  （判据: 该 episode 的 event_seq 里 ≤ noticed.seq 的最大者）→ add_edge("akin", 新, 她指的)
-  · 幂等: add_edge 同 (rel,src,dst) 跳过（N1a 的 canonical_for 已处理对称）
-  · 该段没产出 episode ⇒ 那笔自然失效 + 一行台账（**待裁 #7: 要不要下次重扫**）
-判据: 同一条发现跑两次只出一条边 · 未认领可 grep
+digest.py · 新 `_link_akin(store, episode_ids, noticed, ts=)`
+  · 位置 = **建完 episode 之后的第一件事**（边两端都已是真节点 ⇒ 不违 `add_edge` 拒悬空）
+  · ⭐ 归属判据 = "该账**之前**、最近的、**被某条 episode 认领**的内容事件"
+    （`bisect` 在认领 seq 集合里取 ≤ noticed.seq 的最大者）
+    ⚠️ **不是"区间包含"**: `noticed` 是非内容事件, 它自己的 seq 不在任何
+      episode 的 `event_seq` 里（`new_events` 按 `is_content_event` 过滤）⇒ 永远落空
+    ⚠️ **依赖 N5b 的落账时机**（账写在那一轮她的话**之后**）—— 否则归属落到上一轮
+      （静默错归属: 边连到错误的记忆上）。专用反证用例钉住
+    ⚠️ 区间会交叠（真机 m0015 ⊃ m0016）⇒ 同一 seq 可能两个主人, 取**靠后**那条
+  · 一跳都不猜: 找不到归属 / 目标不在库里 ⇒ **不落边 + 台账**
+  · 幂等: `add_edge` 同 (rel,src,dst) 跳过; ⚠️ `akin` 对称 ⇒ **方向不进边表**
+    （只在台账里 —— 这是有意的: "她觉得这两条像"本来就不带方向）
+  · 台账 `digest_akin edges= unclaimed= self=` + 每边一行 `new= old=`
+判据（已过）
+  · 命中落边 · 重跑只出一条边 · 对称边反着写不新增 · 账太早 ⇒ 未认领
+  · 本段没产出 episode ⇒ 未认领 · 目标不存在 ⇒ 跳过（不抛）· 自环 ⇒ 跳过
+  · 没有账 ⇒ 零影响
+⚠️ **待裁 #7（未认领要不要下次 L1 重扫）**: 2026-09-29 用户裁决 = **先丢 + 看台账**,
+   真机上 `unclaimed` 多起来再谈（重扫要新存"未认领水位", 而"零新存储"正是这条设计的好处）
 ```
 
 ### N1a 加 `akin` + 对称 rel 规范化（✅ **2026-09-29 已落地**）
