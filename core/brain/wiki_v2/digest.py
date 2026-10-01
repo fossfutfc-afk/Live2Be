@@ -119,6 +119,8 @@ class DigestResult:
     created_groups: list[str] = field(default_factory=list)
     #: 分群这一步**挂上类**的 episode 数（产出的规模; 0 = 这一段的块都还没成类）
     grouped_episodes: int = 0
+    #: ⭐ **N7b 并群**: 本段并掉的类 `[(输家 id, 赢家 id), …]`
+    merged_groups: list[tuple[str, str]] = field(default_factory=list)
     #: 分群这一步的记账（同名并群 / 类名找不到 / 这一步整体失败…）—— **不阻断**
     group_warnings: list[str] = field(default_factory=list)
 
@@ -419,16 +421,19 @@ def digest_segment(
         #    自带快照 —— 失败只回滚它自己, R1–R4 的活照常提交（把"命名没成"升级成
         #    "整段记忆全丢"是拿真东西换装饰）。
         blks = groups.build_blocks(store, groups.ungrouped(store))
-        if not blks:
-            logger.info("digest_group 跳过（没有未归群的块）")
+        cands = groups.merge_candidates(store)
+        if not blks and not cands:
+            logger.info("digest_group 跳过（没有未归群的块, 也没有可能重复的类）")
         else:
             grp_snap = store.clone_state()
             err0 = len(result.errors)
             system_e = load_prompt("digest_v2_round_group").replace(
                 "{{digest_schema}}", digest_registry.build_schema(PHASE_GROUP))
             user_e = _join_sections([
-                ("还没归类的块", groups.render_blocks(store, blks)),
+                ("还没归类的块",
+                 groups.render_blocks(store, blks) or "（这一段没有新连出来的块）"),
                 ("已有的类", groups.render_groups(store) or "（还没有任何类 —— 全部走 new）"),
+                ("可能重复的类", groups.render_merge_candidates(store, cands)),
             ])
             rows_e, resp_e = _round_call(
                 llm, system_e, user_e,
@@ -445,16 +450,23 @@ def digest_segment(
                 logger.warning("digest_group 失败（只回滚这一步, 本段照常提交）: %s",
                                "; ".join(result.group_warnings[-3:]) or "(无)")
             else:
-                gres = groups.apply_groups(store, rows_e, blks,
-                                           ts=now_ts, event_seq=[interact_max])
+                # ⚠️ 顺序: **先归属, 后并群** —— 反过来那条 attach 会打在一个已经删掉的类上
+                gres = groups.apply_groups(
+                    store, [r for r in rows_e if r["action"] in ("attach", "new")],
+                    blks, ts=now_ts, event_seq=[interact_max])
+                mres = groups.apply_merges(
+                    store, [r for r in rows_e if r["action"] == "merge"], cands, ts=now_ts)
                 result.created_groups = list(gres.nodes)
                 result.grouped_episodes = len(gres.grouped)
-                result.group_warnings = list(gres.warnings)
-                for w in gres.warnings:
+                result.merged_groups = list(mres.merged)
+                result.group_warnings = list(gres.warnings) + list(mres.warnings)
+                for w in result.group_warnings:
                     logger.warning("digest_group: %s", w)
-                logger.info("digest_group blocks=%d rows=%d new=%d grouped=%d warn=%d",
-                            len(blks), len(rows_e), len(gres.nodes),
-                            len(gres.grouped), len(gres.warnings))
+                logger.info("digest_group blocks=%d cand=%d rows=%d new=%d grouped=%d "
+                            "merged=%d moved=%d warn=%d",
+                            len(blks), len(cands), len(rows_e), len(gres.nodes),
+                            len(gres.grouped), len(mres.merged), mres.moved,
+                            len(result.group_warnings))
     except ValueError as e:                              # store 层拒绝 → 回滚
         result.errors.append(str(e))
         return _rollback(store, snapshot, result)
@@ -1224,5 +1236,6 @@ def _rollback(store: WikiStoreV2, snapshot: dict,
     result.created_entities = []
     result.created_groups = []
     result.grouped_episodes = 0
+    result.merged_groups = []
     result.group_warnings = []
     return result
