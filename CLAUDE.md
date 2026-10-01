@@ -401,18 +401,19 @@ CLI/测试同步路径在引擎内串行。
   不触发）。增量幂等（digested_seq 水位）；失败零损失。
   ⚠️ **digest 的唯一触发点是 `if completed:`**（webgui `_wrapup_inner`）——而
   `completed` 只可能来自 `stage:end`（`is_end`）⇒ **没有 end 的章永远不进记忆**。
-- **随身笔记（note）+ 全景轮（写卡, 2026-09-25 落地）**：`soul/notes.json` 是**派生缓存**，
-  真源 = 事件流的 note 操作; 注入块常驻（bond 开场与 MMT 各一处, 0 LLM）。全景轮 = **低频
-  digest 轮**: **每 10 段**一次（计数器 `wiki.meta.json: segments_since_card`; 章闭环只算
-  那一段; **第一次直接到点**; 失败不清零 ⇒ 下一段再试）, 只重写 `habits`/`on_mind` 两槽、
-  **不碰图**（无事务门槛）, 提交 = 先真源（`note/rewrite` 事件）后缓存。⚠️ R4 收口**只发
-  `close` 不发 `retire`**（退场要等读路径召回接通, 链路 ⑥）。设计/代码索引：
-  `core/brain/wiki_v2/DESIGN_GRAPH_V4.md` §3.2 / §6 / §8 / §8.6。
+- **随身笔记（note）**：`soul/notes.json` 是**派生缓存**，真源 = 事件流的 note 操作。
+  **写者收成一个**（2026-09-29, N4a）：`promise` 归 **R4 收口**、⭐ `on_mind` 归 **L1（Round A）**；
+  ⚠️ **`habits` 槽与"全景轮（每 10 段写卡 `segments_since_card`）"已整条退役**（取料逻辑留在
+  `panorama.py` 待切块用）。注入面**两处**：① 常驻 `【你自己记的备忘录】`（bond 开场 / MMT
+  system 尾, 0 LLM）② ⭐ **每轮召回段 `【你想起的事】`**（P19, **动态尾** —— 它的查询是玩家
+  这一句, 拼进 system 就逐轮破前缀缓存）。refs **印名字不印编号**（`(《名字》)`；拿不到名字
+  整段不印）。⚠️ R4 收口**只发 `close` 不发 `retire`**（退场要等读路径召回接通, 链路 ⑥）。
+  设计/代码索引：`core/brain/wiki_v2/DESIGN_GRAPH_V4.md` §3.2 / §6 / §8 / §8.6。
 - **每段四步（`R1 → R4 → R2 → R3`）**：R4 收口 2026-09-25 已接线（`digest.close`, 位置在
   R1 之后/R2 之前 —— promise 节点要先就位才有边可写）；⚠️ 它产的 note 操作**不在
   `digest_segment` 里 append**，挂在 `DigestResult.notes_ops` 上由调用方在**整批 ok 后**写
   （失败 = 整批回滚 ⇒ 那条约定原样开着）。**R2 的视野与动作面** 2026-09-25 也已补（③-2）：
-  `render_cognition_list` 收 `promise`（标签 `[promise·已兑现]`）+ `must_include` 不受 cap 截断；
+  `render_cognition_list` 收 `promise`（类型标签 `promise·已兑现`）+ `must_include` 不受 cap 截断；
   R2 输出多一个**可选键 `links`**（`supports`/`contradicts`/`evolved_from`，两端是渲染列表里的
   本地 id）—— ⚠️ **两个 id 空间**：能 `touch`/`update` 的只有看法，能 `link` 的含承诺。
   **R3 归属**也已接线（`digest.attr`，排在**最后**）：料 = `entities.py` 四块纯函数
@@ -466,9 +467,14 @@ CLI/测试同步路径在引擎内串行。
 - 注入现状报表：`core/promptkit/report.py describe("mmt"|"bond", ctx)` 与
   `docs/PROMPT_INJECTION_MAP.md`（现网校准版；旧版归档 docs/archive/）。
 - ⭐ **她眼前的括号一形一义**（2026-09-29 N5）：`【】`段头 · `〔〕`记忆行元信息
-  （`〔《事件名》｜多久以前｜日期｜难忘〕`，**事件名 = 地址**，她照抄它来指认）·
+  （`〔《事件名》｜多久以前｜日期｜难忘〕`，**第一格 = 引用要用的钥匙**，**事件名 = 地址**，
+  她照抄它来指认）·
   `《》`事件名 · `（）「」`正文与原话 · `[]`历史里的动作名前缀 · `{}`JSON 行 ·
   ⚠️ `·` 是并列、**不是字段边界**（`｜` 才是）。全表 + 三条纪律 = `docs/CONTEXT_MARKS.md`。
+  ⭐ **代码真源 = `core/brain/wiki_v2/marks.py`**（2026-09-29, N5d）：括号表 + `name()` /
+  `head()` / `kind_tag()` / `relative()` 的**唯一实现**，五个写侧（她视图 / L2 / R2 / R4 / R3）
+  全走它；`address.normalize_title` 的剥字符集也从它取（**印剥同源**）。守门 =
+  `tests/core/test_marks_guard.py`（代码字面量里零手写 `《》〔〕｜`）。
 
 ---
 
