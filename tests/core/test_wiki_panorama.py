@@ -16,7 +16,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-from core.brain.wiki_v2 import notes, panorama, recall
+from core.brain.wiki_v2 import panorama, recall
 from core.brain.wiki_v2.panorama import build_input
 from core.brain.wiki_v2.store import WikiStoreV2
 
@@ -34,10 +34,6 @@ def _ep(st, text, *, tags=(), items=(), place=(), sig=0.6, ts="2026-09-20T10:00:
     return st.get(nid)
 
 
-def _note_state(**kw) -> notes.NotesState:
-    return notes.NotesState(**kw)
-
-
 # ---------------------------------------------------------------------------
 # 字面锚点通道（今天的主力）
 # ---------------------------------------------------------------------------
@@ -47,7 +43,7 @@ def test_shared_tag_links_a_candidate(tmp_path):
     _ep(st, "旧的：橱窗里的模型", tags=["模型店", "橱窗"], sig=0.9)
     new = _ep(st, "新的：又路过那家店", tags=["模型店", "纸兔子"])
 
-    inp = build_input(st, _note_state(), new_ids=[new.id])
+    inp = build_input(st, new_ids=[new.id])
 
     assert inp.mode == "anchor"
     assert [c.id for c in inp.candidates] == ["m0001"]
@@ -64,7 +60,7 @@ def test_candidate_must_share_an_anchor(tmp_path):
     new = _ep(st, "新的", tags=["模型店"])
     _ep(st, "旧的：同 tag", tags=["模型店"])
 
-    inp = build_input(st, _note_state(), new_ids=[new.id])
+    inp = build_input(st, new_ids=[new.id])
 
     assert [c.id for c in inp.candidates] == ["m0003"]
     # ⚠️ 无关的那条**不出现**（索引默认关）—— 她看不到内容的条目不该被摆出来诱惑引用
@@ -78,7 +74,7 @@ def test_generic_anchor_is_capped_per_anchor(tmp_path):
         _ep(st, f"旧的 {i}", tags=["约定"], sig=0.5 + i * 0.05)
     new = _ep(st, "新的", tags=["约定"])
 
-    inp = build_input(st, _note_state(), new_ids=[new.id], cap_per_anchor=2)
+    inp = build_input(st, new_ids=[new.id], cap_per_anchor=2)
 
     assert len(inp.candidates) == 2                       # 只带 2 条（显著性最高的两条）
     assert [c.id for c in inp.candidates] == ["m0005", "m0004"]
@@ -92,7 +88,7 @@ def test_rarer_anchor_outranks_generic_one(tmp_path):
     rare = _ep(st, "稀有的那件事", tags=["纸兔子"], sig=0.50)   # DF=2
     new = _ep(st, "新的", tags=["约定", "纸兔子"])
 
-    inp = build_input(st, _note_state(), new_ids=[new.id])
+    inp = build_input(st, new_ids=[new.id])
 
     assert inp.candidates[0].id == rare.id                # 稀有锚点先出, 尽管 sig 更低
     assert inp.candidates[0].rarity < inp.candidates[1].rarity
@@ -110,7 +106,7 @@ def test_more_hits_beat_higher_significance(tmp_path):
     n1 = _ep(st, "新一", tags=["乙", "丁"])
     n2 = _ep(st, "新二", tags=["乙"])
 
-    inp = build_input(st, _note_state(), new_ids=[n1.id, n2.id])
+    inp = build_input(st, new_ids=[n1.id, n2.id])
 
     first, second = inp.candidates[0], inp.candidates[1]
     assert (first.id, second.id) == (twice.id, once.id)
@@ -127,42 +123,12 @@ def test_verbatim_is_not_an_anchor(tmp_path):
     new = st.add(make_node("episode", text="新的", verbatim="那个时候",
                            ts="2026-09-21T10:00:00+09:00"))
 
-    inp = build_input(st, _note_state(), new_ids=[new])
+    inp = build_input(st, new_ids=[new])
     assert inp.candidates == [] and inp.mode == "anchor"
 
 
 # ---------------------------------------------------------------------------
 # 金字塔递归那一半
-# ---------------------------------------------------------------------------
-
-def test_habit_refs_enter_the_pool_with_lowest_priority(tmp_path):
-    st = _store(tmp_path)
-    cited = _ep(st, "我上次引用过的", tags=["无关标签"], sig=0.9)
-    anchored = _ep(st, "被锚点连上的", tags=["模型店"], sig=0.5)
-    new = _ep(st, "新的", tags=["模型店"])
-
-    state = _note_state(habits=[notes.NoteItem(id="n1", text="惯例", refs=[cited.id])])
-    inp = build_input(st, _note_state(habits=state.habits), new_ids=[new.id])
-
-    ids = [c.id for c in inp.candidates]
-    assert cited.id in ids and anchored.id in ids
-    assert ids[0] == anchored.id                          # 新料（锚点命中）优先
-    cited_c = next(c for c in inp.candidates if c.id == cited.id)
-    assert "你上次引用了它" in cited_c.why
-
-
-def test_dangling_habit_ref_is_skipped(tmp_path):
-    st = _store(tmp_path)
-    new = _ep(st, "新的", tags=["模型店"])
-    state = _note_state(habits=[notes.NoteItem(id="n1", text="惯例", refs=["m9999"])])
-
-    inp = build_input(st, state, new_ids=[new.id])
-    assert inp.candidates == []                           # 悬空引用不炸、也不进池
-    assert inp.habits[0].id == "n1"                       # 但上一版惯例照样摆出来
-
-
-# ---------------------------------------------------------------------------
-# 语义近邻通道（本机服务未起 ⇒ 只有假 embedder 能测）
 # ---------------------------------------------------------------------------
 
 def _fake_embed(texts):
@@ -175,7 +141,7 @@ def test_semantic_channel_finds_pairs_without_shared_tags(tmp_path):
     _ep(st, "旧的：我缝了一只布兔子", tags=["手工"])       # 无共享 tag
     new = _ep(st, "新的：兔子的耳朵歪了", tags=["针线"])
 
-    inp = build_input(st, _note_state(), new_ids=[new.id], embed_fn=_fake_embed)
+    inp = build_input(st, new_ids=[new.id], embed_fn=_fake_embed)
 
     assert inp.mode == "semantic"
     assert [c.id for c in inp.candidates] == ["m0001"]    # 字面锚点连不上, 语义连上了
@@ -192,7 +158,7 @@ def test_semantic_failure_degrades_to_anchor(tmp_path, caplog):
         raise RuntimeError("embedding 服务没起")
 
     with caplog.at_level(logging.INFO, logger="core.brain.wiki_v2.panorama"):
-        inp = build_input(st, _note_state(), new_ids=[new.id], embed_fn=_boom)
+        inp = build_input(st, new_ids=[new.id], embed_fn=_boom)
 
     assert inp.mode == "anchor"                           # 降级, 不抛
     assert [c.id for c in inp.candidates] == ["m0001"]
@@ -216,7 +182,7 @@ def test_others_index_drops_candidates_and_reports_truncation(tmp_path):
         _ep(st, f"无关 {i}", tags=["别的"], ts=f"2026-09-2{i}T10:00:00+09:00")
     new = _ep(st, "新的", tags=["模型店"], ts="2026-09-24T10:00:00+09:00")
 
-    inp = build_input(st, _note_state(), new_ids=[new.id], index_cap=2)
+    inp = build_input(st, new_ids=[new.id], index_cap=2)
 
     assert [c.id for c in inp.candidates] == ["m0001"]
     assert "m0001" not in [n.id for n in inp.others]      # 候选不进索引（不重复摆料）
@@ -224,53 +190,10 @@ def test_others_index_drops_candidates_and_reports_truncation(tmp_path):
     assert "还有 2 条更早的没有列出来" in inp.render()
 
 
-def test_worth_running_needs_new_material(tmp_path):
-    """⭐ 只看有没有**新材料** —— 结清/固化不归它（那是 R4 的活），所以"待结清"不算理由。"""
-    st = _store(tmp_path)
-    new = _ep(st, "新的", tags=["模型店"])
-
-    assert build_input(st, _note_state(), new_ids=[new.id]).worth_running is True
-    # 没有新料 ⇒ 别跑（哪怕她本子上有东西要变 —— 那不是这一轮的职责）
-    closed = notes.NoteItem(id="n1", text="买花", closed_at="x", afterwards="送出去了")
-    habits = [notes.NoteItem(id="n2", text="惯例", refs=["m0001"])]
-    assert build_input(st, _note_state(promise=[closed]), new_ids=[]).worth_running is False
-    assert build_input(st, _note_state(habits=habits), new_ids=[]).worth_running is False
-
-
-# ---------------------------------------------------------------------------
-# 渲染
-# ---------------------------------------------------------------------------
-
-def test_render_is_natural_language_with_evidence_and_caveats(tmp_path):
-    st = _store(tmp_path)
-    _ep(st, "旧的：橱窗", tags=["模型店"], sig=0.9)          # 被锚点连上（也是惯例的引用）
-    _ep(st, "旧的：无关的一条", tags=["别的"])
-    new = _ep(st, "新的：又路过那家店", tags=["模型店"])
-    state = _note_state(
-        habits=[notes.NoteItem(id="n4", text="他总先问我想要哪个", refs=["m0001"])],
-        on_mind=notes.NoteItem(id="", text="我不想再隔着玻璃看", refs=["m0001"]))
-
-    text = build_input(st, state, new_ids=[new.id]).render()
-    lines = text.splitlines()
-
-    assert lines[0].startswith("【你上次给自己写的卡】")
-    assert "  · 惯例" in lines and "  · 最近在想" in lines
-    assert "    n4 他总先问我想要哪个（m0001）" in lines        # 卡上：编号 + 正文 + refs
-    assert "    我不想再隔着玻璃看（m0001）" in lines            # 没有编号的（手工构造）就不印
-    assert any(l.startswith("【这次新消化的经历】") for l in lines)
-    assert any("**不一定是同一件事**" in l for l in lines)      # 如实说"这不是判据"
-    assert any("（与 m0003 同 tag: 模型店" in l for l in lines)   # 来源标注 = 圆括号
-    assert any("你上次引用了它）" in l for l in lines)          # 递归那一半也标出来
-    # ⭐ 卡上**印编号**（照抄 = 延续, 2026-09-25 契约）但**不印时间**（对"还成立吗"不是判据）
-    assert "照抄编号" in text and "记于" not in text
-    for junk in ("{", "}", "[", "]", '"', "promise", "habits", "on_mind", "refs"):
-        assert junk not in text, junk
-
-
 def test_render_omits_empty_blocks(tmp_path):
     st = _store(tmp_path)
     new = _ep(st, "新的", tags=["模型店"])
-    text = build_input(st, _note_state(), new_ids=[new.id]).render()
+    text = build_input(st, new_ids=[new.id]).render()
 
     assert "【这次新消化的经历】" in text
     for absent in ("【你上次给自己写的卡】", "【可能相关的旧经历】", "【其余的经历】"):
@@ -278,5 +201,5 @@ def test_render_omits_empty_blocks(tmp_path):
 
 
 def test_empty_library_renders_nothing(tmp_path):
-    inp = build_input(_store(tmp_path), _note_state(), new_ids=["m9999"])
+    inp = build_input(_store(tmp_path), new_ids=["m9999"])
     assert inp.render() == "" and inp.worth_running is False

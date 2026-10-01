@@ -1,5 +1,27 @@
 # PROCEED.md — **接续用**
 
+> ## ⏭️⏭️ **接续后第一件事（2026-09-29 中断点 · N4a）**
+>
+> **状态：N4a 的代码 / 测试 / 文档全部改完并已验证**（`compileall` 绿 · `--collect-only` **1128 collected**
+> 无 import 断裂 · 碰到的 9 个测试文件 **~175 passed**）。⚠️ **未验**：全量四件套 / B 冒烟 / `tests/webgui`（留到收口）。
+>
+> **收尾只剩三件，按序做：**
+> 1. **提交 N4a**（工作树 22 项改动，提交信息已备好：`.testtmp/commit_n4a.txt`）
+>    ⇒ `git add <PROCEED 里列的那批路径>` → `git commit -F .testtmp/commit_n4a.txt`
+> 2. **`core/brain/wiki_v2/digest.py::_episode_lines` 的 `「」` → `《》`**（N5a 定的"事件名用书名号"；
+>    顺手检查同文件 `_round_b_material` 印事件名的地方是否一致）
+> 3. **`CLAUDE.md §7` 里"全景轮每 10 段写 habits/on_mind"现在整段是错的**（N4a 已把 habits 槽
+>    与全景轮一起退役）——按仪式先 `git mv CLAUDE.md CLAUDE_EDIT.md` 改名，改完再改回
+>
+> 三件做完 **才** 选下一个节点（`docs/TODO.md`）：**N4b（R4 并入 R1）我建议缓** / **N6、N7 规格已过期要重写** /
+> **切块（L2-a 分群）设计已谈定但未开工**。
+>
+> ### ⚠️⚠️ 测试纪律（用户 2026-09-29 裁决，违反会被**当场断掉**）
+> **禁止频繁跑全量。不到 5 轮会话 / 不是关键节点，不许跑全量。**
+> **按文件夹 / 板块分着跑**：`pytest tests/core/test_wiki_notes.py`（秒级）· `pytest tests/webgui -q`（一块）·
+> 中途只跑 `pytest --collect-only -q tests`（约 2s，查 import 断裂）。
+> **全量四件套只在大节点收口时跑一次。** 没接线的改动更不该跑回归。
+
 > ⭐ **这份文件的唯一用途**：compact / 换会话之后，**5 分钟拿回上下文**。
 > **关键内容不在这里** —— 在 §5 文档地图那几份里。
 > ⭐ **规则：不往这里堆内容。** 一次讨论结束后，**只更新三处**：**§0 下一步 · §2 已裁 · §3 待裁**。
@@ -13,6 +35,7 @@
 |---|---|
 | **主线** | **新 note 机制 + graph 升级**（digest 按视野三层重排） |
 | **代码** | **N1a**（`akin` + 对称规范化）`6eb89e1` · **N1b**（`group` + `member_of`）`d08f2ae` · ⭐ **N3（位置字段 `span` 区间化）`327821c`** · ⭐ **修既有竞态**（章 `vn_enter` 漏落 / 假 `vn_exit`）⇒ 全量 **1110 passed** · B 冒烟 **PASS** |
+| **N4** | ⭐ **N4a 已落地 2026-09-29**：`habits` 槽退役 · `on_mind` 归 **L1** · **全景轮退役** · refs 印名字。⬜ **N4b（R4 并入 R1）我建议缓** —— 收益只是省一次**离线低频**调用, 而风险是「让 R1 判结清」把注意力分散掉（本项目有前科: *让主 LLM 逐句内联情绪 → 注意力分散、重试爆炸*）。 |
 | **N5 拆三** | ✅ **N5 已走完（2026-09-29）**：**N5a** `483e99b`（标题进注入 · `render_recall_block` · `recall_episodes` · **P19 槽位**）· **N5a-2** `28d8abf`（元信息定稿 `〔《事件名》｜相对｜绝对｜难忘〕` · `age.render_date` · `CONTEXT_MARKS`）· **N5b** `cf24562`（`{"noticed": …}` 第三类行 · ⭐ `address.py` · `noticed` 非内容事件 · 契约/rules 同批）· **N5c**（`digest._link_akin` 补 `akin` 边，工作树待提交） |
 | **设计** | 已裁 **19 条**（§2）· 待裁 **7 条**（§3）· 动工文档 `docs/DESIGN_MMT_NEW_ACTION.md`（§5） |
 | ⏭️ **下一步** | ⭐ **N5 已完成** —— 下一步按 `docs/TODO.md` 选：**N2（视野补齐，最便宜）** / **N6（候选池 `gather_evidence`）** / **N7（L2-a 分群，吃 N5 连出来的 `akin` 边）**。⚠️ 开工前先看那一步的"判据"与依赖 |
@@ -71,7 +94,7 @@ history  = window_messages(max_units=120) → 真机 70 单元 … 5287 字符
 | **1** | **digest 按「视野」分三层**：`L-M` 对话轮 / `L1` 本段 / `L2` 跨段 / `L3` 实体；**不按轮**（`R5` 消掉、全景轮退役） | `DESIGN_DIGEST_LAYERS` §0 |
 | **2** | ~~规律不落地成节点，落在边属性上（`same_kind{aspect, conf}`）；群的身份 = `aspect` 的值 ⇒ `group_by(aspect)`~~ ⚠️ **已推翻（2026-09-29）**：**群 = 节点**（`kind="group"`，`title` = 类名）+ ⭐ **`member_of` 边**（成员，自带各自 `ts`）；**`akin`** = **她的原始发现**（纯边，**无属性**；⚠️ 定名 `akin` 不叫 `same_kind` —— `kind` 在本项目已确切指"节点类型"，`same_kind` 会被读成"两条 kind 相同"）· **`Edge` 一个字段都不加**。理由：① 成员**会生长、各有自己的时刻**（"什么时候加入的"是信息，列表存不下）② `akin`（她觉得像）与 `member_of`（L2 判定）**是输入与输出，不能合并**。⭐ **"群上不放关键信息"** —— 判断归 belief，写两处必漂 | `DESIGN_MMT_NEW_ACTION` **§4.5** |
 | **3** | **`add` 只归 L2**（`groups[].belief`）；`decisions` 只许 `touch`/`update` | 同上 §3.6 |
-| **4** | **note = `promise` + `on_mind` + ⭐ `index`**（指向群的指针）；**`habits` 槽取消** | `DESIGN_NOTE` |
+| **4** | **note = `promise` + `on_mind` + ⭐ `index`**（指向群的指针）；**`habits` 槽取消** | ✅ **2026-09-29（N4a）落地**: `habits` 退役 + `on_mind` 归 L1 + 全景轮退役。⬜ `index` 仍待做（它是 N12 的活, 要等 L2 建群才有原料） |
 | **5** | **L3 = entity 摘要**（动态人设基线）—— 异步 · 派生缓存 · **不进事务** | `DESIGN_DIGEST_LAYERS` §4 |
 | **6** | ⭐ **`refs` 要有走法（两条都要）**：引擎按 refs 展开（**注入时预取**）+ **给她一个动作**；**展开可选 link 连环**（默认 1 跳 + 预算） | `DESIGN_NOTE` §5.2 |
 | **7** | **`index` = 纯派生缓存**（从边表重建，不落真源） | 同上 |
@@ -202,6 +225,8 @@ embed_fn: **无（退词面）** ← 本机 LM Studio 没起（TRAPS 38 那条�
 > 做完才跑一次全量。理由：全量 ≈ **5 分 20 秒**，拆一步跑一次 = 把时间花在还没做完的东西上。
 > ⚠️ 跑全量时**别加 `| Select-Object -Last N`** —— 管道要等进程结束才吐字，
 > 中途 `job_output` 永远是空的（看不到进度，像卡死）。
+
+> ⚠️ **改到一半的树不跑回归**（2026-09-29 用户裁决）: 手术没做完树必然是红的, 跑了只是"还在改"。**中途只跑** `compileall` + **`pytest --collect-only -q tests`**（≈2 秒, 只查 import/语法断裂）; **一个节点改完只跑碰到的那几个文件**（秒级）; 全量四件套只在大节点收口。
 
 **① 子节点：小回归**（只跑改动面那一片；下面是常用几组）
 

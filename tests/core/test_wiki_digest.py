@@ -184,6 +184,27 @@ def test_affection_markers_excluded_from_digest_input(tmp_path):
 # 完整通过: A 建 episode → B touch/update/add → evidence/好感/水位/log
 # ---------------------------------------------------------------------------
 
+def test_round_a_produces_on_mind_note_op(tmp_path):
+    """⭐ N4a（2026-09-29）: **L1 产 `on_mind`** —— 从前那是全景轮每 10 段的活。
+
+    形状: Round A 的应答里多一个同级键 `on_mind`（缺键 = 不变, 不是清空）;
+    引擎把它变成一条 `rewrite` 操作挂进 `notes_ops`（调用方**整批 ok 之后**才写）。
+    """
+    st = _seed_store(tmp_path)
+    a = _a_episode()
+    a["on_mind"] = "我给瓦片留了缝让它见光——也想给自己留一道"
+    res = digest_segment(st, FakeLLM(a, _b_ok()), _events(_mmt(3, "老师", "嗯")))
+    assert res.ok, res.errors
+    ops = [op for op in res.notes_ops if op.get("action") == "rewrite"]
+    assert len(ops) == 1 and ops[0]["on_mind"] == a["on_mind"], res.notes_ops
+
+    # 缺键 ⇒ **不产操作**（不变, 不是清空）
+    res2 = digest_segment(_seed_store(tmp_path / "b"), FakeLLM(_a_episode(), _b_ok()),
+                          _events(_mmt(3, "老师", "嗯")))
+    assert res2.ok, res2.errors
+    assert not [op for op in res2.notes_ops if op.get("action") == "rewrite"]
+
+
 def test_full_pipeline(tmp_path):
     st = _seed_store(tmp_path)
     llm = FakeLLM(_a_episode(), _b_ok())

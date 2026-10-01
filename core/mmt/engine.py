@@ -87,12 +87,7 @@ from core.promptkit import (
 from core.session import SessionStore
 from core.session.events import TYPE_NOTICED, is_content_event, make_event
 from core.session.renderer import session_status, window_messages
-from core.brain.wiki_v2.digest import (
-    PANORAMA_COUNTER_KEY,
-    PANORAMA_EVERY,
-    digest_segment,
-    run_panorama,
-)
+from core.brain.wiki_v2.digest import digest_segment
 from core.brain.wiki_v2.entities import ensure_entities
 from core.affection import Affection, load_affection_from_events
 from core.brain.wiki_v2.address import find_episode
@@ -257,7 +252,7 @@ def load_note_segment(store: SessionStore, char_id: str, *,
     """随身笔记注入块（DESIGN_GRAPH_V4 §3.2; 0 LLM）—— **常驻层**, 每轮都在。
 
     它是**当前值不是事件**: 固定标题（"这是你自己记的, 不是别人给你的任务"）+
-    固定顺序（约定 → 惯例 → 最近在想）, ⚠️ **不进按时间排序的记忆流**
+    固定顺序（约定 → 最近在想）, ⚠️ **不进按时间排序的记忆流**
     （`render_character_view` 那些带"（3 周前）"的条目是另一块）。
 
     与 wiki 视图**同源同频**（都在 digest / 开场这两处重建）, 所以两处调用点
@@ -273,7 +268,10 @@ def load_note_segment(store: SessionStore, char_id: str, *,
             wstore = WikiStoreV2(store.data_root, world_id=store.world_id,
                                  char_id=char_id)
         evs = store.events(char_id) if events is None else events
-        return render_note_block(wstore.notes_state(evs), now=datetime.now())
+        # ⭐ N4a: refs 印**名字**不印编号 —— 名字要从图上取（渲染层纯函数零 IO）。
+        titles = {n.id: n.title for n in wstore.all() if n.id and n.title}
+        return render_note_block(wstore.notes_state(evs), now=datetime.now(),
+                                 titles=titles)
     except Exception as e:                            # noqa: BLE001 — 注入绝不阻断
         logger.warning("笔记注入失败（不注）: %s", e)
         return ""
@@ -677,7 +675,8 @@ class MomoTalkEngine:
         digest=False（resume）: 只读注入。
         digest=True（async_digest 后台线程, _digest_lock 串行）: digest_segment
         （Round A 记录 + Round B 组织）→ 好感结算（affection 事件, 幂等键
-        interact_max）→ **全景轮**（每 N 段一次写卡, `_maybe_card_round`）→ 注入刷新。
+        interact_max）→ 注入刷新。（⚠️ 全景轮已于 2026-09-29 / N4a 退役 —— note 的
+        写者收成一个: `promise` 归 R4、`on_mind` 归 L1。）
         失败静默降级——wiki 是派生视图, events.jsonl 唯一真源, 可重算。
         """
         store = self._store
@@ -738,11 +737,6 @@ class MomoTalkEngine:
                         # 事件不可撤销, 提前写就把"整批回滚"变成了半截状态。
                         events = self._write_note_ops(store, wstore, character_id,
                                                       events, res.notes_ops)
-                    if interact_max:
-                        # 全景轮（§8.6）: 真消化了一段才计数; 到 N 段写一次卡。
-                        events = self._maybe_card_round(
-                            store, wstore, character_id, events,
-                            new_ids=res.created, embed_fn=_get_embed_fn())
             wiki_seg = render_character_view(
                 wstore.all(),
                 char_name=char.display_name or "",
@@ -791,62 +785,6 @@ class MomoTalkEngine:
         except Exception as e:                       # noqa: BLE001 — 只是缓存, 真源是事件流
             logger.warning("笔记缓存写入失败（事件流已是真源, 下次现折）: %s", e)
         return events
-
-    def _maybe_card_round(self, session_store: SessionStore, wstore: WikiStoreV2,
-                          character_id: str, events: list, *,
-                          new_ids: Any = (), embed_fn: Any = None) -> list:
-        """全景轮（**写卡**）的触发 + 落库（DESIGN_GRAPH_V4 §8.6; 2026-09-25 接线）。
-
-        规则（用户 2026-09-25 裁决）:
-          · 计数器住 `wiki.meta.json`（`segments_since_card`）—— **每消化成功一段 +1**
-            （"段" = `digest_segment` 真吃到了内容 ⇒ `interact_max > 0`）;
-          · 到 `PANORAMA_EVERY`(10) 才真跑; ⭐ **章闭环不插队** —— 它只算那一段
-            （触发点唯一 ⇒ 时序可预测）;
-          · ⭐ **第一次直接当成到点**（meta 里还没这个键 = 从没写过卡）—— 别让她等满
-            10 段才有第一张卡（2026-09-25 裁决: "第一次就把卡建起来"）;
-          · ⭐ **没跑成 / 没料 ⇒ 计数器不清零**（停在阈值之上 ⇒ 下一段再试）。
-
-        提交顺序 = **先真源（事件 append）后缓存（`notes.json`）**: 反过来会出现
-        "本子上有、事件流没有" —— 那条笔记没有人能重建它。
-        失败静默降级（宁缺勿错）: 卡写不进去 = 这一轮没写, 绝不阻断剧情/消化。
-
-        Returns: 事件流 —— **写了卡就是重读后的那一份**（注入块要用新的）。
-        """
-        key = PANORAMA_COUNTER_KEY
-        count = (PANORAMA_EVERY if key not in wstore.meta
-                 else int(wstore.meta.get(key, 0) or 0) + 1)
-        if count < PANORAMA_EVERY:
-            self._save_card_counter(wstore, count)
-            return events
-        run = run_panorama(wstore, self.llm, wstore.notes_state(events),
-                           new_ids=new_ids, embed_fn=embed_fn,
-                           llm_timeout=DIGEST_LLM_TIMEOUT)
-        if not run.ok:
-            logger.warning("全景轮未完成（%s; 计数器保持 %d, 下一段再试）: %s",
-                           character_id, count, " | ".join(run.errors) or "无产出")
-            self._save_card_counter(wstore, count)
-            return events
-        before = events
-        events = self._write_note_ops(session_store, wstore, character_id,
-                                      events, [run.op])   # 先真源后缓存（唯一实现）
-        if events is before:                         # 没写进去（降级）⇒ 本轮没写卡
-            self._save_card_counter(wstore, count)
-            return events
-        self._save_card_counter(wstore, 0)
-        applied = run.applied
-        logger.info("panorama_card 已写卡 (%s): kept=%d added=%d dropped=%d warn=%d",
-                    character_id, len(applied.kept), len(applied.added),
-                    len(applied.dropped), len(run.warnings))
-        return events
-
-    @staticmethod
-    def _save_card_counter(wstore: WikiStoreV2, n: int) -> None:
-        """段计数器落盘（`wiki.meta.json` —— 与 `digested_seq` 同居一份 meta, 原子整写）。"""
-        try:
-            wstore.meta[PANORAMA_COUNTER_KEY] = int(n)
-            wstore.save_meta()
-        except Exception as e:                       # noqa: BLE001 — 写不进 = 下次从头数
-            logger.warning("写卡计数器落盘失败（下次从头数）: %s", e)
 
     def _last_seen_ts(self) -> str:
         """她上次与老师互动的**壁钟时间**（`§4.11` 的"现实间隔"数据源）。

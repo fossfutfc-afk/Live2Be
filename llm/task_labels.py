@@ -42,8 +42,8 @@ DIGEST_B = "digest.round_b"
 DIGEST_CLOSE = "digest.close"
 #: R3 归属（把本轮新节点挂到 entity 上 + 维护载荷）—— 每段的最后一步
 DIGEST_ATTR = "digest.attr"
-#: 全景轮（写卡）—— **低频**, 不在每段那一批里（§8.6）
-DIGEST_PANORAMA = "digest.panorama"
+# ⚠️ ~~`DIGEST_PANORAMA`~~（全景轮）**2026-09-29（N4a）已退役** —— 它没有输出了
+# （`habits` 槽取消 · `on_mind` 改由 Round A 写）。别把它加回来。
 #: 主链（创作）——MMT 消息流 / Bond 记录流
 MMT = "mmt"
 BOND = "bond"
@@ -51,7 +51,7 @@ BOND = "bond"
 #: 全部合法标签（源码扫描守门用）
 ALL: frozenset[str] = frozenset({
     EMOTION, PLACE, PLACE_BOARD, PLACE_VARIANT,
-    DIGEST, DIGEST_A, DIGEST_B, DIGEST_CLOSE, DIGEST_ATTR, DIGEST_PANORAMA, MMT, BOND,
+    DIGEST, DIGEST_A, DIGEST_B, DIGEST_CLOSE, DIGEST_ATTR, MMT, BOND,
 })
 
 #: 主链（输出是"创作"本身, 桩按脚本队列回）
@@ -73,7 +73,6 @@ PROFILE_OF: dict[str, str] = {
     DIGEST_B: "digest",
     DIGEST_CLOSE: "digest",
     DIGEST_ATTR: "digest",
-    DIGEST_PANORAMA: "digest",
     MMT: "mmt",
     BOND: "bond",
 }

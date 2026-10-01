@@ -305,8 +305,6 @@ core.mmt.engine	MmtLoopError	class	core.mmt.engine
 core.mmt.engine	MmtStream	class	core.mmt.mmt_lines
 core.mmt.engine	MomoTalkEngine	class	core.mmt.engine
 core.mmt.engine	MomoTalkOutput	class	core.tui.display
-core.mmt.engine	PANORAMA_COUNTER_KEY	data	-
-core.mmt.engine	PANORAMA_EVERY	data	-
 core.mmt.engine	RECALL_QUERY_CHARS	data	-
 core.mmt.engine	SHAPE_RETRY_MAX	data	-
 core.mmt.engine	SUGGEST_BOND_ROUNDS	data	-
@@ -359,7 +357,6 @@ core.mmt.engine	render_character_view	function	core.brain.wiki_v2.render
 core.mmt.engine	render_recall_block	function	core.brain.wiki_v2.render
 core.mmt.engine	repair_line	function	core.mmt.mmt_repair
 core.mmt.engine	round_messages	function	core.promptkit.tail
-core.mmt.engine	run_panorama	function	core.brain.wiki_v2.digest
 core.mmt.engine	session_status	function	core.session.renderer
 core.mmt.engine	split_issues	function	contract.issues
 core.mmt.engine	task_card	function	core.promptkit.task
