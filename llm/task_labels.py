@@ -42,6 +42,9 @@ DIGEST_B = "digest.round_b"
 DIGEST_CLOSE = "digest.close"
 #: R3 归属（把本轮新节点挂到 entity 上 + 维护载荷）—— 每段的最后一步
 DIGEST_ATTR = "digest.attr"
+#: ⭐ N7（2026-09-29）**L2-a 分群** —— 每段的**最后一步**, 与 R1–R4 不同层:
+#: 吃"她连过的块"（`akin` 连通块）, 产**群节点 + `member_of` 边**（引擎切块 + 只起名）
+DIGEST_GROUP = "digest.group"
 # ⚠️ ~~`DIGEST_PANORAMA`~~（全景轮）**2026-09-29（N4a）已退役** —— 它没有输出了
 # （`habits` 槽取消 · `on_mind` 改由 Round A 写）。别把它加回来。
 #: 主链（创作）——MMT 消息流 / Bond 记录流
@@ -51,7 +54,7 @@ BOND = "bond"
 #: 全部合法标签（源码扫描守门用）
 ALL: frozenset[str] = frozenset({
     EMOTION, PLACE, PLACE_BOARD, PLACE_VARIANT,
-    DIGEST, DIGEST_A, DIGEST_B, DIGEST_CLOSE, DIGEST_ATTR, MMT, BOND,
+    DIGEST, DIGEST_A, DIGEST_B, DIGEST_CLOSE, DIGEST_ATTR, DIGEST_GROUP, MMT, BOND,
 })
 
 #: 主链（输出是"创作"本身, 桩按脚本队列回）
@@ -73,6 +76,7 @@ PROFILE_OF: dict[str, str] = {
     DIGEST_B: "digest",
     DIGEST_CLOSE: "digest",
     DIGEST_ATTR: "digest",
+    DIGEST_GROUP: "digest",
     MMT: "mmt",
     BOND: "bond",
 }

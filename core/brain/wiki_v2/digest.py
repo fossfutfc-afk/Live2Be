@@ -44,12 +44,13 @@ from typing import Any, Callable
 
 from contract.digest_registry import (
     PHASE_ATTRIBUTE,
+    PHASE_GROUP,
     PHASE_CLOSE,
     PHASE_RECORD,
     PHASE_UNDERSTAND,
     digest_registry,
 )
-from core.brain.wiki_v2 import marks
+from core.brain.wiki_v2 import groups, marks
 from core.brain.wiki_v2.entities import candidate_table, hit_set, new_nodes_block, payload_block
 from core.brain.wiki_v2.llm_call import llm_chat
 from core.brain.wiki_v2.nodes import PLAYER_SUBJECT, make_node
@@ -114,6 +115,12 @@ class DigestResult:
     promise_nodes: list[str] = field(default_factory=list)
     #: R3 新建的 entity id（`new_entity` 的产物; 归属边在那边一起写）
     created_entities: list[str] = field(default_factory=list)
+    #: ⭐ **L2-a 分群（N7）**: 本段**新建的群节点** id
+    created_groups: list[str] = field(default_factory=list)
+    #: 分群这一步**挂上类**的 episode 数（产出的规模; 0 = 这一段的块都还没成类）
+    grouped_episodes: int = 0
+    #: 分群这一步的记账（同名并群 / 类名找不到 / 这一步整体失败…）—— **不阻断**
+    group_warnings: list[str] = field(default_factory=list)
 
 
 def digest_segment(
@@ -404,6 +411,50 @@ def digest_segment(
             logger.info("digest_attr table=%d hit=%d payload=%d rows=%d new=%d",
                         len(ent_local), len(hits), len(payload.splitlines()),
                         len(rows_d), len(result.created_entities))
+
+        # ── L2-a 分群（N7）: 每段的**最后一步**, 与 R1–R4 **不同层** ──
+        # 料 = 引擎切好的块（`akin` 连通块, ⭐ **边不进视野**）+ 已有的类;
+        # 产 = **群节点 + `member_of` 边**。⚠️ 它**只起名**, 不判"像不像"（那是她的活）。
+        # ⚠️ **它失败不连累整段**: 分群是**加法**的（块留到下段再来 ⇒ 自愈）, 所以这一步
+        #    自带快照 —— 失败只回滚它自己, R1–R4 的活照常提交（把"命名没成"升级成
+        #    "整段记忆全丢"是拿真东西换装饰）。
+        blks = groups.build_blocks(store, groups.ungrouped(store))
+        if not blks:
+            logger.info("digest_group 跳过（没有未归群的块）")
+        else:
+            grp_snap = store.clone_state()
+            err0 = len(result.errors)
+            system_e = load_prompt("digest_v2_round_group").replace(
+                "{{digest_schema}}", digest_registry.build_schema(PHASE_GROUP))
+            user_e = _join_sections([
+                ("还没归类的块", groups.render_blocks(store, blks)),
+                ("已有的类", groups.render_groups(store) or "（还没有任何类 —— 全部走 new）"),
+            ])
+            rows_e, resp_e = _round_call(
+                llm, system_e, user_e,
+                model=model, temperature=temperature, max_tokens=max_tokens,
+                llm_timeout=llm_timeout, extra_body=extra_body, deadline=deadline,
+                label="group",
+                parse_fn=lambda r: digest_registry.parse_group(
+                    r, block_ids={b.bid for b in blks}),
+                result=result)
+            if rows_e is None:
+                store.restore_state(grp_snap)
+                result.group_warnings.extend(result.errors[err0:])
+                del result.errors[err0:]                 # ⚠️ ok=True 不许带 errors
+                logger.warning("digest_group 失败（只回滚这一步, 本段照常提交）: %s",
+                               "; ".join(result.group_warnings[-3:]) or "(无)")
+            else:
+                gres = groups.apply_groups(store, rows_e, blks,
+                                           ts=now_ts, event_seq=[interact_max])
+                result.created_groups = list(gres.nodes)
+                result.grouped_episodes = len(gres.grouped)
+                result.group_warnings = list(gres.warnings)
+                for w in gres.warnings:
+                    logger.warning("digest_group: %s", w)
+                logger.info("digest_group blocks=%d rows=%d new=%d grouped=%d warn=%d",
+                            len(blks), len(rows_e), len(gres.nodes),
+                            len(gres.grouped), len(gres.warnings))
     except ValueError as e:                              # store 层拒绝 → 回滚
         result.errors.append(str(e))
         return _rollback(store, snapshot, result)
@@ -1164,10 +1215,14 @@ def _rollback(store: WikiStoreV2, snapshot: dict,
     ⭐ 2026-09-25: **R4 的 note 操作一并作废**（§8: 失败 = 整批回滚 ⇒ 那条约定原样开着）。
     节点面靠 `restore_state` 回去; note 面必须在这里清空 —— 事件 append **不可撤销**,
     调用方只要看到 `ok=False` 就不写, 但结果对象里留着它就是一颗雷。
-    同理清掉 `created_entities`（R3 建的 entity 也随快照回去了）。
+    同理清掉 `created_entities`（R3 建的 entity 也随快照回去了）;
+    ⭐ **N7 起还有分群那一步的记账**（群节点/边都随快照回去了, 结果对象里不许留）。
     """
     store.restore_state(snapshot)
     result.notes_ops = []
     result.promise_nodes = []
     result.created_entities = []
+    result.created_groups = []
+    result.grouped_episodes = 0
+    result.group_warnings = []
     return result

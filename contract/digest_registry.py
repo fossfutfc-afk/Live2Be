@@ -36,6 +36,11 @@ PHASE_CLOSE = "close"
 #: 它写 `about`（hint/正文 → 候选表里的对象）、`new_entity` 提案、entity 载荷改写；
 #: ⚠️ **不碰正文**（改正文是 R2 的活）、**不合并节点**（§9-12 ④ 未裁）。
 PHASE_ATTRIBUTE = "attribute"
+#: ⭐ **L2-a 分群轮**（N7, 2026-09-29）—— 每段的**最后一步**, 与 R1–R4 **不同层**:
+#: 它吃的是"**她连过的块**"（`akin` 连通块, 由引擎切好）, 产的是**群节点 + `member_of` 边**。
+#: ⚠️ 它**不给块判像不像**（那是她的活, 也是为什么要分两步）—— 只做两件事:
+#: **起名**（new）/ **认出它属于已有的类**（attach）。
+PHASE_GROUP = "group"
 # EXT: digest-deep — 三相位之 deep（设计已声明, 未实现）; 勿删（docs/EXTENSION_POINTS.md）
 PHASE_DEEP = "deep"
 
@@ -59,6 +64,10 @@ MAX_ALIASES = 8         # `new_entity` 的别名上限（超了截断 + warning 
 MAX_TEXT = 300          # 正文（text）单行上限（汉字）——三槽合流后两种 kind 共用
 MAX_TAGS = 4            # tags 检索词上限
 MAX_ITEMS = 3           # items（物品台账, §3.1）单条上限
+#: 类名（group 的 `title`）上限 —— ⚠️ **与 episode 的 8~16 字不是同一条**: 类名可以很短
+#: （"那片苔藓" 4 字就够）, 这里只挡"写成一整句话的那种"; 超了**只告警不截断**
+#: （截断会把名字截坏, 而名字是**地址**）。
+GROUP_TITLE_MAX = 16
 
 #: ⚠️ **`TASK_TIMESPAN` 已于 2026-09-17 删除**（用户裁决）—— 连同 schema 里那行
 #: `"time_span": "halfday"`。
@@ -516,6 +525,43 @@ class DigestRegistry:
                 "  ⚠️ 立场（text）没变就别动 —— 它是慢变量。",
             ])
 
+        if phase == PHASE_GROUP:
+            return "\n".join([
+                "输出 JSON（不要任何解释文字, 不要 ```json 代码块）:",
+                "    {",
+                '     "attach": [ // 这些块属于**已有的类**（没有就写 []）;',
+                '        {"block": "b1", "group": "那片苔藓"}',
+                "     ],",
+                '     "new": [ // 这些块是一个**新的类**（没有就写 []）;',
+                '        {"block": "b2", "title": "模型店的那些事"}',
+                "     ]",
+                "    }",
+                "",
+                "两个键**都要在**（没有就写空数组 []）。",
+                "⭐ **每个块恰好出现在一个键里** —— 发下来的每个块都必须有归属;",
+                "   漏一个块 = 整包被拒（引擎会带着「你漏了 b2」再问一次）。",
+                "",
+                "attach 一行 —— 这一块说的就是**已有的某个类**:",
+                "  block —— 上面「还没归类的块」的把手（b1…）;",
+                "  group —— 「已有的类」里那个类的名字（**照抄**它, 不要改写）;",
+                "            名单里没有的名字不要写（写了会被丢掉, 那块留到下次）。",
+                "",
+                "new 一行 —— 这一块是一个**新的类**:",
+                "  block —— 块的把手;",
+                "  title —— 你给这个类起的名字（**2~16 字**, 短一点好）:",
+                "            写「这类事的名字」, 不是某一件具体事的名字;",
+                "            要**具体**（含一个具体的人 / 地方 / 东西）, 不要抽象类别词 ——",
+                '            ✗「日常」「回忆」「和老师的相处」 ✓「那片苔藓」「模型店的那些事」。',
+                "",
+                "规则:",
+                "  ⚠️ **能归已有的类就别新建** —— 同一个类裂成两个名字是这一步最贵的错"
+                "（引擎会把同名的并回去, 但**名字不同、意思相同**的它认不出来）;",
+                "  ⚠️ 块是**她自己觉得像**的几件事连起来的 —— 你**不用再判一次像不像**,",
+                "     你的活是**给它们一个共同的名字**（或者认出它属于已有的哪个名字）;",
+                "  ⚠️ 一个类名下面至少要能站住**两件事**（引擎只把有同伴的块发给你, 所以每块都能起）;",
+                "  ⚠️ 不要复述事件 —— 类的名字不是这次发生了什么。",
+            ])
+
         raise ValueError(f"未知 digest phase: {phase!r}")
 
     # ------------------------------------------------------------------
@@ -610,6 +656,80 @@ class DigestRegistry:
                     continue
                 seen.add(mark)
                 out.append(item)
+        return out, ValidationResult(tuple(errors), tuple(warnings))
+
+    def parse_group(self, raw: Any, *, block_ids: set[str]
+                    ) -> tuple[list[dict], ValidationResult]:
+        """L2-a 分群（N7）: `{"attach": […], "new": […]}` → 归一化行。
+
+        **只做形状 + 闭集校验**（键在不在 / 是不是数组 / 必填 / 块的把手来自本轮名单 /
+        ⭐ **每个块恰好一次归属**）。"那个类名存不存在"是**世界校验** ⇒ 归执行器
+        （`groups.apply_groups`）**剔掉 + 记账、不拒整包** —— 同 `parse_close` 的口径:
+        形状错重试有用, "看错了世界"重试大概率还是错。
+
+        ⚠️ **覆盖是硬错**（同 `parse_round_b` 的"必须覆盖全部 episode"）: 漏一个块 =
+        那几件事白连了一次, 而"漏"正是"没按契约说话" —— 带反馈重试一次通常就好。
+        （调用方还有一道安全网: 这一步整体失败**只回滚它自己**, 不连累整段 —— 见 `digest_segment`。）
+
+        Returns: `(rows, ValidationResult)`; 行形状
+
+            `{"action": "attach", "block": "b1", "group": "那片苔藓"}`
+            `{"action": "new", "block": "b2", "title": "模型店的那些事"}`
+        """
+        errors: list[str] = []
+        warnings: list[str] = []
+        if not isinstance(raw, dict):
+            return [], ValidationResult(errors=("分群轮输出必须是 JSON 对象",))
+
+        out: list[dict] = []
+        seen: set[str] = set()
+        for key in ("attach", "new"):
+            if key not in raw:
+                errors.append(f"缺键 {key!r}（两个键都要在, 没有就写空数组）")
+                continue
+            rows = raw.get(key)
+            if not isinstance(rows, list):
+                errors.append(f"{key} 必须是数组")
+                continue
+            for i, row in enumerate(rows):
+                if not isinstance(row, dict):
+                    errors.append(f"{key}[{i}] 必须是对象")
+                    continue
+                block = row.get("block")
+                if not isinstance(block, str) or not block.strip():
+                    errors.append(f"{key}[{i}] 缺 block（块的把手 b1…）")
+                    continue
+                block = block.strip()
+                if block not in block_ids:
+                    errors.append(f"{key}[{i}] 块 {block!r} 不在本轮名单里"
+                                  f"（只有 {', '.join(sorted(block_ids))}）")
+                    continue
+                if block in seen:
+                    warnings.append(f"{key}[{i}] 块 {block!r} 重复（只留第一条）")
+                    continue
+                if key == "attach":
+                    name = row.get("group")
+                    if not isinstance(name, str) or not name.strip():
+                        errors.append(f"attach[{i}] 缺 group（已有类的名字）")
+                        continue
+                    seen.add(block)
+                    out.append({"action": "attach", "block": block,
+                                "group": name.strip()})
+                    continue
+                title = row.get("title")
+                if not isinstance(title, str) or not title.strip():
+                    errors.append(f"new[{i}] 缺 title（这个类叫什么）")
+                    continue
+                title = title.strip()
+                if len(title) > GROUP_TITLE_MAX:
+                    warnings.append(f"new[{i}] 类名偏长（{len(title)} 字）: {title!r}")
+                seen.add(block)
+                out.append({"action": "new", "block": block, "title": title})
+
+        missing = sorted(b for b in block_ids if b not in seen)
+        if missing:
+            errors.append("这些块没有归属: " + ", ".join(missing)
+                          + "（每个块都要出现在 attach 或 new 里, 一个都不能漏）")
         return out, ValidationResult(tuple(errors), tuple(warnings))
 
     def parse_attribution(self, raw: Any, *, entity_ids: set[str],

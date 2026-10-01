@@ -1,12 +1,14 @@
 # -*- coding: utf-8 -*-
 """marks.py — **括号与信息头的唯一实现**（`docs/CONTEXT_MARKS.md` 的代码真源）。
 
-她（以及 digest 那四轮）眼前那几行字的形状全从这里出::
+她（以及 digest 那五轮）眼前那几行字的形状全从这里出::
 
     - 〔《中秋的杂草屋》｜4 天前｜9/27｜难忘〕中秋节晚上, 社团的大家…   ← head()  (她)
     〔m0021｜《今天的杂草屋》〕今天放学后又去了杂草屋…                  ← head()  (R2/R4)
     〔u0001｜belief｜被引 3〕sensei：老师是第一个…                     ← head()  (L2)
     〔u0001｜《模型店》｜episode〕模型店门口                            ← head()  (R3)
+    〔《那片苔藓》｜3 条〕…                                            ← head()  (L2-a 分群: 已有的类)
+    〔b1｜3 条〕…                                                     ← head(None)  (L2-a 分群: 块的把手)
     n3 周六模型店 (《模型店的午后》)  ← 记于 3 天前                     ← name() + relative()  (note)
 
 ## 三条不变量（`docs/CONTEXT_MARKS.md`）
@@ -154,8 +156,8 @@ def abs_date(ts: object, now) -> str:
 # 3. 信息头
 # ---------------------------------------------------------------------------
 
-def head(node: "BrainNode", *, key: str = "", kind: bool = False, now=None,
-         extra: object = ()) -> str:
+def head(node: "BrainNode | None" = None, *, key: str = "", kind: bool = False,
+         now=None, extra: object = ()) -> str:
     """⭐ **信息头**: `〔钥匙｜《名字》｜类型｜相对｜绝对｜…读者自己的字段〕`。
 
     格序**固定**（`key → 名字 → kind → 相对 → 绝对 → extra…`）, 但**空的一律不占位**
@@ -166,25 +168,33 @@ def head(node: "BrainNode", *, key: str = "", kind: bool = False, now=None,
 
     | 参数 | 谁决定 | 说明 |
     |---|---|---|
-    | `key` | **调用方给的串** | ⚠️ 不是布尔: **"要不要编号"的真身是"这一轮她要不要拿这个串写回引擎"**。`key=node.id`（真实 id, digest 的 `refs` 用它）· `key=本地号`（`u0001`, 防 LLM 猜真实 id）· **不传**（她的视图: **编号绝不进**, 名字就是钥匙）。本地号映射只有调用方手里有, 所以只能它给 |
+    | `key` | **调用方给的串** | ⚠️ 不是布尔: **"要不要编号"的真身是"这一轮她要不要拿这个串写回引擎"**。`key=node.id`（真实 id, digest 的 `refs` 用它）· `key=本地号`（`u0001`, 防 LLM 猜真实 id）· **不传**（她的视图: **编号绝不进**, 名字就是钥匙） |
     | `kind` | 布尔 | 印不印 `kind_tag(node)`（她的视图不印: 分节已经说了这是"我记得的事"） |
     | `now` | **时刻或 `None`** | 不传布尔: `now=None` ⇒ 时间两格都不出现（哨兵纪律） |
 
-    `extra` = **读者自己的字段**（`被引 3` / `sig 0.90` / `难忘` …）: 只有它知道该印什么、
-    什么顺序 —— 但**不许把名字写进去**（名字只能由 `name()` 产, 守门用例钉着）。
+    ⭐ **`node=None`**（N7）: 给**不是图节点**的把手用 —— 一个块（`b1`）、一个临时分组,
+    它们只有"钥匙"与"读者自己的字段"两格（`head(None, key="b1", extra=["3 条"])`
+    → `〔b1｜3 条〕`）。⚠️ 名字格**只认节点上的 `title`**（不接字符串）——
+    名字是**地址**, 只有一处印法（`name()`）, 谁能被指必须有据可查。
 
-    ⚠️ **`key` 与 `extra` 都为空、node 也没名字 ⇒ 返回 `""`** = 整段不出现（旧档逐字节不变）。
+    `extra` = **读者自己的字段**（`被引 3` / `sig 0.90` / `难忘` / `3 条` …）:
+    只有它知道该印什么、什么顺序 —— 但**不许把名字写进去**（名字只能由 `name()` 产,
+    守门用例钉着）。
+
+    ⚠️ **`key` 与 `extra` 都为空、node 也没名字（或没给 node）⇒ 返回 `""`** = 整段不出现
+    （旧档逐字节不变）。
     """
     fields: list[str] = []
     if key:
         fields.append(str(key))
-    fields.append(name(getattr(node, "title", "")))          # 空串自然被滤掉
-    if kind:
-        fields.append(kind_tag(node))
-    if now is not None:
-        fields.append(relative(getattr(node, "ts", ""), now,
-                               significance=getattr(node, "significance", 0.5)))
-        fields.append(abs_date(getattr(node, "ts", ""), now))
+    if node is not None:
+        fields.append(name(getattr(node, "title", "")))      # 空串自然被滤掉
+        if kind:
+            fields.append(kind_tag(node))
+        if now is not None:
+            fields.append(relative(getattr(node, "ts", ""), now,
+                                   significance=getattr(node, "significance", 0.5)))
+            fields.append(abs_date(getattr(node, "ts", ""), now))
     fields.extend(str(f) for f in extra if f)
     fields = [f for f in fields if f]
     if not fields:

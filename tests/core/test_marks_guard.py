@@ -117,7 +117,10 @@ def test_head_shape_is_pinned():
     assert marks.head(full, key="m0002") == "〔m0002｜《看杂草》〕"
     # 没名字 ⇒ 只留钥匙（不印"（无题）"这种假名字）
     assert marks.head(bare, key="m0002") == "〔m0002〕"
-    print("    head 形态: 钥匙→名字→类型→相对→绝对→读者字段; 空的不占位")
+    # ⭐ `node=None`: **不是图节点**的把手（块 `b1`）—— 只有钥匙与读者自己的字段两格
+    assert marks.head(None, key="b1", extra=["3 条"]) == "〔b1｜3 条〕"
+    assert marks.head(None) == "" and marks.head(None, kind=True, now=_NOW) == ""
+    print("    head 形态: 钥匙→名字→类型→相对→绝对→读者字段; 空的不占位; node=None 也走得通")
 
 
 def test_name_roundtrips_through_address():
