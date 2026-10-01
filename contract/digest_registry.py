@@ -534,11 +534,14 @@ class DigestRegistry:
                 "     ],",
                 '     "new": [ // 这些块是一个**新的类**（没有就写 []）;',
                 '        {"block": "b2", "title": "模型店的那些事"}',
+                "     ],",
+                '     "merge": [ // 这两个名字**说的是同一个类**（没有就写 []）;',
+                '        {"from": "苔藓的事", "into": "那片苔藓"}',
                 "     ]",
                 "    }",
                 "",
-                "两个键**都要在**（没有就写空数组 []）。",
-                "⭐ **每个块恰好出现在一个键里** —— 发下来的每个块都必须有归属;",
+                "三个键**都要在**（没有就写空数组 []）。",
+                "⭐ **每个块恰好出现在 attach 或 new 里一个** —— 发下来的每个块都必须有归属;",
                 "   漏一个块 = 整包被拒（引擎会带着「你漏了 b2」再问一次）。",
                 "",
                 "attach 一行 —— 这一块说的就是**已有的某个类**:",
@@ -552,6 +555,13 @@ class DigestRegistry:
                 "            写「这类事的名字」, 不是某一件具体事的名字;",
                 "            要**具体**（含一个具体的人 / 地方 / 东西）, 不要抽象类别词 ——",
                 '            ✗「日常」「回忆」「和老师的相处」 ✓「那片苔藓」「模型店的那些事」。',
+                "",
+                "merge 一行 —— 库里**两个名字说的是同一个类**, 把它们并成一个:",
+                "  from —— 被并掉的**那个名字**（以后不再用）;",
+                "  into —— **留下来的**那个名字（成员都会挂到它下面）;",
+                "  ⚠️ 只能并【可能重复的类】里出现过的那些名字;",
+                "  ⚠️ **名字是地址**: 并掉一个名字 = 那个名字以后指不到东西了 ——",
+                "     除非两个类确实是同一类, 否则别并（拿不准就不并, 空着最安全）。",
                 "",
                 "规则:",
                 "  ⚠️ **能归已有的类就别新建** —— 同一个类裂成两个名字是这一步最贵的错"
@@ -675,6 +685,7 @@ class DigestRegistry:
 
             `{"action": "attach", "block": "b1", "group": "那片苔藓"}`
             `{"action": "new", "block": "b2", "title": "模型店的那些事"}`
+            `{"action": "merge", "from": "苔藓的事", "into": "那片苔藓"}`
         """
         errors: list[str] = []
         warnings: list[str] = []
@@ -730,6 +741,35 @@ class DigestRegistry:
         if missing:
             errors.append("这些块没有归属: " + ", ".join(missing)
                           + "（每个块都要出现在 attach 或 new 里, 一个都不能漏）")
+
+        # —— `merge`（N7b）: 两个类名 —— ⚠️ "这对名字在不在候选里" 是**世界校验**,
+        # 归执行器（`groups.apply_merges`）: 名字解析要归一, 而契约层不依赖 core。
+        if "merge" not in raw:
+            errors.append("缺键 'merge'（三个键都要在, 没有就写空数组）")
+        else:
+            rows = raw.get("merge")
+            if not isinstance(rows, list):
+                errors.append("merge 必须是数组")
+            else:
+                used: set[str] = set()
+                for i, row in enumerate(rows):
+                    if not isinstance(row, dict):
+                        errors.append(f"merge[{i}] 必须是对象")
+                        continue
+                    src, dst = row.get("from"), row.get("into")
+                    if not _nonempty_str(src) or not _nonempty_str(dst):
+                        errors.append(f"merge[{i}] 需要 from 与 into（两个类名）")
+                        continue
+                    src, dst = str(src).strip(), str(dst).strip()
+                    if src == dst:
+                        errors.append(f"merge[{i}] from 与 into 是同一个类名: {src!r}")
+                        continue
+                    if src in used or dst in used:
+                        errors.append(f"merge[{i}] 一个类一轮只能并一次: {src!r} / {dst!r}")
+                        continue
+                    used.add(src)
+                    used.add(dst)
+                    out.append({"action": "merge", "from": src, "into": dst})
         return out, ValidationResult(tuple(errors), tuple(warnings))
 
     def parse_attribution(self, raw: Any, *, entity_ids: set[str],

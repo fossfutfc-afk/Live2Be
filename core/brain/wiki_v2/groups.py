@@ -1,12 +1,13 @@
 # -*- coding: utf-8 -*-
-"""groups.py — **L2-a 分群**: 引擎切块 → 一轮 LLM 起名 → 群节点 + `member_of` 边（N7, 2026-09-29）。
+"""groups.py — **L2-a 分群**: 引擎切块 → 一轮 LLM 起名 → 群节点 + `member_of` 边（N7/N7b, 2026-09-29）。
 
 ## 这一步在整条链里的位置
 
     她（MMT）── `{"noticed": "…"}` ──→ `noticed` 事件 ──(L1)──→ **`akin` 边**（她连的两件事）
                                                                     │
     digest 每段的**最后一步** ◀──────────────────────────────────────┘
-      `ungrouped()` → `build_blocks()` → 一轮 LLM（**只起名**）→ `apply_groups()` → **群节点 + `member_of`**
+      `ungrouped()` → `build_blocks()` → 一轮 LLM（**只起名 / 认出已有的类 / 认出重复的类**）
+                                        → `apply_groups()` / `apply_merges()` → **群节点 + `member_of`**
 
 ⭐ **为什么切块是引擎的活**: `akin` 是**她的原始发现**（"这两条像"）—— 有噪音、可能只是两两。
 把它原样当"组"喂给 LLM 就是把她的噪音当成结论。引擎只干一件事: 把**连通块**切出来,
@@ -18,12 +19,23 @@
 
 ## 它**不**做什么
 
-- **不判"像不像"** —— 那是她那一轮的活; 这里只问"这块叫什么"。
+- **不判"像不像"** —— 那是她那一轮的活; 这里只问"这块叫什么 / 这两个类是不是一个"。
 - **不产 belief** —— 那是 L2-b `ignite`（N8）。
-- **不做 `merge`（群撞群）** —— 那要 LLM 判"名字同义", 是下一刀; 但 ⭐ **同名即并**在这里做
-  （`apply_groups`）: 它是同一个病最便宜的那一半。
 - **不进她的视图** —— `PROCEED §2 #2`: 群上不放关键信息, 判断归 belief（写两处必漂）。
-  这一刀的全部产出**只在图上**。
+  这两刀的产出**只在图上**。
+
+## 两件事, 一轮调用（N7b 起）
+
+| 键 | 治什么 | 引擎这一侧 |
+|---|---|---|
+| `attach` / `new` | 新连出来的块**归到哪个类**（或起个新类名） | 切块（`akin` 连通块）+ 同名即并 |
+| `merge` | **同一个类裂成了两个名字**（两边的成员互不相识, 纯计算抓不到 ⇒ 必须问 LLM） | 提候选（**跨群的 `akin` 边**）+ 端点 remap + 删输家 |
+
+⚠️ 设计稿里那条"**成员重叠 ≥ 阈值 ⇒ 引擎直接并**"在今天**永远不会触发** ——
+块都是未归群的 ⇒ 两个群的成员必然不重叠。真正会发生的病是"**名字同义、成员不重叠**",
+那只能问 LLM。⇒ N7b 的候选判据只有一条: ⭐ **跨群的 `akin` 边**（她连过 ⇒ 这是她
+"它们本来是一类"的直接证据）。**名字相近那条先不做**（中文短名会撞上"的事 / 那些"这类
+虚词 ⇒ 全是假候选; 而真需要并的类几乎一定有跨群的 `akin`）。
 """
 from __future__ import annotations
 
@@ -53,6 +65,10 @@ MAX_GROUP_MEMBERS = 4
 #: 正文截断: 块里的给宽一点（那是要被起名的货）, 类里的只要"这个类长什么样"
 BODY_BLOCK = 60
 BODY_GROUP = 40
+#: 一次最多提几对"可能重复的类"（超出的下一段再说 —— 增量的, 不丢东西）
+MAX_MERGE_PAIRS = 3
+#: 一对候选最多摆几条"她跨连的"成员行（那是**证据**, 不是清单）
+MAX_MERGE_EVIDENCE = 6
 
 _INDENT = "  "
 
@@ -67,6 +83,28 @@ class Block:
 
     bid: str
     episodes: tuple[str, ...]            # 真 id（按 ts 升序）
+
+
+@dataclass(frozen=True)
+class MergeCandidate:
+    """一对**可能重复的类**（引擎提的候选 —— 判不判在 LLM）。
+
+    `pairs` = **跨这两个群的 `akin` 边**（她连的）: 它既是候选的**依据**,
+    也是要摆给 LLM 的**证据**。
+    """
+
+    left: str                            # 群 id（小的在前 —— 只为稳定, 无优劣含义）
+    right: str
+    pairs: tuple[tuple[str, str], ...]    # 跨群的 akin 边（每条 = 两端的 episode id）
+
+
+@dataclass
+class MergeApplyResult:
+    """并群的结果（记账; 不阻断）。"""
+
+    merged: list[tuple[str, str]] = field(default_factory=list)   # (输家 id, 赢家 id)
+    moved: int = 0                                                # 改指到赢家的成员边数
+    warnings: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -229,10 +267,10 @@ def apply_groups(store: WikiStoreV2, rows: list[dict], blks: list[Block],
     | `{"action": "new", "block": "b2", "title": "模型店的那些事"}` | 建**新**类（`unique_title` 写入时强制唯一）后挂上去 |
 
     ⭐ **同名即并**（引擎闸, 纯计算）: `new` 的名字撞上已有的类 ⇒ **挂到那个类**, 不建新群、
-    也**不加数字**。理由: "同一类裂成两个名字"是这一步最贵的错（将来 N8 会为两个群各写一条
+    也**不加数字**。理由: "同一类裂成两个名字"是这一步最贵的错（N8 会为两个群各写一条
     belief）, 而"它又起了一遍同一个名字"正是它想 attach 的信号。
-    ⚠️ 设计稿里那条"**成员重叠 ≥ 阈值 ⇒ 引擎直接并**"在当前契约下**永远不会触发**
-    （块都是未归群的 ⇒ 新群的成员不可能已经属于谁）—— 它要等有**多归属**的 `merge` 那一刀。
+    ⚠️ **名字不同、意思相同**的那一半它抓不到（纯计算没有语义）——
+    那归 `merge_candidates` / `apply_merges`（N7b, 同一轮里另两个键）。
 
     ⚠️ **命中 0 / 歧义 / 空名字 ⇒ 只记账、丢这一行**: 那个块**留着**, 下一段再来
     （丢一条行 ≠ 丢一件事）。
@@ -248,7 +286,11 @@ def apply_groups(store: WikiStoreV2, rows: list[dict], blks: list[Block],
         if blk is None:
             out.warnings.append(f"分群[{i}] 块 {bid!r} 不在本轮名单里 → 丢这一行")
             continue
-        if row.get("action") == "attach":
+        action = row.get("action")
+        if action not in ("attach", "new"):
+            out.warnings.append(f"分群[{i}] 这里只收 attach / new（收到 {action!r}）→ 丢这一行")
+            continue
+        if action == "attach":
             node, why = find_group(store, str(row.get("group") or ""))
             if node is None:
                 out.warnings.append(
@@ -275,3 +317,122 @@ def apply_groups(store: WikiStoreV2, rows: list[dict], blks: list[Block],
     out.grouped = list(seen_ep)
     out.edges = len(store.edges()) - before_edges      # 幂等跳过的**不算**（真写了几条）
     return out
+
+
+# ---------------------------------------------------------------------------
+# merge（N7b）: 同一个类裂成两个名字 ⇒ 并回去
+# ---------------------------------------------------------------------------
+
+def merge_candidates(store: WikiStoreV2,
+                     *, max_pairs: int = MAX_MERGE_PAIRS) -> list[MergeCandidate]:
+    """⭐ **跨群的 `akin` 边** → 可能重复的类（0 LLM）。
+
+    判据只有这一条, 因为 `akin` 是**她的原始发现** —— 两个类之间被她连过, 就是
+    "它们本来是一类"的直接证据（真需要并的类几乎一定有跨群的 `akin`: 她正是因此觉得像）。
+    ⚠️ **名字相近那条先不做**: 中文短名会撞上"的事 / 那些"这类虚词 ⇒ 全是假候选,
+    而假候选要花一次 LLM 判定才知道是假的。
+    ⚠️ **两个类里的成员互不相识时它提不出来** —— 那正是"纯计算抓不到语义"的诚实边界;
+    真机数据说明有漏, 再加名字/语义通道（代价: 假候选）。
+    """
+    grp_of: dict[str, set[str]] = {}
+    for e in iter_edges(store, rel=REL_MEMBER_OF):
+        grp_of.setdefault(e.src, set()).add(e.dst)
+    acc: dict[tuple[str, str], list[tuple[str, str]]] = {}
+    for e in iter_edges(store, rel=REL_AKIN):
+        left, right = grp_of.get(e.src) or set(), grp_of.get(e.dst) or set()
+        for x in sorted(left):
+            for y in sorted(right):
+                if x == y:
+                    continue
+                key = (x, y) if x < y else (y, x)
+                acc.setdefault(key, []).append((e.src, e.dst))
+    out = [MergeCandidate(left=k[0], right=k[1], pairs=tuple(v)) for k, v in acc.items()]
+    out.sort(key=lambda c: (-len(c.pairs), c.left, c.right))    # 跨连多的先问
+    return out[:max_pairs]
+
+
+def _group_head(store: WikiStoreV2, gid: str) -> str:
+    """`〔《那片苔藓》｜4 条〕`（类头 —— 与 `render_groups` 同一形状）。"""
+    node = store.get(gid)
+    if node is None:
+        return ""
+    n = len(store.graph().sources(gid, REL_MEMBER_OF))
+    return marks.head(node, extra=[f"{n} 条"])
+
+
+def render_merge_candidates(store: WikiStoreV2, cands: list[MergeCandidate],
+                            *, body: int = BODY_GROUP,
+                            cap: int = MAX_MERGE_EVIDENCE) -> str:
+    """候选 → 料（**两个类头 + 她跨连的那些成员行** —— 那是证据, 不是清单）。
+
+    ⚠️ 摆的是**跨连的那几条**, 不是两个类的全部成员: 判"是不是一个类"靠的是
+    "她连着的那几对长什么样", 而把两边的成员全摆出来只是占地方。
+    """
+    lines: list[str] = []
+    for i, c in enumerate(cands, start=1):
+        members = sorted({m for pair in c.pairs for m in pair},
+                         key=lambda x: _key(store, x))
+        lines.append(f"{i}. {_group_head(store, c.left)} 与 {_group_head(store, c.right)}"
+                     f" —— 她把这 {len(c.pairs)} 对连过")
+        for nid in members[:cap]:
+            lines.append(f"{_INDENT}{_ep_line(store, nid, body)}")
+        if len(members) > cap:
+            lines.append(f"{_INDENT}…（另有 {len(members) - cap} 条）")
+    return "\n".join(lines)
+
+
+def apply_merges(store: WikiStoreV2, rows: list[dict],
+                 cands: list[MergeCandidate], *, ts: str = "") -> MergeApplyResult:
+    """`{"action": "merge", "from": …, "into": …}` → **并群**。
+
+    照 `revise` 里那个 `merge` 的先例: **端点 remap + 删源**, ⚠️ 边的 `ts` **原样保留**
+    （"什么时候加入这个类"是信息 —— 重置成"现在"就把它抹了）。
+
+    ⚠️ **只并引擎提过的那些对**（闭集校验放在**这里**, 不放契约: 名字解析要归一,
+    而契约层不依赖 core —— 放契约就得在那边抄一份剥括号的逻辑, 那就是"两处必然漂"）。
+    ⚠️ **输掉的名字写进赢家的 `aliases`**（数据留住 —— 名字是**地址**, 将来 `note.index`
+    里就有指向它的东西; "解析侧认不认 aliases"是另一件事, 属于裁决 #10）。
+    """
+    allowed = {frozenset((c.left, c.right)) for c in cands}
+    out = MergeApplyResult()
+    for i, row in enumerate(rows):
+        loser, why_l = find_group(store, str(row.get("from") or ""))
+        winner, why_w = find_group(store, str(row.get("into") or ""))
+        if loser is None or winner is None:
+            out.warnings.append(f"并群[{i}] 类名没找到（{why_l if loser is None else why_w}）"
+                                f"→ 丢这一行")
+            continue
+        if loser.id == winner.id:
+            out.warnings.append(f"并群[{i}] from 与 into 是同一个类 → 丢这一行")
+            continue
+        if frozenset((loser.id, winner.id)) not in allowed:
+            out.warnings.append(f"并群[{i}] 这一对不在本轮候选里 → 丢这一行")
+            continue
+        moved = _merge_into(store, loser, winner)
+        out.merged.append((loser.id, winner.id))
+        out.moved += moved
+        logger.info("digest_group merge loser=%s(%r) → winner=%s(%r) moved=%d",
+                    loser.id, loser.title, winner.id, winner.title, moved)
+    return out
+
+
+def _merge_into(store: WikiStoreV2, loser, winner) -> int:
+    """把输家的边**端点 remap 到赢家**（`ts` 原样）, 然后删掉输家。返回搬过来的成员边数。"""
+    moved = len(store.graph().sources(loser.id, REL_MEMBER_OF))
+    keep: list[tuple[str, str, str, str]] = []
+    seen: set[tuple[str, str, str]] = set()
+    for e in store.edges():
+        src = winner.id if e.src == loser.id else e.src
+        dst = winner.id if e.dst == loser.id else e.dst
+        if src == dst or (e.rel, src, dst) in seen:
+            continue
+        seen.add((e.rel, src, dst))
+        keep.append((e.rel, src, dst, e.ts))
+    store.delete(loser.id)                  # 删节点 = 边表过滤（§2.1 的闭环）
+    for rel, src, dst, ets in keep:
+        store.add_edge(rel, src, dst, ts=ets)
+    names = list(winner.aliases)
+    if loser.title and loser.title not in names:
+        names.append(loser.title)
+    store.update(winner.id, {"aliases": names})
+    return moved

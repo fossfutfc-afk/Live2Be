@@ -36,7 +36,7 @@ class RoundLLM:
         self.close = {"add": [], "close": []} if close is None else close
         self.b = {"decisions": [], "evidence": [], "affection_exp_delta": 0} if b is None else b
         self.attr = {"attributions": []} if attr is None else attr
-        self.group = {"attach": [], "new": []} if group is None else group
+        self.group = ({"attach": [], "new": [], "merge": []} if group is None else group)
         self.calls: list[list[dict]] = []
         self.tasks: list[str | None] = []
 
@@ -218,7 +218,8 @@ def test_digest_runs_group_round(tmp_path):
     """接上了: 有块 ⇒ 发一次 `digest.group`; 料里有块头, 产出落群节点 + 边。"""
     st = _store(tmp_path)
     a, b = _seed_pair(st)
-    llm = RoundLLM(group={"attach": [], "new": [{"block": "b1", "title": "那片苔藓"}]})
+    llm = RoundLLM(group={"attach": [], "new": [{"block": "b1", "title": "那片苔藓"}],
+                          "merge": []})
     res = digest_segment(st, llm, [_mmt(3)])
     assert res.ok, res.errors
     assert T.DIGEST_GROUP in llm.tasks, llm.tasks
@@ -253,7 +254,7 @@ def test_group_failure_does_not_rollback_the_batch(tmp_path):
                                      "kind": "belief", "subject": "sensei",
                                      "text": "在图书室待着也安心"}],
                       "evidence": [], "affection_exp_delta": 0},
-                   group={"attach": [], "new": []})               # 漏块 ⇒ 拒 ⇒ 重试 ⇒ 仍漏
+                   group={"attach": [], "new": [], "merge": []})  # 漏块 ⇒ 拒 ⇒ 重试 ⇒ 仍漏
     res = digest_segment(st, llm, [_mmt(3)])
     assert res.ok, res.errors                                     # ⭐ 整段没被连累
     assert res.errors == [], res.errors
@@ -263,6 +264,100 @@ def test_group_failure_does_not_rollback_the_batch(tmp_path):
     assert llm.tasks.count(T.DIGEST_GROUP) == 2                   # 打回一次（feedback 重试）
     assert [n.kind for n in st.all() if n.kind == "group"] == []  # 一个群都没留下
     print(f"    失败隔离: 打回 {llm.tasks.count(T.DIGEST_GROUP)} 次后放弃, 整段照常提交")
+
+
+# ---------------------------------------------------------------------------
+# N7b 并群（merge）
+# ---------------------------------------------------------------------------
+
+def _two_groups(st):
+    """摆出**两个本该是一个的类**: 各自两条同类, 然后**她跨类连了一条**（下一段才看得到）。
+
+    返回 `(g1, g2, 跨类那两端的 episode)`。顺序就是真机里的顺序:
+    先各自成类, 之后她才把两边连起来。
+    """
+    a = _ep(st, "A", "甲一", "2026-09-20T10:00:00")
+    b = _ep(st, "B", "甲二", "2026-09-21T10:00:00")
+    c = _ep(st, "C", "乙一", "2026-09-22T10:00:00")
+    d = _ep(st, "D", "乙二", "2026-09-23T10:00:00")
+    st.add_edge(REL_AKIN, a, b, ts="2026-09-21T10:00:00")
+    st.add_edge(REL_AKIN, c, d, ts="2026-09-23T10:00:00")
+    st.save()
+    blks = groups.build_blocks(st, groups.ungrouped(st))
+    res = groups.apply_groups(st, [
+        {"action": "new", "block": blks[0].bid, "title": "甲类"},
+        {"action": "new", "block": blks[1].bid, "title": "乙类"},
+    ], blks, ts=_NOW)
+    st.save()
+    g = {st.get(n).title: n for n in res.nodes}
+    st.add_edge(REL_AKIN, b, c, ts="2026-09-24T10:00:00")     # ⭐ 跨类的那条
+    st.save()
+    return g["甲类"], g["乙类"], b, c
+
+
+def test_merge_candidates_from_crossing_akin(tmp_path):
+    """⭐ 候选判据 = **跨群的 `akin` 边**; 同群内部的边不算。"""
+    st = _store(tmp_path)
+    g1, g2, b, c = _two_groups(st)
+    cands = groups.merge_candidates(st)
+    assert len(cands) == 1, cands
+    one = cands[0]
+    assert {one.left, one.right} == {g1, g2}
+    assert sorted(one.pairs) == sorted([(b, c)])
+
+    text = groups.render_merge_candidates(st, cands)
+    assert text.startswith("1. 〔《甲类》｜2 条〕 与 〔《乙类》｜2 条〕 —— 她把这 1 对连过"), text
+    assert f"- 〔{b}｜《甲二》〕" in text and f"- 〔{c}｜《乙一》〕" in text
+    print(f"    候选: {len(cands)} 对（跨类的那条 akin 提的）")
+
+
+def test_apply_merge_remaps_edges_and_retires_loser(tmp_path):
+    """并群 = **端点 remap（`ts` 原样）+ 删输家 + 旧名进 `aliases`**。"""
+    st = _store(tmp_path)
+    g1, g2, _b, _c = _two_groups(st)
+    before = {e.src: e.ts for e in st.edges()
+              if e.rel == REL_MEMBER_OF and e.dst == g1}
+    assert len(before) == 2
+    cands = groups.merge_candidates(st)
+    res = groups.apply_merges(st, [{"action": "merge", "from": "甲类", "into": "乙类"}],
+                              cands, ts=_NOW)
+    assert res.merged == [(g1, g2)] and res.moved == 2 and res.warnings == [], res
+    assert st.get(g1) is None                                     # 输家没了
+    g = st.graph()
+    assert len(g.sources(g2, REL_MEMBER_OF)) == 4                 # 四条成员都在赢家名下
+    after = {e.src: e.ts for e in st.edges()
+             if e.rel == REL_MEMBER_OF and e.dst == g2}
+    for src, ts in before.items():                                # ⭐ ts 原样（不是"现在"）
+        assert after[src] == ts, (src, ts, after[src])
+    assert st.get(g2).aliases == ["甲类"]                         # 旧名留住了
+    assert groups.merge_candidates(st) == []                      # ⭐ 并完自清（下次不再问）
+    print(f"    并群: {g1}(甲类) → {g2}(乙类), 搬了 {res.moved} 条边, ts 未动")
+
+
+def test_merge_outside_candidates_is_dropped(tmp_path):
+    """⚠️ 只并**引擎提过的那些对** —— 契约层管不到（名字要归一）, 所以闸在这里。"""
+    st = _store(tmp_path)
+    g1, g2, _b, _c = _two_groups(st)
+    res = groups.apply_merges(st, [{"action": "merge", "from": "甲类", "into": "乙类"}],
+                              [], ts=_NOW)                        # 候选是空的
+    assert res.merged == [] and res.moved == 0
+    assert any("不在本轮候选" in w for w in res.warnings), res.warnings
+    assert st.get(g1) is not None and st.get(g2) is not None      # 一个都没动
+    print("    闭集: 没提过的对不并（一个都没动）")
+
+
+def test_digest_runs_merge(tmp_path):
+    """接上了: 有候选 ⇒ 那一轮里能并; 结果进 `merged_groups`。"""
+    st = _store(tmp_path)
+    g1, g2, _b, _c = _two_groups(st)
+    llm = RoundLLM(group={"attach": [], "new": [],
+                          "merge": [{"from": "甲类", "into": "乙类"}]})
+    res = digest_segment(st, llm, [_mmt(3)])
+    assert res.ok, res.errors
+    assert res.merged_groups == [(g1, g2)], res.merged_groups
+    assert st.get(g1) is None and st.get(g2) is not None
+    assert "【可能重复的类】" in llm.user_of(T.DIGEST_GROUP)
+    print(f"    digest 接线: 并掉 {res.merged_groups}（料里出现了【可能重复的类】）")
 
 
 if __name__ == "__main__":
