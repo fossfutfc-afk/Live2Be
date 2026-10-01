@@ -1,8 +1,12 @@
 # -*- coding: utf-8 -*-
-"""address.py — **可见形式 → 节点**（地址解析）—— 与 `render.py` 对称的另一半。
+"""address.py — **可见形式 → 节点**（地址解析）—— `marks.py` 的另一半。
 
-`render.py`: 节点 → 她看得见的形式（`〔《事件名》｜多久以前｜日期〕正文…`）
-本模块    : 她写下的形式 → 节点（`{"noticed": "…"}` / 将来的 `{"look": ["…"]}`）
+`marks.py` : 节点 → 她看得见的形式（`〔《事件名》｜多久以前｜日期〕正文…`）—— **印**
+本模块     : 她写下的形式 → 节点（`{"noticed": "…"}` / 将来的 `{"look": ["…"]}`）—— **剥**
+
+⚠️ **印与剥必须同源**: 要剥的语法字符（书名号 / 方括号 / 引号 / 空白）与字段分隔符
+都**从 `marks` 取**（`marks.STRIP_CHARS` / `marks.FIELD_SEP`）—— 此前本模块自己抄了一份
+清单, 并在注释里**照名字引用**渲染侧那个函数（"`_meta_head` 用的那个"）: 那正是漂的入口。
 
 ⭐ **为什么单独一件**: 「名字 → 唯一节点」有两个调用者（**N5b 的 `noticed`** 与
 **`look` 的三级解析第一级**）；两处各写一份必然漂——而漂了的后果是
@@ -29,15 +33,14 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from core.brain.wiki_v2 import marks
+
 if TYPE_CHECKING:                       # 仅注解求值期可见（避免运行时循环导入）
     from core.brain.wiki_v2.nodes import BrainNode
     from core.brain.wiki_v2.store import WikiStoreV2
 
-#: 要剥掉的**语法字符**（不是内容）——见模块 docstring 的清单
-_STRIP_CHARS = "《》〈〉<>【】〔〕\"“”'‘’「」 \t\r\n\u3000"
-
-#: 元信息段的分隔符（`_meta_head` 用的那个）——她若整段抄进来, 只取第一段
-_FIELD_SEP = "｜"
+#: 要剥掉的**语法字符**（不是内容）与字段分隔符 —— ⚠️ **不在这里定义**:
+#: 真源 = `marks.STRIP_CHARS` / `marks.FIELD_SEP`（印与剥同一份清单, 见模块 docstring）。
 
 
 def normalize_title(raw: object) -> str:
@@ -45,9 +48,9 @@ def normalize_title(raw: object) -> str:
     if not isinstance(raw, str):
         return ""
     s = raw.strip()
-    if _FIELD_SEP in s:               # 把 `《名》｜5 天前｜9/26` 整段抄进来了
-        s = s.split(_FIELD_SEP)[0]
-    return s.strip(_STRIP_CHARS).strip()
+    if marks.FIELD_SEP in s:          # 把 `《名》｜5 天前｜9/26` 整段抄进来了
+        s = s.split(marks.FIELD_SEP)[0]
+    return s.strip(marks.STRIP_CHARS).strip()
 
 
 def unique_title(store: WikiStoreV2, title: str, *, kind: str = "episode") -> str:

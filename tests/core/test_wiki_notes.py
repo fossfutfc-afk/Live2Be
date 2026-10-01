@@ -265,7 +265,7 @@ def test_render_is_empty_when_nothing_is_noted():
 
 
 def test_render_without_now_omits_time_phrase():
-    """`now` 缺席 → 不编一个"很久以前"（哨兵纪律, 同 `render._time_phrase`）。"""
+    """`now` 缺席 → 不编一个"很久以前"（哨兵纪律, 同 `marks.relative`）。"""
     st = notes.fold([_add(1)])
     assert notes.render_note_block(st, now=None).splitlines()[2] == "    n1 周六模型店"
 

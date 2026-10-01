@@ -2,7 +2,7 @@
 
 > 建立 2026-09-27。**给用户审的表** —— 一行一个节点、一个提交，判据写死。
 > 规格在 `docs/DESIGN_DIGEST_LAYERS.md`；顶层裁决在 `PROCEED.md §5`。
-> **当前状态：代码一行未动。**
+> **当前状态：N1a/N1b/N2/N2b/N3/N4a/N5(a,b,c,d) 已落地（见下表 ✅）；下一个候选 = N4b（建议缓）/ N6 / N7。**
 
 ---
 
@@ -36,6 +36,7 @@
 | **N5a** | ✅ **想起（已落地 2026-09-29）** | ⭐ **标题进注入**（`episode.title` 从来没进过任何注入面 —— 它是**地址**）· 新 `render_recall_block` · 新 `recall_episodes`（只出 episode、**按相关度排**）· `agent_turn` 加 **P19** 槽位（动态尾） | `render.py` · `recall.py` · `recall_config.py` · `mmt/engine.py` | 召回有产品调用者 · 落点守卫（**不许进 system**）· 标题**不过 `_me`** · 无命中不注 | N1 N3 | 已完成（1125 passed · 真机探针见 §2） |
 | **N5b** | ✅ **发现（已落地 2026-09-29）** | `{"noticed": "标题"}`（**顶层键, 不进 `action` 信封**）· 判别键恰好其一 · 不独占 · 锚点校验（命中 0 丢 / 歧义不猜）· 落 `noticed` 事件（**非内容事件**）· rules + 契约示例同批 · ⭐ **P19 段末加"候选旁的提示"**（真机实测: 只写在规则书里会漏报） | `mmt_lines.py` · `mmt_check.py` · `engine.py` · `events.py` · ⭐ `address.py`（新）· `schema.py` · `momotalk_rules.md` | 编造的引用被丢 · 账可查 · 旧形状不受影响 | N5a | 已完成 |
 | **N5c** | ✅ **L1 落地（已落地 2026-09-29）** | 读窗口里的 `noticed` → 归属（"该账之前最近的有主内容"）→ `add_edge("akin", 新, 她指的)` · 幂等 · 未认领记台账 | `digest.py` | 同一条发现跑两次只出一条边 · 未认领可 grep | N5b | 已完成 |
+| **N5d** | ✅ **括号统一（已落地 2026-09-29）** | 新 **`marks.py` = 括号与信息头的唯一实现**（`name`/`head`/`kind_tag`/`relative`/`abs_date`/`section`）· **五个写侧全部改调它**（她视图 · L2 · R2 · R4 · R3）· 类型标签与时间短语各收成一处 · `address` 的剥字符集从它取（**印剥同源**）· 顺手修掉 R4/R3 两处 `「标题」`（N2 漏改的） | ⭐ `marks.py`（新）· `render.py` · `digest.py` · `entities.py` · `notes.py` · `address.py` | ⭐ 守门用例 `test_marks_guard.py`: 代码字面量里零手写 `《》〔〕｜` · 她的视图不许印编号 · 格序钉死 · 印剥同源 · marks 零 import 期依赖 | N5a N5b | 已完成 |
 | **N6** | **候选池 `gather_evidence`** | 抬 `panorama.py` 成通用件：参数化语料 + `why` + 两层深度 + **token 预算装填** | `panorama.py` → 新模块 · `recall.py` | 真机 5 个真组抬得出来 · 噪音组进 `rejected` · 按预算装 | N2 | ~120 行 |
 | **N7** | **L2-a 分群** | ⭐ **主要吃 N5 连出来的边**（不再自己找组）+ `merge` + `contradicts` | `contract/digest_registry.py` · `digest.py` · 新 prompt | `add`/`update` **不在契约里** · 只有 `conf≥0.8` 的边推动 collision | N1 N5 | ~100 行 |
 | **N8** | **L2-b `collision`** | 覆盖判据（`covered`/`gap`）+ **单独一次调用** + 派生出 C + 落节点 + N 条边 + 两条 `about` | `digest.py` · 新 prompt | 成员<3 或全在同段 ⇒ **不产节点** · 已有 belief **逐字节不变** · ⭐ **模式判断（频率词）在 n≥2 前不许出现** | N7 | ~90 行 |

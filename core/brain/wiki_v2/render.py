@@ -20,6 +20,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Iterable
 
+from core.brain.wiki_v2 import marks
 from core.brain.wiki_v2.nodes import BrainNode
 
 if TYPE_CHECKING:                       # 仅注解求值期可见（避免运行时循环导入）
@@ -213,7 +214,7 @@ def _bucket_view(nodes: Iterable[BrainNode], graph=None) -> dict:
     # ⭐ 经历 = **一条河（旧→新）**（2026-09-25, 链路 ⑤）: 从前按 `(珍贵, ts)` 降序,
     # 于是"同一个时刻的事"被 `is_precious` 劈到两段里 ⇒ 河的时间轴断掉。
     # 「难忘」现在只是**行内标记**（见 `_memory_line`）, 不再参与排序。
-    # ⚠️ 无 `ts` 的（旧档/未采集）排在**河首**: `_time_phrase` 对它们**不印短语**
+    # ⚠️ 无 `ts` 的（旧档/未采集）排在**河首**: `marks.relative` 对它们**不印短语**
     # （哨兵纪律: 不编"很久以前"）⇒ 放在"现在"那一端会被读成"刚发生的事",
     # 放在开头的误读代价更小。
     episodes = sorted((n for n in all_nodes if bucket["episode"](n)),
@@ -341,7 +342,8 @@ RECALL_HEADER = (
 #: ⚠️ 实测口径: 两组的**抄写形态**都零变形（`{"noticed": "名字"}` 全部原样命中）,
 #: 只有"写不写"有差别 ⇒ 缺的是**触发**, 不是**格式**。
 RECALL_ACTION_HINT = (
-    '（认出其中哪一条正是老师说的这件事——或者你想拿它来说事——就照抄《》里那几个字，'
+    '（认出其中哪一条正是老师说的这件事——或者你想拿它来说事——就照抄'
+    f'{marks.NAME_OPEN}{marks.NAME_CLOSE}里那几个字，'
     '单独写一行 {"noticed": "名字"}；认不出就不用写。）')
 
 #: 该段的字符预算（`[recall].turn_budget` 的回落值）。真闸门是它, 不是条数
@@ -432,8 +434,8 @@ def _memory_line(node: BrainNode, char_name: str,
     **为什么元信息在最前而不是最后**（2026-09-13, N5 起扩成整段）:
     这是**防失忆注记**——LLM 需要先看到"这是多久以前的事"再读内容, 才好判断
     "这件事讲过了/该不该重提"。放最后等于读完才知道远近。
-    标题跟在时间之后（"哪一条 + 多久以前"先立住, 再读正文）——但**它仍是元信息段
-    的第一项**, 且用书名号标出; 摘抄的判据是**书名号**不是位置（见 `_meta_head`）。
+    ⭐ **名字是第一格**（"哪一条"先立住, 再读时间与正文）—— 且用**书名号**标出;
+    摘抄的判据是**书名号**不是位置（见 `marks.head` / `marks.name`）。
 
     **为什么挂短语不影响 Q24 的"只给标题"**：Q24 砍的是**正文体积**
     （episode 内容进 writer 视图要压缩）; 元信息是**几到十几个字**, 不在被砍之列,
@@ -452,81 +454,18 @@ def _memory_line(node: BrainNode, char_name: str,
     body = _me(node.text, char_name, aliases)
     if node.verbatim:
         body += f"（「{node.verbatim}」）"
-    head = _meta_head(node, now)
-    return f"- {head}{body}"
+    # ⭐ 头由 `marks.head` 出（**唯一实现**）: `〔《名》｜4 天前｜9/27｜难忘〕`。
+    # 珍贵档那一格的**说法随读者变**（她读作 `难忘`, L2 读作 `sig 0.90`）⇒ 由读者给。
+    extra = ["难忘"] if node.is_precious else []
+    return f"- {marks.head(node, now=now, extra=extra)}{body}"
 
 
-def _meta_head(node: BrainNode, now) -> str:
-    """记忆行的**元信息头**（`〔《事件名》｜多久以前｜日期｜难忘〕`）—— 空串 = 整段不出现。
-
-    形态（2026-09-29 用户定稿）::
-
-        - 〔《中秋的杂草屋》｜4 天前｜9/27｜难忘〕中秋节晚上，社团的大家…
-
-    | 段 | 是什么 | 谁用 |
-    |---|---|---|
-    | `《事件名》` | ⭐ **地址**（`episode.title`） | **她抄它**（`{"noticed": …}` / 将来的 `look`）· 引擎拿它查库 |
-    | `4 天前` | 相对短语（她的口吻） | 判断"这事讲过了没 / 该不该重提" |
-    | `9/27` | 绝对日期（引擎坐标） | 定位到具体哪天（`age.render_date`） |
-    | `难忘` | 珍贵档标记 | 措辞可以更贴身 |
-
-    ⚠️ **字段分隔用全角 `｜` 而不是 `·`**（2026-09-29 实测踩点）: `·` 在提示词里
-    到处都是（`bond_shots` 的镜头词表就是 `星空 · 夜空 · 黄昏`）, 而**事件名是 LLM
-    起的, 可能自带 `·`** ⇒ 她"抄到第一个 `·` 为止"就会抄多抄少 ⇒ 查库命中 0 ⇒
-    **静默丢**。`｜` 不会出现在名字里, 边界才立得住。
-
-    ⚠️ **书名号在, 名字才在**: 缺 `title` 的行**不出名字段**（`episode` 的必填只有
-    `text`, 旧档/模型没起名是可能的）⇒ 规则收成一句 **"要指某一条, 就照抄它的
-    `《…》`"** ——按**书名号**找, 不按位置找（位置规则在缺字段的行上会读错）。
-    ⚠️ 由此, **锚点校验的格式归一必须剥书名号**（她连 `《》` 一起抄也要命中）。
-
-    ⚠️ **一个字段都没有 ⇒ 整段不出现**（旧档无 ts、无标题、不珍贵、调用方没给
-    `now`）—— 那种行与本改动前**逐字节相同**, 旧调用方零影响。
-
-    括号清单见 `docs/CONTEXT_MARKS.md`（`【】`段头 · `〔〕`元信息 · `《》`事件名 ·
-    `（）「」`正文与原话 · `[]`历史动作前缀 · `{}`JSON 行 —— 各有各的角色, 不许混）。
-    """
-    fields: list[str] = []
-    if node.title:
-        fields.append(f"《{node.title}》")     # ⚠️ 不过 `_me`: 它是地址, 要逐字可抄
-    # ⚠️ 顺序 = 相对 → 绝对（"多久以前"先立住, 再给更精确的坐标）; 难忘自成一段
-    #    （一个字段一个意思 —— 别把它粘进时间那一段里, 那会让"抄哪一段"多一种读法）
-    fields.extend(f for f in (_time_phrase(node, now), _abs_date(node, now)) if f)
-    if node.is_precious:
-        fields.append("难忘")
-    if not fields:
-        return ""
-    return "〔" + "｜".join(fields) + "〕"
-
-
-def _abs_date(node: BrainNode, now) -> str:
-    """节点的**绝对日期**（`9/27` / 跨年 `2025/9/26`; 不给 `now` 或 ts 坏 ⇒ `""`）。"""
-    if now is None or not node.ts:
-        return ""
-    try:
-        from core.worldtime.age import render_date
-        return render_date(node.ts, now=now)
-    except Exception:                            # noqa: BLE001 — 渲染绝不因时间炸
-        return ""
-
-
-def _time_phrase(node: BrainNode, now) -> str:
-    """节点的时间短语（`""` = 不加）。**只读, 不改节点**（§3.8「不落数据」）。
-
-    2026-09-17（`ESSAY_TIME_MODEL §10`）: 年龄 = `今天 − date(node.ts)`（**现实日**），
-    不再读 `node.story_time`。`now=None` 或 `node.ts` 缺失 → `""`
-    （哨兵纪律: **不编一个"很久以前"**，那会让"未采集"与"真的很旧"混为一谈）。
-    """
-    if now is None or not node.ts:
-        return ""
-    try:
-        from core.worldtime.age import age_days, render_relative
-        age = age_days(node.ts, now=now)
-        if age is None:
-            return ""
-        return render_relative(age, node.significance)
-    except Exception:                            # noqa: BLE001 — 渲染绝不因时间炸
-        return ""
+# ⏸ `_meta_head` / `_time_phrase` / `_abs_date` **2026-09-29 搬进 `marks.py`** ——
+# 信息头（括号 · 名字 · 类型 · 时间 · 格序）从此只有一份实现（那个模块的 docstring
+# 就是原来的三张表）; 当年写在 `_meta_head` 里的三条纪律一并搬过去了:
+# `｜` 不是 `·` · 书名号在名字才在（按括号找不按位置找）· 一个字段都没有 ⇒ 整段不出现。
+# 搬家的理由 = **写侧五份、读侧一份**（`address.normalize_title`）: 任一处漂了,
+# 她抄回来的名字就静默命中 0。
 
 
 def _belief_line(node: BrainNode, char_name: str,
@@ -622,16 +561,16 @@ def render_cognition_line(store: WikiStoreV2, node: BrainNode, graph,
     `digest._round_b_material`（候选提示, `max_body=60` + 缩进）——
     ⚠️ **两处各写一份必然漂**, 而漂了就是"同一张图在两处长得不一样"。
     """
-    meta = [local_of[node.id], _kind_tag(node).strip("[]"),
-            f"被引 {_count_of(node, graph)}"]
+    extra = [f"被引 {_count_of(node, graph)}"]
     if node.is_precious:
-        meta.append(f"sig {node.significance:.2f}")
+        extra.append(f"sig {node.significance:.2f}")
     # ⚠️ `subject` **原样**印 + 全角冒号 —— 不前置"关于":
     # 它是 R2 的自由文本，真机里本来就写成「关于 我道歉的习惯」，
     # 前置就变成「关于 关于 我道歉的习惯:」（老形态的老毛病，顺手修）。
     subject = f"{node.subject}：" if node.subject else ""
     body = node.text if len(node.text) <= max_body else node.text[:max_body] + "…"
-    out = [f"{indent}〔{'｜'.join(meta)}〕{subject}{body}"]
+    out = [f"{indent}{marks.head(node, key=local_of[node.id], kind=True, extra=extra)}"
+           f"{subject}{body}"]
     edge_line = _cognition_edges(store, node, graph, local_of)
     if edge_line:
         out.append(f"{indent}{_INDENT}{edge_line}")
@@ -677,14 +616,6 @@ def _cognition_edges(store: WikiStoreV2, node: BrainNode, graph,
     return f"edges: {head}"
 
 
-def _kind_tag(node: BrainNode) -> str:
-    """kind 标签（模型在组织轮的输入里看到的那一格）。
-
-    ⚠️ `promise` 带上结局（`[promise·已兑现]`）: 它只有一个词 `promise`, 而"兑现了 /
-    没做到 / 被取代了"正是 R2 判断"这条承诺长出了什么"的**必要信息**（同一个词表
-    与注入块共用 —— `notes.CLOSED_WORDS`）。
-    """
-    if node.kind == "promise" and node.outcome:
-        from core.brain.wiki_v2.notes import CLOSED_WORDS
-        return f"[promise·{CLOSED_WORDS.get(node.outcome, node.outcome)}]"
-    return f"[{node.kind}]"
+# ⏸ `_kind_tag` **2026-09-29 搬进 `marks.kind_tag`**（不带方括号的唯一版本）。
+# 它当年有两个形状（这里 `[belief]`、`entities` 里 `strip("[]")` 成 `belief`）——
+# 同一个类型标签两种印法, 正是"散"的典型; 现在只有一处。

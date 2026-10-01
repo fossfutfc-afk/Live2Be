@@ -48,6 +48,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any, Iterable
 
+from core.brain.wiki_v2 import marks
 from core.brain.wiki_v2.nodes import PROMISE_OUTCOMES   # 结局枚举的运行时真源（同包）
 from core.common import err
 from core.session.events import (
@@ -590,7 +591,7 @@ def render_note_block(state: NotesState, *, now: object | None = None,
     - **`on_mind` 不印编号也不印 refs**: 它是她自己的口吻, 一行散文（refs 照存,
       给 recall 与审计用）。**`due` 同理不印**（见 `NoteItem`）。
 
-    `now=None` → 不加时间短语（同 `render._time_phrase` 的哨兵纪律: 未接线时保持原形态,
+    `now=None` → 不加时间短语（同 `marks.relative` 的哨兵纪律: 未接线时保持原形态,
     不给一个假的"很久以前"）。
     """
     lines: list[str] = []
@@ -653,22 +654,21 @@ def _refs_suffix(it: NoteItem, titles: Mapping[str, str] | None = None) -> str:
     """
     if not it.refs or not titles:
         return ""
-    names = [titles[r] for r in it.refs if titles.get(r)]
+    names = [marks.name(titles[r]) for r in it.refs if titles.get(r)]
+    names = [n for n in names if n]
     if not names:
         return ""
-    return f" ({'·'.join(f'《{n}》' for n in names)})"
+    return f" ({'·'.join(names)})"
 
 
 def _since_suffix(it: NoteItem, now: object | None) -> str:
-    """`  ← 记于 3 天前`（算不出 → **整段不印**, 不编一个"很久以前"）。"""
-    if now is None or not it.since:
-        return ""
-    try:
-        from core.worldtime.age import age_days, render_relative
-        age = age_days(it.since, now=now)
-    except Exception:                              # noqa: BLE001 — 渲染绝不因时间炸
-        return ""
-    return f"{SINCE_LEAD}{render_relative(age)}" if age is not None else ""
+    """`  ← 记于 3 天前`（算不出 → **整段不印**, 不编一个"很久以前"）。
+
+    ⚠️ 相对短语走 `marks.relative`（**唯一实现**）: 她视图里那句 `4 天前` 与这里
+    `记于 3 天前` 从此是同一个算法（此前两处各算一遍, 只是恰好长得一样）。
+    """
+    span = marks.relative(it.since, now)
+    return f"{SINCE_LEAD}{span}" if span else ""
 
 
 # ---------------------------------------------------------------------------

@@ -156,8 +156,9 @@ def test_new_nodes_block_render(tmp_path):
     pid = st.add(make_node("promise", text="周六模型店 —— 真的去了",
                            outcome="kept", event_seq=[3], ts="2026-09-25T10:00:00"))
     text, local_of = new_nodes_block(st, ["m0001", pid, "m9999"])
-    assert "[episode]" in text and "「模型店」" in text
-    assert "[promise·已兑现]" in text
+    # ⭐ 2026-09-29 形状: 类型与名字**都进头**（`marks.head`）—— 原来 `u0001 [episode] 「模型店」 正文`
+    assert "〔u0001｜《模型店》｜episode〕模型店门口" in text, text
+    assert "〔u0002｜promise·已兑现〕" in text, text
     assert local_of == {"m0001": "u0001", pid: "u0002"}      # 不存在的 id 跳过
     assert new_nodes_block(st, [])[0] == ""
 

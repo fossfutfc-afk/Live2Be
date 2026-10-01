@@ -278,7 +278,7 @@ def _edge_ts(meta: dict, src: str, dst: str) -> str:
     """推断边的时刻 —— 取两端 `ts` 中**较晚**的那个（≈ 这条关系形成的时刻）。
 
     旧档没有边表, 这是**近似值**; G3 起的写路径如实落。两端都没有 `ts` → `""`
-    （哨兵纪律: **不编**一个时刻 —— 与 `render._time_phrase` 同一条）。
+    （哨兵纪律: **不编**一个时刻 —— 与 `marks.relative` 同一条）。
     """
     ts = [t for t in (meta.get(src, ("", ""))[1], meta.get(dst, ("", ""))[1]) if t]
     return max(ts) if ts else ""
