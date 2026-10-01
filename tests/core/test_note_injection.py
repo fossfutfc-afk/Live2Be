@@ -14,7 +14,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-from core.brain.wiki_v2 import notes
+from core.brain.wiki_v2 import WikiStoreV2, make_node, notes
 from core.mmt.engine import MomoTalkEngine, load_brain_segment, load_note_segment
 from core.session import SessionStore, make_event
 
@@ -45,6 +45,14 @@ def _add_note(st, text="周六模型店", refs=("m0009",)):
     st.append_event(CHARACTER, "", notes.note_event(notes.add_op(text, refs)))
 
 
+def _titled_ref(st, node_id="m0009", title="模型店的午后"):
+    """建一条**有名字**的 episode（refs 印名字需要它在图上）—— ⚠️ `store.add` 只改内存, 要 save。"""
+    ws = WikiStoreV2(st.data_root, world_id=st.world_id, char_id=CHARACTER)
+    ws.add(make_node("episode", text="那天在模型店", title=title, event_seq=[1],
+                     id=node_id))
+    ws.save()
+
+
 # ---------------------------------------------------------------------------
 # bond 开场（load_brain_segment）
 # ---------------------------------------------------------------------------
@@ -57,7 +65,12 @@ def test_bond_segment_carries_the_note_block_before_time_notes(tmp_path):
     seg = load_brain_segment(st, CHARACTER, "伊草 遥香", CONFIG)
 
     assert notes.TITLE in seg
-    assert "周六模型店" in seg and "(m0009)" in seg
+    assert "周六模型店" in seg
+
+    # ⭐ N4a: refs 印**名字**（`m0009` 指不到就不印 —— 印一个她读不懂的编号是违规）
+    _titled_ref(st)
+    seg2 = load_brain_segment(st, CHARACTER, "伊草 遥香", CONFIG)
+    assert "(《模型店的午后》)" in seg2 and "(m0009)" not in seg2
     # 位置: 在**时间注记之前**（那是每轮都在变的动态尾巴, 一直在最后）
     assert seg.index(notes.TITLE) < seg.index("【她刚刚还在和老师说话】")
 

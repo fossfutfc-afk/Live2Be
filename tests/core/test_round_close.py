@@ -315,11 +315,7 @@ def test_engine_writes_note_ops_into_the_truth(tmp_path):
     root = st.create(CHARACTER)
     engine.attach_session(root.session_id)
     engine._session_rounds = 25
-    # 本用例只测 R4: 把写卡计数器摆到"离到点还早", 免得第一次 digest 顺带写一张卡
-    from core.brain.wiki_v2.digest import PANORAMA_COUNTER_KEY
-    ws0 = WikiStoreV2(st.data_root, world_id=st.world_id, char_id=CHARACTER)
-    ws0.meta[PANORAMA_COUNTER_KEY] = 0
-    ws0.save_meta()
+    # （N4a 之前这里要把"写卡计数器"摆到离到点还早 —— 全景轮已退役, 不再需要）
     st.append_event(CHARACTER, "", make_event("mmt", "mmt_chat",
                                               {"player": "老师", "reply": "嗯"}))
 

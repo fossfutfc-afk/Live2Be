@@ -1,31 +1,21 @@
 # -*- coding: utf-8 -*-
-"""panorama.py — **全景轮**（DESIGN_GRAPH_V4 §8.6）: 取料。
+"""panorama.py — **取料件**（原"全景轮"的取料那一半）。
 
-全景轮 = 低频 · 遍历后的一次整理: 把 note 的 B 类两槽（`habits` / `on_mind`）
-**整体重写** —— **写卡**。⭐ 它**不碰图、也不碰 A 类槽** ⇒ 不进 digest 事务、
-不需要 `clone_state` 快照、失败也不带走 digest。
+> ⚠️ **状态（2026-09-29, N4a）: 全景轮已退役**（`habits` 槽取消 · `on_mind` 改由 L1 写）
+> ⇒ 本模块**今天零产品调用者**。它留下的理由是**取料逻辑本身**（两条通道 + 候选带 `why`）——
+> 那是 `TODO.md` 里 **N6（候选池 / 切块）** 的现成原料。
+> ⚠️ **别再往这里加"卡"相关的东西**（`habits` / `on_mind` / 上次那张卡）: 那是退役的那一半。
+> ⚠️ N6 会把它整形成"**切块**"（块的来源：她连的 `akin` + 引擎按锚点切）—— 那时改名/改形状
+>    都归它, 现在**不为想象中的消费者预先改造**。
 
-本模块**只做取料**: 纯函数、零 IO、零 LLM —— 把料摆到她面前, **判断全交给那一次调用**
-（调用侧 = `digest.run_panorama` + `llm/prompts/panorama.md` + `revise.apply_panorama`）。
-
-## 料从哪来（**输入一张卡，输出一张卡** —— 2026-09-23 定形）
-
-    【你上次给自己写的卡】（`habits` + `on_mind`；**印编号**（照抄 = 延续）、不印时间）
-  ∪ 【这次新消化的经历】（本轮新增 episode 的正文）
-  ∪ 【可能相关的旧经历】（候选池 —— 跨时段发现新"同类"）
-
-⚠️ **promise 不在这条链上**（同日定形）：结清 / 固化 / 退场全归 **R4 收口**（§8），
-全景轮不碰 A 类槽。所以这里**不做**"还开着的约定""已结清未退场"那两块 ——
-它们当初是为 `close`/`retire` 存在的，而那不是这一轮的活。
-⚠️ **索引（"其余的经历"）默认关**（`index_cap=0`）：那些条目她**看不到内容** ⇒
-索引给的是"引用的诱惑"，不是"判断的依据"。旋钮留着，真机上发现"明显相关的经历没被抬出来"再开。
+本模块**只做取料**: 纯函数、零 IO、零 LLM —— 把料摆出来, **判断全交给调用方**。
 
 ## 候选池的两条通道
 
 | 通道 | 判据 | 今天的状态 |
 |---|---|---|
 | **语义近邻** | `embed_fn` 给得出向量 → **余弦 top-k**（低频现算, **不落盘** —— 同 recall 的"零漂移"纪律） | 接口就位; 本机 embedding 服务未起 ⇒ 实际走下面那条 |
-| **字面锚点**（降级） | `tag` / `items` / `place` 的**值相同**（设计稿 §8.6 的降级路径） | **今天的主力** |
+| **字面锚点**（降级） | `tag` / `items` / `place` 的**值相同** | **今天的主力**（`PROCEED §4`: 字面精确度 1.00） |
 
 ⚠️ **`verbatim` 共词不做锚点** —— 真机实测前两字 "那个" 命中 3 条, 纯噪音。
 ⚠️ 锚点按**稀有度**排（DF 小 = 具体）+ **每个锚点封顶** —— 否则"约定"（真机 4 条）这类
@@ -40,7 +30,6 @@ from dataclasses import dataclass, field
 from typing import Any, Iterable
 
 from core.brain.wiki_v2.nodes import BrainNode
-from core.brain.wiki_v2.notes import NoteItem, NotesState
 from core.brain.wiki_v2.store import WikiStoreV2
 # 与 recall 共用"什么文本会被嵌入"和余弦 —— 两份实现必然漂移（镜像纪律）
 from core.brain.wiki_v2.recall import _cosine, _embed_text
@@ -89,8 +78,6 @@ class PanoramaInput:
     candidates: list[Candidate] = field(default_factory=list)   # 候选旧经历（跨时段）
     others: list[BrainNode] = field(default_factory=list)       # 其余经历（**默认关**, 见 `index_cap`）
     others_dropped: int = 0                                     # 索引被截掉几条（如实说明）
-    habits: list[NoteItem] = field(default_factory=list)        # 上次卡上的惯例
-    on_mind: NoteItem | None = None                             # 上次卡上的"最近在想"
     #: 实际走的通道: `semantic` / `anchor` / `none`（可观测 —— 同 recall 的 `mode_out`）
     mode: str = "none"
 
@@ -115,17 +102,6 @@ class PanoramaInput:
         这里只保证"她看得见该看见的东西, 且看得见每一条**为什么**被摆到她面前"。
         """
         blocks: list[str] = []
-        card: list[str] = []
-        if self.habits:
-            card.append("  · 惯例")
-            card += [f"    {_card_line(it)}" for it in self.habits]
-        if self.on_mind is not None:
-            card.append("  · 最近在想")
-            card.append(f"    {_card_line(self.on_mind)}")
-        if card:
-            blocks.append("【你上次给自己写的卡】（延续的那条**照抄编号** ——"
-                          " 措辞可以改, 编号照抄了它就还是同一条）\n"
-                          + "\n".join(card))
         if self.new:
             blocks.append("【这次新消化的经历】\n"
                           + "\n".join(f"  {n.id} {n.text}" for n in self.new))
@@ -143,18 +119,11 @@ class PanoramaInput:
         return "\n\n".join(blocks)
 
 
-def _card_line(item: NoteItem) -> str:
-    """卡上的一行: `编号 正文（refs）` —— ⚠️ 与注入块的 `notes.render_item` **故意不同**：
-    这里的编号**必须印**（契约要求延续的照抄编号）; 但**不印时间**（对"还成立吗"不是判据）。"""
-    refs = f"（{', '.join(item.refs)}）" if item.refs else ""
-    return f"{item.id} {item.text}{refs}" if item.id else f"{item.text}{refs}"
-
-
-def build_input(store: WikiStoreV2, note_state: NotesState, *,
+def build_input(store: WikiStoreV2, *,
                 new_ids: Iterable[str] = (),
                 embed_fn: Any = None,
                 cap_per_anchor: int = DEFAULT_CAP_PER_ANCHOR,
-                max_candidates: int = DEFAULT_MAX_CANDIDATES,
+                max_candidates: int = int(DEFAULT_MAX_CANDIDATES),
                 index_cap: int = DEFAULT_INDEX_CAP) -> PanoramaInput:
     """取料: 图 + 笔记状态 + 本轮新增 → `PanoramaInput`。
 
@@ -183,7 +152,6 @@ def build_input(store: WikiStoreV2, note_state: NotesState, *,
             cands = _anchor_pairs(eps, new, cap_per_anchor=cap_per_anchor)
             mode = "anchor"
 
-    _add_habit_refs(cands, by_id, note_state, new_set, total_eps=len(eps))
     # 排序: **越具体**（共享锚点越稀有）→ **被越多条新经历命中** → 越显著 → id。
     # `hits` 放在 sig 前面: "三条新经历都连着它"比"它自己很重要"更像"同一件事"。
     ordered = sorted(cands.values(),
@@ -196,7 +164,6 @@ def build_input(store: WikiStoreV2, note_state: NotesState, *,
     return PanoramaInput(
         new=new, candidates=ordered,
         others=rest[:index_cap], others_dropped=max(0, len(rest) - index_cap),
-        habits=list(note_state.habits), on_mind=note_state.on_mind,
         mode=mode)
 
 
@@ -287,29 +254,6 @@ def _semantic_pairs(eps: list[BrainNode], new: list[BrainNode], embed_fn: Any, *
             if why not in c.why:
                 c.why.append(why)
     return out
-
-
-def _add_habit_refs(cands: dict[str, Candidate], by_id: dict[str, BrainNode],
-                    note_state: NotesState, new_set: set[str], *,
-                    total_eps: int) -> None:
-    """金字塔的**递归那一半**: 上一版 `habits` 引用过的 episode 也进池子。
-
-    为什么: 她上次的归纳要能被**当场核对**（"我引用的那几条现在还在吗、还是那几条吗"）,
-    否则重写就是凭记忆重写。⚠️ 优先级最低（`rarity` 给最大）—— 它已经在金字塔里了,
-    新料（跨时段的锚点命中）更值钱。悬空引用（节点已不在）直接跳过。
-    """
-    for it in note_state.habits:
-        for rid in it.refs:
-            m = by_id.get(rid)
-            if m is None or m.id in new_set:
-                continue
-            c = cands.get(m.id)
-            if c is None:
-                c = Candidate(id=m.id, text=m.text or "", sig=m.significance,
-                              rarity=max(total_eps, 1))
-                cands[m.id] = c
-            if "你上次引用了它" not in c.why:
-                c.why.append("你上次引用了它")
 
 
 def _clip(text: str, limit: int = INDEX_CHARS) -> str:
