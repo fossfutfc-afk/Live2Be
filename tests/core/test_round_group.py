@@ -360,6 +360,92 @@ def test_digest_runs_merge(tmp_path):
     print(f"    digest 接线: 并掉 {res.merged_groups}（料里出现了【可能重复的类】）")
 
 
+# ---------------------------------------------------------------------------
+# N7c 单条也能归已有的类
+# ---------------------------------------------------------------------------
+
+def _group_of_two(st):
+    """先摆一个**已有的类**（两条）, 返回 `(群 id, 已归群的成员)`。"""
+    a = _ep(st, "A", "甲一", "2026-09-20T10:00:00")
+    b = _ep(st, "B", "甲二", "2026-09-21T10:00:00")
+    st.add_edge(REL_AKIN, a, b, ts="2026-09-21T10:00:00")
+    st.save()
+    blks = groups.build_blocks(st, groups.ungrouped(st))
+    gid = groups.apply_groups(st, [{"action": "new", "block": blks[0].bid, "title": "甲类"}],
+                              blks, ts=_NOW).nodes[0]
+    st.save()
+    return gid, (a, b)
+
+
+def test_single_linked_to_group_enters_material(tmp_path):
+    """⭐ 一条新经历**只连到已归过类的那条** ⇒ 也能进料（以前被"≥2"扔掉）。"""
+    st = _store(tmp_path)
+    gid, _members = _group_of_two(st)
+    solo = _ep(st, "S", "新来的那条", "2026-09-26T10:00:00")
+    st.add_edge(REL_AKIN, solo, _members[0], ts="2026-09-26T10:00:00")
+    st.save()
+
+    blks = groups.build_blocks(st, groups.ungrouped(st))
+    assert len(blks) == 1 and blks[0].episodes == (solo,), blks
+    assert blks[0].linked == (gid,)
+    text = groups.render_blocks(st, blks)
+    assert text.splitlines()[0] == "〔b1｜1 条〕 与 〔《甲类》｜2 条〕 —— 她把它连到这一类", text
+    print(f"    单条进料: {text.splitlines()[0]}")
+
+
+def test_isolated_single_still_excluded(tmp_path):
+    """⚠️ **完全孤立**的（一条 akin 都没有）仍然不进料 —— 没有任何依据, 不替她猜。"""
+    st = _store(tmp_path)
+    _group_of_two(st)
+    _ep(st, "L", "没人连过它", "2026-09-26T10:00:00")
+    st.save()
+    assert groups.build_blocks(st, groups.ungrouped(st)) == []
+    print("    孤立的单条: 不进料（等她自己连上谁）")
+
+
+def test_single_linked_to_two_groups_shows_both(tmp_path):
+    """单条同时连到两个类 ⇒ 两个类都摆出来（选哪个是 LLM 的活）。"""
+    st = _store(tmp_path)
+    g1, members = _group_of_two(st)
+    c = _ep(st, "C", "乙一", "2026-09-22T10:00:00")
+    d = _ep(st, "D", "乙二", "2026-09-23T10:00:00")
+    st.add_edge(REL_AKIN, c, d, ts="2026-09-23T10:00:00")
+    st.save()
+    blks = groups.build_blocks(st, groups.ungrouped(st))
+    g2 = groups.apply_groups(st, [{"action": "new", "block": blks[0].bid, "title": "乙类"}],
+                             blks, ts=_NOW).nodes[0]
+    st.save()
+    solo = _ep(st, "S", "两边都像", "2026-09-26T10:00:00")
+    st.add_edge(REL_AKIN, solo, members[0], ts="2026-09-26T10:00:00")
+    st.add_edge(REL_AKIN, solo, d, ts="2026-09-26T10:00:00")
+    st.save()
+
+    blks2 = groups.build_blocks(st, groups.ungrouped(st))
+    assert len(blks2) == 1 and sorted(blks2[0].linked) == sorted([g1, g2]), blks2
+    line = groups.render_blocks(st, blks2).splitlines()[0]
+    assert "〔《甲类》｜2 条〕" in line and "〔《乙类》｜2 条〕" in line
+    assert line.endswith("—— 她把它连到这些类"), line
+    print(f"    连到两个类: {line}")
+
+
+def test_digest_attaches_single(tmp_path):
+    """接上了: 单条块走 `attach` ⇒ 它挂到那个类上（她那条边终于有人读了）。"""
+    st = _store(tmp_path)
+    gid, members = _group_of_two(st)
+    solo = _ep(st, "S", "新来的那条", "2026-09-26T10:00:00")
+    st.add_edge(REL_AKIN, solo, members[0], ts="2026-09-26T10:00:00")
+    st.save()
+
+    llm = RoundLLM(group={"attach": [{"block": "b1", "group": "甲类"}], "new": [],
+                          "merge": []})
+    res = digest_segment(st, llm, [_mmt(3)])
+    assert res.ok, res.errors
+    assert res.created_groups == [] and res.grouped_episodes == 1
+    assert solo in st.graph().sources(gid, REL_MEMBER_OF)
+    assert "〔b1｜1 条〕 与 〔《甲类》｜2 条〕" in llm.user_of(T.DIGEST_GROUP)
+    print(f"    digest 接线: 单条挂到了 {gid}")
+
+
 if __name__ == "__main__":
     import tempfile
 

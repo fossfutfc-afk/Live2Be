@@ -69,6 +69,8 @@ BODY_GROUP = 40
 MAX_MERGE_PAIRS = 3
 #: 一对候选最多摆几条"她跨连的"成员行（那是**证据**, 不是清单）
 MAX_MERGE_EVIDENCE = 6
+#: 一个单条块最多摆出它连到的几个类（够它选就行 —— 摆全部会盖过它自己那一行）
+MAX_LINKED_SHOWN = 3
 
 _INDENT = "  "
 
@@ -79,10 +81,14 @@ class Block:
 
     `bid` 是**本次调用的把手**（`b1`…）—— ⚠️ 它**不是节点 id**, 只在这一轮有效
     （下一次调用重新发号, 所以块与把手**没有长期对应关系**）。
+
+    `linked`（⭐ N7c）: 这个块（**单条**时）**她连到的那些类**（群 id）。
+    单条能进料**只因为**它连到了某个已有的类 —— 那是它的全部依据（引擎不替她判"算不算"）。
     """
 
     bid: str
     episodes: tuple[str, ...]            # 真 id（按 ts 升序）
+    linked: tuple[str, ...] = ()         # 她连到的类（空 = 普通块, ≥2 条或还没成类）
 
 
 @dataclass(frozen=True)
@@ -138,22 +144,47 @@ def ungrouped(store: WikiStoreV2) -> list[str]:
     return [n.id for n in sorted(out, key=lambda n: (n.ts or "", n.id))]
 
 
+def _group_of(store: WikiStoreV2) -> dict[str, set[str]]:
+    """episode → 它所属的群（一个 episode 理论上可多归属 —— 设计允许, 今天发现不了第二个）。"""
+    out: dict[str, set[str]] = {}
+    for e in iter_edges(store, rel=REL_MEMBER_OF):
+        out.setdefault(e.src, set()).add(e.dst)
+    return out
+
+
 def build_blocks(store: WikiStoreV2, cand: Iterable[str],
                  *, max_blocks: int = MAX_BLOCKS) -> list[Block]:
-    """未归群的 episode → **`akin` 连通块**（≥2 条才算块; 新块先发）。
+    """未归群的 episode → **`akin` 连通块**（新块先发）。
+
+    两种块:
+
+    | 形状 | 判据 | 为什么它能进料 |
+    |---|---|---|
+    | **≥2 条** | 未归群的几条被她连成一块 | 她连出来的同类候选 —— 有同伴, 类名起得出来 |
+    | ⭐ **1 条**（N7c） | 它**连到了某个已有的类**（`linked` 非空） | 那是"它属于这一类"的直接线索; ⚠️ 以前这种单条被"≥2"直接扔掉 ⇒ **她那条边永远没人读** |
+
+    ⚠️ **只有一种仍然进不了料**: 一条 `akin` 都没有的（**完全孤立**）—— 没有任何依据,
+    不替她猜; 等她自己连上谁（增量天然成立）。
 
     ⚠️ **只认 `akin`**（她连过的）—— 见模块 docstring 那条"锚点兜底有意不做"。
-    ⚠️ 落单的**不进块**（也**不进料**）: 一次调用只为"能起名的块"付钱。
     """
     ids = [i for i in cand if store.get(i) is not None]
     in_play = set(ids)
+    grp_of = _group_of(store)
     adj: dict[str, set[str]] = {i: set() for i in ids}
+    linked: dict[str, set[str]] = {}          # 候选 → 它连到的类（群 id）
     for e in iter_edges(store, rel=REL_AKIN):
         if e.src in in_play and e.dst in in_play and e.src != e.dst:
             adj[e.src].add(e.dst)
             adj[e.dst].add(e.src)
+            continue
+        # 只一边在候选池里 ⇒ 另一边**已经归了类**（`grp_of` 里没有的返回空集 ⇒ 自然过滤）
+        if e.src in in_play and e.src != e.dst:
+            linked.setdefault(e.src, set()).update(grp_of.get(e.dst, ()))
+        elif e.dst in in_play:
+            linked.setdefault(e.dst, set()).update(grp_of.get(e.src, ()))
 
-    comps: list[list[str]] = []
+    comps: list[tuple[list[str], tuple[str, ...]]] = []
     seen: set[str] = set()
     for i in ids:
         if i in seen or not adj[i]:
@@ -168,11 +199,15 @@ def build_blocks(store: WikiStoreV2, cand: Iterable[str],
                     seen.add(nb)
                     stack.append(nb)
         if len(comp) >= 2:
-            comps.append(sorted(comp, key=lambda x: _key(store, x)))
+            comps.append((sorted(comp, key=lambda x: _key(store, x)), ()))
+    for i in ids:                             # ⭐ N7c: 落单但连到了某个类的
+        if adj[i] or not linked.get(i):
+            continue
+        comps.append(([i], tuple(sorted(linked[i]))))
     # 新的块先发（记忆是"最近的事先组织"）—— 超上限的那些**留着**, 下段再来
-    comps.sort(key=lambda c: _key(store, c[-1]), reverse=True)
-    return [Block(bid=f"b{k}", episodes=tuple(c))
-            for k, c in enumerate(comps[:max_blocks], start=1)]
+    comps.sort(key=lambda c: _key(store, c[0][-1]), reverse=True)
+    return [Block(bid=f"b{k}", episodes=tuple(members), linked=lk)
+            for k, (members, lk) in enumerate(comps[:max_blocks], start=1)]
 
 
 # ---------------------------------------------------------------------------
@@ -203,18 +238,41 @@ def _ep_line(store: WikiStoreV2, nid: str, body: int) -> str:
     return f"- {marks.head(node, key=node.id)}{text}"
 
 
+def _group_head(store: WikiStoreV2, gid: str) -> str:
+    """`〔《那片苔藓》｜4 条〕` —— **类头**（料的每一处都共用这一份: 已有的类 / 合并候选 / 单条块）。"""
+    node = store.get(gid)
+    if node is None:
+        return ""
+    n = len(store.graph().sources(gid, REL_MEMBER_OF))
+    return marks.head(node, extra=[f"{n} 条"])
+
+
 def render_blocks(store: WikiStoreV2, blks: list[Block],
                   *, body: int = BODY_BLOCK, cap: int = MAX_BLOCK_MEMBERS) -> str:
-    """块 → 料。头 `〔b1｜3 条〕`（条数 = **真实总数**, 不是摆出来的条数）。"""
+    """块 → 料。头 `〔b1｜3 条〕`（条数 = **真实总数**, 不是摆出来的条数）。
+
+    ⭐ **N7c 的单条块**在头后面接上**她连到的那些类**::
+
+        〔b1｜1 条〕 与 〔《那片苔藓》｜4 条〕 —— 她把它连到这一类
+          - 〔m0009｜《窗台上的苔藓》〕窗台那盆是我从楼梯拐角分出来的…
+
+    ⚠️ 类名仍在 `〔〕` 里（头的第二段）, 不落进正文 —— 名字只在头里, 这是括号表那条。
+    """
     lines: list[str] = []
     for b in blks:
-        lines.append(marks.head(None, key=b.bid, extra=[f"{len(b.episodes)} 条"]))
-        head, tail, skipped = _split_members(list(b.episodes), cap)
-        for nid in head:
+        head = marks.head(None, key=b.bid, extra=[f"{len(b.episodes)} 条"])
+        if b.linked:
+            shown = [h for h in (_group_head(store, g) for g in b.linked[:MAX_LINKED_SHOWN]) if h]
+            if shown:
+                word = "这一类" if len(shown) == 1 else "这些类"
+                head += f" 与 {'、'.join(shown)} —— 她把它连到{word}"
+        lines.append(head)
+        head_ids, tail_ids, skipped = _split_members(list(b.episodes), cap)
+        for nid in head_ids:
             lines.append(f"{_INDENT}{_ep_line(store, nid, body)}")
         if skipped:
             lines.append(f"{_INDENT}…（中间 {skipped} 条略）")
-        for nid in tail:
+        for nid in tail_ids:
             lines.append(f"{_INDENT}{_ep_line(store, nid, body)}")
     return "\n".join(lines)
 
@@ -242,7 +300,7 @@ def render_groups(store: WikiStoreV2, *, body: int = BODY_GROUP,
     lines: list[str] = []
     for n in _groups_sorted(store)[:shown]:
         members = sorted(g.sources(n.id, REL_MEMBER_OF), key=lambda x: _key(store, x))
-        lines.append(marks.head(n, extra=[f"{len(members)} 条"]))
+        lines.append(_group_head(store, n.id))
         head, tail, skipped = _split_members(members, cap)
         for nid in head:
             lines.append(f"{_INDENT}{_ep_line(store, nid, body)}")
@@ -334,9 +392,7 @@ def merge_candidates(store: WikiStoreV2,
     ⚠️ **两个类里的成员互不相识时它提不出来** —— 那正是"纯计算抓不到语义"的诚实边界;
     真机数据说明有漏, 再加名字/语义通道（代价: 假候选）。
     """
-    grp_of: dict[str, set[str]] = {}
-    for e in iter_edges(store, rel=REL_MEMBER_OF):
-        grp_of.setdefault(e.src, set()).add(e.dst)
+    grp_of = _group_of(store)
     acc: dict[tuple[str, str], list[tuple[str, str]]] = {}
     for e in iter_edges(store, rel=REL_AKIN):
         left, right = grp_of.get(e.src) or set(), grp_of.get(e.dst) or set()
@@ -349,15 +405,6 @@ def merge_candidates(store: WikiStoreV2,
     out = [MergeCandidate(left=k[0], right=k[1], pairs=tuple(v)) for k, v in acc.items()]
     out.sort(key=lambda c: (-len(c.pairs), c.left, c.right))    # 跨连多的先问
     return out[:max_pairs]
-
-
-def _group_head(store: WikiStoreV2, gid: str) -> str:
-    """`〔《那片苔藓》｜4 条〕`（类头 —— 与 `render_groups` 同一形状）。"""
-    node = store.get(gid)
-    if node is None:
-        return ""
-    n = len(store.graph().sources(gid, REL_MEMBER_OF))
-    return marks.head(node, extra=[f"{n} 条"])
 
 
 def render_merge_candidates(store: WikiStoreV2, cands: list[MergeCandidate],
