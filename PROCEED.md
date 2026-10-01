@@ -5,15 +5,16 @@
 > **状态：N4a 的代码 / 测试 / 文档全部改完并已验证**（`compileall` 绿 · `--collect-only` **1128 collected**
 > 无 import 断裂 · 碰到的 9 个测试文件 **~175 passed**）。⚠️ **未验**：全量四件套 / B 冒烟 / `tests/webgui`（留到收口）。
 >
-> **收尾只剩三件，按序做：**
-> 1. **提交 N4a**（工作树 22 项改动，提交信息已备好：`.testtmp/commit_n4a.txt`）
->    ⇒ `git add <PROCEED 里列的那批路径>` → `git commit -F .testtmp/commit_n4a.txt`
-> 2. **`core/brain/wiki_v2/digest.py::_episode_lines` 的 `「」` → `《》`**（N5a 定的"事件名用书名号"；
+> ✅ **N4a 已于 2026-09-29 提交 = `f9f1d3f`**（22 files changed, +256/−1415；含 `habits` 槽退役 ·
+> `on_mind` 归 L1 · 全景轮退役 · refs 印名字 · 删 `llm/prompts/panorama.md` 与 `test_panorama_run.py`）。
+>
+> **收尾只剩两件，按序做：**
+> 1. **`core/brain/wiki_v2/digest.py::_episode_lines` 的 `「」` → `《》`**（N5a 定的"事件名用书名号"；
 >    顺手检查同文件 `_round_b_material` 印事件名的地方是否一致）
-> 3. **`CLAUDE.md §7` 里"全景轮每 10 段写 habits/on_mind"现在整段是错的**（N4a 已把 habits 槽
+> 2. **`CLAUDE.md §7` 里"全景轮每 10 段写 habits/on_mind"现在整段是错的**（N4a 已把 habits 槽
 >    与全景轮一起退役）——按仪式先 `git mv CLAUDE.md CLAUDE_EDIT.md` 改名，改完再改回
 >
-> 三件做完 **才** 选下一个节点（`docs/TODO.md`）：**N4b（R4 并入 R1）我建议缓** / **N6、N7 规格已过期要重写** /
+> 两件做完 **才** 选下一个节点（`docs/TODO.md`）：**N4b（R4 并入 R1）我建议缓** / **N6、N7 规格已过期要重写** /
 > **切块（L2-a 分群）设计已谈定但未开工**。
 >
 > ### ⚠️⚠️ 测试纪律（用户 2026-09-29 裁决，违反会被**当场断掉**）
