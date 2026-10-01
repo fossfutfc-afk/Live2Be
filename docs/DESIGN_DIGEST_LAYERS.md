@@ -283,6 +283,14 @@ def render_evidence(evs: list[Evidence], local_of: dict[str, str], *, deep_k: in
 
 ### 3.2 L2 契约
 
+> ⚠️⚠️ **现状（2026-09-29 · N7 已落地）—— 下面这段 JSON 是作废的旧口径, 别照着实现**:
+> ① **群 = 节点**（`kind="group"`, `title` = 类名）+ **`member_of` 边**（成员各自带 `ts`）,
+> **不是** `aspect` 字段 + `group_by(aspect)`（`PROCEED §2 #2` 已推翻那条）;
+> ② `akin` 是**纯边、无属性** —— 引擎按**连通块**切块, ⭐ **边不进 LLM 视野**;
+> ③ 落地形状 = **两个键 `attach` / `new`**, LLM **按块**归属（不是自己报 members）;
+> ④ `covered` / `gap` / `conf` 属于 **L2-b（N8 `ignite`）**, 尚未落地。
+> 真源: `core/brain/wiki_v2/groups.py` · `contract/digest_registry.py::build_schema(PHASE_GROUP)`。
+
 ```json
 {
   "groups": [

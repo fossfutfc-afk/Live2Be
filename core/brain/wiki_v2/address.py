@@ -87,6 +87,20 @@ def unique_title(store: WikiStoreV2, title: str, *, kind: str = "episode") -> st
     return f"{name} {i}"
 
 
+def _find_by_title(store: WikiStoreV2, raw: object,
+                   kind: str) -> tuple[BrainNode | None, str]:
+    """名字 → **唯一**某 kind 节点（`find_episode` / `find_group` 共用这一份）。见 `find_episode`。"""
+    name = normalize_title(raw)
+    if not name:
+        return None, "empty"
+    hits = [n for n in store.all() if n.kind == kind and n.title == name]
+    if not hits:
+        return None, "miss"
+    if len(hits) > 1:
+        return None, "ambiguous"
+    return hits[0], "ok"
+
+
 def find_episode(store: WikiStoreV2, raw: object) -> tuple[BrainNode | None, str]:
     """名字 → **唯一** episode 节点。
 
@@ -101,12 +115,15 @@ def find_episode(store: WikiStoreV2, raw: object) -> tuple[BrainNode | None, str
     她指认的是"另一件**事**"; belief 是看法（全量常驻, 没有"同一件事"可言）,
     entity/group 各有各的用法 —— 都不在这里认。
     """
-    name = normalize_title(raw)
-    if not name:
-        return None, "empty"
-    hits = [n for n in store.all() if n.kind == "episode" and n.title == name]
-    if not hits:
-        return None, "miss"
-    if len(hits) > 1:
-        return None, "ambiguous"
-    return hits[0], "ok"
+    return _find_by_title(store, raw, "episode")
+
+
+def find_group(store: WikiStoreV2, raw: object) -> tuple[BrainNode | None, str]:
+    """名字 → **唯一** group 节点（N7, 2026-09-29）—— L2-a 分群的 `attach` 走它。
+
+    ⭐ **群的钥匙就是名字**: 群这个 kind 被要求有 `title`（`PROCEED §2 #11`）正是为了被指;
+    所以这里与 `find_episode` **同一份解析**（剥书名号 / 取 `｜` 第一段 / 不做近似匹配）。
+    ⚠️ 唯一性由**写入时强制**保证（`unique_title(kind="group")`, 见 `groups.apply_groups`）——
+    在那之前, `"ambiguous"` 仍是真分支（旧档 / 手工改库）。
+    """
+    return _find_by_title(store, raw, "group")
