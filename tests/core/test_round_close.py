@@ -130,6 +130,9 @@ def test_r4_runs_after_r1_and_before_r2(tmp_path):
     r4 = llm.user_of(T.DIGEST_CLOSE)
     assert "周六模型店" in r4 and "n1" in r4
     assert "m0001" in r4 and "m0002" in r4
+    # ⭐ 行形态 = `- 〔m0001｜《模型店门口》〕正文`（头由 `marks.head` 出 —— 唯一实现;
+    # 2026-09-29 之前是 `- m0001 「模型店门口」 正文`, 而 `「」` 在她视图里是"逐字原话"）
+    assert "- 〔m0001｜《模型店门口》〕模型店门口" in r4, r4
     # ⭐ 产出: 一条 add + 一条 close（**没进事件流** —— 那是调用方的活）
     assert [op["action"] for op in res.notes_ops] == ["add", "close"]
     assert res.notes_ops[0]["text"] == "拍一张模型店的照"

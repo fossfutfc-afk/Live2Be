@@ -1,20 +1,21 @@
 # PROCEED.md — **接续用**
 
-> ## ⏭️⏭️ **接续后第一件事（2026-09-29 中断点 · N4a）**
+> ## ⏭️⏭️ **接续后第一件事（2026-09-29 中断点 · N5d）**
 >
-> **状态：N4a 的代码 / 测试 / 文档全部改完并已验证**（`compileall` 绿 · `--collect-only` **1128 collected**
-> 无 import 断裂 · 碰到的 9 个测试文件 **~175 passed**）。⚠️ **未验**：全量四件套 / B 冒烟 / `tests/webgui`（留到收口）。
+> ✅ **N5d「括号统一」已落地 2026-09-29**（提交号见 `git log --oneline`）：新
+> **`core/brain/wiki_v2/marks.py` = 括号与信息头的唯一实现**（`name` / `head` / `kind_tag` /
+> `relative` / `abs_date` / `section` + 括号表常量）；**五个写侧全部改调它**（她视图 / L2 /
+> R2 / R4 / R3 —— 后两者原来还写着 `「标题」`，是 N2 漏改的）；类型标签与时间短语各收成一处；
+> `address` 的剥字符集改为从 `marks` 取（**印剥同源**）。守门 = `tests/core/test_marks_guard.py`
+> （代码字面量零手写 `《》〔〕｜` · 她的视图不许印编号 · 格序钉死 · 印剥同源 · marks 零 import 期依赖）。
+> **验证范围**（按纪律**不跑全量**）：碰到的 9 个测试文件 **139 passed**（`compileall` 绿）。
+> ⚠️ **未验**：全量四件套 / B 冒烟 / `tests/webgui`（留到大节点收口）。
 >
-> ✅ **N4a 已于 2026-09-29 提交 = `f9f1d3f`**（22 files changed, +256/−1415；含 `habits` 槽退役 ·
-> `on_mind` 归 L1 · 全景轮退役 · refs 印名字 · 删 `llm/prompts/panorama.md` 与 `test_panorama_run.py`）。
+> **收尾只剩一件：**
+> 1. **`CLAUDE.md §7` 里"全景轮每 10 段写 habits/on_mind"整段是错的**（N4a 已把 habits 槽
+>    与全景轮一起退役）—— 按仪式先 `git mv CLAUDE.md CLAUDE_EDIT.md` 改名，改完再改回
 >
-> **收尾只剩两件，按序做：**
-> 1. **`core/brain/wiki_v2/digest.py::_episode_lines` 的 `「」` → `《》`**（N5a 定的"事件名用书名号"；
->    顺手检查同文件 `_round_b_material` 印事件名的地方是否一致）
-> 2. **`CLAUDE.md §7` 里"全景轮每 10 段写 habits/on_mind"现在整段是错的**（N4a 已把 habits 槽
->    与全景轮一起退役）——按仪式先 `git mv CLAUDE.md CLAUDE_EDIT.md` 改名，改完再改回
->
-> 两件做完 **才** 选下一个节点（`docs/TODO.md`）：**N4b（R4 并入 R1）我建议缓** / **N6、N7 规格已过期要重写** /
+> 做完 **才** 选下一个节点（`docs/TODO.md`）：**N4b（R4 并入 R1）我建议缓** / **N6、N7 规格已过期要重写** /
 > **切块（L2-a 分群）设计已谈定但未开工**。
 >
 > ### ⚠️⚠️ 测试纪律（用户 2026-09-29 裁决，违反会被**当场断掉**）
@@ -22,6 +23,9 @@
 > **按文件夹 / 板块分着跑**：`pytest tests/core/test_wiki_notes.py`（秒级）· `pytest tests/webgui -q`（一块）·
 > 中途只跑 `pytest --collect-only -q tests`（约 2s，查 import 断裂）。
 > **全量四件套只在大节点收口时跑一次。** 没接线的改动更不该跑回归。
+> ⭐ **删东西只许指定工作目录内的显式路径，不用通配符 `*`**（用户 2026-09-29）。
+> ⭐ **动代码之前先报"关键信息的形式"给用户审**（`note.json` 怎么渲染给她 · 信息头长什么样），
+> 不说具体改法；**除用户明确说"继续"，不许自己往下做**（用户 2026-09-29 定的规矩）。
 
 > ⭐ **这份文件的唯一用途**：compact / 换会话之后，**5 分钟拿回上下文**。
 > **关键内容不在这里** —— 在 §5 文档地图那几份里。
@@ -37,7 +41,7 @@
 | **主线** | **新 note 机制 + graph 升级**（digest 按视野三层重排） |
 | **代码** | **N1a**（`akin` + 对称规范化）`6eb89e1` · **N1b**（`group` + `member_of`）`d08f2ae` · ⭐ **N3（位置字段 `span` 区间化）`327821c`** · ⭐ **修既有竞态**（章 `vn_enter` 漏落 / 假 `vn_exit`）⇒ 全量 **1110 passed** · B 冒烟 **PASS** |
 | **N4** | ⭐ **N4a 已落地 2026-09-29**：`habits` 槽退役 · `on_mind` 归 **L1** · **全景轮退役** · refs 印名字。⬜ **N4b（R4 并入 R1）我建议缓** —— 收益只是省一次**离线低频**调用, 而风险是「让 R1 判结清」把注意力分散掉（本项目有前科: *让主 LLM 逐句内联情绪 → 注意力分散、重试爆炸*）。 |
-| **N5 拆三** | ✅ **N5 已走完（2026-09-29）**：**N5a** `483e99b`（标题进注入 · `render_recall_block` · `recall_episodes` · **P19 槽位**）· **N5a-2** `28d8abf`（元信息定稿 `〔《事件名》｜相对｜绝对｜难忘〕` · `age.render_date` · `CONTEXT_MARKS`）· **N5b** `cf24562`（`{"noticed": …}` 第三类行 · ⭐ `address.py` · `noticed` 非内容事件 · 契约/rules 同批）· **N5c**（`digest._link_akin` 补 `akin` 边，工作树待提交） |
+| **N5 拆三** | ✅ **N5 已走完（2026-09-29）**：**N5a** `483e99b`（标题进注入 · `render_recall_block` · `recall_episodes` · **P19 槽位**）· **N5a-2** `28d8abf`（元信息定稿 `〔《事件名》｜相对｜绝对｜难忘〕` · `age.render_date` · `CONTEXT_MARKS`）· **N5b** `cf24562`（`{"noticed": …}` 第三类行 · ⭐ `address.py` · `noticed` 非内容事件 · 契约/rules 同批）· **N5c**（`digest._link_akin` 补 `akin` 边）· ⭐ **N5d**（**括号统一**）: 新 **`marks.py` = 括号与信息头的唯一实现**，五个写侧全部改调它，R4/R3 两处 `「」` 修掉，守门 `test_marks_guard.py` |
 | **设计** | 已裁 **19 条**（§2）· 待裁 **7 条**（§3）· 动工文档 `docs/DESIGN_MMT_NEW_ACTION.md`（§5） |
 | ⏭️ **下一步** | ⭐ **N5 已完成** —— 下一步按 `docs/TODO.md` 选：**N2（视野补齐，最便宜）** / **N6（候选池 `gather_evidence`）** / **N7（L2-a 分群，吃 N5 连出来的 `akin` 边）**。⚠️ 开工前先看那一步的"判据"与依赖 |
 | **支线** | MMT 的 `when` 语法（`DESIGN_MMT_NEW_ACTION §7 a`）独立、可随时插空 |

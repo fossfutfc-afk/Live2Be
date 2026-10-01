@@ -50,6 +50,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from contract import CHARACTER_SENSEI, DEFAULT_SPEAKER_NAMES
+from core.brain.wiki_v2 import marks
 from core.brain.wiki_v2.nodes import BrainNode, format_id
 
 if TYPE_CHECKING:                       # 仅注解求值期可见（避免运行时循环导入）
@@ -266,9 +267,16 @@ def new_nodes_block(store: WikiStoreV2, ids) -> tuple[str, dict[str, str]]:
     """第 3 轮的第三块料: **本轮新节点**（本地 id `u0001..`）—— 归属的对象。
 
     ```
-    u0001 [episode] 「模型店」 我把老师带到我路过很多年的那家模型店…
-    u0002 [promise·kept] 周六模型店，有点等不及 —— 周六真的去了
+    〔u0001｜《模型店》｜episode〕我把老师带到我路过很多年的那家模型店…
+    〔u0002｜promise·已兑现〕周六模型店，有点等不及 —— 周六真的去了
     ```
+
+    ⭐ **2026-09-29 形状变化**（原来 `u0001 [episode] 「模型店」 正文`）: 类型与名字
+    **都进头**（`marks.head` —— 括号表唯一实现）。理由: 头里**第一格恒是钥匙、
+    名字带书名号**, 而 `[episode]` 那个方括号按括号表另有含义（历史动作前缀）;
+    旧形状把"类型"留在头外面 ⇒ **闸门漏一格**, 将来谁都能再往行首塞一段裸文本。
+    ⚠️ **截断只截正文**（原来把"标题 + 正文"一起截到 120）—— 头里的名字是**地址**,
+    截一半就等于把地址截坏。
 
     ⚠️ **只给本轮新节点**（§8 第 3 轮那栏）: R1 的 episode/画像 · R4 物化的 promise ·
     R2 新建的认知。**"被改写的旧节点"不在内**（§9-12 ⑤ 那条待裁 —— 它们今天归属不了,
@@ -289,19 +297,16 @@ def new_nodes_block(store: WikiStoreV2, ids) -> tuple[str, dict[str, str]]:
         i += 1
         local = format_id(NODE_PREFIX, i)
         local_of[node.id] = local
-        head = node.text.strip() if node.text else ""
-        if node.title:
-            head = f"「{node.title}」 {head}"
-        if len(head) > 120:
-            head = head[:120] + "…"
-        lines.append(f"{local} {_node_tag(node)} {head}".rstrip())
+        body = node.text.strip() if node.text else ""
+        if len(body) > 120:
+            body = body[:120] + "…"
+        lines.append(f"{marks.head(node, key=local, kind=True)}{body}".rstrip())
     return "\n".join(lines), local_of
 
 
-def _node_tag(node: BrainNode) -> str:
-    """`[episode]` / `[belief]` / `[promise·已兑现]` —— 与 `render._kind_tag` 同形（一份口径）。"""
-    from core.brain.wiki_v2.render import _kind_tag
-    return _kind_tag(node)
+# ⏸ `_node_tag` **2026-09-29 删** —— 类型标签的真源 = `marks.kind_tag`（**不带方括号**）。
+# 它当年是"延迟 import `render._kind_tag` 再 `strip('[]')`": 同一个标签两个形状, 正是
+# "散"的典型。现在 `head(kind=True)` 直接把 `marks.kind_tag` 放进头里, 不再需要它。
 
 
 def _hint_hits(hint: str, forms: list[str]) -> bool:

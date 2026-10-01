@@ -49,6 +49,7 @@ from contract.digest_registry import (
     PHASE_UNDERSTAND,
     digest_registry,
 )
+from core.brain.wiki_v2 import marks
 from core.brain.wiki_v2.entities import candidate_table, hit_set, new_nodes_block, payload_block
 from core.brain.wiki_v2.llm_call import llm_chat
 from core.brain.wiki_v2.nodes import PLAYER_SUBJECT, make_node
@@ -813,15 +814,21 @@ def _open_promises_text(items: list) -> str:
 
 
 def _episode_lines(store: WikiStoreV2, episode_ids: list[str]) -> str:
-    """R4 输入之二: **本段新增的经历**（真 id —— `add`/`close` 的 `refs` 只能引它们）。"""
+    """R4 输入之二: **本段新增的经历**（真 id —— `add`/`close` 的 `refs` 只能引它们）。
+
+    ⭐ **2026-09-29**: 行首那一段从 `- m0021 「标题」 正文` 改成 **`- 〔m0021｜《标题》〕正文`**
+    —— 与 R2 的新经历行（`_round_b_material`）**同一个头**, 由 `marks.head` 出
+    （唯一实现）。⚠️ 原来标题写 `「」`, 而她那份视图里 `「」` 是**逐字原话**
+    ⇒ 同形不同义; 而 `「」` 恰恰是会让她**抄错东西**的那种形状。
+    ⚠️ **没起名就不出名字格**（不印"（无题）"这种假名字）—— 钥匙仍在, 她照样引得到。
+    """
     lines: list[str] = []
     for nid in episode_ids:
         node = store.get(nid)
         if node is None:
             continue
         head = node.text if len(node.text) <= 120 else node.text[:120] + "…"
-        title = node.title or "（无题）"
-        lines.append(f"- {node.id} 「{title}」 {head}")
+        lines.append(f"- {marks.head(node, key=node.id)}{head}")
     return "\n".join(lines)
 
 
@@ -866,13 +873,10 @@ def _round_b_material(store: WikiStoreV2, episode_ids: list[str],
         head = node.text
         if len(head) > 120:
             head = head[:120] + "…"
-        # ⭐ N2: 元信息进 `〔〕` —— `〔m0025｜《今天的杂草屋》〕正文`。
+        # 头由 `marks.head` 出（**唯一实现**）—— `〔m0025｜《今天的杂草屋》〕正文`。
         # 编号是**钥匙**（R2 的 decisions 用它指 episode, 真实 id）；
         # 书名号里是**gist**（正文被截到 120 字, 8~16 字的名字是"这是哪件事"的压缩）。
-        # ⚠️ 原来标题用 `「」` —— 而 `「」` 在她那份视图里是**逐字原话**
-        #    （`（「原话」）`）⇒ 同形不同义，正是 `docs/CONTEXT_MARKS.md` 要拦的。
-        meta = f"{node.id}｜《{node.title}》" if node.title else node.id
-        lines.append(f"〔{meta}〕{head}")
+        lines.append(f"{marks.head(node, key=node.id)}{head}")
         if node.verbatim:
             lines.append(f"    原话: {node.verbatim}")
         query = f"{node.text} {node.verbatim}".strip()
@@ -932,8 +936,11 @@ def _segment_emotion_keys(events) -> list[str]:
 
 
 def _join_sections(sections: list[tuple[str, str]]) -> str:
-    """输入块拼装: 非空块才注入（省 token）; 空块跳过。"""
-    parts = [f"【{title}】\n{body}" for title, body in sections if body]
+    """输入块拼装: 非空块才注入（省 token）; 空块跳过。
+
+    ⚠️ 段头 `【】` 的构造在 `marks.section`（括号表唯一实现）—— 本函数只管"拼"。
+    """
+    parts = [f"{marks.section(title)}\n{body}" for title, body in sections if body]
     return "\n\n".join(parts)
 
 
