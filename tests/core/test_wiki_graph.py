@@ -20,7 +20,6 @@ from core.brain.wiki_v2 import WikiStoreV2                      # noqa: E402
 from core.brain.wiki_v2.graph import (                          # noqa: E402
     REL_ABOUT,
     REL_CONTRADICTS,
-    REL_FORMED_BY,
     REL_SUPPORTS,
     REL_UNKNOWN,
     Edge,
@@ -47,7 +46,7 @@ def _row(nid: str, kind: str, *, links=(), contradictions=(), ts="") -> dict:
 
 def _node(nid: str, kind: str) -> BrainNode:
     """直接构造节点并钉 id（**绕开 `from_dict`** —— 它把不认识的 kind 归一成 episode,
-    而 `entity`/`promise` 今天还不在 `KINDS` 里, 正是车道查询要提前验形状的东西）。"""
+    而 `entity`/`group` 正是车道查询要提前验形状的东西）。"""
     n = BrainNode()
     n.id, n.kind = nid, kind
     return n
@@ -122,28 +121,30 @@ def test_entity_lane_and_unattributed():
     assert set(g.unattributed()) == {"m0012"}       # 有 about 边的两条**不算**未归属
 
 
-def test_promise_and_support_queries():
-    """查询 2/3: 支撑来源（`sources` 侧）+ 承诺的共有经历与双方。"""
-    nodes = [_node("p0001", "promise"), _node("x0000", "entity"),
-             _node("x0001", "entity"), _node("m0020", "episode"),
+def test_support_queries():
+    """查询 2: 支撑来源（`sources` 侧）**不按 kind 过滤**。
+
+    ⏸ 原 `test_promise_and_support_queries` 还验 `parties` / `formed_by` 两条查询 ——
+    它们与 `from`/`to`/`formed_by` 三条边 2026-09-29 随 promise 退图一起删掉
+    （判据: 起点 kind 没了 ⇒ 那些边永远不会有走法）。
+    """
+    nodes = [_node("x0001", "entity"), _node("m0020", "episode"),
              _node("m0021", "episode"), _node("m0022", "belief")]
     g = Graph.from_edges([
-        {"rel": "from", "src": "p0001", "dst": "x0000", "ts": "2026-09-20T10:00:00"},
-        {"rel": "to", "src": "p0001", "dst": "x0001"},
-        {"rel": "formed_by", "src": "p0001", "dst": "m0020"},
-        {"rel": "formed_by", "src": "p0001", "dst": "m0021"},
-        {"rel": REL_SUPPORTS, "src": "p0001", "dst": "m0022"},      # 承诺长出认知
+        {"rel": REL_SUPPORTS, "src": "m0020", "dst": "m0022"},      # 经历长出认知
+        {"rel": REL_SUPPORTS, "src": "m0021", "dst": "m0022"},
         {"rel": REL_ABOUT, "src": "m0022", "dst": "x0001"},
     ], nodes=nodes)
-    assert g.parties("p0001") == ["x0000", "x0001"]
-    assert g.formed_by("p0001") == ["m0020", "m0021"]
     assert g.beliefs_of("x0001") == ["m0022"]
-    assert g.supporters("m0022") == ["p0001"]           # 不按 kind 过滤（见 docstring）
-    assert g.supporters("p0001") == []
+    assert g.supporters("m0022") == ["m0020", "m0021"]
+    assert g.supporters("m0020") == []
     # 边表的磁盘形状（G3 落盘用）: dict ↔ Edge 往返
-    e = Edge(rel=REL_FORMED_BY, src="p0001", dst="m0020", ts="2026-09-20T10:00:00")
+    e = Edge(rel=REL_SUPPORTS, src="m0020", dst="m0022", ts="2026-09-20T10:00:00")
     assert Edge.from_dict(json.loads(json.dumps(e.to_dict()))) == e
     assert Edge.from_dict({"rel": "supports"}) is None          # 坏行 → None, 不抛
+    # ⏸ 旧档里的 promise 专属边**仍然读得进**（`from_dict` 不校验 rel 名单）
+    legacy = Edge.from_dict({"rel": "formed_by", "src": "p0001", "dst": "m0020"})
+    assert legacy is not None and legacy.rel == "formed_by"
 
 
 def test_neighbors_without_and_dangling():
@@ -227,23 +228,28 @@ def test_real_shaped_store(tmp_path):
 # 边表词汇量（2026-09-25 用户裁决: 删 `source`；2026-09-29 N1a: 加 `akin`）
 # ---------------------------------------------------------------------------
 
-def test_edge_vocabulary_is_the_nine():
-    """⭐ 边 = **9 条**（删掉 `source` · 加 `akin`(N1a) · 加 `member_of`(N1b)）。
+def test_edge_vocabulary_is_the_six():
+    """⭐ 边 = **6 条**（删 `source` · 加 `akin`(N1a) · 加 `member_of`(N1b) ·
+    删 `formed_by`/`from`/`to`(2026-09-29, promise 退图)）。
 
     `source` 唯一的形状是 `fact → episode`，而 **`fact` 这个 kind 早在 2026-09-02 就退役**了
     （`nodes.KINDS` 里没有它 ⇒ 节点根本建不出来）⇒ 那是一条**永远不会有走法**的边。
     §2.2 的判据 = "边的存在理由 = 有一条能走的路"; 而 `contradicts` / `evolved_from`
     今天虽零写者, 但 kind 都在、**将来会有**走法 —— "还没有"与"永远不会有"是两件事。
+    ⭐ 同理: `from`/`to`/`formed_by` 的唯一起点 kind 是 `promise`, 而它退出了图
+    （用户 2026-09-29 裁决）⇒ 三条边一起删（真机本来也是 **0 条**）。
 
     `akin`（N1a）：她发现"这两条是同一类事" ⇒ **`noticed` 记录行的落点**。
     `member_of`（N1b）：**L2 判定"它属于这一类"** ⇒ 与 `akin` 是**输入与输出**，不能合并。
     """
     from core.brain.wiki_v2 import graph as G
 
-    assert set(G.RELS) == {"about", "supports", "formed_by", "contradicts",
-                           "evolved_from", "from", "to", "akin", "member_of"}
-    assert len(G.RELS) == 9 and len(set(G.RELS)) == 9
+    assert set(G.RELS) == {"about", "supports", "contradicts",
+                           "evolved_from", "akin", "member_of"}
+    assert len(G.RELS) == 6 and len(set(G.RELS)) == 6
     assert not hasattr(G, "REL_SOURCE"), "source 已删（连常量都不留）"
+    for gone in ("REL_FORMED_BY", "REL_FROM", "REL_TO"):
+        assert not hasattr(G, gone), f"{gone} 已随 promise 退图删掉（常量也不留）"
 
 
 def test_member_of_is_directed_and_group_is_aboutable():
@@ -275,8 +281,8 @@ def test_symmetric_rels_are_one_list_and_canonical_for_obeys_it():
     # 对称 → 端点规范化
     assert G.canonical_for("akin", "m0009", "m0003") == ("m0003", "m0009")
     assert G.canonical_for("contradicts", "m0009", "m0003") == ("m0003", "m0009")
-    # ⚠️ 有向边**原样返回** —— 顺手规范化会悄悄改掉方向语义（formed_by / supports）
-    assert G.canonical_for("formed_by", "p0001", "m0003") == ("p0001", "m0003")
+    # ⚠️ 有向边**原样返回** —— 顺手规范化会悄悄改掉方向语义（member_of / supports）
+    assert G.canonical_for("member_of", "m0009", "g0001") == ("m0009", "g0001")
     assert G.canonical_for("supports", "m0009", "m0003") == ("m0009", "m0003")
     # 幂等
     assert G.canonical_for("akin", "m0003", "m0009") == ("m0003", "m0009")

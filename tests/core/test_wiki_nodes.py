@@ -39,25 +39,29 @@ def test_episode_required_text():
     assert "episode 缺少必填字段: text" in node.validate()
 
 
-def test_promise_node_needs_outcome_and_enum(tmp_path=None):
-    """promise 节点（§6 固化产物）: **正文 + 结局都必填**, 且结局限三值。
+def test_promise_is_no_longer_a_kind(tmp_path=None):
+    """⏸ 原 `test_promise_node_needs_outcome_and_enum`（2026-09-29 承诺退图后作废）。
 
-    ⚠️ 结局字段是 **`outcome` 而不是 `state`** —— entity 的 `state` 是 `list[str]`,
-    而 `from_dict` 对 `state` 一律走 `_str_list()`: 把 `"kept"` 写进去会**读回空列表**。
+    退役的形状钉在这里:
+      · `KINDS` 里没有 `promise`;
+      · `PROMISE_OUTCOMES` 不再由节点层导出（结局词表搬去 `notes` —— 那里才是它的家）;
+      · `make_node("promise", …)` **降级成 episode**（`from_dict` 对未知 kind 的兜底,
+        与旧档兼容同一条路）—— 引擎不会再建出承诺节点;
+      · 旧档的 `outcome` 键读不进来、也不抛。
     """
-    from core.brain.wiki_v2.nodes import PROMISE_OUTCOMES
+    from core.brain.wiki_v2 import nodes as N
 
-    ok = make_node("promise", text="周六模型店", outcome="kept")
-    assert ok.validate() == []
-    assert [make_node("promise", text="x", outcome=o).validate() for o in PROMISE_OUTCOMES] \
-        == [[], [], []]
+    assert "promise" not in N.KINDS and "promise" not in N._REQUIRED
+    assert not hasattr(N, "PROMISE_OUTCOMES"), "结局词表搬去 notes 了（别在节点层留副本）"
 
-    assert "promise 缺少必填字段: outcome" in make_node("promise", text="x").validate()
-    assert any("outcome 非法" in e
-               for e in make_node("promise", text="x", outcome="done").validate())
-    # 落库 ⇄ 读回（`outcome` 必须在 `to_dict` 与 `from_dict` 两边都在）
-    back = BrainNode.from_dict(make_node("promise", text="约定", outcome="broken").to_dict())
-    assert (back.kind, back.outcome, back.state) == ("promise", "broken", [])
+    degraded = make_node("promise", text="周六模型店", outcome="kept")
+    assert degraded.kind == "episode"                    # 未知 kind 的兜底
+    assert degraded.validate() == []                     # 它现在是一条合法 episode
+    assert "outcome" not in degraded.to_dict()           # 那个字段已经不存在
+
+    legacy = BrainNode.from_dict({"id": "p0001", "kind": "promise",
+                                  "text": "周六模型店", "outcome": "kept"})
+    assert legacy.kind == "episode" and not hasattr(legacy, "outcome")
 
 
 # ---------------------------------------------------------------------------

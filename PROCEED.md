@@ -192,7 +192,7 @@ embed_fn: **无（退词面）** ← 本机 LM Studio 没起（TRAPS 38 那条�
 | ⭐ **`docs/TRAPS.md`** | **陷阱 1–50**（编号全局，**不许改**） |
 | ⭐ **`docs/CONTEXT_MARKS.md`** | **上下文里的括号约定**（一形一义）: `【】`段头 · `〔〕`元信息 · `《》`事件名=地址 · `（）「」`正文与原话 · `[]`历史动作前缀 · `{}`JSON · `<>`占位符 · `｜`字段边界（⚠️ **`·` 不是边界**） |
 | ⭐ **`docs/RESEARCH_MEMORY_SURVEY.md`** | **三份调研结论**（本地深读 / 学术侧 9 条 / 生态侧 26 条，带出处与检索边界） |
-| `core/brain/wiki_v2/DESIGN_GRAPH_V4.md` | 图的设计稿：走法（7 条）· promise 两段式 · 每段四步 · 全景轮 |
+| `core/brain/wiki_v2/DESIGN_GRAPH_V4.md` | 图的设计稿：走法（**6 条**）· kind（**5 种**）· 每段四步 · 全景轮（⏸ promise 两段式 2026-09-29 退图） |
 | `docs/DESIGN_WIKI_V3.md` | V3 设计稿：四轴 · `nature`（含 `pattern`+`occurrences`）· 四条召回道路 |
 | `docs/DESIGN_RECALL.md` | **另一条链（读路径）**：`mmt_recall` 四支 scope / `when` / 结果生命周期 |
 | `docs/EXPERIMENT_CAND_HIGH.md` | Q11 阈值实验（**nomic vs Qwen3 实测**——换模型的依据） |

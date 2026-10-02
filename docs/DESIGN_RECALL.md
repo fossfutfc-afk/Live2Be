@@ -68,7 +68,7 @@ when:  时间范围, 可省 —— "今天 / 昨天 / 前天 / N 天前 / 最近
 
 | `scope` | 读哪里（真源） | 能回答 | 现成读入口 |
 |---|---|---|---|
-| `memory` | `soul/wiki.jsonl`：`episode` / `belief` / `experience` / `entity` / `promise` + 7 类边 | "那天到底怎么了"「我怎么想他的」"关于阿露我知道什么" | `recall_subgraph`（词面+语义）· `compose`（四路合成）· `render_character_view` |
+| `memory` | `soul/wiki.jsonl`：`episode` / `belief` / `experience` / `entity` / `group` + **6 类边**（⏸ `promise` 与它的三条边 2026-09-29 退图） | "那天到底怎么了"「我怎么想他的」"关于阿露我知道什么" | `recall_subgraph`（词面+语义）· `compose`（四路合成）· `render_character_view` |
 | `events` | `soul/events.jsonl` 原始事件（对话 / 剧情 / 裁决 / 标记 + `ts`/`seq`） | **"当时到底怎么说的"**「那天的原话」 | `renderer.render_events` · `filter_bond` · `window_messages`（用来判断哪些**已在上下文**） |
 | `note` | `soul/notes.json`（约定 / 惯例 / 最近在想） | "我答应过他什么"「上次那个约定后来怎么了」 | `notes.fold` · `NotesState.items` · `render_item` |
 | `chapters` | 事件流派生的**已结束章** | "我们经历过哪几章"「那章叫什么」 | `chapters.chapter_index`（**与回忆册同源**） |

@@ -150,14 +150,17 @@ def test_new_nodes_block_render(tmp_path):
     st = _store(tmp_path)
     st.add(make_node("episode", text="模型店门口", title="模型店", event_seq=[3],
                      ts="2026-09-25T10:00:00"))
-    pid = st.add(make_node("promise", text="周六模型店 —— 真的去了",
-                           outcome="kept", event_seq=[3], ts="2026-09-25T10:00:00"))
-    text, local_of = new_nodes_block(st, ["m0001", pid, "m9999"])
+    bid = st.add(make_node("belief", text="老师是真的记得我说过的话",
+                           subject="sensei", significance=0.9,
+                           event_seq=[3], ts="2026-09-25T10:00:00"))
+    text, local_of = new_nodes_block(st, ["m0001", bid, "m9999"])
     # ⭐ 2026-09-29 形状: 类型与名字**都进头**（`marks.head`）—— 原来 `u0001 [episode] 「模型店」 正文`
     assert "〔u0001｜《模型店》｜episode〕模型店门口" in text, text
-    assert "〔u0002｜promise·已兑现〕" in text, text
-    assert local_of == {"m0001": "u0001", pid: "u0002"}      # 不存在的 id 跳过
+    assert "〔u0002｜belief〕老师是真的记得我说过的话" in text, text
+    assert local_of == {"m0001": "u0001", bid: "u0002"}     # 不存在的 id 跳过
     assert new_nodes_block(st, [])[0] == ""
+    # ⏸ 原第三条断言验的是 `〔u0002｜promise·已兑现〕`（类型带结局）——
+    # 2026-09-29 承诺退图, 那种行不可能再出现; 上面这条改用 belief。
 
 
 def test_hit_set_reads_bodies_only(tmp_path):

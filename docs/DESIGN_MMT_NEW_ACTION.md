@@ -336,7 +336,7 @@ soul/edges.jsonl
 
 ```
 BFS from episode, 只走 episode↔episode 边（akin）
-  ⇒ belief / entity / promise / **group** 全部自动是墙
+  ⇒ belief / entity / **group** 全部自动是墙（⏸ 原文还列了 promise —— 它 2026-09-29 已退图）
 ```
 
 | | 靠什么 | 后果 |

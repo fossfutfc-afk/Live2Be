@@ -1,11 +1,15 @@
 # -*- coding: utf-8 -*-
-"""R4 收口（promise 记账）的**编排**测试 —— DESIGN_GRAPH_V4 §6 / §8。
+"""R4 收口（约定记账）的**编排**测试 —— DESIGN_GRAPH_V4 §6 / §8。
 
 三件事在这里被钉住:
-    ① 它排在 **R1 之后、R2 之前**（否则 promise 节点"永远没边、永远没归属"）;
+    ① 它排在 **R1 之后、R2 之前**（⏸ 2026-09-29 承诺退图后这条**不再是正确性要求**,
+       但编排顺序照旧 —— 用例继续钉住它, 免得有人顺手挪了还以为没事）;
     ② 它产的 note 操作**不进事件流**, 而是交给调用方在**整批 ok 之后**才 append
        （§8: 失败 = 整批回滚 ⇒ 那条约定原样开着）;
     ③ 没事可做时（没有开着的约定 + 本段没有新经历）**不发这次调用**（0 次 LLM）。
+
+⭐ **2026-09-29: 承诺退图**（用户裁决）—— R4 从"记账 + 固化"缩成**只记账**:
+它**不再建 promise 节点、不再写任何边**（`from`/`to`/`formed_by` 三条边一起删）。
 """
 import sys
 from pathlib import Path
@@ -57,7 +61,7 @@ class RoundLLM:
 
 
 def _store(tmp_path) -> WikiStoreV2:
-    """带 self/sensei 的干净库（承诺的 `from`/`to` 要有两端才写得出）。"""
+    """带 self/sensei 的干净库。"""
     st = WikiStoreV2(tmp_path, world_id="world1", char_id=CHAR)
     ensure_entities(st, char_name="伊草 遥香", sensei_name="老师")
     st.save()
@@ -112,8 +116,11 @@ def _open_promise() -> object:
 # ---------------------------------------------------------------------------
 
 def test_r4_runs_after_r1_and_before_r2(tmp_path):
-    """R4 夹在 R1 与 R2 之间: 它拿得到**本段新建的 episode 真 id**,
-    产出的 promise 节点当场就在图里（R2 才看得到它 —— §8 的顺序理由）。"""
+    """R4 夹在 R1 与 R2 之间: 它拿得到**本段新建的 episode 真 id**。
+
+    ⏸ 2026-09-29 之前这条顺序还有第二个理由（"承诺节点要先就位, R2/R3 才好连它"）——
+    承诺退图后**理由只剩这一个**, 而顺序照旧。
+    """
     st = _store(tmp_path)
     note = _open_promise()                        # n1 周六模型店（那条约定在事件流里）
     close = {"add": [{"text": "拍一张模型店的照", "refs": ["m0001"]}],
@@ -140,14 +147,11 @@ def test_r4_runs_after_r1_and_before_r2(tmp_path):
     assert res.notes_ops[1] == {"action": "close", "id": "n1", "state": "kept",
                                "afterwards": "周六真的去了"}
     print(f"    R4 顺序={llm.tasks} 料={r4.splitlines()[0][:30]!r} ops={len(res.notes_ops)}")
-    # ⭐ close 固化了 promise 节点（正文 = 条目那句 + afterwards）
-    nid = res.promise_nodes[0]
-    node = st.get(nid)
-    assert node.kind == "promise" and node.outcome == "kept"
-    assert node.text == "周六模型店 —— 周六真的去了"
-    g = st.graph()
-    assert g.targets(nid, "from") == ["x0000"] and g.targets(nid, "to") == ["x0001"]
-    assert g.targets(nid, "formed_by") == ["m0001"]      # note.refs ∪ close.refs（去重）
+    # ⭐ 2026-09-29: **只产 note 操作, 不碰图** —— 承诺节点与它的三条专属边一条都不许出现
+    kinds = {n.kind for n in st.all()}
+    assert kinds == {"entity", "episode", "belief"}, kinds    # R1 建经历 / R2 建看法, 没有 promise
+    assert {e.rel for e in st.graph().edges} <= {"supports"}, \
+        sorted({e.rel for e in st.graph().edges})
 
 
 def test_r4_skipped_when_nothing_to_do(tmp_path):
@@ -159,7 +163,7 @@ def test_r4_skipped_when_nothing_to_do(tmp_path):
     res = digest_segment(st, llm, _events(_mmt(3)))
     assert res.ok, res.errors
     assert T.DIGEST_CLOSE not in llm.tasks            # R4 没被调
-    assert res.notes_ops == [] and res.promise_nodes == []
+    assert res.notes_ops == []
 
 
 def test_r4_runs_without_new_episodes_when_something_is_open(tmp_path):
@@ -178,8 +182,8 @@ def test_r4_runs_without_new_episodes_when_something_is_open(tmp_path):
     assert llm.tasks[:3] == [T.DIGEST_A, T.DIGEST_CLOSE, T.DIGEST_B]
     assert res.notes_ops[0]["state"] == "broken"
     assert "refs" not in res.notes_ops[0]         # 指不出 finish episode ⇒ 连这个键都没有
-    nid = res.promise_nodes[0]
-    assert st.graph().targets(nid, "formed_by") == ["m0001"]   # 只剩"说定它"的那条经历
+    # ⭐ 2026-09-29: close **不建节点**（从前这里验的是 `formed_by` 只连"说定它"那条）
+    assert [n.id for n in st.all() if n.kind not in ("episode", "entity")] == []
 
 
 # ---------------------------------------------------------------------------
@@ -196,7 +200,7 @@ def test_r4_bad_shape_fails_the_batch(tmp_path):
     res = digest_segment(st, llm, _events(note, _mmt(3)))
     assert not res.ok
     assert any("缺键" in e for e in res.errors)
-    assert res.notes_ops == [] and res.promise_nodes == []
+    assert res.notes_ops == []
     assert [n.id for n in st.all() if n.kind == "episode"] == []   # A 建的节点也回滚了
 
 
@@ -214,8 +218,9 @@ def test_later_round_failure_drops_note_ops(tmp_path):
 
     res = digest_segment(st, llm, _events(note, _mmt(3)))
     assert not res.ok
-    assert res.notes_ops == [] and res.promise_nodes == []         # 雷拆了
-    assert [n.id for n in st.all() if n.kind == "promise"] == []   # 固化也回滚了
+    assert res.notes_ops == []                                     # 雷拆了
+    # ⭐ 2026-09-29: R4 本来就不建节点了 ⇒ 这一批的图面本来就是干净的
+    assert [n.id for n in st.all() if n.kind not in ("episode", "entity")] == []
 
 
 # ---------------------------------------------------------------------------
@@ -245,63 +250,45 @@ class EngineLLM:
         raise RuntimeError(f"意外调用 task={task!r}")
 
 
-def test_r2_sees_the_promise_and_can_link_it(tmp_path):
-    """⭐ §9-13（2026-09-25）: R4 物化的承诺**当场就进 R2 的视野**, 而且 R2 有动作面
-    去写那两条边（`links`: `supports(promise → belief)` / `evolved_from`）。
+def test_r2_list_has_no_promise_anymore(tmp_path):
+    """⏸ §9-13（2026-09-25 补的"承诺进 R2 视野 + 可 link"）**2026-09-29 作废** ——
+    承诺退图 ⇒ R2 的列表里不再有它, `links` 的端点只有看法。
 
-    不补视野 = 刚物化的节点看不见; 不补动作面 = 看得见却说不出口（决策表的三个动作
-    一律只写 `supports(episode → target)`）。两件一起才闭合。
+    这条用例钉的是**退役的形状**, 免得"承诺要能连边"那套又被加回来:
+    列表渲染只认 kind ∈ {belief, experience}（`render_cognition_list`）,
+    而 `must_include` 那个为承诺专开的参数**已经删掉**（零调用方）。
     """
+    from core.brain.wiki_v2.render import render_cognition_list
     st = _store(tmp_path)
-    st.add(make_node("belief", text="老师答应的事都做到了", subject="sensei", significance=0.9, event_seq=[2]))
-    st.add(make_node("promise", text="周日一起去看海 —— 还没去",
-                     outcome="superseded", event_seq=[2], ts="2026-09-19T10:00:00"))
+    st.add(make_node("belief", text="老师答应的事都做到了", subject="sensei",
+                     significance=0.9, event_seq=[2]))
+    # 盘上可能还有旧档留下的 promise 行（`from_dict` 会把未知 kind 降级成 episode）
     st.save()
-    note = _open_promise()
-    close = {"add": [], "close": [{"id": "n1", "state": "superseded",
-                                   "afterwards": "被新的那条盖过去了"}]}
-    # 列表顺序（significance 降序）: u0001=看法, u0002=旧承诺; R4 新物化的承诺 = u0003
-    # R2: 一条 add（覆盖本段的 episode m0002）+ 两条 link
-    b = _b(["m0002"])
-    b["links"] = [{"from": "u0003", "rel": "supports", "to": "u0001"},
-                  {"from": "u0003", "rel": "evolved_from", "to": "u0002"}]
-    llm = RoundLLM(_a("模型店门口"), close, b)
 
-    res = digest_segment(st, llm, _events(note, _mmt(3)))
-    assert res.ok, res.errors
-
-    # ⭐ 视野: R2 的输入里看得见承诺（带结局的标签）+ note 里那条旧条目
-    r2 = llm.user_of(T.DIGEST_B)
-    assert "｜promise·被新的取代了｜" in r2
-    assert "周六模型店" in r2
-    # ⭐ 动作面: 两条边真的写出来了（按文本找 id, 不赌编号）
-    belief_id = next(n.id for n in st.all()
-                     if n.kind == "belief" and n.text.startswith("老师答应的事"))
-    old_p = next(n.id for n in st.all()
-                 if n.kind == "promise" and "看海" in n.text)
-    new_p = res.promise_nodes[0]
-    g = st.graph()
-    assert g.targets(new_p, "supports") == [belief_id]        # 新承诺 → 看法
-    assert g.targets(new_p, "evolved_from") == [old_p]        # 新承诺 → 旧承诺
-    assert st.audit() == []
+    text, local_of = render_cognition_list(st, cap=12)
+    assert len(local_of) == 1 and "老师答应的事都做到了" in text
+    assert "promise" not in text                     # 类型标签里不该再有这个词
+    import inspect
+    assert "must_include" not in inspect.signature(render_cognition_list).parameters
 
 
-def test_cognition_list_must_include_bypasses_cap(tmp_path):
-    """`must_include`（本轮 R4 物化的承诺）**不受 cap 截断** —— 否则 R2 又一次
-    "看不见刚要写边的东西"（承诺的 significance 默认为 0.5, 真机上排在看法后面）。"""
+def test_cognition_list_cap_still_truncates(tmp_path):
+    """⏸ 原 `must_include`（"本轮 R4 物化的承诺必进, 不受 cap 截断"）**2026-09-29 随退图删** ——
+    为承诺专开的参数, 承诺一退它就是死参数（判据① 没读者就删）。
+
+    这里留下 cap 本身的行为: 按 significance 降序取前 `cap` 条。
+    """
     from core.brain.wiki_v2.render import render_cognition_list
     st = _store(tmp_path)
     for i in range(3):
-        st.add(make_node("belief", text=f"看法{i}", subject="sensei", significance=0.9 - i * 0.1))
-    pid = st.add(make_node("promise", text="周六模型店 —— 真的去了", outcome="kept"))
+        st.add(make_node("belief", text=f"看法{i}", subject="sensei",
+                         significance=0.9 - i * 0.1))
     st.save()
 
-    text, local_of = render_cognition_list(st, cap=1, must_include=[pid])
+    text, local_of = render_cognition_list(st, cap=1)
 
-    assert pid in local_of and "周六模型店" in text
-    assert len(local_of) == 2                       # cap=1 的那条 + 必进的承诺
-    # ⭐ N2（2026-09-29）: kind 进了元信息段（`〔u0002｜promise·已兑现｜被引 0〕…`）
-    assert "〔u0002｜promise·已兑现｜被引 0〕" in text, text
+    assert len(local_of) == 1 and "看法0" in text
+    assert "看法1" not in text and "看法2" not in text
 
 
 def test_engine_writes_note_ops_into_the_truth(tmp_path):

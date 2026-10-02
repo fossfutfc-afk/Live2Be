@@ -44,12 +44,17 @@
         │
    episode（经历）
         ↑ formed_by × N
-   promise（未完成的事, 带状态机）──supports──→ belief
+   promise（⏸ 2026-09-29 退役, 见下方横幅）──supports──→ belief
         └ from / to → entity（双方）
 ```
 
-> ⛔ **图里只有这 4 种 kind**（`nodes.KINDS = episode / experience / belief / entity / promise`）:
+> ⛔ **图里只有 5 种 kind**（`nodes.KINDS = episode / experience / belief / entity / group`）:
 > **`fact` 2026-09-02 已退役**（§5 —— 它的三件事今天各有落点）, `source` 边随之删除（§2）。
+> ⛔ **`promise` 2026-09-29 退役**（用户裁决: 承诺太轻, 不足以长期记录 —— 日常约定 ≈ 客套/安排）:
+> 它**退出了图**, 连同 `from` / `to` / `formed_by` 三条只有它能当起点的边（真机本来就是 **0 条**）——
+> 上面那张图里的 promise 那一支请当历史读。约定留在 **note**（`notes.SLOT_PROMISE` = 她此刻
+> 还背着的事）, "这条经历涉及约定"由 **`tags`** 承担（只做筛选, 不承担路由）。详见 §6 的退役横幅。
+> ⭐ **`group`（N1b）2026-09-29 加入** —— "一类事", 成员靠 `member_of` 指过来。
 
 - **entity** —— 一个对象 + 角色对它的**立场**。⚠️ **不做 `etype`**（2026-09-21 用户裁决）：
   只保留 **`x0000` = self** 这个 id 约定（v3 §2.8）。原来的五类（`self/person/place/item/knowledge`）
@@ -62,7 +67,10 @@
 - **experience** —— ⭐ **玩家画像专用**（2026-09-25 定名; 见 §9-3）: "关于老师的事"
   （口癖 / 偏好 / 习惯），`subject` 恒 `player`（写侧强制）。**不是"她的模式"** ——
   她自己的模式按 §9-10 写成 `belief` 的模式句。
-- **promise**（旁支，仍在图内）—— 带状态机的"未完成的事"；可连**多段** episode（共有）。
+- **group** —— ⭐ **L2 归纳出来的"一类事"**（N1b）: 只装名字与成员，成员靠 `member_of` 指过来;
+  "这一类说明了什么"是 belief 的活（两处都写就是双真源）。
+- ⏸ **promise（2026-09-29 退役）** —— 从前是"带状态机的未完成的事"（开放期在 note、闭合固化进图）。
+  今天它的**记账**在 note（工作记忆）、它**一路上的经历**就是那些 episode 自己（正文 + `tags`）。
 
 ### 1.1 三种组织形式：**图 / 笔记 / 台账**（2026-09-23 讨论形成）
 
@@ -93,25 +101,29 @@
 > 平铺看不出重复，**按 `src → dst` 分组**才看得出"哪种形状有几条边、各自什么角色"。
 > 自查结论：**8 条没有真重复**；当时新提的 `mentioned_in` / `ended_by` **撤回**
 > （它把 `promise → episode` 从一个边裂成两个，而且分的是**时刻**不是**角色**）。
-> ⭐ **2026-09-25 修正：`source` 删掉 ⇒ 现在 7 条**（它的唯一形状是 `fact → episode`，
+> ⭐ **2026-09-25 修正：`source` 删掉**（它的唯一形状是 `fact → episode`，
 > 而 `fact` 早在 09-02 就退役了 —— 一条**永远不会有走法**的边；见 §5）。
+> ⭐ **2026-09-29 `akin`（N1a）+ `member_of`（N1b）加入**；⭐ **同日 `from` / `to` / `formed_by`
+> 随 promise 退图删掉** ⇒ **现在 6 条**（判据同上: 起点 kind 没了 ⇒ 永远不会有走法）。
 
 | 形状（src → dst） | 边 | 角色 / 含义 |
 |---|---|---|
-| X → entity | `about` | **归属** —— belief / episode / experience / promise 都能指（"有边 = 归好了"） |
-| promise → entity × 2 | `from` / `to` | **承诺双方**（与"归属"正交的另一根轴） |
-| episode → belief · promise → belief | `supports` | **支撑**（同一条边跨两个形状） |
-| promise → episode × N | `formed_by` | ⭐ **这条约定的相关经历**（说定 + 后来谈到 / 兑现的那些） |
-| 同层之间 | `contradicts` | **矛盾**（她后来发现不对） |
-| 同层之间 | `evolved_from` | **新取代旧**（belief↔belief；promise 的"被取代"也走它） |
+| X → entity | `about` | **归属** —— belief / episode / experience / group 都能指（"有边 = 归好了"） |
+| episode → belief | `supports` | **支撑**（经历 → 认知） |
+| episode ↔ episode | `akin` | ⭐ **她发现"这两条是同一类事"**（**对称**；`noticed` 记录行的落点） |
+| episode → group | `member_of` | ⭐ **L2 判定"它属于这一类"**（**有向**） |
+| 同层之间 | `contradicts` | **矛盾**（她后来发现不对；**对称**） |
+| 同层之间 | `evolved_from` | **新取代旧**（belief → belief） |
 
-⚠️ **`formed_by` 的语义 2026-09-23 放宽**：原稿写"**怎么一次次说定的**" —— 但"哪条经历了结了它"
-不需要在边上编码：**结局（kept / broken / superseded）说结果，`ts` 说顺序**，按时间读
-就是这条承诺的完整故事。⇒ 走法 = "**这条约定一路上的经历**"，**不再新增第二条 promise → episode 的边**。
-⚠️ 形状名（`episode|belief` 这种）**不做**：① 有的形状本来就不止一条边（`promise → entity` 有
-三种角色、同层有两条），形状名会逼出 `promise|entity:from` 这种更乱的写法
+⏸ **删掉的三条（`from` / `to` / `formed_by`）** 曾是 promise 专属形状：
+`from`/`to` = 承诺双方（self ↔ sensei）、`formed_by` = 这条约定一路上的经历。
+promise 退图后它们**没有起点了** ⇒ 一起删 —— 连带那个"`formed_by` 语义放宽"的讨论
+（原 116-122 行那段）也一并作废：**"这条约定一路上的经历"今天就是那条 episode 自己**。
+
+⚠️ **形状名（`episode|belief` 这种）不做**（2026-09-23 裁决, 今天照样成立）：
+① 有的形状本来就不止一条边（同层就有两条），形状名会逼出 `belief|belief:evolved_from` 这种更乱的写法
 ② **走法按"问题"走，不按"类型对"走**（§2.2）③ 模型将来**会看到**边名（`render_organize_view`
-把类型印进组织轮输入，G3 特意改的）④ 真机 `edges.jsonl` 存的已经是这 7 个名字，改名 = 老档映射。
+把类型印进组织轮输入，G3 特意改的）④ 真机 `edges.jsonl` 存的就是这些名字，改名 = 老档映射。
 
 **归属**：`about` 边是归属的**唯一落地形式** —— **有边 = 归好了；没边 = 没归**。
 ⏸ 原"三态"设计（`about_state ∈ resolved/uncertain/none` **挂点上**、`uncertain` 进复查队列）
@@ -593,7 +605,28 @@ add kind=experience"）⇒ 它的 `subject` 不是 `player` ⇒ 旧读侧（按 
 | 读侧 `render._bucket_view` + `nodes.is_player_experience` | player 桶 **按 kind**; 谓词改成 `kind == "experience"`（老口径那句"subject==player"就是藏内容的那把锁） |
 | 数据 | 真机 `haruka e0001` 迁移: `kind→belief` + `epistemic→inferred_belief`（**id 保留** —— 3 条 `supports` 指着它; `text`/`subject`/`examples` 不动），一次性脚本（`tools/`, 本机、不进 git, dry-run 默认 + 写前 `.bak`）。迁移后: `audit()` 干净、**她第一次真正"想得起"这件事**（渲染实测出现在「我心里渐渐觉得」那一节） |
 
-## 6. promise（**两段式**，2026-09-23 定形）
+## 6. promise（⏸ **2026-09-29 退役：退出了图**）
+
+> ⛔ **本节描述的两段式已作废**（用户 2026-09-29 裁决：*"不论以前的 habit 还是现在的
+> promise，它们都太小了，不足以长期记录"*）—— 日常约定 ≈ 成年人之间的客套/安排，
+> 不值得在图里占一个 kind。**今天的形态**：
+>
+> | 面 | 装什么 | 谁写 |
+> |---|---|---|
+> | **note 的 `promise` 槽** | 她**此刻还背着**的约定（工作记忆：`id`/`text`/`due`/`refs`） | **R4 收口**（`add` / `close`）—— ⚠️ **只产 note 操作, 不建节点、不写边** |
+> | **那条 episode 的正文 + `tags`** | 约定的**历史**（"说定过什么、后来怎么了"） | R1（正文）；`tags` 里的「约定」只做**筛选**，不承担路由 |
+>
+> ⭐ **连带删掉的**: `promise` kind · `outcome` 字段与枚举 · `from`/`to`/`formed_by` 三条边
+> （边表 9 → 6）· `p` id 前缀 · `revise._ATTACHABLE` 的 promise · `marks.kind_tag` 的
+> `promise·已兑现` 分支 · **R4 的整个"固化"动作** · `DigestResult.promise_nodes` ·
+> `render_cognition_list` 的 promise 支与 `must_include` 参数（它 2026-09-25 就是**为承诺**
+> 加的 ⇒ 承诺一退, 它零调用方, 判据① 一起删）。
+> ⭐ **连带收益**: ① §8 那条"R4 必须排在 R2/R3 之前"的理由**消失**（顺序照旧, 但不再是
+> 正确性要求）② `link_ids`（含承诺）与 `target_ids`（只有看法）**实际同集**, 那条"承诺不是
+> 看法 —— 用 links 连它"的指路牌文案随之删。
+> ⚠️ **真机零迁移**: 0 个 promise 节点 · 0 条 `from`/`to`/`formed_by` · `note/close` 事件 0 条
+> （承诺面今天**完全住在 note 里**: `n1`/`n5` 两条还开着）。
+> ⏸ **下面这些保留作历史**（那套权衡当时是真的，只是结论反了）:
 
 > ⭐ **开放期在 note，闭合时固化进图**（用户：*"还记得已完成 promise 固化吗"*）。
 > 于是 `promise` 有两种存在形态，**同名不同处**：note 里的是"活的"，图里的是"归档的"。
@@ -602,10 +635,10 @@ add kind=experience"）⇒ 它的 `subject` 不是 `player` ⇒ 旧读侧（按 
 
 | 阶段 | 住哪 | 形态 | 维护 |
 |---|---|---|---|
-| **开放期**（未兑现 / 未失约） | **note 的 `promise` 槽**（§3.2） | 一行条目（`id` / `text` / `due` / `refs`），**轻、可覆盖** | 加 = 当场（主 LLM 的可选字段）+ **R4 收口**兜底（bond 侧没有 function_call） |
-| **闭合期**（已兑现 / 没成 / 被取代） | **图** | `promise` 节点 + **`outcome`** ∈ {kept, broken, superseded} | 固化那一次写死，之后 append-only |
+| ⏸ ~~**开放期**~~（今天的**唯一**形态） | **note 的 `promise` 槽**（§3.2） | 一行条目（`id` / `text` / `due` / `refs`），**轻、可覆盖** | 加 / 结清 = **R4 收口**（**只产 note 操作**） |
+| ⏸ ~~**闭合期**~~（**已删** —— 不再固化进图） | ~~图~~ | ~~`promise` 节点 + `outcome`~~ | — |
 
-**固化时落什么**（这就是那四条边的走法 —— 全部保留、**一条都不删**）：
+**固化时落什么**（⏸ **已作废** —— 这四条边里三条随退图删了, 保留作历史）：
 
 | 边 | 从 → 到 | 谁给 | 固化后能回答 |
 |---|---|---|---|
@@ -619,6 +652,12 @@ add kind=experience"）⇒ 它的 `subject` 不是 `player` ⇒ 旧读侧（按 
 "要做什么" + "后来怎么了"（她自己的口吻）合起来，才是一条**记得住的**小回忆：
 `p0001` = *"周六模型店，有点等不及 —— 周六真的去了"*。
 ⚠️ 早先 `afterwards` 只留在 note 事件里 ⇒ **退场之后她再也看不到它**（图里没有它）；并进正文才不丢。
+
+> ⏸ **以下到本节末，都是"固化时代"的细节**（2026-09-25 落地的那一版）。
+> 其中**仍然活着**的只有两件: ① 契约相位 `PHASE_CLOSE` 与 `parse_close()`（`add` / `close`
+> 两行的形状不变）② `revise.apply_closures()`（**今天只产 note 操作**, `ClosureResult`
+> 只剩 `ops` / `warnings`）。其余（promise 节点 · 四条边 · 固化时序 · R2 的视野要求）
+> **随 2026-09-29 退图作废**。
 
 ⭐ **"哪条经历了结了它"不必新开一条边**（2026-09-23/25）：**结局说结果，`ts` 说顺序**
 —— 按时间读 `formed_by` 的那串 episode，就是这条承诺的完整故事。当初拟的
@@ -769,14 +808,13 @@ add kind=experience"）⇒ 它的 `subject` 不是 `player` ⇒ 旧读侧（按 
 | 轮 | 读什么 | 写什么 | **禁止** |
 |---|---|---|---|
 | **1 产出** | 时间线（记录级带索引）· 人设锚点 · 视觉记忆 | `episode` / `belief` / `experience` 的**正文** + 情绪标量 | 引用任何现有节点 id · 判"这是不是新的" · ~~摘"我在写谁"~~（`about_hint` **已退役**） |
-| **4 收口**（promise 记账，窄） | **note 里还开着的约定**（≤5 条，带编号）+ **本段新增的 episode**（真 id） | `add {text, refs, due?}` · `close {id, state, afterwards, refs?}` | 改正文 · 碰 `habits`/`on_mind` · 判"图里有没有"（那是引擎的活，见下） |
-| **2 链接/裁剪** | 本轮新节点（**含 R4 物化的 promise 节点**）· 现有认知（本地 id 渲染）· 引擎候选 | 边（`supports` / `contradicts` / `evolved_from`）· `update`（改写旧认知）· `merge` · 裁掉错边 | **新建节点**（add 只在第 1 轮 / R4） |
-| **3 归属 + entity 维护** | 全量候选表（**只有身份**）· 命中集的**当前载荷** · 本轮新节点（**含 promise 节点**） | `about`（映射 hint→id）· `mentions` · `new_entity` 提案 · **重写 entity 载荷** | 改正文 · 合并节点 |
+| **4 收口**（约定记账，窄） | **note 里还开着的约定**（≤5 条，带编号）+ **本段新增的 episode**（真 id） | `add {text, refs, due?}` · `close {id, state, afterwards, refs?}` —— ⏸ **只产 note 操作, 不建节点**（2026-09-29 承诺退图） | 改正文 · 碰 `habits`/`on_mind` · 判"图里有没有"（那是引擎的活，见下） |
+| **2 链接/裁剪** | 本轮新节点（episode / 画像 / **R2 自己新建的认知**）· 现有认知（本地 id 渲染）· 引擎候选 | 边（`supports` / `contradicts` / `evolved_from`）· `update`（改写旧认知）· `merge` · 裁掉错边 | **新建节点**（add 只在第 1 轮） |
+| **3 归属 + entity 维护** | 全量候选表（**只有身份**）· 命中集的**当前载荷** · 本轮新节点 | `about`（先认称呼→再映射本地 id）· `mentions` · `new_entity` 提案 · **重写 entity 载荷** | 改正文 · 合并节点 |
 
-⭐ **批内顺序 = `R1 → R4 → R2 → R3`**（2026-09-23 用户：*"R4 在 R3 前会不会更好？"* —— 对，
-而且必须更早）。理由只有一条：**promise 节点需要的边由后面两轮写**（`supports`/`evolved_from` 是 R2、
-`about` 是 R3）⇒ 节点**必须先就位**，否则 R2/R3 根本看不到它，它就"永远没边、永远没归属"
-（§9-12 ⑤ 那条"漏一批且永久补不回"的同款错误）。
+⭐ **批内顺序 = `R1 → R4 → R2 → R3`**（2026-09-23 定）—— ⏸ **2026-09-29 起这条顺序不再是
+正确性要求**：它当初唯一的理由是"promise 节点要先就位, 后面两轮才好连它"，而承诺退图后
+R4 **不建任何节点和边**。顺序**今天照旧**（改它没有收益, 却要重验一遍编排）。
 ⚠️ 连带要改一处：`revise._ATTACHABLE` 现在只允许 `episode` / `belief` / `experience`
 —— **要把 `promise` 加进去**，否则 R3 想归属它会当场被行级违约打回。
 ⚠️ **命名轴别混**：**轮次 = `R1`/`R2`/`R3`/`R4`**（本文用这套）；**实施节点 = `D0`/`D1`/`D2a`/`D2b`/`D3a`**
@@ -785,15 +823,15 @@ add kind=experience"）⇒ 它的 `subject` 不是 `player` ⇒ 旧读侧（按 
 ⚠️ **失败 = 整批回滚（含 R4 的判定）** ⇒ 那条约定原样开着，下次再来；不需要任何自愈机制。
 
 ⚠️ `mentions` **暂不实现**（2026-09-23 用户: *"先留着, 不碍事"*）—— 这个词留在表里是
-记号不是待办: 要落它得先有 rel（§2 的八种里没有）与消费者, 现在两样都没有。
+记号不是待办: 要落它得先有 rel（§2 那 6 条里没有）与消费者, 现在两样都没有。
 
 #### 四步全部接线（2026-09-25 ③-3 收尾）
 
 | 轮 | 调用身份 | 料（谁给的） | 产物去哪 |
 |---|---|---|---|
 | R1 产出 | `digest.round_a` | 时间线 + 人设 + 视觉记忆 | episode / experience 节点（**`about_hint` 已退役**, 见 §8 头注） |
-| R4 收口 | `digest.close` | 还开着的约定（`notes.render_item`）+ 本段 episode | promise 节点 + `note` 操作（**调用方在整批 ok 后 append**） |
-| R2 链接 | `digest.round_b` | 认知列表（**含 promise**）+ `links` 补充边 | `supports`/`evolved_from`/`contradicts` + `touch`/`update`/`add(belief)` |
+| R4 收口 | `digest.close` | 还开着的约定（`notes.render_item`）+ 本段 episode | ⏸ **只有 `note` 操作**（**调用方在整批 ok 后 append**）—— 2026-09-29 起不再建 promise 节点 |
+| R2 链接 | `digest.round_b` | 认知列表（belief / experience）+ `links` 补充边 | `supports`/`evolved_from`/`contradicts` + `touch`/`update`/`add(belief)` |
 | R3 归属 | `digest.attr` | `entities` 四块（候选表 / 命中集 / 载荷 / **本轮新节点**） | `about` 边 + `new_entity` + entity 载荷（`text`/`state`） |
 
 - **R3 的料分四块**（`entities.py`，全是纯函数、零 LLM）: `candidate_table`（全量身份, 本地 id `c0001`
@@ -808,7 +846,7 @@ add kind=experience"）⇒ 它的 `subject` 不是 `player` ⇒ 旧读侧（按 
 - ⚠️ **已知的洞**（§9-12 ⑤ 待裁）: R3 **只看本轮新节点** ⇒ "被 R2 改写的**旧**节点"这一轮
   归属不了。今天它们多数本来就有边（改写的都是老认知）, 所以不致命 —— 但它是一条**不会再回来**
   的漏（下一轮 R3 只看下一轮的新节点）。要治就是 §9-12 ⑤ 那一项。
-- **失败语义同前**: 任一轮失败 ⇒ **整批回滚**（`_rollback` 顺带清掉 `notes_ops` / `promise_nodes`
+- **失败语义同前**: 任一轮失败 ⇒ **整批回滚**（`_rollback` 顺带清掉 `notes_ops`
   / `created_entities`）⇒ 那段记忆下次再来。
 
 **顺序取 A（产出 → 链接 → 归属）**：合并的本判据是语义（"这两条是不是一回事"），
@@ -1070,12 +1108,12 @@ about_state      → resolved / uncertain / none   ← **点的属性**（不是
 | 10 | ~~**`experience` 的归宿**~~ ✅ **2026-09-23 结案** | **不做 kind**。"模式"的两个尺度各有落点：**段内重复 → R1/R2 直接写成 `belief` 的模式句**（那是"她的看法"）；**跨段重复 → note 的 `habits`**（§8.6 取料机制 v3）。连带：`degree ≥ 2 浮现` **不做**（沿 `supports` 数即可）；`promise` **在开放期不做 kind**（§6 两段式：它此刻住在 note 里 —— 是**当前值**不是节点，见下方澄清）。⏳ 仍待定：**严苛三判据（同细节 / 人设里没有 / 非泛词）怎么落进全景轮的 prompt** —— 并入 §9-9 |
 | 11 | **动作面与 `recall` 的返回形态**（§11） | ✅ **2026-09-27 已裁**（用户："不动代码，你先写一个文档"）⇒ **契约形式 / 用例情景 / 生命周期全文见 `docs/DESIGN_RECALL.md`**。四条已定：**scope = 四支 + 空占位**（memory / events / note / chapters / inventory 占位）· 返回 = **一行摘要 + 正文原样 top-k**（不给 id、不给邻接表）· `when` = **相对 + 字面**（逆向解析放 `core/worldtime/`）· 资料生命周期 = **落 `type="tool"` 事件**（一个开关管六个面：当轮 / 后续窗口 / **VN 开场前缀** / 回放 / digest / UI）。**代码未动**，拆分 a–d 见该文 §7 |
 | 12 | **digest 三轮的增补**（⏳ **②-⑥ 待裁**；①⑦⑧ 已结案） | ① ~~`evidence` 删（零消费者 + 逼 R2 重喂时间线）~~ ✅ **2026-09-29 已删**（字段 · 常量 · `digest_segment` 参数 · 清洗 · 契约 schema 块 · prompt 判据 9 全清；见 `REDUNDANCY.md` #5）② `affection_delta` 留 R2（输入换成"episode 摘要 + 情绪标量"，不喂时间线）③ R2 加 **`detach`**（裁错边；§8 R2 写了但执行器没有）④ R3 加 **`merge_entity`**（窄口：只合并 entity；否则重复 entity 永远无法合并）⑤ ⭐ **R3 也看"本轮被改写的旧节点"**（否则它们永远没归属 —— 2026-09-25 ③-3 落地后这是**唯一的残留洞**: R3 只看本轮新节点, 而被 R2 改写的旧节点下一轮也不会再进 R3 的视野）⑥ 补归属（复查队列）**不做**，但把"永久没归"的后果写进文档 ⑦ ~~**`aspect` 从设计稿删**~~ ✅ **2026-09-25 已删**（它**不是 kind** —— 全仓只有 §8 R1 那一格提到它, 代码零定义/零消费; 当年大概想说"这条记忆的侧面", 那个角色今天由 `subject` + `tags` 承担）⑧ ~~**顺序 D4 → D3**（先把 belief 的产出搬到 R1，再接第 3 轮：否则 R2 产的节点没有 `about_hint`，归属会漏一批且**永久补不回**）~~ ✅ **2026-09-29 结案 —— 顾虑消失**：R2 产的新认知**本轮就在 R3 的 `u0001` 通道里**（`new_ids` 含 `r2_created`），而 `about_hint` 退役后**谁都没有 hint**、一律靠正文认称呼 ⇒ "R2 产的 belief 缺 hint"不再是一种缺陷，"先搬 belief 产出"这条顺序**不必做**（R1 要不要产 belief 是另一件事，与归属无关） |
-| 13 | ~~**R2 的视野**~~ ✅ **2026-09-25 结案（③-2）** | 原顾虑：`render_cognition_list(cap=12)` + `significance` 排序 ⇒ "相关但不显著"的旧认知看不见。**本轮结的是另一半**（承诺进不进得来）—— 查出来的真相是 ⭐ **视野与动作面必须一起补**：决策表那三个动作**一律只写 `supports(episode → target)`** ⇒ 承诺即使进了列表，"这条承诺长出了看法"也**没处可写**。做法：`render_cognition_list` 收 `promise`（标签带结局）+ `must_include`（R4 本轮物化的不受 cap 截断）· R2 输出加可选键 **`links`**（三种 rel、两端为列表里的本地 id）· 两个 id 空间分开（`target_ids` 只有看法 / `link_ids` 含承诺）。⚠️ **仍开着的那一半**：按**相关度**召回（而不是 `significance` 前 12）—— 它是 `contradicts`/`evolved_from` 大量漏判的近因, 也是 R3 的候选表将来的形态 |
+| 13 | ~~**R2 的视野**~~ ✅ **2026-09-25 结案（③-2）** —— ⏸ **2026-09-29 其中"承诺那一半"随退图作废** | 原顾虑：`render_cognition_list(cap=12)` + `significance` 排序 ⇒ "相关但不显著"的旧认知看不见。**本轮结的是另一半**（承诺进不进得来）—— 查出来的真相是 ⭐ **视野与动作面必须一起补**：决策表那三个动作**一律只写 `supports(episode → target)`** ⇒ 承诺即使进了列表，"这条承诺长出了看法"也**没处可写**。做法：`render_cognition_list` 收 `promise`（标签带结局）+ `must_include`（R4 本轮物化的不受 cap 截断）· R2 输出加可选键 **`links`**（三种 rel、两端为列表里的本地 id）· 两个 id 空间分开（`target_ids` 只有看法 / `link_ids` 含承诺）。⏸ **承诺退图后**：列表只渲染看法、`must_include` 与 `link_ids` 的"含承诺"那半都删了；`links` 本身**留着**（它解决的是"决策表只会写 episode→target"这个更一般的问题）。⚠️ **仍开着的那一半**：按**相关度**召回（而不是 `significance` 前 12）—— 它是 `contradicts`/`evolved_from` 大量漏判的近因, 也是 R3 的候选表将来的形态 |
 | 14 | **`self` 进不进命中集** | ✅ **2026-09-27 已裁：无条件进**（`hit_set = 别名命中的正文 ∪ {self}`；⭐ 2026-09-29 `about_hint` 退役后式子就剩这两项）。原顾虑成立：她的名字几乎**不出现在第一人称正文**里 ⇒ `entity(self)` 的载荷（含 inventory / `state`）**今天永远没人维护**（`ensure_entities` 建出来之后一直空着）。落地随 `docs/DESIGN_RECALL.md` 的 `scope=memory` 一起做 |
 | 15 | **R4 是独立窄调用还是搭 R3**（2026-09-23 新增） | R4 的活极小（≤5 条开着的约定 × 本段新增），单开一次调用 = 多一份 token/延迟；搭进 R3 = 一次调用干两件事（R3 是"归属 + entity 维护"，与"这条约定还开着吗"是两种判断）。⚠️ 本仓的老教训是"拆轮次以保护注意力"，但也有"别为省一次调用把两件事塞一起"。**倾向：先单开**（窄、可单独重跑），跑一段看成本再合 |
-| 16 | **第三方承诺的 `from`/`to`**（2026-09-23 新增） | 固化时默认 `self` ↔ `sensei`（保留号，引擎手里有）。但"我答应了阿露帮她……"这种**双方不是老师**的承诺怎么办？候选：① R4 带一个 `who` 提示、走候选表映射（同 R3 的机制）② 先不支持，遇到就写 `self` ↔ `sensei`（错）③ 先不支持，遇到就不建 `from`/`to`（少两条边） |
+| 16 | ~~**第三方承诺的 `from`/`to`**~~ ⏸ **2026-09-29 随退图作废** | 原问题：固化时默认 `self` ↔ `sensei`，那"我答应了阿露帮她……"这种**双方不是老师**的承诺怎么办？—— **没有 `from`/`to` 了, 问题消失**。今天的约定只活在 note（`refs` 指回经历），"答应了谁"写在正文里。 |
 | 17 | ~~**MMT 段的 `formed_by` 会多连**~~ ✅ **2026-09-25 结案** | 原顾虑：固化时 `formed_by` = note 的 `refs` ∪ **本段新增 episode** ⇒ MMT 段（0~5 条）会多连几条，语义退化成"这几条里有一条是它翻篇的那一刻"。**解法（用户）**：**`finish episode` 由 LLM 在 `close` 行里指出**（走和 note 的 refs 同一条自动连边）⇒ **精确一条**，引擎不再"∪ 本段全部"。指不出（失约那种"没有那一刻"）就不连。 |
-| 18 | **`retire` 没落时的重复固化窗口**（2026-09-25 新增） | 提交成功、但 `retire` 事件 append 失败 ⇒ 那条一直算"已结清未退场" ⇒ 下一次收口会**再建一个 promise 节点**（同一个承诺两个节点）。⚠️ **2026-09-25 裁定"先不发 `retire`"之后，这个窗口暂时不存在**（不发就没有"发了但没落"）；等 ⑥ 把召回接上、真的开始退场时再选：① `retire` 事件带上节点 id（顺带把 note↔图 的链补上）② 固化前核对图里有没有同一个承诺（文本 + refs 交集） |
+| 18 | ~~**`retire` 没落时的重复固化窗口**~~ ⏸ **2026-09-29 随退图作废** | 原问题：提交成功、但 `retire` 事件 append 失败 ⇒ 那条一直算"已结清未退场" ⇒ 下一次收口会**再建一个 promise 节点**。**不再固化 ⇒ 没有"重复固化"这回事**。⚠️ 留下来的那一半是 note 面的：已结清未退场的条目会一直留在块里（`check()` 超 3 条告警）—— 那正是**预期行为**（退场要等读路径接住）。 |
 
 ## 10. 已否决（别再提）
 
@@ -1260,6 +1298,7 @@ about_state      → resolved / uncertain / none   ← **点的属性**（不是
 | 2026-09-29 | ⛔ **`about_hint` 整条退役**（`REDUNDANCY.md` ④ · 判据①③） | ✅ 审字段审出来的（见 `REDUNDANCY.md` §一 #2/#15/#19 · §七 5 条判据）: **"这条关于谁"与 R3 的归属是同一件事判两次**, 而 R1 那条判据（*"三个月后再提到它需要不需要一致"*）**点不出读者**。真机 4 段**每条都填满**（`digest_hint eps=5 hint=5`）—— 义务写满、没人验。**删的六处**: 契约字段 · 范例 · 清洗 · `_create_a_nodes` 的 pop 与 `hints` 返回值 · **`DigestResult.hints` 整条通道** · R1 prompt 判据 9。R3 改成 `hit_set(store, texts=…)` ⇒ **只剩正文通道**；台账换 `digest_hit`。⭐ **不动两样**: `revise._attach_nodes:346` 的别名机制（认出的称呼照旧进 `aliases` —— hint 是**产物**）· **表仍然不进第 1 轮**（缓存理由不变）。⭐ **不加 tags 通道**: 离线预演真机 21 条 episode（现役 `hit_set` 逐条跑）—— 正文通道 **22/22**、正文+tags **22/22（+0）**、只有 tags 13/22 ⇒ `tags` 已在担召回锚点, 再加一条是耦合两件事。⚠️ **样本偏差认下**: haruka 正文满篇"老师"; **客串角色名**未必这么密 ⇒ 真机验收 = `digest_attr hit=` 相对今天（2/1/3）**不能掉**。§9-12 ⑧ 那条顺序顾虑**随之结案**（谁都没有 hint 了）。余: `hit_set` 的 `hints=` 参数与 `_hint_hits` 现在**无生产调用方**（#22 —— 已在下一节点 ⑤ 同批清掉）
 | 2026-09-29 | ⛔ **`verbatim` 收成"只给记录行号"**（`REDUNDANCY.md` ⑤ · 并进 #22） | ✅ 文本通道（`"verbatim": "…"` 字符串）退役、"**文本优先**"随之消失 —— **行号是唯一入口**, 解析不出就**留空绝不编**。原理由（2026-09-15 的"错索引不可见"顾虑）没变, 变的是结论: **两条通道说的是同一件事**, 而原话本来就逐字躺在 append-only 的事件流里 ⇒ 让模型再抄一遍只买到"抄得对"这一种情况, 代价是"一句正确原话被静默换掉"。**动的地方**: 契约字段行（改成"只给行号; 写字符串会被忽略"）· `_fill_verbatim` 的文本分支（字符串 → 逐条丢弃 + 告警）· `_resolve_verbatim` 的早退与"文本优先"段（改写成退役说明）· `nodes.py` 那句"以文本兜底" · R1 prompt 判据 5（"逐字复制禁改写" → "抄行号"）与 MMT 专则两处 · `AGENT_BRAIN.md` 的 wiki.jsonl 例 · `DESIGN_WIKI_V3` §3.3.1 加作废横幅（那段保留作历史）。⚠️ **真损失认下**: 行号坏/越界 ⇒ 这条记忆**没有原话**（从前有文本兜底）。⭐ **同批清掉 #22**: `hit_set` 的 `hints=` 参数与 `_hint_hits`（`about_hint` 的尾巴, 生产零调用方）—— 单字别名**不扫正文**这条下限照旧钉着。守门: `test_round_a_verbatim_is_record_indices_only`（含"字符串被忽略"反向断言）· `test_verbatim_text_channel_is_retired` · `test_hit_set_reads_bodies_only` · schema 镜像断言加"两条通道不许回来" |
 | 2026-09-29 | ⛔ **`epistemic` 整条退役（只留 `observer`）**（`REDUNDANCY.md` ⑦/#3） | ✅ 两条判据: **①与 `observer` 互为函数**（非空 ⟺ reported ⇒ 两个字段说同一件事）**②跨 kind 两个意思**（episode 上=来源, belief 上="别伪装成事实"——而后者是 `kind` 已经说过的话）。**"她怎么知道的"从此只有一处判据: `observer` 空不空**。动的地方: 节点字段 · `EPISTEMICS` 词表 · `__init__` 导出 · `to_dict`/`from_dict` · 两条 validate 护栏（换成"**belief 不许带 `observer`**"）· 契约字段行与清洗（旧键**只告警不落库**）· R2 的 patch 守卫 · `revise` 的引擎归属/合并继承/update 守卫 · **读侧** `render._bucket_view` 两桶与 `recall` 的"只浮现亲历"。⚠️ **真机复核**（haruka `wiki.jsonl`）: `observer` **一个都没写过**（0/26）、`epistemic` = 22 `observed_fact` + 4 `inferred_belief`、**reported_fact 零条** ⇒ **分桶逐条相同**, 迁移无损（旧键留在盘上被宽松忽略, 下次 `save()` 自然消失）。⚠️ 顺带查出测试夹具里 `_ep(observer="igusa_haruka")` 那条**假数据**（分桶靠 epistemic 的时代无害, 今天会让 12 条亲历全变"听说的"）⇒ 改成空。旁: 文档四处加退役横幅（`AGENT_BRAIN` 文首 + §1.1 必填项 + 校验规则 3 · `DESIGN_WIKI_V3` 轴二 + R1 契约行 · `DESIGN_BRAIN` §7 · `TODO.md`）。守门: `test_belief_source_guard_uses_observer` · `test_loose_from_dict_bad_kind_and_legacy_epistemic` · `test_round_a_valid_entries`（旧键只告警）· `test_add_rejects_invalid_node`（observer 版护栏） |
+| 2026-09-29 | ⛔ **`promise` 退出图**（用户裁决: *"它们都太小了，不足以长期记录"*） | ✅ 起因是"本段说定、本段就翻篇"那种约定该怎么记 —— 顺着查下来发现**承诺面今天完全住在 note 里**（真机: 0 个 promise 节点 · 0 条 `from`/`to`/`formed_by` · `note/close` 事件 **0 条** · `notes.json` 里 `n1`/`n5` 两条还开着），而它占着一个 kind + 三条边 + 一整套固化动作。**裁决: 承诺太轻 ⇒ 退图**。**删**: `promise` kind · `outcome`+枚举 · `from`/`to`/`formed_by`（**边表 6 条**）· `p` 前缀 · `_ATTACHABLE` 的 promise · `marks.kind_tag` 的 `promise·已兑现` 分支 · **R4 的固化动作**（`ClosureResult` 只剩 `ops`/`warnings`）· `DigestResult.promise_nodes` · `render_cognition_list` 的 promise 支与 **`must_include`**（它 2026-09-25 就是为承诺加的 ⇒ 零调用方, 判据① 一起删）。**留**: note 的 promise 槽（她此刻还背着的事, 工作记忆）· R4 的 `add`/`close` 契约 · `#promise`/「约定」tags（**只做筛选, 不承担路由** —— 用户: *"`#promise` 依旧可以作为一个筛选条件"*）。⭐ **连带收益**: ① §8 那条"R4 必须排在 R2/R3 之前"**不再是正确性要求** ② `link_ids`/`target_ids` 实际同集、"承诺不是看法"那条指路牌文案删除 ③ §9-16/§9-18 两桩未决**自然结案**。⚠️ **放弃的**: "承诺"不再是可被指认的**对象**（不能 noticed/look 指、不能挂 alias、不能进群、不能被 R3 归属）—— 今天这些消费者全是 0; 将来若真需要"我们之间许过的重诺", 该加的是**一条召回通道**, 不是把 kind 加回来。旁: `notes.PROMISE_OUTCOMES` 成为结局词表的**运行时真源**（从前从 `nodes` 借）。守门: `test_promise_is_no_longer_a_kind` · `test_promise_prefix_is_gone` · `test_edge_vocabulary_is_the_six` · `test_apply_closures_writes_note_ops_only` · `test_r2_list_has_no_promise_anymore` · `test_cognition_list_cap_still_truncates` |
 | 2026-09-23 | **取料代码对齐定形** | ✅ `panorama.py`: 去掉 `promise`/已结清两块与 `PanoramaInput` 上的两字段 · **索引默认关**（`DEFAULT_INDEX_CAP: 40 → 0`）· `worth_running` 只看新材料 · 卡改用 `_card_line`（**不印编号、不印时间**）· **`render(now=…)` 的 `now` 删掉**（卡不印时间 ⇒ 死旋钮）。真机演练（haruka 11 条）: 三块成形、候选 4 条带来源标注、索引 0（没列 4）、空料 `render()==""`。16 条用例 |
 | 2026-09-23 | **"note 与 VN 并发"不做**（用户: *"就是顺序 digest 即可，原来时序"*） | ✅ §8 记四条事实（VN 注入段整章固定 ⇒ 章内更新它看不见 · 中断的章不触发 digest · 章内板不在真源要读 overlay · 抢玩家等待路径的配额），收益只剩"中断章也能记" ⇒ 不做。⚠️ **接受一条限制**: "中断后既没续完也没被废弃"的章里的约定不记（与现状一致，`vn_abandon` 真机存量 0）。⭐ 顺带消掉"废弃回溯"整个问题（note 事件只落在章结束之后）。§9 新增 **15/16/17**（R4 是否独立调用 · 第三方承诺的 `from`/`to` · MMT 段 `formed_by` 多连的观察项） |
 

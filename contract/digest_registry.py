@@ -29,8 +29,9 @@ from contract.model import ValidationResult
 
 PHASE_RECORD = "record"
 PHASE_UNDERSTAND = "understand"
-#: R4 收口（DESIGN_GRAPH_V4 §8: promise 记账）—— 每段的第 4 步，**窄调用**，
-#: 只判"这条约定还开着吗"，不碰正文/认知。
+#: R4 收口（DESIGN_GRAPH_V4 §8: 约定记账）—— 每段的第 4 步，**窄调用**，
+#: 只判"这条约定还开着吗 / 这一段里有没有新说定的"，不碰正文/认知。
+#: ⚠️ 2026-09-29 承诺退图后它**只产 note 操作**（add/close），不再建节点。
 PHASE_CLOSE = "close"
 #: ⚠️ ~~`PHASE_PANORAMA`~~（全景轮/写卡）**2026-09-29（N4a）已退役** —— 它的两个槽
 #: 一个被取消（`habits`）、一个换了写者（`on_mind` → L1）⇒ 它没有输出了。
@@ -49,8 +50,9 @@ PHASE_DEEP = "deep"
 #: B 轮决策类型
 DECISIONS = ("touch", "update", "add")
 
-#: promise 的结局（与 `core.brain.wiki_v2.nodes.PROMISE_OUTCOMES` 对齐 ——
-#: 契约层**不依赖 core**, 所以这里独立声明一份, 由这条注释钉住"两处同源"）
+#: promise 的**结局**（词表 —— 与 `core.brain.wiki_v2.notes` 那一份同源）。
+#: ⚠️ 2026-09-29 起它**只用于 note**（`close` 行的 `state`）: promise 已经退出图,
+#: 节点上不再有 `outcome` 字段（`nodes.PROMISE_OUTCOMES` 随之删掉）。
 PROMISE_OUTCOMES = ("kept", "broken", "superseded")
 
 #: 玩家画像条目的 subject 固定值（与 nodes.PLAYER_SUBJECT 对齐, 契约层不依赖 core）
@@ -421,12 +423,11 @@ class DigestRegistry:
                 "引擎候选标注'疑似印证/疑似重复'时必须遵守（印证→touch, 重复→update）。",
                 "",
                 "links 规则（**可选的补充边**, 别拿它当主力）:",
-                "  supports      —— 「这条承诺/这件事, 长出了那个看法」（承诺 → 看法）;",
+                "  supports      —— 「这件事长出了那个看法」（经历 → 看法）;",
                 "  contradicts   —— 「这两条互相打架」（无向: 写一次就够）;",
                 "  evolved_from  —— 「这条是新的, 它把旧的盖过去了」（新 → 旧）;",
                 "  ⚠️ 方向别写反（`from` 是新/被支撑的那一头）; 两端都不能是本轮新建的条目",
-                "    （列表是这一轮**开始前**的样子 —— 新建的下一轮才连得上）;",
-                "  ⚠️ 承诺（promise）**只**能用 links 连: 它不是看法, 不要 touch/update 它。",
+                "    （列表是这一轮**开始前**的样子 —— 新建的下一轮才连得上）。",
                 "",
                 "两层写法（别混, 2026-09-20 用户定）:",
                 "  episode = **informative but single**（信息量足, 但只讲一件事）;",
@@ -824,12 +825,10 @@ class DigestRegistry:
 
         episode_ids: 本轮 Round A 产出的真实 episode id 集（引用检查）。
         target_ids: **可被 `touch`/`update` 的**本地 id 集（u0001..; 只有看法）。
-        link_ids: **可出现在 `links` 两端的**本地 id 集（看法 ∪ **承诺**）。
-            ⚠️ 两个集合**故意不同**（2026-09-25, §5.1/§9-13）: 承诺也是"稳定下来的东西"
-            ⇒ R2 要看得见它（才能写出 `supports`/`evolved_from`），但它**不是看法**
-            ⇒ 不能被 `touch`/`update`（那句"这条经历支撑这条承诺"是 `formed_by` 的活,
-            而且承诺的正文在固化那一刻就写死了）。`None` → 退化成 `target_ids`
-            （老调用方/单测不必改）。
+        link_ids: **可出现在 `links` 两端的**本地 id 集。⏸ 2026-09-29 承诺退图之后,
+            它与 `target_ids` 实际同集（渲染列表里只剩看法）—— 参数**留着**: 它是
+            "可连接的端点"这件通用事, 而调用方今天传的是渲染列表的全集。
+            `None` → 退化成 `target_ids`（老调用方/单测不必改）。
 
         ⚠️ **`must_touch` 参数已删**（2026-09-15 T17）: 它曾是"引擎候选 ≥ 阈值 →
         该 episode 禁 `add`"的**结构强制**，而那个阈值从未标定过、实测两模型下
@@ -868,11 +867,8 @@ class DigestRegistry:
                     errors.append(f"decisions[{i}]: {decision} 必须填 target")
                     continue
                 if target not in target_ids:
-                    # ⚠️ 措辞带上"承诺要用 links"—— 2026-09-25 起 `target_ids` 只含
-                    # **看法**（belief/experience），而 promise 会出现在**渲染列表**里
-                    # ⇒ 模型完全可能 touch 它。这条消息是给它的指路牌。
                     errors.append(f"decisions[{i}].target 不在可 touch/update 的列表内"
-                                  f"（只有看法; 承诺不是看法 —— 用 links 连它）: {target!r}")
+                                  f"（只有看法）: {target!r}")
                     continue
                 item["target"] = target
                 if decision == "touch":
@@ -929,8 +925,8 @@ class DigestRegistry:
 # ============================================================================
 
 #: `links` 允许的 rel（**只有这三种** —— 见 DESIGN_GRAPH_V4 §2 的边表）。
-#: ⚠️ 别加 `about`（那是第 3 轮的活, 走候选表映射）· 别加 `formed_by`/`from`/`to`
-#: （承诺固化时引擎自己写）· 别加 `source`（已删）。
+#: ⚠️ 别加 `about`（那是第 3 轮的活, 走候选表映射）· 别加 `source`（已删）·
+#: 别加 `formed_by`/`from`/`to`（2026-09-29 随 promise 退图一起删）。
 LINK_RELS: tuple[str, ...] = ("supports", "contradicts", "evolved_from")
 
 
@@ -967,7 +963,7 @@ def _parse_links(raw: Any, link_ids: set[str], errors: list[str],
         for lbl, val in (("from", src), ("to", dst)):
             if lbl in bad:
                 errors.append(f"links[{i}].{lbl} 不在渲染列表内: {val!r}"
-                              "（承诺也得先在列表里出现过; 本轮新建的连不上）")
+                              "（端点也得先在列表里出现过; 本轮新建的连不上）")
         if bad:
             continue
         if src == dst:

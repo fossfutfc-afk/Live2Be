@@ -14,22 +14,29 @@ note 是**三种组织形式**里的第二种（图 / **笔记** / 台账, §1.1
 
 | 槽 | 类 | 装什么 | 更新模型 | 写者 |
 |---|---|---|---|---|
-| `promise` | **A 操作式** | 还没做的事（约定 / 承诺） | `add` / **`close` 结清** / **`retire` 退场** | 加 · 结清 = 当场（MMT 输出字段）或 digest 收口 · 退场 = 固化那一批 |
+| `promise` | **A 操作式** | 还没做的事（约定 / 承诺） | `add` / **`close` 结清** / **`retire` 退场** | 加 · 结清 = digest 收口（R4）· 退场 = **今天零写者**（见下） |
 | `on_mind` | **B 快照式** | 我最近在意的（一段散文） | 整段替换（`rewrite`） | ⭐ **L1（Round A）** —— N4a 起; 此前是全景轮 |
 
 > ⚠️ **第三槽 `habits` 已退役（2026-09-29, N4a）** —— 它是"规律"的**劣质替身**
 > （`DESIGN_NOTE §4`：≤20 字标签 + `refs` 无走法 + 与 belief 重复 ⇒ 三条存在理由
 > 一个都不满足）。内容归 **L2 的 belief（模式句）**、指针归将来的 `index`。
 > **旧档里那个键读的时候直接忽略**（退役 = 不再读，不迁移）。别把它加回来。
+>
+> ⚠️ **`promise` 节点 2026-09-29 退图**（用户裁决: 承诺太轻, 不足以长期记录）——
+> ⭐ **这一槽从此是约定的唯一落脚点**（从前还计划"固化进图"）。
+> 连带: `retire` 的写者从前写的是"固化那一批", 那条路没了 ⇒ 退场时机改成
+> **读路径能接住约定之后**（那条链路本来就欠着）; **今天仍然零写者, 行为零变化**。
+> "这条经历涉及约定"改由 **`tags`** 承担（只做筛选, 不承担路由）。
 
 **四条纪律**（写进形状里, 不靠自觉）:
 
-0. ⭐ **`close` 是"结清", 不是"划掉"；划掉是 `retire`** —— 承诺是唯一"note 是它唯一落脚点"
-   的东西（图里要等固化才有它, 而上下文窗口从来不是保证）。所以两段式:
-   **结清 ⇒ 条目留在块里（尾巴换成理由）→ 图侧接住 ⇒ `retire` 才真删**。
-   ⇒ **不变量: 一条承诺任何时刻至少在一个可见面上**（note 或图）, 永不在两者之外。
+0. ⭐ **`close` 是"结清", 不是"划掉"；划掉是 `retire`** —— 承诺太轻, 不值得在图里长期
+   记录（2026-09-29 用户裁决 ⇒ promise 退图）, 所以 **note 是它唯一的落脚点**,
+   而上下文窗口（120 单元滚动）从来不是保证 ⇒ 结清**不删条目**:
+   **结清 ⇒ 条目留在块里（尾巴换成 `afterwards` 那句）→ 读路径能接住它了 ⇒ `retire` 才真删**。
+   ⇒ **不变量: 一条约定只要还在 note 里, 她就看得见**。
 1. **`close` 必须给 `afterwards`（"这件事后来怎么了"）, `add` / `retire` 不用** —— 它既是
-   她读到的那句话, 也是**固化那一步**并进节点正文的那半句（§6）。读侧遇到没给它的
+   她读到的那句话, 也是"这件事后来怎么了"的唯一书面留存。读侧遇到没给它的
    close **照做但记响**（不认它反而会让本子停在过去）, 写侧直接拒。
    ⚠️ **已结清的不再覆盖**: 块里印着 id, 若二次 close 能改写 `afterwards`, 就是给"拿幻觉的一句话
    覆盖真实的那句话"开后门 ⇒ 第二次只告警（幂等 = 忽略）。
@@ -51,7 +58,6 @@ from dataclasses import dataclass, field
 from typing import Any, Iterable
 
 from core.brain.wiki_v2 import marks
-from core.brain.wiki_v2.nodes import PROMISE_OUTCOMES   # 结局枚举的运行时真源（同包）
 from core.common import err
 from core.session.events import (
     N_ADD,
@@ -79,10 +85,14 @@ SNAPSHOT_SLOTS: tuple[str, ...] = (SLOT_ON_MIND,)
 #: 上限（**超限只告警不截断** —— 丢哪条是她的判断, 交 L2, 引擎不替她决定）
 MAX_PROMISE = 5
 MAX_ON_MIND = 1
+#: 约定的**结局**（`close` 行的 `state`）—— ⭐ **2026-09-29 起这是运行时真源**:
+#: promise 退图之后节点上不再有 `outcome`, 这 3 个词只活在 note 面
+#: （`contract/digest_registry.py` 有一份同源副本, 契约层不依赖 core）。
+PROMISE_OUTCOMES = ("kept", "broken", "superseded")
 #: 条目正文上限（§3.2: **名词短语 ≤20 字, 不写陈述句** —— 免得与 episode 的叙述竞争）
 MAX_TEXT = 20
-#: "结清未退场"的积压上限（**只告警**）—— 它是**正常态**（就是固化的待办队列）,
-#: 所以不逐条报; 超过这个数才说明"收口没跑到 / 图侧一直没接住"。
+#: "结清未退场"的积压上限（**只告警**）—— 它是**正常态**（已结清的还留在本子上,
+#: 等读路径接住才退场）, 所以不逐条报; 超过这个数才说明"收口没跑到 / 退场一直没接上"。
 MAX_CLOSED_PENDING = 3
 
 #: 注入块标题 —— ⚠️ 必须**说清这是什么**（是她自己记的, 不是系统/别人派的任务; 编号是索引）,
@@ -304,14 +314,17 @@ def _apply_close(st: NotesState, payload: dict, ts: str, seq: int) -> None:
     """**结清**一条 —— ⚠️ **不是从 note 移除**。
 
     为什么不能立刻删（2026-09-23 用户裁决）: 承诺是**唯一"note 是它唯一落脚点"**的东西
-    —— 图里要等固化才有它, 而上下文窗口（120 单元滚动）**从来不是保证**。close 一删,
-    它就**三处全无**。所以两段式（与 promise 本身同构）:
+    —— 而上下文窗口（120 单元滚动）**从来不是保证**。close 一删, 它就**三处全无**。
+    所以两段式:
 
         `close` = 结清（本子上还在, 注入块里照旧显示, 尾巴换成 `afterwards` 那句话）
-        `retire` = 退场（图侧接住了才划掉 —— 见 `_apply_retire`）
+        `retire` = 退场（划掉）
 
-    ⇒ **不变量: 一条承诺任何时刻至少在一个可见面上** —— 开着 / 已结清 ⇒ 在 note;
-      已固化 ⇒ 在图。永不在两者之外。
+    ⚠️ **2026-09-29 更正**: 两段式的第二段原写作"图侧接住了才划掉", 而**图侧那条路
+    （固化 promise 节点）已经删掉**（承诺退图）⇒ 今天 `retire` 的时机改成
+    "**读路径能接住约定之后**"（链路 ⑥ 欠着的那件事）, **写者仍然零**。
+    ⇒ 不变量换成一句更简单的话: **一条约定只要还在 note 里, 她就看得见**;
+      结清只改尾巴, 不改可见性。
 
     ⚠️ **已结清的不再覆盖**: 块里印着 `id`, 若允许二次 close 改写 `afterwards`,
        就等于给"拿幻觉的一句话覆盖真实的那句话"开了个后门 ⇒ 第二次只告警（幂等 = 忽略）。
@@ -319,7 +332,7 @@ def _apply_close(st: NotesState, payload: dict, ts: str, seq: int) -> None:
     ⚠️ 只作用于 **A 类槽**: B 类由 `rewrite` 整段替换, 让 `close` 也能改它就是两个写者
        抢同一份数据（§3.2"同一段只有一个写者"）。
     ⚠️ **`afterwards` 缺失照做, 但把账记响**: 事件说的就是"这条不再开着了", 不认它会让本子停在过去;
-       而那句话缺失只影响**固化进图**那一步（§6 要把它并进节点 `text`）, 那是另一处的账。
+       而那句话缺失只影响**她读到的那句尾巴**（注入块上那句"后来怎么了"）。
     """
     nid = str(payload.get("id") or "").strip()
     if not nid:
@@ -327,7 +340,7 @@ def _apply_close(st: NotesState, payload: dict, ts: str, seq: int) -> None:
         return
     afterwards = str(payload.get("afterwards") or "").strip()
     if not afterwards:
-        logger.warning("note/close 缺 afterwards（照做; 固化那一步没法把它并进正文）:"
+        logger.warning("note/close 缺 afterwards（照做; 注入块上那句尾巴会缺）:"
                        " id=%s seq=%s", nid, seq)
     for slot in OPSLOTS:
         for it in list(getattr(st, slot) or []):
@@ -345,11 +358,12 @@ def _apply_close(st: NotesState, payload: dict, ts: str, seq: int) -> None:
 
 
 def _apply_retire(st: NotesState, payload: dict, seq: int) -> None:
-    """**退场** —— 真正从 note 划掉（图里已经有了）。
+    """**退场** —— 真正从 note 划掉。
 
-    写者 = **固化那一批**: digest 收口建好 `promise` 节点 + `from`/`to`/`formed_by` 边、
-    事务 `ok` 之后, 由引擎补写这条事件（同好感事件那个模式: `digest` 只返回决定,
-    事件由引擎在成功之后落 —— 事件流不随 `clone_state` 回滚）。
+    ⏸ **写者: 今天零**。从前的计划是"固化那一批"（R4 建好 promise 节点 + 三条边、
+    事务 `ok` 之后由引擎补写这条事件）—— **2026-09-29 承诺退图, 那条路没了**;
+    退场的时机改成"**读路径能接住约定之后**"（链路 ⑥）, 在那之前她需要它一直在本子上。
+    ⚠️ 定义与读侧（`fold` 认它）都留着 —— 等那条链路接通, 它才有写者（同 `notes.retire_op`）。
 
     ⚠️ **只对已结清的条目生效**: 退场一条"还开着"的承诺 = 把它从唯一的落脚点删掉
        （图里根本没有它）—— 那正是两段式要堵的洞。撞上就告警 + 跳过。
@@ -423,18 +437,20 @@ def close_op(item_id: str, afterwards: str, state: str) -> dict:
     + **结局必填**（`kept`/`broken`/`superseded`）。
 
     ⚠️ 结清**不等于**从本子上划掉（那是 `retire_op`）: 条目留在 note 里继续注入,
-    直到图侧接住它。`afterwards` 有两个去处: 注入块上那句话（见 `CLOSED_WORDS`）
-    + **固化时并进节点 `text`**（§6 —— 否则退场之后"后来怎么了"就没人看得见了）。
+    直到**读路径能接住它**。`afterwards` 今天只有一个去处: 注入块上那句话
+    （见 `CLOSED_WORDS`）—— ⏸ 从前还会"固化时并进 promise 节点的正文",
+    那条路 2026-09-29 随承诺退图删掉了。
     """
     return _checked({"action": N_CLOSE, "id": item_id, "afterwards": afterwards,
                      "state": state})
 
 
 def retire_op(item_id: str) -> dict:
-    """`retire` 操作 = **退场**（图里已经有了 ⇒ 本子上才划掉）。
+    """`retire` 操作 = **退场**（本子上划掉 —— 读路径能接住它了才划）。
 
-    写者 = **固化那一批**（digest 事务 `ok` 之后由引擎补写）; 也允许全景轮
-    核对"图里已经有这条承诺"之后顺手退场（那是**核对**, 不是判定）。
+    ⏸ **写者: 今天零**（2026-09-29 起）。从前的计划是"固化那一批"（digest 事务 `ok`
+    之后由引擎补写）, 而**固化那条路随承诺退图删掉了** ⇒ 时机改成"**读路径接住之后**"。
+    定义与读侧都留着（`_apply_retire` / `fold` 认它）, 等那条链路接通才有写者。
     **不加理由** —— 它是机械确认, 不是判断。
     """
     return _checked({"action": N_RETIRE, "id": item_id})
@@ -490,7 +506,7 @@ def validate_ops(ops: list[dict]) -> None:
             if not str(op.get("afterwards") or "").strip():
                 raise ValueError(err("NoAfterwards",
                                      f"note 操作[{i}] close 缺 afterwards（「这件事后来怎么了」）"
-                                     " —— 它会进注入块, 固化时还会并进节点正文"))
+                                     " —— 它是她读到的那句尾巴"))
             state = str(op.get("state") or "").strip()
             if state not in PROMISE_OUTCOMES:
                 raise ValueError(err("BadNoteOp",
@@ -529,9 +545,11 @@ def check(state: NotesState, known: Iterable[str] | None = None) -> list[str]:
        且**超限只告警不截断**（丢哪条交全景轮）
     ④ 正文超 `MAX_TEXT` 字（该写名词短语, 不写陈述句）
 
-    ⚠️ **`promise` 的"结清未退场"是正常态**（它就是固化的待办队列）⇒ 不逐条告警;
-       只在**积压**时报一句。⚠️ 2026-09-25 起 `retire` 暂未启用（读路径没接上, §3.2）⇒
-       那一句的含义从"收口没跑到"变成"积压到什么规模了"（**预期内的观察值, 不是故障**）。
+    ⚠️ **`promise` 的"结清未退场"是正常态**（已结清的还留在本子上, 等读路径接住）
+       ⇒ 不逐条告警; 只在**积压**时报一句。
+       ⚠️ `retire` 今天**零写者**（读路径没接上, §3.2; 而 2026-09-29 承诺退图之后
+       "固化那一批"那条路也没了）⇒ 那一句的含义是"积压到什么规模了"
+       （**预期内的观察值, 不是故障**）。
 
     `known=None` → 跳过 ②（调用方没有图的时候, 比如单测折叠本身）。
     """
@@ -587,7 +605,7 @@ def render_note_block(state: NotesState, *, now: object | None = None,
       "我手上还开着什么", 混排会把第一眼读坏）。
     - **`id` 必须印出来**（否则她只能靠文本匹配去 `close` ⇒ 不可靠）。
     - **结清行的尾巴是理由不是时间**, 状态词**中性** —— 不能用"已完成": `close` 也覆盖
-      **失约 / 不做了**（图里那个节点的 `state` 就是 kept/broken/superseded 三值）。
+      **失约 / 不做了**（`state` = kept/broken/superseded 三值）。
     - **频次绝不印**（既有纪律: 数值不直接喂 LLM, 防讨好/数值化）—— 要不要说
       "好多次/每次都"由 writer 决定。
     - **`on_mind` 不印编号也不印 refs**: 它是她自己的口吻, 一行散文（refs 照存,
