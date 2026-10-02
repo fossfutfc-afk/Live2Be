@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """brain — 角色记忆（**图式 wiki**；实现蓝图 = 同目录 `AGENT_BRAIN.md`）。
 
-⭐ **2026-09-29 改名**: `core/brain/` → **`core/brain/`**（用户裁决: 去版本号、
+⭐ **2026-09-29 改名**: `core/brain/wiki_v2/` → **`core/brain/`**（用户裁决: 去版本号、
 留 `brain` —— 这个名字有历史）。原来那层 27 行的再导出壳同时删掉（全仓零调用方）。
 
 ⚠️ **2026-09-21: 旧版记忆（digest v1）整族删除** —— `consolidation.py`（digest_session）/
@@ -27,11 +27,14 @@
     recall_config.py  召回旋钮（settings.toml [recall]）           ✅ V3-0
     recall_ledger.py  召回台账（写路径候选碰撞 / 读路径注入视图）   ✅ V3-0
     entities.py  entity 初始化 + 第 3 轮（归属）的输入侧            ✅ D2/D3
-    digest.py  digest 管线（增量/召回/反馈重试/水位/幂等）          ✅ M3
-    llm_call.py  这一条链的 LLM 调用薄层（label/档位/extra_body）   ✅
     panorama.py  全景轮取料逻辑（**轮已退役**, 留取料给"切块"用）    ⏸ N4a
     seed.py    （2026-09-05 出厂链归档——seed_from_config 不再导出,
                主进程解耦; 本体已移 archive/factory_memory/）
+
+⏸ **不在这个包里的**: digest 管线（`digest.py` / `llm_call.py`）2026-09-29 抬去了
+**`core/digest/`** —— 本包 = **数据层**（点/边/存储/笔记/读路径, 纯 stdlib 零 LLM），
+而管线要 contract / llm / session ⇒ 分开之后"数据层不 import LLM"才是**包边界**，
+不再只是一句注释。她视图里的 `digest_segment` 请从 `core.digest` 取。
 """
 from core.brain.nodes import (
     KINDS,
@@ -65,7 +68,6 @@ from core.brain.channels import (
     describe as describe_channels,
     get as get_channel,
 )
-from core.brain.digest import DigestResult, digest_segment
 from core.brain.compose import (
     ComposeResult,
     Composed,
@@ -102,8 +104,6 @@ __all__ = [
     "RecallContext",
     "describe_channels",
     "get_channel",
-    "DigestResult",
-    "digest_segment",
     "ComposeResult",
     "Composed",
     "compose",

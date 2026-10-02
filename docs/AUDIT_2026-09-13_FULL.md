@@ -99,7 +99,7 @@
 
 
 ### A3 ⚠️ 好感 delta 丢失窗口（wiki 已提交、事件未写）
-`core/brain/digest.py:207-209` 先提交 wiki + 推进水位 `digested_seq`;
+`core/digest/pipeline.py:207-209` 先提交 wiki + 推进水位 `digested_seq`;
 调用方**之后**才写 `affection|digest` 事件（`core/momotalk.py:436-438`）。
 两步之间崩溃/异常 → 下轮 `digest.py:132-133` 判"无新增"直接 ok → **delta 永久丢失**,
 且真源无痕（events.jsonl 是唯一真源, 补写 = 补写历史）。

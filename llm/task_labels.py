@@ -34,7 +34,7 @@ PLACE = "place"
 PLACE_BOARD = "place_board"
 #: 选图（`variant_annotate.pick_image`, 第二遍）→ 返回 {"image": <文件名>}
 PLACE_VARIANT = "place_variant"
-#: digest 记忆消化（`brain/llm_call.llm_chat`; 细分见下两行）
+#: digest 记忆消化（`digest/llm_call.llm_chat`; 细分见下两行）
 DIGEST = "digest"
 DIGEST_A = "digest.round_a"
 DIGEST_B = "digest.round_b"
@@ -83,7 +83,7 @@ PROFILE_OF: dict[str, str] = {
 
 
 def digest_label(round_label: str) -> str:
-    """`brain/llm_call.llm_chat` 的 `label` → task 标签。
+    """`digest/llm_call.llm_chat` 的 `label` → task 标签。
 
     label 缺省 `"digest"`（整轮）; 调用方传 `"round_a"` / `"round_b"` → 细分标签。
     """

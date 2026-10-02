@@ -27,7 +27,7 @@
 | 级别 | 边界 | 实现 | 越界后意味着什么 |
 |---|---|---|---|
 | **章** | `vn_exit` | `core/session/staging.py`：章内一切先进 `soul/staging/events.jsonl`，见到 `vn_exit` 才整段 append 进真源 | 章内的板**天然可丢**（丢弃 = 从未发生，零删除操作） |
-| **记忆** | `store.meta.digested_seq` | `core/brain/digest.py`：只取 `seq > digested_seq` 的事件；**成功才推进水位** | 水位之下的内容**已经变成她的记忆/wiki 节点/好感快照** |
+| **记忆** | `store.meta.digested_seq` | `core/digest/pipeline.py`：只取 `seq > digested_seq` 的事件；**成功才推进水位** | 水位之下的内容**已经变成她的记忆/wiki 节点/好感快照** |
 
 ### 2.1 为什么不能"删真源里的行"
 

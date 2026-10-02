@@ -17,8 +17,8 @@
 ⚠️ ~~`evidence`~~ **2026-09-29 删** —— 零产品消费者, 而契约每段要它 ≤5 条 + `quote`
 逐字引用时间线 ⇒ 白付；详见 `core/brain/REDUNDANCY.md`。
 
-引擎执行层在 core/brain/（digest.py 两轮编排 + revise.py 执行器, 板块 4）;
-本文件只管"LLM 契约层": 结构/类型/边界/字段约束。
+引擎执行层 = `core/digest/pipeline.py`（**每段 5 轮**编排）+ `core/brain/revise.py` /
+`core/brain/groups.py`（各轮的执行器）; 本文件只管"LLM 契约层": 结构/类型/边界/字段约束。
 """
 from __future__ import annotations
 

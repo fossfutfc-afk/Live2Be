@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from contract.digest_registry import PHASE_ATTRIBUTE, digest_registry
 from core.brain import WikiStoreV2, make_node
-from core.brain.digest import digest_segment
+from core.digest.pipeline import digest_segment
 from core.brain.entities import ensure_entities, hit_set, new_nodes_block
 from core.session import make_event
 from llm import task_labels as T

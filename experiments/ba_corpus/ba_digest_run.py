@@ -21,7 +21,7 @@ sys.path.insert(0, ".testtmp")
 
 from ba_to_events import build_events                             # noqa: E402
 from core.affection import Affection, load_affection_from_events  # noqa: E402
-from core.brain.digest import digest_segment              # noqa: E402
+from core.digest.pipeline import digest_segment              # noqa: E402
 from core.brain.store import WikiStoreV2                  # noqa: E402
 from core.media import assets_root, load_emotion_lexicon          # noqa: E402
 from core.parsing.dynamic_character_parser import (               # noqa: E402

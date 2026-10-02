@@ -1,24 +1,35 @@
-"""digest.py — digest v2 两轮管线（AGENT_BRAIN.md §3 / 板块 4a）。
+"""pipeline.py — digest 管线（`core/digest/`；设计见 `core/brain/AGENT_BRAIN.md §3` / 板块 4a）。
 
-两轮（2026-09-02 定稿; 吸收 A-MEM 逐条对齐 + AgentGal 两轮结构 + 用户拍板）:
-    Round A「记录员」: 只看新时间线 → 浓缩值得记住的经历（registry schema(record)
-                      + parse_round_a → 引擎建 episode 节点, 内存暂存）
-    Round B「理解者」: 新经历 + 现有认知（本地 id 渲染）→ 决策表 decisions
-                      （touch=印证 / update=深化改写+history / add=新建）
-                      → apply_decisions 执行 → 原子提交
-（另有两轮不在本函数里: **R4 收口**在每段那一批的第 4 步; **全景轮（写卡）**是
- 低频轮 —— 见下。）
+⭐ **2026-09-29 搬家**: `core/brain/digest.py` → **`core/digest/pipeline.py`**（代码管理节点 B）。
+理由: `core/brain/` 是数据层（纯 stdlib 零 LLM）, 而本文件要 contract / llm / session ⇒
+分开之后"数据层不 import LLM"才是包边界。⚠️ 本文以下凡写 `digest.py` 的旧路径
+一律指**本文件**。
 
-编排（digest_segment）:
+**实际跑的步数（2026-09-29 现状, 不是"两轮"）**——一眼看全在 `core/digest/__init__.py`;
+本文件的顺序是: R1 → akin 补边 → R4 → R2 → R3 → L2-a 分群（共 5 次 LLM 调用 + 1 次零成本补边）:
+    R1「记录员」 `digest.round_a`: 只看新时间线 + 人设 + 视觉记忆 → episode / 玩家画像
+    akin 补边    （0 LLM）         : 本段的 `noticed` 账 → `akin` 边
+    R4「收口」   `digest.close`    : 开着的约定 + 本段经历 → note 操作（**不建节点**）
+    R2「理解者」 `digest.round_b`  : 新经历 + 时间线 + 认知列表 → 决策表 decisions + `links`
+    R3「归属」   `digest.attr`     : 候选表 + 命中集载荷 + 本轮新节点 → `about` 边 + entity 载荷
+    L2-a 分群    `digest.group`    : 块 + 已有类 → 群节点 + `member_of`（**自带快照**）
+
+（`decisions`: touch=印证 / update=深化改写 + evolution 留痕 / add=新建
+ —— 由 `revise.apply_decisions` 执行 → 随整批原子提交。）
+
+编排（digest_segment）::
     1. 增量: new_events = seq > store.digested_seq（无新增 → 0 次 LLM 调用）
-    2. 公共输入: 时间线(**记录级带行索引**, T14) + 视觉记忆 + 人设锚点（A 用）
-    3. Round A: llm_chat → parse_round_a → 建 episode（引擎字段归属: ts/event_seq;
-       event_seq=[interact_max]; 防幻觉——LLM 不产这些字段, 4a 不做每 episode 溯源）
-    4. Round B: episodes 摘要 + 认知渲染(u0001.. 本地 id) → llm_chat → parse_round_b
-       （引用纪律/覆盖检查在 parse 层）→ apply_decisions（图操作 + evolution 变更审计）
-    5. affection_exp_delta 返回（事件幂等写由调用方——运行时集成层）
-    6. A/B 任一失败 → clone_state 快照回滚, 水位不推进（宁缺勿错, 可重算）
-    7. 成功 → store.save()（原子整写）+ 推进 meta.digested_seq + save_meta
+    2. 公共输入: 时间线(**记录级带行索引**, T14) + 视觉记忆 + 人设锚点
+    3. 依次跑上表那 5 轮（各自的跳过条件见调用点旁边的注释）
+    4. affection_exp_delta 返回（事件幂等写由调用方——运行时集成层）
+    5. 任一轮失败 → clone_state 快照回滚, 水位不推进（宁缺勿错, 可重算）
+       ⚠️ 例外: **分群自带快照**, 失败只回滚它自己（那是加法, 块留到下段再来）
+    6. 成功 → store.save()（原子整写）+ 推进 meta.digested_seq + save_meta
+
+⚠️ **"轮次表"还没立**（每轮的定义仍散在: 契约 schema/parse · prompt .md · 本文件编排 ·
+`revise`/`groups` 执行器）—— 五个调用点仍是**顺序语句 + 注释**, `_rollback` 也还是
+**手抄清单**（每轮往 `DigestResult` 写的新字段必须手工加进清空列表, 漏一个就是雷）。
+把它收成声明式 spec 是下一步（用户已同意方向）, 落点就是本文件 + `rounds/`。
 
 ⚠️ **`evidence`（成长证据）2026-09-29 已删** —— 它**零产品消费者**（只有一条测试与一个
     归档脚本读过）, 契约却每段都要它 ≤5 条 + `quote` 逐字引用时间线 ⇒ 那是一笔白付的钱。
@@ -61,7 +72,7 @@ from contract.digest_registry import (
 )
 from core.brain import groups, marks
 from core.brain.entities import candidate_table, hit_set, new_nodes_block, payload_block
-from core.brain.llm_call import llm_chat
+from core.digest.llm_call import llm_chat
 from core.brain.nodes import PLAYER_SUBJECT, make_node
 from core.brain.recall import (
     EmbedFn,
