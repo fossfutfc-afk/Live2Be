@@ -16,8 +16,8 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-from core.brain import panorama, recall
-from core.brain.panorama import build_input
+from core.brain.read import panorama, recall
+from core.brain.read.panorama import build_input
 from core.brain.store import WikiStoreV2
 
 NOW = datetime(2026, 9, 25, 12, 0, 0)
@@ -157,7 +157,7 @@ def test_semantic_failure_degrades_to_anchor(tmp_path, caplog):
     def _boom(texts):
         raise RuntimeError("embedding 服务没起")
 
-    with caplog.at_level(logging.INFO, logger="core.brain.panorama"):
+    with caplog.at_level(logging.INFO, logger="core.brain.read.panorama"):
         inp = build_input(st, new_ids=[new.id], embed_fn=_boom)
 
     assert inp.mode == "anchor"                           # 降级, 不抛

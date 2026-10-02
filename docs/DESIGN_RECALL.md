@@ -242,7 +242,7 @@ when:  时间范围, 可省 —— "今天 / 昨天 / 前天 / N 天前 / 最近
 | 执行 | `core/mmt/mmt_executor.py` | `_execute_mmt_recall`：四支检索 → 渲染 → `ExecResult(ok, message)` |
 | 时间解析 | `core/worldtime/`（新函数） | `parse_when`（相对 + 字面；失败 → None） |
 | 落库 | `core/session/events.py` | `TYPE_TOOL` + `NON_CONTENT_TYPES` + `render_events` 分支 + 截断常量 |
-| 台账 | `core/brain/recall_ledger.py` | `log_read(surface="recall", …)` 一行（命中条数 / 支 / when 是否命中 / 耗时） |
+| 台账 | `core/brain/read/recall_ledger.py` | `log_read(surface="recall", …)` 一行（命中条数 / 支 / when 是否命中 / 耗时） |
 | 规则书 | `llm/prompts/momotalk_rules.md` | ⏳ 未定（§6）：要不要写"只在真的需要时查" |
 
 ---

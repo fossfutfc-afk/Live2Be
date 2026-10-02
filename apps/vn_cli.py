@@ -234,7 +234,7 @@ def run_bond_story_vn(
         # brain 双通道随机摘段 → "你突然想起…"（不要求 AI 反馈, 自然流露即可）
         if i == 1 and store_ is not None and engine._session_id:
             try:
-                from core.brain.recall import random_flash_segment
+                from core.brain.read.recall import random_flash_segment
                 from core.random_events import fire_event
                 wstore = WikiStoreV2(store_.data_root, world_id=store_.world_id,
                                      char_id=char.character_id)

@@ -85,7 +85,7 @@
     `BondScene.para_emotions`（逐段 emotion 缺省延续——现役是标注层写 `paragraphs[].emotion`
     + 前端 `applyEmotions`）；`BondScene._draft`（只写不读）；`Session.from_json`；
     `MomoTalkEngine._characters_root`；测试侧 31 处未用导入。
-  - **删错又恢复的一例（教训）**：`core/brain/recall_config.py::reload` —— 按"零消费者"
+  - **删错又恢复的一例（教训）**：`core/brain/read/recall_config.py::reload` —— 按"零消费者"
     删掉后，全量测试立刻 13 errors: 它有 **11+ 处调用, 全在 `tests/core/test_wiki_recall_ledger.py`
     的 autouse fixture**（进程级懒加载缓存必须逐用例清）。⇒ **测试基础设施也是消费者**；
     且 `reload` 这种常见名**必须查调用点（`.reload(`）而不是只查定义处**——我第一遍就是

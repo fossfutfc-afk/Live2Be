@@ -27,7 +27,7 @@ apps/                   CLI 应用：main.py（对话循环）· vn_cli.py（VN 
 webgui/                 Web 壳 + 会话状态机：app.py · deps.py（显式接缝）· bond/（BondState 状态机 / lane / 回放 / 生图 / 收尾）·
                         chat.py（每角色输入队列 worker）· routers/（HTTP）· static/js/{bond,mmt,gui}.js
 core/                   引擎层（无 web 依赖）：mmt/engine(聊天引擎) · bond/bond_story(VN 引擎) · bond/(标注层: 情绪/换场/选图) ·
-                        session/(事件流 events.jsonl + 叙事化 + 认章 + 维护) · brain/(记忆数据层: 点/边/笔记/视图/召回) · digest/(记忆消化管线) · promptkit/(提示词装配) ·
+                        session/(事件流 events.jsonl + 叙事化 + 认章 + 维护) · brain/(记忆数据层: 点/边/笔记 + read/ 只读视图与召回) · digest/(记忆消化管线) · promptkit/(提示词装配) ·
                         tui/(终端展示层) · media/ · director/(视觉导演) · parsing/ · worldtime/(三层时钟) · rag/ · common/
 contract/               契约地基：records/(记录流文法 + 解析 + 块/板校验 + 载体) · schema/registry/spec/model(动作契约) · errors · json_cleaner
 llm/                    LLM 客户端（超时/流式/usage）+ task_levels(档位) + task_labels(调用身份) + prompts/ 文案仓库

@@ -86,8 +86,10 @@ core/          引擎层（无 web 依赖, CLI/实验同源复用）
    │                         ⚠️ bond_actions/bond_executor/memorial_actions/stream_probe/
    │                         sentence_splitter（v1 契约与执行）已于 2026-09-21 删除
    ├ session/                事件流: store(events.jsonl)/renderer(叙事化)/chapters(认章+回放)/maintenance
-   ├ brain/                  记忆**数据层**（点/边/存储/笔记/记号/地址 + 注入视图 + 召回/合成）——
-   │                         纯 stdlib、**零 LLM**（2026-09-29 起这条是**包边界**, 不只是注释）
+   ├ brain/                  记忆**数据层**（点/边/存储/笔记/记号/地址）—— 纯 stdlib、**零 LLM**
+   │                         （2026-09-29 起这条是**包边界**, 不只是注释）
+   │   └ read/               ⭐ **读路径**（2026-09-29 分家, 只读不写图）: 注入视图 render ·
+   │                         召回 recall/channels/channel_impl/compose 与两个台账/旋钮 · panorama
    ├ digest/                 **记忆消化管线**（每段 5 次调用: ① 记 R1 → ② 收口 R4 → ③ 接 R2
    │                         → ④ 挂 R3 → ⑤ L2-a 分群; `pipeline.py` = 编排, 材料在各家）
    ├ promptkit/              提示词装配: box/tail/task/report（见 §8）
@@ -527,7 +529,7 @@ CLI/测试同步路径在引擎内串行。
 - **运行时配置** settings.toml（gitignore, GUI 设置页读写）：`[llm]`(api/base/model/
   reasoning_effort) · `[llm.tasks.*]`(按形态覆盖档位/max_tokens, 真源 llm/task_levels.py)
   · `[image]`(api/model/screen_size/**enabled 生图总开关**) · `[promptkit]`(task_card)
-  · `[recall]`(召回旋钮, 真源 `core/brain/recall_config.py`) · `[embed]`(语义检索后端,
+  · `[recall]`(召回旋钮, 真源 `core/brain/read/recall_config.py`) · `[embed]`(语义检索后端,
   真源 `core/rag/embedder.py`)。
   优先级 构造参数 > settings.toml > .env > 默认。
   ⚠️ **`[embed]` 服务不在 = digest 语义召回静默降级**（2026-09-27 实测）：`base_url`

@@ -32,7 +32,7 @@ from __future__ import annotations
 
 import logging
 
-from core.brain.channels import (
+from core.brain.read.channels import (
     KIND_GATE,
     KIND_PRIOR,
     KIND_SIMILARITY,
@@ -121,7 +121,7 @@ class IntensityPrior:
         res = ChannelResult(channel=self.name, kind=self.kind, scale=self.scale)
         try:
             from core.worldtime.age import age_days, date_of, freshness
-            from core.brain.recall_config import get as _knob
+            from core.brain.read.recall_config import get as _knob
         except Exception as e:                       # noqa: BLE001 — 链路失败不抛
             res.degraded = True
             res.note = f"依赖不可用: {e}"
@@ -236,7 +236,7 @@ class EmotionRag:
             res.note = "无 embed_fn（无向量后端）"
             return res
         try:
-            from core.brain.recall import _cosine
+            from core.brain.read.recall import _cosine
             texts = [f"{_EMO_PREFIX}{' '.join(n.emo_shape)}" for n in nodes]
             vecs = ctx.embed_fn(texts + [f"{_EMO_PREFIX}{' '.join(q)}"])
             qv = vecs[-1]
@@ -348,7 +348,7 @@ class PlaceGate:
             sem_note = "无节点带 place_raw（旧档）"
         else:
             try:
-                from core.brain.recall import _cosine
+                from core.brain.read.recall import _cosine
                 texts = [" ".join(n.place_raw) for n in cand]
                 vecs = ctx.embed_fn(texts + [now_raw])
                 qv = vecs[-1]
@@ -451,7 +451,7 @@ class DejaVu:
             res.knobs = {"n_nodes": len(nodes)}
             return res
         try:
-            from core.brain.recall import _cosine, _embed_text
+            from core.brain.read.recall import _cosine, _embed_text
             texts = [_embed_text(n) for n in nodes]
             vecs = ctx.embed_fn(texts + [ctx.query])
             qv = vecs[-1]

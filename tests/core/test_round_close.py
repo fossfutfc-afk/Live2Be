@@ -258,7 +258,7 @@ def test_r2_list_has_no_promise_anymore(tmp_path):
     列表渲染只认 kind ∈ {belief, experience}（`render_cognition_list`）,
     而 `must_include` 那个为承诺专开的参数**已经删掉**（零调用方）。
     """
-    from core.brain.render import render_cognition_list
+    from core.brain.read.render import render_cognition_list
     st = _store(tmp_path)
     st.add(make_node("belief", text="老师答应的事都做到了", subject="sensei",
                      significance=0.9, event_seq=[2]))
@@ -278,7 +278,7 @@ def test_cognition_list_cap_still_truncates(tmp_path):
 
     这里留下 cap 本身的行为: 按 significance 降序取前 `cap` 条。
     """
-    from core.brain.render import render_cognition_list
+    from core.brain.read.render import render_cognition_list
     st = _store(tmp_path)
     for i in range(3):
         st.add(make_node("belief", text=f"看法{i}", subject="sensei",

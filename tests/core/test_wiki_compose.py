@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""合成层单测（`core/brain/compose.py`, 2026-09-20）。
+"""合成层单测（`core/brain/read/compose.py`, 2026-09-20）。
 
 用户口径（四条道路 → 最终打分）:
 
@@ -40,8 +40,8 @@ from core.brain import (                       # noqa: E402
     recall_now,
 )
 from core.brain import recall_ledger           # noqa: E402
-from core.brain.channels import KIND_GATE, SCALE_COSINE, SCALE_UNIT  # noqa: E402
-from core.brain.channel_impl import build_channels                   # noqa: E402
+from core.brain.read.channels import KIND_GATE, SCALE_COSINE, SCALE_UNIT  # noqa: E402
+from core.brain.read.channel_impl import build_channels                   # noqa: E402
 from core.common import fuse as shapes                 # noqa: E402
 from core.media import place_fuse as pf                # noqa: E402
 

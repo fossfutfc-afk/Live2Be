@@ -15,26 +15,31 @@
     graph.py   边表（类型化 + 有向 + 三索引 + 查询）               ✅ G1–G4
     marks.py   括号与信息头的**唯一实现**（那一行字长什么样）       ✅ N5d
     address.py 她写下的名字 → 节点（与 marks 共用字符集）           ✅ N5a
-    render.py  组织视图 + 角色注入视图（分层 md 序列化）            ✅ M2
     revise.py  修订契约校验/执行 + evolution_log                  ✅ M2
     evolution.py 审计日志（append-only, R6 回滚依据）              ✅ M2
     notes.py   随身笔记（约定 / 心境）—— 纯函数 + 零 IO            ✅ M4′
     groups.py  群（L2 归纳）与并群                                 ✅ N7b
-    recall.py  三通道召回 + 一跳扩展                               ✅ M4
-    channels.py      召回链路**接口**（五条链路的形态声明）         ✅ V3-3 前置
-    channel_impl.py  五条链路的实现（多数"诚实的空"——缺数据不出分） ✅ V3-3 前置
-    compose.py        **最终打分**（四条道路合成 = 调和平均 rel×prior）✅ 2026-09-20
-    recall_config.py  召回旋钮（settings.toml [recall]）           ✅ V3-0
-    recall_ledger.py  召回台账（写路径候选碰撞 / 读路径注入视图）   ✅ V3-0
     entities.py  entity 初始化 + 第 3 轮（归属）的输入侧            ✅ D2/D3
-    panorama.py  全景轮取料逻辑（**轮已退役**, 留取料给"切块"用）    ⏸ N4a
+    read/      ⭐ **读路径**（2026-09-29 分家; 只读、不写图）:
+        render.py        组织视图 + 角色注入视图（分层 md 序列化）   ✅ M2
+        recall.py        三通道召回 + 一跳扩展                       ✅ M4
+        channels.py      召回链路**接口**（五条链路的形态声明）       ✅ V3-3 前置
+        channel_impl.py  五条链路的实现（多数"诚实的空"——缺数据不出分）✅ V3-3 前置
+        compose.py       **最终打分**（四条道路合成 = 调和平均 rel×prior）✅ 2026-09-20
+        recall_config.py 召回旋钮（settings.toml [recall]）          ✅ V3-0
+        recall_ledger.py 召回台账（写路径候选碰撞 / 读路径注入视图）  ✅ V3-0
+        panorama.py      全景轮取料逻辑（轮已退役, 留取料给"切块"用） ⏸ N4a
     seed.py    （2026-09-05 出厂链归档——seed_from_config 不再导出,
                主进程解耦; 本体已移 archive/factory_memory/）
 
-⏸ **不在这个包里的**: digest 管线（`digest.py` / `llm_call.py`）2026-09-29 抬去了
-**`core/digest/`** —— 本包 = **数据层**（点/边/存储/笔记/读路径, 纯 stdlib 零 LLM），
-而管线要 contract / llm / session ⇒ 分开之后"数据层不 import LLM"才是**包边界**，
-不再只是一句注释。她视图里的 `digest_segment` 请从 `core.digest` 取。
+⭐ **本包的三条边界**（2026-09-29 两次搬家之后）:
+1. **写路径**（`store` / `graph` / `revise` / `groups` / `notes` / `entities`）与
+   **读路径**（`read/`）分家 —— 读路径**只读不写图**, 谁要写就走写路径那几件。
+2. **零 LLM**: 本包不 import `llm` / `contract.digest_registry` / `core.session` 的编排件
+   ⇒ digest 管线（要那三样）搬去了 **`core/digest/`**; 她视图里的 `digest_segment`
+   从 `core.digest` 取。
+3. `marks.py` 是**她眼前那一行字**的唯一实现 —— 别的模块只许调它, 不许手写括号
+   （守门 `tests/core/test_marks_guard.py`）。
 """
 from core.brain.nodes import (
     KINDS,
@@ -47,15 +52,15 @@ from core.brain.store import WikiStoreV2
 from core.brain.graph import Edge, Graph, graph_of
 from core.brain.evolution import EvolutionLog
 from core.brain.revise import RevisionResult, apply_revision_package
-from core.brain.render import (
+from core.brain.read.render import (
     render_background_experience,
     render_character_view,
     render_organize_view,
     render_recall_block,
 )
-from core.brain.recall import recall_episodes, recall_subgraph
-from core.brain import recall_config, recall_ledger
-from core.brain.channels import (
+from core.brain.read.recall import recall_episodes, recall_subgraph
+from core.brain.read import recall_config, recall_ledger
+from core.brain.read.channels import (
     CHANNELS,
     KIND_GATE,
     KIND_PRIOR,
@@ -68,7 +73,7 @@ from core.brain.channels import (
     describe as describe_channels,
     get as get_channel,
 )
-from core.brain.compose import (
+from core.brain.read.compose import (
     ComposeResult,
     Composed,
     compose,

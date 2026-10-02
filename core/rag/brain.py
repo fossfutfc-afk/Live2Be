@@ -15,7 +15,7 @@ from __future__ import annotations
 from typing import Callable
 
 from core.brain.nodes import BrainNode
-from core.brain.recall import recall_subgraph, recommend_candidates
+from core.brain.read.recall import recall_subgraph, recommend_candidates
 from core.brain.store import WikiStoreV2
 from core.rag.embedder import LocalEmbedder, RagError
 

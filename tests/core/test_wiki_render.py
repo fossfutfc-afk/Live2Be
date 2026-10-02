@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 
 from core.brain import make_node
 from core.brain.graph import Edge, Graph
-from core.brain.render import render_character_view, render_organize_view
+from core.brain.read.render import render_character_view, render_organize_view
 
 
 def _ids(nodes):
@@ -354,7 +354,7 @@ def test_episode_title_is_never_first_person_converted():
 
 def test_recall_block_shape_and_budget():
     """「你想起的事」: 段头 + 只收 episode + 预算按行累积（**第一条永远留**）。"""
-    from core.brain.render import RECALL_HEADER, render_recall_block
+    from core.brain.read.render import RECALL_HEADER, render_recall_block
 
     e1 = _titled("她拉着我在杂草屋蹲了一下午", "苔藓的约定", event_seq=[1])
     e2 = _titled("屋顶的瓦片缝里也有", "屋顶的苔藓", event_seq=[2])
@@ -381,7 +381,7 @@ def test_recall_block_shape_and_budget():
 def test_recall_budget_reads_config_knob(monkeypatch):
     """预算的**真源**是 `[recall].turn_budget`（显式参数 > 配置 > 模块常量）。"""
     from core.brain import recall_config as rc
-    from core.brain.render import render_recall_block
+    from core.brain.read.render import render_recall_block
 
     e1 = _titled("第一件事", "一号", event_seq=[1])
     e2 = _titled("第二件事", "二号", event_seq=[2])

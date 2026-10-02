@@ -91,8 +91,8 @@ from core.digest import digest_segment
 from core.brain.entities import ensure_entities
 from core.affection import Affection, load_affection_from_events
 from core.brain.address import find_episode
-from core.brain.recall import recall_episodes
-from core.brain.render import (
+from core.brain.read.recall import recall_episodes
+from core.brain.read.render import (
     render_background_experience,
     render_character_view,
     render_recall_block,
@@ -340,8 +340,8 @@ def _log_read_ledger(char_id: str) -> None:
     渲染函数没被调用过（异常路径）→ 无声返回。
     """
     try:
-        from core.brain import recall_ledger
-        from core.brain.render import take_last_view_account
+        from core.brain.read import recall_ledger
+        from core.brain.read.render import take_last_view_account
         acct = take_last_view_account()
         if not acct:
             return

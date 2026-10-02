@@ -28,7 +28,7 @@
 
 ⚠️ **2026-09-20 搬家**: 形状函数（`harmonic` / `geometric` / `product` / `magic` /
 `MODES` / `DEFAULT_MODE`）唯一实现在 **`core/common/fuse.py`** —— 合成层
-（`core/brain/compose.py` 的"相关 × 强度"）要用**同一个**函数, 而
+（`core/brain/read/compose.py` 的"相关 × 强度"）要用**同一个**函数, 而
 `brain` 反向依赖 `media` 是层次倒挂。本模块**原样 re-export**（老调用方零改动;
 `place_fuse.magic is core.common.fuse.magic` 这条有测试钉着）。
 
@@ -49,7 +49,7 @@
 
 配置面不许有阈值旋钮（用户裁决; `test_no_threshold_knobs_left` 钉着）, 未标定的硬闸门
 曾把新认知永远掐死。**本模块只出分**; "取前 k 条"是合成层的事
-（`core/brain/channels.py` 纪律 #2/#3: 链路只出 raw, 最终分由合成层算）。
+（`core/brain/read/channels.py` 纪律 #2/#3: 链路只出 raw, 最终分由合成层算）。
 `mode` 是**代码里的显式选项**（给对照/测试用）, 不是配置项。
 
 ## 两边共用（用户 2026-09-20 选定）

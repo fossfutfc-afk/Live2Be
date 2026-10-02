@@ -65,7 +65,7 @@ TURN_K = 2
 def _thr(name: str, fallback: float) -> float:
     """取召回旋钮（配置优先; 配置层异常 → 回落模块常量, 绝不上抛）。"""
     try:
-        from core.brain.recall_config import get
+        from core.brain.read.recall_config import get
         return get(name)
     except Exception:                            # noqa: BLE001 — 配置层不阻断召回
         return fallback
