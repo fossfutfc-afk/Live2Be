@@ -15,7 +15,7 @@
 | 1 | `items` | **零活读者** | 全仓只有 `panorama.py:182` 读它当锚点，而那个模块**零调用者**；`notes.py:38` 注释许诺的 `inventory` 在代码里**根本不存在** | ✅ 已定**砍**（将来起 `inventory` 旁路） |
 | 2 | `about_hint` | **同一件事判两次**（R1 猜"关于谁" → R3 再判"挂谁"）；判据（"三个月后再提到它需要一致吗"）与读者脱节 | 读者只有 `entities.hit_set(hints=…)`；真机 4 段**每条都填**（`digest_hint eps=5 hint=5` 等）；而 `hit_set` 本来就有 `texts=` 通道 | ✅ 已定**删字段**；改成 R3 从 `tags` + 正文 + 标题 + 原话认称呼；⭐ **别名机制保留**（`revise.py:346` 顺手把称呼记进 `aliases` ⇒ R3 输出里留一个可选称呼） |
 | 3 | `epistemic` | ① 与 `observer` **互为函数**（`observer != ""` ⟺ `reported_fact`）② **跨 kind 两个意思** | 契约"reported_fact 时必填 observer"；`nodes.py:92`；`nodes.py:183`（belief 必须 `inferred_belief`）；`revise.py:181`（engine 归属） | ✅ 已定**整个退役**，只留 `observer`（空=亲历）；读侧 `render.py:206` / `recall.py:394` 改判据；真机 reported 1/20 且带 observer ⇒ 迁移无损 |
-| 4 | `add.example`（R2） | 落成 belief 的 `examples`，而**belief 的 examples 零读者** | `recall.py:322` 只在 `kind=="experience"` 时用 examples（belief 用 `growth`，`recall.py:324`）；她视图 `_belief_line:476` 只渲染 text+growth | ⭐ 建议**砍**（待拍） |
+| 4 | `add.example`（R2） | 落成 belief 的 `examples`，而**belief 的 examples 零读者** | `recall.py:322` 只在 `kind=="experience"` 时用 examples（belief 用 `growth`，`recall.py:324`）；她视图 `_belief_line:476` 只渲染 text+growth；⭐ **真机佐证**：`haruka e0001`（从 experience 迁移成 belief 的那条）**真的带着 `examples`**，而它是 belief ⇒ 那条 examples 是死的 | ⭐ 建议**砍**（待拍） |
 | 5 | `evidence`（R2） | **零产品消费者** | 产出 `digest.py:477`；全仓只有 `tests/core/test_wiki_digest.py:230` + `archive/factory_memory/smoke_digest_v2.py:147` 读；`digest.py:20` 自注"罗盘应用后置, **无罗盘则丢弃**" | ✅ 已定**删**（连带 `_clean_evidence` / `evidence_threshold` / `DigestResult.evidence`） |
 | 6 | `verbatim` vs `verbatim_seq` | **两条通道说同一件事** | 契约"两条都给时**以②为准**"；真机 haruka **两条都填**（文本 + 序号） | ✅ 已定**二选一**：只留**序号**，文本由引擎填（`_resolve_verbatim` 已在） |
 | 7 | `kind`（R1） | **轮次决定的常量**，不该由 LLM 声明 | R1 恒 `episode`；R2 恒 `belief`；promise 由 `apply_closures` 建（引擎） | ✅ 已定**删** ⚠️ 后果：`experience` 产线停（真机 mutsuki 有 1 条；player 桶靠它）⇒ "关于老师的事"归 entity 面（以后那一刀） |
@@ -73,13 +73,26 @@
 | `span`（mmt 段） | 引擎据此物化 `ts` / `emo_shape` / `place` / `place_raw` / `aff_at_encoding` + 章收口 + 证据指针 |
 | `tags` | `recall.recommend_candidates` 的锚点 · `_embed_text`（`narration + verbatim + tags`）；契约本含人名，**真机 tags 里已有** `老师` / `阿露` / `老师的话` ⚠️ 上限 4、真机基本用满 ⇒ **不设"必须带主体名"的义务** |
 | `significance` | 「难忘」标记 · belief 排序 · 时间短语措辞 · 召回打分 `SIG·TIME` · 章收口挑最高 |
-| `growth` | 她视图 `_belief_line:476` · `recall.py:325` |
+| `growth` | 她视图 `_belief_line:476`（`（——从「我不配」到…）`）· `recall.py:265`（候选召回的 2-gram 正文比对）· `recall.py:324`（`_embed_text`：belief 的检索文本 = text + growth）⇒ **三个活读者**；真机 7 条认知里 **5 条有值** |
 | `verbatim`（文本字段本身） | 她视图 `render.py:455`（只是**改由引擎填**，见 #6） |
 | `emo_int` / `emo_span` | 召回打分 `det = SIG·TIME + emo_span·emo_int`（`channel_impl.py:61`）⇒ **有读者**；但**搬不走**（见下） |
 | 情绪两处加工 | 标注层给**逐记录**键 → `emo_shape`；R1 给**跨记录聚合**的峰值/摆幅 —— **有分工**，不是冗余 |
 
 📌 **待办（记下不做）**：`emo_int`/`emo_span` 想交引擎，前提是**词表补一列 0~1 强度**
 （今天 `emotion_lexicon` 每个键只有作者散文注释 `comment`/`eg`，`core/media/emotion_lexicon.py:155-163`，**没有数值** ⇒ 引擎算不出 max / max−min）。那是内容侧的活（14 个键各写一个数），做完这两个字段就能从 R1 消失，而召回打分从"LLM 估的"变成确定的。
+
+### ⚠️ `growth` 附带查出的另一条：设计规矩④**从来没成立过**
+
+设计稿 `DESIGN_DIGEST_LAYERS §3.2` 规矩④：*"`growth` 的起点必须出现在 `text` 里"*（怕两个字段各写各的、互相矛盾）。真机实测：
+
+| growth 里的起点 | 在 `text` 里逐字出现吗 |
+|---|---|
+| `我不配`（haruka m0003） | ❌ |
+| `只敢在外面看`（m0008） | ❌ |
+| `有人会来看我`（m0018） | ❌ |
+
+**3/3 不成立** ⇒ 那条规矩从未落地、也没有校验，而且**引擎没法校验**（真机连引号用法都不统一：`「」` 与 `『』` 混用）。
+⇒ **建议**：换成一条给 LLM 的**轻纪律**写进契约 —— *"`growth` 只写**变化的方向**（从…到…），**不要在 growth 里引入 text 没提过的新事实**"*。理由：`growth` 的价值是"**她怎么变的**"这个视角（与 text 的"她现在怎么看"不同），逐字对齐是形式主义；真机那 3 条读起来也都是"同一件事的两个时间点"，不是新事实。
 
 ---
 
