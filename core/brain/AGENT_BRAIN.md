@@ -1,5 +1,9 @@
 # AGENT_BRAIN — 图式 wiki 实施蓝图（工作区: core/brain/）
 
+> ⚠️ **2026-09-29 代码管理**: 本文写 `digest.py` 的地方, 代码已搬到 **`core/digest/pipeline.py`**
+> （管线要 contract/llm/session, 与"纯 stdlib 零 LLM"的数据层分开 ⇒ 包边界）;
+> `core/brain/` 只剩**数据层 + 读路径**。其余文件名不变。
+
 > ⛔ **2026-09-29 更正: `epistemic` 字段已整条退役**（`REDUNDANCY.md` #3）。
 > 本文所有提到 `epistemic` 的地方**按此读**: "这条是不是她亲历的" **只看 `observer`**
 > （空 = 亲历 · 非空 = 转述者, 渲染成"听X说的"）; "认知不伪装成事实"那条护栏 = **belief

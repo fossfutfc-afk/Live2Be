@@ -87,7 +87,7 @@ from core.promptkit import (
 from core.session import SessionStore
 from core.session.events import TYPE_NOTICED, is_content_event, make_event
 from core.session.renderer import session_status, window_messages
-from core.brain.digest import digest_segment
+from core.digest import digest_segment
 from core.brain.entities import ensure_entities
 from core.affection import Affection, load_affection_from_events
 from core.brain.address import find_episode

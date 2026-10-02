@@ -6,7 +6,7 @@
 要测 R4 本身 → `tests/core/test_round_close.py`。
 """
 from core.brain import WikiStoreV2, make_node
-from core.brain.digest import digest_segment
+from core.digest.pipeline import digest_segment
 from core.brain.evolution import EvolutionLog
 from core.session import make_event
 from llm import task_labels as T
@@ -856,7 +856,7 @@ def _bond(seq, keys):
 
 
 def test_segment_emotion_keys_order_and_dedup():
-    from core.brain.digest import _segment_emotion_keys
+    from core.digest.pipeline import _segment_emotion_keys
     evs = _events(_bond(1, ["tease", "smile"]), _bond(2, ["smile", "outburst"]),
                   _mmt(3, "hi", "yo"))
     assert _segment_emotion_keys(evs) == ["tease", "smile", "outburst"]
@@ -1127,7 +1127,7 @@ def test_expand_spans_fills_gap_and_pops_the_key():
     留在条目里的 `span` 会被 `from_dict` **静默忽略**（这个项目最恨的静默 no-op ——
     `about_hint` 当年就是为这个专门 pop 的）。
     """
-    from core.brain.digest import _expand_spans
+    from core.digest.pipeline import _expand_spans
 
     entries = [{"span": [10, 13], "text": "a"}, {"span": [12, 14], "text": "b"}]
     unclaimed, shared = _expand_spans(entries, {10, 11, 12, 13, 14, 20})
@@ -1153,7 +1153,7 @@ def test_span_expansion_runs_before_bond_collapse():
     import ast
     import inspect
     import textwrap
-    from core.brain.digest import digest_segment
+    from core.digest.pipeline import digest_segment
 
     fn = ast.parse(textwrap.dedent(inspect.getsource(digest_segment))).body[0]
     code = ast.unparse(fn)

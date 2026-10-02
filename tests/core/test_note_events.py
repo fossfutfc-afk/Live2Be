@@ -19,7 +19,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-from core.brain.digest import digest_segment
+from core.digest.pipeline import digest_segment
 from core.brain.store import WikiStoreV2
 from core.mmt.engine import _interact_max
 from core.session import make_event

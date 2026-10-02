@@ -334,7 +334,7 @@ core.mmt.engine	build_line_schema	function	contract.schema
 core.mmt.engine	build_mmt_registry	function	core.mmt.mmt_actions
 core.mmt.engine	char_names	function	core.parsing.names
 core.mmt.engine	check_turn	function	core.mmt.mmt_check
-core.mmt.engine	digest_segment	function	core.brain.digest
+core.mmt.engine	digest_segment	function	core.digest.pipeline
 core.mmt.engine	ensure_entities	function	core.brain.entities
 core.mmt.engine	err	function	contract.errors
 core.mmt.engine	feedback	function	llm.client

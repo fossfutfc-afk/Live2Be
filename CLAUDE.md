@@ -86,7 +86,10 @@ core/          引擎层（无 web 依赖, CLI/实验同源复用）
    │                         ⚠️ bond_actions/bond_executor/memorial_actions/stream_probe/
    │                         sentence_splitter（v1 契约与执行）已于 2026-09-21 删除
    ├ session/                事件流: store(events.jsonl)/renderer(叙事化)/chapters(认章+回放)/maintenance
-   ├ brain/          digest 记忆（RoundA/B 提炼 + 好感结算 + 注入视图）
+   ├ brain/                  记忆**数据层**（点/边/存储/笔记/记号/地址 + 注入视图 + 召回/合成）——
+   │                         纯 stdlib、**零 LLM**（2026-09-29 起这条是**包边界**, 不只是注释）
+   ├ digest/                 **记忆消化管线**（每段 5 次调用: ① 记 R1 → ② 收口 R4 → ③ 接 R2
+   │                         → ④ 挂 R3 → ⑤ L2-a 分群; `pipeline.py` = 编排, 材料在各家）
    ├ promptkit/              提示词装配: box/tail/task/report（见 §8）
    ├ worldtime/              时间：三层时钟（剧情/现实日历/壁钟, DESIGN_WIKI_V3 §4）
    ├ common/                 横切: errors（**C10 起只是薄再导出壳** → 真家 `contract/errors.py`）/

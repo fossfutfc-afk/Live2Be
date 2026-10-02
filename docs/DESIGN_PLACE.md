@@ -198,7 +198,7 @@ python -m core.media.place_rename --from OLD --to NEW [--reason "…"] [--apply]
 * 旧事件没有 `place_asset` → 默认图（第一条）；没有改名台账 → 就是"素材未找到"。
 * **append-only**：视觉键（`place` / `place_asset`）落 payload 是为了回放时间轴，
   不是为了补写。
-* 记忆两轴（`core/brain/digest.py` 物化）：`node.place` = **键**序列（字面相等 ⇒
+* 记忆两轴（`core/digest/pipeline.py` 物化）：`node.place` = **键**序列（字面相等 ⇒
   **同一张图**）· `node.place_raw` = **writer 原话**序列（语义相似 ⇒ **同一个地方**）。
   两个字段**都不进 LLM 上下文**。
 

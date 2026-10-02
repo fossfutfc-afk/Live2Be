@@ -1,7 +1,7 @@
 """llm_call.py 鲁棒层测试（板块 3）——重试/deadline/timeout 透传/extra_body 语义。"""
 import time
 
-from core.brain.llm_call import llm_chat
+from core.digest.llm_call import llm_chat
 
 
 class FakeLLM:

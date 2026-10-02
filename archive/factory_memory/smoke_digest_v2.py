@@ -23,10 +23,10 @@ from pathlib import Path
 
 from core.brain import (
     WikiStoreV2,
-    digest_segment,
     render_character_view,
     seed_from_config,
 )
+from core.digest import digest_segment
 from core.parsing.dynamic_character_parser import CharacterLoader
 from core.session import make_event
 from llm.client import LLMClient
