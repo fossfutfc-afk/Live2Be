@@ -381,7 +381,7 @@ C. RAG 回忆（Phase 2 🔧）: embedding 检索与新增语义相关的旧事�
 |---|---|
 | ~~`core/brain/hippocampus.py`~~（v1, 已删） | WikiStore（worlds 路径读写, schema_version 2, 空模板兜底） |
 | ~~`core/brain/consolidation.py`~~（v1, 已删） | digest_session（增量 + 联想 + 双通道回忆 + 好感幂等 + 清洗合并） |
-| ~~`core/brain/recall.py`~~（v1, 已删） | build_brain_injection（第一人称 + 量控 10/5/5）+ recall_related（tags 轻量召回） |
+| ~~`core/brain/read/recall.py`~~（v1, 已删） | build_brain_injection（第一人称 + 量控 10/5/5）+ recall_related（tags 轻量召回） |
 | `core/brain/`（现网） | digest / recall / channels / compose / render / store / revise（记忆主链） |
 | `llm/prompts/digest.md` | digest 规则（价值取向/提炼/锚点/禁止升华/significance/好感标准） |
 | `contract/schema.py:107` | build_digest_schema（输出契约单源真值） |

@@ -358,7 +358,7 @@ def _recall_budget(override: int | None) -> int:
     if override is not None:
         return int(override)
     try:
-        from core.brain.recall_config import get
+        from core.brain.read.recall_config import get
         return int(get("turn_budget"))
     except Exception:                            # noqa: BLE001 — 配置层不阻断注入
         return RECALL_BUDGET

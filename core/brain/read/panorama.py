@@ -32,7 +32,7 @@ from typing import Any, Iterable
 from core.brain.nodes import BrainNode
 from core.brain.store import WikiStoreV2
 # 与 recall 共用"什么文本会被嵌入"和余弦 —— 两份实现必然漂移（镜像纪律）
-from core.brain.recall import _cosine, _embed_text
+from core.brain.read.recall import _cosine, _embed_text
 
 logger = logging.getLogger(__name__)
 

@@ -28,7 +28,7 @@ from core.brain import (                       # noqa: E402
     get_channel,
     make_node,
 )
-from core.brain.channels import KINDS, SCALES   # noqa: E402
+from core.brain.read.channels import KINDS, SCALES   # noqa: E402
 
 
 def _store(tmp_path) -> WikiStoreV2:
@@ -239,7 +239,7 @@ def test_recall_side_fields_never_reach_llm(tmp_path):
     subject/growth/count/links/contradictions/significance/ts/observer）。
     本用例把"已经这么做"从**假设**变成**被钉住的事实**。
     """
-    from core.brain.render import (render_character_view,
+    from core.brain.read.render import (render_character_view,
                                           render_cognition_list,
                                           render_organize_view)
     st = _store(tmp_path)

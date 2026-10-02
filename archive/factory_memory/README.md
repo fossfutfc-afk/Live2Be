@@ -29,7 +29,7 @@
    若要做"背景文本润色"类创作辅助（IDE/工具让 AI 把作者草稿重写成作者想要的口吻）,
    规则与三版示范直接可用
 2. **逐条调用 + 人设锚注入 + 相似度/浓缩校验**——任何"LLM 处理角色卡文本"工具的模式
-3. `_collect_yml_leaves`（yml → 叶子收集）已内迁 core/brain/render.py
+3. `_collect_yml_leaves`（yml → 叶子收集）已内迁 core/brain/read/render.py
    （render_background_experience 在用）
 4. brain_seed_haruka.yml 若未来想让遥香的背景注入就是润色版, 可人工把内容并回
    experience.yml（或做直注前的可选增强源）

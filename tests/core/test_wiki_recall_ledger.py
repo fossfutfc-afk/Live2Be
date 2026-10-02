@@ -21,7 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 from core.brain import recall_config as rc            # noqa: E402
 from core.brain import recall_ledger as rl            # noqa: E402
 from core.brain.nodes import make_node               # noqa: E402
-from core.brain.render import (                      # noqa: E402
+from core.brain.read.render import (                      # noqa: E402
     render_character_view, take_last_view_account)
 from core.brain.store import WikiStoreV2             # noqa: E402
 
@@ -68,7 +68,7 @@ def test_no_threshold_knobs_left():
     （按字符累计到预算就少摆一条）, 一条已经命中的 episode **不会**因为分数低
     被它丢掉（"准入"这件事在这一层根本不存在: 命中即摆, 只是摆不下几条）。
     """
-    from core.brain import recall as R
+    from core.brain.read import recall as R
     snap = rc.snapshot()
     assert set(snap) == {"cand_k", "sim_k", "turn_k", "turn_budget",
                          "time_half_life_days", "time_freshness_floor"}, snap

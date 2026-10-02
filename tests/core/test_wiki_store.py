@@ -311,7 +311,7 @@ def test_delete_filters_edges(tmp_path):
 
 def test_experience_count_comes_from_edges(tmp_path):
     """次数（原 `count`）的**新家** = `supports` 入边数（`render._count_of`）。"""
-    from core.brain.render import _count_of
+    from core.brain.read.render import _count_of
     st = _store(tmp_path)
     st.add(make_node("experience", text="提到工作繁忙", subject="sensei", event_seq=[1]))
     st.add(make_node("episode", text="老师又说忙", event_seq=[2]))

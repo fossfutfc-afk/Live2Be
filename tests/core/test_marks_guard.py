@@ -85,7 +85,7 @@ def test_no_stray_marks_in_code_literals():
 
 def test_her_view_never_prints_an_id():
     """② `_memory_line` 不许给 `key`（她的视图里**编号绝不出现**）。"""
-    tree = ast.parse((PKG / "render.py").read_text(encoding="utf-8"))
+    tree = ast.parse((PKG / "read" / "render.py").read_text(encoding="utf-8"))
     calls = []
     for node in ast.walk(tree):
         if isinstance(node, ast.FunctionDef) and node.name == "_memory_line":

@@ -9,7 +9,7 @@
 >
 > **修复进度**: **拆分点 A（embedding 降级可观测）已落地**（2026-09-13）——
 > `core/momotalk._get_embed_fn`（健康判定 + 跳变上报）+
-> `core/brain/recall.py`（两条降级路径带 reason 日志）。**580 测试绿**。
+> `core/brain/read/recall.py`（两条降级路径带 reason 日志）。**580 测试绿**。
 > 详见文末 §8。
 >
 > **2026-09-13 已修（与图/RAG 无关的批次, 用户指定）**:
@@ -366,8 +366,8 @@
 | 文件 | 改了什么 |
 |---|---|
 | `core/momotalk.py:88-141` | `_get_embed_fn()` 重写: **先健康判定**（`LocalEmbedder.health()` = 真的发现了 embedding 模型）, 未就绪 → **返回 None**（不再交出注定抛 `RagError` 的 embed_fn）; 状态**跳变时**打一条可 grep 的 `digest_embed fn=…` 日志（不逐次刷屏）; 未就绪**不永久缓存**（服务可能后起, 每次 digest 重探） |
-| `core/brain/recall.py:141-143` | `recommend_candidates` 的 `except Exception: pass` → 打 `recall_cand fallback=keyword reason=embed_error err=… nodes=N`（**这条是 wiki"只增不并"的直接告示**） |
-| `core/brain/recall.py:195-197` | `_similarity_hits` 的静默降级 → 打 `recall_sim fallback=tags reason=…` |
+| `core/brain/read/recall.py:141-143` | `recommend_candidates` 的 `except Exception: pass` → 打 `recall_cand fallback=keyword reason=embed_error err=… nodes=N`（**这条是 wiki"只增不并"的直接告示**） |
+| `core/brain/read/recall.py:195-197` | `_similarity_hits` 的静默降级 → 打 `recall_sim fallback=tags reason=…` |
 
 ### 修复前 vs 修复后（实机, 本机 `localhost:1234` 返回 502）
 

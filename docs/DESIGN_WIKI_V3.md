@@ -1306,7 +1306,7 @@ mood_congruence = 1 − |aff_now − aff_at_encoding| / 量程        ← 用绝
 > *"做成一个**参数可选的调和平均**吧"*
 > *"（A 的 det）**不必归一**，这个矩阵携带的信息本身就比较重很合理"*
 
-代码：`core/brain/compose.py`（合成）+ `core/common/fuse.py`（形状, **只写一份**
+代码：`core/brain/read/compose.py`（合成）+ `core/common/fuse.py`（形状, **只写一份**
 —— `place_fuse.magic is fuse.fuse` 有测试钉着）。
 
 四条道路 = 四条已实现的链路（§3.3 的矩阵只管 A; B/C/D 是各自的相似度/命中面）:
@@ -2569,10 +2569,10 @@ subject 形如 "我对X的看法/心意"                        → about=X（�
 
 | 交付 | 位置 |
 |---|---|
-| 召回旋钮（`[recall]` 分组，默认 = v2 常量） | `core/brain/recall_config.py` · `settings.toml [recall]` |
-| 召回台账（写路径 + 读路径） | `core/brain/recall_ledger.py` |
+| 召回旋钮（`[recall]` 分组，默认 = v2 常量） | `core/brain/read/recall_config.py` · `settings.toml [recall]` |
+| 召回台账（写路径 + 读路径） | `core/brain/read/recall_ledger.py` |
 | 写路径打点（候选碰撞汇总） | `core/digest/pipeline.py::_round_b_material` |
-| 读路径打点（注入视图桶统计） | `core/brain/render.py::_bucket_view`（分桶抽成单一实现）+ `core/momotalk.py::_log_read_ledger` |
+| 读路径打点（注入视图桶统计） | `core/brain/read/render.py::_bucket_view`（分桶抽成单一实现）+ `core/momotalk.py::_log_read_ledger` |
 | 契约测试 11 例 | `tests/core/test_wiki_recall_ledger.py` |
 
 **行为零变化**（这是 V3-0 的承诺，已实测）：
@@ -2603,11 +2603,11 @@ recall_write char=igusa_haruka eps=4 collide=12 forced=100% med_only=0 none=0
 
 | 交付 | 位置 |
 |---|---|
-| `_bucket_view` 去掉全部 `[:cap]` 截断 → 桶内全量 | `core/brain/render.py` |
+| `_bucket_view` 去掉全部 `[:cap]` 截断 → 桶内全量 | `core/brain/read/render.py` |
 | `render_character_view` 签名删 `cap_seed_episodes/cap_beliefs/cap_player/cap_recent/cap_reported` | 同上 |
 | 台账口径变宽：`acct["caps"]`（`选中/cap` 元组）→ `acct["buckets"]`（纯条数） | 同上 |
 | 消费方同步（`buckets={k: str(n)}`） | `core/momotalk.py:_log_read_ledger` |
-| 文档口径同步（"cap 截断" → "cap 已删" + `buckets=belief:4` 示例） | `core/brain/recall_ledger.py` |
+| 文档口径同步（"cap 截断" → "cap 已删" + `buckets=belief:4` 示例） | `core/brain/read/recall_ledger.py` |
 | 两个 cap 用例改成"全量注入"断言 + 新增"桶内全量 `picked==total`"断言 | `tests/core/test_wiki_render.py` · `tests/core/test_wiki_recall_ledger.py` |
 | 台账测试加 autouse fixture 抽干 `_last_view_account`（消掉跨文件顺序依赖） | `tests/core/test_wiki_recall_ledger.py` |
 

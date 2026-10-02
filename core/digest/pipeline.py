@@ -74,11 +74,11 @@ from core.brain import groups, marks
 from core.brain.entities import candidate_table, hit_set, new_nodes_block, payload_block
 from core.digest.llm_call import llm_chat
 from core.brain.nodes import PLAYER_SUBJECT, make_node
-from core.brain.recall import (
+from core.brain.read.recall import (
     EmbedFn,
     recommend_candidates,
 )
-from core.brain.render import (
+from core.brain.read.render import (
     render_cognition_line,
     render_cognition_list,
 )
@@ -921,8 +921,8 @@ def _round_b_material(store: WikiStoreV2, episode_ids: list[str],
 
     Returns: episodes_text（含候选提示行）。
     """
-    from core.brain import recall_ledger
-    from core.brain.recall import _thr, CAND_K
+    from core.brain.read import recall_ledger
+    from core.brain.read.recall import _thr, CAND_K
 
     thr_k = int(_thr("cand_k", CAND_K))
     acc = recall_ledger.CollisionAccount(char_id)

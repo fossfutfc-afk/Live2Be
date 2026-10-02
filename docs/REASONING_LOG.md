@@ -737,7 +737,7 @@ MMT  episode 的 significance:  0.50 … 0.75                          ← 全�
 |---|---|
 | `core/brain/graph.py` | `Edge` 加 `aspect` / `conf` 两个**可选属性**；`RELS` 加 `same_kind`（走法 = 沿同一 aspect 取全部两端）；`to_dict`/`from_dict` 带上属性 |
 | `core/brain/store.py` | `add_edge(..., aspect="", conf=0.0)`；新增 `groups_of()`（`group_by(aspect)`，**零算法**） |
-| `core/brain/panorama.py` | 候选池**复用**（锚点 + `why` 标注 + 稀有度排序都在）—— 加一条语义近邻通道；**它的"写卡"职责退役** |
+| `core/brain/read/panorama.py` | 候选池**复用**（锚点 + `why` 标注 + 稀有度排序都在）—— 加一条语义近邻通道；**它的"写卡"职责退役** |
 | `core/digest/pipeline.py` | 插 L2 调用；**L2 接管唯一的 `add` 路径**；L1 的 prompt 里删掉 `add`/`update` |
 | `contract/digest_registry.py` | 新增 `PHASE_GROUP`（L2 的 schema + **示例**）；L1 的示例**去掉 `add`**（⚠️ 示例才是形状的来源，陷阱 3/46） |
 | `llm/prompts/` | 新增 `digest_v2_round_group.md`（分群 + belief 写法）；L1 的 prompt 删 add/update 段；`panorama.md` **整个退役** |

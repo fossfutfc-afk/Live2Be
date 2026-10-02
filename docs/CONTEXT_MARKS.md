@@ -76,7 +76,7 @@
 | 谁 | 在哪 |
 |---|---|
 | ⭐ **形状（唯一的实现）** | **`core/brain/marks.py`** —— `name()` / `head()` / `kind_tag()` / `relative()` / `abs_date()` / `section()` + 本文这张表的常量。**改形状只改它**（守门 = `tests/core/test_marks_guard.py`） |
-| 渲染（她的视图） | `core/brain/render.py::_memory_line`（+ `render_recall_block` 走同一个函数）· `render_cognition_line`（L2 视图 —— 认知列表与候选**共用同一份**） |
+| 渲染（她的视图） | `core/brain/read/render.py::_memory_line`（+ `render_recall_block` 走同一个函数）· `render_cognition_line`（L2 视图 —— 认知列表与候选**共用同一份**） |
 | 渲染（digest 三处） | `digest._episode_lines`（R4）· `digest._round_b_material`（R2）· `entities.new_nodes_block`（R3） |
 | 渲染（L2-a 分群） | `core/brain/groups.py::render_blocks`（块的把手）· `render_groups`（已有的类 —— 钥匙是名字） |
 | 解析（**唯一的读者**） | ⭐ `core/brain/address.py::normalize_title` / `find_episode`（`noticed` 与将来的 `look` 共用一份；要剥的字符集**从 `marks` 取** ⇒ 印剥同源） |

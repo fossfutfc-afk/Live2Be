@@ -1,0 +1,23 @@
+# -*- coding: utf-8 -*-
+"""read — **记忆的读路径**（2026-09-29 从 `core/brain/` 分家出来）。
+
+一句话分工: **只读、不写图**。
+
+| 模块 | 干什么 |
+|---|---|
+| `render.py` | 把图渲染成字: 她的注入视图（一条河 · 旧→新）· 组织视图 · 认知列表 · 召回块 |
+| `recall.py` | 三通道召回 + 一跳扩展（`recall_subgraph` / `recall_episodes` / 随机浮现） |
+| `channels.py` · `channel_impl.py` | 五条召回链路的**接口**与实现（多数"诚实的空"——缺数据不出分） |
+| `compose.py` | **最终打分**（四条道路合成 = 调和平均 rel × prior） |
+| `recall_config.py` · `recall_ledger.py` | 召回旋钮（`settings.toml [recall]`）与台账（写/读两路径各打一行） |
+| `panorama.py` | 全景轮**取料**逻辑（那轮已退役 ⏸ N4a, 取料留给将来的"切块"用） |
+
+⚠️ **边界纪律**: 这里**不许写图**（不 `store.add` / 不 `add_edge`）——要写就走
+`core/brain/` 的写路径（`revise` / `groups` / `store`）。分家的价值就是把这条
+"读的不会顺手改数据"从口头纪律变成**包边界**（一眼看得出 `from core.brain import read`
+之后拿到的东西只读）。
+
+⚠️ **它不在 `core/brain/__init__.py` 的 `__all__` 之外被额外转发**: 门面照旧从
+`core.brain` 再导出常用的那几个名字（`render_character_view` / `recall_subgraph` /
+`compose` …）⇒ 旧调用点零改动; 只有**深路径** import 需要写 `core.brain.read.*`。
+"""
