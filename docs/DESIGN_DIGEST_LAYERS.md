@@ -578,8 +578,11 @@ class Edge:
 
 ### 5.3 ⭐ `about` 两条边（"他"与"我"）
 
-**最小落点：复用 `about_hint`** —— 它今天已经存在（R1 的 episode 产"自然名字" → R3 映射成 entity id），
-只是**只有 R1 用它**。给 L2 的 `belief` 也加 `about_hint`（**可为两个**）即可，**零新概念**。
+**最小落点：~~复用 `about_hint`~~** ⛔ **2026-09-29：`about_hint` 已整条退役**（`REDUNDANCY.md` #2；
+现况见 `core/brain/wiki_v2/DESIGN_GRAPH_V4.md` §8 头注与 §8.2）。当年这里想"复用"的那个字段
+是 R1 摘的自然名字 → R3 映射成 entity id；**今天第 3 轮自己从正文/标题/原话里认称呼**
+（`entities.hit_set` 的正文通道 + 候选表），"给 belief 也加一个 `about_hint`"这个提案**随之作废** ——
+两条 `about` 边照旧要写，但**不再需要任何字段来传递"我在写谁"**。
 
 ```python
 belief --about--> x0000 伊草遥香      # ← 至少一条

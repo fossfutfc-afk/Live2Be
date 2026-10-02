@@ -24,7 +24,9 @@
 10. **每段四步的批内顺序 `R1 → R4 → R2 → R3` 是正确性**。
 11. **第 1 轮节点的 `ts` = 它自己 `event_seq` 里最后一条事件的时刻**；第 2/4 轮仍是段 ts。
 12. **注入视图是"一条河"，从早到晚**（旧→新）；belief / 玩家画像 / reported **不进河**。
-13. **`about_hint` 必须显式摘掉**再进 `make_node`（否则被 `from_dict` 静默忽略）。
+13. ⛔ ~~**`about_hint` 必须显式摘掉**再进 `make_node`~~ **2026-09-29 退役（字段已整条删除）**。
+    留下的那条**一般教训**：**LLM 多给的键会被 `from_dict` 静默忽略**（不报错、不留痕）⇒
+    删一个字段要**同批**清三处（契约 schema · prompt 判据 · 清洗/pop），只清一处就留一个静默 no-op。
 14. **Round B 有"覆盖全部 episode"的结构检查** ⇒ 桩里 `decisions: []` 而 episode 非空 ⇒ 反馈重试。
 15. **桩必须按 `task` 分派**（`llm/task_labels.py`）；**新任务要补四处**。
 16. **`llm_call.llm_chat` 有 feedback 语义**：被拒 → 追加 assistant 位 + 引擎错误，同上下文重试 1 次。

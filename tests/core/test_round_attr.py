@@ -73,12 +73,9 @@ def _mmt(seq, player="老师", reply="嗯"):
     return ("mmt", "chat", {"player": player, "reply": reply}, seq)
 
 
-def _a(text="模型店门口", hint="老师"):
-    """R1: 一条带 `about_hint` 的 episode（归属轮就是靠它做映射的）。"""
-    ep = {"text": text, "title": text[:8], "tags": ["模型店"]}
-    if hint:
-        ep["about_hint"] = hint
-    return {"episodes": [ep]}
+def _a(text="模型店门口"):
+    """R1: 一条 episode（⚠️ **不再有 `about_hint`** —— 2026-09-29 退役, R3 自己认称呼）。"""
+    return {"episodes": [{"text": text, "title": text[:8], "tags": ["模型店"]}]}
 
 
 def _b(episode_ids, text="老师会等我"):
@@ -164,11 +161,15 @@ def test_new_nodes_block_render(tmp_path):
 
 
 def test_hit_set_reads_hints_and_bodies(tmp_path):
-    """命中集是**确定性**的（§8.3）: hint 精确/包含 ∪ 称呼命中正文（≥2 字）。"""
+    """命中集是**确定性**的（§8.3）: hint 精确/包含 ∪ 称呼命中正文（≥2 字）。
+
+    ⚠️ 2026-09-29 起**产品侧不再供 hint**（`about_hint` 退役）—— 参数留着, 因为它是这个
+    匹配器的通用形状（离线预演/将来别的写者可能用）。
+    """
     st = _store(tmp_path)
     assert hit_set(st, hints=["老师"]) == ["x0001"]          # hint 通道
     assert hit_set(st, hints=["老"]) == []                   # 单字 hint: 既不精确也不够长
-    assert hit_set(st, texts=["今天老师夸了我"]) == ["x0001"]  # 正文通道
+    assert hit_set(st, texts=["今天老师夸了我"]) == ["x0001"]  # 正文通道 ← 现在的主力
     assert hit_set(st, texts=["遥香在店里"]) == ["x0000"]     # 角色自己的名字 → self
 
 
@@ -177,12 +178,16 @@ def test_hit_set_reads_hints_and_bodies(tmp_path):
 # ---------------------------------------------------------------------------
 
 def test_r3_attaches_by_hint_and_writes_alias(tmp_path):
-    """⭐ 端到端: R1 的 `about_hint` → R3 映射到候选表里的对象 → `about` 边 + 顺手写别名。"""
+    """⭐ 端到端: R3 **自己**认称呼 → 挂到候选表里的对象 → `about` 边 + 顺手写别名。
+
+    ⚠️ 2026-09-29: `about_hint` 退役 ⇒ R1 不再预判"关于谁", 那个称呼是 **R3 自己判的**
+    （它拿得到候选表 + 新节点正文）。别名的自动化那条路不变。
+    """
     st = _store(tmp_path)
     attr = {"attributions": [
         {"action": "attach", "entity": "c0002", "hint": "老师", "nodes": ["u0001"]},
     ]}
-    llm = AttrLLM(_a("模型店门口", hint="老师"), _b(["m0001"]), attr)
+    llm = AttrLLM(_a("模型店门口"), _b(["m0001"]), attr)
 
     res = digest_segment(st, llm, _events(_mmt(3)))
     assert res.ok, res.errors
@@ -200,7 +205,7 @@ def test_r3_attaches_by_hint_and_writes_alias(tmp_path):
     attr2 = {"attributions": [
         {"action": "attach", "entity": "c0002", "hint": "那个大人", "nodes": ["u0001"]},
     ]}
-    llm2 = AttrLLM(_a("又路过那家店", hint="那个大人"), _b(["m0003"]), attr2)
+    llm2 = AttrLLM(_a("又路过那家店"), _b(["m0003"]), attr2)
     res2 = digest_segment(st, llm2, _events(_mmt(4)))
     assert res2.ok, res2.errors
     assert "那个大人" in st.get("x0001").aliases

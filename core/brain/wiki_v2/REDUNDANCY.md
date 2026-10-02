@@ -13,7 +13,7 @@
 | # | 字段 | 发现 | 证据 | 状态 |
 |---|---|---|---|---|
 | 1 | `items` | **零活读者** | 全仓只有 `panorama.py:182` 读它当锚点，而那个模块**零调用者**；`notes.py:38` 注释许诺的 `inventory` 在代码里**根本不存在** | ✅ **已退役（2026-09-29）**：契约 schema 行 + 范例 · `MAX_ITEMS` · `_clean_episode` 的清洗 · `nodes.py` 字段/白名单/`from_dict` · `panorama.py` 的 item 锚点 · `digest.py` 台账那一列 · 测试三处（改成 `"items" not in schema` 的反向守门）。⭐ **真机档已同步清理**（见 §九） |
-| 2 | `about_hint` | **同一件事判两次**（R1 猜"关于谁" → R3 再判"挂谁"）；判据（"三个月后再提到它需要一致吗"）与读者脱节 | 读者只有 `entities.hit_set(hints=…)`；真机 4 段**每条都填**（`digest_hint eps=5 hint=5` 等）；而 `hit_set` 本来就有 `texts=` 通道 | ✅ 已定**删字段**；改成 R3 从 `tags` + 正文 + 标题 + 原话认称呼；⭐ **别名机制保留**（`revise.py:346` 顺手把称呼记进 `aliases` ⇒ R3 输出里留一个可选称呼） |
+| 2 | `about_hint` | **同一件事判两次**（R1 猜"关于谁" → R3 再判"挂谁"）；判据（"三个月后再提到它需要一致吗"）与读者脱节 | 读者只有 `entities.hit_set(hints=…)`；真机 4 段**每条都填**（`digest_hint eps=5 hint=5` 等）；而 `hit_set` 本来就有 `texts=` 通道 | ✅ **已删（2026-09-29, 走"甲"）**：契约字段 + 范例 + 清洗 · `_create_a_nodes` 的 pop 与 `hints` 返回值 · **`DigestResult.hints` 整条通道** · R1 prompt 判据 9 · R3 的 `hit_set(hints=…)` ⇒ 只喂**正文通道**；台账换成 `digest_hit`。⭐ **别名机制一行没动**（`revise.py:346` 顺手记称呼; R3 契约里 `hint` 改成"**你自己**认出来的"）· **不引入 tags 通道**（离线预演: 真机额外救回 **0** 条, 而 tags 已担召回职责 ⇒ 不加耦合）。⭐ **离线预演**: 22/22 条靠正文通道能命中（见 §十） |
 | 3 | `epistemic` | ① 与 `observer` **互为函数**（`observer != ""` ⟺ `reported_fact`）② **跨 kind 两个意思** | 契约"reported_fact 时必填 observer"；`nodes.py:92`；`nodes.py:183`（belief 必须 `inferred_belief`）；`revise.py:181`（engine 归属） | ✅ 已定**整个退役**，只留 `observer`（空=亲历）；读侧 `render.py:206` / `recall.py:394` 改判据；真机 reported 1/20 且带 observer ⇒ 迁移无损 |
 | 4 | `add.example`（R2） | 落成 belief 的 `examples`，而**belief 的 examples 零读者** | `recall.py:322` 只在 `kind=="experience"` 时用 examples（belief 用 `growth`，`recall.py:324`）；她视图 `_belief_line:476` 只渲染 text+growth；⭐ **真机佐证**：`haruka e0001`（从 experience 迁移成 belief 的那条）**真的带着 `examples`**，而它是 belief ⇒ 那条 examples 是死的 | ✅ **已删（2026-09-29）**：契约 `ADD.field_schema` 那行 · `parse_round_b` 的字段元组 · `revise.apply_decisions` 的传递与那段**从未跑到**的 `example→examples` 映射（`add` 只许 belief ⇒ 那两行是死码）· prompt 判据 5 里那句。⚠️ **节点字段 `examples` 保留**（`_apply_accrue` 给 experience 用，`revise.py:824`） |
 | 5 | `evidence`（R2） | **零产品消费者** | 产出曾在 `digest.py:477`；全仓只有一条测试与一个归档脚本（`archive/factory_memory/smoke_digest_v2.py:147`）读；`digest.py` 自注"罗盘应用后置, **无罗盘则丢弃**" | ✅ **已删（2026-09-29）**：`EVIDENCE_THRESHOLD` · `DigestResult.evidence` · `digest_segment(evidence_threshold=…)`（**零调用方传它**）· `_clean_evidence()` · 契约 schema 块 · prompt 判据 9；守门 = `test_digest_registry.py` 的 `"evidence" not in text`。⚠️ 测试桩里的 `"evidence": []` 回音**未清**（`parse` 不读它, 无害） |
@@ -40,7 +40,7 @@
 |---|---|---|---|
 | 13 | `supports` 边 | **两个入口**：`decisions.touch` 与 `links`（同一种边两种写法） | 待拍：要不要收成一个入口 |
 | 14 | episode → 给 LLM 看的行 | **两份实现**：`digest._episode_lines`（R4）· `digest._round_b_material`（R2）—— 头已在 N5d 统一，**截断与行形状仍是两份** | 待收 |
-| 15 | `hints` 中间产物 | 只为把 R1 的猜转给 R3（与 #2 同源）⇒ 随 #2 一起消失 | ✅ 随 #2 |
+| 15 | `hints` 中间产物 | 只为把 R1 的猜转给 R3（与 #2 同源）⇒ 随 #2 一起消失 | ✅ **已删（2026-09-29）**（`DigestResult.hints` 字段整体摘掉） |
 | 16 | `notes.retire_op` | 有定义 · 有读侧（`fold` 认它）· 有测试，**零产品写者**（R4 只发 `close`） | **留**（等读路径召回接通）；记一笔 |
 
 ---
@@ -51,6 +51,7 @@
 |---|---|---|---|
 | 17 | "关于某人 / 某事" | `experience` 节点 · `belief.subject` · entity 载荷（`text` 立场 + `state` 现状） | ⭐ 无规则；且 entity 的 `state` **只能整段重写、没有删除机制**（`revise.py:258` 原话："今天没有'删掉一条 state'的机制（'谁判它过期' = §9-4 未定）⇒ 想删得整段重写"） |
 | 18 | `belief.examples` | 与 #4 同源（写了没人读） | ✅ **来源已断（2026-09-29）**：`add` 不再产 `example` ⇒ 新 belief 不会再带 `examples`；⚠️ 旧档里那条（`haruka e0001`）**仍带着**，**不迁移**（没人读，删它是另一件事） |
+| 22 | `hit_set(hints=…)` 参数 + `_hint_hits` | **hint 通道的尾巴**：`about_hint` 删掉（#2）之后，**生产只剩一个调用方**`digest.py:381` 且只传 `texts=`；`hints=` 全仓只被两个用例在调（`test_wiki_entities` 4 条 / `test_round_attr` 2 条）⇒ 判据①"没读者就删" | ⏳ **待裁**：删参数 + `_hint_hits` + 那 6 条用例（`texts` 通道的用例全留）。⚠️ 要注意的**只有一点**：`_hint_hits` 是**精确 / 双向包含**匹配，与正文通道的"≥2 字"规则不同 —— 删它 = 放弃"单字别名精确命中"这个能力（今天没有任何产品路径用它） |
 
 ---
 
@@ -58,7 +59,7 @@
 
 | # | 重叠 | 说明 |
 |---|---|---|
-| 19 | R1 的 `about_hint` ↔ R3 的归属 | = #2 |
+| 19 | R1 的 `about_hint` ↔ R3 的归属 | = #2 ⇒ ✅ **已删（2026-09-29）**（R3 现在只靠正文通道 + 全量候选表） |
 | 20 | `verbatim`（R1 摘原话）↔ `evidence.quote`（R2 摘原话） | **同一件事做两遍**：一个进她的视图（有读者），一个进没人读的 `evidence` |
 | 21 | `decisions.add`（R2，单条也能新建看法）↔ 将来的"群 → 看法"（证据 ≥2） | 两条"长出看法"的路；**分工要写清**：R2 允许单条（新经历带来的新看法 = 记忆的生长点）· 群那条 ≥2（归纳） |
 
@@ -147,3 +148,27 @@ experience 的 `pattern` · belief 的 `content`），而 `text` 是**空的**
 2. 那些 v1 键（`segment_id` / `story_time` / `source` / `links`）连同正文**原样留在 `.bak` 里**;
 3. 她那份 `links`（4 条, episode↔belief）**从没被自举成边** —— 因为没有 `edges.jsonl`,
    而自举只在"载入 + 下一次 save()"时发生。
+
+---
+
+## 十、④ `about_hint` 删除的离线预演（2026-09-29）
+
+**问题**：删掉 `about_hint` 之后，`hit_set` 只剩正文通道 —— R3 会不会**少看见**该看见的对象？
+
+**先说清 `hit_set` 是干什么的**（别高估它的职责）：它只决定 **R3 看到哪些对象的载荷**
+（`payload_block` = 那个对象的 `state`/立场那几行）；**候选表 `candidate_table` 始终是全量**
+（`c0001…`，每个名字都在）。⇒ 命中变窄 ≠ 挂不上人，最多是"那个对象的载荷没摆到眼前"。
+
+**预演**（真机 haruka 21 条 episode 的 `text` / `tags`，用现役 `entities.hit_set` 逐条跑）：
+
+| 通道 | 命中 |
+|---|---|
+| A 正文（`text`） | **22/22** |
+| B 正文 + `tags` | 22/22（**+0**） |
+| C 只有 `tags` | 13/22 |
+
+⇒ **tags 一条也没多救回来**，所以**不把 `tags` 加进 `hit_set`**（预演前想过"补一个 tags 通道"）——
+`tags` 已经在担**召回锚点**的职责（`recall.recommend_candidates`），再加一条就成了耦合两件事。
+
+⚠️ **样本偏差要认**：haruka 的正文里满篇"老师"，玩家主体必然命中；**客串角色名**在别处未必这么密。
+⇒ 真机验收（用户侧）：`digest_attr hit=` 相对今天的 **2 / 1 / 3 不能掉**（今天只有 4 个样本，本来就少）。
