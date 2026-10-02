@@ -514,10 +514,13 @@ def test_round_b_add_experience_is_rejected():
 
 
 def test_round_b_links_are_extra_edges():
-    """⭐ 2026-09-25（§9-13）: R2 的**补充边** `links` —— 让"承诺 → 看法"有处可写。
+    """⭐ `links` = R2 的**补充边**（做决策表做不到的事）: 「看法支撑看法」· 取代 · 打架。
 
     ⚠️ 它与决策行**同一个数组**交出去（执行器一个循环处理两类）, 但**不参与覆盖统计**
     （`link` 行没有 episode —— 覆盖检查说的还是"每个 episode 恰好一行 decision"）。
+    ⭐ **2026-09-29 用户裁决**: `supports` 的**两种形状都留** —— 决策表写
+    `episode → 认知`, `links` 写 `认知 → 认知`（真机有 2 条实例 `m0003→m0008`/`m0003→m0018`）
+    ⇒ 这一档**不是冗余入口**, 别当"两个入口"删掉。
     """
     raw = {"decisions": [{"episode": "m0001", "decision": "add", "kind": "belief",
                           "subject": "sensei", "text": "老师答应的事都做到了"}],
@@ -565,20 +568,33 @@ def test_round_b_links_reject_bad_shape():
 
 
 def test_promise_can_be_linked_but_not_touched():
-    """⭐ 两个 id 空间**故意不同**（§5.1/§9-13）: 承诺进 `link_ids`（它要能被连）,
-    但**不进 `target_ids`**（它不是看法, 正文在固化那一刻写死了）。"""
+    """⏸ **原 §9-13 的那条**（"承诺进 `link_ids` 但**不进 `target_ids`**"）**2026-09-29 作废** ——
+    承诺退图, 不再有"两个 id 空间故意不同"这回事。
+
+    留下的守门: ① `link_ids` 与 `target_ids` **可以不同**（参数照旧分开传, 那是通用形状）,
+    不同的一条照样被拒; ② 端点必须在渲染列表里 —— 一条 **episode id** 进 `links`
+    会被拒（这正是"`links` 写不出 `episode → 认知`"那条分工的机器守门）。
+    """
     rows, result = digest_registry.parse_round_b(
         {"decisions": [{"episode": "m0001", "decision": "touch", "target": "u0009"}]},
         episode_ids={"m0001"}, target_ids={"u0001"}, link_ids={"u0001", "u0009"})
     assert not result.is_valid
     assert any("不在可 touch/update 的列表内" in e for e in result.errors)
-    # 同一条承诺走 links 就合法
+    # 同一个 id 走 links 就合法（它只在 link_ids 里）
     rows, result = digest_registry.parse_round_b(
         {"decisions": [{"episode": "m0001", "decision": "add", "kind": "belief",
                         "subject": "s", "text": "t"}],
          "links": [{"from": "u0009", "rel": "supports", "to": "u0001"}]},
         episode_ids={"m0001"}, target_ids={"u0001"}, link_ids={"u0001", "u0009"})
     assert result.is_valid, result.errors
+    # ⚠️ **episode 不在 `links` 的可达域**: `links` 只能写"看法之间"的边
+    rows, result = digest_registry.parse_round_b(
+        {"decisions": [{"episode": "m0001", "decision": "add", "kind": "belief",
+                        "subject": "s", "text": "t"}],
+         "links": [{"from": "m0001", "rel": "supports", "to": "u0001"}]},
+        episode_ids={"m0001"}, target_ids={"u0001"}, link_ids={"u0001", "u0009"})
+    assert not result.is_valid
+    assert any("不在渲染列表内" in e for e in result.errors)
 
 
 def test_round_b_bad_decision_kind():

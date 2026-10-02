@@ -125,6 +125,13 @@ def test_apply_decisions_link_rows_write_extra_edges(tmp_path):
     entries = _log(st).read()
     assert [e["action"] for e in entries] == ["link", "link"]
     assert entries[0]["rel"] == "supports" and entries[0]["from"] == "m0003"
+    # ⭐ **看法支撑看法**那种形状（真机实例 `m0003→m0008`）—— 走的是同一条 `link` 行
+    apply_decisions(st, [{"action": "link", "rel": "supports",
+                          "from": "u0001", "to": "u0002"}],
+                    id_map={"u0001": "m0002", "u0002": "m0004"}, ts="2026-09-26T10:00:00")
+    g = st.graph()                                              # 重取（上面那份是旧图）
+    assert g.targets("m0002", "supports") == ["m0004"]           # 看法 → 看法
+    assert _log(st).read()[-1]["action"] == "link"
 
 
 def test_apply_decisions_link_endpoint_must_resolve(tmp_path):

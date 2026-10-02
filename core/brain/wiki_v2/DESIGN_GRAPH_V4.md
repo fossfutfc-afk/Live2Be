@@ -109,11 +109,18 @@
 | 形状（src → dst） | 边 | 角色 / 含义 |
 |---|---|---|
 | X → entity | `about` | **归属** —— belief / episode / experience / group 都能指（"有边 = 归好了"） |
-| episode → belief | `supports` | **支撑**（经历 → 认知） |
+| episode → 认知（belief/experience） | `supports` | **支撑**（经历 → 认知）—— 写者 = **R2 决策表**（touch / update / add） |
+| 认知 → 认知 | `supports` | ⭐ **"这条看法支撑那条看法"** —— 写者 = **R2 的 `links`**（决策表表达不了; 真机 2 条实例） |
 | episode ↔ episode | `akin` | ⭐ **她发现"这两条是同一类事"**（**对称**；`noticed` 记录行的落点） |
-| episode → group | `member_of` | ⭐ **L2 判定"它属于这一类"**（**有向**） |
+| episode → group | `member_of` | ⭐ **L2 判定"它属于这一类"**（**有向**；0 实例只因为群还没跑过） |
 | 同层之间 | `contradicts` | **矛盾**（她后来发现不对；**对称**） |
 | 同层之间 | `evolved_from` | **新取代旧**（belief → belief） |
+
+⭐ **`supports` 有两种形状、两个写者**（2026-09-29 用户裁决"belief-belief 以后也需要"）——
+它们**不是"同一件事判两次"**：决策表写的是"**这段经历**印证了这条看法"（方向 episode → 认知），
+`links` 写的是"**这条看法**支撑那条看法"（方向 认知 → 认知）。
+⚠️ 契约文案必须分开写（曾经写成"这件事长出了那个看法" —— 那是**决策表**那一半的语义，
+而 `links` 根本连不到 episode，照那句写只会让模型写出连不上的端点）。
 
 ⏸ **删掉的三条（`from` / `to` / `formed_by`）** 曾是 promise 专属形状：
 `from`/`to` = 承诺双方（self ↔ sensei）、`formed_by` = 这条约定一路上的经历。
