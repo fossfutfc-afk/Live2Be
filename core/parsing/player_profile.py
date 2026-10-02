@@ -4,7 +4,7 @@
 ## 为什么玩家要有一份 config 档案
 
 `self` entity 的名字/别名全来自角色人设（`profile.yml`），而 sensei 那一套此前**硬编码**
-在 `wiki_v2/entities.py`（`SENSEI_NAMES = ("老师", "sensei")`）—— 同一件事两套来源。
+在 `brain/entities.py`（`SENSEI_NAMES = ("老师", "sensei")`）—— 同一件事两套来源。
 用户 2026-09-23 裁决: 玩家也走 config，**一份 `profile.yml`、同一套字段前缀约定**
 ⇒ 白拿 `names.char_names()` 的三级回落（裸键 → `SIG~` → `REQ~`）、四种分隔符切分、
 长度护栏与去重；"老师"于是只剩 `contract.DEFAULT_SPEAKER_NAMES` 那一份**兜底**。

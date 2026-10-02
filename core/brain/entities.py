@@ -50,11 +50,11 @@ import logging
 from typing import TYPE_CHECKING
 
 from contract import CHARACTER_SENSEI, DEFAULT_SPEAKER_NAMES
-from core.brain.wiki_v2 import marks
-from core.brain.wiki_v2.nodes import BrainNode, format_id
+from core.brain import marks
+from core.brain.nodes import BrainNode, format_id
 
 if TYPE_CHECKING:                       # 仅注解求值期可见（避免运行时循环导入）
-    from core.brain.wiki_v2.store import WikiStoreV2
+    from core.brain.store import WikiStoreV2
 
 logger = logging.getLogger(__name__)
 

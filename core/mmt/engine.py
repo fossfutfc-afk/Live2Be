@@ -87,17 +87,17 @@ from core.promptkit import (
 from core.session import SessionStore
 from core.session.events import TYPE_NOTICED, is_content_event, make_event
 from core.session.renderer import session_status, window_messages
-from core.brain.wiki_v2.digest import digest_segment
-from core.brain.wiki_v2.entities import ensure_entities
+from core.brain.digest import digest_segment
+from core.brain.entities import ensure_entities
 from core.affection import Affection, load_affection_from_events
-from core.brain.wiki_v2.address import find_episode
-from core.brain.wiki_v2.recall import recall_episodes
-from core.brain.wiki_v2.render import (
+from core.brain.address import find_episode
+from core.brain.recall import recall_episodes
+from core.brain.render import (
     render_background_experience,
     render_character_view,
     render_recall_block,
 )
-from core.brain.wiki_v2.store import WikiStoreV2
+from core.brain.store import WikiStoreV2
 from core.rag.brain import make_embed_fn
 from core.rag.embedder import LocalEmbedder
 from core.tui.display import MomoTalkOutput
@@ -263,7 +263,7 @@ def load_note_segment(store: SessionStore, char_id: str, *,
     （省一次读盘 —— 调用方手上本来就有）。
     """
     try:
-        from core.brain.wiki_v2.notes import render_note_block   # 局部导入（同 time_notes 那处）
+        from core.brain.notes import render_note_block   # 局部导入（同 time_notes 那处）
         if wstore is None:
             wstore = WikiStoreV2(store.data_root, world_id=store.world_id,
                                  char_id=char_id)
@@ -340,8 +340,8 @@ def _log_read_ledger(char_id: str) -> None:
     渲染函数没被调用过（异常路径）→ 无声返回。
     """
     try:
-        from core.brain.wiki_v2 import recall_ledger
-        from core.brain.wiki_v2.render import take_last_view_account
+        from core.brain import recall_ledger
+        from core.brain.render import take_last_view_account
         acct = take_last_view_account()
         if not acct:
             return
@@ -662,7 +662,7 @@ class MomoTalkEngine:
 
     def _inject_brain(self, character_id: str, session_id: str = "", *,
                       digest: bool = False) -> None:
-        """Brain 接线（wiki_v2, 2026-09-02 切换; 2026-09-05 解耦）: 注入角色 wiki → 注入段。
+        """Brain 接线（brain, 2026-09-02 切换; 2026-09-05 解耦）: 注入角色 wiki → 注入段。
 
         角色记忆 = per-char 单库（soul/wiki.jsonl——SessionStore session_id 不参与
         路径）; 注入段动态拼装（_brain_injection 原子替换）——digest 后台完成后
@@ -773,7 +773,7 @@ class MomoTalkEngine:
         返回值保持调用方原先的那份 `events`（没变就别假装变了）。
         """
         try:
-            from core.brain.wiki_v2.notes import note_event   # 局部导入（同笔记注入那处）
+            from core.brain.notes import note_event   # 局部导入（同笔记注入那处）
             for op in ops:
                 session_store.append_event(character_id, "", note_event(op))
         except Exception as e:                       # noqa: BLE001 — 写失败 = 这次没记上
@@ -888,7 +888,7 @@ class MomoTalkEngine:
         if status["ended"]:
             raise RuntimeError(err("ResumeRejected", "会话已结束, 不能恢复"))
         self.start_session(character_id)                  # 重建 system（人设/世界观/schema）
-        if self._store is not None:                       # Brain 接线（wiki_v2）:
+        if self._store is not None:                       # Brain 接线（brain）:
             self._inject_brain(character_id, session_id)  # 恢复时只注入已有 wiki（不消化——
                                                           # digest 由 async_digest 触发: bond 闭环 / mmt N=25 轮）
         # 统一上下文窗口（2026-09-05, DESIGN_CONTEXT_WINDOW）: window_messages 按

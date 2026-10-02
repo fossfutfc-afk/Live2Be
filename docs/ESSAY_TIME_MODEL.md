@@ -212,7 +212,7 @@ sim_day=1400  stamp 2年2月  →  读回 2年12月
 ### 5.2 矛盾在 LLM 那里会变成什么
 
 ```python
-# core/brain/wiki_v2/render.py:340-346
+# core/brain/render.py:340-346
 line = f"- {narration}"
 phrase = _time_phrase(node, story_now)      # → 「6 天前」/「上周」/「很久以前」
 if phrase:

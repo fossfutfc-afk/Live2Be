@@ -12,7 +12,7 @@
 > = `inspect` 那套现成模板，§11 当年列的工程要求**一条都不用新造**）；
 > ② 它同时是 **`retire` 的许可证**（R4 收口现在只发 `close` 不发 `retire`，等的就是这条读路径）。
 >
-> 相关：`core/brain/wiki_v2/DESIGN_GRAPH_V4.md` §11（能力面）/ §9-11 / §9-14 ·
+> 相关：`core/brain/DESIGN_GRAPH_V4.md` §11（能力面）/ §9-11 / §9-14 ·
 > `docs/DESIGN_STREAM_CONTRACT.md` §4.5（流式交付，动作行怎么被办理）·
 > `PROCEED.md` **§9 提交记档**（本稿的提交与裁决记档在那边一行）。
 > ⚠️ **与"note 重做 + 图升级"是两条链**（PROCEED.md §0 有分界）：本稿是**读路径**，
@@ -242,7 +242,7 @@ when:  时间范围, 可省 —— "今天 / 昨天 / 前天 / N 天前 / 最近
 | 执行 | `core/mmt/mmt_executor.py` | `_execute_mmt_recall`：四支检索 → 渲染 → `ExecResult(ok, message)` |
 | 时间解析 | `core/worldtime/`（新函数） | `parse_when`（相对 + 字面；失败 → None） |
 | 落库 | `core/session/events.py` | `TYPE_TOOL` + `NON_CONTENT_TYPES` + `render_events` 分支 + 截断常量 |
-| 台账 | `core/brain/wiki_v2/recall_ledger.py` | `log_read(surface="recall", …)` 一行（命中条数 / 支 / when 是否命中 / 耗时） |
+| 台账 | `core/brain/recall_ledger.py` | `log_read(surface="recall", …)` 一行（命中条数 / 支 / when 是否命中 / 耗时） |
 | 规则书 | `llm/prompts/momotalk_rules.md` | ⏳ 未定（§6）：要不要写"只在真的需要时查" |
 
 ---

@@ -2,8 +2,8 @@
 
 > ⚠️ **2026-09-21 状态**: 本文档里的 **digest v1（Sleep 式）算法描述已整体作废**——
 > `core/brain/{consolidation,hippocampus,recall}.py`、`llm/prompts/digest.md`、
-> `contract/schema.build_digest_schema()` 均已删除; 现役记忆 = `core/brain/wiki_v2/`
-> （读 `core/brain/wiki_v2/AGENT_BRAIN.md`）。**本文只当历史读**。
+> `contract/schema.build_digest_schema()` 均已删除; 现役记忆 = `core/brain/`
+> （读 `core/brain/AGENT_BRAIN.md`）。**本文只当历史读**。
 > **2026-09-02 合并**: 由 `core/DESIGN_BRAIN.md`（digest 算法设计）+ `docs/DESIGN_MEMORY.md`
 > （记忆架构/业界查证/升级路径）合并而来，放置根目录统一维护。
 > **一切以代码为准**——本文档描述的是当前实现（✅）与规划（🔧）/废案（⛔）。
@@ -193,7 +193,7 @@ C. RAG 回忆（Phase 2 🔧）: embedding 检索与新增语义相关的旧事�
 - ~~**epistemic 护栏**: 见 §7（update 不得把 inferred_belief 改成 canon_fact 等）~~
   ⛔ **2026-09-29: `epistemic` 字段已整条退役** —— 同一条护栏今天写作
   "**belief 不许带 `observer`**"（非空 observer 的语义 = "听说的"）。
-  见 `core/brain/wiki_v2/REDUNDANCY.md` #3。
+  见 `core/brain/REDUNDANCY.md` #3。
 
 **角色视图 vs 组织视图**（同一张图两种渲染）:
 - 组织视图（喂 digest/组织 LLM）: #id + 邻接表, 供修订决策
@@ -373,7 +373,7 @@ C. RAG 回忆（Phase 2 🔧）: embedding 检索与新增语义相关的旧事�
 ## 12. 代码锚点
 
 > ⚠️ **2026-09-21 除锈**：下表**前三行是 v1 记忆栈（`core/brain/{hippocampus,consolidation,recall}.py`，
-> 已随 v1 退休删除）**，只作考古锚点；现网记忆主链 = **`core/brain/wiki_v2/`**
+> 已随 v1 退休删除）**，只作考古锚点；现网记忆主链 = **`core/brain/`**
 > （`digest.py` 提炼 · `recall*.py` 召回 · `channels.py` 五链路 · `compose.py` 合成 · `render.py` 注入视图），
 > 见 `CLAUDE.md` §7。`core/momotalk.py` 两行已改指现网真家（行号不写——会漂）。
 
@@ -382,7 +382,7 @@ C. RAG 回忆（Phase 2 🔧）: embedding 检索与新增语义相关的旧事�
 | ~~`core/brain/hippocampus.py`~~（v1, 已删） | WikiStore（worlds 路径读写, schema_version 2, 空模板兜底） |
 | ~~`core/brain/consolidation.py`~~（v1, 已删） | digest_session（增量 + 联想 + 双通道回忆 + 好感幂等 + 清洗合并） |
 | ~~`core/brain/recall.py`~~（v1, 已删） | build_brain_injection（第一人称 + 量控 10/5/5）+ recall_related（tags 轻量召回） |
-| `core/brain/wiki_v2/`（现网） | digest / recall / channels / compose / render / store / revise（记忆主链） |
+| `core/brain/`（现网） | digest / recall / channels / compose / render / store / revise（记忆主链） |
 | `llm/prompts/digest.md` | digest 规则（价值取向/提炼/锚点/禁止升华/significance/好感标准） |
 | `contract/schema.py:107` | build_digest_schema（输出契约单源真值） |
 | `core/mmt/engine.py` | `_inject_brain`（resume 只注入 / digest=True 先消化再注入） |

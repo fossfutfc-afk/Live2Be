@@ -11,11 +11,11 @@ import pathlib
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent.parent))
 
-from core.brain.wiki_v2 import WikiStoreV2, make_node                  # noqa: E402
-from core.brain.wiki_v2.entities import (                             # noqa: E402
+from core.brain import WikiStoreV2, make_node                  # noqa: E402
+from core.brain.entities import (                             # noqa: E402
     SELF_ID, SENSEI_ID, candidate_table, ensure_entities, hit_set, payload_block,
 )
-from core.brain.wiki_v2.nodes import KINDS, BrainNode                  # noqa: E402
+from core.brain.nodes import KINDS, BrainNode                  # noqa: E402
 
 
 def _store(tmp_path) -> WikiStoreV2:

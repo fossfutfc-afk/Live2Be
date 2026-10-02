@@ -16,9 +16,9 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-from core.brain.wiki_v2 import panorama, recall
-from core.brain.wiki_v2.panorama import build_input
-from core.brain.wiki_v2.store import WikiStoreV2
+from core.brain import panorama, recall
+from core.brain.panorama import build_input
+from core.brain.store import WikiStoreV2
 
 NOW = datetime(2026, 9, 25, 12, 0, 0)
 
@@ -28,7 +28,7 @@ def _store(tmp_path) -> WikiStoreV2:
 
 
 def _ep(st, text, *, tags=(), place=(), sig=0.6, ts="2026-09-20T10:00:00+09:00"):
-    from core.brain.wiki_v2 import make_node
+    from core.brain import make_node
     nid = st.add(make_node("episode", text=text, tags=list(tags),
                            place=list(place), significance=sig, ts=ts))
     return st.get(nid)
@@ -117,7 +117,7 @@ def test_more_hits_beat_higher_significance(tmp_path):
 
 def test_verbatim_is_not_an_anchor(tmp_path):
     """真机实测: verbatim 共词（"那个"）命中一堆无关条目 —— 不做锚点。"""
-    from core.brain.wiki_v2 import make_node
+    from core.brain import make_node
     st = _store(tmp_path)
     st.add(make_node("episode", text="旧的", verbatim="那个东西", ts="2026-09-20T10:00:00+09:00"))
     new = st.add(make_node("episode", text="新的", verbatim="那个时候",
@@ -157,7 +157,7 @@ def test_semantic_failure_degrades_to_anchor(tmp_path, caplog):
     def _boom(texts):
         raise RuntimeError("embedding 服务没起")
 
-    with caplog.at_level(logging.INFO, logger="core.brain.wiki_v2.panorama"):
+    with caplog.at_level(logging.INFO, logger="core.brain.panorama"):
         inp = build_input(st, new_ids=[new.id], embed_fn=_boom)
 
     assert inp.mode == "anchor"                           # 降级, 不抛

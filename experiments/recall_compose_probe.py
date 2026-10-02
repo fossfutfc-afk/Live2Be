@@ -29,9 +29,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from core.brain.wiki_v2.channel_impl import build_channels          # noqa: E402
-from core.brain.wiki_v2.channels import RecallContext               # noqa: E402
-from core.brain.wiki_v2.store import WikiStoreV2                    # noqa: E402
+from core.brain.channel_impl import build_channels          # noqa: E402
+from core.brain.channels import RecallContext               # noqa: E402
+from core.brain.store import WikiStoreV2                    # noqa: E402
 from core.rag.brain import make_embed_fn                            # noqa: E402
 from core.rag.embedder import LocalEmbedder                         # noqa: E402
 
@@ -78,7 +78,7 @@ def main() -> int:
           + ", ".join(f"{k}({len(v.all())} 节点)" for k, v in stores.items()))
 
     # ── 1. D 那一轴的真实分数带 ────────────────────────────────────────
-    from core.brain.wiki_v2.recall import _cosine, _embed_text
+    from core.brain.recall import _cosine, _embed_text
 
     eps: list[tuple[str, object]] = []           # (char, episode node)
     for cid, st in stores.items():
@@ -160,7 +160,7 @@ def main() -> int:
 
     # ── 5. 合成层（四条道路 → 最终分）──────────────────────────────────
     print("\n=== 5. 合成层（recall_now: 真链路 + 真向量 → 最终分）===")
-    from core.brain.wiki_v2.compose import recall_now
+    from core.brain.compose import recall_now
     for cid, st in stores.items():
         eps_c = [n for n in st.all() if n.kind == "episode" and n.narration]
         if not eps_c:

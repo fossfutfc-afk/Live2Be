@@ -20,11 +20,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Iterable
 
-from core.brain.wiki_v2 import marks
-from core.brain.wiki_v2.nodes import BrainNode
+from core.brain import marks
+from core.brain.nodes import BrainNode
 
 if TYPE_CHECKING:                       # 仅注解求值期可见（避免运行时循环导入）
-    from core.brain.wiki_v2.store import WikiStoreV2
+    from core.brain.store import WikiStoreV2
 
 #: 组织视图行首缩进（verbatim/example 续行）
 _INDENT = "        "
@@ -94,7 +94,7 @@ def render_organize_view(nodes: Iterable[BrainNode], *, timeline: str = "",
 
     节点顺序 = 传入顺序（引擎已按显著性/召回排序）。
 
-    `graph`: 边视图（`core.brain.wiki_v2.graph.Graph`）。**G3 起边不在节点里**
+    `graph`: 边视图（`core.brain.graph.Graph`）。**G3 起边不在节点里**
     （`links`/`contradictions` 只作旧档读入、不再被写出）⇒ 不给 graph 就**不印边**
     （这是有意的空: 印一个恒空的 `links:` 会让人以为"这条记忆没有邻居"）。
     """
@@ -358,7 +358,7 @@ def _recall_budget(override: int | None) -> int:
     if override is not None:
         return int(override)
     try:
-        from core.brain.wiki_v2.recall_config import get
+        from core.brain.recall_config import get
         return int(get("turn_budget"))
     except Exception:                            # noqa: BLE001 — 配置层不阻断注入
         return RECALL_BUDGET

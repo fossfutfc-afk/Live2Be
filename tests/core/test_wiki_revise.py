@@ -4,10 +4,10 @@ import logging
 
 import pytest
 
-from core.brain.wiki_v2 import WikiStoreV2, make_node, notes
-from core.brain.wiki_v2.entities import candidate_table, ensure_entities
-from core.brain.wiki_v2.evolution import EvolutionLog
-from core.brain.wiki_v2.revise import (apply_attribution, apply_closures,
+from core.brain import WikiStoreV2, make_node, notes
+from core.brain.entities import candidate_table, ensure_entities
+from core.brain.evolution import EvolutionLog
+from core.brain.revise import (apply_attribution, apply_closures,
                                        apply_decisions,
                                        apply_revision_package)
 
@@ -387,7 +387,7 @@ def test_attribution_accepts_only_live_kinds(tmp_path):
     留下的守门: `_ATTACHABLE` 只收**图里还活着的** kind（漏了会静默不挂; 多一个退役的
     就是死配置 —— 与当年摘掉 `fact` 同一条判据）。
     """
-    from core.brain.wiki_v2.revise import _ATTACHABLE
+    from core.brain.revise import _ATTACHABLE
 
     assert _ATTACHABLE == ("episode", "belief", "experience")
     # 归属本身照常（用一条 episode 验通路）

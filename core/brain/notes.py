@@ -57,7 +57,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any, Iterable
 
-from core.brain.wiki_v2 import marks
+from core.brain import marks
 from core.common import err
 from core.session.events import (
     N_ADD,

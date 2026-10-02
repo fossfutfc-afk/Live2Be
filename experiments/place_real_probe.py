@@ -30,7 +30,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from core.brain.wiki_v2 import RecallContext, WikiStoreV2, get_channel   # noqa: E402
+from core.brain import RecallContext, WikiStoreV2, get_channel   # noqa: E402
 from core.rag.embedder import LocalEmbedder                             # noqa: E402
 
 

@@ -14,7 +14,7 @@
 
 | 文件 | 原位置 | 是什么 |
 |---|---|---|
-| `seed_engine.py` | core/brain/wiki_v2/seed.py | 出厂 seed v3/v4（原文兜底 + brain_seed.yml 定稿复制 + beliefs.yml 解析 + 快照） |
+| `seed_engine.py` | core/brain/seed.py | 出厂 seed v3/v4（原文兜底 + brain_seed.yml 定稿复制 + beliefs.yml 解析 + 快照） |
 | `seed_digest_prompt.md` | llm/prompts/seed_digest.md | 出厂经历改编员 prompt（v2 记忆化重构版——逐条/人设锚/禁句式镜像） |
 | `seed_digest_cli.py` | tools/seed_digest.py | 逐条 LLM 改编工具（temp 0.3/重试/校验/防覆盖）——**可作创作辅助参考**（背景文本润色思路仍有效） |
 | `brain_seed_haruka.yml` | config/characters/igusa_haruka/brain_seed.yml | 遥香 12 条改编 v2 稿（记忆化重构, 用户评价质量过关但路线废弃） |
@@ -29,7 +29,7 @@
    若要做"背景文本润色"类创作辅助（IDE/工具让 AI 把作者草稿重写成作者想要的口吻）,
    规则与三版示范直接可用
 2. **逐条调用 + 人设锚注入 + 相似度/浓缩校验**——任何"LLM 处理角色卡文本"工具的模式
-3. `_collect_yml_leaves`（yml → 叶子收集）已内迁 core/brain/wiki_v2/render.py
+3. `_collect_yml_leaves`（yml → 叶子收集）已内迁 core/brain/render.py
    （render_background_experience 在用）
 4. brain_seed_haruka.yml 若未来想让遥香的背景注入就是润色版, 可人工把内容并回
    experience.yml（或做直注前的可选增强源）

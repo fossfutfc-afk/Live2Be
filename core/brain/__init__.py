@@ -1,27 +1,116 @@
 # -*- coding: utf-8 -*-
-"""Brain — 角色记忆（**现役唯一实现 = `core/brain/wiki_v2/`**）。
+"""brain — 角色记忆（**图式 wiki**；实现蓝图 = 同目录 `AGENT_BRAIN.md`）。
+
+⭐ **2026-09-29 改名**: `core/brain/` → **`core/brain/`**（用户裁决: 去版本号、
+留 `brain` —— 这个名字有历史）。原来那层 27 行的再导出壳同时删掉（全仓零调用方）。
 
 ⚠️ **2026-09-21: 旧版记忆（digest v1）整族删除** —— `consolidation.py`（digest_session）/
 `hippocampus.py`（WikiStore v1）/ `recall.py`（build_brain_injection）三件套连同
 `llm/prompts/digest.md`、`contract/schema.build_digest_schema()`、`experiments/brain_real_run.py`
-一并移除（文档早已声明"保留但无运行时消费方"，见 `wiki_v2/AGENT_BRAIN.md`）。
+一并移除（文档早已声明"保留但无运行时消费方"）。历史设计（v1 时代）见根级 `DESIGN_BRAIN.md`（混合史，慎读）。
 
-现役记忆链（视图与边界）:
-
-    wiki_v2/store.py      BrainNode jsonl 存储（原子整写 / id / 快照 / 水位）
-    wiki_v2/digest.py     Round A 记录 + Round B 组织 + 好感结算（增量幂等）
-    wiki_v2/recall.py     召回（V3-0 台账已落地）
-    wiki_v2/render.py     注入视图（第一人称叙事段）
-
-历史设计（v1 时代，含已删模块的说明）见根级 `DESIGN_BRAIN.md`（混合史，慎读）
-与 `core/brain/wiki_v2/AGENT_BRAIN.md`。
+模块布局（多文件分工）:
+    nodes.py   节点数据结构（BrainNode + 校验/归一/序列化）       ✅ M1a
+    store.py   WikiStore（jsonl/原子整写/id/索引/快照/去重）       ✅ M1b
+    graph.py   边表（类型化 + 有向 + 三索引 + 查询）               ✅ G1–G4
+    marks.py   括号与信息头的**唯一实现**（那一行字长什么样）       ✅ N5d
+    address.py 她写下的名字 → 节点（与 marks 共用字符集）           ✅ N5a
+    render.py  组织视图 + 角色注入视图（分层 md 序列化）            ✅ M2
+    revise.py  修订契约校验/执行 + evolution_log                  ✅ M2
+    evolution.py 审计日志（append-only, R6 回滚依据）              ✅ M2
+    notes.py   随身笔记（约定 / 心境）—— 纯函数 + 零 IO            ✅ M4′
+    groups.py  群（L2 归纳）与并群                                 ✅ N7b
+    recall.py  三通道召回 + 一跳扩展                               ✅ M4
+    channels.py      召回链路**接口**（五条链路的形态声明）         ✅ V3-3 前置
+    channel_impl.py  五条链路的实现（多数"诚实的空"——缺数据不出分） ✅ V3-3 前置
+    compose.py        **最终打分**（四条道路合成 = 调和平均 rel×prior）✅ 2026-09-20
+    recall_config.py  召回旋钮（settings.toml [recall]）           ✅ V3-0
+    recall_ledger.py  召回台账（写路径候选碰撞 / 读路径注入视图）   ✅ V3-0
+    entities.py  entity 初始化 + 第 3 轮（归属）的输入侧            ✅ D2/D3
+    digest.py  digest 管线（增量/召回/反馈重试/水位/幂等）          ✅ M3
+    llm_call.py  这一条链的 LLM 调用薄层（label/档位/extra_body）   ✅
+    panorama.py  全景轮取料逻辑（**轮已退役**, 留取料给"切块"用）    ⏸ N4a
+    seed.py    （2026-09-05 出厂链归档——seed_from_config 不再导出,
+               主进程解耦; 本体已移 archive/factory_memory/）
 """
-
-from __future__ import annotations
-
-from core.brain.wiki_v2 import BrainNode, WikiStoreV2
+from core.brain.nodes import (
+    KINDS,
+    PLAYER_SUBJECT,
+    PRECIOUS_THRESHOLD,
+    BrainNode,
+    make_node,
+)
+from core.brain.store import WikiStoreV2
+from core.brain.graph import Edge, Graph, graph_of
+from core.brain.evolution import EvolutionLog
+from core.brain.revise import RevisionResult, apply_revision_package
+from core.brain.render import (
+    render_background_experience,
+    render_character_view,
+    render_organize_view,
+    render_recall_block,
+)
+from core.brain.recall import recall_episodes, recall_subgraph
+from core.brain import recall_config, recall_ledger
+from core.brain.channels import (
+    CHANNELS,
+    KIND_GATE,
+    KIND_PRIOR,
+    KIND_SIMILARITY,
+    PLANNED,
+    Channel,
+    ChannelHit,
+    ChannelResult,
+    RecallContext,
+    describe as describe_channels,
+    get as get_channel,
+)
+from core.brain.digest import DigestResult, digest_segment
+from core.brain.compose import (
+    ComposeResult,
+    Composed,
+    compose,
+    gather_all,
+    recall_now,
+)
 
 __all__ = [
+    "KINDS",
+    "PLAYER_SUBJECT",
+    "PRECIOUS_THRESHOLD",
     "BrainNode",
+    "make_node",
     "WikiStoreV2",
+    "Edge",
+    "Graph",
+    "graph_of",
+    "EvolutionLog",
+    "RevisionResult",
+    "apply_revision_package",
+    "recall_subgraph",
+    "recall_episodes",
+    "recall_config",
+    "recall_ledger",
+    "CHANNELS",
+    "PLANNED",
+    "KIND_PRIOR",
+    "KIND_SIMILARITY",
+    "KIND_GATE",
+    "Channel",
+    "ChannelHit",
+    "ChannelResult",
+    "RecallContext",
+    "describe_channels",
+    "get_channel",
+    "DigestResult",
+    "digest_segment",
+    "ComposeResult",
+    "Composed",
+    "compose",
+    "gather_all",
+    "recall_now",
+    "render_background_experience",
+    "render_character_view",
+    "render_organize_view",
+    "render_recall_block",
 ]

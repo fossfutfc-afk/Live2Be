@@ -314,7 +314,7 @@ core.mmt.engine	TEMP	data	-
 core.mmt.engine	TYPE_NOTICED	data	-
 core.mmt.engine	TurnResult	class	core.mmt.engine
 core.mmt.engine	WHOLE_TURN_ACTIONS	data	-
-core.mmt.engine	WikiStoreV2	class	core.brain.wiki_v2.store
+core.mmt.engine	WikiStoreV2	class	core.brain.store
 core.mmt.engine	_EMBED_FN	data	-
 core.mmt.engine	_EMBED_REPORTED	data	-
 core.mmt.engine	_LINE_FAIL_PHASES	data	-
@@ -334,11 +334,11 @@ core.mmt.engine	build_line_schema	function	contract.schema
 core.mmt.engine	build_mmt_registry	function	core.mmt.mmt_actions
 core.mmt.engine	char_names	function	core.parsing.names
 core.mmt.engine	check_turn	function	core.mmt.mmt_check
-core.mmt.engine	digest_segment	function	core.brain.wiki_v2.digest
-core.mmt.engine	ensure_entities	function	core.brain.wiki_v2.entities
+core.mmt.engine	digest_segment	function	core.brain.digest
+core.mmt.engine	ensure_entities	function	core.brain.entities
 core.mmt.engine	err	function	contract.errors
 core.mmt.engine	feedback	function	llm.client
-core.mmt.engine	find_episode	function	core.brain.wiki_v2.address
+core.mmt.engine	find_episode	function	core.brain.address
 core.mmt.engine	format_issues	function	contract.issues
 core.mmt.engine	is_content_event	function	core.session.events
 core.mmt.engine	load_affection_from_events	function	core.affection.affection_calc
@@ -351,10 +351,10 @@ core.mmt.engine	make_event	function	core.session.events
 core.mmt.engine	names_of	function	core.parsing.names
 core.mmt.engine	parse_lines	function	core.mmt.mmt_lines
 core.mmt.engine	player_names	function	core.parsing.player_profile
-core.mmt.engine	recall_episodes	function	core.brain.wiki_v2.recall
-core.mmt.engine	render_background_experience	function	core.brain.wiki_v2.render
-core.mmt.engine	render_character_view	function	core.brain.wiki_v2.render
-core.mmt.engine	render_recall_block	function	core.brain.wiki_v2.render
+core.mmt.engine	recall_episodes	function	core.brain.recall
+core.mmt.engine	render_background_experience	function	core.brain.render
+core.mmt.engine	render_character_view	function	core.brain.render
+core.mmt.engine	render_recall_block	function	core.brain.render
 core.mmt.engine	repair_line	function	core.mmt.mmt_repair
 core.mmt.engine	round_messages	function	core.promptkit.tail
 core.mmt.engine	session_status	function	core.session.renderer
@@ -379,7 +379,7 @@ apps.vn_cli	RenderScene	class	renderer.scene
 apps.vn_cli	Renderer	class	renderer.core
 apps.vn_cli	SceneLoopError	class	core.bond.bond_story.scene
 apps.vn_cli	SessionStore	class	core.session.store
-apps.vn_cli	WikiStoreV2	class	core.brain.wiki_v2.store
+apps.vn_cli	WikiStoreV2	class	core.brain.store
 apps.vn_cli	_build_director	function	core.director.wiring
 apps.vn_cli	_speaker_names	function	apps.vn_cli
 apps.vn_cli	_trigger_title	function	core.director.wiring

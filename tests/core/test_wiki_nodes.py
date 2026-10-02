@@ -1,13 +1,13 @@
 """图式 wiki 节点数据结构测试（AGENT_BRAIN.md §1 / M1）。"""
 import json
 
-from core.brain.wiki_v2 import (
+from core.brain import (
     PLAYER_SUBJECT,
     PRECIOUS_THRESHOLD,
     BrainNode,
     make_node,
 )
-from core.brain.wiki_v2.nodes import format_id
+from core.brain.nodes import format_id
 
 
 def test_format_id():
@@ -49,7 +49,7 @@ def test_promise_is_no_longer_a_kind(tmp_path=None):
         与旧档兼容同一条路）—— 引擎不会再建出承诺节点;
       · 旧档的 `outcome` 键读不进来、也不抛。
     """
-    from core.brain.wiki_v2 import nodes as N
+    from core.brain import nodes as N
 
     assert "promise" not in N.KINDS and "promise" not in N._REQUIRED
     assert not hasattr(N, "PROMISE_OUTCOMES"), "结局词表搬去 notes 了（别在节点层留副本）"

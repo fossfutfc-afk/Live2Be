@@ -14,11 +14,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-from core.brain.wiki_v2 import WikiStoreV2, make_node
-from core.brain.wiki_v2 import groups
-from core.brain.wiki_v2.digest import digest_segment
-from core.brain.wiki_v2.entities import ensure_entities
-from core.brain.wiki_v2.graph import REL_AKIN, REL_MEMBER_OF
+from core.brain import WikiStoreV2, make_node
+from core.brain import groups
+from core.brain.digest import digest_segment
+from core.brain.entities import ensure_entities
+from core.brain.graph import REL_AKIN, REL_MEMBER_OF
 from core.session import make_event
 from llm import task_labels as T
 

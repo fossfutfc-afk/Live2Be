@@ -29,7 +29,7 @@
 `ruinschoolcorridor` 的 note 自称"也可以用做杂草秘密基地"（一键多义）;
 别名「天台」指向 3 个键（一地多键）。所以键相等只声称"同一张图"，
 **不声称"同一个地方"** —— 详见 `core/media/place_table.py` 与
-`core/brain/wiki_v2/nodes.py::place_raw`。
+`core/brain/nodes.py::place_raw`。
 
 ## 哨兵纪律（同 `emo_*`）
 

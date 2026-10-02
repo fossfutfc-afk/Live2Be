@@ -86,7 +86,7 @@ BOARD_SUBTYPES: tuple[str, ...] = (S_STORY_SCENE, S_STORY_END)
 #: 没有理由就判不出 `kept`/`broken`/`superseded`; ⚠️ **结清 ≠ 退场**: 条目仍留在 note 里,
 #: 直到图侧接住它）· `retire` **退场**（图里已经有了 ⇒ 本子上才划掉; **只对已结清的条目生效**）·
 #: `rewrite` 整体重写（全景轮写 **B 类快照槽**, 不碰 `promise`）。
-#: 条目的 `id` 由**引擎**在折叠时分配（`wiki_v2/notes.fold`）。
+#: 条目的 `id` 由**引擎**在折叠时分配（`brain/notes.fold`）。
 N_ADD = "add"
 N_CLOSE = "close"
 N_RETIRE = "retire"

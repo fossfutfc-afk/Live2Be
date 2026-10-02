@@ -1,9 +1,9 @@
 """WikiStore v2 存储层测试（AGENT_BRAIN.md §2 / M1b）。"""
 import pytest
 
-from core.brain.wiki_v2 import WikiStoreV2, make_node
-from core.brain.wiki_v2.graph import Edge
-from core.brain.wiki_v2.nodes import format_id
+from core.brain import WikiStoreV2, make_node
+from core.brain.graph import Edge
+from core.brain.nodes import format_id
 
 
 def _store(tmp_path, char="igusa_haruka") -> WikiStoreV2:
@@ -46,7 +46,7 @@ def test_promise_prefix_is_gone(tmp_path):
     `p` 前缀随 promise 一起退役 ⇒ `_PREFIX` 里没有它, 而 `add()` 对没有前缀的 kind
     一律走 `m`（兜底）。这里钉住"没留下一个还会发 `p` 号的静默写路"。
     """
-    from core.brain.wiki_v2.store import _PREFIX
+    from core.brain.store import _PREFIX
 
     assert "promise" not in _PREFIX
     assert set(_PREFIX) == {"experience", "episode", "belief", "entity", "group"}
@@ -196,8 +196,8 @@ def test_every_kind_has_an_explicit_id_prefix():
     `m` 号**，与 episode/belief 撞号。而 id 是边的端点 ⇒ **撞号会让边指错记忆**
     （真机后果: "她发现同类"落到另一条 episode 上，而且不报错）。
     """
-    from core.brain.wiki_v2 import store as S
-    from core.brain.wiki_v2.nodes import KINDS
+    from core.brain import store as S
+    from core.brain.nodes import KINDS
 
     missing = [k for k in KINDS if k not in S._PREFIX]
     assert not missing, f"这些 kind 没登记 id 前缀（会静默落到 m 号）: {missing}"
@@ -311,7 +311,7 @@ def test_delete_filters_edges(tmp_path):
 
 def test_experience_count_comes_from_edges(tmp_path):
     """次数（原 `count`）的**新家** = `supports` 入边数（`render._count_of`）。"""
-    from core.brain.wiki_v2.render import _count_of
+    from core.brain.render import _count_of
     st = _store(tmp_path)
     st.add(make_node("experience", text="提到工作繁忙", subject="sensei", event_seq=[1]))
     st.add(make_node("episode", text="老师又说忙", event_seq=[2]))

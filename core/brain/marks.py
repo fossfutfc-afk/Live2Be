@@ -39,7 +39,7 @@
 
 ## 守门
 
-`tests/core/test_marks_guard.py` 用 `ast` 扫 `core/brain/wiki_v2/` 的**代码字面量**
+`tests/core/test_marks_guard.py` 用 `ast` 扫 `core/brain/` 的**代码字面量**
 （docstring / 注释不算）: 除本模块外**不许再出现 `《` `〔` `〕` `｜`** —— 谁手写一处就红。
 """
 from __future__ import annotations
@@ -47,7 +47,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:                       # 仅注解求值期可见（避免运行时循环导入）
-    from core.brain.wiki_v2.nodes import BrainNode
+    from core.brain.nodes import BrainNode
 
 # ---------------------------------------------------------------------------
 # 1. 括号表 —— 与 `docs/CONTEXT_MARKS.md` 那张表**一行对一行**

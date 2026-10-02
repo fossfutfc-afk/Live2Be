@@ -25,10 +25,10 @@ import ast
 from datetime import datetime
 from pathlib import Path
 
-from core.brain.wiki_v2 import address, make_node, marks
+from core.brain import address, make_node, marks
 
 ROOT = Path(__file__).resolve().parents[2]
-PKG = ROOT / "core" / "brain" / "wiki_v2"
+PKG = ROOT / "core" / "brain"
 #: 唯一允许持有括号字面量的文件（它自己就是那个"一处"）
 SKIP = {"marks.py"}
 #: 信息头那一族（段头 `【】` 不在内 —— 它的构造已经在 `marks.section`, 而其余几处
@@ -68,7 +68,7 @@ def _code_strings(path: Path) -> list[tuple[int, str]]:
 
 
 def test_no_stray_marks_in_code_literals():
-    """① 除 `marks.py` 外, `core/brain/wiki_v2/` 的**代码**里不许再手写括号。"""
+    """① 除 `marks.py` 外, `core/brain/` 的**代码**里不许再手写括号。"""
     bad: list[str] = []
     for p in sorted(PKG.rglob("*.py")):
         if p.name in SKIP or "__pycache__" in p.parts:

@@ -147,7 +147,7 @@ def main():
     # ── M3 闭环: 真机 payload → 记忆节点的两轴（物化是纯函数, 不调 API）──
     if payloads:
         from types import SimpleNamespace
-        from core.brain.wiki_v2.digest import _place_raw, _place_shape
+        from core.brain.digest import _place_raw, _place_shape
         by_seq = {i: SimpleNamespace(type="bond", payload=p)
                   for i, p in enumerate(payloads, start=1)}
         keys = _place_shape(list(by_seq), by_seq)

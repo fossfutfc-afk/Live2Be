@@ -10,7 +10,7 @@
 > 手边六格 · 情形表）。本份是它的**动作规格**，不重复它的论证。
 >
 > **上游引用**：`PROCEED.md §2`（已裁 17 条）· `docs/DESIGN_RECALL.md`（`mmt_recall` 前身，已并入本份 §3）
-> · `docs/DESIGN_NOTE.md`（note / 索引）· `core/brain/wiki_v2/DESIGN_GRAPH_V4.md`（图 · 边 · promise）
+> · `docs/DESIGN_NOTE.md`（note / 索引）· `core/brain/DESIGN_GRAPH_V4.md`（图 · 边 · promise）
 
 ---
 
@@ -452,7 +452,7 @@ BFS from episode, 只走 episode↔episode 边（akin）
 |---|---|---|
 | `mmt_lines.KIND_NOTICED` | **顶层键**（不进 `action` 信封）· 判别键**恰好其一** | 三类行解析正确 · 坏形状丢行记账 |
 | `mmt_check` | 想起行**不计入"整轮只有它一条行"** | `inspect` + 想起行**不报**独占违规（否则假硬问题白跑一次续写） |
-| ⭐ `wiki_v2/address.py`（新） | **可见形式 → 节点**（与 `render.py` 对称的另一半）· `look` 将来共用 | 只剥格式不做近似 · 命中 0/歧义 ⇒ 不猜 |
+| ⭐ `brain/address.py`（新） | **可见形式 → 节点**（与 `render.py` 对称的另一半）· `look` 将来共用 | 只剥格式不做近似 · 命中 0/歧义 ⇒ 不猜 |
 | `engine._log_notices` | 落 `noticed` 事件（`{title, hit}`）· 台账 `mmt_noticed hit=/drop=` | ⚠️ **落账在本轮内容行之后**（seq 顺序 = N5c 归属正确的前提） |
 | `events.TYPE_NOTICED` | 进 `NON_CONTENT_TYPES` | 一处登记 ⇒ 三处自动生效（历史 / digest 时间线 / 前端气泡） |
 | `schema` + `rules` | 两类行 → 三类行 · 硬规则 6 那句"想起行只是记账" · **示例** · 规则书【想起的事（可选）】 | 示例是形状的来源 ⇒ 与规则同批改 |

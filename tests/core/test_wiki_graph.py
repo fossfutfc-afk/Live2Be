@@ -16,8 +16,8 @@ import pytest
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent.parent))
 
-from core.brain.wiki_v2 import WikiStoreV2                      # noqa: E402
-from core.brain.wiki_v2.graph import (                          # noqa: E402
+from core.brain import WikiStoreV2                      # noqa: E402
+from core.brain.graph import (                          # noqa: E402
     REL_ABOUT,
     REL_CONTRADICTS,
     REL_SUPPORTS,
@@ -29,7 +29,7 @@ from core.brain.wiki_v2.graph import (                          # noqa: E402
     infer_edges,
     iter_edges,
 )
-from core.brain.wiki_v2.nodes import BrainNode                  # noqa: E402
+from core.brain.nodes import BrainNode                  # noqa: E402
 
 
 def _row(nid: str, kind: str, *, links=(), contradictions=(), ts="") -> dict:
@@ -242,7 +242,7 @@ def test_edge_vocabulary_is_the_six():
     `akin`（N1a）：她发现"这两条是同一类事" ⇒ **`noticed` 记录行的落点**。
     `member_of`（N1b）：**L2 判定"它属于这一类"** ⇒ 与 `akin` 是**输入与输出**，不能合并。
     """
-    from core.brain.wiki_v2 import graph as G
+    from core.brain import graph as G
 
     assert set(G.RELS) == {"about", "supports", "contradicts",
                            "evolved_from", "akin", "member_of"}
@@ -254,7 +254,7 @@ def test_edge_vocabulary_is_the_six():
 
 def test_member_of_is_directed_and_group_is_aboutable():
     """`member_of` **有向**（不进 `SYMMETRIC_RELS`）；`group` 进 `_ABOUTABLE`（群可归属 entity）。"""
-    from core.brain.wiki_v2 import graph as G
+    from core.brain import graph as G
 
     assert G.REL_MEMBER_OF == "member_of"
     assert "member_of" not in G.SYMMETRIC_RELS
@@ -275,7 +275,7 @@ def test_symmetric_rels_are_one_list_and_canonical_for_obeys_it():
     `contradictions`"传 `symmetric=`），而 `store.add_edge` 完全不知道 ⇒
     `akin(B, A)` 与 `akin(A, B)` 会被当成两条边各写一条。
     """
-    from core.brain.wiki_v2 import graph as G
+    from core.brain import graph as G
 
     assert G.SYMMETRIC_RELS == frozenset({"contradicts", "akin"})
     # 对称 → 端点规范化

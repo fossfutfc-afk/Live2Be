@@ -33,11 +33,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from core.brain.wiki_v2 import marks
+from core.brain import marks
 
 if TYPE_CHECKING:                       # 仅注解求值期可见（避免运行时循环导入）
-    from core.brain.wiki_v2.nodes import BrainNode
-    from core.brain.wiki_v2.store import WikiStoreV2
+    from core.brain.nodes import BrainNode
+    from core.brain.store import WikiStoreV2
 
 #: 要剥掉的**语法字符**（不是内容）与字段分隔符 —— ⚠️ **不在这里定义**:
 #: 真源 = `marks.STRIP_CHARS` / `marks.FIELD_SEP`（印与剥同一份清单, 见模块 docstring）。

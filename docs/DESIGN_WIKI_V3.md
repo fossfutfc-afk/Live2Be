@@ -4,7 +4,7 @@
 > 有之物；标 🔧 的是待落地；标 ⚠️ 的是**从线上真实数据里查出来的**问题（不是推测）。
 >
 > 前置阅读：
-> - `core/brain/wiki_v2/AGENT_BRAIN.md`（v2 蓝图，本文取代其节点/召回章节，§9 开放问题在此收口）
+> - `core/brain/AGENT_BRAIN.md`（v2 蓝图，本文取代其节点/召回章节，§9 开放问题在此收口）
 > - `DESIGN_BRAIN.md`（记忆体系合并史，文首有状态栏，慎读）
 > - `docs/AUDIT_2026-09-13_FULL.md`（§9 未修清单 / §10 embedding 实测）
 > - 外部参照：A-Mem（note + link generation + memory evolution）、AgentGal（多步整理 +
@@ -1065,7 +1065,7 @@ haruka 的 outburst 注释原文还带着「角色灵魂表情」    ← 作者�
 |---|---|
 | `assets_root()` 唯一解析点（此前 `bond_story.py:501` 与 `media/catalog.py` 各拼过一次同样的三层 `parents`） | `core/media/emotion_lexicon.py` |
 | `render_emotion_scale(lexicon, keys)` —— **只渲染传入的键** | 同上 |
-| `_segment_emotion_keys(events)` —— 本段 bond 板里出现过的情绪键（首次出现序 + 去重） | `core/brain/wiki_v2/digest.py` |
+| `_segment_emotion_keys(events)` —— 本段 bond 板里出现过的情绪键（首次出现序 + 去重） | `core/brain/digest.py` |
 | Round A 输入新增 `【本段情绪标尺】` 块（空则整块跳过） | 同上 |
 | `digest_segment(..., emotion_lexicon=)` —— **调用方给词表**, brain 层不知道资产布局 | 同上 |
 | `momotalk._inject_brain` 加载 `assets/illustration/{char_id}/default/emotions.yml` | `core/momotalk.py` |
@@ -1213,7 +1213,7 @@ det = SIG·TIME + emo_span·emo_int          ← 恒 ≥ 0（四格均非负、�
 |---|---|---|---|
 | 1 | `affection_calc.py:82-83` | `if self.exp < 0: self.exp = 0`；`_recalc_level` 夹 `max(lv, MIN_LEVEL)` | ✅ **已改**（提交 `e135c17`）——地板常量 `MIN_EXP=0`，恶化到底同步回 `MIN_LEVEL` |
 | 2 | `affection_calc.py:111-112` | `add_exp` 遇 `delta <= 0` **直接 return** | ✅ **已改**——`delta == 0` 早退，负值真的减 |
-| 3 | `wiki_v2/digest.py:69` | `_AFF_MIN, _AFF_MAX = 0, 100` —— delta 被夹到 ≥0 | ✅ **已改**——`(-100, 100)` 对称；语义 = "**单段**净变化"不是总量 |
+| 3 | `brain/digest.py:69` | `_AFF_MIN, _AFF_MAX = 0, 100` —— delta 被夹到 ≥0 | ✅ **已改**——`(-100, 100)` 对称；语义 = "**单段**净变化"不是总量 |
 | 4 | **`momotalk.py:528`** | `elif res.affection_delta > 0` —— **负 delta 连事件都不写** | ✅ **已改**——判据 `!= 0`（负 delta 同样落真源） |
 
 **配套**：三条 prompt 文案同步（`digest_v2_round_b.md` 第 7 条、`digest.md` 第 11 条、
@@ -1306,7 +1306,7 @@ mood_congruence = 1 − |aff_now − aff_at_encoding| / 量程        ← 用绝
 > *"做成一个**参数可选的调和平均**吧"*
 > *"（A 的 det）**不必归一**，这个矩阵携带的信息本身就比较重很合理"*
 
-代码：`core/brain/wiki_v2/compose.py`（合成）+ `core/common/fuse.py`（形状, **只写一份**
+代码：`core/brain/compose.py`（合成）+ `core/common/fuse.py`（形状, **只写一份**
 —— `place_fuse.magic is fuse.fuse` 有测试钉着）。
 
 四条道路 = 四条已实现的链路（§3.3 的矩阵只管 A; B/C/D 是各自的相似度/命中面）:
@@ -1593,7 +1593,7 @@ recall_view=chara char=igusa_haruka q_len=42
 
 1. **它不 import 项目内任何模块**（只依赖 stdlib）——**这是"独立设计"的可验证定义**，
    已写成测试（`test_worldtime_does_not_import_project_modules`，AST 扫描）
-2. **它被多处消费，且方向不能反**：若时间住在 `core/brain/wiki_v2/`，渲染层要拿
+2. **它被多处消费，且方向不能反**：若时间住在 `core/brain/`，渲染层要拿
    "3 周前"就得 import 记忆模块 —— **渲染依赖记忆，方向反了**。
    时间是**横切关注点**，不是记忆的子概念
 
@@ -1866,7 +1866,7 @@ on_trigger(festival | birthday) where tier == strong:
   **外插**到游标（Q8 倾向外插，不置 `null`——置 null 会让全部旧记忆退化成"很久以前"，
   相对顺序这个最值钱的信息就丢了）
 
-**✅ 已落地（T10, 2026-09-13）**：`core/brain/wiki_v2/migrate_time.py`
+**✅ 已落地（T10, 2026-09-13）**：`core/brain/migrate_time.py`
 （`plan` 纯函数 + `apply(dry_run=True)` 默认干跑 + CLI `--apply/--force`）。
 真机 13 条已迁（mutsuki 5 / haruka 8），幂等复验通过。
 
@@ -2569,10 +2569,10 @@ subject 形如 "我对X的看法/心意"                        → about=X（�
 
 | 交付 | 位置 |
 |---|---|
-| 召回旋钮（`[recall]` 分组，默认 = v2 常量） | `core/brain/wiki_v2/recall_config.py` · `settings.toml [recall]` |
-| 召回台账（写路径 + 读路径） | `core/brain/wiki_v2/recall_ledger.py` |
-| 写路径打点（候选碰撞汇总） | `core/brain/wiki_v2/digest.py::_round_b_material` |
-| 读路径打点（注入视图桶统计） | `core/brain/wiki_v2/render.py::_bucket_view`（分桶抽成单一实现）+ `core/momotalk.py::_log_read_ledger` |
+| 召回旋钮（`[recall]` 分组，默认 = v2 常量） | `core/brain/recall_config.py` · `settings.toml [recall]` |
+| 召回台账（写路径 + 读路径） | `core/brain/recall_ledger.py` |
+| 写路径打点（候选碰撞汇总） | `core/brain/digest.py::_round_b_material` |
+| 读路径打点（注入视图桶统计） | `core/brain/render.py::_bucket_view`（分桶抽成单一实现）+ `core/momotalk.py::_log_read_ledger` |
 | 契约测试 11 例 | `tests/core/test_wiki_recall_ledger.py` |
 
 **行为零变化**（这是 V3-0 的承诺，已实测）：
@@ -2603,11 +2603,11 @@ recall_write char=igusa_haruka eps=4 collide=12 forced=100% med_only=0 none=0
 
 | 交付 | 位置 |
 |---|---|
-| `_bucket_view` 去掉全部 `[:cap]` 截断 → 桶内全量 | `core/brain/wiki_v2/render.py` |
+| `_bucket_view` 去掉全部 `[:cap]` 截断 → 桶内全量 | `core/brain/render.py` |
 | `render_character_view` 签名删 `cap_seed_episodes/cap_beliefs/cap_player/cap_recent/cap_reported` | 同上 |
 | 台账口径变宽：`acct["caps"]`（`选中/cap` 元组）→ `acct["buckets"]`（纯条数） | 同上 |
 | 消费方同步（`buckets={k: str(n)}`） | `core/momotalk.py:_log_read_ledger` |
-| 文档口径同步（"cap 截断" → "cap 已删" + `buckets=belief:4` 示例） | `core/brain/wiki_v2/recall_ledger.py` |
+| 文档口径同步（"cap 截断" → "cap 已删" + `buckets=belief:4` 示例） | `core/brain/recall_ledger.py` |
 | 两个 cap 用例改成"全量注入"断言 + 新增"桶内全量 `picked==total`"断言 | `tests/core/test_wiki_render.py` · `tests/core/test_wiki_recall_ledger.py` |
 | 台账测试加 autouse fixture 抽干 `_last_view_account`（消掉跨文件顺序依赖） | `tests/core/test_wiki_recall_ledger.py` |
 
@@ -2654,7 +2654,7 @@ recall_write char=igusa_haruka eps=4 collide=12 forced=100% med_only=0 none=0
 |---|---|
 | `assets_root()` —— 资产根唯一解析点（此前 `bond_story.py:501` 与 `media/catalog.py:145` 各自拼过同样的三层 `parents`） | `core/media/emotion_lexicon.py` · `core/bond/bond_story.py` |
 | `render_emotion_scale(lexicon, keys)` —— **只渲染传入的键**；词表外的键照样列（只有键名）不静默丢 | `core/media/emotion_lexicon.py` |
-| `_segment_emotion_keys(events)` —— 本段出现过的键（首次出现序 + 去重；坏结构不抛） | `core/brain/wiki_v2/digest.py` |
+| `_segment_emotion_keys(events)` —— 本段出现过的键（首次出现序 + 去重；坏结构不抛） | `core/brain/digest.py` |
 | Round A 输入新增 `【本段情绪标尺】` 块（空 → `_join_sections` 整块跳过） | 同上 |
 | `digest_segment(..., emotion_lexicon=)` —— **调用方给词表** | 同上 |
 | `momotalk._inject_brain` 加载词表（失败 → 空 dict + WARNING, digest 照跑） | `core/momotalk.py` |
@@ -2675,7 +2675,7 @@ haruka 的 `outburst` 注释原文含「**角色灵魂表情**」——**作者�
 
 | 交付 | 位置 |
 |---|---|
-| `BrainNode.emo_int` / `emo_valence`（`float \| None`） | `core/brain/wiki_v2/nodes.py` |
+| `BrainNode.emo_int` / `emo_valence`（`float \| None`） | `core/brain/nodes.py` |
 | `_opt_clamp01` → **`_opt_clamp(v, lo, hi)`**（三个可选标量共用：`aff_at_encoding`/`emo_int` 用 [0,1] 或 [−1,1]） | 同上 |
 | `to_dict()` 三个可选标量统一走 `is not None`（不吃"空值省略"——`0.0` 是合法值） | 同上 |
 | Round A schema 新增两条字段说明 + 示例补 `"emo_int": 0.6, "emo_valence": 0.7` | `contract/digest_registry.py` |
@@ -2701,7 +2701,7 @@ haruka 的 `outburst` 注释原文含「**角色灵魂表情**」——**作者�
 
 | 交付 | 位置 |
 |---|---|
-| `BrainNode.emo_span`（`float \| None`, [0,1], **非负**） | `core/brain/wiki_v2/nodes.py` |
+| `BrainNode.emo_span`（`float \| None`, [0,1], **非负**） | `core/brain/nodes.py` |
 | 三个可选标量统一进 `to_dict()` 的 `is not None` 圈 | 同上 |
 | Round A schema 新增 `emo_span` 说明（含与 `emo_int` 的四情形对照）+ 示例补字段 | `contract/digest_registry.py` |
 | 清洗循环加 `("emo_span", 0.0, 1.0)`——**负值夹到 0**（是幅度不是方向），坏值忽略 | 同上 |

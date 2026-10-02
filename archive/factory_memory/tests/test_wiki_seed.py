@@ -15,9 +15,9 @@ from pathlib import Path
 
 import pytest
 
-from core.brain.wiki_v2 import WikiStoreV2, make_node
-from core.brain.wiki_v2.evolution import EvolutionLog
-from core.brain.wiki_v2.seed import seed_from_config
+from core.brain import WikiStoreV2, make_node
+from core.brain.evolution import EvolutionLog
+from core.brain.seed import seed_from_config
 
 HARUKA = "config/characters/igusa_haruka"
 

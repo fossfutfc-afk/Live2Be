@@ -43,13 +43,13 @@ import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Iterable
 
-from core.brain.wiki_v2 import marks
-from core.brain.wiki_v2.address import find_group, normalize_title, unique_title
-from core.brain.wiki_v2.graph import REL_AKIN, REL_MEMBER_OF, iter_edges
-from core.brain.wiki_v2.nodes import make_node
+from core.brain import marks
+from core.brain.address import find_group, normalize_title, unique_title
+from core.brain.graph import REL_AKIN, REL_MEMBER_OF, iter_edges
+from core.brain.nodes import make_node
 
 if TYPE_CHECKING:                       # 仅注解求值期可见（避免运行时循环导入）
-    from core.brain.wiki_v2.store import WikiStoreV2
+    from core.brain.store import WikiStoreV2
 
 logger = logging.getLogger(__name__)
 

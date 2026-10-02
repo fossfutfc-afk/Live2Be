@@ -37,9 +37,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from core.brain.wiki_v2.evolution import EvolutionLog
-from core.brain.wiki_v2.nodes import make_node
-from core.brain.wiki_v2.store import WikiStoreV2
+from core.brain.evolution import EvolutionLog
+from core.brain.nodes import make_node
+from core.brain.store import WikiStoreV2
 from core.parsing.dynamic_character_parser import load_yaml_file
 
 

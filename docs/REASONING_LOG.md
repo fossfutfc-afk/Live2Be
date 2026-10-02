@@ -697,7 +697,7 @@ MMT  episode 的 significance:  0.50 … 0.75                          ← 全�
 | 文件 | 改什么 | 量级 |
 |---|---|---|
 | `contract/digest_registry.py` | ① `record_episode` 的**示例** `"event_seq":[12,14]` → `"span":[12,18]`（⚠️ 示例才是形状的来源，陷阱 3）② `_clean_episode_item` 里 `_clean_seq_list(e.get("event_seq"))` → `_clean_span(e.get("span"), seq_set)` ③ `parse_round_a` 加"区间重叠/越界"校验（**告警不打回**） | ~30 行 |
-| `core/brain/wiki_v2/digest.py` | ④ R1 之后插 `_expand_spans()` + `_backfill_unclaimed()`（就在 `_resolve_verbatim` 旁边） | ~20 行 |
+| `core/brain/digest.py` | ④ R1 之后插 `_expand_spans()` + `_backfill_unclaimed()`（就在 `_resolve_verbatim` 旁边） | ~20 行 |
 | `llm/prompts/*` + registry 示例 | ⑤ 教它"给区间，不挑点" | 几行文案 |
 | 夹具 | ⑥ `PROMPTKIT_UPDATE_FIXTURES=1` 刷新 + 人工审 diff | 例行 |
 | **下游** | `_create_a_nodes` / `_collapse_bond_episodes` / R4 / R2 / R3 / `_bucket_view` / 召回 / note | **零改动** |
@@ -735,10 +735,10 @@ MMT  episode 的 significance:  0.50 … 0.75                          ← 全�
 
 | 文件 | 改什么 |
 |---|---|
-| `core/brain/wiki_v2/graph.py` | `Edge` 加 `aspect` / `conf` 两个**可选属性**；`RELS` 加 `same_kind`（走法 = 沿同一 aspect 取全部两端）；`to_dict`/`from_dict` 带上属性 |
-| `core/brain/wiki_v2/store.py` | `add_edge(..., aspect="", conf=0.0)`；新增 `groups_of()`（`group_by(aspect)`，**零算法**） |
-| `core/brain/wiki_v2/panorama.py` | 候选池**复用**（锚点 + `why` 标注 + 稀有度排序都在）—— 加一条语义近邻通道；**它的"写卡"职责退役** |
-| `core/brain/wiki_v2/digest.py` | 插 L2 调用；**L2 接管唯一的 `add` 路径**；L1 的 prompt 里删掉 `add`/`update` |
+| `core/brain/graph.py` | `Edge` 加 `aspect` / `conf` 两个**可选属性**；`RELS` 加 `same_kind`（走法 = 沿同一 aspect 取全部两端）；`to_dict`/`from_dict` 带上属性 |
+| `core/brain/store.py` | `add_edge(..., aspect="", conf=0.0)`；新增 `groups_of()`（`group_by(aspect)`，**零算法**） |
+| `core/brain/panorama.py` | 候选池**复用**（锚点 + `why` 标注 + 稀有度排序都在）—— 加一条语义近邻通道；**它的"写卡"职责退役** |
+| `core/brain/digest.py` | 插 L2 调用；**L2 接管唯一的 `add` 路径**；L1 的 prompt 里删掉 `add`/`update` |
 | `contract/digest_registry.py` | 新增 `PHASE_GROUP`（L2 的 schema + **示例**）；L1 的示例**去掉 `add`**（⚠️ 示例才是形状的来源，陷阱 3/46） |
 | `llm/prompts/` | 新增 `digest_v2_round_group.md`（分群 + belief 写法）；L1 的 prompt 删 add/update 段；`panorama.md` **整个退役** |
 | `config/` | `aspect` 小字典（真机可先空，靠"新 aspect 要论证"起步） |
@@ -752,7 +752,7 @@ vs 无关基线 ≤0.753 ⇒ 分数带压缩、硬阈值不可分；且同一条
 
 | 文件 | 改什么 |
 |---|---|
-| `core/brain/wiki_v2/`（新模块或 `render.py` 旁） | `refresh_entity_summary(store)` → 读 `about` 入边 → 每个 entity 一段摘要 → 写 `soul/entity_summary.json` |
+| `core/brain/`（新模块或 `render.py` 旁） | `refresh_entity_summary(store)` → 读 `about` 入边 → 每个 entity 一段摘要 → 写 `soul/entity_summary.json` |
 | 调用点 | **异步**（同 `notes.json` 的刷新时机）；失败静默降级（**不进事务、不影响水位**） |
 | 注入 | `render_character_view` 加一段"**关于他们**"（静态人设之外的动态基线） |
 | 可重建判据 | **删掉缓存重跑，结果一致**（真源永远是 `about` 边） |

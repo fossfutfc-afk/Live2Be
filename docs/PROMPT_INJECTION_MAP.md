@@ -73,7 +73,7 @@ messages = [system] + history + [P16 羁绊进度注记] + [P17 时间注记们]
 **周边异步事实（旧文档未记）**：
 - digest 已**双触发**：① bond 剧情闭环后（webgui `_wrapup` completed=True）；② MMT 会话每
   N=25 轮（`_maybe_mmt_digest` momotalk.py:492-512，in_vn/in_memorial 中不触发）。
-  主链 = wiki_v2 `digest_segment`（digest_v2_round_a/b.md 两轮 + 好感结算，momotalk.py:75）；
+  主链 = brain `digest_segment`（digest_v2_round_a/b.md 两轮 + 好感结算，momotalk.py:75）；
   `digest.md` / `consolidation.digest_session`（v1）仅剩 experiments/archive 使用。
 - `build_prompt("trigger")`（profile + brief_traits 最简模式）只用于 IDE mmt_preset 侧
   （dynamic_character_parser.py:36），不在 webgui 主链。
@@ -216,8 +216,8 @@ emotion → emo_version++（引擎同步标注仅 CLI/测试用）。**导演层
 |---|---|---|---|
 | 情绪标注 | 每场骨架入队后（webgui 单 worker 串行） | 段落文本 + 词表 + 人设摘要 | `emotion_annotate.md` 两变体（emotion_annotate.py:80 批量 / :183 smart），`{lexicon}`/`{sentences}` 占位替换，注入 `_character_hint`（personality 摘要 = 人设化判断基准，逞强笑 ≠ smile）|
 | 收尾轮 wrapup | finish 后（完整/中断两文案） | 事件流窗口预灌 `engine._history`（exclude_abandoned + window_messages）+ system_note 话术 | 程序话术（webgui/bond.py:1182-1256）：completed 话术 / 中断话术明示"只进行到一半、不总结未发生剧情"；兜底话术本地预设；`record_input=False` 不落假 player 事件 |
-| digest | bond 闭环 completed=True 后 / MMT 每 25 轮（剧情中不触发） | wiki_v2 digest_segment：Round A 记录 + Round B 组织，锚点 = personality+knowledge 人设摘要，好感结算写 affection 事件（幂等键 interact_max） | `digest_v2_round_a.md` / `digest_v2_round_b.md`（wiki_v2）|
-| 记忆浮现 memory_flash | 仅 vn_cli bond 开场（25%，冷却无意义） | wiki_v2 `random_flash_segment` 随机摘 1 段 episode | 程序话术（events.py:22-36）——⚠️ **webgui 不触发**，两入口行为不一致 |
+| digest | bond 闭环 completed=True 后 / MMT 每 25 轮（剧情中不触发） | brain digest_segment：Round A 记录 + Round B 组织，锚点 = personality+knowledge 人设摘要，好感结算写 affection 事件（幂等键 interact_max） | `digest_v2_round_a.md` / `digest_v2_round_b.md`（brain）|
+| 记忆浮现 memory_flash | 仅 vn_cli bond 开场（25%，冷却无意义） | brain `random_flash_segment` 随机摘 1 段 episode | 程序话术（events.py:22-36）——⚠️ **webgui 不触发**，两入口行为不一致 |
 
 ---
 
@@ -231,7 +231,7 @@ emotion → emo_version++（引擎同步标注仅 CLI/测试用）。**导演层
 | 4 | P17 "MMT 每轮 + Bond 每场" | MMT 主聊天轮恒不传（仅收尾轮）；Bond 聚合器含选项配额/表情单调等新条目 |
 | 5 | P18 仅 MMT 随机事件 | 新增 memory_flash 25%，但**只在 vn_cli**（webgui = 0）|
 | 6 | P19/表情标注 | emotion 已内联 paragraphs（rules 明写"不要写 emotion，写了会被忽略"）；标注 = 批量/smart 两变体 + character_hint 判断基准 |
-| 7 | P20 digest 唯一触发 = bond 闭环 | 双触发（+ MMT 25 轮）；主链 wiki_v2 两轮制；digest.md v1 退役 |
+| 7 | P20 digest 唯一触发 = bond 闭环 | 双触发（+ MMT 25 轮）；主链 brain 两轮制；digest.md v1 退役 |
 | 8 | wrapup 注入起因便签 | reason 便签退役（2026-09-05），改事件流窗口预灌 + title 兜底；中断分支"不脑补 + 不 digest" |
 | 9 | 行号锚点 / webgui 结构 | 行号全漂；webgui 已拆 `routers/`；bond.py 现 1256 行 |
 

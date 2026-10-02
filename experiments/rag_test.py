@@ -29,8 +29,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from core.brain.wiki_v2.nodes import BrainNode, format_id
-from core.brain.wiki_v2.store import WikiStoreV2
+from core.brain.nodes import BrainNode, format_id
+from core.brain.store import WikiStoreV2
 from core.rag import LocalEmbedder, PlaceRetriever, recall_with
 from core.rag.embedder import RagError
 
@@ -125,7 +125,7 @@ def main() -> int:
         fails += 1
 
     # ────────────────────────────────────────────────────────────
-    # 5. brain 记忆召回（RAG × wiki_v2, 跨语言 query）
+    # 5. brain 记忆召回（RAG × brain, 跨语言 query）
     # ────────────────────────────────────────────────────────────
     section("5. brain 记忆召回（临时 wiki + 跨语言 query）")
     with tempfile.TemporaryDirectory() as td:

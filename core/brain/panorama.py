@@ -29,10 +29,10 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any, Iterable
 
-from core.brain.wiki_v2.nodes import BrainNode
-from core.brain.wiki_v2.store import WikiStoreV2
+from core.brain.nodes import BrainNode
+from core.brain.store import WikiStoreV2
 # 与 recall 共用"什么文本会被嵌入"和余弦 —— 两份实现必然漂移（镜像纪律）
-from core.brain.wiki_v2.recall import _cosine, _embed_text
+from core.brain.recall import _cosine, _embed_text
 
 logger = logging.getLogger(__name__)
 
@@ -130,7 +130,7 @@ def build_input(store: WikiStoreV2, *,
     Args:
         new_ids: 本轮 digest 新建的 episode id（`DigestResult.created`）。**空也照跑**
             （可能只是来结清/退场）, 但那种情况下 `worth_running` 会告诉你别调 LLM。
-        embed_fn: 语义后端（`wiki_v2.recall.EmbedFn`）; 给了就走向量近邻通道,
+        embed_fn: 语义后端（`brain.recall.EmbedFn`）; 给了就走向量近邻通道,
             没给或它抛异常 → **降级字面锚点**（并打一行日志, 同 `recommend_candidates`）。
     """
     eps = [n for n in store.all() if n.kind == "episode" and n.id]

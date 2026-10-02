@@ -9,7 +9,7 @@
 >
 > **修复进度**: **拆分点 A（embedding 降级可观测）已落地**（2026-09-13）——
 > `core/momotalk._get_embed_fn`（健康判定 + 跳变上报）+
-> `core/brain/wiki_v2/recall.py`（两条降级路径带 reason 日志）。**580 测试绿**。
+> `core/brain/recall.py`（两条降级路径带 reason 日志）。**580 测试绿**。
 > 详见文末 §8。
 >
 > **2026-09-13 已修（与图/RAG 无关的批次, 用户指定）**:
@@ -99,7 +99,7 @@
 
 
 ### A3 ⚠️ 好感 delta 丢失窗口（wiki 已提交、事件未写）
-`core/brain/wiki_v2/digest.py:207-209` 先提交 wiki + 推进水位 `digested_seq`;
+`core/brain/digest.py:207-209` 先提交 wiki + 推进水位 `digested_seq`;
 调用方**之后**才写 `affection|digest` 事件（`core/momotalk.py:436-438`）。
 两步之间崩溃/异常 → 下轮 `digest.py:132-133` 判"无新增"直接 ok → **delta 永久丢失**,
 且真源无痕（events.jsonl 是唯一真源, 补写 = 补写历史）。
@@ -233,7 +233,7 @@
 
 **被迫加载**
 `core/brain/{hippocampus,consolidation,recall}.py` 主链 DEAD, 但
-`core/brain/__init__.py:16-18` 仍 import 三者 → **任何 `core.brain.wiki_v2.*` 导入都先执行父包**,
+`core/brain/__init__.py:16-18` 仍 import 三者 → **任何 `core.brain.*` 导入都先执行父包**,
 每进程被迫加载 v1 digest 栈。
 
 **其他 support 死码**
@@ -261,7 +261,7 @@
    `_clean_evidence`（`digest.py:387-410`）**不校验 quote ∈ 时间线**, 且 `res.evidence`
    **无任何 live 消费者** → 建议从 B 轮 schema 删除。
 4. **知识图谱只增不并**: `revise.apply_revision_package` 及 merge/contradict/accrue/create/
-   link/unlink/resolve（`core/brain/wiki_v2/revise.py:152-382`）**仅被测试调用** →
+   link/unlink/resolve（`core/brain/revise.py:152-382`）**仅被测试调用** →
    生产从不 merge/accrue。`PHASE_DEEP`（`digest_registry.py:30`）已声明但未注册动作,
    `build_schema("deep")` 直接抛错（`:281`）。
 5. **认知窗口饱和**: `COGNITION_CAP=12` 按 significance 排序（`digest.py:69,171`;
@@ -285,7 +285,7 @@
     resume 后 25 轮窗口重算; `want_to_speak` 冷却同键（`random_events/__init__.py:50-57`）
     → resume 后静默抑制约 30 轮。→ 改持久化计数。
 12. **旧档 `wiki.jsonl` 并发写**: `WikiStoreV2.save` 整文件原子替换但**无跨进程锁**
-    （`core/brain/wiki_v2/store.py:221-223`）, 而事件 append 有全局锁（`core/session/store.py:232`）
+    （`core/brain/store.py:221-223`）, 而事件 append 有全局锁（`core/session/store.py:232`）
     → webgui + CLI 同时 digest 会互相覆盖丢节点。
 
 ---
@@ -366,8 +366,8 @@
 | 文件 | 改了什么 |
 |---|---|
 | `core/momotalk.py:88-141` | `_get_embed_fn()` 重写: **先健康判定**（`LocalEmbedder.health()` = 真的发现了 embedding 模型）, 未就绪 → **返回 None**（不再交出注定抛 `RagError` 的 embed_fn）; 状态**跳变时**打一条可 grep 的 `digest_embed fn=…` 日志（不逐次刷屏）; 未就绪**不永久缓存**（服务可能后起, 每次 digest 重探） |
-| `core/brain/wiki_v2/recall.py:141-143` | `recommend_candidates` 的 `except Exception: pass` → 打 `recall_cand fallback=keyword reason=embed_error err=… nodes=N`（**这条是 wiki"只增不并"的直接告示**） |
-| `core/brain/wiki_v2/recall.py:195-197` | `_similarity_hits` 的静默降级 → 打 `recall_sim fallback=tags reason=…` |
+| `core/brain/recall.py:141-143` | `recommend_candidates` 的 `except Exception: pass` → 打 `recall_cand fallback=keyword reason=embed_error err=… nodes=N`（**这条是 wiki"只增不并"的直接告示**） |
+| `core/brain/recall.py:195-197` | `_similarity_hits` 的静默降级 → 打 `recall_sim fallback=tags reason=…` |
 
 ### 修复前 vs 修复后（实机, 本机 `localhost:1234` 返回 502）
 

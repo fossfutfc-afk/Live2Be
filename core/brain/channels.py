@@ -19,7 +19,7 @@
 | **D** | **既视感**（`narration` 等 RAG 相似度） | `SIMILARITY` | ✅ 唯一在真档上出分的 |
 | **E** | **无意识**（认知碎片 RAG）—— 扩展 | `SIMILARITY` | ⏳ 未立项 |
 
-**合成层已落**（2026-09-20）: `core/brain/wiki_v2/compose.py` —— 四条道路
+**合成层已落**（2026-09-20）: `core/brain/compose.py` —— 四条道路
 （剧情语义 D / 情绪 B / 正交矩阵 A / 地点 C）→ 最终分, 形状 = **参数可选的调和平均**
 （`core/common/fuse.py`, 与 C 链路的 `magic` 同一个函数）。见该模块的 docstring。
 
@@ -83,7 +83,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Protocol, runtime_checkable
 
-from core.brain.wiki_v2.nodes import BrainNode
+from core.brain.nodes import BrainNode
 
 #: 链路种类（决定合成层怎么用它, 见模块 docstring 的"三条形态纪律"）
 KIND_PRIOR = "prior"            # 候选自身属性, 不依赖 query
@@ -221,7 +221,7 @@ PLANNED: dict[str, str] = {
 
 def describe() -> list[dict]:
     """链路清单的形态说明（台账/文档生成用; 不触发任何召回）。"""
-    from core.brain.wiki_v2.channel_impl import build_channels
+    from core.brain.channel_impl import build_channels
     out: list[dict] = []
     for ch in build_channels():
         out.append({
@@ -233,7 +233,7 @@ def describe() -> list[dict]:
 
 def get(name: str):
     """按名取链路实例（未知名 → KeyError, 防拼错静默走空）。"""
-    from core.brain.wiki_v2.channel_impl import build_channels
+    from core.brain.channel_impl import build_channels
     for ch in build_channels():
         if ch.name == name:
             return ch
