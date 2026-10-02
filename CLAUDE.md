@@ -91,7 +91,9 @@ core/          引擎层（无 web 依赖, CLI/实验同源复用）
    │   └ read/               ⭐ **读路径**（2026-09-29 分家, 只读不写图）: 注入视图 render ·
    │                         召回 recall/channels/channel_impl/compose 与两个台账/旋钮 · panorama
    ├ digest/                 **记忆消化管线**（每段 5 次调用: ① 记 R1 → ② 收口 R4 → ③ 接 R2
-   │                         → ④ 挂 R3 → ⑤ L2-a 分群; `pipeline.py` = 编排, 材料在各家）
+   │                         → ④ 挂 R3 → ⑤ L2-a 分群）· ⭐ **`rounds.py` = 轮次表**
+   │                         （**步序/LLM 身份/prompt/契约相位/parse/料/写什么/跳过/快照
+   │                         的单源**; `pipeline.py` = 执行体, 材料在各家）
    ├ promptkit/              提示词装配: box/tail/task/report（见 §8）
    ├ worldtime/              时间：三层时钟（剧情/现实日历/壁钟, DESIGN_WIKI_V3 §4）
    ├ common/                 横切: errors（**C10 起只是薄再导出壳** → 真家 `contract/errors.py`）/
@@ -419,7 +421,12 @@ CLI/测试同步路径在引擎内串行。
   这一句, 拼进 system 就逐轮破前缀缓存）。refs **印名字不印编号**（`(《名字》)`；拿不到名字
   整段不印）。⚠️ R4 收口**只发 `close` 不发 `retire`**（退场要等读路径召回接通, 链路 ⑥）。
   设计/代码索引：`core/brain/DESIGN_GRAPH_V4.md` §3.2 / §6 / §8 / §8.6。
-- **每段四步（`R1 → R4 → R2 → R3`）**：R4 收口 2026-09-25 已接线（`digest.close`，位置在
+- **每段四步（`R1 → R4 → R2 → R3`）**：⭐ **2026-09-29（节点 C）起完整的步序表 = 
+  `core/digest/rounds.py` 的 `ROUNDS`**（步序 / LLM 身份 / prompt / 契约相位 / parse / 料 /
+  写什么 / 跳过条件 / 是否自带快照, 一处说全）—— `pipeline.py` 是执行体, 每步先
+  `cur.enter(key)`（**越序当场炸**）; ⭐ **`_rollback` 的清空清单也由表推导**
+  （`rounds.reset_result`, 从前是手抄的 —— 漏过 `notes_warnings`）。
+  R4 收口 2026-09-25 已接线（`digest.close`，位置在
   R1 之后/R2 之前）—— ⏸ **2026-09-29 承诺退图后它只产 note 操作**（`ClosureResult` 只剩
   `ops`/`warnings`），所以那条"位置是正确性"的理由**没了**（顺序照旧）。
   ⚠️ 它产的 note 操作**不在 `digest_segment` 里 append**，挂在 `DigestResult.notes_ops` 上由
