@@ -390,6 +390,7 @@ def random_flash_segment(store: WikiStoreV2,
     空库/无 episode → None（无记忆可浮, 静默跳过）。
     """
     rng = rng or random.Random()
+    # "只浮现她**亲历**的" —— 判据 = `observer` 空（2026-09-29 起; 原 `epistemic` 已退役）。
     episodes = [n for n in store.all()
-                if n.kind == "episode" and n.epistemic == "observed_fact"]
+                if n.kind == "episode" and not n.observer.strip()]
     return _random_segment(episodes, rng)

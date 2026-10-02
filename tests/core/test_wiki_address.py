@@ -23,8 +23,7 @@ def _store(tmp_path) -> WikiStoreV2:
                      event_seq=[1]))
     st.add(make_node("episode", text="中秋节晚上老师来陪我", title="中秋的杂草屋",
                      event_seq=[2]))
-    st.add(make_node("belief", text="杂草屋是我最安心的地方", title="瓦片缝里的苔藓",
-                     epistemic="inferred_belief", subject="杂草屋", event_seq=[1]))
+    st.add(make_node("belief", text="杂草屋是我最安心的地方", title="瓦片缝里的苔藓", subject="杂草屋", event_seq=[1]))
     return st
 
 
@@ -92,8 +91,7 @@ def test_find_episode_only_in_episode_namespace(tmp_path):
     """只在 **episode** 的标题空间里解析 —— belief 不是"另一件事"。"""
     st = _store(tmp_path)
     only_belief = WikiStoreV2(tmp_path / "b", world_id="world1", char_id="c")
-    only_belief.add(make_node("belief", text="看法", title="某个名字",
-                             epistemic="inferred_belief", subject="x", event_seq=[1]))
+    only_belief.add(make_node("belief", text="看法", title="某个名字", subject="x", event_seq=[1]))
     assert find_episode(only_belief, "某个名字")[1] == "miss"
     # 上例里 belief 与 episode 同名 → 只认 episode 那条, 所以不是 ambiguous
     assert find_episode(st, "瓦片缝里的苔藓")[1] == "ok"

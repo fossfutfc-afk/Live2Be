@@ -253,8 +253,7 @@ def test_r2_sees_the_promise_and_can_link_it(tmp_path):
     一律只写 `supports(episode → target)`）。两件一起才闭合。
     """
     st = _store(tmp_path)
-    st.add(make_node("belief", text="老师答应的事都做到了", subject="sensei",
-                     epistemic="inferred_belief", significance=0.9, event_seq=[2]))
+    st.add(make_node("belief", text="老师答应的事都做到了", subject="sensei", significance=0.9, event_seq=[2]))
     st.add(make_node("promise", text="周日一起去看海 —— 还没去",
                      outcome="superseded", event_seq=[2], ts="2026-09-19T10:00:00"))
     st.save()
@@ -293,8 +292,7 @@ def test_cognition_list_must_include_bypasses_cap(tmp_path):
     from core.brain.wiki_v2.render import render_cognition_list
     st = _store(tmp_path)
     for i in range(3):
-        st.add(make_node("belief", text=f"看法{i}", subject="sensei",
-                         epistemic="inferred_belief", significance=0.9 - i * 0.1))
+        st.add(make_node("belief", text=f"看法{i}", subject="sensei", significance=0.9 - i * 0.1))
     pid = st.add(make_node("promise", text="周六模型店 —— 真的去了", outcome="kept"))
     st.save()
 

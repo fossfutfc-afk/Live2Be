@@ -1,5 +1,11 @@
 # AGENT_BRAIN — 图式 wiki 实施蓝图（工作区: core/brain/）
 
+> ⛔ **2026-09-29 更正: `epistemic` 字段已整条退役**（`REDUNDANCY.md` #3）。
+> 本文所有提到 `epistemic` 的地方**按此读**: "这条是不是她亲历的" **只看 `observer`**
+> （空 = 亲历 · 非空 = 转述者, 渲染成"听X说的"）; "认知不伪装成事实"那条护栏 = **belief
+> 不许带 `observer`**。旧档的 `epistemic` 键由 `from_dict` 宽松忽略（无迁移脚本）。
+> 下文保留原文作历史记录（那些字段表/流程图当时是对的）。
+
 > 2026-09-02 建立。**这是实施蓝图（怎么建），不是架构原则（为什么）**——架构见根目录
 > `DESIGN_BRAIN.md`。本文件是给实施者（人/Agent）的执行规格：节点数据结构、构图流程、
 > 渲染模板、修订契约、检索规则、里程碑。**所有"已定"项按规格实现；"开放"项在对应
@@ -85,7 +91,8 @@ tools/wiki_viz.py  读 wiki.jsonl → mermaid 导出（零依赖, webgui/markdow
 **字段规则**：
 - `narration` 必填（第一人称——采纳 neuron 草稿；digest 的 LLM 以本线角色视角写）
 - `verbatim` 可选——LLM 判定"值得记住的原话"才填（防滥用：每段最多 2 条）
-- `epistemic` 必填，取值见 DESIGN_BRAIN.md §7 表
+- ~~`epistemic` 必填~~ ⛔ **2026-09-29 退役** —— 来源只剩 `observer`（只有"听别人说的"
+  才填转述者; 空 = 亲历）。见文首横幅。
 - `source=seed` 的条目（出厂基座）**不可 update 原文**（只允许追加注记字段 `notes`）
 
 ### 1.2 experience 节点（重复模式层, 🔧 新增 2026-09-02）
@@ -453,7 +460,8 @@ md 序列化时固定渲染在 beliefs 之后。
 **引擎校验规则（全量通过才落盘）**：
 1. 所有 `id/from/to/a/b` ∈ 本次渲染子图 id 集（防幻觉 id）→ 违者整包 feedback 回灌
 2. `update` 目标不得是 `source=seed` 的 canon_fact（只允许 `notes` 追加）
-3. `update` 不得改变 `epistemic`（inferred_belief 永远是 inferred_belief）
+3. ~~`update` 不得改变 `epistemic`~~ ⛔ **2026-09-29 随字段退役** —— 它今天只是白名单外的
+   未知键（`store.update` 的未知字段守卫拦下; 语义不变: LLM 不许碰来源）。
 4. `create` 的 belief 必须 `links` 非空（无支撑升华拒绝）
 5. `merge` 的 `into` 继承被合并条目的 `links`/`contradictions` 并集, `event_seq` 取并
 6. `accrue`: 同类判定信任 LLM, 但 `count`/`event_seq`/significance 强化由引擎计算

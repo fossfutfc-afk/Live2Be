@@ -176,9 +176,10 @@ RECORD_EPISODE = DigestAction(
         '      "significance": 0~1,  // 行为锚点: 0.9+ 改变认知/极深刻（初遇/告白）;\n'
         '                          // 0.7~0.9 重要约定/特别难忘的日常; <0.7 普通但角色在意的细节;\n'
         '                          // 拿不准往低给 //\n'
-        '      "epistemic": "observed_fact",  // observed_fact 默认;\n'
-        '                          // 若是"听别人说的"→ reported_fact 且必须填 observer=转述者 //\n'
-        '      "observer": "…",    // reported_fact 时必填（转述者）; observed 不填 //\n'
+        '      "observer": "…",    // 可选; **只有"听别人说的"才填**（写转述者是谁, 如\n'
+        '                          // "阿露"）—— 不填 = 你亲历/亲眼所见。\n'
+        '                          // 引擎按"有没有 observer"把这条放进「我记得的事」\n'
+        '                          // 或「我听说的」，所以**别为了亲历也写一个占位值** //\n'
         '      "emo_int": 0~1,     // 峰值情绪强度: 这条经历里角色情绪最猛的那一下有多猛。\n'
         '                          // 判据 = 时间线里记录后的 (情绪键) + 【本段情绪标尺】\n'
         '                          // （作者为该角色手写的强度语义）。\n'
@@ -256,7 +257,7 @@ UPDATE = DigestAction(
         "怎么改: patch 部分字段合并改写——只写要变的字段, 空=保留旧值;"
         " 新认知是已有认知的子/超集 → 改宽已有 subject, 不新建;\n"
         " 新 text 应覆盖新旧理解, 重新表述为连贯结论;\n"
-        "禁什么: 不复制原文进 text; 不改 epistemic; 不碰出厂基座(canon 只读)。"
+        "禁什么: 不复制原文进 text; 不改来源（observer）; 不碰出厂基座(canon 只读)。"
     ),
     field_schema=(
         '    {  // 每个 episode 恰好一行 //\n'
@@ -888,9 +889,9 @@ class DigestRegistry:
                                for v in patch.values()):
                         errors.append(f"decisions[{i}]: update.patch 至少一个非空字段")
                         continue
-                    if "epistemic" in patch:
-                        errors.append(f"decisions[{i}]: patch 不得含 epistemic")
-                        continue
+                    # ⏸ 原「patch 不得含 epistemic」2026-09-29 删 —— 字段退役后它是
+                    # 白名单外的未知键, 执行器那边照样拒（`revise` 的可改字段表 + store 守卫）;
+                    # 这里不再为它单开一条错误文案。
                     item["patch"] = patch
             else:  # add
                 kind = str(row.get("kind", "belief")).strip()
@@ -1401,15 +1402,15 @@ def _clean_episode_item(e: dict, i: int, errors: list[str], warnings: list[str],
             warnings.append(f"episodes[{i}].{fname} 是 NaN——忽略")
             continue
         item[fname] = max(lo, min(hi, v))       # 越界**夹紧**（不丢弃——值仍可用）
-    epi = str(e.get("epistemic", "observed_fact")).strip()
-    if epi == "reported_fact":
-        obs = e.get("observer")
-        if not (isinstance(obs, str) and obs.strip()):
-            return None, errors + [f"episodes[{i}]: reported_fact 必须带 observer（转述者）"], warnings
-        item["epistemic"] = "reported_fact"
+    # 来源（2026-09-29 起**只有 `observer` 一个字段**）: 非空 = 听说的 + 转述者是谁;
+    # 空 = 亲历。⏸ 原 `epistemic` 字段退役（判据: 与 observer 互为函数 + 跨 kind 两个意思,
+    # `REDUNDANCY.md` #3）—— 旧 prompt 缓存里若还带着它, 这里只**提一句**不落库
+    # （不废整包: 值与 observer 重复, 信息没丢）。
+    if e.get("epistemic") not in (None, ""):
+        warnings.append(f"episodes[{i}].epistemic 字段已退役——只填 observer（忽略）")
+    obs = e.get("observer")
+    if isinstance(obs, str) and obs.strip():
         item["observer"] = obs.strip()
-    else:
-        item["epistemic"] = "observed_fact"
     return item, errors, warnings
 
 

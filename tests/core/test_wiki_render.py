@@ -25,10 +25,10 @@ def _g(*triples) -> Graph:
     return Graph(edges=[Edge(rel=r, src=s, dst=d) for r, s, d in triples])
 
 
-def _ep(text, sig=0.5, ts="", verbatim="", epistemic="observed_fact",
-        event_seq=None, observer="igusa_haruka"):
-    kw = dict(text=text, significance=sig, ts=ts, observer=observer,
-              epistemic=epistemic)
+def _ep(text, sig=0.5, ts="", verbatim="", event_seq=None, observer=""):
+    """⚠️ `observer` 默认**空** = 亲历（2026-09-29 起"是不是听说的"就靠它判 ——
+    从前这里默认填角色自己的 id, 那是靠 `epistemic` 分桶时代留下的无害噪音）。"""
+    kw = dict(text=text, significance=sig, ts=ts, observer=observer)
     if verbatim:
         kw["verbatim"] = verbatim
     if event_seq:
@@ -150,7 +150,7 @@ def test_character_view_no_caps_all_rendered():
     """
     nodes = [
         _ep("听睦月说阿露昨天又翻车了", sig=0.5, event_seq=[1],
-            epistemic="reported_fact", observer="asagi_mutsuki"),
+            observer="asagi_mutsuki"),
         *(_ep(f"日常{i}", sig=0.4, ts=f"2026-09-0{1 + i % 9}T12:00:00",
               event_seq=[10 + i]) for i in range(12)),
     ]

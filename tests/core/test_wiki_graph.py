@@ -197,7 +197,8 @@ _REAL_LINES = [
 
 
 def _real_store(tmp_path) -> WikiStoreV2:
-    """真机 haruka 的 5 个点, 盘上照抄旧字段名（narration/content/pattern + links）。"""
+    """真机 haruka 的 5 个点, 盘上照抄旧字段名（narration/content/pattern + links +
+    已退役的 `epistemic`）—— 旧键读得进、不抛, 也不进新写的行。"""
     st = WikiStoreV2(tmp_path, world_id="world1", char_id="igusa_haruka")
     st.path.parent.mkdir(parents=True, exist_ok=True)
     st.path.write_text("\n".join(json.dumps(x, ensure_ascii=False) for x in _REAL_LINES),

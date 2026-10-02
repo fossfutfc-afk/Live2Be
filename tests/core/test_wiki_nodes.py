@@ -112,8 +112,7 @@ def test_every_serialized_field_is_parsed_back():
 
     # 反向: `to_dict` 的清单里不该有"探针没覆盖"的字段（新增字段要一起补）
     serialized = set(node.to_dict())
-    undeclared = serialized - set(probes) - {"id", "kind", "significance",
-                                            "epistemic"}
+    undeclared = serialized - set(probes) - {"id", "kind", "significance"}
     assert not undeclared, (
         f"`to_dict` 会落这些字段, 但探针没覆盖 → 无法确认它们读得回来: {undeclared}"
         "（往探针里补一个非空值）")
@@ -192,15 +191,24 @@ _ST = {"year": 1, "month": 4, "week": 2, "phase": "夕", "sim_day": 47}
 
 
 
-def test_episode_epistemic_guard():
-    node = make_node("episode", text="x", epistemic="inferred_belief")
-    errs = node.validate()
-    assert any("episode 节点 epistemic 只能是 observed_fact/reported_fact" in e for e in errs)
+def test_belief_source_guard_uses_observer():
+    """⭐ 2026-09-29: 「认知不伪装成事实」那条护栏换成 `observer` 版（`epistemic` 退役）。
+
+    非空 `observer` 的语义 = "这条是**听说的**" ⇒ belief 不许带它
+    （否则一条认知会被渲染进「我听说的」那一段）。
+    """
+    node = make_node("belief", text="x", observer="asagi_mutsuki")
+    assert any("belief 不许带 observer" in e for e in node.validate())
+    assert make_node("belief", text="老师是第一个不会嫌弃我的人",
+                     subject="sensei").validate() == []
+    # episode 带 observer = 合法的"听说的"（它就是干这个的）
+    assert make_node("episode", text="听阿露说老师昨天没睡好",
+                     observer="asagi_mutsuki").validate() == []
 
 
 # ⏸ `is_seed()` / `source` / `notes` —— 2026-09-21 整族删除。原 `test_seed_episode_rules`
 # 随之一并删（它钉的是"出厂基座 = episode(source=experience)"，而那个生产者已归档、
-# 出厂记忆自 2026-09-05 起不进 wiki）。epistemic 护栏那一半并入上面的用例。
+# 出厂记忆自 2026-09-05 起不进 wiki）。来源护栏那一半并入上面的 `observer` 用例。
 
 
 def test_belief_support_is_not_a_field_concern():
@@ -211,11 +219,8 @@ def test_belief_support_is_not_a_field_concern():
     （`revise.apply_decisions` 建完节点立刻补 `supports` 边）+ 全局兜底
     （`store.audit()` 的"belief 无支撑"—— `test_wiki_audit.py` 守着）。
     """
-    node = make_node("belief", text="老师是第一个不会嫌弃我的人", subject="sensei",
-                     epistemic="inferred_belief")
+    node = make_node("belief", text="老师是第一个不会嫌弃我的人", subject="sensei")
     assert node.validate() == []            # 字段层不再判支撑
-    bad = make_node("belief", text="x", epistemic="observed_fact")
-    assert any("inferred_belief" in e for e in bad.validate())
 
 
 def test_experience_and_player_emphasis():
@@ -231,7 +236,7 @@ def test_experience_and_player_emphasis():
     assert pe.is_player_experience is True
     assert pe.dedup_key() == ("experience", tuple(pe.event_seq))  # 空 event_seq 不去重冲突
     # 别的 kind 一律不是（桶只收 experience）
-    assert make_node("belief", text="老师会等我", epistemic="inferred_belief"
+    assert make_node("belief", text="老师会等我"
                      ).is_player_experience is False
     # examples 超限截断
     many = make_node("experience", text="p", subject="s",
@@ -259,7 +264,7 @@ def test_title_and_text_are_shared_by_all_kinds():
     assert ep.validate() == []
     assert ep.title == "和老师的公园散步" and ep.text == "公园散步"
     exp = make_node("experience", text="p", subject="s")
-    bel = make_node("belief", text="出厂认知", epistemic="inferred_belief",
+    bel = make_node("belief", text="出厂认知",
                     links=["m0001"])
     assert (ep.text, exp.text, bel.text) == ("公园散步", "p", "出厂认知")
 
@@ -280,10 +285,13 @@ def test_significance_clamp_and_precious():
     assert node2.is_precious is False
 
 
-def test_loose_from_dict_bad_kind_epistemic():
-    node = BrainNode.from_dict({"id": "m0001", "kind": "whatever", "epistemic": "nope"})
+def test_loose_from_dict_bad_kind_and_legacy_epistemic():
+    """坏 kind 降级; ⏸ 旧档的 `epistemic` 键**读不进来也不报错**（2026-09-29 退役）。"""
+    node = BrainNode.from_dict({"id": "m0001", "kind": "whatever",
+                                "epistemic": "reported_fact", "observer": "阿露"})
     assert node.kind == "episode"      # 坏 kind 降级
-    assert node.epistemic == "observed_fact"
+    assert not hasattr(node, "epistemic")
+    assert node.observer == "阿露"      # 来源信息不丢（它本来就落在 observer 里）
     assert node.validate()             # 校验会报未知 kind 错误
     assert BrainNode.from_dict(None).id == ""
     assert BrainNode.from_dict("junk") .kind == "episode"

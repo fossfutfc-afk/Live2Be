@@ -57,7 +57,7 @@ def _seed_store(tmp_path) -> WikiStoreV2:
     st = WikiStoreV2(tmp_path, world_id="world1", char_id="c")
     st.add(make_node("episode", text="天台夜谈", event_seq=[2], ts="2026-09-01T10:00:00"))
     st.add(make_node("belief", text="老师是第一个不会嫌弃我的人", subject="sensei",
-                     epistemic="inferred_belief", significance=0.9, event_seq=[2]))
+                     significance=0.9, event_seq=[2]))
     st.add(make_node("experience", text="提到工作繁忙", subject="sensei",
                      significance=0.85, event_seq=[2]))
     st.add_edge("supports", "m0001", "m0002")
@@ -223,7 +223,7 @@ def test_full_pipeline(tmp_path):
     assert bel.significance == 0.95
     added = [n for n in st.all()
              if n.kind == "belief" and n.text == "老师会带我去吃甜品"]
-    assert len(added) == 1 and added[0].epistemic == "inferred_belief"
+    assert len(added) == 1 and added[0].observer == ""   # ⭐ 新认知不是"听说的"（observer 空）
     nid = added[0].id
     assert st.graph().supporters(nid) == ["m0003"]       # 次数 = supports 入边（G3）
     assert set(st.graph().targets("m0003")) == {nid, "m0002"}   # episode 的两条出边
@@ -475,7 +475,7 @@ def _cat_store(tmp_path) -> WikiStoreV2:
     st = WikiStoreV2(tmp_path, world_id="world1", char_id="c")
     st.add(make_node("episode", text="喂猫旧事", event_seq=[2]))
     st.add(make_node("belief", text="老师会记得给猫带猫粮", subject="老师与猫的约定",
-                     epistemic="inferred_belief", significance=0.9, tags=["猫"],
+                     significance=0.9, tags=["猫"],
                      event_seq=[2]))
     return st
 
@@ -565,7 +565,7 @@ def test_player_portrait_entry_lands_and_hides_from_round_b(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# 冷启动: 无旧记忆 → B 只能 add（belief 路径: epistemic 引擎归属 + 先链后入仓）
+# 冷启动: 无旧记忆 → B 只能 add（belief 路径: 先链后入仓; 来源字段引擎不留痕）
 # ---------------------------------------------------------------------------
 
 def test_cold_start_add_belief(tmp_path):
@@ -583,7 +583,7 @@ def test_cold_start_add_belief(tmp_path):
     assert res.created == ["m0001"]
     bel = st.get("m0002")                              # 空库 belief → m0002
     assert bel.kind == "belief"
-    assert bel.epistemic == "inferred_belief"          # 引擎归属, 非 LLM
+    assert bel.observer == ""                            # ⭐ 来源字段为空（不是"听说的"）
     # 支撑不变量（G3: 入仓后立刻补 supports 边; 字段层不再判它）
     assert st.graph().supporters("m0002") == ["m0001"]
     # 冷启动 B 输入提示"尚无稳定认知"

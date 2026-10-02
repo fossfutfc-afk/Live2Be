@@ -207,7 +207,8 @@ store.py
 ```
 nodes.py
   · KINDS + "group" · _REQUIRED["group"] = ("title",)（text 允许空, 同 entity）· _PREFIX + "g"
-  · validate(): group 不走 belief/experience 的 epistemic 护栏
+  · validate(): group 不走 belief 的来源护栏（⏸ 原文写的是"epistemic 护栏"——那个字段
+    2026-09-29 已退役, 今天的护栏是"belief 不许带 observer"）
 graph.py
   · REL_MEMBER_OF = "member_of"（episode → group）· RELS: 8 → 9 条 · **有向**（不进 SYMMETRIC_RELS）
   · _ABOUTABLE 加 "group"（群可归属 entity; 今天零写者 —— 先开接口, 别锁死）

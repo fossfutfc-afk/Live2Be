@@ -46,7 +46,7 @@ logger = logging.getLogger(__name__)
 _REF_KEY = "ref"
 #: create entry 里引擎忽略的字段（id/ts 由引擎分配——确定性归引擎）
 _IGNORED_ON_CREATE = ("id", "ts")
-#: update.patch 允许的字段（图边/epistemic 引擎管理, LLM 不可碰）
+#: update.patch 允许的字段（图边 / 来源字段由引擎管, LLM 不可碰）
 _PATCH_FIELDS = ("subject", "text", "significance", "tags", "growth")
 #: `about` 边的可归属 kind（§2: belief → entity · episode → entity）。
 #: ⚠️ **含 `experience`**: 今天的"玩家画像"（`subject=player`）就落在它上面, 它显然是
@@ -181,8 +181,8 @@ def apply_decisions(
                 #  但 `apply_revision_package` 等口径仍可能传进来自造的 subject）。
                 fields["subject"] = PLAYER_SUBJECT
             node = make_node(kind, **fields)
-            # epistemic 引擎归属（LLM 不产——belief 必须是 inferred_belief, 护栏）
-            node.epistemic = "inferred_belief" if kind == "belief" else "observed_fact"
+            # ⏸ 原「epistemic 引擎归属」2026-09-29 删 —— 字段退役;
+            # 新认知的"来源"就是**没有 observer**（它由 R2 推出来, 不是听谁说的）。
             node.ts = ts
             if event_seq:
                 node.event_seq = list(event_seq)
@@ -714,8 +714,9 @@ def _apply_action(store: WikiStoreV2, raw: dict, scope: set[str],
             return _err(result, f"update 目标不存在: {nid}")
         # ⚠️ 原"update 不得修改出厂基座（只允许 notes 追加）"守卫 2026-09-21 删——
         # 判据 `is_seed()` 随 `source` 退役（出厂记忆不进 wiki, 见 nodes.py docstring）。
-        if "epistemic" in patch and patch["epistemic"] != node.epistemic:
-            return _err(result, "update 不得改变 epistemic")
+        # ⏸ 原「update 不得改变 epistemic」2026-09-29 删 —— 字段退役后它就是白名单外
+        # 的未知键, `store.update` 的未知字段守卫已经拦得住（错误文案从"不得改变 epistemic"
+        # 变成"未知字段", 语义同一条: LLM 不许碰来源）。
         before = {k: v for k, v in patch.items() if v != getattr(node, k, None)}
         new = store.update(nid, patch)
         pending_log.append({"pkg": pkg, "action": "update", "id": nid,
@@ -841,7 +842,9 @@ def _build_merged(store: WikiStoreV2, ids: list[str], into: dict) -> BrainNode |
         return None
     node = make_node(kind, **{k: v for k, v in into.items() if k != "kind"})
     node.event_seq = sorted({seq for s in sources for seq in s.event_seq})
-    node.epistemic = str(into.get("epistemic", "")).strip() or sources[0].epistemic
+    # ⏸ 原「epistemic 随赢家继承」2026-09-29 删 —— 字段退役。
+    # ⚠️ `observer` **故意不继承**: 合并的语义是"这几条说的是同一件事", 而不是
+    # "它们的来源也一样"；真要带来源得由写入方显式给（今天没有这种调用方）。
     return node
 
 

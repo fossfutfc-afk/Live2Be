@@ -113,7 +113,7 @@ def test_key_similarity_degrades_and_guards():
 
 def _node(nid: str, *, place=None, place_raw=None, text="一"):
     from core.brain.wiki_v2.nodes import BrainNode
-    return BrainNode(id=nid, kind="episode", epistemic="observed_fact",
+    return BrainNode(id=nid, kind="episode",
                      significance=0.7, text=text,
                      place=place or [], place_raw=place_raw or [], event_seq=[1])
 

@@ -202,14 +202,16 @@ def _bucket_view(nodes: Iterable[BrainNode], graph=None) -> dict:
     bucket = {
         # ⚠️ 原 "seed" 桶（`source == "experience"`）2026-09-21 删——出厂记忆不进 wiki,
         # 真机零节点, 见模块 docstring。
+        # ⭐ 2026-09-29: 「亲历 / 听说」的判据从 `epistemic` 搬到 **`observer` 空不空**
+        # （字段退役, `REDUNDANCY.md` #3）—— 分桶结果逐条相同: 非空 observer ⟺ 听说的。
         "episode": lambda n: (n.kind == "episode"
-                              and n.epistemic == "observed_fact"),
+                              and not n.observer.strip()),
         "belief": lambda n: n.kind == "belief",
         # ⚠️ 2026-09-25（§5.1）: 按 **kind** 收，**不再看 `subject`** —— 那是自由文本,
         # 拿它当路由会让"subject 被写坏"变成"这条记忆静默消失"（真机 haruka e0001 就是）。
         "player": lambda n: n.kind == "experience",
         "reported": lambda n: (n.kind == "episode"
-                               and n.epistemic == "reported_fact"),
+                               and bool(n.observer.strip())),
     }
     # ⭐ 经历 = **一条河（旧→新）**（2026-09-25, 链路 ⑤）: 从前按 `(珍贵, ts)` 降序,
     # 于是"同一个时刻的事"被 `is_precious` 劈到两段里 ⇒ 河的时间轴断掉。

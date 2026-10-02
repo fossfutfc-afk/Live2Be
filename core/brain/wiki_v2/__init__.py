@@ -19,7 +19,6 @@
                主进程解耦; 本体已移 archive/factory_memory/）
 """
 from core.brain.wiki_v2.nodes import (
-    EPISTEMICS,
     KINDS,
     PLAYER_SUBJECT,
     PRECIOUS_THRESHOLD,
@@ -61,7 +60,6 @@ from core.brain.wiki_v2.compose import (
 )
 
 __all__ = [
-    "EPISTEMICS",
     "KINDS",
     "PLAYER_SUBJECT",
     "PRECIOUS_THRESHOLD",

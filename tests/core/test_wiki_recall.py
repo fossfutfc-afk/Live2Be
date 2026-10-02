@@ -229,8 +229,7 @@ def _cog_store(tmp_path) -> WikiStoreV2:
     """
     st = WikiStoreV2(tmp_path, world_id="world1", char_id="c")
     st.add(make_node("episode", text="天台旧事", event_seq=[1]))
-    st.add(make_node("belief", text="老师会记得给猫带猫粮的约定", subject="老师与我的约定",
-                     epistemic="inferred_belief", significance=0.9, tags=["猫", "约定"],
+    st.add(make_node("belief", text="老师会记得给猫带猫粮的约定", subject="老师与我的约定", significance=0.9, tags=["猫", "约定"],
                      event_seq=[1]))
     st.add(make_node("experience", text="老师总说摸鱼", subject="sensei",
                      significance=0.85, tags=["摸鱼"], event_seq=[1]))
@@ -334,8 +333,7 @@ def test_recall_episodes_only_returns_episodes(tmp_path):
     """
     nodes = _ids([
         _ep("老师陪我在杂草屋蹲了一下午", tags=["杂草"]),
-        make_node("belief", text="杂草屋是我最安心的地方", tags=["杂草"],
-                  epistemic="inferred_belief", subject="杂草屋"),
+        make_node("belief", text="杂草屋是我最安心的地方", tags=["杂草"], subject="杂草屋"),
     ])
     st = _store(tmp_path, nodes)
     out = recall_episodes(st, query="今天又去杂草屋了", embed_fn=None)

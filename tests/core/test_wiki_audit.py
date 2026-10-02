@@ -18,7 +18,7 @@ def _store(tmp_path) -> WikiStoreV2:
     st = WikiStoreV2(tmp_path, world_id="world1", char_id="c")
     st.add(make_node("episode", text="拆炸弹初遇", event_seq=[1]))
     st.add(make_node("belief", text="老师是第一个不会嫌弃我的人", subject="sensei",
-                     epistemic="inferred_belief", significance=0.9, event_seq=[1]))
+                     significance=0.9, event_seq=[1]))
     st.add(make_node("experience", text="提到工作繁忙", subject="sensei",
                      significance=0.85, event_seq=[1]))
     st.add(make_node("episode", text="出厂经历", significance=0.9))
@@ -78,7 +78,7 @@ def test_full_revision_chain_audit_clean(tmp_path):
             "links": ["m0002"]}},
         {"action": "create", "ref": "n2", "entry": {
             "kind": "belief", "text": "老师会认真听我说话", "subject": "sensei",
-            "epistemic": "inferred_belief", "links": ["n1"]}},
+            "links": ["n1"]}},
         {"action": "accrue", "id": "e0001",
          "occurrence": {"episode_ref": "n1", "example": "「这家店不错」"}},
         {"action": "contradict", "a": "m0001", "b": "n2"},   # ref → 本包新建的 belief

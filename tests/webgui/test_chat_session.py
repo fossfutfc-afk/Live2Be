@@ -37,7 +37,7 @@ def _store_with_wiki(tmp_path, narration=NARRATION):
     if narration:
         ws = WikiStoreV2(st.data_root, world_id=st.world_id, char_id=CHARACTER)
         ws.add(make_node("episode", narration=narration, significance=0.9,
-                         observer=CHARACTER, epistemic="observed_fact", ts=TS))
+                         observer=CHARACTER, ts=TS))
         ws.save()                       # 落盘（引擎另开一个 WikiStoreV2 读同一个文件）
     return st
 

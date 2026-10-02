@@ -6,7 +6,9 @@
     belief     抽象认知（text 写结论; links ≥1 支撑; 可选 growth 成长方向）
 
 不变量（validate/normalize 强制）:
-    - epistemic: belief 恒 inferred_belief; episode/experience 只能 observed/reported
+    - `observer` 空 = 亲历; 非空 = 转述者（**它一个人说两件事**: 来源是谁 +
+      这条是不是"听说的"）—— ⏸ `epistemic` 字段 2026-09-29 退役（见 `EPISTEMICS` 处）
+    - belief **不许带 `observer`**（"认知不伪装成事实"在新词汇下的同一条护栏）
     - belief 必须有 `supports` 入边 —— ⚠️ 2026-09-21（G3）**搬到 `store.audit()`**:
       支撑关系住在边表里, 字段级校验看不见它
     - experience.examples ≤ 3
@@ -40,8 +42,13 @@ from typing import Any
 KINDS = ("episode", "experience", "belief", "entity", "promise", "group")
 #: promise 的**结局**（字段是 `outcome`，不是 `state` —— 见 `BrainNode.state` 的注释）
 PROMISE_OUTCOMES = ("kept", "broken", "superseded")
-#: 认知类型（canon_fact 随 fact 退役; speculation 2026-09-21 删——三值全由护栏强制）
-EPISTEMICS = ("observed_fact", "reported_fact", "inferred_belief")
+#: ⏸ `EPISTEMICS`（三值词表）**2026-09-29 退役** —— `epistemic` 字段整个删掉,
+#: 只留 `observer`。两条判据（`REDUNDANCY.md` #3）:
+#: ① **与 `observer` 互为函数**（非空 ⟺ reported ⇒ 同一件事两个字段说）;
+#: ② **跨 kind 两个意思**（episode 上它是"来源", belief 上它是"别伪装成事实"——
+#:    而 belief 那一半其实是 `kind` 已经说过的话）。
+#: 旧档 `wiki.jsonl` 里的 `epistemic` 键由 `from_dict` **宽松忽略**（无迁移脚本）;
+#: 信息不丢: "听说的"那一条本来就带 `observer`（真机 reported 1/20, 且带转述者）。
 #: 珍贵档阈值（保底通道 / 对应 neuron 草稿的 memo 档）
 PRECIOUS_THRESHOLD = 0.8
 #: player experience 的 subject 固定值（玩家口癖/习惯, R5）
@@ -75,7 +82,7 @@ class BrainNode:
     """一条图式 wiki 节点（宽松 dataclass: 字段可缺省, 校验走 validate()）。
 
     字段分组:
-        共用    id / kind / significance / text / epistemic / observer / tags /
+        共用    id / kind / significance / text / observer / tags /
                 event_seq / ts
         episode title / verbatim / verbatim_seq / emo_shape / place / place_raw /
                 aff_at_encoding / emo_int / emo_span
@@ -88,8 +95,10 @@ class BrainNode:
     id: str = ""
     kind: str = "episode"
     significance: float = 0.5
-    epistemic: str = "observed_fact"
-    observer: str = ""          # 信息来源: 空 = 亲历; 非空 = 转述者（LLM 填, 渲染"听X说的"）
+    #: 信息来源: **空 = 亲历; 非空 = 转述者**（LLM 只在"听别人说的"时填, 渲染"听X说的"）。
+    #: ⏸ `epistemic` 字段 2026-09-29 退役（判据: 与 observer 互为函数 + 跨 kind 两个意思）
+    #: ⇒ **"这条是不是听说的"就由这个字段判**（读侧只此一处判据, 不再有第二个真源）。
+    observer: str = ""
     tags: list[str] = field(default_factory=list)
     event_seq: list[int] = field(default_factory=list)
     ts: str = ""
@@ -175,21 +184,20 @@ class BrainNode:
         if self.kind not in KINDS:
             errors.append(f"未知 kind: {self.kind!r}")
             return errors
-        if self.epistemic not in EPISTEMICS:
-            errors.append(f"非法 epistemic: {self.epistemic!r}（可用: {', '.join(EPISTEMICS)}）")
         for f in _REQUIRED[self.kind]:
             if not str(getattr(self, f, "") or "").strip():
                 errors.append(f"{self.kind} 缺少必填字段: {f}")
-        # epistemic 护栏（DESIGN_BRAIN.md §7; canon_fact 随 fact 退役 2026-09-02）
-        if self.kind == "belief" and self.epistemic != "inferred_belief":
-            errors.append("belief 节点 epistemic 必须是 inferred_belief（认知不伪装成事实）")
+        # 来源护栏（原 `epistemic == "inferred_belief"` 那条的**新词汇版**,
+        # 2026-09-29）: 非空 `observer` 的语义是"这条是**听说的**" ⇒ belief 不许带它,
+        # 否则一条认知会被渲染进「我听说的」那一段（认知不伪装成事实）。
+        if self.kind == "belief" and self.observer.strip():
+            errors.append("belief 不许带 observer（认知不伪装成事实——那是听说的标记）")
         # ⚠️ 原「belief 必须 links ≥1 条支撑」2026-09-21（G3）**搬走** —— 支撑关系现在
         # 住在边表（`edges.jsonl` 的 `supports` 入边）, 字段级校验看不见它。新家两处:
         # ① 写路径 `revise.apply_decisions` 建完节点立刻补 `supports` 边;
         # ② 全局兜底 `store.audit()`（"belief 无支撑"）。
-        if self.kind in ("episode", "experience") \
-                and self.epistemic not in ("observed_fact", "reported_fact"):
-            errors.append(f"{self.kind} 节点 epistemic 只能是 observed_fact/reported_fact")
+        # ⏸ 原「episode/experience 的 epistemic 只能是 observed/reported」2026-09-29 删 ——
+        # 那一格今天由 `observer` 承担（空/非空两态 ⇒ 不存在"第三种值"要拒）。
         # 数量边界
         if self.kind == "experience" and len(self.examples) > 3:
             errors.append("experience.examples 最多 3 条")
@@ -255,7 +263,6 @@ class BrainNode:
             "id": self.id,
             "kind": self.kind,
             "significance": self.significance,
-            "epistemic": self.epistemic,
         }
         for f in ("observer", "tags", "event_seq", "ts",
                   "text", "verbatim",
@@ -284,8 +291,7 @@ class BrainNode:
         kind = _str(raw.get("kind"))
         node.kind = kind if kind in KINDS else "episode"
         node.significance = _clamp_sig(raw.get("significance"))
-        epi = _str(raw.get("epistemic"))
-        node.epistemic = epi if epi in EPISTEMICS else "observed_fact"
+        # ⏸ 旧档的 `epistemic` 键**读不进来也不报错**（2026-09-29 退役; 信息在 `observer` 里）
         node.observer = _str(raw.get("observer"))
         node.tags = _str_list(raw.get("tags"))
         node.event_seq = _int_list(raw.get("event_seq"))
