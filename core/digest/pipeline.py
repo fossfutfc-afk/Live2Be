@@ -20,16 +20,20 @@
 编排（digest_segment）::
     1. 增量: new_events = seq > store.digested_seq（无新增 → 0 次 LLM 调用）
     2. 公共输入: 时间线(**记录级带行索引**, T14) + 视觉记忆 + 人设锚点
-    3. 依次跑上表那 5 轮（各自的跳过条件见调用点旁边的注释）
+    3. 依次跑上表那 5 轮（**顺序与跳过条件 = `rounds.ROUNDS`**; 每步吃哪几段料也在那）
     4. affection_exp_delta 返回（事件幂等写由调用方——运行时集成层）
     5. 任一轮失败 → clone_state 快照回滚, 水位不推进（宁缺勿错, 可重算）
-       ⚠️ 例外: **分群自带快照**, 失败只回滚它自己（那是加法, 块留到下段再来）
+       ⚠️ 例外: **分群自带快照**（`own_snapshot`）, 失败只回滚它自己
+       （那是加法, 块留到下段再来）
     6. 成功 → store.save()（原子整写）+ 推进 meta.digested_seq + save_meta
 
-⚠️ **"轮次表"还没立**（每轮的定义仍散在: 契约 schema/parse · prompt .md · 本文件编排 ·
-`revise`/`groups` 执行器）—— 五个调用点仍是**顺序语句 + 注释**, `_rollback` 也还是
-**手抄清单**（每轮往 `DigestResult` 写的新字段必须手工加进清空列表, 漏一个就是雷）。
-把它收成声明式 spec 是下一步（用户已同意方向）, 落点就是本文件 + `rounds/`。
+⚠️ **"轮次表"已立**（**2026-09-29 节点 C**）—— 每轮的步序 / LLM 身份 / 料 / 产出 /
+跳过条件 / 是否自带快照全在 **`core/digest/rounds.py` 的 `ROUNDS`** 一张表里。
+本文件是**执行体**: 调用点先 `cur.enter(key)` 拿 spec（越序当场炸）, 再用
+`_system_for(spec)` / `_parse_for(spec, …)` / `_sections_for(spec, …)` 三件套 ——
+prompt 名、契约相位、parse 函数、**料的段标题**都不在这里各写一份字面量。
+⭐ **`_rollback` 的清空清单也由表推导**（`rounds.reset_result`）——
+从前它是手抄的, 漏过 `notes_warnings`（见 `_rollback` 的 docstring）。
 
 ⚠️ **`evidence`（成长证据）2026-09-29 已删** —— 它**零产品消费者**（只有一条测试与一个
     归档脚本读过）, 契约却每段都要它 ≤5 条 + `quote` 逐字引用时间线 ⇒ 那是一笔白付的钱。
@@ -62,17 +66,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
-from contract.digest_registry import (
-    PHASE_ATTRIBUTE,
-    PHASE_GROUP,
-    PHASE_CLOSE,
-    PHASE_RECORD,
-    PHASE_UNDERSTAND,
-    digest_registry,
-)
+from contract.digest_registry import digest_registry
 from core.brain import groups, marks
 from core.brain.entities import candidate_table, hit_set, new_nodes_block, payload_block
 from core.digest.llm_call import llm_chat
+from core.digest.rounds import Cursor, RoundSpec, reset_result
 from core.brain.nodes import PLAYER_SUBJECT, make_node
 from core.brain.read.recall import (
     EmbedFn,
@@ -113,12 +111,20 @@ COGNITION_CAP = 12
 _AFF_MIN, _AFF_MAX = -100, 100
 @dataclass
 class DigestResult:
-    """一次 digest（两轮）的结果。"""
+    """一次 digest 的结果。
+
+    ⚠️ 字段分两类（`core/digest/rounds.py` 是判据）: **某轮的产出**（失败时由
+    `reset_result` 按表清空）与 **`COMMIT_ONLY`**（调用路径的记录 / 提交时才赋值 ——
+    回滚不碰）。加字段必须归类, 否则 `tests/core/test_digest_rounds.py` 直接红。
+    """
 
     ok: bool
     errors: list[str] = field(default_factory=list)
-    created: list[str] = field(default_factory=list)     # Round A episode id
+    #: Round A 建的 episode id —— ⚠️ **提交时才赋值**（任一轮失败 ⇒ 这个字段是空的）
+    created: list[str] = field(default_factory=list)
+    #: 本段的好感净变化（R2 给的）—— 同上, **提交时才赋值**
     affection_delta: int = 0
+    #: 真正发出去的 LLM 调用次数（含被拒重试）—— 调用路径记账, 回滚不抹
     llm_calls: int = 0
     #: ⏸ ~~归属线索~~（`hints` = R1 的 `about_hint` → R3 的映射）**2026-09-29 删** ——
     #: `about_hint` 退役（与 R3 判两次）, 这条中间通道随之消失; R3 改为自己从正文里认称呼。
@@ -158,7 +164,10 @@ def digest_segment(
     aff_at_encoding: float | None = None,
     emotion_lexicon: dict | None = None,
 ) -> DigestResult:
-    """增量两轮 digest: 新事件 → A 记录 → B 理解 → 原子落盘 → 推进水位。
+    """增量 digest: 新事件 → 依次跑 `rounds.ROUNDS` 那几步 → 原子落盘 → 推进水位。
+
+    ⚠️ 从前这段写着"两轮"—— 那是 Round A/B 时代的名字。今天每段是
+    **5 次 LLM 调用 + 1 次零成本补边**（步序见 `core/digest/rounds.py`）。
 
     Args:
         store: 目标世界线的图式 wiki（meta.digested_seq 是水位）
@@ -243,11 +252,11 @@ def digest_segment(
     on_mind_box: list[str] = []          # ⭐ N4a: Round A 收下的那句心境（0/1 条）
 
     try:
-        # ── Round A: 记录员 ──
-        system_a = load_prompt("digest_v2_round_a").replace(
-            "{{digest_schema}}",
-            digest_registry.build_schema(PHASE_RECORD, domain=domain, chapter_count=len(chapters)))
-        user_a = _join_sections([
+        # ── ① R1 记 ──（步序 = `rounds.ROUNDS`; 每步先 `enter` 再干活）
+        cur = Cursor()
+        spec = cur.enter("round_a")
+        system_a = _system_for(spec, domain=domain, chapter_count=len(chapters))
+        user_a = _sections_for(spec, [
             ("本段新增互动", timeline),
             ("本章标题", " / ".join(c["title"] for c in chapters if c["title"])),  # 多章都列; 空 → 跳过
             ("画面记忆", "\n".join(f"- {v}" for v in visuals)),
@@ -258,9 +267,8 @@ def digest_segment(
             llm, system_a, user_a,
             model=model, temperature=temperature, max_tokens=max_tokens,
             llm_timeout=llm_timeout,
-            extra_body=extra_body, deadline=deadline, label="round_a",
-            parse_fn=lambda r: digest_registry.parse_round_a(
-                r, seq_set=seq_set, on_mind_out=on_mind_box),
+            extra_body=extra_body, deadline=deadline, label=spec.label,
+            parse_fn=_parse_for(spec, seq_set=seq_set, on_mind_out=on_mind_box),
             result=result)
         if entries is None:
             return _rollback(store, snapshot, result)
@@ -302,20 +310,21 @@ def digest_segment(
         # 边**到这里才落**（两端都已是真节点）。
         noticed = [e for e in new_all if getattr(e, "type", "") == TYPE_NOTICED]
         if noticed:
+            cur.enter("akin")                            # 零 LLM 的一步也占步序
             n_edge, n_lost, n_self = _link_akin(store, episode_ids, noticed, ts=now_ts)
             logger.info("digest_akin edges=%d unclaimed=%d self=%d", n_edge,
                         n_lost, n_self)
 
-        # ── Round R4: 收口（约定记账）—— 编排顺序照旧 R1 → **R4** → R2 → R3 ──
+        # ── ② R4 记账（约定收口）—— 编排顺序照旧 R1 → **R4** → R2 → R3 ──
         # ⏸ 从前"必须夹在这里"的理由是 `close` 会物化 promise 节点、而它的边由后两轮写;
         # **2026-09-29 承诺退图之后这条理由消失**（R4 只产 note 操作, 不碰图）——
         # 顺序今天照旧（改了它没有收益, 却要重验一遍编排), 但不再是正确性要求。
+        spec = cur.enter("close")
         note_state = store.notes_state(events)            # 本段之前的备忘录（缓存优先）
         open_promises = [it for it in note_state.promise if not it.closed]
         if episode_ids or open_promises:
-            system_c = load_prompt("digest_v2_round_close").replace(
-                "{{digest_schema}}", digest_registry.build_schema(PHASE_CLOSE))
-            user_c = _join_sections([
+            system_c = _system_for(spec)
+            user_c = _sections_for(spec, [
                 ("还开着的约定", _open_promises_text(open_promises)),
                 ("本段新增的经历", _episode_lines(store, episode_ids)),
             ])
@@ -323,7 +332,7 @@ def digest_segment(
                 llm, system_c, user_c,
                 model=model, temperature=temperature, max_tokens=max_tokens,
                 llm_timeout=llm_timeout, extra_body=extra_body, deadline=deadline,
-                label="close", parse_fn=digest_registry.parse_close, result=result)
+                label=spec.label, parse_fn=_parse_for(spec), result=result)
             if rows_c is None:
                 return _rollback(store, snapshot, result)
             closures = apply_closures(store, rows_c, note_state=note_state, ts=now_ts)
@@ -338,13 +347,13 @@ def digest_segment(
                         sum(1 for o in closures.ops if o.get("action") == "close"),
                         len(closures.warnings))
         else:
-            # 没有开着的约定 **且** 本段没有新经历 ⇒ `add` 没有可引用的经历、
-            # `close` 没有可翻篇的条目 ⇒ 这一轮**必然空转** ⇒ 省掉这次调用（0 次）。
-            logger.info("digest_close 跳过（没有开着的约定, 本段也没有新经历）")
+            # 这一轮**必然空转**（`add` 没有可引用的经历、`close` 没有可翻篇的条目）
+            _log_skip(spec)
 
-        # ── Round B: 理解者（引擎候选推荐 + 决策表）──
+        # ── ③ R2 接（理解者: 引擎候选推荐 + 决策表）──
         # ⏸ 原 `must_include`（本轮 R4 物化的 promise 必进列表）2026-09-29 随退图删 ——
         # 参数在 `render_cognition_list` 上一起摘掉（零调用方）。
+        spec = cur.enter("round_b")
         cog_text, local_of = render_cognition_list(
             store, cap=COGNITION_CAP, exclude=set(player_ids))
         # ⚠️ `links` 认的 id 集今天 = 可 touch 的看法（承诺退图后不再有第二种端点）;
@@ -355,9 +364,8 @@ def digest_segment(
         ep_text = _round_b_material(store, episode_ids, local_of,
                                     embed_fn=embed_fn,
                                     char_id=getattr(store, "char_id", ""))
-        system_b = load_prompt("digest_v2_round_b").replace(
-            "{{digest_schema}}", digest_registry.build_schema(PHASE_UNDERSTAND))
-        user_b = _join_sections([
+        system_b = _system_for(spec)
+        user_b = _sections_for(spec, [
             ("本次新经历（含引擎候选标注）", ep_text),
             ("本段时间线", timeline),
             ("现有认知", cog_text),
@@ -367,10 +375,9 @@ def digest_segment(
             llm, system_b, user_b,
             model=model, temperature=temperature, max_tokens=max_tokens,
             llm_timeout=llm_timeout,
-            extra_body=extra_body, deadline=deadline, label="round_b",
-            parse_fn=lambda r: digest_registry.parse_round_b(
-                r, episode_ids=set(episode_ids),
-                target_ids=target_ids, link_ids=link_ids),
+            extra_body=extra_body, deadline=deadline, label=spec.label,
+            parse_fn=_parse_for(spec, episode_ids=set(episode_ids),
+                                target_ids=target_ids, link_ids=link_ids),
             result=result)
         if rows is None:
             return _rollback(store, snapshot, result)
@@ -379,13 +386,14 @@ def digest_segment(
                                      ts=now_ts,
                                      event_seq=[interact_max])
 
-        # ── Round R3: 归属 + entity 维护（§8 的第 3 行 —— 每段的最后一步）──
-        # 为什么在最后: 它要挂的是**本轮全部新节点**（R1 的经历/画像 + R4 的承诺 +
+        # ── ④ R3 挂（归属 + entity 维护）──
+        # 为什么在最后: 它要挂的是**本轮全部新节点**（R1 的经历/画像 +
         # R2 新建的认知）⇒ 前面几轮都落地了它才看得全（§8 的批内顺序 R1→R4→R2→R3）。
+        spec = cur.enter("attr")
         new_ids = ([*episode_ids, *player_ids, *r2_created])
         node_text, node_local = new_nodes_block(store, new_ids)
         if not node_text:
-            logger.info("digest_attr 跳过（本段没有新节点可归属）")
+            _log_skip(spec)
         else:
             table_text, ent_local = candidate_table(store)
             # ⭐ 2026-09-29: `about_hint`（R1 预判的名字）退役 ⇒ 这里只喂**正文通道**
@@ -395,9 +403,8 @@ def digest_segment(
             hits = hit_set(store, texts=_node_texts(store, new_ids))
             payload = payload_block(store, hits, ent_local)
             logger.info("digest_hit eps=%d hit=%d", len(new_ids), len(hits))
-            system_d = load_prompt("digest_v2_round_attr").replace(
-                "{{digest_schema}}", digest_registry.build_schema(PHASE_ATTRIBUTE))
-            user_d = _join_sections([
+            system_d = _system_for(spec)
+            user_d = _sections_for(spec, [
                 ("候选对象", table_text or "（还没有任何对象）"),
                 ("这几个对象的当前情况", payload),
                 ("本轮新节点", node_text),
@@ -407,10 +414,9 @@ def digest_segment(
                 llm, system_d, user_d,
                 model=model, temperature=temperature, max_tokens=max_tokens,
                 llm_timeout=llm_timeout, extra_body=extra_body, deadline=deadline,
-                label="attr",
-                parse_fn=lambda r: digest_registry.parse_attribution(
-                    r, entity_ids=set(ent_local.values()),
-                    node_ids=set(node_local.values())),
+                label=spec.label,
+                parse_fn=_parse_for(spec, entity_ids=set(ent_local.values()),
+                                    node_ids=set(node_local.values())),
                 result=result)
             if rows_d is None:
                 return _rollback(store, snapshot, result)
@@ -422,22 +428,22 @@ def digest_segment(
                         len(ent_local), len(hits), len(payload.splitlines()),
                         len(rows_d), len(result.created_entities))
 
-        # ── L2-a 分群（N7）: 每段的**最后一步**, 与 R1–R4 **不同层** ──
+        # ── ⑤ L2-a 分群（N7）: 每段的**最后一步**, 与 R1–R4 **不同层** ──
         # 料 = 引擎切好的块（`akin` 连通块, ⭐ **边不进视野**）+ 已有的类;
         # 产 = **群节点 + `member_of` 边**。⚠️ 它**只起名**, 不判"像不像"（那是她的活）。
         # ⚠️ **它失败不连累整段**: 分群是**加法**的（块留到下段再来 ⇒ 自愈）, 所以这一步
-        #    自带快照 —— 失败只回滚它自己, R1–R4 的活照常提交（把"命名没成"升级成
-        #    "整段记忆全丢"是拿真东西换装饰）。
+        #    自带快照（表里 `own_snapshot=True`）—— 失败只回滚它自己, R1–R4 的活照常提交
+        #    （把"命名没成"升级成"整段记忆全丢"是拿真东西换装饰）。
+        spec = cur.enter("group")
         blks = groups.build_blocks(store, groups.ungrouped(store))
         cands = groups.merge_candidates(store)
         if not blks and not cands:
-            logger.info("digest_group 跳过（没有未归群的块, 也没有可能重复的类）")
+            _log_skip(spec)
         else:
             grp_snap = store.clone_state()
             err0 = len(result.errors)
-            system_e = load_prompt("digest_v2_round_group").replace(
-                "{{digest_schema}}", digest_registry.build_schema(PHASE_GROUP))
-            user_e = _join_sections([
+            system_e = _system_for(spec)
+            user_e = _sections_for(spec, [
                 ("还没归类的块",
                  groups.render_blocks(store, blks) or "（这一段没有新连出来的块）"),
                 ("已有的类", groups.render_groups(store) or "（还没有任何类 —— 全部走 new）"),
@@ -447,9 +453,8 @@ def digest_segment(
                 llm, system_e, user_e,
                 model=model, temperature=temperature, max_tokens=max_tokens,
                 llm_timeout=llm_timeout, extra_body=extra_body, deadline=deadline,
-                label="group",
-                parse_fn=lambda r: digest_registry.parse_group(
-                    r, block_ids={b.bid for b in blks}),
+                label=spec.label,
+                parse_fn=_parse_for(spec, block_ids={b.bid for b in blks}),
                 result=result)
             if rows_e is None:
                 store.restore_state(grp_snap)
@@ -492,7 +497,48 @@ def digest_segment(
 
 # ---------------------------------------------------------------------------
 # 轮次调用（调用 + parse + 反馈回灌, feedback 语义）
+#
+# ⚠️ 每轮"是谁 / 用哪份 prompt / 哪个契约相位 / 怎么解析 / 吃什么"全在
+#    `core/digest/rounds.py` 的表里 —— 下面三件套只是把表里的声明**接上执行**,
+#    调用点不再各写一份字面量（写了就会漂）。
 # ---------------------------------------------------------------------------
+
+def _system_for(spec: RoundSpec, **schema_kw) -> str:
+    """这一轮的 system = 对应 prompt 文件 + 该轮的**产出契约**（`{{digest_schema}}`）。
+
+    `schema_kw` 给 `build_schema` 的分域参数（只有 R1 需要: `domain` / `chapter_count`）。
+    """
+    return load_prompt(spec.prompt).replace(
+        "{{digest_schema}}", digest_registry.build_schema(spec.phase, **schema_kw))
+
+
+def _parse_for(spec: RoundSpec, **ctx) -> Callable[[dict], tuple[Any, Any]]:
+    """把表里那个 parse 函数绑上**这一轮的上下文**（`seq_set` / `episode_ids` / `block_ids`…）。
+
+    契约层的 parse 签名统一是 `(raw, **ctx)` ⇒ 表里存函数、调用点给上下文, 两不相欠。
+    """
+    return lambda raw: spec.parse(raw, **ctx)
+
+
+def _sections_for(spec: RoundSpec, sections: list[tuple[str, str]]) -> str:
+    """按表校对**料的段标题**再拼装 —— 表说这一轮吃什么, 这里就必须是那几段。
+
+    ⚠️ 只校标题（"吃什么"的地图）, 不校正文（正文由各家现算）。对不上 = 表在骗人,
+    所以**当场炸**而不是静默放行 —— 这正是"料跨 3~4 个文件"的解药:
+    想知道 R2 吃什么, 看表一行就够, 而表**不可能**与实际不符。
+    """
+    got = tuple(title for title, _ in sections)
+    if got != spec.material:
+        raise AssertionError(
+            f"digest {spec.key!r} 的料与轮次表不一致: 表={spec.material} 实际={got}"
+            "（改料就要改 core/digest/rounds.py 的 ROUNDS）")
+    return _join_sections(sections)
+
+
+def _log_skip(spec: RoundSpec) -> None:
+    """跳过这一轮 —— 那句日志的文案也来自表（`skip` 是唯一真源）。"""
+    logger.info("digest_%s 跳过（%s）", spec.key, spec.skip)
+
 
 def _round_call(
     llm,
@@ -1002,6 +1048,8 @@ def _join_sections(sections: list[tuple[str, str]]) -> str:
     """输入块拼装: 非空块才注入（省 token）; 空块跳过。
 
     ⚠️ 段头 `【】` 的构造在 `marks.section`（括号表唯一实现）—— 本函数只管"拼"。
+    ⚠️ **LLM 轮的输入一律走 `_sections_for`**（它先拿轮次表校对段标题, 再调这里）——
+    直接调本函数 = 绕过料校对, `test_sections_check_is_wired` 会红。
     """
     parts = [f"{marks.section(title)}\n{body}" for title, body in sections if body]
     return "\n\n".join(parts)
@@ -1202,16 +1250,15 @@ def _rollback(store: WikiStoreV2, snapshot: dict,
     这一步没了, `snapshot_clock` 参数一并删除。
 
     ⭐ 2026-09-25: **R4 的 note 操作一并作废**（§8: 失败 = 整批回滚 ⇒ 那条约定原样开着）。
-    节点面靠 `restore_state` 回去; note 面必须在这里清空 —— 事件 append **不可撤销**,
+    节点面靠 `restore_state` 回去; note 面必须一起清 —— 事件 append **不可撤销**,
     调用方只要看到 `ok=False` 就不写, 但结果对象里留着它就是一颗雷。
-    同理清掉 `created_entities`（R3 建的 entity 也随快照回去了）;
-    ⭐ **N7 起还有分群那一步的记账**（群节点/边都随快照回去了, 结果对象里不许留）。
+
+    ⭐⭐ **2026-09-29（节点 C）: 清哪些字段改由轮次表推导**（`rounds.reset_result`）。
+    从前这里是**手抄的一份清单** —— 每轮往 `DigestResult` 加字段就得记得加一笔,
+    而它**真的漏过**: `notes_warnings` 一直没被清, 于是整批回滚之后,
+    结果对象里还留着一串描述那些**已经作废的操作**的告警。现在加字段时
+    表里不写就过不了 `tests/core/test_digest_rounds.py`。
     """
     store.restore_state(snapshot)
-    result.notes_ops = []
-    result.created_entities = []
-    result.created_groups = []
-    result.grouped_episodes = 0
-    result.merged_groups = []
-    result.group_warnings = []
+    reset_result(result)
     return result

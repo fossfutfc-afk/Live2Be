@@ -6,7 +6,7 @@
 **LLM 管线**（要 contract 的 schema、要 `llm/` 的客户端、要 `core.session` 的事件流）。
 两者同包时"数据层不 import llm"只是一句注释；分开之后它才是**包边界**。
 
-一眼看清它跑什么（细节在 `pipeline.py` 的模块 docstring）::
+一眼看清它跑什么（⭐ **步序的真源 = `rounds.py` 的 `ROUNDS`**, 这里只是同一件事的人读版）::
 
     ① R1 记     digest.round_a    时间线 + 人设 + 视觉记忆 → episode / 玩家画像
       akin 补边 （0 LLM）          本段的 `noticed` 账 → `akin` 边
@@ -15,8 +15,10 @@
     ④ R3 挂     digest.attr       候选表 + 命中集载荷 + 新节点 → `about` 边 + entity 载荷
     ⑤ L2-a 分群 digest.group      块 + 已有类 → 群节点 + `member_of`（自带快照）
 
-⚠️ **每一步的定义仍散在四处**（契约 schema/parse · prompt .md · 本包编排 · `revise`/`groups`
-执行器）—— 收成"轮次表"是**下一步**，别在读完 `pipeline.py` 之前以为这儿就是全部。
+⚠️ **每步的定义已收进 `rounds.py` 一张表**（2026-09-29 节点 C）: 步序 / LLM 身份 /
+prompt / 契约相位 / parse / 料 / 写什么 / 跳过条件 / 是否自带快照。
+`pipeline.py` 是执行体（每步先 `cur.enter(key)` 拿 spec, 越序当场炸）;
+`_rollback` 的清空清单也由表推导 —— 别再往 `pipeline` 里加第二份轮次清单。
 """
 from core.digest.pipeline import DigestResult, digest_segment
 
