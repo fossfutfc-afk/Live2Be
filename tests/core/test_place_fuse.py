@@ -112,14 +112,14 @@ def test_key_similarity_degrades_and_guards():
 # ---------------------------------------------------------------------------
 
 def _node(nid: str, *, place=None, place_raw=None, text="一"):
-    from core.brain.wiki_v2.nodes import BrainNode
+    from core.brain.nodes import BrainNode
     return BrainNode(id=nid, kind="episode",
                      significance=0.7, text=text,
                      place=place or [], place_raw=place_raw or [], event_seq=[1])
 
 
 def _store_with(nodes, tmp_path):
-    from core.brain.wiki_v2.store import WikiStoreV2
+    from core.brain.store import WikiStoreV2
     st = WikiStoreV2(path=tmp_path / "wiki.jsonl")
     for n in nodes:
         st.add(n)
@@ -134,8 +134,8 @@ def _char_bag(texts):
 
 def test_c_link_fuses_both_axes(tmp_path):
     """★ C 链路: 两轴融合 —— 同键高分在前, 同地不同键（别名相交）也能捞回来。"""
-    from core.brain.wiki_v2.channels import RecallContext
-    from core.brain.wiki_v2.channel_impl import PlaceGate
+    from core.brain.channels import RecallContext
+    from core.brain.channel_impl import PlaceGate
     st = _store_with([
         _node("m1", place=["school_rooftop"], place_raw=["傍晚的学校天台"],
               text="天台上的风"),
@@ -162,8 +162,8 @@ def test_c_link_fuses_both_axes(tmp_path):
 
 def test_c_link_without_embedder_uses_material_axis_only(tmp_path):
     """无 `embed_fn` / 无 `place_raw_now` → 叙事轴缺席, `raw` 退回素材轴那一半。"""
-    from core.brain.wiki_v2.channels import RecallContext
-    from core.brain.wiki_v2.channel_impl import PlaceGate
+    from core.brain.channels import RecallContext
+    from core.brain.channel_impl import PlaceGate
     st = _store_with([
         _node("m1", place=["school_rooftop"], place_raw=["傍晚的学校天台"]),
         _node("m2", place=["building_roof_top"], place_raw=["学校天台"]),
@@ -181,8 +181,8 @@ def test_c_link_without_embedder_uses_material_axis_only(tmp_path):
 
 def test_c_link_still_degrades_honestly(tmp_path):
     """没坐标 / 旧档（无 place 字段）→ 照旧降级, 不编分。"""
-    from core.brain.wiki_v2.channels import RecallContext
-    from core.brain.wiki_v2.channel_impl import PlaceGate
+    from core.brain.channels import RecallContext
+    from core.brain.channel_impl import PlaceGate
     st = _store_with([_node("m1", text="没有地点字段")], tmp_path)
     r1 = PlaceGate().gather(st, RecallContext(char_id="c", query="", now="2026-09-20"))
     assert r1.degraded and "place_now" in r1.note

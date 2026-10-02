@@ -20,7 +20,7 @@
   ↕ REST + 轮询（无 SSE）
 webgui/    FastAPI 壳 + 会话状态机（bond.py BondState / chat.py worker / routers/）
 core/      引擎（无 web 依赖）: momotalk · bond(引擎+标注) · session(事件流) ·
-           brain/wiki_v2(记忆) · promptkit(装配) · media/director(视觉) ·
+           brain(记忆) · promptkit(装配) · media/director(视觉) ·
            parsing · mmt · ui · affection · rag · worldtime · common
 contract/  契约地基: records(记录文法+块校验) · schema(LLM 可见文本) · registry/spec/model
 llm/       客户端 + 档位真源 + image_gen + prompts/文案仓库（人可改）

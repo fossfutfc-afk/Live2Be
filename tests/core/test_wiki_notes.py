@@ -16,7 +16,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-from core.brain.wiki_v2 import notes
+from core.brain import notes
 from core.session import make_event
 from core.session.events import N_ADD, N_CLOSE, N_RETIRE, N_REWRITE, TYPE_NOTE
 
@@ -298,4 +298,4 @@ def test_slots_and_constants_are_consistent():
     assert set(notes.OPSLOTS) | set(notes.SNAPSHOT_SLOTS) == set(notes.SLOTS)
     assert (notes.MAX_PROMISE, notes.MAX_ON_MIND) == (5, 1)
     assert not hasattr(notes, "MAX_HABITS") and not hasattr(notes, "SLOT_HABITS")
-    assert logging.getLogger("core.brain.wiki_v2.notes") is not None
+    assert logging.getLogger("core.brain.notes") is not None

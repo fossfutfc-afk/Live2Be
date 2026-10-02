@@ -24,8 +24,8 @@ import random
 from datetime import datetime
 from typing import Callable
 
-from core.brain.wiki_v2.nodes import PRECIOUS_THRESHOLD, BrainNode
-from core.brain.wiki_v2.store import WikiStoreV2
+from core.brain.nodes import PRECIOUS_THRESHOLD, BrainNode
+from core.brain.store import WikiStoreV2
 from core.worldtime.age import REAL_TZ, parse_ts
 
 logger = logging.getLogger(__name__)
@@ -65,7 +65,7 @@ TURN_K = 2
 def _thr(name: str, fallback: float) -> float:
     """取召回旋钮（配置优先; 配置层异常 → 回落模块常量, 绝不上抛）。"""
     try:
-        from core.brain.wiki_v2.recall_config import get
+        from core.brain.recall_config import get
         return get(name)
     except Exception:                            # noqa: BLE001 — 配置层不阻断召回
         return fallback
@@ -117,7 +117,7 @@ def recall_subgraph(
 
     # 一跳扩展: **边表的 1-hop**（G3 起边在 edges.jsonl——任意 rel 都算一跳,
     # 不再只认旧字段 links ∪ contradictions）
-    from core.brain.wiki_v2.graph import graph_of
+    from core.brain.graph import graph_of
     g = graph_of(store)
     for n in list(picked.values()):
         for tgt in g.neighbors(n.id):
@@ -381,7 +381,7 @@ def _random_segment(nodes: list[BrainNode],
 
 def random_flash_segment(store: WikiStoreV2,
                          rng: random.Random | None = None) -> BrainNode | None:
-    """随机浮现段（memory_flash 用, 2026-09-02 切换 wiki_v2）: 从 episode
+    """随机浮现段（memory_flash 用, 2026-09-02 切换 brain）: 从 episode
     （质感日常, 第一人称本就"我"）双通道随机摘 1 段——"想起一件事"的素材。
 
     原 legacy random_recall_segment 基于 events 文本摘段; v2 节点层同数学

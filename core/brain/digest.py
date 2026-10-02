@@ -59,27 +59,27 @@ from contract.digest_registry import (
     PHASE_UNDERSTAND,
     digest_registry,
 )
-from core.brain.wiki_v2 import groups, marks
-from core.brain.wiki_v2.entities import candidate_table, hit_set, new_nodes_block, payload_block
-from core.brain.wiki_v2.llm_call import llm_chat
-from core.brain.wiki_v2.nodes import PLAYER_SUBJECT, make_node
-from core.brain.wiki_v2.recall import (
+from core.brain import groups, marks
+from core.brain.entities import candidate_table, hit_set, new_nodes_block, payload_block
+from core.brain.llm_call import llm_chat
+from core.brain.nodes import PLAYER_SUBJECT, make_node
+from core.brain.recall import (
     EmbedFn,
     recommend_candidates,
 )
-from core.brain.wiki_v2.render import (
+from core.brain.render import (
     render_cognition_line,
     render_cognition_list,
 )
-from core.brain.wiki_v2.revise import (
+from core.brain.revise import (
     apply_attribution,
     apply_closures,
     apply_decisions,
 )
-from core.brain.wiki_v2.address import unique_title
-from core.brain.wiki_v2.graph import REL_AKIN
-from core.brain.wiki_v2.notes import rewrite_op
-from core.brain.wiki_v2.store import WikiStoreV2
+from core.brain.address import unique_title
+from core.brain.graph import REL_AKIN
+from core.brain.notes import rewrite_op
+from core.brain.store import WikiStoreV2
 from core.session.events import TYPE_NOTICED, is_content_event
 from core.session.maintenance import exclude_abandoned
 from core.session.renderer import render_timeline
@@ -170,7 +170,7 @@ def digest_segment(
         aff_at_encoding: 本段**开始之前**的好感标量 `Affection.to_scalar()` ∈ [−1,1]
                    （§3.3.3）——落进 episode 节点的**快照**, 写入后永不改。
                    None = 未采集 → 字段不落库（与 `0.0` 中性区分）。调用方算,
-                   因为 wiki_v2 看不到事件流里的 affection 事件。
+                   因为 brain 看不到事件流里的 affection 事件。
         emotion_lexicon: 角色情绪词表 `{键: {comment, eg, path}}`
                    （`core.media.load_emotion_lexicon(char_dir)`, §3.3.2）。
                    给了 → 只把**本段实际出现的键**的作者标尺注进 Round A,
@@ -726,7 +726,7 @@ def _create_a_nodes(store: WikiStoreV2, entries: list[dict], *, ts: str,
 
     Returns: `(episode_ids, player_ids)`——episode_ids 供 B 覆盖检查。
     """
-    from core.brain.wiki_v2.revise import _find_duplicate
+    from core.brain.revise import _find_duplicate
     episode_ids: list[str] = []
     player_ids: list[str] = []
     for ent in entries:
@@ -861,7 +861,7 @@ def _open_promises_text(items: list) -> str:
     行格式复用注入块的 `notes.render_item`（`n3 周六模型店 (m0009)  ← 记于 3 天前`）——
     ⚠️ **一份行格式只有一个实现**（两个写者必然漂移）。
     """
-    from core.brain.wiki_v2.notes import render_item
+    from core.brain.notes import render_item
     return "\n".join(f"- {render_item(it)}" for it in items)
 
 
@@ -910,8 +910,8 @@ def _round_b_material(store: WikiStoreV2, episode_ids: list[str],
 
     Returns: episodes_text（含候选提示行）。
     """
-    from core.brain.wiki_v2 import recall_ledger
-    from core.brain.wiki_v2.recall import _thr, CAND_K
+    from core.brain import recall_ledger
+    from core.brain.recall import _thr, CAND_K
 
     thr_k = int(_thr("cand_k", CAND_K))
     acc = recall_ledger.CollisionAccount(char_id)

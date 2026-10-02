@@ -15,9 +15,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from core.brain.wiki_v2 import WikiStoreV2, make_node          # noqa: E402
-from core.brain.wiki_v2.address import find_episode, unique_title   # noqa: E402
-from core.brain.wiki_v2.digest import digest_segment           # noqa: E402
+from core.brain import WikiStoreV2, make_node          # noqa: E402
+from core.brain.address import find_episode, unique_title   # noqa: E402
+from core.brain.digest import digest_segment           # noqa: E402
 from core.session.events import make_event                     # noqa: E402
 from llm import task_labels as T                               # noqa: E402
 

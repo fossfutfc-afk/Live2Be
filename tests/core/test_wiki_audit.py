@@ -8,9 +8,9 @@
     这条不变量在构造上不可能被破坏（一个方向一条边, 查两端都走 `out`/`inc`）。
   · `test_count_invariant_detected_and_repaired` —— `count` 连属性本身都没了。
 """
-from core.brain.wiki_v2 import WikiStoreV2, make_node
-from core.brain.wiki_v2.graph import Edge
-from core.brain.wiki_v2.revise import apply_revision_package
+from core.brain import WikiStoreV2, make_node
+from core.brain.graph import Edge
+from core.brain.revise import apply_revision_package
 
 
 def _store(tmp_path) -> WikiStoreV2:

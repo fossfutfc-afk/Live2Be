@@ -19,7 +19,7 @@
 ## 0.1 模块文件布局（多文件分工, 2026-09-02）
 
 ```
-core/brain/wiki_v2/                # 独立模块——不动现有 brain/*.py 直到 M 系列切换
+core/brain/                # 独立模块——不动现有 brain/*.py 直到 M 系列切换
 ├── AGENT_BRAIN.md                 # 本蓝图
 ├── __init__.py                    # 公共导出
 ├── nodes.py                       # ✅ 板块1 节点数据结构（3 kind: episode/experience/belief; fact/relation 已砍）
@@ -308,7 +308,7 @@ apply_revision_package 复用, digest_registry 注册 deep 动作集）。
 约定/玩家透露/角色内心表露; 寒暄表情不记; 单轮无实质不硬凑。玩家说的话第一人称
 只写角色感受与回应, 玩家原话放 verbatim。
 
-**实现时机**: "digest 接入运行时"板块（async_digest 切 wiki_v2 digest_segment +
+**实现时机**: "digest 接入运行时"板块（async_digest 切 brain digest_segment +
 触发器 should_digest_mmt 纯函数 + seed 挂载 + affection 幂等写）——2026-09-02 动工。
 
 **运行时切换状态（2026-09-02 ✅ 完成）**:
@@ -320,7 +320,7 @@ apply_revision_package 复用, digest_registry 注册 deep 动作集）。
   （`_maybe_mmt_digest`: 轮数判定 + in_vn/in_memorial 保护内聚, 纯函数可单测）
 - 好感结算: digest 返回 affection_delta → 运行时幂等写 affection 事件
   （幂等键 interact_max, `_interact_max` 助手——真源 events.jsonl）
-- bond/vn_cli 剧情注入 + random_events memory_flash 同步切 wiki_v2
+- bond/vn_cli 剧情注入 + random_events memory_flash 同步切 brain
   （`load_brain_segment` 公共 helper / `random_flash_segment` 双通道随机摘段）
 - ~~legacy core/brain/{consolidation,hippocampus,recall} 保留但无运行时消费方~~
   **2026-09-21 已整族删除**（连同 `llm/prompts/digest.md`、`contract/schema.build_digest_schema()`、
@@ -478,7 +478,7 @@ query 构造（组织 pass 用）: 本次新经历时间线全文（非用户输
 通道1 相似度: embed_fn 注入（批式; 无 embed_fn → 降级 tags 词面匹配）→ top-k（k=5）
 通道2 珍贵保底: significance ≥ 0.8 且未被通道1命中 → 补 n=2
 通道3 随机摘段: 30% 珍贵（sig 加权）/ 70% 对数正态(ts 年龄)加权抽 1 段
-              （数学照搬 legacy random_recall_segment, age = ts 差——wiki_v2 无全局 seq）
+              （数学照搬 legacy random_recall_segment, age = ts 差——brain 无全局 seq）
 合并: 去重(id) → 沿 links ∪ contradictions 一跳扩展 → significance 降序（暂定）→ 截断 15
 ```
 
@@ -520,7 +520,7 @@ narration+verbatim 原样保存（质感优先），只有真正认知变化才�
 
 ### 背景与动机
 
-wiki_v2 节点目前只有 `ts`（digest 创建时间）——不是事件发生时的**世界内时间**:
+brain 节点目前只有 `ts`（digest 创建时间）——不是事件发生时的**世界内时间**:
 "最近的事"排序用的是 digest 时间; 角色/组织视图无从表达"这是多久前的事"。
 单元时间系统补上这个"何时"维度。
 
@@ -599,7 +599,7 @@ wiki_v2 节点目前只有 `ts`（digest 创建时间）——不是事件发生
 - 板块6 深度整理轮（phase=deep: merge/contradict, 每 N=5 段）——预留
 
 **每 M 结束**: 全量 pytest + 提交（feat/two-pass-emotion）; M3 之前不动现有
-consolidation/recall 的对外行为（新代码独立目录 core/brain/wiki_v2/, 最后切换）。
+consolidation/recall 的对外行为（新代码独立目录 core/brain/, 最后切换）。
 
 ---
 

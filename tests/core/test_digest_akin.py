@@ -19,8 +19,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from core.brain.wiki_v2 import WikiStoreV2, make_node          # noqa: E402
-from core.brain.wiki_v2.digest import digest_segment           # noqa: E402
+from core.brain import WikiStoreV2, make_node          # noqa: E402
+from core.brain.digest import digest_segment           # noqa: E402
 from core.session.events import make_event                     # noqa: E402
 from llm import task_labels as T                               # noqa: E402
 
@@ -204,7 +204,7 @@ def test_akin_skips_missing_target(tmp_path):
 
 def test_akin_skips_self_edge(tmp_path):
     """本段那条 episode 就是她指的那条 ⇒ 不写自环（单测守卫: 真机上很罕见但可达）。"""
-    from core.brain.wiki_v2.digest import _link_akin
+    from core.brain.digest import _link_akin
     st = _old_episode(tmp_path)
     e = _noticed(4, "瓦片缝里的苔藓", "m0001")
     edges, lost, self_skip = _link_akin(st, ["m0001"], [e], ts="2026-10-01T10:00:00")

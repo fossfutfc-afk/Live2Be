@@ -30,7 +30,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from core.brain.wiki_v2.seed import _collect_leaves            # noqa: E402  复用 yml walker
+from core.brain.seed import _collect_leaves            # noqa: E402  复用 yml walker
 from core.parsing.dynamic_character_parser import (            # noqa: E402
     CharacterLoader, load_yaml_file, yaml_to_prompt)
 from llm.client import LLMClient                               # noqa: E402

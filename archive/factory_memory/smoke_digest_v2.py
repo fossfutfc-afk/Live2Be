@@ -21,7 +21,7 @@ import shutil
 import sys
 from pathlib import Path
 
-from core.brain.wiki_v2 import (
+from core.brain import (
     WikiStoreV2,
     digest_segment,
     render_character_view,

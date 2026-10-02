@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""合成层单测（`core/brain/wiki_v2/compose.py`, 2026-09-20）。
+"""合成层单测（`core/brain/compose.py`, 2026-09-20）。
 
 用户口径（四条道路 → 最终打分）:
 
@@ -28,7 +28,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from core.brain.wiki_v2 import (                       # noqa: E402
+from core.brain import (                       # noqa: E402
     KIND_PRIOR,
     KIND_SIMILARITY,
     ChannelHit,
@@ -39,9 +39,9 @@ from core.brain.wiki_v2 import (                       # noqa: E402
     make_node,
     recall_now,
 )
-from core.brain.wiki_v2 import recall_ledger           # noqa: E402
-from core.brain.wiki_v2.channels import KIND_GATE, SCALE_COSINE, SCALE_UNIT  # noqa: E402
-from core.brain.wiki_v2.channel_impl import build_channels                   # noqa: E402
+from core.brain import recall_ledger           # noqa: E402
+from core.brain.channels import KIND_GATE, SCALE_COSINE, SCALE_UNIT  # noqa: E402
+from core.brain.channel_impl import build_channels                   # noqa: E402
 from core.common import fuse as shapes                 # noqa: E402
 from core.media import place_fuse as pf                # noqa: E402
 

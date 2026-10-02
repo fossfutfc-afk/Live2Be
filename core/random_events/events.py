@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """随机事件实现 — 记忆突然浮现 / 角色自己想说话。
 
-记忆浮现（bond_start）: 从 wiki_v2 双通道随机摘 1 段 episode（珍贵保底 +
+记忆浮现（bond_start）: 从 brain 双通道随机摘 1 段 episode（珍贵保底 +
   遗忘曲线, random_flash_segment）——角色在剧情开始前突然想起一件事。
   **soft**: 不要求 AI 一定做反馈——记忆浮现是情绪底色,
   "如果合适可以自然流露, 不必刻意提起"（用户定调: 低频惊喜, 不是指令）。
@@ -22,7 +22,7 @@ from core.random_events.spec import (
 def _memory_flash_fire(ctx: dict[str, Any]) -> str | None:
     """记忆突然浮现: 摘到的 episode 段 → 第一人称"你突然想起…"。
 
-    ctx 需含 segment（BrainNode, 调用方用 wiki_v2 random_flash_segment 预摘）;
+    ctx 需含 segment（BrainNode, 调用方用 brain random_flash_segment 预摘）;
     无记忆可浮（空库/无 episode）→ None。
     """
     seg = ctx.get("segment")

@@ -70,7 +70,7 @@ class BoardLifecycle(str, Enum):
 
     `docs/DESIGN_RESEND.md` 的"重发 / 拒绝羁绊"要按**固化线**分两区处置:
     `DELIVERED`（水位之上）**直接丢**——真源与暂存里本来什么都没有;
-    `COMMITTED`（水位之下）只能走 `wiki_v2/revise` **更正**。
+    `COMMITTED`（水位之下）只能走 `brain/revise` **更正**。
     一个 bool 让这两区的区别只活在注释里, 谁都能顺手 `= True`。
     三态 + 唯一丢弃入口 `_discard_boards` 之后, 这条边界可断言、可 grep。
     """

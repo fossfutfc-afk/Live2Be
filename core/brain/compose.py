@@ -105,7 +105,7 @@ A 对**没有 `ts`** 的旧档节点给 `raw=None`（`IntensityPrior` 降级语�
 
 本模块**纯函数、不写日志**。消费方一行接上:
 
-    from core.brain.wiki_v2 import recall_ledger
+    from core.brain import recall_ledger
     res = recall_now(store, ctx)
     recall_ledger.log_compose(char_id=store.path.parent.parent.name,
                               **res.ledger_fields())
@@ -114,7 +114,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from core.brain.wiki_v2.channels import (
+from core.brain.channels import (
     KIND_PRIOR,
     SCALE_COSINE,
     ChannelHit,
@@ -308,7 +308,7 @@ def compose(results: list[ChannelResult], *,
 def _hit_k() -> int:
     """读 `[recall].sim_k`（配置层异常 → 缺省, 绝不阻断）。"""
     try:
-        from core.brain.wiki_v2.recall_config import get
+        from core.brain.recall_config import get
         return int(get("sim_k"))
     except Exception:                            # noqa: BLE001 — 配置层不阻断召回
         return DEFAULT_HIT_K
@@ -320,7 +320,7 @@ def _hit_k() -> int:
 
 def gather_all(store, ctx: RecallContext) -> list[ChannelResult]:
     """跑**全部**链路（顺序 = 登记顺序）。单条链路失败已在链路内降级, 这里不抛。"""
-    from core.brain.wiki_v2.channel_impl import build_channels
+    from core.brain.channel_impl import build_channels
     return [ch.gather(store, ctx) for ch in build_channels()]
 
 

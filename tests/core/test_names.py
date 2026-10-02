@@ -54,7 +54,7 @@ def test_names_interface():
 def test_player_profile_goes_through_config_and_fails_loudly(tmp_path, monkeypatch):
     """玩家档案 = `config/player/profile.yml`，**与角色档案同一套读取路径**；坏档案直接抛。
 
-    2026-09-23 用户裁决: ① 玩家也走 config（"老师"不再硬编码在 `wiki_v2/entities.py`，
+    2026-09-23 用户裁决: ① 玩家也走 config（"老师"不再硬编码在 `brain/entities.py`，
     只剩 `contract.DEFAULT_SPEAKER_NAMES` 兜底）② 这个文件**读失败要报错, 不静默兜底**
     —— 静默退回"老师"会让一个坏文件永远不被人发现。
     """

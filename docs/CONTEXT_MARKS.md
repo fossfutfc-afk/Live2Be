@@ -4,7 +4,7 @@
 > 判据只有一条：**同一个形状不许有两个意思**——本项目最贵的一类 bug 就是"同形不同义"
 > （真机 art 命中率 0/5 就是示例形状与规则不一致造成的，陷阱 3/46）。
 >
-> ⭐ **代码真源 = `core/brain/wiki_v2/marks.py`**（N5d, 2026-09-29）: 本文那张表在代码里
+> ⭐ **代码真源 = `core/brain/marks.py`**（N5d, 2026-09-29）: 本文那张表在代码里
 > **一行对一行**（`NAME_OPEN` / `HEAD_OPEN` / `FIELD_SEP` …），**头的拼装只有 `marks.head` 一处**。
 > 改形状 = 改那张表 + 改 marks + 改契约示例**同批**（守门用例 `tests/core/test_marks_guard.py`）。
 >
@@ -75,11 +75,11 @@
 
 | 谁 | 在哪 |
 |---|---|
-| ⭐ **形状（唯一的实现）** | **`core/brain/wiki_v2/marks.py`** —— `name()` / `head()` / `kind_tag()` / `relative()` / `abs_date()` / `section()` + 本文这张表的常量。**改形状只改它**（守门 = `tests/core/test_marks_guard.py`） |
-| 渲染（她的视图） | `core/brain/wiki_v2/render.py::_memory_line`（+ `render_recall_block` 走同一个函数）· `render_cognition_line`（L2 视图 —— 认知列表与候选**共用同一份**） |
+| ⭐ **形状（唯一的实现）** | **`core/brain/marks.py`** —— `name()` / `head()` / `kind_tag()` / `relative()` / `abs_date()` / `section()` + 本文这张表的常量。**改形状只改它**（守门 = `tests/core/test_marks_guard.py`） |
+| 渲染（她的视图） | `core/brain/render.py::_memory_line`（+ `render_recall_block` 走同一个函数）· `render_cognition_line`（L2 视图 —— 认知列表与候选**共用同一份**） |
 | 渲染（digest 三处） | `digest._episode_lines`（R4）· `digest._round_b_material`（R2）· `entities.new_nodes_block`（R3） |
-| 渲染（L2-a 分群） | `core/brain/wiki_v2/groups.py::render_blocks`（块的把手）· `render_groups`（已有的类 —— 钥匙是名字） |
-| 解析（**唯一的读者**） | ⭐ `core/brain/wiki_v2/address.py::normalize_title` / `find_episode`（`noticed` 与将来的 `look` 共用一份；要剥的字符集**从 `marks` 取** ⇒ 印剥同源） |
+| 渲染（L2-a 分群） | `core/brain/groups.py::render_blocks`（块的把手）· `render_groups`（已有的类 —— 钥匙是名字） |
+| 解析（**唯一的读者**） | ⭐ `core/brain/address.py::normalize_title` / `find_episode`（`noticed` 与将来的 `look` 共用一份；要剥的字符集**从 `marks` 取** ⇒ 印剥同源） |
 | 落账 | `core/mmt/engine.py::_log_notices`（事件类型 `noticed`，非内容事件） · `digest._link_akin`（→ `akin` 边） |
 | 时间格式 | `core/worldtime/age.py::render_relative`（`3 周前`）· `render_date`（`9/27` / `2025/9/26`）—— 经 `marks.relative` / `marks.abs_date` 出口 |
 | 注入地图 | `docs/PROMPT_INJECTION_MAP.md` §2（P15 brain 段 / P19 召回段）· L2 的输入见 `digest._round_b_material` |
@@ -91,6 +91,6 @@
 | 2026-09-29 | 建立（N5）。定稿 `〔《事件名》｜相对｜绝对｜难忘〕`；此前记忆行是 `（3 周前·难忘）【标题】正文`（三种括号、无绝对日期） |
 | 2026-09-29 | 补 `{"noticed": …}` 想起行（N5b）与"候选旁的提示"（P19 段末那句）；真机 A/B 实测: 动作只写在规则书里会漏报（2/4）, 挪到候选旁 3/4 |
 | 2026-09-29 | ⭐ **N2**: 加「位置约定：同一个括号两个读者」（第一格=钥匙 / 空字段不占位 / 字段随 kind 变 / 两个 id 空间）；L2 的标题 `「」`→`《》`（原来与她视图里的"逐字原话"同形不同义） |
-| 2026-09-29 | ⭐⭐ **N5d · 括号统一**: 新 `core/brain/wiki_v2/marks.py` = **括号与信息头的唯一实现**（本文这张表在代码里一行对一行）；**五个写侧全部改调它** —— R4 `- m0021 「标题」 正文` → `- 〔m0021｜《标题》〕正文` · R3 `u0001 [episode] 「模型店」 正文` → `〔u0001｜《模型店》｜episode〕正文`（类型与名字**都进头**）· 她视图 / L2 / R2 **逐字节不变**。类型标签收成一处（原来 `[belief]` 与 `belief` 两个形状）、时间短语收成一处（原来她视图与 note 各算一遍）。`address` 的剥字符集改为从 `marks` 取（**印剥同源**）。守门 = `tests/core/test_marks_guard.py`（代码字面量零手写 `《》〔〕｜` · 她的视图不许印编号 · 格序钉死 · 印剥同源 · marks 零 import 期依赖） |
-| 2026-09-29 | ⭐ **N7 · L2-a 分群**: 新增两个读者 —— **块的把手** `〔b1｜3 条〕`（`head(None, …)`：**不是图节点**的把手, 只有钥匙与读者字段两格）与**已有的类** `〔《那片苔藓》｜3 条〕`（⭐ 群的钥匙**就是名字**, 走 `address.find_group`, 与 `find_episode` 同一份解析）。两者都是"头 + 缩进的成员行", 成员行复用经历行 `- 〔m0021｜《名》〕正文`。详见 `core/brain/wiki_v2/groups.py` |
+| 2026-09-29 | ⭐⭐ **N5d · 括号统一**: 新 `core/brain/marks.py` = **括号与信息头的唯一实现**（本文这张表在代码里一行对一行）；**五个写侧全部改调它** —— R4 `- m0021 「标题」 正文` → `- 〔m0021｜《标题》〕正文` · R3 `u0001 [episode] 「模型店」 正文` → `〔u0001｜《模型店》｜episode〕正文`（类型与名字**都进头**）· 她视图 / L2 / R2 **逐字节不变**。类型标签收成一处（原来 `[belief]` 与 `belief` 两个形状）、时间短语收成一处（原来她视图与 note 各算一遍）。`address` 的剥字符集改为从 `marks` 取（**印剥同源**）。守门 = `tests/core/test_marks_guard.py`（代码字面量零手写 `《》〔〕｜` · 她的视图不许印编号 · 格序钉死 · 印剥同源 · marks 零 import 期依赖） |
+| 2026-09-29 | ⭐ **N7 · L2-a 分群**: 新增两个读者 —— **块的把手** `〔b1｜3 条〕`（`head(None, …)`：**不是图节点**的把手, 只有钥匙与读者字段两格）与**已有的类** `〔《那片苔藓》｜3 条〕`（⭐ 群的钥匙**就是名字**, 走 `address.find_group`, 与 `find_episode` 同一份解析）。两者都是"头 + 缩进的成员行", 成员行复用经历行 `- 〔m0021｜《名》〕正文`。详见 `core/brain/groups.py` |
 

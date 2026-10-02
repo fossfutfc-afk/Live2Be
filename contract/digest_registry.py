@@ -15,9 +15,9 @@
     phase=deep       深度整理（merge/contradict/…: 后续板块注册, 每 N=5 段触发）
 包级字段（B 轮）: affection_exp_delta（引擎消费）。
 ⚠️ ~~`evidence`~~ **2026-09-29 删** —— 零产品消费者, 而契约每段要它 ≤5 条 + `quote`
-逐字引用时间线 ⇒ 白付；详见 `core/brain/wiki_v2/REDUNDANCY.md`。
+逐字引用时间线 ⇒ 白付；详见 `core/brain/REDUNDANCY.md`。
 
-引擎执行层在 core/brain/wiki_v2/（digest.py 两轮编排 + revise.py 执行器, 板块 4）;
+引擎执行层在 core/brain/（digest.py 两轮编排 + revise.py 执行器, 板块 4）;
 本文件只管"LLM 契约层": 结构/类型/边界/字段约束。
 """
 from __future__ import annotations
@@ -50,7 +50,7 @@ PHASE_DEEP = "deep"
 #: B 轮决策类型
 DECISIONS = ("touch", "update", "add")
 
-#: promise 的**结局**（词表 —— 与 `core.brain.wiki_v2.notes` 那一份同源）。
+#: promise 的**结局**（词表 —— 与 `core.brain.notes` 那一份同源）。
 #: ⚠️ 2026-09-29 起它**只用于 note**（`close` 行的 `state`）: promise 已经退出图,
 #: 节点上不再有 `outcome` 字段（`nodes.PROMISE_OUTCOMES` 随之删掉）。
 PROMISE_OUTCOMES = ("kept", "broken", "superseded")
@@ -1379,7 +1379,7 @@ def _clean_episode_item(e: dict, i: int, errors: list[str], warnings: list[str],
     # ⏸ `about_hint`（归属线索, §8.2/D1）清洗 **2026-09-29 删** —— 字段退役:
     # 它和 R3 的"挂谁"**判两次**（R1 猜一次、R3 再判一次, 还可能不一致）,
     # 而 R3 本来就拿得到候选表（全量）+ 新节点正文 ⇒ **引擎不必替它预判一个名字**。
-    # 详见 `core/brain/wiki_v2/REDUNDANCY.md` #2。
+    # 详见 `core/brain/REDUNDANCY.md` #2。
     # ⏸ `items`（物品台账）清洗 **2026-09-29 删** —— 字段退役, 旧档里的值一并清掉。
     sig = e.get("significance")
     try:

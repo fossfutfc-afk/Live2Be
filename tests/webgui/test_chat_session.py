@@ -18,8 +18,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-from core.brain.wiki_v2 import WikiStoreV2                       # noqa: E402
-from core.brain.wiki_v2.nodes import make_node                  # noqa: E402
+from core.brain import WikiStoreV2                       # noqa: E402
+from core.brain.nodes import make_node                  # noqa: E402
 from core.session import SessionStore                           # noqa: E402
 from webgui import chat, deps                                   # noqa: E402
 

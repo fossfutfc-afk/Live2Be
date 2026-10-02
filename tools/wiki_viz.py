@@ -29,8 +29,8 @@ sys.path.insert(0, str(ROOT))
 
 import networkx as nx                       # dev 依赖（requirements-dev; 运行时不用）
 
-from core.brain.wiki_v2 import WikiStoreV2
-from core.brain.wiki_v2.nodes import BrainNode
+from core.brain import WikiStoreV2
+from core.brain.nodes import BrainNode
 
 #: kind → 颜色 / 标签
 KIND_STYLE = {

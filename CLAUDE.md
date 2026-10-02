@@ -86,7 +86,7 @@ core/          引擎层（无 web 依赖, CLI/实验同源复用）
    │                         ⚠️ bond_actions/bond_executor/memorial_actions/stream_probe/
    │                         sentence_splitter（v1 契约与执行）已于 2026-09-21 删除
    ├ session/                事件流: store(events.jsonl)/renderer(叙事化)/chapters(认章+回放)/maintenance
-   ├ brain/wiki_v2/          digest 记忆（RoundA/B 提炼 + 好感结算 + 注入视图）
+   ├ brain/          digest 记忆（RoundA/B 提炼 + 好感结算 + 注入视图）
    ├ promptkit/              提示词装配: box/tail/task/report（见 §8）
    ├ worldtime/              时间：三层时钟（剧情/现实日历/壁钟, DESIGN_WIKI_V3 §4）
    ├ common/                 横切: errors（**C10 起只是薄再导出壳** → 真家 `contract/errors.py`）/
@@ -114,7 +114,7 @@ tests/ core/ webgui/ llm/ renderer/ apps/ 分别对应域; experiments/ 真 API 
 
 注：`core/bond_story.py`/`web/` 是历史名，**不存在**；现为 `core/bond/bond_story/`（**C9 起是包**）
 与 `webgui/`。⚠️ `core/brain/{consolidation,hippocampus,recall}.py`（旧版记忆 digest v1）
-与 **v1 动作契约整族已于 2026-09-21 删除**；记忆主链 = `core/brain/wiki_v2/`。根级
+与 **v1 动作契约整族已于 2026-09-21 删除**；记忆主链 = `core/brain/`。根级
 `DESIGN_BRAIN.md` 为记忆体系总设计（历史+现网混合，读前看文首状态）。
 
 ---
@@ -399,7 +399,7 @@ CLI/测试同步路径在引擎内串行。
   "一章一条"**只收口属于这一章**的条目（`event_seq` 与 bond 块相交），聊天那些照 0~5 条留着；
   提示词没压住时 `_collapse_bond_episodes` 留 `significance` 最高的那条 +
   打一行 `digest_a contract=bond` 告警（可 grep）。
-- `digest_segment`（wiki_v2, RoundA 记录 + RoundB 组织 + 好感结算）触发点：
+- `digest_segment`（brain, RoundA 记录 + RoundB 组织 + 好感结算）触发点：
   ① bond 完整闭环（vn_exit completed）后 ② MMT 每 N=25 轮（in_vn/in_memorial 中
   不触发）。增量幂等（digested_seq 水位）；失败零损失。
   ⚠️ **digest 的唯一触发点是 `if completed:`**（webgui `_wrapup_inner`）——而
@@ -413,7 +413,7 @@ CLI/测试同步路径在引擎内串行。
   system 尾, 0 LLM）② ⭐ **每轮召回段 `【你想起的事】`**（P19, **动态尾** —— 它的查询是玩家
   这一句, 拼进 system 就逐轮破前缀缓存）。refs **印名字不印编号**（`(《名字》)`；拿不到名字
   整段不印）。⚠️ R4 收口**只发 `close` 不发 `retire`**（退场要等读路径召回接通, 链路 ⑥）。
-  设计/代码索引：`core/brain/wiki_v2/DESIGN_GRAPH_V4.md` §3.2 / §6 / §8 / §8.6。
+  设计/代码索引：`core/brain/DESIGN_GRAPH_V4.md` §3.2 / §6 / §8 / §8.6。
 - **每段四步（`R1 → R4 → R2 → R3`）**：R4 收口 2026-09-25 已接线（`digest.close`，位置在
   R1 之后/R2 之前）—— ⏸ **2026-09-29 承诺退图后它只产 note 操作**（`ClosureResult` 只剩
   `ops`/`warnings`），所以那条"位置是正确性"的理由**没了**（顺序照旧）。
@@ -477,7 +477,7 @@ CLI/测试同步路径在引擎内串行。
   她照抄它来指认）·
   `《》`事件名 · `（）「」`正文与原话 · `[]`历史里的动作名前缀 · `{}`JSON 行 ·
   ⚠️ `·` 是并列、**不是字段边界**（`｜` 才是）。全表 + 三条纪律 = `docs/CONTEXT_MARKS.md`。
-  ⭐ **代码真源 = `core/brain/wiki_v2/marks.py`**（2026-09-29, N5d）：括号表 + `name()` /
+  ⭐ **代码真源 = `core/brain/marks.py`**（2026-09-29, N5d）：括号表 + `name()` /
   `head()` / `kind_tag()` / `relative()` 的**唯一实现**，五个写侧（她视图 / L2 / R2 / R4 / R3）
   全走它；`address.normalize_title` 的剥字符集也从它取（**印剥同源**）。守门 =
   `tests/core/test_marks_guard.py`（代码字面量里零手写 `《》〔〕｜`）。
@@ -524,7 +524,7 @@ CLI/测试同步路径在引擎内串行。
 - **运行时配置** settings.toml（gitignore, GUI 设置页读写）：`[llm]`(api/base/model/
   reasoning_effort) · `[llm.tasks.*]`(按形态覆盖档位/max_tokens, 真源 llm/task_levels.py)
   · `[image]`(api/model/screen_size/**enabled 生图总开关**) · `[promptkit]`(task_card)
-  · `[recall]`(召回旋钮, 真源 `core/brain/wiki_v2/recall_config.py`) · `[embed]`(语义检索后端,
+  · `[recall]`(召回旋钮, 真源 `core/brain/recall_config.py`) · `[embed]`(语义检索后端,
   真源 `core/rag/embedder.py`)。
   优先级 构造参数 > settings.toml > .env > 默认。
   ⚠️ **`[embed]` 服务不在 = digest 语义召回静默降级**（2026-09-27 实测）：`base_url`
@@ -775,12 +775,12 @@ CLI/测试同步路径在引擎内串行。
     断言 `emo_version` 涨），别只断言"门控就绪/能推进"（兜底路径会粉饰）。
   · **拆分纪律**（拆包节点通用）：叶子优先 · 门面逐个显式再导出（不定义 `__all__`）·
     门面只指向“名字的真家” · 接缝走 `webgui/deps.py` · 每节点一提交 + 全量 + 冒烟。
-  · 余下：**只有可选项** —— C15（`core/brain/wiki_v2/` 再分）；
+  · 余下：**只有可选项** —— C15（`core/brain/` 再分）；
     **C13 测试拆分经用户 2026-09-21 裁决不做**（连同 `tests/stubs/` 共享桩；共享桩已有 `tests/stub_tasks.py`）；
     **C14（两个 llm 文件）用户已明确"不用动"**；**○C8b 已落地**（`api.py` 1123 → `entry.py` 563 + `api.py` 624）。
 - **重新生成 / 重发 的语义与固化线**：docs/DESIGN_RESEND.md（**设计稿, 未动代码**。
   决策: MMT 提交边界 = **回合提交**; 两区 = 水位之上**丢弃** / 水位之下走
-  `wiki_v2/revise` **更正**; 板级那一半已由 `BoardLifecycle` + `_discard_boards` 落地;
+  `brain/revise` **更正**; 板级那一半已由 `BoardLifecycle` + `_discard_boards` 落地;
   含 `vn_abandon` 族退休方案——存量真源 0 条, 读路径空转）
 - 记忆体系总设计：根级 DESIGN_BRAIN.md（混合史, 慎读）；视觉协议：docs/DESIGN_VISUAL_PROTOCOL.md
 - 模块级设计：docs/DESIGN_{GUI,SEGMENT,WORLD,MULTI_CHAR,VISUAL,VISUAL_PROTOCOL}.md + docs/DESIGN_STREAM_CONTRACT.md（**流式契约形式 = MMT + VN 统一**; C12b 起 docs/; BOND_STORY 已归档）

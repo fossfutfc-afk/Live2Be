@@ -20,21 +20,21 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
-from core.brain.wiki_v2 import notes as note_ops
-from core.brain.wiki_v2.entities import SELF_ID, SENSEI_ID, surface_forms
-from core.brain.wiki_v2.evolution import EvolutionLog
-from core.brain.wiki_v2.graph import (
+from core.brain import notes as note_ops
+from core.brain.entities import SELF_ID, SENSEI_ID, surface_forms
+from core.brain.evolution import EvolutionLog
+from core.brain.graph import (
     REL_ABOUT,
     REL_SUPPORTS,
 )
-from core.brain.wiki_v2.nodes import (
+from core.brain.nodes import (
     PLAYER_SUBJECT,
     BrainNode,
     KINDS,
     make_node,
 )
-from core.brain.wiki_v2.notes import NotesState
-from core.brain.wiki_v2.store import WikiStoreV2
+from core.brain.notes import NotesState
+from core.brain.store import WikiStoreV2
 from core.common import err
 
 logger = logging.getLogger(__name__)
@@ -52,7 +52,7 @@ _PATCH_FIELDS = ("subject", "text", "significance", "tags", "growth")
 _ATTACHABLE = ("episode", "belief", "experience")
 #: hint 写回别名的长度上限 —— 超过这个长度的东西**不是称呼, 是一句话**。
 #: （同 `core.parsing.names.MAX_NAME_LEN` 的口径; 本模块**不 import 它** ——
-#: `wiki_v2` 的运行时依赖要保持纯 stdlib, 而 names 会拖进 yaml。）
+#: `brain` 的运行时依赖要保持纯 stdlib, 而 names 会拖进 yaml。）
 MAX_ALIAS_LEN = 8
 
 

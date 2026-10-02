@@ -3,7 +3,7 @@
 > 建立 2026-09-27。**它是什么**：本主题（新 note 机制 + graph 升级）的**施工文档** ——
 > 把 `PROCEED.md` §4.7 的裁决落成"能照着写代码"的规格。
 > **它不是什么**：不是设计争论的场所（争论见 `PROCEED.md` §4 与
-> `core/brain/wiki_v2/DESIGN_GRAPH_V4.md`）。
+> `core/brain/DESIGN_GRAPH_V4.md`）。
 >
 > **当前状态：代码一行未动。** 本文只写规格、契约形状、改动面、判据。
 > 用户已裁的三条（`PROCEED.md` §5「已裁」）：三层切法 · 规律落在边属性上 · `add` 只归 L2。
@@ -289,7 +289,7 @@ def render_evidence(evs: list[Evidence], local_of: dict[str, str], *, deep_k: in
 > ② `akin` 是**纯边、无属性** —— 引擎按**连通块**切块, ⭐ **边不进 LLM 视野**;
 > ③ 落地形状 = **两个键 `attach` / `new`**, LLM **按块**归属（不是自己报 members）;
 > ④ `covered` / `gap` / `conf` 属于 **L2-b（N8 `ignite`）**, 尚未落地。
-> 真源: `core/brain/wiki_v2/groups.py` · `contract/digest_registry.py::build_schema(PHASE_GROUP)`。
+> 真源: `core/brain/groups.py` · `contract/digest_registry.py::build_schema(PHASE_GROUP)`。
 
 ```json
 {
@@ -579,7 +579,7 @@ class Edge:
 ### 5.3 ⭐ `about` 两条边（"他"与"我"）
 
 **最小落点：~~复用 `about_hint`~~** ⛔ **2026-09-29：`about_hint` 已整条退役**（`REDUNDANCY.md` #2；
-现况见 `core/brain/wiki_v2/DESIGN_GRAPH_V4.md` §8 头注与 §8.2）。当年这里想"复用"的那个字段
+现况见 `core/brain/DESIGN_GRAPH_V4.md` §8 头注与 §8.2）。当年这里想"复用"的那个字段
 是 R1 摘的自然名字 → R3 映射成 entity id；**今天第 3 轮自己从正文/标题/原话里认称呼**
 （`entities.hit_set` 的正文通道 + 候选表），"给 belief 也加一个 `about_hint`"这个提案**随之作废** ——
 两条 `about` 边照旧要写，但**不再需要任何字段来传递"我在写谁"**。

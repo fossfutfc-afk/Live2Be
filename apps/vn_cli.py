@@ -25,7 +25,7 @@ from pathlib import Path
 
 from core.mmt.engine import MomoTalkEngine, load_brain_segment
 from core.bond.bond_story import BondScene, BondStoryEngine, SceneLoopError
-from core.brain.wiki_v2.store import WikiStoreV2
+from core.brain.store import WikiStoreV2
 from core.director.wiring import _build_director, _trigger_title   # C11: 接线层（webgui 也用它）
 from core.media.gallery import GalleryStore
 from core.parsing.names import speaker_names          # 名字接口（N1）
@@ -160,7 +160,7 @@ def run_bond_story_vn(
         return False
 
     title = _trigger_title(engine)
-    # Brain 记忆段（DESIGN_BRAIN.md, wiki_v2 2026-09-02 切换）: 本世界线 wiki
+    # Brain 记忆段（DESIGN_BRAIN.md, brain 2026-09-02 切换）: 本世界线 wiki
     # 第一人称注入——VN 中角色记得这个世界线前面的事（resume 过则有 digest 产物;
     # 空 → 零注入, 平行世界）。读失败静默跳过（不阻断 VN）。
     brain_segment = ""
@@ -231,10 +231,10 @@ def run_bond_story_vn(
     for i in range(1, force_after + 1):
         system_note = None
         # 随机事件（soft, 低频惊喜）: 记忆突然浮现——只在开场（第一场）触发,
-        # wiki_v2 双通道随机摘段 → "你突然想起…"（不要求 AI 反馈, 自然流露即可）
+        # brain 双通道随机摘段 → "你突然想起…"（不要求 AI 反馈, 自然流露即可）
         if i == 1 and store_ is not None and engine._session_id:
             try:
-                from core.brain.wiki_v2.recall import random_flash_segment
+                from core.brain.recall import random_flash_segment
                 from core.random_events import fire_event
                 wstore = WikiStoreV2(store_.data_root, world_id=store_.world_id,
                                      char_id=char.character_id)

@@ -6,8 +6,8 @@ experience.yml + beliefs.yml）复制进 worlds/{w}/characters/{c}/seed_snapshot
 """
 from pathlib import Path
 
-from core.brain.wiki_v2 import WikiStoreV2
-from core.brain.wiki_v2.seed import seed_from_config
+from core.brain import WikiStoreV2
+from core.brain.seed import seed_from_config
 
 _BRAIN_SEED = """\
 episodes:

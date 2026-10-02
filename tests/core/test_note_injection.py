@@ -14,7 +14,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-from core.brain.wiki_v2 import WikiStoreV2, make_node, notes
+from core.brain import WikiStoreV2, make_node, notes
 from core.mmt.engine import MomoTalkEngine, load_brain_segment, load_note_segment
 from core.session import SessionStore, make_event
 

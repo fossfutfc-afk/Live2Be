@@ -3,7 +3,7 @@
 > ## ⏭️⏭️ **接续后第一件事（2026-09-29 中断点 · N5d）**
 >
 > ✅ **N5d「括号统一」已落地 2026-09-29**（提交号见 `git log --oneline`）：新
-> **`core/brain/wiki_v2/marks.py` = 括号与信息头的唯一实现**（`name` / `head` / `kind_tag` /
+> **`core/brain/marks.py` = 括号与信息头的唯一实现**（`name` / `head` / `kind_tag` /
 > `relative` / `abs_date` / `section` + 括号表常量）；**五个写侧全部改调它**（她视图 / L2 /
 > R2 / R4 / R3 —— 后两者原来还写着 `「标题」`，是 N2 漏改的）；类型标签与时间短语各收成一处；
 > `address` 的剥字符集改为从 `marks` 取（**印剥同源**）。守门 = `tests/core/test_marks_guard.py`
@@ -192,7 +192,7 @@ embed_fn: **无（退词面）** ← 本机 LM Studio 没起（TRAPS 38 那条�
 | ⭐ **`docs/TRAPS.md`** | **陷阱 1–50**（编号全局，**不许改**） |
 | ⭐ **`docs/CONTEXT_MARKS.md`** | **上下文里的括号约定**（一形一义）: `【】`段头 · `〔〕`元信息 · `《》`事件名=地址 · `（）「」`正文与原话 · `[]`历史动作前缀 · `{}`JSON · `<>`占位符 · `｜`字段边界（⚠️ **`·` 不是边界**） |
 | ⭐ **`docs/RESEARCH_MEMORY_SURVEY.md`** | **三份调研结论**（本地深读 / 学术侧 9 条 / 生态侧 26 条，带出处与检索边界） |
-| `core/brain/wiki_v2/DESIGN_GRAPH_V4.md` | 图的设计稿：走法（**6 条**）· kind（**5 种**）· 每段四步 · 全景轮（⏸ promise 两段式 2026-09-29 退图） |
+| `core/brain/DESIGN_GRAPH_V4.md` | 图的设计稿：走法（**6 条**）· kind（**5 种**）· 每段四步 · 全景轮（⏸ promise 两段式 2026-09-29 退图） |
 | `docs/DESIGN_WIKI_V3.md` | V3 设计稿：四轴 · `nature`（含 `pattern`+`occurrences`）· 四条召回道路 |
 | `docs/DESIGN_RECALL.md` | **另一条链（读路径）**：`mmt_recall` 四支 scope / `when` / 结果生命周期 |
 | `docs/EXPERIMENT_CAND_HIGH.md` | Q11 阈值实验（**nomic vs Qwen3 实测**——换模型的依据） |

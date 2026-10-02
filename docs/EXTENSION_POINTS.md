@@ -37,9 +37,9 @@
 | `anniversary` | `core/worldtime/realtime.py` · `_minus_one_year` | "周年"窗口（未来需求） | docstring：*"当前没有调用点……留着是因为'周年'类需求迟早要用它，而闰年那一格是那种'不写就必然写错'的地方"* |
 | `emotion-batch-v1` | `core/bond/emotion_annotate.py` · `annotate_emotions_smart` / `annotate_emotions` / `fill_missing_emotions`（+ prompt `llm/prompts/emotion_annotate.md`） | 协议单测 / 简单调用 | docstring：*"本函数保留给协议单测/简单调用"*。主链走 `emo_text.py`（按记录标注）；同模块的 `_extract_array` 是**活**的，被 `emo_text`/`place_annotate` 共用。⚠️ 2026-09-21 清 v1 时**没动它**（滑块名带 v1，但它是"留给测试"的声明式保留，不是 v1 契约的一部分）——要一起删说一声即可 |
 | `digest-deep` | `contract/digest_registry.py` · `PHASE_DEEP` | digest 三相位之 `deep` | 相位常量 `record`/`understand`/`deep` 已声明，`deep` 无实现 |
-| `brain-v1-legacy` | ~~`core/brain/{hippocampus,consolidation,recall}.py`~~ | — | **2026-09-21 已删除**（用户裁决"v1 整族删掉"）：三件套 + `llm/prompts/digest.md` + `contract/schema.build_digest_schema()` + `experiments/brain_real_run.py`。现役记忆 = `core/brain/wiki_v2/` |
+| `brain-v1-legacy` | ~~`core/brain/{hippocampus,consolidation,recall}.py`~~ | — | **2026-09-21 已删除**（用户裁决"v1 整族删掉"）：三件套 + `llm/prompts/digest.md` + `contract/schema.build_digest_schema()` + `experiments/brain_real_run.py`。现役记忆 = `core/brain/` |
 | `world-switch-m2` | `core/session/store.py` · `create_world` / `active_world`；`webgui/chat.py` · `new_world` | **M2 世界切换器** | docstring：*"切换由 M2 世界切换器负责"* / *"显式开新世界线（平行世界语义）"* |
-| `save-point-r6` | `core/session/store.py` · `snapshots_dir`；`core/brain/wiki_v2/store.py` · `snapshot_to` / `restore_from` / `audit` | **R6 存档点** / 阶段 8-10 | docstring：*"R6 存档点语义: 自包含"* / *"v2: 森林时点快照, 阶段 8/10"* / *"冒烟/R6 完整性检查用"* |
+| `save-point-r6` | `core/session/store.py` · `snapshots_dir`；`core/brain/store.py` · `snapshot_to` / `restore_from` / `audit` | **R6 存档点** / 阶段 8-10 | docstring：*"R6 存档点语义: 自包含"* / *"v2: 森林时点快照, 阶段 8/10"* / *"冒烟/R6 完整性检查用"* |
 | `affection-view` | `core/affection/affection_calc.py` · `progress` / `exp_to_next` | 好感可视化（未立项） | docstring：*"当前等级内进度 0-1（**进度条用**）"*。数值层本身是活的（digest 结算走它） |
 | `place-semantic-pl4` | `core/rag/place.py` · `PlaceRetriever`（含 `resolve_one` / `asset_scene`） | **PL4 语义检索** | 语料已备（`config/settings/world/place_entities.json`），但产品侧只接了 `core.rag.brain`（`core/momotalk.py`）；place 侧对应"层1 别名 0 调用" |
 | `random-events-introspection` | `core/random_events/spec.py` · `all_events`；`core/random_events/__init__.py` · `set_enabled` | 事件作者侧内省 / 确定性测试 | `fire_event` 才是活入口（`MomoTalkEngine`、`vn_cli` 各一处）；注册表自省与全局开关暂无消费方 |
@@ -85,7 +85,7 @@
     `BondScene.para_emotions`（逐段 emotion 缺省延续——现役是标注层写 `paragraphs[].emotion`
     + 前端 `applyEmotions`）；`BondScene._draft`（只写不读）；`Session.from_json`；
     `MomoTalkEngine._characters_root`；测试侧 31 处未用导入。
-  - **删错又恢复的一例（教训）**：`core/brain/wiki_v2/recall_config.py::reload` —— 按"零消费者"
+  - **删错又恢复的一例（教训）**：`core/brain/recall_config.py::reload` —— 按"零消费者"
     删掉后，全量测试立刻 13 errors: 它有 **11+ 处调用, 全在 `tests/core/test_wiki_recall_ledger.py`
     的 autouse fixture**（进程级懒加载缓存必须逐用例清）。⇒ **测试基础设施也是消费者**；
     且 `reload` 这种常见名**必须查调用点（`.reload(`）而不是只查定义处**——我第一遍就是

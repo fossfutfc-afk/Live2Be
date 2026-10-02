@@ -1,6 +1,6 @@
 """mmt 会话窗口 digest 测试（蓝图 §3.1: N=25 触发 + in_vn/in_memorial 保护）。
 
-覆盖 momotalk 引擎的运行时 digest 接线（wiki_v2, 2026-09-02 切换）:
+覆盖 momotalk 引擎的运行时 digest 接线（brain, 2026-09-02 切换）:
     - _maybe_mmt_digest: 25 轮触发 → 后台 digest 闭环（seed+提炼+好感事件落库）
     - 剧情中（in_vn）不触发
     - digest 增量: 无新增事件 → 0 次 LLM 调用（空跑无害）
@@ -143,8 +143,8 @@ def test_first_digest_creates_char_entities(tmp_path, monkeypatch):
     **x0001** —— sensei 的保留号。谁先建谁占坑; 漏了的话第 3 轮 `new_entity` 建的第一个人
     会顶掉 sensei, 而 `ensure_entities` 按 id 判幂等 ⇒ **sensei 永远不再被建**。
     """
-    from core.brain.wiki_v2.entities import SELF_ID, SENSEI_ID
-    from core.brain.wiki_v2.store import WikiStoreV2
+    from core.brain.entities import SELF_ID, SENSEI_ID
+    from core.brain.store import WikiStoreV2
     from core.mmt import mmt_preset
     from core.parsing.names import names_of
     from core.parsing.player_profile import player_names

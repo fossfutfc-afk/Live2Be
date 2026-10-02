@@ -2,8 +2,8 @@
 import random
 from datetime import datetime, timedelta
 
-from core.brain.wiki_v2 import WikiStoreV2, make_node
-from core.brain.wiki_v2.recall import (
+from core.brain import WikiStoreV2, make_node
+from core.brain.recall import (
     recall_episodes,
     recommend_candidates,
     recall_subgraph,
@@ -278,10 +278,10 @@ def test_candidates_are_hints_not_gates(tmp_path):
     assert out, "候选提示不该被阈值拦掉"
     assert isinstance(out[0][1], float)
     # 模块里不再有任何 CAND_* 阈值常量
-    import core.brain.wiki_v2.recall as R
+    import core.brain.recall as R
     assert not hasattr(R, "CAND_HIGH") and not hasattr(R, "CAND_MED")
     # 配置面也没有
-    from core.brain.wiki_v2 import recall_config as rc
+    from core.brain import recall_config as rc
     assert "cand_high" not in rc.DEFAULTS and "cand_med" not in rc.DEFAULTS
     assert "accept_hit_rate" not in rc.DEFAULTS
     # 契约层不再有结构强制参数
@@ -395,8 +395,8 @@ def test_recall_episodes_empty_cases(tmp_path):
 
 def test_recall_episodes_k_defaults_to_the_knob(tmp_path, monkeypatch):
     """条数缺省 = `[recall].turn_k`（**"取几条"类旋钮, 不是阈值**）。"""
-    from core.brain.wiki_v2 import recall as R
-    from core.brain.wiki_v2 import recall_config as rc
+    from core.brain import recall as R
+    from core.brain import recall_config as rc
 
     st = _store(tmp_path, _ids([_ep(f"苔藓第{i}次", tags=["苔藓"]) for i in range(4)]))
     monkeypatch.setattr(rc, "_cache", {"turn_k": 1.0}, raising=False)

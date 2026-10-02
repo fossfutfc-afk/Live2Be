@@ -7,7 +7,7 @@
 > **凡本文与代码冲突，信代码**。本文只写符号不写行号（行号必漂）。
 >
 > **相关**：`core/session/staging.py`（B0 整章暂存 = 本文"丢弃"路线的既有实现）·
-> `core/brain/wiki_v2/revise.py` + `evolution.py`（"更正"路线的既有实现）·
+> `core/brain/revise.py` + `evolution.py`（"更正"路线的既有实现）·
 > `TODO.md`（三种结局图与"中断语义修正"）· `docs/DESIGN_MEETUP.md`（邀约/拒绝）。
 
 ---
@@ -27,7 +27,7 @@
 | 级别 | 边界 | 实现 | 越界后意味着什么 |
 |---|---|---|---|
 | **章** | `vn_exit` | `core/session/staging.py`：章内一切先进 `soul/staging/events.jsonl`，见到 `vn_exit` 才整段 append 进真源 | 章内的板**天然可丢**（丢弃 = 从未发生，零删除操作） |
-| **记忆** | `store.meta.digested_seq` | `core/brain/wiki_v2/digest.py`：只取 `seq > digested_seq` 的事件；**成功才推进水位** | 水位之下的内容**已经变成她的记忆/wiki 节点/好感快照** |
+| **记忆** | `store.meta.digested_seq` | `core/brain/digest.py`：只取 `seq > digested_seq` 的事件；**成功才推进水位** | 水位之下的内容**已经变成她的记忆/wiki 节点/好感快照** |
 
 ### 2.1 为什么不能"删真源里的行"
 
@@ -49,7 +49,7 @@
 | 位置 | 那条内容的现状 | "重发"应是什么 | 机制（**全部现成**） |
 |---|---|---|---|
 | **水位之上**（`seq > digested_seq`）**未固化** | 只是记录，还没变成记忆 | **丢弃重来** —— 真源**零改动** | 复用 `staging.py` 的"删除变丢弃"：**让它从未提交** |
-| **水位之下**（已固化） | 已进 wiki 节点 + 好感快照 | **不是"撤销那句话"，而是"记忆更正"** | **不动 `events.jsonl`**；用 `wiki_v2/revise.py::apply_revision_package` + `evolution.py::EvolutionLog`（带审计、可回滚）表达更正 |
+| **水位之下**（已固化） | 已进 wiki 节点 + 好感快照 | **不是"撤销那句话"，而是"记忆更正"** | **不动 `events.jsonl`**；用 `brain/revise.py::apply_revision_package` + `evolution.py::EvolutionLog`（带审计、可回滚）表达更正 |
 
 ⚠️ **板级的那一半已经落地**（2026-09-21, `EXEC_PIPELINE_UNIFY` 节点 2″）:
 `webgui/bond.py::BoardLifecycle` 把"未提交/已交付/已提交"变成显式三态
@@ -123,9 +123,9 @@
 
 ## 5. 更正通道（已固化）＝ revise 包
 
-- 入口：`core/brain/wiki_v2/revise.py::apply_revision_package`（修订契约校验 + 执行；
+- 入口：`core/brain/revise.py::apply_revision_package`（修订契约校验 + 执行；
   执行前深拷贝、失败回滚——`WikiStoreV2.clone_state` / `restore_state`）；
-- 审计：`core/brain/wiki_v2/evolution.py::EvolutionLog`（append-only 审计日志，也是 R6 回滚依据）；
+- 审计：`core/brain/evolution.py::EvolutionLog`（append-only 审计日志，也是 R6 回滚依据）；
 - **不碰 `events.jsonl`**：真源保留"她说过"的事实，wiki 表达"这条记忆被更正"。
 
 ⇒ 所以"已固化重发"**不需要任何新机制**，只需要一条策略：**越界 → 发 revise 包**。

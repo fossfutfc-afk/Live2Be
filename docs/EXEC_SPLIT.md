@@ -13,7 +13,7 @@
 > **○C8c 丢弃世代 `board_epoch`**（唯一非拆分节点: 拆包暴露的**竞态**根治, 记在这里
 > 是因为它的入口 `_discard_boards` 是节点 2″/C7 的产物 —— 见节点表与 §5 陷阱 15/16）。
 > **拆分类工作到此结束**：C13 测试拆分经用户 2026-09-21 裁决**不做**（"测试不用拆了"）;
-> 余下只有**可选**项：C14/C15（`llm/client.py` · `core/brain/wiki_v2/` —— 用户已明确"两个 llm 都不用动了"）。
+> 余下只有**可选**项：C14/C15（`llm/client.py` · `core/brain/` —— 用户已明确"两个 llm 都不用动了"）。
 > **收尾（2026-09-21, 体检后）**：跑了一次"重构后全量体检"（148 模块 import 全扫 0 失败 ·
 > vulture 高置信度仅 1 条既有项 · 守门变异测试仍会红 · 880 passed + 冒烟 PASS）, 并做了一个
 > **文档除锈**节点（README 三张表重写 · 活文档过期指路 · 归档稿 `DESIGN_SAVE.md` 链接改真家）。
@@ -165,7 +165,7 @@ tests/webgui/bond/       ← ~~test_bond.py 按主题拆 + tests/stubs/ 收共�
 | ✅ **C12b** | **`apps/` 归位 + `docs/` 归位（白名单归零）** | ① `core/ui/vn_cli.py` → `apps/vn_cli.py`（`core/ui/` 整个包消失——**真搬家**, 不留壳）, `main.py` → `apps/main.py` **+ 仓根 3 行转调壳**（用户 2026-09-21 裁决: `python main.py` 是 README/使用习惯里的命令, 保住它, 真代码一律进 `apps/`）; 12 处 `core.ui.vn_cli` → `apps.vn_cli`; ② 7 篇 `core/DESIGN_*.md` + `contract/DESIGN.md`（→ `docs/DESIGN_CONTRACT.md`）搬 `docs/`, 顺手改 22 处"指路路径"（README / CLAUDE.md / CLAUDE_OPTIMIZE / DESIGN_BRAIN / 3 篇 docs / 4 处代码 docstring）; ③ `test_import_direction.py`: `ALLOWED` **清空** + 每条规则加"不许 import `apps`"; `test_split_safety.py` 的 `TARGETS` 换 `apps.vn_cli` | 全量 **880 passed**; 冒烟 **PASS**; `compileall` 全仓 + `node --check` 绿; 快照: `core.ui.vn_cli` 段**整体改名** `apps.vn_cli`（28 名逐名一致）; `import core.ui` → ModuleNotFoundError; **分层白名单 0 条** |
 | ○ **C13**（**不做**） | 测试拆分 + 共享桩 | ~~`tests/webgui/bond/*`；`tests/stubs/scripted_llm.py`（与 5b 的 `stub_tasks.py` 合流）~~ | **用户 2026-09-21 裁决: "测试不用拆了"** —— 现状 74 文件 / 20975 行, >400 行的 15 个（最大 `test_bond.py` 1240）; 拆分收益（可读性）低于 9000 行 diff 的审阅/回归风险。**已落地的共享桩 = `tests/stub_tasks.py`**（节点 5b）|
 | ○ **C14**（可选） | `llm/client.py` / `llm/image_gen.py` | 按职责再分 | 绿 |
-| **C15** | `core/brain/wiki_v2/*`（可选） | digest/nodes/channel 再分 | 绿 |
+| **C15** | `core/brain/*`（可选） | digest/nodes/channel 再分 | 绿 |
 
 顺序理由：**自上层往下**（webgui 最安全、收益最快；`contract/` 是所有人依赖的地基，放后面）；
 **先拆接缝再搬文件**（C1a 已把 16 个 patch 点收敛, 之后搬块不再有静默失效风险）。

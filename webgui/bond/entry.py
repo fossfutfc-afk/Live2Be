@@ -481,7 +481,7 @@ def bond_start(char_id: str, session_id: str, *,
         title = _trigger_title(engine) or _title_from_events(
             char_id, session_id, _flow_store(state))
 
-        # brain 注入（DESIGN_BRAIN.md, wiki_v2 2026-09-02 切换）: 世界线 wiki 第一人称——
+        # brain 注入（DESIGN_BRAIN.md, brain 2026-09-02 切换）: 世界线 wiki 第一人称——
         # VN 中角色记得前面的事（出厂基座 0 LLM 确保; 失败静默零注入）
         brain_segment = load_brain_segment(
             _store(), char.character_id, char.display_name,
