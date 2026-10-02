@@ -352,7 +352,10 @@ digest 是后台异步路径（mmt 每 N=25 轮 / bond 闭环各一次, 不阻�
 适配（high 档参数）: **thinking level 参数化**——settings.toml [llm] `reasoning_effort`
 （low|medium|high, 默认 high; 空/缺失 → 不注入=模型默认）——单一配置源:
 LLMClient 构造解析 → default_extra_body（extra_body=None 注入, 显式 {} 关闭,
-chat/chat_full/chat_stream 三入口一致）; digest deadline_seconds 默认 300s;
+chat/chat_full/chat_stream 三入口一致）; ⭐ **digest 的时间预算是两层**
+（2026-09-29 刀 1）: **每轮** `rounds.ROUND_BUDGET_SECONDS`（默认 120s, 本轮截止 =
+`min(整段硬顶, 本轮开始 + 预算)`）+ **整段硬顶** `rounds.SEGMENT_HARD_CAP_SECONDS`
+（600s; 从前是"全段共享 300s"——前几轮一慢就把后面几轮饿死）;
 LLMClient per-call timeout 覆盖（momotalk digest 传 300——共享客户端 60s
 主对话超时会掐 high 长考, 主对话快速失败语义不变）。
 

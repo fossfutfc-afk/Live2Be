@@ -423,9 +423,13 @@ CLI/测试同步路径在引擎内串行。
   设计/代码索引：`core/brain/DESIGN_GRAPH_V4.md` §3.2 / §6 / §8 / §8.6。
 - **每段四步（`R1 → R4 → R2 → R3`）**：⭐ **2026-09-29（节点 C）起完整的步序表 = 
   `core/digest/rounds.py` 的 `ROUNDS`**（步序 / LLM 身份 / prompt / 契约相位 / parse / 料 /
-  写什么 / 跳过条件 / 是否自带快照, 一处说全）—— `pipeline.py` 是执行体, 每步先
-  `cur.enter(key)`（**越序当场炸**）; ⭐ **`_rollback` 的清空清单也由表推导**
+  写什么 / 跳过条件 / **每轮时间预算** / 是否自带快照, 一处说全）—— `pipeline.py` 是执行体,
+  每步先 `cur.enter(key)`（**越序当场炸**）; ⭐ **`_rollback` 的清空清单也由表推导**
   （`rounds.reset_result`, 从前是手抄的 —— 漏过 `notes_warnings`）。
+  ⭐ **时间预算两层**（刀 1）: 每轮 `ROUND_BUDGET_SECONDS`（默认 120s, 本轮截止 =
+  `min(整段硬顶, 本轮开始 + 预算)`）+ 整段硬顶 `SEGMENT_HARD_CAP_SECONDS`（600s）——
+  从前全段共享一个 300s, 前几轮一慢就把**后面几轮集体饿死**; 现在失败文案带轮次
+  （`digest 轮次 round_b: … （本轮预算用完 / 整段硬顶到了）`）。
   R4 收口 2026-09-25 已接线（`digest.close`，位置在
   R1 之后/R2 之前）—— ⏸ **2026-09-29 承诺退图后它只产 note 操作**（`ClosureResult` 只剩
   `ops`/`warnings`），所以那条"位置是正确性"的理由**没了**（顺序照旧）。

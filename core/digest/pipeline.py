@@ -21,6 +21,8 @@
     1. 增量: new_events = seq > store.digested_seq（无新增 → 0 次 LLM 调用）
     2. 公共输入: 时间线(**记录级带行索引**, T14) + 视觉记忆 + 人设锚点
     3. 依次跑上表那 5 轮（**顺序与跳过条件 = `rounds.ROUNDS`**; 每步吃哪几段料也在那）
+       ⭐ **每轮有自己的时间预算**（表里那格）, 截止 = `min(整段硬顶, 本轮开始 + 预算)`
+       —— 前几轮慢不再把后面几轮饿死; 撞了在 `errors` 里指明是哪一轮。
     4. affection_exp_delta 返回（事件幂等写由调用方——运行时集成层）
     5. 任一轮失败 → clone_state 快照回滚, 水位不推进（宁缺勿错, 可重算）
        ⚠️ 例外: **分群自带快照**（`own_snapshot`）, 失败只回滚它自己
@@ -62,6 +64,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
@@ -70,7 +73,13 @@ from contract.digest_registry import digest_registry
 from core.brain import groups, marks
 from core.brain.entities import candidate_table, hit_set, new_nodes_block, payload_block
 from core.digest.llm_call import llm_chat
-from core.digest.rounds import Cursor, RoundSpec, reset_result
+from core.digest.rounds import (
+    SEGMENT_HARD_CAP_SECONDS,
+    Cursor,
+    RoundSpec,
+    budget_of,
+    reset_result,
+)
 from core.brain.nodes import PLAYER_SUBJECT, make_node
 from core.brain.read.recall import (
     EmbedFn,
@@ -92,6 +101,7 @@ from core.brain.store import WikiStoreV2
 from core.session.events import TYPE_NOTICED, is_content_event
 from core.session.maintenance import exclude_abandoned
 from core.session.renderer import render_timeline
+from llm.client import feedback
 from llm.prompts import load_prompt
 from llm.task_levels import extra_body as _tl_extra
 from llm.task_levels import max_tokens as _tl_max_tokens
@@ -158,7 +168,7 @@ def digest_segment(
     embed_fn: EmbedFn | None = None,
     temperature: float = 0.3,
     max_tokens: int | None = None,
-    deadline_seconds: float = 300.0,
+    deadline_seconds: float = SEGMENT_HARD_CAP_SECONDS,
     llm_timeout: float | None = None,
     extra_body: dict | None = None,
     aff_at_encoding: float | None = None,
@@ -183,10 +193,20 @@ def digest_segment(
             深度认知, 2026-09-02 拍板; 实验矩阵: low 5/5 合格但浅 / medium 1/3 死在
             规则校验 / high 2/2 认知深化与逐字校验最佳——不随 settings 全局漂移）;
             显式传（含 {}）→ 调用方覆盖
-        deadline_seconds: 全程时间预算（A+B+反馈; high 档长考实测 ~2min,
-                   默认 300s——撞上 → 判失败回滚, 水位不推进可重算）
+        deadline_seconds: ⭐ **整段硬顶**（秒）—— 五轮 + 各自的反馈重试加起来不许超过它。
+                    ⚠️ 它**不再是每轮共享的那一份预算**（2026-09-29 刀 1）: 每轮另有
+                    自己的预算（`rounds.ROUND_BUDGET_SECONDS` / 表里那格），本轮的
+                    截止 = `min(整段硬顶, 本轮开始 + 本轮预算)`。撞上 → 判失败回滚,
+                    水位不推进可重算。默认 = `rounds.SEGMENT_HARD_CAP_SECONDS`。
+                    ⚠️ **它是"每次尝试前"的检查, 不掐断正在飞的那一次调用**
+                    （`llm_call` 的既有语义; 单次请求仍受 `llm_timeout` 约束）——
+                    所以"某轮用满预算"能保证的是**后面的轮不被它饿死**, 不是"这一段
+                    总时长必然 ≤ 硬顶"。真机要收紧就得看 `task=digest.* ms=` 调数值。
         llm_timeout: per-call 超时覆盖（None = 客户端构造超时; 后台 digest
-                   建议 ≥300s——high 档单次长考可超 60s 共享客户端默认）
+                   建议 ≥300s——high 档单次长考可超 60s 共享客户端默认）。
+                   ⚠️ 它与每轮预算**不是一回事**: 这是单个 HTTP 请求的上限, 而每轮预算
+                   是"**开下一次尝试之前**"的检查 ⇒ 真机上若 `task=digest.* ms=` 显示
+                   单轮常常 120s+, 该调的是**表里的预算**, 不是这里。
         aff_at_encoding: 本段**开始之前**的好感标量 `Affection.to_scalar()` ∈ [−1,1]
                    （§3.3.3）——落进 episode 节点的**快照**, 写入后永不改。
                    None = 未采集 → 字段不落库（与 `0.0` 中性区分）。调用方算,
@@ -246,9 +266,10 @@ def digest_segment(
     # （原 `segment_id = f"seg-{interact_max}"` 2026-09-21 删——段边界本来就由 marker
     #   派生（`_segment_domain`），落库的那份零读者。）
 
-    # 时间预算: A+B 全程共享一个 deadline（宁缺勿错——水位不推进, 可重算）
-    import time as _time
-    deadline = _time.monotonic() + deadline_seconds
+    # 时间预算（⭐ 2026-09-29 刀 1）: 这里是**整段硬顶**, 每轮还有自己的预算 ——
+    # 每轮的截止 = `min(硬顶, 本轮开始 + budget_of(spec))`, 在 `_round_call` 里算。
+    # 判据: 只留硬顶 ⇒ 前几轮慢就把后面几轮饿死（改之前的病）; 只留每轮 ⇒ 段可以无限长。
+    hard_deadline = time.monotonic() + deadline_seconds
     on_mind_box: list[str] = []          # ⭐ N4a: Round A 收下的那句心境（0/1 条）
 
     try:
@@ -264,10 +285,10 @@ def digest_segment(
             ("本段情绪标尺", emotion_scale),
         ])
         entries, resp_a = _round_call(
-            llm, system_a, user_a,
+            llm, system_a, user_a, spec=spec,
             model=model, temperature=temperature, max_tokens=max_tokens,
             llm_timeout=llm_timeout,
-            extra_body=extra_body, deadline=deadline, label=spec.label,
+            extra_body=extra_body, hard_deadline=hard_deadline,
             parse_fn=_parse_for(spec, seq_set=seq_set, on_mind_out=on_mind_box),
             result=result)
         if entries is None:
@@ -329,10 +350,11 @@ def digest_segment(
                 ("本段新增的经历", _episode_lines(store, episode_ids)),
             ])
             rows_c, resp_c = _round_call(
-                llm, system_c, user_c,
+                llm, system_c, user_c, spec=spec,
                 model=model, temperature=temperature, max_tokens=max_tokens,
-                llm_timeout=llm_timeout, extra_body=extra_body, deadline=deadline,
-                label=spec.label, parse_fn=_parse_for(spec), result=result)
+                llm_timeout=llm_timeout, extra_body=extra_body,
+                hard_deadline=hard_deadline,
+                parse_fn=_parse_for(spec), result=result)
             if rows_c is None:
                 return _rollback(store, snapshot, result)
             closures = apply_closures(store, rows_c, note_state=note_state, ts=now_ts)
@@ -372,10 +394,10 @@ def digest_segment(
             ("角色人设（锚点）", character_prompt),
         ])
         rows, resp_b = _round_call(
-            llm, system_b, user_b,
+            llm, system_b, user_b, spec=spec,
             model=model, temperature=temperature, max_tokens=max_tokens,
             llm_timeout=llm_timeout,
-            extra_body=extra_body, deadline=deadline, label=spec.label,
+            extra_body=extra_body, hard_deadline=hard_deadline,
             parse_fn=_parse_for(spec, episode_ids=set(episode_ids),
                                 target_ids=target_ids, link_ids=link_ids),
             result=result)
@@ -411,10 +433,10 @@ def digest_segment(
                 ("角色人设（锚点）", character_prompt),
             ])
             rows_d, resp_d = _round_call(
-                llm, system_d, user_d,
+                llm, system_d, user_d, spec=spec,
                 model=model, temperature=temperature, max_tokens=max_tokens,
-                llm_timeout=llm_timeout, extra_body=extra_body, deadline=deadline,
-                label=spec.label,
+                llm_timeout=llm_timeout, extra_body=extra_body,
+                hard_deadline=hard_deadline,
                 parse_fn=_parse_for(spec, entity_ids=set(ent_local.values()),
                                     node_ids=set(node_local.values())),
                 result=result)
@@ -450,10 +472,10 @@ def digest_segment(
                 ("可能重复的类", groups.render_merge_candidates(store, cands)),
             ])
             rows_e, resp_e = _round_call(
-                llm, system_e, user_e,
+                llm, system_e, user_e, spec=spec,
                 model=model, temperature=temperature, max_tokens=max_tokens,
-                llm_timeout=llm_timeout, extra_body=extra_body, deadline=deadline,
-                label=spec.label,
+                llm_timeout=llm_timeout, extra_body=extra_body,
+                hard_deadline=hard_deadline,
                 parse_fn=_parse_for(spec, block_ids={b.bid for b in blks}),
                 result=result)
             if rows_e is None:
@@ -545,17 +567,24 @@ def _round_call(
     system: str,
     user: str,
     *,
+    spec: RoundSpec,
     model: str | None,
     temperature: float,
     max_tokens: int,
     llm_timeout: float | None,
     extra_body: dict | None,
-    deadline: float,
-    label: str,
+    hard_deadline: float,
     parse_fn: Callable[[dict], tuple[Any, Any]],
     result: DigestResult,
 ) -> tuple[Any | None, dict | None]:
     """一轮 LLM 调用: 调用 → parse → 结构被拒 → assistant 原文 + 错误回灌重试 1 次。
+
+    ⭐ **本轮的截止在这里算**: `min(整段硬顶, 现在 + 本轮预算)`（预算取自轮次表）。
+    从前全段共享一个 deadline ⇒ 前几轮一慢, 后面几轮**集体被饿死**, 而报错还看不出
+    是哪一轮。现在单轮慢只影响它自己, 失败文案也带轮次。
+
+    ⭐ 回灌走 `llm.client.feedback`（**唯一实现** —— 同 bond/mmt 的形状:
+    "assistant 手写被拒原文 + user 走 helper"）; 措辞与从前逐字相同。
 
     `result` 只用到 `errors` / `llm_calls` 两个字段 ⇒ A/B 轮（`DigestResult`）与
     （全景轮退役前曾与它共用这条路径 —— N4a 起只剩 digest。）
@@ -563,35 +592,67 @@ def _round_call(
     Returns:
         (parsed, last_resp): parsed None = 该轮失败（result.errors 已填, 调用方回滚）
     """
+    round_deadline = _round_deadline(hard_deadline, budget_of(spec))
+    label = spec.label
     msgs = [{"role": "system", "content": system},
             {"role": "user", "content": user}]
     for attempt in range(MAX_FEEDBACK_RETRIES + 1):
         resp, call_err = llm_chat(llm, system, "", messages=msgs, model=model,
                                   temperature=temperature, max_tokens=max_tokens,
-                                  extra_body=extra_body, deadline=deadline,
+                                  extra_body=extra_body, deadline=round_deadline,
                                   timeout=llm_timeout, label=label)
         if resp is None:
-            result.errors.append(call_err or "LLM 调用失败")
+            result.errors.append(
+                _call_failed(label, call_err, round_deadline, hard_deadline))
             return None, None
         result.llm_calls += 1
         if not isinstance(resp, dict):
-            result.errors.append("LLM 输出非 JSON 对象")
+            result.errors.append(f"digest 轮次 {label}: LLM 输出非 JSON 对象")
             return None, resp
         parsed, vr = parse_fn(resp)
         if vr.is_valid:
             return parsed, resp
         if attempt < MAX_FEEDBACK_RETRIES:
-            # feedback 语义: 同一上下文——追加被拒输出 + 引擎错误
+            # feedback 语义: 同一上下文——追加被拒输出 + 引擎错误（见 `llm.client.feedback`）
             msgs.append({"role": "assistant",
                          "content": json.dumps(resp, ensure_ascii=False)})
-            msgs.append({"role": "user",
-                         "content": ("【引擎校验反馈（上一轮输出被整包拒绝,"
-                                     " 请修正后重新输出完整 JSON）】\n"
-                                     + "\n".join(f"- {e}" for e in vr.errors))})
+            feedback(msgs, "【引擎校验反馈（上一轮输出被整包拒绝,"
+                           " 请修正后重新输出完整 JSON）】\n"
+                           + "\n".join(f"- {e}" for e in vr.errors))
             continue
         result.errors.extend(vr.errors)
         return None, resp
     return None, None                                     # unreachable
+
+
+def _round_deadline(hard_deadline: float | None, budget: float) -> float | None:
+    """本轮的截止时刻 = `min(整段硬顶, 现在 + 本轮预算)` —— **判据在这一行**。
+
+    两个都要: 只看本轮预算 ⇒ 段可以无限长（半小时那次事故）; 只看整段硬顶 ⇒
+    前几轮一慢就把后面的轮饿死（刀 1 要修的那个病）。
+    """
+    if budget <= 0:
+        return hard_deadline
+    soft = time.monotonic() + budget
+    if hard_deadline is None:
+        return soft
+    return min(hard_deadline, soft)
+
+
+def _call_failed(label: str, call_err: str | None, round_deadline: float | None,
+                 hard_deadline: float | None) -> str:
+    """一轮调用失败的记账 —— **带上轮次**, 并说清是"本轮预算用完"还是"整段硬顶到了"。
+
+    从前这句是裸的 `LLM 调用撞上时间预算`（`llm_call` 的原文）, grep 出来分不出
+    是哪一轮、也分不出是哪种预算 ⇒ 事后无法定位"谁把时间吃掉了"。
+    """
+    msg = call_err or "LLM 调用失败"
+    if round_deadline is None:
+        return f"digest 轮次 {label}: {msg}"
+    left = round_deadline - time.monotonic()
+    hit_cap = hard_deadline is not None and round_deadline >= hard_deadline
+    which = "整段硬顶到了" if hit_cap else "本轮预算用完"
+    return f"digest 轮次 {label}: {msg}（{which}, 离本轮截止还剩 {max(left, 0.0):.0f}s）"
 
 
 # ---------------------------------------------------------------------------
