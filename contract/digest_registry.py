@@ -424,7 +424,8 @@ class DigestRegistry:
                 "引擎候选标注'疑似印证/疑似重复'时必须遵守（印证→touch, 重复→update）。",
                 "",
                 "links 规则（**可选的补充边**, 别拿它当主力）:",
-                "  supports      —— 「这件事长出了那个看法」（经历 → 看法）;",
+                "  supports      —— 「**这条看法**支撑**那条看法**」（两端都是看法;",
+                "                    「经历支撑看法」那种由决策表的 touch 写, 别在这里重复）;",
                 "  contradicts   —— 「这两条互相打架」（无向: 写一次就够）;",
                 "  evolved_from  —— 「这条是新的, 它把旧的盖过去了」（新 → 旧）;",
                 "  ⚠️ 方向别写反（`from` 是新/被支撑的那一头）; 两端都不能是本轮新建的条目",
@@ -928,6 +929,9 @@ class DigestRegistry:
 #: `links` 允许的 rel（**只有这三种** —— 见 DESIGN_GRAPH_V4 §2 的边表）。
 #: ⚠️ 别加 `about`（那是第 3 轮的活, 走候选表映射）· 别加 `source`（已删）·
 #: 别加 `formed_by`/`from`/`to`（2026-09-29 随 promise 退图一起删）。
+#: ⭐ `supports` 在 `links` 这里**只认"看法 → 看法"那一种形状** ——
+#: `supports` 共两种形状（§2）: `episode → 认知` 由**决策表**的 touch/update/add 写,
+#: `认知 → 认知` 才轮到 links（用户 2026-09-29 裁决两条都留, 所以这一档**不是冗余**）。
 LINK_RELS: tuple[str, ...] = ("supports", "contradicts", "evolved_from")
 
 

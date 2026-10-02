@@ -29,7 +29,9 @@ from typing import Any, Iterable, Iterator
 # ---------------------------------------------------------------------------
 
 REL_ABOUT = "about"                  # belief/episode/experience/group → entity（归属）
-REL_SUPPORTS = "supports"            # episode → belief（支撑）
+REL_SUPPORTS = "supports"            # ⭐ **两种形状**: episode → 认知（决策表 touch 写）·
+                                     #    认知 → 认知（R2 的 `links` 写 —— "这条看法支撑那条",
+                                     #    真机有实例; 2026-09-29 用户裁决"belief-belief 以后也需要"）
 REL_CONTRADICTS = "contradicts"      # 同层之间（她后来发现不对; **对称**）
 REL_EVOLVED_FROM = "evolved_from"    # belief → belief（新看法取代旧的）
 #: ⏸ `formed_by`（promise → episode）· `from` / `to`（promise → entity）**2026-09-29 删** ——
