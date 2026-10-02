@@ -16,7 +16,7 @@
 | 2 | `about_hint` | **同一件事判两次**（R1 猜"关于谁" → R3 再判"挂谁"）；判据（"三个月后再提到它需要一致吗"）与读者脱节 | 读者只有 `entities.hit_set(hints=…)`；真机 4 段**每条都填**（`digest_hint eps=5 hint=5` 等）；而 `hit_set` 本来就有 `texts=` 通道 | ✅ 已定**删字段**；改成 R3 从 `tags` + 正文 + 标题 + 原话认称呼；⭐ **别名机制保留**（`revise.py:346` 顺手把称呼记进 `aliases` ⇒ R3 输出里留一个可选称呼） |
 | 3 | `epistemic` | ① 与 `observer` **互为函数**（`observer != ""` ⟺ `reported_fact`）② **跨 kind 两个意思** | 契约"reported_fact 时必填 observer"；`nodes.py:92`；`nodes.py:183`（belief 必须 `inferred_belief`）；`revise.py:181`（engine 归属） | ✅ 已定**整个退役**，只留 `observer`（空=亲历）；读侧 `render.py:206` / `recall.py:394` 改判据；真机 reported 1/20 且带 observer ⇒ 迁移无损 |
 | 4 | `add.example`（R2） | 落成 belief 的 `examples`，而**belief 的 examples 零读者** | `recall.py:322` 只在 `kind=="experience"` 时用 examples（belief 用 `growth`，`recall.py:324`）；她视图 `_belief_line:476` 只渲染 text+growth；⭐ **真机佐证**：`haruka e0001`（从 experience 迁移成 belief 的那条）**真的带着 `examples`**，而它是 belief ⇒ 那条 examples 是死的 | ⭐ 建议**砍**（待拍） |
-| 5 | `evidence`（R2） | **零产品消费者** | 产出 `digest.py:477`；全仓只有 `tests/core/test_wiki_digest.py:230` + `archive/factory_memory/smoke_digest_v2.py:147` 读；`digest.py:20` 自注"罗盘应用后置, **无罗盘则丢弃**" | ✅ 已定**删**（连带 `_clean_evidence` / `evidence_threshold` / `DigestResult.evidence`） |
+| 5 | `evidence`（R2） | **零产品消费者** | 产出曾在 `digest.py:477`；全仓只有一条测试与一个归档脚本（`archive/factory_memory/smoke_digest_v2.py:147`）读；`digest.py` 自注"罗盘应用后置, **无罗盘则丢弃**" | ✅ **已删（2026-09-29）**：`EVIDENCE_THRESHOLD` · `DigestResult.evidence` · `digest_segment(evidence_threshold=…)`（**零调用方传它**）· `_clean_evidence()` · 契约 schema 块 · prompt 判据 9；守门 = `test_digest_registry.py` 的 `"evidence" not in text`。⚠️ 测试桩里的 `"evidence": []` 回音**未清**（`parse` 不读它, 无害） |
 | 6 | `verbatim` vs `verbatim_seq` | **两条通道说同一件事** | 契约"两条都给时**以②为准**"；真机 haruka **两条都填**（文本 + 序号） | ✅ 已定**二选一**：只留**序号**，文本由引擎填（`_resolve_verbatim` 已在） |
 | 7 | `kind`（R1） | **轮次决定的常量**，不该由 LLM 声明 | R1 恒 `episode`；R2 恒 `belief`；promise 由 `apply_closures` 建（引擎） | ✅ 已定**删** ⚠️ 后果：`experience` 产线停（真机 mutsuki 有 1 条；player 桶靠它）⇒ "关于老师的事"归 entity 面（以后那一刀） |
 | 8 | `title` / `span`（**bond 段**） | 章标题**在发起 VN 那一刻就定了**；整章的 span 引擎也知道 | 真机 haruka **6/6 与 `chapter_title` 逐字相同**；mutsuki 漂了 1 处（episode「咖啡厅的俄罗斯轮盘」vs 章「咖啡厅的甜点陷阱」） | ⭐ 建议：**bond 段这两个由引擎填**，mmt 段才由 LLM 给（待拍） |
@@ -29,7 +29,7 @@
 | # | 料 | 送几遍 | 证据 / 备注 | 状态 |
 |---|---|---|---|---|
 | 10 | 人设 `character_prompt` | **3 遍**（R1 · R2 · R3） | `digest.py` 三处 `_join_sections` 都有「角色人设（锚点）」 | 合并轮次才省得掉 |
-| 11 | **时间线** | **2 遍**（R1 · R2） | R2 那份**只为** `evidence` 的逐字引用（`digest.py:357`）⇒ ⭐ **删掉 evidence 后它变成纯冗余** | 删 evidence 即可省 |
+| 11 | **时间线** | **2 遍**（R1 · R2） | R2 那份**只为** `evidence` 的逐字引用 ⇒ ✅ **evidence 已于 2026-09-29 删**, 所以它现在**没有存在的理由**了；但"R2 要不要看原始时间线"是**改行为**（可能影响 decisions 质量, 该单独验甚至真机 A/B）⇒ 本次**只把标签改成"本段时间线"**，去留**待裁** | ⏳ 待裁（下一批候选） |
 | 12 | 本段新增经历 | **2 遍**（R4 `_episode_lines` · R2 `_round_b_material`） | 同一批 episode，两种渲染 | 合并轮次才省得掉 |
 
 ---

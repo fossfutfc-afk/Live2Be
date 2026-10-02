@@ -239,17 +239,17 @@ wiki 是**派生视图**（可重算可改写）——修订后整写更简单�
    │
    ▼ Round B「理解者」（新经历 ↔ 现有稳定认知, 决策表）
    │   输入: 新经历摘要 + 认知渲染（本地 id u0001.., 引擎防猜真实 id）
-   │         + 时间线（evidence quote 逐字引用用）+ 锚点
+   │         + 时间线 + 锚点
    │   契约: digest_registry.build_schema(understand) ← digest_v2_round_b.md
-   │   输出: {decisions: [逐 episode 一行 touch|update|add], evidence, affection_exp_delta}
+   │   输出: {decisions: [逐 episode 一行 touch|update|add], affection_exp_delta}
+   │         ⚠️ `evidence` **2026-09-29 删**（零消费者; 见 REDUNDANCY.md）
    │        parse_round_b: 引用纪律（id 必须 ∈ 渲染列表）+ 覆盖检查（漏 episode 整包拒）
    │   引擎: apply_decisions（revise.py）——touch=add_link / update=白名单 patch +
    │         history 溯源 / add=新建+先链后入仓; epistemic 引擎归属
    │
    ▼ 提交（确定性, 全量通过才落盘）
-   │   ① evidence: 置信度 ≥ 阈值/quote 非空 → 返回（罗盘应用后置, 无罗盘丢弃）
-   │   ② affection_exp_delta → 幂等事件写（调用方）
-   │   ③ store.save() + 推进 meta.digested_seq + save_meta
+   │   ① affection_exp_delta → 幂等事件写（调用方）
+   │   ② store.save() + 推进 meta.digested_seq + save_meta
    │   失败（parse/执行/撞 deadline）→ clone_state 快照回滚, 水位不推进 → 可重算
    │
    ▼ Step 3 索引更新 + 注入刷新（下一轮对话/剧情生效）

@@ -11,16 +11,19 @@
 
 编排（digest_segment）:
     1. 增量: new_events = seq > store.digested_seq（无新增 → 0 次 LLM 调用）
-    2. 公共输入: 时间线(**记录级带行索引**, T14) + 视觉记忆 + 人设锚点（A 用）;
-       时间线同时供 B 的 evidence quote 逐字引用
+    2. 公共输入: 时间线(**记录级带行索引**, T14) + 视觉记忆 + 人设锚点（A 用）
     3. Round A: llm_chat → parse_round_a → 建 episode（引擎字段归属: ts/event_seq;
        event_seq=[interact_max]; 防幻觉——LLM 不产这些字段, 4a 不做每 episode 溯源）
     4. Round B: episodes 摘要 + 认知渲染(u0001.. 本地 id) → llm_chat → parse_round_b
        （引用纪律/覆盖检查在 parse 层）→ apply_decisions（图操作 + evolution 变更审计）
-    5. evidence（置信度阈值/quote 非空）→ 返回（罗盘应用后置, 无罗盘则丢弃）
-    6. affection_exp_delta 返回（事件幂等写由调用方——运行时集成层）
-    7. A/B 任一失败 → clone_state 快照回滚, 水位不推进（宁缺勿错, 可重算）
-    8. 成功 → store.save()（原子整写）+ 推进 meta.digested_seq + save_meta
+    5. affection_exp_delta 返回（事件幂等写由调用方——运行时集成层）
+    6. A/B 任一失败 → clone_state 快照回滚, 水位不推进（宁缺勿错, 可重算）
+    7. 成功 → store.save()（原子整写）+ 推进 meta.digested_seq + save_meta
+
+⚠️ **`evidence`（成长证据）2026-09-29 已删** —— 它**零产品消费者**（只有一条测试与一个
+    归档脚本读过）, 契约却每段都要它 ≤5 条 + `quote` 逐字引用时间线 ⇒ 那是一笔白付的钱。
+    删它的连带: R2 的料里那段"本段时间线"从此**没有存在的理由**（它当初就是为
+    `evidence.quote` 逐字引用而喂的）—— 那段要不要一起去掉是**改行为**, 单独验。
 
 ⚠️ **全景轮（`run_panorama`）2026-09-29（N4a）已退役** —— note 的写者收成一个:
     `promise` 归 R4 收口、`on_mind` 归 **L1（Round A）**。取料逻辑留在 `panorama.py`
@@ -82,8 +85,7 @@ logger = logging.getLogger(__name__)
 
 #: 反馈重试（parse/结构被拒 → 带 assistant 原文回灌重试 1 次）
 MAX_FEEDBACK_RETRIES = 1
-#: evidence 置信度阈值（低于 → 丢弃, 宁缺勿错）
-EVIDENCE_THRESHOLD = 0.7
+#: ⏸ `EVIDENCE_THRESHOLD = 0.7` **2026-09-29 删** —— `evidence` 字段退役（零消费者）。
 #: B 轮认知渲染上限（本地 id 数量; 排序: 珍贵档先）
 COGNITION_CAP = 12
 #: 好感 delta clamp 边界（**带符号: 下界 2026-09-13 由 0 放开**）。
@@ -99,7 +101,6 @@ class DigestResult:
     ok: bool
     errors: list[str] = field(default_factory=list)
     created: list[str] = field(default_factory=list)     # Round A episode id
-    evidence: list[dict] = field(default_factory=list)   # 成长证据（清洗后）
     affection_delta: int = 0
     llm_calls: int = 0
     #: ⭐ **归属线索**（D1, §8.2）: `[{"node": "m0005", "hint": "老师"}]` ——
@@ -136,7 +137,6 @@ def digest_segment(
     embed_fn: EmbedFn | None = None,
     temperature: float = 0.3,
     max_tokens: int | None = None,
-    evidence_threshold: float = EVIDENCE_THRESHOLD,
     deadline_seconds: float = 300.0,
     llm_timeout: float | None = None,
     extra_body: dict | None = None,
@@ -354,7 +354,7 @@ def digest_segment(
             "{{digest_schema}}", digest_registry.build_schema(PHASE_UNDERSTAND))
         user_b = _join_sections([
             ("本次新经历（含引擎候选标注）", ep_text),
-            ("本段时间线（evidence 的 quote 必须逐字引用这里）", timeline),
+            ("本段时间线", timeline),
             ("现有认知", cog_text),
             ("角色人设（锚点）", character_prompt),
         ])
@@ -474,7 +474,6 @@ def digest_segment(
     # ── 成功: 提交（节点落盘 + 水位推进）──
     result.ok = True
     result.created = episode_ids
-    result.evidence = _clean_evidence(resp_b.get("evidence"), evidence_threshold)
     result.affection_delta = _clamp_aff(resp_b.get("affection_exp_delta"))
     store.save()
     # 游标提交：**已退役**（2026-09-17）—— 没有剧情游标可落盘。
@@ -1183,30 +1182,9 @@ def _place_raw(seqs: list, by_seq: dict) -> list[str]:
     return out
 
 
-def _clean_evidence(raw: Any, threshold: float) -> list[dict]:
-    """evidence 清洗: function/quote 非空 str, confidence ≥ 阈值, clamp 0~1。"""
-    out: list[dict] = []
-    for e in raw or []:
-        if not isinstance(e, dict):
-            continue
-        fn, quote = e.get("function", ""), e.get("quote", "")
-        if not (isinstance(fn, str) and fn.strip()
-                and isinstance(quote, str) and quote.strip()):
-            continue
-        try:
-            conf = float(e.get("confidence", 0))
-        except (TypeError, ValueError):
-            conf = 0
-        if conf < threshold:
-            continue
-        item = {"function": fn.strip(),
-                "confidence": max(0.0, min(1.0, conf)),
-                "quote": quote.strip()}
-        note = e.get("note")
-        if isinstance(note, str) and note.strip():
-            item["note"] = note.strip()
-        out.append(item)
-    return out
+# ⏸ `_clean_evidence()` **2026-09-29 删** —— 随 `evidence` 字段一起退役（零消费者）。
+# 它当年清洗的是 `function/quote/confidence/note` 四键, 而全仓没有一个产品读者:
+# 契约每段要它 ≤5 条 + `quote` 逐字引用时间线 ⇒ 纯白付。别把它加回来。
 
 
 def _clamp_aff(raw: Any) -> int:
