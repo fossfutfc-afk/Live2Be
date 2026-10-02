@@ -15,7 +15,7 @@
 | 1 | `items` | **零活读者** | 全仓只有 `panorama.py:182` 读它当锚点，而那个模块**零调用者**；`notes.py:38` 注释许诺的 `inventory` 在代码里**根本不存在** | ✅ 已定**砍**（将来起 `inventory` 旁路） |
 | 2 | `about_hint` | **同一件事判两次**（R1 猜"关于谁" → R3 再判"挂谁"）；判据（"三个月后再提到它需要一致吗"）与读者脱节 | 读者只有 `entities.hit_set(hints=…)`；真机 4 段**每条都填**（`digest_hint eps=5 hint=5` 等）；而 `hit_set` 本来就有 `texts=` 通道 | ✅ 已定**删字段**；改成 R3 从 `tags` + 正文 + 标题 + 原话认称呼；⭐ **别名机制保留**（`revise.py:346` 顺手把称呼记进 `aliases` ⇒ R3 输出里留一个可选称呼） |
 | 3 | `epistemic` | ① 与 `observer` **互为函数**（`observer != ""` ⟺ `reported_fact`）② **跨 kind 两个意思** | 契约"reported_fact 时必填 observer"；`nodes.py:92`；`nodes.py:183`（belief 必须 `inferred_belief`）；`revise.py:181`（engine 归属） | ✅ 已定**整个退役**，只留 `observer`（空=亲历）；读侧 `render.py:206` / `recall.py:394` 改判据；真机 reported 1/20 且带 observer ⇒ 迁移无损 |
-| 4 | `add.example`（R2） | 落成 belief 的 `examples`，而**belief 的 examples 零读者** | `recall.py:322` 只在 `kind=="experience"` 时用 examples（belief 用 `growth`，`recall.py:324`）；她视图 `_belief_line:476` 只渲染 text+growth；⭐ **真机佐证**：`haruka e0001`（从 experience 迁移成 belief 的那条）**真的带着 `examples`**，而它是 belief ⇒ 那条 examples 是死的 | ⭐ 建议**砍**（待拍） |
+| 4 | `add.example`（R2） | 落成 belief 的 `examples`，而**belief 的 examples 零读者** | `recall.py:322` 只在 `kind=="experience"` 时用 examples（belief 用 `growth`，`recall.py:324`）；她视图 `_belief_line:476` 只渲染 text+growth；⭐ **真机佐证**：`haruka e0001`（从 experience 迁移成 belief 的那条）**真的带着 `examples`**，而它是 belief ⇒ 那条 examples 是死的 | ✅ **已删（2026-09-29）**：契约 `ADD.field_schema` 那行 · `parse_round_b` 的字段元组 · `revise.apply_decisions` 的传递与那段**从未跑到**的 `example→examples` 映射（`add` 只许 belief ⇒ 那两行是死码）· prompt 判据 5 里那句。⚠️ **节点字段 `examples` 保留**（`_apply_accrue` 给 experience 用，`revise.py:824`） |
 | 5 | `evidence`（R2） | **零产品消费者** | 产出曾在 `digest.py:477`；全仓只有一条测试与一个归档脚本（`archive/factory_memory/smoke_digest_v2.py:147`）读；`digest.py` 自注"罗盘应用后置, **无罗盘则丢弃**" | ✅ **已删（2026-09-29）**：`EVIDENCE_THRESHOLD` · `DigestResult.evidence` · `digest_segment(evidence_threshold=…)`（**零调用方传它**）· `_clean_evidence()` · 契约 schema 块 · prompt 判据 9；守门 = `test_digest_registry.py` 的 `"evidence" not in text`。⚠️ 测试桩里的 `"evidence": []` 回音**未清**（`parse` 不读它, 无害） |
 | 6 | `verbatim` vs `verbatim_seq` | **两条通道说同一件事** | 契约"两条都给时**以②为准**"；真机 haruka **两条都填**（文本 + 序号） | ✅ 已定**二选一**：只留**序号**，文本由引擎填（`_resolve_verbatim` 已在） |
 | 7 | `kind`（R1） | **轮次决定的常量**，不该由 LLM 声明 | R1 恒 `episode`；R2 恒 `belief`；promise 由 `apply_closures` 建（引擎） | ✅ 已定**删** ⚠️ 后果：`experience` 产线停（真机 mutsuki 有 1 条；player 桶靠它）⇒ "关于老师的事"归 entity 面（以后那一刀） |
@@ -50,7 +50,7 @@
 | # | 内容 | 三个家 | 状态 |
 |---|---|---|---|
 | 17 | "关于某人 / 某事" | `experience` 节点 · `belief.subject` · entity 载荷（`text` 立场 + `state` 现状） | ⭐ 无规则；且 entity 的 `state` **只能整段重写、没有删除机制**（`revise.py:258` 原话："今天没有'删掉一条 state'的机制（'谁判它过期' = §9-4 未定）⇒ 想删得整段重写"） |
-| 18 | `belief.examples` | 与 #4 同源（写了没人读） | 随 #4 |
+| 18 | `belief.examples` | 与 #4 同源（写了没人读） | ✅ **来源已断（2026-09-29）**：`add` 不再产 `example` ⇒ 新 belief 不会再带 `examples`；⚠️ 旧档里那条（`haruka e0001`）**仍带着**，**不迁移**（没人读，删它是另一件事） |
 
 ---
 
@@ -113,7 +113,8 @@
 | 项 | 我的倾向 |
 |---|---|
 | **落地顺序** | **先小刀**（字段退役 + `evidence` 删 + 关系收敛到 `links`，**不动轮数**）→ 再大刀（合并轮次成 ① 记 / ② 接 / ③ 重看） |
-| #4 `add.example` 删不删 | 删（belief 的 examples 零读者） |
+| ~~#4 `add.example` 删不删~~ | ✅ **2026-09-29 已删** |
 | #8 bond 段的 `title`/`span` 交引擎 | 交（真机数据支持：让 LLM 抄章标题会漂） |
 | #13 `supports` 收成一个入口 | 倾向收（今天两种写法） |
 | #21 两条"长出看法"的路 | R2 允许单条 · 群那条要求证据 ≥2（分工写进契约） |
+| #11 R2 的"本段时间线"去留 | ⏳ 待裁（**改行为**：它当初只为 `evidence.quote` 喂，现在没理由了；但删它可能影响 decisions 质量 ⇒ 单独验/真机 A/B） |

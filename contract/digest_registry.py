@@ -310,7 +310,6 @@ ADD = DigestAction(
         '      "kind": "belief",     // 只有 belief（模式也写成 belief 的模式句）//\n'
         '      "subject": "…",       // 必填; 稳定维度命名, 不按情境 //\n'
         '      "text": "…",          // 必填; 结论式/模式句, ≤200 字, 不复述事件 //\n'
-        '      "example": "…",       // 可选; 本次的具体例子一句 //\n'
         '      "tags": ["…"],        // 可选; 检索导向 //\n'
         '      "significance": 0~1,  // 可选; 行为锚点 //\n'
         '      "growth": "…"         // 可选; 成长方向 //\n'
@@ -915,7 +914,7 @@ class DigestRegistry:
                                   " 由第 1 轮产出）")
                     continue
                 item["kind"] = kind
-                for f in ("subject", "text", "example", "tags",
+                for f in ("subject", "text", "tags",
                           "significance", "growth"):
                     v = row.get(f)
                     if v not in (None, "", []):

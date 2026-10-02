@@ -34,7 +34,7 @@
    只是再次印证 → 别改 text, 用 touch。
 4. **id 纪律**: episode/target 只能引用渲染列表里的 id——编造 id 整包拒。
 5. **反复出现的模式也写成 belief**: 同一模式反复出现（老师总说摸鱼、总约我去哪）→
-   照样 `add kind=belief`, 只是 text 写成**模式句**（写模式, 不复述事件）、example 写本次例子。
+   照样 `add kind=belief`, 只是 text 写成**模式句**（写模式, 不复述事件）。
    ⚠️ **没有 `kind=experience` 这个选项** —— 那个 kind 专指"关于老师的事"（玩家画像,
    例：他的口癖 / 偏好），由第 1 轮产出; 你写了它会被拒。
 6. 没有值得整理的 → `"decisions": []`（合法; 但每段互动的 affection 仍要给出）。

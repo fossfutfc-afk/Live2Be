@@ -165,13 +165,16 @@ def apply_decisions(
         else:                                   # add
             kind = row.get("kind", "belief")
             fields: dict[str, Any] = {}
-            for f in ("subject", "text", "example", "tags",
+            for f in ("subject", "text", "tags",
                       "significance", "growth"):
                 v = row.get(f)
                 if v not in (None, "", []):
                     fields[f] = v
-            if kind == "experience" and fields.get("example"):
-                fields["examples"] = [fields.pop("example")]
+            # ⏸ 原 `example → examples` 的映射 **2026-09-29 删** —— 它只在
+            # `kind == "experience"` 时生效, 而 `add` 的契约**只许 belief**
+            # （`parse_round_b` 直接拒 experience）⇒ 那两行从来没跑到过;
+            # 而 belief 那条路把 `example` 原样传进 `make_node`, 又被
+            # `from_dict` 静默丢掉（belief 没有 `example`/`examples` 的读者）。
             if kind == "experience":
                 # ⚠️ §5.1: `experience` = 玩家画像 ⇒ `subject` **强制** `player`
                 # （可见性不许挂在自由文本上; 今天这一路的产品写者已收掉,
