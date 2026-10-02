@@ -17,7 +17,7 @@
 | 3 | `epistemic` | ① 与 `observer` **互为函数**（`observer != ""` ⟺ `reported_fact`）② **跨 kind 两个意思** | 契约"reported_fact 时必填 observer"；`nodes.py:92`；`nodes.py:183`（belief 必须 `inferred_belief`）；`revise.py:181`（engine 归属） | ✅ 已定**整个退役**，只留 `observer`（空=亲历）；读侧 `render.py:206` / `recall.py:394` 改判据；真机 reported 1/20 且带 observer ⇒ 迁移无损 |
 | 4 | `add.example`（R2） | 落成 belief 的 `examples`，而**belief 的 examples 零读者** | `recall.py:322` 只在 `kind=="experience"` 时用 examples（belief 用 `growth`，`recall.py:324`）；她视图 `_belief_line:476` 只渲染 text+growth；⭐ **真机佐证**：`haruka e0001`（从 experience 迁移成 belief 的那条）**真的带着 `examples`**，而它是 belief ⇒ 那条 examples 是死的 | ✅ **已删（2026-09-29）**：契约 `ADD.field_schema` 那行 · `parse_round_b` 的字段元组 · `revise.apply_decisions` 的传递与那段**从未跑到**的 `example→examples` 映射（`add` 只许 belief ⇒ 那两行是死码）· prompt 判据 5 里那句。⚠️ **节点字段 `examples` 保留**（`_apply_accrue` 给 experience 用，`revise.py:824`） |
 | 5 | `evidence`（R2） | **零产品消费者** | 产出曾在 `digest.py:477`；全仓只有一条测试与一个归档脚本（`archive/factory_memory/smoke_digest_v2.py:147`）读；`digest.py` 自注"罗盘应用后置, **无罗盘则丢弃**" | ✅ **已删（2026-09-29）**：`EVIDENCE_THRESHOLD` · `DigestResult.evidence` · `digest_segment(evidence_threshold=…)`（**零调用方传它**）· `_clean_evidence()` · 契约 schema 块 · prompt 判据 9；守门 = `test_digest_registry.py` 的 `"evidence" not in text`。⚠️ 测试桩里的 `"evidence": []` 回音**未清**（`parse` 不读它, 无害） |
-| 6 | `verbatim` vs `verbatim_seq` | **两条通道说同一件事** | 契约"两条都给时**以②为准**"；真机 haruka **两条都填**（文本 + 序号） | ✅ 已定**二选一**：只留**序号**，文本由引擎填（`_resolve_verbatim` 已在） |
+| 6 | `verbatim` vs `verbatim_seq` | **两条通道说同一件事** | 契约"两条都给时**以②为准**"；真机 haruka **两条都填**（文本 + 序号） | ✅ **已删（2026-09-29, 走"甲"）**：契约的字符串通道（行文改成"只给行号; 写字符串会被忽略"）· `_fill_verbatim` 的文本分支 · `_resolve_verbatim` 的"**文本优先**" · `nodes.py` 那句"以文本兜底" · R1 prompt 判据 5（原来是"逐字复制禁改写"）与 MMT 专则两处。⚠️ **真损失认下**：行号解析不出 ⇒ 原话**留空**（从前文本兜底）—— 理由写进 `_resolve_verbatim` 的 docstring |
 | 7 | `kind`（R1） | **轮次决定的常量**，不该由 LLM 声明 | R1 恒 `episode`；R2 恒 `belief`；promise 由 `apply_closures` 建（引擎） | ✅ 已定**删** ⚠️ 后果：`experience` 产线停（真机 mutsuki 有 1 条；player 桶靠它）⇒ "关于老师的事"归 entity 面（以后那一刀） |
 | 8 | `title` / `span`（**bond 段**） | 章标题**在发起 VN 那一刻就定了**；整章的 span 引擎也知道 | 真机 haruka **6/6 与 `chapter_title` 逐字相同**；mutsuki 漂了 1 处（episode「咖啡厅的俄罗斯轮盘」vs 章「咖啡厅的甜点陷阱」） | ⭐ 建议：**bond 段这两个由引擎填**，mmt 段才由 LLM 给（待拍） |
 | 9 | `observer` | 值**引擎推得出**（记录里谁在说话，引擎有 `records`） | `_node_texts` / 记录流的说话人 | 留（已定）；📌 待办：等真机 `reported` 数据再定要不要交引擎 |
@@ -51,7 +51,7 @@
 |---|---|---|---|
 | 17 | "关于某人 / 某事" | `experience` 节点 · `belief.subject` · entity 载荷（`text` 立场 + `state` 现状） | ⭐ 无规则；且 entity 的 `state` **只能整段重写、没有删除机制**（`revise.py:258` 原话："今天没有'删掉一条 state'的机制（'谁判它过期' = §9-4 未定）⇒ 想删得整段重写"） |
 | 18 | `belief.examples` | 与 #4 同源（写了没人读） | ✅ **来源已断（2026-09-29）**：`add` 不再产 `example` ⇒ 新 belief 不会再带 `examples`；⚠️ 旧档里那条（`haruka e0001`）**仍带着**，**不迁移**（没人读，删它是另一件事） |
-| 22 | `hit_set(hints=…)` 参数 + `_hint_hits` | **hint 通道的尾巴**：`about_hint` 删掉（#2）之后，**生产只剩一个调用方**`digest.py:381` 且只传 `texts=`；`hints=` 全仓只被两个用例在调（`test_wiki_entities` 4 条 / `test_round_attr` 2 条）⇒ 判据①"没读者就删" | ⏳ **待裁**：删参数 + `_hint_hits` + 那 6 条用例（`texts` 通道的用例全留）。⚠️ 要注意的**只有一点**：`_hint_hits` 是**精确 / 双向包含**匹配，与正文通道的"≥2 字"规则不同 —— 删它 = 放弃"单字别名精确命中"这个能力（今天没有任何产品路径用它） |
+| 22 | `hit_set(hints=…)` 参数 + `_hint_hits` | **hint 通道的尾巴**：`about_hint` 删掉（#2）之后，**生产只剩一个调用方**`digest.py:381` 且只传 `texts=`；`hints=` 全仓只被两个用例在调（`test_wiki_entities` 4 条 / `test_round_attr` 2 条）⇒ 判据①"没读者就删" | ✅ **已删（2026-09-29, 并进 ⑤ 同一提交）**：`hit_set` 只剩 `texts=` 一个参数 · `_hint_hits` 函数删 · `MIN_HIT_LEN` 注释里"hint 不受此限"那半删 · 两个测试文件的 hint 用例删（`texts` 通道的用例全留 + 单字别名不扫正文仍然钉着）。⚠️ 放弃的能力：**精确匹配**（不受 ≥2 字限制）—— 今天没有任何产品路径用它 |
 
 ---
 
@@ -60,7 +60,7 @@
 | # | 重叠 | 说明 |
 |---|---|---|
 | 19 | R1 的 `about_hint` ↔ R3 的归属 | = #2 ⇒ ✅ **已删（2026-09-29）**（R3 现在只靠正文通道 + 全量候选表） |
-| 20 | `verbatim`（R1 摘原话）↔ `evidence.quote`（R2 摘原话） | **同一件事做两遍**：一个进她的视图（有读者），一个进没人读的 `evidence` |
+| 20 | `verbatim`（R1 摘原话）↔ `evidence.quote`（R2 摘原话） | **同一件事做两遍**：一个进她的视图（有读者），一个进没人读的 `evidence` ⇒ ✅ **已解（2026-09-29）**：`evidence` 整条删掉（①）后只剩 R1 一处; 而它自己也从"两条通道"收成**行号一条**（⑤） |
 | 21 | `decisions.add`（R2，单条也能新建看法）↔ 将来的"群 → 看法"（证据 ≥2） | 两条"长出看法"的路；**分工要写清**：R2 允许单条（新经历带来的新看法 = 记忆的生长点）· 群那条 ≥2（归纳） |
 
 ---

@@ -160,17 +160,17 @@ def test_new_nodes_block_render(tmp_path):
     assert new_nodes_block(st, [])[0] == ""
 
 
-def test_hit_set_reads_hints_and_bodies(tmp_path):
-    """命中集是**确定性**的（§8.3）: hint 精确/包含 ∪ 称呼命中正文（≥2 字）。
+def test_hit_set_reads_bodies_only(tmp_path):
+    """命中集是**确定性**的（§8.3）: 称呼命中正文（≥2 字）—— **只剩这一条通道**。
 
-    ⚠️ 2026-09-29 起**产品侧不再供 hint**（`about_hint` 退役）—— 参数留着, 因为它是这个
-    匹配器的通用形状（离线预演/将来别的写者可能用）。
+    ⭐ 2026-09-29（`REDUNDANCY.md` #22）: `hints=` 参数随 `about_hint` 一起退役 ——
+    单字别名照旧**不扫正文**（否则"他/她/它"会命中所有人）, 这条下限是这里的关键守门。
     """
     st = _store(tmp_path)
-    assert hit_set(st, hints=["老师"]) == ["x0001"]          # hint 通道
-    assert hit_set(st, hints=["老"]) == []                   # 单字 hint: 既不精确也不够长
-    assert hit_set(st, texts=["今天老师夸了我"]) == ["x0001"]  # 正文通道 ← 现在的主力
+    assert hit_set(st, texts=["今天老师夸了我"]) == ["x0001"]  # 别名进正文
     assert hit_set(st, texts=["遥香在店里"]) == ["x0000"]     # 角色自己的名字 → self
+    assert hit_set(st, texts=["他今天没来"]) == []            # 单字别名不扫正文
+    assert hit_set(st, texts=["今天天气不错"]) == []
 
 
 # ---------------------------------------------------------------------------

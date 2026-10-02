@@ -67,7 +67,8 @@ tools/wiki_viz.py  读 wiki.jsonl → mermaid 导出（零依赖, webgui/markdow
   "id": "m0003",
   "kind": "episode",
   "narration": "那天傍晚老师陪我在杂草屋看苔藓，说地砖里长出的苔藓也可以是花",  // 第一人称轻摘要（保留质感, 不升华）
-  "verbatim": "「地砖里长出的苔藓也可以是花——就像遥香你。」",                 // 可选: 重要原话（R2 质感锚点）
+  "verbatim": "「地砖里长出的苔藓也可以是花——就像遥香你。」",                 // ⭐ 逐字原文, 由引擎按 `verbatim_seq`（记录行号）从事件流取回
+  "verbatim_seq": ["42.3", "42.p"],    // 写侧只给**行号**（2026-09-29 起文本通道退役）
   "tags": ["老师", "杂草屋", "自我肯定"],
   "significance": 0.8,                 // 0~1; ≥0.8 = 珍贵档（保底通道; 对应 neuron 的 memo 档）
   "epistemic": "observed_fact",        // 本线亲历

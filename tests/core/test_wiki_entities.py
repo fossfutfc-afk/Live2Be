@@ -102,21 +102,20 @@ def test_candidate_table_is_identity_only(tmp_path):
 
 
 def test_hit_set_rules_and_short_alias_floor(tmp_path):
-    """命中集 = hint ∪ 正文提及, **确定性**; 单字称呼不扫正文（否则命中一切）。"""
+    """命中集 = 正文提及, **确定性**; 单字称呼不扫正文（否则命中一切）。
+
+    ⭐ 2026-09-29（`REDUNDANCY.md` #22）: `hints=` 参数随 `about_hint` 一起退役 ——
+    那两路（hint 精确 / 正文包含）说的是同一件事, 而 hint 那路的唯一写者已经没了。
+    """
     st = _store(tmp_path)
     ensure_entities(st, char_name="伊草 遥香", aliases=("遥香",))
     st.update(SENSEI_ID, {"aliases": ["sensei", "他"]})            # 单字代词
 
-    assert hit_set(st, hints=["老师"]) == [SENSEI_ID]              # 精确
-    assert hit_set(st, hints=["他"]) == [SENSEI_ID]                # 单字 hint 不限长
-    assert hit_set(st, hints=["Sensei"]) == [SENSEI_ID]            # 忽略大小写
-    assert hit_set(st, hints=["伊草"]) == [SELF_ID]                # hint ⊂ name
-
     assert hit_set(st, texts=["遥香今天很安静"]) == [SELF_ID]       # 别名进正文
-    assert hit_set(st, texts=["sensei, 早上好"]) == [SENSEI_ID]
+    assert hit_set(st, texts=["sensei, 早上好"]) == [SENSEI_ID]     # 忽略大小写
     assert hit_set(st, texts=["他今天没来"]) == []                  # ⚠️ 单字别名不扫
     assert hit_set(st, texts=["今天天气不错"]) == []
-    assert hit_set(st, hints=["老师"], texts=["遥香今天很安静"]) == [SELF_ID, SENSEI_ID]
+    assert hit_set(st, texts=["老师夸了遥香"]) == [SELF_ID, SENSEI_ID]
 
 
 def test_payload_block_renders_hits_only(tmp_path):

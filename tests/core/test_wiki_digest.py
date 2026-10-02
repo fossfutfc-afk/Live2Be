@@ -70,10 +70,14 @@ def _mmt(seq, player, reply):
 
 
 def _a_episode(text="老师请我吃了甜品，还说下次再去", sig=0.8, title="甜点之约",
-               verbatim="下次再去吃甜品吧", tags=("甜品", "老师")):
-    return {"episodes": [
-        {"text": text, "title": title, "verbatim": verbatim,
-         "tags": list(tags), "significance": sig}]}
+               verbatim=("3.1",), tags=("甜品", "老师")):
+    """⚠️ `verbatim` 从 2026-09-29 起是**记录行号**（文本通道退役）——
+    默认那条指的正是 `_events(_mmt(3, …))` 的回复记录 `[3.1]`。"""
+    ep = {"text": text, "title": title,
+          "tags": list(tags), "significance": sig}
+    if verbatim:
+        ep["verbatim"] = list(verbatim)
+    return {"episodes": [ep]}
 
 
 def _b_ok(**over):
@@ -288,18 +292,18 @@ def test_event_seq_pointer_and_verbatim_resolve(tmp_path):
     print(f"    verbatim={ep.verbatim!r}")
 
 
-def test_verbatim_text_channel_wins_over_index(tmp_path):
-    """★ 两条都给 → **文本优先**（用户裁决"错索引进待办"的安全前提）。
+def test_verbatim_text_channel_is_retired(tmp_path):
+    """⛔ 文本通道已退役 → **字符串一律忽略**（`REDUNDANCY.md` #6）。
 
-    坏索引（这里 `11.99` 越界）取不到非空原文 → 文本原样保留。
-    这正是"台账做出来之前, 索引不该掌握内容"。
+    从前"两条都给 → 文本优先"是个安全决定（错的原话一眼看得出, 错的索引看不出）;
+    今天行号是唯一入口, 解析不出就**留空绝不编** —— 宁可这条记忆没有原话。
     """
     st = _seed_store(tmp_path)
     a = {"episodes": [{
         "text": "她递给我一块甜点。", "title": "甜点",
         "event_seq": ["11"],
-        "verbatim": "……这块，给你。",            # 文本通道
-        "verbatim_seq": ["11.99"],              # 越界索引（取不到）
+        "verbatim": "……这块，给你。",            # ⛔ 文本通道: 忽略
+        "verbatim_seq": ["11.0"],               # 行号: 解析得出
         "tags": ["甜点"], "significance": 0.6}]}
     b = {"decisions": [{"episode": "m0003", "decision": "touch", "target": "u0001"}],
          "evidence": [], "affection_exp_delta": 0}
@@ -308,23 +312,31 @@ def test_verbatim_text_channel_wins_over_index(tmp_path):
     res = digest_segment(st, FakeLLM(a, b), events)
     assert res.ok, res.errors
     ep = st.get(res.created[0])
-    assert ep.verbatim == "……这块，给你。", ep.verbatim   # 文本一字不动
-    assert ep.verbatim_seq == ["11.99"]                   # 索引留着（可追溯）
-    # 全坏索引且**无文本** → verbatim 留空（绝不编）
+    assert ep.verbatim == "……这块，给你。", ep.verbatim      # 来自事件流的逐字原文
+    assert ep.verbatim_seq == ["11.0"], ep.verbatim_seq     # 行号留在库里（可重解析）
+    # 只给文本、没有行号 → 落空（**不兜底**）
     st2 = _seed_store(tmp_path / "b")
-    a2 = {"episodes": [{"text": "只有坏索引", "title": "x", "event_seq": ["11"],
-                        "verbatim": ["11.99"], "tags": ["t"], "significance": 0.5}]}
+    a2 = {"episodes": [{"text": "只有文本", "title": "x", "event_seq": ["11"],
+                        "verbatim": "……这块，给你。", "tags": ["t"], "significance": 0.5}]}
     res2 = digest_segment(st2, FakeLLM(a2, b), events)
     assert res2.ok, res2.errors
     ep2 = st2.get(res2.created[0])
-    assert ep2.verbatim == "" and ep2.verbatim_seq == ["11.99"]
-    print("    verbatim: 文本优先（越界索引不顶替）+ 无文本时留空不编")
+    assert ep2.verbatim == "" and ep2.verbatim_seq == []
+    # 坏行号（越界）→ 同样留空, 但行号本身留着（可追溯性不受解析成败影响）
+    st3 = _seed_store(tmp_path / "c")
+    a3 = {"episodes": [{"text": "只有坏行号", "title": "x", "event_seq": ["11"],
+                        "verbatim": ["11.99"], "tags": ["t"], "significance": 0.5}]}
+    res3 = digest_segment(st3, FakeLLM(a3, b), events)
+    assert res3.ok, res3.errors
+    ep3 = st3.get(res3.created[0])
+    assert ep3.verbatim == "" and ep3.verbatim_seq == ["11.99"]
+    print("    verbatim: 文本通道退役（字符串忽略）+ 坏行号留空不编")
 
 
 def test_event_seq_falls_back_to_segment_constant(tmp_path):
     """没有板指针 → 回落段级常量（旧行为, 不编）。"""
     st = _seed_store(tmp_path)
-    res = digest_segment(st, FakeLLM(_a_episode(), _b_ok()),
+    res = digest_segment(st, FakeLLM(_a_episode(verbatim=None), _b_ok()),
                          _events(_mmt(3, "老师", "下次再去吃甜品吧")))
     assert res.ok, res.errors
     assert st.get("m0003").event_seq == [3]            # interact_max
@@ -526,24 +538,24 @@ def test_player_portrait_entry_lands_and_hides_from_round_b(tmp_path):
     llm = FakeLLM(
         {"episodes": [
             {"text": "老师说下周放假带我去看烟火大会, 我紧张得直结巴还是答应了",
-             "title": "烟火大会之约", "verbatim": "下周放假, 一起去看烟火吧",
+             "title": "烟火大会之约", "verbatim": ["3.1"],
              "tags": ["约定", "烟火"], "significance": 0.85},
             {"kind": "experience", "text": "玩家的生日是 5 月 20 日",
-             "verbatim": "我生日是 5 月 20 日哦", "tags": ["玩家生日"],
+             "verbatim": ["3.0"], "tags": ["玩家生日"],
              "significance": 0.7},
         ]},
         {"decisions": [
             {"episode": "m0001", "decision": "add", "kind": "belief",
              "subject": "和老师的约定", "text": "老师会认真对待与我的约定"},
          ], "evidence": [], "affection_exp_delta": 15})
-    events = _events(_mmt(3, "老师", "下周放假, 一起去看烟火吧"))
+    events = _events(_mmt(3, "我生日是 5 月 20 日哦", "下周放假, 一起去看烟火吧"))
     res = digest_segment(st, llm, events)
     assert res.ok, res.errors
     assert res.created == ["m0001"]                    # episode 正常建
     p = st.get("e0001")                                # 画像条目 → subject=player experience
     assert p is not None and p.kind == "experience"
     assert p.subject == "player" and p.text.startswith("玩家的生日")
-    assert p.verbatim == "我生日是 5 月 20 日哦"        # 原话直存（无 episode 载体）
+    assert p.verbatim == "我生日是 5 月 20 日哦"        # 玩家原话 = 行号 `[3.0]` → 逐字原文
     assert p.event_seq == [3]
     # B 的认知列表不含刚建的画像条目（冷启动提示仍在 = 无认知可组织）
     b_user = llm.calls[1][1]["content"]

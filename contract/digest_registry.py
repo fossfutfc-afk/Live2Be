@@ -128,7 +128,7 @@ _DOMAIN_CONTRACT = {
         "   · ⚠️ 时间线里的每一步**不是**要分别记的条目 —— 那会写成流水账, 是本轮的典型错误。\n"
         "   · title 用**本章标题**（用户消息的【本章标题】给了）;\n"
         "     span 给**本章的起止**块号（`[起, 止]`）——整章都算这一条覆盖;"
-        " verbatim 仍只挑最关键的一句。\n"
+        " verbatim 仍只挑最关键的 1~2 句（抄记录行号）。\n"
         "⚠️ 本段**可能同时含 MomoTalk 聊天**（时间线里那些不是剧情画面的来回消息）:\n"
         "   那部分**不属于这一章** —— 按 `mmt` 规则 0~5 条**另行记录**（约定/玩家画像/\n"
         "   值得记的对话）, 与本章那一条分开; 既不要并进章总结, 也不要漏记。"
@@ -168,12 +168,9 @@ RECORD_EPISODE = DigestAction(
         '                          //（`[28] 【羁绊剧情】` 里的 28）。**这是指位置, 不是打分**;\n'
         '                          // 区间内的事件**全部**算你覆盖了, 不必逐块列;\n'
         '                          // 两端必须真实存在、且 起 ≤ 止。拿不准就把区间写宽一点 //\n'
-        '      "verbatim": "…",   // 可选; **两条通道, 给一条即可**:\n'
-        '                          //  ① 列表 = 抄时间线的记录行号（推荐）——\n'
-        '                          //     ["28.3", "20.p"]; 引擎据此取回**逐字原文**\n'
-        '                          //  ② 字符串 = 原话逐字复制（禁改写）;\n'
-        '                          // 两条都给时**以②为准**（索引只留作溯源）——\n'
-        '                          // 所以想用①就**别写字符串**, 别两条都给 //\n'
+        '      "verbatim": ["28.3", "20.p"],   // 可选; 抄**时间线的记录行号**（印象最深的\n'
+        '                          // 1~2 句）—— 引擎据此取回**逐字原文**, 你不必抄文本。\n'
+        '                          // ⚠️ **只给行号（数组）**; 写成字符串会被忽略 //\n'
         '      "tags": ["…"],     // 必填 1-4 个; 检索导向——未来玩家输入/叙事可能出现的词\n'
         '                          //（人名/地点/物品/动作/话题）; 不含时间词; 从最重要排起 //\n'
         '      "significance": 0~1,  // 行为锚点: 0.9+ 改变认知/极深刻（初遇/告白）;\n'
@@ -1163,7 +1160,7 @@ def _clean_episode(e: Any, i: int, seq_set: set[int] | None = None
             return None, [f"episodes[{i}]: kind=experience（玩家画像）必须填 text"], []
         item: dict = {"kind": "experience", "text": text,
                       "subject": PLAYER_SUBJECT}
-        # 画像条目无 episode 载体——原话直接存（两条通道: 文本 / 索引）
+        # 画像条目无 episode 载体——原话同样走**记录行号**（玩家那句 = `[N.0]`）
         _fill_verbatim(item, e, i, warnings, seq_set)
         tags = [t for t in e.get("tags", []) if isinstance(t, str) and t.strip()][:MAX_TAGS]
         if tags:
@@ -1285,17 +1282,17 @@ def _clean_span(raw: Any, seq_set: set[int] | None, *, label: str,
 
 def _fill_verbatim(item: dict, e: dict, i: int, warnings: list[str],
                    seq_set: set[int] | None) -> None:
-    """`verbatim` 的**两条通道**（T14, 用户 2026-09-15 裁决: 保文本通道）。
+    """`verbatim` = **记录行号**（唯一通道）。
 
-    ① `"verbatim": ["28.3", "20.p"]` —— 索引通道: 引擎据此取回**逐字原文**
-    ② `"verbatim": "…"`             —— 文本通道: 原话逐字复制（禁改写）
-    ③ 另可显式给 `"verbatim_seq": [...]`（与①等价, 两条并存时合并去重）
+    ① `"verbatim": ["28.3", "20.p"]` —— 抄时间线的记录行号
+    ② 也可显式给 `"verbatim_seq": [...]`（等价; 两条并存时合并去重）
 
-    落库分工: `verbatim_seq` = 索引（可重解析 / 板归属）; `verbatim` = 文本。
-    **文本由引擎在 `digest.py` 解析索引后回填**——parse 层拿不到事件流。
+    落库: `verbatim_seq` = 索引（可重解析 / 板归属）; `verbatim` = 文本, **由引擎在
+    `digest.py` 解析索引后回填**（parse 层拿不到事件流）。
 
-    两条并存时的顺序: `verbatim` 列表在先、显式 `verbatim_seq` 在后
-    （schema 里 `verbatim` 是主字段, `verbatim_seq` 是它的显式别名）。
+    ⏸ **文本通道（`"verbatim": "…"` 字符串）2026-09-29 退役**：它和索引说的是同一件事,
+    而并存时**文本优先** ⇒ 一个偏了一位的索引会被一句"看起来正常的"手抄文本静默盖掉。
+    现在只认数组: 写字符串 → 逐条丢弃 + 告警（**不兜底**）。
     """
     seqs: list[str] = []
     for key in ("verbatim", "verbatim_seq"):
@@ -1303,13 +1300,10 @@ def _fill_verbatim(item: dict, e: dict, i: int, warnings: list[str],
         if isinstance(v, (list, tuple)):
             seqs.extend(_clean_seq_list(v, seq_set, label=f"episodes[{i}].{key}",
                                         warnings=warnings, record_level=True))
-        elif key == "verbatim_seq" and v is not None:
-            warnings.append(f"episodes[{i}].verbatim_seq 必须是数组——忽略")
+        elif v is not None:
+            warnings.append(f"episodes[{i}].{key} 必须是数组（记录行号）——忽略")
     if seqs:
         item["verbatim_seq"] = list(dict.fromkeys(seqs))
-    raw_text = e.get("verbatim")
-    if isinstance(raw_text, str) and raw_text.strip():
-        item["verbatim"] = raw_text.strip()
 
 
 def _read_text(e: dict, i: int, warnings: list[str]) -> str:
@@ -1369,7 +1363,7 @@ def _clean_episode_item(e: dict, i: int, errors: list[str], warnings: list[str],
             item["event_seq"] = [int(s) for s in seqs]
             warnings.append(f"episodes[{i}] 用的是旧形状 event_seq（逐点挑选）——"
                             f"契约已改成 span: [起, 止]（区间，引擎负责展开）")
-    # verbatim 两条通道（索引 / 文本）
+    # verbatim: 记录行号（唯一通道 —— 文本通道 2026-09-29 退役）
     _fill_verbatim(item, e, i, warnings, seq_set)
     tags = [t for t in e.get("tags", []) if isinstance(t, str) and t.strip()][:MAX_TAGS]
     if tags:
