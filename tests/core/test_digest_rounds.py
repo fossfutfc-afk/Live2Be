@@ -20,6 +20,7 @@
 import dataclasses
 import re
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
@@ -219,6 +220,68 @@ def test_cursor_allows_skips_but_never_goes_back():
 
 
 # ---------------------------------------------------------------------------
+# 时间预算（⭐ 2026-09-29 刀 1）: 每轮一份, 整段留硬顶
+# ---------------------------------------------------------------------------
+
+def test_round_budgets_fit_inside_the_segment_cap():
+    """⭐ 各轮预算之和必须 ≤ 整段硬顶 —— 否则后面的轮又会被前面的吃掉, 等于没改。"""
+    for spec in R.ROUNDS:
+        assert R.budget_of(spec) > 0, f"{spec.key}: 预算必须为正"
+    planned, cap = R.planned_seconds(), R.SEGMENT_HARD_CAP_SECONDS
+    assert planned <= cap, (
+        f"各轮预算之和 {planned}s 超过整段硬顶 {cap}s —— 硬顶会替前面的轮吃掉后面的轮"
+        "（刀 1 要修的就是这个）; 要么调小某轮 budget, 要么抬硬顶")
+    print(f"    预算: 每轮 {R.ROUND_BUDGET_SECONDS:.0f}s × "
+          f"{len([s for s in R.ROUNDS if s.label])} 轮 = {planned:.0f}s ≤ 硬顶 {cap:.0f}s")
+
+
+def test_round_deadline_is_the_tighter_of_the_two():
+    """本轮的截止 = `min(整段硬顶, 现在 + 本轮预算)` —— 两个都要管用。"""
+    from core.digest.pipeline import _round_deadline
+    now = time.monotonic()
+    # 硬顶更近（前几轮把整段拖到快超时了）→ 取硬顶
+    assert _round_deadline(now + 5, 120) - now <= 5.01
+    # 预算更近（整段还有富余）→ 取预算
+    assert abs((_round_deadline(now + 999, 120) - now) - 120) < 0.5
+    # 没给硬顶 → 只有本轮预算
+    assert abs((_round_deadline(None, 120) - now) - 120) < 0.5
+    # 预算 0 → 退回"只有硬顶"（老调用方语义）
+    assert _round_deadline(now + 7, 0) == now + 7
+    print("    每轮截止 = min(硬顶, 现在+预算): 两种都管用, 预算 0 时退回老语义")
+
+
+class _MustNotBeCalled:
+    """硬顶已过 ⇒ 连 llm.chat 都不该被调（探针）。"""
+
+    def chat(self, messages, **kw):                # pragma: no cover - 被调即失败
+        raise AssertionError("硬顶已过却还发起了调用")
+
+
+def test_budget_hit_names_the_round(tmp_path):
+    """⭐ 撞预算的失败要**指明是哪一轮、哪种预算** —— 从前那句看不出（刀 1 的另一半）。"""
+    st = _store(tmp_path)
+    res = digest_segment(st, _MustNotBeCalled(), [_mmt(3)], deadline_seconds=0.0)
+
+    assert not res.ok
+    assert res.llm_calls == 0                       # 预检拦下, 一次都没发
+    msg = " | ".join(res.errors)
+    assert "round_a" in msg, msg                    # ⭐ 哪一轮
+    assert "时间预算" in msg and "硬顶" in msg, msg    # ⭐ 哪种预算（0 秒 ⇒ 硬顶更紧）
+    assert st.digested_seq == 0
+    print(f"    {msg}")
+
+
+def test_pipeline_does_not_pass_the_hard_cap_as_a_round_deadline():
+    """调用点不许把整段硬顶直接当本轮截止传下去（那就绕过了 `_round_deadline`）。"""
+    src = PIPELINE.read_text(encoding="utf-8")
+    # ⚠️ 用词边界看: `hard_deadline=hard_deadline` 里的尾巴不算"裸传硬顶"
+    assert not re.search(r"(?<![_A-Za-z])deadline=hard_deadline", src), \
+        "有调用点把整段硬顶直接当本轮 deadline 传了 —— 每轮预算就白设了"
+    assert src.count("hard_deadline=hard_deadline") == len([s for s in R.ROUNDS if s.label]), \
+        "每个 LLM 轮都该传 hard_deadline=（本轮预算在 `_round_call` 里折算）"
+
+
+# ---------------------------------------------------------------------------
 # 端到端: 表推导出来的回滚清单**真的**清掉了那笔漏网的告警
 # ---------------------------------------------------------------------------
 
@@ -291,6 +354,11 @@ if __name__ == "__main__":
     test_sections_check_is_wired()
     test_only_the_group_step_carries_its_own_snapshot()
     test_cursor_allows_skips_but_never_goes_back()
+    test_round_budgets_fit_inside_the_segment_cap()
+    test_round_deadline_is_the_tighter_of_the_two()
+    test_pipeline_does_not_pass_the_hard_cap_as_a_round_deadline()
+    with tempfile.TemporaryDirectory() as d:
+        test_budget_hit_names_the_round(Path(d))
     with tempfile.TemporaryDirectory() as d:
         test_batch_rollback_also_drops_the_close_warnings(Path(d))
     print("all digest rounds guard tests passed")

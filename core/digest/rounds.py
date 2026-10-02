@@ -32,11 +32,16 @@
 | `writes` | 人读（"这一步往图上写什么"）+ 守门用例（字段名/边名/笔记槽必须真实存在） |
 | `result_fields` | `reset_result()` —— ⭐ **`_rollback` 由此推导**, 不再手抄 |
 | `skip` | 跳过时打的那句日志（文案单源）; 判据仍在调用点 |
+| `budget` | ⭐ **这一轮自己的时间预算**（秒）—— `_round_call` 折算成 `min(整段硬顶, 现在 + 它)` |
 | `own_snapshot` | 人读 + 守门: **只有**自带快照的那一步允许吞掉自己的失败 |
+
+⚠️ **两个时间参数也住在本模块**（`ROUND_BUDGET_SECONDS` 每轮默认 / `SEGMENT_HARD_CAP_SECONDS`
+整段硬顶）—— 判据: 每轮各自的预算防"前几轮慢 ⇒ 后面几轮被饿死", 硬顶防"每轮都刚好不超时
+叠成半小时"。**硬顶必须 ≥ 各轮预算之和**（守门用例钉住, 否则等于没改）。
 
 ⚠️ 改这里就要看 `tests/core/test_digest_rounds.py` —— 它钉住: 结果字段分类齐全 ·
 表里的字段名/边名/笔记槽真实存在 · prompt 文件在 · 标签在词表里 · 只有一步自带快照 ·
-游标不许回头。
+游标不许回头 · **预算之和 ≤ 硬顶**。
 """
 from __future__ import annotations
 
@@ -59,6 +64,21 @@ NODE_FACES = ("episode", "experience", "belief", "entity", "group")
 EDGE_FACE = "edge"
 NOTE_FACE = "note"
 FACES = (*NODE_FACES, EDGE_FACE, NOTE_FACE)
+
+#: ⭐ **每轮的时间预算（秒）** —— 一轮（含它自己那次反馈重试）最多花多久。
+#: 表里某轮写了 `budget` 就用它; 没写（0）用这个默认。
+#: ⚠️ **为什么必须有它**（2026-09-29 刀 1）: 从前全段共享一个 300s 预算, 而
+#: `llm_call` 只在**每次尝试前**看表 ⇒ 前几轮一慢, **后面几轮集体被"饿死"**
+#: （报错还只说"撞上时间预算", 看不出是哪一轮）。5 次 high 档长考本来就贴着 300s。
+#: 标定入口 = 真机日志 `llm chat task=digest.round_b ms=…`（已存在, 按 `task=` 分轮看）。
+ROUND_BUDGET_SECONDS = 120.0
+
+#: ⭐ **整段硬顶（秒）** —— 一轮轮下来总共不许超过它。
+#: 判据: 每轮各自的预算防"互相饿死", 硬顶防"每轮都刚好不超时"叠成半小时
+#: （2026-09-02 真发生过一次: 重试放大把 digest 拖到近半小时）。
+#: ⚠️ **硬顶必须 ≥ 各轮预算之和** —— 否则后面的轮又会被前面的吃掉, 等于没改;
+#: `tests/core/test_digest_rounds.py` 钉住这条。
+SEGMENT_HARD_CAP_SECONDS = 600.0
 
 
 @dataclass(frozen=True)
@@ -96,6 +116,15 @@ class RoundSpec:
 
     skip: str
     """跳过条件（跳过时打的那句日志; 判据在 `pipeline` 的调用点）。空串 = 从不跳过。"""
+
+    budget: float = 0.0
+    """⭐ 这一轮的时间预算（秒）。**0 = 用 `ROUND_BUDGET_SECONDS`**。
+
+    ⚠️ 它的作用域 = **本轮自己**（含同轮那次反馈重试）, 由 `_round_call` 在开跑时
+    折算成"`min(整段硬顶, 现在 + 本轮预算)`" —— 单轮慢**不连累后面的轮**。
+    今天五轮都用默认; 要分轮调（R1 最贵、R4 最便宜）就在这一格写数。
+    ⚠️ 它是**每次尝试前**的检查（`llm_call` 的既有语义）, 不掐断正在飞的那一次调用。
+    """
 
     own_snapshot: bool = False
     """True = 这一步失败**只回滚它自己**（加法性的: 料留着, 下一段再来 —— 自愈）。"""
@@ -211,6 +240,17 @@ ROUNDS: tuple[RoundSpec, ...] = (
 #: 表内主键 → spec / 下标（游标与调用点用）
 BY_KEY: dict[str, RoundSpec] = {s.key: s for s in ROUNDS}
 ROUND_INDEX: dict[str, int] = {s.key: i for i, s in enumerate(ROUNDS)}
+
+
+def budget_of(spec: RoundSpec) -> float:
+    """这一轮实际用多少秒（表里没写 ⇒ 默认）—— 唯一取法, 别在调用点各写一份。"""
+    return spec.budget if spec.budget > 0 else ROUND_BUDGET_SECONDS
+
+
+def planned_seconds() -> float:
+    """表里各轮预算之和（守门用: 它必须 ≤ `SEGMENT_HARD_CAP_SECONDS`）。"""
+    return sum(budget_of(s) for s in ROUNDS if s.label)
+
 
 #: ⭐ **失败时要清空的 `DigestResult` 字段** —— 由表推导（不再手抄）。
 RESULT_FIELDS: tuple[str, ...] = tuple(dict.fromkeys(
