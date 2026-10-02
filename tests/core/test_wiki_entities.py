@@ -54,9 +54,9 @@ def test_entity_kind_and_new_fields_roundtrip():
     assert (back.kind, back.name, back.aliases, back.state, back.text) == \
         ("entity", "老师", ["sensei", "他"], ["今天戴了眼镜"], "老师是第一个不会嫌弃我的人")
     assert make_node("entity").validate()          # 缺 name → 拒
-    # `items` 是 episode 的字段（§3.1 的物品台账）
-    ep = make_node("episode", text="老师送了我一盆杂草", items=["一盆杂草", "锈饼干盒"])
-    assert type(ep).from_json_line(ep.to_json_line()).items == ["一盆杂草", "锈饼干盒"]
+    # episode 的往返（用 tags 做代表字段; `items` 2026-09-29 已退役）
+    ep = make_node("episode", text="老师送了我一盆杂草", tags=["杂草", "锈饼干盒"])
+    assert type(ep).from_json_line(ep.to_json_line()).tags == ["杂草", "锈饼干盒"]
 
 
 def test_ensure_entities_reserves_ids_and_is_idempotent(tmp_path):

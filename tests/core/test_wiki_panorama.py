@@ -27,9 +27,9 @@ def _store(tmp_path) -> WikiStoreV2:
     return WikiStoreV2(tmp_path, world_id="world1", char_id="c")
 
 
-def _ep(st, text, *, tags=(), items=(), place=(), sig=0.6, ts="2026-09-20T10:00:00+09:00"):
+def _ep(st, text, *, tags=(), place=(), sig=0.6, ts="2026-09-20T10:00:00+09:00"):
     from core.brain.wiki_v2 import make_node
-    nid = st.add(make_node("episode", text=text, tags=list(tags), items=list(items),
+    nid = st.add(make_node("episode", text=text, tags=list(tags),
                            place=list(place), significance=sig, ts=ts))
     return st.get(nid)
 

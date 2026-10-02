@@ -77,7 +77,7 @@ class BrainNode:
     字段分组:
         共用    id / kind / significance / text / epistemic / observer / tags /
                 event_seq / ts
-        episode title / verbatim / verbatim_seq / items / emo_shape / place / place_raw /
+        episode title / verbatim / verbatim_seq / emo_shape / place / place_raw /
                 aff_at_encoding / emo_int / emo_span
         认知     subject / examples / growth        （experience / belief）
         entity  name / aliases / state             （`text` = 立场/成长基线, 属共用槽）
@@ -125,11 +125,12 @@ class BrainNode:
     place_raw: list[str] = field(default_factory=list)
     #: episode 可选短标题（Round A 必填, 承载本章标题）
     title: str = ""
-    #: ⭐ **物品台账**（§3.1, 2026-09-21）——**痕迹**而不是状态: "这件事里她得到了什么实物"
-    #: （`["一盆杂草", "锈饼干盒"]`）。裸字符串, 与 `tags` 同款。
-    #: 不做 kind、不做边、**不进常驻层**（"她此刻手边有什么"由 entity 的 `state` 满足）。
-    #: 再次出现的同一件东西由 LLM 在正文里自己连 —— 引擎不需要机械地知道它们是同一个。
-    items: list[str] = field(default_factory=list)
+    #: ⏸ `items`（物品台账, §3.1）**2026-09-29 删** —— 它写给"这条记忆里的实物痕迹",
+    #: 但**零活读者**（唯一读它的 `panorama.py` 是零调用者模块）, 而根子上的问题是
+    #: **写在 episode 里分不清"是不是同一个东西"**（夏天送的杂草 ≠ 冬天送的杂草,
+    #: 而兔子玩偶 = 黑色兔子）⇒ 那件事该由专门的**物品面**（`inventory` 旁路）承担,
+    #: 不该由一条自由文本承担。⚠️ 旧档里那两处值（haruka `m0009`/`m0017`）已随清理删掉。
+    #: 别把字段加回来 —— 要物品面就起旁路, 那要**身份**（有 id、有增删、有当前持有）。
     # ── 认知专属（experience / belief）──
     subject: str = ""
     examples: list[str] = field(default_factory=list)
@@ -258,7 +259,7 @@ class BrainNode:
         }
         for f in ("observer", "tags", "event_seq", "ts",
                   "text", "verbatim",
-                  "verbatim_seq", "title", "items", "emo_shape", "place",
+                  "verbatim_seq", "title", "emo_shape", "place",
                   "place_raw",
                   "subject", "examples", "growth",
                   "name", "aliases", "state", "outcome"):
@@ -298,7 +299,6 @@ class BrainNode:
         node.place = _str_list(raw.get("place"))
         node.place_raw = _str_list(raw.get("place_raw"))
         node.title = _str(raw.get("title"))
-        node.items = _str_list(raw.get("items"))
         node.subject = _str(raw.get("subject"))
         node.examples = _str_list(raw.get("examples"))
         node.growth = _str(raw.get("growth"))

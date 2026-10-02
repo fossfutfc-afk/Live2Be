@@ -12,7 +12,7 @@
 
 | # | 字段 | 发现 | 证据 | 状态 |
 |---|---|---|---|---|
-| 1 | `items` | **零活读者** | 全仓只有 `panorama.py:182` 读它当锚点，而那个模块**零调用者**；`notes.py:38` 注释许诺的 `inventory` 在代码里**根本不存在** | ✅ 已定**砍**（将来起 `inventory` 旁路） |
+| 1 | `items` | **零活读者** | 全仓只有 `panorama.py:182` 读它当锚点，而那个模块**零调用者**；`notes.py:38` 注释许诺的 `inventory` 在代码里**根本不存在** | ✅ **已退役（2026-09-29）**：契约 schema 行 + 范例 · `MAX_ITEMS` · `_clean_episode` 的清洗 · `nodes.py` 字段/白名单/`from_dict` · `panorama.py` 的 item 锚点 · `digest.py` 台账那一列 · 测试三处（改成 `"items" not in schema` 的反向守门）。⭐ **真机档已同步清理**（见 §九） |
 | 2 | `about_hint` | **同一件事判两次**（R1 猜"关于谁" → R3 再判"挂谁"）；判据（"三个月后再提到它需要一致吗"）与读者脱节 | 读者只有 `entities.hit_set(hints=…)`；真机 4 段**每条都填**（`digest_hint eps=5 hint=5` 等）；而 `hit_set` 本来就有 `texts=` 通道 | ✅ 已定**删字段**；改成 R3 从 `tags` + 正文 + 标题 + 原话认称呼；⭐ **别名机制保留**（`revise.py:346` 顺手把称呼记进 `aliases` ⇒ R3 输出里留一个可选称呼） |
 | 3 | `epistemic` | ① 与 `observer` **互为函数**（`observer != ""` ⟺ `reported_fact`）② **跨 kind 两个意思** | 契约"reported_fact 时必填 observer"；`nodes.py:92`；`nodes.py:183`（belief 必须 `inferred_belief`）；`revise.py:181`（engine 归属） | ✅ 已定**整个退役**，只留 `observer`（空=亲历）；读侧 `render.py:206` / `recall.py:394` 改判据；真机 reported 1/20 且带 observer ⇒ 迁移无损 |
 | 4 | `add.example`（R2） | 落成 belief 的 `examples`，而**belief 的 examples 零读者** | `recall.py:322` 只在 `kind=="experience"` 时用 examples（belief 用 `growth`，`recall.py:324`）；她视图 `_belief_line:476` 只渲染 text+growth；⭐ **真机佐证**：`haruka e0001`（从 experience 迁移成 belief 的那条）**真的带着 `examples`**，而它是 belief ⇒ 那条 examples 是死的 | ✅ **已删（2026-09-29）**：契约 `ADD.field_schema` 那行 · `parse_round_b` 的字段元组 · `revise.apply_decisions` 的传递与那段**从未跑到**的 `example→examples` 映射（`add` 只许 belief ⇒ 那两行是死码）· prompt 判据 5 里那句。⚠️ **节点字段 `examples` 保留**（`_apply_accrue` 给 experience 用，`revise.py:824`） |
@@ -118,3 +118,32 @@
 | #13 `supports` 收成一个入口 | 倾向收（今天两种写法） |
 | #21 两条"长出看法"的路 | R2 允许单条 · 群那条要求证据 ≥2（分工写进契约） |
 | #11 R2 的"本段时间线"去留 | ⏳ 待裁（**改行为**：它当初只为 `evidence.quote` 喂，现在没理由了；但删它可能影响 decisions 质量 ⇒ 单独验/真机 A/B） |
+
+---
+
+## 九、真机档清理记录（2026-09-29）
+
+> `data/` **不进 git** ⇒ 改过什么只能记在这儿。原则（用户 2026-09-29 裁决）：
+> **不整行重写**（没退役键的行**逐字节原样**）、**先备份**、**写前逐行核对**、**保证原有内容不丢**。
+
+| 文件 | 动作 | 备份 |
+|---|---|---|
+| haruka `wiki.jsonl` | **只摘 `items` 键**（2 处：`m0009`「纸兔子」· `m0017`「装着苔藓的旧果酱瓶」）—— 26 行不变、其余行逐字节未动、id 顺序未变、载入核对通过（26 节点 / 39 边 / 水位 314） | `wiki.jsonl.bak-20260929` |
+| haruka `wiki.meta.json` | 摘 `segments_since_card`（全景轮计数器, N4a 已退役 ⇒ 死键） | `wiki.meta.json.bak-20260929` |
+| haruka `notes.json` | 摘 `habits`（第三槽, N4a 已退役）—— ⭐ **无损**：内容仍在 `events.jsonl` 的 `note/rewrite`（真机 `seq 263`），而代码**不认这个槽** ⇒ 它永远不会被重建；摘完 `NotesState` 载入正常（promise 2 + on_mind） | `notes.json.bak-20260929` |
+| mutsuki `wiki.jsonl` | ⭐ **改名搁置为 `wiki.jsonl.bak`**（**不做迁移**, 用户裁决） | 文件本身即备份 |
+| mutsuki `wiki.meta.json` | 未动（`digested_seq=60`） | — |
+
+### ⚠️ 顺手查出的旧档 bug（**未修, 只记录**）
+
+mutsuki 那 5 个节点是 **v1 格式**：正文写在**退役槽**里（episode 的 `narration` ·
+experience 的 `pattern` · belief 的 `content`），而 `text` 是**空的**
+⇒ **2026-09-21「三槽合流成 text」只改了代码、没迁移这份档** ⇒ 她那几条记忆渲染出来是**空正文**
+（haruka 是主档、26 行全是新格式, 所以一直没暴露）。
+
+按用户裁决**搁置不修**（那份 jsonl 改名 `.bak`）。三条后果记在这儿：
+1. 她的 wiki 现在**从空开始** —— `events.jsonl`（25 KB）完好、水位 `digested_seq=60`;
+   若将来想让事件流重建记忆, **要先把水位退回去**;
+2. 那些 v1 键（`segment_id` / `story_time` / `source` / `links`）连同正文**原样留在 `.bak` 里**;
+3. 她那份 `links`（4 条, episode↔belief）**从没被自举成边** —— 因为没有 `edges.jsonl`,
+   而自举只在"载入 + 下一次 save()"时发生。

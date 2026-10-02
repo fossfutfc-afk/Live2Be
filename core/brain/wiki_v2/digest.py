@@ -281,12 +281,10 @@ def digest_segment(
             event_seq=[interact_max], aff_at_encoding=aff_at_encoding,
             by_seq=by_seq)
         result.hints = hints
-        # 台账（D1）: 归属线索与物品台账**开始有了**, 但这一版还不消费 hint。
+        # 台账（D1）: 归属线索**开始有了**, 但这一版还不消费 hint。
         # 可 grep: 恒 0 说明第 1 轮没按契约写, 不是"这段没有可归属的东西"。
-        logger.info("digest_hint eps=%d hint=%d items=%d（hint 待第 3 轮映射）",
-                    len(episode_ids), len(hints),
-                    sum(len(e.get("items") or []) for e in entries
-                        if e.get("kind") != "experience"))
+        logger.info("digest_hint eps=%d hint=%d（hint 待第 3 轮映射）",
+                    len(episode_ids), len(hints))
 
         # ⭐⭐ N5c: 把本段的「想起」账补成 `akin` 边（`DESIGN_MMT_NEW_ACTION §4.3 ④`）。
         # 位置: **建完 episode 之后的第一件事** —— 原设计的"边先落在 seq 上"走不通
@@ -721,7 +719,8 @@ def _create_a_nodes(store: WikiStoreV2, entries: list[dict], *, ts: str,
     调用方传 None = 未采集（旧档/CLI 路径）→ 字段不落库, 与 `0.0`（中性）区分。
 
     ⭐ D1（2026-09-22）:
-      · `items`（§3.1 物品台账）**随条目自动落库** —— 它在契约层已清洗, 节点字段也已存在。
+      · ~~`items`（§3.1 物品台账）随条目自动落库~~ —— **2026-09-29 字段退役**（零活读者;
+        物品面将来走 `inventory` 旁路）。
       · `about_hint`（§8.2 归属线索）**必须在这里摘掉, 不许进 `make_node`** ——
         否则它就是一个被 `from_dict` 静默忽略的未知键（这个项目最恨的静默 no-op）;
         它由第 3 轮消费, 所以随返回值交出去。
@@ -734,7 +733,7 @@ def _create_a_nodes(store: WikiStoreV2, entries: list[dict], *, ts: str,
     player_ids: list[str] = []
     hints: list[dict] = []
     for ent in entries:
-        # ⚠️ 先摘 hint（不落库）; `items` 留着, 它是真字段
+        # ⚠️ 先摘 hint（不落库）
         hint = str(ent.pop("about_hint", "") or "").strip()
         if ent.get("kind") == "experience":
             # ⚠️ `subject` **强制**成 `player`（§5.1）: `experience` 只有一个意思
