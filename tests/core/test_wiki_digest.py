@@ -82,9 +82,6 @@ def _b_ok(**over):
          "patch": {"text": "老师会记得我的喜好——连甜品店也会挑好", "significance": 0.95}},
         {"episode": "m0003", "decision": "add", "kind": "belief",
          "subject": "sensei", "text": "老师会带我去吃甜品", "example": "「这家店不错吧」"},
-    ], "evidence": [
-        {"function": "fe", "confidence": 0.85, "quote": "下次再去吃甜品吧"},
-        {"function": "ni", "confidence": 0.5, "quote": "低置信度应该被丢"},
     ], "affection_exp_delta": 30}
     out.update(over)
     return out
@@ -226,8 +223,6 @@ def test_full_pipeline(tmp_path):
     nid = added[0].id
     assert st.graph().supporters(nid) == ["m0003"]       # 次数 = supports 入边（G3）
     assert set(st.graph().targets("m0003")) == {nid, "m0002"}   # episode 的两条出边
-    # evidence: 低置信度丢弃
-    assert [e["function"] for e in res.evidence] == ["fe"]
     assert res.affection_delta == 30
     assert st.digested_seq == 3
     # evolution log（apply_decisions 追加）: update 那行带 before/after

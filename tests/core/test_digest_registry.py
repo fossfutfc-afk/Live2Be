@@ -89,7 +89,8 @@ def test_schema_understand_phase():
     assert '"decisions": [' in text
     for name in ("touch", "update", "add"):
         assert f"【{name} 释义】" in text
-    assert "evidence" in text and "affection_exp_delta" in text
+    # ⭐ 2026-09-29: `evidence` 退役 —— schema 里**不许再出现它**（防契约键名的回音长回来）
+    assert "affection_exp_delta" in text and "evidence" not in text
     assert "编造 id → 整包拒" in text
     assert "疑似印证" in text
 
@@ -424,9 +425,7 @@ def test_round_b_valid_decisions():
         {"episode": "m0003", "decision": "add", "kind": "belief",
          "subject": "我对老师的信任", "text": "老师是第一个不嫌弃我的人",
          "tags": ["信任"], "significance": 0.85},
-    ], "evidence": [{"function": "fe", "confidence": 0.9,
-                     "quote": "老师把猫抱到我腿边"}],
-       "affection_exp_delta": 30}
+    ], "affection_exp_delta": 30}
     rows, result = digest_registry.parse_round_b(
         raw, episode_ids={"m0001", "m0002", "m0003"},
         target_ids={"u0001", "u0002", "u0003"})

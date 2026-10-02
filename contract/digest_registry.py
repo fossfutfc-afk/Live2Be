@@ -13,7 +13,9 @@
     phase=understand Round B 理解者: touch / update / add——决策表（逐 episode 一行,
                      结构保证不漏不编 id; 输出对齐输入 = A-MEM 列表对齐的升级）
     phase=deep       深度整理（merge/contradict/…: 后续板块注册, 每 N=5 段触发）
-包级字段（B 轮）: evidence（罗盘成长证据）/ affection_exp_delta（引擎消费）。
+包级字段（B 轮）: affection_exp_delta（引擎消费）。
+⚠️ ~~`evidence`~~ **2026-09-29 删** —— 零产品消费者, 而契约每段要它 ≤5 条 + `quote`
+逐字引用时间线 ⇒ 白付；详见 `core/brain/wiki_v2/REDUNDANCY.md`。
 
 引擎执行层在 core/brain/wiki_v2/（digest.py 两轮编排 + revise.py 执行器, 板块 4）;
 本文件只管"LLM 契约层": 结构/类型/边界/字段约束。
@@ -361,7 +363,7 @@ class DigestRegistry:
         """渲染某一轮的输出格式文本。
 
         record:     {"episodes": [...]}
-        understand: {"decisions": [...], "evidence": [...], "affection_exp_delta": n}
+        understand: {"decisions": [...], "affection_exp_delta": n}
 
         `domain`（2026-09-20, 用户裁决）—— **粒度跟着"作者单位"走**:
 
@@ -421,10 +423,6 @@ class DigestRegistry:
                 '               // 没有就写 []（或省略这个键）//',
                 '        {"from": "u0007", "rel": "supports", "to": "u0002"},',
                 '        {"from": "u0009", "rel": "evolved_from", "to": "u0007"}',
-                "     ],",
-                '     "evidence": [ // 可选; 成长证据——只输出有明确原文支撑的;',
-                '                    // confidence < 0.7 会被引擎丢弃; quote 必须逐字来自时间线 //',
-                '        {"function": "fe", "confidence": 0.8, "quote": "…原文…", "note": "…"}',
                 "     ],",
                 '     "affection_exp_delta": 0  // 本段好感净变化 -100~100（int）; 无变化 → 0;',
                 '                                // **负值 = 关系恶化**（被伤到/失望/决裂）//',
@@ -833,8 +831,7 @@ class DigestRegistry:
                       target_ids: set[str],
                       link_ids: set[str] | None = None,
                       ) -> tuple[list[dict], ValidationResult]:
-        """Round B: `{"decisions": [...], "links": [...], "evidence": [...],
-        "affection_exp_delta": n}`。
+        """Round B: `{"decisions": [...], "links": [...], "affection_exp_delta": n}`。
 
         episode_ids: 本轮 Round A 产出的真实 episode id 集（引用检查）。
         target_ids: **可被 `touch`/`update` 的**本地 id 集（u0001..; 只有看法）。
@@ -1210,8 +1207,8 @@ def _clean_seq_list(raw: Any, seq_set: set[int] | None, *,
     `"28.3"` 视为写错（它的 seq 部分仍然认, 但会记一条 warning 提醒）。
     `record_level=True`（`verbatim` 索引通道）: 收 `"28.3"` / `"28.p"` / `"28"`。
 
-    `seq_set` 非空时做 ⊆ 校验——**抄不存在的编号 → 丢弃**（与 `evidence.quote`
-    的"逐字来自时间线"同一套防幻觉思路, 但这里是真的实现了的）。
+    `seq_set` 非空时做 ⊆ 校验——**抄不存在的编号 → 丢弃**（防幻觉: 序号由引擎发,
+    抄不到就丢, 绝不猜）。
     """
     from contract.timeline_index import parse_index
     if raw is None:
