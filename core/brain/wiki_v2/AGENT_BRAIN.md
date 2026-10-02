@@ -71,7 +71,7 @@ tools/wiki_viz.py  读 wiki.jsonl → mermaid 导出（零依赖, webgui/markdow
 // 一行一条（wiki.jsonl）
 {
   "id": "m0003",
-  "kind": "episode",
+  "kind": "episode",                   // ⚠️ 这是**盘上的形状**（引擎必写）; 写侧（R1）2026-09-29 起**只在例外时才写**（默认就是 episode）
   "narration": "那天傍晚老师陪我在杂草屋看苔藓，说地砖里长出的苔藓也可以是花",  // 第一人称轻摘要（保留质感, 不升华）
   "verbatim": "「地砖里长出的苔藓也可以是花——就像遥香你。」",                 // ⭐ 逐字原文, 由引擎按 `verbatim_seq`（记录行号）从事件流取回
   "verbatim_seq": ["42.3", "42.p"],    // 写侧只给**行号**（2026-09-29 起文本通道退役）

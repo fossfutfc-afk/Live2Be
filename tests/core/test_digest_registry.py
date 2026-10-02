@@ -162,29 +162,42 @@ def test_round_a_not_dict():
     assert items == [] and not result.is_valid
 
 
-def test_round_a_player_portrait_entry():
-    """MMT 专则: kind=experience（玩家画像）条目——text 必填, subject 引擎固定。"""
+def test_round_a_kind_is_exception_only():
+    """⭐ 2026-09-29: **`kind` 只在例外时写**（用户裁决: 轮次决定的常量不该由 LLM 声明）。
+
+    默认 = 经历（缺键 / 空串都算）; 唯一要显式写的例外 = `experience`（玩家画像）;
+    写坏值照旧**拒**（不静默降级 —— 静默改 kind 会让模型下次还这么写）。
+    """
     raw = {"episodes": [
+        {"text": "老师约我去公园散步。", "title": "公园散步", "tags": ["公园"]},
+        {"kind": "", "text": "空串也算默认。", "title": "空 kind", "tags": ["x"]},
         {"kind": "experience", "text": "玩家的生日是 5 月 20 日",
          "verbatim": ["3.0"], "tags": ["玩家"], "significance": 0.7},
         {"kind": "experience", "title": "忘了 text"},          # 缺 text → 拒
     ]}
     items, result = digest_registry.parse_round_a(raw)
-    assert not result.is_valid
+    assert not result.is_valid                                # 只有第 4 条坏
     assert any("text" in e for e in result.errors)
-    assert len(items) == 1
-    assert items[0]["kind"] == "experience"
-    assert items[0]["subject"] == "player"          # 引擎固定, 不信任 LLM
-    assert items[0]["text"].startswith("玩家的生日")
-    assert items[0]["verbatim_seq"] == ["3.0"]      # 玩家原话也走**记录行号**（`[N.0]`）
+    assert len(items) == 3
+    assert [it["kind"] for it in items] == ["episode", "episode", "experience"]
+    assert items[0]["text"].startswith("老师约我")            # 不写 kind ⇒ 经历
+    assert items[1]["kind"] == "episode"                     # 空串 ⇒ 也是经历
+    assert items[2]["subject"] == "player"                   # 引擎固定, 不信任 LLM
+    assert items[2]["text"].startswith("玩家的生日")
+    assert items[2]["verbatim_seq"] == ["3.0"]               # 玩家原话走**记录行号**（`[N.0]`）
 
 
 def test_round_a_bad_kind_rejected():
+    """坏 kind 拒 → 不静默降级; 错误文案要教它"不写 = 经历"（2026-09-29 改口径）。"""
     items, result = digest_registry.parse_round_a({"episodes": [
         {"kind": "belief", "text": "不是合法形态"},
+        {"kind": "episode", "text": "显式写 episode 仍然合法（旧 prompt 缓存）",
+         "title": "t", "tags": ["x"]},
     ]})
     assert not result.is_valid
     assert any("kind 非法" in e for e in result.errors)
+    assert any("不写 = 经历" in e for e in result.errors)      # 指路牌
+    assert len(items) == 1 and items[0]["kind"] == "episode"  # 显式的照收
 
 
 # ---------------------------------------------------------------------------
@@ -254,6 +267,8 @@ def test_schema_documents_pointer_and_channels():
     ⇒ 这条镜像断言必须跟着改，否则文案漂了没人知道。
     ⭐ **⑤（2026-09-29）把 `verbatim` 收成一条通道**（记录行号）⇒ 这里同时钉住
     "只给行号"与"字符串会被忽略"，防那条老通道被谁顺手加回来。
+    ⭐ **⑥（2026-09-29）把 `kind` 收成"例外才写"** ⇒ 这里钉住契约文案说了这句话,
+    并且**示例 JSON 里不再带 `"kind": "episode"`**（示例才是形状的来源, 陷阱 3/46）。
     """
     text = digest_registry.build_schema(PHASE_RECORD)
     assert "span" in text and "指位置, 不是打分" in text
@@ -261,10 +276,12 @@ def test_schema_documents_pointer_and_channels():
     assert "28.3" in text and "20.p" in text
     assert "记录行号" in text
     assert "只给行号" in text and "写成字符串会被忽略" in text
+    assert "默认就是" in text and "不用写 `kind`" in text
     # ⚠️ 旧形状**不再**出现在给 LLM 看的文案里（只在 parse 层作兼容收下）
     assert '"event_seq"' not in text
     assert "两条通道" not in text
-    print("    schema: 位置区间(span) + verbatim 记录行号（单通道）已文档化")
+    assert '"kind": "episode"' not in text            # 示例里不该再出现这一行
+    print("    schema: 位置区间(span) + verbatim 记录行号 + kind 只在例外时写")
 
 
 # ---------------------------------------------------------------------------
@@ -343,6 +360,8 @@ def test_legacy_event_seq_still_accepted_but_warned():
 # ---------------------------------------------------------------------------
 
 def _ep(**over):
+    """⚠️ `kind` 2026-09-29 起**只在例外时写** —— 夹具保留显式的 `"kind": "episode"`
+    正是为了钉住"旧 prompt 缓存里带着它也一样收"（见 `test_round_a_bad_kind_rejected`）。"""
     base = {"kind": "episode", "text": "她笑了一下。", "title": "测试条目",
             "tags": ["测试"]}
     base.update(over)
