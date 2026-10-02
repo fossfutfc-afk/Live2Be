@@ -25,11 +25,9 @@ from core.brain.wiki_v2.render import (                        # noqa: E402
 
 
 def _belief(st, text, *, subject="", sig=0.9, tags=None, eid=None):
-    return st.add(make_node("belief", text=text, subject=subject,
-                            epistemic="inferred_belief", significance=sig,
+    return st.add(make_node("belief", text=text, subject=subject, significance=sig,
                             tags=list(tags or []), event_seq=[1], id=eid) if eid
-                  else make_node("belief", text=text, subject=subject,
-                                 epistemic="inferred_belief", significance=sig,
+                  else make_node("belief", text=text, subject=subject, significance=sig,
                                  tags=list(tags or []), event_seq=[1]))
 
 
@@ -43,10 +41,8 @@ def _store(tmp_path) -> WikiStoreV2:
 
 def test_cognition_line_shape_and_edges(tmp_path):
     st = _store(tmp_path)
-    a = st.add(make_node("belief", text="老师是第一个不会嫌弃我的人", subject="sensei",
-                         epistemic="inferred_belief", significance=0.9))
-    b = st.add(make_node("belief", text="重要东西要收起来", subject="我",
-                         epistemic="inferred_belief", significance=0.8))
+    a = st.add(make_node("belief", text="老师是第一个不会嫌弃我的人", subject="sensei", significance=0.9))
+    b = st.add(make_node("belief", text="重要东西要收起来", subject="我", significance=0.8))
     ep1 = st.add(make_node("episode", text="天台夜谈", title="天台", event_seq=[1]))
     ep2 = st.add(make_node("episode", text="杂草屋", title="杂草屋", event_seq=[2]))
     st.add_edge("supports", ep1, a)
@@ -66,9 +62,9 @@ def test_cognition_line_shape_and_edges(tmp_path):
 def test_cognition_edges_outside_are_counted_not_numbered(tmp_path):
     """列表外的认知**只报数** —— 绝不给它编一个看不到正文的号。"""
     st = _store(tmp_path)
-    a = st.add(make_node("belief", text="看得见的", epistemic="inferred_belief",
+    a = st.add(make_node("belief", text="看得见的",
                          significance=0.9))
-    far = st.add(make_node("belief", text="列表外的", epistemic="inferred_belief",
+    far = st.add(make_node("belief", text="列表外的",
                            significance=0.1))
     st.add_edge("supports", a, far)
     ent = st.add(make_node("entity", name="sensei", text=""))
@@ -82,7 +78,7 @@ def test_cognition_edges_outside_are_counted_not_numbered(tmp_path):
 def test_cognition_edges_capped(tmp_path):
     """边封顶（`被引 N` 已经说明有几条）—— 20 条边不该印 20 个。"""
     st = _store(tmp_path)
-    a = st.add(make_node("belief", text="被很多人印证", epistemic="inferred_belief",
+    a = st.add(make_node("belief", text="被很多人印证",
                          significance=0.9))
     for i in range(12):
         ep = st.add(make_node("episode", text=f"第{i}次", title=f"第{i}次",
@@ -96,8 +92,7 @@ def test_cognition_edges_capped(tmp_path):
 def test_cognition_line_shared_by_list_and_candidate(tmp_path):
     """⭐ 两个调用者**共用同一份**渲染（`render_cognition_line`）—— 各写一份必漂。"""
     st = _store(tmp_path)
-    st.add(make_node("belief", text="x" * 200, subject="sensei",
-                     epistemic="inferred_belief", significance=0.9))
+    st.add(make_node("belief", text="x" * 200, subject="sensei", significance=0.9))
     row_list = render_cognition_line(st, st.all()[0], st.graph(), {"m0001": "u0001"})
     row_cand = render_cognition_line(st, st.all()[0], st.graph(), {"m0001": "u0001"},
                                      max_body=60, indent="  ")
@@ -114,8 +109,7 @@ def test_cognition_line_shared_by_list_and_candidate(tmp_path):
 def test_candidate_block_carries_body_and_why(tmp_path):
     """候选行不再是光秃秃的编号 —— 正文 / 被引 / why 都在。"""
     st = _store(tmp_path)
-    st.add(make_node("belief", text="我喜欢照顾杂草", subject="杂草",
-                     epistemic="inferred_belief", significance=0.9,
+    st.add(make_node("belief", text="我喜欢照顾杂草", subject="杂草", significance=0.9,
                      tags=["杂草"]))
     ep = st.add(make_node("episode", text="今天又去看了杂草", title="看杂草",
                           tags=["杂草"], event_seq=[1]))
@@ -132,10 +126,8 @@ def test_candidate_block_carries_body_and_why(tmp_path):
 def test_why_sources_are_parallel_to_result(tmp_path):
     """`why_out` 与返回值**等长同序**，且三种字面来源都说得出来。"""
     st = _store(tmp_path)
-    st.add(make_node("belief", text="关于猫的看法", subject="夜猫子",
-                     epistemic="inferred_belief", significance=0.9, tags=["猫"]))
-    st.add(make_node("belief", text="老师会记得给猫带猫粮的约定", subject="老师与我的约定",
-                     epistemic="inferred_belief", significance=0.8, tags=["猫"]))
+    st.add(make_node("belief", text="关于猫的看法", subject="夜猫子", significance=0.9, tags=["猫"]))
+    st.add(make_node("belief", text="老师会记得给猫带猫粮的约定", subject="老师与我的约定", significance=0.8, tags=["猫"]))
     why: list[str] = []
     cands = recommend_candidates(st, "老师带着猫粮来喂猫", why_out=why)
     assert len(why) == len(cands) and why, (why, cands)
@@ -151,9 +143,9 @@ def test_why_sources_are_parallel_to_result(tmp_path):
 def test_why_semantic_channel(tmp_path):
     """语义通道也说得出来（`语义 0.xx`）—— 至少能分清"是语义还是字面"。"""
     st = _store(tmp_path)
-    st.add(make_node("belief", text="拆炸弹", epistemic="inferred_belief",
+    st.add(make_node("belief", text="拆炸弹",
                      significance=0.9))
-    st.add(make_node("belief", text="甜品店", epistemic="inferred_belief",
+    st.add(make_node("belief", text="甜品店",
                      significance=0.8))
 
     def embed(texts):
@@ -170,7 +162,7 @@ def test_why_semantic_channel(tmp_path):
 def test_why_out_absent_keeps_old_behaviour(tmp_path):
     """不传 `why_out` ⇒ 行为与签名都不变（现有调用方零改动）。"""
     st = _store(tmp_path)
-    st.add(make_node("belief", text="我喜欢照顾杂草", epistemic="inferred_belief",
+    st.add(make_node("belief", text="我喜欢照顾杂草",
                      significance=0.9, tags=["杂草"]))
     out = recommend_candidates(st, "杂草")
     assert out and isinstance(out[0][1], float)

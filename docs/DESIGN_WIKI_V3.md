@@ -455,6 +455,9 @@ MomoTalk 聊天"）。有两条用例钉着（收口 / 聊天原子不被压掉�
 轴一 kind      —— 节点的"形状"      : entity | episode | belief
 轴二 epistemic —— "我怎么知道的"    : observed_fact | reported_fact | inferred_belief
                                        （`speculation` **2026-09-21 删**——零生产者/零消费者/零真机数据）
+                                       ⛔ **整条 2026-09-29 退役**（`REDUNDANCY.md` #3）:
+                                       "我怎么知道的"今天只看 **`observer` 空不空**
+                                       （空 = 亲历 · 非空 = 转述者）
 轴三 etype     —— 实体是"哪种东西"  : self | person | place | item | knowledge   （仅 entity）
 轴四 nature    —— 认知"是哪一类"    : self_image | other | relationship | pattern （仅 belief）
 ```
@@ -2143,7 +2146,7 @@ LLM 只需回答"这段戏横跨了多久"这个**叙事问题**，槽位算术�
 |---|---|
 | 输入 | 时间线（**放宽到 800~1200 字**，见 §8）+ 画面记忆 + 人设锚 + **当前剧情时间** |
 | 输出 | `{"episodes": [{title, narration, verbatim?, tags, significance, epistemic, observer?, subject?}]}` |
-| 引擎校验 | 必填字段齐全（**结构完整性逐条校验**，对齐 AgentGal）；`epistemic` 与 `observer` 配对；≤5 条 |
+| 引擎校验 | 必填字段齐全（**结构完整性逐条校验**，对齐 AgentGal）；~~`epistemic` 与 `observer` 配对~~ ⛔ 2026-09-29 起只留 `observer`（空 = 亲历）; ≤5 条 |
 | 失败 | 整步跳过、水位不推进（宁缺勿错） |
 
 **素材分区**（解 v2 的"两种素材共用一个提示词"）：MMT 会话 / Bond 场景

@@ -14,7 +14,7 @@ def test_add_save_reload_roundtrip(tmp_path):
     st = _store(tmp_path)
     n1 = make_node("episode", text="天台夜谈", significance=0.8,
                    event_seq=[42, 58], observer="igusa_haruka")
-    n2 = make_node("belief", text="我被需要", epistemic="inferred_belief",
+    n2 = make_node("belief", text="我被需要",
                    links=["m0001"])
     st.add(n1)
     st.add(n2)
@@ -33,7 +33,7 @@ def test_id_allocation_prefixes(tmp_path):
     assert st.add(make_node("episode", text="拆炸弹")) == "m0001"
     assert st.add(make_node("episode", text="x")) == "m0002"
     assert st.add(make_node("experience", text="摸鱼", subject="player")) == "e0001"
-    assert st.add(make_node("belief", text="y", epistemic="inferred_belief",
+    assert st.add(make_node("belief", text="y",
                             links=["m0001"])) == "m0003"
     assert st.next_id("m") == "m0004"
     assert st.next_id("e") == "e0002"
@@ -57,12 +57,14 @@ def test_promise_prefix_and_persistence(tmp_path):
 def test_add_rejects_invalid_node(tmp_path):
     st = _store(tmp_path)
     with pytest.raises(ValueError):
-        st.add(make_node("belief", text="无支撑升华"))      # links 空
-    with pytest.raises(ValueError):
         st.add(make_node("episode"))                            # 缺 text
     with pytest.raises(ValueError):
-        st.add(make_node("episode", text="x",
-                         epistemic="inferred_belief"))          # 认知不伪装成经历
+        # 认知不伪装成事实 —— ⭐ 2026-09-29 起判据是 observer（`epistemic` 已退役）
+        st.add(make_node("belief", text="x", observer="阿露"))
+    with pytest.raises(ValueError):
+        st.add(make_node("promise", text="周六模型店"))          # 缺 outcome
+    # ⏸ 原第二条（"belief 无支撑"）**不在 add 这一层** —— 那条规则 2026-09-21 搬去
+    # `store.audit()`（见 `test_wiki_audit.py`）, add 只跑 `validate()`。
 
 
 def test_duplicate_id_rejected(tmp_path):
@@ -111,7 +113,7 @@ def test_edge_primitives(tmp_path):
     st = _store(tmp_path)
     st.add(make_node("episode", text="e1", event_seq=[1]))
     st.add(make_node("episode", text="e2", event_seq=[2]))
-    st.add(make_node("belief", text="b", epistemic="inferred_belief"))
+    st.add(make_node("belief", text="b"))
     st.add_link("m0001", "m0002")            # 无向 link → rel 由两端 kind 推断
     st.add_link("m0001", "m0002")            # 幂等
     # episode ↔ episode 判不出类型 → unknown（**不猜**, 见 graph.classify_pair）
@@ -142,7 +144,7 @@ def test_add_edge_symmetric_is_canonicalised(tmp_path):
     st.add_edge("akin", "m0001", "m0002")                            # 正着传 → 幂等命中
     assert [(e.rel, e.src, e.dst) for e in st.edges()] == [("akin", "m0001", "m0002")]
     # ⚠️ 有向边**不许**被规范化 —— 方向就是语义（这里 m0003 > m0001, 规范化会把它翻过来）
-    st.add(make_node("belief", text="c", epistemic="inferred_belief"))
+    st.add(make_node("belief", text="c"))
     st.add_edge("supports", "m0003", "m0001")
     assert ("supports", "m0003", "m0001") in [(e.rel, e.src, e.dst) for e in st.edges()]
     # 反着传也删得掉（与 `add_edge` 共用同一个规范化）
@@ -210,7 +212,7 @@ def test_group_node_prefix_and_roundtrip(tmp_path):
     st = _store(tmp_path)
     assert st.add(make_node("group", title="苔藓")) == "g0001"
     st.add(make_node("episode", text="a", event_seq=[1]))
-    assert st.add(make_node("belief", text="b", epistemic="inferred_belief")) == "m0002"
+    assert st.add(make_node("belief", text="b")) == "m0002"
     st.save()
     st2 = _store(tmp_path)
     assert st2.get("g0001").kind == "group" and st2.get("g0001").title == "苔藓"
@@ -274,7 +276,7 @@ def test_edges_persist_and_reload(tmp_path):
     """边表落盘 ⇄ 读回（点边两个文件; 再载入不再走推断）。"""
     st = _store(tmp_path)
     st.add(make_node("episode", text="a", event_seq=[1]))
-    st.add(make_node("belief", text="b", epistemic="inferred_belief"))
+    st.add(make_node("belief", text="b"))
     st.add_edge("supports", "m0001", "m0002", ts="2026-09-21T10:00:00")
     st.save()
     assert st.edges_path.is_file() and st.edges_path.name == "edges.jsonl"
@@ -297,7 +299,7 @@ def test_delete_filters_edges(tmp_path):
     st = _store(tmp_path)
     st.add(make_node("episode", text="hub", event_seq=[1]))
     st.add(make_node("episode", text="a", event_seq=[2]))
-    st.add(make_node("belief", text="b", epistemic="inferred_belief"))
+    st.add(make_node("belief", text="b"))
     st.add_link("m0002", "m0001")
     st.add_link("m0003", "m0001")
     st.add_contradiction("m0001", "m0003")
@@ -327,7 +329,7 @@ def test_snapshot_restore(tmp_path):
     """快照 = **点 + 边**两个文件（只写点的话, 捞回来的记忆是断连的）。"""
     st = _store(tmp_path)
     st.add(make_node("episode", text="a", event_seq=[1]))
-    st.add(make_node("belief", text="b", epistemic="inferred_belief"))
+    st.add(make_node("belief", text="b"))
     st.add_edge("supports", "m0001", "m0002")
     snap = tmp_path / "snap_001.jsonl"
     st.snapshot_to(snap)

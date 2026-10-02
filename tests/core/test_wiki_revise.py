@@ -17,7 +17,7 @@ def _store(tmp_path) -> WikiStoreV2:
     # 固定子图: m0001 episode(拆炸弹) + m0002 belief(信任) + m0003 episode(天台) + e0001 experience
     st.add(make_node("episode", text="拆炸弹初遇", event_seq=[1], ts="2026-08-01T00:00:00"))
     st.add(make_node("belief", text="老师是第一个不会嫌弃我的人", subject="sensei",
-                     epistemic="inferred_belief", significance=0.9, event_seq=[1]))
+                     significance=0.9, event_seq=[1]))
     st.add(make_node("episode", text="天台夜谈", event_seq=[2], ts="2026-08-02T00:00:00"))
     st.add(make_node("experience", text="提到工作繁忙", subject="sensei",
                      significance=0.7, event_seq=[2]))
@@ -44,7 +44,6 @@ def test_create_and_link_package(tmp_path):
                                        "event_seq": [3], "links": ["m0002"]}},
         {"action": "create", "entry": {"ref": "n2", "kind": "belief",
                                        "text": "老师会认真听我说话", "subject": "sensei",
-                                       "epistemic": "inferred_belief",
                                        "links": ["n1"]}},
     ]
     res = apply_revision_package(st, pkg, subgraph_ids=_scope(st))
@@ -94,11 +93,8 @@ def test_update_rules(tmp_path):
                                        "patch": {"significance": 0.95}}],
                                  subgraph_ids=scope)
     assert res.ok and st.get("m0001").significance == 0.95
-    # epistemic 不可改
-    res = apply_revision_package(st, [{"action": "update", "id": "m0002",
-                                       "patch": {"epistemic": "observed_fact"}}],
-                                 subgraph_ids=scope)
-    assert not res.ok and any("epistemic" in e for e in res.errors)
+    # ⏸ 原"epistemic 不可改"那半段 2026-09-29 删 —— 字段退役后它就是**未知字段**,
+    # 由 `store.update` 的未知字段守卫拦（同一条语义: LLM 不许碰来源）。
     # ⏸ 原"出厂基座只允许 notes 追加"那半段 2026-09-21 删——`is_seed()`/`source`/`notes`
     # 整族退役（生产者已归档, 真机 0 个 seed 节点）。update 现在只受字段白名单约束。
 
@@ -255,7 +251,7 @@ def test_failure_writes_no_log_and_reloads(tmp_path):
     pkg = [
         {"action": "create", "entry": {"kind": "episode", "text": "会成功的",
                                        "event_seq": [3], "links": ["m0002"]}},
-        {"action": "update", "id": "m0002", "patch": {"epistemic": "observed_fact"}},
+        {"action": "update", "id": "m0002", "patch": {"unknown_field": "x"}},   # 未知字段
     ]
     res = apply_revision_package(st, pkg, subgraph_ids=_scope(st))
     assert not res.ok
@@ -332,7 +328,7 @@ def test_decisions_update_patch_outside_whitelist_rejected(tmp_path):
 
 
 def test_decisions_add_belief_linked_before_store(tmp_path):
-    """add belief: 引擎归属 epistemic + 入仓后立刻补 supports 边（G3: 边表）。"""
+    """add belief: 入仓后立刻补 supports 边（G3: 边表）; 来源字段由引擎保证为空。"""
     st = _store(tmp_path)
     _episode(st, text="老师把猫抱到我腿边")
     rows = [{"episode": "m0004", "decision": "add", "kind": "belief",
@@ -340,7 +336,7 @@ def test_decisions_add_belief_linked_before_store(tmp_path):
     created = apply_decisions(st, rows, id_map={}, **_ctx_kw())
     assert created == ["m0005"]                          # belief 与 episode 同 m 前缀
     bel = st.get("m0005")
-    assert bel.epistemic == "inferred_belief"            # 引擎归属
+    assert bel.observer == ""                            # ⭐ 新认知不是"听说的"（observer 空）
     assert st.graph().supporters("m0005") == ["m0004"]
     # 边带**本段日期**（digest 传的 ts, 不是"写库时刻"）—— 2026-09-22 补
     e = st.graph().edges_to("m0005", "supports")[0]

@@ -190,7 +190,10 @@ C. RAG 回忆（Phase 2 🔧）: embedding 检索与新增语义相关的旧事�
 - **id 校验**: LLM 引用的 #id 必须存在于本次渲染的子图内（契约层 ValidationResult 同款, 防幻觉 id）
 - **原子执行**: revisions 全部通过才写盘; 写 evolution_log（diff 理由, 服务 R6 回滚）
 - **token 预算**: 子图渲染上限（如 15 条）, 超出按 significance 截断——全 wiki 永远不进 prompt
-- **epistemic 护栏**: 见 §7（update 不得把 inferred_belief 改成 canon_fact 等）
+- ~~**epistemic 护栏**: 见 §7（update 不得把 inferred_belief 改成 canon_fact 等）~~
+  ⛔ **2026-09-29: `epistemic` 字段已整条退役** —— 同一条护栏今天写作
+  "**belief 不许带 `observer`**"（非空 observer 的语义 = "听说的"）。
+  见 `core/brain/wiki_v2/REDUNDANCY.md` #3。
 
 **角色视图 vs 组织视图**（同一张图两种渲染）:
 - 组织视图（喂 digest/组织 LLM）: #id + 邻接表, 供修订决策

@@ -117,32 +117,35 @@ def test_round_a_valid_entries():
         {"text": "老师约我去公园散步, 我紧张但努力答应了。", "title": "公园散步",
          "tags": ["公园"], "significance": 0.8},
         {"text": "听睦月说阿露昨天又翻车了", "title": "阿露翻车",
-         "tags": ["睦月", "阿露"], "epistemic": "reported_fact",
+         "tags": ["睦月", "阿露"],
          "observer": "asagi_mutsuki", "significance": 0.6},
     ]}
     items, result = digest_registry.parse_round_a(raw)
     assert result.is_valid, result.errors
     assert len(items) == 2
     assert items[0]["text"].startswith("老师约我")
-    assert items[1]["epistemic"] == "reported_fact"
-    assert items[1]["observer"] == "asagi_mutsuki"
+    assert items[0].get("observer", "") == ""           # 不写 observer = 亲历（没有 epistemic 了）
+    assert items[1]["observer"] == "asagi_mutsuki"      # ⭐ 来源只剩这一个字段（2026-09-29）
+    assert "epistemic" not in items[1]
 
 
 def test_round_a_rejects_bad_entries():
     raw = {"episodes": [
         {"title": "没有正文"},                       # 缺 text
         {"text": "x" * 400},                    # 超长
-        {"text": "转述却没写转述者", "epistemic": "reported_fact"},
+        {"text": "旧 prompt 缓存带来的键", "title": "旧键",
+         "epistemic": "reported_fact", "observer": "阿露"},   # ⏸ 退役键: 只告警
         {"text": "ok", "title": "t", "id": "m9999"},   # 引擎字段应被忽略(警告)
     ]}
     items, result = digest_registry.parse_round_a(raw)
     assert not result.is_valid
     assert any("text" in e for e in result.errors)          # 缺正文
     assert any("300 字" in e for e in result.errors)             # 超长
-    assert any("observer" in e for e in result.errors)           # reported 缺转述者
     assert any("引擎字段" in w for w in result.warnings)         # id 忽略
-    # 坏条目丢弃, 好的保留
-    assert len(items) == 1 and items[0]["text"] == "ok"
+    assert any("已退役" in w for w in result.warnings)           # ⏸ 旧 epistemic 只告警
+    # 坏条目丢弃, 好的保留（退役键那一条照收 —— 信息在 observer 里, 没丢）
+    assert [i["text"] for i in items] == ["旧 prompt 缓存带来的键", "ok"]
+    assert items[0]["observer"] == "阿露" and "epistemic" not in items[0]
 
 
 def test_round_a_caps_and_defaults():
@@ -150,7 +153,7 @@ def test_round_a_caps_and_defaults():
     items, result = digest_registry.parse_round_a(raw)
     assert len(items) == 5                       # MAX_EPISODES 截断
     assert items[0]["significance"] == 0.5       # 缺省
-    assert items[0]["epistemic"] == "observed_fact"
+    assert "epistemic" not in items[0]           # ⏸ 字段已退役（缺省不再是"给个默认值"）
     assert any("5 条" in e for e in result.errors)
 
 
@@ -459,9 +462,9 @@ def test_round_b_id_discipline():
 
 
 def test_round_b_update_guards():
+    """⏸ 原「patch 不得含 epistemic」那条守卫 2026-09-29 随字段退役 —— 它今天只是
+    白名单外的未知键, 由执行器（`revise._PATCH_FIELDS` 滤空 ⇒ 拒整包）拦下。"""
     raw = {"decisions": [
-        {"episode": "m0001", "decision": "update", "target": "u0001",
-         "patch": {"epistemic": "observed_fact"}},         # epistemic 禁改
         {"episode": "m0002", "decision": "update", "target": "u0001",
          "patch": {}},                                     # 空 patch
         {"episode": "m0003", "decision": "add", "kind": "belief",
@@ -470,7 +473,6 @@ def test_round_b_update_guards():
     rows, result = digest_registry.parse_round_b(
         raw, episode_ids={"m0001", "m0002", "m0003"}, target_ids={"u0001"})
     assert not result.is_valid
-    assert any("epistemic" in e for e in result.errors)
     assert any("patch" in e for e in result.errors)
     assert len(rows) == 1 and rows[0]["kind"] == "belief"
 
