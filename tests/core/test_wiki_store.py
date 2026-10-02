@@ -40,18 +40,17 @@ def test_id_allocation_prefixes(tmp_path):
     assert format_id("m", 3) == "m0003"
 
 
-def test_promise_prefix_and_persistence(tmp_path):
-    """promise 节点（§6 固化产物）: 自己的前缀 `p`, 且**结局落库可读回**。"""
-    st = _store(tmp_path)
-    nid = st.add(make_node("promise", text="周六模型店", outcome="kept",
-                           event_seq=[42], ts="2026-09-20T10:00:00+09:00"))
-    assert nid == "p0001" and st.next_id("p") == "p0002"
-    st.save()
+def test_promise_prefix_is_gone(tmp_path):
+    """⏸ 原 `test_promise_prefix_and_persistence`（2026-09-29 承诺退图后作废）。
 
-    reloaded = _store(tmp_path).get("p0001")
-    assert (reloaded.kind, reloaded.text, reloaded.outcome) \
-        == ("promise", "周六模型店", "kept")
-    assert reloaded.event_seq == [42]
+    `p` 前缀随 promise 一起退役 ⇒ `_PREFIX` 里没有它, 而 `add()` 对没有前缀的 kind
+    一律走 `m`（兜底）。这里钉住"没留下一个还会发 `p` 号的静默写路"。
+    """
+    from core.brain.wiki_v2.store import _PREFIX
+
+    assert "promise" not in _PREFIX
+    assert set(_PREFIX) == {"experience", "episode", "belief", "entity", "group"}
+    assert "p" not in _PREFIX.values()
 
 
 def test_add_rejects_invalid_node(tmp_path):
@@ -62,7 +61,7 @@ def test_add_rejects_invalid_node(tmp_path):
         # 认知不伪装成事实 —— ⭐ 2026-09-29 起判据是 observer（`epistemic` 已退役）
         st.add(make_node("belief", text="x", observer="阿露"))
     with pytest.raises(ValueError):
-        st.add(make_node("promise", text="周六模型店"))          # 缺 outcome
+        st.add(make_node("group"))                              # 缺 title（类名必填）
     # ⏸ 原第二条（"belief 无支撑"）**不在 add 这一层** —— 那条规则 2026-09-21 搬去
     # `store.audit()`（见 `test_wiki_audit.py`）, add 只跑 `validate()`。
 

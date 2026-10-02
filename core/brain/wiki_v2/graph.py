@@ -14,7 +14,7 @@ G1 的边界（写死, 免得这一步膨胀）:
 ⚠️ 今天**还没有 `entity`**（v4 §1 的新 kind 未落地）⇒ 真机上推断产出 **0 条 `about`**;
 entity 车道的查询在 G1 阶段只能验形状（测试里用直接构造的 entity 节点验）。
 
-⚠️ `REL_UNKNOWN` 是**推断层专有**的兜底, **不属于** §2 的八种 rel。为什么发它而不是
+⚠️ `REL_UNKNOWN` 是**推断层专有**的兜底, **不属于** §2 的 rel 清单。为什么发它而不是
 丢掉: 丢掉会让 1-hop 扩展比今天的 `links` **更窄**（行为回退）; 发出来则"连接关系"
 与今天等价, 而"类型判不出来"这件事在 `stats()["unknown"]` 里可见 —— G3 落盘后
 写路径总是知道 rel, 那个计数应当归零, **它就是那条验收线**。
@@ -25,23 +25,25 @@ from dataclasses import dataclass, field
 from typing import Any, Iterable, Iterator
 
 # ---------------------------------------------------------------------------
-# 边类型（`DESIGN_GRAPH_V4.md` §2 的八种）
+# 边类型（`DESIGN_GRAPH_V4.md` §2）
 # ---------------------------------------------------------------------------
 
-REL_ABOUT = "about"                  # belief/episode/experience/promise → entity（归属）
-REL_SUPPORTS = "supports"            # episode → belief · promise → belief（支撑）
-REL_FORMED_BY = "formed_by"          # promise → episode × N（这条承诺怎么一次次说定）
+REL_ABOUT = "about"                  # belief/episode/experience/group → entity（归属）
+REL_SUPPORTS = "supports"            # episode → belief（支撑）
 REL_CONTRADICTS = "contradicts"      # 同层之间（她后来发现不对; **对称**）
 REL_EVOLVED_FROM = "evolved_from"    # belief → belief（新看法取代旧的）
-REL_FROM = "from"                    # promise → entity（承诺方）
-REL_TO = "to"                        # promise → entity（被承诺方）
+#: ⏸ `formed_by`（promise → episode）· `from` / `to`（promise → entity）**2026-09-29 删** ——
+#: 它们唯一的起点 kind 是 `promise`，而 **promise 退出了图**（用户裁决: 承诺太轻,
+#: 不足以长期记录 ⇒ 留在 note 当工作记忆, 见 `notes.SLOT_PROMISE`）。
+#: 判据与当年删 `source` 边同一条: **起点 kind 没了 ⇒ 这些边永远不会有走法**。
+#: ⚠️ 盘上若真有旧行照旧读得进（`Edge.from_dict` 不校验名单），只是没有写者了。
 #: ⭐ **`akin`（N1a, 2026-09-29）：她发现"这两条是同一类事"** —— episode ↔ episode，**对称**。
 #:
 #: 它是 **`noticed` 记录行的落点**（`docs/DESIGN_MMT_NEW_ACTION.md §4.3`）：她在对话里指一条
 #: 旧 episode，L1 建完新 episode 之后由引擎落这条边。⇒ **写者只有她（经 L1）**，不是推断层。
 #:
 #: ⚠️ **为什么叫 `akin` 而不是 `same_kind`**：`kind` 在本项目里已经**确切地**指"节点类型"
-#: （episode / belief / entity / promise / group）⇒ `same_kind(A, B)` 会被读成
+#: （episode / belief / entity / group）⇒ `same_kind(A, B)` 会被读成
 #: *"这两条 kind 相同"*（一句废话），而它真正说的是"**同一类事**"（语义同类）。
 #:
 #: ⚠️ **`episode ↔ episode` 为什么不进 `classify_pair` 的推断表**（有意为之, 别"修"）:
@@ -64,7 +66,8 @@ REL_AKIN = "akin"
 REL_MEMBER_OF = "member_of"
 
 #: 全部合法 rel（**唯一清单**; 新增边类型只改这里 + `classify_pair` 的判据）
-#: ⭐ **8 条**（2026-09-25 删 `source` · **2026-09-29 N1a 加 `akin`**; `member_of` 见 N1b）:
+#: ⭐ **6 条**（2026-09-25 删 `source` · **2026-09-29 N1a 加 `akin`**、N1b 加 `member_of`、
+#: 同日删 `formed_by`/`from`/`to` 三条 promise 专属边）:
 #: `source` 唯一的形状是 `fact → episode`，而 **`fact`
 #: 这个 kind 早在 2026-09-02 就退役了**（`nodes.KINDS` 里没有它 ⇒ 建都建不出来）
 #: ⇒ 那是一条**永远不会有走法**的边（§2.2 的判据: 没走法的边是装饰）。用户裁决删。
@@ -72,9 +75,8 @@ REL_MEMBER_OF = "member_of"
 #: —— "还没有走法"与"永远不会有走法"是两件事。）
 #: ⚠️ 盘上若真有旧 `source` 行，**照旧读得进**（`Edge.from_dict` 不校验 rel 名单），
 #: 只是不再有任何写者/分类器产生它。
-RELS: tuple[str, ...] = (REL_ABOUT, REL_SUPPORTS, REL_FORMED_BY, REL_CONTRADICTS,
-                         REL_EVOLVED_FROM, REL_FROM, REL_TO, REL_AKIN,
-                         REL_MEMBER_OF)
+RELS: tuple[str, ...] = (REL_ABOUT, REL_SUPPORTS, REL_CONTRADICTS,
+                         REL_EVOLVED_FROM, REL_AKIN, REL_MEMBER_OF)
 
 #: ⭐ **对称 rel 的唯一清单**（2026-09-29 N1a）。
 #:
@@ -97,14 +99,14 @@ KIND_ENTITY = "entity"
 #: （混了会让 `graph.supporters()` 把群也捞出来 —— 而它今天用来算"被引数"）。
 KIND_GROUP = "group"
 
-#: 会挂 `about` 的 kind（§2: belief/episode/experience/promise）。
+#: 会挂 `about` 的 kind（§2: belief/episode/experience/group）。
 #: ⚠️ `fact` 2026-09-25 摘掉 —— 它是**死配置**（kind 已退役 ⇒ 这条白名单永远匹配不到
 #: 任何节点）。`experience` **留着**，但理由换了: 不再是"押 §9-3 的合并预案"（那条
 #: 2026-09-25 由用户关掉），而是**它本身就是"关于老师的事"** ⇒ 该被 `about → sensei`
-#: 指着（§9-8）。
+#: 指着（§9-8）。⚠️ `promise` 2026-09-29 摘掉（它退出了图）。
 #: ⭐ `group`（N1b）**加进来** —— 群也能归属 entity（"苔藓"属于老师那条线）。
 #: 今天**零写者**（要 L2 才写），这是"先开接口、别锁死"。
-_ABOUTABLE = ("belief", "episode", "experience", "promise", "group")
+_ABOUTABLE = ("belief", "episode", "experience", "group")
 #: 认知侧（`supports` 的 dst）: 她的结论 + 玩家画像（两者都是"稳定下来的东西"）
 #: ⚠️ **群不在这里** —— 见 `KIND_GROUP` 的注释。
 _COGNITION = ("belief", "experience")
@@ -168,7 +170,7 @@ def infer_edges(rows: Iterable[Any]) -> list[Edge]:
 
     ## 判据按**盘上的 kind 字符串**，不做 `KINDS` 归一
 
-    这样 `entity` / `promise` 一落地，自举与运行时就自动一致；而按 `KINDS` 归一会把
+    这样新 kind（`entity` / `group`）一落地，自举与运行时就自动一致；而按 `KINDS` 归一会把
     "还没进 `KINDS` 的新 kind" 悄悄当成 episode 处理（`from_dict` 的兜底就是那么做的，
     那是**读点**的事，不该污染**读边**）。
 
@@ -231,7 +233,7 @@ def classify_pair(ka: str, kb: str, a_id: str, b_id: str) -> tuple[str, str, str
     | 对 | 判成 | 依据 |
     |---|---|---|
     | `episode` ↔ `belief` / `experience` | `supports`（**经历 → 认知**） | §2; 方向由 kind 定, 不是猜 |
-    | `entity` ↔ `belief` / `episode` / `experience` / `promise` | `about`（**对方 → entity**） | §2 归属 |
+    | `entity` ↔ `belief` / `episode` / `experience` / `group` | `about`（**对方 → entity**） | §2 归属 |
     | 其余（`belief`↔`belief`、`belief`↔`experience`、`episode`↔`episode`、`entity`↔`entity`） | `unknown` | **不猜** |
 
     ⚠️ 为什么 `belief`↔`belief` 不判成 `evolved_from`: 那条边的语义是"**新看法取代
@@ -264,7 +266,7 @@ def canonical_for(rel: str, src: str, dst: str) -> tuple[str, str]:
     """按 `rel` 规范化端点 —— ⭐ **对称性的唯一实现处**（N1a, 2026-09-29）。
 
     * **对称 rel**（`SYMMETRIC_RELS`: `contradicts` / `akin`）→ `canonical_pair`
-    * 其余 → **原样返回**（有向边不许被"顺手"规范化 —— 那会悄悄改掉 `formed_by`
+    * 其余 → **原样返回**（有向边不许被"顺手"规范化 —— 那会悄悄改掉 `member_of`
       这类边的方向语义）
 
     ⚠️ **必须在幂等检查之前调用**：`add_edge` 的幂等键是 `(rel, src, dst)` 且**有向**，
@@ -394,19 +396,10 @@ class Graph:
         `targets` —— 反了会让"这条看法是从哪来的"指向未来。
 
         ⚠️ **不按 kind 过滤**: §2.1 那行查询写的是"支撑**经历**", 今天也确实只有
-        `episode`（§9-3 合并 `experience` 后仍是）; 但 v4 §2 里 `promise → belief`
-        也是 `supports`。过滤会让"没给 nodes"时**静默返回空**（G3 只读边表那种情形）
-        —— 要分开就用 `kind_of` 自己分, 别让查询层替调用方猜。
+        `episode`（§9-3 合并 `experience` 后仍是）。过滤会让"没给 nodes"时**静默返回空**
+        （G3 只读边表那种情形）—— 要分开就用 `kind_of` 自己分, 别让查询层替调用方猜。
         """
         return self.sources(nid, REL_SUPPORTS)
-
-    def formed_by(self, promise_id: str) -> list[str]:
-        """查询 3a: 这条承诺由哪些经历一次次说定（共有）。"""
-        return self.targets(promise_id, REL_FORMED_BY)
-
-    def parties(self, promise_id: str) -> list[str]:
-        """查询 3b: 承诺双方（`from` / `to`）。"""
-        return self.targets(promise_id, REL_FROM) + self.targets(promise_id, REL_TO)
 
     def neighbors(self, nid: str) -> list[str]:
         """查询 4: 1-hop 扩展（`out[n] + inc[n]`, 去重保序）。"""
@@ -493,11 +486,8 @@ __all__ = [
     "REL_AKIN",
     "REL_CONTRADICTS",
     "REL_EVOLVED_FROM",
-    "REL_FORMED_BY",
-    "REL_FROM",
     "REL_MEMBER_OF",
     "REL_SUPPORTS",
-    "REL_TO",
     "REL_UNKNOWN",
     "Edge",
     "Graph",

@@ -100,30 +100,31 @@ def test_update_rules(tmp_path):
 
 
 def test_apply_decisions_link_rows_write_extra_edges(tmp_path):
-    """⭐ `link` 行（§9-13, 2026-09-25）: 决策表之外的补充边。
+    """`link` 行（§9-13, 2026-09-25）: 决策表之外的补充边。
 
     动机是 R2 的**视野之外还有动作面**: `touch`/`update`/`add` 一律只写
-    `supports(episode → target)` ⇒ "这条承诺长出了看法"（`supports(promise → belief)`）
-    与"新的盖过旧的"（`evolved_from(promise → 旧 promise)`）**根本没处可写**。
+    `supports(episode → target)` ⇒ "这一条看法支撑那一条"（`supports`）与
+    "新的盖过旧的"（`evolved_from`）**根本没处可写**。
+    ⚠️ 2026-09-29 承诺退图后, 这里的端点只剩看法（不再有 promise 节点可连）。
     """
     st = _store(tmp_path)
-    pid = st.add(make_node("promise", text="周六模型店 —— 真的去了",
-                           outcome="kept", event_seq=[5], ts="2026-09-25T10:00:00"))
-    old = st.add(make_node("promise", text="周六去游乐园 —— 临时改期",
-                           outcome="superseded", event_seq=[4], ts="2026-09-24T10:00:00"))
+    st.add(make_node("belief", text="老师答应的事都做到了", subject="sensei",
+                     significance=0.9, event_seq=[5]))
+    st.save()
+    before = len(st.graph().edges)
 
     apply_decisions(st, [
         {"action": "link", "rel": "supports", "from": "u0001", "to": "u0002"},
-        {"action": "link", "rel": "evolved_from", "from": "u0001", "to": "u0003"},
-    ], id_map={"u0001": pid, "u0002": "m0002", "u0003": old}, ts="2026-09-25T10:00:00")
+        {"action": "link", "rel": "evolved_from", "from": "u0002", "to": "u0003"},
+    ], id_map={"u0001": "m0003", "u0002": "m0004", "u0003": "m0002"}, ts="2026-09-25T10:00:00")
 
     g = st.graph()
-    assert g.targets(pid, "supports") == ["m0002"]          # 承诺 → 看法
-    assert g.targets(pid, "evolved_from") == [old]          # 新承诺 → 旧承诺
-    assert st.audit() == []
+    assert len(g.edges) == before + 2                           # 只多了这两条
+    assert "m0004" in g.targets("m0003", "supports")             # 经历 → 看法
+    assert g.targets("m0004", "evolved_from") == ["m0002"]      # 新看法 → 旧的
     entries = _log(st).read()
     assert [e["action"] for e in entries] == ["link", "link"]
-    assert entries[0]["rel"] == "supports" and entries[0]["from"] == pid
+    assert entries[0]["rel"] == "supports" and entries[0]["from"] == "m0003"
 
 
 def test_apply_decisions_link_endpoint_must_resolve(tmp_path):
@@ -372,20 +373,24 @@ def _attr_store(tmp_path) -> WikiStoreV2:
     return st
 
 
-def test_attribution_accepts_promise_nodes(tmp_path):
-    """固化出来的 `promise` 节点也要能被归属（§6: "关于他的承诺"是 entity 车道要答的问题）。
+def test_attribution_accepts_only_live_kinds(tmp_path):
+    """⏸ 原 `test_attribution_accepts_promise_nodes`（§6 让承诺也能被归属）2026-09-29 作废 ——
+    承诺退图 ⇒ `_ATTACHABLE` 里也摘掉了它。
 
-    ⚠️ `_ATTACHABLE` 2026-09-25 加了 `promise` —— 漏了这一项, 承诺进了图却没人认领。
+    留下的守门: `_ATTACHABLE` 只收**图里还活着的** kind（漏了会静默不挂; 多一个退役的
+    就是死配置 —— 与当年摘掉 `fact` 同一条判据）。
     """
+    from core.brain.wiki_v2.revise import _ATTACHABLE
+
+    assert _ATTACHABLE == ("episode", "belief", "experience")
+    # 归属本身照常（用一条 episode 验通路）
     st = _attr_store(tmp_path)
-    pid = st.add(make_node("promise", text="周六模型店", outcome="kept",
-                           event_seq=[3], ts="2026-09-02T12:00:00"))
     _, local_of = candidate_table(st)
 
     assert apply_attribution(st, [{"action": "attach", "entity": local_of["x0001"],
                                    "hint": "老师", "nodes": ["u0001"]}],
-                             id_map={"u0001": pid}, local_of=local_of, **_ctx_kw()) == []
-    assert st.graph().targets(pid, "about") == ["x0001"]
+                             id_map={"u0001": "m0001"}, local_of=local_of, **_ctx_kw()) == []
+    assert st.graph().targets("m0001", "about") == ["x0001"]
 
 
 def test_attribution_attaches_and_writes_alias(tmp_path):
@@ -508,60 +513,54 @@ def _close_store(tmp_path):
     return st, state
 
 
-def test_apply_closures_solidifies_node_and_edges(tmp_path):
-    """`close` ⇒ 固化: promise 节点 + `from`/`to`/`formed_by` 四条边 + note 操作。
+def test_apply_closures_writes_note_ops_only(tmp_path):
+    """⏸ 原 `test_apply_closures_solidifies_node_and_edges`（2026-09-29 承诺退图后作废）。
 
-    ⭐ 节点正文 = 条目的 `text` + ` —— ` + `afterwards`（"后来怎么了"那句）——
-    合起来才是她将来 recall 得到的那条小回忆。
+    `close` 今天**只产一条 note 操作**: 不建 promise 节点、不写 `from`/`to`/`formed_by`
+    （三条边本身也删了）。这条用例把"退役的形状"钉住 —— 免得那套固化又被加回来。
     """
     st, state = _close_store(tmp_path)
+    before = [n.id for n in st.all()]
+    n_edges = len(st.graph().edges)
     res = apply_closures(st, [{"action": "close", "id": "n1", "state": "kept",
                                "afterwards": "周六真的去了", "refs": ["m0003"]}],
-                         note_state=state,
-                         event_seq=[7], ts="2026-09-10T12:00:00")
+                         note_state=state, ts="2026-09-10T12:00:00")
 
-    assert res.nodes == ["p0001"] and res.pairs == [("n1", "p0001")]
     assert res.warnings == []
-    node = st.get("p0001")
-    assert node.kind == "promise" and node.outcome == "kept"
-    assert node.text == "周六模型店 —— 周六真的去了"
-    assert (node.ts, node.event_seq) == ("2026-09-10T12:00:00", [7])
-    g = st.graph()
-    assert g.targets("p0001", "from") == ["x0000"] and g.targets("p0001", "to") == ["x0001"]
-    # `formed_by` = 说定那些（条目 refs）∪ **了结那一刻**（这一行的 refs = finish episode）
-    assert sorted(g.targets("p0001", "formed_by")) == ["m0001", "m0003"]
-    # ⚠️ `about`(R3) / `supports`(R2) **不在这里写** —— 那是后面两轮对这个新节点的活
-    assert g.targets("p0001", "about") == [] and g.targets("p0001", "supports") == []
+    assert not hasattr(res, "nodes")                       # 字段随固化一起删
+    assert [n.id for n in st.all()] == before              # **图面零变化**
+    assert len(st.graph().edges) == n_edges
     # note 面: 只**产**操作, 不落库（调用方等事务 ok 之后 append）
     assert res.ops == [{"action": "close", "id": "n1", "afterwards": "周六真的去了",
                         "state": "kept"}]
-    # 审计留痕（`evolution.jsonl` 同目录）
+    # 审计留痕（`evolution.jsonl`）—— 现在记的是"结清"而不是"固化"
     rows = EvolutionLog.for_store(st).read()
-    assert [r["action"] for r in rows] == ["solidify"]
-    assert (rows[0]["note"], rows[0]["node"], rows[0]["outcome"]) == ("n1", "p0001", "kept")
+    assert [r["action"] for r in rows] == ["close"]
+    assert (rows[0]["note"], rows[0]["state"], rows[0]["refs"]) == ("n1", "kept", ["m0003"])
 
 
 def test_apply_closures_close_without_finish_episode(tmp_path):
-    """失约那种"没有那一刻" ⇒ `refs` 不给: `formed_by` 只连说定那些, 不硬拉一条。"""
+    """失约那种"没有那一刻" ⇒ `refs` 不给: 照常结清, 只是没有"了结它的经历"可记。"""
     st, state = _close_store(tmp_path)
     res = apply_closures(st, [{"action": "close", "id": "n1", "state": "broken",
                                "afterwards": "那天我忘了"}], note_state=state)
 
-    assert res.warnings == [] and res.nodes == ["p0001"]
-    assert st.get("p0001").text == "周六模型店 —— 那天我忘了"
-    assert st.graph().targets("p0001", "formed_by") == ["m0001"]
+    assert res.warnings == [] and len(res.ops) == 1
+    assert res.ops[0] == {"action": "close", "id": "n1", "afterwards": "那天我忘了",
+                          "state": "broken"}
+    assert [n.id for n in st.all() if n.kind not in ("episode", "belief", "experience",
+                                                     "entity")] == []
 
 
 def test_apply_closures_add_stays_in_note(tmp_path):
     """`add` = 开放期的约定 ⇒ **不进图**, 只产 note 操作。"""
     st, state = _close_store(tmp_path)
+    before = [n.kind for n in st.all()]
     res = apply_closures(st, [{"action": "add", "text": "还他笔记",
                                "refs": ["m0003", "m9999"], "due": "2026-09-30"}],
                          note_state=state)
 
-    assert res.nodes == [] and [n.kind for n in st.all()] == ["episode", "belief",
-                                                              "episode", "experience",
-                                                              "entity", "entity"]
+    assert [n.kind for n in st.all()] == before
     assert "引用不是现存经历" in res.warnings[0]           # 幻觉 ref 剔掉 + 记账
     assert res.ops == [{"action": "add", "text": "还他笔记", "refs": ["m0003"],
                         "due": "2026-09-30"}]
@@ -575,42 +574,45 @@ def test_apply_closures_drops_bad_rows_with_warnings(tmp_path):
         {"action": "add", "text": "无凭无据", "refs": ["m9999"]},
     ], note_state=state)
 
-    assert res.nodes == [] and res.ops == []
+    assert res.ops == []
     assert any("不在「还开着」" in w for w in res.warnings)
     assert any("整条丢" in w for w in res.warnings)
-    assert [n.id for n in st.all() if n.kind == "promise"] == []
 
 
-def test_apply_closures_degrades_without_entities(tmp_path, caplog):
-    """self/sensei 没就位（D3a 没跑过）⇒ 节点照建, `from`/`to` 不写 + 告警。"""
+def test_apply_closures_needs_no_entities(tmp_path):
+    """⏸ 原 `test_apply_closures_degrades_without_entities`（"self/sensei 没就位 ⇒
+    `from`/`to` 不写 + 告警"）2026-09-29 作废 —— 承诺退图后 R4 **不依赖 entity 了**。
+
+    收藏的边界: 一个 entity 都没有的库照常结清, 而且**零告警**（从前那条告警没了）。
+    """
     st = _store(tmp_path)                                  # 无 entity
     state = notes.NotesState(promise=[notes.NoteItem(id="n1", text="周六模型店",
                                                      refs=["m0001"])])
+    before = [n.id for n in st.all()]
     res = apply_closures(st, [{"action": "close", "id": "n1", "state": "broken",
                                "afterwards": "没去成", "refs": ["m0001"]}], note_state=state)
 
-    assert res.nodes == ["p0001"]
-    assert any("from/to" in w for w in res.warnings)
-    assert st.graph().targets("p0001", "from") == []
-    assert st.graph().targets("p0001", "formed_by") == ["m0001"]   # 这条照写
+    assert res.warnings == []                              # 从前那条"from/to 不写"的告警没了
+    assert res.ops == [{"action": "close", "id": "n1", "afterwards": "没去成",
+                        "state": "broken"}]
+    assert [n.id for n in st.all()] == before
 
 
 def test_apply_closures_refuses_to_reclose(tmp_path):
-    """已经结清的条目**不在**「还开着」名单里 ⇒ 重复的 close 行被丢掉（不建第二个节点）。
+    """已经结清的条目**不在**「还开着」名单里 ⇒ 重复的 close 行被丢掉。
 
-    固化过没有，判据落在 **note 的 `closed` 位**上 —— 先固化、后退场，所以退场之前它一直算"已结清"，
-    调用方喂进来的永远只有还开着的那几条（`note_state.promise` 里 `closed` 为假）。
-    ⏳ 真正的崩溃窗口（提交成功、`retire` 事件却没落）留给"结清未退场"那条队列：到时要么让
-    `retire` 带上节点 id，要么在固化前核对图里有没有同一个承诺 —— 见 §9-17 旁边的账。
+    判据落在 **note 的 `closed` 位**上（调用方喂进来的永远只有还开着的那几条）——
+    ⏸ 从前这里还多一句"不建第二个节点"; 承诺退图后没有节点可建, 所以只剩"操作不重复"。
     """
     st, state = _close_store(tmp_path)
     rows = [{"action": "close", "id": "n1", "state": "kept", "afterwards": "去了"}]
-    first = apply_closures(st, rows, note_state=state, event_seq=[7])
+    first = apply_closures(st, rows, note_state=state)
     ev = notes.note_event(first.ops[0])
     ev.seq = 1                                          # seq 由 store 分配; 折叠要 > 水位
     closed = notes.fold([ev], base=state)               # 折叠后 n1 已结清
 
-    second = apply_closures(st, rows, note_state=closed, event_seq=[7])
-    assert first.nodes == ["p0001"] and second.nodes == []
-    assert second.ops == [] and any("不在「还开着」" in w for w in second.warnings)
-    assert [n.id for n in st.all() if n.kind == "promise"] == ["p0001"]
+    second = apply_closures(st, rows, note_state=closed)
+    assert len(first.ops) == 1 and second.ops == []
+    assert any("不在「还开着」" in w for w in second.warnings)
+    assert [n.id for n in st.all() if n.kind not in ("episode", "belief", "experience",
+                                                     "entity")] == []

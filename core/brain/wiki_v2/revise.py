@@ -25,10 +25,7 @@ from core.brain.wiki_v2.entities import SELF_ID, SENSEI_ID, surface_forms
 from core.brain.wiki_v2.evolution import EvolutionLog
 from core.brain.wiki_v2.graph import (
     REL_ABOUT,
-    REL_FORMED_BY,
-    REL_FROM,
     REL_SUPPORTS,
-    REL_TO,
 )
 from core.brain.wiki_v2.nodes import (
     PLAYER_SUBJECT,
@@ -51,9 +48,8 @@ _PATCH_FIELDS = ("subject", "text", "significance", "tags", "growth")
 #: `about` 边的可归属 kind（§2: belief → entity · episode → entity）。
 #: ⚠️ **含 `experience`**: 今天的"玩家画像"（`subject=player`）就落在它上面, 它显然是
 #: "关于老师的"; §9-3 把 experience 并成 `belief + nature=pattern` 之后删掉这一项。
-#: ⚠️ **含 `promise`**（2026-09-25）: 固化出来的承诺节点也要被归属（`about` → entity），
-#: 否则它进了图却没人认领 —— 而"关于他的承诺"正是 entity 车道要回答的问题（§6）。
-_ATTACHABLE = ("episode", "belief", "experience", "promise")
+#: ⏸ `promise` 2026-09-29 摘掉（它退出了图 —— 见 `nodes.KINDS`）。
+_ATTACHABLE = ("episode", "belief", "experience")
 #: hint 写回别名的长度上限 —— 超过这个长度的东西**不是称呼, 是一句话**。
 #: （同 `core.parsing.names.MAX_NAME_LEN` 的口径; 本模块**不 import 它** ——
 #: `wiki_v2` 的运行时依赖要保持纯 stdlib, 而 names 会拖进 yaml。）
@@ -72,16 +68,20 @@ class RevisionResult:
 
 @dataclass
 class ClosureResult:
-    """R4 收口的执行结果 —— **节点面与 note 面分开**（两处的提交时机不同）。
+    """R4 收口的执行结果 —— ⭐ **只剩 note 面**（2026-09-29: 承诺退图）。
 
-    节点面（`nodes`）在 digest 事务**内**提交（跟图一起 save/回滚）；
-    note 面（`ops`）必须等事务 `ok` **之后**才 append（事件流 append-only, 不回滚）。
+    ⏸ 原来还有"节点面"（`nodes` = 固化出来的 promise 节点, 随 digest 事务提交;
+      `pairs` = (note id, 节点 id) 对, 给将来的 `retire` 用）—— 那两个字段 2026-09-29
+      随退图一起删（promise 退图后**永远为空**, 判据① 没读者就删）。
+    ⚠️ 连带: §8 那条"R4 必须排在 R2/R3 之前"的理由（承诺节点要先就位, 后面两轮才好连它）
+    **随之消失** —— 编排顺序今天照旧, 但不再是正确性要求。
+
+    ops: 待落库的 note 操作（add 先, close 后）—— **调用方在整批 ok 之后**才 append。
+    warnings: 世界校验剔掉的东西（记账）。
     """
 
-    nodes: list[str] = field(default_factory=list)               # 新建的 promise 节点 id
-    pairs: list[tuple[str, str]] = field(default_factory=list)   # (note id, 节点 id) —— retire 用
-    ops: list[dict] = field(default_factory=list)                # 待落库的 note 操作（add 先, close 后）
-    warnings: list[str] = field(default_factory=list)            # 世界校验剔掉的东西（记账）
+    ops: list[dict] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
 
 
 def apply_decisions(
@@ -441,9 +441,8 @@ def apply_closures(
     note_state: NotesState,
     log: EvolutionLog | None = None,
     ts: str | None = None,
-    event_seq: list[int] | None = None,
 ) -> ClosureResult:
-    """执行 R4 收口决策表（promise 记账 + 固化）—— 见 DESIGN_GRAPH_V4 §6/§8。
+    """执行 R4 收口决策表（**只记笔记**）—— 见 `DESIGN_GRAPH_V4 §6`。
 
     两种行（形状见 `contract.digest_registry.parse_close`）::
 
@@ -451,43 +450,36 @@ def apply_closures(
         {"action": "close", "id": "n1", "state": "kept", "refs": ["m0013"],
          "afterwards": "周六真的去了"}
 
+    ⏸ **2026-09-29: 承诺退图**（用户裁决: 承诺太轻, 不足以长期记录）⇒ 本函数**只产
+    note 操作**, 不再建节点、不再写任何边。从前那套"`close` = 固化"（promise 节点 +
+    `from`/`to`/`formed_by`）连同那三条边一起删掉了; "这条经历里有个约定"今天由
+    **`tags`** 承担（筛选用, 不承担路由）。
+
     分工与纪律:
-        · `add`   = 开放期的约定 ⇒ **只产 note 操作**（开放期住 note, 不进图 —— §6 两段式）
-        · `close` = 结清 ⇒ **固化**: 建 `promise` 节点 + 四条边
-          （`from`/`to` = self↔sensei · `formed_by` = note 的 refs ∪ **这一行的 refs**）
-          ⇒ 再产一条 `note/close` 操作（含 `state`/`afterwards`）。
-          ⚠️ `supports`（R2）与 `about`（R3）**不在这里写** —— 那是后面两轮对**这个新节点**的活,
-          所以 R4 必须排在它们之前（§8 的批内顺序）。
-        · ⭐ **节点正文 = 条目的 `text` + " —— " + `afterwards`**（2026-09-25 用户裁决）:
-          条目那句是"要做什么", `afterwards` 那句是"后来怎么了"（她自己的口吻）——
-          合起来才是一条**记得住的**小回忆。⚠️ 早先那句只留在 note 事件里,
-          **退场之后她再也看不到它**（图里没有它）。
-        · ⭐ **`formed_by` 用两条 refs 拼, 不并"本段全部 episode"**（2026-09-25）:
-          "这一行的 refs" = **finish episode**（哪条经历把它了结了）由 LLM 指出 ⇒ 精确;
-          指不出（失约那种"没有那一刻"）就不连。§9-17 那条"MMT 段会多连"的观察项因此结案。
-        · ⚠️ **节点面在这里落, note 面交给调用方**: 节点随 digest 事务提交,
-          note 操作必须等 `ok` 之后才 append（先固化、后退场; 见 `ClosureResult`）。
+        · `add`   = 她**此刻还背着**的约定 ⇒ 一条 note 操作（工作记忆）
+        · `close` = 结清 ⇒ 一条 `note/close` 操作（含 `state`/`afterwards`）。
+          ⚠️ `afterwards`（"后来怎么了"）今天**只活在 note 面**（注入块上那句尾巴）——
+          从前它还会并进 promise 节点的正文, 那条路随退图消失。
+        · ⚠️ **全部操作交给调用方落库**: 必须等 digest 事务 `ok` 之后才 append
+          （事件流 append-only, 提前写就回不去了; 见 `ClosureResult`）。
         · ⚠️ **世界校验剔掉、不拒整包**: 引用指不到的 ⇒ 剔那条 ref; 剔完没 refs 的条目
           整条丢; `close` 指向"不还开着"的条目 ⇒ 丢这一行。都进 `warnings` 记账。
+          ⭐ 这一条同时是"同一段里说定又翻篇"那个麻烦的兜底: 那种条目此刻还不在名单里
+          （它的编号要等这批 add 落库才发出来）⇒ `close` 指不到它, 只会被丢 + 记账,
+          **不会写坏**; 所以 R4 的判据要求"到本段结束还没有下文的约定才写 `add`"。
 
     Args:
-        note_state: 折叠出来的笔记状态（`close.id` 在这里查; 节点正文取条目 `text` + 行里的 `afterwards`）
+        note_state: 折叠出来的笔记状态（`close.id` 在这里查）
     """
     log = log or EvolutionLog.for_store(store)
     ts = ts or datetime.now().isoformat(timespec="seconds")
-    event_seq = list(event_seq or [])
     open_items = {it.id: it for it in note_state.promise if not it.closed}
     out = ClosureResult()
-    # 承诺双方（保留号）—— 缺了就不写这两条边（同 `_entities_ready` 的降级口径）
-    ends = [i for i in (SELF_ID, SENSEI_ID) if store.get(i) is not None]
-    if len(ends) < 2:
-        out.warnings.append("self/sensei 未就位 —— 承诺的 from/to 边本次不写")
 
     for row in rows:
         action = row.get("action")
         if action == "close":
-            _close_one(store, row, open_items, ends, log=log, ts=ts,
-                       event_seq=event_seq, out=out)
+            _close_one(store, row, open_items, log=log, ts=ts, out=out)
         elif action == "add":
             _add_one(store, row, out)
         else:                                       # 形状错本该在 parse 层拦下
@@ -513,12 +505,12 @@ def _add_one(store: WikiStoreV2, row: dict, out: ClosureResult) -> None:
 
 
 def _close_one(store: WikiStoreV2, row: dict, open_items: dict,
-               ends: list[str], *, log: EvolutionLog, ts: str,
-               event_seq: list[int], out: ClosureResult) -> None:
-    """`close`: 固化（节点 + 四条边）+ 产一条 `note/close` 操作。
+               *, log: EvolutionLog, ts: str, out: ClosureResult) -> None:
+    """`close`: 结清一条还开着的约定 —— 产一条 `note/close` 操作（**不碰图**）。
 
-    节点正文 = 条目的 `text` + ` —— ` + `afterwards`（"后来怎么了"那句）——
-    合起来才是她将来 recall 得到的那条小回忆。
+    2026-09-29（承诺退图）之后这里只剩三件事: 查名单 · 核 refs · 产操作。
+    ⚠️ `refs`（"了结它的那条经历"）**仍然校验但不落任何边** —— 它留在 note 面,
+    将来看"这条约定是被哪段经历了结的"时还查得到（真源 = note 事件）。
     """
     nid = str(row.get("id") or "")
     item = open_items.get(nid)
@@ -526,36 +518,18 @@ def _close_one(store: WikiStoreV2, row: dict, open_items: dict,
         out.warnings.append(f"close {nid!r}: 不在「还开着」的约定里 → 丢这一行")
         return
     afterwards = str(row.get("afterwards") or "").strip()
-    node = make_node("promise", text=_promise_text(item.text, afterwards),
-                     outcome=str(row.get("state") or ""),
-                     event_seq=event_seq, ts=ts)
-    real = store.add(node)
-    for dst in ends:                                   # from / to（承诺双方）
-        store.add_edge(REL_FROM if dst == SELF_ID else REL_TO, real, dst, ts=ts)
-    # ⭐ `formed_by` = 说定那些（条目 refs）∪ **了结那一刻**（这一行的 refs, 由 LLM 指）
     closed_by = [r for r in (row.get("refs") or []) if _is_episode(store, r)]
     for r in row.get("refs") or []:
         if r not in closed_by:
             out.warnings.append(f"close {nid!r}: finish episode 不是现存经历 → 剔掉 {r!r}")
-    formed = list(dict.fromkeys(list(item.refs) + closed_by))     # 保序去重
-    for ep in formed:
-        if store.get(ep) is not None:
-            store.add_edge(REL_FORMED_BY, real, ep, ts=ts)
-    log.append({"pkg": "digest", "action": "solidify", "note": nid, "node": real,
-                "outcome": node.outcome, "formed_by": formed, "ts": ts})
-    out.nodes.append(real)
-    out.pairs.append((nid, real))
+    log.append({"pkg": "digest", "action": "close", "note": nid,
+                "state": str(row.get("state") or ""), "refs": closed_by, "ts": ts})
     out.ops.append(note_ops.close_op(nid, afterwards, str(row.get("state") or "")))
 
 
 def _is_episode(store: WikiStoreV2, nid: Any) -> bool:
     node = store.get(str(nid))
     return node is not None and node.kind == "episode"
-
-
-def _promise_text(text: str, afterwards: str) -> str:
-    """承诺节点的正文 = 约定那句 + ` —— ` + 后来那句（缺一半就用有的那一半）。"""
-    return f"{text} —— {afterwards}" if text and afterwards else (text or afterwards)
 
 
 def apply_revision_package(

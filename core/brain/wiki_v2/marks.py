@@ -102,18 +102,14 @@ def name(title: object) -> str:
 
 
 def kind_tag(node: "BrainNode") -> str:
-    """节点类型: `episode` / `belief` / `promise·已兑现`（**不带方括号** —— 括号表里 `[]` 另有含义）。
+    """节点类型: `episode` / `belief` / `group`（**不带方括号** —— 括号表里 `[]` 另有含义）。
 
-    ⚠️ **类型从节点上取, 不由调用方传进来**（传进来就有两个真源, 而"promise 要带结局"
+    ⚠️ **类型从节点上取, 不由调用方传进来**（传进来就有两个真源, 而"类型怎么印"
     这种印法必须只有一处）。
-    ⚠️ `promise` 带上**结局**（`已兑现 / 没做到 / 被取代`）: 它只有一个词 `promise`,
-    而"兑现了没有"正是 R2 判"这条承诺长出了什么"的必要信息。结局词表与注入块共用
-    **`notes.CLOSED_WORDS`**（唯一真源, 故此处**延迟 import**: 本模块要保持在
-    import 期零依赖）。
+    ⏸ **原 `promise·已兑现` 那一支 2026-09-29 删** —— promise 退图（节点上不再有
+    `outcome`），它的结局今天住在 note 条目的 `state` 里（注入块那三种尾巴仍在,
+    见 `notes.CLOSED_WORDS`）。
     """
-    if node.kind == "promise" and node.outcome:
-        from core.brain.wiki_v2.notes import CLOSED_WORDS
-        return f"promise·{CLOSED_WORDS.get(node.outcome, node.outcome)}"
     return node.kind
 
 

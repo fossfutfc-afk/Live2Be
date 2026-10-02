@@ -500,25 +500,21 @@ def _me(text: str, char_name: str, aliases: tuple[str, ...] = ()) -> str:
 # ---------------------------------------------------------------------------
 
 def render_cognition_list(store: WikiStoreV2, cap: int = 12,
-                          exclude: set[str] | None = None,
-                          must_include: Iterable[str] = ()
+                          exclude: set[str] | None = None
                           ) -> tuple[str, dict[str, str]]:
     """Round B 输入: 现有稳定认知渲染（本地 id u0001..; 排序: significance 降序）。
 
-    只挑 belief/experience/**promise**（episode 是流水不参与组织 —— 它是"支撑"的**起点**
+    只挑 belief/experience（episode 是流水不参与组织 —— 它是"支撑"的**起点**
     而不是被 touch 的对象）; 渲染层守 `_ensure_cognition` 语义, 引擎不给 LLM 不可选之物。
 
-    ⭐ **promise 2026-09-25 加进来**（§9-13 的洞）: 固化后的承诺也是"稳定下来的东西",
-    而 R2 要写 `supports(promise → belief)`（"这条承诺长出了看法"）与
-    `evolved_from(promise → 旧 promise)`（"新的盖过旧的"）—— **看不见就写不出**,
-    那两条边就永远打不出来。⚠️ 但它**不能被 `touch`/`update``（不是看法）⇒
-    `digest` 那边把可 touch 的集与可 link 的集分开传（`parse_round_b` 的
-    `target_ids` / `link_ids`）。
+    ⏸ **原 `must_include`（promise 必进）2026-09-29 删** —— 参数 2026-09-25 加的, 唯一
+    理由就是"本轮 R4 物化的 promise 节点不受 `cap` 截断"; **promise 退图之后它零调用方**
+    （判据① 没读者就删, 同 `hit_set` 的 `hints=`）。
+    ⏸ **原 promise 进列表**（§9-13）同理 —— 承诺不再有节点, "这条承诺长出了看法"
+    改由那条**经历**承担（`supports(episode → belief)`）。
 
     `exclude`: 本轮 A 刚建的 id 集（player 画像条目——本段产物不进本轮认知列表,
     B 只组织 episode, 画像留待后续轮次参与组织）。
-    `must_include`: **本轮 R4 物化的 promise 节点** —— 它们必须出现在列表里
-    （不受 `cap` 截断）, 否则 R2 又一次"看不见刚要写边的东西"。
 
     Returns:
         (text, local_of): local_of = 真实 id → 本地 id（候选标注/执行器解析用;
@@ -526,16 +522,10 @@ def render_cognition_list(store: WikiStoreV2, cap: int = 12,
     """
     exclude = exclude or set()
     nodes = [n for n in store.all()
-             if n.kind in ("belief", "experience", "promise")
+             if n.kind in ("belief", "experience")
              and n.id not in exclude]
     nodes.sort(key=lambda n: (-n.significance, n.id))
     picked = nodes[:cap]
-    have = {n.id for n in picked}
-    for nid in must_include:                     # 必进的（本轮新物化的承诺）
-        node = store.get(nid)
-        if node is not None and node.id not in have:
-            picked.append(node)
-            have.add(node.id)
     graph = store.graph()                       # experience 的次数 = supports 入边数
     # ⭐ **N2（2026-09-29）: 元信息进 `〔〕`，被引与边都印出来** ——
     #   形态: `〔u0001｜belief｜被引 3〕关于 sensei: 老师是第一个不会嫌弃我的人`

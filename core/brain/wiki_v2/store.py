@@ -50,11 +50,12 @@ logger = logging.getLogger(__name__)
 
 #: kind → id 前缀（AGENT_BRAIN.md §2 + v4 §3.0 的 `x`; relation/fact 已砍——c 前缀退役 2026-09-02）
 #: ⚠️ `x0000`（self）/ `x0001`（sensei）是**保留号**, 见 `entities.py` —— `next_id("x")` 因此从 x0002 起。
-#: ⚠️ `p` = promise 节点（§6 固化产物, 2026-09-25 加）—— 与 `m`/`e`/`x` 都不撞。
+#: ⏸ `p`（promise 节点）2026-09-29 **退役** —— promise 退图（见 `nodes.KINDS`）;
+#: ⚠️ 旧档里若有 `p…` 行仍读得进（`from_dict` 按 kind 降级成 episode 之外, 不炸）。
 #: ⭐ `g` = group 节点（N1b, 2026-09-29）—— ⚠️ **必须显式登记**: `add()` 走
 #: `_PREFIX.get(kind, "m")`，漏了会让群拿到 `m` 号并与 episode/belief **撞号**。
 _PREFIX = {"experience": "e", "episode": "m", "belief": "m", "entity": "x",
-           "promise": "p", "group": "g"}
+           "group": "g"}
 
 #: 节点字段白名单（update patch 只接受这些——防任意字段注入）
 _FIELDS = set(BrainNode.__dataclass_fields__.keys())
@@ -380,7 +381,7 @@ class WikiStoreV2:
         """快照 = **点 + 边**两个文件（`dest` 是点表路径, 边表 = 同目录 `edges.jsonl`）。
 
         R6 存档点语义: 自包含。⚠️ **只写点的话, 快照回来的记忆是断连的**
-        （entity 车道 / 支撑链 / promise 的共有经历全空）——而边是可重算的派生物,
+        （entity 车道 / 支撑链全空）——而边是可重算的派生物,
         点不是, 所以快照必须两样都带。
         ⚠️ **`notes.json` 不进快照**: 它是**事件流的**派生缓存, 而快照不带事件流 ——
         单独带上它只会造出"半个世界"（本子指着的世界已经不在快照里了）。

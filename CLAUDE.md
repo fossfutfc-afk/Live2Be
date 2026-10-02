@@ -385,9 +385,12 @@ CLI/测试同步路径在引擎内串行。
   ⚠️ **`experience` 2026-09-25 定名"玩家画像专用"**（"关于老师的事"，`subject` 恒 `player`）：
   写者只有 Round A（R2 的 `add kind=experience` **已收掉** —— "反复出现的模式"写成 **belief 的模式句**）；
   读侧（`_bucket_view` 的 player 桶）**按 kind 收、不看 `subject`** —— 旧口径拿自由文本路由，
-  真机 haruka `e0001` 因此**从来没进过她的上下文**（已迁移成 belief）。⚠️ **图里只有 4 种 kind**
-  （`episode/experience/belief/entity/promise`）：`fact` 早在 2026-09-02 退役、`source` 边随之删除
-  （边表现在是 **7 条**）。见 `DESIGN_GRAPH_V4.md` §2/§5/§5.1。
+  真机 haruka `e0001` 因此**从来没进过她的上下文**（已迁移成 belief）。⚠️ **图里只有 5 种 kind**
+  （`episode/experience/belief/entity/group`）：`fact` 早在 2026-09-02 退役、`source` 边随之删除；
+  ⛔ **`promise` 2026-09-29 也退出图了**（用户裁决"承诺太轻, 不足以长期记录"）——
+  连同 `from`/`to`/`formed_by` 三条只有它能当起点的边，**边表现在是 6 条**
+  （`about` / `supports` / `contradicts` / `evolved_from` / `akin` / `member_of`）。
+  见 `DESIGN_GRAPH_V4.md` §2/§5/§5.1/§6。
   **粒度跟着"作者单位"走**：**一章羁绊剧情（`vn_enter`…`vn_exit`）= 1 条 episode**
   （正文就是这一章的总结，`title` 用 `chapter_title`；**边界是引擎已知的**，不需要 LLM 猜），
   **MMT 那种一次覆盖多轮的碎聊 = 0~5 条**（需要切分的是它）。段类型由
@@ -404,18 +407,21 @@ CLI/测试同步路径在引擎内串行。
 - **随身笔记（note）**：`soul/notes.json` 是**派生缓存**，真源 = 事件流的 note 操作。
   **写者收成一个**（2026-09-29, N4a）：`promise` 归 **R4 收口**、⭐ `on_mind` 归 **L1（Round A）**；
   ⚠️ **`habits` 槽与"全景轮（每 10 段写卡 `segments_since_card`）"已整条退役**（取料逻辑留在
-  `panorama.py` 待切块用）。注入面**两处**：① 常驻 `【你自己记的备忘录】`（bond 开场 / MMT
+  `panorama.py` 待切块用）。⭐ **`promise` 槽是约定的唯一落脚点**（2026-09-29 起 —— 承诺退出图,
+  不再"闭合固化进节点"）; "这条经历涉及约定"由 **`tags`** 承担（只做筛选, 不承担路由）。
+  注入面**两处**：① 常驻 `【你自己记的备忘录】`（bond 开场 / MMT
   system 尾, 0 LLM）② ⭐ **每轮召回段 `【你想起的事】`**（P19, **动态尾** —— 它的查询是玩家
   这一句, 拼进 system 就逐轮破前缀缓存）。refs **印名字不印编号**（`(《名字》)`；拿不到名字
   整段不印）。⚠️ R4 收口**只发 `close` 不发 `retire`**（退场要等读路径召回接通, 链路 ⑥）。
   设计/代码索引：`core/brain/wiki_v2/DESIGN_GRAPH_V4.md` §3.2 / §6 / §8 / §8.6。
-- **每段四步（`R1 → R4 → R2 → R3`）**：R4 收口 2026-09-25 已接线（`digest.close`, 位置在
-  R1 之后/R2 之前 —— promise 节点要先就位才有边可写）；⚠️ 它产的 note 操作**不在
-  `digest_segment` 里 append**，挂在 `DigestResult.notes_ops` 上由调用方在**整批 ok 后**写
-  （失败 = 整批回滚 ⇒ 那条约定原样开着）。**R2 的视野与动作面** 2026-09-25 也已补（③-2）：
-  `render_cognition_list` 收 `promise`（类型标签 `promise·已兑现`）+ `must_include` 不受 cap 截断；
-  R2 输出多一个**可选键 `links`**（`supports`/`contradicts`/`evolved_from`，两端是渲染列表里的
-  本地 id）—— ⚠️ **两个 id 空间**：能 `touch`/`update` 的只有看法，能 `link` 的含承诺。
+- **每段四步（`R1 → R4 → R2 → R3`）**：R4 收口 2026-09-25 已接线（`digest.close`，位置在
+  R1 之后/R2 之前）—— ⏸ **2026-09-29 承诺退图后它只产 note 操作**（`ClosureResult` 只剩
+  `ops`/`warnings`），所以那条"位置是正确性"的理由**没了**（顺序照旧）。
+  ⚠️ 它产的 note 操作**不在 `digest_segment` 里 append**，挂在 `DigestResult.notes_ops` 上由
+  调用方在**整批 ok 后**写（失败 = 整批回滚 ⇒ 那条约定原样开着）。
+  **R2 的动作面**：输出多一个**可选键 `links`**（`supports`/`contradicts`/`evolved_from`，
+  两端是渲染列表里的本地 id）—— ⏸ 当年"两个 id 空间"（能 `touch` 的只有看法、能 `link` 的
+  含承诺）随承诺退图**实际同集**。
   **R3 归属**也已接线（`digest.attr`，排在**最后**）：料 = `entities.py` 四块纯函数
   （候选表 `c0001` / 命中集 / 载荷 / 本轮新节点 **`u0001`**）⇒ `about` 边 + `new_entity` +
   entity 载荷；⚠️ **两套本地号必须分开**（混用会让"挂谁"与"挂在谁身上"写反）。

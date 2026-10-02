@@ -30,6 +30,12 @@
     （零产品调用者, 给 N6 的"切块"当原料）。退役理由: 它的两个槽一个被取消
     （`habits`）、一个换了写者 ⇒ **它没有输出了**。
 
+⚠️ **`promise`（承诺）2026-09-29 退出图** —— 用户裁决: 这类东西"太轻, 不足以长期记录"
+    （日常约定 ≈ 客套/安排）⇒ **不再有 promise 节点**, 也不再有 `from`/`to`/`formed_by`
+    三条专属边。它留在 **note**（`notes.SLOT_PROMISE` = 她此刻还背着的事, 工作记忆）,
+    "这条经历涉及约定"由 **`tags`** 承担（筛选用, 不承担路由）。⇒ R4 从"记账 + 固化"
+    缩成**只记账**, §8 那条"R4 必须排在 R2/R3 之前"的理由随之消失（顺序照旧, 但不再是正确性要求）。
+
 反馈回灌（2026-09-02 采纳 llm.client.feedback 语义）: 被拒轮把 LLM 自己的输出
 追加为 assistant 位 + 引擎错误, 同一上下文重试 1 次——模型能看见自己错在哪
 （旧实现重建 user 消息, 模型看不到被拒输出, 修正成功率低）。
@@ -110,8 +116,8 @@ class DigestResult:
     notes_ops: list[dict] = field(default_factory=list)
     #: R4 的世界校验记账（剔掉的引用 / 丢掉的 close 行…）—— 不阻断, 但要看得见
     notes_warnings: list[str] = field(default_factory=list)
-    #: R4 物化的 promise 节点 id（R2/R3 要对它们写边 —— §8 的批内顺序就是为这个）
-    promise_nodes: list[str] = field(default_factory=list)
+    #: ⏸ ~~R4 物化的 promise 节点 id~~ **2026-09-29 删** —— 承诺退图, R4 不再建节点
+    #: （见 `revise.ClosureResult` 与 `nodes.KINDS`）。
     #: R3 新建的 entity id（`new_entity` 的产物; 归属边在那边一起写）
     created_entities: list[str] = field(default_factory=list)
     #: ⭐ **L2-a 分群（N7）**: 本段**新建的群节点** id
@@ -289,10 +295,10 @@ def digest_segment(
             logger.info("digest_akin edges=%d unclaimed=%d self=%d", n_edge,
                         n_lost, n_self)
 
-        # ── Round R4: 收口（promise 记账）—— §8 的批内顺序是 R1 → **R4** → R2 → R3 ──
-        # 为什么必须夹在这里: `close` 会**物化 promise 节点**, 而它需要的边由后两轮写
-        # （`supports`/`evolved_from` 归 R2、`about` 归 R3）⇒ 节点先就位, 否则它
-        # "永远没边、永远没归属"（§9-12 ⑤ 那条"漏一批且永久补不回"的同款错误）。
+        # ── Round R4: 收口（约定记账）—— 编排顺序照旧 R1 → **R4** → R2 → R3 ──
+        # ⏸ 从前"必须夹在这里"的理由是 `close` 会物化 promise 节点、而它的边由后两轮写;
+        # **2026-09-29 承诺退图之后这条理由消失**（R4 只产 note 操作, 不碰图）——
+        # 顺序今天照旧（改了它没有收益, 却要重验一遍编排), 但不再是正确性要求。
         note_state = store.notes_state(events)            # 本段之前的备忘录（缓存优先）
         open_promises = [it for it in note_state.promise if not it.closed]
         if episode_ids or open_promises:
@@ -309,32 +315,29 @@ def digest_segment(
                 label="close", parse_fn=digest_registry.parse_close, result=result)
             if rows_c is None:
                 return _rollback(store, snapshot, result)
-            closures = apply_closures(store, rows_c, note_state=note_state,
-                                      ts=now_ts, event_seq=[interact_max])
+            closures = apply_closures(store, rows_c, note_state=note_state, ts=now_ts)
             # ⚠️ **append 不覆盖** —— `notes_ops` 里已经有 L1 交来的那句 `on_mind`（N4a）
             result.notes_ops.extend(closures.ops)          # ⚠️ 调用方等 ok 之后才 append
             result.notes_warnings = list(closures.warnings)
-            result.promise_nodes = list(closures.nodes)
             for w in closures.warnings:
                 logger.warning("digest_close: %s", w)
-            logger.info("digest_close open=%d add=%d close=%d node=%d warn=%d",
+            logger.info("digest_close open=%d add=%d close=%d warn=%d",
                         len(open_promises),
                         sum(1 for o in closures.ops if o.get("action") == "add"),
                         sum(1 for o in closures.ops if o.get("action") == "close"),
-                        len(closures.nodes), len(closures.warnings))
+                        len(closures.warnings))
         else:
             # 没有开着的约定 **且** 本段没有新经历 ⇒ `add` 没有可引用的经历、
             # `close` 没有可翻篇的条目 ⇒ 这一轮**必然空转** ⇒ 省掉这次调用（0 次）。
             logger.info("digest_close 跳过（没有开着的约定, 本段也没有新经历）")
 
         # ── Round B: 理解者（引擎候选推荐 + 决策表）──
-        # ⭐ `must_include` = 本轮 R4 刚物化的 promise（§9-13）: 它们必须在列表里,
-        # 否则 R2 又一次"看不见刚要写边的东西"（`supports`/`evolved_from` 永远打不出来）。
+        # ⏸ 原 `must_include`（本轮 R4 物化的 promise 必进列表）2026-09-29 随退图删 ——
+        # 参数在 `render_cognition_list` 上一起摘掉（零调用方）。
         cog_text, local_of = render_cognition_list(
-            store, cap=COGNITION_CAP, exclude=set(player_ids),
-            must_include=result.promise_nodes)
-        # ⚠️ 两个 id 空间**故意不同**: `touch`/`update` 只认看法（promise 不是看法,
-        # 它的正文在固化那一刻写死）; `links` 认"看法 ∪ 承诺"。
+            store, cap=COGNITION_CAP, exclude=set(player_ids))
+        # ⚠️ `links` 认的 id 集今天 = 可 touch 的看法（承诺退图后不再有第二种端点）;
+        # 那个"两个 id 空间故意不同"的口径见 `parse_round_b` 的 `link_ids`。
         target_ids = {local for real, local in local_of.items()
                       if getattr(store.get(real), "kind", "") in ("belief", "experience")}
         link_ids = set(local_of.values())
@@ -368,7 +371,7 @@ def digest_segment(
         # ── Round R3: 归属 + entity 维护（§8 的第 3 行 —— 每段的最后一步）──
         # 为什么在最后: 它要挂的是**本轮全部新节点**（R1 的经历/画像 + R4 的承诺 +
         # R2 新建的认知）⇒ 前面几轮都落地了它才看得全（§8 的批内顺序 R1→R4→R2→R3）。
-        new_ids = ([*episode_ids, *player_ids, *r2_created, *result.promise_nodes])
+        new_ids = ([*episode_ids, *player_ids, *r2_created])
         node_text, node_local = new_nodes_block(store, new_ids)
         if not node_text:
             logger.info("digest_attr 跳过（本段没有新节点可归属）")
@@ -1195,7 +1198,6 @@ def _rollback(store: WikiStoreV2, snapshot: dict,
     """
     store.restore_state(snapshot)
     result.notes_ops = []
-    result.promise_nodes = []
     result.created_entities = []
     result.created_groups = []
     result.grouped_episodes = 0
