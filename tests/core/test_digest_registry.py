@@ -340,26 +340,22 @@ def _ep(**over):
     return base
 
 
-def test_round_a_hint_contract():
-    """D1: `about_hint`（归属线索, **不落库**）的契约形状。
+def test_round_a_about_hint_retired():
+    """⏸ `about_hint` **2026-09-29 退役** —— schema 里不许再出现, parse 也不认它。
 
-    两层判据: ① schema 必须**写明**这个字段（文案漂移守门, 同下面那条 pointer 用例）
-    ② 正常值透传 · 空 → **整条字段不存在**（不是空串）。
-
-    ⚠️ `items`（物品台账）**2026-09-29 退役** —— 连带那条"提防 schema 再长回它"的反向断言。
+    退役理由: 与 R3 的"挂谁"**判两次**（R1 猜一次、R3 再判一次, 还可能不一致）,
+    而 R3 本来就有全量候选表 + 新节点正文 ⇒ 引擎不必替它预判（`REDUNDANCY.md` #2）。
+    ⚠️ 这条是**反向守门**: 防它（或 `items` 那种同款）悄悄长回契约里。
     """
     text = digest_registry.build_schema(PHASE_RECORD)
-    assert "about_hint" in text and "三个月后再提到它" in text
-    assert '"items"' not in text, "items 已退役, schema 里不许再出现（物品面走 inventory 旁路）"
+    assert "about_hint" not in text, "about_hint 已退役, schema 里不许再出现"
+    assert '"items"' not in text, "items 已退役（物品面走 inventory 旁路）"
 
     items, result = digest_registry.parse_round_a({"episodes": [
-        _ep(about_hint=" 老师 ")]})
+        _ep(about_hint="老师")]})                      # ← 过时字段: 应当被无视
     assert result.is_valid, result.errors
-    assert items[0]["about_hint"] == "老师"                   # 去空白
-    # 缺/空 → **整条字段不存在**（不是空串/空数组）
-    items2, _ = digest_registry.parse_round_a({"episodes": [_ep(about_hint="  ")]})
-    assert "about_hint" not in items2[0]
-    print("    about_hint: schema 已文档化 + 清洗（空省略）; items 退役守门 ✓")
+    assert "about_hint" not in items[0]
+    print("    守门: schema 不含 about_hint / items; parse 也不认它们 ✓")
 
 
 def test_round_a_emo_fields_pass_through():

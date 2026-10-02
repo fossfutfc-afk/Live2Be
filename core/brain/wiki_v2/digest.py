@@ -103,10 +103,8 @@ class DigestResult:
     created: list[str] = field(default_factory=list)     # Round A episode id
     affection_delta: int = 0
     llm_calls: int = 0
-    #: ⭐ **归属线索**（D1, §8.2）: `[{"node": "m0005", "hint": "老师"}]` ——
-    #: 第 1 轮给的自然名字, **不落库**（不是节点字段）, 由第 3 轮做 hint→id 映射。
-    #: D1 只收集（`_create_a_nodes` 返回）; 消费在 D3（那时才有候选表可映射）。
-    hints: list[dict] = field(default_factory=list)
+    #: ⏸ ~~归属线索~~（`hints` = R1 的 `about_hint` → R3 的映射）**2026-09-29 删** ——
+    #: `about_hint` 退役（与 R3 判两次）, 这条中间通道随之消失; R3 改为自己从正文里认称呼。
     #: ⭐ **R4 收口的 note 操作**（`add` / `close`）—— ⚠️ **调用方在整批 `ok` 之后才 append**
     #: （§8: 失败 = 整批回滚 ⇒ 那条约定原样开着; 事件 append 不可撤销, 提前写就回不去了）。
     notes_ops: list[dict] = field(default_factory=list)
@@ -276,15 +274,10 @@ def digest_segment(
         #    "保留但不消费", 而**新衰减模型的输入是活跃日/会话, 不是它**;
         #    加上 parse 层从来没取过它（连落库都没有）, 留着就是白付 token。
         #    枚举定义仍留在 `core/worldtime/span.py`。详见 `contract/digest_registry.py`。
-        episode_ids, player_ids, hints = _create_a_nodes(
+        episode_ids, player_ids = _create_a_nodes(
             store, entries, ts=now_ts,
             event_seq=[interact_max], aff_at_encoding=aff_at_encoding,
             by_seq=by_seq)
-        result.hints = hints
-        # 台账（D1）: 归属线索**开始有了**, 但这一版还不消费 hint。
-        # 可 grep: 恒 0 说明第 1 轮没按契约写, 不是"这段没有可归属的东西"。
-        logger.info("digest_hint eps=%d hint=%d（hint 待第 3 轮映射）",
-                    len(episode_ids), len(hints))
 
         # ⭐⭐ N5c: 把本段的「想起」账补成 `akin` 边（`DESIGN_MMT_NEW_ACTION §4.3 ④`）。
         # 位置: **建完 episode 之后的第一件事** —— 原设计的"边先落在 seq 上"走不通
@@ -381,10 +374,13 @@ def digest_segment(
             logger.info("digest_attr 跳过（本段没有新节点可归属）")
         else:
             table_text, ent_local = candidate_table(store)
-            hits = hit_set(store,
-                           hints=[h.get("hint", "") for h in result.hints],
-                           texts=_node_texts(store, new_ids))
+            # ⭐ 2026-09-29: `about_hint`（R1 预判的名字）退役 ⇒ 这里只喂**正文通道**
+            # （引擎从新节点的 text/title/verbatim 里认称呼, 确定性）。
+            # ⚠️ **命中集只决定"给 R3 看哪些对象的当前载荷"** —— 候选表是全量的,
+            # 所以命中变窄 = 少看一点载荷, **不是判不了挂谁**（`REDUNDANCY.md` #2）。
+            hits = hit_set(store, texts=_node_texts(store, new_ids))
             payload = payload_block(store, hits, ent_local)
+            logger.info("digest_hit eps=%d hit=%d", len(new_ids), len(hits))
             system_d = load_prompt("digest_v2_round_attr").replace(
                 "{{digest_schema}}", digest_registry.build_schema(PHASE_ATTRIBUTE))
             user_d = _join_sections([
@@ -597,7 +593,7 @@ def _expand_spans(entries: list[dict], seq_set: set[int]) -> tuple[list[int], in
     ⚠️ **必须 `pop` 掉 `span`**: `_create_a_nodes` 走
     `make_node("episode", **{k: v for k, v in ent.items() if k != "kind"})` ——
     留在条目里的 `span` 会被 `from_dict` **静默忽略**（这个项目最恨的静默 no-op;
-    `about_hint` 当年就是为这个专门 `pop` 的）。
+    `about_hint` 当年也是为这个专门 `pop` 的 —— 它 2026-09-29 已退役）。
 
     ⚠️ **必须在 `_collapse_bond_episodes` 之前跑**: 那一章的归属判据 `_in_seqs` 靠
     "条目的 `event_seq` 与章块的**相交**" —— 展开前只有两个端点, 章块夹在中间
@@ -721,20 +717,16 @@ def _create_a_nodes(store: WikiStoreV2, entries: list[dict], *, ts: str,
     ⭐ D1（2026-09-22）:
       · ~~`items`（§3.1 物品台账）随条目自动落库~~ —— **2026-09-29 字段退役**（零活读者;
         物品面将来走 `inventory` 旁路）。
-      · `about_hint`（§8.2 归属线索）**必须在这里摘掉, 不许进 `make_node`** ——
-        否则它就是一个被 `from_dict` 静默忽略的未知键（这个项目最恨的静默 no-op）;
-        它由第 3 轮消费, 所以随返回值交出去。
+      · ~~`about_hint`（§8.2 归属线索）必须在这里摘掉~~ —— **2026-09-29 字段退役**:
+        它和 R3 的"挂谁"**判两次**（还可能不一致）, 而 R3 本来就拿得到全量候选表 +
+        新节点正文 ⇒ 引擎不必替它预判一个名字（`REDUNDANCY.md` #2）。
 
-    Returns: `(episode_ids, player_ids, hints)`——episode_ids 供 B 覆盖检查;
-        hints = `[{"node": id, "hint": 自然名字}]`（**去重后的条目也会记**, 它照样是一条记忆）。
+    Returns: `(episode_ids, player_ids)`——episode_ids 供 B 覆盖检查。
     """
     from core.brain.wiki_v2.revise import _find_duplicate
     episode_ids: list[str] = []
     player_ids: list[str] = []
-    hints: list[dict] = []
     for ent in entries:
-        # ⚠️ 先摘 hint（不落库）
-        hint = str(ent.pop("about_hint", "") or "").strip()
         if ent.get("kind") == "experience":
             # ⚠️ `subject` **强制**成 `player`（§5.1）: `experience` 只有一个意思
             # （"关于老师的事"），而 `subject` 是自由文本 —— 契约层已经强制过一次,
@@ -771,14 +763,10 @@ def _create_a_nodes(store: WikiStoreV2, entries: list[dict], *, ts: str,
         dup = _find_duplicate(store, node)
         if dup is not None:
             episode_ids.append(dup.id)
-            if hint:
-                hints.append({"node": dup.id, "hint": hint})
             continue
         nid = store.add(node)
         episode_ids.append(nid)
-        if hint:
-            hints.append({"node": nid, "hint": hint})
-    return episode_ids, player_ids, hints
+    return episode_ids, player_ids
 
 
 def _link_akin(store: WikiStoreV2, episode_ids: list[str], noticed: list, *,

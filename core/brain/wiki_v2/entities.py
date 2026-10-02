@@ -5,7 +5,7 @@
 |---|---|---|
 | `ensure_entities` | D3 编排 | 开局把 `self` + `sensei` 建出来（保留号 + 幂等） |
 | `candidate_table` | 第 3 轮 prompt | 全量候选表（§8.3 第一层）—— **只有身份**: 本地 id + 名字 + 别名 |
-| `hit_set` | 第 3 轮 prompt | 命中集 —— `about_hint` ∪ 称呼命中本轮正文（**确定性, 不靠 LLM**） |
+| `hit_set` | 第 3 轮 prompt | 命中集 —— 称呼命中本轮正文（**确定性, 不靠 LLM**） |
 | `payload_block` | 第 3 轮 prompt | 命中集的**当前载荷**（`text` 立场 + `state` 物理状况） |
 
 ⚠️ 第 3 轮的**执行器**（写 `about` 边 / 建新 entity / 重写载荷）**不在这里** ——
@@ -197,18 +197,22 @@ def candidate_table(store: WikiStoreV2) -> tuple[str, dict[str, str]]:
 
 
 def hit_set(store: WikiStoreV2, *, hints=(), texts=()) -> list[str]:
-    """命中集（§8.3 第二层的**确定性**规则）: `about_hint` ∪ 称呼命中本轮正文。
+    """命中集（§8.3 第二层的**确定性**规则）: `hints` ∪ 称呼命中本轮正文。
 
-    ⚠️ **不靠 LLM**（设计写死的分工）: 第 1 轮说"我在写谁"（hint）、第 3 轮说"那对应
-    表里的哪一个"（映射）; 引擎只负责"**这轮话里提到了谁**"。
+    ⚠️ **不靠 LLM**（设计写死的分工）: 引擎只负责"**这轮话里提到了谁**",
+    "这条挂谁"由 R3 判。
+
+    ⚠️ **2026-09-29 起产品侧不再供 `hints`** —— R1 的 `about_hint` 退役（它和 R3 的
+    "挂谁"判两次, 还可能不一致）⇒ **正文通道是今天的主力**。参数留着: 它是这个匹配器的
+    通用形状（离线预演 / 将来别的写者可能用），不是某一路的私货。
 
     两条规则:
         · **hint**: 与某个称呼精确相等（忽略大小写）, 或 ≥2 字的包含（双向）。
-          hint 是模型自己写的称呼 ⇒ 单字 hint 只可能是它真的这么称呼, **不受下限**。
+          hint 是"写者自己写下的称呼" ⇒ 单字 hint 只可能是它真的这么称呼, **不受下限**。
         · **正文**: 称呼出现在 `texts` 里（短于 `MIN_HIT_LEN` 的称呼**不扫**）。
 
     Args:
-        hints: 第 1 轮产出的 `about_hint`（`DigestResult.hints` —— **不落库**）
+        hints: 写者给出的自然称呼（历史上 = R1 的 `about_hint`; 今天产品侧传空）
         texts: 本轮正文（调用方给: 新节点的 `text`, 需要时连 `title`/`verbatim`）
 
     Returns: 命中的 entity id（id 升序; 空 = 一个都没提到）。
