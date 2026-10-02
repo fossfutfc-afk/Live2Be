@@ -65,7 +65,8 @@ MAX_EPISODES = 5        # A 轮单包最多 episode 数
 MAX_ALIASES = 8         # `new_entity` 的别名上限（超了截断 + warning —— 别名是效率优化）
 MAX_TEXT = 300          # 正文（text）单行上限（汉字）——三槽合流后两种 kind 共用
 MAX_TAGS = 4            # tags 检索词上限
-MAX_ITEMS = 3           # items（物品台账, §3.1）单条上限
+#: ⏸ `MAX_ITEMS` / `items` 字段 **2026-09-29 删** —— 零活读者, 且"是不是同一个东西"
+#: 写在 episode 里分不清（见 `nodes.py` 的字段区注释）⇒ 物品面将来走 `inventory` 旁路。
 #: 类名（group 的 `title`）上限 —— ⚠️ **与 episode 的 8~16 字不是同一条**: 类名可以很短
 #: （"那片苔藓" 4 字就够）, 这里只挡"写成一整句话的那种"; 超了**只告警不截断**
 #: （截断会把名字截坏, 而名字是**地址**）。
@@ -180,9 +181,6 @@ RECORD_EPISODE = DigestAction(
         '                          // 判据: **三个月后再提到它, 需要它前后一致吗?** 需要才写。\n'
         '                          // ⚠️ 一次性道具**不写**（那顶帽子/只去过一次的饭馆）——\n'
         '                          // 它们留在 text 里就够, 写进来只会造出一堆没有下文的身份 //\n'
-        '      "items": ["一盆杂草"],  // 可选; 这件事里她**得到/失去了什么实物**\n'
-        '                          //（一盆杂草/一本笔记/一个挂件）。\n'
-        '                          // 情绪、对话、"发生的事"都不算; 最多 3 件; 没有就不写 //\n'
         '      "significance": 0~1,  // 行为锚点: 0.9+ 改变认知/极深刻（初遇/告白）;\n'
         '                          // 0.7~0.9 重要约定/特别难忘的日常; <0.7 普通但角色在意的细节;\n'
         '                          // 拿不准往低给 //\n'
@@ -211,7 +209,6 @@ RECORD_EPISODE = DigestAction(
         ' "verbatim": ["33.2", "33.p"],'
         ' "tags": ["公园", "流浪猫", "热茶"],'
         ' "about_hint": "老师",'
-        ' "items": ["老师给的纸杯"],'
         ' "significance": 0.8,'
         ' "emo_int": 0.6, "emo_span": 0.7}'
     ),
@@ -1390,14 +1387,7 @@ def _clean_episode_item(e: dict, i: int, errors: list[str], warnings: list[str],
     hint = e.get("about_hint")
     if isinstance(hint, str) and hint.strip():
         item["about_hint"] = hint.strip()
-    # 物品台账（§3.1, D1）: 裸字符串数组, 截断到 MAX_ITEMS; 空 → 不落字段。
-    raw_items = e.get("items")
-    if isinstance(raw_items, list):
-        got = [x.strip() for x in raw_items if isinstance(x, str) and x.strip()]
-        if len(got) > MAX_ITEMS:
-            warnings.append(f"episodes[{i}].items 超过 {MAX_ITEMS} 件——截断")
-        if got[:MAX_ITEMS]:
-            item["items"] = got[:MAX_ITEMS]
+    # ⏸ `items`（物品台账）清洗 **2026-09-29 删** —— 字段退役, 旧档里的值一并清掉。
     sig = e.get("significance")
     try:
         sig_f = float(sig) if sig is not None else 0.5

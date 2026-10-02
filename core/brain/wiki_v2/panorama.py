@@ -179,7 +179,9 @@ def _anchors(node: BrainNode) -> list[tuple[str, str]]:
     """
     out: list[tuple[str, str]] = []
     out += [(ANCHOR_TAG, str(t).strip()) for t in node.tags if str(t).strip()]
-    out += [(ANCHOR_ITEM, str(i).strip()) for i in node.items if str(i).strip()]
+    # ⏸ 原 `ANCHOR_ITEM`（`node.items` 当锚点）**2026-09-29 删** —— `items` 字段退役
+    # （零活读者; 物品面将来走 `inventory` 旁路）。`ANCHOR_ITEM` 常量先留着,
+    # 等这个模块（零调用者, 留给切块）真正被接线时再决定要不要一起删。
     out += [(ANCHOR_PLACE, str(p).strip()) for p in node.place if str(p).strip()]
     return out
 
