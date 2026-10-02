@@ -163,7 +163,7 @@ def test_round_a_player_portrait_entry():
     """MMT 专则: kind=experience（玩家画像）条目——text 必填, subject 引擎固定。"""
     raw = {"episodes": [
         {"kind": "experience", "text": "玩家的生日是 5 月 20 日",
-         "verbatim": "我生日是 5 月 20 日哦", "tags": ["玩家"], "significance": 0.7},
+         "verbatim": ["3.0"], "tags": ["玩家"], "significance": 0.7},
         {"kind": "experience", "title": "忘了 text"},          # 缺 text → 拒
     ]}
     items, result = digest_registry.parse_round_a(raw)
@@ -173,6 +173,7 @@ def test_round_a_player_portrait_entry():
     assert items[0]["kind"] == "experience"
     assert items[0]["subject"] == "player"          # 引擎固定, 不信任 LLM
     assert items[0]["text"].startswith("玩家的生日")
+    assert items[0]["verbatim_seq"] == ["3.0"]      # 玩家原话也走**记录行号**（`[N.0]`）
 
 
 def test_round_a_bad_kind_rejected():
@@ -184,7 +185,7 @@ def test_round_a_bad_kind_rejected():
 
 
 # ---------------------------------------------------------------------------
-# T14 板指针 event_seq + verbatim 两条通道（2026-09-15）
+# T14 板指针 event_seq + verbatim 记录行号（2026-09-15; ⑤ 2026-09-29 收成单通道）
 # ---------------------------------------------------------------------------
 
 def test_round_a_event_seq_pointer_validated():
@@ -212,50 +213,55 @@ def test_round_a_event_seq_pointer_validated():
     print("    event_seq: 板指针 ⊆ 校验 + 坏项逐条丢弃 + 缺省不落字段")
 
 
-def test_round_a_verbatim_two_channels():
-    """★ `verbatim` 两条通道（用户 2026-09-15: 保留文本通道）。"""
-    # ① 索引通道 → 落 verbatim_seq（此时还没有文本——解析要事件流, 在 digest.py）
+def test_round_a_verbatim_is_record_indices_only():
+    """★ `verbatim` **只有记录行号一条通道**（文本通道 2026-09-29 退役, `REDUNDANCY.md` #6）。"""
+    # ① 记录行号 → 落 verbatim_seq（此时还没有文本——解析要事件流, 在 digest.py）
     items, result = digest_registry.parse_round_a(
         {"episodes": [_ep(verbatim=["28.3", "20.p", "30"])]}, seq_set={28, 20, 30})
     assert items[0]["verbatim_seq"] == ["28.3", "20.p", "30"], items[0]
     assert "verbatim" not in items[0]
-    # ② 文本通道 → 原样
-    items2, _ = digest_registry.parse_round_a({"episodes": [_ep(verbatim="它想认识你。")]})
-    assert items2[0]["verbatim"] == "它想认识你。"
-    assert "verbatim_seq" not in items2[0]
+    # ② ⛔ 文本通道已退役: 字符串**不落库**（也不兜底）+ 告警
+    items2, res2 = digest_registry.parse_round_a(
+        {"episodes": [_ep(verbatim="它想认识你。")]})
+    assert "verbatim" not in items2[0] and "verbatim_seq" not in items2[0], items2[0]
+    assert any("必须是数组" in w for w in res2.warnings), res2.warnings
     # ③ 显式 verbatim_seq 字段等价; 两条并存 → 合并去重（**verbatim 列表在先**,
     #    因为 schema 里 verbatim 是主字段, verbatim_seq 是它的显式别名）
     items3, _ = digest_registry.parse_round_a(
         {"episodes": [_ep(verbatim_seq=["28.3"], verbatim=["28.5"])]}, seq_set={28})
     assert items3[0]["verbatim_seq"] == ["28.5", "28.3"]
-    # ④ 索引 ⊆ 校验: 段外编号丢弃; 全坏 → 不落 verbatim_seq
+    # ④ 行号 ⊆ 校验: 段外编号丢弃; 全坏 → 不落 verbatim_seq
     items4, res4 = digest_registry.parse_round_a(
         {"episodes": [_ep(verbatim=["999.1"])]}, seq_set={28})
     assert "verbatim_seq" not in items4[0]
     assert any("999.1" in w for w in res4.warnings)
-    # ⑤ verbatim_seq 非数组 → 忽略（不废整包）
+    # ⑤ 非数组 → 忽略（不废整包）
     items5, res5 = digest_registry.parse_round_a(
         {"episodes": [_ep(verbatim_seq="28.3")]}, seq_set={28})
     assert "verbatim_seq" not in items5[0]
     assert any("必须是数组" in w for w in res5.warnings)
-    print("    verbatim: 索引通道 / 文本通道 / 显式字段 / ⊆ 校验 / 坏形态忽略")
+    print("    verbatim: 记录行号 / 显式字段 / ⊆ 校验 / 文本通道已退役（字符串忽略）")
 
 
 def test_schema_documents_pointer_and_channels():
-    """schema 文案必须描述位置字段与 verbatim 两通道（镜像防漂移）。
+    """schema 文案必须描述位置字段与 verbatim 的记录行号（镜像防漂移）。
 
     ⭐ **N3（2026-09-29）改了位置字段的形状**: `event_seq: ["28","30"]`（逐点挑选）
     → **`span: [28, 30]`**（区间, 引擎负责展开）。⚠️ 示例才是形状的来源（陷阱 3/46）
     ⇒ 这条镜像断言必须跟着改，否则文案漂了没人知道。
+    ⭐ **⑤（2026-09-29）把 `verbatim` 收成一条通道**（记录行号）⇒ 这里同时钉住
+    "只给行号"与"字符串会被忽略"，防那条老通道被谁顺手加回来。
     """
     text = digest_registry.build_schema(PHASE_RECORD)
     assert "span" in text and "指位置, 不是打分" in text
     assert "覆盖【哪一段】" in text
     assert "28.3" in text and "20.p" in text
-    assert "给一条即可" in text
+    assert "记录行号" in text
+    assert "只给行号" in text and "写成字符串会被忽略" in text
     # ⚠️ 旧形状**不再**出现在给 LLM 看的文案里（只在 parse 层作兼容收下）
     assert '"event_seq"' not in text
-    print("    schema: 位置区间(span) + verbatim 两通道 已文档化")
+    assert "两条通道" not in text
+    print("    schema: 位置区间(span) + verbatim 记录行号（单通道）已文档化")
 
 
 # ---------------------------------------------------------------------------

@@ -105,9 +105,9 @@ class BrainNode:
     text: str = ""
     # ── episode 专属 ──
     verbatim: str = ""
-    #: `verbatim` 的**索引通道**（地址如 `"28.3"`/`"20.p"`, 词表 = `contract/timeline_index.py`）。
+    #: `verbatim` 的**唯一来源**（地址如 `"28.3"`/`"20.p"`, 词表 = `contract/timeline_index.py`）。
     #: 上游: 引擎据此回填文本; 地址永久有效（`events.jsonl` append-only）⇒ 可重解析。
-    #: ⚠️ 消费字段是 `verbatim`（文本）——索引解析不出时以文本兜底。
+    #: ⚠️ 消费字段是 `verbatim`（文本）—— 解析不出就**留空**（绝不编; 文本通道 2026-09-29 退役）。
     verbatim_seq: list[str] = field(default_factory=list)
     #: **板级情绪键序列**（如 `["tease","smile"]`）——B 链路（情绪序列 RAG）唯一输入。
     #: 由 digest 按 `event_seq` 从真源物化（能重算 ⇒ 不是第二真源）。

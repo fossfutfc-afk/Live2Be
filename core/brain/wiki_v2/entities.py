@@ -142,7 +142,7 @@ LOCAL_PREFIX = "c"
 NODE_PREFIX = "u"
 #: 字面匹配的**最小长度**。⚠️ 中文没有词边界: 单字称呼（"他"/"她"/"它"）**会命中
 #: 每一段正文**; 而别名无论初始化还是"顺手写回"给的都是**名字**（"sensei"/"遥香"）,
-#: 砍掉 1 字不丢真命中。hint 走精确相等, **不受此限**。
+#: 砍掉 1 字不丢真命中。
 MIN_HIT_LEN = 2
 
 
@@ -196,34 +196,29 @@ def candidate_table(store: WikiStoreV2) -> tuple[str, dict[str, str]]:
     return "\n".join(lines), local_of
 
 
-def hit_set(store: WikiStoreV2, *, hints=(), texts=()) -> list[str]:
-    """命中集（§8.3 第二层的**确定性**规则）: `hints` ∪ 称呼命中本轮正文。
+def hit_set(store: WikiStoreV2, *, texts=()) -> list[str]:
+    """命中集（§8.3 第二层的**确定性**规则）: 称呼命中本轮正文。
 
     ⚠️ **不靠 LLM**（设计写死的分工）: 引擎只负责"**这轮话里提到了谁**",
     "这条挂谁"由 R3 判。
 
-    ⚠️ **2026-09-29 起产品侧不再供 `hints`** —— R1 的 `about_hint` 退役（它和 R3 的
-    "挂谁"判两次, 还可能不一致）⇒ **正文通道是今天的主力**。参数留着: 它是这个匹配器的
-    通用形状（离线预演 / 将来别的写者可能用），不是某一路的私货。
+    ⚠️ **2026-09-29 起只剩这一条通道** —— 参数 `hints=` 与 `_hint_hits` 随 R1 的
+    `about_hint` 一起退役（那个字段与 R3 的"挂谁"判两次, 还可能不一致）。离线预演
+    （真机 haruka 21 条 episode）: 正文通道 **22/22** 命中, 另加 tags 一条也没多救回
+    ⇒ 正文就是全部（`REDUNDANCY.md` §十）。
 
-    两条规则:
-        · **hint**: 与某个称呼精确相等（忽略大小写）, 或 ≥2 字的包含（双向）。
-          hint 是"写者自己写下的称呼" ⇒ 单字 hint 只可能是它真的这么称呼, **不受下限**。
-        · **正文**: 称呼出现在 `texts` 里（短于 `MIN_HIT_LEN` 的称呼**不扫**）。
+    规则: 称呼出现在 `texts` 里（短于 `MIN_HIT_LEN` 的称呼**不扫** —— 中文没有词边界）。
 
     Args:
-        hints: 写者给出的自然称呼（历史上 = R1 的 `about_hint`; 今天产品侧传空）
         texts: 本轮正文（调用方给: 新节点的 `text`, 需要时连 `title`/`verbatim`）
 
     Returns: 命中的 entity id（id 升序; 空 = 一个都没提到）。
     """
-    hs = _strings(hints)
     texts_cf = [t.casefold() for t in _strings(texts)]
     out: list[str] = []
     for n in candidates(store):
         forms = surface_forms(n)
-        if any(_hint_hits(h, forms) for h in hs) \
-                or any(_body_hits(f, texts_cf) for f in forms):
+        if any(_body_hits(f, texts_cf) for f in forms):
             out.append(n.id)
     return out
 
@@ -311,16 +306,6 @@ def new_nodes_block(store: WikiStoreV2, ids) -> tuple[str, dict[str, str]]:
 # ⏸ `_node_tag` **2026-09-29 删** —— 类型标签的真源 = `marks.kind_tag`（**不带方括号**）。
 # 它当年是"延迟 import `render._kind_tag` 再 `strip('[]')`": 同一个标签两个形状, 正是
 # "散"的典型。现在 `head(kind=True)` 直接把 `marks.kind_tag` 放进头里, 不再需要它。
-
-
-def _hint_hits(hint: str, forms: list[str]) -> bool:
-    """hint 命中某称呼: 精确相等（忽略大小写）或 ≥2 字包含（双向）。"""
-    h = hint.casefold()
-    for f in forms:
-        fc = f.casefold()
-        if h == fc or (len(hint) >= MIN_HIT_LEN and (h in fc or fc in h)):
-            return True
-    return False
 
 
 def _body_hits(form: str, texts_cf: list[str]) -> bool:
