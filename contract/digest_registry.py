@@ -158,14 +158,15 @@ RECORD_EPISODE = DigestAction(
     ),
     field_schema=(
         '    {  // 一条记录; **条数见上方【本段类型】的产出契约**（bond=恰好 1 / mmt=0~5）//\n'
-        '      "kind": "episode",    // "episode"=经历 | "experience"=玩家画像专用\n'
+        '      // ⚠️ **默认就是"经历", 不用写 `kind`**（2026-09-29）—— 只有**例外**才写:\n'
+        '      "kind": "experience",  // 可选; 只在"**玩家画像**"那一条上写\n'
         '                            //（玩家口癖/偏好/一次性个人信息——text 写画像句,\n'
         '                            //  subject 不用填, 引擎固定为 player）//\n'
-        '      "text": "…",        // 必填（两种 kind 同一个字段名）; 单行 ≤300 字;\n'
-        '                          // kind=episode → 第一人称浓缩, 不流水账;\n'
-        '                          // kind=experience → 玩家画像句, 如"玩家的生日是\n'
+        '      "text": "…",        // 必填; 单行 ≤300 字;\n'
+        '                          // 经历 → 第一人称浓缩, 不流水账;\n'
+        '                          // 玩家画像 → 画像句, 如"玩家的生日是\n'
         '                          // 5 月 20 日""玩家总说摸鱼" //\n'
-        '      "title": "…",      // kind=episode 必填; 8-16 字短标题; 拿不准也给朴素标题 //\n'
+        '      "title": "…",      // 经历必填（画像条目不用）; 8-16 字短标题; 拿不准也给朴素标题 //\n'
         '      "span": [28, 30],   // ⭐ **本条覆盖【哪一段】**——起止两块的事件头编号\n'
         '                          //（`[28] 【羁绊剧情】` 里的 28）。**这是指位置, 不是打分**;\n'
         '                          // 区间内的事件**全部**算你覆盖了, 不必逐块列;\n'
@@ -1143,7 +1144,10 @@ def _clean_episode(e: Any, i: int, seq_set: set[int] | None = None
     for f in ("id", "ts"):
         if f in e:
             warnings.append(f"episodes[{i}] 含引擎字段 {f}——已忽略")
-    kind = str(e.get("kind", "episode")).strip()
+    # ⭐ **2026-09-29: `kind` 只在"例外"时写**（用户裁决: 轮次决定的常量不该由 LLM 声明）——
+    # 缺键 / 空串 ⇒ 默认 **episode**; 只有 `experience`（玩家画像）需要显式写;
+    # 写坏值照旧拒（不静默降级 —— 静默改 kind 会让模型下次还这么写）。
+    kind = str(e.get("kind", "") or "").strip() or "episode"
     if kind == "episode":
         item, errors, warnings = _clean_episode_item(
             e, i, errors, warnings, seq_set)
@@ -1169,7 +1173,8 @@ def _clean_episode(e: Any, i: int, seq_set: set[int] | None = None
             sig_f = 0.5
         item["significance"] = max(0.0, min(1.0, sig_f))
         return item, errors, warnings
-    return None, [f"episodes[{i}].kind 非法: {kind!r}（episode|experience）"], []
+    return None, [f"episodes[{i}].kind 非法: {kind!r}（不写 = 经历; 只有"
+                  f"「玩家画像」才写 'experience'）"], []
 
 
 def _norm_index(raw: Any) -> str | None:
