@@ -1,7 +1,7 @@
-"""mmt 会话窗口 digest 测试（蓝图 §3.1: N=25 触发 + in_vn/in_memorial 保护）。
+"""mmt 会话窗口 digest 测试（蓝图 §3.1: N=40 轮触发 + in_vn/in_memorial 保护）。
 
 覆盖 momotalk 引擎的运行时 digest 接线（brain, 2026-09-02 切换）:
-    - _maybe_mmt_digest: 25 轮触发 → 后台 digest 闭环（seed+提炼+好感事件落库）
+    - _maybe_mmt_digest: 40 轮触发 → 后台 digest 闭环（seed+提炼+好感事件落库）
     - 剧情中（in_vn）不触发
     - digest 增量: 无新增事件 → 0 次 LLM 调用（空跑无害）
     - **第一次 digest 前建 self/sensei 两个 entity**（§3.0 / §9-7, 2026-09-23）
@@ -75,18 +75,18 @@ def _mmt_event(st, char_id, seq_base):
 
 
 def test_mmt_window_trigger_digests(tmp_path):
-    """_session_rounds=25 → _maybe_mmt_digest → 后台 digest 完成:
+    """_session_rounds=40 → _maybe_mmt_digest → 后台 digest 完成:
     水位推进 + 好感事件落库（2026-09-05 解耦: 出厂基座不再 seed 进 wiki——
     出厂背景 = experience.yml 原文直注, wiki 只存 digest 产物）。"""
     engine, st, llm = _engine(tmp_path)
     _mmt_event(st, CHARACTER, 1)                # 有事件可消化
-    engine._session_rounds = MMT_DIGEST_INTERVAL  # 模拟 25 轮已记录
+    engine._session_rounds = MMT_DIGEST_INTERVAL  # 模拟 40 轮已记录
 
     assert engine._maybe_mmt_digest() is None   # 仅触发（返回 None）
     # 后台 digest: A/B 两轮空包 → 好感 5 落 affection 事件
     assert _wait(lambda: any(
         e.type == "affection" and e.subtype == "digest"
-        for e in st.events(CHARACTER))), "25 轮触发后应有好感事件"
+        for e in st.events(CHARACTER))), "40 轮触发后应有好感事件"
     assert llm.llm_calls == 2                   # 恰好 A+B 两轮
     # 注入段已刷新: 出厂背景（yml 直注）+ 无出厂节点落 wiki（空包 digest 零产物）。
     # ⚠️ 注入是**后台线程**的最后一步 —— 好感事件落地 ≠ 注入已重建（2026-09-25:
@@ -107,7 +107,7 @@ def test_mmt_window_skipped_in_vn(tmp_path):
 
 
 def test_window_below_interval_no_trigger(tmp_path):
-    """未到 25 轮 → 不触发。"""
+    """未到 40 轮 → 不触发。"""
     engine, st, llm = _engine(tmp_path)
     _mmt_event(st, CHARACTER, 1)
     engine._session_rounds = MMT_DIGEST_INTERVAL - 1
@@ -137,7 +137,7 @@ def test_first_digest_creates_char_entities(tmp_path, monkeypatch):
     """**第一次 digest 开始前**把 self(x0000) + sensei(x0001) 建出来并落盘（§3.0 / §9-7）。
 
     用户 2026-09-23 裁决的时刻 = vn_finish 之后、digest 的 LLM 调用之前; 接线点选在
-    `_inject_brain(digest=True)` ⇒ bond 闭环与 mmt 每 25 轮**两个触发点都覆盖**。
+    `_inject_brain(digest=True)` ⇒ bond 闭环与 mmt 每 40 轮**两个触发点都覆盖**。
 
     ⚠️ 顺序是**正确性**问题（不是风格）: 表里没有 entity 时 `next_id("x")` 返回的是
     **x0001** —— sensei 的保留号。谁先建谁占坑; 漏了的话第 3 轮 `new_entity` 建的第一个人
@@ -184,9 +184,9 @@ def test_first_digest_creates_char_entities(tmp_path, monkeypatch):
 def test_session_rounds_restored_across_reattach(tmp_path):
     """`attach_session` 重入（= 前端刷新/切页走 `open_session`）不得把轮数清零。
 
-    `_session_rounds` 有两个身份: ① mmt 窗口 digest 的触发计数（>=25 且 %25==0）;
+    `_session_rounds` 有两个身份: ① mmt 窗口 digest 的触发计数（>=40 且 %40==0）;
     ② `want_to_speak` 的冷却键（`core/random_events` 拿它当"当前轮号"）。
-    原先 `attach_session` 无条件 `= 0` → **页面每刷新一次, 25 轮窗口就从头再数**,
+    原先 `attach_session` 无条件 `= 0` → **页面每刷新一次, 40 轮窗口就从头再数**,
     常刷新时 digest 几乎永不触发; 冷却键同样退化成"冷却 >=6 次刷新"。
 
     恢复所依赖的 invariant = "**本会话 mmt_chat 事件条数 == 成功轮数**"

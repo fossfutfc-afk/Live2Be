@@ -128,6 +128,13 @@ def _collapse_bond_episodes(entries: list[dict], chapters: list[dict], *,
 
     `experience`（玩家画像）不算 episode。为什么丢弃而不是合并文本: 合并是创作（要 LLM）,
     引擎只做判定; 而"一章一条"的前提是那条总结**本来就该覆盖全章**。
+
+    ⭐ **章块的覆盖由引擎兜到整章**（D0, 2026-09-29 用户裁决）—— 上一条那个"前提"从
+    **假设**变成**事实**: 保留那条的 `event_seq` 取**并集**（她声称的 ∪ 章的整块）。
+    判据: 章的边界是**引擎已知的**（marker 派生）, 没有理由让她划、也没理由让她划漏 ——
+    划窄了有两个后果: ① 章尾留在水位之上 ⇒ 下一段**重喂** ⇒ 而重喂的窗口里没有 `vn_enter`
+    ⇒ `_segment_domain` 会把它当**孤儿章** ⇒ 可能重复记一条; ② 召回侧的
+    `emo_shape` / `place` / `node.ts` 全从 `event_seq` 推 ⇒ 少的正是那一截。
     """
     if not chapters:
         return entries
@@ -138,9 +145,13 @@ def _collapse_bond_episodes(entries: list[dict], chapters: list[dict], *,
             continue
         group = [e for e in entries
                  if e.get("kind") != "experience" and _in_seqs(e, seqs)]
-        if len(group) <= 1:
+        if not group:
             continue
         keep = max(group, key=lambda e: float(e.get("significance") or 0.0))
+        keep["event_seq"] = sorted({*_seq_ints(keep.get("event_seq")),
+                                    *(int(s) for s in seqs)})
+        if len(group) <= 1:
+            continue
         logger.warning(
             "digest_record contract=bond chapter=%r entries=%d keep=%r（一章一条; 其余已丢。"
             "这行常出现 = 提示词没压住, 看 Round A 的【本段类型】产出契约）",
@@ -152,3 +163,14 @@ def _collapse_bond_episodes(entries: list[dict], chapters: list[dict], *,
                                 "lost": [_brief(e) for e in group if e is not keep]})
         dropped |= {id(e) for e in group if e is not keep}
     return [e for e in entries if id(e) not in dropped]
+
+
+def _seq_ints(raw) -> list[int]:
+    """`event_seq` 里能当 seq 的那些（坏值丢, 同 `_in_seqs` 的宽容口径）。"""
+    out: list[int] = []
+    for s in raw or []:
+        try:
+            out.append(int(s))
+        except (TypeError, ValueError):
+            continue
+    return out

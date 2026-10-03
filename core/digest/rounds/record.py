@@ -65,7 +65,6 @@ def run(ctx: Ctx) -> RoundOut:
     # ⚠️ 它**可重算**（节点 `event_seq` + 章 marker 都在盘上）⇒ **进日志, 不进账**。
     _chapter_seqs = (frozenset().union(*[c["seqs"] for c in ctx.chapters])
                      if ctx.chapters else frozenset())
-    _uncovered = sorted(s for s in _unclaimed if s in _chapter_seqs)
     submitted = len(entries)
     # ⭐ **没有位置的条目**（`span` 被契约层丢了 / 她压根没给）—— 它们会被引擎**兜底到
     # 段级指针**（`_create_a_nodes` 的 `event_seq=[interact_max]`）。
@@ -74,13 +73,19 @@ def run(ctx: Ctx) -> RoundOut:
     # 但会计上它会让那个 seq 看起来"已认领" ⇒ **按条目算的未认领 ≠ 按节点算的**。
     # 所以这里把条数**记下来**（进账 + 日志）, 而不是改行为。
     _no_pos = sum(1 for e in entries if not e.get("event_seq"))
+    # 一章一个 episode（2026-09-20）—— 引擎确定性收口 + 可观测告警（+ ⭐ D1 的台账出口）
+    # ⚠️ **它还会把章的覆盖兜到整章**（D0: `segment._collapse_bond_episodes` 的并集）
+    collapsed: list[dict] = []
+    entries = _collapse_bond_episodes(entries, ctx.chapters, dropped_out=collapsed)
+    # ⚠️ **未认领要在收口之后重算**: 章块的并集让"章内那几条"从"未认领"变成"已认领"
+    # ⇒ 拿收口**前**算的那个数去记日志, 就会与节点上的覆盖**对不上**（两种口径）。
+    _covered = {s for e in entries for s in (e.get("event_seq") or [])}
+    _unclaimed = sorted(set(ctx.seq_set) - _covered)
+    _uncovered = sorted(s for s in _unclaimed if s in _chapter_seqs)
     logger.info("digest_record span=%d 认领=%d 未认领=%d 共享=%d 章内未覆盖=%d "
                 "无位置=%d 未认领seq=%s",
                 submitted, len(ctx.seq_set) - len(_unclaimed), len(_unclaimed), _shared,
                 len(_uncovered), _no_pos, _unclaimed[:20] or "-")
-    # 一章一个 episode（2026-09-20）—— 引擎确定性收口 + 可观测告警（+ ⭐ D1 的台账出口）
-    collapsed: list[dict] = []
-    entries = _collapse_bond_episodes(entries, ctx.chapters, dropped_out=collapsed)
     # ── 时间推进：**已退役**（2026-09-17, `ESSAY_TIME_MODEL §10`）──
     # 旧实现读 Round A 的 `time_span` 推进 `WorldClock` 的**剧情游标**,
     # 再把新游标 stamp 到节点上（`story_time`）。整条链已废:

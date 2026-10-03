@@ -50,9 +50,13 @@ def _episode_ids(messages) -> list[str]:
 
     ⚠️ R2 的契约要求"覆盖全部 episode"（漏一条 ⇒ 整包拒）⇒ 桩必须按**实际** id 逐条给
     决策, 不能写死 `m0001`（本文件好几个用例是两条）。
+    ⚠️ 别用裸 `m\\d{4}` —— 认知列表的**边续行**也会印真实 id（`edges: supports←m0004`）,
+    抓到它们就会产出"不在本轮 episode 集内"的决策 ⇒ 整包被拒。
+    ⚠️ 也别只认 `m0001｜` —— **条目没有标题时**印出来是 `〔m0001〕`（`marks.head` 的
+    名字格会被滤掉; 不少用例的条目本来就没有 title）。
     """
     text = messages[-1].get("content", "") if messages else ""
-    return list(dict.fromkeys(re.findall(r"m\d{4}", str(text))))
+    return list(dict.fromkeys(re.findall(r"〔(m\d{4})[｜〕]", str(text))))
 
 
 class OneRound:

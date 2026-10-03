@@ -1,0 +1,231 @@
+# -*- coding: utf-8 -*-
+"""D0 —— **段的推进规则**（2026-09-29 用户裁决）。
+
+> 用户原话：*"固定每个角色说 40 轮（1/3 个 window）开始 digest 以及章闭环即可；
+> 下一段的 slice start = 上一段中 slice 出的所有段中 span 右端点的最大值 + 1"*
+> · 补一句裁决：**只救尾巴**（中间空洞不重喂 —— 那些多是闲聊）。
+
+四条判据:
+
+  ① **触发** = MMT 每 `MMT_DIGEST_INTERVAL`(=40) 轮 或 章闭环（40 ≈ 1/3 个
+     `window_messages(max_units=120)`）。
+  ② ⭐ **水位 = 她这次实际覆盖到的最大 seq**（不是触发点）⇒ 没覆盖的**尾巴**留在水位
+     之上, 并进下一段**再喂一次**（"未认领"从"永久丢"变成"欠着"）。
+  ③ ⭐ **章块的覆盖由引擎兜到整章**（`segment._collapse_bond_episodes` 的并集）——
+     这是 ② 的必要配套: 章的 episode 划窄了会让章尾被重喂, 而重喂的窗口里没有
+     `vn_enter` ⇒ 会被当成**孤儿章** ⇒ 可能重复记一条。
+  ④ 两条兜底: **零覆盖 ⇒ 推到窗口上界**（否则死循环）· **窗口超限 ⇒ 丢最老的**
+     （否则窗口单调变长）。
+
+运行: python -m pytest tests/core/test_digest_window.py
+"""
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+
+from core.brain import WikiStoreV2
+from core.brain.entities import ensure_entities
+from core.digest import pipeline
+from core.digest.pipeline import digest_segment
+from core.session import make_event
+from llm import task_labels as T
+
+ROOT = Path(__file__).resolve().parent.parent.parent
+CHAR = "c"
+
+
+class Stub:
+    """按 task 分派: R1 给 `episodes`（可带 span）, 其余轮空包。
+
+    ⚠️ R2 的契约要求"覆盖全部 episode"（漏一条整包拒）⇒ 决策行按**实际** id 生成
+    （从 user 消息里认 `〔m0001｜《标题》〕`）—— 不能写死 `m0001`。
+    """
+
+    def __init__(self, episodes):
+        self.episodes = episodes
+        self.users: list[str] = []
+        self.tasks: list[str | None] = []
+
+    def chat(self, messages, **kw):
+        task = kw.get("task")
+        self.tasks.append(task)
+        user = str(messages[-1].get("content", ""))
+        self.users.append(user)
+        if task == T.DIGEST_RECORD:
+            return {"episodes": self.episodes}
+        if task in (T.DIGEST_UNDERSTAND, T.DIGEST):
+            import re
+            # ⚠️ 只认**新经历行的把手**（`〔m0003｜《标题》〕`, 没标题时是 `〔m0003〕`）——
+            # 别用裸 `m\d{4}`: 认知列表的**边续行**也会印真实 id（`edges: supports←m0004`）,
+            # 抓到它们就会产出"不在本轮 episode 集内"的决策 ⇒ 整包被拒。
+            ids = list(dict.fromkeys(re.findall(r"〔(m\d{4})[｜〕]", user)))
+            return {"decisions": [{"episode": i, "decision": "add", "kind": "belief",
+                                   "subject": f"关于 {i}", "text": f"关于 {i} 的看法"}
+                                  for i in ids],
+                    "affection_exp_delta": 0}
+        if task == T.DIGEST_CLOSE:
+            return {"add": [], "close": []}
+        if task == T.DIGEST_ATTRIBUTE:
+            return {"attributions": []}
+        raise RuntimeError(f"意外调用 task={task!r}")
+
+
+def _wiki(tmp_path) -> WikiStoreV2:
+    st = WikiStoreV2(tmp_path, world_id="world1", char_id=CHAR)
+    ensure_entities(st, char_name="伊草 遥香", sensei_name="老师")
+    st.save()
+    return st
+
+
+def _mmt(seq: int, text: str = ""):
+    e = make_event("mmt", "mmt_chat", {"player": "老师", "reply": text or f"第 {seq} 句"})
+    e.seq = seq
+    return e
+
+
+def _events(*seqs):
+    return [_mmt(s) for s in seqs]
+
+
+# ---------------------------------------------------------------------------
+# ② 水位 = 她覆盖到的地方（不是触发点）
+# ---------------------------------------------------------------------------
+
+def test_watermark_stops_at_her_coverage(tmp_path):
+    """⭐ 她只覆盖 1–2 而窗口有 4 条 ⇒ 水位停在 **2**（不是 4）⇒ 3、4 欠到下一段。"""
+    st = _wiki(tmp_path)
+    llm = Stub([{"text": "只记了前两句", "title": "前两句", "span": [1, 2],
+                 "tags": ["x"]}])
+    res = digest_segment(st, llm, _events(1, 2, 3, 4))
+
+    assert res.ok, res.errors
+    assert st.digested_seq == 2, f"水位该停在她覆盖到的地方: {st.digested_seq}"
+    # 下一段的窗口**从 3 起**（欠着的尾巴并进来）
+    llm2 = Stub([{"text": "这回记 3、4", "title": "后半", "span": [3, 4],
+                  "tags": ["x"]}])
+    res2 = digest_segment(st, llm2, _events(1, 2, 3, 4))
+    assert res2.ok, res2.errors
+    assert st.digested_seq == 4
+    user2 = llm2.users[0]
+    assert "[3]" in user2 and "[4]" in user2, "尾巴该被重喂"
+    assert "[1]" not in user2.split("【")[1] if "【" in user2 else True
+    print(f"    覆盖率决定水位: 2 → 4（尾巴 3、4 被重喂）✓")
+
+
+def test_watermark_swallows_trailing_non_content_events(tmp_path):
+    """覆盖点**之后紧邻**的 marker / 账目一起吞掉（它们本来就属于这一段）。"""
+    st = _wiki(tmp_path)
+    evs = _events(1, 2)
+    aff = make_event("affection", "digest", {"delta": 1, "digested_seq": 2})
+    aff.seq = 3
+    evs.append(aff)
+    llm = Stub([{"text": "两句都记", "title": "两句", "span": [1, 2], "tags": ["x"]}])
+    res = digest_segment(st, llm, evs)
+
+    assert res.ok, res.errors
+    assert st.digested_seq == 3, f"尾部账目该一起吞掉: {st.digested_seq}"
+    print("    尾部非内容事件一起吞 ✓")
+
+
+def test_watermark_advances_when_nothing_is_covered(tmp_path):
+    """⭐ 兜底: 零覆盖（MMT 碎聊允许 0 条）⇒ 推到**窗口上界**, 否则水位永远不动。"""
+    st = _wiki(tmp_path)
+    res = digest_segment(st, Stub([]), _events(1, 2, 3))
+
+    assert res.ok, res.errors
+    assert st.digested_seq == 3, f"零覆盖必须推进（否则死循环）: {st.digested_seq}"
+    print("    零覆盖 ⇒ 推到窗口上界 ✓")
+
+
+def test_middle_hole_is_not_re_fed(tmp_path):
+    """⛔ **只救尾巴**: 她记了 1–2 与 5–6, 而 3、4 空着 ⇒ 水位一次推过 6, 3、4 不重喂。"""
+    st = _wiki(tmp_path)
+    llm = Stub([{"text": "头和尾", "title": "头和尾", "span": [1, 2], "tags": ["x"]},
+                {"text": "又一件事", "title": "又一件事", "span": [5, 6],
+                 "tags": ["x"]}])
+    res = digest_segment(st, llm, _events(1, 2, 3, 4, 5, 6))
+
+    assert res.ok, res.errors
+    assert st.digested_seq == 6, st.digested_seq
+    llm2 = Stub([])
+    res2 = digest_segment(st, llm2, _events(1, 2, 3, 4, 5, 6))
+    assert res2.ok and res2.llm_calls == 0, "没有新事件 ⇒ 一次调用都不该发"
+    print("    中间空洞不重喂（只救尾巴）✓")
+
+
+# ---------------------------------------------------------------------------
+# ③ 章块的覆盖由引擎兜到整章（② 的必要配套）
+# ---------------------------------------------------------------------------
+
+def _chapter(enter=10, bonds=(11, 12, 13, 14), exit_=15, title="苔藓"):
+    evs = []
+    m = make_event("marker", "vn_enter", {"chapter_title": title})
+    m.seq = enter
+    evs.append(m)
+    for s in bonds:
+        b = make_event("bond", "story_scene", {"paragraphs": [{"text": f"第 {s} 句"}]})
+        b.seq = s
+        evs.append(b)
+    x = make_event("marker", "vn_exit", {"completed": True})
+    x.seq = exit_
+    evs.append(x)
+    return evs
+
+
+def test_chapter_tail_is_covered_by_the_engine(tmp_path):
+    """⭐ 她只划了 11–12 而章是 11–14 ⇒ 节点的 `event_seq` = **整章**。"""
+    st = _wiki(tmp_path)
+    llm = Stub([{"text": "这一章的总结", "title": "苔藓", "span": [11, 12],
+                 "tags": ["苔藓"]}])
+    res = digest_segment(st, llm, _chapter())
+
+    assert res.ok, res.errors
+    node = st.get(res.created[0])
+    assert node.event_seq == [11, 12, 13, 14], f"章块覆盖该由引擎兜满: {node.event_seq}"
+    assert st.digested_seq == 15, "水位要能推过整章 + 章尾 marker"
+    print(f"    章覆盖由引擎兜满: {node.event_seq}（水位 {st.digested_seq}）✓")
+
+
+def test_chapter_cover_keeps_watermark_moving(tmp_path):
+    """②+③ 合起来: 章若没兜满, 章尾会被重喂 ⇒ 重喂的窗口里没有 `vn_enter` ⇒ 孤儿章。"""
+    st = _wiki(tmp_path)
+    llm = Stub([{"text": "总结", "title": "苔藓", "span": [11, 12], "tags": ["苔藓"]}])
+    digest_segment(st, llm, _chapter())
+    llm2 = Stub([])
+    res2 = digest_segment(st, llm2, _chapter())
+    assert res2.llm_calls == 0, "章已整块消化 ⇒ 不该再有新事件可喂"
+    print("    整章消化完 ⇒ 下一段没有欠账 ✓")
+
+
+# ---------------------------------------------------------------------------
+# ④ 窗口超限的保险丝
+# ---------------------------------------------------------------------------
+
+def test_window_cap_drops_the_oldest(tmp_path, monkeypatch):
+    """⭐ 窗口超限 ⇒ 丢掉**最老的**未认领（只在"水位长期追不上"时才炸）。"""
+    monkeypatch.setattr(pipeline, "DIGEST_WINDOW_EVENTS_CAP", 2)
+    st = _wiki(tmp_path)
+    llm = Stub([{"text": "只记最后两条", "title": "最后两条", "span": [3, 4],
+                 "tags": ["x"]}])
+    res = digest_segment(st, llm, _events(1, 2, 3, 4))
+
+    assert res.ok, res.errors
+    user = llm.users[0]
+    assert "[1]" not in user and "[3]" in user, f"该丢掉最老的: {user[:200]}"
+    assert st.digested_seq == 4
+    print("    窗口超限: 丢最老的 1、2 ✓")
+
+
+if __name__ == "__main__":
+    import tempfile
+
+    for fn in (test_watermark_stops_at_her_coverage,
+               test_watermark_swallows_trailing_non_content_events,
+               test_watermark_advances_when_nothing_is_covered,
+               test_middle_hole_is_not_re_fed,
+               test_chapter_tail_is_covered_by_the_engine,
+               test_chapter_cover_keeps_watermark_moving):
+        with tempfile.TemporaryDirectory() as d:
+            fn(Path(d))
+    print("all digest window tests passed（窗口超限那条要 monkeypatch, 只在 pytest 下跑）")

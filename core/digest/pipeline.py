@@ -112,6 +112,13 @@ DIGEST_MAX_ATTEMPTS = 3
 #: 且同频召回需要 `aff_at_encoding` 的符号。
 DIGEST_AFF_MIN, DIGEST_AFF_MAX = -100, 100
 
+#: ⭐ **窗口的内容事件上限**（D0, 2026-09-29）—— 只在"水位长期追不上"时才炸。
+#: 水位按她的覆盖推进（`_next_watermark`）⇒ 上一段欠着的尾巴会并进下一段 ⇒ 一般情况
+#: 窗口 ≈ 40 轮 + 一截尾巴。但若**她每段只覆盖前几条**, 窗口会单调变长
+#: ⇒ 这一条丢最老的未认领、保住窗口大小（并留一行 warning）。
+#: 标定入口 = 真机日志 `digest_record span=…` / `digest 窗口超限`。
+DIGEST_WINDOW_EVENTS_CAP = 120
+
 
 @dataclass
 class DigestResult:
@@ -243,12 +250,24 @@ def digest_segment(
     # 废弃段过滤（2026-09-07, maintenance）: 被压掉的中断段"未发生"——不进记忆
     events = exclude_abandoned(events)
     # 本窗口 = 水位之后**全部**事件（含 marker）——段类型要从 marker 派生, 见下。
+    # ⚠️ **窗口可能比一个"段"长**: 水位按她的覆盖推进（`_next_watermark`）⇒ 上一段
+    # **欠着的尾巴**会并进来再喂一次。`DIGEST_WINDOW_EVENTS_CAP` 是这条规则的保险丝。
     new_all = [e for e in events if e.seq > store.digested_seq]
     # 内容事件 = 非 marker 且非"账目"（affection / note）——判据收在
     # `events.is_content_event` 一处（note 落地前的 `type != "affection"` 已删）。
     new_events = [e for e in new_all if is_content_event(e)]
     if not new_events:
         return DigestResult(ok=True)                     # 无新增 → 0 次 LLM 调用
+    if len(new_events) > DIGEST_WINDOW_EVENTS_CAP:
+        # 保险丝（只在"水位长期追不上"时才炸）: 丢掉**最老的**未认领, 保住窗口大小。
+        # 判据: 每条内容事件都进一次 prompt 是要花钱的, 而"她反复不认领的那几条"
+        # 重喂多少次都不会被认领 —— 与其让窗口无限长, 不如放弃最老的并留痕。
+        _lost = new_events[:-DIGEST_WINDOW_EVENTS_CAP]
+        new_events = new_events[-DIGEST_WINDOW_EVENTS_CAP:]
+        new_all = [e for e in new_all if e.seq >= new_events[0].seq]
+        logger.warning("digest 窗口超限: 放弃最老的 %d 条未认领（seq %d–%d）—— "
+                       "水位长期追不上（她每段只覆盖一小截?）; 见 `DIGEST_WINDOW_EVENTS_CAP`",
+                       len(_lost), _lost[0].seq, _lost[-1].seq)
     # 段类型 + 章标题（2026-09-20）: **从 marker 派生, 不落库**。
     domain, chapters, _bond_seqs = _segment_domain(new_all)
     interact_max = max(e.seq for e in new_events)
@@ -335,11 +354,67 @@ def digest_segment(
     _note_gap(result, at_seq=interact_max)
     store.save()
     # 游标提交：**已退役**（2026-09-17）—— 没有剧情游标可落盘。
-    store.meta["digested_seq"] = max((e.seq for e in events), default=interact_max)
+    # ⭐ **水位 = 她这次实际覆盖到的最大 seq**（D0, 2026-09-29 用户裁决）——
+    # **不是触发点**: 没被覆盖的**尾巴**因此留在水位之上 ⇒ 并进下一段再喂一次
+    # （"未认领"从"永久丢"变成"欠着"）。取窗判据是 `seq > 水位`（排他）⇒ 存"覆盖到的
+    # 那个 seq"本身, 语义上正好是用户说的"下一段从右端点 + 1 起头"。
+    store.meta["digested_seq"] = _next_watermark(store, ctx.episode_ids,
+                                                 events=events, trigger=interact_max)
     # ⭐ 成功 ⇒ **失败计数清零**（这一段过去了; 留着它会让下一段白背两次"前科"）。
     store.meta.pop("digest_retry", None)
     store.save_meta()
     return result
+
+
+def _next_watermark(store: WikiStoreV2, episode_ids: list[str], *,
+                    events: list, trigger: int) -> int:
+    """⭐ 本次提交后水位推到哪 —— **按她实际覆盖到的地方**, 不是按触发点（D0）。
+
+    ## 判据（2026-09-29 用户裁决）
+
+    > *"下一段的 slice start = 上一段中 slice 出的所有段中 span 右端点的最大值 + 1"*
+
+    ⇒ 她这一段**没覆盖到的尾巴**留在水位之上, 下一段的窗口从那里开始 ⇒ 会被**再喂一次**
+    （"未认领"从"永久丢"变成"欠着"）。
+
+    ⛔ **中间空洞不救**（同一次裁决）: 她记了 `[10,20]` 与 `[40,60]` 而 21–39 空着时,
+    水位一次推过 60 ⇒ 21–39 不重喂。判据: 那些多是**闲聊**（真机 70 条未认领里 67 条是
+    `mmt_chat` —— 设计本来就允许 0~5 条）; 而**尾巴**通常是"这段还没说完 / 被截断"。
+
+    ⚠️ **一条兜底（否则会死循环）**: 若这一段**没有产生任何新覆盖**（0 条 episode /
+    全是判重复复用的旧节点 —— 它们的 `event_seq` 都在起点水位之下）⇒ 推到 `trigger`。
+    不推的话水位不动 ⇒ 下一段窗口照旧 ⇒ 永远卡在同一段。
+
+    ⚠️ 覆盖从**落进图的节点**读（`node.event_seq`）, 不是从条目读 —— 那是"真的进了记忆"的
+    那一份; 而章块的覆盖已由引擎兜到整章（`segment._collapse_bond_episodes`）。
+
+    ⚠️ **返回值是"水位"（排他上界）, 不是"下一段的 start"** —— 本文件的取窗判据是
+    `e.seq > digested_seq` ⇒ 存 `top` 正好等于用户说的"span 右端点 + 1 才是下一段的起头"。
+    （存 `top + 1` 会**悄悄吞掉**紧邻 `top` 的那一条 —— `test_dedupe_on_rerun` 当场抓过。）
+    """
+    start = store.digested_seq
+    top = 0
+    for nid in episode_ids:
+        node = store.get(nid)
+        for s in (getattr(node, "event_seq", None) or []):
+            try:
+                top = max(top, int(s))
+            except (TypeError, ValueError):
+                continue
+    if top <= start:
+        # ⚠️ 兜底（否则死循环）: 这一段没有任何**新覆盖** ⇒ 推到窗口上界。
+        # 它含尾部的 marker / 账目 —— 那些本来就属于这一段（`test_affection_markers_
+        # excluded_from_digest_input` 钉住: 吃了 affection 才叫"消化完"）。
+        return max((e.seq for e in events), default=int(trigger))
+    # 覆盖点之后**紧邻的非内容事件**（marker / 账目）一起吞掉 —— 它们属于这一段;
+    # 留着只会让下一段窗口白背几行。碰到**内容事件**立刻停（那是欠着的尾巴）。
+    for e in events:
+        if e.seq <= top:
+            continue
+        if is_content_event(e):
+            break
+        top = e.seq
+    return top
 
 
 # ---------------------------------------------------------------------------
