@@ -17,7 +17,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from core.brain import WikiStoreV2, make_node          # noqa: E402
-from core.digest.pipeline import _round_b_material        # noqa: E402
+from core.digest.material import _round_b_material        # noqa: E402
 from core.brain.read.recall import recommend_candidates     # noqa: E402
 from core.brain.read.render import (                        # noqa: E402
     render_cognition_line, render_cognition_list,
