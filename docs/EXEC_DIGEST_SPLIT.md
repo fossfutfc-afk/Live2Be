@@ -379,23 +379,35 @@ warning 被扔掉了, 谁都看不见。）
 {"type":"creep","kind":"digest_gap","at_seq":<本段上界>,"ts":…,
  "skeptical":"…",                                  ← ⚠️ **只在真丢了内容时才有**
  "evidence":{
-   "contract":{"n":3,"by_round":{"record":3},
-               "lost":["record: episodes[0].span 的端点 [99] 不在本段时间线里——丢弃"],
-               "other":["record: episodes[0] 缺 tags（检索导向 1-4 个）"]},
-   "items":{"in":2,"kept":2,"dropped":[{"chapter":"苔藓","keep":"写法乙","lost":["写法甲"]}],
+   "contract":{"lost":["record: episodes[0].span 的端点 [99] 不在本段时间线里——丢弃"],
+               "by_round":{"record":1}},
+   "items":{"in":2,"kept":2,"no_pos":1,
+            "dropped":[{"chapter":"苔藓","keep":"写法乙","lost":["写法甲"]}],
             "reused":["m0001"]}}}
 ```
 
 * **出口** = creep（`soul/events.jsonl` 一行**无 `seq`** ⇒ 结构性隐身, 她/窗口/digest/回放
   都读不到）—— 通道现成: `DigestResult.creep_rows` → `engine._run_digest` → `append_raw_row`。
-* **一段一行, 只在真有缺口时写**（全认领 + 无丢点 ⇒ 一行都不写）。
-* ⭐ **只有"不可重算"的进账**（creep 自己的纪律 1）: 契约层当场说的 + 条目面
-  （一章一条丢的 / 判重复复用的）。
+* ⭐ **触发 = 真的丢了东西**（三选一: 契约层当场丢的 `drops` / 一章一条丢的条目 /
+  判重复复用的）。⚠️ **2026-09-29 收窄过**: 从前"契约层说了任何话"就写（含"缺 tags"这种
+  **建议**）⇒ 真机等于**每段一行**, 而 `grep digest_gap` 就再也挑不出真丢。
+  建议类的话（健康度）走**一行日志**: `digest 契约层说了 N 句（其中丢了内容 M）: …`。
+* ⭐ **只有"不可重算"的进账**（creep 自己的纪律 1）: 上面那三样**那一刻之后世上没有第二份**。
 * ⛔ **可重算的进日志, 不进账**: 未认领的内容事件、章内未覆盖 —— 节点 `event_seq` +
   章 marker + `affection/digest` 的段界**都在盘上** ⇒ `probe_l1_coverage.py` 一条命令算出来。
   进账 = 存第二份真相。
-* ⭐ **`skeptical` 只在真掉内容时填**（`ValidationResult.drops` 非空）: 形状建议、
+* ⭐ **`skeptical` 只在真掉内容时填**（`contract.drops` 非空）: 形状建议、
   "一章一条丢掉一条冗余总结"、闲聊没成记忆 —— 都**不是**"她少了什么"。
+
+### 10.3b ⚠️ **两种口径**（`items.no_pos`）—— 不是 bug, 但必须说清
+
+`span` 被契约层丢掉（或她压根没给位置）的条目，会被引擎**兜底到段级指针**
+（`_create_a_nodes` 的 `event_seq=[interact_max]`）。那个兜底是**文档化的有意设计**
+（`test_emo_shape_absent_when_no_pointer`: 段级指针是**真的** —— 那条记忆确实产生于这一段;
+而且它保住了 `_find_duplicate` 的幂等 ⇒ **不能**改成"不落位置"，那会拿幂等换好看）。
+
+⇒ 后果: **按条目算的"未认领" ≠ 按节点算的**（兜底那条 seq 看起来已认领）。
+这正是 `items.no_pos` 存在的理由 —— 把差异记成**一个数**, 而不是让它静默。
 
 ### 10.4 分类靠**声明**, 不靠文案（这一刀最容易做错的地方）
 
@@ -417,15 +429,29 @@ warning 被扔掉了, 谁都看不见。）
 * **D2 补全**（章的覆盖缺口 ⇒ 把保留那条 episode 的 `event_seq` 并上整章）——
   用户裁决"**只记账, 补全另开一刀**"。⚠️ 它改的是图上的数据（`event_seq` 派生
   `emo_shape`/`place`/`place_raw`/`node.ts`）。
+* **位置兜底不改**（2026-09-29 核 L1 时定的）: 见 §10.3b —— 它是文档化的有意设计,
+  改它会拿 `_find_duplicate` 的幂等换好看 ⇒ 只把差异记成 `items.no_pos`。
+* ⚠️ **一个边界**（不是 bug）: 没有位置的条目**逃过"一章一条"收口**（归属判据是
+  "`event_seq` 与章块相交" ⇒ 无位置恒不相交）⇒ 一章可能落 2 条。不去猜它属于哪一章
+  （猜错会把一条 MMT 记忆压掉）。
 * **契约层别的轮的"重复丢"**（`links` 重复 / `close` 重复 / `aliases` 截断）**没进 `drops`**:
-  要给它们分类就得逐站穿 `drops` 参数, 而它们不影响"内容是否进记忆"。今天它们进
-  `contract.other`（照收, 只是不标"丢"）。
+  要给它们分类就得逐站穿 `drops` 参数, 而它们不影响"内容是否进记忆"。
 * **`DigestResult.created` 名不副实**（判重复时它装的是**复用**的 id）—— 只在账里
   `items.reused` 体现, **没改语义**（改它要动调用方与用例）。
 
 ### 10.7 验证
 
-* 新用例 `tests/core/test_digest_gap.py` **8 条**（干净段不写账 · 三面齐 · skeptical 只在真丢 ·
-  一章一条进账 · 复用进账 · **回滚不留账** · 端到端落真源且无 `seq`）。
+* 新用例 `tests/core/test_digest_gap.py` **10 条**（干净段不写账 · **建议类不写账** ·
+  三面齐 · **无位置仍走段级指针 + `no_pos` 记账** · `skeptical` 只在真丢 · 一章一条进账 ·
+  复用进账 · ⭐ **回滚不留账** · 端到端落真源且无 `seq`）。
 * digest 板块 **241 passed** · `test_creep` 的"每 kind ≥3 句"守门自动覆盖新 kind。
 * 契约层: `ValidationResult.drops` 落地后 `test_digest_registry.py` **36 passed**（判据没放宽）。
+
+### 10.8 核 L1 时查清白的三件（免得下次重查）
+
+* 节点位置体检: 空 `event_seq` 只有 `x0000/x0001`（本来就先建）· **悬空 0** ·
+  18 条 episode **没有一条**是"单点兜底"的指纹。
+* 那些**不连续**的 `event_seq`（如 `m0001 = [14,16,18,20,23]`）**不是异常**: 这份档全是
+  **N3 之前**的逐点数据（节点 ts 都在 09-20~09-26, 而 N3 是 09-29 落的）—— 稀疏本来就该那样。
+* `_find_duplicate`（判据 = kind 同 + `event_seq` 相交 + **正文全等**）在这份档里
+  **从没命中过**（0 组完全相同的正文）⇒ 它是为"崩溃窗口重跑"设的安全网, 今天**未验证**。
