@@ -94,6 +94,10 @@ core/          引擎层（无 web 依赖, CLI/实验同源复用）
    │                         → ④ 挂 R3 → ⑤ L2-a 分群）· ⭐ **`rounds.py` = 轮次表**
    │                         （**步序/LLM 身份/prompt/契约相位/parse/料/写什么/跳过/快照
    │                         的单源**; `pipeline.py` = 执行体, 材料在各家）
+   ├ creep/                  ⭐ **世界线的账**（2026-09-29 起, **只留接口**）: 一行**没有 `seq`**
+   │                         的 JSON（`Event.from_dict` 第一道就丢它 ⇒ 结构性地谁也读不到）·
+   │                         `ledger.py`(写/严格读) + `skeptical.py`(kind→存疑文本, 写时冻结)。
+   │                         ⚠️ **今天零写者、零注入口** —— 设计见 docs/DESIGN_FOURTH_WALL.md
    ├ promptkit/              提示词装配: box/tail/task/report（见 §8）
    ├ worldtime/              时间：三层时钟（剧情/现实日历/壁钟, DESIGN_WIKI_V3 §4）
    ├ common/                 横切: errors（**C10 起只是薄再导出壳** → 真家 `contract/errors.py`）/

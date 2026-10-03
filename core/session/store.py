@@ -251,6 +251,33 @@ class SessionStore:
         """append 一个 marker 事件（状态标记）。"""
         return self.append_event(char_id, session_id, marker(subtype, payload))
 
+    def append_raw_row(self, char_id: str, session_id: str = "",
+                       row: dict | None = None) -> None:
+        """**裸账行** append —— 一行**没有 `seq`、不是 `Event`** 的 JSON（`core/creep` 用, 2026-09-29）。
+
+        ## 契约（改这里之前先读 `core/creep/ledger.py`）
+
+        * **不带 `seq`** —— `Event.from_dict` 的**第一道**校验就是 seq ⇒ 这样的行
+          **永远不会**被 `parse_events` 认领 ⇒ 也就永远进不了上下文窗口 / digest 时间线 /
+          回放 / 认章 / 状态推导。⚠️ 这是**结构性**的（不靠"别把它加进白名单"那种纪律）:
+          哪天有人把它的 type 加进 `EVENT_TYPES`, 它**照样**进不来 —— seq 那一关先挡下了。
+        * **不参与发号** —— `append_event` 用 `max(解析出来的 seq) + 1` 发下一号,
+          而本行解析不出来 ⇒ **不影响后续事件的 seq**（`tests/core/test_creep.py` 钉住）。
+        * **锁与 `append_event` 共用**同一把 `_GLOBAL_APPEND_LOCK` —— 同一个文件两个写者,
+          不共用就是行交错（digest 在后台线程写账时, MMT worker 正在写事件）。
+        * ⚠️ **不许把本函数当成"写事件"的旁路** —— 事件一律走 `append_event`（它要发号、
+          要能被解析）。本函数存在的唯一理由是"**记一笔谁也不该读到的账**"。
+
+        给"将来写新读侧的人": **events.jsonl 的每一行不都是 Event** —— 想按事件读就用
+        `events()`（它已经帮你把非事件行滤掉了）, 别自己 `read_jsonl` 之后假设每行都有 `seq`。
+        """
+        if not isinstance(row, dict) or not row:
+            raise ValueError(f"裸账行必须是非空 dict: {row!r}")
+        with _GLOBAL_APPEND_LOCK:
+            p = self.events_path(char_id, session_id)
+            p.parent.mkdir(parents=True, exist_ok=True)
+            append_jsonl(p, row)
+
     # ------------------------------------------------------------------
     # 距上次 bond 剧情的 MMT 轮数（2026-09-02 决策字段, 用户拍板）
     # ------------------------------------------------------------------
