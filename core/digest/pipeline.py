@@ -37,6 +37,12 @@ prompt 名、契约相位、parse 函数、**料的段标题**都不在这里各
 ⭐ **`_rollback` 的清空清单也由表推导**（`rounds.reset_result`）——
 从前它是手抄的, 漏过 `notes_warnings`（见 `_rollback` 的 docstring）。
 
+⚠️ **2026-09-29 拆包（S1/S2）** —— 本文件从 **1431 → 666 行**, 只剩**编排与事务**
+（`digest_segment` · `DigestResult` · 回滚/计数/放弃）。其余各有落点:
+**`call.py`**（一轮调用）· **`material.py`**（各轮的料）· **`segment.py`**（这一段是什么）·
+**`episodes.py`**（L1 落节点）· **`akin.py`**（零 LLM 的补边）。
+⇒ **要改哪一层就去哪个文件**, 别再往这里堆。包内地图见 `core/digest/__init__.py`。
+
 ⚠️ **`evidence`（成长证据）2026-09-29 已删** —— 它**零产品消费者**（只有一条测试与一个
     归档脚本读过）, 契约却每段都要它 ≤5 条 + `quote` 逐字引用时间线 ⇒ 那是一笔白付的钱。
     删它的连带: R2 的料里那段"本段时间线"从此**没有存在的理由**（它当初就是为
@@ -70,7 +76,9 @@ from typing import Any, Callable
 from core.brain import groups
 from core.brain.entities import candidate_table, hit_set, new_nodes_block, payload_block
 from core.creep import KIND_DIGEST_SKIP, build as creep_build
+from core.digest.akin import _link_akin
 from core.digest.call import _log_skip, _parse_for, _round_call, _system_for
+from core.digest.episodes import _create_a_nodes, _resolve_verbatim
 from core.digest.material import (
     _collect_visual_prompts,
     _episode_lines,
@@ -85,23 +93,23 @@ from core.digest.rounds import (
     Cursor,
     reset_result,
 )
-from core.brain.nodes import PLAYER_SUBJECT, make_node
+from core.digest.segment import (
+    _collapse_bond_episodes,
+    _expand_spans,
+    _segment_domain,
+)
 from core.brain.read.recall import EmbedFn
 from core.brain.read.render import render_cognition_list
+from core.brain.notes import rewrite_op
 from core.brain.revise import (
     apply_attribution,
     apply_closures,
     apply_decisions,
 )
-from core.brain.address import unique_title
-from core.brain.graph import REL_AKIN
-from core.brain.notes import rewrite_op
 from core.brain.store import WikiStoreV2
 from core.session.events import TYPE_NOTICED, is_content_event
 from core.session.maintenance import exclude_abandoned
 from core.session.renderer import render_timeline
-from llm.client import feedback
-from llm.prompts import load_prompt
 from llm.task_levels import extra_body as _tl_extra
 from llm.task_levels import max_tokens as _tl_max_tokens
 
@@ -549,456 +557,6 @@ def digest_segment(
 # ⚠️ 2026-09-29 拆包: 料（各轮吃什么）在 **`core/digest/material.py`**,
 #    一轮调用的四件套在 **`core/digest/call.py`** —— 本文件只剩**编排与事务**。
 # ---------------------------------------------------------------------------
-
-def _segment_domain(events: list) -> tuple[str, list[dict], frozenset]:
-    """本段类型、**每一章的分组**、章块并集（从 marker 与事件类型派生, 不落库）。
-
-    用户原话: *"离散的是 mmt，但 bond story 不应该连续吗"* ⇒ **粒度跟着"作者单位"走**:
-    一章羁绊剧情 → **恰好 1 条**; MMT 碎聊 → 0~5 条（**需要切分的是它**）。
-
-    ⚠️ **窗口是"混的"—— 实测真档**（2026-09-20）: haruka 的窗口里 **13 条 MMT 聊天 +
-    5 块羁绊剧情**; mutsuki 是 **26 + 13**。所以不能"整段按一个契约"。
-
-    ⚠️⚠️ **窗口里还可能有"多章"** —— 水位被清 / 重跑时**必然**如此。
-    所以"一章一条"必须**按章分组**收口; 拿全窗口的 bond 块当一个章, 会把两章压成一条。
-
-    Returns: `(domain, chapters, bond_seqs)`
-        domain: `"bond"`（窗口里有 `vn_enter`）/ `"mmt"`
-        chapters: `[{"title": str, "seqs": frozenset[int]}]` —— **一章一块**
-            （`vn_enter` … `vn_exit` 之间的 bond 事件）; 不在任何章里的 bond 块
-            自成一组（旧档/异常, 标题为空）
-        bond_seqs: 全部章块的并集（"这条条目属不属于某一章"的粗判用）
-    """
-    from core.session.events import M_VN_ENTER, M_VN_EXIT
-    chapters: list[dict] = []
-    cur: dict | None = None
-    orphan: set = set()
-    for e in events:
-        if getattr(e, "is_marker", False):
-            if e.subtype == M_VN_ENTER:
-                cur = {"title": str((getattr(e, "payload", None) or {})
-                                    .get("chapter_title") or "").strip(),
-                       "seqs": set()}
-                chapters.append(cur)
-            elif e.subtype == M_VN_EXIT:
-                cur = None
-            continue
-        if getattr(e, "type", "") == "bond":
-            (cur["seqs"] if cur is not None else orphan).add(e.seq)
-    if orphan:
-        chapters.append({"title": "", "seqs": orphan})
-    chapters = [{"title": c["title"], "seqs": frozenset(c["seqs"])} for c in chapters]
-    union = (frozenset().union(*[c["seqs"] for c in chapters]) if chapters
-             else frozenset())
-    return ("bond" if chapters else "mmt"), chapters, union
-
-
-def _in_seqs(e: dict, seqs: frozenset) -> bool:
-    """条目声明的 `event_seq` 是否落在给的那组块里。"""
-    return any(int(s) in seqs for s in (e.get("event_seq") or [])
-               if isinstance(s, (int, str)) and str(s).lstrip("-").isdigit())
-
-
-def _expand_spans(entries: list[dict], seq_set: set[int]) -> tuple[list[int], int]:
-    """⭐ `span` → 区间内**全部**内容 seq（**N3**, 2026-09-29）—— 就地改写成 `event_seq`。
-
-    ⚠️ **必须 `pop` 掉 `span`**: `_create_a_nodes` 走
-    `make_node("episode", **{k: v for k, v in ent.items() if k != "kind"})` ——
-    留在条目里的 `span` 会被 `from_dict` **静默忽略**（这个项目最恨的静默 no-op;
-    `about_hint` 当年也是为这个专门 `pop` 的 —— 它 2026-09-29 已退役）。
-
-    ⚠️ **必须在 `_collapse_bond_episodes` 之前跑**: 那一章的归属判据 `_in_seqs` 靠
-    "条目的 `event_seq` 与章块的**相交**" —— 展开前只有两个端点, 章块夹在中间
-    （span `[80, 100]` / 章 `86..97`）时**两个端点全在章外** ⇒ 那条会被误判成"不属于本章"。
-
-    Returns: `(未认领的 seq 升序, 被 ≥2 条 episode 共享的 seq 数)`
-
-    ⭐ **重叠如实报告、不裁**: 同一段事件本来就可以同时是两件事（真机 `m0015`
-    「约老师来看苔藓」`[208..235]` 与 `m0016`「老师说我很重要」`[214..223]` **整段嵌套**;
-    裁掉"先到先得"会让 `m0016` 丢掉它**唯一的位置证据**）。
-    而"未认领"才是真病 —— 真机 218 条内容事件里 **70 条（32%）没进任何记忆**。
-    """
-    counts: dict[int, int] = {}
-    for ent in entries:
-        span = ent.pop("span", None)
-        if span is None:
-            # 旧形状（`event_seq` 逐点）或没给位置 —— 原样计入, **不展开**
-            for s in ent.get("event_seq") or []:
-                counts[s] = counts.get(s, 0) + 1
-            continue
-        lo, hi = int(span[0]), int(span[1])
-        seqs = sorted(s for s in seq_set if lo <= s <= hi)
-        if seqs:
-            ent["event_seq"] = seqs
-            for s in seqs:
-                counts[s] = counts.get(s, 0) + 1
-    unclaimed = sorted(seq_set - set(counts))
-    shared = sum(1 for n in counts.values() if n > 1)
-    return unclaimed, shared
-
-
-def _collapse_bond_episodes(entries: list[dict], chapters: list[dict]) -> list[dict]:
-    """**按章**收口: 每一章的 episode 只留 1 条 —— "一章一个 episode"的引擎侧兜底。
-
-    契约在 `contract/digest_registry._DOMAIN_CONTRACT`（提示词侧）；这里是
-    **确定性兜底**: 提示词没压住时留 `significance` 最高的那条, 其余丢弃, 并留一行
-    `WARNING`（可 grep）—— 免得契约被违反是**静默**的。
-
-    ⚠️ **逐章收口**, 不是"整段收口"（见 `_segment_domain` 的两条警告）:
-    * 窗口常同时含 MomoTalk 聊天（真档实测 13 / 26 条）—— 那些条目**不属于任何章**,
-      照 0~5 条留着（把整段压成 1 条会把聊天里的记忆一起丢掉）;
-    * 窗口还可能有**多章**（水位清空后必然）—— **每章各留 1 条**。
-
-    `experience`（玩家画像）不算 episode。为什么丢弃而不是合并文本: 合并是创作（要 LLM）,
-    引擎只做判定; 而"一章一条"的前提是那条总结**本来就该覆盖全章**。
-    """
-    if not chapters:
-        return entries
-    dropped: set[int] = set()
-    for ch in chapters:
-        seqs = ch["seqs"]
-        if not seqs:
-            continue
-        group = [e for e in entries
-                 if e.get("kind") != "experience" and _in_seqs(e, seqs)]
-        if len(group) <= 1:
-            continue
-        keep = max(group, key=lambda e: float(e.get("significance") or 0.0))
-        logger.warning(
-            "digest_a contract=bond chapter=%r entries=%d keep=%r（一章一条; 其余已丢。"
-            "这行常出现 = 提示词没压住, 看 Round A 的【本段类型】产出契约）",
-            ch["title"] or "-", len(group),
-            keep.get("title") or str(keep.get("text", ""))[:12])
-        dropped |= {id(e) for e in group if e is not keep}
-    return [e for e in entries if id(e) not in dropped]
-
-
-def _node_ts(seqs: Any, by_seq: dict | None, default: str) -> str:
-    """一条节点的时刻 = **它自己指向的那些事件里最后一条**的 ts（取不到 → 传进来的段 ts）。
-
-    ⭐ 2026-09-25（链路 ④-①）: 从前**整段一个 ts** —— 那批记忆共享同一天, 读不出先后。
-    取"最后一条"的理由与"段 ts = 段内最后一条内容事件"**同源**: 那一刻才是这条记忆
-    "到这儿为止"的样子。
-
-    ⚠️ **只改第 1 轮产的节点**（episode / 玩家画像）: 它们手里有 LLM 指的**真事件指针**。
-    第 2/4 轮产的节点（信念 / 承诺）指针本来就是段级的 `[interact_max]`, 且"她什么时候
-    想明白的 = 消化那一刻"语义没错 ⇒ 继续用段 ts。
-    ⚠️ **真机实测: 羁绊章内的跨度只有分钟级**（haruka 那批 75 条事件跨 12 分钟）⇒
-    「（3 周前）」这类短语**不会变**（按日历日算）; 这条改动的收益在
-    **① 批内排序**（从 id 序 → 真实时刻序）**② MMT 段**（一次消化覆盖 25 轮、可能横跨几天,
-    从前全部被标成"最后那条消息那一天"）。
-    """
-    best, best_seq = "", -1
-    for s in seqs or []:
-        try:
-            seq = int(s)
-        except (TypeError, ValueError):
-            continue
-        ev = (by_seq or {}).get(seq)
-        t = str(getattr(ev, "ts", "") or "").strip() if ev is not None else ""
-        if t and seq >= best_seq:
-            best, best_seq = t, seq
-    return best or default
-
-
-def _create_a_nodes(store: WikiStoreV2, entries: list[dict], *, ts: str,
-                    event_seq: list[int],
-                    aff_at_encoding: float | None = None,
-                    by_seq: dict | None = None
-                    ) -> tuple[list[str], list[str], list[dict]]:
-    """Round A 条目 → 节点（引擎字段归属——确定性归引擎, 防幻觉）。
-
-    kind=episode  → episode 节点
-    kind=experience（玩家画像, MMT 专则）→ subject=player experience 节点:
-        口癖/偏好/一次性个人信息——不进本轮 B（B 只组织 episode）, 下轮起参与认知层
-    dedupe: (kind, event_seq, 主文本) 命中已有节点 → 复用 id（崩溃窗口重跑防双写）。
-
-    event_seq（T14, 2026-09-15）: **条目自带就用条目自带的**（Round A 抄的行号,
-    已在 parse 层校验 ⊆ 本段）, 否则回落到段级 `[interact_max]`。
-    ⭐ **N3（2026-09-29）后, "条目自带的"是引擎展开好的区间**（`_expand_spans` 把
-    `span` 换成区间内全部内容 seq）—— 本函数**一行没改**: 字段名与形状都没变,
-    变的只是它的**来源**（从"她挑的点"变成"引擎算的区间"）。
-    旧版**无条件覆写**成 `[interact_max]`——实测 mutsuki 全段 `[60]` 而板最大 55,
-    它指向一条 MMT 消息、不指向任何一板, 于是板指针从来没存在过,
-    而 `migrate_time` 的唯一排序信号也一起死掉（全部节点同键 → 退化成插入序）。
-
-    aff_at_encoding（§3.3.3, 2026-09-13）: 本段**开始之前**的好感标量
-    （`Affection.to_scalar()`, [−1,1]）——快照, 写入后永不改。
-    调用方传 None = 未采集（旧档/CLI 路径）→ 字段不落库, 与 `0.0`（中性）区分。
-
-    ⭐ D1（2026-09-22）:
-      · ~~`items`（§3.1 物品台账）随条目自动落库~~ —— **2026-09-29 字段退役**（零活读者;
-        物品面将来走 `inventory` 旁路）。
-      · ~~`about_hint`（§8.2 归属线索）必须在这里摘掉~~ —— **2026-09-29 字段退役**:
-        它和 R3 的"挂谁"**判两次**（还可能不一致）, 而 R3 本来就拿得到全量候选表 +
-        新节点正文 ⇒ 引擎不必替它预判一个名字（`REDUNDANCY.md` #2）。
-
-    Returns: `(episode_ids, player_ids)`——episode_ids 供 B 覆盖检查。
-    """
-    from core.brain.revise import _find_duplicate
-    episode_ids: list[str] = []
-    player_ids: list[str] = []
-    for ent in entries:
-        if ent.get("kind") == "experience":
-            # ⚠️ `subject` **强制**成 `player`（§5.1）: `experience` 只有一个意思
-            # （"关于老师的事"），而 `subject` 是自由文本 —— 契约层已经强制过一次,
-            # 这里再强制一次是因为**可见性曾经挂在它上面**（真机 haruka e0001 就是
-            # 被一个自造的 subject 藏起来的）。别再让它有第二个写者。
-            node = make_node("experience",
-                             text=ent["text"], subject=PLAYER_SUBJECT,
-                             verbatim=ent.get("verbatim", ""),
-                             verbatim_seq=ent.get("verbatim_seq", []),
-                             tags=ent.get("tags", []),
-                             significance=ent.get("significance", 0.5))
-            node.event_seq = list(ent.get("event_seq") or event_seq)
-            node.ts = _node_ts(node.event_seq, by_seq, ts)   # ⭐ 自己的时刻（④-①）
-            dup = _find_duplicate(store, node)
-            if dup is not None:
-                player_ids.append(dup.id)
-                continue
-            player_ids.append(store.add(node))
-            continue
-        node = make_node("episode", **{k: v for k, v in ent.items() if k != "kind"})
-        # ⭐ **N2b**: 标题唯一性**写入时强制**（冲突加数字; 只增不重排）——
-        # 解析与写入都在 `address.py` 里（那边是"谁能被指到"的唯一约定）。
-        node.title = unique_title(store, node.title)
-        node.event_seq = list(ent.get("event_seq") or event_seq)
-        node.ts = _node_ts(node.event_seq, by_seq, ts)       # ⭐ 自己的时刻（④-①）
-        # 板级情绪键序列（T15）——召回侧物化, **不进 LLM 上下文**
-        if by_seq is not None:
-            node.emo_shape = _emotion_shape(node.event_seq, by_seq)
-            # 地点键序列（M3, 2026-09-19）——同一手物化, 同一纪律
-            node.place = _place_shape(node.event_seq, by_seq)
-            # 叙事轴: writer 原文（键不是地名的双射, 判"同地"只能靠语义）
-            node.place_raw = _place_raw(node.event_seq, by_seq)
-        node.aff_at_encoding = aff_at_encoding
-        dup = _find_duplicate(store, node)
-        if dup is not None:
-            episode_ids.append(dup.id)
-            continue
-        nid = store.add(node)
-        episode_ids.append(nid)
-    return episode_ids, player_ids
-
-
-def _link_akin(store: WikiStoreV2, episode_ids: list[str], noticed: list, *,
-               ts: str) -> tuple[int, int, int]:
-    """⭐ **N5c** · 本段的「想起」账 → `akin` 边。返回 `(落了几条, 未认领, 自环跳过)`。
-
-    链路（`DESIGN_MMT_NEW_ACTION §4.3/§4.4`，已裁 = **只记账 + L1 落地**）::
-
-        她在 MMT 那一刻写 {"noticed": "名字"} → 引擎落一条 `noticed` 事件（N5b）
-        → **本函数**: 找到"她说话那一刻属于哪条新 episode" → akin{新 → 她指的}
-
-    ⚠️ **归属判据 = "该账之前、最近的、被某条 episode 认领的内容事件"**
-    （`bisect` 在认领 seq 集合里取 `≤ noticed.seq` 的最大者）, 而不是"区间包含" ——
-    `noticed` 是**非内容事件**, 它自己的 seq 不在任何 episode 的 `event_seq` 里
-    （`digest.new_events` 按 `is_content_event` 过滤）⇒ 包含式判据永远落空。
-    ⚠️ 这**依赖 N5b 的落账时机**（账写在那一轮她的话**之后**）: 否则"最近的前一条内容"
-      会落到**上一轮**（静默错归属 —— 边连到了错误的那条记忆上）。
-
-    ⚠️ **一跳都不猜**: 找不到归属（本段没产出 episode / 那笔落在所有内容之前）⇒
-    **不落边 + 记账**（`unclaimed`）。⚠️ `PROCEED §3` 待裁 #7（"下次 L1 要不要重扫"）
-    按 2026-09-29 用户裁决**先不做**: 先丢 + 看台账, 真机上 `unclaimed` 多起来再谈
-    （重扫要新存一个"未认领水位", 而"零新存储"正是这条设计的好处之一）。
-
-    幂等: `add_edge` 同 `(rel, src, dst)` 跳过（且 `akin` 对称 ⇒ `canonical_for` 归一）。
-    ⚠️ **因此"新 → 旧"的方向不体现在边表里**（对称边被规范成固定顺序）——
-    方向只在台账里（`digest_akin new= old=`）。这是**有意的**: `akin` 的语义就是
-    "她觉得这两条像"（对称, 见 `DESIGN_MMT_NEW_ACTION §4.5.2`）, 方向不带信息。
-    """
-    import bisect
-
-    # seq → 主人（本段产的 episode）。⚠️ **区间会交叠**（真机实测 1 对: m0015 ⊃ m0016,
-    # 用户裁决"两条都保留"）⇒ 同一 seq 可能有两个主人。取**靠后**那条（其起点更大 =
-    # 更"当下"的那件; 按 min(event_seq) 排序后后写覆盖, 结果与 id 顺序无关）。
-    owner: dict[int, str] = {}
-    for nid in sorted(episode_ids,
-                      key=lambda i: min((store.get(i).event_seq or [10 ** 9]))):
-        node = store.get(nid)
-        if node is None:
-            continue
-        for s in node.event_seq or []:
-            try:
-                owner[int(s)] = nid
-            except (TypeError, ValueError):
-                continue
-    claimed = sorted(owner)
-    edges = lost = self_skip = 0
-    for e in noticed:
-        hit = str(((getattr(e, "payload", None) or {}).get("hit") or "")).strip()
-        if not hit or store.get(hit) is None:            # 她指的那条不在库里（旧档/被清）
-            lost += 1
-            logger.info("digest_akin skip=no_target hit=%r", hit)
-            continue
-        i = bisect.bisect_right(claimed, e.seq) - 1      # 最近的前一条"有主"内容
-        if i < 0:
-            lost += 1
-            logger.info("digest_akin skip=unclaimed seq=%d title=%r", e.seq,
-                        (getattr(e, "payload", None) or {}).get("title"))
-            continue
-        src = owner[claimed[i]]
-        if src == hit:                                   # 本段那条就是她指的那条
-            self_skip += 1
-            continue
-        store.add_edge(REL_AKIN, src, hit, ts=(getattr(e, "ts", "") or ts))
-        edges += 1
-        logger.info("digest_akin new=%s old=%s", src, hit)
-    return edges, lost, self_skip
-
-
-def _resolve_verbatim(ent: dict, by_seq: dict) -> None:
-    """`verbatim_seq`（记录行号）→ `verbatim`（逐字原文）——**索引是唯一来源**。
-
-    ```
-    LLM 只给行号  → 引擎解析出原文回填     ← 唯一的通道, 逐字且永久可重解析
-    行号解析不出  → 留空（**绝不编**）      ← 宁缺勿错; 行号本身留在 `verbatim_seq` 里
-    ```
-
-    ## ⏸ 文本通道与"文本优先" **2026-09-29 退役**
-
-    从前 LLM 也可以直接抄一句原话（`"verbatim": "…"` 字符串）, 且**两条都给时文本优先**
-    —— 那是个**安全决定**: 用户把"错索引不可见"放进待办了, 而错的索引会解析出一句真文本、
-    看起来完全正常, 错的原话至少一眼看得出不对。
-
-    退役的理由（`REDUNDANCY.md` #6）: 两条通道说的是**同一件事**, 而正文里的原话本来就
-    逐字躺在 append-only 的事件流里 —— 让模型再抄一遍, 等于给"静默换掉一句正确原话"
-    开了一个口子, 换来的只是"抄得对"这一种情况下的冗余保险。今天行号是唯一入口,
-    解析不出就**留空**: 宁可这条记忆没有原话, 也不放一句无法溯源的引文进去。
-    """
-    seqs = ent.get("verbatim_seq") or []
-    if not seqs:
-        return                                   # 无行号 → 留空
-    from contract.timeline_index import parse_index
-    picked: list[str] = []
-    for idx in seqs:
-        got = parse_index(idx)
-        if got is None:
-            continue
-        ev = by_seq.get(got[0])
-        if ev is None:
-            continue
-        text = _text_at(ev, got[1])
-        if text:
-            picked.append(text)
-    if picked:
-        # 多条关键句拼一行（`" / "` 与时间线的记录分隔同形）——`render.py` 的
-        # `（「{verbatim}」）` 是单行渲染, 换行符会把视图打断。
-        ent["verbatim"] = " / ".join(picked)
-
-
-def _text_at(ev, rec) -> str:
-    """事件 + 记录位 → 那一条记录的**逐字原文**（取不到 → `""`, 绝不编）。"""
-    from contract.timeline_index import REC_PICKED
-    if rec == REC_PICKED:
-        pk = ev.payload.get("picked")
-        return pk.strip() if isinstance(pk, str) else ""
-    if ev.type == "mmt":
-        key = {0: "player", 1: "reply"}.get(rec)
-        v = ev.payload.get(key) if key else None
-        return v.strip() if isinstance(v, str) and v.strip() else ""
-    paras = ev.payload.get("paragraphs")
-    if not isinstance(paras, list) or not isinstance(rec, int):
-        return ""
-    if not (0 <= rec < len(paras)):
-        return ""
-    p = paras[rec]
-    t = p.get("text", "") if isinstance(p, dict) else str(p)
-    return t.strip() if isinstance(t, str) else ""
-
-
-def _emotion_shape(seqs: list, by_seq: dict) -> list[str]:
-    """板指针 → **板级情绪键序列**（按 seq 序拼接; 取不到 → `[]`, 绝不编）。
-
-    只收 bond 事件: 情绪键由**标注层**产出（每条记录一个键）, MMT 事件没有键。
-    空键（`""`/None）跳过——标注失败与"真的无表情"在数据里不可分,
-    所以只把**有值的键**按顺序连起来（保持弧的形状, 不补位）。
-
-    🚫 返回值只进 `node.emo_shape`（召回侧）——**绝不进 LLM 上下文**。
-    """
-    out: list[str] = []
-    for seq in sorted(seqs or []):
-        ev = by_seq.get(seq)
-        if ev is None or ev.type != "bond":
-            continue
-        paras = ev.payload.get("paragraphs")
-        if not isinstance(paras, list):
-            continue
-        for p in paras:
-            k = p.get("emotion") if isinstance(p, dict) else None
-            if isinstance(k, str) and k.strip():
-                out.append(k.strip())
-    return out
-
-
-def _place_shape(seqs: list, by_seq: dict) -> list[str]:
-    """板指针 → **地点键序列**（M3, 2026-09-19）; 取不到 → `[]`, 绝不编。
-
-    与 `_emotion_shape` 同一手（`digest` 按 `event_seq` 从真源物化，
-    因为 `Channel.gather` 只拿得到节点、翻不了板）:
-
-    * 每板取 `payload.place`（板首 `switch` 解出的**键**）
-    * 再取 `payload.paragraphs[*].place`（句级锚点, 板内后续换场）
-    * **相邻去重保序** —— 结果 = "这段去过哪些地方"的变化序列;
-      同地反复去会留下多个元素（`school_rooftop, classroom, school_rooftop`）
-
-    只收 bond 事件: 地点键由**标注层**产出, MMT 事件没有键。空键跳过
-    （标注失败与"这段没换场"在数据里不可分, 不补位——同 `emo_shape` 的取舍）。
-
-    ⚠️ **带的是键不是 writer 本名**（用户 2026-09-19 的疑问）:
-    C 链路比的是相等, 而「放学后的教室」/「教室里」/「回到教室」是同一张图、
-    三个字符串 —— 本名做等值分组是废的。本名留在事件流里
-    （`payload.place_hint` + 锚点句原文）, `event_seq` 指得到, 要重解析时回捞即可。
-
-    🚫 返回值只进 `node.place`（召回侧）——**绝不进 LLM 上下文**。
-    """
-    out: list[str] = []
-    for seq in sorted(seqs or []):
-        ev = by_seq.get(seq)
-        if ev is None or ev.type != "bond":
-            continue
-        keys: list[str] = []
-        board = ev.payload.get("place")
-        if isinstance(board, str) and board.strip():
-            keys.append(board.strip())
-        paras = ev.payload.get("paragraphs")
-        if isinstance(paras, list):
-            for p in paras:
-                k = p.get("place") if isinstance(p, dict) else None
-                if isinstance(k, str) and k.strip():
-                    keys.append(k.strip())
-        for k in keys:
-            if not out or out[-1] != k:              # 相邻去重（保留"再次到访"）
-                out.append(k)
-    return out
-
-
-def _place_raw(seqs: list, by_seq: dict) -> list[str]:
-    """板指针 → **writer 原文序列**（叙事轴, 2026-09-19 用户指出后补落）。
-
-    取每板的 `payload.place_hint` —— **writer 自己写的那个名词短语**
-    （「放学后的教室」「傍晚的学校天台」），相邻去重保序。
-
-    为什么必须有它: 键**不是地名的双射**（一键多义 / 一地多键），所以判"**同地**"
-    只能靠语义, 而语义的输入就是原话 —— 见 `nodes.BrainNode.place_raw` 的两轴表。
-
-    ⚠️ 句级锚点的原文**不在这里**（锚点只存 `{sentence, place}`）——那条句子的
-    原文在 `payload.paragraphs[i].text`，与 `verbatim_seq` 同一手:
-    地址永久有效，要用时按 `event_seq` 回捞。
-
-    🚫 只进 `node.place_raw`（召回侧）——**绝不进 LLM 上下文**。
-    """
-    out: list[str] = []
-    for seq in sorted(seqs or []):
-        ev = by_seq.get(seq)
-        if ev is None or ev.type != "bond":
-            continue
-        hint = ev.payload.get("place_hint")
-        if isinstance(hint, str) and hint.strip():
-            h = hint.strip()
-            if not out or out[-1] != h:
-                out.append(h)
-    return out
 
 
 # ⏸ `_clean_evidence()` **2026-09-29 删** —— 随 `evidence` 字段一起退役（零消费者）。

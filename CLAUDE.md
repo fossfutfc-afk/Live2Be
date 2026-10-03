@@ -92,8 +92,10 @@ core/          引擎层（无 web 依赖, CLI/实验同源复用）
    │                         召回 recall/channels/channel_impl/compose 与两个台账/旋钮 · panorama
    ├ digest/                 **记忆消化管线**（每段 5 次调用: ① 记 R1 → ② 收口 R4 → ③ 接 R2
    │                         → ④ 挂 R3 → ⑤ L2-a 分群）· ⭐ **`rounds.py` = 轮次表**
-   │                         （**步序/LLM 身份/prompt/契约相位/parse/料/写什么/跳过/快照
-   │                         的单源**; `pipeline.py` = 执行体, 材料在各家）
+   │                         （**步序/身份/prompt/相位/parse/料/写什么/跳过/预算/快照**的单源）
+   │                         · `pipeline.py` = **编排与事务**（1431→666 行）· `call.py` 一轮调用
+   │                         · `material.py` 各轮的料 · `segment.py` 这一段是什么 ·
+   │                         `episodes.py` L1 落节点 · `akin.py` 补边 · `llm_call.py` 鲁棒层
    ├ creep/                  ⭐ **世界线的账**（2026-09-29 起）: 一行**没有 `seq`**
    │                         的 JSON（`Event.from_dict` 第一道就丢它 ⇒ 结构性地谁也读不到）·
    │                         `ledger.py`(写/严格读) + `skeptical.py`(kind→存疑文本, 写时冻结)。
