@@ -1,7 +1,11 @@
 """digest_registry 测试（AGENT_BRAIN.md §3 重构 / 板块 2）——LLM 契约层单源。"""
 from contract.digest_registry import (
+    KEEP_FIELD,
+    KEEP_VALUES,
+    MAX_SEGMENTS,
     PHASE_CLOSE,
     PHASE_RECORD,
+    PHASE_SPLIT,
     PHASE_UNDERSTAND,
     PINNED_OUTCOMES,
     digest_registry,
@@ -65,6 +69,156 @@ def test_parse_close_dedupes_with_warning():
             {"id": "n1", "state": "broken", "afterwards": "没去"}]})
     assert res.errors == () and len(rows) == 1 and rows[0]["state"] == "kept"
     assert any("重复" in w for w in res.warnings)
+
+
+# ---------------------------------------------------------------------------
+# R0 切分轮（N4d, 2026-09-29）—— 划区间 + keep + abstract
+# ---------------------------------------------------------------------------
+
+def test_parse_split_keeps_good_segments():
+    segs, res = digest_registry.parse_split(
+        {"segments": [{"span": [28, 30], "keep": "temporary",
+                       "abstract": "老师在周日突然邀请我去了咖啡厅吃东西"},
+                      {"span": [31, 33], "keep": "always",
+                       "abstract": "明天把两个团子带去夏莱, 别多想"}]},
+        seq_set={28, 29, 30, 31, 32, 33})
+    assert res.errors == () and res.warnings == () and res.drops == ()
+    assert segs == [{"span": [28, 30], "keep": "temporary",
+                     "abstract": "老师在周日突然邀请我去了咖啡厅吃东西"},
+                    {"span": [31, 33], "keep": "always",
+                     "abstract": "明天把两个团子带去夏莱, 别多想"}]
+
+
+def test_parse_split_shape_errors_reject_the_package():
+    """**顶层形状错 = 拒整包**（重试有用）—— 同 `parse_close` 的口径。"""
+    for raw, want in ((["nope"], "必须是 JSON 对象"),
+                      ({}, "segments 必须是数组"),
+                      ({"segments": {}}, "segments 必须是数组"),
+                      ({"segments": ["x"]}, "segments[0] 必须是对象")):
+        segs, res = digest_registry.parse_split(raw)
+        assert any(want in e for e in res.errors), (raw, res.errors)
+        assert segs == [], raw
+
+
+def test_parse_split_span_problems_are_losses_not_errors():
+    """⭐ **区间坏了 = 丢那一条**（不废整包）—— 且进 `drops`（真丢: 那一段事没了）。
+
+    区间那套规矩**全部复用 `_clean_span`**（端点存在性 / 起止反 / >2 端点 /
+    记录级编号）—— 本用例钉的是"它真的接上了", 不是重测 `_clean_span`。
+    """
+    raw = {"segments": [
+        {"span": [28, 99], "keep": "temporary", "abstract": "端点抄到时间线外"},
+        {"span": [33, 31], "keep": "temporary", "abstract": "起止反了"},
+        {"span": "nope", "keep": "temporary", "abstract": "形状不是数组"},
+        {"span": [], "keep": "temporary", "abstract": "空数组"},
+        {"span": [31, 33], "keep": "always", "abstract": "这条是好的"},
+    ]}
+    segs, res = digest_registry.parse_split(raw, seq_set={28, 29, 30, 31, 32, 33})
+    assert res.errors == (), "区间毛病不该废整包（重试治不了'划错了一刀'）"
+    assert [s["span"] for s in segs] == [[31, 33]]
+    assert len(res.drops) == 4, res.drops
+    assert all(d in res.warnings for d in res.drops)      # drops ⊆ warnings（同 `_drop`）
+
+
+def test_parse_split_abstract_missing_is_a_loss_but_long_is_a_warning():
+    """`abstract` 缺/空 ⇒ **真丢**（下一轮没东西可照着写）; 超 60 字 ⇒ **收下 + 告警**。"""
+    segs, res = digest_registry.parse_split(
+        {"segments": [{"span": [28, 30], "keep": "always"},                   # 缺
+                      {"span": [31, 32], "keep": "always", "abstract": "   "},  # 空
+                      {"span": [33, 34], "keep": "temporary",
+                       "abstract": "长" * 61}]},
+        seq_set={28, 29, 30, 31, 32, 33, 34})
+    assert res.errors == ()
+    assert [s["span"] for s in segs] == [[33, 34]], "缺/空的丢掉, 超长的要留下"
+    assert len(res.drops) == 2 and len(res.warnings) == 3   # 2 条丢 + 1 条超长
+    assert segs[0]["abstract"] == "长" * 61
+    assert any("abstract" in w and "字" in w for w in res.warnings)
+
+
+def test_parse_split_keep_falls_back_with_a_warning():
+    """`keep` 缺 / 非法值 ⇒ **按默认档收下** + 告警（形状毛病, 不丢内容、不废整包）。
+
+    ⚠️ 判据是**别把"没写对形状"升级成"丢了内容"** —— 那条切片本身是好的。
+    """
+    segs, res = digest_registry.parse_split(
+        {"segments": [{"span": [28, 30], "abstract": "缺 keep"},
+                      {"span": [31, 32], "keep": "yes", "abstract": "旧口径的值"},
+                      {"span": [33, 34], "keep": True, "abstract": "布尔"}]},
+        seq_set={28, 29, 30, 31, 32, 33, 34})
+    assert res.errors == () and res.drops == ()
+    assert [s["keep"] for s in segs] == ["temporary"] * 3
+    assert len(res.warnings) == 3
+
+
+def test_parse_split_duplicate_span_is_dropped():
+    """两条切片**区间完全一样** ⇒ 丢后一条（真丢: 那件事只留了一份）。
+
+    ⚠️ **部分重叠不裁** —— 那是合法的（真机 `m0015`「约老师来看苔藓」`[208..235]`
+    与 `m0016`「老师说我很重要」`[214..223]` 整段嵌套）; 只有**逐字相同**才算重复。
+    """
+    segs, res = digest_registry.parse_split(
+        {"segments": [{"span": [28, 30], "abstract": "第一件"},
+                      {"span": [28, 30], "abstract": "同一段又说了一遍"},
+                      {"span": [29, 31], "abstract": "部分重叠 —— 合法"}]},
+        seq_set={28, 29, 30, 31})
+    assert [s["abstract"] for s in segs] == ["第一件", "部分重叠 —— 合法"]
+    assert any("完全一样" in d for d in res.drops)
+
+
+def test_parse_split_truncates_at_max_segments():
+    """切太碎 ⇒ 截断 + 告警（**唯一的防"流水账"边界** —— 见 `MAX_SEGMENTS`）。"""
+    raw = {"segments": [{"span": [i, i], "abstract": f"第{i}件"}
+                        for i in range(1, MAX_SEGMENTS + 4)]}
+    segs, res = digest_registry.parse_split(raw, seq_set=set(range(1, MAX_SEGMENTS + 4)))
+    assert len(segs) == MAX_SEGMENTS
+    assert any("流水账" in w for w in res.warnings)
+
+
+def test_parse_split_empty_is_legal():
+    """没有值得记的 ⇒ 空数组合法（且**不该**报"一条都没留下"那条告警）。"""
+    segs, res = digest_registry.parse_split({"segments": []}, seq_set={28})
+    assert segs == [] and res.errors == () and res.warnings == ()
+
+
+def _keep_block() -> str:
+    """逐字段那一块（`KEEP_FIELD`）—— 示例必须**逐字**带上它（只差整体缩进, 见下）。"""
+    return KEEP_FIELD
+
+
+def test_schema_split_phase():
+    text = digest_registry.build_schema(PHASE_SPLIT)
+    assert '"segments": [' in text
+    for key in ("span", "keep", "abstract"):
+        assert f'"{key}"' in text
+    # ⭐ **示例与逐字段说明同源**（防"三处强度不一"——见 `_SPAN_FIELD` 那段注释）:
+    # **逐字段那一整块**必须**逐字**在示例里出现过（示例 = 它整体缩 5 格）。
+    # 这条比"数某个短语出现几次"直接得多 —— 它把"同源"这件事实测出来,
+    # 而且对三个字段一视同仁（只数 span 会漏掉 keep/abstract 被单独改掉的情况）。
+    assert _keep_block() in text, "示例没有逐字带上逐字段那一块 —— 同源破了"
+    # 判据那段必须真在里面（它是这个字段的灵魂, 不是装饰）
+    assert "她还会不会一直带着它" in text
+    assert "夸奖说的是当时, 誓约说的是往后" in text
+    assert "日常安排" in text and "夸奖与安慰" in text
+    # 取值词表 + 上一轮的形状声明
+    for v in KEEP_VALUES:
+        assert v in text
+    assert "可以重叠" in text
+    assert '"segments": []' in text                      # 空包合法也要说
+
+
+def test_schema_split_reuses_the_domain_contract_by_reference():
+    """⭐ 切分的**条数契约**与 R1 共用 `_DOMAIN_CONTRACT` **同一份文案**（不是抄一份）。
+
+    为什么这是正确性: 切分权在 R0, 而"这一段该切成几件事"的说明只能有一处 ——
+    两处各写一份, 迟早一处改了另一处没改（而模型只学会它看到的那一份）。
+    """
+    bond = digest_registry.build_schema(PHASE_SPLIT, domain="bond")
+    mmt = digest_registry.build_schema(PHASE_SPLIT, domain="mmt")
+    assert "这一章恰好 1 条" in bond
+    assert "需要切分" in mmt and "0~5 条" in mmt
+    # 多章时那份改写也在（R1 的同一条纪律）
+    multi = digest_registry.build_schema(PHASE_SPLIT, domain="bond", chapter_count=2)
+    assert "本段含 **2 章**" in multi
 
 
 # ---------------------------------------------------------------------------
