@@ -788,6 +788,7 @@ class MomoTalkEngine:
         返回值保持调用方原先的那份 `events`（没变就别假装变了）。
         """
         try:
+            from core.brain.notes import check as notes_check   # 局部导入（同笔记注入那处）
             from core.brain.notes import note_event   # 局部导入（同笔记注入那处）
             for op in ops:
                 session_store.append_event(character_id, "", note_event(op))
@@ -796,7 +797,13 @@ class MomoTalkEngine:
             return events
         events = session_store.events(character_id)  # 真源已变 → 重读（注入块要用新的）
         try:
-            wstore.save_notes(wstore.notes_state(events))
+            state = wstore.notes_state(events)
+            wstore.save_notes(state)
+            # ⭐ **备忘录体检的唯一读者**（2026-09-29）—— 从前 `notes.check()` **生产里零读者**
+            # （只有测试调它）⇒ 里面那些判据真机永远不会响。判据已改成"总量"（注入块多长）,
+            # 而**看见它**才是这条判据的意义: 长了就该退役/淘汰（⚠️ 淘汰规则未定）。
+            for problem in notes_check(state, known={n.id for n in wstore.all()}):
+                logger.warning("note 体检（%s）: %s", character_id, problem)
         except Exception as e:                       # noqa: BLE001 — 只是缓存, 真源是事件流
             logger.warning("笔记缓存写入失败（事件流已是真源, 下次现折）: %s", e)
         return events

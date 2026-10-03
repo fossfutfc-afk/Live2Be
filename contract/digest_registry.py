@@ -53,7 +53,7 @@ DECISIONS = ("touch", "update", "add")
 #: promise 的**结局**（词表 —— 与 `core.brain.notes` 那一份同源）。
 #: ⚠️ 2026-09-29 起它**只用于 note**（`close` 行的 `state`）: promise 已经退出图,
 #: 节点上不再有 `outcome` 字段（`nodes.PROMISE_OUTCOMES` 随之删掉）。
-PROMISE_OUTCOMES = ("kept", "broken", "superseded")
+PINNED_OUTCOMES = ("kept", "broken", "superseded")
 
 #: 玩家画像条目的 subject 固定值（与 nodes.PLAYER_SUBJECT 对齐, 契约层不依赖 core）
 PLAYER_SUBJECT = "player"
@@ -1118,9 +1118,9 @@ def _clean_close(row: dict, i: int, errors: list[str]) -> dict | None:
         errors.append(f"close[{i}] 缺 id")
         return None
     state = str(row.get("state") or "").strip()
-    if state not in PROMISE_OUTCOMES:
+    if state not in PINNED_OUTCOMES:
         errors.append(f"close[{i}].state 非法: {state!r}"
-                      f"（可用: {', '.join(PROMISE_OUTCOMES)}）")
+                      f"（可用: {', '.join(PINNED_OUTCOMES)}）")
         return None
     afterwards = str(row.get("afterwards") or "").strip()
     if not afterwards:

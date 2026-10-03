@@ -36,7 +36,7 @@ REL_CONTRADICTS = "contradicts"      # 同层之间（她后来发现不对; **�
 REL_EVOLVED_FROM = "evolved_from"    # belief → belief（新看法取代旧的）
 #: ⏸ `formed_by`（promise → episode）· `from` / `to`（promise → entity）**2026-09-29 删** ——
 #: 它们唯一的起点 kind 是 `promise`，而 **promise 退出了图**（用户裁决: 承诺太轻,
-#: 不足以长期记录 ⇒ 留在 note 当工作记忆, 见 `notes.SLOT_PROMISE`）。
+#: 不足以长期记录 ⇒ 留在 note 当工作记忆, 见 `notes.SLOT_PINNED`）。
 #: 判据与当年删 `source` 边同一条: **起点 kind 没了 ⇒ 这些边永远不会有走法**。
 #: ⚠️ 盘上若真有旧行照旧读得进（`Edge.from_dict` 不校验名单），只是没有写者了。
 #: ⭐ **`akin`（N1a, 2026-09-29）：她发现"这两条是同一类事"** —— episode ↔ episode，**对称**。

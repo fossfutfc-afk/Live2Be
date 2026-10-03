@@ -473,7 +473,7 @@ def apply_closures(
     """
     log = log or EvolutionLog.for_store(store)
     ts = ts or datetime.now().isoformat(timespec="seconds")
-    open_items = {it.id: it for it in note_state.promise if not it.closed}
+    open_items = {it.id: it for it in note_state.pinned if not it.closed}
     out = ClosureResult()
 
     for row in rows:
