@@ -39,6 +39,10 @@ PLACE_VARIANT = "place_variant"
 #: ⚠️ **细分标签的后缀 ≡ `core/digest/rounds/` 的轮次 key**（`digest_label(spec.label)`,
 #: 而 `spec.label` 由 key 派生 —— 见 `rounds.RoundSpec`）。改名要两处一起改, 守门用例钉住。
 DIGEST = "digest"
+#: ⭐ **R0 切分员**（`rounds/split.py`）—— 每段的**第一步**: 划区间 + `keep` + `abstract`。
+#: ⚠️ 2026-09-29（N4d）新增: 它拿走了 R1 从前最重的那件事（划区间）,
+#: 所以这是**第 6 个 LLM 轮**（硬顶随之从 600 抬到 840, 见 `rounds.DIGEST_SEGMENT_HARD_CAP`）。
+DIGEST_SPLIT = "digest.split"
 #: ① R1 记录员（`rounds/record.py`）
 DIGEST_RECORD = "digest.record"
 #: ③ R2 理解者（`rounds/understand.py`）
@@ -60,8 +64,8 @@ BOND = "bond"
 #: 全部合法标签（源码扫描守门用）
 ALL: frozenset[str] = frozenset({
     EMOTION, PLACE, PLACE_BOARD, PLACE_VARIANT,
-    DIGEST, DIGEST_RECORD, DIGEST_UNDERSTAND, DIGEST_CLOSE, DIGEST_ATTRIBUTE,
-    DIGEST_GROUP, MMT, BOND,
+    DIGEST, DIGEST_SPLIT, DIGEST_RECORD, DIGEST_UNDERSTAND, DIGEST_CLOSE,
+    DIGEST_ATTRIBUTE, DIGEST_GROUP, MMT, BOND,
 })
 
 #: 主链（输出是"创作"本身, 桩按脚本队列回）
@@ -79,6 +83,7 @@ PROFILE_OF: dict[str, str] = {
     PLACE_BOARD: "place",
     PLACE_VARIANT: "place",
     DIGEST: "digest",
+    DIGEST_SPLIT: "digest",
     DIGEST_RECORD: "digest",
     DIGEST_UNDERSTAND: "digest",
     DIGEST_CLOSE: "digest",

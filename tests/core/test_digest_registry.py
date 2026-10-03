@@ -221,6 +221,27 @@ def test_schema_split_reuses_the_domain_contract_by_reference():
     assert "本段含 **2 章**" in multi
 
 
+def test_split_prompt_does_not_restate_the_schema_criteria():
+    """⭐ **判据只有一处**: `digest_split.md` 是"你是谁 / 看什么", 判据全在 schema 里。
+
+    为什么值得钉: 这次特意把 `keep` 那三段判据（三种 `always` / 三类别记 / abstract
+    两个去处）**只写在契约层**, 因为 `contract/schema.py` 那条纪律说 *"示例才是形状的
+    来源"* —— 一旦 prompt 里也抄一份, 两处迟早强度不一, 而模型只学会它看到的那一份
+    （2026-09-20 art 命中率 0/5 就是这么来的）。
+
+    这条守门 = "prompt 文件里不许出现判据原文"。改判据时**只改契约层**, 这条自然绿。
+    """
+    from llm.prompts import load_prompt
+
+    raw = load_prompt("digest_split")
+    assert "{{digest_schema}}" in raw, "prompt 必须留契约占位符（否则判据根本进不去）"
+    for phrase in ("夸奖说的是当时", "日常安排", "随口一说", "夸奖与安慰",
+                   "两个去处", "她还会不会一直带着它"):
+        assert phrase not in raw, (
+            f"判据原文 {phrase!r} 出现在 prompt 文件里了 —— 它只该在契约层"
+            "（`KEEP_SEMANTICS`）。两处各写一份 = 迟早强度不一。")
+
+
 # ---------------------------------------------------------------------------
 # schema 渲染
 # ---------------------------------------------------------------------------
