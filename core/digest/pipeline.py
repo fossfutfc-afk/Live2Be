@@ -41,10 +41,12 @@ R2=接(understand) · R3=挂(attribute)** —— 轮次 key 就是契约相位�
     删它的连带: R2 的料里那段"本段时间线"从此**没有存在的理由**（它当初就是为
     `evidence.quote` 逐字引用而喂的）—— 那段要不要一起去掉是**改行为**, 单独验。
 
-⚠️ **全景轮（`run_panorama`）2026-09-29（N4a）已退役** —— note 的写者收成一个:
-    `promise` 归 R4 收口、`on_mind` 归 **L1（Round A）**。取料逻辑留在 `panorama.py`
+⚠️ **全景轮（`run_panorama`）2026-09-29（N4a）已退役** —— note 的写者收成一个
+    （`promise` 归 R4 收口）。取料逻辑留在 `panorama.py`
     （零产品调用者, 给 N6 的"切块"当原料）。退役理由: 它的两个槽一个被取消
-    （`habits`）、一个换了写者 ⇒ **它没有输出了**。
+    （`habits`）、一个换了写者（`on_mind` → L1）。
+    ⛔ **2026-09-29（N4e）补一刀**: `on_mind` 自己也退役了（*"它太煽情了"*）⇒
+    **note 的唯一写者 = R4 收口那一轮**, L1 从此只写图。
 
 ⚠️ **`promise`（承诺）2026-09-29 退出图** —— 用户裁决: 这类东西"太轻, 不足以长期记录"
     （日常约定 ≈ 客套/安排）⇒ **不再有 promise 节点**, 也不再有 `from`/`to`/`formed_by`
@@ -139,9 +141,11 @@ class DigestResult:
     llm_calls: int = 0
     #: ⏸ ~~归属线索~~（`hints` = R1 的 `about_hint` → R3 的映射）**2026-09-29 删** ——
     #: `about_hint` 退役（与 R3 判两次）, 这条中间通道随之消失; R3 改为自己从正文里认称呼。
-    #: ⭐ **R4 收口的 note 操作**（`add` / `close`）+ ⭐ **R1 的那句 `on_mind`**（N4a）
+    #: ⭐ **R4 收口的 note 操作**（`add` / `close`）
     #: —— ⚠️ **调用方在整批 `ok` 之后才 append**（§8: 失败 = 整批回滚 ⇒ 那条约定原样开着;
     #: 事件 append 不可撤销, 提前写就回不去了）。
+    #: ⛔ ~~R1 的那句 `on_mind`~~ **2026-09-29（N4e）退役** —— 那条心境的槽没了, 这条
+    #: 交付通道**从此只有 R4 一个写者**。
     notes_ops: list[dict] = field(default_factory=list)
     #: R4 的世界校验记账（剔掉的引用 / 丢掉的 close 行…）—— 不阻断, 但要看得见
     notes_warnings: list[str] = field(default_factory=list)

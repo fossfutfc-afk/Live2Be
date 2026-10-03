@@ -679,7 +679,8 @@ class MomoTalkEngine:
         digest=True（async_digest 后台线程, _digest_lock 串行）: digest_segment
         （Round A 记录 + Round B 组织）→ 好感结算（affection 事件, 幂等键
         interact_max）→ 注入刷新。（⚠️ 全景轮已于 2026-09-29 / N4a 退役 —— note 的
-        写者收成一个: `promise` 归 R4、`on_mind` 归 L1。）
+        写者收成一个: `promise` 归 R4; ⛔ 2026-09-29 / N4e 再补一刀: `on_mind`
+        也退役了 ⇒ note 只剩 R4 一个写者。）
         失败静默降级——wiki 是派生视图, events.jsonl 唯一真源, 可重算。
         """
         store = self._store

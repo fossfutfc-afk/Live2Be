@@ -5,18 +5,30 @@ note 是**三种组织形式**里的第二种（图 / **笔记** / 台账, §1.1
 **图管"可查的细节", note 管"此刻"**。它不是记忆（不改写历史）、不是人设（不装设定）、
 也不是图的镜像 —— 只装**她自己挑过的**。
 
-    真源   `soul/events.jsonl`   append-only 的**操作**（`add` / `close` / `retire` / `rewrite`）
+    真源   `soul/events.jsonl`   append-only 的**操作**（`add` / `close` / `retire`）
     缓存   `soul/notes.json`     `fold()` 的结果 + `up_to_seq` 水位（可随时重建）
 
 ⇒ **并发安全**（主 LLM 与 digest 同时写不丢更新）· **可回放** · **与水位同频**。
 
-二槽（§3.2 的"按引擎要不要处理二分"）:
+**一槽**（§3.2 的"按引擎要不要处理二分"）:
 
 | 槽 | 类 | 装什么 | 更新模型 | 写者 |
 |---|---|---|---|---|
 | `pinned` | **A 操作式** | ⭐ **她随身带着的事**（誓约 / 重大的约定; 2026-09-29 由 `promise` 改名并收紧判据） | `add` / **`close` 结清** / **`retire` 退场** | 加 · 结清 = digest 收口（R4）· 退场 = **今天零写者**（见下） |
-| `on_mind` | **B 快照式** | 我最近在意的（一段散文） | 整段替换（`rewrite`） | ⭐ **L1（Round A）** —— N4a 起; 此前是全景轮 |
 
+> ⛔ **第二槽 `on_mind` 已退役（2026-09-29, N4e）** —— 用户裁决: *"它太煽情了,
+> 煽情的剧情过去了, 就不必一直耿耿于怀了"*。判据不是"零读者"而是**时间尺度**:
+> note 是**长期随身**的东西, 而"她此刻的心境"是**当下**的东西 —— 一旦写下来,
+> 引擎就会在每一轮把它重新念给她听（常驻注入）,**情绪因此被冻在过去**。
+> 归档判据 = 煽情性, 不是信息量。
+>
+> **退役 = 全链删, 不留形态**: 槽 · 上限 · `NotesState.on_mind` · `_apply_rewrite` ·
+> `_inherit_since` · `rewrite_op` · 注入块的「最近在想」小节 · 契约的 `on_mind` 字段与
+> 释义 · R1 的 `on_mind_box`。**旧档/旧事件里的那个键直接忽略**（同下面 `habits` 的口径:
+> 不迁移、不报错 —— 真机那条也**不留档**, 留档就是给它立碑）。
+> ⚠️ 将来若真需要"她此刻在想什么", 该走的是 **belief（有图、有边、能被召回、
+> 会随新经历更新）**, 不是在 note 里再养一个形状特殊的槽。
+>
 > ⚠️ **第三槽 `habits` 已退役（2026-09-29, N4a）** —— 它是"规律"的**劣质替身**
 > （`DESIGN_NOTE §4`：≤20 字标签 + `refs` 无走法 + 与 belief 重复 ⇒ 三条存在理由
 > 一个都不满足）。内容归 **L2 的 belief（模式句）**、指针归将来的 `index`。
@@ -84,12 +96,14 @@ _LEGACY_SLOT = "promise"
 #: ⚠️ ~~`SLOT_HABITS = "habits"`~~ **2026-09-29（N4a）已退役**：它是"规律"的劣质替身
 #: （`DESIGN_NOTE §4` 三条存在理由都不满足）；内容归 L2 的 belief、指针归将来的 `index`。
 #: 别把常量留着"以防万一" —— 退役就是退役，留着它就还有一条静默的写路。
-SLOT_ON_MIND = "on_mind"
-SLOTS: tuple[str, ...] = (SLOT_PINNED, SLOT_ON_MIND)
-#: **A 操作式**槽（增量 add/close）与 **B 快照式**槽（rewrite 整段替换）。
-#: ⚠️ 这个二分就是"同一段只有一个写者"的实现: `close` 只作用于 A 类, `rewrite` 只碰 B 类。
+#: ⛔ ~~`SLOT_ON_MIND = "on_mind"`~~ **2026-09-29（N4e）已退役** —— 判据见模块 docstring
+#: （*"太煽情了"*: note 装的是**长期随身**的东西, 心境是**当下**的东西）。
+#: **没有 `SNAPSHOT_SLOTS` 了** —— 它随这个槽一起消失（一个槽谈不上二分）。
+SLOTS: tuple[str, ...] = (SLOT_PINNED,)
+#: **A 操作式**槽（增量 add/close）。
+#: ⚠️ 从前的二分（A 操作式 / B 快照式）是"同一段只有一个写者"的实现 ——
+#: `on_mind` 退役后**只剩 A 类**, 那个二分连同 `rewrite` 动作一起没有读者了。
 OPSLOTS: tuple[str, ...] = (SLOT_PINNED,)
-SNAPSHOT_SLOTS: tuple[str, ...] = (SLOT_ON_MIND,)
 
 #: ⭐ **备忘录的总量上限（字）**（2026-09-29 用户裁决）。
 #: ## 为什么是"总量"而不是"每槽条数"
@@ -100,12 +114,9 @@ SNAPSHOT_SLOTS: tuple[str, ...] = (SLOT_ON_MIND,)
 MAX_NOTE_CHARS = 500
 #: 条目正文上限（§3.2: **名词短语 ≤20 字, 不写陈述句** —— 免得与 episode 的叙述竞争）
 MAX_TEXT = 20
-#: ⭐ **快照槽（`on_mind`）的正文上限** —— 它是一句**心境**（可以有口气、有破折号）,
-#: 不是名词短语 ⇒ **与 A 槽不同限**。
-#: ⚠️ **与契约层同源**: `contract/digest_registry.ON_MIND_MAX`（契约不依赖 core, 那边有
-#: 一份副本 ⇒ 改一处要改两处）。⚠️ 这个不一致是**体检接上读者当天抓出来的**:
-#: 真机那句 21 字的心境被 A 槽的 20 字标尺报了警。
-MAX_ON_MIND_TEXT = 60
+#: ⛔ ~~`MAX_ON_MIND_TEXT = 60`~~ **2026-09-29（N4e）随 `on_mind` 退役** ——
+#: 它是"按槽分标尺"里的那一支（心境可以有口气、有破折号 ⇒ 与 A 槽不同限）。
+#: 槽收成一个之后**标尺也收成一条**, 就是上面那个 `MAX_TEXT`。
 #: ⭐ **约定的结局**（`close` 行的 `state`）—— **运行时真源**（改名 `PROMISE_OUTCOMES` →
 #: `PINNED_OUTCOMES`, 2026-09-29 随槽名一起对齐）。
 #: ⚠️ 节点上没有 `outcome` 字段（promise 退图）⇒ 这 3 个词只活在 note 面
@@ -118,10 +129,11 @@ PINNED_OUTCOMES = ("kept", "broken", "superseded")
 #: （`PROCEED §2 #10`），她读不懂 `m0021` 是哪件事; 照抄得到的**名字**才是她能用的地址。
 TITLE = ("【你自己记的备忘录】（你自己随手记下的, 不是别人给你的任务; "
          "每条前面的编号指这一条本身, 括号里是它从哪件事来的）")
-#: 槽 → 小节抬头（**自然语言**, 用设计稿自己的词: 约定 / 最近在想）。
+#: 槽 → 小节抬头（**自然语言**, 用设计稿自己的词: 约定）。
 #: ⚠️ **空槽不印抬头**（否则每个空槽都白占一行常驻预算）。
-GROUP_LEADS: dict[str, str] = {SLOT_PINNED: "· 你自己记下的约定",
-                               SLOT_ON_MIND: "· 最近在想"}
+#: ⚠️ ~~`SLOT_ON_MIND: "· 最近在想"`~~ **2026-09-29（N4e）随槽退役** ——
+#: 那个小节是"她此刻的心境"的唯一显示面, 槽没了它就没了。
+GROUP_LEADS: dict[str, str] = {SLOT_PINNED: "· 你自己记下的约定"}
 #: 抬头缩进 / 条目缩进（两级 —— 一瞥看得出手上开着几条）
 _LEAD_INDENT = "  "
 _ITEM_INDENT = "    "
@@ -141,10 +153,9 @@ CLOSED_LEAD = "  ← 已结清"
 
 @dataclass
 class NoteItem:
-    """一条笔记（三槽共用形状: `{id, text, refs, since(, due)}` + 结清两字段）。
+    """一条笔记（形状: `{id, text, refs, since(, due)}` + 结清两字段）。
 
-    `id`    —— 引擎在**折叠**时分配（`n1`/`n2`…, 全槽共享一个计数器, 只增不复用）。
-               `on_mind` 是**单条散文**（不是索引条目, 没人会去 `close` 它）⇒ **无 id**。
+    `id`    —— 引擎在**折叠**时分配（`n1`/`n2`…, 只增不复用）。
     `text`  —— 名词短语 ≤ `MAX_TEXT` 字（"周六模型店" ≠ "我们约好周六去模型店"）。
     `refs`  —— ≥1, 指向**现存节点**（悬空 → `check()` 告警, 不阻断）。
     `since` —— 记于何时（引擎填 = 那条操作的 `ts`; 渲染成"记于 N 天前"）。
@@ -195,7 +206,11 @@ class NoteItem:
 
     @classmethod
     def from_dict(cls, raw: Any) -> "NoteItem | None":
-        """宽松读（坏值 → None）—— `on_mind` 也接受**裸字符串**（只有正文）。"""
+        """宽松读（坏值 → None）。
+
+        ⚠️ **裸字符串也收**（`{"text": raw}`）—— 那是 `on_mind` 时代的形状
+        （N4e 之前 `rewrite` 收裸字符串）; 旧档读得进来但**没有槽接它**了。
+        """
         if isinstance(raw, str):
             raw = {"text": raw}
         if not isinstance(raw, dict):
@@ -224,11 +239,12 @@ class NotesState:
     up_to_seq: int = 0
     next_n: int = 1
     pinned: list[NoteItem] = field(default_factory=list)
-    on_mind: NoteItem | None = None
     # ⚠️ ~~`habits` 槽~~ **2026-09-29（N4a）已退役**：它是"规律"的劣质替身
     #    （`DESIGN_NOTE §4`：≤20 字标签 + refs 无走法 + 与 belief 重复 ⇒ 三条存在理由
     #    一个都不满足）。内容归 **L2 的 belief（模式句）**、指针归将来的 `index`。
     #    **旧档里那个键在读的时候直接忽略**（退役 = 不再读，不做迁移）。
+    # ⛔ ~~`on_mind` 槽~~ **2026-09-29（N4e）已退役** —— 判据见模块 docstring
+    #    （*"太煽情了"*）。**旧档/旧事件里那两个键同样直接忽略**（不迁移、不报错）。
 
     def __post_init__(self) -> None:
         """护栏: **发号器至少比现有 id 大**（纪律 2"只增不复用"的兜底）。
@@ -239,28 +255,24 @@ class NotesState:
         self.next_n = max(self.next_n, _derive_next_n(self.pinned))
 
     def items(self, slot: str) -> list[NoteItem]:
-        """槽 → 条目列表（`on_mind` 折成 0/1 条的列表, 便于统一校验/渲染）。"""
-        if slot == SLOT_ON_MIND:
-            return [self.on_mind] if self.on_mind is not None else []
+        """槽 → 条目列表（今天只有 `pinned`; 一个槽也要走这一层, 口径统一）。"""
         return list(getattr(self, slot, []) or [])
 
     def clone(self) -> "NotesState":
         return NotesState(up_to_seq=self.up_to_seq, next_n=self.next_n,
-                          pinned=[it.copy() for it in self.pinned],
-                          on_mind=self.on_mind.copy() if self.on_mind else None)
+                          pinned=[it.copy() for it in self.pinned])
 
     def to_dict(self) -> dict:
-        d: dict[str, Any] = {"up_to_seq": self.up_to_seq, "next_n": self.next_n,
-                             SLOT_PINNED: [it.to_dict() for it in self.pinned]}
-        if self.on_mind is not None:
-            d[SLOT_ON_MIND] = self.on_mind.to_dict()
-        return d
+        return {"up_to_seq": self.up_to_seq, "next_n": self.next_n,
+                SLOT_PINNED: [it.to_dict() for it in self.pinned]}
 
     @classmethod
     def from_dict(cls, raw: Any) -> "NotesState":
         """宽松读（坏文件 → 空状态 = 现折一遍就回来了, 不会丢真源）。
 
-        ⚠️ 旧档里的 `habits` 键**直接忽略**（N4a 退役；不迁移、不报错）。
+        ⚠️ 旧档里的 `habits` / `on_mind` 两个键**直接忽略**（N4a / N4e 退役；
+        不迁移、不报错）。真机那份 `notes.json` 里那条 `on_mind` 也**不留档** ——
+        用户的判据是"煽情的不必一直耿耿于怀", 留档就是给它立碑。
         """
         if not isinstance(raw, dict):
             return cls()
@@ -274,8 +286,7 @@ class NotesState:
         if next_n < 1:                     # 旧档/坏档: 从活着的 id 推一个下界（防复用）
             next_n = _derive_next_n(pinned)
         return cls(up_to_seq=max(0, _int(raw.get("up_to_seq"))),
-                   next_n=next_n, pinned=pinned,
-                   on_mind=NoteItem.from_dict(raw.get(SLOT_ON_MIND)))
+                   next_n=next_n, pinned=pinned)
 
 
 # ---------------------------------------------------------------------------
@@ -311,7 +322,11 @@ def fold(events: Iterable[Any], *, base: NotesState | None = None) -> NotesState
         elif sub == N_RETIRE:
             _apply_retire(st, payload, seq)
         elif sub == N_REWRITE:
-            _apply_rewrite(st, payload, ts, seq)
+            # ⛔ `rewrite`（N4e 退役）: 它写的那个快照槽 `on_mind` 已经没有了 ⇒
+            # 这里**什么都不做**（同 `habits` 的口径: 退役 = 不再读, 不报错不迁移）。
+            # ⚠️ 但**动作名留着** —— 旧档（真机 seq 263 那条）里躺着它,
+            # 落到 else 分支会打一条永远无法修掉的"未知操作"告警。
+            pass
         else:
             logger.warning("note 未知操作（跳过）: subtype=%r seq=%s", sub, seq)
         st.up_to_seq = max(st.up_to_seq, seq)
@@ -405,31 +420,9 @@ def _apply_retire(st: NotesState, payload: dict, seq: int) -> None:
     logger.warning("note/retire 指不到任何条目（跳过）: id=%s seq=%s", nid, seq)
 
 
-def _apply_rewrite(st: NotesState, payload: dict, ts: str, seq: int) -> None:
-    """B 类槽**整段替换**（今天只有 `on_mind`; N4a 起写者是 L1）。
-
-    ⚠️ **没提到的槽 = 保留**（同 `revise.apply_decisions` 的空值口径: 没提到 ≠ 要删）;
-       想明确清空就送空值（`null` / `""`）。
-    ⚠️ `since` **按文本精确匹配**继承上一版（`_inherit_since`）—— 心境没变就不该因为
-       被重写一遍而变成"刚刚想通的"。
-    ⚠️ 旧事件里的 `habits` 键**直接忽略**（N4a 退役；退役 = 不再读）。
-    """
-    if SLOT_ON_MIND in payload:
-        raw = payload.get(SLOT_ON_MIND)
-        new = NoteItem.from_dict(raw)
-        st.on_mind = None if new is None else _inherit_since(st.on_mind, new, ts)
-
-
-def _inherit_since(old: NoteItem | None, new: NoteItem, ts: str) -> NoteItem:
-    """`on_mind` 的 `since` 延续 —— 正文没变就保留"第一次这么想"的时刻。
-
-    ⚠️ **不发号**: `on_mind` 是单条散文, 不是索引条目（没人会去 `close` 它）。
-    """
-    if old is not None and old.text == new.text and old.since:
-        new.since = old.since
-    else:
-        new.since = new.since or ts
-    return new
+# ⛔ ~~`_apply_rewrite` / `_inherit_since`~~ **2026-09-29（N4e）随 `on_mind` 一起删** ——
+# 它们是那个快照槽的唯一实现（整段替换 + `since` 按正文延续）。`fold` 现在把
+# `rewrite` 事件当**空操作**吞掉（旧档兼容, 见那里的注释）。
 
 
 def _alloc_id(st: NotesState) -> str:
@@ -475,17 +468,10 @@ def retire_op(item_id: str) -> dict:
     return _checked({"action": N_RETIRE, "id": item_id})
 
 
-def rewrite_op(*, on_mind: Any = None) -> dict:
-    """`rewrite` 操作（快照槽整段替换; **不碰 `pinned`**）。
-
-    **没传的槽 = 本次不动它**（`None` 是"没提", 不是"清空"）——
-    要清空就显式传空值: `on_mind=""`。
-    ⚠️ N4a 起写者是 **L1（Round A）**：她说"我最近在想什么"的那一刻就是本段。
-    """
-    op: dict[str, Any] = {"action": N_REWRITE}
-    if on_mind is not None:
-        op[SLOT_ON_MIND] = on_mind
-    return _checked(op)
+# ⛔ ~~`rewrite_op`~~ **2026-09-29（N4e）随 `on_mind` 一起删** —— 它写的那个槽没了,
+# 留着它就还有一条"往一个不存在的槽里写"的静默写路（同 `habits` 退役的判据）。
+# ⚠️ **`rewrite` 这个动作名留在 `core/session/events.py`**（`N_REWRITE` / `NOTE_SUBTYPES`
+# 都还在）—— 旧档里躺着那条事件, 名字没了 `fold` 就会把它当未知操作告警。
 
 
 def note_event(op: dict) -> Any:
@@ -506,8 +492,10 @@ def validate_ops(ops: list[dict]) -> None:
 
     查的是"**事件自身是否自足**"（一 append 就不可改, 残缺的写不进去）:
     动作名 · `add` 的 `text` + `refs` · **`close` 的 `id` + `afterwards` + `state`** ·
-    `retire` 的 `id` · `rewrite` 的槽形状。
+    `retire` 的 `id`。
     **不查** `refs` 是否存在 —— "世上有没有那个节点"要看世界, 归 `check()` 告警。
+    ⚠️ **`rewrite` 已不在写侧**（N4e 随 `on_mind` 退役）—— 走到这里 = 有人新造了一条
+    往一个不存在的槽里写的操作 ⇒ 按**未知动作**拒（`fold` 那边仍吞旧档里的它）。
     """
     for i, op in enumerate(ops):
         if not isinstance(op, dict):
@@ -534,12 +522,6 @@ def validate_ops(ops: list[dict]) -> None:
         elif action == N_RETIRE:
             if not str(op.get("id") or "").strip():
                 raise ValueError(err("BadNoteOp", f"note 操作[{i}] retire 缺 id"))
-        elif action == N_REWRITE:
-            for slot in SNAPSHOT_SLOTS:
-                if slot not in op or op[slot] is None:
-                    continue                          # 没提到的槽 = 本次不动它
-                # 今天唯一的快照槽是 `on_mind`（一条散文 / 裸字符串都收 —— 形状交给
-                # `NoteItem.from_dict` 的宽松读）。N4a 之前这里还查过 `habits` 必须是数组。
         else:
             raise ValueError(err("BadNoteAction", f"note 操作[{i}] 未知动作: {action!r}"))
 
@@ -563,6 +545,8 @@ def check(state: NotesState, known: Iterable[str] | None = None,
        她的错, 而"删掉"是判定）
     ③ ⭐ **备忘录的总量** > `MAX_NOTE_CHARS` 字（2026-09-29 改）—— 见下面那条历史
     ④ 正文超 `MAX_TEXT` 字（该写名词短语, 不写陈述句）
+    ⚠️ ~~按槽分标尺~~ **2026-09-29（N4e）取消** —— 那个机制本来是为"心境可以有口气、
+       与 A 槽不同限"开的（`MAX_ON_MIND_TEXT=60`）; 槽收成一个之后标尺也只剩一条。
 
     ## ⚠️ ③ 的来历（改判据的理由）
 
@@ -596,11 +580,9 @@ def check(state: NotesState, known: Iterable[str] | None = None,
                 for r in it.refs:
                     if r not in known_set:
                         out.append(f"{slot} {tag}: refs 指向不存在的节点 {r!r}")
-            limit = MAX_ON_MIND_TEXT if slot == SLOT_ON_MIND else MAX_TEXT
-            if len(it.text) > limit:
-                hint = ("（一句心境, 别写成一段）" if slot == SLOT_ON_MIND
-                        else "（写名词短语, 不写陈述句 —— 免得与 episode 的叙述竞争）")
-                out.append(f"{slot} {tag}: 正文 {len(it.text)} 字 > {limit}{hint}")
+            if len(it.text) > MAX_TEXT:
+                out.append(f"{slot} {tag}: 正文 {len(it.text)} 字 > {MAX_TEXT}"
+                           "（写名词短语, 不写陈述句 —— 免得与 episode 的叙述竞争）")
     return out
 
 
@@ -615,15 +597,11 @@ def render_note_block(state: NotesState, *, now: object | None = None,
           · 你自己记下的约定
             n3 周六模型店 (m0009)  ← 记于 3 天前
             n1 买花 (m0014)  ← 已结清（送出去了）
-          · 你们之间的惯例
-            n7 他买东西时总先问我想要哪个 (m0005, m0010)
-          · 最近在想
-            我不想再只是隔着玻璃看
 
     - **标题明说这是什么**（她自己的备忘 · 不是任务; 括号里是编号）—— 系统里同时住着
       规则书与 task 卡, 不说清就会被读成"引擎要她做的事"。
-    - **小节抬头是自然语言**（约定 / 惯例 / 最近在想）, 且**空槽不印**。
-    - **零结构化痕迹**: 无 JSON、无键名（`pinned`/`on_mind` 一个字都不出现）、
+    - **小节抬头是自然语言**（约定）, 且**空槽不印**。
+    - **零结构化痕迹**: 无 JSON、无键名（`pinned` 一个字都不出现）、
       无波括号 —— 字段名是引擎的词汇, 不是她的。
     - 槽内**按 `since` 降序**（新的在上面）; **开着的排在已结清前面**（这个块第一句要回答
       "我手上还开着什么", 混排会把第一眼读坏）。
@@ -632,8 +610,10 @@ def render_note_block(state: NotesState, *, now: object | None = None,
       **失约 / 不做了**（`state` = kept/broken/superseded 三值）。
     - **频次绝不印**（既有纪律: 数值不直接喂 LLM, 防讨好/数值化）—— 要不要说
       "好多次/每次都"由 writer 决定。
-    - **`on_mind` 不印编号也不印 refs**: 它是她自己的口吻, 一行散文（refs 照存,
-      给 recall 与审计用）。**`due` 同理不印**（见 `NoteItem`）。
+    - **`due` 不印**（见 `NoteItem`）。
+    - ⛔ ~~「最近在想」小节~~ **2026-09-29（N4e）随 `on_mind` 退役** —— 那个小节印的
+      是她此刻的心境（一行散文、无编号）; 用户裁决 *"太煽情了, 煽情的剧情过去了,
+      就不必一直耿耿于怀了"*。常驻块**从此只装约定**。
 
     `now=None` → 不加时间短语（同 `marks.relative` 的哨兵纪律: 未接线时保持原形态,
     不给一个假的"很久以前"）。
@@ -649,9 +629,6 @@ def render_note_block(state: NotesState, *, now: object | None = None,
         # 结清组按**结清时刻**排（刚做完的在上）—— 按 `since` 排会让"刚做完的老约定"沉底
         for it in _sorted_by([it for it in items if it.closed], "closed_at"):
             lines.append(f"{_ITEM_INDENT}{render_item(it, titles=titles)}")
-    if state.on_mind is not None:
-        lines.append(f"{_LEAD_INDENT}{GROUP_LEADS[SLOT_ON_MIND]}")
-        lines.append(f"{_ITEM_INDENT}{state.on_mind.text}")
     if not lines:
         return ""
     return "\n".join([TITLE] + lines)
@@ -662,7 +639,7 @@ def render_item(item: NoteItem, *, now: object | None = None,
     """**一行条目**（不含缩进与抬头）—— 注入块与 **R4 的输入**共用这一份行格式。
 
     `n3 周六模型店 (《模型店的午后》)  ← 记于 3 天前`; 已结清的尾巴换成 `← 已结清（理由）`。
-    `id` 为空（`on_mind` 那条散文）→ 只有正文。
+    ⚠️ `id` 为空 → 只有正文（旧档/手工构造的条目; N4e 之前 `on_mind` 那条散文走这条路）。
 
     ⭐ **`titles`: refs 的 id → 名字**（N4a, 2026-09-29）—— 由**调用方**从图上取好传进来
     （本模块**纯函数零 IO**，不碰 store）。渲染成 `(《名字》)`，多条用 `·` 连。

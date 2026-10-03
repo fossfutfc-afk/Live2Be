@@ -1,16 +1,18 @@
 # -*- coding: utf-8 -*-
-"""record.py — ① R1「记录员」: 本段新增互动 → episode / 玩家画像（+ note 的 `on_mind`）。
+"""record.py — ① R1「记录员」: 本段新增互动 → episode / 玩家画像。
 
 料（表里那五行, `ctx.sections_for` 逐字校对）: 本段新增互动 · 本章标题 · 画面记忆 ·
 角色人设（锚点）· 本段情绪标尺。
 
-写: `episode` 节点 · `experience`（玩家画像）节点 · note 的 `on_mind` 槽。
+写: `episode` 节点 · `experience`（玩家画像）节点。
 ⚠️ `writes` 的真源是 `rounds.ROUNDS` 那一格, 不在本文件里再写一遍。
+⛔ ~~note 的 `on_mind` 槽~~ **2026-09-29（N4e）退役** —— L1 从此**只写图**, 不写 note
+（约定归 R4 收口那一轮; 见 `notes.py` 的模块 docstring）。
 
 引擎侧三个邻居（本文件只管"她说了什么", 判定全在引擎）:
     `core/digest/episodes.py`  → 条目落成节点（字段归属 / 去重 / 自己的时刻 / 板指针物化）
     `core/digest/segment.py`   → `span` 区间展开 · 一章一条收口 · 段类型
-    `core/brain/notes.py`      → `on_mind` 那句心境的 note 操作（`rewrite_op`）
+    `core/brain/notes.py`      → 约定那条线（R4 收口; 本文件不碰）
 
 ⚠️ **顺序有两条是正确性, 不是风格**:
   · `_resolve_verbatim` 在落节点**之前**（索引 → 原文, 引擎的活）
@@ -21,7 +23,6 @@ from __future__ import annotations
 
 import logging
 
-from core.brain.notes import rewrite_op
 from core.digest.episodes import _create_a_nodes, _resolve_verbatim
 from core.digest.rounds.base import Ctx, RoundOut
 from core.digest.segment import _collapse_bond_episodes, _expand_spans
@@ -40,19 +41,11 @@ def run(ctx: Ctx) -> RoundOut:
         ("角色人设（锚点）", ctx.character_prompt),
         ("本段情绪标尺", ctx.emotion_scale),
     ])
-    # ⭐ N4a: 她此刻那句心境（0/1 条）—— 装在这个**本轮自己的**盒子里,
-    # 由 parse 回调填、由下面那句取用。它不是跨轮状态, 所以不进 `Ctx`。
-    on_mind_box: list[str] = []
     entries, _resp = ctx.call(
         spec, system, user,
-        parse_fn=ctx.parse_for(spec, seq_set=ctx.seq_set, on_mind_out=on_mind_box))
+        parse_fn=ctx.parse_for(spec, seq_set=ctx.seq_set))
     if entries is None:
         return RoundOut.failed()
-    # ⭐ N4a: 她此刻那句心境 —— L1 产出, 与 promise（R4）一样走 `notes_ops`
-    # （调用方**整批 ok 之后**才 append）。⚠️ 只有**她真写了**才产操作:
-    # 缺键 = 不变（`rewrite_op(on_mind=None)` 本来就不动它）。
-    if on_mind_box:
-        ctx.result.notes_ops.append(rewrite_op(on_mind=on_mind_box[0]))
     # 索引 → 原文（T14）: parse 层拿不到事件流, 回填在这里做
     for ent in entries:
         _resolve_verbatim(ent, ctx.by_seq)

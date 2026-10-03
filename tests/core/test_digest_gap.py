@@ -62,19 +62,15 @@ def _episode_ids(messages) -> list[str]:
 class OneRound:
     """R1 返回给定 episodes; 其余轮空包（R2 自动覆盖全部 episode）。"""
 
-    def __init__(self, episodes, *, on_mind=None):
+    def __init__(self, episodes):
         self.episodes = episodes
-        self.on_mind = on_mind
         self.tasks: list[str | None] = []
 
     def chat(self, messages, **kw):
         task = kw.get("task")
         self.tasks.append(task)
         if task == T.DIGEST_RECORD:
-            raw = {"episodes": self.episodes}
-            if self.on_mind is not None:
-                raw["on_mind"] = self.on_mind
-            return raw
+            return {"episodes": self.episodes}
         if task in (T.DIGEST_UNDERSTAND, T.DIGEST):
             return {"decisions": [{"episode": i, "decision": "add", "kind": "belief",
                                    "subject": f"关于 {i}", "text": f"关于 {i} 的看法"}
@@ -219,17 +215,22 @@ def test_skeptical_only_when_something_was_lost(tmp_path):
     print(f"    真丢: {row2['skeptical']!r}")
 
 
-def test_on_mind_dropped_is_a_loss(tmp_path):
-    """`on_mind` 不是字符串 ⇒ 契约层丢弃它（`drops`）⇒ 也算真丢。"""
+def test_verbatim_dropped_is_a_loss(tmp_path):
+    """`verbatim` 抄到时间线外 ⇒ 契约层丢弃它（`drops`）⇒ 也算真丢。
+
+    ⛔ 原用例是 `on_mind` 不是字符串 ⇒ 丢弃 —— **N4e（2026-09-29）那个槽退役**,
+    换成还剩的另一个 `drops` 出口（`verbatim` 的索引越界）。判据不变:
+    **`drops` 才是"真丢"的唯一入口**, `warnings` 里那些可重算的不进账。
+    """
     st = _wiki(tmp_path)
     llm = OneRound([{"text": "四句都记下了", "title": "全都记得", "span": [1, 4],
-                     "tags": ["闲聊"]}], on_mind=123)
+                     "verbatim": ["99.0"], "tags": ["闲聊"]}])
     res = digest_segment(st, llm, _events(4))
 
     row = _gaps(res)[0]
-    assert any("on_mind" in d for d in row["evidence"]["contract"]["lost"]), row
+    assert any("verbatim" in d for d in row["evidence"]["contract"]["lost"]), row
     assert row.get("skeptical")
-    print("    on_mind 被丢 ⇒ 真丢 ✓")
+    print("    verbatim 被丢 ⇒ 真丢 ✓")
 
 
 # ---------------------------------------------------------------------------
@@ -347,7 +348,7 @@ if __name__ == "__main__":
     for fn in (test_clean_segment_writes_no_row, test_health_warnings_alone_do_not_write_a_row,
                test_gap_row_carries_the_three_faces,
                test_no_position_entry_still_gets_the_segment_pointer,
-               test_skeptical_only_when_something_was_lost, test_on_mind_dropped_is_a_loss,
+               test_skeptical_only_when_something_was_lost, test_verbatim_dropped_is_a_loss,
                test_collapsed_entries_are_recorded, test_reused_node_is_recorded,
                test_rollback_leaves_no_gap_row):
         with tempfile.TemporaryDirectory() as d:

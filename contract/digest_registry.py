@@ -33,8 +33,8 @@ PHASE_UNDERSTAND = "understand"
 #: 只判"这条约定还开着吗 / 这一段里有没有新说定的"，不碰正文/认知。
 #: ⚠️ 2026-09-29 承诺退图后它**只产 note 操作**（add/close），不再建节点。
 PHASE_CLOSE = "close"
-#: ⚠️ ~~`PHASE_PANORAMA`~~（全景轮/写卡）**2026-09-29（N4a）已退役** —— 它的两个槽
-#: 一个被取消（`habits`）、一个换了写者（`on_mind` → L1）⇒ 它没有输出了。
+#: ⚠️ ~~`PHASE_PANORAMA`~~（全景轮/写卡）**2026-09-29（N4a / N4e）已退役** —— 它的两个槽
+#: 都没了（`habits` 取消 · `on_mind` 自己也退役: *"太煽情了"*）⇒ 它没有输出了。
 #: **R3 归属轮**（§8 第 3 行: 归属 + entity 维护）—— 每段的**最后一步**。
 #: 它写 `about`（hint/正文 → 候选表里的对象）、`new_entity` 提案、entity 载荷改写；
 #: ⚠️ **不碰正文**（改正文是 R2 的活）、**不合并节点**（§9-12 ④ 未裁）。
@@ -209,24 +209,10 @@ RECORD_EPISODE = DigestAction(
     ),
 )
 
-#: ⭐ **L1 的第二个产物: 她此刻在想什么**（N4a, 2026-09-29）——
-#: 从前由全景轮每 10 段整段替换; 现在归 **Round A**（"心境是此刻"，本段视野就够）。
-#: ⚠️ 它是 `episodes` 的**同级键**（不是又一条 episode）⇒ 在这里当常量注入,
-#:    不走"再加一个 DigestAction"（那个机制渲染的是 `episodes[]` 里的行形状）。
-ON_MIND_FIELD = (
-    '     "on_mind": "…"     // 可选; **她此刻心里悬着/想通的那一件事**（≤60 字, 一句散文,'
-    ' 她自己的口吻）。\n'
-    '                        // 例: "我给瓦片留了缝让它见光——也想给自己留一道"\n'
-    '                        // ⚠️ 不复述刚发生的事（那归 episodes）; 不写计划/待办（那归约定）;\n'
-    '                        //    没写这个键 = **保持上次那句不变**（不是清空）'
-)
-ON_MIND_SEMANTICS = (
-    "【on_mind 怎么写】它不是这一段的总结, 是**她此刻的心境** —— 一句就够, 用她的口吻。\n"
-    "写得出就写（那件事真的在她心里挂着）; 写不出**整个键都别出现**（缺键 = 不变）。\n"
-    "要明确清空（那件事已经过去了）→ 写成空串 `\"on_mind\": \"\"`。"
-)
-#: `on_mind` 的软上限（超了**收下但告警** —— 它不是"形状错", 不该废整包）
-ON_MIND_MAX = 60
+# ⛔ ~~`ON_MIND_FIELD` / `ON_MIND_SEMANTICS` / `ON_MIND_MAX`~~ **2026-09-29（N4e）随
+# `on_mind` 槽退役** —— 用户裁决: *"它太煽情了, 煽情的剧情过去了, 就不必一直耿耿于怀了"*。
+# L1 的输出**从此只有 `episodes` 一个键**（心境不是"经历", 也就不该跟 episodes 平级）。
+# ⚠️ 将来若真要"她此刻在想什么", 该走 belief（图里、有边、能被召回、会被新经历更新）。
 
 TOUCH = DigestAction(
     name="touch",
@@ -385,14 +371,11 @@ class DigestRegistry:
             ]
             a = self.spec("record_episode")
             lines.append(a.field_schema)
-            lines.extend(["    ],",
-                          ON_MIND_FIELD,
+            lines.extend(["    ]",
                           "    }",
                           "",
                           f"【record_episode 释义】{a.role}",
-                          "语义:", a.semantics,
-                          "",
-                          ON_MIND_SEMANTICS])
+                          "语义:", a.semantics])
             if include_examples and a.example:
                 lines.extend(["", "【范例】", a.example])
             return "\n".join(lines)
@@ -571,18 +554,16 @@ class DigestRegistry:
     # 解析（结构校验; 引用级/图语义在引擎执行层）
     # ------------------------------------------------------------------
 
-    def parse_round_a(self, raw: Any, *, seq_set: set[int] | None = None,
-                      on_mind_out: list | None = None
+    def parse_round_a(self, raw: Any, *, seq_set: set[int] | None = None
                       ) -> tuple[list[dict], ValidationResult]:
-        """Round A: `{"episodes": [...], "on_mind": "…"}` → 规范化条目列表。
+        """Round A: `{"episodes": [...]}` → 规范化条目列表。
 
         `seq_set`（T14）: 本段**事件 seq 全集**——`event_seq` / `verbatim` 索引
         的 ⊆ 校验基准（与 `parse_round_b` 的 `episode_ids` 同思路:
         引用纪律在 parse 层, 不在 prompt 层）。`None` = 不校验（老调用方/单测）。
 
-        `on_mind_out`（⭐ N4a）: 可选传出参数 —— 收下她此刻那句心境（`None` = 本次
-        **没提**，与"空串 = 清空"是两件事）。⚠️ 用列表传出而不改返回签名（同
-        `recall.mode_out` / `why_out` 的手法: 现有调用方与单测零改动）。
+        ⛔ ~~`on_mind_out`~~ **2026-09-29（N4e）随 `on_mind` 槽退役** ——
+        它从前是这个 parse 的第二个产物（用列表传出而不改返回签名的手法）。
         """
         errors: list[str] = []
         warnings: list[str] = []
@@ -603,18 +584,6 @@ class DigestRegistry:
             warnings.extend(item_warns)
             if item is not None:
                 out.append(item)
-        if on_mind_out is not None and "on_mind" in raw:
-            val = raw.get("on_mind")
-            if val is None:
-                warnings.append("on_mind 是 null（当**没提**处理, 保持上次那句）")
-            elif not isinstance(val, str):
-                _drop(warnings, drops,
-                      f"on_mind 必须是字符串（丢弃）: {type(val).__name__}")
-            elif len(val.strip()) > ON_MIND_MAX:
-                warnings.append(f"on_mind 超过 {ON_MIND_MAX} 字（收下但请写短）")
-                on_mind_out.append(val.strip())
-            else:
-                on_mind_out.append(val.strip())
         return out, ValidationResult(tuple(errors), tuple(warnings), tuple(drops))
 
     def parse_close(self, raw: Any) -> tuple[list[dict], ValidationResult]:
