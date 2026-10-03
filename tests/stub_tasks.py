@@ -98,16 +98,50 @@ def splits_for_episodes(episodes, messages=None) -> dict:
                                   的条目吃段级指针 = 整段都算它覆盖了）
         []                      → 一条覆盖整段（同上）
     """
-    spans = re.findall(r'"span"\s*:\s*\[\s*(-?\d+)\s*(?:,\s*(-?\d+)\s*)?\]',
+    if isinstance(episodes, dict):
+        episodes = episodes.get("episodes")           # 整个应答传进来也认
+    episodes = list(episodes or [])
+    spans = re.findall(r'"span"\s*:\s*\[?\s*(-?\d+)\s*(?:,\s*(-?\d+)\s*)?\]?',
                        json.dumps(episodes, ensure_ascii=False))
     if spans:
         return {"segments": [{"span": [int(lo), int(hi if hi != "" else lo)],
                               "keep": "temporary", "abstract": f"第 {lo} 件事"}
                              for lo, hi in spans]}
+    if not episodes:
+        # `{"episodes": []}` = "这一段我不记" ⇒ 空骨架（那正是它的意思）
+        return {"segments": []}
+    # ⚠️ R1 **没声明区间**（3b-2 起它本来就不该声明）⇒ 按**它给了几条**切几片。
+    # ⭐ 判据: 这个桩的职责是"让对位成立" ——
+    #   · 条数 = **R1 给的条数**（多切会让后面几条没人填 ⇒ 下一轮 decisions 覆盖不全）;
+    #   · 区间**互不相同且在时间线内**（逐字相同会被当重复丢、端点越界会被丢整条）。
+    # ⇒ 把 n 个事件头**均匀摊给 N 条切片**; 头不够时按实测最大 seq 往后让一格。
+    # ⚠️ 真机的 R0 一条一切、不会重叠/越界 —— 这些只是**桩**为了"对位成立"的取法。
     heads = timeline_heads(messages or [])
-    lo, hi = (int(heads[0]), int(heads[-1])) if heads else (1, 999)
-    return {"segments": [{"span": [lo, hi], "keep": "temporary",
-                          "abstract": "这一段"}]}
+    h = sorted({int(x) for x in heads}) or [1]
+    n = max(1, len(episodes))
+    hi = _max_seq_in(messages)                         # 时间线的**实测**上界
+    spans: list[list[int]] = []
+    used: set[tuple[int, int]] = set()
+    for i in range(n):
+        a, b = i * len(h) // n, (i + 1) * len(h) // n
+        part = h[a:max(a + 1, b)]
+        lo_i, hi_i = part[0], part[-1]
+        while (lo_i, hi_i) in used and hi_i < hi:      # 撞了 ⇒ 往后让一格（仍在范围内）
+            hi_i += 1
+        if (lo_i, hi_i) in used:                       # 让不动了（时间线太窄）⇒ 只能重复
+            lo_i = hi_i = min(hi, hi_i)
+        used.add((lo_i, hi_i))
+        spans.append([lo_i, hi_i])
+    return {"segments": [{"span": s, "keep": "temporary", "abstract": f"第 {i + 1} 件"}
+                         for i, s in enumerate(spans)]}
+
+
+def _max_seq_in(messages) -> int:
+    """user 料里出现过的**最大事件头编号**（时间线的实测上界; 取不到 → 999）。"""
+    heads = timeline_heads(messages or [])
+    return max((int(x) for x in heads), default=999)
+    return {"segments": [{"span": s, "keep": "temporary", "abstract": f"第 {i + 1} 件"}
+                         for i, s in enumerate(spans)]}
 
 
 def split_for_scripted(messages, episodes) -> dict:
@@ -121,15 +155,19 @@ def split_for_scripted(messages, episodes) -> dict:
     三种情形::
 
         [{"span": [1, 4]}, …]   → 每个声明的区间一条切片（只抄不改 —— 坏的原样回）
-        [{"text": "…"}, …]      → ⚠️ **旧形状（没给 span）**: 回**一条覆盖整段**的切片
-                                  —— 对齐 `_create_a_nodes` 的兜底语义（"没有位置"的
-                                  条目吃段级指针 = 整段都算它覆盖了）
-        [] / 没有 episodes      → 同上（一条覆盖整段）
+        [{"text": "…"}, …]      → ⚠️ **没给区间**: 回**一条覆盖整段**的切片
+                                  （⚠️ **一条**, 不是一头一片 —— 见下）
+        []                      → **空骨架**（`{"segments": []}`）
 
     ⛔ **它永远不返回空骨架** —— "这一段没有值得记的"是 R0 的一条**判据**,
     要测它必须**显式**给（把桩的 `split=` 参数设成 `{"segments": []}`）。
     判据: 派生出来的东西不该顺手改变链路走向 —— 否则每个脚本桩的用例都会
     在 R0 悄悄收工（实测: 一次改动 81 条用例变红, 全部同一个原因）。
+
+    ⭐ **`[]` 也当"一条覆盖整段"**（3b-2 改）: 从前 `[{"episodes": []}]` ⇒ 空骨架。
+    但 3b-2 起 R1 **不再声明位置**, 所以"R1 给了几条 episode"与"R0 切了几条"必须
+    **条数一致**, 否则多出来的切片没人填、下一轮的 decisions 覆盖不全 ⇒ 整段被拒。
+    这个桩的职责是**让对位成立**, 不是模仿真实切分。
     """
     if isinstance(episodes, dict):
         episodes = episodes.get("episodes")

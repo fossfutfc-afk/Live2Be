@@ -53,6 +53,12 @@ def run(ctx: Ctx) -> RoundOut:
         parse_fn=ctx.parse_for(spec, seq_set=ctx.seq_set))
     if segments is None:
         return RoundOut.failed()
+    # ⭐ 契约层**当场丢掉的切片数** —— `items.in`（"这一段本来有几件"）要用它:
+    # 丢的那几条在 `segments` 里已经不存在了, 但账上的 "in" 说的是**切分员交了几件**。
+    # ⚠️ 只数"切片面"的掉（`segments[i]`）—— `verbatim` 那种掉是**同一个切片内部**的,
+    # 不算少了一件。
+    ctx.result.segment_dropped = sum(1 for d in ctx.result.contract_drops
+                                     if d.startswith(f"{spec.key}: segments["))
     # ⭐ 区间 → seq。**早于收口**: 章的归属靠"相交", 展开前只有两个端点
     _unclaimed, _shared = _expand_spans(segments, ctx.seq_set)
     # ⭐ 一章一件（切分违约时的确定性兜底）+ 丢掉那几条的区间并回保留那条

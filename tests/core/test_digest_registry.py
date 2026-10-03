@@ -207,18 +207,23 @@ def test_schema_split_phase():
 
 
 def test_schema_split_reuses_the_domain_contract_by_reference():
-    """⭐ 切分的**条数契约**与 R1 共用 `_DOMAIN_CONTRACT` **同一份文案**（不是抄一份）。
+    """⭐ 切分的**条数契约** `_DOMAIN_CONTRACT` **只服务 R0**（3b-2 起与 R1 分家）。
 
-    为什么这是正确性: 切分权在 R0, 而"这一段该切成几件事"的说明只能有一处 ——
-    两处各写一份, 迟早一处改了另一处没改（而模型只学会它看到的那一份）。
+    ⚠️ 从前它与 `record` 共用一份（因为切分权在 R1）; 3b-2 把切分权冻结给 R0 之后,
+    record 换成了 `_RECORD_CONTRACT`（"按骨架填"）—— **两句话术不同**:
+    一份说"怎么切", 一份说"怎么填"。谁把它们合回去, `test_schema_record_phase`
+    与这条会一起红。
     """
     bond = digest_registry.build_schema(PHASE_SPLIT, domain="bond")
     mmt = digest_registry.build_schema(PHASE_SPLIT, domain="mmt")
-    assert "这一章恰好 1 条" in bond
-    assert "需要切分" in mmt and "0~5 条" in mmt
-    # 多章时那份改写也在（R1 的同一条纪律）
+    assert "这一章恰好 1 件" in bond
+    assert "需要切分" in mmt and "必须覆盖全部" in mmt
+    # 多章时那份改写也在
     multi = digest_registry.build_schema(PHASE_SPLIT, domain="bond", chapter_count=2)
     assert "本段含 **2 章**" in multi
+    # ⭐ 两边**不共用**了: record 那份说的是"骨架里每一条切片给一行"
+    rec = digest_registry.build_schema(PHASE_RECORD, domain="mmt")
+    assert "每一条切片给一行" in rec and "必须覆盖全部" not in rec
 
 
 def test_split_prompt_does_not_restate_the_schema_criteria():
@@ -380,29 +385,25 @@ def test_round_a_bad_kind_rejected():
 # T14 板指针 event_seq + verbatim 记录行号（2026-09-15; ⑤ 2026-09-29 收成单通道）
 # ---------------------------------------------------------------------------
 
-def test_round_a_event_seq_pointer_validated():
-    """★ `event_seq` = **板指针**（§3.3.1）——⊆ 本段 seq 集, 抄错丢弃。
+def test_round_a_position_fields_are_retired():
+    """⛔ **`event_seq` / `span` 都退役了**（3b-2, 2026-09-29）—— 位置归 R0 的骨架。
 
-    旧版把它列为引擎字段**直接丢弃**, 而 `digest.py` 又覆写成常量
-    → 板指针从来没存在过（实测 `[60]` 而板最大 55）。
+    从前这两条是"她指位置"的两代写法（`event_seq` 逐点 → `span` 区间）,
+    各自带一整套 ⊆ 校验 / 退化 / 记录级收下。切分权归 R0 之后,
+    **没有"她的位置"可错了**（位置是引擎按骨架算的）⇒ 整套逻辑随之消失,
+    只剩下"写了就记一句 warning"（让契约漂移**可见**, 但不影响产出）。
+
+    ⚠️ 这条用例钉的是**退役的形状**: 谁想把 `span` 加回来, 它会先红。
     """
-    items, result = digest_registry.parse_round_a(
-        {"episodes": [_ep(event_seq=["28", "30", "999", "坏"])]},
-        seq_set={28, 30, 32})
-    assert items[0]["event_seq"] == [28, 30], items[0]   # 999/坏 逐条丢弃
-    assert any("999" in w for w in result.warnings)
-    # 去重 + 记录级写法按事件收下（并提醒）
-    items2, res2 = digest_registry.parse_round_a(
-        {"episodes": [_ep(event_seq=["28", "28", "30.1"])]}, seq_set={28, 30})
-    assert items2[0]["event_seq"] == [28, 30]
-    assert any("记录级" in w for w in res2.warnings)
-    # 不传 seq_set → 不校验（老调用方/单测）
-    items3, _ = digest_registry.parse_round_a({"episodes": [_ep(event_seq=[7])]})
-    assert items3[0]["event_seq"] == [7]
-    # 没有 event_seq → **不落字段**（引擎回落段级常量, 不编）
-    items4, _ = digest_registry.parse_round_a({"episodes": [_ep()]}, seq_set={28})
-    assert "event_seq" not in items4[0]
-    print("    event_seq: 板指针 ⊆ 校验 + 坏项逐条丢弃 + 缺省不落字段")
+    for gone, val in (("event_seq", ["28", "30"]), ("span", [28, 30])):
+        items, res = digest_registry.parse_round_a(
+            {"episodes": [_ep(**{gone: val})]}, seq_set={28, 30})
+        assert gone not in items[0], items[0]
+        assert any(gone in w and "退役" in w for w in res.warnings), res.warnings
+        assert res.errors == ()                      # 退役字段不废整包
+    # 契约文本里也不许再有它（防"示例又把形状教回来"）
+    assert '"span"' not in digest_registry.build_schema(PHASE_RECORD)
+    print("    span/event_seq: 已退役（写了只记 warning, 契约里不再渲染）")
 
 
 def test_round_a_verbatim_is_record_indices_only():
@@ -447,87 +448,38 @@ def test_schema_documents_pointer_and_channels():
     并且**示例 JSON 里不再带 `"kind": "episode"`**（示例才是形状的来源, 陷阱 3/46）。
     """
     text = digest_registry.build_schema(PHASE_RECORD)
-    assert "span" in text and "指位置, 不是打分" in text
-    assert "覆盖【哪一段】" in text
     assert "28.3" in text and "20.p" in text
     assert "记录行号" in text
     assert "只给行号" in text and "写成字符串会被忽略" in text
     assert "默认就是" in text and "不用写 `kind`" in text
-    # ⚠️ 旧形状**不再**出现在给 LLM 看的文案里（只在 parse 层作兼容收下）
+    # ⭐ **3b-2（2026-09-29）: 位置归骨架** —— 契约要同时说清两件新事
+    assert "本段骨架" in text, "契约没告诉它按骨架填"
+    assert "顺序一一对应" in text
+    assert '"drop"' in text and "drop" in text
+    # ⛔ 两代"她指位置"的写法都退役了（谁想把它们加回来, 这条先红）
+    assert '"span"' not in text
     assert '"event_seq"' not in text
     assert "两条通道" not in text
     assert '"kind": "episode"' not in text            # 示例里不该再出现这一行
-    print("    schema: 位置区间(span) + verbatim 记录行号 + kind 只在例外时写")
+    print("    schema: 按骨架填 + drop + verbatim 记录行号 + kind 只在例外时写")
 
 
 # ---------------------------------------------------------------------------
-# ⭐ N3（2026-09-29）: 位置 = **区间** `span: [起, 止]`（原来是逐点挑选 `event_seq`）
-#    病根真机实测: 挑点必然漏 —— 覆盖率只有 67.9%（218 条内容事件里 70 条没进任何记忆）
+# ⛔ N3 的 `span`（区间）与更早的 `event_seq`（逐点）**2026-09-29 / 3b-2 退役** ——
+#    位置（一条经历覆盖哪一段）改由 **R0 的骨架**定, R1 只按顺序填。
+#    真机病根不复存在: 从前"她挑点/划区间"必然漏（覆盖率 67.9%）, 现在切分员
+#    的产出**可机械校验**（未认领 = 0）。
 # ---------------------------------------------------------------------------
 
-def test_span_accepts_interval_and_degenerates():
-    """`span: [28, 30]` 收下；**单值退化成一块**；>2 端点只取首尾。"""
-    items, res = digest_registry.parse_round_a(
-        {"episodes": [_ep(span=[28, 30])]}, seq_set={28, 29, 30, 31})
-    assert items[0]["span"] == [28, 30] and not res.errors
-    items2, _ = digest_registry.parse_round_a(
-        {"episodes": [_ep(span=28)]}, seq_set={28})
-    assert items2[0]["span"] == [28, 28]
-    items3, res3 = digest_registry.parse_round_a(
-        {"episodes": [_ep(span=[28, 29, 30, 31])]}, seq_set={28, 31})
-    assert items3[0]["span"] == [28, 31]
-    assert any("只取首尾" in w for w in res3.warnings)
-    print("    span: 区间 / 单值退化 / 多端点取首尾")
-
-
-def test_span_rejects_bad_shape_without_killing_the_pack():
-    """⚠️ 坏区间**告警不废整包** —— 一个坏区间不该让她重写整段（与 `_clean_seq_list` 同纪律）。
-
-    坏法逐条: 起止反了（**不自动交换**）· 端点不存在 · 非数组 · 坏编号 · 空数组。
-    四种坏法下 **`text` 都还在**（位置丢了 ≠ 记忆丢了）。
-    """
-    for bad, why in (([30, 28], "起止反了"), ([28, 99], "端点不存在"),
-                     ("x", "不是编号"), ([], "空数组"), ({"a": 1}, "不是数组")):
+def test_position_fields_are_gone_and_do_not_break_the_pack():
+    """退役后的形状: 写了 `span`/`event_seq` ⇒ **只记一句 warning**, 内容照收。"""
+    for gone, val in (("span", [28, 30]), ("event_seq", ["28", "30"])):
         items, res = digest_registry.parse_round_a(
-            {"episodes": [_ep(span=bad)]}, seq_set={28, 29, 30})
-        assert len(items) == 1, f"{why}: 整条被丢了"
-        assert items[0]["text"] and "span" not in items[0]
-        assert res.warnings, f"{why}: 没告警"
-    # 起止反了**不被偷偷交换**
-    items, _ = digest_registry.parse_round_a(
-        {"episodes": [_ep(span=[30, 28])]}, seq_set={28, 30})
-    assert "span" not in items[0]
-    print("    span: 五种坏法 ⇒ 告警 + 只丢位置, 丢不了记忆")
-
-
-def test_span_accepts_record_level_index_with_warning():
-    """端点写成记录级 `"28.3"` ⇒ 取事件部分 `28` + 告警（与 `_clean_seq_list` 同款）。"""
-    items, res = digest_registry.parse_round_a(
-        {"episodes": [_ep(span=["28.3", "30.p"])]}, seq_set={28, 30})
-    assert items[0]["span"] == [28, 30]
-    assert any("记录级" in w for w in res.warnings)
-    print("    span: 记录级索引取事件部分")
-
-
-def test_legacy_event_seq_still_accepted_but_warned():
-    """⭐ **旧形状仍收**（防契约漂移时整条丢位置）, **但不展开** + 告警（宁缺勿错）。
-
-    ⚠️ 为什么不把 `["14","16","18"]` 自动转成 `[14, 18]` 区间: 那是她**自己挑的点**,
-    转区间 = **替她加上她没声称的事件**。位置形状的漂移要**看得见**（告警）, 不能替她猜。
-    """
-    items, res = digest_registry.parse_round_a(
-        {"episodes": [_ep(event_seq=["14", "16", "18"])]}, seq_set={14, 16, 18})
-    assert items[0]["event_seq"] == [14, 16, 18] and "span" not in items[0]
-    assert any("旧形状 event_seq" in w for w in res.warnings)
-    # `span` 优先: 两个都给 ⇒ 只收 span
-    items2, _ = digest_registry.parse_round_a(
-        {"episodes": [_ep(span=[14, 18], event_seq=["14", "16"])]},
-        seq_set={14, 16, 18})
-    assert items2[0]["span"] == [14, 18] and "event_seq" not in items2[0]
-    # 两个都不给 ⇒ 没有位置（节点 `event_seq` 为空 ⇒ `_node_ts` 回落段 ts）
-    items3, _ = digest_registry.parse_round_a({"episodes": [_ep()]}, seq_set={14})
-    assert "span" not in items3[0] and "event_seq" not in items3[0]
-    print("    span 优先 / 旧形状兼容 + 告警 / 都不给 = 没位置")
+            {"episodes": [_ep(**{gone: val})]}, seq_set={28, 29, 30})
+        assert len(items) == 1 and items[0]["text"]
+        assert gone not in items[0]
+        assert any(gone in w and "退役" in w for w in res.warnings), res.warnings
+        assert res.errors == ()
 
 
 # ---------------------------------------------------------------------------

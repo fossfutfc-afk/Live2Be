@@ -464,6 +464,48 @@ def test_empty_skeleton_stops_the_content_rounds(tmp_path):
     print("    空骨架: 对着切片的几轮全不发; 收口照常（没约定时它自己跳过）")
 
 
+def _seg(i: int) -> dict:
+    """一条切片（给 `_align_to_skeleton` 的单测用）。"""
+    return {"span": [i, i], "keep": "temporary", "abstract": f"第{i}件", "seqs": [i]}
+
+
+def test_align_to_skeleton_three_judgements():
+    """⭐ 3b-2 的核心对位: **位置与条数都归 R0**, 她只填（+ 唯一的裁决权 `drop`）。
+
+    三条判据（都是"谁说了算"）:
+      · 位置: 取 `segments[i]["seqs"]` —— 条目**自带**的 `span`/`event_seq` 一律不读;
+      · 多写: **挂在末条切片上**（不丢 —— 一条切片能长不止一条记忆）+ 一行 warning;
+      · 少写: 那几条切片没人填 ⇒ 进 D1 台账（`unfilled`）;
+      · `drop`: 不落节点, 但要**占位**（否则后面几条会错位）。
+    """
+    from core.digest.rounds.record import _align_to_skeleton
+
+    segs = [_seg(4), _seg(5)]
+    # ① 正常: 一条对一条; 顺带钉住"自带 span 不看"
+    out, gaps = _align_to_skeleton(
+        [{"text": "a", "span": [99, 99]}, {"text": "b"}], segs)
+    assert [e["seqs"] for e in out] == [[4], [5]], out
+    assert gaps == {"dropped": [], "unfilled": []}
+
+    # ② 多写: 三条对两条 ⇒ 第 3 条附在**末条切片**上
+    out2, gaps2 = _align_to_skeleton(
+        [{"text": "a"}, {"text": "b"}, {"text": "c"}], segs)
+    assert [e["seqs"] for e in out2] == [[4], [5], [5]], out2
+    assert gaps2 == {"dropped": [], "unfilled": []}
+
+    # ③ 少写: 只给一条 ⇒ 第 2 条切片没人填（进账）
+    out3, gaps3 = _align_to_skeleton([{"text": "a"}], segs)
+    assert [e["seqs"] for e in out3] == [[4]]
+    assert len(gaps3["unfilled"]) == 1 and "第5件" in gaps3["unfilled"][0], gaps3
+
+    # ④ drop: 不落节点、但占位（后一条仍对到第 2 条切片）
+    out4, gaps4 = _align_to_skeleton(
+        [{"drop": True}, {"text": "b"}], segs)
+    assert [e.get("text") for e in out4] == ["b"] and out4[0]["seqs"] == [5], out4
+    assert len(gaps4["dropped"]) == 1 and gaps4["unfilled"] == []
+    print("    对位: 位置取切片 / 多写附末条 / 少写进账 / drop 占位 ✓")
+
+
 def test_batch_rollback_also_drops_the_close_warnings(tmp_path):
     """⭐ 回滚清单由表推导**修掉的那笔漏网**: R4 的世界校验告警也必须一并作废。
 
