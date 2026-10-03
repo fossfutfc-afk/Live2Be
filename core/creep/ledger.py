@@ -126,7 +126,7 @@ def read_raw(store, char_id: str, *, session_id: str = "",
     """读回本世界线的全部 creep 账（**严格**: 坏行要响, 不静默丢）。
 
     Args:
-        bad_out: 可选传出参数 —— 坏行说明（同 `parse_round_a` 的 `on_mind_out` 手法:
+        bad_out: 可选传出参数 —— 坏行说明（同 `parse_round_a` 收出参的手法:
             不改返回签名, 老调用方零改动）。坏行**一律**另打一条 `logger.warning`。
 
     Returns:

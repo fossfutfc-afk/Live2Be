@@ -4,9 +4,8 @@
 料（表里那两行）: 还开着的约定（带编号 —— 它要照着 `id` 写 `close`）· 本段新增的经历
 （真 id —— `add` / `close` 的 `refs` 只能引它们）。
 
-⚠️ **它是 note 的唯一收口处**（2026-09-29）: `promise` 槽归它, ⭐ 而 `on_mind` 归 R1
-（`record.py`）—— 两者共用 `DigestResult.notes_ops` 这条交付通道, 所以 R1 先 append、
-这里**必须是 `extend` 而不是覆盖**。
+⚠️ **它是 note 的唯一写者**（2026-09-29 / N4e）: `pinned` 槽归它; ⛔ 曾经与本轮共用一个
+写入点的 `on_mind` 已退役（*"太煽情了"*）⇒ `notes_ops` 这条通道**只有这一处会 append**。
 
 ⚠️ 它产的 note 操作**不在这里 append 进事件流**: 挂在 `result.notes_ops` 上, 由调用方在
 **整批 `ok` 之后**才写（失败 = 整批回滚 ⇒ 那条约定原样开着; 事件 append 不可撤销,
@@ -47,7 +46,9 @@ def run(ctx: Ctx) -> RoundOut:
     if rows is None:
         return RoundOut.failed()
     closures = apply_closures(ctx.store, rows, note_state=note_state, ts=ctx.now_ts)
-    # ⚠️ **extend 不覆盖** —— `notes_ops` 里已经有 L1 交来的那句 `on_mind`（N4a）
+    # ⚠️ **extend 不覆盖** —— 这条通道的语义是"把本批的操作并进来"。
+    # （N4e 之前 R1 也会往里 append 一句 `on_mind`; 那个槽退役后这里其实只有本轮的产出,
+    # 但 `extend` 的口径**保持不动** —— 它描述的是通道契约, 不是今天的调用者数量。）
     ctx.result.notes_ops.extend(closures.ops)          # ⚠️ 调用方等 ok 之后才 append
     ctx.result.notes_warnings = list(closures.warnings)
     for w in closures.warnings:

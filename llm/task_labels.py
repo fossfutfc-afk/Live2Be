@@ -51,7 +51,8 @@ DIGEST_ATTRIBUTE = "digest.attribute"
 #: 吃"她连过的块"（`akin` 连通块）, 产**群节点 + `member_of` 边**（引擎切块 + 只起名）
 DIGEST_GROUP = "digest.group"
 # ⚠️ ~~`DIGEST_PANORAMA`~~（全景轮）**2026-09-29（N4a）已退役** —— 它没有输出了
-# （`habits` 槽取消 · `on_mind` 改由 Round A 写）。别把它加回来。
+# （`habits` 槽取消 · `on_mind` 改由 Round A 写; ⛔ 后者 2026-09-29 / N4e 也退役了）。
+# 别把它加回来。
 #: 主链（创作）——MMT 消息流 / Bond 记录流
 MMT = "mmt"
 BOND = "bond"

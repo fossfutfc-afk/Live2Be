@@ -4,8 +4,10 @@
 覆盖**纯函数层**: 操作事件 → `NotesState` → 注入块。
 （`soul/notes.json` 的落盘与引擎注入是后续步骤, 不在这里。）
 
-纪律都钉在这里: `close` 必须给理由 · `id` 只增不复用 · `rewrite` 只碰 B 类槽 ·
-`refs` 悬空只告警 · 上限只告警 · 频次不进注入。
+纪律都钉在这里: `close` 必须给理由 · `id` 只增不复用 · `refs` 悬空只告警 ·
+上限只告警 · 频次不进注入。
+⛔ N4e（2026-09-29）: `on_mind` 槽退役 ⇒ "`rewrite` 只碰 B 类槽"这条纪律连同
+二分一起消失, 旧 `rewrite` 事件被**静默吞掉**（动作名留着, 见 `fold`）。
 """
 import logging
 import sys
@@ -132,26 +134,41 @@ def test_next_n_guard_prevents_id_reuse():
                       base=st).pinned[-1].id == "n8"
 
 
-def test_on_mind_is_one_idless_prose_line():
+def test_rewrite_event_is_a_silent_noop_after_retirement():
+    """⛔ N4e（2026-09-29）: `on_mind` 槽退役 ⇒ 旧 `rewrite` 事件**静默吞掉**。
+
+    判据不是"零读者"而是**时间尺度**（用户: *"它太煽情了, 煽情的剧情过去了,
+    就不必一直耿耿于怀了"*）。⚠️ 但**动作名不能删** —— 真机 seq 263 那条
+    `note/rewrite` 躺在事件流里, 落到 else 分支会打一条永远修不掉的"未知操作"告警。
+    """
     st = notes.fold([_ev(1, N_REWRITE, {"on_mind": {"text": "最近在想的那件事",
-                                                    "refs": ["m2"]}}, ts=T0)])
-    assert st.on_mind is not None
-    assert st.on_mind.id == ""                        # 单条散文: **不发号**（没人会 close 它）
-    assert st.on_mind.since == T0
-
-    # 正文没变 → 保住"第一次这么想"的时刻; 变了 → 重新计时
-    st2 = notes.fold([_ev(2, N_REWRITE, {"on_mind": {"text": "最近在想的那件事",
-                                                     "refs": ["m2"]}}, ts=T1)], base=st)
-    assert st2.on_mind.since == T0
-    st3 = notes.fold([_ev(3, N_REWRITE, {"on_mind": {"text": "换了一件事",
-                                                     "refs": ["m3"]}}, ts=T1)], base=st2)
-    assert st3.on_mind.since == T1 and st3.on_mind.id == ""
+                                                    "refs": ["m2"]}}, ts=T0),
+                     _ev(2, N_ADD, {"text": "周六模型店", "refs": ["m0009"]}, ts=T1)])
+    assert not hasattr(st, "on_mind")                    # 状态里没有这个字段了
+    assert [it.id for it in st.pinned] == ["n1"]          # 后面的 add 照常折进来
+    assert st.up_to_seq == 2                              # 水位照样推进（吞 = 处理过了）
 
 
-def test_rewrite_accepts_bare_string_on_mind():
-    st = notes.fold([_ev(1, N_REWRITE, {"on_mind": "就写一句话"})])
-    assert st.on_mind is not None and st.on_mind.text == "就写一句话"
-    assert st.on_mind.refs == []                      # 缺 refs → 交给 check 告警（折叠不拒）
+def test_rewrite_is_not_writable_anymore():
+    """写侧: `rewrite` 与它的构造器一起退役（留着就是一条往空槽里写的静默写路）。"""
+    assert not hasattr(notes, "rewrite_op")
+    assert not hasattr(notes, "SLOT_ON_MIND")
+    assert not hasattr(notes, "SNAPSHOT_SLOTS")
+    with pytest.raises(ValueError):
+        notes.validate_ops([{"action": N_REWRITE, "on_mind": "一句话"}])
+
+
+def test_legacy_key_is_ignored_on_read():
+    """旧档（`notes.json`）里的 `on_mind` 键**直接忽略** —— 不迁移、不报错、不留档。"""
+    st = notes.NotesState.from_dict({
+        "up_to_seq": 5, "next_n": 2,
+        "pinned": [{"text": "周六模型店", "refs": ["m0009"], "id": "n1"}],
+        "on_mind": {"text": "我给瓦片留了缝", "refs": ["m0014"]},
+    })
+    assert [it.id for it in st.pinned] == ["n1"]
+    assert not hasattr(st, "on_mind")
+    # 存回去时那个键**不再出现**（下次 save 自动把旧档改写掉）
+    assert "on_mind" not in st.to_dict()
 
 
 # ---------------------------------------------------------------------------
@@ -167,9 +184,6 @@ def test_note_event_is_a_registered_event():
     assert "action" not in ev.payload                 # action 已抬成 subtype
     ev.seq = 7                                        # seq 由 store 分配（from_dict 要求 ≥1）
     assert Event.from_dict(ev.to_dict()) is not None  # 登记过的类型才读得回来
-
-    ev2 = notes.note_event(notes.rewrite_op(on_mind="一句话"))
-    assert ev2.subtype == N_REWRITE and ev2.payload == {"on_mind": "一句话"}
 
 
 # ---------------------------------------------------------------------------
@@ -201,15 +215,8 @@ def test_check_reports_dangling_refs_missing_refs_and_caps():
     long_text = notes.fold([_add(1, text="约好" * 11)])         # 22 字 > MAX_TEXT(20)
     assert any("名词短语" in p for p in notes.check(long_text))
 
-    # ⭐ 快照槽用**自己的**标尺（2026-09-29 体检读者上线当天抓出来的不一致）:
-    # `on_mind` 是一句心境, 契约允到 60 字 —— 拿 A 槽的 20 字标尺量它会**天天误报**
-    # （真机那句 21 字的心境就是这么被报出来的）。
-    mood = notes.fold([_ev(1, N_REWRITE, {"on_mind": {"text": "我" * 21,
-                                                      "refs": ["m0009"]}})])
-    assert notes.check(mood) == [], "21 字的心境不该被 A 槽的 20 字标尺报"
-    too_long = notes.fold([_ev(1, N_REWRITE, {"on_mind": {"text": "我" * 61,
-                                                          "refs": ["m0009"]}})])
-    assert any("一句心境" in p for p in notes.check(too_long))
+    # ⛔ ~~快照槽用自己的标尺~~ **N4e（2026-09-29）取消** —— `on_mind` 退役后
+    # 槽收成一个, "按槽分标尺"那套机制一起删（判据: 没读者就删）。现在只有一个标尺。
 
 
 def test_check_no_longer_flags_closed_backlog():
@@ -236,14 +243,18 @@ def test_check_no_longer_flags_closed_backlog():
 # ---------------------------------------------------------------------------
 
 def test_render_skips_empty_slots_entirely():
-    """空槽**不印抬头** —— 常驻预算的每一行都要有内容。"""
+    """空槽**不印抬头** —— 常驻预算的每一行都要有内容。
+
+    ⛔ N4e（2026-09-29）: 空状态 + 只有 `on_mind` 的那种块**整个消失**
+    （`render_note_block` → `""`）—— 常驻块从此只装约定, 心境不再占一行。
+    """
     only_pinned = notes.render_note_block(notes.fold([_add(1)]), now=NOW)
     assert notes.GROUP_LEADS[notes.SLOT_PINNED] in only_pinned
-    assert notes.GROUP_LEADS[notes.SLOT_ON_MIND] not in only_pinned
-
-    only_mind = notes.render_note_block(
-        notes.fold([_ev(1, N_REWRITE, {"on_mind": "只有这句"}, ts=T0)]), now=NOW)
-    assert only_mind.splitlines()[1] == "  · 最近在想"
+    assert "最近在想" not in only_pinned
+    # 一份只有退役键的旧状态 ⇒ 一个字都不印
+    legacy = notes.NotesState.from_dict({"up_to_seq": 9, "next_n": 3,
+                                         "on_mind": {"text": "只有这句"}})
+    assert notes.render_note_block(legacy, now=NOW) == ""
 
 
 def test_render_closed_items_after_open_ones_with_neutral_word():
@@ -307,16 +318,21 @@ def test_render_survives_broken_since():
 # ---------------------------------------------------------------------------
 
 def test_slots_and_constants_are_consistent():
-    """A/B 二分 = "同一段只有一个写者"的实现, 别让某个槽同时落在两边。
+    """**只有一个槽** —— A/B 二分（操作式 / 快照式）随 `on_mind` 一起退役。
 
-    ⚠️ N4a（2026-09-29）: 第三槽 `habits` 已退役 ⇒ 只剩 `pinned`（A）与 `on_mind`（B）。
+    ⚠️ N4a（2026-09-29）: 第三槽 `habits` 已退役;
+    ⛔ N4e（2026-09-29）: 第二槽 `on_mind` 退役（*"太煽情了"*）⇒ 只剩 `pinned`。
     ⚠️ 2026-09-29: 槽名 `promise` → **`pinned`**；两条**每槽上限**判据退役, 换
     **总量上限 `MAX_NOTE_CHARS`**（见 `check` 的 docstring）。
     """
-    assert notes.SLOTS == (notes.SLOT_PINNED, notes.SLOT_ON_MIND)
-    assert set(notes.OPSLOTS) & set(notes.SNAPSHOT_SLOTS) == set()
-    assert set(notes.OPSLOTS) | set(notes.SNAPSHOT_SLOTS) == set(notes.SLOTS)
+    assert notes.SLOTS == (notes.SLOT_PINNED,)
+    assert notes.OPSLOTS == (notes.SLOT_PINNED,)
+    assert not hasattr(notes, "SNAPSHOT_SLOTS"), "一个槽谈不上二分"
     assert notes.MAX_NOTE_CHARS == 500, "总量上限（数值未标定, 真机看了再调）"
     assert not hasattr(notes, "MAX_PROMISE"), "每槽条数上限已退役（换总量上限）"
     assert not hasattr(notes, "MAX_HABITS") and not hasattr(notes, "SLOT_HABITS")
+    # ⛔ 退役的就是退役: 常量留着"以防万一" = 还有一条静默的写路
+    assert not hasattr(notes, "SLOT_ON_MIND")
+    assert not hasattr(notes, "MAX_ON_MIND_TEXT")
+    assert notes.GROUP_LEADS == {notes.SLOT_PINNED: "· 你自己记下的约定"}
     assert logging.getLogger("core.brain.notes") is not None

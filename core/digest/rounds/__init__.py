@@ -203,8 +203,8 @@ ROUNDS: tuple[RoundSpec, ...] = (
                          "emo_shape", "place", "place_raw", "aff_at_encoding")),
             ("experience", ("text", "subject", "verbatim", "verbatim_seq", "tags",
                             "significance", "event_seq", "ts")),
-            # ⭐ N4a: 她此刻那句心境 —— 与收口的约定共用 `notes_ops` 这条交付通道
-            ("note", ("on_mind",)),
+            # ⛔ ~~note 的 `on_mind`~~ **2026-09-29（N4e）退役** —— L1 从此只写图;
+            # note 的唯一写者是 R4 收口那一轮（下面 `close` 那格）。
         ),
         result_fields=(*CONTRACT_FIELDS, "notes_ops", "record_gaps"),
         skip="",

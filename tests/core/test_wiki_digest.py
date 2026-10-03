@@ -185,25 +185,21 @@ def test_affection_markers_excluded_from_digest_input(tmp_path):
 # 完整通过: A 建 episode → B touch/update/add → evidence/好感/水位/log
 # ---------------------------------------------------------------------------
 
-def test_round_a_produces_on_mind_note_op(tmp_path):
-    """⭐ N4a（2026-09-29）: **L1 产 `on_mind`** —— 从前那是全景轮每 10 段的活。
+def test_round_a_produces_no_note_op(tmp_path):
+    """⛔ N4e（2026-09-29）: `on_mind` 退役 ⇒ **L1 不再产任何 note 操作**。
 
-    形状: Round A 的应答里多一个同级键 `on_mind`（缺键 = 不变, 不是清空）;
-    引擎把它变成一条 `rewrite` 操作挂进 `notes_ops`（调用方**整批 ok 之后**才写）。
+    判据不是"零读者"而是**时间尺度**（用户: *"它太煽情了, 煽情的剧情过去了,
+    就不必一直耿耿于怀了"*）—— note 装的是长期随身的东西, 心境是当下的东西。
+    ⇒ 这段内容的唯一写者是 **R4 收口那一轮**; R1 只写图。
     """
     st = _seed_store(tmp_path)
+    # 就算应答里还带着旧键（旧 prompt 的残留 / 模型自己加的），也**一个字都不产**
     a = _a_episode()
     a["on_mind"] = "我给瓦片留了缝让它见光——也想给自己留一道"
     res = digest_segment(st, FakeLLM(a, _b_ok()), _events(_mmt(3, "老师", "嗯")))
     assert res.ok, res.errors
-    ops = [op for op in res.notes_ops if op.get("action") == "rewrite"]
-    assert len(ops) == 1 and ops[0]["on_mind"] == a["on_mind"], res.notes_ops
-
-    # 缺键 ⇒ **不产操作**（不变, 不是清空）
-    res2 = digest_segment(_seed_store(tmp_path / "b"), FakeLLM(_a_episode(), _b_ok()),
-                          _events(_mmt(3, "老师", "嗯")))
-    assert res2.ok, res2.errors
-    assert not [op for op in res2.notes_ops if op.get("action") == "rewrite"]
+    assert not [op for op in res.notes_ops if op.get("action") == "rewrite"], res.notes_ops
+    assert not hasattr(res, "promise_nodes")           # 随承诺退图删掉的字段, 别回来
 
 
 def test_full_pipeline(tmp_path):
