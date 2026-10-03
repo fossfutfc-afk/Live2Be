@@ -856,7 +856,7 @@ def _bond(seq, keys):
 
 
 def test_segment_emotion_keys_order_and_dedup():
-    from core.digest.pipeline import _segment_emotion_keys
+    from core.digest.material import _segment_emotion_keys
     evs = _events(_bond(1, ["tease", "smile"]), _bond(2, ["smile", "outburst"]),
                   _mmt(3, "hi", "yo"))
     assert _segment_emotion_keys(evs) == ["tease", "smile", "outburst"]

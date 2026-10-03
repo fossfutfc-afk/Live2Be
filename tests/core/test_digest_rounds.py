@@ -37,6 +37,7 @@ from llm import task_labels as T  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 PIPELINE = ROOT / "core" / "digest" / "pipeline.py"
+MATERIAL = ROOT / "core" / "digest" / "material.py"
 
 _NODE_FIELDS = {f.name for f in dataclasses.fields(BrainNode)}
 _RELS = {v for k, v in vars(graph).items() if k.startswith("REL_")}
@@ -178,13 +179,15 @@ def test_sections_check_is_wired():
 
     三条: 拼料一律走 `_sections_for`(spec, …) · 不许再有裸 `_join_sections([` 的 LLM 输入 ·
     `_sections_for` 里那条 `AssertionError` 还在。
+    ⚠️ 拆包后（2026-09-29）: **调用点**在 `pipeline.py`, **实现**在 `material.py` —— 两边都看。
     """
     src = PIPELINE.read_text(encoding="utf-8")
+    mat = MATERIAL.read_text(encoding="utf-8")
     assert src.count("_sections_for(spec,") >= len([s for s in R.ROUNDS if s.material]), \
         "有 LLM 轮没走 `_sections_for`（料就不受表管了）"
-    assert "_join_sections([" not in src, \
+    assert "_join_sections([" not in mat, \
         "还有裸 `_join_sections([` —— 那就是绕过料校对的写法（`_sections_for` 内部自己调它）"
-    assert "的料与轮次表不一致" in src, "`_sections_for` 的当场炸不见了"
+    assert "的料与轮次表不一致" in mat, "`_sections_for` 的当场炸不见了"
     print("    料: 每个 LLM 轮都过 `_sections_for` 逐字校对（对不上当场炸）")
 
 
@@ -237,7 +240,7 @@ def test_round_budgets_fit_inside_the_segment_cap():
 
 def test_round_deadline_is_the_tighter_of_the_two():
     """本轮的截止 = `min(整段硬顶, 现在 + 本轮预算)` —— 两个都要管用。"""
-    from core.digest.pipeline import _round_deadline
+    from core.digest.call import _round_deadline
     now = time.monotonic()
     # 硬顶更近（前几轮把整段拖到快超时了）→ 取硬顶
     assert _round_deadline(now + 5, 120) - now <= 5.01

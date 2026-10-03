@@ -62,34 +62,32 @@ events.jsonl 唯一真源, 可重算）。
 """
 from __future__ import annotations
 
-import json
 import logging
 import time
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any, Callable
 
-from contract.digest_registry import digest_registry
-from core.brain import groups, marks
+from core.brain import groups
 from core.brain.entities import candidate_table, hit_set, new_nodes_block, payload_block
 from core.creep import KIND_DIGEST_SKIP, build as creep_build
-from core.digest.llm_call import llm_chat
+from core.digest.call import _log_skip, _parse_for, _round_call, _system_for
+from core.digest.material import (
+    _collect_visual_prompts,
+    _episode_lines,
+    _node_texts,
+    _open_promises_text,
+    _round_b_material,
+    _sections_for,
+    _segment_emotion_keys,
+)
 from core.digest.rounds import (
     SEGMENT_HARD_CAP_SECONDS,
     Cursor,
-    RoundSpec,
-    budget_of,
     reset_result,
 )
 from core.brain.nodes import PLAYER_SUBJECT, make_node
-from core.brain.read.recall import (
-    EmbedFn,
-    recommend_candidates,
-)
-from core.brain.read.render import (
-    render_cognition_line,
-    render_cognition_list,
-)
+from core.brain.read.recall import EmbedFn
+from core.brain.read.render import render_cognition_list
 from core.brain.revise import (
     apply_attribution,
     apply_closures,
@@ -546,145 +544,10 @@ def digest_segment(
 
 
 # ---------------------------------------------------------------------------
-# 轮次调用（调用 + parse + 反馈回灌, feedback 语义）
-#
-# ⚠️ 每轮"是谁 / 用哪份 prompt / 哪个契约相位 / 怎么解析 / 吃什么"全在
-#    `core/digest/rounds.py` 的表里 —— 下面三件套只是把表里的声明**接上执行**,
-#    调用点不再各写一份字面量（写了就会漂）。
-# ---------------------------------------------------------------------------
-
-def _system_for(spec: RoundSpec, **schema_kw) -> str:
-    """这一轮的 system = 对应 prompt 文件 + 该轮的**产出契约**（`{{digest_schema}}`）。
-
-    `schema_kw` 给 `build_schema` 的分域参数（只有 R1 需要: `domain` / `chapter_count`）。
-    """
-    return load_prompt(spec.prompt).replace(
-        "{{digest_schema}}", digest_registry.build_schema(spec.phase, **schema_kw))
-
-
-def _parse_for(spec: RoundSpec, **ctx) -> Callable[[dict], tuple[Any, Any]]:
-    """把表里那个 parse 函数绑上**这一轮的上下文**（`seq_set` / `episode_ids` / `block_ids`…）。
-
-    契约层的 parse 签名统一是 `(raw, **ctx)` ⇒ 表里存函数、调用点给上下文, 两不相欠。
-    """
-    return lambda raw: spec.parse(raw, **ctx)
-
-
-def _sections_for(spec: RoundSpec, sections: list[tuple[str, str]]) -> str:
-    """按表校对**料的段标题**再拼装 —— 表说这一轮吃什么, 这里就必须是那几段。
-
-    ⚠️ 只校标题（"吃什么"的地图）, 不校正文（正文由各家现算）。对不上 = 表在骗人,
-    所以**当场炸**而不是静默放行 —— 这正是"料跨 3~4 个文件"的解药:
-    想知道 R2 吃什么, 看表一行就够, 而表**不可能**与实际不符。
-    """
-    got = tuple(title for title, _ in sections)
-    if got != spec.material:
-        raise AssertionError(
-            f"digest {spec.key!r} 的料与轮次表不一致: 表={spec.material} 实际={got}"
-            "（改料就要改 core/digest/rounds.py 的 ROUNDS）")
-    return _join_sections(sections)
-
-
-def _log_skip(spec: RoundSpec) -> None:
-    """跳过这一轮 —— 那句日志的文案也来自表（`skip` 是唯一真源）。"""
-    logger.info("digest_%s 跳过（%s）", spec.key, spec.skip)
-
-
-def _round_call(
-    llm,
-    system: str,
-    user: str,
-    *,
-    spec: RoundSpec,
-    model: str | None,
-    temperature: float,
-    max_tokens: int,
-    llm_timeout: float | None,
-    extra_body: dict | None,
-    hard_deadline: float,
-    parse_fn: Callable[[dict], tuple[Any, Any]],
-    result: DigestResult,
-) -> tuple[Any | None, dict | None]:
-    """一轮 LLM 调用: 调用 → parse → 结构被拒 → assistant 原文 + 错误回灌重试 1 次。
-
-    ⭐ **本轮的截止在这里算**: `min(整段硬顶, 现在 + 本轮预算)`（预算取自轮次表）。
-    从前全段共享一个 deadline ⇒ 前几轮一慢, 后面几轮**集体被饿死**, 而报错还看不出
-    是哪一轮。现在单轮慢只影响它自己, 失败文案也带轮次。
-
-    ⭐ 回灌走 `llm.client.feedback`（**唯一实现** —— 同 bond/mmt 的形状:
-    "assistant 手写被拒原文 + user 走 helper"）; 措辞与从前逐字相同。
-
-    `result` 只用到 `errors` / `llm_calls` 两个字段 ⇒ A/B 轮（`DigestResult`）与
-    （全景轮退役前曾与它共用这条路径 —— N4a 起只剩 digest。）
-
-    Returns:
-        (parsed, last_resp): parsed None = 该轮失败（result.errors 已填, 调用方回滚）
-    """
-    round_deadline = _round_deadline(hard_deadline, budget_of(spec))
-    label = spec.label
-    msgs = [{"role": "system", "content": system},
-            {"role": "user", "content": user}]
-    for attempt in range(MAX_FEEDBACK_RETRIES + 1):
-        resp, call_err = llm_chat(llm, system, "", messages=msgs, model=model,
-                                  temperature=temperature, max_tokens=max_tokens,
-                                  extra_body=extra_body, deadline=round_deadline,
-                                  timeout=llm_timeout, label=label)
-        if resp is None:
-            result.errors.append(
-                _call_failed(label, call_err, round_deadline, hard_deadline))
-            return None, None
-        result.llm_calls += 1
-        if not isinstance(resp, dict):
-            result.errors.append(f"digest 轮次 {label}: LLM 输出非 JSON 对象")
-            return None, resp
-        parsed, vr = parse_fn(resp)
-        if vr.is_valid:
-            return parsed, resp
-        if attempt < MAX_FEEDBACK_RETRIES:
-            # feedback 语义: 同一上下文——追加被拒输出 + 引擎错误（见 `llm.client.feedback`）
-            msgs.append({"role": "assistant",
-                         "content": json.dumps(resp, ensure_ascii=False)})
-            feedback(msgs, "【引擎校验反馈（上一轮输出被整包拒绝,"
-                           " 请修正后重新输出完整 JSON）】\n"
-                           + "\n".join(f"- {e}" for e in vr.errors))
-            continue
-        result.errors.extend(vr.errors)
-        return None, resp
-    return None, None                                     # unreachable
-
-
-def _round_deadline(hard_deadline: float | None, budget: float) -> float | None:
-    """本轮的截止时刻 = `min(整段硬顶, 现在 + 本轮预算)` —— **判据在这一行**。
-
-    两个都要: 只看本轮预算 ⇒ 段可以无限长（半小时那次事故）; 只看整段硬顶 ⇒
-    前几轮一慢就把后面的轮饿死（刀 1 要修的那个病）。
-    """
-    if budget <= 0:
-        return hard_deadline
-    soft = time.monotonic() + budget
-    if hard_deadline is None:
-        return soft
-    return min(hard_deadline, soft)
-
-
-def _call_failed(label: str, call_err: str | None, round_deadline: float | None,
-                 hard_deadline: float | None) -> str:
-    """一轮调用失败的记账 —— **带上轮次**, 并说清是"本轮预算用完"还是"整段硬顶到了"。
-
-    从前这句是裸的 `LLM 调用撞上时间预算`（`llm_call` 的原文）, grep 出来分不出
-    是哪一轮、也分不出是哪种预算 ⇒ 事后无法定位"谁把时间吃掉了"。
-    """
-    msg = call_err or "LLM 调用失败"
-    if round_deadline is None:
-        return f"digest 轮次 {label}: {msg}"
-    left = round_deadline - time.monotonic()
-    hit_cap = hard_deadline is not None and round_deadline >= hard_deadline
-    which = "整段硬顶到了" if hit_cap else "本轮预算用完"
-    return f"digest 轮次 {label}: {msg}（{which}, 离本轮截止还剩 {max(left, 0.0):.0f}s）"
-
-
-# ---------------------------------------------------------------------------
 # 引擎侧: 建节点 / 渲染 / 清洗
+#
+# ⚠️ 2026-09-29 拆包: 料（各轮吃什么）在 **`core/digest/material.py`**,
+#    一轮调用的四件套在 **`core/digest/call.py`** —— 本文件只剩**编排与事务**。
 # ---------------------------------------------------------------------------
 
 def _segment_domain(events: list) -> tuple[str, list[dict], frozenset]:
@@ -982,186 +845,6 @@ def _link_akin(store: WikiStoreV2, episode_ids: list[str], noticed: list, *,
         edges += 1
         logger.info("digest_akin new=%s old=%s", src, hit)
     return edges, lost, self_skip
-
-
-def _node_texts(store: WikiStoreV2, ids: list[str]) -> list[str]:
-    """本轮新节点的正文（喂 `entities.hit_set` 扫称呼用）。
-
-    连 `title` / `verbatim` 一起给 —— 称呼常出现在这两处（"老师"多半在标题或原话里,
-    而不在她自己那句总结里）。取不到 → 跳过（绝不编）。
-    """
-    out: list[str] = []
-    for nid in ids:
-        node = store.get(str(nid))
-        if node is None:
-            continue
-        for t in (node.text, node.title, node.verbatim):
-            if isinstance(t, str) and t.strip():
-                out.append(t)
-    return out
-
-
-def _open_promises_text(items: list) -> str:
-    """R4 输入之一: **还开着的约定**（带编号 —— 它要照着 `id` 写 `close`）。
-
-    行格式复用注入块的 `notes.render_item`（`n3 周六模型店 (m0009)  ← 记于 3 天前`）——
-    ⚠️ **一份行格式只有一个实现**（两个写者必然漂移）。
-    """
-    from core.brain.notes import render_item
-    return "\n".join(f"- {render_item(it)}" for it in items)
-
-
-def _episode_lines(store: WikiStoreV2, episode_ids: list[str]) -> str:
-    """R4 输入之二: **本段新增的经历**（真 id —— `add`/`close` 的 `refs` 只能引它们）。
-
-    ⭐ **2026-09-29**: 行首那一段从 `- m0021 「标题」 正文` 改成 **`- 〔m0021｜《标题》〕正文`**
-    —— 与 R2 的新经历行（`_round_b_material`）**同一个头**, 由 `marks.head` 出
-    （唯一实现）。⚠️ 原来标题写 `「」`, 而她那份视图里 `「」` 是**逐字原话**
-    ⇒ 同形不同义; 而 `「」` 恰恰是会让她**抄错东西**的那种形状。
-    ⚠️ **没起名就不出名字格**（不印"（无题）"这种假名字）—— 钥匙仍在, 她照样引得到。
-    """
-    lines: list[str] = []
-    for nid in episode_ids:
-        node = store.get(nid)
-        if node is None:
-            continue
-        head = node.text if len(node.text) <= 120 else node.text[:120] + "…"
-        lines.append(f"- {marks.head(node, key=node.id)}{head}")
-    return "\n".join(lines)
-
-
-def _round_b_material(store: WikiStoreV2, episode_ids: list[str],
-                      local_of: dict[str, str],
-                      embed_fn: EmbedFn | None,
-                      *, char_id: str = "") -> str:
-    """Round B 输入: 新经历摘要 + 每条引擎候选提示（板块 5）。
-
-    每条 episode 用 text 走 recommend_candidates 与现有认知碰撞,
-    把最像的几条**列出来给 LLM 参考**（⭐ N2 起: 带正文 + 被引 + 边 + 为什么）。
-
-    ⭐ **N2（2026-09-29）两处形态变化**（都是"看不见就写不出来"那条）:
-      · 新经历行: `m0025 「标题」 正文` → **`〔m0025｜《标题》〕正文`**
-        （编号是钥匙、书名号里是 gist; 顺带修 `「」` 与她视图里"逐字原话"的同形不同义）
-      · 候选行: `→ 候选(sim 0.72): u0001 u0003` → **每条候选一行**,
-        带 `〔u0001｜belief｜被引 3〕正文` + 边续行 + `为什么: tags[…]/语义 …`
-        （旧形态要求 LLM 自己去翻上面那张表, 而"为什么推荐"完全看不见）
-
-    ⚠️ **候选只是提示, 不分档、不强制**（2026-09-15 T17）: 原先
-    `≥CAND_HIGH` 会标【疑似同主题】并让 parse 层**结构强制**禁 `add`——
-    而那个阈值从未标定过、实测两模型皆 6/6 全越线 → 新认知永远长不出来。
-    现在排序取 top-k 无条件列出，判断全在 LLM（判 add 要在 note 里说明理由）。
-
-    **2026-09-13 V3-0（DESIGN_WIKI_V3 §3.5）**: 末尾打一行**写路径召回台账**
-    `recall_write char=… eps=… cands=… best=… mode=…`。
-
-    Returns: episodes_text（含候选提示行）。
-    """
-    from core.brain.read import recall_ledger
-    from core.brain.read.recall import _thr, CAND_K
-
-    thr_k = int(_thr("cand_k", CAND_K))
-    acc = recall_ledger.CollisionAccount(char_id)
-    modes: list[str] = []
-
-    lines: list[str] = []
-    for nid in episode_ids:
-        node = store.get(nid)
-        if node is None:
-            continue
-        head = node.text
-        if len(head) > 120:
-            head = head[:120] + "…"
-        # 头由 `marks.head` 出（**唯一实现**）—— `〔m0025｜《今天的杂草屋》〕正文`。
-        # 编号是**钥匙**（R2 的 decisions 用它指 episode, 真实 id）；
-        # 书名号里是**gist**（正文被截到 120 字, 8~16 字的名字是"这是哪件事"的压缩）。
-        lines.append(f"{marks.head(node, key=node.id)}{head}")
-        if node.verbatim:
-            lines.append(f"    原话: {node.verbatim}")
-        query = f"{node.text} {node.verbatim}".strip()
-        why: list[str] = []
-        cands = recommend_candidates(store, query, embed_fn=embed_fn,
-                                     mode_out=modes, why_out=why)
-        cands = [(c, s) for c, s in cands if c.id in local_of]   # 只标已渲染的
-        acc.episode(n_cand=len(cands),
-                    best_sim=(cands[0][1] if cands else 0.0))
-        if cands:
-            # ⭐ N2: 候选不再只给编号 —— **编号 + 正文 + 被引 + 边 + 为什么被推荐**。
-            # 旧形态 `→ 候选(sim 0.72): u0001 u0003` 要求它自己去翻上面那张表,
-            # 而"为什么推荐"（tags 命中 / 语义）今天完全看不见 —— 看不见就判不准。
-            best = cands[0][1]
-            reason = why[0] if why else ""
-            lines.append(f"    → 候选 {best:.2f}（为什么: {reason}）:")
-            graph = store.graph()
-            for i, (c, _s) in enumerate(cands):
-                rows = render_cognition_line(store, c, graph, local_of, max_body=60,
-                                             indent="       ")
-                # ⭐ 只有第一个候选带边续行（后面几个是备选, 印全了纯占地方）
-                lines.extend(rows if i == 0 else rows[:1])
-            lines.append("       （仅供参照, 同主题就 touch/update, 不同主题就 add）")
-
-    # 通道口径: 全程 semantic / 全程 keyword / 混合（部分 episode 失败降级）
-    if modes and all(m == "semantic" for m in modes):
-        acc.mode = "semantic"
-    elif modes and all(m == "keyword" for m in modes):
-        acc.mode = "keyword"
-    elif modes:
-        acc.mode = "mixed"
-    acc.log(thr_k=thr_k)
-    return "\n".join(lines) or "（无）"
-
-
-def _segment_emotion_keys(events) -> list[str]:
-    """本段所有 bond 板里**出现过的**情绪键（按首次出现顺序, 去重）。
-
-    来源 = `payload.paragraphs[i].emotion`（标注层产物, 真源在事件流里）。
-    只读不写——用于决定"给 Round A 注哪些键的标尺"（§3.3.2）。
-    缺字段/坏结构 → 跳过, 不抛（宁缺勿错: 少注一个键, 不阻断 digest）。
-    """
-    keys: list[str] = []
-    seen: set[str] = set()
-    for e in events:
-        if getattr(e, "type", None) != "bond":
-            continue
-        payload = getattr(e, "payload", None) or {}
-        for p in payload.get("paragraphs") or []:
-            if not isinstance(p, dict):
-                continue
-            k = p.get("emotion")
-            if isinstance(k, str) and k.strip() and k.strip() not in seen:
-                seen.add(k.strip())
-                keys.append(k.strip())
-    return keys
-
-
-def _join_sections(sections: list[tuple[str, str]]) -> str:
-    """输入块拼装: 非空块才注入（省 token）; 空块跳过。
-
-    ⚠️ 段头 `【】` 的构造在 `marks.section`（括号表唯一实现）—— 本函数只管"拼"。
-    ⚠️ **LLM 轮的输入一律走 `_sections_for`**（它先拿轮次表校对段标题, 再调这里）——
-    直接调本函数 = 绕过料校对, `test_sections_check_is_wired` 会红。
-    """
-    parts = [f"{marks.section(title)}\n{body}" for title, body in sections if body]
-    return "\n\n".join(parts)
-
-
-def _collect_visual_prompts(events) -> list[str]:
-    """l2d 事件的 gallery png → 同名 json 的 prompt（视觉记忆）。"""
-    prompts: list[str] = []
-    for e in events:
-        if e.type != "l2d":
-            continue
-        for img in e.payload.get("images", []) or []:
-            if not isinstance(img, str) or not img:
-                continue
-            gjson = Path(img).with_suffix(".json")
-            try:
-                meta = json.loads(gjson.read_text(encoding="utf-8"))
-                prompt = meta.get("prompt", "")
-                if isinstance(prompt, str) and prompt.strip():
-                    prompts.append(prompt.strip())
-            except (OSError, ValueError):
-                continue
-    return prompts
 
 
 def _resolve_verbatim(ent: dict, by_seq: dict) -> None:
