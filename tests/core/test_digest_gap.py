@@ -35,6 +35,7 @@ from core.digest.pipeline import digest_segment
 from core.session import SessionStore, make_event
 from core.session.io import read_jsonl
 from llm import task_labels as T
+from tests import stub_tasks
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 CHARACTER = "igusa_haruka"
@@ -60,15 +61,24 @@ def _episode_ids(messages) -> list[str]:
 
 
 class OneRound:
-    """R1 返回给定 episodes; 其余轮空包（R2 自动覆盖全部 episode）。"""
+    """R1 返回给定 episodes; 其余轮空包（R2 自动覆盖全部 episode）。
 
-    def __init__(self, episodes):
+    `split`（可选）: **手工指定 R0 那份应答**。缺省是"照搬 R1 声明的区间"——
+    要测**R1 自己**的某个坏区间时用它把 R0 摘出去（否则一个坏区间会**两处都踩**:
+    R0 的骨架被契约层丢掉 ⇒ 编排层以为"这一段没有值得记的" ⇒ R1 根本不会跑）。
+    """
+
+    def __init__(self, episodes, *, split=None):
         self.episodes = episodes
+        self.split = split
         self.tasks: list[str | None] = []
 
     def chat(self, messages, **kw):
         task = kw.get("task")
         self.tasks.append(task)
+        if task == T.DIGEST_SPLIT:            # ⭐ R0: 缺省照搬 R1 那份应答里的区间
+            return (self.split if self.split is not None
+                    else stub_tasks.split_for_scripted(messages, self.episodes))
         if task == T.DIGEST_RECORD:
             return {"episodes": self.episodes}
         if task in (T.DIGEST_UNDERSTAND, T.DIGEST):
@@ -150,8 +160,10 @@ def test_gap_row_carries_the_three_faces(tmp_path):
     """缺口段的账: 契约面（只装**真丢**的）+ 条目面（in / kept / no_pos / dropped / reused）。"""
     st = _wiki(tmp_path)
     # span 端点抄到时间线外 ⇒ 契约层丢弃整个区间（真丢）⇒ 这条没有位置
+    # ⚠️ R0 那份**手工摘出去**（给它一条好骨架）: 要测的是 **R1 自己**的坏区间 ——
+    # 若 R0 也回坏区间, 它的骨架会被丢掉 ⇒ 编排层以为这一段没有值得记的 ⇒ R1 不跑
     llm = OneRound([{"text": "端点抄错了", "title": "抄错", "span": [1, 99],
-                     "tags": ["x"]}])
+                     "tags": ["x"]}], split=_whole_segment())
     res = digest_segment(st, llm, _events(4))
 
     assert res.ok, res.errors
@@ -177,7 +189,7 @@ def test_no_position_entry_still_gets_the_segment_pointer(tmp_path):
     """
     st = _wiki(tmp_path)
     llm = OneRound([{"text": "端点抄错了", "title": "抄错", "span": [1, 99],
-                     "tags": ["x"]}])
+                     "tags": ["x"]}], split=_whole_segment())
     res = digest_segment(st, llm, _events(4))
 
     assert res.ok, res.errors
@@ -185,6 +197,11 @@ def test_no_position_entry_still_gets_the_segment_pointer(tmp_path):
     assert node.event_seq == [4], f"兜底到段级指针（interact_max=4）: {node.event_seq}"
     assert _gaps(res)[0]["evidence"]["items"]["no_pos"] == 1
     print(f"    无位置: 兜底 {node.event_seq}（行为不变）+ 账里 no_pos=1 ✓")
+
+
+def _whole_segment(*, keep: str = "temporary") -> dict:
+    """R0 交**一条覆盖整段**的切片（`_events(4)` 的区间）—— 用于把 R0 摘出去。"""
+    return {"segments": [{"span": [1, 4], "keep": keep, "abstract": "这一段"}]}
 
 
 # ---------------------------------------------------------------------------
@@ -198,16 +215,18 @@ def test_skeptical_only_when_something_was_lost(tmp_path):
     （`_drop()` 那几处 = 背后真有一个内容离开过库）。
     """
     # ① 只有形状建议（位置合法, 但缺 title/tags）⇒ 不写账
+    # ⚠️ 两条的区间要**互不相同** —— 逐字相同的区间会被契约层当重复丢掉（那是真丢）
     st = _wiki(tmp_path)
-    res = digest_segment(st, OneRound([{"text": "四句", "span": [1, 4]},
-                                       {"text": "又一条", "span": [1, 4]}]), _events(4))
+    res = digest_segment(st, OneRound([{"text": "四句", "span": [1, 2]},
+                                       {"text": "又一条", "span": [3, 4]}]), _events(4))
     assert res.contract_warnings, "这一段契约层确实说了话"
     assert _gaps(res) == [], "建议类不写账"
 
     # ② 区间端点抄到时间线外 ⇒ 契约层**丢弃整个区间**（`drops`）⇒ 真丢
     st2 = _wiki(tmp_path / "b")
     res2 = digest_segment(st2, OneRound([{"text": "端点抄错了", "title": "抄错",
-                                          "span": [1, 99], "tags": ["x"]}]), _events(4))
+                                          "span": [1, 99], "tags": ["x"]}],
+                                        split=_whole_segment()), _events(4))
     row2 = _gaps(res2)[0]
     assert row2["evidence"]["contract"]["lost"], row2["evidence"]
     assert row2.get("skeptical"), "真丢了内容 ⇒ 该有一句存疑"
@@ -262,7 +281,11 @@ def test_collapsed_entries_are_recorded(tmp_path):
     llm = OneRound([{"text": "第一种写法", "title": "写法甲", "span": [2, 3],
                      "tags": ["苔藓"], "significance": 0.3},
                     {"text": "第二种写法", "title": "写法乙", "span": [2, 3],
-                     "tags": ["苔藓"], "significance": 0.9}])
+                     "tags": ["苔藓"], "significance": 0.9}],
+                   # ⚠️ 两条**落在同一条切片**上 —— R0 那边只给一条区间
+                   # （契约层会把逐字重复的区间丢掉; 而"一章两条"正是本用例要测的）
+                   split={"segments": [{"span": [2, 3], "keep": "temporary",
+                                        "abstract": "这一章"}]})
     res = digest_segment(st, llm, _chapter_events())
 
     assert res.ok, res.errors

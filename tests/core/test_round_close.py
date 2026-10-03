@@ -31,11 +31,18 @@ CHAR = "c"
 
 
 class RoundLLM:
-    """四轮可控: A / R4 / B / R3 各给一份应答（R3 默认空包 —— 那些用例不测归属）。"""
+    """四轮可控: A / R4 / B / R3 各给一份应答（R3 默认空包 —— 那些用例不测归属）。
 
-    def __init__(self, a, close, b, attr=None):
+    `split`（可选）: 手工指定 R0 那份应答。缺省 = "照搬 R1 声明的区间; R1 空 ⇒
+    空骨架"（**空骨架是有判据的**: 编排层会拿它跳过后面几轮 —— 见
+    `RoundSpec.needs_segments`）。要测"这一段没有新经历、但有开着的约定"那种情形时,
+    必须**手工给 R0 一条非空骨架**, 否则链条在 R0 就停了。
+    """
+
+    def __init__(self, a, close, b, attr=None, *, split=None):
         self.a, self.close, self.b = a, close, b
         self.attr = {"attributions": []} if attr is None else attr
+        self.split = split
         self.calls: list[list[dict]] = []
         self.tasks: list[str | None] = []
 
@@ -43,6 +50,9 @@ class RoundLLM:
         self.calls.append([dict(m) for m in messages])
         task = kw.get("task")
         self.tasks.append(task)
+        if task == T.DIGEST_SPLIT:            # ⭐ R0: 缺省照搬 R1 那份应答里的区间
+            return (self.split if self.split is not None
+                    else stub_tasks.split_for_scripted(messages, self.a))
         if task == T.DIGEST_RECORD:
             return self.a
         if task == T.DIGEST_CLOSE:
@@ -131,8 +141,9 @@ def test_r4_runs_after_r1_and_before_r2(tmp_path):
     res = digest_segment(st, llm, _events(note, _mmt(3)))
     assert res.ok, res.errors
 
-    # 三次调用 + 顺序: A → close → B（R3 归属也跑了, 但那些用例不测它）
-    assert llm.tasks[:3] == [T.DIGEST_RECORD, T.DIGEST_CLOSE, T.DIGEST_UNDERSTAND], llm.tasks
+    # 三次调用 + 顺序: R0 → A → close → B（R3 归属也跑了, 但那些用例不测它）
+    assert llm.tasks[:4] == [T.DIGEST_SPLIT, T.DIGEST_RECORD, T.DIGEST_CLOSE,
+                             T.DIGEST_UNDERSTAND], llm.tasks
     # ⭐ R4 的料 = 还开着的约定（带编号）+ 本段新增经历（真 id）
     r4 = llm.user_of(T.DIGEST_CLOSE)
     assert "周六模型店" in r4 and "n1" in r4
@@ -172,14 +183,21 @@ def test_r4_runs_without_new_episodes_when_something_is_open(tmp_path):
     st.add(make_node("episode", text="模型店门口", event_seq=[3],
                      ts="2026-09-20T09:00:00"))       # n1 的 refs = ["m0001"]（真的在）
     note = _open_promise()
+    # ⚠️ R0 **手工给一条非空骨架**: 本用例测的是"R1 没记东西, 但 R4 照跑" ——
+    # 若让 R0 也回空骨架, 编排层会在 R0 就跳过后面几轮（那是另一条判据）
     llm = RoundLLM({"episodes": []},
                    {"add": [], "close": [{"id": "n1", "state": "broken",
                                           "afterwards": "没去成"}]},
-                   {"decisions": [], "evidence": [], "affection_exp_delta": 0})
+                   {"decisions": [], "evidence": [], "affection_exp_delta": 0},
+                   # span 只能指**内容事件**（note/add 是账目, 不进时间线 ⇒ 不在 `seq_set` 里）;
+                   # 本用例的内容事件只有 `_mmt(3)` 那一条
+                   split={"segments": [{"span": [3, 3], "keep": "temporary",
+                                        "abstract": "这一段"}]})
 
     res = digest_segment(st, llm, _events(note, _mmt(3)))
     assert res.ok, res.errors
-    assert llm.tasks[:3] == [T.DIGEST_RECORD, T.DIGEST_CLOSE, T.DIGEST_UNDERSTAND]
+    assert llm.tasks[:4] == [T.DIGEST_SPLIT, T.DIGEST_RECORD, T.DIGEST_CLOSE,
+                             T.DIGEST_UNDERSTAND], llm.tasks
     assert res.notes_ops[0]["state"] == "broken"
     assert "refs" not in res.notes_ops[0]         # 指不出 finish episode ⇒ 连这个键都没有
     # ⭐ 2026-09-29: close **不建节点**（从前这里验的是 `formed_by` 只连"说定它"那条）
@@ -238,6 +256,8 @@ class EngineLLM:
              **kw):
         task = kw.get("task")
         self.tasks.append(task)
+        if task == T.DIGEST_SPLIT:            # ⭐ R0: 照搬 R1 那份应答里的区间
+            return stub_tasks.split_for_scripted(messages, self.a)
         if task == T.DIGEST_RECORD:
             return self.a
         if task == T.DIGEST_CLOSE:

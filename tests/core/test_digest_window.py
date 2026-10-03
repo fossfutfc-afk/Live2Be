@@ -30,6 +30,7 @@ from core.digest import pipeline
 from core.digest.pipeline import digest_segment
 from core.session import make_event
 from llm import task_labels as T
+from tests import stub_tasks
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 CHAR = "c"
@@ -52,6 +53,8 @@ class Stub:
         self.tasks.append(task)
         user = str(messages[-1].get("content", ""))
         self.users.append(user)
+        if task == T.DIGEST_SPLIT:            # ⭐ R0: 照搬 R1 那份应答里的区间
+            return stub_tasks.split_for_scripted(messages, self.episodes)
         if task == T.DIGEST_RECORD:
             return {"episodes": self.episodes}
         if task in (T.DIGEST_UNDERSTAND, T.DIGEST):

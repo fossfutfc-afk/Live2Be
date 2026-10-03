@@ -17,6 +17,7 @@ from core.digest.pipeline import digest_segment
 from core.brain.entities import ensure_entities, hit_set, new_nodes_block
 from core.session import make_event
 from llm import task_labels as T
+from tests import stub_tasks
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 CHAR = "c"
@@ -36,6 +37,8 @@ class AttrLLM:
         self.calls.append([dict(m) for m in messages])
         task = kw.get("task")
         self.tasks.append(task)
+        if task == T.DIGEST_SPLIT:            # ⭐ R0: 照搬 R1 那份应答里的区间
+            return stub_tasks.split_for_scripted(messages, self.a)
         if task == T.DIGEST_RECORD:
             return self.a
         if task == T.DIGEST_CLOSE:
@@ -196,7 +199,8 @@ def test_r3_attaches_by_hint_and_writes_alias(tmp_path):
     assert res.ok, res.errors
 
     # 四轮的顺序: **A → R4 → B → R3**（§8 的批内顺序 —— 每段四步真的都跑了）
-    assert llm.tasks == [T.DIGEST_RECORD, T.DIGEST_CLOSE, T.DIGEST_UNDERSTAND, T.DIGEST_ATTRIBUTE], llm.tasks
+    assert llm.tasks == [T.DIGEST_SPLIT, T.DIGEST_RECORD, T.DIGEST_CLOSE,
+                         T.DIGEST_UNDERSTAND, T.DIGEST_ATTRIBUTE], llm.tasks
     # ⭐ 料: 候选表（只有身份）+ 本轮新节点（本地 id）
     r3 = llm.user_of(T.DIGEST_ATTRIBUTE)
     assert "c0001" in r3 and "c0002" in r3 and "u0001" in r3

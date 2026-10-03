@@ -25,6 +25,7 @@ from core.digest.pipeline import DIGEST_MAX_ATTEMPTS, digest_segment
 from core.session import SessionStore, make_event
 from core.session.io import read_jsonl
 from llm import task_labels as T
+from tests import stub_tasks
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 CHARACTER = "igusa_haruka"
@@ -66,6 +67,9 @@ class FlakyOnce:
 
     def chat(self, messages, **kw):
         task = kw.get("task")
+        if task == T.DIGEST_SPLIT:            # ⭐ R0: 照搬 R1 那份应答里的区间
+            return stub_tasks.split_for_scripted(
+                messages, [{"text": "一段经历", "title": "经历"}])
         if task == T.DIGEST_RECORD:
             self.n += 1
             if self.n == 1:
@@ -197,9 +201,10 @@ class EngineLLM:
              **kw):
         task = kw.get("task")
         self.tasks.append(task)
+        if task == T.DIGEST_SPLIT:                # ⭐ R0: 正常（后面几轮才是要测的坏）
+            return stub_tasks.split_reply(messages)
         if task in (T.DIGEST_RECORD, T.DIGEST_UNDERSTAND, T.DIGEST_CLOSE):
             return {"episodes": "坏"}                 # 一律形状错 → 整批失败
-        from tests import stub_tasks
         reply = stub_tasks.annotation_reply(task, messages)
         if reply is not None:
             return reply
