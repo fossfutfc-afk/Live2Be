@@ -36,13 +36,17 @@ logger = logging.getLogger(__name__)
 DIGEST_MAX_FEEDBACK = 1
 
 
-def _system_for(spec: RoundSpec, **schema_kw) -> str:
+def _system_for(spec: RoundSpec, *, domain: str = "mmt", chapter_count: int = 1) -> str:
     """这一轮的 system = 对应 prompt 文件 + 该轮的**产出契约**（`{{digest_schema}}`）。
 
-    `schema_kw` 给 `build_schema` 的分域参数（只有 R1 需要: `domain` / `chapter_count`）。
+    `domain` / `chapter_count` 是 `build_schema` 的分域参数（R0 与 R1 都要 ——
+    "这一段该切成几件事"的说明跟着"作者单位"走）。⚠️ 原先这里是 `**schema_kw`,
+    名单藏在 kwargs 里; 写死成具名参数之后,**谁要传什么一眼看得见**, 传错当场 TypeError。
     """
     return load_prompt(spec.prompt).replace(
-        "{{digest_schema}}", digest_registry.build_schema(spec.phase, **schema_kw))
+        "{{digest_schema}}",
+        digest_registry.build_schema(spec.phase, domain=domain,
+                                     chapter_count=chapter_count))
 
 
 def _parse_for(spec: RoundSpec, **ctx) -> Callable[[dict], tuple[Any, Any]]:

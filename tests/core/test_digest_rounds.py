@@ -36,6 +36,7 @@ from core.digest.rounds import Cursor
 from core.brain.entities import ensure_entities
 from core.session import make_event
 from llm import task_labels as T  # noqa: E402
+from tests import stub_tasks
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 PIPELINE = ROOT / "core" / "digest" / "pipeline.py"
@@ -110,6 +111,8 @@ def test_writes_names_exist_in_the_graph():
             if face not in R.FACES:
                 bad.append(f"{spec.key}: 未知的面 {face!r}")
                 continue
+            if face in R.FREE_FACES:
+                continue                     # 中间产物（`segment`）没有真源可查
             source = (_NODE_FIELDS if face in R.NODE_FACES
                       else _RELS if face == R.EDGE_FACE else _SLOTS)
             for f in fields:
@@ -164,7 +167,9 @@ def test_derived_identifiers_come_from_the_key():
         assert spec.prompt == f"{DIGEST_LOG_PREFIX}{spec.key}", \
             f"{spec.key}: prompt 该是 {DIGEST_LOG_PREFIX}{spec.key}, 实得 {spec.prompt!r}"
         assert spec.name == f"{DIGEST_LOG_PREFIX}{spec.key}", spec.name
-    assert R.ROUNDS[1].name == "digest_akin", "零 LLM 的 akin 也有日志前缀（用户裁决）"
+    # 零 LLM 的那一步（`akin`）**也有日志前缀** —— 它不再是表里的第二位（R0 插到了最前）
+    akin = next(s for s in R.ROUNDS if not s.llm)
+    assert akin.name == "digest_akin", "零 LLM 的 akin 也有日志前缀（用户裁决）"
     print("    派生: key → name / label / prompt / phase（一个都不手写）")
 
 
@@ -175,10 +180,11 @@ def test_every_phase_is_a_real_contract_phase():
     所以由这条用例来钉"key 与契约相位是同一批词"。
     """
     from contract.digest_registry import (
-        PHASE_ATTRIBUTE, PHASE_CLOSE, PHASE_GROUP, PHASE_RECORD, PHASE_UNDERSTAND,
-        digest_registry,
+        PHASE_ATTRIBUTE, PHASE_CLOSE, PHASE_GROUP, PHASE_RECORD, PHASE_SPLIT,
+        PHASE_UNDERSTAND, digest_registry,
     )
-    real = {PHASE_RECORD, PHASE_UNDERSTAND, PHASE_CLOSE, PHASE_ATTRIBUTE, PHASE_GROUP}
+    real = {PHASE_SPLIT, PHASE_RECORD, PHASE_UNDERSTAND, PHASE_CLOSE,
+            PHASE_ATTRIBUTE, PHASE_GROUP}
     for spec in R.ROUNDS:
         if not spec.llm:
             continue
@@ -338,7 +344,8 @@ def test_budget_hit_names_the_round(tmp_path):
     assert not res.ok
     assert res.llm_calls == 0                       # 预检拦下, 一次都没发
     msg = " | ".join(res.errors)
-    assert "record" in msg, msg                    # ⭐ 哪一轮（轮次 key）
+    # ⭐ 哪一轮（轮次 key）—— 硬顶已过 ⇒ 死在**第一步**（R0 切分, 表里的第一位）
+    assert R.ROUNDS[0].key in msg, msg
     assert "时间预算" in msg and "硬顶" in msg, msg    # ⭐ 哪种预算（0 秒 ⇒ 硬顶更紧）
     assert st.digested_seq == 0
     print(f"    {msg}")
@@ -383,7 +390,7 @@ def _mmt(seq, player="老师", reply="嗯"):
 
 
 class RoundLLM:
-    """R1 正常 / R4 给一条**引用坏了**的约定 / R2 引用不存在的 episode。"""
+    """R0 一头一片 / R1 正常 / R4 给一条**引用坏了**的约定 / R2 引用不存在的 episode。"""
 
     def __init__(self):
         self.tasks: list[str | None] = []
@@ -391,6 +398,8 @@ class RoundLLM:
     def chat(self, messages, **kw):
         task = kw.get("task")
         self.tasks.append(task)
+        if task == T.DIGEST_SPLIT:
+            return stub_tasks.split_reply(messages)
         if task == T.DIGEST_RECORD:
             return {"episodes": [{"text": "模型店门口", "title": "模型店门口",
                                   "tags": ["约定"]}]}
@@ -400,6 +409,59 @@ class RoundLLM:
             return {"decisions": [{"episode": "m9999", "decision": "add",
                                    "kind": "belief", "text": "关于那家店的看法"}]}
         raise RuntimeError(f"意外调用 task={task!r}")
+
+
+class _EmptySkeletonLLM:
+    """R0 交**空骨架**（"这一段没有值得记的"）; 其余轮一律不该被调到。"""
+
+    def __init__(self):
+        self.tasks: list[str | None] = []
+
+    def chat(self, messages, **kw):
+        task = kw.get("task")
+        self.tasks.append(task)
+        if task == T.DIGEST_SPLIT:
+            return {"segments": []}
+        if task == T.DIGEST_CLOSE:            # 收口吃备忘录, 空骨架时唯一还该发的一轮
+            return {"add": [], "close": []}
+        raise AssertionError(f"空骨架下不该发这一轮: {task!r}")
+
+
+def test_empty_skeleton_stops_the_content_rounds(tmp_path):
+    """⭐ R0 交空骨架 ⇒ **对着切片的那几轮一次都不发** —— 而 `close` 那一轮照常走到。
+
+    两条判据（2026-09-29 与用户定的）:
+      · 空骨架 = 切分员说"这一段没有值得记的" ⇒ 建节点/连边/归属/分群全在空转
+        （`understand` 还会被契约判形状错 —— 下面那个 `raise` 就是这条判据的探针）;
+      · ⛔ **`close`（收口）不被这条闸拦**（表里 `needs_segments=False`）: 它吃的是
+        **备忘录**, 而那条约定的翻篇**可能正好落在这一段** —— 跳过它 = 它永远开着。
+        ⚠️ "没被拦" ≠ "一定发": 它自己还有一条 `skip`（这一段没有新经历**且**
+        手上没有开着的约定 ⇒ 必然空转）。⇒ 本用例分两种: 没有开着的 (它自己跳过) /
+        有开着的 (它真的发出去)。
+    水位照推（推到触发点）: 内容留在事件流里, 只是不进记忆 —— 见 `_note_empty_segments`。
+    """
+    st = _store(tmp_path)
+    llm = _EmptySkeletonLLM()
+    res = digest_segment(st, llm, [_mmt(3)])
+
+    assert res.ok, res.errors
+    assert llm.tasks == [T.DIGEST_SPLIT], "空骨架 + 手上没有约定 ⇒ 收口自己跳过"
+    assert res.llm_calls == 1, "空骨架只发 R0 一轮"
+    assert res.segments == [] and res.created == []
+    assert st.digested_seq == 3, "水位照推（否则同一批会被反复喂给 R0）"
+
+    # 手上**有**一条开着的约定 ⇒ 收口那一轮必须真的发出去
+    st2 = _store(tmp_path / "b")
+    st2.save()
+    note = make_event("note", "add", {"text": "周六模型店", "refs": ["m0001"]})
+    note.seq = 1
+    llm2 = _EmptySkeletonLLM()
+    res2 = digest_segment(st2, llm2, [note, _mmt(3)])
+
+    assert res2.ok, res2.errors
+    assert llm2.tasks == [T.DIGEST_SPLIT, T.DIGEST_CLOSE], llm2.tasks
+    assert res2.llm_calls == 2, "空骨架下唯一还该发的就是收口那一轮"
+    print("    空骨架: 对着切片的几轮全不发; 收口照常（没约定时它自己跳过）")
 
 
 def test_batch_rollback_also_drops_the_close_warnings(tmp_path):
@@ -418,7 +480,8 @@ def test_batch_rollback_also_drops_the_close_warnings(tmp_path):
     assert res.notes_ops == []
     assert res.notes_warnings == [], f"R4 的告警该随整批一起作废: {res.notes_warnings}"
     # 那些告警确实**产生过**（否则这条用例什么也没验到 —— 它得先在 R4 那里出现）
-    assert llm.tasks[:2] == [T.DIGEST_RECORD, T.DIGEST_CLOSE], llm.tasks
+    # ⚠️ 顺序里必须先有 R0（切分）—— `digest.split` 是表里的第一位
+    assert llm.tasks[:3] == [T.DIGEST_SPLIT, T.DIGEST_RECORD, T.DIGEST_CLOSE], llm.tasks
     assert [n.id for n in st.all() if n.kind == "episode"] == []      # R1 的节点也回滚了
     print("    端到端: 整批回滚 ⇒ note 面（ops + warnings）一起作废")
 

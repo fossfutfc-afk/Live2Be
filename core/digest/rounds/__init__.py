@@ -67,11 +67,17 @@ from contract.digest_registry import digest_registry
 
 #: `writes` 的"面" —— 每个字段名归一个面, 守门用例按面去查真源:
 #:   节点面 → `nodes.BrainNode` 的字段名 · `edge` → `graph.REL_*` 的取值 ·
-#:   `note` → `notes.SLOT_*`（备忘录的槽 —— **不进图**, 只在工作记忆里）
+#:   `note` → `notes.SLOT_*`（备忘录的槽 —— **不进图**, 只在工作记忆里）·
+#:   ⭐ `segment` → ⛔ **不查真源**（它是**段内中间产物**: R0 产、同段的 R1 吃,
+#:   不进图也不落库 ⇒ 没有"真源"可查）。为什么仍要写进表: `writes` 是"这一步往哪写"
+#:   的地图, 中间产物也是它的产出; 而 `result_fields` 那格管的是回滚, 两者分工不同。
 NODE_FACES = ("episode", "experience", "belief", "entity", "group")
 EDGE_FACE = "edge"
 NOTE_FACE = "note"
-FACES = (*NODE_FACES, EDGE_FACE, NOTE_FACE)
+SEGMENT_FACE = "segment"
+#: 名字**不对任何真源**的面（守门用例跳过名字校验, 但要认得它）
+FREE_FACES = (SEGMENT_FACE,)
+FACES = (*NODE_FACES, EDGE_FACE, NOTE_FACE, *FREE_FACES)
 
 #: ⭐ **轮次标识的公共前缀** —— 三种派生标识（日志第一段 / prompt 文件 / 任务标签）
 #: 都从它拼出来。⚠️ 源码里**不许手写**这个前缀 + 轮名（守门用例扫 `core/digest/**`）。
@@ -160,6 +166,17 @@ class RoundSpec:
     own_snapshot: bool = False
     """True = 这一步失败**只回滚它自己**（加法性的: 料留着, 下一段再来 —— 自愈）。"""
 
+    needs_segments: bool = True
+    """True = 这一步是**对着切片干活**的（没有切片就没活干）。
+
+    ⭐ 判据来自 R0 那条"空骨架 ⇒ 收工"（2026-09-29, N4d）: 切分员说"这一段没有
+    值得记的"时, 建节点 / 连边 / 归属 / 分群**全部空转**（`understand` 还会被契约
+    判形状错）⇒ 一律不发。**唯一例外是 `close`**（收口）: 它吃的是**备忘录**
+    （"还开着什么"）而不是切片 —— 那条约定的翻篇**可能正好落在这一段**,
+    跳过它 = 那条约定永远开着（而它没有别的收口处）。
+    ⇒ 表里只有 `close` 写 False, 别的一律缺省 True。
+    """
+
     llm: bool = True
     """这一步调不调 LLM。**False = 零成本的一步**（今天只有 `akin`）——
     `label` / `prompt` / `phase` 三个派生值在它上面都是空串。
@@ -196,6 +213,18 @@ class RoundSpec:
 
 #: ⭐⭐ **每段的全部步序**（顺序就是这张表的顺序, 不是 `pipeline` 里语句的先后）。
 ROUNDS: tuple[RoundSpec, ...] = (
+    RoundSpec(
+        key="split",
+        step="⓪ 切",
+        parse=digest_registry.parse_split,
+        material=("本段新增互动", "本章标题"),
+        writes=((SEGMENT_FACE, ("span", "keep", "abstract")),),
+        result_fields=(*CONTRACT_FIELDS, "segments"),
+        # ⚠️ **不设跳过条件**: 它跑不跑由编排层说（`digest_segment` 入口已经挡过
+        # "这一段没新事件"）, 而"跳过一整段"是整段级的判定 —— 那要同时决定水位推不推
+        # （推了 = 那段内容永不入记忆）, 不该藏在某一轮的 `skip` 格里。
+        skip="",
+    ),
     RoundSpec(
         key="record",
         step="① 记",
@@ -234,6 +263,8 @@ ROUNDS: tuple[RoundSpec, ...] = (
         material=("还开着的约定", "本段新增的经历"),
         writes=(("note", ("pinned",)),),
         result_fields=(*CONTRACT_FIELDS, "notes_ops", "notes_warnings"),
+        # ⭐ **唯一不对着切片干活的一轮**（它吃备忘录）—— 空骨架时唯一还该跑的
+        needs_segments=False,
         skip="没有开着的约定, 本段也没有新经历（那一轮必然空转）",
     ),
     RoundSpec(

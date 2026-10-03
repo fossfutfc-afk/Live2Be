@@ -22,7 +22,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from core.brain import WikiStoreV2, make_node          # noqa: E402
 from core.digest.pipeline import digest_segment           # noqa: E402
 from core.session.events import make_event                     # noqa: E402
-from llm import task_labels as T                               # noqa: E402
+from llm import task_labels as T
+from tests import stub_tasks                               # noqa: E402
 
 CLOSE_EMPTY = {"add": [], "close": []}
 
@@ -35,6 +36,10 @@ class FakeLLM:
 
     def chat(self, messages, **kw):
         task = kw.get("task")
+        if task == T.DIGEST_SPLIT:
+            # ⭐ R0: 照搬 R1 那份应答里的区间（**不进位置队列** —— 它是照着剧本念的一轮）
+            return stub_tasks.split_for_scripted(messages, self.responses[0]
+                                                 if self.responses else [])
         if task == T.DIGEST_CLOSE:
             return CLOSE_EMPTY
         if task == T.DIGEST_ATTRIBUTE:

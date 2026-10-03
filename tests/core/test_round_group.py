@@ -21,6 +21,7 @@ from core.brain.entities import ensure_entities
 from core.brain.graph import REL_AKIN, REL_MEMBER_OF
 from core.session import make_event
 from llm import task_labels as T
+from tests import stub_tasks
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 CHAR = "c"
@@ -31,8 +32,9 @@ _NOW = "2026-09-29T20:00:00"
 class RoundLLM:
     """五轮可控: A / close / B / attr / group（不关心哪轮的给空包）。"""
 
-    def __init__(self, a=None, close=None, b=None, attr=None, group=None):
+    def __init__(self, a=None, close=None, b=None, attr=None, group=None, *, split=None):
         self.a = {"episodes": []} if a is None else a
+        self.split = split
         self.close = {"add": [], "close": []} if close is None else close
         self.b = {"decisions": [], "evidence": [], "affection_exp_delta": 0} if b is None else b
         self.attr = {"attributions": []} if attr is None else attr
@@ -44,6 +46,9 @@ class RoundLLM:
         self.calls.append([dict(m) for m in messages])
         task = kw.get("task")
         self.tasks.append(task)
+        if task == T.DIGEST_SPLIT:            # ⭐ R0: 缺省照搬 R1 那份应答里的区间
+            return (self.split if self.split is not None
+                    else stub_tasks.split_for_scripted(messages, self.a))
         return {T.DIGEST_RECORD: self.a, T.DIGEST_CLOSE: self.close,
                 T.DIGEST_UNDERSTAND: self.b, T.DIGEST: self.b,
                 T.DIGEST_ATTRIBUTE: self.attr, T.DIGEST_GROUP: self.group}[task]

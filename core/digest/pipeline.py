@@ -80,7 +80,7 @@ from core.digest.rounds import (
     RoundSpec,
     reset_result,
 )
-from core.digest.rounds import akin, attribute, close, group, record, understand
+from core.digest.rounds import akin, attribute, close, group, record, split, understand
 from core.digest.rounds.base import Ctx, RoundOut
 from core.digest.segment import _segment_domain
 from core.session.events import is_content_event
@@ -94,6 +94,7 @@ logger = logging.getLogger(__name__)
 #: ⭐ **表里的 key → 那一步的实现** —— 顺序由 `ROUNDS` 说了算, 这里只管"谁是谁"。
 #: ⚠️ **必须与 `ROUNDS` 一一对应**（多一个/少一个/写错 key, `test_digest_rounds.py` 当场红）。
 IMPL: dict[str, Callable[[Ctx], RoundOut]] = {
+    "split": split.run,
     "record": record.run,
     "akin": akin.run,
     "close": close.run,
@@ -147,6 +148,13 @@ class DigestResult:
     #: ⛔ ~~R1 的那句 `on_mind`~~ **2026-09-29（N4e）退役** —— 那条心境的槽没了, 这条
     #: 交付通道**从此只有 R4 一个写者**。
     notes_ops: list[dict] = field(default_factory=list)
+    #: ⭐ **R0 切分员的产出: 本段的切片骨架**（`{span, keep, abstract}` 的列表）。
+    #: ⚠️ 它是**段内中间产物**（R0 产、同段的 R1 吃）, 不进图也不落库 ——
+    #: 所以声明在表里 `split` 那一轮的 `writes` 用的是不查真源的 `SEGMENT_FACE`。
+    #: ⭐ **空列表是一条判据**（不是"没跑"）: 切分员说这一段没有值得记的 ⇒
+    #: 编排层当场收工（见下面那条 break）。⚠️ 初值必须是 `[]` 而不是 `None` ——
+    #: 回滚/未跑时它也走"空 = 收工"那条路, 不需要第二种哨兵。
+    segments: list[dict] = field(default_factory=list)
     #: R4 的世界校验记账（剔掉的引用 / 丢掉的 close 行…）—— 不阻断, 但要看得见
     notes_warnings: list[str] = field(default_factory=list)
     #: ⏸ ~~R4 物化的 promise 节点 id~~ **2026-09-29 删** —— 承诺退图, R4 不再建节点
@@ -335,12 +343,29 @@ def digest_segment(
 
     try:
         # ⭐ **顺序只由表说了算**（`rounds.ROUNDS`）—— 本循环不写任何一步的名字。
+        # ⭐ **空骨架 ⇒ 后面几轮不发**（R0 交回 `{"segments": []}`）:
+        # 切分员说"这一段没有值得记的" ⇒ 对着切片干活的那几轮（建节点 / 连边 /
+        # 归属 / 分群）全在空转 —— `understand` 还会被契约判形状错。
+        # ⚠️ 判据只认 **R0 那一次的产出**（`result.segments`）: 若写成"任何一轮之后
+        # `segments` 为空", 就会把"R1 合法地什么都没记"也当成空骨架 ——
+        # 那会顺手跳过 `understand`/`attribute`, 与今天的失败语义**两回事**。
+        # ⚠️ **`close`（收口）例外**（表里 `needs_segments=False`）: 它吃的是
+        # **备忘录**不是切片, 而那条约定的翻篇**可能正好落在这一段** ——
+        # 跳过它 = 那条约定永远开着（它没有别的收口处）。
+        # ⚠️ 水位**照推**（成功路径那句 `_next_watermark` 的 0 覆盖兜底会推到
+        # 触发点）—— 这是有意的, 理由见 `_note_empty_segments`。
+        no_segments = False
         for spec in ROUNDS:
+            if spec.needs_segments and no_segments:
+                continue
             # 自吞那一步（表里 `own_snapshot`）: 编排**先替它取快照**, 失败时只回滚它。
             snap = store.clone_state() if spec.own_snapshot else None
             err0 = len(result.errors)
             out = IMPL[spec.key](ctx)
             if out.ok:                                   # 跑成 / 按表跳过
+                if spec.key == "split" and not result.segments:
+                    no_segments = True
+                    _note_empty_segments(trigger=interact_max)
                 continue
             if not out.swallow:
                 return _fail()                           # 整段回滚 + 记账
@@ -430,6 +455,38 @@ def _next_watermark(store: WikiStoreV2, episode_ids: list[str], *,
 # 它当年清洗的是 `function/quote/confidence/note` 四键, 而全仓没有一个产品读者:
 # 契约每段要它 ≤5 条 + `quote` 逐字引用时间线 ⇒ 纯白付。别把它加回来。
 # ---------------------------------------------------------------------------
+
+
+def _note_empty_segments(*, trigger: int) -> None:
+    """R0 交回**空骨架**（`{"segments": []}`）⇒ 对着切片的那几轮全不发 —— 打一行日志。
+
+    ## 为什么"空骨架"是**正常结果**, 不是事故
+
+    切分员说"这一段没有值得记的"。这和"成功跑到 `segments: []` 的 `"episodes": []`"
+    是同一个性质 ⇒ **不写 creep 账**。要跟已有的 `digest_skip` 划清界限:
+      · `digest_skip` = **引擎放弃**（同一段试满 3 次都失败）—— 那是事故, 必须留账;
+      · 空骨架 = **引擎完成了**, 只是这一段没什么可记的。
+    定位靠日志（`grep digest_split`）。
+
+    ⚠️ **`close`（收口）不在这条闸里** —— 它吃备忘录, 不对着切片干活（见
+    `RoundSpec.needs_segments`）。
+
+    ## ⚠️ 水位**照推**（推到触发点）—— 这是有意的, 不是漏了
+
+    内容**不丢**: 事件流是 append-only, 玩家回放照样看得到, 只是没进她的记忆
+    （同上一条: 与"成功但没覆盖到"同性质, 那一种由 `_note_gap` 记账）。
+
+    反过来"不推水位、等它攒大了再说"看起来更省, 其实更糟 —— **窗口有上界**
+    （`DIGEST_WINDOW_EVENTS_CAP=120`）: 水位不动 ⇒ 同一批内容被反复喂给 R0,
+    而新事件不断进来 ⇒ 窗口迟早顶到 120 ⇒ 引擎开始**丢最老的**
+    （`_window_depth` 那条兜底）。结果是拿一堆"她认为不值得记"的东西把窗口塞满,
+    而且每段都要重新问一遍 R0。⇒ 判一次、推过去, 是正确的那一边。
+
+    （水位具体落到哪由成功路径那句 `_next_watermark` 说了算: 0 条新 episode ⇒
+    它的兜底正好推到 `trigger` —— 本函数不自己算水位, 那只会有第二个真相。）
+    """
+    logger.info("digest_split 空骨架（本段没有值得记的）—— 对着切片的几轮都不发; "
+                "水位照推到 %s（内容留在事件流里, 只是不进记忆）", trigger)
 
 
 def _note_gap(result: DigestResult, *, at_seq: int) -> None:

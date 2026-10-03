@@ -33,6 +33,7 @@ class ScriptedLLM:
 """
 from __future__ import annotations
 
+import json
 import re
 
 from llm import task_labels as T
@@ -40,6 +41,10 @@ from llm import task_labels as T
 #: 情绪标注的**条数口径**: `恰 N 项`（记录级模板显式双写）——**别**用 system 的
 #: `^\d+: ` 编号行（模板【示范】也带编号行, 会恒多 4 条 → 全程兜底还不报错）
 _COUNT_RE = re.compile(r"恰 (\d+) 项")
+#: R0 桩找"本段有几个事件块": 时间线里**行首**的 `[28]`（事件头）。
+#: ⚠️ 锚在**行首**（`^` + MULTILINE）—— `[28.0]` / `[28.p]` 是记录行, 不匹配;
+#: 正文里出现的方括号也不会被当成块头。
+_EVENT_HEAD_RE = re.compile(r"^\[(\d+)\]", re.MULTILINE)
 
 
 def emotion_count(messages) -> int:
@@ -49,11 +54,100 @@ def emotion_count(messages) -> int:
     return int(m.group(1)) if m else 1
 
 
+def timeline_heads(messages) -> list[str]:
+    """从 user 消息里抓出本段时间线的**事件头编号**（升序去重）。
+
+    ⚠️ 只扫 user 消息: 事件头只出现在【本段新增互动】那一节里
+    （`_sections_for` 只拼非空块, 别的节没有 `[N]` 行首）。
+    """
+    text = "\n".join(str(m.get("content") or "") for m in messages
+                     if m.get("role") == "user")
+    return sorted(dict.fromkeys(_EVENT_HEAD_RE.findall(text)), key=int)
+
+
+def split_reply(messages, *, keep: str = "temporary", join: int = 0) -> dict:
+    """R0 的标准应答: **一个事件头一条切片**（`join>0` 时每 N 个头并成一条）。
+
+    ⚠️ 为什么默认"一头一片": R1 的每条 episode 都对着一条切片 ⇒ 桩这样回,
+    "每条 episode 都有落点"这个前提**天然成立**, 各用例不用各自编 `span`。
+    真机当然不是一头一片（MMT 0~5 条）—— 桩不模仿真实分布, 只保证形状合法。
+    """
+    heads = timeline_heads(messages)
+    if not heads:
+        return {"segments": []}
+    step = max(1, join)
+    groups = [heads[i:i + step] for i in range(0, len(heads), step)]
+    return {"segments": [{"span": [int(g[0]), int(g[-1])], "keep": keep,
+                          "abstract": f"第 {g[0]} 件事"} for g in groups]}
+
+
+def splits_for_episodes(episodes, messages=None) -> dict:
+    """R0 的应答 —— ⭐ **照着 R1 那份应答里声明的区间回**（只抄不改）。
+
+    给"自己写死 R1 输出"的桩用: R1 说它覆盖 `[1,4]`, 那 R0 就得先把 `[1,4]` 切出来,
+    否则编排层会以为"这一段没有值得记的"而当场收工（R1 那份应答白写）。
+    ⚠️ **只搬运, 不修正**: 区间写得坏（端点越界 / 起止反）就原样回 —— 那是用例
+    故意要触发的契约行为（`drops`）, 在这里"顺手改好"会把被测的路径绕过去。
+
+    三种情形（按 R1 那份应答的形状分）::
+
+        [{"span": [1, 4]}, …]   → 每个声明的区间一条切片（只抄不改）
+        [{"text": "…"}, …]      → ⚠️ **旧形状（没有 span）**: 回**一条覆盖整段**的切片
+                                  （`messages` 给得出事件头时用首尾, 否则 `[1, 999]`）
+                                  —— 对齐 `_create_a_nodes` 的兜底语义（"没有位置"
+                                  的条目吃段级指针 = 整段都算它覆盖了）
+        []                      → 一条覆盖整段（同上）
+    """
+    spans = re.findall(r'"span"\s*:\s*\[\s*(-?\d+)\s*(?:,\s*(-?\d+)\s*)?\]',
+                       json.dumps(episodes, ensure_ascii=False))
+    if spans:
+        return {"segments": [{"span": [int(lo), int(hi if hi != "" else lo)],
+                              "keep": "temporary", "abstract": f"第 {lo} 件事"}
+                             for lo, hi in spans]}
+    heads = timeline_heads(messages or [])
+    lo, hi = (int(heads[0]), int(heads[-1])) if heads else (1, 999)
+    return {"segments": [{"span": [lo, hi], "keep": "temporary",
+                          "abstract": "这一段"}]}
+
+
+def split_for_scripted(messages, episodes) -> dict:
+    """R0 的应答 —— 给"R1 那份应答已经写死在测试里"的桩用（脚本桩的统一入口）。
+
+    在**每一个** task 分派处照抄这一行就够::
+
+        if task == T.DIGEST_SPLIT:
+            return stub_tasks.split_for_scripted(messages, self.episodes)
+
+    三种情形::
+
+        [{"span": [1, 4]}, …]   → 每个声明的区间一条切片（只抄不改 —— 坏的原样回）
+        [{"text": "…"}, …]      → ⚠️ **旧形状（没给 span）**: 回**一条覆盖整段**的切片
+                                  —— 对齐 `_create_a_nodes` 的兜底语义（"没有位置"的
+                                  条目吃段级指针 = 整段都算它覆盖了）
+        [] / 没有 episodes      → 同上（一条覆盖整段）
+
+    ⛔ **它永远不返回空骨架** —— "这一段没有值得记的"是 R0 的一条**判据**,
+    要测它必须**显式**给（把桩的 `split=` 参数设成 `{"segments": []}`）。
+    判据: 派生出来的东西不该顺手改变链路走向 —— 否则每个脚本桩的用例都会
+    在 R0 悄悄收工（实测: 一次改动 81 条用例变红, 全部同一个原因）。
+    """
+    if isinstance(episodes, dict):
+        episodes = episodes.get("episodes")
+    return splits_for_episodes(episodes or [], messages)
+
+
 def annotation_reply(task: str | None, messages, *,
-                     digest_b_delta: int = 0) -> object | None:
+                     digest_b_delta: int = 0,
+                     split: dict | None = None,
+                     digest_segments: bool = False) -> object | None:
     """标注/记忆消化类调用的**标准应答**; 主链任务 → None（调用方继续走脚本队列）。
 
     `digest_b_delta`: Round B 的好感增量（用例需要非 0 时传, 如 webgui 的 5）。
+    `split` / `digest_segments`: R0 切分轮 —— 缺省回**空骨架**
+    （= "这一段没有值得记的" ⇒ 编排层当场收工, 后面几轮一次都不发;
+    这一条让"不关心记忆的用例"零成本跳过整条 digest 链）。
+    要看完整链路（建节点/连边/归属/分群）的用例传 `digest_segments=True`
+    （或直接给 `split={...}` 指定应答）。
     """
     if task == T.EMOTION:
         return ["nomal"] * emotion_count(messages)
@@ -63,6 +157,10 @@ def annotation_reply(task: str | None, messages, *,
         return {"place": ""}
     if task == T.PLACE_VARIANT:         # 选图（第二遍）→ 保持当前图
         return {"image": ""}
+    if task == T.DIGEST_SPLIT:          # R0 切分 → 缺省"没有值得记的"
+        if split is not None:
+            return split
+        return split_reply(messages) if digest_segments else {"segments": []}
     if task == T.DIGEST_RECORD:
         return {"episodes": []}
     if task in (T.DIGEST_UNDERSTAND, T.DIGEST):

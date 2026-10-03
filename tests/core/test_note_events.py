@@ -35,6 +35,8 @@ from core.session.events import (
     is_content_event,
 )
 from core.session.renderer import render_events, render_timeline, window_messages
+from llm import task_labels as T
+from tests import stub_tasks
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 PROD_DIRS = ("core", "webgui", "apps", "contract", "llm")
@@ -48,6 +50,11 @@ class FakeLLM:
         self.calls: list = []
 
     def chat(self, messages, **kw):
+        task = kw.get("task")
+        first = (self.responses[0] if self.responses else None)
+        if task == T.DIGEST_SPLIT and isinstance(first, dict):
+            # ⭐ R0: 照搬 R1 那份应答里的区间（**不消耗队列** —— 它读的是同一份剧本）
+            return stub_tasks.split_for_scripted(messages, first)
         self.calls.append(messages)
         if not self.responses:
             raise AssertionError("这条窗口不该产生 LLM 调用")
@@ -154,7 +161,7 @@ def test_note_in_window_does_not_disturb_digest(tmp_path):
     res = digest_segment(st, llm, [_mmt(3), _note(4, sub=N_CLOSE)])
 
     assert res.ok, res.errors
-    assert res.llm_calls == 2                             # 内容照常走完两轮
+    assert res.llm_calls == 3                             # R0 + 内容照常走完两轮
     assert st.digested_seq == 4
 
 
