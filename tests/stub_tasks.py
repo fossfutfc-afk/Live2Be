@@ -63,13 +63,13 @@ def annotation_reply(task: str | None, messages, *,
         return {"place": ""}
     if task == T.PLACE_VARIANT:         # 选图（第二遍）→ 保持当前图
         return {"image": ""}
-    if task == T.DIGEST_A:
+    if task == T.DIGEST_RECORD:
         return {"episodes": []}
-    if task in (T.DIGEST_B, T.DIGEST):
+    if task in (T.DIGEST_UNDERSTAND, T.DIGEST):
         return {"decisions": [], "evidence": [], "affection_exp_delta": digest_b_delta}
     if task == T.DIGEST_CLOSE:          # R4 收口 → 没什么要记的
         return {"add": [], "close": []}
-    if task == T.DIGEST_ATTR:           # R3 归属 → 没有可归属的
+    if task == T.DIGEST_ATTRIBUTE:           # ④ 挂（attribute）→ 没有可归属的
         return {"attributions": []}
     if task == T.DIGEST_GROUP:          # L2-a 分群 → 一个类都不分（块留到下段）
         return {"attach": [], "new": [], "merge": []}

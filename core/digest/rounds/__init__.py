@@ -38,8 +38,8 @@
 | 列 | 谁在读它 |
 |---|---|
 | 顺序（元组序） | ⭐ **编排的循环本体**：`for spec in ROUNDS: IMPL[spec.key](ctx)`; 每轮进门先 `ctx.enter(key)`（`Cursor`, **越序/回头当场炸**） |
-| `label` | `_round_call(..., label=spec.label)` → `task_labels.digest_label` |
-| `prompt` / `phase` | `_system_for(spec)`：`load_prompt(spec.prompt)` + `build_schema(spec.phase)` |
+| ⭐ `key` | **四个标识的唯一来源**: `name`（日志第一段）· `label`（LLM 身份后缀）· `prompt`（prompt 文件）· `phase`（契约相位）—— 后三个是 `RoundSpec` 上的 property, 表里**不再有这三格** |
+| `llm` | 这一步调不调 LLM（False ⇒ 上面三个派生值是空串; 今天只有 `akin`） |
 | `parse` | `spec.parse(raw, **ctx)` —— 调用点只给这一轮的上下文 |
 | `material` | `_sections_for(spec, …)`：**逐字校对"这一轮吃什么"**（对不上当场炸） |
 | `writes` | 人读（"这一步往图上写什么"）+ 守门用例（字段名/边名/笔记槽必须真实存在） |
@@ -48,27 +48,22 @@
 | `budget` | ⭐ **这一轮自己的时间预算**（秒）—— `_round_call` 折算成 `min(整段硬顶, 现在 + 它)` |
 | `own_snapshot` | ⭐ **编排真按它执行**: 为这一步取快照, 失败时只回滚它 + 把 errors 挪进 `RoundOut.warnings_field`（从前只是"人读的说明"） |
 
-⚠️ **两个时间参数也住在本模块**（`ROUND_BUDGET_SECONDS` 每轮默认 / `SEGMENT_HARD_CAP_SECONDS`
-整段硬顶）—— 判据: 每轮各自的预算防"前几轮慢 ⇒ 后面几轮被饿死", 硬顶防"每轮都刚好不超时
-叠成半小时"。**硬顶必须 ≥ 各轮预算之和**（守门用例钉住, 否则等于没改）。
+⚠️ **两个时间参数也住在本模块**（`DIGEST_ROUND_BUDGET_SECONDS` 每轮默认 /
+`DIGEST_SEGMENT_HARD_CAP` 整段硬顶）—— 判据: 每轮各自的预算防"前几轮慢 ⇒ 后面几轮被饿死",
+硬顶防"每轮都刚好不超时叠成半小时"。**硬顶必须 ≥ 各轮预算之和**（守门用例钉住, 否则等于没改）。
 
 ⚠️ 改这里就要看 `tests/core/test_digest_rounds.py` —— 它钉住: 结果字段分类齐全 ·
 表里的字段名/边名/笔记槽真实存在 · prompt 文件在 · 标签在词表里 · 只有一步自带快照 ·
-游标不许回头 · **预算之和 ≤ 硬顶** · ⭐ **`IMPL` 与表一一对应**（每一步都真有实现）。
+游标不许回头 · **预算之和 ≤ 硬顶** · ⭐ **`IMPL` 与表一一对应**（每一步都真有实现）·
+⭐ **相位是契约真认识的**（`key` 必须能 `build_schema`）。
+另有一条 `tests/core/test_digest_naming_guard.py` 钉住**命名**（前缀派生 + 日志第一段 = 轮名）。
 """
 from __future__ import annotations
 
 from dataclasses import MISSING, dataclass, fields
 from typing import Any, Callable
 
-from contract.digest_registry import (
-    PHASE_ATTRIBUTE,
-    PHASE_CLOSE,
-    PHASE_GROUP,
-    PHASE_RECORD,
-    PHASE_UNDERSTAND,
-    digest_registry,
-)
+from contract.digest_registry import digest_registry
 
 #: `writes` 的"面" —— 每个字段名归一个面, 守门用例按面去查真源:
 #:   节点面 → `nodes.BrainNode` 的字段名 · `edge` → `graph.REL_*` 的取值 ·
@@ -78,44 +73,54 @@ EDGE_FACE = "edge"
 NOTE_FACE = "note"
 FACES = (*NODE_FACES, EDGE_FACE, NOTE_FACE)
 
+#: ⭐ **轮次标识的公共前缀** —— 三种派生标识（日志第一段 / prompt 文件 / 任务标签）
+#: 都从它拼出来。⚠️ 源码里**不许手写**这个前缀 + 轮名（守门用例扫 `core/digest/**`）。
+DIGEST_LOG_PREFIX = "digest_"
+
 #: ⭐ **每轮的时间预算（秒）** —— 一轮（含它自己那次反馈重试）最多花多久。
 #: 表里某轮写了 `budget` 就用它; 没写（0）用这个默认。
 #: ⚠️ **为什么必须有它**（2026-09-29 刀 1）: 从前全段共享一个 300s 预算, 而
 #: `llm_call` 只在**每次尝试前**看表 ⇒ 前几轮一慢, **后面几轮集体被"饿死"**
 #: （报错还只说"撞上时间预算", 看不出是哪一轮）。5 次 high 档长考本来就贴着 300s。
-#: 标定入口 = 真机日志 `llm chat task=digest.round_b ms=…`（已存在, 按 `task=` 分轮看）。
-ROUND_BUDGET_SECONDS = 120.0
+#: 标定入口 = 真机日志 `llm chat task=digest.understand ms=…`（已存在, 按 `task=` 分轮看）。
+DIGEST_ROUND_BUDGET_SECONDS = 120.0
 
 #: ⭐ **整段硬顶（秒）** —— 一轮轮下来总共不许超过它。
 #: 判据: 每轮各自的预算防"互相饿死", 硬顶防"每轮都刚好不超时"叠成半小时
 #: （2026-09-02 真发生过一次: 重试放大把 digest 拖到近半小时）。
 #: ⚠️ **硬顶必须 ≥ 各轮预算之和** —— 否则后面的轮又会被前面的吃掉, 等于没改;
 #: `tests/core/test_digest_rounds.py` 钉住这条。
-SEGMENT_HARD_CAP_SECONDS = 600.0
+DIGEST_SEGMENT_HARD_CAP = 600.0
 
 
 @dataclass(frozen=True)
 class RoundSpec:
-    """一步（一次 LLM 调用, 或一次零成本补边）的完整声明。"""
+    """一步（一次 LLM 调用, 或一次零成本补边）的完整声明。
+
+    ⭐ **`key` 是四个标识的唯一来源**（2026-09-29 乙-2 起 —— 从前 `label` / `prompt` /
+    `phase` 各写一份字面量, 改一次 key 要同时改四处, 漏一处就是静默不一致）::
+
+        key  = "record"     →  name   = "digest_record"      （日志第一段）
+                            →  label  = "record"              （`digest.record` 那个后缀）
+                            →  prompt = "digest_record"       （`llm/prompts/digest_record.md`）
+                            →  phase  = "record"              （`PHASE_RECORD` 的取值）
+
+    判据: key 取的**就是契约相位名**（`contract/digest_registry.PHASE_*` 的取值）, 而
+    LLM 调用身份的后缀与日志前缀本来就该跟它同名 —— 于是"三个派生"其实是**零个新名字**。
+    """
 
     key: str
-    """表内主键 —— 也是日志里的 `digest_<key>`（`akin` 是唯一不调 LLM 的一步）。"""
+    """表内主键 —— 契约相位名（`record` / `akin` / `close` / `understand` /
+    `attribute` / `group`）。见类 docstring: 另外四个标识都从它来。"""
 
     step: str
-    """人读的步号, 与 `core/digest/__init__.py` 的步序表同一份写法。"""
-
-    label: str
-    """LLM 调用身份（短名）—— `task_labels.digest_label` 拼成 `digest.<label>`。
-    空串 = 这一步不调 LLM。"""
-
-    prompt: str
-    """`llm/prompts/<prompt>.md`。空串 = 不调 LLM。"""
-
-    phase: str
-    """契约相位（`build_schema` 与 parse 的键）。空串 = 不调 LLM。"""
+    """人读的步号（与 `core/digest/__init__.py` 的步序表同一份写法）。
+    ⏸ 旧文档与旧注释里的 `R1`/`R2`/`R3`/`R4` 按这里对: **R1=记 · R4=收口 · R2=接 · R3=挂**。"""
 
     parse: Callable[..., Any] | None
-    """`(raw, **ctx) -> (parsed, ValidationResult)` —— 结构校验的入口。"""
+    """`(raw, **ctx) -> (parsed, ValidationResult)` —— 结构校验的入口（住在契约层,
+    `contract/digest_registry.py`; ⚠️ 它的函数名仍叫 `parse_round_a` / `parse_round_b`
+    —— 契约层是独立面, 改名要动 60 多处引用, 留作单独一刀）。"""
 
     material: tuple[str, ...]
     """这一轮吃哪几段料: **标题 + 顺序**。`_sections_for` 逐字校对（对不上当场炸）——
@@ -128,29 +133,59 @@ class RoundSpec:
     """写进 `DigestResult` 的哪些字段 —— ⭐ `_rollback` 的清空清单由它推导。"""
 
     skip: str
-    """跳过条件（跳过时打的那句日志; 判据在 `pipeline` 的调用点）。空串 = 从不跳过。"""
+    """跳过条件（跳过时打的那句日志; 判据写在那一步的 `run()` 里）。空串 = 从不跳过。"""
 
     budget: float = 0.0
     """⭐ 这一轮的时间预算（秒）。**0 = 用 `ROUND_BUDGET_SECONDS`**。
 
     ⚠️ 它的作用域 = **本轮自己**（含同轮那次反馈重试）, 由 `_round_call` 在开跑时
     折算成"`min(整段硬顶, 现在 + 本轮预算)`" —— 单轮慢**不连累后面的轮**。
-    今天五轮都用默认; 要分轮调（R1 最贵、R4 最便宜）就在这一格写数。
+    今天五轮都用默认; 要分轮调（记最贵、收口最便宜）就在这一格写数。
     ⚠️ 它是**每次尝试前**的检查（`llm_call` 的既有语义）, 不掐断正在飞的那一次调用。
     """
 
     own_snapshot: bool = False
     """True = 这一步失败**只回滚它自己**（加法性的: 料留着, 下一段再来 —— 自愈）。"""
 
+    llm: bool = True
+    """这一步调不调 LLM。**False = 零成本的一步**（今天只有 `akin`）——
+    `label` / `prompt` / `phase` 三个派生值在它上面都是空串。
+    ⚠️ 与 `parse is None` **必须一致**（守门用例钉住）, 否则"LLM 四件套同生共死"就破了。"""
+
+    # ── 三个派生标识（⭐ 不手写; 见类 docstring）──
+
+    @property
+    def name(self) -> str:
+        """日志第一段 —— 恒 `digest_<key>`（**零 LLM 的 `akin` 也一样**, 它也有日志）。
+
+        ⚠️ 轮文件里的日志**字面量必须等于它**（守门用例扫源码钉住）—— 这一处**没有**
+        改成 `spec.name` 拼进每条日志: 那要把前缀穿进 `_link_akin` / `_collapse_bond_episodes`
+        的签名, 为一个日志字段付的接口噪声比收益大; 而"字面量与 key 对不上"照样会被守门抓住。
+        """
+        return f"{DIGEST_LOG_PREFIX}{self.key}"
+
+    @property
+    def label(self) -> str:
+        """LLM 调用身份（短名）—— `task_labels.digest_label` 拼成 `digest.<label>`。
+        空串 = 这一步不调 LLM。"""
+        return self.key if self.llm else ""
+
+    @property
+    def prompt(self) -> str:
+        """`llm/prompts/<prompt>.md`。空串 = 不调 LLM。"""
+        return f"{DIGEST_LOG_PREFIX}{self.key}" if self.llm else ""
+
+    @property
+    def phase(self) -> str:
+        """契约相位（`build_schema` 与 parse 的键）。空串 = 不调 LLM。"""
+        return self.key if self.llm else ""
+
 
 #: ⭐⭐ **每段的全部步序**（顺序就是这张表的顺序, 不是 `pipeline` 里语句的先后）。
 ROUNDS: tuple[RoundSpec, ...] = (
     RoundSpec(
-        key="round_a",
-        step="① R1 记",
-        label="round_a",
-        prompt="digest_v2_round_a",
-        phase=PHASE_RECORD,
+        key="record",
+        step="① 记",
         parse=digest_registry.parse_round_a,
         material=("本段新增互动", "本章标题", "画面记忆",
                   "角色人设（锚点）", "本段情绪标尺"),
@@ -163,7 +198,7 @@ ROUNDS: tuple[RoundSpec, ...] = (
                          "emo_shape", "place", "place_raw", "aff_at_encoding")),
             ("experience", ("text", "subject", "verbatim", "verbatim_seq", "tags",
                             "significance", "event_seq", "ts")),
-            # ⭐ N4a: 她此刻那句心境 —— 与 R4 的约定共用 `notes_ops` 这条交付通道
+            # ⭐ N4a: 她此刻那句心境 —— 与收口的约定共用 `notes_ops` 这条交付通道
             ("note", ("on_mind",)),
         ),
         result_fields=("notes_ops",),
@@ -171,22 +206,17 @@ ROUNDS: tuple[RoundSpec, ...] = (
     ),
     RoundSpec(
         key="akin",
-        step="akin 补边（0 LLM）",
-        label="",
-        prompt="",
-        phase="",
+        step="补边（0 LLM）",
         parse=None,
         material=(),
         writes=(("edge", ("akin",)),),
         result_fields=(),
         skip="本段没有想起账（`noticed` 事件）",
+        llm=False,
     ),
     RoundSpec(
         key="close",
-        step="② R4 记账",
-        label="close",
-        prompt="digest_v2_round_close",
-        phase=PHASE_CLOSE,
+        step="② 收口",
         parse=digest_registry.parse_close,
         material=("还开着的约定", "本段新增的经历"),
         writes=(("note", ("promise",)),),
@@ -194,11 +224,8 @@ ROUNDS: tuple[RoundSpec, ...] = (
         skip="没有开着的约定, 本段也没有新经历（那一轮必然空转）",
     ),
     RoundSpec(
-        key="round_b",
-        step="③ R2 接",
-        label="round_b",
-        prompt="digest_v2_round_b",
-        phase=PHASE_UNDERSTAND,
+        key="understand",
+        step="③ 接",
         parse=digest_registry.parse_round_b,
         material=("本次新经历（含引擎候选标注）", "本段时间线",
                   "现有认知", "角色人设（锚点）"),
@@ -213,11 +240,8 @@ ROUNDS: tuple[RoundSpec, ...] = (
         skip="",
     ),
     RoundSpec(
-        key="attr",
-        step="④ R3 挂",
-        label="attr",
-        prompt="digest_v2_round_attr",
-        phase=PHASE_ATTRIBUTE,
+        key="attribute",
+        step="④ 挂",
         parse=digest_registry.parse_attribution,
         material=("候选对象", "这几个对象的当前情况", "本轮新节点", "角色人设（锚点）"),
         writes=(
@@ -230,10 +254,7 @@ ROUNDS: tuple[RoundSpec, ...] = (
     ),
     RoundSpec(
         key="group",
-        step="⑤ L2-a 分群",
-        label="group",
-        prompt="digest_v2_round_group",
-        phase=PHASE_GROUP,
+        step="⑤ 分群（L2-a）",
         parse=digest_registry.parse_group,
         material=("还没归类的块", "已有的类", "可能重复的类"),
         writes=(
@@ -257,12 +278,12 @@ ROUND_INDEX: dict[str, int] = {s.key: i for i, s in enumerate(ROUNDS)}
 
 def budget_of(spec: RoundSpec) -> float:
     """这一轮实际用多少秒（表里没写 ⇒ 默认）—— 唯一取法, 别在调用点各写一份。"""
-    return spec.budget if spec.budget > 0 else ROUND_BUDGET_SECONDS
+    return spec.budget if spec.budget > 0 else DIGEST_ROUND_BUDGET_SECONDS
 
 
 def planned_seconds() -> float:
-    """表里各轮预算之和（守门用: 它必须 ≤ `SEGMENT_HARD_CAP_SECONDS`）。"""
-    return sum(budget_of(s) for s in ROUNDS if s.label)
+    """表里各轮预算之和（守门用: 它必须 ≤ `DIGEST_SEGMENT_HARD_CAP`）。"""
+    return sum(budget_of(s) for s in ROUNDS if s.llm)
 
 
 #: ⭐ **失败时要清空的 `DigestResult` 字段** —— 由表推导（不再手抄）。

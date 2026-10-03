@@ -36,13 +36,13 @@ class AttrLLM:
         self.calls.append([dict(m) for m in messages])
         task = kw.get("task")
         self.tasks.append(task)
-        if task == T.DIGEST_A:
+        if task == T.DIGEST_RECORD:
             return self.a
         if task == T.DIGEST_CLOSE:
             return self.close
-        if task in (T.DIGEST_B, T.DIGEST):
+        if task in (T.DIGEST_UNDERSTAND, T.DIGEST):
             return self.b
-        if task == T.DIGEST_ATTR:
+        if task == T.DIGEST_ATTRIBUTE:
             return self.attr
         raise RuntimeError(f"意外调用 task={task!r}")
 
@@ -196,9 +196,9 @@ def test_r3_attaches_by_hint_and_writes_alias(tmp_path):
     assert res.ok, res.errors
 
     # 四轮的顺序: **A → R4 → B → R3**（§8 的批内顺序 —— 每段四步真的都跑了）
-    assert llm.tasks == [T.DIGEST_A, T.DIGEST_CLOSE, T.DIGEST_B, T.DIGEST_ATTR], llm.tasks
+    assert llm.tasks == [T.DIGEST_RECORD, T.DIGEST_CLOSE, T.DIGEST_UNDERSTAND, T.DIGEST_ATTRIBUTE], llm.tasks
     # ⭐ 料: 候选表（只有身份）+ 本轮新节点（本地 id）
-    r3 = llm.user_of(T.DIGEST_ATTR)
+    r3 = llm.user_of(T.DIGEST_ATTRIBUTE)
     assert "c0001" in r3 and "c0002" in r3 and "u0001" in r3
     assert "模型店门口" in r3
     # ⭐ 产出: 那条新 episode 挂到了 sensei（x0001）上
@@ -248,7 +248,7 @@ def test_r3_skipped_without_new_nodes(tmp_path):
                   {"decisions": [], "evidence": [], "affection_exp_delta": 0})
     res = digest_segment(st, llm, _events(_mmt(3)))
     assert res.ok, res.errors
-    assert T.DIGEST_ATTR not in llm.tasks
+    assert T.DIGEST_ATTRIBUTE not in llm.tasks
     assert res.created_entities == []
 
 

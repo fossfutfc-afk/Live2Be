@@ -18,7 +18,7 @@ CLOSE_EMPTY = {"add": [], "close": []}
 class FakeLLM:
     """假 LLM: 按序吐出预置响应（A 轮/反馈/B 轮…）; 记录调用。
 
-    R4（`task == digest.close`）与 R3（`digest.attr`）**不进位置队列** —— 按 task 短路成
+    收口（`task == digest.close`）与挂（`digest.attribute`）**不进位置队列** —— 按 task 短路成
     标准空包（"这一段没有约定的事 / 没有可归属的"）。`close_calls` 单独记,
     免得"R4 有没有真的被调"要靠数位置。
     """
@@ -34,7 +34,7 @@ class FakeLLM:
         if task == T.DIGEST_CLOSE:
             self.close_calls += 1
             return self.close
-        if task == T.DIGEST_ATTR:
+        if task == T.DIGEST_ATTRIBUTE:
             return {"attributions": []}
         self.calls.append(messages)
         if self.responses:
@@ -608,7 +608,7 @@ def test_deadline_budget_fails_atomically(tmp_path):
                 time.sleep(0.2)
                 self.calls += 1
                 return CLOSE_EMPTY
-            if kw.get("task") == T.DIGEST_ATTR:        # R3 同理
+            if kw.get("task") == T.DIGEST_ATTRIBUTE:        # ④ 挂 同理
                 time.sleep(0.2)
                 self.calls += 1
                 return {"attributions": []}

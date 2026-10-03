@@ -44,9 +44,9 @@ class RoundLLM:
         self.calls.append([dict(m) for m in messages])
         task = kw.get("task")
         self.tasks.append(task)
-        return {T.DIGEST_A: self.a, T.DIGEST_CLOSE: self.close,
-                T.DIGEST_B: self.b, T.DIGEST: self.b,
-                T.DIGEST_ATTR: self.attr, T.DIGEST_GROUP: self.group}[task]
+        return {T.DIGEST_RECORD: self.a, T.DIGEST_CLOSE: self.close,
+                T.DIGEST_UNDERSTAND: self.b, T.DIGEST: self.b,
+                T.DIGEST_ATTRIBUTE: self.attr, T.DIGEST_GROUP: self.group}[task]
 
     def user_of(self, task):
         """第一次该 task 调用的 user 消息（分群的料就在里面）。"""

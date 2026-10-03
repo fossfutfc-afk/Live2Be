@@ -18,7 +18,8 @@
 名字尽量复用 `llm/task_levels.py` 的**形态名**（mmt / bond / emotion / place / digest
 ——那份表管"档位与 max_tokens"，这份管"调用身份"），只在需要区分时加后缀:
 `place`（句级锚点）vs `place_board`（板级换场翻译）vs `place_variant`（选图）、
-`digest.round_a` / `digest.round_b`（两轮）。
+⭐ `digest.record` / `digest.understand`（**与 `core/digest/rounds/` 的轮次 key 逐字同名**,
+2026-09-29 乙-2 改名: 从前叫 `round_a` / `round_b` —— Round A/B 时代的遗留名）。
 
 ⚠️ 新增调用点 → 在这里加常量（`tests/core/test_stub_dispatch_guard.py` 会扫源码,
 用未声明的标签直接红）; 新任务还要在 `tests/stub_tasks.py` 给出标准应答。
@@ -34,14 +35,18 @@ PLACE = "place"
 PLACE_BOARD = "place_board"
 #: 选图（`variant_annotate.pick_image`, 第二遍）→ 返回 {"image": <文件名>}
 PLACE_VARIANT = "place_variant"
-#: digest 记忆消化（`digest/llm_call.llm_chat`; 细分见下两行）
+#: digest 记忆消化（`digest/llm_call.llm_chat`; 细分见下几行）
+#: ⚠️ **细分标签的后缀 ≡ `core/digest/rounds/` 的轮次 key**（`digest_label(spec.label)`,
+#: 而 `spec.label` 由 key 派生 —— 见 `rounds.RoundSpec`）。改名要两处一起改, 守门用例钉住。
 DIGEST = "digest"
-DIGEST_A = "digest.round_a"
-DIGEST_B = "digest.round_b"
-#: R4 收口（promise 记账）—— 每段的第 4 步
+#: ① R1 记录员（`rounds/record.py`）
+DIGEST_RECORD = "digest.record"
+#: ③ R2 理解者（`rounds/understand.py`）
+DIGEST_UNDERSTAND = "digest.understand"
+#: ② R4 收口（promise 记账）—— 每段的第 2 步
 DIGEST_CLOSE = "digest.close"
-#: R3 归属（把本轮新节点挂到 entity 上 + 维护载荷）—— 每段的最后一步
-DIGEST_ATTR = "digest.attr"
+#: ④ R3 归属（把本轮新节点挂到 entity 上 + 维护载荷）
+DIGEST_ATTRIBUTE = "digest.attribute"
 #: ⭐ N7（2026-09-29）**L2-a 分群** —— 每段的**最后一步**, 与 R1–R4 不同层:
 #: 吃"她连过的块"（`akin` 连通块）, 产**群节点 + `member_of` 边**（引擎切块 + 只起名）
 DIGEST_GROUP = "digest.group"
@@ -54,7 +59,8 @@ BOND = "bond"
 #: 全部合法标签（源码扫描守门用）
 ALL: frozenset[str] = frozenset({
     EMOTION, PLACE, PLACE_BOARD, PLACE_VARIANT,
-    DIGEST, DIGEST_A, DIGEST_B, DIGEST_CLOSE, DIGEST_ATTR, DIGEST_GROUP, MMT, BOND,
+    DIGEST, DIGEST_RECORD, DIGEST_UNDERSTAND, DIGEST_CLOSE, DIGEST_ATTRIBUTE,
+    DIGEST_GROUP, MMT, BOND,
 })
 
 #: 主链（输出是"创作"本身, 桩按脚本队列回）
@@ -72,10 +78,10 @@ PROFILE_OF: dict[str, str] = {
     PLACE_BOARD: "place",
     PLACE_VARIANT: "place",
     DIGEST: "digest",
-    DIGEST_A: "digest",
-    DIGEST_B: "digest",
+    DIGEST_RECORD: "digest",
+    DIGEST_UNDERSTAND: "digest",
     DIGEST_CLOSE: "digest",
-    DIGEST_ATTR: "digest",
+    DIGEST_ATTRIBUTE: "digest",
     DIGEST_GROUP: "digest",
     MMT: "mmt",
     BOND: "bond",
@@ -85,7 +91,8 @@ PROFILE_OF: dict[str, str] = {
 def digest_label(round_label: str) -> str:
     """`digest/llm_call.llm_chat` 的 `label` → task 标签。
 
-    label 缺省 `"digest"`（整轮）; 调用方传 `"round_a"` / `"round_b"` → 细分标签。
+    label 缺省 `"digest"`（整轮）; 调用方传轮次 key（`"record"` / `"understand"` …）→ 细分标签。
+    ⚠️ 传进来的就是 `rounds.RoundSpec.key`（`label` 那一格由 key 派生, 不再手写）。
     """
     lab = (round_label or "").strip()
     if not lab or lab == DIGEST:

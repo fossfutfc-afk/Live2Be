@@ -372,7 +372,7 @@ def test_render_timeline_indexed():
     print("    render_timeline(indexed): 记录级行索引 + 板指针 + 裁决行 `.p`")
 
 
-def test_digest_round_a_prompt_matches_index_format():
+def test_digest_record_prompt_matches_index_format():
     """镜像防漂移（CLAUDE.md §12）: prompt 描述的形态必须与渲染器**同源**。
 
     2026-09-15 之前这里是 `每行 [seq N]`——而渲染器的 `[seq N]` 前缀**从未被消费**
@@ -380,7 +380,7 @@ def test_digest_round_a_prompt_matches_index_format():
     任何一侧单独漂移都会让 Round A 抄出行号却指不到东西（**静默取错, 不报错**）。
     """
     from llm.prompts import load_prompt
-    text = load_prompt("digest_v2_round_a")
+    text = load_prompt("digest_record")
     assert "[seq " not in text, "prompt 仍描述已删除的 `[seq N]` 形态"
     for form in ("[28]", "[28.3]", "[28.p]"):
         assert form in text, f"prompt 未描述索引形态 {form}"

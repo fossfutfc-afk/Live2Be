@@ -8,14 +8,16 @@
 ⭐ **2026-09-29 按轮拆包（乙-1）**: 每一轮的**正文**搬进 `core/digest/rounds/<轮>.py`,
 本文件只剩编排与事务（**666 → 约 260 行**）::
 
-    core/digest/rounds/__init__.py  轮次表（步序/身份/prompt/相位/parse/料/写什么/跳过/预算/快照）
+    core/digest/rounds/__init__.py  轮次表（key/步序/LLM 身份/prompt/相位/parse/料/写什么/跳过/预算/快照）
     core/digest/rounds/base.py      Ctx（段级上下文）+ RoundOut（一轮跑完的交代）
-    core/digest/rounds/record.py    ① R1 记      akin.py 补边（0 LLM）
-    core/digest/rounds/close.py     ② R4 收口    understand.py ③ R2 接
-    core/digest/rounds/attribute.py ④ R3 挂      group.py      ⑤ L2-a 分群（自带快照）
+    core/digest/rounds/record.py    ① 记        akin.py 补边（0 LLM）
+    core/digest/rounds/close.py     ② 收口      understand.py ③ 接
+    core/digest/rounds/attribute.py ④ 挂        group.py      ⑤ 分群 L2-a（自带快照）
 
-**实际跑的步数**（一眼看全在 `core/digest/__init__.py`）: R1 → akin 补边 → R4 → R2 → R3 →
-L2-a 分群（共 5 次 LLM 调用 + 1 次零成本补边）。
+**实际跑的步数**（一眼看全在 `core/digest/__init__.py`）: 记 → akin 补边 → 收口 → 接 → 挂 →
+分群（共 5 次 LLM 调用 + 1 次零成本补边）。
+⏸ 旧文档/旧注释里的 **`R1`/`R2`/`R3`/`R4`** 按这张表对: **R1=记(record) · R4=收口(close) ·
+R2=接(understand) · R3=挂(attribute)** —— 轮次 key 就是契约相位名, 见 `rounds.RoundSpec`。
 
 编排（`digest_segment`）::
     1. 增量: new_events = seq > store.digested_seq（无新增 → 0 次 LLM 调用）
@@ -70,7 +72,7 @@ from core.creep import KIND_DIGEST_SKIP, build as creep_build
 from core.digest.material import _collect_visual_prompts, _segment_emotion_keys
 from core.digest.rounds import (
     ROUNDS,
-    SEGMENT_HARD_CAP_SECONDS,
+    DIGEST_SEGMENT_HARD_CAP,
     Cursor,
     RoundSpec,
     reset_result,
@@ -89,11 +91,11 @@ logger = logging.getLogger(__name__)
 #: ⭐ **表里的 key → 那一步的实现** —— 顺序由 `ROUNDS` 说了算, 这里只管"谁是谁"。
 #: ⚠️ **必须与 `ROUNDS` 一一对应**（多一个/少一个/写错 key, `test_digest_rounds.py` 当场红）。
 IMPL: dict[str, Callable[[Ctx], RoundOut]] = {
-    "round_a": record.run,
+    "record": record.run,
     "akin": akin.run,
     "close": close.run,
-    "round_b": understand.run,
-    "attr": attribute.run,
+    "understand": understand.run,
+    "attribute": attribute.run,
     "group": group.run,
 }
 
@@ -101,13 +103,13 @@ IMPL: dict[str, Callable[[Ctx], RoundOut]] = {
 #: ⚠️ 它**不是"同一个进程里连试三次"**: digest 没有主动重试, 次数由**触发点**累加
 #: （MMT 每 25 轮 / bond 闭环）⇒ 最坏要等 75 轮才放弃。不改成立刻重试的理由:
 #: 同一段、同一模型、同一预算, 连撞三次是白花钱, 还占着 `_digest_lock`。
-MAX_DIGEST_ATTEMPTS = 3
+DIGEST_MAX_ATTEMPTS = 3
 #: 好感 delta clamp 边界（**带符号: 下界 2026-09-13 由 0 放开**）。
 #: 语义 = "**单段**内的好感净变化"，不是总量——上界 100 防一段暴涨,
 #: 下界 -100 对称防一段暴跌; 累计地板在 `Affection` 层（MIN_EXP=0）。
 #: 放开下界的理由见 docs/DESIGN_WIKI_V3.md §3.3.3: 关系能变坏是玩法语义,
 #: 且同频召回需要 `aff_at_encoding` 的符号。
-_AFF_MIN, _AFF_MAX = -100, 100
+DIGEST_AFF_MIN, DIGEST_AFF_MAX = -100, 100
 
 
 @dataclass
@@ -164,7 +166,7 @@ def digest_segment(
     embed_fn: EmbedFn | None = None,
     temperature: float = 0.3,
     max_tokens: int | None = None,
-    deadline_seconds: float = SEGMENT_HARD_CAP_SECONDS,
+    deadline_seconds: float = DIGEST_SEGMENT_HARD_CAP,
     llm_timeout: float | None = None,
     extra_body: dict | None = None,
     aff_at_encoding: float | None = None,
@@ -192,9 +194,9 @@ def digest_segment(
             显式传（含 {}）→ 调用方覆盖
         deadline_seconds: ⭐ **整段硬顶**（秒）—— 五轮 + 各自的反馈重试加起来不许超过它。
                     ⚠️ 它**不再是每轮共享的那一份预算**（2026-09-29 刀 1）: 每轮另有
-                    自己的预算（`rounds` 表里那格 / 默认 `ROUND_BUDGET_SECONDS`），本轮的
+                    自己的预算（`rounds` 表里那格 / 默认 `DIGEST_ROUND_BUDGET_SECONDS`），本轮的
                     截止 = `min(整段硬顶, 本轮开始 + 本轮预算)`。撞上 → 判失败回滚,
-                    水位不推进可重算。默认 = `rounds.SEGMENT_HARD_CAP_SECONDS`。
+                    水位不推进可重算。默认 = `rounds.DIGEST_SEGMENT_HARD_CAP`。
                     ⚠️ **它是"每次尝试前"的检查, 不掐断正在飞的那一次调用**
                     （`llm_call` 的既有语义; 单次请求仍受 `llm_timeout` 约束）——
                     所以"某轮用满预算"能保证的是**后面的轮不被它饿死**, 不是"这一段
@@ -377,7 +379,7 @@ def _as_int(v: Any, default: int) -> int:
 
 def _clamp_aff(raw: Any) -> int:
     try:
-        return max(_AFF_MIN, min(_AFF_MAX, int(raw)))
+        return max(DIGEST_AFF_MIN, min(DIGEST_AFF_MAX, int(raw)))
     except (TypeError, ValueError):
         return 0
 
@@ -424,7 +426,7 @@ def _note_failure(store: WikiStoreV2, result: DigestResult, *,
        而窗口会随着新对话变长 ⇒ 拿窗口当键就**永远到不了上限**（每次都是"新的一段"）。
     2. **放弃时水位推到"第一次失败那一窗的上界"**: 第 2、3 次之间新攒的内容
        **不能跟着一起丢**（所以 `upto_seq` 只在第一次冻结, 之后不更新）。
-    3. **同进程不连试**: 次数由触发点累加（见 `MAX_DIGEST_ATTEMPTS`）。
+    3. **同进程不连试**: 次数由触发点累加（见 `DIGEST_MAX_ATTEMPTS`）。
 
     ⚠️ **放弃 = 真的丢记忆**: 那段事件**再也不会有节点** ⇒ 召不回（但事件流还在,
     玩家回放照样看得到）。这正是要记一条 creep 账的原因 —— 把"她少了什么"留成事实。
@@ -441,12 +443,12 @@ def _note_failure(store: WikiStoreV2, result: DigestResult, *,
     first_upto = _as_int(rec.get("upto_seq") if isinstance(rec, dict) else 0, 0) \
         if same else int(upto_seq)
 
-    if attempts < MAX_DIGEST_ATTEMPTS:
+    if attempts < DIGEST_MAX_ATTEMPTS:
         store.meta["digest_retry"] = {"from_seq": from_seq, "upto_seq": first_upto,
                                       "attempts": attempts}
         store.save_meta()
         logger.warning("digest 第 %d/%d 次失败（水位不推进, 下次整段重来）: %s",
-                       attempts, MAX_DIGEST_ATTEMPTS,
+                       attempts, DIGEST_MAX_ATTEMPTS,
                        " | ".join(result.errors[-2:]) or "(无错误信息)")
         return
 

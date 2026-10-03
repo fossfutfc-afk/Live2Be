@@ -51,7 +51,7 @@ def llm_chat(
              response_format=, extra_body=) 的客户端
         deadline: time.monotonic() 绝对截止时刻; None = 不限
         timeout: per-call 超时覆盖（后台长考放宽; None = 客户端构造超时）
-        label: 日志上下文（digest / round_a / round_b …）
+        label: 日志上下文（digest / record / understand … 即轮次 key）
 
     Returns:
         (resp, None): 成功, resp = 解析后的 dict
@@ -72,7 +72,7 @@ def llm_chat(
                 list(messages),
                 model=model, temperature=temperature, max_tokens=max_tokens,
                 response_format="json_object", extra_body=extra_body, timeout=timeout,
-                # 调用身份（节点 5b）: label 已有（digest / round_a / round_b）,
+                # 调用身份（节点 5b）: label 已有（digest / record / understand …）,
                 # 直接映射成 task 标签——测试桩据此分 A/B 轮, 不再认中文关键字
                 task=digest_label(label))
             return resp, None

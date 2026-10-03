@@ -8,12 +8,12 @@
 
 一眼看清它跑什么（⭐ **步序的真源 = `rounds/` 包里的 `ROUNDS`**, 这里只是同一件事的人读版）::
 
-    ① R1 记     digest.round_a    时间线 + 人设 + 视觉记忆 → episode / 玩家画像
-      akin 补边 （0 LLM）          本段的 `noticed` 账 → `akin` 边
-    ② R4 记账   digest.close      开着的约定 + 本段经历 → note 操作（不建节点）
-    ③ R2 接     digest.round_b    本段经历 + 时间线 + 认知列表 → 决策表 + `links`
-    ④ R3 挂     digest.attr       候选表 + 命中集载荷 + 新节点 → `about` 边 + entity 载荷
-    ⑤ L2-a 分群 digest.group      块 + 已有类 → 群节点 + `member_of`（自带快照）
+    ① 记 record    digest.record    时间线 + 人设 + 视觉记忆 → episode / 玩家画像
+      补边 akin    （0 LLM）          本段的 `noticed` 账 → `akin` 边
+    ② 收口 close   digest.close      开着的约定 + 本段经历 → note 操作（不建节点）
+    ③ 接 understand digest.understand    本段经历 + 时间线 + 认知列表 → 决策表 + `links`
+    ④ 挂 attribute digest.attribute       候选表 + 命中集载荷 + 新节点 → `about` 边 + entity 载荷
+    ⑤ 分群 group   digest.group      块 + 已有类 → 群节点 + `member_of`（自带快照）
 
 ⚠️ **每步的定义已收进 `rounds/` 一张表**（2026-09-29 节点 C; 乙-1 起按轮拆成包）:
 步序 / LLM 身份 / prompt / 契约相位 / parse / 料 / 写什么 / 跳过条件 / 每轮预算 / 是否自带快照。

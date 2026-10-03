@@ -65,9 +65,9 @@ MMT_REPLY = {"actions": [{"action": "mmt_chat", "reply": "嗯，今晚很开心�
 # （affection_exp_delta=5 → 触发好感事件落库; delta=0 不写事件——好感无变化无需记录）
 def _digest_stub(task):
     """两轮 digest 的假响应（**按 task 区分 A/B 轮**, 节点 5b——不再认 prompt 文案）。"""
-    if task == T.DIGEST_A:                     # digest_v2_round_a
+    if task == T.DIGEST_RECORD:                     # digest_record（① 记）
         return {"episodes": []}
-    return {"decisions": [], "evidence": [], "affection_exp_delta": 5}   # round_b
+    return {"decisions": [], "evidence": [], "affection_exp_delta": 5}   # digest.understand（③ 接）
 
 
 class ScriptedLLM:
@@ -87,7 +87,7 @@ class ScriptedLLM:
         task = kw.get("task")
         self.snapshots.append([dict(m) for m in messages])
         self.tasks.append(task)
-        if task in (T.DIGEST_A, T.DIGEST_B):
+        if task in (T.DIGEST_RECORD, T.DIGEST_UNDERSTAND):
             return _digest_stub(task)                  # digest → 两轮空包
         reply = stub_tasks.annotation_reply(task, messages)
         if reply is not None:                          # 标注类 → 标准应答
@@ -175,7 +175,7 @@ def _scene_calls(llm) -> list:
 
     节点 5b: 判据从"user 里有没有中文关键字"换成调用身份——**文案改了也不影响**。
     """
-    main = T.MAIN | {T.DIGEST, T.DIGEST_A, T.DIGEST_B}
+    main = T.MAIN | {T.DIGEST, T.DIGEST_RECORD, T.DIGEST_UNDERSTAND}
     return [snap for snap, task in zip(llm.snapshots, llm.tasks) if task not in main]
 
 
@@ -267,7 +267,7 @@ def test_bond_scene_error_abort_no_closing(tmp_path):
             task = kw.get("task")
             self.snapshots.append([dict(m) for m in messages])
             self.tasks.append(task)
-            if task in (T.DIGEST_A, T.DIGEST_B):     # digest 照常应答（收尾链要用）
+            if task in (T.DIGEST_RECORD, T.DIGEST_UNDERSTAND):     # digest 照常应答（收尾链要用）
                 return _digest_stub(task)
             raise RuntimeError("LLM 挂了")          # 每次调用都炸 → 重试耗尽
     engine, st, sid, _ = _setup(tmp_path, SCENE_A)  # 占位（BadLLM 覆盖）

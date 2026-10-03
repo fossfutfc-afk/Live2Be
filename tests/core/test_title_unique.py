@@ -32,7 +32,7 @@ class FakeLLM:
         task = kw.get("task")
         if task == T.DIGEST_CLOSE:
             return CLOSE_EMPTY
-        if task == T.DIGEST_ATTR:
+        if task == T.DIGEST_ATTRIBUTE:
             return {"attributions": []}
         if self.responses:
             return self.responses.pop(0)

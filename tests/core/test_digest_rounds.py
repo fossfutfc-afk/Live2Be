@@ -126,19 +126,62 @@ def test_writes_covers_the_edge_table():
 
 
 # ---------------------------------------------------------------------------
-# ③ LLM 四件套同生共死 + prompt 文件在 + 标签在词表里
+# ③ LLM 四件套同生共死 + 三个派生标识 + prompt 文件在 + 标签在词表里 + 相位是真的
 # ---------------------------------------------------------------------------
 
 def test_llm_rounds_are_complete():
-    """`label` / `prompt` / `phase` / `parse` 要么都有, 要么都没有（只有 `akin` 都没有）。"""
+    """`llm` 标志与 `parse` 必须同进同退; 三个派生标识随它空/不空（只有 `akin` 全空）。
+
+    ⚠️ 乙-2（2026-09-29）起 `label` / `prompt` / `phase` **不再写在表里** —— 它们由
+    `key` 派生（`RoundSpec` 的 property）, 所以这里钉的判据改成
+    "**`llm` 与 `parse` 一致**" + "派生值同生共死"。
+    """
     for spec in R.ROUNDS:
-        quad = (spec.label, spec.prompt, spec.phase, spec.parse)
-        filled = [bool(x) for x in quad]
-        assert all(filled) or not any(filled), \
-            f"{spec.key}: LLM 四件套（label/prompt/phase/parse）必须同生共死, 实得 {quad}"
-    no_llm = [s.key for s in R.ROUNDS if not s.label]
+        assert spec.llm == (spec.parse is not None), (
+            f"{spec.key}: `llm={spec.llm}` 与 `parse="
+            f"{'有' if spec.parse else '无'}` 不一致 —— 四件套就破了")
+        derived = (spec.label, spec.prompt, spec.phase)
+        assert all(derived) if spec.llm else not any(derived), \
+            f"{spec.key}: 三个派生标识（label/prompt/phase）必须同生共死, 实得 {derived}"
+    no_llm = [s.key for s in R.ROUNDS if not s.llm]
     assert no_llm == ["akin"], f"零 LLM 的步只该有 akin, 实得 {no_llm}"
-    print(f"    {len(R.ROUNDS)} 步: {len(R.ROUNDS) - 1} 次 LLM + 1 次零成本补边")
+    print(f"    {len(R.ROUNDS)} 步: {len(R.ROUNDS) - 1} 次 LLM + 1 次零成本补边（派生标识同生共死）")
+
+
+def test_derived_identifiers_come_from_the_key():
+    """⭐ 三个派生标识**逐字等于 key**（prompt 多一个 `digest_` 前缀）—— 乙-2 的立项理由。"""
+    from core.digest.rounds import DIGEST_LOG_PREFIX
+
+    for spec in R.ROUNDS:
+        if not spec.llm:
+            continue
+        assert spec.label == spec.key, f"{spec.key}: label 该等于 key, 实得 {spec.label!r}"
+        assert spec.phase == spec.key, f"{spec.key}: phase 该等于 key, 实得 {spec.phase!r}"
+        assert spec.prompt == f"{DIGEST_LOG_PREFIX}{spec.key}", \
+            f"{spec.key}: prompt 该是 {DIGEST_LOG_PREFIX}{spec.key}, 实得 {spec.prompt!r}"
+        assert spec.name == f"{DIGEST_LOG_PREFIX}{spec.key}", spec.name
+    assert R.ROUNDS[1].name == "digest_akin", "零 LLM 的 akin 也有日志前缀（用户裁决）"
+    print("    派生: key → name / label / prompt / phase（一个都不手写）")
+
+
+def test_every_phase_is_a_real_contract_phase():
+    """⭐ `key` 取的就是**契约相位名** —— 每个 LLM 轮的相位必须真的能 `build_schema`。
+
+    这条替换了从前"表里写死 `PHASE_*` 常量"的那份保证: 现在表里**没有**相位那一格了,
+    所以由这条用例来钉"key 与契约相位是同一批词"。
+    """
+    from contract.digest_registry import (
+        PHASE_ATTRIBUTE, PHASE_CLOSE, PHASE_GROUP, PHASE_RECORD, PHASE_UNDERSTAND,
+        digest_registry,
+    )
+    real = {PHASE_RECORD, PHASE_UNDERSTAND, PHASE_CLOSE, PHASE_ATTRIBUTE, PHASE_GROUP}
+    for spec in R.ROUNDS:
+        if not spec.llm:
+            continue
+        assert spec.phase in real, \
+            f"{spec.key}: phase {spec.phase!r} 不是契约认识的相位 {sorted(real)}"
+        digest_registry.build_schema(spec.phase)          # 渲染不出来才是真的错
+    print(f"    相位: {sorted(real)} —— 表里的 key 全在里面, 且都能 build_schema")
 
 
 def test_prompt_files_exist():
@@ -151,13 +194,13 @@ def test_prompt_files_exist():
 def test_labels_are_in_the_vocabulary():
     """每步的 `label` 都要拼得出一个**词表里的** task 标签（桩与档位都按它走）。"""
     for spec in R.ROUNDS:
-        if not spec.label:
+        if not spec.llm:
             continue
         tag = T.digest_label(spec.label)
         assert tag in T.ALL, f"{spec.key}: 标签 {tag!r} 不在 llm/task_labels.ALL 里"
         assert tag in T.PROFILE_OF, f"{tag} 没有映射到档位形态"
     print("    标签: " + " / ".join(T.digest_label(s.label)
-                                   for s in R.ROUNDS if s.label))
+                                   for s in R.ROUNDS if s.llm))
 
 
 # ---------------------------------------------------------------------------
@@ -189,7 +232,7 @@ def test_every_round_is_implemented_and_entered():
 def test_material_sections_are_all_named():
     """每一步的料标题**非空**（零 LLM 的那步除外）—— 料是表的一半价值。"""
     for spec in R.ROUNDS:
-        if spec.label:
+        if spec.llm:
             assert spec.material, f"{spec.key}: LLM 轮必须有料（谁吃什么 = 表的一半）"
             assert len(set(spec.material)) == len(spec.material), \
                 f"{spec.key}: 料标题重复（`_sections_for` 是逐字比对的）"
@@ -231,15 +274,15 @@ def test_only_the_group_step_carries_its_own_snapshot():
 def test_cursor_allows_skips_but_never_goes_back():
     """跳过的步留空是允许的; **回头**不行（顺序的真源是表）。"""
     cur = Cursor()
-    cur.enter("round_a")
-    cur.enter("round_b")                       # 跳过 akin / close
+    cur.enter("record")
+    cur.enter("understand")                       # 跳过 akin / close
     try:
         cur.enter("close")
     except AssertionError as e:
         assert "越序" in str(e), e
     else:
         raise AssertionError("游标允许回头了 —— 表就不再是顺序的真源")
-    cur.enter("attr")                          # 往前走照旧
+    cur.enter("attribute")                          # 往前走照旧
     cur.enter("group")
     assert cur.at == len(R.ROUNDS)
     print("    cursor: 可跳步, 不可回头（越序当场炸）")
@@ -253,12 +296,12 @@ def test_round_budgets_fit_inside_the_segment_cap():
     """⭐ 各轮预算之和必须 ≤ 整段硬顶 —— 否则后面的轮又会被前面的吃掉, 等于没改。"""
     for spec in R.ROUNDS:
         assert R.budget_of(spec) > 0, f"{spec.key}: 预算必须为正"
-    planned, cap = R.planned_seconds(), R.SEGMENT_HARD_CAP_SECONDS
+    planned, cap = R.planned_seconds(), R.DIGEST_SEGMENT_HARD_CAP
     assert planned <= cap, (
         f"各轮预算之和 {planned}s 超过整段硬顶 {cap}s —— 硬顶会替前面的轮吃掉后面的轮"
         "（刀 1 要修的就是这个）; 要么调小某轮 budget, 要么抬硬顶")
-    print(f"    预算: 每轮 {R.ROUND_BUDGET_SECONDS:.0f}s × "
-          f"{len([s for s in R.ROUNDS if s.label])} 轮 = {planned:.0f}s ≤ 硬顶 {cap:.0f}s")
+    print(f"    预算: 每轮 {R.DIGEST_ROUND_BUDGET_SECONDS:.0f}s × "
+          f"{len([s for s in R.ROUNDS if s.llm])} 轮 = {planned:.0f}s ≤ 硬顶 {cap:.0f}s")
 
 
 def test_round_deadline_is_the_tighter_of_the_two():
@@ -291,7 +334,7 @@ def test_budget_hit_names_the_round(tmp_path):
     assert not res.ok
     assert res.llm_calls == 0                       # 预检拦下, 一次都没发
     msg = " | ".join(res.errors)
-    assert "round_a" in msg, msg                    # ⭐ 哪一轮
+    assert "record" in msg, msg                    # ⭐ 哪一轮（轮次 key）
     assert "时间预算" in msg and "硬顶" in msg, msg    # ⭐ 哪种预算（0 秒 ⇒ 硬顶更紧）
     assert st.digested_seq == 0
     print(f"    {msg}")
@@ -306,7 +349,7 @@ def test_the_round_deadline_is_computed_in_one_place():
     `Ctx.call` 交给 `_round_call` 的确实是整段硬顶。
     """
     src = _rounds_src()
-    n_llm = len([s for s in R.ROUNDS if s.label])
+    n_llm = len([s for s in R.ROUNDS if s.llm])
     assert src.count("ctx.call(") >= n_llm, \
         "有 LLM 轮没走 `ctx.call`（模型参数与预算就绕过去了）"
     # ⚠️ 用词边界看: `hard_deadline=hard_deadline` 里的尾巴不算"裸传硬顶"
@@ -344,12 +387,12 @@ class RoundLLM:
     def chat(self, messages, **kw):
         task = kw.get("task")
         self.tasks.append(task)
-        if task == T.DIGEST_A:
+        if task == T.DIGEST_RECORD:
             return {"episodes": [{"text": "模型店门口", "title": "模型店门口",
                                   "tags": ["约定"]}]}
         if task == T.DIGEST_CLOSE:
             return {"add": [{"text": "拍一张模型店的照", "refs": ["m9999"]}], "close": []}
-        if task in (T.DIGEST_B, T.DIGEST):
+        if task in (T.DIGEST_UNDERSTAND, T.DIGEST):
             return {"decisions": [{"episode": "m9999", "decision": "add",
                                    "kind": "belief", "text": "关于那家店的看法"}]}
         raise RuntimeError(f"意外调用 task={task!r}")
@@ -371,7 +414,7 @@ def test_batch_rollback_also_drops_the_close_warnings(tmp_path):
     assert res.notes_ops == []
     assert res.notes_warnings == [], f"R4 的告警该随整批一起作废: {res.notes_warnings}"
     # 那些告警确实**产生过**（否则这条用例什么也没验到 —— 它得先在 R4 那里出现）
-    assert llm.tasks[:2] == [T.DIGEST_A, T.DIGEST_CLOSE], llm.tasks
+    assert llm.tasks[:2] == [T.DIGEST_RECORD, T.DIGEST_CLOSE], llm.tasks
     assert [n.id for n in st.all() if n.kind == "episode"] == []      # R1 的节点也回滚了
     print("    端到端: 整批回滚 ⇒ note 面（ops + warnings）一起作废")
 
@@ -384,6 +427,8 @@ if __name__ == "__main__":
     test_writes_names_exist_in_the_graph()
     test_writes_covers_the_edge_table()
     test_llm_rounds_are_complete()
+    test_derived_identifiers_come_from_the_key()
+    test_every_phase_is_a_real_contract_phase()
     test_prompt_files_exist()
     test_labels_are_in_the_vocabulary()
     test_every_round_is_implemented_and_entered()

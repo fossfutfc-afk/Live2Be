@@ -36,8 +36,8 @@ core/brain/                # 独立模块——不动现有 brain/*.py 直到 M 
 ├── llm_call.py                    # ✅ 板块3 LLM 调用鲁棒层（重试/deadline/reasoning_effort, digest 唯一 LLM 触面）
 └── digest.py                      # ✅ 板块4 digest v2 两轮管线（A 记录员 + B 理解者决策表, 原子/水位/幂等）
 contract/digest_registry.py        # ✅ 板块2 digest 动作注册表（spec 单源: schema 渲染 + parse 校验）
-llm/prompts/digest_v2_round_a.md   # ✅ Round A prompt（记录员）
-llm/prompts/digest_v2_round_b.md   # ✅ Round B prompt（理解者）
+llm/prompts/digest_record.md    # ✅ ① 记 prompt（记录员; 2026-09-29 乙-2 改名）
+llm/prompts/digest_understand.md  # ✅ ③ 接 prompt（理解者; 同上）
 ```
 
 分工原则: 每文件单一职责, 依赖方向单向（nodes ← store ← revise ← render/recall ← digest）;
@@ -244,7 +244,7 @@ wiki 是**派生视图**（可重算可改写）——修订后整写更简单�
    │
    ▼ Round A「记录员」（只看新时间线——不注入旧记忆, 防"组织污染记录"）
    │   输入: 时间线 + 画面记忆 + 人设锚点（性格+知识两层）
-   │   契约: digest_registry.build_schema(record) ← digest_v2_round_a.md
+   │   契约: digest_registry.build_schema(record) ← digest_record.md
    │   输出: {episodes: [新经历…]}（parse_round_a 结构校验）
    │   引擎: 建 episode 节点（内存暂存; 引擎字段归属: ts/segment_id/event_seq;
    │         dedupe 幂等; 不落盘）
@@ -252,7 +252,7 @@ wiki 是**派生视图**（可重算可改写）——修订后整写更简单�
    ▼ Round B「理解者」（新经历 ↔ 现有稳定认知, 决策表）
    │   输入: 新经历摘要 + 认知渲染（本地 id u0001.., 引擎防猜真实 id）
    │         + 时间线 + 锚点
-   │   契约: digest_registry.build_schema(understand) ← digest_v2_round_b.md
+   │   契约: digest_registry.build_schema(understand) ← digest_understand.md
    │   输出: {decisions: [逐 episode 一行 touch|update|add], affection_exp_delta}
    │         ⚠️ `evidence` **2026-09-29 删**（零消费者; 见 REDUNDANCY.md）
    │        parse_round_b: 引用纪律（id 必须 ∈ 渲染列表）+ 覆盖检查（漏 episode 整包拒）
@@ -308,7 +308,7 @@ apply_revision_package 复用, digest_registry 注册 deep 动作集）。
 7. **注入刷新**: digest 后台完成后**动态拼装注入段**（_brain_injection 字段原子替换,
    chat 每轮组装 system 时拼接）——不追加防重复注入, 跨线程零锁
 
-**A 轮 MMT 专则**（digest_v2_round_a.md）: mmt 段素材只有对话本身——值得记的 =
+**① 记 的 MMT 专则**（digest_record.md）: mmt 段素材只有对话本身——值得记的 =
 约定/玩家透露/角色内心表露; 寒暄表情不记; 单轮无实质不硬凑。玩家说的话第一人称
 只写角色感受与回应, 玩家原话放 verbatim。
 

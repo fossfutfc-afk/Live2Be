@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 def run(ctx: Ctx) -> RoundOut:
     """④ 挂 —— 本轮新节点归到候选对象上（没有可归属的新节点 ⇒ 按表跳过）。"""
-    spec = ctx.enter("attr")
+    spec = ctx.enter("attribute")
     new_ids = [*ctx.episode_ids, *ctx.player_ids, *ctx.r2_created]
     node_text, node_local = new_nodes_block(ctx.store, new_ids)
     if not node_text:
@@ -43,7 +43,7 @@ def run(ctx: Ctx) -> RoundOut:
     # 所以命中变窄 = 少看一点载荷, **不是判不了挂谁**（`REDUNDANCY.md` #2）。
     hits = hit_set(ctx.store, texts=_node_texts(ctx.store, new_ids))
     payload = payload_block(ctx.store, hits, ent_local)
-    logger.info("digest_hit eps=%d hit=%d", len(new_ids), len(hits))
+    logger.info("digest_attribute nodes=%d hit=%d", len(new_ids), len(hits))
     system = ctx.system_for(spec)
     user = ctx.sections_for(spec, [
         ("候选对象", table_text or "（还没有任何对象）"),
@@ -61,7 +61,7 @@ def run(ctx: Ctx) -> RoundOut:
         ctx.store, rows,
         id_map={v: k for k, v in node_local.items()},   # local→real
         local_of=ent_local, ts=ctx.now_ts, event_seq=[ctx.interact_max])
-    logger.info("digest_attr table=%d hit=%d payload=%d rows=%d new=%d",
+    logger.info("digest_attribute table=%d hit=%d payload=%d rows=%d new=%d",
                 len(ent_local), len(hits), len(payload.splitlines()),
                 len(rows), len(ctx.result.created_entities))
     return RoundOut.done()

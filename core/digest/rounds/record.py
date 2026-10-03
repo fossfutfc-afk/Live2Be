@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 
 def run(ctx: Ctx) -> RoundOut:
     """① 记 —— 本段新增互动 + 人设 + 视觉记忆 → 条目（→ 节点）。"""
-    spec = ctx.enter("round_a")
+    spec = ctx.enter("record")
     system = ctx.system_for(spec, domain=ctx.domain, chapter_count=len(ctx.chapters))
     user = ctx.sections_for(spec, [
         ("本段新增互动", ctx.timeline),
@@ -60,7 +60,7 @@ def run(ctx: Ctx) -> RoundOut:
     # ⚠️ **必须在 `_collapse_bond_episodes` 之前** —— 那一章的归属靠 `event_seq`
     #    与章块**相交**, 展开前只有两个端点, 章块夹在中间时会漏判。
     _unclaimed, _shared = _expand_spans(entries, ctx.seq_set)
-    logger.info("digest_span eps=%d 认领=%d 未认领=%d 共享=%d（共享只记账, 不裁）",
+    logger.info("digest_record span=%d 认领=%d 未认领=%d 共享=%d（共享只记账, 不裁）",
                 len(entries), len(ctx.seq_set) - len(_unclaimed),
                 len(_unclaimed), _shared)
     # 一章一个 episode（2026-09-20）—— 引擎确定性收口 + 可观测告警
