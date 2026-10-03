@@ -401,8 +401,8 @@ def test_notes_state_folds_without_a_cache_and_does_not_write(tmp_path):
     st = _store(tmp_path)
     state = st.notes_state(_two_notes())
 
-    assert [it.id for it in state.promise] == ["n1", "n2"]
-    assert state.promise[0].closed is True
+    assert [it.id for it in state.pinned] == ["n1", "n2"]
+    assert state.pinned[0].closed is True
     # ⚠️ 读路径**不写盘**（缓存由写者在事件 append 之后落）
     assert not st.notes_path.exists()
 
@@ -429,7 +429,7 @@ def test_notes_state_refolds_incrementally_and_recovers_from_loss(tmp_path):
 
     tail = _note_events((4, N_RETIRE, {"id": "n1"}))
     st.save_notes(st.notes_state(events + tail))
-    assert [it.id for it in st.read_notes().promise] == ["n2"]
+    assert [it.id for it in st.read_notes().pinned] == ["n2"]
 
     # 缓存丢了 → 全量重折, 结果与缓存**逐字节一致**（"可重建"这句话的证据）
     before = st.read_notes().to_dict()

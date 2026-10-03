@@ -14,7 +14,7 @@ note 是**三种组织形式**里的第二种（图 / **笔记** / 台账, §1.1
 
 | 槽 | 类 | 装什么 | 更新模型 | 写者 |
 |---|---|---|---|---|
-| `promise` | **A 操作式** | 还没做的事（约定 / 承诺） | `add` / **`close` 结清** / **`retire` 退场** | 加 · 结清 = digest 收口（R4）· 退场 = **今天零写者**（见下） |
+| `pinned` | **A 操作式** | ⭐ **她随身带着的事**（誓约 / 重大的约定; 2026-09-29 由 `promise` 改名并收紧判据） | `add` / **`close` 结清** / **`retire` 退场** | 加 · 结清 = digest 收口（R4）· 退场 = **今天零写者**（见下） |
 | `on_mind` | **B 快照式** | 我最近在意的（一段散文） | 整段替换（`rewrite`） | ⭐ **L1（Round A）** —— N4a 起; 此前是全景轮 |
 
 > ⚠️ **第三槽 `habits` 已退役（2026-09-29, N4a）** —— 它是"规律"的**劣质替身**
@@ -70,30 +70,47 @@ from core.session.events import (
 
 logger = logging.getLogger(__name__)
 
-#: 三个槽（顺序 = 渲染顺序 = 清单顺序）
-SLOT_PROMISE = "promise"
+#: 槽（顺序 = 渲染顺序 = 清单顺序）
+#: ⚠️ **2026-09-29 改名 `promise` → `pinned`**（用户裁决: *"promise 混了两件事,
+#: 而且誓约只是其中最重的一类"*）。判据同时收紧成 **"说定的将来 + 值得随身带着"**
+#: （见 `llm/prompts/digest_record.md`）—— 名字与判据一起说"挡在门外的是什么":
+#: **日常安排 / 事务待办不是"钉住的事"**。
+#: ⚠️ **磁盘影响**: 事件流的 `add`/`close`/`retire` payload **不带槽名**（槽由 action
+#: 隐含）⇒ **真源零影响**; 只有**派生缓存** `notes.json` 里有那个键 ⇒ `from_dict`
+#: 兼容读一次旧名（见 `_LEGACY_SLOT`）。
+SLOT_PINNED = "pinned"
+#: 派生缓存里的**旧**槽名（改名前的 `promise`）—— 只读一次, 下次保存自动改写。
+_LEGACY_SLOT = "promise"
 #: ⚠️ ~~`SLOT_HABITS = "habits"`~~ **2026-09-29（N4a）已退役**：它是"规律"的劣质替身
 #: （`DESIGN_NOTE §4` 三条存在理由都不满足）；内容归 L2 的 belief、指针归将来的 `index`。
 #: 别把常量留着"以防万一" —— 退役就是退役，留着它就还有一条静默的写路。
 SLOT_ON_MIND = "on_mind"
-SLOTS: tuple[str, ...] = (SLOT_PROMISE, SLOT_ON_MIND)
+SLOTS: tuple[str, ...] = (SLOT_PINNED, SLOT_ON_MIND)
 #: **A 操作式**槽（增量 add/close）与 **B 快照式**槽（rewrite 整段替换）。
 #: ⚠️ 这个二分就是"同一段只有一个写者"的实现: `close` 只作用于 A 类, `rewrite` 只碰 B 类。
-OPSLOTS: tuple[str, ...] = (SLOT_PROMISE,)
+OPSLOTS: tuple[str, ...] = (SLOT_PINNED,)
 SNAPSHOT_SLOTS: tuple[str, ...] = (SLOT_ON_MIND,)
 
-#: 上限（**超限只告警不截断** —— 丢哪条是她的判断, 交 L2, 引擎不替她决定）
-MAX_PROMISE = 5
-MAX_ON_MIND = 1
-#: 约定的**结局**（`close` 行的 `state`）—— ⭐ **2026-09-29 起这是运行时真源**:
-#: promise 退图之后节点上不再有 `outcome`, 这 3 个词只活在 note 面
-#: （`contract/digest_registry.py` 有一份同源副本, 契约层不依赖 core）。
-PROMISE_OUTCOMES = ("kept", "broken", "superseded")
+#: ⭐ **备忘录的总量上限（字）**（2026-09-29 用户裁决）。
+#: ## 为什么是"总量"而不是"每槽条数"
+#: 从前的两条判据（`MAX_PROMISE=5` 条数上限 · `MAX_CLOSED_PENDING=3` 结清积压）**生产里
+#: 零读者**（只有测试调 `check`）⇒ 真机永远不会响, 而真机会发生的事是**"结清不退场 +
+#: 约定越记越多 ⇒ 注入块越来越长"**。而她每轮都在为这个块花 token ⇒ 该管的是**它多长**。
+#: ⚠️ **数值未标定**: 先给一个数, 真机看 `note 体检` 那行里报的实际字数再调。
+MAX_NOTE_CHARS = 500
 #: 条目正文上限（§3.2: **名词短语 ≤20 字, 不写陈述句** —— 免得与 episode 的叙述竞争）
 MAX_TEXT = 20
-#: "结清未退场"的积压上限（**只告警**）—— 它是**正常态**（已结清的还留在本子上,
-#: 等读路径接住才退场）, 所以不逐条报; 超过这个数才说明"收口没跑到 / 退场一直没接上"。
-MAX_CLOSED_PENDING = 3
+#: ⭐ **快照槽（`on_mind`）的正文上限** —— 它是一句**心境**（可以有口气、有破折号）,
+#: 不是名词短语 ⇒ **与 A 槽不同限**。
+#: ⚠️ **与契约层同源**: `contract/digest_registry.ON_MIND_MAX`（契约不依赖 core, 那边有
+#: 一份副本 ⇒ 改一处要改两处）。⚠️ 这个不一致是**体检接上读者当天抓出来的**:
+#: 真机那句 21 字的心境被 A 槽的 20 字标尺报了警。
+MAX_ON_MIND_TEXT = 60
+#: ⭐ **约定的结局**（`close` 行的 `state`）—— **运行时真源**（改名 `PROMISE_OUTCOMES` →
+#: `PINNED_OUTCOMES`, 2026-09-29 随槽名一起对齐）。
+#: ⚠️ 节点上没有 `outcome` 字段（promise 退图）⇒ 这 3 个词只活在 note 面
+#: （`contract/digest_registry.py` 有一份同源副本, 契约层不依赖 core）。
+PINNED_OUTCOMES = ("kept", "broken", "superseded")
 
 #: 注入块标题 —— ⚠️ 必须**说清这是什么**（是她自己记的, 不是系统/别人派的任务; 编号是索引）,
 #: 且**不含任何结构化痕迹**（无 JSON / 无键名 / 无波括号 —— **存 JSON, 看中文**, §3.2）。
@@ -103,7 +120,7 @@ TITLE = ("【你自己记的备忘录】（你自己随手记下的, 不是别�
          "每条前面的编号指这一条本身, 括号里是它从哪件事来的）")
 #: 槽 → 小节抬头（**自然语言**, 用设计稿自己的词: 约定 / 最近在想）。
 #: ⚠️ **空槽不印抬头**（否则每个空槽都白占一行常驻预算）。
-GROUP_LEADS: dict[str, str] = {SLOT_PROMISE: "· 你自己记下的约定",
+GROUP_LEADS: dict[str, str] = {SLOT_PINNED: "· 你自己记下的约定",
                                SLOT_ON_MIND: "· 最近在想"}
 #: 抬头缩进 / 条目缩进（两级 —— 一瞥看得出手上开着几条）
 _LEAD_INDENT = "  "
@@ -116,9 +133,6 @@ CLOSED_WORDS: dict[str, str] = {"kept": "已兑现", "broken": "没做到",
                                 "superseded": "被新的取代了"}
 #: 兜底状态词（没有 `state` 时）
 CLOSED_LEAD = "  ← 已结清"
-
-#: 槽 → 上限（`check` 用）
-_CAPS: dict[str, int] = {SLOT_PROMISE: MAX_PROMISE, SLOT_ON_MIND: MAX_ON_MIND}
 
 
 # ---------------------------------------------------------------------------
@@ -134,7 +148,7 @@ class NoteItem:
     `text`  —— 名词短语 ≤ `MAX_TEXT` 字（"周六模型店" ≠ "我们约好周六去模型店"）。
     `refs`  —— ≥1, 指向**现存节点**（悬空 → `check()` 告警, 不阻断）。
     `since` —— 记于何时（引擎填 = 那条操作的 `ts`; 渲染成"记于 N 天前"）。
-    `due`   —— `promise` 可选; ⚠️ **只存不渲染**（渲染成日期会诱使她"数日子",
+    `due`   —— `pinned` 可选; ⚠️ **只存不渲染**（渲染成日期会诱使她"数日子",
                与 `worldtime.age` 那条"绝不输出精确值"直接冲突）。
     `closed_at` / `afterwards` / `state` —— **结清**（`closed_at` 非空 = 已结清）:
                她做完了 / 没成 / 被新的取代了（`state` = `kept`/`broken`/`superseded`）,
@@ -209,7 +223,7 @@ class NotesState:
 
     up_to_seq: int = 0
     next_n: int = 1
-    promise: list[NoteItem] = field(default_factory=list)
+    pinned: list[NoteItem] = field(default_factory=list)
     on_mind: NoteItem | None = None
     # ⚠️ ~~`habits` 槽~~ **2026-09-29（N4a）已退役**：它是"规律"的劣质替身
     #    （`DESIGN_NOTE §4`：≤20 字标签 + refs 无走法 + 与 belief 重复 ⇒ 三条存在理由
@@ -222,7 +236,7 @@ class NotesState:
         正常路径（`fold`）不会踩到; 手工构造的状态 / 旧档推错的 `next_n` 会 —— 那会发出
         **重号**, 而 `close`/`retire` 只按号找人 ⇒ 旧引用指错条目（静默）。
         """
-        self.next_n = max(self.next_n, _derive_next_n(self.promise))
+        self.next_n = max(self.next_n, _derive_next_n(self.pinned))
 
     def items(self, slot: str) -> list[NoteItem]:
         """槽 → 条目列表（`on_mind` 折成 0/1 条的列表, 便于统一校验/渲染）。"""
@@ -232,12 +246,12 @@ class NotesState:
 
     def clone(self) -> "NotesState":
         return NotesState(up_to_seq=self.up_to_seq, next_n=self.next_n,
-                          promise=[it.copy() for it in self.promise],
+                          pinned=[it.copy() for it in self.pinned],
                           on_mind=self.on_mind.copy() if self.on_mind else None)
 
     def to_dict(self) -> dict:
         d: dict[str, Any] = {"up_to_seq": self.up_to_seq, "next_n": self.next_n,
-                             SLOT_PROMISE: [it.to_dict() for it in self.promise]}
+                             SLOT_PINNED: [it.to_dict() for it in self.pinned]}
         if self.on_mind is not None:
             d[SLOT_ON_MIND] = self.on_mind.to_dict()
         return d
@@ -250,12 +264,17 @@ class NotesState:
         """
         if not isinstance(raw, dict):
             return cls()
-        promise = _items_of(raw.get(SLOT_PROMISE))
+        # ⚠️ 兼容读旧槽名（改名 `promise` → `pinned`, 2026-09-29）—— 派生缓存里那
+        # 个键是旧名; 不认它的话 `up_to_seq` 还在 ⇒ `fold` 不会重放 ⇒ **条目会没**。
+        # 下次 `save_notes` 自动改写成新名。
+        raw_pinned = (raw[SLOT_PINNED] if SLOT_PINNED in raw
+                      else raw.get(_LEGACY_SLOT))
+        pinned = _items_of(raw_pinned)
         next_n = _int(raw.get("next_n"))
         if next_n < 1:                     # 旧档/坏档: 从活着的 id 推一个下界（防复用）
-            next_n = _derive_next_n(promise)
+            next_n = _derive_next_n(pinned)
         return cls(up_to_seq=max(0, _int(raw.get("up_to_seq"))),
-                   next_n=next_n, promise=promise,
+                   next_n=next_n, pinned=pinned,
                    on_mind=NoteItem.from_dict(raw.get(SLOT_ON_MIND)))
 
 
@@ -306,7 +325,7 @@ def _apply_add(st: NotesState, payload: dict, ts: str, seq: int) -> None:
     if not text or not refs:
         logger.warning("note/add 残缺（跳过）: seq=%s text=%r refs=%r", seq, text, refs)
         return
-    st.promise.append(NoteItem(id=_alloc_id(st), text=text, refs=refs, since=ts,
+    st.pinned.append(NoteItem(id=_alloc_id(st), text=text, refs=refs, since=ts,
                                due=str(payload.get("due") or "").strip()))
 
 
@@ -457,7 +476,7 @@ def retire_op(item_id: str) -> dict:
 
 
 def rewrite_op(*, on_mind: Any = None) -> dict:
-    """`rewrite` 操作（快照槽整段替换; **不碰 `promise`**）。
+    """`rewrite` 操作（快照槽整段替换; **不碰 `pinned`**）。
 
     **没传的槽 = 本次不动它**（`None` 是"没提", 不是"清空"）——
     要清空就显式传空值: `on_mind=""`。
@@ -508,10 +527,10 @@ def validate_ops(ops: list[dict]) -> None:
                                      f"note 操作[{i}] close 缺 afterwards（「这件事后来怎么了」）"
                                      " —— 它是她读到的那句尾巴"))
             state = str(op.get("state") or "").strip()
-            if state not in PROMISE_OUTCOMES:
+            if state not in PINNED_OUTCOMES:
                 raise ValueError(err("BadNoteOp",
                                      f"note 操作[{i}] close 的 state 非法: {state!r}"
-                                     f"（可用: {', '.join(PROMISE_OUTCOMES)}）"))
+                                     f"（可用: {', '.join(PINNED_OUTCOMES)}）"))
         elif action == N_RETIRE:
             if not str(op.get("id") or "").strip():
                 raise ValueError(err("BadNoteOp", f"note 操作[{i}] retire 缺 id"))
@@ -534,38 +553,41 @@ def _checked(op: dict) -> dict:
 # 读侧: 校验（告警, 不阻断）+ 渲染
 # ---------------------------------------------------------------------------
 
-def check(state: NotesState, known: Iterable[str] | None = None) -> list[str]:
+def check(state: NotesState, known: Iterable[str] | None = None,
+          *, block_chars: int | None = None) -> list[str]:
     """读侧告警清单（**不阻断** —— 调用方打日志/记账, 照 `store.audit()` 的做法）。
 
     查四件:
     ① 每项至少一个 `refs`（§3.2 不变量①: 每条都要能指回一段经历）
     ② `refs` 指向**现存节点**（悬空 → 记一笔; **不删条目、不改写** —— 那条线索失效不是
        她的错, 而"删掉"是判定）
-    ③ 上限 `5 / 5 / 1` —— **只算还开着的**（结清的是"等退场", 不该再占她的注意力预算）,
-       且**超限只告警不截断**（丢哪条交全景轮）
+    ③ ⭐ **备忘录的总量** > `MAX_NOTE_CHARS` 字（2026-09-29 改）—— 见下面那条历史
     ④ 正文超 `MAX_TEXT` 字（该写名词短语, 不写陈述句）
 
-    ⚠️ **`promise` 的"结清未退场"是正常态**（已结清的还留在本子上, 等读路径接住）
-       ⇒ 不逐条告警; 只在**积压**时报一句。
-       ⚠️ `retire` 今天**零写者**（读路径没接上, §3.2; 而 2026-09-29 承诺退图之后
-       "固化那一批"那条路也没了）⇒ 那一句的含义是"积压到什么规模了"
-       （**预期内的观察值, 不是故障**）。
+    ## ⚠️ ③ 的来历（改判据的理由）
+
+    从前的两条是 **每槽条数上限**（`MAX_PROMISE=5`）与 **结清未退场积压**
+    （`MAX_CLOSED_PENDING=3`）。2026-09-29 核出**它们在**生产**里零读者** —— 只有测试调
+    `check`, 引擎从来没接过它们 ⇒ 真机永远不响。而真机会发生的事是另一件:
+    **结清不退场（用户裁决）+ 约定越记越多 ⇒ 注入块越来越长**, 而她每轮都在为它花 token。
+    ⇒ 判据换成**总量**（她真正付出的那个成本）。
+
+    ⚠️ **`pinned` 的"结清未退场"现在是常态**（用户裁决: 不退场 —— 退场了就没人接住
+       `afterwards`）⇒ 它**不再单独告警**, 由总量那一条统一管。
+    ⚠️ `retire` 今天**零写者**（读路径没接上, §3.2）⇒ 总量涨到上限就是"该退役/该淘汰了"
+       的信号 —— 而淘汰规则**还没定**, 所以这条告警今天只报不修（预期内的观察值）。
 
     `known=None` → 跳过 ②（调用方没有图的时候, 比如单测折叠本身）。
+    `block_chars=None` → 自己算（`render_note_block` 的长度; 调用方已经渲过就传进来省一次）。
     """
     known_set = set(known) if known is not None else None
     out: list[str] = []
+    chars = block_chars if block_chars is not None else len(render_note_block(state))
+    if chars > MAX_NOTE_CHARS:
+        out.append(f"备忘录太长（{chars} > {MAX_NOTE_CHARS} 字; 每轮都在花 token）"
+                   "—— 该退役的退役 / 该淘汰的淘汰（⚠️ 淘汰规则未定, 见 `MAX_NOTE_CHARS`）")
     for slot in SLOTS:
         items = state.items(slot)
-        live = [it for it in items if not it.closed]
-        cap = _CAPS[slot]
-        if len(live) > cap:
-            out.append(f"{slot} 超上限（{len(live)} > {cap}, 只算还开着的）"
-                       "—— 不截断, 取舍交全景轮")
-        pending = [it for it in items if it.closed]
-        if len(pending) > MAX_CLOSED_PENDING:
-            out.append(f"{slot} 结清未退场积压（{len(pending)} > {MAX_CLOSED_PENDING}）"
-                       "—— 读路径（recall）接上之前这是**预期**的: `retire` 暂未启用（§3.2）")
         for it in items:
             tag = it.id or slot
             if not it.refs:
@@ -574,9 +596,11 @@ def check(state: NotesState, known: Iterable[str] | None = None) -> list[str]:
                 for r in it.refs:
                     if r not in known_set:
                         out.append(f"{slot} {tag}: refs 指向不存在的节点 {r!r}")
-            if len(it.text) > MAX_TEXT:
-                out.append(f"{slot} {tag}: 正文 {len(it.text)} 字 > {MAX_TEXT}"
-                           "（写名词短语, 不写陈述句 —— 免得与 episode 的叙述竞争）")
+            limit = MAX_ON_MIND_TEXT if slot == SLOT_ON_MIND else MAX_TEXT
+            if len(it.text) > limit:
+                hint = ("（一句心境, 别写成一段）" if slot == SLOT_ON_MIND
+                        else "（写名词短语, 不写陈述句 —— 免得与 episode 的叙述竞争）")
+                out.append(f"{slot} {tag}: 正文 {len(it.text)} 字 > {limit}{hint}")
     return out
 
 
@@ -599,7 +623,7 @@ def render_note_block(state: NotesState, *, now: object | None = None,
     - **标题明说这是什么**（她自己的备忘 · 不是任务; 括号里是编号）—— 系统里同时住着
       规则书与 task 卡, 不说清就会被读成"引擎要她做的事"。
     - **小节抬头是自然语言**（约定 / 惯例 / 最近在想）, 且**空槽不印**。
-    - **零结构化痕迹**: 无 JSON、无键名（`promise`/`habits`/`on_mind` 一个字都不出现）、
+    - **零结构化痕迹**: 无 JSON、无键名（`pinned`/`on_mind` 一个字都不出现）、
       无波括号 —— 字段名是引擎的词汇, 不是她的。
     - 槽内**按 `since` 降序**（新的在上面）; **开着的排在已结清前面**（这个块第一句要回答
       "我手上还开着什么", 混排会把第一眼读坏）。
@@ -615,7 +639,7 @@ def render_note_block(state: NotesState, *, now: object | None = None,
     不给一个假的"很久以前"）。
     """
     lines: list[str] = []
-    for slot in (SLOT_PROMISE,):
+    for slot in (SLOT_PINNED,):
         items = state.items(slot)
         if not items:
             continue                                  # 空槽不印抬头（常驻预算是硬约束）

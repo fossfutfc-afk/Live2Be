@@ -39,7 +39,7 @@ from typing import Any
 #: 两处都写就是双真源，L2 改了 belief 那份不会跟着改（必漂）。
 #: ⏸ **`promise` 2026-09-25 加入、2026-09-29 退役**（用户裁决: 承诺太轻, 不足以长期记录）——
 #: 它**退出了图**（连同 `from`/`to`/`formed_by` 三条专属边），只留在 note 里当工作记忆
-#: （`notes.SLOT_PROMISE` = 她此刻还背着的事）; "这条经历涉及约定"由 `tags` 承担（只做筛选）。
+#: （`notes.SLOT_PINNED` = 她此刻还背着的事）; "这条经历涉及约定"由 `tags` 承担（只做筛选）。
 KINDS = ("episode", "experience", "belief", "entity", "group")
 #: ⏸ `PROMISE_OUTCOMES`（`kept`/`broken`/`superseded`）**2026-09-29 退役** —— 它是 promise
 #: 节点的 `outcome` 字段的枚举。结局本身没消失: 它留在 note 条目的 `state` 里

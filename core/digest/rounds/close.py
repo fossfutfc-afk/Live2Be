@@ -24,7 +24,7 @@ from __future__ import annotations
 import logging
 
 from core.brain.revise import apply_closures
-from core.digest.material import _episode_lines, _open_promises_text
+from core.digest.material import _episode_lines, _open_pinned_text
 from core.digest.rounds.base import Ctx, RoundOut
 
 logger = logging.getLogger(__name__)
@@ -34,13 +34,13 @@ def run(ctx: Ctx) -> RoundOut:
     """② 收口 —— 开着的约定 + 本段经历 → note 操作（`add` / `close`）。"""
     spec = ctx.enter("close")
     note_state = ctx.store.notes_state(ctx.events)     # 本段之前的备忘录（缓存优先）
-    open_promises = [it for it in note_state.promise if not it.closed]
-    if not (ctx.episode_ids or open_promises):
+    open_pinned = [it for it in note_state.pinned if not it.closed]
+    if not (ctx.episode_ids or open_pinned):
         ctx.log_skip(spec)
         return RoundOut.skipped()
     system = ctx.system_for(spec)
     user = ctx.sections_for(spec, [
-        ("还开着的约定", _open_promises_text(open_promises)),
+        ("还开着的约定", _open_pinned_text(open_pinned)),
         ("本段新增的经历", _episode_lines(ctx.store, ctx.episode_ids)),
     ])
     rows, _resp = ctx.call(spec, system, user, parse_fn=ctx.parse_for(spec))
@@ -53,7 +53,7 @@ def run(ctx: Ctx) -> RoundOut:
     for w in closures.warnings:
         logger.warning("digest_close: %s", w)
     logger.info("digest_close open=%d add=%d close=%d warn=%d",
-                len(open_promises),
+                len(open_pinned),
                 sum(1 for o in closures.ops if o.get("action") == "add"),
                 sum(1 for o in closures.ops if o.get("action") == "close"),
                 len(closures.warnings))

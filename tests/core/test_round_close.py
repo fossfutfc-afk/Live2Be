@@ -314,6 +314,6 @@ def test_engine_writes_note_ops_into_the_truth(tmp_path):
     assert evs[0].payload["text"] == "周六模型店，有点等不及"
     ws = WikiStoreV2(st.data_root, world_id=st.world_id, char_id=CHARACTER)
     state = ws.read_notes()
-    assert state is not None and [it.text for it in state.promise] == ["周六模型店，有点等不及"]
+    assert state is not None and [it.text for it in state.pinned] == ["周六模型店，有点等不及"]
     assert "周六模型店" in engine._brain_injection, engine._brain_injection
     assert "你自己记下的约定" in engine._brain_injection

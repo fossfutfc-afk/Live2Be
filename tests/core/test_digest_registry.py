@@ -3,7 +3,7 @@ from contract.digest_registry import (
     PHASE_CLOSE,
     PHASE_RECORD,
     PHASE_UNDERSTAND,
-    PROMISE_OUTCOMES,
+    PINNED_OUTCOMES,
     digest_registry,
 )
 
@@ -16,7 +16,7 @@ def test_schema_close_phase():
     text = digest_registry.build_schema(PHASE_CLOSE)
     assert '"add": [' in text and '"close": [' in text
     assert "两个键**都要在**" in text
-    for w in PROMISE_OUTCOMES:
+    for w in PINNED_OUTCOMES:
         assert w in text
     assert "必填" in text                       # afterwards 必填
     # 示例只有一种形状（设计稿陷阱 3/4）: 契约里出现的示例行就是那两行

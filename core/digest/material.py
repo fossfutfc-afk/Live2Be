@@ -7,7 +7,7 @@
 | 给谁 | 函数 | 料 |
 |---|---|---|
 | R1 | `_collect_visual_prompts` · `_segment_emotion_keys` | 画面记忆 · 本段情绪标尺 |
-| R4 | `_open_promises_text` · `_episode_lines` | 还开着的约定（带编号）· 本段新增经历 |
+| R4 | `_open_pinned_text` · `_episode_lines` | 还开着的约定（带编号）· 本段新增经历 |
 | R2 | `_round_b_material` | 新经历 + 每条候选（正文/被引/边/为什么） |
 | R3 | `_node_texts` | 本轮**动过**的节点正文（喂 `entities.hit_set`） |
 | 全体 | `_sections_for` · `_join_sections` | 按表校对段标题 → 拼成 user 串 |
@@ -116,7 +116,7 @@ def _segment_emotion_keys(events) -> list[str]:
 # R4 的料: 还开着的约定 / 本段新增经历
 # ---------------------------------------------------------------------------
 
-def _open_promises_text(items: list) -> str:
+def _open_pinned_text(items: list) -> str:
     """R4 输入之一: **还开着的约定**（带编号 —— 它要照着 `id` 写 `close`）。
 
     行格式复用注入块的 `notes.render_item`（`n3 周六模型店 (m0009)  ← 记于 3 天前`）——

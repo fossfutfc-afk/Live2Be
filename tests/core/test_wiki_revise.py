@@ -514,7 +514,7 @@ def test_attribution_rewrite_and_guards(tmp_path, caplog):
 def _close_store(tmp_path):
     """`_attr_store`（含 self/sensei）+ 一条还开着的约定（引用 m0001）。"""
     st = _attr_store(tmp_path)
-    state = notes.NotesState(promise=[
+    state = notes.NotesState(pinned=[
         notes.NoteItem(id="n1", text="周六模型店", refs=["m0001"],
                        since="2026-09-01T10:00:00")])
     return st, state
@@ -593,7 +593,7 @@ def test_apply_closures_needs_no_entities(tmp_path):
     收藏的边界: 一个 entity 都没有的库照常结清, 而且**零告警**（从前那条告警没了）。
     """
     st = _store(tmp_path)                                  # 无 entity
-    state = notes.NotesState(promise=[notes.NoteItem(id="n1", text="周六模型店",
+    state = notes.NotesState(pinned=[notes.NoteItem(id="n1", text="周六模型店",
                                                      refs=["m0001"])])
     before = [n.id for n in st.all()]
     res = apply_closures(st, [{"action": "close", "id": "n1", "state": "broken",

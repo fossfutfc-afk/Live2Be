@@ -224,7 +224,7 @@ ROUNDS: tuple[RoundSpec, ...] = (
         step="② 收口",
         parse=digest_registry.parse_close,
         material=("还开着的约定", "本段新增的经历"),
-        writes=(("note", ("promise",)),),
+        writes=(("note", ("pinned",)),),
         result_fields=(*CONTRACT_FIELDS, "notes_ops", "notes_warnings"),
         skip="没有开着的约定, 本段也没有新经历（那一轮必然空转）",
     ),
