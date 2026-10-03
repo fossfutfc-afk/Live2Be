@@ -219,7 +219,7 @@ ROUNDS: tuple[RoundSpec, ...] = (
         parse=digest_registry.parse_split,
         material=("本段新增互动", "本章标题"),
         writes=((SEGMENT_FACE, ("span", "keep", "abstract")),),
-        result_fields=(*CONTRACT_FIELDS, "segments"),
+        result_fields=(*CONTRACT_FIELDS, "segments", "segment_collapsed"),
         # ⚠️ **不设跳过条件**: 它跑不跑由编排层说（`digest_segment` 入口已经挡过
         # "这一段没新事件"）, 而"跳过一整段"是整段级的判定 —— 那要同时决定水位推不推
         # （推了 = 那段内容永不入记忆）, 不该藏在某一轮的 `skip` 格里。
