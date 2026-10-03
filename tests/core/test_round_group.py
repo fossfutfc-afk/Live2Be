@@ -32,7 +32,8 @@ _NOW = "2026-09-29T20:00:00"
 class RoundLLM:
     """五轮可控: A / close / B / attr / group（不关心哪轮的给空包）。"""
 
-    def __init__(self, a=None, close=None, b=None, attr=None, group=None, *, split=None):
+    def __init__(self, a=None, close=None, b=None, attr=None, group=None, *,
+                 split=None):
         self.a = {"episodes": []} if a is None else a
         self.split = split
         self.close = {"add": [], "close": []} if close is None else close
@@ -57,6 +58,13 @@ class RoundLLM:
         """第一次该 task 调用的 user 消息（分群的料就在里面）。"""
         idx = self.tasks.index(task)
         return self.calls[idx][-1]["content"]
+
+
+def _one_slice() -> dict:
+    """一条覆盖全窗的骨架 —— 3b-2 起 `RoundLLM` 缺省 `{"episodes": []}` ⇒ 空骨架
+    ⇒ 链条在 R0 就停。这几条用例测的是**后面那一轮**, 所以显式把链条放过去。"""
+    return {"segments": [{"span": [3, 3], "keep": "temporary",
+                          "abstract": "这一段"}]}
 
 
 def _store(tmp_path) -> WikiStoreV2:
@@ -224,7 +232,7 @@ def test_digest_runs_group_round(tmp_path):
     st = _store(tmp_path)
     a, b = _seed_pair(st)
     llm = RoundLLM(group={"attach": [], "new": [{"block": "b1", "title": "那片苔藓"}],
-                          "merge": []})
+                          "merge": []}, split=_one_slice())
     res = digest_segment(st, llm, [_mmt(3)])
     assert res.ok, res.errors
     assert T.DIGEST_GROUP in llm.tasks, llm.tasks
@@ -356,7 +364,8 @@ def test_digest_runs_merge(tmp_path):
     st = _store(tmp_path)
     g1, g2, _b, _c = _two_groups(st)
     llm = RoundLLM(group={"attach": [], "new": [],
-                          "merge": [{"from": "甲类", "into": "乙类"}]})
+                          "merge": [{"from": "甲类", "into": "乙类"}]},
+                   split=_one_slice())
     res = digest_segment(st, llm, [_mmt(3)])
     assert res.ok, res.errors
     assert res.merged_groups == [(g1, g2)], res.merged_groups
@@ -442,7 +451,7 @@ def test_digest_attaches_single(tmp_path):
     st.save()
 
     llm = RoundLLM(group={"attach": [{"block": "b1", "group": "甲类"}], "new": [],
-                          "merge": []})
+                          "merge": []}, split=_one_slice())
     res = digest_segment(st, llm, [_mmt(3)])
     assert res.ok, res.errors
     assert res.created_groups == [] and res.grouped_episodes == 1

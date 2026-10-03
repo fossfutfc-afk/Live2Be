@@ -129,7 +129,7 @@ def _gaps(res) -> list[dict]:
 def test_clean_segment_writes_no_row(tmp_path):
     """⭐ 全认领 + 无丢点 ⇒ **一行都不写**（账不是流水）。"""
     st = _wiki(tmp_path)
-    llm = OneRound([{"text": "四句都记下了", "title": "全都记得", "span": [1, 4],
+    llm = OneRound([{"text": "四句都记下了", "title": "全都记得",
                      "tags": ["闲聊"], "significance": 0.6}])
     res = digest_segment(st, llm, _events(4))
 
@@ -146,24 +146,28 @@ def test_health_warnings_alone_do_not_write_a_row(tmp_path):
     """
     st = _wiki(tmp_path)
     # 位置合法（覆盖 1~4）、但缺 title / 缺 tags / significance 非数字
-    llm = OneRound([{"text": "四句都记下了", "span": [1, 4], "significance": "??"}])
+    llm = OneRound([{"text": "四句都记下了", "title": "讲不清", "significance": "??"}])
     res = digest_segment(st, llm, _events(4))
 
     assert res.ok, res.errors
-    assert len(res.contract_warnings) >= 3, res.contract_warnings   # 契约层确实说了话
+    assert len(res.contract_warnings) >= 2, res.contract_warnings   # 契约层确实说了话
     assert res.contract_drops == [], res.contract_drops
     assert _gaps(res) == [], f"建议类 warning 不该写账: {_gaps(res)}"
     print(f"    健康度 {len(res.contract_warnings)} 句 ⇒ 只进日志, 不写账 ✓")
 
 
 def test_gap_row_carries_the_three_faces(tmp_path):
-    """缺口段的账: 契约面（只装**真丢**的）+ 条目面（in / kept / no_pos / dropped / reused）。"""
+    """缺口段的账: 契约面（只装**真丢**的）+ 条目面（in / kept / no_pos / dropped / reused）。
+
+    ⚠️ **2026-09-29（3b-2）**: "真丢"的来源换成 **R0 的切片区间作废**
+    （从前是她的 `span` 作废 —— 那个字段已退役）。
+    """
     st = _wiki(tmp_path)
-    # span 端点抄到时间线外 ⇒ 契约层丢弃整个区间（真丢）⇒ 这条没有位置
-    # ⚠️ R0 那份**手工摘出去**（给它一条好骨架）: 要测的是 **R1 自己**的坏区间 ——
-    # 若 R0 也回坏区间, 它的骨架会被丢掉 ⇒ 编排层以为这一段没有值得记的 ⇒ R1 不跑
-    llm = OneRound([{"text": "端点抄错了", "title": "抄错", "span": [1, 99],
-                     "tags": ["x"]}], split=_whole_segment())
+    # R0 的第一条区间端点抄到时间线外 ⇒ 契约层丢弃它（**真丢**: 那一段没了主）
+    llm = OneRound([{"text": "她记下的那句话", "title": "抄错", "tags": ["x"]}],
+                   split={"segments": [
+                       {"span": [1, 99], "keep": "temporary", "abstract": "抄错的那条"},
+                       {"span": [3, 4], "keep": "temporary", "abstract": "好的那条"}]})
     res = digest_segment(st, llm, _events(4))
 
     assert res.ok, res.errors
@@ -171,36 +175,45 @@ def test_gap_row_carries_the_three_faces(tmp_path):
     assert len(rows) == 1, rows
     ev = rows[0]["evidence"]
     assert set(ev) == {"contract", "items"}, ev
-    assert ev["contract"]["by_round"] == {"record": len(ev["contract"]["lost"])} 
+    assert ev["contract"]["by_round"] == {"split": len(ev["contract"]["lost"])}
     assert any("99" in x for x in ev["contract"]["lost"])
     assert "n" not in ev["contract"] and "other" not in ev["contract"], \
         "健康度不进账（只在日志）"
-    assert ev["items"] == {"in": 1, "kept": 1, "no_pos": 1, "dropped": [], "reused": []}, \
+    assert ev["items"] == {"in": 2, "kept": 1, "no_pos": 0, "dropped": [], "reused": []}, \
         ev["items"]
     print(f"    缺口段: 真丢 {len(ev['contract']['lost'])} 处 · items={ev['items']}")
 
 
-def test_no_position_entry_still_gets_the_segment_pointer(tmp_path):
-    """⭐ span 被丢 ⇒ **兜底行为不变**（段级指针, 文档化的有意设计）+ 账里记 `no_pos`。
+def test_slice_position_comes_from_the_skeleton(tmp_path):
+    """⭐ **位置只来自切片**（3b-2）—— 一条好的切片, 它的 `seqs` 就是那条经历的位置。
 
-    判据（用户 2026-09-29 裁决"只改可见性"）: 兜底保住了 `_find_duplicate` 的幂等,
-    而段级指针是**真的**（那条记忆确实产生于这一段）—— 所以会计上要**把两种口径说清**,
-    不是改行为。⚠️ 按条目算的"未认领" ≠ 按节点算的（兜底那条 seq 看起来已认领）。
+    ⚠️ **2026-09-29（3b-2）这里换过了语义**: 从前这个位置测的是
+    "她的区间坏了 ⇒ 落回段级指针 + 记 `no_pos`"。现在位置**不归她** ——
+    所以"坏区间"只可能出现在 **R0 的切片**上, 而**R0 的区间被丢 ⇒ 那条切片不存在**
+    ⇒ 编排层直接跳过整段（骨架为空那条判据）。
+    ⇒ `no_pos` 因此只在"切片活着但没算出 seq"这种边角上才是 1, 正常路径恒为 0。
     """
     st = _wiki(tmp_path)
-    llm = OneRound([{"text": "端点抄错了", "title": "抄错", "span": [1, 99],
-                     "tags": ["x"]}], split=_whole_segment())
+    # R0 的区间抄到时间线外 ⇒ 契约层丢那条切片 ⇒ **它没有 `seqs`**
+    # ⚠️ 留一条好的: 全丢光 ⇒ 骨架为空 ⇒ 编排层跳过后面几轮（另一条判据）
+    llm = OneRound([{"text": "她记下的那句话", "title": "抄错", "tags": ["x"]}],
+                   split={"segments": [
+                       {"span": [1, 99], "keep": "temporary", "abstract": "端点抄错了"},
+                       {"span": [1, 2], "keep": "temporary", "abstract": "这一段是好的"}]})
     res = digest_segment(st, llm, _events(4))
 
     assert res.ok, res.errors
     node = st.get(res.created[0])
-    assert node.event_seq == [4], f"兜底到段级指针（interact_max=4）: {node.event_seq}"
-    assert _gaps(res)[0]["evidence"]["items"]["no_pos"] == 1
-    print(f"    无位置: 兜底 {node.event_seq}（行为不变）+ 账里 no_pos=1 ✓")
+    assert node.event_seq == [1, 2], f"位置取切片的 seqs: {node.event_seq}"
+    assert _gaps(res)[0]["evidence"]["items"]["no_pos"] == 0
+    print(f"    有位置: 取切片的 seqs {node.event_seq} ✓")
 
 
 def _whole_segment(*, keep: str = "temporary") -> dict:
-    """R0 交**一条覆盖整段**的切片（`_events(4)` 的区间）—— 用于把 R0 摘出去。"""
+    """R0 交**一条覆盖整段**的切片（`_events(4)` 的区间）—— 用于把 R0 摘出去。
+
+    ⚠️ 3b-2 之后 R1 不再声明区间 ⇒ 这条切片就是唯一的位置来源。
+    """
     return {"segments": [{"span": [1, 4], "keep": keep, "abstract": "这一段"}]}
 
 
@@ -217,21 +230,28 @@ def test_skeptical_only_when_something_was_lost(tmp_path):
     # ① 只有形状建议（位置合法, 但缺 title/tags）⇒ 不写账
     # ⚠️ 两条的区间要**互不相同** —— 逐字相同的区间会被契约层当重复丢掉（那是真丢）
     st = _wiki(tmp_path)
-    res = digest_segment(st, OneRound([{"text": "四句", "span": [1, 2]},
-                                       {"text": "又一条", "span": [3, 4]}]), _events(4))
+    res = digest_segment(st, OneRound([{"text": "四句", "title": "一"},
+                                       {"text": "又一条", "title": "二"}]), _events(4))
     assert res.contract_warnings, "这一段契约层确实说了话"
     assert _gaps(res) == [], "建议类不写账"
 
-    # ② 区间端点抄到时间线外 ⇒ 契约层**丢弃整个区间**（`drops`）⇒ 真丢
+    # ② 区间端点抄到时间线外 ⇒ 契约层**丢弃那条切片**（`drops`）⇒ 真丢
     st2 = _wiki(tmp_path / "b")
-    res2 = digest_segment(st2, OneRound([{"text": "端点抄错了", "title": "抄错",
-                                          "span": [1, 99], "tags": ["x"]}],
-                                        split=_whole_segment()), _events(4))
-    row2 = _gaps(res2)[0]
-    assert row2["evidence"]["contract"]["lost"], row2["evidence"]
-    assert row2.get("skeptical"), "真丢了内容 ⇒ 该有一句存疑"
-    assert "99" in " ".join(row2["evidence"]["contract"]["lost"])
-    print(f"    真丢: {row2['skeptical']!r}")
+    res2 = digest_segment(st2, OneRound([{"text": "她记下的那句话", "title": "抄错",
+                                          "tags": ["x"]}],
+                                        split={"segments": [
+                                            {"span": [1, 99], "keep": "temporary",
+                                             "abstract": "端点抄错了"},
+                                            # ⚠️ 留一条**好的**: 全丢光 ⇒ 骨架为空 ⇒
+                                            # 编排层会跳过后面几轮（那是另一条判据,
+                                            # 见 `test_empty_skeleton_stops_the_content_rounds`）
+                                            {"span": [1, 2], "keep": "temporary",
+                                             "abstract": "这一段是好的"}]}), _events(4))
+    rows2 = _gaps(res2)
+    assert rows2, "真丢了内容 ⇒ 该有一行账"
+    assert any("99" in " ".join(r["evidence"]["contract"]["lost"]) for r in rows2), rows2
+    assert rows2[0].get("skeptical"), "真丢了内容 ⇒ 该有一句存疑"
+    print(f"    真丢: {rows2[0]['skeptical']!r}")
 
 
 def test_verbatim_dropped_is_a_loss(tmp_path):
@@ -242,7 +262,7 @@ def test_verbatim_dropped_is_a_loss(tmp_path):
     **`drops` 才是"真丢"的唯一入口**, `warnings` 里那些可重算的不进账。
     """
     st = _wiki(tmp_path)
-    llm = OneRound([{"text": "四句都记下了", "title": "全都记得", "span": [1, 4],
+    llm = OneRound([{"text": "四句都记下了", "title": "全都记得",
                      "verbatim": ["99.0"], "tags": ["闲聊"]}])
     res = digest_segment(st, llm, _events(4))
 
@@ -283,7 +303,7 @@ def test_collapsed_segments_are_recorded(tmp_path):
     判据也跟着换: **`keep` 优先, 否则跨度最长**（R0 不打分 ⇒ 不再看 `significance`）。
     """
     st = _wiki(tmp_path)
-    llm = OneRound([{"text": "留下来的那条", "title": "写法乙", "span": [2, 3],
+    llm = OneRound([{"text": "留下来的那条", "title": "写法乙",
                      "tags": ["苔藓"]}],
                    # R0 把这一章切成了两件（都落在章块 2-3 里）—— 违约, 该收口
                    split={"segments": [
@@ -308,7 +328,7 @@ def test_collapsed_segments_are_recorded(tmp_path):
 def test_reused_node_is_recorded(tmp_path):
     """⭐ 判重复而复用旧节点 ⇒ 进账（从前这一处**完全静默**, 而 `created` 里躺着复用 id）。"""
     st = _wiki(tmp_path)
-    eps = [{"text": "同一段经历", "title": "同一件", "span": [1, 3], "tags": ["x"]}]
+    eps = [{"text": "同一段经历", "title": "同一件", "tags": ["x"]}]
 
     res1 = digest_segment(st, OneRound(list(eps)), _events(3))
     assert res1.ok and _gaps(res1) == [], "第一次是干净段（没有缺口 ⇒ 不写账）"
@@ -329,7 +349,7 @@ def test_reused_node_is_recorded(tmp_path):
 def test_rollback_leaves_no_gap_row(tmp_path):
     """⭐ 整段失败 ⇒ **一个字都不留**: 账只在提交之后造, 字段也被 `reset_result` 清掉。"""
     st = _wiki(tmp_path)
-    llm = FailAfterRecord([{"text": "只记了前两句", "span": [1, 2]}])
+    llm = FailAfterRecord([{"text": "只记了前两句", "title": "前两句"}])
     res = digest_segment(st, llm, _events(4))
 
     assert not res.ok
@@ -349,7 +369,11 @@ def test_engine_writes_the_gap_row_into_the_truth(tmp_path):
 
     st = SessionStore(tmp_path)
     engine = MomoTalkEngine(ROOT / "config" / "characters",
-                            OneRound([{"text": "只记了前两句", "span": [1, 2]}]),
+                            OneRound([{"text": "只记了前两句", "title": "前两句"}],
+                                     # R0 的区间抄到时间线外 ⇒ 真丢 ⇒ 该留账
+                                     split={"segments": [
+                                         {"span": [1, 99], "keep": "temporary",
+                                          "abstract": "抄错的那条"}]}),
                             store=st)
     engine.start_session(CHARACTER)
     root = st.create(CHARACTER)

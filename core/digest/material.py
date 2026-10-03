@@ -36,8 +36,34 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# 段落的校对与拼装（全体共用）
+# R0 / R1 共用的"骨架"视图（3b-2）
 # ---------------------------------------------------------------------------
+
+def _skeleton_text(segments: list[dict]) -> str:
+    """R1 的料之一: **本段骨架**（这一段要填哪几条）—— 3b-2, 2026-09-29。
+
+    形态（一行一件, 顺序 = `episodes` 的顺序）::
+
+        第 1 件｜28-28｜教师在周日突然邀请我去了咖啡厅吃东西
+        第 2 件｜29-29｜⭐ 明天把两个团子带去夏莱, 别多想
+
+    ⚠️ **`keep=temporary` 一个字都不多印**（用户裁决）: 只有 `always` 带一个 ⭐ ——
+    它要说的事只有一件（"这条不许 drop"）, 印上取值反而让模型开始琢磨两档的区别。
+    ⚠️ **区间要印**（用户裁决）: 它把 abstract 钉在时间线的某一段上 ——
+    "第 2 件" 是几号, 不如"29-29"直接。
+    """
+    lines: list[str] = []
+    for i, seg in enumerate(segments, start=1):
+        span = seg.get("span") or []
+        where = f"{span[0]}-{span[-1]}" if span else "-"
+        star = "⭐ " if seg.get("keep") == "always" else ""
+        lines.append(f"第 {i} 件｜{where}｜{star}{seg.get('abstract') or '-'}")
+    return "\n".join(lines)
+
+
+#: 骨架这一段的行格式说明（**与 `_skeleton_text` 同源** —— 印的和说的在一处）
+SKELETON_HINT = "（⭐ = 她往后要一直带着的那几条, **不许 drop**; 别的都可以 drop）"
+
 
 def _sections_for(spec: RoundSpec, sections: list[tuple[str, str]]) -> str:
     """按表校对**料的段标题**再拼装 —— 表说这一轮吃什么, 这里就必须是那几段。

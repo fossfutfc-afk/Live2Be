@@ -45,16 +45,20 @@ PROD_DIRS = ("core", "webgui", "apps", "contract", "llm")
 class FakeLLM:
     """按序吐预置响应; **不给响应 → 一旦被调用就炸**（"不该有调用"这种断言用它）。"""
 
-    def __init__(self, *responses):
+    def __init__(self, *responses, split=None):
         self.responses = list(responses)
         self.calls: list = []
+        self.split = split                      # 显式骨架（3b-2: 空 episodes ⇒ 空骨架）
 
     def chat(self, messages, **kw):
         task = kw.get("task")
         first = (self.responses[0] if self.responses else None)
-        if task == T.DIGEST_SPLIT and isinstance(first, dict):
-            # ⭐ R0: 照搬 R1 那份应答里的区间（**不消耗队列** —— 它读的是同一份剧本）
-            return stub_tasks.split_for_scripted(messages, first)
+        if task == T.DIGEST_SPLIT:
+            if self.split is not None:
+                return self.split
+            if isinstance(first, dict):
+                # ⭐ R0: 照搬 R1 那份应答里的区间（**不消耗队列** —— 它读的是同一份剧本）
+                return stub_tasks.split_for_scripted(messages, first)
         self.calls.append(messages)
         if not self.responses:
             raise AssertionError("这条窗口不该产生 LLM 调用")
@@ -156,8 +160,12 @@ def test_note_only_window_digests_to_nothing(tmp_path):
 def test_note_in_window_does_not_disturb_digest(tmp_path):
     """同窗口混着一条 note: 消化照常, **水位越过账目**（否则每个 digest 都重扫它）。"""
     st = WikiStoreV2(tmp_path, world_id="world1", char_id="c")
+    # ⚠️ 3b-2: 空 episodes ⇒ 桩派生空骨架 ⇒ 链条在 R0 就停。本用例测的是
+    # "**账目事件不进食料**" ⇒ 显式给一条骨架把链条放过去。
     llm = FakeLLM({"episodes": []},
-                  {"decisions": [], "evidence": [], "affection_exp_delta": 0})
+                  {"decisions": [], "evidence": [], "affection_exp_delta": 0},
+                  split={"segments": [{"span": [3, 3], "keep": "temporary",
+                                       "abstract": "这一段"}]})
     res = digest_segment(st, llm, [_mmt(3), _note(4, sub=N_CLOSE)])
 
     assert res.ok, res.errors

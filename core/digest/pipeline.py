@@ -160,6 +160,9 @@ class DigestResult:
     #: 拼进 `record_gaps`（⚠️ 不直接写 `record_gaps`: 那一格的交出去人是 record,
     #: 两个写者会互相覆盖）。声明在表里 `split` 的 `result_fields` ⇒ 一并回滚。
     segment_collapsed: list[dict] = field(default_factory=list)
+    #: ⭐ **R0 的切片被契约层当场丢掉了几条**（区间作废 ⇒ `drops`）—— `items.in` 要用它:
+    #: 丢掉的在 `segments` 里已经不存在, 而账上的 "in" 说的是"切分员交了几件"。
+    segment_dropped: int = 0
     #: R4 的世界校验记账（剔掉的引用 / 丢掉的 close 行…）—— 不阻断, 但要看得见
     notes_warnings: list[str] = field(default_factory=list)
     #: ⏸ ~~R4 物化的 promise 节点 id~~ **2026-09-29 删** —— 承诺退图, R4 不再建节点

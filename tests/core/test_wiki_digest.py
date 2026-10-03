@@ -120,27 +120,38 @@ def test_node_ts_follows_its_own_events(tmp_path):
     第 2/4 轮的信念/承诺继续用段 ts（"她什么时候想明白的 = 消化那一刻"）。
     """
     st = _seed_store(tmp_path)
-    evs = [_mmt_at(3, "2026-09-20T10:00:00", "老师", "第一件事"),
-           _mmt_at(4, "2026-09-21T20:00:00", "老师", "第二件事")]
+    evs = [_mmt_at(10, "2026-09-19T09:00:00", "老师", "零"),
+           _mmt_at(11, "2026-09-20T10:00:00", "老师", "第一件事"),
+           _mmt_at(12, "2026-09-21T08:00:00", "老师", "中间那条"),
+           _mmt_at(13, "2026-09-21T20:00:00", "老师", "第二件事")]
     a = {"episodes": [
-        {"text": "第一件事", "title": "第一件事", "tags": ["a"], "event_seq": [3]},
-        {"text": "第二件事", "title": "第二件事", "tags": ["b"], "event_seq": [4]},
-        {"text": "跨两块的那条", "title": "跨两块", "tags": ["c"], "event_seq": [3, 4]},
-        {"text": "没有指针的那条", "title": "无指针", "tags": ["d"]}]}
+        {"text": "第一件事", "title": "第一件事", "tags": ["a"]},
+        {"text": "第二件事", "title": "第二件事", "tags": ["b"]},
+        {"text": "跨两块的那条", "title": "跨两块", "tags": ["c"]},
+        {"text": "没有位置的那条", "title": "无位置", "tags": ["d"]}]}
+    # ⚠️ **3b-2: 位置归 R0** —— 从前这四条各带 `event_seq`（那个字段退役了）;
+    # 现在由**骨架**给: 第 3 条跨 12-13（覆盖两块）。
+    # ⭐ 顺带钉住**"多写的挂在末条切片上"**: R1 给了 4 条, 骨架只有 3 条 ⇒
+    # 第 4 条附在第 3 条切片上（**不丢** —— 一条切片能长不止一条记忆）。
+    split = {"segments": [
+        {"span": [11, 11], "keep": "temporary", "abstract": "第一件事"},
+        {"span": [13, 13], "keep": "temporary", "abstract": "第二件事"},
+        {"span": [12, 13], "keep": "temporary", "abstract": "跨两块"}]}
     b = {"decisions": [{"episode": f"m000{i}", "decision": "add", "kind": "belief",
                         "subject": "sensei", "text": f"关于 m000{i}"}
                        for i in (3, 4, 5, 6)],
          "evidence": [], "affection_exp_delta": 0}
 
-    res = digest_segment(st, FakeLLM(a, b), evs)
+    res = digest_segment(st, FakeLLM(a, b, split=split), evs)
 
     assert res.ok, res.errors
+    assert len(res.created) == 4, res.created          # 一条都没丢
     got = {st.get(i).title: st.get(i).ts for i in res.created}
     assert got == {
-        "第一件事": "2026-09-20T10:00:00",           # 它自己那块
+        "第一件事": "2026-09-20T10:00:00",           # 它自己那条切片
         "第二件事": "2026-09-21T20:00:00",
-        "跨两块": "2026-09-21T20:00:00",             # 多指针 → 取**最后**一条
-        "无指针": "2026-09-21T20:00:00"}             # 回落段 ts（= 段内最后一条内容事件）
+        "跨两块": "2026-09-21T20:00:00",             # 区间 12-13 → 取**最后**一条
+        "无位置": "2026-09-21T20:00:00"}              # 附在末条切片上 ⇒ 同一个位置
     # 认知（R2 产的）**仍然是段 ts** —— 只有第 1 轮的节点按自己的事件算
     assert st.get("m0007").ts == "2026-09-21T20:00:00"
 
@@ -183,7 +194,11 @@ def test_no_new_events_no_llm_call(tmp_path):
 def test_affection_markers_excluded_from_digest_input(tmp_path):
     st = _seed_store(tmp_path)
     llm = FakeLLM({"episodes": []},
-                  {"decisions": [], "evidence": [], "affection_exp_delta": 0})
+                  {"decisions": [], "evidence": [], "affection_exp_delta": 0},
+                  # ⚠️ 3b-2: 空 episodes ⇒ 桩派生空骨架 ⇒ 链条在 R0 就停。
+                  # 本用例测的是"账目事件不进食料" ⇒ 显式给骨架把链条放过去。
+                  split={"segments": [{"span": [3, 3], "keep": "temporary",
+                                       "abstract": "这一段"}]})
     events = _events(
         _mmt(3, "老师好", "啊、老师好……"),
         ("affection", "digest", {"delta": 5}, 4),
@@ -543,7 +558,12 @@ def test_no_candidate_when_unrelated(tmp_path):
 # ---------------------------------------------------------------------------
 
 def test_player_portrait_entry_lands_and_hides_from_round_b(tmp_path):
-    """A 轮画像条目 → subject=player experience 落库; 不进本轮认知列表（B 只组织 episode）。"""
+    """A 轮画像条目 → subject=player experience 落库; 不进本轮认知列表（B 只组织 episode）。
+
+    ⚠️ **3b-2: 一段里两块内容事件会被切成一条切片**（本用例的时间线只有一个块
+    `[3]`）⇒ 两条条目（经历 + 画像）都落在**同一条切片**上 —— 这正是真实情形:
+    切分员看到一块就说"这是一件事", 而她在这一件事里同时写了经历与画像。
+    """
     st = WikiStoreV2(tmp_path, world_id="world1", char_id="c")
     llm = FakeLLM(
         {"episodes": [
@@ -557,7 +577,9 @@ def test_player_portrait_entry_lands_and_hides_from_round_b(tmp_path):
         {"decisions": [
             {"episode": "m0001", "decision": "add", "kind": "belief",
              "subject": "和老师的约定", "text": "老师会认真对待与我的约定"},
-         ], "evidence": [], "affection_exp_delta": 15})
+         ], "evidence": [], "affection_exp_delta": 15},
+        split={"segments": [{"span": [3, 3], "keep": "temporary",
+                             "abstract": "烟火大会之约"}]})
     events = _events(_mmt(3, "我生日是 5 月 20 日哦", "下周放假, 一起去看烟火吧"))
     res = digest_segment(st, llm, events)
     assert res.ok, res.errors
@@ -566,6 +588,9 @@ def test_player_portrait_entry_lands_and_hides_from_round_b(tmp_path):
     assert p is not None and p.kind == "experience"
     assert p.subject == "player" and p.text.startswith("玩家的生日")
     assert p.verbatim == "我生日是 5 月 20 日哦"        # 玩家原话 = 行号 `[3.0]` → 逐字原文
+    # ⚠️ **3b-2: 位置来自切片** —— 两条条目落在同一条切片（本段只有一块内容事件）⇒
+    # 位置 = 那条切片的区间（`[3]` 那一块）。"一条对一条切片"的判据在
+    # `test_mmt_segment_fills_one_row_per_slice` 与 `_align_to_skeleton` 的用例里钉着。
     assert p.event_seq == [3]
     # B 的认知列表不含刚建的画像条目（冷启动提示仍在 = 无认知可组织）
     b_user = llm.calls[1][1]["content"]
@@ -733,8 +758,12 @@ def test_llm_call_failure_degrades(tmp_path):
 
 def test_affection_clamped(tmp_path):
     st = _seed_store(tmp_path)
+    # ⚠️ **3b-2**: `{"episodes": []}` 在桩里 ⇒ 空骨架 ⇒ 链条在 R0 就停（那是对的）。
+    # 本用例测的是 **B 轮的好感结算** ⇒ 显式给一条骨架把链条放过去。
     llm = FakeLLM({"episodes": []},
-                  {"decisions": [], "evidence": [], "affection_exp_delta": 999})
+                  {"decisions": [], "evidence": [], "affection_exp_delta": 999},
+                  split={"segments": [{"span": [3, 3], "keep": "temporary",
+                                       "abstract": "这一段"}]})
     res = digest_segment(st, llm, _events(_mmt(3, "x", "y")))
     assert res.ok and res.affection_delta == 100
 
@@ -745,8 +774,12 @@ def test_affection_negative_passes_through(tmp_path):
     旧行为: -30 被夹成 0（关系只能变好）。新行为: -30 原样透出。
     """
     st = _seed_store(tmp_path)
+    # ⚠️ **3b-2**: `{"episodes": []}` 在桩里 ⇒ 空骨架 ⇒ 链条在 R0 就停（那是对的）。
+    # 本用例测的是 **B 轮的好感结算** ⇒ 显式给一条骨架把链条放过去。
     llm = FakeLLM({"episodes": []},
-                  {"decisions": [], "evidence": [], "affection_exp_delta": -30})
+                  {"decisions": [], "evidence": [], "affection_exp_delta": -30},
+                  split={"segments": [{"span": [3, 3], "keep": "temporary",
+                                       "abstract": "这一段"}]})
     res = digest_segment(st, llm, _events(_mmt(3, "x", "y")))
     assert res.ok and res.affection_delta == -30
 
@@ -754,8 +787,12 @@ def test_affection_negative_passes_through(tmp_path):
 def test_affection_negative_clamped_at_floor(tmp_path):
     """下界对称: -999 夹到 -100（单段不能暴跌穿底）。"""
     st = _seed_store(tmp_path)
+    # ⚠️ **3b-2**: `{"episodes": []}` 在桩里 ⇒ 空骨架 ⇒ 链条在 R0 就停（那是对的）。
+    # 本用例测的是 **B 轮的好感结算** ⇒ 显式给一条骨架把链条放过去。
     llm = FakeLLM({"episodes": []},
-                  {"decisions": [], "evidence": [], "affection_exp_delta": -999})
+                  {"decisions": [], "evidence": [], "affection_exp_delta": -999},
+                  split={"segments": [{"span": [3, 3], "keep": "temporary",
+                                       "abstract": "这一段"}]})
     res = digest_segment(st, llm, _events(_mmt(3, "x", "y")))
     assert res.ok and res.affection_delta == -100
 
@@ -980,23 +1017,23 @@ def _prompt(llm, i=0) -> str:
     return "\n".join(str(m) for m in llm.calls[i])
 
 
-def test_bond_segment_asks_for_exactly_one_episode(tmp_path):
-    """★ bond 段: 产出契约 = **恰好 1 条** + 本章标题注入（title 用本章标题）。"""
+def test_bond_segment_asks_to_fill_the_skeleton(tmp_path):
+    """★ bond 段: R1 的契约 = **按骨架逐条填**（3b-2 起不再由它决定条数）。"""
     st = _seed_store(tmp_path)
     llm = FakeLLM(_a_episode(), _b_ok())
     res = digest_segment(st, llm, _events(*_bond_span()))
     assert res.ok, res.errors
     a = _prompt(llm, 0)
-    assert "恰好 1 条" in a, a[:400]
+    assert "每一条切片给一行" in a, a[:400]
     assert "作者单位" in a
-    assert "informative but single" in a
     assert "本章标题" in a and "错误的地点" in a        # 标题进了 user 段
+    assert "【本段骨架】" in a                          # 骨架也进了 user 段
     assert len(res.created) == 1
-    print("    bond: 产出契约(恰好 1 条) + 本章标题注入 ✓")
+    print("    bond: 契约(按骨架填) + 本章标题 + 骨架注入 ✓")
 
 
-def test_mmt_segment_still_splits(tmp_path):
-    """★ mmt 段: 无作者单位 → 契约仍是 0~5 条（**不要**把切分能力一起改掉）。"""
+def test_mmt_segment_fills_one_row_per_slice(tmp_path):
+    """★ mmt 段: 契约同样是"按骨架填"（**切分能力已搬去 R0** —— 别在 R1 这边改回来）。"""
     st = _seed_store(tmp_path)
     two = {"episodes": [
         {"text": "老师约我明天去喂猫", "title": "老师约我明天去喂猫",
@@ -1010,12 +1047,17 @@ def test_mmt_segment_still_splits(tmp_path):
                            "kind": "belief", "subject": "sensei",
                            "text": "老师也总忘带伞", "example": "「我也总忘带伞」"})
     llm = FakeLLM(two, b)
+    # ⚠️ **两条内容事件** —— 桩按 R1 的条数切两段, 而"逐字相同的区间"会被契约层
+    # 当重复丢掉 ⇒ 一个事件头撑不起两条切片（那是桩的边界, 不是产品行为）。
     res = digest_segment(st, llm,
-                         _events(_mmt(3, "老师", "明天带猫粮去喂猫吧")))
+                         _events(_mmt(3, "老师", "明天带猫粮去喂猫吧"),
+                                 _mmt(4, "老师", "我也总忘带伞")))
     assert res.ok, res.errors
     a = _prompt(llm, 0)
-    assert "需要切分" in a
-    assert "恰好输出 1 条" not in a
+    assert "每一条切片给一行" in a
+    # ⛔ 切分的话术**不在 R1 这边**（它在 R0 的契约里）
+    assert "需要切分" not in a
+    assert "必须覆盖全部" not in a
     assert len(res.created) == 2, res.created          # 两条都留下
     print("    mmt: 契约仍是 0~5 条, 两条都建 ✓")
 
