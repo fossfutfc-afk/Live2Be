@@ -234,7 +234,11 @@ def test_engine_writes_the_creep_row_into_the_truth(tmp_path):
 
 
 def test_creep_write_failure_does_not_block(tmp_path, monkeypatch):
-    """账写失败**只告警** —— 绝不让"记账"把 digest 主链拖住（宁缺勿错）。"""
+    """账写失败**不阻断**, 但**也不推水位** —— 那条事实不许悄没声地丢。
+
+    判据（`_note_failure`）: 水位是"这段处理过了"的声明, 而账是"它怎么没的"的唯一证据;
+    先推水位再记账 ⇒ 记账一失败, 事实永久丢。反过来最坏只是"记了账但水位没动"。
+    """
     from core.mmt.engine import MomoTalkEngine
 
     st = SessionStore(tmp_path)
@@ -252,7 +256,25 @@ def test_creep_write_failure_does_not_block(tmp_path, monkeypatch):
     for _ in range(MAX_DIGEST_ATTEMPTS):
         engine._session_rounds = 25
         engine._run_digest(CHARACTER, engine._session_id)      # 不该抛
-    print("    账写失败: 只打 warning, digest 主链照常走完")
+
+    from core.brain import WikiStoreV2
+    ws = WikiStoreV2(st.data_root, world_id=st.world_id, char_id=CHARACTER)
+    assert ws.digested_seq == 0, "账没写成就别推水位（下次还要重试记账）"
+    # 盘上停在"第 2 次"（放弃那一次的计数**故意没落盘**: 那一步正是失败的记账）
+    # —— 不影响下次: 它会再判一次死刑, 再试一次记账。
+    assert ws.meta.get("digest_retry", {}).get("attempts") == MAX_DIGEST_ATTEMPTS - 1, \
+        ws.meta.get("digest_retry")
+
+    # 盘好了 ⇒ 下一次触发把账补上并推进水位（**自愈**）
+    monkeypatch.undo()
+    engine._session_rounds = 25
+    engine._run_digest(CHARACTER, engine._session_id)
+    rows = read_jsonl(st.events_path(CHARACTER, engine._session_id))
+    assert len([r for r in rows if isinstance(r, dict)
+                and r.get("type") == TYPE_CREEP]) == 1
+    ws2 = WikiStoreV2(st.data_root, world_id=st.world_id, char_id=CHARACTER)
+    assert ws2.digested_seq > 0 and "digest_retry" not in ws2.meta
+    print("    账写失败: 只告警 + **不推水位**; 盘好了下次自愈（补账 + 推水位）")
 
 
 if __name__ == "__main__":

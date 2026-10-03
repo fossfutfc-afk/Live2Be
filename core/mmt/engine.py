@@ -722,12 +722,14 @@ class MomoTalkEngine:
                                      embed_fn=_get_embed_fn(),
                                      llm_timeout=DIGEST_LLM_TIMEOUT,
                                      aff_at_encoding=aff_prior,
-                                     emotion_lexicon=emotion_lex)
-                # ⭐ **creep 账: 不管 ok 都要写**（刀 2, 2026-09-29）——
-                # 它记的恰恰是"这批没成"（digest 试满 3 次放弃了一段）。
-                # ⚠️ 与下面 `notes_ops` 的纪律**相反**: note 操作是剧情的一部分, 必须等
-                # 整批 ok; 而账是**引擎自己的事实**, 不随事务回滚。写失败只告警,
-                # 绝不阻断（宁缺勿错——账丢了看得见, 剧情不能被它拖住）。
+                                     emotion_lexicon=emotion_lex,
+                                     # ⭐ 账的写入器（刀 2）: 给了它 ⇒ 放弃一段时
+                                     # **先记账、再推水位**（写不成就别推, 下次重试记账）。
+                                     # 不给的话那条事实会随"水位已推进"永久丢掉。
+                                     write_ledger=lambda row: store.append_raw_row(
+                                         character_id, self._session_id, row))
+                # 兜底: 没给 `write_ledger` 的调用路径会把行留在 `creep_rows` 里
+                # （生产走上面的写入器, 这里通常是空的; 留着是给别的调用方兜底）。
                 for _row in res.creep_rows:
                     try:
                         store.append_raw_row(character_id, self._session_id, _row)

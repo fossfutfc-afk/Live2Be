@@ -183,6 +183,7 @@ def digest_segment(
     extra_body: dict | None = None,
     aff_at_encoding: float | None = None,
     emotion_lexicon: dict | None = None,
+    write_ledger: Callable[[dict], None] | None = None,
 ) -> DigestResult:
     """增量 digest: 新事件 → 依次跑 `rounds.ROUNDS` 那几步 → 原子落盘 → 推进水位。
 
@@ -228,6 +229,12 @@ def digest_segment(
                    None/空 → 不注入（Round A 照跑, 只是少一层依据）。
                    **为什么由调用方给**: 词表在 `assets/illustration/{char_id}/default/`,
                    brain 层不该知道资产布局——与 `aff_at_encoding` 同一分工。
+        write_ledger: ⭐ **可选的账写入器**（`(row) -> None`）—— 给了它, 放弃一段时
+                   **先记账、再推水位**（见 `_note_failure`）。**为什么要有它**:
+                   本函数只有 `WikiStoreV2`, 拿不到事件流; 而"水位推了但账没写成"
+                   = 那条事实**永久丢掉**（账不可重算）。给了它 ⇒ 写失败就**不推水位**,
+                   下次触发重来一次记账（自愈）。None ⇒ 退回"把行交出去"
+                   （`DigestResult.creep_rows`, 调用方自己写）。
     """
     if max_tokens is None:                       # 真源: task_levels 形态 digest
         max_tokens = _tl_max_tokens("digest")
@@ -286,6 +293,11 @@ def digest_segment(
     hard_deadline = time.monotonic() + deadline_seconds
     on_mind_box: list[str] = []          # ⭐ N4a: Round A 收下的那句心境（0/1 条）
 
+    def _fail() -> DigestResult:
+        """**失败的唯一出口**（5 个调用点都走它）—— 回滚 + 记账, 见 `_rollback`。"""
+        return _rollback(store, snapshot, result, from_seq=digest_from,
+                         upto_seq=interact_max, write_ledger=write_ledger)
+
     try:
         # ── ① R1 记 ──（步序 = `rounds.ROUNDS`; 每步先 `enter` 再干活）
         cur = Cursor()
@@ -306,8 +318,7 @@ def digest_segment(
             parse_fn=_parse_for(spec, seq_set=seq_set, on_mind_out=on_mind_box),
             result=result)
         if entries is None:
-            return _rollback(store, snapshot, result,
-                         from_seq=digest_from, upto_seq=interact_max)
+            return _fail()
         # ⭐ N4a: 她此刻那句心境 —— L1 产出, 与 promise（R4）一样走 `notes_ops`
         # （调用方**整批 ok 之后**才 append）。⚠️ 只有**她真写了**才产操作:
         # 缺键 = 不变（`rewrite_op(on_mind=None)` 本来就不动它）。
@@ -371,8 +382,7 @@ def digest_segment(
                 hard_deadline=hard_deadline,
                 parse_fn=_parse_for(spec), result=result)
             if rows_c is None:
-                return _rollback(store, snapshot, result,
-                         from_seq=digest_from, upto_seq=interact_max)
+                return _fail()
             closures = apply_closures(store, rows_c, note_state=note_state, ts=now_ts)
             # ⚠️ **append 不覆盖** —— `notes_ops` 里已经有 L1 交来的那句 `on_mind`（N4a）
             result.notes_ops.extend(closures.ops)          # ⚠️ 调用方等 ok 之后才 append
@@ -418,8 +428,7 @@ def digest_segment(
                                 target_ids=target_ids, link_ids=link_ids),
             result=result)
         if rows is None:
-            return _rollback(store, snapshot, result,
-                         from_seq=digest_from, upto_seq=interact_max)
+            return _fail()
         r2_created = apply_decisions(store, rows,
                                      id_map={v: k for k, v in local_of.items()},  # local→real
                                      ts=now_ts,
@@ -458,8 +467,7 @@ def digest_segment(
                                     node_ids=set(node_local.values())),
                 result=result)
             if rows_d is None:
-                return _rollback(store, snapshot, result,
-                         from_seq=digest_from, upto_seq=interact_max)
+                return _fail()
             result.created_entities = apply_attribution(
                 store, rows_d,
                 id_map={v: k for k, v in node_local.items()},   # local→real
@@ -522,8 +530,7 @@ def digest_segment(
                             len(result.group_warnings))
     except ValueError as e:                              # store 层拒绝 → 回滚
         result.errors.append(str(e))
-        return _rollback(store, snapshot, result,
-                         from_seq=digest_from, upto_seq=interact_max)
+        return _fail()
 
     # ── 成功: 提交（节点落盘 + 水位推进）──
     result.ok = True
@@ -1334,7 +1341,8 @@ def _clamp_aff(raw: Any) -> int:
 
 def _rollback(store: WikiStoreV2, snapshot: dict,
               result: DigestResult, *,
-              from_seq: int = 0, upto_seq: int = 0) -> DigestResult:
+              from_seq: int = 0, upto_seq: int = 0,
+              write_ledger: Callable[[dict], None] | None = None) -> DigestResult:
     """**失败的唯一出口**: 回滚内存态 + 记账（这一段第几次 / 要不要放弃）。
 
     回滚语义（失败 → 零残留; 水位未推进, 磁盘未动）:
@@ -1355,12 +1363,14 @@ def _rollback(store: WikiStoreV2, snapshot: dict,
     store.restore_state(snapshot)
     reset_result(result)
     if upto_seq:
-        _note_failure(store, result, from_seq=from_seq, upto_seq=upto_seq)
+        _note_failure(store, result, from_seq=from_seq, upto_seq=upto_seq,
+                      write_ledger=write_ledger)
     return result
 
 
 def _note_failure(store: WikiStoreV2, result: DigestResult, *,
-                  from_seq: int, upto_seq: int) -> None:
+                  from_seq: int, upto_seq: int,
+                  write_ledger: Callable[[dict], None] | None = None) -> None:
     """这一段又失败了一次: **记数**; 数到上限就**放弃**, 并留一条 creep 账。
 
     三个判据（都不是随手定的）:
@@ -1396,13 +1406,26 @@ def _note_failure(store: WikiStoreV2, result: DigestResult, *,
         return
 
     # ── 放弃这一段 ──
+    row = creep_build(
+        KIND_DIGEST_SKIP, at_seq=first_upto,
+        evidence={"from_seq": from_seq, "to_seq": first_upto,
+                  "attempts": attempts, "errors": list(result.errors)[-5:]})
+    # ⭐ **先记账、再推水位**（给了 `write_ledger` 时）—— 判据: 水位是"这段处理过了"的
+    # 声明, 而账是"它怎么没的"的唯一证据。反过来（先推水位）一旦记账失败, 那条事实
+    # 就**永久丢了**（账不可重算）; 现在的顺序最坏只是"记了账但水位没动"——
+    # 下次触发会重跑一遍, 而**重复的账看得见, 丢掉的账看不见**（后者才是不可接受的）。
+    if write_ledger is not None:
+        try:
+            write_ledger(row)
+        except Exception as e:                       # noqa: BLE001
+            logger.warning("creep 账写入失败 ⇒ **水位不推进**（下次触发再试一次记账, "
+                           "这段内容不会因此消失）: %s", e)
+            return                                   # 计数留着（attempts 已满 ⇒ 下次直接再放弃）
+    else:
+        result.creep_rows.append(row)                # 老路径: 把行交出去, 调用方自己写
     store.meta["digested_seq"] = first_upto          # ⚠️ 水位推进: 这段不再重来
     store.meta.pop("digest_retry", None)
     store.save_meta()
-    result.creep_rows.append(creep_build(
-        KIND_DIGEST_SKIP, at_seq=first_upto,
-        evidence={"from_seq": from_seq, "to_seq": first_upto,
-                  "attempts": attempts, "errors": list(result.errors)[-5:]}))
     logger.warning("digest 放弃这一段: 水位 %d → %d（试了 %d 次, 没消化的内容"
                    "**再也不会有节点**）—— 已留一条 creep 账",
                    from_seq, first_upto, attempts)
