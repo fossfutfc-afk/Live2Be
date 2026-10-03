@@ -56,8 +56,9 @@ def _node_ts(seqs: Any, by_seq: dict | None, default: str) -> str:
 def _create_a_nodes(store: WikiStoreV2, entries: list[dict], *, ts: str,
                     event_seq: list[int],
                     aff_at_encoding: float | None = None,
-                    by_seq: dict | None = None
-                    ) -> tuple[list[str], list[str], list[dict]]:
+                    by_seq: dict | None = None,
+                    reused_out: list[str] | None = None
+                    ) -> tuple[list[str], list[str]]:
     """Round A 条目 → 节点（引擎字段归属——确定性归引擎, 防幻觉）。
 
     kind=episode  → episode 节点
@@ -106,6 +107,8 @@ def _create_a_nodes(store: WikiStoreV2, entries: list[dict], *, ts: str,
             node.ts = _node_ts(node.event_seq, by_seq, ts)   # ⭐ 自己的时刻（④-①）
             dup = _find_duplicate(store, node)
             if dup is not None:
+                if reused_out is not None:
+                    reused_out.append(dup.id)     # ⭐ D1: 这一条**没建节点**（复用旧的）
                 player_ids.append(dup.id)
                 continue
             player_ids.append(store.add(node))
@@ -126,6 +129,8 @@ def _create_a_nodes(store: WikiStoreV2, entries: list[dict], *, ts: str,
         node.aff_at_encoding = aff_at_encoding
         dup = _find_duplicate(store, node)
         if dup is not None:
+            if reused_out is not None:
+                reused_out.append(dup.id)         # ⭐ D1: 这一条**没建节点**（复用旧的）
             episode_ids.append(dup.id)
             continue
         nid = store.add(node)

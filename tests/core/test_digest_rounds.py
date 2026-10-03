@@ -22,6 +22,7 @@ import dataclasses
 import re
 import sys
 import time
+from dataclasses import MISSING
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
@@ -72,24 +73,27 @@ def test_every_result_field_is_classified():
 
 
 def test_rollback_clears_exactly_the_tables_fields():
-    """回滚清空**表里声明的那些**, 且**不碰**失败报告本身（`errors` / `llm_calls`）。"""
+    """回滚清空**表里声明的那些**（回到**各自的初值**）, 且**不碰**失败报告本身。
+
+    ⚠️ 判据是"回到 dataclass 的初值", 不是"回到 `[]`/`0`"（2026-09-29 D1 起
+    `record_gaps` 是 dict ⇒ 拿 `in ([], 0)` 判会误报）。
+    """
     res = DigestResult(ok=False)
+    defaults = {f.name: (f.default_factory() if f.default_factory is not MISSING
+                         else f.default)
+                for f in dataclasses.fields(DigestResult)}
     for name in R.RESULT_FIELDS:                       # 全部弄脏
-        cur = getattr(res, name)
-        setattr(res, name, 7 if isinstance(cur, int) else ["脏"])
+        setattr(res, name, "脏")
     for name in R.COMMIT_ONLY:                         # 提交态与账目也摆上
-        cur = getattr(res, name)
-        if isinstance(cur, list):
-            setattr(res, name, ["留"])
-        elif isinstance(cur, int):
-            setattr(res, name, 3)
+        setattr(res, name, "留")
 
     R.reset_result(res)
 
-    dirty = {n: getattr(res, n) for n in R.RESULT_FIELDS if getattr(res, n) not in ([], 0)}
+    dirty = {n: getattr(res, n) for n in R.RESULT_FIELDS
+             if getattr(res, n) != defaults[n]}
     assert not dirty, f"这些字段没被清干净: {dirty}"
     for name in R.COMMIT_ONLY:                         # 一个都不许动
-        assert getattr(res, name) not in ([], 0), \
+        assert getattr(res, name) == "留", \
             f"{name} 是调用路径的记录/提交态, 回滚不许碰它"
     print(f"    回滚: 清 {list(R.RESULT_FIELDS)}; 保留 {list(R.COMMIT_ONLY)}")
 

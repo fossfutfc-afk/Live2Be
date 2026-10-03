@@ -1,16 +1,18 @@
 # PROCEED.md — **接续用**
 
-> ## ⏭️⏭️ **接续后第一件事（2026-09-29 中断点 · digest 拆包两刀已落）**
+> ## ⏭️⏭️ **接续后第一件事（2026-09-29 中断点 · digest 拆包两刀 + L1/D1 已落）**
 >
-> **状态**：工作树干净 · HEAD = **乙-2 那一笔**（`git log -1`）· 本地**领先 origin 待确认**（乙-1 已 push）。
-> **下一步 = 逐层推进（L1 → L2 → L3）**，刀清单在 **`docs/EXEC_DIGEST_SPLIT.md` §7**:
-> · **L1 = D1** 未认领/被丢弃的**台账出口**（今天只有一行日志; 旧真机账 **32% 内容事件没进任何记忆**）
->   —— 落 `rounds/record.py` + `segment.py`
-> · **L2 = E1**（R2 的认知列表按相关度召回）+ **D2**（R2 还要不要吃"本段时间线"）—— 落 `rounds/understand.py` / `rounds/group.py`
-> · **L3 = B1 + A2 一起做**（归属的进与出）—— 落 `rounds/attribute.py` + `core/brain/entities.py`
-> ⚠️ 按用户定的节奏走: **每层"讨论 → 实现 → 组织"**, 动代码前先报**关键信息的形式**给他审。
+> **状态**：工作树干净 · HEAD = **D1 那一笔**（`git log -1`）· 本地领先 origin 待确认。
+> **下一步 = 按 `docs/EXEC_DIGEST_SPLIT.md` §7 继续逐层**:
+> · **L2 = E1**（R2 的认知列表按**相关度**召回 —— 今天按 `significance` 前 12, 是
+>   `contradicts`/`evolved_from` 漏判的近因）+ **D2**（R2 还要不要吃"本段时间线"）
+> · **L3 = B1 + A2 一起做**（归属的**进**与**出**）—— R3 池子补"被 `update` 改写且没 `about`
+>   边的旧节点" + `detach`/`merge_entity`
+> · L1 还留了一刀 **D2 补全**（章的覆盖缺口 ⇒ 把保留那条 episode 的 `event_seq` 并上整章）
+>   —— 用户裁决"**只记账, 补全另开一刀**"
+> ⚠️ 节奏照旧: **每层"讨论 → 实现 → 组织"**, 动代码前先报**关键信息的形式**给他审。
 >
-> **本阶段已落（10 个提交; 乙-1 已 push, 乙-2 未 push）**
+> **本阶段已落（11 个提交; 乙-1/乙-2 已 push, D1 未 push）**
 > · 计划 B 两刀：`core/brain/wiki_v2`→`core/brain`（去 V2）· **`core/brain/read/`** 读路径分家
 >   · **`core/digest/`** 管线抬出（`be7cb40` 及之前）
 > · 节点 C：**`core/digest/rounds.py` 轮次表**（步序/身份/prompt/相位/parse/料/写什么/跳过/预算/快照
@@ -22,12 +24,13 @@
 > · 拆包 S1/S2：`call.py`·`material.py`·`segment.py`·`episodes.py`·`akin.py`
 >   （`pipeline.py` **1431 → 666 行**）`cc3ced7` `1706a0e`
 > · ⭐ **乙-1：digest 按轮拆包** —— `core/digest/rounds/`（表 + `base.py` 的 `Ctx`/`RoundOut`
->   + 六个轮文件）+ **编排循环化**（`pipeline.py` **672 → 479 行**、`digest_segment` **376 → 170**）。
->   **行为零变化**（只三条差量: `akin` 空跳过多一行日志 · 删一个死常量 · `COGNITION_CAP` 随 R2 搬走）`baff075`
-> · ⭐ **乙-2：命名对齐** —— 轮次 key = 契约相位 = 标签后缀（`record`/`understand`/`attribute`）·
->   `label`/`prompt`/`phase` **由 key 派生**（表里省掉三格）· prompt 文件改名 `digest_<key>.md` ·
->   常量 `DIGEST_*` · 日志第一段恒为轮名 + **命名守门**（当场验过能红）。
->   ⚠️ **LLM 看到的字节零变化**（prompt 内容一字未动）
+>   + 六个轮文件）+ **编排循环化**（`pipeline.py` **672 → 479 行**、`digest_segment` **376 → 170**）`baff075`
+> · ⭐ **乙-2：命名对齐** —— 轮次 key = 契约相位 = 标签后缀 · `label`/`prompt`/`phase` **由 key 派生** ·
+>   prompt 文件改名 · 常量 `DIGEST_*` · 日志第一段恒为轮名 + **命名守门**；**LLM 字节零变化** `9112faf`
+> · ⭐ **L1/D1：缺口账** —— 契约层 `vr.warnings` **接上出口**（从前一个字没落）+
+>   `ValidationResult.drops`（**分类靠声明不靠文案**）+ `kind=digest_gap` 一段一行 +
+>   条目面（一章一条丢的 / 复用的）+ 审计探针（`.testtmp/probe_l1_coverage.py`）。
+>   ⚠️ 一条纪律: **只有"不可重算"的进账** —— 未认领/章覆盖可重算, 进日志与探针。
 >
 > **拆完之后**：按**逐层**（L1 → L2 → L3）走"讨论 → 实现 → 组织"，
 > 刀清单见 `EXEC_DIGEST_SPLIT.md` §7。

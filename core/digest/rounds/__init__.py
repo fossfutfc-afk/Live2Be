@@ -77,6 +77,11 @@ FACES = (*NODE_FACES, EDGE_FACE, NOTE_FACE)
 #: 都从它拼出来。⚠️ 源码里**不许手写**这个前缀 + 轮名（守门用例扫 `core/digest/**`）。
 DIGEST_LOG_PREFIX = "digest_"
 
+#: ⭐ **任何一轮的契约层都可能说话**（`ValidationResult.warnings` / `.drops`）——
+#: 所以**每个 LLM 轮**都声明这两个字段（`RESULT_FIELDS` 会去重, 回滚一起清）。
+#: ⚠️ 它们必须**可回滚**: 一个没提交的段, 它的 warning 描述的是**没发生的事**。
+CONTRACT_FIELDS: tuple[str, ...] = ("contract_warnings", "contract_drops")
+
 #: ⭐ **每轮的时间预算（秒）** —— 一轮（含它自己那次反馈重试）最多花多久。
 #: 表里某轮写了 `budget` 就用它; 没写（0）用这个默认。
 #: ⚠️ **为什么必须有它**（2026-09-29 刀 1）: 从前全段共享一个 300s 预算, 而
@@ -201,7 +206,7 @@ ROUNDS: tuple[RoundSpec, ...] = (
             # ⭐ N4a: 她此刻那句心境 —— 与收口的约定共用 `notes_ops` 这条交付通道
             ("note", ("on_mind",)),
         ),
-        result_fields=("notes_ops",),
+        result_fields=(*CONTRACT_FIELDS, "notes_ops", "record_gaps"),
         skip="",
     ),
     RoundSpec(
@@ -220,7 +225,7 @@ ROUNDS: tuple[RoundSpec, ...] = (
         parse=digest_registry.parse_close,
         material=("还开着的约定", "本段新增的经历"),
         writes=(("note", ("promise",)),),
-        result_fields=("notes_ops", "notes_warnings"),
+        result_fields=(*CONTRACT_FIELDS, "notes_ops", "notes_warnings"),
         skip="没有开着的约定, 本段也没有新经历（那一轮必然空转）",
     ),
     RoundSpec(
@@ -236,7 +241,7 @@ ROUNDS: tuple[RoundSpec, ...] = (
             # 与 `认知 → 认知`（`links` 那几行）; 另两条边只由 `links` 写。
             ("edge", ("supports", "contradicts", "evolved_from")),
         ),
-        result_fields=(),
+        result_fields=(*CONTRACT_FIELDS,),
         skip="",
     ),
     RoundSpec(
@@ -249,7 +254,7 @@ ROUNDS: tuple[RoundSpec, ...] = (
             # 归属的**唯一落地形式**: 有边 = 归好了, 没边 = 没归（`about_state` 三态）。
             ("edge", ("about",)),
         ),
-        result_fields=("created_entities",),
+        result_fields=(*CONTRACT_FIELDS, "created_entities"),
         skip="本段没有新节点可归属",
     ),
     RoundSpec(
@@ -262,7 +267,7 @@ ROUNDS: tuple[RoundSpec, ...] = (
             ("group", ("title", "aliases", "ts")),
             ("edge", ("member_of",)),
         ),
-        result_fields=("created_groups", "grouped_episodes",
+        result_fields=(*CONTRACT_FIELDS, "created_groups", "grouped_episodes",
                        "merged_groups", "group_warnings"),
         skip="没有未归群的块, 也没有可能重复的类",
         # ⭐ 它是**加法**的（块留到下段再来 ⇒ 自愈）: 失败只回滚这一步,

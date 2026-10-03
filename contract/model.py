@@ -35,6 +35,21 @@ class ValidationResult:
     errors: tuple[str, ...] = ()
     warnings: tuple[str, ...] = ()
 
+    drops: tuple[str, ...] = ()
+    """⚠️ **`warnings` 里"真的丢了东西"的那几条**（内容被丢弃 / 截断）。
+
+    与 `warnings` 是**包含关系**（`drops ⊆ warnings`）: 这里出现的文本一定也在 `warnings`
+    里 —— `warnings` 是人读的全量, `drops` 是**机器可判**的那一半。
+
+    ⭐ **为什么要有它**（2026-09-29, D1）: 契约层写了 25 种 warning, 里面少数几种是
+    "这条区间作废 / 这句原话丢了 / 那句心境丢了" —— 而 `digest` 侧**一个字都没接**
+    （`call._round_call` 只看 `errors`）。要把它们接出来并**分类**, 只有两条路:
+    · 按**文案**匹配（`"丢弃" in msg`）—— ⛔ 这正是本项目 2026-09-21 栽过的坑
+      （`HARD_BLOCK_ISSUE_MARKS` 拿中文子串判软硬, 换个措辞就静默升级）;
+    · ✅ **在源头声明**（本字段）—— 与 `ISSUE_SEVERITY` 同一个道理: 判据跟着
+      **声明**走, 不跟文案走。改文案不会让它失准。
+    """
+
     @property
     def is_valid(self) -> bool:
         return not self.errors

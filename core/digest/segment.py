@@ -107,7 +107,14 @@ def _expand_spans(entries: list[dict], seq_set: set[int]) -> tuple[list[int], in
     return unclaimed, shared
 
 
-def _collapse_bond_episodes(entries: list[dict], chapters: list[dict]) -> list[dict]:
+def _brief(e: dict) -> str:
+    """条目的一句话标识（优先 `title`, 否则正文前 12 字）—— 只给台账用。"""
+    t = str(e.get("title") or "").strip()
+    return t or str(e.get("text") or "")[:12]
+
+
+def _collapse_bond_episodes(entries: list[dict], chapters: list[dict], *,
+                            dropped_out: list[dict] | None = None) -> list[dict]:
     """**按章**收口: 每一章的 episode 只留 1 条 —— "一章一个 episode"的引擎侧兜底。
 
     契约在 `contract/digest_registry._DOMAIN_CONTRACT`（提示词侧）；这里是
@@ -137,7 +144,11 @@ def _collapse_bond_episodes(entries: list[dict], chapters: list[dict]) -> list[d
         logger.warning(
             "digest_record contract=bond chapter=%r entries=%d keep=%r（一章一条; 其余已丢。"
             "这行常出现 = 提示词没压住, 看 Round A 的【本段类型】产出契约）",
-            ch["title"] or "-", len(group),
-            keep.get("title") or str(keep.get("text", ""))[:12])
+            ch["title"] or "-", len(group), _brief(keep))
+        if dropped_out is not None:
+            # ⭐ D1: 丢掉的那几条**只在这一刻存在**（它们的正文之后世上没有第二份）
+            # ⇒ 记进账（`digest_gap` 的 `items.dropped`）。
+            dropped_out.append({"chapter": ch["title"] or "-", "keep": _brief(keep),
+                                "lost": [_brief(e) for e in group if e is not keep]})
         dropped |= {id(e) for e in group if e is not keep}
     return [e for e in entries if id(e) not in dropped]

@@ -29,6 +29,7 @@
 5. **不给归因**：存疑文本只说"有什么不对", 永不说"因为 X"。
 """
 from core.creep.ledger import (
+    KIND_DIGEST_GAP,
     KIND_DIGEST_SKIP,
     KINDS,
     TYPE_CREEP,
@@ -40,6 +41,7 @@ from core.creep.ledger import (
 from core.creep.skeptical import pick
 
 __all__ = [
+    "KIND_DIGEST_GAP",
     "KIND_DIGEST_SKIP",
     "KINDS",
     "TYPE_CREEP",

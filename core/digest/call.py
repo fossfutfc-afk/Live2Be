@@ -107,6 +107,13 @@ def _round_call(
             return None, resp
         parsed, vr = parse_fn(resp)
         if vr.is_valid:
+            # ⭐ D1（2026-09-29）: 契约层"说过的话"要接出来 —— 从前 `vr.warnings` 一个字
+            # 都没落（本函数只看 `is_valid` / `errors`）, 于是"这条区间作废 ⇒ 内容没主"
+            # 这种**当场才知道**的事实永久消失。
+            # ⚠️ **只收被接受那一次尝试的**: 前面几次的输出整包被拒, 它们的 warning
+            # 描述的是一个**不存在的产物**（收进来会让账说谎）。
+            result.contract_warnings.extend(f"{label}: {w}" for w in vr.warnings)
+            result.contract_drops.extend(f"{label}: {d}" for d in vr.drops)
             return parsed, resp
         if attempt < DIGEST_MAX_FEEDBACK:
             # feedback 语义: 同一上下文——追加被拒输出 + 引擎错误（见 `llm.client.feedback`）

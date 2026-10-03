@@ -60,11 +60,20 @@ def run(ctx: Ctx) -> RoundOut:
     # ⚠️ **必须在 `_collapse_bond_episodes` 之前** —— 那一章的归属靠 `event_seq`
     #    与章块**相交**, 展开前只有两个端点, 章块夹在中间时会漏判。
     _unclaimed, _shared = _expand_spans(entries, ctx.seq_set)
-    logger.info("digest_record span=%d 认领=%d 未认领=%d 共享=%d（共享只记账, 不裁）",
-                len(entries), len(ctx.seq_set) - len(_unclaimed),
-                len(_unclaimed), _shared)
-    # 一章一个 episode（2026-09-20）—— 引擎确定性收口 + 可观测告警
-    entries = _collapse_bond_episodes(entries, ctx.chapters)
+    # ⭐ D1: 章的覆盖缺口 —— 章边界是**引擎已知的**（marker 派生）, 所以"章内还有内容
+    # 没被那条 episode 覆盖"是一条**异常信号**（MMT 碎聊的未认领是常态, 章的不是）。
+    # ⚠️ 它**可重算**（节点 `event_seq` + 章 marker 都在盘上）⇒ **进日志, 不进账**。
+    _chapter_seqs = (frozenset().union(*[c["seqs"] for c in ctx.chapters])
+                     if ctx.chapters else frozenset())
+    _uncovered = sorted(s for s in _unclaimed if s in _chapter_seqs)
+    submitted = len(entries)
+    logger.info("digest_record span=%d 认领=%d 未认领=%d 共享=%d 章内未覆盖=%d "
+                "未认领seq=%s",
+                submitted, len(ctx.seq_set) - len(_unclaimed), len(_unclaimed), _shared,
+                len(_uncovered), _unclaimed[:20] or "-")
+    # 一章一个 episode（2026-09-20）—— 引擎确定性收口 + 可观测告警（+ ⭐ D1 的台账出口）
+    collapsed: list[dict] = []
+    entries = _collapse_bond_episodes(entries, ctx.chapters, dropped_out=collapsed)
     # ── 时间推进：**已退役**（2026-09-17, `ESSAY_TIME_MODEL §10`）──
     # 旧实现读 Round A 的 `time_span` 推进 `WorldClock` 的**剧情游标**,
     # 再把新游标 stamp 到节点上（`story_time`）。整条链已废:
@@ -75,8 +84,15 @@ def run(ctx: Ctx) -> RoundOut:
     #    "保留但不消费", 而**新衰减模型的输入是活跃日/会话, 不是它**;
     #    加上 parse 层从来没取过它（连落库都没有）, 留着就是白付 token。
     #    枚举定义仍留在 `core/worldtime/span.py`。详见 `contract/digest_registry.py`。
+    reused: list[str] = []
     ctx.episode_ids, ctx.player_ids = _create_a_nodes(
         ctx.store, entries, ts=ctx.now_ts,
         event_seq=[ctx.interact_max], aff_at_encoding=ctx.aff_at_encoding,
-        by_seq=ctx.by_seq)
+        by_seq=ctx.by_seq, reused_out=reused)
+    # ⭐ D1 的**条目面**台账（`items`）—— 只有它**不可重算**:
+    # 一章一条丢掉的条目正文、判重复而复用的 id, 那一刻之后世上没有第二份记录。
+    # ⚠️ 声明在表里 record 的 `result_fields` ⇒ 整段回滚时由 `reset_result` 一起清掉
+    # （否则会出现"回滚了却留着一条缺口账"）。造行在 `pipeline` 的**提交块**（`_note_gap`）。
+    ctx.result.record_gaps = {"items": {"in": submitted, "kept": len(entries),
+                                       "dropped": collapsed, "reused": reused}}
     return RoundOut.done()
