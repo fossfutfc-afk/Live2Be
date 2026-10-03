@@ -4,7 +4,8 @@
 > `rounds/` 包拆完: `core/digest/pipeline.py` **672 → 479 行**（`digest_segment` **376 → 170**）;
 > 轮次命名对齐: key ≡ 契约相位 ≡ 标签后缀, `label`/`prompt`/`phase` **由 key 派生**,
 > prompt 文件改名 `digest_<key>.md`, 日志第一段恒为轮名（守门 `test_digest_naming_guard.py`）。
-> **下一步 = §7 的逐层刀**（L1 D1 → L2 E1/D2 → L3 B1+A2）。
+> **下一步 = §7 的逐层刀**：✅ L1 的 **D1 已落**（§10）· ⬜ 接着是 **L2（E1 认知列表按相关度 /
+> D2 时间线去留）** 与 **L3（B1+A2 归属的进与出）**；L1 还留了一刀 **D2 补全**（用户裁决"另开"）。
 > **上游**：`core/digest/rounds/__init__.py`（轮次表）· `docs/DESIGN_DIGEST_LAYERS.md`（三层视野）·
 > `core/brain/DESIGN_GRAPH_V4.md` §8/§9-12（每轮定义与待裁项）。
 > **当前 HEAD**：乙-2 那一笔（本文与它同批提交）。
@@ -285,12 +286,13 @@ def run(ctx) -> RoundOut:
 
 ## 7. 拆完之后：逐层的刀（按用户定的"讨论→实现→组织"）
 
-| 层 | 刀 | 落点 |
-|---|---|---|
-| **L1** | **D1** 未认领/被丢弃的**台账出口**（今天只有一行日志；旧真机账 32% 内容事件没进任何记忆）· D1b 一章一条是"丢"不是"合" · D1c `_find_duplicate` 判据脆弱（`text` 全等） | `rounds/record.py` · `segment.py` |
-| **L2** | **E1** R2 的认知列表按**相关度**召回（今天 `significance` 前 12 ⇒ `contradicts`/`evolved_from` 漏判的近因）· **D2** R2 还要不要吃"本段时间线"（`evidence` 删后已无消费者）· L2-b `ignite` 未开工（**群今天零读者**）· `add` 归 L2 未落 | `rounds/understand.py` · `rounds/group.py` |
-| **L3** | **B1 + A2 一起做**（归属的**进**与**出**）：R3 池子补"本轮被 `update` 改写且没 `about` 边的旧节点"（**形式已报**：段头 `本轮新节点`→`本轮动过的节点`、被改写那行在 `〔〕` 里多一格 `改写`）+ `detach`/`merge_entity` | `rounds/attribute.py` · `core/brain/entities.py`/`revise.py` |
-| 横切 | `_ABOUTABLE`/`_ATTACHABLE` 对齐（半天） · 三轮合并（① 记 ② 接 ③ 重看，最大） | — |
+| 层 | 刀 | 落点 | 状态 |
+|---|---|---|---|
+| **L1** | **D1** 未认领/被丢弃的**台账出口** · D1b 一章一条是"丢"不是"合" · D1c `_find_duplicate` 判据脆弱 | `rounds/record.py` · `segment.py` · `contract/{model,digest_registry}.py` · `pipeline.py` · `core/creep/` | ✅ **已落 2026-09-29（见 §10）** |
+| **L1** | **D2 补全**（本章那 3 条未认领的归口：把保留那条 episode 的 `event_seq` 并上整章）—— ⚠️ **改的是图上的数据**（连带 `emo_shape`/`place`/`place_raw`/`node.ts`），用户裁决"**另开一刀**" | `segment.py` · `episodes.py` | ⬜ 待做 |
+| **L2** | **E1** R2 的认知列表按**相关度**召回（今天 `significance` 前 12 ⇒ `contradicts`/`evolved_from` 漏判的近因）· **D2** R2 还要不要吃"本段时间线"（`evidence` 删后已无消费者）· L2-b `ignite` 未开工（**群今天零读者**）· `add` 归 L2 未落 | `rounds/understand.py` · `rounds/group.py` | ⬜ |
+| **L3** | **B1 + A2 一起做**（归属的**进**与**出**）：R3 池子补"本轮被 `update` 改写且没 `about` 边的旧节点"（**形式已报**：段头 `本轮新节点`→`本轮动过的节点`、被改写那行在 `〔〕` 里多一格 `改写`）+ `detach`/`merge_entity` | `rounds/attribute.py` · `core/brain/entities.py`/`revise.py` | ⬜ |
+| 横切 | `_ABOUTABLE`/`_ATTACHABLE` 对齐（半天） · 三轮合并（① 记 ② 接 ③ 重看，最大） | — | ⬜ |
 
 ---
 
@@ -317,6 +319,7 @@ def run(ctx) -> RoundOut:
 | 2026-09-29 | 建文（拆包 S1/S2 已落，本文记"按轮拆 + 命名对齐"这一刀的全部前提与待审项） |
 | 2026-09-29 | **乙-1 落地**：`rounds/` 包（表 · `base.py` · 六个轮文件）+ `pipeline.py` 编排循环化。四条待审已裁并入 §5 |
 | 2026-09-29 | **乙-2 落地**：key→`record`/`understand`/`attribute` · 三个标识由 key 派生 · prompt 文件改名 `digest_<key>.md`（**内容一字未动**）· 常量 `DIGEST_*` · 日志一律带轮名 · 新守门 `test_digest_naming_guard.py`。⚠️ **LLM 看到的字节仍然零变化**（标签只进日志与桩分派） |
+| 2026-09-29 | ⭐ **L1 的 D1 落地**：契约层 `vr.warnings` 接上出口（**从前一个字没落**）+ `ValidationResult.drops`（分类靠声明不靠文案）+ `kind=digest_gap` 一段一行 + 条目面（一章一条丢的 / 复用的）+ 审计探针。见 **§10** |
 
 ### 乙-2 的三条**遗留**（没做 —— 要不要做由用户定）
 
@@ -338,3 +341,91 @@ def run(ctx) -> RoundOut:
 日志文案 · 落库形状 · LLM 看到的每一个字节 —— 全部逐字不变。
 守门用例按新结构改写（`IMPL` 同序同集 · 调用点扫 `rounds/` · `span` 展开顺序看 R1 的 `run`）,
 **判据一条都没放宽**。
+
+---
+
+## 10. D1 落地记 —— **L1 的缺口账**（2026-09-29）
+
+### 10.1 先纠一个数
+
+**32% 不是"今天的病"，是逐点时代的旧账**。今天实测（`.testtmp/probe_l1_coverage.py`, 只读零 LLM）:
+
+```
+覆盖率 148/218 = 67.9%  未认领 70（67 mmt + 3 bond）
+7 个段: 未认领率 0%~64%（MMT 碎聊按设计本来就 0~5 条 ⇒ 大头是**正常**）
+6 章: **只有 1 章**有缺口（夏莱的大扫除前夕: 3 条 story_scene）
+节点位置: 悬空 0 · 空 event_seq 2（x0000/x0001, 本来就先建）· 共享 3（R2/R3 的**段级指针**,
+          本来就该落在 `interact_max` —— 不是丢区间）
+```
+
+⇒ 两个结论: ① **"未认领率"这个词有毛病**（把"闲聊"与"漏"混在一个数里）;
+② 真正有信息的是**章内未认领**（章的边界是引擎已知的）。
+
+### 10.2 真正的洞: **契约层的 warnings 一个字都没落**
+
+`call._round_call` 只看 `vr.is_valid` / `vr.errors` ⇒ 契约层 25 种 warning **全被扔掉**,
+里面有 **8 处是真的丢东西**（`_drop()` 标的那些），最狠的一条是:
+
+> `{label} 的端点 {missing} 不在本段时间线里——丢弃` ⇒ **整条区间作废** ⇒
+> 那条 episode 没有位置 ⇒ 它的内容**全变成未认领**。
+
+⇒ 那 32% 里可能有一部分根本不是闲聊, 而是**区间被契约层丢了** —— 而原因今天看不见。
+（这份档里**没有**实测到这种丢: 共享的 3 条是段级指针。但"没实测到" ≠ "没发生" —— 正因为
+warning 被扔掉了, 谁都看不见。）
+
+### 10.3 形状: 一段一行 `creep` 账（`kind=digest_gap`）
+
+```
+{"type":"creep","kind":"digest_gap","at_seq":<本段上界>,"ts":…,
+ "skeptical":"…",                                  ← ⚠️ **只在真丢了内容时才有**
+ "evidence":{
+   "contract":{"n":3,"by_round":{"record":3},
+               "lost":["record: episodes[0].span 的端点 [99] 不在本段时间线里——丢弃"],
+               "other":["record: episodes[0] 缺 tags（检索导向 1-4 个）"]},
+   "items":{"in":2,"kept":2,"dropped":[{"chapter":"苔藓","keep":"写法乙","lost":["写法甲"]}],
+            "reused":["m0001"]}}}
+```
+
+* **出口** = creep（`soul/events.jsonl` 一行**无 `seq`** ⇒ 结构性隐身, 她/窗口/digest/回放
+  都读不到）—— 通道现成: `DigestResult.creep_rows` → `engine._run_digest` → `append_raw_row`。
+* **一段一行, 只在真有缺口时写**（全认领 + 无丢点 ⇒ 一行都不写）。
+* ⭐ **只有"不可重算"的进账**（creep 自己的纪律 1）: 契约层当场说的 + 条目面
+  （一章一条丢的 / 判重复复用的）。
+* ⛔ **可重算的进日志, 不进账**: 未认领的内容事件、章内未覆盖 —— 节点 `event_seq` +
+  章 marker + `affection/digest` 的段界**都在盘上** ⇒ `probe_l1_coverage.py` 一条命令算出来。
+  进账 = 存第二份真相。
+* ⭐ **`skeptical` 只在真掉内容时填**（`ValidationResult.drops` 非空）: 形状建议、
+  "一章一条丢掉一条冗余总结"、闲聊没成记忆 —— 都**不是**"她少了什么"。
+
+### 10.4 分类靠**声明**, 不靠文案（这一刀最容易做错的地方）
+
+`ValidationResult` 加了一个字段 **`drops`**（`drops ⊆ warnings`）：哪些 warning 是"真丢"
+由**写它的那行代码**说了算（`contract/digest_registry.py` 的 `_drop()` 那 8 处）。
+⛔ 不走 `"丢弃" in msg` 那条路 —— 那是本项目 2026-09-21 栽过的坑
+（`HARD_BLOCK_ISSUE_MARKS` 拿中文子串判软硬, 换个措辞就静默升级）。
+同理, `evidence.contract.by_round` 按**轮次 key** 计数（结构化）, 不按文案分堆。
+
+### 10.5 一个坑（写在这里免得下次重踩）
+
+账**不能**在 `record` 轮里直接 append 进 `result.creep_rows` —— 那个字段在 **`COMMIT_ONLY`** 里,
+**回滚不清** ⇒ 整段失败回滚了, 账还写着"这段有缺口"（描述了一件没发生的事）。
+✅ 正确落法: 先落在**会被回滚清掉**的字段上（`record_gaps` / `contract_warnings` /
+`contract_drops`, 全部声明在表里 ⇒ `reset_result` 由表推导）, 由**提交块**的 `_note_gap` 造行。
+
+### 10.6 没做 / 下一刀
+
+* **D2 补全**（章的覆盖缺口 ⇒ 把保留那条 episode 的 `event_seq` 并上整章）——
+  用户裁决"**只记账, 补全另开一刀**"。⚠️ 它改的是图上的数据（`event_seq` 派生
+  `emo_shape`/`place`/`place_raw`/`node.ts`）。
+* **契约层别的轮的"重复丢"**（`links` 重复 / `close` 重复 / `aliases` 截断）**没进 `drops`**:
+  要给它们分类就得逐站穿 `drops` 参数, 而它们不影响"内容是否进记忆"。今天它们进
+  `contract.other`（照收, 只是不标"丢"）。
+* **`DigestResult.created` 名不副实**（判重复时它装的是**复用**的 id）—— 只在账里
+  `items.reused` 体现, **没改语义**（改它要动调用方与用例）。
+
+### 10.7 验证
+
+* 新用例 `tests/core/test_digest_gap.py` **8 条**（干净段不写账 · 三面齐 · skeptical 只在真丢 ·
+  一章一条进账 · 复用进账 · **回滚不留账** · 端到端落真源且无 `seq`）。
+* digest 板块 **241 passed** · `test_creep` 的"每 kind ≥3 句"守门自动覆盖新 kind。
+* 契约层: `ValidationResult.drops` 落地后 `test_digest_registry.py` **36 passed**（判据没放宽）。

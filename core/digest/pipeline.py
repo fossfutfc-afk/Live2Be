@@ -68,7 +68,8 @@ from typing import Any, Callable
 
 from core.brain.read.recall import EmbedFn
 from core.brain.store import WikiStoreV2
-from core.creep import KIND_DIGEST_SKIP, build as creep_build
+from core.creep import KIND_DIGEST_GAP, KIND_DIGEST_SKIP, build as creep_build
+from core.creep import pick as creep_pick
 from core.digest.material import _collect_visual_prompts, _segment_emotion_keys
 from core.digest.rounds import (
     ROUNDS,
@@ -149,10 +150,21 @@ class DigestResult:
     merged_groups: list[tuple[str, str]] = field(default_factory=list)
     #: 分群这一步的记账（同名并群 / 类名找不到 / 这一步整体失败…）—— **不阻断**
     group_warnings: list[str] = field(default_factory=list)
-    #: ⭐ **要落进 creep 账的行**（`kind=digest_skip`）—— 见 `_note_failure`。
+    #: ⭐ **要落进 creep 账的行** —— 见 `_note_failure`（`kind=digest_skip`）与
+    #: `_note_gap`（`kind=digest_gap`）。
     #: ⚠️ **调用方不管 `ok` 都要写它**（失败也要留账: 账不是剧情, 不随事务回滚）;
     #: 写入路径 = `SessionStore.append_raw_row`（本函数拿不到事件流, 所以只"造行"）。
     creep_rows: list[dict] = field(default_factory=list)
+    #: ⭐ **契约层说过的话**（`ValidationResult.warnings`, 前缀是轮次 key）—— ⭐ D1。
+    #: ⚠️ 回滚**要清**（一个没提交的段, 它的 warning 描述的是没发生的事）⇒ 归表的
+    #: `CONTRACT_FIELDS` 管; 提交时由 `_note_gap` 挑成账行。
+    contract_warnings: list[str] = field(default_factory=list)
+    #: ⭐ **上面那批里"真的丢了东西"的那几条**（`ValidationResult.drops`）——
+    #: `drops ⊆ warnings`, 分类由**契约层在源头声明**（不靠文案匹配）。
+    contract_drops: list[str] = field(default_factory=list)
+    #: ⭐ **L1 条目面的缺口**（D1）: LLM 交了几条 / 落地几条 / 一章一条丢了哪些 / 判重复复用了几条。
+    #: 由 `rounds/record.py` 填 —— ⚠️ **不可重算**（丢掉的条目正文之后世上没有第二份）。
+    record_gaps: dict = field(default_factory=dict)
 
 
 def digest_segment(
@@ -318,6 +330,9 @@ def digest_segment(
     result.ok = True
     result.created = ctx.episode_ids
     result.affection_delta = _clamp_aff((ctx.resp_b or {}).get("affection_exp_delta"))
+    # ⭐ D1: 这一段**跑成了, 但有东西没进记忆** ⇒ 留一条账（`kind=digest_gap`）。
+    # ⚠️ 位置必须在**提交之后**（回滚过的段没有"缺"可言 —— 它整段都没了）。
+    _note_gap(result, at_seq=interact_max)
     store.save()
     # 游标提交：**已退役**（2026-09-17）—— 没有剧情游标可落盘。
     store.meta["digested_seq"] = max((e.seq for e in events), default=interact_max)
@@ -336,6 +351,51 @@ def digest_segment(
 # 它当年清洗的是 `function/quote/confidence/note` 四键, 而全仓没有一个产品读者:
 # 契约每段要它 ≤5 条 + `quote` 逐字引用时间线 ⇒ 纯白付。别把它加回来。
 # ---------------------------------------------------------------------------
+
+
+def _note_gap(result: DigestResult, *, at_seq: int) -> None:
+    """这一段**跑成了, 但账上记着"有东西没进记忆"** —— 留一行 `kind=digest_gap`。
+
+    ⚠️ **只在提交之后调用**（见调用点）: 回滚过的段没有"缺"可言 —— 它整段都没了。
+
+    ⚠️ **只有"不可重算"的东西进这一行** —— 判据就是 creep 自己的纪律 1
+    （`core/creep/__init__.py`: *账不可重算*）:
+      · **契约层当场说过的**（区间作废 / 原话丢了 / 心境丢了 + 各种形状告警）
+      · **条目面的**（一章一条丢掉的条目正文 / 判重复而复用的 id）
+    它们**那一刻之后世上没有第二份记录**（丢掉的条目正文只在那次 LLM 输出里）。
+
+    ⛔ **未认领的内容事件 / 章内覆盖不进账** —— 它们**可重算**: 节点的 `event_seq`、
+    章的 marker、`affection/digest` 的段界**都在盘上**, 一条只读探针就能算出来
+    （`.testtmp/probe_l1_coverage.py`）。进账 = 存第二份真相, 而它随时可能对不上。
+
+    ⚠️ `skeptical` **只在真的掉了内容时**填（`contract_drops` 非空）: 契约的"形状建议"
+    与"一章一条丢掉一条冗余总结"都不是"她少了什么"; 而闲聊没成记忆本来就合设计
+    （MMT 一轮 = 0~5 条）。让"她"为这些不安是错的。
+    """
+    contract = list(result.contract_warnings)
+    lost = list(result.contract_drops)
+    items = dict((result.record_gaps or {}).get("items") or {})
+    if not (contract or items.get("dropped") or items.get("reused")):
+        return                              # 契约层没说话 + 条目一条没丢 ⇒ 不写账
+    by_round: dict[str, int] = {}
+    for w in contract:
+        key = w.split(":", 1)[0]
+        by_round[key] = by_round.get(key, 0) + 1
+    lost_set = set(lost)
+    row = creep_build(
+        KIND_DIGEST_GAP, at_seq=at_seq,
+        skeptical=(creep_pick(KIND_DIGEST_GAP) if lost else ""),
+        evidence={
+            "contract": {"n": len(contract), "by_round": by_round,
+                         "lost": lost[:8],
+                         "other": [w for w in contract if w not in lost_set][:8]},
+            "items": items,
+        })
+    result.creep_rows.append(row)
+    logger.warning("digest 这一段有缺口（kind=%s）: 契约说了 %d 句（其中丢了内容 %d）· "
+                   "条目丢 %d / 复用 %d —— 已留一条账",
+                   KIND_DIGEST_GAP, len(contract), len(lost),
+                   len(items.get("dropped") or []), len(items.get("reused") or []))
 
 
 def _swallow(store: WikiStoreV2, spec: RoundSpec, result: DigestResult,

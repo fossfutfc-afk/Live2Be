@@ -177,7 +177,9 @@ def test_success_clears_the_counter(tmp_path):
     res = digest_segment(st, FlakyOnce(), _events(3))
     assert res.ok, res.errors
     assert "digest_retry" not in st.meta, "成功了还留着前科"
-    assert res.creep_rows == []
+    # ⚠️ 判据收窄成"没有**放弃**那一种账"（2026-09-29 D1 起, 成功路径也可能留
+    # `digest_gap` —— 那段跑成了但有东西没进记忆, 那是另一件事）
+    assert [r for r in res.creep_rows if r.get("kind") == KIND_DIGEST_SKIP] == []
     print(f"    失败 1 次 → 成功: 计数已清（水位 {st.digested_seq}）")
 
 

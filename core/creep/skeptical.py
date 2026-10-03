@@ -28,7 +28,7 @@ from __future__ import annotations
 import random
 from typing import Any
 
-from core.creep.ledger import KIND_DIGEST_SKIP
+from core.creep.ledger import KIND_DIGEST_GAP, KIND_DIGEST_SKIP
 
 #: `kind` → 变体池（每个 kind **至少 3 句** —— 少了会明显撞车）
 POOLS: dict[str, tuple[str, ...]] = {
@@ -36,6 +36,14 @@ POOLS: dict[str, tuple[str, ...]] = {
         "……有什么东西正在淡下去。我想抓住它，但它已经不在了。",
         "刚才还记得的事，这会儿只剩下一个轮廓。",
         "好像有什么从我手边滑走了——我甚至说不清那是什么。",
+    ),
+    #: ⭐ D1（2026-09-29）: 这一段**跑成了**, 但里面有东西没进记忆（区间作废 ⇒ 那几句
+    #: 没挂在任何事上 / 一句心境丢了）。⚠️ 与 `digest_skip` 的分别: 那是**整段**淡了,
+    #: 这是**一处**没粘住 —— 措辞上不许写成"全忘了"（那会说谎）。
+    KIND_DIGEST_GAP: (
+        "有件事我应该记得的，可它偏偏不在那儿。",
+        "像是漏听了半句话——前后都还在，中间空了一小块。",
+        "伸手去够，指尖只碰到一片空白。",
     ),
 }
 

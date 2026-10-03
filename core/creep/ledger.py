@@ -46,11 +46,15 @@ logger = logging.getLogger(__name__)
 #: 行类型 —— ⚠️ **永不进 `EVENT_TYPES`**（见模块 docstring: 它靠"没有 seq"隐身）
 TYPE_CREEP = "creep"
 
-#: ⭐ 账的类别词表。**只加有写者的**（今天的写者 = 刀 2 放弃那一刻）。
+#: ⭐ 账的类别词表。**只加有写者的**。
 #: 候选（未实现, 别提前加）: `time_rewind`（回退, `real_clock.rewind_count` 已有信号）·
 #: `node_overwrite`（`evolution.jsonl` 的 `changed` 已有证据）· `dangling_ref`（`noticed` 落空）。
 KIND_DIGEST_SKIP = "digest_skip"
-KINDS: tuple[str, ...] = (KIND_DIGEST_SKIP,)
+#: ⭐ **这一段跑成了, 但有东西没进记忆**（D1, 2026-09-29）—— 与 `digest_skip`（整段没了）
+#: 同族但更轻: 契约层当场丢的东西（区间作废 / 原话丢了 / 心境丢了）+ 条目面（一章一条
+#: 丢掉的 / 判重复复用的）。⚠️ **只有"不可重算"的进这一行**（见 `digest._note_gap`）。
+KIND_DIGEST_GAP = "digest_gap"
+KINDS: tuple[str, ...] = (KIND_DIGEST_SKIP, KIND_DIGEST_GAP)
 
 #: 行里必须有的键（`read_raw` 按它判"坏行"）
 _REQUIRED = ("ts", "type", "kind")
@@ -88,17 +92,21 @@ def make_row(kind: str, *, at_seq: int, skeptical: str = "",
 
 
 def build(kind: str, *, at_seq: int = 0, evidence: dict | None = None,
-          rng: Any = None) -> dict:
+          rng: Any = None, skeptical: str | None = None) -> dict:
     """造一行账（**含写时取一的那句存疑文本**）—— **不落盘**。
 
     ⭐ 为什么要有它（而不是只有 `record`）: digest 那一侧**拿不到事件流**
     （`digest_segment` 只有 `WikiStore2`, 事件流归调用方管）⇒ 它只能把**造好的行**
     交出去（`DigestResult.creep_rows`）, 由调用方 append。两条路共用本函数 ⇒
     "取哪一句"仍然只有一处实现。
+
+    `skeptical`: `None`（默认）⇒ 按 `kind` 取一句; **给了值就用给的** ——
+    空串 = **明确不要那句话**（`digest_gap` 就是这么用的: 契约层的形状建议与
+    "一章一条丢掉一条冗余总结"都不是"她少了什么", 让她为这些不安是错的）。
     """
     from core.creep.skeptical import pick
-    return make_row(kind, at_seq=at_seq, skeptical=pick(kind, rng=rng),
-                    evidence=evidence)
+    text = pick(kind, rng=rng) if skeptical is None else skeptical
+    return make_row(kind, at_seq=at_seq, skeptical=text, evidence=evidence)
 
 
 def record(store, char_id: str, *, session_id: str = "", kind: str, at_seq: int = 0,

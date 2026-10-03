@@ -586,6 +586,8 @@ class DigestRegistry:
         """
         errors: list[str] = []
         warnings: list[str] = []
+        #: ⭐ D1（2026-09-29）: "真的丢了东西"的那几条 warning（见 `ValidationResult.drops`）
+        drops: list[str] = []
         if not isinstance(raw, dict):
             return [], ValidationResult(errors=("Round A 输出必须是 JSON 对象",))
         raw_eps = raw.get("episodes")
@@ -596,7 +598,7 @@ class DigestRegistry:
             raw_eps = raw_eps[:MAX_EPISODES]
         out: list[dict] = []
         for i, e in enumerate(raw_eps):
-            item, item_errs, item_warns = _clean_episode(e, i, seq_set)
+            item, item_errs, item_warns = _clean_episode(e, i, seq_set, drops)
             errors.extend(item_errs)
             warnings.extend(item_warns)
             if item is not None:
@@ -606,13 +608,14 @@ class DigestRegistry:
             if val is None:
                 warnings.append("on_mind 是 null（当**没提**处理, 保持上次那句）")
             elif not isinstance(val, str):
-                warnings.append(f"on_mind 必须是字符串（丢弃）: {type(val).__name__}")
+                _drop(warnings, drops,
+                      f"on_mind 必须是字符串（丢弃）: {type(val).__name__}")
             elif len(val.strip()) > ON_MIND_MAX:
                 warnings.append(f"on_mind 超过 {ON_MIND_MAX} 字（收下但请写短）")
                 on_mind_out.append(val.strip())
             else:
                 on_mind_out.append(val.strip())
-        return out, ValidationResult(tuple(errors), tuple(warnings))
+        return out, ValidationResult(tuple(errors), tuple(warnings), tuple(drops))
 
     def parse_close(self, raw: Any) -> tuple[list[dict], ValidationResult]:
         """R4 收口: `{"add": […], "close": […]}` → 归一化行。
@@ -1133,7 +1136,8 @@ def _clean_close(row: dict, i: int, errors: list[str]) -> dict | None:
     return item
 
 
-def _clean_episode(e: Any, i: int, seq_set: set[int] | None = None
+def _clean_episode(e: Any, i: int, seq_set: set[int] | None = None,
+                   drops: list[str] | None = None
                    ) -> tuple[dict | None, list[str], list[str]]:
     errors: list[str] = []
     warnings: list[str] = []
@@ -1154,7 +1158,7 @@ def _clean_episode(e: Any, i: int, seq_set: set[int] | None = None
     kind = str(e.get("kind", "") or "").strip() or "episode"
     if kind == "episode":
         item, errors, warnings = _clean_episode_item(
-            e, i, errors, warnings, seq_set)
+            e, i, errors, warnings, seq_set, drops)
         if item is not None:
             item["kind"] = "episode"
         return item, errors, warnings
@@ -1166,7 +1170,7 @@ def _clean_episode(e: Any, i: int, seq_set: set[int] | None = None
         item: dict = {"kind": "experience", "text": text,
                       "subject": PLAYER_SUBJECT}
         # 画像条目无 episode 载体——原话同样走**记录行号**（玩家那句 = `[N.0]`）
-        _fill_verbatim(item, e, i, warnings, seq_set)
+        _fill_verbatim(item, e, i, warnings, seq_set, drops=drops)
         tags = [t for t in e.get("tags", []) if isinstance(t, str) and t.strip()][:MAX_TAGS]
         if tags:
             item["tags"] = tags
@@ -1192,9 +1196,23 @@ def _norm_index(raw: Any) -> str | None:
     return f"{seq}.{rec}" if rec != "" else str(seq)
 
 
+def _drop(warnings: list[str], drops: list[str] | None, text: str) -> None:
+    """记一条**真的丢了东西**的 warning（⭐ D1, 2026-09-29）。
+
+    ⚠️ 这是"分类"的**唯一来源**: 一处 warning 是不是"丢"由**写它的这一行代码**说了算,
+    绝不靠事后拿中文子串去猜（`ValidationResult.drops` 的 docstring 讲了为什么）。
+    ⇒ **改这里的用法时只有一个判据**: 这条 warning 背后**有没有一个内容离开过库**?
+    有（区间作废 / 原话丢了 / 心境丢了）⇒ 用 `_drop`; 只是形状建议 / 夹紧 / 兼容旧名 ⇒
+    `warnings.append`。
+    """
+    warnings.append(text)
+    if drops is not None:
+        drops.append(text)
+
+
 def _clean_seq_list(raw: Any, seq_set: set[int] | None, *,
                     label: str, warnings: list[str],
-                    record_level: bool) -> list[str]:
+                    record_level: bool, drops: list[str] | None = None) -> list[str]:
     """索引数组清洗 —— **坏项逐条丢弃**（不废整包, 与 `parse_index_list` 同纪律）。
 
     `record_level=False`（板指针 `event_seq`）: 只收事件级 `"28"`, 记录级
@@ -1222,7 +1240,7 @@ def _clean_seq_list(raw: Any, seq_set: set[int] | None, *,
             norm = str(seq)
         if seq_set is not None and seq not in seq_set:
             bad += 1
-            warnings.append(f"{label} 的 {norm!r} 不在本段时间线里——丢弃")
+            _drop(warnings, drops, f"{label} 的 {norm!r} 不在本段时间线里——丢弃")
             continue
         if norm not in out:
             out.append(norm)
@@ -1232,7 +1250,7 @@ def _clean_seq_list(raw: Any, seq_set: set[int] | None, *,
 
 
 def _clean_span(raw: Any, seq_set: set[int] | None, *, label: str,
-                warnings: list[str]) -> list[int] | None:
+                warnings: list[str], drops: list[str] | None = None) -> list[int] | None:
     """⭐ 区间清洗（**N3**, 2026-09-29）—— `[28, 30]` → `[28, 30]`；坏形状 → `None`。
 
     规矩:
@@ -1255,10 +1273,10 @@ def _clean_span(raw: Any, seq_set: set[int] | None, *, label: str,
     elif isinstance(raw, (list, tuple)):
         items = list(raw)
     else:
-        warnings.append(f"{label} 不是数组——丢弃")
+        _drop(warnings, drops, f"{label} 不是数组——丢弃")
         return None
     if not items:
-        warnings.append(f"{label} 是空数组——丢弃")
+        _drop(warnings, drops, f"{label} 是空数组——丢弃")
         return None
     if len(items) > 2:
         warnings.append(f"{label} 给了 {len(items)} 个端点——只取首尾")
@@ -1267,7 +1285,7 @@ def _clean_span(raw: Any, seq_set: set[int] | None, *, label: str,
     for it in items:
         norm = _norm_index(it)
         if norm is None:
-            warnings.append(f"{label} 的 {it!r} 不是合法编号——丢弃整个区间")
+            _drop(warnings, drops, f"{label} 的 {it!r} 不是合法编号——丢弃整个区间")
             return None
         seq = parse_index(norm)[0]
         if "." in norm:
@@ -1277,17 +1295,17 @@ def _clean_span(raw: Any, seq_set: set[int] | None, *, label: str,
         seqs.append(seqs[0])                      # 单值 ⇒ 退化成一块
     lo, hi = seqs
     if lo > hi:
-        warnings.append(f"{label} 起止反了（{lo} > {hi}）——丢弃（不自动交换）")
+        _drop(warnings, drops, f"{label} 起止反了（{lo} > {hi}）——丢弃（不自动交换）")
         return None
     missing = [s for s in (lo, hi) if seq_set is not None and s not in seq_set]
     if missing:
-        warnings.append(f"{label} 的端点 {missing} 不在本段时间线里——丢弃")
+        _drop(warnings, drops, f"{label} 的端点 {missing} 不在本段时间线里——丢弃")
         return None
     return [lo, hi]
 
 
 def _fill_verbatim(item: dict, e: dict, i: int, warnings: list[str],
-                   seq_set: set[int] | None) -> None:
+                   seq_set: set[int] | None, drops: list[str] | None = None) -> None:
     """`verbatim` = **记录行号**（唯一通道）。
 
     ① `"verbatim": ["28.3", "20.p"]` —— 抄时间线的记录行号
@@ -1305,9 +1323,11 @@ def _fill_verbatim(item: dict, e: dict, i: int, warnings: list[str],
         v = e.get(key)
         if isinstance(v, (list, tuple)):
             seqs.extend(_clean_seq_list(v, seq_set, label=f"episodes[{i}].{key}",
-                                        warnings=warnings, record_level=True))
+                                        warnings=warnings, record_level=True,
+                                        drops=drops))
         elif v is not None:
-            warnings.append(f"episodes[{i}].{key} 必须是数组（记录行号）——忽略")
+            _drop(warnings, drops,
+                  f"episodes[{i}].{key} 必须是数组（记录行号）——忽略")
     if seqs:
         item["verbatim_seq"] = list(dict.fromkeys(seqs))
 
@@ -1335,7 +1355,8 @@ def _read_text(e: dict, i: int, warnings: list[str]) -> str:
 
 
 def _clean_episode_item(e: dict, i: int, errors: list[str], warnings: list[str],
-                        seq_set: set[int] | None = None
+                        seq_set: set[int] | None = None,
+                        drops: list[str] | None = None
                         ) -> tuple[dict | None, list[str], list[str]]:
     """kind=episode 条目的字段清洗（缺 text 整条丢弃, 宁缺勿错）。"""
     text = _read_text(e, i, warnings)
@@ -1355,7 +1376,7 @@ def _clean_episode_item(e: dict, i: int, errors: list[str], warnings: list[str],
     # （218 条内容事件里 70 条没进任何记忆），缺口动辄 12~18 处；
     # 而人的"那次"本来就是**一段**，不是若干个点。展开在 `digest._expand_spans`。
     span = _clean_span(e.get("span"), seq_set, label=f"episodes[{i}].span",
-                       warnings=warnings)
+                       warnings=warnings, drops=drops)
     if span is not None:
         item["span"] = span
     else:
@@ -1364,13 +1385,13 @@ def _clean_episode_item(e: dict, i: int, errors: list[str], warnings: list[str],
         # （宁缺勿错）。只告警, 让契约漂移**可见**。
         seqs = _clean_seq_list(e.get("event_seq"), seq_set,
                                label=f"episodes[{i}].event_seq",
-                               warnings=warnings, record_level=False)
+                               warnings=warnings, record_level=False, drops=drops)
         if seqs:
             item["event_seq"] = [int(s) for s in seqs]
             warnings.append(f"episodes[{i}] 用的是旧形状 event_seq（逐点挑选）——"
                             f"契约已改成 span: [起, 止]（区间，引擎负责展开）")
     # verbatim: 记录行号（唯一通道 —— 文本通道 2026-09-29 退役）
-    _fill_verbatim(item, e, i, warnings, seq_set)
+    _fill_verbatim(item, e, i, warnings, seq_set, drops=drops)
     tags = [t for t in e.get("tags", []) if isinstance(t, str) and t.strip()][:MAX_TAGS]
     if tags:
         item["tags"] = tags
