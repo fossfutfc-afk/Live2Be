@@ -28,19 +28,23 @@ class FakeLLM:
     免得"R4 有没有真的被调"要靠数位置。
     """
 
-    def __init__(self, *responses, close=None):
+    def __init__(self, *responses, close=None, split=None):
         self.responses = list(responses)
         self.calls = []
         self.close = CLOSE_EMPTY if close is None else close
         self.close_calls = 0
+        #: R0 的应答（`None` = 照搬 R1 声明的区间 —— 见 `chat` 里那支 `DIGEST_SPLIT`）
+        self.split = split
 
     def chat(self, messages, **kw):
         task = kw.get("task")
         if task == T.DIGEST_SPLIT:
-            # ⭐ R0 切分（2026-09-29, N4d）: 照着 R1 那份应答里声明的区间回
+            # ⭐ R0 切分（2026-09-29, N4d）: 缺省照着 R1 那份应答里声明的区间回
             # （只搬运不修正）—— 不进位置队列: 它是"照着剧本念"的一轮, 不是脚本。
-            return stub_tasks.splits_for_episodes(
-                self.responses[0] if self.responses else [], messages)
+            # `split=` 显式给时用它（那些用例要测**切片层**的收口/覆盖, R1 只填一条）。
+            return (self.split if self.split is not None
+                    else stub_tasks.splits_for_episodes(
+                        self.responses[0] if self.responses else [], messages))
         if task == T.DIGEST_CLOSE:
             self.close_calls += 1
             return self.close
@@ -1016,71 +1020,83 @@ def test_mmt_segment_still_splits(tmp_path):
     print("    mmt: 契约仍是 0~5 条, 两条都建 ✓")
 
 
-def test_bond_extra_episodes_collapse_to_one(tmp_path, caplog):
-    """★ 提示词没压住时**引擎确定性收口**: 留 significance 最高的 + 留一行告警。
+def test_bond_extra_segments_collapse_to_one(tmp_path, caplog):
+    """★ 提示词没压住时**引擎确定性收口**: 一章切成几件 ⇒ 留一条 + 留一行告警。
 
-    为什么丢弃而不是合并文本: 合并是创作（要 LLM）, 引擎只做判定; 而"一章一条"
+    为什么丢弃而不是合并文本: 合并是创作（要 LLM）, 引擎只做判定; 而"一章一件"
     的前提本来就是**那条总结该覆盖全章**。
 
-    ⚠️ 三条都**声明自己属于这一章**（`event_seq` 与 bond 块相交）才会被收口 ——
+    ⚠️ **2026-09-29（3b-1）换了产地**: 收口吃的是 **R0 的切片**（切分权归切分员 ⇒
+    "一章切成几件"是**切分违约**, 该在产出点当场收口）。判据也从 `significance`
+    换成 **`keep=always` 优先、否则跨度最长**（R0 不打分）。
+    ⚠️ 三条都**落在章块里**（区间与 bond 块相交）才会被收口 ——
     见下一条用例: 聊天那些不属于这一章, 不能被一起压掉。
     """
     st = _seed_store(tmp_path)
-    three = {"episodes": [
-        {"text": "她照常去破房子照料杂草, 抬头发现老师站在那儿",
-         "title": "去破房子照料杂草", "tags": ["杂草"], "significance": 0.6,
-         "event_seq": ["5"]},
-        {"text": "老师说这里就是只属于我和他的秘密场所",
-         "title": "只属于两人的秘密场所", "tags": ["约定"], "significance": 0.9,
-         "event_seq": ["5"]},
-        {"text": "她又道歉了一次", "title": "她又道歉了一次",
-         "tags": ["道歉"], "significance": 0.4, "event_seq": ["5"]}]}
-    llm = FakeLLM(three, _b_ok())
+    # 一章里放**三块内容**（seq 4/5/6）—— 这样"切成三件"才有三个**不同区间**可声明
+    # （⚠️ 逐字相同的区间会被契约层当重复丢掉, 那是另一条判据, 不在这里测）
+    evs = _events(*_bond_span(3, 7, bond_seq=4),
+                  ("bond", "story_scene",
+                   {"paragraphs": [{"text": "第2条", "emotion": "smile"}]}, 5),
+                  ("bond", "story_scene",
+                   {"paragraphs": [{"text": "第3条", "emotion": "smile"}]}, 6))
+    llm = FakeLLM(_bond_episode("这一章的总结", title="只属于两人的秘密场所"), _b_ok(),
+                  # R0 把这一章切成了三件（都落在章块 4-6 里）—— 违约, 该收口
+                  split={"segments": [
+                      {"span": [4, 4], "keep": "temporary", "abstract": "去破房子照料杂草"},
+                      {"span": [5, 5], "keep": "always", "abstract": "只属于两人的秘密场所"},
+                      {"span": [6, 6], "keep": "temporary", "abstract": "她又道歉了一次"}]})
     with caplog.at_level("WARNING"):
-        res = digest_segment(st, llm, _events(*_bond_span()))
+        res = digest_segment(st, llm, evs)
     assert res.ok, res.errors
-    assert len(res.created) == 1, res.created           # 一章一条
+    assert len(res.created) == 1, res.created           # 一章一件
     ep = st.get(res.created[0])
-    assert ep.title == "只属于两人的秘密场所", ep.title               # 留 significance 最高的
+    assert ep.title == "只属于两人的秘密场所", ep.title               # 留 keep=always 那条
     msgs = [r.getMessage() for r in caplog.records]
     assert any("contract=bond" in m for m in msgs), msgs
-    print("    bond: 3 条 → 1 条（留 sig 最高）+ 告警可 grep ✓")
+    print("    bond: 3 件 → 1 件（留 keep=always）+ 告警可 grep ✓")
 
 
-def test_bond_window_keeps_mmt_atoms(tmp_path):
-    """★★ **窗口是混的**（真档实测: haruka 13 条聊天 + 5 块剧情, mutsuki 26 + 13）:
-    "一章一条"只收口**属于这一章**的条目 —— 聊天那些按 0~5 条留着。
+# ⛔ ~~`test_bond_window_keeps_mmt_atoms`~~ **2026-09-29（3b-1）删** ——
+# 它测的是“混窗口里聊天原子留着 + 本章收口成 1 条”。3b-1 把收口搬到 R0 之后,
+# 这条**在管线级失去了意义**: 桩在缺省下把整窗派生成**一条**切片（R1 的区间又各自落在那一条上）
+# ⇒ 两条 episode 的 `seqs` 相同、正文相同 ⇒ 被 `_find_duplicate` 判重复复用 ⇒ 只建得出一条。
+# 那不是产品缺陷, 是**过渡期的桩**: “R1 按骨架填”（每条切片一条正文）是 **3b-2** 的事。
+# ✅ 收口本身（keep 优先 / 跨度 / 区间并回 / 章外不动）已由
+# `tests/core/test_digest_window.py::test_collapse_keeps_one_slice_per_chapter`
+# 与 `..._prefers_the_widest_when_no_keep` **直接单测那个函数**覆盖。
 
-    第一版按"窗口里有 `vn_enter` ⇒ 整段 bond"写, 会把聊天里的记忆一起压成 1 条。
+
+def _bond_plus():
+    """一个 bond 段（章块 = seq 4~6）+ 两条**章外**聊天（seq 2/3）—— 给"混窗口"那组用例。
+
+    ⚠️ 聊天必须落在**章块之外**: `vn_enter…vn_exit` **之间**的 mmt 行仍然算章块
+    （`_segment_domain` 按 marker 划块）—— 放里面的话它会被正确收口掉,
+    那就测不出"聊天原子要留着"这件事了。
+    ⚠️ 章块里放**三块**内容（seq 4/5/6）: 这样 R0 才可能"切成两件"（不同区间）。
     """
-    st = _seed_store(tmp_path)
-    mixed = {"episodes": [
-        # ① 聊天条目: event_seq 指向 seq 4（那条 mmt）, 不在本章的 bond 块里
-        {"text": "老师约我明天去喂猫", "title": "老师约我明天去喂猫",
-         "tags": ["约定"], "significance": 0.8, "event_seq": ["4"]},
-        # ② 本章: 两条都指向 bond 块 5 → 收口成 1
-        {"text": "她在破房子遇到老师", "title": "在破房子遇到老师",
-         "tags": ["杂草"], "significance": 0.7, "event_seq": ["5"]},
-        {"text": "老师说这里是秘密场所", "title": "只属于两人的秘密场所",
-         "tags": ["约定"], "significance": 0.9, "event_seq": ["5"]}]}
-    b = _b_ok()
-    b["decisions"].append({"episode": "m0004", "decision": "add",
-                           "kind": "belief", "subject": "sensei",
-                           "text": "老师会约我喂猫", "example": "「明天带猫粮」"})
-    llm = FakeLLM(mixed, b)
-    res = digest_segment(st, llm, _events(*_bond_span()))
-    assert res.ok, res.errors
-    titles = sorted(st.get(i).title for i in res.created)
-    assert titles == ["只属于两人的秘密场所", "老师约我明天去喂猫"], titles
-    print(f"    bond 窗口: 聊天原子留着 + 本章收口成 1 条 → {titles} ✓")
+    return [_mmt(1, "老师", "……"),
+            _mmt(2, "老师", "明天带猫粮"),
+            ("marker", "vn_enter", {"chapter_title": "错误的地点"}, 3),
+            ("bond", "story_scene",
+             {"paragraphs": [{"text": "第1条", "emotion": "smile"}]}, 4),
+            ("bond", "story_scene",
+             {"paragraphs": [{"text": "第2条", "emotion": "smile"}]}, 5),
+            ("bond", "story_scene",
+             {"paragraphs": [{"text": "第3条", "emotion": "smile"}]}, 6),
+            ("marker", "vn_exit", {"completed": True}, 7)]
 
 
 def test_two_chapters_in_one_window_each_get_one(tmp_path):
     """★★ **窗口里可能有多章**（水位被清 / 重跑时**必然**如此）:
-    "一章一条"必须**按章**分组收口 —— 两章压成一条就丢了一整章。
+    "一章一件"必须**按章**收口 —— 两章压成一条就丢了一整章。
 
     这是 2026-09-20 用户要"删掉旧数据重跑 igusa_haruka"时暴露的场景:
     水位归零 ⇒ 第一次 digest 的窗口 = 旧章的 31 条 + 新章的几十条 = **两章同窗**。
+
+    ⚠️ **2026-09-29（3b-1）**: 收口现在吃 **R0 的切片** ⇒ "每章各切了一件"
+    由 `split=` 声明（这是切分契约该管的事），R1 只填。判据也跟着换:
+    `keep=always` 优先（R0 不打分 ⇒ 不再看 `significance`）。
     """
     st = _seed_store(tmp_path)
     # 两章: 章A 的 bond 块 = seq 5, 章B 的 bond 块 = seq 12
@@ -1090,27 +1106,26 @@ def test_two_chapters_in_one_window_each_get_one(tmp_path):
                   ("bond", "story_scene",
                    {"paragraphs": [{"text": "第1条", "emotion": "smile"}]}, 12),
                   ("marker", "vn_exit", {"completed": True}, 13))
-    four = {"episodes": [
-        # 章A 的两条 → 该压成 1
-        {"text": "章A 片段一", "title": "章A 的第一条记忆", "tags": ["a"],
-         "significance": 0.7, "event_seq": ["5"]},
-        {"text": "章A 片段二", "title": "章A 的第二条记忆", "tags": ["a"],
-         "significance": 0.9, "event_seq": ["5"]},
-        # 章B 的两条 → 也该各自压成 1（不是被章A 一起吞掉）
-        {"text": "章B 片段一", "title": "章B 的第一条记忆", "tags": ["b"],
-         "significance": 0.6, "event_seq": ["12"]},
-        {"text": "章B 片段二", "title": "章B 的第二条记忆", "tags": ["b"],
-         "significance": 0.8, "event_seq": ["12"]}]}
+    two = {"episodes": [
+        {"text": "章A 片段", "title": "章A 的记忆", "tags": ["a"], "span": [5, 5]},
+        {"text": "章B 片段", "title": "章B 的记忆", "tags": ["b"], "span": [12, 12]}]}
     b = {"decisions": [
         {"episode": "m0003", "decision": "add", "kind": "belief",
          "subject": "章A 的模式", "text": "章A 的模式", "example": "「A」"},
         {"episode": "m0004", "decision": "add", "kind": "belief",
          "subject": "章B 的模式", "text": "章B 的模式", "example": "「B」"}],
-        "evidence": [], "affection_exp_delta": 0}
-    res = digest_segment(st, FakeLLM(four, b), evs)
+        "affection_exp_delta": 0}
+    llm = FakeLLM(two, b,
+                  # R0: **每章各一件** —— 章A 的 keep=always 那条胜出
+                  split={"segments": [
+                      {"span": [5, 5], "keep": "always",
+                       "abstract": "章A 只属于两人的秘密场所"},
+                      {"span": [12, 12], "keep": "temporary",
+                       "abstract": "章B 的收信人"}]})
+    res = digest_segment(st, llm, evs)
     assert res.ok, res.errors
     titles = sorted(st.get(i).title for i in res.created)
-    assert titles == ["章A 的第二条记忆", "章B 的第二条记忆"], titles   # 每章各留 sig 最高的
+    assert titles == ["章A 的记忆", "章B 的记忆"], titles   # 每章各留 1 条
     print(f"    两章同窗: 每章各收口成 1 条 → {titles} ✓")
 
 
@@ -1126,45 +1141,51 @@ def _span_episode(span, *, text="老师带我去看了瓦片缝里的苔藓",
                           "tags": ["苔藓"], "significance": sig}]}
 
 
-def test_expand_spans_fills_gap_and_pops_the_key():
-    """⭐ 区间展开成**全部**内容 seq；`span` 就地摘掉；未认领与共享**如实报告**。
+def _bond_episode(text="这一章的总结", *, title="错误的地点", span=(5, 5)):
+    """一章那一条（R1 侧）—— 默认只说"我覆盖 seq 5"（= `_bond_span()` 的章块）。"""
+    return _span_episode(span, text=text, title=title)
 
-    ⚠️ `span` 必须被 `pop`：`_create_a_nodes` 走 `make_node("episode", **ent)`，
-    留在条目里的 `span` 会被 `from_dict` **静默忽略**（这个项目最恨的静默 no-op ——
-    `about_hint` 当年就是为这个专门 pop 的）。
+
+def test_expand_spans_fills_gap_and_keeps_the_span():
+    """⭐ 区间展开成**全部**内容 seq（写进 `seqs`）；`span` **留着**；未认领与共享如实报告。
+
+    ⚠️ **2026-09-29（3b-1）改过判据**: 从前展开完要把 `span` 弹掉（怕 `from_dict`
+    静默忽略未知字段）; 现在 `span` 是这条切片的**身份** —— R1 要照它对位、
+    收口要靠它并区间、台账要印它 ⇒ 展开的结果**另存 `seqs`**, 两者并存
+    （`span` 给人看, `seqs` 给引擎用）。
     """
     from core.digest.segment import _expand_spans
 
     entries = [{"span": [10, 13], "text": "a"}, {"span": [12, 14], "text": "b"}]
     unclaimed, shared = _expand_spans(entries, {10, 11, 12, 13, 14, 20})
-    assert entries[0]["event_seq"] == [10, 11, 12, 13]      # 缺口被填满
-    assert entries[1]["event_seq"] == [12, 13, 14]
-    assert all("span" not in e for e in entries)
+    assert entries[0]["seqs"] == [10, 11, 12, 13]           # 缺口被填满
+    assert entries[1]["seqs"] == [12, 13, 14]
+    assert entries[0]["span"] == [10, 13], "span 是身份, 不许摘"
     assert unclaimed == [20]                                # 谁也没认领的那条
     assert shared == 2                                      # 12/13 被两条共享（⚠️ **不裁**）
     # 旧形状（逐点）**不展开**：那是她自己挑的点，展开等于替她加上她没声称的事件
     legacy = [{"event_seq": [10, 12, 14]}]
     un2, sh2 = _expand_spans(legacy, {10, 11, 12, 13, 14})
     assert legacy[0]["event_seq"] == [10, 12, 14] and un2 == [11, 13] and sh2 == 0
-    print("    _expand_spans: 填缺口 / pop span / 未认领 / 共享只记账 / 旧形状不动")
+    print("    _expand_spans: 填缺口 / 保留 span / 未认领 / 共享只记账 / 旧形状不动")
 
 
 def test_span_expansion_runs_before_bond_collapse():
     """⚠️ **结构性守门**: `_expand_spans` 必须排在 `_collapse_bond_episodes` **之前**。
 
-    为什么：那一章的归属判据 `_in_seqs` 靠"条目的 `event_seq` 与章块的**相交**" ——
-    展开前条目只有 `span`（还没有 `event_seq`）⇒ 相交恒为 False ⇒ **整章那一条会被判成
+    为什么：那一章的归属判据 `_in_seqs` 靠"切片的 seq 与章块的**相交**" ——
+    展开前切片只有 `span`（还没有 `seqs`）⇒ 相交恒为 False ⇒ **整章那一条会被判成
     "不属于本章"**（`_collapse_bond_episodes` 收口也就跟着失效）。
 
-    ⚠️ 看的是 **R1 那一轮的 `run()`**（2026-09-29 乙-1 起它的正文住
-    `core/digest/rounds/record.py`）—— 编排里已经没有这两句了。
+    ⚠️ **2026-09-29（3b-1）换了地方**: 这两句从 R1 搬到了 **R0**
+    （`core/digest/rounds/split.py` —— 切分权归切分员, 收口就该在产出点做）。
     """
     import ast
     import inspect
     import textwrap
-    from core.digest.rounds.record import run as record_run
+    from core.digest.rounds.split import run as split_run
 
-    fn = ast.parse(textwrap.dedent(inspect.getsource(record_run))).body[0]
+    fn = ast.parse(textwrap.dedent(inspect.getsource(split_run))).body[0]
     code = ast.unparse(fn)
     assert "_expand_spans(" in code and "_collapse_bond_episodes(" in code, \
         "R1 里少了展开或收口"

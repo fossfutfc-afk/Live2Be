@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING
 
 from core.brain.address import unique_title
 from core.brain.nodes import PLAYER_SUBJECT, make_node
+from core.digest.segment import _seqs_of
 
 if TYPE_CHECKING:                       # 仅注解求值期
     from core.brain.store import WikiStoreV2
@@ -68,9 +69,10 @@ def _create_a_nodes(store: WikiStoreV2, entries: list[dict], *, ts: str,
 
     event_seq（T14, 2026-09-15）: **条目自带就用条目自带的**（Round A 抄的行号,
     已在 parse 层校验 ⊆ 本段）, 否则回落到段级 `[interact_max]`。
-    ⭐ **N3（2026-09-29）后, "条目自带的"是引擎展开好的区间**（`_expand_spans` 把
-    `span` 换成区间内全部内容 seq）—— 本函数**一行没改**: 字段名与形状都没变,
-    变的只是它的**来源**（从"她挑的点"变成"引擎算的区间"）。
+    ⭐ **N3（2026-09-29）后, "条目自带的"是引擎展开好的区间** —— 而 3b-1 起展开的结果
+    存在 **`seqs`**（`span` 留着当身份, 见 `segment._expand_spans`）⇒ 本函数两种键名
+    都认（`segment._seqs_of`, **唯一取法**）。形状与字段名（`node.event_seq`）没变,
+    变的只是它的来源: 从"她挑的点"→"引擎算的区间"。
     旧版**无条件覆写**成 `[interact_max]`——实测 mutsuki 全段 `[60]` 而板最大 55,
     它指向一条 MMT 消息、不指向任何一板, 于是板指针从来没存在过,
     而 `migrate_time` 的唯一排序信号也一起死掉（全部节点同键 → 退化成插入序）。
@@ -103,7 +105,7 @@ def _create_a_nodes(store: WikiStoreV2, entries: list[dict], *, ts: str,
                              verbatim_seq=ent.get("verbatim_seq", []),
                              tags=ent.get("tags", []),
                              significance=ent.get("significance", 0.5))
-            node.event_seq = list(ent.get("event_seq") or event_seq)
+            node.event_seq = list(_seqs_of(ent) or event_seq)
             node.ts = _node_ts(node.event_seq, by_seq, ts)   # ⭐ 自己的时刻（④-①）
             dup = _find_duplicate(store, node)
             if dup is not None:
@@ -117,7 +119,7 @@ def _create_a_nodes(store: WikiStoreV2, entries: list[dict], *, ts: str,
         # ⭐ **N2b**: 标题唯一性**写入时强制**（冲突加数字; 只增不重排）——
         # 解析与写入都在 `address.py` 里（那边是"谁能被指到"的唯一约定）。
         node.title = unique_title(store, node.title)
-        node.event_seq = list(ent.get("event_seq") or event_seq)
+        node.event_seq = list(_seqs_of(ent) or event_seq)
         node.ts = _node_ts(node.event_seq, by_seq, ts)       # ⭐ 自己的时刻（④-①）
         # 板级情绪键序列（T15）——召回侧物化, **不进 LLM 上下文**
         if by_seq is not None:

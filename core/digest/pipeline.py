@@ -155,6 +155,11 @@ class DigestResult:
     #: 编排层当场收工（见下面那条 break）。⚠️ 初值必须是 `[]` 而不是 `None` ——
     #: 回滚/未跑时它也走"空 = 收工"那条路, 不需要第二种哨兵。
     segments: list[dict] = field(default_factory=list)
+    #: ⭐ **R0 章收口时丢掉的那几条骨架**（`[{chapter, keep, lost}, …]`）——
+    #: D1 台账 `items.dropped` 的一半, 由 `split` 那一轮记下、`record` 那一轮接手
+    #: 拼进 `record_gaps`（⚠️ 不直接写 `record_gaps`: 那一格的交出去人是 record,
+    #: 两个写者会互相覆盖）。声明在表里 `split` 的 `result_fields` ⇒ 一并回滚。
+    segment_collapsed: list[dict] = field(default_factory=list)
     #: R4 的世界校验记账（剔掉的引用 / 丢掉的 close 行…）—— 不阻断, 但要看得见
     notes_warnings: list[str] = field(default_factory=list)
     #: ⏸ ~~R4 物化的 promise 节点 id~~ **2026-09-29 删** —— 承诺退图, R4 不再建节点

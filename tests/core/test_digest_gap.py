@@ -275,28 +275,34 @@ def _chapter_events(title: str = "苔藓"):
     return evs
 
 
-def test_collapsed_entries_are_recorded(tmp_path):
-    """⭐ 一章两条 ⇒ 丢掉的那条**进账**（它只在这一刻存在）。"""
+def test_collapsed_segments_are_recorded(tmp_path):
+    """⭐ 一章切成两件 ⇒ 收口丢掉的那条**进账**（它的 `abstract` 只在这一刻存在）。
+
+    ⚠️ **3b-1 换过产地**（2026-09-29）: 收口从"R1 的条目"变成"R0 的切片" ——
+    切分权归切分员之后, "一章切成几件"是**切分违约**, 该在产出点当场收口。
+    判据也跟着换: **`keep` 优先, 否则跨度最长**（R0 不打分 ⇒ 不再看 `significance`）。
+    """
     st = _wiki(tmp_path)
-    llm = OneRound([{"text": "第一种写法", "title": "写法甲", "span": [2, 3],
-                     "tags": ["苔藓"], "significance": 0.3},
-                    {"text": "第二种写法", "title": "写法乙", "span": [2, 3],
-                     "tags": ["苔藓"], "significance": 0.9}],
-                   # ⚠️ 两条**落在同一条切片**上 —— R0 那边只给一条区间
-                   # （契约层会把逐字重复的区间丢掉; 而"一章两条"正是本用例要测的）
-                   split={"segments": [{"span": [2, 3], "keep": "temporary",
-                                        "abstract": "这一章"}]})
+    llm = OneRound([{"text": "留下来的那条", "title": "写法乙", "span": [2, 3],
+                     "tags": ["苔藓"]}],
+                   # R0 把这一章切成了两件（都落在章块 2-3 里）—— 违约, 该收口
+                   split={"segments": [
+                       {"span": [2, 2], "keep": "temporary", "abstract": "写法甲"},
+                       {"span": [2, 3], "keep": "always", "abstract": "写法乙"}]})
     res = digest_segment(st, llm, _chapter_events())
 
     assert res.ok, res.errors
     dropped = _gaps(res)[0]["evidence"]["items"]["dropped"]
     assert len(dropped) == 1, dropped
     assert dropped[0]["chapter"] == "苔藓"
-    assert dropped[0]["keep"] == "写法乙"          # sig 高的留下
-    assert dropped[0]["lost"] == ["写法甲"]        # sig 低的被丢
-    # ⚠️ 丢的是"她多写的一条总结", 内容仍被保留那条覆盖 ⇒ **不是**"她少了什么"
+    assert dropped[0]["keep"] == "写法乙"          # `keep=always` 留下（跨度也更长）
+    assert dropped[0]["lost"] == ["写法甲"]        # 另一条被丢
+    # ⚠️ 丢的是"多切的一件", 内容仍被保留那条的区间覆盖（**区间并回**）⇒ **不是**"她少了什么"
     assert "skeptical" not in _gaps(res)[0]
-    print(f"    一章一条: 丢 {dropped[0]['lost']}（留 {dropped[0]['keep']}）✓")
+    # ⭐ 区间并回: 保留那条的覆盖 = 整章（含被丢那条的 [2,2]）
+    node = st.get(res.created[0])
+    assert node.event_seq == [2, 3], f"丢掉那条的区间该并回保留那条: {node.event_seq}"
+    print(f"    一章一件: 丢 {dropped[0]['lost']}（留 {dropped[0]['keep']}）✓")
 
 
 def test_reused_node_is_recorded(tmp_path):
@@ -372,7 +378,7 @@ if __name__ == "__main__":
                test_gap_row_carries_the_three_faces,
                test_no_position_entry_still_gets_the_segment_pointer,
                test_skeptical_only_when_something_was_lost, test_verbatim_dropped_is_a_loss,
-               test_collapsed_entries_are_recorded, test_reused_node_is_recorded,
+               test_collapsed_segments_are_recorded, test_reused_node_is_recorded,
                test_rollback_leaves_no_gap_row):
         with tempfile.TemporaryDirectory() as d:
             fn(Path(d))
