@@ -1,5 +1,18 @@
 # -*- coding: utf-8 -*-
-"""rounds.py — digest 的**轮次表**: 每段的步序 / 身份 / 料 / 产出 / 跳过 / 快照。
+"""rounds/__init__.py — digest 的**轮次表**: 每段的步序 / 身份 / 料 / 产出 / 跳过 / 快照。
+
+⚠️ **本模块是一个包的门面**（2026-09-29 拆包乙-1）: 从前它是 `core/digest/rounds.py`,
+现在 `rounds/` 是包 —— **import 路径一个都没变**（`from core.digest.rounds import ROUNDS`）::
+
+    rounds/__init__.py  ← 本文件: **只有表**（+ Cursor / 预算 / 回滚清单）
+    rounds/base.py      Ctx（段级上下文）+ RoundOut（一轮跑完的交代）
+    rounds/record.py    ① R1 记        rounds/akin.py       补边（0 LLM）
+    rounds/close.py     ② R4 收口      rounds/understand.py ③ R2 接
+    rounds/attribute.py ④ R3 挂        rounds/group.py      ⑤ L2-a 分群
+
+⚠️ 表住在 `__init__` 里, 每轮的**正文**在各自文件里 —— 所以本文件**不 import 任何**
+`rounds/<轮>.py`（那会让"读一张表"变成"拉起整条管线"）。key → 实现的那张映射在
+`core/digest/pipeline.py` 的 `IMPL`, 守门用例钉住它与 `ROUNDS` 一一对应。
 
 ## 为什么有它
 
@@ -24,16 +37,16 @@
 
 | 列 | 谁在读它 |
 |---|---|
-| 顺序（元组序） | `Cursor`：`digest_segment` 每进一轮先 `enter(key)`, **越序/回头当场炸** |
+| 顺序（元组序） | ⭐ **编排的循环本体**：`for spec in ROUNDS: IMPL[spec.key](ctx)`; 每轮进门先 `ctx.enter(key)`（`Cursor`, **越序/回头当场炸**） |
 | `label` | `_round_call(..., label=spec.label)` → `task_labels.digest_label` |
 | `prompt` / `phase` | `_system_for(spec)`：`load_prompt(spec.prompt)` + `build_schema(spec.phase)` |
 | `parse` | `spec.parse(raw, **ctx)` —— 调用点只给这一轮的上下文 |
 | `material` | `_sections_for(spec, …)`：**逐字校对"这一轮吃什么"**（对不上当场炸） |
 | `writes` | 人读（"这一步往图上写什么"）+ 守门用例（字段名/边名/笔记槽必须真实存在） |
 | `result_fields` | `reset_result()` —— ⭐ **`_rollback` 由此推导**, 不再手抄 |
-| `skip` | 跳过时打的那句日志（文案单源）; 判据仍在调用点 |
+| `skip` | 跳过时打的那句日志（文案单源）; **判据写在那一步的 `run()` 里** |
 | `budget` | ⭐ **这一轮自己的时间预算**（秒）—— `_round_call` 折算成 `min(整段硬顶, 现在 + 它)` |
-| `own_snapshot` | 人读 + 守门: **只有**自带快照的那一步允许吞掉自己的失败 |
+| `own_snapshot` | ⭐ **编排真按它执行**: 为这一步取快照, 失败时只回滚它 + 把 errors 挪进 `RoundOut.warnings_field`（从前只是"人读的说明"） |
 
 ⚠️ **两个时间参数也住在本模块**（`ROUND_BUDGET_SECONDS` 每轮默认 / `SEGMENT_HARD_CAP_SECONDS`
 整段硬顶）—— 判据: 每轮各自的预算防"前几轮慢 ⇒ 后面几轮被饿死", 硬顶防"每轮都刚好不超时
@@ -41,7 +54,7 @@
 
 ⚠️ 改这里就要看 `tests/core/test_digest_rounds.py` —— 它钉住: 结果字段分类齐全 ·
 表里的字段名/边名/笔记槽真实存在 · prompt 文件在 · 标签在词表里 · 只有一步自带快照 ·
-游标不许回头 · **预算之和 ≤ 硬顶**。
+游标不许回头 · **预算之和 ≤ 硬顶** · ⭐ **`IMPL` 与表一一对应**（每一步都真有实现）。
 """
 from __future__ import annotations
 
@@ -286,7 +299,7 @@ class Cursor:
         if i < self._at:
             raise AssertionError(
                 f"digest 轮次越序: {key!r} 是第 {i + 1} 步, 而已经走到第 {self._at} 步 —— "
-                "顺序的真源是 core/digest/rounds.py 的 ROUNDS")
+                "顺序的真源是 core/digest/rounds/__init__.py 的 ROUNDS")
         self._at = i + 1
         return spec
 

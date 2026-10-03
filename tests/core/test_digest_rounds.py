@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""轮次表守门（`core/digest/rounds.py`, 2026-09-29 节点 C）。
+"""轮次表守门（`core/digest/rounds/`, 2026-09-29 节点 C; 乙-1 起是包）。
 
 它钉住**六件事** —— 都是"不钉就会烂掉"的约定:
 
@@ -10,8 +10,9 @@
      `graph.REL_*` · `note` 查 `notes.SLOT_*`。表里写错一个字段名 = 表在骗人。
   ③ **LLM 四件套同生共死**: `label` / `prompt` / `phase` / `parse` 要么都有, 要么都没有
      （只有 `akin` 是零 LLM 的一步）; prompt 文件必须在盘上; 标签必须在词表里。
-  ④ **料与 exec 一一对应**: 表里每一步都真的被 `pipeline` 用 `cur.enter(key)` 走过
-     （没走 = 表里挂着一步死步骤; 代码里 enter 了表里没有的 key = 表漏了）。
+  ④ **表与执行一一对应**: `pipeline.IMPL` 的 key 与表**同序同集**, 且每一步自己都
+     `ctx.enter("<key>")` 进过门（没实现 = 表里挂着死步骤; 代码里 enter 了表里没有的
+     key = 表漏了）。
   ⑤ **只有一步自带快照**（分群, 而且是最后一步）—— 别的步骤失败必须连累整段。
   ⑥ **游标不许回头**（顺序的真源是表, 不是语句先后）。
 
@@ -38,6 +39,15 @@ from llm import task_labels as T  # noqa: E402
 ROOT = Path(__file__).resolve().parent.parent.parent
 PIPELINE = ROOT / "core" / "digest" / "pipeline.py"
 MATERIAL = ROOT / "core" / "digest" / "material.py"
+#: ⭐ 乙-1（2026-09-29）起**各轮的正文**住在这里 —— 调用点守门扫的就是这个目录。
+ROUNDS_DIR = ROOT / "core" / "digest" / "rounds"
+BASE = ROUNDS_DIR / "base.py"
+
+
+def _rounds_src() -> str:
+    """`rounds/` 包里所有模块的源码（含表自己）—— 扫调用点用。"""
+    return "\n".join(p.read_text(encoding="utf-8")
+                     for p in sorted(ROUNDS_DIR.glob("*.py")))
 
 _NODE_FIELDS = {f.name for f in dataclasses.fields(BrainNode)}
 _RELS = {v for k, v in vars(graph).items() if k.startswith("REL_")}
@@ -154,15 +164,26 @@ def test_labels_are_in_the_vocabulary():
 # ④ 料与执行一一对应
 # ---------------------------------------------------------------------------
 
-def test_every_round_is_entered_by_the_pipeline():
-    """表里的每一步都要被 `pipeline` 真的走过（`cur.enter("<key>")`）—— 双向。"""
-    src = PIPELINE.read_text(encoding="utf-8")
-    entered = set(re.findall(r'cur\.enter\("([a-z_]+)"\)', src))
-    keys = {s.key for s in R.ROUNDS}
-    assert entered == keys, (
-        f"表里挂着但没人跑: {sorted(keys - entered)}（死步骤）\n"
-        f"代码里跑了但表里没有: {sorted(entered - keys)}（表漏了）")
-    print(f"    pipeline 走全 {len(entered)} 步: {sorted(entered)}")
+def test_every_round_is_implemented_and_entered():
+    """表里的每一步都要**真有实现**、且**真的进过门** —— 双向。
+
+    两处判据（乙-1 起正文按轮搬进了 `rounds/`）:
+      · `pipeline.IMPL` 的 key 与表**同序同集**（少一个 = 表里挂着死步骤; 多一个/写错 =
+        表漏了或名字打错了）
+      · 那一步自己的文件里确实 `ctx.enter("<key>")` —— 进门才受游标管, 越序才炸得响
+    """
+    from core.digest.pipeline import IMPL
+
+    keys = [s.key for s in R.ROUNDS]
+    assert list(IMPL) == keys, (
+        f"`pipeline.IMPL` 与轮次表不对应（**顺序也要一致**）:\n"
+        f"  表={keys}\n  实现={list(IMPL)}\n"
+        "（在 core/digest/rounds/ 加了/改了轮次, 就去看 core/digest/pipeline.py 的 IMPL）")
+    entered = set(re.findall(r'ctx\.enter\("([a-z_]+)"\)', _rounds_src()))
+    assert entered == set(keys), (
+        f"表里挂着但没人进门: {sorted(set(keys) - entered)}（死步骤）\n"
+        f"进了门但表里没有: {sorted(entered - set(keys))}（表漏了）")
+    print(f"    {len(keys)} 步: IMPL 同序同集, 且每步都 `ctx.enter` 过门: {sorted(entered)}")
 
 
 def test_material_sections_are_all_named():
@@ -177,18 +198,20 @@ def test_material_sections_are_all_named():
 def test_sections_check_is_wired():
     """料校对真的接在调用点上（否则表里的 `material` 只是注释）。
 
-    三条: 拼料一律走 `_sections_for`(spec, …) · 不许再有裸 `_join_sections([` 的 LLM 输入 ·
-    `_sections_for` 里那条 `AssertionError` 还在。
-    ⚠️ 拆包后（2026-09-29）: **调用点**在 `pipeline.py`, **实现**在 `material.py` —— 两边都看。
+    三条: 每个 LLM 轮都走 `ctx.sections_for(spec, …)` · 不许再有裸 `_join_sections([`
+    的 LLM 输入 · `_sections_for` 里那条 `AssertionError` 还在。
+    ⚠️ 乙-1 起**调用点**在 `rounds/<轮>.py`（`Ctx` 的方法转发）, **实现**在 `material.py`
+    —— 两边都看。
     """
-    src = PIPELINE.read_text(encoding="utf-8")
+    src = _rounds_src()
     mat = MATERIAL.read_text(encoding="utf-8")
-    assert src.count("_sections_for(spec,") >= len([s for s in R.ROUNDS if s.material]), \
-        "有 LLM 轮没走 `_sections_for`（料就不受表管了）"
+    n_llm = len([s for s in R.ROUNDS if s.material])
+    assert src.count("ctx.sections_for(spec,") >= n_llm, \
+        "有 LLM 轮没走 `ctx.sections_for`（料就不受表管了）"
     assert "_join_sections([" not in mat, \
         "还有裸 `_join_sections([` —— 那就是绕过料校对的写法（`_sections_for` 内部自己调它）"
     assert "的料与轮次表不一致" in mat, "`_sections_for` 的当场炸不见了"
-    print("    料: 每个 LLM 轮都过 `_sections_for` 逐字校对（对不上当场炸）")
+    print(f"    料: {n_llm} 个 LLM 轮都过 `sections_for` 逐字校对（对不上当场炸）")
 
 
 # ---------------------------------------------------------------------------
@@ -274,14 +297,25 @@ def test_budget_hit_names_the_round(tmp_path):
     print(f"    {msg}")
 
 
-def test_pipeline_does_not_pass_the_hard_cap_as_a_round_deadline():
-    """调用点不许把整段硬顶直接当本轮截止传下去（那就绕过了 `_round_deadline`）。"""
-    src = PIPELINE.read_text(encoding="utf-8")
+def test_the_round_deadline_is_computed_in_one_place():
+    """调用点不许把整段硬顶直接当本轮截止传下去（那就绕过了 `_round_deadline`）。
+
+    乙-1 起这件事变成了**结构**: 每轮只经 `base.Ctx.call` 一处发调用, 它交出去的是
+    **整段硬顶**, "本轮截止 = min(硬顶, 现在+预算)"的折算在 `call._round_call` 里做。
+    ⇒ 三条判据: 每个 LLM 轮都走 `ctx.call(` · 全包内没有裸 `deadline=hard_deadline` ·
+    `Ctx.call` 交给 `_round_call` 的确实是整段硬顶。
+    """
+    src = _rounds_src()
+    n_llm = len([s for s in R.ROUNDS if s.label])
+    assert src.count("ctx.call(") >= n_llm, \
+        "有 LLM 轮没走 `ctx.call`（模型参数与预算就绕过去了）"
     # ⚠️ 用词边界看: `hard_deadline=hard_deadline` 里的尾巴不算"裸传硬顶"
     assert not re.search(r"(?<![_A-Za-z])deadline=hard_deadline", src), \
         "有调用点把整段硬顶直接当本轮 deadline 传了 —— 每轮预算就白设了"
-    assert src.count("hard_deadline=hard_deadline") == len([s for s in R.ROUNDS if s.label]), \
-        "每个 LLM 轮都该传 hard_deadline=（本轮预算在 `_round_call` 里折算）"
+    base = BASE.read_text(encoding="utf-8")
+    assert "hard_deadline=self.hard_deadline" in base, \
+        "`Ctx.call` 该把**整段硬顶**交给 `_round_call`（本轮截止在那边按预算折算）"
+    print(f"    截止: {n_llm} 个 LLM 轮都经 `Ctx.call`, 折算只在 `call._round_call` 一处")
 
 
 # ---------------------------------------------------------------------------
@@ -352,14 +386,14 @@ if __name__ == "__main__":
     test_llm_rounds_are_complete()
     test_prompt_files_exist()
     test_labels_are_in_the_vocabulary()
-    test_every_round_is_entered_by_the_pipeline()
+    test_every_round_is_implemented_and_entered()
     test_material_sections_are_all_named()
     test_sections_check_is_wired()
     test_only_the_group_step_carries_its_own_snapshot()
     test_cursor_allows_skips_but_never_goes_back()
     test_round_budgets_fit_inside_the_segment_cap()
     test_round_deadline_is_the_tighter_of_the_two()
-    test_pipeline_does_not_pass_the_hard_cap_as_a_round_deadline()
+    test_the_round_deadline_is_computed_in_one_place()
     with tempfile.TemporaryDirectory() as d:
         test_budget_hit_names_the_round(Path(d))
     with tempfile.TemporaryDirectory() as d:

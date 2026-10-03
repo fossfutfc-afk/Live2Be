@@ -1,10 +1,11 @@
 # EXEC_DIGEST_SPLIT.md — digest **按轮拆包 + 命名对齐**（动工文档）
 
-> **状态**：⬜ **未开工** —— 形式已报、用户 2026-09-29 裁决"**就走乙吧**"；
-> 待审的是本文 §5 那几条（包内函数名要不要带前缀等），审完即动手。
-> **上游**：`core/digest/rounds.py`（轮次表）· `docs/DESIGN_DIGEST_LAYERS.md`（三层视野）·
+> **状态**：🟡 **乙-1 已落（2026-09-29）/ 乙-2 待开工** —— 四条待审已裁（见 §5）。
+> `rounds/` 包拆完: `core/digest/pipeline.py` **672 → 479 行**（`digest_segment` **376 → 170**）,
+> 六轮正文各回各家、编排只剩一个 `for spec in ROUNDS` 循环。**行为零变化**（见 §9 的差量清单）。
+> **上游**：`core/digest/rounds/__init__.py`（轮次表）· `docs/DESIGN_DIGEST_LAYERS.md`（三层视野）·
 > `core/brain/DESIGN_GRAPH_V4.md` §8/§9-12（每轮定义与待裁项）。
-> **当前 HEAD**：`1706a0e`（工作树干净）。
+> **当前 HEAD**：乙-1 那一笔（本文与它同批提交）。
 
 ---
 
@@ -20,7 +21,8 @@
 1. **改动模式是按轮的** —— 这一阶段的刀全是"给 R2 加 links""R3 补视野""R4 只产 note""L2-a 分群"，
    **没有一次是"给所有轮改料"**。按层切（`material.py` 横着装所有轮的料）与实际改动模式相反。
 2. **原计划就是这么写的** —— `pipeline.py` 旧 docstring：*"把它收成声明式 spec 是下一步……
-   落点就是本文件 + **`rounds/`**"*。今天只有 `rounds.py`（表），执行体还在外面。
+   落点就是本文件 + **`rounds/`**"*。节点 C 先立了表（`rounds.py`），执行体还在外面
+   —— **乙-1 把这一步走完**。
 3. **它让"逐层推进"有落点** —— L1 的刀落 `rounds/record.py`、L2 的落 `rounds/understand.py` /
    `close.py`、L3 的落 `rounds/attribute.py` ⇒ 不用再想"这刀该改哪个文件"。
 
@@ -134,17 +136,17 @@ _AFF_MIN / _AFF_MAX       → DIGEST_AFF_MIN / DIGEST_AFF_MAX（顺手去掉那�
 
 ---
 
-## 4. 目标形态
+## 4. 目标形态（⭐ 乙-1 已按此落地）
 
 ```
 core/digest/
   __init__.py      门面（不动）
   rounds/               ← 包（原 rounds.py 变成它的 __init__.py, import 路径不变）
-    __init__.py    表 ROUNDS + Cursor + budget_of + reset_result
-    base.py        Ctx（段级上下文）+ RoundOut（每轮产物）
+    __init__.py    表 ROUNDS + Cursor + budget_of + reset_result + 两个时间常量（319 行）
+    base.py        Ctx（段级上下文）+ RoundOut（每轮跑完的交代）（170 行）
     record.py  akin.py  close.py  understand.py  attribute.py  group.py
-    （每个: def run(ctx) -> RoundOut | None）
-  pipeline.py      编排与事务（376 行的 digest_segment → ~150 行）
+    （每个: def run(ctx) -> RoundOut, 60~104 行）
+  pipeline.py      编排与事务（672 → 479 行; digest_segment 376 → 170）
   llm_call.py      LLM 鲁棒层（不动；文档补一句"第二个调用方出现就抬到 llm/"）
   call.py          一轮调用的四件套（Ctx 的方法就是它的薄转发）
   material.py      料的公共件（短名去 "_", 由各轮文件调用）
@@ -152,81 +154,96 @@ core/digest/
   episodes.py      L1 落节点
 ```
 
-### `Ctx`（dataclass；只读为主）
+⭐ **key → 实现的那张表在 `pipeline.py` 的 `IMPL`**（不在 `rounds/__init__.py` ——
+那会让"读一张表"变成"拉起整条管线"）; 守门用例钉住它与 `ROUNDS` **同序同集**。
+
+### `Ctx`（dataclass；只读 23 + 可变 4 + 6 个方法）
 
 ```
-只读  store · llm · events · new_all · new_events
-      domain · chapters · timeline · seq_set · by_seq
-      visuals · emotion_scale · character_prompt
-      interact_max · digest_from · now_ts · hard_deadline
-      model · temperature · max_tokens · llm_timeout · extra_body · embed_fn · aff_at_encoding
-      result（DigestResult）· cursor（Cursor）
-可变  episode_ids · player_ids · r2_created · resp_b     ← 跨轮产物只有这四样
+只读  store · llm · result · cursor
+      模型 6 件  model · temperature · max_tokens · llm_timeout · extra_body · hard_deadline
+      本段料    events · new_all · domain · chapters · timeline · seq_set · by_seq
+                visuals · emotion_scale · character_prompt · interact_max · now_ts
+                embed_fn · aff_at_encoding
+可变  episode_ids · player_ids · r2_created · resp_b      ← 跨轮产物只有这四样
 方法  enter(key) · system_for(spec) · parse_for(spec, **kw) · sections_for(spec, pairs)
-      · log_skip(spec) · call(spec, system, user, parse_fn) -> (parsed, resp) | (None, None)
+      · log_skip(spec) · call(spec, system, user, parse_fn=) -> (parsed, resp)
 ```
 
-### `RoundOut`
+⚠️ **两处与本文初稿的差**（乙-1 动工时对着代码核出来的）:
+`digest_from` / `new_events` **不进 `Ctx`** —— 零读者（前者只被 `_fail()` 用, 它仍是
+`digest_segment` 的闭包变量）。Ctx 里不放没有读者的字段。
+
+### `RoundOut`（⭐ 用户裁决: **最小形状**）
 
 ```
-rows        该轮解析出来的行（各轮形状不同）
-resp        原始 resp —— ⭐ R2 的 affection 在成功路径要用
-swallow     我挂了但别连累整段（今天只有 L2-a）
+ok              跑成了（`skip=True` 也算跑成 —— 它是**按表跳过**, 不是失败）
+skip            条件不满足, 这一轮没跑（日志文案来自表里的 `skip` 格）
+swallow         我挂了, 但别连累整段（只有表里 own_snapshot 的那一步可以）
+warnings_field  swallow 时: errors 挪进 DigestResult 的哪个字段（由**这一轮**说）
+四个构造: done() · skipped() · failed() · swallowed(field)
 ```
 
-### 编排（`digest_segment` 变成循环）
+⚠️ **为什么不带 `rows` / `resp`**（初稿里有）: 五轮解析出来的行都在**各自文件里当场消费掉**
+（建节点 / `apply_decisions` / `apply_attribution` / `apply_groups`）, 外面**零读者**;
+R2 那份原始 `resp` 有唯一读者（成功路径的 `affection_exp_delta`）而它走 `Ctx.resp_b`
+—— 返回值里再带一份就是同一个事实的两条通道。
+
+### 编排（`digest_segment` 里剩下的那十来行 —— 真代码）
 
 ```
-ctx = Ctx(...)                       # 建上下文（≈现状 try 之前那 20 样）
-for spec in ROUNDS:                  # ← 顺序由表说了算（Cursor 仍在每轮 enter 里把关）
-    out = IMPL[spec.key](ctx)
-    if out is None:
-        if spec.own_snapshot:        # ⭐ 表的这一格从"人读的说明"升级成"编排真按它执行"
-            回滚这一步 + 把这步的 errors 挪进它的 warnings 字段
-        else:
-            return _fail()           # 整段回滚 + 记账（计数/放弃）
-提交（save + 水位 + 清计数）
+for spec in ROUNDS:                       # 顺序只由表说了算, 循环里不写任何一步的名字
+    snap = store.clone_state() if spec.own_snapshot else None   # 自吞那一步先取快照
+    err0 = len(result.errors)
+    out  = IMPL[spec.key](ctx)
+    if out.ok: continue                   # 跑成 / 按表跳过
+    if not out.swallow: return _fail()    # 整段回滚 + 记账
+    _swallow(store, spec, result, out, snap, err0)   # 只回滚它 + errors 挪进 warnings
 ```
 
-### 某个轮的骨架（`understand.py`）
+⭐ `spec.own_snapshot` 从"人读的说明"升级成**编排真按它执行**; `_swallow` 里两条
+当场炸的判据（表说不能自吞 / warnings_field 不在表里）保证它不会静默漂移。
+
+### 某个轮的骨架（`understand.py` —— 真代码的形状）
 
 ```
-def run(ctx) -> RoundOut | None:
-    spec = ctx.enter("understand")
-    cog_text, local_of = render_cognition_list(ctx.store, cap=DIGEST_COGNITION_CAP,
-                                               exclude=set(ctx.player_ids))
-    ep_text = material.round_b_material(ctx.store, ctx.episode_ids, local_of, ctx.embed_fn, ...)
-    parsed, resp = ctx.call(spec, ctx.system_for(spec),
-                            ctx.sections_for(spec, [...]),
-                            parse_fn=ctx.parse_for(spec, episode_ids=..., target_ids=..., link_ids=...))
-    if parsed is None:
-        return None                      # 整段失败（编排回滚）
-    ctx.r2_created = apply_decisions(ctx.store, parsed, ...)
-    ctx.resp_b = resp                    # 留给成功路径
-    return RoundOut(rows=parsed, resp=resp)
+def run(ctx) -> RoundOut:
+    spec = ctx.enter("round_b")            # 越序当场炸
+    cog_text, local_of = render_cognition_list(ctx.store, cap=COGNITION_CAP, ...)
+    ep_text = _round_b_material(ctx.store, ctx.episode_ids, local_of, ...)
+    rows, resp = ctx.call(spec, ctx.system_for(spec),
+                          ctx.sections_for(spec, [...]),   # ← 逐字校对料的段标题
+                          parse_fn=ctx.parse_for(spec, ...))
+    if rows is None:
+        return RoundOut.failed()           # 整段失败（编排回滚）
+    ctx.r2_created = apply_decisions(ctx.store, rows, ...)
+    ctx.resp_b = resp                      # ⭐ 留给成功路径
+    return RoundOut.done()
 ```
 
 ---
 
 ## 5. 已定 / 待审
 
-**已定（用户裁决）**
+**已裁（用户 2026-09-29 裁决）**
 - ✅ 走**乙**（按轮拆包），**不用继承**（本仓无类型检查 + `DESIGN_GRAPH_V4 §10` 已否决父子类 +
   六轮形状不统一：`akin` 不调 LLM、`group` 双执行器 + 自吞、`attribute` 两套本地号）
 - ✅ key 对齐契约相位名；**所有轮次标识带 `digest` 前缀**（含零 LLM 的 `akin`）
 - ✅ 先拆包，再逐层（L1 → L2 → L3）
-
-**待审（开工前要用户一句话）**
-1. **包内函数名**要不要也带 `digest_`？（我建议**不带**：包路径已是前缀，traceback 自带路径）
-2. **包内文件名**要不要带？（我建议**不带**，`rounds/record.py` 已经清楚）
-3. 被吞掉那一步的 `errors` 挪进**哪个** `warnings` 字段 —— 三选项：
-   ① `RoundOut(swallow=True, warnings_field="group_warnings")`（**我倾向**）
-   ② 编排按 `spec.result_fields` 里的 `*_warnings` 猜 ③ 统一一个新字段
-4. 表要不要**真省掉** `label` / `phase` 两格（由 `key` 派生；`akin` 空）
+- ✅ **① 包内函数名不带 `digest_`** —— 六轮统一 `def run(ctx)`（包路径已是前缀）
+- ✅ **② 包内文件名不带** —— `rounds/record.py` 已经清楚
+- ✅ **③ 吞掉那一步的 errors 走 `RoundOut(swallow=True, warnings_field="group_warnings")`**
+- ✅ **④ 表真省掉 `label` / `phase` 两格**（由 `key` 派生；`akin` 空）⇒ **乙-2 做**
+- ✅ RoundOut 取**最小形状**（`ok`/`skip`/`swallow`/`warnings_field`，见 §4）
 
 **切两刀（每刀一提交）**
-- **乙-1**：`rounds.py` → `rounds/` 包 + `base.py`（Ctx/RoundOut）+ 六轮文件搬家（纯搬家，行为不变）
-- **乙-2**：命名对齐（key / 标签 / prompt 文件 / 常量 / 日志）+ 守门用例 + 文档同步
+- ✅ **乙-1（已落）**：`rounds.py` → `rounds/` 包 + `base.py`（Ctx/RoundOut）+ 六轮文件搬家
+  + 编排循环化。**行为零变化**（差量见 §9）
+- ⬜ **乙-2（下一步）**：命名对齐（key / 标签 / prompt 文件 / 常量 / 日志）+ 守门用例 + 文档同步。
+  ⚠️ 动工前记两笔乙-1 顺手发现的东西:
+  · `pipeline.MAX_FEEDBACK_RETRIES` 与 `call.MAX_FEEDBACK_RETRIES` 曾是**同一个常量的两份**
+    （前者零读者）—— 乙-1 已删掉那份死的; 乙-2 给活的那个改名 `DIGEST_MAX_FEEDBACK`
+  · `COGNITION_CAP` 已随 R2 搬进 `rounds/understand.py`（它只有那一个读者）
 
 ---
 
@@ -238,6 +255,9 @@ def run(ctx) -> RoundOut | None:
   --basetemp=.testtmp/pw` + `pytest --collect-only -q tests`
 - 改名那刀额外：`tests/core/test_stub_dispatch_guard.py`（标签词表）+ 全量只在**关键节点**跑
 - 全量历史：**1150 → 1184 → 1185 collected**（最近一次 `tests/core` 1024 + `webgui/llm/renderer` 161）
+- ⭐ **乙-1 实测（2026-09-29）**：digest 板块 **153 passed**（含 `test_split_safety`）·
+  邻接板块 `tests/webgui` + digest 相邻 core 用例 **158 passed** ·
+  `compileall` 全绿 · `--collect-only` **1185 collected**（与拆前一致）· 全量仍未跑（不是关键节点）。
 
 ---
 
@@ -273,3 +293,17 @@ def run(ctx) -> RoundOut | None:
 | 日期 | 变更 |
 |---|---|
 | 2026-09-29 | 建文（拆包 S1/S2 已落，本文记"按轮拆 + 命名对齐"这一刀的全部前提与待审项） |
+| 2026-09-29 | **乙-1 落地**：`rounds/` 包（表 · `base.py` · 六个轮文件）+ `pipeline.py` 编排循环化。四条待审已裁并入 §5 |
+
+### 乙-1 的**行为差量清单**（"纯搬家"到底动了什么 —— 只有这三条，都可核对）
+
+| # | 差量 | 为什么 |
+|---|---|---|
+| 1 | ⭐ `akin` 没账时**多一行日志** `digest_akin 跳过（本段没有想起账）` | 表里那格 `skip` 从前**零读者**（静默跳过）; 现在五个轮一致走 `ctx.log_skip` |
+| 2 | 删掉 `pipeline.MAX_FEEDBACK_RETRIES`（**死常量**） | 与 `call.py` 那份是同一个值的**两份**，而 pipeline 那份零读者 |
+| 3 | `COGNITION_CAP` 从 `pipeline` 搬进 `rounds/understand.py` | 它只有 R2 一个读者; 留在 pipeline 会形成 `rounds → pipeline` 反向 import |
+
+**除这三条之外**：每轮的料（段标题逐字校对）· 调用顺序 · 跳过判据 · 回滚语义 ·
+日志文案 · 落库形状 · LLM 看到的每一个字节 —— 全部逐字不变。
+守门用例按新结构改写（`IMPL` 同序同集 · 调用点扫 `rounds/` · `span` 展开顺序看 R1 的 `run`）,
+**判据一条都没放宽**。

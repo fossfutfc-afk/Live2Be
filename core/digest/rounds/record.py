@@ -1,0 +1,82 @@
+# -*- coding: utf-8 -*-
+"""record.py — ① R1「记录员」: 本段新增互动 → episode / 玩家画像（+ note 的 `on_mind`）。
+
+料（表里那五行, `ctx.sections_for` 逐字校对）: 本段新增互动 · 本章标题 · 画面记忆 ·
+角色人设（锚点）· 本段情绪标尺。
+
+写: `episode` 节点 · `experience`（玩家画像）节点 · note 的 `on_mind` 槽。
+⚠️ `writes` 的真源是 `rounds.ROUNDS` 那一格, 不在本文件里再写一遍。
+
+引擎侧三个邻居（本文件只管"她说了什么", 判定全在引擎）:
+    `core/digest/episodes.py`  → 条目落成节点（字段归属 / 去重 / 自己的时刻 / 板指针物化）
+    `core/digest/segment.py`   → `span` 区间展开 · 一章一条收口 · 段类型
+    `core/brain/notes.py`      → `on_mind` 那句心境的 note 操作（`rewrite_op`）
+
+⚠️ **顺序有两条是正确性, 不是风格**:
+  · `_resolve_verbatim` 在落节点**之前**（索引 → 原文, 引擎的活）
+  · `_expand_spans` 在 `_collapse_bond_episodes` **之前**（章的归属靠 `event_seq` 与章块
+    **相交**; 展开前只有两个端点, 章块夹在中间时会漏判）—— 守门用例钉住这条
+"""
+from __future__ import annotations
+
+import logging
+
+from core.brain.notes import rewrite_op
+from core.digest.episodes import _create_a_nodes, _resolve_verbatim
+from core.digest.rounds.base import Ctx, RoundOut
+from core.digest.segment import _collapse_bond_episodes, _expand_spans
+
+logger = logging.getLogger(__name__)
+
+
+def run(ctx: Ctx) -> RoundOut:
+    """① 记 —— 本段新增互动 + 人设 + 视觉记忆 → 条目（→ 节点）。"""
+    spec = ctx.enter("round_a")
+    system = ctx.system_for(spec, domain=ctx.domain, chapter_count=len(ctx.chapters))
+    user = ctx.sections_for(spec, [
+        ("本段新增互动", ctx.timeline),
+        ("本章标题", " / ".join(c["title"] for c in ctx.chapters if c["title"])),  # 多章都列; 空 → 跳过
+        ("画面记忆", "\n".join(f"- {v}" for v in ctx.visuals)),
+        ("角色人设（锚点）", ctx.character_prompt),
+        ("本段情绪标尺", ctx.emotion_scale),
+    ])
+    # ⭐ N4a: 她此刻那句心境（0/1 条）—— 装在这个**本轮自己的**盒子里,
+    # 由 parse 回调填、由下面那句取用。它不是跨轮状态, 所以不进 `Ctx`。
+    on_mind_box: list[str] = []
+    entries, _resp = ctx.call(
+        spec, system, user,
+        parse_fn=ctx.parse_for(spec, seq_set=ctx.seq_set, on_mind_out=on_mind_box))
+    if entries is None:
+        return RoundOut.failed()
+    # ⭐ N4a: 她此刻那句心境 —— L1 产出, 与 promise（R4）一样走 `notes_ops`
+    # （调用方**整批 ok 之后**才 append）。⚠️ 只有**她真写了**才产操作:
+    # 缺键 = 不变（`rewrite_op(on_mind=None)` 本来就不动它）。
+    if on_mind_box:
+        ctx.result.notes_ops.append(rewrite_op(on_mind=on_mind_box[0]))
+    # 索引 → 原文（T14）: parse 层拿不到事件流, 回填在这里做
+    for ent in entries:
+        _resolve_verbatim(ent, ctx.by_seq)
+    # ⭐ N3（2026-09-29）: `span` → 区间内全部内容 seq。
+    # ⚠️ **必须在 `_collapse_bond_episodes` 之前** —— 那一章的归属靠 `event_seq`
+    #    与章块**相交**, 展开前只有两个端点, 章块夹在中间时会漏判。
+    _unclaimed, _shared = _expand_spans(entries, ctx.seq_set)
+    logger.info("digest_span eps=%d 认领=%d 未认领=%d 共享=%d（共享只记账, 不裁）",
+                len(entries), len(ctx.seq_set) - len(_unclaimed),
+                len(_unclaimed), _shared)
+    # 一章一个 episode（2026-09-20）—— 引擎确定性收口 + 可观测告警
+    entries = _collapse_bond_episodes(entries, ctx.chapters)
+    # ── 时间推进：**已退役**（2026-09-17, `ESSAY_TIME_MODEL §10`）──
+    # 旧实现读 Round A 的 `time_span` 推进 `WorldClock` 的**剧情游标**,
+    # 再把新游标 stamp 到节点上（`story_time`）。整条链已废:
+    # **唯一日期轴是现实日期**（`node.ts` —— 由下面的 `ts=now_ts` 落下）,
+    # 剧情内部的流逝自由但**不累积、不进账**。
+    # 段的日期 = 段内最后一条内容事件的时刻（见 `digest_segment` 里 `now_ts` 的取法）。
+    # ⚠️ 契约侧的 `time_span` 字段本身也已删（2026-09-17 用户裁决）—— 它当时
+    #    "保留但不消费", 而**新衰减模型的输入是活跃日/会话, 不是它**;
+    #    加上 parse 层从来没取过它（连落库都没有）, 留着就是白付 token。
+    #    枚举定义仍留在 `core/worldtime/span.py`。详见 `contract/digest_registry.py`。
+    ctx.episode_ids, ctx.player_ids = _create_a_nodes(
+        ctx.store, entries, ts=ctx.now_ts,
+        event_seq=[ctx.interact_max], aff_at_encoding=ctx.aff_at_encoding,
+        by_seq=ctx.by_seq)
+    return RoundOut.done()

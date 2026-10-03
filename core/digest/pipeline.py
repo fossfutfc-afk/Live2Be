@@ -1,47 +1,38 @@
-"""pipeline.py — digest 管线（`core/digest/`；设计见 `core/brain/AGENT_BRAIN.md §3` / 板块 4a）。
+"""pipeline.py — digest 管线的**编排与事务**（设计见 `core/brain/AGENT_BRAIN.md §3` / 板块 4a）。
 
 ⭐ **2026-09-29 搬家**: `core/brain/digest.py` → **`core/digest/pipeline.py`**（代码管理节点 B）。
 理由: `core/brain/` 是数据层（纯 stdlib 零 LLM）, 而本文件要 contract / llm / session ⇒
 分开之后"数据层不 import LLM"才是包边界。⚠️ 本文以下凡写 `digest.py` 的旧路径
 一律指**本文件**。
 
-**实际跑的步数（2026-09-29 现状, 不是"两轮"）**——一眼看全在 `core/digest/__init__.py`;
-本文件的顺序是: R1 → akin 补边 → R4 → R2 → R3 → L2-a 分群（共 5 次 LLM 调用 + 1 次零成本补边）:
-    R1「记录员」 `digest.round_a`: 只看新时间线 + 人设 + 视觉记忆 → episode / 玩家画像
-    akin 补边    （0 LLM）         : 本段的 `noticed` 账 → `akin` 边
-    R4「收口」   `digest.close`    : 开着的约定 + 本段经历 → note 操作（**不建节点**）
-    R2「理解者」 `digest.round_b`  : 新经历 + 时间线 + 认知列表 → 决策表 decisions + `links`
-    R3「归属」   `digest.attr`     : 候选表 + 命中集载荷 + 本轮新节点 → `about` 边 + entity 载荷
-    L2-a 分群    `digest.group`    : 块 + 已有类 → 群节点 + `member_of`（**自带快照**）
+⭐ **2026-09-29 按轮拆包（乙-1）**: 每一轮的**正文**搬进 `core/digest/rounds/<轮>.py`,
+本文件只剩编排与事务（**666 → 约 260 行**）::
 
-（`decisions`: touch=印证 / update=深化改写 + evolution 留痕 / add=新建
- —— 由 `revise.apply_decisions` 执行 → 随整批原子提交。）
+    core/digest/rounds/__init__.py  轮次表（步序/身份/prompt/相位/parse/料/写什么/跳过/预算/快照）
+    core/digest/rounds/base.py      Ctx（段级上下文）+ RoundOut（一轮跑完的交代）
+    core/digest/rounds/record.py    ① R1 记      akin.py 补边（0 LLM）
+    core/digest/rounds/close.py     ② R4 收口    understand.py ③ R2 接
+    core/digest/rounds/attribute.py ④ R3 挂      group.py      ⑤ L2-a 分群（自带快照）
 
-编排（digest_segment）::
+**实际跑的步数**（一眼看全在 `core/digest/__init__.py`）: R1 → akin 补边 → R4 → R2 → R3 →
+L2-a 分群（共 5 次 LLM 调用 + 1 次零成本补边）。
+
+编排（`digest_segment`）::
     1. 增量: new_events = seq > store.digested_seq（无新增 → 0 次 LLM 调用）
-    2. 公共输入: 时间线(**记录级带行索引**, T14) + 视觉记忆 + 人设锚点
-    3. 依次跑上表那 5 轮（**顺序与跳过条件 = `rounds.ROUNDS`**; 每步吃哪几段料也在那）
-       ⭐ **每轮有自己的时间预算**（表里那格）, 截止 = `min(整段硬顶, 本轮开始 + 预算)`
-       —— 前几轮慢不再把后面几轮饿死; 撞了在 `errors` 里指明是哪一轮。
+    2. 段级料: 时间线(**记录级带行索引**, T14) + 视觉记忆 + 人设锚点 + 段类型/章分组
+    3. 建 `Ctx` → **按表循环**: `for spec in ROUNDS: IMPL[spec.key](ctx)`
+       ⭐ 每轮有自己的时间预算（表里那格）, 截止 = `min(整段硬顶, 本轮开始 + 预算)`
+       ⭐ 任一轮失败 → `_rollback`（整批原子回滚 + 记账）
+       ⭐ **例外**: 表里 `own_snapshot=True` 的那一步（分群）失败**只回滚它自己** ——
+         取快照 / 回滚 / 把这一步的 errors 挪进它的 warnings 字段, **全在这里执行**
+         （从前那 181 行样板散在那一步的调用体里; 现在表说了算）
     4. affection_exp_delta 返回（事件幂等写由调用方——运行时集成层）
-    5. 任一轮失败 → clone_state 快照回滚, 水位不推进（宁缺勿错, 可重算）
-       ⚠️ 例外: **分群自带快照**（`own_snapshot`）, 失败只回滚它自己
-       （那是加法, 块留到下段再来）
-    6. 成功 → store.save()（原子整写）+ 推进 meta.digested_seq + save_meta
+    5. 成功 → store.save()（原子整写）+ 推进 meta.digested_seq + save_meta
 
-⚠️ **"轮次表"已立**（**2026-09-29 节点 C**）—— 每轮的步序 / LLM 身份 / 料 / 产出 /
-跳过条件 / 是否自带快照全在 **`core/digest/rounds.py` 的 `ROUNDS`** 一张表里。
-本文件是**执行体**: 调用点先 `cur.enter(key)` 拿 spec（越序当场炸）, 再用
-`_system_for(spec)` / `_parse_for(spec, …)` / `_sections_for(spec, …)` 三件套 ——
-prompt 名、契约相位、parse 函数、**料的段标题**都不在这里各写一份字面量。
+⚠️ **"轮次表"是唯一真源**（**2026-09-29 节点 C**）: 顺序只由 `rounds.ROUNDS` 说了算 ——
+本文件的循环**不再写死任何一步的名字**, 每轮进门前 `ctx.enter(key)`（越序当场炸）。
 ⭐ **`_rollback` 的清空清单也由表推导**（`rounds.reset_result`）——
 从前它是手抄的, 漏过 `notes_warnings`（见 `_rollback` 的 docstring）。
-
-⚠️ **2026-09-29 拆包（S1/S2）** —— 本文件从 **1431 → 666 行**, 只剩**编排与事务**
-（`digest_segment` · `DigestResult` · 回滚/计数/放弃）。其余各有落点:
-**`call.py`**（一轮调用）· **`material.py`**（各轮的料）· **`segment.py`**（这一段是什么）·
-**`episodes.py`**（L1 落节点）· **`akin.py`**（零 LLM 的补边）。
-⇒ **要改哪一层就去哪个文件**, 别再往这里堆。包内地图见 `core/digest/__init__.py`。
 
 ⚠️ **`evidence`（成长证据）2026-09-29 已删** —— 它**零产品消费者**（只有一条测试与一个
     归档脚本读过）, 契约却每段都要它 ≤5 条 + `quote` 逐字引用时间线 ⇒ 那是一笔白付的钱。
@@ -61,7 +52,7 @@ prompt 名、契约相位、parse 函数、**料的段标题**都不在这里各
 
 反馈回灌（2026-09-02 采纳 llm.client.feedback 语义）: 被拒轮把 LLM 自己的输出
 追加为 assistant 位 + 引擎错误, 同一上下文重试 1 次——模型能看见自己错在哪
-（旧实现重建 user 消息, 模型看不到被拒输出, 修正成功率低）。
+（旧实现重建 user 消息, 模型看不到被拒输出, 修正成功率低）。实现 = `call._round_call`。
 
 失败: 静默降级（logger.warning + DigestResult(ok=False)——wiki 是派生视图,
 events.jsonl 唯一真源, 可重算）。
@@ -73,41 +64,21 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
-from core.brain import groups
-from core.brain.entities import candidate_table, hit_set, new_nodes_block, payload_block
+from core.brain.read.recall import EmbedFn
+from core.brain.store import WikiStoreV2
 from core.creep import KIND_DIGEST_SKIP, build as creep_build
-from core.digest.akin import _link_akin
-from core.digest.call import _log_skip, _parse_for, _round_call, _system_for
-from core.digest.episodes import _create_a_nodes, _resolve_verbatim
-from core.digest.material import (
-    _collect_visual_prompts,
-    _episode_lines,
-    _node_texts,
-    _open_promises_text,
-    _round_b_material,
-    _sections_for,
-    _segment_emotion_keys,
-)
+from core.digest.material import _collect_visual_prompts, _segment_emotion_keys
 from core.digest.rounds import (
+    ROUNDS,
     SEGMENT_HARD_CAP_SECONDS,
     Cursor,
+    RoundSpec,
     reset_result,
 )
-from core.digest.segment import (
-    _collapse_bond_episodes,
-    _expand_spans,
-    _segment_domain,
-)
-from core.brain.read.recall import EmbedFn
-from core.brain.read.render import render_cognition_list
-from core.brain.notes import rewrite_op
-from core.brain.revise import (
-    apply_attribution,
-    apply_closures,
-    apply_decisions,
-)
-from core.brain.store import WikiStoreV2
-from core.session.events import TYPE_NOTICED, is_content_event
+from core.digest.rounds import akin, attribute, close, group, record, understand
+from core.digest.rounds.base import Ctx, RoundOut
+from core.digest.segment import _segment_domain
+from core.session.events import is_content_event
 from core.session.maintenance import exclude_abandoned
 from core.session.renderer import render_timeline
 from llm.task_levels import extra_body as _tl_extra
@@ -115,27 +86,35 @@ from llm.task_levels import max_tokens as _tl_max_tokens
 
 logger = logging.getLogger(__name__)
 
-#: 反馈重试（parse/结构被拒 → 带 assistant 原文回灌重试 1 次）
-MAX_FEEDBACK_RETRIES = 1
+#: ⭐ **表里的 key → 那一步的实现** —— 顺序由 `ROUNDS` 说了算, 这里只管"谁是谁"。
+#: ⚠️ **必须与 `ROUNDS` 一一对应**（多一个/少一个/写错 key, `test_digest_rounds.py` 当场红）。
+IMPL: dict[str, Callable[[Ctx], RoundOut]] = {
+    "round_a": record.run,
+    "akin": akin.run,
+    "close": close.run,
+    "round_b": understand.run,
+    "attr": attribute.run,
+    "group": group.run,
+}
+
 #: ⭐ **一段最多试几次**（2026-09-29 刀 2）—— 数到就**放弃**这一段（见 `_note_failure`）。
 #: ⚠️ 它**不是"同一个进程里连试三次"**: digest 没有主动重试, 次数由**触发点**累加
 #: （MMT 每 25 轮 / bond 闭环）⇒ 最坏要等 75 轮才放弃。不改成立刻重试的理由:
 #: 同一段、同一模型、同一预算, 连撞三次是白花钱, 还占着 `_digest_lock`。
 MAX_DIGEST_ATTEMPTS = 3
-#: ⏸ `EVIDENCE_THRESHOLD = 0.7` **2026-09-29 删** —— `evidence` 字段退役（零消费者）。
-#: B 轮认知渲染上限（本地 id 数量; 排序: 珍贵档先）
-COGNITION_CAP = 12
 #: 好感 delta clamp 边界（**带符号: 下界 2026-09-13 由 0 放开**）。
 #: 语义 = "**单段**内的好感净变化"，不是总量——上界 100 防一段暴涨,
 #: 下界 -100 对称防一段暴跌; 累计地板在 `Affection` 层（MIN_EXP=0）。
 #: 放开下界的理由见 docs/DESIGN_WIKI_V3.md §3.3.3: 关系能变坏是玩法语义,
 #: 且同频召回需要 `aff_at_encoding` 的符号。
 _AFF_MIN, _AFF_MAX = -100, 100
+
+
 @dataclass
 class DigestResult:
     """一次 digest 的结果。
 
-    ⚠️ 字段分两类（`core/digest/rounds.py` 是判据）: **某轮的产出**（失败时由
+    ⚠️ 字段分两类（`core/digest/rounds/__init__.py` 是判据）: **某轮的产出**（失败时由
     `reset_result` 按表清空）与 **`COMMIT_ONLY`**（调用路径的记录 / 提交时才赋值 ——
     回滚不碰）。加字段必须归类, 否则 `tests/core/test_digest_rounds.py` 直接红。
     """
@@ -150,8 +129,9 @@ class DigestResult:
     llm_calls: int = 0
     #: ⏸ ~~归属线索~~（`hints` = R1 的 `about_hint` → R3 的映射）**2026-09-29 删** ——
     #: `about_hint` 退役（与 R3 判两次）, 这条中间通道随之消失; R3 改为自己从正文里认称呼。
-    #: ⭐ **R4 收口的 note 操作**（`add` / `close`）—— ⚠️ **调用方在整批 `ok` 之后才 append**
-    #: （§8: 失败 = 整批回滚 ⇒ 那条约定原样开着; 事件 append 不可撤销, 提前写就回不去了）。
+    #: ⭐ **R4 收口的 note 操作**（`add` / `close`）+ ⭐ **R1 的那句 `on_mind`**（N4a）
+    #: —— ⚠️ **调用方在整批 `ok` 之后才 append**（§8: 失败 = 整批回滚 ⇒ 那条约定原样开着;
+    #: 事件 append 不可撤销, 提前写就回不去了）。
     notes_ops: list[dict] = field(default_factory=list)
     #: R4 的世界校验记账（剔掉的引用 / 丢掉的 close 行…）—— 不阻断, 但要看得见
     notes_warnings: list[str] = field(default_factory=list)
@@ -194,7 +174,7 @@ def digest_segment(
     """增量 digest: 新事件 → 依次跑 `rounds.ROUNDS` 那几步 → 原子落盘 → 推进水位。
 
     ⚠️ 从前这段写着"两轮"—— 那是 Round A/B 时代的名字。今天每段是
-    **5 次 LLM 调用 + 1 次零成本补边**（步序见 `core/digest/rounds.py`）。
+    **5 次 LLM 调用 + 1 次零成本补边**（步序见 `core/digest/rounds/__init__.py`）。
 
     Args:
         store: 目标世界线的图式 wiki（meta.digested_seq 是水位）
@@ -212,7 +192,7 @@ def digest_segment(
             显式传（含 {}）→ 调用方覆盖
         deadline_seconds: ⭐ **整段硬顶**（秒）—— 五轮 + 各自的反馈重试加起来不许超过它。
                     ⚠️ 它**不再是每轮共享的那一份预算**（2026-09-29 刀 1）: 每轮另有
-                    自己的预算（`rounds.ROUND_BUDGET_SECONDS` / 表里那格），本轮的
+                    自己的预算（`rounds` 表里那格 / 默认 `ROUND_BUDGET_SECONDS`），本轮的
                     截止 = `min(整段硬顶, 本轮开始 + 本轮预算)`。撞上 → 判失败回滚,
                     水位不推进可重算。默认 = `rounds.SEGMENT_HARD_CAP_SECONDS`。
                     ⚠️ **它是"每次尝试前"的检查, 不掐断正在飞的那一次调用**
@@ -222,8 +202,8 @@ def digest_segment(
         llm_timeout: per-call 超时覆盖（None = 客户端构造超时; 后台 digest
                    建议 ≥300s——high 档单次长考可超 60s 共享客户端默认）。
                    ⚠️ 它与每轮预算**不是一回事**: 这是单个 HTTP 请求的上限, 而每轮预算
-                   是"**开下一次尝试之前**"的检查 ⇒ 真机上若 `task=digest.* ms=` 显示
-                   单轮常常 120s+, 该调的是**表里的预算**, 不是这里。
+                    是"**开下一次尝试之前**"的检查 ⇒ 真机上若 `task=digest.* ms=` 显示
+                    单轮常常 120s+, 该调的是**表里的预算**, 不是这里。
         aff_at_encoding: 本段**开始之前**的好感标量 `Affection.to_scalar()` ∈ [−1,1]
                    （§3.3.3）——落进 episode 节点的**快照**, 写入后永不改。
                    None = 未采集 → 字段不落库（与 `0.0` 中性区分）。调用方算,
@@ -297,251 +277,45 @@ def digest_segment(
     # 每轮的截止 = `min(硬顶, 本轮开始 + budget_of(spec))`, 在 `_round_call` 里算。
     # 判据: 只留硬顶 ⇒ 前几轮慢就把后面几轮饿死（改之前的病）; 只留每轮 ⇒ 段可以无限长。
     hard_deadline = time.monotonic() + deadline_seconds
-    on_mind_box: list[str] = []          # ⭐ N4a: Round A 收下的那句心境（0/1 条）
 
     def _fail() -> DigestResult:
-        """**失败的唯一出口**（5 个调用点都走它）—— 回滚 + 记账, 见 `_rollback`。"""
+        """**失败的唯一出口** —— 回滚 + 记账（见 `_rollback`）。"""
         return _rollback(store, snapshot, result, from_seq=digest_from,
                          upto_seq=interact_max, write_ledger=write_ledger)
 
+    # 这一段共享的一切（六轮各拿它干活）—— 建一次, 只读的部分全在这里。
+    ctx = Ctx(
+        store=store, llm=llm, result=result, cursor=Cursor(),
+        model=model, temperature=temperature, max_tokens=max_tokens,
+        llm_timeout=llm_timeout, extra_body=extra_body,
+        hard_deadline=hard_deadline,
+        events=events, new_all=new_all, domain=domain, chapters=chapters,
+        timeline=timeline, seq_set=seq_set, by_seq=by_seq, visuals=visuals,
+        emotion_scale=emotion_scale, character_prompt=character_prompt,
+        interact_max=interact_max, now_ts=now_ts,
+        embed_fn=embed_fn, aff_at_encoding=aff_at_encoding,
+    )
+
     try:
-        # ── ① R1 记 ──（步序 = `rounds.ROUNDS`; 每步先 `enter` 再干活）
-        cur = Cursor()
-        spec = cur.enter("round_a")
-        system_a = _system_for(spec, domain=domain, chapter_count=len(chapters))
-        user_a = _sections_for(spec, [
-            ("本段新增互动", timeline),
-            ("本章标题", " / ".join(c["title"] for c in chapters if c["title"])),  # 多章都列; 空 → 跳过
-            ("画面记忆", "\n".join(f"- {v}" for v in visuals)),
-            ("角色人设（锚点）", character_prompt),
-            ("本段情绪标尺", emotion_scale),
-        ])
-        entries, resp_a = _round_call(
-            llm, system_a, user_a, spec=spec,
-            model=model, temperature=temperature, max_tokens=max_tokens,
-            llm_timeout=llm_timeout,
-            extra_body=extra_body, hard_deadline=hard_deadline,
-            parse_fn=_parse_for(spec, seq_set=seq_set, on_mind_out=on_mind_box),
-            result=result)
-        if entries is None:
-            return _fail()
-        # ⭐ N4a: 她此刻那句心境 —— L1 产出, 与 promise（R4）一样走 `notes_ops`
-        # （调用方**整批 ok 之后**才 append）。⚠️ 只有**她真写了**才产操作:
-        # 缺键 = 不变（`rewrite_op(on_mind=None)` 本来就不动它）。
-        if on_mind_box:
-            result.notes_ops.append(rewrite_op(on_mind=on_mind_box[0]))
-        # 索引 → 原文（T14）: parse 层拿不到事件流, 回填在这里做
-        for ent in entries:
-            _resolve_verbatim(ent, by_seq)
-        # ⭐ N3（2026-09-29）: `span` → 区间内全部内容 seq。
-        # ⚠️ **必须在 `_collapse_bond_episodes` 之前** —— 那一章的归属靠 `event_seq`
-        #    与章块**相交**, 展开前只有两个端点, 章块夹在中间时会漏判。
-        _unclaimed, _shared = _expand_spans(entries, seq_set)
-        logger.info("digest_span eps=%d 认领=%d 未认领=%d 共享=%d（共享只记账, 不裁）",
-                    len(entries), len(seq_set) - len(_unclaimed),
-                    len(_unclaimed), _shared)
-        # 一章一个 episode（2026-09-20）—— 引擎确定性收口 + 可观测告警
-        entries = _collapse_bond_episodes(entries, chapters)
-        # ── 时间推进：**已退役**（2026-09-17, `ESSAY_TIME_MODEL §10`）──
-        # 旧实现读 Round A 的 `time_span` 推进 `WorldClock` 的**剧情游标**,
-        # 再把新游标 stamp 到节点上（`story_time`）。整条链已废:
-        # **唯一日期轴是现实日期**（`node.ts` —— 由下面的 `ts=now_ts` 落下），
-        # 剧情内部的流逝自由但**不累积、不进账**。
-        # 段的日期 = 段内最后一条内容事件的时刻（见上面 `now_ts` 的取法）。
-        # ⚠️ 契约侧的 `time_span` 字段本身也已删（2026-09-17 用户裁决）—— 它当时
-        #    "保留但不消费", 而**新衰减模型的输入是活跃日/会话, 不是它**;
-        #    加上 parse 层从来没取过它（连落库都没有）, 留着就是白付 token。
-        #    枚举定义仍留在 `core/worldtime/span.py`。详见 `contract/digest_registry.py`。
-        episode_ids, player_ids = _create_a_nodes(
-            store, entries, ts=now_ts,
-            event_seq=[interact_max], aff_at_encoding=aff_at_encoding,
-            by_seq=by_seq)
-
-        # ⭐⭐ N5c: 把本段的「想起」账补成 `akin` 边（`DESIGN_MMT_NEW_ACTION §4.3 ④`）。
-        # 位置: **建完 episode 之后的第一件事** —— 原设计的"边先落在 seq 上"走不通
-        # （`add_edge` 拒悬空, 而"当下"是 seq 不是节点）, 所以账在 MMT 那一刻只记一笔,
-        # 边**到这里才落**（两端都已是真节点）。
-        noticed = [e for e in new_all if getattr(e, "type", "") == TYPE_NOTICED]
-        if noticed:
-            cur.enter("akin")                            # 零 LLM 的一步也占步序
-            n_edge, n_lost, n_self = _link_akin(store, episode_ids, noticed, ts=now_ts)
-            logger.info("digest_akin edges=%d unclaimed=%d self=%d", n_edge,
-                        n_lost, n_self)
-
-        # ── ② R4 记账（约定收口）—— 编排顺序照旧 R1 → **R4** → R2 → R3 ──
-        # ⏸ 从前"必须夹在这里"的理由是 `close` 会物化 promise 节点、而它的边由后两轮写;
-        # **2026-09-29 承诺退图之后这条理由消失**（R4 只产 note 操作, 不碰图）——
-        # 顺序今天照旧（改了它没有收益, 却要重验一遍编排), 但不再是正确性要求。
-        spec = cur.enter("close")
-        note_state = store.notes_state(events)            # 本段之前的备忘录（缓存优先）
-        open_promises = [it for it in note_state.promise if not it.closed]
-        if episode_ids or open_promises:
-            system_c = _system_for(spec)
-            user_c = _sections_for(spec, [
-                ("还开着的约定", _open_promises_text(open_promises)),
-                ("本段新增的经历", _episode_lines(store, episode_ids)),
-            ])
-            rows_c, resp_c = _round_call(
-                llm, system_c, user_c, spec=spec,
-                model=model, temperature=temperature, max_tokens=max_tokens,
-                llm_timeout=llm_timeout, extra_body=extra_body,
-                hard_deadline=hard_deadline,
-                parse_fn=_parse_for(spec), result=result)
-            if rows_c is None:
-                return _fail()
-            closures = apply_closures(store, rows_c, note_state=note_state, ts=now_ts)
-            # ⚠️ **append 不覆盖** —— `notes_ops` 里已经有 L1 交来的那句 `on_mind`（N4a）
-            result.notes_ops.extend(closures.ops)          # ⚠️ 调用方等 ok 之后才 append
-            result.notes_warnings = list(closures.warnings)
-            for w in closures.warnings:
-                logger.warning("digest_close: %s", w)
-            logger.info("digest_close open=%d add=%d close=%d warn=%d",
-                        len(open_promises),
-                        sum(1 for o in closures.ops if o.get("action") == "add"),
-                        sum(1 for o in closures.ops if o.get("action") == "close"),
-                        len(closures.warnings))
-        else:
-            # 这一轮**必然空转**（`add` 没有可引用的经历、`close` 没有可翻篇的条目）
-            _log_skip(spec)
-
-        # ── ③ R2 接（理解者: 引擎候选推荐 + 决策表）──
-        # ⏸ 原 `must_include`（本轮 R4 物化的 promise 必进列表）2026-09-29 随退图删 ——
-        # 参数在 `render_cognition_list` 上一起摘掉（零调用方）。
-        spec = cur.enter("round_b")
-        cog_text, local_of = render_cognition_list(
-            store, cap=COGNITION_CAP, exclude=set(player_ids))
-        # ⚠️ `links` 认的 id 集今天 = 可 touch 的看法（承诺退图后不再有第二种端点）;
-        # 那个"两个 id 空间故意不同"的口径见 `parse_round_b` 的 `link_ids`。
-        target_ids = {local for real, local in local_of.items()
-                      if getattr(store.get(real), "kind", "") in ("belief", "experience")}
-        link_ids = set(local_of.values())
-        ep_text = _round_b_material(store, episode_ids, local_of,
-                                    embed_fn=embed_fn,
-                                    char_id=getattr(store, "char_id", ""))
-        system_b = _system_for(spec)
-        user_b = _sections_for(spec, [
-            ("本次新经历（含引擎候选标注）", ep_text),
-            ("本段时间线", timeline),
-            ("现有认知", cog_text),
-            ("角色人设（锚点）", character_prompt),
-        ])
-        rows, resp_b = _round_call(
-            llm, system_b, user_b, spec=spec,
-            model=model, temperature=temperature, max_tokens=max_tokens,
-            llm_timeout=llm_timeout,
-            extra_body=extra_body, hard_deadline=hard_deadline,
-            parse_fn=_parse_for(spec, episode_ids=set(episode_ids),
-                                target_ids=target_ids, link_ids=link_ids),
-            result=result)
-        if rows is None:
-            return _fail()
-        r2_created = apply_decisions(store, rows,
-                                     id_map={v: k for k, v in local_of.items()},  # local→real
-                                     ts=now_ts,
-                                     event_seq=[interact_max])
-
-        # ── ④ R3 挂（归属 + entity 维护）──
-        # 为什么在最后: 它要挂的是**本轮全部新节点**（R1 的经历/画像 +
-        # R2 新建的认知）⇒ 前面几轮都落地了它才看得全（§8 的批内顺序 R1→R4→R2→R3）。
-        spec = cur.enter("attr")
-        new_ids = ([*episode_ids, *player_ids, *r2_created])
-        node_text, node_local = new_nodes_block(store, new_ids)
-        if not node_text:
-            _log_skip(spec)
-        else:
-            table_text, ent_local = candidate_table(store)
-            # ⭐ 2026-09-29: `about_hint`（R1 预判的名字）退役 ⇒ 这里只喂**正文通道**
-            # （引擎从新节点的 text/title/verbatim 里认称呼, 确定性）。
-            # ⚠️ **命中集只决定"给 R3 看哪些对象的当前载荷"** —— 候选表是全量的,
-            # 所以命中变窄 = 少看一点载荷, **不是判不了挂谁**（`REDUNDANCY.md` #2）。
-            hits = hit_set(store, texts=_node_texts(store, new_ids))
-            payload = payload_block(store, hits, ent_local)
-            logger.info("digest_hit eps=%d hit=%d", len(new_ids), len(hits))
-            system_d = _system_for(spec)
-            user_d = _sections_for(spec, [
-                ("候选对象", table_text or "（还没有任何对象）"),
-                ("这几个对象的当前情况", payload),
-                ("本轮新节点", node_text),
-                ("角色人设（锚点）", character_prompt),
-            ])
-            rows_d, resp_d = _round_call(
-                llm, system_d, user_d, spec=spec,
-                model=model, temperature=temperature, max_tokens=max_tokens,
-                llm_timeout=llm_timeout, extra_body=extra_body,
-                hard_deadline=hard_deadline,
-                parse_fn=_parse_for(spec, entity_ids=set(ent_local.values()),
-                                    node_ids=set(node_local.values())),
-                result=result)
-            if rows_d is None:
-                return _fail()
-            result.created_entities = apply_attribution(
-                store, rows_d,
-                id_map={v: k for k, v in node_local.items()},   # local→real
-                local_of=ent_local, ts=now_ts, event_seq=[interact_max])
-            logger.info("digest_attr table=%d hit=%d payload=%d rows=%d new=%d",
-                        len(ent_local), len(hits), len(payload.splitlines()),
-                        len(rows_d), len(result.created_entities))
-
-        # ── ⑤ L2-a 分群（N7）: 每段的**最后一步**, 与 R1–R4 **不同层** ──
-        # 料 = 引擎切好的块（`akin` 连通块, ⭐ **边不进视野**）+ 已有的类;
-        # 产 = **群节点 + `member_of` 边**。⚠️ 它**只起名**, 不判"像不像"（那是她的活）。
-        # ⚠️ **它失败不连累整段**: 分群是**加法**的（块留到下段再来 ⇒ 自愈）, 所以这一步
-        #    自带快照（表里 `own_snapshot=True`）—— 失败只回滚它自己, R1–R4 的活照常提交
-        #    （把"命名没成"升级成"整段记忆全丢"是拿真东西换装饰）。
-        spec = cur.enter("group")
-        blks = groups.build_blocks(store, groups.ungrouped(store))
-        cands = groups.merge_candidates(store)
-        if not blks and not cands:
-            _log_skip(spec)
-        else:
-            grp_snap = store.clone_state()
+        # ⭐ **顺序只由表说了算**（`rounds.ROUNDS`）—— 本循环不写任何一步的名字。
+        for spec in ROUNDS:
+            # 自吞那一步（表里 `own_snapshot`）: 编排**先替它取快照**, 失败时只回滚它。
+            snap = store.clone_state() if spec.own_snapshot else None
             err0 = len(result.errors)
-            system_e = _system_for(spec)
-            user_e = _sections_for(spec, [
-                ("还没归类的块",
-                 groups.render_blocks(store, blks) or "（这一段没有新连出来的块）"),
-                ("已有的类", groups.render_groups(store) or "（还没有任何类 —— 全部走 new）"),
-                ("可能重复的类", groups.render_merge_candidates(store, cands)),
-            ])
-            rows_e, resp_e = _round_call(
-                llm, system_e, user_e, spec=spec,
-                model=model, temperature=temperature, max_tokens=max_tokens,
-                llm_timeout=llm_timeout, extra_body=extra_body,
-                hard_deadline=hard_deadline,
-                parse_fn=_parse_for(spec, block_ids={b.bid for b in blks}),
-                result=result)
-            if rows_e is None:
-                store.restore_state(grp_snap)
-                result.group_warnings.extend(result.errors[err0:])
-                del result.errors[err0:]                 # ⚠️ ok=True 不许带 errors
-                logger.warning("digest_group 失败（只回滚这一步, 本段照常提交）: %s",
-                               "; ".join(result.group_warnings[-3:]) or "(无)")
-            else:
-                # ⚠️ 顺序: **先归属, 后并群** —— 反过来那条 attach 会打在一个已经删掉的类上
-                gres = groups.apply_groups(
-                    store, [r for r in rows_e if r["action"] in ("attach", "new")],
-                    blks, ts=now_ts, event_seq=[interact_max])
-                mres = groups.apply_merges(
-                    store, [r for r in rows_e if r["action"] == "merge"], cands, ts=now_ts)
-                result.created_groups = list(gres.nodes)
-                result.grouped_episodes = len(gres.grouped)
-                result.merged_groups = list(mres.merged)
-                result.group_warnings = list(gres.warnings) + list(mres.warnings)
-                for w in result.group_warnings:
-                    logger.warning("digest_group: %s", w)
-                logger.info("digest_group blocks=%d cand=%d rows=%d new=%d grouped=%d "
-                            "merged=%d moved=%d warn=%d",
-                            len(blks), len(cands), len(rows_e), len(gres.nodes),
-                            len(gres.grouped), len(mres.merged), mres.moved,
-                            len(result.group_warnings))
+            out = IMPL[spec.key](ctx)
+            if out.ok:                                   # 跑成 / 按表跳过
+                continue
+            if not out.swallow:
+                return _fail()                           # 整段回滚 + 记账
+            _swallow(store, spec, result, out, snap, err0)
     except ValueError as e:                              # store 层拒绝 → 回滚
         result.errors.append(str(e))
         return _fail()
 
     # ── 成功: 提交（节点落盘 + 水位推进）──
     result.ok = True
-    result.created = episode_ids
-    result.affection_delta = _clamp_aff(resp_b.get("affection_exp_delta"))
+    result.created = ctx.episode_ids
+    result.affection_delta = _clamp_aff((ctx.resp_b or {}).get("affection_exp_delta"))
     store.save()
     # 游标提交：**已退役**（2026-09-17）—— 没有剧情游标可落盘。
     store.meta["digested_seq"] = max((e.seq for e in events), default=interact_max)
@@ -552,16 +326,44 @@ def digest_segment(
 
 
 # ---------------------------------------------------------------------------
-# 引擎侧: 建节点 / 渲染 / 清洗
-#
-# ⚠️ 2026-09-29 拆包: 料（各轮吃什么）在 **`core/digest/material.py`**,
-#    一轮调用的四件套在 **`core/digest/call.py`** —— 本文件只剩**编排与事务**。
-# ---------------------------------------------------------------------------
-
-
+# 各轮的正文已搬走（2026-09-29 乙-1）：
+#   `rounds/record.py` R1 · `rounds/akin.py` 补边 · `rounds/close.py` R4 ·
+#   `rounds/understand.py` R2 · `rounds/attribute.py` R3 · `rounds/group.py` L2-a
+# 本文件只剩编排与事务。料的公共件在 `material.py`, 一轮调用的四件套在 `call.py`。
 # ⏸ `_clean_evidence()` **2026-09-29 删** —— 随 `evidence` 字段一起退役（零消费者）。
 # 它当年清洗的是 `function/quote/confidence/note` 四键, 而全仓没有一个产品读者:
 # 契约每段要它 ≤5 条 + `quote` 逐字引用时间线 ⇒ 纯白付。别把它加回来。
+# ---------------------------------------------------------------------------
+
+
+def _swallow(store: WikiStoreV2, spec: RoundSpec, result: DigestResult,
+             out: RoundOut, snapshot: dict | None, err0: int) -> None:
+    """执行"**这一步自己吞掉失败**"（只有表里 `own_snapshot=True` 的那一步允许）。
+
+    做三件事（从前散在那一步调用体里的样板）: 回滚这一步 · 把它的 errors 挪进它自己的
+    warnings 字段 · 打一行可 grep 的告警。R1–R4 的活照常提交。
+
+    ⚠️ **两处对不上就当场炸**（不静默放行）:
+      · 表里 `own_snapshot=False` 却申请自吞 —— 那等于偷偷把"整段回滚"降级;
+      · `warnings_field` 不在这一步的 `result_fields` 里 —— 那条 warnings 就**不归表管**,
+        下一次整批回滚不会清它（`reset_result` 按表推导）。
+    """
+    if not spec.own_snapshot:
+        raise AssertionError(
+            f"digest {spec.key!r} 申请自吞失败, 但表里 `own_snapshot=False` —— "
+            "「谁能不连累整段」的真源是 core/digest/rounds/__init__.py 的 ROUNDS")
+    if out.warnings_field not in spec.result_fields:
+        raise AssertionError(
+            f"digest {spec.key!r} 把 errors 挪进 {out.warnings_field!r}, 而表里写着 "
+            f"result_fields={spec.result_fields} —— 那条 warnings 不归表管, "
+            "整批回滚时不会被清（`reset_result` 按表推导）")
+    if snapshot is not None:
+        store.restore_state(snapshot)                    # 只回滚这一步
+    moved = result.errors[err0:]
+    del result.errors[err0:]                             # ⚠️ ok=True 不许带 errors
+    getattr(result, out.warnings_field).extend(moved)
+    logger.warning("digest_%s 失败（只回滚这一步, 本段照常提交）: %s",
+                   spec.key, "; ".join(moved[-3:]) or "(无)")
 
 
 def _as_int(v: Any, default: int) -> int:
@@ -600,6 +402,8 @@ def _rollback(store: WikiStoreV2, snapshot: dict,
     * ⭐ **2026-09-29（刀 2）: 这里也是"计数 / 放弃"的入口**（`_note_failure`）——
       从前这一刀只回滚, 于是同一段会被**无限重试**（水位不动 ⇒ 窗口越滚越大 ⇒
       越难成功 ⇒ 正反馈）。`from_seq` / `upto_seq` 由调用点给（起点水位 / 本窗内容上界）。
+    * ⭐ **2026-09-29（乙-1）**: 每一步的正文搬进 `rounds/`, 本函数仍是**整段**的出口;
+      "只回滚那一步"走 `_swallow`（表里 `own_snapshot` 的那一步专用）。
     """
     store.restore_state(snapshot)
     reset_result(result)

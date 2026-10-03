@@ -204,7 +204,7 @@ def test_akin_skips_missing_target(tmp_path):
 
 def test_akin_skips_self_edge(tmp_path):
     """本段那条 episode 就是她指的那条 ⇒ 不写自环（单测守卫: 真机上很罕见但可达）。"""
-    from core.digest.pipeline import _link_akin
+    from core.digest.rounds.akin import _link_akin
     st = _old_episode(tmp_path)
     e = _noticed(4, "瓦片缝里的苔藓", "m0001")
     edges, lost, self_skip = _link_akin(st, ["m0001"], [e], ts="2026-10-01T10:00:00")
