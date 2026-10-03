@@ -26,14 +26,14 @@ from core.digest.rounds.base import Ctx, RoundOut
 logger = logging.getLogger(__name__)
 
 #: B 轮认知渲染上限（本地 id 数量; 排序: 珍贵档先）
-COGNITION_CAP = 12
+DIGEST_COGNITION_CAP = 12
 
 
 def run(ctx: Ctx) -> RoundOut:
     """③ 接 —— 把本段经历接到现有认知上（touch / update / add + `links`）。"""
-    spec = ctx.enter("round_b")
+    spec = ctx.enter("understand")
     cog_text, local_of = render_cognition_list(
-        ctx.store, cap=COGNITION_CAP, exclude=set(ctx.player_ids))
+        ctx.store, cap=DIGEST_COGNITION_CAP, exclude=set(ctx.player_ids))
     # ⚠️ `links` 认的 id 集今天 = 可 touch 的看法（承诺退图后不再有第二种端点）;
     # 那个"两个 id 空间故意不同"的口径见 `parse_round_b` 的 `link_ids`。
     target_ids = {local for real, local in local_of.items()

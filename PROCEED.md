@@ -1,15 +1,16 @@
 # PROCEED.md — **接续用**
 
-> ## ⏭️⏭️ **接续后第一件事（2026-09-29 中断点 · 乙-1 已落 / 乙-2 待开工）**
+> ## ⏭️⏭️ **接续后第一件事（2026-09-29 中断点 · digest 拆包两刀已落）**
 >
-> **状态**：工作树干净 · HEAD = **乙-1 那一笔**（`git log -1`）· 本地**领先 origin 9 个提交**（未 push）。
-> **下一步 = `docs/EXEC_DIGEST_SPLIT.md` 的 乙-2：命名对齐** ——
-> key 改成 `record / akin / close / understand / attribute / group`（≡ 契约相位名 ≡ 标签后缀）·
-> 表里**省掉 `label` / `phase` 两格**（由 key 派生）· prompt 文件改名 `digest_<key>.md` ·
-> 常量 `DIGEST_*` · 日志第一条恒为轮名（对照表见该文档 §3）· 守门用例 + 文档同步。
-> ⚠️ **四条待审已裁完**（§5 已定）—— 乙-2 不必再问，直接开工。
+> **状态**：工作树干净 · HEAD = **乙-2 那一笔**（`git log -1`）· 本地**领先 origin 待确认**（乙-1 已 push）。
+> **下一步 = 逐层推进（L1 → L2 → L3）**，刀清单在 **`docs/EXEC_DIGEST_SPLIT.md` §7**:
+> · **L1 = D1** 未认领/被丢弃的**台账出口**（今天只有一行日志; 旧真机账 **32% 内容事件没进任何记忆**）
+>   —— 落 `rounds/record.py` + `segment.py`
+> · **L2 = E1**（R2 的认知列表按相关度召回）+ **D2**（R2 还要不要吃"本段时间线"）—— 落 `rounds/understand.py` / `rounds/group.py`
+> · **L3 = B1 + A2 一起做**（归属的进与出）—— 落 `rounds/attribute.py` + `core/brain/entities.py`
+> ⚠️ 按用户定的节奏走: **每层"讨论 → 实现 → 组织"**, 动代码前先报**关键信息的形式**给他审。
 >
-> **本阶段已落（9 个提交，全部已提交未推）**
+> **本阶段已落（10 个提交; 乙-1 已 push, 乙-2 未 push）**
 > · 计划 B 两刀：`core/brain/wiki_v2`→`core/brain`（去 V2）· **`core/brain/read/`** 读路径分家
 >   · **`core/digest/`** 管线抬出（`be7cb40` 及之前）
 > · 节点 C：**`core/digest/rounds.py` 轮次表**（步序/身份/prompt/相位/parse/料/写什么/跳过/预算/快照
@@ -22,11 +23,14 @@
 >   （`pipeline.py` **1431 → 666 行**）`cc3ced7` `1706a0e`
 > · ⭐ **乙-1：digest 按轮拆包** —— `core/digest/rounds/`（表 + `base.py` 的 `Ctx`/`RoundOut`
 >   + 六个轮文件）+ **编排循环化**（`pipeline.py` **672 → 479 行**、`digest_segment` **376 → 170**）。
->   **行为零变化**（只三条差量：`akin` 空跳过多一行日志 · 删一个死常量 · `COGNITION_CAP` 随 R2 搬走）
+>   **行为零变化**（只三条差量: `akin` 空跳过多一行日志 · 删一个死常量 · `COGNITION_CAP` 随 R2 搬走）`baff075`
+> · ⭐ **乙-2：命名对齐** —— 轮次 key = 契约相位 = 标签后缀（`record`/`understand`/`attribute`）·
+>   `label`/`prompt`/`phase` **由 key 派生**（表里省掉三格）· prompt 文件改名 `digest_<key>.md` ·
+>   常量 `DIGEST_*` · 日志第一段恒为轮名 + **命名守门**（当场验过能红）。
+>   ⚠️ **LLM 看到的字节零变化**（prompt 内容一字未动）
 >
 > **拆完之后**：按**逐层**（L1 → L2 → L3）走"讨论 → 实现 → 组织"，
-> 刀清单见 `EXEC_DIGEST_SPLIT.md` §7（L1=D1 台账出口 · L2=E1 认知列表按相关度 ·
-> L3=**B1+A2 一起**（归属的进与出））。
+> 刀清单见 `EXEC_DIGEST_SPLIT.md` §7。
 >
 > ### ⚠️⚠️ 测试纪律（用户 2026-09-29 裁决，违反会被**当场断掉**）
 > **禁止频繁跑全量。不到 5 轮会话 / 不是关键节点，不许跑全量。**
@@ -53,7 +57,7 @@
 | **N4** | ⭐ **N4a 已落地 2026-09-29**：`habits` 槽退役 · `on_mind` 归 **L1** · **全景轮退役** · refs 印名字。⬜ **N4b（R4 并入 R1）我建议缓** —— 收益只是省一次**离线低频**调用, 而风险是「让 R1 判结清」把注意力分散掉（本项目有前科: *让主 LLM 逐句内联情绪 → 注意力分散、重试爆炸*）。 |
 | **N5 拆三** | ✅ **N5 已走完（2026-09-29）**：**N5a** `483e99b`（标题进注入 · `render_recall_block` · `recall_episodes` · **P19 槽位**）· **N5a-2** `28d8abf`（元信息定稿 `〔《事件名》｜相对｜绝对｜难忘〕` · `age.render_date` · `CONTEXT_MARKS`）· **N5b** `cf24562`（`{"noticed": …}` 第三类行 · ⭐ `address.py` · `noticed` 非内容事件 · 契约/rules 同批）· **N5c**（`digest._link_akin` 补 `akin` 边）· ⭐ **N5d**（**括号统一**）: 新 **`marks.py` = 括号与信息头的唯一实现**，五个写侧全部改调它，R4/R3 两处 `「」` 修掉，守门 `test_marks_guard.py` |
 | **设计** | 已裁 **19 条**（§2）· 待裁 **7 条**（§3）· 动工文档 `docs/DESIGN_MMT_NEW_ACTION.md`（§5） |
-| ⏭️ **下一步** | ⭐ **乙-2：digest 轮次命名对齐**（key / 标签 / prompt 文件 / 常量 / 日志 + 守门 + 文档同步）—— 全文见 **`docs/EXEC_DIGEST_SPLIT.md`**（乙-1 已落、四条已裁）。之后再按**逐层**（L1 → L2 → L3）走"讨论 → 实现 → 组织"，刀清单见该文档 §7。⚠️ 上面 N2/N6/N7 那三行是 **N5 时代的旧选项**，今天不对口 |
+| ⏭️ **下一步** | ⭐ **逐层推进（L1 → L2 → L3）**：L1=**D1** 未认领/被丢弃的台账出口（落 `rounds/record.py`）· L2=**E1** 认知列表按相关度 + **D2** 时间线去留 · L3=**B1+A2 一起**（归属的进与出）。全文见 **`docs/EXEC_DIGEST_SPLIT.md` §7**（拆包乙-1/乙-2 均已落地）。⚠️ 上面 N2/N6/N7 那三行是 **N5 时代的旧选项**，今天不对口 |
 | **支线** | MMT 的 `when` 语法（`DESIGN_MMT_NEW_ACTION §7 a`）独立、可随时插空 · **本地领先 origin 7 个提交未 push** |
 
 ---

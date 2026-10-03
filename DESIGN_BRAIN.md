@@ -12,7 +12,7 @@
 > 关联文档: `docs/DESIGN_SEGMENT.md`（段模型, digest 边界）· `docs/DESIGN_WORLD.md`
 > （世界对齐）· `docs/archive/DESIGN_SAVE.md §4.6`（存储, 已归档）· `docs/archive/world_model_evolution.md`（已归档）
 > （世界模型演进史）· ~~`llm/prompts/digest.md`（digest 规则）~~ / ~~`build_digest_schema`~~
-> （两者 2026-09-21 随 digest v1 删除; 现役 = `digest_v2_round_a/b.md` +
+> （两者 2026-09-21 随 digest v1 删除; 现役 = `digest_record.md` / `digest_understand.md`（2026-09-29 乙-2 改名）+
 > `contract/digest_registry.py`）。
 
 ---

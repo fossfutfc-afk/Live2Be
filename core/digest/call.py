@@ -33,7 +33,7 @@ if TYPE_CHECKING:                       # 仅注解求值期（避免与编排�
 logger = logging.getLogger(__name__)
 
 #: 反馈重试（parse/结构被拒 → 带 assistant 原文回灌重试 1 次）
-MAX_FEEDBACK_RETRIES = 1
+DIGEST_MAX_FEEDBACK = 1
 
 
 def _system_for(spec: RoundSpec, **schema_kw) -> str:
@@ -54,8 +54,8 @@ def _parse_for(spec: RoundSpec, **ctx) -> Callable[[dict], tuple[Any, Any]]:
 
 
 def _log_skip(spec: RoundSpec) -> None:
-    """跳过这一轮 —— 那句日志的文案也来自表（`skip` 是唯一真源）。"""
-    logger.info("digest_%s 跳过（%s）", spec.key, spec.skip)
+    """跳过这一轮 —— 那句日志的文案来自表（`skip` 是唯一真源）, 前缀来自 `spec.name`。"""
+    logger.info("%s 跳过（%s）", spec.name, spec.skip)
 
 
 def _round_call(
@@ -92,7 +92,7 @@ def _round_call(
     label = spec.label
     msgs = [{"role": "system", "content": system},
             {"role": "user", "content": user}]
-    for attempt in range(MAX_FEEDBACK_RETRIES + 1):
+    for attempt in range(DIGEST_MAX_FEEDBACK + 1):
         resp, call_err = llm_chat(llm, system, "", messages=msgs, model=model,
                                   temperature=temperature, max_tokens=max_tokens,
                                   extra_body=extra_body, deadline=round_deadline,
@@ -108,7 +108,7 @@ def _round_call(
         parsed, vr = parse_fn(resp)
         if vr.is_valid:
             return parsed, resp
-        if attempt < MAX_FEEDBACK_RETRIES:
+        if attempt < DIGEST_MAX_FEEDBACK:
             # feedback 语义: 同一上下文——追加被拒输出 + 引擎错误（见 `llm.client.feedback`）
             msgs.append({"role": "assistant",
                          "content": json.dumps(resp, ensure_ascii=False)})

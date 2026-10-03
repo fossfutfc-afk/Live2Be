@@ -135,7 +135,7 @@ def _collapse_bond_episodes(entries: list[dict], chapters: list[dict]) -> list[d
             continue
         keep = max(group, key=lambda e: float(e.get("significance") or 0.0))
         logger.warning(
-            "digest_a contract=bond chapter=%r entries=%d keep=%r（一章一条; 其余已丢。"
+            "digest_record contract=bond chapter=%r entries=%d keep=%r（一章一条; 其余已丢。"
             "这行常出现 = 提示词没压住, 看 Round A 的【本段类型】产出契约）",
             ch["title"] or "-", len(group),
             keep.get("title") or str(keep.get("text", ""))[:12])

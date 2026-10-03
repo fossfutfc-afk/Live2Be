@@ -43,13 +43,13 @@ class RoundLLM:
         self.calls.append([dict(m) for m in messages])
         task = kw.get("task")
         self.tasks.append(task)
-        if task == T.DIGEST_A:
+        if task == T.DIGEST_RECORD:
             return self.a
         if task == T.DIGEST_CLOSE:
             return self.close
-        if task in (T.DIGEST_B, T.DIGEST):
+        if task in (T.DIGEST_UNDERSTAND, T.DIGEST):
             return self.b
-        if task == T.DIGEST_ATTR:
+        if task == T.DIGEST_ATTRIBUTE:
             return self.attr
         raise RuntimeError(f"意外调用 task={task!r}")
 
@@ -132,7 +132,7 @@ def test_r4_runs_after_r1_and_before_r2(tmp_path):
     assert res.ok, res.errors
 
     # 三次调用 + 顺序: A → close → B（R3 归属也跑了, 但那些用例不测它）
-    assert llm.tasks[:3] == [T.DIGEST_A, T.DIGEST_CLOSE, T.DIGEST_B], llm.tasks
+    assert llm.tasks[:3] == [T.DIGEST_RECORD, T.DIGEST_CLOSE, T.DIGEST_UNDERSTAND], llm.tasks
     # ⭐ R4 的料 = 还开着的约定（带编号）+ 本段新增经历（真 id）
     r4 = llm.user_of(T.DIGEST_CLOSE)
     assert "周六模型店" in r4 and "n1" in r4
@@ -179,7 +179,7 @@ def test_r4_runs_without_new_episodes_when_something_is_open(tmp_path):
 
     res = digest_segment(st, llm, _events(note, _mmt(3)))
     assert res.ok, res.errors
-    assert llm.tasks[:3] == [T.DIGEST_A, T.DIGEST_CLOSE, T.DIGEST_B]
+    assert llm.tasks[:3] == [T.DIGEST_RECORD, T.DIGEST_CLOSE, T.DIGEST_UNDERSTAND]
     assert res.notes_ops[0]["state"] == "broken"
     assert "refs" not in res.notes_ops[0]         # 指不出 finish episode ⇒ 连这个键都没有
     # ⭐ 2026-09-29: close **不建节点**（从前这里验的是 `formed_by` 只连"说定它"那条）
@@ -238,11 +238,11 @@ class EngineLLM:
              **kw):
         task = kw.get("task")
         self.tasks.append(task)
-        if task == T.DIGEST_A:
+        if task == T.DIGEST_RECORD:
             return self.a
         if task == T.DIGEST_CLOSE:
             return self.close
-        if task in (T.DIGEST_B, T.DIGEST):
+        if task in (T.DIGEST_UNDERSTAND, T.DIGEST):
             return self.b
         reply = stub_tasks.annotation_reply(task, messages)
         if reply is not None:

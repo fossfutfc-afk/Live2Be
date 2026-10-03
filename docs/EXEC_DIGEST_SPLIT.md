@@ -1,11 +1,13 @@
 # EXEC_DIGEST_SPLIT.md — digest **按轮拆包 + 命名对齐**（动工文档）
 
-> **状态**：🟡 **乙-1 已落（2026-09-29）/ 乙-2 待开工** —— 四条待审已裁（见 §5）。
-> `rounds/` 包拆完: `core/digest/pipeline.py` **672 → 479 行**（`digest_segment` **376 → 170**）,
-> 六轮正文各回各家、编排只剩一个 `for spec in ROUNDS` 循环。**行为零变化**（见 §9 的差量清单）。
+> **状态**：✅ **拆包两刀全部落地（乙-1 + 乙-2, 2026-09-29）** —— 四条待审已裁（§5）。
+> `rounds/` 包拆完: `core/digest/pipeline.py` **672 → 479 行**（`digest_segment` **376 → 170**）;
+> 轮次命名对齐: key ≡ 契约相位 ≡ 标签后缀, `label`/`prompt`/`phase` **由 key 派生**,
+> prompt 文件改名 `digest_<key>.md`, 日志第一段恒为轮名（守门 `test_digest_naming_guard.py`）。
+> **下一步 = §7 的逐层刀**（L1 D1 → L2 E1/D2 → L3 B1+A2）。
 > **上游**：`core/digest/rounds/__init__.py`（轮次表）· `docs/DESIGN_DIGEST_LAYERS.md`（三层视野）·
 > `core/brain/DESIGN_GRAPH_V4.md` §8/§9-12（每轮定义与待裁项）。
-> **当前 HEAD**：乙-1 那一笔（本文与它同批提交）。
+> **当前 HEAD**：乙-2 那一笔（本文与它同批提交）。
 
 ---
 
@@ -79,7 +81,7 @@
 
 ---
 
-## 3. 命名（对齐契约相位名 + `digest` 前缀）
+## 3. 命名（对齐契约相位名 + `digest` 前缀）—— ✅ 乙-2 已落
 
 ### 3.1 轮次 key ≡ 契约相位 ≡ 标签后缀
 
@@ -92,7 +94,10 @@
 | `attr` | **`attribute`**（全称） | ④ 挂 |
 | `group` | **`group`**（不变） | ⑤ 分群 |
 
-### 3.2 三种派生标识都从 `key` 派生（**不手写**）
+### 3.2 三种派生标识都从 `key` 派生（**不手写**）—— ✅ 已落
+
+`RoundSpec` 上现在有 **4 个只读 property**（`name` / `label` / `prompt` / `phase`），
+表里**不再有** `label` / `prompt` / `phase` 三格，只有一格 `llm: bool`（`akin` 填 `False`）:
 
 | key | 标签 | prompt 文件 | **日志第一段** |
 |---|---|---|---|
@@ -103,30 +108,44 @@
 | `attribute` | `digest.attribute` | `digest_attribute.md` | `digest_attribute` |
 | `group` | `digest.group` | `digest_group.md` | `digest_group` |
 
-⇒ **日志第一条恒为轮名** ⇒ `grep digest_attribute` 一次拿全这一轮的日志。要改的旧名：
+⇒ **日志第一条恒为轮名** ⇒ `grep digest_attribute` 一次拿全这一轮的日志。改过的旧名:
 
 | 今天 | 改后 |
 |---|---|
 | `digest_span eps=… 未认领=…` | `digest_record span=… 未认领=…` |
-| `digest_hit eps=… hit=…` | `digest_attribute hit=…` |
+| `digest_hit eps=… hit=…` | `digest_attribute nodes=… hit=…`（`eps` 是误称, 它数的是**节点**） |
+| `digest_attr table=… …` | `digest_attribute table=… …` |
 | `digest_a contract=bond …` | `digest_record contract=bond …` |
-| `recall_write char=… eps=…`（R2 的写路径台账，**今天**没前缀） | `digest_understand recall_write=…` |
 | `digest_akin edges=…` | 不变 ✓ |
+| `recall_write char=… eps=…` | ⏸ **不动**（见 §9 遗留三条: 那行由 `core/brain/read/recall_ledger.py` 打,
+它本来就只有一处、名字唯一, 加轮名要往 brain 传一个只为日志的参数） |
 
-### 3.3 模块级常量带 `DIGEST_`
+### 3.3 模块级常量带 `DIGEST_` —— ✅ 已落
 
 ```
-MAX_FEEDBACK_RETRIES      → DIGEST_MAX_FEEDBACK
-COGNITION_CAP             → DIGEST_COGNITION_CAP
+MAX_FEEDBACK_RETRIES      → DIGEST_MAX_FEEDBACK      （call.py; pipeline 里那份死的已删）
+COGNITION_CAP             → DIGEST_COGNITION_CAP     （随 R2 搬进 rounds/understand.py）
 ROUND_BUDGET_SECONDS      → DIGEST_ROUND_BUDGET_SECONDS
 SEGMENT_HARD_CAP_SECONDS  → DIGEST_SEGMENT_HARD_CAP
 _AFF_MIN / _AFF_MAX       → DIGEST_AFF_MIN / DIGEST_AFF_MAX（顺手去掉那个 "_"）
+MAX_DIGEST_ATTEMPTS       → DIGEST_MAX_ATTEMPTS      （顺手对齐前缀形式）
 ```
 
-### 3.4 守门
+### 3.4 守门 —— ✅ 已落（`tests/core/test_digest_naming_guard.py`）
 
-源码里**不许手写**这些前缀 —— 一律 `f"digest_{spec.key}"` 派生；
-加一条用例扫 `core/digest/**/*.py`（照 `test_marks_guard.py` 的形状）。
+两条判据（都只看**日志调用的第一个字面量** —— 扫宽了会把守门变成噪声:
+
+`digest_segment` / `digest_retry` / `digest_schema` / `digest_registry` **不是轮名**）:
+
+① 全包扫: 日志第一段只要是"轮名形状"，就得是**当前** key（旧名残留一律红 ——
+   `segment.py` 那处 `digest_a` 就是被它抓出来的）;
+② 轮文件扫: 每个轮文件里的日志第一段**等于它自己的轮名**（轮名从该文件的
+   `ctx.enter("<key>")` 读出来）。
+
+⚠️ **日志字面量本身没改成 `spec.name` 拼接**（初稿是那么写的）: 那要把前缀穿进
+`_link_akin` / `_collapse_bond_episodes` 的签名，为一个日志字段付的接口噪声比收益大;
+判据 ②/① 已经把"字面量与 key 对不上"这条堵死了。**实测能红**：往 `record.py` 塞一个
+`digest_span`，两条判据当场都报。
 
 ### 3.5 ⭐ 磁盘零影响
 
@@ -239,11 +258,11 @@ def run(ctx) -> RoundOut:
 **切两刀（每刀一提交）**
 - ✅ **乙-1（已落）**：`rounds.py` → `rounds/` 包 + `base.py`（Ctx/RoundOut）+ 六轮文件搬家
   + 编排循环化。**行为零变化**（差量见 §9）
-- ⬜ **乙-2（下一步）**：命名对齐（key / 标签 / prompt 文件 / 常量 / 日志）+ 守门用例 + 文档同步。
-  ⚠️ 动工前记两笔乙-1 顺手发现的东西:
+- ✅ **乙-2（已落）**：命名对齐（key / 标签 / prompt 文件 / 常量 / 日志）+ 守门用例 + 文档同步。
+  顺手发现并处理的两笔:
   · `pipeline.MAX_FEEDBACK_RETRIES` 与 `call.MAX_FEEDBACK_RETRIES` 曾是**同一个常量的两份**
-    （前者零读者）—— 乙-1 已删掉那份死的; 乙-2 给活的那个改名 `DIGEST_MAX_FEEDBACK`
-  · `COGNITION_CAP` 已随 R2 搬进 `rounds/understand.py`（它只有那一个读者）
+    （前者零读者）—— 乙-1 删掉那份死的, 乙-2 给活的那个改名 `DIGEST_MAX_FEEDBACK`
+  · `COGNITION_CAP` 随 R2 搬进 `rounds/understand.py`（它只有那一个读者）
 
 ---
 
@@ -258,6 +277,9 @@ def run(ctx) -> RoundOut:
 - ⭐ **乙-1 实测（2026-09-29）**：digest 板块 **153 passed**（含 `test_split_safety`）·
   邻接板块 `tests/webgui` + digest 相邻 core 用例 **158 passed** ·
   `compileall` 全绿 · `--collect-only` **1185 collected**（与拆前一致）· 全量仍未跑（不是关键节点）。
+- ⭐ **乙-2 实测（2026-09-29）**：digest 板块 **197 passed**（加了命名守门与两条派生判据）·
+  `tests/webgui` + `tests/llm` + digest 相邻 core **213 passed** · 守门**当场验过能红**
+  （塞一个旧轮名 → 两条判据都报）· 全量仍未跑。
 
 ---
 
@@ -294,6 +316,15 @@ def run(ctx) -> RoundOut:
 |---|---|
 | 2026-09-29 | 建文（拆包 S1/S2 已落，本文记"按轮拆 + 命名对齐"这一刀的全部前提与待审项） |
 | 2026-09-29 | **乙-1 落地**：`rounds/` 包（表 · `base.py` · 六个轮文件）+ `pipeline.py` 编排循环化。四条待审已裁并入 §5 |
+| 2026-09-29 | **乙-2 落地**：key→`record`/`understand`/`attribute` · 三个标识由 key 派生 · prompt 文件改名 `digest_<key>.md`（**内容一字未动**）· 常量 `DIGEST_*` · 日志一律带轮名 · 新守门 `test_digest_naming_guard.py`。⚠️ **LLM 看到的字节仍然零变化**（标签只进日志与桩分派） |
+
+### 乙-2 的三条**遗留**（没做 —— 要不要做由用户定）
+
+| # | 遗留 | 为什么没做 | 代价 |
+|---|---|---|---|
+| 1 | 契约层的 `parse_round_a` / `parse_round_b` 仍是旧名 | 契约是**独立面**（`contract/` 不依赖 core），且改名要动 `tests/core/test_digest_registry.py` 里 **60 多处**引用 | 半小时机械活 |
+| 2 | `material._round_b_material`（+ 测试文件 `test_round_b_view.py`）仍是旧名 | 不在 §3.2 列的那三条派生标识里; 改名要连带改 `core/brain/read/{render,recall_ledger}.py` 两处注释 | 十分钟 |
+| 3 | `recall_write char=… eps=…` 那行日志没加轮名 | 它由 **`core/brain/read/recall_ledger.py`** 打（读路径台账自己的行）—— 要加前缀就得让 brain 收一个"只为日志"的参数; 而这个名字**全仓唯一**, `grep recall_write` 本来就能一次拿全 | 十分钟 |
 
 ### 乙-1 的**行为差量清单**（"纯搬家"到底动了什么 —— 只有这三条，都可核对）
 

@@ -91,11 +91,13 @@ core/          引擎层（无 web 依赖, CLI/实验同源复用）
    │   └ read/               ⭐ **读路径**（2026-09-29 分家, 只读不写图）: 注入视图 render ·
    │                         召回 recall/channels/channel_impl/compose 与两个台账/旋钮 · panorama
    ├ digest/                 **记忆消化管线**（每段 5 次调用: ① 记 R1 → ② 收口 R4 → ③ 接 R2
-   │                         → ④ 挂 R3 → ⑤ L2-a 分群）· ⭐ **`rounds.py` = 轮次表**
-   │                         （**步序/身份/prompt/相位/parse/料/写什么/跳过/预算/快照**的单源）
-   │                         · `pipeline.py` = **编排与事务**（1431→666 行）· `call.py` 一轮调用
+   │                         → ④ 挂 R3 → ⑤ L2-a 分群）· ⭐ **`rounds/` 包 = 轮次表**（`__init__.py` 是表, `base.py` 是 `Ctx`/`RoundOut`,
+   │                         六个轮文件各一个 `run(ctx)` —— 2026-09-29 乙-1）
+   │                         （**key/步序/LLM 身份/prompt/相位/parse/料/写什么/跳过/预算/快照**的单源 ——
+   │                         ⭐ `label`/`prompt`/`phase` 由 `key` 派生, 表里不再各写一份）
+   │                         · `pipeline.py` = **编排与事务**（1431 → 666 → 479 行）· `call.py` 一轮调用
    │                         · `material.py` 各轮的料 · `segment.py` 这一段是什么 ·
-   │                         `episodes.py` L1 落节点 · `akin.py` 补边 · `llm_call.py` 鲁棒层
+   │                         `episodes.py` L1 落节点 · `llm_call.py` 鲁棒层（`akin` 在 `rounds/` 里）
    ├ creep/                  ⭐ **世界线的账**（2026-09-29 起）: 一行**没有 `seq`**
    │                         的 JSON（`Event.from_dict` 第一道就丢它 ⇒ 结构性地谁也读不到）·
    │                         `ledger.py`(写/严格读) + `skeptical.py`(kind→存疑文本, 写时冻结)。
@@ -411,7 +413,7 @@ CLI/测试同步路径在引擎内串行。
   ⚠️ **窗口是混的**（真档实测 haruka = 13 条聊天 + 5 块剧情，mutsuki = 26 + 13）——
   "一章一条"**只收口属于这一章**的条目（`event_seq` 与 bond 块相交），聊天那些照 0~5 条留着；
   提示词没压住时 `_collapse_bond_episodes` 留 `significance` 最高的那条 +
-  打一行 `digest_a contract=bond` 告警（可 grep）。
+  打一行 `digest_record contract=bond` 告警（可 grep）。
 - `digest_segment`（brain, RoundA 记录 + RoundB 组织 + 好感结算）触发点：
   ① bond 完整闭环（vn_exit completed）后 ② MMT 每 N=25 轮（in_vn/in_memorial 中
   不触发）。增量幂等（digested_seq 水位）；失败零损失。
@@ -427,16 +429,21 @@ CLI/测试同步路径在引擎内串行。
   这一句, 拼进 system 就逐轮破前缀缓存）。refs **印名字不印编号**（`(《名字》)`；拿不到名字
   整段不印）。⚠️ R4 收口**只发 `close` 不发 `retire`**（退场要等读路径召回接通, 链路 ⑥）。
   设计/代码索引：`core/brain/DESIGN_GRAPH_V4.md` §3.2 / §6 / §8 / §8.6。
-- **每段四步（`R1 → R4 → R2 → R3`）**：⭐ **2026-09-29（节点 C）起完整的步序表 = 
-  `core/digest/rounds.py` 的 `ROUNDS`**（步序 / LLM 身份 / prompt / 契约相位 / parse / 料 /
+- **每段四步（`R1 → R4 → R2 → R3`）**：⚠️ **轮次 key = 契约相位名, 与旧 R 号的对照**
+  （2026-09-29 乙-2）: **R1=record 记 · R4=close 收口 · R2=understand 接 · R3=attribute 挂**
+  （`akin` 零 LLM · `group` 分群）—— 本文下面凡写 R1/R2/R3/R4 的按这行对。
+  ⭐ **2026-09-29（节点 C）起完整的步序表 = 
+  `core/digest/rounds/__init__.py` 的 `ROUNDS`**（轮次 key / 步序 / LLM 身份 / prompt / 相位 / parse / 料 /
   写什么 / 跳过条件 / **每轮时间预算** / 是否自带快照, 一处说全）—— `pipeline.py` 是执行体,
-  每步先 `cur.enter(key)`（**越序当场炸**）; ⭐ **`_rollback` 的清空清单也由表推导**
+  每步先 `ctx.enter(key)`（**越序当场炸**）; 编排只剩 `for spec in ROUNDS: IMPL[spec.key](ctx)`
+  （乙-1 起每轮正文住 `rounds/<轮>.py`, `pipeline.py` 1431 → 479 行）;
+  ⭐ **`_rollback` 的清空清单也由表推导**
   （`rounds.reset_result`, 从前是手抄的 —— 漏过 `notes_warnings`）。
-  ⭐ **时间预算两层**（刀 1）: 每轮 `ROUND_BUDGET_SECONDS`（默认 120s, 本轮截止 =
-  `min(整段硬顶, 本轮开始 + 预算)`）+ 整段硬顶 `SEGMENT_HARD_CAP_SECONDS`（600s）——
+  ⭐ **时间预算两层**（刀 1）: 每轮 `DIGEST_ROUND_BUDGET_SECONDS`（默认 120s, 本轮截止 =
+  `min(整段硬顶, 本轮开始 + 预算)`）+ 整段硬顶 `DIGEST_SEGMENT_HARD_CAP`（600s）——
   从前全段共享一个 300s, 前几轮一慢就把**后面几轮集体饿死**; 现在失败文案带轮次
-  （`digest 轮次 round_b: … （本轮预算用完 / 整段硬顶到了）`）。
-  ⭐ **失败有上限**（刀 2）: 同一段最多试 `MAX_DIGEST_ATTEMPTS=3` 次（键 = **起点水位**,
+  （`digest 轮次 understand: … （本轮预算用完 / 整段硬顶到了）`）。
+  ⭐ **失败有上限**（刀 2）: 同一段最多试 `DIGEST_MAX_ATTEMPTS=3` 次（键 = **起点水位**,
   窗口长大不重置; 第 2/3 次之间新攒的内容**不跟着丢**）; 数满 ⇒ **放弃这一段**:
   水位推到**第一次失败那一窗的上界** + 留一条 `creep` 账（`kind=digest_skip`）——
   ⚠️ **放弃 = 真的丢记忆**（那段再也不会有节点 ⇒ 她召不回; 事件流还在, 玩家回放照样看得到）。
@@ -448,7 +455,7 @@ CLI/测试同步路径在引擎内串行。
   **R2 的动作面**：输出多一个**可选键 `links`**（`supports`/`contradicts`/`evolved_from`，
   两端是渲染列表里的本地 id）—— ⏸ 当年"两个 id 空间"（能 `touch` 的只有看法、能 `link` 的
   含承诺）随承诺退图**实际同集**。
-  **R3 归属**也已接线（`digest.attr`，排在**最后**）：料 = `entities.py` 四块纯函数
+  **R3 归属**也已接线（`digest.attribute`，排在**最后**）：料 = `entities.py` 四块纯函数
   （候选表 `c0001` / 命中集 / 载荷 / 本轮新节点 **`u0001`**）⇒ `about` 边 + `new_entity` +
   entity 载荷；⚠️ **两套本地号必须分开**（混用会让"挂谁"与"挂在谁身上"写反）。
   ⇒ **每段四步 `R1 → R4 → R2 → R3` 全部落地**（链路 ③ 完成）。
@@ -645,7 +652,8 @@ CLI/测试同步路径在引擎内串行。
   声明调用身份（`llm/task_labels.py`, `kw["task"]` 读它; 共享应答助手 =
   `tests/stub_tasks.py`）。标签：`emotion`（记录级标注 + v1 整场批标）· `place`
   （句级锚点）· `place_board`（板级换场翻译）· `place_variant`（选图）·
-  `digest.round_a` / `digest.round_b` · `mmt` / `bond`（主链）。
+  `digest.record` / `digest.understand`（= 轮次 key; 2026-09-29 乙-2 从 `round_a/b` 改名）·
+  `mmt` / `bond`（主链）。
   ⚠️ **标签不进 messages/payload**（前缀缓存与夹具零影响）, 只进日志
   （`llm chat task=emotion …` —— 生产侧"这次调用是谁"从此可查）与桩分派。
   ⚠️ **别再按中文关键字分派**（旧写法 `if "情绪标签" in last`——改一次 prompt 措辞
@@ -721,7 +729,7 @@ CLI/测试同步路径在引擎内串行。
   ② `llm chat/chat_full` 日志补 `out=/in=`（completion/prompt tokens）——此前只看得到
   prompt 侧 cache 命中, 判断"单块还能写多长"只能靠记录条数估; **`task=`**（节点 5b）
   标明**这次调用是谁**（`emotion` / `place` / `place_board` / `place_variant` /
-  `digest.round_a|b` / `mmt` / `bond`）——此前只能从 `json=y` + `max_tokens` 猜;
+  `digest.record|understand` / `mmt` / `bond`）——此前只能从 `json=y` + `max_tokens` 猜;
   ③ **图像侧**（2026-09-20）: gallery json 的 `prompt_source`（`art` / `memorial_text`）
   = **art 配对命中率**; `[vn][memorial] 开画 prompt=… src=…` 一行日志同源。
   用途: 真机"玩家几乎零卡顿"里有多少是生成、多少是缓存/回放, 一眼可查。

@@ -21,7 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 from core.brain import WikiStoreV2
 from core.brain.entities import ensure_entities
 from core.creep import KIND_DIGEST_SKIP, TYPE_CREEP, read_raw
-from core.digest.pipeline import MAX_DIGEST_ATTEMPTS, digest_segment
+from core.digest.pipeline import DIGEST_MAX_ATTEMPTS, digest_segment
 from core.session import SessionStore, make_event
 from core.session.io import read_jsonl
 from llm import task_labels as T
@@ -66,19 +66,19 @@ class FlakyOnce:
 
     def chat(self, messages, **kw):
         task = kw.get("task")
-        if task == T.DIGEST_A:
+        if task == T.DIGEST_RECORD:
             self.n += 1
             if self.n == 1:
                 return {"episodes": "坏"}
             return {"episodes": [{"text": "一段经历", "title": "经历"}]}
-        if task in (T.DIGEST_B, T.DIGEST):
+        if task in (T.DIGEST_UNDERSTAND, T.DIGEST):
             # ⚠️ R2 的契约要求"覆盖全部 episode"（漏一条整包拒）⇒ 必须给 m0001 一条决策
             return {"decisions": [{"episode": "m0001", "decision": "add",
                                    "kind": "belief", "text": "关于这件事的看法"}],
                     "affection_exp_delta": 0}
         if task == T.DIGEST_CLOSE:
             return {"add": [], "close": []}
-        if task == T.DIGEST_ATTR:
+        if task == T.DIGEST_ATTRIBUTE:
             return {"attributions": []}
         raise RuntimeError(f"意外调用 task={task!r}")
 
@@ -130,7 +130,7 @@ def test_switching_watermark_resets_the_counter(tmp_path):
 def test_giving_up_advances_watermark_and_leaves_a_creep_row(tmp_path):
     """⭐ 数满 3 次 ⇒ 水位推到**第一窗的上界** + 一条 `digest_skip` 账 + 计数清空。"""
     st = _wiki(tmp_path)
-    for _ in range(MAX_DIGEST_ATTEMPTS - 1):
+    for _ in range(DIGEST_MAX_ATTEMPTS - 1):
         digest_segment(st, AlwaysFail(), _events(3))
     res = digest_segment(st, AlwaysFail(), _events(5))    # 第 3 次: 窗口已经长到 5
 
@@ -144,7 +144,7 @@ def test_giving_up_advances_watermark_and_leaves_a_creep_row(tmp_path):
     assert row["at_seq"] == 3 and row["skeptical"], row
     ev = row["evidence"]
     assert ev["from_seq"] == 0 and ev["to_seq"] == 3
-    assert ev["attempts"] == MAX_DIGEST_ATTEMPTS and ev["errors"]
+    assert ev["attempts"] == DIGEST_MAX_ATTEMPTS and ev["errors"]
     print(f"    第 3 次（窗口已 5）: 水位 0 → 3; 账 = {row['skeptical'][:14]!r}…")
 
 
@@ -195,7 +195,7 @@ class EngineLLM:
              **kw):
         task = kw.get("task")
         self.tasks.append(task)
-        if task in (T.DIGEST_A, T.DIGEST_B, T.DIGEST_CLOSE):
+        if task in (T.DIGEST_RECORD, T.DIGEST_UNDERSTAND, T.DIGEST_CLOSE):
             return {"episodes": "坏"}                 # 一律形状错 → 整批失败
         from tests import stub_tasks
         reply = stub_tasks.annotation_reply(task, messages)
@@ -217,7 +217,7 @@ def test_engine_writes_the_creep_row_into_the_truth(tmp_path):
     st.append_event(CHARACTER, "", make_event("mmt", "mmt_chat",
                                               {"player": "老师", "reply": "嗯"}))
 
-    for _ in range(MAX_DIGEST_ATTEMPTS):
+    for _ in range(DIGEST_MAX_ATTEMPTS):
         engine._session_rounds = 25
         engine._run_digest(CHARACTER, engine._session_id)      # 同步跑（不经后台线程）
 
@@ -253,7 +253,7 @@ def test_creep_write_failure_does_not_block(tmp_path, monkeypatch):
         raise OSError("盘被占用了")
 
     monkeypatch.setattr(st, "append_raw_row", boom)
-    for _ in range(MAX_DIGEST_ATTEMPTS):
+    for _ in range(DIGEST_MAX_ATTEMPTS):
         engine._session_rounds = 25
         engine._run_digest(CHARACTER, engine._session_id)      # 不该抛
 
@@ -262,7 +262,7 @@ def test_creep_write_failure_does_not_block(tmp_path, monkeypatch):
     assert ws.digested_seq == 0, "账没写成就别推水位（下次还要重试记账）"
     # 盘上停在"第 2 次"（放弃那一次的计数**故意没落盘**: 那一步正是失败的记账）
     # —— 不影响下次: 它会再判一次死刑, 再试一次记账。
-    assert ws.meta.get("digest_retry", {}).get("attempts") == MAX_DIGEST_ATTEMPTS - 1, \
+    assert ws.meta.get("digest_retry", {}).get("attempts") == DIGEST_MAX_ATTEMPTS - 1, \
         ws.meta.get("digest_retry")
 
     # 盘好了 ⇒ 下一次触发把账补上并推进水位（**自愈**）

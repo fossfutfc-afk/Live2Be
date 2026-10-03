@@ -116,9 +116,9 @@ class StubLLM:
         if task == T.PLACE_VARIANT:
             # 选图（第二遍, PL6′ 2026-09-19）→ 保持默认图
             return {"image": ""}
-        if task == T.DIGEST_A:
+        if task == T.DIGEST_RECORD:
             return {"episodes": []}
-        if task in (T.DIGEST_B, T.DIGEST):
+        if task in (T.DIGEST_UNDERSTAND, T.DIGEST):
             return {"decisions": [], "evidence": [], "affection_exp_delta": 0}
         if task == T.DIGEST_CLOSE:                      # R4 收口 → 没什么要记的
             return {"add": [], "close": []}
