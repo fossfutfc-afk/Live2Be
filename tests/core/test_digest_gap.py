@@ -129,11 +129,29 @@ def test_clean_segment_writes_no_row(tmp_path):
     print("    干净段: 无账 ✓")
 
 
-def test_gap_row_carries_the_three_faces(tmp_path):
-    """缺口段的账: 契约层说过的话 + 条目面（in/kept/dropped/reused）。"""
+def test_health_warnings_alone_do_not_write_a_row(tmp_path):
+    """⭐ 收窄（2026-09-29）: **契约层说建议类的话不写账**（它是健康度, 不是缺口）。
+
+    判据: 缺 title/tags 这种"建议"既不丢内容也不丢条目 ⇒ 只有日志, 没有账行。
+    """
     st = _wiki(tmp_path)
-    # 只覆盖 1~2 ⇒ 3、4 未认领; 缺 title/tags ⇒ 契约层会说话（形状建议, 不是丢）
-    llm = OneRound([{"text": "只记了前两句", "span": [1, 2]}])
+    # 位置合法（覆盖 1~4）、但缺 title / 缺 tags / significance 非数字
+    llm = OneRound([{"text": "四句都记下了", "span": [1, 4], "significance": "??"}])
+    res = digest_segment(st, llm, _events(4))
+
+    assert res.ok, res.errors
+    assert len(res.contract_warnings) >= 3, res.contract_warnings   # 契约层确实说了话
+    assert res.contract_drops == [], res.contract_drops
+    assert _gaps(res) == [], f"建议类 warning 不该写账: {_gaps(res)}"
+    print(f"    健康度 {len(res.contract_warnings)} 句 ⇒ 只进日志, 不写账 ✓")
+
+
+def test_gap_row_carries_the_three_faces(tmp_path):
+    """缺口段的账: 契约面（只装**真丢**的）+ 条目面（in / kept / no_pos / dropped / reused）。"""
+    st = _wiki(tmp_path)
+    # span 端点抄到时间线外 ⇒ 契约层丢弃整个区间（真丢）⇒ 这条没有位置
+    llm = OneRound([{"text": "端点抄错了", "title": "抄错", "span": [1, 99],
+                     "tags": ["x"]}])
     res = digest_segment(st, llm, _events(4))
 
     assert res.ok, res.errors
@@ -141,11 +159,32 @@ def test_gap_row_carries_the_three_faces(tmp_path):
     assert len(rows) == 1, rows
     ev = rows[0]["evidence"]
     assert set(ev) == {"contract", "items"}, ev
-    assert ev["contract"]["n"] == len(res.contract_warnings) > 0
-    assert ev["contract"]["by_round"] == {"record": ev["contract"]["n"]}
-    assert ev["items"]["in"] == 1 and ev["items"]["kept"] == 1
-    assert ev["items"]["dropped"] == [] and ev["items"]["reused"] == []
-    print(f"    缺口段: {ev['contract']['n']} 句契约话 · items={ev['items']}")
+    assert ev["contract"]["by_round"] == {"record": len(ev["contract"]["lost"])} 
+    assert any("99" in x for x in ev["contract"]["lost"])
+    assert "n" not in ev["contract"] and "other" not in ev["contract"], \
+        "健康度不进账（只在日志）"
+    assert ev["items"] == {"in": 1, "kept": 1, "no_pos": 1, "dropped": [], "reused": []}, \
+        ev["items"]
+    print(f"    缺口段: 真丢 {len(ev['contract']['lost'])} 处 · items={ev['items']}")
+
+
+def test_no_position_entry_still_gets_the_segment_pointer(tmp_path):
+    """⭐ span 被丢 ⇒ **兜底行为不变**（段级指针, 文档化的有意设计）+ 账里记 `no_pos`。
+
+    判据（用户 2026-09-29 裁决"只改可见性"）: 兜底保住了 `_find_duplicate` 的幂等,
+    而段级指针是**真的**（那条记忆确实产生于这一段）—— 所以会计上要**把两种口径说清**,
+    不是改行为。⚠️ 按条目算的"未认领" ≠ 按节点算的（兜底那条 seq 看起来已认领）。
+    """
+    st = _wiki(tmp_path)
+    llm = OneRound([{"text": "端点抄错了", "title": "抄错", "span": [1, 99],
+                     "tags": ["x"]}])
+    res = digest_segment(st, llm, _events(4))
+
+    assert res.ok, res.errors
+    node = st.get(res.created[0])
+    assert node.event_seq == [4], f"兜底到段级指针（interact_max=4）: {node.event_seq}"
+    assert _gaps(res)[0]["evidence"]["items"]["no_pos"] == 1
+    print(f"    无位置: 兜底 {node.event_seq}（行为不变）+ 账里 no_pos=1 ✓")
 
 
 # ---------------------------------------------------------------------------
@@ -153,19 +192,17 @@ def test_gap_row_carries_the_three_faces(tmp_path):
 # ---------------------------------------------------------------------------
 
 def test_skeptical_only_when_something_was_lost(tmp_path):
-    """形状建议（缺 title/tags）⇒ **没有**那句话; 区间作废（真丢）⇒ 有。
+    """建议类（缺 title/tags）⇒ **连账都不写**; 区间作废（真丢）⇒ 有账且有那句话。
 
     ⚠️ 判据不是文案匹配: 契约层在**源头**声明 `ValidationResult.drops`
     （`_drop()` 那几处 = 背后真有一个内容离开过库）。
     """
-    # ① 只有形状建议（span 合法, 但缺 title/tags）
+    # ① 只有形状建议（位置合法, 但缺 title/tags）⇒ 不写账
     st = _wiki(tmp_path)
     res = digest_segment(st, OneRound([{"text": "四句", "span": [1, 4]},
                                        {"text": "又一条", "span": [1, 4]}]), _events(4))
-    # 两条同章……这里没有章 ⇒ 两条都留; 重点看 skeptical
-    row = _gaps(res)[0]
-    assert row["evidence"]["contract"]["n"] > 0
-    assert "skeptical" not in row, f"形状建议不该让她不安: {row.get('skeptical')!r}"
+    assert res.contract_warnings, "这一段契约层确实说了话"
+    assert _gaps(res) == [], "建议类不写账"
 
     # ② 区间端点抄到时间线外 ⇒ 契约层**丢弃整个区间**（`drops`）⇒ 真丢
     st2 = _wiki(tmp_path / "b")
@@ -303,7 +340,9 @@ def test_engine_writes_the_gap_row_into_the_truth(tmp_path):
 if __name__ == "__main__":
     import tempfile
 
-    for fn in (test_clean_segment_writes_no_row, test_gap_row_carries_the_three_faces,
+    for fn in (test_clean_segment_writes_no_row, test_health_warnings_alone_do_not_write_a_row,
+               test_gap_row_carries_the_three_faces,
+               test_no_position_entry_still_gets_the_segment_pointer,
                test_skeptical_only_when_something_was_lost, test_on_mind_dropped_is_a_loss,
                test_collapsed_entries_are_recorded, test_reused_node_is_recorded,
                test_rollback_leaves_no_gap_row):

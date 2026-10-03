@@ -67,10 +67,17 @@ def run(ctx: Ctx) -> RoundOut:
                      if ctx.chapters else frozenset())
     _uncovered = sorted(s for s in _unclaimed if s in _chapter_seqs)
     submitted = len(entries)
+    # ⭐ **没有位置的条目**（`span` 被契约层丢了 / 她压根没给）—— 它们会被引擎**兜底到
+    # 段级指针**（`_create_a_nodes` 的 `event_seq=[interact_max]`）。
+    # ⚠️ 那个兜底是**有意的**（见 `test_emo_shape_absent_when_no_pointer`: 段级指针是**真的**,
+    # 那条记忆确实产生于这一段; 而且它保住了 `_find_duplicate` 的幂等）——
+    # 但会计上它会让那个 seq 看起来"已认领" ⇒ **按条目算的未认领 ≠ 按节点算的**。
+    # 所以这里把条数**记下来**（进账 + 日志）, 而不是改行为。
+    _no_pos = sum(1 for e in entries if not e.get("event_seq"))
     logger.info("digest_record span=%d 认领=%d 未认领=%d 共享=%d 章内未覆盖=%d "
-                "未认领seq=%s",
+                "无位置=%d 未认领seq=%s",
                 submitted, len(ctx.seq_set) - len(_unclaimed), len(_unclaimed), _shared,
-                len(_uncovered), _unclaimed[:20] or "-")
+                len(_uncovered), _no_pos, _unclaimed[:20] or "-")
     # 一章一个 episode（2026-09-20）—— 引擎确定性收口 + 可观测告警（+ ⭐ D1 的台账出口）
     collapsed: list[dict] = []
     entries = _collapse_bond_episodes(entries, ctx.chapters, dropped_out=collapsed)
@@ -94,5 +101,6 @@ def run(ctx: Ctx) -> RoundOut:
     # ⚠️ 声明在表里 record 的 `result_fields` ⇒ 整段回滚时由 `reset_result` 一起清掉
     # （否则会出现"回滚了却留着一条缺口账"）。造行在 `pipeline` 的**提交块**（`_note_gap`）。
     ctx.result.record_gaps = {"items": {"in": submitted, "kept": len(entries),
+                                       "no_pos": _no_pos,
                                        "dropped": collapsed, "reused": reused}}
     return RoundOut.done()

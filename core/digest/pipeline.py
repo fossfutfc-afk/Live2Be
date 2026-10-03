@@ -358,44 +358,54 @@ def _note_gap(result: DigestResult, *, at_seq: int) -> None:
 
     ⚠️ **只在提交之后调用**（见调用点）: 回滚过的段没有"缺"可言 —— 它整段都没了。
 
-    ⚠️ **只有"不可重算"的东西进这一行** —— 判据就是 creep 自己的纪律 1
-    （`core/creep/__init__.py`: *账不可重算*）:
-      · **契约层当场说过的**（区间作废 / 原话丢了 / 心境丢了 + 各种形状告警）
-      · **条目面的**（一章一条丢掉的条目正文 / 判重复而复用的 id）
-    它们**那一刻之后世上没有第二份记录**（丢掉的条目正文只在那次 LLM 输出里）。
+    ## 触发条件: **真的丢了东西**（不是"契约层说过话"）
 
+    2026-09-29 收窄（用户裁"L1 有没有问题"时发现的偏差）: 从前只要契约层说了任何话
+    （包括"缺 tags"这种**建议**）就写一行 ⇒ 真机等于**每段一行**, 而 `grep digest_gap`
+    就再也挑不出真丢。现在只有这三样之一才写:
+      · **契约层当场丢的**（`contract_drops`: 区间作废 / 逐字索引丢 / 原话通道丢 / 心境丢）
+      · **一章一条丢掉的条目**（`items.dropped`）
+      · **判重复而复用的**（`items.reused`）
+    契约层的**其它**话（建议 / 夹紧 / 兼容旧名）是**契约健康度**, 不是缺口 —— 走一行日志。
+
+    ## 为什么只有"不可重算"的进这一行（creep 自己的纪律 1: *账不可重算*）
+
+      · 上面那三样**那一刻之后世上没有第二份记录**（丢掉的条目正文只在那次 LLM 输出里）。
     ⛔ **未认领的内容事件 / 章内覆盖不进账** —— 它们**可重算**: 节点的 `event_seq`、
-    章的 marker、`affection/digest` 的段界**都在盘上**, 一条只读探针就能算出来
-    （`.testtmp/probe_l1_coverage.py`）。进账 = 存第二份真相, 而它随时可能对不上。
+    章的 marker、`affection/digest` 的段界**都在盘上**，一条只读探针就能算出来
+    （`.testtmp/probe_l1_coverage.py`）。进账 = 存第二份真相，而它随时可能对不上。
 
     ⚠️ `skeptical` **只在真的掉了内容时**填（`contract_drops` 非空）: 契约的"形状建议"
     与"一章一条丢掉一条冗余总结"都不是"她少了什么"; 而闲聊没成记忆本来就合设计
     （MMT 一轮 = 0~5 条）。让"她"为这些不安是错的。
     """
-    contract = list(result.contract_warnings)
+    warnings = list(result.contract_warnings)
     lost = list(result.contract_drops)
     items = dict((result.record_gaps or {}).get("items") or {})
-    if not (contract or items.get("dropped") or items.get("reused")):
-        return                              # 契约层没说话 + 条目一条没丢 ⇒ 不写账
+    if warnings:
+        # 契约层说过的话**总是**留一行日志（健康度: 缺 title/tags、夹紧、兼容旧名…）——
+        # 它们是"这段的契约层什么状态", 不是"丢了什么"。
+        logger.info("digest 契约层说了 %d 句（其中丢了内容 %d）: %s",
+                    len(warnings), len(lost), " | ".join(warnings[:3]))
+    if not (lost or items.get("dropped") or items.get("reused")):
+        return                              # 没有真丢点 ⇒ 不写账
     by_round: dict[str, int] = {}
-    for w in contract:
+    for w in lost:
         key = w.split(":", 1)[0]
         by_round[key] = by_round.get(key, 0) + 1
-    lost_set = set(lost)
     row = creep_build(
         KIND_DIGEST_GAP, at_seq=at_seq,
         skeptical=(creep_pick(KIND_DIGEST_GAP) if lost else ""),
         evidence={
-            "contract": {"n": len(contract), "by_round": by_round,
-                         "lost": lost[:8],
-                         "other": [w for w in contract if w not in lost_set][:8]},
+            "contract": {"lost": lost[:8], "by_round": by_round},
             "items": items,
         })
     result.creep_rows.append(row)
-    logger.warning("digest 这一段有缺口（kind=%s）: 契约说了 %d 句（其中丢了内容 %d）· "
-                   "条目丢 %d / 复用 %d —— 已留一条账",
-                   KIND_DIGEST_GAP, len(contract), len(lost),
-                   len(items.get("dropped") or []), len(items.get("reused") or []))
+    logger.warning("digest 这一段有缺口（kind=%s）: 丢了内容 %d 处 · 条目丢 %d / 复用 %d · "
+                   "无位置 %d —— 已留一条账",
+                   KIND_DIGEST_GAP, len(lost),
+                   len(items.get("dropped") or []), len(items.get("reused") or []),
+                   items.get("no_pos", 0))
 
 
 def _swallow(store: WikiStoreV2, spec: RoundSpec, result: DigestResult,
