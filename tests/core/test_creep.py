@@ -115,6 +115,56 @@ def test_append_raw_row_rejects_empty(tmp_path):
     print("    append_raw_row: 空行/非 dict 一律拒（不写脏行）")
 
 
+def test_concurrent_writers_share_one_lock(tmp_path):
+    """⭐ **锁控制**: 事件与账**并发**写同一个文件, 不许出现串行/坏行/重号。
+
+    `append_raw_row` 与 `append_event` 持**同一把** `_GLOBAL_APPEND_LOCK`
+    （本仓所有 events.jsonl 写者都持它: `store.append_event` · `append_raw_row` ·
+    `staging.StagingStore.append_event`）。这条用例是那条纪律的守门:
+    真·丢锁时, 行会互相插进去（JSON 解析失败）或 seq 重号。
+    """
+    import threading
+
+    st, sid = _store(tmp_path)
+    n_threads, per = 6, 20
+    errors: list[str] = []
+    baseline = len(read_jsonl(st.events_path(CHAR, sid)))   # `create()` 已写了一条 session_start
+
+    def worker(k: int) -> None:
+        try:
+            for i in range(per):
+                if k % 2:
+                    st.append_event(CHAR, sid, make_event(
+                        "mmt", "mmt_chat", {"player": "老师", "reply": f"{k}-{i}"}))
+                else:
+                    st.append_raw_row(CHAR, sid, {
+                        "ts": "2026-09-29T00:00:00", "type": TYPE_CREEP,
+                        "kind": KIND_DIGEST_SKIP, "at_seq": k * 100 + i,
+                        "skeptical": "x" * 40})
+        except Exception as e:                        # noqa: BLE001
+            errors.append(f"线程 {k}: {type(e).__name__}: {e}")
+
+    ts = [threading.Thread(target=worker, args=(k,)) for k in range(n_threads)]
+    for t in ts:
+        t.start()
+    for t in ts:
+        t.join()
+
+    rows = read_jsonl(st.events_path(CHAR, sid))       # 行级容错: 坏 JSON 会被丢掉
+    assert not errors, errors
+    assert len(rows) == baseline + n_threads * per, \
+        f"有行丢了（{len(rows)} / {baseline + n_threads * per}）—— 写者没共用同一把锁？"
+    seqs = [r["seq"] for r in rows if "seq" in r]
+    assert len(seqs) == len(set(seqs)), "并发写出现重号"
+    creep = [r for r in rows if r.get("type") == TYPE_CREEP]
+    assert len(creep) == (n_threads // 2) * per
+    assert all(len(r["skeptical"]) == 40 for r in creep), "账行被截断/插行了"
+    bad: list[str] = []
+    assert len(read_raw(st, CHAR, session_id=sid, bad_out=bad)) == len(creep) and not bad
+    print(f"    并发 {n_threads} 线程 × {per} 次（事件/账各半）: {len(rows)} 行全在、"
+          f"无重号、无坏行")
+
+
 # ---------------------------------------------------------------------------
 # ③ 读侧严格
 # ---------------------------------------------------------------------------
@@ -229,6 +279,8 @@ if __name__ == "__main__":
         test_raw_row_does_not_disturb_seq_allocation(Path(d))
     with tempfile.TemporaryDirectory() as d:
         test_append_raw_row_rejects_empty(Path(d))
+    with tempfile.TemporaryDirectory() as d:
+        test_concurrent_writers_share_one_lock(Path(d))
     with tempfile.TemporaryDirectory() as d:
         test_read_raw_roundtrips_and_reports_bad_rows(Path(d))
     with tempfile.TemporaryDirectory() as d:
