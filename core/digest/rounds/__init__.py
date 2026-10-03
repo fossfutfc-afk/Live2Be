@@ -95,7 +95,15 @@ DIGEST_ROUND_BUDGET_SECONDS = 120.0
 #: （2026-09-02 真发生过一次: 重试放大把 digest 拖到近半小时）。
 #: ⚠️ **硬顶必须 ≥ 各轮预算之和** —— 否则后面的轮又会被前面的吃掉, 等于没改;
 #: `tests/core/test_digest_rounds.py` 钉住这条。
-DIGEST_SEGMENT_HARD_CAP = 600.0
+#:
+#: ⭐ **2026-09-29: 600 → 840**（这是给 R0「切分」留的位子）。由来: 当时是
+#: 5 个 LLM 轮 × 120s = **600, 正好顶满**硬顶（`akin` 不算 —— 它零 LLM,
+#: `planned_seconds()` 只数 `llm=True` 的轮）⇒ 再多一轮守门当场红。
+#: 为什么抬硬顶而不是调小每轮预算: 120s/轮是按 high 档长考标定的
+#: （标定入口 = 真机日志 `llm chat task=digest.… ms=`）, 砍它会重新制造
+#: "前几轮把后几轮饿死"那个刀 1 要修的病; 而硬顶守的是"别叠成半小时"这个上界
+#: —— 840s 仍远小于当年那次的近半小时。
+DIGEST_SEGMENT_HARD_CAP = 840.0
 
 
 @dataclass(frozen=True)

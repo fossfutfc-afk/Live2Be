@@ -306,7 +306,8 @@ def run(ctx) -> RoundOut:
 - digest **触发点** = bond 闭环（`if completed`）/ MMT 每 25 轮；**段** = 水位之后全部事件。
 - **失败语义**：整批原子回滚；L2-a 自带快照（表里 `own_snapshot`）；同一段 3 次 ⇒ 放弃
   （**先记 creep 账、再推水位**到第一次失败那一窗的上界）。
-- **每轮预算** 120s + 整段硬顶 600s；回灌走 `llm.client.feedback`（唯一实现）。
+- **每轮预算** 120s + 整段硬顶 **840s**（2026-09-29 由 600 抬上来 —— 给 R0「切分」
+  留第 6 个 LLM 轮的位子；600 当时已被 5 轮 × 120 顶满）；回灌走 `llm.client.feedback`（唯一实现）。
 - `core/creep/`：账行**无 `seq`** ⇒ 结构性隐身（`Event.from_dict` 第一道就丢）；
   写入唯一入口 `SessionStore.append_raw_row`（与 `append_event` **共用同一把锁**）。
 
