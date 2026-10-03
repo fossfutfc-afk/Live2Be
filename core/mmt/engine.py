@@ -723,6 +723,16 @@ class MomoTalkEngine:
                                      llm_timeout=DIGEST_LLM_TIMEOUT,
                                      aff_at_encoding=aff_prior,
                                      emotion_lexicon=emotion_lex)
+                # ⭐ **creep 账: 不管 ok 都要写**（刀 2, 2026-09-29）——
+                # 它记的恰恰是"这批没成"（digest 试满 3 次放弃了一段）。
+                # ⚠️ 与下面 `notes_ops` 的纪律**相反**: note 操作是剧情的一部分, 必须等
+                # 整批 ok; 而账是**引擎自己的事实**, 不随事务回滚。写失败只告警,
+                # 绝不阻断（宁缺勿错——账丢了看得见, 剧情不能被它拖住）。
+                for _row in res.creep_rows:
+                    try:
+                        store.append_raw_row(character_id, self._session_id, _row)
+                    except Exception as _e:              # noqa: BLE001
+                        logger.warning("creep 账写入失败（%s）: %s", character_id, _e)
                 if not res.ok:
                     logger.warning("digest 未完成 (%s): %s", character_id,
                                    " | ".join(res.errors))

@@ -14,11 +14,11 @@
 
 ## 今天是"只留接口"（2026-09-29 用户裁决）
 
-**只做行 + 写 + 读**。以下**都还没做**, 别以为它在跑：
+**已落**：行 + 写 + 严格读 + **第一个写者**（`digest_skip`：digest 试满 3 次放弃一段时）。
+以下**都还没做**, 别以为它在跑：
 * **让她看见**（`kind` → 存疑文本 → 每轮注记）—— `skeptical.py` 已经有文本池, 但**没有注入口**
 * **cval**（世界线的"墙被推开多少"）与**解锁**（OS / 记忆编辑）
-* **写者**：`record()` 目前**没有生产调用者**（只有测试）——
-  下一刀挂 `digest_skip`（digest 放弃那一刻）, 那时它才第一次真的被写出来。
+* 别的 `kind`（候选见 `ledger.KINDS` 的注释, **只加有写者的**）
 
 ## 纪律（改这里之前必读）
 
@@ -32,6 +32,7 @@ from core.creep.ledger import (
     KIND_DIGEST_SKIP,
     KINDS,
     TYPE_CREEP,
+    build,
     make_row,
     read_raw,
     record,
@@ -42,6 +43,7 @@ __all__ = [
     "KIND_DIGEST_SKIP",
     "KINDS",
     "TYPE_CREEP",
+    "build",
     "make_row",
     "pick",
     "read_raw",
