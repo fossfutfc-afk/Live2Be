@@ -1127,7 +1127,7 @@ def test_expand_spans_fills_gap_and_pops_the_key():
     留在条目里的 `span` 会被 `from_dict` **静默忽略**（这个项目最恨的静默 no-op ——
     `about_hint` 当年就是为这个专门 pop 的）。
     """
-    from core.digest.pipeline import _expand_spans
+    from core.digest.segment import _expand_spans
 
     entries = [{"span": [10, 13], "text": "a"}, {"span": [12, 14], "text": "b"}]
     unclaimed, shared = _expand_spans(entries, {10, 11, 12, 13, 14, 20})
@@ -1149,16 +1149,19 @@ def test_span_expansion_runs_before_bond_collapse():
     为什么：那一章的归属判据 `_in_seqs` 靠"条目的 `event_seq` 与章块的**相交**" ——
     展开前条目只有 `span`（还没有 `event_seq`）⇒ 相交恒为 False ⇒ **整章那一条会被判成
     "不属于本章"**（`_collapse_bond_episodes` 收口也就跟着失效）。
+
+    ⚠️ 看的是 **R1 那一轮的 `run()`**（2026-09-29 乙-1 起它的正文住
+    `core/digest/rounds/record.py`）—— 编排里已经没有这两句了。
     """
     import ast
     import inspect
     import textwrap
-    from core.digest.pipeline import digest_segment
+    from core.digest.rounds.record import run as record_run
 
-    fn = ast.parse(textwrap.dedent(inspect.getsource(digest_segment))).body[0]
+    fn = ast.parse(textwrap.dedent(inspect.getsource(record_run))).body[0]
     code = ast.unparse(fn)
     assert "_expand_spans(" in code and "_collapse_bond_episodes(" in code, \
-        "digest_segment 里少了展开或收口"
+        "R1 里少了展开或收口"
     assert code.index("_expand_spans(") < code.index("_collapse_bond_episodes("), \
         "_expand_spans 必须在 _collapse_bond_episodes 之前（否则章的归属判据恒假）"
     print("    结构: _expand_spans 在 _collapse_bond_episodes 之前 ✓")

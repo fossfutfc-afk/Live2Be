@@ -50,7 +50,7 @@ def _sections_for(spec: RoundSpec, sections: list[tuple[str, str]]) -> str:
     if got != spec.material:
         raise AssertionError(
             f"digest {spec.key!r} 的料与轮次表不一致: 表={spec.material} 实际={got}"
-            "（改料就要改 core/digest/rounds.py 的 ROUNDS）")
+            "（改料就要改 core/digest/rounds/__init__.py 的 ROUNDS）")
     return _join_sections(sections)
 
 

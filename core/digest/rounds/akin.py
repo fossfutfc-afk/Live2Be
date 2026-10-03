@@ -7,8 +7,9 @@
     → **本模块**（L1 建完 episode 之后）: 找到"她说话那一刻属于哪条新 episode"
       → `akin{新 → 她指的}`
 
-⚠️ 只此一个函数 —— 单独成文件是因为它在轮次表里是**独立的一步**（`key="akin"`），
-和 R1/R2/R3/R4 并列，却谁都不属于。
+⚠️ 它在轮次表里是**独立的一步**（`key="akin"`），和 R1/R2/R3/R4 并列，却谁都不属于
+—— 所以单独一个文件。⚠️ 它**不调 LLM**（表里 `label` / `prompt` / `phase` / `parse`
+四格全空）⇒ 没有 system/user, 也没有"这一轮吃什么"。
 """
 from __future__ import annotations
 
@@ -16,11 +17,25 @@ import logging
 from typing import TYPE_CHECKING
 
 from core.brain.graph import REL_AKIN
+from core.digest.rounds.base import Ctx, RoundOut
+from core.session.events import TYPE_NOTICED
 
 if TYPE_CHECKING:                       # 仅注解求值期
     from core.brain.store import WikiStoreV2
 
 logger = logging.getLogger(__name__)
+
+
+def run(ctx: Ctx) -> RoundOut:
+    """把本段的「想起」账补成 `akin` 边 —— 没账就按表跳过（0 次 LLM 调用）。"""
+    spec = ctx.enter("akin")                        # 零 LLM 的一步也占步序
+    noticed = [e for e in ctx.new_all if getattr(e, "type", "") == TYPE_NOTICED]
+    if not noticed:
+        ctx.log_skip(spec)
+        return RoundOut.skipped()
+    n_edge, n_lost, n_self = _link_akin(ctx.store, ctx.episode_ids, noticed, ts=ctx.now_ts)
+    logger.info("digest_akin edges=%d unclaimed=%d self=%d", n_edge, n_lost, n_self)
+    return RoundOut.done()
 
 
 def _link_akin(store: WikiStoreV2, episode_ids: list[str], noticed: list, *,
