@@ -16,9 +16,24 @@
     ⑤ L2-a 分群 digest.group      块 + 已有类 → 群节点 + `member_of`（自带快照）
 
 ⚠️ **每步的定义已收进 `rounds.py` 一张表**（2026-09-29 节点 C）: 步序 / LLM 身份 /
-prompt / 契约相位 / parse / 料 / 写什么 / 跳过条件 / 是否自带快照。
+prompt / 契约相位 / parse / 料 / 写什么 / 跳过条件 / 每轮预算 / 是否自带快照。
 `pipeline.py` 是执行体（每步先 `cur.enter(key)` 拿 spec, 越序当场炸）;
 `_rollback` 的清空清单也由表推导 —— 别再往 `pipeline` 里加第二份轮次清单。
+
+## 包内分工（拆包 S1/S2, 2026-09-29 —— `pipeline.py` 1431 → 666 行）
+
+| 模块 | 装什么 |
+|---|---|
+| **`rounds.py`** | ⭐ **轮次表**：步序 / 身份 / prompt / 相位 / parse / 料 / 写什么 / 跳过 / 预算 / 快照 |
+| **`pipeline.py`** | **编排与事务**：`digest_segment`（顺序 + 提交 + 回滚 + 计数/放弃）· `DigestResult` |
+| **`call.py`** | **一轮 LLM 调用**：prompt+契约装配 · 调用+回灌重试 · 本轮截止 · 带轮次的失败文案 |
+| **`material.py`** | **各轮的料**（引擎侧零 LLM）：段标题校对/拼装 · 视觉记忆 · 情绪标尺 · 约定行 · 新经历 · R2 候选 · R3 对象正文 |
+| **`segment.py`** | **这一段是什么**：段类型/章分组 · `span` 区间展开 · 一章一条收口 |
+| **`episodes.py`** | **L1 落节点**：字段归属 + 去重 · 自己的时刻 · 逐字原话 · 情绪/地点/叙事轴物化 |
+| **`akin.py`** | **本段想起账 → `akin` 边**（唯一零 LLM 的一步） |
+| **`llm_call.py`** | LLM 鲁棒层（重试 / deadline / 档位透传） |
+
+⇒ 三层（L1 本段 / L2 跨段 / L3 实体）要改的刀各有落点, 不用再全挤在 `pipeline.py` 里。
 """
 from core.digest.pipeline import DigestResult, digest_segment
 
