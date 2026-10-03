@@ -245,7 +245,7 @@
 | 重复节日标记 | `real_clock.fired` 的跨年键 + `rewind_count` | 🔧 **V3-4 落**（幂等键里已含年份，天然可判重复） |
 | `chapter` 固定标识 | 事件流 `vn_enter` 段 | ✅ 已有（`DESIGN_COLLECTION_BOOK.md` 已按章分组） |
 | 快照计数 | `data/worlds/{world}/snapshots/` | ❌ 未做（世界快照机制在归档阶段 8 设计过，未落地） |
-| ⭐ **`creep` 账**（世界线的元事实台账） | `soul/events.jsonl` 里一行**没有 `seq`** 的 JSON（`Event.from_dict` 第一道就丢它 ⇒ **结构性**隐身，不靠白名单纪律） | ✅ **2026-09-29 落地**（`core/creep/`: `ledger.py` 写/严格读 + `skeptical.py` kind→存疑文本, **写时冻结**）。⚠️ **只做"行 + 写 + 读"**：**零写者、零注入口** —— 第一个写者是刀 2（digest 放弃那一刻, `kind=digest_skip`） |
+| ⭐ **`creep` 账**（世界线的元事实台账） | `soul/events.jsonl` 里一行**没有 `seq`** 的 JSON（`Event.from_dict` 第一道就丢它 ⇒ **结构性**隐身，不靠白名单纪律） | ✅ **2026-09-29 落地**（`core/creep/`: `ledger.py` 写/严格读 + `skeptical.py` kind→存疑文本, **写时冻结**）。⭐ **第一个写者已接**：`digest_skip`（digest 试满 3 次放弃一段时）。⚠️ **注入口仍未接**（她看不见） |
 | `creepiness.json` | `data/worlds/{world}/` | ❌ **本案不落**（等立项） |
 | `settings.toml [fourth_wall]` | 运行时配置 | ❌ 本案不落（但字段名先定，避免改配置格式） |
 | `os_dialogue_done`（旗标，**每角色一次**） | 落点待定（§3 第 4 层 B 表） | ❌ 本案不落——但**字段名先定**：它是"至多一次"的唯一可判据 |
@@ -260,6 +260,11 @@
 >
 > 起点是"digest 失败/跳过的兜底"：**没有节点就召不回**（`recall` 只扫 `store.nodes`），
 > 所以一段没被消化的内容，**在窗口里活着、然后永远消失**。于是先把"她少了什么"落成账。
+>
+> **落地进度**（2026-09-29）：① `core/creep/` 包（行 + 写 + 严格读）✅ ②
+> **第一个写者** ✅ —— digest 试满 `MAX_DIGEST_ATTEMPTS=3` 次就放弃这一段
+> （水位推到**第一次失败那一窗的上界**, 留一条 `kind=digest_skip` 的账） ③
+> 她那一侧的注入口 ⬜ 未接。
 >
 > 已裁的几条（**都还没做**，记在这里免得下次重问）：
 > * **世界线的账，不是世界级文件**：住 `soul/events.jsonl`（与记忆同居），

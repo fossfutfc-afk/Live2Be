@@ -87,6 +87,20 @@ def make_row(kind: str, *, at_seq: int, skeptical: str = "",
     return row
 
 
+def build(kind: str, *, at_seq: int = 0, evidence: dict | None = None,
+          rng: Any = None) -> dict:
+    """造一行账（**含写时取一的那句存疑文本**）—— **不落盘**。
+
+    ⭐ 为什么要有它（而不是只有 `record`）: digest 那一侧**拿不到事件流**
+    （`digest_segment` 只有 `WikiStore2`, 事件流归调用方管）⇒ 它只能把**造好的行**
+    交出去（`DigestResult.creep_rows`）, 由调用方 append。两条路共用本函数 ⇒
+    "取哪一句"仍然只有一处实现。
+    """
+    from core.creep.skeptical import pick
+    return make_row(kind, at_seq=at_seq, skeptical=pick(kind, rng=rng),
+                    evidence=evidence)
+
+
 def record(store, char_id: str, *, session_id: str = "", kind: str, at_seq: int = 0,
            evidence: dict | None = None, rng: Any = None) -> dict:
     """记一笔账（**写入路径的唯一入口**）—— 返回写下去的那一行。
@@ -94,9 +108,7 @@ def record(store, char_id: str, *, session_id: str = "", kind: str, at_seq: int 
     ⚠️ **写失败会抛**（不吞）: 账是"不可重算"的那一半, 静默降级 = 无声地丢掉事实。
     调用方若在关键路径上, 自己决定要不要 try（但**别在 `record` 里吞**）。
     """
-    from core.creep.skeptical import pick
-    row = make_row(kind, at_seq=at_seq, skeptical=pick(kind, rng=rng),
-                   evidence=evidence)
+    row = build(kind, at_seq=at_seq, evidence=evidence, rng=rng)
     store.append_raw_row(char_id, session_id, row)
     return row
 

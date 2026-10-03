@@ -94,10 +94,10 @@ core/          引擎层（无 web 依赖, CLI/实验同源复用）
    │                         → ④ 挂 R3 → ⑤ L2-a 分群）· ⭐ **`rounds.py` = 轮次表**
    │                         （**步序/LLM 身份/prompt/契约相位/parse/料/写什么/跳过/快照
    │                         的单源**; `pipeline.py` = 执行体, 材料在各家）
-   ├ creep/                  ⭐ **世界线的账**（2026-09-29 起, **只留接口**）: 一行**没有 `seq`**
+   ├ creep/                  ⭐ **世界线的账**（2026-09-29 起）: 一行**没有 `seq`**
    │                         的 JSON（`Event.from_dict` 第一道就丢它 ⇒ 结构性地谁也读不到）·
    │                         `ledger.py`(写/严格读) + `skeptical.py`(kind→存疑文本, 写时冻结)。
-   │                         ⚠️ **今天零写者、零注入口** —— 设计见 docs/DESIGN_FOURTH_WALL.md
+   │                         ⚠️ **注入口未接**（她看不见）—— 设计见 docs/DESIGN_FOURTH_WALL.md
    ├ promptkit/              提示词装配: box/tail/task/report（见 §8）
    ├ worldtime/              时间：三层时钟（剧情/现实日历/壁钟, DESIGN_WIKI_V3 §4）
    ├ common/                 横切: errors（**C10 起只是薄再导出壳** → 真家 `contract/errors.py`）/
@@ -434,6 +434,10 @@ CLI/测试同步路径在引擎内串行。
   `min(整段硬顶, 本轮开始 + 预算)`）+ 整段硬顶 `SEGMENT_HARD_CAP_SECONDS`（600s）——
   从前全段共享一个 300s, 前几轮一慢就把**后面几轮集体饿死**; 现在失败文案带轮次
   （`digest 轮次 round_b: … （本轮预算用完 / 整段硬顶到了）`）。
+  ⭐ **失败有上限**（刀 2）: 同一段最多试 `MAX_DIGEST_ATTEMPTS=3` 次（键 = **起点水位**,
+  窗口长大不重置; 第 2/3 次之间新攒的内容**不跟着丢**）; 数满 ⇒ **放弃这一段**:
+  水位推到**第一次失败那一窗的上界** + 留一条 `creep` 账（`kind=digest_skip`）——
+  ⚠️ **放弃 = 真的丢记忆**（那段再也不会有节点 ⇒ 她召不回; 事件流还在, 玩家回放照样看得到）。
   R4 收口 2026-09-25 已接线（`digest.close`，位置在
   R1 之后/R2 之前）—— ⏸ **2026-09-29 承诺退图后它只产 note 操作**（`ClosureResult` 只剩
   `ops`/`warnings`），所以那条"位置是正确性"的理由**没了**（顺序照旧）。

@@ -259,7 +259,10 @@ RESULT_FIELDS: tuple[str, ...] = tuple(dict.fromkeys(
 #: `DigestResult` 上**不归任何一轮**的字段。它们不是"轮次的产出", 所以回滚不碰:
 #:   · `ok` / `errors` / `llm_calls` —— **调用路径**的记录（失败报告本身, 抹掉就看不见了）
 #:   · `created` / `affection_delta` —— **提交时**才赋值（成功路径; 任何一轮都不写）
-COMMIT_ONLY: tuple[str, ...] = ("ok", "errors", "llm_calls", "created", "affection_delta")
+#:   · `creep_rows` —— ⭐ **失败也要留下的事实**（`kind=digest_skip` 的账）:
+#:     账不是剧情, **不随事务回滚** —— 恰恰相反, 它记的就是"这批没成"
+COMMIT_ONLY: tuple[str, ...] = ("ok", "errors", "llm_calls", "created",
+                                "affection_delta", "creep_rows")
 
 
 class Cursor:
