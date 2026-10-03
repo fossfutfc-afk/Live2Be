@@ -22,12 +22,19 @@
 """
 from __future__ import annotations
 
+import textwrap
 from dataclasses import dataclass
 from typing import Any
 
 from contract.model import ValidationResult
 
 PHASE_RECORD = "record"
+#: ⭐ **R0「切分」**（2026-09-29, N4d）—— 每段的**第一步**: 只划区间 + 写一句总括
+#: + 挑出"要一直带着的"那几条。**不写正文、不填情绪、不打分、不建节点。**
+#: ⚠️ 它拿走了 R1 从前最重的那件事（划区间）⇒ **图的形状由它一个人决定**
+#: （几个节点、每个覆盖哪段）, 所以它的产出必须**可校验**（区间在不在时间线里）
+#: 且**可观测**（覆盖了多少 / 丢了几条 —— 见 D1 那本缺口账）。
+PHASE_SPLIT = "split"
 PHASE_UNDERSTAND = "understand"
 #: R4 收口（DESIGN_GRAPH_V4 §8: 约定记账）—— 每段的第 4 步，**窄调用**，
 #: 只判"这条约定还开着吗 / 这一段里有没有新说定的"，不碰正文/认知。
@@ -73,6 +80,27 @@ MAX_TAGS = 4            # tags 检索词上限
 #: （"那片苔藓" 4 字就够）, 这里只挡"写成一整句话的那种"; 超了**只告警不截断**
 #: （截断会把名字截坏, 而名字是**地址**）。
 GROUP_TITLE_MAX = 16
+
+#: ⭐ **R0 切分轮的三个词/数**（2026-09-29, N4d）。
+#:
+#: `KEEP_VALUES` —— "这件事要不要一直带着"的取值。⭐ **不是布尔**（布尔没有余地,
+#: 而且把判断依据藏进了文档里）: 判据问的是"**她还会不会一直带着它**" —— 值就用
+#: 那句话自己的词。将来真要加中间档（"留到事情办完" = `until_done`）, 加一个词就行。
+#: ⚠️ 用户的另一版提议是 `yes/no`; 选了这一版是因为 `keep=temporary` 在真机日志里
+#: 自解释（"留了, 但不永久"）, 而 `keep=no` 得回文档查它在说什么。
+#: ⇒ **默认档是 `temporary`**: "过去了就过去了"（绝大多数）; `always` 才是那少数几条。
+KEEP_VALUES = ("temporary", "always")
+#: `keep` 的默认值（缺键 / 非法值 ⇒ 取它 + 告警 —— 形状毛病不该废整包）。
+KEEP_DEFAULT = "temporary"
+#: `abstract`（一句总括）的字数上限 —— **软上限**: 超了**收下但告警**
+#: （同 `ON_MIND_MAX` 当年的口径: 它不是"形状错", 不该废整包）。
+#: ⭐ 与 note 的 `MAX_TEXT`(20) 不是同一条标尺, 因为它一字段两用:
+#: 不进 note 时它只是给下一轮写正文的参考（长一点没坏处）; 进 note 时它会被原样
+#: 抄进常驻备忘录（那句要短）。⇒ 60 = 一句散文的上界, 再长就该怀疑她在写正文了。
+ABSTRACT_MAX = 60
+#: 一段最多切几件事。⭐ **这是防"切太碎"的唯一边界** —— R0 不写正文, 没有别的信号
+#: 能拦住它把 30 条消息切成 15 件（那是流水账, 不是记忆）。越界 ⇒ 截断 + 告警。
+MAX_SEGMENTS = 12
 
 #: ⚠️ **`TASK_TIMESPAN` 已于 2026-09-17 删除**（用户裁决）—— 连同 schema 里那行
 #: `"time_span": "halfday"`。
@@ -142,6 +170,56 @@ _DOMAIN_CONTRACT = {
         "   · 没有值得记的 → `\"episodes\": []`（合法）。"
     ),
 }
+
+#: ⭐ **R0 切分轮的字段行与释义**（2026-09-29, N4d）。
+#:
+#: ⚠️ **这里是唯一副本** —— `build_schema("split")` 的**示例**与它下面那段
+#: **逐字段说明**都从这三个常量拼出来。为什么非要这样（而不是各写一遍）:
+#: `contract/schema.py` 那条纪律 —— **"示例才是形状的来源"**; 而"取值清单 / 说明 /
+#: 示例"三处强度不一的时候, 模型只学会示例那个形状（2026-09-20 art 命中率 0/5
+#: 就是这么来的）。
+#: ⇒ 每个字段**只写一遍**（左对齐、缩进按"逐字段说明"那一份）, 进示例时整体缩 5 格
+#: （`textwrap.indent`）—— 两边的**注释列因此也对齐**, 不需要各写一份文案。
+#:
+#: ⚠️ 与那些 `DigestAction.field_schema`（渲染 `episodes[]` 里的**行形状**）不同:
+#: 一个切片只有三个键, 不值得为它造一个 `DigestAction`（那套机制带
+#: role/semantics/example, 为三个键套上去是过度设计）。
+_SPAN_FIELD = (
+    '"span": [28, 30],      // ⭐ **这件事覆盖【哪一段】**——起止两块的事件头编号\n'
+    '                       //（`[28] 【羁绊剧情】` 里的 28）; **这是指位置, 不是打分**;\n'
+    '                       // 区间内的事件**全部**算它覆盖了, 不必逐块列;\n'
+    '                       // 两端必须真实存在、且 起 ≤ 止。拿不准就写宽一点;\n'
+    '                       // ⚠️ 两条切片**可以重叠**（同一段事可以同时是两件事）, 那没关系'
+)
+_KEEP_FIELD_TEXT = (
+    '"keep": "temporary",      // temporary = 不记（**绝大多数**）; always = 要一直带着\n'
+    '                         // ⚠️ 它没有「条目」, 也不进图 —— 只决定**要不要留在她手边**'
+)
+_ABSTRACT_FIELD = '"abstract": "…",       // 必填; **一句**, ≤%d 字; 两种写法见下' % ABSTRACT_MAX
+#: 逐字段说明（接在示例后面）
+KEEP_FIELD = "\n".join([_SPAN_FIELD, _KEEP_FIELD_TEXT, _ABSTRACT_FIELD])
+KEEP_SEMANTICS = (
+    "【keep 怎么判】一句话: **这件事过去之后, 她还会不会一直带着它?**\n"
+    "  · 会 → `always`。理由只有三种: ① **誓约**（忘了就是「说话不算数」——\n"
+    "    「以后每年生日都一起过」）② **被改了看法的时刻**（「你不是麻烦, 你是我想留住的麻烦」）\n"
+    "    ③ **她给自己定的规矩**（「我不再道歉了」）。\n"
+    "  · 不会 → `temporary`。⚠️ 这三类**都别记**, 哪怕当时很重:\n"
+    "    · **日常安排**: 「明天把团子带去夏莱」「周六下午两点集合」「顺路帮我看一眼」\n"
+    "    · **随口一说**: 「下次一起去吧」「有空来玩」「想看你穿那件」\n"
+    "    · **夸奖与安慰**: 「你今天做得很好」「别紧张, 有我在」「你已经很努力了」\n"
+    "      —— 这些话当时很暖, 但**过去了就是过去了**; 留在手边会变成反复咀嚼一句话。\n"
+    "  ⇒ 判据的一句话: **夸奖说的是当时, 誓约说的是往后。**\n"
+    "  ⇒ **一段里 `always` 0~1 条是常态** —— 一条都没有是正常结果, 不是漏了。\n"
+    "\n"
+    "【abstract 怎么写】这一个字段**有两个去处**, 靠 `keep` 分叉:\n"
+    "  · `temporary` —— 平实描述**发生了什么**（后面有人照着它写回忆的正文; 别写成文学片段,\n"
+    "    也别在这儿抒情）;\n"
+    "  · `always` —— **就是她带走的那句话**（会被原样抄进她的备忘录）:\n"
+    "    写「还欠着什么 + 她此刻对它的那点意思」。\n"
+    "  例: temporary →「老师在周日突然邀请我去了咖啡厅吃东西」\n"
+    "      always    →「明天把两个团子带去夏莱, 别多想」"
+)
+
 
 RECORD_EPISODE = DigestAction(
     name="record_episode",
@@ -356,6 +434,41 @@ class DigestRegistry:
         `chapter_count` > 1 = 这一段的窗口里有**多章**（水位被清 / 重跑时必然如此）——
         契约要写成"**每章各 1 条**", 否则两章会被压成一条。
         """
+        if phase == PHASE_SPLIT:
+            # ⭐ **本段类型那段契约与 R1 共用一份**（`_DOMAIN_CONTRACT`）—— 它是
+            # "这一段该切成几件事"的唯一说明, 而**切分权在 R0** ⇒ 它必须在这儿出现。
+            contract = _DOMAIN_CONTRACT.get(domain, _DOMAIN_CONTRACT["mmt"])
+            if domain == "bond" and chapter_count > 1:
+                contract = contract.replace(
+                    "→ **这一章恰好 1 条** episode, 它就是**这一章的总结**:",
+                    f"→ 本段含 **{chapter_count} 章** —— **每章各恰好 1 件事**"
+                    f"（共 {chapter_count} 条切片）, 每条就是**它那一章的总结**:")
+            # 示例由字段常量拼（**不是另抄一份文案** —— 见 `_SPAN_FIELD` 那段注释）:
+            # 整体缩 5 格就与"逐字段说明"那一份的注释列对齐
+            example = "\n".join([
+                "    {  // 一件事 = 一条切片; 顺序 = 时间顺序 //",
+                textwrap.indent(KEEP_FIELD, " " * 5),
+                "    }",
+            ])
+            return "\n".join([
+                "输出 JSON（不要任何解释文字, 不要 ```json 代码块）:",
+                contract,
+                "",
+                '    {"segments": [',
+                example,
+                "    ]}",
+                "",
+                "  · **切成几件事**: 换人说话 / 换话题 / 换场景 = 新的一件;\n"
+                "    ⚠️ **别切太碎** —— 三十条消息切成十五件, 那是流水账, 不是记忆;\n"
+                "  · `span` 只写**事件头编号**（`[28.0]` 那种记录行号不用管）;\n"
+                "  · 没有值得记的 → `\"segments\": []`（合法）。",
+                "",
+                "【逐字段】",
+                KEEP_FIELD,
+                "",
+                KEEP_SEMANTICS,
+            ])
+
         if phase == PHASE_RECORD:
             contract = _DOMAIN_CONTRACT.get(domain, _DOMAIN_CONTRACT["mmt"])
             if domain == "bond" and chapter_count > 1:
@@ -584,6 +697,84 @@ class DigestRegistry:
             warnings.extend(item_warns)
             if item is not None:
                 out.append(item)
+        return out, ValidationResult(tuple(errors), tuple(warnings), tuple(drops))
+
+    def parse_split(self, raw: Any, *, seq_set: set[int] | None = None
+                    ) -> tuple[list[dict], ValidationResult]:
+        """R0 切分: `{"segments": [{"span", "keep", "abstract"}, …]}` → 归一化切片。
+
+        ⭐ **只做形状校验**（键在不在 / 区间合不合法 / `keep` 在不在词表里）——
+        "这段区间里到底有什么"是**世界的事**, 归引擎（`seq_set` 只用来查端点存在性）。
+        口径与 `_clean_span` 一致: **坏的那条丢、整包不废** —— 一个坏区间不该让她
+        重写整段（重试有用的是"你没按契约说话", 不是"你划错了一刀"）。
+
+        ⚠️ **三种毛病分两类**（这是 D1 那本缺口账的入口, 别混）:
+          · **真丢** → `_drop`（端点不在时间线里 / 起止反了 / 形状不是数组 /
+            `abstract` 缺或空）—— 那一段事**从此没有任何记录**, 不可重算;
+          · **建议** → 只 `warnings`（`abstract` 超 60 字 / `keep` 非法或缺失 /
+            给了 >2 个端点 / 抄了记录级编号 / 切太碎超 `MAX_SEGMENTS`）。
+        判据就是 `_drop` 的 docstring 那句: **这条 warning 背后有没有内容离开过库?**
+
+        `seq_set`（沿用 R1 的同名参数）: 本段**可寻址事件 seq 全集**, 端点 ⊆ 校验基准。
+        `None` = 不校验（老调用方 / 单测）。
+
+        Returns: `(segments, ValidationResult)` —— 每条切片 = 引擎要的**骨架**:
+        `{"span": [起, 止], "keep": "temporary"|"always", "abstract": "…"}`。
+        ⚠️ 引擎随后把 `span` 展开成 `event_seq` 并**就地改写这批字典**（R1 在同一批
+        字典上填正文）—— 所以这里**不 pop `span`**, 它是这条切片的身份。
+        """
+        errors: list[str] = []
+        warnings: list[str] = []
+        #: ⭐ D1: "真的丢了东西"的那几条 warning（见 `ValidationResult.drops`）
+        drops: list[str] = []
+        if not isinstance(raw, dict):
+            return [], ValidationResult(errors=("切分轮输出必须是 JSON 对象",))
+        raw_segs = raw.get("segments")
+        if not isinstance(raw_segs, list):
+            return [], ValidationResult(errors=("segments 必须是数组",))
+        if len(raw_segs) > MAX_SEGMENTS:
+            warnings.append(f"segments 给了 {len(raw_segs)} 条（> {MAX_SEGMENTS}）——"
+                            f"超出的丢弃; 一段里切成这么多件 = 流水账, 不是记忆")
+            raw_segs = raw_segs[:MAX_SEGMENTS]
+
+        out: list[dict] = []
+        seen: set[tuple[int, int]] = set()
+        for i, seg in enumerate(raw_segs):
+            if not isinstance(seg, dict):
+                errors.append(f"segments[{i}] 必须是对象")
+                continue
+            # 区间 —— **复用 `_clean_span`**（端点存在性 / 起止反 / >2 端点 / 记录级编号
+            # 那一整套规矩与 R1 逐字相同; 坏的那条它已经 `_drop` 过了）
+            span = _clean_span(seg.get("span"), seq_set, label=f"segments[{i}].span",
+                               warnings=warnings, drops=drops)
+            if span is None:
+                continue
+            key = (span[0], span[1])
+            if key in seen:
+                _drop(warnings, drops, f"segments[{i}].span {span} 与前面那条完全一样——丢弃")
+                continue
+            seen.add(key)
+            abstract = seg.get("abstract")
+            if not isinstance(abstract, str) or not abstract.strip():
+                _drop(warnings, drops, f"segments[{i}] 缺 abstract（一句总括）——丢弃")
+                continue
+            abstract = abstract.strip()
+            if len(abstract) > ABSTRACT_MAX:
+                # 软上限: 收下但告警（它不是形状错 —— 超了只说明她写得长）
+                warnings.append(f"segments[{i}].abstract {len(abstract)} 字 > {ABSTRACT_MAX}"
+                                f"（收下但请写短）")
+            # `keep` 缺/非法 ⇒ **默认档** + 告警（形状毛病, 不废整包也不丢内容）
+            keep = seg.get("keep")
+            if not isinstance(keep, str) or keep.strip() not in KEEP_VALUES:
+                warnings.append(f"segments[{i}].keep 不是 "
+                                f"{'/'.join(KEEP_VALUES)} 之一（{keep!r}）——按 "
+                                f"{KEEP_DEFAULT} 收下")
+                keep = KEEP_DEFAULT
+            out.append({"span": list(span), "keep": keep.strip(), "abstract": abstract})
+
+        if not out and raw_segs:
+            warnings.append("这一包**一条切片都没留下**（全部被剔除）——"
+                            "本段不会有任何记忆, 看上面的 `drops`")
         return out, ValidationResult(tuple(errors), tuple(warnings), tuple(drops))
 
     def parse_close(self, raw: Any) -> tuple[list[dict], ValidationResult]:
