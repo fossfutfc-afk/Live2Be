@@ -538,8 +538,9 @@ def test_apply_closures_writes_note_ops_only(tmp_path):
     assert [n.id for n in st.all()] == before              # **图面零变化**
     assert len(st.graph().edges) == n_edges
     # note 面: 只**产**操作, 不落库（调用方等事务 ok 之后 append）
-    assert res.ops == [{"action": "close", "id": "n1", "afterwards": "周六真的去了",
-                        "state": "kept"}]
+    assert res.ops == [{"action": "close", "id": "n1"}]
+    # ⚠️ 2026-10-05: `afterwards` / `state` 不再进 op（划掉即移除 ⇒ note 面没有读者）;
+    #    它们仍进审计账 —— 下面两行钉的就是这一点
     # 审计留痕（`evolution.jsonl`）—— 现在记的是"结清"而不是"固化"
     rows = EvolutionLog.for_store(st).read()
     assert [r["action"] for r in rows] == ["close"]
@@ -553,8 +554,7 @@ def test_apply_closures_close_without_finish_episode(tmp_path):
                                "afterwards": "那天我忘了"}], note_state=state)
 
     assert res.warnings == [] and len(res.ops) == 1
-    assert res.ops[0] == {"action": "close", "id": "n1", "afterwards": "那天我忘了",
-                          "state": "broken"}
+    assert res.ops[0] == {"action": "close", "id": "n1"}      # 失约也只产一条"划掉"
     assert [n.id for n in st.all() if n.kind not in ("episode", "belief", "experience",
                                                      "entity")] == []
 
@@ -600,8 +600,7 @@ def test_apply_closures_needs_no_entities(tmp_path):
                                "afterwards": "没去成", "refs": ["m0001"]}], note_state=state)
 
     assert res.warnings == []                              # 从前那条"from/to 不写"的告警没了
-    assert res.ops == [{"action": "close", "id": "n1", "afterwards": "没去成",
-                        "state": "broken"}]
+    assert res.ops == [{"action": "close", "id": "n1"}]
     assert [n.id for n in st.all()] == before
 
 

@@ -25,7 +25,7 @@
 ## 为什么单独一件（而不是塞进 `render.py` / `address.py`）
 
 · `render.py` 与 `notes.py` 之间**已经有延迟 import 的环**（`render` 里
-  `from …notes import CLOSED_WORDS`）—— 公共件放进任一方, 另一方就得反向依赖;
+  `from …notes import render_item`）—— 公共件放进任一方, 另一方就得反向依赖;
   本模块**零依赖、零 IO、不碰 store**, 谁都能 import, 没有环。
 · `address.py` 是**另一半**（她写下的形式 → 节点）。两半**共用同一份字符集**
   （`address` 从这里取 `STRIP_CHARS` / `FIELD_SEP`, 不再自己抄一份）, 但不住一个文件
@@ -107,8 +107,8 @@ def kind_tag(node: "BrainNode") -> str:
     ⚠️ **类型从节点上取, 不由调用方传进来**（传进来就有两个真源, 而"类型怎么印"
     这种印法必须只有一处）。
     ⏸ **原 `promise·已兑现` 那一支 2026-09-29 删** —— promise 退图（节点上不再有
-    `outcome`），它的结局今天住在 note 条目的 `state` 里（注入块那三种尾巴仍在,
-    见 `notes.CLOSED_WORDS`）。
+    `outcome`）, 结局该由**那条经历的正文**说（2026-10-05 起 note 面也不再渲染它:
+    `close` = 划掉即移除）。
     """
     return node.kind
 

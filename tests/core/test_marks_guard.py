@@ -139,7 +139,7 @@ def test_marks_is_runtime_dependency_free():
     """⑤ `marks.py` **import 期**零依赖（零 IO / 不碰 store / 不会有环）。
 
     ⚠️ 只看**模块级** import: 函数里的延迟 import 是允许的（`kind_tag` 借
-    `notes.CLOSED_WORDS`、时间两格借 `worldtime.age` —— 都是"用到才拉", 不成环）。
+    `notes.render_item`、时间两格借 `worldtime.age` —— 都是"用到才拉", 不成环）。
     """
     tree = ast.parse((PKG / "marks.py").read_text(encoding="utf-8"))
     mods: set[str] = set()

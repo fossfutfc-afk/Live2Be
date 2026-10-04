@@ -38,8 +38,8 @@
 | **L3** | **R0 产表 + 资格位 + 料** | 产表 · 超期资格位（`due < 今天` ∧ 本段没提到它 ∧ 过了几天）· 料加【本段的时间】+【日子】+ 逐条现状行 | `rounds/split.py` · `material.py` | 资格位**只在超期时**发（不超期时 `span: null` ⇒ 拒）· 生日跨格式能折 | L1 L2 P1 P2 | ~140 行 |
 | **L4** | **段 / 覆盖 / 章收口** | 无区间行过滤 · 覆盖按集合 · `_collapse_bond_episodes` 带 `state`/`id` | `segment.py` | 同 span 两行仍"未认领 = 0" · 章合并后标记还在 | L3 | ~60 行 |
 | **L5** | **R1 按行填** | 料**只含有区间的行** · drop 规则（`open`/`close` 不许 drop）· `abstract` 分档（60 / 正文上限） | `rounds/record.py` · `material.py` | "同一时刻第二条记忆"不再告警 · 不许 drop 能红 | L3 | ~60 行 |
-| **L6** | **note 面：划掉即除去** | `validate_ops` 的 `close`（只剩 `id`）/`retire` 分支 · `_apply_close` 与 `_apply_retire` 合一 · 删 `state`/结清渲染/`CLOSED_WORDS`/`_closed_suffix` | `brain/notes.py` | 三种结局跑完，本子上都不剩 | L1 | ~80 行 |
-| **L7** | **引擎固化** | 按 `state` 产 note op：`add`（新建）/ **`update`（更正，带 `before`/`after`）**/ `close`（划掉）· 无区间经历（`event_seq=[interact_max]`、`ts`=那天）· `#pinned` **建节点时**打 | `rounds/record.py` · `brain/notes.py` · `brain/revise.py` | ⭐ **幂等：同一段重跑，图上仍只有一条；`before == after` ⇒ 不写 op** | L5 L6 | ~120 行 |
+| ~~**L6**~~ | ✅ **已落 2026-10-05**（提前做了 —— 它**不依赖 L1**） | `close` = **划掉即移除**; `retire` 与它合一（写侧 op 删, 旧档读侧仍认）· `validate_ops` 三处 · 删 `state` / `afterwards` / `closed_at` / `CLOSED_WORDS` / 结清组渲染 · `from_dict` **挡掉旧缓存里带 `closed_at` 的条目** | `brain/notes.py` · `rounds/close.py` · `brain/revise.py` | 三种结局跑完本子上都不剩 · 旧档兼容 · 幂等 | — | 已落 |
+| **L7** | **引擎固化** | 按 `state` 产 note op：`add`（新建）/ **`update`（更正，带 `before`/`after`）**/ `close`（划掉）· 无区间经历（`event_seq=[interact_max]`、`ts`=那天）· `#pinned` **建节点时**打<br>⏳ **已完成**: 三个构造器（`add` / `close` / **`update`**）+ `note/update` 的 fold 侧（2026-10-05）—— **差"按 R0 的表产 op"**（等 L1/L3） | `rounds/record.py` · `brain/notes.py` · `brain/revise.py` | ⭐ **幂等：同一段重跑，图上仍只有一条；`before == after` ⇒ 不写 op** | L5 L6 | ~120 行 |
 | **L8** | **删收口轮** | `ROUNDS` 删 `close` 那行 · `apply_closures` 去留 · 预算回落 **5×120** | `rounds/__init__.py` · `brain/revise.py` | `IMPL` 与表同序同集（已有守门） | L7 | ~40 行 |
 | **L9** | **体检与台账** | "开着的条数"进 `notes.check` · "超期未决"记账（可 grep，**不自动作废**） | `brain/notes.py` · `mmt/engine.py` | 日志可 grep · 超期不被自动划掉 | L6 | ~30 行 |
 | **L10** | **端到端 + 旧档** | 一段 MMT 全链（`open` → `close`）· 静默作废（`span: null`）· **生日类誓约**（原文自带日期 / 注入折算 / 不知道就不写 `due` / 后来知道了 ⇒ `open`+`id` 更正）· 旧档两条 open 无 `due` | `tests/` | §4 的十三条守门全绿 | L1–L9 | ~200 行 |
@@ -104,3 +104,4 @@
 | 2026-10-05 | 建表（规格已裁；**未动代码**） |
 | 2026-10-05 | 补"生日 / 特殊日子"陷阱：料加【日子】· `due` 落在过去 ⇒ 拒 · P2 从"前置"降级为**数据缺口**（角色侧现成、玩家侧没有） |
 | 2026-10-05 | "不答就诚实记着" + **`open` + `id` = 更正**（代替 `note/due` op）：L1/L7 加分支 · 守门 **11 → 13 条** |
+| 2026-10-05 | ⭐ **L6 提前落地**（不依赖 L1）: `close` = 划掉即移除（`retire` 合一）· 新 op **`update`** · 删三个字段与结清渲染 · 旧档三处兼容 · 守门**变异验过能红** |
