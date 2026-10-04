@@ -211,9 +211,10 @@ def test_check_reports_dangling_refs_missing_refs_and_caps():
     assert any("备忘录太长" in p for p in
                notes.check(st, block_chars=notes.MAX_NOTE_CHARS + 1))
 
-    # 正文超长: 该写名词短语, 不写陈述句
-    long_text = notes.fold([_add(1, text="约好" * 11)])         # 22 字 > MAX_TEXT(20)
-    assert any("名词短语" in p for p in notes.check(long_text))
+    # ⛔ 正文长度**不再是**体检判据（2026-10-05 删）—— 它必然恒响（3b-3 起 note 正文 =
+    #    切片的 abstract, 契约上限 60 > 20）, 只会制造噪音; 长度真源 = 契约层 `ABSTRACT_MAX`
+    long_text = notes.fold([_add(1, text="约好" * 11)])          # 22 字
+    assert not any("名词短语" in p for p in notes.check(long_text))
 
     # ⛔ ~~快照槽用自己的标尺~~ **N4e（2026-09-29）取消** —— `on_mind` 退役后
     # 槽收成一个, "按槽分标尺"那套机制一起删（判据: 没读者就删）。现在只有一个标尺。
