@@ -89,7 +89,7 @@ core/          引擎层（无 web 依赖, CLI/实验同源复用）
    ├ brain/                  记忆**数据层**（点/边/存储/笔记/记号/地址）—— 纯 stdlib、**零 LLM**
    │                         （2026-09-29 起这条是**包边界**, 不只是注释）
    │   └ read/               ⭐ **读路径**（2026-09-29 分家, 只读不写图）: 注入视图 render ·
-   │                         召回 recall/channels/channel_impl/compose 与两个台账/旋钮 · panorama
+   │                         召回 recall/channels/channel_impl/compose 与两个台账/旋钮
    ├ digest/                 **记忆消化管线**（每段 5 次调用: ① 记 R1 → ② 收口 R4 → ③ 接 R2
    │                         → ④ 挂 R3 → ⑤ L2-a 分群）· ⭐ **`rounds/` 包 = 轮次表**（`__init__.py` 是表, `base.py` 是 `Ctx`/`RoundOut`,
    │                         六个轮文件各一个 `run(ctx)` —— 2026-09-29 乙-1）
@@ -421,8 +421,7 @@ CLI/测试同步路径在引擎内串行。
   `completed` 只可能来自 `stage:end`（`is_end`）⇒ **没有 end 的章永远不进记忆**。
 - **随身笔记（note）**：`soul/notes.json` 是**派生缓存**，真源 = 事件流的 note 操作。
   **写者收成一个**（2026-09-29, N4a）：`pinned`（原 `promise`）归 **R4 收口**、⭐ `on_mind` 归 **L1（Round A）**；
-  ⚠️ **`habits` 槽与"全景轮（每 10 段写卡 `segments_since_card`）"已整条退役**（取料逻辑留在
-  `panorama.py` 待切块用）。⭐ **`pinned` 槽（2026-09-29 由 `promise` 改名 —— 判据收紧成"说定的将来 + 值得随身带着",
+  ⚠️ **`habits` 槽与"全景轮（每 10 段写卡 `segments_since_card`）"已整条退役**（取料件 `panorama.py` 也已于 2026-10-05 删）。⭐ **`pinned` 槽（2026-09-29 由 `promise` 改名 —— 判据收紧成"说定的将来 + 值得随身带着",
   日常安排不算）是约定的唯一落脚点**（承诺退出图,
   不再"闭合固化进节点"）; "这条经历涉及约定"由 **`tags`** 承担（只做筛选, 不承担路由）。
   注入面**两处**：① 常驻 `【你自己记的备忘录】`（bond 开场 / MMT

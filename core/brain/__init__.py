@@ -28,7 +28,6 @@
         compose.py       **最终打分**（四条道路合成 = 调和平均 rel×prior）✅ 2026-09-20
         recall_config.py 召回旋钮（settings.toml [recall]）          ✅ V3-0
         recall_ledger.py 召回台账（写路径候选碰撞 / 读路径注入视图）  ✅ V3-0
-        panorama.py      全景轮取料逻辑（轮已退役, 留取料给"切块"用） ⏸ N4a
     seed.py    （2026-09-05 出厂链归档——seed_from_config 不再导出,
                主进程解耦; 本体已移 archive/factory_memory/）
 

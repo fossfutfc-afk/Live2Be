@@ -10,7 +10,6 @@
 | `channels.py` · `channel_impl.py` | 五条召回链路的**接口**与实现（多数"诚实的空"——缺数据不出分） |
 | `compose.py` | **最终打分**（四条道路合成 = 调和平均 rel × prior） |
 | `recall_config.py` · `recall_ledger.py` | 召回旋钮（`settings.toml [recall]`）与台账（写/读两路径各打一行） |
-| `panorama.py` | 全景轮**取料**逻辑（那轮已退役 ⏸ N4a, 取料留给将来的"切块"用） |
 
 ⚠️ **边界纪律**: 这里**不许写图**（不 `store.add` / 不 `add_edge`）——要写就走
 `core/brain/` 的写路径（`revise` / `groups` / `store`）。分家的价值就是把这条
