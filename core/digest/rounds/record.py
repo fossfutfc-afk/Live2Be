@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import logging
 
+from core.brain.notes import ALREADY_PINNED, add_op
 from core.digest.episodes import _create_a_nodes, _resolve_verbatim
 from core.digest.material import SKELETON_HINT, _skeleton_text
 from core.digest.rounds.base import Ctx, RoundOut
@@ -59,11 +60,18 @@ def run(ctx: Ctx) -> RoundOut:
     for ent in entries:
         _resolve_verbatim(ent, ctx.by_seq)
     reused: list[str] = []
+    before = len(ctx.episode_ids)
     ctx.episode_ids, ctx.player_ids = _create_a_nodes(
         ctx.store, entries, ts=ctx.now_ts,
         event_seq=[ctx.interact_max], aff_at_encoding=ctx.aff_at_encoding,
         by_seq=ctx.by_seq, reused_out=reused)
-    _note_items(ctx, entries, reused, gaps)
+    # ⭐ **`keep=always` ⇒ 长成 note**（3b-3）—— 用刚建出来的 episode id 当 `refs`
+    # （切分权在 R0, 所以 note 的来源是**它自己那条切片**; 身份取"指向哪条 episode"⇒ 重跑不重复记）
+    # ⚠️ **判重复复用的那条不算"新的"** —— 它的 note 上一段已经写过了（重跑幂等的第一道,
+    # 节点面复用之后这道必须跟着生效, 否则 op 会再产一次、白写一条事件）
+    new_eps = [e for e in ctx.episode_ids[before:] if e not in reused]
+    keeper = _pinned_ops(ctx, gaps.get("orders") or [], new_eps)
+    _note_items(ctx, entries, reused, gaps, keeper)
     return RoundOut.done()
 
 
@@ -92,19 +100,21 @@ def _align_to_skeleton(entries: list[dict], segments: list[dict]
     """
     seg_count = len(segments)
     out: list[dict] = []
+    orders: list[int] = []          # ⭐ 每条落节点的条目**对到第几条切片**（0 基）—— note 要用
     dropped: list[str] = []
     unfilled: list[str] = []
     for i, ent in enumerate(entries):
+        j = min(i, seg_count - 1) if seg_count else i
         if ent.get("drop"):
-            dropped.append(_brief(segments[min(i, seg_count - 1)], min(i, seg_count - 1))
-                           if seg_count else f"#{i + 1}")
+            dropped.append(_brief(segments[j], j) if seg_count else f"#{i + 1}")
             continue
-        seg = segments[min(i, seg_count - 1)] if seg_count else None
+        seg = segments[j] if seg_count else None
         ent["seqs"] = list((seg or {}).get("seqs") or [])
         if not ent["seqs"]:
             # 切片自己没有位置（R0 的区间被契约层丢了）⇒ 落回段级指针, 并记账
-            unfilled.append(_brief(seg or {}, i))
+            unfilled.append(_brief(seg or {}, j))
             ent.pop("seqs", None)
+        orders.append(j)
         out.append(ent)
     if seg_count and len(entries) > seg_count:
         logger.warning("digest_record 多写了 %d 条（骨架只有 %d 条）—— 都挂在末条切片上: %s",
@@ -116,7 +126,7 @@ def _align_to_skeleton(entries: list[dict], segments: list[dict]
     if dropped or unfilled:
         logger.info("digest_record drop=%d 漏填=%d（漏填的几条没人记）: %s",
                     len(dropped), len(unfilled), unfilled[:6] or "-")
-    return out, {"dropped": dropped, "unfilled": unfilled}
+    return out, {"dropped": dropped, "unfilled": unfilled, "orders": orders}
 
 
 def _brief(seg: dict, i: int) -> str:
@@ -124,12 +134,67 @@ def _brief(seg: dict, i: int) -> str:
     return f"#{i + 1} {seg.get('abstract') or '-'}"
 
 
+def _pinned_ops(ctx: Ctx, orders: list[int], new_eps: list[str]) -> dict:
+    """⭐ **`keep=always` 的切片 ⇒ 一条 `note/add`**（3b-3）—— 返回缺口账。
+
+    ## 三条判据
+
+    1. **来源 = 那条切片自己的 episode**: `refs` 取**新**建出来的 episode id。
+       切分权在 R0 ⇒ 约定挂在**它自己那件事**上, 不需要 LLM 指任何位置
+       （这正是最初那个"实时记一笔拿不到地址"的问题的解法）。
+    2. ⚠️ **`refs` 只收新节点**: 判重复而复用的那条不在 `new_eps` 里 —— 它的 note
+       上一段已经写过了（重跑幂等的第二道）。
+    3. ⛔ **她 drop 掉一条 `always`** ⇒ **收下她的裁决**, 但**记账**（返回 `lost_kept`）:
+       "说过要一直带着的东西没被记住"不能是静默的。它走已有的 D1 台账那条通路
+       （`digest_gap` 的 `items.dropped`）—— ⛔ 不发明新机制。
+       ⛔ **也不替她补**: 引擎补 = 把她没说的话写进她的本子。
+
+    ## 为什么不在这里做去重
+
+    重跑幂等有**两道**, 都不在这个函数里:
+      · **节点面**: `_create_a_nodes` 的 `_find_duplicate` 会复用旧节点 ⇒ 复用出来的
+        不进 `new_eps` ⇒ 这里根本不会产 op（上面判据 2）;
+      · **笔记面**: op 里带 **`src`**（= 它指向的那条 episode）, `fold` 见到
+        "already 在本子上的条目里有一条 `refs` 含同一个 `src`" 就跳过
+        （`notes.ALREADY_PINNED`）—— ⚠️ 拿 `refs` 而不是拿正文比:
+        她两次可能把同一句话写得不一样, 而**指向哪条经历**是确定的。
+
+    ## 形状
+
+    `text` = 切片的 `abstract`（**原样**）: 契约要求 `always` 的那句就是
+    "她带走的那句话"（"还欠着什么 + 她此刻对它的那点意思"）⇒ 不再二次加工。
+    """
+    if not orders:
+        return {"lost_kept": []}
+    lost_kept: list[str] = []
+    # 切片序号 → 它长出来的 episode（`orders[i]` = 第 i 条条目对到第几条切片）
+    ep_of: dict[int, str] = {}
+    for pos, j in enumerate(orders):
+        if pos < len(new_eps):
+            ep_of.setdefault(j, new_eps[pos])
+    for j, seg in enumerate(ctx.result.segments):
+        if seg.get("keep") != "always":
+            continue
+        text = str(seg.get("abstract") or "").strip()
+        ep = ep_of.get(j)
+        if not (text and ep):
+            # 没人填 / 契约层丢了区间 / 正文空 —— 那条约定的**唯一书面留存**没了 ⇒ 进账
+            lost_kept.append(f"#{j + 1} {text or seg.get('abstract') or '-'}")
+            continue
+        ctx.result.notes_ops.append(add_op(text, [ep], src=ep))
+    if lost_kept:
+        logger.warning("digest_record `keep=always` 有 %d 条没长成 note（约定丢了）: %s",
+                       len(lost_kept), lost_kept[:4])
+    return {"lost_kept": lost_kept}
+
+
 def _note_items(ctx: Ctx, entries: list[dict], reused: list[str],
-                gaps: dict | None = None) -> None:
+                gaps: dict | None = None, keeper: dict | None = None) -> None:
     """D1 的**条目面**台账（`items`）—— 只有它**不可重算**。
 
-    三半合成一行账:
-      · `dropped` = R0 章收口丢掉的（`segment_collapsed`）+ 她 `drop` 的 + 切片没位置的;
+    四半合成一行账:
+      · `dropped` = R0 章收口丢掉的（`segment_collapsed`）+ 她 `drop` 的 +
+        切片没位置的 + ⭐ **她 drop 掉/没填的 `keep=always`**（3b-3: 约定丢了要看得见）;
       · `no_pos`  = 落回段级指针的条数;
       · `reused`  = 判重复而复用的 id。
     ⚠️ 声明在表里 record 的 `result_fields` ⇒ 整段回滚时由 `reset_result` 一起清掉
@@ -138,11 +203,12 @@ def _note_items(ctx: Ctx, entries: list[dict], reused: list[str],
     collapsed = list(getattr(ctx.result, "segment_collapsed", None) or [])
     gaps = gaps or {}
     unfilled = list(gaps.get("unfilled") or [])
+    lost_kept = list((keeper or {}).get("lost_kept") or [])
     # `in` = 切分员**交了几件** = 活着的 + 被契约层当场丢的（丢的在 `segments` 里已不存在）
     n_in = (len(ctx.result.segments)
             + int(getattr(ctx.result, "segment_dropped", 0) or 0))
     ctx.result.record_gaps = {"items": {
         "in": n_in, "kept": len(entries),
         "no_pos": len(unfilled),
-        "dropped": collapsed + list(gaps.get("dropped") or []) + unfilled,
+        "dropped": (collapsed + list(gaps.get("dropped") or []) + unfilled + lost_kept),
         "reused": reused}}

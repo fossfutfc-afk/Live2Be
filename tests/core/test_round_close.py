@@ -248,16 +248,18 @@ def test_later_round_failure_drops_note_ops(tmp_path):
 class EngineLLM:
     """引擎级: A/R4/B 三份应答（其余旁路走标准桩 —— 含 R3 归属）。"""
 
-    def __init__(self, a, close, b):
+    def __init__(self, a, close, b, *, split=None):
         self.a, self.close, self.b = a, close, b
+        self.split = split
         self.tasks: list[str | None] = []
 
     def chat(self, messages, temperature=0.8, max_tokens=4096, response_format="text",
              **kw):
         task = kw.get("task")
         self.tasks.append(task)
-        if task == T.DIGEST_SPLIT:            # ⭐ R0: 照搬 R1 那份应答里的区间
-            return stub_tasks.split_for_scripted(messages, self.a)
+        if task == T.DIGEST_SPLIT:            # ⭐ R0: 显式给就用它, 否则照搬 R1 的区间
+            return (self.split if self.split is not None
+                    else stub_tasks.split_for_scripted(messages, self.a))
         if task == T.DIGEST_RECORD:
             return self.a
         if task == T.DIGEST_CLOSE:
@@ -268,6 +270,51 @@ class EngineLLM:
         if reply is not None:
             return reply
         raise RuntimeError(f"意外调用 task={task!r}")
+
+
+def test_engine_writes_r1_kept_note_and_does_not_duplicate_on_rerun(tmp_path):
+    """⭐ 3b-3 端到端: `keep=always` 的切片 ⇒ 约定**落进真源与注入块**; **重跑不重复记**。
+
+    两条判据:
+      · R1 产的 `add` 与 R4 产的那条**走同一条交付通道**（`result.notes_ops` →
+        引擎 `_write_note_ops` 先真源后缓存 + 重建注入）;
+      · 重跑（同一段再消化一次）时, 节点面由 `_find_duplicate` 复用 ⇒ **不产新 op**;
+        就算产了, 笔记面还有 `notes.ALREADY_PINNED` 那道（按"指向哪条经历"去重）。
+    """
+    st = SessionStore(tmp_path)
+    engine = MomoTalkEngine(ROOT / "config" / "characters", None, store=st)
+    engine.start_session(CHARACTER)
+    root = st.create(CHARACTER)
+    engine.attach_session(root.session_id)
+    engine._session_rounds = 25
+    e = make_event("mmt", "mmt_chat", {"player": "老师", "reply": "嗯"})
+    st.append_event(CHARACTER, "", e)
+    # ⚠️ 区间要落在**本段真有的那个 seq** 上（号由 store 发 —— `append_event` 不改
+    # 我们手里那个对象, 所以从真源读回来）
+    seq = st.events(CHARACTER)[-1].seq
+    split = {"segments": [{"span": [seq, seq], "keep": "always",
+                           "abstract": "明天把两个团子带去夏莱, 别多想"}]}
+    engine.llm = EngineLLM(_a("她答应了带团子"), {"add": [], "close": []},
+                           _b(["m0001"]), split=split)
+
+    engine._run_digest(CHARACTER, engine._session_id)          # 同步跑
+
+    evs = [e for e in st.events(CHARACTER) if e.type == TYPE_NOTE]
+    assert len(evs) == 1 and evs[0].subtype == "add", evs
+    assert evs[0].payload["text"] == "明天把两个团子带去夏莱, 别多想"
+    assert evs[0].payload["refs"] == ["m0001"]
+    ws = WikiStoreV2(st.data_root, world_id=st.world_id, char_id=CHARACTER)
+    state = ws.read_notes()
+    assert state is not None and [it.text for it in state.pinned] == [
+        "明天把两个团子带去夏莱, 别多想"]
+    assert "两个团子" in engine._brain_injection
+
+    # ⭐ 重跑: 水位没推进（模拟崩溃窗口）⇒ 同一段再消化一次
+    ws.meta["digested_seq"] = 0
+    ws.save_meta()
+    engine._run_digest(CHARACTER, engine._session_id)
+    evs2 = [e for e in st.events(CHARACTER) if e.type == TYPE_NOTE]
+    assert len(evs2) == 1, f"同一条经历不该被钉第二次: {[e.payload for e in evs2]}"
 
 
 def test_r2_list_has_no_promise_anymore(tmp_path):

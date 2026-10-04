@@ -117,6 +117,13 @@ MAX_TEXT = 20
 #: ⛔ ~~`MAX_ON_MIND_TEXT = 60`~~ **2026-09-29（N4e）随 `on_mind` 退役** ——
 #: 它是"按槽分标尺"里的那一支（心境可以有口气、有破折号 ⇒ 与 A 槽不同限）。
 #: 槽收成一个之后**标尺也收成一条**, 就是上面那个 `MAX_TEXT`。
+#: ⭐ **`add` 操作上的去重键**（3b-3, 2026-09-29）—— "这条笔记指向哪条经历"。
+#: `fold` 见到"本子上已经有一条 `refs` 含同一个值"就**跳过这条 add**:
+#: digest 重跑（水位没推进 / 崩溃窗口）时, 节点面已经由 `_find_duplicate` 复用,
+#: 而笔记面靠它。⚠️ **名字是字面量 `"src"`**（不是槽名）—— 它是 op 的元数据,
+#: 不是条目字段; `NoteItem.from_dict` 不认它（它只在写侧与 `fold` 之间用）。
+ALREADY_PINNED = "src"
+
 #: ⭐ **约定的结局**（`close` 行的 `state`）—— **运行时真源**（改名 `PROMISE_OUTCOMES` →
 #: `PINNED_OUTCOMES`, 2026-09-29 随槽名一起对齐）。
 #: ⚠️ 节点上没有 `outcome` 字段（promise 退图）⇒ 这 3 个词只活在 note 面
@@ -334,11 +341,20 @@ def fold(events: Iterable[Any], *, base: NotesState | None = None) -> NotesState
 
 
 def _apply_add(st: NotesState, payload: dict, ts: str, seq: int) -> None:
-    """加一条（A 类）—— `id`/`since` 由引擎给（模型只写正文 + 引用）。"""
+    """加一条（A 类）—— `id`/`since` 由引擎给（模型只写正文 + 引用）。
+
+    ⭐ **重跑幂等的第二道**（3b-3）: `payload[ALREADY_PINNED]`（= 这条笔记由哪条经历
+    长出来的）已经在某条活着的条目里 ⇒ **跳过**（同一条经历不重复钉）。
+    ⚠️ 拿它比、**不拿正文比**: 她两次可能把同一句话写得不一样, 而来源是确定的。
+    """
     text = str(payload.get("text") or "").strip()
     refs = _str_list(payload.get("refs"))
     if not text or not refs:
         logger.warning("note/add 残缺（跳过）: seq=%s text=%r refs=%r", seq, text, refs)
+        return
+    src = str(payload.get(ALREADY_PINNED) or "").strip()
+    if src and any(src in it.refs for it in st.pinned):
+        logger.info("note/add 跳过（同一条经历已经钉过）: src=%s seq=%s", src, seq)
         return
     st.pinned.append(NoteItem(id=_alloc_id(st), text=text, refs=refs, since=ts,
                                due=str(payload.get("due") or "").strip()))
@@ -436,11 +452,19 @@ def _alloc_id(st: NotesState) -> str:
 # 写侧: 构造 + 校验（唯一出口）
 # ---------------------------------------------------------------------------
 
-def add_op(text: str, refs: Iterable[str], *, due: str = "") -> dict:
-    """`add` 操作（**不需要理由** —— 正文自己就是理由）。"""
+def add_op(text: str, refs: Iterable[str], *, due: str = "", src: str = "") -> dict:
+    """`add` 操作（**不需要理由** —— 正文自己就是理由）。
+
+    `src`（⭐ 3b-3, 2026-09-29）: **这条笔记由哪条经历长出来的**（= 它唯一那条 ref）。
+    它是**去重键**: `fold` 见到"本子上已经有一条指向同一条经历的"就跳过 ——
+    重跑幂等的第二道（第一道是 `_find_duplicate` 复用节点, 那一道在节点面）。
+    ⚠️ 去重**拿它、不拿正文**: 她两次可能把同一句话写得不一样, 而"指向哪条经历"是确定的。
+    """
     op: dict[str, Any] = {"action": N_ADD, "text": text, "refs": list(refs)}
     if str(due or "").strip():
         op["due"] = due                                   # 可选; 空则不落这个键
+    if str(src or "").strip():
+        op[ALREADY_PINNED] = src
     return _checked(op)
 
 
@@ -494,6 +518,8 @@ def validate_ops(ops: list[dict]) -> None:
     动作名 · `add` 的 `text` + `refs` · **`close` 的 `id` + `afterwards` + `state`** ·
     `retire` 的 `id`。
     **不查** `refs` 是否存在 —— "世上有没有那个节点"要看世界, 归 `check()` 告警。
+    ⚠️ `add` 上的 `ALREADY_PINNED`（`src`）也**不查**（3b-3）: 它是去重键,
+    指向的节点存不存在同样归 `check()`。
     ⚠️ **`rewrite` 已不在写侧**（N4e 随 `on_mind` 退役）—— 走到这里 = 有人新造了一条
     往一个不存在的槽里写的操作 ⇒ 按**未知动作**拒（`fold` 那边仍吞旧档里的它）。
     """

@@ -390,24 +390,34 @@ def _mmt(seq, player="老师", reply="嗯"):
 
 
 class RoundLLM:
-    """R0 一头一片 / R1 正常 / R4 给一条**引用坏了**的约定 / R2 引用不存在的 episode。"""
+    """R0 一头一片 / R1 正常 / R4 给一条**引用坏了**的约定 / R2 引用不存在的 episode。
 
-    def __init__(self):
+    ⚠️ 四个应答都**可以逐个覆盖**（`a` / `b` / `split`）—— 3b-3 那几条用例要的是
+    "`keep=always` 长成 note", 默认那套（R2 引用 `m9999`）会先把整段打回。
+    """
+
+    def __init__(self, *, a=None, b=None, split=None):
+        self.a = a or {"episodes": [{"text": "模型店门口", "title": "模型店门口",
+                                     "tags": ["约定"]}]}
+        self.b = b or {"decisions": [{"episode": "m9999", "decision": "add",
+                                      "kind": "belief", "text": "关于那家店的看法"}]}
+        self.split = split
         self.tasks: list[str | None] = []
 
     def chat(self, messages, **kw):
         task = kw.get("task")
         self.tasks.append(task)
         if task == T.DIGEST_SPLIT:
-            return stub_tasks.split_reply(messages)
+            return self.split if self.split is not None \
+                else stub_tasks.split_reply(messages)
         if task == T.DIGEST_RECORD:
-            return {"episodes": [{"text": "模型店门口", "title": "模型店门口",
-                                  "tags": ["约定"]}]}
+            return self.a
         if task == T.DIGEST_CLOSE:
             return {"add": [{"text": "拍一张模型店的照", "refs": ["m9999"]}], "close": []}
         if task in (T.DIGEST_UNDERSTAND, T.DIGEST):
-            return {"decisions": [{"episode": "m9999", "decision": "add",
-                                   "kind": "belief", "text": "关于那家店的看法"}]}
+            return self.b
+        if task == T.DIGEST_ATTRIBUTE:      # 挂 —— 这些用例不测它, 空包放行
+            return {"attributions": []}
         raise RuntimeError(f"意外调用 task={task!r}")
 
 
@@ -485,13 +495,13 @@ def test_align_to_skeleton_three_judgements():
     out, gaps = _align_to_skeleton(
         [{"text": "a", "span": [99, 99]}, {"text": "b"}], segs)
     assert [e["seqs"] for e in out] == [[4], [5]], out
-    assert gaps == {"dropped": [], "unfilled": []}
+    assert gaps == {"dropped": [], "unfilled": [], "orders": [0, 1]}
 
     # ② 多写: 三条对两条 ⇒ 第 3 条附在**末条切片**上
     out2, gaps2 = _align_to_skeleton(
         [{"text": "a"}, {"text": "b"}, {"text": "c"}], segs)
     assert [e["seqs"] for e in out2] == [[4], [5], [5]], out2
-    assert gaps2 == {"dropped": [], "unfilled": []}
+    assert gaps2["dropped"] == [] and gaps2["unfilled"] == []
 
     # ③ 少写: 只给一条 ⇒ 第 2 条切片没人填（进账）
     out3, gaps3 = _align_to_skeleton([{"text": "a"}], segs)
@@ -504,6 +514,63 @@ def test_align_to_skeleton_three_judgements():
     assert [e.get("text") for e in out4] == ["b"] and out4[0]["seqs"] == [5], out4
     assert len(gaps4["dropped"]) == 1 and gaps4["unfilled"] == []
     print("    对位: 位置取切片 / 多写附末条 / 少写进账 / drop 占位 ✓")
+
+
+def test_keep_always_grows_into_a_note(tmp_path):
+    """⭐ 3b-3: **`keep=always` 的切片 ⇒ 一条 `note/add`**（`refs` = 它自己那条 episode）。
+
+    判据三件:
+      · `text` = 切片的 `abstract` **原样**（契约要求 `always` 那句就是"她带走的那句话"）;
+      · `refs` = **新**建出来的 episode（判重复复用的不算 —— 那一段已经写过 note 了）;
+      · op 里带 **`src`**（去重键, 见 `notes.ALREADY_PINNED`）。
+    """
+    st = _store(tmp_path)
+    llm = RoundLLM(
+        split={"segments": [
+            {"span": [3, 3], "keep": "always", "abstract": "明天把两个团子带去夏莱, 别多想"},
+            {"span": [3, 3], "keep": "temporary", "abstract": "随口聊了几句"}]},
+        a={"episodes": [{"text": "她答应了带团子", "title": "团子之约", "tags": ["约定"]},
+                        {"text": "闲聊", "title": "闲聊", "tags": ["闲聊"]}]},
+        b={"decisions": [
+            {"episode": "m0001", "decision": "add", "kind": "belief",
+             "subject": "sensei", "text": "老师会收下我的东西"},
+            {"episode": "m0002", "decision": "add", "kind": "belief",
+             "subject": "sensei", "text": "闲聊也算相处"}], "affection_exp_delta": 0})
+
+    res = digest_segment(st, llm, [_mmt(3)])
+
+    assert res.ok, res.errors
+    adds = [op for op in res.notes_ops if op.get("action") == "add"]
+    assert len(adds) == 1, res.notes_ops
+    op = adds[0]
+    assert op["text"] == "明天把两个团子带去夏莱, 别多想"     # abstract 原样
+    assert op["refs"] == ["m0001"] and op["src"] == "m0001"   # 指向它自己那条 episode
+    assert "due" not in op
+
+
+def test_kept_slice_without_a_node_is_a_loss(tmp_path):
+    """⛔ 3b-3: `keep=always` 的那条切片**没长成 note** ⇒ **收下她的裁决但记一笔账**。
+
+    它意味着一件"说过要一直带着的事"没被记住 —— 那不能是静默的。
+    ⛔ **不替她补**: 引擎补 = 把她没说的话写进她的本子。
+    """
+    st = _store(tmp_path)
+    # 她 drop 掉了那条 ⭐（契约说"不许 drop", 那是**提示词纪律** —— 引擎不硬拦, 但记账）
+    llm = RoundLLM(
+        split={"segments": [
+            {"span": [3, 3], "keep": "always", "abstract": "以后每年生日都一起过"},
+            {"span": [4, 4], "keep": "temporary", "abstract": "闲聊"}]},
+        a={"episodes": [{"drop": True},
+                        {"text": "闲聊", "title": "闲聊", "tags": ["闲聊"]}]},
+        b={"decisions": [{"episode": "m0001", "decision": "add", "kind": "belief",
+                          "subject": "sensei", "text": "闲聊也算相处"}],
+           "affection_exp_delta": 0})
+    res = digest_segment(st, llm, [_mmt(3), _mmt(4)])
+
+    assert res.ok, res.errors
+    assert [op for op in res.notes_ops if op.get("action") == "add"] == []
+    dropped = res.record_gaps["items"]["dropped"]
+    assert any("每年生日" in d for d in dropped), dropped
 
 
 def test_batch_rollback_also_drops_the_close_warnings(tmp_path):
