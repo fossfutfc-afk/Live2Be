@@ -27,7 +27,7 @@ from core.session.events import (
     EVENT_TYPES,
     N_ADD,
     N_CLOSE,
-    N_RETIRE,
+    N_UPDATE,
     NON_CONTENT_TYPES,
     NOTE_SUBTYPES,
     TYPE_NOTE,
@@ -84,7 +84,9 @@ def _mmt(seq, player="老师好", reply="啊、老师好……"):
 
 def test_note_type_is_registered_and_roundtrips():
     assert TYPE_NOTE in EVENT_TYPES
-    assert NOTE_SUBTYPES == (N_ADD, N_CLOSE, N_RETIRE, "rewrite")
+    assert NOTE_SUBTYPES == (N_ADD, N_CLOSE, N_UPDATE)
+    # ⛔ `retire`（2026-10-05 与 `close` 合并）与 `rewrite`（`on_mind` 退役）**只在旧档**
+    assert "retire" not in NOTE_SUBTYPES and "rewrite" not in NOTE_SUBTYPES
 
     e = _note(7, sub=N_CLOSE)
     back = Event.from_dict(e.to_dict())

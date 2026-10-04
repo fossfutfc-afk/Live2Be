@@ -4,8 +4,8 @@
 覆盖**纯函数层**: 操作事件 → `NotesState` → 注入块。
 （`soul/notes.json` 的落盘与引擎注入是后续步骤, 不在这里。）
 
-纪律都钉在这里: `close` 必须给理由 · `id` 只增不复用 · `refs` 悬空只告警 ·
-上限只告警 · 频次不进注入。
+纪律都钉在这里: **`close` = 划掉即移除**（2026-10-05 两段式合并）· `update` 只改
+`due`/`text` · `id` 只增不复用 · `refs` 悬空只告警 · 上限只告警 · 频次不进注入。
 ⛔ N4e（2026-09-29）: `on_mind` 槽退役 ⇒ "`rewrite` 只碰 B 类槽"这条纪律连同
 二分一起消失, 旧 `rewrite` 事件被**静默吞掉**（动作名留着, 见 `fold`）。
 """
@@ -20,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from core.brain import notes
 from core.session import make_event
-from core.session.events import N_ADD, N_CLOSE, N_RETIRE, N_REWRITE, TYPE_NOTE
+from core.session.events import N_ADD, N_CLOSE, N_RETIRE, N_REWRITE, N_UPDATE, TYPE_NOTE
 
 NOW = datetime(2026, 9, 23, 12, 0, 0)
 T0 = "2026-09-20T21:04:11+09:00"          # 3 天前
@@ -60,60 +60,84 @@ def test_incremental_fold_equals_full_fold():
     assert notes.fold(events, base=full).to_dict() == full.to_dict()
 
 
-def test_close_keeps_the_item_and_retire_removes_it():
-    """⭐ 两段式: **结清 ≠ 划掉** —— 结清后条目仍在块里, 图侧接住才 `retire`。"""
-    st = notes.fold([
-        _add(1),                                                    # n1
-        _ev(2, N_CLOSE, {"id": "n1", "afterwards": "周六去了模型店"}, ts=T1),
-    ])
+def test_close_removes_the_item_in_all_three_outcomes():
+    """⭐ 2026-10-05: `close` = **划掉即移除**（两段式合并成一步）。
 
-    assert [it.id for it in st.pinned] == ["n1"]        # **还在**（不变量: 至少一个可见面）
-    assert st.pinned[0].closed is True
-    assert st.pinned[0].afterwards == "周六去了模型店"
-    assert st.pinned[0].text == "周六模型店"             # 文本没丢 ⇒ 固化要用它
-    assert "n1" in notes.render_note_block(st, now=NOW)  # 注入块里照旧看得见
-
-    st = notes.fold([_ev(3, N_RETIRE, {"id": "n1"})], base=st)
-    assert st.pinned == []                              # 图里已经有了 ⇒ 这才划掉
-    assert st.next_n == 2                                # 号照旧只增不复用
+    三种结局（兑现 / 失约 / 被取代）**一律移除** —— 结局与"后来怎么了"改由
+    **图里那条经历**承担; 本子只留"还开着的"（当前抽屉, 不是账簿）。
+    """
+    for outcome in ("kept", "broken", "superseded", ""):
+        st = notes.fold([
+            _add(1),                                                    # n1
+            _ev(2, N_CLOSE, {"id": "n1", "state": outcome, "afterwards": "后来…"}),
+        ])
+        assert st.pinned == [], outcome
+        assert st.next_n == 2                                    # 号照旧只增不复用
+        assert "n1" not in notes.render_note_block(st, now=NOW)
 
 
-def test_retire_only_applies_to_closed_items(caplog):
-    """退场一条**还开着**的承诺 = 把它从唯一落脚点删掉（图里根本没有它）⇒ 拒。"""
+def test_old_archive_retire_means_the_same_thing_as_close(caplog):
+    """旧档里的 `retire` 与 `close` **同义**（2026-10-05 合并）—— 读侧必须照旧认它。"""
     st = notes.fold([_add(1), _ev(2, N_RETIRE, {"id": "n1"})])
-    assert [it.id for it in st.pinned] == ["n1"]
-    assert "还开着" in caplog.text
-
-    # 没结清过的 id / 根本不存在的 id → 只告警
-    assert notes.fold([_ev(3, N_RETIRE, {"id": "n99"})], base=st).pinned != []
-    with pytest.raises(ValueError, match="retire 缺 id"):
-        notes.retire_op("  ")
+    assert st.pinned == []
+    # 指不到的 id（已划掉 / 根本不存在）⇒ 只告警, 不抛
+    st2 = notes.fold([_add(1), _ev(2, N_RETIRE, {"id": "n99"})])
+    assert [it.id for it in st2.pinned] == ["n1"]
+    assert "指不到" in caplog.text
 
 
-def test_second_close_does_not_overwrite_what_came_after(caplog):
-    """块里印着 id ⇒ 必须防"二次 close 用幻觉理由覆盖真实理由"。"""
+def test_close_of_a_gone_item_only_warns(caplog):
+    """二次 close / 指不到的 id ⇒ 告警 + 跳过（不会复活, 也不会报错）。"""
     st = notes.fold([
         _add(1),
         _ev(2, N_CLOSE, {"id": "n1", "afterwards": "真的去了"}, ts=T1),
         _ev(3, N_CLOSE, {"id": "n1", "afterwards": "其实没去"}, ts=T1),
     ])
-    assert st.pinned[0].afterwards == "真的去了"
-    assert "不覆盖" in caplog.text
+    assert st.pinned == []
+    assert "指不到" in caplog.text
 
 
-def test_close_without_afterwards_applies_but_is_loud(caplog):
-    """**写侧拒, 读侧照做**: 事件说的就是"这条不再开着了", 不认它会让本子停在过去。"""
-    st = notes.fold([_add(1), _ev(2, N_CLOSE, {"id": "n1"})])
-    assert st.pinned[0].closed is True and st.pinned[0].afterwards == ""
-    assert st.pinned[0].state == ""                    # 旧事件没 state → 用中性兜底渲染
-
-    # 写侧硬门槛（`close` 必须给理由 + 给结局; `add` / `retire` 不用）
-    with pytest.raises(ValueError, match="缺 afterwards"):
-        notes.close_op("n1", "   ", "kept")
-    with pytest.raises(ValueError, match="state 非法"):
-        notes.close_op("n1", "去了", "done")
+def test_close_op_only_needs_an_id():
+    """`close` 只要 `id` —— `afterwards` / `state` **不再进 op**（2026-10-05）:
+    结局由图里那条经历承担, 而"后来怎么了"仍进 evolution 日志（审计账）。"""
+    assert notes.close_op("n1") == {"action": N_CLOSE, "id": "n1"}
     assert notes.add_op("周六模型店", ["m0009"])["action"] == N_ADD
-    assert notes.retire_op("n1") == {"action": N_RETIRE, "id": "n1"}
+    with pytest.raises(ValueError, match="close 缺 id"):
+        notes.close_op("   ")
+    # ⛔ `retire_op` 已删（写侧零写者, 且与 `close` 同义）
+    assert not hasattr(notes, "retire_op")
+
+
+def test_update_fixes_the_date_and_the_sentence():
+    """`update` 只改两样: `due` 与 `text`（"日期后来才知道"的唯一出口）。"""
+    st = notes.fold([_add(1)])                                   # n1, 无 due
+    st = notes.fold([_ev(2, N_UPDATE, {"id": "n1", "due": "2026-05-13"})], base=st)
+    assert st.pinned[0].due == "2026-05-13"
+    assert st.pinned[0].text == "周六模型店"                     # 其余不动
+    st = notes.fold([_ev(3, N_UPDATE, {"id": "n1", "text": "生日那天"})], base=st)
+    assert (st.pinned[0].text, st.pinned[0].due) == ("生日那天", "2026-05-13")
+
+    # 指不到 id ⇒ 只告警; "一样都没给" / 缺 id ⇒ 写侧直接拒
+    st2 = notes.fold([_ev(4, N_UPDATE, {"id": "n99", "due": "2026-01-01"})], base=st)
+    assert [it.id for it in st2.pinned] == ["n1"]
+    with pytest.raises(ValueError, match="至少要改一样"):
+        notes.update_op("n1")
+    with pytest.raises(ValueError, match="update 缺 id"):
+        notes.update_op("  ", due="2026-01-01")
+
+
+def test_legacy_closed_item_in_the_cache_is_not_resurrected():
+    """旧 `notes.json` 里带 `closed_at` 的条目 = **已经划掉的** ⇒ 不进状态。
+
+    新口径下本子只留开着的; 放它进来, 它就会以"还开着"的样子重新出现
+    （而派生缓存本该能从事件流重建出同样的结果）。
+    """
+    legacy = notes.NotesState.from_dict({
+        "up_to_seq": 9, "next_n": 3,
+        "pinned": [{"id": "n1", "text": "还开着的", "refs": ["m0009"], "since": T0},
+                   {"id": "n2", "text": "早就划掉的", "refs": ["m0009"], "since": T0,
+                    "closed_at": T1, "afterwards": "去过了", "state": "kept"}]})
+    assert [it.id for it in legacy.pinned] == ["n1"]
 
 
 def test_add_rejects_missing_refs_on_read_side(caplog):
@@ -220,23 +244,16 @@ def test_check_reports_dangling_refs_missing_refs_and_caps():
     # 槽收成一个, "按槽分标尺"那套机制一起删（判据: 没读者就删）。现在只有一个标尺。
 
 
-def test_check_no_longer_flags_closed_backlog():
-    """⭐ 2026-09-29 改判据: **结清不退场是常态**（用户裁决）⇒ 不再有"积压"这条告警。
+def test_check_only_cares_about_the_total():
+    """⭐ 2026-10-05: `check()` 只剩两条判据（总量 · refs）—— **划掉不再是它的活**。
 
-    从前的两条（`MAX_PROMISE=5` 每槽条数 · `MAX_CLOSED_PENDING=3` 结清积压）在**生产里
-    零读者**（只有测试调 `check`）⇒ 真机永远不响; 现在由 **`MAX_NOTE_CHARS`（总量）**
-    统一管 —— 她真正付出的成本是注入块的长度。
+    从前的"结清未退场积压"（`MAX_CLOSED_PENDING`）随两段式一起没了: 条目**划掉即消失**,
+    本子上只有还开着的 ⇒ "积压"这个概念不存在。
     """
-    # 5 条开着 + 2 条结清: 结清了**也留着**（不退场）⇒ 一条告警都不该有
     st = notes.fold([_add(i, text=f"第{i}条", refs=("m0009",)) for i in range(1, 6)] +
-                    [_ev(6, N_CLOSE, {"id": "n1", "afterwards": "做完了"}),
-                     _ev(7, N_CLOSE, {"id": "n2", "afterwards": "不做了"})])
-    assert notes.check(st) == []
-
-    # 再结清两条 ⇒ 仍然不报（"积压"这个概念已经没了）
-    st = notes.fold([_ev(8, N_CLOSE, {"id": "n3", "afterwards": "做完了"}),
-                     _ev(9, N_CLOSE, {"id": "n4", "afterwards": "做完了"})], base=st)
-    assert notes.check(st) == [], "结清不退场是常态, 不该再报积压"
+                    [_ev(6, N_CLOSE, {"id": "n1"}), _ev(7, N_CLOSE, {"id": "n2"})])
+    assert [it.id for it in st.pinned] == ["n3", "n4", "n5"]       # 划掉的两条没了
+    assert notes.check(st) == []                                   # 也不报任何告警
 
 
 # ---------------------------------------------------------------------------
@@ -258,35 +275,24 @@ def test_render_skips_empty_slots_entirely():
     assert notes.render_note_block(legacy, now=NOW) == ""
 
 
-def test_render_closed_items_after_open_ones_with_neutral_word():
-    """开着的在前（这个块先回答"我手上还开着什么"）; 结清行尾巴 = **中性状态词 + 理由**。"""
+def test_render_shows_only_open_items_newest_first():
+    """⭐ 2026-10-05: 注入块**只印还开着的**（划掉的条目已经不在本子上）。
+
+    排序 = `since` 降序（新的在上面）—— 这个块第一句要回答"我手上还开着什么"。
+    """
     st = notes.fold([
         _add(1, text="周六模型店", refs=("m0009",)),
         _add(2, text="还他笔记", refs=("m0011",), ts=T1),
         _add(3, text="买花", refs=("m0014",)),                        # 更老的约定
-        _ev(4, N_CLOSE, {"id": "n3", "afterwards": "送出去了", "state": "kept"}, ts=T0),   # 早结清
-        _ev(5, N_CLOSE, {"id": "n1", "afterwards": "那天我忘了", "state": "broken"}, ts=T1),
+        _ev(4, N_CLOSE, {"id": "n1", "afterwards": "那天我忘了", "state": "broken"}),
     ])
     lines = notes.render_note_block(st, now=NOW).splitlines()
 
     assert lines[1] == "  · 你自己记下的约定"
-    assert lines[2] == "    n2 还他笔记  ← 记于 昨天"          # 开着的在前
-    assert lines[3] == "    n1 周六模型店  ← 没做到（那天我忘了）"   # 结清组按结清时刻
-    assert lines[4] == "    n3 买花  ← 已兑现（送出去了）"
-    assert "已完成" not in "".join(lines)      # 光板"已完成"对失约是假话 ⇒ 按 state 分说法
-
-    # 没理由 / 没 state（旧事件）→ 中性兜底, 不印空括号
-    bare = notes.fold([_add(1), _ev(2, N_CLOSE, {"id": "n1"})])
-    assert notes.render_note_block(bare).splitlines()[2] == "    n1 周六模型店  ← 已结清"
-
-
-def test_render_superseded_tail():
-    """被取代也算结清 —— 三种 state 各有说法（用户 2026-09-25 定）。"""
-    st = notes.fold([_add(1),
-                     _ev(2, N_CLOSE, {"id": "n1", "afterwards": "改成一起整理",
-                                      "state": "superseded"}, ts=T1)])
-    assert notes.render_note_block(st).splitlines()[2] \
-        == "    n1 周六模型店  ← 被新的取代了（改成一起整理）"
+    assert lines[2] == "    n2 还他笔记  ← 记于 昨天"
+    assert lines[3] == "    n3 买花  ← 记于 3 天前"
+    assert len(lines) == 4, "划掉的行一行都不该占"
+    assert "n1" not in "\n".join(lines)
 
 
 def test_render_is_empty_when_nothing_is_noted():

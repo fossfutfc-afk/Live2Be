@@ -35,25 +35,21 @@ note 是**三种组织形式**里的第二种（图 / **笔记** / 台账, §1.1
 > **旧档里那个键读的时候直接忽略**（退役 = 不再读，不迁移）。别把它加回来。
 >
 > ⚠️ **`promise` 节点 2026-09-29 退图**（用户裁决: 承诺太轻, 不足以长期记录）——
-> ⭐ **这一槽从此是约定的唯一落脚点**（从前还计划"固化进图"）。
-> 连带: `retire` 的写者从前写的是"固化那一批", 那条路没了 ⇒ 退场时机改成
-> **读路径能接住约定之后**（那条链路本来就欠着）; **今天仍然零写者, 行为零变化**。
-> "这条经历涉及约定"改由 **`tags`** 承担（只做筛选, 不承担路由）。
+> 约定从此住在 note 里; 而"这条经历涉及约定"由 **`tags`** 承担（只做筛选, 不承担路由）。
 
 **四条纪律**（写进形状里, 不靠自觉）:
 
-0. ⭐ **`close` 是"结清", 不是"划掉"；划掉是 `retire`** —— 承诺太轻, 不值得在图里长期
-   记录（2026-09-29 用户裁决 ⇒ promise 退图）, 所以 **note 是它唯一的落脚点**,
-   而上下文窗口（120 单元滚动）从来不是保证 ⇒ 结清**不删条目**:
-   **结清 ⇒ 条目留在块里（尾巴换成 `afterwards` 那句）→ 读路径能接住它了 ⇒ `retire` 才真删**。
-   ⇒ **不变量: 一条约定只要还在 note 里, 她就看得见**。
-1. **`close` 必须给 `afterwards`（"这件事后来怎么了"）, `add` / `retire` 不用** —— 它既是
-   她读到的那句话, 也是"这件事后来怎么了"的唯一书面留存。读侧遇到没给它的
-   close **照做但记响**（不认它反而会让本子停在过去）, 写侧直接拒。
-   ⚠️ **已结清的不再覆盖**: 块里印着 id, 若二次 close 能改写 `afterwards`, 就是给"拿幻觉的一句话
-   覆盖真实的那句话"开后门 ⇒ 第二次只告警（幂等 = 忽略）。
-2. **`id` 只增不复用** —— `close`/`retire` 只带 `id`, 复用会让旧引用指错条目。故计数器 `next_n`
-   必须随状态走, **不能从"活着的条目"推**（结清 n3 之后活着的是 n1/n2）。
+0. ⭐ **`close` = 划掉即移除**（2026-10-05 改）—— 从前是**两段式**（`close` 结清但留着条目,
+   `retire` 才真删）, 那条设计的唯一理由是"承诺以 note 为唯一落脚点 ⇒ 删了就三处全无"。
+   ⭐ 3b-3 起**约定长在它自己那条 episode 上**（`refs`）⇒ 那条理由没了, 两段式合并成一步。
+   ⇒ **本子 = 当前抽屉, 不是账簿**（账簿 = 事件流 + 图）。结局（兑现 / 失约 / 被取代）
+   不再是一个字段, 而是**图里那条经历的正文**（有那一刻 = 那条切片的 episode;
+   没有那一刻 = 无区间经历）。⛔ `retire` 动作**删**（`fold` 仍认旧档里的它 —— 同义: 移除）。
+1. **`update` 只改两样**: `due`（补/更正日期）· `text`（重写那句话）——
+   ⚠️ 不许改 `refs`（出生地址）/ `since` / 槽。它存在的唯一理由: 日期**后来才知道**
+   （"不知道 → 她问 → 知道了"）, 而 `due` 只能在建条目的那一刻给。
+2. **`id` 只增不复用** —— `close`/`update` 只带 `id`, 复用会让旧引用指错条目。故计数器 `next_n`
+   必须随状态走, **不能从"活着的条目"推**。
 3. **物品一个字都不进 note** —— "她此刻手边有什么"将来由 **`inventory` 旁路**（物品面:
    有身份、有增删）承担; 这条记忆里的实物痕迹写在 `text` 里就够。
    ⚠️ 原写的 `episode.items` 字段 **2026-09-29 已退役**（零活读者, 且"是不是同一个东西"
@@ -76,6 +72,7 @@ from core.session.events import (
     N_CLOSE,
     N_RETIRE,
     N_REWRITE,
+    N_UPDATE,
     TYPE_NOTE,
     make_event,
 )
@@ -126,11 +123,11 @@ MAX_NOTE_CHARS = 500
 #: 不是条目字段; `NoteItem.from_dict` 不认它（它只在写侧与 `fold` 之间用）。
 ALREADY_PINNED = "src"
 
-#: ⭐ **约定的结局**（`close` 行的 `state`）—— **运行时真源**（改名 `PROMISE_OUTCOMES` →
-#: `PINNED_OUTCOMES`, 2026-09-29 随槽名一起对齐）。
-#: ⚠️ 节点上没有 `outcome` 字段（promise 退图）⇒ 这 3 个词只活在 note 面
-#: （`contract/digest_registry.py` 有一份同源副本, 契约层不依赖 core）。
-PINNED_OUTCOMES = ("kept", "broken", "superseded")
+#: ⛔ ~~`PINNED_OUTCOMES = ("kept", "broken", "superseded")`~~ **2026-10-05 删** ——
+#: 三种结局**一律划掉**之后它再没有读者: 结局写在**图里那条经历**的正文里
+#: （有那一刻 = 那条切片的 episode; 没有那一刻 = 无区间经历）。
+#: ⚠️ 契约层 `contract/digest_registry.py` 还有一份同名副本 —— 那守的是**收口轮自己的
+#: 输出契约**（它还活着）, 随那一轮一起死（见 `TODO_DIGEST_LEDGER` L8）。
 
 #: 注入块标题 —— ⚠️ 必须**说清这是什么**（是她自己记的, 不是系统/别人派的任务; 编号是索引）,
 #: 且**不含任何结构化痕迹**（无 JSON / 无键名 / 无波括号 —— **存 JSON, 看中文**, §3.2）。
@@ -148,12 +145,8 @@ _LEAD_INDENT = "  "
 _ITEM_INDENT = "    "
 #: 时间短语前缀（`§3.2` 渲染示例: `← 记于 3 天前`）
 SINCE_LEAD = "  ← 记于 "
-#: 结清行的状态词 —— ⚠️ **按 `state` 分三种说法**（2026-09-25）: `close` 也覆盖
-#: **失约 / 不做了 / 被取代**, 所以光板一句"已完成"会撒谎。缺 `state`（旧事件）→ 中性兜底。
-CLOSED_WORDS: dict[str, str] = {"kept": "已兑现", "broken": "没做到",
-                                "superseded": "被新的取代了"}
-#: 兜底状态词（没有 `state` 时）
-CLOSED_LEAD = "  ← 已结清"
+#: ⛔ ~~`CLOSED_WORDS` / `CLOSED_LEAD`~~ **2026-10-05 删** —— 那是"结清行"的尾巴
+#: （`← 已兑现（…）`）。条目**划掉即消失** ⇒ 没有结清行可渲染, 尾巴只剩 `SINCE_LEAD`。
 
 
 # ---------------------------------------------------------------------------
@@ -170,14 +163,12 @@ class NoteItem:
                真源 = 契约层 `ABSTRACT_MAX`（本条正文多来自切片 `abstract`）。
     `refs`  —— ≥1, 指向**现存节点**（悬空 → `check()` 告警, 不阻断）。
     `since` —— 记于何时（引擎填 = 那条操作的 `ts`; 渲染成"记于 N 天前"）。
-    `due`   —— `pinned` 可选; ⚠️ **只存不渲染**（渲染成日期会诱使她"数日子",
+    `due`   —— 可选; ⚠️ **只存不渲染**（渲染成日期会诱使她"数日子",
                与 `worldtime.age` 那条"绝不输出精确值"直接冲突）。
-    `closed_at` / `afterwards` / `state` —— **结清**（`closed_at` 非空 = 已结清）:
-               她做完了 / 没成 / 被新的取代了（`state` = `kept`/`broken`/`superseded`）,
-               以及 **`afterwards`** = "这件事后来怎么了"那句话（她自己的口吻;
-               ⚠️ 早先叫 `reason` —— 用户 2026-09-25: *"reason 太理性了"*）。
-               ⚠️ 字段名在这里是 **`state`**（节点侧叫 `outcome` —— entity 的 `state` 是 list, 撞类型;
-               而 note 条目没有那个字段, 所以沿用它。两处同义不同名）。
+
+    ⛔ ~~`closed_at` / `afterwards` / `state`~~ **2026-10-05 删** —— `close` 改成
+    **划掉即移除**（两段式合并, 见模块 docstring 纪律 0）⇒ 条目**再也不可能被结清**,
+    那三个字段永远落不到条目上; 结局改由**图里那条经历的正文**承担。
     """
 
     id: str = ""
@@ -185,20 +176,10 @@ class NoteItem:
     refs: list[str] = field(default_factory=list)
     since: str = ""
     due: str = ""
-    closed_at: str = ""
-    afterwards: str = ""
-    state: str = ""
-
-    @property
-    def closed(self) -> bool:
-        """已结清（**还在 note 里**, 等图侧接住才退场）。"""
-        return bool(self.closed_at)
 
     def copy(self) -> "NoteItem":
         return NoteItem(id=self.id, text=self.text, refs=list(self.refs),
-                        since=self.since, due=self.due,
-                        closed_at=self.closed_at, afterwards=self.afterwards,
-                        state=self.state)
+                        since=self.since, due=self.due)
 
     def to_dict(self) -> dict:
         d: dict[str, Any] = {"text": self.text, "refs": list(self.refs),
@@ -207,24 +188,23 @@ class NoteItem:
             d["id"] = self.id
         if self.due:
             d["due"] = self.due
-        if self.closed_at:
-            d["closed_at"] = self.closed_at
-        if self.afterwards:
-            d["afterwards"] = self.afterwards
-        if self.state:
-            d["state"] = self.state
         return d
 
     @classmethod
     def from_dict(cls, raw: Any) -> "NoteItem | None":
-        """宽松读（坏值 → None）。
+        """宽松读（坏值 / **已划掉的** → None）。
 
         ⚠️ **裸字符串也收**（`{"text": raw}`）—— 那是 `on_mind` 时代的形状
         （N4e 之前 `rewrite` 收裸字符串）; 旧档读得进来但**没有槽接它**了。
+        ⚠️ **带 `closed_at` 的旧条目一律不进状态**（2026-10-05）: 那是一条**已经划掉的**
+        条目（旧两段式的中间态）, 而新口径下本子上只留开着的 —— 放它进来它就会以
+        "还开着"的样子重新出现。从事件流重折会得到同样的结果。
         """
         if isinstance(raw, str):
             raw = {"text": raw}
         if not isinstance(raw, dict):
+            return None
+        if str(raw.get("closed_at") or "").strip():
             return None
         text = str(raw.get("text") or "").strip()
         if not text:
@@ -233,10 +213,7 @@ class NoteItem:
                    text=text,
                    refs=_str_list(raw.get("refs")),
                    since=str(raw.get("since") or "").strip(),
-                   due=str(raw.get("due") or "").strip(),
-                   closed_at=str(raw.get("closed_at") or "").strip(),
-                   afterwards=str(raw.get("afterwards") or "").strip(),
-                   state=str(raw.get("state") or "").strip())
+                   due=str(raw.get("due") or "").strip())
 
 
 @dataclass
@@ -330,8 +307,11 @@ def fold(events: Iterable[Any], *, base: NotesState | None = None) -> NotesState
             _apply_add(st, payload, ts, seq)
         elif sub == N_CLOSE:
             _apply_close(st, payload, ts, seq)
+        elif sub == N_UPDATE:
+            _apply_update(st, payload, seq)
         elif sub == N_RETIRE:
-            _apply_retire(st, payload, seq)
+            # 旧档: 与 `close` **同义**（2026-10-05 两段式合并）—— 走同一个函数
+            _apply_close(st, payload, ts, seq)
         elif sub == N_REWRITE:
             # ⛔ `rewrite`（N4e 退役）: 它写的那个快照槽 `on_mind` 已经没有了 ⇒
             # 这里**什么都不做**（同 `habits` 的口径: 退役 = 不再读, 不报错不迁移）。
@@ -365,79 +345,58 @@ def _apply_add(st: NotesState, payload: dict, ts: str, seq: int) -> None:
 
 
 def _apply_close(st: NotesState, payload: dict, ts: str, seq: int) -> None:
-    """**结清**一条 —— ⚠️ **不是从 note 移除**。
+    """**划掉**一条 —— 从 note **移除**（2026-10-05: 两段式合并成一步）。
 
-    为什么不能立刻删（2026-09-23 用户裁决）: 承诺是**唯一"note 是它唯一落脚点"**的东西
-    —— 而上下文窗口（120 单元滚动）**从来不是保证**。close 一删, 它就**三处全无**。
-    所以两段式:
+    旧两段式的理由是"承诺以 note 为唯一落脚点 ⇒ close 一删就三处全无"。
+    ⭐ 3b-3 起约定长在**它自己那条 episode** 上（`refs`）⇒ 那条理由没了,
+    于是 `close`（结清）与 `retire`（退场）**合并**: 都是"移除"。
+    ⛔ 旧档里的 `retire` 事件走同一个函数（`fold` 那侧分派）—— 语义相同, 不必区分。
 
-        `close` = 结清（本子上还在, 注入块里照旧显示, 尾巴换成 `afterwards` 那句话）
-        `retire` = 退场（划掉）
-
-    ⚠️ **2026-09-29 更正**: 两段式的第二段原写作"图侧接住了才划掉", 而**图侧那条路
-    （固化 promise 节点）已经删掉**（承诺退图）⇒ 今天 `retire` 的时机改成
-    "**读路径能接住约定之后**"（链路 ⑥ 欠着的那件事）, **写者仍然零**。
-    ⇒ 不变量换成一句更简单的话: **一条约定只要还在 note 里, 她就看得见**;
-      结清只改尾巴, 不改可见性。
-
-    ⚠️ **已结清的不再覆盖**: 块里印着 `id`, 若允许二次 close 改写 `afterwards`,
-       就等于给"拿幻觉的一句话覆盖真实的那句话"开了个后门 ⇒ 第二次只告警（幂等 = 忽略）。
-       还开着的那条**照旧覆盖**（当场结清 → digest 补判, 后写的更准）。
-    ⚠️ 只作用于 **A 类槽**: B 类由 `rewrite` 整段替换, 让 `close` 也能改它就是两个写者
-       抢同一份数据（§3.2"同一段只有一个写者"）。
-    ⚠️ **`afterwards` 缺失照做, 但把账记响**: 事件说的就是"这条不再开着了", 不认它会让本子停在过去;
-       而那句话缺失只影响**她读到的那句尾巴**（注入块上那句"后来怎么了"）。
+    三种结局（兑现 / 失约 / 被取代）**一律移除**; 结局与"后来怎么了"由图里那条经历承担。
+    op 里若还带着 `afterwards` / `state`（收口轮尚未退役）—— **只入账**（事件流 + evolution
+    日志）, 不落到条目上（本子上已经没有"结清行"这种东西了）。
     """
     nid = str(payload.get("id") or "").strip()
     if not nid:
         logger.warning("note/close 缺 id（跳过）: seq=%s", seq)
         return
-    afterwards = str(payload.get("afterwards") or "").strip()
-    if not afterwards:
-        logger.warning("note/close 缺 afterwards（照做; 注入块上那句尾巴会缺）:"
-                       " id=%s seq=%s", nid, seq)
+    for slot in OPSLOTS:
+        items = list(getattr(st, slot) or [])
+        if not any(it.id == nid for it in items):
+            continue
+        setattr(st, slot, [it for it in items if it.id != nid])
+        logger.info("note/close 划掉一条: id=%s seq=%s", nid, seq)
+        return
+    logger.warning("note/close 指不到任何条目（跳过）: id=%s seq=%s", nid, seq)
+
+
+def _apply_update(st: NotesState, payload: dict, seq: int) -> None:
+    """**更正**一条还开着的 —— 只改 `due` 与 `text`（"日期后来才知道"的唯一出口）。
+
+    ⚠️ 两样都没给 / 指不到条目 ⇒ 告警 + 跳过（读侧宽松, 同 `_apply_add` 的口径）;
+    ⛔ 不许改 `refs`（出生地址）/ `since` / 槽 —— 写侧就构造不出来。
+    """
+    nid = str(payload.get("id") or "").strip()
+    if not nid:
+        logger.warning("note/update 缺 id（跳过）: seq=%s", seq)
+        return
+    due, text = payload.get("due"), payload.get("text")
+    new_due = str(due).strip() if due is not None else ""
+    new_text = str(text).strip() if text is not None else ""
+    if not new_due and not new_text:
+        logger.warning("note/update 一样都没改（跳过）: id=%s seq=%s", nid, seq)
+        return
     for slot in OPSLOTS:
         for it in list(getattr(st, slot) or []):
             if it.id != nid:
                 continue
-            if it.closed:
-                logger.warning("note/close 重复（忽略, 不覆盖已有的那句话）: id=%s seq=%s",
-                               nid, seq)
-                return
-            it.closed_at = ts or it.closed_at
-            it.afterwards = afterwards
-            it.state = str(payload.get("state") or "").strip()
+            if new_due:
+                it.due = new_due
+            if new_text:
+                it.text = new_text
+            logger.info("note/update 更正一条: id=%s seq=%s", nid, seq)
             return
-    logger.warning("note/close 指不到任何条目（跳过）: id=%s seq=%s", nid, seq)
-
-
-def _apply_retire(st: NotesState, payload: dict, seq: int) -> None:
-    """**退场** —— 真正从 note 划掉。
-
-    ⏸ **写者: 今天零**。从前的计划是"固化那一批"（R4 建好 promise 节点 + 三条边、
-    事务 `ok` 之后由引擎补写这条事件）—— **2026-09-29 承诺退图, 那条路没了**;
-    退场的时机改成"**读路径能接住约定之后**"（链路 ⑥）, 在那之前她需要它一直在本子上。
-    ⚠️ 定义与读侧（`fold` 认它）都留着 —— 等那条链路接通, 它才有写者（同 `notes.retire_op`）。
-
-    ⚠️ **只对已结清的条目生效**: 退场一条"还开着"的承诺 = 把它从唯一的落脚点删掉
-       （图里根本没有它）—— 那正是两段式要堵的洞。撞上就告警 + 跳过。
-    """
-    nid = str(payload.get("id") or "").strip()
-    if not nid:
-        logger.warning("note/retire 缺 id（跳过）: seq=%s", seq)
-        return
-    for slot in OPSLOTS:
-        items = list(getattr(st, slot) or [])
-        hit = [it for it in items if it.id == nid]
-        if not hit:
-            continue
-        if not hit[0].closed:
-            logger.warning("note/retire 指向一条还开着的条目（跳过 —— 先 close, 且图里要先接住）:"
-                           " id=%s seq=%s", nid, seq)
-            return
-        setattr(st, slot, [it for it in items if it.id != nid])
-        return
-    logger.warning("note/retire 指不到任何条目（跳过）: id=%s seq=%s", nid, seq)
+    logger.warning("note/update 指不到任何条目（跳过）: id=%s seq=%s", nid, seq)
 
 
 # ⛔ ~~`_apply_rewrite` / `_inherit_since`~~ **2026-09-29（N4e）随 `on_mind` 一起删** ——
@@ -472,28 +431,37 @@ def add_op(text: str, refs: Iterable[str], *, due: str = "", src: str = "") -> d
     return _checked(op)
 
 
-def close_op(item_id: str, afterwards: str, state: str) -> dict:
-    """`close` 操作 = **结清** —— **`afterwards` 必填**（"这件事后来怎么了", 她自己的口吻）
-    + **结局必填**（`kept`/`broken`/`superseded`）。
+def close_op(item_id: str) -> dict:
+    """`close` 操作 = **划掉**（从本子移除）—— 只需要 `id`。
 
-    ⚠️ 结清**不等于**从本子上划掉（那是 `retire_op`）: 条目留在 note 里继续注入,
-    直到**读路径能接住它**。`afterwards` 今天只有一个去处: 注入块上那句话
-    （见 `CLOSED_WORDS`）—— ⏸ 从前还会"固化时并进 promise 节点的正文",
-    那条路 2026-09-29 随承诺退图删掉了。
+    ⚠️ **`afterwards` / `state` 不再进 op**（2026-10-05）: 三种结局一律移除 ⇒ note 面
+    没有读者了; 那句"后来怎么了"与结局改由**图里那条经历**承担。收口轮尚未退役,
+    它照旧判这两样, 但它们只进 **evolution 日志**（审计账, 见 `revise._close_one`）。
+    ⛔ 曾经的两段式（`close` 结清 / `retire` 退场）已合并 —— 见模块 docstring 纪律 0。
     """
-    return _checked({"action": N_CLOSE, "id": item_id, "afterwards": afterwards,
-                     "state": state})
+    return _checked({"action": N_CLOSE, "id": item_id})
 
 
-def retire_op(item_id: str) -> dict:
-    """`retire` 操作 = **退场**（本子上划掉 —— 读路径能接住它了才划）。
+def update_op(item_id: str, *, due: str | None = None, text: str | None = None) -> dict:
+    """`update` 操作 = **更正**一条还开着的 —— 只改 `due` 与 `text`, **至少一样**。
 
-    ⏸ **写者: 今天零**（2026-09-29 起）。从前的计划是"固化那一批"（digest 事务 `ok`
-    之后由引擎补写）, 而**固化那条路随承诺退图删掉了** ⇒ 时机改成"**读路径接住之后**"。
-    定义与读侧都留着（`_apply_retire` / `fold` 认它）, 等那条链路接通才有写者。
-    **不加理由** —— 它是机械确认, 不是判断。
+    ⭐ 它存在的唯一理由: `due`（期限）**只能在建条目的那一刻给**, 而日期常常是
+    **后来才知道**的（"不知道 → 她问 → 知道了"）。没有它, 那条 note 永远拿不到期限
+    ⇒ 永远不过期 ⇒ 烂在本子上（`DESIGN_DIGEST_LEDGER §3.5`）。
+    ⛔ 不许改 `refs`（出生地址）/ `since` / 槽 —— 构造器根本不给这些口子。
     """
-    return _checked({"action": N_RETIRE, "id": item_id})
+    op: dict[str, Any] = {"action": N_UPDATE, "id": item_id}
+    if due is not None and str(due).strip():
+        op["due"] = str(due).strip()
+    if text is not None and str(text).strip():
+        op["text"] = str(text).strip()
+    # ⚠️ "至少要改一样"的判据**只有一处** = `validate_ops`（下面 `_checked` 会走它）——
+    # 这里不重复判, 免得同一条规则两个实现、迟早漂。
+    return _checked(op)
+
+
+# ⛔ ~~`retire_op`~~ **2026-10-05 删** —— 它与 `close` 已合并（同一件事: 从本子划掉）。
+# 留着它就是留一条"和 close 做同一件事、还多一层语义"的写路。
 
 
 # ⛔ ~~`rewrite_op`~~ **2026-09-29（N4e）随 `on_mind` 一起删** —— 它写的那个槽没了,
@@ -519,13 +487,14 @@ def validate_ops(ops: list[dict]) -> None:
     """写侧硬门槛（**抛 `ValueError`**）。
 
     查的是"**事件自身是否自足**"（一 append 就不可改, 残缺的写不进去）:
-    动作名 · `add` 的 `text` + `refs` · **`close` 的 `id` + `afterwards` + `state`** ·
-    `retire` 的 `id`。
+    动作名 · `add` 的 `text` + `refs` · `close` 的 `id` · **`update` 的 `id` + 至少一样**。
     **不查** `refs` 是否存在 —— "世上有没有那个节点"要看世界, 归 `check()` 告警。
     ⚠️ `add` 上的 `ALREADY_PINNED`（`src`）也**不查**（3b-3）: 它是去重键,
     指向的节点存不存在同样归 `check()`。
-    ⚠️ **`rewrite` 已不在写侧**（N4e 随 `on_mind` 退役）—— 走到这里 = 有人新造了一条
-    往一个不存在的槽里写的操作 ⇒ 按**未知动作**拒（`fold` 那边仍吞旧档里的它）。
+    ⚠️ **`close` 的 `afterwards` / `state` 不再查**（2026-10-05: 不再进 op）。
+    ⚠️ **`retire` / `rewrite` 已不在写侧** —— 前者与 `close` 合并, 后者随 `on_mind` 退役
+    （N4e）; 走到这里 = 有人新造了一条往旧形状里写的操作 ⇒ 按**未知动作**拒
+    （`fold` 那边仍认旧档里的它们）。
     """
     for i, op in enumerate(ops):
         if not isinstance(op, dict):
@@ -540,18 +509,16 @@ def validate_ops(ops: list[dict]) -> None:
         elif action == N_CLOSE:
             if not str(op.get("id") or "").strip():
                 raise ValueError(err("BadNoteOp", f"note 操作[{i}] close 缺 id"))
-            if not str(op.get("afterwards") or "").strip():
-                raise ValueError(err("NoAfterwards",
-                                     f"note 操作[{i}] close 缺 afterwards（「这件事后来怎么了」）"
-                                     " —— 它是她读到的那句尾巴"))
-            state = str(op.get("state") or "").strip()
-            if state not in PINNED_OUTCOMES:
-                raise ValueError(err("BadNoteOp",
-                                     f"note 操作[{i}] close 的 state 非法: {state!r}"
-                                     f"（可用: {', '.join(PINNED_OUTCOMES)}）"))
-        elif action == N_RETIRE:
+            # ⚠️ 2026-10-05: `afterwards` / `state` **不在这里管了** —— 它们不再进 op
+            # （三种结局一律移除, 结局由图里那条经历承担）。旧档里那两条事件带着它们,
+            # 读侧（`_apply_close`）只当账, 不看也不校验。
+        elif action == N_UPDATE:
             if not str(op.get("id") or "").strip():
-                raise ValueError(err("BadNoteOp", f"note 操作[{i}] retire 缺 id"))
+                raise ValueError(err("BadNoteOp", f"note 操作[{i}] update 缺 id"))
+            if not any(str(op.get(k) or "").strip() for k in ("due", "text")):
+                raise ValueError(err("BadNoteOp",
+                                     f"note 操作[{i}] update 至少要改一样（due 或 text）"
+                                     " —— 白跑一行不许（同 revise 的'update 必须带非空 patch'）"))
         else:
             raise ValueError(err("BadNoteAction", f"note 操作[{i}] 未知动作: {action!r}"))
 
@@ -651,11 +618,9 @@ def render_note_block(state: NotesState, *, now: object | None = None,
         if not items:
             continue                                  # 空槽不印抬头（常驻预算是硬约束）
         lines.append(f"{_LEAD_INDENT}{GROUP_LEADS[slot]}")
-        for it in _sorted_by([it for it in items if not it.closed], "since"):
+        # ⚠️ 2026-10-05 起**只有还开着的**（`close` = 划掉即移除）⇒ 不再有结清组
+        for it in _sorted_by(items, "since"):
             lines.append(f"{_ITEM_INDENT}{render_item(it, now=now, titles=titles)}")
-        # 结清组按**结清时刻**排（刚做完的在上）—— 按 `since` 排会让"刚做完的老约定"沉底
-        for it in _sorted_by([it for it in items if it.closed], "closed_at"):
-            lines.append(f"{_ITEM_INDENT}{render_item(it, titles=titles)}")
     if not lines:
         return ""
     return "\n".join([TITLE] + lines)
@@ -665,7 +630,7 @@ def render_item(item: NoteItem, *, now: object | None = None,
                 titles: Mapping[str, str] | None = None) -> str:
     """**一行条目**（不含缩进与抬头）—— 注入块与 **R4 的输入**共用这一份行格式。
 
-    `n3 周六模型店 (《模型店的午后》)  ← 记于 3 天前`; 已结清的尾巴换成 `← 已结清（理由）`。
+    `n3 周六模型店 (《模型店的午后》)  ← 记于 3 天前`。
     ⚠️ `id` 为空 → 只有正文（旧档/手工构造的条目; N4e 之前 `on_mind` 那条散文走这条路）。
 
     ⭐ **`titles`: refs 的 id → 名字**（N4a, 2026-09-29）—— 由**调用方**从图上取好传进来
@@ -677,18 +642,12 @@ def render_item(item: NoteItem, *, now: object | None = None,
     """
     if not item.id:
         return item.text
-    tail = _closed_suffix(item) if item.closed else _since_suffix(item, now)
-    return f"{item.id} {item.text}{_refs_suffix(item, titles)}{tail}"
-
-
-def _closed_suffix(it: NoteItem) -> str:
-    """`  ← 已兑现（后来那句话）` —— 状态词按 `state` 分三种; 没有 `state` → 中性兜底。"""
-    head = f"  ← {CLOSED_WORDS[it.state]}" if it.state in CLOSED_WORDS else CLOSED_LEAD
-    return f"{head}（{it.afterwards}）" if it.afterwards else head
+    # ⚠️ 尾巴只剩时间一种（2026-10-05: 结清行的 `← 已兑现（…）` 随"划掉即移除"一起删）
+    return f"{item.id} {item.text}{_refs_suffix(item, titles)}{_since_suffix(item, now)}"
 
 
 def _sorted_by(items: list[NoteItem], field: str) -> list[NoteItem]:
-    """组内排序: `field`（`since` / `closed_at`）降序 —— 新的在上面;
+    """组内排序: `field`（今天只有 `since`）降序 —— 新的在上面;
     无该字段的排在最后（`id` 号大者在前）。"""
     return sorted(items, key=lambda it: (getattr(it, field) or "", _id_num(it.id)),
                   reverse=True)

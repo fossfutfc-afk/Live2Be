@@ -33,7 +33,9 @@ def run(ctx: Ctx) -> RoundOut:
     """② 收口 —— 开着的约定 + 本段经历 → note 操作（`add` / `close`）。"""
     spec = ctx.enter("close")
     note_state = ctx.store.notes_state(ctx.events)     # 本段之前的备忘录（缓存优先）
-    open_pinned = [it for it in note_state.pinned if not it.closed]
+    # ⚠️ 2026-10-05 起**条目不可能是"已结清但留着"的了**（`close` = 划掉即移除）
+    # ⇒ `pinned` 里每一条都还开着, 不需要再过滤 `closed`。
+    open_pinned = list(note_state.pinned)
     if not (ctx.episode_ids or open_pinned):
         ctx.log_skip(spec)
         return RoundOut.skipped()

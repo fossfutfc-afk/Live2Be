@@ -473,7 +473,8 @@ def apply_closures(
     """
     log = log or EvolutionLog.for_store(store)
     ts = ts or datetime.now().isoformat(timespec="seconds")
-    open_items = {it.id: it for it in note_state.pinned if not it.closed}
+    # ⚠️ 2026-10-05 起条目不可能是"已结清但留着"的了（`close` = 划掉即移除）
+    open_items = {it.id: it for it in note_state.pinned}
     out = ClosureResult()
 
     for row in rows:
@@ -506,25 +507,27 @@ def _add_one(store: WikiStoreV2, row: dict, out: ClosureResult) -> None:
 
 def _close_one(store: WikiStoreV2, row: dict, open_items: dict,
                *, log: EvolutionLog, ts: str, out: ClosureResult) -> None:
-    """`close`: 结清一条还开着的约定 —— 产一条 `note/close` 操作（**不碰图**）。
+    """`close`: **划掉**一条还开着的约定 —— 产一条 `note/close` 操作（**不碰图**）。
 
-    2026-09-29（承诺退图）之后这里只剩三件事: 查名单 · 核 refs · 产操作。
+    这里只剩三件事: 查名单 · 核 refs · 产操作。
     ⚠️ `refs`（"了结它的那条经历"）**仍然校验但不落任何边** —— 它留在 note 面,
     将来看"这条约定是被哪段经历了结的"时还查得到（真源 = note 事件）。
+    ⚠️ **2026-10-05**: `afterwards` / `state` **不再进 op**（note 面没有读者了 ——
+    `close` = 划掉即移除, 那句"后来怎么了"改由**图里那条经历**承担）,
+    但它们**仍进 evolution 日志**（审计账, 见下面的 `log.append`）。
     """
     nid = str(row.get("id") or "")
     item = open_items.get(nid)
     if item is None:
         out.warnings.append(f"close {nid!r}: 不在「还开着」的约定里 → 丢这一行")
         return
-    afterwards = str(row.get("afterwards") or "").strip()
     closed_by = [r for r in (row.get("refs") or []) if _is_episode(store, r)]
     for r in row.get("refs") or []:
         if r not in closed_by:
             out.warnings.append(f"close {nid!r}: finish episode 不是现存经历 → 剔掉 {r!r}")
     log.append({"pkg": "digest", "action": "close", "note": nid,
                 "state": str(row.get("state") or ""), "refs": closed_by, "ts": ts})
-    out.ops.append(note_ops.close_op(nid, afterwards, str(row.get("state") or "")))
+    out.ops.append(note_ops.close_op(nid))
 
 
 def _is_episode(store: WikiStoreV2, nid: Any) -> bool:

@@ -80,18 +80,19 @@ S_STORY_PICK = "story_pick"    # ★ 补录裁决（2026-09-21）: payload {pick
                                # `pick_supplements()`（合并回"板 + 老师那句"）。
 BOARD_SUBTYPES: tuple[str, ...] = (S_STORY_SCENE, S_STORY_END)
 
-#: note 板块的 subtype —— 备忘录的**操作**（DESIGN_GRAPH_V4 §3.2: 真源 = 操作事件,
-#: `soul/notes.json` = 折叠出来的派生缓存）:
-#: `add` 加一条（**不需要理由**）· `close` **结清**一条（**必须给理由** —— 闭合即固化进图（§6）,
-#: 没有理由就判不出 `kept`/`broken`/`superseded`; ⚠️ **结清 ≠ 退场**: 条目仍留在 note 里,
-#: 直到图侧接住它）· `retire` **退场**（图里已经有了 ⇒ 本子上才划掉; **只对已结清的条目生效**）·
-#: `rewrite` 整体重写（全景轮写 **B 类快照槽**, 不碰 `promise`）。
+#: note 板块的 subtype —— 备忘录的**操作**（真源 = 操作事件, `soul/notes.json` = 折叠缓存）:
+#: `add` 加一条（**不需要理由**）· `close` **划掉**一条（⭐ 2026-10-05: 从前它只是"结清",
+#: 条目还留着; 现在**一律移除** —— 那句"后来怎么了"改由**图里那条经历**承担）·
+#: `update` **更正**一条还开着的（补/改 `due` 与那句话 —— "日期后来才知道"的唯一出口）。
 #: 条目的 `id` 由**引擎**在折叠时分配（`brain/notes.fold`）。
+#: ⛔ `retire` / `rewrite`：**只在旧档里**, 写侧零写者。名字**必须留着** ——
+#: 删了 `fold` 就分不清"旧档已知的操作"与"未知操作"（会刷一条永远修不掉的告警）。
 N_ADD = "add"
 N_CLOSE = "close"
-N_RETIRE = "retire"
-N_REWRITE = "rewrite"
-NOTE_SUBTYPES: tuple[str, ...] = (N_ADD, N_CLOSE, N_RETIRE, N_REWRITE)
+N_UPDATE = "update"
+N_RETIRE = "retire"          # 旧档兼容（在 `fold` 里与 `close` 同义: 都是移除）
+N_REWRITE = "rewrite"        # 旧档兼容（`on_mind` 退役前的整段替换, 现在静默吞）
+NOTE_SUBTYPES: tuple[str, ...] = (N_ADD, N_CLOSE, N_UPDATE)
 
 MARKER_SUBTYPES: tuple[str, ...] = (
     M_SESSION_START, M_VN_ENTER, M_VN_EXIT, M_VN_ABANDON, M_VN_STATE,

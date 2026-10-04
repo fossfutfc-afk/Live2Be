@@ -155,8 +155,9 @@ def test_r4_runs_after_r1_and_before_r2(tmp_path):
     assert [op["action"] for op in res.notes_ops] == ["add", "close"]
     assert res.notes_ops[0]["text"] == "拍一张模型店的照"
     assert res.notes_ops[0]["refs"] == ["m0001"]
-    assert res.notes_ops[1] == {"action": "close", "id": "n1", "state": "kept",
-                               "afterwards": "周六真的去了"}
+    assert res.notes_ops[1] == {"action": "close", "id": "n1"}
+    # ⚠️ 2026-10-05: `afterwards` / `state` **不再进 op**（note 面没有读者了 ——
+    #    划掉即移除）; 它们只进 evolution 日志（审计账）
     print(f"    R4 顺序={llm.tasks} 料={r4.splitlines()[0][:30]!r} ops={len(res.notes_ops)}")
     # ⭐ 2026-09-29: **只产 note 操作, 不碰图** —— 承诺节点与它的三条专属边一条都不许出现
     kinds = {n.kind for n in st.all()}
@@ -198,8 +199,9 @@ def test_r4_runs_without_new_episodes_when_something_is_open(tmp_path):
     assert res.ok, res.errors
     assert llm.tasks[:4] == [T.DIGEST_SPLIT, T.DIGEST_RECORD, T.DIGEST_CLOSE,
                              T.DIGEST_UNDERSTAND], llm.tasks
-    assert res.notes_ops[0]["state"] == "broken"
-    assert "refs" not in res.notes_ops[0]         # 指不出 finish episode ⇒ 连这个键都没有
+    assert res.notes_ops[0] == {"action": "close", "id": "n1"}
+    # ⚠️ 2026-10-05: 只剩 `id` —— `state`（结局）与 `afterwards`（"后来怎么了"）都不再进 op;
+    #    指不出 finish episode ⇒ 连 `refs` 都没有（这一条与今天一致）
     # ⭐ 2026-09-29: close **不建节点**（从前这里验的是 `formed_by` 只连"说定它"那条）
     assert [n.id for n in st.all() if n.kind not in ("episode", "entity")] == []
 
