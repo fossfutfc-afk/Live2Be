@@ -40,3 +40,7 @@ archive/*.jsonl
 
 # pyvis 生成的本地 vis.js 依赖（wiki_viz --html 用 in_line 内联, 不落盘）
 lib/
+
+# node_modules 一律不入库（2026-10-05: `l2d-demo/node_modules` 曾被提交 —— 6549 个文件,
+# 占当时 tracked 总数的 91%。已 `git rm -r --cached` 出仓, 本地文件保留）
+node_modules/
