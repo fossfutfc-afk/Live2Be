@@ -44,3 +44,6 @@ lib/
 # node_modules 一律不入库（2026-10-05: `l2d-demo/node_modules` 曾被提交 —— 6549 个文件,
 # 占当时 tracked 总数的 91%。已 `git rm -r --cached` 出仓, 本地文件保留）
 node_modules/
+
+# IDE 工程配置（各人本机生成; `.idea/.gitignore` 只挡了一部分）
+.idea/
