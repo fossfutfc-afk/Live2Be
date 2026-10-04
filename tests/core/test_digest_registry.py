@@ -196,9 +196,14 @@ def test_schema_split_phase():
     # 而且对三个字段一视同仁（只数 span 会漏掉 keep/abstract 被单独改掉的情况）。
     assert _keep_block() in text, "示例没有逐字带上逐字段那一块 —— 同源破了"
     # 判据那段必须真在里面（它是这个字段的灵魂, 不是装饰）
-    assert "她还会不会一直带着它" in text
-    assert "夸奖说的是当时, 誓约说的是往后" in text
+    assert "她还会不会一直带着它" not in text, "那句判据太宽, 2026-10-04 已收窄"
+    assert "失约会真的伤到谁" in text, "分量那一档"
+    assert "办完就没了" in text and "往后一直算数" in text, "小事 vs 往后事的界线"
+    assert "不会等到翻备忘录才想起来" in text, "『答应了』本身不是理由"
+    assert "欠着的债, 不是想通的道理" in text
     assert "日常安排" in text and "夸奖与安慰" in text
+    # ⭐ 收窄的那两条: **当时的领悟**要明确划出去（它是 belief 的活）
+    assert "当时的领悟与触动" in text
     # 取值词表 + 上一轮的形状声明
     for v in KEEP_VALUES:
         assert v in text
@@ -229,22 +234,24 @@ def test_schema_split_reuses_the_domain_contract_by_reference():
 def test_split_prompt_does_not_restate_the_schema_criteria():
     """⭐ **判据只有一处**: `digest_split.md` 是"你是谁 / 看什么", 判据全在 schema 里。
 
-    为什么值得钉: 这次特意把 `keep` 那三段判据（三种 `always` / 三类别记 / abstract
-    两个去处）**只写在契约层**, 因为 `contract/schema.py` 那条纪律说 *"示例才是形状的
-    来源"* —— 一旦 prompt 里也抄一份, 两处迟早强度不一, 而模型只学会它看到的那一份
-    （2026-09-20 art 命中率 0/5 就是这么来的）。
+    为什么值得钉: 这次特意把 `keep` 的判据**只写在契约层**, 因为 `contract/schema.py`
+    那条纪律说 *"示例才是形状的来源"* —— 一旦 prompt 里也抄一份, 两处迟早强度不一,
+    而模型只学会它看到的那一份（2026-09-20 art 命中率 0/5 就是这么来的）。
 
-    这条守门 = "prompt 文件里不许出现判据原文"。改判据时**只改契约层**, 这条自然绿。
+    ⚠️ **例外（2026-10-04）**: prompt 里可以出现**一句**"别怕丢"的分工说明 ——
+    它不是判据, 是**边界声明**（"领悟归下一轮的 belief"）。那条守门只拦判据原文。
     """
     from llm.prompts import load_prompt
 
     raw = load_prompt("digest_split")
     assert "{{digest_schema}}" in raw, "prompt 必须留契约占位符（否则判据根本进不去）"
-    for phrase in ("夸奖说的是当时", "日常安排", "随口一说", "夸奖与安慰",
-                   "两个去处", "她还会不会一直带着它"):
+    for phrase in ("欠着的债", "忘了它, 就真会出问题", "日常安排", "随口一说",
+                   "夸奖与安慰", "两个去处", "她还会不会一直带着它"):
         assert phrase not in raw, (
             f"判据原文 {phrase!r} 出现在 prompt 文件里了 —— 它只该在契约层"
             "（`KEEP_SEMANTICS`）。两处各写一份 = 迟早强度不一。")
+    # ⭐ 边界声明该在（它是"别自作聪明"的那道闸, 与判据无关）
+    assert "别怕丢信息" in raw and "下一轮会把它写成一条**看法**" in raw
 
 
 # ---------------------------------------------------------------------------
