@@ -980,7 +980,7 @@ class DigestRegistry:
             # ⛔ 绝不替她滚到明年、也绝不替她猜）
             if state == "open" and seg.get("due") is not None:
                 due = str(seg.get("due") or "").strip()
-                if due and _is_full_date(due):
+                if due and is_full_date(due):
                     row["due"] = due
             out.append(row)
 
@@ -1568,8 +1568,11 @@ def _norm_index(raw: Any) -> str | None:
     return f"{seq}.{rec}" if rec != "" else str(seq)
 
 
-def _is_full_date(v: str) -> bool:
+def is_full_date(v: str) -> bool:
     """`YYYY-MM-DD`（**全日期**）—— `due` 唯一的格式规矩。
+
+    ⚠️ **公开**（2026-10-05, L3）: 料那一侧（`material._due_cell` / 资格位）**也要判同一件事**
+    —— "什么算全日期"只许有这一个实现, 否则"料里印成日期、契约当没期限"就会漂。
 
     ⚠️ **只在这里校验格式**: 引擎判"过期没有"时用 `date` 自己比
     （`date.fromisoformat(due) < 今天`）—— **绝不把它喂给 `worldtime.age.age_days`**

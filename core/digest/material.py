@@ -6,6 +6,7 @@
 
 | 给谁 | 函数 | 料 |
 |---|---|---|
+| **R0** | `_segment_time_text` · `_special_days_text` · `_open_pinned_text` · `_ledger_ids` | 本段的时间 · 日子 · 还开着的约定（带编号 + 期限）· **资格位**（L3, 2026-10-05） |
 | R1 | `_collect_visual_prompts` · `_segment_emotion_keys` | 画面记忆 · 本段情绪标尺 |
 | R4 | `_open_pinned_text` · `_episode_lines` | 还开着的约定（带编号）· 本段新增经历 |
 | R2 | `_round_b_material` | 新经历 + 每条候选（正文/被引/边/为什么） |
@@ -22,9 +23,13 @@ from __future__ import annotations
 
 import json
 import logging
+import re
+from datetime import date
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from contract.digest_registry import is_full_date
+from core import paths
 from core.brain import marks
 from core.digest.rounds import RoundSpec
 
@@ -142,14 +147,211 @@ def _segment_emotion_keys(events) -> list[str]:
 # R4 的料: 还开着的约定 / 本段新增经历
 # ---------------------------------------------------------------------------
 
-def _open_pinned_text(items: list) -> str:
-    """R4 输入之一: **还开着的约定**（带编号 —— 它要照着 `id` 写 `close`）。
+def _open_pinned_text(items: list, *, now: object | None = None,
+                      today: "date | None" = None,
+                      first_day: "date | None" = None) -> str:
+    """**还开着的约定**（带编号 —— 写 `close` / 更正要照着 `id`）。
 
-    行格式复用注入块的 `notes.render_item`（`n3 周六模型店 (m0009)  ← 记于 3 天前`）——
-    ⚠️ **一份行格式只有一个实现**（两个写者必然漂移）。
+    ⭐ **R4（收口轮）与 R0（切分员, L3 2026-10-05）共用这一份**: 行格式 = 她备忘录那一行
+    （`notes.render_item` —— **一份行格式只有一个实现**）+ 尾巴那格 **期限**
+    （只在调用方给了 `today` 时印: R4 今天不看日期, R0 非看不可）。
+
+    ⚠️ 期限那格**三种措辞说的是三件事**（`DESIGN_DIGEST_LEDGER §3.2`）:
+    `—（没有期限）`（永不过期）/ `（本段期间到期）`（原文就在它手边）/ `（已过 N 天）`（陈年旧账）。
     """
     from core.brain.notes import render_item
-    return "\n".join(f"- {render_item(it)}" for it in items)
+    return "\n".join(
+        f"- {render_item(it, now=now)}{_due_cell(it, today=today, first_day=first_day)}"
+        for it in items)
+
+
+# ---------------------------------------------------------------------------
+# R0 的料（**L3, 2026-10-05**）: 本段的时间 · 日子 · 期限那格 + 资格位
+#
+# ⚠️ 为什么这些**只给 R0**: 它今天的料里一个日期都没有（行首只有 `[28]` 那种位置号）
+# ⇒ "生日那天"折算不出绝对日期、`due` 也写不出来 —— 而 R1 写正文, 正文里出现绝对
+# 日期会与"剧情里不走绝对日期"那条口径打架（用户裁决: `DESIGN_DIGEST_LEDGER §3.6`）。
+# ---------------------------------------------------------------------------
+
+def _day_of(ts: object) -> "date | None":
+    """事件 `ts` → **那一天**（`2026-05-10T21:33:00+08:00` ⇒ `2026-05-10`）; 坏值 ⇒ None。"""
+    raw = str(ts or "").strip()
+    if len(raw) < 10:
+        return None
+    try:
+        return date.fromisoformat(raw[:10])
+    except ValueError:
+        return None
+
+
+def _segment_days(events) -> list["date"]:
+    """本段跨了哪几天（升序去重）—— 【本段的时间】与"段起"共用这一处。
+
+    ⚠️ 段的**最后一天**就是这一段的"今天"（`ctx.now_ts` 同源: 段内最后一条内容事件）
+    —— 资格位判"过期没有"用的是它, **不是**机器的挂钟（补跑旧段时才不会全判成超期）。
+    """
+    return sorted({d for d in (_day_of(getattr(e, "ts", "")) for e in events) if d})
+
+
+def _segment_time_text(days: list["date"]) -> str:
+    """⭐ R0 的料之一: **本段的时间** —— `2026-05-08 ~ 2026-05-10`（**单日只印一个**）。
+
+    段可能跨天（水位欠着的尾巴会并进下一段）⇒ 给范围, 不给单点。
+    """
+    if not days:
+        return ""
+    if len(days) == 1:
+        return days[0].isoformat()
+    return f"{days[0].isoformat()} ~ {days[-1].isoformat()}"
+
+
+#: `5/13` / `5月13日` / `05-13` / `5.13` —— **一个解析器吃几种写法**（真机两种并存）
+_MONTH_DAY = re.compile(r"^\s*(\d{1,2})\s*[月/\-.]\s*(\d{1,2})\s*日?\s*$")
+
+
+def _parse_month_day(raw: str) -> "tuple[int, int] | None":
+    """`5/13` / `5月13日` → `(5, 13)`; 认不出 ⇒ **None**（绝不猜 —— 猜错 = 误判失约）。
+
+    ⚠️ 真机两种格式并存（`5/13` 与 `5月13日`, 见 `DESIGN_DIGEST_LEDGER §3.5` 实情 1）
+    ⇒ 不按格式分支, 一个解析器吃完; `2/30` 这种日历上不存在的当天淘汰。
+    """
+    m = _MONTH_DAY.match(str(raw or ""))
+    if not m:
+        return None
+    month, day = int(m.group(1)), int(m.group(2))
+    try:
+        date(2000, month, day)          # 2000 是闰年 ⇒ 2/29 合法, 2/30 当场淘汰
+    except ValueError:
+        return None
+    return month, day
+
+
+def _role_birthday(char_id: str) -> "tuple[int, int] | None":
+    """角色的生日 —— 读**档案** `config/characters/{id}/profile.yml` 的 `birthday`。
+
+    为什么读档案、不读 `mmt_registry.toml`: 后者是**显示用**生日, 而这份料是给 AI
+    折算日期用的（两个真源的分工写在 `core/common/mmt_registry.py` 的注释里）。
+    ⚠️ **不一致时以档案为准**（`DESIGN_DIGEST_LEDGER §3` 待裁项, 2026-10-05 采此解）。
+    读不到 / 格式认不出 ⇒ None —— **不印那一格, 更不编一个日期**。
+    """
+    if not char_id:
+        return None
+    from core.parsing.dynamic_character_parser import load_yaml_file
+    for name in ("profile.yml", "profile.yaml"):
+        path = paths.CHARACTERS_DIR / char_id / name
+        if not path.is_file():
+            continue
+        try:
+            data = load_yaml_file(path)
+        except Exception:                    # noqa: BLE001 — 料缺一格不该拖垮整段
+            return None
+        # 前缀三档 = `core/parsing/names._PREFIXES` 那套口径（裸键 → SIG~ → REQ~）
+        for key in ("SIG~birthday", "REQ~birthday", "birthday"):
+            raw = str(data.get(key) or "").strip()
+            if raw:
+                return _parse_month_day(raw)
+        return None
+    return None
+
+
+def _special_days_text(*, char_id: str) -> str:
+    """⭐ R0 的料之二: **日子**（她的生日 + 节日表）—— 让"生日那天"折算成绝对日期。
+
+    形态: `她 5/13 生日｜节日：元旦 1/1 · 情人节 2/14 · 教师节 9/10 · 圣诞节 12/25`
+
+    ⚠️ **整张节日表都印**（今天 4 行 ≈ 40 字）, **不设"附近"窗口**: 六月里说定
+    "圣诞节一起过"照样要折算, 窗口反而把它挡在外面; 表是作者手编的, 长得很慢。
+    ⚠️ **老师的生日那一格不印** —— `config/player/profile.yml` **没有生日字段**
+    （2026-10-05 查）; 印一个 `老师 —` 等于告诉她"有个你不知道的东西"。
+    "不知道日期就不写 `due`"（§3.5 第三档）本来就覆盖这种情况。
+    """
+    parts: list[str] = []
+    birthday = _role_birthday(char_id)
+    if birthday:
+        parts.append(f"她 {birthday[0]}/{birthday[1]} 生日")
+    from core.worldtime.realtime import load_occasions
+    rows = [f"{o.name} {o.month}/{o.day}" for o in load_occasions()]
+    if rows:
+        parts.append("节日：" + " · ".join(rows))
+    return "｜".join(parts)
+
+
+def _due_date(item) -> "date | None":
+    """条目的 `due` → 那一天; **不是全日期 ⇒ None**（= 没有期限）。
+
+    ⚠️ 判据与契约**同源**（`contract.digest_registry.is_full_date`）——
+    料与校验对"什么算日期"必须一个口径, 否则会印出一个校验层不认的日期。
+    ⛔ **绝不喂 `age_days`**（它吃 aware 时间戳, 裸日期当场 TypeError —— P1）。
+    """
+    raw = str(getattr(item, "due", "") or "").strip()
+    return date.fromisoformat(raw) if is_full_date(raw) else None
+
+
+#: 期限那一格的引导（四个空格 —— 与 `_open_pinned_text` 的 `- ` 对齐, 一行一件事）
+_DUE_LEAD = "    期限 "
+
+
+def _due_cell(item, *, today: "date | None", first_day: "date | None" = None) -> str:
+    """名单行尾巴那一格: **期限**（三态）。`today is None` ⇒ 整格不印。"""
+    if today is None:
+        return ""
+    due = _due_date(item)
+    if due is None:
+        return f"{_DUE_LEAD}—（没有期限）"
+    if first_day is not None and due < first_day:
+        return f"{_DUE_LEAD}{due.isoformat()}（已过 {(today - due).days} 天）"
+    if due <= today:
+        return f"{_DUE_LEAD}{due.isoformat()}（本段期间到期）"
+    return f"{_DUE_LEAD}{due.isoformat()}"
+
+
+def _mentioned(store, item, *, seq_set: set[int], timeline: str) -> bool:
+    """**本段有没有提到这条约定**（粗筛, 只回答"有没有", 不判轻重）。
+
+    两条判据, 任一命中即算"提到":
+      ① **结构**: 它的出生经历（`refs`）的 `event_seq` 与本段 seq **有交集**
+         ⇒ 这一段覆盖了那件事本身;
+      ② **词面**: 那些经历的 `tags`（引擎写的"以后可能被提到的词"）出现在**本段时间线**里。
+    ⚠️ 两条都不中 ⇒ 算**没提到**（"宁可多发"）: 资格位只是"允不允许写 `span: null`",
+    判不判在她 —— 而她手里就是原文。宁可多发一格, 不可替她把话说死。
+    ⛔ 拿不到经历（旧档/refs 空）⇒ 也算没提到（同上: 不替她判）。
+    """
+    for ref in getattr(item, "refs", None) or []:
+        node = store.get(str(ref))
+        if node is None:
+            continue
+        if seq_set & set(getattr(node, "event_seq", None) or []):
+            return True
+        for tag in getattr(node, "tags", None) or []:
+            word = str(tag).strip()
+            # `#pinned` 那种标记不是词; 一个字太容易误撞
+            if len(word) >= 2 and not word.startswith("#") and word in timeline:
+                return True
+    return False
+
+
+def _ledger_ids(store, items: list, *, seq_set: set[int], timeline: str,
+                today: "date | None") -> "tuple[set[str], set[str]]":
+    """→（**闭集** `note_ids`, **资格位** `overdue_ids`）—— L3。
+
+    `note_ids` = 料里印出来的每一条（`open.id` / `close.id` 只能引用它）;
+    `overdue_ids` = 其中**超期且本段没提到**的那些 ⇒ 只有它们允许写 `span: null`
+    （"没有那一刻"的收口 —— 契约层的第二道闸, 见 `parse_split`）。
+
+    ⚠️ **超期 = `due < 今天`（无宽限）**, "今天" = 本段的最后一天（见 `_segment_days`）。
+    没有 `due` ⇒ 永不过期, 永不发资格位（"我会一直陪着你"不该被判失约）。
+    """
+    note_ids = {str(it.id) for it in items if getattr(it, "id", "")}
+    overdue: set[str] = set()
+    if today is None:
+        return note_ids, overdue
+    for it in items:
+        due = _due_date(it)
+        if due is None or due >= today:
+            continue
+        if not _mentioned(store, it, seq_set=seq_set, timeline=timeline):
+            overdue.add(str(it.id))
+    return note_ids, overdue
 
 
 def _episode_lines(store: "WikiStoreV2", episode_ids: list[str]) -> str:

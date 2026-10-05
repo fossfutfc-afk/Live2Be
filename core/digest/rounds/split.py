@@ -1,9 +1,17 @@
 # -*- coding: utf-8 -*-
-"""split.py — ⓪ R0「切分员」: 本段时间线 → **切片骨架**（区间 + `keep` + `abstract`）。
+"""split.py — ⓪ R0「切分员」: 本段时间线 → **切片骨架 + 账目**（区间 · `abstract` · `state`/`id`/`due`）。
 
-料（表里那两行, `ctx.sections_for` 逐字校对）: 本段新增互动 · 本章标题。
-⚠️ **只有这两样** —— 画面记忆 / 人设 / 情绪标尺**不给它**: 切分是**结构判断**,
-不需要人设; 给了反而诱使它写文学化的 `abstract`（那是 R1 的活）。
+料（表里那五行, `ctx.sections_for` 逐字校对）: 本段新增互动 · **本段的时间** · **日子** ·
+**还开着的约定**（带编号 + 期限）· 本章标题。
+
+⭐ **L3（2026-10-05）: 账目的两只手都接上了** ——
+· **料**: 没有【本段的时间】她就折算不出"生日那天是哪天", 没有【还开着的约定】她就
+  引用不到任何 `id`（`close` / 更正两格全是死的）;
+· **资格位**: 名单同时是 `parse_split` 的**闭集**; 超期 ∧ 本段没提到它的那些才允许
+  写 `span: null`（"没有那一刻"）—— 引擎**只摆事实, 不替她判**。
+
+⚠️ **画面记忆 / 人设 / 情绪标尺不给它**: 切分是**结构判断**, 不需要人设; 给了反而诱使它
+写文学化的 `abstract`（那是 R1 的活）。⚠️ **日期也不给 R1**（正文不走绝对日期）。
 
 写: **段内中间产物** `ctx.result.segments`（`{span, keep, abstract, seqs}` 的列表）——
 ⛔ 不建节点、不碰图、不写 note。它交出去的是**骨架**, R1 照着它往里面填血肉。
@@ -34,6 +42,8 @@ from __future__ import annotations
 
 import logging
 
+from core.digest.material import (_ledger_ids, _open_pinned_text, _segment_days,
+                                 _segment_time_text, _special_days_text)
 from core.digest.rounds.base import Ctx, RoundOut
 from core.digest.segment import _collapse_bond_episodes, _coverage, _expand_spans
 
@@ -41,16 +51,29 @@ logger = logging.getLogger(__name__)
 
 
 def run(ctx: Ctx) -> RoundOut:
-    """⓪ 切 —— 本段时间线 + 章标题 → 切片骨架（展开 + 章收口都在这里）。"""
+    """⓪ 切 —— 时间线 + 时间/日子/还开着的约定 → 切片骨架（展开 + 章收口都在这里）。"""
     spec = ctx.enter("split")
+    # ⭐ **账目那两样（L3, 2026-10-05）** —— 名单只有一份, 两个用途:
+    #   ① 印进料（她照着 `id` 写 `close` / 更正）② 当 `parse_split` 的**闭集**白名单。
+    # 资格位（`overdue_ids`）只多一条: 超期 ∧ 本段没提到它 ⇒ 才允许写 `span: null`。
+    open_pinned = list(ctx.store.notes_state(ctx.events).pinned)
+    days = _segment_days(ctx.by_seq.values())
+    today = days[-1] if days else None
+    note_ids, overdue_ids = _ledger_ids(ctx.store, open_pinned, seq_set=ctx.seq_set,
+                                       timeline=ctx.timeline, today=today)
     system = ctx.system_for(spec, domain=ctx.domain, chapter_count=len(ctx.chapters))
     user = ctx.sections_for(spec, [
         ("本段新增互动", ctx.timeline),
+        ("本段的时间", _segment_time_text(days)),
+        ("日子", _special_days_text(char_id=getattr(ctx.store, "char_id", ""))),
+        ("还开着的约定", _open_pinned_text(open_pinned, now=ctx.now_ts, today=today,
+                                          first_day=days[0] if days else None)),
         ("本章标题", " / ".join(c["title"] for c in ctx.chapters if c["title"])),
     ])
     segments, _resp = ctx.call(
         spec, system, user,
-        parse_fn=ctx.parse_for(spec, seq_set=ctx.seq_set))
+        parse_fn=ctx.parse_for(spec, seq_set=ctx.seq_set,
+                               note_ids=note_ids, overdue_ids=overdue_ids))
     if segments is None:
         return RoundOut.failed()
     # ⭐ 契约层**当场丢掉的切片数** —— `items.in`（"这一段本来有几件"）要用它:
@@ -72,12 +95,13 @@ def run(ctx: Ctx) -> RoundOut:
     ctx.result.segment_collapsed = collapsed
     # ⚠️ 未认领要在**收口之后**重算 —— 章块的区间并回让"章内那几条"从"未认领"变"已认领"
     unclaimed, uncovered = _coverage(segments, ctx.seq_set, ctx.chapters)
-    logger.info("digest_split segments=%d open=%d close=%d 无区间=%d 认领=%d 未认领=%d 共享=%d "
-                "章内未覆盖=%d 未认领seq=%s",
+    logger.info("digest_split segments=%d open=%d close=%d 无区间=%d 名单=%d 超期=%d "
+                "认领=%d 未认领=%d 共享=%d 章内未覆盖=%d 未认领seq=%s",
                 len(segments),
                 sum(1 for s in segments if s.get("state") == "open"),
                 sum(1 for s in segments if s.get("state") == "close"),
                 sum(1 for s in segments if s.get("span") is None),
+                len(note_ids), len(overdue_ids),
                 len(ctx.seq_set) - len(unclaimed), len(unclaimed), _shared,
                 len(uncovered), unclaimed[:20] or "-")
     return RoundOut.done()
