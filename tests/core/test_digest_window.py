@@ -220,6 +220,67 @@ def test_collapse_prefers_the_widest_when_no_open():
     print("    收口: 没 open 时留跨度最长的那条 ✓")
 
 
+def test_collapse_never_drops_a_ledger_row():
+    """⭐ **账目行不参与收口**（L4, 2026-10-05）—— 丢一条 `close` = 那条约定永远开着。
+
+    ⚠️ 判据不是"哪条更该活", 是"哪条不许死": 一章切成几件时, 无账目的行照旧收口,
+    带 `state` 的那些**整条留下**（一行只装得下一个 `state`/`id`, 并不过去）。
+    """
+    from core.digest.segment import _collapse_bond_episodes
+
+    dropped: list[dict] = []
+    segs = [{"span": [4, 4], "abstract": "甲", "seqs": [4]},
+            {"span": [5, 5], "state": "close", "id": "n3", "abstract": "丁", "seqs": [5]},
+            {"span": [6, 6], "abstract": "丙", "seqs": [6]}]
+    chapters = [{"title": "苔藓", "seqs": frozenset({4, 5, 6})}]
+    out = _collapse_bond_episodes(segs, chapters, dropped_out=dropped)
+
+    kept = {s["abstract"]: s for s in out}
+    assert "丁" in kept, f"close 那一行被收口丢了（账不平）: {out}"
+    assert kept["丁"]["state"] == "close" and kept["丁"]["id"] == "n3", kept["丁"]
+    # 无账目的那两条照旧收口（留第一条）, 而且**丢的账里没有丁**
+    assert sorted(kept) == ["丁", "甲"], out
+    assert dropped[0]["lost"] == ["丙"], dropped
+    # 保留那条照样兜满整章（位置不因为收口而丢）
+    assert kept["甲"]["seqs"] == [4, 5, 6], kept["甲"]["seqs"]
+    print(f"    收口: 账目行留下 {kept['丁']['id']}, 无账目的照旧并成一条 ✓")
+
+
+def test_collapse_keeps_two_open_rows_as_two_promises():
+    """同一章里**两条 `open`** = 两条约定 —— 收口不许把其中一条吃掉。"""
+    from core.digest.segment import _collapse_bond_episodes
+
+    segs = [{"span": [4, 4], "state": "open", "abstract": "约了模型店", "seqs": [4]},
+            {"span": [5, 5], "state": "open", "abstract": "约了看苔藓", "seqs": [5]}]
+    out = _collapse_bond_episodes(segs, [{"title": "章", "seqs": frozenset({4, 5})}])
+    assert sorted(s["abstract"] for s in out) == ["约了模型店", "约了看苔藓"], out
+    print("    收口: 两条 open 都留着（两条约定）✓")
+
+
+def test_null_span_row_claims_no_position_and_is_never_collapsed():
+    """⭐ 无区间行（`span: null` = "没有那一刻"）**一个 seq 都不认领**, 也不被章收口吃掉。
+
+    ⚠️ 它的 `event_seq`（L7 建节点时才落 `[interact_max]`）是**账的指针, 不是覆盖声明** ——
+    在这里认领了, 日志就会说"这一段全被它记下了"。
+    """
+    from core.digest.segment import (_collapse_bond_episodes, _coverage, _expand_spans,
+                                     _seqs_of)
+
+    segs = [{"span": None, "state": "close", "id": "n3",
+             "abstract": "生日那天, 老师没有来"}]
+    unclaimed, shared = _expand_spans(segs, {4, 5, 6})
+    assert "seqs" not in segs[0], "无区间行不许拿到 seqs"
+    assert _seqs_of(segs[0]) == []
+    assert unclaimed == [4, 5, 6] and shared == 0, (unclaimed, shared)
+    # 章收口也吞不掉它（它不属于任何章 —— 没有位置）
+    chapters = [{"title": "章", "seqs": frozenset({4, 5, 6})}]
+    out = _collapse_bond_episodes(segs, chapters)
+    assert [s["abstract"] for s in out] == ["生日那天, 老师没有来"], out
+    # 覆盖账: 整章都还欠着（它是"没有那一刻", 不顶任何位置）
+    assert _coverage(segs, {4, 5, 6}, chapters) == ([4, 5, 6], [4, 5, 6])
+    print("    span:null: 不认领位置 / 不被收口 / 不算章内覆盖 ✓")
+
+
 def test_chapter_tail_is_covered_by_the_engine(tmp_path):
     """⭐ 她只划了 11–12 而章是 11–14 ⇒ 节点的 `event_seq` = **整章**。"""
     st = _wiki(tmp_path)
