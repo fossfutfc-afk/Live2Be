@@ -88,6 +88,12 @@ logger = logging.getLogger(__name__)
 #: 隐含）⇒ **真源零影响**; 只有**派生缓存** `notes.json` 里有那个键 ⇒ `from_dict`
 #: 兼容读一次旧名（见 `_LEGACY_SLOT`）。
 SLOT_PINNED = "pinned"
+#: ⭐ **"这条经历是她随身带着过的一件事"** 的**节点 tag**（§4.5; L7 2026-10-05）。
+#: 打给**出生那条** episode（`state=open` 那一行长出来的那条）, **建节点时**由引擎写,
+#: ⛔ 不走 revise 通道、**也不让 R1 写**（提示词里那一句已删 —— 判据在 R0,
+#: 两个写者 = 迟早一个标了 `close` 那一条）。
+#: ⚠️ 它只是**筛选词**（同 `tags` 的既有定位）, 不承担路由。
+PINNED_TAG = "#pinned"
 #: 派生缓存里的**旧**槽名（改名前的 `promise`）—— 只读一次, 下次保存自动改写。
 _LEGACY_SLOT = "promise"
 #: ⚠️ ~~`SLOT_HABITS = "habits"`~~ **2026-09-29（N4a）已退役**：它是"规律"的劣质替身
@@ -442,19 +448,29 @@ def close_op(item_id: str) -> dict:
     return _checked({"action": N_CLOSE, "id": item_id})
 
 
-def update_op(item_id: str, *, due: str | None = None, text: str | None = None) -> dict:
+def update_op(item_id: str, *, due: str | None = None, text: str | None = None,
+              before: dict | None = None, after: dict | None = None) -> dict:
     """`update` 操作 = **更正**一条还开着的 —— 只改 `due` 与 `text`, **至少一样**。
 
     ⭐ 它存在的唯一理由: `due`（期限）**只能在建条目的那一刻给**, 而日期常常是
     **后来才知道**的（"不知道 → 她问 → 知道了"）。没有它, 那条 note 永远拿不到期限
     ⇒ 永远不过期 ⇒ 烂在本子上（`DESIGN_DIGEST_LEDGER §3.5`）。
     ⛔ 不许改 `refs`（出生地址）/ `since` / 槽 —— 构造器根本不给这些口子。
+
+    ⭐ `before` / `after`（L7, 2026-10-05）: **更正前后的那两句话与日期**（`{text, due}`）,
+    由调用方从"本子上原来那句"与"这一行的产出"各取一份 —— 与 revise 的 `changed` 同形。
+    ⚠️ 它们**只是审计账**（`fold` 不读; 事件流 append-only ⇒ 那一笔留得住）,
+    所以缺省可以不传（手工记账 / 测试）。
     """
     op: dict[str, Any] = {"action": N_UPDATE, "id": item_id}
     if due is not None and str(due).strip():
         op["due"] = str(due).strip()
     if text is not None and str(text).strip():
         op["text"] = str(text).strip()
+    if before:
+        op["before"] = dict(before)
+    if after:
+        op["after"] = dict(after)
     # ⚠️ "至少要改一样"的判据**只有一处** = `validate_ops`（下面 `_checked` 会走它）——
     # 这里不重复判, 免得同一条规则两个实现、迟早漂。
     return _checked(op)

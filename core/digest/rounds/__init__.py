@@ -243,7 +243,7 @@ ROUNDS: tuple[RoundSpec, ...] = (
             # ⛔ ~~note 的 `on_mind`~~ **2026-09-29（N4e）退役** —— L1 从此只写图;
             # note 的唯一写者是 R4 收口那一轮（下面 `close` 那格）。
         ),
-        result_fields=(*CONTRACT_FIELDS, "notes_ops", "record_gaps"),
+        result_fields=(*CONTRACT_FIELDS, "notes_ops", "record_gaps", "spanless_ids"),
         skip="没有能填的骨架行（无区间那一行没有事件可写 —— 正文就是 R0 给的 abstract）",
     ),
     RoundSpec(

@@ -163,6 +163,11 @@ class DigestResult:
     #: ⭐ **R0 的切片被契约层当场丢掉了几条**（区间作废 ⇒ `drops`）—— `items.in` 要用它:
     #: 丢掉的在 `segments` 里已经不存在, 而账上的 "in" 说的是"切分员交了几件"。
     segment_dropped: int = 0
+    #: ⭐ **无区间那段经历的 id**（L7, 2026-10-05）—— `{span: null, state: close}` 那一行
+    #: 落成的"没有那一刻"记忆（"生日那天, 老师没有来"）。
+    #: ⚠️ 它们的 `event_seq=[interact_max]` 是**账的指针, 不是覆盖声明** ⇒
+    #: `_next_watermark` 必须把它们排除（否则水位推过整段, 欠着的尾巴不再重喂）。
+    spanless_ids: list[str] = field(default_factory=list)
     #: R4 的世界校验记账（剔掉的引用 / 丢掉的 close 行…）—— 不阻断, 但要看得见
     notes_warnings: list[str] = field(default_factory=list)
     #: ⏸ ~~R4 物化的 promise 节点 id~~ **2026-09-29 删** —— 承诺退图, R4 不再建节点
@@ -396,7 +401,8 @@ def digest_segment(
     # （"未认领"从"永久丢"变成"欠着"）。取窗判据是 `seq > 水位`（排他）⇒ 存"覆盖到的
     # 那个 seq"本身, 语义上正好是用户说的"下一段从右端点 + 1 起头"。
     store.meta["digested_seq"] = _next_watermark(store, ctx.episode_ids,
-                                                 events=events, trigger=interact_max)
+                                                 events=events, trigger=interact_max,
+                                                 skip_ids=set(result.spanless_ids))
     # ⭐ 成功 ⇒ **失败计数清零**（这一段过去了; 留着它会让下一段白背两次"前科"）。
     store.meta.pop("digest_retry", None)
     store.save_meta()
@@ -404,7 +410,8 @@ def digest_segment(
 
 
 def _next_watermark(store: WikiStoreV2, episode_ids: list[str], *,
-                    events: list, trigger: int) -> int:
+                    events: list, trigger: int,
+                    skip_ids: set[str] | None = None) -> int:
     """⭐ 本次提交后水位推到哪 —— **按她实际覆盖到的地方**, 不是按触发点（D0）。
 
     ## 判据（2026-09-29 用户裁决）
@@ -432,6 +439,11 @@ def _next_watermark(store: WikiStoreV2, episode_ids: list[str], *,
     start = store.digested_seq
     top = 0
     for nid in episode_ids:
+        # ⛔ **无区间那段经历不许算覆盖**（L7, 2026-10-05）: 它的 `event_seq=[interact_max]`
+        # 是**账的指针**（"哪条约定在这一段被了结"）, 而这里算的是"这一段**有没有被记下来**"。
+        # 不排除它 ⇒ 水位一次推过整段 ⇒ 她**欠着的尾巴**再也不会被重喂（D0 那条设计就废了）。
+        if skip_ids and nid in skip_ids:
+            continue
         node = store.get(nid)
         for s in (getattr(node, "event_seq", None) or []):
             try:

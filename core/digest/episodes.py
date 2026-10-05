@@ -14,6 +14,7 @@ L1 的**引擎侧**（零 LLM）: 条目 → `episode` / `experience` 节点，�
 from __future__ import annotations
 
 import logging
+from datetime import date
 from typing import TYPE_CHECKING
 
 from core.brain.address import unique_title
@@ -138,6 +139,74 @@ def _create_a_nodes(store: WikiStoreV2, entries: list[dict], *, ts: str,
         nid = store.add(node)
         episode_ids.append(nid)
     return episode_ids, player_ids
+
+
+def _spanless_nodes(store: WikiStoreV2, segments: list[dict], *, note_state, now_ts: str,
+                    interact_max: int, reused_out: list[str] | None = None) -> list[str]:
+    """⭐ **无区间那一行 ⇒ 一条"没有那一刻"的经历**（L7, 2026-10-05）—— §2.3 / §4.3。
+
+    R0 的行 `{span: null, state: "close", id: n?}` 说的是 *"我答应过/等过, 而那一刻
+    根本没发生"*（"生日那天, 老师没有来"）—— 它**没有事件可写**, 正文**就是那一行的
+    `abstract`**, 所以它**不经 R1**, 在这里直接落节点。
+
+    | 字段 | 值 | 为什么 |
+    |---|---|---|
+    | `text` | 那一行的 `abstract` | 它就是那条回忆的正文（契约按正文的上限量它, 不是 60） |
+    | `title` / `significance` | 那一行给的 | R1 看不到这一行 ⇒ 只能 R0 给（"值不值"必须有人拍） |
+    | `ts` | **哪一天**（那条约定的期限日） | 记忆属于那天, 不属于"消化那一刻" |
+    | `event_seq` | `[interact_max]` | ⚠️ **账的指针, 不是覆盖声明** —— 见下 |
+    | `verbatim` | 空 | 没有事件, **绝不编** |
+
+    ⚠️ **`event_seq` 为什么不能空**（`revise._find_duplicate` 的第一行就是"空 ⇒ 不比"）:
+    崩溃窗口重跑时, 没有位置就没有去重键 ⇒ **每重跑一次图上就多一条**"生日那天没人来"。
+    ⇒ 落段级指针（R2/R3 的既有先例: 记忆属那天, 账记本段）。
+
+    ⛔ **那个指针不许拿去推水位**: 它是"账记在本段", 不是"这段被覆盖了" ——
+    `pipeline._next_watermark` 读的正是 `node.event_seq`, 不排除它就会把**欠着的尾巴**
+    一起推过水位（尾巴从此不再重喂）。⇒ 这些 id 由调用方记进 `result.spanless_ids`。
+    """
+    from core.brain.revise import _find_duplicate
+    spanless: list[str] = []
+    for seg in segments:
+        if seg.get("span") is not None or seg.get("state") != "close":
+            continue
+        text = str(seg.get("abstract") or "").strip()
+        if not text:
+            continue
+        nid = str(seg.get("id") or "").strip()
+        node = make_node("episode", text=text,
+                         title=str(seg.get("title") or "").strip() or unique_title(
+                             store, text[:12]),
+                         significance=seg.get("significance", 0.5))
+        node.title = unique_title(store, node.title)
+        node.event_seq = [int(interact_max)]
+        node.ts = _due_moment(note_state, nid, now_ts)
+        dup = _find_duplicate(store, node)
+        if dup is not None:
+            if reused_out is not None:
+                reused_out.append(dup.id)
+            spanless.append(dup.id)
+            continue
+        spanless.append(store.add(node))
+    return spanless
+
+
+def _due_moment(note_state, item_id: str, now_ts: str) -> str:
+    """那条约定的**期限日** → 一个带时刻的时间戳（取不到 ⇒ 段末尾那个时刻）。
+
+    ⚠️ **时刻与偏移从 `now_ts` 借**（`2026-10-05T21:33:00+08:00` 的 `T21:33:00+08:00` 那半截）:
+    节点的 `ts` 是 **aware** 时间戳, 而 `due` 是裸日期 —— 直接拿裸日期当 `ts`,
+    后面 `age_days`（aware − naive）会当场 TypeError（P1 那个坑, 已踩过）。
+    语义上也没错: 那一天 + 她那阵子的作息。
+    """
+    item = next((it for it in getattr(note_state, "pinned", []) or []
+                 if str(getattr(it, "id", "")) == item_id), None)
+    due = str(getattr(item, "due", "") or "").strip() if item is not None else ""
+    try:
+        date.fromisoformat(due)
+    except ValueError:
+        return now_ts
+    return f"{due}{now_ts[10:]}" if len(now_ts) > 10 else due
 
 
 def _resolve_verbatim(ent: dict, by_seq: dict) -> None:
