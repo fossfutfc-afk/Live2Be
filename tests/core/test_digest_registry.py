@@ -90,7 +90,8 @@ def test_parse_split_keeps_the_five_legal_shapes():
             {"span": [32, 32], "abstract": "老师生日是 5/13", "state": "open", "id": "n3",
              "due": "2027-05-13"},
             {"span": [33, 33], "abstract": "我把团子带来了", "state": "close", "id": "n5"},
-            {"span": None, "abstract": "生日那天，老师没有来", "state": "close", "id": "n4"},
+            {"span": None, "abstract": "生日那天，老师没有来", "state": "close", "id": "n4",
+             "title": "生日那天", "significance": 0.9},
         ]},
         seq_set={28, 29, 30, 31, 32, 33}, note_ids={"n3", "n4", "n5"},
         overdue_ids={"n4"})
@@ -102,7 +103,8 @@ def test_parse_split_keeps_the_five_legal_shapes():
         {"span": [32, 32], "abstract": "老师生日是 5/13", "state": "open", "id": "n3",
          "due": "2027-05-13"},
         {"span": [33, 33], "abstract": "我把团子带来了", "state": "close", "id": "n5"},
-        {"span": None, "abstract": "生日那天，老师没有来", "state": "close", "id": "n4"},
+        {"span": None, "abstract": "生日那天，老师没有来", "state": "close", "id": "n4",
+         "title": "生日那天", "significance": 0.9},
     ]
 
 
@@ -156,15 +158,32 @@ def test_parse_split_abstract_missing_is_a_loss_but_long_is_a_warning():
     # 没有区间那一行按**正文**的尺子量（61 字不告警）
     free, res2 = digest_registry.parse_split(
         {"segments": [{"span": None, "state": "close", "id": "n1",
+                       "title": "生日那天", "significance": 0.9,
                        "abstract": "长" * 61}]},
         note_ids={"n1"}, overdue_ids={"n1"})
     assert res2.warnings == () and free[0]["span"] is None
+    assert free[0]["title"] == "生日那天" and free[0]["significance"] == 0.9
     # 但它也有上限（301 字 ⇒ 告警）
     _free2, res3 = digest_registry.parse_split(
         {"segments": [{"span": None, "state": "close", "id": "n1",
-                       "abstract": "长" * 301}]},
+                       "title": "生日那天", "abstract": "长" * 301}]},
         note_ids={"n1"}, overdue_ids={"n1"})
     assert any("300" in w for w in res3.warnings), res3.warnings
+
+
+def test_parse_split_spanless_row_wants_a_title():
+    """⭐ 无区间那一行**要 `title` + `significance`**（L7）—— 缺了**不拒**, 退回摘要前 12 字。
+
+    理由: 那一行没有事件、也不经过写正文的那一轮 ⇒ 标题只能由 R0 给; 而"没标题"
+    只是让她在视图里引不到它, 比"整条记忆没了"轻得多。
+    """
+    segs, res = digest_registry.parse_split(
+        {"segments": [{"span": None, "state": "close", "id": "n1",
+                       "abstract": "生日那天，老师没有来, 我在校门口等到天黑"}]},
+        note_ids={"n1"}, overdue_ids={"n1"})
+    assert segs[0]["title"] == "生日那天，老师没有来, "[:12], segs[0]["title"]
+    assert segs[0]["significance"] == 0.5
+    assert any("title" in w for w in res.warnings), res.warnings
 
 
 def test_parse_split_bad_state_falls_back_to_no_ledger():
@@ -213,7 +232,8 @@ def test_parse_split_null_span_needs_close_and_a_qualification():
         {"span": None, "abstract": "id 不在名单", "state": "close", "id": "n9"},   # ③
         {"span": None, "abstract": "没发资格位", "state": "close", "id": "n1"},    # ④
         {"span": None, "abstract": "老师生日那天没有来",
-         "state": "close", "id": "n2"},                                          # ✅
+         "state": "close", "id": "n2", "title": "生日那天",
+         "significance": 0.9},                                                   # ✅
     ]}
     segs, res = digest_registry.parse_split(raw, note_ids={"n1", "n2"},
                                             overdue_ids={"n2"})

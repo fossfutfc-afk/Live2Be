@@ -179,8 +179,8 @@ def test_gap_row_carries_the_three_faces(tmp_path):
     assert any("99" in x for x in ev["contract"]["lost"])
     assert "n" not in ev["contract"] and "other" not in ev["contract"], \
         "健康度不进账（只在日志）"
-    assert ev["items"] == {"in": 2, "kept": 1, "no_pos": 0, "dropped": [], "reused": []}, \
-        ev["items"]
+    assert ev["items"] == {"in": 2, "kept": 1, "no_pos": 0, "dropped": [], "reused": [],
+                           "spanless": 0}, ev["items"]
     print(f"    缺口段: 真丢 {len(ev['contract']['lost'])} 处 · items={ev['items']}")
 
 

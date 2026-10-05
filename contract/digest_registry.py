@@ -308,7 +308,9 @@ CLOSE_SEMANTICS = (
     "    ⇒ `state`: \"close\" + `id`: 名单里那条的编号 + `span` 指**那一刻**（它就在本段原文里）;\n"
     "  · ⚠️ **没有那一刻**（她等过、那天没人来; 或者那条约定悄悄过期了）\n"
     "    ⇒ `state`: \"close\" + `span`: null + `id`, 而 **`abstract` 就是那条回忆的正文** ——\n"
-    "      如实写「老师生日那天没有来」这种; ⛔ 不许编日期、也不许编当时的心情。"
+    "      如实写「老师生日那天没有来」这种; ⛔ 不许编日期、也不许编当时的心情。\n"
+    "      ⭐ **这一行还要多给两样**（`title` + `significance`）: 它没有事件、也不经过写正文\n"
+    "      的那一轮 ⇒ **标题与「值不值」只能由你给**（缺了它, 这条记忆在回忆册里引不到）。"
 )
 LATE_DUE_SEMANTICS = (
     "【名单里那条的日期后来才知道】⇒ 再用一行: `state`: \"open\" + `id` + 新的 `due`\n"
@@ -977,6 +979,24 @@ class DigestRegistry:
                 if id_given:
                     # ⚠️ **新建的 `open` 不带 `id`**（缺键 = 新建; 只有"更正"才带）
                     row["id"] = nid
+            # ⭐ **无区间那一行还带 `title` + `significance`**（L7, 2026-10-05）——
+            # 它没有事件、也不经过写正文的那一轮（R1 看不到它）⇒ 那条记忆的**标题**与
+            # "值不值"只能由 R0 给（§1.1 真值表的"另外必填"列）。
+            # ⚠️ 缺了**不拒**: 一条"没有那一刻"的记忆比一个没标题重得多 ⇒ 收下 + 告警,
+            # 标题退回 `abstract` 前 12 字（⛔ 不编一个漂亮名字）。
+            if span is None:
+                title = str(seg.get("title") or "").strip()
+                if not title:
+                    warnings.append(f"{label} 是无区间那一行, 但没给 `title` —— "
+                                    f"退回用 abstract 前 12 字（那条记忆在视图里就引不到）")
+                row["title"] = title or abstract[:12]
+                sig = seg.get("significance")
+                if isinstance(sig, bool) or not isinstance(sig, (int, float)):
+                    if sig is not None:
+                        warnings.append(f"{label}.significance 不是数字 —— 取 0.5")
+                    row["significance"] = 0.5
+                else:
+                    row["significance"] = max(0.0, min(1.0, float(sig)))
             # `due` 只跟新建的 `open`: ⚠️ **判不了就退化成"没有期限"**（不告警 ——
             # 契约已经写明"全日期"; 引擎判不了 = 它永不过期, 宁缺勿错。
             # ⛔ 绝不替她滚到明年、也绝不替她猜）

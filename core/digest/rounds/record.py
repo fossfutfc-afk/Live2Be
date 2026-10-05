@@ -29,8 +29,8 @@ from __future__ import annotations
 
 import logging
 
-from core.brain.notes import ALREADY_PINNED, add_op
-from core.digest.episodes import _create_a_nodes, _resolve_verbatim
+from core.brain.notes import PINNED_TAG, add_op, close_op, update_op
+from core.digest.episodes import _create_a_nodes, _resolve_verbatim, _spanless_nodes
 from core.digest.material import SKELETON_HINT, _skeleton_rows, _skeleton_text
 from core.digest.rounds.base import Ctx, RoundOut
 
@@ -38,46 +38,63 @@ logger = logging.getLogger(__name__)
 
 
 def run(ctx: Ctx) -> RoundOut:
-    """① 记 —— 按**骨架**逐条填（切分不归它 —— 3b-2）。"""
+    """① 记 —— 按**骨架**逐条填（切分不归它 —— 3b-2）。
+
+    ⭐ **没有能填的行 ⇒ 只跳过那次 LLM 调用, 引擎照走**（L5+L7, 2026-10-05）:
+    一段里可能只有 `span: null` 那种"没有那一刻"的行（正文是 R0 给的, R1 没活干）,
+    但**引擎这一轮照样有事**: 落那条无区间经历 + 产 `close` / `update` 的 note 操作。
+    ⇒ 早退的位置在**调用**那一层, 不在函数开头（否则账目整批不落地）。
+    """
     spec = ctx.enter("record")
-    # ⭐ **一条能填的骨架都没有 ⇒ 这一轮跳过**（L5, 2026-10-05）: 一段里可能只有
-    # "没有那一刻"那种无区间行（它的正文是 R0 给的）—— 那时派给 R1 的活是零,
-    # 而契约那句"每一条切片给一行"会变成一句**空指令**（0 次调用, 账目照走）。
-    if not _skeleton_rows(ctx.result.segments):
-        ctx.log_skip(spec)
-        return RoundOut.skipped()
-    system = ctx.system_for(spec, domain=ctx.domain, chapter_count=len(ctx.chapters))
-    user = ctx.sections_for(spec, [
-        ("本段新增互动", ctx.timeline),
-        ("本段骨架", _skeleton_text(ctx.result.segments) + "\n" + SKELETON_HINT),
-        ("本章标题", " / ".join(c["title"] for c in ctx.chapters if c["title"])),  # 多章都列; 空 → 跳过
-        ("画面记忆", "\n".join(f"- {v}" for v in ctx.visuals)),
-        ("角色人设（锚点）", ctx.character_prompt),
-        ("本段情绪标尺", ctx.emotion_scale),
-    ])
-    entries, _resp = ctx.call(
-        spec, system, user,
-        parse_fn=ctx.parse_for(spec, seq_set=ctx.seq_set))
-    if entries is None:
-        return RoundOut.failed()
-    # ⭐ **按顺序对齐骨架** —— 位置与条数都归 R0（判据见 `_align_to_skeleton`）
-    entries, gaps = _align_to_skeleton(entries, ctx.result.segments)
-    # 索引 → 原文（T14）: parse 层拿不到事件流, 回填在这里做（对齐**之后**才解析）
-    for ent in entries:
-        _resolve_verbatim(ent, ctx.by_seq)
+    rows = _skeleton_rows(ctx.result.segments)
+    entries: list[dict] = []
+    gaps: dict = {}
     reused: list[str] = []
-    before = len(ctx.episode_ids)
-    ctx.episode_ids, ctx.player_ids = _create_a_nodes(
-        ctx.store, entries, ts=ctx.now_ts,
-        event_seq=[ctx.interact_max], aff_at_encoding=ctx.aff_at_encoding,
-        by_seq=ctx.by_seq, reused_out=reused)
-    # ⭐ **`state=open` ⇒ 长成 note**（3b-3 / 2026-10-05 换判据）—— 用刚建出来的 id 当 `refs`
-    # （切分权在 R0, 所以 note 的来源是**它自己那条切片**; 身份取"指向哪条 episode"⇒ 重跑不重复记）
-    # ⚠️ **判重复复用的那条不算"新的"** —— 它的 note 上一段已经写过了（重跑幂等的第一道,
-    # 节点面复用之后这道必须跟着生效, 否则 op 会再产一次、白写一条事件）
-    new_eps = [e for e in ctx.episode_ids[before:] if e not in reused]
-    keeper = _pinned_ops(ctx, gaps.get("orders") or [], new_eps)
-    _note_items(ctx, entries, reused, gaps, keeper)
+    new_eps: list[str] = []
+    if rows:
+        system = ctx.system_for(spec, domain=ctx.domain, chapter_count=len(ctx.chapters))
+        user = ctx.sections_for(spec, [
+            ("本段新增互动", ctx.timeline),
+            ("本段骨架", _skeleton_text(ctx.result.segments) + "\n" + SKELETON_HINT),
+            ("本章标题", " / ".join(c["title"] for c in ctx.chapters if c["title"])),  # 多章都列; 空 → 跳过
+            ("画面记忆", "\n".join(f"- {v}" for v in ctx.visuals)),
+            ("角色人设（锚点）", ctx.character_prompt),
+            ("本段情绪标尺", ctx.emotion_scale),
+        ])
+        entries, _resp = ctx.call(
+            spec, system, user,
+            parse_fn=ctx.parse_for(spec, seq_set=ctx.seq_set))
+        if entries is None:
+            return RoundOut.failed()
+        # ⭐ **按顺序对齐骨架** —— 位置与条数都归 R0（判据见 `_align_to_skeleton`）
+        entries, gaps = _align_to_skeleton(entries, ctx.result.segments)
+        # 索引 → 原文（T14）: parse 层拿不到事件流, 回填在这里做（对齐**之后**才解析）
+        for ent in entries:
+            _resolve_verbatim(ent, ctx.by_seq)
+        before = len(ctx.episode_ids)
+        ctx.episode_ids, ctx.player_ids = _create_a_nodes(
+            ctx.store, entries, ts=ctx.now_ts,
+            event_seq=[ctx.interact_max], aff_at_encoding=ctx.aff_at_encoding,
+            by_seq=ctx.by_seq, reused_out=reused)
+        # ⚠️ **判重复复用的那条不算"新的"** —— 它的 note 上一段已经写过了（重跑幂等的
+        # 第一道; 节点面复用之后这道必须跟着生效, 否则 op 会再产一次、白写一条事件）
+        new_eps = [e for e in ctx.episode_ids[before:] if e not in reused]
+    else:
+        ctx.log_skip(spec)              # 日志文案来自表里 `skip` 格（这一轮**不调 LLM**）
+    # ⭐ **L7 ①: 无区间那一行 ⇒ 一条"没有那一刻"的经历**（正文 = R0 的 `abstract`,
+    #    不过 R1; 它**也是**本段的经历 ⇒ 进 `episode_ids`, R2/R3 照常接得上）
+    note_state = ctx.store.notes_state(ctx.events)
+    spanless = _spanless_nodes(ctx.store, ctx.result.segments, note_state=note_state,
+                               now_ts=ctx.now_ts, interact_max=ctx.interact_max,
+                               reused_out=reused)
+    # ⚠️ 它们接在 R1 那批后面（顺序 = 契约顺序）; ⛔ **别让它们进水位** ——
+    # 那格 `event_seq=[interact_max]` 是**账的指针**, 不是"这一段被覆盖了"
+    # （`pipeline._next_watermark` 的 `skip_ids`）。
+    ctx.episode_ids = [*ctx.episode_ids, *spanless]
+    ctx.result.spanless_ids = list(spanless)
+    # ⭐ **L7 ②: 按 R0 那张表产 note 操作**（`add` / `update` / `close` 三种 + `#pinned`）
+    keeper = _ledger_ops(ctx, gaps.get("orders") or [], new_eps, note_state)
+    _note_items(ctx, entries, reused, gaps, keeper, spanless=spanless)
     return RoundOut.done()
 
 
@@ -145,51 +162,72 @@ def _brief(seg: dict, i: int) -> str:
     return f"#{i + 1} {seg.get('abstract') or '-'}"
 
 
-def _pinned_ops(ctx: Ctx, orders: list[int], new_eps: list[str]) -> dict:
-    """⭐ **`state=open` 的切片 ⇒ 一条 `note/add`**（3b-3）—— 返回缺口账。
+def _ledger_ops(ctx: Ctx, orders: list[int], new_eps: list[str], note_state) -> dict:
+    """⭐⭐ **按 R0 那张表产 note 操作**（L7, 2026-10-05）—— `add` / `update` / `close` 三种。
 
-    ## 三条判据
+    这是"切片即账目"落到**本子**上的那一笔: 行的 `state` 说什么, 这里就写什么。
 
-    1. **来源 = 那条切片自己的 episode**: `refs` 取**新**建出来的 episode id。
-       切分权在 R0 ⇒ 约定挂在**它自己那件事**上, 不需要 LLM 指任何位置
-       （这正是最初那个"实时记一笔拿不到地址"的问题的解法）。
-    2. ⚠️ **`refs` 只收新节点**: 判重复而复用的那条不在 `new_eps` 里 —— 它的 note
-       上一段已经写过了（重跑幂等的第二道）。
-    3. ⛔ **她 drop 掉一条 `always`** ⇒ **收下她的裁决**, 但**记账**（返回 `lost_kept`）:
-       "说过要一直带着的东西没被记住"不能是静默的。它走已有的 D1 台账那条通路
-       （`digest_gap` 的 `items.dropped`）—— ⛔ 不发明新机制。
-       ⛔ **也不替她补**: 引擎补 = 把她没说的话写进她的本子。
+    | 那一行 | 产出 | 依据 |
+    |---|---|---|
+    | `state=open`（**无** `id`） | **`add`** —— `text` = 那一行 `abstract`（原样）· `refs` = **它自己那条 episode** · `due` 透传 | §2.1 |
+    | `state=open`（**有** `id`） | **`update`** —— 只改 `due` / `text`, 带 `before`/`after`; ⛔ **一样都没变 ⇒ 不写** | §1.1b |
+    | `state=close`（有区间 / `span: null`） | **`close`** —— 划掉即移除（三种结局一律） | §2.2 |
 
-    ## 为什么不在这里做去重
+    三条纪律（每一条都有代价, 别顺手改）:
 
-    重跑幂等有**两道**, 都不在这个函数里:
+    1. **出生地址 = 那条切片自己的 episode**（`orders` 把"第 i 条条目"对到"第几条切片"）。
+       ⚠️ 判重复而复用的那条**不在 `new_eps` 里** —— 它的 note 上一段已经写过了
+       （重跑幂等的第二道: op 里那个 `src` = `ALREADY_PINNED` 去重键）。
+    2. ⛔ **她 drop 掉 / 漏填一条 `open`** ⇒ **收下她的裁决 + 记账**（`lost_kept`）:
+       "说过要带着的东西没被记住"不能是静默的（走 D1 台账, 不发明新机制）。
+    3. **`update` 的 `before == after` ⇒ 不写 op**（§1.1b）: 崩溃窗口重跑时那一行是白跑的,
+       **不能假装变了**。判据只比 `due`/`text` 两样（行契约只允许改这两样）。
+
+    ⭐ 顺带把 **`#pinned`** 打在**出生那条** episode 上（§4.5: 语义 = "这是她随身带着过的
+    一件事"）—— 建节点时就能写, **不走 revise 通道**; 了结那一条不打。
+
+    ## 重跑幂等有**两道**, 都不在这个函数里
+
       · **节点面**: `_create_a_nodes` 的 `_find_duplicate` 会复用旧节点 ⇒ 复用出来的
-        不进 `new_eps` ⇒ 这里根本不会产 op（上面判据 2）;
+        不进 `new_eps` ⇒ 这里根本不会产 op（上面纪律 1）;
       · **笔记面**: op 里带 **`src`**（= 它指向的那条 episode）, `fold` 见到
-        "already 在本子上的条目里有一条 `refs` 含同一个 `src`" 就跳过
-        （`notes.ALREADY_PINNED`）—— ⚠️ 拿 `refs` 而不是拿正文比:
-        她两次可能把同一句话写得不一样, 而**指向哪条经历**是确定的。
-
-    ## 形状
-
-    `text` = 切片的 `abstract`（**原样**）: 契约要求 `always` 的那句就是
-    "她带走的那句话"（"还欠着什么 + 她此刻对它的那点意思"）⇒ 不再二次加工。
+        "本子上已经有一条 `refs` 含同一个 `src`" 就跳过（`notes.ALREADY_PINNED`）——
+        ⚠️ 拿 `refs` 而不是拿正文比: 她两次可能把同一句话写得不一样, 而**指向哪条经历**是确定的。
     """
-    if not orders:
-        return {"lost_kept": []}
     lost_kept: list[str] = []
+    no_change: list[str] = []
     # 切片序号 → 它长出来的 episode（`orders[i]` = 第 i 条条目对到第几条切片）
     ep_of: dict[int, str] = {}
     for pos, j in enumerate(orders):
         if pos < len(new_eps):
             ep_of.setdefault(j, new_eps[pos])
+    open_items = {str(it.id): it for it in getattr(note_state, "pinned", []) or []}
     for j, seg in enumerate(ctx.result.segments):
-        # ⭐ 2026-10-05（L1 的过渡）: 判据从 `keep == "always"` 换成 **`state == "open"`
-        # 且**没有 `id`**（那是"新建"; 带 `id` 的是"更正", 走 L7 的 `update` 那一路）。
-        # ⚠️ 这两行是为了**不留窗口**: `keep` 已经从契约里拿掉, 不改这里就再没有 note 会被新建。
-        if seg.get("state") != "open" or seg.get("id"):
+        state = seg.get("state")
+        if state not in ("open", "close"):
             continue
+        nid = str(seg.get("id") or "").strip()
         text = str(seg.get("abstract") or "").strip()
+        if state == "close":
+            # 了结: 只有 id 一件事 —— 账平与"有没有留下正文"无关（她 drop 掉那一条也照划）
+            if nid:
+                ctx.result.notes_ops.append(close_op(nid))
+            continue
+        if nid:
+            # **更正**（§1.1b）: "后来才知道的日期"那条主路径 —— 只改 due / text
+            item = open_items.get(nid)
+            if item is None:                  # 闭集由契约层保证; 这里只是兜底
+                continue
+            before = {"text": item.text, "due": str(item.due or "")}
+            after = {"text": text or item.text,
+                     "due": str(seg.get("due") or "").strip() or str(item.due or "")}
+            if before == after:
+                no_change.append(f"{nid}（这一行什么都没改）")
+                continue
+            ctx.result.notes_ops.append(
+                update_op(nid, due=after["due"] or None, text=after["text"] or None,
+                          before=before, after=after))
+            continue
         ep = ep_of.get(j)
         if not (text and ep):
             # 没人填 / 契约层丢了区间 / 正文空 —— 那条约定的**唯一书面留存**没了 ⇒ 进账
@@ -197,21 +235,35 @@ def _pinned_ops(ctx: Ctx, orders: list[int], new_eps: list[str]) -> dict:
             continue
         ctx.result.notes_ops.append(
             add_op(text, [ep], due=str(seg.get("due") or ""), src=ep))
+        _mark_pinned(ctx, ep)
     if lost_kept:
         logger.warning("digest_record `state=open` 有 %d 条没长成 note（约定丢了）: %s",
                        len(lost_kept), lost_kept[:4])
+    if no_change:
+        logger.info("digest_record 更正行什么都没改（不写 op）: %s", no_change[:4])
     return {"lost_kept": lost_kept}
 
 
+def _mark_pinned(ctx: Ctx, ep_id: str) -> None:
+    """给**出生那条** episode 打 `#pinned`（§4.5）—— 幂等: 已经在就不重复加。"""
+    node = ctx.store.get(ep_id)
+    if node is None or PINNED_TAG in (node.tags or []):
+        return
+    ctx.store.update(ep_id, {"tags": [*(node.tags or []), PINNED_TAG]})
+
+
 def _note_items(ctx: Ctx, entries: list[dict], reused: list[str],
-                gaps: dict | None = None, keeper: dict | None = None) -> None:
+                gaps: dict | None = None, keeper: dict | None = None,
+                spanless: list[str] | None = None) -> None:
     """D1 的**条目面**台账（`items`）—— 只有它**不可重算**。
 
     四半合成一行账:
       · `dropped` = R0 章收口丢掉的（`segment_collapsed`）+ 她 `drop` 的 +
         切片没位置的 + ⭐ **她 drop 掉/没填的 `state=open`**（3b-3: 约定丢了要看得见）;
       · `no_pos`  = 落回段级指针的条数;
-      · `reused`  = 判重复而复用的 id。
+      · `reused`  = 判重复而复用的 id;
+      · `spanless` = ⭐ **无区间那几条**（它们**不经 R1** —— 正文就是 R0 的 `abstract`,
+        所以既不算 kept 也不算漏填; 记一格是为了让这本账加得起来）。
     ⚠️ 声明在表里 record 的 `result_fields` ⇒ 整段回滚时由 `reset_result` 一起清掉
     （否则会出现"回滚了却留着一条缺口账"）。造行在 `pipeline` 的**提交块**（`_note_gap`）。
     """
@@ -226,4 +278,4 @@ def _note_items(ctx: Ctx, entries: list[dict], reused: list[str],
         "in": n_in, "kept": len(entries),
         "no_pos": len(unfilled),
         "dropped": (collapsed + list(gaps.get("dropped") or []) + unfilled + lost_kept),
-        "reused": reused}}
+        "reused": reused, "spanless": len(spanless or [])}}
