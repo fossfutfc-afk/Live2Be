@@ -75,14 +75,15 @@ def _mmt(seq, player, reply):
 
 
 def _a_episode(text="老师请我吃了甜品，还说下次再去", sig=0.8, title="甜点之约",
-               verbatim=("3.1",), tags=("甜品", "老师")):
+               verbatim=("3.1",), tags=("甜品", "老师"), delta=30):
     """⚠️ `verbatim` 从 2026-09-29 起是**记录行号**（文本通道退役）——
     默认那条指的正是 `_events(_mmt(3, …))` 的回复记录 `[3.1]`。"""
     ep = {"text": text, "title": title,
           "tags": list(tags), "significance": sig}
     if verbatim:
         ep["verbatim"] = list(verbatim)
-    return {"episodes": [ep]}
+    # ⭐ **M1**: 好感是**整段**一个数, 归 R1（`affection_exp_delta`）
+    return {"episodes": [ep], "affection_exp_delta": delta}
 
 
 def _b_ok(**over):
@@ -91,7 +92,7 @@ def _b_ok(**over):
          "patch": {"text": "老师会记得我的喜好——连甜品店也会挑好", "significance": 0.95}},
         {"episode": "m0003", "decision": "add", "kind": "belief",
          "subject": "sensei", "text": "老师会带我去吃甜品", "example": "「这家店不错吧」"},
-    ], "affection_exp_delta": 30}
+    ]}
     out.update(over)
     return out
 
@@ -747,8 +748,8 @@ def test_affection_clamped(tmp_path):
     st = _seed_store(tmp_path)
     # ⚠️ **3b-2**: `{"episodes": []}` 在桩里 ⇒ 空骨架 ⇒ 链条在 R0 就停（那是对的）。
     # 本用例测的是 **B 轮的好感结算** ⇒ 显式给一条骨架把链条放过去。
-    llm = FakeLLM({"episodes": []},
-                  {"decisions": [], "evidence": [], "affection_exp_delta": 999},
+    llm = FakeLLM({"episodes": [], "affection_exp_delta": 999},   # ⭐ M1: 好感由 R1 给
+                  {"decisions": []},
                   split={"segments": [{"span": [3, 3],
                                        "abstract": "这一段"}]})
     res = digest_segment(st, llm, _events(_mmt(3, "x", "y")))
@@ -763,8 +764,8 @@ def test_affection_negative_passes_through(tmp_path):
     st = _seed_store(tmp_path)
     # ⚠️ **3b-2**: `{"episodes": []}` 在桩里 ⇒ 空骨架 ⇒ 链条在 R0 就停（那是对的）。
     # 本用例测的是 **B 轮的好感结算** ⇒ 显式给一条骨架把链条放过去。
-    llm = FakeLLM({"episodes": []},
-                  {"decisions": [], "evidence": [], "affection_exp_delta": -30},
+    llm = FakeLLM({"episodes": [], "affection_exp_delta": -30},   # ⭐ M1: 好感由 R1 给
+                  {"decisions": []},
                   split={"segments": [{"span": [3, 3],
                                        "abstract": "这一段"}]})
     res = digest_segment(st, llm, _events(_mmt(3, "x", "y")))
@@ -776,8 +777,8 @@ def test_affection_negative_clamped_at_floor(tmp_path):
     st = _seed_store(tmp_path)
     # ⚠️ **3b-2**: `{"episodes": []}` 在桩里 ⇒ 空骨架 ⇒ 链条在 R0 就停（那是对的）。
     # 本用例测的是 **B 轮的好感结算** ⇒ 显式给一条骨架把链条放过去。
-    llm = FakeLLM({"episodes": []},
-                  {"decisions": [], "evidence": [], "affection_exp_delta": -999},
+    llm = FakeLLM({"episodes": [], "affection_exp_delta": -999},   # ⭐ M1: 好感由 R1 给
+                  {"decisions": []},
                   split={"segments": [{"span": [3, 3],
                                        "abstract": "这一段"}]})
     res = digest_segment(st, llm, _events(_mmt(3, "x", "y")))

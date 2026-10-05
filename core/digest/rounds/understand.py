@@ -5,9 +5,9 @@
 
 写: `belief` 节点 · 边 `supports` / `contradicts` / `evolved_from`。
 
-⚠️ **它有 digest 里最容易被漏的一条跨轮依赖**: 成功路径的 `affection_exp_delta` 取的是
-**这一轮的原始 `resp`**, 而那句赋值在 `pipeline.digest_segment` 的 `try` **之外** ⇒
-本函数必须 `ctx.resp_b = resp`（返回值只说"成没成", 不搬数据）。
+⏸ **`affection_exp_delta` 2026-10-05（M1）搬去 R1** —— 它是"**这一段**她对老师的亲近感
+净变化", 与 `significance` 同族（都是打分）, 而打分归 R1（手里还有情绪标尺）。
+⇒ 本函数**不再碰 `resp`**（那条"最易漏的跨轮依赖"跟着搬到了 `record`）。
 
 ⏸ **本段时间线这一段料已经没有存在的理由**（2026-09-29）: 它当初就是为
 `evidence.quote` 逐字引用时间线而喂的, 而 `evidence` 字段已删（零产品消费者）。
@@ -59,5 +59,4 @@ def run(ctx: Ctx) -> RoundOut:
                                      id_map={v: k for k, v in local_of.items()},  # local→real
                                      ts=ctx.now_ts,
                                      event_seq=[ctx.interact_max])
-    ctx.resp_b = resp                                   # ⭐ 留给成功路径的 affection
     return RoundOut.done()

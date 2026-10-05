@@ -379,7 +379,8 @@ def test_schema_understand_phase():
     for name in ("touch", "update", "add"):
         assert f"【{name} 释义】" in text
     # ⭐ 2026-09-29: `evidence` 退役 —— schema 里**不许再出现它**（防契约键名的回音长回来）
-    assert "affection_exp_delta" in text and "evidence" not in text
+    # ⭐ 2026-10-05（M1）: `affection_exp_delta` 也**搬走了**（归 record 相位）
+    assert "evidence" not in text and "affection_exp_delta" not in text
     assert "编造 id → 整包拒" in text
     assert "疑似印证" in text
 
@@ -400,6 +401,31 @@ def test_unknown_phase_rejected():
 # ---------------------------------------------------------------------------
 # Round A parse
 # ---------------------------------------------------------------------------
+
+def test_affection_lives_in_the_record_phase_only():
+    """⭐ **M1（2026-10-05）: 好感归 R1**（与 `significance` 同族: 都是打分）。
+
+    两处判据一起钉:
+      · **判据（打分档位）在契约里** —— 不许只在 prompt 里说（文体五条 #1）;
+      · **只有一份** —— 它从 understand 相位**搬走**了, 不是抄一份（抄 = 迟早两套尺子）。
+    """
+    from llm.prompts import load_prompt
+
+    rec = digest_registry.build_schema(PHASE_RECORD)
+    und = digest_registry.build_schema(PHASE_UNDERSTAND)
+    assert "affection_exp_delta" in rec
+    assert "0~10" in rec and "负值" in rec                 # 档位与负值判据都在契约层
+    assert "affection_exp_delta" not in und, "R2 那一格已经不是好感的家了"
+
+    # ⭐ "不必都写"（M1 顺手加的那一句）: 骨架**不是硬双射**
+    assert "也不必都写" in rec and "不是硬性一一对应" in rec
+
+    rec_prompt = load_prompt("digest_record")
+    und_prompt = load_prompt("digest_understand")
+    assert "affection_exp_delta" in rec_prompt, "R1 那一轮要点名这个键（否则它不会写）"
+    assert "0~10" not in rec_prompt, "档位判据只在契约里 —— prompt 不许抄第二遍"
+    assert "affection_exp_delta" not in und_prompt and "0~10" not in und_prompt
+
 
 def test_round_a_valid_entries():
     raw = {"episodes": [

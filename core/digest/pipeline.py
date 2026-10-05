@@ -389,7 +389,9 @@ def digest_segment(
     # ── 成功: 提交（节点落盘 + 水位推进）──
     result.ok = True
     result.created = ctx.episode_ids
-    result.affection_delta = _clamp_aff((ctx.resp_b or {}).get("affection_exp_delta"))
+    # ⭐ **M1（2026-10-05）: 好感现在由 R1 判**（`resp_a`）—— 它与 `significance` 同族,
+    # 而打分归 R1（手里还有情绪标尺）; R2 从此只剩图操作。
+    result.affection_delta = _clamp_aff((ctx.resp_a or {}).get("affection_exp_delta"))
     # ⭐ D1: 这一段**跑成了, 但有东西没进记忆** ⇒ 留一条账（`kind=digest_gap`）。
     # ⚠️ 位置必须在**提交之后**（回滚过的段没有"缺"可言 —— 它整段都没了）。
     _note_gap(result, at_seq=interact_max)

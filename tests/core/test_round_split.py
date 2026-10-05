@@ -518,3 +518,53 @@ def test_overdue_detail_names_the_items_and_reaches_the_log(tmp_path, caplog):
                     if r.name == "core.digest.rounds.split")
     assert "名单=1" in line and "超期=n1（已过 4 天）" in line, line
     print(f"    账单: {line.split('超期=')[1].split(' 认领')[0]} ✓")
+
+
+# ---------------------------------------------------------------------------
+# ⑩ M1: 好感归 R1（不再归 R2）· "不必都写"不是硬双射
+# ---------------------------------------------------------------------------
+
+def test_affection_belongs_to_r1_not_r2(tmp_path):
+    """⭐ **M1（2026-10-05）**: 好感是"这一段她对老师的亲近感净变化" —— 与 `significance`
+    同族（都是打分）⇒ 归 **R1**。判据（不只是位置）: **R2 给的那个数会被丢掉**。"""
+    split = {"segments": [{"span": [3, 3], "abstract": "老师约我去公园"}]}
+    record = {"episodes": [{"text": "老师约我去公园", "title": "公园", "tags": ["公园"]}],
+              "affection_exp_delta": 42}
+    # R2 那一份里塞一个**旧位置**的 delta（它现在不该被读）
+    understand = {"decisions": [{"episode": "m0001", "decision": "add", "kind": "belief",
+                                 "subject": "sensei", "text": "老师会约我出去"}],
+                  "affection_exp_delta": -99}
+
+    res = digest_segment(_store(tmp_path), _Stub(split=split, record=record,
+                                                 understand=understand),
+                         [_mmt(3)])
+    assert res.ok, res.errors
+    assert res.affection_delta == 42, "好感要取 **R1** 的那个数（R2 的位置已退役）"
+
+    # 反过来: 只有 R2 给 ⇒ 读到的是 0（它不再有任何话语权）
+    split2 = {"segments": [{"span": [3, 3], "abstract": "老师约我去公园"}]}
+    record2 = {"episodes": [{"text": "老师约我去公园", "title": "公园", "tags": ["公园"]}]}
+    res2 = digest_segment(_store(tmp_path / "b"),
+                          _Stub(split=split2, record=record2, understand=understand),
+                          [_mmt(3)])
+    assert res2.ok, res2.errors
+    assert res2.affection_delta == 0, "R2 那一格已经不是好感的家了"
+    print("    好感: R1 的 42 生效 / R2 的 -99 被忽略 ✓")
+
+
+def test_r1_may_write_fewer_rows_than_slices(tmp_path):
+    """⭐ **不必都写**: 骨架三件、R1 只写一件 ⇒ **不拒**（这不是违约, 是她的取舍）。
+
+    引擎侧只**记一笔账**（`items.dropped` —— "那两条没人记"）, 不是失败。
+    """
+    split = {"segments": [{"span": [3, 3], "abstract": "前厅闲聊"},
+                          {"span": [4, 4], "abstract": "老师约我去公园"},
+                          {"span": [5, 5], "abstract": "回去的路上"}]}
+    record = {"episodes": [{"text": "老师约我去公园", "title": "公园", "tags": ["公园"]}]}
+    res = digest_segment(_store(tmp_path),
+                         _Stub(split=split, record=record, understand=_understand(1)),
+                         [_mmt(3), _mmt(4), _mmt(5)])
+    assert res.ok, res.errors
+    assert res.record_gaps["items"]["kept"] == 1
+    assert res.record_gaps["items"]["dropped"], "没人填的那两条要进账（可见, 但不拦）"
+    print(f"    不必都写: 三件只写一件 ⇒ ok, 账里记了 {len(res.record_gaps['items']['dropped'])} 条")

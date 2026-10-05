@@ -116,10 +116,10 @@ class StubLLM:
         if task == T.PLACE_VARIANT:
             # 选图（第二遍, PL6′ 2026-09-19）→ 保持默认图
             return {"image": ""}
-        if task == T.DIGEST_RECORD:
-            return {"episodes": []}
+        if task == T.DIGEST_RECORD:            # ⭐ M1: 好感归 R1
+            return {"episodes": [], "affection_exp_delta": 0}
         if task in (T.DIGEST_UNDERSTAND, T.DIGEST):
-            return {"decisions": [], "evidence": [], "affection_exp_delta": 0}
+            return {"decisions": []}
         return None
 
     # -- 契约（引擎只要求这两个方法）-----------------------------------------

@@ -61,11 +61,15 @@ def run(ctx: Ctx) -> RoundOut:
             ("角色人设（锚点）", ctx.character_prompt),
             ("本段情绪标尺", ctx.emotion_scale),
         ])
-        entries, _resp = ctx.call(
+        entries, resp = ctx.call(
             spec, system, user,
             parse_fn=ctx.parse_for(spec, seq_set=ctx.seq_set))
         if entries is None:
             return RoundOut.failed()
+        # ⭐ **M1（2026-10-05）: 好感的原始 resp 存在这一轮** —— "这一段她对老师的亲近感
+        # 净变化"与 `significance` 同族（都是打分）, 而打分归 R1。
+        # ⚠️ 从这一格取它（不是在返回值里搬）: `RoundOut` 只说"成没成"。
+        ctx.resp_a = resp
         # ⭐ **按顺序对齐骨架** —— 位置与条数都归 R0（判据见 `_align_to_skeleton`）
         entries, gaps = _align_to_skeleton(entries, ctx.result.segments)
         # 索引 → 原文（T14）: parse 层拿不到事件流, 回填在这里做（对齐**之后**才解析）
