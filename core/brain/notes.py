@@ -549,6 +549,21 @@ def _checked(op: dict) -> dict:
 # 读侧: 校验（告警, 不阻断）+ 渲染
 # ---------------------------------------------------------------------------
 
+def stats(state: NotesState, *, block_chars: int | None = None) -> dict[str, int]:
+    """⭐ **台账（数字, 不是告警）** —— L9（2026-10-05）。
+
+    形态: `{"open": 开着的条数, "block_chars": 注入块多少字}`。
+
+    ⚠️ **为什么另开一个函数, 不并进 `check()`**: `check()` 的语义是"**哪里不对**"
+    （调用方按告警逐条打 WARNING）, 而这两个数**永远都有值** —— 混进去 = 每个正常段
+    都多一条 WARNING, 告警就没人看了。数字归数字。
+
+    设计 §9-5 的裁决: **先只记数、不拍上限** —— 开着的条数直接等于"每轮料里逐条现状"
+    的成本, 上限要拿真机几段的数说话（`grep note 台账`）。"""
+    chars = block_chars if block_chars is not None else len(render_note_block(state))
+    return {"open": sum(len(state.items(slot)) for slot in SLOTS), "block_chars": chars}
+
+
 def check(state: NotesState, known: Iterable[str] | None = None,
           *, block_chars: int | None = None) -> list[str]:
     """读侧告警清单（**不阻断** —— 调用方打日志/记账, 照 `store.audit()` 的做法）。

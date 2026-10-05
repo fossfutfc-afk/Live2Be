@@ -326,6 +326,28 @@ def _due_cell(item, *, today: "date | None", first_day: "date | None" = None) ->
     return f"{_DUE_LEAD}{due.isoformat()}"
 
 
+def _overdue_detail(items: list, overdue_ids: set[str], *, today: "date | None") -> str:
+    """**超期未决**那几条的一句话明细（日志/体检用）—— L9（2026-10-05）。
+
+    形态: `n3（已过 4 天） · n7（已过 1 天）`；没有 ⇒ `"-"`（最多 4 条 + 省略号）。
+
+    ⚠️ **它是体检账, 不是判决**: 引擎只把"这条过期了、而这一段没提到它"摆出来,
+    判不判在 R0（见 `_ledger_ids`）。用户 2026-10-05 裁: **不进 creep 账** ——
+    可 grep 的日志够了, 不必为此多开一个 kind（`digest_split` 那行就是它的家）。
+    """
+    if today is None or not overdue_ids:
+        return "-"
+    out: list[str] = []
+    for it in items:
+        nid = str(getattr(it, "id", "") or "")
+        if nid not in overdue_ids:
+            continue
+        due = _due_date(it)
+        days = (today - due).days if due is not None else 0
+        out.append(f"{nid}（已过 {days} 天）")
+    return " · ".join(out[:4]) + (" …" if len(out) > 4 else "")
+
+
 def _mentioned(store, item, *, seq_set: set[int], timeline: str) -> bool:
     """**本段有没有提到这条约定**（粗筛, 只回答"有没有", 不判轻重）。
 

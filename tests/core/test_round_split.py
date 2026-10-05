@@ -482,3 +482,39 @@ def test_spanless_episode_does_not_push_the_watermark(tmp_path):
     assert res.ok, res.errors
     assert st.digested_seq == 3, "尾巴（4/5）必须留在水位之上等下一段重喂"
     print(f"    水位: 无区间经历没把它推过尾巴（digested_seq={st.digested_seq}）✓")
+
+
+# ---------------------------------------------------------------------------
+# ⑨ L9: 账单 —— 超期未决**逐条**可 grep（体检账, 不是判决）+ 开着的条数只记数
+# ---------------------------------------------------------------------------
+
+def test_overdue_detail_names_the_items_and_reaches_the_log(tmp_path, caplog):
+    """⭐ "超期未决"要看得见**是哪几条**（用户裁: **不进 creep 账**, 日志够）。
+
+    ⚠️ 它是**体检账, 不是判决**: 引擎只摆事实（"这条过期了、这一段没提到它"）,
+    判不判在 R0 —— 所以它出现在 `digest_split` 那行 INFO 里, 而不是一条台账。
+    """
+    import logging
+
+    from core.digest.material import _overdue_detail
+
+    items = [notes.NoteItem(id="n3", text="生日蛋糕", refs=["m1"], due="2026-10-01"),
+             notes.NoteItem(id="n7", text="模型店", refs=["m2"], due="2026-10-04"),
+             notes.NoteItem(id="n1", text="永远开着", refs=["m3"])]
+    assert _overdue_detail(items, {"n3", "n7"}, today=date(2026, 10, 5)) == \
+        "n3（已过 4 天） · n7（已过 1 天）"
+    assert _overdue_detail(items, set(), today=date(2026, 10, 5)) == "-"      # 没有就说没有
+    assert _overdue_detail(items, {"n3"}, today=None) == "-"                 # 算不出不编
+
+    # 端到端: 那段日志真的把编号写出来了（可 grep）
+    split = {"segments": [{"span": [3, 3], "abstract": "路过模型店"}]}
+    record = {"episodes": [{"text": "路过模型店", "title": "模型店", "tags": ["模型店"]}]}
+    st = _store(tmp_path)
+    with caplog.at_level(logging.INFO, logger="core.digest.rounds.split"):
+        res = digest_segment(st, _Stub(split=split, record=record, understand=_understand(1)),
+                             [_note("生日蛋糕", due="2026-10-01"), _mmt(3)])
+    assert res.ok, res.errors
+    line = " ".join(r.getMessage() for r in caplog.records
+                    if r.name == "core.digest.rounds.split")
+    assert "名单=1" in line and "超期=n1（已过 4 天）" in line, line
+    print(f"    账单: {line.split('超期=')[1].split(' 认领')[0]} ✓")

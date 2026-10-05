@@ -42,8 +42,8 @@ from __future__ import annotations
 
 import logging
 
-from core.digest.material import (_ledger_ids, _open_pinned_text, _segment_days,
-                                 _segment_time_text, _special_days_text)
+from core.digest.material import (_ledger_ids, _open_pinned_text, _overdue_detail,
+                                 _segment_days, _segment_time_text, _special_days_text)
 from core.digest.rounds.base import Ctx, RoundOut
 from core.digest.segment import _collapse_bond_episodes, _coverage, _expand_spans
 
@@ -95,13 +95,15 @@ def run(ctx: Ctx) -> RoundOut:
     ctx.result.segment_collapsed = collapsed
     # ⚠️ 未认领要在**收口之后**重算 —— 章块的区间并回让"章内那几条"从"未认领"变"已认领"
     unclaimed, uncovered = _coverage(segments, ctx.seq_set, ctx.chapters)
-    logger.info("digest_split segments=%d open=%d close=%d 无区间=%d 名单=%d 超期=%d "
+    logger.info("digest_split segments=%d open=%d close=%d 无区间=%d 名单=%d 超期=%s "
                 "认领=%d 未认领=%d 共享=%d 章内未覆盖=%d 未认领seq=%s",
                 len(segments),
                 sum(1 for s in segments if s.get("state") == "open"),
                 sum(1 for s in segments if s.get("state") == "close"),
                 sum(1 for s in segments if s.get("span") is None),
-                len(note_ids), len(overdue_ids),
+                len(note_ids),
+                # ⭐ L9: **超期未决**逐条摆出来（体检账, 不是判决; 用户裁"不进 creep 账"）
+                _overdue_detail(open_pinned, overdue_ids, today=today),
                 len(ctx.seq_set) - len(unclaimed), len(unclaimed), _shared,
                 len(uncovered), unclaimed[:20] or "-")
     return RoundOut.done()
