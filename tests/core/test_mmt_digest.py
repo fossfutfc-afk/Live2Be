@@ -34,7 +34,7 @@ class ScriptedLLM:
         self.tasks.append(task)
         # ⭐ `digest_segments=True`: 这一段要真的建 episode（否则链条在 R0 就收工了 ——
         # 缺省的空骨架是"这一段没有值得记的", 那正是 `test_digest_*` 之外用不到的行为）
-        reply = stub_tasks.annotation_reply(task, messages, digest_b_delta=5,
+        reply = stub_tasks.annotation_reply(task, messages, digest_delta=5,
                                            digest_segments=True)
         if reply is not None:
             return reply

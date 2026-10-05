@@ -346,7 +346,8 @@ RECORD_EPISODE = DigestAction(
         " 情绪词堆砌但无情节支撑 → 舍弃。"
     ),
     field_schema=(
-        '    {  // 一条记录; ⭐ **骨架里有几条切片就给几行, 按顺序对应**（`drop` 的除外）//\n'
+        '    {  // 一条记录; ⭐ **骨架里有几条切片就给几行, 按顺序对应**（`drop` 的除外;\n'
+        '      // ⭐ **也不必都写** —— 不是硬性一一对应）//\n'
         '      // ⚠️ **默认就是"经历", 不用写 `kind`**（2026-09-29）—— 只有**例外**才写:\n'
         '      "kind": "experience",  // 可选; 只在"**玩家画像**"那一条上写\n'
         '                            //（玩家口癖/偏好/一次性个人信息——text 写画像句,\n'
@@ -606,7 +607,13 @@ class DigestRegistry:
             ]
             a = self.spec("record_episode")
             lines.append(a.field_schema)
-            lines.extend(["    ]",
+            lines.extend(["    ],",
+                          '     "affection_exp_delta": 0  // ⭐ **整段**的好感净变化 -100~100（int）;',
+                          '                                // 平淡寒暄 0~10 · 有意义的共同经历 30~60 ·',
+                          '                                // 重要羁绊时刻 80~100;',
+                          '                                // **负值 = 关系恶化**（被伤到/失望/决裂）;',
+                          '                                // 判据 = **她对你的亲近感这一段的净变化**,',
+                          '                                // 不是"这段剧情好不好"; 拿不准给 0',
                           "    }",
                           "",
                           f"【record_episode 释义】{a.role}",
@@ -633,8 +640,6 @@ class DigestRegistry:
                 '        {"from": "u0007", "rel": "supports", "to": "u0002"},',
                 '        {"from": "u0009", "rel": "evolved_from", "to": "u0007"}',
                 "     ],",
-                '     "affection_exp_delta": 0  // 本段好感净变化 -100~100（int）; 无变化 → 0;',
-                '                                // **负值 = 关系恶化**（被伤到/失望/决裂）//',
                 "    }",
                 "",
                 "decisions 规则: 每个 episode 恰好一行; 必须覆盖全部 episode;",
