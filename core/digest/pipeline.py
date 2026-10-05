@@ -11,13 +11,14 @@
     core/digest/rounds/__init__.py  轮次表（key/步序/LLM 身份/prompt/相位/parse/料/写什么/跳过/预算/快照）
     core/digest/rounds/base.py      Ctx（段级上下文）+ RoundOut（一轮跑完的交代）
     core/digest/rounds/record.py    ① 记        akin.py 补边（0 LLM）
-    core/digest/rounds/close.py     ② 收口      understand.py ③ 接
-    core/digest/rounds/attribute.py ④ 挂        group.py      ⑤ 分群 L2-a（自带快照）
+    core/digest/rounds/understand.py ② 接       attribute.py ③ 挂
+    core/digest/rounds/group.py      ④ 分群 L2-a（自带快照）
+    ⏸ 收口轮（`rounds/close.py`）**2026-10-05（L8）删** —— 账目归 R0 的表（`record` 那一轮产 op）。
 
-**实际跑的步数**（一眼看全在 `core/digest/__init__.py`）: 记 → akin 补边 → 收口 → 接 → 挂 →
+**实际跑的步数**（一眼看全在 `core/digest/__init__.py`）: 切分 → 记 → akin 补边 → 接 → 挂 →
 分群（共 5 次 LLM 调用 + 1 次零成本补边）。
-⏸ 旧文档/旧注释里的 **`R1`/`R2`/`R3`/`R4`** 按这张表对: **R1=记(record) · R4=收口(close) ·
-R2=接(understand) · R3=挂(attribute)** —— 轮次 key 就是契约相位名, 见 `rounds.RoundSpec`。
+⏸ 旧文档/旧注释里的 **`R1`/`R2`/`R3`/`R4`** 按这张表对: **R1=记(record) · R2=接(understand) ·
+R3=挂(attribute)**（`R4=收口` 已删）—— 轮次 key 就是契约相位名, 见 `rounds.RoundSpec`。
 
 编排（`digest_segment`）::
     1. 增量: new_events = seq > store.digested_seq（无新增 → 0 次 LLM 调用）
@@ -45,14 +46,14 @@ R2=接(understand) · R3=挂(attribute)** —— 轮次 key 就是契约相位�
     （`promise` 归 R4 收口）。⚠️ **取料件 `panorama.py` 也于 2026-10-05 删**
     （零调用者模块; 将来真要做"切块"从 git 捞回来）。退役理由: 它的两个槽一个被取消
     （`habits`）、一个换了写者（`on_mind` → L1）。
-    ⛔ **2026-09-29（N4e）补一刀**: `on_mind` 自己也退役了（*"它太煽情了"*）⇒
-    **note 的唯一写者 = R4 收口那一轮**, L1 从此只写图。
+    ⛔ **2026-09-29（N4e）补一刀**: `on_mind` 自己也退役了（*"它太煽情了"*）。
+    ⭐ **2026-10-05（L7/L8）最后收口**: note 的**唯一写者 = `record` 那一轮的引擎段**
+    （按 R0 的表产 `add`/`update`/`close`）—— R4 收口那一轮**整轮删掉**。
 
 ⚠️ **`promise`（承诺）2026-09-29 退出图** —— 用户裁决: 这类东西"太轻, 不足以长期记录"
     （日常约定 ≈ 客套/安排）⇒ **不再有 promise 节点**, 也不再有 `from`/`to`/`formed_by`
     三条专属边。它留在 **note**（`notes.SLOT_PINNED` = 她此刻还背着的事, 工作记忆）,
-    "这条经历涉及约定"由 **`tags`** 承担（筛选用, 不承担路由）。⇒ R4 从"记账 + 固化"
-    缩成**只记账**, §8 那条"R4 必须排在 R2/R3 之前"的理由随之消失（顺序照旧, 但不再是正确性要求）。
+    "这条经历涉及约定"由 **`tags`** 承担（筛选用, 不承担路由）。
 
 反馈回灌（2026-09-02 采纳 llm.client.feedback 语义）: 被拒轮把 LLM 自己的输出
 追加为 assistant 位 + 引擎错误, 同一上下文重试 1 次——模型能看见自己错在哪
@@ -80,7 +81,7 @@ from core.digest.rounds import (
     RoundSpec,
     reset_result,
 )
-from core.digest.rounds import akin, attribute, close, group, record, split, understand
+from core.digest.rounds import akin, attribute, group, record, split, understand
 from core.digest.rounds.base import Ctx, RoundOut
 from core.digest.segment import _segment_domain
 from core.session.events import is_content_event
@@ -97,7 +98,6 @@ IMPL: dict[str, Callable[[Ctx], RoundOut]] = {
     "split": split.run,
     "record": record.run,
     "akin": akin.run,
-    "close": close.run,
     "understand": understand.run,
     "attribute": attribute.run,
     "group": group.run,
@@ -142,11 +142,11 @@ class DigestResult:
     llm_calls: int = 0
     #: ⏸ ~~归属线索~~（`hints` = R1 的 `about_hint` → R3 的映射）**2026-09-29 删** ——
     #: `about_hint` 退役（与 R3 判两次）, 这条中间通道随之消失; R3 改为自己从正文里认称呼。
-    #: ⭐ **R4 收口的 note 操作**（`add` / `close`）
-    #: —— ⚠️ **调用方在整批 `ok` 之后才 append**（§8: 失败 = 整批回滚 ⇒ 那条约定原样开着;
+    #: ⭐ **本段要落的 note 操作**（`add` / `update` / `close`）——
+    #: **唯一写者 = `record` 那一轮的引擎段**（按 R0 的表产, L7/L8）。
+    #: ⚠️ **调用方在整批 `ok` 之后才 append**（失败 = 整批回滚 ⇒ 那条约定原样开着;
     #: 事件 append 不可撤销, 提前写就回不去了）。
-    #: ⛔ ~~R1 的那句 `on_mind`~~ **2026-09-29（N4e）退役** —— 那条心境的槽没了, 这条
-    #: 交付通道**从此只有 R4 一个写者**。
+    #: ⛔ ~~R4 收口那一轮也是写者~~ **2026-10-05（L8）随轮删**。
     notes_ops: list[dict] = field(default_factory=list)
     #: ⭐ **R0 切分员的产出: 本段的切片骨架**（`{span, keep, abstract}` 的列表）。
     #: ⚠️ 它是**段内中间产物**（R0 产、同段的 R1 吃）, 不进图也不落库 ——
@@ -168,10 +168,10 @@ class DigestResult:
     #: ⚠️ 它们的 `event_seq=[interact_max]` 是**账的指针, 不是覆盖声明** ⇒
     #: `_next_watermark` 必须把它们排除（否则水位推过整段, 欠着的尾巴不再重喂）。
     spanless_ids: list[str] = field(default_factory=list)
-    #: R4 的世界校验记账（剔掉的引用 / 丢掉的 close 行…）—— 不阻断, 但要看得见
-    notes_warnings: list[str] = field(default_factory=list)
-    #: ⏸ ~~R4 物化的 promise 节点 id~~ **2026-09-29 删** —— 承诺退图, R4 不再建节点
-    #: （见 `revise.ClosureResult` 与 `nodes.KINDS`）。
+    #: ⏸ ~~R4 的世界校验记账（剔掉的引用 / 丢掉的 close 行…）~~ **2026-10-05（L8）删** ——
+    #: 唯一写者（收口轮）没了; 它的历史价值留在这份注释里: 当年 `_rollback` 的手抄
+    #: 清空清单**漏过这个字段**, 那正是"清单由表推导"（`reset_result`）的由来。
+    #: ⏸ ~~R4 物化的 promise 节点 id~~ **2026-09-29 删** —— 承诺退图, R4 不再建节点。
     #: R3 新建的 entity id（`new_entity` 的产物; 归属边在那边一起写）
     created_entities: list[str] = field(default_factory=list)
     #: ⭐ **L2-a 分群（N7）**: 本段**新建的群节点** id
@@ -362,9 +362,8 @@ def digest_segment(
         # ⚠️ 判据只认 **R0 那一次的产出**（`result.segments`）: 若写成"任何一轮之后
         # `segments` 为空", 就会把"R1 合法地什么都没记"也当成空骨架 ——
         # 那会顺手跳过 `understand`/`attribute`, 与今天的失败语义**两回事**。
-        # ⚠️ **`close`（收口）例外**（表里 `needs_segments=False`）: 它吃的是
-        # **备忘录**不是切片, 而那条约定的翻篇**可能正好落在这一段** ——
-        # 跳过它 = 那条约定永远开着（它没有别的收口处）。
+        # ⚠️ **`needs_segments=False` 那一格今天没有轮**（从前是收口轮, L8 删了）——
+        # 机制留着: 将来"只看备忘录/只看时间"的轮就在表里写 False。
         # ⚠️ 水位**照推**（成功路径那句 `_next_watermark` 的 0 覆盖兜底会推到
         # 触发点）—— 这是有意的, 理由见 `_note_empty_segments`。
         no_segments = False
@@ -468,7 +467,7 @@ def _next_watermark(store: WikiStoreV2, episode_ids: list[str], *,
 
 # ---------------------------------------------------------------------------
 # 各轮的正文已搬走（2026-09-29 乙-1）：
-#   `rounds/record.py` R1 · `rounds/akin.py` 补边 · `rounds/close.py` R4 ·
+#   `rounds/split.py` R0 · `rounds/record.py` R1 · `rounds/akin.py` 补边 ·
 #   `rounds/understand.py` R2 · `rounds/attribute.py` R3 · `rounds/group.py` L2-a
 # 本文件只剩编排与事务。料的公共件在 `material.py`, 一轮调用的四件套在 `call.py`。
 # ⏸ `_clean_evidence()` **2026-09-29 删** —— 随 `evidence` 字段一起退役（零消费者）。
@@ -488,8 +487,8 @@ def _note_empty_segments(*, trigger: int) -> None:
       · 空骨架 = **引擎完成了**, 只是这一段没什么可记的。
     定位靠日志（`grep digest_split`）。
 
-    ⚠️ **`close`（收口）不在这条闸里** —— 它吃备忘录, 不对着切片干活（见
-    `RoundSpec.needs_segments`）。
+    ⏸ 从前这里还写着"`close`（收口）不在这条闸里" —— 那一轮 2026-10-05（L8）删了,
+    ⇒ **今天表里的轮全部对着切片干活**（`needs_segments` 全 True）。
 
     ## ⚠️ 水位**照推**（推到触发点）—— 这是有意的, 不是漏了
 
@@ -569,7 +568,7 @@ def _swallow(store: WikiStoreV2, spec: RoundSpec, result: DigestResult,
     """执行"**这一步自己吞掉失败**"（只有表里 `own_snapshot=True` 的那一步允许）。
 
     做三件事（从前散在那一步调用体里的样板）: 回滚这一步 · 把它的 errors 挪进它自己的
-    warnings 字段 · 打一行可 grep 的告警。R1–R4 的活照常提交。
+    warnings 字段 · 打一行可 grep 的告警。**其余各轮的活照常提交**。
 
     ⚠️ **两处对不上就当场炸**（不静默放行）:
       · 表里 `own_snapshot=False` 却申请自吞 —— 那等于偷偷把"整段回滚"降级;
@@ -621,11 +620,12 @@ def _rollback(store: WikiStoreV2, snapshot: dict,
     * 2026-09-17（`ESSAY_TIME_MODEL §10`）: 原先还要还原 `WorldClock` 的**内存游标**
       （§4.11 I-a 的配套 —— 否则重试会二次推进时钟）。剧情游标整族退役后
       这一步没了, `snapshot_clock` 参数一并删除。
-    * ⭐ 2026-09-25: **R4 的 note 操作一并作废**（§8: 失败 = 整批回滚 ⇒ 那条约定原样开着）。
+    * ⭐ 2026-09-25: **note 操作一并作废**（§8: 失败 = 整批回滚 ⇒ 那条约定原样开着）。
       note 面必须一起清 —— 事件 append **不可撤销**, 调用方只要看到 `ok=False` 就不写,
       但结果对象里留着它就是一颗雷。
     * ⭐⭐ 2026-09-29（节点 C）: 清哪些字段**由轮次表推导**（`rounds.reset_result`）。
-      从前这里是手抄清单, 而它**真的漏过** `notes_warnings`。加字段时表里不写就过不了
+      从前这里是手抄清单, 而它**真的漏过** `notes_warnings`（那个字段 2026-10-05 随收口轮
+      一起删了, 但这条教训留着）。加字段时表里不写就过不了
       `tests/core/test_digest_rounds.py`。
     * ⭐ **2026-09-29（刀 2）: 这里也是"计数 / 放弃"的入口**（`_note_failure`）——
       从前这一刀只回滚, 于是同一段会被**无限重试**（水位不动 ⇒ 窗口越滚越大 ⇒

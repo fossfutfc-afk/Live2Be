@@ -67,7 +67,6 @@ class Stub:
                                    "subject": f"关于 {i}", "text": f"关于 {i} 的看法"}
                                   for i in ids],
                     "affection_exp_delta": 0}
-        if task == T.DIGEST_CLOSE:
             return {"add": [], "close": []}
         if task == T.DIGEST_ATTRIBUTE:
             return {"attributions": []}

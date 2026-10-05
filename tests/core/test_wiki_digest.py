@@ -1,13 +1,9 @@
 """digest.py 两轮管线测试（板块 4a）——假 LLM 按序吐 Round A / Round B 响应。
 
-⚠️ 2026-09-25 起每段是**四步**（`R1 → R4 → R2 → R3`，§8）: 本文件的 `FakeLLM` 按
-**task 身份**把 R4（`digest.close`）短路成标准空包（"这一段没有约定的事"），
-所以位置队列里仍然只排 **A / B** 两轮 —— 与产品桩（`tests/stub_tasks.py`）同一口径。
-要测 R4 本身 → `tests/core/test_round_close.py`。
-
-⛔ 2026-09-29（N4d）起前面**还有一步 R0**（`digest.split`）: 它同样**不进位置队列** ——
-`FakeLLM` 照着"R1 那份应答里声明的 `span`"回一份切片（`stub_tasks.splits_for_episodes`）。
-⇒ 本文件的用例继续只写 A/B 两份应答, 一行都不用改。
+⭐ **每段五轮**（`R0 切分 → R1 记 → akin 补边(0 LLM) → R2 接 → R3 挂 → 分群`,
+⏸ 收口轮 `digest.close` 2026-10-05 / L8 删）: 本文件的 `FakeLLM` 把**不进位置队列**的那几轮
+（切分 / 挂 / 分群）按 task 身份短路成标准应答, 所以位置队列里仍然只排 **A / B** 两轮
+—— 与产品桩（`tests/stub_tasks.py`）同一口径。
 """
 from core.brain import WikiStoreV2, make_node
 from core.digest.pipeline import digest_segment
@@ -16,23 +12,21 @@ from core.session import make_event
 from llm import task_labels as T
 from tests import stub_tasks
 
-#: R4 的标准应答（"这一段没有约定的事"）—— 与 `tests/stub_tasks.py` 同形
-CLOSE_EMPTY = {"add": [], "close": []}
+#: ⏸ **收口轮的旧标准应答**（"这一段没有约定的事"）—— 那一轮 2026-10-05（L8）删了,
+#: 常量随之没有读者 ⇒ 一起删（退役就是退役, 留着它就还有一条"往旧形状里写"的静默路）。
+#: 这里只留一行墓碑: 找到 `CLOSE_EMPTY` 的历史用它。
 
 
 class FakeLLM:
     """假 LLM: 按序吐出预置响应（A 轮/反馈/B 轮…）; 记录调用。
 
-    收口（`task == digest.close`）与挂（`digest.attribute`）**不进位置队列** —— 按 task 短路成
-    标准空包（"这一段没有约定的事 / 没有可归属的"）。`close_calls` 单独记,
-    免得"R4 有没有真的被调"要靠数位置。
+    挂（`digest.attribute`）与分群**不进位置队列** —— 按 task 短路成标准空包
+    （"没有可归属的 / 一个类都不分"）。
     """
 
-    def __init__(self, *responses, close=None, split=None):
+    def __init__(self, *responses, split=None):
         self.responses = list(responses)
         self.calls = []
-        self.close = CLOSE_EMPTY if close is None else close
-        self.close_calls = 0
         #: R0 的应答（`None` = 照搬 R1 声明的区间 —— 见 `chat` 里那支 `DIGEST_SPLIT`）
         self.split = split
 
@@ -45,9 +39,6 @@ class FakeLLM:
             return (self.split if self.split is not None
                     else stub_tasks.splits_for_episodes(
                         self.responses[0] if self.responses else [], messages))
-        if task == T.DIGEST_CLOSE:
-            self.close_calls += 1
-            return self.close
         if task == T.DIGEST_ATTRIBUTE:
             return {"attributions": []}
         self.calls.append(messages)
@@ -237,7 +228,7 @@ def test_full_pipeline(tmp_path):
     events = _events(_mmt(3, "老师", "下次再去吃甜品吧"))
     res = digest_segment(st, llm, events)
     assert res.ok, res.errors
-    assert res.llm_calls == 5                          # R0 + A + R4（收口）+ B + R3（归属）
+    assert res.llm_calls == 4                          # R0 + A + B + R3（收口轮 2026-10-05 删）
     # A: episode 建好, 引擎字段归属
     assert res.created == ["m0003"]
     ep = st.get("m0003")
@@ -526,7 +517,7 @@ def test_high_candidate_no_longer_forces_touch_update(tmp_path):
     events = _events(_mmt(3, "x", "猫粮带来了"))
     res = digest_segment(st, llm, events)
     assert res.ok, res.errors
-    assert res.llm_calls == 5                          # R0 + A + R4 + B + R3（**没有**拒绝重试）
+    assert res.llm_calls == 4                          # R0 + A + B + R3（**没有**拒绝重试）
     # 候选提示仍在输入里（只是不再带"禁 add"的措辞）
     assert "候选" in llm.calls[1][1]["content"]
     assert "禁 add" not in llm.calls[1][1]["content"]
@@ -639,11 +630,7 @@ def test_deadline_budget_fails_atomically(tmp_path):
 
         def chat(self, messages, **kw):
             import time
-            if kw.get("task") == T.DIGEST_CLOSE:       # R4: 同样要超预算（本用例测的是预算）
-                time.sleep(0.2)
-                self.calls += 1
-                return CLOSE_EMPTY
-            if kw.get("task") == T.DIGEST_ATTRIBUTE:        # ④ 挂 同理
+            if kw.get("task") == T.DIGEST_ATTRIBUTE:        # ④ 挂: 同样要超预算（本用例测的是预算）
                 time.sleep(0.2)
                 self.calls += 1
                 return {"attributions": []}
@@ -697,7 +684,7 @@ def test_round_a_rejected_retried_with_feedback(tmp_path):
     events = _events(_mmt(3, "x", "y"))
     res = digest_segment(st, llm, events)
     assert res.ok, res.errors
-    assert res.llm_calls == 6                          # R0 + A1(拒) + A2(过) + R4 + B + R3
+    assert res.llm_calls == 5                          # R0 + A1(拒) + A2(过) + B + R3
     # 反馈追加在同一上下文: system,user,assistant,user(反馈)
     msgs = llm.calls[1]
     assert len(msgs) == 4 and msgs[2]["role"] == "assistant"
@@ -715,7 +702,7 @@ def test_round_b_rejected_retried_with_feedback(tmp_path):
     events = _events(_mmt(3, "x", "y"))
     res = digest_segment(st, llm, events)
     assert res.ok, res.errors
-    assert res.llm_calls == 6                          # R0 + A + R4 + B1(拒) + B2(过) + R3
+    assert res.llm_calls == 5                          # R0 + A + B1(拒) + B2(过) + R3
     assert "引擎校验反馈" in llm.calls[2][-1]["content"]
     assert st.digested_seq == 3
 

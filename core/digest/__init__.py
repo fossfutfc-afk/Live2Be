@@ -8,12 +8,16 @@
 
 一眼看清它跑什么（⭐ **步序的真源 = `rounds/` 包里的 `ROUNDS`**, 这里只是同一件事的人读版）::
 
-    ① 记 record    digest.record    时间线 + 人设 + 视觉记忆 → episode / 玩家画像
-      补边 akin    （0 LLM）          本段的 `noticed` 账 → `akin` 边
-    ② 收口 close   digest.close      开着的约定 + 本段经历 → note 操作（不建节点）
-    ③ 接 understand digest.understand    本段经历 + 时间线 + 认知列表 → 决策表 + `links`
-    ④ 挂 attribute digest.attribute       候选表 + 命中集载荷 + 新节点 → `about` 边 + entity 载荷
-    ⑤ 分群 group   digest.group      块 + 已有类 → 群节点 + `member_of`（自带快照）
+    ⓪ 切分 split   digest.split     时间线 + 时间/日子/还开着的约定 → **切片骨架 + 账目**（五行）
+    ① 记 record    digest.record    时间线 + 骨架 + 人设 + 视觉记忆 → episode / 玩家画像
+                                   ⭐ **并当场按 R0 的表产 note 操作**（add / update / close）
+    补边 akin    （0 LLM）          本段的 `noticed` 账 → `akin` 边
+    ② 接 understand digest.understand    本段经历 + 时间线 + 认知列表 → 决策表 + `links`
+    ③ 挂 attribute digest.attribute      候选表 + 命中集载荷 + 新节点 → `about` 边 + entity 载荷
+    ④ 分群 group   digest.group      块 + 已有类 → 群节点 + `member_of`（自带快照）
+
+⏸ **收口 close（`digest.close`）2026-10-05（L8）删** —— 账目由 ⓪ 判（它手里是本段原文）、
+由 ① 落（`_ledger_ops`）; 那一轮读的只是 120 字转述。
 
 ⚠️ **每步的定义已收进 `rounds/` 一张表**（2026-09-29 节点 C; 乙-1 起按轮拆成包）:
 步序 / LLM 身份 / prompt / 契约相位 / parse / 料 / 写什么 / 跳过条件 / 每轮预算 / 是否自带快照。
@@ -25,7 +29,7 @@
 
 | 模块 | 装什么 |
 |---|---|
-| **`rounds/`** | ⭐ **按轮切的包**（乙-1）: `__init__.py` = **轮次表**（步序/身份/prompt/相位/parse/料/写什么/跳过/预算/快照）· `base.py` = `Ctx` + `RoundOut` · 六个轮文件 `record/akin/close/understand/attribute/group.py`（每个 `def run(ctx) -> RoundOut`） |
+| **`rounds/`** | ⭐ **按轮切的包**（乙-1）: `__init__.py` = **轮次表**（步序/身份/prompt/相位/parse/料/写什么/跳过/预算/快照）· `base.py` = `Ctx` + `RoundOut` · 五个轮文件 `split/record/akin/understand/attribute/group.py`（每个 `def run(ctx) -> RoundOut`） |
 | **`pipeline.py`** | **编排与事务**：`for spec in ROUNDS: IMPL[spec.key](ctx)`（顺序只由表说）· `DigestResult` · 回滚/自吞/计数/放弃 |
 | **`call.py`** | **一轮 LLM 调用**：prompt+契约装配 · 调用+回灌重试 · 本轮截止 · 带轮次的失败文案 |
 | **`material.py`** | **各轮的料**（引擎侧零 LLM）：段标题校对/拼装 · 视觉记忆 · 情绪标尺 · 约定行 · 新经历 · R2 候选 · R3 对象正文 |

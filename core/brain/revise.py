@@ -66,24 +66,6 @@ class RevisionResult:
     pkg: str = ""
 
 
-@dataclass
-class ClosureResult:
-    """R4 收口的执行结果 —— ⭐ **只剩 note 面**（2026-09-29: 承诺退图）。
-
-    ⏸ 原来还有"节点面"（`nodes` = 固化出来的 promise 节点, 随 digest 事务提交;
-      `pairs` = (note id, 节点 id) 对, 给将来的 `retire` 用）—— 那两个字段 2026-09-29
-      随退图一起删（promise 退图后**永远为空**, 判据① 没读者就删）。
-    ⚠️ 连带: §8 那条"R4 必须排在 R2/R3 之前"的理由（承诺节点要先就位, 后面两轮才好连它）
-    **随之消失** —— 编排顺序今天照旧, 但不再是正确性要求。
-
-    ops: 待落库的 note 操作（add 先, close 后）—— **调用方在整批 ok 之后**才 append。
-    warnings: 世界校验剔掉的东西（记账）。
-    """
-
-    ops: list[dict] = field(default_factory=list)
-    warnings: list[str] = field(default_factory=list)
-
-
 def apply_decisions(
     store: WikiStoreV2,
     rows: list[dict],
@@ -432,107 +414,6 @@ def _rewrite(store: WikiStoreV2, row: dict, i: int, by_local: dict[str, str], *,
     log.append({"pkg": "digest", "action": "rewrite", "id": real,
                 "changed": {k: [v, getattr(new, k, None)] for k, v in before.items()},
                 "ts": ts})
-
-
-def apply_closures(
-    store: WikiStoreV2,
-    rows: list[dict],
-    *,
-    note_state: NotesState,
-    log: EvolutionLog | None = None,
-    ts: str | None = None,
-) -> ClosureResult:
-    """执行 R4 收口决策表（**只记笔记**）—— 见 `DESIGN_GRAPH_V4 §6`。
-
-    两种行（形状见 `contract.digest_registry.parse_close`）::
-
-        {"action": "add",   "text": "周六模型店，有点等不及", "refs": ["m0013"], "due": "…"}
-        {"action": "close", "id": "n1", "state": "kept", "refs": ["m0013"],
-         "afterwards": "周六真的去了"}
-
-    ⏸ **2026-09-29: 承诺退图**（用户裁决: 承诺太轻, 不足以长期记录）⇒ 本函数**只产
-    note 操作**, 不再建节点、不再写任何边。从前那套"`close` = 固化"（promise 节点 +
-    `from`/`to`/`formed_by`）连同那三条边一起删掉了; "这条经历里有个约定"今天由
-    **`tags`** 承担（筛选用, 不承担路由）。
-
-    分工与纪律:
-        · `add`   = 她**此刻还背着**的约定 ⇒ 一条 note 操作（工作记忆）
-        · `close` = 结清 ⇒ 一条 `note/close` 操作（含 `state`/`afterwards`）。
-          ⚠️ `afterwards`（"后来怎么了"）今天**只活在 note 面**（注入块上那句尾巴）——
-          从前它还会并进 promise 节点的正文, 那条路随退图消失。
-        · ⚠️ **全部操作交给调用方落库**: 必须等 digest 事务 `ok` 之后才 append
-          （事件流 append-only, 提前写就回不去了; 见 `ClosureResult`）。
-        · ⚠️ **世界校验剔掉、不拒整包**: 引用指不到的 ⇒ 剔那条 ref; 剔完没 refs 的条目
-          整条丢; `close` 指向"不还开着"的条目 ⇒ 丢这一行。都进 `warnings` 记账。
-          ⭐ 这一条同时是"同一段里说定又翻篇"那个麻烦的兜底: 那种条目此刻还不在名单里
-          （它的编号要等这批 add 落库才发出来）⇒ `close` 指不到它, 只会被丢 + 记账,
-          **不会写坏**; 所以 R4 的判据要求"到本段结束还没有下文的约定才写 `add`"。
-
-    Args:
-        note_state: 折叠出来的笔记状态（`close.id` 在这里查）
-    """
-    log = log or EvolutionLog.for_store(store)
-    ts = ts or datetime.now().isoformat(timespec="seconds")
-    # ⚠️ 2026-10-05 起条目不可能是"已结清但留着"的了（`close` = 划掉即移除）
-    open_items = {it.id: it for it in note_state.pinned}
-    out = ClosureResult()
-
-    for row in rows:
-        action = row.get("action")
-        if action == "close":
-            _close_one(store, row, open_items, log=log, ts=ts, out=out)
-        elif action == "add":
-            _add_one(store, row, out)
-        else:                                       # 形状错本该在 parse 层拦下
-            out.warnings.append(f"未知动作（跳过）: {action!r}")
-
-    return out
-
-
-def _add_one(store: WikiStoreV2, row: dict, out: ClosureResult) -> None:
-    """`add`: 引用剔干净后产一条 note 操作（开放期**不进图**）。"""
-    refs: list[str] = []
-    for r in row.get("refs") or []:
-        node = store.get(r)
-        if node is None or node.kind != "episode":
-            out.warnings.append(f"add {row.get('text')!r}: 引用不是现存经历 → 剔掉 {r!r}")
-            continue
-        refs.append(r)
-    if not refs:
-        out.warnings.append(f"add {row.get('text')!r}: 剔完没有有效引用 → 整条丢")
-        return
-    out.ops.append(note_ops.add_op(str(row.get("text") or ""), refs,
-                                   due=str(row.get("due") or "")))
-
-
-def _close_one(store: WikiStoreV2, row: dict, open_items: dict,
-               *, log: EvolutionLog, ts: str, out: ClosureResult) -> None:
-    """`close`: **划掉**一条还开着的约定 —— 产一条 `note/close` 操作（**不碰图**）。
-
-    这里只剩三件事: 查名单 · 核 refs · 产操作。
-    ⚠️ `refs`（"了结它的那条经历"）**仍然校验但不落任何边** —— 它留在 note 面,
-    将来看"这条约定是被哪段经历了结的"时还查得到（真源 = note 事件）。
-    ⚠️ **2026-10-05**: `afterwards` / `state` **不再进 op**（note 面没有读者了 ——
-    `close` = 划掉即移除, 那句"后来怎么了"改由**图里那条经历**承担）,
-    但它们**仍进 evolution 日志**（审计账, 见下面的 `log.append`）。
-    """
-    nid = str(row.get("id") or "")
-    item = open_items.get(nid)
-    if item is None:
-        out.warnings.append(f"close {nid!r}: 不在「还开着」的约定里 → 丢这一行")
-        return
-    closed_by = [r for r in (row.get("refs") or []) if _is_episode(store, r)]
-    for r in row.get("refs") or []:
-        if r not in closed_by:
-            out.warnings.append(f"close {nid!r}: finish episode 不是现存经历 → 剔掉 {r!r}")
-    log.append({"pkg": "digest", "action": "close", "note": nid,
-                "state": str(row.get("state") or ""), "refs": closed_by, "ts": ts})
-    out.ops.append(note_ops.close_op(nid))
-
-
-def _is_episode(store: WikiStoreV2, nid: Any) -> bool:
-    node = store.get(str(nid))
-    return node is not None and node.kind == "episode"
 
 
 def apply_revision_package(

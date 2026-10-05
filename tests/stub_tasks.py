@@ -201,8 +201,6 @@ def annotation_reply(task: str | None, messages, *,
         return {"episodes": []}
     if task in (T.DIGEST_UNDERSTAND, T.DIGEST):
         return {"decisions": [], "evidence": [], "affection_exp_delta": digest_b_delta}
-    if task == T.DIGEST_CLOSE:          # R4 收口 → 没什么要记的
-        return {"add": [], "close": []}
     if task == T.DIGEST_ATTRIBUTE:           # ④ 挂（attribute）→ 没有可归属的
         return {"attributions": []}
     if task == T.DIGEST_GROUP:          # L2-a 分群 → 一个类都不分（块留到下段）

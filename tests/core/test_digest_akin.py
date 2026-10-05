@@ -40,7 +40,6 @@ class FakeLLM:
             # ⭐ R0: 照搬 R1 那份应答里的区间（**不进位置队列** —— 它是照着剧本念的一轮）
             return stub_tasks.split_for_scripted(messages, self.responses[0]
                                                  if self.responses else [])
-        if task == T.DIGEST_CLOSE:
             return CLOSE_EMPTY
         if task == T.DIGEST_ATTRIBUTE:
             return {"attributions": []}
