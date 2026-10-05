@@ -72,10 +72,12 @@ def run(ctx: Ctx) -> RoundOut:
     ctx.result.segment_collapsed = collapsed
     # ⚠️ 未认领要在**收口之后**重算 —— 章块的区间并回让"章内那几条"从"未认领"变"已认领"
     unclaimed, uncovered = _coverage(segments, ctx.seq_set, ctx.chapters)
-    logger.info("digest_split segments=%d keep=%d 认领=%d 未认领=%d 共享=%d "
+    logger.info("digest_split segments=%d open=%d close=%d 无区间=%d 认领=%d 未认领=%d 共享=%d "
                 "章内未覆盖=%d 未认领seq=%s",
                 len(segments),
-                sum(1 for s in segments if s.get("keep") == "always"),
+                sum(1 for s in segments if s.get("state") == "open"),
+                sum(1 for s in segments if s.get("state") == "close"),
+                sum(1 for s in segments if s.get("span") is None),
                 len(ctx.seq_set) - len(unclaimed), len(unclaimed), _shared,
                 len(uncovered), unclaimed[:20] or "-")
     return RoundOut.done()

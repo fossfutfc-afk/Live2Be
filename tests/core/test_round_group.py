@@ -63,7 +63,7 @@ class RoundLLM:
 def _one_slice() -> dict:
     """一条覆盖全窗的骨架 —— 3b-2 起 `RoundLLM` 缺省 `{"episodes": []}` ⇒ 空骨架
     ⇒ 链条在 R0 就停。这几条用例测的是**后面那一轮**, 所以显式把链条放过去。"""
-    return {"segments": [{"span": [3, 3], "keep": "temporary",
+    return {"segments": [{"span": [3, 3],
                           "abstract": "这一段"}]}
 
 

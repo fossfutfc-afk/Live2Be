@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import textwrap
 from dataclasses import dataclass
+from datetime import date
 from typing import Any
 
 from contract.model import ValidationResult
@@ -81,24 +82,28 @@ MAX_TAGS = 4            # tags 检索词上限
 #: （截断会把名字截坏, 而名字是**地址**）。
 GROUP_TITLE_MAX = 16
 
-#: ⭐ **R0 切分轮的三个词/数**（2026-09-29, N4d）。
+#: ⭐ **R0 行的账目状态**（2026-10-05 取代旧的 `keep`）。
 #:
-#: `KEEP_VALUES` —— "这件事要不要一直带着"的取值。⭐ **不是布尔**（布尔没有余地,
-#: 而且把判断依据藏进了文档里）: 判据问的是"**她还会不会一直带着它**" —— 值就用
-#: 那句话自己的词。将来真要加中间档（"留到事情办完" = `until_done`）, 加一个词就行。
-#: ⚠️ 用户的另一版提议是 `yes/no`; 选了这一版是因为 `keep=temporary` 在真机日志里
-#: 自解释（"留了, 但不永久"）, 而 `keep=no` 得回文档查它在说什么。
-#: ⇒ **默认档是 `temporary`**: "过去了就过去了"（绝大多数）; `always` 才是那少数几条。
-KEEP_VALUES = ("temporary", "always")
-#: `keep` 的默认值（缺键 / 非法值 ⇒ 取它 + 告警 —— 形状毛病不该废整包）。
-KEEP_DEFAULT = "temporary"
+#: `open`  = 到**本段结束时还开着**的约定（进她的备忘录）
+#: `close` = 这一行**了结**了名单里的某条（`id` 必填）
+#: ⛔ **没有"与账无关"这个取值** —— 那就是**不写这个键**（缺键 = 无关, 是绝大多数）。
+#: ⇒ 旧那套"缺键/非法值 ⇒ 按默认档 `temporary` 收下"的口径**随之取消**:
+#:   缺键不是"取了个默认值", 而是"这件事跟账无关"。
+#: ⚠️ 但**值写错（`"opne"` 这种）仍然按"缺键"收 + 告警** —— 理由是内容: 这一条切片
+#:   的区间与 `abstract` 都是真的, 把它整条丢掉 = 那段事从此没有任何记录;
+#:   而账目效果丢了会**自愈**（那条约定下一段还在名单里, 引擎会再摆一次）。
+STATE_VALUES = ("open", "close")
 #: `abstract`（一句总括）的字数上限 —— **软上限**: 超了**收下但告警**
 #: （同 `ON_MIND_MAX` 当年的口径: 它不是"形状错", 不该废整包）。
-#: ⭐ **note 正文的长度真源就是它**（2026-10-05）: `keep=always` 的切片, 它的 `abstract`
+#: ⭐ **note 正文的长度真源就是它**（2026-10-05）: `state=open` 的切片, 它的 `abstract`
 #: 会被**原样**抄进常驻备忘录 —— 而 note 侧那条"≤20 字"的体检判据已删
 #: （3b-3 起它必然恒响, 只会制造噪音）⇒ **长度只在这里管一次**。
 #: 60 = 一句散文的上界, 再长就该怀疑她在写正文了。
 ABSTRACT_MAX = 60
+#: ⭐ **没有区间那一行的字数上限**（`state=close` + `span: null`）—— 那一行的 `abstract`
+#: **就是那条回忆的正文**（"老师生日那天没有来"）, 所以它按 **episode 正文**的尺子量,
+#: 不按上面那句"一句总括"的 60 量。数值与 `MAX_TEXT`（episode 正文）同源。
+ABSTRACT_MAX_FREEFORM = 300
 #: 一段最多切几件事。⭐ **这是防"切太碎"的唯一边界** —— R0 不写正文, 没有别的信号
 #: 能拦住它把 30 条消息切成 15 件（那是流水账, 不是记忆）。越界 ⇒ 截断 + 告警。
 #: ⚠️ **12 → 20**（2026-09-29 / 3b-2）: 切分契约同时改成"**必须覆盖全部**"
@@ -196,9 +201,9 @@ _RECORD_CONTRACT = {
     ),
 }
 
-#: ⭐ **R0 切分轮的字段行与释义**（2026-09-29, N4d）。
+#: ⭐ **R0 每行的字段与释义**（2026-10-05: 三键 → 五键, `keep` 换 `state`）。
 #:
-#: ⚠️ **2026-10-04 收窄 `always`**（真机 13 段实测之后用户裁的）: 从"三种"（誓约 /
+#: ⚠️ **2026-10-04 收窄过判据**（真机 13 段实测之后用户裁的）: 从"三种"（誓约 /
 #: **被改了看法的时刻** / 她给自己定的规矩）收成"**一种**"（答应了谁一件还没了结的事）。
 #: **为什么删那两条**: ① 它们是 **belief 的本职**（R2 的 `add` 就是"新经历形成了
 #: 稳定结论"）—— 同一个东西两处收 = 第二个 belief 库; ② 它们的判据是"我明白了",
@@ -208,8 +213,14 @@ _RECORD_CONTRACT = {
 #: ⛔ **别再用"她会不会一直带着它"当判据** —— 那句话太宽, 任何一章的高潮都满足它。
 #: 判据只能是"**忘了它, 就真会出问题**"。
 #:
+#: ⭐ **2026-10-05 换形状**（`DESIGN_DIGEST_LEDGER`）: 骨架与账目**合成一张表** ——
+#: 一行 = 一件切片 + 它的账目状态（`state` / `id` / `due`）。约定从**出生切片**长出来、
+#: 在**了结切片**上关掉; **没有那一刻的**（她等过、那天没人来）用 `span: null` 自成一行;
+#: **后来才知道的日期**用 `state: open` + `id` 补。⇒ 收口轮整轮消失（它读的备忘录,
+#: R0 手里就是原文）。
+#:
 #: ⚠️ **这里是唯一副本** —— `build_schema("split")` 的**示例**与它下面那段
-#: **逐字段说明**都从这三个常量拼出来。为什么非要这样（而不是各写一遍）:
+#: **逐字段说明**都从这几个常量拼出来。为什么非要这样（而不是各写一遍）:
 #: `contract/schema.py` 那条纪律 —— **"示例才是形状的来源"**; 而"取值清单 / 说明 /
 #: 示例"三处强度不一的时候, 模型只学会示例那个形状（2026-09-20 art 命中率 0/5
 #: 就是这么来的）。
@@ -217,34 +228,50 @@ _RECORD_CONTRACT = {
 #: （`textwrap.indent`）—— 两边的**注释列因此也对齐**, 不需要各写一份文案。
 #:
 #: ⚠️ 与那些 `DigestAction.field_schema`（渲染 `episodes[]` 里的**行形状**）不同:
-#: 一个切片只有三个键, 不值得为它造一个 `DigestAction`（那套机制带
-#: role/semantics/example, 为三个键套上去是过度设计）。
+#: 一行切片只有五个键, 不值得为它造一个 `DigestAction`。
 _SPAN_FIELD = (
-    '"span": [28, 30],      // ⭐ **这件事覆盖【哪一段】**——起止两块的事件头编号\n'
-    '                       //（`[28] 【羁绊剧情】` 里的 28）; **这是指位置, 不是打分**;\n'
-    '                       // 区间内的事件**全部**算它覆盖了, 不必逐块列;\n'
-    '                       // 两端必须真实存在、且 起 ≤ 止。拿不准就写宽一点;\n'
-    '                       // ⚠️ 两条切片**可以重叠**（同一段事可以同时是两件事）, 那没关系'
+    '"span": [28, 30],       // ⭐ 这件事覆盖【哪一段】—— 起止**两块事件的编号**\n'
+    '                        //（`[28] 【羁绊剧情】` 里的 28）; 这是指**位置**, 不是打分;\n'
+    '                        // 区间内的事件**全部**算它覆盖了, 不必逐块列;\n'
+    '                        // 两端必须真实存在、且 起 ≤ 止; 拿不准就写宽一点;\n'
+    '                        // ⚠️ 两条切片**可以重叠**（同一段事可以同时是两件事）;\n'
+    '                        // ⚠️ **只有「没有那一刻的了结」才写 null**（见 state）'
 )
-_KEEP_FIELD_TEXT = (
-    '"keep": "temporary",      // temporary = 不记（**绝大多数**）; always = 要一直带着\n'
-    '                         // ⚠️ 它没有「条目」, 也不进图 —— 只决定**要不要留在她手边**'
+_ABSTRACT_FIELD = (
+    '"abstract": "…",        // 必填; 一句 ≤%d 字 —— **那件事是什么**;\n'
+    '                        // 写法随 state 变（见下面【abstract 怎么写】）' % ABSTRACT_MAX
 )
-_ABSTRACT_FIELD = '"abstract": "…",       // 必填; **一句**, ≤%d 字; 两种写法见下' % ABSTRACT_MAX
-#: 逐字段说明（接在示例后面）
-KEEP_FIELD = "\n".join([_SPAN_FIELD, _KEEP_FIELD_TEXT, _ABSTRACT_FIELD])
-KEEP_SEMANTICS = (
-    "【keep 怎么判】只有这件事该写 `always`: **她与老师之间说定的一件事, 还没了结,\n"
+_STATE_FIELD = (
+    '"state": "open",        // **省略**（绝大多数, = 这件事跟账无关）/ "open" / "close";\n'
+    '                        // open  = 到**这一段结束时还开着**的约定（进她的备忘录）;\n'
+    '                        // close = 这一行**了结**了名单里的某条（那时必须写 id）'
+)
+_ID_FIELD = (
+    '"id": "n1",             // 只在 state 有值时出现; 必须是**【还开着的约定】名单里\n'
+    '                        // 出现过的编号**（编的会被丢掉）; "close" 时指被了结的那条,\n'
+    '                        // "open" 时指**要更正**的那条（后来才知道日期的那种）'
+)
+_DUE_FIELD = (
+    '"due": "2027-05-13",    // 只在 state="open" 时; **哪一天到期** —— 全日期（年-月-日）;\n'
+    '                        // 没有明确的一天就别写（不写 = 它不会过期）'
+)
+#: 逐字段说明（接在示例后面）—— 与示例**同源**
+ROW_FIELDS = "\n".join([_SPAN_FIELD, _ABSTRACT_FIELD, _STATE_FIELD,
+                        _ID_FIELD, _DUE_FIELD])
+STATE_SEMANTICS = (
+    "【state 怎么判】只有这件事该写 `open`: **她与老师之间说定的一件事, 还没了结,\n"
     "而且失约会真的伤到谁**（或者只此一次、补不回来）。\n"
     "  ⭐ 跟一件**小事**的界线: **「今天带个东西」办完就没了;「每年都来」说的是\n"
     "     往后一直算数的事。**\n"
     "  ⭐ 再一条: **真重要的事, 人是不会等到翻备忘录才想起来的** ——\n"
     "     所以「答应了」本身不是理由, **分量**才是。\n"
+    "  ⭐ **只标「这一段结束时还开着」的** —— 一段之内说了又办完的（出现和消失都在本段）,\n"
+    "     **一行都不要标**: 它不需要被带到下一段去。\n"
     "  ⇒ 写成**还没完的那件事**（「答应老师：以后每年都一起过生日」）,\n"
     "     **不是**一句已经想通了的道理。\n"
     "  ⚠️ 反过来说: **当时想通了什么 / 看清了什么, 不写在这儿** —— 那句话说的是\n"
-    "     「我已经明白了」, 没有欠着谁, 忘了也不会有代价。\n"
-    "  其余**一律** `temporary`（这是绝大多数）。包括这些看似重要的:\n"
+    "     「我已经明白了」, 没有欠着谁, 忘了也不会有代价（下一轮会把它写成一条**看法**收好）。\n"
+    "  其余**一律省略 state**（这是绝大多数）。包括这些看似重要的:\n"
     "    · **日常安排 / 顺路的小事**: 「明天把团子带去夏莱」「周六下午两点集合」\n"
     "      「顺路帮我看一眼」「把复印件送过去」—— 那些**补得上、改期就行**;\n"
     "    · **随口一说**: 「下次一起去吧」「有空来玩」「想看你穿那件」;\n"
@@ -252,17 +279,31 @@ KEEP_SEMANTICS = (
     "    · ⭐ **当时的领悟与触动**: 「原来不是只有被踩在脚下才算我的价值」\n"
     "      「重要的东西不用再埋起来」—— 这些是**那一刻的心情**, 不是欠着的事;\n"
     "      真走出来一条看法, 下一轮自然会把它写成一条「看法」收好。\n"
-    "  ⇒ 判据的一句话: **`keep` 记的是欠着的债, 不是想通的道理; 而且只有那种\n"
+    "  ⇒ 判据的一句话: **`open` 记的是欠着的债, 不是想通的道理; 而且只有那种\n"
     "     欠着不还就真的伤了人的债。**\n"
-    "  ⇒ **一整段里一条 `always` 都没有, 是正常结果**, 不是漏了。\n"
-    "\n"
-    "【abstract 怎么写】这一个字段**有两个去处**, 靠 `keep` 分叉:\n"
-    "  · `temporary` —— 平实描述**发生了什么**（后面有人照着它写回忆的正文; 别写成文学片段,\n"
+    "  ⇒ **一整段里一条 `open` 都没有, 是正常结果**, 不是漏了。"
+)
+CLOSE_SEMANTICS = (
+    "【close 什么时候写】两种情况:\n"
+    "  · 这一段里**有一刻**那件事了了（兑现 / 说好了不做了 / 被新的约定盖过）\n"
+    "    ⇒ `state`: \"close\" + `id`: 名单里那条的编号 + `span` 指**那一刻**（它就在本段原文里）;\n"
+    "  · ⚠️ **没有那一刻**（她等过、那天没人来; 或者那条约定悄悄过期了）\n"
+    "    ⇒ `state`: \"close\" + `span`: null + `id`, 而 **`abstract` 就是那条回忆的正文** ——\n"
+    "      如实写「老师生日那天没有来」这种; ⛔ 不许编日期、也不许编当时的心情。"
+)
+LATE_DUE_SEMANTICS = (
+    "【名单里那条的日期后来才知道】⇒ 再用一行: `state`: \"open\" + `id` + 新的 `due`\n"
+    "  （`abstract` 也跟着改就是她本子上新的那句话）。\n"
+    "  ⚠️ 这是唯一允许「重提旧条目」的写法; 其余情况**不许**给旧条目再写一行。"
+)
+ABSTRACT_SEMANTICS = (
+    "【abstract 怎么写】这一个字段**有三个去处**:\n"
+    "  · 普通的一行 —— 平实描述**发生了什么**（后面有人照着它写回忆的正文; 别写成文学片段,\n"
     "    也别在这儿抒情）;\n"
-    "  · `always` —— **就是她带走的那句话**（会被原样抄进她的备忘录）:\n"
+    "  · `state: \"open\"` —— **就是她带走的那句话**（会被原样抄进她的备忘录）:\n"
     "    写「答应/欠着什么 + 她此刻对它的那点意思」。\n"
-    "  例: temporary →「老师在周日突然邀请我去了咖啡厅吃东西」\n"
-    "      always    →「答应老师：以后每年生日都一起过, 这次我不许自己忘」"
+    "  例: open →「答应老师：以后每年生日都一起过, 这次我不许自己忘」\n"
+    "  · `state: \"close\"` + `span: null` —— **就是那条回忆的正文**（没有那一刻, 只有这句话）。"
 )
 
 
@@ -495,8 +536,8 @@ class DigestRegistry:
             # 示例由字段常量拼（**不是另抄一份文案** —— 见 `_SPAN_FIELD` 那段注释）:
             # 整体缩 5 格就与"逐字段说明"那一份的注释列对齐
             example = "\n".join([
-                "    {  // 一件事 = 一条切片; 顺序 = 时间顺序 //",
-                textwrap.indent(KEEP_FIELD, " " * 5),
+                "    {  // 一件事 = 一行; 顺序 = 时间顺序 //",
+                textwrap.indent(ROW_FIELDS, " " * 5),
                 "    }",
             ])
             return "\n".join([
@@ -511,12 +552,20 @@ class DigestRegistry:
                 "    ⚠️ **别切太碎** —— 三十条消息切成十五件, 那是流水账, 不是记忆;\n"
                 "    ⚠️ 但也**别留空档** —— 没被任何一件覆盖的记录, 下一轮读不到它;\n"
                 "  · `span` 只写**事件头编号**（`[28.0]` 那种记录行号不用管）;\n"
+                "  · **一行一件事** —— 同一件事既了结旧的、又新说定一件 ⇒ 写**两行**\n"
+                "    （同一个 span 出现两次, 那没关系）;\n"
                 "  · 本段确实没有内容事件 → `\"segments\": []`（合法, 但很少见）。",
                 "",
                 "【逐字段】",
-                KEEP_FIELD,
+                ROW_FIELDS,
                 "",
-                KEEP_SEMANTICS,
+                STATE_SEMANTICS,
+                "",
+                CLOSE_SEMANTICS,
+                "",
+                LATE_DUE_SEMANTICS,
+                "",
+                ABSTRACT_SEMANTICS,
             ])
 
         if phase == PHASE_RECORD:
@@ -756,29 +805,50 @@ class DigestRegistry:
                 out.append(item)
         return out, ValidationResult(tuple(errors), tuple(warnings), tuple(drops))
 
-    def parse_split(self, raw: Any, *, seq_set: set[int] | None = None
+    def parse_split(self, raw: Any, *, seq_set: set[int] | None = None,
+                    note_ids: set[str] | None = None,
+                    overdue_ids: set[str] | None = None,
                     ) -> tuple[list[dict], ValidationResult]:
-        """R0 切分: `{"segments": [{"span", "keep", "abstract"}, …]}` → 归一化切片。
+        """R0 切分: `{"segments": [{"span", "abstract", "state"?, "id"?, "due"?}, …]}`。
 
-        ⭐ **只做形状校验**（键在不在 / 区间合不合法 / `keep` 在不在词表里）——
+        ⭐ **只做形状校验**（键在不在 / 区间合不合法 / 真值表配不配 / `id` 在不在名单里）——
         "这段区间里到底有什么"是**世界的事**, 归引擎（`seq_set` 只用来查端点存在性）。
-        口径与 `_clean_span` 一致: **坏的那条丢、整包不废** —— 一个坏区间不该让她
-        重写整段（重试有用的是"你没按契约说话", 不是"你划错了一刀"）。
 
-        ⚠️ **三种毛病分两类**（这是 D1 那本缺口账的入口, 别混）:
-          · **真丢** → `_drop`（端点不在时间线里 / 起止反了 / 形状不是数组 /
-            `abstract` 缺或空）—— 那一段事**从此没有任何记录**, 不可重算;
-          · **建议** → 只 `warnings`（`abstract` 超 60 字 / `keep` 非法或缺失 /
-            给了 >2 个端点 / 抄了记录级编号 / 切太碎超 `MAX_SEGMENTS`）。
-        判据就是 `_drop` 的 docstring 那句: **这条 warning 背后有没有内容离开过库?**
+        ## 一行的合法形状只有五种（`state` × `span` × `id`）
 
-        `seq_set`（沿用 R1 的同名参数）: 本段**可寻址事件 seq 全集**, 端点 ⊆ 校验基准。
-        `None` = 不校验（老调用方 / 单测）。
+        | `state` | `span` | `id` | 含义 |
+        |---|---|---|---|
+        | 省略 | 必填 | 不许 | 与账无关的一件事（**绝大多数**） |
+        | `open` | 必填 | 不许 | 新建: 到本段结束还开着的约定 |
+        | `open` | 必填 | 必填 | 更正: 那条约定后来才知道日期（`due` / `abstract` 变） |
+        | `close` | 必填 | 必填 | 这一行**了结**了名单里那条 |
+        | `close` | **null** | 必填 | **没有那一刻**的了结（`abstract` 就是那条回忆的正文） |
 
-        Returns: `(segments, ValidationResult)` —— 每条切片 = 引擎要的**骨架**:
-        `{"span": [起, 止], "keep": "temporary"|"always", "abstract": "…"}`。
+        ## 坏行分两档（**别混**）
+
+        · **收下但改写 + 告警**（内容不丢 ⇒ 不 `_drop`）:
+          `state` 值不在词表（按"省略"收）· `close` 有 `span` 但 `id` 缺失/不在名单
+          （降级成普通一行 —— 那一刻照样是记忆）· `open` 给了 `id` 但不在名单
+          （同上; ⛔ **不新建**, 免得把同一条约定记两遍）· `due` 不是全日期（当没期限）。
+        · **真的丢**（`_drop`, 进 D1 台账）: 沿用今天那些（端点不在时间线 / 起止反 /
+          形状错 / `abstract` 缺或空 / 同 span + 同 abstract 的重复行）。
+        · **没有区间那几行的坏形状**: 走 `warnings`（**不进 `drops`**）——
+          `_drop` 的判据是"有没有内容离开过**库**", 而 `span: null` 的行本来就没有库内容
+          （它是 R0 凭引擎的资格位写出来的一句）:
+          `span: null` 却不是 `close` · `close` + `null` 但 `id` 缺失/不在名单 ·
+          `close` + `null` 而**引擎没发资格位**（`overdue_ids` 里没有它）。
+
+        Args:
+            seq_set: 本段**可寻址事件 seq 全集**（端点 ⊆ 它）。`None` = 不校验。
+            note_ids: 本轮料里印出来的**还开着的约定**编号（`id` 的闭集）。
+                `None` = 不校验（老调用方 / 单测）。
+            overdue_ids: 引擎判定的**超期**条目（= 允许 `span: null` 的资格位）。
+                `None` = 不限制（老调用方 / 单测）。
+
+        Returns: `(segments, ValidationResult)` —— 每条 = 引擎要的那一行:
+        `{"span": [起, 止] | None, "abstract": "…", "state"?: …, "id"?: …, "due"?: …}`。
         ⚠️ 引擎随后把 `span` 展开成 `event_seq` 并**就地改写这批字典**（R1 在同一批
-        字典上填正文）—— 所以这里**不 pop `span`**, 它是这条切片的身份。
+        字典上填正文）—— 所以这里**不 pop `span`**, 它是这一行的身份。
         """
         errors: list[str] = []
         warnings: list[str] = []
@@ -795,39 +865,105 @@ class DigestRegistry:
             raw_segs = raw_segs[:MAX_SEGMENTS]
 
         out: list[dict] = []
-        seen: set[tuple[int, int]] = set()
+        #: 同 span + 同 abstract 才算重复（⚠️ **同 span 不同行是合法的** —— 出+进两行,
+        #: 或同一个时刻长出的两条记忆; 2026-10-05 起不再"完全一样就丢"）
+        seen: set[tuple[int, int, str]] = set()
         for i, seg in enumerate(raw_segs):
             if not isinstance(seg, dict):
                 errors.append(f"segments[{i}] 必须是对象")
                 continue
-            # 区间 —— **复用 `_clean_span`**（端点存在性 / 起止反 / >2 端点 / 记录级编号
-            # 那一整套规矩与 R1 逐字相同; 坏的那条它已经 `_drop` 过了）
-            span = _clean_span(seg.get("span"), seq_set, label=f"segments[{i}].span",
-                               warnings=warnings, drops=drops)
-            if span is None:
-                continue
-            key = (span[0], span[1])
-            if key in seen:
-                _drop(warnings, drops, f"segments[{i}].span {span} 与前面那条完全一样——丢弃")
-                continue
-            seen.add(key)
+            label = f"segments[{i}]"
+            # ── 账目三键（后面的分档都靠它） ──
+            state_raw = seg.get("state")
+            if state_raw is None:
+                state = ""
+            elif isinstance(state_raw, str) and state_raw.strip() in STATE_VALUES:
+                state = state_raw.strip()
+            else:
+                warnings.append(f"{label}.state 不是 {'/'.join(STATE_VALUES)} 之一"
+                                f"（{state_raw!r}）——按「无账目」收下（这一行的内容不丢）")
+                state = ""
+            nid = str(seg.get("id") or "").strip()
+            id_given = bool(nid)
+            # ⚠️ 闭集：名单没给就不校验（老调用方 / 单测）; 给了就必须命中
+            id_ok = id_given and (note_ids is None or nid in note_ids)
+
+            # ── span：可以是 null —— **只对 close 合法** ──
+            if seg.get("span") is None:
+                if state != "close":
+                    warnings.append(f"{label} 的 span 是 null, 但它不是 close"
+                                    f"（没有那一刻、又没有账目 ⇒ 这一行什么都没留下）——丢弃")
+                    continue
+                if not id_ok:
+                    warnings.append(f"{label} 是 close + span=null, 但 id {nid!r} "
+                                    f"不在【还开着的约定】名单里 —— 丢弃")
+                    continue
+                if overdue_ids is not None and nid not in overdue_ids:
+                    warnings.append(f"{label} 是 close + span=null, 但引擎**没有**判定 "
+                                    f"{nid!r} 超期（资格位没发）—— 丢弃"
+                                    f"（凭空造一条「没发生过」的记忆不行）")
+                    continue
+                span: list[int] | None = None
+            else:
+                # 区间 —— **复用 `_clean_span`**（端点存在性 / 起止反 / >2 端点 / 记录级编号
+                # 那一整套规矩与 R1 逐字相同; 坏的那条它已经 `_drop` 过了）
+                span = _clean_span(seg.get("span"), seq_set, label=f"{label}.span",
+                                   warnings=warnings, drops=drops)
+                if span is None:
+                    continue
+
             abstract = seg.get("abstract")
             if not isinstance(abstract, str) or not abstract.strip():
-                _drop(warnings, drops, f"segments[{i}] 缺 abstract（一句总括）——丢弃")
+                text = (f"{label} 缺 abstract —— 丢弃"
+                        if span is not None else
+                        f"{label}（close + span=null）缺 abstract —— 丢弃: "
+                        f"那一行的 abstract **就是**那条回忆的正文, 没有它这一行什么都不剩")
+                if span is not None:
+                    _drop(warnings, drops, text)
+                else:
+                    warnings.append(text)
                 continue
             abstract = abstract.strip()
-            if len(abstract) > ABSTRACT_MAX:
+
+            if span is not None:
+                key = (span[0], span[1], abstract)
+                if key in seen:
+                    _drop(warnings, drops,
+                          f"{label} 与前面那条**完全一样**（同 span 同 abstract）——丢弃")
+                    continue
+                seen.add(key)
+                cap = ABSTRACT_MAX
+            else:
+                cap = ABSTRACT_MAX_FREEFORM          # 它就是那条回忆的正文
+            if len(abstract) > cap:
                 # 软上限: 收下但告警（它不是形状错 —— 超了只说明她写得长）
-                warnings.append(f"segments[{i}].abstract {len(abstract)} 字 > {ABSTRACT_MAX}"
-                                f"（收下但请写短）")
-            # `keep` 缺/非法 ⇒ **默认档** + 告警（形状毛病, 不废整包也不丢内容）
-            keep = seg.get("keep")
-            if not isinstance(keep, str) or keep.strip() not in KEEP_VALUES:
-                warnings.append(f"segments[{i}].keep 不是 "
-                                f"{'/'.join(KEEP_VALUES)} 之一（{keep!r}）——按 "
-                                f"{KEEP_DEFAULT} 收下")
-                keep = KEEP_DEFAULT
-            out.append({"span": list(span), "keep": keep.strip(), "abstract": abstract})
+                warnings.append(f"{label}.abstract {len(abstract)} 字 > {cap}（收下但请写短）")
+
+            # ── id 配不上: close / 更正都做不成 ⇒ 降级成普通一行（⛔ 不新建） ──
+            # ⚠️ **`open` 且没给 id 是合法的**（新建）—— 只有"给了 id 却配不上"才降级。
+            if (state == "close" and not id_ok) or \
+                    (state == "open" and id_given and not id_ok):
+                what = "close" if state == "close" else "更正"
+                warnings.append(f"{label} 想做「{what}」, 但 id {nid!r} 不在"
+                                f"【还开着的约定】名单里 —— 这一行按「无账目」收下"
+                                f"（那一刻照样记; ⛔ 不新建, 免得同一条约定记两遍）")
+                state = ""
+
+            row: dict = {"span": list(span) if span is not None else None,
+                         "abstract": abstract}
+            if state:
+                row["state"] = state
+                if id_given:
+                    # ⚠️ **新建的 `open` 不带 `id`**（缺键 = 新建; 只有"更正"才带）
+                    row["id"] = nid
+            # `due` 只跟新建的 `open`: ⚠️ **判不了就退化成"没有期限"**（不告警 ——
+            # 契约已经写明"全日期"; 引擎判不了 = 它永不过期, 宁缺勿错。
+            # ⛔ 绝不替她滚到明年、也绝不替她猜）
+            if state == "open" and seg.get("due") is not None:
+                due = str(seg.get("due") or "").strip()
+                if due and _is_full_date(due):
+                    row["due"] = due
+            out.append(row)
 
         if not out and raw_segs:
             warnings.append("这一包**一条切片都没留下**（全部被剔除）——"
@@ -1411,6 +1547,21 @@ def _norm_index(raw: Any) -> str | None:
         return None
     seq, rec = got
     return f"{seq}.{rec}" if rec != "" else str(seq)
+
+
+def _is_full_date(v: str) -> bool:
+    """`YYYY-MM-DD`（**全日期**）—— `due` 唯一的格式规矩。
+
+    ⚠️ **只在这里校验格式**: 引擎判"过期没有"时用 `date` 自己比
+    （`date.fromisoformat(due) < 今天`）—— **绝不把它喂给 `worldtime.age.age_days`**
+    （那个函数吃的是节点 `ts` 那种 **aware** 时间戳, 裸日期会 `aware − naive` 当场 TypeError,
+    `tests/core/test_wiki_recall.py:146` 踩过一次）。
+    """
+    try:
+        date.fromisoformat(v)
+    except ValueError:
+        return False
+    return True
 
 
 def _drop(warnings: list[str], drops: list[str] | None, text: str) -> None:

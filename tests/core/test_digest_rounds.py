@@ -393,7 +393,7 @@ class RoundLLM:
     """R0 一头一片 / R1 正常 / R4 给一条**引用坏了**的约定 / R2 引用不存在的 episode。
 
     ⚠️ 四个应答都**可以逐个覆盖**（`a` / `b` / `split`）—— 3b-3 那几条用例要的是
-    "`keep=always` 长成 note", 默认那套（R2 引用 `m9999`）会先把整段打回。
+    "`state=open` 长成 note", 默认那套（R2 引用 `m9999`）会先把整段打回。
     """
 
     def __init__(self, *, a=None, b=None, split=None):
@@ -476,7 +476,7 @@ def test_empty_skeleton_stops_the_content_rounds(tmp_path):
 
 def _seg(i: int) -> dict:
     """一条切片（给 `_align_to_skeleton` 的单测用）。"""
-    return {"span": [i, i], "keep": "temporary", "abstract": f"第{i}件", "seqs": [i]}
+    return {"span": [i, i], "abstract": f"第{i}件", "seqs": [i]}
 
 
 def test_align_to_skeleton_three_judgements():
@@ -516,8 +516,8 @@ def test_align_to_skeleton_three_judgements():
     print("    对位: 位置取切片 / 多写附末条 / 少写进账 / drop 占位 ✓")
 
 
-def test_keep_always_grows_into_a_note(tmp_path):
-    """⭐ 3b-3: **`keep=always` 的切片 ⇒ 一条 `note/add`**（`refs` = 它自己那条 episode）。
+def test_state_open_grows_into_a_note(tmp_path):
+    """⭐ 3b-3 / L1: **`state=open` 的切片 ⇒ 一条 `note/add`**（`refs` = 它自己那条 episode）。
 
     判据三件:
       · `text` = 切片的 `abstract` **原样**（契约要求 `always` 那句就是"她带走的那句话"）;
@@ -527,8 +527,8 @@ def test_keep_always_grows_into_a_note(tmp_path):
     st = _store(tmp_path)
     llm = RoundLLM(
         split={"segments": [
-            {"span": [3, 3], "keep": "always", "abstract": "明天把两个团子带去夏莱, 别多想"},
-            {"span": [3, 3], "keep": "temporary", "abstract": "随口聊了几句"}]},
+            {"span": [3, 3], "state": "open", "abstract": "明天把两个团子带去夏莱, 别多想"},
+            {"span": [3, 3], "abstract": "随口聊了几句"}]},
         a={"episodes": [{"text": "她答应了带团子", "title": "团子之约", "tags": ["约定"]},
                         {"text": "闲聊", "title": "闲聊", "tags": ["闲聊"]}]},
         b={"decisions": [
@@ -549,7 +549,7 @@ def test_keep_always_grows_into_a_note(tmp_path):
 
 
 def test_kept_slice_without_a_node_is_a_loss(tmp_path):
-    """⛔ 3b-3: `keep=always` 的那条切片**没长成 note** ⇒ **收下她的裁决但记一笔账**。
+    """⛔ 3b-3 / L1: `state=open` 的那条切片**没长成 note** ⇒ **收下她的裁决但记一笔账**。
 
     它意味着一件"说过要一直带着的事"没被记住 —— 那不能是静默的。
     ⛔ **不替她补**: 引擎补 = 把她没说的话写进她的本子。
@@ -558,8 +558,8 @@ def test_kept_slice_without_a_node_is_a_loss(tmp_path):
     # 她 drop 掉了那条 ⭐（契约说"不许 drop", 那是**提示词纪律** —— 引擎不硬拦, 但记账）
     llm = RoundLLM(
         split={"segments": [
-            {"span": [3, 3], "keep": "always", "abstract": "以后每年生日都一起过"},
-            {"span": [4, 4], "keep": "temporary", "abstract": "闲聊"}]},
+            {"span": [3, 3], "state": "open", "abstract": "以后每年生日都一起过"},
+            {"span": [4, 4], "abstract": "闲聊"}]},
         a={"episodes": [{"drop": True},
                         {"text": "闲聊", "title": "闲聊", "tags": ["闲聊"]}]},
         b={"decisions": [{"episode": "m0001", "decision": "add", "kind": "belief",

@@ -65,7 +65,7 @@ def timeline_heads(messages) -> list[str]:
     return sorted(dict.fromkeys(_EVENT_HEAD_RE.findall(text)), key=int)
 
 
-def split_reply(messages, *, keep: str = "temporary", join: int = 0) -> dict:
+def split_reply(messages, *, join: int = 0) -> dict:
     """R0 的标准应答: **一个事件头一条切片**（`join>0` 时每 N 个头并成一条）。
 
     ⚠️ 为什么默认"一头一片": R1 的每条 episode 都对着一条切片 ⇒ 桩这样回,
@@ -77,7 +77,7 @@ def split_reply(messages, *, keep: str = "temporary", join: int = 0) -> dict:
         return {"segments": []}
     step = max(1, join)
     groups = [heads[i:i + step] for i in range(0, len(heads), step)]
-    return {"segments": [{"span": [int(g[0]), int(g[-1])], "keep": keep,
+    return {"segments": [{"span": [int(g[0]), int(g[-1])],
                           "abstract": f"第 {g[0]} 件事"} for g in groups]}
 
 
@@ -105,7 +105,7 @@ def splits_for_episodes(episodes, messages=None) -> dict:
                        json.dumps(episodes, ensure_ascii=False))
     if spans:
         return {"segments": [{"span": [int(lo), int(hi if hi != "" else lo)],
-                              "keep": "temporary", "abstract": f"第 {lo} 件事"}
+                              "abstract": f"第 {lo} 件事"}
                              for lo, hi in spans]}
     if not episodes:
         # `{"episodes": []}` = "这一段我不记" ⇒ 空骨架（那正是它的意思）
@@ -132,7 +132,7 @@ def splits_for_episodes(episodes, messages=None) -> dict:
             lo_i = hi_i = min(hi, hi_i)
         used.add((lo_i, hi_i))
         spans.append([lo_i, hi_i])
-    return {"segments": [{"span": s, "keep": "temporary", "abstract": f"第 {i + 1} 件"}
+    return {"segments": [{"span": s, "abstract": f"第 {i + 1} 件"}
                          for i, s in enumerate(spans)]}
 
 
@@ -140,8 +140,6 @@ def _max_seq_in(messages) -> int:
     """user 料里出现过的**最大事件头编号**（时间线的实测上界; 取不到 → 999）。"""
     heads = timeline_heads(messages or [])
     return max((int(x) for x in heads), default=999)
-    return {"segments": [{"span": s, "keep": "temporary", "abstract": f"第 {i + 1} 件"}
-                         for i, s in enumerate(spans)]}
 
 
 def split_for_scripted(messages, episodes) -> dict:

@@ -1,13 +1,13 @@
 """digest_registry 测试（AGENT_BRAIN.md §3 重构 / 板块 2）——LLM 契约层单源。"""
 from contract.digest_registry import (
-    KEEP_FIELD,
-    KEEP_VALUES,
     MAX_SEGMENTS,
     PHASE_CLOSE,
     PHASE_RECORD,
     PHASE_SPLIT,
     PHASE_UNDERSTAND,
     PINNED_OUTCOMES,
+    ROW_FIELDS,
+    STATE_VALUES,
     digest_registry,
 )
 
@@ -72,21 +72,34 @@ def test_parse_close_dedupes_with_warning():
 
 
 # ---------------------------------------------------------------------------
-# R0 切分轮（N4d, 2026-09-29）—— 划区间 + keep + abstract
+# R0 切分轮 —— 划区间 + abstract + **账目**（`state` / `id` / `due`）
+# ⭐ 2026-10-05（L1）: `keep` 退役, 骨架与账目合成一张表（`DESIGN_DIGEST_LEDGER`）
 # ---------------------------------------------------------------------------
 
-def test_parse_split_keeps_good_segments():
+def test_parse_split_keeps_the_five_legal_shapes():
+    """⭐ 一行的合法形状只有五种（见 `parse_split` 的表）—— 一包全过, 零告警。"""
     segs, res = digest_registry.parse_split(
-        {"segments": [{"span": [28, 30], "keep": "temporary",
-                       "abstract": "老师在周日突然邀请我去了咖啡厅吃东西"},
-                      {"span": [31, 33], "keep": "always",
-                       "abstract": "明天把两个团子带去夏莱, 别多想"}]},
-        seq_set={28, 29, 30, 31, 32, 33})
+        {"segments": [
+            {"span": [28, 30], "abstract": "老师在周日突然邀请我去了咖啡厅吃东西"},
+            {"span": [31, 31], "abstract": "答应老师：以后每年生日都一起过",
+             "state": "open", "due": "2027-05-13"},
+            {"span": [32, 32], "abstract": "老师生日是 5/13", "state": "open", "id": "n3",
+             "due": "2027-05-13"},
+            {"span": [33, 33], "abstract": "我把团子带来了", "state": "close", "id": "n5"},
+            {"span": None, "abstract": "生日那天，老师没有来", "state": "close", "id": "n4"},
+        ]},
+        seq_set={28, 29, 30, 31, 32, 33}, note_ids={"n3", "n4", "n5"},
+        overdue_ids={"n4"})
     assert res.errors == () and res.warnings == () and res.drops == ()
-    assert segs == [{"span": [28, 30], "keep": "temporary",
-                     "abstract": "老师在周日突然邀请我去了咖啡厅吃东西"},
-                    {"span": [31, 33], "keep": "always",
-                     "abstract": "明天把两个团子带去夏莱, 别多想"}]
+    assert segs == [
+        {"span": [28, 30], "abstract": "老师在周日突然邀请我去了咖啡厅吃东西"},
+        {"span": [31, 31], "abstract": "答应老师：以后每年生日都一起过",
+         "state": "open", "due": "2027-05-13"},
+        {"span": [32, 32], "abstract": "老师生日是 5/13", "state": "open", "id": "n3",
+         "due": "2027-05-13"},
+        {"span": [33, 33], "abstract": "我把团子带来了", "state": "close", "id": "n5"},
+        {"span": None, "abstract": "生日那天，老师没有来", "state": "close", "id": "n4"},
+    ]
 
 
 def test_parse_split_shape_errors_reject_the_package():
@@ -107,11 +120,11 @@ def test_parse_split_span_problems_are_losses_not_errors():
     记录级编号）—— 本用例钉的是"它真的接上了", 不是重测 `_clean_span`。
     """
     raw = {"segments": [
-        {"span": [28, 99], "keep": "temporary", "abstract": "端点抄到时间线外"},
-        {"span": [33, 31], "keep": "temporary", "abstract": "起止反了"},
-        {"span": "nope", "keep": "temporary", "abstract": "形状不是数组"},
-        {"span": [], "keep": "temporary", "abstract": "空数组"},
-        {"span": [31, 33], "keep": "always", "abstract": "这条是好的"},
+        {"span": [28, 99], "abstract": "端点抄到时间线外"},
+        {"span": [33, 31], "abstract": "起止反了"},
+        {"span": "nope", "abstract": "形状不是数组"},
+        {"span": [], "abstract": "空数组"},
+        {"span": [31, 33], "abstract": "这条是好的", "state": "open"},
     ]}
     segs, res = digest_registry.parse_split(raw, seq_set={28, 29, 30, 31, 32, 33})
     assert res.errors == (), "区间毛病不该废整包（重试治不了'划错了一刀'）"
@@ -121,12 +134,14 @@ def test_parse_split_span_problems_are_losses_not_errors():
 
 
 def test_parse_split_abstract_missing_is_a_loss_but_long_is_a_warning():
-    """`abstract` 缺/空 ⇒ **真丢**（下一轮没东西可照着写）; 超 60 字 ⇒ **收下 + 告警**。"""
+    """`abstract` 缺/空 ⇒ **真丢**（下一轮没东西可照着写）; 超长 ⇒ **收下 + 告警**。
+
+    ⭐ **上限分档**: 有区间 ≤60（骨架提示）· **`span: null` 那行 ≤300**（它就是正文）。
+    """
     segs, res = digest_registry.parse_split(
-        {"segments": [{"span": [28, 30], "keep": "always"},                   # 缺
-                      {"span": [31, 32], "keep": "always", "abstract": "   "},  # 空
-                      {"span": [33, 34], "keep": "temporary",
-                       "abstract": "长" * 61}]},
+        {"segments": [{"span": [28, 30]},                       # 缺
+                      {"span": [31, 32], "abstract": "   "},    # 空
+                      {"span": [33, 34], "abstract": "长" * 61}]},
         seq_set={28, 29, 30, 31, 32, 33, 34})
     assert res.errors == ()
     assert [s["span"] for s in segs] == [[33, 34]], "缺/空的丢掉, 超长的要留下"
@@ -134,35 +149,117 @@ def test_parse_split_abstract_missing_is_a_loss_but_long_is_a_warning():
     assert segs[0]["abstract"] == "长" * 61
     assert any("abstract" in w and "字" in w for w in res.warnings)
 
+    # 没有区间那一行按**正文**的尺子量（61 字不告警）
+    free, res2 = digest_registry.parse_split(
+        {"segments": [{"span": None, "state": "close", "id": "n1",
+                       "abstract": "长" * 61}]},
+        note_ids={"n1"}, overdue_ids={"n1"})
+    assert res2.warnings == () and free[0]["span"] is None
+    # 但它也有上限（301 字 ⇒ 告警）
+    _free2, res3 = digest_registry.parse_split(
+        {"segments": [{"span": None, "state": "close", "id": "n1",
+                       "abstract": "长" * 301}]},
+        note_ids={"n1"}, overdue_ids={"n1"})
+    assert any("300" in w for w in res3.warnings), res3.warnings
 
-def test_parse_split_keep_falls_back_with_a_warning():
-    """`keep` 缺 / 非法值 ⇒ **按默认档收下** + 告警（形状毛病, 不丢内容、不废整包）。
 
-    ⚠️ 判据是**别把"没写对形状"升级成"丢了内容"** —— 那条切片本身是好的。
+def test_parse_split_bad_state_falls_back_to_no_ledger():
+    """`state` 值不在词表 ⇒ **按「无账目」收下** + 告警（内容不丢 —— 那一行本身是好的）。
+
+    ⚠️ 判据是**别把"没写对形状"升级成"丢了内容"**; 而账目效果丢了会**自愈**
+    （那条约定下一段还在名单里）。
     """
     segs, res = digest_registry.parse_split(
-        {"segments": [{"span": [28, 30], "abstract": "缺 keep"},
-                      {"span": [31, 32], "keep": "yes", "abstract": "旧口径的值"},
-                      {"span": [33, 34], "keep": True, "abstract": "布尔"}]},
+        {"segments": [{"span": [28, 30], "abstract": "缺 state"},
+                      {"span": [31, 32], "state": "yes", "abstract": "旧口径的值"},
+                      {"span": [33, 34], "state": True, "abstract": "布尔"}]},
         seq_set={28, 29, 30, 31, 32, 33, 34})
     assert res.errors == () and res.drops == ()
-    assert [s["keep"] for s in segs] == ["temporary"] * 3
-    assert len(res.warnings) == 3
+    assert all("state" not in s for s in segs), segs
+    assert len(res.warnings) == 2, res.warnings      # "yes" 与 True; 缺键不告警
 
 
-def test_parse_split_duplicate_span_is_dropped():
-    """两条切片**区间完全一样** ⇒ 丢后一条（真丢: 那件事只留了一份）。
+def test_parse_split_duplicate_row_is_dropped_but_same_span_is_legal():
+    """⭐ 2026-10-05: **同 span 可以有两行**（出+进 / 一个时刻两条记忆）;
 
-    ⚠️ **部分重叠不裁** —— 那是合法的（真机 `m0015`「约老师来看苔藓」`[208..235]`
-    与 `m0016`「老师说我很重要」`[214..223]` 整段嵌套）; 只有**逐字相同**才算重复。
+    只有**同 span 且同 `abstract`**（整行逐字重复）才丢后一条。
+    ⚠️ 部分重叠一直是合法的（真机 `m0015` 与 `m0016` 整段嵌套）。
     """
     segs, res = digest_registry.parse_split(
-        {"segments": [{"span": [28, 30], "abstract": "第一件"},
-                      {"span": [28, 30], "abstract": "同一段又说了一遍"},
-                      {"span": [29, 31], "abstract": "部分重叠 —— 合法"}]},
+        {"segments": [
+            {"span": [28, 30], "abstract": "第一件"},
+            {"span": [28, 30], "abstract": "第一件"},                    # 整行逐字重复 ⇒ 丢
+            {"span": [28, 30], "abstract": "同一时刻的另一条记忆"},       # ✅ 合法
+            {"span": [29, 31], "abstract": "部分重叠 —— 合法"}]},
         seq_set={28, 29, 30, 31})
-    assert [s["abstract"] for s in segs] == ["第一件", "部分重叠 —— 合法"]
+    assert [s["abstract"] for s in segs] == [
+        "第一件", "同一时刻的另一条记忆", "部分重叠 —— 合法"]
     assert any("完全一样" in d for d in res.drops)
+
+
+def test_parse_split_null_span_needs_close_and_a_qualification():
+    """`span: null` 只有一种合法用法: **close + 名单里那条 + 引擎发了资格位**。
+
+    ⚠️ 坏形状走 `warnings`、**不进 `drops`** —— `span: null` 的行本来就没有库内容
+    （它是 R0 凭资格位写出来的一句）, 没有"内容离开过库"这回事。
+    """
+    raw = {"segments": [
+        {"span": None, "abstract": "不是 close"},                                # ①
+        {"span": None, "abstract": "close 但没有 id", "state": "close"},          # ②
+        {"span": None, "abstract": "id 不在名单", "state": "close", "id": "n9"},   # ③
+        {"span": None, "abstract": "没发资格位", "state": "close", "id": "n1"},    # ④
+        {"span": None, "abstract": "老师生日那天没有来",
+         "state": "close", "id": "n2"},                                          # ✅
+    ]}
+    segs, res = digest_registry.parse_split(raw, note_ids={"n1", "n2"},
+                                            overdue_ids={"n2"})
+    assert [s["abstract"] for s in segs] == ["老师生日那天没有来"]
+    assert res.drops == (), "没有区间那几行没有库内容可丢 ⇒ 不进 drops"
+    assert len(res.warnings) == 4, res.warnings
+
+
+def test_parse_split_unknown_id_downgrades_the_row():
+    """`id` 不在名单 ⇒ **降级成普通一行**（那一刻照样是记忆）+ 告警; ⛔ **不新建**。
+
+    名单没给（老调用方 / 单测）⇒ 不校验闭集。
+    """
+    segs, res = digest_registry.parse_split(
+        {"segments": [{"span": [28, 30], "state": "close", "id": "n9",
+                       "abstract": "了结某条（id 是编的）"},
+                      {"span": [31, 32], "state": "open", "id": "n9",
+                       "abstract": "更正某条（id 是编的）"}]},
+        seq_set={28, 29, 30, 31, 32}, note_ids={"n1"})
+    assert all("state" not in s and "id" not in s for s in segs), segs
+    assert res.drops == () and len(res.warnings) == 2, res.warnings
+
+    loose, res2 = digest_registry.parse_split(
+        {"segments": [{"span": [28, 30], "state": "close", "id": "n9",
+                       "abstract": "名单没给就不校验"}]},
+        seq_set={28, 29, 30})
+    assert loose[0]["state"] == "close" and loose[0]["id"] == "n9"
+    assert res2.warnings == ()
+
+
+def test_parse_split_due_is_a_full_date_or_nothing():
+    """`due` 只收**全日期**; 解析不了 ⇒ **当没有期限**（静默 —— 不告警、不丢整行）。
+
+    ⭐ **过去的日期照收**（用户 2026-10-05: *"LLM 有自己的理由…下一轮就反应过来了"*）——
+    引擎下一段算出的资格位就是"超期", 那条约定会被摆到 R0 眼前 ⇒ 自愈。
+    """
+    raw = {"segments": [
+        {"span": [28, 28], "abstract": "全日期", "state": "open", "due": "2027-05-13"},
+        {"span": [29, 29], "abstract": "不是全日期", "state": "open", "due": "5/13"},
+        {"span": [30, 30], "abstract": "过去的日期", "state": "open", "due": "2020-01-01"},
+        {"span": [31, 31], "abstract": "close 上的 due 不算", "state": "close",
+         "id": "n1", "due": "2027-05-13"},
+    ]}
+    segs, res = digest_registry.parse_split(raw, seq_set={28, 29, 30, 31},
+                                            note_ids={"n1"})
+    assert res.errors == () and res.warnings == ()
+    assert segs[0]["due"] == "2027-05-13"
+    assert "due" not in segs[1], "解析不了 ⇒ 当没有期限（不告警）"
+    assert segs[2]["due"] == "2020-01-01", "⭐ 过去的日期照收"
+    assert "due" not in segs[3], "due 只跟 state=open"
 
 
 def test_parse_split_truncates_at_max_segments():
@@ -180,21 +277,19 @@ def test_parse_split_empty_is_legal():
     assert segs == [] and res.errors == () and res.warnings == ()
 
 
-def _keep_block() -> str:
-    """逐字段那一块（`KEEP_FIELD`）—— 示例必须**逐字**带上它（只差整体缩进, 见下）。"""
-    return KEEP_FIELD
+def _row_block() -> str:
+    """逐字段那一块（`ROW_FIELDS`）—— 示例必须**逐字**带上它（只差整体缩进, 见下）。"""
+    return ROW_FIELDS
 
 
 def test_schema_split_phase():
     text = digest_registry.build_schema(PHASE_SPLIT)
     assert '"segments": [' in text
-    for key in ("span", "keep", "abstract"):
+    for key in ("span", "abstract", "state", "id", "due"):
         assert f'"{key}"' in text
     # ⭐ **示例与逐字段说明同源**（防"三处强度不一"——见 `_SPAN_FIELD` 那段注释）:
     # **逐字段那一整块**必须**逐字**在示例里出现过（示例 = 它整体缩 5 格）。
-    # 这条比"数某个短语出现几次"直接得多 —— 它把"同源"这件事实测出来,
-    # 而且对三个字段一视同仁（只数 span 会漏掉 keep/abstract 被单独改掉的情况）。
-    assert _keep_block() in text, "示例没有逐字带上逐字段那一块 —— 同源破了"
+    assert _row_block() in text, "示例没有逐字带上逐字段那一块 —— 同源破了"
     # 判据那段必须真在里面（它是这个字段的灵魂, 不是装饰）
     assert "她还会不会一直带着它" not in text, "那句判据太宽, 2026-10-04 已收窄"
     assert "失约会真的伤到谁" in text, "分量那一档"
@@ -204,8 +299,13 @@ def test_schema_split_phase():
     assert "日常安排" in text and "夸奖与安慰" in text
     # ⭐ 收窄的那两条: **当时的领悟**要明确划出去（它是 belief 的活）
     assert "当时的领悟与触动" in text
+    # ⭐ L1（2026-10-05）新增的三段
+    assert "这一段结束时还开着" in text, "只标本段结束时还开着的"
+    assert "没有那一刻" in text and "那条回忆的正文" in text, "close 的两种情形"
+    assert "后来才知道" in text, "更正那一格（`open` + `id`）"
+    assert "全日期" in text, "due 的格式"
     # 取值词表 + 上一轮的形状声明
-    for v in KEEP_VALUES:
+    for v in STATE_VALUES:
         assert v in text
     assert "可以重叠" in text
     assert '"segments": []' in text                      # 空包合法也要说
@@ -234,7 +334,7 @@ def test_schema_split_reuses_the_domain_contract_by_reference():
 def test_split_prompt_does_not_restate_the_schema_criteria():
     """⭐ **判据只有一处**: `digest_split.md` 是"你是谁 / 看什么", 判据全在 schema 里。
 
-    为什么值得钉: 这次特意把 `keep` 的判据**只写在契约层**, 因为 `contract/schema.py`
+    为什么值得钉: 这次特意把账目的判据**只写在契约层**, 因为 `contract/schema.py`
     那条纪律说 *"示例才是形状的来源"* —— 一旦 prompt 里也抄一份, 两处迟早强度不一,
     而模型只学会它看到的那一份（2026-09-20 art 命中率 0/5 就是这么来的）。
 
@@ -246,10 +346,11 @@ def test_split_prompt_does_not_restate_the_schema_criteria():
     raw = load_prompt("digest_split")
     assert "{{digest_schema}}" in raw, "prompt 必须留契约占位符（否则判据根本进不去）"
     for phrase in ("欠着的债", "忘了它, 就真会出问题", "日常安排", "随口一说",
-                   "夸奖与安慰", "两个去处", "她还会不会一直带着它"):
+                   "夸奖与安慰", "三个去处", "她还会不会一直带着它",
+                   "这一段结束时还开着", "没有那一刻"):
         assert phrase not in raw, (
             f"判据原文 {phrase!r} 出现在 prompt 文件里了 —— 它只该在契约层"
-            "（`KEEP_SEMANTICS`）。两处各写一份 = 迟早强度不一。")
+            "（`STATE_SEMANTICS` / `CLOSE_SEMANTICS` …）。两处各写一份 = 迟早强度不一。")
     # ⭐ 边界声明该在（它是"别自作聪明"的那道闸, 与判据无关）
     assert "别怕丢信息" in raw and "下一轮会把它写成一条**看法**" in raw
 

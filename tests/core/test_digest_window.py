@@ -177,10 +177,10 @@ def _chapter(enter=10, bonds=(11, 12, 13, 14), exit_=15, title="苔藓"):
 
 
 def test_collapse_keeps_one_slice_per_chapter():
-    """⭐ 3b-1: **一章切成几件** ⇒ 收口留一件（`keep=always` 优先, 否则跨度最长）。
+    """⭐ 3b-1: **一章切成几件** ⇒ 收口留一件（`state=open` 优先, 否则跨度最长）。
 
     ⚠️ 收口吃的是 **R0 的切片**（切分权归切分员 ⇒ "一章切成几件"是切分违约）;
-    判据也从 `significance` 换成 `keep` / 跨度 —— R0 **不打分**（打分是 R1 的活）。
+    判据也从 `significance` 换成 `state=open` / 跨度 —— R0 **不打分**（打分是 R1 的活）。
 
     这条用例是**直接单测那个函数**（不跑管线）: 它才是 3b-1 真正新写的判定,
     而管线级的用例会被桩的应答队列纠缠（一次反馈重试就吃掉一条应答, 表现成
@@ -190,34 +190,34 @@ def test_collapse_keeps_one_slice_per_chapter():
 
     dropped: list[dict] = []
     segs = [
-        {"span": [4, 4], "keep": "temporary", "abstract": "甲", "seqs": [4]},
-        {"span": [5, 5], "keep": "always", "abstract": "乙", "seqs": [5]},
-        {"span": [6, 6], "keep": "temporary", "abstract": "丙", "seqs": [6]},
+        {"span": [4, 4], "abstract": "甲", "seqs": [4]},
+        {"span": [5, 5], "state": "open", "abstract": "乙", "seqs": [5]},
+        {"span": [6, 6], "abstract": "丙", "seqs": [6]},
     ]
     chapters = [{"title": "苔藓", "seqs": frozenset({4, 5, 6})}]
     out = _collapse_bond_episodes(segs, chapters, dropped_out=dropped)
 
-    assert [s["abstract"] for s in out] == ["乙"], "一章一件（keep=always 优先）"
+    assert [s["abstract"] for s in out] == ["乙"], "一章一件（state=open 优先）"
     assert dropped[0]["chapter"] == "苔藓"
     assert dropped[0]["lost"] == ["甲", "丙"]
     # ⭐ **区间并回**: 保留那条的覆盖 = 整章（含被丢那两条的 [4,4] / [6,6]）
     assert out[0]["seqs"] == [4, 5, 6], out[0]["seqs"]
     # ⚠️ 章**外**的切片一条都不动（聊天那些不属于这一章, 不能被一起压掉）
-    outside = [{"span": [1, 2], "keep": "temporary", "abstract": "聊天", "seqs": [1, 2]}]
+    outside = [{"span": [1, 2], "abstract": "聊天", "seqs": [1, 2]}]
     out2 = _collapse_bond_episodes(outside + segs, chapters)
     assert sorted(s["abstract"] for s in out2) == ["乙", "聊天"], out2
-    print("    收口: 一章一件（keep 优先）+ 区间并回 + 章外不动 ✓")
+    print("    收口: 一章一件（open 优先）+ 区间并回 + 章外不动 ✓")
 
 
-def test_collapse_prefers_the_widest_when_no_keep():
-    """没有 `keep=always` 时按**跨度**取（`span` 的宽度, 不是"覆盖了多少 seq"）。"""
+def test_collapse_prefers_the_widest_when_no_open():
+    """没有 `state=open` 时按**跨度**取（`span` 的宽度, 不是"覆盖了多少 seq"）。"""
     from core.digest.segment import _collapse_bond_episodes
 
-    segs = [{"span": [4, 4], "keep": "temporary", "abstract": "窄", "seqs": [4]},
-            {"span": [4, 6], "keep": "temporary", "abstract": "宽", "seqs": [4, 5, 6]}]
+    segs = [{"span": [4, 4], "abstract": "窄", "seqs": [4]},
+            {"span": [4, 6], "abstract": "宽", "seqs": [4, 5, 6]}]
     out = _collapse_bond_episodes(segs, [{"title": "章", "seqs": frozenset({4, 5, 6})}])
     assert [s["abstract"] for s in out] == ["宽"], out
-    print("    收口: 没 keep 时留跨度最长的那条 ✓")
+    print("    收口: 没 open 时留跨度最长的那条 ✓")
 
 
 def test_chapter_tail_is_covered_by_the_engine(tmp_path):

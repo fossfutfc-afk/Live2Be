@@ -166,7 +166,7 @@ def test_note_in_window_does_not_disturb_digest(tmp_path):
     # "**账目事件不进食料**" ⇒ 显式给一条骨架把链条放过去。
     llm = FakeLLM({"episodes": []},
                   {"decisions": [], "evidence": [], "affection_exp_delta": 0},
-                  split={"segments": [{"span": [3, 3], "keep": "temporary",
+                  split={"segments": [{"span": [3, 3],
                                        "abstract": "这一段"}]})
     res = digest_segment(st, llm, [_mmt(3), _note(4, sub=N_CLOSE)])
 

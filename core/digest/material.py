@@ -47,7 +47,7 @@ def _skeleton_text(segments: list[dict]) -> str:
         第 1 件｜28-28｜教师在周日突然邀请我去了咖啡厅吃东西
         第 2 件｜29-29｜⭐ 明天把两个团子带去夏莱, 别多想
 
-    ⚠️ **`keep=temporary` 一个字都不多印**（用户裁决）: 只有 `always` 带一个 ⭐ ——
+    ⚠️ **没有账目的那一行一个字都不多印**（用户裁决）: 只有 `state=open` 带一个 ⭐ ——
     它要说的事只有一件（"这条不许 drop"）, 印上取值反而让模型开始琢磨两档的区别。
     ⚠️ **区间要印**（用户裁决）: 它把 abstract 钉在时间线的某一段上 ——
     "第 2 件" 是几号, 不如"29-29"直接。
@@ -56,7 +56,7 @@ def _skeleton_text(segments: list[dict]) -> str:
     for i, seg in enumerate(segments, start=1):
         span = seg.get("span") or []
         where = f"{span[0]}-{span[-1]}" if span else "-"
-        star = "⭐ " if seg.get("keep") == "always" else ""
+        star = "⭐ " if seg.get("state") == "open" else ""
         lines.append(f"第 {i} 件｜{where}｜{star}{seg.get('abstract') or '-'}")
     return "\n".join(lines)
 

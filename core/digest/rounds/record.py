@@ -65,7 +65,7 @@ def run(ctx: Ctx) -> RoundOut:
         ctx.store, entries, ts=ctx.now_ts,
         event_seq=[ctx.interact_max], aff_at_encoding=ctx.aff_at_encoding,
         by_seq=ctx.by_seq, reused_out=reused)
-    # ⭐ **`keep=always` ⇒ 长成 note**（3b-3）—— 用刚建出来的 episode id 当 `refs`
+    # ⭐ **`state=open` ⇒ 长成 note**（3b-3 / 2026-10-05 换判据）—— 用刚建出来的 id 当 `refs`
     # （切分权在 R0, 所以 note 的来源是**它自己那条切片**; 身份取"指向哪条 episode"⇒ 重跑不重复记）
     # ⚠️ **判重复复用的那条不算"新的"** —— 它的 note 上一段已经写过了（重跑幂等的第一道,
     # 节点面复用之后这道必须跟着生效, 否则 op 会再产一次、白写一条事件）
@@ -90,7 +90,7 @@ def _align_to_skeleton(entries: list[dict], segments: list[dict]
     3. **少了 ⇒ 那几条切片没人填**: `drop` 掉的不算少（那是她的裁决）; **其余**算"漏填",
        记进 D1 台账（`items.no_pos` / `dropped`）—— 那一刻之后世上没有第二份记录。
        ⛔ 引擎**不替她补**（"没记"是她的裁决, 引擎补 = 把她没说的话写进她的记忆）;
-       带 ⭐ 的那几条要不要兜底, 归 3b-3 的 note 那条线（`keep=always` ⇒ 长成 note）。
+       带 ⭐ 的那几条要不要兜底, 归 3b-3 的 note 那条线（`state=open` ⇒ 长成 note）。
 
     ⚠️ **"多写了" ⇒ 挂在最后一条切片上**（不丢!）: 一条切片不止能长一条记忆 ——
     她完全可能在一件事里同时写"发生了什么"和"这让我看清了什么"。硬截断会把那些
@@ -135,7 +135,7 @@ def _brief(seg: dict, i: int) -> str:
 
 
 def _pinned_ops(ctx: Ctx, orders: list[int], new_eps: list[str]) -> dict:
-    """⭐ **`keep=always` 的切片 ⇒ 一条 `note/add`**（3b-3）—— 返回缺口账。
+    """⭐ **`state=open` 的切片 ⇒ 一条 `note/add`**（3b-3）—— 返回缺口账。
 
     ## 三条判据
 
@@ -173,7 +173,10 @@ def _pinned_ops(ctx: Ctx, orders: list[int], new_eps: list[str]) -> dict:
         if pos < len(new_eps):
             ep_of.setdefault(j, new_eps[pos])
     for j, seg in enumerate(ctx.result.segments):
-        if seg.get("keep") != "always":
+        # ⭐ 2026-10-05（L1 的过渡）: 判据从 `keep == "always"` 换成 **`state == "open"`
+        # 且**没有 `id`**（那是"新建"; 带 `id` 的是"更正", 走 L7 的 `update` 那一路）。
+        # ⚠️ 这两行是为了**不留窗口**: `keep` 已经从契约里拿掉, 不改这里就再没有 note 会被新建。
+        if seg.get("state") != "open" or seg.get("id"):
             continue
         text = str(seg.get("abstract") or "").strip()
         ep = ep_of.get(j)
@@ -181,9 +184,10 @@ def _pinned_ops(ctx: Ctx, orders: list[int], new_eps: list[str]) -> dict:
             # 没人填 / 契约层丢了区间 / 正文空 —— 那条约定的**唯一书面留存**没了 ⇒ 进账
             lost_kept.append(f"#{j + 1} {text or seg.get('abstract') or '-'}")
             continue
-        ctx.result.notes_ops.append(add_op(text, [ep], src=ep))
+        ctx.result.notes_ops.append(
+            add_op(text, [ep], due=str(seg.get("due") or ""), src=ep))
     if lost_kept:
-        logger.warning("digest_record `keep=always` 有 %d 条没长成 note（约定丢了）: %s",
+        logger.warning("digest_record `state=open` 有 %d 条没长成 note（约定丢了）: %s",
                        len(lost_kept), lost_kept[:4])
     return {"lost_kept": lost_kept}
 
@@ -194,7 +198,7 @@ def _note_items(ctx: Ctx, entries: list[dict], reused: list[str],
 
     四半合成一行账:
       · `dropped` = R0 章收口丢掉的（`segment_collapsed`）+ 她 `drop` 的 +
-        切片没位置的 + ⭐ **她 drop 掉/没填的 `keep=always`**（3b-3: 约定丢了要看得见）;
+        切片没位置的 + ⭐ **她 drop 掉/没填的 `state=open`**（3b-3: 约定丢了要看得见）;
       · `no_pos`  = 落回段级指针的条数;
       · `reused`  = 判重复而复用的 id。
     ⚠️ 声明在表里 record 的 `result_fields` ⇒ 整段回滚时由 `reset_result` 一起清掉
