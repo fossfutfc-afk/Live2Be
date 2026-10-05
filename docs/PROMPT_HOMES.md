@@ -56,7 +56,7 @@
 
 | # | 重复 | 几处 | 该不该收 |
 |---|---|---|---|
-| ① | ⭐ **"输出纪律"**：`必须输出完整 JSON…不要 ```json 代码块` | **13 处** = 6 个 digest prompt + 6 个 phase 渲染（`digest_registry` 各 `build_schema` 开头）+ `digest/call.py` 的反馈话术 | **该收**（见 §4 G1）：契约那句与 prompt 尾那句有 2/3 重合；prompt 真正独有的只有"**这一轮的键名**"与"**别在思考后停止**" |
+| ① | ~~⭐ **"输出纪律"**：`必须输出完整 JSON…不要 ```json 代码块`~~ | 曾 **13 处** = 6 个 digest prompt + 6 个 phase 渲染（`digest_registry` 各 `build_schema` 开头）+ `digest/call.py` 的反馈话术 | ✅ **已收 1 处**（**G1**, 2026-10-05）：六个相位共用 `digest_registry.OUTPUT_DISCIPLINE`（由 `OUTPUT_RULES` 渲染，**唯一字面**），6 个 prompt 尾部那一段**整块删掉**；守门 = `test_the_output_discipline_lives_only_in_the_contract`（**两半都查**：prompt 里不许有 + 六个相位的 schema 里必须真有）。⚠️ **`call.py` 的 feedback 与 `llm/client.py` 的 JSON 修复循环故意各留一份** —— 那是**出错之后的修复轮**，不是同一次 system 里的重复 |
 | ② | **note 正文 ≤20 字** | 2 处（`digest_close.md:29` + `digest_registry` close 相位的字段说明） | **已被 N1 判为孤立的旧规格**（note 正文现在 = 切片 `abstract` ≤60）⇒ 归 **L6/L8**（收口轮死掉时一起清） |
 | ③ | **生日** | 2 个真源：`profile.yml` 的 `SIG~birthday`（给 AI）vs `mmt_registry.toml` 的 `birthday`（给显示） | 收不了（两个读者不同），但要写清**不一致时谁说了算** ⇒ `L3` 的料 |
 | ④ | ~~`abstract` 的 60 字~~ | 曾 2 处（体检 + 契约） | ✅ **已收 1 处**（N1 删掉体检那条） |
@@ -84,7 +84,7 @@
 
 | # | 做什么 | 代价 | 判据 |
 |---|---|---|---|
-| **G1** | **"输出纪律"单源化** + 守门：`llm/prompts/*.md` 里**不许再出现** `不要 \`\`\`json 代码块`（那句只许在契约层） | ~10 分钟 | 变异验红（塞回去 ⇒ 红） |
+| **G1** | ~~**"输出纪律"单源化** + 守门~~ | ✅ **已做（2026-10-05）** | 契约 `OUTPUT_RULES`/`OUTPUT_DISCIPLINE` + 6 个 prompt 删段 + 守门两半（prompt 里塞回任一条 ⇒ 红；相位 schema 里抽掉 ⇒ 红）—— **变异验过** |
 | **G2** | **注入串白名单**：`core/` 里"会进 messages 的字符串字面量"只许来自 4 类入口（prompt 文件 / `build_*` / `marks.*` / `_SECTIONS`），其余进白名单 + 写理由 | ~半小时 | 新写一处内联串 ⇒ 红 |
 | **G3** | `promptkit/report.py::describe()` 扩成**"某 task 的实拼全文 + 每段来源"**（今天只覆盖盒A/盒B），当夹具看 diff | ~1 小时 | 每段都能报出 file:函数 |
 
@@ -96,5 +96,5 @@
 | 漂的地方 | 现状 |
 |---|---|
 | `docs/PROMPT_INJECTION_MAP.md` | 行号/路径停在 2026-09-07（`core/momotalk.py` ⇒ `core/mmt/engine.py`）；digest 六轮从没进过那张表 |
-| `llm/task_labels.py:42` 的注释 | 还写着 `DIGEST_SPLIT` = "划区间 + `keep` + `abstract`" —— `keep` 已退役（L1） |
-| `core/brain/DESIGN_GRAPH_V4.md` §8 附近的 `text ≤20 字` | 那是 note 的旧规格（现在 note 正文 = 切片 `abstract`） |
+| ~~`llm/task_labels.py:42` 的注释~~ | ✅ **已修（2026-10-05）**：`DIGEST_SPLIT` 从"划区间 + `keep` + `abstract`"改成"划区间 + `abstract` + 账目（`state`/`id`/`due`）" |
+| ~~`core/brain/DESIGN_GRAPH_V4.md` §8 附近的 `text ≤20 字`~~ | ✅ **已修（2026-10-05）**：改成 **≤60**（真源 `ABSTRACT_MAX` = R0 切片的 `abstract`），并注明 `closed_at`/`afterwards`/`state` 三字段已删（L6） |

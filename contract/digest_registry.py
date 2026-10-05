@@ -111,6 +111,25 @@ ABSTRACT_MAX_FREEFORM = 300
 #: 12 会开始误伤真输出。**数值标定**: 真机看 `digest_split segments=` 那行的分布再调。
 MAX_SEGMENTS = 20
 
+#: ⭐ **输出纪律 = 契约层的独占句**（G1, 2026-10-05）—— 六个相位共用下面那一行,
+#: **prompt 文件里一个字都不许再抄**（守门 `test_the_output_discipline_lives_only_in_the_contract`）。
+#:
+#: 合并前的样子是**同一句话两处各一份**: 契约层每个相位开头写"不要任何解释文字 /
+#: 不要 ```json 代码块", 而每个 `digest_*.md` 结尾又各写一遍"必须输出完整 JSON（键名开头）"
+#: —— 同一次调用的 system 里就重了两遍, 而模型只学会它看到的那一份。
+#: **只有 prompt 有、契约没有**的那两点现在收进这里: **别在思考后停止**（reasoning
+#: 截断那个坑）· **别交空输出**。
+#: ⚠️ **修复轮不算重复**: 输出被整包拒之后 `core/digest/call.py` 的 feedback 与
+#: `llm/client.py` 的 JSON 修复循环**故意各留一份** —— 那时模型才需要被提醒一次。
+OUTPUT_RULES = (
+    "不要任何解释文字",
+    "不要 ```json 代码块",
+    "不要在思考后停止",
+    "不要空输出",
+)
+#: 渲染成给 LLM 的那一行（`build_schema` 每个相位的第一行）: 元组 ⇒ 句子, 单源。
+OUTPUT_DISCIPLINE = f"输出 JSON（{', '.join(OUTPUT_RULES)}）:"
+
 #: ⚠️ **`TASK_TIMESPAN` 已于 2026-09-17 删除**（用户裁决）—— 连同 schema 里那行
 #: `"time_span": "halfday"`。
 #:
@@ -541,7 +560,7 @@ class DigestRegistry:
                 "    }",
             ])
             return "\n".join([
-                "输出 JSON（不要任何解释文字, 不要 ```json 代码块）:",
+                OUTPUT_DISCIPLINE,
                 contract,
                 "",
                 '    {"segments": [',
@@ -575,7 +594,7 @@ class DigestRegistry:
             # 而 R1 拿到的是**已经切好的骨架**, 它只需按顺序填 —— 两句话术不同。
             contract = _RECORD_CONTRACT.get(domain, _RECORD_CONTRACT["mmt"])
             lines = [
-                "输出 JSON（不要任何解释文字, 不要 ```json 代码块）:",
+                OUTPUT_DISCIPLINE,
                 contract,
                 "",
                 '    {"episodes": [',
@@ -594,7 +613,7 @@ class DigestRegistry:
         if phase == PHASE_UNDERSTAND:
             actions = self.actions(PHASE_UNDERSTAND)
             lines = [
-                "输出 JSON（不要任何解释文字, 不要 ```json 代码块）:",
+                OUTPUT_DISCIPLINE,
                 '    {"decisions": [',
             ]
             for i, a in enumerate(actions):
@@ -639,7 +658,7 @@ class DigestRegistry:
 
         if phase == PHASE_CLOSE:
             return "\n".join([
-                "输出 JSON（不要任何解释文字, 不要 ```json 代码块）:",
+                OUTPUT_DISCIPLINE,
                 "    {",
                 '     "add": [ // 这一段新说定的约定（没有就写 []）;',
                 '        {"text": "周六模型店", "refs": ["m0013"], "due": "2026-09-26"}',
@@ -674,7 +693,7 @@ class DigestRegistry:
 
         if phase == PHASE_ATTRIBUTE:
             return "\n".join([
-                "输出 JSON（不要任何解释文字, 不要 ```json 代码块）:",
+                OUTPUT_DISCIPLINE,
                 '    {"attributions": [ // 没有可归属的就写 [] //',
                 '        {"action": "attach", "entity": "c0001", "hint": "老师",',
                 '         "nodes": ["u0001", "u0003"]},',
@@ -711,7 +730,7 @@ class DigestRegistry:
 
         if phase == PHASE_GROUP:
             return "\n".join([
-                "输出 JSON（不要任何解释文字, 不要 ```json 代码块）:",
+                OUTPUT_DISCIPLINE,
                 "    {",
                 '     "attach": [ // 这些块属于**已有的类**（没有就写 []）;',
                 '        {"block": "b1", "group": "那片苔藓"}',
