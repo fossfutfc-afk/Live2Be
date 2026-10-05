@@ -259,3 +259,86 @@ def test_the_same_span_twice_is_two_memories(tmp_path):
     assert len(eps) == 2, f"同一个 span 的两行必须是两条记忆: {res.created}"
     assert sorted(tuple(n.event_seq) for n in eps) == [(3,), (3,)]
     print("    同 span 两行: 两条 episode 都在（没被当重复合掉）✓")
+
+
+# ---------------------------------------------------------------------------
+# ⑦ L5: 【本段骨架】只印有区间的行（无区间那行不派活）+ 对位不许错
+# ---------------------------------------------------------------------------
+
+_MIXED = {"segments": [
+    {"span": [3, 3], "abstract": "老师邀请我去咖啡厅"},
+    {"span": None, "state": "close", "id": "n1", "abstract": "生日那天, 老师没有来",
+     "title": "生日那天", "significance": 0.9},
+    {"span": [4, 4], "state": "open", "abstract": "我把团子带来了"},
+    {"span": [5, 5], "state": "close", "id": "n2", "abstract": "苔藓那件事了了"},
+]}
+
+
+def test_skeleton_prints_only_rows_with_a_position():
+    """⭐ 无区间那一行**不派活**（没有事件可写 —— 正文是 R0 给的 `abstract`）, 编号重编。
+
+    ⚠️ 而 `close`（有区间的）**照旧派活** —— 它是一条记忆（"我把团子带来了"）,
+    只是它也带账 ⇒ 和 `open` 一样打 ⭐（**不许 drop**）。
+    """
+    from core.digest.material import _skeleton_rows, _skeleton_text
+    from core.digest.rounds import ROUNDS
+
+    segs = [dict(r) for r in _MIXED["segments"]]
+    assert [i for i, _seg in _skeleton_rows(segs)] == [0, 2, 3]
+    assert _skeleton_text(segs).splitlines() == [
+        "第 1 件｜3-3｜老师邀请我去咖啡厅",
+        "第 2 件｜4-4｜⭐ 我把团子带来了",
+        "第 3 件｜5-5｜⭐ 苔藓那件事了了",
+    ]
+    # 印的和说的同源: 提示只解释 ⭐ 一个含义（不许 drop）
+    spec = next(s for s in ROUNDS if s.key == "record")
+    assert "没有能填的骨架行" in spec.skip
+    print("    骨架: 无区间行不派活 + 重编 + close 也打 ⭐ ✓")
+
+
+def test_r1_is_skipped_when_there_is_nothing_to_fill(tmp_path):
+    """整段只有"没有那一刻" ⇒ 骨架为空 ⇒ **R1 一次都不发**（0 次调用, 账目照走）。"""
+    split = {"segments": [{"span": None, "state": "close", "id": "n1",
+                           "abstract": "生日那天, 老师没有来",
+                           "title": "生日那天", "significance": 0.9}]}
+    llm = _Stub(split=split)
+    res = digest_segment(_store(tmp_path), llm, [_note("生日蛋糕", due="2026-10-01"),
+                                                 _mmt(3)])
+    assert res.ok, res.errors
+    assert T.DIGEST_SPLIT in llm.tasks and T.DIGEST_RECORD not in llm.tasks, llm.tasks
+    print(f"    R1 跳过: 只发了 {[t for t in llm.tasks if t]} ✓")
+
+
+def test_the_spanless_row_does_not_shift_the_alignment(tmp_path):
+    """端到端: 无区间那行不派活 —— 而**对位不许错**。
+
+    ⭐ 这是这一笔最容易静默错的地方: 过滤之后"第 i 条条目 → 哪条切片"必须重新对上,
+    否则 note 的**出生地址**（`refs`）会挂到别条经历上 —— 那种错不报错, 只会让
+    "这条约定是从哪件事长出来的"变成另一件事。
+    """
+    record = {"episodes": [{"text": "老师邀请我去咖啡厅", "title": "咖啡厅",
+                            "tags": ["咖啡"]},
+                           {"text": "我把团子带来了", "title": "团子", "tags": ["团子"]}]}
+    understand = {"decisions": [{"episode": "m0001", "decision": "add", "kind": "belief",
+                                 "subject": "sensei", "text": "咖啡厅那件事我记住了"},
+                                {"episode": "m0002", "decision": "add", "kind": "belief",
+                                 "subject": "sensei", "text": "团子那件事我记住了"}],
+                  "evidence": [], "affection_exp_delta": 0}
+    st = _store(tmp_path)
+    llm = _Stub(split={"segments": [dict(r) for r in _MIXED["segments"][:3]]},
+                record=record, understand=understand)
+    res = digest_segment(st, llm, [_note("生日蛋糕", due="2026-10-01"),
+                                   _mmt(3), _mmt(4, reply="我把团子带来了")])
+    assert res.ok, res.errors
+
+    r1 = llm.user_of(T.DIGEST_RECORD)
+    bones = [ln for ln in r1.splitlines() if ln.startswith("第 ")]
+    assert bones == ["第 1 件｜3-3｜老师邀请我去咖啡厅",
+                     "第 2 件｜4-4｜⭐ 我把团子带来了"], bones
+    assert "生日那天" not in r1, "无区间那一行不该出现在骨架里"
+    # ⭐ 对位: note 的出生地址 = **open 那一行**长出来的 episode（`event_seq == [4]`）
+    ep4 = next(n.id for n in st.all()
+               if n.kind == "episode" and list(n.event_seq) == [4])
+    assert [op["refs"] for op in res.notes_ops] == [[ep4]], res.notes_ops
+    assert [op["text"] for op in res.notes_ops] == ["我把团子带来了"]
+    print(f"    对位: 骨架 2 行（无区间那行没派活）, note 挂在 {ep4} ✓")

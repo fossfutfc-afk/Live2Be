@@ -31,7 +31,7 @@ import logging
 
 from core.brain.notes import ALREADY_PINNED, add_op
 from core.digest.episodes import _create_a_nodes, _resolve_verbatim
-from core.digest.material import SKELETON_HINT, _skeleton_text
+from core.digest.material import SKELETON_HINT, _skeleton_rows, _skeleton_text
 from core.digest.rounds.base import Ctx, RoundOut
 
 logger = logging.getLogger(__name__)
@@ -40,6 +40,12 @@ logger = logging.getLogger(__name__)
 def run(ctx: Ctx) -> RoundOut:
     """① 记 —— 按**骨架**逐条填（切分不归它 —— 3b-2）。"""
     spec = ctx.enter("record")
+    # ⭐ **一条能填的骨架都没有 ⇒ 这一轮跳过**（L5, 2026-10-05）: 一段里可能只有
+    # "没有那一刻"那种无区间行（它的正文是 R0 给的）—— 那时派给 R1 的活是零,
+    # 而契约那句"每一条切片给一行"会变成一句**空指令**（0 次调用, 账目照走）。
+    if not _skeleton_rows(ctx.result.segments):
+        ctx.log_skip(spec)
+        return RoundOut.skipped()
     system = ctx.system_for(spec, domain=ctx.domain, chapter_count=len(ctx.chapters))
     user = ctx.sections_for(spec, [
         ("本段新增互动", ctx.timeline),
@@ -97,18 +103,23 @@ def _align_to_skeleton(entries: list[dict], segments: list[dict]
     **悄悄丢掉**, 而它们没有位置只是因为没有更多切片。⇒ 超出的**附在末条切片**上,
     并留一行 warning（可 grep: 多写了 = 契约没压住, 该在**切分**那头看）。
     ⛔ 反向（**少写**）没有兜底: 那几条切片就是没人填 —— 记进 D1 台账。
+
+    ⭐ **L5（2026-10-05）: 对位走 `_skeleton_rows`** —— 骨架**只印有区间的行**
+    （无区间那一行没有事件可写, 正文就是 R0 的 `abstract`）。⇒ 这里也必须照那份清单对位,
+    ⚠️ 但 `orders` 里存的仍是**原始下标**（`_pinned_ops` 拿它去 `ctx.result.segments` 里
+    数"第几条是 `open`"）—— 过滤只改"第 i 条条目 → 哪条切片", 不改切片的身份。
     """
-    seg_count = len(segments)
+    rows = _skeleton_rows(segments)
+    row_count = len(rows)
     out: list[dict] = []
-    orders: list[int] = []          # ⭐ 每条落节点的条目**对到第几条切片**（0 基）—— note 要用
+    orders: list[int] = []          # ⭐ 每条落节点的条目**对到第几条切片**（0 基, **原始**下标）—— note 要用
     dropped: list[str] = []
     unfilled: list[str] = []
     for i, ent in enumerate(entries):
-        j = min(i, seg_count - 1) if seg_count else i
+        j, seg = rows[min(i, row_count - 1)] if row_count else (i, None)
         if ent.get("drop"):
-            dropped.append(_brief(segments[j], j) if seg_count else f"#{i + 1}")
+            dropped.append(_brief(seg, j) if seg is not None else f"#{i + 1}")
             continue
-        seg = segments[j] if seg_count else None
         ent["seqs"] = list((seg or {}).get("seqs") or [])
         if not ent["seqs"]:
             # 切片自己没有位置（R0 的区间被契约层丢了）⇒ 落回段级指针, 并记账
@@ -116,12 +127,12 @@ def _align_to_skeleton(entries: list[dict], segments: list[dict]
             ent.pop("seqs", None)
         orders.append(j)
         out.append(ent)
-    if seg_count and len(entries) > seg_count:
+    if row_count and len(entries) > row_count:
         logger.warning("digest_record 多写了 %d 条（骨架只有 %d 条）—— 都挂在末条切片上: %s",
-                       len(entries) - seg_count, seg_count,
-                       [_brief(e, i) for i, e in enumerate(entries[seg_count:], seg_count)])
+                       len(entries) - row_count, row_count,
+                       [_brief(e, i) for i, e in enumerate(entries[row_count:], row_count)])
     # 她**漏填**的那几条（既没 drop、也没给行）
-    for i, seg in enumerate(segments[len(entries):], len(entries)):
+    for i, seg in rows[len(entries):]:
         unfilled.append(_brief(seg, i))
     if dropped or unfilled:
         logger.info("digest_record drop=%d 漏填=%d（漏填的几条没人记）: %s",
