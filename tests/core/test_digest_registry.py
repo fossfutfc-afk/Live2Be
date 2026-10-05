@@ -1,7 +1,11 @@
 """digest_registry 测试（AGENT_BRAIN.md §3 重构 / 板块 2）——LLM 契约层单源。"""
 from contract.digest_registry import (
     MAX_SEGMENTS,
+    OUTPUT_DISCIPLINE,
+    OUTPUT_RULES,
+    PHASE_ATTRIBUTE,
     PHASE_CLOSE,
+    PHASE_GROUP,
     PHASE_RECORD,
     PHASE_SPLIT,
     PHASE_UNDERSTAND,
@@ -356,6 +360,40 @@ def test_split_prompt_does_not_restate_the_schema_criteria():
     # ⭐ 边界声明该在（"别自作聪明"的那道闸; 与判据无关）: 正文/领悟不归它 + 输出示范
     assert "下一轮会把它写成一条**看法**" in raw
     assert "输出示范" in raw, "prompt 靠示范教形状（示例才是形状的来源）"
+
+
+def test_the_output_discipline_lives_only_in_the_contract():
+    """⭐ **G1（2026-10-05）: "输出纪律"只有一个家** —— `OUTPUT_DISCIPLINE`, 六个相位共用。
+
+    从前是**同一句话两处各一份**: 契约层每个相位开头一行（"不要任何解释文字 /
+    不要 ```json 代码块"）+ 每个 `digest_*.md` 结尾又一行（"必须输出完整 JSON（键名开头）"）
+    ⇒ 同一次调用的 system 里就重了两遍, 而模型只学会它看到的那一份。
+
+    ⚠️ **两半都要查**: ① prompt 里不许出现它的任何一条 ② 六个相位的 schema 里必须真有它
+    —— 只查①的话"两边都删掉"也能绿, 那才是真的把话说丢了。
+    判据直接从 `OUTPUT_RULES` 取: 改常量 ⇒ 守门跟着改, 不留一句过期的禁词。
+
+    ⚠️ **修复轮的话术不在范围内**: `core/digest/call.py` 的 feedback 与 `llm/client.py`
+    的 JSON 修复循环各留一份是**故意的**（输出被拒之后模型才需要被提醒一次）。
+    """
+    from pathlib import Path
+
+    from llm import prompts as prompts_pkg
+
+    assert OUTPUT_RULES, "常量格式变了, 这条守门的判据要跟着改"
+    assert OUTPUT_DISCIPLINE.endswith(":"), "每个相位那一行以冒号收尾（后面接形状）"
+
+    for path in sorted(Path(prompts_pkg.__file__).parent.glob("*.md")):
+        raw = path.read_text(encoding="utf-8")
+        for rule in OUTPUT_RULES:
+            assert rule not in raw, (
+                f"{path.name} 又抄了一遍输出纪律: {rule!r} —— 它只该住契约层"
+                "（`contract/digest_registry.OUTPUT_RULES`）。")
+
+    for phase in (PHASE_SPLIT, PHASE_RECORD, PHASE_CLOSE,
+                  PHASE_UNDERSTAND, PHASE_ATTRIBUTE, PHASE_GROUP):
+        assert OUTPUT_DISCIPLINE in digest_registry.build_schema(phase), (
+            f"{phase} 相位的 schema 里没有输出纪律 —— 那句话现在谁都不说了。")
 
 
 # ---------------------------------------------------------------------------
