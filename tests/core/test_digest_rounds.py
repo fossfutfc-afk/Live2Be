@@ -180,10 +180,10 @@ def test_every_phase_is_a_real_contract_phase():
     所以由这条用例来钉"key 与契约相位是同一批词"。
     """
     from contract.digest_registry import (
-        PHASE_ATTRIBUTE, PHASE_CLOSE, PHASE_GROUP, PHASE_RECORD, PHASE_SPLIT,
+        PHASE_ATTRIBUTE, PHASE_GROUP, PHASE_RECORD, PHASE_SPLIT,
         PHASE_UNDERSTAND, digest_registry,
     )
-    real = {PHASE_SPLIT, PHASE_RECORD, PHASE_UNDERSTAND, PHASE_CLOSE,
+    real = {PHASE_SPLIT, PHASE_RECORD, PHASE_UNDERSTAND,
             PHASE_ATTRIBUTE, PHASE_GROUP}
     for spec in R.ROUNDS:
         if not spec.llm:
@@ -285,9 +285,9 @@ def test_cursor_allows_skips_but_never_goes_back():
     """跳过的步留空是允许的; **回头**不行（顺序的真源是表）。"""
     cur = Cursor()
     cur.enter("record")
-    cur.enter("understand")                       # 跳过 akin / close
+    cur.enter("understand")                       # 跳过 akin
     try:
-        cur.enter("close")
+        cur.enter("record")
     except AssertionError as e:
         assert "越序" in str(e), e
     else:
@@ -390,7 +390,7 @@ def _mmt(seq, player="老师", reply="嗯"):
 
 
 class RoundLLM:
-    """R0 一头一片 / R1 正常 / R4 给一条**引用坏了**的约定 / R2 引用不存在的 episode。
+    """R0 一头一片 / R1 正常 / R2 引用不存在的 episode（用来把整段打回）。
 
     ⚠️ 四个应答都**可以逐个覆盖**（`a` / `b` / `split`）—— 3b-3 那几条用例要的是
     "`state=open` 长成 note", 默认那套（R2 引用 `m9999`）会先把整段打回。
@@ -412,8 +412,6 @@ class RoundLLM:
                 else stub_tasks.split_reply(messages)
         if task == T.DIGEST_RECORD:
             return self.a
-        if task == T.DIGEST_CLOSE:
-            return {"add": [{"text": "拍一张模型店的照", "refs": ["m9999"]}], "close": []}
         if task in (T.DIGEST_UNDERSTAND, T.DIGEST):
             return self.b
         if task == T.DIGEST_ATTRIBUTE:      # 挂 —— 这些用例不测它, 空包放行
@@ -432,8 +430,6 @@ class _EmptySkeletonLLM:
         self.tasks.append(task)
         if task == T.DIGEST_SPLIT:
             return {"segments": []}
-        if task == T.DIGEST_CLOSE:            # 收口吃备忘录, 空骨架时唯一还该发的一轮
-            return {"add": [], "close": []}
         raise AssertionError(f"空骨架下不该发这一轮: {task!r}")
 
 
@@ -469,8 +465,8 @@ def test_empty_skeleton_stops_the_content_rounds(tmp_path):
     res2 = digest_segment(st2, llm2, [note, _mmt(3)])
 
     assert res2.ok, res2.errors
-    assert llm2.tasks == [T.DIGEST_SPLIT, T.DIGEST_CLOSE], llm2.tasks
-    assert res2.llm_calls == 2, "空骨架下唯一还该发的就是收口那一轮"
+    assert llm2.tasks == [T.DIGEST_SPLIT], llm2.tasks
+    assert res2.llm_calls == 1, "空骨架 ⇒ 除了 R0 一次都不发（账留在本子上, 下一段自愈）"
     print("    空骨架: 对着切片的几轮全不发; 收口照常（没约定时它自己跳过）")
 
 
@@ -573,12 +569,14 @@ def test_kept_slice_without_a_node_is_a_loss(tmp_path):
     assert any("每年生日" in d for d in dropped), dropped
 
 
-def test_batch_rollback_also_drops_the_close_warnings(tmp_path):
-    """⭐ 回滚清单由表推导**修掉的那笔漏网**: R4 的世界校验告警也必须一并作废。
+def test_batch_rollback_clears_the_fields_the_table_declares(tmp_path):
+    """⭐ 回滚清单由表推导（`rounds.reset_result`）—— **这一轮写进去的东西必须一并作废**。
 
-    从前 `_rollback` 的手抄清单里有 `notes_ops` 却没有 `notes_warnings` ⇒
-    整批回滚之后, 结果对象里还留着一串**描述已作废操作**的告警
-    （调用方看到 `ok=False` 不写事件, 但它拿到的 `DigestResult` 是自相矛盾的）。
+    从前 `_rollback` 是**手抄清单**, 而它**真的漏过**字段（`notes_warnings` 当年就没被清,
+    那是这条机制诞生的证词 —— 该字段 2026-10-05 随收口轮一起删了）。
+    这里拿 `record_gaps` 验同一个机制: R1 那一轮**确实写过它**（`_note_items`）,
+    而 R2 一失败, 它必须跟着整批消失 —— 否则调用方拿到的是一个自相矛盾的
+    `DigestResult`（`ok=False` 却带着"本段条目面"的账）。
     """
     st = _store(tmp_path)
     llm = RoundLLM()
@@ -587,12 +585,11 @@ def test_batch_rollback_also_drops_the_close_warnings(tmp_path):
 
     assert not res.ok, "R2 引用不存在的 episode ⇒ 整批失败"
     assert res.notes_ops == []
-    assert res.notes_warnings == [], f"R4 的告警该随整批一起作废: {res.notes_warnings}"
-    # 那些告警确实**产生过**（否则这条用例什么也没验到 —— 它得先在 R4 那里出现）
+    assert res.record_gaps == {}, f"R1 写过的账该随整批作废: {res.record_gaps}"
     # ⚠️ 顺序里必须先有 R0（切分）—— `digest.split` 是表里的第一位
-    assert llm.tasks[:3] == [T.DIGEST_SPLIT, T.DIGEST_RECORD, T.DIGEST_CLOSE], llm.tasks
+    assert llm.tasks[:2] == [T.DIGEST_SPLIT, T.DIGEST_RECORD], llm.tasks
     assert [n.id for n in st.all() if n.kind == "episode"] == []      # R1 的节点也回滚了
-    print("    端到端: 整批回滚 ⇒ note 面（ops + warnings）一起作废")
+    print("    端到端: 整批回滚 ⇒ 表里声明的字段一起作废")
 
 
 if __name__ == "__main__":

@@ -41,20 +41,22 @@ PLACE_VARIANT = "place_variant"
 DIGEST = "digest"
 #: ⭐ **R0 切分员**（`rounds/split.py`）—— 每段的**第一步**: 划区间 + `abstract`
 #: + **账目**（`state` / `id` / `due` —— "切片即账目", 2026-10-05 取代旧的 `keep`）。
-#: ⚠️ 2026-09-29（N4d）新增: 它拿走了 R1 从前最重的那件事（划区间）,
-#: 所以这是**第 6 个 LLM 轮**（硬顶随之从 600 抬到 840, 见 `rounds.DIGEST_SEGMENT_HARD_CAP`）。
+#: ⚠️ 2026-09-29（N4d）新增: 它拿走了 R1 从前最重的那件事（划区间）。
+#: ⭐ **2026-10-05（L8）: 收口轮删掉之后, digest 一共 5 个 LLM 轮**（split / record /
+#: understand / attribute / group）—— 硬顶随之回到 **600**（见 `rounds.DIGEST_SEGMENT_HARD_CAP`）。
 DIGEST_SPLIT = "digest.split"
-#: ① R1 记录员（`rounds/record.py`）
+#: ① R1 记录员（`rounds/record.py`）—— ⭐ 它**同时**是 note 账目的落地点（按 R0 的表产
+#: `add` / `update` / `close`; 收口轮 2026-10-05 删）
 DIGEST_RECORD = "digest.record"
-#: ③ R2 理解者（`rounds/understand.py`）
+#: ② R2 理解者（`rounds/understand.py`）
 DIGEST_UNDERSTAND = "digest.understand"
-#: ② R4 收口（promise 记账）—— 每段的第 2 步
-DIGEST_CLOSE = "digest.close"
-#: ④ R3 归属（把本轮新节点挂到 entity 上 + 维护载荷）
+#: ③ R3 归属（把本轮新节点挂到 entity 上 + 维护载荷）
 DIGEST_ATTRIBUTE = "digest.attribute"
-#: ⭐ N7（2026-09-29）**L2-a 分群** —— 每段的**最后一步**, 与 R1–R4 不同层:
+#: ⭐ N7（2026-09-29）**L2-a 分群** —— 每段的**最后一步**, 与 R1–R3 不同层:
 #: 吃"她连过的块"（`akin` 连通块）, 产**群节点 + `member_of` 边**（引擎切块 + 只起名）
 DIGEST_GROUP = "digest.group"
+# ⚠️ ~~`DIGEST_CLOSE`~~（R4 收口）**2026-10-05（L8）删** —— 那一轮读的是 120 字转述,
+# 而 R0 手里就是原文; 账目如今由 R0 判、由 R1 落。
 # ⚠️ ~~`DIGEST_PANORAMA`~~（全景轮）**2026-09-29（N4a）已退役** —— 它没有输出了
 # （`habits` 槽取消 · `on_mind` 改由 Round A 写; ⛔ 后者 2026-09-29 / N4e 也退役了）。
 # 别把它加回来。
@@ -65,7 +67,7 @@ BOND = "bond"
 #: 全部合法标签（源码扫描守门用）
 ALL: frozenset[str] = frozenset({
     EMOTION, PLACE, PLACE_BOARD, PLACE_VARIANT,
-    DIGEST, DIGEST_SPLIT, DIGEST_RECORD, DIGEST_UNDERSTAND, DIGEST_CLOSE,
+    DIGEST, DIGEST_SPLIT, DIGEST_RECORD, DIGEST_UNDERSTAND,
     DIGEST_ATTRIBUTE, DIGEST_GROUP, MMT, BOND,
 })
 
@@ -87,7 +89,6 @@ PROFILE_OF: dict[str, str] = {
     DIGEST_SPLIT: "digest",
     DIGEST_RECORD: "digest",
     DIGEST_UNDERSTAND: "digest",
-    DIGEST_CLOSE: "digest",
     DIGEST_ATTRIBUTE: "digest",
     DIGEST_GROUP: "digest",
     MMT: "mmt",

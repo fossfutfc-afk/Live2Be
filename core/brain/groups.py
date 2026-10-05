@@ -312,7 +312,7 @@ def render_groups(store: WikiStoreV2, *, body: int = BODY_GROUP,
 
 
 # ---------------------------------------------------------------------------
-# 执行器（世界校验在这里: **只剔不拒**, 同 `apply_closures` 的口径）
+# 执行器（世界校验在这里: **只剔不拒**, 同 `apply_attribution` 的口径）
 # ---------------------------------------------------------------------------
 
 def apply_groups(store: WikiStoreV2, rows: list[dict], blks: list[Block],

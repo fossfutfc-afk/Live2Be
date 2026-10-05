@@ -441,8 +441,9 @@ def close_op(item_id: str) -> dict:
     """`close` 操作 = **划掉**（从本子移除）—— 只需要 `id`。
 
     ⚠️ **`afterwards` / `state` 不再进 op**（2026-10-05）: 三种结局一律移除 ⇒ note 面
-    没有读者了; 那句"后来怎么了"与结局改由**图里那条经历**承担。收口轮尚未退役,
-    它照旧判这两样, 但它们只进 **evolution 日志**（审计账, 见 `revise._close_one`）。
+    没有读者了; 那句"后来怎么了"与结局改由**图里那条经历**承担。
+    ⏸ 从前它们还进 evolution 日志（`revise._close_one` 的审计账）—— 那个函数随收口轮
+    一起删了（L8）, 于是这两样字段**今天一个读者都没有**（旧档里的事件读侧照认）。
     ⛔ 曾经的两段式（`close` 结清 / `retire` 退场）已合并 —— 见模块 docstring 纪律 0。
     """
     return _checked({"action": N_CLOSE, "id": item_id})

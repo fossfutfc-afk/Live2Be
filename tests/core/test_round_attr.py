@@ -41,8 +41,6 @@ class AttrLLM:
             return stub_tasks.split_for_scripted(messages, self.a)
         if task == T.DIGEST_RECORD:
             return self.a
-        if task == T.DIGEST_CLOSE:
-            return self.close
         if task in (T.DIGEST_UNDERSTAND, T.DIGEST):
             return self.b
         if task == T.DIGEST_ATTRIBUTE:
@@ -198,8 +196,8 @@ def test_r3_attaches_by_hint_and_writes_alias(tmp_path):
     res = digest_segment(st, llm, _events(_mmt(3)))
     assert res.ok, res.errors
 
-    # 四轮的顺序: **A → R4 → B → R3**（§8 的批内顺序 —— 每段四步真的都跑了）
-    assert llm.tasks == [T.DIGEST_SPLIT, T.DIGEST_RECORD, T.DIGEST_CLOSE,
+    # 三轮的顺序: **R0 → A → B → R3**（每段这几步真的都跑了; 收口轮 2026-10-05 删）
+    assert llm.tasks == [T.DIGEST_SPLIT, T.DIGEST_RECORD,
                          T.DIGEST_UNDERSTAND, T.DIGEST_ATTRIBUTE], llm.tasks
     # ⭐ 料: 候选表（只有身份）+ 本轮新节点（本地 id）
     r3 = llm.user_of(T.DIGEST_ATTRIBUTE)

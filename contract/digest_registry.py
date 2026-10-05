@@ -37,10 +37,10 @@ PHASE_RECORD = "record"
 #: 且**可观测**（覆盖了多少 / 丢了几条 —— 见 D1 那本缺口账）。
 PHASE_SPLIT = "split"
 PHASE_UNDERSTAND = "understand"
-#: R4 收口（DESIGN_GRAPH_V4 §8: 约定记账）—— 每段的第 4 步，**窄调用**，
-#: 只判"这条约定还开着吗 / 这一段里有没有新说定的"，不碰正文/认知。
-#: ⚠️ 2026-09-29 承诺退图后它**只产 note 操作**（add/close），不再建节点。
-PHASE_CLOSE = "close"
+#: ⏸ ~~`PHASE_CLOSE`~~（R4 收口）**2026-10-05（L8）删** —— 账目归 R0 的表
+#: （`state`/`id`/`due` 三个键）, 那一轮整轮消失。它的判据搬去了哪里:
+#: 判"这条约定还开着吗 / 这一段里有没有新说定的"= `parse_split` + `STATE_SEMANTICS`
+#: / `CLOSE_SEMANTICS`（R0 手里是本段**原文**, 比 R4 读的 120 字转述强）。
 #: ⚠️ ~~`PHASE_PANORAMA`~~（全景轮/写卡）**2026-09-29（N4a / N4e）已退役** —— 它的两个槽
 #: 都没了（`habits` 取消 · `on_mind` 自己也退役: *"太煽情了"*）⇒ 它没有输出了。
 #: **R3 归属轮**（§8 第 3 行: 归属 + entity 维护）—— 每段的**最后一步**。
@@ -58,10 +58,11 @@ PHASE_DEEP = "deep"
 #: B 轮决策类型
 DECISIONS = ("touch", "update", "add")
 
-#: promise 的**结局**（词表 —— 与 `core.brain.notes` 那一份同源）。
-#: ⚠️ 2026-09-29 起它**只用于 note**（`close` 行的 `state`）: promise 已经退出图,
-#: 节点上不再有 `outcome` 字段（`nodes.PROMISE_OUTCOMES` 随之删掉）。
-PINNED_OUTCOMES = ("kept", "broken", "superseded")
+#: ⏸ ~~`PINNED_OUTCOMES = ("kept", "broken", "superseded")`~~ **2026-10-05（L8）删** ——
+#: 它守的是收口轮 `close` 行的 `state`（结局词）。三种结局如今**一律划掉**,
+#: 结局写在**图里那条经历**的正文里; 而那条 note 操作只剩 `{"action": "close", "id": …}`
+#: （见 `core.brain.notes.close_op`）⇒ 词表没有读者了。
+#: ⚠️ 旧档里带着 `state` 的 `note` 事件读侧照认（`notes.fold` 只当账, 不校验）。
 
 #: 玩家画像条目的 subject 固定值（与 nodes.PLAYER_SUBJECT 对齐, 契约层不依赖 core）
 PLAYER_SUBJECT = "player"
@@ -660,41 +661,6 @@ class DigestRegistry:
                                   "【范例】", a.example, ""])
             return "\n".join(lines)
 
-        if phase == PHASE_CLOSE:
-            return "\n".join([
-                OUTPUT_DISCIPLINE,
-                "    {",
-                '     "add": [ // 这一段新说定的约定（没有就写 []）;',
-                '        {"text": "周六模型店", "refs": ["m0013"], "due": "2026-09-26"}',
-                "     ],",
-                '     "close": [ // 已经不再开着的约定（没有就写 []）;',
-                '        {"id": "n1", "state": "kept", "refs": ["m0013"],',
-                '         "afterwards": "周六我们真的去了"}',
-                "     ]",
-                "    }",
-                "",
-                "两个键**都要在**（没有就写空数组 []）。",
-                "",
-                "add 一行 = 一条新约定:",
-                "  text  —— 一句短语（≤20 字）: 写「要做什么」+ 你此刻对它的那点意思（有人味, 但别复述事件）;",
-                "  refs  —— 说定它的经历编号（≥1, 只能引用上面列出的编号）;",
-                '  due   —— 可选, 说好的日子（没有就省略这个键）。',
-                "",
-                "close 一行 = 一条约定翻篇了:",
-                "  id         —— 备忘录上的编号（上面「还开着」名单里的）;",
-                "  state      —— kept（兑现了）/ broken（没成: 失约, 或你自己作罢）/",
-                "                superseded（被新定的那条盖过去了）;",
-                "  afterwards —— 一句话说「这件事后来怎么了」（**必填** —— 它会原样出现在她的备忘录上,"
-                " 归档时还会并进那条记忆的正文）;",
-                "  refs       —— 可选: **了结它的那条经历**（指得出就写, 指不出就不写 ——"
-                " 别为了填字段硬拉一条无关的经历）。",
-                "",
-                "规则:",
-                "  只引用上面出现过的编号; 编造的编号会被丢弃;",
-                "  close 只针对「还开着」的那些; 名单里没有的不要写;",
-                "  同一件事不要写两遍; 这条约定还开着就**不要**写进 close。",
-            ])
-
         if phase == PHASE_ATTRIBUTE:
             return "\n".join([
                 OUTPUT_DISCIPLINE,
@@ -1011,60 +977,13 @@ class DigestRegistry:
                             "本段不会有任何记忆, 看上面的 `drops`")
         return out, ValidationResult(tuple(errors), tuple(warnings), tuple(drops))
 
-    def parse_close(self, raw: Any) -> tuple[list[dict], ValidationResult]:
-        """R4 收口: `{"add": […], "close": […]}` → 归一化行。
-
-        **只做形状校验**（键在不在 / 是不是数组 / 值域 / 必填字段）。
-        "那个编号存不存在""这条还开着吗"是**世界校验** —— 归执行器
-        （`revise.apply_closures`），那里**剔掉 + 记账、不拒整包**：
-        形状错重试有用（模型没按契约说话），"看错了世界"重试大概率还是错。
-
-        ⚠️ 与 `parse_round_b` 把引用错误当 `errors` 的口径**故意不同**（2026-09-25 定）；
-        那里的引用是本轮渲染出来的闭集，这里的 `refs` 是"这一段的经历"，
-        指错更像"它记错了"而不是"它没读契约"。
-
-        Returns: `(rows, ValidationResult)` —— `errors` 非空 = **整包拒 + 带反馈重试**。
-        行形状: `{"action": "add", "text", "refs", "due"?}`
-                `{"action": "close", "id", "state", "afterwards", "refs"?}`
-        """
-        errors: list[str] = []
-        warnings: list[str] = []
-        if not isinstance(raw, dict):
-            return [], ValidationResult(errors=("收口轮输出必须是 JSON 对象",))
-
-        out: list[dict] = []
-        seen: set[tuple[str, str]] = set()
-        for key in ("add", "close"):
-            if key not in raw:
-                errors.append(f"缺键 {key!r}（两个键都要在, 没有就写空数组）")
-                continue
-            rows = raw.get(key)
-            if not isinstance(rows, list):
-                errors.append(f"{key} 必须是数组")
-                continue
-            for i, row in enumerate(rows):
-                if not isinstance(row, dict):
-                    errors.append(f"{key}[{i}] 必须是对象")
-                    continue
-                item = (_clean_add(row, i, errors) if key == "add"
-                        else _clean_close(row, i, errors))
-                if item is None:
-                    continue
-                mark = (key, item.get("id") or item.get("text") or "")
-                if mark in seen:
-                    warnings.append(f"{key}[{i}] 重复（只留第一条）: {mark[1]!r}")
-                    continue
-                seen.add(mark)
-                out.append(item)
-        return out, ValidationResult(tuple(errors), tuple(warnings))
-
     def parse_group(self, raw: Any, *, block_ids: set[str]
                     ) -> tuple[list[dict], ValidationResult]:
         """L2-a 分群（N7）: `{"attach": […], "new": […]}` → 归一化行。
 
         **只做形状 + 闭集校验**（键在不在 / 是不是数组 / 必填 / 块的把手来自本轮名单 /
         ⭐ **每个块恰好一次归属**）。"那个类名存不存在"是**世界校验** ⇒ 归执行器
-        （`groups.apply_groups`）**剔掉 + 记账、不拒整包** —— 同 `parse_close` 的口径:
+        （`groups.apply_groups`）**剔掉 + 记账、不拒整包** —— 同 `parse_attribution` 的口径:
         形状错重试有用, "看错了世界"重试大概率还是错。
 
         ⚠️ **覆盖是硬错**（同 `parse_round_b` 的"必须覆盖全部 episode"）: 漏一个块 =
@@ -1482,52 +1401,6 @@ def _id_list(v: Any) -> list[str]:
     if not isinstance(v, (list, tuple)):
         return []
     return [str(x).strip() for x in v if isinstance(x, (str, int)) and str(x).strip()]
-
-
-def _clean_add(row: dict, i: int, errors: list[str]) -> dict | None:
-    """`add` 一行（R4）: 正文短语 + ≥1 个引用; `due` 可选。"""
-    text = str(row.get("text") or "").strip()
-    if not text:
-        errors.append(f"add[{i}] 缺 text")
-        return None
-    refs = [str(r).strip() for r in row.get("refs") or []
-            if isinstance(r, (str, int)) and str(r).strip()]
-    if not refs:
-        errors.append(f"add[{i}] 缺 refs（至少一个：这条约定是说在哪件事里的）")
-        return None
-    item: dict = {"action": "add", "text": text, "refs": refs}
-    due = str(row.get("due") or "").strip()
-    if due:
-        item["due"] = due
-    return item
-
-
-def _clean_close(row: dict, i: int, errors: list[str]) -> dict | None:
-    """`close` 一行（R4）: 编号 + 结局 + **`afterwards`**（"这件事后来怎么了"）· `refs` 可选。
-
-    ⚠️ 早先那个字段叫 `reason` —— 用户 2026-09-25: *"reason 太理性了"*。
-    """
-    nid = str(row.get("id") or "").strip()
-    if not nid:
-        errors.append(f"close[{i}] 缺 id")
-        return None
-    state = str(row.get("state") or "").strip()
-    if state not in PINNED_OUTCOMES:
-        errors.append(f"close[{i}].state 非法: {state!r}"
-                      f"（可用: {', '.join(PINNED_OUTCOMES)}）")
-        return None
-    afterwards = str(row.get("afterwards") or "").strip()
-    if not afterwards:
-        errors.append(f"close[{i}] 缺 afterwards —— 一句话说这件事后来怎么了（必填）")
-        return None
-    item: dict = {"action": "close", "id": nid, "state": state,
-                  "afterwards": afterwards}
-    #: `refs` = **finish episode**（了结它的那条经历）—— 可选（失约那种"没有那一刻"就不给）
-    refs = [str(r).strip() for r in row.get("refs") or []
-            if isinstance(r, (str, int)) and str(r).strip()]
-    if refs:
-        item["refs"] = refs
-    return item
 
 
 def _clean_episode(e: Any, i: int, seq_set: set[int] | None = None,

@@ -35,7 +35,6 @@ class FakeLLM:
         #    （2026-10-05 修: 这条用例自 R0 进表（2fe6d9a）起就滑出了跑过的板块, 全量一跑就红）
         if task == T.DIGEST_SPLIT:
             return stub_tasks.split_reply(messages)
-        if task == T.DIGEST_CLOSE:
             return CLOSE_EMPTY
         if task == T.DIGEST_ATTRIBUTE:
             return {"attributions": []}

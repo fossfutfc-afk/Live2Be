@@ -7,8 +7,9 @@
     rounds/__init__.py  ← 本文件: **只有表**（+ Cursor / 预算 / 回滚清单）
     rounds/base.py      Ctx（段级上下文）+ RoundOut（一轮跑完的交代）
     rounds/record.py    ① R1 记        rounds/akin.py       补边（0 LLM）
-    rounds/close.py     ② R4 收口      rounds/understand.py ③ R2 接
-    rounds/attribute.py ④ R3 挂        rounds/group.py      ⑤ L2-a 分群
+    rounds/understand.py ③ R2 接       rounds/attribute.py  ④ R3 挂
+    rounds/group.py      ⑤ L2-a 分群
+    ⏸ ② R4 收口（`rounds/close.py`）**2026-10-05（L8）删** —— 账目归 R0 的表。
 
 ⚠️ 表住在 `__init__` 里, 每轮的**正文**在各自文件里 —— 所以本文件**不 import 任何**
 `rounds/<轮>.py`（那会让"读一张表"变成"拉起整条管线"）。key → 实现的那张映射在
@@ -24,8 +25,8 @@
    改一次调用位置就是一次无声的契约改动。
 2. **`_rollback` 是手抄清单** —— 每轮往 `DigestResult` 写的新字段必须**手工**加进
    清空列表; 漏一个就是雷。⚠️ 这不是假想: `notes_warnings` **一直**没被清
-   （R4 的世界校验记账在整批回滚后还留在结果对象里, 而它描述的正是那些已经作废的操作），
-   这就是"手抄"这件事的证词。
+   （R4 的世界校验记账在整批回滚后还留在结果对象里, 而它描述的正是那些已经作废的操作）
+   —— 这就是"手抄"这件事的证词（那个字段 2026-10-05 随收口轮一起删了）。
 3. **料跨 3~4 个文件** —— 想知道"R2 吃什么", 得把编排、`entities.py`、`render.py`
    和 prompt 一起读。
 
@@ -105,11 +106,10 @@ DIGEST_ROUND_BUDGET_SECONDS = 120.0
 #: ⭐ **2026-09-29: 600 → 840**（这是给 R0「切分」留的位子）。由来: 当时是
 #: 5 个 LLM 轮 × 120s = **600, 正好顶满**硬顶（`akin` 不算 —— 它零 LLM,
 #: `planned_seconds()` 只数 `llm=True` 的轮）⇒ 再多一轮守门当场红。
-#: 为什么抬硬顶而不是调小每轮预算: 120s/轮是按 high 档长考标定的
-#: （标定入口 = 真机日志 `llm chat task=digest.… ms=`）, 砍它会重新制造
-#: "前几轮把后几轮饿死"那个刀 1 要修的病; 而硬顶守的是"别叠成半小时"这个上界
-#: —— 840s 仍远小于当年那次的近半小时。
-DIGEST_SEGMENT_HARD_CAP = 840.0
+#: ⭐ **2026-10-05（L8）: 840 → 600** —— 收口轮删掉, 又回到 5 个 LLM 轮 × 120s。
+#: ⚠️ **每轮 120s 没动**（它是按 high 档长考标定的, 砍它会重新制造"前几轮把后几轮
+#: 饿死"那个病; 标定入口 = 真机日志 `llm chat task=digest.… ms=`）。
+DIGEST_SEGMENT_HARD_CAP = 600.0
 
 
 @dataclass(frozen=True)
@@ -129,12 +129,13 @@ class RoundSpec:
     """
 
     key: str
-    """表内主键 —— 契约相位名（`record` / `akin` / `close` / `understand` /
+    """表内主键 —— 契约相位名（`record` / `akin` / `understand` /
     `attribute` / `group`）。见类 docstring: 另外四个标识都从它来。"""
 
     step: str
     """人读的步号（与 `core/digest/__init__.py` 的步序表同一份写法）。
-    ⏸ 旧文档与旧注释里的 `R1`/`R2`/`R3`/`R4` 按这里对: **R1=记 · R4=收口 · R2=接 · R3=挂**。"""
+    ⏸ 旧文档与旧注释里的 `R1`/`R2`/`R3`/`R4` 按这里对: **R1=记 · R2=接 · R3=挂**
+    （`R4=收口` 2026-10-05 删）。"""
 
     parse: Callable[..., Any] | None
     """`(raw, **ctx) -> (parsed, ValidationResult)` —— 结构校验的入口（住在契约层,
@@ -159,7 +160,7 @@ class RoundSpec:
 
     ⚠️ 它的作用域 = **本轮自己**（含同轮那次反馈重试）, 由 `_round_call` 在开跑时
     折算成"`min(整段硬顶, 现在 + 本轮预算)`" —— 单轮慢**不连累后面的轮**。
-    今天五轮都用默认; 要分轮调（记最贵、收口最便宜）就在这一格写数。
+    今天五轮都用默认; 要分轮调（记最贵）就在这一格写数。
     ⚠️ 它是**每次尝试前**的检查（`llm_call` 的既有语义）, 不掐断正在飞的那一次调用。
     """
 
@@ -171,10 +172,10 @@ class RoundSpec:
 
     ⭐ 判据来自 R0 那条"空骨架 ⇒ 收工"（2026-09-29, N4d）: 切分员说"这一段没有
     值得记的"时, 建节点 / 连边 / 归属 / 分群**全部空转**（`understand` 还会被契约
-    判形状错）⇒ 一律不发。**唯一例外是 `close`**（收口）: 它吃的是**备忘录**
-    （"还开着什么"）而不是切片 —— 那条约定的翻篇**可能正好落在这一段**,
-    跳过它 = 那条约定永远开着（而它没有别的收口处）。
-    ⇒ 表里只有 `close` 写 False, 别的一律缺省 True。
+    判形状错）⇒ 一律不发。
+    ⏸ **从前唯一写 False 的是 `close`**（收口吃备忘录而不是切片）—— 2026-10-05（L8）
+    随轮一起删 ⇒ **今天五轮全是 True**（这一格留着, 是因为"有一轮不对着切片干活"
+    这件事本身还会回来: 将来若有"只看备忘录/只看时间"的轮, 就在这一格写 False）。
     """
 
     llm: bool = True
@@ -240,8 +241,9 @@ ROUNDS: tuple[RoundSpec, ...] = (
                          "emo_shape", "place", "place_raw", "aff_at_encoding")),
             ("experience", ("text", "subject", "verbatim", "verbatim_seq", "tags",
                             "significance", "event_seq", "ts")),
-            # ⛔ ~~note 的 `on_mind`~~ **2026-09-29（N4e）退役** —— L1 从此只写图;
-            # note 的唯一写者是 R4 收口那一轮（下面 `close` 那格）。
+            # ⛔ ~~note 的 `on_mind`~~ **2026-09-29（N4e）退役** —— 它只写图;
+            # ⭐ note 的写者 **2026-10-05（L7/L8）起只有这一轮**: 按 R0 的表产
+            # `add` / `update` / `close`（收口轮已删）。
         ),
         result_fields=(*CONTRACT_FIELDS, "notes_ops", "record_gaps", "spanless_ids"),
         skip="没有能填的骨架行（无区间那一行没有事件可写 —— 正文就是 R0 给的 abstract）",
@@ -255,17 +257,6 @@ ROUNDS: tuple[RoundSpec, ...] = (
         result_fields=(),
         skip="本段没有想起账（`noticed` 事件）",
         llm=False,
-    ),
-    RoundSpec(
-        key="close",
-        step="② 收口",
-        parse=digest_registry.parse_close,
-        material=("还开着的约定", "本段新增的经历"),
-        writes=(("note", ("pinned",)),),
-        result_fields=(*CONTRACT_FIELDS, "notes_ops", "notes_warnings"),
-        # ⭐ **唯一不对着切片干活的一轮**（它吃备忘录）—— 空骨架时唯一还该跑的
-        needs_segments=False,
-        skip="没有开着的约定, 本段也没有新经历（那一轮必然空转）",
     ),
     RoundSpec(
         key="understand",
@@ -310,7 +301,7 @@ ROUNDS: tuple[RoundSpec, ...] = (
                        "merged_groups", "group_warnings"),
         skip="没有未归群的块, 也没有可能重复的类",
         # ⭐ 它是**加法**的（块留到下段再来 ⇒ 自愈）: 失败只回滚这一步,
-        # R1–R4 的活照常提交（把"命名没成"升级成"整段记忆全丢"是拿真东西换装饰）。
+        # R1–R3 的活照常提交（把"命名没成"升级成"整段记忆全丢"是拿真东西换装饰）。
         own_snapshot=True,
     ),
 )
