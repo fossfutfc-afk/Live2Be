@@ -244,6 +244,27 @@ def test_check_reports_dangling_refs_missing_refs_and_caps():
     # 槽收成一个, "按槽分标尺"那套机制一起删（判据: 没读者就删）。现在只有一个标尺。
 
 
+def test_stats_is_a_ledger_not_a_warning():
+    """⭐ **台账与告警是两件事**（L9, 2026-10-05）。
+
+    `check()` 答"哪里不对"; `stats()` 答"现在多少" —— 后者**永远有值**,
+    混进 `check()` 就会让每个正常段都多一条 WARNING（告警就没人看了）。
+    设计 §9-5 的裁决: **先只记数、不拍上限**（开着的条数 = 每轮料的成本）。
+    """
+    empty = notes.NotesState()
+    assert notes.stats(empty) == {"open": 0, "block_chars": 0}
+    assert notes.check(empty) == []
+
+    st = notes.fold([_add(1, text="周六模型店", refs=("m0009",)),
+                     _add(2, text="还他笔记", refs=("m0009",), ts=T1)])
+    assert notes.stats(st)["open"] == 2
+    assert notes.stats(st)["block_chars"] == len(notes.render_note_block(st))
+    # 开着的条目**本身不产生告警**（它不是问题 —— 本子就是装这个的）
+    assert notes.check(st, known={"m0009"}) == []
+    # 也可以由调用方把已经渲过的长度传进来（省一次渲染）
+    assert notes.stats(st, block_chars=7)["block_chars"] == 7
+
+
 def test_check_only_cares_about_the_total():
     """⭐ 2026-10-05: `check()` 只剩两条判据（总量 · refs）—— **划掉不再是它的活**。
 

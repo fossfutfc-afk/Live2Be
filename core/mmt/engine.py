@@ -780,7 +780,8 @@ class MomoTalkEngine:
                         character_id: str, events: list, ops: list[dict]) -> list:
         """把 note 操作写进真源 + 刷缓存（**先真源后缓存**）—— 返回重读后的事件流。
 
-        两个写者共用这一处（R4 的收口操作 / 全景轮的那条 `rewrite`）:
+        第**三**个写者:**已删除**（⏸ 收口轮 2026-10-05 / L8）—— 现在产 op 的只有
+        `digest` 的 `record` 那一轮（按 R0 的表）, 但这条通道照旧是**唯一出口**:
         顺序是**正确性**而不是风格 —— `notes.json` 只是派生缓存,
         **事件流才是真源**; 反过来写会出现"本子上有、事件流没有", 而那条笔记
         没有人能重建它（§3.2）。
@@ -791,6 +792,7 @@ class MomoTalkEngine:
         try:
             from core.brain.notes import check as notes_check   # 局部导入（同笔记注入那处）
             from core.brain.notes import note_event   # 局部导入（同笔记注入那处）
+            from core.brain.notes import stats as notes_stats
             for op in ops:
                 session_store.append_event(character_id, "", note_event(op))
         except Exception as e:                       # noqa: BLE001 — 写失败 = 这次没记上
@@ -805,6 +807,11 @@ class MomoTalkEngine:
             # 而**看见它**才是这条判据的意义: 长了就该退役/淘汰（⚠️ 淘汰规则未定）。
             for problem in notes_check(state, known={n.id for n in wstore.all()}):
                 logger.warning("note 体检（%s）: %s", character_id, problem)
+            # ⭐ **台账（数字, 不是告警）** —— L9（2026-10-05）: 开着的条数直接等于
+            # "每轮料里逐条现状"的成本 ⇒ 先只记数、不拍上限（真机几段的数说了算）。
+            n = notes_stats(state)
+            logger.info("note 台账（%s）: 开着 %d 条 · 注入块 %d 字",
+                        character_id, n["open"], n["block_chars"])
         except Exception as e:                       # noqa: BLE001 — 只是缓存, 真源是事件流
             logger.warning("笔记缓存写入失败（事件流已是真源, 下次现折）: %s", e)
         return events
