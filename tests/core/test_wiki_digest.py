@@ -197,7 +197,7 @@ def test_affection_markers_excluded_from_digest_input(tmp_path):
     )
     res = digest_segment(st, llm, events)
     assert res.ok, res.errors
-    assert res.llm_calls == 3                          # R0 + A 空也跑 B（affection 归 B）
+    assert res.llm_calls == 3                          # R0 + A 空也跑 B（**好感归 A**, 见 M1）
     assert res.affection_delta == 0
     assert st.digested_seq == 4
 
@@ -229,7 +229,7 @@ def test_full_pipeline(tmp_path):
     events = _events(_mmt(3, "老师", "下次再去吃甜品吧"))
     res = digest_segment(st, llm, events)
     assert res.ok, res.errors
-    assert res.llm_calls == 4                          # R0 + A + B + R3（收口轮 2026-10-05 删）
+    assert res.llm_calls == 3                          # R0 + A + B（R3 2026-10-05 暂停）
     # A: episode 建好, 引擎字段归属
     assert res.created == ["m0003"]
     ep = st.get("m0003")
@@ -518,7 +518,7 @@ def test_high_candidate_no_longer_forces_touch_update(tmp_path):
     events = _events(_mmt(3, "x", "猫粮带来了"))
     res = digest_segment(st, llm, events)
     assert res.ok, res.errors
-    assert res.llm_calls == 4                          # R0 + A + B + R3（**没有**拒绝重试）
+    assert res.llm_calls == 3                          # R0 + A + B（**没有**拒绝重试）
     # 候选提示仍在输入里（只是不再带"禁 add"的措辞）
     assert "候选" in llm.calls[1][1]["content"]
     assert "禁 add" not in llm.calls[1][1]["content"]
@@ -685,7 +685,7 @@ def test_round_a_rejected_retried_with_feedback(tmp_path):
     events = _events(_mmt(3, "x", "y"))
     res = digest_segment(st, llm, events)
     assert res.ok, res.errors
-    assert res.llm_calls == 5                          # R0 + A1(拒) + A2(过) + B + R3
+    assert res.llm_calls == 4                          # R0 + A1(拒) + A2(过) + B
     # 反馈追加在同一上下文: system,user,assistant,user(反馈)
     msgs = llm.calls[1]
     assert len(msgs) == 4 and msgs[2]["role"] == "assistant"
@@ -703,7 +703,7 @@ def test_round_b_rejected_retried_with_feedback(tmp_path):
     events = _events(_mmt(3, "x", "y"))
     res = digest_segment(st, llm, events)
     assert res.ok, res.errors
-    assert res.llm_calls == 5                          # R0 + A + B1(拒) + B2(过) + R3
+    assert res.llm_calls == 4                          # R0 + A + B1(拒) + B2(过)
     assert "引擎校验反馈" in llm.calls[2][-1]["content"]
     assert st.digested_seq == 3
 
