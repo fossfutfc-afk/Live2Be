@@ -351,8 +351,11 @@ def test_split_prompt_does_not_restate_the_schema_criteria():
         assert phrase not in raw, (
             f"判据原文 {phrase!r} 出现在 prompt 文件里了 —— 它只该在契约层"
             "（`STATE_SEMANTICS` / `CLOSE_SEMANTICS` …）。两处各写一份 = 迟早强度不一。")
-    # ⭐ 边界声明该在（它是"别自作聪明"的那道闸, 与判据无关）
-    assert "别怕丢信息" in raw and "下一轮会把它写成一条**看法**" in raw
+    # ⭐ **判据指针必须真在**（"怎么判在契约里"这件事本身要说出来 —— 2026-10-05 L2）
+    assert "以那里为准" in raw
+    # ⭐ 边界声明该在（"别自作聪明"的那道闸; 与判据无关）: 正文/领悟不归它 + 输出示范
+    assert "下一轮会把它写成一条**看法**" in raw
+    assert "输出示范" in raw, "prompt 靠示范教形状（示例才是形状的来源）"
 
 
 # ---------------------------------------------------------------------------
