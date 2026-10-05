@@ -58,8 +58,9 @@ class _Stub:
     ⚠️ **不按中文关键字分派**（`tests/core/test_stub_dispatch_guard.py` 会扫）。
     """
 
-    def __init__(self, *, split=None, **kw):
-        self._split, self._kw = split, kw
+    def __init__(self, *, split=None, record=None, understand=None, **kw):
+        self._split, self._record, self._understand = split, record, understand
+        self._kw = kw
         self.tasks: list[str | None] = []
         self.users: list[str] = []
 
@@ -68,6 +69,10 @@ class _Stub:
         self.tasks.append(task)
         self.users.append("\n".join(str(m.get("content") or "") for m in messages
                                     if m.get("role") == "user"))
+        if task == T.DIGEST_RECORD and self._record is not None:
+            return self._record
+        if task == T.DIGEST_UNDERSTAND and self._understand is not None:
+            return self._understand
         reply = stub_tasks.annotation_reply(task, messages, split=self._split, **self._kw)
         if reply is None:
             raise AssertionError(f"桩不认识 task={task!r}")
@@ -224,3 +229,33 @@ def test_close_id_must_come_from_the_list_the_engine_printed(tmp_path):
                          [_note("团子的事"), _mmt(3)])
     assert bad.ok, bad.errors
     assert [w for w in bad.contract_warnings if "名单里" in w], bad.contract_warnings
+
+
+# ---------------------------------------------------------------------------
+# ⑥ 端到端: 同一个 span 两行 = 两条记忆（L4 —— 覆盖按集合, 不许误合）
+# ---------------------------------------------------------------------------
+
+def test_the_same_span_twice_is_two_memories(tmp_path):
+    """⭐ §1.3 **出 + 进 = 两行 = 两条记忆** —— `_find_duplicate` 不许把它们合掉。
+
+    （去重键 = kind + `event_seq` **相交** + **正文全等** ⇒ 正文不同就是两条。）
+    """
+    split = {"segments": [
+        {"span": [3, 3], "abstract": "我把团子带来了", "state": "close", "id": "n1"},
+        {"span": [3, 3], "abstract": "顺便又约了下周"}]}
+    record = {"episodes": [{"text": "我把团子带来了", "title": "团子", "tags": ["团子"]},
+                           {"text": "顺便又约了下周", "title": "又约了下周",
+                            "tags": ["约定"]}]}
+    understand = {"decisions": [{"episode": "m0001", "decision": "add", "kind": "belief",
+                                 "subject": "sensei", "text": "团子这件事我记住了"},
+                                {"episode": "m0002", "decision": "add", "kind": "belief",
+                                 "subject": "sensei", "text": "下周那件事我记住了"}],
+                  "evidence": [], "affection_exp_delta": 0}
+    st = _store(tmp_path)
+    res = digest_segment(st, _Stub(split=split, record=record, understand=understand),
+                         [_note("团子的事"), _mmt(3)])
+    assert res.ok, res.errors
+    eps = [n for n in (st.get(i) for i in res.created) if n.kind == "episode"]
+    assert len(eps) == 2, f"同一个 span 的两行必须是两条记忆: {res.created}"
+    assert sorted(tuple(n.event_seq) for n in eps) == [(3,), (3,)]
+    print("    同 span 两行: 两条 episode 都在（没被当重复合掉）✓")

@@ -353,8 +353,31 @@ n1 带老师看瓦片缝的苔藓   期限 —（没有期限）
 
 ### 4.4 章收口
 
-`_collapse_bond_episodes` 合并时 **`state` / `id` 必须跟着走**
-（它今天只保 `keep` 与 `abstract`；一章一块的形状下，标记不跟着合并会整批丢）。
+`_collapse_bond_episodes` 合并时 **`state` / `id` 不许丢** —— ✅ **落地（L4, 2026-10-05）
+采的是"账目行不参与收口"**, 不是"把标记并进保留那条":
+
+- ⚠️ 本文原来那句"它今天只保 `keep` 与 `abstract`"**不准确**: 保留那条一直带着自己的
+  `state`/`id`（代码只动 `seqs`）; 真正会丢的是**被丢那几条**的账目。
+- ⛔ 而"并过去"**表达不出来**: 一行只装得下**一个** `state`/`id`（两条 `close` 并进一行?）。
+- ⇒ 规则: 收口只吃**无账目的行**; 带 `state` 的（`close` / 第二条 `open`）**整条留下**。
+  丢一条 `close` = 那条约定永远开着 = **账不平**（用户: *"账不平比补判更糟"*）;
+  丢第二条 `open` = 另一条约定从来没进过本子。
+  代价: 这一章可能多于一条记忆（位置照样由引擎兜满整章）。
+- 守门: `test_collapse_never_drops_a_ledger_row` · `test_collapse_keeps_two_open_rows_as_two_promises`
+  （**变异验过能红**）。
+
+✅ **§4.2 的覆盖纪律也已钉住（L4）**: 同一个 `span` 两行 ⇒ 未认领仍 = 0;
+`_find_duplicate`（kind + `event_seq` **相交** + **正文全等**）不许把正文不同的两行合掉
+（`test_the_same_span_twice_is_two_memories`）。
+
+✅ **§4.3 的无区间行在 segment 侧已隔离（L4）**: 它**一个 seq 都不认领**（连 `seqs` 都不给）、
+不被章收口吞掉、也不算覆盖
+（`test_null_span_row_claims_no_position_and_is_never_collapsed`）。
+
+⚠️ **留给 L7 的一个坑（本次查出来的）**: 无区间 episode 的 `event_seq = [interact_max]`
+是**账的指针, 不是覆盖声明** —— 而 `pipeline._next_watermark` 读的正是 `node.event_seq`
+⇒ 它会以为"整段都被覆盖了", 把**欠着的尾巴**一起推过水位（那些尾巴从此不再重喂）。
+建那种节点时**必须把它排除在水位计算之外**。
 
 ### 4.5 关系与标记
 

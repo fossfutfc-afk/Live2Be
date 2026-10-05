@@ -100,7 +100,12 @@ def _expand_spans(entries: list[dict], seq_set: set[int]) -> tuple[list[int], in
     for ent in entries:
         span = ent.get("span")
         if span is None:
-            # 旧形状（`event_seq` 逐点）/ 没给位置 —— 原样计入, **不展开**
+            # ⭐ 两种"没有区间"在这里汇合, **都**不计入覆盖（L4, 2026-10-05）:
+            #   · **R0 的无区间行**（`span: null` = "没有那一刻", 生日那天没人来）——
+            #     它**故意没有位置**; 它的 `event_seq` 要到 L7 建节点时才落
+            #     `[interact_max]`, 那一格是**账的指针, 不是覆盖声明** ⇒ 这里一个 seq
+            #     都不许认领（认了就等于"这一段全被它记下了"）。
+            #   · **旧形状**（`event_seq` 逐点 / 什么都没给）—— 逐点计入, 不展开。
             for s in ent.get("event_seq") or []:
                 counts[s] = counts.get(s, 0) + 1
             continue
@@ -178,6 +183,13 @@ def _collapse_bond_episodes(entries: list[dict], chapters: list[dict], *,
     否则**跨度最长**的那条（它最可能是那一章的总结）。
     ⛔ **不再看 `significance`** —— R0 不打分（打分是 R1 的活, 而 R1 这时还没跑）。
 
+    ⭐ **判据里有一条不是"哪条更该活", 而是"哪条不许死"**（L4, 2026-10-05）:
+    **带 `state` 的行（`open` / `close`）永远不参与收口** —— 它们不是"这一章的总结",
+    而是**账**。收口丢一条 `close` ⇒ 那条约定永远开着 = **账不平**（用户: *"账不平比
+    补判更糟"*）; 丢第二条 `open` ⇒ 另一条约定从来没进过本子。⚠️ 而"把标记并进保留那条"
+    **表达不出来**（一行只装得下一个 `state`/`id`）⇒ 只能整条留下。
+    代价: 这一章可能多于一条记忆（位置照样由引擎兜满整章）。
+
     ⚠️ **逐章收口**, 不是"整段收口"（见 `_segment_domain` 的两条警告）:
     * 窗口常同时含 MomoTalk 聊天（真档实测 13 / 26 条）—— 那些切片**不属于任何章**,
       照常留着（把整段压成 1 条会把聊天里的记忆一起丢掉）;
@@ -216,7 +228,20 @@ def _collapse_bond_episodes(entries: list[dict], chapters: list[dict], *,
             if rng is not None:
                 merged.update(s for s in seqs if rng[0] <= int(s) <= rng[1])
         keep["seqs"] = sorted({*_seqs_of(keep), *merged})
-        if len(group) <= 1:
+        losers = [e for e in group if e is not keep]
+        # ⭐ **账目行不参与收口**（L4, 2026-10-05）—— 这一段是全项目最贵的一种静默丢:
+        # 一章切成了两件时, 收口留一条、丢其余 ⇒ 而被丢的那条可能是
+        # **`state=close`**（"这笔账了结了"）或**第二条 `open`**（另一条约定）。
+        # 丢它 = 那条约定永远开着 = **账不平**, 而用户的原话是 *"账不平比补判更糟"*。
+        # ⚠️ 为什么不是"把标记并到保留那条": 一条行只装得下**一个** `state`/`id`
+        # —— 两个 `close` 并进一行在行契约里**表达不出来**。⇒ 只能把它**整条留下**
+        # （代价: 这一章多于一条记忆 —— 可以接受; 位置照样由引擎兜满整章）。
+        ledger_kept = [e for e in losers if e.get("state")]
+        losers = [e for e in losers if not e.get("state")]
+        if ledger_kept:
+            logger.info("digest_split contract=bond chapter=%r 账目行不参与收口, 原样留下: %s",
+                        ch["title"] or "-", ", ".join(_brief(e) for e in ledger_kept))
+        if not losers:
             continue
         logger.warning(
             "digest_split contract=bond chapter=%r segments=%d winner=%r（一章一件; 其余已丢。"
@@ -226,8 +251,8 @@ def _collapse_bond_episodes(entries: list[dict], chapters: list[dict], *,
             # ⭐ D1: 丢掉的那几条**只在这一刻存在**（它们的 `abstract` 之后世上没有第二份）
             # ⇒ 记进账（`digest_gap` 的 `items.dropped`）。
             dropped_out.append({"chapter": ch["title"] or "-", "winner": _brief(keep),
-                                "lost": [_brief(e) for e in group if e is not keep]})
-        dropped |= {id(e) for e in group if e is not keep}
+                                "lost": [_brief(e) for e in losers]})
+        dropped |= {id(e) for e in losers}
     return [e for e in entries if id(e) not in dropped]
 
 
