@@ -28,10 +28,11 @@ from datetime import date
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from contract.digest_registry import is_full_date
+from contract.digest_registry import STATE_VALUES, is_full_date
 from core import paths
 from core.brain import marks
 from core.digest.rounds import RoundSpec
+from core.digest.segment import _span_range
 
 if TYPE_CHECKING:                       # 仅注解求值期（避免与编排层循环 import）
     from core.brain.read.recall import EmbedFn
@@ -44,6 +45,22 @@ logger = logging.getLogger(__name__)
 # R0 / R1 共用的"骨架"视图（3b-2）
 # ---------------------------------------------------------------------------
 
+def _skeleton_rows(segments: list[dict]) -> list[tuple[int, dict]]:
+    """**能填的骨架行** → `[(原始下标, 切片)]` —— L5（2026-10-05）。
+
+    只收**有位置的行**（`_span_range` 非空: 有 `span`, 或旧形状的逐点 `event_seq`）。
+    ⛔ **无区间那一行（`span: null` = "没有那一刻"）不进这里** —— 它没有事件可写,
+    正文**就是 R0 给的 `abstract`**（§1.3 / §2.3）; 派给 R1 = 派一件它写不了的活,
+    而契约那句"每一条切片给一行"还会逼它硬编一条出来。
+
+    ⚠️ **印骨架与对位必须是同一份清单**（`_skeleton_text` 印它, `_align_to_skeleton`
+    照它对位）: 两处各过滤一次 = 迟早错位 —— 而对位一错, note 的出生地址就挂到
+    别条经历上了（那种错**不报错**, 只会让"这条约定是从哪件事长出来的"变成另一件事）。
+    """
+    return [(i, seg) for i, seg in enumerate(segments)
+            if _span_range(seg) is not None]
+
+
 def _skeleton_text(segments: list[dict]) -> str:
     """R1 的料之一: **本段骨架**（这一段要填哪几条）—— 3b-2, 2026-09-29。
 
@@ -52,22 +69,26 @@ def _skeleton_text(segments: list[dict]) -> str:
         第 1 件｜28-28｜教师在周日突然邀请我去了咖啡厅吃东西
         第 2 件｜29-29｜⭐ 明天把两个团子带去夏莱, 别多想
 
-    ⚠️ **没有账目的那一行一个字都不多印**（用户裁决）: 只有 `state=open` 带一个 ⭐ ——
-    它要说的事只有一件（"这条不许 drop"）, 印上取值反而让模型开始琢磨两档的区别。
+    ⚠️ **只印有区间的行, 而且重编 1..N**（L5, 2026-10-05）: 无区间那一行不派活
+    （见 `_skeleton_rows`）; 编号**不保留 R0 的原始件号** —— 留着旧号会让模型以为漏了一件。
+    ⚠️ **⭐ 的含义 = "不许 drop"**（`open` 与 `close` **都**打星星）—— 从前只有 `open` 打、
+    含义是"她往后要一直带着的"; 现在 `close`（哪一件把一笔账了结了）同样不许丢,
+    ⇒ 星星只表示"这条不许 drop", 与 `SKELETON_HINT` 那句**同源**。
     ⚠️ **区间要印**（用户裁决）: 它把 abstract 钉在时间线的某一段上 ——
     "第 2 件" 是几号, 不如"29-29"直接。
     """
     lines: list[str] = []
-    for i, seg in enumerate(segments, start=1):
-        span = seg.get("span") or []
-        where = f"{span[0]}-{span[-1]}" if span else "-"
-        star = "⭐ " if seg.get("state") == "open" else ""
-        lines.append(f"第 {i} 件｜{where}｜{star}{seg.get('abstract') or '-'}")
+    for k, (_i, seg) in enumerate(_skeleton_rows(segments), start=1):
+        rng = _span_range(seg)
+        where = f"{rng[0]}-{rng[1]}" if rng else "-"
+        star = "⭐ " if seg.get("state") in STATE_VALUES else ""
+        lines.append(f"第 {k} 件｜{where}｜{star}{seg.get('abstract') or '-'}")
     return "\n".join(lines)
 
 
 #: 骨架这一段的行格式说明（**与 `_skeleton_text` 同源** —— 印的和说的在一处）
-SKELETON_HINT = "（⭐ = 她往后要一直带着的那几条, **不许 drop**; 别的都可以 drop）"
+SKELETON_HINT = ("（⭐ = **不许 drop** 的那几条 —— 账目行（她答应了什么 / 哪一件把一笔账"
+                 "了结了）; 别的都可以 drop）")
 
 
 def _sections_for(spec: RoundSpec, sections: list[tuple[str, str]]) -> str:

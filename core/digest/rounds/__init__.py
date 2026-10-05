@@ -244,7 +244,7 @@ ROUNDS: tuple[RoundSpec, ...] = (
             # note 的唯一写者是 R4 收口那一轮（下面 `close` 那格）。
         ),
         result_fields=(*CONTRACT_FIELDS, "notes_ops", "record_gaps"),
-        skip="",
+        skip="没有能填的骨架行（无区间那一行没有事件可写 —— 正文就是 R0 给的 abstract）",
     ),
     RoundSpec(
         key="akin",
