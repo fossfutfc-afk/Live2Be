@@ -134,9 +134,9 @@ def test_node_ts_follows_its_own_events(tmp_path):
     # ⭐ 顺带钉住**"多写的挂在末条切片上"**: R1 给了 4 条, 骨架只有 3 条 ⇒
     # 第 4 条附在第 3 条切片上（**不丢** —— 一条切片能长不止一条记忆）。
     split = {"segments": [
-        {"span": [11, 11], "keep": "temporary", "abstract": "第一件事"},
-        {"span": [13, 13], "keep": "temporary", "abstract": "第二件事"},
-        {"span": [12, 13], "keep": "temporary", "abstract": "跨两块"}]}
+        {"span": [11, 11], "abstract": "第一件事"},
+        {"span": [13, 13], "abstract": "第二件事"},
+        {"span": [12, 13], "abstract": "跨两块"}]}
     b = {"decisions": [{"episode": f"m000{i}", "decision": "add", "kind": "belief",
                         "subject": "sensei", "text": f"关于 m000{i}"}
                        for i in (3, 4, 5, 6)],
@@ -197,7 +197,7 @@ def test_affection_markers_excluded_from_digest_input(tmp_path):
                   {"decisions": [], "evidence": [], "affection_exp_delta": 0},
                   # ⚠️ 3b-2: 空 episodes ⇒ 桩派生空骨架 ⇒ 链条在 R0 就停。
                   # 本用例测的是"账目事件不进食料" ⇒ 显式给骨架把链条放过去。
-                  split={"segments": [{"span": [3, 3], "keep": "temporary",
+                  split={"segments": [{"span": [3, 3],
                                        "abstract": "这一段"}]})
     events = _events(
         _mmt(3, "老师好", "啊、老师好……"),
@@ -578,7 +578,7 @@ def test_player_portrait_entry_lands_and_hides_from_round_b(tmp_path):
             {"episode": "m0001", "decision": "add", "kind": "belief",
              "subject": "和老师的约定", "text": "老师会认真对待与我的约定"},
          ], "evidence": [], "affection_exp_delta": 15},
-        split={"segments": [{"span": [3, 3], "keep": "temporary",
+        split={"segments": [{"span": [3, 3],
                              "abstract": "烟火大会之约"}]})
     events = _events(_mmt(3, "我生日是 5 月 20 日哦", "下周放假, 一起去看烟火吧"))
     res = digest_segment(st, llm, events)
@@ -762,7 +762,7 @@ def test_affection_clamped(tmp_path):
     # 本用例测的是 **B 轮的好感结算** ⇒ 显式给一条骨架把链条放过去。
     llm = FakeLLM({"episodes": []},
                   {"decisions": [], "evidence": [], "affection_exp_delta": 999},
-                  split={"segments": [{"span": [3, 3], "keep": "temporary",
+                  split={"segments": [{"span": [3, 3],
                                        "abstract": "这一段"}]})
     res = digest_segment(st, llm, _events(_mmt(3, "x", "y")))
     assert res.ok and res.affection_delta == 100
@@ -778,7 +778,7 @@ def test_affection_negative_passes_through(tmp_path):
     # 本用例测的是 **B 轮的好感结算** ⇒ 显式给一条骨架把链条放过去。
     llm = FakeLLM({"episodes": []},
                   {"decisions": [], "evidence": [], "affection_exp_delta": -30},
-                  split={"segments": [{"span": [3, 3], "keep": "temporary",
+                  split={"segments": [{"span": [3, 3],
                                        "abstract": "这一段"}]})
     res = digest_segment(st, llm, _events(_mmt(3, "x", "y")))
     assert res.ok and res.affection_delta == -30
@@ -791,7 +791,7 @@ def test_affection_negative_clamped_at_floor(tmp_path):
     # 本用例测的是 **B 轮的好感结算** ⇒ 显式给一条骨架把链条放过去。
     llm = FakeLLM({"episodes": []},
                   {"decisions": [], "evidence": [], "affection_exp_delta": -999},
-                  split={"segments": [{"span": [3, 3], "keep": "temporary",
+                  split={"segments": [{"span": [3, 3],
                                        "abstract": "这一段"}]})
     res = digest_segment(st, llm, _events(_mmt(3, "x", "y")))
     assert res.ok and res.affection_delta == -100
@@ -1070,7 +1070,7 @@ def test_bond_extra_segments_collapse_to_one(tmp_path, caplog):
 
     ⚠️ **2026-09-29（3b-1）换了产地**: 收口吃的是 **R0 的切片**（切分权归切分员 ⇒
     "一章切成几件"是**切分违约**, 该在产出点当场收口）。判据也从 `significance`
-    换成 **`keep=always` 优先、否则跨度最长**（R0 不打分）。
+    换成 **`state=open` 优先、否则跨度最长**（R0 不打分）。
     ⚠️ 三条都**落在章块里**（区间与 bond 块相交）才会被收口 ——
     见下一条用例: 聊天那些不属于这一章, 不能被一起压掉。
     """
@@ -1085,18 +1085,18 @@ def test_bond_extra_segments_collapse_to_one(tmp_path, caplog):
     llm = FakeLLM(_bond_episode("这一章的总结", title="只属于两人的秘密场所"), _b_ok(),
                   # R0 把这一章切成了三件（都落在章块 4-6 里）—— 违约, 该收口
                   split={"segments": [
-                      {"span": [4, 4], "keep": "temporary", "abstract": "去破房子照料杂草"},
-                      {"span": [5, 5], "keep": "always", "abstract": "只属于两人的秘密场所"},
-                      {"span": [6, 6], "keep": "temporary", "abstract": "她又道歉了一次"}]})
+                      {"span": [4, 4], "abstract": "去破房子照料杂草"},
+                      {"span": [5, 5], "state": "open", "abstract": "只属于两人的秘密场所"},
+                      {"span": [6, 6], "abstract": "她又道歉了一次"}]})
     with caplog.at_level("WARNING"):
         res = digest_segment(st, llm, evs)
     assert res.ok, res.errors
     assert len(res.created) == 1, res.created           # 一章一件
     ep = st.get(res.created[0])
-    assert ep.title == "只属于两人的秘密场所", ep.title               # 留 keep=always 那条
+    assert ep.title == "只属于两人的秘密场所", ep.title               # 留 state=open 那条
     msgs = [r.getMessage() for r in caplog.records]
     assert any("contract=bond" in m for m in msgs), msgs
-    print("    bond: 3 件 → 1 件（留 keep=always）+ 告警可 grep ✓")
+    print("    bond: 3 件 → 1 件（留 state=open）+ 告警可 grep ✓")
 
 
 # ⛔ ~~`test_bond_window_keeps_mmt_atoms`~~ **2026-09-29（3b-1）删** ——
@@ -1104,9 +1104,9 @@ def test_bond_extra_segments_collapse_to_one(tmp_path, caplog):
 # 这条**在管线级失去了意义**: 桩在缺省下把整窗派生成**一条**切片（R1 的区间又各自落在那一条上）
 # ⇒ 两条 episode 的 `seqs` 相同、正文相同 ⇒ 被 `_find_duplicate` 判重复复用 ⇒ 只建得出一条。
 # 那不是产品缺陷, 是**过渡期的桩**: “R1 按骨架填”（每条切片一条正文）是 **3b-2** 的事。
-# ✅ 收口本身（keep 优先 / 跨度 / 区间并回 / 章外不动）已由
+# ✅ 收口本身（open 优先 / 跨度 / 区间并回 / 章外不动）已由
 # `tests/core/test_digest_window.py::test_collapse_keeps_one_slice_per_chapter`
-# 与 `..._prefers_the_widest_when_no_keep` **直接单测那个函数**覆盖。
+# 与 `..._prefers_the_widest_when_no_open` **直接单测那个函数**覆盖。
 
 
 def _bond_plus():
@@ -1138,7 +1138,7 @@ def test_two_chapters_in_one_window_each_get_one(tmp_path):
 
     ⚠️ **2026-09-29（3b-1）**: 收口现在吃 **R0 的切片** ⇒ "每章各切了一件"
     由 `split=` 声明（这是切分契约该管的事），R1 只填。判据也跟着换:
-    `keep=always` 优先（R0 不打分 ⇒ 不再看 `significance`）。
+    `state=open` 优先（R0 不打分 ⇒ 不再看 `significance`）。
     """
     st = _seed_store(tmp_path)
     # 两章: 章A 的 bond 块 = seq 5, 章B 的 bond 块 = seq 12
@@ -1158,11 +1158,11 @@ def test_two_chapters_in_one_window_each_get_one(tmp_path):
          "subject": "章B 的模式", "text": "章B 的模式", "example": "「B」"}],
         "affection_exp_delta": 0}
     llm = FakeLLM(two, b,
-                  # R0: **每章各一件** —— 章A 的 keep=always 那条胜出
+                  # R0: **每章各一件** —— 章A 的 state=open 那条胜出
                   split={"segments": [
-                      {"span": [5, 5], "keep": "always",
+                      {"span": [5, 5], "state": "open",
                        "abstract": "章A 只属于两人的秘密场所"},
-                      {"span": [12, 12], "keep": "temporary",
+                      {"span": [12, 12],
                        "abstract": "章B 的收信人"}]})
     res = digest_segment(st, llm, evs)
     assert res.ok, res.errors

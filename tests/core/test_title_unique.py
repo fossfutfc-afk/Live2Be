@@ -20,6 +20,7 @@ from core.brain.address import find_episode, unique_title   # noqa: E402
 from core.digest.pipeline import digest_segment           # noqa: E402
 from core.session.events import make_event                     # noqa: E402
 from llm import task_labels as T                               # noqa: E402
+from tests import stub_tasks                                   # noqa: E402
 
 CLOSE_EMPTY = {"add": [], "close": []}
 
@@ -30,6 +31,10 @@ class FakeLLM:
 
     def chat(self, messages, **kw):
         task = kw.get("task")
+        # ⚠️ R0（切分）在 R1 之前 —— 它也得有应答, 否则第一份 `episodes` 会被它吃掉
+        #    （2026-10-05 修: 这条用例自 R0 进表（2fe6d9a）起就滑出了跑过的板块, 全量一跑就红）
+        if task == T.DIGEST_SPLIT:
+            return stub_tasks.split_reply(messages)
         if task == T.DIGEST_CLOSE:
             return CLOSE_EMPTY
         if task == T.DIGEST_ATTRIBUTE:

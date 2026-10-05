@@ -219,27 +219,28 @@ def _collapse_bond_episodes(entries: list[dict], chapters: list[dict], *,
         if len(group) <= 1:
             continue
         logger.warning(
-            "digest_split contract=bond chapter=%r segments=%d keep=%r（一章一件; 其余已丢。"
+            "digest_split contract=bond chapter=%r segments=%d winner=%r（一章一件; 其余已丢。"
             "这行常出现 = 提示词没压住, 看切分轮的【本段类型】产出契约）",
             ch["title"] or "-", len(group), _brief(keep))
         if dropped_out is not None:
             # ⭐ D1: 丢掉的那几条**只在这一刻存在**（它们的 `abstract` 之后世上没有第二份）
             # ⇒ 记进账（`digest_gap` 的 `items.dropped`）。
-            dropped_out.append({"chapter": ch["title"] or "-", "keep": _brief(keep),
+            dropped_out.append({"chapter": ch["title"] or "-", "winner": _brief(keep),
                                 "lost": [_brief(e) for e in group if e is not keep]})
         dropped |= {id(e) for e in group if e is not keep}
     return [e for e in entries if id(e) not in dropped]
 
 
 def _chapter_pick(e: dict) -> tuple[int, int]:
-    """一章里留哪一条的判据（**降序**, 取第一个最大）: `keep=always` 优先, 再看跨度。
+    """一章里留哪一条的判据（**降序**, 取第一个最大）: `state=open` 优先, 再看跨度。
 
     ⚠️ 跨度 = `span` 的宽度（不是"覆盖了多少 seq"）—— 后者会被"这一章里她只标了几个点"
     这种稀疏声明放大, 而"她划了多宽"才是"这条是不是整章的总结"的判据。
+    ⚠️ 2026-10-05: 判据从 `keep=always` 换成 `state=open`（`keep` 已从契约里删）。
     """
     rng = _span_range(e)
     width = (rng[1] - rng[0]) if rng is not None else len(_seqs_of(e))
-    return (1 if e.get("keep") == "always" else 0, width)
+    return (1 if e.get("state") == "open" else 0, width)
 
 
 def _seq_ints(raw) -> list[int]:

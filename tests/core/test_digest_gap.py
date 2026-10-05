@@ -166,8 +166,8 @@ def test_gap_row_carries_the_three_faces(tmp_path):
     # R0 的第一条区间端点抄到时间线外 ⇒ 契约层丢弃它（**真丢**: 那一段没了主）
     llm = OneRound([{"text": "她记下的那句话", "title": "抄错", "tags": ["x"]}],
                    split={"segments": [
-                       {"span": [1, 99], "keep": "temporary", "abstract": "抄错的那条"},
-                       {"span": [3, 4], "keep": "temporary", "abstract": "好的那条"}]})
+                       {"span": [1, 99], "abstract": "抄错的那条"},
+                       {"span": [3, 4], "abstract": "好的那条"}]})
     res = digest_segment(st, llm, _events(4))
 
     assert res.ok, res.errors
@@ -198,8 +198,8 @@ def test_slice_position_comes_from_the_skeleton(tmp_path):
     # ⚠️ 留一条好的: 全丢光 ⇒ 骨架为空 ⇒ 编排层跳过后面几轮（另一条判据）
     llm = OneRound([{"text": "她记下的那句话", "title": "抄错", "tags": ["x"]}],
                    split={"segments": [
-                       {"span": [1, 99], "keep": "temporary", "abstract": "端点抄错了"},
-                       {"span": [1, 2], "keep": "temporary", "abstract": "这一段是好的"}]})
+                       {"span": [1, 99], "abstract": "端点抄错了"},
+                       {"span": [1, 2], "abstract": "这一段是好的"}]})
     res = digest_segment(st, llm, _events(4))
 
     assert res.ok, res.errors
@@ -209,12 +209,12 @@ def test_slice_position_comes_from_the_skeleton(tmp_path):
     print(f"    有位置: 取切片的 seqs {node.event_seq} ✓")
 
 
-def _whole_segment(*, keep: str = "temporary") -> dict:
+def _whole_segment() -> dict:
     """R0 交**一条覆盖整段**的切片（`_events(4)` 的区间）—— 用于把 R0 摘出去。
 
     ⚠️ 3b-2 之后 R1 不再声明区间 ⇒ 这条切片就是唯一的位置来源。
     """
-    return {"segments": [{"span": [1, 4], "keep": keep, "abstract": "这一段"}]}
+    return {"segments": [{"span": [1, 4], "abstract": "这一段"}]}
 
 
 # ---------------------------------------------------------------------------
@@ -240,12 +240,12 @@ def test_skeptical_only_when_something_was_lost(tmp_path):
     res2 = digest_segment(st2, OneRound([{"text": "她记下的那句话", "title": "抄错",
                                           "tags": ["x"]}],
                                         split={"segments": [
-                                            {"span": [1, 99], "keep": "temporary",
+                                            {"span": [1, 99],
                                              "abstract": "端点抄错了"},
                                             # ⚠️ 留一条**好的**: 全丢光 ⇒ 骨架为空 ⇒
                                             # 编排层会跳过后面几轮（那是另一条判据,
                                             # 见 `test_empty_skeleton_stops_the_content_rounds`）
-                                            {"span": [1, 2], "keep": "temporary",
+                                            {"span": [1, 2],
                                              "abstract": "这一段是好的"}]}), _events(4))
     rows2 = _gaps(res2)
     assert rows2, "真丢了内容 ⇒ 该有一行账"
@@ -300,29 +300,29 @@ def test_collapsed_segments_are_recorded(tmp_path):
 
     ⚠️ **3b-1 换过产地**（2026-09-29）: 收口从"R1 的条目"变成"R0 的切片" ——
     切分权归切分员之后, "一章切成几件"是**切分违约**, 该在产出点当场收口。
-    判据也跟着换: **`keep` 优先, 否则跨度最长**（R0 不打分 ⇒ 不再看 `significance`）。
+    判据也跟着换: **`state=open` 优先, 否则跨度最长**（R0 不打分 ⇒ 不再看 `significance`）。
     """
     st = _wiki(tmp_path)
     llm = OneRound([{"text": "留下来的那条", "title": "写法乙",
                      "tags": ["苔藓"]}],
                    # R0 把这一章切成了两件（都落在章块 2-3 里）—— 违约, 该收口
                    split={"segments": [
-                       {"span": [2, 2], "keep": "temporary", "abstract": "写法甲"},
-                       {"span": [2, 3], "keep": "always", "abstract": "写法乙"}]})
+                       {"span": [2, 2], "abstract": "写法甲"},
+                       {"span": [2, 3], "state": "open", "abstract": "写法乙"}]})
     res = digest_segment(st, llm, _chapter_events())
 
     assert res.ok, res.errors
     dropped = _gaps(res)[0]["evidence"]["items"]["dropped"]
     assert len(dropped) == 1, dropped
     assert dropped[0]["chapter"] == "苔藓"
-    assert dropped[0]["keep"] == "写法乙"          # `keep=always` 留下（跨度也更长）
+    assert dropped[0]["winner"] == "写法乙"        # `state=open` 留下（跨度也更长）
     assert dropped[0]["lost"] == ["写法甲"]        # 另一条被丢
     # ⚠️ 丢的是"多切的一件", 内容仍被保留那条的区间覆盖（**区间并回**）⇒ **不是**"她少了什么"
     assert "skeptical" not in _gaps(res)[0]
     # ⭐ 区间并回: 保留那条的覆盖 = 整章（含被丢那条的 [2,2]）
     node = st.get(res.created[0])
     assert node.event_seq == [2, 3], f"丢掉那条的区间该并回保留那条: {node.event_seq}"
-    print(f"    一章一件: 丢 {dropped[0]['lost']}（留 {dropped[0]['keep']}）✓")
+    print(f"    一章一件: 丢 {dropped[0]['lost']}（留 {dropped[0]['winner']}）✓")
 
 
 def test_reused_node_is_recorded(tmp_path):
@@ -372,7 +372,7 @@ def test_engine_writes_the_gap_row_into_the_truth(tmp_path):
                             OneRound([{"text": "只记了前两句", "title": "前两句"}],
                                      # R0 的区间抄到时间线外 ⇒ 真丢 ⇒ 该留账
                                      split={"segments": [
-                                         {"span": [1, 99], "keep": "temporary",
+                                         {"span": [1, 99],
                                           "abstract": "抄错的那条"}]}),
                             store=st)
     engine.start_session(CHARACTER)

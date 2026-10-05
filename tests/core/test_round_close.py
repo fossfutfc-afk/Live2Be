@@ -192,7 +192,7 @@ def test_r4_runs_without_new_episodes_when_something_is_open(tmp_path):
                    {"decisions": [], "evidence": [], "affection_exp_delta": 0},
                    # span 只能指**内容事件**（note/add 是账目, 不进时间线 ⇒ 不在 `seq_set` 里）;
                    # 本用例的内容事件只有 `_mmt(3)` 那一条
-                   split={"segments": [{"span": [3, 3], "keep": "temporary",
+                   split={"segments": [{"span": [3, 3],
                                         "abstract": "这一段"}]})
 
     res = digest_segment(st, llm, _events(note, _mmt(3)))
@@ -275,7 +275,7 @@ class EngineLLM:
 
 
 def test_engine_writes_r1_kept_note_and_does_not_duplicate_on_rerun(tmp_path):
-    """⭐ 3b-3 端到端: `keep=always` 的切片 ⇒ 约定**落进真源与注入块**; **重跑不重复记**。
+    """⭐ 3b-3 / L1 端到端: `state=open` 的切片 ⇒ 约定**落进真源与注入块**; **重跑不重复记**。
 
     两条判据:
       · R1 产的 `add` 与 R4 产的那条**走同一条交付通道**（`result.notes_ops` →
@@ -294,7 +294,7 @@ def test_engine_writes_r1_kept_note_and_does_not_duplicate_on_rerun(tmp_path):
     # ⚠️ 区间要落在**本段真有的那个 seq** 上（号由 store 发 —— `append_event` 不改
     # 我们手里那个对象, 所以从真源读回来）
     seq = st.events(CHARACTER)[-1].seq
-    split = {"segments": [{"span": [seq, seq], "keep": "always",
+    split = {"segments": [{"span": [seq, seq], "state": "open",
                            "abstract": "明天把两个团子带去夏莱, 别多想"}]}
     engine.llm = EngineLLM(_a("她答应了带团子"), {"add": [], "close": []},
                            _b(["m0001"]), split=split)
