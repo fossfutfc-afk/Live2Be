@@ -2,18 +2,25 @@
 """R3 归属轮（第 3 步）的**编排**测试 —— DESIGN_GRAPH_V4 §8 / §8.3。
 
 三件事在这里被钉住:
-    ① 它排在**最后**（R1 → R4 → R2 → **R3**）—— 它要挂的是本轮**全部**新节点;
+    ① 它排在**最后**（R0 → R1 → R2 → **R3**）—— 它要挂的是本轮**全部**新节点;
     ② 它的输入 = 候选表（只有身份）+ 命中集的载荷 + 本轮新节点（本地 id）;
     ③ 没挂上不是错（**判不出来就别挂**），但**挂错**要能在 `evolution.jsonl` 里看见。
+
+⚠️ **2026-10-05 起这一轮默认暂停**（`attribute.PAUSED` —— entity 没有读侧消费者）。
+本文件测的是**这一轮的逻辑**（暂停的是"调不调", 不是"怎么算"）⇒ 下面的 autouse fixture
+把它**临时翻开**; "默认是暂停的"那条判据在 `test_digest_rounds.py`。
 """
 import sys
 from pathlib import Path
+
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from contract.digest_registry import PHASE_ATTRIBUTE, digest_registry
 from core.brain import WikiStoreV2, make_node
 from core.digest.pipeline import digest_segment
+from core.digest.rounds import attribute
 from core.brain.entities import ensure_entities, hit_set, new_nodes_block
 from core.session import make_event
 from llm import task_labels as T
@@ -21,6 +28,12 @@ from tests import stub_tasks
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 CHAR = "c"
+
+
+@pytest.fixture(autouse=True)
+def _unpause(monkeypatch):
+    """本文件的用例都在测 R3 **本身**的判据 ⇒ 把暂停翻掉（默认值见 `test_digest_rounds`）。"""
+    monkeypatch.setattr(attribute, "PAUSED", False)
 
 
 class AttrLLM:

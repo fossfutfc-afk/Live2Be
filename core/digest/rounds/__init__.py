@@ -285,7 +285,10 @@ ROUNDS: tuple[RoundSpec, ...] = (
             ("edge", ("about",)),
         ),
         result_fields=(*CONTRACT_FIELDS, "created_entities"),
-        skip="本段没有新节点可归属",
+        skip=("⏸ 2026-10-05 暂停: entity 那条链路没有读侧消费者 —— 注入四桶里没有它、"
+              "`read/` 对它零引用, 而它每段付一次调用。两件活并进 M3 的两趟"
+              "（attach→第一趟 · entity 摘要/state→第二趟）。重开判据: ① wiki 大到全量"
+              "注不进去 ② 要做动态成长线呈现; ⚠️ 重开只对以后生效（历史归属要补脚本）"),
     ),
     RoundSpec(
         key="group",
