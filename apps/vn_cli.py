@@ -420,11 +420,11 @@ def wrapup_after_vn(engine: MomoTalkEngine,
     char = engine.current_character
     if pending_check is not None and pending_check():
         if completed:
-            engine.async_digest()             # 剧情已完整闭环, 照常消化
+            engine.async_digest_after_vn()    # 已完整闭环: 消化 + ⭐S3 清零轮数
         return
     if char is None:
         if completed:
-            engine.async_digest()
+            engine.async_digest_after_vn()    # ⭐ S3: 消化 + 清零 mmt 轮数
         return
     # 统一上下文窗口（2026-09-05）: bond 期间 momotalk 引擎未跑——收尾前把
     # 事件流（含刚结束的 bond 场景叙事）灌进 _history, 收尾话自然接续剧情
@@ -464,7 +464,7 @@ def wrapup_after_vn(engine: MomoTalkEngine,
     except Exception as e:
         print(f"[系统] 羁绊剧情收尾回复失败: {e}")
     if completed:
-        engine.async_digest()                 # 仅完整剧情消化（中断不提炼）
+        engine.async_digest_after_vn()        # 仅完整剧情消化（中断不提炼）+ ⭐S3 清零
 
 
 # ⚠️ C11: `_trigger_title` 见文件头的 import（真家 = `core.director.wiring`）。

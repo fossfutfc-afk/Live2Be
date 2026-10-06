@@ -558,7 +558,8 @@ def _wrapup_inner(char_id: str, session_id: str, title: str, completed: bool) ->
     2026-09-05: reason 退役——收尾前给引擎灌统一窗口（事件流含刚结束的 bond
     场景叙事, agent_turn 的 AI 知道这段剧情讲了什么）; title 仅兜底引用。
     completed=True（剧情 story_end 自然结束）: 话术按"完整剧情"收尾 +
-    async_digest（提炼 + 好感结算——digest 唯一触发点）。
+    async_digest_after_vn（提炼 + 好感结算 + **清零 mmt 轮数** —— digest 在 VN 侧的
+    唯一触发点）。
     completed=False（玩家中途退出）: 话术明确"剧情只进行到一半"（防 LLM 脑补
     未发生的剧情结果）+ **不 digest**（记忆只反映完整剧情段——中断不提炼,
     未消化的 mmt 留到下次完整剧情段一起消化, 增量幂等）。
@@ -586,7 +587,7 @@ def _wrapup_inner(char_id: str, session_id: str, title: str, completed: bool) ->
     char = engine.current_character
     if char is None:
         if completed:
-            engine.async_digest()
+            engine.async_digest_after_vn()   # ⭐ S3: 消化 + 清零 mmt 轮数
         return
     # 统一上下文窗口: bond 期间 momotalk 引擎未跑——收尾前把事件流（含刚结束的
     # bond 场景叙事）灌进 _history, 收尾话自然接续剧情（起因便签不再需要）
@@ -637,4 +638,6 @@ def _wrapup_inner(char_id: str, session_id: str, title: str, completed: bool) ->
         # digest 唯一触发点——completed 只可能来自自然 story_end（N_a 语义修正
         # 后异常/中止永不置位）; 中断（completed=False）不提炼, wiki 只反映
         # 完整剧情段
-        engine.async_digest()
+        # ⭐ S3（2026-10-06）: 走"消化 + 清零 mmt 轮数"那个入口 —— 否则章刚消化完,
+        # 轮数照数、到点**又**消化一次（真机 m0015/m0016 相隔 2 分钟那个形状）。
+        engine.async_digest_after_vn()
