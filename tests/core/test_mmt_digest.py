@@ -224,3 +224,60 @@ def test_session_rounds_restored_across_reattach(tmp_path):
     engine.attach_session(sid)
     assert engine._session_rounds == 0
     print("    E11: 轮数跨重连恢复（3 → 重连 3 → 续聊 4）; 无 store/空会话降级 0")
+
+
+def test_vn_close_digest_resets_the_mmt_round_counter(tmp_path):
+    """⭐ S3（2026-10-06）: **VN 闭环那次消化要把 mmt 轮数计数清零**。
+
+    病根（真机 haruka）: 章4 在 seq 200 闭环消化一次, 轮数**照数** ⇒ 紧接着到
+    `MMT_DIGEST_INTERVAL` 的整数倍**又消化一次** —— `m0015`(22:47) / `m0016`(22:45)
+    **相隔 2 分钟**, 同一段聊天被劈成两条 episode。
+    修法 = 那条路径清零 ⇒ 语义变成"**VN 之后重新数 40 轮**"。
+    """
+    engine, st, _llm = _engine(tmp_path)
+    _mmt_event(st, CHARACTER, 1)
+
+    fired: list[int] = []
+    engine.async_digest = lambda: fired.append(1)     # 记"还会不会再消化一次"
+
+    # 到点之前 VN 闭环 ⇒ 计数清零（且它自己消化一次）
+    engine._session_rounds = MMT_DIGEST_INTERVAL - 1
+    engine.async_digest_after_vn()
+    assert engine._session_rounds == 0, engine._session_rounds
+    assert fired == [1], "VN 闭环本身要消化一次"
+
+    # 之后 39 轮**不该**再消化（这正是修复的行为: 从前它会立刻到点）
+    for _ in range(MMT_DIGEST_INTERVAL - 1):
+        engine._session_rounds += 1
+        engine._maybe_mmt_digest()
+    assert fired == [1], f"清零之后不该马上又消化: {len(fired)} 次"
+
+    # 数满 40 ⇒ 照常触发
+    engine._session_rounds += 1
+    engine._maybe_mmt_digest()
+    assert fired == [1, 1], "数满 40 轮必须照常触发"
+
+
+def test_mmt_side_digest_does_not_reset_the_counter(tmp_path):
+    """⚠️ S3 的另一半: **纯 MMT 那侧不清零**（清了就与重启恢复的语义打架）。"""
+    engine, st, _llm = _engine(tmp_path)
+    _mmt_event(st, CHARACTER, 1)
+    engine.async_digest = lambda: None
+    engine._session_rounds = MMT_DIGEST_INTERVAL
+    engine._maybe_mmt_digest()
+    assert engine._session_rounds == MMT_DIGEST_INTERVAL, \
+        "纯 MMT 触发后计数照走（下次数满 80 再触发）"
+
+
+def test_vn_close_paths_only_use_the_resetting_entry():
+    """⚠️ **结构性守门**: 两条 VN 收尾路径**只许**调 `async_digest_after_vn()`。
+
+    漏一处 = 那条路径又不清零了 —— 而 S3 的病根正是"VN 侧不清零"。
+    只扫这两个产品文件（`experiments/` 那些不是产品路径）。
+    """
+    for rel in ("webgui/bond/api.py", "apps/vn_cli.py"):
+        src = (ROOT / rel).read_text(encoding="utf-8")
+        assert "engine.async_digest_after_vn()" in src, f"{rel}: VN 收尾没走清零入口"
+        assert "engine.async_digest()" not in src, \
+            f"{rel}: 还在直呼 async_digest —— 那条路径不清零"
+    print("    结构: 两条 VN 收尾路径都走 async_digest_after_vn ✓")

@@ -871,6 +871,26 @@ class MomoTalkEngine:
             target=self._run_digest, args=(char_id, self._session_id), daemon=True,
         ).start()
 
+    def async_digest_after_vn(self) -> None:
+        """⭐ S3（2026-10-06）: **bond 闭环**那一次消化 —— 消化 + 把 mmt 轮数计数清零。
+
+        为什么清零: 两个触发点共用 `_session_rounds`, 而 VN 这条路径从前**不碰它**
+        ⇒ 章刚消化完, 轮数照数; 若紧接着到 `MMT_DIGEST_INTERVAL` 的整数倍, **又消化一次**
+        —— 两次挨得很近, 同一段聊天被劈成两条 episode。
+        真机 haruka 就是这个形状: `m0015`(22:47) / `m0016`(22:45) **相隔 2 分钟**,
+        区间范围套在一起（`event_seq` 不交 ⇒ 不重复, 只是被劈成两半）。
+        清零后的语义 = "**VN 之后重新数 40 轮**"。
+
+        ⚠️ **清零点只在 VN 这条路径**（用户裁决 2026-10-06）: 纯 MMT 侧不动
+        （还是"本会话轮数的整数倍"）。两边都清会把判据变成"距上次消化满 40 轮",
+        而重启恢复（`_count_session_turns`）数的是**本会话总轮数** ⇒ 两种语义会打架。
+
+        ⚠️ 形状与 `async_digest` 一致（**实例属性查找**）⇒ 测试里 monkeypatch
+        `async_digest` 仍然拦得住（见 `tests/webgui/test_web_http.py`）。
+        """
+        self._session_rounds = 0
+        self.async_digest()
+
     def _maybe_mmt_digest(self) -> None:
         """mmt 窗口触发检查（每轮落盘后调用; 蓝图 §3.1 N=25）:
 
