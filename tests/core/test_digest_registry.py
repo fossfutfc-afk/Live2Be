@@ -313,7 +313,9 @@ def test_split_prompt_does_not_restate_the_schema_criteria():
                    "夸奖与安慰", "三个去处", "她还会不会一直带着它",
                    "这一段结束时还开着", "没有那一刻",
                    # ⭐ S1（2026-10-06）: "一件 = 一场戏" 那套判据也不许抄进 prompt
-                   "一次见面 / 一段连续聊天", "都还是同一件事", "另一件事真的开始了"):
+                   "一次见面 / 一段连续聊天", "都还是同一件事", "另一件事真的开始了",
+                   # ⭐ S2（2026-10-06）: "没结束的那一截可以留着" 同样只在契约层
+                   "最后那一截"):
         assert phrase not in raw, (
             f"判据原文 {phrase!r} 出现在 prompt 文件里了 —— 它只该在契约层"
             "（`STATE_SEMANTICS` / `CLOSE_SEMANTICS` …）。两处各写一份 = 迟早强度不一。")
@@ -356,6 +358,23 @@ def test_split_says_one_scene_is_one_item():
     assert "一场戏 = 一行" in raw
     spans = re.findall(r'"span": \[(\d+), (\d+)\]', raw)
     assert any(a != b for a, b in spans), "示范里必须有一条**跨多行**的 span"
+
+
+def test_split_lets_the_unfinished_tail_wait():
+    """⭐ S2（2026-10-06）: **没结束的那一截可以留着不写** —— 下次跟后文连成一件。
+
+    为什么要有这条出口: R0 拿到的窗口是"数到就切"出来的 ⇒ 一场戏可能正说到一半;
+    硬给它一个收尾, 那半件事就变成**一条闭合的假记忆**（她以后召回它, 会以为事情完了）。
+
+    ⚠️ 但**不能无限拖**: 窗口超 `DIGEST_WINDOW_EVENTS_CAP`(120) 会丢**最老的未认领**
+    ⇒ 契约写的是"**明显**没结束才留", 不是"拿不准就留"。
+    ⚠️ 这条**只在契约层** —— prompt 不许抄（见 `test_split_prompt_...` 的黑名单）。
+    """
+    mmt = digest_registry.build_schema(PHASE_SPLIT, domain="mmt")
+    both = digest_registry.build_schema(PHASE_SPLIT, domain="bond")
+    assert "最后那一截如果明显还没结束" in mmt
+    assert '只有"明显"才留' in mmt
+    assert "最后那一截明显没结束" in both      # 三条判据那块两个段类型共用
 
 
 def test_the_output_discipline_lives_only_in_the_contract():

@@ -34,7 +34,7 @@
 | 步 | 状态 | 一句话 | 落点 | 验收 | 依赖 | 体量 |
 |---|---|---|---|---|---|---|
 | **S1** | ✅ **已落地**（`04796f3`）| **R0 判据：一件 = 一场戏**（段内换话题不算）+ 收紧尺子 + 收回 `MAX_SEGMENTS` | `contract/digest_registry.py` · `llm/prompts/digest_split.md` | 真机「每段件数」2 → **1**；「相邻相接率」9/17 → 接近 0 | — | 小 |
-| **S2** | ⬜ | **尾巴**：没结束的戏留到下一次（契约 + 校验 + 料 + 台账口径）| 契约 · `core/digest/material.py` · `segment.py::_coverage` · `split.py` 日志 | 「尾部未认领 ⇒ 放过」+「中间有洞 ⇒ 拒」两条对立用例 | S1 | 中 |
+| **S2** | ✅ **已落地**（`f5ecba4`）| **尾巴**：没结束的戏留到下一次（契约 + 台账口径；⭐ 查实**没有硬校验**要放宽 · 料标记按判据划掉）| 契约 · `segment._tail_and_holes` · `split.py` 日志 | 「尾部未认领 ⇒ 放过」+「洞 ⇒ 记账」两条对立用例 | S1 | 中 |
 | **S3** | ⬜ | **段边界**：纯 MMT 按「**回看消息间隔**」分段（有 bond 照旧）| `core/digest/segment.py` · `pipeline.py` · `mmt/engine.py` 的 `MMT_DIGEST_INTERVAL`（40 → 兜底上限）| 两个消息簇（隔 2 小时）⇒ **两段**；连续对话 ⇒ **一段** | — | 中 |
 | **S4** | ⬜ | **召回不半截**：按段召回 + 按群扩展召回（**零新边**）；`continues` **只记账** | `core/brain/read/`（recall/channels/compose）+ 台账 | 命中一条 ⇒ 输出里出现**同段/同群**的其余条；断言**没有新增 rel** | **S3** | 中 |
 | **S5** | ⬜ | **M3**：拆 R2 + `topics`/`on` | 见 `TODO_DIGEST_LEDGER` 的 M3 行 + 规格 §5 | 同那份 TODO | S1–S4 | 大 |

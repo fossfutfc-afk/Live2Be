@@ -94,7 +94,9 @@ def _expand_spans(entries: list[dict], seq_set: set[int]) -> tuple[list[int], in
     「约老师来看苔藓」`[208..235]` 与 `m0016`「老师说我很重要」`[214..223]` **整段嵌套**;
     裁掉"先到先得"会让 `m0016` 丢掉它**唯一的位置证据**）。
     而"未认领"才是真病 —— 真机 218 条内容事件里 **70 条（32%）没进任何记忆**。
-    ⭐ 3b-2 起切分契约要求**覆盖全部** ⇒ 未认领恒为 0 才是健康; 非 0 = 契约没压住。
+    ⭐ 3b-2 起切分契约要求**覆盖全部**; ⭐ **S2（2026-10-06）改成"覆盖到一件事讲完为止"**:
+    ⇒ **洞恒为 0 才是健康**（洞**不会**被重喂）; **尾部 > 0 是合法欠账**（下段自动重喂）。
+    ⚠️ 但尾巴不能无限拖: 窗口超 `DIGEST_WINDOW_EVENTS_CAP` 会丢**最老的未认领**。
     """
     counts: dict[int, int] = {}
     for ent in entries:
@@ -161,6 +163,26 @@ def _coverage(entries: list[dict], seq_set: set[int], chapters: list[dict]
     chapter_seqs = (frozenset().union(*[c["seqs"] for c in chapters])
                     if chapters else frozenset())
     return unclaimed, sorted(s for s in unclaimed if s in chapter_seqs)
+
+
+def _tail_and_holes(unclaimed: list[int], seq_set: set[int]) -> tuple[list[int], list[int]]:
+    """把未认领拆成**尾部**与**洞**（S2 · 2026-10-06 —— 判据见本模块头）。
+
+    · **尾部** = 在 `seq_set` 的序里从**末尾往前连续**的那一截 ⇒ 被水位"欠着"
+      （`_next_watermark` 只推到覆盖到的最大 seq）⇒ **下一次自动重喂**;
+    · **洞** = 其余 ⇒ ⚠️ **不会被重喂**（水位一次推过去就不回来）⇒ **洞恒为 0 才是健康**。
+
+    ⚠️ 连续性看的是 **`seq_set` 的序**, 不是整数相邻 —— `seq_set` 只收内容事件
+    （marker / 账目不在里面 ⇒ 会跳号）。
+    """
+    bad = set(unclaimed)
+    ordered = sorted(seq_set)
+    cut = len(ordered)
+    while cut > 0 and ordered[cut - 1] in bad:
+        cut -= 1
+    tail = ordered[cut:]
+    tail_set = set(tail)
+    return tail, [s for s in sorted(bad) if s not in tail_set]
 
 
 def _brief(e: dict) -> str:

@@ -1200,6 +1200,26 @@ def test_expand_spans_fills_gap_and_keeps_the_span():
     print("    _expand_spans: 填缺口 / 保留 span / 未认领 / 共享只记账 / 旧形状不动")
 
 
+def test_tail_and_holes_split_the_unclaimed():
+    """⭐ S2（2026-10-06）: 未认领分**尾部**（会重喂）与**洞**（不会重喂）—— 判据**纯计算**。
+
+    为什么值得单独一条: 水位 = "她覆盖到的**最大** seq" ⇒ 末尾那一截被"欠着"、下段重喂;
+    而**中间缺的那一段永远不回来**。两者混在一个 `未认领=` 里, 日志就看不出
+    "这是正常欠账"还是"契约没压住" —— 而 S2 之后, **尾部 > 0 是合法的**。
+    """
+    from core.digest.segment import _tail_and_holes
+
+    seq_set = {4, 5, 6, 7, 8, 9}
+    assert _tail_and_holes([7, 8, 9], seq_set) == ([7, 8, 9], [])          # 纯尾部
+    assert _tail_and_holes([5, 6], seq_set) == ([], [5, 6])               # 纯洞
+    assert _tail_and_holes([5, 6, 8, 9], seq_set) == ([8, 9], [5, 6])     # 各归各
+    assert _tail_and_holes([], seq_set) == ([], [])                       # 全覆盖
+    assert _tail_and_holes([4, 7, 8], {4, 5, 6, 7, 8}) == ([7, 8], [4])   # 洞在前、尾在后
+    # ⚠️ 判据是"seq_set 的序", 不是整数相邻
+    assert _tail_and_holes([7, 8], {4, 6, 7, 8}) == ([7, 8], [])
+    print("    _tail_and_holes: 尾部(重喂) vs 洞(不重喂) 分得开")
+
+
 def test_span_expansion_runs_before_bond_collapse():
     """⚠️ **结构性守门**: `_expand_spans` 必须排在 `_collapse_bond_episodes` **之前**。
 
