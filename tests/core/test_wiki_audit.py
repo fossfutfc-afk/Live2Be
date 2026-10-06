@@ -19,7 +19,7 @@ def _store(tmp_path) -> WikiStoreV2:
     st.add(make_node("episode", text="拆炸弹初遇", event_seq=[1]))
     st.add(make_node("belief", text="老师是第一个不会嫌弃我的人", subject="sensei",
                      significance=0.9, event_seq=[1]))
-    st.add(make_node("experience", text="提到工作繁忙", subject="sensei",
+    st.add(make_node("profile", text="提到工作繁忙", subject="sensei",
                      significance=0.85, event_seq=[1]))
     st.add(make_node("episode", text="出厂经历", significance=0.9))
     st.add_edge("supports", "m0001", "m0002")

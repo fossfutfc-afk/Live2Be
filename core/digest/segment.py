@@ -195,7 +195,7 @@ def _collapse_bond_episodes(entries: list[dict], chapters: list[dict], *,
       照常留着（把整段压成 1 条会把聊天里的记忆一起丢掉）;
     * 窗口还可能有**多章**（水位清空后必然）—— **每章各留 1 条**。
 
-    `kind == "experience"`（玩家画像）不算 —— 它是 R1 的产物, 到这一步还不存在;
+    `kind == "profile"`（玩家画像）不算 —— 它是 R1 的产物, 到这一步还不存在;
     这条判据留着是为了 `_create_a_nodes` 的旧路径（老调用方直接喂条目的场合）。
 
     为什么丢弃而不是合并文本: 合并是创作（要 LLM）, 引擎只做判定。
@@ -217,7 +217,7 @@ def _collapse_bond_episodes(entries: list[dict], chapters: list[dict], *,
         if not seqs:
             continue
         group = [e for e in entries
-                 if e.get("kind") != "experience" and _in_seqs(e, seqs)]
+                 if e.get("kind") != "profile" and _in_seqs(e, seqs)]
         if not group:
             continue
         keep = max(group, key=_chapter_pick)

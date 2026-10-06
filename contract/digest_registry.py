@@ -349,7 +349,7 @@ RECORD_EPISODE = DigestAction(
         '    {  // 一条记录; ⭐ **骨架里有几条切片就给几行, 按顺序对应**（`drop` 的除外;\n'
         '      // ⭐ **也不必都写** —— 不是硬性一一对应）//\n'
         '      // ⚠️ **默认就是"经历", 不用写 `kind`**（2026-09-29）—— 只有**例外**才写:\n'
-        '      "kind": "experience",  // 可选; 只在"**玩家画像**"那一条上写\n'
+        '      "kind": "profile",  // 可选; 只在"**玩家画像**"那一条上写\n'
         '                            //（玩家口癖/偏好/一次性个人信息——text 写画像句,\n'
         '                            //  subject 不用填, 引擎固定为 player）//\n'
         '      "drop": true,       // 可选; **这一条切片不记**（只有真的没什么可记时才用:\n'
@@ -1214,12 +1214,12 @@ class DigestRegistry:
                     item["patch"] = patch
             else:  # add
                 kind = str(row.get("kind", "belief")).strip()
-                # ⚠️ **只有 belief**（2026-09-25, DESIGN_GRAPH_V4 §5.1）: `experience`
+                # ⚠️ **只有 belief**（2026-09-25, DESIGN_GRAPH_V4 §5.1）: `profile`
                 # 已定名 **玩家画像专用**（"关于老师的事"），写者只有第 1 轮 ⇒ 这一轮
                 # 想写"反复出现的模式"就写成 **belief 的模式句**（§9-10）。
                 if kind != "belief":
                     errors.append(f"decisions[{i}].kind 非法: {kind!r}（只有 belief ——"
-                                  " 模式也写成 belief 的模式句; experience 是玩家画像专用，"
+                                  " 模式也写成 belief 的模式句; profile 是玩家画像专用，"
                                   " 由第 1 轮产出）")
                     continue
                 item["kind"] = kind
@@ -1434,12 +1434,12 @@ def _clean_episode(e: Any, i: int, seq_set: set[int] | None = None,
         if item is not None:
             item["kind"] = "episode"
         return item, errors, warnings
-    if kind == "experience":
+    if kind == "profile":
         # 玩家画像条目（MMT 专则, 2026-09-02）: text 必填, subject 引擎固定 player
         text = _read_text(e, i, warnings)
         if not text:
             return None, [f"episodes[{i}]: kind=experience（玩家画像）必须填 text"], []
-        item: dict = {"kind": "experience", "text": text,
+        item: dict = {"kind": "profile", "text": text,
                       "subject": PLAYER_SUBJECT}
         # 画像条目无 episode 载体——原话同样走**记录行号**（玩家那句 = `[N.0]`）
         _fill_verbatim(item, e, i, warnings, seq_set, drops=drops)
@@ -1454,7 +1454,7 @@ def _clean_episode(e: Any, i: int, seq_set: set[int] | None = None,
         item["significance"] = max(0.0, min(1.0, sig_f))
         return item, errors, warnings
     return None, [f"episodes[{i}].kind 非法: {kind!r}（不写 = 经历; 只有"
-                  f"「玩家画像」才写 'experience'）"], []
+                  f"「玩家画像」才写 'profile'）"], []
 
 
 def _norm_index(raw: Any) -> str | None:

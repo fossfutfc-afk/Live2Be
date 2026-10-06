@@ -1,8 +1,9 @@
 """图式 wiki 节点（AGENT_BRAIN.md §1）。
 
-三种 kind（2026-09-02 fact 退役——记忆 = 经历 + 认知）:
+五种 kind（2026-09-02 fact 退役——记忆 = 经历 + 认知; 2026-10-06 经验/profile 定名）:
     episode    一次性经历（text 第一人称浓缩 + verbatim 原话; 质感优先不升华）
-    experience 重复模式（text 写规律）; subject="player" = 玩家口癖/画像（R5）
+    experience 一类事（"经验"）; title = 类名, text = 这一类事的沉淀（允许空）; 成员走 member_of
+    profile    玩家画像（"关于老师的事"）; subject="player"（2026-10-06 前叫 experience）
     belief     抽象认知（text 写结论; links ≥1 支撑; 可选 growth 成长方向）
 
 不变量（validate/normalize 强制）:
@@ -11,7 +12,7 @@
     - belief **不许带 `observer`**（"认知不伪装成事实"在新词汇下的同一条护栏）
     - belief 必须有 `supports` 入边 —— ⚠️ 2026-09-21（G3）**搬到 `store.audit()`**:
       支撑关系住在边表里, 字段级校验看不见它
-    - experience.examples ≤ 3
+    - profile.examples ≤ 3
     - significance ∈ 0~1, 珍贵档 ≥ PRECIOUS_THRESHOLD(0.8); 越界 clamp
     - 去重键 = (kind, event_seq 有交集, 主文本相同) —— `revise._find_duplicate`
 
@@ -33,14 +34,16 @@ from dataclasses import dataclass, field
 from typing import Any
 
 #: 节点类型（fact 已退役, 2026-09-02——出厂与 digest 同构: 记忆 = 经历 + 认知）
-#: ⭐ **`group` 2026-09-29 加入**（N1b · `DESIGN_MMT_NEW_ACTION §4.5`）: **群**是 L2 归纳出来的
+#: ⭐ **`experience` 2026-10-06 定名**（原 `group` · N1b · `DESIGN_MMT_NEW_ACTION §4.5`）: **经验**是 L2 归纳出来的
 #: "一类事"，成员靠 `member_of` 边指过来（**不在节点上存列表** —— 成员会生长、各有自己的 `ts`）。
 #: ⚠️ **它只装"名字 + 成员"，不装"关键信息"** —— "这一类说明了什么"是 **belief** 的活;
 #: 两处都写就是双真源，L2 改了 belief 那份不会跟着改（必漂）。
+#: ⭐ **`profile`（2026-10-06 从 `experience` 改名）** = **玩家画像专用**（"关于老师的事",
+#: `subject` 恒 `player`）—— 名字让给了"经验"（见 `docs/DESIGN_MEMORY_MODES.md` §3）。
 #: ⏸ **`promise` 2026-09-25 加入、2026-09-29 退役**（用户裁决: 承诺太轻, 不足以长期记录）——
 #: 它**退出了图**（连同 `from`/`to`/`formed_by` 三条专属边），只留在 note 里当工作记忆
 #: （`notes.SLOT_PINNED` = 她此刻还背着的事）; "这条经历涉及约定"由 `tags` 承担（只做筛选）。
-KINDS = ("episode", "experience", "belief", "entity", "group")
+KINDS = ("episode", "experience", "belief", "entity", "profile")
 #: ⏸ `PROMISE_OUTCOMES`（`kept`/`broken`/`superseded`）**2026-09-29 退役** —— 它是 promise
 #: 节点的 `outcome` 字段的枚举。结局本身没消失: 它留在 note 条目的 `state` 里
 #: （真源 = `notes` 那一份词表）。
@@ -53,22 +56,22 @@ KINDS = ("episode", "experience", "belief", "entity", "group")
 #: 信息不丢: "听说的"那一条本来就带 `observer`（真机 reported 1/20, 且带转述者）。
 #: 珍贵档阈值（保底通道 / 对应 neuron 草稿的 memo 档）
 PRECIOUS_THRESHOLD = 0.8
-#: player experience 的 subject 固定值（玩家口癖/习惯, R5）
+#: player profile 的 subject 固定值（玩家口癖/习惯, R5）
 PLAYER_SUBJECT = "player"
 
 #: 各 kind 的必填字段（validate 用; 正文统一叫 `text`）
 _REQUIRED: dict[str, tuple[str, ...]] = {
     "episode": ("text",),
-    "experience": ("text", "subject"),
+    "profile": ("text", "subject"),
     "belief": ("text",),
     # ⚠️ entity **只要求 `name`** —— `text`（立场/成长基线）允许空着出生:
     # `ensure_entities` 建 self/sensei 时还没有任何记忆, 立场是第 3 轮从记忆里长出来的。
     "entity": ("name",),
-    # ⭐ group: **只要 `title`（类名）** —— `text` 允许空（同 entity）:
+    # ⭐ experience（经验）: **只要 `title`（类名）** —— `text` 允许空（同 entity）:
     # 群上不放"关键信息"，判断归 belief（见 `KINDS` 的注释）。
     # ⚠️ `title` 的唯一性今天**还没强制**（契约未查）；`look` / `noticed` 命中歧义时
     # 一律"不猜"（落到检索 / 丢弃），所以缺唯一性只影响命中率，不影响正确性。
-    "group": ("title",),
+    "experience": ("title",),
 }
 
 
@@ -86,9 +89,9 @@ class BrainNode:
                 event_seq / ts
         episode title / verbatim / verbatim_seq / emo_shape / place / place_raw /
                 aff_at_encoding / emo_int / emo_span
-        认知     subject / examples / growth        （experience / belief）
+        认知     subject / examples / growth        （profile / belief）
         entity  name / aliases / state             （`text` = 立场/成长基线, 属共用槽）
-        group   title                              （类名; `text` 允许空, 同 entity）
+        experience title                              （类名; `text` 允许空, 同 entity）
     """
 
     # ── 共用（三种 kind 都有）──
@@ -106,7 +109,7 @@ class BrainNode:
     # `soul/edges.jsonl`（类型化 + 有向 + 三索引）。旧档盘上还留着这两个键,
     # 由 `graph.infer_edges(rows)` 在**文件格式层**读一次（自举）, 与节点对象无关。
     #: **这条记忆的正文**（三种 kind 共用一槽; 原 `narration`/`pattern`/`content` 2026-09-21 合流）。
-    #: 写作口径仍按 kind 分（episode=第一人称浓缩 / experience=规律 / belief=结论）——那是
+    #: 写作口径仍按 kind 分（episode=第一人称浓缩 / profile=画像 / belief=结论）——那是
     #: rules/schema 的语义, 不再由字段名承担。旧档的旧名由 `from_dict` 兼容读入。
     #: ⭐ **entity 也用这一槽**：它的 `text` = **立场 / 成长基线**（原 `overview` 的语义,
     #: 2026-09-21 用户裁决"overview 就是 text"）—— 所以 entity 不新增字段、`text` 也不必
@@ -140,7 +143,7 @@ class BrainNode:
     #: 而兔子玩偶 = 黑色兔子）⇒ 那件事该由专门的**物品面**（`inventory` 旁路）承担,
     #: 不该由一条自由文本承担。⚠️ 旧档里那两处值（haruka `m0009`/`m0017`）已随清理删掉。
     #: 别把字段加回来 —— 要物品面就起旁路, 那要**身份**（有 id、有增删、有当前持有）。
-    # ── 认知专属（experience / belief）──
+    # ── 认知专属（profile / belief）──
     subject: str = ""
     examples: list[str] = field(default_factory=list)
     growth: str = ""
@@ -190,11 +193,11 @@ class BrainNode:
         # 住在边表（`edges.jsonl` 的 `supports` 入边）, 字段级校验看不见它。新家两处:
         # ① 写路径 `revise.apply_decisions` 建完节点立刻补 `supports` 边;
         # ② 全局兜底 `store.audit()`（"belief 无支撑"）。
-        # ⏸ 原「episode/experience 的 epistemic 只能是 observed/reported」2026-09-29 删 ——
+        # ⏸ 原「episode/profile 的 epistemic 只能是 observed/reported」2026-09-29 删 ——
         # 那一格今天由 `observer` 承担（空/非空两态 ⇒ 不存在"第三种值"要拒）。
         # 数量边界
-        if self.kind == "experience" and len(self.examples) > 3:
-            errors.append("experience.examples 最多 3 条")
+        if self.kind == "profile" and len(self.examples) > 3:
+            errors.append("profile.examples 最多 3 条")
         # ⏸ 原「promise.outcome 枚举校验」2026-09-29 删 —— promise 退图 ⇒ 节点上没有结局字段;
         # 结局今天住在 note 条目的 `state`（那里的枚举校验仍在 `notes`）。
         # significance 边界（decimal 0~1）
@@ -205,7 +208,7 @@ class BrainNode:
     def normalize(self) -> "BrainNode":
         """引擎侧归一: significance clamp 0~1; examples 截断 3。"""
         self.significance = max(0.0, min(1.0, float(self.significance)))
-        if self.kind == "experience":
+        if self.kind == "profile":
             self.examples = self.examples[:3]
         return self
 
@@ -219,8 +222,8 @@ class BrainNode:
         return self.significance >= PRECIOUS_THRESHOLD
 
     @property
-    def is_player_experience(self) -> bool:
-        """玩家画像节点（"关于老师的事"）—— ⭐ **就是 `kind == "experience"`**。
+    def is_player_profile(self) -> bool:
+        """玩家画像节点（"关于老师的事"）—— ⭐ **就是 `kind == "profile"`**（2026-10-06 前叫 `experience`）。
 
         ⚠️ **2026-09-25 改**（DESIGN_GRAPH_V4 §5.1）: 原先还要求 `subject == "player"`，
         而 `subject` 是**自由文本** ⇒ 真机 haruka 那条（`subject="关于 我道歉的习惯"`，
@@ -229,7 +232,7 @@ class BrainNode:
         `subject` 由写侧强制成 `PLAYER_SUBJECT`（`digest._create_a_nodes`），
         但它不再决定"看不看得见"。
         """
-        return self.kind == "experience"
+        return self.kind == "profile"
 
     # ⏸ `count` 属性 2026-09-21（G3）**删** —— 它原是 `len(links)` 的派生属性, 而
     # `links` 已停止写入（边搬到 `edges.jsonl`）⇒ 留着它只会恒返回 0（静默假数据）。

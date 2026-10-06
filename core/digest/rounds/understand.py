@@ -37,7 +37,7 @@ def run(ctx: Ctx) -> RoundOut:
     # ⚠️ `links` 认的 id 集今天 = 可 touch 的看法（承诺退图后不再有第二种端点）;
     # 那个"两个 id 空间故意不同"的口径见 `parse_round_b` 的 `link_ids`。
     target_ids = {local for real, local in local_of.items()
-                  if getattr(ctx.store.get(real), "kind", "") in ("belief", "experience")}
+                  if getattr(ctx.store.get(real), "kind", "") in ("belief", "profile")}
     link_ids = set(local_of.values())
     ep_text = _round_b_material(ctx.store, ctx.episode_ids, local_of,
                                 embed_fn=ctx.embed_fn,

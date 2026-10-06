@@ -95,12 +95,12 @@ def _create_a_nodes(store: WikiStoreV2, entries: list[dict], *, ts: str,
     episode_ids: list[str] = []
     player_ids: list[str] = []
     for ent in entries:
-        if ent.get("kind") == "experience":
+        if ent.get("kind") == "profile":
             # ⚠️ `subject` **强制**成 `player`（§5.1）: `experience` 只有一个意思
             # （"关于老师的事"），而 `subject` 是自由文本 —— 契约层已经强制过一次,
             # 这里再强制一次是因为**可见性曾经挂在它上面**（真机 haruka e0001 就是
             # 被一个自造的 subject 藏起来的）。别再让它有第二个写者。
-            node = make_node("experience",
+            node = make_node("profile",
                              text=ent["text"], subject=PLAYER_SUBJECT,
                              verbatim=ent.get("verbatim", ""),
                              verbatim_seq=ent.get("verbatim_seq", []),

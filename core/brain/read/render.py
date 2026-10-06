@@ -110,15 +110,15 @@ def render_organize_view(nodes: Iterable[BrainNode], *, timeline: str = "",
 def _organize_line(node: BrainNode, graph=None) -> str:
     """一行: `m0003 [episode, sig 0.80, edges: supports→m0009 contradicts→m0005] 内容`。
 
-    player experience 的 kind 标签带 [关于老师]。
+    player profile 的 kind 标签带 [关于老师]。
     ⚠️ 边的**类型印出来**（G3）—— 旧版印的是无类型的 `links: m0009` + `c: m0005`,
     "谁支撑谁"读不出来; 现在 `supports→m0009` 一眼可判方向。
     """
     meta = [node.kind]
-    if node.is_player_experience:
-        meta[0] = "experience·关于老师"
+    if node.is_player_profile:
+        meta[0] = "profile·关于老师"
     meta.append(f"sig {node.significance:.2f}")
-    if node.kind == "experience":
+    if node.kind == "profile":
         meta.append(f"count {_count_of(node, graph)}")
     if graph is not None:
         # 出边（我指向谁）+ 入边（谁指向我）——无向边的时代两边都有, 这里都印
@@ -136,14 +136,14 @@ def _organize_line(node: BrainNode, graph=None) -> str:
 
 
 def _organize_extra(node: BrainNode) -> str:
-    """续行（缩进引文）: episode 的 verbatim / experience 的 examples（最多 2 条）。
+    """续行（缩进引文）: episode 的 verbatim / profile 的 examples（最多 2 条）。
 
     原文已带「」时不重复包裹（防双重引号）。
     """
     quotes: list[str] = []
     if node.kind == "episode" and node.verbatim:
         quotes.append(node.verbatim)
-    elif node.kind == "experience":
+    elif node.kind == "profile":
         quotes.extend(node.examples[:2])
     if not quotes:
         return ""
@@ -209,7 +209,7 @@ def _bucket_view(nodes: Iterable[BrainNode], graph=None) -> dict:
         "belief": lambda n: n.kind == "belief",
         # ⚠️ 2026-09-25（§5.1）: 按 **kind** 收，**不再看 `subject`** —— 那是自由文本,
         # 拿它当路由会让"subject 被写坏"变成"这条记忆静默消失"（真机 haruka e0001 就是）。
-        "player": lambda n: n.kind == "experience",
+        "player": lambda n: n.kind == "profile",
         "reported": lambda n: (n.kind == "episode"
                                and bool(n.observer.strip())),
     }
@@ -522,11 +522,11 @@ def render_cognition_list(store: WikiStoreV2, cap: int = 12,
     """
     exclude = exclude or set()
     nodes = [n for n in store.all()
-             if n.kind in ("belief", "experience")
+             if n.kind in ("belief", "profile")
              and n.id not in exclude]
     nodes.sort(key=lambda n: (-n.significance, n.id))
     picked = nodes[:cap]
-    graph = store.graph()                       # experience 的次数 = supports 入边数
+    graph = store.graph()                       # profile 的次数 = supports 入边数
     # ⭐ **N2（2026-09-29）: 元信息进 `〔〕`，被引与边都印出来** ——
     #   形态: `〔u0001｜belief｜被引 3〕关于 sensei: 老师是第一个不会嫌弃我的人`
     #         + 缩进续行 `        edges: supports←m0004 contradicts→u0003`

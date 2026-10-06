@@ -228,22 +228,22 @@ def test_belief_support_is_not_a_field_concern():
 
 
 def test_experience_and_player_emphasis():
-    exp = make_node("experience", text="sensei 提到工作繁忙", subject="sensei",
+    exp = make_node("profile", text="sensei 提到工作繁忙", subject="sensei",
                     examples=["「这周又忙成狗了」"], links=["m0011", "m0015", "m0020"])
     assert exp.validate() == []
     # ⭐ 2026-09-25（DESIGN_GRAPH_V4 §5.1）: **按 kind 判，不看 `subject`** ——
     # 可见性不许挂在自由文本上（真机 haruka e0001 就是被一个自造的 subject 藏起来的）。
-    assert exp.is_player_experience is True
-    pe = make_node("experience", text="摸鱼", subject=PLAYER_SUBJECT,
+    assert exp.is_player_profile is True
+    pe = make_node("profile", text="摸鱼", subject=PLAYER_SUBJECT,
                    examples=["「今天也摸鱼」"], links=["m0030", "m0033"])
     assert pe.validate() == []
-    assert pe.is_player_experience is True
-    assert pe.dedup_key() == ("experience", tuple(pe.event_seq))  # 空 event_seq 不去重冲突
+    assert pe.is_player_profile is True
+    assert pe.dedup_key() == ("profile", tuple(pe.event_seq))  # 空 event_seq 不去重冲突
     # 别的 kind 一律不是（桶只收 experience）
     assert make_node("belief", text="老师会等我"
-                     ).is_player_experience is False
+                     ).is_player_profile is False
     # examples 超限截断
-    many = make_node("experience", text="p", subject="s",
+    many = make_node("profile", text="p", subject="s",
                      examples=["1", "2", "3", "4"], links=["m0001"])
     assert len(many.examples) == 3
 
@@ -267,7 +267,7 @@ def test_title_and_text_are_shared_by_all_kinds():
     ep = make_node("episode", text="公园散步", title="和老师的公园散步")
     assert ep.validate() == []
     assert ep.title == "和老师的公园散步" and ep.text == "公园散步"
-    exp = make_node("experience", text="p", subject="s")
+    exp = make_node("profile", text="p", subject="s")
     bel = make_node("belief", text="出厂认知",
                     links=["m0001"])
     assert (ep.text, exp.text, bel.text) == ("公园散步", "p", "出厂认知")
@@ -303,9 +303,9 @@ def test_loose_from_dict_bad_kind_and_legacy_epistemic():
 
 def test_json_line_bad_input():
     assert BrainNode.from_json_line("{bad json").id == ""
-    line = json.dumps({"id": "e0002", "kind": "experience", "text": "摸鱼",
+    line = json.dumps({"id": "e0002", "kind": "profile", "text": "摸鱼",
                        "subject": "player", "significance": 0.75},
                       ensure_ascii=False)
     node = BrainNode.from_json_line(line)
-    assert node.kind == "experience" and node.text == "摸鱼"
+    assert node.kind == "profile" and node.text == "摸鱼"
     assert node.subject == PLAYER_SUBJECT

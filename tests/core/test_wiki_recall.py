@@ -231,7 +231,7 @@ def _cog_store(tmp_path) -> WikiStoreV2:
     st.add(make_node("episode", text="天台旧事", event_seq=[1]))
     st.add(make_node("belief", text="老师会记得给猫带猫粮的约定", subject="老师与我的约定", significance=0.9, tags=["猫", "约定"],
                      event_seq=[1]))
-    st.add(make_node("experience", text="老师总说摸鱼", subject="sensei",
+    st.add(make_node("profile", text="老师总说摸鱼", subject="sensei",
                      significance=0.85, tags=["摸鱼"], event_seq=[1]))
     st.add(make_node("episode", text="遥香喜欢杂草"))
     return st
