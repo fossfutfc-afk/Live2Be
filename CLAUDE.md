@@ -397,11 +397,15 @@ CLI/测试同步路径在引擎内串行。
 - **两层写法与粒度（2026-09-20 用户裁决；改 digest prompt/契约前必读）**：
   **`episode` = informative but single**（信息量足，但只讲一件事）、
   **`belief` = brief but descriptive**（简短，但描述性——写模式/结论，不复述事件）。
-  ⚠️ **`experience` 2026-09-25 定名"玩家画像专用"**（"关于老师的事"，`subject` 恒 `player`）：
-  写者只有 Round A（R2 的 `add kind=experience` **已收掉** —— "反复出现的模式"写成 **belief 的模式句**）；
+  ⭐ **四种模式**（`docs/DESIGN_MEMORY_MODES.md` = 语义地基，动记忆层前先读）：
+  **抽象**（1 条 episode → 新 belief）· **佐证**（1 条 → 已有 belief）·
+  **经验**（一群 episode → `experience` 节点）· **进化**（新 belief → 旧 belief）。
+  ⚠️ **`experience` 2026-10-06 改叫"经验"**（原 `group`：一类事的沉淀，`title` = 类名 +
+  `member_of` 成员）；**玩家画像改叫 `profile`**（"关于老师的事"，`subject` 恒 `player`，
+  写者只有第 1 轮；R2 的 `add kind=profile` **已收掉** —— "反复出现的模式"写成 **belief 的模式句**）。
   读侧（`_bucket_view` 的 player 桶）**按 kind 收、不看 `subject`** —— 旧口径拿自由文本路由，
   真机 haruka `e0001` 因此**从来没进过她的上下文**（已迁移成 belief）。⚠️ **图里只有 5 种 kind**
-  （`episode/experience/belief/entity/group`）：`fact` 早在 2026-09-02 退役、`source` 边随之删除；
+  （`episode/experience/belief/entity/profile`）：`fact` 早在 2026-09-02 退役、`source` 边随之删除；
   ⛔ **`promise` 2026-09-29 也退出图了**（用户裁决"承诺太轻, 不足以长期记录"）——
   连同 `from`/`to`/`formed_by` 三条只有它能当起点的边，**边表现在是 6 条**
   （`about` / `supports` / `contradicts` / `evolved_from` / `akin` / `member_of`）。
@@ -430,8 +434,9 @@ CLI/测试同步路径在引擎内串行。
   整段不印）。⚠️ R4 收口**只发 `close` 不发 `retire`**（退场要等读路径召回接通, 链路 ⑥）。
   设计/代码索引：`core/brain/DESIGN_GRAPH_V4.md` §3.2 / §6 / §8 / §8.6。
 - **每段四步（`R1 → R4 → R2 → R3`）**：⚠️ **轮次 key = 契约相位名, 与旧 R 号的对照**
-  （2026-09-29 乙-2）: **R1=record 记 · R4=close 收口 · R2=understand 接 · R3=attribute 挂**
-  （`akin` 零 LLM · `group` 分群）—— 本文下面凡写 R1/R2/R3/R4 的按这行对。
+  （2026-09-29 乙-2）: **R1=record 记 · R2=understand 接 · R3=attribute 挂**
+  （`akin` 零 LLM · `group` 分群；⛔ **R4=close 收口轮 2026-10-05 已整族删** —— 账目归 R0 的表；
+  ⏸ R3 **暂停**）。—— 本文下面凡写 R1/R2/R3/R4 的按这行对。
   ⭐ **2026-09-29（节点 C）起完整的步序表 = 
   `core/digest/rounds/__init__.py` 的 `ROUNDS`**（轮次 key / 步序 / LLM 身份 / prompt / 相位 / parse / 料 /
   写什么 / 跳过条件 / **每轮时间预算** / 是否自带快照, 一处说全）—— `pipeline.py` 是执行体,
