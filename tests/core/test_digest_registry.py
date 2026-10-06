@@ -284,8 +284,9 @@ def test_schema_split_reuses_the_domain_contract_by_reference():
     """
     bond = digest_registry.build_schema(PHASE_SPLIT, domain="bond")
     mmt = digest_registry.build_schema(PHASE_SPLIT, domain="mmt")
-    assert "这一章恰好 1 件" in bond
-    assert "需要切分" in mmt and "必须覆盖全部" in mmt
+    # ⭐ S1（2026-10-06）: 措辞收窄成"**这一段**恰好 1 件" —— 段 = Trigger+Bond+Finish
+    assert "这一段恰好 1 件" in bond
+    assert "一件 = 一次见面 / 一段连续聊天" in mmt and "不能留空档" in mmt
     # 多章时那份改写也在
     multi = digest_registry.build_schema(PHASE_SPLIT, domain="bond", chapter_count=2)
     assert "本段含 **2 章**" in multi
@@ -310,7 +311,9 @@ def test_split_prompt_does_not_restate_the_schema_criteria():
     assert "{{digest_schema}}" in raw, "prompt 必须留契约占位符（否则判据根本进不去）"
     for phrase in ("欠着的债", "忘了它, 就真会出问题", "日常安排", "随口一说",
                    "夸奖与安慰", "三个去处", "她还会不会一直带着它",
-                   "这一段结束时还开着", "没有那一刻"):
+                   "这一段结束时还开着", "没有那一刻",
+                   # ⭐ S1（2026-10-06）: "一件 = 一场戏" 那套判据也不许抄进 prompt
+                   "一次见面 / 一段连续聊天", "都还是同一件事", "另一件事真的开始了"):
         assert phrase not in raw, (
             f"判据原文 {phrase!r} 出现在 prompt 文件里了 —— 它只该在契约层"
             "（`STATE_SEMANTICS` / `CLOSE_SEMANTICS` …）。两处各写一份 = 迟早强度不一。")
@@ -319,6 +322,40 @@ def test_split_prompt_does_not_restate_the_schema_criteria():
     # ⭐ 边界声明该在（"别自作聪明"的那道闸; 与判据无关）: 正文/领悟不归它 + 输出示范
     assert "下一轮会把它写成一条**看法**" in raw
     assert "输出示范" in raw, "prompt 靠示范教形状（示例才是形状的来源）"
+
+
+def test_split_says_one_scene_is_one_item():
+    """⭐ S1（2026-10-06）: **一件 = 一场戏** —— 真机那种"一个段切成 5 件"被判为错。
+
+    真机证据（haruka）: 09-23 那次调用把**一个段**（Trigger 三段闲聊 `132-157` +
+    Bond 一章 `158-200` + Finish `202-206`）切成 **5 件** —— 直接违反
+    `DESIGN_SEGMENT.md` 的"段是最小单元、**根本不产生截断**"。
+
+    肇事者三处（都在这条用例的射程内）:
+      · **bond 支末尾那三行**（明写"MT 聊天**另行切件**"）—— 混合窗口下它逼 R0 多切;
+      · mmt 支"**必须覆盖全部** …… 连闲聊也要给它自己的那一件";
+      · 那把**太松的尺子**（"三十条消息切成十五件"才算流水账 ⇒ 隐含许可 2:1,
+        而 R0 实际做到 8:1, 自认为很克制）+ `MAX_SEGMENTS` 12→20 抬上限。
+    """
+    import re
+
+    from llm.prompts import load_prompt
+
+    mmt = digest_registry.build_schema(PHASE_SPLIT, domain="mmt")
+    bond = digest_registry.build_schema(PHASE_SPLIT, domain="bond")
+    # ① 判据在契约里（mmt 侧）
+    assert "一件 = 一次见面 / 一段连续聊天" in mmt
+    assert "都还是同一件事" in mmt
+    # ② bond 侧不许再说"聊天另行切件"（混合窗口的肇事者）
+    assert "另行切件" not in bond
+    assert "写进这一件里" in bond
+    # ③ 上限收回 —— 上限从来不只是上限, 它是标尺
+    assert MAX_SEGMENTS == 12
+    # ④ ⭐ 示范必须示范"多话题一场戏 = 一行"（示例才是形状的来源）
+    raw = load_prompt("digest_split")
+    assert "一场戏 = 一行" in raw
+    spans = re.findall(r'"span": \[(\d+), (\d+)\]', raw)
+    assert any(a != b for a, b in spans), "示范里必须有一条**跨多行**的 span"
 
 
 def test_the_output_discipline_lives_only_in_the_contract():
