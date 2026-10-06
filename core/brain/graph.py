@@ -28,7 +28,7 @@ from typing import Any, Iterable, Iterator
 # 边类型（`DESIGN_GRAPH_V4.md` §2）
 # ---------------------------------------------------------------------------
 
-REL_ABOUT = "about"                  # belief/episode/experience/group → entity（归属）
+REL_ABOUT = "about"                  # belief/episode/profile/experience → entity（归属）
 REL_SUPPORTS = "supports"            # ⭐ **两种形状**: episode → 认知（决策表 touch 写）·
                                      #    认知 → 认知（R2 的 `links` 写 —— "这条看法支撑那条",
                                      #    真机有实例; 2026-09-29 用户裁决"belief-belief 以后也需要"）
@@ -95,23 +95,24 @@ REL_UNKNOWN = "unknown"
 
 #: v4 §1 的 entity（G1 起只认 kind 字符串, 不碰 `nodes.KINDS` 那张表）
 KIND_ENTITY = "entity"
-#: ⭐ N1b（2026-09-29）: 群 —— **L2 归纳出来的"一类事"**，成员靠 `member_of` 指过来。
+#: ⭐ `experience`（经验; 2026-10-06 定名, 原 `group`）—— **L2 归纳出来的"一类事"**，
+#: 成员靠 `member_of` 指过来。
 #: ⚠️ 它**不在 `_COGNITION` 里**：群不是"稳定下来的认知"（那是 belief/experience），
 #: 而是**分类**。所以 `member_of` 必须是自己的 rel，不能混进 `supports`
 #: （混了会让 `graph.supporters()` 把群也捞出来 —— 而它今天用来算"被引数"）。
-KIND_GROUP = "group"
+KIND_EXPERIENCE = "experience"
 
-#: 会挂 `about` 的 kind（§2: belief/episode/experience/group）。
+#: 会挂 `about` 的 kind（§2: belief/episode/profile/experience）。
 #: ⚠️ `fact` 2026-09-25 摘掉 —— 它是**死配置**（kind 已退役 ⇒ 这条白名单永远匹配不到
 #: 任何节点）。`experience` **留着**，但理由换了: 不再是"押 §9-3 的合并预案"（那条
 #: 2026-09-25 由用户关掉），而是**它本身就是"关于老师的事"** ⇒ 该被 `about → sensei`
 #: 指着（§9-8）。⚠️ `promise` 2026-09-29 摘掉（它退出了图）。
-#: ⭐ `group`（N1b）**加进来** —— 群也能归属 entity（"苔藓"属于老师那条线）。
+#: ⭐ `experience`（经验; 原 `group`）**加进来** —— 经验也能归属 entity（"苔藓"属于老师那条线）。
 #: 今天**零写者**（要 L2 才写），这是"先开接口、别锁死"。
-_ABOUTABLE = ("belief", "episode", "experience", "group")
+_ABOUTABLE = ("belief", "episode", "profile", "experience")
 #: 认知侧（`supports` 的 dst）: 她的结论 + 玩家画像（两者都是"稳定下来的东西"）
-#: ⚠️ **群不在这里** —— 见 `KIND_GROUP` 的注释。
-_COGNITION = ("belief", "experience")
+#: ⚠️ **经验不在这里** —— 见 `KIND_EXPERIENCE` 的注释。
+_COGNITION = ("belief", "profile")
 
 
 # ---------------------------------------------------------------------------
@@ -481,7 +482,7 @@ def iter_edges(store, *, rel: str | None = None) -> Iterator[Edge]:
 
 __all__ = [
     "KIND_ENTITY",
-    "KIND_GROUP",
+    "KIND_EXPERIENCE",
     "RELS",
     "SYMMETRIC_RELS",
     "REL_ABOUT",

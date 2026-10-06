@@ -486,15 +486,15 @@ def test_round_a_kind_is_exception_only():
     raw = {"episodes": [
         {"text": "老师约我去公园散步。", "title": "公园散步", "tags": ["公园"]},
         {"kind": "", "text": "空串也算默认。", "title": "空 kind", "tags": ["x"]},
-        {"kind": "experience", "text": "玩家的生日是 5 月 20 日",
+        {"kind": "profile", "text": "玩家的生日是 5 月 20 日",
          "verbatim": ["3.0"], "tags": ["玩家"], "significance": 0.7},
-        {"kind": "experience", "title": "忘了 text"},          # 缺 text → 拒
+        {"kind": "profile", "title": "忘了 text"},          # 缺 text → 拒
     ]}
     items, result = digest_registry.parse_round_a(raw)
     assert not result.is_valid                                # 只有第 4 条坏
     assert any("text" in e for e in result.errors)
     assert len(items) == 3
-    assert [it["kind"] for it in items] == ["episode", "episode", "experience"]
+    assert [it["kind"] for it in items] == ["episode", "episode", "profile"]
     assert items[0]["text"].startswith("老师约我")            # 不写 kind ⇒ 经历
     assert items[1]["kind"] == "episode"                     # 空串 ⇒ 也是经历
     assert items[2]["subject"] == "player"                   # 引擎固定, 不信任 LLM
@@ -759,15 +759,18 @@ def test_round_b_update_guards():
 
 
 def test_round_b_add_experience_is_rejected():
-    """⭐ 2026-09-25（§5.1）: `add kind=experience` **被拒** —— 那个 kind 是
+    """⭐ 2026-09-25（§5.1）: `add kind=profile` **被拒** —— 那个 kind 是
     玩家画像专用（写者只有第 1 轮），"反复出现的模式"要写成 `belief` 的模式句（§9-10）。
 
     为什么不是"悄悄降级成 belief": 契约要**教会**模型这条边界, 静默改 kind 会让它
-    一直以为自己在写 experience（下次还写）; 拒一次带反馈, 它才学得会。
+    一直以为自己在写 profile（下次还写）; 拒一次带反馈, 它才学得会。
+    ⭐ 2026-10-06: **两个都不是它的** —— `profile` 归第 1 轮（玩家画像）, `experience`（经验）归分群轮。
     """
     raw = {"decisions": [
-        {"episode": "m0001", "decision": "add", "kind": "experience",
+        {"episode": "m0001", "decision": "add", "kind": "profile",
          "subject": "我表达善意时的习惯", "text": "我总先说好意再道歉"},
+        {"episode": "m0001", "decision": "add", "kind": "experience",
+         "subject": "我和老师之间关于苔藓的那些事", "text": "这一类事该由分群轮建"},
     ]}
     rows, result = digest_registry.parse_round_b(
         raw, episode_ids={"m0001"}, target_ids=set())

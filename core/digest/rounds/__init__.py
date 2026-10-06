@@ -72,7 +72,7 @@ from contract.digest_registry import digest_registry
 #:   ⭐ `segment` → ⛔ **不查真源**（它是**段内中间产物**: R0 产、同段的 R1 吃,
 #:   不进图也不落库 ⇒ 没有"真源"可查）。为什么仍要写进表: `writes` 是"这一步往哪写"
 #:   的地图, 中间产物也是它的产出; 而 `result_fields` 那格管的是回滚, 两者分工不同。
-NODE_FACES = ("episode", "experience", "belief", "entity", "group")
+NODE_FACES = ("episode", "experience", "belief", "entity", "profile")
 EDGE_FACE = "edge"
 NOTE_FACE = "note"
 SEGMENT_FACE = "segment"
@@ -239,7 +239,7 @@ ROUNDS: tuple[RoundSpec, ...] = (
                          "event_seq", "ts",
                          # 引擎物化（🚫 只进召回侧, 绝不进 LLM 上下文）:
                          "emo_shape", "place", "place_raw", "aff_at_encoding")),
-            ("experience", ("text", "subject", "verbatim", "verbatim_seq", "tags",
+            ("profile", ("text", "subject", "verbatim", "verbatim_seq", "tags",
                             "significance", "event_seq", "ts")),
             # ⛔ ~~note 的 `on_mind`~~ **2026-09-29（N4e）退役** —— 它只写图;
             # ⭐ note 的写者 **2026-10-05（L7/L8）起只有这一轮**: 按 R0 的表产
@@ -297,7 +297,7 @@ ROUNDS: tuple[RoundSpec, ...] = (
         material=("还没归类的块", "已有的类", "可能重复的类"),
         writes=(
             # `aliases` 是**并群**那条路的产物（输家的名字写进赢家, 名字是地址）。
-            ("group", ("title", "aliases", "ts")),
+            ("experience", ("title", "aliases", "ts")),
             ("edge", ("member_of",)),
         ),
         result_fields=(*CONTRACT_FIELDS, "created_groups", "grouped_episodes",

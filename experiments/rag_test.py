@@ -147,7 +147,7 @@ def main() -> int:
             BrainNode(id=format_id("m", 4), kind="belief",
                       significance=0.85, tags=["信任"],
                       text="老师是唯一不会嫌弃我的人, 我愿意为他做任何事"),
-            BrainNode(id=format_id("m", 5), kind="experience",
+            BrainNode(id=format_id("m", 5), kind="profile",
                       significance=0.5, subject="player", tags=["口头禅"],
                       text="老师每次夸我, 我都会慌慌张张地道歉"),
         ]

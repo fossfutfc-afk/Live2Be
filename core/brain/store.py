@@ -52,10 +52,14 @@ logger = logging.getLogger(__name__)
 #: ⚠️ `x0000`（self）/ `x0001`（sensei）是**保留号**, 见 `entities.py` —— `next_id("x")` 因此从 x0002 起。
 #: ⏸ `p`（promise 节点）2026-09-29 **退役** —— promise 退图（见 `nodes.KINDS`）;
 #: ⚠️ 旧档里若有 `p…` 行仍读得进（`from_dict` 按 kind 降级成 episode 之外, 不炸）。
-#: ⭐ `g` = group 节点（N1b, 2026-09-29）—— ⚠️ **必须显式登记**: `add()` 走
-#: `_PREFIX.get(kind, "m")`，漏了会让群拿到 `m` 号并与 episode/belief **撞号**。
-_PREFIX = {"experience": "e", "episode": "m", "belief": "m", "entity": "x",
-           "group": "g"}
+#: ⭐ 2026-10-06 改名: **号段跟着数据走, 不跟着名字走** —— `experience`（经验, 原 `group`）
+#: 沿用 `g`（老 `g…` 语义不变）, `profile`（画像, 原 `experience`）沿用 `e`。
+#: ⛔ `p` 不能用: 承诺退图后 `test_promise_prefix_is_gone` 钉着"不许再有 `p` 号";
+#: ⛔ 前缀不许撞车（只有 `m` 可共用, 见 `test_every_kind_has_an_explicit_id_prefix`）
+#: —— ⚠️ **必须显式登记**: `add()` 走
+#: `_PREFIX.get(kind, "m")`，漏了会拿到 `m` 号并与 episode/belief **撞号**。
+_PREFIX = {"experience": "g", "episode": "m", "belief": "m", "entity": "x",
+           "profile": "e"}
 
 #: 节点字段白名单（update patch 只接受这些——防任意字段注入）
 _FIELDS = set(BrainNode.__dataclass_fields__.keys())

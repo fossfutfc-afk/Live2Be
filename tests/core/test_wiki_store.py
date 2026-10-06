@@ -32,7 +32,7 @@ def test_id_allocation_prefixes(tmp_path):
     st = _store(tmp_path)
     assert st.add(make_node("episode", text="拆炸弹")) == "m0001"
     assert st.add(make_node("episode", text="x")) == "m0002"
-    assert st.add(make_node("experience", text="摸鱼", subject="player")) == "e0001"
+    assert st.add(make_node("profile", text="摸鱼", subject="player")) == "e0001"
     assert st.add(make_node("belief", text="y",
                             links=["m0001"])) == "m0003"
     assert st.next_id("m") == "m0004"
@@ -49,7 +49,7 @@ def test_promise_prefix_is_gone(tmp_path):
     from core.brain.store import _PREFIX
 
     assert "promise" not in _PREFIX
-    assert set(_PREFIX) == {"experience", "episode", "belief", "entity", "group"}
+    assert set(_PREFIX) == {"experience", "episode", "belief", "entity", "profile"}
     assert "p" not in _PREFIX.values()
 
 
@@ -61,7 +61,7 @@ def test_add_rejects_invalid_node(tmp_path):
         # 认知不伪装成事实 —— ⭐ 2026-09-29 起判据是 observer（`epistemic` 已退役）
         st.add(make_node("belief", text="x", observer="阿露"))
     with pytest.raises(ValueError):
-        st.add(make_node("group"))                              # 缺 title（类名必填）
+        st.add(make_node("experience"))                              # 缺 title（类名必填）
     # ⏸ 原第二条（"belief 无支撑"）**不在 add 这一层** —— 那条规则 2026-09-21 搬去
     # `store.audit()`（见 `test_wiki_audit.py`）, add 只跑 `validate()`。
 
@@ -206,22 +206,22 @@ def test_every_kind_has_an_explicit_id_prefix():
     assert len(set(others)) == len(others), f"前缀撞车: {sorted(others)}"
 
 
-def test_group_node_prefix_and_roundtrip(tmp_path):
-    """群节点（N1b）: 前缀 `g` · 只要 `title` · 落盘读回稳定。"""
+def test_experience_node_prefix_and_roundtrip(tmp_path):
+    """经验节点（原群 · N1b）: 前缀 `g` · 只要 `title` · 落盘读回稳定。"""
     st = _store(tmp_path)
-    assert st.add(make_node("group", title="苔藓")) == "g0001"
+    assert st.add(make_node("experience", title="苔藓")) == "g0001"
     st.add(make_node("episode", text="a", event_seq=[1]))
     assert st.add(make_node("belief", text="b")) == "m0002"
     st.save()
     st2 = _store(tmp_path)
-    assert st2.get("g0001").kind == "group" and st2.get("g0001").title == "苔藓"
+    assert st2.get("g0001").kind == "experience" and st2.get("g0001").title == "苔藓"
 
 
-def test_group_without_title_is_rejected(tmp_path):
-    """群**必须有类名**（`_REQUIRED["group"] = ("title",)`）—— 没名字的群不可被指向。"""
+def test_experience_without_title_is_rejected(tmp_path):
+    """经验**必须有类名**（`_REQUIRED["experience"] = ("title",)`）—— 没名字的群不可被指向。"""
     st = _store(tmp_path)
     with pytest.raises(ValueError):
-        st.add(make_node("group", text="只有正文没有名字"))
+        st.add(make_node("experience", text="只有正文没有名字"))
 
 
 def test_member_of_edges_and_multi_membership(tmp_path):
@@ -233,8 +233,8 @@ def test_member_of_edges_and_multi_membership(tmp_path):
     """
     st = _store(tmp_path)
     st.add(make_node("episode", text="a", event_seq=[1]))       # m0001
-    st.add(make_node("group", title="苔藓"))                    # g0001
-    st.add(make_node("group", title="夏莱"))                    # g0002
+    st.add(make_node("experience", title="苔藓"))                    # g0001
+    st.add(make_node("experience", title="夏莱"))                    # g0002
     st.add_edge("member_of", "m0001", "g0001", ts="2026-09-29T10:00:00")
     st.add_edge("member_of", "m0001", "g0002", ts="2026-09-29T11:00:00")
     g = st.graph()
@@ -251,10 +251,10 @@ def test_member_of_edges_and_multi_membership(tmp_path):
     assert g.supporters("g0001") == [] and g.supporters("g0002") == []
 
 
-def test_audit_does_not_treat_group_as_belief(tmp_path):
-    """`audit()` 的"belief 必须有 supports 入边"**不适用于 group** —— 群不是认知。"""
+def test_audit_does_not_treat_experience_as_belief(tmp_path):
+    """`audit()` 的"belief 必须有 supports 入边"**不适用于 experience** —— 经验不是认知。"""
     st = _store(tmp_path)
-    st.add(make_node("group", title="苔藓"))
+    st.add(make_node("experience", title="苔藓"))
     st.add(make_node("episode", text="a", event_seq=[1]))
     st.add_edge("member_of", "m0001", "g0001")
     assert st.audit() == []
@@ -313,7 +313,7 @@ def test_experience_count_comes_from_edges(tmp_path):
     """次数（原 `count`）的**新家** = `supports` 入边数（`render._count_of`）。"""
     from core.brain.read.render import _count_of
     st = _store(tmp_path)
-    st.add(make_node("experience", text="提到工作繁忙", subject="sensei", event_seq=[1]))
+    st.add(make_node("profile", text="提到工作繁忙", subject="sensei", event_seq=[1]))
     st.add(make_node("episode", text="老师又说忙", event_seq=[2]))
     g = st.graph()
     assert _count_of(st.get("e0001"), g) == 0
@@ -357,7 +357,7 @@ def test_all_insertion_order(tmp_path):
     st = _store(tmp_path)
     st.add(make_node("episode", text="a"))
     st.add(make_node("episode", text="b"))
-    st.add(make_node("experience", text="p", subject="player"))
+    st.add(make_node("profile", text="p", subject="player"))
     assert [n.text or n.text for n in st.all()] == ["a", "b", "p"]
     # 2026-09-21: `by_kind()` 零产品消费者 → 已删; 按 kind 过滤直接用 all()
     assert [n.kind for n in st.all() if n.kind == "episode"] == ["episode", "episode"]

@@ -161,7 +161,7 @@ def test_apply_new_and_attach(tmp_path):
     assert len(res.nodes) == 1 and res.grouped == [c, d] and res.edges == 2
     gid = res.nodes[0]
     node = st.get(gid)
-    assert node.kind == "group" and node.title == "那片苔藓" and gid.startswith("g")
+    assert node.kind == "experience" and node.title == "那片苔藓" and gid.startswith("g")
 
     blks2 = groups.build_blocks(st, groups.ungrouped(st))
     assert [x.bid for x in blks2] == ["b1"] and list(blks2[0].episodes) == [a, b]
@@ -193,7 +193,7 @@ def test_same_name_merges_into_existing(tmp_path):
                               second, ts=_NOW)
     assert res.nodes == [], res.nodes                              # ⭐ 没建第二个群
     assert any("同名" in w for w in res.warnings), res.warnings
-    assert [n.id for n in st.all() if n.kind == "group"] == [gid]
+    assert [n.id for n in st.all() if n.kind == "experience"] == [gid]
     assert sorted(st.graph().sources(gid, REL_MEMBER_OF)) == sorted([a, b, c, d])
     print(f"    同名即并: 第二个同名 new 被并进 {gid}（连书名号一起抄也认）")
 
@@ -275,7 +275,7 @@ def test_group_failure_does_not_rollback_the_batch(tmp_path):
     assert res.created_groups == [] and res.grouped_episodes == 0
     assert any("没有归属" in w for w in res.group_warnings), res.group_warnings
     assert llm.tasks.count(T.DIGEST_GROUP) == 2                   # 打回一次（feedback 重试）
-    assert [n.kind for n in st.all() if n.kind == "group"] == []  # 一个群都没留下
+    assert [n.kind for n in st.all() if n.kind == "experience"] == []  # 一个群都没留下
     print(f"    失败隔离: 打回 {llm.tasks.count(T.DIGEST_GROUP)} 次后放弃, 整段照常提交")
 
 

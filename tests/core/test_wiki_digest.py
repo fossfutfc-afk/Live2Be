@@ -63,7 +63,7 @@ def _seed_store(tmp_path) -> WikiStoreV2:
     st.add(make_node("episode", text="天台夜谈", event_seq=[2], ts="2026-09-01T10:00:00"))
     st.add(make_node("belief", text="老师是第一个不会嫌弃我的人", subject="sensei",
                      significance=0.9, event_seq=[2]))
-    st.add(make_node("experience", text="提到工作繁忙", subject="sensei",
+    st.add(make_node("profile", text="提到工作繁忙", subject="sensei",
                      significance=0.85, event_seq=[2]))
     st.add_edge("supports", "m0001", "m0002")
     st.add_edge("supports", "m0001", "e0001")
@@ -562,7 +562,7 @@ def test_player_portrait_entry_lands_and_hides_from_round_b(tmp_path):
             {"text": "老师说下周放假带我去看烟火大会, 我紧张得直结巴还是答应了",
              "title": "烟火大会之约", "verbatim": ["3.1"],
              "tags": ["约定", "烟火"], "significance": 0.85},
-            {"kind": "experience", "text": "玩家的生日是 5 月 20 日",
+            {"kind": "profile", "text": "玩家的生日是 5 月 20 日",
              "verbatim": ["3.0"], "tags": ["玩家生日"],
              "significance": 0.7},
         ]},
@@ -577,7 +577,7 @@ def test_player_portrait_entry_lands_and_hides_from_round_b(tmp_path):
     assert res.ok, res.errors
     assert res.created == ["m0001"]                    # episode 正常建
     p = st.get("e0001")                                # 画像条目 → subject=player experience
-    assert p is not None and p.kind == "experience"
+    assert p is not None and p.kind == "profile"
     assert p.subject == "player" and p.text.startswith("玩家的生日")
     assert p.verbatim == "我生日是 5 月 20 日哦"        # 玩家原话 = 行号 `[3.0]` → 逐字原文
     # ⚠️ **3b-2: 位置来自切片** —— 两条条目落在同一条切片（本段只有一块内容事件）⇒

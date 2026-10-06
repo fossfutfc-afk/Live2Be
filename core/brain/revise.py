@@ -49,7 +49,7 @@ _PATCH_FIELDS = ("subject", "text", "significance", "tags", "growth")
 #: ⚠️ **含 `experience`**: 今天的"玩家画像"（`subject=player`）就落在它上面, 它显然是
 #: "关于老师的"; §9-3 把 experience 并成 `belief + nature=pattern` 之后删掉这一项。
 #: ⏸ `promise` 2026-09-29 摘掉（它退出了图 —— 见 `nodes.KINDS`）。
-_ATTACHABLE = ("episode", "belief", "experience")
+_ATTACHABLE = ("episode", "belief", "profile")
 #: hint 写回别名的长度上限 —— 超过这个长度的东西**不是称呼, 是一句话**。
 #: （同 `core.parsing.names.MAX_NAME_LEN` 的口径; 本模块**不 import 它** ——
 #: `brain` 的运行时依赖要保持纯 stdlib, 而 names 会拖进 yaml。）
@@ -153,11 +153,11 @@ def apply_decisions(
                 if v not in (None, "", []):
                     fields[f] = v
             # ⏸ 原 `example → examples` 的映射 **2026-09-29 删** —— 它只在
-            # `kind == "experience"` 时生效, 而 `add` 的契约**只许 belief**
+            # `kind == "profile"` 时生效, 而 `add` 的契约**只许 belief**
             # （`parse_round_b` 直接拒 experience）⇒ 那两行从来没跑到过;
             # 而 belief 那条路把 `example` 原样传进 `make_node`, 又被
             # `from_dict` 静默丢掉（belief 没有 `example`/`examples` 的读者）。
-            if kind == "experience":
+            if kind == "profile":
                 # ⚠️ §5.1: `experience` = 玩家画像 ⇒ `subject` **强制** `player`
                 # （可见性不许挂在自由文本上; 今天这一路的产品写者已收掉,
                 #  但 `apply_revision_package` 等口径仍可能传进来自造的 subject）。
@@ -192,7 +192,7 @@ def _ensure_cognition(store: WikiStoreV2, nid: str | None) -> None:
     if not nid:
         raise ValueError(err("BadTarget", "touch/update 缺 target"))
     node = store.get(nid)
-    if node is None or node.kind not in ("belief", "experience"):
+    if node is None or node.kind not in ("belief", "profile"):
         raise ValueError(err("BadTarget", f"target 必须是 belief/experience: {nid!r}"))
 
 
@@ -654,7 +654,7 @@ def _apply_action(store: WikiStoreV2, raw: dict, scope: set[str],
 def _apply_accrue(store: WikiStoreV2, raw: dict, scope: set[str],
                   ref_map: dict, pending_log: list[dict],
                   result: RevisionResult, *, pkg: str) -> bool:
-    """accrue: 同类事件并入 experience——引擎数 occurrence, 不信任 LLM 的 count。
+    """accrue: 同类事件并入 profile（玩家画像）——引擎数 occurrence, 不信任 LLM 的 count。
 
     证据 episode 由 occurrence.episode_ref（包内新建的 ref）或 occurrence.episode_id
     （子图内已有 id）指定——LLM 不猜 event_seq（引擎从 episode 继承, 防幻觉）。
@@ -665,7 +665,7 @@ def _apply_accrue(store: WikiStoreV2, raw: dict, scope: set[str],
     if eid not in scope or not isinstance(occ, dict):
         return _err(result, "accrue 需要子图内的 experience id 和 occurrence 对象")
     exp = store.get(eid)
-    if exp is None or exp.kind != "experience":
+    if exp is None or exp.kind != "profile":
         return _err(result, f"accrue 目标必须是 experience 节点: {eid}")
     ep_id = ""
     if occ.get("episode_ref"):
@@ -711,7 +711,7 @@ def _build_merged(store: WikiStoreV2, ids: list[str], into: dict) -> BrainNode |
 # ---------------------------------------------------------------------------
 
 def _connection_rule_violations(store: WikiStoreV2, ref_map: dict) -> list[str]:
-    """规则 7: 每条新 episode 必须与 belief/experience 相连（已有或新建）。
+    """规则 7: 每条新 episode 必须与 belief/profile 相连（已有或新建）。
 
     G3 起"相连"看**边表**（点上的 `links` 已不再被写）。
     """
@@ -722,7 +722,7 @@ def _connection_rule_violations(store: WikiStoreV2, ref_map: dict) -> list[str]:
         if n.id not in created_ids or n.kind != "episode":
             continue
         supported = any(
-            store.get(t) is not None and store.get(t).kind in ("belief", "experience")
+            store.get(t) is not None and store.get(t).kind in ("belief", "profile")
             for t in g.neighbors(n.id))
         if not supported:
             bad.append(n.id)

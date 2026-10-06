@@ -19,7 +19,7 @@ def _store(tmp_path) -> WikiStoreV2:
     st.add(make_node("belief", text="老师是第一个不会嫌弃我的人", subject="sensei",
                      significance=0.9, event_seq=[1]))
     st.add(make_node("episode", text="天台夜谈", event_seq=[2], ts="2026-08-02T00:00:00"))
-    st.add(make_node("experience", text="提到工作繁忙", subject="sensei",
+    st.add(make_node("profile", text="提到工作繁忙", subject="sensei",
                      significance=0.7, event_seq=[2]))
     # 真实流程同款: 双向边走 add_link（audit 不变量要求双向共识）
     st.add_link("m0001", "m0002")
@@ -389,7 +389,7 @@ def test_attribution_accepts_only_live_kinds(tmp_path):
     """
     from core.brain.revise import _ATTACHABLE
 
-    assert _ATTACHABLE == ("episode", "belief", "experience")
+    assert _ATTACHABLE == ("episode", "belief", "profile")
     # 归属本身照常（用一条 episode 验通路）
     st = _attr_store(tmp_path)
     _, local_of = candidate_table(st)

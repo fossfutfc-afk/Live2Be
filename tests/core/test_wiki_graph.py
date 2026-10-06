@@ -63,7 +63,7 @@ def test_infer_types_and_direction():
         _row("m0003", "belief", links=["m0001", "m0004"]),
         _row("m0004", "belief"),                             # belief↔belief: 单边也算
         _row("m0002", "episode", links=["e0001"]),           # ↔ experience（押 §9-3）
-        _row("e0001", "experience", links=["m0002"]),
+        _row("e0001", "profile", links=["m0002"]),
     ]
     got = {(e.rel, e.src, e.dst) for e in infer_edges(rows)}
     assert got == {
@@ -191,7 +191,7 @@ _REAL_LINES = [
     {"id": "m0004", "kind": "episode", "significance": 0.9,
      "epistemic": "observed_fact", "ts": "2026-09-21T22:16:15+08:00",
      "links": ["m0003"], "narration": "和老师的第一顿高级料理"},
-    {"id": "e0001", "kind": "experience", "significance": 0.5,
+    {"id": "e0001", "kind": "profile", "significance": 0.5,
      "epistemic": "observed_fact", "ts": "2026-09-20T14:58:46+08:00",
      "links": ["m0002"], "pattern": "先说好意再道歉", "subject": "我表达善意时的习惯"},
 ]
@@ -252,8 +252,8 @@ def test_edge_vocabulary_is_the_six():
         assert not hasattr(G, gone), f"{gone} 已随 promise 退图删掉（常量也不留）"
 
 
-def test_member_of_is_directed_and_group_is_aboutable():
-    """`member_of` **有向**（不进 `SYMMETRIC_RELS`）；`group` 进 `_ABOUTABLE`（群可归属 entity）。"""
+def test_member_of_is_directed_and_experience_is_aboutable():
+    """`member_of` **有向**（不进 `SYMMETRIC_RELS`）；`experience` 进 `_ABOUTABLE`（经验可归属 entity）。"""
     from core.brain import graph as G
 
     assert G.REL_MEMBER_OF == "member_of"
@@ -261,10 +261,10 @@ def test_member_of_is_directed_and_group_is_aboutable():
     # 有向 ⇒ 原样返回（不被"顺手"规范化）
     assert G.canonical_for("member_of", "g0001", "m0001") == ("g0001", "m0001")
     # 群 → entity 判 about（先开接口; 今天零写者, 要 L2 才写）
-    assert classify_pair("entity", "group", "x0001", "g0001") == (REL_ABOUT, "g0001", "x0001")
-    assert classify_pair("group", "entity", "g0001", "x0001") == (REL_ABOUT, "g0001", "x0001")
-    # ⚠️ 群**不是认知** —— episode ↔ group 判不出 supports（那是 member_of 的活, 写路径显式写）
-    assert classify_pair("episode", "group", "m0001", "g0001") == \
+    assert classify_pair("entity", "experience", "x0001", "g0001") == (REL_ABOUT, "g0001", "x0001")
+    assert classify_pair("experience", "entity", "g0001", "x0001") == (REL_ABOUT, "g0001", "x0001")
+    # ⚠️ 经验**不是认知** —— episode ↔ experience 判不出 supports（那是 member_of 的活, 写路径显式写）
+    assert classify_pair("episode", "experience", "m0001", "g0001") == \
         (REL_UNKNOWN, "g0001", "m0001")
 
 
@@ -309,4 +309,4 @@ def test_fact_is_not_aboutable():
     assert classify_pair("entity", "fact", "x0001", "m0001") == (REL_UNKNOWN, "m0001", "x0001")
     assert classify_pair("fact", "entity", "m0001", "x0001") == (REL_UNKNOWN, "m0001", "x0001")
     # 同形状的活 kind 照旧判 about（防"顺手把整条路也关了"）
-    assert classify_pair("entity", "experience", "x0001", "e0001") == (REL_ABOUT, "e0001", "x0001")
+    assert classify_pair("entity", "profile", "x0001", "e0001") == (REL_ABOUT, "e0001", "x0001")

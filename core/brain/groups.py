@@ -279,7 +279,7 @@ def render_blocks(store: WikiStoreV2, blks: list[Block],
 
 def _groups_sorted(store: WikiStoreV2) -> list:
     """全部群节点（按"最近有成员"降序 —— 她此刻在碰的类排前面）。"""
-    groups = [n for n in store.all() if n.kind == "group" and n.id]
+    groups = [n for n in store.all() if n.kind == "experience" and n.id]
     g = store.graph()
 
     def recent(n) -> tuple[str, str]:
@@ -365,7 +365,7 @@ def apply_groups(store: WikiStoreV2, rows: list[dict], blks: list[Block],
                     f"分群[{i}] 新类名 {title!r} 与已有类同名 → 并到 {node.id}（不建新群）")
             else:
                 node = store.get(store.add(make_node(
-                    "group", title=unique_title(store, title, kind="group"), ts=ts)))
+                    "experience", title=unique_title(store, title, kind="experience"), ts=ts)))
                 out.nodes.append(node.id)
                 logger.info("digest_group new=%s title=%r", node.id, node.title)
         for nid in blk.episodes:

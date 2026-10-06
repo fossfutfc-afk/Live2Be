@@ -123,7 +123,7 @@ def find_group(store: WikiStoreV2, raw: object) -> tuple[BrainNode | None, str]:
 
     ⭐ **群的钥匙就是名字**: 群这个 kind 被要求有 `title`（`PROCEED §2 #11`）正是为了被指;
     所以这里与 `find_episode` **同一份解析**（剥书名号 / 取 `｜` 第一段 / 不做近似匹配）。
-    ⚠️ 唯一性由**写入时强制**保证（`unique_title(kind="group")`, 见 `groups.apply_groups`）——
+    ⚠️ 唯一性由**写入时强制**保证（`unique_title(kind="experience")`, 见 `groups.apply_groups`）——
     在那之前, `"ambiguous"` 仍是真分支（旧档 / 手工改库）。
     """
-    return _find_by_title(store, raw, "group")
+    return _find_by_title(store, raw, "experience")
