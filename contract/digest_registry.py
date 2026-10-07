@@ -37,6 +37,10 @@ PHASE_RECORD = "record"
 #: 且**可观测**（覆盖了多少 / 丢了几条 —— 见 D1 那本缺口账）。
 PHASE_SPLIT = "split"
 PHASE_UNDERSTAND = "understand"
+#: ⭐ **L1「判关系」那一趟**（`docs/DESIGN_DIGEST_TWO_PASSES.md` §9）。
+#: ⚠️ 今天**没有轮在用它** —— 这是 P1a 的"新增并立": 形状与解析先落, 接线在 P1b
+#: （换骨头那笔把 `ROUNDS` 的 key 从 `understand` 改成 `relate`, 并删掉旧一族）。
+PHASE_RELATE = "relate"
 #: ⏸ ~~`PHASE_CLOSE`~~（R4 收口）**2026-10-05（L8）删** —— 账目归 R0 的表
 #: （`state`/`id`/`due` 三个键）, 那一轮整轮消失。它的判据搬去了哪里:
 #: 判"这条约定还开着吗 / 这一段里有没有新说定的"= `parse_split` + `STATE_SEMANTICS`
@@ -507,7 +511,71 @@ ADD = DigestAction(
     ),
 )
 
-DEFAULT_ACTIONS = (RECORD_EPISODE, TOUCH, UPDATE, ADD)
+#: L1 的**锚点类型**（行首那个键能写哪几个 kind）。
+#: ⚠️ 与 `nodes.KINDS` **同源**，但契约层不 import core ⇒ 手写一份 + 守门钉住两边相等。
+RELATION_ANCHORS = ("episode", "belief", "experience", "entity", "profile")
+
+
+#: ⭐⭐ **L1「判关系」的四个动作**
+#: ⭐⭐ **L1「判关系」的四个动作**（`DESIGN_DIGEST_TWO_PASSES.md` §9, 2026-10-07 用户定稿）
+#:
+#: 与 `TOUCH`/`UPDATE`/`ADD` 那一族的根本不同: **它们一个字的正文都不写** ——
+#: **键本身就是动作**, 值恒是一个 **id**（凡是要"写点什么"的东西都在另一趟）。
+#: ⚠️ `graph.RELS` 是边名的真源 ⇒ 守门钉住"这四个名字必须都在 `RELS` 里"。
+RELATION_ACTIONS = (
+    DigestAction(
+        name="supports",
+        phase=PHASE_RELATE,
+        role="这条经历**印证**了那条看法。",
+        semantics=(
+            "两端: 左 = 本段的一条**经历**（`m…`）· 右 = 一条**已有的看法 / 经验**（`u…` / `g…`）;\n"
+            "何时用: 这条经历又一次验证了那条已有结论 —— 不是新角度, 也没有推翻它;\n"
+            "禁什么: 想说\"这两条经历像\" ⇒ 那是 `akin`; 想说\"这条是关于某人的\" ⇒ 那是 `about`。"
+        ),
+        field_schema='        {"episode": "m0017", "supports": "u0003"},',
+        example='{"episode": "m0017", "supports": "u0003"}',
+    ),
+    DigestAction(
+        name="akin",
+        phase=PHASE_RELATE,
+        role="这两条经历**是同一类事** —— ⭐ **只有「平行同类」才算**。",
+        semantics=(
+            "两端: **都是经历**（左 = 本段新经历 · 右 = 已有经历）;\n"
+            "✅ 算数: 老师**又**送了我一次花（上次也送过）· **又**被老师夸了一次 · 又在同一个地方看见苔藓;\n"
+            "⛔ **不算数**: **同一件事的先后两段**（刚才那件事的下半截）—— 那是时间上的接续,\n"
+            "  **不是同类**; 时间上接续的**什么边都不要写**（时间线自己会说清）;\n"
+            "必填 `on`: 那个**共同的具体东西**（花 / 夸奖 / 苔藓）—— 必须是**两端 `topics` 交集里**的词。"
+        ),
+        field_schema='        {"episode": "m0017", "akin": "m0014", "on": "苔藓"},',
+        example='{"episode": "m0017", "akin": "m0014", "on": "苔藓"}',
+    ),
+    DigestAction(
+        name="contradicts",
+        phase=PHASE_RELATE,
+        role="这条和那条**对着来**。",
+        semantics=(
+            "两端: 经历 ↔ 经历, **或** 看法 ↔ 看法（**对称**, 方向无所谓）;\n"
+            "何时用: 她后来发现\"不对\" / 两边说不通;\n"
+            "禁什么: \"程度不同\"（不算对立）· \"后来变了\"（那是另一趟的 `evolved_from`）。"
+        ),
+        field_schema='        {"episode": "m0015", "contradicts": "m0009"},',
+        example='{"episode": "m0015", "contradicts": "m0009"}',
+    ),
+    DigestAction(
+        name="about",
+        phase=PHASE_RELATE,
+        role="这条经历**是关于**那个对象（人 / 地方 / 东西）的。",
+        semantics=(
+            "两端: 左 = 经历 · 右 = **一个对象**（`x…`）—— 对象**永远在右边**;\n"
+            "何时用: 这条经历的**主要内容**就是它;\n"
+            "禁什么: 只是\"提到过一句\"不算; ⚠️ 今天候选很少（只有 `x0000` 她 / `x0001` 老师）—— 有候选才写。"
+        ),
+        field_schema='        {"episode": "m0014", "about": "x0001"},',
+        example='{"episode": "m0014", "about": "x0001"}',
+    ),
+)
+
+DEFAULT_ACTIONS = (RECORD_EPISODE, TOUCH, UPDATE, ADD, *RELATION_ACTIONS)
 
 
 # ============================================================================
@@ -684,6 +752,38 @@ class DigestRegistry:
                                   "【范例】", a.example, ""])
             return "\n".join(lines)
 
+        if phase == PHASE_RELATE:
+            # ⭐⭐ L1「判关系」（`DESIGN_DIGEST_TWO_PASSES.md` §9）—— **一个字的正文都不写**。
+            rel_actions = self.actions(PHASE_RELATE)
+            lines = [
+                OUTPUT_DISCIPLINE,
+                '    {"relations": [',
+            ]
+            for i, a in enumerate(rel_actions):
+                lines.append(a.field_schema)
+                if i < len(rel_actions) - 1:
+                    lines.append('    , // ——或—— //')
+            lines.extend([
+                "    ]}",
+                "",
+                "relations 规则:",
+                "  · **一行一条关系**; 同一条经历有几条关系就写几行;",
+                "  · 行首 = **本段新来的那条经历**（`\"episode\": \"m…\"`）——",
+                "    例外: 引擎把**两条已有**的东西摆到一起让你看时, 行首可以写 `{\"belief\": \"u…\"}`;",
+                "  · 右边只能引用**上方渲染列表里出现过**的 id（编造 id → **整包拒**）;",
+                "  · ⭐ **没话说就不写** —— 不要求每条经历都出现（\"这条跟谁都没关系\"也是一个结论）;",
+                "  · ⛔ **这一趟不写正文**: 没有 `text` / `subject` 这些键 ——",
+                "    看到\"这里有话可说\"**不用写出来**, 下一趟会看到同一批料, 由它去写;",
+                "  · **方向不用你操心**: 两端的类型天然定了方向（经历 → 看法 / 经历 → 对象）;",
+                "    对称的那两条（`akin` / `contradicts`）写哪边都一样。",
+            ])
+            if include_examples:
+                lines.append("")
+                for a in rel_actions:
+                    lines.extend([f"【{a.name} 释义】{a.role}", "语义:", a.semantics,
+                                  "【范例】", a.example, ""])
+            return "\n".join(lines)
+
         if phase == PHASE_ATTRIBUTE:
             return "\n".join([
                 OUTPUT_DISCIPLINE,
@@ -815,6 +915,87 @@ class DigestRegistry:
             warnings.extend(item_warns)
             if item is not None:
                 out.append(item)
+        return out, ValidationResult(tuple(errors), tuple(warnings), tuple(drops))
+
+    def parse_relations(self, raw: Any, *, episode_ids: set[str] | None = None,
+                        target_ids: set[str] | None = None,
+                        entity_ids: set[str] | None = None,
+                        topics_of: dict[str, list[str]] | None = None,
+                        ) -> tuple[list[dict], ValidationResult]:
+        """⭐ **L1（判关系）**: `{"relations": [...]}` → 规范化的**边行**列表。
+
+        一行 → `{"rel": …, "src": …, "dst": …, "on"?: …}`（内部形状, 由 `apply_relations` 落库）。
+
+        ## 校验（⚠️ **分两档** —— 这是本函数最要紧的决定）
+
+        | 情况 | 处置 |
+        |---|---|
+        | 行形状坏（锚点键 ≠ 1 个 / 关系键 ≠ 1 个 / 值不是字符串 / 未知键）| **丢这一行** + 记账 |
+        | `id` **不在渲染列表里**（编造）| ⛔ **整包拒** —— 那说明她没在引用真实世界, 整包不可信 |
+        | `akin` 缺 `on` / `on` 不在**两端 `topics` 的交集**里 | **丢这一行** + 记账（轴是**逐行**的性质, 一行坏不毁整段记忆）|
+        | `about` 的目标不在 `entity_ids` 里 | 丢这一行 |
+
+        ⚠️ `on` 的判据用**原样字符串**（大小写 / 标点都不归一）—— 归一就等于引擎在替她判
+        "这两个词是一回事"。`topics_of` = `{节点 id: [topics]}`（料侧提供; 缺省 `None` =
+        **不校验交集**, 只查 `on` 给没给）。
+        """
+        errors: list[str] = []
+        warnings: list[str] = []
+        drops: list[str] = []
+        if not isinstance(raw, dict):
+            return [], ValidationResult(errors=("L1 输出必须是 JSON 对象",))
+        raw_rows = raw.get("relations")
+        if not isinstance(raw_rows, list):
+            return [], ValidationResult(errors=("relations 必须是数组",))
+        rel_names = {a.name for a in RELATION_ACTIONS}
+        out: list[dict] = []
+        for i, r in enumerate(raw_rows):
+            if not isinstance(r, dict):
+                drops.append(f"relations[{i}] 不是对象")
+                continue
+            anchors = [(k, v) for k, v in r.items() if k in RELATION_ANCHORS]
+            rels = [(k, v) for k, v in r.items() if k in rel_names]
+            if len(anchors) != 1 or len(rels) != 1:
+                drops.append(f"relations[{i}] 形状坏（锚点键 {len(anchors)} 个 / 关系键 "
+                             f"{len(rels)} 个）")
+                continue
+            (a_kind, aid), (rel, dst) = anchors[0], rels[0]
+            if not isinstance(aid, str) or not aid.strip() or not isinstance(dst, str) or not dst.strip():
+                drops.append(f"relations[{i}] 的 id 必须是字符串")
+                continue
+            aid, dst = aid.strip(), dst.strip()
+            # ⛔ 编造 id ⇒ 整包拒（与今天的 `decisions` 同档）
+            bad = ""
+            if episode_ids is not None and target_ids is not None \
+                    and aid not in episode_ids and aid not in target_ids:
+                bad = aid
+            elif rel == "about":
+                if entity_ids is not None and dst not in entity_ids:
+                    bad = dst
+            elif target_ids is not None and dst not in target_ids:
+                bad = dst
+            if bad:
+                errors.append(f"relations[{i}] 引用了列表里没有的 id: {bad}（整包拒）")
+                continue
+            row: dict = {"rel": rel, "src": aid, "dst": dst}
+            on = r.get("on")
+            if rel == "akin":
+                if not isinstance(on, str) or not on.strip():
+                    drops.append(f"relations[{i}] akin 缺 on（轴必填）")
+                    continue
+                on = on.strip()
+                if topics_of is not None:
+                    a_topics = list(topics_of.get(aid) or [])
+                    b_topics = list(topics_of.get(dst) or [])
+                    common = [t for t in a_topics if t in b_topics]
+                    if on not in common:
+                        drops.append(f"relations[{i}] on={on!r} 不在两端 topics 的交集里"
+                                     f"（{aid} ∩ {dst} = {common or '空'}）")
+                        continue
+                row["on"] = on
+            elif on is not None:
+                warnings.append(f"relations[{i}] 写了 on（只有 akin 用它）—— 已忽略")
+            out.append(row)
         return out, ValidationResult(tuple(errors), tuple(warnings), tuple(drops))
 
     def parse_split(self, raw: Any, *, seq_set: set[int] | None = None,
