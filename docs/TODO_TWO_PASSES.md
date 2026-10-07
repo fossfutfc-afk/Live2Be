@@ -26,11 +26,11 @@
 | **P0** | ✅ **已落地**（`11ad209`）| **R1 长出 `topics`**（1~3 个具体的东西，⛔ 泛词）| `contract/digest_registry.py` 的逐字段表 · `llm/prompts/digest_record.md` | 真机每条 episode 都带 `topics` | 字段进 `RECORD_EPISODE`（⛔ 不是 R0 的 `ROW_FIELDS`）· 示例里有 · 上限 3 · `ROUNDS.writes` 有 | — | 小 |
 | **P1a** | ✅ **已落地**（`b09136f`）| ⭐ **新增并立**：新相位 `relate` + 四个关系动作 + `parse_relations`（旧路径**一字不动**）| `contract/digest_registry.py` | 合法/丢行/整包拒三档分得开 | 动作名 ⊆ `graph.RELS` · 锚点类型 == `nodes.KINDS` · 契约里没有正文键 | **P0** | 中 |
 | **P1b** | ✅ **已落地**（P1b-2, 2026-10-07）| ⭐ **换骨头**：`ROUNDS` 的 key `understand` → `relate` + round 接线 + prompt 改写。⚠️ **写侧已落**（`apply_relations` = P3，见下）；⛔ 旧一族**不删**（用户裁：留给 L2）| `core/digest/rounds/*` · `llm/prompts/digest_understand.md` → `digest_relate.md` · `llm/task_labels.py` | 真机那轮跑出边（不再空转）| 见下面那张"P1b-2 作战表" | P1a | 大 |
-| **P2** | ⬜ | **L1 的料**（**一笔三件**）：加「现有经历（候选）」+ 印 `topics` + 印那 ≤5 个对象候选（并据此把 `entity_ids` 从空集换成真集）· ⭐ 顺带补 **`akin`/`contradicts` 两端类型检查**（今天的三个 id 集分不出"旧经历"与"认知" ⇒ 要一张 kind 表）| `core/digest/material.py` · `rounds/__init__.py` 的 `material` 格 · `rounds/relate.py` · `contract/digest_registry.py` | 料里真出现已有经历的 id 与其 `topics`; `akin` 连得上旧经历 | `_sections_for` 逐字校对（表 ↔ 调用点）· 料里没有 ⇒ 红 · 类型检查能红 | **P1b** | 中 |
+| **P2** | ✅ **已落地**（P2, 2026-10-07）| **L1 的料**（**一笔三件**）：「现有经历（候选）」（按 `topics` 相交摆 + 印交集轴 + 印旧事的时间）+ 新经历印 `topics` + 对象候选（≤5 个真 id + 字面命中提示, `entity_ids` 换真集）· ⭐ 顺带补上 **`akin`/`contradicts` 两端类型检查**（`kind_of`）| `core/digest/material.py` · `core/brain/entities.py`（`object_lines`）· `rounds/__init__.py` 的 `material` 格 · `rounds/relate.py` · `contract/digest_registry.py` | 料里真出现已有经历的 id 与其 `topics`; `akin` 连得上旧经历; `about` 落得下来 | `test_l1_akin_reaches_an_older_episode` · `test_l1_about_lands_with_object_candidates` · `test_l1_type_mismatch_is_dropped` · `test_digest_material.py`（挑法/上限/印法）· 四条都验过**能红** | **P1b** | 中 |
 | **P3** | ✅ **已落地**（`2e2b75b`）| **L1 的写侧**：`apply_relations`（**只落边**，不建 belief；带 `id_map`）| `core/brain/revise.py` | 边落对（rel/src/dst）+ 幂等 | 桩 store 钉"只做两件事"· 轴留痕 · `about` 方向 | — | 中 |
 | **P4** | ✅ **随 P1b-2 落地** | **prompt 改写**（→ `digest_relate.md`：职责 + 候选解释 + 指针）| `llm/prompts/digest_relate.md` | prompt 不抄判据（黑名单）| `test_relate_prompt_points_at_the_contract`（旧词汇零命中 + 指针对准契约真标题）| P1b | 小 |
 | **P5** | ✅ **随 P1b-2 落地** | **桩与编排**：`stub_tasks.annotation_reply` 认新形状 · `ROUNDS` 的 `writes` 格 | `tests/stub_tasks.py` · `rounds/__init__.py` | 板块绿 | `test_l1_writes_edges_only`（`writes` 只有边面）| P1b | 小 |
-| **P6** | ⬜ | ⭐ **观测**（"孤立经历"的账）| `rounds/relate.py` 的日志 | 一行日志能看出：几条关系 · 几条经历**一条关系都没被连** | 日志字段在 | P2 | 小 |
+| **P6** | ⬜ | ⭐ **观测**（"孤立经历"的账）| `rounds/relate.py` 的日志 | 一行日志能看出：几条关系 · 几条经历**一条关系都没被连** | 日志字段在 | P2 ✅ | 小 |
 
 ### ⚠️ P1b-2 作战表（2026-10-07 **已落地** —— 试做一次按纪律撤回, 第二次一次做完）
 

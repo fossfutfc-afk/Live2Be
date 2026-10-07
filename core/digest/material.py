@@ -9,7 +9,7 @@
 | **R0** | `_segment_time_text` · `_special_days_text` · `_open_pinned_text` · `_ledger_ids` | 本段的时间 · 日子 · 还开着的约定（带编号 + 期限）· **资格位**（L3, 2026-10-05） |
 | R1 | `_collect_visual_prompts` · `_segment_emotion_keys` | 画面记忆 · 本段情绪标尺 |
 | R4 | `_open_pinned_text` · `_episode_lines` | 还开着的约定（带编号）· 本段新增经历 |
-| R2 | `_round_b_material` | 新经历 + 每条候选（正文/被引/边/为什么） |
+| **L1** | `_round_b_material` · `_episode_candidates` · `entities.object_lines` | 新经历（**带 `topics` 轴**）+ 每条候选（正文/被引/边/为什么）· **现有经历（候选）**（按 `topics` 相交摆）· **对象候选**（≤5 个真 id + 命中提示）|
 | R3 | `_node_texts` | 本轮**动过**的节点正文（喂 `entities.hit_set`） |
 | 全体 | `_sections_for` · `_join_sections` | 按表校对段标题 → 拼成 user 串 |
 
@@ -417,6 +417,93 @@ def _episode_lines(store: "WikiStoreV2", episode_ids: list[str]) -> str:
 
 
 # ---------------------------------------------------------------------------
+# L1（`relate`）的料 —— 「现有经历（候选）」与 `topics` 的印法（2026-10-07, P2）
+# ---------------------------------------------------------------------------
+
+#: L1 的「现有经历（候选）」上限 —— **整段**最多摆几条。
+#: ⚠️ 认知那侧是 `recall.CAND_K = 3` **每条**; 经历这边不按条算 —— 候选池是**整个历史**
+#: （真机今天两位数, 以后三位数）, 而一段里她实际会连的边是"几条"。6 = 摆得下
+#: "这一段可能同类的几条", 又不至于把注意力铺开。要调先看 P6 的观测（孤立经历的账）。
+DIGEST_RELATE_CAND_K = 6
+
+
+def _clip(text: object, n: int = 120) -> str:
+    """正文截断（**只截正文** —— 头里的名字是地址, 截一半等于把地址截坏）。"""
+    s = str(text or "")
+    return s if len(s) <= n else s[:n] + "…"
+
+
+def _axes_field(topics) -> list[str]:
+    """`topics` 印成信息头里的一格: `轴 苔藓·天台`（没有 ⇒ 整格不出现）。
+
+    ⭐ **必须印**（P2 的理由）: L1 判 `akin` 时 `on` 要落在**两端 `topics` 的交集**里 ——
+    看不见它, 那个词就只能靠猜, 猜不中就**静默丢行**（P1b-2 期间正是这样）。
+
+    ⚠️ 多值用 `·` 并列, ⛔ **不能用 `｜`** —— 那是字段分隔（`marks.FIELD_SEP`）。
+    """
+    vals = [str(t).strip() for t in (topics or ()) if str(t or "").strip()]
+    return [f"轴 {'·'.join(vals)}"] if vals else []
+
+
+def _episode_candidates(store: "WikiStoreV2", episode_ids: list[str], *,
+                        k: int = DIGEST_RELATE_CAND_K,
+                        now="" ) -> tuple[str, list[str]]:
+    """L1 的料之二: **已有的经历里, 可能跟这一段同类的那几条**（P2）。
+
+    ⭐ **凭什么挑 = 两端 `topics` 有交集** —— 与 `akin` 的判据（`on` ∈ 两端交集）**同源**。
+    引擎**不判**"这两条是不是同类"（那是她的活）, 它只做一件纯集合运算: 摆出那些
+    **过得了校验的两端**。交集为空的旧经历摆上去也没用 —— 她写出来的 `akin` 会被
+    `on` 那一关丢掉, 白占注意力。
+
+    排序: 交集**元素多**的在前（越像越靠前）; 同数按 `ts` 新的在前。
+    ⚠️ 一条旧经历都没相交 ⇒ **这一段的经历是孤立的**（那也是一个结论, 不编候选）。
+
+    ⚠️ `now` 给了就印"多久以前 / 日期"两格 —— 契约那句"同一件事的先后两段**不算**
+    `akin`（那是时间上的接续）"要她判得出来, 就得看得见旧事有多旧。
+
+    ⚠️ 每一行印的 `轴 …` 是**交集**（不是那条旧经历的全部 `topics`）—— 摆出来的每个词
+    都得能用: 印一个不在交集里的词, 只会诱她写一条**过不了校验**的 `akin`。
+
+    Returns: `(text, ids)`; `ids` = 摆出来的**真实 id**（喂 parse 的 `target_ids`
+        与 `topics_of`）。空 ⇒ `("", [])`。
+    """
+    ids = {str(i) for i in episode_ids}
+    mine: list[set[str]] = []
+    for nid in ids:
+        node = store.get(nid)
+        if node is not None and node.topics:
+            mine.append({str(t) for t in node.topics})
+    if not mine:
+        return "", []
+    scored: dict[str, tuple[int, str, list[str]]] = {}
+    for old in store.all():
+        if old.kind != "episode" or old.id in ids:
+            continue
+        topics = [str(t) for t in old.topics]
+        best, axes = 0, []
+        for want in mine:
+            common = [t for t in topics if t in want]
+            if len(common) > best:
+                best, axes = len(common), common
+        if best:
+            scored[old.id] = (best, str(old.ts or ""), axes)
+    if not scored:
+        return "", []
+    order = sorted(scored.items(), key=lambda kv: kv[1][1], reverse=True)  # ts 新的在前
+    order.sort(key=lambda kv: -kv[1][0])                                  # 再按交集大小
+    lines: list[str] = []
+    ids_out: list[str] = []
+    for oid, (_n, _ts, axes) in order[:k]:
+        node = store.get(oid)
+        if node is None:
+            continue
+        head = marks.head(node, key=oid, now=now, extra=_axes_field(axes))
+        lines.append(f"{head}{_clip(node.text)}")
+        ids_out.append(oid)
+    return "\n".join(lines), ids_out
+
+
+# ---------------------------------------------------------------------------
 # R2 / R3 的料
 # ---------------------------------------------------------------------------
 
@@ -477,13 +564,12 @@ def _round_b_material(store: "WikiStoreV2", episode_ids: list[str],
         node = store.get(nid)
         if node is None:
             continue
-        head = node.text
-        if len(head) > 120:
-            head = head[:120] + "…"
-        # 头由 `marks.head` 出（**唯一实现**）—— `〔m0025｜《今天的杂草屋》〕正文`。
+        head = _clip(node.text)
+        # 头由 `marks.head` 出（**唯一实现**）—— `〔m0025｜《今天的杂草屋》｜轴 苔藓〕正文`。
         # 编号是**钥匙**（L1 的 `relations` 用它指 episode, 真实 id）；
         # 书名号里是**gist**（正文被截到 120 字, 8~16 字的名字是"这是哪件事"的压缩）。
-        lines.append(f"{marks.head(node, key=node.id)}{head}")
+        # ⭐ P2 起多一格 `轴 …` —— `akin` 的 `on` 要落在两端 `topics` 交集里, 不印就只能猜。
+        lines.append(f"{marks.head(node, key=node.id, extra=_axes_field(node.topics))}{head}")
         if node.verbatim:
             lines.append(f"    原话: {node.verbatim}")
         query = f"{node.text} {node.verbatim}".strip()
