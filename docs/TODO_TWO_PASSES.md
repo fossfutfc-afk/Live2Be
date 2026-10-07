@@ -23,7 +23,7 @@
 
 | 步 | 状态 | 一句话 | 落点 | 验收 | 守门（能红）| 依赖 | 体量 |
 |---|---|---|---|---|---|---|---|
-| **P0** | ⬜ | **R1 长出 `topics`**（1~3 个具体的东西，⛔ 泛词）| `contract/digest_registry.py` 的逐字段表 · `llm/prompts/digest_record.md` | 真机每条 episode 都带 `topics` | 字段进 `ROW_FIELDS` · 契约里出现"1~3 个" · 上限 3 | — | 小 |
+| **P0** | ✅ **已落地**（`d967ddf`）| **R1 长出 `topics`**（1~3 个具体的东西，⛔ 泛词）| `contract/digest_registry.py` 的逐字段表 · `llm/prompts/digest_record.md` | 真机每条 episode 都带 `topics` | 字段进 `RECORD_EPISODE`（⛔ 不是 R0 的 `ROW_FIELDS`）· 示例里有 · 上限 3 · `ROUNDS.writes` 有 | — | 小 |
 | **P1** | ⬜ | **L1 契约形状**（`relations` + 四个动作）| `contract/digest_registry.py`（`PHASE_UNDERSTAND` 重写 + `parse_relations` 替换 `parse_round_b`）| 合法/非法行的对立用例 | id 闭集 · `on` 交集 · **文本里的 kind 名 ∈ `KINDS`**（反向）| **P0** | 中 |
 | **P2** | ⬜ | **L1 的料**：加「现有经历（候选）」+ 印 `topics` | `core/digest/material.py` · `rounds/__init__.py` 的 `material` 格 · `rounds/understand.py` | 料里真出现已有经历的 id 与其 `topics` | `_sections_for` 逐字校对（表 ↔ 调用点）· 料里没有 ⇒ 红 | P1 | 中 |
 | **P3** | ⬜ | **L1 的写侧**：`apply_relations`（**只落边**，不建 belief）| `core/brain/revise.py`（与 `apply_decisions` 拆开）| 边落对（rel/src/dst）+ 幂等 | 未知 id 拒 · 幂等 · **`akin` 的 `on` 缺失 ⇒ 拒** | P2 | 中 |

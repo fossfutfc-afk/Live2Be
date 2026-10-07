@@ -103,6 +103,12 @@ class BrainNode:
     #: ⇒ **"这条是不是听说的"就由这个字段判**（读侧只此一处判据, 不再有第二个真源）。
     observer: str = ""
     tags: list[str] = field(default_factory=list)
+    #: ⭐ **这条经历"关于什么"** —— 1~3 个**具体的东西**（人 / 地方 / 物件 / 事情）。
+    #: 它是"同类的事"认亲的把手: L1 的 `akin` 要求 `on` ∈ 两端 `topics` 的**交集**
+    #: （传递只在同值内 ⇒ 挡链式膨胀）。
+    #: ⚠️ 与 `tags` **分工不同**: tags = **检索导向**的词（"以后可能被提到的词"）,
+    #: `topics` = **轴上的具体东西**（不写泛词 —— 泛词分不出类）。
+    topics: list[str] = field(default_factory=list)
     event_seq: list[int] = field(default_factory=list)
     ts: str = ""
     # ⏸ `links` / `contradictions` 两个字段 2026-09-21（G4）**删** —— 边已整体搬到
@@ -258,7 +264,7 @@ class BrainNode:
             "kind": self.kind,
             "significance": self.significance,
         }
-        for f in ("observer", "tags", "event_seq", "ts",
+        for f in ("observer", "tags", "topics", "event_seq", "ts",
                   "text", "verbatim",
                   "verbatim_seq", "title", "emo_shape", "place",
                   "place_raw",
@@ -288,6 +294,7 @@ class BrainNode:
         # ⏸ 旧档的 `epistemic` 键**读不进来也不报错**（2026-09-29 退役; 信息在 `observer` 里）
         node.observer = _str(raw.get("observer"))
         node.tags = _str_list(raw.get("tags"))
+        node.topics = _str_list(raw.get("topics"))
         node.event_seq = _int_list(raw.get("event_seq"))
         node.ts = _str(raw.get("ts"))
         # 正文（三槽合流; 旧档兼容: 依次回落到 narration/pattern/content）
