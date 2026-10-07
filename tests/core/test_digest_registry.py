@@ -1053,6 +1053,38 @@ def test_parse_relations_legal_rows_and_two_tiers():
     assert rows6 == [] and res6.errors or res6.drops
     print("    P1a: parse_relations 合法/丢行/整包拒 三档分得开")
 
+def test_apply_relations_writes_edges_only():
+    """⭐ P1b-1: `apply_relations` —— **只落边**（一个节点都不建）, 轴要留痕。
+
+    用桩 store/log（不建真库）: 这条要钉的正是"它**只**做两件事" ——
+    `add_edge` 与 `log.append`; 多碰一样（建节点 / 改正文）就红。
+    """
+    from core.brain.revise import apply_relations
+
+    class _Store:
+        def __init__(self):
+            self.edges: list[tuple[str, str, str]] = []
+
+        def add_edge(self, rel, src, dst, *, ts=""):
+            self.edges.append((rel, src, dst))
+
+    class _Log:
+        def __init__(self):
+            self.rows: list[dict] = []
+
+        def append(self, row):
+            self.rows.append(row)
+
+    st, log = _Store(), _Log()
+    rows = [{"rel": "akin", "src": "m0017", "dst": "m0014", "on": "苔藓"},
+            {"rel": "about", "src": "m0014", "dst": "x0001"}]
+    out = apply_relations(st, rows, ts="2026-10-07T00:00", log=log)
+    assert st.edges == [("akin", "m0017", "m0014"), ("about", "m0014", "x0001")]
+    assert out == rows
+    assert log.rows[0]["action"] == "relate" and log.rows[0]["on"] == "苔藓"
+    assert "on" not in log.rows[1]
+    print("    P1b-1: apply_relations 只落边（+ on 留痕）")
+
 
 def test_record_topics_is_the_axis():
     """⭐ P0（2026-10-07）: R1 的 `topics` —— "这条经历关于什么"的**具体东西**（≤3）。
