@@ -39,7 +39,7 @@ from core.session.events import (
     pick_supplements,
 )
 from core.session.models import VNState
-from core.tui.text_processors import _strip_action_brackets, split_reply_chunks
+from core.tui.text_processors import _strip_action_brackets
 from contract.records import render_records
 from contract.timeline_index import REC_PICKED, format_event, format_record
 
@@ -153,14 +153,14 @@ def render_events(events: list[Event]) -> list[dict[str, str]]:
             reply = e.payload.get("reply", "")
             if isinstance(player, str) and player:
                 out.append({"role": "user", "content": player})
-            # 切片回灌: 角色回复去括号 → split_reply_chunks 切块（模拟逐条消息,
-            # 让 LLM 看到的上下文更贴近真实聊天, 把握语境）; 只第一块带动作名前缀
+            # 切片回灌: 角色回复去括号 → **一行一条 assistant 消息**（⑥-2e: 一行 = 一条
+            # 消息, 引擎不再切句）。⚠️ 从前这里过 `split_reply_chunks(text)`（**没给 rng**
+            # ⇒ 走全局 `random`）⇒ 同一份事件每轮重渲的切点都在变 ⇒ **history 逐字节不稳定
+            # ⇒ 前缀缓存被破坏**（2026-10-07 实测: 同一份事件渲 30 次出 2 种）。
+            # 契约层面的判据: 引擎与前端都不切（webgui 同一笔收尾）, 这里是喂 LLM 的那一份。
             text = _strip_action_brackets(reply).strip() if isinstance(reply, str) else ""
-            chunks = split_reply_chunks(text) if text else []
-            if chunks:
-                for i, chunk in enumerate(chunks):
-                    prefix = f"[{e.subtype}] " if i == 0 else ""
-                    out.append({"role": "assistant", "content": f"{prefix}{chunk}"})
+            if text:
+                out.append({"role": "assistant", "content": f"[{e.subtype}] {text}"})
             else:
                 out.append({"role": "assistant", "content": f"[{e.subtype}]"})
         elif e.type == TYPE_BOND:

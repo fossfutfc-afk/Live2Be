@@ -148,7 +148,6 @@ webgui.chat	new_world	function	webgui.chat
 webgui.chat	open_session	function	webgui.chat
 webgui.chat	render_chat_events	function	webgui.chat
 webgui.chat	reset_engines	function	webgui.chat
-webgui.chat	split_reply_chunks	function	core.tui.text_processors
 webgui.chat	task_begin	function	webgui.chat
 webgui.chat	task_end	function	webgui.chat
 webgui.chat	task_status	function	webgui.chat

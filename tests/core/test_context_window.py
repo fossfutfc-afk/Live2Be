@@ -112,6 +112,28 @@ def test_window_messages_fill_and_cap():
     assert small[-2]["content"] == "消息29"
 
 
+def test_render_events_is_byte_stable():
+    """⭐ **同一份事件渲两次必须逐字节相同** —— 这是"前缀缓存"的地基（2026-10-07 收尾 ⑥-2e）。
+
+    真机病根: `render_events` 从前对每条 mmt 回复过 `split_reply_chunks(text)`
+    （**没给 rng** ⇒ 走全局 `random`）⇒ 逗号处的切点每轮重掷 ⇒ history 逐字节不稳定
+    ⇒ 每轮都 `cache_miss`。
+
+    ⚠️ 判据必须用**长回复**（逗号前落到 6~10 字的弹性区）才抓得住 —— 短回复一次骰子
+    都不掷, 拿"回复1"这种文本写的用例永远是绿的（这正是它躲过守门的原因）。
+    """
+    long_reply = "今天天气不错，要不要一起去天台看看，我带了点心"
+    evs = [make_event("mmt", "mmt_chat",
+                      {"player": "在吗", "reply": long_reply}, seq=1)]
+    first = render_events(evs)
+    assert first == render_events(evs) == window_messages(evs, max_units=1000)
+    assert all(render_events(evs) == first for _ in range(60))
+    # ⭐ 一行 = 一条 assistant 消息（⑥-2e: 引擎不再切句）—— 那条回复只该产出一条
+    said = [m for m in first if m["role"] == "assistant"]
+    assert len(said) == 1 and said[0]["content"] == f"[mmt_chat] {long_reply}"
+    print("    render_events: 逐字节稳定（长回复 60 次重渲同形）+ 一行一条")
+
+
 def test_window_messages_bond_units_by_lines():
     # bond 场景（多句段多行）按行数占窗——长场景自然挤掉更多旧消息
     bond = make_event("bond", "story_scene", _bond_payload())

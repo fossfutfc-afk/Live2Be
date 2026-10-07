@@ -98,8 +98,16 @@ def split_reply_chunks(
       6) 尾部 ≤4 字硬切碎片并入上一块
 
     宁缺勿错: 除「切分处被丢弃的那个逗号」外, 块拼接 == 原文, 不丢字。
-    与 _split_for_momotalk 的区别: 它固定 max_chars=25 且保留逗号, 用于既有路径;
-    本函数供非流式回复（全 JSON 动作 loop）逐块输出。
+    与 _split_for_momotalk 的区别: 它固定 max_chars=25 且保留逗号, 用于既有路径。
+
+    ⚠️ **2026-10-07 起它只剩两个读者**（`DESIGN_STREAM_CONTRACT §6`"摘除"的补做）:
+      · `core/tui/display.py::publish_reply`（**旧的非流式动作 loop**, CLI 侧）;
+      · `tests/core/test_display.py`（本体单测 —— 用户裁决"函数与单测原样保留"）。
+    ⛔ **气泡主路径不许再用它**: `display.publish_line`（CLI 行协议）·
+    `webgui.chat.render_chat_events`（前端气泡）· `session.renderer.render_events`
+    （喂 LLM 的 history）三处都是"一行 = 一条消息"。⚠️ 尤其 history 那一处: 它当年调
+    本函数**没给 rng** ⇒ 走全局 `random` ⇒ 同一份事件每轮重渲的切点都在变 ⇒
+    **前缀缓存被破坏**（守门 = `test_render_events_is_byte_stable`）。
     """
     rng = rng or random
     text = _normalize_momotalk(text).strip()

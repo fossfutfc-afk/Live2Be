@@ -25,7 +25,7 @@ reason 便签可退役（title 顶上）。
 
 | 事件 | 渲染为 | 规则 |
 |---|---|---|
-| `mmt/mmt_chat` | user=player 文本; assistant=reply | 现状保留: 去动作括号 + 切块模拟逐条消息（`split_reply_chunks`） |
+| `mmt/mmt_chat` | user=player 文本; assistant=`[动作名] reply` | ⭐ **2026-10-07（收尾 ⑥-2e §6）: 一行一条 assistant 消息 —— 不再切块**。从前这里过 `split_reply_chunks`（**没给 rng** ⇒ 全局 `random`）⇒ history 逐字节不稳定 ⇒ **前缀缓存被破坏**；守门 = `test_render_events_is_byte_stable` |
 | `mmt/mmt_trigger_bond_story` | assistant = `（进入羁绊剧情: {chapter_title}）` | **title 取代 reason**（2026-09-05 拍板）: trigger payload 改必填 chapter_title, title 进上下文（本章命题——AI 知道刚才进入了叫什么的故事）; reason 字段退役（mmt 侧联动实施） |
 | `bond/story_scene` | user=input（玩家输入/旁白种子）; assistant=叙事提取 | 见 §2.1 |
 | `bond/memorial_enter` | 同 story_scene 叙事提取 | memorial 主体是 bond 事件（paragraphs=煽情文字）——**必渲染**, 行首标 `（纪念时刻画面…）` |

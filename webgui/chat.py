@@ -16,13 +16,12 @@
 from __future__ import annotations
 
 import logging
-import random
 import threading
 from pathlib import Path
 
 from core.mmt.engine import MomoTalkEngine
 from core.session.events import M_VN_ENTER, M_VN_EXIT
-from core.tui.text_processors import _strip_action_brackets, split_reply_chunks
+from core.tui.text_processors import _strip_action_brackets
 from llm.client import LLMClient
 from webgui import deps                       # 接缝（C1a）: store 等可替换依赖
 
@@ -303,10 +302,17 @@ def render_chat_events(events, display_name: str = "",
     kind="bond_done": 该次剧情已完整走完（vn_exit completed=True）→ 淡行
     "已完成羁绊剧情：{标题}", 不可点击（bond_done: {触发 seq: 文本} 由调用方
     从完整事件流预计算——增量轮询时触发事件与收尾 marker 不在同一批, 需要全量视角）。
-    其余: 复用 CLI 的文本处理（core/tui/text_processors）——角色回复去动作括号 →
-    split_reply_chunks 字数+随机切块（模拟真人一条条发消息）——每个 chunk 一个
-    气泡。玩家消息不切（原样）。rng 用事件 seq 作种子（同一条回复每次切块一致,
-    历史重放稳定; 不同事件切块不同, 保留"真人节奏"的随机感）。
+    其余: 角色回复**去动作括号后原样一条** = 一个气泡。
+
+    ⭐ **一行 = 一个气泡**（2026-10-07 收尾 ⑥-2e）: 从前这里还过一道
+    `split_reply_chunks`（字数+**随机**阈值切块, "模拟真人一条条发消息"）。
+    ⑥-2e 起"一行 = 一条消息"已由**契约**定下（模型自己决定分几行说）——
+    引擎再切一刀是**替她重切**, 副作用还三个: ① 条数**没有可解释的规则**
+    （逗号前 6~10 字才掷一次骰子）② 切处**丢逗号** ③ 同一条回复在前端(按 seq 播种)
+    与**喂 LLM 的历史**(没播种 ⇒ 走全局 random)两处切法不一致, 后者每轮重渲都在变
+    ⇒ **前缀缓存被破坏**。切句器本体与它的单测**按用户裁决保留**（CLI 终端
+    `core/tui/display.py` 仍在用; 将来若要"行内二次切分", 回退位置就在这一行）。
+    玩家消息不切（原样）。
     """
     bubbles: list[dict] = []
     for e in events:
@@ -314,7 +320,7 @@ def render_chat_events(events, display_name: str = "",
             continue
         if e.subtype == "mmt_trigger_bond_story":
             # 触发轮完整渲染（原 bug: continue 吞掉 player+reply——"不声不响"+重进消失）:
-            # 玩家消息 → AI 触发回复（当面对白, 切块）→ 粉色横幅（或已完成淡行）
+            # 玩家消息 → AI 触发回复（当面对白）→ 粉色横幅（或已完成淡行）
             player = (e.payload.get("player") or "").strip()
             reply = (e.payload.get("reply") or "").strip()
             if player:
@@ -322,10 +328,8 @@ def render_chat_events(events, display_name: str = "",
             if reply:
                 text = _strip_action_brackets(reply).strip()
                 if text:
-                    rng = random.Random(e.seq)
-                    for chunk in split_reply_chunks(text, rng=rng):
-                        bubbles.append({"side": "char", "text": chunk,
-                                        "seq": e.seq, "subtype": e.subtype})
+                    bubbles.append({"side": "char", "text": text,
+                                    "seq": e.seq, "subtype": e.subtype})
             done_text = (bond_done or {}).get(e.seq)
             if done_text:
                 bubbles.append({"kind": "bond_done", "text": done_text,
@@ -342,10 +346,8 @@ def render_chat_events(events, display_name: str = "",
         if reply:
             text = _strip_action_brackets(reply).strip()
             if text:
-                rng = random.Random(e.seq)          # 确定性种子（历史重放稳定）
-                for chunk in split_reply_chunks(text, rng=rng):
-                    bubbles.append({"side": "char", "text": chunk,
-                                    "seq": e.seq, "subtype": e.subtype})
+                bubbles.append({"side": "char", "text": text,
+                                "seq": e.seq, "subtype": e.subtype})
     return bubbles
 
 
