@@ -1,6 +1,7 @@
 """digest_registry 测试（AGENT_BRAIN.md §3 重构 / 板块 2）——LLM 契约层单源。"""
 from contract.digest_registry import (
     MAX_SEGMENTS,
+    TOPICS_MAX,
     OUTPUT_DISCIPLINE,
     OUTPUT_RULES,
     PHASE_ATTRIBUTE,
@@ -953,3 +954,58 @@ def test_round_b_add_is_never_gated():
     assert "must_touch" not in sig.parameters
     assert not any("疑似同主题" in e for e in result.errors)
     print("    Round B: add 不再被引擎闸门拦（must_touch 已删）")
+
+
+def test_record_topics_is_the_axis():
+    """⭐ P0（2026-10-07）: R1 的 `topics` —— "这条经历关于什么"的**具体东西**（≤3）。
+
+    它是"同类的事"认亲的把手: L1 的 `akin` 要求 `on` ∈ **两端 `topics` 的交集**
+    （传递只在同值内 ⇒ 挡链式膨胀）。⛔ 与 `tags` 分工不同（tags = 检索导向的词）。
+    """
+    from llm.prompts import load_prompt
+
+    assert TOPICS_MAX == 3
+    rec = digest_registry.build_schema(PHASE_RECORD)
+    assert '"topics"' in rec and "具体的东西" in rec and "不写泛词" in rec
+    assert '"topics": ["公园"' in rec, "示例里要有它（示例才是形状的来源）"
+
+    # 超上限 ⇒ 截 + 告警
+    items, res = digest_registry.parse_round_a(
+        {"episodes": [{"text": "一段经历", "title": "标题", "tags": ["a"],
+                       "topics": ["苔藓", "生日", "模型店", "笔记"]}]})
+    assert items[0]["topics"] == ["苔藓", "生日", "模型店"], items[0]
+    assert any("topics" in w and "超过" in w for w in res.warnings)
+
+    # 缺 ⇒ **不告警**（想不出具体的 ⇒ 空数组合法）
+    items2, res2 = digest_registry.parse_round_a(
+        {"episodes": [{"text": "一段经历", "title": "标题", "tags": ["a"]}]})
+    assert "topics" not in items2[0]
+    assert not any("topics" in w for w in res2.warnings)
+
+    # 去重保序
+    items3, _ = digest_registry.parse_round_a(
+        {"episodes": [{"text": "一段经历", "title": "标题", "tags": ["a"],
+                       "topics": ["苔藓", "苔藓", "生日"]}]})
+    assert items3[0]["topics"] == ["苔藓", "生日"]
+
+    # ⭐ `ROUNDS` 的 `writes` 是"这一步往哪写"的地图 —— 漏了它功能不报错, 但地图就错了
+    from core.digest.rounds import BY_KEY
+    assert "topics" in dict(BY_KEY["record"].writes)["episode"]
+
+    # ⭐ 判据只在契约层: prompt 点名这个键可以（不然她不会写）, **抄判据不行**
+    raw = load_prompt("digest_record")
+    assert "topics" in raw
+    assert "不写泛词" not in raw and "具体的东西" not in raw
+    print("    P0: topics 上限 3 / 超则截 / 缺不告警 / 去重 / 判据只在契约层")
+
+
+def test_topics_round_trips_on_the_node():
+    """节点面: `topics` 存得进盘、读得回来; 空 ⇒ 省略（缩小行）。"""
+    from core.brain.nodes import BrainNode
+
+    d = BrainNode(id="m0001", kind="episode", text="…",
+                  topics=["苔藓", "生日"]).to_dict()
+    assert d["topics"] == ["苔藓", "生日"]
+    assert BrainNode.from_dict(d).topics == ["苔藓", "生日"]
+    assert "topics" not in BrainNode(id="m0002").to_dict()
+    print("    P0: topics 在节点上往返（空 ⇒ 省略）")

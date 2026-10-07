@@ -234,7 +234,7 @@ ROUNDS: tuple[RoundSpec, ...] = (
                   "角色人设（锚点）", "本段情绪标尺"),
         writes=(
             # 条目自带的位置是 `span` 区间, 由 `_expand_spans` 展开成 `event_seq`。
-            ("episode", ("title", "text", "verbatim", "verbatim_seq", "tags",
+            ("episode", ("title", "text", "verbatim", "verbatim_seq", "tags", "topics",
                          "significance", "emo_int", "emo_span", "observer",
                          "event_seq", "ts",
                          # 引擎物化（🚫 只进召回侧, 绝不进 LLM 上下文）:

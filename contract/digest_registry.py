@@ -76,6 +76,9 @@ MAX_EPISODES = 5        # A 轮单包最多 episode 数
 MAX_ALIASES = 8         # `new_entity` 的别名上限（超了截断 + warning —— 别名是效率优化）
 MAX_TEXT = 300          # 正文（text）单行上限（汉字）——三槽合流后两种 kind 共用
 MAX_TAGS = 4            # tags 检索词上限
+#: ⭐ `topics` 上限（**≤3**, 用户 2026-10-07 裁决）—— "这条经历关于什么"的**具体东西**。
+#: 它是"同类的事"认亲的把手（L1 的 `akin` 要求 `on` ∈ 两端 `topics` 的交集）。
+TOPICS_MAX = 3
 #: ⏸ `MAX_ITEMS` / `items` 字段 **2026-09-29 删** —— 零活读者, 且"是不是同一个东西"
 #: 写在 episode 里分不清（见 `nodes.py` 的字段区注释）⇒ 物品面将来走 `inventory` 旁路。
 #: 类名（group 的 `title`）上限 —— ⚠️ **与 episode 的 8~16 字不是同一条**: 类名可以很短
@@ -375,6 +378,10 @@ RECORD_EPISODE = DigestAction(
         '                          // ⚠️ **只给行号（数组）**; 写成字符串会被忽略 //\n'
         '      "tags": ["…"],     // 必填 1-4 个; 检索导向——未来玩家输入/叙事可能出现的词\n'
         '                          //（人名/地点/物品/动作/话题）; 不含时间词; 从最重要排起 //\n'
+        '      "topics": ["苔藓", "生日"],  // ⭐ 这条经历**关于什么** —— 1~3 个**具体的东西**\n'
+        '                          //（人 / 地方 / 物件 / 事情）; 以后"同类的事"靠它认亲;\n'
+        '                          // ⛔ **不写泛词**（"老师" / "日常" / "心情" / "学校"）:\n'
+        '                          // 那种词谁都有, 分不出类; 想不出具体的 ⇒ 写 []（合法）//\n'
         '      "significance": 0~1,  // 行为锚点: 0.9+ 改变认知/极深刻（初遇/告白）;\n'
         '                          // 0.7~0.9 重要约定/特别难忘的日常; <0.7 普通但角色在意的细节;\n'
         '                          // 拿不准往低给 //\n'
@@ -402,6 +409,7 @@ RECORD_EPISODE = DigestAction(
         ' "title": "和老师的公园散步",'
         ' "verbatim": ["33.2", "33.p"],'
         ' "tags": ["公园", "流浪猫", "热茶"],'
+        ' "topics": ["公园", "流浪猫"],'
         ' "significance": 0.8,'
         ' "emo_int": 0.6, "emo_span": 0.7}'
     ),
@@ -1689,6 +1697,16 @@ def _clean_episode_item(e: dict, i: int, errors: list[str], warnings: list[str],
         item["tags"] = tags
     else:
         warnings.append(f"episodes[{i}] 缺 tags（检索导向 1-4 个）")
+    # ⭐ `topics`（2026-10-07, `TODO_TWO_PASSES` 的 P0）—— "这条经历关于什么"的**具体东西**,
+    # 是"同类的事"认亲的把手（L1 的 `akin` 要求 `on` ∈ 两端 `topics` 的交集）。
+    # ⚠️ **缺了不告警**（想不出具体的 ⇒ 空数组是合法的 —— 那是"这条还没轴"的正常状态）;
+    # 超上限 ⇒ 截 + 告警（与 `MAX_SEGMENTS` 同族: 上限要能看见）。
+    topics = [t.strip() for t in e.get("topics", []) if isinstance(t, str) and t.strip()]
+    if len(topics) > TOPICS_MAX:
+        warnings.append(f"episodes[{i}].topics 超过 {TOPICS_MAX} 个（截到前 {TOPICS_MAX} 个）")
+        topics = topics[:TOPICS_MAX]
+    if topics:
+        item["topics"] = list(dict.fromkeys(topics))      # 去重保序
     # ⏸ `about_hint`（归属线索, §8.2/D1）清洗 **2026-09-29 删** —— 字段退役:
     # 它和 R3 的"挂谁"**判两次**（R1 猜一次、R3 再判一次, 还可能不一致）,
     # 而 R3 本来就拿得到候选表（全量）+ 新节点正文 ⇒ **引擎不必替它预判一个名字**。
