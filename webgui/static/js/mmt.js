@@ -175,18 +175,28 @@ const POLL_MS = 1000;          // 轮询间隔（宽限窗口/空闲态）
 const POLL_MS_BUSY = 250;
 const POLL_RESUME_GRACE_MS = 25 * 1000;   // VN 退出后继续轮询的宽限窗口
 
-// ── 气泡节奏 = **到达即渲染 · 同一批内逐条上屏**（⑥-3b 2026-09-27 / 甲 2026-10-07）──
-// 后端从 ⑥-3a 起**逐条**落气泡（`chat_full(on_chunk=…)` 边收边交付），所以
-// "下一句多久到"由 LLM 的真实生成速度决定 —— 前端**不**做打字模拟
-// （`chunkTypingTime()` 那个字数×随机延迟已退役）。
-// ⚠️ 但真机实测（2026-10-07）暴露出另一半: 规则书要求她**连发**（"一条一条地发"），
-// 而她**想完之后一口气写完**（日志: 第一行 9.7s 交付、整轮 10.1s 结束 ⇒ 8 条挤在
-// **最后 390ms**）+ 250ms 轮询 ⇒ 一屏同时涌出 8 条, 观感是"爆开"。
-// ⇒ 同一批内按小间隔逐条上屏（**不是**把每条都延迟: 单条基本无感, 多条约 0.6s 放完）。
-const BATCH_GAP_MS = 110;      // 同一批里相邻两条之间
-const BATCH_GAP_CAP_MS = 600;  // 一批的追加延迟上限（条数多时自动压缩）
-//: 上一批还在上屏 → 下一批排在它后面（⚠️ 否则慢的那条会被后一批抢先插进来, 顺序乱）
+// ── 气泡节奏 = **CLI linebuffer 同款**（`core/tui/streaming.py::chunk_typing_time`）──
+// 后端从 ⑥-3a 起**逐条**落气泡，但真机一轮 8 条会在几百毫秒内到齐（她"想完一口气
+// 写完"：日志 `mmt_stream_first ms=9718` / `mmt_turn ms=10108` ⇒ 8 条挤在最后 390ms）
+// ⇒ 同帧涌出 = "爆开"。前端按 CLI 那一套**逐条**放出来（2026-10-07 用户裁决：
+// *"按照 cli linebuffer 的同款逻辑"*）:
+//   每个角色气泡先亮"对方正在输入…"，亮 `字数 × 每字 80~200ms + 200ms`，再上屏
+//   —— 与 `display.publish_line` 一致: **每一条**都算这个时长（第一句不特殊）。
+// ⚠️ 只作用于**新到**的气泡; 历史一次性渲染（`renderBubbles`）不走这条路。
+// ⚠️ 想调快/调慢就改这三个数（CLI 端真源在 `core/tui/streaming.py`，两处一起改）。
+const TYPING_MS_PER_CHAR_MIN = 80;    // ← `_TICK_CHAR_MS_MIN`
+const TYPING_MS_PER_CHAR_MAX = 200;   // ← `_TICK_CHAR_MS_MAX`
+const TYPING_MS_PAUSE = 200;          // ← `_TICK_PAUSE_MS`
+function chunkTypingMs(text) {
+  const per = TYPING_MS_PER_CHAR_MIN
+    + Math.random() * (TYPING_MS_PER_CHAR_MAX - TYPING_MS_PER_CHAR_MIN);
+  return Math.round(String(text || "").length * per + TYPING_MS_PAUSE);
+}
+//: 队列尾（时间戳）—— 上一批还在放就接到它后面（⚠️ 顺序铁律: 后到的批次不许插队）
 let _revealUntil = 0;
+//: 最近一次轮询看到的 running（队列收尾的定时器据此决定要不要收指示器）
+let _pollRunning = false;
+const _revealing = () => Date.now() < _revealUntil;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function openChat(charId, name) {
@@ -559,26 +569,22 @@ async function pollLoop() {
       break;
     }
     wait = data.running ? POLL_MS_BUSY : POLL_MS;   // ⑥-3b: 生成期快档
+    _pollRunning = !!data.running;
     if (data.bubbles && data.bubbles.length) {
       _graceGotBubbles = true;       // 宽限窗口内已见新气泡 → 收尾话到了（见下）
       _lastSeq = data.last_seq;
       // 增量轮询: 跳过 player 气泡（sendMessage 已乐观渲染, 避免重复渲染;
       // 全量加载 openChat(since=0) 仍渲染 player——历史重建需要）
-      // 节奏（⑥-3b + 甲）: **一批里逐条上屏**。后端逐条交付, 但真机一轮 8 条会在
-      // 几百毫秒内到齐（她"想完一口气写完"）⇒ 同帧涌出 = "爆开"。
-      // ⚠️ 两条纪律: ① 只让**角色气泡**推进节奏（player 已渲染; bond 横幅/淡行
-      //    跟着当前节奏走, 免得被排在后面——顺序不能乱）② `_revealUntil` 记账,
-      //    下一批排在上一批放完之后。
-      const paced = data.bubbles.filter((b) => b.side === "char").length;
-      const step = paced > 1
-        ? Math.min(BATCH_GAP_MS, Math.round(BATCH_GAP_CAP_MS / (paced - 1)))
-        : 0;
+      // 节奏: **CLI linebuffer 同款**（见文件头 `chunkTypingMs`）——每个角色气泡
+      // 先"打字" `字数×每字(80~200ms)+200ms`, 再上屏。后端逐条交付, 但真机一轮 8 条
+      // 会在几百毫秒内到齐（她"想完一口气写完"）⇒ 不排队就是同帧"爆开"。
+      // ⚠️ 两条纪律: ① 只让**角色气泡**推进队列（player 已渲染; bond 横幅/淡行跟着
+      //    当前队位走 —— **顺序不能乱**）② `_revealUntil` 记账, 后一批排在前面之后。
       const base = Math.max(0, _revealUntil - Date.now());
-      let delay = base;
+      let at = base;
       for (const b of data.bubbles) {
         if (b.side === "player") continue;
-        const at = delay;
-        if (b.side === "char") delay += step;
+        if (b.side === "char") at += chunkTypingMs(b.text || "");
         if (at > 0) {
           setTimeout(() => { renderBubble(b); scrollBubbles(); }, at);
         } else {
@@ -586,9 +592,10 @@ async function pollLoop() {
         }
       }
       scrollBubbles();
-      if (delay > 0) {
-        _revealUntil = Date.now() + delay;
-        setTimeout(hideTyping, delay);   // 放完再收"对方正在输入…"
+      if (at > 0) {
+        _revealUntil = Date.now() + at;
+        // 放完收指示器（若那时她还在生成, 让下面那行 showTyping 接管, 别来回闪）
+        setTimeout(() => { if (!_pollRunning) hideTyping(); }, at);
       } else {
         hideTyping();
       }
@@ -606,8 +613,8 @@ async function pollLoop() {
       if (Date.now() < _pollGraceUntil) {
         if (!_graceGotBubbles) {
           showTyping();                       // 收尾话还没到
-        } else {
-          hideTyping();                       // 已到: 静默等窗口耗尽
+        } else if (!_revealing()) {
+          hideTyping();                       // 已到且放完: 静默等窗口耗尽
         }
         continue;
       }
@@ -619,7 +626,10 @@ async function pollLoop() {
     //    粉泡已上屏 = 轮到**玩家点击**进剧情, 此时不该再谎报"对方正在输入"
     //    （触发轮的尾巴 + **预热生成首场**还在跑, `running` 仍为 true → 原来必闪）。
     //    `_bondEls` = 未完成的入口气泡（翻转成 bond_done 时注销）—— 有它就静默。
-    if (_bondEls.size === 0) showTyping(); else hideTyping();
+    // 2026-10-07: 队列还在逐条上屏时 (`_revealing()`) 也要亮着 —— 那段正是"她在打
+    //    下一条"（CLI 同款: 气泡之间的 "…"）。两个来源取或, 避免互相压掉来回闪。
+    if (_bondEls.size === 0 && (data.running || _revealing())) showTyping();
+    else hideTyping();
   }
   setInputEnabled(true);
 }
