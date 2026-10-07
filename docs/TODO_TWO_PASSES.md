@@ -23,8 +23,8 @@
 
 | 步 | 状态 | 一句话 | 落点 | 验收 | 守门（能红）| 依赖 | 体量 |
 |---|---|---|---|---|---|---|---|
-| **P0** | ✅ **已落地**（`d967ddf`）| **R1 长出 `topics`**（1~3 个具体的东西，⛔ 泛词）| `contract/digest_registry.py` 的逐字段表 · `llm/prompts/digest_record.md` | 真机每条 episode 都带 `topics` | 字段进 `RECORD_EPISODE`（⛔ 不是 R0 的 `ROW_FIELDS`）· 示例里有 · 上限 3 · `ROUNDS.writes` 有 | — | 小 |
-| **P1a** | ✅ **已落地**（`5379879`）| ⭐ **新增并立**：新相位 `relate` + 四个关系动作 + `parse_relations`（旧路径**一字不动**）| `contract/digest_registry.py` | 合法/丢行/整包拒三档分得开 | 动作名 ⊆ `graph.RELS` · 锚点类型 == `nodes.KINDS` · 契约里没有正文键 | **P0** | 中 |
+| **P0** | ✅ **已落地**（`11ad209`）| **R1 长出 `topics`**（1~3 个具体的东西，⛔ 泛词）| `contract/digest_registry.py` 的逐字段表 · `llm/prompts/digest_record.md` | 真机每条 episode 都带 `topics` | 字段进 `RECORD_EPISODE`（⛔ 不是 R0 的 `ROW_FIELDS`）· 示例里有 · 上限 3 · `ROUNDS.writes` 有 | — | 小 |
+| **P1a** | ✅ **已落地**（`b09136f`）| ⭐ **新增并立**：新相位 `relate` + 四个关系动作 + `parse_relations`（旧路径**一字不动**）| `contract/digest_registry.py` | 合法/丢行/整包拒三档分得开 | 动作名 ⊆ `graph.RELS` · 锚点类型 == `nodes.KINDS` · 契约里没有正文键 | **P0** | 中 |
 | **P1b** | ⬜ | ⭐ **换骨头**：`ROUNDS` 的 key `understand` → `relate` + round 接线 + 写侧 `apply_relations` + prompt 改写 + ⛔ **删旧一族**（`TOUCH`/`UPDATE`/`ADD` · `parse_round_b` · `apply_decisions`（若无人用）· 那批旧用例）| `contract/digest_registry.py` · `core/digest/rounds/*` · `core/brain/revise.py` · `llm/prompts/digest_understand.md` → `digest_relate.md` | 真机那轮跑出边（不再空转）| 旧一族**删干净**（grep 零引用）· 旧用例改写不是放宽 | P1a | 大 |
 | **P2** | ⬜ | **L1 的料**：加「现有经历（候选）」+ 印 `topics` | `core/digest/material.py` · `rounds/__init__.py` 的 `material` 格 · `rounds/understand.py` | 料里真出现已有经历的 id 与其 `topics` | `_sections_for` 逐字校对（表 ↔ 调用点）· 料里没有 ⇒ 红 | P1 | 中 |
 | **P3** | ⬜ | **L1 的写侧**：`apply_relations`（**只落边**，不建 belief）| `core/brain/revise.py`（与 `apply_decisions` 拆开）| 边落对（rel/src/dst）+ 幂等 | 未知 id 拒 · 幂等 · **`akin` 的 `on` 缺失 ⇒ 拒** | P2 | 中 |
