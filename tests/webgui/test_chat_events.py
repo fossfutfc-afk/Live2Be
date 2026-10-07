@@ -47,6 +47,31 @@ def _entry_bubble(bubbles):
     return got[0]
 
 
+def test_one_row_is_one_bubble(tmp_path):
+    """⭐ **一行 = 一个气泡**（2026-10-07 收尾 ⑥-2e）—— 前端这一半的守门。
+
+    从前 `render_chat_events` 还过一道 `split_reply_chunks`（字数+**随机**阈值切块）
+    ⇒ 一条行会变成 1~N 个气泡、同帧一起出现, 而且"为什么切 3 个"没有任何可解释的规则。
+    ⑥-2e 已定"一行 = 一条消息"（模型自己决定分几行说）⇒ 这里钉死: **她写几行, 几个气泡**。
+
+    ⚠️ 判据要用**长回复 + 逗号**（弹性区）—— 短句本来就不切, 拿"嗯嗯好的"写的用例
+    在旧代码下也是绿的（这正是这个 bug 躲过守门的原因; 另一半在
+    `tests/core/test_context_window.py::test_render_events_is_byte_stable`）。
+    """
+    st, sid = _store_with(tmp_path)
+    long_reply = "今天天气不错，要不要一起去天台看看，我带了点心"
+    st.append_event(CHARACTER, sid, make_event(
+        "mmt", "mmt_chat", {"player": "在吗", "reply": long_reply}))
+    bubbles = chat.render_chat_events(
+        st.events(CHARACTER, sid), display_name="遥香")
+    said = [b for b in bubbles if b.get("side") == "char"]
+    assert len(said) == 1, said
+    assert said[0]["text"] == long_reply          # 原样: 不切、也不丢逗号
+    # 两次渲染同形（历史重放稳定 —— 与前端那一半的判据同源）
+    assert chat.render_chat_events(st.events(CHARACTER, sid),
+                                   display_name="遥香") == bubbles
+
+
 def test_bond_done_renders_dim_line(tmp_path):
     """完整走完 → 入口横幅淡化为 '已完成羁绊剧情：{标题}'（不可点）。"""
     st, sid = _store_with(tmp_path)

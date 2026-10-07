@@ -190,6 +190,14 @@ VN 的控制行玩家看得见（丢了立刻穿帮），MMT 的控制行玩家�
 - **摘除**：气泡主路径不再调用它们——`publish_reply` 改成"一行一个气泡"，
   history 改成"一行一条 assistant 消息"，前端 `BUBBLE_GAP_MS=600` 的**假节奏**退场
   （改由逐条到达驱动）。
+  ⚠️ **2026-10-07 补做**：这条裁决当时只落了 CLI 那一半（`display.publish_line`）——
+  **webgui 气泡渲染**（`webgui/chat.py::render_chat_events`）与**喂 LLM 的 history**
+  （`core/session/renderer.py::render_events`）两处**还在切**，直到这次才摘干净。
+  后者更糟: 它调 `split_reply_chunks(text)` **没给 rng** ⇒ 走全局 `random` ⇒ 同一份事件
+  每轮重渲的切点都在变 ⇒ **history 逐字节不稳定、前缀缓存被破坏**（实测同一份事件渲
+  30 次出 2 种）。两条守门进场: `test_render_events_is_byte_stable`（core）·
+  `test_one_row_is_one_bubble`（webgui）——都用**长回复 + 逗号**当判据（短句不掷骰子,
+  旧代码下也是绿的, 那正是它躲过守门的原因）。
 - **不留开关**：加一个默认从不生效的分支 = 又一个"假旋钮"（同类问题已点名两处：
   `render_relative(significance)`、`age.is_precious`）。将来真发现模型总写长行，
   **正确的回退位置是"行内二次切分"**（行级流式不变、只把显示粒度变细）——

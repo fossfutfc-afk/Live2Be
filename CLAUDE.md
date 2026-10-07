@@ -655,6 +655,13 @@ CLI/测试同步路径在引擎内串行。
   `pollLoop` 生成期轮询 **250ms**（`POLL_MS_BUSY`；空闲/宽限窗口仍 1000ms），
   一批里几条就画几条——**行间人为打字延迟（`chunkTypingTime`）与 `BUBBLE_GAP_MS`
   整段退役**（那是"整轮一次性收完"时代的假节奏；真节奏 = LLM 的生成速度）。
+  ⭐ **一行 = 一个气泡**（2026-10-07 补做 `DESIGN_STREAM_CONTRACT §6` 的"摘除"）：
+  `webgui.chat.render_chat_events` 与 `session.renderer.render_events` 从前还各过一道
+  `split_reply_chunks`（字数+**随机**阈值）⇒ 一条行随机变 1~N 个气泡、同帧出现；
+  而 history 那一处**没给 rng**（走全局 `random`）⇒ **同一份事件每轮重渲切点都不同
+  ⇒ 前缀缓存被破坏**。两处都已摘掉，切句器本体只在 CLI 旧路径 + 单测里（§6 裁决保留）。
+  守门：`test_one_row_is_one_bubble`（webgui）· `test_render_events_is_byte_stable`（core）——
+  ⚠️ 都得用**长回复+逗号**当判据，短句不掷骰子、旧代码下也是绿的。
   "对方正在输入…"保留（由 `running` 驱动, 是真实状态）。
   ⚠️ **提速会暴露"点得早"的竞态**：玩家能在 worker 的 staged 预热**正在构造**时
   点进粉泡 ⇒ `bond_start` 的"并发 init skip"分支必须**按点击补做 adopt 记账**
