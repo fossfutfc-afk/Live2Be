@@ -921,6 +921,7 @@ class DigestRegistry:
                         target_ids: set[str] | None = None,
                         entity_ids: set[str] | None = None,
                         topics_of: dict[str, list[str]] | None = None,
+                        kind_of: dict[str, str] | None = None,
                         ) -> tuple[list[dict], ValidationResult]:
         """⭐ **L1（判关系）**: `{"relations": [...]}` → 规范化的**边行**列表。
 
@@ -934,10 +935,15 @@ class DigestRegistry:
         | `id` **不在渲染列表里**（编造）| ⛔ **整包拒** —— 那说明她没在引用真实世界, 整包不可信 |
         | `akin` 缺 `on` / `on` 不在**两端 `topics` 的交集**里 | **丢这一行** + 记账（轴是**逐行**的性质, 一行坏不毁整段记忆）|
         | `about` 的目标不在 `entity_ids` 里 | **丢这一行**（⚠️ 与上面那条**不同档** —— 理由见下面代码里那段注释）|
+        | `akin` / `contradicts` 的**两端类型**不对（P2）| **丢这一行** —— `akin` 两端都得是经历; `contradicts` 得**同侧**（经历↔经历 或 非经历↔非经历）|
 
         ⚠️ `on` 的判据用**原样字符串**（大小写 / 标点都不归一）—— 归一就等于引擎在替她判
         "这两个词是一回事"。`topics_of` = `{节点 id: [topics]}`（料侧提供; 缺省 `None` =
         **不校验交集**, 只查 `on` 给没给）。
+
+        ⚠️ `kind_of` = `{她能写的 id: kind}`（P2）—— 键必须与她看到的那一套 id 同空间
+        （经历/对象是真实 id · 认知是本地号 `u0001`）。缺省 `None` = **不校验类型**
+        （老调用方 / 单测）。
         """
         errors: list[str] = []
         warnings: list[str] = []
@@ -984,6 +990,20 @@ class DigestRegistry:
             if bad:
                 errors.append(f"relations[{i}] 引用了列表里没有的 id: {bad}（整包拒）")
                 continue
+            # ⭐ **两端类型**（P2）: 与 `on` 同一档（**丢这一行**）—— 判据是"这条边的
+            # 语义对不对", 一行错不该毁整段。`akin` 只要经历; `contradicts` 要**同侧**
+            # （经历↔经历 或 看法↔看法 —— 混着来的那条边没有语义）。
+            if kind_of and rel in ("akin", "contradicts"):
+                ka, kb = kind_of.get(aid), kind_of.get(dst)
+                if ka is not None and kb is not None:
+                    if rel == "akin" and (ka != "episode" or kb != "episode"):
+                        drops.append(f"relations[{i}] akin 两端必须都是经历"
+                                     f"（实得 {ka} ↔ {kb}）")
+                        continue
+                    if rel == "contradicts" and (ka == "episode") != (kb == "episode"):
+                        drops.append(f"relations[{i}] contradicts 两端必须同侧"
+                                     f"（经历 ↔ 经历 或 看法 ↔ 看法; 实得 {ka} ↔ {kb}）")
+                        continue
             row: dict = {"rel": rel, "src": aid, "dst": dst}
             on = r.get("on")
             if rel == "akin":

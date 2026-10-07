@@ -309,6 +309,42 @@ def new_nodes_block(store: WikiStoreV2, ids) -> tuple[str, dict[str, str]]:
 # "散"的典型。现在 `head(kind=True)` 直接把 `marks.kind_tag` 放进头里, 不再需要它。
 
 
+def object_lines(store: WikiStoreV2, *, texts=()) -> tuple[str, list[str]]:
+    """⭐ **L1（判关系）的对象候选**: 全量表（**真实 id**） + 一行字面命中提示。
+
+    ```
+    x0000 伊草 遥香（遥香）
+    x0001 老师（sensei）
+    → 候选: x0001（本段文本里出现了这个称呼）
+    ```
+
+    为什么与 `candidate_table`（第 3 轮的候选表）**不共用**:
+      · 那边印**本地号**（`c0001` —— "防 LLM 猜真实 id", 由 `apply_attribution` 翻回来）;
+      · L1 的契约印的是**真实 id**（`docs/DESIGN_DIGEST_TWO_PASSES §9.1` 的例子就是
+        `{"episode": "m0014", "about": "x0001"}`）⇒ 执行侧（`apply_relations`）不需要翻译。
+      ⚠️ 两套 id 混在同一次调用里才是灾难; 分开两次调用各印一套, 各自闭环。
+
+    ⭐ **命中提示是"摆事实"不是"判归属"**（`DESIGN_DIGEST_TWO_PASSES §10.3`）:
+    "本段文本里出现过这个称呼"是**字面命中**（确定性, `hit_set`）—— 挂不挂由 L1 判。
+
+    Returns: `(text, ids)`；`ids` = 全部候选对象的真实 id（喂 parse 的 `entity_ids`）。
+        一个 entity 都没有 ⇒ `("", [])`。
+    """
+    rows = candidates(store)
+    if not rows:
+        return "", []
+    hits = set(hit_set(store, texts=texts))
+    lines: list[str] = []
+    for n in rows:
+        aliases = surface_forms(n)[1:]
+        suffix = f"（{'/'.join(aliases)}）" if aliases else ""
+        lines.append(f"{n.id} {n.name.strip()}{suffix}")
+    if hits:
+        named = [f"{n.id}（{n.name.strip()}）" for n in rows if n.id in hits]
+        lines.append(f"→ 候选: {'·'.join(named)}（本段文本里出现了这个称呼）")
+    return "\n".join(lines), [n.id for n in rows]
+
+
 def _body_hits(form: str, texts_cf: list[str]) -> bool:
     """称呼出现在本轮正文里（`texts_cf` 已 casefold）。短称呼不扫, 见 `MIN_HIT_LEN`。"""
     if len(form) < MIN_HIT_LEN:

@@ -262,8 +262,8 @@ ROUNDS: tuple[RoundSpec, ...] = (
         key="relate",
         step="③ 接",
         parse=digest_registry.parse_relations,
-        material=("本次新经历（含引擎候选标注）", "本段时间线",
-                  "现有认知", "角色人设（锚点）"),
+        material=("本次新经历（含引擎候选标注）", "现有经历（候选）", "候选对象",
+                  "本段时间线", "现有认知", "角色人设（锚点）"),
         writes=(
             # ⭐ **只落边**（`apply_relations`）—— 一个节点都不建、一个字正文都不写
             # （造看法 / 写正文是 L2 的活; 边归属表见 `DESIGN_DIGEST_TWO_PASSES` §3）。

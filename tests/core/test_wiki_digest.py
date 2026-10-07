@@ -75,11 +75,16 @@ def _mmt(seq, player, reply):
 
 
 def _a_episode(text="老师请我吃了甜品，还说下次再去", sig=0.8, title="甜点之约",
-               verbatim=("3.1",), tags=("甜品", "老师"), delta=30):
+               verbatim=("3.1",), tags=("甜品", "老师"), delta=30, topics=None):
     """⚠️ `verbatim` 从 2026-09-29 起是**记录行号**（文本通道退役）——
-    默认那条指的正是 `_events(_mmt(3, …))` 的回复记录 `[3.1]`。"""
+    默认那条指的正是 `_events(_mmt(3, …))` 的回复记录 `[3.1]`。
+
+    `topics`（P0 起 R1 的字段）= 这条经历**围绕的那几样东西**; L1 的 `akin` 靠它认亲。
+    """
     ep = {"text": text, "title": title,
           "tags": list(tags), "significance": sig}
+    if topics:
+        ep["topics"] = list(topics)
     if verbatim:
         ep["verbatim"] = list(verbatim)
     # ⭐ **M1**: 好感是**整段**一个数, 归 R1（`affection_exp_delta`）
@@ -324,6 +329,90 @@ def test_l1_invented_id_rejects_the_whole_package(tmp_path):
     after = {n.id: n.to_dict() for n in st.all()}
     assert after == before, "原子: R1 建的 episode 也要跟着回滚"
     assert st.digested_seq == 0, "水位不推进 → 这一段下次整段重来"
+
+
+# ---------------------------------------------------------------------------
+# ⭐ P2（2026-10-07）: L1 的料补齐 ——「现有经历（候选）」+「候选对象」+ 两端类型
+# ---------------------------------------------------------------------------
+
+def test_l1_akin_reaches_an_older_episode(tmp_path):
+    """⭐ **P2 的核心验收**: `akin` 连得上**更早的**经历 —— 前提是料里有它。
+
+    P1b-2 之前「现有经历（候选）」这一格不存在 ⇒ `akin` 只能连本段之内的两条
+    （真机 `akin` = 0 条, 这至少是原因之一）。现在引擎按 **`topics` 相交**摆出旧经历,
+    并把新旧两头各自的 `轴 …` 都印出来 —— 那个 `on` 才有地方挑。
+    """
+    st = _seed_store(tmp_path)
+    st.get("m0001").topics = ["苔藓", "天台"]           # 早年那条（同一根轴）
+    st.get("m0002").topics = ["甜品"]                   # 认知也有轴, 但它是看法不是经历
+    st.save()
+    llm = FakeLLM(
+        _a_episode(text="又去看了那片苔藓", title="又见苔藓", topics=["苔藓"]),
+        _b_ok(relations=[{"episode": "m0003", "akin": "m0001", "on": "苔藓"}]))
+
+    res = digest_segment(st, llm, _events(_mmt(3, "x", "苔藓还在那儿")))
+
+    assert res.ok, res.errors
+    user = llm.calls[1][1]["content"]
+    assert "【现有经历（候选）】" in user, user
+    assert "m0001" in user and "轴 苔藓" in user, "候选经历要带 id 与它的轴"
+    # ⚠️ 候选那一行印的是**交集**（不是它全部 `topics`）—— 摆出来的每个词都得能用:
+    # 印 `天台` 会诱她写一个过不了交集的 `on`（那一行会被丢掉）。
+    assert "轴 苔藓·天台" not in user, "候选行只印交集"
+    assert "轴 苔藓" in user, "新经历那一行也要印轴（否则 `on` 没得挑）"
+    # 边真的落上了（旧经历 ↔ 新经历）, 且轴留痕
+    akin = [e for e in st.graph().edges if e.rel == "akin"]
+    assert len(akin) == 1 and {akin[0].src, akin[0].dst} == {"m0001", "m0003"}, akin
+    assert not [d for d in res.contract_drops if "交集" in d], res.contract_drops
+
+
+def test_l1_about_lands_with_object_candidates(tmp_path):
+    """⭐ **P2**: 对象候选进料 ⇒ `about` 落得下来（P1b-2 期间它一行都落不了）。
+
+    "提到过"是引擎数出来的**字面事实**（`entities.hit_set`）, 挂不挂仍由 L1 判。
+    """
+    from core.brain.entities import ensure_entities
+
+    st = _seed_store(tmp_path)
+    ensure_entities(st, char_name="伊草 遥香", aliases=("遥香",), sensei_name="老师")
+    st.save()
+    llm = FakeLLM(_a_episode(text="老师又帮我搬了东西", title="老师帮忙"),
+                  _b_ok(relations=[{"episode": "m0003", "about": "x0001"}]))
+
+    res = digest_segment(st, llm, _events(_mmt(3, "老师", "下次再去吃甜品吧")))
+
+    assert res.ok, res.errors
+    user = llm.calls[1][1]["content"]
+    assert "【候选对象】" in user and "x0001 老师" in user, user
+    assert "→ 候选: x0001（老师）" in user, "字面命中要摆出来（本段正文里有'老师'）"
+    assert st.graph().targets("m0003", "about") == ["x0001"]
+
+
+def test_l1_type_mismatch_is_dropped(tmp_path):
+    """⭐ **P2**: 两端类型不对 ⇒ **丢那一行**（不毁整段）。
+
+    三条判据: `akin` 两端都得是经历 · `contradicts` 得同侧（经历↔经历 或 看法↔看法）·
+    合法的（看法 ↔ 看法）照样落。
+    """
+    st = _seed_store(tmp_path)          # 认知列表里: u0001 = belief m0002 · u0002 = profile e0001
+    st.save()
+    llm = FakeLLM(
+        _a_episode(text="又见苔藓", title="又见苔藓", topics=["苔藓"]),
+        _b_ok(relations=[
+            {"episode": "m0003", "akin": "u0001", "on": "苔藓"},   # 经历 ↔ 看法 ⇒ 丢
+            {"episode": "m0003", "contradicts": "u0001"},          # 混着 ⇒ 丢
+            {"belief": "u0001", "contradicts": "u0002"},           # 看法 ↔ 看法 ⇒ 落
+        ]))
+
+    res = digest_segment(st, llm, _events(_mmt(3, "x", "苔藓还在那儿")))
+
+    assert res.ok, res.errors
+    assert any("akin 两端必须都是经历" in d for d in res.contract_drops), res.contract_drops
+    assert any("contradicts 两端必须同侧" in d for d in res.contract_drops), res.contract_drops
+    assert not [e for e in st.graph().edges if e.rel == "akin"]
+    # `contradicts` 是对称边（`canonical_for` 按 id 排序 ⇒ 方向别写死）
+    con = [e for e in st.graph().edges if e.rel == "contradicts"]
+    assert len(con) == 1 and {con[0].src, con[0].dst} == {"m0002", "e0001"}, con
 
 
 # ---------------------------------------------------------------------------

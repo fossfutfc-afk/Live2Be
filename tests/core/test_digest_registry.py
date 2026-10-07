@@ -1053,7 +1053,31 @@ def test_parse_relations_legal_rows_and_two_tiers():
         episode_ids=eps, target_ids=targets, entity_ids=ents)
     assert rows6 == [] and res6.drops and not res6.errors, (res6.errors, res6.drops)
     assert "候选对象" in res6.drops[0]
-    print("    P1a: parse_relations 合法/丢行/整包拒 三档分得开")
+
+    # ⑥ ⭐ P2: **两端类型**（`kind_of` 给得出时）—— 与 `on` 同一档（丢行, 不毁整包）
+    kinds = {"m0014": "episode", "m0017": "episode", "m0009": "episode",
+             "u0003": "belief"}
+    # 单独给一份轴（让 u0003 与 m0017 共轴）—— 这样两次调用**只差 `kind_of` 一个变量**
+    ktopics = {**topics, "u0003": ["苔藓"]}
+    rows7, res7 = digest_registry.parse_relations(
+        {"relations": [{"episode": "m0017", "akin": "u0003", "on": "苔藓"}]},
+        episode_ids=eps, target_ids=targets, entity_ids=ents,
+        topics_of=ktopics, kind_of=kinds)
+    assert rows7 == [] and res7.drops and not res7.errors, (res7.errors, res7.drops)
+    assert "两端必须都是经历" in res7.drops[0]
+    # ⚠️ 不给 `kind_of`（老调用方 / 单测）⇒ **不校验类型** —— 同一条行照过
+    rows7b, res7b = digest_registry.parse_relations(
+        {"relations": [{"episode": "m0017", "akin": "u0003", "on": "苔藓"}]},
+        episode_ids=eps, target_ids=targets, entity_ids=ents, topics_of=ktopics)
+    assert len(rows7b) == 1 and not res7b.drops, res7b.drops
+    # `contradicts` 要**同侧**: 经历 ↔ 看法 ⇒ 丢; 看法 ↔ 看法 ⇒ 落
+    rows8, res8 = digest_registry.parse_relations(
+        {"relations": [{"episode": "m0014", "contradicts": "u0003"},
+                       {"belief": "u0003", "contradicts": "u0003"}]},
+        episode_ids=eps, target_ids=targets, entity_ids=ents, kind_of=kinds)
+    assert [r["rel"] for r in rows8] == ["contradicts"] and len(res8.drops) == 1, res8.drops
+    assert "必须同侧" in res8.drops[0]
+    print("    P1a: parse_relations 合法/丢行/整包拒 三档分得开（+ P2 两端类型）")
 
 def test_apply_relations_writes_edges_only():
     """⭐ P1b-1: `apply_relations` —— **只落边**（一个节点都不建）, 轴要留痕。
