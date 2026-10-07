@@ -481,10 +481,10 @@ def test_affection_lives_in_the_record_phase_only():
     assert "也不必都写" in rec and "不是硬性一一对应" in rec
 
     rec_prompt = load_prompt("digest_record")
-    und_prompt = load_prompt("digest_understand")
+    rel_prompt = load_prompt("digest_relate")
     assert "affection_exp_delta" in rec_prompt, "R1 那一轮要点名这个键（否则它不会写）"
     assert "0~10" not in rec_prompt, "档位判据只在契约里 —— prompt 不许抄第二遍"
-    assert "affection_exp_delta" not in und_prompt and "0~10" not in und_prompt
+    assert "affection_exp_delta" not in rel_prompt and "0~10" not in rel_prompt
 
 
 def test_round_a_valid_entries():
@@ -1046,11 +1046,13 @@ def test_parse_relations_legal_rows_and_two_tiers():
         episode_ids=eps, target_ids=targets, entity_ids=ents)
     assert len(rows5) == 1 and "on" not in rows5[0] and res5.warnings
 
-    # ⑤ `about` 的目标不在 entity_ids ⇒ 丢行
+    # ⑤ `about` 的目标不在 entity_ids ⇒ **丢行**（⚠️ 与"编造 id 整包拒"**不同档**:
+    #    对象候选是引擎摆出来的 ≤5 个, 挑错了是失手, 不该把这一段的记忆整个回滚）
     rows6, res6 = digest_registry.parse_relations(
         {"relations": [{"episode": "m0014", "about": "u0003"}]},
         episode_ids=eps, target_ids=targets, entity_ids=ents)
-    assert rows6 == [] and res6.errors or res6.drops
+    assert rows6 == [] and res6.drops and not res6.errors, (res6.errors, res6.drops)
+    assert "候选对象" in res6.drops[0]
     print("    P1a: parse_relations 合法/丢行/整包拒 三档分得开")
 
 def test_apply_relations_writes_edges_only():
@@ -1084,6 +1086,33 @@ def test_apply_relations_writes_edges_only():
     assert log.rows[0]["action"] == "relate" and log.rows[0]["on"] == "苔藓"
     assert "on" not in log.rows[1]
     print("    P1b-1: apply_relations 只落边（+ on 留痕）")
+
+
+def test_relate_prompt_points_at_the_contract():
+    """⭐ P1b-2（2026-10-07）: L1 的 prompt **只指路, 不抄判据** —— 判据的唯一家是契约。
+
+    黑名单 = **这一趟词汇表之外**的东西: 旧一族（`touch`/`update`/`add`/`decisions`）
+    与别的轮的边（`evolved_from`/`member_of`）。她照抄一句 "同主题就 touch/update"
+    出来, 就是一条坏行 + 一次白跑的重试。
+
+    ⚠️ 指针**要指得准**: prompt 里那句"其余判据都在上面的…"必须对着契约里**真有的**
+    标题（`relations 规则` / 【… 释义】）—— 指一个不存在的段落等于没指。
+    """
+    from llm.prompts import load_prompt
+
+    raw = load_prompt("digest_relate")
+    for word in ("touch", "update", "add", "decisions", "evolved_from", "member_of"):
+        assert word not in raw, f"L1 的 prompt 里出现了 {word!r}（那是别处的词汇）"
+    assert "relations 规则" in raw and "rels 规则" not in raw, "指针要对准契约里真有的标题"
+    assert "以那里为准" in raw
+
+    # 契约那一侧: 四个动作 + "这一趟不写正文" 都在（prompt 不重复它们）
+    text = digest_registry.build_schema(PHASE_RELATE)
+    for name in ("supports", "akin", "contradicts", "about"):
+        assert f"【{name} 释义】" in text
+    assert "relations 规则" in text
+    assert "这一趟不写正文" in text
+    print("    L1 prompt: 只指路（旧词汇一个都不在），判据全在契约里")
 
 
 def test_record_topics_is_the_axis():

@@ -18,8 +18,9 @@
 名字尽量复用 `llm/task_levels.py` 的**形态名**（mmt / bond / emotion / place / digest
 ——那份表管"档位与 max_tokens"，这份管"调用身份"），只在需要区分时加后缀:
 `place`（句级锚点）vs `place_board`（板级换场翻译）vs `place_variant`（选图）、
-⭐ `digest.record` / `digest.understand`（**与 `core/digest/rounds/` 的轮次 key 逐字同名**,
-2026-09-29 乙-2 改名: 从前叫 `round_a` / `round_b` —— Round A/B 时代的遗留名）。
+⭐ `digest.record` / `digest.relate`（**与 `core/digest/rounds/` 的轮次 key 逐字同名**,
+2026-09-29 乙-2 改名: 从前叫 `round_a` / `round_b` —— Round A/B 时代的遗留名;
+2026-10-07 P1b-2: `digest.understand` → `digest.relate`, 那一轮换成"只判关系"）。
 
 ⚠️ 新增调用点 → 在这里加常量（`tests/core/test_stub_dispatch_guard.py` 会扫源码,
 用未声明的标签直接红）; 新任务还要在 `tests/stub_tasks.py` 给出标准应答。
@@ -43,13 +44,13 @@ DIGEST = "digest"
 #: + **账目**（`state` / `id` / `due` —— "切片即账目", 2026-10-05 取代旧的 `keep`）。
 #: ⚠️ 2026-09-29（N4d）新增: 它拿走了 R1 从前最重的那件事（划区间）。
 #: ⭐ **2026-10-05（L8）: 收口轮删掉之后, digest 一共 5 个 LLM 轮**（split / record /
-#: understand / attribute / group）—— 硬顶随之回到 **600**（见 `rounds.DIGEST_SEGMENT_HARD_CAP`）。
+#: relate / attribute / group）—— 硬顶随之回到 **600**（见 `rounds.DIGEST_SEGMENT_HARD_CAP`）。
 DIGEST_SPLIT = "digest.split"
 #: ① R1 记录员（`rounds/record.py`）—— ⭐ 它**同时**是 note 账目的落地点（按 R0 的表产
 #: `add` / `update` / `close`; 收口轮 2026-10-05 删）
 DIGEST_RECORD = "digest.record"
-#: ② R2 理解者（`rounds/understand.py`）
-DIGEST_UNDERSTAND = "digest.understand"
+#: ② L1 判关系（`rounds/relate.py`）—— ⭐ 只落边, **一个字正文都不写**
+DIGEST_RELATE = "digest.relate"
 #: ③ R3 归属（把本轮新节点挂到 entity 上 + 维护载荷）
 DIGEST_ATTRIBUTE = "digest.attribute"
 #: ⭐ N7（2026-09-29）**L2-a 分群** —— 每段的**最后一步**, 与 R1–R3 不同层:
@@ -67,7 +68,7 @@ BOND = "bond"
 #: 全部合法标签（源码扫描守门用）
 ALL: frozenset[str] = frozenset({
     EMOTION, PLACE, PLACE_BOARD, PLACE_VARIANT,
-    DIGEST, DIGEST_SPLIT, DIGEST_RECORD, DIGEST_UNDERSTAND,
+    DIGEST, DIGEST_SPLIT, DIGEST_RECORD, DIGEST_RELATE,
     DIGEST_ATTRIBUTE, DIGEST_GROUP, MMT, BOND,
 })
 
@@ -88,7 +89,7 @@ PROFILE_OF: dict[str, str] = {
     DIGEST: "digest",
     DIGEST_SPLIT: "digest",
     DIGEST_RECORD: "digest",
-    DIGEST_UNDERSTAND: "digest",
+    DIGEST_RELATE: "digest",
     DIGEST_ATTRIBUTE: "digest",
     DIGEST_GROUP: "digest",
     MMT: "mmt",

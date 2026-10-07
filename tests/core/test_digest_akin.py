@@ -48,16 +48,17 @@ class FakeLLM:
         raise RuntimeError("responses 耗尽")
 
 
-B_EMPTY = {"decisions": [], "evidence": [], "affection_exp_delta": 0}
+B_EMPTY = {"relations": []}
 
 
 def _b_cover(episode="m0002"):
-    """Round B 的最小**合法**应答: ⚠️ 契约要求**每条新 episode 都被覆盖**
-    （`parse_round_b` 的 `missing = episode_ids - seen` ⇒ 漏一条直接拒整包）。"""
-    return {"decisions": [{"episode": episode, "decision": "add", "kind": "belief",
-                           "text": "我总会想再去看看那盆苔藓", "subject": "苔藓",
-                           "significance": 0.6}],
-            "evidence": [], "affection_exp_delta": 0}
+    """L1 的**最小合法**应答 —— "什么关系都没看出来"（✅ 合法答案）。
+
+    ⚠️ **P1b-2（2026-10-07）**: 从前这里是 R2 的决策表, 而且必须**逐条覆盖**每条新
+    episode（`parse_round_b` 的 `missing` 检查, 漏一条拒整包）—— L1 **没有**这条要求
+    （"这条跟谁都没关系"本身就是结论）。`episode=` 留着只为让老调用点读得通。
+    """
+    return {"relations": []}
 
 
 def _events(*items):

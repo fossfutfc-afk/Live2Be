@@ -53,18 +53,14 @@ def _note(text, *, due="", refs=("m9001",), seq=1, ts="2026-09-28T10:00:00+08:00
     return e
 
 
-def _understand(n: int = 0, *, ids=None) -> dict:
-    """R2 的应答: **每条 episode 一条 `add`**（"必须覆盖全部 episode"是硬要求）。
+def _relate(n: int = 0, *, ids=None) -> dict:
+    """L1 的应答 —— 缺省"什么关系都没看出来"（✅ 合法答案）。
 
-    `n` = 本轮 episode 数 —— 空库按 `m0001…m000n` 分配（夹具只在干净库上跑）;
-    库里先有别的节点时用 `ids=[…]` 明说。
-    ⚠️ 无区间那段经历**也是** episode（L7）⇒ 它照样要一行。
+    ⚠️ **P1b-2（2026-10-07）**: 从前这里按"每条 episode 一条 `add`"造 belief
+    （"必须覆盖全部 episode"是当时的硬要求）; L1 不建节点、也没有覆盖要求
+    ⇒ `n` / `ids` 只剩"让调用点读得通"的作用（要落边的用例自己写 `relations`）。
     """
-    targets = list(ids) if ids else [f"m{i:04d}" for i in range(1, n + 1)]
-    return {"decisions": [{"episode": i, "decision": "add", "kind": "belief",
-                           "subject": "sensei", "text": f"第 {i} 件事我记住了"}
-                          for i in targets],
-            "evidence": [], "affection_exp_delta": 0}
+    return {"relations": []}
 
 
 class _Stub:
@@ -73,8 +69,8 @@ class _Stub:
     ⚠️ **不按中文关键字分派**（`tests/core/test_stub_dispatch_guard.py` 会扫）。
     """
 
-    def __init__(self, *, split=None, record=None, understand=None, **kw):
-        self._split, self._record, self._understand = split, record, understand
+    def __init__(self, *, split=None, record=None, relate=None, **kw):
+        self._split, self._record, self._relate = split, record, relate
         self._kw = kw
         self.tasks: list[str | None] = []
         self.users: list[str] = []
@@ -86,8 +82,8 @@ class _Stub:
                                     if m.get("role") == "user"))
         if task == T.DIGEST_RECORD and self._record is not None:
             return self._record
-        if task == T.DIGEST_UNDERSTAND and self._understand is not None:
-            return self._understand
+        if task == T.DIGEST_RELATE and self._relate is not None:
+            return self._relate
         reply = stub_tasks.annotation_reply(task, messages, split=self._split, **self._kw)
         if reply is None:
             raise AssertionError(f"桩不认识 task={task!r}")
@@ -215,7 +211,7 @@ def test_span_null_survives_only_when_the_engine_sent_the_qualification(tmp_path
     """引擎**只摆事实**: 资格位发了那条 `span: null` 才活得下来, 没发就当场丢。"""
     # ① 超期 + 本段没提到它 ⇒ 发资格位 ⇒ 活
     st = _store(tmp_path / "a")
-    res = digest_segment(st, _Stub(split=_SPAN_NULL, understand=_understand(1)),
+    res = digest_segment(st, _Stub(split=_SPAN_NULL, relate=_relate(1)),
                          [_note("生日蛋糕", due="2026-10-01"), _mmt(3)])
     assert res.ok, res.errors
     assert not [w for w in res.contract_warnings if "资格位没发" in w], res.contract_warnings
@@ -223,7 +219,7 @@ def test_span_null_survives_only_when_the_engine_sent_the_qualification(tmp_path
     # ② 本段**提到它**了（它的出生经历就在这一段里）⇒ 不发资格位 ⇒ 丢弃
     st2 = _store(tmp_path / "b")
     st2.add(make_node("episode", text="生日蛋糕", event_seq=[3], ts=_NOW))
-    res2 = digest_segment(st2, _Stub(split=_SPAN_NULL, understand=_understand(1)),
+    res2 = digest_segment(st2, _Stub(split=_SPAN_NULL, relate=_relate(1)),
                           [_note("生日蛋糕", due="2026-10-01", refs=["m0001"]), _mmt(3)])
     assert res2.ok, res2.errors
     assert [w for w in res2.contract_warnings if "资格位没发" in w], res2.contract_warnings
@@ -261,13 +257,9 @@ def test_the_same_span_twice_is_two_memories(tmp_path):
     record = {"episodes": [{"text": "我把团子带来了", "title": "团子", "tags": ["团子"]},
                            {"text": "顺便又约了下周", "title": "又约了下周",
                             "tags": ["约定"]}]}
-    understand = {"decisions": [{"episode": "m0001", "decision": "add", "kind": "belief",
-                                 "subject": "sensei", "text": "团子这件事我记住了"},
-                                {"episode": "m0002", "decision": "add", "kind": "belief",
-                                 "subject": "sensei", "text": "下周那件事我记住了"}],
-                  "evidence": [], "affection_exp_delta": 0}
+    relate = {"relations": []}          # L1: 两条经历都不接（本用例测的是去重）
     st = _store(tmp_path)
-    res = digest_segment(st, _Stub(split=split, record=record, understand=understand),
+    res = digest_segment(st, _Stub(split=split, record=record, relate=relate),
                          [_note("团子的事"), _mmt(3)])
     assert res.ok, res.errors
     eps = [n for n in (st.get(i) for i in res.created) if n.kind == "episode"]
@@ -316,7 +308,7 @@ def test_r1_is_skipped_when_there_is_nothing_to_fill(tmp_path):
     split = {"segments": [{"span": None, "state": "close", "id": "n1",
                            "abstract": "生日那天, 老师没有来",
                            "title": "生日那天", "significance": 0.9}]}
-    llm = _Stub(split=split, understand=_understand(1))
+    llm = _Stub(split=split, relate=_relate(1))
     res = digest_segment(_store(tmp_path), llm, [_note("生日蛋糕", due="2026-10-01"),
                                                  _mmt(3)])
     assert res.ok, res.errors
@@ -336,7 +328,7 @@ def test_the_spanless_row_does_not_shift_the_alignment(tmp_path):
                            {"text": "我把团子带来了", "title": "团子", "tags": ["团子"]}]}
     st = _store(tmp_path)
     llm = _Stub(split={"segments": [dict(r) for r in _MIXED["segments"][:3]]},
-                record=record, understand=_understand(3))
+                record=record, relate=_relate(3))
     res = digest_segment(st, llm, [_note("生日蛋糕", due="2026-10-01"),
                                    _mmt(3), _mmt(4, reply="我把团子带来了")])
     assert res.ok, res.errors
@@ -369,7 +361,7 @@ def test_open_row_makes_the_note_and_marks_the_birth_episode(tmp_path):
     split = {"segments": [{"span": [3, 3], "abstract": "我把团子带来了", "state": "open"}]}
     record = {"episodes": [{"text": "我把团子带来了", "title": "团子", "tags": ["团子"]}]}
     st = _store(tmp_path)
-    res = digest_segment(st, _Stub(split=split, record=record, understand=_understand(1)),
+    res = digest_segment(st, _Stub(split=split, record=record, relate=_relate(1)),
                          [_mmt(3, reply="我把团子带来了")])
     assert res.ok, res.errors
     op, = res.notes_ops
@@ -387,7 +379,7 @@ def test_update_row_corrects_the_note_and_keeps_the_audit(tmp_path):
                            "due": "2027-05-10"}]}
     record = {"episodes": [{"text": "我知道了老师的生日", "title": "生日", "tags": ["生日"]}]}
     st = _store(tmp_path)
-    res = digest_segment(st, _Stub(split=split, record=record, understand=_understand(1)),
+    res = digest_segment(st, _Stub(split=split, record=record, relate=_relate(1)),
                          [_note("老师生日那天一起过, 我还不知道是哪天"), _mmt(4)])
     assert res.ok, res.errors
     upd, = [o for o in res.notes_ops if o["action"] == "update"]
@@ -405,7 +397,7 @@ def test_update_row_that_changes_nothing_writes_no_op(tmp_path):
                            "abstract": text, "due": due}]}
     record = {"episodes": [{"text": "又提了一次模型店", "title": "模型店", "tags": ["模型店"]}]}
     st = _store(tmp_path)
-    res = digest_segment(st, _Stub(split=split, record=record, understand=_understand(1)),
+    res = digest_segment(st, _Stub(split=split, record=record, relate=_relate(1)),
                          [_note(text, due=due), _mmt(4)])
     assert res.ok, res.errors
     assert res.notes_ops == [], res.notes_ops
@@ -418,7 +410,7 @@ def test_close_row_scratches_the_note(tmp_path):
                            "abstract": "我把团子带来了"}]}
     record = {"episodes": [{"text": "我把团子带来了", "title": "团子", "tags": ["团子"]}]}
     st = _store(tmp_path)
-    res = digest_segment(st, _Stub(split=split, record=record, understand=_understand(1)),
+    res = digest_segment(st, _Stub(split=split, record=record, relate=_relate(1)),
                          [_note("把团子带去夏莱"), _mmt(4)])
     assert res.ok, res.errors
     assert [o["action"] for o in res.notes_ops] == ["close"], res.notes_ops
@@ -432,7 +424,7 @@ def test_spanless_row_becomes_a_dated_episode(tmp_path):
     （R1 跳过 ⇒ 这一段只有它一条 episode; 它**照样**要 R2 覆盖。）
     """
     st = _store(tmp_path)
-    llm = _Stub(split={"segments": [dict(_SPANLESS)]}, understand=_understand(1))
+    llm = _Stub(split={"segments": [dict(_SPANLESS)]}, relate=_relate(1))
     res = digest_segment(st, llm, [_note("生日蛋糕", due="2026-10-01"), _mmt(3)])
     assert res.ok, res.errors
     assert T.DIGEST_RECORD not in llm.tasks, llm.tasks
@@ -457,13 +449,13 @@ def test_spanless_episode_is_not_written_twice_on_rerun(tmp_path):
     st.add(make_node("episode", text="约好生日一起吃蛋糕", event_seq=[1],
                      ts="2026-09-20T10:00:00+08:00"))
     res1 = digest_segment(st, _Stub(split={"segments": [dict(_SPANLESS)]},
-                                    understand=_understand(ids=["m0002"])), events)
+                                    relate=_relate(ids=["m0002"])), events)
     assert res1.ok, res1.errors
     ep1 = res1.spanless_ids[0]
     n_before = len(st.all())
     st.meta["digested_seq"] = 0                        # 模拟崩溃窗口: 落盘但水位没推进
     res2 = digest_segment(st, _Stub(split={"segments": [dict(_SPANLESS)]},
-                                    understand=_understand(ids=["m0002"])), events)
+                                    relate=_relate(ids=["m0002"])), events)
     assert res2.ok, res2.errors
     assert len(st.all()) == n_before, "无区间经历重跑不得双写"
     assert res2.spanless_ids == [ep1], "复用旧节点"
@@ -476,7 +468,7 @@ def test_spanless_episode_does_not_push_the_watermark(tmp_path):
                           dict(_SPANLESS)]}
     record = {"episodes": [{"text": "路过模型店", "title": "模型店", "tags": ["模型店"]}]}
     st = _store(tmp_path)
-    res = digest_segment(st, _Stub(split=split, record=record, understand=_understand(2)),
+    res = digest_segment(st, _Stub(split=split, record=record, relate=_relate(2)),
                          [_note("生日蛋糕", due="2026-10-01"),
                           _mmt(3), _mmt(4), _mmt(5)])
     assert res.ok, res.errors
@@ -511,7 +503,7 @@ def test_overdue_detail_names_the_items_and_reaches_the_log(tmp_path, caplog):
     record = {"episodes": [{"text": "路过模型店", "title": "模型店", "tags": ["模型店"]}]}
     st = _store(tmp_path)
     with caplog.at_level(logging.INFO, logger="core.digest.rounds.split"):
-        res = digest_segment(st, _Stub(split=split, record=record, understand=_understand(1)),
+        res = digest_segment(st, _Stub(split=split, record=record, relate=_relate(1)),
                              [_note("生日蛋糕", due="2026-10-01"), _mmt(3)])
     assert res.ok, res.errors
     line = " ".join(r.getMessage() for r in caplog.records
@@ -524,31 +516,33 @@ def test_overdue_detail_names_the_items_and_reaches_the_log(tmp_path, caplog):
 # ⑩ M1: 好感归 R1（不再归 R2）· "不必都写"不是硬双射
 # ---------------------------------------------------------------------------
 
-def test_affection_belongs_to_r1_not_r2(tmp_path):
+def test_affection_belongs_to_r1_only(tmp_path):
     """⭐ **M1（2026-10-05）**: 好感是"这一段她对老师的亲近感净变化" —— 与 `significance`
-    同族（都是打分）⇒ 归 **R1**。判据（不只是位置）: **R2 给的那个数会被丢掉**。"""
+    同族（都是打分）⇒ 归 **R1**。判据（不只是位置）: **别的轮给的那个数会被丢掉**。
+
+    ⚠️ P1b-2（2026-10-07）: "别的轮"从 R2 换成了 **L1（`relate`）** —— 判据一字不变,
+    只是那个旧位置的占位者换了名字（它照样不读 delta）。
+    """
     split = {"segments": [{"span": [3, 3], "abstract": "老师约我去公园"}]}
     record = {"episodes": [{"text": "老师约我去公园", "title": "公园", "tags": ["公园"]}],
               "affection_exp_delta": 42}
-    # R2 那一份里塞一个**旧位置**的 delta（它现在不该被读）
-    understand = {"decisions": [{"episode": "m0001", "decision": "add", "kind": "belief",
-                                 "subject": "sensei", "text": "老师会约我出去"}],
-                  "affection_exp_delta": -99}
+    # L1 那一份里塞一个**旧位置**的 delta（它现在不该被读）
+    relate = {"relations": [], "affection_exp_delta": -99}
 
     res = digest_segment(_store(tmp_path), _Stub(split=split, record=record,
-                                                 understand=understand),
+                                                 relate=relate),
                          [_mmt(3)])
     assert res.ok, res.errors
-    assert res.affection_delta == 42, "好感要取 **R1** 的那个数（R2 的位置已退役）"
+    assert res.affection_delta == 42, "好感要取 **R1** 的那个数（旧位置已退役）"
 
-    # 反过来: 只有 R2 给 ⇒ 读到的是 0（它不再有任何话语权）
+    # 反过来: 只有 L1 给 ⇒ 读到的是 0（它不再有任何话语权）
     split2 = {"segments": [{"span": [3, 3], "abstract": "老师约我去公园"}]}
     record2 = {"episodes": [{"text": "老师约我去公园", "title": "公园", "tags": ["公园"]}]}
     res2 = digest_segment(_store(tmp_path / "b"),
-                          _Stub(split=split2, record=record2, understand=understand),
+                          _Stub(split=split2, record=record2, relate=relate),
                           [_mmt(3)])
     assert res2.ok, res2.errors
-    assert res2.affection_delta == 0, "R2 那一格已经不是好感的家了"
+    assert res2.affection_delta == 0, "那一格已经不是好感的家了"
     print("    好感: R1 的 42 生效 / R2 的 -99 被忽略 ✓")
 
 
@@ -562,7 +556,7 @@ def test_r1_may_write_fewer_rows_than_slices(tmp_path):
                           {"span": [5, 5], "abstract": "回去的路上"}]}
     record = {"episodes": [{"text": "老师约我去公园", "title": "公园", "tags": ["公园"]}]}
     res = digest_segment(_store(tmp_path),
-                         _Stub(split=split, record=record, understand=_understand(1)),
+                         _Stub(split=split, record=record, relate=_relate(1)),
                          [_mmt(3), _mmt(4), _mmt(5)])
     assert res.ok, res.errors
     assert res.record_gaps["items"]["kept"] == 1

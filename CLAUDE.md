@@ -434,7 +434,9 @@ CLI/测试同步路径在引擎内串行。
   整段不印）。⚠️ R4 收口**只发 `close` 不发 `retire`**（退场要等读路径召回接通, 链路 ⑥）。
   设计/代码索引：`core/brain/DESIGN_GRAPH_V4.md` §3.2 / §6 / §8 / §8.6。
 - **每段四步（`R1 → R4 → R2 → R3`）**：⚠️ **轮次 key = 契约相位名, 与旧 R 号的对照**
-  （2026-09-29 乙-2）: **R1=record 记 · R2=understand 接 · R3=attribute 挂**
+  （2026-09-29 乙-2；⭐ **2026-10-07（P1b-2）R2 换骨头: `understand` → `relate`**，
+  那一轮从此**只判关系、一个字正文都不写** —— 造看法/写正文归 L2）:
+  **R1=record 记 · R2=relate 接 · R3=attribute 挂**
   （`akin` 零 LLM · `group` 分群；⛔ **R4=close 收口轮 2026-10-05 已整族删** —— 账目归 R0 的表；
   ⏸ R3 **暂停**）。—— 本文下面凡写 R1/R2/R3/R4 的按这行对。
   ⭐ **2026-09-29（节点 C）起完整的步序表 = 
@@ -657,7 +659,8 @@ CLI/测试同步路径在引擎内串行。
   声明调用身份（`llm/task_labels.py`, `kw["task"]` 读它; 共享应答助手 =
   `tests/stub_tasks.py`）。标签：`emotion`（记录级标注 + v1 整场批标）· `place`
   （句级锚点）· `place_board`（板级换场翻译）· `place_variant`（选图）·
-  `digest.record` / `digest.understand`（= 轮次 key; 2026-09-29 乙-2 从 `round_a/b` 改名）·
+  `digest.record` / `digest.relate`（= 轮次 key; 2026-09-29 乙-2 从 `round_a/b` 改名,
+  2026-10-07 P1b-2 把 `understand` 换成 `relate`）·
   `mmt` / `bond`（主链）。
   ⚠️ **标签不进 messages/payload**（前缀缓存与夹具零影响）, 只进日志
   （`llm chat task=emotion …` —— 生产侧"这次调用是谁"从此可查）与桩分派。

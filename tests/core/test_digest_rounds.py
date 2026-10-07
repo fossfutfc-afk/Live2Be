@@ -132,6 +132,21 @@ def test_writes_covers_the_edge_table():
     print(f"    表用到 {len(used)}/{len(_RELS)} 条边: {sorted(used)}")
 
 
+def test_l1_writes_edges_only():
+    """⭐ **L1 只落边** —— `writes` 格里**不许出现节点面**（造看法 / 写正文是 L2 的活）。
+
+    判据写在**表**上而不是去读 `relate.py` 的代码: 表是"这一步写什么"的唯一真源,
+    它一旦长出 `belief` / `episode` 面, 就说明**两趟又被并回一趟**了
+    （`DESIGN_DIGEST_TWO_PASSES §1` 那条已否决的写法）。
+    """
+    spec = next(s for s in R.ROUNDS if s.key == "relate")
+    faces = [face for face, _fields in spec.writes]
+    assert faces == [R.EDGE_FACE], f"relate 写了不该写的面: {spec.writes}"
+    fields = sorted(f for _face, fs in spec.writes for f in fs)
+    assert fields == ["about", "akin", "contradicts", "supports"], fields
+    print(f"    L1 只落边: {spec.writes}")
+
+
 # ---------------------------------------------------------------------------
 # ③ LLM 四件套同生共死 + 三个派生标识 + prompt 文件在 + 标签在词表里 + 相位是真的
 # ---------------------------------------------------------------------------
@@ -180,10 +195,12 @@ def test_every_phase_is_a_real_contract_phase():
     所以由这条用例来钉"key 与契约相位是同一批词"。
     """
     from contract.digest_registry import (
-        PHASE_ATTRIBUTE, PHASE_GROUP, PHASE_RECORD, PHASE_SPLIT,
+        PHASE_ATTRIBUTE, PHASE_GROUP, PHASE_RECORD, PHASE_RELATE, PHASE_SPLIT,
         PHASE_UNDERSTAND, digest_registry,
     )
-    real = {PHASE_SPLIT, PHASE_RECORD, PHASE_UNDERSTAND,
+    # ⚠️ `PHASE_UNDERSTAND`（旧一族 touch/update/add 的相位）**还在**契约里 ——
+    # 那一族留给 L2（2026-10-07 用户裁"不着急删"）, 只是**没有轮在用它**。
+    real = {PHASE_SPLIT, PHASE_RECORD, PHASE_RELATE, PHASE_UNDERSTAND,
             PHASE_ATTRIBUTE, PHASE_GROUP}
     for spec in R.ROUNDS:
         if not spec.llm:
@@ -236,7 +253,7 @@ def test_attribute_round_is_paused_by_default(tmp_path):
         "表里的 skip 文案要写明理由与恢复判据（日志里那一行就是它的读者）"
 
     class _One:
-        """一段最小可跑: R0 一件 → R1 一条 → R2 一条看法; R3 若被调到就炸。"""
+        """一段最小可跑: R0 一件 → R1 一条 → L1 什么都不接; R3 若被调到就炸。"""
 
         def __init__(self):
             self.tasks: list[str | None] = []
@@ -249,10 +266,8 @@ def test_attribute_round_is_paused_by_default(tmp_path):
             if task == T.DIGEST_RECORD:
                 return {"episodes": [{"text": "路过模型店", "title": "模型店",
                                       "tags": ["模型店"]}]}
-            if task in (T.DIGEST_UNDERSTAND, T.DIGEST):
-                return {"decisions": [{"episode": "m0001", "decision": "add",
-                                       "kind": "belief", "subject": "sensei",
-                                       "text": "老师会约我出去"}]}
+            if task in (T.DIGEST_RELATE, T.DIGEST):
+                return {"relations": []}          # L1 只判关系; 这一段的看法由 L2 造
             if task == T.DIGEST_ATTRIBUTE:
                 raise AssertionError("R3 暂停了 —— 不该发这次调用")
             return None
@@ -333,7 +348,7 @@ def test_cursor_allows_skips_but_never_goes_back():
     """跳过的步留空是允许的; **回头**不行（顺序的真源是表）。"""
     cur = Cursor()
     cur.enter("record")
-    cur.enter("understand")                       # 跳过 akin
+    cur.enter("relate")                           # 跳过 akin
     try:
         cur.enter("record")
     except AssertionError as e:
@@ -438,17 +453,16 @@ def _mmt(seq, player="老师", reply="嗯"):
 
 
 class RoundLLM:
-    """R0 一头一片 / R1 正常 / R2 引用不存在的 episode（用来把整段打回）。
+    """R0 一头一片 / R1 正常 / L1 引用不存在的 episode（用来把整段打回）。
 
-    ⚠️ 四个应答都**可以逐个覆盖**（`a` / `b` / `split`）—— 3b-3 那几条用例要的是
-    "`state=open` 长成 note", 默认那套（R2 引用 `m9999`）会先把整段打回。
+    ⚠️ 三个应答都**可以逐个覆盖**（`a` / `b` / `split`）—— 3b-3 那几条用例要的是
+    "`state=open` 长成 note", 默认那套（L1 引用 `m9999`）会先把整段打回。
     """
 
     def __init__(self, *, a=None, b=None, split=None):
         self.a = a or {"episodes": [{"text": "模型店门口", "title": "模型店门口",
                                      "tags": ["约定"]}]}
-        self.b = b or {"decisions": [{"episode": "m9999", "decision": "add",
-                                      "kind": "belief", "text": "关于那家店的看法"}]}
+        self.b = b or {"relations": [{"episode": "m9999", "supports": "u0001"}]}
         self.split = split
         self.tasks: list[str | None] = []
 
@@ -460,7 +474,7 @@ class RoundLLM:
                 else stub_tasks.split_reply(messages)
         if task == T.DIGEST_RECORD:
             return self.a
-        if task in (T.DIGEST_UNDERSTAND, T.DIGEST):
+        if task in (T.DIGEST_RELATE, T.DIGEST):
             return self.b
         if task == T.DIGEST_ATTRIBUTE:      # 挂 —— 这些用例不测它, 空包放行
             return {"attributions": []}
@@ -575,11 +589,7 @@ def test_state_open_grows_into_a_note(tmp_path):
             {"span": [3, 3], "abstract": "随口聊了几句"}]},
         a={"episodes": [{"text": "她答应了带团子", "title": "团子之约", "tags": ["约定"]},
                         {"text": "闲聊", "title": "闲聊", "tags": ["闲聊"]}]},
-        b={"decisions": [
-            {"episode": "m0001", "decision": "add", "kind": "belief",
-             "subject": "sensei", "text": "老师会收下我的东西"},
-            {"episode": "m0002", "decision": "add", "kind": "belief",
-             "subject": "sensei", "text": "闲聊也算相处"}], "affection_exp_delta": 0})
+        b={"relations": []})          # L1: 这一段没接上任何关系
 
     res = digest_segment(st, llm, [_mmt(3)])
 
@@ -606,9 +616,7 @@ def test_kept_slice_without_a_node_is_a_loss(tmp_path):
             {"span": [4, 4], "abstract": "闲聊"}]},
         a={"episodes": [{"drop": True},
                         {"text": "闲聊", "title": "闲聊", "tags": ["闲聊"]}]},
-        b={"decisions": [{"episode": "m0001", "decision": "add", "kind": "belief",
-                          "subject": "sensei", "text": "闲聊也算相处"}],
-           "affection_exp_delta": 0})
+        b={"relations": []})
     res = digest_segment(st, llm, [_mmt(3), _mmt(4)])
 
     assert res.ok, res.errors

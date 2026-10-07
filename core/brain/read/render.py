@@ -540,7 +540,7 @@ def render_cognition_list(store: WikiStoreV2, cap: int = 12,
     for n in picked:
         lines.extend(render_cognition_line(store, n, graph, local_of))
     if not lines:
-        return "（尚无稳定认知——这是第一次理解, 直接 add）", local_of
+        return "（尚无稳定认知 —— 这一趟接不上任何看法）", local_of
     return "\n".join(lines), local_of
 
 

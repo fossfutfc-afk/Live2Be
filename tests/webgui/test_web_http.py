@@ -64,7 +64,7 @@ class ScriptedLLM:
     def chat(self, messages, temperature=0.8, max_tokens=4096,
              response_format="text", **kw):
         task = kw.get("task")
-        if task in (T.DIGEST_RECORD, T.DIGEST_UNDERSTAND):            # digest → 空包
+        if task in (T.DIGEST_RECORD, T.DIGEST_RELATE):            # digest → 空包
             return stub_tasks.annotation_reply(task, messages)
         reply = stub_tasks.annotation_reply(task, messages)
         if reply is not None:                           # 标注类 → 标准应答

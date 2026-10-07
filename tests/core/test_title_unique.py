@@ -86,10 +86,7 @@ def test_digest_dedupes_and_both_titles_resolve(tmp_path):
     st = _store(tmp_path)                                # m0001「中秋的杂草屋」
     same_title = {"episodes": [{"text": "又过了一次中秋", "title": "中秋的杂草屋",
                                 "span": [3, 3], "tags": [], "significance": 0.6}]}
-    b = {"decisions": [{"episode": "m0002", "decision": "add", "kind": "belief",
-                        "text": "中秋总是让我想起杂草屋", "subject": "中秋",
-                        "significance": 0.6}],
-         "evidence": [], "affection_exp_delta": 0}
+    b = {"relations": []}
     events = [make_event("mmt", "chat", {"player": "老师", "reply": "又到中秋了"})]
     events[0].seq = 3
     res = digest_segment(st, FakeLLM(same_title, b), events)

@@ -37,7 +37,7 @@ class RoundLLM:
         self.a = {"episodes": []} if a is None else a
         self.split = split
         self.close = {"add": [], "close": []} if close is None else close
-        self.b = {"decisions": [], "evidence": [], "affection_exp_delta": 0} if b is None else b
+        self.b = {"relations": []} if b is None else b
         self.attr = {"attributions": []} if attr is None else attr
         self.group = ({"attach": [], "new": [], "merge": []} if group is None else group)
         self.calls: list[list[dict]] = []
@@ -51,7 +51,7 @@ class RoundLLM:
             return (self.split if self.split is not None
                     else stub_tasks.split_for_scripted(messages, self.a))
         return {T.DIGEST_RECORD: self.a,
-                T.DIGEST_UNDERSTAND: self.b, T.DIGEST: self.b,
+                T.DIGEST_RELATE: self.b, T.DIGEST: self.b,
                 T.DIGEST_ATTRIBUTE: self.attr, T.DIGEST_GROUP: self.group}[task]
 
     def user_of(self, task):
@@ -263,10 +263,7 @@ def test_group_failure_does_not_rollback_the_batch(tmp_path):
     _seed_pair(st)                                                # m0001 / m0002
     llm = RoundLLM(a={"episodes": [{"text": "今天在图书室待了很久", "title": "图书室的下午",
                                    "tags": ["日常"]}]},
-                   b={"decisions": [{"episode": "m0003", "decision": "add",
-                                     "kind": "belief", "subject": "sensei",
-                                     "text": "在图书室待着也安心"}],
-                      "evidence": [], "affection_exp_delta": 0},
+                   b={"relations": []},
                    group={"attach": [], "new": [], "merge": []})  # 漏块 ⇒ 拒 ⇒ 重试 ⇒ 仍漏
     res = digest_segment(st, llm, [_mmt(3)])
     assert res.ok, res.errors                                     # ⭐ 整段没被连累

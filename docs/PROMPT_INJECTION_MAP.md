@@ -73,7 +73,7 @@ messages = [system] + history + [P16 羁绊进度注记] + [P17 时间注记们]
 **周边异步事实（旧文档未记）**：
 - digest 已**双触发**：① bond 剧情闭环后（webgui `_wrapup` completed=True）；② MMT 会话每
   N=25 轮（`_maybe_mmt_digest` momotalk.py:492-512，in_vn/in_memorial 中不触发）。
-  主链 = brain `digest_segment`（digest_record.md / digest_understand.md 两轮 + 好感结算，momotalk.py:75）；
+  主链 = brain `digest_segment`（digest_record.md / digest_relate.md 两轮 + 好感结算，momotalk.py:75）；
   `digest.md` / `consolidation.digest_session`（v1）仅剩 experiments/archive 使用。
 - `build_prompt("trigger")`（profile + brief_traits 最简模式）只用于 IDE mmt_preset 侧
   （dynamic_character_parser.py:36），不在 webgui 主链。
@@ -216,7 +216,7 @@ emotion → emo_version++（引擎同步标注仅 CLI/测试用）。**导演层
 |---|---|---|---|
 | 情绪标注 | 每场骨架入队后（webgui 单 worker 串行） | 段落文本 + 词表 + 人设摘要 | `emotion_annotate.md` 两变体（emotion_annotate.py:80 批量 / :183 smart），`{lexicon}`/`{sentences}` 占位替换，注入 `_character_hint`（personality 摘要 = 人设化判断基准，逞强笑 ≠ smile）|
 | 收尾轮 wrapup | finish 后（完整/中断两文案） | 事件流窗口预灌 `engine._history`（exclude_abandoned + window_messages）+ system_note 话术 | 程序话术（webgui/bond.py:1182-1256）：completed 话术 / 中断话术明示"只进行到一半、不总结未发生剧情"；兜底话术本地预设；`record_input=False` 不落假 player 事件 |
-| digest | bond 闭环 completed=True 后 / MMT 每 25 轮（剧情中不触发） | brain digest_segment：Round A 记录 + Round B 组织，锚点 = personality+knowledge 人设摘要，好感结算写 affection 事件（幂等键 interact_max） | `digest_record.md` / `digest_understand.md`（brain；2026-09-29 乙-2 改名）|
+| digest | bond 闭环 completed=True 后 / MMT 每 25 轮（剧情中不触发） | brain digest_segment：Round A 记录 + Round B 组织，锚点 = personality+knowledge 人设摘要，好感结算写 affection 事件（幂等键 interact_max） | `digest_record.md` / `digest_relate.md`（brain；2026-09-29 乙-2 改名, 2026-10-07 P1b-2 把 understand 换成 relate）|
 | 记忆浮现 memory_flash | 仅 vn_cli bond 开场（25%，冷却无意义） | brain `random_flash_segment` 随机摘 1 段 episode | 程序话术（events.py:22-36）——⚠️ **webgui 不触发**，两入口行为不一致 |
 
 ---

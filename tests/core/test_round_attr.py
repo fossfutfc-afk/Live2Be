@@ -54,7 +54,7 @@ class AttrLLM:
             return stub_tasks.split_for_scripted(messages, self.a)
         if task == T.DIGEST_RECORD:
             return self.a
-        if task in (T.DIGEST_UNDERSTAND, T.DIGEST):
+        if task in (T.DIGEST_RELATE, T.DIGEST):
             return self.b
         if task == T.DIGEST_ATTRIBUTE:
             return self.attr
@@ -92,10 +92,13 @@ def _a(text="模型店门口"):
     return {"episodes": [{"text": text, "title": text[:8], "tags": ["模型店"]}]}
 
 
-def _b(episode_ids, text="老师会等我"):
-    return {"decisions": [{"episode": i, "decision": "add", "kind": "belief",
-                           "subject": "sensei", "text": text} for i in episode_ids],
-            "evidence": [], "affection_exp_delta": 0}
+def _b(*_ids, text="老师会等我"):
+    """L1 的应答 —— R3 要的"本轮新节点"由 **R1** 提供（L1 一个节点都不建）。
+
+    ⚠️ **P1b-2（2026-10-07）**: 从前这里造 belief（R3 的 `u0002` 就是它）——
+    "造看法"归 L2 之后, 本段的新节点只剩 R1 建的那些。
+    """
+    return {"relations": []}
 
 
 # ---------------------------------------------------------------------------
@@ -204,14 +207,14 @@ def test_r3_attaches_by_hint_and_writes_alias(tmp_path):
     attr = {"attributions": [
         {"action": "attach", "entity": "c0002", "hint": "老师", "nodes": ["u0001"]},
     ]}
-    llm = AttrLLM(_a("模型店门口"), _b(["m0001"]), attr)
+    llm = AttrLLM(_a("模型店门口"), _b(), attr)
 
     res = digest_segment(st, llm, _events(_mmt(3)))
     assert res.ok, res.errors
 
     # 三轮的顺序: **R0 → A → B → R3**（每段这几步真的都跑了; 收口轮 2026-10-05 删）
     assert llm.tasks == [T.DIGEST_SPLIT, T.DIGEST_RECORD,
-                         T.DIGEST_UNDERSTAND, T.DIGEST_ATTRIBUTE], llm.tasks
+                         T.DIGEST_RELATE, T.DIGEST_ATTRIBUTE], llm.tasks
     # ⭐ 料: 候选表（只有身份）+ 本轮新节点（本地 id）
     r3 = llm.user_of(T.DIGEST_ATTRIBUTE)
     assert "c0001" in r3 and "c0002" in r3 and "u0001" in r3
@@ -223,14 +226,18 @@ def test_r3_attaches_by_hint_and_writes_alias(tmp_path):
     attr2 = {"attributions": [
         {"action": "attach", "entity": "c0002", "hint": "那个大人", "nodes": ["u0001"]},
     ]}
-    llm2 = AttrLLM(_a("又路过那家店"), _b(["m0003"]), attr2)
+    llm2 = AttrLLM(_a("又路过那家店"), _b(), attr2)
     res2 = digest_segment(st, llm2, _events(_mmt(4)))
     assert res2.ok, res2.errors
     assert "那个大人" in st.get("x0001").aliases
 
 
 def test_r3_new_entity_and_rewrite_load(tmp_path):
-    """`new_entity`（带理由）+ `rewrite`（改载荷）—— 一次调用里两种行都落地。"""
+    """`new_entity`（带理由）+ `rewrite`（改载荷）—— 一次调用里两种行都落地。
+
+    ⚠️ **P1b-2（2026-10-07）**: "本轮新节点"从前含 **R2 造的 belief**（`u0002`）;
+    造看法归 L2 之后, 这里让 **R1 建两条经历**（`u0001` / `u0002`）当那两个新节点。
+    """
     st = _store(tmp_path)
     attr = {"attributions": [
         {"action": "new_entity", "name": "小玉", "aliases": ["tama"],
@@ -238,7 +245,10 @@ def test_r3_new_entity_and_rewrite_load(tmp_path):
         {"action": "rewrite", "entity": "c0002",
          "text": "他是第一个不嫌弃我的人。", "state": ["今天戴了眼镜"]},
     ]}
-    llm = AttrLLM(_a("遇到小玉"), _b(["m0001"]), attr)
+    two = {"episodes": [{"text": "遇到小玉", "title": "遇到小玉", "tags": ["小玉"]},
+                        {"text": "小玉说下次还来", "title": "小玉说下次还来",
+                         "tags": ["小玉"]}]}
+    llm = AttrLLM(two, _b(), attr)
 
     res = digest_segment(st, llm, _events(_mmt(3)))
     assert res.ok, res.errors
@@ -246,9 +256,9 @@ def test_r3_new_entity_and_rewrite_load(tmp_path):
     xin = res.created_entities[0]
     node = st.get(xin)
     assert node.kind == "entity" and node.name == "小玉" and node.aliases == ["tama"]
-    # 新对象挂上那条 episode（u0002 = R2 新建的 belief）
-    belief = [n for n in st.all() if n.kind == "belief"][0]
-    assert st.graph().targets(belief.id, "about") == [xin]
+    # 新对象挂上**第二条**新经历（`u0002` = R1 建的第二条）
+    second = res.created[1]
+    assert st.graph().targets(second, "about") == [xin]
     # 载荷改写（立场 + 现状）
     sensei = st.get("x0001")
     assert sensei.text == "他是第一个不嫌弃我的人。"
@@ -259,8 +269,7 @@ def test_r3_new_entity_and_rewrite_load(tmp_path):
 def test_r3_skipped_without_new_nodes(tmp_path):
     """本段没有新节点 ⇒ 没有可归属的对象 ⇒ **不发这次调用**（0 次）。"""
     st = _store(tmp_path)
-    llm = AttrLLM({"episodes": []},
-                  {"decisions": [], "evidence": [], "affection_exp_delta": 0})
+    llm = AttrLLM({"episodes": []}, {"relations": []})
     res = digest_segment(st, llm, _events(_mmt(3)))
     assert res.ok, res.errors
     assert T.DIGEST_ATTRIBUTE not in llm.tasks
@@ -271,7 +280,7 @@ def test_r3_failure_rolls_back_the_batch(tmp_path):
     """R3 的形状错 ⇒ 拒整包 + 反馈重试; 耗尽 ⇒ **整批失败**, 前面几轮的节点也回滚。"""
     st = _store(tmp_path)
     attr = {"attributions": [{"action": "attach", "entity": "c0009", "nodes": ["u0001"]}]}
-    llm = AttrLLM(_a("模型店门口"), _b(["m0001"]), attr)
+    llm = AttrLLM(_a("模型店门口"), _b(), attr)
 
     res = digest_segment(st, llm, _events(_mmt(3)))
     assert not res.ok
