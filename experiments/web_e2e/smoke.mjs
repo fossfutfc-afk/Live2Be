@@ -535,9 +535,17 @@ async function main() {
     const board2 = [];
     await capturePara(page, board2);
     const before = board2[0] || {};
+    // ── 停在"纪念那一句"上做断言（**逐段推进 + 每段都采样**）──────────────────
+    // 锚点 = 桩里那句纪念原文（确定性）; 从前这里是"循环推进直到看见纪念层亮" ——
+    // 那是**赌采样撞上窗口**: 纪念板只有 3 段、`_tick` 一次推一段 ⇒ 亮着的窗口
+    // 只有一两百毫秒, 采样一错开就整段错过, 而报出来的却是"纪念板没切黑屏"
+    // （2026-10-08 实测 3 连红, 引擎侧日志一切正常 —— 假红同样是事故）。
+    // 现在: 推一段 → 立刻采样 → 认出纪念句就**停在那儿**再断言视觉。
+    const MEMO_LINE = "第一次直视我的眼睛";
+    const trace = [];
     let trig = null;
-    for (let i = 0; i < 30; i++) {
-      trig = await page.evaluate(() => {
+    for (let i = 0; i < 40 && !trig; i++) {
+      const s = await page.evaluate(() => {
         const stage = document.getElementById("bond-stage");
         const bg = document.getElementById("bond-bg");
         const layer = document.getElementById("bond-memorial");
@@ -548,18 +556,19 @@ async function main() {
           bgCleared: !(bg && bg.style.backgroundImage),
         };
       });
-      if (trig.memorial) break;
+      trace.push((s.stageHidden && s.bgCleared ? "黑" : "·") + (s.text || "").slice(0, 8));
+      if ((s.text || "").includes(MEMO_LINE)) { trig = s; break; }
       await _tick(page);
-      await new Promise((r) => setTimeout(r, 120));
     }
     record("纪念链路·第二板（/turn 直返）", {
       info: `/turn 直返=${delivered} `
         + `触发前="${(before.text || "").slice(0, 12)}"(立绘隐藏=${before.stageHidden} `
         + `背景清空=${before.bgCleared} 纪念层=${before.memorial}) `
-        + `触发段="${(trig.text || "").slice(0, 12)}"(立绘隐藏=${trig.stageHidden} `
-        + `背景清空=${trig.bgCleared} 纪念层=${trig.memorial})`,
+        + `纪念句="${((trig || {}).text || "(没走到)").slice(0, 12)}"`
+        + `(立绘隐藏=${(trig || {}).stageHidden} 背景清空=${(trig || {}).bgCleared} `
+        + `纪念层=${(trig || {}).memorial}) 逐段=${trace.join(" ")}`,
       shot: await shot(page, "vn-memorial-turn"),
-      delivered, before, trigger: trig,
+      delivered, before, trigger: trig, trace,
     });
     if (!delivered) {
       throw new Error("裁决后这一板不是 /api/bond/turn 直返的（本用例前提不成立: "
@@ -569,23 +578,76 @@ async function main() {
       throw new Error("触发记录之前就进了纪念视觉（M3 记录级进入点失效?）: "
         + JSON.stringify(before));
     }
-    if (!trig.memorial || !trig.stageHidden) {
-      throw new Error("**章中途的纪念板没切黑屏**（`/turn` 直返漏 syncMemorial?）: "
-        + JSON.stringify(trig));
+    if (!trig) {
+      throw new Error("**纪念那一句从没上屏**（段落被跳过 / 板切早了?）逐段="
+        + trace.join(" | "));
     }
-    if (!trig.bgCleared) {
-      throw new Error("**章中途的纪念板没清普通背景**（`/turn` 直返漏 syncMemorial?）: "
-        + JSON.stringify(trig));
+    // ⚠️ 这里**只**断言"黑屏已切"（M3 记录级进入点）。⛔ 不要断言 `.on`:
+    //    `.on` 的真身是"**纪念图已淡入**"（`bond.js:507-511`——只有 `memorialSt.img`
+    //    非空才 add），而黑屏（`stage.hidden` + 背景清空, :504-506）**不依赖图**。
+    //    旧断言写的是 `!trig.memorial` ⇒ 它其实在赌"图在几秒内到位"（当时桩图是即时的,
+    //    所以看起来像在守黑屏）; 桩一生效"图晚到"，它就红成"纪念板没切黑屏" ——
+    //    **报文与事实不符**（2026-10-08 实测）。图那件事由下面的"晚到上屏"专门守。
+    if (!trig.stageHidden || !trig.bgCleared) {
+      throw new Error("**纪念句在屏上时没切黑屏**（M3 记录级进入点 / `/turn` 直返漏"
+        + " syncMemorial?）: " + JSON.stringify(trig) + " 逐段=" + trace.join(" | "));
     }
-    let memOk = null;
-    for (let i = 0; i < 60; i++) {
-      memOk = await readMemorial();
-      if (memOk.layerOn && memOk.layerImg) break;
+    // ⭐ **图晚到也必须上屏**（2026-10-08 真机 5/5 未上屏的那个 bug）:
+    //   桩把生图延迟 `STUB_IMAGE_DELAY_S` 秒（真机 ≈49s）⇒ 这块板上屏时服务端**还没有**图。
+    //   判据分两段: ① 轮询**服务端状态**直到 `memorial_img` 非空（记就绪耗时）
+    //                ② 此后**玩家零操作**下, 前端必须自己把图淡入（记上屏耗时）。
+    //   ⚠️ 从前这里只写"等 6 秒图就该出现" —— 而桩图是**即时**的, 板上屏那一刻就带
+    //      URL ⇒ 那条断言其实只验了"图上屏"的**情形③（图先到）**, 对"晚到"永远绿。
+    let srv = null;
+    let srvMs = 0;
+    // 前置判据: **板上屏这一刻服务端必须还没有图**（否则这条断言退化成"图先到"）
+    const atBoard = await page.evaluate(async ({ cid, sid }) => {
+      try {
+        const st = await (await fetch(
+          `/api/bond/status?char_id=${cid}&session_id=${sid}`)).json();
+        return { img: st.memorial_img || "", busy: !!st.memorial_img_busy };
+      } catch (e) { return { img: "", busy: false, err: String(e) }; }
+    }, { cid: "igusa_haruka", sid: mmtSessionId });
+    if (atBoard.img) {
+      throw new Error("桩没演出'图晚到'（板上屏时服务端已有图）—— 调大 "
+        + "`STUB_IMAGE_DELAY_S`, 否则这条断言等于只验了'图先到': "
+        + JSON.stringify(atBoard));
+    }
+    const tSrv = Date.now();
+    for (let i = 0; i < 120; i++) {                    // 最多 12s 等服务端出图
+      srv = await page.evaluate(async ({ cid, sid }) => {
+        try {
+          const st = await (await fetch(
+            `/api/bond/status?char_id=${cid}&session_id=${sid}`)).json();
+          return { img: st.memorial_img || "", busy: !!st.memorial_img_busy };
+        } catch (e) { return { img: "", busy: false, err: String(e) }; }
+      }, { cid: "igusa_haruka", sid: mmtSessionId });
+      if (srv.img) { srvMs = Date.now() - tSrv; break; }
       await new Promise((r) => setTimeout(r, 100));
     }
+    if (!srv || !srv.img) {
+      throw new Error("服务端始终没出纪念图（桩的 STUB_IMAGE_DELAY_S? 生图链断?）: "
+        + JSON.stringify(srv));
+    }
+    let memOk = null;
+    let shownMs = 0;
+    const tShow = Date.now();
+    for (let i = 0; i < 40; i++) {                     // 服务端有图后给前端 4s
+      memOk = await readMemorial();
+      if (memOk.layerOn && memOk.layerImg) { shownMs = Date.now() - tShow; break; }
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    record("纪念图·晚到上屏（玩家零操作）", {
+      info: `板上屏时服务端无图 ✓（busy=${atBoard.busy}）; 服务端就绪 ${srvMs}ms `
+        + `→ 前端自行淡入 ${shownMs ? shownMs + "ms" : "❌ 4s 内没上屏"}`
+        + `（层开=${!!(memOk && memOk.layerOn)} `
+        + `图=${JSON.stringify((memOk || {}).layerImg || "")}）`,
+      srvMs, shownMs,
+    });
     if (!memOk || !memOk.layerImg) {
-      throw new Error(`纪念图未淡入（/turn 直返路——生图链或纪念同步断?）: `
-        + JSON.stringify(memOk));
+      throw new Error("**图晚到就不上屏**: 服务端 `memorial_img` 已就绪, 前端在 4s 内"
+        + "没有自己淡入 —— 纪念窗口内没有任何轮询会 syncMemorial"
+        + "（玩家不点画面就没有 status 轮询）: " + JSON.stringify(memOk));
     }
     // 把这一板**裁决掉**（点它的老师群选项）——目的是让它**落库**（`_log_scene`
     // 发生在玩家推进时）: 6.5 的"中途退出重进"只回放**已落库的前缀**, 纪念板不落库

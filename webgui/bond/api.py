@@ -117,8 +117,24 @@ def _note_reject(state: "BondState", reason: str, char_id: str,
                        char_id, session_id, reason, n)
 
 
-def _clear_rejects(state: "BondState", char_id: str, session_id: str) -> None:
-    """推进成功 → 报一次"此前被拒 N 次"（把等待时间归因清楚）。"""
+def _clear_rejects(state: "BondState", char_id: str, session_id: str,
+                   *, src: str = "", text: str = "") -> None:
+    """推进成功: **每次都留一行 `bond_turn ok`** + 报一次"此前被拒 N 次"。
+
+    ⭐ 2026-10-08 加前半句。为什么: 从前这里只在"曾被拒"时才打日志 ⇒ **顺畅的那一轮
+    在 diag 里零痕迹**。当天排查"纪念图为什么不上屏"就栽在这上面: 日志里
+    01:21:42→01:32:59 一段全静默, 无法区分"玩家没点"与"点了没记", 最后靠用户回忆
+    "我取消了服务"才定性（真相是**杀进程**, 不是前端卡死）。现在每次接受都留一行,
+    并带上"**这一板是谁**": `src`（这一板从哪来: replay/queue/branch/live）+
+    `board`（轮号）+ `recs`（记录数; `src=live` 时场景还在生成, 这里仍是**上一板**的）+
+    `is_end` + 玩家这次的原话（截断）。⇒ "卡在哪一板、点没点、板从哪来"一眼可见。
+    """
+    sc = state.scene_obj
+    logger.info("bond_turn ok src=%s board=%d is_end=%s recs=%d text=%r %s/%s",
+                src or "?", state.round,
+                bool(sc is not None and getattr(sc, "is_end", False)),
+                len(getattr(sc, "records", None) or []), (text or "")[:12],
+                char_id, session_id)
     if not state.turn_rejects:
         return
     summary = ", ".join(f"{k}×{v}" for k, v in state.turn_rejects.items())
@@ -164,6 +180,7 @@ def bond_turn(char_id: str, session_id: str, text: str) -> dict:
                     _pregenerate(state, char_id, session_id)
             # 场景一起回（2026-09-11）: 回放是纯本地 0 LLM, 前端拿到即上屏——
             # 省掉一轮 status 轮询（700ms 起）也不再黑屏
+            _clear_rejects(state, char_id, session_id, src="replay", text=text)
             return {"accepted": True, "busy": False, "replay": True,
                     **_ready_scene_payload(state, char_id)}
         state.replay_scenes = None             # 交棒: 走下方常规逻辑
@@ -231,7 +248,7 @@ def bond_turn(char_id: str, session_id: str, text: str) -> dict:
                 _spawn_candidates(state, state.scene_obj, char_id, session_id)
             else:
                 _pregenerate(state, char_id, session_id)
-        _clear_rejects(state, char_id, session_id)
+        _clear_rejects(state, char_id, session_id, src="queue", text=text)
         # 新场景一起回（2026-09-11）: 预生成已在手, 前端拿到即上屏（省一轮轮询）
         return {"accepted": True, "busy": state.busy, "pregen": True,
                 **_ready_scene_payload(state, char_id)}
@@ -303,7 +320,7 @@ def bond_turn(char_id: str, session_id: str, text: str) -> dict:
         # 老路则分支播放时照旧预生成
         if cand is None:
             _pregenerate(state, char_id, session_id)
-        _clear_rejects(state, char_id, session_id)
+        _clear_rejects(state, char_id, session_id, src="branch", text=text)
         return {"accepted": True, "busy": state.busy, "branch": True,
                 "scene": state.scene, "candidate": cand is not None}
 
@@ -349,7 +366,7 @@ def bond_turn(char_id: str, session_id: str, text: str) -> dict:
         # 真生成下一拍（玩家读上一句的时间即缓冲桥）。
         _draft_save(state, char_id, session_id)   # 草稿旁路刷新（#28b）
         _pregenerate(state, char_id, session_id)
-        _clear_rejects(state, char_id, session_id)
+        _clear_rejects(state, char_id, session_id, src="branch", text=text)
         return {"accepted": True, "busy": state.busy, "branch": True,
                 "picked": text, "candidate": False}
 
@@ -357,7 +374,9 @@ def bond_turn(char_id: str, session_id: str, text: str) -> dict:
     # 纯叙事场的"（继续）"是推进指令不是内容裁决 → picked=None（与预生成消费一致）
     _log_scene(state, char_id, session_id,
                picked=None if text == "（继续）" else text)
-    _clear_rejects(state, char_id, session_id)
+    # ⚠️ 这一支是 `src=live`: 场景**还没生成**（`_generate` 在下面才起线程）⇒
+    #    `bond_turn ok` 里的 `recs=` 是**上一板**的记录数, 别当成新板。
+    _clear_rejects(state, char_id, session_id, src="live", text=text)
     _generate(state, char_id, session_id, text)
     return {"accepted": True, "busy": True}
 
