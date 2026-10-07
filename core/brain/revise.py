@@ -66,6 +66,41 @@ class RevisionResult:
     pkg: str = ""
 
 
+def apply_relations(store: WikiStoreV2, rows: list[dict], *, ts: str = "",
+                    log: EvolutionLog | None = None) -> list[dict]:
+    """⭐ **L1（判关系）的落地**: 边行 → 边表 —— **只落边, 一个节点都不建**。
+
+    行形 = `{"rel", "src", "dst", "on"?}`（`digest_registry.parse_relations` 的产出）。
+    ⚠️ 两端**已经是真实 id**（契约把候选的真实 id 印给她了 ⇒ 这里没有"本地 id 映射"那一步）。
+
+    与 `apply_decisions` 的分工（⛔ 别混）:
+      · 那边 = **决策表**（`touch`/`update`/`add`）—— 会**建节点 / 改正文**;
+      · 这边 = **关系**（`supports`/`akin`/`contradicts`/`about`）—— **正文一个字都不写**。
+
+    ⚠️ **方向**: `about` 在行里已经归一成"节点 → entity"（`parse_relations` 做的）;
+    `akin` / `contradicts` 的对称性由 `store.add_edge` 内部归一（`canonical_for`）——
+    这里**不再判方向**（判两遍就是两个真源）。
+
+    ⚠️ `on`（轴上的那个词）**也留痕**: 将来"这个概念是怎么长出来的"要可回溯。
+
+    Returns: 落下的那些行（原样回传, 编排层拿去记账）。
+    """
+    log = log or EvolutionLog.for_store(store)
+    ts = ts or datetime.now().isoformat(timespec="seconds")
+    out: list[dict] = []
+    for row in rows:
+        rel, src, dst = row["rel"], row["src"], row["dst"]
+        store.add_edge(rel, src, dst, ts=ts)          # 幂等 + 拒悬空 / 拒自环
+        entry: dict = {"pkg": "digest", "action": "relate", "rel": rel,
+                       "from": src, "to": dst, "ts": ts}
+        if row.get("on"):
+            entry["on"] = row["on"]
+        log.append(entry)
+        out.append(dict(row))
+    return out
+
+
+
 def apply_decisions(
     store: WikiStoreV2,
     rows: list[dict],
