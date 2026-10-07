@@ -182,6 +182,12 @@ class _FakeImageGen:
     为什么需要: 纪念链路的验证点是"引擎的 art/memorial → 生图 → gallery URL →
     `bond_status.memorial_img` → 前端纪念层淡入"整条线（2026-09-12 v2 重接线）。
     真调 API 花钱且不确定, 所以这里替身出一个真实存在的文件（GalleryStore 要复制它）。
+
+    ⚠️ **必须演"图晚到"**（2026-10-08）: 真机生图 ≈49s（`elapsed_ms=49152` 实测）,
+    而桩原先**即时**返回 ⇒ `state.memorial_img` 在**板上屏那一刻就已经就绪**
+    ⇒ 前端"上屏时同步一次"就够, "图晚到 ⇒ 前端没人去问 ⇒ 永远不上屏"那条
+    bug（真机 5/5 未上屏）在冒烟里**永远是绿的**（假绿）。所以这里睡
+    `STUB_IMAGE_DELAY_S` 秒, 让"板上屏"与"图就绪"**错开**。
     """
 
     def __init__(self) -> None:
@@ -191,12 +197,22 @@ class _FakeImageGen:
         from llm.image_gen import GeneratedImage
 
         self.calls.append(prompt)
+        if STUB_IMAGE_DELAY_S > 0:
+            time.sleep(STUB_IMAGE_DELAY_S)       # 生图在**独立线程**里（见 _make_memorial_cb）
         root = ROOT / ".testtmp" / "webtest" / "fakeimg"
         root.mkdir(parents=True, exist_ok=True)
         path = root / "memorial.png"
         if not path.is_file():
             path.write_bytes(base64.b64decode(_PNG_1PX))
         return GeneratedImage(path=path, width=1, height=1, size_bytes=path.stat().st_size)
+
+
+#: 冒烟: 生图替身的**人为延迟（秒）**。
+#: ⚠️ 必须**大于**"那块纪念板上屏 → 冒烟开始查图"之间的间隔（实测 ~4s: 等纪念层
+#: 亮起的探测循环 + 断言），否则服务端在断言开始前就有图了 ⇒ 断言退化成"情形③
+#: （图先到）", 对"晚到"又是假绿（2026-10-08 第一次加时踩到: 延迟 4s → 就绪 4ms）。
+#: 8s 留够余量; 冒烟里另有**前置判据**在校验"板上屏那一刻服务端确实还没图"。
+STUB_IMAGE_DELAY_S = 8.0
 
 
 #: 1×1 透明 PNG（冒烟占位图; 不下载资产、不出网）

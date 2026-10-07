@@ -469,7 +469,48 @@ let lastSceneKey = "";
   //   所以状态先缓存, 真正的判定看 `typeSeg`（当前播到第几段）:
   //   `memorial_at` = 触发记录在 paragraphs 里的下标（引擎给, 见 BondScene）;
   //   没有这个字段（旧档/普通板）→ 退回板级（整板即窗口, 老行为）。
-  let memorialSt = { on: false, img: "", at: null };
+  let memorialSt = { on: false, img: "", at: null, busy: false };
+
+  // ── 纪念图**晚到**守望（2026-10-08, 真机 5/5 未上屏的那个 bug）──────────────
+  // 图是异步的（真机 ≈49s），而前端**只在**"板上屏 / 进 VN / 点推进"这几个瞬间
+  // 读一次 `memorial_img`（= `syncMemorial` 的调用点）⇒ 玩家停在纪念那一句上读的
+  // 那几十秒里**没有任何人去问** ⇒ 图到了也没人接。B 层冒烟已把这条钉死:
+  // "板上屏时服务端无图 ✓ → 服务端就绪 2070ms → 前端 4s 内不上屏（层开=false）"。
+  // ⇒ 只在"窗口开着 + 图还没到手 + 服务端说在生图"时起一个轻量轮询，拿到就停。
+  // ⚠️ 别把它并进 `startEmoWatch`（那个是标注守望: 全标注好就自停、且只活 30s）。
+  const MEMORIAL_WATCH_MS = 1500;              // 间隔（真机图 ~49s，再密没意义）
+  const MEMORIAL_WATCH_MAX_MS = 120 * 1000;    // 上限: 图再慢也不守过 2 分钟
+  let memorialWatchTimer = null;
+  let memorialWatchUntil = 0;
+
+  function stopMemorialWatch() {
+    if (memorialWatchTimer != null) {
+      clearInterval(memorialWatchTimer);
+      memorialWatchTimer = null;
+    }
+  }
+
+  function startMemorialWatch() {
+    if (memorialWatchTimer != null) return;    // 已在守（syncMemorial 自身会再调进来）
+    memorialWatchUntil = Date.now() + MEMORIAL_WATCH_MAX_MS;
+    memorialWatchTimer = setInterval(async () => {
+      if (memorialWatchTimer == null) return;
+      if (Date.now() > memorialWatchUntil || !memorialSt.on || memorialSt.img) {
+        stopMemorialWatch();
+        return;
+      }
+      if (!memorialSt.busy) {
+        // 服务端说没在生图、而我们手上也没有图 = 生图失败/未开画（纯文字降级）
+        stopMemorialWatch();
+        return;
+      }
+      try {
+        const st = await (await fetch(
+          `/api/bond/status?char_id=${charId}&session_id=${sessionId}`)).json();
+        syncMemorial(st);        // 图一到手 → applyMemorial 立刻淡入, 并自停
+      } catch (e) { /* 网络瞬断忽略——下轮重试 */ }
+    }, MEMORIAL_WATCH_MS);
+  }
 
   function syncMemorial(st) {
     if (st) {
@@ -481,11 +522,17 @@ let lastSceneKey = "";
         : !!((st.scene && (st.scene.in_memorial || st.scene.memorial)) || false);
       memorialSt.on = !!onRaw;
       if (st.memorial_img !== undefined) memorialSt.img = st.memorial_img || "";
+      // `memorial_img_busy` 也吃进来（守望靠它区分"还在生图"与"生图失败"）。
+      // ⚠️ 只有 status / `_ready_scene_payload` 带它; 回放那条路传裸 scene ⇒ 保持不变。
+      if (st.memorial_img_busy !== undefined) memorialSt.busy = !!st.memorial_img_busy;
       // 两个来源: 状态对象（scene 里嵌套）/ 场景 dict 本身
       const raw = (st.scene && st.scene.memorial_at !== undefined)
         ? st.scene.memorial_at : st.memorial_at;
       memorialSt.at = (memorialSt.on && typeof raw === "number") ? raw : null;
     }
+    // 图还没到但服务端在画 → 守着（"晚到也能上屏"的唯一入口）; 拿到/关窗即自停
+    if (memorialSt.on && !memorialSt.img && memorialSt.busy) startMemorialWatch();
+    else stopMemorialWatch();
     applyMemorial();
   }
 

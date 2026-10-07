@@ -577,6 +577,30 @@ def test_turn_reject_is_logged(web, caplog):
 
 
 
+def test_turn_accept_is_logged(web, caplog):
+    """⭐ 推进**成功**也要留痕: `bond_turn ok src=… board=…`（2026-10-08）。
+
+    为什么单独立一条: 从前"接受"只在**曾被拒**时才打日志（`_clear_rejects` 的第一行
+    是 `if not state.turn_rejects: return`）⇒ **顺畅的那一轮在 diag 里什么都没有**。
+    2026-10-08 排查"纪念图为什么不上屏"时正是被这一点误导 —— 一段十几分钟的全静默，
+    分不清"玩家没点"和"点了没记"，最后靠用户回忆才定性（真相是**杀进程**）。
+    ⇒ 判据: 每次接受都有一行带 `src=` 与轮号的 INFO（`src` 说出这一板从哪来:
+    replay/queue/branch/live）。
+    """
+    import logging
+    st, sid = web
+    bond.bond_start(CHARACTER, sid)
+    _poll_status(sid)
+    with caplog.at_level(logging.INFO, logger="live2be.bond"):
+        r = bond.bond_turn(CHARACTER, sid, "（继续）")
+    assert r.get("accepted") is True, r
+    accepts = [rec.getMessage() for rec in caplog.records
+               if "bond_turn ok" in rec.getMessage()]
+    assert accepts, [rec.getMessage() for rec in caplog.records]
+    assert "src=" in accepts[0] and "board=" in accepts[0], accepts[0]
+    print(f"    web: 推进成功留痕 → {accepts[0][:90]}")
+
+
 def test_finish_wrapup_marks_task_busy(web, monkeypatch):
     """收尾 wrapup 必须占住 MMT 任务位（2026-09-11 真机报障的根因）。
 
