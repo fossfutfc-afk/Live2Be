@@ -481,7 +481,7 @@ def _round_b_material(store: "WikiStoreV2", episode_ids: list[str],
         if len(head) > 120:
             head = head[:120] + "…"
         # 头由 `marks.head` 出（**唯一实现**）—— `〔m0025｜《今天的杂草屋》〕正文`。
-        # 编号是**钥匙**（R2 的 decisions 用它指 episode, 真实 id）；
+        # 编号是**钥匙**（L1 的 `relations` 用它指 episode, 真实 id）；
         # 书名号里是**gist**（正文被截到 120 字, 8~16 字的名字是"这是哪件事"的压缩）。
         lines.append(f"{marks.head(node, key=node.id)}{head}")
         if node.verbatim:
@@ -506,7 +506,7 @@ def _round_b_material(store: "WikiStoreV2", episode_ids: list[str],
                                              indent="       ")
                 # ⭐ 只有第一个候选带边续行（后面几个是备选, 印全了纯占地方）
                 lines.extend(rows if i == 0 else rows[:1])
-            lines.append("       （仅供参照, 同主题就 touch/update, 不同主题就 add）")
+            lines.append("       （仅供参照 —— 是不是同一条线上的, 你自己判）")
 
     # 通道口径: 全程 semantic / 全程 keyword / 混合（部分 episode 失败降级）
     if modes and all(m == "semantic" for m in modes):

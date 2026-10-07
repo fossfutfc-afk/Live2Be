@@ -179,7 +179,7 @@ def annotation_reply(task: str | None, messages, *,
     """标注/记忆消化类调用的**标准应答**; 主链任务 → None（调用方继续走脚本队列）。
 
     `digest_delta`: 好感增量（用例需要非 0 时传, 如 webgui 的 5）—— ⭐ 它由 **R1** 交,
-    所以挂在 `DIGEST_RECORD` 那一支（M1 之前挂在 understand 那一支）。
+    所以挂在 `DIGEST_RECORD` 那一支（M1 之前挂在 understand/relate 那一支）。
     `split` / `digest_segments`: R0 切分轮 —— 缺省回**空骨架**
     （= "这一段没有值得记的" ⇒ 编排层当场收工, 后面几轮一次都不发;
     这一条让"不关心记忆的用例"零成本跳过整条 digest 链）。
@@ -201,8 +201,9 @@ def annotation_reply(task: str | None, messages, *,
     if task == T.DIGEST_RECORD:
         # ⭐ **M1（2026-10-05）: 好感由 R1 判** —— 它曾挂在下面的 understand 那一支。
         return {"episodes": [], "affection_exp_delta": digest_delta}
-    if task in (T.DIGEST_UNDERSTAND, T.DIGEST):
-        return {"decisions": []}
+    if task in (T.DIGEST_RELATE, T.DIGEST):
+        # ⭐ L1（2026-10-07 P1b-2）: 只判关系、**不写正文** ⇒ 缺省"什么关系都没看出来"。
+        return {"relations": []}
     if task == T.DIGEST_ATTRIBUTE:           # ④ 挂（attribute）→ 没有可归属的
         return {"attributions": []}
     if task == T.DIGEST_GROUP:          # L2-a 分群 → 一个类都不分（块留到下段）

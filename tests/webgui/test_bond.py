@@ -61,13 +61,14 @@ NARRATIVE = {"action": "story_scene", "payload": {
 MMT_TRIGGER = {"actions": [{"action": "mmt_trigger_bond_story",
                             "reply": "嗯…我们走吧", "payload": {"reason": "邀约"}}]}
 MMT_REPLY = {"actions": [{"action": "mmt_chat", "reply": "嗯，今晚很开心。", "payload": {}}]}
-# 空消化桩（digest_v2 两轮）: Round A 空 episodes; Round B 空 decisions + 好感 5
-# （affection_exp_delta=5 → 触发好感事件落库; delta=0 不写事件——好感无变化无需记录）
+# 空消化桩: R1 回空 episodes（⇒ 桩派生出空骨架 ⇒ 链条在 R0 就收工）;
+# ⚠️ **M1（2026-10-05）起好感归 R1**, 而 L1（`digest.relate`）**只判关系**
+#    —— 旧写法把 `affection_exp_delta` 留在第二支上（那一支早就不读它了）。
 def _digest_stub(task):
-    """两轮 digest 的假响应（**按 task 区分 A/B 轮**, 节点 5b——不再认 prompt 文案）。"""
+    """digest 的假响应（**按 task 分轮次**, 节点 5b——不再认 prompt 文案）。"""
     if task == T.DIGEST_RECORD:                     # digest_record（① 记）
         return {"episodes": []}
-    return {"decisions": [], "evidence": [], "affection_exp_delta": 5}   # digest.understand（③ 接）
+    return {"relations": []}                        # digest.relate（③ 接 · L1 没看出关系）
 
 
 class ScriptedLLM:
@@ -87,7 +88,7 @@ class ScriptedLLM:
         task = kw.get("task")
         self.snapshots.append([dict(m) for m in messages])
         self.tasks.append(task)
-        if task in (T.DIGEST_RECORD, T.DIGEST_UNDERSTAND):
+        if task in (T.DIGEST_RECORD, T.DIGEST_RELATE):
             return _digest_stub(task)                  # digest → 两轮空包
         reply = stub_tasks.annotation_reply(task, messages)
         if reply is not None:                          # 标注类 → 标准应答
@@ -175,7 +176,7 @@ def _scene_calls(llm) -> list:
 
     节点 5b: 判据从"user 里有没有中文关键字"换成调用身份——**文案改了也不影响**。
     """
-    main = T.MAIN | {T.DIGEST, T.DIGEST_RECORD, T.DIGEST_UNDERSTAND}
+    main = T.MAIN | {T.DIGEST, T.DIGEST_RECORD, T.DIGEST_RELATE}
     return [snap for snap, task in zip(llm.snapshots, llm.tasks) if task not in main]
 
 
@@ -267,7 +268,7 @@ def test_bond_scene_error_abort_no_closing(tmp_path):
             task = kw.get("task")
             self.snapshots.append([dict(m) for m in messages])
             self.tasks.append(task)
-            if task in (T.DIGEST_RECORD, T.DIGEST_UNDERSTAND):     # digest 照常应答（收尾链要用）
+            if task in (T.DIGEST_RECORD, T.DIGEST_RELATE):     # digest 照常应答（收尾链要用）
                 return _digest_stub(task)
             raise RuntimeError("LLM 挂了")          # 每次调用都炸 → 重试耗尽
     engine, st, sid, _ = _setup(tmp_path, SCENE_A)  # 占位（BadLLM 覆盖）

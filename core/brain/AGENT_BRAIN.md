@@ -37,7 +37,7 @@ core/brain/                # 独立模块——不动现有 brain/*.py 直到 M 
 └── digest.py                      # ✅ 板块4 digest v2 两轮管线（A 记录员 + B 理解者决策表, 原子/水位/幂等）
 contract/digest_registry.py        # ✅ 板块2 digest 动作注册表（spec 单源: schema 渲染 + parse 校验）
 llm/prompts/digest_record.md    # ✅ ① 记 prompt（记录员; 2026-09-29 乙-2 改名）
-llm/prompts/digest_understand.md  # ✅ ③ 接 prompt（理解者; 同上）
+llm/prompts/digest_relate.md      # ✅ ③ 接 prompt（L1 判关系; 同上）
 ```
 
 分工原则: 每文件单一职责, 依赖方向单向（nodes ← store ← revise ← render/recall ← digest）;
@@ -252,7 +252,7 @@ wiki 是**派生视图**（可重算可改写）——修订后整写更简单�
    ▼ Round B「理解者」（新经历 ↔ 现有稳定认知, 决策表）
    │   输入: 新经历摘要 + 认知渲染（本地 id u0001.., 引擎防猜真实 id）
    │         + 时间线 + 锚点
-   │   契约: digest_registry.build_schema(understand) ← digest_understand.md
+   │   契约: digest_registry.build_schema(relate) ← digest_relate.md
    │   输出: {decisions: [逐 episode 一行 touch|update|add], affection_exp_delta}
    │         ⚠️ `evidence` **2026-09-29 删**（零消费者; 见 REDUNDANCY.md）
    │        parse_round_b: 引用纪律（id 必须 ∈ 渲染列表）+ 覆盖检查（漏 episode 整包拒）

@@ -81,23 +81,19 @@ class OneRound:
                     else stub_tasks.split_for_scripted(messages, self.episodes))
         if task == T.DIGEST_RECORD:
             return {"episodes": self.episodes}
-        if task in (T.DIGEST_UNDERSTAND, T.DIGEST):
-            return {"decisions": [{"episode": i, "decision": "add", "kind": "belief",
-                                   "subject": f"关于 {i}", "text": f"关于 {i} 的看法"}
-                                  for i in _episode_ids(messages)],
-                    "affection_exp_delta": 0}
-            return {"add": [], "close": []}
+        if task in (T.DIGEST_RELATE, T.DIGEST):
+            return {"relations": []}          # L1 只判关系（判断本段有没有缺口不靠它）
         if task == T.DIGEST_ATTRIBUTE:
             return {"attributions": []}
         raise RuntimeError(f"意外调用 task={task!r}")
 
 
 class FailAfterRecord(OneRound):
-    """R1 好、R2 整包坏 ⇒ 整段失败（验"回滚过的段不留账"）。"""
+    """R1 好、L1 整包坏 ⇒ 整段失败（验"回滚过的段不留账"）。"""
 
     def chat(self, messages, **kw):
-        if kw.get("task") in (T.DIGEST_UNDERSTAND, T.DIGEST):
-            return {"decisions": "这不是数组"}
+        if kw.get("task") in (T.DIGEST_RELATE, T.DIGEST):
+            return {"relations": "这不是数组"}
         return super().chat(messages, **kw)
 
 

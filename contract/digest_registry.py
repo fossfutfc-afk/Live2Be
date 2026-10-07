@@ -933,7 +933,7 @@ class DigestRegistry:
         | 行形状坏（锚点键 ≠ 1 个 / 关系键 ≠ 1 个 / 值不是字符串 / 未知键）| **丢这一行** + 记账 |
         | `id` **不在渲染列表里**（编造）| ⛔ **整包拒** —— 那说明她没在引用真实世界, 整包不可信 |
         | `akin` 缺 `on` / `on` 不在**两端 `topics` 的交集**里 | **丢这一行** + 记账（轴是**逐行**的性质, 一行坏不毁整段记忆）|
-        | `about` 的目标不在 `entity_ids` 里 | 丢这一行 |
+        | `about` 的目标不在 `entity_ids` 里 | **丢这一行**（⚠️ 与上面那条**不同档** —— 理由见下面代码里那段注释）|
 
         ⚠️ `on` 的判据用**原样字符串**（大小写 / 标点都不归一）—— 归一就等于引擎在替她判
         "这两个词是一回事"。`topics_of` = `{节点 id: [topics]}`（料侧提供; 缺省 `None` =
@@ -969,10 +969,17 @@ class DigestRegistry:
             if episode_ids is not None and target_ids is not None \
                     and aid not in episode_ids and aid not in target_ids:
                 bad = aid
-            elif rel == "about":
-                if entity_ids is not None and dst not in entity_ids:
-                    bad = dst
-            elif target_ids is not None and dst not in target_ids:
+            # ⚠️ `about` 的**右端单独一档**: 不在候选对象里 ⇒ **只丢这一行**。
+            # 判据（P1b-2 端到端用例把它逼出来的那处不一致）: 对象候选是引擎摆出来的
+            # **≤5 个**（`DESIGN_DIGEST_TWO_PASSES §10`）, 挑错了是**失手**, 不是
+            # "整包不可信"; 而整包拒会把**这一段的记忆整个回滚**（重试两次仍拒 ⇒
+            # 最终放弃这一段 = 真的丢记忆）—— 代价与"归错一次人"不成比例。
+            if not bad and rel == "about" and entity_ids is not None \
+                    and dst not in entity_ids:
+                drops.append(f"relations[{i}] about 的目标 {dst!r} 不在候选对象里")
+                continue
+            if not bad and rel != "about" and target_ids is not None \
+                    and dst not in target_ids:
                 bad = dst
             if bad:
                 errors.append(f"relations[{i}] 引用了列表里没有的 id: {bad}（整包拒）")

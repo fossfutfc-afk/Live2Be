@@ -67,11 +67,18 @@ class RevisionResult:
 
 
 def apply_relations(store: WikiStoreV2, rows: list[dict], *, ts: str = "",
-                    log: EvolutionLog | None = None) -> list[dict]:
+                    log: EvolutionLog | None = None,
+                    id_map: dict[str, str] | None = None) -> list[dict]:
     """⭐ **L1（判关系）的落地**: 边行 → 边表 —— **只落边, 一个节点都不建**。
 
     行形 = `{"rel", "src", "dst", "on"?}`（`digest_registry.parse_relations` 的产出）。
-    ⚠️ 两端**已经是真实 id**（契约把候选的真实 id 印给她了 ⇒ 这里没有"本地 id 映射"那一步）。
+
+    ⚠️ **两套 id 空间**（与设计 §9.1 逐字一致, ⛔ 别把这一步当成多余）:
+      · 经历 / 对象那一端是**真实 id**（`m…` / `x…` —— 料里就是这么印的）;
+      · 认知那一端是**本地号**（`u0001…`, `render_cognition_list` 发的 —— 它的 docstring
+        写着"parse 层只认本地 id, 防 LLM 猜真实 id"）。
+      ⇒ `id_map`（本地 → 真实）就是这两者之间的那道翻译, 与 `apply_decisions` 同构。
+      不在表里的 id **原样过**（真实 id 本来就不在表里）。
 
     与 `apply_decisions` 的分工（⛔ 别混）:
       · 那边 = **决策表**（`touch`/`update`/`add`）—— 会**建节点 / 改正文**;
@@ -83,6 +90,10 @@ def apply_relations(store: WikiStoreV2, rows: list[dict], *, ts: str = "",
 
     ⚠️ `on`（轴上的那个词）**也留痕**: 将来"这个概念是怎么长出来的"要可回溯。
 
+    Args:
+        id_map: **本地号 → 真实 id**（`{"u0001": "m0031"}`）。缺省 `None` = 两端
+            本来就是真实 id（单测 / 将来 L2 若直接印真实 id 也走这条）。
+
     Returns: 落下的那些行（原样回传, 编排层拿去记账）。
     """
     log = log or EvolutionLog.for_store(store)
@@ -90,6 +101,8 @@ def apply_relations(store: WikiStoreV2, rows: list[dict], *, ts: str = "",
     out: list[dict] = []
     for row in rows:
         rel, src, dst = row["rel"], row["src"], row["dst"]
+        if id_map:                                    # 本地号 → 真实 id（真实 id 原样过）
+            src, dst = id_map.get(src, src), id_map.get(dst, dst)
         store.add_edge(rel, src, dst, ts=ts)          # 幂等 + 拒悬空 / 拒自环
         entry: dict = {"pkg": "digest", "action": "relate", "rel": rel,
                        "from": src, "to": dst, "ts": ts}

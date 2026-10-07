@@ -57,17 +57,8 @@ class Stub:
             return stub_tasks.split_for_scripted(messages, self.episodes)
         if task == T.DIGEST_RECORD:
             return {"episodes": self.episodes}
-        if task in (T.DIGEST_UNDERSTAND, T.DIGEST):
-            import re
-            # ⚠️ 只认**新经历行的把手**（`〔m0003｜《标题》〕`, 没标题时是 `〔m0003〕`）——
-            # 别用裸 `m\d{4}`: 认知列表的**边续行**也会印真实 id（`edges: supports←m0004`）,
-            # 抓到它们就会产出"不在本轮 episode 集内"的决策 ⇒ 整包被拒。
-            ids = list(dict.fromkeys(re.findall(r"〔(m\d{4})[｜〕]", user)))
-            return {"decisions": [{"episode": i, "decision": "add", "kind": "belief",
-                                   "subject": f"关于 {i}", "text": f"关于 {i} 的看法"}
-                                  for i in ids],
-                    "affection_exp_delta": 0}
-            return {"add": [], "close": []}
+        if task in (T.DIGEST_RELATE, T.DIGEST):
+            return {"relations": []}          # L1: 料照收, 一行关系都不判
         if task == T.DIGEST_ATTRIBUTE:
             return {"attributions": []}
         raise RuntimeError(f"意外调用 task={task!r}")

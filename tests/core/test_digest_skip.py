@@ -75,11 +75,8 @@ class FlakyOnce:
             if self.n == 1:
                 return {"episodes": "坏"}
             return {"episodes": [{"text": "一段经历", "title": "经历"}]}
-        if task in (T.DIGEST_UNDERSTAND, T.DIGEST):
-            # ⚠️ R2 的契约要求"覆盖全部 episode"（漏一条整包拒）⇒ 必须给 m0001 一条决策
-            return {"decisions": [{"episode": "m0001", "decision": "add",
-                                   "kind": "belief", "text": "关于这件事的看法"}],
-                    "affection_exp_delta": 0}
+        if task in (T.DIGEST_RELATE, T.DIGEST):
+            return {"relations": []}          # L1: 没看出关系（本用例测的是失败重试次数）
         if task == T.DIGEST_ATTRIBUTE:
             return {"attributions": []}
         raise RuntimeError(f"意外调用 task={task!r}")
@@ -201,7 +198,7 @@ class EngineLLM:
         self.tasks.append(task)
         if task == T.DIGEST_SPLIT:                # ⭐ R0: 正常（后面几轮才是要测的坏）
             return stub_tasks.split_reply(messages)
-        if task in (T.DIGEST_RECORD, T.DIGEST_UNDERSTAND):
+        if task in (T.DIGEST_RECORD, T.DIGEST_RELATE):
             return {"episodes": "坏"}                 # 一律形状错 → 整批失败
         reply = stub_tasks.annotation_reply(task, messages)
         if reply is not None:

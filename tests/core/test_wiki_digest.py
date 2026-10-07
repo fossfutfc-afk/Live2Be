@@ -87,12 +87,13 @@ def _a_episode(text="老师请我吃了甜品，还说下次再去", sig=0.8, ti
 
 
 def _b_ok(**over):
-    out = {"decisions": [
-        {"episode": "m0003", "decision": "update", "target": "u0001",
-         "patch": {"text": "老师会记得我的喜好——连甜品店也会挑好", "significance": 0.95}},
-        {"episode": "m0003", "decision": "add", "kind": "belief",
-         "subject": "sensei", "text": "老师会带我去吃甜品", "example": "「这家店不错吧」"},
-    ]}
+    """L1（`relate`）的应答 —— 缺省是"什么关系都没看出来"（✅ 合法答案）。
+
+    ⚠️ **P1b-2（2026-10-07）之前这里是 R2 的决策表**（update + add 两条）——
+    "造看法 / 写正文"搬去 L2 之后, 这一段的标准应答就是**空的**
+    （"没话说就不写"本身就是一个结论）。
+    """
+    out = {"relations": []}
     out.update(over)
     return out
 
@@ -129,10 +130,7 @@ def test_node_ts_follows_its_own_events(tmp_path):
         {"span": [11, 11], "abstract": "第一件事"},
         {"span": [13, 13], "abstract": "第二件事"},
         {"span": [12, 13], "abstract": "跨两块"}]}
-    b = {"decisions": [{"episode": f"m000{i}", "decision": "add", "kind": "belief",
-                        "subject": "sensei", "text": f"关于 m000{i}"}
-                       for i in (3, 4, 5, 6)],
-         "evidence": [], "affection_exp_delta": 0}
+    b = {"relations": []}
 
     res = digest_segment(st, FakeLLM(a, b, split=split), evs)
 
@@ -144,8 +142,8 @@ def test_node_ts_follows_its_own_events(tmp_path):
         "第二件事": "2026-09-21T20:00:00",
         "跨两块": "2026-09-21T20:00:00",             # 区间 12-13 → 取**最后**一条
         "无位置": "2026-09-21T20:00:00"}              # 附在末条切片上 ⇒ 同一个位置
-    # 认知（R2 产的）**仍然是段 ts** —— 只有第 1 轮的节点按自己的事件算
-    assert st.get("m0007").ts == "2026-09-21T20:00:00"
+    # ⚠️ P1b-2（2026-10-07）: 这里从前还断言"认知（R2 产的）仍然是段 ts" ——
+    # L1 **不建节点**了（造看法归 L2）, 那条对照的样本要等 L2 落地才回得来。
 
 
 # ---------------------------------------------------------------------------
@@ -165,8 +163,7 @@ def test_round_a_about_hint_is_ignored(tmp_path):
         {"episodes": [{"text": "老师说这个给你。", "title": "送我一盆杂草",
                        "tags": ["杂草"], "significance": 0.7,
                        "about_hint": "老师"}]},          # ← 过时字段: 应当被无视
-        {"decisions": [{"episode": "m0003", "decision": "touch", "target": "u0001"}],
-         "affection_exp_delta": 0})   # B 必须覆盖全部 episode（结构检查）
+        {"relations": []})            # L1: 这一段没看出任何关系（合法）
     res = digest_segment(st, llm, _events(_mmt(3, "x", "送你一盆杂草")))
     assert res.ok, res.errors
     ep = st.get(res.created[0])
@@ -186,7 +183,7 @@ def test_no_new_events_no_llm_call(tmp_path):
 def test_affection_markers_excluded_from_digest_input(tmp_path):
     st = _seed_store(tmp_path)
     llm = FakeLLM({"episodes": []},
-                  {"decisions": [], "evidence": [], "affection_exp_delta": 0},
+                  {"relations": []},
                   # ⚠️ 3b-2: 空 episodes ⇒ 桩派生空骨架 ⇒ 链条在 R0 就停。
                   # 本用例测的是"账目事件不进食料" ⇒ 显式给骨架把链条放过去。
                   split={"segments": [{"span": [3, 3],
@@ -224,49 +221,109 @@ def test_round_a_produces_no_note_op(tmp_path):
 
 
 def test_full_pipeline(tmp_path):
+    """整条链跑通: R0 → R1（建 episode）→ L1（判关系、**只落边**）。
+
+    ⚠️ **P1b-2（2026-10-07）**: 这一段从前断言的是 R2 的 `update` + `add`（改认知 /
+    造看法）。那两件事搬去 **L2** 之后, 这里断言的是 L1 的落点: 边真的落了、
+    正文**一个字没动**、轴与方向都对。
+    """
     st = _seed_store(tmp_path)
-    llm = FakeLLM(_a_episode(), _b_ok())
+    llm = FakeLLM(_a_episode(),
+                  _b_ok(relations=[{"episode": "m0003", "supports": "u0001"}]))
     events = _events(_mmt(3, "老师", "下次再去吃甜品吧"))
     res = digest_segment(st, llm, events)
     assert res.ok, res.errors
-    assert res.llm_calls == 3                          # R0 + A + B（R3 2026-10-05 暂停）
-    # A: episode 建好, 引擎字段归属
+    assert res.llm_calls == 3                          # R0 + A + L1（R3 2026-10-05 暂停）
+    # R1: episode 建好, 引擎字段归属
     assert res.created == ["m0003"]
     ep = st.get("m0003")
     assert ep.kind == "episode" and ep.event_seq == [3]
     assert ep.ts and ep.title == "甜点之约"
-    # B: update → 认知改写（变更进 evolution 日志）; add → 新 belief 链回 episode
+    # L1: `u0001`（本地号）→ m0002（真实 id）—— 边落上了, 而**正文一个字没动**
     bel = st.get("m0002")
-    assert bel.significance == 0.95
-    added = [n for n in st.all()
-             if n.kind == "belief" and n.text == "老师会带我去吃甜品"]
-    assert len(added) == 1 and added[0].observer == ""   # ⭐ 新认知不是"听说的"（observer 空）
-    nid = added[0].id
-    assert st.graph().supporters(nid) == ["m0003"]       # 次数 = supports 入边（G3）
-    assert set(st.graph().targets("m0003")) == {nid, "m0002"}   # episode 的两条出边
+    assert bel.text == "老师是第一个不会嫌弃我的人"
+    assert bel.significance == 0.9, "L1 不许改认知的正文/分数（那是 L2 的 update）"
+    assert "m0003" in st.graph().supporters("m0002")     # supports 入边（G3）
     assert res.affection_delta == 30
     assert st.digested_seq == 3
-    # evolution log（apply_decisions 追加）: update 那行带 before/after
+    # evolution log（apply_relations 追加）: 一行, action=relate, 带 rel/from/to
     entries = EvolutionLog.for_store(st).read()
-    assert [e["action"] for e in entries] == ["update", "add"]
-    upd = entries[0]
-    assert upd["target"] == "m0002" and upd["changed"]["text"][1]
-    assert upd["changed"]["text"][0] != upd["changed"]["text"][1]
+    assert [e["action"] for e in entries] == ["relate"]
+    assert entries[0]["rel"] == "supports"
+    assert entries[0]["from"] == "m0003" and entries[0]["to"] == "m0002"
 
 
-def test_touch_decision_links_only(tmp_path):
+# ---------------------------------------------------------------------------
+# ⭐ P1b-2（2026-10-07）: L1「判关系」的两条新用例
+#    （旧的 `touch` / `add` 那一族随 R2 一起退役 —— 造看法与写正文归 L2）
+# ---------------------------------------------------------------------------
+
+def test_l1_writes_edges_and_enforces_the_axis(tmp_path):
+    """L1 一次跑齐四件事: **本地号翻译** · **轴的交集校验** · **on 留痕** · `about` 无候选。
+
+    为什么这一条要写: 这四个判据分属四个文件（`relate.py` 的 `id_map` / `topics_of`、
+    `parse_relations` 的交集、`apply_relations` 的翻译）, 只有端到端跑一段才看得出
+    "它们凑在一起是对的"。
+
+    ⚠️ **`akin` 今天只能连本段之内的两条**（P2 那笔之前, 料里还没有"现有经历"候选）
+    ⇒ 这一条用**本段两条新经历**当两端。
+    """
+    from core.brain.evolution import EvolutionLog
+
     st = _seed_store(tmp_path)
     llm = FakeLLM(
-        _a_episode(text="又和老师在天台安静坐着"),
-        {"decisions": [{"episode": "m0003", "decision": "touch", "target": "u0001",
-                        "note": "又是安静的陪伴"}],
-         "evidence": [], "affection_exp_delta": 5})
-    events = _events(_mmt(3, "x", "天台很安静"))
-    res = digest_segment(st, llm, events)
+        {"episodes": [
+            {"text": "又和老师在天台看苔藓", "title": "天台看苔藓",
+             "tags": ["天台", "苔藓"], "topics": ["天台", "苔藓"], "significance": 0.7},
+            {"text": "老师又说这片苔藓长得最好", "title": "苔藓长得最好",
+             "tags": ["苔藓"], "topics": ["苔藓"], "significance": 0.6},
+        ]},
+        _b_ok(relations=[
+            # ① 认知那一端是**本地号**（u0001）⇒ 执行时要翻成真实 id（m0002）
+            {"episode": "m0003", "supports": "u0001"},
+            # ② 轴对得上（两条经历的 topics 交集里有它）⇒ 落边
+            {"episode": "m0004", "akin": "m0003", "on": "苔藓"},
+            # ③ 轴对不上 ⇒ **丢这一行**（不毁整包）
+            {"episode": "m0004", "akin": "m0003", "on": "猫"},
+            # ④ `about`: 料里还没印对象候选 ⇒ 候选集是空的 ⇒ 一行都落不下来
+            {"episode": "m0003", "about": "x0001"},
+        ]))
+    res = digest_segment(st, llm, _events(_mmt(3, "x", "天台很安静"),
+                                          _mmt(4, "x", "苔藓长得真好")))
     assert res.ok, res.errors
-    bel = st.get("m0002")
-    assert bel.significance == 0.9                     # touch 不改内容
-    assert "m0003" in st.graph().supporters("m0002")   # 只连边（G3: supports 入边）
+    assert set(res.created) == {"m0003", "m0004"}
+    # ① 翻译对了: 边落在**真实 id** 上（不是 `u0001`）
+    assert "m0003" in st.graph().supporters("m0002")
+    assert "u0001" not in {n.id for n in st.all()}
+    # ②③ 轴对的落了、轴不对的**没落** ⇒ `akin` 恰好一条（两条 = 重了, 零条 = 全丢了）
+    akin = [e for e in st.graph().edges if e.rel == "akin"]
+    assert len(akin) == 1 and {akin[0].src, akin[0].dst} == {"m0003", "m0004"}, akin
+    # ⭐ 丢行有账（③ 那条）—— 它**不**毁整段
+    assert any("交集" in d for d in res.contract_drops), res.contract_drops
+    # ④ 对象候选是空的 ⇒ `about` 也没落（P2 印出候选之后这条会变）
+    assert not [e for e in st.graph().edges if e.rel == "about"]
+    # `on` 留痕: 轴上的那个词可回溯（"这个概念是怎么长出来的"）
+    entries = EvolutionLog.for_store(st).read()
+    logged = [e for e in entries if e["rel"] == "akin"]
+    assert logged and logged[0]["on"] == "苔藓", entries
+
+
+def test_l1_invented_id_rejects_the_whole_package(tmp_path):
+    """L1 的**硬档**: 引用了列表里没有的 id ⇒ 整包拒 ⇒ **整段原子回滚**（水位不推进）。
+
+    判据的分界（`DESIGN_DIGEST_TWO_PASSES §2`）: 行内的毛病（缺 `on` / 轴不对）只丢那一行;
+    **编造 id** 说明她没在引用真实世界 ⇒ 整包不可信。
+    """
+    st = _seed_store(tmp_path)
+    before = {n.id: n.to_dict() for n in st.all()}
+    bad = {"relations": [{"episode": "m9999", "supports": "u0001"}]}     # 编造的 episode
+    llm = FakeLLM(_a_episode(), bad, bad)         # 两次都被拒（反馈重试一次）
+    res = digest_segment(st, llm, _events(_mmt(3, "x", "天台很安静")))
+    assert not res.ok
+    assert any("整包拒" in e for e in res.errors), res.errors
+    after = {n.id: n.to_dict() for n in st.all()}
+    assert after == before, "原子: R1 建的 episode 也要跟着回滚"
+    assert st.digested_seq == 0, "水位不推进 → 这一段下次整段重来"
 
 
 # ---------------------------------------------------------------------------
@@ -288,8 +345,7 @@ def test_event_seq_pointer_and_verbatim_resolve(tmp_path):
         # 但索引本身留在 verbatim_seq 里（可追溯性不受解析成败影响）
         "verbatim": ["11.1", "9.p", "11.p"],
         "tags": ["咖啡厅", "甜点"], "significance": 0.82}]}
-    b = {"decisions": [{"episode": "m0003", "decision": "touch", "target": "u0001"}],
-         "evidence": [], "affection_exp_delta": 0}
+    b = {"relations": []}
     events = _events(
         _mmt(9, "你好呀", "库呼呼～老师～"),
         ("bond", "story_scene", {
@@ -322,8 +378,7 @@ def test_verbatim_text_channel_is_retired(tmp_path):
         "verbatim": "……这块，给你。",            # ⛔ 文本通道: 忽略
         "verbatim_seq": ["11.0"],               # 行号: 解析得出
         "tags": ["甜点"], "significance": 0.6}]}
-    b = {"decisions": [{"episode": "m0003", "decision": "touch", "target": "u0001"}],
-         "evidence": [], "affection_exp_delta": 0}
+    b = {"relations": []}
     events = _events(("bond", "story_scene", {
         "paragraphs": [{"text": "……这块，给你。"}]}, 11))
     res = digest_segment(st, FakeLLM(a, b), events)
@@ -371,8 +426,7 @@ def test_emo_shape_materialized_from_board_pointer(tmp_path):
         "text": "杂草屋里她第一次笑出来。", "title": "杂草屋",
         "event_seq": ["20", "22", "24"],   # 20 是 MMT → 无键; 22/24 是板
         "tags": ["杂草屋"], "significance": 0.7}]}
-    b = {"decisions": [{"episode": "m0003", "decision": "touch", "target": "u0001"}],
-         "evidence": [], "affection_exp_delta": 0}
+    b = {"relations": []}
     events = _events(
         _mmt(20, "在吗", "在的"),
         ("bond", "story_scene", {"paragraphs": [
@@ -420,8 +474,7 @@ def test_place_materialized_from_board_pointer(tmp_path):
         "text": "她带我去了天台。", "title": "天台",
         "event_seq": ["20", "22", "24"],
         "tags": ["天台"], "significance": 0.8}]}
-    b = {"decisions": [{"episode": "m0003", "decision": "touch", "target": "u0001"}],
-         "evidence": [], "affection_exp_delta": 0}
+    b = {"relations": []}
     events = _events(
         _mmt(20, "在吗", "在的"),                                   # MMT → 无地点
         ("bond", "story_scene", {                                   # 板: switch 教室
@@ -467,8 +520,7 @@ def test_place_raw_keeps_writer_wording(tmp_path):
     st = _seed_store(tmp_path)
     a = {"episodes": [{"text": "在杂草屋", "title": "x", "event_seq": ["22"],
                        "tags": ["t"], "significance": 0.5}]}
-    b = {"decisions": [{"episode": "m0003", "decision": "touch", "target": "u0001"}],
-         "evidence": [], "affection_exp_delta": 0}
+    b = {"relations": []}
     events = _events(("bond", "story_scene", {
         "place": "ruinschoolcorridor", "place_hint": "深夜的杂草屋",
         "paragraphs": [{"text": "……"}]}, 22))
@@ -497,60 +549,40 @@ def _cat_store(tmp_path) -> WikiStoreV2:
     return st
 
 
-def test_high_candidate_no_longer_forces_touch_update(tmp_path):
-    """★ T17（2026-09-15）: **候选降为提示, LLM 判 add 不再被拒**。
+def test_candidate_hint_is_only_a_hint(tmp_path):
+    """引擎候选**只是提示**: 印在料里、措辞里没有旧动作名; 无关内容连候选行都没有。
 
-    旧行为: 候选 ≥ `CAND_HIGH` → 该 episode 出 `add` 整行作废 → 引擎反馈重试。
-    而那个阈值从未标定过、实测两模型下候选 **6/6 全越线** → 结构强制把
-    "全部分侧面"判成"同一件事" → **新认知永远长不出来**（Q11/Q31/Q32 已裁）。
-
-    现在: 候选照样摆给 LLM（**输入里仍能看到**），但 `add` 不触发任何拒绝/重试。
+    ⚠️ **P1b-2（2026-10-07）**: 这条从前是"高相似候选不再强制 `touch`/`update`"（T17）。
+    结构强制早删了, 而 `touch`/`update`/`add` 这一族也**退出了这一趟的词汇表**
+    ⇒ 现在钉的是**料那一侧**的两件事: 提示行照印 · 措辞里不许再出现旧动作名
+    （她照抄一句 "同主题就 touch/update" 出来, 就是一条坏行 + 一次白跑的重试）。
     """
     st = _cat_store(tmp_path)
     llm = FakeLLM(
         _a_episode(text="老师带猫粮来喂猫, 猫绕着我转了两圈"),
-        {"decisions": [
-            {"episode": "m0003", "decision": "add", "kind": "belief",
-             "subject": "猫", "text": "老师会带猫粮来喂猫",
-             "note": "与候选只是字面像, 不是同一件事"},
-         ], "evidence": [], "affection_exp_delta": 5},
+        {"relations": []},
     )
-    events = _events(_mmt(3, "x", "猫粮带来了"))
-    res = digest_segment(st, llm, events)
+    res = digest_segment(st, llm, _events(_mmt(3, "x", "猫粮带来了")))
     assert res.ok, res.errors
-    assert res.llm_calls == 3                          # R0 + A + B（**没有**拒绝重试）
-    # 候选提示仍在输入里（只是不再带"禁 add"的措辞）
-    assert "候选" in llm.calls[1][1]["content"]
-    assert "禁 add" not in llm.calls[1][1]["content"]
-    # add 真的落地了（新认知长出来了——这正是删阈值的直接目的）
-    added = [n for n in st.all() if n.kind == "belief" and n.text == "老师会带猫粮来喂猫"]
-    assert added, "add 被引擎拦掉了——结构强制没删干净"
-    print("    候选仅提示: add 不再被拒（新认知能长出来）")
-
-
-def test_no_candidate_when_unrelated(tmp_path):
-    """无关键词关联 → 无候选提示行 → LLM 自由 add（本来也不再有强制）。"""
-    st = _cat_store(tmp_path)
-    llm = FakeLLM(
-        _a_episode(text="老师送我一盆新的杂草", tags=("杂草",)),
-        {"decisions": [
-            {"episode": "m0003", "decision": "add", "kind": "belief",
-             "subject": "杂草", "text": "杂草是遥香安心的事物"},
-         ], "evidence": [], "affection_exp_delta": 3})
-    events = _events(_mmt(3, "x", "这盆杂草送给你"))
-    res = digest_segment(st, llm, events)
-    assert res.ok, res.errors
-    assert "→ 候选" not in llm.calls[1][1]["content"]         # 无候选提示行
-    bel = st.get("m0004")                              # add 成功（m0003 episode + m0004 belief）
-    assert bel.kind == "belief"
+    assert res.llm_calls == 3                          # R0 + R1 + L1（**没有**拒绝重试）
+    user = llm.calls[1][1]["content"]
+    assert "候选" in user, "候选提示行不见了（摆候选是引擎的活）"
+    assert "同主题就" not in user, "旧动作名还在料里 —— 她照抄了就是坏行"
+    assert "decisions" not in user
+    # 无关内容 ⇒ 连候选行都没有
+    st2 = _cat_store(tmp_path / "b")
+    llm2 = FakeLLM(_a_episode(text="老师送我一盆新的杂草", tags=("杂草",)),
+                   {"relations": []})
+    digest_segment(st2, llm2, _events(_mmt(3, "x", "这盆杂草送给你")))
+    assert "→ 候选" not in llm2.calls[1][1]["content"]
 
 
 # ---------------------------------------------------------------------------
 # MMT 专则: 玩家画像条目（kind=experience, subject=player）
 # ---------------------------------------------------------------------------
 
-def test_player_portrait_entry_lands_and_hides_from_round_b(tmp_path):
-    """A 轮画像条目 → subject=player experience 落库; 不进本轮认知列表（B 只组织 episode）。
+def test_player_portrait_entry_lands_and_hides_from_relate(tmp_path):
+    """R1 的画像条目 → subject=player 落库; **不进本段的关系轮认知列表**。
 
     ⚠️ **3b-2: 一段里两块内容事件会被切成一条切片**（本用例的时间线只有一个块
     `[3]`）⇒ 两条条目（经历 + 画像）都落在**同一条切片**上 —— 这正是真实情形:
@@ -566,10 +598,7 @@ def test_player_portrait_entry_lands_and_hides_from_round_b(tmp_path):
              "verbatim": ["3.0"], "tags": ["玩家生日"],
              "significance": 0.7},
         ]},
-        {"decisions": [
-            {"episode": "m0001", "decision": "add", "kind": "belief",
-             "subject": "和老师的约定", "text": "老师会认真对待与我的约定"},
-         ], "evidence": [], "affection_exp_delta": 15},
+        {"relations": []},          # L1: 这一段没看出关系（造看法是 L2 的活）
         split={"segments": [{"span": [3, 3],
                              "abstract": "烟火大会之约"}]})
     events = _events(_mmt(3, "我生日是 5 月 20 日哦", "下周放假, 一起去看烟火吧"))
@@ -584,37 +613,11 @@ def test_player_portrait_entry_lands_and_hides_from_round_b(tmp_path):
     # 位置 = 那条切片的区间（`[3]` 那一块）。"一条对一条切片"的判据在
     # `test_mmt_segment_fills_one_row_per_slice` 与 `_align_to_skeleton` 的用例里钉着。
     assert p.event_seq == [3]
-    # B 的认知列表不含刚建的画像条目（冷启动提示仍在 = 无认知可组织）
+    # L1 的认知列表不含刚建的画像条目（冷启动提示仍在 = 没有可接的认知）
     b_user = llm.calls[1][1]["content"]
     assert "玩家的生日" not in b_user
     assert "尚无稳定认知" in b_user or "u0001" in b_user  # 画像被排除后无旧认知
-    assert "m0001" in b_user                           # episode 摘要正常进 B
-
-
-# ---------------------------------------------------------------------------
-# 冷启动: 无旧记忆 → B 只能 add（belief 路径: 先链后入仓; 来源字段引擎不留痕）
-# ---------------------------------------------------------------------------
-
-def test_cold_start_add_belief(tmp_path):
-    st = WikiStoreV2(tmp_path, world_id="world1", char_id="c")   # 空库
-    llm = FakeLLM(
-        _a_episode(text="老师帮我把杂草搬回了家"),
-        {"decisions": [
-            {"episode": "m0001", "decision": "add", "kind": "belief",
-             "subject": "老师对我的照顾", "text": "老师会记得我随口提过的事",
-             "tags": ["老师"], "significance": 0.85}],
-         "evidence": [], "affection_exp_delta": 10})
-    events = _events(_mmt(3, "x", "杂草我帮你搬"))
-    res = digest_segment(st, llm, events)
-    assert res.ok, res.errors
-    assert res.created == ["m0001"]
-    bel = st.get("m0002")                              # 空库 belief → m0002
-    assert bel.kind == "belief"
-    assert bel.observer == ""                            # ⭐ 来源字段为空（不是"听说的"）
-    # 支撑不变量（G3: 入仓后立刻补 supports 边; 字段层不再判它）
-    assert st.graph().supporters("m0002") == ["m0001"]
-    # 冷启动 B 输入提示"尚无稳定认知"
-    assert "尚无稳定认知" in llm.calls[1][1]["content"]
+    assert "m0001" in b_user                           # episode 摘要正常进 L1 的料
 
 
 # ---------------------------------------------------------------------------
@@ -693,33 +696,23 @@ def test_round_a_rejected_retried_with_feedback(tmp_path):
     assert st.digested_seq == 3
 
 
-def test_round_b_rejected_retried_with_feedback(tmp_path):
+def test_relate_rejected_retried_with_feedback(tmp_path):
+    """L1 的应答被**整包拒** ⇒ 带 assistant 原文 + 引擎错误回灌重试一次。
+
+    拒的理由用 L1 自己的硬档: **引用了列表里没有的 id**（编造 ⇒ 整包不可信）。
+    """
     st = _seed_store(tmp_path)
     llm = FakeLLM(
         _a_episode(),
-        {"decisions": [], "evidence": [], "affection_exp_delta": 0},   # 漏 m0003 → 拒
+        {"relations": [{"episode": "m9999", "supports": "u0001"}]},   # 编造 → 拒
         _b_ok(),
     )
     events = _events(_mmt(3, "x", "y"))
     res = digest_segment(st, llm, events)
     assert res.ok, res.errors
-    assert res.llm_calls == 4                          # R0 + A + B1(拒) + B2(过)
+    assert res.llm_calls == 4                          # R0 + R1 + L1₁(拒) + L1₂(过)
     assert "引擎校验反馈" in llm.calls[2][-1]["content"]
     assert st.digested_seq == 3
-
-
-def test_b_rejected_twice_fails_atomically(tmp_path):
-    st = _seed_store(tmp_path)
-    before = {n.id: n.to_dict() for n in st.all()}
-    bad_b = {"decisions": [], "evidence": [], "affection_exp_delta": 0}
-    llm = FakeLLM(_a_episode(), dict(bad_b), dict(bad_b))
-    events = _events(_mmt(3, "x", "y"))
-    res = digest_segment(st, llm, events)
-    assert not res.ok
-    assert any("未覆盖" in e for e in res.errors)
-    after = {n.id: n.to_dict() for n in st.all()}
-    assert after == before                             # 原子: A 的 episode 也回滚
-    assert st.digested_seq == 0                        # 水位不推进 → 可重算
 
 
 def test_llm_call_failure_degrades(tmp_path):
@@ -749,7 +742,7 @@ def test_affection_clamped(tmp_path):
     # ⚠️ **3b-2**: `{"episodes": []}` 在桩里 ⇒ 空骨架 ⇒ 链条在 R0 就停（那是对的）。
     # 本用例测的是 **B 轮的好感结算** ⇒ 显式给一条骨架把链条放过去。
     llm = FakeLLM({"episodes": [], "affection_exp_delta": 999},   # ⭐ M1: 好感由 R1 给
-                  {"decisions": []},
+                  {"relations": []},
                   split={"segments": [{"span": [3, 3],
                                        "abstract": "这一段"}]})
     res = digest_segment(st, llm, _events(_mmt(3, "x", "y")))
@@ -765,7 +758,7 @@ def test_affection_negative_passes_through(tmp_path):
     # ⚠️ **3b-2**: `{"episodes": []}` 在桩里 ⇒ 空骨架 ⇒ 链条在 R0 就停（那是对的）。
     # 本用例测的是 **B 轮的好感结算** ⇒ 显式给一条骨架把链条放过去。
     llm = FakeLLM({"episodes": [], "affection_exp_delta": -30},   # ⭐ M1: 好感由 R1 给
-                  {"decisions": []},
+                  {"relations": []},
                   split={"segments": [{"span": [3, 3],
                                        "abstract": "这一段"}]})
     res = digest_segment(st, llm, _events(_mmt(3, "x", "y")))
@@ -778,7 +771,7 @@ def test_affection_negative_clamped_at_floor(tmp_path):
     # ⚠️ **3b-2**: `{"episodes": []}` 在桩里 ⇒ 空骨架 ⇒ 链条在 R0 就停（那是对的）。
     # 本用例测的是 **B 轮的好感结算** ⇒ 显式给一条骨架把链条放过去。
     llm = FakeLLM({"episodes": [], "affection_exp_delta": -999},   # ⭐ M1: 好感由 R1 给
-                  {"decisions": []},
+                  {"relations": []},
                   split={"segments": [{"span": [3, 3],
                                        "abstract": "这一段"}]})
     res = digest_segment(st, llm, _events(_mmt(3, "x", "y")))
@@ -1028,12 +1021,7 @@ def test_mmt_segment_fills_one_row_per_slice(tmp_path):
          "tags": ["约定", "猫"], "significance": 0.8},
         {"text": "老师说他也总忘带伞", "title": "老师说他也总忘带伞",
          "tags": ["口癖"], "significance": 0.5}]}
-    # Round B 的决策必须**逐条覆盖**本轮 episode（引擎结构检查）——
-    # 建了两条就得给两条决策, 否则 B 被整包拒 + 反馈重试 → 假 LLM 响应耗尽。
-    b = _b_ok()
-    b["decisions"].append({"episode": "m0004", "decision": "add",
-                           "kind": "belief", "subject": "sensei",
-                           "text": "老师也总忘带伞", "example": "「我也总忘带伞」"})
+    b = _b_ok()          # L1: 两条经历**都不接**（"没话说就不写"）
     llm = FakeLLM(two, b)
     # ⚠️ **两条内容事件** —— 桩按 R1 的条数切两段, 而"逐字相同的区间"会被契约层
     # 当重复丢掉 ⇒ 一个事件头撑不起两条切片（那是桩的边界, 不是产品行为）。
@@ -1139,12 +1127,7 @@ def test_two_chapters_in_one_window_each_get_one(tmp_path):
     two = {"episodes": [
         {"text": "章A 片段", "title": "章A 的记忆", "tags": ["a"], "span": [5, 5]},
         {"text": "章B 片段", "title": "章B 的记忆", "tags": ["b"], "span": [12, 12]}]}
-    b = {"decisions": [
-        {"episode": "m0003", "decision": "add", "kind": "belief",
-         "subject": "章A 的模式", "text": "章A 的模式", "example": "「A」"},
-        {"episode": "m0004", "decision": "add", "kind": "belief",
-         "subject": "章B 的模式", "text": "章B 的模式", "example": "「B」"}],
-        "affection_exp_delta": 0}
+    b = {"relations": []}
     llm = FakeLLM(two, b,
                   # R0: **每章各一件** —— 章A 的 state=open 那条胜出
                   split={"segments": [

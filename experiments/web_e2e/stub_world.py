@@ -118,8 +118,8 @@ class StubLLM:
             return {"image": ""}
         if task == T.DIGEST_RECORD:            # ⭐ M1: 好感归 R1
             return {"episodes": [], "affection_exp_delta": 0}
-        if task in (T.DIGEST_UNDERSTAND, T.DIGEST):
-            return {"decisions": []}
+        if task in (T.DIGEST_RELATE, T.DIGEST):
+            return {"relations": []}           # L1（判关系）: 空包 = 没看出关系
         return None
 
     # -- 契约（引擎只要求这两个方法）-----------------------------------------

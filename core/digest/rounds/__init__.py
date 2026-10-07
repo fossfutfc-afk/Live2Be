@@ -7,7 +7,7 @@
     rounds/__init__.py  ← 本文件: **只有表**（+ Cursor / 预算 / 回滚清单）
     rounds/base.py      Ctx（段级上下文）+ RoundOut（一轮跑完的交代）
     rounds/record.py    ① R1 记        rounds/akin.py       补边（0 LLM）
-    rounds/understand.py ③ R2 接       rounds/attribute.py  ④ R3 挂
+    rounds/relate.py     ③ L1 接       rounds/attribute.py  ④ R3 挂
     rounds/group.py      ⑤ L2-a 分群
     ⏸ ② R4 收口（`rounds/close.py`）**2026-10-05（L8）删** —— 账目归 R0 的表。
 
@@ -94,7 +94,7 @@ CONTRACT_FIELDS: tuple[str, ...] = ("contract_warnings", "contract_drops")
 #: ⚠️ **为什么必须有它**（2026-09-29 刀 1）: 从前全段共享一个 300s 预算, 而
 #: `llm_call` 只在**每次尝试前**看表 ⇒ 前几轮一慢, **后面几轮集体被"饿死"**
 #: （报错还只说"撞上时间预算", 看不出是哪一轮）。5 次 high 档长考本来就贴着 300s。
-#: 标定入口 = 真机日志 `llm chat task=digest.understand ms=…`（已存在, 按 `task=` 分轮看）。
+#: 标定入口 = 真机日志 `llm chat task=digest.relate ms=…`（已存在, 按 `task=` 分轮看）。
 DIGEST_ROUND_BUDGET_SECONDS = 120.0
 
 #: ⭐ **整段硬顶（秒）** —— 一轮轮下来总共不许超过它。
@@ -129,12 +129,12 @@ class RoundSpec:
     """
 
     key: str
-    """表内主键 —— 契约相位名（`record` / `akin` / `understand` /
+    """表内主键 —— 契约相位名（`record` / `akin` / `relate` /
     `attribute` / `group`）。见类 docstring: 另外四个标识都从它来。"""
 
     step: str
     """人读的步号（与 `core/digest/__init__.py` 的步序表同一份写法）。
-    ⏸ 旧文档与旧注释里的 `R1`/`R2`/`R3`/`R4` 按这里对: **R1=记 · R2=接 · R3=挂**
+    ⏸ 旧文档与旧注释里的 `R1`/`R2`/`R3`/`R4` 按这里对: **R1=记 · R2=接（`relate`）· R3=挂**
     （`R4=收口` 2026-10-05 删）。"""
 
     parse: Callable[..., Any] | None
@@ -171,7 +171,7 @@ class RoundSpec:
     """True = 这一步是**对着切片干活**的（没有切片就没活干）。
 
     ⭐ 判据来自 R0 那条"空骨架 ⇒ 收工"（2026-09-29, N4d）: 切分员说"这一段没有
-    值得记的"时, 建节点 / 连边 / 归属 / 分群**全部空转**（`understand` 还会被契约
+    值得记的"时, 建节点 / 连边 / 归属 / 分群**全部空转**（`relate` 还会被契约
     判形状错）⇒ 一律不发。
     ⏸ **从前唯一写 False 的是 `close`**（收口吃备忘录而不是切片）—— 2026-10-05（L8）
     随轮一起删 ⇒ **今天五轮全是 True**（这一格留着, 是因为"有一轮不对着切片干活"
@@ -259,17 +259,15 @@ ROUNDS: tuple[RoundSpec, ...] = (
         llm=False,
     ),
     RoundSpec(
-        key="understand",
+        key="relate",
         step="③ 接",
-        parse=digest_registry.parse_round_b,
+        parse=digest_registry.parse_relations,
         material=("本次新经历（含引擎候选标注）", "本段时间线",
                   "现有认知", "角色人设（锚点）"),
         writes=(
-            ("belief", ("text", "subject", "tags", "significance", "growth",
-                        "event_seq", "ts")),
-            # `supports` 两种形状都在这条路上: `episode → 认知`（每条决策行都补）
-            # 与 `认知 → 认知`（`links` 那几行）; 另两条边只由 `links` 写。
-            ("edge", ("supports", "contradicts", "evolved_from")),
+            # ⭐ **只落边**（`apply_relations`）—— 一个节点都不建、一个字正文都不写
+            # （造看法 / 写正文是 L2 的活; 边归属表见 `DESIGN_DIGEST_TWO_PASSES` §3）。
+            ("edge", ("supports", "akin", "contradicts", "about")),
         ),
         result_fields=(*CONTRACT_FIELDS,),
         skip="",
