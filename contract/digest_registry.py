@@ -672,8 +672,14 @@ COGNIZE_ACTIONS = (
             '                            // 写模式 / 结论, ⛔ 不复述事件）; ≤300 字 //\n'
             '        "subject": "sensei",   // 可选; 这条看法**关于谁**\n'
             '                            //（关于老师的事就写 sensei; 不是关于谁的就不写）//\n'
-            '        "significance": 0.7    // 可选 0~1; 越难忘越高（≥0.8 进"珍贵档",\n'
+            '        "significance": 0.7,   // 可选 0~1; 越难忘越高（≥0.8 进"珍贵档",\n'
             '                            // 会优先出现在她的认知列表里）; 拿不准给 0.5 //\n'
+            '        "tags": ["#entity:老师"]  // 可选 0-2 个; 这条看法**关于谁**的**地址**\n'
+            '                            //（`#entity:名字`）—— ⚠️ 与 `subject` 分工:\n'
+            '                            // `subject` = 一句话说清这条在讲什么（给人看）,\n'
+            '                            // `#entity:` = 指到那个人/地方（**进图**: 引擎据此\n'
+            '                            // 连一条边, 以后"他对她的看法"查得出来）;\n'
+            '                            // 写你认识的叫法都行（老师 / sensei）, 引擎会归一 //\n'
             '      },\n'
             '      "supports": ["m0007", "m0011"],  // 这条看法**被哪几条经历**支撑 ——\n'
             '                            // 点名到具体经历（一条也行, 写字符串）;\n'
@@ -686,6 +692,7 @@ COGNIZE_ACTIONS = (
             '    }'
         ),
         example=('{"belief": {"text": "老师会把我说的话记在心上", "subject": "sensei",'
+                 ' "tags": ["#entity:老师"],'
                  ' "significance": 0.7}, "supports": ["m0007", "m0011"]}'),
     ),
     DigestAction(
@@ -1954,6 +1961,10 @@ def _clean_belief(val: dict, i: int, drops: list[str],
     subject = str(val.get("subject", "") or "").strip()
     if subject:
         item["subject"] = subject
+    tags, ent_tags = _split_tags(val.get("tags"), warnings, drops,
+                                 where=f"cognitions[{i}].belief")
+    if tags or ent_tags:
+        item["tags"] = tags + ent_tags
     sig = val.get("significance")
     if sig is not None and not isinstance(sig, bool):
         try:
@@ -2070,7 +2081,8 @@ def _clean_episode(e: Any, i: int, seq_set: set[int] | None = None,
                       "subject": PLAYER_SUBJECT}
         # 画像条目无 episode 载体——原话同样走**记录行号**（玩家那句 = `[N.0]`）
         _fill_verbatim(item, e, i, warnings, seq_set, drops=drops)
-        tags, ent_tags = _split_tags(e.get("tags"), i, warnings, drops)
+        tags, ent_tags = _split_tags(e.get("tags"), warnings, drops,
+                                     where=f"episodes[{i}]")
         if tags or ent_tags:
             item["tags"] = tags + ent_tags
         sig = e.get("significance")
@@ -2084,8 +2096,8 @@ def _clean_episode(e: Any, i: int, seq_set: set[int] | None = None,
                   f"「玩家画像」才写 'profile'）"], []
 
 
-def _split_tags(raw: Any, i: int, warnings: list[str], drops: list[str],
-                ) -> tuple[list[str], list[str]]:
+def _split_tags(raw: Any, warnings: list[str], drops: list[str], *,
+                where: str) -> tuple[list[str], list[str]]:
     """`tags` → （**检索词** ≤`MAX_TAGS`, **`#entity:` 项** ≤`ENTITY_TAGS_MAX`）。
 
     ⭐ **分两栏**（E1, 2026-10-08）: `#` 开头的是**结构标记, 不是检索词** ——
@@ -2105,17 +2117,17 @@ def _split_tags(raw: Any, i: int, warnings: list[str], drops: list[str],
         if s.startswith(ENTITY_TAG_PREFIX):
             name = s[len(ENTITY_TAG_PREFIX):].strip()
             if not name:
-                drops.append(f"episodes[{i}].tags 里那个 `#entity:` 没写名字 —— 丢了")
+                drops.append(f"{where}.tags 里那个 `#entity:` 没写名字 —— 丢了")
                 continue
             marks.append(f"{ENTITY_TAG_PREFIX}{name}")
             continue
         words.append(s)
     if len(words) > MAX_TAGS:
-        warnings.append(f"episodes[{i}].tags 超过 {MAX_TAGS} 个检索词（截到前 {MAX_TAGS} 个;"
+        warnings.append(f"{where}.tags 超过 {MAX_TAGS} 个检索词（截到前 {MAX_TAGS} 个;"
                         f" `#entity:` 不算在内）")
         words = words[:MAX_TAGS]
     if len(marks) > ENTITY_TAGS_MAX:
-        warnings.append(f"episodes[{i}].tags 超过 {ENTITY_TAGS_MAX} 个 `#entity:`"
+        warnings.append(f"{where}.tags 超过 {ENTITY_TAGS_MAX} 个 `#entity:`"
                         f"（截到前 {ENTITY_TAGS_MAX} 个）")
         marks = marks[:ENTITY_TAGS_MAX]
     return words, marks
@@ -2338,7 +2350,8 @@ def _clean_episode_item(e: dict, i: int, errors: list[str], warnings: list[str],
                             f"（引擎忽略它）")
     # verbatim: 记录行号（唯一通道 —— 文本通道 2026-09-29 退役）
     _fill_verbatim(item, e, i, warnings, seq_set, drops=drops)
-    tags, ent_tags = _split_tags(e.get("tags"), i, warnings, drops)
+    tags, ent_tags = _split_tags(e.get("tags"), warnings, drops,
+                                 where=f"episodes[{i}]")
     if not tags:
         warnings.append(f"episodes[{i}] 缺 tags（检索导向 1-4 个）")
     if tags or ent_tags:

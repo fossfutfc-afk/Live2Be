@@ -50,7 +50,7 @@ def test_entity_tag_does_not_eat_the_search_word_quota():
     warnings: list[str] = []
     drops: list[str] = []
     words, marks = _split_tags(["公园", "流浪猫", "热茶", "长椅", "#entity:老师"],
-                               0, warnings, drops)
+                               warnings, drops, where="episodes[0]")
     assert words == ["公园", "流浪猫", "热茶", "长椅"], words      # 4 个检索词**全收**
     assert marks == [f"{ENTITY_TAG_PREFIX}老师"], marks
     assert warnings == [] and drops == [], (warnings, drops)
@@ -61,7 +61,7 @@ def test_over_quota_is_trimmed_and_said_out_loud():
     warnings: list[str] = []
     words, marks = _split_tags(["a1", "a2", "a3", "a4", "a5",
                                 "#entity:x1", "#entity:x2", "#entity:x3"],
-                               3, warnings, [])
+                               warnings, [], where="episodes[3]")
     assert words == ["a1", "a2", "a3", "a4"], words               # MAX_TAGS = 4
     assert len(marks) == ENTITY_TAGS_MAX, marks
     assert any("检索词" in w for w in warnings), warnings
@@ -72,7 +72,7 @@ def test_empty_entity_tag_is_dropped_not_kept():
     """`#entity:` 后面没名字 ⇒ **丢那一项** + 记账（没有名字就没有对象可指）。"""
     drops: list[str] = []
     words, marks = _split_tags(["公园", ENTITY_TAG_PREFIX, f"{ENTITY_TAG_PREFIX}   "],
-                               7, [], drops)
+                               [], drops, where="episodes[7]")
     assert words == ["公园"] and marks == [], (words, marks)
     assert len(drops) == 2, drops
 
@@ -178,3 +178,81 @@ def test_normalize_dedupes_the_same_person_written_two_ways(tmp_path):
         st, ["#entity:sensei", "公园", "#entity:老师"])
     assert tags == [f"{ENTITY_TAG_PREFIX}老师", "公园"], tags
     assert targets == ["x0001"] and strangers == [], (targets, strangers)
+
+
+# ---------------------------------------------------------------------------
+# E2（2026-10-08）—— **看法也能带地址**: belief 的 `#entity:` ⇒ 归一 + 落边
+# ---------------------------------------------------------------------------
+
+def test_belief_can_carry_an_address_and_lands_an_edge(tmp_path):
+    """⭐ E2: 看法带 `#entity:sensei` ⇒ 归一成主名 + 落 `about(belief → 对象)`。
+
+    真机依据: belief 的 `subject` **实际用法已漂成"主题句"**（4/4 条解析不到 entity）
+    ⇒ 它当不了地址; 这一格是看法的"关于谁"。
+    """
+    from core.brain.revise import apply_cognitions
+
+    st = _store(tmp_path)
+    res = apply_cognitions(st, [{"text": "老师会把我说的话记在心上",
+                                 "subject": "老师对我的接纳",
+                                 "tags": ["#entity:sensei"], "significance": 0.8}],
+                           ts="2026-10-08T21:00:00+08:00", event_seq=[3])
+    nid = res.created[0]
+    node = st.get(nid)
+    assert node.kind == "belief"
+    assert node.tags == [f"{ENTITY_TAG_PREFIX}老师"], node.tags     # 归一成主名
+    assert node.subject == "老师对我的接纳", "`subject`（主题句）原样留着, 两者分工"
+    assert st.graph().targets(nid, "about") == ["x0001"], "看法 → 对象的边没落上"
+    assert res.strangers == [], res.strangers
+    print(f"    {nid} → about → x0001（`subject` 与地址各归各位）")
+
+
+def test_belief_stranger_address_stays_and_is_reported(tmp_path):
+    """看法指向还没建的人 ⇒ tag **原样留着** + 报上来 + ⛔ 不落边（不然会悬空）。"""
+    from core.brain.revise import apply_cognitions
+
+    st = _store(tmp_path)
+    res = apply_cognitions(st, [{"text": "小玉好像不太喜欢说话",
+                                 "tags": ["#entity:小玉"]}],
+                           ts="2026-10-08T21:00:00+08:00", event_seq=[3])
+    node = st.get(res.created[0])
+    assert f"{ENTITY_TAG_PREFIX}小玉" in node.tags, node.tags
+    assert st.graph().targets(node.id, "about") == []
+    assert res.strangers == ["小玉"], res.strangers
+    print(f"    陌生人: tag 留着 · 0 条边 · 报账 {res.strangers}")
+
+
+def test_belief_contract_speaks_the_address_slot():
+    """契约正文与示例都要有它, 并写清与 `subject` 的**分工**（不然她会写混）。"""
+    from contract.digest_registry import PHASE_COGNIZE
+
+    text = digest_registry.build_schema(PHASE_COGNIZE)
+    assert ENTITY_TAG_PREFIX in text, "belief 的契约里没有 `#entity:`"
+    assert f'"{ENTITY_TAG_PREFIX}老师"' in text, "示例里没有（她只照抄示例）"
+    assert "subject" in text and "进图" in text, "没写清与 `subject` 的分工"
+
+
+def test_parse_cognitions_carries_belief_tags():
+    """⭐ 断链守门: **契约层**要能把 belief 的 `tags` 带到行里 ——
+
+    上面那两条直接给 `apply_cognitions` 喂行（绕过 parse）⇒ "parse 忘了收 tags"
+    这个断链它们抓不住（写侧永远收不到东西, 而图上什么都不缺的样子）。
+    """
+    items, vr = digest_registry.parse_cognitions(
+        {"cognitions": [{"belief": {"text": "老师会记住我说的话",
+                                    "tags": ["#entity:sensei"]},
+                         "supports": ["m0001"]}]},
+        evidence_ids={"m0001"}, cognition_ids=set(), group_ids=set(), kind_of={})
+    assert not vr.errors, vr.errors
+    assert len(items) == 1, (items, vr.drops)
+    assert items[0].get("tags") == [f"{ENTITY_TAG_PREFIX}sensei"], items[0]
+
+
+def test_parse_cognitions_drops_a_nameless_entity_tag():
+    """空的 `#entity:`（没名字）在**看法**那条路上也要丢项 + 记账（文案不能自称 episodes）。"""
+    items, vr = digest_registry.parse_cognitions(
+        {"cognitions": [{"belief": {"text": "……", "tags": ["#entity:"]},
+                         "supports": ["m0001"]}]},
+        evidence_ids={"m0001"}, cognition_ids=set(), group_ids=set(), kind_of={})
+    assert items[0].get("tags") is None, items[0]
+    assert any("cognitions[0].belief" in d for d in vr.drops), vr.drops
