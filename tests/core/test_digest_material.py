@@ -138,13 +138,13 @@ def test_l2_linked_episodes_only_takes_the_connected_ones(tmp_path):
     st.add_edge("akin", a, old)
     st.add_edge("akin", b, old)
 
-    _grp, linked = _l2_material(_Ctx(st, [a, b, lonely]))
+    _grp, linked, _ev = _l2_material(_Ctx(st, [a, b, lonely]))
     assert f"〔{a}｜" in linked and f"〔{b}｜" in linked
     assert lonely not in linked, "孤立经历不进 L2"
     assert "一个人发呆" not in linked, "正文也不许漏进来"
     assert "轴 苔藓" in linked, "行头带轴（与 L1 同一印法）"
 
-    _g2, only_lonely = _l2_material(_Ctx(st, [lonely]))
+    _g2, only_lonely, _ev2 = _l2_material(_Ctx(st, [lonely]))
     assert "（这一段没有被连过的经历" in only_lonely, only_lonely
 
 
@@ -162,7 +162,7 @@ def test_l2_picks_the_group_with_the_most_new_members(tmp_path):
     st.add_edge("member_of", e3, g2)
 
     ctx = _Ctx(st, [e1, e2, e3])
-    grp, _linked = _l2_material(ctx)                     # 缺省 = DIGEST_L2_GROUPS = 1
+    grp, _linked, _ev = _l2_material(ctx)                # 缺省 = DIGEST_L2_GROUPS = 1
     assert f"群 {g2}《苔藓》" in grp and f"群 {g1}《" not in grp, grp
     assert "这一类现在有 2 条经历 · 本段新归入 2 条" in grp, grp
     assert len(_groups_for_l2(ctx, cap=2)) == 2, "旋钮给 2 ⇒ 两组都出"
@@ -180,14 +180,15 @@ def test_l2_group_block_caps_members_and_says_how_many_left(tmp_path):
     for m in members:
         st.add_edge("member_of", m, gid)
 
-    block = _group_block(st, gid, new_ids=[], linked_ids=set(), cap=DIGEST_L2_MEMBERS)
+    block, printed = _group_block(st, gid, new_ids=[], linked_ids=set(),
+                                  cap=DIGEST_L2_MEMBERS)
     heads = [ln for ln in block.splitlines() if ln.strip().startswith("〔")]
     assert len(heads) == DIGEST_L2_MEMBERS, block
     assert f"已有成员（按难忘排, 最多印 {DIGEST_L2_MEMBERS} 条; 还有 2 条没印）:" in block, block
     # 难忘降序 → 同分时**时间新的在前**（第 6 件在最上面）
     assert "第5件" in heads[0], heads
     # 不超上限 ⇒ 不印"还有 N 条"
-    small = _group_block(st, gid, new_ids=[], linked_ids=set(), cap=6)
+    small, _p2 = _group_block(st, gid, new_ids=[], linked_ids=set(), cap=6)
     assert "没印" not in small, small
 
 
@@ -207,11 +208,13 @@ def test_l2_body_text_appears_exactly_once(tmp_path):
     st.add_edge("member_of", only_group, gid)
     st.add_edge("akin", linked_ep, old)
 
-    grp, linked = _l2_material(_Ctx(st, [linked_ep, only_group]))
+    grp, linked, evidence = _l2_material(_Ctx(st, [linked_ep, only_group]))
     assert f"〔{linked_ep}｜《连过的》〕（正文见下）" in grp, grp
     assert "既归了类又被连过的那条" not in grp, "正文只在被连块里印"
     assert "既归了类又被连过的那条" in linked
     assert "只归了类没被连过的那条" in grp, "没在别处印过的照印全文（不许丢）"
+    # ⭐ P10: 第三个返回值 = **料里印出来过的全部经历**（她被允许引用的就这一批）
+    assert evidence == [linked_ep, only_group], evidence
     all_text = grp + linked
     assert all_text.count("既归了类又被连过的那条") == 1
 
@@ -231,7 +234,7 @@ def test_l2_about_line_follows_the_edge_and_prints_the_object(tmp_path):
     st.add_edge("about", with_about, "x0001")
     st.add_edge("akin", without, with_about)              # 有边（但**没有** about）
 
-    _grp, linked = _l2_material(_Ctx(st, [with_about, without]))
+    _grp, linked, _ev3 = _l2_material(_Ctx(st, [with_about, without]))
     assert "   ↳ 关于: x0001 老师" in linked, linked       # 别名由 entity_label 决定
     assert "↳ 印证" not in linked and "↳ 同类" not in linked, linked
     # 没有 about 的那条**不该**有这一行: 全文里只出现一次「↳ 关于」

@@ -41,6 +41,11 @@ class FakeLLM:
                         self.responses[0] if self.responses else [], messages))
         if task == T.DIGEST_ATTRIBUTE:
             return {"attributions": []}
+        if task == T.DIGEST_COGNIZE:
+            # ⭐ L2-b（P10 接线）: 与 attribute / split 同一口径 —— **不进位置队列**,
+            # 按 task 短路成"这一段没什么可写的"。位置队列里仍然只排 R0/R1/L1 三轮
+            # （本文件的用例全都不关心"造看法 / 写沉淀"）。
+            return {"cognitions": []}
         self.calls.append(messages)
         if self.responses:
             return self.responses.pop(0)
@@ -238,7 +243,10 @@ def test_full_pipeline(tmp_path):
     events = _events(_mmt(3, "老师", "下次再去吃甜品吧"))
     res = digest_segment(st, llm, events)
     assert res.ok, res.errors
-    assert res.llm_calls == 3                          # R0 + A + L1（R3 2026-10-05 暂停）
+    # ⭐ P10: **+ L2（`cognize`）** —— L1 落了边 ⇒ 它这一趟有立足点 ⇒ 会发一次调用
+    # （本文件的 `FakeLLM` 把它短路成空包 ⇒ 产出一律为空）。
+    # R3 仍暂停（2026-10-05）, 所以是 R0 + R1 + L1 + L2 = 4 次。
+    assert res.llm_calls == 4
     # R1: episode 建好, 引擎字段归属
     assert res.created == ["m0003"]
     ep = st.get("m0003")

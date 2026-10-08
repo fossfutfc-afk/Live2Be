@@ -56,6 +56,11 @@ DIGEST_ATTRIBUTE = "digest.attribute"
 #: ⭐ N7（2026-09-29）**L2-a 分群** —— 每段的**最后一步**, 与 R1–R3 不同层:
 #: 吃"她连过的块"（`akin` 连通块）, 产**群节点 + `member_of` 边**（引擎切块 + 只起名）
 DIGEST_GROUP = "digest.group"
+#: ⭐⭐ **L2「造看法 / 写沉淀」那一趟**（`rounds/cognize.py`, 2026-10-08）—— 第二趟:
+#: 造新的 `belief`（出生自带 `supports` / `evolved_from` / `contradicts`）+
+#: 给**已有的类**覆写沉淀（`experience.text`）。
+#: ⚠️ 它排在 `group` **之后**（沉淀要写给本段刚归好类的那些类）。
+DIGEST_COGNIZE = "digest.cognize"
 # ⚠️ ~~`DIGEST_CLOSE`~~（R4 收口）**2026-10-05（L8）删** —— 那一轮读的是 120 字转述,
 # 而 R0 手里就是原文; 账目如今由 R0 判、由 R1 落。
 # ⚠️ ~~`DIGEST_PANORAMA`~~（全景轮）**2026-09-29（N4a）已退役** —— 它没有输出了
@@ -69,7 +74,7 @@ BOND = "bond"
 ALL: frozenset[str] = frozenset({
     EMOTION, PLACE, PLACE_BOARD, PLACE_VARIANT,
     DIGEST, DIGEST_SPLIT, DIGEST_RECORD, DIGEST_RELATE,
-    DIGEST_ATTRIBUTE, DIGEST_GROUP, MMT, BOND,
+    DIGEST_ATTRIBUTE, DIGEST_GROUP, DIGEST_COGNIZE, MMT, BOND,
 })
 
 #: 主链（输出是"创作"本身, 桩按脚本队列回）
@@ -92,6 +97,7 @@ PROFILE_OF: dict[str, str] = {
     DIGEST_RELATE: "digest",
     DIGEST_ATTRIBUTE: "digest",
     DIGEST_GROUP: "digest",
+    DIGEST_COGNIZE: "digest",
     MMT: "mmt",
     BOND: "bond",
 }

@@ -528,13 +528,18 @@ _L2_LINK_RELS = frozenset(a.name for a in RELATION_ACTIONS)
 DIGEST_L2_MEMBERS = 4
 
 
-def _l2_material(ctx) -> tuple[str, str]:
-    """L2 的两块料 → `(「本段归类的群」, 「被连过的经历」)`。
+def _l2_material(ctx) -> tuple[str, str, list[str]]:
+    """L2 的三样料 → `(「本段归类的群」, 「被连过的经历」, **她能引用的经历 id**)`。
 
     ⚠️ **两块互相知道**（所以必须同一个函数产出）: 已经在【被连过的经历】里印过**全文**的
     经历, 在群块的「本段新归入」里**只印把手**（`〔m0022｜《被感谢的人》〕（正文见下）`）——
     免得同一段正文在一份料里出现两遍。⛔ 但**不许丢**: 没在别处印过的照印全文
     （经历可能"刚归了类却没被连过"）。
+
+    ⭐ **第三个返回值（P10 补）** = `parse` 的 `evidence_ids`: **料里印出来过的全部经历**
+    =【被连过的经历】∪【群块印过的成员】—— "右边能引用的 = 她看到的全部"
+    （L1 的教训: 少一类就把合法行判成**编造 id** ⇒ 整包拒 ⇒ 白跑一次重试）。
+    ⛔ **不另算一份**（另算必然与渲染漂开）。
 
     两块各自的空 ⇒ 印一句**为什么空**（P6 的口径: 空串会被 `_join_sections` 连抬头
     一起吞掉, 她既看不见这一格、也不知道那个结论）。
@@ -550,15 +555,16 @@ def _l2_material(ctx) -> tuple[str, str]:
             rows.append(about)
     linked = "\n".join(rows) or (
         "（这一段没有被连过的经历 —— 归纳没有立足点, 那就什么都别造）")
-    groups = _groups_for_l2(ctx)
-    if groups:
-        grp = "\n\n".join(
-            _group_block(ctx.store, gid, new_ids=new, linked_ids=set(linked_ids),
-                         now=ctx.now_ts)
-            for gid, new in groups)
-    else:
-        grp = "（这一段没有新归类的群 —— 沉淀那半这趟不用写, 只造看法）"
-    return grp, linked
+    blocks: list[str] = []
+    shown: list[str] = []
+    for gid, new in _groups_for_l2(ctx):
+        block, ids = _group_block(ctx.store, gid, new_ids=new,
+                                  linked_ids=set(linked_ids), now=ctx.now_ts)
+        blocks.append(block)
+        shown += ids
+    grp = "\n\n".join(blocks) or (
+        "（这一段没有新归类的群 —— 沉淀那半这趟不用写, 只造看法）")
+    return grp, linked, list(dict.fromkeys([*linked_ids, *shown]))    # 去重保序
 
 
 def _linked_episode_ids(ctx) -> list[str]:
@@ -637,8 +643,12 @@ def _members_by_precious(store, gid: str) -> list[str]:
 
 
 def _group_block(store, gid: str, *, new_ids: list[str], linked_ids: set[str],
-                 cap: int = DIGEST_L2_MEMBERS, now="", body: int = 120) -> str:
-    """【本段归类的群】的**一块**（类头 + 现状沉淀 + 本段新归入 + 已有成员）。
+                 cap: int = DIGEST_L2_MEMBERS, now="", body: int = 120
+                 ) -> tuple[str, list[str]]:
+    """【本段归类的群】的**一块** → `(文本, **印出来的成员 id**)`。
+
+    ⭐ 第二个返回值是 `evidence_ids` 的一半（"她看到的 == 她能引用的"）——
+    从渲染里带出来, ⛔ 不另算一份（另算必然与这里的截断/顺序漂开）。
 
     ⚠️ 「已有成员」按**难忘降序**（同分时间新的在前）—— 沉淀要概括"这一类事的共同点",
     难忘的更有代表性; 超 `cap` 只印前几条并**明说还有几条没印**（不静默截断）。
@@ -646,10 +656,11 @@ def _group_block(store, gid: str, *, new_ids: list[str], linked_ids: set[str],
     """
     node = store.get(str(gid))
     if node is None:
-        return ""
+        return "", []
     members = _members_by_precious(store, str(gid))
     new_set = {str(x) for x in new_ids}
     others = [m for m in members if m not in new_set]
+    printed: list[str] = []
     out = [f"群 {gid}《{node.title}》（这一类现在有 {len(members)} 条经历 · "
            f"本段新归入 {len(new_ids)} 条）"]
     if node.text:
@@ -662,6 +673,7 @@ def _group_block(store, gid: str, *, new_ids: list[str], linked_ids: set[str],
         mn = store.get(str(m))
         if mn is None:
             continue
+        printed.append(str(m))
         if str(m) in linked_ids:
             # 正文在【被连过的经历】里印过全文（一份料里同一段正文只出现一次）
             out.append(f"    〔{m}｜《{mn.title}》〕（正文见下）")
@@ -675,9 +687,10 @@ def _group_block(store, gid: str, *, new_ids: list[str], linked_ids: set[str],
         for m in shown:
             mn = store.get(str(m))
             if mn is not None:
+                printed.append(str(m))
                 out.append("    " + _episode_line(store, m, now=now, body=body,
                                                   extra=_axes_field(mn.topics)))
-    return "\n".join(out)
+    return "\n".join(out), printed
 
 
 # ---------------------------------------------------------------------------

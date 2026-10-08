@@ -85,6 +85,8 @@ class OneRound:
             return {"relations": []}          # L1 只判关系（判断本段有没有缺口不靠它）
         if task == T.DIGEST_ATTRIBUTE:
             return {"attributions": []}
+        if task == T.DIGEST_COGNIZE:      # L2-b（P10）: 不测它 ⇒ 空包
+            return {"cognitions": []}
         raise RuntimeError(f"意外调用 task={task!r}")
 
 
