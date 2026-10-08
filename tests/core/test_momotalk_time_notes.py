@@ -106,9 +106,10 @@ def test_no_store_skips_time_notes(tmp_path):
         print(f"      engine._store = {eng._store!r}")
     assert "【现在是】" not in joined
     assert "【手机上的日期】" not in joined
-    # 但 P16 与 task 卡照常（不因缺 store 而整轮退化）
-    assert "羁绊进度事实" in joined and "本回合任务" in joined
-    print("    无 store: 时间注记跳过（P16/卡不受影响）")
+    # P16 羁绊进度注记**已封印**（2026-10-08）⇒ 现在断言它**不在**; task 卡照常
+    assert "【剧情时机】" not in joined and "羁绊进度事实" not in joined
+    assert "本回合任务" in joined
+    print("    无 store: 时间注记跳过（P16 已封印 / 卡不受影响）")
 
 
 def test_vn_brain_segment_carries_time_but_no_phone(tmp_path):

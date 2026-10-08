@@ -208,18 +208,21 @@ def _t_trigger_suggestion():
         assert result.bond_story, "v2: 引擎不拦节奏——首条消息触发也应放行"
         print("    trigger(0轮不拦): 首条消息 trigger → bond_story=True（无硬闸）")
 
-    # 注记分级: 沉淀期（gap < 6）报事实; 达标（gap ≥ 6）主动建议
+    # ⛔ P16 注记**已封印**（2026-10-08 用户裁决"封印一下/删除"）——
+    #    从前这里验"注记分级"（gap<6 报沉淀事实 / gap≥6 主动建议发起）;
+    #    现在验**反向**: 两档都不许再出现在注入面里（引擎对触发时机彻底不表态）。
+    #    封印的正式守门在 `tests/core/test_mmt_trigger_note_sealed.py`。
     with tempfile.TemporaryDirectory() as d:
         progress = BondProgress(Path(d) / "bp.json")
         engine = _engine(trig, chat, progress=progress)
-        engine.agent_turn("闲聊轮")          # 本轮注记 gap=0 → 沉淀文案
+        engine.agent_turn("闲聊轮")
         s0 = "\n".join(m["content"] for m in engine.llm.snapshots[0])
-        assert "沉淀" in s0 and "羁绊进度事实" in s0, s0
-        engine._bond_gap = 6                # 模拟持久计数已到建议线
-        engine.agent_turn("继续聊")          # 本轮注记 → 主动建议
+        engine._bond_gap = 6                # 模拟持久计数已到**旧**建议线
+        engine.agent_turn("继续聊")
         s1 = "\n".join(m["content"] for m in engine.llm.snapshots[1])
-        assert "【剧情时机】" in s1 and "主动发起羁绊剧情" in s1, s1
-        print("    trigger注记分级: gap<6 报沉淀事实 / gap≥6 主动建议发起")
+        for bad in ("【剧情时机】", "羁绊进度事实", "主动发起羁绊剧情", "沉淀"):
+            assert bad not in s0 and bad not in s1, (bad, s0[-200:], s1[-200:])
+        print("    P16 已封印: gap=0 与 gap≥6 都不再有轮次驱动的触发表态 ✓")
 
 
 # ----------------------------------------------------------------------------

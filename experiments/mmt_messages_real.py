@@ -1,12 +1,19 @@
 # -*- coding: utf-8 -*-
 """真实模型实机测试 — 消息流协议 + 触发节奏 v2（引擎建议不拦截）。
 
+⛔ **部分作废（2026-10-08）**: 下面的第 5 条（"时机注记分级"）**已失效** ——
+P16「羁绊进度注记」封印了（用户裁决"封印一下/删除"）, 引擎不再按轮次对触发时机表态
+（见 `core/mmt/engine.py::_bond_progress_note` 的 docstring 与
+`tests/core/test_mmt_trigger_note_sealed.py`）。本脚本第 5 条已改为**反向观察**
+（两档都不该再出现）; 其余协议观察照旧有效。
+
 验证对象（2026-09-02 最新协议）:
   1. 模型每轮是否输出合法消息流 {"messages": [{text|action}…]}
   2. 纯说话轮 / 自然节奏下 text 单元形态
   3. 话→图→话 交错（若模型自发发图——send_media 占位回灌也记录）
   4. trigger 新格式（text 邀约话 + 唯一 action 单元）——不设硬闸, 观察哪轮自然触发
-  5. 时机注记: 第 1 轮应见「沉淀期」文案; 第 7 轮起应见「【剧情时机】」建议
+  5. ~~时机注记: 第 1 轮应见「沉淀期」文案; 第 7 轮起应见「【剧情时机】」建议~~
+     ⛔ 已封印 ⇒ 现在观察的是"**任何一轮都不该**再出现那两种文案"
   6. json 解析/重试/反馈是否干净（无结构错误循环）
 
 用法: python experiments/mmt_messages_real.py   （约 7-9 次 LLM 调用）
@@ -54,9 +61,10 @@ def main() -> None:
 
     for i, u in enumerate(PLAYER_TURNS, 1):
         note = engine._bond_progress_note()
-        stats["notes"][i] = "建议" if "【剧情时机】" in note else "沉淀"
+        # ⛔ P16 已封印（2026-10-08）: 恒空串 —— 这里从"分级"改成"必须为空"
+        stats["notes"][i] = "封印空串" if note == "" else f"❌非空: {note[:20]}"
         print(f"\n=== [轮 {i}] 玩家: {u}")
-        print(f"    注记: {note[:40]}…")
+        print(f"    P16 注记: {note!r}（已封印, 恒空串）")
 
         t0 = time.time()
         try:

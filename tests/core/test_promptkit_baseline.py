@@ -214,10 +214,12 @@ def test_mmt_round_tail_baseline(monkeypatch):
     assert m1[0]["content"] == box                    # 前缀 = 盒A 逐字节
     assert all(x["role"] == "system" for x in m1[:-1]), m1
     assert m1[-1] == {"role": "user", "content": "你好呀，在吗"}
-    i16 = next(i for i, x in enumerate(m1) if x["content"].startswith("羁绊进度事实"))
     icard = next(i for i, x in enumerate(m1)
                  if x["content"].startswith("本回合任务：以伊草 遥香身份"))
-    assert i16 < icard, (i16, icard)                  # P16 在卡之前
+    # ⛔ P16「羁绊进度注记」已封印（2026-10-08）⇒ 排序断言换成"**不许**再出现"。
+    #    （原断言的锚点就是那条注记的抬头"羁绊进度事实", 封印后该锚点不存在。）
+    assert all("【剧情时机】" not in (x.get("content") or "") for x in m1), m1
+    assert icard == len(m1) - 2, (icard, len(m1))      # 卡恒在 user 前最后一位
 
     r2 = engine.agent_turn("继续")
     assert r2.ok
@@ -252,9 +254,10 @@ def test_mmt_wrapup_tail_card():
     card = _card("mmt", "wrapup", char="伊草 遥香", enabled=True)
     assert m[-1] == {"role": "user", "content": "（自动收尾）"}
     assert m[-2]["content"] == card                   # 卡恒在 user 前最后一位
-    i16 = next(i for i, x in enumerate(m) if x["content"].startswith("羁绊进度事实"))
-    inote = next(i for i, x in enumerate(m) if x["content"] == note)
-    assert i16 < inote < len(m) - 2, (i16, inote, len(m))   # 注记在卡之前
+    i16 = next((i for i, x in enumerate(m) if x["content"] == note), None)
+    assert i16 is not None and i16 < len(m) - 2, (i16, len(m))
+    # ⛔ P16 已封印（2026-10-08）: 原来的锚点"羁绊进度事实"不存在了; 改成反向断言
+    assert all("【剧情时机】" not in (x.get("content") or "") for x in m), m
     assert engine.history[-1]["role"] == "assistant"  # record_input=False → 无假 user 历史
 
 

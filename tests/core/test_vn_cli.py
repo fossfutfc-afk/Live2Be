@@ -458,19 +458,18 @@ def test_trigger_no_gate_and_suggestion_notes():
         msgs = llm2.snapshots[i]
         # 尾序（2026-09-07 promptkit §4）: 注记们 → task 卡 → user
         # ⚠️ **注记按下标取, 不要全文搜** —— 前几轮的注记已渲染进 history,
-        #    搜"羁绊进度事实"会命中**历史里那条旧的**（2026-09-13 加时间注记时踩到）。
-        #    卡恒在 user 前最后一位 → 本轮注记就是它前面那一条（P16 恒为注记首位）。
+        #    搜旧文案会命中**历史里那条旧的**（2026-09-13 加时间注记时踩到）。
         assert msgs[-2]["content"].startswith("本回合任务：")      # chat 卡
         assert msgs[-1]["role"] == "user"
-        note = msgs[-3]["content"]
-        # P16 有两种抬头: 沉淀期"羁绊进度事实" / 建议期"【剧情时机】"
-        assert note.startswith(("羁绊进度事实", "【剧情时机】")), note[:40]
-        if i == 0:
-            assert "沉淀" in note, note
-            assert "主动发起" not in note, note
-        if i == 6:
-            assert "【剧情时机】" in note and "主动发起羁绊剧情" in note, note
-    print("    trigger 注记分级: gap<6 报沉淀事实 → gap≥6 主动建议（不拦截）")
+        # ⛔ P16「羁绊进度注记」**已封印**（2026-10-08 用户裁决）—— 从前这里断言它两档
+        #    分级（沉淀期 / 【剧情时机】建议）; 现在**整轮注入面都不许**再有轮次驱动的
+        #    时机表态（触发只由规则书的契机判据 + LLM 判断决定）。
+        #    封印的守门在 `tests/core/test_mmt_trigger_note_sealed.py`; 这里只保留
+        #    "别改回来"的轻量一瞥（防止有人顺手恢复注记却发现用例早被删了）。
+        joined = "\n".join(m.get("content") or "" for m in msgs)
+        assert "【剧情时机】" not in joined and "羁绊进度事实" not in joined, \
+            "P16 注记被改回来了？（2026-10-08 已封印）"
+    print("    P16 已封印: gap≥6 也不再出现轮次驱动的触发建议（不拦截语义不变）")
 
 
 def test_bond_gap_persist_and_clear(tmp_path):
