@@ -559,12 +559,19 @@ def test_bond_busy_watchdog_resets_lost_thread(web, monkeypatch):
 
 
 def test_turn_reject_is_logged(web, caplog):
-    """推进被拒要留痕: 前端在重试, 后端不记日志等于"事故无迹可查"。"""
+    """推进被拒要留痕: 前端在重试, 后端不记日志等于"事故无迹可查"。
+
+    ⚠️ 2026-10-08（链式读前）改: `busy` 现在**只拦"要领的东西还没写好"**的推进
+    （见下一条 `test_busy_with_board_in_hand_still_advances`）⇒ 要验"被拒留痕",
+    必须把**手里的板清空**（槽位 + 待发队列）, 让这次推进真的无事可领。
+    """
     import logging
     st, sid = web
     bond.bond_start(CHARACTER, sid)
     _poll_status(sid)
     state = bond._state(CHARACTER, sid)
+    state.pregen_obj = state.pregen_scene = None             # 槽位空
+    state.vn._pending_boards = []                            # 队列空
     state.busy = True                                        # 模拟生成中
     with caplog.at_level(logging.WARNING, logger="live2be.bond"):
         r = bond.bond_turn(CHARACTER, sid, "（继续）")
@@ -573,6 +580,28 @@ def test_turn_reject_is_logged(web, caplog):
     assert any("bond_turn 被拒" in rec.getMessage()
                for rec in caplog.records), [r.getMessage() for r in caplog.records]
     print("    web: 推进被拒有 WARNING 留痕（reason + 次数）")
+
+
+def test_busy_with_board_in_hand_still_advances(web):
+    """⭐ 链式读前（2026-10-08）: **后台在写将来的块时, 玩家手里的板照常领**。
+
+    为什么单独立一条: `busy` 从前是推进的无条件闸门（`reason=busy:生成中`）——
+    链式之后后台生成会持续 ~25s, 那条件会把**每一块都变成"点击被拒、等生成"**
+    （比不做链式更糟）。判据: 这一次推进 0 LLM 可服务（槽位/待发队列有板）⇒ 放行。
+    """
+    st, sid = web
+    bond.bond_start(CHARACTER, sid)
+    _poll_status(sid)
+    state = bond._state(CHARACTER, sid)
+    assert state.pregen_obj is not None or state.vn._pending_boards, \
+        "本用例需要手里有板（预热/预生成给的那一块）"
+    state.busy = True                                        # 后台正在写将来那块
+    try:
+        r = bond.bond_turn(CHARACTER, sid, "（继续）")
+    finally:
+        state.busy = False
+    assert r.get("accepted") is True, f"手里有板却被 busy 拒了: {r}"
+    print("    web: busy + 手里有板 ⇒ 推进照常（链式不卡玩家）")
 
 
 
