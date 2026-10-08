@@ -32,6 +32,12 @@
 | **P5** | ✅ **随 P1b-2 落地** | **桩与编排**：`stub_tasks.annotation_reply` 认新形状 · `ROUNDS` 的 `writes` 格 | `tests/stub_tasks.py` · `rounds/__init__.py` | 板块绿 | `test_l1_writes_edges_only`（`writes` 只有边面）| P1b | 小 |
 | **P6** | ✅ **已落地**（P6, 2026-10-08）| ⭐ **观测**（"孤立经历"的账）| `core/digest/rounds/relate.py` 的日志 · `core/digest/material.py`（摆不出候选时**不再连段标题一起被吞**）| 一行日志能看出：几条关系 · 几条经历**一条关系都没被连**（`alone=` / `lone=`）· 前提读数 `pool=` | `tests/core/test_round_relate.py`（7 例）· 5 个变异全红（`.testtmp/verify_p6_red.py`）| P2 ✅ | 小 |
 
+| **P7** | ✅ **两笔已落地**（`d54e55c` L2 契约 · `466b641` L1 第五个动作, 2026-10-08）| ⭐ **L2 的契约**（新相位 `cognize`）+ 顺带补上 **L1 的第五个动作 `evolved_from`** | `contract/digest_registry.py` · `llm/prompts/digest_relate.md` | 三种行渲得出来 · 三档分得开 · 上限 5 · "旧看法 → 更旧"有主 | `tests/core/test_digest_registry.py`（+5 例）· 6 个变异全红（`.testtmp/verify_p7_red.py`）| P6 ✅ | 中 |
+| **P8** | ⬜ | **L2 的料**（按群给）: 【被连过的经历】（**读边取两端**, 纯计算）·【本段归类的群】（`g0001《类名》` + 现状沉淀 + 成员正文, **上限 8**）·【现有认知】·【相似候选】 | `core/digest/material.py` · `rounds/__init__.py` 的 `material` 格 | 料里真出现群与成员正文 | 先验能红 | P7 ✅ | 中 |
+| **P9** | ⬜ | **L2 的执行器** `apply_cognitions`（造 belief + `supports`/`evolved_from`/`contradicts` 边 + 覆写 `experience.text`）| `core/brain/revise.py` | 边落对 · ⚠️ **造节点不幂等**（照 R1 的 `event_seq` 复用先例）· **覆写要留 `evolution.jsonl`** 痕迹 | 桩 store 钉"只做这几件事" | P8 | 中 |
+| **P10** | ⬜ | **接线**: `ROUNDS` 加一行（**排在 `group` 之后**）+ `digest_cognize.md` + 桩（`stub_tasks` / `task_labels`）| `rounds/__init__.py` · `llm/prompts/` · `tests/stub_tasks.py` | 真机跑出 `digest_cognize` 那行日志 | naming guard 绿 | P9 | 中 |
+| **P11** | ⬜ | **观测**: `digest_cognize beliefs= evolved= contradicted= soaked= groups= rows= dropped=` | `rounds/cognize.py` | 一行看清这一趟干了什么 | 先验能红 | P10 | 小 |
+
 > ⚠️ **P6 那个前提**（读 `cands=` 之前先看它）: 真机老档 **19 条 episode 只有 1 条有 `topics`**
 > （字段是 P0 才加的）⇒ `cands` 会长期是 0、`alone` 虚高。`pool=` 就是给这个用的解释器。
 > 用户 2026-10-08 裁: *"反正以后也要测试新的 digest，之后就删掉数据重来了，现在不急"*
@@ -78,13 +84,45 @@
 **⛔ 明确不做**: 删旧一族（`TOUCH`/`UPDATE`/`ADD` · `parse_round_b` · `apply_decisions`）——
 用户裁: *"有些可能会留给 L2，你觉得有用的不用着急删"*。
 
-### 之后（**L2 那一段，等 L1 落地后再排**）
+### 之后（**L2 那一段** —— 用户 2026-10-08 定稿五点，P7 已落地）
 
-- **P7+**：L2 = 「造新认知 + 接图」（`belief` / `evolved_from` / `experience` 的沉淀 / `member_of` / 造改 entity）
+- **P7–P11**（见上表）：契约 → 料 → 执行器 → 接线 → 观测，**一笔一验**。
+- ⭐ **L2 = `cognize` 一趟干两件事**: **造看法**（`belief`, 出生自带 `supports` /
+  `evolved_from` / `contradicts`）+ **给已有的类写沉淀**（`experience.text`, **整段重写**）。
+  用户原话: *"experience 本质是群 belief"* ⇒ 正文归 L2, **而"哪些事件属于这一类 + 类名"是结构**
+  ⇒ 建类 / 成员仍归 `group`（**L2 不建类** —— `experience` 那一行**必须带 `id`**）。
 - ⭐ **L2 的料 = 「L1 圈出来的素材」**（接力，不是并列 —— 用户 2026-10-07）：
-  被 L1 连过的那些经历（**读边取两端**，纯计算）+ L1 指向的认知/群 + 少量引擎候选 + 那些成群经历的正文。
+  被 L1 连过的那些经历（**读边取两端**，纯计算）+ 本段归类的群（类名 + 现状沉淀 + 成员正文）
+  + L1 指向的认知 + 少量引擎候选。
   ⚠️ **孤立经历（L1 一条边都没连的）不进 L2** —— 那不是漏洞，是**天然的归纳门槛**（规格 §3）。
-- ⏸ 顺带：**`attribute` 轮永久删**（两件活被两趟吸收）· `graph.RELS` 若加 `continues` 则 6 → 7
+- ⏸ **`attribute` 轮押后到 L2 落地后再裁**（用户 2026-10-08）：L2 到底吃掉 entity 的哪一半,
+  决定它还剩什么 —— 现在删/留都可能白做。
+- ⛔ **`graph.RELS` 不加 `continues`**（保 6 条，理由见规格 §4）。
+- **L1 的第五个动作 `evolved_from`** 已落地（`466b641`）：判据 = 谁手里有两端。
+
+---
+
+## 1.5 读路径 / 召回（**待裁** —— 用户 2026-10-08 的两条判断, 不在这条链上）
+
+用户原话：*"我觉得（单独）桶分的最大问题是**容易被占满, 导致新的记忆永远无法扩展**；
+我觉得**给到 digest 的素材需要用到混合打分**, 不然那个混合打分到底用在哪啊"*。
+
+**查证到的事实**（我逐处读代码核过, 供以后裁）：
+
+| 事 | 现状 |
+|---|---|
+| 常驻 brain 段 | **不是召回, 是全量注入**（台账 `mode=off`）: 经历 = 一条河（`ts` 升序）· belief = **sig 降序** · profile = 被引次数 · reported 原序; **cap 已删**（2026-09-25 有意）|
+| MMT 每轮「你想起的事」(P19) | **唯一真召回**: `recall_episodes` 语义 top-2; embed 不可用 → tags∩这句话 + 2-gram Dice>0.35（台账 `mmt_recall … mode=`）|
+| 四链路混合打分（`compose.recall_now`）| ⚠️ **零生产调用** —— 只有 `experiments/recall_compose_probe.py` 与测试在跑。设计上它是**读路径注入视图**的合成层, 而那个位置被"静态分桶的全量注入"占了 |
+| `recall_subgraph`（三通道 + sig 降序）| 只被 `core/rag/brain.py` 包了一层, 而**那个包装零调用**（`recall_with_rag` 无调用方）|
+| digest 的料 | 走**写路径**的候选碰撞（`recommend_candidates`, 单通道语义）+「现有认知」的 **sig 前 12** |
+
+⭐ **用户那句话与"sig 前 12"是同一个病根**：高 sig 的老看法永远占着那 12 个位置,
+**新看法永远没机会被连接 / 进化**。
+⏭ **下一步（未开工）**: 先跑一次只读探针（`experiments/recall_compose_probe.py`, 跑前先核它不写盘）
+把"四链路在真档上会选谁 / TIME 把排序改了多少"量出来, 再在
+**A 时间桶 / B 接 `compose` / C 二维配额（类型 × 时间）** 三条里裁 —— 用户 2026-10-08 裁:
+**先不动**, 收完 P7 再说（P7 已收）。
 
 ---
 
