@@ -81,6 +81,17 @@ WRAPUP_REPLY = '{"text": "（收尾话）老师，今天真的很谢谢你。"}'
 #: （首行到达时整轮还剩 ~0.9s）。要改就改这里一处。
 MMT_STREAM_GAP_S = 0.3
 
+#: ⭐ 前端"打完再发"节奏的守门要用**真机的到达形态**: 真机一轮 8 条是在最后
+#: 几百毫秒里**突发**写完的（`mmt_stream_first ms=9718` / `mmt_turn ms=10108`）,
+#: 前端一次轮询就抓到好几条 ⇒ 那时才谈得上"批内逐条上屏"。
+#: 而桩若把每行都隔 0.3s 吐, 每次轮询只抓到 1 条 ⇒ 每条都是"批内第一条"（不延迟）
+#: ⇒ **节奏永远不会被触发**, 断言再写也是假绿（2026-10-08 实测踩到）。
+#: 所以: 前几行**不睡**（= 突发, 落进同一次轮询）, 只在**触发行之前**留一个间隔
+#: —— 那个间隔同时保住 ⑥-3b 那条"首泡早于整轮完成"（整轮还没完, 首泡已经上屏）。
+#: 形状 = 每行**之前**睡多久（第一项对应第 1 行, 恒 0）; 长度不足时回落到
+#: `MMT_STREAM_GAP_S`。
+MMT_ROW_GAPS_S = (0.0, 0.0, 0.0, 0.9)
+
 
 class StubLLM:
     """按 system prompt 分流: MMT 轮 / bond 生成 / 标注 / digest, 全部离线可预期。"""
@@ -157,6 +168,8 @@ class StubLLM:
 
         为什么 MMT 要带间隔: 引擎 ⑥-3a 起"行一到就交付"，冒烟要能断言
         **第一个气泡早于整轮完成**（前后端一起改，没有这个间隔就测不到）。
+        ⭐ 间隔按 `MMT_ROW_GAPS_S` **逐行给**（前几行 0 = 突发, 与真机同形;
+        触发行之前留一个间隔 ⇒ ⑥-3b 那条断言仍成立）—— 见那段常量的注释。
         bond 那一侧一次性喂完（VN 的板级流式另有断言, 不必拖慢冒烟）。
         """
         out = self.chat(messages, temperature=temperature, max_tokens=max_tokens,
@@ -164,8 +177,13 @@ class StubLLM:
         is_mmt = kw.get("task") == T.MMT
         if on_chunk is not None and isinstance(out, str):
             for i, line in enumerate(out.splitlines(keepends=True)):
-                if is_mmt and i:
-                    time.sleep(MMT_STREAM_GAP_S)      # 行间（首行不睡: TTFT 立即）
+                if is_mmt:
+                    if i < len(MMT_ROW_GAPS_S):
+                        gap = MMT_ROW_GAPS_S[i]
+                    else:
+                        gap = MMT_STREAM_GAP_S
+                    if gap:
+                        time.sleep(gap)
                 on_chunk(line)
         return out
 
