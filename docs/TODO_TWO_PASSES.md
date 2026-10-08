@@ -34,7 +34,7 @@
 
 | **P7** | ✅ **两笔已落地**（`d54e55c` L2 契约 · `466b641` L1 第五个动作, 2026-10-08）| ⭐ **L2 的契约**（新相位 `cognize`）+ 顺带补上 **L1 的第五个动作 `evolved_from`** | `contract/digest_registry.py` · `llm/prompts/digest_relate.md` | 三种行渲得出来 · 三档分得开 · 上限 5 · "旧看法 → 更旧"有主 | `tests/core/test_digest_registry.py`（+5 例）· 6 个变异全红（`.testtmp/verify_p7_red.py`）| P6 ✅ | 中 |
 | **P8** | ✅ **已落地**（P8, 2026-10-08）| **L2 的料**: 【本段归类的群】（**每类一块** · 挑"本段新归入最多"的那组 · 现状沉淀 · 已有成员**上限 4**）·【被连过的经历】（**读 L1 那五条边**取两端 · 行头 + 正文 · `↳ 关于:` 只随 `about` 边出现）| `core/digest/material.py` · `core/brain/entities.py`（`entity_label` 抽公共）| 真机样张**逐条对齐**（`.testtmp/verify_p8_material.py`）| `test_digest_material.py`（+5 例）· 6 个变异全红 | P7 ✅ | 中 |
-| **P9** | ⬜ | **L2 的执行器** `apply_cognitions`（造 belief + `supports`/`evolved_from`/`contradicts` 边 + 覆写 `experience.text`）| `core/brain/revise.py` | 边落对 · ⚠️ **造节点不幂等**（照 R1 的 `event_seq` 复用先例）· **覆写要留 `evolution.jsonl`** 痕迹 | 桩 store 钉"只做这几件事" | P8 | 中 |
+| **P9** | ✅ **已落地**（P9, 2026-10-08）| **L2 的执行器** `apply_cognitions`: 造 belief（**幂等走 `_find_duplicate`** —— 与 R1 的 episode 同一判据同一实现）+ 出生自带三条边 + 覆写 `experience.text`（**留痕照 `apply_decisions` 的 update 行**）| `core/brain/revise.py` | 真机**副本**上真跑: 新节点 + 两条边 + 沉淀覆写 + 四条账 · **重跑不双写**（`.testtmp/verify_p9_executor.py` 12/12）| `test_wiki_revise.py`（+4 例）· 8 个变异全红 | P8 ✅ | 中 |
 | **P10** | ⬜ | **接线**: `ROUNDS` 加一行（**排在 `group` 之后**）+ `digest_cognize.md` + 桩（`stub_tasks` / `task_labels`）| `rounds/__init__.py` · `llm/prompts/` · `tests/stub_tasks.py` | 真机跑出 `digest_cognize` 那行日志 | naming guard 绿 | P9 | 中 |
 | **P11** | ⬜ | **观测**: `digest_cognize beliefs= evolved= contradicted= soaked= groups= rows= dropped=` | `rounds/cognize.py` | 一行看清这一趟干了什么 | 先验能红 | P10 | 小 |
 

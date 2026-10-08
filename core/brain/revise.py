@@ -25,6 +25,8 @@ from core.brain.entities import SELF_ID, SENSEI_ID, surface_forms
 from core.brain.evolution import EvolutionLog
 from core.brain.graph import (
     REL_ABOUT,
+    REL_CONTRADICTS,
+    REL_EVOLVED_FROM,
     REL_SUPPORTS,
 )
 from core.brain.nodes import (
@@ -112,6 +114,121 @@ def apply_relations(store: WikiStoreV2, rows: list[dict], *, ts: str = "",
         out.append(dict(row))
     return out
 
+
+
+@dataclass
+class CognitionResult:
+    """L2（`cognize`）执行结果 —— 编排层拿去记账。"""
+
+    created: list[str] = field(default_factory=list)
+    """本轮**新造**的 belief id（按行序）。"""
+    reused: list[str] = field(default_factory=list)
+    """⭐ 幂等命中而**复用**的 id（崩溃窗口重跑: 同一段、`event_seq` 相交、正文又一样）。"""
+    edges: list[dict] = field(default_factory=list)
+    """落下的边（原样回传, 编排层记账用）。"""
+    soaked: list[str] = field(default_factory=list)
+    """**覆写了沉淀**的类 id（同一个类只会有一条 —— 契约层已去重）。"""
+
+
+def apply_cognitions(store: WikiStoreV2, rows: list[dict], *, ts: str = "",
+                     log: EvolutionLog | None = None,
+                     id_map: dict[str, str] | None = None,
+                     event_seq: list[int] | None = None) -> CognitionResult:
+    """⭐ **L2（造看法 / 写沉淀）的落地** —— 只做三件事, **一个字都不删**。
+
+    行形 = `{"action": "belief" | "experience", …}`（`digest_registry.parse_cognitions` 的产出）。
+
+    | 行 | 做什么 |
+    |---|---|
+    | `belief` | 造节点（`kind=belief`: 正文 / `subject` / `significance`）+ **出生自带边**: `supports`（经历 → 新看法）· `evolved_from`（新看法 → 旧看法）· `contradicts`（对称）|
+    | `experience` | **覆写**那个类的沉淀正文 —— ⛔ `title` / `ts` 一律不动（名字是地址, 时间是"这一类事"的时间）|
+
+    ⚠️ **幂等 = `_find_duplicate`**（`(kind, event_seq 交集, 主文本相同)` ⇒ 复用旧 id,
+    不重复创建）—— 与 R1 的 episode **同一个判据、同一个实现**, ⛔ 不另写一份
+    （崩溃窗口重跑防双写; 见 `apply_revision_package` 的 `dedupe=`）。
+    ⚠️ **两套 id 空间**（同 `apply_relations`）: `supports` 的值是**经历真身**（`m…`,
+    料里就是这么印的）; `evolved_from` / `contradicts` 的值是**认知本地号**（`u…`）⇒ 过 `id_map`。
+    ⚠️ **方向不再判**（契约层已归一）: `supports` = 经历 → 新看法 · `evolved_from` =
+    新看法 → 旧看法 · `contradicts` **对称**（`add_edge` 内部走 `canonical_for`）。
+    ⚠️ **改写既有正文必须留痕**（同 `_rewrite` / `apply_decisions` 的 update 行）:
+    `{"action": "rewrite", "id": …, "changed": {"text": [旧, 新]}, "ts": …}` —— 崩溃窗口
+    重跑时记的是一个 **空 `changed`**（"这次没改任何东西", 一眼可判; ⛔ 不是不留账）。
+    ⚠️ **不吞错**: 能走到这里说明契约层已经挡过形状问题 ⇒ 剩下的异常都是真 bug,
+    照 `_rewrite` 的口径抛（整段回滚 / 只丢自己是编排层的事, 见 `RoundOut`）。
+    """
+    log = log or EvolutionLog.for_store(store)
+    ts = ts or datetime.now().isoformat(timespec="seconds")
+    id_map = id_map or {}
+    res = CognitionResult()
+    for row in rows:
+        if row.get("action") == "experience":
+            _soak(store, row, ts=ts, log=log, res=res)
+            continue
+        nid = _create_belief(store, row, ts=ts, log=log,
+                             event_seq=event_seq, res=res)
+        for ep in row.get("supports") or ():
+            _add_edge(store, REL_SUPPORTS, str(ep), nid, ts=ts, log=log, res=res)
+        evo = str(row.get("evolved_from") or "")
+        if evo:
+            _add_edge(store, REL_EVOLVED_FROM, nid, id_map.get(evo, evo),
+                      ts=ts, log=log, res=res)
+        for other in row.get("contradicts") or ():
+            _add_edge(store, REL_CONTRADICTS, nid, id_map.get(str(other), str(other)),
+                      ts=ts, log=log, res=res)
+    return res
+
+
+def _create_belief(store: WikiStoreV2, row: dict, *, ts: str, log: EvolutionLog,
+                   event_seq: list[int] | None, res: CognitionResult) -> str:
+    """造一条看法（或**复用**同段同正文的那条）—— 返回真实 id。"""
+    node = make_node("belief", text=row["text"], subject=row.get("subject", ""),
+                     significance=row.get("significance", 0.5),
+                     ts=ts, event_seq=list(event_seq or []))
+    dup = _find_duplicate(store, node)
+    if dup is not None:
+        res.reused.append(dup.id)
+        logger.info("digest_cognize reuse=%s（同段 event_seq 相交且正文相同 —— 防双写）",
+                    dup.id)
+        return dup.id
+    nid = store.add(node)
+    res.created.append(nid)
+    log.append({"pkg": "digest", "action": "create", "id": nid,
+                "text": node.text, "ts": ts})
+    return nid
+
+
+def _soak(store: WikiStoreV2, row: dict, *, ts: str, log: EvolutionLog,
+          res: CognitionResult) -> None:
+    """给**已有的类**覆写沉淀正文（⛔ 不建类、不改名、不动 `ts`）。
+
+    ⚠️ **留痕口径照 `apply_decisions` 的 update 行**（那里写着这条纪律）:
+    **照记一笔**, 而 `changed` 只收**真的变了**的键 ⇒ 崩溃窗口重跑时留下的是一个
+    **空 `changed`**, 一眼可判"这次没改任何东西"（⛔ 不是"不留账"）。
+    `res.soaked` 只收**真变了**的那些（它是"覆写了"的账, 不是"收到过这一行"的账）。
+    """
+    gid = str(row["group"])
+    node = store.get(gid)
+    if node is None:
+        raise ValueError(err("BadSoak", f"要写沉淀的类不存在: {gid}"))
+    new_text = str(row["text"]).strip()
+    before = node.text
+    changed = before != new_text
+    if changed:
+        store.update(gid, {"text": new_text})
+        res.soaked.append(gid)
+    log.append({"pkg": "digest", "action": "rewrite", "id": gid,
+                "changed": {"text": [before, new_text]} if changed else {},
+                "ts": ts})
+
+
+def _add_edge(store: WikiStoreV2, rel: str, src: str, dst: str, *, ts: str,
+              log: EvolutionLog, res: CognitionResult) -> None:
+    """落一条边 + 一条账（形状与 `apply_relations` 逐字相同 —— 同一个含义同一个印法）。"""
+    store.add_edge(rel, src, dst, ts=ts)
+    entry = {"pkg": "digest", "action": "relate", "rel": rel,
+             "from": src, "to": dst, "ts": ts}
+    log.append(entry)
+    res.edges.append(dict(entry))
 
 
 def apply_decisions(
