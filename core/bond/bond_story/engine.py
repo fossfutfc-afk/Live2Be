@@ -375,6 +375,19 @@ class BondStoryEngine:
         notes: list[str] = []
         if system_note:                                     # 约束注记（纪念 exit schema/
             notes.append(system_note)                       # 配额/收尾提醒, webgui/vn_cli 拼）
+        if self._memorial_used:
+            # ⭐ 2026-10-08（用户裁决"加这条提示"）: 章内**已经用过**纪念插画 ——
+            #    `_memorial_used` 从前**只写不读**（第二次 memorial 由
+            #    `_demote_repeat_memorial` 静默丢弃, 有意**不给反馈**以免反馈回环,
+            #    见那里的 docstring）。代价是 writer 每块都可能再写一次 memorial/art
+            #    ——**白写**（图与 marker 都不会出）。真机 2026-10-08 就中过一次
+            #    （`[vn][memorial] 章内第二次纪念 → 静默拒绝`）。
+            #    这条是**静态事实**（"本章用过没"）, 不是"你上一轮写错了"那种纠偏
+            #    ⇒ 不构成回环; 只进动态尾（notes）, 不碰 system 盒（前缀缓存安全）。
+            notes.append(
+                "（系统）本章的纪念插画**已经用过了**（一章至多一次）："
+                "不要再写 stage=art / stage=memorial——重复的会被丢弃，"
+                "画面与回执都不会产生; 把这一段写成本章的后日谈/收束即可。")
         if self._pending_feedback:
             # 节点 3（2026-09-21）: 上一轮**已交付**但形状有问题（流式拦不住, 见
             # `DeliveryMode.STREAM`）→ 下一轮明说一次让模型纠偏; **一次性消费**
