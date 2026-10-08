@@ -614,7 +614,7 @@ async function main() {
         + JSON.stringify(atBoard));
     }
     const tSrv = Date.now();
-    for (let i = 0; i < 120; i++) {                    // 最多 12s 等服务端出图
+    for (let i = 0; i < 300; i++) {                    // 最多 30s 等服务端出图
       srv = await page.evaluate(async ({ cid, sid }) => {
         try {
           const st = await (await fetch(

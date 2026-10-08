@@ -68,6 +68,7 @@ from webgui.bond.stores import (          # C3: 落库层
     _log_pick,
     _log_scene,
     _log_scene_meta,
+    _open_chapter_board_seq,
     _open_vn_seq,
     _prewarm_cache_delete,
     _prewarm_cache_load,

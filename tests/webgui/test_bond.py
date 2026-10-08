@@ -879,6 +879,135 @@ RECORD_PICK = "路上买了点东西。"
 
 
 
+def test_draft_queue_survives_restart_after_prewarm(tmp_path, caplog):
+    """⭐ **中断章 + 预热缓存进场 ⇒ 后继板必须从草稿恢复**（2026-10-08 真机丢板的那条路径）。
+
+    真机时序（haruka `被感谢的人`）: 预热一次写了 6 板 40 条 → 玩家只看了首板就杀了进程
+    （等代码更新）→ 重启进章: 首板由 `soul/prewarm.json` 给出（`src=prewarm`, 0 LLM）,
+    **余下 5 板（含纪念那板）却重新生成了一遍**（`src=gen dur=20531ms`）—— 草稿里明明
+    躺着它们。
+
+    根因: 恢复闸门写的是 `_last_bond_seq(...) == 0`（"全库一条 bond 事件都没有"）,而
+    长线角色真源里早有前几章的板 ⇒ **闸门恒 False**; 注释里那句"已有已落库板（将被回放）
+    的交给回放交棒处"只覆盖"走回放进场", 而这里是**走预热缓存进场**（`entry.py` 命中即
+    return）⇒ 两边都不接。
+
+    ⇒ 判据: 闸门必须看**当前在押章**有没有已落库板（`_open_chapter_board_seq`），
+    而不是全库。
+    """
+    engine, st, sid, llm = _setup(tmp_path, RECORD_BLOCK, STORY_END)
+    try:
+        # ① 前几章: **已闭合**的段 + 真源里**已经有** bond 板事件
+        #    （长线角色的常态 —— 旧闸门 `_last_bond_seq == 0` 就死在这）
+        st.append_marker(CHARACTER, sid, "vn_enter", {"chapter_title": "上一章"})
+        st.append_event(CHARACTER, sid, type="bond", subtype="story_scene",
+                        payload={"records": [{"character": CHARACTER,
+                                              "text": "上一章的板。"}],
+                                 "input": "（继续）", "picked": None})
+        st.append_marker(CHARACTER, sid, "vn_exit", {"completed": True})
+        # ①b **更新的触发轮**（被感谢的人 的入口）—— 缺了它 `_entry_already_done`
+        #     会以"倒序先遇到 vn_exit completed"为由**拒绝重进**（只看真源的兜底闸）
+        st.append_event(CHARACTER, sid, type="mmt", subtype="mmt_trigger_bond_story",
+                        payload={"chapter_title": "被感谢的人", "player": "在吗"})
+        # ② 当前章: 只有 vn_enter（中断在这一章, **零已落库板**）
+        #    ⇒ `_interrupted_replay_queue` 返回 None（没有回放前缀）⇒ 走**预热缓存支路**,
+        #      与真机 01:33 那次完全同形（日志 `src=prewarm` + `bond_gen ok … cache`）
+        st.append_marker(CHARACTER, sid, "vn_enter", {"chapter_title": "被感谢的人"})
+        # ③ 草稿 = 上一次生成留下的"已生成未播放": 首板 + 后继两块
+        nxt1 = bond.BondScene.from_dict(
+            {"paragraphs": [{"text": "（草稿后继一）她抬起头。", "emotion": "nomal"}],
+             "records": [{"character": CHARACTER, "text": "（草稿后继一）她抬起头。"}],
+             "is_end": False})
+        nxt2 = bond.BondScene.from_dict(
+            {"paragraphs": [{"text": "（草稿后继二）她笑了。", "emotion": "smile"}],
+             "records": [{"character": CHARACTER, "text": "（草稿后继二）她笑了。"}],
+             "is_end": False})
+        first = {"paragraphs": [{"text": "（首板）老师, 你来了。", "emotion": "nomal"}],
+                 "records": [{"character": CHARACTER, "text": "（首板）老师, 你来了。"}],
+                 "is_end": False}
+        draft_file = Path(bond._draft_path(CHARACTER))
+        draft_file.parent.mkdir(parents=True, exist_ok=True)
+        draft_file.write_text(json.dumps({
+            "boards": [first, nxt1.to_dict(), nxt2.to_dict()],
+            "input": "（继续）",
+            "base_seq": bond._last_bond_seq(CHARACTER, sid, st),
+            "vn_enter_seq": bond._open_vn_seq(CHARACTER, sid, st),
+            "round": 1, "ts": time.time(),
+        }, ensure_ascii=False), encoding="utf-8")
+        # ④ 预热缓存 = 首板（重启后 entry 的 `src=prewarm` 分支就吃它）
+        bond._prewarm_cache_save(CHARACTER, sid, first, "（继续）", "被感谢的人",
+                                 store=st)
+        # ⑤ 进场
+        with caplog.at_level(logging.INFO, logger="webgui.bond"):
+            bond.bond_start(CHARACTER, sid)
+        state = bond._state(CHARACTER, sid)
+        got = [p["text"] for sc in (state.vn._pending_boards or [])
+               for p in (sc.paragraphs or [])]
+        assert got == ["（草稿后继一）她抬起头。", "（草稿后继二）她笑了。"], (
+            "中断章的后继板没从草稿恢复 ⇒ 会白烧一次生成（真机 20s）: " + repr(got))
+        assert [p["text"] for p in (state.scene_obj.paragraphs or [])] == \
+            ["（首板）老师, 你来了。"], "首板应由预热缓存给出"
+        assert "bond_draft_q" in caplog.text or "bond_draft_queued" in caplog.text, \
+            [r.getMessage() for r in caplog.records]
+        # ⑥ 推进一次: 必须**领队列**（0 LLM），不是重新生成
+        calls_before = len(_scene_calls(llm))
+        _wait_status(CHARACTER, sid)
+        r = _turn_until_accepted(CHARACTER, sid, "（继续）")
+        assert r.get("accepted"), r
+        state2 = bond._state(CHARACTER, sid)
+        assert [p["text"] for p in (state2.scene_obj.paragraphs or [])] == \
+            ["（草稿后继一）她抬起头。"], "推进应先播草稿的后继板"
+        assert len(_scene_calls(llm)) == calls_before, \
+            "领队列不该产生新的主生成调用（0 LLM）"
+        print("    v2 草稿旁路: 中断章 + 预热缓存进场 → 后继板恢复并用 0 LLM 领出 ✓")
+    finally:
+        _cleanup()
+
+
+def test_draft_queue_not_restored_when_chapter_has_boards(tmp_path, caplog):
+    """反例: **当前章已有已落库板** ⇒ 不走"草稿后继板"那条路（交给回放交棒处）。
+
+    为什么必须钉: 两条恢复路径各管一段 ——
+      · 当前章**零**板 → `_draft_pending`（只补后继, 首板由预热缓存给）
+      · 当前章**有**板 → 回放交棒处 `_draft_queue`（全量, 因为屏上正在放已落库前缀）
+    判据不同 ⇒ 判据写错就会"同一块板被注入两次"（真机表现: 重进后同一段戏讲两遍）。
+    这里断言: 有板时走**回放支路**, 且**没有** `bond_draft_q`（= 后继-only 那条没被触发）。
+    """
+    engine, st, sid, llm = _setup(tmp_path, RECORD_BLOCK, STORY_END)
+    try:
+        # ① 当前章: vn_enter + **一块已落库板**（中断在这一章的中间）
+        st.append_marker(CHARACTER, sid, "vn_enter", {"chapter_title": "被感谢的人"})
+        st.append_event(CHARACTER, sid, type="bond", subtype="story_scene",
+                        payload={"records": [{"character": CHARACTER,
+                                              "text": "（已落库）她抬起头。"}],
+                                 "paragraphs": [{"text": "（已落库）她抬起头。",
+                                                 "emotion": "nomal"}],
+                                 "input": "（继续）", "picked": None})
+        # ② 草稿: 首板 + 一块后继（都由上一次生成留下）
+        first = {"paragraphs": [{"text": "（草稿首板）", "emotion": "nomal"}],
+                 "records": [{"character": CHARACTER, "text": "（草稿首板）"}],
+                 "is_end": False}
+        nxt = {"paragraphs": [{"text": "（草稿后继）", "emotion": "nomal"}],
+               "records": [{"character": CHARACTER, "text": "（草稿后继）"}],
+               "is_end": False}
+        p = Path(bond._draft_path(CHARACTER))
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps({
+            "boards": [first, nxt], "input": "（继续）",
+            "base_seq": bond._last_bond_seq(CHARACTER, sid, st),
+            "vn_enter_seq": bond._open_vn_seq(CHARACTER, sid, st),
+            "round": 1, "ts": time.time()}, ensure_ascii=False), encoding="utf-8")
+        with caplog.at_level(logging.INFO, logger="webgui.bond"):
+            r = bond.bond_start(CHARACTER, sid)
+        assert r.get("replay") is True, f"有落库板时应走回放支路: {r}"
+        assert "bond_draft_q " not in caplog.text, \
+            "后继-only 那条路不该在有落库板时触发（会与回放交棒处重复注入）: " \
+            + caplog.text
+        print("    v2 草稿旁路: 当前章有板 → 只走回放交棒（后继-only 那条不触发）✓")
+    finally:
+        _cleanup()
+
+
 def test_bond_draft_sidecar_stale_and_finish(tmp_path):
     """草稿新鲜判据: 其后又落了新 bond 事件 / 换了在押段 → 作废; finish → 删除。"""
     engine, st, sid, llm = _setup(tmp_path, RECORD_BLOCK, STORY_END)

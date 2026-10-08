@@ -91,6 +91,36 @@ def _last_bond_seq(char_id: str, session_id: str, store=None) -> int:
         return -1
 
 
+def _open_chapter_board_seq(char_id: str, session_id: str, store=None) -> int:
+    """**当前在押章**（最近一个 `vn_enter` 之后）里最后一条 type=bond 事件的 seq（无 → 0）。
+
+    ⭐ 2026-10-08 新增: 给"进场时要不要从草稿恢复后继板"当判据。
+
+    为什么要它（真机事故）: 旧闸门写的是 `_last_bond_seq(...) == 0`（**全库**一条 bond
+    事件都没有）—— 而长线角色真源里早有前几章的板 ⇒ **闸门恒 False** ⇒ 草稿里"已生成
+    未播放"的板永远恢复不了（真机 `被感谢的人`: 预热写了 6 板, 玩家只看了首板就杀进程,
+    重进后余下 5 板白烧一次生成 `dur=20531ms`）。注释里那句"已有已落库板（将被回放）的
+    交给回放交棒处"只覆盖**走回放进场**; 而"中断章 + 零已落库板 + 预热缓存给首板"这条
+    路径两边都不接 —— 判据必须看**当前章**有没有板，而不是全库。
+
+    ⚠️ 与 `_last_bond_seq` 分工: 那个是**草稿新鲜判据**（"写档之后又落板了吗"），
+    这个是**归属判据**（"这一章的板该由回放交棒处还是草稿恢复处来给"）。
+    走 overlay（真源 + 暂存）—— 章内板在 staging 里（与 `_open_vn_seq` 同源）。
+    """
+    try:
+        last_enter = 0
+        last_board = 0
+        for e in (store or staging_store(_store())).events(char_id, session_id):
+            if getattr(e, "is_marker", False) and e.subtype == "vn_enter":
+                last_enter = e.seq
+                last_board = 0                     # 换章 → 重新计
+            elif e.type == "bond" and e.seq > last_enter:
+                last_board = e.seq
+        return last_board
+    except Exception:                              # noqa: BLE001 — 读失败保守: 不恢复
+        return -1
+
+
 def _last_mmt_seq(char_id: str, session_id: str, store=None) -> int:
     """事件流中最后一条 **mmt 事件** 的 seq（预热新鲜度基准）。
 
@@ -191,6 +221,12 @@ def _draft_save(state: "BondState", char_id: str, session_id: str,
             tmp = path.with_suffix(".tmp")
             tmp.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
             replace_with_retry(tmp, path)
+            # ⭐ 2026-10-08: **写成功也留一行**（从前是静默的）。为什么: 排查
+            # "重启后余下 5 板为什么重新生成"时, 分不清"草稿没写"与"写了但没人读"
+            # —— 这一行把它变成可查询事实（与 `bond_draft_q` 成对 grep）。
+            logger.info("bond_draft_saved boards=%d base_seq=%d vn_enter=%d %s/%s",
+                        len(boards), int(payload["base_seq"]),
+                        int(payload["vn_enter_seq"]), char_id, session_id)
     except Exception as e:                         # noqa: BLE001 — 缓存失败降级
         logger.warning("草稿旁路写失败（降级, 不影响剧情）: %s", e)
 

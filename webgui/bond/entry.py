@@ -75,6 +75,8 @@ from webgui.bond.stores import (
     _flow_store,
     _last_bond_seq,
     _last_mmt_seq,
+    _open_chapter_board_seq,
+    _open_vn_seq,
     _prewarm_cache_delete,
     _prewarm_cache_load,
     _store,
@@ -558,15 +560,23 @@ def bond_start(char_id: str, session_id: str, *,
     # 正常生成给出; 中断回放场景则由**回放交棒处**（`_start_replay` / `_advance_replay`
     # 队列尽时）用 `_draft_queue` 排队接上（2026-09-12: 不再 adopt 上屏——那会顶掉
     # 刚回放的那一场, 或在进场时就丢掉后继板）。
+    # ⚠️ **2026-10-08 改闸门**: 从前是 `_last_bond_seq(...) == 0`（**全库**一条 bond
+    #    事件都没有）⇒ 长线角色真源里早有前几章的板 ⇒ **恒 False** ⇒ 这条恢复路径
+    #    实际上从没生效过。真机 `被感谢的人`: 预热写的 6 板里余下 5 板（含纪念板）
+    #    白烧一次生成（`src=gen dur=20531ms`）。现在看**当前在押章**有没有已落库板:
+    #    · 有 → 会被回放 ⇒ 交给回放交棒处（原语义不变）
+    #    · 没有 → 正是"中断章 + 预热缓存/现场生成给首板"那条路 ⇒ **这里恢复后继板**
     if not staged and state.demo is None and state.scene_obj is None \
             and state.vn is not None \
-            and _last_bond_seq(char_id, session_id, _flow_store(state)) == 0:
-        # 注: 已有已落库板（将被回放）时**不在此恢复**——那一路由回放交棒处
-        # `_draft_queue` 统一接（避免队列被两处设置/历史重复注入）
+            and _open_chapter_board_seq(char_id, session_id,
+                                        _flow_store(state)) == 0:
         rest = _draft_pending(char_id, session_id, _flow_store(state))
         if rest:
             state.vn._pending_boards = [BondScene.from_dict(b) for b in rest]
-            logger.info("bond_draft_q %s/%s boards=%d", char_id, session_id, len(rest))
+            logger.info("bond_draft_q %s/%s boards=%d base_seq=%d vn_enter=%d",
+                        char_id, session_id, len(rest),
+                        _last_bond_seq(char_id, session_id, _flow_store(state)),
+                        _open_vn_seq(char_id, session_id, _flow_store(state)))
 
     # ── 跨重启预热缓存命中（2026-09-09）────────────────────────
     # 首场曾生成但未裁决/未 adopt 即中断（进程重启, 内存 staged 丢失）→
