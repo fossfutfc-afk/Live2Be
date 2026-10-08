@@ -81,7 +81,7 @@ from core.digest.rounds import (
     RoundSpec,
     reset_result,
 )
-from core.digest.rounds import akin, attribute, group, record, relate, split
+from core.digest.rounds import akin, attribute, cognize, group, record, relate, split
 from core.digest.rounds.base import Ctx, RoundOut
 from core.digest.segment import _segment_domain
 from core.session.events import is_content_event
@@ -101,6 +101,7 @@ IMPL: dict[str, Callable[[Ctx], RoundOut]] = {
     "relate": relate.run,
     "attribute": attribute.run,
     "group": group.run,
+    "cognize": cognize.run,
 }
 
 #: ⭐ **一段最多试几次**（2026-09-29 刀 2）—— 数到就**放弃**这一段（见 `_note_failure`）。
@@ -182,6 +183,17 @@ class DigestResult:
     merged_groups: list[tuple[str, str]] = field(default_factory=list)
     #: 分群这一步的记账（同名并群 / 类名找不到 / 这一步整体失败…）—— **不阻断**
     group_warnings: list[str] = field(default_factory=list)
+    #: ⭐ **L2（`cognize`）新造的看法 id**（P10 接线）—— `apply_cognitions` 的 `created`。
+    created_beliefs: list[str] = field(default_factory=list)
+    #: ⭐ **幂等命中而复用的看法 id**（崩溃窗口重跑: 同段 `event_seq` 相交且正文相同）。
+    #: ⚠️ 与 `created_beliefs` **必须分开**: "这一段长了新看法"与"这一段重跑过"是两件事,
+    #: 合起来记会让台账把重跑读成"她想到了新东西"。
+    reused_beliefs: list[str] = field(default_factory=list)
+    #: ⭐ **覆写了沉淀的类 id**（只收**真的变了**的: 一字未变不进这里, 但账上仍有一笔
+    #: `changed={}` 的 rewrite —— 那是"这次没改任何东西"的记号）。
+    soaked_groups: list[str] = field(default_factory=list)
+    #: L2 这一步的记账（自吞失败时 errors 挪来这里; 表里 `own_snapshot=True`）
+    cognize_warnings: list[str] = field(default_factory=list)
     #: ⭐ **要落进 creep 账的行** —— 见 `_note_failure`（`kind=digest_skip`）与
     #: `_note_gap`（`kind=digest_gap`）。
     #: ⚠️ **调用方不管 `ok` 都要写它**（失败也要留账: 账不是剧情, 不随事务回滚）;

@@ -107,9 +107,12 @@ DIGEST_ROUND_BUDGET_SECONDS = 120.0
 #: 5 个 LLM 轮 × 120s = **600, 正好顶满**硬顶（`akin` 不算 —— 它零 LLM,
 #: `planned_seconds()` 只数 `llm=True` 的轮）⇒ 再多一轮守门当场红。
 #: ⭐ **2026-10-05（L8）: 840 → 600** —— 收口轮删掉, 又回到 5 个 LLM 轮 × 120s。
+#: ⭐ **2026-10-08（P10）: 600 → 720** —— 加上 L2（`cognize`）= 6 个 LLM 轮 × 120s。
+#: ⚠️ **每轮 120s 依然没动**（理由同上一条, 别砍）; 真机最坏墙钟因此从 10 分钟到 12 分钟,
+#: 而**典型路径不变**: `attribute` 还在暂停（跳过 ⇒ 不发调用）⇒ 一段实际最多 5 次调用。
 #: ⚠️ **每轮 120s 没动**（它是按 high 档长考标定的, 砍它会重新制造"前几轮把后几轮
 #: 饿死"那个病; 标定入口 = 真机日志 `llm chat task=digest.… ms=`）。
-DIGEST_SEGMENT_HARD_CAP = 600.0
+DIGEST_SEGMENT_HARD_CAP = 720.0
 
 
 @dataclass(frozen=True)
@@ -303,6 +306,26 @@ ROUNDS: tuple[RoundSpec, ...] = (
         skip="没有未归群的块, 也没有可能重复的类",
         # ⭐ 它是**加法**的（块留到下段再来 ⇒ 自愈）: 失败只回滚这一步,
         # R1–R3 的活照常提交（把"命名没成"升级成"整段记忆全丢"是拿真东西换装饰）。
+        own_snapshot=True,
+    ),
+    RoundSpec(
+        key="cognize",
+        step="⑥ 想",
+        parse=digest_registry.parse_cognitions,
+        material=("本段归类的群", "被连过的经历", "现有认知", "角色人设（锚点）"),
+        writes=(
+            # ⭐ **L2 的产出 = 正文 + 它出生自带的那几条边**（`apply_cognitions`）:
+            # 造 `belief` · 给**已有的类**覆写沉淀（`experience.text`）· 三条边。
+            # ⛔ 不建类（起类名 / 圈成员是 `group` 那一环的结构活）· ⛔ 不改 `title` / `ts`。
+            ("belief", ("text", "subject", "significance", "event_seq", "ts")),
+            ("experience", ("text",)),
+            ("edge", ("supports", "evolved_from", "contradicts")),
+        ),
+        result_fields=(*CONTRACT_FIELDS, "created_beliefs", "reused_beliefs",
+                       "soaked_groups", "cognize_warnings"),
+        skip="本段既没有被连过的经历, 也没有新归类的群（归纳没有立足点）",
+        # ⭐ **它也是加法的**: 失败只丢"新造的看法 / 这一笔沉淀", 经历与边照旧
+        # （与 `group` 同一个理由 —— 拿真东西换装饰是亏的; 用户 2026-10-08 裁）。
         own_snapshot=True,
     ),
 )

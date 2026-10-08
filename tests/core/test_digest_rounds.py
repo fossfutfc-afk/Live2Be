@@ -195,13 +195,13 @@ def test_every_phase_is_a_real_contract_phase():
     所以由这条用例来钉"key 与契约相位是同一批词"。
     """
     from contract.digest_registry import (
-        PHASE_ATTRIBUTE, PHASE_GROUP, PHASE_RECORD, PHASE_RELATE, PHASE_SPLIT,
-        PHASE_UNDERSTAND, digest_registry,
+        PHASE_ATTRIBUTE, PHASE_COGNIZE, PHASE_GROUP, PHASE_RECORD, PHASE_RELATE,
+        PHASE_SPLIT, PHASE_UNDERSTAND, digest_registry,
     )
     # ⚠️ `PHASE_UNDERSTAND`（旧一族 touch/update/add 的相位）**还在**契约里 ——
     # 那一族留给 L2（2026-10-07 用户裁"不着急删"）, 只是**没有轮在用它**。
     real = {PHASE_SPLIT, PHASE_RECORD, PHASE_RELATE, PHASE_UNDERSTAND,
-            PHASE_ATTRIBUTE, PHASE_GROUP}
+            PHASE_ATTRIBUTE, PHASE_GROUP, PHASE_COGNIZE}
     for spec in R.ROUNDS:
         if not spec.llm:
             continue
@@ -335,13 +335,18 @@ def test_sections_check_is_wired():
 # ---------------------------------------------------------------------------
 
 def test_only_the_group_step_carries_its_own_snapshot():
-    """自带快照的只有分群（加法性的, 失败自己吞）—— 而且它是最后一步。"""
+    """自带快照的只有**加法性的那两步**（分群 + L2 造看法/写沉淀）—— 而且它们排在最后。
+
+    ⚠️ **2026-10-08（P10 接线）加上了 `cognize`**（用户裁决: L2 也是加法的 —— 失败只丢
+    "新造的看法 / 这一笔沉淀", 经历与边照旧）。判据没放松: 除这两步外, 别的步失败
+    **必须连累整段**（宁缺勿错: 半截记忆比没有记忆坏）。
+    """
     own = [s.key for s in R.ROUNDS if s.own_snapshot]
-    assert own == ["group"], (
-        f"自带快照的步只该有 group, 实得 {own} —— 别的步骤失败必须连累整段"
+    assert own == ["group", "cognize"], (
+        f"自带快照的只该是这两步（它们产的是加法）, 实得 {own} —— 别的步骤失败必须连累整段"
         "（宁缺勿错: 半截记忆比没有记忆坏）")
-    assert R.ROUNDS[-1].key == "group", "分群是每段的最后一步（与 R1–R4 不同层）"
-    print("    快照: 只有 L2-a 分群自带（失败只回滚它自己）")
+    assert [s.key for s in R.ROUNDS[-2:]] == own, "这两步必须是每段的最后两步"
+    print("    快照: L2-a 分群 + L2-b 造看法自带（失败只回滚自己）")
 
 
 def test_cursor_allows_skips_but_never_goes_back():
@@ -357,6 +362,7 @@ def test_cursor_allows_skips_but_never_goes_back():
         raise AssertionError("游标允许回头了 —— 表就不再是顺序的真源")
     cur.enter("attribute")                          # 往前走照旧
     cur.enter("group")
+    cur.enter("cognize")                            # ⭐ P10: 表里最后一步
     assert cur.at == len(R.ROUNDS)
     print("    cursor: 可跳步, 不可回头（越序当场炸）")
 
@@ -478,6 +484,8 @@ class RoundLLM:
             return self.b
         if task == T.DIGEST_ATTRIBUTE:      # 挂 —— 这些用例不测它, 空包放行
             return {"attributions": []}
+        if task == T.DIGEST_COGNIZE:        # L2-b（P10）—— 同上
+            return {"cognitions": []}
         raise RuntimeError(f"意外调用 task={task!r}")
 
 

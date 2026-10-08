@@ -58,6 +58,8 @@ class AttrLLM:
             return self.b
         if task == T.DIGEST_ATTRIBUTE:
             return self.attr
+        if task == T.DIGEST_COGNIZE:        # L2-b（P10）: 不测它 ⇒ 空包
+            return {"cognitions": []}
         raise RuntimeError(f"意外调用 task={task!r}")
 
     def user_of(self, task: str | None) -> str:
@@ -212,9 +214,9 @@ def test_r3_attaches_by_hint_and_writes_alias(tmp_path):
     res = digest_segment(st, llm, _events(_mmt(3)))
     assert res.ok, res.errors
 
-    # 三轮的顺序: **R0 → A → B → R3**（每段这几步真的都跑了; 收口轮 2026-10-05 删）
-    assert llm.tasks == [T.DIGEST_SPLIT, T.DIGEST_RECORD,
-                         T.DIGEST_RELATE, T.DIGEST_ATTRIBUTE], llm.tasks
+    # 顺序: **R0 → R1 → L1 → R3 → L2**（收口轮 2026-10-05 删; L2 2026-10-08 接在最后）
+    assert llm.tasks == [T.DIGEST_SPLIT, T.DIGEST_RECORD, T.DIGEST_RELATE,
+                         T.DIGEST_ATTRIBUTE, T.DIGEST_COGNIZE], llm.tasks
     # ⭐ 料: 候选表（只有身份）+ 本轮新节点（本地 id）
     r3 = llm.user_of(T.DIGEST_ATTRIBUTE)
     assert "c0001" in r3 and "c0002" in r3 and "u0001" in r3

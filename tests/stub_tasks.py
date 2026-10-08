@@ -208,6 +208,8 @@ def annotation_reply(task: str | None, messages, *,
         return {"attributions": []}
     if task == T.DIGEST_GROUP:          # L2-a 分群 → 一个类都不分（块留到下段）
         return {"attach": [], "new": [], "merge": []}
+    if task == T.DIGEST_COGNIZE:        # ⭐ L2-b（P10）→ 一条看法都不造、沉淀不动
+        return {"cognitions": []}
     return None
 
 
