@@ -545,7 +545,9 @@ ADD = DigestAction(
 
 #: L1 的**锚点类型**（行首那个键能写哪几个 kind）。
 #: ⚠️ 与 `nodes.KINDS` **同源**，但契约层不 import core ⇒ 手写一份 + 守门钉住两边相等。
-RELATION_ANCHORS = ("episode", "belief", "experience", "entity", "profile")
+#: ⚠️ **2026-10-08（E3）删掉 `"entity"`** —— 它是 `about` 那一行的锚点, 而 `about` 不再是
+#: LLM 的动作（**归属由引擎从节点 `tags` 里的 `#entity:` 派生**, 见 `DESIGN_ENTITY_TAGS`）。
+RELATION_ANCHORS = ("episode", "belief", "experience", "profile")
 
 
 #: ⭐⭐ **L1「判关系」的四个动作**
@@ -562,7 +564,7 @@ RELATION_ACTIONS = (
         semantics=(
             "两端: 左 = 本段的一条**经历**（`m…`）· 右 = 一条**已有的认知**（`u…`: 看法 / 画像）;\n"
             "何时用: 这条经历又一次验证了那条已有结论 —— 不是新角度, 也没有推翻它;\n"
-            "禁什么: 想说\"这两条经历像\" ⇒ 那是 `akin`; 想说\"这条是关于某人的\" ⇒ 那是 `about`。"
+            "禁什么: 想说\"这两条经历像\" ⇒ 那是 `akin`。"
         ),
         field_schema='        {"episode": "m0017", "supports": "u0003"},',
         example='{"episode": "m0017", "supports": "u0003"}',
@@ -592,18 +594,6 @@ RELATION_ACTIONS = (
         ),
         field_schema='        {"episode": "m0015", "contradicts": "m0009"},',
         example='{"episode": "m0015", "contradicts": "m0009"}',
-    ),
-    DigestAction(
-        name="about",
-        phase=PHASE_RELATE,
-        role="这条经历**是关于**那个对象（人 / 地方 / 东西）的。",
-        semantics=(
-            "两端: 左 = 经历 · 右 = **一个对象**（`x…`）—— 对象**永远在右边**;\n"
-            "何时用: 这条经历的**主要内容**就是它;\n"
-            "禁什么: 只是\"提到过一句\"不算; ⚠️ 今天候选很少（只有 `x0000` 她 / `x0001` 老师）—— 有候选才写。"
-        ),
-        field_schema='        {"episode": "m0014", "about": "x0001"},',
-        example='{"episode": "m0014", "about": "x0001"}',
     ),
     DigestAction(
         name="evolved_from",
@@ -1111,7 +1101,6 @@ class DigestRegistry:
 
     def parse_relations(self, raw: Any, *, episode_ids: set[str] | None = None,
                         target_ids: set[str] | None = None,
-                        entity_ids: set[str] | None = None,
                         topics_of: dict[str, list[str]] | None = None,
                         kind_of: dict[str, str] | None = None,
                         ) -> tuple[list[dict], ValidationResult]:
@@ -1126,7 +1115,6 @@ class DigestRegistry:
         | 行形状坏（锚点键 ≠ 1 个 / 关系键 ≠ 1 个 / 值不是字符串 / 未知键）| **丢这一行** + 记账 |
         | `id` **不在渲染列表里**（编造）| ⛔ **整包拒** —— 那说明她没在引用真实世界, 整包不可信 |
         | `akin` 缺 `on` / `on` 不在**两端 `topics` 的交集**里 | **丢这一行** + 记账（轴是**逐行**的性质, 一行坏不毁整段记忆）|
-        | `about` 的目标不在 `entity_ids` 里 | **丢这一行**（⚠️ 与上面那条**不同档** —— 理由见下面代码里那段注释）|
         | `akin` / `contradicts` 的**两端类型**不对（P2）| **丢这一行** —— `akin` 两端都得是经历; `contradicts` 得**同侧**（经历↔经历 或 非经历↔非经历）|
         | `evolved_from` 的两端**不是看法**（P7-2, 2026-10-08）| **丢这一行** —— 那是"看法 ↔ 看法"的边（经历没有进化可言）|
 
@@ -1168,17 +1156,7 @@ class DigestRegistry:
             if episode_ids is not None and target_ids is not None \
                     and aid not in episode_ids and aid not in target_ids:
                 bad = aid
-            # ⚠️ `about` 的**右端单独一档**: 不在候选对象里 ⇒ **只丢这一行**。
-            # 判据（P1b-2 端到端用例把它逼出来的那处不一致）: 对象候选是引擎摆出来的
-            # **≤5 个**（`DESIGN_DIGEST_TWO_PASSES §10`）, 挑错了是**失手**, 不是
-            # "整包不可信"; 而整包拒会把**这一段的记忆整个回滚**（重试两次仍拒 ⇒
-            # 最终放弃这一段 = 真的丢记忆）—— 代价与"归错一次人"不成比例。
-            if not bad and rel == "about" and entity_ids is not None \
-                    and dst not in entity_ids:
-                drops.append(f"relations[{i}] about 的目标 {dst!r} 不在候选对象里")
-                continue
-            if not bad and rel != "about" and target_ids is not None \
-                    and dst not in target_ids:
+            if not bad and target_ids is not None and dst not in target_ids:
                 bad = dst
             if bad:
                 errors.append(f"relations[{i}] 引用了列表里没有的 id: {bad}（整包拒）")
@@ -1784,7 +1762,8 @@ class DigestRegistry:
 # ============================================================================
 
 #: `links` 允许的 rel（**只有这三种** —— 见 DESIGN_GRAPH_V4 §2 的边表）。
-#: ⚠️ 别加 `about`（那是第 3 轮的活, 走候选表映射）· 别加 `source`（已删）·
+#: ⚠️ 别加 `about`（⛔ **它不由 LLM 写**: 引擎从节点 `tags` 里的 `#entity:` 派生, 见 E1/E3）·
+#: 别加 `source`（已删）·
 #: 别加 `formed_by`/`from`/`to`（2026-09-29 随 promise 退图一起删）。
 #: ⭐ `supports` 在 `links` 这里**只认"看法 → 看法"那一种形状** ——
 #: `supports` 共两种形状（§2）: `episode → 认知` 由**决策表**的 touch/update/add 写,

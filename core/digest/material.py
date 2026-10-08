@@ -9,7 +9,7 @@
 | **R0** | `_segment_time_text` · `_special_days_text` · `_open_pinned_text` · `_ledger_ids` | 本段的时间 · 日子 · 还开着的约定（带编号 + 期限）· **资格位**（L3, 2026-10-05） |
 | R1 | `_collect_visual_prompts` · `_segment_emotion_keys` | 画面记忆 · 本段情绪标尺 |
 | R4 | `_open_pinned_text` · `_episode_lines` | 还开着的约定（带编号）· 本段新增经历 |
-| **L1** | `_round_b_material` · `_episode_candidates` · `entities.object_lines` | 新经历（**带 `topics` 轴**）+ 每条候选（正文/被引/边/为什么）· **现有经历（候选）**（按 `topics` 相交摆）· **对象候选**（≤5 个真 id + 命中提示）|
+| **L1** | `_round_b_material` · `_episode_candidates` | 新经历（**带 `topics` 轴**）+ 每条候选（正文/被引/边/为什么）· **现有经历（候选）**（按 `topics` 相交摆）|
 | R3 | `_node_texts` | 本轮**动过**的节点正文（喂 `entities.hit_set`） |
 | 全体 | `_sections_for` · `_join_sections` | 按表校对段标题 → 拼成 user 串 |
 
@@ -520,7 +520,11 @@ def _episode_candidates(store: "WikiStoreV2", episode_ids: list[str], *,
 #: 挑法见 `_groups_for_l2`: **本段新归入多的先**, 平手时**还没写过沉淀的先**。
 DIGEST_L2_GROUPS = 3
 
-#: 「被 L1 连过」= **L1 的动作面那五条边**（`RELATION_ACTIONS` —— 契约单源, ⛔ 不另抄一份）。
+#: 「被 L1 连过」= **L1 的动作面那几条边**（`RELATION_ACTIONS` —— 契约单源, ⛔ 不另抄一份）。
+#: ⚠️ **2026-10-08（E3）起是四条**（`supports`/`akin`/`contradicts`/`evolved_from`）——
+#: `about` 移出了动作面（归属改由**引擎**从节点 `tags` 的 `#entity:` 派生）⇒ 它不再算
+#: "被 L1 连过"。**这是判据的正确收紧**: 一条经历只带"关于谁"的标记, 不等于"她把它
+#: 跟别的经历/看法连上了" ⇒ 它仍然是**孤立经历**, 不进 L2（P8 的原始门槛）。
 #: ⚠️ `member_of` **不在里面**（那是 `group` 落的边）—— 它要是算进来, 每个归了类的经历
 #: 都成了"被连过", 孤立经历那道理应存在的门槛就失效了。
 _L2_LINK_RELS = frozenset(a.name for a in RELATION_ACTIONS)
@@ -572,7 +576,7 @@ def _l2_material(ctx) -> tuple[str, str, list[str]]:
 def _linked_episode_ids(ctx) -> list[str]:
     """**被 L1 连过的**本段经历（规格 §3: "读边取两端, 纯计算"）。
 
-    判据 = 本段新建的 episode 里，**被 L1 那五条边**（`_L2_LINK_RELS`）沾到的那些。
+    判据 = 本段新建的 episode 里，**被 L1 那几条边**（`_L2_LINK_RELS`）沾到的那些。
     ⚠️ **`member_of` 不算**（那是 `group` 落的边, 每个归了类的经历都有它）——
     我第一版数"任意边", 结果**凡是被归了类的经历都不再孤立** ⇒ 天然门槛整个失效
     （自测 `test_l2_body_text_appears_exactly_once` 抓到）。

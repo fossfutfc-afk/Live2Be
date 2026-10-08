@@ -374,10 +374,12 @@ def test_l1_akin_reaches_an_older_episode(tmp_path):
     assert not [d for d in res.contract_drops if "交集" in d], res.contract_drops
 
 
-def test_l1_about_lands_with_object_candidates(tmp_path):
-    """⭐ **P2**: 对象候选进料 ⇒ `about` 落得下来（P1b-2 期间它一行都落不了）。
+def test_l1_about_is_no_longer_an_action(tmp_path):
+    """⭐ **2026-10-08（E3）**: `about` **不再是 L1 的动作** —— 归属改由引擎从 `tags` 派生。
 
-    "提到过"是引擎数出来的**字面事实**（`entities.hit_set`）, 挂不挂仍由 L1 判。
+    三条判据: ① 料里**不再有**【候选对象】（那一栏的唯一消费者就是 about）·
+    ② 她写 `about` ⇒ 形状坏 ⇒ **丢这一行**（不毁整段）· ③ 图上**没有** about 边。
+    （落边那条路改由 `tags` 里的 `#entity:` 走 —— 判据见 `tests/core/test_entity_tags.py`。）
     """
     from core.brain.entities import ensure_entities
 
@@ -391,9 +393,9 @@ def test_l1_about_lands_with_object_candidates(tmp_path):
 
     assert res.ok, res.errors
     user = llm.calls[1][1]["content"]
-    assert "【候选对象】" in user and "x0001 老师" in user, user
-    assert "→ 候选: x0001（老师）" in user, "字面命中要摆出来（本段正文里有'老师'）"
-    assert st.graph().targets("m0003", "about") == ["x0001"]
+    assert "【候选对象】" not in user, user
+    assert st.graph().targets("m0003", "about") == []
+    assert any("形状坏" in d for d in res.contract_drops), res.contract_drops
 
 
 def test_l1_type_mismatch_is_dropped(tmp_path):

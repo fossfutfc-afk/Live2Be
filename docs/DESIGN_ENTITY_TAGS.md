@@ -140,7 +140,7 @@ entity 节点 = 身份:  name（主名）+ aliases（别称）
 |---|---|---|---|---|
 | **E1** | ✅ **已落地**（2026-10-08）| `#entity:` 语法：parse 形状（空名字丢项）· 执行层**落 `about` 边** + 归一 + 陌生保留 + 账 `strangers=` · R1 的契约/prompt（翻掉"别写关于谁"那条裁决）| `contract/digest_registry.py` · `core/brain/entities.py`（`find_entity` / `normalize_entity_tags`）· `core/digest/episodes.py`（`_link_about`）· `llm/prompts/digest_record.md` | 真机只读: **22/22 种叫法解析回自己** · 口径差 48%→100% · `test_entity_tags.py` 11 例 · **7 变异全红** · 三板块 1290 passed | — |
 | **E2** | ✅ **已落地**（2026-10-08）| L2 的 belief 行加**可选 `tags`**（同一套 `#entity:` 语法）⇒ 引擎归一并落 `about(belief → 对象)`；`_split_tags` 的记账文案参数化（`where=`）| 同上契约 + `_clean_belief` · `core/brain/revise.py`（`_create_belief` + `CognitionResult.strangers`）| 真机依据: belief 的 `subject` 已漂成"主题句"（**4/4 条解析不到 entity**）⇒ 看法确实缺地址槽 · 6 例守门 · **5 变异全红** | E1 |
-| **E3** | **删 L1 的 `about` 动作**（5 → 4）+ 修 §7 那笔红账 + prompt/守门同步 | `contract/digest_registry.py` · `rounds/__init__.py` · `digest_relate.md` | 守门：L1 的 `writes` = 4 条边（含 `evolved_from`）· 变异验红 | E1 |
+| **E3** | ✅ **已落地**（2026-10-08）| **删 L1 的 `about` 动作**（5 → 4）+ 修 §7 那笔红账 + prompt/守门同步；连带收干净同一个死因: `parse_relations` 的 `entity_ids` 参数与 about 那一档 · L1 料的【候选对象】栏 · `RELATION_ANCHORS` 的 `"entity"` | `contract/digest_registry.py` · `rounds/__init__.py` · `rounds/relate.py` · `material.py` · `digest_relate.md` | L1 的 `writes` = 4 条边（含 `evolved_from`）· **5 变异全红**（含变异逼出的一条真缺口: "编造 id 整包拒"原来只测了锚点那一端）· 三板块 1295 passed | E1 |
 | **E4** | 恢复 R3 = **只认人**（`new_entity`）+ **建完补边** + skip="有解析不到的 tag" + 观测一行 | `rounds/attribute.py` · `rounds/__init__.py` · `revise.apply_attribution` | 先验能红：新人建得出 · 补边落得上 · 老对象不重复建 · 无陌生人时 **0 调用** · 变异 5 条 | E3 |
 
 **观测行**（E4）：`digest_attribute cands= strangers= new= edges= skipped=`（可 grep）。

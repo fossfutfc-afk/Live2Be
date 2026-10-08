@@ -976,19 +976,22 @@ def test_relate_phase_names_match_the_graph_truth():
     from core.brain.graph import RELS
 
     names = [a.name for a in RELATION_ACTIONS]
-    assert names == ["supports", "akin", "contradicts", "about", "evolved_from"], names
+    assert names == ["supports", "akin", "contradicts", "evolved_from"], names
     assert set(names) <= set(RELS), f"契约里的动作名必须在 RELS 里: {set(names) - set(RELS)}"
-    # 锚点类型与 nodes.KINDS 同源
+    # 锚点类型与 nodes.KINDS 同源 —— ⚠️ **2026-10-08（E3）起是 `<=`（不再相等）**:
+    # `entity` **永远不在任何关系的左端**（它只是 `about` 的右端, 而 `about` 不再由 LLM 写）
+    # ⇒ 锚点名单里留着它的唯一效果, 是让"她拿对象当锚点"那类坏行多走一段路才被丢掉。
     from core.brain.nodes import KINDS
-    assert set(RELATION_ANCHORS) == set(KINDS)
-    print("    P1a: 五个动作名 ∈ graph.RELS; 锚点类型 == nodes.KINDS")
+    assert set(RELATION_ANCHORS) <= set(KINDS), set(RELATION_ANCHORS) - set(KINDS)
+    assert "entity" not in RELATION_ANCHORS, "E3 之后没有关系以对象为左端"
+    print("    P1a: 四个动作名 ∈ graph.RELS; 锚点类型 ⊆ nodes.KINDS（entity 除外）")
 
 
 def test_relate_contract_says_no_body_text():
     """⭐ P1a: L1 的契约 —— 一个字的正文都不写（没有 text/subject 那些键）。"""
     text = digest_registry.build_schema(PHASE_RELATE)
     assert '"relations": [' in text
-    for key in ('"supports"', '"akin"', '"contradicts"', '"about"'):
+    for key in ('"supports"', '"akin"', '"contradicts"', '"evolved_from"'):
         assert key in text, key
     assert "不写正文" in text and "没话说就不写" in text
     assert "同一件事的先后两段" in text and "平行同类" in text
@@ -1009,15 +1012,14 @@ def test_parse_relations_legal_rows_and_two_tiers():
         {"episode": "m0017", "akin": "m0014", "on": "苔藓"},
         {"episode": "m0017", "supports": "u0003"},
         {"episode": "m0015", "contradicts": "m0009"},
-        {"episode": "m0014", "about": "x0001"},
         {"belief": "u0003", "supports": "u0003"},          # 候选对: 两端都已有（形状合法）
     ]}
     rows, res = digest_registry.parse_relations(
-        raw, episode_ids=eps, target_ids=targets, entity_ids=ents, topics_of=topics)
+        raw, episode_ids=eps, target_ids=targets, topics_of=topics)
     assert res.is_valid, res.errors
-    assert [r["rel"] for r in rows] == ["akin", "supports", "contradicts", "about", "supports"]
+    assert [r["rel"] for r in rows] == ["akin", "supports", "contradicts", "supports"]
     assert rows[0] == {"rel": "akin", "src": "m0017", "dst": "m0014", "on": "苔藓"}
-    assert rows[3] == {"rel": "about", "src": "m0014", "dst": "x0001"}
+    assert rows[3] == {"rel": "supports", "src": "u0003", "dst": "u0003"}
     assert not res.drops and not res.warnings
 
     # ① 形状坏 ⇒ **丢行**（锚点 0 个 / 关系 2 个 / 值不是字符串 / 未知键不算锚点）
@@ -1027,41 +1029,47 @@ def test_parse_relations_legal_rows_and_two_tiers():
         {"episode": 17, "supports": "u0003"},                   # id 不是字符串
     ]}
     rows2, res2 = digest_registry.parse_relations(
-        bad_shape, episode_ids=eps, target_ids=targets, entity_ids=ents)
+        bad_shape, episode_ids=eps, target_ids=targets)
     assert rows2 == [] and not res2.errors and len(res2.drops) == 3, res2.drops
 
-    # ② 编造 id ⇒ **整包拒**
+    # ② 编造 id ⇒ **整包拒** —— ⚠️ **两端都要管**: 锚点那一端（`m9999`）与右端（`u9999`）。
+    # （2026-10-08 E3 变异验红逼出来的: 只测锚点那一端时, "右端不校验"的变异**全绿**。）
     rows3, res3 = digest_registry.parse_relations(
         {"relations": [{"episode": "m9999", "supports": "u0003"}]},
-        episode_ids=eps, target_ids=targets, entity_ids=ents)
+        episode_ids=eps, target_ids=targets)
     assert rows3 == [] and res3.errors and "整包拒" in res3.errors[0]
+    rows3b, res3b = digest_registry.parse_relations(
+        {"relations": [{"episode": "m0014", "supports": "u9999"}]},
+        episode_ids=eps, target_ids=targets)
+    assert rows3b == [] and res3b.errors and "整包拒" in res3b.errors[0], res3b.errors
 
     # ③ `akin` 缺 on / on 不在交集 ⇒ 丢行（**轴是逐行的性质**）
     rows4, res4 = digest_registry.parse_relations(
         {"relations": [{"episode": "m0017", "akin": "m0014"},
                        {"episode": "m0017", "akin": "m0014", "on": "老师"}]},
-        episode_ids=eps, target_ids=targets, entity_ids=ents, topics_of=topics)
+        episode_ids=eps, target_ids=targets, topics_of=topics)
     assert rows4 == [] and len(res4.drops) == 2, res4.drops
     assert "交集" in res4.drops[1] and "苔藓" in res4.drops[1]   # 印出交集（非空）
     # ③b 交集**为空**（两条没有共同的轴）⇒ 也丢行, 理由里印"空"
     rows4b, res4b = digest_registry.parse_relations(
         {"relations": [{"episode": "m0015", "akin": "m0009", "on": "苔藓"}]},
-        episode_ids=eps, target_ids=targets, entity_ids=ents, topics_of=topics)
+        episode_ids=eps, target_ids=targets, topics_of=topics)
     assert rows4b == [] and "空" in res4b.drops[0], res4b.drops
 
     # ④ 非 akin 行写了 on ⇒ 忽略 + 一句 warning（不丢行）
     rows5, res5 = digest_registry.parse_relations(
         {"relations": [{"episode": "m0017", "supports": "u0003", "on": "苔藓"}]},
-        episode_ids=eps, target_ids=targets, entity_ids=ents)
+        episode_ids=eps, target_ids=targets)
     assert len(rows5) == 1 and "on" not in rows5[0] and res5.warnings
 
-    # ⑤ `about` 的目标不在 entity_ids ⇒ **丢行**（⚠️ 与"编造 id 整包拒"**不同档**:
-    #    对象候选是引擎摆出来的 ≤5 个, 挑错了是失手, 不该把这一段的记忆整个回滚）
+    # ⑤ ⭐ **2026-10-08（E3）: `about` 不再是 L1 的动作** ⇒ 那种行**形状坏**（关系键 0 个）
+    #    ⇒ **丢这一行**。归属改由**引擎**从节点 `tags` 里的 `#entity:` 派生
+    #    （判据见 `DESIGN_ENTITY_TAGS`）—— 这条钉住"别把 `about` 加回动作面"。
     rows6, res6 = digest_registry.parse_relations(
-        {"relations": [{"episode": "m0014", "about": "u0003"}]},
-        episode_ids=eps, target_ids=targets, entity_ids=ents)
+        {"relations": [{"episode": "m0014", "about": "x0001"}]},
+        episode_ids=eps, target_ids=targets)
     assert rows6 == [] and res6.drops and not res6.errors, (res6.errors, res6.drops)
-    assert "候选对象" in res6.drops[0]
+    assert "形状坏" in res6.drops[0], res6.drops
 
     # ⑥ ⭐ P2: **两端类型**（`kind_of` 给得出时）—— 与 `on` 同一档（丢行, 不毁整包）
     kinds = {"m0014": "episode", "m0017": "episode", "m0009": "episode",
@@ -1070,20 +1078,20 @@ def test_parse_relations_legal_rows_and_two_tiers():
     ktopics = {**topics, "u0003": ["苔藓"]}
     rows7, res7 = digest_registry.parse_relations(
         {"relations": [{"episode": "m0017", "akin": "u0003", "on": "苔藓"}]},
-        episode_ids=eps, target_ids=targets, entity_ids=ents,
+        episode_ids=eps, target_ids=targets,
         topics_of=ktopics, kind_of=kinds)
     assert rows7 == [] and res7.drops and not res7.errors, (res7.errors, res7.drops)
     assert "两端必须都是经历" in res7.drops[0]
     # ⚠️ 不给 `kind_of`（老调用方 / 单测）⇒ **不校验类型** —— 同一条行照过
     rows7b, res7b = digest_registry.parse_relations(
         {"relations": [{"episode": "m0017", "akin": "u0003", "on": "苔藓"}]},
-        episode_ids=eps, target_ids=targets, entity_ids=ents, topics_of=ktopics)
+        episode_ids=eps, target_ids=targets, topics_of=ktopics)
     assert len(rows7b) == 1 and not res7b.drops, res7b.drops
     # `contradicts` 要**同侧**: 经历 ↔ 看法 ⇒ 丢; 看法 ↔ 看法 ⇒ 落
     rows8, res8 = digest_registry.parse_relations(
         {"relations": [{"episode": "m0014", "contradicts": "u0003"},
                        {"belief": "u0003", "contradicts": "u0003"}]},
-        episode_ids=eps, target_ids=targets, entity_ids=ents, kind_of=kinds)
+        episode_ids=eps, target_ids=targets, kind_of=kinds)
     assert [r["rel"] for r in rows8] == ["contradicts"] and len(res8.drops) == 1, res8.drops
     assert "必须同侧" in res8.drops[0]
     print("    P1a: parse_relations 合法/丢行/整包拒 三档分得开（+ P2 两端类型）")
@@ -1143,7 +1151,7 @@ def test_relate_prompt_points_at_the_contract():
 
     # 契约那一侧: 五个动作 + "这一趟不写正文" 都在（prompt 不重复它们）
     text = digest_registry.build_schema(PHASE_RELATE)
-    for name in ("supports", "akin", "contradicts", "about", "evolved_from"):
+    for name in ("supports", "akin", "contradicts", "evolved_from"):
         assert f"【{name} 释义】" in text
     assert "relations 规则" in text
     assert "这一趟不写正文" in text
