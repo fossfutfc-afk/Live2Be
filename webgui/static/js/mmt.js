@@ -407,6 +407,20 @@ function showTyping() {
 
 function hideTyping() { $("mmt-typing")?.remove(); }
 
+// 指示器**永远贴在末尾**（它就是"她正在打下一条"的位置）。
+// ⛔ 2026-10-08 真机报障"粉色泡泡的渲染全乱掉了"的根因: 节奏化之后气泡是**延迟
+//    append** 的, 而指示器是**立刻** append 在当时的末尾 ⇒ 之后到达的气泡会插到
+//    它**下面** ⇒ 指示器卡在气泡上方（看着像乱序）。修法 = 每次上屏后把它移到末尾
+//    （`appendChild` 移动节点会**重新触发**省略号弹跳动画 —— 正好是"每一条出现
+//    之前都弹一次"）。
+//    ⚠️ 只移动已存在的节点, **不新建**（她说完就该没有它; 该不该出现由
+//    `showTyping()` / 轮询那两行判）。
+function typingToTail() {
+  const box = $("mmt-bubbles");
+  const t = $("mmt-typing");
+  if (box && t && box.lastElementChild !== t) box.appendChild(t);
+}
+
 function renderError(msg) {
   const box = $("mmt-bubbles");
   if (!box) return;
@@ -598,9 +612,15 @@ async function pollLoop() {
           firstOfBatch = false;
         }
         if (at > 0) {
-          setTimeout(() => { renderBubble(b); scrollBubbles(); }, at);
+          setTimeout(() => {
+            renderBubble(b);
+            scrollBubbles();
+            // 上屏之后把指示器移回末尾（她还在打 ⇒ 保持"正在输入…"; 详见 typingToTail）
+            if (_pollRunning || _revealing()) { showTyping(); typingToTail(); }
+          }, at);
         } else {
           renderBubble(b);
+          typingToTail();
         }
       }
       scrollBubbles();
@@ -628,6 +648,15 @@ async function pollLoop() {
         } else if (!_revealing()) {
           hideTyping();                       // 已到且放完: 静默等窗口耗尽
         }
+        continue;
+      }
+      // ⭐ 队列还在逐条上屏就必须**继续轮询 + 保持"正在输入…"**（2026-10-08 真机
+      //    报障"粉色泡泡的渲染全乱掉了"）: 节奏化之后气泡要放十几秒, 而后端
+      //    `running=false` 在 ~2s 就到了 ⇒ 从这里直接收摊会让气泡**无声地**一条条
+      //    冒出来（指示器早退了半个屏幕的时间）。
+      if (_revealing()) {
+        showTyping();
+        typingToTail();
         continue;
       }
       hideTyping();

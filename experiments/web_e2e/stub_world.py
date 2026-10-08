@@ -78,6 +78,13 @@ MMT_TRIGGER = ('{"text": "老师，你现在方便吗？"}\n'
                '{"action": "mmt_trigger_bond_story",'
                f' "payload": {{"chapter_title": "{CHAPTER_TITLE}"}}}}')
 MMT_REPLY = '{"text": "嗯……我、我其实很开心的！"}'
+#: ⭐ 普通聊天轮（**不带触发**）—— 冒烟用它验"批内逐条上屏"与"提示泡永远贴末尾"。
+#: 为什么不能拿触发轮验: 入口粉泡一上屏,（2026-09-20 的决定）就把"对方正在输入…"
+#: 压掉 ⇒ 那一轮**测不到指示器与延迟气泡共存**的状态（2026-10-08 加守门时发现）。
+#: 三行**突发**（`MMT_ROW_GAPS_S` 前几项是 0）⇒ 落进同一次轮询 = 真机形态。
+MMT_CHAT = ('{"text": "老师，我、我其实……"}\n'
+            '{"text": "今天那家店的甜点，我一直在想。"}\n'
+            '{"text": "下次……还能一起去吗？"}')
 #: 羁绊收尾话（wrapup）——文本独立, 冒烟据此断言"收尾气泡不用切页就能到"
 WRAPUP_REPLY = '{"text": "（收尾话）老师，今天真的很谢谢你。"}'
 #: ⑥-3b: 冒烟桩的 MMT 逐行间隔（秒）——生产是 LLM 的真实生成速度;
@@ -154,7 +161,9 @@ class StubLLM:
             self.mmt_calls += 1
             self.calls.append(f"mmt#{self.mmt_calls}")
             if self.mmt_calls == 1:
-                return MMT_TRIGGER         # 第一轮即触发羁绊剧情（界面走全链）
+                return MMT_CHAT            # 第一轮: 普通聊天（验节奏/提示泡; 不触发）
+            if self.mmt_calls == 2:
+                return MMT_TRIGGER         # 第二轮: 触发羁绊剧情（界面走全链）
             if "羁绊剧情刚刚结束" in joined or "只进行到一半" in joined:
                 return WRAPUP_REPLY        # 收尾话（wrapup 轮）——区别于普通回复
             return MMT_REPLY
