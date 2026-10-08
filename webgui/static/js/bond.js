@@ -138,6 +138,11 @@ let lastSceneKey = "";
   // ⚠️ 不抢锚点: 本板若有**句级锚点**已接管背景（`appliedPlace !== null`）就不动。
   function syncBoardBg(scene) {
     const url = (scene && scene.background_url) || "";
+    // ⛔ **纪念窗口里不许补切**（2026-10-08 冒烟当场抓到）: 纪念的视觉 = "隐藏立绘 +
+    //    清空 `#bond-bg`（黑屏余韵）+ 图就绪淡入"（`applyMemorial`）。补切若在这里把
+    //    **板级背景**贴回去, 就顶掉了黑屏（冒烟判据 `bgCleared=false`）。
+    //    退出窗口时 `applyMemorial` 自己会按当前板的 `background_url` 还回去 ⇒ 不用我们管。
+    if (memorialNow()) return;
     if (!url || appliedPlace !== null) return;
     if (url === appliedBgUrl) return;
     dbg("board-bg late →", url,
@@ -409,6 +414,10 @@ let lastSceneKey = "";
         // 纪念立绘（方案 A）: 每轮都同步（busy 也同步——图就绪随时淡入;
         // 图晚到: 进入纪念时黑屏+文字, 图就绪即静默淡入）
         syncMemorial(st);
+        // ⭐ 板级背景**每轮都对一次账**（2026-10-08）: 补切只做一次是不够的 ——
+        //    纪念退出时会把 `curScene.background_url`（渲染时的**陈旧快照**）贴回来,
+        //    而那时守望可能已经自停 ⇒ 背景永远停在兜底图。这里幂等（不同才写）。
+        if (st.scene) syncBoardBg(st.scene);
         // 名字牌（官方: 名字 + 社团）——status 返回, 覆盖 enter 传入的兜底 name
         if (st.name) $("bond-name").textContent = st.name;
         if (st.club !== undefined) $("bond-club").textContent = st.club;
@@ -675,6 +684,14 @@ let lastSceneKey = "";
     const bgSettled = !!scene.place
       || paras.some((p) => p && (p.place || p.place_bg));
     if (emoDone && bgSettled) return;                    // 都齐了 → 无需守望
+    // ⭐ **拿内容指纹判"这一板还在不在", 不用 `round`**（2026-10-08）。
+    //    从前是 `if (st.round !== seenRound) { clearEmoWatch(); return; }` —— 而
+    //    `state.round` 在**板交付之后**才 +1（`entry/outputs` 都是交付时加）：
+    //    首板进场时前端记的是**交付前**的 round ⇒ 第一个 tick（800ms）就判"场景已推进"
+    //    **自杀** ⇒ 晚到的 emotion/place 全都补不上（真机"背景永远是兜底教室"、
+    //    "表情卡 nomal"都有它一份）。内容指纹（`sceneKey` = 段落 + is_end）在
+    //    标注回填时**不变**、换板/裁决时才变 ⇒ 正是"这一板还在不在"的判据。
+    const watchKey = sceneKey(scene);
     let stable = 0;
     emoWatchTimer = setInterval(async () => {
       if (emoWatchTimer == null) return;
@@ -685,8 +702,11 @@ let lastSceneKey = "";
             st.gate_busy, "anno", st.anno,
             "emotions", ((st.scene && st.scene.paragraphs) || []).map(
                 (p) => (p && p.emotion) || "-"));
-        if (st.round !== seenRound) { clearEmoWatch(); return; }  // 场景已推进
-        if (st.scene) syncBoardBg(st.scene);             // ⭐ 板级背景晚到 → 补切
+        if (!st.scene || sceneKey(st.scene) !== watchKey) {
+          clearEmoWatch();                               // 板真的换了 → 守望作废
+          return;
+        }
+        syncBoardBg(st.scene);                           // ⭐ 板级背景晚到 → 补切
         if (st.scene && st.emo_version !== undefined && st.emo_version !== seenEmo) {
           dbg("emoWatch 版本变化 t=", Math.round(performance.now()),
               "ver", seenEmo, "→", st.emo_version,
@@ -700,8 +720,13 @@ let lastSceneKey = "";
         }
         const allDone = st.scene && (st.scene.paragraphs || [])
           .every((p) => p && p.emotion);
-        // 双路齐（gate_busy = emotion 与 place 两路都完成）且稳定 → 自停
-        if (allDone && !st.gate_busy && stable >= 2) clearEmoWatch();
+        // ⭐ 自停还要**背景对得上**（2026-10-08）: 只按"表情齐 + 门控开"停会留下
+        //    "补切做完了、随后被陈旧快照贴回兜底图"的窗口 —— 那时已经没人再纠正。
+        //    判据: 屏上背景 == status 给的 `background_url`（或这一板本来就没背景）。
+        const wantBg = (st.scene && st.scene.background_url) || "";
+        const domBg = (($("bond-bg") || {}).style || {}).backgroundImage || "";
+        const bgAgree = !wantBg || domBg.includes(wantBg);
+        if (allDone && !st.gate_busy && stable >= 2 && bgAgree) clearEmoWatch();
       } catch (e) { /* 网络瞬断忽略——下轮重试 */ }
     }, 800);
     setTimeout(() => { if (emoWatchTimer != null) clearEmoWatch(); }, 30000);
