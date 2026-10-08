@@ -114,7 +114,13 @@ async def collection_replay(char_id: str, from_seq: int) -> dict:
         raise HTTPException(status_code=404, detail=f"回忆册读取失败: {e}")
     if not ch:
         raise HTTPException(status_code=404, detail="没有这一章（或它还没有结束）")
+    # ⭐ 章内沿用（与 live/回放同源, 2026-10-08）: 事件 payload 里只有板首 `switch`
+    #    带 place ⇒ 后续板从前一律落到兜底教室。回忆册里同样要按"章内当前地点"补。
+    carry = ""
     for s in ch["scenes"]:
-        s["scene"] = _resolve_scene(s.get("scene"), char_id)
+        s["scene"] = _resolve_scene(s.get("scene"), char_id, inherit_place=carry)
+        pl = (s.get("scene") or {}).get("place")
+        if isinstance(pl, str) and pl.strip():
+            carry = pl.strip()
     info = _role(char_id)
     return {"char_id": char_id, "name": info["name"], "club": info["club"], **ch}

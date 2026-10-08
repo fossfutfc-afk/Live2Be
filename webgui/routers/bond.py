@@ -111,16 +111,24 @@ def _speaker_name_map(char_id: str) -> dict[str, str]:
     return speaker_names(char_id=char_id, display=who, with_narrator=True)
 
 
-def _resolve_scene(scene: dict | None, char_id: str) -> dict | None:
+def _resolve_scene(scene: dict | None, char_id: str, *,
+                   inherit_place: str = "") -> dict | None:
     """场景 dict 附带前端渲染信息:
     background_url — scene_id → 静态文件 URL（无背景 → 保持 None, 黑屏余韵）
     missing_asset  — **有明确地点但素材找不到**时的回执 `{key, scene_id?}`——
                      此时 background_url 给**黑屏 `black`**, 前端 `console.error`
                      + 一次 `alert`（用户 2026-09-19 裁决: 宁可黑屏让人看见）
+    place_inherited — 这张背景是**沿用本章当前地点**来的（不是这块板自己 switch 的）
     paragraphs[].fx — emotion → 特效符号列表（EffectResolver 单源: 角色表→全局表→空;
                       前端 VN 立绘头顶浮现——官方冒爱心/音符/惊叹等 UI 层特效）。
     paragraphs[].speaker_name — 记录流 v2 说话人显示名（最小形态: 只有名字行,
                       样式/气泡留给前端; 旁白为空串 → 不加名字行）。
+
+    ⭐ `inherit_place`（2026-10-08）—— 板级**没有** `switch` 时沿用的地点键。
+    只有板首 `switch` 的板带 `place`, 其余板的 `place` 恒为 None ⇒ 从前一律落到
+    `_BG_FALLBACK_PRIORITY`（第一项 = `class_room` = 教室）⇒ 真机报障
+    *"第一个背景永远是默认教室兜底"*（整章底色都是教室）。而**导演语义本来就是
+    "保持上一场"**, 展示层此前与它不一致。取不到/沿用不到 → 照旧走兜底。
     """
     if not scene:
         return None
@@ -131,15 +139,34 @@ def _resolve_scene(scene: dict | None, char_id: str) -> dict | None:
     if isinstance(place, str) and place.strip():
         key = place.strip()
         url, st = _place_bg(key, _place_asset_of(scene))
-        if st != "ok":
-            # 缺素材 / 旧名 → 黑屏 + 回执（`_missing_info` 会带上改名解释）
-            info = _missing_info(key)
-            scene["missing_asset"] = info
-            scene["background_url"] = _black_bg_url()
-            logger.error("[place][MISSING_ASSET] key=%r 查不到背景素材 → 黑屏占位%s",
-                         key, f"（{info.get('message')}）" if info.get("message") else "")
-            return _finish_scene(scene, char_id)     # 已定背景, 段落特效照挂
-    # ② 没有地点（或地点有图）→ 走老口径
+        if st == "ok" and url:
+            # ⛔ **必须当场 return**（2026-10-08 修）: 从前成功时**继续往下走到 ②**,
+            #    而 v2 的 `background` 是占位 `neutral`（没有 catalog 资产）⇒ ② 里那句
+            #    `_fallback_bg_url()` **把刚取到的地点图覆盖成兜底教室** ⇒ 真机症状
+            #    "第一个背景永远是默认教室兜底"（且每块板都是）。地点是权威,
+            #    老口径的 `background` 只在**没有地点**时才有意义。
+            scene["background_url"] = url
+            return _finish_scene(scene, char_id)
+        # 缺素材 / 旧名 → 黑屏 + 回执（`_missing_info` 会带上改名解释）
+        info = _missing_info(key)
+        scene["missing_asset"] = info
+        scene["background_url"] = _black_bg_url()
+        logger.error("[place][MISSING_ASSET] key=%r 查不到背景素材 → 黑屏占位%s",
+                     key, f"（{info.get('message')}）" if info.get("message") else "")
+        return _finish_scene(scene, char_id)         # 已定背景, 段落特效照挂
+    # ①′ ⭐ **没有板级 switch → 沿用本章当前地点**（见 docstring 的 `inherit_place`）
+    #     收尾板（is_end）不沿用: 它的"黑屏余韵"是官方结束样式（前端 is_end 无背景时
+    #     保持上一张/清空）, 糊一张地点图回去会破坏它。
+    if (not (isinstance(place, str) and place.strip())
+            and inherit_place and not scene.get("is_end")):
+        url, st = _place_bg(inherit_place.strip(), "")
+        if st == "ok":
+            scene["background_url"] = url
+            scene["place_inherited"] = inherit_place.strip()
+            return _finish_scene(scene, char_id)
+    # ② **没有地点**（或沿用不到）→ 走老口径
+    #    ⚠️ 这一支**只对"没有 place"的板有意义** —— 有地点的板在 ①/①′ 就已经 return
+    #    （从前会走到这里, 于是 `background='neutral'` 占位把地点图覆盖成兜底教室）。
     sid = scene.get("background")
     if sid:
         url = _catalog_url(sid)
@@ -190,6 +217,30 @@ def _finish_scene(scene: dict, char_id: str) -> dict:
                     elif url:
                         p["place_bg"] = url
     return scene
+
+
+def _current_place_of(char_id: str, session_id: str) -> str:
+    """本章**当前地点键** —— 给"板级没有 `switch` 的板"沿用（见 `_resolve_scene`）。
+
+    来源优先级（都取不到 → 空串, 照旧走兜底）:
+      ① 引擎运行态 `vn._current_place`（板首 switch 与句级锚点**共同**推进的那个,
+         所以它同时覆盖"锚点推出的终地点"）
+      ② 当前板 `scene_obj.place`（lane 回填后的板级地点）
+      ③ 预生成板 `pregen_obj.place`（下一板已经 switch 过的情况）
+    ⚠️ **纯读**, 不改任何状态; 任何异常都吞掉返回空串（展示层不许因它炸）。
+    """
+    try:
+        state = bond._state(char_id, session_id)
+    except Exception:                                # noqa: BLE001 — 状态没建/已清
+        return ""
+    for val in (
+        getattr(getattr(state, "vn", None), "_current_place", ""),
+        getattr(getattr(state, "scene_obj", None), "place", ""),
+        getattr(getattr(state, "pregen_obj", None), "place", ""),
+    ):
+        if isinstance(val, str) and val.strip():
+            return val.strip()
+    return ""
 
 
 def _catalog_url(sid: str) -> str | None:
@@ -341,7 +392,9 @@ async def bond_start(body: BondStartIn) -> dict:
     try:
         r = bond.bond_start(body.char_id, body.session_id)
         if isinstance(r.get("scene"), dict):
-            r["scene"] = _resolve_scene(r["scene"], body.char_id)
+            r["scene"] = _resolve_scene(
+                r["scene"], body.char_id,
+                inherit_place=_current_place_of(body.char_id, body.session_id))
         return r
     except Exception as e:                     # noqa: BLE001 — 驱动异常转 HTTP 错误
         raise HTTPException(status_code=500, detail=f"bond start 失败: {e}")
@@ -367,7 +420,9 @@ async def bond_turn(body: BondTurnIn) -> dict:
     try:
         r = bond.bond_turn(body.char_id, body.session_id, body.text)
         if isinstance(r.get("scene"), dict):
-            r["scene"] = _resolve_scene(r["scene"], body.char_id)
+            r["scene"] = _resolve_scene(
+                r["scene"], body.char_id,
+                inherit_place=_current_place_of(body.char_id, body.session_id))
         return r
     except Exception as e:                     # noqa: BLE001
         raise HTTPException(status_code=500, detail=f"bond turn 失败: {e}")
@@ -378,7 +433,8 @@ async def bond_status(char_id: str, session_id: str) -> dict:
     """轮询生成状态 + 最新场景（附带 background_url / 段落 fx 供前端渲染）。"""
     try:
         st = bond.bond_status(char_id, session_id)
-        st["scene"] = _resolve_scene(st.get("scene"), char_id)
+        st["scene"] = _resolve_scene(st.get("scene"), char_id,
+                                     inherit_place=_current_place_of(char_id, session_id))
         return st
     except Exception as e:                     # noqa: BLE001
         raise HTTPException(status_code=500, detail=f"bond status 失败: {e}")
@@ -393,8 +449,15 @@ async def bond_replay(char_id: str, session_id: str = "") -> dict:
     try:
         attempts = bond.replay_attempts(char_id, session_id)
         for at in attempts:
+            # ⭐ 回放也按"章内沿用"补背景: 事件 payload 里只有板首 `switch` 带 place,
+            #    后续板照旧会落到兜底教室（与 live 同一个病, 2026-10-08）。
+            carry = ""
             for s in at["scenes"]:
-                s["scene"] = _resolve_scene(s.get("scene"), char_id)
+                s["scene"] = _resolve_scene(s.get("scene"), char_id,
+                                            inherit_place=carry)
+                pl = (s.get("scene") or {}).get("place")
+                if isinstance(pl, str) and pl.strip():
+                    carry = pl.strip()
         return {"attempts": attempts}
     except Exception as e:                     # noqa: BLE001 — 回放异常转 HTTP
         raise HTTPException(status_code=500, detail=f"bond replay 失败: {e}")
