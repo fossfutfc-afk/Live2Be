@@ -458,6 +458,12 @@ def _episode_candidates(store: "WikiStoreV2", episode_ids: list[str], *,
     排序: 交集**元素多**的在前（越像越靠前）; 同数按 `ts` 新的在前。
     ⚠️ 一条旧经历都没相交 ⇒ **这一段的经历是孤立的**（那也是一个结论, 不编候选）。
 
+    ⚠️ **摆不出候选时返回的不是空串, 而是"（无 —— 为什么）"**（P6, 2026-10-08）:
+    空串会被 `_join_sections` 的 `if body` **连段标题一起吞掉** ⇒ 她既看不到
+    「现有经历（候选）」这一格, 也不知道"候选是空的" —— 而**"没有可接的旧事"本身
+    就是信息**（那她就不该硬写 `akin`）。⭐ 两种"空"是**两件事**, 文案分开:
+    「本段经历没有标轴」（没法比）≠「没有一条同轴」（比过了, 真没有）。
+
     ⚠️ `now` 给了就印"多久以前 / 日期"两格 —— 契约那句"同一件事的先后两段**不算**
     `akin`（那是时间上的接续）"要她判得出来, 就得看得见旧事有多旧。
 
@@ -465,7 +471,7 @@ def _episode_candidates(store: "WikiStoreV2", episode_ids: list[str], *,
     都得能用: 印一个不在交集里的词, 只会诱她写一条**过不了校验**的 `akin`。
 
     Returns: `(text, ids)`; `ids` = 摆出来的**真实 id**（喂 parse 的 `target_ids`
-        与 `topics_of`）。空 ⇒ `("", [])`。
+        与 `topics_of`）。摆不出 ⇒ `（无 …）` + `[]`。
     """
     ids = {str(i) for i in episode_ids}
     mine: list[set[str]] = []
@@ -474,7 +480,7 @@ def _episode_candidates(store: "WikiStoreV2", episode_ids: list[str], *,
         if node is not None and node.topics:
             mine.append({str(t) for t in node.topics})
     if not mine:
-        return "", []
+        return "（无 —— 本段经历没有标轴, 无法比对）", []
     scored: dict[str, tuple[int, str, list[str]]] = {}
     for old in store.all():
         if old.kind != "episode" or old.id in ids:
@@ -488,7 +494,8 @@ def _episode_candidates(store: "WikiStoreV2", episode_ids: list[str], *,
         if best:
             scored[old.id] = (best, str(old.ts or ""), axes)
     if not scored:
-        return "", []
+        # 比过了、真没有（≠ 上面那支"没法比"）—— 抬头要留着, 让她看见这个结论
+        return "（无 —— 已有的经历里没有一条与本段同轴）", []
     order = sorted(scored.items(), key=lambda kv: kv[1][1], reverse=True)  # ts 新的在前
     order.sort(key=lambda kv: -kv[1][0])                                  # 再按交集大小
     lines: list[str] = []

@@ -30,7 +30,12 @@
 | **P3** | ✅ **已落地**（`2e2b75b`）| **L1 的写侧**：`apply_relations`（**只落边**，不建 belief；带 `id_map`）| `core/brain/revise.py` | 边落对（rel/src/dst）+ 幂等 | 桩 store 钉"只做两件事"· 轴留痕 · `about` 方向 | — | 中 |
 | **P4** | ✅ **随 P1b-2 落地** | **prompt 改写**（→ `digest_relate.md`：职责 + 候选解释 + 指针）| `llm/prompts/digest_relate.md` | prompt 不抄判据（黑名单）| `test_relate_prompt_points_at_the_contract`（旧词汇零命中 + 指针对准契约真标题）| P1b | 小 |
 | **P5** | ✅ **随 P1b-2 落地** | **桩与编排**：`stub_tasks.annotation_reply` 认新形状 · `ROUNDS` 的 `writes` 格 | `tests/stub_tasks.py` · `rounds/__init__.py` | 板块绿 | `test_l1_writes_edges_only`（`writes` 只有边面）| P1b | 小 |
-| **P6** | ⬜ | ⭐ **观测**（"孤立经历"的账）| `rounds/relate.py` 的日志 | 一行日志能看出：几条关系 · 几条经历**一条关系都没被连** | 日志字段在 | P2 ✅ | 小 |
+| **P6** | ✅ **已落地**（P6, 2026-10-08）| ⭐ **观测**（"孤立经历"的账）| `core/digest/rounds/relate.py` 的日志 · `core/digest/material.py`（摆不出候选时**不再连段标题一起被吞**）| 一行日志能看出：几条关系 · 几条经历**一条关系都没被连**（`alone=` / `lone=`）· 前提读数 `pool=` | `tests/core/test_round_relate.py`（7 例）· 5 个变异全红（`.testtmp/verify_p6_red.py`）| P2 ✅ | 小 |
+
+> ⚠️ **P6 那个前提**（读 `cands=` 之前先看它）: 真机老档 **19 条 episode 只有 1 条有 `topics`**
+> （字段是 P0 才加的）⇒ `cands` 会长期是 0、`alone` 虚高。`pool=` 就是给这个用的解释器。
+> 用户 2026-10-08 裁: *"反正以后也要测试新的 digest，之后就删掉数据重来了，现在不急"*
+> ⇒ **只观测**, 不写补 `topics` 的维护脚本。
 
 ### ⚠️ P1b-2 作战表（2026-10-07 **已落地** —— 试做一次按纪律撤回, 第二次一次做完）
 

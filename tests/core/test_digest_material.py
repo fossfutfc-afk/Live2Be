@@ -45,10 +45,19 @@ def test_episode_candidates_pick_by_shared_topics(tmp_path):
     # ⭐ 时间两格（相对 + 日期）也在 —— 契约那句"时间上接着的不算同类"要她判得出来
     assert "1 周前" in text and "9/1" in text, text
 
-    # 新的那条**自己没有轴** ⇒ 摆不出候选（交集恒空）—— 那也是结论, 不硬凑
+    # 新的那条**自己没有轴** ⇒ 摆不出候选（交集恒空）—— 那也是结论, 不硬凑。
+    # ⚠️ **P6（2026-10-08）**: 摆不出时**不是空串** —— 空串会被 `_join_sections` 的
+    # `if body` 连抬头一起吞掉, 她看不见这个结论。而且两种"空"是**两件事**:
+    # "本段没标轴"（没法比）≠ "没有一条同轴"（比过了, 真没有）。
     bare = _ep(st, "没有轴的一条", title="没轴", ts="2026-09-09T10:00:00")
+    lonely = _ep(st, "谁都不认识的轴", title="沙漠", topics=["沙漠"], ts="2026-09-09T10:00:00")
     st.save()
-    assert _episode_candidates(st, [bare], now="") == ("", [])
+    text_bare, ids_bare = _episode_candidates(st, [bare], now="")
+    assert ids_bare == []
+    assert text_bare == "（无 —— 本段经历没有标轴, 无法比对）", text_bare
+    text_lone, ids_lone = _episode_candidates(st, [lonely], now="")
+    assert ids_lone == []
+    assert text_lone == "（无 —— 已有的经历里没有一条与本段同轴）", text_lone
 
     # 上限: 交集数一样时按 ts 新的在前, 且最多 `DIGEST_RELATE_CAND_K` 条
     st2 = _store(tmp_path / "b")
