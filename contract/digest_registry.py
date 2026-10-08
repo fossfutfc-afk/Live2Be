@@ -56,6 +56,16 @@ PHASE_ATTRIBUTE = "attribute"
 #: ⚠️ 它**不给块判像不像**（那是她的活, 也是为什么要分两步）—— 只做两件事:
 #: **起名**（new）/ **认出它属于已有的类**（attach）。
 PHASE_GROUP = "group"
+#: ⭐⭐ **L2「造认知 / 写正文」那一趟**（`DESIGN_DIGEST_TWO_PASSES.md` §3/§5,
+#: 2026-10-08 用户定稿）—— 它是**第二趟**:
+#:   · L1（`relate`）只判关系, **一个字的正文都不写**;
+#:   · 这一趟**只写正文** —— 造新的 `belief`（⛔ 不判已有成分之间的关系: 那是 L1 判过的）,
+#:     并给**已有的类**（`experience`）重写它的**沉淀**。
+#: ⚠️ **顺序上它排在 `group` 之后** —— 沉淀要写给"本段刚归好类的那些类", 类得先存在。
+#: ⚠️ 今天**没有轮在用它**: 形状与解析先落, 接线（`ROUNDS` 那一行 + prompt + 桩）在 P10
+#: —— 与 P1a 的 `PHASE_RELATE` 当时同一个状态。
+#: ⚠️ 建**新类**不归它（那是 `group` 的活）⇒ `experience` 那一行**必须带 `id`**。
+PHASE_COGNIZE = "cognize"
 # EXT: digest-deep — 三相位之 deep（设计已声明, 未实现）; 勿删（docs/EXTENSION_POINTS.md）
 PHASE_DEEP = "deep"
 
@@ -77,6 +87,11 @@ PLAYER_SUBJECT = "player"
 #: 数字 ⇒ 属"契约声明与执行脱钩"的残留。**要恢复边界必须同时落校验器**,
 #: 只把常量加回来 = 又留一处看起来生效的假边界。
 MAX_EPISODES = 5        # A 轮单包最多 episode 数
+#: ⭐ **L2（`cognize`）单包最多造几条看法**（用户 2026-10-08 裁决 = 5, 同 `MAX_EPISODES` 量级）。
+#: ⚠️ 写沉淀的类**不算**在这条里（那是"更新正文", 不是"长出新节点"）—— 一段里造太多看法
+#: 就变成流水账, 而"没话说就不写"本来就是它的纪律。超了**丢行 + 记账**（同 `MAX_SEGMENTS`
+#: 的"超出的丢弃"口径）。
+MAX_COGNITIONS = 5
 MAX_ALIASES = 8         # `new_entity` 的别名上限（超了截断 + warning —— 别名是效率优化）
 MAX_TEXT = 300          # 正文（text）单行上限（汉字）——三槽合流后两种 kind 共用
 MAX_TAGS = 4            # tags 检索词上限
@@ -575,7 +590,100 @@ RELATION_ACTIONS = (
     ),
 )
 
-DEFAULT_ACTIONS = (RECORD_EPISODE, TOUCH, UPDATE, ADD, *RELATION_ACTIONS)
+#: L2 的**锚点键**（= 她能动手的两种 kind: 造看法 / 给类写沉淀）。
+COGNIZE_ANCHORS = ("belief", "experience")
+#: L2 一行的**合法键域** = 两个锚点 + 三个关系名（⊆ `RELS`）。
+#: ⚠️ 多值只发生在 `supports`（一条看法常被好几条经历支撑）与 `contradicts`（可能跟好几条打架）上;
+#: ⛔ **没有 `evidence` 这个键** —— 它 2026-09-29 就退役了（零产品消费者）, 别让它长回来。
+COGNIZE_KEYS = (*COGNIZE_ANCHORS, "supports", "evolved_from", "contradicts")
+
+#: ⭐⭐ **L2「造认知 / 写正文」的两个动作**（`DESIGN_DIGEST_TWO_PASSES.md` §3/§5,
+#: 2026-10-08 用户裁决 · P7 落契约）。
+#:
+#: ⚠️ **与 L1 那一族正好对偶**: L1 的键**全是边名**（`RELATION_ACTIONS` ⊆ `graph.RELS`）,
+#: 这一族的键**全是节点 kind**（⊆ `nodes.KINDS`）—— 因为这一趟干的是"造节点 / 写正文"。
+#: 两边合起来仍然只有 `RELS`(6) + `KINDS`(5) 两个真源, **零第三处维护**（§4 的纪律）。
+#:
+#: 两处**形状规则**（§4 的两条 + 这次的一处扩展, 用户 2026-10-08 点头）:
+#:   ① 值是字符串 = 引用一个已有节点（`"evolved_from": "u0002"`）
+#:   ② 值是对象 = 造一个新节点（`"belief": {…}`）
+#:   ③ ⭐ **值是数组 = 引用多条**（`"supports": ["m0007", "m0011"]` —— 每条落一条边;
+#:      写单个字符串也收, 见 `_ref_list`）
+#:   ④ ⭐ **对象里带 `id` = 给那个已有节点写正文**（`"experience": {"id": "g0001", …}`）
+#:      —— 与 ② 同一个键的两面（有 id = 改, 无 id = 造）。⛔ `id` 只在这一处合法。
+#: ⚠️ **建类不归这一趟**（用户 2026-10-08: *"experience 本质是群 belief … 类是事件,
+#: 事件归 L1"*）—— 起类名 / 圈成员是 `group` 那一环的结构活; 这里只**写它的正文**。
+COGNIZE_ACTIONS = (
+    DigestAction(
+        name="belief",
+        phase=PHASE_COGNIZE,
+        role="这一段的经历**说出了一个结论** —— 把这个结论写下来（一条新的看法）。",
+        semantics=(
+            "何时用: 从**已有的经历**里看得出一个站得住的结论（模式 / 判断 / 她对某件事的看法）;\n"
+            "怎么写: `brief but descriptive` —— **短, 但描述性**（写模式与结论, ⛔ 不复述事件、\n"
+            "  不写成\"今天老师又…\"那种记叙）;\n"
+            "⭐ **出生自带证据边**: `supports` 点名这条结论是**被哪几条经历**支撑的 ——\n"
+            "  这是它与图连接的唯一方式（没有立足点的看法谁也召不回它）;\n"
+            "`contradicts`（可选）: 这条新结论**跟哪几条已有看法打架** —— 写在一行里落"
+            "**对称边**\n"
+            "  （打架就是打架, 没有方向）; ⛔ 它**不算立足点**: 光跟人打架不构成一条看法;\n"
+            "禁什么: ⛔ 经历本身（\"发生了什么\"是上一趟的活）· ⛔ 已有成分之间的关系\n"
+            "  （上一趟已经判过了; 只有\"这条**新**结论跟谁打架\"归你）· ⛔ 空泛的感悟"
+            "（\"要珍惜当下\"不是她的结论）。"
+        ),
+        field_schema=(
+            '    {  // 一行 = 一条**新的看法**（造节点; ⭐ 出生自带证据边）//\n'
+            '      "belief": {\n'
+            '        "text": "老师会把我说的话记在心上",  // 必填; 一条**结论** ——\n'
+            '                            // brief but descriptive（短, 但描述性:\n'
+            '                            // 写模式 / 结论, ⛔ 不复述事件）; ≤300 字 //\n'
+            '        "subject": "sensei",   // 可选; 这条看法**关于谁**\n'
+            '                            //（关于老师的事就写 sensei; 不是关于谁的就不写）//\n'
+            '        "significance": 0.7    // 可选 0~1; 越难忘越高（≥0.8 进"珍贵档",\n'
+            '                            // 会优先出现在她的认知列表里）; 拿不准给 0.5 //\n'
+            '      },\n'
+            '      "supports": ["m0007", "m0011"],  // 这条看法**被哪几条经历**支撑 ——\n'
+            '                            // 点名到具体经历（一条也行, 写字符串）;\n'
+            '                            // ⚠️ 与 evolved_from **至少给一个** //\n'
+            '      "evolved_from": "u0002"  // 可选; 它是从**哪条旧看法**长出来的\n'
+            '                            //（新看法 → 旧看法）—— 旧的那条**原样留着**:\n'
+            '                            // 它没说错, 只是窄了 //\n'
+            '      "contradicts": ["u0005"] // 可选; 这条新结论**跟哪几条已有看法打架**\n'
+            '                            //（对称边, 写一次就够; ⛔ 它不当立足点用）//\n'
+            '    }'
+        ),
+        example=('{"belief": {"text": "老师会把我说的话记在心上", "subject": "sensei",'
+                 ' "significance": 0.7}, "supports": ["m0007", "m0011"]}'),
+    ),
+    DigestAction(
+        name="experience",
+        phase=PHASE_COGNIZE,
+        role="给**已有的那个类**重写它的沉淀 —— 这一类事的共同点。",
+        semantics=(
+            "何时用: 上方【本段归类的群】里那个类**这一段刚多了成员**（它的沉淀该更新了）;\n"
+            "怎么写: 把成员们的正文收成**一句更抽象的话**（它们的共同点 / 这个类意味着什么）——\n"
+            "  ⛔ 不是把几件事复述一遍, 也不是给类改名;\n"
+            "⚠️ **整段重写**（不是追加）: 你这一句会**替掉**旧沉淀 ⇒ 它必须**包含**\n"
+            "  原来那句说对的东西（写窄了 = 丢信息）;\n"
+            "禁什么: ⛔ **不建新类**（建类是上一道工序的活 · 这一段没有新成员就别写它）。"
+        ),
+        field_schema=(
+            '    {  // 一行 = 给**一个已有的类**重写沉淀（⛔ 不是造新类）//\n'
+            '      "experience": {\n'
+            '        "id": "g0001",   // 必填; 【本段归类的群】里那个类的编号（照抄）//\n'
+            '        "text": "…"      // 必填; 这一类事的**沉淀** —— 成员们的共同点,\n'
+            '                         // 一句更抽象的话（⛔ 不复述事件）; ≤300 字;\n'
+            '                         // ⚠️ **整段重写**: 旧的那句会被替掉 ⇒ 要包含它对的部分 //\n'
+            '      }\n'
+            '    }'
+        ),
+        example=('{"experience": {"id": "g0001",'
+                 ' "text": "和老师一起去的那些小店, 最后都变成了我会一个人再去的地方。"}}'),
+    ),
+)
+
+DEFAULT_ACTIONS = (RECORD_EPISODE, TOUCH, UPDATE, ADD, *RELATION_ACTIONS,
+                   *COGNIZE_ACTIONS)
 
 
 # ============================================================================
@@ -871,6 +979,47 @@ class DigestRegistry:
                 "  ⚠️ 不要复述事件 —— 类的名字不是这次发生了什么。",
             ])
 
+        if phase == PHASE_COGNIZE:
+            # ⭐⭐ L2「造看法 / 写沉淀」—— 这一趟**只写正文**（关系 L1 已经判过）。
+            cog_actions = self.actions(PHASE_COGNIZE)
+            lines = [
+                OUTPUT_DISCIPLINE,
+                '    {"cognitions": [',
+            ]
+            for i, a in enumerate(cog_actions):
+                lines.append(a.field_schema)
+                if i < len(cog_actions) - 1:
+                    lines.append('    , // ——或—— //')
+            lines.extend([
+                "    ]}",
+                "",
+                "cognitions 规则:",
+                "  · **一行一件事**: 造一条新看法写一行 · 给一个类写沉淀写一行;",
+                "  · ⭐ **没话说就不写** —— 一条都不造也完全合法（`\"cognitions\": []`）;",
+                f"  · **一段最多造 {MAX_COGNITIONS} 条新看法**（写沉淀的类不算）——"
+                " 造多了就是流水账;",
+                "  · 右边只能引用**上方渲染列表里出现过**的 id（编造 id → **整包拒**）;",
+                "  · ⛔ **别写 id / ts / event_seq**（新节点的号由**引擎发**, 你只管正文）;",
+                "  · ⛔ **已有成分之间的关系不用你判** —— 上一趟已经判过了; 这一趟只写"
+                "\"新造的那条跟谁相连\";",
+                "  · **方向不用你操心**: 两端类型天然定了方向（经历 → 新看法 / 新看法 → 旧看法）;",
+                "  · ⚠️ **看法 ≠ 经历**: 经历是\"这一次发生了什么\"（上一趟写完了）; 看法是"
+                "从它里面看出来的**结论** ——",
+                "    写不出一句站得住的结论, 就别造这一条;",
+                "  · ⚠️ **沉淀与看法别互相复述**: 沉淀说的是**这一类事**的共同点,"
+                " 看法说的是**这一条**结论;",
+                "  · ⚠️ **一条证据都指不出来的看法别造**（`supports` / `evolved_from`"
+                " 至少给一个）——",
+                "    在图里没有任何连接的看法, 她以后再也想不起来;",
+                "  · ⚠️ 沉淀是**写窄了就丢信息**: 重写时保留旧那句说对的部分。",
+            ])
+            if include_examples:
+                lines.append("")
+                for a in cog_actions:
+                    lines.extend([f"【{a.name} 释义】{a.role}", "语义:", a.semantics,
+                                  "【范例】", a.example, ""])
+            return "\n".join(lines)
+
         raise ValueError(f"未知 digest phase: {phase!r}")
 
     # ------------------------------------------------------------------
@@ -1023,6 +1172,117 @@ class DigestRegistry:
             elif on is not None:
                 warnings.append(f"relations[{i}] 写了 on（只有 akin 用它）—— 已忽略")
             out.append(row)
+        return out, ValidationResult(tuple(errors), tuple(warnings), tuple(drops))
+
+    def parse_cognitions(self, raw: Any, *,
+                         evidence_ids: set[str] | None = None,
+                         cognition_ids: set[str] | None = None,
+                         group_ids: set[str] | None = None,
+                         kind_of: dict[str, str] | None = None,
+                         ) -> tuple[list[dict], ValidationResult]:
+        """⭐ **L2（`cognize`）**: `{"cognitions": [...]}` → 规范化的**造 / 写**行。
+
+        一行 → `{"action": "belief", "text": …, ["subject"], ["significance"],`
+               ` ["supports"], ["evolved_from"]}` —— **造**一条新看法
+        或   → `{"action": "experience", "group": "g0001", "text": …}` —— 给已有的类**写沉淀**
+
+        ## 校验（**分两档**, 与 `parse_relations` 同一口径）
+
+        | 情况 | 处置 |
+        |---|---|
+        | 行形状坏（锚点键 ≠ 1 个 / 有未知键 / 锚点值不是对象）| **丢这一行** + 记账 |
+        | 造看法：**缺 `text`**（或全空白 / 超 `MAX_TEXT`）| **丢这一行** + 记账（⛔ 不截断: 截断是静默改内容）|
+        | 造看法：**带 `id`**（想改已有的看法）| **丢这一行** + 记账（这一趟只**造**）|
+        | 写沉淀：**缺 `id`**（= 想造新类）| **丢这一行** + 记账（建类是 `group` 的活）|
+        | 一行**既没 `supports` 也没 `evolved_from`** | **丢这一行** + 记账（没有立足点的看法不进图; ⛔ 光跟人打架不算）|
+        | `contradicts` 的另一端**不是看法** | **丢这一行** + 记账（同 `evolved_from`）|
+        | 造看法**超过 `MAX_COGNITIONS`** | **丢这一行** + 记账（超出的丢弃 —— 一段里造太多就是流水账）|
+        | `evolved_from` 指到的**不是看法** | **丢这一行** + 记账（语义错: 一行坏不毁整段）|
+        | 同一个类写了**两次**沉淀 | **丢后一条** + 记账（第一条为准）|
+        | id **不在发下去的名单里**（编造）| ⛔ **整包拒** —— 与 L1 同档: 那说明她没在引用真实世界 |
+
+        ⚠️ **方向**（同 `parse_relations`）: 行里已经归一成"经历 → 新看法"（`supports`）
+        与"新看法 → 旧看法"（`evolved_from`）—— 执行侧**不再判方向**。
+
+        ⚠️ `kind_of` = `{她能写的认知 id: kind}`（只用来挡 `evolved_from` 指向 `profile`:
+        画像不是"看法", 没有"进化"可言）。缺省 `None` = 不校验。
+        ⚠️ **三个名单缺省 `None` = 不校验**（单测 / 老调用方）; 给了就必须全都对得上。
+        ⚠️ 锚点对象**内部的**未知键**静默忽略**（同 `_clean_episode_item` 的口径）,
+        只有 `id` 是例外（`belief` 那处显式丢行）。
+        """
+        errors: list[str] = []
+        warnings: list[str] = []
+        drops: list[str] = []
+        if not isinstance(raw, dict):
+            return [], ValidationResult(errors=("L2 输出必须是 JSON 对象",))
+        raw_rows = raw.get("cognitions")
+        if not isinstance(raw_rows, list):
+            return [], ValidationResult(errors=("cognitions 必须是数组",))
+        out: list[dict] = []
+        soaked: set[str] = set()                       # 同一个类只收第一条沉淀
+        n_belief = 0                                   # 造了几条看法（上限见 MAX_COGNITIONS）
+        for i, r in enumerate(raw_rows):
+            if not isinstance(r, dict):
+                drops.append(f"cognitions[{i}] 不是对象")
+                continue
+            anchors = [(k, v) for k, v in r.items() if k in COGNIZE_ANCHORS]
+            unknown = sorted(k for k in r if k not in COGNIZE_KEYS)
+            if len(anchors) != 1 or unknown:
+                drops.append(f"cognitions[{i}] 形状坏（锚点键 {len(anchors)} 个"
+                             + (f"; 未知键 {'、'.join(unknown)}" if unknown else "") + "）")
+                continue
+            kind, val = anchors[0]
+            if not isinstance(val, dict):
+                drops.append(f"cognitions[{i}] 的 {kind} 必须是对象")
+                continue
+            if kind == "belief":
+                if n_belief >= MAX_COGNITIONS:
+                    drops.append(f"cognitions[{i}]: 一段最多造 {MAX_COGNITIONS} 条看法"
+                                 "（超出的丢弃）")
+                    continue
+                item = _clean_belief(val, i, drops, warnings)
+                if item is None:
+                    continue
+                sup = _ref_list(r.get("supports"), f"cognitions[{i}].supports",
+                                evidence_ids, errors, drops)
+                evo = _ref_one(r.get("evolved_from"), f"cognitions[{i}].evolved_from",
+                               cognition_ids, errors)
+                con = _ref_list(r.get("contradicts"), f"cognitions[{i}].contradicts",
+                                cognition_ids, errors, drops)
+                if sup is None or evo is None or con is None:
+                    continue                           # 有错 ⇒ 整包拒（上面的 errors 说了）
+                if not sup and not evo:
+                    drops.append(f"cognitions[{i}]: 这条看法**没有立足点**"
+                                 "（supports / evolved_from 至少给一个 —— "
+                                 "光跟人打架不构成一条看法）")
+                    continue
+                if evo and kind_of and kind_of.get(evo) not in (None, "belief"):
+                    drops.append(f"cognitions[{i}]: evolved_from 只能指向**看法**"
+                                 f"（{evo} 是 {kind_of.get(evo)}）")
+                    continue
+                bad_con = [c for c in con
+                           if kind_of and kind_of.get(c) not in (None, "belief")]
+                if bad_con:
+                    drops.append(f"cognitions[{i}]: contradicts 的另一端也得是**看法**"
+                                 f"（{'、'.join(bad_con)} 不是）")
+                    continue
+                n_belief += 1
+                if sup:
+                    item["supports"] = sup
+                if evo:
+                    item["evolved_from"] = evo
+                if con:
+                    item["contradicts"] = con
+            else:
+                item = _clean_soak(val, i, group_ids, errors, drops)
+                if item is None:
+                    continue
+                if item["group"] in soaked:
+                    drops.append(f"cognitions[{i}]: 类 {item['group']} 写了两次沉淀"
+                                 "（第一条为准）")
+                    continue
+                soaked.add(item["group"])
+            out.append(item)
         return out, ValidationResult(tuple(errors), tuple(warnings), tuple(drops))
 
     def parse_split(self, raw: Any, *, seq_set: set[int] | None = None,
@@ -1625,6 +1885,104 @@ def _local_nodes(raw: Any, i: int, node_ids: set[str], errors: list[str],
         errors.append(f"attributions[{i}]: nodes 不能是空的（挂谁上去?）")
         return None
     return out
+
+
+def _clean_belief(val: dict, i: int, drops: list[str],
+                  warnings: list[str]) -> dict | None:
+    """`belief` 行的**对象内清洗**（L2 造看法 —— 缺正文/想改已有的 ⇒ 丢这一行）。
+
+    ⛔ **不截断超长正文**: 截断是静默改内容（同 `_clean_episode_item` 的口径）。
+    ⛔ **`id` 不合法**: 这一趟只**造**看法, 改已有的正文是另一件事（用户裁过"`update`
+    那个词一个词扛三件事", 不复活它）。
+    """
+    if str(val.get("id", "") or "").strip():
+        drops.append(f"cognitions[{i}]: belief 行不带 id"
+                     "（这一趟只**造**新看法, 不改已有的正文）")
+        return None
+    text = str(val.get("text", "") or "").strip()
+    if not text:
+        drops.append(f"cognitions[{i}]: 造看法必须填 text（一条结论）")
+        return None
+    if len(text) > MAX_TEXT:
+        drops.append(f"cognitions[{i}].text 超过 {MAX_TEXT} 字——丢这一行"
+                     "（⛔ 不截断: 截断是静默改内容）")
+        return None
+    item: dict = {"action": "belief", "text": text}
+    subject = str(val.get("subject", "") or "").strip()
+    if subject:
+        item["subject"] = subject
+    sig = val.get("significance")
+    if sig is not None and not isinstance(sig, bool):
+        try:
+            # 越界**夹紧**（值仍可用, 同 `_clamp` 的口径 —— 这不是"形状错"）
+            item["significance"] = max(0.0, min(1.0, float(sig)))
+        except (TypeError, ValueError):
+            warnings.append(f"cognitions[{i}].significance 不是数——按缺省")
+    return item
+
+
+def _clean_soak(val: dict, i: int, group_ids: set[str] | None,
+                errors: list[str], drops: list[str]) -> dict | None:
+    """`experience` 行的**对象内清洗**（给**已有的类**重写沉淀 —— 建类不归它）。"""
+    gid = str(val.get("id", "") or "").strip()
+    if not gid:
+        drops.append(f"cognitions[{i}]: experience 必须带 id（那是**已有的类**;"
+                     " 建新类是上一道工序的活）")
+        return None
+    if group_ids is not None and gid not in group_ids:
+        errors.append(f"cognitions[{i}].experience.id 不在发下去的类名单里: {gid!r}"
+                      "（整包拒）")
+        return None
+    text = str(val.get("text", "") or "").strip()
+    if not text:
+        drops.append(f"cognitions[{i}]: 写沉淀必须填 text")
+        return None
+    if len(text) > MAX_TEXT:
+        drops.append(f"cognitions[{i}].text 超过 {MAX_TEXT} 字——丢这一行"
+                     "（⛔ 不截断: 截断是静默改内容）")
+        return None
+    return {"action": "experience", "group": gid, "text": text}
+
+
+def _ref_list(v: Any, label: str, allowed: set[str] | None,
+              errors: list[str], drops: list[str]) -> list[str] | None:
+    """多值引用（`supports`）: **字符串或数组** → id 列表（去重保序）。
+
+    ⭐ **单个字符串也收** —— 形状规则的①本来就是"值是字符串 = 引用一个已有节点",
+    多值只是"一次给好几条"的省行写法; 写成一条**不该判错**。
+    ⛔ 名单外的 id ⇒ **整包拒**（与 L1 同档: 那说明她没在引用真实世界）。
+
+    Returns: `None` = 有错（调用方丢这一行, errors 已填）; `[]` = 她没写这个键（合法）。
+    """
+    if v is None:
+        return []
+    vals = [v] if isinstance(v, str) else (
+        list(v) if isinstance(v, (list, tuple)) else None)
+    if vals is None or any(not isinstance(x, str) for x in vals):
+        drops.append(f"{label} 必须是字符串或字符串数组")
+        return None
+    out: list[str] = []
+    for x in vals:
+        s = x.strip()
+        if not s or s in out:
+            continue
+        if allowed is not None and s not in allowed:
+            errors.append(f"{label} 里的 {s!r} 不在列表里（整包拒）")
+            return None
+        out.append(s)
+    return out
+
+
+def _ref_one(v: Any, label: str, allowed: set[str] | None,
+             errors: list[str]) -> str | None:
+    """单值引用（`evolved_from`）: `""` = 她没写; `None` = 名单外（整包拒）。"""
+    s = str(v or "").strip()
+    if not s:
+        return ""
+    if allowed is not None and s not in allowed:
+        errors.append(f"{label} 的 {s!r} 不在列表里（整包拒）")
+        return None
+    return s
 
 
 def _id_list(v: Any) -> list[str]:
