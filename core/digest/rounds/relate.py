@@ -28,6 +28,29 @@
 
 **`r2_created` 不赋值** —— 它记的是"本轮新建的节点", 而这一趟**不建节点**
 （R3 归属轮还在暂停; 将来由 L2 自己填）。
+
+## 观测账（P6, 2026-10-08）—— 一行日志, 七个字段
+
+```
+digest_relate rows=2 rels=1 alone=1 lone=m0002 cands=0 pool=1 dropped=0
+```
+
+| 字段 | 是什么 |
+|---|---|
+| `rows` | parse **收下**的关系行数 |
+| `rels` | ⭐ **边表真的长了几条**（`store.edges()` 的增量）—— ⛔ **不是 `rows`**: `add_edge` 幂等 |
+| `alone` | 本段经历里**一行关系都没连上**的条数（分母 = `ctx.episode_ids`）|
+| `lone` | 那些 id（最多 5 个, `·` 并列; 没有 ⇒ `-`）|
+| `cands` | 「现有经历（候选）」摆出来几条 |
+| `pool` | ⭐ **前提读数**: 库里 `kind=episode` 且**标了 `轴`** 的条数 |
+| `dropped` | 这一轮被契约层丢掉的行数（取**调用前后** `contract_drops` 的差, 不猜中文）|
+
+**为什么 `alone` 值得记**: 孤立经历**不进 L2**（`DESIGN_DIGEST_TWO_PASSES.md` §3 的
+天然归纳门槛）⇒ 这一格 = 下一趟收料的实际范围。
+**为什么 `pool` 必须一起记**: `cands=0` 有两种相反的解释 —— "这一段真没有同类旧经历"
+（结论）vs "老经历压根没标轴"（数据缺陷, `topics` 是 P0 才加的字段）。缺了 `pool`,
+那格数字读不出意思。⚠️ 用户 2026-10-08 裁: **只观测**, 不写补 `topics` 的维护脚本
+（*"以后也要测试新的 digest, 之后就删掉数据重来了"*）。
 """
 from __future__ import annotations
 
@@ -66,6 +89,7 @@ def run(ctx: Ctx) -> RoundOut:
         ("现有认知", cog_text),
         ("角色人设（锚点）", ctx.character_prompt),
     ])
+    drops_before = len(ctx.result.contract_drops)     # 观测账: 只算**这一轮**丢的
     rows, _resp = ctx.call(
         spec, system, user,
         parse_fn=ctx.parse_for(spec,
@@ -81,9 +105,47 @@ def run(ctx: Ctx) -> RoundOut:
                                kind_of=_kind_of(ctx, local_of, cand_ids, entity_ids)))
     if rows is None:
         return RoundOut.failed()
-    apply_relations(ctx.store, rows, ts=ctx.now_ts,
-                    id_map={v: k for k, v in local_of.items()})   # 本地号 → 真实 id
+    id_map = {v: k for k, v in local_of.items()}      # 本地号 → 真实 id
+    edges_before = len(ctx.store.edges())             # 观测账: `rels` = 边表增量
+    apply_relations(ctx.store, rows, ts=ctx.now_ts, id_map=id_map)
+    _log_ledger(ctx, rows, cand_ids,
+                edges_before=edges_before, drops_before=drops_before)
     return RoundOut.done()
+
+
+def _log_ledger(ctx: Ctx, rows: list[dict], cand_ids: list[str], *,
+                edges_before: int, drops_before: int) -> None:
+    """这一段的观测账（字段表见模块 docstring）—— **只记, 不判**。"""
+    lone = _lone_episodes(ctx, rows)
+    logger.info("digest_relate rows=%d rels=%d alone=%d lone=%s cands=%d pool=%d dropped=%d",
+                len(rows), len(ctx.store.edges()) - edges_before, len(lone),
+                "·".join(lone[:5]) or "-", len(cand_ids), _episodes_with_axis(ctx),
+                len(ctx.result.contract_drops) - drops_before)
+
+
+def _lone_episodes(ctx: Ctx, rows: list[dict]) -> list[str]:
+    """本段经历里**一行关系都没连上**的那几条（孤立经历 ⇒ 不进 L2）。
+
+    ⚠️ **这里不需要 `id_map`** —— 我第一版翻了一遍（"两端都要过"）, 变异验红证明
+    **那一行永远改不了结果**: 经历那一端永远是**真实 id**（料里印的就是真身,
+    `_round_b_material` / `_episode_candidates`）; 本地号 `u…` 只发给**认知**那一端,
+    而 `render_cognition_list` 只渲染 belief/experience（经历不在其中）。
+    ⛔ 别为了"对称好看"再加回来。
+
+    ⚠️ 反过来也要记住: **有行 ≠ 这条经历被连上** —— 两端都是认知的行
+    （`{"belief": "u0001", "contradicts": "u0002"}`）照样算一行, 而本段的经历一条都没沾
+    （用例 `test_row_between_two_cognitions_does_not_connect_the_episode`）。
+    """
+    touched: set[str] = set()
+    for row in rows:
+        touched.add(str(row["src"]))
+        touched.add(str(row["dst"]))
+    return [str(e) for e in ctx.episode_ids if str(e) not in touched]
+
+
+def _episodes_with_axis(ctx: Ctx) -> int:
+    """库里 `kind=episode` 且**标了 `轴`** 的条数 —— `cands=0` 的解释器。"""
+    return sum(1 for n in ctx.store.all() if n.kind == "episode" and n.topics)
 
 
 def _node_topics(ctx: Ctx, nid: str) -> list[str]:
