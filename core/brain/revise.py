@@ -21,7 +21,8 @@ from datetime import datetime
 from typing import Any
 
 from core.brain import notes as note_ops
-from core.brain.entities import SELF_ID, SENSEI_ID, surface_forms
+from core.brain.entities import (SELF_ID, SENSEI_ID, normalize_entity_tags,
+                                 surface_forms)
 from core.brain.evolution import EvolutionLog
 from core.brain.graph import (
     REL_ABOUT,
@@ -124,6 +125,9 @@ class CognitionResult:
     """本轮**新造**的 belief id（按行序）。"""
     reused: list[str] = field(default_factory=list)
     """⭐ 幂等命中而**复用**的 id（崩溃窗口重跑: 同一段、`event_seq` 相交、正文又一样）。"""
+    strangers: list[str] = field(default_factory=list)
+    """看法 `tags` 里那些 `#entity:` **解析不到**的名字（= 还没建的人/地方）——
+    ⚠️ 它们是**认人那一轮的线索**（`about` 只能指已存在的 id）; 不是错误。"""
     edges: list[dict] = field(default_factory=list)
     """落下的边（原样回传, 编排层记账用）。"""
     soaked: list[str] = field(default_factory=list)
@@ -183,7 +187,11 @@ def _create_belief(store: WikiStoreV2, row: dict, *, ts: str, log: EvolutionLog,
     """造一条看法（或**复用**同段同正文的那条）—— 返回真实 id。"""
     node = make_node("belief", text=row["text"], subject=row.get("subject", ""),
                      significance=row.get("significance", 0.5),
+                     tags=list(row.get("tags", []) or []),
                      ts=ts, event_seq=list(event_seq or []))
+    # ⭐ E2: `#entity:` → 归一（能解析的换成主名）+ 记下要落边的对象
+    node.tags, ent_targets, ent_strangers = normalize_entity_tags(store, node.tags)
+    res.strangers.extend(ent_strangers)
     dup = _find_duplicate(store, node)
     if dup is not None:
         res.reused.append(dup.id)
@@ -191,6 +199,11 @@ def _create_belief(store: WikiStoreV2, row: dict, *, ts: str, log: EvolutionLog,
                     dup.id)
         return dup.id
     nid = store.add(node)
+    # ⭐ E2: 边由**引擎从 tag 派生**（零 LLM）—— 与 `episodes._link_about` 同一个口径:
+    # `ts` = 这条看法出生的时刻; 幂等靠 `add_edge`; 悬空的两端根本到不了这里。
+    # ⚠️ 不 import `episodes._link_about`（那是 `core/digest`, 方向反了 —— brain 是下层）。
+    for eid in ent_targets:
+        store.add_edge(REL_ABOUT, nid, eid, ts=ts)
     res.created.append(nid)
     log.append({"pkg": "digest", "action": "create", "id": nid,
                 "text": node.text, "ts": ts})
