@@ -214,9 +214,12 @@ def test_r3_attaches_by_hint_and_writes_alias(tmp_path):
     res = digest_segment(st, llm, _events(_mmt(3)))
     assert res.ok, res.errors
 
-    # 顺序: **R0 → R1 → L1 → R3 → L2**（收口轮 2026-10-05 删; L2 2026-10-08 接在最后）
+    # 顺序: **R0 → R1 → L1 → R3**（收口轮 2026-10-05 删; L2 2026-10-08 接在最后）
+    # ⚠️ 这一段 **L2 被跳过**: 它的立足点 = "被 **L1** 连过"（`_L2_LINK_RELS` = L1 的动作面）,
+    # 而 E3（2026-10-08）把 `about` 移出了动作面（归属改由引擎从 `tags` 派生）⇒ 这一段
+    # 没有任何 L1 边 ⇒ 孤立经历不进 L2（那是 P8 的原始判据, 不是回归）。
     assert llm.tasks == [T.DIGEST_SPLIT, T.DIGEST_RECORD, T.DIGEST_RELATE,
-                         T.DIGEST_ATTRIBUTE, T.DIGEST_COGNIZE], llm.tasks
+                         T.DIGEST_ATTRIBUTE], llm.tasks
     # ⭐ 料: 候选表（只有身份）+ 本轮新节点（本地 id）
     r3 = llm.user_of(T.DIGEST_ATTRIBUTE)
     assert "c0001" in r3 and "c0002" in r3 and "u0001" in r3

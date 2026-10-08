@@ -265,12 +265,15 @@ ROUNDS: tuple[RoundSpec, ...] = (
         key="relate",
         step="③ 接",
         parse=digest_registry.parse_relations,
-        material=("本次新经历（含引擎候选标注）", "现有经历（候选）", "候选对象",
+        material=("本次新经历（含引擎候选标注）", "现有经历（候选）",
                   "本段时间线", "现有认知", "角色人设（锚点）"),
         writes=(
             # ⭐ **只落边**（`apply_relations`）—— 一个节点都不建、一个字正文都不写
             # （造看法 / 写正文是 L2 的活; 边归属表见 `DESIGN_DIGEST_TWO_PASSES` §3）。
-            ("edge", ("supports", "akin", "contradicts", "about")),
+            # ⚠️ **`evolved_from` 2026-10-08（E3）补进这一格** —— P7-2 加了那个动作却
+            # 漏了它, 而守门把这个漏印固化成了判据（红账, 见 `DESIGN_ENTITY_TAGS §7`）。
+            # ⛔ **`about` 移出**（E3）: 它不由 LLM 写 —— 引擎从 `tags` 的 `#entity:` 派生。
+            ("edge", ("supports", "akin", "contradicts", "evolved_from")),
         ),
         result_fields=(*CONTRACT_FIELDS,),
         skip="",

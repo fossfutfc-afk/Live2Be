@@ -143,7 +143,9 @@ def test_l1_writes_edges_only():
     faces = [face for face, _fields in spec.writes]
     assert faces == [R.EDGE_FACE], f"relate 写了不该写的面: {spec.writes}"
     fields = sorted(f for _face, fs in spec.writes for f in fs)
-    assert fields == ["about", "akin", "contradicts", "supports"], fields
+    # ⚠️ 2026-10-08（E3）: 去掉 `about`（它不由 LLM 写）、补上 `evolved_from`
+    # （P7-2 加了动作却漏了这一格 —— 红账, 见 `DESIGN_ENTITY_TAGS §7`）
+    assert fields == ["akin", "contradicts", "evolved_from", "supports"], fields
     print(f"    L1 只落边: {spec.writes}")
 
 
