@@ -312,6 +312,7 @@ class BondStoryEngine:
         annotate: bool = True,
         on_memorial_prompt: Callable[[str], None] | None = None,
         on_board: Callable[["BondScene"], None] | None = None,
+        readahead: bool = False,
     ) -> BondScene:
         """结构化场景 API：单次 LLM 调用 → BondScene（段落 + 选项 + 是否结束）。
 
@@ -336,6 +337,11 @@ class BondStoryEngine:
         缺省退化为触发句。流式路径即时触发, 非流式路径在整块解析后补触发。
         None = 不开画（纯文字降级）。**只在本轮确实出现 memorial 时才触发**
         （模型写了 `art` 预告却没兑现 → 不发图, 不浪费调用）。
+        readahead: ⭐ **链式读前**（2026-10-08）—— True = **跳过"领队列"早返回,
+        强制生成新的一块**（并把它的板**追加**到待发队列尾部, 不动玩家还没读完的板）。
+        为什么需要这个开关: 下面那条早返回是"队列有货就先发队列"（玩家点继续的正常
+        路径）; 读前生成是在**队列非空**时故意再写一块排到后面, 语义完全不同。
+        ⚠️ 只有 `_pregenerate` 传 True; 默认 False ⇒ 现有调用方零影响。
         """
         if self._current_char is None:
             raise RuntimeError(err("NotInSession", "尚未开始会话"))
@@ -352,7 +358,8 @@ class BondStoryEngine:
 
         # 记录流 v2（P0-4b）: 上一回合切出的尾板——内容已在手, **0 LLM 直接发**
         # （玩家点继续即领下一板; 这是"读屏期间生成下一板"最朴素形态, §6）
-        if self._pending_boards:
+        # ⚠️ `readahead=True` 时**跳过**这一支（读前要的是"再写一块", 不是"发一块"）
+        if self._pending_boards and not readahead:
             scene = self._pending_boards.pop(0)
             self._trace = [{"attempt": 0, "action": "record_stream/pending",
                             "records": len(scene.records), "parse_valid": True}]
@@ -585,7 +592,15 @@ class BondStoryEngine:
             # （放在这里而不是尝试循环开头: 预生成/重试可能失败, 那不是窗口结束;
             #   本块若自己又带 memorial, `_finish_scene` 会立刻再置位——章内 ≤1。）
             self._in_memorial = False
-            self._pending_boards = list(boards[1:])
+            # ⭐ 2026-10-08（链式读前）: **追加, 不是赋值** —— 待发队列从此允许**跨块累积**
+            #    （读前生成的那一块排在"玩家还没读完的板"**后面**）。
+            #    为什么今天两条写法等价: 走到这里就意味着**队列是空的** —— 函数开头
+            #    `if self._pending_boards: … pop(0) … return` 会先返回。所以 `extend`
+            #    在现有调用形态下与 `list(...)` 逐字节同效, 只是**多了一种情况能用**:
+            #    读前生成时不会把上一块没读的板整段丢掉。
+            #    ⛔ **别改回 `=`**: 那会让"提前生成的下一块"把玩家的待读板清空
+            #    （守门 `tests/core/test_bond_pending_append.py` 会当场红）。
+            self._pending_boards.extend(boards[1:])
             # 非流式路径（无 on_board / 旧 mock LLM）: 整块解析完才知道有纪念 →
             # 这里补触发（延迟几秒, 但保证"有声明的就一定会开画"）
             if (on_memorial_prompt is not None and not memorial_fired
