@@ -968,16 +968,20 @@ def test_relate_phase_names_match_the_graph_truth():
 
     键的域 = 图上真实存在的名字 —— 这条是那个设计的全部好处所在（零第三处维护）。
 
+    ⭐ **2026-10-08（P7 第 2 笔, 用户裁决）: 加第五个 `evolved_from`** —— 判据是
+    "谁手里有两端": 两条**旧看法**都印在 L1 的「现有认知」里, 所以只有它能写
+    "旧 → 更旧"的进化边。在这之前它**零写者**（L1 的动作面没有它; L2 的出生行
+    只能写"新 → 旧"）—— 而图层**永不推断**它（`graph.classify_pair` 的纪律）。
     """
     from core.brain.graph import RELS
 
     names = [a.name for a in RELATION_ACTIONS]
-    assert names == ["supports", "akin", "contradicts", "about"], names
+    assert names == ["supports", "akin", "contradicts", "about", "evolved_from"], names
     assert set(names) <= set(RELS), f"契约里的动作名必须在 RELS 里: {set(names) - set(RELS)}"
     # 锚点类型与 nodes.KINDS 同源
     from core.brain.nodes import KINDS
     assert set(RELATION_ANCHORS) == set(KINDS)
-    print("    P1a: 四个动作名 ∈ graph.RELS; 锚点类型 == nodes.KINDS")
+    print("    P1a: 五个动作名 ∈ graph.RELS; 锚点类型 == nodes.KINDS")
 
 
 def test_relate_contract_says_no_body_text():
@@ -1123,20 +1127,23 @@ def test_relate_prompt_points_at_the_contract():
     黑名单 = **这一趟词汇表之外**的东西: 旧一族（`touch`/`update`/`add`/`decisions`）
     与别的轮的边（`member_of`）。她照抄一句 "同主题就 touch/update"
     出来, 就是一条坏行 + 一次白跑的重试。
+    ⚠️ **`evolved_from` 2026-10-08 起不在黑名单里了** —— 它成了 L1 自己的第五个动作
+    （P7 第 2 笔）; 但 prompt 仍**不许抄它的判据**（判据的家是契约）。
+
     ⚠️ 指针**要指得准**: prompt 里那句"其余判据都在上面的…"必须对着契约里**真有的**
     标题（`relations 规则` / 【… 释义】）—— 指一个不存在的段落等于没指。
     """
     from llm.prompts import load_prompt
 
     raw = load_prompt("digest_relate")
-    for word in ("touch", "update", "add", "decisions", "evolved_from", "member_of"):
+    for word in ("touch", "update", "add", "decisions", "member_of"):
         assert word not in raw, f"L1 的 prompt 里出现了 {word!r}（那是别处的词汇）"
     assert "relations 规则" in raw and "rels 规则" not in raw, "指针要对准契约里真有的标题"
     assert "以那里为准" in raw
 
-    # 契约那一侧: 四个动作 + "这一趟不写正文" 都在（prompt 不重复它们）
+    # 契约那一侧: 五个动作 + "这一趟不写正文" 都在（prompt 不重复它们）
     text = digest_registry.build_schema(PHASE_RELATE)
-    for name in ("supports", "akin", "contradicts", "about"):
+    for name in ("supports", "akin", "contradicts", "about", "evolved_from"):
         assert f"【{name} 释义】" in text
     assert "relations 规则" in text
     assert "这一趟不写正文" in text
@@ -1314,3 +1321,24 @@ def test_parse_cognitions_caps_beliefs_but_not_soaks():
     assert len(rows2) == MAX_COGNITIONS + 1 and vr2.is_valid, rows2
     print(f"    P7: 看法上限 {MAX_COGNITIONS}（超出的丢行）, 沉淀不占额度")
 
+
+def test_relate_evolved_from_is_belief_to_belief_only():
+    """⭐ P7 第 2 笔: L1 的第五个动作 —— **两条已有看法之间**才写; 经历那一头丢行。
+
+    ⚠️ 这条用例是**探针抓出来的那个真 bug** 的守门: 校验一度只挂在
+    `rel in ("akin", "contradicts")` 那个 `if` 里 ⇒ `{"episode": …, "evolved_from": …}`
+    一路绿灯（经历"进化"了）。
+    """
+    rows, vr = digest_registry.parse_relations(
+        {"relations": [
+            {"belief": "u0001", "evolved_from": "u0002"},      # ✅ 新 → 旧（两条都已有）
+            {"episode": "m0023", "evolved_from": "u0002"},      # ⇒ 丢: 经历没有"进化"
+            {"belief": "u0001", "supports": "u0002"},           # ✅ 看法撑看法（本来就能）
+        ]},
+        episode_ids={"m0023"}, target_ids={"u0001", "u0002"},
+        kind_of={"u0001": "belief", "u0002": "belief", "m0023": "episode"})
+    assert [r["rel"] for r in rows] == ["evolved_from", "supports"], rows
+    assert rows[0] == {"rel": "evolved_from", "src": "u0001", "dst": "u0002"}
+    assert vr.is_valid and len(vr.drops) == 1, vr.drops
+    assert "evolved_from 两端必须都是" in vr.drops[0], vr.drops
+    print("    P7-2: evolved_from 只认看法 ↔ 看法（经历那头丢行）")
