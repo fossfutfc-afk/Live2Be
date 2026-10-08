@@ -118,12 +118,31 @@ let lastSceneKey = "";
   // place 锚点背景（DESIGN_BOND_CONTRACT_V2 P3b-2）: 当前已应用的背景地点——
   // 锚点句（段落项带 place/place_bg）到达/打字经过时切背景; 晚到锚点即切（§7.2）
   let appliedPlace = null;
+  //: 当前已应用的**板级**背景 URL（`syncBoardBg` 判"要不要补切"用）——
+  //: 2026-10-08: 板先上屏、地点 lane ~1s 后才解析出 place（真机 19:59:55 交付 →
+  //: 19:59:56 `[place][SWITCH] → moderncafe`）。那一秒走的是兜底 `class_room`（教室）,
+  //: 而 `sceneKey` 指纹**只算段落**⇒ 轮询不会重渲染这一板 ⇒ 不补切就永远是教室。
+  let appliedBgUrl = "";
 
   // ---------------------------------------------------------------------------
 
   function setBg(url) {
     const bg = $("bond-bg");
-    if (bg && url) bg.style.backgroundImage = `url("${url}")`;
+    if (bg && url) {
+      bg.style.backgroundImage = `url("${url}")`;
+      appliedBgUrl = url;
+    }
+  }
+
+  // 板级背景补切（2026-10-08）: 只换背景, **不重播正文**（那要重渲染整场）。
+  // ⚠️ 不抢锚点: 本板若有**句级锚点**已接管背景（`appliedPlace !== null`）就不动。
+  function syncBoardBg(scene) {
+    const url = (scene && scene.background_url) || "";
+    if (!url || appliedPlace !== null) return;
+    if (url === appliedBgUrl) return;
+    dbg("board-bg late →", url,
+        scene && scene.place_inherited ? `(沿用 ${scene.place_inherited})` : "");
+    setBg(url);
   }
   // 公开: 进入 VN（mmt.js 收到 bond_story 或重进 in_vn 会话时调用）
   // ---------------------------------------------------------------------------
@@ -550,7 +569,10 @@ let lastSceneKey = "";
     const on = memorialNow();
     if (on && stage) stage.classList.add("hidden");   // 纪念无立绘
     if (on) {
-      if (bg) bg.style.backgroundImage = "";                    // 黑屏兜底
+      if (bg) {
+        bg.style.backgroundImage = "";                    // 黑屏兜底
+        appliedBgUrl = "";                                // 背景记账同步清掉
+      }
       if (memorialSt.img && layer.dataset.src !== memorialSt.img) {
         layer.dataset.src = memorialSt.img;
         layer.style.backgroundImage = `url("${memorialSt.img}")`;
@@ -569,7 +591,7 @@ let lastSceneKey = "";
       //   为什么用 curScene 而不是"记住进场前那张": 纪念窗口之后的那一板若本来就
       //   没有背景（收尾黑屏余韵 / `is_end`）, 就不该把上一张图糊回来。
       if (bg && !bg.style.backgroundImage && curScene && curScene.background_url) {
-        bg.style.backgroundImage = `url("${curScene.background_url}")`;
+        setBg(curScene.background_url);
       }
     } else if (stage && !on) {
       stage.classList.remove("hidden");            // 未进窗口 → 立绘照常显示
@@ -646,7 +668,13 @@ let lastSceneKey = "";
     if (readonly) return;        // 只读回放: 板是从事件流读的（标注早已回填）, 不轮询 status
     const paras = (scene && scene.paragraphs) || [];
     if (!paras.length || scene.is_end) return;
-    if (paras.every((p) => p && p.emotion)) return;      // 已全标注 → 无需守望
+    // ⭐ 2026-10-08: 这套守望**同时管 place（板级背景）** —— 从前只按"表情齐没齐"
+    //    决定起不起（`paras.every(p => p.emotion)` 就 return）, 于是"表情先到、地点
+    //    后到"那一板根本没人守望 ⇒ 背景停在兜底教室。现在两个条件都算数。
+    const emoDone = paras.every((p) => p && p.emotion);
+    const bgSettled = !!scene.place
+      || paras.some((p) => p && (p.place || p.place_bg));
+    if (emoDone && bgSettled) return;                    // 都齐了 → 无需守望
     let stable = 0;
     emoWatchTimer = setInterval(async () => {
       if (emoWatchTimer == null) return;
@@ -658,6 +686,7 @@ let lastSceneKey = "";
             "emotions", ((st.scene && st.scene.paragraphs) || []).map(
                 (p) => (p && p.emotion) || "-"));
         if (st.round !== seenRound) { clearEmoWatch(); return; }  // 场景已推进
+        if (st.scene) syncBoardBg(st.scene);             // ⭐ 板级背景晚到 → 补切
         if (st.scene && st.emo_version !== undefined && st.emo_version !== seenEmo) {
           dbg("emoWatch 版本变化 t=", Math.round(performance.now()),
               "ver", seenEmo, "→", st.emo_version,
@@ -671,7 +700,8 @@ let lastSceneKey = "";
         }
         const allDone = st.scene && (st.scene.paragraphs || [])
           .every((p) => p && p.emotion);
-        if (allDone && stable >= 2) clearEmoWatch();      // 标注完成且稳定 → 自停
+        // 双路齐（gate_busy = emotion 与 place 两路都完成）且稳定 → 自停
+        if (allDone && !st.gate_busy && stable >= 2) clearEmoWatch();
       } catch (e) { /* 网络瞬断忽略——下轮重试 */ }
     }, 800);
     setTimeout(() => { if (emoWatchTimer != null) clearEmoWatch(); }, 30000);
@@ -712,11 +742,13 @@ let lastSceneKey = "";
     // 背景（scene_id → background_url; is_end 无背景 → 清空显示默认黑屏——官方结束样式）
     const bg = $("bond-bg");
     appliedPlace = null;              // 板级背景复位——锚点句到达才切换（P3b-2）
+    appliedBgUrl = "";                // 板级背景 URL 复位（新板重新记一份）
     if (scene.missing_asset) reportMissingAsset(scene.missing_asset);
     if (scene.background_url) {
-      bg.style.backgroundImage = `url("${scene.background_url}")`;
+      setBg(scene.background_url);
     } else if (!scene.background) {
       bg.style.backgroundImage = "";
+      appliedBgUrl = "";
     }
     // 名字牌: is_end（旁白余韵, 无角色名）→ 隐藏
     const np = document.querySelector(".bond-nameplate");

@@ -403,6 +403,49 @@ async function main() {
   if (!nameplate.name.trim() || !nameplate.club.trim()) {
     throw new Error(`名字牌缺名字/社团: ${JSON.stringify(nameplate)}`);
   }
+
+  // ── 5b. 板级背景: **晚到的地点必须补切**（2026-10-08 报障"永远是默认教室兜底"）──
+  await page.evaluate(({ cid, sid }) => {          // 给下面那段诊断用（status 直询）
+    window.__bgChar = cid; window.__bgSid = sid;
+  }, { cid: "igusa_haruka", sid: mmtSessionId });
+  // 首板经 `/api/bond/start` **直返快照**进场（那一刻 place 还没解析出来）⇒ `_resolve_scene`
+  // 走兜底 `_BG_FALLBACK_PRIORITY[0] = class_room`（教室）; place lane ~0.5s 后把地点写回
+  // `state.scene`（`lanes.py:299`）⇒ **前端必须自己补切**（`bond.js::syncBoardBg`, 挂在
+  // 阅读期守望 `startEmoWatch` 上）——此前 fixture/指纹都不管背景, 于是永远是教室。
+  // ⛔ 判据依赖"桩的 switch 文本 ≠ 教室": 咖啡馆那张（BG_ModernCafe.jpg）与兜底教室
+  //    （BG_ClassRoom.jpg）必须**不同图**, 否则分不清"地点生效"还是"掉兜底"。
+  const bgLate = await page.evaluate(async () => {
+    const el = document.getElementById("bond-bg");
+    const first = (el && el.style.backgroundImage) || "";
+    // 诊断: 直接问一次 status —— 分清"后端没给"与"前端没应用"（差一个人就是一条线索）
+    let probe = {};
+    try {
+      const r = await fetch(
+        `/api/bond/status?char_id=${window.__bgChar}&session_id=${window.__bgSid}`);
+      const st = await r.json();
+      const s = st.scene || {};
+      probe = { place: s.place, inherited: s.place_inherited,
+                bg: (s.background_url || "").slice(-44), gate: st.gate_busy,
+                round: st.round, ver: st.emo_version };
+    } catch (e) { probe = { err: String(e) }; }
+    for (let i = 0; i < 120; i++) {                       // ≤ 6s
+      const cur = (el && el.style.backgroundImage) || "";
+      if (cur.includes("BG_ModernCafe")) return { ok: true, first, final: cur, probe };
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    return { ok: false, first, final: (el && el.style.backgroundImage) || "", probe };
+  });
+  record("板级背景（晚到的地点补切）", {
+    info: `首次读=${bgLate.first.slice(-44) || "无"} → 最终=${bgLate.final.slice(-44) || "无"}`
+      + `; status: ${JSON.stringify(bgLate.probe)}`,
+    ok: bgLate.ok,
+    shot: await shot(page, "vn-bg-late"),
+  });
+  if (!bgLate.ok) {
+    throw new Error(
+      `板级背景没补切到咖啡馆（最终 ${bgLate.final || "空"}）——`
+      + "晚到的 place 没被应用到屏上（查 bond.js 的 syncBoardBg / startEmoWatch）");
+  }
   // 当前角色自己说话时**不画**红字名字行（名字牌已表明是谁）——2026-09-11 用户反馈
   const onStageNames = board1.filter((p) => p.speaker).map((p) => p.speaker);
   if (onStageNames.length) {

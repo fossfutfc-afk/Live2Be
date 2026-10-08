@@ -45,7 +45,11 @@ CHAPTER_TITLE = "放学后的约定"
 #: 立绘 + 普通背景（用户报障"名字隐藏了、立绘还在、图不上屏"）。
 #: 把纪念放到第二板，冒烟才真的走到那条路径（此前纪念在首板 ⇒ 缺口一直没盖住）。
 BOND_BLOCK = "\n".join([
-    '{"stage": "switch", "text": "教室"}',
+    # ⭐ 首板 switch 用**咖啡馆**（真表里 `moderncafe`, `keywords: ["咖啡馆"]` ——
+    #    层1 关键词 0 调用命中）——**不能再用"教室"**: 那正好等于兜底图
+    #    (`_BG_FALLBACK_PRIORITY[0] = class_room` → BG_ClassRoom.jpg),
+    #    冒烟就分不清"地点生效了"还是"掉兜底了"（2026-10-08 加背景守门时发现）。
+    '{"stage": "switch", "text": "咖啡馆"}',
     f'{{"character": "{CHARACTER}", "text": "（她抬起头，指尖还沾着粉笔灰。）老师……你来了。"}}',
     '{"character": "sensei", "text": "我来了。"}',
     '{"character": "sensei", "text": "再等一会儿。"}',
