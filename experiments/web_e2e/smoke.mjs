@@ -326,30 +326,37 @@ async function main() {
   const chat = await watchMmtStream(page, mmtSessionId, "igusa_haruka", 20000,
                                     { stopOnEntry: false });
   const chatMax = chat.reduce((m, s) => Math.max(m, s.chars || 0), 0);
-  const chatFirst = chat.find((s) => s.chars >= 1) || null;
-  const chatTwo = chat.find((s) => (s.chars || 0) >= 2) || null;
-  const chatGap = (chatFirst && chatTwo) ? chatTwo.t - chatFirst.t : -1;
-  // 逐条上屏时间线（诊断: 谁在第几毫秒、文本是什么）
+  // 逐条上屏时间线 + 相邻间隔（诊断: 谁在第几毫秒、文本是什么）
   const timeline = [];
+  const gaps = [];
   let seen = 0;
+  let prevT = null;
   for (const s of chat) {
     if ((s.chars || 0) > seen) {
       seen = s.chars;
       timeline.push(`${seen}@${s.t}ms${s.lastText ? `(${s.lastText})` : ""}`);
+      if (prevT != null) gaps.push(s.t - prevT);
+      prevT = s.t;
     }
   }
+  const maxGap = gaps.length ? Math.max(...gaps) : -1;
   record("MMT 气泡节奏（批内逐条）", {
-    info: `第 1 条 t=${chatFirst ? chatFirst.t : "-"}ms → 第 2 条 `
-      + `t=${chatTwo ? chatTwo.t : "-"}ms; 间隔 ${chatGap}ms（共 ${chatMax} 条）`
-      + `（有节奏 ⇒ ~1.5s; 同帧上屏 ⇒ ~0ms）; 时间线 ${timeline.join(" → ")}`,
-    gapMs: chatGap, maxChars: chatMax, samples: chat.length, timeline,
+    info: `共 ${chatMax} 条; 逐条间隔 ${JSON.stringify(gaps)}（最大 ${maxGap}ms）`
+      + `; 时间线 ${timeline.join(" → ")}`,
+    maxGap, gaps, maxChars: chatMax, samples: chat.length, timeline,
   });
   if (chatMax < 2) {
     throw new Error(`普通聊天轮只看到 ${chatMax} 条角色气泡（桩给 3 行, 应 ≥2）`);
   }
-  if (chatGap < 800) {
+  // ⭐ 判据 = **至少有一条被节奏化**（相邻间隔 ≥800ms）。
+  //    为什么不判"前两条的间隔": 引擎**逐行交付**本身就有 ~250ms 间距（解析 + 落库）,
+  //    一次轮询只抓得到 1~2 条 ⇒ 前两条可能落在**两次轮询**里（各自是"批内第一条"
+  //    = 不延迟）⇒ 那一格随机红绿（2026-10-08 实测: 同一份代码跑出 1699ms 与 267ms）。
+  //    换成"最大间隔": 有节奏 ⇒ 被排队的条拉开 1.4s+; 没节奏 ⇒ 全部只有交付间距
+  //    （≤ ~300ms）⇒ 干净分开。
+  if (maxGap < 800) {
     throw new Error(
-      `**整批气泡同帧上屏**（前两条只隔 ${chatGap}ms）——`
+      `**没有一条气泡被节奏化**（最大间隔只有 ${maxGap}ms, 逐条 ${JSON.stringify(gaps)}）——`
       + "前端\"打完再发\"的节奏失效了（查 mmt.js 里 firstOfBatch && base === 0 那个判据）");
   }
 
@@ -414,8 +421,38 @@ async function main() {
   });
 
   // ── 5. 点入口 → 章节标题屏 → VN 首板 ─────────────────────────────────
+  // ⭐ 进 VN **之前**装背景**变化记录器**（2026-10-08）: "兜底图 → 补切那张图"的变化
+  //    时间线只有在这里抓得到 —— 等"选项出现"再读就晚了（标题屏 + 朗读 ~4s, 补切早
+  //    已完成）。
+  // ⚠️ 用 **MutationObserver**, 不用 `setInterval` 轮询: 轮询**会漏**（实测同一份代码
+  //    有时只记到兜底那一张 ⇒ 断言假红, 而同一刻直接读 DOM 明明已是咖啡馆）。
+  //    Observer 在 `style` 属性一变就回调, 没有采样空窗。
+  await page.evaluate(() => {
+    window.__bgLog = [];
+    const install = () => {
+      const el = document.getElementById("bond-bg");
+      if (!el) return false;
+      const push = () => {
+        const v = el.style.backgroundImage || "";
+        const log = window.__bgLog;
+        if (log.length === 0 || log[log.length - 1].v !== v) {
+          log.push({ t: Math.round(performance.now()), v });
+        }
+      };
+      push();
+      new MutationObserver(push).observe(el, { attributes: true,
+                                               attributeFilter: ["style"] });
+      return true;
+    };
+    if (!install()) {
+      const iv = setInterval(() => { if (install()) clearInterval(iv); }, 50);
+    }
+  });
   await page.click(".bond-entry");
   await page.waitForSelector("#view-bond:not(.hidden)", { timeout: 25000 });
+  await page.evaluate(({ cid, sid }) => {          // 给 5b 的 status 直询用
+    window.__bgChar = cid; window.__bgSid = sid;
+  }, { cid: "igusa_haruka", sid: mmtSessionId });
   // 章节标题屏（~2.4s 自动过 / 点击跳过）: 文案必须是**章节名**而不是兜底的"羁绊剧情"
   // （2026-09-11 真机报障: adopt 就绪路径漏带 chapter_title → 标题屏显示四个大字）
   const titlePanel = await page.evaluate(async () => {
@@ -465,19 +502,25 @@ async function main() {
   }
 
   // ── 5b. 板级背景: **晚到的地点必须补切**（2026-10-08 报障"永远是默认教室兜底"）──
-  await page.evaluate(({ cid, sid }) => {          // 给下面那段诊断用（status 直询）
-    window.__bgChar = cid; window.__bgSid = sid;
-  }, { cid: "igusa_haruka", sid: mmtSessionId });
-  // 首板经 `/api/bond/start` **直返快照**进场（那一刻 place 还没解析出来）⇒ `_resolve_scene`
-  // 走兜底 `_BG_FALLBACK_PRIORITY[0] = class_room`（教室）; place lane ~0.5s 后把地点写回
-  // `state.scene`（`lanes.py:299`）⇒ **前端必须自己补切**（`bond.js::syncBoardBg`, 挂在
-  // 阅读期守望 `startEmoWatch` 上）——此前 fixture/指纹都不管背景, 于是永远是教室。
-  // ⛔ 判据依赖"桩的 switch 文本 ≠ 教室": 咖啡馆那张（BG_ModernCafe.jpg）与兜底教室
-  //    （BG_ClassRoom.jpg）必须**不同图**, 否则分不清"地点生效"还是"掉兜底"。
+  // 判据 = 步骤 5 之前装的那个**背景变化时间线**（`window.__bgLog`）:
+  //   · 首板进场时 place 还没解析出来（桩的层2 睡了 `STUB_PLACE_LAG_S`）⇒ `_resolve_scene`
+  //     只能给兜底 `_BG_FALLBACK_PRIORITY[0] = class_room`（教室）;
+  //   · 地点随后写回 `state.scene`（`lanes.py:299`）⇒ **前端必须自己补切**
+  //     （`bond.js::syncBoardBg`, 挂在阅读期守望 `startEmoWatch` 上）。
+  // ⇒ 时间线里必须看到**两张图、教室在前**: 只有一张（教室）= 补切没发生;
+  //    只有一张（咖啡馆）= 窗口没演出来（假绿, 桩的层1/层2 走错了）。
+  // ⛔ 两张图必须不同名: `BG_ClassRoom.jpg`（兜底）vs `BG_ModernCafe.jpg`（地点）。
   const bgLate = await page.evaluate(async () => {
-    const el = document.getElementById("bond-bg");
-    const first = (el && el.style.backgroundImage) || "";
-    // 诊断: 直接问一次 status —— 分清"后端没给"与"前端没应用"（差一个人就是一条线索）
+    // ⚠️ **先等补切落地再读时间线**（2026-10-08 实测踩到）: 守望的第一个 tick 在
+    //    "标题屏 2.4s + 朗读" 之后 ~800ms 才发生, 而桩的 place lane 睡 `STUB_PLACE_LAG_S`
+    //    ⇒ 读太早只看到兜底那一张（会误判"没补切"; 而同一段里的第二次读已经是咖啡馆
+    //    了 —— 那是**竞态**不是 bug, 探针日志里 `setBg(café)` 明明成功了）。
+    for (let i = 0; i < 300; i++) {                       // ≤ 15s
+      const el0 = document.getElementById("bond-bg");
+      const cur0 = (el0 && el0.style.backgroundImage) || "";
+      if (cur0.includes("BG_ModernCafe")) break;
+      await new Promise((r) => setTimeout(r, 50));
+    }
     let probe = {};
     try {
       const r = await fetch(
@@ -488,22 +531,30 @@ async function main() {
                 bg: (s.background_url || "").slice(-44), gate: st.gate_busy,
                 round: st.round, ver: st.emo_version };
     } catch (e) { probe = { err: String(e) }; }
-    for (let i = 0; i < 120; i++) {                       // ≤ 6s
-      const cur = (el && el.style.backgroundImage) || "";
-      if (cur.includes("BG_ModernCafe")) return { ok: true, first, final: cur, probe };
-      await new Promise((r) => setTimeout(r, 50));
-    }
-    return { ok: false, first, final: (el && el.style.backgroundImage) || "", probe };
+    const log = (window.__bgLog || []).slice();
+    return { log: log.map((x) => ({ t: x.t, v: x.v.slice(-26) })), probe };
   });
+  const idxCafe = bgLate.log.findIndex((x) => x.v.includes("BG_ModernCafe"));
+  const before = idxCafe < 0 ? bgLate.log : bgLate.log.slice(0, idxCafe);
+  const hadFallback = before.some((x) => x.v.includes("BG_ClassRoom"));
+  const bgLast = bgLate.log.length ? bgLate.log[bgLate.log.length - 1].v : "";
   record("板级背景（晚到的地点补切）", {
-    info: `首次读=${bgLate.first.slice(-44) || "无"} → 最终=${bgLate.final.slice(-44) || "无"}`
+    info: `时间线 ${bgLate.log.map((x) => `${x.v}@${x.t}ms`).join(" → ") || "（空）"}`
       + `; status: ${JSON.stringify(bgLate.probe)}`,
-    ok: bgLate.ok,
+    ok: bgLast.includes("BG_ModernCafe"),
     shot: await shot(page, "vn-bg-late"),
   });
-  if (!bgLate.ok) {
+  // ⭐ 前置判据（防假绿）: 补切**之前**必须出现过兜底教室 —— 否则这一格没验到"晚到补切"
+  //    （只有一张咖啡馆 = 地点在渲染前就绪; 那说明桩的窗口没演出来）。
+  if (!hadFallback) {
     throw new Error(
-      `板级背景没补切到咖啡馆（最终 ${bgLate.final || "空"}）——`
+      `补切之前没出现过兜底教室（时间线 ${JSON.stringify(bgLate.log)}）—— `
+      + `桩没演出"板先上屏、地点后到"那个窗口（STUB_PLACE_LAG_S，或 switch 文本命中了`
+      + `层1 关键词 ⇒ 地点当场就有了）⇒ 本格是假绿`);
+  }
+  if (!bgLast.includes("BG_ModernCafe")) {
+    throw new Error(
+      `板级背景没补切到咖啡馆（最终 ${bgLast || "空"}）——`
       + "晚到的 place 没被应用到屏上（查 bond.js 的 syncBoardBg / startEmoWatch）");
   }
   // 当前角色自己说话时**不画**红字名字行（名字牌已表明是谁）——2026-09-11 用户反馈

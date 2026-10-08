@@ -45,11 +45,14 @@ CHAPTER_TITLE = "放学后的约定"
 #: 立绘 + 普通背景（用户报障"名字隐藏了、立绘还在、图不上屏"）。
 #: 把纪念放到第二板，冒烟才真的走到那条路径（此前纪念在首板 ⇒ 缺口一直没盖住）。
 BOND_BLOCK = "\n".join([
-    # ⭐ 首板 switch 用**咖啡馆**（真表里 `moderncafe`, `keywords: ["咖啡馆"]` ——
-    #    层1 关键词 0 调用命中）——**不能再用"教室"**: 那正好等于兜底图
-    #    (`_BG_FALLBACK_PRIORITY[0] = class_room` → BG_ClassRoom.jpg),
-    #    冒烟就分不清"地点生效了"还是"掉兜底了"（2026-10-08 加背景守门时发现）。
-    '{"stage": "switch", "text": "咖啡馆"}',
+    # ⭐ 首板 switch 用**不命中层1 关键词**的自然语言（2026-10-08）:
+    #    · 层1 = `place_entities.json` 的 `keywords` 别名表, **0 调用当场出键** ⇒
+    #      写"咖啡馆"的话地点在**生成那一刻**就有了, "板先上屏、地点后到"的窗口
+    #      压根不存在（冒烟那条补切断言会变成假绿 —— 实测 2.0s/4.0s 延迟都没用）;
+    #    · 写"街角那家熟悉的店"（实测层1 = None）⇒ 下沉层2 = LLM lane, 那里桩睡了
+    #      `STUB_PLACE_LAG_S` 并答 `moderncafe` ⇒ 窗口确定存在。
+    #    ⛔ 判据仍要"咖啡馆那张（BG_ModernCafe.jpg）≠ 兜底教室（BG_ClassRoom.jpg）"。
+    '{"stage": "switch", "text": "街角那家熟悉的店"}',
     f'{{"character": "{CHARACTER}", "text": "（她抬起头，指尖还沾着粉笔灰。）老师……你来了。"}}',
     '{"character": "sensei", "text": "我来了。"}',
     '{"character": "sensei", "text": "再等一会儿。"}',
@@ -103,6 +106,15 @@ MMT_STREAM_GAP_S = 0.3
 #: `MMT_STREAM_GAP_S`。
 MMT_ROW_GAPS_S = (0.0, 0.0, 0.0, 0.9)
 
+#: ⭐ place lane 的**人为延迟**（秒, 2026-10-08）—— 让"板先上屏、地点后到"那个窗口
+#: **确定存在**, 好验前端的补切（`bond.js::syncBoardBg`）。
+#: 为什么要它: 桩原来瞬间返回 ⇒ 板渲染时 place 早就绪 ⇒ **补切路径根本没被走到**
+#: （当时那条冒烟断言实际验的是后端; 见 `smoke.mjs` 步骤 5b 的注释）。
+#: ⚠️ **必须大于章节标题屏的时长（~2.4s）** —— 首板要等标题屏过去才渲染, 延迟比它短
+#: 就等于没延迟（2026-10-08 试过 2.0s: 首次读到的已经是咖啡馆 ⇒ 冒烟的前置判据当场
+#: 报"这一格是假绿"）。4.0s 的依据 = 标题屏 2.4s + 交付/轮询余量。
+STUB_PLACE_LAG_S = 4.0
+
 
 class StubLLM:
     """按 system prompt 分流: MMT 轮 / bond 生成 / 标注 / digest, 全部离线可预期。"""
@@ -132,9 +144,21 @@ class StubLLM:
             m = re.search(r"恰 (\d+) 项", note)
             return ["nomal"] * (int(m.group(1)) if m else 1)
         if task == T.PLACE:
+            # ⭐ 板级换场/句级锚点的**耗时**（2026-10-08）: 真机 place lane 要 ~0.5~1s,
+            #    而板是**先上屏、后标注** ⇒ 那一窗口里 `_resolve_scene` 只能给兜底图
+            #    （`_BG_FALLBACK_PRIORITY[0]` = 教室）。冒烟要能验"晚到的地点**必须补切**"
+            #    （用户报障"第一个背景永远是默认教室兜底"），就得让这个窗口**确定存在**
+            #    ⇒ 桩里睡一小会儿。⚠️ 它会顺带推迟 `gate_place`（推进门控），
+            #    所以取一个"够冒烟看见、又不拖慢流程"的值。
+            time.sleep(STUB_PLACE_LAG_S)
             return []
         if task == T.PLACE_BOARD:
-            return {"place": ""}
+            # ⭐ 睡满 `STUB_PLACE_LAG_S` 再给键 —— 这是"板先上屏、地点后到"窗口的**唯一**
+            #    制造点。⚠️ 前提是 switch 文本**不命中层1 关键词**（层1 是 0 调用别名表,
+            #    命中就当场出键、根本不进这条 lane）⇒ 脚本里的 switch 写的是
+            #    `街角那家熟悉的店`（实测层1 = None）, 层2 由这里答 `moderncafe`。
+            time.sleep(STUB_PLACE_LAG_S)
+            return {"place": "moderncafe"}
         if task == T.PLACE_VARIANT:
             # 选图（第二遍, PL6′ 2026-09-19）→ 保持默认图
             return {"image": ""}
@@ -189,6 +213,15 @@ class StubLLM:
                         response_format=response_format, **kw)
         is_mmt = kw.get("task") == T.MMT
         if on_chunk is not None and isinstance(out, str):
+            # ⭐ 普通聊天轮（`MMT_CHAT`）**整段一次喂**（2026-10-08）: 真机那一轮 8 条是
+            #    在最后 390ms 里**突发**写完的（`mmt_stream_first ms=9718` / `mmt_turn
+            #    ms=10108`）⇒ 前端一次轮询抓好几条 ⇒ "批内逐条"才谈得上。
+            #    分行喂（每行之间还有引擎的解析/落库开销 ~100ms）会让 3 行**跨两次轮询**
+            #    到达 ⇒ 每条都是"批内第一条"（不延迟）⇒ 冒烟的节奏判据**随机红绿**
+            #    （2026-10-08 实测: 同一份代码两次跑出 1699ms 与 267ms）。
+            if out == MMT_CHAT:
+                on_chunk(out)
+                return out
             for i, line in enumerate(out.splitlines(keepends=True)):
                 if is_mmt:
                     if i < len(MMT_ROW_GAPS_S):
