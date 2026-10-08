@@ -31,7 +31,7 @@
 
 | # | 调用 | task | system（会话级/单次） | 动态部分 | 文案的家 |
 |---|---|---|---|---|---|
-| 1 | MMT 聊天 | `mmt` | **盒A 10 块** + brain 段尾拼 | history + P16 进度 + P17 时间/系统注记 + P19「你想起的事」+ P18 `want_to_speak` + task 卡 + user | `momotalk_rules.md` · `momotalk_environment.md` · `behavior_rules.md` · `schema.py::build_line_schema` · `task_mmt.md` |
+| 1 | MMT 聊天 | `mmt` | **盒A 10 块** + brain 段尾拼 | history + ⛔P16（已封印，不再注入）+ P17 时间/系统注记 + P19「你想起的事」+ P18 `want_to_speak` + task 卡 + user | `momotalk_rules.md` · `momotalk_environment.md` · `behavior_rules.md` · `schema.py::build_line_schema` · `task_mmt.md` |
 | 2 | MMT 收尾轮 | `mmt`（kind=wrapup） | 盒A | 同上（`system_note`） | + `task_mmt_wrapup.md` |
 | 3 | Bond 一场 | `bond` | **盒B 10 块** | history + 约束注记 + **纠偏注记**（`_pending_feedback`）+ 场卡 + user | `bond_story_rules.md` · `bond_shots.md` · `schema.py::build_record_schema` · `task_bond.md` · `place_world` |
 | 4 | 情绪标注 | `emotion` | `emotion_text_annotate.md` + 人设摘要 | 板内记录 | 词表（emotions.yml） |
@@ -44,7 +44,7 @@
 
 | 注入物 | 家 |
 |---|---|
-| P16 羁绊进度 | `core/mmt/engine.py::_bond_progress_note` |
+| ⛔ P16 羁绊进度（**已封印 2026-10-08**） | `core/mmt/engine.py::_bond_progress_note`（恒返回空串 —— 引擎不再按轮次对触发时机表态；守门 `tests/core/test_mmt_trigger_note_sealed.py`） |
 | P17 时间注记 / 现实日历注记 | `core/worldtime/`（`time_notes` / `realtime_notes`） |
 | P17 本轮系统注记 | 调用方传（`webgui/bond/pregen.py::_system_note` · `vn_cli` · wrapup） |
 | P19「你想起的事」 | `core/brain/read/render.py::render_recall_block`（走 `marks`） |

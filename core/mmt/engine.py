@@ -402,9 +402,10 @@ class _Planned:
     action: AgentAction | None = None
     why: str = ""                # 办不了的原因（`_line_failure` 统一措辞）
     message: str = ""            # 执行回执（inspect 的资料回灌要读它 —— AUDIT §B9）
-# 羁绊剧情时机建议线（2026-09-02 v2 用户拍板: 引擎建议不拦截）: 距上次完整剧情
-# ≥ SUGGEST_BOND_ROUNDS 轮 → 每轮注记主动建议发起剧情; 不足 → 只报事实+沉淀,
-# 不拦（紧急场面 LLM 自行判断随时可触发, 见 momotalk_rules 触发专段）
+# ⛔ ~~羁绊剧情时机建议线~~（2026-09-02 v2 用户拍板: 引擎建议不拦截）—— **已随 P16 封印
+# 退役**（2026-10-08 用户裁决"封印一下/删除"）: 引擎不再按轮次对触发时机表态。
+# 常量**留着**只为一件事: 让"封印"这件事可被引用/可被守门（`test_mmt_trigger_note_sealed`
+# 用它当"旧的建议线"这个刻度）; **它不再有任何生产读者**（`_bond_progress_note` 恒空串）。
 SUGGEST_BOND_ROUNDS = 6
 
 #: mmt 会话窗口 digest 间隔（⚠️ **2026-09-29 由 25 改成 40** —— 用户裁决:
@@ -528,8 +529,9 @@ class MomoTalkEngine:
         self._session_rounds: int = 0
         # 距上次完整 bond 剧情的 MMT 轮数（2026-09-02 决策字段）:
         # 持久化在 worlds/{world}/characters/{char}/progress.json（rounds_since_bond,
-        # 断线/重启继续累计）——供**时机建议注记**（v2: 不再是硬门槛, 见
-        # SUGGEST_BOND_ROUNDS / _bond_progress_note）; 完整剧情结束清零。
+        # 断线/重启继续累计）; 完整剧情结束清零。
+        # ⚠️ **2026-10-08（P16 封印）起它没有读者了** —— 从前供"时机建议注记"用,
+        #    现在不驱动任何注入（留作客观事实, 别当活旋钮; 见 `_advance_round`）。
         # 无 store → 镜像会话轮数（不持久）。
         self._bond_gap: int = 0
 
@@ -1002,10 +1004,13 @@ class MomoTalkEngine:
 
         self._trace = []
         # 每轮动态尾（DESIGN_PROMPTKIT §2）: 唯一装配入口 round_messages——
-        # system(盒A+brain段) → history → 注记们（P16 进度 / P17 system_note /
-        # P18 随机）→ task 卡 → user。注记/卡只进 LLM context, 不入历史。
+        # system(盒A+brain段) → history → 注记们（P17 system_note / P18 随机）→
+        # task 卡 → user。注记/卡只进 LLM context, 不入历史。
         brain = (self._brain_injection or "").strip()
-        notes: list[str] = [self._bond_progress_note()]    # P16 羁绊进度参考（软门槛）
+        # ⛔ P16 羁绊进度注记**已封印**（2026-10-08）: `_bond_progress_note()` 恒返回 ""
+        #    ⇒ `round_messages` 跳过空串, 注入面一个字节不变（见该函数 docstring 的裁决）。
+        #    保留调用点是**有意的**: 封印的面只有那一个函数, 恢复也只改它。
+        notes: list[str] = [self._bond_progress_note()]
         # P17 时间注记（§4.11）—— 剧情时间 + 现实间隔 + 手机日期。
         # ★ 三行**互不参与判定**（不进 det/age/召回），只给 LLM 写作与答题的素材。
         # ★ "手机上的日期"给归因（她是掏手机看, 不是知道现实世界）+ 使用边界
@@ -1691,7 +1696,9 @@ class MomoTalkEngine:
         """成功一轮后推进计数（2026-09-02 v2）: 距上次完整 bond 剧情 +1。
 
         持久化 progress.json（store 会话, 断线/重启继续累计）; 完整 bond
-        结束清零（bond_completed）——供时机建议注记（建议线 SUGGEST_BOND_ROUNDS）。
+        结束清零（bond_completed）。
+        ⚠️ **2026-10-08 起它没有读者了**（P16 封印 ⇒ 不再驱动任何注记）: 纯粹留作
+        "她俩聊了多少轮"的客观事实（将来关系阶段可能要用）——**别当活旋钮**。
         无 store → 内存镜像（不持久）; 写失败内存继续。
         """
         self._session_rounds += 1
@@ -1704,27 +1711,35 @@ class MomoTalkEngine:
             logger.warning("progress 写失败（内存计数继续）: %s", e)
 
     def _bond_progress_note(self) -> str:
-        """本轮羁绊剧情时机注记（注入 LLM context, 不入历史）。
+        """⛔ **已封印（2026-10-08, 用户裁决"封印一下/删除"）——恒返回空串。**
 
-        2026-09-02 v2（用户复盘拍板: 引擎建议不拦截）——触发节奏是**建议**
-        不是闸门:
-          · 距上次完整剧情 < SUGGEST_BOND_ROUNDS: 报事实 + 沉淀提示（不拦——
-            真遇到非现在不可的紧急场面, LLM 自行判断可提前, 见 rules 触发专段）
-          · ≥ SUGGEST_BOND_ROUNDS: 主动建议——关系铺垫够了, 可找契机发起。
-        LLM 有完整剧情上下文（玩家呼救 vs 闲聊）, 程序只有计数器——硬闸
-        会误伤紧急剧情, 所以引擎只负责"挑时机提示", 裁决权全交 LLM。
+        **封印的是什么**: 从前这里按**轮次**对触发时机表态，两档都会注入 LLM context::
+
+            gap >= SUGGEST_BOND_ROUNDS(6) → 【剧情时机】距上次完整羁绊剧情已 N 轮,
+                                            铺垫足够: …可以主动发起羁绊剧情（mmt_trigger_bond_story）
+            gap <  6                      → 羁绊进度事实: …还在沉淀期——不必急着切剧情
+
+        第一档 = **依据轮次催她主动发起 VN 邀约**（用户要删的就是它）; 第二档是同一根绳的
+        另一头（按轮次**反向拉住**她）—— 只删一档等于引擎仍在按轮次插手时机, 所以**两档一起封印**。
+
+        **封印后谁决定触发时机**: 规则书 `momotalk_rules.md` §【羁绊剧情触发】的**契机判据**
+        （共处瞬间/同行/偶遇/紧急救援…）+ LLM 自己的剧情与人设判断。引擎侧**从来**没有闸门
+        （`mmt_executor._execute_mmt_trigger_bond_story` 零拦截）, 所以封印它 = 引擎对触发
+        时机**彻底不表态**。配套: 规则书里那句"还是要看当前 mmt 进行了几轮"也一并删了
+        （2026-10-08, 乙）。
+
+        **怎么封印的**: 保留函数与调用点（`_assemble_messages` 的 `notes` 首位）——空串会被
+        `promptkit.tail.round_messages` 跳过（`if not note: continue`），所以**注入面一个字节都不变**;
+        将来若要恢复, 改这一个函数即可。守门 = `tests/core/test_mmt_trigger_note_sealed.py`
+        （把 gap 拉到 6 也不许出现 `mmt_trigger_bond_story` / 【剧情时机】/主动发起）。
+
+        ⚠️ **一笔账（别把它们当活旋钮）**: 封印后 `self._bond_gap` 与
+        `core/bond/bond_progress.py::BondProgress.rounds()` **都没有读者了** ——
+        `_bond_gap` 的唯一读者就是本函数; `rounds()` 的唯一读者是它自己的 `record_turn`
+        （只写不读）。**留着**（"她俩聊了多少轮"是客观事实, 将来做关系阶段/阶段词可能要用）,
+        但别以为它们还在驱动什么。
         """
-        gap = self._bond_gap
-        if gap >= SUGGEST_BOND_ROUNDS:
-            return (
-                f"【剧情时机】距上次完整羁绊剧情已 {gap} 轮, 铺垫足够: "
-                "若此刻出现共处契机或情感张力（或 sensei 需要你出面）, "
-                "可以主动发起羁绊剧情（mmt_trigger_bond_story）"
-            )
-        return (
-            f"羁绊进度事实: 距上次完整羁绊剧情仅 {gap} 轮, 还在沉淀期——"
-            "不必急着切剧情, 自然聊天就好（真有非现在不可的紧急场面, 你自行判断）"
-        )
+        return ""
 
     def _trim_history(self) -> None:
         max_messages = self._history_rounds * 2
