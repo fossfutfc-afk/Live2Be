@@ -295,7 +295,7 @@ async function main() {
   // ── 4b. ⑥-3b: 气泡**逐条**上屏（第一个气泡早于整轮完成）─────────────────
   // 桩的 MMT 回复 4 行、行间 0.3s（`MMT_STREAM_GAP_S`）; 批式实现下 4 条会挤在
   // 同一次轮询里出现（`firstBubble.running` 也会是 false）。
-  const stream = await watchMmtStream(page, mmtSessionId, "igusa_haruka");
+  const stream = await watchMmtStream(page, mmtSessionId, "igusa_haruka", 20000);
   const firstBubble = stream.find((s) => s.chars >= 1) || null;
   const last = stream[stream.length - 1] || {};
   const leadMs = firstBubble && last.entry ? last.t - firstBubble.t : -1;
@@ -318,6 +318,33 @@ async function main() {
   }
   if (leadMs < 250) {
     throw new Error(`首泡与整轮结束只差 ${leadMs}ms（前端 250ms 轮询都吃不满, 像批式）`);
+  }
+
+  // ── 4c. 节奏: 同一批里的角色气泡必须**逐条**上屏（不许同帧）──────────────
+  // 桩按 `MMT_ROW_GAPS_S` 吐行: 前几行**突发**（= 真机形态: 她一口气写完几条,
+  // 一次轮询抓好几条）, 只在触发行之前留间隔 ⇒ 于是这里量得出"批内节奏"。
+  // ⚠️ 判据取**前两条**之间的间隔, 不取"第 1 条 → 最后 1 条": 引擎是**一行前瞻**
+  //    交付（下一行到达才上屏最后一条内容行）⇒ 最后一条天然被那个 0.9s 行间推迟,
+  //    混进判据里会把"同帧上屏"伪装成 855ms（2026-10-08 变异验红时踩到: 守门抓不住）。
+  //    前两条则确实落在**同一批**（同一次轮询抓到）⇒ 干净。
+  //   · 有节奏（`chunkTypingMs` 逐条"打完再发"）⇒ 第 2 条要等她"打完第 2 条"（~1.5s）
+  //   · 没节奏（那个 bug: 整批 `at` 恒 0 ⇒ 全走同帧那支）⇒ 两条同一帧 ⇒ ~0ms
+  // ⚠️ 别拿粉泡量: 它是**非角色**气泡、不推进队列 ⇒ 必然紧跟前一条（恒 0ms, 假红）。
+  const maxChars = stream.reduce((m, s) => Math.max(m, s.chars || 0), 0);
+  const t1 = firstBubble ? firstBubble.t : null;
+  const two = stream.find((s) => (s.chars || 0) >= 2) || null;
+  const gapMs = (t1 != null && two) ? two.t - t1 : -1;
+  const lastChar = stream.find((s) => (s.chars || 0) === maxChars) || null;
+  record("MMT 气泡节奏（批内逐条）", {
+    info: `第 1 条 t=${t1}ms → 第 2 条 t=${two ? two.t : "-"}ms; 间隔 ${gapMs}ms`
+      + `（共 ${maxChars} 条, 第 1→最后 ${lastChar && t1 != null ? lastChar.t - t1 : "-"}ms）`
+      + `（有节奏 ⇒ ~1.5s; 同帧上屏 ⇒ ~0ms）`,
+    gapMs, maxChars,
+  });
+  if (maxChars >= 2 && gapMs < 800) {
+    throw new Error(
+      `**整批气泡同帧上屏**（前两条只隔 ${gapMs}ms）——`
+      + "前端\"打完再发\"的节奏失效了（查 mmt.js 里 firstOfBatch && base === 0 那个判据）");
   }
 
   await page.waitForSelector(".bond-entry", { timeout: 30000 });
