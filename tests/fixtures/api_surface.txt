@@ -68,6 +68,7 @@ webgui.bond	_memorial_open_in_events	function	webgui.bond.state
 webgui.bond	_ms_since	function	webgui.bond.util
 webgui.bond	_narrativize	function	webgui.bond.replay
 webgui.bond	_note_reject	function	webgui.bond.api
+webgui.bond	_open_chapter_board_seq	function	webgui.bond.stores
 webgui.bond	_open_vn_seq	function	webgui.bond.stores
 webgui.bond	_pending_in_vn	function	webgui.bond.replay
 webgui.bond	_persisted_memorial_img	function	webgui.bond.memorial
