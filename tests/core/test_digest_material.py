@@ -162,12 +162,40 @@ def test_l2_picks_the_group_with_the_most_new_members(tmp_path):
     st.add_edge("member_of", e3, g2)
 
     ctx = _Ctx(st, [e1, e2, e3])
-    grp, _linked, _ev = _l2_material(ctx)                # 缺省 = DIGEST_L2_GROUPS = 1
-    assert f"群 {g2}《苔藓》" in grp and f"群 {g1}《" not in grp, grp
+    # ⚠️ 缺省 = `DIGEST_L2_GROUPS`（2026-10-08 用户抬到 3）⇒ **两组都出**
+    grp, _linked, _ev = _l2_material(ctx)
+    assert f"群 {g2}《苔藓》" in grp and f"群 {g1}《" in grp, grp
     assert "这一类现在有 2 条经历 · 本段新归入 2 条" in grp, grp
-    assert len(_groups_for_l2(ctx, cap=2)) == 2, "旋钮给 2 ⇒ 两组都出"
-    # 两组都出时按"新归入数"降序（多的在前）
+    # 排序: 新归入多的在前
     assert [g for g, _new in _groups_for_l2(ctx, cap=2)] == [g2, g1]
+    # 旋钮给 1 ⇒ 只出最该更新的那一组
+    assert [g for g, _new in _groups_for_l2(ctx, cap=1)] == [g2]
+
+
+def test_l2_group_pick_prefers_the_unsoaked_when_tied(tmp_path):
+    """⭐ 平手时**还没写过沉淀的类**优先 —— ⛔ 否则"从没写过"的类会永远排在队尾。
+
+    一段只摆 `DIGEST_L2_GROUPS` 组 ⇒ 若平手时只按 id 排, 那个 id 大的新类**永远轮不到**,
+    它的沉淀就"**永远不写**"了。用户 2026-10-08 把旋钮抬到 2~3, 这条排序是另一半解药。
+    """
+    st = WikiStoreV2(tmp_path, world_id="world1", char_id="c")
+    g1 = st.add(make_node("experience", title="早写过沉淀的", text="早有的一句话"))
+    g2 = st.add(make_node("experience", title="这一段添得最多的"))
+    g3 = st.add(make_node("experience", title="从没写过沉淀的"))     # id 最大 ⇒ 旧排序会漏它
+    e1 = _new_ep(st, "a", title="a")
+    e2 = _new_ep(st, "b", title="b")
+    e3 = _new_ep(st, "c", title="c")
+    e4 = _new_ep(st, "d", title="d")
+    st.save()
+    st.add_edge("member_of", e1, g1)                    # g1: 1 条新归入 + **有**沉淀
+    st.add_edge("member_of", e2, g2)                    # g2: 2 条新归入
+    st.add_edge("member_of", e3, g2)
+    st.add_edge("member_of", e4, g3)                    # g3: 1 条新归入 + **无**沉淀
+
+    picked = [g for g, _new in _groups_for_l2(_Ctx(st, [e1, e2, e3, e4]), cap=2)]
+    assert picked == [g2, g3], picked
+    assert g1 not in picked, "有沉淀的那个该给'从没写过'的让位"
+    print("    挑组: 新归入多的先; 平手时**还没写过沉淀的**先（不再只看 id）")
 
 
 def test_l2_group_block_caps_members_and_says_how_many_left(tmp_path):

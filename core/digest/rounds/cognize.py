@@ -56,6 +56,7 @@ def run(ctx: Ctx) -> RoundOut:
         ("现有认知", cog_text),
         ("角色人设（锚点）", ctx.character_prompt),
     ])
+    drops_before = len(ctx.result.contract_drops)     # 观测账: 只算**这一轮**丢的
     rows, _resp = ctx.call(
         spec, system, user,
         parse_fn=ctx.parse_for(
@@ -79,9 +80,11 @@ def run(ctx: Ctx) -> RoundOut:
     ctx.result.reused_beliefs = list(res.reused)
     ctx.result.soaked_groups = list(res.soaked)
     # 观测账（可 grep）: 这一趟干了什么 —— 与 P6 的 `digest_relate` 同一个口径
-    logger.info("digest_cognize rows=%d beliefs=%d reused=%d edges=%d soaked=%d",
+    # （`dropped=` 取**调用前后** `contract_drops` 的差, ⛔ 不靠中文子串匹配）
+    logger.info("digest_cognize rows=%d beliefs=%d reused=%d edges=%d soaked=%d dropped=%d",
                 len(rows), len(res.created), len(res.reused),
-                len(res.edges), len(res.soaked))
+                len(res.edges), len(res.soaked),
+                len(ctx.result.contract_drops) - drops_before)
     return RoundOut.done()
 
 

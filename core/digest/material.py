@@ -514,9 +514,11 @@ def _episode_candidates(store: "WikiStoreV2", episode_ids: list[str], *,
 # L2（`cognize`）的料 —— 「本段归类的群」+「被连过的经历」（2026-10-08, P8）
 # ---------------------------------------------------------------------------
 
-#: L2 的「本段归类的群」**摆几组**（用户 2026-10-08 裁: 默认 1 —— 先观测, 真机再看）。
-#: 挑法 = **本段新归入成员最多**的那一组（"这一段刚给它添了最多东西" ⇒ 最该更新沉淀）。
-DIGEST_L2_GROUPS = 1
+#: L2 的「本段归类的群」**摆几组**（用户 2026-10-08: *"GROUPS 数可以增加了…
+#: 我觉得 2-3 都可以"* —— 前提是他把每块摆的成员数砍小了（`DIGEST_L2_MEMBERS=4`）:
+#: 每块的料短了 ⇒ 一次摆得下更多块）。
+#: 挑法见 `_groups_for_l2`: **本段新归入多的先**, 平手时**还没写过沉淀的先**。
+DIGEST_L2_GROUPS = 3
 
 #: 「被 L1 连过」= **L1 的动作面那五条边**（`RELATION_ACTIONS` —— 契约单源, ⛔ 不另抄一份）。
 #: ⚠️ `member_of` **不在里面**（那是 `group` 落的边）—— 它要是算进来, 每个归了类的经历
@@ -592,15 +594,26 @@ def _groups_for_l2(ctx, *, cap: int = DIGEST_L2_GROUPS) -> list[tuple[str, list[
 
     ⚠️ 「本段新归入」的判据 = **本段新建的经历 ∩ 有 `member_of` 边**（用户 2026-10-08 点头:
     不覆盖"老经历本段才被归类"那个边角 —— `group` 自吞后补归类的那些要等下一段）。
-    挑法 = **新归入成员最多**的在前（同数按类 id, 结果稳定可复现）。
+
+    ⭐ **排序 = `(-本段新归入数, 有没有沉淀, 类 id)`**:
+      · 新归入多的先（"这一段刚给它添了最多东西" ⇒ 最该更新）;
+      · ⚠️ 平手时**还没写过沉淀的先** —— ⛔ 不能只按 id 排: 那样"**从没写过沉淀的类**"
+        会永远排在队尾, 而它可能**永远轮不到**（一段只摆 `cap` 组）。这条是"永远不写"
+        那个缺口的一半解药（另一半 = 旋钮给到 2~3）;
+      · 最后按 id ⇒ 结果稳定可复现（同输入同输出）。
     """
     seg = {str(m) for m in ctx.episode_ids}
     by_group: dict[str, list[str]] = {}
     for e in ctx.store.edges():
         if e.rel == "member_of" and str(e.src) in seg:
             by_group.setdefault(str(e.dst), []).append(str(e.src))
-    order = sorted(by_group.items(), key=lambda kv: (-len(kv[1]), kv[0]))
-    return order[:max(int(cap), 0)]
+
+    def _rank(kv: tuple[str, list[str]]) -> tuple:
+        gid, new = kv
+        node = ctx.store.get(gid)
+        return (-len(new), bool(node is not None and node.text), gid)
+
+    return sorted(by_group.items(), key=_rank)[:max(int(cap), 0)]
 
 
 def _episode_line(store, nid: str, *, now="", body: int = 120, extra=()) -> str:
