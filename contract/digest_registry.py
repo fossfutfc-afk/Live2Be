@@ -543,7 +543,7 @@ RELATION_ACTIONS = (
         phase=PHASE_RELATE,
         role="这条经历**印证**了那条看法。",
         semantics=(
-            "两端: 左 = 本段的一条**经历**（`m…`）· 右 = 一条**已有的看法 / 经验**（`u…` / `g…`）;\n"
+            "两端: 左 = 本段的一条**经历**（`m…`）· 右 = 一条**已有的认知**（`u…`: 看法 / 画像）;\n"
             "何时用: 这条经历又一次验证了那条已有结论 —— 不是新角度, 也没有推翻它;\n"
             "禁什么: 想说\"这两条经历像\" ⇒ 那是 `akin`; 想说\"这条是关于某人的\" ⇒ 那是 `about`。"
         ),
@@ -571,7 +571,7 @@ RELATION_ACTIONS = (
         semantics=(
             "两端: 经历 ↔ 经历, **或** 看法 ↔ 看法（**对称**, 方向无所谓）;\n"
             "何时用: 她后来发现\"不对\" / 两边说不通;\n"
-            "禁什么: \"程度不同\"（不算对立）· \"后来变了\"（那是另一趟的 `evolved_from`）。"
+            "禁什么: \"程度不同\"（不算对立）· \"后来变了\"（那是同族的 `evolved_from`, 见下）。"
         ),
         field_schema='        {"episode": "m0015", "contradicts": "m0009"},',
         example='{"episode": "m0015", "contradicts": "m0009"}',
@@ -587,6 +587,22 @@ RELATION_ACTIONS = (
         ),
         field_schema='        {"episode": "m0014", "about": "x0001"},',
         example='{"episode": "m0014", "about": "x0001"}',
+    ),
+    DigestAction(
+        name="evolved_from",
+        phase=PHASE_RELATE,
+        role="这条看法**取代了**那条更旧的（她变了 —— 旧的那条原样留着）。",
+        semantics=(
+            "两端: **都是看法**（`u…` / `g…`, 行首写较**新**的那条）—— 图上的方向是"
+            "「新 → 旧」;\n"
+            "何时用: 两条看法说的是**同一件事**, 而这一条明显更晚 / 更准（她后来想通了）;\n"
+            "⚠️ **旧的那条一个字都不改**（`graph` 层永不推断这条边 —— 只有知道作者意图的写路径能产它）:\n"
+            "  *\"我以前觉得不配, 现在不这么想了\"本身就是两条看法, 用这条边连起来*;\n"
+            "禁什么: ⛔ \"程度不同\"（那是 `supports` / `contradicts`）· ⛔ \"后来发生了别的事\"\n"
+            "  （那是经历的时间线, 不是看法的进化）· ⛔ 拿不准就不写（真机到今天 0 条）。"
+        ),
+        field_schema='        {"belief": "u0009", "evolved_from": "u0007"},',
+        example='{"belief": "u0009", "evolved_from": "u0007"}',
     ),
 )
 
@@ -877,13 +893,16 @@ class DigestRegistry:
                 "relations 规则:",
                 "  · **一行一条关系**; 同一条经历有几条关系就写几行;",
                 "  · 行首 = **本段新来的那条经历**（`\"episode\": \"m…\"`）——",
-                "    例外: 引擎把**两条已有**的东西摆到一起让你看时, 行首可以写 `{\"belief\": \"u…\"}`;",
+                "    例外: **【现有认知】列表里的两条之间**也可以直接连, 行首写"
+                " `{\"belief\": \"u…\"}`",
+                "    （那是**两条已有**的东西之间的关系 —— 引擎不摆也会发给你: 整份列表就在上面;",
+                "     判得出来就写, `evolved_from` 只能这么写）;",
                 "  · 右边只能引用**上方渲染列表里出现过**的 id（编造 id → **整包拒**）;",
                 "  · ⭐ **没话说就不写** —— 不要求每条经历都出现（\"这条跟谁都没关系\"也是一个结论）;",
                 "  · ⛔ **这一趟不写正文**: 没有 `text` / `subject` 这些键 ——",
                 "    看到\"这里有话可说\"**不用写出来**, 下一趟会看到同一批料, 由它去写;",
-                "  · **方向不用你操心**: 两端的类型天然定了方向（经历 → 看法 / 经历 → 对象）;",
-                "    对称的那两条（`akin` / `contradicts`）写哪边都一样。",
+                "  · **方向不用你操心**: 两端的类型天然定了方向（经历 → 看法 / 经历 → 对象 /",
+                "    新看法 → 旧看法）; 对称的那两条（`akin` / `contradicts`）写哪边都一样。",
             ])
             if include_examples:
                 lines.append("")
@@ -1085,6 +1104,7 @@ class DigestRegistry:
         | `akin` 缺 `on` / `on` 不在**两端 `topics` 的交集**里 | **丢这一行** + 记账（轴是**逐行**的性质, 一行坏不毁整段记忆）|
         | `about` 的目标不在 `entity_ids` 里 | **丢这一行**（⚠️ 与上面那条**不同档** —— 理由见下面代码里那段注释）|
         | `akin` / `contradicts` 的**两端类型**不对（P2）| **丢这一行** —— `akin` 两端都得是经历; `contradicts` 得**同侧**（经历↔经历 或 非经历↔非经历）|
+        | `evolved_from` 的两端**不是看法**（P7-2, 2026-10-08）| **丢这一行** —— 那是"看法 ↔ 看法"的边（经历没有进化可言）|
 
         ⚠️ `on` 的判据用**原样字符串**（大小写 / 标点都不归一）—— 归一就等于引擎在替她判
         "这两个词是一回事"。`topics_of` = `{节点 id: [topics]}`（料侧提供; 缺省 `None` =
@@ -1142,7 +1162,7 @@ class DigestRegistry:
             # ⭐ **两端类型**（P2）: 与 `on` 同一档（**丢这一行**）—— 判据是"这条边的
             # 语义对不对", 一行错不该毁整段。`akin` 只要经历; `contradicts` 要**同侧**
             # （经历↔经历 或 看法↔看法 —— 混着来的那条边没有语义）。
-            if kind_of and rel in ("akin", "contradicts"):
+            if kind_of and rel in ("akin", "contradicts", "evolved_from"):
                 ka, kb = kind_of.get(aid), kind_of.get(dst)
                 if ka is not None and kb is not None:
                     if rel == "akin" and (ka != "episode" or kb != "episode"):
@@ -1152,6 +1172,12 @@ class DigestRegistry:
                     if rel == "contradicts" and (ka == "episode") != (kb == "episode"):
                         drops.append(f"relations[{i}] contradicts 两端必须同侧"
                                      f"（经历 ↔ 经历 或 看法 ↔ 看法; 实得 {ka} ↔ {kb}）")
+                        continue
+                    # ⭐ 2026-10-08（P7 第 2 笔, 用户裁决）: `evolved_from` **只能**是
+                    # 看法 ↔ 看法（经历没有"进化" —— 经历是流水, 时间线自己会说清）
+                    if rel == "evolved_from" and (ka != "belief" or kb != "belief"):
+                        drops.append(f"relations[{i}] evolved_from 两端必须都是**看法**"
+                                     f"（实得 {ka} ↔ {kb}）")
                         continue
             row: dict = {"rel": rel, "src": aid, "dst": dst}
             on = r.get("on")
