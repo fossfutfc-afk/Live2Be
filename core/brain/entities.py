@@ -309,6 +309,18 @@ def new_nodes_block(store: WikiStoreV2, ids) -> tuple[str, dict[str, str]]:
 # "散"的典型。现在 `head(kind=True)` 直接把 `marks.kind_tag` 放进头里, 不再需要它。
 
 
+def entity_label(node) -> str:
+    """⭐ **一个对象的印法**（`x0001 老师（sensei）`）—— **全仓唯一一处**。
+
+    收它的理由（架构自检）: L1 的对象候选表与 L2 的「关于谁」两处都要印同一行,
+    而"名字 + 别名"的拼法各写一份必然漂 —— 那个漂就是"同一张图在两处长得不一样"。
+    ⚠️ 别名取 `surface_forms(n)[1:]`（第 0 个就是 `name`）—— 与命中判据**同源**。
+    """
+    aliases = surface_forms(node)[1:]
+    suffix = f"（{'/'.join(aliases)}）" if aliases else ""
+    return f"{node.id} {node.name.strip()}{suffix}"
+
+
 def object_lines(store: WikiStoreV2, *, texts=()) -> tuple[str, list[str]]:
     """⭐ **L1（判关系）的对象候选**: 全量表（**真实 id**） + 一行字面命中提示。
 
@@ -334,11 +346,7 @@ def object_lines(store: WikiStoreV2, *, texts=()) -> tuple[str, list[str]]:
     if not rows:
         return "", []
     hits = set(hit_set(store, texts=texts))
-    lines: list[str] = []
-    for n in rows:
-        aliases = surface_forms(n)[1:]
-        suffix = f"（{'/'.join(aliases)}）" if aliases else ""
-        lines.append(f"{n.id} {n.name.strip()}{suffix}")
+    lines: list[str] = [entity_label(n) for n in rows]      # 印法唯一一处（`entity_label`）
     if hits:
         named = [f"{n.id}（{n.name.strip()}）" for n in rows if n.id in hits]
         lines.append(f"→ 候选: {'·'.join(named)}（本段文本里出现了这个称呼）")

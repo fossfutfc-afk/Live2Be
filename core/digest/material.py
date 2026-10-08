@@ -28,7 +28,7 @@ from datetime import date
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from contract.digest_registry import STATE_VALUES, is_full_date
+from contract.digest_registry import RELATION_ACTIONS, STATE_VALUES, is_full_date
 from core import paths
 from core.brain import marks
 from core.digest.rounds import RoundSpec
@@ -508,6 +508,176 @@ def _episode_candidates(store: "WikiStoreV2", episode_ids: list[str], *,
         lines.append(f"{head}{_clip(node.text)}")
         ids_out.append(oid)
     return "\n".join(lines), ids_out
+
+
+# ---------------------------------------------------------------------------
+# L2（`cognize`）的料 —— 「本段归类的群」+「被连过的经历」（2026-10-08, P8）
+# ---------------------------------------------------------------------------
+
+#: L2 的「本段归类的群」**摆几组**（用户 2026-10-08 裁: 默认 1 —— 先观测, 真机再看）。
+#: 挑法 = **本段新归入成员最多**的那一组（"这一段刚给它添了最多东西" ⇒ 最该更新沉淀）。
+DIGEST_L2_GROUPS = 1
+
+#: 「被 L1 连过」= **L1 的动作面那五条边**（`RELATION_ACTIONS` —— 契约单源, ⛔ 不另抄一份）。
+#: ⚠️ `member_of` **不在里面**（那是 `group` 落的边）—— 它要是算进来, 每个归了类的经历
+#: 都成了"被连过", 孤立经历那道理应存在的门槛就失效了。
+_L2_LINK_RELS = frozenset(a.name for a in RELATION_ACTIONS)
+
+#: 一类最多印几条**已有成员**（用户 2026-10-08 裁: 4 条 —— 8 条太多）。
+#: ⚠️ **本段新归入的不吃这个上限**（它们是这一趟的**理由**, 必须看得见）。
+DIGEST_L2_MEMBERS = 4
+
+
+def _l2_material(ctx) -> tuple[str, str]:
+    """L2 的两块料 → `(「本段归类的群」, 「被连过的经历」)`。
+
+    ⚠️ **两块互相知道**（所以必须同一个函数产出）: 已经在【被连过的经历】里印过**全文**的
+    经历, 在群块的「本段新归入」里**只印把手**（`〔m0022｜《被感谢的人》〕（正文见下）`）——
+    免得同一段正文在一份料里出现两遍。⛔ 但**不许丢**: 没在别处印过的照印全文
+    （经历可能"刚归了类却没被连过"）。
+
+    两块各自的空 ⇒ 印一句**为什么空**（P6 的口径: 空串会被 `_join_sections` 连抬头
+    一起吞掉, 她既看不见这一格、也不知道那个结论）。
+    """
+    linked_ids = _linked_episode_ids(ctx)
+    rows: list[str] = []
+    for m in linked_ids:
+        node = ctx.store.get(str(m))
+        rows.append(_episode_line(ctx.store, m, now=ctx.now_ts, body=150,
+                                  extra=_axes_field(getattr(node, "topics", None))))
+        about = _about_line(ctx.store, m)              # 只在真有 `about` 边时出现
+        if about:
+            rows.append(about)
+    linked = "\n".join(rows) or (
+        "（这一段没有被连过的经历 —— 归纳没有立足点, 那就什么都别造）")
+    groups = _groups_for_l2(ctx)
+    if groups:
+        grp = "\n\n".join(
+            _group_block(ctx.store, gid, new_ids=new, linked_ids=set(linked_ids),
+                         now=ctx.now_ts)
+            for gid, new in groups)
+    else:
+        grp = "（这一段没有新归类的群 —— 沉淀那半这趟不用写, 只造看法）"
+    return grp, linked
+
+
+def _linked_episode_ids(ctx) -> list[str]:
+    """**被 L1 连过的**本段经历（规格 §3: "读边取两端, 纯计算"）。
+
+    判据 = 本段新建的 episode 里，**被 L1 那五条边**（`_L2_LINK_RELS`）沾到的那些。
+    ⚠️ **`member_of` 不算**（那是 `group` 落的边, 每个归了类的经历都有它）——
+    我第一版数"任意边", 结果**凡是被归了类的经历都不再孤立** ⇒ 天然门槛整个失效
+    （自测 `test_l2_body_text_appears_exactly_once` 抓到）。
+    ⭐ 判据从 `RELATION_ACTIONS`（L1 的动作面 = 契约单源）取, ⛔ 不另抄一份边名。
+
+    孤立经历（一条这样的边都没有）**不进 L2** —— 它跟任何已有认知/经历都没关系
+    ⇒ 归纳没有立足点（那是**天然的归纳门槛**, 规格 §3）。
+    """
+    touched: set[str] = set()
+    for e in ctx.store.edges():
+        if str(e.rel) in _L2_LINK_RELS:
+            touched.add(str(e.src))
+            touched.add(str(e.dst))
+    return [str(m) for m in ctx.episode_ids if str(m) in touched]
+
+
+def _groups_for_l2(ctx, *, cap: int = DIGEST_L2_GROUPS) -> list[tuple[str, list[str]]]:
+    """本段**新归入过成员**的类 → `[(类 id, 本段新归入的成员 id), …]`（最多 `cap` 组）。
+
+    ⚠️ 「本段新归入」的判据 = **本段新建的经历 ∩ 有 `member_of` 边**（用户 2026-10-08 点头:
+    不覆盖"老经历本段才被归类"那个边角 —— `group` 自吞后补归类的那些要等下一段）。
+    挑法 = **新归入成员最多**的在前（同数按类 id, 结果稳定可复现）。
+    """
+    seg = {str(m) for m in ctx.episode_ids}
+    by_group: dict[str, list[str]] = {}
+    for e in ctx.store.edges():
+        if e.rel == "member_of" and str(e.src) in seg:
+            by_group.setdefault(str(e.dst), []).append(str(e.src))
+    order = sorted(by_group.items(), key=lambda kv: (-len(kv[1]), kv[0]))
+    return order[:max(int(cap), 0)]
+
+
+def _episode_line(store, nid: str, *, now="", body: int = 120, extra=()) -> str:
+    """一条经历的行 = **信息头 + 截断正文**（与 L1 的候选行**同一个印法**）。
+
+    `extra` 追加在信息头里（L2 用 `轴 …` —— `_axes_field` 产的那一格）。
+    """
+    node = store.get(str(nid))
+    if node is None:
+        return ""
+    return f"{marks.head(node, key=str(nid), now=now, extra=extra)}{_clip(node.text, body)}"
+
+
+def _about_line(store, nid: str) -> str:
+    """⭐ 「关于谁」那一行（`   ↳ 关于: x0001 老师（sensei）`）—— 没有 `about` 边 ⇒ `""`。
+
+    ⚠️ **印证 / 同类不印**（用户 2026-10-08 裁: *"要么给全, 要么不给…现有的关系不需要
+    知道它的印证什么的"*）—— 那些是"已有成分之间的关系", 而契约明写着
+    "不用你判, 上一趟已经判过了" ⇒ 摆出来不止没用, 还诱她多想。
+    ⭐ 「关于谁」留着（用户裁决: *"还是保留吧, 保障扩展"*）: 它是 `entity` 那条链在 L2
+    视野里的**唯一把手**（将来 entity 有载荷 / 有读者时, 这一行就是入口）。
+    印法走 `entities.entity_label`（与 L1 的对象候选**同一处实现**）。
+    """
+    from core.brain import entities as _ent
+
+    ends = [store.get(x) for x in store.graph().targets(str(nid), "about")]
+    ends = [n for n in ends if n is not None]
+    if not ends:
+        return ""
+    return "   ↳ 关于: " + " · ".join(_ent.entity_label(n) for n in ends)
+
+
+def _members_by_precious(store, gid: str) -> list[str]:
+    """类的成员（`member_of` 入边）—— **难忘降序**, 同分**时间新的在前**（结果稳定）。"""
+    ids = [str(e.src) for e in store.edges()
+           if e.rel == "member_of" and str(e.dst) == str(gid)]
+    nodes = [n for n in (store.get(i) for i in ids) if n is not None]
+    nodes.sort(key=lambda n: (n.significance or 0.0, str(n.ts or "")), reverse=True)
+    return [n.id for n in nodes]
+
+
+def _group_block(store, gid: str, *, new_ids: list[str], linked_ids: set[str],
+                 cap: int = DIGEST_L2_MEMBERS, now="", body: int = 120) -> str:
+    """【本段归类的群】的**一块**（类头 + 现状沉淀 + 本段新归入 + 已有成员）。
+
+    ⚠️ 「已有成员」按**难忘降序**（同分时间新的在前）—— 沉淀要概括"这一类事的共同点",
+    难忘的更有代表性; 超 `cap` 只印前几条并**明说还有几条没印**（不静默截断）。
+    ⚠️ 「本段新归入」**不吃 `cap`**（见 `DIGEST_L2_MEMBERS`）。
+    """
+    node = store.get(str(gid))
+    if node is None:
+        return ""
+    members = _members_by_precious(store, str(gid))
+    new_set = {str(x) for x in new_ids}
+    others = [m for m in members if m not in new_set]
+    out = [f"群 {gid}《{node.title}》（这一类现在有 {len(members)} 条经历 · "
+           f"本段新归入 {len(new_ids)} 条）"]
+    if node.text:
+        out.append(f"  现状沉淀: {_clip(node.text, 200)}")
+        out.append("            （⚠️ 整段重写: 你新写的这句会替掉它 —— 要保留它说对的部分）")
+    else:
+        out.append("  现状沉淀:（还没有 —— 你写的这一句会是它的第一句）")
+    out.append("  本段新归入:")
+    for m in new_ids:
+        mn = store.get(str(m))
+        if mn is None:
+            continue
+        if str(m) in linked_ids:
+            # 正文在【被连过的经历】里印过全文（一份料里同一段正文只出现一次）
+            out.append(f"    〔{m}｜《{mn.title}》〕（正文见下）")
+        else:
+            out.append("    " + _episode_line(store, m, now=now, body=body,
+                                              extra=_axes_field(mn.topics)))
+    if others:
+        shown, rest = others[:cap], max(len(others) - cap, 0)
+        out.append(f"  已有成员（按难忘排, 最多印 {cap} 条"
+                   + (f"; 还有 {rest} 条没印" if rest else "") + "）:")
+        for m in shown:
+            mn = store.get(str(m))
+            if mn is not None:
+                out.append("    " + _episode_line(store, m, now=now, body=body,
+                                                  extra=_axes_field(mn.topics)))
+    return "\n".join(out)
 
 
 # ---------------------------------------------------------------------------
