@@ -148,14 +148,28 @@ async function runningNow(page) {
   }, mmtSessionId);
 }
 
-async function watchMmtStream(page, sessionId, charId, timeoutMs = 10000) {  return await page.evaluate(async ({ limit, sid, cid }) => {
+async function watchMmtStream(page, sessionId, charId, timeoutMs = 10000, opts = {}) {
+  const stopOnEntry = opts.stopOnEntry !== false;
+  return await page.evaluate(async ({ limit, sid, cid, stopOnEntry }) => {
     const t0 = performance.now();
     const samples = [];
+    let lastChars = 0;
+    let stableSince = null;
     while (performance.now() - t0 < limit) {
       const w = document.getElementById("mmt-chat-window");
       const chars = w ? w.querySelectorAll(".mmt-bubble.char:not(.typing)").length : 0;
       const entry = !!document.querySelector(".bond-entry");
-      const s = { t: Math.round(performance.now() - t0), chars, entry, running: null };
+      // ⭐ 指示器位置（2026-10-08）: 它是"她正在打下一条"的位置 ⇒ 存在时**必须是
+      //    末尾子节点**。节奏化之后气泡是延迟 append 的, 若不移回末尾, 后到气泡会插到
+      //    它下面 ⇒ 指示器卡在气泡上方（真机"粉色泡泡全乱掉了"）。
+      const box = document.getElementById("mmt-bubbles");
+      const tp = document.getElementById("mmt-typing");
+      const typing = tp ? (box && box.lastElementChild === tp ? "tail" : "not-tail") : "none";
+      // 逐条时间线（诊断用）: 当前最后一条角色气泡的文本前 12 字
+      const list = w ? w.querySelectorAll(".mmt-bubble.char:not(.typing)") : [];
+      const lastText = list.length ? (list[list.length - 1].textContent || "").slice(0, 12) : "";
+      const s = { t: Math.round(performance.now() - t0), chars, entry,
+                  typing, lastText, running: null };
       if (chars >= 1 && sid) {
         try {
           const r = await fetch(`/api/mmt/events?char_id=${cid}&session_id=${sid}&since=999999`);
@@ -163,11 +177,23 @@ async function watchMmtStream(page, sessionId, charId, timeoutMs = 10000) {  ret
         } catch (e) { /* 读不到就不算数（判据会因此判失败, 正是我们要的） */ }
       }
       samples.push(s);
-      if (entry) break;                       // 粉泡 = 最后一行办完 → 整轮结束
+      if (stopOnEntry && entry) break;         // 粉泡 = 最后一行办完 → 整轮结束
+      if (!stopOnEntry) {
+        // 普通聊天轮（没有粉泡可等）: 有气泡且**条数稳定 ~3s** ⇒ 队列放完了。
+        // ⚠️ 窗口必须 > 单条最大打字时长（15 字 ≈ 2.2s）—— 1.2s 会把"还在放"当成"放完"
+        //    （2026-10-08 实测踩到: 第 3 条被切断, 判据只剩 2 条）。
+        if (chars > 0 && chars === lastChars) {
+          if (stableSince == null) stableSince = performance.now();
+          if (performance.now() - stableSince > 3000) break;
+        } else {
+          stableSince = null;
+          lastChars = chars;
+        }
+      }
       await new Promise((r) => setTimeout(r, 40));
     }
     return samples;
-  }, { limit: timeoutMs, sid: sessionId, cid: charId });
+  }, { limit: timeoutMs, sid: sessionId, cid: charId, stopOnEntry });
 }
 
 /** 等交互区清空 = 上一板的选项/板读完态已撤（新板开始渲染）。 */
@@ -292,9 +318,70 @@ async function main() {
   await page.fill("#mmt-input", "在吗？");
   await page.click("#mmt-send");
 
-  // ── 4b. ⑥-3b: 气泡**逐条**上屏（第一个气泡早于整轮完成）─────────────────
-  // 桩的 MMT 回复 4 行、行间 0.3s（`MMT_STREAM_GAP_S`）; 批式实现下 4 条会挤在
-  // 同一次轮询里出现（`firstBubble.running` 也会是 false）。
+  // ── 4a. 普通聊天轮（**不带触发**）: 节奏 + 提示泡位置 ────────────────────
+  // ⭐ 为什么单独开这一轮: 触发轮一旦渲染出入口粉泡, 那条"别谎报正在输入"的规则
+  //    （2026-09-20 用户报障的修复）就把指示器压掉 ⇒ **测不到**"指示器与延迟气泡共存"
+  //    的状态 —— 而 2026-10-08 报障的正是那个状态（"粉色泡泡的渲染全乱掉了"）。
+  // 桩的 chat 轮 = 3 行**突发**（`MMT_ROW_GAPS_S` 前几项 0）= 真机形态。
+  const chat = await watchMmtStream(page, mmtSessionId, "igusa_haruka", 20000,
+                                    { stopOnEntry: false });
+  const chatMax = chat.reduce((m, s) => Math.max(m, s.chars || 0), 0);
+  const chatFirst = chat.find((s) => s.chars >= 1) || null;
+  const chatTwo = chat.find((s) => (s.chars || 0) >= 2) || null;
+  const chatGap = (chatFirst && chatTwo) ? chatTwo.t - chatFirst.t : -1;
+  // 逐条上屏时间线（诊断: 谁在第几毫秒、文本是什么）
+  const timeline = [];
+  let seen = 0;
+  for (const s of chat) {
+    if ((s.chars || 0) > seen) {
+      seen = s.chars;
+      timeline.push(`${seen}@${s.t}ms${s.lastText ? `(${s.lastText})` : ""}`);
+    }
+  }
+  record("MMT 气泡节奏（批内逐条）", {
+    info: `第 1 条 t=${chatFirst ? chatFirst.t : "-"}ms → 第 2 条 `
+      + `t=${chatTwo ? chatTwo.t : "-"}ms; 间隔 ${chatGap}ms（共 ${chatMax} 条）`
+      + `（有节奏 ⇒ ~1.5s; 同帧上屏 ⇒ ~0ms）; 时间线 ${timeline.join(" → ")}`,
+    gapMs: chatGap, maxChars: chatMax, samples: chat.length, timeline,
+  });
+  if (chatMax < 2) {
+    throw new Error(`普通聊天轮只看到 ${chatMax} 条角色气泡（桩给 3 行, 应 ≥2）`);
+  }
+  if (chatGap < 800) {
+    throw new Error(
+      `**整批气泡同帧上屏**（前两条只隔 ${chatGap}ms）——`
+      + "前端\"打完再发\"的节奏失效了（查 mmt.js 里 firstOfBatch && base === 0 那个判据）");
+  }
+
+  // ── 4b. 「对方正在输入…」必须**一直贴在末尾**（不许被后到的气泡挤到上面）──
+  // 节奏化之后, 后到的气泡是**延迟 append** 的 —— 而指示器是"第一位 append 在末尾"
+  // 的那个节点 ⇒ 不移回末尾就会卡在气泡**上方**（真机"全乱掉了"）。
+  // 顺带: `running=false` 早于放完（~2s vs ~5s）⇒ 从前那一支会**提前收掉指示器**,
+  // 气泡无声地一条条冒 ⇒ 这也是这一格要盯的（判据: 有气泡在放时必须有指示器）。
+  const badTail = chat.filter((s) => s.typing === "not-tail");
+  const tailSeen = chat.filter((s) => s.typing === "tail").length;
+  const noTypingMid = chat.filter((s) => s.typing === "none" && (s.chars || 0) > 0
+    && (s.chars || 0) < chatMax);
+  record("提示泡位置（永远在末尾）", {
+    info: `采样 ${chat.length}: 贴末尾 ${tailSeen} 帧, 错位 ${badTail.length} 帧, `
+      + `放到一半没指示器 ${noTypingMid.length} 帧`
+      + (badTail.length ? `（首次错位 t=${badTail[0].t}ms chars=${badTail[0].chars}）` : ""),
+    badTail: badTail.length, tailSeen, noTypingMid: noTypingMid.length,
+  });
+  if (badTail.length) {
+    throw new Error(
+      `「对方正在输入…」被挤到气泡**上方** ${badTail.length} 帧（首次 t=${badTail[0].t}ms）——`
+      + " mmt.js 里漏了 typingToTail()?（延迟上屏的气泡会插到指示器下面）");
+  }
+  if (noTypingMid.length) {
+    throw new Error(
+      `气泡放到一半指示器就没了 ${noTypingMid.length} 帧（首次 t=${noTypingMid[0].t}ms, `
+      + `chars=${noTypingMid[0].chars}/${chatMax}）—— `+"`running=false`"+` 那一支提前收摊了?`);
+  }
+
+  // ── 4c. 触发轮: 再发一条 → 入口粉泡（⑥-3b 的"首泡早于整轮完成"在这一轮验）──
+  await page.fill("#mmt-input", "那个……我有件事想说。");
+  await page.click("#mmt-send");
   const stream = await watchMmtStream(page, mmtSessionId, "igusa_haruka", 20000);
   const firstBubble = stream.find((s) => s.chars >= 1) || null;
   const last = stream[stream.length - 1] || {};
@@ -318,33 +405,6 @@ async function main() {
   }
   if (leadMs < 250) {
     throw new Error(`首泡与整轮结束只差 ${leadMs}ms（前端 250ms 轮询都吃不满, 像批式）`);
-  }
-
-  // ── 4c. 节奏: 同一批里的角色气泡必须**逐条**上屏（不许同帧）──────────────
-  // 桩按 `MMT_ROW_GAPS_S` 吐行: 前几行**突发**（= 真机形态: 她一口气写完几条,
-  // 一次轮询抓好几条）, 只在触发行之前留间隔 ⇒ 于是这里量得出"批内节奏"。
-  // ⚠️ 判据取**前两条**之间的间隔, 不取"第 1 条 → 最后 1 条": 引擎是**一行前瞻**
-  //    交付（下一行到达才上屏最后一条内容行）⇒ 最后一条天然被那个 0.9s 行间推迟,
-  //    混进判据里会把"同帧上屏"伪装成 855ms（2026-10-08 变异验红时踩到: 守门抓不住）。
-  //    前两条则确实落在**同一批**（同一次轮询抓到）⇒ 干净。
-  //   · 有节奏（`chunkTypingMs` 逐条"打完再发"）⇒ 第 2 条要等她"打完第 2 条"（~1.5s）
-  //   · 没节奏（那个 bug: 整批 `at` 恒 0 ⇒ 全走同帧那支）⇒ 两条同一帧 ⇒ ~0ms
-  // ⚠️ 别拿粉泡量: 它是**非角色**气泡、不推进队列 ⇒ 必然紧跟前一条（恒 0ms, 假红）。
-  const maxChars = stream.reduce((m, s) => Math.max(m, s.chars || 0), 0);
-  const t1 = firstBubble ? firstBubble.t : null;
-  const two = stream.find((s) => (s.chars || 0) >= 2) || null;
-  const gapMs = (t1 != null && two) ? two.t - t1 : -1;
-  const lastChar = stream.find((s) => (s.chars || 0) === maxChars) || null;
-  record("MMT 气泡节奏（批内逐条）", {
-    info: `第 1 条 t=${t1}ms → 第 2 条 t=${two ? two.t : "-"}ms; 间隔 ${gapMs}ms`
-      + `（共 ${maxChars} 条, 第 1→最后 ${lastChar && t1 != null ? lastChar.t - t1 : "-"}ms）`
-      + `（有节奏 ⇒ ~1.5s; 同帧上屏 ⇒ ~0ms）`,
-    gapMs, maxChars,
-  });
-  if (maxChars >= 2 && gapMs < 800) {
-    throw new Error(
-      `**整批气泡同帧上屏**（前两条只隔 ${gapMs}ms）——`
-      + "前端\"打完再发\"的节奏失效了（查 mmt.js 里 firstOfBatch && base === 0 那个判据）");
   }
 
   await page.waitForSelector(".bond-entry", { timeout: 30000 });
