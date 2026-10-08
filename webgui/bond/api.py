@@ -76,6 +76,7 @@ from webgui.bond.pregen import (
     _discard_boards,
     _discard_candidates,
     _generate,
+    _in_hand_boards,
     _log_board_deliver,
     _pregenerate,
     _spawn_candidates,
@@ -185,7 +186,17 @@ def bond_turn(char_id: str, session_id: str, text: str) -> dict:
                     **_ready_scene_payload(state, char_id)}
         state.replay_scenes = None             # 交棒: 走下方常规逻辑
 
-    if state.busy:
+    # ⭐ 链式读前（2026-10-08）: `busy` 只该拦"**要领的东西还没写好**"那种推进。
+    #    链式之后后台会**为将来**写块（`busy=True` 持续 ~25s）, 而玩家手里的板
+    #    （槽位 + 待发队列）是**现成**的 ⇒ 从前来一个拒一个（"剧情生成中"）,
+    #    链式反而会把玩家卡住。判据: 这一次推进 0 LLM 可服务 ⇒ 不看 `busy`。
+    #    · `（继续）` + 手里有板（`_in_hand_boards` 含槽位与队列）⇒ 领板;
+    #    · 选项裁决命中本板 `branches` ⇒ 分支内容已在场景里（0 LLM）。
+    _branch_hit = bool(state.scene_obj is not None
+                       and state.scene_obj.branches
+                       and text in state.scene_obj.branches)
+    _servable = _in_hand_boards(state) > 0 or _branch_hit
+    if state.busy and not _servable:
         _note_reject(state, "busy:生成中", char_id, session_id)
         return {"accepted": False, "busy": True, "error": "剧情生成中"}
     if state.completed:

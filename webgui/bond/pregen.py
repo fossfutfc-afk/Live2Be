@@ -73,6 +73,34 @@ _REMIND_ROUNDS = 30
 
 _END_ROUNDS = 50
 
+#: ⭐ **链式读前**（2026-10-08 用户裁决: *"我们明明可以一条链直接生成完的吧，不用等待"*）——
+#: "手里还有几块**没被玩家读过**的板"低于这个数, 就**再写一块排到队尾**。
+#:
+#: 为什么是 4（算术, 不是拍的）:
+#:   · 一板的阅读时间 ≈ 9s（真机实测: 7 板 / 62s, 板均 7~13 条记录）;
+#:   · 一块的生成时间 ≈ 25s（真机 `src=gen dur=24858ms`, 其中模型 ttft 21.5s）;
+#:   · 要"生成完时玩家还没读到队尾", 手里的板得覆盖 ≥25s ⇒ **4 板 ≈ 36s** 有富余。
+#: ⇒ 效果: 块尾不再等（旧行为是"手里空了才开工"⇒ 每次块尾硬等一整块生成）。
+#: ⚠️ 调大 = 更早开工、更保险, 但章尾可能白丢更多（见 `_discard_boards`）;
+#:    调小 = 省 token, 但可能又开始等。改这一个数就够。
+_READAHEAD_MIN_BOARDS = 4
+
+
+def _in_hand_boards(state: BondState) -> int:
+    """**手里还有几块没被玩家读过的板** —— 链式读前的判据（也是日志里的 `in_hand`）。
+
+    组成（`docs/DESIGN_RESEND.md` 的两区语义: 只算"没人看过的东西"）:
+      · `vn._pending_boards` —— 上一块切出来、还没领的尾板（可跨块累积, 见 a48a47a）;
+      · `pregen_obj/scene` —— 已经写好、正等着玩家点继续的那一块。
+    ⛔ **不算** `scene_obj/scene`（那是**已经在玩家屏上**的当前板）与草稿旁路
+    （草稿是同一批板的持久化镜像, 算进来会**双计**）。
+    """
+    vn = state.vn
+    n = len(getattr(vn, "_pending_boards", None) or []) if vn is not None else 0
+    if state.pregen_obj is not None or state.pregen_scene is not None:
+        n += 1
+    return n
+
 
 def _board_epoch_stale(state: BondState, epoch: int | None, char_id: str,
                        session_id: str, where: str) -> bool:
@@ -246,9 +274,32 @@ def _pregenerate(state: BondState, char_id: str, session_id: str) -> None:
     （`docs/EXEC_PIPELINE_UNIFY.md` §3.1: 任何丢弃都不写标记）。
     """
     with state._lock:
-        if state.busy or state.pregen_scene is not None \
+        # ⚠️ `state.completed`: 章已收尾（`stage:end` 落库）⇒ **绝不再写下一块**
+        #    （链式之后判据变成"手里不够读就开工", 不在收尾时拦住会白烧一次生成,
+        #     而且那一块的板无处可去）。收尾清理由 `_discard_boards(reason="finish")` 负责。
+        if state.busy or state.completed \
                 or state.demo is not None or state.vn is None:
             return
+        # ⭐ 链式读前（2026-10-08）: 判据从"手里有货就不开工"改成"**手里不够读就再写一块**"。
+        #    旧判据 = `state.pregen_scene is not None → return`, 它把"块尾硬等一整块生成"
+        #    写死进了架构（真机: 玩家读完 6 板 ~60s 期间后台闲着, 读到最后一块才开工,
+        #    于是每次块尾等 ~25s）。
+        #    ⚠️ **两条路要分开**（第一版把两者混成一条, 当场踩到）:
+        #      ① 槽位空（`pregen_obj is None`）⇒ **正常走一次**: 队列有货就领一块进槽位
+        #         （0 LLM —— 这是"永远领先一板"的来源）, 队列空才真生成;
+        #      ② 槽位有人、只是"手里不够读"（`in_hand < min`）⇒ **强制再写一块**
+        #         （`readahead=True`）排到队尾, 绝不顶掉槽位里那一块。
+        #    `min = 1` ⇒ ②恒不触发 ⇒ **与旧行为逐字节等价**（测试要旧节奏就设 1）。
+        slot_empty = state.pregen_obj is None and state.pregen_scene is None
+        in_hand = _in_hand_boards(state)
+        _min = max(1, _READAHEAD_MIN_BOARDS)
+        if not slot_empty and in_hand >= _min:
+            logger.info("bond_pregen_chase skip=enough in_hand=%d min=%d %s/%s",
+                        in_hand, _min, char_id, session_id)
+            return
+        readahead = not slot_empty          # 槽位有人 ⇒ 只能"再写一块"（不能领队列）
+        logger.info("bond_pregen_chase start in_hand=%d min=%d readahead=%s %s/%s",
+                    in_hand, _min, "y" if readahead else "n", char_id, session_id)
         state.busy = True
         state.busy_since = time.monotonic()      # 看门狗计时起点（2026-09-11）
 
@@ -277,6 +328,11 @@ def _pregenerate(state: BondState, char_id: str, session_id: str) -> None:
             with chat._lock(char_id):
                 scene = state.vn.send_vn_scene(
                     "（继续）", system_note=_system_note(state), annotate=False,
+                    # ⭐ `readahead`（2026-10-08 链式读前）: 槽位有人时 = **强制再写一块**
+                    #    （跳过"领队列"早返回）。没有这个开关, 读前调用只会把队列里的板
+                    #    领出来（0 LLM）⇒ 链永远跑不起来
+                    #    （守门: test_readahead_does_not_steal_pending）。
+                    readahead=readahead,
                     on_memorial_prompt=_make_memorial_cb(
                         state, char_id, session_id),
                     on_board=_on_pregen_board)
@@ -304,11 +360,23 @@ def _pregenerate(state: BondState, char_id: str, session_id: str) -> None:
                 with state._lock:
                     if _board_epoch_stale(state, epoch, char_id, session_id, "pregen"):
                         return
-                    state.pregen_obj = scene
-                    state.pregen_scene = scene.to_dict()
-                    state.pregen_input = "（继续）"
-                # 预生成场景同样异步标注（与主场景同一队列串行, 玩家消费时表情就绪）
-                deps.enqueue_annotate(state, scene)
+                    if state.pregen_obj is None:
+                        state.pregen_obj = scene
+                        state.pregen_scene = scene.to_dict()
+                        state.pregen_input = "（继续）"
+                    else:
+                        # ⭐ 链式读前（2026-10-08）: **槽位有人**（玩家还没读到那一块）
+                        #    ⇒ 这一块的首板**排到队尾**, 绝不顶掉正在服务的那一块。
+                        #    （没有这一支, 读前生成会把玩家眼前的下一板换掉。）
+                        state.vn._pending_boards.append(scene)
+                        logger.info("bond_pregen_queued in_hand=%d %s/%s",
+                                    _in_hand_boards(state), char_id, session_id)
+                # 标注入队: ⭐ 读前落地时把这一块的**每块板**都排上（不只是首板）——
+                # 否则玩家推进到那块时会撞 `bond_turn 被拒 reason=pregen:标注中`
+                # （真机 2026-10-08 20:03:07 中过一次）。lane 是单队列串行 ⇒ 顺序与
+                # "逐板交付"完全同构（`scene_anno` 的 carry 链不会乱）。
+                for _b in (delivered or [scene]):
+                    deps.enqueue_annotate(state, _b)
                 _draft_save(state, char_id, session_id, epoch=epoch)   # 草稿旁路（#28b）
         except Exception as e:                     # noqa: BLE001 — 预生成失败降级
             # ○C8c: 世代已前进 = 这次失败属于**被丢弃的那一代** —— 连"降级"都不做
@@ -503,7 +571,10 @@ def _discard_boards(state: BondState, char_id: str, *, reason: str) -> None:
     覆盖三类未提交内容:
       ① **预生成板**（`pregen_obj/scene/input`）——生命周期里的 PROVISIONAL;
       ② **候选支池**（未选支的 fork 结果, 纯内存孤儿）;
-      ③ **草稿旁路**（"已生成未播放"的持久化临时存储——预生成板的落点）。
+      ③ **草稿旁路**（"已生成未播放"的持久化临时存储——预生成板的落点）;
+      ④ ⭐ **待发队列**（`vn._pending_boards`, 2026-10-08 链式读前补上）—— 从前只清槽位,
+         而队列里的板同样是"没人看过的"（PROVISIONAL）。链式之后队列能**跨块**累积,
+         漏清就会把**上一章/上一代**的板发给玩家（`finish` 后尤其明显）。
 
     ○C8c **世代前进**: 每次调用 `board_epoch += 1` —— 从这一刻起, **所有更早出生
     的板**（在飞的预生成 / live 流式 / 候选支 / 标注写回）都不许再落地, 落地前一律
@@ -527,13 +598,19 @@ def _discard_boards(state: BondState, char_id: str, *, reason: str) -> None:
         state.pregen_obj = None
         state.pregen_scene = None
         state.pregen_input = ""
+        # ④ 待发队列一并作废（链式读前之后它能跨块累积 —— 见 docstring）
+        n_queued = 0
+        if state.vn is not None:
+            n_queued = len(getattr(state.vn, "_pending_boards", None) or [])
+            state.vn._pending_boards = []
         _discard_candidates(state)
         _draft_delete(char_id, _flow_store(state))
     # 丢弃的**唯一痕迹**就是这行日志（不写事件流——这正是 §3.1 那条不变量）;
     # `epoch` 让"丢弃之后还有板落地"能在日志里对上（`bond_board_stale`）
-    logger.info("bond_boards_discarded reason=%s pregen=%s candidates=%d epoch=%d %s",
-                reason, "yes" if had_pregen else "no", n_cands, state.board_epoch,
-                char_id)
+    logger.info("bond_boards_discarded reason=%s pregen=%s queued=%d candidates=%d "
+                "epoch=%d %s",
+                reason, "yes" if had_pregen else "no", n_queued, n_cands,
+                state.board_epoch, char_id)
 
 
 def _discard_candidates(state: BondState) -> None:
@@ -542,6 +619,41 @@ def _discard_candidates(state: BondState) -> None:
     （GIL）; worker 写回带池身份检查（any(c is cand)）——清池后结果自然丢弃。
     """
     state.choice_candidates = []
+
+
+def _pending_choice_note(state: BondState) -> str | None:
+    """**尚未裁决的选项**注记（2026-10-08 链式读前）—— 只给"读前生成"那一轮。
+
+    为什么需要: 读前生成发生在玩家**还没读到**那些板的时候 ⇒ 那些板上的选项**还没有
+    答案**, 而下一块的 prompt 本来会带 `（选择了: X）`（A1 回录）。不给提示的话, writer
+    会**猜**一个选择来承接 ⇒ 开场可能与玩家后来真选的那句不符（"你说了…"却没说）。
+    有了它, writer 只需把开场写成"**对任一选择都成立**"的共处/反应 —— 收敛链本来就
+    是这么设计的（`docs/DESIGN_DIGEST…`/决策: VN 不做真分歧）, 所以代价极小。
+
+    ⛔ **只列选项文本**（那是玩家能看到的、也是分支的键）, ⛔ 不写分支反应段
+    （A2: 分支内容不进 LLM 上下文）; ⛔ 队列里没有未裁决选项时**整条不给**
+    （块尾那次生成天然不给 ⇒ 老行为一字不变）。
+    """
+    vn = state.vn
+    boards: list = []
+    if vn is not None:
+        boards.extend(getattr(vn, "_pending_boards", None) or [])
+    if state.pregen_obj is not None:
+        boards.insert(0, state.pregen_obj)
+    groups: list[list[str]] = []
+    for b in boards:
+        ch = list(getattr(b, "choices", None) or [])
+        if ch:
+            groups.append([str(c) for c in ch])
+    if not groups:
+        return None
+    lines = ["（系统）老师**还没有回答**下面这些选项（他可能选其中之一）："]
+    for g in groups:
+        lines.append("  · 可能是：" + " / ".join(g))
+    lines.append(
+        "承接时按\"**任一选择都成立**\"写开场：不要引用具体选择、不要写\"你说了…\"、"
+        "不要把某一句当成已经发生的对话；只写共处状态与她的反应。")
+    return "\n".join(lines)
 
 
 def _system_note(state: BondState) -> str | None:
@@ -566,23 +678,33 @@ def _system_note(state: BondState) -> str | None:
     # 也没有 emotion 字段可写（v2 schema 只有 character/stage + text）。那条注记
     # 是写给 v1（emotion 由主 LLM 内联）的, 在 v2 下每轮白喂且会诱导模型为了
     # "切换单元"把输出碎化。`prev_emotions` 字段随之失去唯一消费者, 已删。
-    if state.round == _REMIND_ROUNDS:
+    # ⭐ 写这一轮时"剧情推进到第几轮" = **已消费的轮数 + 手里的板数**（2026-10-08 链式读前）。
+    #    `state.round` 只在**板交付给玩家**时才 +1（`entry/outputs` 都是交付时加）⇒ 读前
+    #    生成时它比"这一块实际将落在第几轮"小 `in_hand` 个 ⇒ 不补偿的话收束提示
+    #    （`_REMIND_ROUNDS=30` / `_END_ROUNDS=50`）会晚 4 轮左右才出现。
+    eff_round = state.round + _in_hand_boards(state)
+    if eff_round == _REMIND_ROUNDS:
         notes.append(
-            f"（系统）剧情已推进 {state.round} 轮，剩余约 {_END_ROUNDS - state.round} 轮。"
+            f"（系统）剧情已推进 {eff_round} 轮，剩余约 {_END_ROUNDS - eff_round} 轮。"
             "请开始把剧情向结尾收束——感情到位、约定达成、道别告别的时刻"
             "就把本轮的**最后一条记录**写成 stage=end 收尾，不要再开新场景"
             "不过也谨记这只是中段提示，你并不需要匆匆结尾，但是建议开始铺垫"
         )
-    if state.round == _END_ROUNDS:
+    if eff_round == _END_ROUNDS:
         notes.append(
             "（系统）已达剧情篇幅上限。本轮请用 stage=end 收尾"
             "结束剧情——收尾那一条 text 是收尾字段（可留空 = 直接黑屏退场）。"
         )
-    if state.round > _END_ROUNDS:
+    if eff_round > _END_ROUNDS:
         # 超限后的每轮强制（2026-09-09 取代旧 FORCE_AFTER closing——强制注记
         # 引导自然收尾, 不做伪收场）
         notes.append(
             "（系统）剧情已远超篇幅上限。本轮**必须**把最后一条记录写成 stage=end"
             "收尾结束剧情——不再开新场景、不再写新的铺垫。"
         )
+    # ⭐ 未裁决选项（只对读前生成有意义 —— 见 `_pending_choice_note`）: 队列里没有
+    #    未裁决选项时它返回 None ⇒ 老行为一字不变。
+    _pn = _pending_choice_note(state)
+    if _pn:
+        notes.append(_pn)
     return "\n".join(notes) if notes else None
