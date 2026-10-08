@@ -5,8 +5,11 @@
                带 id + 邻接表 + 层/显著性/矛盾标记, 供修订决策（LLM 按 id 引用）
     角色视图    render_character_view   —— 喂主剧情 LLM
                纯第一人称叙事, 无 id 无链接, 分层排序（§4.2 + 排序规则）
-    认知列表    render_cognition_list   —— Round B 输入（板块5）
-               本地 id u0001.. 渲染（belief/experience, sig 降序）——引擎防 LLM 猜真实 id
+    认知列表    render_cognition_list   —— ⭐ **L1（`relate`）的「现有认知」那一段**
+                ⚠️ 收的是 **belief / profile**（2026-10-06 改名时这条没跟着改: 当年那个
+                `experience` 指的是玩家画像, 如今叫 `profile`; **新的 `experience`（一类事）
+                不进这张列表** —— 它只出现在 `group` 轮的「已有的类」, 见 `core/brain/groups.py`）
+               本地 id u0001.. 渲染（**belief / profile**, sig 降序）——引擎防 LLM 猜真实 id
 
 格式约定（决策 #7）: id 无 # 无下划线（m0003）——组织视图行首即 id, 防 markdown 标题歧义。
 player experience（§4.4）: 组织视图带 [关于老师] 标记; 角色视图独立【老师的事】段。
@@ -502,9 +505,16 @@ def _me(text: str, char_name: str, aliases: tuple[str, ...] = ()) -> str:
 def render_cognition_list(store: WikiStoreV2, cap: int = 12,
                           exclude: set[str] | None = None
                           ) -> tuple[str, dict[str, str]]:
-    """Round B 输入: 现有稳定认知渲染（本地 id u0001..; 排序: significance 降序）。
+    """L1 输入: 现有稳定认知渲染（本地 id u0001..; 排序: significance 降序）。
 
-    只挑 belief/experience（episode 是流水不参与组织 —— 它是"支撑"的**起点**
+    ⚠️ **收的是 `belief` + `profile`**（下面那行 list comprehension 是判据）——
+    ⛔ 不是 `experience`: 2026-10-06 那次改名里, 旧 `experience`（玩家画像）改叫 `profile`,
+    旧 `group`（一类事）改叫 `experience`, 而**这里收的一直是"看法 + 玩家画像"**
+    （旧的 `experience` 就是今天的 `profile`）⇒ 新 `experience` 不进这张列表。
+    想让它进 = 改 L1 的料 + `u…` 编号空间 + `digest_relate.md` 的说明, 单独一笔
+    （用户 2026-10-08 裁: **先不收**）。
+
+    只挑 belief/profile（episode 是流水不参与组织 —— 它是"支撑"的**起点**
     而不是被 touch 的对象）; 渲染层守 `_ensure_cognition` 语义, 引擎不给 LLM 不可选之物。
 
     ⏸ **原 `must_include`（promise 必进）2026-09-29 删** —— 参数 2026-09-25 加的, 唯一
