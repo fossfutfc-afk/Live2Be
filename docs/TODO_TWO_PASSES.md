@@ -33,10 +33,20 @@
 | **P6** | ✅ **已落地**（P6, 2026-10-08）| ⭐ **观测**（"孤立经历"的账）| `core/digest/rounds/relate.py` 的日志 · `core/digest/material.py`（摆不出候选时**不再连段标题一起被吞**）| 一行日志能看出：几条关系 · 几条经历**一条关系都没被连**（`alone=` / `lone=`）· 前提读数 `pool=` | `tests/core/test_round_relate.py`（7 例）· 5 个变异全红（`.testtmp/verify_p6_red.py`）| P2 ✅ | 小 |
 
 | **P7** | ✅ **两笔已落地**（`d54e55c` L2 契约 · `466b641` L1 第五个动作, 2026-10-08）| ⭐ **L2 的契约**（新相位 `cognize`）+ 顺带补上 **L1 的第五个动作 `evolved_from`** | `contract/digest_registry.py` · `llm/prompts/digest_relate.md` | 三种行渲得出来 · 三档分得开 · 上限 5 · "旧看法 → 更旧"有主 | `tests/core/test_digest_registry.py`（+5 例）· 6 个变异全红（`.testtmp/verify_p7_red.py`）| P6 ✅ | 中 |
-| **P8** | ⬜ | **L2 的料**（按群给）: 【被连过的经历】（**读边取两端**, 纯计算）·【本段归类的群】（`g0001《类名》` + 现状沉淀 + 成员正文, **上限 8**）·【现有认知】·【相似候选】 | `core/digest/material.py` · `rounds/__init__.py` 的 `material` 格 | 料里真出现群与成员正文 | 先验能红 | P7 ✅ | 中 |
+| **P8** | ✅ **已落地**（P8, 2026-10-08）| **L2 的料**: 【本段归类的群】（**每类一块** · 挑"本段新归入最多"的那组 · 现状沉淀 · 已有成员**上限 4**）·【被连过的经历】（**读 L1 那五条边**取两端 · 行头 + 正文 · `↳ 关于:` 只随 `about` 边出现）| `core/digest/material.py` · `core/brain/entities.py`（`entity_label` 抽公共）| 真机样张**逐条对齐**（`.testtmp/verify_p8_material.py`）| `test_digest_material.py`（+5 例）· 6 个变异全红 | P7 ✅ | 中 |
 | **P9** | ⬜ | **L2 的执行器** `apply_cognitions`（造 belief + `supports`/`evolved_from`/`contradicts` 边 + 覆写 `experience.text`）| `core/brain/revise.py` | 边落对 · ⚠️ **造节点不幂等**（照 R1 的 `event_seq` 复用先例）· **覆写要留 `evolution.jsonl`** 痕迹 | 桩 store 钉"只做这几件事" | P8 | 中 |
 | **P10** | ⬜ | **接线**: `ROUNDS` 加一行（**排在 `group` 之后**）+ `digest_cognize.md` + 桩（`stub_tasks` / `task_labels`）| `rounds/__init__.py` · `llm/prompts/` · `tests/stub_tasks.py` | 真机跑出 `digest_cognize` 那行日志 | naming guard 绿 | P9 | 中 |
 | **P11** | ⬜ | **观测**: `digest_cognize beliefs= evolved= contradicted= soaked= groups= rows= dropped=` | `rounds/cognize.py` | 一行看清这一趟干了什么 | 先验能红 | P10 | 小 |
+
+> ⚠️ **P8 的形状是用户逐轮审出来的**（三稿）: 成员 8 → **4** · 「被连过的经历」里的
+> `↳ 印证` / `↳ 同类` **全删**（用户: *"要么给全, 要么不给…现有的关系不需要知道它的印证什么的"*
+> —— 那是"已有成分之间的关系", 而契约明写着"上一趟已经判过了"）· ⭐ **`↳ 关于:` 留着**
+> （用户: *"还是保留吧, 保障扩展"* —— entity 那条链在 L2 视野里的唯一把手）。
+> ⛔ **不做【相似候选】**（用户: *"以后得统一写一个节点召回包, 现在先直接分桶"* ⇒ §1.5）·
+> ⛔ **不给【本段时间线】**（经历正文已经说全）。
+> ⚠️ **`ROUNDS` 那一行必须与 `rounds/cognize.py` 同笔**：命名守门
+> （`test_round_files_speak_their_own_name`）要求"表里的 key ↔ 有轮文件"**一一对应**,
+> 只加表行不加文件 ⇒ 当场红。⇒ 段标题与 `material` 格随 **P10** 落地。
 
 > ⚠️ **P6 那个前提**（读 `cands=` 之前先看它）: 真机老档 **19 条 episode 只有 1 条有 `topics`**
 > （字段是 P0 才加的）⇒ `cands` 会长期是 0、`alone` 虚高。`pool=` 就是给这个用的解释器。
