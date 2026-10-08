@@ -50,6 +50,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from contract import CHARACTER_SENSEI, DEFAULT_SPEAKER_NAMES
+from contract.digest_registry import ENTITY_TAG_PREFIX
 from core.brain import marks
 from core.brain.nodes import BrainNode, format_id
 
@@ -307,6 +308,69 @@ def new_nodes_block(store: WikiStoreV2, ids) -> tuple[str, dict[str, str]]:
 # ⏸ `_node_tag` **2026-09-29 删** —— 类型标签的真源 = `marks.kind_tag`（**不带方括号**）。
 # 它当年是"延迟 import `render._kind_tag` 再 `strip('[]')`": 同一个标签两个形状, 正是
 # "散"的典型。现在 `head(kind=True)` 直接把 `marks.kind_tag` 放进头里, 不再需要它。
+
+
+def find_entity(store: WikiStoreV2, raw: object) -> tuple[BrainNode | None, str]:
+    """名字 → **唯一** entity（E1, 2026-10-08）—— `#entity:<名字>` 的解析走它。
+
+    判据与 `address.find_episode` / `find_group` **同一套**: 只归一格式（首尾空白）,
+    **不做近似匹配**; 命中 0 / 多条 ⇒ **不猜**（返回原因, 由调用方决定丢还是留着）。
+
+    Returns: `(节点 | None, 原因)`, 原因 ∈
+        `"ok"` 命中唯一一个 · `"empty"` 没写名字（**不是错误**）·
+        `"miss"` 谁都不叫这个名字（可能是**还没建的人**）· `"ambiguous"` ≥2 个都叫
+
+    ⚠️ 匹配面 = `surface_forms`（`name` + `aliases`, **casefold**）—— 那是"她可能怎么
+    称呼他"的唯一真源; ⛔ 不在这里发明第二种匹配。
+    """
+    name = str(raw or "").strip()
+    if not name:
+        return None, "empty"
+    want = name.casefold()
+    hits = [n for n in candidates(store)
+            if want in {f.casefold() for f in surface_forms(n)}]
+    if not hits:
+        return None, "miss"
+    if len(hits) > 1:
+        return None, "ambiguous"
+    return hits[0], "ok"
+
+
+def normalize_entity_tags(store: WikiStoreV2, tags
+                          ) -> tuple[list[str], list[str], list[str]]:
+    """`tags` 里的 `#entity:<她写的叫法>` → **归一成主名**; 解析不到的**原样留着**。
+
+    Returns: `(归一后的 tags, 能落边的对象 id, 陌生的名字)`
+
+    ⭐ **第三个返回值就是"该建这个人"的线索**（E1 §1 的洞①）: `about` 的值必须是
+    **已存在的 id** ⇒ 她本来**没有语法**表达"这条关于一个我还不知道的人"; 现在
+    `#entity:小玉` 填上了它 —— 引擎**原样保留**那条 tag（不落边、不报错）, 把它报上去,
+    等认人那一轮把对象建出来之后**再补边**。
+
+    ⚠️ 本函数是**纯查**（不写边、不改库）—— 本文件是"喂给轮次看什么"的输入侧,
+    写路径在 `core/digest/episodes._link_about`。
+    ⚠️ 归一可能把两条并成一条（`#entity:老师` + `#entity:sensei`）⇒ 输出**去重保序**。
+    """
+    out: list[str] = []
+    targets: list[str] = []
+    strangers: list[str] = []
+    for t in (tags if isinstance(tags, (list, tuple)) else []):
+        s = str(t).strip()
+        if not s:
+            continue
+        if not s.startswith(ENTITY_TAG_PREFIX):
+            out.append(s)
+            continue
+        name = s[len(ENTITY_TAG_PREFIX):].strip()
+        node, _reason = find_entity(store, name)
+        if node is None:
+            strangers.append(name)
+            out.append(s)                       # ⭐ 原样留着（陌生人不丢）
+            continue
+        out.append(f"{ENTITY_TAG_PREFIX}{surface_forms(node)[0]}")   # 归一成主名
+        targets.append(node.id)
+    return (list(dict.fromkeys(out)), list(dict.fromkeys(targets)),
+            list(dict.fromkeys(strangers)))
 
 
 def entity_label(node) -> str:

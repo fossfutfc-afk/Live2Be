@@ -76,10 +76,15 @@ def run(ctx: Ctx) -> RoundOut:
         for ent in entries:
             _resolve_verbatim(ent, ctx.by_seq)
         before = len(ctx.episode_ids)
+        strangers: list[str] = []       # ⭐ E1: `#entity:` 里解析不到的名字（= 还没建的人）
         ctx.episode_ids, ctx.player_ids = _create_a_nodes(
             ctx.store, entries, ts=ctx.now_ts,
             event_seq=[ctx.interact_max], aff_at_encoding=ctx.aff_at_encoding,
-            by_seq=ctx.by_seq, reused_out=reused)
+            by_seq=ctx.by_seq, reused_out=reused, strangers_out=strangers)
+        if strangers:
+            # 观测账（可 grep）: 这些名字留在 tag 里, 等认人那一轮把人建出来再补边
+            logger.info("digest_record strangers=%d（还没建的人）: %s",
+                        len(strangers), strangers)
         # ⚠️ **判重复复用的那条不算"新的"** —— 它的 note 上一段已经写过了（重跑幂等的
         # 第一道; 节点面复用之后这道必须跟着生效, 否则 op 会再产一次、白写一条事件）
         new_eps = [e for e in ctx.episode_ids[before:] if e not in reused]

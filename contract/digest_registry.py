@@ -94,7 +94,18 @@ MAX_EPISODES = 5        # A 轮单包最多 episode 数
 MAX_COGNITIONS = 5
 MAX_ALIASES = 8         # `new_entity` 的别名上限（超了截断 + warning —— 别名是效率优化）
 MAX_TEXT = 300          # 正文（text）单行上限（汉字）——三槽合流后两种 kind 共用
-MAX_TAGS = 4            # tags 检索词上限
+MAX_TAGS = 4            # tags 检索词上限（⭐ 只数**检索词** —— `#` 开头的标记不算, 见下）
+
+#: ⭐ **结构 tag 的语法**（E1, 2026-10-08）: `#entity:<名字>` = 这条经历/看法**涉及谁**。
+#: `#` 开头 = **标记, 不是检索词** —— 这条约定已经有第一个成员（`notes.PINNED_TAG =
+#: "#pinned"`, 判据写在 `core/digest/material.py`: *"`#pinned` 那种标记不是词"*）⇒
+#: 检索侧天然已经跳过它们（`startswith("#")`）, 本常量只是把第二个成员写下来。
+#: ⚠️ 名字**不在这里解析**（契约层没有 store）—— 归一与落边见
+#: `core/brain/entities.normalize_entity_tags` 与 `core/digest/episodes._link_about`。
+ENTITY_TAG_PREFIX = "#entity:"
+#: 一条经历最多带几个 `#entity:` —— ⚠️ 它**不占** `MAX_TAGS` 的额度（分开计数）。
+#: 上限 2 = "这段涉及谁"必须挑（宽口径也要有边）; 超了截 + 告警。
+ENTITY_TAGS_MAX = 2
 #: ⭐ `topics` 上限（**≤3**, 用户 2026-10-07 裁决）—— "这条经历关于什么"的**具体东西**。
 #: 它是"同类的事"认亲的把手（L1 的 `akin` 要求 `on` ∈ 两端 `topics` 的交集）。
 TOPICS_MAX = 3
@@ -396,7 +407,13 @@ RECORD_EPISODE = DigestAction(
         '                          // 1~2 句）—— 引擎据此取回**逐字原文**, 你不必抄文本。\n'
         '                          // ⚠️ **只给行号（数组）**; 写成字符串会被忽略 //\n'
         '      "tags": ["…"],     // 必填 1-4 个; 检索导向——未来玩家输入/叙事可能出现的词\n'
-        '                          //（人名/地点/物品/动作/话题）; 不含时间词; 从最重要排起 //\n'
+        '                          //（人名/地点/物品/动作/话题）; 不含时间词; 从最重要排起;\n'
+        '                          // ⭐ 可以**再**带 0-2 个 `#entity:名字`（`#entity:老师`）——\n'
+        '                          //   这条**涉及谁**: 名字写你认识的叫法都行（老师 / sensei\n'
+        '                          //   都行, 引擎会归一）; **还没正式认识的人也可以写**\n'
+        '                          //   （引擎先留着它, 以后真遇到了再建）;\n'
+        '                          //   ⚠️ 它**不占**那 1-4 个的额度（`#` 开头的是标记）;\n'
+        '                          //   ⛔ 归属边**不归你连** —— 引擎按这个标记自己连 //\n'
         '      "topics": ["苔藓", "生日"],  // ⭐ 这条经历**关于什么** —— 1~3 个**具体的东西**\n'
         '                          //（人 / 地方 / 物件 / 事情）; 以后"同类的事"靠它认亲;\n'
         '                          // ⛔ **不写泛词**（"老师" / "日常" / "心情" / "学校"）:\n'
@@ -427,7 +444,7 @@ RECORD_EPISODE = DigestAction(
         '塞给我说「拿着暖手」, 我一路捧着它, 嘴角一直藏着笑。",'
         ' "title": "和老师的公园散步",'
         ' "verbatim": ["33.2", "33.p"],'
-        ' "tags": ["公园", "流浪猫", "热茶"],'
+        ' "tags": ["公园", "流浪猫", "热茶", "#entity:老师"],'
         ' "topics": ["公园", "流浪猫"],'
         ' "significance": 0.8,'
         ' "emo_int": 0.6, "emo_span": 0.7}'
@@ -2053,9 +2070,9 @@ def _clean_episode(e: Any, i: int, seq_set: set[int] | None = None,
                       "subject": PLAYER_SUBJECT}
         # 画像条目无 episode 载体——原话同样走**记录行号**（玩家那句 = `[N.0]`）
         _fill_verbatim(item, e, i, warnings, seq_set, drops=drops)
-        tags = [t for t in e.get("tags", []) if isinstance(t, str) and t.strip()][:MAX_TAGS]
-        if tags:
-            item["tags"] = tags
+        tags, ent_tags = _split_tags(e.get("tags"), i, warnings, drops)
+        if tags or ent_tags:
+            item["tags"] = tags + ent_tags
         sig = e.get("significance")
         try:
             sig_f = float(sig) if sig is not None else 0.5
@@ -2065,6 +2082,43 @@ def _clean_episode(e: Any, i: int, seq_set: set[int] | None = None,
         return item, errors, warnings
     return None, [f"episodes[{i}].kind 非法: {kind!r}（不写 = 经历; 只有"
                   f"「玩家画像」才写 'profile'）"], []
+
+
+def _split_tags(raw: Any, i: int, warnings: list[str], drops: list[str],
+                ) -> tuple[list[str], list[str]]:
+    """`tags` → （**检索词** ≤`MAX_TAGS`, **`#entity:` 项** ≤`ENTITY_TAGS_MAX`）。
+
+    ⭐ **分两栏**（E1, 2026-10-08）: `#` 开头的是**结构标记, 不是检索词** ——
+    既有判据见 `core/digest/material.py`（*"`#pinned` 那种标记不是词"*）⇒
+    它们**不占**那 1-4 个额度, 自己一栏、自己一个上限。
+
+    ⚠️ 本函数**只做形状**（纯字符串）: `#entity:` 里的名字**不在这里解析**
+    （契约层没有 store）⇒ 归一与落边在执行层。形状坏（`#entity:` 后面空名字）
+    ⇒ **丢那一项** + 记账（少了名字就没有对象可指）。
+    """
+    words: list[str] = []
+    marks: list[str] = []
+    for t in (raw if isinstance(raw, list) else []):
+        if not isinstance(t, str) or not t.strip():
+            continue
+        s = t.strip()
+        if s.startswith(ENTITY_TAG_PREFIX):
+            name = s[len(ENTITY_TAG_PREFIX):].strip()
+            if not name:
+                drops.append(f"episodes[{i}].tags 里那个 `#entity:` 没写名字 —— 丢了")
+                continue
+            marks.append(f"{ENTITY_TAG_PREFIX}{name}")
+            continue
+        words.append(s)
+    if len(words) > MAX_TAGS:
+        warnings.append(f"episodes[{i}].tags 超过 {MAX_TAGS} 个检索词（截到前 {MAX_TAGS} 个;"
+                        f" `#entity:` 不算在内）")
+        words = words[:MAX_TAGS]
+    if len(marks) > ENTITY_TAGS_MAX:
+        warnings.append(f"episodes[{i}].tags 超过 {ENTITY_TAGS_MAX} 个 `#entity:`"
+                        f"（截到前 {ENTITY_TAGS_MAX} 个）")
+        marks = marks[:ENTITY_TAGS_MAX]
+    return words, marks
 
 
 def _norm_index(raw: Any) -> str | None:
@@ -2284,11 +2338,11 @@ def _clean_episode_item(e: dict, i: int, errors: list[str], warnings: list[str],
                             f"（引擎忽略它）")
     # verbatim: 记录行号（唯一通道 —— 文本通道 2026-09-29 退役）
     _fill_verbatim(item, e, i, warnings, seq_set, drops=drops)
-    tags = [t for t in e.get("tags", []) if isinstance(t, str) and t.strip()][:MAX_TAGS]
-    if tags:
-        item["tags"] = tags
-    else:
+    tags, ent_tags = _split_tags(e.get("tags"), i, warnings, drops)
+    if not tags:
         warnings.append(f"episodes[{i}] 缺 tags（检索导向 1-4 个）")
+    if tags or ent_tags:
+        item["tags"] = tags + ent_tags          # 检索词在前, `#entity:` 在后
     # ⭐ `topics`（2026-10-07, `TODO_TWO_PASSES` 的 P0）—— "这条经历关于什么"的**具体东西**,
     # 是"同类的事"认亲的把手（L1 的 `akin` 要求 `on` ∈ 两端 `topics` 的交集）。
     # ⚠️ **缺了不告警**（想不出具体的 ⇒ 空数组是合法的 —— 那是"这条还没轴"的正常状态）;

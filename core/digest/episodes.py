@@ -18,6 +18,8 @@ from datetime import date
 from typing import TYPE_CHECKING
 
 from core.brain.address import unique_title
+from core.brain.entities import normalize_entity_tags
+from core.brain.graph import REL_ABOUT
 from core.brain.nodes import PLAYER_SUBJECT, make_node
 from core.digest.segment import _seqs_of
 
@@ -55,11 +57,25 @@ def _node_ts(seqs: Any, by_seq: dict | None, default: str) -> str:
     return best or default
 
 
+def _link_about(store: WikiStoreV2, src: str, targets: list[str], *, ts: str = "") -> None:
+    """⭐ **边由引擎从 tag 派生**（E1, 2026-10-08）—— 节点 `tags` 里那些
+    `#entity:名字` 解析出来之后落成 `about` 边（`节点 → 对象`）。
+
+    ⚠️ **两端必须存在**（`store.add_edge` 悬空即拒）⇒ 解析不到的**根本到不了这里**
+    （它留在 tag 里当陌生人线索, 见 `entities.normalize_entity_tags`）。
+    ⚠️ 幂等: 同 `(rel, src, dst)` 已存在则跳过（`add_edge` 的既有语义）。
+    ⚠️ `ts` = **本条经历的时刻**（不是我落边的时刻）—— 同 `apply_relations` 的口径。
+    """
+    for eid in targets:
+        store.add_edge(REL_ABOUT, src, eid, ts=ts)
+
+
 def _create_a_nodes(store: WikiStoreV2, entries: list[dict], *, ts: str,
                     event_seq: list[int],
                     aff_at_encoding: float | None = None,
                     by_seq: dict | None = None,
-                    reused_out: list[str] | None = None
+                    reused_out: list[str] | None = None,
+                    strangers_out: list[str] | None = None
                     ) -> tuple[list[str], list[str]]:
     """Round A 条目 → 节点（引擎字段归属——确定性归引擎, 防幻觉）。
 
@@ -108,13 +124,19 @@ def _create_a_nodes(store: WikiStoreV2, entries: list[dict], *, ts: str,
                              significance=ent.get("significance", 0.5))
             node.event_seq = list(_seqs_of(ent) or event_seq)
             node.ts = _node_ts(node.event_seq, by_seq, ts)   # ⭐ 自己的时刻（④-①）
+            # ⭐ E1: `#entity:` → 归一（能解析的换成主名）+ 记下要落边的对象
+            node.tags, ent_targets, ent_strangers = normalize_entity_tags(store, node.tags)
+            if strangers_out is not None:
+                strangers_out.extend(ent_strangers)
             dup = _find_duplicate(store, node)
             if dup is not None:
                 if reused_out is not None:
                     reused_out.append(dup.id)     # ⭐ D1: 这一条**没建节点**（复用旧的）
                 player_ids.append(dup.id)
                 continue
-            player_ids.append(store.add(node))
+            pid = store.add(node)
+            _link_about(store, pid, ent_targets, ts=node.ts)   # ⭐ 边由引擎落
+            player_ids.append(pid)
             continue
         node = make_node("episode", **{k: v for k, v in ent.items() if k != "kind"})
         # ⭐ **N2b**: 标题唯一性**写入时强制**（冲突加数字; 只增不重排）——
@@ -130,6 +152,10 @@ def _create_a_nodes(store: WikiStoreV2, entries: list[dict], *, ts: str,
             # 叙事轴: writer 原文（键不是地名的双射, 判"同地"只能靠语义）
             node.place_raw = _place_raw(node.event_seq, by_seq)
         node.aff_at_encoding = aff_at_encoding
+        # ⭐ E1: `#entity:` → 归一（能解析的换成主名）+ 记下要落边的对象
+        node.tags, ent_targets, ent_strangers = normalize_entity_tags(store, node.tags)
+        if strangers_out is not None:
+            strangers_out.extend(ent_strangers)
         dup = _find_duplicate(store, node)
         if dup is not None:
             if reused_out is not None:
@@ -138,6 +164,7 @@ def _create_a_nodes(store: WikiStoreV2, entries: list[dict], *, ts: str,
             continue
         nid = store.add(node)
         episode_ids.append(nid)
+        _link_about(store, nid, ent_targets, ts=node.ts)       # ⭐ 边由引擎落
     return episode_ids, player_ids
 
 

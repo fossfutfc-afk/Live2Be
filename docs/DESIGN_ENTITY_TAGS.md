@@ -138,7 +138,7 @@ entity 节点 = 身份:  name（主名）+ aliases（别称）
 
 | 节点 | 内容 | 落点 | 验收 | 依赖 |
 |---|---|---|---|---|
-| **E1** | `#entity:` 语法：parse 形状（空名字丢项）· 执行层**落 `about` 边** + 归一 + 陌生保留 + 账 `strangers=` · R1 的契约/prompt（翻掉"别写关于谁"那条裁决）| `contract/digest_registry.py` · `core/brain/entities.py`（`normalize_entity_tags`）· `core/digest/episodes.py` · `llm/prompts/digest_record.md` | 只读探针：真机 21 条 episode 的 tags 补上 `#entity:` 后"按边查 vs 按 tag 查"的差 · 守门 4 条（形状/不占额度/归一/陌生保留）| — |
+| **E1** | ✅ **已落地**（2026-10-08）| `#entity:` 语法：parse 形状（空名字丢项）· 执行层**落 `about` 边** + 归一 + 陌生保留 + 账 `strangers=` · R1 的契约/prompt（翻掉"别写关于谁"那条裁决）| `contract/digest_registry.py` · `core/brain/entities.py`（`find_entity` / `normalize_entity_tags`）· `core/digest/episodes.py`（`_link_about`）· `llm/prompts/digest_record.md` | 真机只读: **22/22 种叫法解析回自己** · 口径差 48%→100% · `test_entity_tags.py` 11 例 · **7 变异全红** · 三板块 1290 passed | — |
 | **E2** | L2 的 belief 行加**可选 `tags`**（同一套 `#entity:` 语法）| 同上契约 + `parse_cognitions` + L2 prompt | 看法能带 `#entity:老师` ⇒ 落边 | E1 |
 | **E3** | **删 L1 的 `about` 动作**（5 → 4）+ 修 §7 那笔红账 + prompt/守门同步 | `contract/digest_registry.py` · `rounds/__init__.py` · `digest_relate.md` | 守门：L1 的 `writes` = 4 条边（含 `evolved_from`）· 变异验红 | E1 |
 | **E4** | 恢复 R3 = **只认人**（`new_entity`）+ **建完补边** + skip="有解析不到的 tag" + 观测一行 | `rounds/attribute.py` · `rounds/__init__.py` · `revise.apply_attribution` | 先验能红：新人建得出 · 补边落得上 · 老对象不重复建 · 无陌生人时 **0 调用** · 变异 5 条 | E3 |
