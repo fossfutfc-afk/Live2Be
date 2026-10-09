@@ -99,9 +99,9 @@ IMPL: dict[str, Callable[[Ctx], RoundOut]] = {
     "record": record.run,
     "akin": akin.run,
     "relate": relate.run,
-    "attribute": attribute.run,
     "group": group.run,
     "cognize": cognize.run,
+    "attribute": attribute.run,       # ⭐ E4: 认人排在**最后**（要看到 L2 的看法）
 }
 
 #: ⭐ **一段最多试几次**（2026-09-29 刀 2）—— 数到就**放弃**这一段（见 `_note_failure`）。

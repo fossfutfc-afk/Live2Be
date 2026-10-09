@@ -5,12 +5,10 @@ import logging
 import pytest
 
 from core.brain import WikiStoreV2, make_node, notes
-from core.brain.entities import candidate_table, ensure_entities
+from core.brain.entities import ensure_entities
 from core.brain.evolution import EvolutionLog
-from core.brain.revise import (apply_attribution,
-                                       apply_cognitions,
-                                       apply_decisions,
-                                       apply_revision_package)
+from core.brain.revise import (apply_cognitions, apply_decisions, apply_entities,
+                               apply_revision_package, link_entity_tags)
 
 
 def _store(tmp_path) -> WikiStoreV2:
@@ -381,137 +379,6 @@ def _attr_store(tmp_path) -> WikiStoreV2:
     return st
 
 
-def test_attribution_accepts_only_live_kinds(tmp_path):
-    """⏸ 原 `test_attribution_accepts_promise_nodes`（§6 让承诺也能被归属）2026-09-29 作废 ——
-    承诺退图 ⇒ `_ATTACHABLE` 里也摘掉了它。
-
-    留下的守门: `_ATTACHABLE` 只收**图里还活着的** kind（漏了会静默不挂; 多一个退役的
-    就是死配置 —— 与当年摘掉 `fact` 同一条判据）。
-    """
-    from core.brain.revise import _ATTACHABLE
-
-    assert _ATTACHABLE == ("episode", "belief", "profile")
-    # 归属本身照常（用一条 episode 验通路）
-    st = _attr_store(tmp_path)
-    _, local_of = candidate_table(st)
-
-    assert apply_attribution(st, [{"action": "attach", "entity": local_of["x0001"],
-                                   "hint": "老师", "nodes": ["u0001"]}],
-                             id_map={"u0001": "m0001"}, local_of=local_of, **_ctx_kw()) == []
-    assert st.graph().targets("m0001", "about") == ["x0001"]
-
-
-def test_attribution_attaches_and_writes_alias(tmp_path):
-    """`attach` = 归属的唯一落地形式（写 `about` 边）+ hint 顺手写回别名。"""
-    st = _attr_store(tmp_path)
-    _, local_of = candidate_table(st)
-    rows = [
-        {"action": "attach", "entity": local_of["x0001"], "hint": "老师",
-         "nodes": ["u0001", "u0003"]},                    # "老师" 已是主名 → 不写
-        {"action": "attach", "entity": local_of["x0000"], "hint": "先生",
-         "nodes": ["u0002"]},                             # 新称呼 → 写回别名
-    ]
-    assert apply_attribution(st, rows, id_map={"u0001": "m0001", "u0002": "m0002",
-                                               "u0003": "m0003"},
-                             local_of=local_of, **_ctx_kw()) == []
-    g = st.graph()
-    assert g.targets("m0001", "about") == ["x0001"]        # 边方向 = 节点 → entity
-    assert g.targets("m0003", "about") == ["x0001"]
-    assert g.targets("m0002", "about") == ["x0000"]
-    assert st.get("x0000").aliases[-1] == "先生"
-    assert st.audit() == []
-    # 幂等: 同一份表重跑 → 边不重复、别名不重复
-    apply_attribution(st, rows, id_map={"u0001": "m0001", "u0002": "m0002",
-                                        "u0003": "m0003"},
-                      local_of=local_of, **_ctx_kw())
-    assert len(g := st.graph().edges_from("m0001", "about")) == 1
-    assert st.get("x0000").aliases.count("先生") == 1
-    # 台账: 每条 attach 一行（含写了几条边 / 是否写了别名）
-    entries = [e for e in _log(st).read() if e["action"] == "attach"]
-    assert [e["nodes"] for e in entries] == [2, 1, 2, 1]
-    assert [e["alias"] for e in entries] == [False, True, False, False]
-
-
-def test_attribution_new_entity_needs_reason_and_is_idempotent(tmp_path):
-    """`new_entity`: 必给理由 + 载荷可随行给 + 重跑复用（崩溃窗口幂等）。"""
-    st = _attr_store(tmp_path)
-    _, local_of = candidate_table(st)
-    rows = [{"action": "new_entity", "name": "小玉", "aliases": ["tama"],
-             "reason": "本章登场两次, 三个月后再提到要一致",
-             "text": "杂草屋隔壁的孩子", "state": ["抱着一只破旧的兔子玩偶"],
-             "nodes": ["u0002"]}]
-    assert apply_attribution(st, rows, id_map={"u0002": "m0002"},
-                             local_of=local_of, **_ctx_kw()) == ["x0002"]
-    n = st.get("x0002")
-    assert (n.kind, n.name, n.aliases, n.text, n.state) == (
-        "entity", "小玉", ["tama"], "杂草屋隔壁的孩子", ["抱着一只破旧的兔子玩偶"])
-    assert st.graph().targets("m0002", "about") == ["x0002"]
-    assert st.next_id("x") == "x0003"                    # 保留号仍挡住 0/1
-    entry = _log(st).read()[-1]
-    assert entry["action"] == "new_entity" and "三个月" in entry["reason"]
-
-    # 重跑: 同名 → 复用（**不建第二个**）, 边也不重复, created 为空
-    assert apply_attribution(st, rows, id_map={"u0002": "m0002"},
-                             local_of=local_of, **_ctx_kw()) == []
-    assert [x.id for x in st.all() if x.kind == "entity"] == ["x0000", "x0001", "x0002"]
-    assert len(st.graph().edges_to("x0002", "about")) == 1
-    assert _log(st).read()[-1]["action"] == "new_entity.dup"
-
-    # 准入门槛: 缺理由 → 拒（§3.0）
-    with pytest.raises(ValueError, match="必须给一句理由"):
-        apply_attribution(st, [{"action": "new_entity", "name": "小玉二号",
-                                "nodes": ["u0002"]}],
-                          id_map={"u0002": "m0002"}, local_of=local_of, **_ctx_kw())
-
-
-def test_attribution_rewrite_and_guards(tmp_path, caplog):
-    """`rewrite` 重写载荷（空值=保留）+ 三道闸: 保留号 / 候选表 / 可归属 kind。"""
-    st = _attr_store(tmp_path)
-    _, local_of = candidate_table(st)
-    apply_attribution(st, [{"action": "rewrite", "entity": local_of["x0001"],
-                            "text": "他是第一个不会嫌弃我的人",
-                            "state": ["今天戴了眼镜"]}],
-                      id_map={}, local_of=local_of, **_ctx_kw())
-    assert st.get("x0001").text == "他是第一个不会嫌弃我的人"
-    # 空 state（None/[]）→ **保留**（今天没有"删掉一条 state"的机制 —— §9-4 未定）
-    apply_attribution(st, [{"action": "rewrite", "entity": local_of["x0001"],
-                            "text": "他是唯一会等我的人"}],
-                      id_map={}, local_of=local_of, **_ctx_kw())
-    assert st.get("x0001").state == ["今天戴了眼镜"]
-    assert _log(st).read()[-1]["changed"]["text"][0] == "他是第一个不会嫌弃我的人"
-    # rewrite 什么都不给 → 拒（不是静默 no-op）
-    with pytest.raises(ValueError, match="没给可改字段"):
-        apply_attribution(st, [{"action": "rewrite", "entity": local_of["x0001"]}],
-                          id_map={}, local_of=local_of, **_ctx_kw())
-
-    with pytest.raises(ValueError, match="候选表"):
-        apply_attribution(st, [{"action": "attach", "entity": "c0099",
-                                "nodes": ["u0001"]}],
-                          id_map={"u0001": "m0001"}, local_of=local_of, **_ctx_kw())
-    with pytest.raises(ValueError, match="只能归属"):     # entity 自己不是可归属对象
-        apply_attribution(st, [{"action": "attach", "entity": local_of["x0001"],
-                                "nodes": ["u0009"]}],
-                          id_map={"u0009": "x0000"}, local_of=local_of, **_ctx_kw())
-    with pytest.raises(ValueError, match="未知动作"):
-        apply_attribution(st, [{"action": "mentions", "entity": local_of["x0001"]}],
-                          id_map={}, local_of=local_of, **_ctx_kw())
-
-    # 保留号不在（= D3a 没跑过）→ **跳过 new_entity** 并告警（归属边照写）
-    bare = _store(tmp_path / "bare")
-    _, none_local = candidate_table(bare)
-    with caplog.at_level(logging.WARNING):
-        assert apply_attribution(
-            bare, [{"action": "new_entity", "name": "小玉", "reason": "r",
-                    "nodes": ["u0001"]}],
-            id_map={"u0001": "m0001"}, local_of=none_local) == []
-    assert [n.id for n in bare.all() if n.kind == "entity"] == []
-    assert any("x0001" in r.getMessage() for r in caplog.records)
-
-
-# ---------------------------------------------------------------------------
-# ⭐⭐ L2（`cognize`）的执行器 —— P9（2026-10-08）
-# ---------------------------------------------------------------------------
-
 def test_apply_cognitions_birth_edges_have_the_right_direction(tmp_path):
     """⭐ P9: 造看法 = 节点 + **出生自带的三条边**, 方向由两端类型定死。
 
@@ -624,3 +491,64 @@ def test_apply_cognitions_keeps_its_hands_off_everything_else(tmp_path):
     assert all(after[k] == v for k, v in nodes_before.items()), "已有节点一个字都不许改"
     assert len(st.graph().edges) == edges_before + 1, "只多了那一条证据边"
     assert [n.id for n in st.all() if n.kind == "experience"] == [], "⛔ 不建类"
+
+
+# ---------------------------------------------------------------------------
+# E4（2026-10-08）—— R3 的执行器: **只认人**（`apply_entities`）+ 落边的唯一实现
+# ---------------------------------------------------------------------------
+
+def test_apply_entities_creates_and_refuses_duplicates(tmp_path):
+    """⭐ 建对象: `name` + `aliases` 落成 `entity`; **重名不重复建**（留痕 `new_entity.dup`）。"""
+    st = _store(tmp_path)
+    ensure_entities(st, char_name="伊草 遥香", aliases=("遥香",),
+                    sensei_name="老师", sensei_aliases=("sensei",))
+    st.save()
+    made = apply_entities(st, [{"name": "小玉", "aliases": ["tama"], "reason": "第一次出场"}],
+                          ts="2026-10-08T21:00:00+08:00", event_seq=[3])
+    assert len(made) == 1 and st.get(made[0]).name == "小玉"
+    assert st.get(made[0]).aliases == ["tama"] and st.get(made[0]).event_seq == [3]
+    again = apply_entities(st, [{"name": "小玉", "reason": "又提了一次"}],
+                           ts="2026-10-08T21:10:00+08:00")
+    assert again == [], "同名不该再建一个"
+    kinds = [e["action"] for e in EvolutionLog.for_store(st).read()]
+    assert kinds == ["new_entity", "new_entity.dup"], kinds
+    print(f"    建对象: {made} · 重名跳过（账里有 dup）")
+
+
+def test_apply_entities_needs_a_reason(tmp_path):
+    """`reason` 是**准入门槛**（建对象是永久成本）—— 契约层已挡, 执行层再挡一次。"""
+    st = _store(tmp_path)
+    ensure_entities(st, char_name="伊草 遥香", aliases=("遥香",),
+                    sensei_name="老师", sensei_aliases=("sensei",))
+    st.save()
+    try:
+        apply_entities(st, [{"name": "小玉"}], ts="2026-10-08T21:00:00+08:00")
+    except ValueError as e:
+        assert "理由" in str(e), e
+    else:
+        raise AssertionError("没给 reason 也建出来了")
+
+
+def test_link_entity_tags_lands_edges_and_normalizes(tmp_path):
+    """⭐ **落边的唯一实现**: 节点 `tags` 里的 `#entity:` ⇒ `about` + tag 归一成主名。"""
+    st = _store(tmp_path)
+    ensure_entities(st, char_name="伊草 遥香", aliases=("遥香",),
+                    sensei_name="老师", sensei_aliases=("sensei",))
+    st.save()
+    nid = st.add(make_node("episode", text="老师约我去公园", title="公园",
+                           tags=["公园", "#entity:sensei"], ts="2026-10-08T10:00:00+08:00",
+                           event_seq=[3]))
+    targets, strangers = link_entity_tags(st, nid, ts="2026-10-08T21:00:00+08:00")
+    assert targets == ["x0001"] and strangers == [], (targets, strangers)
+    assert st.graph().targets(nid, "about") == ["x0001"]
+    assert st.get(nid).tags == ["公园", "#entity:老师"], st.get(nid).tags
+    # 幂等: 再跑一遍不变、不重复落边
+    link_entity_tags(st, nid, ts="2026-10-08T21:00:00+08:00")
+    assert len(st.graph().targets(nid, "about")) == 1
+    # 陌生人: 原样留着 + 报上来 + 不落边
+    nid2 = st.add(make_node("episode", text="第一次见到小玉", title="相遇",
+                            tags=["#entity:小玉"], ts="2026-10-08T11:00:00+08:00"))
+    t2, s2 = link_entity_tags(st, nid2)
+    assert t2 == [] and s2 == ["小玉"], (t2, s2)
+    assert st.get(nid2).tags == ["#entity:小玉"]
+    print("    落边: 归一 + 幂等 + 陌生人留档 ✓")

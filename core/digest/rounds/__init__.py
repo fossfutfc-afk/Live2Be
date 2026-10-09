@@ -279,22 +279,6 @@ ROUNDS: tuple[RoundSpec, ...] = (
         skip="",
     ),
     RoundSpec(
-        key="attribute",
-        step="④ 挂",
-        parse=digest_registry.parse_attribution,
-        material=("候选对象", "这几个对象的当前情况", "本轮新节点", "角色人设（锚点）"),
-        writes=(
-            ("entity", ("name", "aliases", "text", "state", "event_seq", "ts")),
-            # 归属的**唯一落地形式**: 有边 = 归好了, 没边 = 没归（`about_state` 三态）。
-            ("edge", ("about",)),
-        ),
-        result_fields=(*CONTRACT_FIELDS, "created_entities"),
-        skip=("⏸ 2026-10-05 暂停: entity 那条链路没有读侧消费者 —— 注入四桶里没有它、"
-              "`read/` 对它零引用, 而它每段付一次调用。两件活并进 M3 的两趟"
-              "（attach→第一趟 · entity 摘要/state→第二趟）。重开判据: ① wiki 大到全量"
-              "注不进去 ② 要做动态成长线呈现; ⚠️ 重开只对以后生效（历史归属要补脚本）"),
-    ),
-    RoundSpec(
         key="group",
         step="⑤ 分群（L2-a）",
         parse=digest_registry.parse_group,
@@ -329,6 +313,25 @@ ROUNDS: tuple[RoundSpec, ...] = (
         skip="本段既没有被连过的经历, 也没有新归类的群（归纳没有立足点）",
         # ⭐ **它也是加法的**: 失败只丢"新造的看法 / 这一笔沉淀", 经历与边照旧
         # （与 `group` 同一个理由 —— 拿真东西换装饰是亏的; 用户 2026-10-08 裁）。
+        own_snapshot=True,
+    ),
+    RoundSpec(
+        key="attribute",
+        step="⑦ 认人",
+        parse=digest_registry.parse_attribution,
+        material=("要认的名字", "已有的对象", "角色人设（锚点）"),
+        writes=(
+            # ⭐ **只认人**（2026-10-08, E4）: 造 `entity` **节点**（name / aliases / event_seq / ts）。
+            # ⛔ 不写正文（"印象"归 **belief** —— `entity.text` 那一格今天没有读者,
+            # 而 note 那条路已被 `on_mind`/`habits` 的退役判据封死, 见 `DESIGN_ENTITY_TAGS §6`）。
+            ("entity", ("name", "aliases", "event_seq", "ts")),
+            # ⚠️ **`about` 不由 LLM 写**: 她只在写节点时于 `tags` 里留 `#entity:名字`,
+            # 引擎据此派生边; 这一轮**建完新对象之后回头补边**（同段闭合, 零 LLM）。
+            ("edge", ("about",)),
+        ),
+        result_fields=(*CONTRACT_FIELDS, "created_entities"),
+        skip="本段没有解析不到的 `#entity:` 名字（没有新人要认 ⇒ 一次调用都不发）",
+        # ⭐ 加法的: 失败只丢"新对象 + 这一次补边" —— 经历/看法照旧（同 group / cognize 的判据）。
         own_snapshot=True,
     ),
 )

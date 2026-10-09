@@ -236,52 +236,6 @@ def test_labels_are_in_the_vocabulary():
 # ④ 料与执行一一对应
 # ---------------------------------------------------------------------------
 
-def test_attribute_round_is_paused_by_default(tmp_path):
-    """⏸ **2026-10-05: entity 那条链路默认暂停**（`attribute.PAUSED`）。
-
-    为什么暂停（用户裁, 2026-10-05）: entity **没有读侧消费者** —— 注入的四个桶里没有它、
-    `core/brain/read/` 对它零引用, 而它**每段要付一次 LLM 调用**。
-    两件活的去向: `attach` → M3 第一趟 · entity 摘要/`state` → M3 第二趟（边际成本≈0）。
-
-    ⚠️ 三半都查（**缺一半就能被绕过去**）: 常量真翻开 · 表里的 skip 文案写明了理由与
-    重开判据 · **跑一段时这一轮一次都不发**（常量真被 `run()` 读了）。
-    重开时一起删掉本用例 —— 那正是它存在的用途。
-    """
-    from core.digest.rounds import attribute
-
-    assert attribute.PAUSED is True, "暂停被无声地翻开了（重开要走一次明确的裁决）"
-    spec = next(s for s in R.ROUNDS if s.key == "attribute")
-    assert "暂停" in spec.skip and "重开判据" in spec.skip, \
-        "表里的 skip 文案要写明理由与恢复判据（日志里那一行就是它的读者）"
-
-    class _One:
-        """一段最小可跑: R0 一件 → R1 一条 → L1 什么都不接; R3 若被调到就炸。"""
-
-        def __init__(self):
-            self.tasks: list[str | None] = []
-
-        def chat(self, messages, **kw):
-            task = kw.get("task")
-            self.tasks.append(task)
-            if task == T.DIGEST_SPLIT:
-                return {"segments": [{"span": [3, 3], "abstract": "路过模型店"}]}
-            if task == T.DIGEST_RECORD:
-                return {"episodes": [{"text": "路过模型店", "title": "模型店",
-                                      "tags": ["模型店"]}]}
-            if task in (T.DIGEST_RELATE, T.DIGEST):
-                return {"relations": []}          # L1 只判关系; 这一段的看法由 L2 造
-            if task == T.DIGEST_ATTRIBUTE:
-                raise AssertionError("R3 暂停了 —— 不该发这次调用")
-            return None
-
-    llm = _One()
-    res = digest_segment(_store(tmp_path), llm, [_mmt(3)])
-    assert res.ok, res.errors
-    assert T.DIGEST_ATTRIBUTE not in llm.tasks, llm.tasks
-    assert res.created_entities == [], "暂停期间不该有新对象（entity 是 R3 建的）"
-    print(f"    R3 暂停: 这一段只发了 {[t for t in llm.tasks if t]} ✓")
-
-
 def test_every_round_is_implemented_and_entered():
     """表里的每一步都要**真有实现**、且**真的进过门** —— 双向。
 
@@ -344,11 +298,11 @@ def test_only_the_group_step_carries_its_own_snapshot():
     **必须连累整段**（宁缺勿错: 半截记忆比没有记忆坏）。
     """
     own = [s.key for s in R.ROUNDS if s.own_snapshot]
-    assert own == ["group", "cognize"], (
+    assert own == ["group", "cognize", "attribute"], (
         f"自带快照的只该是这两步（它们产的是加法）, 实得 {own} —— 别的步骤失败必须连累整段"
         "（宁缺勿错: 半截记忆比没有记忆坏）")
-    assert [s.key for s in R.ROUNDS[-2:]] == own, "这两步必须是每段的最后两步"
-    print("    快照: L2-a 分群 + L2-b 造看法自带（失败只回滚自己）")
+    assert [s.key for s in R.ROUNDS[-3:]] == own, "这三步必须是每段的最后三步"
+    print("    快照: 分群 + 造看法 + 认人自带（失败只回滚自己）")
 
 
 def test_cursor_allows_skips_but_never_goes_back():
@@ -362,9 +316,9 @@ def test_cursor_allows_skips_but_never_goes_back():
         assert "越序" in str(e), e
     else:
         raise AssertionError("游标允许回头了 —— 表就不再是顺序的真源")
-    cur.enter("attribute")                          # 往前走照旧
-    cur.enter("group")
-    cur.enter("cognize")                            # ⭐ P10: 表里最后一步
+    cur.enter("group")                              # 往前走照旧（跳过 attribute）
+    cur.enter("cognize")
+    cur.enter("attribute")                          # ⭐ E4: 表里最后一步（认人）
     assert cur.at == len(R.ROUNDS)
     print("    cursor: 可跳步, 不可回头（越序当场炸）")
 
