@@ -20,7 +20,7 @@ import pytest
 
 from core.brain import WikiStoreV2, make_node
 from core.brain.read.like import (LikeCtx, build_ctx, like, part_lexical, part_name,
-                                  part_prior, part_temporal)
+                                  part_prior, part_struct, part_temporal)
 from core.brain.read.pack import Candidate, ledger_line
 
 #: 固定的"现在"（**现实日**轴; 与 `age_days` / `freshness` 同一套时区）
@@ -61,6 +61,27 @@ def _store(tmp_path, nodes, *, edges=(), entities=(("老师", ("sensei",)),
         st.add(n)
     for rel, src, dst in edges:
         st.add_edge(rel, src, dst)
+    return st
+
+
+#: 结构一跳那组用例的档：一个"类" g0001 下挂三条经历, 外加一条 **2 跳** 和一条 **共对象**
+def _cluster_store(tmp_path, *, class_title="和老师一起吃饭的那些日子"):
+    st = _store(tmp_path, [
+        make_node("experience", id="g0001", title=class_title),
+        _ep("m0001", "x", tags=["团子"], ts=_ts(0)),          # 种子（tags 命中）
+        _ep("m0002", "那天也一起吃了点心", tags=["点心"]),      # akin 邻居（内容分 0）
+        _ep("m0003", "另一件同类的事", tags=["别的事"]),        # 同类兄弟（内容分 0）
+        _ep("m0004", "离得很远的另一件", tags=["远"]),          # 种子 → m0002 → m0004（**两跳**）
+        _ep("m0005", "同一栋房子里的另一件事", tags=["房子"]),   # 与 m0001 共一个对象（**不是相似**）
+    ], edges=[
+        ("akin", "m0001", "m0002"),
+        ("akin", "m0002", "m0004"),
+        ("member_of", "m0001", "g0001"),
+        ("member_of", "m0003", "g0001"),
+        ("about", "m0001", "x0001"),
+        ("about", "m0002", "x0001"),                          # m0002 也在「杂草屋」车道上
+        ("about", "m0005", "x0001"),
+    ])
     return st
 
 
@@ -158,7 +179,72 @@ def test_newer_wins_when_content_is_equal(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# ④ ⭐ 准入只认内容轴
+# ②′ 结构一跳（⭐ 窄门准入）
+# ---------------------------------------------------------------------------
+
+def test_struct_reaches_akin_and_class_siblings(tmp_path):
+    """窄门就两条: `akin`（她认过的相似, 1.0）与 `member_of` 的**同类兄弟**（0.8）。"""
+    ctx = build_ctx(_cluster_store(tmp_path), query="团子", now=NOW)
+    assert ctx.seeds == {"m0001": 0.60}, ctx.seeds
+    assert ctx.reach["m0002"] == (0.60, "认过的相似"), ctx.reach
+    assert ctx.reach["m0003"] == (0.48, "同类兄弟"), ctx.reach
+
+
+def test_a_seed_gets_no_struct_bonus(tmp_path):
+    """⭐ 种子不吃结构分（同一个理由不重复计）—— 类自己命中时也只当种子。"""
+    st = _cluster_store(tmp_path, class_title="和老师吃饭送团子")   # 类名带"团子" ⇒ 它也命中
+    ctx = build_ctx(st, query="团子", now=NOW)
+    assert set(ctx.seeds) == {"g0001", "m0001"}, ctx.seeds          # 类也可以是内容命中
+    assert "g0001" not in ctx.reach and "m0001" not in ctx.reach    # 但种子不当"被够到的人"
+    assert ctx.reach["m0003"] == (0.80, "同类兄弟")                  # 由类的 1.00 够到
+    assert "g0001" not in {c.node.id for c in like(st, "团子", now=NOW)}   # 类不进结果（选面）
+
+
+def test_struct_does_not_expand_about_nor_two_hops(tmp_path):
+    """⛔ 不扩 `about`（归属≠相似）、⛔ 不传递闭包、⛔ 不许把别的选面摆出来。"""
+    st = _cluster_store(tmp_path)
+    ctx = build_ctx(st, query="团子", now=NOW)
+    assert "m0004" not in ctx.reach            # 两跳（邻居的邻居）
+    assert "m0005" not in ctx.reach            # 与种子**共一个对象**（`about` 刻意不在窄门里）
+    assert "x0001" not in ctx.reach            # 对象本身也不该被结构够到（`about` 不在门里）
+    # 类会被够到（"一类的兄弟"就是从它那儿数的）, 但**选面**把它挡在打分之外
+    assert [c.node.id for c in like(st, "团子", now=NOW)] == ["m0001", "m0002", "m0003"]
+
+
+def test_struct_never_exceeds_its_seed_and_seed_outranks_it(tmp_path):
+    """不变量: **结构分 ≤ 它的种子**; 排序上种子也在它前面。"""
+    st = _cluster_store(tmp_path)
+    ctx = build_ctx(st, query="团子", now=NOW)
+    seed_lex = part_lexical(st.get("m0001"), ctx)[0]
+    assert part_struct(st.get("m0002"), ctx)[0] <= seed_lex
+    assert part_struct(st.get("m0003"), ctx)[0] <= seed_lex
+    out = like(st, "团子", now=NOW)
+    assert [c.node.id for c in out] == ["m0001", "m0002", "m0003"], out
+    assert out[0].why.startswith("tags[团子]")
+    assert out[1].why.startswith("认过的相似 0.60")
+    assert out[2].why.startswith("同类兄弟 0.48")
+
+
+def test_struct_admits_through_the_narrow_gate(tmp_path):
+    """⭐ 窄门**能带新节点进来**（它们自己的内容分是 0）—— 这正是结构一跳的意义。"""
+    st = _cluster_store(tmp_path)
+    ctx = build_ctx(st, query="团子", now=NOW)
+    for nid in ("m0002", "m0003"):
+        assert part_lexical(st.get(nid), ctx)[0] == 0.0     # 内容: 零
+        assert part_struct(st.get(nid), ctx)[0] > 0.0       # 结构: 有 ⇒ 准入过
+    assert {c.node.id for c in like(st, "团子", now=NOW)} == {"m0001", "m0002", "m0003"}
+
+
+def test_struct_does_not_double_count_the_name_lane(tmp_path):
+    """一条理由只算一次: 已经靠"名字"进来的节点, 结构不再给分。"""
+    st = _cluster_store(tmp_path)
+    ctx = build_ctx(st, query="杂草屋的团子", now=NOW)
+    assert part_name(st.get("m0002"), ctx)[0] == 1.0        # 名字那条还写着（m0002 在车道上）
+    assert part_struct(st.get("m0002"), ctx) == (0.0, "")   # 结构不再重复给
+
+
+# ---------------------------------------------------------------------------
+# ④ ⭐ 准入只认内容轴 + 窄门
 # ---------------------------------------------------------------------------
 
 def test_admission_needs_content_evidence(tmp_path):
@@ -208,10 +294,14 @@ def test_bonus_cannot_outrank_a_clear_content_gap(tmp_path):
     B 靠覆盖率 0.375（刚过线）⇒ 内容最低、加成拉满（今天 + sig 1.0 + 情绪 0.5 + 名字命中）。
     """
     from core.brain.read.like import PARTS, TOTAL_WEIGHT
-    bonus_total = sum(p.weight for p in PARTS if not p.content)
-    content_top = max(p.weight for p in PARTS if p.content)
-    assert content_top > bonus_total, (content_top, bonus_total)   # 结构性: 内容是多数派
-    assert TOTAL_WEIGHT == content_top + bonus_total
+    admit_total = sum(p.weight for p in PARTS if p.admits)
+    bonus_total = sum(p.weight for p in PARTS if not p.admits)
+    assert TOTAL_WEIGHT == admit_total + bonus_total
+    assert bonus_total < admit_total, (bonus_total, admit_total)   # 加成永远是少数派
+    assert (max(p.weight for p in PARTS if not p.admits)
+            < min(p.weight for p in PARTS if p.admits))            # 且单条也不及最小的准入门
+    assert (max(p.weight for p in PARTS if not p.admits) * len(PARTS)
+            < max(p.weight for p in PARTS if p.admits))
 
     q = "苔藓月亮团子中秋月饼甜点杂草屋里的热茶"                      # 19 字 ⇒ 18 个 2-gram
     body = "苔藓月亮团子中秋"                                        # 8 字 ⇒ 7 个都在 q 里
