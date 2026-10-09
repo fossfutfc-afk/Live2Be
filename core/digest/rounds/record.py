@@ -32,6 +32,7 @@ import logging
 from core.brain.notes import PINNED_TAG, add_op, close_op, update_op
 from core.digest.episodes import _create_a_nodes, _resolve_verbatim, _spanless_nodes
 from core.digest.material import SKELETON_HINT, _skeleton_rows, _skeleton_text
+from core.digest.material import existing_entities_line
 from core.digest.rounds.base import Ctx, RoundOut
 
 logger = logging.getLogger(__name__)
@@ -58,6 +59,9 @@ def run(ctx: Ctx) -> RoundOut:
             ("本段骨架", _skeleton_text(ctx.result.segments) + "\n" + SKELETON_HINT),
             ("本章标题", " / ".join(c["title"] for c in ctx.chapters if c["title"])),  # 多章都列; 空 → 跳过
             ("画面记忆", "\n".join(f"- {v}" for v in ctx.visuals)),
+            # ⭐ E1b（2026-10-08）: 写 `#entity:` 之前先看**已有的对象**（名字 + 别名）——
+            # 防她自己造新叫法（造了引擎就认不出 ⇒ 同一个人被重复建）
+            ("已有的对象", existing_entities_line(ctx.store, texts=[ctx.timeline])),
             ("角色人设（锚点）", ctx.character_prompt),
             ("本段情绪标尺", ctx.emotion_scale),
         ])

@@ -90,6 +90,9 @@ def test_stranger_tag_is_recognized_and_the_edge_is_backfilled(tmp_path):
     assert res.ok, res.errors
     assert T.DIGEST_ATTRIBUTE in llm.tasks, llm.tasks
     assert llm.tasks[-1] == T.DIGEST_ATTRIBUTE, "它必须排在最后（要看到 L2 的看法）"
+    # ⭐ E1b: **写 tag 的那一轮也要看得到【已有的对象】**（防自造 alias ⇒ 重复建对象）
+    r1_user = llm.user_of(T.DIGEST_RECORD)
+    assert "【已有的对象】" in r1_user and "x0001 老师" in r1_user, r1_user
     user = llm.user_of(T.DIGEST_ATTRIBUTE)
     for title in ("【要认的名字】", "【已有的对象】", "【角色人设（锚点）】"):
         assert title in user, (title, user)
