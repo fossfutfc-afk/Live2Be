@@ -9,28 +9,32 @@
 
 | 函数 | 类 | 分 | 一句话（`why` 的一格） |
 |---|---|---|---|
-| `part_lexical` | **内容**（唯一能单独准入的） | tags / 标题 / 正文覆盖 **取最大** | `tags[苔藓]` · `标题点名` · `覆盖 0.62` |
+| `part_lexical` | **准入**（内容轴） | tags / 标题 / 正文覆盖 **取最大** | `tags[苔藓]` · `标题点名` · `覆盖 0.62` |
+| `part_struct` | **准入**（⚠️ 窄门） | 种子的内容分 × 边权（≤ 种子） | `认过的相似 0.60` · `同类兄弟 0.48` |
 | `part_temporal` | 加成 | `freshness(age)` ∈ **[floor, 1]** | `今天` · `12 天前` |
-| `part_prior` | 加成 | `min(sig·TIME + emo_span·emo_int, 1)` | `sig .85·情绪 .16` |
+| `part_prior` | 加成 | `min(sig·TIME + emo_span·emo_int, 1)` | `sig .85+情绪 .16` |
 | `part_name` | 加成 | 0 / 1（query 点到某个对象名） | `名字[杂草屋]` |
 
 一句话由**函数自己**写（它算的时候就知道自己走的是哪一路）; `like()` 只按固定顺序拼。
 ⛔ **绝不事后重算** —— 重算就是第二个真源（`recall._keyword_candidates` 踩过）。
 
-## 怎么合: **加权平均** + 一条单独的准入规则
+## 怎么合: **加权平均** + 准入规则
 
 ```
-final = Σ wᵢ·sᵢ / Σ wᵢ          w = {lexical 1.00, temporal .15, prior .15, name .15}
-准入  = 内容类里至少一个 > 0
+final = Σ wᵢ·sᵢ / Σ wᵢ   w = {lexical 1.00, struct .35, temporal .15, prior .15, name .15}
+准入  = 准入类里至少一个 > 0（内容轴 - 或 **窄门结构**）
 ```
 
 * 分母是正常数 ⇒ **排序与"不带分母的加权和"完全一致**; 带分母只是把分压回 `[0,1]`、
   台账好看（用户 2026-10-08: *"最终调用各函数采用加权平均吧, 这样不费脑子"*）。
-* ⚠️ **准入是唯一一条不是加权平均的规则**（**不是阈值** —— 边界就是"零重合"这个自然 0）。
+* ⚠️ **准入这条是唯一不是加权平均的规则**（**不是阈值** —— 边界就是"零"这个自然值）。
   零重合时若只看加权平均, `时间 + 先验 + 名字` 也能凑出一份分来: 真机 haruka 实测
   「老师，你今天有空吗」凑出 **10 条并列**、排序全交给先验 ⇒ 召回退化成"关于老师最重要的事",
   **每轮同样两条**（正是 `recall.recall_episodes` docstring 警告的"永远长不出新边"）。
-  所以: **准入只认内容轴; 名字与先验只能在"已经像"的候选上加成**（用户同日裁"只加成, 不作准入"）。
+  ⇒ **内容与窄门结构可以自己把人带进池; 时间 / 先验 / 名字只能在"已经像"的候选上加成。**
+* ⚠️ **窄门**是 `part_struct` 的定语, 不是形容词: 它只走两条边
+  （`akin` = 她亲口认过的相似; `member_of` 的**同类兄弟**）—— ⛔ **`about`（归属）不在内**
+  （太宽: 真机「老师」车道 10/21 条; 而且与 `part_name` 重叠）。见 `_STRUCT_EDGES`。
 * ⚠️ 权重是**代码常量, 先不进配置面**（配置面只留"取几条"与"半衰期/下界"那类; 阈值旋钮
   2026-09-15 已全删, `test_no_threshold_knobs_left` 钉着）。要按模型标定了再上配置面 ——
   免得又是一个"看着像旋钮、实际不做事"的值（`cand_med` 的教训）。
@@ -46,11 +50,11 @@ final = Σ wᵢ·sᵢ / Σ wᵢ          w = {lexical 1.00, temporal .15, prior 
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Callable
 
 from core.brain.address import normalize_title
-from core.brain.graph import graph_of
+from core.brain.graph import REL_AKIN, REL_MEMBER_OF, graph_of
 from core.brain.read.pack import Candidate, ledger_line
 from core.worldtime.age import (DEFAULT_FRESHNESS_FLOOR, DEFAULT_HALF_LIFE_DAYS,
                                age_days, freshness, render_relative)
@@ -60,11 +64,20 @@ logger = logging.getLogger(__name__)
 #: `like` 取几条的**回落值**（真源 = `settings.toml [recall].like_k`）
 LIKE_K = 3
 
-# ⚠️ 下面三个是**代码常量, 不是旋钮**（理由见模块 docstring 的权重那条）
+# ⚠️ 下面这些是**代码常量, 不是旋钮**（理由见模块 docstring 的权重那条）
 _TAG_BASE, _TAG_STEP = 0.60, 0.10      # tags 命中: 基分 + 每多命中一个 +0.10
 _TITLE_HIT = 0.85                      # 标题（剥壳后）整体出现在 query
 _COVER_MIN = 0.35                      # 正文覆盖率下限（`recall._keyword_candidates` 的 0.35 同款）
 _NAME_HIT = 1.00                       # 名字/别名命中（只是加成的一份, 不作准入）
+
+#: ⭐ **结构一跳的两条窄门**（`rel → (边权, 一句话)`）—— 用户 2026-10-08 裁"容许窄门准入"。
+#: ⛔ **`about` 刻意不在内**: 它是"归属"不是"相似", 而且太宽 —— 真机 haruka 实测
+#: 「老师」车道 **10/21 条**（48%）, 让它扩散等于每轮摆同一批; 况且 query 点到名时
+#: 已经由 `part_name` 承担（重叠就该只算一次理由）。
+_STRUCT_EDGES: dict[str, tuple[float, str]] = {
+    REL_AKIN: (1.00, "认过的相似"),          # 她自己写过 `{"noticed": …}` 认下来的
+    REL_MEMBER_OF: (0.80, "同类兄弟"),        # 同一个"经验"（类）下的其他经历
+}
 
 
 # ---------------------------------------------------------------------------
@@ -73,9 +86,10 @@ _NAME_HIT = 1.00                       # 名字/别名命中（只是加成的�
 
 @dataclass(frozen=True)
 class LikeCtx:
-    """一次召回的共享料: `query` · `now` · **query 点到的对象及其车道**。
+    """一次召回的共享料: `query` · `now` · **query 点到的对象及其车道** · 结构一跳。
 
-    车道只为"query 里真的被叫到"的对象建 ⇒ 多数轮零成本。
+    车道只为"query 里真的被叫到"的对象建; 结构一跳只为"真命中了内容"的节点建
+    ⇒ 多数轮零成本。
     """
 
     query: str = ""
@@ -84,6 +98,10 @@ class LikeCtx:
     named: dict[str, str] = field(default_factory=dict)
     #: entity_id → 它车道上（`about` 边指向它）的节点 id 集合
     lanes: dict[str, frozenset[str]] = field(default_factory=dict)
+    #: ⭐ **内容种子**: 节点 id → 内容分（只留 > 0 的）—— `part_struct` 的起点
+    seeds: dict[str, float] = field(default_factory=dict)
+    #: ⭐ **结构一跳能到达的同选面节点**: 节点 id → `(分, 一句话)`; 分 **≤ 它的种子**
+    reach: dict[str, tuple[float, str]] = field(default_factory=dict)
 
 
 def build_ctx(store, *, query: str, now) -> LikeCtx:
@@ -112,7 +130,57 @@ def build_ctx(store, *, query: str, now) -> LikeCtx:
             lanes = {eid: frozenset(g.lane(eid)) for eid in named}
         except Exception as e:                       # noqa: BLE001 — 少一份加成, 不阻断
             logger.info("recall_like lanes=skip reason=%s", e)
-    return LikeCtx(query=q, now=now, named=named, lanes=lanes)
+    base = LikeCtx(query=q, now=now, named=named, lanes=lanes)
+    # 结构一跳要"谁命中了内容"当种子 ⇒ 这里先按内容轴跑一遍（**同一个函数**, 不是第二份实现）
+    universe = list(store.all())
+    seeds = {n.id: s for n in universe if (s := part_lexical(n, base)[0]) > 0.0}
+    return replace(base, seeds=seeds, reach=_reach(store, universe, seeds))
+
+
+def _reach(store, universe: list,
+           seeds: dict[str, float]) -> dict[str, tuple[float, str]]:
+    """**结构一跳**: 从内容种子出发, 沿窄门（`_STRUCT_EDGES`）到达的节点。
+
+    分 = `种子的内容分 × 边权` ⇒ ⚠️ **永远不超过它的种子**（守门钉着这条不变量）。
+    同一节点被多个种子够到时取最强的那个。
+
+    ⚠️ **只一跳**: 走 `akin` 是一步; "同类兄弟"是"我 → 我的类 → 兄弟"两段边, 但**语义上
+    仍是一跳**（同一个类, 一件事）。⛔ 不许传递闭包 —— 真机那个 6 条簇会滚成整张图。
+
+    ⚠️ **种子自己不吃结构分**（它本来就是内容命中, 再给一份就是同一个理由算两次）。
+    这条顺带把"类自己也是命中"的情形收干净了（它是种子 ⇒ 不进 `reach`）。
+
+    ⚠️ **不再叠一层 kind 过滤**: 窄门本身就排除了跨面扩散（`about`（对象）/ `supports`
+    （认知）都不在门里）; 唯一会跨的是"经历 → 它的类"那一步 —— 那正是同类兄弟要的
+    （先前按"与种子同 kind"过滤, 会把兄弟全挡掉; 也说明**过滤该由窄门承担**）。
+    """
+    if not seeds:
+        return {}
+    g = graph_of(store)
+    out: dict[str, tuple[float, str]] = {}
+    for sid, s in seeds.items():
+        for other, weight, why in _narrow_neighbors(g, sid):
+            if other in seeds:
+                continue                                 # 自己就是内容命中 ⇒ 不吃结构分
+            score = s * weight
+            if score > out.get(other, (0.0, ""))[0]:
+                out[other] = (score, why)
+    return out
+
+
+def _narrow_neighbors(g, nid: str) -> list[tuple[str, float, str]]:
+    """窄门邻居（`(对端, 边权, 一句话)`）—— 含"同类兄弟"那一步。"""
+    out: list[tuple[str, float, str]] = []
+    for e in list(g.edges_from(nid)) + list(g.edges_to(nid)):
+        hit = _STRUCT_EDGES.get(e.rel)
+        if hit:
+            out.append((e.dst if e.src == nid else e.src, hit[0], hit[1]))
+    for e in g.edges_from(nid, REL_MEMBER_OF):           # 我 → 我的类
+        w, why = _STRUCT_EDGES[REL_MEMBER_OF]
+        for sib in g.sources(e.dst, REL_MEMBER_OF):      # 类 → 兄弟们
+            if sib != nid:
+                out.append((sib, w, why))
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -149,6 +217,28 @@ def part_lexical(node, ctx: LikeCtx) -> tuple[float, str]:
         if cov > _COVER_MIN and cov > best:
             best, why = cov, f"覆盖 {cov:.2f}"
     return best, why
+
+
+def part_struct(node, ctx: LikeCtx) -> tuple[float, str]:
+    """**结构一跳**（⭐ **窄门准入**）: 从内容种子沿窄门到达的节点, 分 = `种子 × 边权`。
+
+    窄门只有两条（`_STRUCT_EDGES`）: `akin`（**她自己认过的相似** —— 她写过
+    `{"noticed": …}` 指认的那条）与 `member_of` 的**同类兄弟**。⛔ `about` 不在内。
+
+    ⚠️ **为什么不作纯加成**: 结构一跳的全部意义就是"**带一条新的想起来**"; 若它不许准入,
+    扩展出来的邻居内容分是 0 ⇒ 永远进不了池 ⇒ 这个函数就只剩"给已在池里的改排序"。
+    用户 2026-10-08 裁: **容许窄门准入**（窄门的扩散有界 —— 真机 haruka 实测
+    `akin` 5 条 + `member_of` 6 条指向**同一个 6 条簇**, 21 条里的 29%）。
+
+    ⚠️ **与 `part_name` 去重**: 已经靠"名字"进来的节点不再吃结构加成（一条理由只算一次）。
+    """
+    if not ctx.reach:
+        return 0.0, ""
+    for eid in ctx.named:
+        if node.id in ctx.lanes.get(eid, ()):
+            return 0.0, ""
+    score, why = ctx.reach.get(getattr(node, "id", ""), (0.0, ""))
+    return (score, f"{why} {score:.2f}") if score > 0.0 else (0.0, "")
 
 
 def part_temporal(node, ctx: LikeCtx) -> tuple[float, str]:
@@ -212,18 +302,20 @@ def part_name(node, ctx: LikeCtx) -> tuple[float, str]:
 
 @dataclass(frozen=True)
 class Part:
-    """一个打分函数的登记项: 名 / 函数 / 权重 / **是不是内容类**。"""
+    """一个打分函数的登记项: 名 / 函数 / 权重 / **能不能单独准入**。"""
 
     name: str
     fn: Callable[[object, LikeCtx], tuple[float, str]]
     weight: float
-    #: 内容类 = **准入**靠它（零重合时不许让加成类凑分）; 见模块 docstring
-    content: bool = False
+    #: **准入类** = 能自己把人带进池（内容轴; 以及**窄门**结构 —— 见 `_STRUCT_EDGES`）;
+    #: 其余（时间 / 先验 / 名字）只加成。见模块 docstring 那条准入规则。
+    admits: bool = False
 
 
 #: ⭐ **打分函数表 = 唯一注册点**（新增一路只在这里加一行, `like()` 零改动）
 PARTS: tuple[Part, ...] = (
-    Part("lexical", part_lexical, 1.00, content=True),
+    Part("lexical", part_lexical, 1.00, admits=True),
+    Part("struct", part_struct, 0.35, admits=True),
     Part("temporal", part_temporal, 0.15),
     Part("prior", part_prior, 0.15),
     Part("name", part_name, 0.15),
@@ -267,7 +359,7 @@ def like(store, query: str, *, kinds: tuple[str, ...] = ("episode",),
             scores[p.name] = float(s)
             if note:
                 notes.append(note)
-            if p.content and s > 0.0:
+            if p.admits and s > 0.0:
                 admitted = True
         if not admitted:
             continue
@@ -328,4 +420,4 @@ def _knob(name: str, fallback: float) -> float:
 
 
 __all__ = ["LIKE_K", "PARTS", "TOTAL_WEIGHT", "LikeCtx", "Part", "build_ctx", "like",
-           "part_lexical", "part_name", "part_prior", "part_temporal"]
+           "part_lexical", "part_name", "part_prior", "part_struct", "part_temporal"]
