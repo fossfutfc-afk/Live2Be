@@ -57,26 +57,37 @@ def _one_line(text: object, cap: int = 40) -> str:
 
 
 def ledger_line(cands: Iterable[Candidate], *, query: str = "", pool: int = 0,
-                k: int = 0, note: str = "") -> str:
+                k: int = 0, spec: str = "", skip: Iterable[str] = (),
+                weights: dict | None = None, note: str = "") -> str:
     """一行召回台账（**只给日志/探针**, 不写盘、不给她看 —— 编号在这儿是允许的）。
 
     形如::
 
-        recall_like q=「老师，你今天有空吗」 pool=21 cand=3 k=3 top=m0014:0.754←tags[苔藓]; …
+        recall_like spec=turn q=「老师，你今天有空吗」 pool=21 cand=1 k=3 skip=struct(权重0) \
+top=m0014:0.520←tags[老师] · 2 周前 · 重要 0.85
 
     Args:
         cands: **截断前**的候选（已降序）—— `cand=` 由它的长度算,
             所以"够 k 条"和"只有 2 条"在台账里一眼能分。
-        pool: 参与打分的节点数（`kinds` 过滤之后）—— 与 `cand` 一起看才知道
+        pool: 参与打分的节点数（选面过滤之后）—— 与 `cand` 一起看才知道
             是"没料"还是"料都被筛掉了"。
+        spec: 档位名（哪个场景在问）。
+        skip: **没参与的路 + 为什么**（`名字(权重0)` / `名字(无emo_now)`）——
+            ⚠️ 这一格是"这次调用到底调了哪几路"的唯一线索, 别省。
+        weights: 调用方的一次性覆盖（只印出来的那几路, 便于复盘"这次为什么不同"）。
         note: 可选的附加说明（降级原因等）; 空则不出这一段。
     """
     items = list(cands)
     top = "; ".join(f"{getattr(c.node, 'id', '?')}:{c.score:.3f}"
                     + (f"←{c.why}" if c.why else "")
                     for c in items[:LEDGER_TOP]) or "-"
-    line = (f"recall_like q=「{_one_line(query)}」 pool={int(pool)} "
+    line = (f"recall_like{' spec=' + spec if spec else ''} "
+            f"q=「{_one_line(query)}」 pool={int(pool)} "
             f"cand={len(items)} k={int(k)} top={top}")
+    if skip:
+        line += f" skip={','.join(str(s) for s in skip)}"
+    if weights:
+        line += " w=" + ",".join(f"{n}{float(v):.2f}" for n, v in sorted(weights.items()))
     return line + (f" note={_one_line(note, 60)}" if note else "")
 
 

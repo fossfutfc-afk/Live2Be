@@ -19,8 +19,9 @@ from pathlib import Path
 import pytest
 
 from core.brain import WikiStoreV2, make_node
-from core.brain.read.like import (LikeCtx, build_ctx, like, part_lexical, part_name,
-                                  part_prior, part_struct, part_temporal)
+from core.brain.read.like import (EVIDENCE, PARTS, SPECS, Part, RecallCtx, Spec,
+                                  build_ctx, like, part_lexical, part_name, part_prior,
+                                  part_struct, part_temporal, plan)
 from core.brain.read.pack import Candidate, ledger_line
 
 #: 固定的"现在"（**现实日**轴; 与 `age_days` / `freshness` 同一套时区）
@@ -42,6 +43,23 @@ def _pin_knobs(monkeypatch):
 
 def _ts(days_ago: int) -> str:
     return (NOW - timedelta(days=days_ago)).isoformat(timespec="seconds")
+
+
+def _ctx(query: str = "", **kw) -> RecallCtx:
+    """输入契约（调用方那一侧）—— 只填输入字段, 派生料由 `build_ctx` 现算。"""
+    return RecallCtx(now=NOW, query=query, **kw)
+
+
+def _mat(st, query: str = "", **kw) -> RecallCtx:
+    """建料（= `like()` 内部那一步: 种子只从 `lexical` 出）。"""
+    return build_ctx(st, _ctx(query, **kw), seed_parts=["lexical"])
+
+
+def _like(st, query: str = "", *, spec: str = "turn", **kw):
+    return like(st, _ctx(query, **{k: v for k, v in kw.items()
+                                   if k in ("emo_now", "place_now", "aff_now")}),
+                spec=spec, **{k: v for k, v in kw.items()
+                              if k in ("k", "weights")})
 
 
 def _ep(nid, text, *, title="", tags=(), sig=0.5, ts="", emo=None):
@@ -91,29 +109,29 @@ def _cluster_store(tmp_path, *, class_title="和老师一起吃饭的那些日�
 
 def test_lexical_three_routes():
     """tags / 标题 / 正文覆盖 —— 三路取最大, 且 `why` 说得出是哪一路赢的。"""
-    ctx = LikeCtx(query="那盆苔藓长得怎么样了？")
+    ctx = _ctx("那盆苔藓长得怎么样了？")
     got = part_lexical(_ep("m0001", "瓦片缝里长出一小丛苔藓", tags=["苔藓"]), ctx)
     assert got == (0.60, "tags[苔藓]"), got                    # tags 基分
 
     multi = part_lexical(_ep("m0001", "x", tags=["苔藓", "杂草屋", "热茶"]),
-                         LikeCtx(query="苔藓和杂草屋，还有热茶"))
+                         _ctx("苔藓和杂草屋，还有热茶"))
     assert multi == (0.80, "tags[苔藓,杂草屋,热茶]"), multi     # 每多命中一个 +0.10
 
     titled = part_lexical(_ep("m0001", "x", title="瓦片缝里的苔藓"),
-                          LikeCtx(query="你还记得瓦片缝里的苔藓那件事吗"))
+                          _ctx("你还记得瓦片缝里的苔藓那件事吗"))
     assert titled == (0.85, "标题点名"), titled                 # 标题（剥壳后）整体在 query 里
 
     cov = part_lexical(_ep("m0001", "我把一小株苔藓分给了夏莱的果酱瓶"),
-                       LikeCtx(query="分给夏莱的一小株苔藓"))
+                       _ctx("分给夏莱的一小株苔藓"))
     assert cov[0] > 0.35 and cov[1].startswith("覆盖"), cov
 
-    assert part_lexical(_ep("m0001", "x", tags=["苔藓"]), LikeCtx(query="")) == (0.0, "")
+    assert part_lexical(_ep("m0001", "x", tags=["苔藓"]), _ctx("")) == (0.0, "")
 
 
 def test_marker_tags_are_not_search_words():
     """`#` 开头的是**标记空间**（`#entity:` / `#pinned`）, 不是检索词。"""
     node = _ep("m0001", "x", tags=["#entity:老师", "#pinned"])
-    assert part_lexical(node, LikeCtx(query="老师今晚有空吗")) == (0.0, "")
+    assert part_lexical(node, _ctx("老师今晚有空吗")) == (0.0, "")
 
 
 # ---------------------------------------------------------------------------
@@ -129,7 +147,7 @@ def test_like_works_without_any_backend(tmp_path):
         _ep("m0001", "瓦片缝里长出一小丛苔藓", title="瓦片缝里的苔藓", tags=["苔藓"]),
         _ep("m0002", "在甜品店吃了草莓蛋糕", title="甜品店", tags=["甜点"], sig=0.95),
     ])
-    out = like(st, "那盆苔藓长得怎么样了？", now=NOW)
+    out = _like(st, "那盆苔藓长得怎么样了？")
     assert [c.node.id for c in out] == ["m0001"], out
     assert out[0].score > 0
     assert "tags[苔藓]" in out[0].why
@@ -140,8 +158,8 @@ def test_like_works_without_any_backend(tmp_path):
 def test_like_returns_empty_when_nothing_matches(tmp_path):
     """宁缺勿错: 一条都不像 ⇒ **[]**（不拿"最近一条/最高 sig 那条"来凑）。"""
     st = _store(tmp_path, [_ep("m0001", "在甜品店吃了草莓蛋糕", tags=["甜点"], sig=0.95)])
-    assert like(st, "今天天气不错", now=NOW) == []
-    assert like(st, "", now=NOW) == []
+    assert _like(st, "今天天气不错") == []
+    assert _like(st, "") == []
 
 
 def test_sorted_by_score_and_ties_by_id(tmp_path):
@@ -151,8 +169,8 @@ def test_sorted_by_score_and_ties_by_id(tmp_path):
         _ep("m0001", "苔藓乙", tags=["苔藓"], ts=_ts(3)),       # 故意后加, 分与前一条相同
         _ep("m0003", "苔藓丙", tags=["苔藓"], ts=_ts(0)),        # 今天的 ⇒ 分最高
     ])
-    assert [c.node.id for c in like(st, "苔藓", now=NOW)] == ["m0003", "m0001", "m0002"]
-    assert [c.node.id for c in like(st, "苔藓", now=NOW)] == ["m0003", "m0001", "m0002"]
+    assert [c.node.id for c in _like(st, "苔藓")] == ["m0003", "m0001", "m0002"]
+    assert [c.node.id for c in _like(st, "苔藓")] == ["m0003", "m0001", "m0002"]
 
 
 # ---------------------------------------------------------------------------
@@ -161,12 +179,12 @@ def test_sorted_by_score_and_ties_by_id(tmp_path):
 
 def test_temporal_decay_and_floor_never_zero():
     """`freshness`: 今天 = 1.0; 很久以前 → **逼近 `floor`（0.25）而不是 0**。"""
-    assert part_temporal(_ep("m1", "x", ts=_ts(0)), LikeCtx(now=NOW))[0] == 1.0
-    old = part_temporal(_ep("m1", "x", ts=_ts(400)), LikeCtx(now=NOW))
+    assert part_temporal(_ep("m1", "x", ts=_ts(0)), RecallCtx(now=NOW))[0] == 1.0
+    old = part_temporal(_ep("m1", "x", ts=_ts(400)), RecallCtx(now=NOW))
     assert 0.0 < old[0] < 0.30, old
     assert abs(old[0] - 0.25) < 0.01, old                      # 80 个半衰期 ⇒ 就是 floor
     assert old[1].endswith("前")                                # 一句话是她的口吻（虚化短语）
-    missing = part_temporal(_ep("m1", "x"), LikeCtx(now=NOW))
+    missing = part_temporal(_ep("m1", "x"), RecallCtx(now=NOW))
     assert missing == (0.0, "无 ts")                            # 缺 ts **不出分**, 不折成"刚发生"
 
 
@@ -175,7 +193,7 @@ def test_newer_wins_when_content_is_equal(tmp_path):
         _ep("m0001", "苔藓甲", tags=["苔藓"], ts=_ts(30)),
         _ep("m0002", "苔藓乙", tags=["苔藓"], ts=_ts(0)),
     ])
-    assert [c.node.id for c in like(st, "苔藓", now=NOW)] == ["m0002", "m0001"]
+    assert [c.node.id for c in _like(st, "苔藓")] == ["m0002", "m0001"]
 
 
 # ---------------------------------------------------------------------------
@@ -184,7 +202,7 @@ def test_newer_wins_when_content_is_equal(tmp_path):
 
 def test_struct_reaches_akin_and_class_siblings(tmp_path):
     """窄门就两条: `akin`（她认过的相似, 1.0）与 `member_of` 的**同类兄弟**（0.8）。"""
-    ctx = build_ctx(_cluster_store(tmp_path), query="团子", now=NOW)
+    ctx = _mat(_cluster_store(tmp_path), "团子")
     assert ctx.seeds == {"m0001": 0.60}, ctx.seeds
     assert ctx.reach["m0002"] == (0.60, "认过的相似"), ctx.reach
     assert ctx.reach["m0003"] == (0.48, "同类兄弟"), ctx.reach
@@ -193,32 +211,32 @@ def test_struct_reaches_akin_and_class_siblings(tmp_path):
 def test_a_seed_gets_no_struct_bonus(tmp_path):
     """⭐ 种子不吃结构分（同一个理由不重复计）—— 类自己命中时也只当种子。"""
     st = _cluster_store(tmp_path, class_title="和老师吃饭送团子")   # 类名带"团子" ⇒ 它也命中
-    ctx = build_ctx(st, query="团子", now=NOW)
+    ctx = _mat(st, "团子")
     assert set(ctx.seeds) == {"g0001", "m0001"}, ctx.seeds          # 类也可以是内容命中
     assert "g0001" not in ctx.reach and "m0001" not in ctx.reach    # 但种子不当"被够到的人"
     assert ctx.reach["m0003"] == (0.80, "同类兄弟")                  # 由类的 1.00 够到
-    assert "g0001" not in {c.node.id for c in like(st, "团子", now=NOW)}   # 类不进结果（选面）
+    assert "g0001" not in {c.node.id for c in _like(st, "团子")}   # 类不进结果（选面）
 
 
 def test_struct_does_not_expand_about_nor_two_hops(tmp_path):
     """⛔ 不扩 `about`（归属≠相似）、⛔ 不传递闭包、⛔ 不许把别的选面摆出来。"""
     st = _cluster_store(tmp_path)
-    ctx = build_ctx(st, query="团子", now=NOW)
+    ctx = _mat(st, "团子")
     assert "m0004" not in ctx.reach            # 两跳（邻居的邻居）
     assert "m0005" not in ctx.reach            # 与种子**共一个对象**（`about` 刻意不在窄门里）
     assert "x0001" not in ctx.reach            # 对象本身也不该被结构够到（`about` 不在门里）
     # 类会被够到（"一类的兄弟"就是从它那儿数的）, 但**选面**把它挡在打分之外
-    assert [c.node.id for c in like(st, "团子", now=NOW)] == ["m0001", "m0002", "m0003"]
+    assert [c.node.id for c in _like(st, "团子")] == ["m0001", "m0002", "m0003"]
 
 
 def test_struct_never_exceeds_its_seed_and_seed_outranks_it(tmp_path):
     """不变量: **结构分 ≤ 它的种子**; 排序上种子也在它前面。"""
     st = _cluster_store(tmp_path)
-    ctx = build_ctx(st, query="团子", now=NOW)
+    ctx = _mat(st, "团子")
     seed_lex = part_lexical(st.get("m0001"), ctx)[0]
     assert part_struct(st.get("m0002"), ctx)[0] <= seed_lex
     assert part_struct(st.get("m0003"), ctx)[0] <= seed_lex
-    out = like(st, "团子", now=NOW)
+    out = _like(st, "团子")
     assert [c.node.id for c in out] == ["m0001", "m0002", "m0003"], out
     assert out[0].why.startswith("tags[团子]")
     assert out[1].why.startswith("认过的相似 0.60")
@@ -228,17 +246,17 @@ def test_struct_never_exceeds_its_seed_and_seed_outranks_it(tmp_path):
 def test_struct_admits_through_the_narrow_gate(tmp_path):
     """⭐ 窄门**能带新节点进来**（它们自己的内容分是 0）—— 这正是结构一跳的意义。"""
     st = _cluster_store(tmp_path)
-    ctx = build_ctx(st, query="团子", now=NOW)
+    ctx = _mat(st, "团子")
     for nid in ("m0002", "m0003"):
         assert part_lexical(st.get(nid), ctx)[0] == 0.0     # 内容: 零
         assert part_struct(st.get(nid), ctx)[0] > 0.0       # 结构: 有 ⇒ 准入过
-    assert {c.node.id for c in like(st, "团子", now=NOW)} == {"m0001", "m0002", "m0003"}
+    assert {c.node.id for c in _like(st, "团子")} == {"m0001", "m0002", "m0003"}
 
 
 def test_struct_does_not_double_count_the_name_lane(tmp_path):
     """一条理由只算一次: 已经靠"名字"进来的节点, 结构不再给分。"""
     st = _cluster_store(tmp_path)
-    ctx = build_ctx(st, query="杂草屋的团子", now=NOW)
+    ctx = _mat(st, "杂草屋的团子")
     assert part_name(st.get("m0002"), ctx)[0] == 1.0        # 名字那条还写着（m0002 在车道上）
     assert part_struct(st.get("m0002"), ctx) == (0.0, "")   # 结构不再重复给
 
@@ -256,12 +274,12 @@ def test_admission_needs_content_evidence(tmp_path):
     node = _ep("m0001", "和老师在杂草屋说了很久的话", title="杂草屋的下午",
                tags=["杂草屋"], sig=0.95, ts=_ts(0))
     st = _store(tmp_path, [node], edges=[("about", "m0001", "x0000")])
-    ctx = build_ctx(st, query="老师，你今天有空吗？", now=NOW)   # 走真路建料（车道在里面）
+    ctx = _mat(st, "老师，你今天有空吗？")   # 走真路建料（车道在里面）
     assert part_lexical(node, ctx)[0] == 0.0                   # 内容轴: 零
     assert part_temporal(node, ctx)[0] == 1.0                  # 时间: 满
     assert part_prior(node, ctx)[0] >= 0.9                     # 先验: 满
     assert part_name(node, ctx) == (1.0, "名字[老师]")          # 名字: 满（老师车道）
-    assert like(st, "老师，你今天有空吗？", now=NOW) == []       # ⇒ 仍然一条都不摆
+    assert _like(st, "老师，你今天有空吗？") == []       # ⇒ 仍然一条都不摆
 
 
 def test_name_hit_is_a_bonus_not_an_admission(tmp_path):
@@ -272,11 +290,11 @@ def test_name_hit_is_a_bonus_not_an_admission(tmp_path):
         # m0003 也在「杂草屋」车道上, 但**正文里没有那三个字** ⇒ 名字单独救不了它
         _ep("m0003", "那次我们一起走夜路回家", title="夜路", tags=["夜路"]),
     ], edges=[("about", "m0002", "x0001"), ("about", "m0003", "x0001")])
-    out = like(st, "今晚的月亮真好看（杂草屋）", now=NOW)
+    out = _like(st, "今晚的月亮真好看（杂草屋）")
     assert [c.node.id for c in out] == ["m0002", "m0001"], out  # 内容分相同 ⇒ 名字加成决胜
     assert "名字[杂草屋]" in out[0].why
     # 名字单独**不能**让人进池（m0002 是靠正文里的"杂草屋"三个字进来的, 不是靠车道）
-    assert "m0003" not in [c.node.id for c in like(st, "杂草屋", now=NOW)]
+    assert "m0003" not in [c.node.id for c in _like(st, "杂草屋")]
 
 
 def test_prior_is_just_significance(tmp_path):
@@ -288,10 +306,10 @@ def test_prior_is_just_significance(tmp_path):
     base = _ep("m0001", "x", sig=0.85)
     fresh = _ep("m0002", "x", sig=0.85, ts=_ts(0), emo=(1.0, 1.0))     # 今天 + 情绪拉满
     old = _ep("m0003", "x", sig=0.85, ts=_ts(400), emo=(0.1, 0.1))     # 去年 + 情绪接近零
-    assert part_prior(base, LikeCtx(now=NOW)) == (0.85, "重要 0.85")
-    assert part_prior(fresh, LikeCtx(now=NOW))[0] == 0.85              # `ts` 不影响它
-    assert part_prior(old, LikeCtx(now=NOW))[0] == 0.85                # 情绪不影响它
-    assert part_prior(fresh, LikeCtx(now=NOW))[0] <= 1.0               # 不用夹（sig 本来就 ≤1）
+    assert part_prior(base, RecallCtx(now=NOW)) == (0.85, "重要 0.85")
+    assert part_prior(fresh, RecallCtx(now=NOW))[0] == 0.85              # `ts` 不影响它
+    assert part_prior(old, RecallCtx(now=NOW))[0] == 0.85                # 情绪不影响它
+    assert part_prior(fresh, RecallCtx(now=NOW))[0] <= 1.0               # 不用夹（sig 本来就 ≤1）
 
 
 def test_bonus_cannot_outrank_a_clear_content_gap(tmp_path):
@@ -300,15 +318,14 @@ def test_bonus_cannot_outrank_a_clear_content_gap(tmp_path):
     组里两条都**真的进了池**: A 靠标题（0.85 起）+ 覆盖率 1.00 ⇒ 内容满分、加成零;
     B 靠覆盖率 0.375（刚过线）⇒ 内容最低、加成拉满（今天 + sig 1.0 + 情绪 0.5 + 名字命中）。
     """
-    from core.brain.read.like import PARTS, TOTAL_WEIGHT
-    admit_total = sum(p.weight for p in PARTS if p.admits)
-    bonus_total = sum(p.weight for p in PARTS if not p.admits)
-    assert TOTAL_WEIGHT == admit_total + bonus_total
-    assert bonus_total < admit_total, (bonus_total, admit_total)   # 加成永远是少数派
-    assert (max(p.weight for p in PARTS if not p.admits)
-            < min(p.weight for p in PARTS if p.admits))            # 且单条也不及最小的准入门
-    assert (max(p.weight for p in PARTS if not p.admits) * len(PARTS)
-            < max(p.weight for p in PARTS if p.admits))
+    pl = plan("turn")                                              # 这次真调的清单
+    weights = [w for _n, _p, w in pl]
+    admit = [w for _n, p, w in pl if p.axis == EVIDENCE]
+    bonus = [w for _n, p, w in pl if p.axis != EVIDENCE]
+    assert sum(weights) == sum(admit) + sum(bonus)
+    assert sum(bonus) < sum(admit), (sum(bonus), sum(admit))       # 加成永远是少数派
+    assert max(bonus) < min(admit)                                 # 且单条也不及最小的准入门
+    assert max(bonus) * len(pl) < max(admit)
 
     q = "苔藓月亮团子中秋月饼甜点杂草屋里的热茶"                      # 19 字 ⇒ 18 个 2-gram
     body = "苔藓月亮团子中秋"                                        # 8 字 ⇒ 7 个都在 q 里
@@ -316,13 +333,90 @@ def test_bonus_cannot_outrank_a_clear_content_gap(tmp_path):
         _ep("m0001", "x", title=q),                                # 加成零: 无 ts、不在车道上
         _ep("m0002", body, sig=1.0, ts=_ts(0), emo=(1.0, 0.5)),    # 加成拉满
     ], edges=[("about", "m0002", "x0001")])
-    ctx = build_ctx(st, query=q, now=NOW)
+    ctx = _mat(st, q)
     node_b = st.get("m0002")
     got = part_lexical(node_b, ctx)                                # 用例把 B 钉在"刚过线"那一档
     assert got[1] == "覆盖 0.39" and 0.35 < got[0] < 0.40, (q, body, got)
     assert part_name(node_b, ctx)[0] == 1.0 and part_temporal(node_b, ctx)[0] == 1.0
-    out = like(st, q, now=NOW)
+    out = _like(st, q)
     assert [c.node.id for c in out] == ["m0001", "m0002"], out
+
+
+# ---------------------------------------------------------------------------
+# ⑥ 三张表的形状（注册表 / 档位 / 输入契约）—— 这一笔的"语义守门"
+# ---------------------------------------------------------------------------
+
+def test_every_spec_row_points_at_a_registered_part():
+    """档位里写的路名必须真在注册表里（表写错了当场炸, 不许静默少一路）。"""
+    for spec_name, sp in SPECS.items():
+        for name, w in sp.parts:
+            assert name in PARTS, (spec_name, name)
+            assert isinstance(w, (int, float)) and w >= 0.0, (spec_name, name, w)
+        assert sp.kinds, spec_name
+
+
+def test_every_spec_has_at_least_one_admitting_part():
+    """每个档位至少要有一条**证据轴**有权重 —— 否则该档恒返空（准入过不去）。"""
+    for spec_name, sp in SPECS.items():
+        assert any(PARTS[n].axis == EVIDENCE and w > 0 for n, w in sp.parts), spec_name
+
+
+def test_part_needs_must_exist_on_the_contract():
+    """`needs` 里写的字段必须在 `RecallCtx` 上真存在（防拼错 ⇒ 那一路静默永不参与）。"""
+    fields = set(RecallCtx.__dataclass_fields__)
+    for name, part in PARTS.items():
+        for need in part.needs:
+            assert need in fields, (name, need, sorted(fields))
+
+
+def test_plan_rejects_unknown_names_and_adds_no_parts():
+    """覆盖只能**改本档已有那几路的权重**, 不能靠覆盖加一路（档位决定调哪几路）。"""
+    with pytest.raises(KeyError):
+        plan("turn", {"emotion": 0.5})                  # 本档没有这一路
+    with pytest.raises(KeyError):
+        plan("nosuch")
+    with pytest.raises(KeyError):
+        plan("turn", {"lexcial": 0.0})                  # 拼错
+    assert [n for n, _p, _w in plan("turn", {"struct": 0.0})] == \
+           [n for n, _p, _w in plan("turn")]            # 只改权重, 不增不减
+
+
+def test_weight_zero_drops_the_part_entirely(tmp_path):
+    """⭐ `0` = 这一路**完全不参与**（连准入也不算）; 且内容路关掉 ⇒ 结构也没了种子。
+
+    ⚠️ 最后那条是**消融的正确性**: 种子只从 `Part.seeds` 为真的路（= `lexical`）出,
+    所以"关掉字面证据"时结构路不会偷偷吃着字面证据 —— 否则那个消融是假的。
+    """
+    st = _cluster_store(tmp_path)
+    # 关掉结构 ⇒ 只剩内容种子自己（邻居不再被带进来）
+    assert [c.node.id for c in _like(st, "团子", weights={"struct": 0.0})] == ["m0001"]
+    # 关掉内容 ⇒ 没有种子 ⇒ 结构无从扩散 ⇒ **没有东西能准入**
+    assert _like(st, "团子", weights={"lexical": 0.0}) == []
+    # 两路准入都关 ⇒ 同样空（不是"全池都进"）
+    assert _like(st, "团子", weights={"lexical": 0.0, "struct": 0.0}) == []
+
+
+def test_missing_input_drops_the_part_and_says_so(tmp_path, caplog):
+    """`needs` 缺输入 ⇒ 那一路自动不参与 + 台账记 `skip=`（不靠人记得配 0）。"""
+    st = _cluster_store(tmp_path)
+    SPECS["_probe"] = Spec(kinds=("episode",), parts=(("lexical", 1.0), ("name", 0.15)))
+    try:
+        with caplog.at_level("INFO", logger="core.brain.read.like"):
+            out = like(st, _ctx(""), spec="_probe")       # query 空 ⇒ 两路都缺输入
+        line = [r.getMessage() for r in caplog.records if "recall_like" in r.getMessage()][0]
+        assert "skip=lexical(无query),name(无query)" in line, line
+        assert out == []                                  # 唯一证据路被跳过 ⇒ 没有准入
+    finally:
+        SPECS.pop("_probe", None)
+
+
+def test_ledger_prints_spec_skip_and_overrides(tmp_path, caplog):
+    """台账要能复盘"这次为什么不同": 档位 · 没参与的路 · 一次性覆盖。"""
+    st = _cluster_store(tmp_path)
+    with caplog.at_level("INFO", logger="core.brain.read.like"):
+        _like(st, "团子", weights={"struct": 0.0})
+    line = [r.getMessage() for r in caplog.records if "recall_like" in r.getMessage()][0]
+    assert "spec=turn" in line and "skip=struct(权重0)" in line and "w=struct0.00" in line
 
 
 # ---------------------------------------------------------------------------
@@ -380,7 +474,7 @@ def test_ledger_line_shape():
 def test_like_writes_the_ledger_line(tmp_path, caplog):
     st = _store(tmp_path, [_ep("m0001", "苔藓", tags=["苔藓"], ts=_ts(0))])
     with caplog.at_level("INFO", logger="core.brain.read.like"):
-        like(st, "苔藓", now=NOW)
+        _like(st, "苔藓")
     hits = [r.getMessage() for r in caplog.records if "recall_like" in r.getMessage()]
     assert len(hits) == 1, hits
     assert "pool=1" in hits[0] and "cand=1" in hits[0] and "top=m0001" in hits[0]
