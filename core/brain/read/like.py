@@ -12,8 +12,12 @@
 | `part_lexical` | **准入**（内容轴） | tags / 标题 / 正文覆盖 **取最大** | `tags[苔藓]` · `标题点名` · `覆盖 0.62` |
 | `part_struct` | **准入**（⚠️ 窄门） | 种子的内容分 × 边权（≤ 种子） | `认过的相似 0.60` · `同类兄弟 0.48` |
 | `part_temporal` | 加成 | `freshness(age)` ∈ **[floor, 1]** | `今天` · `12 天前` |
-| `part_prior` | 加成 | `min(sig·TIME + emo_span·emo_int, 1)` | `sig .85+情绪 .16` |
+| `part_prior` | 加成 | `node.significance`（**就是它一个**，2026-10-08 从 `det` 拆干净） | `重要 0.85` |
 | `part_name` | 加成 | 0 / 1（query 点到某个对象名） | `名字[杂草屋]` |
+
+⚠️ **四个"角度"两两不同源**（`fuse.py` 那条纪律）: 像不像（字面）· 是不是同一件事的邻居（结构）·
+多近（`ts` → 曲线）· 多重（L1 打的 `sig`）。⛔ **时间只算一次**、**重要性只算一次** ——
+`det = SIG·TIME + emo_span·emo_int` 那格把两者各算了两遍，2026-10-08 已拆（见 `part_prior`）。
 
 一句话由**函数自己**写（它算的时候就知道自己走的是哪一路）; `like()` 只按固定顺序拼。
 ⛔ **绝不事后重算** —— 重算就是第二个真源（`recall._keyword_candidates` 踩过）。
@@ -256,29 +260,34 @@ def part_temporal(node, ctx: LikeCtx) -> tuple[float, str]:
 
 
 def part_prior(node, ctx: LikeCtx) -> tuple[float, str]:
-    """**先验轴**: **这件事本身重不重要** —— `min(sig·TIME + emo_span·emo_int, 1)`。
+    """**先验轴**: **这件事本身多重** —— 就一个参量: `node.significance`（0~1, 不用夹）。
 
-    * `sig` = `node.significance`; `emo_span`/`emo_int` = 那件事的情绪跨度与强度
-      （缺一格 ⇒ 第二行整行为 0, 也就是退化成 `sig·TIME`）。
-    * **夹到 1**: 真档实测 `det` 值域 **0.292 ~ 1.45**（5 条 >1）—— 不夹的话同一权重下
-      先验的实际话语权会大到 1.45 倍。⚠️ 这不推翻用户 2026-09-20 那条「`det` 不归一」
-      （*"这个矩阵携带的信息本身就比较重很合理"*）: 那条管的是 `compose` 的**乘性轴**,
-      这里它是"最多算满一份"的**加成分**。
+    ## ⚠️ 2026-10-08: 从 `det` 退化成 `sig`（用户裁 + 实测）
 
-    ⚠️ **TIME 与 `part_temporal` 同源**（两处都取 `freshness`）⇒ 时间在最终分里进了两次:
-    一次独立、一次乘在 `sig` 上。这是照 `compose` 的 A 链路 `det` 的形状（2026-10-08 批的
-    就是这一版）; 若要让"老而重要"的记忆更抗老, 可把 TIME 格去掉（`prior = sig + emo`）
-    —— 那正是 `time_freshness_floor` 当初加进来要保护的东西（见 `age.py::freshness`）。
+    原形是 `compose` 的 A 链路那格 `det = SIG·TIME + emo_span·emo_int`; 这里**两处都拆掉**,
+    理由是两条实测（真档 haruka 21 条）:
+
+    1. **TIME 与 `part_temporal` 同源** ⇒ 时间在最终分里进两次（一次独立、一次乘在 `sig` 上）。
+       那一句实测: 从"今天"到"11 天前"的 recency 优势共 0.091 分, 其中 **0.042（46%）
+       来自这一格** —— 且它与权重那一路不同源 ⇒ "高 sig 的新事"被推两次。
+    2. **`emo_span·emo_int` 与 `sig` 高度相关** ⇒ 留着等于**同一个 L1 判断数两次**:
+       `pearson(sig, span·int) = **0.879**`; `span` 与 `int` 自身平均只差 0.063;
+       按 `sig` 排 vs 按 `det` 排**前 8 名 8/8 重合**（只有内部次序不同）。
+       而 `span·int` 的副作用是把 5/21 条顶到 >1 ⇒ 夹完**并列**（丢序）。
+
+    拆完: 强度轴与时间轴**正交**（`fuse.py` 那条"两轴必须不同源"）, 老记忆的"不衰减"由
+    `sig` 自己承担（它恒定不随时衰减）, recency 只由 `part_temporal` 一份表达。
+
+    ## ⚠️ 连带后果（要记账）
+
+    这一改之后 **`emo_span` / `emo_int` 没有活着的读者了** —— 全仓唯一读者是**待删的**
+    `channel_impl.IntensityPrior`（`compose` 那一族, 零生产调用）, 而 digest 的 L1 每段照写。
+    ⇒ 两条路: ①承认它是给将来的情绪通道留的料（⚠️ 但 B 链路 `EmotionRag` 用的是
+    `emo_shape` 情绪**键序列**, 不是这两个数）; ②从契约里退掉（digest 那边的改动, 独立一笔）。
+    **先记账, 不在这一笔里动。**
     """
-    age = _age(node, ctx)
-    if age is None:
-        return 0.0, "先验无 ts"
     sig = float(getattr(node, "significance", 0.0) or 0.0)
-    span = float(getattr(node, "emo_span", 0.0) or 0.0)
-    emo_i = float(getattr(node, "emo_int", 0.0) or 0.0)
-    emo = span * emo_i
-    det = sig * _freshness(age) + emo
-    return min(det, 1.0), f"sig {sig:.2f}" + (f"+情绪 {emo:.2f}" if emo else "")
+    return sig, f"重要 {sig:.2f}"
 
 
 def part_name(node, ctx: LikeCtx) -> tuple[float, str]:

@@ -279,12 +279,19 @@ def test_name_hit_is_a_bonus_not_an_admission(tmp_path):
     assert "m0003" not in [c.node.id for c in like(st, "杂草屋", now=NOW)]
 
 
-def test_prior_is_clamped_to_one(tmp_path):
-    """先验**夹到 1**: 真档 det 跨 0.29~1.45 ⇒ 不夹的话同一权重下它的话语权会放大 1.45 倍。"""
-    node = _ep("m0001", "x", sig=1.0, ts=_ts(0), emo=(1.0, 0.5))   # det = 1.0·1.0 + 0.5 = 1.5
-    assert part_prior(node, LikeCtx(now=NOW))[0] == 1.0
-    weak = _ep("m0002", "x", sig=0.5, ts=_ts(0))                   # det = 0.5
-    assert part_prior(weak, LikeCtx(now=NOW))[0] == 0.5
+def test_prior_is_just_significance(tmp_path):
+    """先验轴 = **一个参量**（`sig`）: 不带时间、不带情绪（2026-10-08 从 `det` 拆干净）。
+
+    真档依据: `pearson(sig, span·int) = 0.879`、`span` 与 `int` 平均只差 0.063、
+    按 `sig` 排 vs 按 `det` 排前 8 名 8/8 重合 ⇒ 留着那两项就是同一个 L1 判断数两次。
+    """
+    base = _ep("m0001", "x", sig=0.85)
+    fresh = _ep("m0002", "x", sig=0.85, ts=_ts(0), emo=(1.0, 1.0))     # 今天 + 情绪拉满
+    old = _ep("m0003", "x", sig=0.85, ts=_ts(400), emo=(0.1, 0.1))     # 去年 + 情绪接近零
+    assert part_prior(base, LikeCtx(now=NOW)) == (0.85, "重要 0.85")
+    assert part_prior(fresh, LikeCtx(now=NOW))[0] == 0.85              # `ts` 不影响它
+    assert part_prior(old, LikeCtx(now=NOW))[0] == 0.85                # 情绪不影响它
+    assert part_prior(fresh, LikeCtx(now=NOW))[0] <= 1.0               # 不用夹（sig 本来就 ≤1）
 
 
 def test_bonus_cannot_outrank_a_clear_content_gap(tmp_path):
