@@ -67,13 +67,19 @@ def test_no_threshold_knobs_left():
     它们是 `cand_k` 那一类（"取几条"）——`turn_budget` 是**装填停止条件**
     （按字符累计到预算就少摆一条）, 一条已经命中的 episode **不会**因为分数低
     被它丢掉（"准入"这件事在这一层根本不存在: 命中即摆, 只是摆不下几条）。
+
+    ⚠️ **`like_k`（2026-10-08 新增）也不是阈值**: 它是 `like()` 的签名缺省（"取几条"）。
+    `like` 里那条**准入**（内容轴 > 0）是**代码规则不是旋钮** —— 配置面只留"取几条"
+    与"半衰期/下界"。
     """
     from core.brain.read import recall as R
+    from core.brain.read import like as L
     snap = rc.snapshot()
-    assert set(snap) == {"cand_k", "sim_k", "turn_k", "turn_budget",
+    assert set(snap) == {"cand_k", "sim_k", "like_k", "turn_k", "turn_budget",
                          "time_half_life_days", "time_freshness_floor"}, snap
     assert snap["cand_k"] == float(R.CAND_K) == 3.0
     assert snap["turn_k"] == float(R.TURN_K) == 2.0
+    assert snap["like_k"] == float(L.LIKE_K) == 3.0
     for gone in ("cand_high", "cand_med", "accept_hit_rate"):
         assert gone not in snap
         assert not hasattr(R, gone.upper())
@@ -82,7 +88,7 @@ def test_no_threshold_knobs_left():
             raise AssertionError(f"{gone} 仍可读——没删干净")
         except KeyError:
             pass                              # 未知键 → KeyError（防拼错静默走默认）
-    print("    旋钮: cand_k/sim_k/turn_k/turn_budget/time_half_life_days/"
+    print("    旋钮: cand_k/sim_k/like_k/turn_k/turn_budget/time_half_life_days/"
           "time_freshness_floor（三个阈值已删）")
 
 
