@@ -21,8 +21,8 @@ from datetime import datetime
 from typing import Any
 
 from core.brain import notes as note_ops
-from core.brain.entities import (SELF_ID, SENSEI_ID, normalize_entity_tags,
-                                 surface_forms)
+from core.brain.entities import (SELF_ID, SENSEI_ID, find_entity,
+                                 normalize_entity_tags, surface_forms)
 from core.brain.evolution import EvolutionLog
 from core.brain.graph import (
     REL_ABOUT,
@@ -189,9 +189,6 @@ def _create_belief(store: WikiStoreV2, row: dict, *, ts: str, log: EvolutionLog,
                      significance=row.get("significance", 0.5),
                      tags=list(row.get("tags", []) or []),
                      ts=ts, event_seq=list(event_seq or []))
-    # ⭐ E2: `#entity:` → 归一（能解析的换成主名）+ 记下要落边的对象
-    node.tags, ent_targets, ent_strangers = normalize_entity_tags(store, node.tags)
-    res.strangers.extend(ent_strangers)
     dup = _find_duplicate(store, node)
     if dup is not None:
         res.reused.append(dup.id)
@@ -199,11 +196,9 @@ def _create_belief(store: WikiStoreV2, row: dict, *, ts: str, log: EvolutionLog,
                     dup.id)
         return dup.id
     nid = store.add(node)
-    # ⭐ E2: 边由**引擎从 tag 派生**（零 LLM）—— 与 `episodes._link_about` 同一个口径:
-    # `ts` = 这条看法出生的时刻; 幂等靠 `add_edge`; 悬空的两端根本到不了这里。
-    # ⚠️ 不 import `episodes._link_about`（那是 `core/digest`, 方向反了 —— brain 是下层）。
-    for eid in ent_targets:
-        store.add_edge(REL_ABOUT, nid, eid, ts=ts)
+    # ⭐ 边由**引擎从 tag 派生**（零 LLM）—— `link_entity_tags` 是唯一实现
+    _targets, strangers = link_entity_tags(store, nid, ts=ts)
+    res.strangers.extend(strangers)
     res.created.append(nid)
     log.append({"pkg": "digest", "action": "create", "id": nid,
                 "text": node.text, "ts": ts})
@@ -378,220 +373,91 @@ def _ensure_cognition(store: WikiStoreV2, nid: str | None) -> None:
 # 第 3 轮: 归属 + entity 维护（D2b —— DESIGN_GRAPH_V4 §8 第 3 轮）
 # ---------------------------------------------------------------------------
 
-def apply_attribution(
-    store: WikiStoreV2,
-    rows: list[dict],
-    *,
-    id_map: dict[str, str],
-    local_of: dict[str, str],
-    log: EvolutionLog | None = None,
-    ts: str | None = None,
-    event_seq: list[int] | None = None,
-) -> list[str]:
-    """执行第 3 轮决策表（归属 + entity 维护）—— 返回**本次新建的 entity id**。
+def apply_entities(store: WikiStoreV2, rows: list[dict], *, ts: str = "",
+                   event_seq: list[int] | None = None,
+                   log: EvolutionLog | None = None) -> list[str]:
+    """R3（`attribute`）的执行器 —— ⭐ **只认人**（E4, 2026-10-08）。
 
-    三种行（形状见 §8 第 3 轮; 产出它的契约层 = D3）:
+    把"**她还不认识的名字**"建成 `entity` 节点。⛔ **不写正文、不连边**:
+      · 归属边（`about`）由**引擎**从节点 `tags` 里的 `#entity:` 派生 —— 这一轮**建完对象
+        之后回头补边**（`link_entity_tags`, 同一段内闭合）;
+      · entity 的"印象 / 现状"归 **belief** ⇒ 这里一个字都不写（判据见 `DESIGN_ENTITY_TAGS §6.1`）。
 
-        {"action": "attach",     "entity": "c0001", "hint": "老师", "nodes": ["u0001"]}
-        {"action": "new_entity", "name": "小玉", "aliases": ["tama"],
-                                 "reason": "…", "nodes": ["u0002"]}
-        {"action": "rewrite",    "entity": "c0001", "text": "…", "state": ["…"]}
+    ⚠️ **准入门槛**（旧口径原样保留）: `name` 必填 · **`reason` 必填**（建对象是**永久成本**:
+    此后每一轮的候选表里都有它）· **重名不重复建**（名字或别名对得上既有对象 ⇒ 跳过 + 留痕）。
+    ⚠️ **保留号防撞**: `self` / `sensei` 不在 ⇒ **跳过全部** —— `next_id("x")` 会发出 `x0001`,
+    那是 sensei 的保留号（谁先建谁占坑）。
+    ⚠️ **不吞错**: 能走到这里说明契约层已经挡过形状问题 ⇒ 剩下的异常都是真 bug（照 `_rewrite` 的口径抛）。
 
-    分工与纪律:
-        · `attach`  = 归属的**唯一落地形式**（写 `about` 边）—— **有边 = 归好了,
-          没边 = 没归**（§2: `about_state` 三态已退回未定, 判不出就别建边, 也不追踪）。
-        · `hint`    = **顺手写回别名**（§3.0: 模型既然判定了"hint 就是这个人",
-          写进去是零额外成本 —— 而不是专门造一条别名维护路径）。
-        · `rewrite` = **entity 载荷的唯一入口**（§8.1: 写者唯一 = 第 3 轮）。
-        · `reason`  = `new_entity` 的**准入门槛**（§3.0: 必须给一句理由）, 空 → 拒。
-        · `nodes`  = 这一行要归属的**节点**（本地 id, 同 Round B 的 `u0001`）。新对象
-          的正文写在它自己的行里（`new_entity` 没有本地 id 可被 `attach` 引用）。
-
-    Args:
-        id_map: 本地节点 id → 真实节点 id（Round B 同款; 引擎防 LLM 猜真实 id）
-        local_of: 真实 entity id → 本地 entity id（`entities.candidate_table` 那一份,
-            **必须是同一份** —— 换一份就等于换了对象）
-        ts/event_seq: 引擎字段（digest 上下文; 新 entity 用）
-
-    ⚠️ **行级违约一律抛**（引用不在候选表里的 entity / 不可归属的 kind / 缺 name /
-    缺 reason）—— 与 `apply_decisions` 同款: 编排层有快照, 整包回滚（宁缺勿错）。
-    ⚠️ **保留号防撞**（`_entities_ready`）: `self`/`sensei` 不在 → **跳过全部
-    `new_entity`** 并打 WARNING（归属与载荷照做）。理由: 空表时 `next_id("x")` 发出的是
-    **x0001** —— sensei 的保留号, 谁先建谁占坑（见 `entities.ensure_entities`）。
-    ⚠️ `rewrite` 的**空值 = 保留**（同 `apply_decisions` 的 patch 口径）: 今天没有
-    "删掉一条 state"的机制（"谁判它过期" = §9-4 未定）⇒ 想删得整段重写。
+    Returns: **真新建**的 entity id（重名跳过的**不算**）。
     """
     log = log or EvolutionLog.for_store(store)
     ts = ts or datetime.now().isoformat(timespec="seconds")
-    event_seq = list(event_seq or [])
-    by_local = {v: k for k, v in local_of.items()}       # 本地 entity id → 真实 id
-    ready = _entities_ready(store)
-    created: list[str] = []
-
+    out: list[str] = []
+    if not _entities_ready(store):
+        logger.warning("apply_entities 跳过: self/sensei 保留号不在 —— "
+                       "next_id('x') 会撞上保留号（先跑 ensure_entities）")
+        return out
     for i, row in enumerate(rows):
-        if not isinstance(row, dict):
-            raise ValueError(err("BadRow", f"attributions[{i}] 必须是对象"))
-        action = str(row.get("action", "")).strip()
-        if action == "attach":
-            ent = _resolve_entity(store, row, i, by_local)
-            n = _attach_nodes(store, row, i, id_map=id_map, entity_id=ent, ts=ts)
-            log.append({"pkg": "digest", "action": "attach", "entity": ent,
-                        "nodes": n, "alias": _write_alias(store, ent, row.get("hint")),
-                        "ts": ts})
-        elif action == "new_entity":
-            ent = _new_entity(store, row, i, ready=ready, log=log, ts=ts,
-                              event_seq=event_seq, created=created)
-            if ent is None:                               # 保留号没就位 → 跳过（已告警）
-                continue
-            _attach_nodes(store, row, i, id_map=id_map, entity_id=ent, ts=ts)
-        elif action == "rewrite":
-            _rewrite(store, row, i, by_local, log=log, ts=ts)
-        else:
-            raise ValueError(err("BadAction", f"attributions[{i}] 未知动作: {action!r}"))
-    return created
+        name = str(row.get("name", "")).strip()
+        if not name:
+            raise ValueError(err("BadName", f"entities[{i}] 缺 name"))
+        reason = str(row.get("reason", "")).strip()
+        if not reason:
+            raise ValueError(err("NoReason",
+                                 f"entities[{i}] 必须给一句理由（建对象是永久成本）"))
+        aliases = _as_str_list(row.get("aliases"))
+        dup, _why = find_entity(store, name)
+        if dup is not None:
+            logger.info("apply_entities 已有同名对象, 不重复建: %s（%s）—— 那一行丢",
+                        name, dup.id)
+            log.append({"pkg": "digest", "action": "new_entity.dup", "id": dup.id,
+                        "name": name, "ts": ts})
+            continue
+        node = make_node("entity", name=name, aliases=aliases, ts=ts)
+        node.event_seq = list(event_seq or [])
+        bad = node.validate()
+        if bad:
+            raise ValueError(err("InvalidNode", f"entities[{i}] 无效: {'; '.join(bad)}"))
+        nid = store.add(node)
+        out.append(nid)
+        log.append({"pkg": "digest", "action": "new_entity", "id": nid, "name": name,
+                    "reason": reason, "ts": ts})
+        logger.info("digest_attribute new_entity=%s name=%r aliases=%s",
+                    nid, name, aliases)
+    return out
 
 
 def _entities_ready(store: WikiStoreV2) -> bool:
-    """保留号（`self`/`sensei`）是否已就位。
-
-    ⚠️ 不就位时**不许**建新 entity: `store.next_id("x")` 扫不到同前缀就从 1 起 ⇒
-    发出的第一个 id 是 **x0001**, 正是 sensei 的坑位（此后 `ensure_entities` 按 id 判
-    幂等 ⇒ sensei 永远不再被建）。生产侧由 `_ensure_char_entities`（D3a）保证先建;
-    这条是给"执行器被单独调用"（测试/别的路径）兜的底。
-    """
+    """两个**保留号**都在吗（`x0000` 她 / `x0001` 老师）—— 不在就不能建新对象。"""
     return SELF_ID in store and SENSEI_ID in store
 
 
-def _resolve_entity(store: WikiStoreV2, row: dict, i: int,
-                    by_local: dict[str, str]) -> str:
-    """行里的 `entity`（本地 id）→ 真实 id; 不在候选表里 → 抛。"""
-    local = str(row.get("entity", "")).strip()
-    real = by_local.get(local)
-    node = store.get(real) if real else None
-    if node is None or node.kind != "entity":
-        raise ValueError(err("BadEntity",
-                             f"attributions[{i}] entity 必须是候选表里的本地 id: {local!r}"))
-    return real
+def link_entity_tags(store: WikiStoreV2, nid: str, *, ts: str = ""
+                     ) -> tuple[list[str], list[str]]:
+    """⭐ **一个节点 `tags` 里的 `#entity:` ⇒ `about` 边** —— **唯一实现**（引擎派生, 零 LLM）。
 
+    三处调用: R1 造 episode（`episodes._create_a_nodes`）· L2 造看法（`_create_belief`）·
+    R3 **建完新对象之后回头补边**（`rounds/attribute.py` —— 它把"先写 tag 后建对象"接上）。
+    做三件事: ① 归一（能解析的叫法换成**主名**）② 落 `about`（节点 → 对象）③ 把归一后的
+    `tags` **写回节点**（她下次看到的与库里一致）。
 
-def _attach_nodes(store: WikiStoreV2, row: dict, i: int, *,
-                  id_map: dict[str, str], entity_id: str, ts: str) -> int:
-    """把这一行 `nodes` 里的每个节点挂 `about` 边（`add_edge` 幂等 ⇒ 重跑不重复）。"""
-    nodes = row.get("nodes")
-    if not isinstance(nodes, list) or not nodes:
-        raise ValueError(err("BadNodes",
-                             f"attributions[{i}] 缺 nodes（要归属的节点本地 id 列表）"))
-    n = 0
-    for local in nodes:
-        real = id_map.get(str(local).strip())
-        node = store.get(real) if real else None
-        if node is None or node.kind not in _ATTACHABLE:
-            raise ValueError(err("BadNode",
-                                 f"attributions[{i}] 只能归属 {'/'.join(_ATTACHABLE)}: "
-                                 f"{local!r}"))
-        store.add_edge(REL_ABOUT, real, entity_id, ts=ts)
-        n += 1
-    return n
+    ⚠️ `ts` 缺省 = **节点自己的时刻**（不是我落边的时刻）; 幂等靠 `store.add_edge`;
+    ⚠️ 解析不到的**原样留着**（那是"认人"的线索, 见 `entities.normalize_entity_tags`）。
+    ⛔ **不留 `evolution` 账** —— 边是 tag 的**派生**（可重建）, 不是她的一个决定。
 
-
-def _write_alias(store: WikiStoreV2, entity_id: str, hint: Any) -> bool:
-    """`hint` 顺手写回别名（已是名字/别名 → 不动 = False）。
-
-    ⚠️ 长度上限 `MAX_ALIAS_LEN`: hint 是"我在写谁"的**称呼**; 超长的那种是一句话,
-    写进别名只会在下次 `hit_set` 里误命中。
+    Returns: `(落下的对象 id, 解析不到的名字)`。
     """
-    hint = str(hint or "").strip()
-    if not hint or len(hint) > MAX_ALIAS_LEN:
-        return False
-    node = store.get(entity_id)
-    if any(hint.casefold() == f.casefold() for f in surface_forms(node)):
-        return False
-    store.update(entity_id, {"aliases": [*node.aliases, hint]})
-    return True
-
-
-def _new_entity(store: WikiStoreV2, row: dict, i: int, *, ready: bool,
-                log: EvolutionLog, ts: str, event_seq: list[int],
-                created: list[str]) -> str | None:
-    """建一个新 entity（**带理由**）; 名字/别名已存在 → 复用（崩溃窗口重跑幂等）。
-
-    `created` 只收**真新建**的 id（复用的不进 —— 与 `apply_decisions` 的 add 同口径）。
-    """
-    name = str(row.get("name", "")).strip()
-    reason = str(row.get("reason", "")).strip()
-    if not name:
-        raise ValueError(err("BadName", f"attributions[{i}] new_entity 缺 name"))
-    if not reason:
-        raise ValueError(err("NoReason",
-                             f"attributions[{i}] new_entity 必须给一句理由"
-                             "（§3.0: 三个月后再提到, 需要一致吗？）"))
-    if not ready:
-        logger.warning("new_entity 跳过（%s）: self/sensei 保留号不在 —— "
-                       "空表时 next_id('x') 会发出 x0001（sensei 的坑位）; "
-                       "先跑 entities.ensure_entities", name)
-        return None
-    aliases = [str(a).strip() for a in (row.get("aliases") or []) if str(a).strip()]
-    dup = _find_entity(store, name, aliases)
-    if dup is not None:
-        # 崩溃窗口重跑幂等: 落盘成功但水位未推进 ⇒ 同一个人会被再提一次
-        log.append({"pkg": "digest", "action": "new_entity.dup", "id": dup.id,
-                    "name": name, "ts": ts})
-        return dup.id
-    node = BrainNode()
-    node.kind = "entity"
-    node.name = name
-    node.aliases = aliases
-    node.text = str(row.get("text", "")).strip()
-    node.state = [str(s).strip() for s in (row.get("state") or []) if str(s).strip()]
-    node.ts = ts
-    if event_seq:
-        node.event_seq = list(event_seq)
-    errors = node.validate()
-    if errors:
-        raise ValueError(err("InvalidNode", f"new_entity 无效: {'; '.join(errors)}"))
-    nid = store.add(node)
-    created.append(nid)
-    # 理由进 evolution（append-only + 不进 LLM 上下文）——"为什么它有资格成为对象"
-    # 是这条记录唯一的存在理由（§3.0 的准入门槛要留痕才可审）
-    log.append({"pkg": "digest", "action": "new_entity", "id": nid, "name": name,
-                "reason": reason, "ts": ts})
-    return nid
-
-
-def _find_entity(store: WikiStoreV2, name: str, aliases: list[str]) -> BrainNode | None:
-    """按**精确相等**（忽略大小写）在现有 entity 里找同名者（同 `_find_duplicate` 的用途）。
-
-    不做模糊匹配 —— 那是第 3 轮 LLM 的活; 这里只防"同一个人被建两次"。
-    """
-    want = {f.casefold() for f in (name, *aliases) if f}
-    if not want:
-        return None
-    for n in store.all():
-        if n.kind == "entity" and want & {f.casefold() for f in surface_forms(n)}:
-            return n
-    return None
-
-
-def _rewrite(store: WikiStoreV2, row: dict, i: int, by_local: dict[str, str], *,
-             log: EvolutionLog, ts: str) -> None:
-    """重写 entity 载荷（`text` 立场 / `state` 物理状况）—— 空值 = 保留。"""
-    real = _resolve_entity(store, row, i, by_local)
-    node = store.get(real)
-    patch: dict[str, Any] = {}
-    if str(row.get("text", "")).strip():
-        patch["text"] = str(row["text"]).strip()
-    state = [str(s).strip() for s in (row.get("state") or []) if str(s).strip()]
-    if state:
-        patch["state"] = state
-    if not patch:
-        raise ValueError(err("BadPatch",
-                             f"attributions[{i}] rewrite 没给可改字段（text/state）"))
-    before = {k: getattr(node, k, None) for k in patch
-              if getattr(node, k, None) != patch[k]}
-    new = store.update(real, patch)
-    log.append({"pkg": "digest", "action": "rewrite", "id": real,
-                "changed": {k: [v, getattr(new, k, None)] for k, v in before.items()},
-                "ts": ts})
+    node = store.get(nid)
+    if node is None:
+        return [], []
+    tags, targets, strangers = normalize_entity_tags(store, node.tags)
+    if tags != list(node.tags or []):
+        store.update(nid, {"tags": tags})
+    stamp = ts or node.ts
+    for eid in targets:
+        store.add_edge(REL_ABOUT, nid, eid, ts=stamp)
+    return targets, strangers
 
 
 def apply_revision_package(

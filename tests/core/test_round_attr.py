@@ -1,294 +1,152 @@
 # -*- coding: utf-8 -*-
-"""R3 归属轮（第 3 步）的**编排**测试 —— DESIGN_GRAPH_V4 §8 / §8.3。
+"""R3「认人」（E4, 2026-10-08 重写）—— 她写下的**陌生名字** ⇒ 建一个 `entity` + **引擎补边**。
 
-三件事在这里被钉住:
-    ① 它排在**最后**（R0 → R1 → R2 → **R3**）—— 它要挂的是本轮**全部**新节点;
-    ② 它的输入 = 候选表（只有身份）+ 命中集的载荷 + 本轮新节点（本地 id）;
-    ③ 没挂上不是错（**判不出来就别挂**），但**挂错**要能在 `evolution.jsonl` 里看见。
-
-⚠️ **2026-10-05 起这一轮默认暂停**（`attribute.PAUSED` —— entity 没有读侧消费者）。
-本文件测的是**这一轮的逻辑**（暂停的是"调不调", 不是"怎么算"）⇒ 下面的 autouse fixture
-把它**临时翻开**; "默认是暂停的"那条判据在 `test_digest_rounds.py`。
+这一轮从"归属 + 载荷维护"（三动作）缩成**只认人**。钉六件事:
+    ① ⭐ **事件驱动**: 本段**没有**解析不到的 `#entity:` ⇒ **一次调用都不发**;
+    ② ⭐ **料**: 【要认的名字】（含它出现在哪几条）+【已有的对象】+ 人设 —— 没有本地号;
+    ③ ⭐ **闭环**: 建出对象之后, 引擎**回头补边**（`about` 落上 + tag 归一成主名）;
+    ④ **准入门槛**: `reason` 必填 · `name` 空 ⇒ 丢行（不建）;
+    ⑤ **不重复建**: 提案一个【已有的对象】里有的名字 ⇒ 丢行（同一个人只有一个对象）;
+    ⑥ **顺序**: 它排在**最后**（要看到 L2 的看法）。
 """
 import sys
 from pathlib import Path
 
-import pytest
-
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-from contract.digest_registry import PHASE_ATTRIBUTE, digest_registry
 from core.brain import WikiStoreV2, make_node
+from core.brain.entities import ensure_entities
 from core.digest.pipeline import digest_segment
-from core.digest.rounds import attribute
-from core.brain.entities import ensure_entities, hit_set, new_nodes_block
 from core.session import make_event
 from llm import task_labels as T
 from tests import stub_tasks
 
-ROOT = Path(__file__).resolve().parent.parent.parent
 CHAR = "c"
+_NOW = "2026-10-08T21:00:00+08:00"
 
 
-@pytest.fixture(autouse=True)
-def _unpause(monkeypatch):
-    """本文件的用例都在测 R3 **本身**的判据 ⇒ 把暂停翻掉（默认值见 `test_digest_rounds`）。"""
-    monkeypatch.setattr(attribute, "PAUSED", False)
+class RoundLLM:
+    """五轮可控（不关心哪一轮的给空包）—— `attribute` 缺省"没有要认的"。"""
 
-
-class AttrLLM:
-    """四轮可控: A / R4（默认空包）/ B / R3。"""
-
-    def __init__(self, a, b, attr=None, close=None):
-        self.a, self.b = a, b
-        self.attr = {"attributions": []} if attr is None else attr
-        self.close = {"add": [], "close": []} if close is None else close
-        self.tasks: list[str | None] = []
+    def __init__(self, a=None, attr=None, *, split=None):
+        self.a = {"episodes": []} if a is None else a
+        self.attr = {"entities": []} if attr is None else attr
+        self.split = split
         self.calls: list[list[dict]] = []
+        self.tasks: list[str | None] = []
 
     def chat(self, messages, **kw):
         self.calls.append([dict(m) for m in messages])
         task = kw.get("task")
         self.tasks.append(task)
-        if task == T.DIGEST_SPLIT:            # ⭐ R0: 照搬 R1 那份应答里的区间
-            return stub_tasks.split_for_scripted(messages, self.a)
+        if task == T.DIGEST_SPLIT:            # R0: 缺省照搬 R1 那份应答里的区间
+            return (self.split if self.split is not None
+                    else stub_tasks.split_for_scripted(messages, self.a))
         if task == T.DIGEST_RECORD:
             return self.a
-        if task in (T.DIGEST_RELATE, T.DIGEST):
-            return self.b
+        if task == T.DIGEST_RELATE:
+            return {"relations": []}          # 这些用例不测 L1
         if task == T.DIGEST_ATTRIBUTE:
             return self.attr
-        if task == T.DIGEST_COGNIZE:        # L2-b（P10）: 不测它 ⇒ 空包
-            return {"cognitions": []}
-        raise RuntimeError(f"意外调用 task={task!r}")
+        return {"cognitions": []}             # L2: 不造看法（本文件不测它）
 
-    def user_of(self, task: str | None) -> str:
-        idx = self.tasks.index(task)
-        return self.calls[idx][-1]["content"]
+    def user_of(self, task: str) -> str:
+        return self.calls[self.tasks.index(task)][-1]["content"]
 
 
-def _store(tmp_path, *, entities=True) -> WikiStoreV2:
+def _one_slice() -> dict:
+    return {"segments": [{"span": [3, 3], "abstract": "这一段"}]}
+
+
+def _store(tmp_path) -> WikiStoreV2:
     st = WikiStoreV2(tmp_path, world_id="world1", char_id=CHAR)
-    if entities:
-        ensure_entities(st, char_name="伊草 遥香", aliases=("遥香",),
-                        sensei_name="老师")
-        st.save()
+    ensure_entities(st, char_name="伊草 遥香", aliases=("遥香",),
+                    sensei_name="老师", sensei_aliases=("sensei",))
+    st.save()
     return st
 
 
-def _events(*items):
-    out = []
-    for typ, sub, payload, seq in items:
-        e = make_event(typ, sub, payload)
-        e.seq = seq
-        out.append(e)
-    return out
+def _episode(tags, text="第一次见到小玉", title="转角的相遇"):
+    return {"text": text, "title": title, "tags": tags, "significance": 0.6,
+            "topics": ["转角"]}
 
 
-def _mmt(seq, player="老师", reply="嗯"):
-    return ("mmt", "chat", {"player": player, "reply": reply}, seq)
+def _mmt(seq, reply="嗯"):
+    e = make_event("mmt", "chat", {"player": "x", "reply": reply})
+    e.seq = seq
+    e.ts = _NOW
+    return e
 
 
-def _a(text="模型店门口"):
-    """R1: 一条 episode（⚠️ **不再有 `about_hint`** —— 2026-09-29 退役, R3 自己认称呼）。"""
-    return {"episodes": [{"text": text, "title": text[:8], "tags": ["模型店"]}]}
-
-
-def _b(*_ids, text="老师会等我"):
-    """L1 的应答 —— R3 要的"本轮新节点"由 **R1** 提供（L1 一个节点都不建）。
-
-    ⚠️ **P1b-2（2026-10-07）**: 从前这里造 belief（R3 的 `u0002` 就是它）——
-    "造看法"归 L2 之后, 本段的新节点只剩 R1 建的那些。
-    """
-    return {"relations": []}
-
-
-# ---------------------------------------------------------------------------
-# 契约: 三种行 + 拒整包
-# ---------------------------------------------------------------------------
-
-def test_parse_attribution_three_shapes():
-    raw = {"attributions": [
-        {"action": "attach", "entity": "c0001", "hint": "老师", "nodes": ["u0001"]},
-        {"action": "new_entity", "name": "小玉", "aliases": ["tama"],
-         "reason": "第一次出场, 之后还会来", "nodes": ["u0002"]},
-        {"action": "rewrite", "entity": "c0001", "text": "他是第一个不嫌弃我的人。",
-         "state": ["今天戴了眼镜", "  "]},
-    ]}
-    rows, result = digest_registry.parse_attribution(
-        raw, entity_ids={"c0001"}, node_ids={"u0001", "u0002"})
-    assert result.is_valid, result.errors
-    assert rows == [
-        {"action": "attach", "entity": "c0001", "hint": "老师", "nodes": ["u0001"]},
-        {"action": "new_entity", "name": "小玉", "aliases": ["tama"],
-         "reason": "第一次出场, 之后还会来", "nodes": ["u0002"]},
-        {"action": "rewrite", "entity": "c0001", "text": "他是第一个不嫌弃我的人。",
-         "state": ["今天戴了眼镜"]}]                      # 空串的行被剔掉
-
-
-def test_parse_attribution_rejections():
-    """形状错与引用错都**拒整包**（这里的 id 是引擎渲染出来的闭集）。"""
-    def _p(rows, entities={"c0001"}, nodes={"u0001"}):
-        return digest_registry.parse_attribution(
-            {"attributions": rows}, entity_ids=entities, node_ids=nodes)
-
-    _, r = _p([{"action": "attach", "entity": "c0009", "nodes": ["u0001"]}])
-    assert not r.is_valid and any("不在候选表内" in e for e in r.errors)
-    _, r = _p([{"action": "attach", "entity": "c0001", "nodes": ["u0009"]}])
-    assert not r.is_valid and any("不在本轮新节点里" in e for e in r.errors)
-    _, r = _p([{"action": "attach", "entity": "c0001"}])
-    assert not r.is_valid and any("nodes 必须是数组" in e for e in r.errors)
-    _, r = _p([{"action": "attach", "entity": "c0001", "nodes": []}])
-    assert not r.is_valid and any("不能是空的" in e for e in r.errors)
-    _, r = _p([{"action": "new_entity", "name": "小玉", "nodes": ["u0001"]}])
-    assert not r.is_valid and any("必须填 reason" in e for e in r.errors)
-    _, r = _p([{"action": "new_entity", "reason": "r", "nodes": ["u0001"]}])
-    assert not r.is_valid and any("必须填 name" in e for e in r.errors)
-    _, r = _p([{"action": "rewrite", "entity": "c0001"}])
-    assert not r.is_valid and any("至少要给 text 或 state" in e for e in r.errors)
-    _, r = _p([{"action": "detach", "entity": "c0001"}])
-    assert not r.is_valid and any("action 非法" in e for e in r.errors)
-    _, r = _p([])                                        # 空包合法
-    assert r.is_valid
-    _, r = digest_registry.parse_attribution({}, entity_ids=set(), node_ids=set())
-    assert not r.is_valid and any("缺键" in e for e in r.errors)
-
-
-def test_schema_renders_the_three_actions():
-    text = digest_registry.build_schema(PHASE_ATTRIBUTE)
-    for token in ('"attributions"', "attach", "new_entity", "rewrite", "reason"):
-        assert token in text, token
-    assert "c0001" in text and "u0001" in text          # 本地 id 的形状要看得见
-
-
-# ---------------------------------------------------------------------------
-# 输入侧: 本轮新节点（本地 id）
-# ---------------------------------------------------------------------------
-
-def test_new_nodes_block_render(tmp_path):
+def test_stranger_tag_is_recognized_and_the_edge_is_backfilled(tmp_path):
+    """⭐ E4 的主线: 陌生 tag ⇒ 发一次认人 ⇒ 建对象 ⇒ **引擎回头补边**（tag 也归一）。"""
     st = _store(tmp_path)
-    st.add(make_node("episode", text="模型店门口", title="模型店", event_seq=[3],
-                     ts="2026-09-25T10:00:00"))
-    bid = st.add(make_node("belief", text="老师是真的记得我说过的话",
-                           subject="sensei", significance=0.9,
-                           event_seq=[3], ts="2026-09-25T10:00:00"))
-    text, local_of = new_nodes_block(st, ["m0001", bid, "m9999"])
-    # ⭐ 2026-09-29 形状: 类型与名字**都进头**（`marks.head`）—— 原来 `u0001 [episode] 「模型店」 正文`
-    assert "〔u0001｜《模型店》｜episode〕模型店门口" in text, text
-    assert "〔u0002｜belief〕老师是真的记得我说过的话" in text, text
-    assert local_of == {"m0001": "u0001", bid: "u0002"}     # 不存在的 id 跳过
-    assert new_nodes_block(st, [])[0] == ""
-    # ⏸ 原第三条断言验的是 `〔u0002｜promise·已兑现〕`（类型带结局）——
-    # 2026-09-29 承诺退图, 那种行不可能再出现; 上面这条改用 belief。
+    llm = RoundLLM(a={"episodes": [_episode(["转角", "#entity:小玉"])]},
+                   attr={"entities": [{"name": "小玉", "aliases": ["tama"],
+                                       "reason": "第一次出场, 之后还会来"}]},
+                   split=_one_slice())
+    res = digest_segment(st, llm, [_mmt(3)], character_prompt="（人设）")
 
-
-def test_hit_set_reads_bodies_only(tmp_path):
-    """命中集是**确定性**的（§8.3）: 称呼命中正文（≥2 字）—— **只剩这一条通道**。
-
-    ⭐ 2026-09-29（`REDUNDANCY.md` #22）: `hints=` 参数随 `about_hint` 一起退役 ——
-    单字别名照旧**不扫正文**（否则"他/她/它"会命中所有人）, 这条下限是这里的关键守门。
-    """
-    st = _store(tmp_path)
-    assert hit_set(st, texts=["今天老师夸了我"]) == ["x0001"]  # 别名进正文
-    assert hit_set(st, texts=["遥香在店里"]) == ["x0000"]     # 角色自己的名字 → self
-    assert hit_set(st, texts=["他今天没来"]) == []            # 单字别名不扫正文
-    assert hit_set(st, texts=["今天天气不错"]) == []
-
-
-# ---------------------------------------------------------------------------
-# 编排: 位置 / 料 / 产出
-# ---------------------------------------------------------------------------
-
-def test_r3_attaches_by_hint_and_writes_alias(tmp_path):
-    """⭐ 端到端: R3 **自己**认称呼 → 挂到候选表里的对象 → `about` 边 + 顺手写别名。
-
-    ⚠️ 2026-09-29: `about_hint` 退役 ⇒ R1 不再预判"关于谁", 那个称呼是 **R3 自己判的**
-    （它拿得到候选表 + 新节点正文）。别名的自动化那条路不变。
-    """
-    st = _store(tmp_path)
-    attr = {"attributions": [
-        {"action": "attach", "entity": "c0002", "hint": "老师", "nodes": ["u0001"]},
-    ]}
-    llm = AttrLLM(_a("模型店门口"), _b(), attr)
-
-    res = digest_segment(st, llm, _events(_mmt(3)))
     assert res.ok, res.errors
-
-    # 顺序: **R0 → R1 → L1 → R3**（收口轮 2026-10-05 删; L2 2026-10-08 接在最后）
-    # ⚠️ 这一段 **L2 被跳过**: 它的立足点 = "被 **L1** 连过"（`_L2_LINK_RELS` = L1 的动作面）,
-    # 而 E3（2026-10-08）把 `about` 移出了动作面（归属改由引擎从 `tags` 派生）⇒ 这一段
-    # 没有任何 L1 边 ⇒ 孤立经历不进 L2（那是 P8 的原始判据, 不是回归）。
-    assert llm.tasks == [T.DIGEST_SPLIT, T.DIGEST_RECORD, T.DIGEST_RELATE,
-                         T.DIGEST_ATTRIBUTE], llm.tasks
-    # ⭐ 料: 候选表（只有身份）+ 本轮新节点（本地 id）
-    r3 = llm.user_of(T.DIGEST_ATTRIBUTE)
-    assert "c0001" in r3 and "c0002" in r3 and "u0001" in r3
-    assert "模型店门口" in r3
-    # ⭐ 产出: 那条新 episode 挂到了 sensei（x0001）上
-    ep = res.created[0]
-    assert st.graph().targets(ep, "about") == ["x0001"]
-    # hint 顺手写回别名（"老师"已在别名里 → 不动; 换一个自造称呼才写）
-    attr2 = {"attributions": [
-        {"action": "attach", "entity": "c0002", "hint": "那个大人", "nodes": ["u0001"]},
-    ]}
-    llm2 = AttrLLM(_a("又路过那家店"), _b(), attr2)
-    res2 = digest_segment(st, llm2, _events(_mmt(4)))
-    assert res2.ok, res2.errors
-    assert "那个大人" in st.get("x0001").aliases
+    assert T.DIGEST_ATTRIBUTE in llm.tasks, llm.tasks
+    assert llm.tasks[-1] == T.DIGEST_ATTRIBUTE, "它必须排在最后（要看到 L2 的看法）"
+    user = llm.user_of(T.DIGEST_ATTRIBUTE)
+    for title in ("【要认的名字】", "【已有的对象】", "【角色人设（锚点）】"):
+        assert title in user, (title, user)
+    assert "小玉" in user and res.created[0] in user, user      # 名字 + 它出现在哪一条
+    # ⭐ 建出来了
+    assert len(res.created_entities) == 1, res.created_entities
+    new_id = res.created_entities[0]
+    assert st.get(new_id).kind == "entity" and st.get(new_id).name == "小玉"
+    assert st.get(new_id).aliases == ["tama"]
+    # ⭐ **闭环**: 那条经历现在挂到了新对象上, 而且 tag 归一成了主名
+    ep = st.get(res.created[0])
+    assert st.graph().targets(ep.id, "about") == [new_id], "补边没落上"
+    assert "#entity:小玉" in ep.tags and "#entity:tama" not in ep.tags, ep.tags
+    print(f"    认人: {res.created_entities} · {ep.id} → about → {new_id}")
 
 
-def test_r3_new_entity_and_rewrite_load(tmp_path):
-    """`new_entity`（带理由）+ `rewrite`（改载荷）—— 一次调用里两种行都落地。
-
-    ⚠️ **P1b-2（2026-10-07）**: "本轮新节点"从前含 **R2 造的 belief**（`u0002`）;
-    造看法归 L2 之后, 这里让 **R1 建两条经历**（`u0001` / `u0002`）当那两个新节点。
-    """
+def test_no_stranger_no_call(tmp_path):
+    """⭐ **事件驱动**: 没有解析不到的名字 ⇒ 一次调用都不发（这一轮的成本判据）。"""
     st = _store(tmp_path)
-    attr = {"attributions": [
-        {"action": "new_entity", "name": "小玉", "aliases": ["tama"],
-         "reason": "她第一次出场, 之后还会来", "nodes": ["u0002"]},
-        {"action": "rewrite", "entity": "c0002",
-         "text": "他是第一个不嫌弃我的人。", "state": ["今天戴了眼镜"]},
-    ]}
-    two = {"episodes": [{"text": "遇到小玉", "title": "遇到小玉", "tags": ["小玉"]},
-                        {"text": "小玉说下次还来", "title": "小玉说下次还来",
-                         "tags": ["小玉"]}]}
-    llm = AttrLLM(two, _b(), attr)
+    llm = RoundLLM(a={"episodes": [_episode(["转角", "#entity:老师"])]}, split=_one_slice())
+    res = digest_segment(st, llm, [_mmt(3)])
 
-    res = digest_segment(st, llm, _events(_mmt(3)))
     assert res.ok, res.errors
-    assert len(res.created_entities) == 1
-    xin = res.created_entities[0]
-    node = st.get(xin)
-    assert node.kind == "entity" and node.name == "小玉" and node.aliases == ["tama"]
-    # 新对象挂上**第二条**新经历（`u0002` = R1 建的第二条）
-    second = res.created[1]
-    assert st.graph().targets(second, "about") == [xin]
-    # 载荷改写（立场 + 现状）
-    sensei = st.get("x0001")
-    assert sensei.text == "他是第一个不嫌弃我的人。"
-    assert sensei.state == ["今天戴了眼镜"]
-    assert st.audit() == []
-
-
-def test_r3_skipped_without_new_nodes(tmp_path):
-    """本段没有新节点 ⇒ 没有可归属的对象 ⇒ **不发这次调用**（0 次）。"""
-    st = _store(tmp_path)
-    llm = AttrLLM({"episodes": []}, {"relations": []})
-    res = digest_segment(st, llm, _events(_mmt(3)))
-    assert res.ok, res.errors
-    assert T.DIGEST_ATTRIBUTE not in llm.tasks
+    assert T.DIGEST_ATTRIBUTE not in llm.tasks, llm.tasks
     assert res.created_entities == []
+    # ⚠️ 但 tag 照旧落了边（E1 的活, 不由这一轮负责）
+    assert st.graph().targets(res.created[0], "about") == ["x0001"]
+    print("    0 调用: 没有陌生人就不发（tag 的边照旧由引擎落）")
 
 
-def test_r3_failure_rolls_back_the_batch(tmp_path):
-    """R3 的形状错 ⇒ 拒整包 + 反馈重试; 耗尽 ⇒ **整批失败**, 前面几轮的节点也回滚。"""
+def test_reason_and_name_are_gates(tmp_path):
+    """准入门槛: 没 `reason` / 没 `name` ⇒ **丢行**（不建对象）, 但整段照常提交。"""
     st = _store(tmp_path)
-    attr = {"attributions": [{"action": "attach", "entity": "c0009", "nodes": ["u0001"]}]}
-    llm = AttrLLM(_a("模型店门口"), _b(), attr)
+    llm = RoundLLM(a={"episodes": [_episode(["转角", "#entity:小玉"])]},
+                   attr={"entities": [{"name": "小玉"}, {"reason": "没名字"}]},
+                   split=_one_slice())
+    res = digest_segment(st, llm, [_mmt(3)])
 
-    res = digest_segment(st, llm, _events(_mmt(3)))
-    assert not res.ok
-    assert any("不在候选表内" in e for e in res.errors)
-    assert [n.id for n in st.all() if n.kind != "entity"] == []   # 全回滚
-    assert res.created_entities == [] and res.created == []
+    assert res.ok, res.errors
+    assert res.created_entities == [], "门槛没挡住"
+    dropped = " ".join(res.contract_drops)
+    assert "reason" in dropped and "name" in dropped, res.contract_drops
+    assert [n.id for n in st.all() if n.kind == "entity"] == ["x0000", "x0001"]
+    print(f"    门槛: 两条都被丢（{len(res.contract_drops)} 条记账）")
+
+
+def test_known_name_is_not_created_again(tmp_path):
+    """⭐ 不重复建: 提案一个【已有的对象】里有的名字（含别名）⇒ 丢行。"""
+    st = _store(tmp_path)
+    llm = RoundLLM(a={"episodes": [_episode(["转角", "#entity:小玉"])]},
+                   attr={"entities": [{"name": "sensei", "reason": "换个叫法"},
+                                      {"name": "小玉", "reason": "真的新人"}]},
+                   split=_one_slice())
+    res = digest_segment(st, llm, [_mmt(3)])
+
+    assert res.ok, res.errors
+    assert len(res.created_entities) == 1, res.created_entities     # 只建了"小玉"
+    assert st.get(res.created_entities[0]).name == "小玉"
+    assert any("已经在【已有的对象】里" in d for d in res.contract_drops), res.contract_drops
+    print("    防重: `sensei` 被丢（它已经是 x0001 的别名）")

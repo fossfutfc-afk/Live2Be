@@ -373,6 +373,33 @@ def normalize_entity_tags(store: WikiStoreV2, tags
             list(dict.fromkeys(strangers)))
 
 
+def strangers_block(store: WikiStoreV2, ids, names) -> str:
+    """【要认的名字】—— R3（只认人）的**唯一理由**: 这些名字她写了, 但库里没有。
+
+    每个名字下面摆**它出现在哪几条里**（`〔m0023｜《...》〕` + 那一行里含它的那句话）——
+    那是她判"**这是不是一个值得记住的人/地方/东西**"的全部依据。
+
+    ⚠️ 名字来自节点 `tags` 里的 `#entity:`（`normalize_entity_tags` 的第三个返回值,
+    **引擎算出来的**, 不是 LLM 再读一遍正文猜的）⇒ 它与"她当时想指谁"是同一次判断。
+    """
+    out: list[str] = []
+    for name in dict.fromkeys(str(n).strip() for n in names if str(n).strip()):
+        out.append(f"{name}")
+        for nid in ids:
+            node = store.get(str(nid))
+            if node is None:
+                continue
+            body = "\n".join(x for x in (node.title, node.text) if x)
+            if name not in body:
+                continue
+            line = next((s.strip() for s in body.splitlines() if name in s), "")
+            # ⚠️ 信息头**整条从 `marks.head` 取**（守门: 代码字面量里零手写 `《》〔〕｜`;
+            # 它按 kind 自动决定"名字"那一格要不要印 —— 看法没有标题, 就不印）
+            head = marks.head(node, key=str(nid))
+            out.append(f"    {head}" + (f"…{line[:80]}" if line else ""))
+    return "\n".join(out)
+
+
 def entity_label(node) -> str:
     """⭐ **一个对象的印法**（`x0001 老师（sensei）`）—— **全仓唯一一处**。
 

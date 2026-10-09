@@ -135,7 +135,7 @@ class RoundOut:
     """一轮跑完的交代 —— 编排只要三件事（**多一件就是第二个真相**）。
 
     ⚠️ 为什么**不带** `rows` / `resp`: 各轮解析出来的行都在**各自文件里当场消费掉**
-    （建节点 / `apply_decisions` / `apply_attribution` / `apply_groups`）, 外面**零读者**;
+    （建节点 / `apply_decisions` / `apply_entities` / `apply_groups`）, 外面**零读者**;
     R1 那份原始 `resp` 有唯一读者（成功路径的 `affection_exp_delta`）而它走
     `Ctx.resp_a` —— 返回值里再带一份就是同一个事实的两条通道。
 
