@@ -22,25 +22,34 @@
 一句话由**函数自己**写（它算的时候就知道自己走的是哪一路）; `like()` 只按固定顺序拼。
 ⛔ **绝不事后重算** —— 重算就是第二个真源（`recall._keyword_candidates` 踩过）。
 
-## 怎么合: **加权平均** + 准入规则
+## 三张表 + 一个契约（照 `promptkit` 的形态: `BLOCKS` 注册表 + `DOMAIN_BOXES` 每域清单）
+
+| 在哪 | 管什么 | 加东西时动哪 |
+|---|---|---|
+| `PARTS: dict[str, Part]` | **一条路是什么**: 函数 · `axis`（轴）· `scale`（尺度）· `needs`（要哪些输入） | 加一行 |
+| `SPECS: dict[str, Spec]` | **一个场景怎么用它**: 问哪个面（`kinds`）· 调哪几路 · 权重 | 加一块 |
+| `RecallCtx` | **输入契约**: 所有路共用同一份"现在几点 / 什么心情"（老 `RecallContext` 的字段与纪律） | 加一个输入字段 |
 
 ```
-final = Σ wᵢ·sᵢ / Σ wᵢ   w = {lexical 1.00, struct .35, temporal .15, prior .15, name .15}
-准入  = 准入类里至少一个 > 0（内容轴 - 或 **窄门结构**）
+final = Σ wᵢ·sᵢ / Σ wᵢ        （只对**这次真调的那几路**求和; 分母 = 它们权重之和）
+准入   = `axis=EVIDENCE` 的那几路里至少一路 > 0
 ```
 
 * 分母是正常数 ⇒ **排序与"不带分母的加权和"完全一致**; 带分母只是把分压回 `[0,1]`、
   台账好看（用户 2026-10-08: *"最终调用各函数采用加权平均吧, 这样不费脑子"*）。
-* ⚠️ **准入这条是唯一不是加权平均的规则**（**不是阈值** —— 边界就是"零"这个自然值）。
+* ⚠️ **准入是唯一不是加权平均的规则**（**不是阈值** —— 边界就是"零"这个自然值）。
   零重合时若只看加权平均, `时间 + 先验 + 名字` 也能凑出一份分来: 真机 haruka 实测
   「老师，你今天有空吗」凑出 **10 条并列**、排序全交给先验 ⇒ 召回退化成"关于老师最重要的事",
   **每轮同样两条**（正是 `recall.recall_episodes` docstring 警告的"永远长不出新边"）。
-  ⇒ **内容与窄门结构可以自己把人带进池; 时间 / 先验 / 名字只能在"已经像"的候选上加成。**
-* ⚠️ **窄门**是 `part_struct` 的定语, 不是形容词: 它只走两条边
+  ⇒ **证据轴（内容 / 窄门结构）可以自己把人带进池; 先验轴（时间 / 重要 / 名字）只加成。**
+* ⚠️ **`needs` 缺输入 ⇒ 那一路自动不参与** + 台账记 `skip=名字(无emo_now)` ——
+  不靠人记得配 0, 也不会静默算错。
+* ⚠️ **窄门**是 `struct` 那一路的定语, 不是形容词: 它只走两条边
   （`akin` = 她亲口认过的相似; `member_of` 的**同类兄弟**）—— ⛔ **`about`（归属）不在内**
-  （太宽: 真机「老师」车道 10/21 条; 而且与 `part_name` 重叠）。见 `_STRUCT_EDGES`。
-* ⚠️ 权重是**代码常量, 先不进配置面**（配置面只留"取几条"与"半衰期/下界"那类; 阈值旋钮
-  2026-09-15 已全删, `test_no_threshold_knobs_left` 钉着）。要按模型标定了再上配置面 ——
+  （太宽: 真机「老师」车道 10/21 条; 而且与 `name` 那一路重叠）。见 `_STRUCT_EDGES`。
+* ⚠️ 权重是**代码常量**（在 `SPECS` 里; 覆盖只能改**本档已有**那几路的权重,
+  **不能靠覆盖加一路**）—— 配置面只留"取几条"与"半衰期/下界"那类; 阈值旋钮
+  2026-09-15 已全删, `test_no_threshold_knobs_left` 钉着。要按模型标定了再上配置面 ——
   免得又是一个"看着像旋钮、实际不做事"的值（`cand_med` 的教训）。
 
 ## 与旧件的关系（**不复用资源**）
@@ -68,6 +77,15 @@ logger = logging.getLogger(__name__)
 #: `like` 取几条的**回落值**（真源 = `settings.toml [recall].like_k`）
 LIKE_K = 3
 
+#: 轴（`Part.axis`）—— 老 `channels.py` 的 `kind` 那一格: 决定合成层怎么用它
+EVIDENCE = "evidence"     #: 证据轴: **可准入**（内容 / 窄门结构）
+PRIOR = "prior"           #: 先验轴: 只加成（时间 / 重要 / 名字）
+GATE = "gate"             #: 闸门: **不进加权平均**（将来 `place` 那类乘性闸门; 第一笔没有这一路）
+
+#: 尺度（`Part.scale`）—— 老 `channels.py` 的 `scale` 那一格: 决定要不要池内归一
+UNIT = "unit"             #: 自报 [0,1] 的绝对分, 原样用
+COSINE = "cosine"         #: cos 那类**池内 min-max** 归一后才用（`part_lexical` 之外的路会是它）
+
 # ⚠️ 下面这些是**代码常量, 不是旋钮**（理由见模块 docstring 的权重那条）
 _TAG_BASE, _TAG_STEP = 0.60, 0.10      # tags 命中: 基分 + 每多命中一个 +0.10
 _TITLE_HIT = 0.85                      # 标题（剥壳后）整体出现在 query
@@ -89,36 +107,69 @@ _STRUCT_EDGES: dict[str, tuple[float, str]] = {
 # ---------------------------------------------------------------------------
 
 @dataclass(frozen=True)
-class LikeCtx:
-    """一次召回的共享料: `query` · `now` · **query 点到的对象及其车道** · 结构一跳。
+class RecallCtx:
+    """一次召回的**输入契约** —— 所有路共用同一份"现在几点 / 什么心情"。
 
-    车道只为"query 里真的被叫到"的对象建; 结构一跳只为"真命中了内容"的节点建
-    ⇒ 多数轮零成本。
+    ⚠️ **为什么集中**（老 `channels.RecallContext` 的原话, 2026-09-13）: 路各自去
+    store / 事件流里捞上下文 ⇒ 同一次召回里"现在是几点、什么心情"会被**算出多份**,
+    且台账里**无法复现**。所以输入只在这里声明一次, 路只读它。
+
+    ## 字段分两半: **输入**（调用方填）· **派生**（`build_ctx` 现算, 调用方别填）
+
+    输入那几个是**对称的**: 情绪 / 地点 / 好感各一对"键 + 原文"，因为它们服务的路不同
+    （键做集合比较, 原文做语义比较）。🚫 **这些都不进 LLM 上下文**（用户 2026-09-15 裁决:
+    召回侧信号, 参与筛选不参与写作）。
     """
 
+    # ---- 输入（调用方填）----------------------------------------------------
+    #: 当前**时刻**（`datetime` 或 `ts` 串）—— `TIME` 格用它算 `age`。
+    #: **必填且无默认值**（故排第一位）: 逼调用方在调用处显式说明"现在是什么时候"，
+    #: 不许模块偷偷读壁钟（同 `age_days` 的纪律）。
+    now: object
+    #: 情境文本（MMT 每轮 = 玩家这一句; digest = 本段新经历）
     query: str = ""
-    now: object = None
+    #: 当前**情绪键序列**（B 链路的 query 侧）—— 如 `("tease", "smile")`。`()` = 未知（那一路降级）
+    emo_now: tuple[str, ...] = ()
+    #: 当前地点**键**（C 链路的素材轴）—— `""` = 未知
+    place_now: str = ""
+    #: 当前地点的 **writer 原文**（switch 短语原话, C 链路的叙事轴）—— 键不能当地名用
+    #: （一键多义 / 一地多键）, 所以"是不是同一个地方"只能靠原文的语义相似。`""` = 未知
+    place_raw_now: str = ""
+    #: 当前**好感标量** ∈ [−1,1]（`Affection.to_scalar()`）—— 关系层信号
+    aff_now: float | None = None
+    #: 检索后端（`texts → 等长向量列表`）; None ⇒ 需要它的那几路自动降级
+    embed_fn: object | None = None
+    #: 本角色 id（词表 / 资产定位用）
+    char_id: str = ""
+
+    # ---- 派生（`build_ctx` 负责, 调用方别填）--------------------------------
     #: entity_id → 它**在 query 里被叫到的那个写法**（`why` 里要印这个名字）
     named: dict[str, str] = field(default_factory=dict)
     #: entity_id → 它车道上（`about` 边指向它）的节点 id 集合
     lanes: dict[str, frozenset[str]] = field(default_factory=dict)
     #: ⭐ **内容种子**: 节点 id → 内容分（只留 > 0 的）—— `part_struct` 的起点
     seeds: dict[str, float] = field(default_factory=dict)
-    #: ⭐ **结构一跳能到达的同选面节点**: 节点 id → `(分, 一句话)`; 分 **≤ 它的种子**
+    #: ⭐ **结构一跳能到达的节点**: 节点 id → `(分, 一句话)`; 分 **≤ 它的种子**
     reach: dict[str, tuple[float, str]] = field(default_factory=dict)
 
 
-def build_ctx(store, *, query: str, now) -> LikeCtx:
-    """建料: 名字表（entity 的名字 + 别名）→ query 里命中的那几个 → 它们的车道。
+def build_ctx(store, ctx: RecallCtx, *, seed_parts: "tuple[str, ...] | list[str]" = (),
+              ) -> RecallCtx:
+    """把**派生料**算出来: 名字表（entity 的名字 + 别名）→ query 里命中的那几个 → 它们的车道
+    → 内容种子 → 结构一跳。
 
     ⚠️ 节点表**在这里自己取全量**（不接调用方传进来的表）—— 名字表要从里面挑 entity;
-    若让调用方传"`kinds` 过滤后"的那一份, 名字那一路会**恒空**而且**静默**
+    若让调用方传"选面过滤后"的那一份, 名字那一路会**恒空**而且**静默**
     （只是少一份加成, 不报错）。踩过一次, 所以这条做成结构性不可能。
-    车道取不到（图坏了）**不是错**: 只是少一份加成（宁缺勿错, 不阻断召回）。
+    车道 / 结构取不到（图坏了）**不是错**: 只是少一份加成（宁缺勿错, 不阻断召回）。
+
+    `seed_parts`: **这次真调的**、且 `Part.seeds` 为真的那几路（由 `like()` 按档位算好传进来）。
+    一条都没有 ⇒ 没有种子 ⇒ 结构那一路自然为 0（消融 `lexical` 时正是这样, 见 `Part.seeds`）。
     """
-    q = (query or "").strip()
+    q = (ctx.query or "").strip()
     names: dict[str, tuple[str, str]] = {}          # 名字(casefold) → (entity_id, 原写法)
-    for n in store.all():
+    universe = list(store.all())
+    for n in universe:
         if getattr(n, "kind", "") != "entity":
             continue
         forms = [getattr(n, "name", "")] + list(getattr(n, "aliases", ()) or ())
@@ -134,15 +185,20 @@ def build_ctx(store, *, query: str, now) -> LikeCtx:
             lanes = {eid: frozenset(g.lane(eid)) for eid in named}
         except Exception as e:                       # noqa: BLE001 — 少一份加成, 不阻断
             logger.info("recall_like lanes=skip reason=%s", e)
-    base = LikeCtx(query=q, now=now, named=named, lanes=lanes)
-    # 结构一跳要"谁命中了内容"当种子 ⇒ 这里先按内容轴跑一遍（**同一个函数**, 不是第二份实现）
-    universe = list(store.all())
-    seeds = {n.id: s for n in universe if (s := part_lexical(n, base)[0]) > 0.0}
-    return replace(base, seeds=seeds, reach=_reach(store, universe, seeds))
+    base = replace(ctx, query=q, named=named, lanes=lanes)
+    # 结构一跳要"谁命中了内容"当种子 ⇒ 这里按**这次真调的内容路**跑一遍
+    # （**同一个函数**, 不是第二份实现; 一条内容路都没参与 ⇒ 没有种子）
+    seeds: dict[str, float] = {}
+    for pname in seed_parts:
+        fn = PARTS[pname].fn
+        for n in universe:
+            s = fn(n, base)[0]
+            if s > seeds.get(n.id, 0.0):
+                seeds[n.id] = s
+    return replace(base, seeds=seeds, reach=_reach(store, seeds))
 
 
-def _reach(store, universe: list,
-           seeds: dict[str, float]) -> dict[str, tuple[float, str]]:
+def _reach(store, seeds: dict[str, float]) -> dict[str, tuple[float, str]]:
     """**结构一跳**: 从内容种子出发, 沿窄门（`_STRUCT_EDGES`）到达的节点。
 
     分 = `种子的内容分 × 边权` ⇒ ⚠️ **永远不超过它的种子**（守门钉着这条不变量）。
@@ -191,7 +247,7 @@ def _narrow_neighbors(g, nid: str) -> list[tuple[str, float, str]]:
 # 打分函数（`part_*`）—— 每个独立、每个可单测
 # ---------------------------------------------------------------------------
 
-def part_lexical(node, ctx: LikeCtx) -> tuple[float, str]:
+def part_lexical(node, ctx: RecallCtx) -> tuple[float, str]:
     """**内容轴**（唯一能单独准入的一类）: tags / 标题 / 正文覆盖 —— 三路取最大。
 
     * **tags**: 检索词命中（`#` 开头的是**标记空间**, 不是检索词 —— 同 `render` 的口径）。
@@ -223,7 +279,7 @@ def part_lexical(node, ctx: LikeCtx) -> tuple[float, str]:
     return best, why
 
 
-def part_struct(node, ctx: LikeCtx) -> tuple[float, str]:
+def part_struct(node, ctx: RecallCtx) -> tuple[float, str]:
     """**结构一跳**（⭐ **窄门准入**）: 从内容种子沿窄门到达的节点, 分 = `种子 × 边权`。
 
     窄门只有两条（`_STRUCT_EDGES`）: `akin`（**她自己认过的相似** —— 她写过
@@ -245,7 +301,7 @@ def part_struct(node, ctx: LikeCtx) -> tuple[float, str]:
     return (score, f"{why} {score:.2f}") if score > 0.0 else (0.0, "")
 
 
-def part_temporal(node, ctx: LikeCtx) -> tuple[float, str]:
+def part_temporal(node, ctx: RecallCtx) -> tuple[float, str]:
     """**时间轴**: `freshness(age)` ∈ **[floor, 1]**（`floor` 是渐近下界, **不归零**）。
 
     单位 = **现实日**（`ESSAY_TIME_MODEL §10` 时间轴换代后唯一日期轴）, 年龄 = 今天 − 节点那天。
@@ -259,7 +315,7 @@ def part_temporal(node, ctx: LikeCtx) -> tuple[float, str]:
     return t, render_relative(age, float(getattr(node, "significance", 0.5) or 0.5))
 
 
-def part_prior(node, ctx: LikeCtx) -> tuple[float, str]:
+def part_prior(node, ctx: RecallCtx) -> tuple[float, str]:
     """**先验轴**: **这件事本身多重** —— 就一个参量: `node.significance`（0~1, 不用夹）。
 
     ## ⚠️ 2026-10-08: 从 `det` 退化成 `sig`（用户裁 + 实测）
@@ -290,7 +346,7 @@ def part_prior(node, ctx: LikeCtx) -> tuple[float, str]:
     return sig, f"重要 {sig:.2f}"
 
 
-def part_name(node, ctx: LikeCtx) -> tuple[float, str]:
+def part_name(node, ctx: RecallCtx) -> tuple[float, str]:
     """**对象名**: query 里点到某个对象（名 / 别名）⇒ 它**车道上**的节点得 1.0。
 
     车道 = `about` 边指向该 entity 的节点（方向是"节点 → entity", 走 `graph.lane`）。
@@ -311,40 +367,104 @@ def part_name(node, ctx: LikeCtx) -> tuple[float, str]:
 
 @dataclass(frozen=True)
 class Part:
-    """一个打分函数的登记项: 名 / 函数 / 权重 / **能不能单独准入**。"""
+    """**一条路是什么**（注册表的一行）: 函数 · 轴 · 尺度 · 需要哪些输入。
 
-    name: str
-    fn: Callable[[object, LikeCtx], tuple[float, str]]
-    weight: float
-    #: **准入类** = 能自己把人带进池（内容轴; 以及**窄门**结构 —— 见 `_STRUCT_EDGES`）;
-    #: 其余（时间 / 先验 / 名字）只加成。见模块 docstring 那条准入规则。
-    admits: bool = False
+    ⚠️ 权重**不在这儿** —— 它是"这个场景怎么用这一路", 归 `Spec`（见 `_plan`）。
+    """
 
-
-#: ⭐ **打分函数表 = 唯一注册点**（新增一路只在这里加一行, `like()` 零改动）
-PARTS: tuple[Part, ...] = (
-    Part("lexical", part_lexical, 1.00, admits=True),
-    Part("struct", part_struct, 0.35, admits=True),
-    Part("temporal", part_temporal, 0.15),
-    Part("prior", part_prior, 0.15),
-    Part("name", part_name, 0.15),
-)
-
-#: 权重之和（分母; `like()` 与台账都用它）
-TOTAL_WEIGHT = sum(p.weight for p in PARTS)
+    fn: Callable[[object, "RecallCtx"], tuple[float, str]]
+    #: 轴: `EVIDENCE`（证据轴, **可准入**）· `PRIOR`（先验轴, 只加成）· `GATE`（闸门, **不进加权平均**）
+    axis: str = EVIDENCE
+    #: 尺度: `UNIT`（自报 [0,1] 绝对分, 原样用）· `COSINE`（池内 min-max 归一后再用）
+    scale: str = UNIT
+    #: 需要 `ctx` 里哪些字段 —— **缺 ⇒ 这一路自动不参与** + 台账记一笔 `skip=`（不靠人记得配 0）
+    needs: tuple[str, ...] = ()
+    #: 这一路**能当结构一跳的种子**吗（"内容命中"才配当种子）—— 目前只有 `lexical`。
+    #: ⚠️ 它决定消融的正确性: 把 `lexical` 关掉时**种子也没了**（否则结构路还偷偷吃着字面证据,
+    #: 那个消融就是假的）。
+    seeds: bool = False
 
 
-def like(store, query: str, *, kinds: tuple[str, ...] = ("episode",),
-         k: int | None = None, now) -> list[Candidate]:
-    """一段情境 → **最像的 k 条**（降序; 准入 = 内容轴至少一路 > 0）。
+#: ⭐ **注册表 = 唯一注册点**（照 `promptkit/blocks.py::BLOCKS` 的形态）: 加一路只在这里加一行
+PARTS: dict[str, Part] = {
+    "lexical": Part(part_lexical, axis=EVIDENCE, scale=UNIT, needs=("query",), seeds=True),
+    "struct": Part(part_struct, axis=EVIDENCE, scale=UNIT, needs=("query",)),
+    "temporal": Part(part_temporal, axis=PRIOR, scale=UNIT, needs=("now",)),
+    "prior": Part(part_prior, axis=PRIOR, scale=UNIT),
+    "name": Part(part_name, axis=PRIOR, scale=UNIT, needs=("query",)),
+}
+
+
+@dataclass(frozen=True)
+class Spec:
+    """**一个场景怎么用它**（档位）: 问哪个面 + 调哪几路 + 权重。
+
+    `parts` 的顺序 = `why` 的拼接顺序（只影响可读性, 不影响分数）。
+    """
+
+    #: 选面（节点 kind 白名单）—— "当下要连的是另一件**旧事**" ⇒ 缺省 episode
+    kinds: tuple[str, ...] = ("episode",)
+    #: `(路名, 权重)` —— **权重 0 = 这一路完全不参与（连准入也不算）**
+    parts: tuple[tuple[str, float], ...] = ()
+
+
+#: ⭐ **档位表**（照 `promptkit/box.py::DOMAIN_BOXES` 的形态）: 一个场景一块, 自包含、好审
+SPECS: dict[str, Spec] = {
+    # P19「你想起的事」: query = 玩家这一句, 只要 episode。
+    # ⚠️ 没有 `name` 以外的差别, 是因为 turn 拿不到 query 侧的情绪/地点（见模块 docstring）。
+    "turn": Spec(kinds=("episode",), parts=(
+        ("lexical", 1.00), ("struct", 0.35), ("temporal", 0.15),
+        ("prior", 0.15), ("name", 0.15),
+    )),
+    # digest（R2/L2 的候选）: query = **本段新经历**, 认知面也进池。
+    # ⚠️ 故意**没有 `name`** —— 经历正文里出现"老师/遥香"是常态, "点名一个对象"在那里没有信息量。
+    # ⚠️ `emotion` / `place` 两路要等真正的 part 落地（那两路**输入只在 digest 有**:
+    #    本段节点自带 `emo_shape` / `place`, MMT 每轮没有）。
+    "digest": Spec(kinds=("episode", "belief", "experience"), parts=(
+        ("lexical", 1.00), ("struct", 0.35), ("temporal", 0.15), ("prior", 0.15),
+    )),
+}
+
+
+def plan(spec: str = "turn", weights: dict[str, float] | None = None,
+         ) -> list[tuple[str, Part, float]]:
+    """档位 → **这次真调的清单** `[(路名, Part, 权重)]`（按档位声明顺序）。
+
+    `weights` 是**一次性覆盖**（消融实验 / 对照台用）:
+    * 只能改**本档已有**那几路的权重 —— 想给本档加一路请改 `SPECS`（档位决定调哪几路）;
+    * `0` = 这一路完全不参与;
+    * ⛔ 未知路名 → `KeyError`（防拼错静默失效, 同 `recall_config.get` 的纪律）。
+    """
+    sp = SPECS.get(spec)
+    if sp is None:
+        raise KeyError(f"未知召回档位: {spec!r}（可用: {sorted(SPECS)}）")
+    names = [n for n, _ in sp.parts]
+    unknown = sorted(set(weights or ()) - set(names))
+    if unknown:
+        raise KeyError(f"覆盖了本档没有的路: {unknown}（本档: {names}）")
+    out: list[tuple[str, Part, float]] = []
+    for name, w in sp.parts:
+        part = PARTS.get(name)
+        if part is None:                                 # 表写错了 ⇒ 当场炸, 不静默
+            raise KeyError(f"档位 {spec!r} 里有未注册的路: {name!r}"
+                           f"（注册表: {sorted(PARTS)}）")
+        if weights and name in weights:
+            w = weights[name]
+        out.append((name, part, float(w)))
+    return out
+
+
+def like(store, ctx: "RecallCtx", *, spec: str = "turn",
+         k: int | None = None, weights: dict[str, float] | None = None,
+         ) -> list[Candidate]:
+    """一段情境 → **最像的 k 条**（降序; 准入 = 证据轴至少一路 > 0）。
 
     Args:
         store: `WikiStoreV2`（**只读**）。
-        query: 情境文本（MMT 每轮 = 玩家这一句; digest = 本段新经历）。
-        kinds: 选面（节点 kind 白名单）—— 缺省 episode（"当下要连的是另一件**旧事**"）。
+        ctx: **输入契约**（`RecallCtx`）—— 调用方只填输入字段, 派生料由 `build_ctx` 现算。
+        spec: 档位名（`SPECS` 的键）—— 决定问哪个面、调哪几路、各自权重。
         k: None → `[recall].like_k`（默认 3）。
-        now: **必填**（与 `age_days` 同一条纪律: 逼调用方显式说明"现在是什么时候",
-            不许模块偷偷读壁钟）。
+        weights: 一次性覆盖本档某几路的权重（`0` = 不参与）—— 消融实验用, 台账会印出来。
 
     Returns: 降序的 `Candidate`（≤ k 条）; 一条都不像 ⇒ **[]**（宁缺勿错:
     不拿"最近一条"或"最高 sig 那条"来凑 —— 摆一条无关的旧事 = 逼她强行联想,
@@ -352,38 +472,64 @@ def like(store, query: str, *, kinds: tuple[str, ...] = ("episode",),
     """
     if k is None:
         k = int(_knob("like_k", LIKE_K))
-    nodes = [n for n in store.all() if not kinds or getattr(n, "kind", "") in kinds]
-    ctx = build_ctx(store, query=query, now=now)     # ⚠️ 全量取料（名字表要从里面挑 entity）
+    sp = SPECS[spec]
+    pl = plan(spec, weights)
+    active: list[tuple[str, Part, float]] = []
+    skipped: list[str] = []
+    for name, part, w in pl:
+        if w <= 0.0:
+            skipped.append(f"{name}(权重0)")
+            continue
+        miss = [f for f in part.needs if not _has(ctx, f)]
+        if miss:                                         # 缺输入 ⇒ 自动不参与（不靠人记得配 0）
+            skipped.append(f"{name}(无{'/'.join(miss)})")
+            continue
+        active.append((name, part, w))
+    ctx = build_ctx(store, ctx, seed_parts=[n for n, p, _w in active if p.seeds])
+    nodes = [n for n in store.all()
+             if not sp.kinds or getattr(n, "kind", "") in sp.kinds]
+    total_w = sum(w for _, _, w in active)
     out: list[Candidate] = []
     for node in nodes:
         scores: dict[str, float] = {}
         notes: list[str] = []
         admitted = False
-        for p in PARTS:
+        for name, part, _w in active:
             try:
-                s, note = p.fn(node, ctx)
-            except Exception as e:                   # noqa: BLE001 — 一路坏不阻断召回
-                logger.info("recall_like part=%s 失败: %s", p.name, e)
+                s, note = part.fn(node, ctx)
+            except Exception as e:                       # noqa: BLE001 — 一路坏不阻断召回
+                logger.info("recall_like part=%s 失败: %s", name, e)
                 s, note = 0.0, ""
-            scores[p.name] = float(s)
+            scores[name] = float(s)
             if note:
                 notes.append(note)
-            if p.admits and s > 0.0:
+            if part.axis == EVIDENCE and s > 0.0:
                 admitted = True
-        if not admitted:
+        if not admitted or total_w <= 0.0:
             continue
-        final = sum(p.weight * scores[p.name] for p in PARTS) / TOTAL_WEIGHT
+        final = sum(w * scores[name] for name, _p, w in active) / total_w
         out.append(Candidate(node=node, score=final, why=" · ".join(notes)))
     out.sort(key=lambda c: (-c.score, getattr(c.node, "id", "")))
-    logger.info(ledger_line(out, query=ctx.query, pool=len(nodes), k=int(k)))
+    logger.info(ledger_line(out, query=ctx.query, pool=len(nodes), k=int(k),
+                            spec=spec, skip=skipped, weights=weights))
     return out[:max(int(k), 0)]
+
+
+def _has(ctx: "RecallCtx", name: str) -> bool:
+    """`ctx` 的某个输入字段有没有值（`None` / 空串 / 空序列都算没有）。"""
+    val = getattr(ctx, name, None)
+    if val is None:
+        return False
+    if isinstance(val, (str, tuple, list, dict, set, frozenset)):
+        return len(val) > 0
+    return True
 
 
 # ---------------------------------------------------------------------------
 # 小工具
 # ---------------------------------------------------------------------------
 
-def _age(node, ctx: LikeCtx) -> int | None:
+def _age(node, ctx: RecallCtx) -> int | None:
     """节点年龄（**现实日**）; 缺/坏 `ts` → None（调用方必须降级, 不得折成 0）。"""
     return age_days(getattr(node, "ts", ""), now=ctx.now)
 
@@ -428,5 +574,6 @@ def _knob(name: str, fallback: float) -> float:
         return float(fallback)
 
 
-__all__ = ["LIKE_K", "PARTS", "TOTAL_WEIGHT", "LikeCtx", "Part", "build_ctx", "like",
-           "part_lexical", "part_name", "part_prior", "part_struct", "part_temporal"]
+__all__ = ["COSINE", "EVIDENCE", "GATE", "LIKE_K", "PARTS", "PRIOR", "SPECS", "UNIT",
+           "Part", "RecallCtx", "Spec", "build_ctx", "like", "part_lexical",
+           "part_name", "part_prior", "part_struct", "part_temporal", "plan"]
