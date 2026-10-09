@@ -233,7 +233,7 @@ ROUNDS: tuple[RoundSpec, ...] = (
         key="record",
         step="① 记",
         parse=digest_registry.parse_round_a,
-        material=("本段新增互动", "本段骨架", "本章标题", "画面记忆",
+        material=("本段新增互动", "本段骨架", "本章标题", "画面记忆", "已有的对象",
                   "角色人设（锚点）", "本段情绪标尺"),
         writes=(
             # 条目自带的位置是 `span` 区间, 由 `_expand_spans` 展开成 `event_seq`。
@@ -299,7 +299,8 @@ ROUNDS: tuple[RoundSpec, ...] = (
         key="cognize",
         step="⑥ 想",
         parse=digest_registry.parse_cognitions,
-        material=("本段归类的群", "被连过的经历", "现有认知", "角色人设（锚点）"),
+        material=("本段归类的群", "被连过的经历", "现有认知", "已有的对象",
+                  "角色人设（锚点）"),
         writes=(
             # ⭐ **L2 的产出 = 正文 + 它出生自带的那几条边**（`apply_cognitions`）:
             # 造 `belief` · 给**已有的类**覆写沉淀（`experience.text`）· 三条边。

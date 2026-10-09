@@ -107,7 +107,9 @@ def test_digest_runs_cognize_after_group(tmp_path):
     assert llm.tasks.index(T.DIGEST_GROUP) < llm.tasks.index(T.DIGEST_COGNIZE), \
         "L2 必须排在 group 之后（沉淀要写给本段刚归好类的那些类）"
     user = llm.user_of(T.DIGEST_COGNIZE)
-    for title in ("【本段归类的群】", "【被连过的经历】", "【现有认知】", "【角色人设（锚点）】"):
+    # ⭐ E1b: L2 写 `#entity:` 之前也要看得到【已有的对象】（同 R1）
+    for title in ("【本段归类的群】", "【被连过的经历】", "【现有认知】",
+                  "【已有的对象】", "【角色人设（锚点）】"):
         assert title in user, (title, user)
     # 产出落对了
     assert len(res.created_beliefs) == 1, res.created_beliefs

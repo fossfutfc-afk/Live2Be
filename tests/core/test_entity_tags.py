@@ -256,3 +256,41 @@ def test_parse_cognitions_drops_a_nameless_entity_tag():
         evidence_ids={"m0001"}, cognition_ids=set(), group_ids=set(), kind_of={})
     assert items[0].get("tags") is None, items[0]
     assert any("cognitions[0].belief" in d for d in vr.drops), vr.drops
+
+
+# ---------------------------------------------------------------------------
+# E1b（2026-10-08）—— 判据补全 + 防 alias（把【已有的对象】摆给写 tag 的那两轮）
+# ---------------------------------------------------------------------------
+
+def test_contract_spells_out_the_entity_tag_judgement():
+    """⭐ 判据必须在**契约**里（用户 2026-10-08 逐条给的），三条一条都不能少。"""
+    text = digest_registry.build_schema(PHASE_RECORD)
+    assert "检索词本身别用" in text and "`#` 开头" in text, "缺「检索词别用 `#` 开头」那条禁令"
+    assert "新认识的角色" in text and "必须写" in text, "缺「新认识的角色必须写」"
+    assert "跨时间段" in text, "缺「跨时间段反复出现」的判据（与连续事件的同一个词区分开）"
+    assert "抽象的" in text and "司空见惯" in text, "缺两条「不写」"
+    assert "已有的对象" in text and "别自己造一个新叫法" in text, "缺防 alias 那条"
+
+
+def test_hash_prefixed_search_word_is_reported_not_silently_dropped():
+    """⭐ 静默 no-op 的入口: `#` 开头 = 标记空间（检索侧会跳过它）⇒ **必须记一笔**。"""
+    warnings: list[str] = []
+    words, marks = _split_tags(["公园", "#日常", "#entity:老师"], warnings, [],
+                              where="episodes[0]")
+    assert words == ["公园", "#日常"], words          # 词照收（不丢内容）
+    assert marks == [f"{ENTITY_TAG_PREFIX}老师"], marks
+    assert any("#日常" in w and "标记空间" in w for w in warnings), warnings
+    # ⚠️ 而且**只有**它一条告警（`#entity:` 与普通词都不该告警）
+    assert len(warnings) == 1, warnings
+
+
+def test_existing_entities_line_prints_names_and_aliases(tmp_path):
+    """⭐ 防 alias 靠这一栏: 印**真身 id + 名字（别名）**; 空表印一句"为什么空"。"""
+    from core.digest.material import existing_entities_line
+
+    st = _store(tmp_path)
+    line = existing_entities_line(st, texts=["今天老师说他会早点来"])
+    assert "x0001 老师" in line and "sensei" in line, line
+    assert "x0000" in line, line
+    empty = WikiStoreV2(tmp_path / "empty", world_id="world1", char_id="c")
+    assert "还没有任何对象" in existing_entities_line(empty), "空表要有理由（不然整格被吞）"

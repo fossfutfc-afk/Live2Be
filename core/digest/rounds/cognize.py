@@ -31,7 +31,8 @@ import logging
 
 from core.brain.read.render import render_cognition_list
 from core.brain.revise import apply_cognitions
-from core.digest.material import _groups_for_l2, _l2_material
+from core.digest.material import (_groups_for_l2, _l2_material,
+                                    existing_entities_line, _node_texts)
 from core.digest.rounds.base import Ctx, RoundOut
 from core.digest.rounds.relate import DIGEST_COGNITION_CAP
 
@@ -54,6 +55,9 @@ def run(ctx: Ctx) -> RoundOut:
         ("本段归类的群", grp_text),
         ("被连过的经历", linked_text),
         ("现有认知", cog_text),
+        # ⭐ E1b: 写 `#entity:` 之前先看**已有的对象**（防自造别名 ⇒ 重复建对象）
+        ("已有的对象",
+         existing_entities_line(ctx.store, texts=_node_texts(ctx.store, ctx.episode_ids))),
         ("角色人设（锚点）", ctx.character_prompt),
     ])
     drops_before = len(ctx.result.contract_drops)     # 观测账: 只算**这一轮**丢的

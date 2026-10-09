@@ -534,6 +534,22 @@ _L2_LINK_RELS = frozenset(a.name for a in RELATION_ACTIONS)
 DIGEST_L2_MEMBERS = 4
 
 
+def existing_entities_line(store, *, texts=()) -> str:
+    """【已有的对象】—— ⭐ **写 `#entity:` 的那两轮都要看这一栏**（R1 记经历 / L2 写看法）。
+
+    **为什么要给**（用户 2026-10-08 裁）: 防她自己造 alias —— 她只该照这里出现过的
+    **名字或别名**写 `#entity:`; 自造一个新叫法 ⇒ 引擎 `find_entity` 认不出 ⇒
+    **同一个人被重复建**（认人那一轮的目的正是建"还没有的"对象, 所以它不会替你拦住）。
+
+    ⚠️ 印法与 L1 当年那一栏**同一个实现**（`entities.object_lines`: 真身 id + 名字（别名）
+    + 一行字面命中提示）—— 同一张图, 两处长得一样。
+    ⚠️ 空表 ⇒ 印一句"为什么空"（P6 的口径: 空串会被 `_join_sections` 连抬头一起吞掉）。
+    """
+    from core.brain import entities as _ent
+    text, _ids = _ent.object_lines(store, texts=texts)
+    return text or "（还没有任何对象 —— 这条涉及谁, 就照你看到的那个称呼写）"
+
+
 def _l2_material(ctx) -> tuple[str, str, list[str]]:
     """L2 的三样料 → `(「本段归类的群」, 「被连过的经历」, **她能引用的经历 id**)`。
 
