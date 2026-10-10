@@ -38,6 +38,7 @@ TODO（后续 session）:
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -138,13 +139,22 @@ class MmtExecutor:
         self,
         characters_root: str | Path,
         interperson_path: str | Path | None = None,
+        *,
+        look_fn: Callable[[str, str], str] | None = None,
     ):
+        """`look_fn`: ⭐ `mmt_look` 的**取数接缝**（`(clue, when) -> 给她看的那段字`）。
+
+        由 engine 注入（它手里有 store / 本轮 `now` / 角色名）—— 见
+        `_execute_mmt_look` 的 docstring（为什么不把 store 塞进来）。
+        ⚠️ `None` ⇒ 那次 `mmt_look` 抛 `MmtExecError`（明确报错, 不静默返回空）。
+        """
         self.char_loader = CharacterLoader(characters_root)
         self.interperson_path = (
             Path(interperson_path) if interperson_path
             else Path(DEFAULT_INTERPERSON_PATH)
         )
         self.current_char: DynamicCharacter | None = None
+        self.look_fn = look_fn
 
     # ------------------------------------------------------------------
     # 会话上下文
@@ -229,31 +239,29 @@ class MmtExecutor:
         )
 
     # ==================================================================
-    # mmt_look — 翻阅她自己的记忆（⭐ **占位**: 真检索在下一笔接）
+    # mmt_look — 翻阅她自己的记忆（⭐ 真检索走注入的回调）
     # ==================================================================
 
     def _execute_mmt_look(self, action: AgentAction) -> ExecResult:
-        """⭐ **占位**（2026-10-08, 照 `_execute_mmt_send_media` 的先例）。
+        """⭐ **接缝在构造参数**（2026-10-08）: 取数不在这里, 在 engine。
 
-        为什么先占位而不是先不注册: **注册表就是她的开关** —— 注册进去她就能吐这一行;
-        执行器缺席时那一行会走成"未知执行动作"⇒ **硬问题 + 整批不交付**（真机上
-        表现为"她一句话都没说"）。占位让那一轮的语义**自洽**: 她查到一句诚实的回执。
+        为什么是回调而不是"把 `WikiStoreV2` 塞进 executor":
+          · **store 是每会话重建的**（`start_session` 里建）⇒ 存成字段迟早是**陈旧引用**;
+          · 检索还缺两样 executor 没有的东西: **本轮的 `now`**（`parse_when` 要）与
+            角色的显示名/别名（第一人称渲染要）—— 它们都在 engine 手里;
+          · 与 `engine.embed_fn` 那条接缝同一个哲学: **引擎给能力, 动作层给语义**。
 
-        ⚠️ **下一笔换掉**: 真执行 = 三级解析（标题 → 正文/时间 → 明说）+
-        `find` + 放宽 + 三句话; 检索在 `core.brain.read.find`, 而 **store / now 在
-        engine 手里**（每会话重建）⇒ 走构造参数注入的回调接缝（同 `engine.embed_fn`
-        那条缝的哲学）, ⛔ 不把 store 对象塞进 executor（陈旧引用）。
+        ⚠️ `look_fn` 缺席 ⇒ `MmtExecError`（**硬问题, 明确**）—— ⛔ 不静默返回空:
+        那会让她以为"翻过了、没有", 而真相是"引擎没接线"。
+        ⚠️ 反过来, "翻了但没翻到"是**正常结果**（`ok=True` + 一段人话）, 不是失败。
         """
         if self.current_char is None:
             raise MmtExecError("尚未进入会话, 无法翻阅记忆")
+        if self.look_fn is None:
+            raise MmtExecError("mmt_look 未接线（引擎没有注入 look_fn）")
         clue = action.payload.get("clue") or ""
         when = action.payload.get("when") or ""
-        return ExecResult(
-            ok=True,
-            message=(f"[未接线] 翻阅记忆的检索还没接上"
-                     f"（这一次问的是: clue={clue!r} when={when!r}）——"
-                     "先按你记得的照常说，别停在原地等。"),
-        )
+        return ExecResult(ok=True, message=str(self.look_fn(clue, when)))
 
     # ==================================================================
     # mmt_send_media — 发图片（占位, 媒体管线后续接入）

@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -26,6 +27,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from contract import (APPROVAL_AUTO, DOMAIN_MMT, AgentAction,   # noqa: E402
                       ContractError)
+from core.brain import WikiStoreV2, make_node                   # noqa: E402
+from core.brain.read.render import (LOOK_EMPTY,                # noqa: E402
+                                    LOOK_EMPTY_TIME, LOOK_FUTURE)
 from core.mmt.mmt_actions import (MMT_RUNTIME_FIELDS,           # noqa: E402
                                   build_mmt_registry, parse_mmt_look)
 from core.mmt.mmt_check import (ACTION_LOOK, ACTION_TRIGGER,    # noqa: E402
@@ -140,16 +144,25 @@ def test_query_actions_cover_look_but_never_trigger():
 # ⑥ 占位执行器 + 端到端接线（一轮里两次主调用）
 # ---------------------------------------------------------------------------
 
-def test_placeholder_executor_says_not_wired(tmp_path):
+def test_executor_needs_the_look_hook(tmp_path):
+    """⚠️ `look_fn` 缺席 ⇒ **明确报错**（⛔ 不静默返回空: 那会让她以为"翻过了、没有"）。"""
     ex = MmtExecutor(tmp_path)
-    ex.set_current_character(object())               # 占位只判"有没有会话"（类型无关）
-    res = ex.execute(_action(clue="苔藓", when="上周"))
-    assert res.ok and "未接线" in res.message
-    assert "苔藓" in res.message                      # 回执带上她问的东西（可复盘）
+    ex.set_current_character(object())               # 有没有会话只判"是不是 None"
+    with pytest.raises(MmtExecError, match="未接线"):
+        ex.execute(_action(clue="苔藓"))
     ex.set_current_character(None)
     with pytest.raises(MmtExecError):
         ex.execute(_action(clue="苔藓"))
-    print("    占位: 明说未接线（不是静默成功）")
+    print("    接线: 没注入 look_fn ⇒ MmtExecError（硬问题, 不伪装成「没翻到」）")
+
+
+def test_executor_passes_clue_and_when_through(tmp_path):
+    """执行器只管**透传**（取数在 engine）—— 用假回调钉住参数。"""
+    seen: list[tuple[str, str]] = []
+    ex = MmtExecutor(tmp_path, look_fn=lambda clue, when: seen.append((clue, when)) or "段")
+    ex.set_current_character(object())
+    res = ex.execute(_action(clue="苔藓 && 杂草", when="上周"))
+    assert res.ok and res.message == "段" and seen == [("苔藓 && 杂草", "上周")], seen
 
 
 class _ScriptedLLM:
@@ -166,19 +179,151 @@ class _ScriptedLLM:
         return self.replies[min(len(self.snapshots) - 1, len(self.replies) - 1)]
 
 
-def test_look_round_is_fed_back_and_the_turn_continues(tmp_path):
-    """⭐ **本件的核心接线**: 她发一条 `look` ⇒ 引擎回灌 + **同一轮接着要一次**。"""
-    llm = _ScriptedLLM()
+# ---------------------------------------------------------------------------
+# S1 · 三级解析（真执行器）
+# ---------------------------------------------------------------------------
+
+NOW = datetime(2026, 10, 8, 21, 0, tzinfo=timezone(timedelta(hours=8)))
+
+
+def _seed(tmp_path, text, *, title="", ts="", verbatim=""):
+    """写一条 episode 到真机同款位置（引擎是另开一个 store 读的, 所以要 save）。"""
+    st = WikiStoreV2(tmp_path, world_id="world1", char_id=CHARACTER)
+    st.add(make_node("episode", text=text, title=title, ts=ts, verbatim=verbatim,
+                     significance=0.6, event_seq=[1]))
+    st.save()
+
+
+def _engine(tmp_path, llm):
     store = SessionStore(data_root=tmp_path)
     eng = MomoTalkEngine(ROOT / "config" / "characters", llm, store=store)
     name = eng.start_session(CHARACTER)
     root = store.create(CHARACTER, name)
     eng.attach_session(root.session_id)
+    return eng
 
-    result = eng.agent_turn("我们上次说的那件事，你还记得吗")
+
+def _look_text(eng) -> str:
+    """直接调执行体（不起 LLM）—— 单元级验三级解析。"""
+    return eng._look_result("苔藓", "")
+
+
+def test_level1_title_hit_is_exact(tmp_path):
+    """①级: 线索是**单个纯字面** ⇒ 先当**标题**精确查（一步到位）。"""
+    _seed(tmp_path, "瓦片缝里的苔藓长得很好", title="瓦片缝里的苔藓", ts="2026-09-26T10:00:00")
+    eng = _engine(tmp_path, _ScriptedLLM())
+    seg = eng._look_result("瓦片缝里的苔藓", "")
+    assert "【你翻到的" in seg and "《瓦片缝里的苔藓》" in seg, seg
+    assert "1 条" in seg, seg
+    print("    ①级: 标题精确查（`normalize_title` 剥壳 ⇒ 抄整段元信息也认）")
+
+
+def test_level1_still_obeys_when(tmp_path):
+    """⭐ ①级**也要过 `when`** —— 否则"上周的《某条》"会把两周前那条当命中。"""
+    _seed(tmp_path, "很久以前的事", title="瓦片缝里的苔藓", ts="2026-09-01T10:00:00")
+    eng = _engine(tmp_path, _ScriptedLLM())
+    seg = eng._look_result("瓦片缝里的苔藓", "2026/09/25")
+    assert "《瓦片缝里的苔藓》" not in seg, seg          # 标题在窗外 ⇒ 不算命中
+    print("    ①级: 标题命中也要满足时间（锚是 AND）")
+
+
+def test_level2_text_search_and_cap(tmp_path):
+    """②级: 正文检索**全量**（⛔ 不 top-k）; 展示按 **cap 5** 截 + 如实报"还有几条"。"""
+    for i in range(8):
+        _seed(tmp_path, f"苔藓的事第 {i} 件", title=f"苔藓 {i}",
+              ts=f"2026-10-0{i % 8 + 1}T10:00:00")
+    eng = _engine(tmp_path, _ScriptedLLM())
+    seg = eng._look_result("苔藓", "")
+    assert "8 条" in seg, seg
+    assert seg.count("\n- ") == 5, seg.count("\n- ")     # cap = 5
+    assert "还有 3 条同类的事" in seg, seg
+    print("    ②级: 全量命中 8 · 只摆 5 · 明说还有 3")
+
+
+def test_level3_widening_is_for_points_only(tmp_path):
+    """③级: **单点**窗口 `exact` 空 ⇒ 用 `wide`(±2 天) 再查一次, 并如实报告边界。
+
+    ⭐ 同时钉住用户 2026-10-08 的裁定: **周期不放宽**（`last 1 week` = 7 天, 它本来就是
+    宽的; 再扩没有信息量）—— 所以 `上周` 查空就是"没想起来", 不会去翻前后。
+    """
+    _seed(tmp_path, "三周前的那件事", title="很久以前", ts="2026-09-17T10:00:00")
+    eng = _engine(tmp_path, _ScriptedLLM())
+    # 周期窗口不放宽 ⇒ 空就是空
+    assert eng._look_result("很久以前", "last 1 week") == LOOK_EMPTY
+    # 单点窗口 + ±2 天 ⇒ 够得到（9/15 ±2 = 9/13~9/17）
+    seg = eng._look_result("很久以前", "2026/09/15")
+    assert "前后那阵子有" in seg and "《很久以前》" in seg, seg
+    print("    ③级: 单点放宽命中（并说明「那阵子没有」）; 周期窗口**不放宽**")
+
+
+def test_exact_window_wins_over_the_widened_one(tmp_path):
+    """⭐ **`wide` 不许替代 `exact`**: 窗口内有货时, 就**只给窗口内的**。
+
+    否则"9/15 那天有 1 条"会变成"9/13~9/17 一共 2 条" —— **静默换掉她问的范围**。
+    """
+    _seed(tmp_path, "窗口里的事", title="正日子", ts="2026-09-15T10:00:00")
+    _seed(tmp_path, "窗口外但在放宽范围内", title="隔壁那天", ts="2026-09-17T10:00:00")
+    eng = _engine(tmp_path, _ScriptedLLM())
+    seg = eng._look_result("窗口", "2026/09/15")
+    assert "《正日子》" in seg and "《隔壁那天》" not in seg, seg
+    assert "前后那阵子" not in seg, seg                  # 没放宽 ⇒ 不许说放宽的话
+    print("    ③级: exact 有货 ⇒ 不放宽（range 是她问的, 不许静默扩大）")
+
+
+def test_time_failures_are_human_and_never_widen(tmp_path):
+    """⭐ 三种失败分得开, 且都**不破墙**（她的内心话, 没有"格式/引擎"这类词）。"""
+    _seed(tmp_path, "苔藓的事", title="苔藓的约定", ts="2026-09-26T10:00:00")
+    eng = _engine(tmp_path, _ScriptedLLM())
+    bad = eng._look_result("苔藓", "下周八")
+    assert bad == LOOK_EMPTY_TIME, bad                   # 认不出 ⇒ 不查（不静默放宽）
+    assert "格式" not in bad and "引擎" not in bad
+    assert eng._look_result("苔藓", "2027/01/01") == LOOK_FUTURE
+    assert eng._look_result("找不到的词", "") == LOOK_EMPTY
+    print("    失败: 时间认不出 / 落在将来 / 查了没有 —— 三句各归各的")
+
+
+def test_no_store_degrades_to_a_human_sentence(tmp_path, caplog):
+    """⚠️ 没有 store（CLI/实验模式）⇒ **不伪装成硬错误**（同 P19 的宁缺勿错）。
+
+    ⚠️ 判据里的**"没有 warning"**不是装饰: 这一格与"异常被外层兜住"在返回值上
+    完全一样, 差别只在**它是正常降级还是吞了一次崩溃** —— 后者会每轮刷一条警告。
+    """
+    eng = MomoTalkEngine(ROOT / "config" / "characters", _ScriptedLLM())
+    eng.start_session(CHARACTER)
+    with caplog.at_level("WARNING", logger="core.mmt.engine"):
+        assert eng._look_result("苔藓", "") == LOOK_EMPTY
+    assert not [r for r in caplog.records if r.levelname == "WARNING"], \
+        [r.getMessage() for r in caplog.records]
+
+
+def test_look_ledger_and_trace(tmp_path, caplog):
+    """台账可 grep: 查了什么 / 命中几条 / 用了 exact 还是 wide / 摆了谁（标题）。"""
+    _seed(tmp_path, "苔藓的事", title="苔藓的约定", ts="2026-09-30T10:00:00")  # 上周内
+    eng = _engine(tmp_path, _ScriptedLLM())
+    with caplog.at_level("INFO", logger="core.mmt.engine"):
+        eng._look_result("苔藓", "上周")
+    line = next(r.getMessage() for r in caplog.records
+                if "cand=" in r.getMessage())            # 汇总行（不是过程行的"标题查"）
+    assert "clue='苔藓'" in line and "cand=1" in line and "widened=False" in line, line
+    assert "titles=苔藓的约定" in line, line
+    print("    台账:", line)
+
+
+# ---------------------------------------------------------------------------
+# ⑥ 端到端接线（一轮里两次主调用）
+# ---------------------------------------------------------------------------
+
+def test_look_round_is_fed_back_and_the_turn_continues(tmp_path):
+    """⭐ **接线**: 她发一条 `look` ⇒ 引擎回灌 + **同一轮接着要一次**。"""
+    _seed(tmp_path, "老师陪我在杂草屋蹲了一下午", title="苔藓的约定",
+          ts="2026-09-26T10:00:00")
+    llm = _ScriptedLLM()
+    eng = _engine(tmp_path, llm)
+
+    result = eng.agent_turn("我们上次说的那件事，你还记得吗", now=NOW)
     assert len(llm.snapshots) == 2, [len(s) for s in llm.snapshots]   # 一轮两次主调用
     joined = "\n".join((m.get("content") or "") for m in llm.snapshots[-1])
-    assert "未接线" in joined                        # 回执真的进了 messages
+    assert "苔藓的约定" in joined                     # 真回灌（不是占位文案）
     assert llm.snapshots[-1][-1]["role"] == "user"   # `feedback()` 追加的是 **user**
     assert result.ok and "我想起来了" in result.reply  # 她接着说的话上了屏
-    print("    look: ① 她发起 → ② 回执回灌 → ③ 同一轮接着说（两次主调用）")
+    print("    look: ① 她发起 → ② 回灌真结果 → ③ 同一轮接着说（两次主调用）")
