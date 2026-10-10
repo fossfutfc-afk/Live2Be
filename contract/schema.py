@@ -135,8 +135,9 @@ def build_line_schema(registry: ActionRegistry, *, with_examples: bool = True) -
         '3. 话里的半角双引号与反斜杠必须转义（写成 \\" 与 \\\\）——这是最常见的错误。',
         "4. `mmt_trigger_bond_story` 是模式切换：它必须是**唯一**的操作行，"
         "见面的话写在它**前面**的消息行里。",
-        "5. `mmt_inspect_character` 是**单独一轮**：那一轮只有它一条行"
-        "（不夹消息行、也不夹别的操作行）。",
+        "5. `mmt_inspect_character` 与 `mmt_look` 都是**单独一轮**：那一轮只有它一条行"
+        "（不夹消息行、也不夹别的操作行）——查到/翻到的东西程序会还给你，"
+        "你接着这一轮说。",
         "6. 本轮至少要有一条行（说话或做事）——**想起行只是记账，不代替说话**。",
         "",
         "可用操作:",
@@ -172,6 +173,17 @@ def build_line_schema(registry: ActionRegistry, *, with_examples: bool = True) -
             "深挖资料那一轮（整轮只有这一条行）:",
             '    {"action": "mmt_inspect_character",'
             ' "payload": {"character_id": "rikuhachima_aru"}}',
+            "",
+            # ⭐ "先翻再答"必须是**两块**（= 两跳）: look 独占它那一轮, 程序把结果还给她
+            # 之后她才接着说 —— 写成一块里 look + 话 = 教了检查器会判
+            # `mmt.exclusive-violation` 的形状（示例才是形状的来源, CLAUDE.md §8）。
+            "翻自己的记忆那一轮（整轮只有这一条行——**先翻，翻到什么再接着说**）:",
+            '    {"action": "mmt_look",'
+            ' "payload": {"clue": "苔藓 && 杂草", "when": "last 1 week"}}',
+            "",
+            "翻到之后（程序把翻到的东西还给你，你接着这一轮说）:",
+            '    {"text": "唔……找到了"}',
+            '    {"text": "原来就是那次啊"}',
             "",
             "想起了某条旧事那一轮（**可选**——想不起来就正常聊）:",
             '    {"noticed": "瓦片缝里的苔藓"}',
