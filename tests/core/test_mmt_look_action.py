@@ -9,7 +9,7 @@
   ② **parse 只做结构白名单**: clue/when 至少一个; 线索编译不过 ⇒ 当场拒（可归因, 不静默）
   ③ ⭐ **payload 里只有字符串** —— 它会进 `TurnResult` / trace / 前端 JSON;
      塞一个编译好的 `Clue` 进去, 序列化那一层迟早出事（本件真 `json.dumps` 一次钉住）
-  ④ **独占**: 静默轮只能有它一条行; ⚠️ 想起行**不算**（同 N5b 口径）
+  ④ **独占**: **唯一操作行**（trigger 式 —— 话可前置）; ⚠️ 想起行也**不算**（同 N5b 口径）
   ⑤ **接线**: `look` 在 `QUERY_ACTIONS` 里（查完回灌 + 继续这一轮）, ⛔ `trigger` 不在
   ⑥ ⭐ **占位执行器明说"未接线"**（注册表就是她的开关: 注册了她就能吐这一行,
      执行器缺席会走成"未知执行动作"⇒ 硬问题 + 整批不交付 —— 真机上表现为"她一句话没说"）
@@ -105,28 +105,40 @@ def test_parse_rejects_bad_input():
 
 
 # ---------------------------------------------------------------------------
-# ④ 独占（静默轮）
+# ④ 独占（**trigger 式**: 唯一操作行 + 放最后一行 —— 2026-10-08 用户裁）
 # ---------------------------------------------------------------------------
 
-def test_look_must_be_alone():
+def test_look_is_the_only_action_but_words_may_come_first():
+    """⭐ `look` 与 `inspect` **不同款**: 先说一句"唔……我找找看"再翻是自然的 ——
+    照 `inspect` 判"整轮只有它一条行"会**逼她中断**（话与翻二选一）。
+
+    ⇒ 判据 = **唯一操作行**（同 `trigger`）; 话写在它**前面**合法。
+    ⚠️ **"放在最后一行"只教不判**（只写在契约与规则书里）: 写在它后面只是写法差,
+    判成硬问题会白跑一次续写 —— 所以下面那条 `[*alone, _text(...)]` 必须**放行**。
+    """
     alone = [_look(clue="苔藓")]
     assert check_turn(alone) == [], _codes(check_turn(alone))
-    for bad in ([_text("我想想…"), *alone],
-                [*alone, _text("哦哦")],
-                [*alone, _look(when="上周")],
+    assert check_turn([_text("唔……我找找看"), *alone]) == []     # ⭐ 话可前置（新口径）
+    assert check_turn([*alone, _text("……")]) == []              # 写在后面也不判（只建议）
+    for bad in ([*alone, _look(when="上周")],                    # 它自己重复了
                 [*alone, MmtLine(kind="action", action="mmt_send_media",
-                                 payload={"image": "x"})]):
+                                 payload={"image": "x"})],       # 夹别的操作行
+                [MmtLine(kind="action", action=ACTION_TRIGGER,
+                         payload={"chapter_title": "某某某某"}), *alone]):
         issues = check_turn(bad)
         assert MmtIssueCode.EXCLUSIVE_VIOLATION in _codes(issues), issues
         assert issues[0].hard
-    print("    check: look 静默轮 —— 夹消息/夹别的操作/重复 都判独占违规（硬）")
+    print("    check: look —— 唯一操作行（话可前置）; 夹别的操作行/重复 ⇒ 硬违规")
 
 
 def test_noticed_row_does_not_break_look_exclusivity():
-    """⚠️ 同 N5b 口径: **想起行是账目不是内容**, 不算"整轮只有它一条行"。"""
+    """⚠️ 同 N5b 口径: **想起行是账目不是内容** —— 与 `look` 同轮顺手记一笔是允许的。"""
     rows = [_look(clue="苔藓"), MmtLine(kind="noticed", noticed="苔藓的约定")]
     assert check_turn(rows) == [], _codes(check_turn(rows))
-    assert MmtIssueCode.EXCLUSIVE_VIOLATION in _codes(check_turn([*rows, _text("诶")]))
+    assert check_turn([_text("唔……我找找看"), *rows]) == []      # 话 + 账目 + 翻, 都合法
+    assert MmtIssueCode.EXCLUSIVE_VIOLATION in _codes(
+        check_turn([*rows, MmtLine(kind="action", action="mmt_send_media",
+                                   payload={"image": "x"})]))
 
 
 # ---------------------------------------------------------------------------
@@ -327,3 +339,45 @@ def test_look_round_is_fed_back_and_the_turn_continues(tmp_path):
     assert llm.snapshots[-1][-1]["role"] == "user"   # `feedback()` 追加的是 **user**
     assert result.ok and "我想起来了" in result.reply  # 她接着说的话上了屏
     print("    look: ① 她发起 → ② 回灌真结果 → ③ 同一轮接着说（两次主调用）")
+
+
+class _WordsThenLookLLM:
+    """**先说话再翻**（新口径）: 第一次给"一句过渡话 + look 一行", 之后正常说话。"""
+
+    def __init__(self):
+        self.snapshots: list[list[dict]] = []
+        self.replies = [
+            '{"text": "唔……等一下，我找找看"}\n'
+            '{"action": "mmt_look", "payload": {"clue": "苔藓"}}',
+            '{"text": "……嗯，我想起来了"}',
+        ]
+
+    def chat(self, messages, **kw):
+        self.snapshots.append([dict(m) for m in messages])
+        return self.replies[min(len(self.snapshots) - 1, len(self.replies) - 1)]
+
+
+def test_words_may_come_before_the_look(tmp_path):
+    """⭐ **trigger 式独占**（2026-10-08 用户裁）: 先说一句"唔……我找找看"再翻 ——
+    话照常上屏、`look` 照跑、结果照回灌、她接着把这一轮说完（**不再被逼中断**）。
+
+    ⚠️ 判据落在"**话没有被丢掉**"上: 旧口径下这一轮判独占违规（话与翻二选一）;
+    而**批式路径**（本用例的桩只有 `chat`）里 `plan` 攒着的话原本会随 `return` 静默
+    消失 —— 所以这一条同时钉住"两条路径同形"。
+    """
+    _seed(tmp_path, "老师陪我在杂草屋蹲了一下午", title="苔藓的约定",
+          ts="2026-09-26T10:00:00")
+    llm = _WordsThenLookLLM()
+    eng = _engine(tmp_path, llm)
+
+    result = eng.agent_turn("我们上次说的那件事，你还记得吗", now=NOW)
+    assert result.ok, result.error
+    assert len(llm.snapshots) == 2, [len(s) for s in llm.snapshots]
+    assert "我找找看" in result.reply            # ⭐ 翻之前那句上了屏（行序在前）
+    assert "我想起来了" in result.reply          # 翻到之后接着说的话也上了屏
+    joined = "\n".join((m.get("content") or "") for m in llm.snapshots[-1])
+    assert "苔藓的约定" in joined                # 回灌的仍是真结果
+    assert llm.snapshots[-1][-1]["role"] == "user"
+    # 交付顺序 = 行序: 过渡话在前, 翻到之后的话在后
+    assert result.reply.index("我找找看") < result.reply.index("我想起来了")
+    print("    look: 先说话再翻 —— 话上屏 + 翻照跑 + 回灌 + 接着说（两次主调用）")

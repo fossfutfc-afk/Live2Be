@@ -174,6 +174,35 @@ def test_whole_turn_action_waits_until_block_end(tmp_path):
     print("    stream: 独占行攒到块尾（流中间不执行）")
 
 
+def test_look_keeps_the_words_that_came_before_it(tmp_path):
+    """⭐ `look` 是 **trigger 式独占**（2026-10-08 用户裁）: 先说一句"我找找看"再翻 ——
+    那句话**在 `look` 那一行到达时就已经上屏**（一行前瞻的 `_flush`）, 而 `look` 自己
+    攒到块尾才执行（它要整轮可见才判得出"我是不是唯一操作行"）。
+
+    ⚠️ 这是"两条路径同形"的**流式**那一半（批式那一半在
+    `test_mmt_look_action.py::test_words_may_come_before_the_look`）:
+    旧口径（inspect 式）下整轮只能有 look 一条行 —— 这句话根本不允许存在。
+    """
+    seen: list[list[str]] = []
+
+    def probe(subs, _line):
+        seen.append(list(subs))
+
+    _llm, engine, _st, _sid = _streamed_engine(
+        tmp_path,
+        _rows({"text": "唔……我找找看"},
+              {"action": "mmt_look", "payload": {"clue": "苔藓"}}),
+        _rows({"text": "……嗯，想不起来了"}),
+        probe=probe)
+    r = engine.agent_turn("我们上次说的那件事？")
+    assert r.ok and r.reply == "唔……我找找看\n……嗯，想不起来了", r.reply
+    # ⚠️ 只看**头两次**喂行（第 1 块的两行）: 第 3 次是第二块的续写行（同一批事件流）。
+    # 喂完第 1 行（话）: 还压着; 喂完第 2 行（look）: 话上屏 —— 而 look 自己不上屏
+    # （事件流里只有 mmt_chat, 没有 mmt_look）。
+    assert seen[:2] == [[], ["mmt_chat"]], seen
+    print("    stream: 先说话再翻 —— 话在 look 那行到达时上屏, look 攒到块尾")
+
+
 def test_inspect_mixed_drops_held_row_mid_stream(tmp_path):
     """流式下 `inspect` 混排: 手里压着的那句**丢掉**（整轮不交付）—— 一行前瞻就是为它。"""
     insp = {"action": "mmt_inspect_character",
