@@ -10,14 +10,16 @@
 | 函数 | 类 | 分 | 一句话（`why` 的一格） |
 |---|---|---|---|
 | `part_lexical` | **准入**（内容轴） | tags / 标题 / 正文覆盖 **取最大** | `tags[苔藓]` · `标题点名` · `覆盖 0.62` |
+| `part_semantic` | **准入**（内容轴, 要后端） | query 与正文的 cos（**池内 min-max**） | `语义 0.72` |
 | `part_struct` | **准入**（⚠️ 窄门） | 种子的内容分 × 边权（≤ 种子） | `认过的相似 0.60` · `同类兄弟 0.48` |
 | `part_temporal` | 加成 | `freshness(age)` ∈ **[floor, 1]** | `今天` · `12 天前` |
 | `part_prior` | 加成 | `node.significance`（**就是它一个**，2026-10-08 从 `det` 拆干净） | `重要 0.85` |
 | `part_name` | 加成 | 0 / 1（query 点到某个对象名） | `名字[杂草屋]` |
 
-⚠️ **四个"角度"两两不同源**（`fuse.py` 那条纪律）: 像不像（字面）· 是不是同一件事的邻居（结构）·
-多近（`ts` → 曲线）· 多重（L1 打的 `sig`）。⛔ **时间只算一次**、**重要性只算一次** ——
-`det = SIG·TIME + emo_span·emo_int` 那格把两者各算了两遍，2026-10-08 已拆（见 `part_prior`）。
+⚠️ **五个"角度"两两不同源**（`fuse.py` 那条纪律）: 像不像（字面）· 意思像不像（语义）·
+是不是同一件事的邻居（结构）· 多近（`ts` → 曲线）· 多重（L1 打的 `sig`）。
+⛔ **时间只算一次**、**重要性只算一次** —— `det = SIG·TIME + emo_span·emo_int` 那格把两者
+各算了两遍，2026-10-08 已拆（见 `part_prior`）。
 
 一句话由**函数自己**写（它算的时候就知道自己走的是哪一路）; `like()` 只按固定顺序拼。
 ⛔ **绝不事后重算** —— 重算就是第二个真源（`recall._keyword_candidates` 踩过）。
@@ -31,17 +33,24 @@
 | `RecallCtx` | **输入契约**: 所有路共用同一份"现在几点 / 什么心情"（老 `RecallContext` 的字段与纪律） | 加一个输入字段 |
 
 ```
-final = Σ wᵢ·sᵢ / Σ wᵢ        （只对**这次真调的那几路**求和; 分母 = 它们权重之和）
-准入   = `axis=EVIDENCE` 的那几路里至少一路 > 0
+① 逐路出**原始分**   ② 按 `scale` 归一（`UNIT` 原样 · `COSINE` **池内 min-max + 名次门槛**）
+③ 准入 + 加权平均:  final = Σ wᵢ·sᵢ / Σ wᵢ   （只对**这次真调的那几路**求和）
+准入 = `axis=EVIDENCE` 的那几路里至少一路命中
 ```
 
 * 分母是正常数 ⇒ **排序与"不带分母的加权和"完全一致**; 带分母只是把分压回 `[0,1]`、
   台账好看（用户 2026-10-08: *"最终调用各函数采用加权平均吧, 这样不费脑子"*）。
+* ⚠️ **归一与名次门槛是"池级"操作, 所以必须单独一趟**（不能逐条算）:
+  `COSINE` 那类的原始分是**相对量**（谁比谁更像）, 池内 min-max 之后才有 [0,1] 的含义;
+  而 **cos 恒正 ⇒ "> 0" 在它上面没有意义** ⇒ 只有原始分前 `[recall].sim_k` 名算命中
+  （**名次, 不是分数阈值**）。`UNIT` 那类不用门槛: 它的 0 就是自然边界。
 * ⚠️ **准入是唯一不是加权平均的规则**（**不是阈值** —— 边界就是"零"这个自然值）。
   零重合时若只看加权平均, `时间 + 先验 + 名字` 也能凑出一份分来: 真机 haruka 实测
   「老师，你今天有空吗」凑出 **10 条并列**、排序全交给先验 ⇒ 召回退化成"关于老师最重要的事",
   **每轮同样两条**（正是 `recall.recall_episodes` docstring 警告的"永远长不出新边"）。
-  ⇒ **证据轴（内容 / 窄门结构）可以自己把人带进池; 先验轴（时间 / 重要 / 名字）只加成。**
+  ⇒ **证据轴（内容 / 语义 / 窄门结构）可以自己把人带进池; 先验轴（时间 / 重要 / 名字）只加成。**
+* ⚠️ **后端不在 ≠ 返空**（旧件病根的反面）: `semantic` 那一路 `needs=("embed_fn",)`,
+  服务不在 ⇒ 自动不参与 + 台账 `skip=semantic(无embed_fn)`, 其余几路照常出结果。
 * ⚠️ **`needs` 缺输入 ⇒ 那一路自动不参与** + 台账记 `skip=名字(无emo_now)` ——
   不靠人记得配 0, 也不会静默算错。
 * ⚠️ **窄门**是 `struct` 那一路的定语, 不是形容词: 它只走两条边
@@ -63,6 +72,7 @@ final = Σ wᵢ·sᵢ / Σ wᵢ        （只对**这次真调的那几路**求�
 from __future__ import annotations
 
 import logging
+import math
 from dataclasses import dataclass, field, replace
 from typing import Callable
 
@@ -76,6 +86,9 @@ logger = logging.getLogger(__name__)
 
 #: `like` 取几条的**回落值**（真源 = `settings.toml [recall].like_k`）
 LIKE_K = 3
+
+#: 名次门槛的缺省值（真源 = `settings.toml [recall].sim_k`）—— **名次, 不是分数阈值**
+DEFAULT_HIT_K = 5
 
 #: 轴（`Part.axis`）—— 老 `channels.py` 的 `kind` 那一格: 决定合成层怎么用它
 EVIDENCE = "evidence"     #: 证据轴: **可准入**（内容 / 窄门结构）
@@ -151,21 +164,30 @@ class RecallCtx:
     seeds: dict[str, float] = field(default_factory=dict)
     #: ⭐ **结构一跳能到达的节点**: 节点 id → `(分, 一句话)`; 分 **≤ 它的种子**
     reach: dict[str, tuple[float, str]] = field(default_factory=dict)
+    #: ⭐ **语义相似度**（`material="sim"` 那一路要）: 节点 id → 与 query 的 cos
+    sim: dict[str, float] = field(default_factory=dict)
+    #: ⭐ **哪份派生料没建成, 为什么** —— 折进台账的 `skip=`（"事实可观测"）
+    degraded: tuple[str, ...] = ()
 
 
-def build_ctx(store, ctx: RecallCtx, *, seed_parts: "tuple[str, ...] | list[str]" = (),
+def build_ctx(store, ctx: RecallCtx, *, active: "tuple[str, ...] | list[str]" = (),
               ) -> RecallCtx:
-    """把**派生料**算出来: 名字表（entity 的名字 + 别名）→ query 里命中的那几个 → 它们的车道
-    → 内容种子 → 结构一跳。
+    """把**派生料**算出来（只算"这次真调的那几路"要的那几份）:
+
+    名字表（entity 的名字 + 别名）→ query 里命中的那几个 → 它们的车道;
+    内容种子（`material="seeds"` 的路要）→ 结构一跳; 相似度（`material="sim"` 的路要）。
 
     ⚠️ 节点表**在这里自己取全量**（不接调用方传进来的表）—— 名字表要从里面挑 entity;
     若让调用方传"选面过滤后"的那一份, 名字那一路会**恒空**而且**静默**
     （只是少一份加成, 不报错）。踩过一次, 所以这条做成结构性不可能。
     车道 / 结构取不到（图坏了）**不是错**: 只是少一份加成（宁缺勿错, 不阻断召回）。
 
-    `seed_parts`: **这次真调的**、且 `Part.seeds` 为真的那几路（由 `like()` 按档位算好传进来）。
-    一条都没有 ⇒ 没有种子 ⇒ 结构那一路自然为 0（消融 `lexical` 时正是这样, 见 `Part.seeds`）。
+    `active`: **这次真调的**路名（由 `like()` 按档位算好传进来）。种子只从 `Part.seeds`
+    为真的路出 ⇒ 一条都没参与时结构那一路自然为 0（消融 `lexical` 时正是这样）。
+    后端故障**不抛**: 记进 `degraded`（台账会印出来）, 其余几路照常出结果。
     """
+    active = list(active)
+    need = {PARTS[n].material for n in active if n in PARTS} - {""}
     q = (ctx.query or "").strip()
     names: dict[str, tuple[str, str]] = {}          # 名字(casefold) → (entity_id, 原写法)
     universe = list(store.all())
@@ -185,17 +207,59 @@ def build_ctx(store, ctx: RecallCtx, *, seed_parts: "tuple[str, ...] | list[str]
             lanes = {eid: frozenset(g.lane(eid)) for eid in named}
         except Exception as e:                       # noqa: BLE001 — 少一份加成, 不阻断
             logger.info("recall_like lanes=skip reason=%s", e)
-    base = replace(ctx, query=q, named=named, lanes=lanes)
-    # 结构一跳要"谁命中了内容"当种子 ⇒ 这里按**这次真调的内容路**跑一遍
-    # （**同一个函数**, 不是第二份实现; 一条内容路都没参与 ⇒ 没有种子）
+    base = replace(ctx, query=q, named=named, lanes=lanes,
+                   seeds={}, reach={}, sim={}, degraded=())
+    # 结构一跳要"谁命中了内容"当种子 ⇒ 只按**这次真调的内容路**跑（同一个函数, 不是第二份实现）
     seeds: dict[str, float] = {}
-    for pname in seed_parts:
-        fn = PARTS[pname].fn
-        for n in universe:
-            s = fn(n, base)[0]
-            if s > seeds.get(n.id, 0.0):
-                seeds[n.id] = s
-    return replace(base, seeds=seeds, reach=_reach(store, seeds))
+    if "seeds" in need:
+        for pname in [n for n in active if PARTS[n].seeds]:
+            fn = PARTS[pname].fn
+            for n in universe:
+                s = fn(n, base)[0]
+                if s > seeds.get(n.id, 0.0):
+                    seeds[n.id] = s
+    sim: dict[str, float] = {}
+    degraded: tuple[str, ...] = ()
+    if "sim" in need:
+        sim, why = _sim(base, universe)
+        if why:
+            degraded = (f"语义({why})",)
+    return replace(base, seeds=seeds, reach=_reach(store, seeds), sim=sim, degraded=degraded)
+
+
+def _sim(ctx: RecallCtx, universe: list) -> tuple[dict[str, float], str]:
+    """`{节点 id: 与 query 的 cos}`（**批式**一次算完）+ 降级原因（"" = 成功）。
+
+    ⚠️ **必须批式**: 逐条 `embed_fn([txt])` 会打 N+1 次 HTTP 把脚本跑死
+    （`experiments/ba_corpus/README.md` 记着这个坑）。
+    ⚠️ 正文口径 = `_body(node)` + 检索词（tags）—— 不再单写一份 `_embed_text`,
+    免得覆盖率那一路和语义这一路**各算各的正文**, 迟早漂开。
+    """
+    fn = ctx.embed_fn
+    if fn is None:
+        return {}, "无embed_fn"
+    if not (ctx.query or "").strip():
+        return {}, "无query"
+    try:
+        texts = [f"{_body(n)} {' '.join(getattr(n, 'tags', ()) or ())}".strip()
+                 for n in universe]
+        vecs = fn(texts)
+        qv = fn([ctx.query])[0]
+    except Exception as e:                            # noqa: BLE001 — 后端故障不阻断召回
+        logger.info("recall_like sim=skip reason=%s nodes=%d", e, len(universe))
+        return {}, f"后端故障:{type(e).__name__}"
+    return {n.id: _cosine(qv, v) for n, v in zip(universe, vecs) if v}, ""
+
+
+def _cosine(a, b) -> float:
+    """cos（零向量 → 0.0, 不抛）。"""
+    if not a or not b:
+        return 0.0
+    na = math.sqrt(sum(x * x for x in a))
+    nb = math.sqrt(sum(x * x for x in b))
+    if na == 0.0 or nb == 0.0:
+        return 0.0
+    return sum(x * y for x, y in zip(a, b)) / (na * nb)
 
 
 def _reach(store, seeds: dict[str, float]) -> dict[str, tuple[float, str]]:
@@ -346,6 +410,23 @@ def part_prior(node, ctx: RecallCtx) -> tuple[float, str]:
     return sig, f"重要 {sig:.2f}"
 
 
+def part_semantic(node, ctx: RecallCtx) -> tuple[float, str]:
+    """**语义轴**: query 与这条正文的 cos（**池内 min-max 归一在合成层做, 这里出原始分**）。
+
+    ⚠️ **它是"后端不在就自动不参与"的那一路**（`needs=("embed_fn",)`）——
+    这正是旧件病根的反面: 旧件 `recommend_candidates(embed_fn=None)` 在真机上**四个查询全空**;
+    这里服务不在只是少一份证据, 台账记 `skip=semantic(无embed_fn)`, 其余几路照常出结果。
+
+    ⚠️ **向量由 `build_ctx` 批式算好**（`ctx.sim`）, 这里只查表 ——
+    逐条 embed 会打 N+1 次 HTTP 把脚本跑死（`ba_corpus/README.md` 踩过）。
+    ⚠️ **它不当结构一跳的种子**（`seeds=False`）: 语义命中不扩散, 免得"像"被放大成"一片都像"。
+    """
+    v = ctx.sim.get(getattr(node, "id", ""))
+    if v is None:
+        return 0.0, ""
+    return float(v), f"语义 {v:.2f}"
+
+
 def part_name(node, ctx: RecallCtx) -> tuple[float, str]:
     """**对象名**: query 里点到某个对象（名 / 别名）⇒ 它**车道上**的节点得 1.0。
 
@@ -383,12 +464,17 @@ class Part:
     #: ⚠️ 它决定消融的正确性: 把 `lexical` 关掉时**种子也没了**（否则结构路还偷偷吃着字面证据,
     #: 那个消融就是假的）。
     seeds: bool = False
+    #: 这一路吃哪份**派生料**（由 `build_ctx` 按"这次真调的清单"预生成 —— 池级操作不能逐条算）:
+    #: `""` 不预生成 · `"seeds"` 内容种子（结构一跳的起点）· `"sim"` 每条与 query 的相似度
+    material: str = ""
 
 
 #: ⭐ **注册表 = 唯一注册点**（照 `promptkit/blocks.py::BLOCKS` 的形态）: 加一路只在这里加一行
 PARTS: dict[str, Part] = {
     "lexical": Part(part_lexical, axis=EVIDENCE, scale=UNIT, needs=("query",), seeds=True),
-    "struct": Part(part_struct, axis=EVIDENCE, scale=UNIT, needs=("query",)),
+    "semantic": Part(part_semantic, axis=EVIDENCE, scale=COSINE,
+                     needs=("embed_fn",), material="sim"),
+    "struct": Part(part_struct, axis=EVIDENCE, scale=UNIT, needs=("query",), material="seeds"),
     "temporal": Part(part_temporal, axis=PRIOR, scale=UNIT, needs=("now",)),
     "prior": Part(part_prior, axis=PRIOR, scale=UNIT),
     "name": Part(part_name, axis=PRIOR, scale=UNIT, needs=("query",)),
@@ -411,9 +497,11 @@ class Spec:
 #: ⭐ **档位表**（照 `promptkit/box.py::DOMAIN_BOXES` 的形态）: 一个场景一块, 自包含、好审
 SPECS: dict[str, Spec] = {
     # P19「你想起的事」: query = 玩家这一句, 只要 episode。
-    # ⚠️ 没有 `name` 以外的差别, 是因为 turn 拿不到 query 侧的情绪/地点（见模块 docstring）。
+    # ⚠️ `semantic` 与 `lexical` **同权**: 两种内容证据各占一份 —— 两边都命中比只命中一边强
+    #    （后端不在时 `semantic` 自动不参与, 权重也不进分母, 所以不影响字面那套的分数尺度）。
+    # ⚠️ 暂时没有 `emotion` / `place`: turn 拿不到 query 侧的情绪/地点（见模块 docstring）。
     "turn": Spec(kinds=("episode",), parts=(
-        ("lexical", 1.00), ("struct", 0.35), ("temporal", 0.15),
+        ("lexical", 1.00), ("semantic", 1.00), ("struct", 0.35), ("temporal", 0.15),
         ("prior", 0.15), ("name", 0.15),
     )),
     # digest（R2/L2 的候选）: query = **本段新经历**, 认知面也进池。
@@ -421,7 +509,8 @@ SPECS: dict[str, Spec] = {
     # ⚠️ `emotion` / `place` 两路要等真正的 part 落地（那两路**输入只在 digest 有**:
     #    本段节点自带 `emo_shape` / `place`, MMT 每轮没有）。
     "digest": Spec(kinds=("episode", "belief", "experience"), parts=(
-        ("lexical", 1.00), ("struct", 0.35), ("temporal", 0.15), ("prior", 0.15),
+        ("lexical", 1.00), ("semantic", 1.00), ("struct", 0.35),
+        ("temporal", 0.15), ("prior", 0.15),
     )),
 }
 
@@ -433,7 +522,9 @@ def plan(spec: str = "turn", weights: dict[str, float] | None = None,
     `weights` 是**一次性覆盖**（消融实验 / 对照台用）:
     * 只能改**本档已有**那几路的权重 —— 想给本档加一路请改 `SPECS`（档位决定调哪几路）;
     * `0` = 这一路完全不参与;
-    * ⛔ 未知路名 → `KeyError`（防拼错静默失效, 同 `recall_config.get` 的纪律）。
+    * ⛔ 未知路名 → `KeyError`（防拼错静默失效, 同 `recall_config.get` 的纪律）;
+    * ⛔ `axis=GATE` 的路**还没实现**（合成器只有加权平均那条路径）⇒ 配了权重就当场炸 ——
+      否则它会被当加成**静默算错**（乘性闸门 vs 加数, 完全是两回事）。
     """
     sp = SPECS.get(spec)
     if sp is None:
@@ -450,6 +541,10 @@ def plan(spec: str = "turn", weights: dict[str, float] | None = None,
                            f"（注册表: {sorted(PARTS)}）")
         if weights and name in weights:
             w = weights[name]
+        if part.axis == GATE and float(w) > 0.0:
+            raise NotImplementedError(
+                f"档位 {spec!r} 里的 {name!r} 是 GATE（乘性闸门）, 而合成器目前只有"
+                "加权平均那条路径 —— 把它当加数会**静默算错**。要用它先实现闸门那条路径。")
         out.append((name, part, float(w)))
     return out
 
@@ -457,7 +552,13 @@ def plan(spec: str = "turn", weights: dict[str, float] | None = None,
 def like(store, ctx: "RecallCtx", *, spec: str = "turn",
          k: int | None = None, weights: dict[str, float] | None = None,
          ) -> list[Candidate]:
-    """一段情境 → **最像的 k 条**（降序; 准入 = 证据轴至少一路 > 0）。
+    """一段情境 → **最像的 k 条**（降序; 准入 = 证据轴至少一路命中）。
+
+    三趟（**池级操作不能逐条算**）:
+      ① 逐路出**原始分**（一路坏不阻断）;
+      ② 按 `scale` 归一: `UNIT` 原样 · `COSINE` **池内 min-max** + **名次门槛**
+         （只有原始分前 `[recall].sim_k` 名算命中 —— cos 恒正, "> 0" 在它上面没有意义）;
+      ③ 准入（证据轴至少一路命中）+ 加权平均 + 降序。
 
     Args:
         store: `WikiStoreV2`（**只读**）。
@@ -485,34 +586,81 @@ def like(store, ctx: "RecallCtx", *, spec: str = "turn",
             skipped.append(f"{name}(无{'/'.join(miss)})")
             continue
         active.append((name, part, w))
-    ctx = build_ctx(store, ctx, seed_parts=[n for n, p, _w in active if p.seeds])
+    ctx = build_ctx(store, ctx, active=[n for n, _p, _w in active])
+    skipped += list(ctx.degraded)                        # 派生料没建成也要留痕
     nodes = [n for n in store.all()
              if not sp.kinds or getattr(n, "kind", "") in sp.kinds]
-    total_w = sum(w for _, _, w in active)
-    out: list[Candidate] = []
+
+    # ① 逐路出原始分
+    raw: dict[str, dict[str, float]] = {}
+    notes: dict[str, dict[str, str]] = {}
     for node in nodes:
-        scores: dict[str, float] = {}
-        notes: list[str] = []
-        admitted = False
+        row: dict[str, float] = {}
+        why: dict[str, str] = {}
         for name, part, _w in active:
             try:
                 s, note = part.fn(node, ctx)
             except Exception as e:                       # noqa: BLE001 — 一路坏不阻断召回
                 logger.info("recall_like part=%s 失败: %s", name, e)
                 s, note = 0.0, ""
-            scores[name] = float(s)
+            row[name] = float(s)
             if note:
-                notes.append(note)
-            if part.axis == EVIDENCE and s > 0.0:
-                admitted = True
-        if not admitted or total_w <= 0.0:
-            continue
-        final = sum(w * scores[name] for name, _p, w in active) / total_w
-        out.append(Candidate(node=node, score=final, why=" · ".join(notes)))
+                why[name] = note
+        raw[node.id], notes[node.id] = row, why
+
+    # ② 按 scale 归一（池级）
+    hit_k = _hit_k()
+    score: dict[str, dict[str, float]] = {nid: {} for nid in raw}
+    for name, part, _w in active:
+        vals = {nid: row.get(name, 0.0) for nid, row in raw.items()}
+        if part.scale == COSINE:
+            norm = _pool_norm(vals)
+            kept = set(sorted(vals, key=lambda nid: (-vals[nid], nid))[:hit_k])
+            for nid in vals:
+                score[nid][name] = norm.get(nid, 0.0) if nid in kept else 0.0
+        else:
+            for nid, v in vals.items():
+                score[nid][name] = max(0.0, v)
+
+    # ③ 准入 + 加权平均 + 降序
+    total_w = sum(w for _n, _p, w in active)
+    out: list[Candidate] = []
+    if total_w > 0.0:
+        for node in nodes:
+            nid = node.id
+            if not any(part.axis == EVIDENCE and score[nid].get(name, 0.0) > 0.0
+                       for name, part, _w in active):
+                continue
+            final = sum(w * score[nid].get(name, 0.0) for name, _p, w in active) / total_w
+            out.append(Candidate(node=node, score=final,
+                                 why=" · ".join(notes[nid][name] for name, _p, _w in active
+                                                if name in notes[nid])))
     out.sort(key=lambda c: (-c.score, getattr(c.node, "id", "")))
     logger.info(ledger_line(out, query=ctx.query, pool=len(nodes), k=int(k),
                             spec=spec, skip=skipped, weights=weights))
     return out[:max(int(k), 0)]
+
+
+def _pool_norm(vals: dict[str, float]) -> dict[str, float]:
+    """池内 min-max（**与旧合成层同语义**）: 池内全同分 → 有正值则都算 1.0（"都一样相关"）,
+    全非正 → 0.0（"都不相关"）。
+
+    ⚠️ 只给 `scale=COSINE` 那类用: 它的原始分是**相对量**（谁比谁更像）;
+    `UNIT` 那类是绝对分, 拉到池内相对会**凭空制造"最差的一定是 0"**。
+    """
+    if not vals:
+        return {}
+    lo, hi = min(vals.values()), max(vals.values())
+    span = hi - lo
+    if span <= 1e-9:
+        v = 1.0 if hi > 0.0 else 0.0
+        return {k: v for k in vals}
+    return {k: (v - lo) / span for k, v in vals.items()}
+
+
+def _hit_k() -> int:
+    """名次门槛（`[recall].sim_k`, 缺省 5）—— **名次, 不是分数阈值**。"""
+    return max(int(_knob("sim_k", DEFAULT_HIT_K)), 1)
 
 
 def _has(ctx: "RecallCtx", name: str) -> bool:
@@ -575,5 +723,5 @@ def _knob(name: str, fallback: float) -> float:
 
 
 __all__ = ["COSINE", "EVIDENCE", "GATE", "LIKE_K", "PARTS", "PRIOR", "SPECS", "UNIT",
-           "Part", "RecallCtx", "Spec", "build_ctx", "like", "part_lexical",
-           "part_name", "part_prior", "part_struct", "part_temporal", "plan"]
+           "DEFAULT_HIT_K", "Part", "RecallCtx", "Spec", "build_ctx", "like", "part_lexical",
+           "part_name", "part_prior", "part_semantic", "part_struct", "part_temporal", "plan"]

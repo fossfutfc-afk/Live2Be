@@ -19,7 +19,7 @@ from pathlib import Path
 import pytest
 
 from core.brain import WikiStoreV2, make_node
-from core.brain.read.like import (EVIDENCE, PARTS, SPECS, Part, RecallCtx, Spec,
+from core.brain.read.like import (EVIDENCE, GATE, PARTS, SPECS, Part, RecallCtx, Spec,
                                   build_ctx, like, part_lexical, part_name, part_prior,
                                   part_struct, part_temporal, plan)
 from core.brain.read.pack import Candidate, ledger_line
@@ -52,7 +52,7 @@ def _ctx(query: str = "", **kw) -> RecallCtx:
 
 def _mat(st, query: str = "", **kw) -> RecallCtx:
     """建料（= `like()` 内部那一步: 种子只从 `lexical` 出）。"""
-    return build_ctx(st, _ctx(query, **kw), seed_parts=["lexical"])
+    return build_ctx(st, _ctx(query, **kw), active=["lexical", "struct"])
 
 
 def _like(st, query: str = "", *, spec: str = "turn", **kw):
@@ -403,7 +403,7 @@ def test_missing_input_drops_the_part_and_says_so(tmp_path, caplog):
     try:
         with caplog.at_level("INFO", logger="core.brain.read.like"):
             out = like(st, _ctx(""), spec="_probe")       # query 空 ⇒ 两路都缺输入
-        line = [r.getMessage() for r in caplog.records if "recall_like" in r.getMessage()][0]
+        line = _ledger(caplog)
         assert "skip=lexical(无query),name(无query)" in line, line
         assert out == []                                  # 唯一证据路被跳过 ⇒ 没有准入
     finally:
@@ -415,8 +415,122 @@ def test_ledger_prints_spec_skip_and_overrides(tmp_path, caplog):
     st = _cluster_store(tmp_path)
     with caplog.at_level("INFO", logger="core.brain.read.like"):
         _like(st, "团子", weights={"struct": 0.0})
-    line = [r.getMessage() for r in caplog.records if "recall_like" in r.getMessage()][0]
-    assert "spec=turn" in line and "skip=struct(权重0)" in line and "w=struct0.00" in line
+    line = _ledger(caplog)
+    assert "spec=turn" in line and "w=struct0.00" in line
+    assert "struct(权重0)" in line                       # 被覆盖关掉的那一路
+    assert "semantic(无embed_fn)" in line                # 缺输入的那一路（后端不在）
+
+
+# ---------------------------------------------------------------------------
+# ⑦ 语义轴（M2）—— 后端在就用, 不在就自动退, **绝不返空**
+# ---------------------------------------------------------------------------
+
+def _ledger(caplog) -> str:
+    """台账那一行（`spec=` 那行; 别的 info 行也可能带 `recall_like` 前缀）。"""
+    return [r.getMessage() for r in caplog.records
+            if "recall_like" in r.getMessage() and " spec=" in r.getMessage()][-1]
+
+
+def _bag_embed(texts):
+    """假后端: 词袋向量（命中即相似）—— 用它才测得出"语义召回"本身。"""
+    vocab = ["绿绿", "苔藓", "甜点", "团子", "杂草", "月"]
+    return [[1.0 if v in (t or "") else 0.0 for v in vocab] + [0.01] for t in texts]
+
+
+def test_semantic_recalls_a_paraphrase_that_lexical_misses(tmp_path):
+    """⭐ 语义轴的**存在理由**: 改写句（字面一个词都不重合）也要能召回到。"""
+    st = _store(tmp_path, [
+        _ep("m0001", "瓦片缝里长出一小丛绿绿的东西", title="瓦缝", tags=["苔藓"]),
+        _ep("m0002", "在店里吃了蛋糕", title="甜品", tags=["甜点"]),
+    ])
+    # 字面: 既不命中 tags 也不命中标题（覆盖率也过不了线）⇒ 只有语义能救
+    assert _like(st, "那片绿绿的小东西还在吗") == []
+    out = like(st, _ctx("那片绿绿的小东西还在吗", embed_fn=_bag_embed))
+    assert [c.node.id for c in out] == ["m0001"], out
+    assert "语义" in out[0].why
+
+
+def test_backend_missing_degrades_but_still_returns(tmp_path, caplog):
+    """⭐ **旧件病根的反面**: 后端不在 ⇒ 那一路自动不参与, 其余照常出结果（不是返空）。"""
+    st = _store(tmp_path, [_ep("m0001", "瓦片缝里的苔藓", tags=["苔藓"])])
+    with caplog.at_level("INFO", logger="core.brain.read.like"):
+        out = _like(st, "苔藓")                              # 没有 embed_fn
+    assert [c.node.id for c in out] == ["m0001"]             # 字面照常给结果
+    line = _ledger(caplog)
+    assert "semantic(无embed_fn)" in line
+
+
+def test_backend_blows_up_degrades_not_raises(tmp_path, caplog):
+    """后端抛异常 ⇒ 记进台账的 `skip=`, 其余几路照常（宁缺勿错, 不阻断剧情）。"""
+    def boom(_texts):
+        raise RuntimeError("模型未加载")
+    st = _store(tmp_path, [_ep("m0001", "瓦片缝里的苔藓", tags=["苔藓"])])
+    with caplog.at_level("INFO", logger="core.brain.read.like"):
+        out = like(st, _ctx("苔藓", embed_fn=boom))
+    assert [c.node.id for c in out] == ["m0001"]
+    line = _ledger(caplog)
+    assert "语义(后端故障:RuntimeError)" in line
+
+
+def test_semantic_is_pool_normalized_and_rank_gated(tmp_path):
+    """`scale=COSINE` 的两条语义: **池内 min-max**（池里最高的归一到 1.0, 不是"raw cos 直接用"）
+    + **名次门槛**（只有原始分前 `[recall].sim_k` 名算命中; cos 恒正 ⇒ "> 0" 在它上面没有意义）。
+
+    ⚠️ 断言必须落在**最终分**上: `ctx.sim` 里存的是**原始 cos**（归一由合成层第二趟做）——
+    只断言 `part_semantic` 的输出**测不出归一有没有生效**（这支变异就是这么假绿过一次）。
+    """
+    from core.brain.read.like import PARTS, build_ctx, part_semantic
+    st = _store(tmp_path, [
+        _ep("m0001", "苔藓甲", tags=["苔藓"]), _ep("m0002", "苔藓乙", tags=["苔藓"]),
+        _ep("m0003", "苔藓丙", tags=["苔藓"]), _ep("m0004", "苔藓丁", tags=["别的"]),
+    ])
+    # query → [1,0]; 每条按**指定的 cos** 造向量（cos = 第一分量）⇒ 池内最高是 0.9, 不是 1.0
+    cos = {"甲": 0.9, "乙": 0.5, "丙": 0.0, "丁": 0.2}
+
+    def fixed(texts):
+        if len(texts) == 1 and texts[0] == "苔藓":           # query 那一次调用
+            return [[1.0, 0.0]]
+        out = []
+        for t in texts:
+            c = next((v for k, v in cos.items() if k in (t or "")), 0.0)
+            out.append([c, (1.0 - c * c) ** 0.5])
+        return out
+
+    ctx = build_ctx(st, _ctx("苔藓", embed_fn=fixed), active=["semantic"])
+    assert PARTS["semantic"].scale == "cosine"               # 池内归一是它这一路的语义
+    assert round(ctx.sim["m0001"], 3) == 0.9                 # 派生料里是**原始 cos**
+    assert part_semantic(st.get("m0001"), ctx) == (0.9, "语义 0.90")
+
+    # 只留语义（其余三路先验照常: temporal 无 ts = 0 · prior = sig 0.5 · name 无名字 = 0）
+    # ⇒ 归一后 m0001 拿 1.0; 若没归一则是 0.9（分数对不上）
+    out = like(st, _ctx("苔藓", embed_fn=fixed), weights={"lexical": 0.0, "struct": 0.0})
+    want = (1.0 + 0.15 * 0.5) / (1.00 + 0.15 + 0.15 + 0.15)
+    assert out[0].node.id == "m0001" and abs(out[0].score - want) < 1e-9, out
+
+    # 名次门槛: 把 sim_k 压到 1 ⇒ 只有原始 cos 最高的那条算命中, 其余**从这一路拿 0**
+    from core.brain.read import recall_config as rc
+    rc._cache = dict(rc.DEFAULTS, sim_k=1.0)
+    try:
+        out2 = like(st, _ctx("苔藓", embed_fn=fixed), weights={"lexical": 0.0, "struct": 0.0})
+        assert [c.node.id for c in out2] == ["m0001"], out2
+    finally:
+        rc._cache = None
+
+
+def test_gate_axis_is_not_implemented_and_says_so(tmp_path):
+    """⛔ `axis=GATE` 的路配了权重就**当场炸** —— 合成器只有加权平均那条路径,
+    把它当加数会静默算错（乘性闸门 vs 加数, 完全是两回事）。"""
+    PARTS["_gate"] = Part(part_prior, axis=GATE)
+    SPECS["_g"] = Spec(kinds=("episode",), parts=(("lexical", 1.0), ("_gate", 0.5)))
+    try:
+        with pytest.raises(NotImplementedError) as e:
+            plan("_g")
+        assert "GATE" in str(e.value)
+        # 权重 0 = 不参与 ⇒ 不炸（配了权重才算"要用它"）
+        assert [n for n, _p, _w in plan("_g", {"_gate": 0.0})] == ["lexical", "_gate"]
+    finally:
+        SPECS.pop("_g", None)
+        PARTS.pop("_gate", None)
 
 
 # ---------------------------------------------------------------------------

@@ -6,7 +6,7 @@
 | 模块 | 干什么 |
 |---|---|
 | `pack.py` | ⭐ 召回的**候选包**（2026-10-08）: `Candidate`（节点 + 分 + **凭什么**）· `ledger_line` |
-| `like.py` | ⭐ **相似召回**（同日）: 情境 ⇒ 最像的 k 条。**三张表 + 一个契约**（`PARTS` 注册表 / `SPECS` 档位 / `RecallCtx` 输入契约），照 promptkit 的 `BLOCKS`+`DOMAIN_BOXES` 形态 |
+| `like.py` | ⭐ **相似召回**（同日）: 情境 ⇒ 最像的 k 条。**三张表 + 一个契约**（`PARTS` 注册表 / `SPECS` 档位 / `RecallCtx` 输入契约），照 promptkit 的 `BLOCKS`+`DOMAIN_BOXES` 形态。合成 = 三趟: 原始分 → **按 scale 归一**（`UNIT` 原样 / `COSINE` 池内 min-max + **名次门槛**）→ 准入 + 加权平均 |
 | `render.py` | 把图渲染成字: 她的注入视图（一条河 · 旧→新）· 组织视图 · 认知列表 · 召回块 |
 | `recall.py` | 三通道召回 + 一跳扩展（`recall_subgraph` / `recall_episodes` / 随机浮现） |
 | `channels.py` · `channel_impl.py` | 五条召回链路的**接口**与实现（多数"诚实的空"——缺数据不出分） |
