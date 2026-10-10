@@ -23,9 +23,14 @@
 | 模块 | 管什么 | 不管什么 |
 |---|---|---|
 | `age.py` | **双出口**: 连续 `age` → `freshness`; 同一 age → `render_relative` 短语 | 不做排序、不知道 score |
+| `cal.py` | **日历算术**（位移 + 夹取: 月末 / 闰日 / 周首日）—— 纯 stdlib | 不做语法、不认人话 |
+| `when.py` | ⭐ **她写的时间 → 检索窗口**（`last` / `back` 两族 + 绝对形式 + 人话容错） | ⛔ 不读壁钟、⛔ 不从整句话里抽时间、⛔ 不猜 |
 | `prompt_time.py` | **进 prompt 的时间注记**（现实间隔 / 手机日期）—— 纯渲染, 无 IO | 不读盘、不判定 |
 | `span.py` | **LLM 面对的时间语法**（枚举 + 校验; 输出但不消费, 等衰减新模型） | 不做进位、不做衰减 |
 | `realtime.py` | **现实日历（②）**: 特殊日期表 + 触发幂等 + `real_clock.json` 台账 | **只做由头, 不做时钟**（不持有任何时钟） |
+
+⚠️ **`when.py` 与 `span.py` 不是重复**: `span` 是"LLM 说**跨了多久**"（剧情粒度枚举, 已无
+运行时消费方）; `when` 是"她问**哪一段时间的事**"（检索区间）。一个管叙事事实, 一个管检索。
 
 ⚠️ **`story.py` / `clock.py` 已于 2026-09-17「时间轴换代」删除** —— 剧情游标
 （`world_clock.json`）不再是时间事实, 唯一日期轴 = 现实日期（`age.py` docstring）。
@@ -75,6 +80,7 @@ from core.worldtime.realtime import (
     load_occasions,
 )
 from core.worldtime.span import SPANS, SpanError, parse_span
+from core.worldtime.when import WIDEN_DAYS, When, parse_when
 
 __all__ = [
     # age —— 双出口（2026-09-17: 年龄改由**现实日期**算, §10）
@@ -106,4 +112,8 @@ __all__ = [
     "load_occasions",
     "load_clock",
     "realtime_notes",
+    # ⭐ when —— 她写的时间 → 检索窗口（2026-10-08; `last` / `back` 两族 + 人话容错）
+    "WIDEN_DAYS",
+    "When",
+    "parse_when",
 ]

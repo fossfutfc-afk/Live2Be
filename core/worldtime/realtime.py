@@ -109,6 +109,7 @@ from pathlib import Path
 
 from core import paths
 from core.common.atomic import replace_with_retry
+from core.worldtime.cal import shift_years
 
 logger = logging.getLogger(__name__)
 
@@ -175,10 +176,14 @@ class Occasion:
         """`year` 栏是否写死了（True = 一辈子一次）。"""
         return self.year is not None
 
-    def _on(self, year: int) -> date:
-        """那一年里"这个日子"是哪天（`2/29` 而当年非闰年 → 落到 `3/1`）。
+    def on(self, year: int) -> date:
+        """**那一年里"这个日子"是哪天**（`2/29` 而当年非闰年 → 落到 `3/1`）。
 
         同 `prompt_time.phone_date` 的闰年处置: **绝不构造一个不存在的日期**。
+
+        ⚠️ 2026-10-08 由 `_on` **改名公开**: `when.py`（检索的时间语法）要问
+        "倒数第 N 个这个日子是哪天", 而它**不能**靠 `target()` —— 那个函数刻意
+        不回退到上一次（见下）。跨模块用私有名不行, 所以这一格是公开 API。
         """
         try:
             return date(year, self.month, self.day)
@@ -200,8 +205,8 @@ class Occasion:
         （`target <= today`）。两件事分开, 才拦得住"去年的那个日子"。
         """
         if self.year is not None:
-            return self._on(self.year)
-        return self._on(today.year)
+            return self.on(self.year)
+        return self.on(today.year)
 
     def signature(self, today: date) -> str:
         """幂等键 —— `{key}:{year}`（年份 = `target(today).year`, 现实年）。
@@ -554,11 +559,11 @@ def _minus_one_year(d: date) -> date:
     ⚠️ **当前没有调用点** —— `due_occasions` 的窗口已简化为"上次跟她说过话那天"
     （见该函数 docstring 的两条特例）。留着是因为"周年"类需求迟早要用它,
     而闰年那一格是那种"不写就必然写错"的地方。
+
+    ⚠️ 2026-10-08: **实现转调 `cal.shift_years(d, -1)`** —— `when.py` 也要"往前 N 年",
+    而闰日夹取**全库只该有一处**（否则"2/29 往前一年"会有两个答案）。
     """
-    try:
-        return d.replace(year=d.year - 1)
-    except ValueError:                      # 2/29 → 去年无此日
-        return d.replace(year=d.year - 1, day=28)
+    return shift_years(d, -1)
 
 
 def mark_seen(clock: dict, day: object = None) -> dict:
