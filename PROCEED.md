@@ -1,107 +1,52 @@
-# PROCEED.md — **接续用**（整篇覆盖写；上一版 2026-10-05 → 2026-10-08 的会话见 git 历史）
+# PROCEED.md — **接续用**（整篇覆盖写；上一版见 git 历史 `28f07b6`）
 
-> 头一版写在 **2026-10-08**。这一段会话干完两条线：**两趟（P6–P11）** 与 **entity（E1–E4）**，
-> 两条都已收口并提交（§3）。
-> ⭐ **现在停在这里**：正在讨论 **① note 的形式** 与 **② 召回策略**（§1.1/§1.2）——
-> 两条都**还没动代码**，上下文压缩后从这里接着谈。
+> 这一段会话（2026-10-08）干完一条线：**召回 `like` 从零到接上 P19**（6 笔提交，§3），
+> 并把 **embed 从实时注入里停掉**（用户裁）。
+> ⭐ **现在停在这里**：下一步是**把两条线接上** —— ① MMT 主动查询 `look` ② digest 的候选换新件。
+> §1.1/§1.2 是这两条线的**施工表**（差距已摸清，可直接开工）。
 
 ---
 
 ## 1. 下一步该怎么做
 
-### 1.1 ✅ **已裁决：note 的形式 —— 暂缓**（2026-10-08 晚，用户原话"改的理由确实不多了"）
+### 1.1 ⭐⭐ 主攻：把 `look`（MMT 主动查询）接上 —— 四笔，按序
 
-Node 化的收益只在"**要按对象/按类查 note**"（"关于老师的未了事"）时才兑现；代价是一个新 kind
-的整套配套。这一轮把四条事实查实了，所以**不改**：
+`look` 的**规格已存在**（`docs/DESIGN_MMT_NEW_ACTION.md`；§7 裁决：与 `mmt_inspect_character`
+**合并**、`chapters`/`note` 折进去、一轮预算 2、`type="tool"`）；**解析半边已落地**
+（`address.find_episode` / `entities.find_entity`）。差的是执行链。
 
-1. **省不了契约** —— `abstract` **本来就不是 note 的成本**（R0 对**每一行切片**都要写它，note 只是
-   复用它：契约原文"`state=open` —— 就是她带走的那句话"）；真正属于 note 的只有 `state`/`id`/`due`
-   三格（且"其余一律省略 state —— 这是绝大多数"），节点化后 `due` 还要另找家
-   ⇒ **净省 ≈ 一格，甚至略长**（多一个 kind 的定义 + 两个 tag 的语义）。
-2. **`refs` 是引擎推的**（`rounds/record.py::_ledger_ops`：R0 给"第几件切片" ⇒ R1 映射到本段那条
-   episode ⇒ `refs=[ep]`，`src=ep` 兼作 add 的**幂等键** `notes.ALREADY_PINNED`）—— ⛔ **不是 LLM 写的**
-   ⇒ "按 `refs` 召回"的地基可靠。
-3. **出生时 `refs` 为空：不可能** —— 唯一调用点被 `if not (text and ep)` 挡住，挡住时**进 `lost_kept`
-   账 + warning**（`digest_record 'state=open' 有 N 条没长成 note（约定丢了）`）；下游还有三道闸
-   （`_apply_add` 跳过 + warning · `note_event` 严格读报错 · `check()` 不变量①告警）。
-4. **结清不丢痕迹** —— 事件流两条 op（append-only）+ **图里两条经历**（出生那条 + 结清那一刻那条；
-   "没有那一刻"的经历其 `abstract` **就是结局正文**）；只有常驻视图消失（设计意图"本子=当前抽屉"）。
-   ⚠️ 唯一"只剩事件流、没有查询入口"的边角 = `refs` 悬空/为空的旧档（`check()` 告警，**不是静默**）。
-
-⚠️ **留档**：我曾提"约定 = 一条 belief + `#note` 标记" —— **被用户否**
-（note 是"**更精确、更具体的 episode**"，belief 是模式句/结论、**承载不了时间性**）。
-将来若真要做"按对象查未了事"，用户的意向是 **专属节点 + 两个 tag**（"是不是 note" / "是否 active"
-—— 两个 tag 比合并成一个好：正交的两件事）。
-
-### 1.2 ⭐⭐ **主攻：召回**（形状已定；第一笔未开工）
-
-#### 两个类（用户 2026-10-08 裁："一个包、正好分为两个类"）
-
-| | **定向寻找 `find`** | **相似召回 `like`** |
+| 笔 | 内容 | 关键点 |
 |---|---|---|
-| 输入 | 一个**锚**（名字 / 对象 / 类 / 时间 / 轴 / 关系）| 一段**情境**（玩家那句 / 本段经历）|
-| 输出 | **全部**符合的（漏一条即错）⇒ ⛔ **不 top-k** | **最像的 k 条**（顺序即答案）|
-| 找不到 | 必须**明说"没有"** | **正常**（没想起来）|
-| 分数 | 只是展示顺序 | **就是答案** |
-| 后端 | ⛔ **不需要**（确定性）| 需要，**但必须有降级** |
-| 对应动作 | ⭐ **`look`**（规格已存在，见 §2）| P19 · 常驻装填 · digest 各轮 |
+| **①** | `pack.render_candidates` —— 把 `render._memory_line` 搬进 `core/brain/read/pack.py`；P19 的 `_recall_note` 改用它（现在经 `render_recall_block` 转一手） | ⚠️ render 是最敏感的一层（`test_marks_guard` 钉着"代码字面量零手写 `《》〔〕｜`"、**她的视图永不印编号**）；搬完让 `render.render_recall_block` 留成薄适配器 ⇒ 旧调用点零改动 |
+| **②** | `core/brain/read/find.py` —— **定向寻找原语** | 锚 → **全部**符合的（⛔ 不 top-k、⛔ 不需要后端）；五类锚（名字 / 对象 / 类 / 时间 / 轴 / 关系）；**两种"空"**（"没这条" ≠ "没记过"）；返回 `pack.Candidate`（分只作展示顺序）。⚠️ 半个已经落地，别重写：`address.find_episode`（标题→episode）· `entities.find_entity`（名字/别名→对象）· `graph.lane`（按对象取**全部**，方向是"节点 → entity"）· `age_days`（时间过滤）⇒ `find` 是**调度**，不是新检索引擎 |
+| **③** | `look` 四件套：parse（`core/mmt/mmt_actions.py` 注册 + `payload_schema` 文案）· 校验（`mmt_check.py` 的 `WHOLE_TURN_ACTIONS` 加 `look` + 预算）· 执行器（`mmt_executor._execute_look`，照 `_execute_mmt_inspect_character` 的样板：静默轮 + 结果回灌）· 规则书一句（"**回忆是动作，不是习惯**"） | `when` 只留 `back` 前缀；`scope` 归一；`RECALL_MAX_PER_TURN = 2`；落 `type="tool"` 事件 + 台账 |
+| **④** | digest 一处接线 | 见 §1.2 |
 
-#### 先做 `like`（用户裁）。落法 = **不复用资源，可适当移动**
+⚠️ **顺序上的坑**：`look` 与 **cap + 标题清单是三件套**（现在常驻注入是**全量**：真档 5204 字 /
+30 行）。三件套可以晚一步，但 **`look` 返回的标题必须与"标题清单"是同一个地址**
+⇒ 第①笔就把两边统一到同一套 marks 渲染。
 
-- ⛔ **不 import `compose` / `recall`**（旧件保持**零调用**，将来整体删）；它们就是病根
-  （`compose.recall_now` 在 digest 场景**四链路降级三条**；`recommend_candidates(embed_fn=None)`
-  **四个查询全空**）
-- ⭐ **搬**三块算法进新模块：`compose` 的"证据轴归一 + **名次门槛**" · 两轴分派（**先验轴原样不归一**）
-  · `channel_impl` 的**时间衰减**（half_life + floor）
-- ✅ `core/common/fuse.py` 是**通用工具**（不是旧召回资源）⇒ 照用
-- 新件：`core/brain/read/pack.py`（`Candidate` 协议 + `render_candidates` + `ledger_line`）·
-  `core/brain/read/like.py`（`like()` + `_lexical`/`_temporal`/`_prior` + `_normalize`）；
-  将来 `read/find.py` 接 `look` 的执行器
-- 旋钮进 `recall_config.py`（真源）：`like_k` · `w_lex`/`w_time`/`w_prior` · `half_life`/`floor` ·
-  `w_sem`（先留 0）
+### 1.2 digest 接口 —— 一处接线 + 一个待拍的决定
 
-**第一笔** = `pack.py` + `like.py` 的 **M1 字面 / M5 时间 / M6 先验**（三条**都不依赖后端**）
-+ 5 条守门 + 5 变异 + 只读探针 `.testtmp/probe_like_r0.py`（真机四查询：`like` vs
-`recommend_candidates` **并排** —— 这次不会再是空）。
-**第二笔** = M3 结构一跳 + M4 轴（接 digest L1 的料）· **第三笔** = 接 **P19**（替换
-`recommend_candidates`，**同句旧 vs 新**对照）+ 台账接 `mmt_recall`。
+| # | 件 | 现状 | 缺什么 |
+|---|---|---|---|
+| 1 | **候选碰撞换 `like`** | 唯一生产调用点 = `core/digest/material.py:800`（在 `_round_b_material` 里，被 `rounds/relate.py:75` 用） | 换成 `like(store, RecallCtx(now=…, query=…, embed_fn=embed_fn), spec="digest")`；`c.id in local_of` 过滤改 `c.node.id`；写路径台账 `recall_write … mode=` → `spec=digest` + `skip=` |
+| 2 | ⚠️ **`SPECS["digest"]` 的 `kinds` 写错了**（**待用户拍**） | 我写的是 `("episode","belief","experience")` | 旧件候选池是 **`("belief","profile")`**，设计原话"**稳定认知**才参与组织，episode 是流水" ⇒ 要么改成 `("belief","profile")`，要么拆两个档（R2 与 L2 若问法不同） |
+| 3 | `part_axis`（topics 相交） | ⭐ 已有先例：`material._episode_candidates` 用**纯集合运算**做同一件事（零后端、P2 落地） | `like` 里加一条 `part_axis` ⇒ 两处候选一个口径；料只 **3/21**（`topics` 是 P0 才加的字段，老段落已裁"不补"）⇒ 可押后 |
 
-⭐ **5 条守门要点**（都要先验能红）：
-① **无 embedder 也必须出结果**（打"返回空"那个病根）② 字面三路（tags / title / **别名**）
-③ 时间衰减 + **floor 不归零** ④ ⭐ **先验只做加成**（造"高 sig 但毫不相关"的节点 ⇒ **不许压过字面命中**）
-⑤ **import 黑名单**（`like.py` 不许 import `compose`/`recall` —— 把"不复用"落成可执行约束）。
+⭐ **digest 那边已经有一条"零后端结构化召回"的成功样本**（`_episode_candidates`）——
+所以 digest 的语义那一路是**只剩一处**的历史遗留。
 
-#### 实测底数（R0 只读探针 `.testtmp/probe_recall_r0.py`，真机 haruka）
+### 1.3 押后的（用户明确"以后再说"）
 
-```
-常驻全量 = 5204 字符 / 30 行（episode 21 条 3218 字 · belief 4 条 418 字 · player/reported 0）
-  cap= 8 → 全文 ≈1739 + 标题 ≈124 ⇒ 约 1863 字（−64%）
-  cap=12 → 全文 ≈2178 + 标题 ≈ 86 ⇒ 约 2264 字（−56%）   ← 建议起点
-  ⭐ 「标题清单」极便宜: 9~13 条只花 86~124 字（≈全文的 1/20）
-sig 无区分度: episode 珍贵档(≥0.8) 8/21 = 38%（光 0.85 一档占 7 条）· belief 3/4
-  按 sig 截断 ⇒ **最近的 m0024 出局**（"新的低 sig 记忆永远进不来"被证实）
-```
-
-**用户已裁三条**：常驻**要 cap** · 超出部分**只出标题** · 上限**别太小**（有 LLM 主动查询兜底，
-但要防上下文过长）。
-⭐ **配对关系**：**cap + 标题清单 + 主动查询（`look`）是一套三件** —— 没有主动查询，cap 就成了
-"看得见标题、摸不着内容"。
-
-### 1.3 真机验收（用户自己做；**E1–E4 之后这一环还没有过**）
-
-跑一段（或玩一章）⇒ 看这几行（可 grep）：
-```
-digest_record strangers=N（还没建的人）
-digest_relate rows= rels= alone= lone= cands= pool= dropped=
-digest_cognize rows= beliefs= reused= edges= soaked= dropped= strangers=
-digest_attribute strangers= rows= new= linked=      ← 稀有（只在有陌生名字时）
-```
-**E1 的只读验证已经过了**（`.testtmp/probe_entity_names.py`）：真机 4 个 entity、
-**22/22 种叫法解析回自己**、口径差 **48% → 100%**。缺的是"跑一段真数据"。
-
-### 1.4 用户明确**押后**的
-
-收尾板**名字牌 + 特效** · `[llm].reasoning_effort` 低档对照 · `start.ps1` 加 `lms load`。
+| 事 | 现成结论 |
+|---|---|
+| **BFS 扩散对照台**（用户提的法子：正则/字面命中 → **sig 最高者当种子** → **BFS** → 注入事件集） | 我的 `part_struct` = **多命中都是种子 + 只走两条窄门的一跳**；他的版本更激进（单一种子 + 多跳全边型）⇒ **必须先量**：真档「老师」车道 **10/21 = 48%**，`docs/REASONING_LOG.md:179` 早记过"世界一长会退化到 **100%**"；我这边"放开两跳"的变异当初就是红的 |
+| **specificity 加权**（HippoRAG 的 `1/|Pᵢ|`，零后端、有先例） | 治「老师」那道天花板：老师 0.10 / 杂草屋 0.33 ⇒ 同样命中，杂草屋重 3.3 倍 |
+| **离线 synonymy 边**（写入期算一次、在线只走图） | Zep/HippoRAG 的正解；能把"模糊相似"从"每轮 embed 全库"变成零 TTFT |
+| **`noticed` 更出彩**：带一句"当下的想法" ⇒ 下一段 digest 长成节点 + 边 | 现在是 `{title, hit}` 只记账（非内容事件）。用户说的"把两件事联系并产生当下心理想法进图"**已经有一条路**：她说的话 → 下一段 digest → L2 造 belief + R2 判边 |
+| **cap + 标题清单** | 与 `look` 一套三件 |
+| `part_axis` / `emotion` / `place` / `mood`（好感同频） | 都缺 **query 侧输入**或料（`emo_shape` 8/21 且分层 +0.020 ≈ 噪声；`place` 8/21 是硬信号；好感极性连标量都没有，且真档 delta 全正） |
 
 ---
 
@@ -109,89 +54,106 @@ digest_attribute strangers= rows= new= linked=      ← 稀有（只在有陌生
 
 | 文件 | 为什么必须读 |
 |---|---|
-| `CLAUDE.md` | 项目主文档。⚠️ 已知过期几处（§3.3 "MMT 每 25 轮"真值 **40** · §7 "R2 的动作面…`links`" · §3.1 槽位表的 **P16**）—— **用户自己手工同步**（编辑它会触发全文重注入） |
-| `docs/DESIGN_ENTITY_TAGS.md` | ⭐ **entity 线的规格（E1–E4 已全落地）**：`tag 是输入 · 边是派生 · entity 只存身份 · 印象是 belief`；§7 = 红账；§9 = 施工表 |
-| `docs/DESIGN_DIGEST_TWO_PASSES.md` | 两趟规格（§9 = L1 契约；⚠️ 其中 `about` 那一节 **E3 起标成历史**）|
-| `docs/TODO_TWO_PASSES.md` | 两趟施工表（P0–P11 状态）+ 测试纪律；§4 指向 entity 那条线 |
-| `core/digest/rounds/__init__.py` | ⭐ **轮次表 = 步序/LLM 身份/prompt/相位/parse/料/写什么/跳过/预算/快照 的唯一真源**（改 digest 先读它）|
-| `core/brain/notes.py` | note 的全链（槽/纪律/派生/注入面）—— 讨论 note 形式时的第一手材料 |
-| `core/brain/read/{channels,compose,recall}.py` | 召回：四链路 + 两轴 + 融合（`compose`）+ P19 在用的 `recommend_candidates` |
-| `docs/DESIGN_MMT_NEW_ACTION.md` | ⭐ **`look`（主动查询）的完整规格**: §2 `when` 语法（只留 `back`）· §3 三级解析 / 权限 / 返回形状 / **空结果两种说法** · §7 裁决（与 `inspect` **合并**、`chapters`/`note` 并入、一轮预算 2）。⚠️ 它的解析半边**已落地**（`address.normalize_title`/`find_episode` + `entities.find_entity`）|
-| `.testtmp/probe_*.py` | 我这一段写的**只读探针**（`probe_entity_names` / `probe_recall_r0` / `probe_belief_subject` / `probe_l2_material` …）；**不是产品代码**，可删 |
+| `core/brain/read/like.py` | ⭐ **本轮主角**。**三张表 + 一个契约**：`PARTS`（注册表：函数 / `axis` / `scale` / `needs` / `seeds` / `material`）· `SPECS`（档位：`kinds` + 哪几路 + 权重）· `RecallCtx`（输入契约；`sim`/`degraded` 是派生字段）。合成 = **三趟**（原始分 → 按 scale 归一 → 准入 + 加权平均）。改召回先读它 |
+| `core/brain/read/pack.py` | `Candidate`（node/score/**why**）+ `ledger_line`（`spec=`/`skip=`/`w=` 三格）。**`why` 由打分函数顺手写下，绝不事后重算** |
+| `tests/core/test_read_like.py` | 33 条守门：三张表的形状 / 权重 0 的语义 / 缺输入记账 / 窄门 / 池内归一 + 名次门槛 / GATE / import 黑名单。**改 `like` 必跑** |
+| `.testtmp/verify_like_red.py` | **22 支变异**（把一处行为退回旧态 ⇒ 对应守门必须红）。⚠️ 锚点会随代码漂：输出里"跳过（锚点 0 次）"= **没验到**，不是通过 |
+| `core/mmt/engine.py::_recall_note` | P19 的接线点（`like(spec="turn")` + `render_recall_block`）；台账 `mmt_recall … spec=turn titles=` |
+| `docs/DESIGN_MMT_NEW_ACTION.md` | ⭐ **`look` 的完整规格**（§2 `when` 只留 `back`；§3 三级解析 / 权限 / 返回形状 / **空结果的两种说法**；§7 裁决） |
+| `core/brain/address.py` · `core/brain/entities.py` | `look` 的解析半边：`normalize_title` / `find_episode`（按标题找）· `find_entity`（名字+别名，**绝不猜**）· `hit_set` |
+| `core/digest/rounds/__init__.py`（`ROUNDS` 表） | digest 的**唯一真源表**（轮次 / 步序 / LLM 身份 / prompt / 相位 / parse / 料 / 写什么 / 跳过 / 预算 / 快照）—— 改 digest 先读它 |
+| `core/digest/material.py`（`_round_b_material` 750+ / `_episode_candidates` 448+） | 两处候选的现状：前者走旧件 `recommend_candidates`（**要换的那一处**），后者是 topics 相交（**零后端先例**） |
+| `docs/TRAPS.md` §38 | embed 服务的坑（模型 id 必须钉死 `text-embedding-qwen3-embedding-0.6b`）；⭐ **用户裁"保持服务开着"** —— 那条是给 **digest** 的 |
+| `docs/DESIGN_ENTITY_TAGS.md` · `docs/DESIGN_DIGEST_TWO_PASSES.md` | entity 线（E1–E4 已落地）· 两趟规格（L1 契约） |
+| `.testtmp/probe_like_r0.py` · `.testtmp/probe_recall_cost.py` | 这一段写的**只读探针**（真档五查询并排 / 召回开销）。`.testtmp/` 全是 scratch，可删 |
 
 ---
 
-## 3. 已做的更改（这段会话；每笔都有守门 + 变异验红）
-
-**两趟（P6–P11，`docs/TODO_TWO_PASSES.md`）**
+## 3. 已做的更改（这一段 6 笔，全部已验证）
 
 | 提交 | 一句话 |
 |---|---|
-| `360b303` | **P6** L1 的观测账（`rows/rels/alone/lone/cands/pool/dropped`）—— 探针抓到真 bug（校验写进了只认 `akin/contradicts` 的 if）|
-| `d0775af` | render 的 docstring 改对（认知列表收 belief/profile；`experience` 不进它）|
-| `d54e55c` `466b641` `daff2f8` | **P7** L2 契约（三档 + 九条硬规则）· L1 第五个动作 `evolved_from` · 文档同步 |
-| `8c814ef` | 召回第三条判断记档（`TODO_TWO_PASSES §1.5`）|
-| `fa0c3cb` | **P8** L2 的料（群块 + 被连块；真机样张 9/9 对齐；自测抓到"`member_of` 让归了类的经历不再孤立"的假判据）|
-| `fa19e03` | **P9** L2 的执行器 `apply_cognitions`（幂等走 `_find_duplicate`；留痕照 `apply_decisions` 的 update 行）|
-| `d9a2f1b` | **P10** 接线：`ROUNDS` 加 `cognize`（**与轮文件同笔**）+ prompt + 标签 + 桩；硬顶 600→720 |
-| `3e76157` | L2 摆 3 组 + **挑组时"没写过沉淀的先"** + `digest_cognize` 补 `dropped=` |
+| `3f6cf2d` | **like 第一笔** `pack.py` + `like.py`（字面 / 时间 / 先验；加权平均 + **准入只认内容轴** + **名字只加成**） |
+| `428a2d2` | **like 第二笔** `part_struct` 结构一跳（**窄门准入**：`akin` 1.0 / 同类兄弟 0.8，⛔ `about` 不进；**种子不吃结构分**；只一跳） |
+| `db1feb9` | 先验轴从 `det` **拆成 `sig` 一个参量**（时间/情绪各只算一次；实测 `pearson(sig, span·int) = 0.879`、前 8 名 8/8 重合） |
+| `95023b7` | 收口成 **三张表 + 一个契约**（照 promptkit 的 `BLOCKS` + `DOMAIN_BOXES`）；`Part` 带 `axis/scale/needs/seeds/material`；`GATE` 语义位留着但**配了权重就当场炸** |
+| `905d840` | **like 第三笔** 语义轴（`COSINE` **池内 min-max** + **名次门槛** `[recall].sim_k`）—— 补平"旧件有语义、新件没有"那处倒退 |
+| `07253b7` | **第四笔** P19 接 `like(spec="turn")`，并把 **embed 从实时注入里停掉**（`semantic` 权重 **0**，**留行写 0** ⇒ 台账印 `skip=semantic(权重0)`） |
 
-**entity（E1–E4，`docs/DESIGN_ENTITY_TAGS.md`）**
+**验证口径**：`tests/core` **1162 passed** · 变异 **22/22 全红** · 真档只读探针（五查询并排 / 开销）
 
-| 提交 | 一句话 |
-|---|---|
-| `dbce099` | 规格大纲（tag 是输入 · 边是派生）|
-| `e1c9722` | **E1** `#entity:<名字>`：契约分栏（不占检索词额度）· 引擎落 `about` 边 + 归一 + **陌生保留** · `entities.find_entity` |
-| `f3fd7a1` | **E2** 看法也能带地址（belief 加可选 `tags`）—— 真机依据：`subject` 已漂成"主题句"（4/4 解析不到 entity）|
-| `09ef18c` | **E3** 删 L1 的 `about`（5→4）+ 修 `writes` 漏印 `evolved_from` 的红账；连带删 L1 料的【候选对象】栏 |
-| `f11883a` | **E4** R3 恢复成**只认人**（`apply_entities`）+ **建完补边**（`link_entity_tags` = 落边的唯一实现）+ skip="有陌生 tag"（**没有新人 ⇒ 0 调用**）|
-| `865497b` | **E1b** `#entity:` 判据补全（新认识的角色必须写 · 跨时间段反复出现 · 不写抽象/司空见惯 · >5 不建议再加）+ ⭐ **防 alias**（【已有的对象】进 **R1/L2 的料**）+ `#` 开头的检索词**记 warning**（不再静默丢）|
+**关键实测（`.testtmp/probe_*.py` 可复现）**
 
-**验证口径**：`tests/core`+`llm`+`webgui` **1288 passed** · 每个节点的变异**全红** ·
-E1 的真机只读探针 22/22。
+```
+召回开销（haruka 21 条 episode）: 旧件每轮 737ms · like 带语义 916ms · like 无后端 2ms
+  embedding 斜率 26ms/条 **线性** ⇒ 21 条 0.6s / 105 条 2.8s / 420 条 11.2s；冷启动另加 2.2s
+真档字段: ts 21/21 · tags 21/21 · title 21/21 · **topics 只 3/21** · emo 21/21
+车道规模: 遥香 4/21 · **老师 10/21（48%）** · 杂草屋 3/21 · 夏莱 2/21
+五查询（新件无后端 vs 旧件）: 苔藓 3 条 vs 1 条 · 本段新经历 2 条 vs 空 · 寒暄 1 条 vs 空 · 对象名 0 条 vs 空
+⭐ 6 条簇（`akin` 5 条 + `member_of` 6 条指向同一簇）: 「咖啡厅甜点」→ 种子稳稳第一 + 5 条邻居
+```
+
+**文档同步**：`docs/PROMPT_INJECTION_MAP.md`（P19 行）· `docs/TODO_TWO_PASSES.md`（P19 现状行）·
+`tests/fixtures/api_surface.txt`（`SPLIT_API_UPDATE=1` 刷新 + 人审）· `core/brain/read/__init__.py` 包地图
+
+**用户这一段的裁决**（不许悄悄推翻）
+
+1. **embed 留接口、停实时**："把 MMT embed 那一块的实时注入先暂停"；接口留着（digest / 将来 look 用）
+2. **准入 = 内容轴 + 窄门结构**；名字 / 时间 / 重要**只加成**（真机「老师」10/21 会淹）
+3. **一个包、两个类**：`find`（定向，要全部）vs `like`（相似，要 top-k）
+4. **函数以 `part` 开头**；**加权平均**（"不费脑子"）；权重 **0 = 不在意**
+5. ⛔ **不复用旧件**（`compose`/`recall`/`channels`/`channel_impl` 一个都不 import，AST 黑名单钉着）；**可搬**
+6. `docs/TRAPS.md` §38：**digest 的 embedding 服务保持开着**
 
 ---
 
-## 4. 隐形坑（踩过的、容易误判的）
+## 4. 隐形坑（这一段新踩的 + 仍然有效的）
 
-### 4.1 ⭐ 这一阶段新踩的（digest/契约）
+### 4.1 ⭐ 这一段新踩的
 
-- ⛔ **改契约文案必须同批改"示例"** —— 示例才是形状的来源；`digest_*` 的 prompt 与契约**两处同批**改。
-- ⛔ **`pipeline.IMPL` 的键序被守门钉住**（"与表同序同集"）—— 动了 `ROUNDS` 的顺序要**同步动 IMPL 的字面顺序**
-  （E4 就是被这条当场抓住的）。
-- ⛔ **代码字面量里零手写 `《》〔〕｜`**（`tests/core/test_marks_guard.py`）—— 用 `marks.head/name/FIELD_SEP`。
-- ⛔ **L2 的"被连过的经历"取自 `RELATION_ACTIONS`**（L1 的动作面）⇒ **动 L1 的动作面会改 L2 的行为**
-  （E3 删 `about` 之后，只带 `#entity:` 标记的经历重新算"孤立"⇒ 那一段 L2 跳过）。
-- ⛔ **桩不认识 `task` 就炸**：新增一轮要同时补 `tests/stub_tasks.annotation_reply` + **各处自造桩**
-  （P10 补了 5 处；⛔ 别靠"这次恰好跳过"）。
-- ⛔ **`entities.py` 是"输入侧"，不写边**（写路径在 `revise` / `digest.episodes`）；`brain` **不许 import `digest`**（分层）。
-- ⚠️ **`sig` 在真机上没有区分度**（见 §1.2 的数字）⇒ 任何"按 sig 排序/截断"的设计都要先量化。
-- ⚠️ **写 Python 补丁脚本时：`print("…"…"…")` 里嵌引号会让整个脚本 SyntaxError**（本会话连踩三次）——
-  中文引号用「」，或先 `ast.parse` 自检。
+- ⛔ **消融会被污染**：结构一跳的"种子"只能从 `Part.seeds=True` 的路出，且**只在它这次真调时**才取
+  —— 否则 `lexical=0` 时结构路还偷偷吃着字面证据，那个消融是**假的**（变异逼出来的）。
+- ⛔ **假绿两例**（都靠变异抓出来）：
+  ① 断言只落在**原始分**上（`part_semantic` 的输出）⇒ 测不出"池内归一失效"（归一在合成层第二趟做）
+     ⇒ **断言要落在最终分上**；
+  ② 只断言"引擎没调后端"⇒ 抓不住"档位里把权重写回 1.00"（引擎不传后端时怎么都不调）
+     ⇒ 必须**同时钉住 `SPECS["turn"].parts["semantic"] == 0.0`**。
+- ⛔ **变异脚本的锚点会随代码漂**：改 `SPECS` 的行 ⇒ 以 `("lexical", 1.00), …` 为锚的变异变成
+  "跳过（锚点 0 次）" —— **那是没验到，不是通过**。跑完必须看有没有"跳过"。
+- ⛔ **PowerShell `-replace` 会把 `\r\n` 字面写进 Python 源码**（`__all__` 那次 SyntaxError）。
+  **优先用 `edit` 工具**；用脚本改完先 `python -c "import ast; ast.parse(…)"` 自检。
+- ⛔ **动 `core/mmt/engine.py` 的 import / 新增顶层函数 ⇒ 要刷 API 快照**：
+  `SPLIT_API_UPDATE=1 pytest tests/core/test_split_safety.py` + **人工审 diff**（TRAPS 30）。
+- ⚠️ **`mmt_recall` 是两义**：`logger.info("mmt_recall …")` 是**引擎摆给她看**的台账行；
+  `DESIGN_RECALL.md` 里的 `mmt_recall` **动作**已并入 `look`（她主动查）。别混。
+- ⚠️ **`m0018` 是 belief 不是 episode** —— 旧件默认 `kinds=("belief","profile")` 才命中它；
+  这就是"苔藓那句旧件 1 条、新件 3 条"的原因（不是新件漏了）。
+- ⚠️ **测试 `--basetemp` 要预建**：这一段用 `.testtmp/pw_like`（已存在，可复用）。
+- ⚠️ **记账**：`emo_span`/`emo_int` **没有活着的读者了**（唯一读者是待删的
+  `channel_impl.IntensityPrior`）；要么承认它是给将来情绪通道留的料，要么从 digest 契约里退掉。
 
-### 4.2 测试/回归
-- **`--basetemp` 必须预建目录**（Windows；本会话用 `.testtmp/pw_p10`，可复用）——否则全部用例 `PermissionError`。
-- **不许频繁跑全量**（用户硬规矩）；按板块跑；**改到一半的树不跑回归**。
-- **每新增一条判据都要跑变异验红**（`python .testtmp/verify_*_red.py`）；⛔ 假绿比没测更糟
-  （本会话 3 条假绿被变异逼出来）。
-- 改**进 system 的内容**（盒A/盒B 相关）⇒ 必须刷夹具：`PROMPTKIT_UPDATE_FIXTURES=1 pytest tests/core/test_promptkit_baseline.py` + 人工审 diff。
-  （digest 的 prompt 与契约**不在**盒A/盒B 里 ⇒ 不触发夹具。）
+### 4.2 仍然有效的（压缩）
 
-### 4.3 冒烟（B 层, `python experiments/web_e2e/run.py`）
-- 桩的 `MMT_CHAT` **整段一次喂**（分行喂会让节奏判据随机红绿）；节奏判据 = **maxGap ≥ 800ms**。
-- 背景守门的窗口靠 `STUB_PLACE_LAG_S=4.0s`（> 标题屏 2.4s）+ switch 文本**不命中层1 关键词**。
-- 背景时间线用 **MutationObserver**（轮询采样会漏）。
-- `tests/webgui/conftest.py` 把链式钉回旧节奏（`_READAHEAD_MIN_BOARDS=1`）；验链式自己 monkeypatch 成 4。
+- 跑测试：`python -m pytest tests/core -q --basetemp=.testtmp/pw_like`（**Windows 必须预建目录**）
+- **不许频繁跑全量**（用户硬规矩）；按板块跑；改到一半的树不跑回归
+- **每新增一条判据都要跑变异验红**（假绿比没测更糟）
+- 改**进 system 的内容**（盒A/盒B）⇒ 刷夹具：`PROMPTKIT_UPDATE_FIXTURES=1 pytest tests/core/test_promptkit_baseline.py` + 人审 diff
+  （⚠️ digest 的 prompt/契约**不在**盒里；`like` 的改动**不进** system ⇒ 都不触发）
+- 契约文案改一处要**同批改示例**（示例才是形状的来源）
+- `pipeline.IMPL` 的键序被守门钉住（与 `ROUNDS` 同序同集）
+- 代码字面量里零手写 `《》〔〕｜`（`tests/core/test_marks_guard.py`）
+- 桩不认识 `task` 就炸：新增一轮要同时补 `tests/stub_tasks.annotation_reply` + 各处自造桩
+- `entities.py` 是"输入侧"不写边；`brain` 不许 import `digest`（分层）
+- 写 Python 补丁脚本：`print("…"…"…")` 里嵌引号会让整个脚本 SyntaxError —— 用「」或先 `ast.parse` 自检
 
-### 4.4 前端（bond.js / mmt.js）
-- 守望/轮询判"板还在不在"用**内容指纹**（`sceneKey`），⛔ 不用 `round`（交付后才 +1 ⇒ 首板必然假推进）。
-- 纪念窗口里**不许补切板级背景**；补切只做一次不够（退纪念会把陈旧快照贴回来）。
-- "对方正在输入…"**永远贴末尾**；`running=false` 时队列没放完**不许收摊**。
-- 一行 = 一个气泡；节奏常量在 `mmt.js` 头部，CLI 真源 = `core/tui/streaming.py`。
+### 4.3 环境/本机
 
-### 4.5 环境/本机
-- `lms server start --port 1235`（**必须显式端口**；`[embed].model` 钉死 `text-embedding-qwen3-embedding-0.6b`）。
-- LM Studio 空闲后第一次请求 **~2.2s 唤醒**（之后 13~25ms）⇒ "TTFT 变慢"先看这个。
-- 删东西**只指定路径、不用通配符**；只在工作目录内部删。
+- LM Studio：`lms server start --port 1235`；`[embed].model` **钉死** `text-embedding-qwen3-embedding-0.6b`
+  （本机装着两个 embedder，自动发现取"排前面的"，不可靠）
+- 空闲后第一次请求 **~2.2s 唤醒**（之后 13~62ms）—— "TTFT 变慢"先看这个
+- 删东西**只指定路径、不用通配符**；只在工作目录内部删
 - 真机数据：`data/worlds/world1/characters/{igusa_haruka,asagi_mutsuki}/soul/`
-  —— **本会话所有写操作都在副本上**（`.testtmp/`），真 `data/` 未动；`git status` 一直干净。
+  —— **这一段所有写操作都在副本/临时目录**，真 `data/` 未动
+- 提交链**未推送**（ahead **24**）；推送要 `git -c http.proxy= -c https.proxy= push origin master`
+  （代理 127.0.0.1:7897 已死；git config 未动）
+- CJK 提交信息走 `git commit -F .testtmp/commit_*.txt`；**stage 显式路径**
