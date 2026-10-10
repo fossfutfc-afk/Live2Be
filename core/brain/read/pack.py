@@ -16,6 +16,10 @@
 同款先例（"一个行渲染器、两个调用者共用"住渲染层, 不住形状层）: 它的两个调用者
 （P19「你想起的事」/ 将来的 `look`）都只是**不同的文案**, 身体是同一支。
 
+⭐ **`body_of` 也在这里**（2026-10-08 从 `like._body` 搬来）: "**哪些字段算正文**"
+是 `find` 与 `like` 共用的一个事实 —— 两处各写一份必然漂, 而漂了就是
+"同一句话在两个召回器里命中面不同"（**静默**）。
+
 ⚠️ **分层**: 只读, 不写图（`read/` 的包纪律）; 不 import `compose` / `recall`
 （旧召回件保持零调用, 见 `tests/core/test_read_like.py` 的 import 黑名单守门）。
 """
@@ -57,9 +61,34 @@ def _one_line(text: object, cap: int = 40) -> str:
     return s if len(s) <= cap else s[:cap] + "…"
 
 
-def ledger_line(cands: Iterable[Candidate], *, query: str = "", pool: int = 0,
-                k: int = 0, spec: str = "", skip: Iterable[str] = (),
-                weights: dict | None = None, note: str = "") -> str:
+def body_of(node) -> str:
+    """⭐ **参与匹配的正文面**（`find` 与 `like` **共用这一份口径**）。
+
+    主文本 + 各 kind 的附属 + **标题**:
+      · `episode` → `verbatim`（原话）· `belief` → `growth`（怎么变的）·
+        `profile` → `examples`（例子）
+      · 标题两条路都收 —— 她记得一个词时不会先分辨"那是在标题里还是正文里"。
+
+    ⚠️ **一处实现**: 2026-10-08 从 `like._body` 搬来这里（`find` 也要用它）。
+    口径与旧件 `recall._embed_text` 同源, 但那个文件整族待删, **不许 import 它**。
+    """
+    parts = [getattr(node, "text", "") or ""]
+    kind = getattr(node, "kind", "")
+    if kind == "episode":
+        parts.append(getattr(node, "verbatim", "") or "")
+    elif kind == "profile":
+        parts.extend(getattr(node, "examples", ()) or ())
+    elif kind == "belief":
+        parts.append(getattr(node, "growth", "") or "")
+    parts.append(getattr(node, "title", "") or "")
+    return " ".join(p for p in parts if p)
+
+
+def ledger_line(cands: Iterable[Candidate], *, name: str = "recall_like",
+                query: str = "", pool: int = 0, k: int | None = None,
+                spec: str = "", skip: Iterable[str] = (),
+                weights: dict | None = None, scores: bool = True,
+                note: str = "") -> str:
     """一行召回台账（**只给日志/探针**, 不写盘、不给她看 —— 编号在这儿是允许的）。
 
     形如::
@@ -70,21 +99,33 @@ top=m0014:0.520←tags[老师] · 2 周前 · 重要 0.85
     Args:
         cands: **截断前**的候选（已降序）—— `cand=` 由它的长度算,
             所以"够 k 条"和"只有 2 条"在台账里一眼能分。
+        name: 行首的键（`recall_like` / `recall_find`）—— grep 的抓手。
         pool: 参与打分的节点数（选面过滤之后）—— 与 `cand` 一起看才知道
             是"没料"还是"料都被筛掉了"。
+        k: 要几条。⛔ `None` = **这一路没有 k 这个概念**（`find` 要全部）⇒ 那格不印
+            —— 印 `k=0` 会被读成"一条都不要"。
         spec: 档位名（哪个场景在问）。
         skip: **没参与的路 + 为什么**（`名字(权重0)` / `名字(无emo_now)`）——
             ⚠️ 这一格是"这次调用到底调了哪几路"的唯一线索, 别省。
+        scores: ⛔ `False` = 不印分数（`m0014←名字`）—— `find` 的分**恒 0**
+            （它没有分, 排的是展示顺序）⇒ 印 `:0.000` 是噪音, 还会让人以为它在打分。
         weights: 调用方的一次性覆盖（只印出来的那几路, 便于复盘"这次为什么不同"）。
         note: 可选的附加说明（降级原因等）; 空则不出这一段。
     """
     items = list(cands)
-    top = "; ".join(f"{getattr(c.node, 'id', '?')}:{c.score:.3f}"
-                    + (f"←{c.why}" if c.why else "")
-                    for c in items[:LEDGER_TOP]) or "-"
-    line = (f"recall_like{' spec=' + spec if spec else ''} "
-            f"q=「{_one_line(query)}」 pool={int(pool)} "
-            f"cand={len(items)} k={int(k)} top={top}")
+
+    def _item(c: Candidate) -> str:
+        head = str(getattr(c.node, "id", "?"))
+        if scores:
+            head += f":{c.score:.3f}"
+        return head + (f"←{c.why}" if c.why else "")
+
+    top = "; ".join(_item(c) for c in items[:LEDGER_TOP]) or "-"
+    line = (f"{name}{' spec=' + spec if spec else ''} "
+            f"q=「{_one_line(query)}」 pool={int(pool)} cand={len(items)}")
+    if k is not None:
+        line += f" k={int(k)}"
+    line += f" top={top}"
     if skip:
         line += f" skip={','.join(str(s) for s in skip)}"
     if weights:
@@ -92,4 +133,4 @@ top=m0014:0.520←tags[老师] · 2 周前 · 重要 0.85
     return line + (f" note={_one_line(note, 60)}" if note else "")
 
 
-__all__ = ["LEDGER_TOP", "Candidate", "ledger_line"]
+__all__ = ["LEDGER_TOP", "Candidate", "body_of", "ledger_line"]
