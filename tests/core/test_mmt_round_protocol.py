@@ -159,13 +159,22 @@ def test_legacy_shape_rejected():
 
 
 def test_registry_actionset_shrunk():
-    """动作集收敛: registry 只含 3 个真操作（无 mmt_chat）; 外壳字段 {action, payload}。"""
+    """动作集: registry 只含**真操作**（无 `mmt_chat` —— 说话是轮级默认产物, 不是动作）;
+    每个动作的外壳字段 {action, payload}, 且都必须带得动 `parse_payload`。
+
+    ⚠️ **判据不许写死清单**: 原版写死"恰好这 3 个", `df616a4` 注册 `mmt_look` 时
+    这条就静默过期了（当时没跑这个文件）。现在改成**性质判据**（前缀 / 无 mmt_chat /
+    有 parse）, 加动作不必回来改它。
+    """
     from core.mmt.mmt_actions import build_mmt_registry
     reg = build_mmt_registry()
-    assert reg.action_names() == [
-        "mmt_inspect_character", "mmt_send_media", "mmt_trigger_bond_story"], \
-        reg.action_names()
-    for name in reg.action_names():
+    names = reg.action_names()
+    assert names == sorted(names), names             # 顺序稳定（提示词逐字节稳）
+    assert names and all(n.startswith("mmt_") for n in names), names
+    assert "mmt_chat" not in names                   # 说话不是动作
+    assert "mmt_look" in names                       # ⭐ 她翻自己记忆的那一件
+    for name in names:
         spec = reg.spec(name)
         assert spec.prompt_fields == frozenset({"action", "payload"}), name
-    print("    registry: 3 动作（无 mmt_chat）, 外壳 {action, payload}")
+        assert callable(spec.parse_payload), name    # 注册了就必须有 parse（别留半截动作）
+    print(f"    registry: {len(names)} 个真操作（无 mmt_chat）, 外壳 {{action, payload}}")

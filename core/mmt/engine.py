@@ -1712,8 +1712,13 @@ class MomoTalkEngine:
             if planned.action.action in QUERY_ACTIONS:
                 # ⭐ AUDIT §B9 的洞：查到的资料**必须回灌** —— 旧路径把它丢了，
                 #    模型以为查过了却没资料（"答不上来 → 瞎编"的源头）。
-                #    查询族（inspect / look）都是静默轮（独占约束保证行序里只有它）
-                #    ⇒ 直接继续这一轮。⚠️ `trigger` 不在这一族（它是模式切换）。
+                #    查询族（inspect / look）查完 ⇒ 直接继续这一轮。
+                #    ⚠️ `trigger` 不在这一族（它是模式切换）。
+                #    ⚠️ **`plan` 这里必定是空的**: 走到这儿的查询动作都在 `deferred` 里
+                #       （`batch_rows = deferred`）, 而 `look` 允许前置的话**早在
+                #       `_accept_row` 里就由 `_flush()` 交付了**（下一行不是 inspect ⇒
+                #       手里那行放出去）—— 所以"先说一句'我找找看'再翻"不会把那句吞掉。
+                #       ⛔ 别在这里补"顺手交付 plan": 那是**到不了的代码**, 变异验不红。
                 feedback(messages, planned.message)
                 out.need_more = True
                 return out

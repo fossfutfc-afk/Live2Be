@@ -9,9 +9,13 @@
 判**组合**（单行看不出来的）与 registry **不管**的字段：
 
 · `mmt.empty-turn`        本轮一行都没有（硬）
-· `mmt.exclusive-violation` 两个独占动作被破坏（硬）——
+· `mmt.exclusive-violation` 三个独占动作被破坏（硬）——
   `mmt_inspect_character` 是**静默推理轮**（整轮只有它一条行）；
-  `mmt_trigger_bond_story` 是模式切换（操作行里只有它，见面的话写在它前面的消息行里）
+  `mmt_trigger_bond_story` 是模式切换（操作行里只有它，见面的话写在它前面的消息行里）；
+  ⭐ `mmt_look` 是 **trigger 式**（2026-10-08 用户裁）：**唯一操作行 + 放在最后一行**——
+  她想先说一句"唔……我找找看"再翻是自然的（`inspect` 那款"整轮只有它一条行"会逼她
+  中断），所以话可以写在它**前面**；而它**后面**不许再有行（块尾执行 + 回灌 ⇒
+  写在后面的话是在没看到结果时写的 —— 这一条**只教不判**，见下面的分支注释）
 · `mmt.control-invalid`   操作行字段不合**且引擎修不了**（硬）——
   ⭐ 实测（⑥-2b）：`chapter_title` 的"必填 3-16 字"**只写在提示词里**，
   `parse_mmt_trigger_bond_story` 只校验"是字符串"（空标题放行）⇒ 这条得在这儿补
@@ -41,8 +45,8 @@ TITLE_MAX = 16
 ACTION_TRIGGER = "mmt_trigger_bond_story"
 #: 静默推理动作名（整轮只有它一条行）
 ACTION_INSPECT = "mmt_inspect_character"
-#: ⭐ 翻阅自己的记忆（2026-10-08）—— 与 `inspect` 同族: 静默轮 + 查到的东西**回灌**,
-#: 她带着资料接着把这一轮说完。
+#: ⭐ 翻阅自己的记忆（2026-10-08）—— 与 `inspect` 同族（静默轮 + 查到的东西**回灌**,
+#: 她带着资料接着把这一轮说完）, ⚠️ 但**独占口径不同款**: 见下面 `exclusive-violation`。
 ACTION_LOOK = "mmt_look"
 
 #: ⭐ **查询族**（静默轮 + 回灌 + 继续这一轮）—— `engine._run_lines` 判定 `need_more`
@@ -141,16 +145,21 @@ def check_turn(lines: Iterable[MmtLine], diags: Iterable[ParseDiag] = ()) -> lis
             f"{ACTION_INSPECT} 是静默推理轮——那一轮只能有它一条行"
             f"（实得 {len(shown)} 行: {n_text} 条消息 + {len(actions)} 条操作"
             + (f" + {n_notice} 条想起" if n_notice else "") + "）"))
-    if looks and (len(shown) > 1 or len(looks) > 1):
-        # ⚠️ 与 `inspect` **同一条判据**（静默轮: 那一轮一句话都不该上屏）,
-        # 只是动作不同 —— 两族各写一条, 因为报错文案要说清"是哪一种查"。
+    if looks and len(actions) > 1:
+        # ⭐ **trigger 式, 不是 inspect 式**（用户 2026-10-08 裁）:
+        # `look` 是"她想用起某件旧事"才做的一件事 —— 先说一句"唔……我找找看"再翻
+        # 完全自然; 照 `inspect` 判"整轮只有它一条行"会**逼她中断**（话与翻二选一）。
+        # ⇒ 只要求**唯一操作行**（同 `trigger`）, 话写在它前面。
+        # ⚠️ **"放在最后一行"只教不判**: 它块尾执行 + 回灌 ⇒ 写在它后面的话是在没看到
+        #    结果时写的（契约与规则书都建议放最后）; 但那是**写法建议**, 判成硬问题
+        #    只会白跑一次续写。⚠️ 也别改成 `len(shown)`: `shown` 含消息行, 会把
+        #    "先说一句再翻"重新判成违规（改回旧口径就是这么改的）。
         others = [a.action for a in actions if a.action != ACTION_LOOK]
         issues.append(Issue(
             MmtIssueCode.EXCLUSIVE_VIOLATION,
-            f"{ACTION_LOOK} 是静默推理轮——那一轮只能有它一条行"
-            f"（实得 {len(shown)} 行: {n_text} 条消息 + {len(actions)} 条操作"
-            + (f"，另有 {'/'.join(others)}" if others else "")
-            + (f" + {n_notice} 条想起" if n_notice else "") + "）"))
+            f"{ACTION_LOOK} 必须是那一轮**唯一的操作行**"
+            f"（另有: {'/'.join(others) or '它自己重复了'}）"
+            f"——想说的话请写在它**前面**的消息行里（它放在那一轮的最后一行）"))
     if triggers and (len(actions) > 1 or len(triggers) > 1):
         others = [a.action for a in actions if a.action != ACTION_TRIGGER]
         issues.append(Issue(
