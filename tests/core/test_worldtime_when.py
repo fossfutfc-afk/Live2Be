@@ -12,10 +12,12 @@
      语法/名字不认 ⇒ `None`
   ⑤ 日历夹取（3/31 往前一个月 = 2/28; 2/29 往前一年 = 2/28）**只有一处实现**
   ⑥ ⛔ 拒绝清单: `back 1..`（无下界）· `N > 99` · 表外具名日 · 端点反了 ·
-     节日名写成区间 · 整句话里塞时间（**绝不从句抽取**）
+     节日名写成区间 · 整句话里塞时间（**绝不从句抽取**）· **不存在的日期**
+     （`13/45` / `2026/02/30` / `4/31` —— 交给 `date()` 判, 闰年自动对）
 """
 from __future__ import annotations
 
+import logging
 import sys
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -168,6 +170,39 @@ def test_absolute_forms():
     assert _win("2026/09/20..=2026/09/28") == (date(2026, 9, 20), date(2026, 9, 28))
     assert _win("2026/09/20..2026/09/28")[1] == date(2026, 9, 27)      # 半开
     assert _win("12/28..=1/3") == (date(2025, 12, 28), date(2026, 1, 3))  # 跨年（各自最近）
+
+
+def test_leading_zeros_and_impossible_dates(caplog):
+    """⭐ **先导 0 两种都认；不存在的日期一律拒**（2026-10-08 用户: "先导 0 要考虑,
+    非法日期至少不能为负、不能超过 31"）。
+
+    ⚠️ **2 月不写特例**: 全交给 `_safe_date` 里的 `date()` 判 ⇒ 闰年自动对。
+    ⚠️ **拒 ≠ 报错**: 认不出时 `look` 回的是"那阵子的事我怎么也想不起来了"
+    （口径 #4: ⛔ 不报"格式错"—— 那是第四面墙）。
+    ⭐ **而且要"干净地拒"**: 不能靠 `parse_when` 外层兜异常 —— 那会打一条
+    `when 解析异常` 的 warning, 而她的笔误**不是内部 bug**（那行 warning 是留给
+    "我写错了"的信号, 见模块 docstring 的三条边界）。这就是"降级"与"吞了一次崩溃"
+    的唯一区别（同 `look` 无 store 那条教训）。
+    """
+    day = _win("2026/09/20")
+    with caplog.at_level(logging.WARNING, logger="core.worldtime.when"):
+        for raw in ("9/20", "09/20", "2026/9/20", "2026-09-20"):
+            assert _win(raw) == day, raw                     # 先导 0 不改变窗口
+        assert _win("2026/9") == _win("2026/09")             # 整月同理
+        assert _win("09/20..=09/28") == _win("9/20..=9/28")  # 区间两端同理
+        for bad in ("13/45", "9/40", "0/5", "32/1", "1/32", "4/31",
+                    "2026/13/01", "2026/00/10", "2026/02/30", "2026/09/31",
+                    "2026/13", "2026/00",
+                    "2026/09/25..=2026/10/32",               # 区间右端越界
+                    "2026/09/25..=2026/09/01",               # 端点反了
+                    "-1/5", "last -1 week", "back -1 day"):  # 负数（正则就收不到）
+            assert _w(bad) is None, bad
+        assert _w("2026/02/29") is None                      # 平年没有 2/29
+        assert _win("2028/02/29") == (date(2028, 2, 29), date(2028, 2, 29))
+        assert _win("2/29") == (date(2024, 2, 29),
+                                date(2024, 2, 29))           # 无年份 ⇒ 最近一次已过
+    assert not [r for r in caplog.records if r.levelno >= logging.WARNING], \
+        [r.getMessage() for r in caplog.records]
 
 
 # ---------------------------------------------------------------------------
