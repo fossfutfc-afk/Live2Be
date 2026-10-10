@@ -353,42 +353,82 @@ def test_episode_title_is_never_first_person_converted():
 
 
 def test_recall_block_shape_and_budget():
-    """「你想起的事」: 段头 + 只收 episode + 预算按行累积（**第一条永远留**）。"""
+    """「你想起的事」: 段头 + 预算按行累积（**第一条永远留**）。
+
+    ⚠️ 入参是**候选**（`pack.Candidate`, `like` 的产物）—— 2026-10-08 起渲染层收候选,
+    不再收"摊平成一串的裸节点"（那个转手是旧件留下的）。
+    """
+    from core.brain.read.pack import Candidate
     from core.brain.read.render import RECALL_HEADER, render_recall_block
 
     e1 = _titled("她拉着我在杂草屋蹲了一下午", "苔藓的约定", event_seq=[1])
     e2 = _titled("屋顶的瓦片缝里也有", "屋顶的苔藓", event_seq=[2])
     e1.ts = e2.ts = _ts(7)
-    belief = make_node("belief", text="我觉得老师很可靠", significance=0.9)
+    c1, c2 = Candidate(node=e1), Candidate(node=e2)
 
-    out = render_recall_block([e1, e2, belief], now=_NOW, char_name="伊草 遥香")
+    out = render_recall_block([c1, c2], now=_NOW, char_name="伊草 遥香")
     assert out.startswith(RECALL_HEADER)
     assert "《苔藓的约定》" in out and "《屋顶的苔藓》" in out
-    assert "我觉得老师很可靠" not in out              # belief 不是"想起的事"
     assert "〔《苔藓的约定》｜7 天前｜9/10〕" in out    # 同一个 `_memory_line`（相对 + 绝对）
 
     # 预算是**装填停止条件**: 摆不下第二条 ⇒ 只摆第一条, 绝不截半条
-    tight = render_recall_block([e1, e2], now=_NOW, budget=len(out.splitlines()[1]) + 2)
+    tight = render_recall_block([c1, c2], now=_NOW, budget=len(out.splitlines()[1]) + 2)
     assert "《苔藓的约定》" in tight and "《屋顶的苔藓》" not in tight
     # 一条都装不下（预算 0）→ 仍然给第一条（预算是闸门, 不是否决）
-    assert "《苔藓的约定》" in render_recall_block([e1], now=_NOW, budget=0)
+    assert "《苔藓的约定》" in render_recall_block([c1], now=_NOW, budget=0)
 
-    # 空 / 只有非 episode → **不注入**（返回空串, 不返回一个空段头）
+    # 空 → **不注入**（返回空串, 不返回一个空段头）
     assert render_recall_block([], now=_NOW) == ""
-    assert render_recall_block([belief], now=_NOW) == ""
+
+
+def test_render_candidates_does_not_pick_the_surface():
+    """⭐ **渲染层不选面** —— 给什么印什么（选面归档位: `SPECS[…].kinds`, 见 `test_read_like`）。
+
+    为什么单列一条: 从前这里有一句 `kind == "episode"`, 那是**第二个真源**; 将来 `look`
+    想摆 belief / entity 时会被它**静默吃掉**（渲染器不报错, 只是那一条不出现 ——
+    最难查的一类空）。
+    """
+    from core.brain.read.pack import Candidate
+    from core.brain.read.render import render_candidates
+
+    ep = _titled("她拉着我在杂草屋蹲了一下午", "苔藓的约定", event_seq=[1])
+    belief = make_node("belief", text="我觉得老师很可靠", title="老师很可靠")
+    out = render_candidates([Candidate(node=ep), Candidate(node=belief)],
+                            header="【你查到的事】")
+    assert "《苔藓的约定》" in out and "《老师很可靠》" in out
+
+
+def test_render_candidates_takes_its_own_header_and_hint():
+    """段头/段尾是**参数** —— 同一个身体, P19 与将来的 `look` 各说各的话。"""
+    from core.brain.read.pack import Candidate
+    from core.brain.read.render import RECALL_ACTION_HINT, render_candidates
+
+    ep = _titled("她拉着我在杂草屋蹲了一下午", "苔藓的约定", event_seq=[1])
+    c = Candidate(node=ep)
+    body = render_candidates([c], header="【你查到的事】")
+    assert body.startswith("【你查到的事】\n")
+    assert not body.endswith("\n")                    # 没有段尾 ⇒ 不留一个尾换行
+    assert RECALL_ACTION_HINT not in body             # 不套 P19 的文案
+    with_hint = render_candidates([c], header="【你查到的事】", hint="（就这些。）")
+    assert with_hint.endswith("\n（就这些。）")
+    print("    render_candidates: 段头/段尾由调用方给（look 复用同一支）")
 
 
 def test_recall_budget_reads_config_knob(monkeypatch):
     """预算的**真源**是 `[recall].turn_budget`（显式参数 > 配置 > 模块常量）。"""
     from core.brain import recall_config as rc
+    from core.brain.read.pack import Candidate
     from core.brain.read.render import render_recall_block
 
     e1 = _titled("第一件事", "一号", event_seq=[1])
     e2 = _titled("第二件事", "二号", event_seq=[2])
-    monkeypatch.setattr(rc, "_cache", {"turn_budget": 1.0}, raising=False)
-    out = render_recall_block([e1, e2])
+    cands = [Candidate(node=e1), Candidate(node=e2)]
+    # ⚠️ 旋钮值要挑在**两条之间**: 10 < 两条总长 ≈ 24 ⇒ 只摆第一条; 100 ⇒ 两条都摆。
+    # 用 1.0/9999.0 这种极端值测不出"预算被放大"（两条在两边都摆不下 / 都摆得下）。
+    monkeypatch.setattr(rc, "_cache", {"turn_budget": 10.0}, raising=False)
+    out = render_recall_block(cands)
     assert "《一号》" in out and "《二号》" not in out
-    monkeypatch.setattr(rc, "_cache", {"turn_budget": 9999.0}, raising=False)
-    out2 = render_recall_block([e1, e2])
+    monkeypatch.setattr(rc, "_cache", {"turn_budget": 100.0}, raising=False)
+    out2 = render_recall_block(cands)
     assert "《一号》" in out2 and "《二号》" in out2
     print("    T3: 坏 ts / 坏 now → 跳过短语, 不抛")

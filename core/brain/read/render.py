@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING, Any, Iterable
 
 from core.brain import marks
 from core.brain.nodes import BrainNode
+from core.brain.read.pack import Candidate
 
 if TYPE_CHECKING:                       # 仅注解求值期可见（避免运行时循环导入）
     from core.brain.store import WikiStoreV2
@@ -367,12 +368,61 @@ def _recall_budget(override: int | None) -> int:
         return RECALL_BUDGET
 
 
-def render_recall_block(nodes: Iterable[BrainNode], *,
+def render_candidates(cands: Iterable[Candidate], *, header: str, hint: str = "",
+                      budget: int | None = None, char_name: str = "",
+                      char_aliases: tuple[str, ...] = (), now=None) -> str:
+    """⭐ **一段候选 → 她看到的那一段字**（P19 与将来的 `look` 共用同一份）。
+
+    它是"候选包"（`pack.Candidate`）在**她的视图**里的唯一印法:
+    **段头 + 逐条记忆行 + 段尾提示**。两个场景的差别**只在文案** ⇒ 段头段尾是**参数**,
+    不是分支:
+
+    | 调用方 | 段头 | 段尾 |
+    |---|---|---|
+    | P19「你想起的事」 | `RECALL_HEADER` | `RECALL_ACTION_HINT`（`noticed` 的动作提示） |
+    | `look`（定向寻找） | 它自己的（"你查到的那些"） | 它自己的（要不要提示指认, 由那一档定） |
+
+    ⚠️ **它不做选面**（**不按 `kind` 过滤**）: 摆哪几条是**档位**的事
+    （`like.SPECS[…].kinds`）—— 渲染层再筛一遍就是**第二个真源**, 而且会把将来 `look`
+    想摆的 belief / entity **静默吃掉**（用户 2026-10-08 裁: 选面归档位, 渲染只管印）。
+    ⇒ 从前 `render_recall_block` 里那句 `kind == "episode"` **已删**。
+
+    ⚠️ **它只印"经历行"**（`_memory_line`, 见下）: `look` 要摆别的 kind 时, 补一张
+    **按 kind 分派的行表**, 别在函数里长 if（那一笔跟着 `find` 一起做）。
+
+    `budget` 是**按行累积**的（不是先算总长再砍）: 宁可少摆一条, 也不把一条 episode
+    截半 —— 半条记忆比没有更坏（截断处正好是细节, 而"引用细节"正是这一段存在的理由）。
+    **第一条永远留**（预算是闸门不是否决）。`budget=None` ⇒ 读 `[recall].turn_budget`。
+
+    空 / 一条都印不出 ⇒ `""`（**宁缺勿错**: 绝不返回一个光杆段头）。
+    """
+    picked = list(cands)
+    if not picked:
+        return ""
+    limit = _recall_budget(budget)
+    lines: list[str] = []
+    used = 0
+    for c in picked:
+        line = _memory_line(c.node, char_name, char_aliases, now)
+        if lines and used + len(line) > limit:   # 第一条永远留（预算是闸门不是否决）
+            break
+        lines.append(line)
+        used += len(line)
+    return "\n".join([header, *lines, hint] if hint else [header, *lines])
+
+
+def render_recall_block(cands: Iterable[Candidate], *,
                         char_name: str = "",
                         char_aliases: tuple[str, ...] = (),
                         now=None,
                         budget: int | None = None) -> str:
     """⭐ **N5** · 「你想起的事」—— 引擎每轮摆的 1~2 条旧 episode（空 → 不注入）。
+
+    = `render_candidates` **+ 本档的两句文案**（段头 `RECALL_HEADER`、段尾
+    `RECALL_ACTION_HINT`）。名字与参数**照旧** —— 唯一的改动是入参: 从前收"摊平成一串
+    的裸节点", 现在**候选直传**（`like` 给什么就印什么, 中间不再转一道手）;
+    ⚠️ 那句 `kind == "episode"` 的过滤也随之下岗（选面是 `SPECS["turn"].kinds` 的事,
+    见 `render_candidates`）。
 
     与 `render_character_view` 的**三条差别**（所以是**两个函数**, 别合并）:
 
@@ -390,23 +440,11 @@ def render_recall_block(nodes: Iterable[BrainNode], *,
     的重试/续写**复用同一份 messages**——召回不会在轮中途换内容（换了就等于
     "她刚才想起的"与"她现在想起的"不是同一件事）。
 
-    `budget` 那一条是**按行累积**的（不是先算总长再砍）: 宁可少摆一条, 也不把
-    一条 episode 截半——半条记忆比没有更坏（截断处正好是细节, 而"引用细节"正是
-    这一段存在的理由）。
+    （预算那一格的纪律**搬进 `render_candidates`** 了 —— 这里不再抄第二份。）
     """
-    picked = [n for n in nodes if n.kind == "episode"]
-    if not picked:
-        return ""
-    limit = _recall_budget(budget)
-    lines: list[str] = []
-    used = 0
-    for n in picked:
-        line = _memory_line(n, char_name, char_aliases, now)
-        if lines and used + len(line) > limit:   # 第一条永远留（预算是闸门不是否决）
-            break
-        lines.append(line)
-        used += len(line)
-    return RECALL_HEADER + "\n" + "\n".join(lines) + "\n" + RECALL_ACTION_HINT
+    return render_candidates(cands, header=RECALL_HEADER, hint=RECALL_ACTION_HINT,
+                             budget=budget, char_name=char_name,
+                             char_aliases=char_aliases, now=now)
 
 
 def _reported_line(node: BrainNode, char_name: str,

@@ -355,6 +355,17 @@ def test_every_spec_row_points_at_a_registered_part():
         assert sp.kinds, spec_name
 
 
+def test_turn_spec_owns_the_selection_surface():
+    """⭐ **选面归档位, 不归渲染层**（2026-10-08 用户裁）。
+
+    P19 从前靠 `render_recall_block` 里一句 `kind == "episode"` 兜底 —— 那是**第二个
+    真源**, 而且会把将来 `look` 想摆的 belief / entity **静默吃掉**。现在判据只有这一格:
+    "这一段要连的是旧事" ⇒ `episode`; "本段新经历 + 认知" ⇒ `digest` 那一档。
+    """
+    assert SPECS["turn"].kinds == ("episode",)
+    assert set(SPECS["digest"].kinds) > {"episode"}, "digest 档是认知面也进池的那一档"
+
+
 def test_every_spec_has_at_least_one_admitting_part():
     """每个档位至少要有一条**证据轴**有权重 —— 否则该档恒返空（准入过不去）。"""
     for spec_name, sp in SPECS.items():

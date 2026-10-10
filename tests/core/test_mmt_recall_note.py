@@ -81,18 +81,24 @@ def _joined(llm: ScriptedLLM) -> str:
     return "\n".join((m.get("content") or "") for m in llm.snapshots[-1])
 
 
-def test_recall_note_reaches_messages(tmp_path):
-    """★ 召回到的那条（**带标题**）出现在本轮 messages 里。"""
+def test_recall_note_reaches_messages(tmp_path, caplog):
+    """★ 召回到的那条（**带标题**）出现在本轮 messages 里；台账那一行记的也是标题。"""
     llm = ScriptedLLM()
     eng = _engine(tmp_path, llm)
     _seed(tmp_path, "老师陪我在杂草屋蹲了一下午",
           title="苔藓的约定", tags=("杂草",))
-    eng.agent_turn("我今天又去杂草屋那边了")
+    with caplog.at_level("INFO", logger="core.mmt.engine"):
+        eng.agent_turn("我今天又去杂草屋那边了")
     joined = _joined(llm)
     assert HEADER in joined, joined[-500:]
     assert "《苔藓的约定》" in joined                 # ⭐ 标题 = 她要指的地址
     assert "老师陪我在杂草屋蹲了一下午" in joined
-    print("    N5: 「你想起的事」进了 messages（带标题）")
+    # 台账（可 grep, 排查"这一轮摆了谁"的唯一线索）: 记的是**她看到的标题**,
+    # 不是她看不到的编号 —— 2026-10-08 改走候选直传时这两格跟着换了写法。
+    line = next(r.getMessage() for r in caplog.records
+                if "mmt_recall" in r.getMessage())
+    assert "eps=1" in line and "titles=苔藓的约定" in line, line
+    print("    N5: 「你想起的事」进了 messages（带标题 · 台账同款）")
 
 
 def test_recall_note_is_in_the_dynamic_tail_not_system(tmp_path):
