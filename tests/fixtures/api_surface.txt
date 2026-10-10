@@ -305,6 +305,7 @@ core.mmt.engine	MmtLoopError	class	core.mmt.engine
 core.mmt.engine	MmtStream	class	core.mmt.mmt_lines
 core.mmt.engine	MomoTalkEngine	class	core.mmt.engine
 core.mmt.engine	MomoTalkOutput	class	core.tui.display
+core.mmt.engine	QUERY_ACTIONS	data	-
 core.mmt.engine	RECALL_QUERY_CHARS	data	-
 core.mmt.engine	RecallCtx	class	core.brain.read.like
 core.mmt.engine	SHAPE_RETRY_MAX	data	-

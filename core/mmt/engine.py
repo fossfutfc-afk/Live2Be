@@ -60,6 +60,7 @@ from core.mmt.mmt_check import (
     ACTION_INSPECT,
     ACTION_TRIGGER,
     DROPPABLE_ACTIONS,
+    QUERY_ACTIONS,
     WHOLE_TURN_ACTIONS,
     check_turn,
 )
@@ -1582,10 +1583,11 @@ class MomoTalkEngine:
                     continue
                 out.fatal = planned.why
                 return out
-            if planned.action.action == ACTION_INSPECT:
+            if planned.action.action in QUERY_ACTIONS:
                 # ⭐ AUDIT §B9 的洞：查到的资料**必须回灌** —— 旧路径把它丢了，
                 #    模型以为查过了却没资料（"答不上来 → 瞎编"的源头）。
-                #    inspect 是静默轮（独占约束保证行序里只有它）⇒ 直接继续这一轮。
+                #    查询族（inspect / look）都是静默轮（独占约束保证行序里只有它）
+                #    ⇒ 直接继续这一轮。⚠️ `trigger` 不在这一族（它是模式切换）。
                 feedback(messages, planned.message)
                 out.need_more = True
                 return out

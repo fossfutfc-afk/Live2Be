@@ -41,6 +41,14 @@ TITLE_MAX = 16
 ACTION_TRIGGER = "mmt_trigger_bond_story"
 #: 静默推理动作名（整轮只有它一条行）
 ACTION_INSPECT = "mmt_inspect_character"
+#: ⭐ 翻阅自己的记忆（2026-10-08）—— 与 `inspect` 同族: 静默轮 + 查到的东西**回灌**,
+#: 她带着资料接着把这一轮说完。
+ACTION_LOOK = "mmt_look"
+
+#: ⭐ **查询族**（静默轮 + 回灌 + 继续这一轮）—— `engine._run_lines` 判定 `need_more`
+#: 时读它。⛔ `trigger` **不在内**: 它是模式切换, 不是"查完接着说"。
+#: 加一个查询动作 = 加进这个集合 + 进 `WHOLE_TURN_ACTIONS`（两处, 见各自注释）。
+QUERY_ACTIONS: frozenset[str] = frozenset({ACTION_INSPECT, ACTION_LOOK})
 
 #: 修不了的**操作行**里，哪些可以"丢行"（软）——判据 = **丢掉之后模型会不会带着错的前提继续**
 #: · `mmt_send_media`：只是图没发出去（"话说了图没发"完全可接受）⇒ 丢行 + 下一轮注记；
@@ -50,13 +58,13 @@ DROPPABLE_ACTIONS: frozenset[str] = frozenset({"mmt_send_media"})
 #: **必须整轮可见才能办理的动作**（⑥-3a 流式交付的暂存集）。
 #:
 #: 判据 = "这一行的合法性/后果**取决于同一轮里还有没有别的行**"：
-#: · `mmt_inspect_character` / `mmt_trigger_bond_story` 都是**独占**行——单看自己
-#:   永远合法，混排才违规（见下面的 `mmt.exclusive-violation`）。
-#: ⇒ 流式下内容行（`text` / `mmt_send_media`）到达即交付，这两条**攒到块尾**
+#: · `mmt_inspect_character` / `mmt_look` / `mmt_trigger_bond_story` 都是**独占**行——
+#:   单看自己永远合法，混排才违规（见下面的 `mmt.exclusive-violation`）。
+#: ⇒ 流式下内容行（`text` / `mmt_send_media`）到达即交付，这几条**攒到块尾**
 #: 等整轮写完再判/执行——否则"独占被破坏"这类硬问题会被流式绕过，而且
 #: `trigger` 一旦跑出去就收不回（模式切换）。
 #: ⚠️ 新增动作时想清楚放哪一边：独占/有整轮前置条件的进这里，纯内容行不用。
-WHOLE_TURN_ACTIONS: frozenset[str] = frozenset({ACTION_TRIGGER, ACTION_INSPECT})
+WHOLE_TURN_ACTIONS: frozenset[str] = frozenset({ACTION_TRIGGER, ACTION_INSPECT, ACTION_LOOK})
 
 
 class MmtIssueCode(str, Enum):
@@ -125,12 +133,23 @@ def check_turn(lines: Iterable[MmtLine], diags: Iterable[ParseDiag] = ()) -> lis
     #   ⇒（`inspect` 混排 ⇒ 整轮回灌重发）白跑一次续写。
     #   ⇒ 她和 `inspect` 同轮顺手记一笔, 是允许的（账照落, 见 `engine._log_notices`）。
     inspects = [a for a in actions if a.action == ACTION_INSPECT]
+    looks = [a for a in actions if a.action == ACTION_LOOK]
     triggers = [a for a in actions if a.action == ACTION_TRIGGER]
     if inspects and (len(shown) > 1 or len(inspects) > 1):
         issues.append(Issue(
             MmtIssueCode.EXCLUSIVE_VIOLATION,
             f"{ACTION_INSPECT} 是静默推理轮——那一轮只能有它一条行"
             f"（实得 {len(shown)} 行: {n_text} 条消息 + {len(actions)} 条操作"
+            + (f" + {n_notice} 条想起" if n_notice else "") + "）"))
+    if looks and (len(shown) > 1 or len(looks) > 1):
+        # ⚠️ 与 `inspect` **同一条判据**（静默轮: 那一轮一句话都不该上屏）,
+        # 只是动作不同 —— 两族各写一条, 因为报错文案要说清"是哪一种查"。
+        others = [a.action for a in actions if a.action != ACTION_LOOK]
+        issues.append(Issue(
+            MmtIssueCode.EXCLUSIVE_VIOLATION,
+            f"{ACTION_LOOK} 是静默推理轮——那一轮只能有它一条行"
+            f"（实得 {len(shown)} 行: {n_text} 条消息 + {len(actions)} 条操作"
+            + (f"，另有 {'/'.join(others)}" if others else "")
             + (f" + {n_notice} 条想起" if n_notice else "") + "）"))
     if triggers and (len(actions) > 1 or len(triggers) > 1):
         others = [a.action for a in actions if a.action != ACTION_TRIGGER]
