@@ -4,6 +4,7 @@
     说一句话 = 一行**消息行**（`{"text": …}`）, 不是动作;
     动作只承载**需要引擎介入的操作**（**操作行**）:
     mmt_inspect_character    深挖后备: 查角色私密资料（静默推理轮, 权重分级）
+    mmt_look                 翻阅**她自己的记忆**（静默推理轮; 查到的东西回灌, 她接着说）
     mmt_send_media           发图片（禁视频; 图片先查资源库, 库内没有才生成）
     mmt_trigger_bond_story   判定进入羁绊剧情（模式切换: 独占操作行）
 
@@ -51,6 +52,7 @@ from contract import (
     ContractError,
     is_valid_identifier,
 )
+from core.brain.read.find import ClueError, compile_clue
 
 # MMT 操作行外壳: {action, payload}——对白一律走消息行（`{"text": …}`）;
 # summary 也不出现在 MMT（IDE 域残留语义, MMT 零消费）
@@ -132,6 +134,44 @@ def parse_mmt_trigger_bond_story(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 # ============================================================================
+# mmt_look — 翻阅她自己的记忆（静默推理轮）
+# ============================================================================
+
+def parse_mmt_look(payload: dict[str, Any]) -> dict[str, Any]:
+    """结构白名单校验（硬错误, 抛 ContractError）。
+
+    ⚠️ **两格都是字符串进出, ⛔ 不把编译好的 `Clue` 塞进 payload**:
+    `payload` 会进 `TurnResult` / trace / 前端 JSON —— 塞一个自定义对象进去,
+    序列化那一层迟早出事。编译是纯函数, 执行层再编一次零成本（**一份实现, 两处调用**）。
+
+    ⚠️ **`when` 只校验"是字符串"** —— 时间语法要 `now` 才能判, 而 parse 层没有会话
+    上下文（同 `mmt_inspect_character` 的分工: "访问层级由执行层决定"）。
+    ⚠️ 也不在这里做**检索**（那是执行层 + `core.brain.read.find` 的事）。
+
+    两格**至少给一个**（`DESIGN_MMT_NEW_ACTION §3.1`）: 只想查"那阵子的事"时
+    可以不写 `clue`; 只想问"某件事"时可以不写 `when`。
+    """
+    clue = payload.get("clue", "")
+    if not isinstance(clue, str):
+        raise ContractError("clue 必须是字符串（要翻找的线索）")
+    when = payload.get("when", "")
+    if not isinstance(when, str):
+        raise ContractError("when 必须是字符串（时间范围, 可省）")
+    clue, when = clue.strip(), when.strip()
+    if not clue and not when:
+        raise ContractError(
+            "clue 与 when 至少要给一个——说不出要找什么、也不知道大概什么时候, 就没法翻"
+        )
+    if clue:
+        # ⛔ 线索只认**字面** + `&`/`|`/半角括号; 正则味的字符当场拒（可归因, 不静默）
+        try:
+            compile_clue(clue)
+        except ClueError as e:
+            raise ContractError(f"clue 看不懂: {e}") from None
+    return {"clue": clue, "when": when}
+
+
+# ============================================================================
 # 注册表
 # ============================================================================
 
@@ -160,6 +200,24 @@ def build_mmt_registry() -> MMTActionRegistry:
             "      公开信息即可\n"
             "不要查你自己——你完全了解自己; 也不要查玩家, 或玩家明显胡编乱造的名字;\n"
             "      完整资料已在你的角色设定中"
+        ),
+    ))
+    registry.register(ActionSpec(
+        "mmt_look",
+        parse_mmt_look,
+        APPROVAL_AUTO,
+        prompt_fields=MMT_RUNTIME_FIELDS,
+        payload_schema=(
+            "clue: 要翻找的线索（**字面**文字, 不要写正则）:\n"
+            "      两个词都要有 → `苔藓 && 杂草`（`&` 也行）; 任一即可 → `苔藓 || 杂草`;\n"
+            "      分组用**半角**括号 → `(苔藓 || 杂草) && 老师`\n"
+            "when: 可选, 大概什么时候的事 —— `last 1 week`（上周）/ `back 1 year`"
+            "（一年前的今天）/\n"
+            "      `2026/09/25`（那天）; 日常说法也行（`上周` `去年圣诞` `一年前的今天`）\n"
+            "用途: **翻你自己的记忆**（旧事 / 你说过的话）——静默推理轮, 老师看不到,\n"
+            "      翻到的东西回灌给你, 你再接着说。仅当你**必须知道它才能说下一句**时用\n"
+            "      （「那次到底是哪天来着」）; 翻不到就照实说想不起来, 再问老师\n"
+            "clue 与 when **至少给一个**; 这是单独一轮——那一轮只有这一条行"
         ),
     ))
     registry.register(ActionSpec(
