@@ -78,7 +78,7 @@ from typing import Callable
 
 from core.brain.address import normalize_title
 from core.brain.graph import REL_AKIN, REL_MEMBER_OF, graph_of
-from core.brain.read.pack import Candidate, ledger_line
+from core.brain.read.pack import Candidate, body_of, ledger_line
 from core.worldtime.age import (DEFAULT_FRESHNESS_FLOOR, DEFAULT_HALF_LIFE_DAYS,
                                age_days, freshness, render_relative)
 
@@ -232,7 +232,7 @@ def _sim(ctx: RecallCtx, universe: list) -> tuple[dict[str, float], str]:
 
     ⚠️ **必须批式**: 逐条 `embed_fn([txt])` 会打 N+1 次 HTTP 把脚本跑死
     （`experiments/ba_corpus/README.md` 记着这个坑）。
-    ⚠️ 正文口径 = `_body(node)` + 检索词（tags）—— 不再单写一份 `_embed_text`,
+    ⚠️ 正文口径 = `pack.body_of(node)` + 检索词（tags）—— 不再单写一份 `_embed_text`,
     免得覆盖率那一路和语义这一路**各算各的正文**, 迟早漂开。
     """
     fn = ctx.embed_fn
@@ -241,7 +241,7 @@ def _sim(ctx: RecallCtx, universe: list) -> tuple[dict[str, float], str]:
     if not (ctx.query or "").strip():
         return {}, "无query"
     try:
-        texts = [f"{_body(n)} {' '.join(getattr(n, 'tags', ()) or ())}".strip()
+        texts = [f"{body_of(n)} {' '.join(getattr(n, 'tags', ()) or ())}".strip()
                  for n in universe]
         vecs = fn(texts)
         qv = fn([ctx.query])[0]
@@ -335,7 +335,7 @@ def part_lexical(node, ctx: RecallCtx) -> tuple[float, str]:
     if title and title in q and _TITLE_HIT > best:
         best, why = _TITLE_HIT, "标题点名"
     q2 = _bigrams(q)
-    b2 = _bigrams(_body(node))
+    b2 = _bigrams(body_of(node))
     if q2 and b2:
         cov = len(q2 & b2) / len(q2)
         if cov > _COVER_MIN and cov > best:
@@ -692,20 +692,6 @@ def _freshness(age: int) -> float:
     hl = _knob("time_half_life_days", DEFAULT_HALF_LIFE_DAYS)
     fl = _knob("time_freshness_floor", DEFAULT_FRESHNESS_FLOOR)
     return float(freshness(age, hl, fl) or 0.0)
-
-
-def _body(node) -> str:
-    """参与覆盖率计算的正文（与 `recall._embed_text` 同口径: 主文本 + 各 kind 的附属 + 标题）。"""
-    parts = [getattr(node, "text", "") or ""]
-    kind = getattr(node, "kind", "")
-    if kind == "episode":
-        parts.append(getattr(node, "verbatim", "") or "")
-    elif kind == "profile":
-        parts.extend(getattr(node, "examples", ()) or ())
-    elif kind == "belief":
-        parts.append(getattr(node, "growth", "") or "")
-    parts.append(getattr(node, "title", "") or "")
-    return " ".join(p for p in parts if p)
 
 
 def _bigrams(text: str) -> set[str]:

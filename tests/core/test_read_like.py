@@ -30,6 +30,9 @@ NOW = datetime(2026, 10, 8, 21, 0, tzinfo=timezone(timedelta(hours=8)))
 ROOT = Path(__file__).resolve().parents[2]
 LIKE_PY = ROOT / "core" / "brain" / "read" / "like.py"
 PACK_PY = ROOT / "core" / "brain" / "read" / "pack.py"
+#: ⭐ `find` 与 `like` 是**同一个新召回栈**的两半（2026-10-08）⇒ 一起守:
+#: 它也不许 import 旧件 / 不许够得着后端（`Clue` 是纯字面布尔树, 连 `re` 都不 import）。
+FIND_PY = ROOT / "core" / "brain" / "read" / "find.py"
 
 
 @pytest.fixture(autouse=True)
@@ -126,6 +129,20 @@ def test_lexical_three_routes():
     assert cov[0] > 0.35 and cov[1].startswith("覆盖"), cov
 
     assert part_lexical(_ep("m0001", "x", tags=["苔藓"]), _ctx("")) == (0.0, "")
+
+
+def test_coverage_route_uses_the_shared_body_face():
+    """⭐ 覆盖路与 `find` 的 `text` 锚**同一份正文面**（`pack.body_of`, 含**标题**）。
+
+    2026-10-08: `_body` 从本模块搬去 `pack.body_of` —— 两处各写一份必然漂,
+    而漂了就是"同一句话在两个召回器里命中面不同"（**静默**）。
+    """
+    titled = _ep("m0001", "别的", title="瓦片缝里的苔藓")
+    q = _ctx("苔藓长在瓦片缝里")          # ⚠️ 标题整串**不在** query 里 ⇒ 走的不是"标题点名"
+    score, why = part_lexical(titled, q)
+    assert why.startswith("覆盖"), (score, why)        # 面里有标题 ⇒ 覆盖路命中
+    bare = _ep("m0002", "别的")
+    assert part_lexical(bare, q) == (0.0, "")          # 同一句话, 没有标题 ⇒ 零
 
 
 def test_marker_tags_are_not_search_words():
@@ -575,7 +592,7 @@ def _imports(path: Path) -> list[str]:
 
 def test_new_recall_does_not_import_the_old_stack():
     """⑤ 新件不许吊在旧召回件上（那正是"复用资源"要避免的）。"""
-    for path in (LIKE_PY, PACK_PY):
+    for path in (LIKE_PY, PACK_PY, FIND_PY):
         mods = _imports(path)
         bad = [m for m in mods
                if any(m == b or m.startswith(b + ".") for b in BANNED)]
@@ -584,7 +601,7 @@ def test_new_recall_does_not_import_the_old_stack():
 
 def test_like_has_no_backend_at_all():
     """① 的代码形态: `like` 连"能出网的东西"都不 import（不是"没传 embed_fn"）。"""
-    for path in (LIKE_PY, PACK_PY):
+    for path in (LIKE_PY, PACK_PY, FIND_PY):
         bad = [m for m in _imports(path)
                if any(m == b or m.startswith(b + ".") for b in NO_BACKEND)]
         assert not bad, (path.name, bad)
