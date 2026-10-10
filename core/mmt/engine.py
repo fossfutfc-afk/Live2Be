@@ -91,7 +91,7 @@ from core.digest import digest_segment
 from core.brain.entities import ensure_entities
 from core.affection import Affection, load_affection_from_events
 from core.brain.address import find_episode
-from core.brain.read.recall import recall_episodes
+from core.brain.read.like import RecallCtx, like
 from core.brain.read.render import (
     render_background_experience,
     render_character_view,
@@ -483,6 +483,18 @@ class TurnResult:
 # ============================================================================
 
 
+def _turn_k():
+    """P19 摆几条（真源 = `settings.toml [recall].turn_k`；读不到 → 2）。
+
+    读配置失败不阻断召回（与 `like` 自己的 `_knob` 同一条纪律）。
+    """
+    try:
+        from core.brain.read.recall_config import get
+        return max(int(get("turn_k")), 1)
+    except Exception:                                # noqa: BLE001
+        return 2
+
+
 class MomoTalkEngine:
     """MomoTalk 对话引擎 — 会话生命周期 + 全 JSON 动作 agent loop。"""
 
@@ -519,8 +531,14 @@ class MomoTalkEngine:
         self.bond_progress = bond_progress or BondProgress(
             getattr(store, "data_root", None))
         self.executor = MmtExecutor(characters_root, interperson_path)
-        # 语义召回后端入口（N5）: 缺省 = 模块级探测（服务没起 → None → 词面降级）。
+        # 语义召回后端入口（N5 接缝）: 缺省 = 模块级探测（服务没起 → None → 词面降级）。
         # 存成**实例属性**（不是模块全局）——测试/实验可以整只换掉，不用碰模块。
+        # ⚠️ **2026-10-08 起实时路径（P19）不再读它**（那是唯一读它的地方）: `turn` 档
+        # `semantic` 权重 0 —— 语义要每轮把整个库重新编码一遍, 实测 916 ms 且同步吃 TTFT。
+        # 接缝**留着**: digest 那条写路径仍用后端（走模块级 `_get_embed_fn()`）,
+        # 而这里也是"把语义接回实时路径"时要改的那一处;
+        # `tests/core/test_mmt_recall_note.py::test_p19_never_touches_the_embedder`
+        # 用一个**记账后端**钉住"现在一次都不调"。
         self.embed_fn: Callable[[], Any] = embed_fn or _get_embed_fn
         # 事件流存档（docs/archive/DESIGN_SAVE.md §4）: store 注入 + attach_session 后,
         # 每轮 agent_turn 落 mmt 事件 + 会话内轮数; None = 不记录（向后兼容）
@@ -1128,10 +1146,16 @@ class MomoTalkEngine:
         地址空间就是标题（编号退回引擎内部）。她要做的动作是"指一下是哪条"
         （`{"noticed": "苔藓的约定"}`）, 指不到看不见的名字。
 
-        ⚠️ **embed_fn 走 `self.embed_fn`**（构造参数优先, 缺省 = 模块级探测;
-        与 digest 同一个后端、同一个降级）: 服务没起 ⇒ 自动退词面（tags/Dice）,
-        **不是不召回**; 代价是命中率下降（真机实测: 8 句里 3 句的命中依赖语义）,
-        真机数字出来再定要不要补"最近 N 条"兜底（`docs/TODO.md` N12）。
+        ⭐ **2026-10-08: 走 `like(spec="turn")`, 且这一档 `semantic` 权重 = 0**
+        （用户裁"把 MMT embed 那块实时注入先暂停"）。三条理由:
+        1. **时延**: 语义那一路每轮要把整个库重新编码一遍 —— 真档实测 **916 ms**
+           （2 次 embedding / 22 条文本, 纯 embedding ≈ 26 ms/条 ⇒ 库线性变慢:
+           420 条 = 11.2 s）, 而它在 `round_messages` **之前**同步跑 ⇒ 直接进 TTFT。
+           不跑后端那套同一句 **2 ms**。
+        2. **它不必在这儿**: `noticed` 依赖的是"注入段里有**标题**", 跟排序用哪条路无关;
+           `akin` 的另一半来源是 R2（LLM 判关系）。所以停掉它**不影响记忆长边**。
+        3. **能力没丢**: `PARTS["semantic"]` 还在, digest 那条（写路径、异步）继续用,
+           将来的 `look` / 离线连边也用 —— 它属于**写入期/离线**, 不属于每轮读取。
 
         `wstore`: 调用方手里这一轮的 wiki 视图（复用 —— 每轮重读一遍是白花的钱）。
         """
@@ -1144,18 +1168,20 @@ class MomoTalkEngine:
         if wstore is None:
             wstore = WikiStoreV2(self._store.data_root, world_id=self._store.world_id,
                                  char_id=char.character_id)
-        mode: list[str] = []
-        nodes = recall_episodes(wstore, query=query, embed_fn=self.embed_fn(),
-                                mode_out=mode)
-        if not nodes:
+        # ⚠️ **不传 `embed_fn`**: `turn` 那一档自己没有语义路（权重 0）⇒ `like` 压根不会去要
+        # 后端。真要把语义接回实时路径, 得先解决"每轮全库重编码"那笔账（缓存 or 离线连边）。
+        cands = like(wstore, RecallCtx(now=now, query=query),
+                     spec="turn", k=_turn_k())
+        if not cands:
             return ""
+        nodes = [c.node for c in cands]
         seg = render_recall_block(nodes, char_name=char.display_name or "",
                                   char_aliases=_name_aliases(char.profile), now=now)
-        # 台账（可 grep）: 摆了几条 / 多少字 / 走的哪条通道 / 摆了谁（**标题**——
+        # 台账（可 grep）: 摆了几条 / 多少字 / 哪个档 / 摆了谁（**标题**——
         # 编号是她看不到的东西, 排查时要看的是她看到的那个串）。
-        logger.info("mmt_recall %s/%s eps=%d chars=%d mode=%s titles=%s",
+        # ⭐ "为什么是这几条"在 `like` 自己那行 `recall_like … top=…←why` 里。
+        logger.info("mmt_recall %s/%s eps=%d chars=%d spec=turn titles=%s",
                     char.character_id, self._session_id, len(nodes), len(seg),
-                    mode[-1] if mode else "-",
                     " / ".join(n.title or n.id for n in nodes))
         return seg
 

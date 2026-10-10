@@ -318,7 +318,7 @@ def test_bonus_cannot_outrank_a_clear_content_gap(tmp_path):
     组里两条都**真的进了池**: A 靠标题（0.85 起）+ 覆盖率 1.00 ⇒ 内容满分、加成零;
     B 靠覆盖率 0.375（刚过线）⇒ 内容最低、加成拉满（今天 + sig 1.0 + 情绪 0.5 + 名字命中）。
     """
-    pl = plan("turn")                                              # 这次真调的清单
+    pl = [p for p in plan("turn") if p[2] > 0]                     # **这次真调的**那几路
     weights = [w for _n, _p, w in pl]
     admit = [w for _n, p, w in pl if p.axis == EVIDENCE]
     bonus = [w for _n, p, w in pl if p.axis != EVIDENCE]
@@ -418,7 +418,7 @@ def test_ledger_prints_spec_skip_and_overrides(tmp_path, caplog):
     line = _ledger(caplog)
     assert "spec=turn" in line and "w=struct0.00" in line
     assert "struct(权重0)" in line                       # 被覆盖关掉的那一路
-    assert "semantic(无embed_fn)" in line                # 缺输入的那一路（后端不在）
+    assert "semantic(权重0)" in line                     # ⭐ 实时路径不跑后端（2026-10-08 裁）
 
 
 # ---------------------------------------------------------------------------
@@ -445,17 +445,22 @@ def test_semantic_recalls_a_paraphrase_that_lexical_misses(tmp_path):
     ])
     # 字面: 既不命中 tags 也不命中标题（覆盖率也过不了线）⇒ 只有语义能救
     assert _like(st, "那片绿绿的小东西还在吗") == []
-    out = like(st, _ctx("那片绿绿的小东西还在吗", embed_fn=_bag_embed))
+    out = like(st, _ctx("那片绿绿的小东西还在吗", embed_fn=_bag_embed),
+               weights={"semantic": 1.0})   # turn 档默认关语义（实时路径）⇒ 用例自己打开
     assert [c.node.id for c in out] == ["m0001"], out
     assert "语义" in out[0].why
 
 
 def test_backend_missing_degrades_but_still_returns(tmp_path, caplog):
-    """⭐ **旧件病根的反面**: 后端不在 ⇒ 那一路自动不参与, 其余照常出结果（不是返空）。"""
+    """⭐ **旧件病根的反面**: 后端不在 ⇒ 那一路自动不参与, 其余照常出结果（不是返空）。
+
+    ⚠️ `turn` 档默认就把 `semantic` 关着（实时路径, 2026-10-08 裁）⇒ 这里**用覆盖把它打开**,
+    测的才是"要它、但后端不在"那条路（否则测到的是"压根不要它"）。
+    """
     st = _store(tmp_path, [_ep("m0001", "瓦片缝里的苔藓", tags=["苔藓"])])
     with caplog.at_level("INFO", logger="core.brain.read.like"):
-        out = _like(st, "苔藓")                              # 没有 embed_fn
-    assert [c.node.id for c in out] == ["m0001"]             # 字面照常给结果
+        out = _like(st, "苔藓", weights={"semantic": 1.0})       # 没有 embed_fn
+    assert [c.node.id for c in out] == ["m0001"]                 # 字面照常给结果
     line = _ledger(caplog)
     assert "semantic(无embed_fn)" in line
 
@@ -466,7 +471,7 @@ def test_backend_blows_up_degrades_not_raises(tmp_path, caplog):
         raise RuntimeError("模型未加载")
     st = _store(tmp_path, [_ep("m0001", "瓦片缝里的苔藓", tags=["苔藓"])])
     with caplog.at_level("INFO", logger="core.brain.read.like"):
-        out = like(st, _ctx("苔藓", embed_fn=boom))
+        out = like(st, _ctx("苔藓", embed_fn=boom), weights={"semantic": 1.0})
     assert [c.node.id for c in out] == ["m0001"]
     line = _ledger(caplog)
     assert "语义(后端故障:RuntimeError)" in line
@@ -503,7 +508,8 @@ def test_semantic_is_pool_normalized_and_rank_gated(tmp_path):
 
     # 只留语义（其余三路先验照常: temporal 无 ts = 0 · prior = sig 0.5 · name 无名字 = 0）
     # ⇒ 归一后 m0001 拿 1.0; 若没归一则是 0.9（分数对不上）
-    out = like(st, _ctx("苔藓", embed_fn=fixed), weights={"lexical": 0.0, "struct": 0.0})
+    out = like(st, _ctx("苔藓", embed_fn=fixed),
+               weights={"semantic": 1.0, "lexical": 0.0, "struct": 0.0})
     want = (1.0 + 0.15 * 0.5) / (1.00 + 0.15 + 0.15 + 0.15)
     assert out[0].node.id == "m0001" and abs(out[0].score - want) < 1e-9, out
 
@@ -511,7 +517,8 @@ def test_semantic_is_pool_normalized_and_rank_gated(tmp_path):
     from core.brain.read import recall_config as rc
     rc._cache = dict(rc.DEFAULTS, sim_k=1.0)
     try:
-        out2 = like(st, _ctx("苔藓", embed_fn=fixed), weights={"lexical": 0.0, "struct": 0.0})
+        out2 = like(st, _ctx("苔藓", embed_fn=fixed),
+                weights={"semantic": 1.0, "lexical": 0.0, "struct": 0.0})
         assert [c.node.id for c in out2] == ["m0001"], out2
     finally:
         rc._cache = None
