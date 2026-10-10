@@ -1141,7 +1141,7 @@ class MomoTalkEngine:
         （引用了不存在的事 ⇒ 锚点校验直接丢）, 要么每轮多花一次调用去查
         （那是 `look` 的活, 固有成本 2 次主调用, 只该在她"必须知道才能说下一句"时用）。
 
-        ⭐ **这一步今天还多干一件事: 把标题送到她眼前**（`_memory_line` 的 `【…】`）。
+        ⭐ **这一步今天还多干一件事: 把标题送到她眼前**（`_memory_line` 的 `《…》`）。
         在 N5 之前 `episode.title` **从来没进过任何注入面** —— 而引擎与她的唯一
         地址空间就是标题（编号退回引擎内部）。她要做的动作是"指一下是哪条"
         （`{"noticed": "苔藓的约定"}`）, 指不到看不见的名字。
@@ -1174,15 +1174,17 @@ class MomoTalkEngine:
                      spec="turn", k=_turn_k())
         if not cands:
             return ""
-        nodes = [c.node for c in cands]
-        seg = render_recall_block(nodes, char_name=char.display_name or "",
+        # ⭐ **候选直传渲染层**（2026-10-08）: 从前这里先摊平成 `[c.node for c in cands]`,
+        # 那是"渲染器只认裸节点"留下的转手 —— 现在 `render_recall_block` 与将来的 `look`
+        # 走同一支 `render_candidates`（`like` 给什么就印什么）。
+        seg = render_recall_block(cands, char_name=char.display_name or "",
                                   char_aliases=_name_aliases(char.profile), now=now)
         # 台账（可 grep）: 摆了几条 / 多少字 / 哪个档 / 摆了谁（**标题**——
         # 编号是她看不到的东西, 排查时要看的是她看到的那个串）。
         # ⭐ "为什么是这几条"在 `like` 自己那行 `recall_like … top=…←why` 里。
         logger.info("mmt_recall %s/%s eps=%d chars=%d spec=turn titles=%s",
-                    char.character_id, self._session_id, len(nodes), len(seg),
-                    " / ".join(n.title or n.id for n in nodes))
+                    char.character_id, self._session_id, len(cands), len(seg),
+                    " / ".join(c.node.title or c.node.id for c in cands))
         return seg
 
     def _line_candidates(self) -> dict[str, tuple[str, ...]]:

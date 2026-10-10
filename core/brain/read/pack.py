@@ -12,8 +12,9 @@
 `like` 会把 top-k 塞进来; 上层要做的只是**按顺序渲染**。
 
 ⚠️ **本模块只有形状**: 检索逻辑在 `find.py` / `like.py`。
-渲染（`render_candidates`）**还没搬进来** —— 等接 P19 那一笔, 连同
-`render._memory_line` 一起搬（否则两个渲染器各印一份《》, 迟早漂开）。
+⭐ **渲染**（`render_candidates`）住在 **`render.py`** —— 与 `render_cognition_line`
+同款先例（"一个行渲染器、两个调用者共用"住渲染层, 不住形状层）: 它的两个调用者
+（P19「你想起的事」/ 将来的 `look`）都只是**不同的文案**, 身体是同一支。
 
 ⚠️ **分层**: 只读, 不写图（`read/` 的包纪律）; 不 import `compose` / `recall`
 （旧召回件保持零调用, 见 `tests/core/test_read_like.py` 的 import 黑名单守门）。
