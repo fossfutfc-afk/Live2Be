@@ -497,11 +497,16 @@ class Spec:
 #: ⭐ **档位表**（照 `promptkit/box.py::DOMAIN_BOXES` 的形态）: 一个场景一块, 自包含、好审
 SPECS: dict[str, Spec] = {
     # P19「你想起的事」: query = 玩家这一句, 只要 episode。
-    # ⚠️ `semantic` 与 `lexical` **同权**: 两种内容证据各占一份 —— 两边都命中比只命中一边强
-    #    （后端不在时 `semantic` 自动不参与, 权重也不进分母, 所以不影响字面那套的分数尺度）。
-    # ⚠️ 暂时没有 `emotion` / `place`: turn 拿不到 query 侧的情绪/地点（见模块 docstring）。
+    # ⭐ **`semantic` 权重 0（2026-10-08 用户裁）**: 这是**实时路径**, 而语义那一路要
+    #   "每轮把整个库重新编码一遍" —— 真档实测 **916 ms**（21 条 episode, 2 次 embedding /
+    #   22 条文本; 纯 embedding 约 26 ms/条 ⇒ 库一长线性恶化: 420 条 = 11.2 s）,
+    #   而这一步在 `round_messages` **之前**同步跑 ⇒ **直接加在 TTFT 上**。
+    #   换成不跑后端那套（字面 / 结构 / 时间 / 重要）同一句只要 **2 ms**。
+    #   ⚠️ 留行写 0 而不是删行: 台账会印 `skip=semantic(权重0)` —— 决定看得见。
+    #   ⚠️ **能力没丢**: `PARTS["semantic"]` 还在, `digest` 那条（写路径、异步）继续用它,
+    #      将来的 `look` / 离线连边也用；只是不进"每轮同步"这一段。
     "turn": Spec(kinds=("episode",), parts=(
-        ("lexical", 1.00), ("semantic", 1.00), ("struct", 0.35), ("temporal", 0.15),
+        ("lexical", 1.00), ("semantic", 0.00), ("struct", 0.35), ("temporal", 0.15),
         ("prior", 0.15), ("name", 0.15),
     )),
     # digest（R2/L2 的候选）: query = **本段新经历**, 认知面也进池。

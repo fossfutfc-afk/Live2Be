@@ -128,7 +128,7 @@
 | 事 | 现状 |
 |---|---|
 | 常驻 brain 段 | **不是召回, 是全量注入**（台账 `mode=off`）: 经历 = 一条河（`ts` 升序）· belief = **sig 降序** · profile = 被引次数 · reported 原序; **cap 已删**（2026-09-25 有意）|
-| MMT 每轮「你想起的事」(P19) | **唯一真召回**: `recall_episodes` 语义 top-2; embed 不可用 → tags∩这句话 + 2-gram Dice>0.35（台账 `mmt_recall … mode=`）|
+| MMT 每轮「你想起的事」(P19) | **唯一真召回**: `like(spec="turn")` top-2 —— 五路打分（字面 / 语义 / 结构一跳 / 时间 / 重要）里的**四路**（⭐ 2026-10-08 用户裁: `turn` 档 `semantic` 权重 **0** —— 语义要每轮把整个库重新编码一遍, 真档实测 **916 ms** 且同步跑在 `round_messages` 之前 ⇒ 直接吃 TTFT; 不跑后端那套同一句 **2 ms**。语义能力留在写路径/离线）。台账两行: `mmt_recall … spec=turn titles=` + `recall_like … top=…←why` |
 | 四链路混合打分（`compose.recall_now`）| ⚠️ **零生产调用** —— 只有 `experiments/recall_compose_probe.py` 与测试在跑。设计上它是**读路径注入视图**的合成层, 而那个位置被"静态分桶的全量注入"占了 |
 | `recall_subgraph`（三通道 + sig 降序）| 只被 `core/rag/brain.py` 包了一层, 而**那个包装零调用**（`recall_with_rag` 无调用方）|
 | digest 的料 | 走**写路径**的候选碰撞（`recommend_candidates`, 单通道语义）+「现有认知」的 **sig 前 12** |

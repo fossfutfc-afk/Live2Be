@@ -59,10 +59,10 @@ class ScriptedLLM:
         raise stub_tasks.unknown_task(task)
 
 
-def _engine(tmp_path, llm) -> MomoTalkEngine:
+def _engine(tmp_path, llm, *, embed_fn=_no_embed) -> MomoTalkEngine:
     store = SessionStore(data_root=tmp_path)
     eng = MomoTalkEngine(ROOT / "config" / "characters", llm, store=store,
-                         embed_fn=_no_embed)
+                         embed_fn=embed_fn)
     name = eng.start_session(CHARACTER)
     root = store.create(CHARACTER, name)
     eng.attach_session(root.session_id)
@@ -141,6 +141,34 @@ def test_query_is_this_player_line(tmp_path):
     second = _joined(llm)
     assert "《第一顿高级料理》" in second and "《苔藓的约定》" not in second
     print("    N5: 查询随玩家这一句变（杂草屋 → 苔藓 / 料理 → 高级料理）")
+
+
+def test_p19_never_touches_the_embedder(tmp_path):
+    """⭐⭐ **实时注入这条路一次都不许碰 embedding 后端**（2026-10-08 用户裁）。
+
+    为什么单列一条: 它不是"召回质量"问题, 是**时延**问题 —— 语义那一路要每轮把整个库
+    重新编码一遍（真档实测 **916 ms**, 而它同步跑在 `round_messages` 之前 ⇒ 直接进 TTFT;
+    不跑后端那套同一句 **2 ms**）。所以这里放一个**记账的后端**: 一旦被调到, `calls` 就非空。
+
+    ⚠️ 用"一调就炸"的后端是**测不出**这条的（`like` 会降级、测试照样绿）——
+    必须记账。另外**档位本身**也要钉住: 只钉"引擎没传后端"不够 ——
+    真正的开关是 `SPECS["turn"]` 里那个权重（把它写回 1.00 才是"接回去了"）。
+    """
+    from core.brain.read.like import SPECS
+    calls: list = []
+
+    def spy(texts):
+        calls.append(texts)
+        raise RuntimeError("实时注入不该调 embedding 后端")
+
+    llm = ScriptedLLM()
+    eng = _engine(tmp_path, llm, embed_fn=lambda: spy)
+    _seed(tmp_path, "老师陪我在杂草屋蹲了一下午", title="苔藓的约定", tags=("杂草",))
+    eng.agent_turn("我今天又去杂草屋那边了")
+    assert dict(SPECS["turn"].parts).get("semantic") == 0.0, "实时档把语义接回来了"
+    assert calls == [], calls                    # 一次都没调
+    assert HEADER in _joined(llm)                # 而召回段照旧在（字面那套给的）
+    print("    N5: 实时注入零后端调用（turn 档 semantic=0）")
 
 
 def test_recall_note_silent_when_nothing_matches(tmp_path):

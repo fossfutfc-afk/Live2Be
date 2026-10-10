@@ -306,6 +306,7 @@ core.mmt.engine	MmtStream	class	core.mmt.mmt_lines
 core.mmt.engine	MomoTalkEngine	class	core.mmt.engine
 core.mmt.engine	MomoTalkOutput	class	core.tui.display
 core.mmt.engine	RECALL_QUERY_CHARS	data	-
+core.mmt.engine	RecallCtx	class	core.brain.read.like
 core.mmt.engine	SHAPE_RETRY_MAX	data	-
 core.mmt.engine	SUGGEST_BOND_ROUNDS	data	-
 core.mmt.engine	Session	class	core.mmt.engine
@@ -328,6 +329,7 @@ core.mmt.engine	_log_read_ledger	function	core.mmt.engine
 core.mmt.engine	_name_aliases	function	core.mmt.engine
 core.mmt.engine	_process_for_momotalk	function	core.tui.text_processors
 core.mmt.engine	_strip_action_brackets	function	core.tui.text_processors
+core.mmt.engine	_turn_k	function	core.mmt.engine
 core.mmt.engine	build_box	function	core.promptkit.box
 core.mmt.engine	build_candidates	function	core.mmt.mmt_repair
 core.mmt.engine	build_line_schema	function	contract.schema
@@ -341,6 +343,7 @@ core.mmt.engine	feedback	function	llm.client
 core.mmt.engine	find_episode	function	core.brain.address
 core.mmt.engine	format_issues	function	contract.issues
 core.mmt.engine	is_content_event	function	core.session.events
+core.mmt.engine	like	function	core.brain.read.like
 core.mmt.engine	load_affection_from_events	function	core.affection.affection_calc
 core.mmt.engine	load_brain_segment	function	core.mmt.engine
 core.mmt.engine	load_interperson	function	core.mmt.mmt_executor
@@ -351,7 +354,6 @@ core.mmt.engine	make_event	function	core.session.events
 core.mmt.engine	names_of	function	core.parsing.names
 core.mmt.engine	parse_lines	function	core.mmt.mmt_lines
 core.mmt.engine	player_names	function	core.parsing.player_profile
-core.mmt.engine	recall_episodes	function	core.brain.read.recall
 core.mmt.engine	render_background_experience	function	core.brain.read.render
 core.mmt.engine	render_character_view	function	core.brain.read.render
 core.mmt.engine	render_recall_block	function	core.brain.read.render
