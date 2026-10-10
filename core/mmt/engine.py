@@ -92,12 +92,20 @@ from core.digest import digest_segment
 from core.brain.entities import ensure_entities
 from core.affection import Affection, load_affection_from_events
 from core.brain.address import find_episode
+from core.brain.read.find import compile_clue, find
 from core.brain.read.like import RecallCtx, like
 from core.brain.read.render import (
+    LOOK_EMPTY,
+    LOOK_EMPTY_TIME,
+    LOOK_FUTURE,
+    look_header,
+    look_hint,
     render_background_experience,
+    render_candidates,
     render_character_view,
     render_recall_block,
 )
+from core.worldtime.when import parse_when
 from core.brain.store import WikiStoreV2
 from core.rag.brain import make_embed_fn
 from core.rag.embedder import LocalEmbedder
@@ -496,6 +504,21 @@ def _turn_k():
         return 2
 
 
+#: `mmt_look`（她主动翻记忆）查**哪个面** —— 用户 2026-10-08 裁: **暂时只查 episode**。
+#: ⚠️ **这是扩展位**（改这一行即可, `find` 的 `kinds` 与 select 同源于它）:
+#:   · 加 `"belief"` = "我是不是想过这件事" —— belief 已有**全量常驻**注入
+#:     （`render_character_view` 的「我心里渐渐觉得」）, 而 `look` 要的是**按线索定向**;
+#:   · `experience`（一类事）**不走这里** —— 它该由 `group` 锚表达（`find` 的第四条锚）;
+#:   · entity 也不在内: "翻关于某个人的事"是 `entity` 锚的活。
+LOOK_KINDS: tuple[str, ...] = ("episode",)
+
+#: `look` 一次摆几条（用户 2026-10-08 裁: **5**）。
+#: ⚠️ 这是**展示层**的 cap: `find` 本身不截断（"不漏"是检索层的不变量）;
+#: 被挡掉的那些由 `render.look_hint` 如实报出来（"还有 N 条"）。
+#: ⛔ 不做成 `settings.toml` 旋钮 —— 它是**口径**不是阈值（同 `RECALL_QUERY_CHARS`）。
+LOOK_CAP = 5
+
+
 class MomoTalkEngine:
     """MomoTalk 对话引擎 — 会话生命周期 + 全 JSON 动作 agent loop。"""
 
@@ -531,7 +554,8 @@ class MomoTalkEngine:
         # 真实 data/basic/bond_progress.json（真机上把 haruka 刷到 4550 轮）。
         self.bond_progress = bond_progress or BondProgress(
             getattr(store, "data_root", None))
-        self.executor = MmtExecutor(characters_root, interperson_path)
+        self.executor = MmtExecutor(characters_root, interperson_path,
+                                    look_fn=self._look_result)
         # 语义召回后端入口（N5 接缝）: 缺省 = 模块级探测（服务没起 → None → 词面降级）。
         # 存成**实例属性**（不是模块全局）——测试/实验可以整只换掉，不用碰模块。
         # ⚠️ **2026-10-08 起实时路径（P19）不再读它**（那是唯一读它的地方）: `turn` 档
@@ -568,6 +592,11 @@ class MomoTalkEngine:
 
         # 行协议丢掉软操作行（如"图没发出去"）→ **下一轮**注记念一次（自清）
         self._line_notes: list[str] = []
+
+        # ⭐ **本轮的"现在"**（`agent_turn(now=…)` 的出口）—— `mmt_look` 在
+        # `_run_lines` 深处被 executor 调, 那里拿不到 `agent_turn` 的局部量。
+        # ⚠️ 不是"偷偷读壁钟": 每一轮开头由 `agent_turn` 显式写入（同 `_line_notes`）。
+        self._turn_now: datetime | None = None
 
     # ------------------------------------------------------------------
     # 公共 API — 会话生命周期
@@ -1050,6 +1079,11 @@ class MomoTalkEngine:
             #   `now` 形参是这条纪律的出口（同 `age_days(*, now)` 不留默认值）:
             #   生产传 None（读壁钟）, 测试传一个钉死的时刻。
             _now = now or datetime.now()
+            # ⭐ `mmt_look`（她主动翻记忆）要**本轮的"现在"**才算得出时间窗 ——
+            #    而它在 `_run_lines` 深处被 executor 调, 那里拿不到 `agent_turn` 的局部量。
+            #    存成"本轮的 now": 与 `_line_notes` 同款（同一个 turn 内的临时状态）。
+            #    ⚠️ 不是"偷偷读壁钟": 这一格正是 `agent_turn(now=…)` 的出口（同 `age_days`）。
+            self._turn_now = _now
             if self._store is not None:
                 wstore = WikiStoreV2(self._store.data_root,
                                      world_id=self._store.world_id,
@@ -1187,6 +1221,98 @@ class MomoTalkEngine:
                     char.character_id, self._session_id, len(cands), len(seg),
                     " / ".join(c.node.title or c.node.id for c in cands))
         return seg
+
+    def _look_result(self, clue: str, when: str, *, wstore: WikiStoreV2 | None = None) -> str:
+        """⭐ **`mmt_look` 的执行体**（2026-10-08）: 三级解析 → 一段给她看的字。
+
+        | 级 | 做什么 | 为什么 |
+        |---|---|---|
+        | ① | 线索是**单个纯字面**（`op == "lit"`）时先当**标题**精确查（`find_episode`）| 设计 §3.2: "一步到位" —— 她抄的往往是标题本身（抄整段元信息也认, `normalize_title` 取 `｜` 第一段）|
+        | ② | `find({"text": Clue} ∪ {"when": exact}, kinds=LOOK_KINDS)` | **全量**命中（⛔ 不 top-k —— 那是 `find` 的不变量）|
+        | ③ | 空 ⇒ 用 `when.wide` **再查一次** | "那段时间没有；前后那阵子…" —— **如实报告筛选边界** |
+
+        ⚠️ **①级也要过 `when`**（锚是 AND, 不是"找到标题就直接返回那一条"）——
+        否则她问"上周的《某条》"而那条在两周前, 时间条件会被**静默忽略**。
+
+        ⚠️ **`wide` 只用来"再查一次", 绝不替代 `exact`**: 顺序反了就是**静默换掉
+        她问的范围**（"上周有 3 条"变成"前后一大堆"）。
+
+        ⚠️ **三种失败分得开**:
+          · 时间**认不出** ⇒ `LOOK_EMPTY_TIME`（⛔ **不**静默当成"没给时间"去查全库 ——
+            那是静默放宽范围; ⛔ 也不报"格式错" —— 那是第四面墙）;
+          · 时间**落在将来** ⇒ `LOOK_FUTURE`（规则⑥: 合法但空, 不是她写错了）;
+          · 查了没有 / 没有 store ⇒ `LOOK_EMPTY`（**宁缺勿错**: 引擎的配置问题
+            不伪装成"她这一轮失败了", 与 P19 在无 store 时静默不注同款）。
+
+        本函数**绝不抛**（照 `_recall_note` 的纪律）: 任何异常 ⇒ `logger.warning` +
+        `LOOK_EMPTY`。⛔ 但"没接线/没会话"不在这里兜 —— 那是 `MmtExecError`（硬问题, 明确）。
+        """
+        char = self._current_char
+        if char is None:
+            return LOOK_EMPTY
+        try:
+            if wstore is None:
+                if self._store is None:
+                    return LOOK_EMPTY
+                wstore = WikiStoreV2(self._store.data_root,
+                                     world_id=self._store.world_id,
+                                     char_id=char.character_id)
+            now = getattr(self, "_turn_now", None) or datetime.now()
+            win = parse_when(when, now=now) if (when or "").strip() else None
+            if (when or "").strip() and win is None:
+                logger.info("mmt_look %s/%s when=%r 认不出 ⇒ 回「没想起来」",
+                            char.character_id, self._session_id, when)
+                return LOOK_EMPTY_TIME
+            if win is not None and win.future:
+                return LOOK_FUTURE
+
+            anchors: dict = {}
+            if (clue or "").strip():
+                compiled = compile_clue(clue)
+                if compiled.op == "lit":
+                    node, reason = find_episode(wstore, compiled.text)
+                    if node is not None:
+                        anchors["title"] = node.title
+                    else:                     # miss / ambiguous ⇒ 落 ②级（不猜）
+                        logger.info("mmt_look %s/%s 标题查 %r ⇒ %s",
+                                    char.character_id, self._session_id,
+                                    compiled.text, reason)
+                        anchors["text"] = compiled
+                else:
+                    anchors["text"] = compiled
+            if win is not None:
+                anchors["when"] = win.exact
+            if not anchors:                   # 两格都空（parse 层已挡, 这里兜底）
+                return LOOK_EMPTY
+
+            cands = find(wstore, anchors, kinds=LOOK_KINDS)
+            widened = False
+            if not cands and win is not None and win.wide is not None:
+                anchors["when"] = win.wide
+                cands = find(wstore, anchors, kinds=LOOK_KINDS)
+                widened = bool(cands)
+            if not cands:
+                logger.info("mmt_look %s/%s clue=%r when=%r ⇒ 空",
+                            char.character_id, self._session_id, clue, when)
+                return LOOK_EMPTY
+
+            shown = min(len(cands), LOOK_CAP)
+            seg = render_candidates(
+                cands, cap=LOOK_CAP,
+                header=look_header(clue, when, n=len(cands), widened=widened),
+                hint=look_hint(shown, len(cands) - shown),
+                char_name=char.display_name or "",
+                char_aliases=_name_aliases(char.profile), now=now)
+            # 台账（可 grep）: 查了什么 / 命中几条 / 摆了谁（**标题** —— 她看得见的那个串）
+            logger.info("mmt_look %s/%s clue=%r when=%r form=%s cand=%d shown=%d widened=%s titles=%s",
+                        char.character_id, self._session_id, clue, when,
+                        (win.source if win is not None else "-"),
+                        len(cands), shown, widened,
+                        " / ".join(c.node.title or c.node.id for c in cands[:LOOK_CAP]))
+            return seg
+        except Exception as e:                           # noqa: BLE001 — 翻记忆绝不阻断对话
+            logger.warning("mmt_look 失败（回「没想起来」）: %s", e)
+            return LOOK_EMPTY
 
     def _line_candidates(self) -> dict[str, tuple[str, ...]]:
         """自愈用的角色候选表：角色注册表（id + 显示名）+ 关系记录（interperson）的键。

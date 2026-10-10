@@ -369,9 +369,10 @@ def _recall_budget(override: int | None) -> int:
 
 
 def render_candidates(cands: Iterable[Candidate], *, header: str, hint: str = "",
-                      budget: int | None = None, char_name: str = "",
+                      budget: int | None = None, cap: int | None = None,
+                      char_name: str = "",
                       char_aliases: tuple[str, ...] = (), now=None) -> str:
-    """⭐ **一段候选 → 她看到的那一段字**（P19 与将来的 `look` 共用同一份）。
+    """⭐ **一段候选 → 她看到的那一段字**（P19 与 `look` 共用同一份）。
 
     它是"候选包"（`pack.Candidate`）在**她的视图**里的唯一印法:
     **段头 + 逐条记忆行 + 段尾提示**。两个场景的差别**只在文案** ⇒ 段头段尾是**参数**,
@@ -380,34 +381,48 @@ def render_candidates(cands: Iterable[Candidate], *, header: str, hint: str = ""
     | 调用方 | 段头 | 段尾 |
     |---|---|---|
     | P19「你想起的事」 | `RECALL_HEADER` | `RECALL_ACTION_HINT`（`noticed` 的动作提示） |
-    | `look`（定向寻找） | 它自己的（"你查到的那些"） | 它自己的（要不要提示指认, 由那一档定） |
+    | `look`（定向寻找） | `look_header(...)` | `look_hint(...)` |
 
     ⚠️ **它不做选面**（**不按 `kind` 过滤**）: 摆哪几条是**档位**的事
-    （`like.SPECS[…].kinds`）—— 渲染层再筛一遍就是**第二个真源**, 而且会把将来 `look`
+    （`like.SPECS[…].kinds`）—— 渲染层再筛一遍就是**第二个真源**, 而且会把 `look`
     想摆的 belief / entity **静默吃掉**（用户 2026-10-08 裁: 选面归档位, 渲染只管印）。
     ⇒ 从前 `render_recall_block` 里那句 `kind == "episode"` **已删**。
 
     ⚠️ **它只印"经历行"**（`_memory_line`, 见下）: `look` 要摆别的 kind 时, 补一张
     **按 kind 分派的行表**, 别在函数里长 if（那一笔跟着 `find` 一起做）。
 
-    `budget` 是**按行累积**的（不是先算总长再砍）: 宁可少摆一条, 也不把一条 episode
-    截半 —— 半条记忆比没有更坏（截断处正好是细节, 而"引用细节"正是这一段存在的理由）。
-    **第一条永远留**（预算是闸门不是否决）。`budget=None` ⇒ 读 `[recall].turn_budget`。
+    ## 两种"少摆几条"的机制 —— **互斥**（`cap` 优先）
+
+    | 参数 | 按什么截 | 谁在用 |
+    |---|---|---|
+    | `budget` | **字符**（按行累积; 第一条永远留） | P19（读 `[recall].turn_budget`, 默认 700） |
+    | `cap` | **条数** | `look`（用户 2026-10-08 裁: 5 条） |
+
+    ⛔ **两个都给时只认 `cap`**（跳过字符预算）—— 叠加必然出现"说好 5 条却只给 2 条",
+    而调用方**数不出**"还有几条"（被预算砍掉的那些算不算"还有"? 没有答案）。
+    ⇒ 一个调用方只该用其中一个。`budget` 那一条本身的纪律（不截半条、第一条永远留）
+    不变。
 
     空 / 一条都印不出 ⇒ `""`（**宁缺勿错**: 绝不返回一个光杆段头）。
     """
     picked = list(cands)
     if not picked:
         return ""
-    limit = _recall_budget(budget)
+    if cap is not None:
+        picked = picked[:max(int(cap), 0)]
+        limit = None                                  # ⛔ 与字符预算互斥（见 docstring）
+    else:
+        limit = _recall_budget(budget)
     lines: list[str] = []
     used = 0
     for c in picked:
         line = _memory_line(c.node, char_name, char_aliases, now)
-        if lines and used + len(line) > limit:   # 第一条永远留（预算是闸门不是否决）
-            break
+        if limit is not None and lines and used + len(line) > limit:
+            break                                     # 第一条永远留（预算是闸门不是否决）
         lines.append(line)
         used += len(line)
+    if not lines:
+        return ""
     return "\n".join([header, *lines, hint] if hint else [header, *lines])
 
 
@@ -445,6 +460,64 @@ def render_recall_block(cands: Iterable[Candidate], *,
     return render_candidates(cands, header=RECALL_HEADER, hint=RECALL_ACTION_HINT,
                              budget=budget, char_name=char_name,
                              char_aliases=char_aliases, now=now)
+
+
+# ---------------------------------------------------------------------------
+# ⭐ `look`（她主动翻自己的记忆）那一段的文案 —— 与 P19 的区别只在**这几句**
+# ---------------------------------------------------------------------------
+#
+# 为什么文案住渲染层（而不是 `mmt/engine.py`）: 与 P19 的 `RECALL_HEADER` /
+# `RECALL_ACTION_HINT` 同处 —— **"她眼前的字"一处看全**（改口吻不用翻两个模块）。
+# ⚠️ 与 P19 的**分工**（别混）:
+#   · P19 = 引擎每轮**主动摆** 1~2 条, 段尾要教她写 `{"noticed": …}`;
+#   · `look` = **她主动翻**（她自己在那一轮问的）, 段头要**回显她问的原话**,
+#     段尾不教 `noticed`（她翻完就接着说）—— 但"没想起来"那几句要给她**下一步**。
+
+def look_header(clue: str = "", when: str = "", *, n: int = 0,
+                widened: bool = False) -> str:
+    """⭐ `look` 的结果头: `【你翻到的（「苔藓 && 杂草」· 上周 · 2 条）】`。
+
+    三格都是**她给的原话 / 我们数出来的条数**:
+    ⛔ 不印编号（那是引擎内部的地址, 她的视图里永不出现）;
+    ⛔ 不印我们算出来的日期（`2026-09-14..=2026-10-08` 是引擎坐标 —— 一进她的视图
+    就变成工程报告; 她要的是"我翻了什么"）。
+    ⚠️ `「」` 在这里是**她说的原话**（一形一义里 `「」` 就是这个意思）—— 回显原话
+    比我们二次渲染更忠实, 也更省。
+
+    `widened=True` ⇒ **如实报告筛选边界**（"那阵子没有；前后那阵子有 N 条"）——
+    这是设计 §3.4 的第二种说法, ⛔ 不是猜。
+    """
+    echo = f"{marks.QUOTE_OPEN}{clue.strip()}{marks.QUOTE_CLOSE}" if clue.strip() else ""
+    when = when.strip()
+    if widened:
+        inner = f"{echo} · {when}那阵子没有；前后那阵子有 {n} 条" if echo \
+            else f"{when}那阵子没有；前后那阵子有 {n} 条"
+    else:
+        inner = " · ".join(x for x in (echo, when, f"{n} 条" if n else "") if x)
+    return marks.section(f"你翻到的（{inner}）")
+
+
+def look_hint(n: int = 0, more: int = 0) -> str:
+    """`look` 的段尾（`more` = 被 cap 挡掉、没摆出来的条数）。"""
+    if more > 0:
+        return f"（这些是最近的 {n} 条，还有 {more} 条同类的事。）"
+    return "（就这些。）"
+
+
+#: ⭐ **翻遍了没有**（含"线索不对"）—— 这三句是**她的内心话**, 顺手把"该去问老师了"
+#: 那条产品规则（设计 §3.5）落进运行时: 换关键词再翻 · 问周围的人 · 干脆先接着聊。
+#: ⛔ **不许出现"引擎/格式/我不理解"这类词** —— 那会打破第四面墙（她是"想不起来",
+#: 不是"解析失败"）。三句里**没有任何技术信息**, 所以也不会泄露内部状态。
+LOOK_EMPTY = ("（唔……什么也没想起来。要不换个关键词再翻翻？"
+              "或者问问老师、干脆先接着聊也行。）")
+
+#: 她说的时间**认不出来**时用这句（⛔ **不**静默当成"没给时间"去查全库 ——
+#: 那是静默放宽范围; 也⛔ 不报"格式错"—— 那是第四面墙）。
+LOOK_EMPTY_TIME = ("（唔……那阵子的事我怎么也想不起来了。要不换个说法再翻翻？"
+                   "或者问问老师、干脆先接着聊也行。）")
+
+#: 她说的时间**落在将来**（规则⑥: 合法但空 —— 不是她写错了）。
+LOOK_FUTURE = "（那是还没发生的事呢。）"
 
 
 def _reported_line(node: BrainNode, char_name: str,

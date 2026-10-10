@@ -414,6 +414,37 @@ def test_render_candidates_takes_its_own_header_and_hint():
     print("    render_candidates: 段头/段尾由调用方给（look 复用同一支）")
 
 
+def test_render_cap_is_exclusive_with_the_char_budget():
+    """⭐ `cap`（条数）与 `budget`（字符）**互斥, cap 优先**。
+
+    叠加的后果是"说好 5 条却只给 2 条", 而调用方**数不出**"还有几条"（被预算砍掉的
+    算不算"还有"? 没有答案）—— 所以两个都给时只认 `cap`。
+    """
+    from core.brain.read.pack import Candidate
+    from core.brain.read.render import render_candidates
+
+    cands = [Candidate(node=_titled(f"第 {i} 件事", f"标题{i}", event_seq=[i]))
+             for i in range(1, 4)]
+    assert render_candidates(cands, header="【x】", cap=2).count("\n- ") == 2
+    # ⚠️ 字符预算小到"一条都装不下", 但 cap 在场 ⇒ 预算被跳过 ⇒ 三条都在
+    assert render_candidates(cands, header="【x】", cap=3, budget=1).count("\n- ") == 3
+    print("    render: cap 与 budget 互斥（cap 优先）")
+
+
+def test_look_copy_is_her_own_words_not_engine_coordinates():
+    """`look` 的段头/段尾: **回显她的原话**、⛔ 不印编号、⛔ 不印我们算的日期。"""
+    from core.brain.read.render import look_header, look_hint
+
+    head = look_header("苔藓 && 杂草", "上周", n=2)
+    assert head == "【你翻到的（「苔藓 && 杂草」 · 上周 · 2 条）】", head
+    assert "m00" not in head and "2026" not in head
+    wide = look_header("苔藓", "上周", n=2, widened=True)
+    assert "那阵子没有；前后那阵子有 2 条" in wide
+    assert look_hint(5, 3).endswith("还有 3 条同类的事。）")
+    assert look_hint(2) == "（就这些。）"
+    print("    look 文案: 回显原话 / 如实报边界 / 不印编号与日期")
+
+
 def test_recall_budget_reads_config_knob(monkeypatch):
     """预算的**真源**是 `[recall].turn_budget`（显式参数 > 配置 > 模块常量）。"""
     from core.brain import recall_config as rc
