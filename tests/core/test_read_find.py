@@ -216,6 +216,21 @@ def test_clue_operators_word_forms_and_precedence():
     assert compile_clue("苔藓(屋顶)").op == "and"     # 半角括号 = 分组 ⇒ 隐式 AND
 
 
+def test_clue_tolerates_fullwidth_ampersand_only():
+    """⭐ 全角 `＆` 归一成 `&`（中文输入法常见）; ⛔ `｜` / `（）` **故意不归一**。
+
+    真档 30 节点实测: `& | ＆ ｜ ＼ ＋ ( )` 与全角空格**全部零出现**, 只有 `（）` 有 1 处
+    （正文插入语）。⇒ `＆` 归一零误伤; 而 `｜` 是**地址空间里的字段分隔符**（她可能抄整段
+    元信息进线索, 归一成 OR 会给出**错的**结果 —— 比"空"更坏), `（）` 是**内容**。
+    """
+    for raw in ("苔藓＆＆杂草", "苔藓 ＆＆ 杂草", "苔藓＆杂草"):
+        got = compile_clue(raw)
+        assert got.op == "and", (raw, got)
+        assert got.matches("苔藓和杂草") and not got.matches("只有苔藓"), raw
+    assert compile_clue("苔藓｜杂草").op == "lit"        # ⛔ 不归一（字段分隔符）
+    assert compile_clue("苔藓（杂草）").op == "lit"      # ⛔ 不归一（正文里出现过）
+
+
 def test_clue_refuses_regex_flavoured_input():
     """⭐ 她写正则味的字符 ⇒ **明确拒**（不是静默 0 命中）—— 可归因才有救。"""
     for bad in ("", "   ", "苔藓 &", "(苔藓", "苔藓)", "苔藓 \\d", "苔藓{2}", "a[bc]*",
