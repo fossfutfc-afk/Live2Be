@@ -149,7 +149,11 @@ def test_access_level_covers_both_shapes():
 
 
 def test_the_real_file_reads_through_both_paths():
-    """⑥ ⭐ **真档**能读通: haruka 那一行已经搬完（无数字）, 别的角色仍是旧形。"""
+    """⑥ ⭐ **真档**能读通: C2 之后除 `hinomiya_chinatsu` 之外, 每一行都是**立场形状**。
+
+    ⚠️ `hinomiya_chinatsu` 是特例: 表里有她那一行, 但她**既没有角色卡也没有 friends**
+    ⇒ 没有立场可搬（那一行留着旧的数字, 引擎两种形状都认, 它今天没有读者）。
+    """
     table = load_interperson(REAL)
     assert "__comment__" not in table
     haruka = table["igusa_haruka"]
@@ -159,11 +163,28 @@ def test_the_real_file_reads_through_both_paths():
     assert all(str(v.get("text") or "").strip()
                for k, v in haruka.items() if k != "self"), haruka
     assert "self" in haruka and not str(haruka["self"]["text"]).strip()
-    # 没档案的 saori 必须自带名字（关系不绑角色卡）
+
+    migrated = [k for k in table if k not in ("igusa_haruka", "hinomiya_chinatsu")]
+    assert len(migrated) >= 6, sorted(table)
+    for cid in migrated:
+        row = table[cid]
+        assert row and all(isinstance(v, dict) for v in row.values()), (cid, row)
+        assert all(str(v.get("text") or "").strip() for v in row.values()), cid
+        for key, item in row.items():
+            if str(key) in ("self", "sensei"):
+                continue                 # ⭐ 保留键: 按 id 认（x0000/x0001）, 不需要名字
+            # 其余每条要么指向档案（`id`）、要么自带名字（没卡的人）—— ⛔ 不许两条都没有
+            assert "id" in item or "name" in item, (cid, key)
+    # ⚠️ 只有 chinatsu 还是旧形状（没有立场可搬）—— 顺手钉住"别把它也顺手改了"
+    assert all(isinstance(v, int) for v in table["hinomiya_chinatsu"].values())
+    # 没档案的人**自带名字**（关系不绑角色卡）: haruka 的 saori / hina 的几位
     assert haruka["saori"]["name"] == "锭前纱织"
-    others = [k for k in table if k != "igusa_haruka"]
-    assert others and all(not isinstance(v, dict) for k in others
-                          for v in table[k].values()), "别的角色这一笔不该动"
+    assert table["sorasaki_hina"]["火宫千夏"]["name"] == "火宫千夏"
+    # ⭐ 作者写的中文键「老师」**归一成保留键 `sensei`**（引擎按保留键认 x0001）
+    assert "sensei" in table["onikata_kayoko"] and "老师" not in table["onikata_kayoko"]
+    # 能对上档案的**给 id**（名字/别名零手写）—— 含译名变体那几条
+    assert table["amau_ako"]["空崎阳奈（委员长）"]["id"] == "sorasaki_hina"
+    assert table["onikata_kayoko"]["陆八魔亚瑠"]["id"] == "rikuhachima_aru"
     text = self_entry_to_prompt(table, "igusa_haruka")
     assert "你眼里的他们" in text and "你的关系记录" not in text
-    print(f"    interperson: 真档 —— haruka 已换（{len(haruka)} 条立场）, 其余 {len(others)} 人未动")
+    print(f"    interperson: 真档 —— {len(migrated)} 个角色已换（{len(haruka)} 条立场）")
