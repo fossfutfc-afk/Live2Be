@@ -78,8 +78,15 @@ class ExecResult:
 def load_interperson(path: str | Path) -> dict:
     """读取 interperson.json（缺失 → {}；损坏 → MmtExecError）。
 
+    ⭐ **两种形状都收**（2026-10-08 换写法, 一次换一个角色）:
+      · **新形**（值 = dict）: `{叫法: {"text": 立场句, "id"?: 角色 id, "name"/"aliases"?: …}}`
+        —— "她眼里的他们"（主观看法, 从 `knowledge.yml` 的 `SIG~friends` 搬来）;
+      · **旧形**（值 = 数字）: `{角色 id: 1|2|3}` —— 熟知程度（给 `inspect` 开门用,
+        随 `inspect` 退役一起消失）。
+
     Returns:
-        {char_id: {rel_char_id: 权重 int}} 扁平权重表。
+        `{char_id: {…}}`; ⚠️ **`__` 开头的键被丢掉**（`__comment__` 是注释, 不是角色 ——
+        否则它会被候选表/渲染器当成一个"人"）。
     """
     p = Path(path)
     if not p.exists():
@@ -90,42 +97,75 @@ def load_interperson(path: str | Path) -> dict:
         raise MmtExecError(f"interperson.json 读取失败: {e}") from e
     if not isinstance(data, dict):
         raise MmtExecError(f"interperson.json 内容不是对象: {path}")
-    return data
+    return {k: v for k, v in data.items() if not str(k).startswith("__")}
 
 
 def resolve_access_level(interperson: dict, self_id: str, target_id: str) -> int:
-    """interperson 权重 → 访问层级。
+    """interperson 条目 → 访问层级（`inspect` 的门）。
 
-    权重语义（与 IDE 文档一致）:
-        1 = 萍水相逢（见过几次/交手/共事）→ 只见 profile
-        2 = 社团/队友                      → + personality
-        3 = 故知/青梅竹马                  → + experience
+    旧形（值 = 权重）语义: 1 = 萍水相逢（见过几次/交手/共事）→ 只见 profile;
+    2 = 社团/队友 → + personality; 3 = 故知/青梅竹马 → + experience。
     无记录 / 权重非法 → 0（素不相识: 可耳闻但无私人交集, inspect 拒绝）。
+
+    ⭐ **新形（值 = 立场 dict）⇒ 3**（2026-10-08, 换写法）: 表里写了立场 = 她认识他,
+    而作者写进这张表的都是同社/挚友。⚠️ **这是过渡判据** —— `mmt_inspect_character`
+    下一件就退役, 这条随之消失（届时"认识"由出厂立场 + 她自己的记忆承担）。
+    新形按 `id` 命中（她发的是角色 id）, 也认 `name` / `aliases`（没档案的人只有名字）。
     """
-    weight = interperson.get(self_id, {}).get(target_id)
-    if isinstance(weight, int) and 1 <= weight <= 3:
-        return weight
+    entry = interperson.get(self_id)
+    if not isinstance(entry, dict):
+        return 0
+    value = entry.get(target_id)
+    if isinstance(value, dict):                      # 新形: 键就是 target_id
+        return 3
+    for item in entry.values():                      # 新形: 按 id / 名字命中
+        if not isinstance(item, dict):
+            continue
+        forms = {str(item.get("id") or ""), str(item.get("name") or ""),
+                 *(str(a) for a in (item.get("aliases") or []))}
+        if target_id and target_id in forms:
+            return 3
+    if isinstance(value, int) and 1 <= value <= 3:   # 旧形
+        return value
     return 0
 
 
 def self_entry_to_prompt(interperson: dict, self_id: str) -> str:
-    """L1 人际层注入: 提取 self 的 interperson 条目, 渲染为 prompt 文本。
+    """L1 人际层注入: self 的条目 → **她看得见的一段**。
 
-    解决两个问题: 键值映射（LLM 用准确 id 查资料, 无需猜）+ 关系感知
-    （权重即关系信息, 回答「认不认识」问题时直接可用）。
+    2026-10-08（用户裁）**换了内容**: 从前印的是
+    `你的关系记录: {rikuhachima_aru: 2, …}`（键=id, 值=熟知程度）—— 那是给 `inspect`
+    开门的**数字**; 现在印的是**她自己的看法**（键=她的叫法, 值=一句立场）。
+
+    两种形状**可以同时存在**（表里一部分角色换了、一部分没换）⇒ **两段都印**:
+    宁可重复, 不可丢失（换写法是搬家, 不是重写）。
 
     Returns:
-        注入文本; self 无条目 → 空串（调用方跳过注入）。
+        注入文本; self 一条都没有 → 空串（调用方跳过注入）。
     """
     entry = interperson.get(self_id)
     if not isinstance(entry, dict) or not entry:
         return ""
-    items = ", ".join(f"{k}: {w}" for k, w in sorted(entry.items()))
-    return (
-        "你的关系记录: {" + items + "}\n"
-        "含义: 键=角色id（查资料时用）, 值=熟悉程度（1=萍水相逢 2=社团/队友 3=故知）; "
-        "未列出的角色=素不相识, 但你可能听说过其公开信息"
-    )
+    stances = [(k, v) for k, v in entry.items() if isinstance(v, dict)]
+    levels = [(k, v) for k, v in entry.items()
+              if isinstance(v, int) and not isinstance(v, bool)]
+    blocks: list[str] = []
+    if stances:
+        lines = []
+        for key, item in sorted(stances):
+            text = str(item.get("text") or "").strip()
+            if text:
+                lines.append(f"  {key}：{text}")
+        if lines:
+            blocks.append("你眼里的他们（**你自己写的**，不是别人的档案）:\n"
+                          + "\n".join(lines))
+    if levels:
+        items = ", ".join(f"{k}: {w}" for k, w in sorted(levels))
+        blocks.append(
+            "你的关系记录: {" + items + "}\n"
+            "含义: 键=角色id（查资料时用）, 值=熟悉程度（1=萍水相逢 2=社团/队友 3=故知）; "
+            "未列出的角色=素不相识, 但你可能听说过其公开信息")
+    return "\n".join(blocks)
 
 
 # ============================================================================
