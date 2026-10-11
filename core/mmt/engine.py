@@ -98,6 +98,7 @@ from core.brain.read.render import (
     LOOK_EMPTY,
     LOOK_EMPTY_TIME,
     LOOK_FUTURE,
+    look_empty,
     look_header,
     look_hint,
     render_background_experience,
@@ -597,6 +598,12 @@ class MomoTalkEngine:
         # `_run_lines` 深处被 executor 调, 那里拿不到 `agent_turn` 的局部量。
         # ⚠️ 不是"偷偷读壁钟": 每一轮开头由 `agent_turn` 显式写入（同 `_line_notes`）。
         self._turn_now: datetime | None = None
+
+        # ⭐ **连续翻空了几次**（用户 2026-10-08 裁）—— 云端 LLM 是无状态函数,
+        # **数不清自己翻过几次** ⇒ 由引擎数, 并写进回灌文案（`render.look_empty`）。
+        # ⚠️ 只有"有 store + 真的查空了"才 +1; **命中即归零**; 时间认不出/将来/无 store
+        #    都不算（那不是"记忆里没有"）。住内存: 会话内跨轮累计, 重启归零。
+        self._look_miss: int = 0
 
     # ------------------------------------------------------------------
     # 公共 API — 会话生命周期
@@ -1241,8 +1248,15 @@ class MomoTalkEngine:
           · 时间**认不出** ⇒ `LOOK_EMPTY_TIME`（⛔ **不**静默当成"没给时间"去查全库 ——
             那是静默放宽范围; ⛔ 也不报"格式错" —— 那是第四面墙）;
           · 时间**落在将来** ⇒ `LOOK_FUTURE`（规则⑥: 合法但空, 不是她写错了）;
-          · 查了没有 / 没有 store ⇒ `LOOK_EMPTY`（**宁缺勿错**: 引擎的配置问题
-            不伪装成"她这一轮失败了", 与 P19 在无 store 时静默不注同款）。
+          · **查了没有** ⇒ ⭐ `look_empty(self._look_miss)` —— **分档 + 计数**
+            （第 1 次照旧 / 第 2 次给"回忆方法" / ≥3 次劝她停下）; 没有 store ⇒
+            不带计数的 `LOOK_EMPTY`（**宁缺勿错**: 引擎的配置问题不伪装成"她这一轮
+            失败了", 与 P19 在无 store 时静默不注同款）。
+
+        ⭐ **计数只有一处会动**（"真的查空了"）: 时间认不出 / 将来 / 无 store / 异常
+        **都不算** —— 它们不是"记忆里没有"。命中则**归零**（用户 2026-10-08 裁:
+        给她"失败次数 + 回忆方法", 让这个无状态函数自己决定停; ⛔ 不设硬闸, 兜底仍只有
+        `MAX_STEPS`）。
 
         本函数**绝不抛**（照 `_recall_note` 的纪律）: 任何异常 ⇒ `logger.warning` +
         `LOOK_EMPTY`。⛔ 但"没接线/没会话"不在这里兜 —— 那是 `MmtExecError`（硬问题, 明确）。
@@ -1292,10 +1306,15 @@ class MomoTalkEngine:
                 cands = find(wstore, anchors, kinds=LOOK_KINDS)
                 widened = bool(cands)
             if not cands:
-                logger.info("mmt_look %s/%s clue=%r when=%r ⇒ 空",
-                            char.character_id, self._session_id, clue, when)
-                return LOOK_EMPTY
+                # ⭐ **真的翻空了** ⇒ 计数 +1, 并把"这是第几次"写进她看得见的字里
+                # （`look_empty` 分档: 第 1 次照旧 / 第 2 次给回忆方法 / ≥3 次劝她停下）。
+                self._look_miss += 1
+                logger.info("mmt_look %s/%s clue=%r when=%r ⇒ 空（连着第 %d 次）",
+                            char.character_id, self._session_id, clue, when,
+                            self._look_miss)
+                return look_empty(self._look_miss)
 
+            self._look_miss = 0                          # ⭐ 命中即**归零**（用户口径）
             shown = min(len(cands), LOOK_CAP)
             seg = render_candidates(
                 cands, cap=LOOK_CAP,

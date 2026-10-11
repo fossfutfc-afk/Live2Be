@@ -357,6 +357,7 @@ core.mmt.engine	load_brain_segment	function	core.mmt.engine
 core.mmt.engine	load_interperson	function	core.mmt.mmt_executor
 core.mmt.engine	load_note_segment	function	core.mmt.engine
 core.mmt.engine	logger	data	logging
+core.mmt.engine	look_empty	function	core.brain.read.render
 core.mmt.engine	look_header	function	core.brain.read.render
 core.mmt.engine	look_hint	function	core.brain.read.render
 core.mmt.engine	make_embed_fn	function	core.rag.brain
