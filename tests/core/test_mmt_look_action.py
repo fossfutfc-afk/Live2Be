@@ -431,3 +431,34 @@ def test_words_may_come_before_the_look(tmp_path):
     # 交付顺序 = 行序: 过渡话在前, 翻到之后的话在后
     assert result.reply.index("我找找看") < result.reply.index("我想起来了")
     print("    look: 先说话再翻 —— 话上屏 + 翻照跑 + 回灌 + 接着说（两次主调用）")
+
+
+# ---------------------------------------------------------------------------
+# ⑦ 规则书与契约不许漂（2026-10-08 立 —— 今天已经漂过两次）
+# ---------------------------------------------------------------------------
+
+RULES = Path(__file__).resolve().parents[2] / "llm" / "prompts" / "momotalk_rules.md"
+
+
+def test_rulebook_section_and_the_contract_say_the_same_thing():
+    """⭐ **规则书那段【回忆】必须与输出契约同款**（示范才是形状的来源 —— 契约/规则书
+    两处说法强度不一, 模型只照抄更强的那一处）。
+
+    钉三件事:
+      · 专段存在, 而且「操作使用时机」那一行**指向它**（⛔ 别只留个动作名）;
+      · 专段说的独占口径 = **唯一操作行 + 放最后一行**（与 `check_turn` 的判据一致）;
+      · ⛔ 退役的动作名与它那套"整轮只有它一条行"的口径**一个字都不许留**
+        （D 笔把 `mmt_inspect_character` 整条退了, 悬空指令会让她去调一个不存在的动作）。
+    """
+    text = RULES.read_text(encoding="utf-8")
+    assert "【回忆" in text, "规则书里必须有【回忆】专段"
+    assert "见下方【回忆】专段" in text, "「操作使用时机」那一行要指向专段"
+    seg = text[text.index("【回忆"):]
+    seg = seg[:seg.index("【想起的事")] if "【想起的事" in seg else seg
+    assert "唯一的操作行" in seg and "最后一行" in seg, seg
+    assert "mmt_look" in seg and "不算失败" in seg, seg
+    # ⛔ 退役动作与旧口径不许留
+    assert "mmt_inspect_character" not in text
+    assert "整轮只有它一条行" not in text
+    assert "单独一轮" not in text
+    print("    look: 规则书【回忆】与契约同款（唯一操作行 + 最后一行; 无退役动作残留）")
