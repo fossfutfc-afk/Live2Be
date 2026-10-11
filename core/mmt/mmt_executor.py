@@ -37,10 +37,12 @@ TODO（后续 session）:
 
 from __future__ import annotations
 
-import json
+import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+
+import yaml
 
 from core import paths
 from core.common import Live2BeError
@@ -51,9 +53,15 @@ from core.parsing.dynamic_character_parser import (
     yaml_to_prompt,
 )
 
-# interperson.json 默认路径（`core/paths.py` 的宏——项目根绝对, cwd 无关）
+# interperson.yml 默认路径（`core/paths.py` 的宏——项目根绝对, cwd 无关）
 _PROJECT_ROOT = paths.ROOT
 DEFAULT_INTERPERSON_PATH = paths.INTERPERSON_PATH
+
+#: **汉字之间**的空白（折行产物）—— 见 `_fold_cjk_gaps`。
+#: 两侧的字符类 = CJK 汉字 + 中文标点（`\u3000-\u303f` `\uff00-\uffef`）。
+_CJK_GAP = re.compile(
+    r"(?<=[\u3000-\u303f\u4e00-\u9fff\uff00-\uffef])\s+"
+    r"(?=[\u3000-\u303f\u4e00-\u9fff\uff00-\uffef])")
 
 
 class MmtExecError(Live2BeError):
@@ -75,8 +83,20 @@ class ExecResult:
 # 人际层工具（待 relation_parser.py 落地后移入）
 # ============================================================================
 
+def _fold_cjk_gaps(text: str) -> str:
+    """把**汉字之间**的空白折叠掉 + 去掉首尾空白（⛔ 不动拉丁词之间的空格）。
+
+    YAML 的 `>` 折行只是**排版**: 解析后会在换行处留一个空格, 于是作者写的
+    `…在某个人面前 敞开心扉` 就多了一个空格 —— `knowledge.yml` 的 `SIG~friends`
+    今天正是这个毛病（2026-10-08 搬家时手工清过一轮）。既然这一格是**中文人话**,
+    读取时统一规整一次, 作者就怎么写都行。
+    ⚠️ `>` 的 **clip** 还会给末尾留一个换行 ⇒ 顺手 `strip()`（那一格也是排版）。
+    """
+    return _CJK_GAP.sub("", text).strip()
+
+
 def load_interperson(path: str | Path) -> dict:
-    """读取 interperson.json（缺失 → {}；损坏 → MmtExecError）。
+    """读取 `interperson.yml`（缺失 → {}；损坏 → MmtExecError）。
 
     ⭐ **两种形状都收**（2026-10-08 换写法, 一次换一个角色）:
       · **新形**（值 = dict）: `{叫法: {"text": 立场句, "id"?: 角色 id, "name"/"aliases"?: …}}`
@@ -84,20 +104,38 @@ def load_interperson(path: str | Path) -> dict:
       · **旧形**（值 = 数字）: `{角色 id: 1|2|3}` —— 熟知程度（给 `inspect` 开门用,
         随 `inspect` 退役一起消失）。
 
+    ⚠️ 2026-10-08 起是 **YAML**（原来是 `.json`）: 值变成长句立场, JSON 写不了折行、
+    还要转义; YAML 还能写真注释。⛔ 只认这一种格式（**不留第二条真源**）。
+    ⚠️ 字符串值统一过 `_fold_cjk_gaps`（折行留下的空格不进 prompt）。
+
     Returns:
-        `{char_id: {…}}`; ⚠️ **`__` 开头的键被丢掉**（`__comment__` 是注释, 不是角色 ——
-        否则它会被候选表/渲染器当成一个"人"）。
+        `{char_id: {…}}`; ⚠️ **`__` 开头的键被丢掉**（防御: 旧 `.json` 用 `__comment__`
+        写注释, 那种键会被候选表/渲染器当成一个"人"）。
     """
     p = Path(path)
     if not p.exists():
         return {}
     try:
-        data = json.loads(p.read_text(encoding="utf-8"))
-    except (OSError, ValueError) as e:
-        raise MmtExecError(f"interperson.json 读取失败: {e}") from e
+        data = yaml.safe_load(p.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError) as e:
+        raise MmtExecError(f"interperson.yml 读取失败: {e}") from e
+    if data is None:                                 # 空文件 = 没有关系, 不是错误
+        return {}
     if not isinstance(data, dict):
-        raise MmtExecError(f"interperson.json 内容不是对象: {path}")
-    return {k: v for k, v in data.items() if not str(k).startswith("__")}
+        raise MmtExecError(f"interperson.yml 内容不是映射（{type(data).__name__}）: {path}")
+    data = {k: v for k, v in data.items() if not str(k).startswith("__")}
+    for entry in data.values():
+        if not isinstance(entry, dict):
+            continue
+        for item in entry.values():
+            if isinstance(item, dict):
+                for key, value in item.items():
+                    if isinstance(value, str):
+                        item[key] = _fold_cjk_gaps(value)
+                    elif isinstance(value, list):
+                        item[key] = [_fold_cjk_gaps(v) if isinstance(v, str) else v
+                                     for v in value]
+    return data
 
 
 def resolve_access_level(interperson: dict, self_id: str, target_id: str) -> int:
@@ -110,23 +148,26 @@ def resolve_access_level(interperson: dict, self_id: str, target_id: str) -> int
     ⭐ **新形（值 = 立场 dict）⇒ 3**（2026-10-08, 换写法）: 表里写了立场 = 她认识他,
     而作者写进这张表的都是同社/挚友。⚠️ **这是过渡判据** —— `mmt_inspect_character`
     下一件就退役, 这条随之消失（届时"认识"由出厂立场 + 她自己的记忆承担）。
-    新形按 `id` 命中（她发的是角色 id）, 也认 `name` / `aliases`（没档案的人只有名字）。
+    新形按 **键 / `id` / `name` / `aliases`** 命中（键是她的叫法 —— 她心里那个人叫什么,
+    引擎就把那个名字也当把手）。
     """
     entry = interperson.get(self_id)
-    if not isinstance(entry, dict):
+    if not isinstance(entry, dict) or not target_id:
         return 0
-    value = entry.get(target_id)
-    if isinstance(value, dict):                      # 新形: 键就是 target_id
-        return 3
-    for item in entry.values():                      # 新形: 按 id / 名字命中
+    # 旧形: 键**就是**角色 id, 值 = 权重
+    weight = entry.get(target_id)
+    if isinstance(weight, int) and not isinstance(weight, bool) and 1 <= weight <= 3:
+        return weight
+    # 新形: 键是**她的叫法** ⇒ 一律走这一条
+    # ⛔ 别另开"键命中"的第二条路: 两条路会互相遮住对方的回归（变异验红时踩到过 ——
+    #    "把这条改成 False" 照样绿, 因为另一条还兜着）。
+    for key, item in entry.items():
         if not isinstance(item, dict):
             continue
-        forms = {str(item.get("id") or ""), str(item.get("name") or ""),
+        forms = {str(key), str(item.get("id") or ""), str(item.get("name") or ""),
                  *(str(a) for a in (item.get("aliases") or []))}
-        if target_id and target_id in forms:
+        if target_id in forms:
             return 3
-    if isinstance(value, int) and 1 <= value <= 3:   # 旧形
-        return value
     return 0
 
 

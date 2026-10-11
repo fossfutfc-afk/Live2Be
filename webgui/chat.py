@@ -32,7 +32,7 @@ ROOT = Path(__file__).resolve().parent.parent
 CHAR_ROOT = ROOT / "config" / "characters"
 # 数据根 (`DATA_ROOT`) 与 `SessionStore` 实例已随 C1a 搬到 `webgui/deps.py`
 # ——这里不再留副本（同一事实两个来源 = 迟早对不上）。
-INTERPERSON_PATH = ROOT / "config" / "settings" / "relation" / "interperson.json"
+INTERPERSON_PATH = ROOT / "config" / "settings" / "relation" / "interperson.yml"
 
 # ---------------------------------------------------------------------------
 # 引擎管理（每 char 独立实例 + 同 char 串行锁）
