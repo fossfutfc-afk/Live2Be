@@ -34,6 +34,7 @@ from core.brain.entities import (SELF_ID, SENSEI_ID,             # noqa: E402
 from core.brain.read.like import RecallCtx, like                 # noqa: E402
 from core.mmt.engine import _stances_of                          # noqa: E402
 from core.parsing.dynamic_character_parser import CharacterLoader   # noqa: E402
+from core.session.store import SessionStore                       # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 REAL_TABLE = ROOT / "config" / "settings" / "relation" / "interperson.yml"
@@ -140,6 +141,50 @@ def test_the_real_table_materializes_six_entities(tmp_path):
     for nid in ("x0002", "x0003", "x0004", "x0005"):
         assert store.get(nid).text.strip(), f"{nid} 的立场没装上"
     print(f"    materialize: 真表 ⇒ {len(names)} 个 entity, 立场全装上")
+
+
+def test_session_open_materializes_before_the_first_digest(tmp_path):
+    """⭐ **开会话就物化**（C 笔）: 新档在**第一次 digest 之前**也得有那几个人。
+
+    否则 brain 段的「我眼里的他们」是空的 —— 出厂印象要等到消化完才出现,
+    而"出厂就有看法"正是这一整条的目的。
+    ⚠️ 同时钉住**严格性分档**: 只读注入路径（`digest=False`）**不抛** ——
+    config 坏一天不该让她连记忆段都没有（消化的严格性照旧, 见 `_ensure_char_entities`）。
+    """
+    from core.mmt.engine import MomoTalkEngine
+
+    store = SessionStore(data_root=tmp_path)
+    eng = MomoTalkEngine(CHAR_ROOT, object(), store=store, interperson_path=REAL_TABLE)
+    name = eng.start_session(CHARACTER)
+    root = store.create(CHARACTER, name)
+    eng.attach_session(root.session_id)
+    eng._inject_brain(CHARACTER, root.session_id)          # 只读注入路径（不消化）
+
+    wstore = WikiStoreV2(tmp_path, world_id=store.world_id, char_id=CHARACTER)
+    names = {n.id: n.name for n in wstore.all() if n.kind == "entity"}
+    assert len(names) == 6, names                          # self/sensei + 表里那 4 个
+    assert SELF_ID in names and SENSEI_ID in names
+    seg = eng._brain_injection
+    assert "我眼里的他们" in seg and "陆八魔" in seg, seg[:200]
+    assert "sensei非常照顾我" in seg, seg[:200]             # sensei 的立场也在
+    # ⛔ self 不在这块里（她对自己的立场没有注入面 —— 见 PROCEED 待裁项）
+    assert "我眼里的他们：\n- 伊草" not in seg
+    print(f"    materialize: 开会话即物化（{len(names)} 个）+ brain 段里有「我眼里的他们」")
+
+
+def test_session_open_survives_a_broken_table(tmp_path):
+    """⚠️ 表坏了/没了 ⇒ **照常开会话**（只 warn）—— 那条路是只读注入, 不是消化。"""
+    from core.mmt.engine import MomoTalkEngine
+
+    store = SessionStore(data_root=tmp_path)
+    eng = MomoTalkEngine(CHAR_ROOT, object(), store=store,
+                         interperson_path=tmp_path / "不存在.yml")
+    name = eng.start_session(CHARACTER)
+    root = store.create(CHARACTER, name)
+    eng.attach_session(root.session_id)
+    eng._inject_brain(CHARACTER, root.session_id)
+    assert "我眼里的他们" not in (eng._brain_injection or "")
+    print("    materialize: 表缺失 ⇒ 只 warn, 不挡开会话")
 
 
 def test_the_name_lane_boosts_what_was_about_her(tmp_path):

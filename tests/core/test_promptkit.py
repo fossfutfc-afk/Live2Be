@@ -65,7 +65,6 @@ def _ctx():
         names=[char.display_name],
         greeting_suffix="——以下是你的行为规则，请严格遵守：",
         schema=build_line_schema(build_mmt_registry()),
-        interperson_path=ROOT / "config" / "settings" / "relation" / "interperson.yml",
     )
 
 
@@ -145,12 +144,17 @@ def test_task_card_disabled_or_missing():
 # ---------------------------------------------------------------------------
 
 def test_describe_mmt_manifest():
-    """describe 报表: 行序 = 盒声明序; 首行 = greeting; 缺席块有标注。"""
+    """describe 报表: 行序 = 盒声明序; 首行 = greeting; 缺席块有标注。
+
+    ⚠️ 2026-10-08（C 笔）盒A **10 → 9 块**: `interperson` 退出（"她眼里的他们"
+    搬进 brain 段 —— 它读 `entity.text`, 而立场会随 digest 演化, 静态盒装不住）。
+    """
     ctx = _ctx()
     rep = describe("mmt", ctx)
     lines = rep.splitlines()
     assert lines[0].startswith("# promptkit describe: mmt")
     assert "| 1 | greeting |" in rep
     assert "| 2 | persona_mmt |" in rep
-    assert len(DOMAIN_BOXES["mmt"]) == 10               # 声明 10 块
-    assert "缺席块" not in rep                          # 遥香全量资料 → 10 块全注入
+    assert len(DOMAIN_BOXES["mmt"]) == 9                 # 声明 9 块（C 笔撤了 interperson）
+    assert "interperson" not in DOMAIN_BOXES["mmt"]
+    assert "缺席块" not in rep                           # 遥香全量资料 → 9 块全注入

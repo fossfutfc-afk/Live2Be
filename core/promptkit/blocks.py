@@ -18,7 +18,6 @@ from typing import Any, Callable
 
 from core.common.tone import load_story_tone
 from core.media.emotion_lexicon import build_emotion_injection
-from core.mmt.mmt_executor import MmtExecError, load_interperson, self_entry_to_prompt
 from core import paths
 from core.parsing.place_regions import load_regions
 from core.parsing.world_parser import DEFAULT_WORLD_PATH, load_world, world_to_prompt
@@ -39,7 +38,6 @@ class BlockContext:
     greeting_suffix: str = ""              # 称呼行尾句（域专属: MMT/Bond 的规则指向）
     schema: str = ""                       # 域契约 schema 原文（contract 渲染）
     schema_title: str = "可用动作 schema"    # schema 块标题（bond 记录流域改称输出契约）
-    interperson_path: Any = None           # MMT 人际层文件（executor 持有）
     world_path: str | None = None          # None → 默认 overview.yml
     brain_segment: str = ""                # Bond: 记忆段（开场注入, 剧情内固定）
     assets_root: Path | str | None = None  # Bond 词表资产根（None → 项目根/assets）
@@ -79,23 +77,6 @@ def _mmt_tone(ctx: BlockContext) -> str | None:
     """【本角色 MMT 风格】: script.yml SIG~mmt_tone（缺失 → 不注入）。"""
     tone = (ctx.char.mmt_tone or "").strip()
     return ("【本角色 MMT 风格】\n" + tone) if tone else None
-
-
-def _interperson(ctx: BlockContext) -> str | None:
-    """L1 人际层: `interperson.yml` 的自表条目（⭐ 新形 = **她自己的看法**; 旧形 = 权重）。
-
-    ⚠️ 形状与迁移状态见 `mmt_executor.self_entry_to_prompt` —— 新形印「你眼里的他们」,
-    旧形照旧印"关系记录"。文件损坏 → 跳过不挡会话。
-    """
-    if ctx.interperson_path is None:
-        return None
-    try:
-        interperson = load_interperson(ctx.interperson_path)
-    except MmtExecError as e:
-        logger.warning("interperson 读取失败, 跳过 L1 注入: %s", e)
-        interperson = {}
-    entry = self_entry_to_prompt(interperson, ctx.char.character_id)
-    return entry or None
 
 
 def _environment_mmt(ctx: BlockContext) -> str:
@@ -280,7 +261,6 @@ BLOCKS: dict[str, Callable[[BlockContext], str | None]] = {
     "world": _world,
     "story_tone": _story_tone,
     "mmt_tone": _mmt_tone,
-    "interperson": _interperson,
     "environment_mmt": _environment_mmt,
     "rules_mmt": _rules_mmt,
     "bond_tone": _bond_tone,
@@ -300,7 +280,7 @@ BLOCK_DOC: dict[str, str] = {
     "world": "世界常识/世界规则（common+system 档）",
     "story_tone": "本角色剧情基调（SIG~main_tone）",
     "mmt_tone": "本角色 MMT 风格（SIG~mmt_tone, 条件）",
-    "interperson": "人际层自表（interperson.yml: 她眼里的他们, 条件）",
+    "interperson": "⛔ 2026-10-08（C 笔）**已退出盒A** —— 搬进 brain 段的「我眼里的他们」",
     "environment_mmt": "MomoTalk 环境说明",
     "rules_mmt": "MomoTalk 行为规则书",
     "bond_tone": "本角色羁绊剧情建议（SIG~bond_tone, 条件）",
