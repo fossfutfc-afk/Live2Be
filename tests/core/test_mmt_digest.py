@@ -163,21 +163,27 @@ def test_first_digest_creates_char_entities(tmp_path, monkeypatch):
 
     # 重新载入 = 断言"真的写回盘上了"（内存里建过不算）
     ws = WikiStoreV2(st.data_root, world_id=st.world_id, char_id=CHARACTER)
-    assert [n.id for n in ws.all() if n.kind == "entity"] == [SELF_ID, SENSEI_ID]
+    # ⭐ 2026-10-08（B/C 笔）: **表里写了立场的对象也在这里出厂**（"她认识的人"）——
+    #    保留号仍占前两位, 其余按 id 升序（haruka 的表: aru/mutsuki/kayoko/saori）。
+    ids = [n.id for n in ws.all() if n.kind == "entity"]
+    assert ids[:2] == [SELF_ID, SENSEI_ID], ids
+    assert ids[2:] == ["x0002", "x0003", "x0004", "x0005"], ids
     assert ws.get(SELF_ID).name == names_of(char).display        # 角色自己的显示名
     assert set(names_of(char).aliases) <= set(ws.get(SELF_ID).aliases)
-    assert ws.get(SELF_ID).text == ""                            # 立场留给第 3 轮
+    assert ws.get(SELF_ID).text == ""                            # 表里 `self` 留空 + 立场留给第 3 轮
     assert ws.get(SENSEI_ID).name == player.display              # 玩家主名: config/player
     assert set(player.aliases) <= set(ws.get(SENSEI_ID).aliases)  # 作者别名
     assert "阿宅" in ws.get(SENSEI_ID).aliases                    # 玩家自取名（player.json）
-    assert ws.next_id("x") == "x0002"                            # 保留号挡住了 0/1
+    # ⭐ sensei 的**立场**来自 `interperson.yml`（B 笔之前这一格一直是空的）
+    assert ws.get(SENSEI_ID).text.startswith("sensei非常照顾我"), ws.get(SENSEI_ID).text
+    assert ws.next_id("x") == "x0006"                            # 保留号挡住了 0/1
 
     # 幂等: 再触发一次（水位已推进 → 0 新增早退）不重复建、不删
     engine._session_rounds = MMT_DIGEST_INTERVAL * 2
     engine._maybe_mmt_digest()
     time.sleep(0.3)
     again = WikiStoreV2(st.data_root, world_id=st.world_id, char_id=CHARACTER)
-    assert [n.id for n in again.all() if n.kind == "entity"] == [SELF_ID, SENSEI_ID]
+    assert [n.id for n in again.all() if n.kind == "entity"] == ids
 
 
 # ---------------------------------------------------------------------------

@@ -37,9 +37,29 @@ def test_names_interface():
     # ② 带前缀的键也读得到（收敛前 `_name_aliases` 只认裸键/SIG~ —— 这里修掉那个洞）
     assert char_names({"REQ~most_called_name": "甲",
                        "REQ~other_names": "小甲，阿甲"}).aliases == ("小甲", "阿甲")
+    # ⭐ **列表也要认**（`other_names: ['A', 'B']` 是合法 YAML; 三种写法真档并存）——
+    #    以前 list 被 `str()` 成 Python repr 再按逗号切 ⇒ **带引号中括号的垃圾**（静默）:
+    #    名字车道认不出"阳奈/委员长", `find_entity` 同样认不出。
+    #    ⚠️ 判据要落在"**切出来的每个别名都是干净名字**"上 —— 只断言"别名非空"的话,
+    #    旧代码也过（它给的是垃圾但非空, 假绿）。
+    for shape in ({"other_names": ["空崎阳奈", "阳奈", "委员长"]},          # 行内 list
+                  {"other_names": "空崎阳奈，阳奈，委员长"},               # 逗号串
+                  {"SIG~other_names": ["空崎阳奈", "阳奈"]}):             # 带前缀的 list
+        got = char_names(shape).aliases
+        assert got, shape
+        assert not [a for a in got if any(ch in a for ch in "[]'\"")], (shape, got)
+        assert "阳奈" in got, (shape, got)
     # 超长名字丢掉（会误伤文本替换）+ 空 profile 不炸
     assert char_names({"other_names": "这个词实在是太长了不该当别名"}).aliases == ()
     assert names_of(None).display == "" and names_of(None).aliases == ()
+    # ⭐ 真档那两个"list 写的"角色: 别名必须干净（这是本 bug 的现场 ——
+    #    修前 hina 的是 `"['空崎阳奈'"` / `"'阳奈']"` / `"'委员长'"` …）
+    for cid, want in (("sorasaki_hina", "阳奈"), ("ginkyou_iori", "佐仓")):
+        aliases = names_of(CharacterLoader(ROOT / "config" / "characters")
+                           .load(cid, strict=False)).aliases
+        assert not any(ch in a for a in aliases for ch in "[]'\""), \
+            f"{cid} 的别名仍然带引号/中括号: {aliases}"
+        assert want in aliases, (cid, aliases)
 
     # ③ 说话人表: 基础表来自 contract（sensei → 老师, **不再各写一遍**）
     m = speaker_names(char_id="igusa_haruka", display="伊草 遥香", with_narrator=True)
