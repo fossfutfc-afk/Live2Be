@@ -42,7 +42,7 @@ def test_line_shapes():
     assert line.payload == {"image": "夕阳", "media_type": "image"}
 
     # payload 可省（= {}）；字段级必填由 registry.parse 判，不在这一层
-    bare, why = line_from_obj({"action": "mmt_inspect_character"})
+    bare, why = line_from_obj({"action": "mmt_look"})
     assert why == "" and bare.payload == {}
     print("    lines: text 行 / action 行形状（strip / payload 可省）")
 
@@ -166,11 +166,13 @@ def test_to_action_raw_bridges_to_registry():
     _a, res = reg.parse(to_action_raw(empty_title))
     assert res.is_valid, "现状如此：空标题放行（c 阶段在 mmt_check.py 补校验）"
 
-    # ② 写歪的 id / 视频：registry 直接拒 ⇒ 自愈必须在它之前跑
-    bad_id, _ = line_from_obj({"action": "mmt_inspect_character",
-                               "payload": {"character_id": "遥香"}})
-    _a, res = reg.parse(to_action_raw(bad_id))
-    assert not res.is_valid, "character_id 不匹配 [a-z0-9_]+ → registry 拒"
+    # ② 看不懂的线索 / 视频：registry 直接拒 ⇒ 自愈必须在它之前跑
+    # ⚠️ 2026-10-08（D 笔）: 从前这一格举的是 `inspect` 写歪的 character_id ——
+    #    那个动作退役, 换成 look 写成正则（线索只认字面, `compile_clue` 当场拒）。
+    bad_clue, _ = line_from_obj({"action": "mmt_look",
+                                 "payload": {"clue": "苔藓.*杂草"}})
+    _a, res = reg.parse(to_action_raw(bad_clue))
+    assert not res.is_valid, "线索里有正则味 → registry 拒（schema 里说清了只认字面）"
     video, _ = line_from_obj({"action": "mmt_send_media",
                               "payload": {"image": "夕阳", "media_type": "video"}})
     _a, res = reg.parse(to_action_raw(video))

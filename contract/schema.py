@@ -135,12 +135,10 @@ def build_line_schema(registry: ActionRegistry, *, with_examples: bool = True) -
         '3. 话里的半角双引号与反斜杠必须转义（写成 \\" 与 \\\\）——这是最常见的错误。',
         "4. `mmt_trigger_bond_story` 是模式切换：它必须是**唯一**的操作行，"
         "见面的话写在它**前面**的消息行里。",
-        "5. `mmt_inspect_character` 是**单独一轮**：那一轮只有它一条行"
-        "（不夹消息行、也不夹别的操作行）——查到的东西程序会还给你，你接着这一轮说。",
-        "6. `mmt_look` 是那一轮**唯一的操作行**，并且放在**最后一行**："
+        "5. `mmt_look` 是那一轮**唯一的操作行**，并且放在**最后一行**："
         "想说的话（\"唔……我找找看\"）写在它**前面**的消息行里——"
         "翻到的东西要等它跑完才回到你手上。",
-        "7. 本轮至少要有一条行（说话或做事）——**想起行只是记账，不代替说话**。",
+        "6. 本轮至少要有一条行（说话或做事）——**想起行只是记账，不代替说话**。",
         "",
         "可用操作:",
     ]
@@ -171,10 +169,6 @@ def build_line_schema(registry: ActionRegistry, *, with_examples: bool = True) -
             '    {"text": "诶嘿～老师，我正好也在这一节车厢哦？"}',
             '    {"action": "mmt_trigger_bond_story",'
             ' "payload": {"chapter_title": "电车上的零食"}}',
-            "",
-            "深挖资料那一轮（整轮只有这一条行）:",
-            '    {"action": "mmt_inspect_character",'
-            ' "payload": {"character_id": "rikuhachima_aru"}}',
             "",
             # ⭐ "先说话再翻"是**两块**（= 两跳）: look 独占它那一轮（最后一行）, 程序把
             # 结果还给她之后她才接着说 —— 写成一块里 look + **翻完之后的话** = 教了

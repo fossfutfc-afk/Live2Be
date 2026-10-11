@@ -3,7 +3,6 @@
 动作集（对白不是动作）:
     说一句话 = 一行**消息行**（`{"text": …}`）, 不是动作;
     动作只承载**需要引擎介入的操作**（**操作行**）:
-    mmt_inspect_character    深挖后备: 查角色私密资料（静默推理轮, 权重分级）
     mmt_look                 翻阅**她自己的记忆**（静默推理轮; 查到的东西回灌, 她接着说）
     mmt_send_media           发图片（禁视频; 图片先查资源库, 库内没有才生成）
     mmt_trigger_bond_story   判定进入羁绊剧情（模式切换: 独占操作行）
@@ -15,16 +14,17 @@
     任意交错（话→图→话 微信节奏）; 操作行外壳只有 {action, payload}。
     ⚠️ 旧形状（`{"messages": […]}` / `{"reply","actions"}`）**已整段退役**（⑥-2f）。
 
-信息架构（v2 五层认知）:
-    L0 自我层   角色设定（五件套）+ 世界观 → 常驻 system prompt
-    L1 人际层   注入 interperson 自表条目（键值+权重）+ 人际 knowledge
+信息架构（2026-10-08 校正 —— ⛔ L3 深挖层随 `mmt_inspect_character` 一起退役）:
+    L0 自我层   角色设定（六件套）+ 世界观 → 常驻 system prompt
+    L1 人际层   ⭐ **她眼里的他们**: `interperson.yml` 的立场物化成 `entity.text`,
+                注入 brain 段的「我眼里的他们」（+ 她自己那一行「我是这样看自己的」）
     L2 硬知识层 knowledge 硬知识 + LLM 世界知识
-    L3 深挖层   对方 profile/personality/experience —— 仅 mmt_inspect_character 可取
 
-    - 关系问答 / 大人物常识 → 走 L0-L2 直接回答, 不查
-    - 只有玩家深挖私密细节（如"她狙击枪叫什么"）→ 才走 mmt_inspect_character
-    - 无记录 = 素不相识（可耳闻）: inspect 会被拒绝, 用知识回答其公开信息
-    - 键值映射靠 L1 注入的自表条目（LLM 无需猜 id, 也不烧 token 注入全量名单）
+    - 关系问答 / 大人物常识 → 走 L0-L2 直接回答, **没有"查资料"这个动作了**
+    - ⚠️ **他人的私密档案不再是她的信息来源**（用户 2026-10-08 裁）: 从前按
+      `interperson` 权重分级读别人的 profile/personality/experience, 那是**客观档案**
+      混进她主观的看法里; 现在她只知道**自己眼里的他们**（立场句本身就可以是错的、
+      片面的 —— 那才是角色）。
 
 设计决策:
     - mmt_ 前缀: 动作名自带域标识——LLM 输出 / schema 渲染 / 历史记载
@@ -35,7 +35,6 @@
     - 禁视频: 项目没有视频生成能力——mmt_send_media 只允许图片,
       media_type 白名单 = {'image'}, 传 video 会被硬性拒绝并回灌给 LLM。
     - 图片管线: 先查资源库（library_id）, 库内没有现成图才按 image 描述生成。
-    - 自检防护（双重）: payload_schema 提示禁止查自己 + executor 代码级报错。
     - 羁绊剧情是 LLM 生成的（BondScene + 表情/立绘控制）, 不是点选剧本——
       mmt_trigger_bond_story 只是触发信号（算法轮数门槛 + LLM 决策）,
       放行才切换羁绊剧情模式。
@@ -50,7 +49,6 @@ from contract import (
     ActionSpec,
     APPROVAL_AUTO,
     ContractError,
-    is_valid_identifier,
 )
 from core.brain.read.find import ClueError, compile_clue
 
@@ -60,23 +58,6 @@ MMT_RUNTIME_FIELDS = frozenset({"action", "payload"})
 
 # 禁视频: MMT 只允许图片（项目无视频生成能力）
 MMT_MEDIA_TYPES = frozenset({"image"})
-
-
-# ============================================================================
-# mmt_inspect_character — 深挖后备: 查角色私密资料
-# ============================================================================
-
-def parse_mmt_inspect_character(payload: dict[str, Any]) -> dict[str, Any]:
-    """结构白名单校验（硬错误, 抛 ContractError）。
-
-    只校验请求结构; 访问层级 / 无记录拒绝由执行层按 interperson 权重决定。
-    """
-    char_id = payload.get("character_id")
-    if not is_valid_identifier(char_id):
-        raise ContractError(
-            f"character_id 必须匹配 [a-z0-9_]+ 且 ≤64 字符: {char_id!r}"
-        )
-    return {"character_id": char_id}
 
 
 # ============================================================================
@@ -145,7 +126,7 @@ def parse_mmt_look(payload: dict[str, Any]) -> dict[str, Any]:
     序列化那一层迟早出事。编译是纯函数, 执行层再编一次零成本（**一份实现, 两处调用**）。
 
     ⚠️ **`when` 只校验"是字符串"** —— 时间语法要 `now` 才能判, 而 parse 层没有会话
-    上下文（同 `mmt_inspect_character` 的分工: "访问层级由执行层决定"）。
+    上下文（同 `send_media` 的分工: "库里的图由执行层查"）。
     ⚠️ 也不在这里做**检索**（那是执行层 + `core.brain.read.find` 的事）。
 
     两格**至少给一个**（`DESIGN_MMT_NEW_ACTION §3.1`）: 只想查"那阵子的事"时
@@ -183,26 +164,6 @@ def build_mmt_registry() -> MMTActionRegistry:
     """
     registry = MMTActionRegistry()
     registry.register(ActionSpec(
-        "mmt_inspect_character",
-        parse_mmt_inspect_character,
-        APPROVAL_AUTO,
-        prompt_fields=MMT_RUNTIME_FIELDS,
-        payload_schema=(
-            "character_id: 目标角色 id——用系统提示里『你的关系记录』的键值, "
-            "如 rikuhachima_aru\n"
-            "用途: 深挖后备手段, 静默推理轮（玩家看不到, 结果回灌给你）——\n"
-            "      仅当玩家追问某角色的私密具体细节（如『她的狙击枪叫什么』）\n"
-            "      而你无法凭自己的知识回答时才调用; 普通关系问答、大人物常识\n"
-            "      直接用你的知识回答, 不要查\n"
-            "访问层级由你的关系记录权重决定: 1=萍水相逢(只见profile) "
-            "2=社团(+personality) 3=故知(+experience);\n"
-            "      无记录=素不相识（但可耳闻）——会被拒绝, 此时用你的知识回答其\n"
-            "      公开信息即可\n"
-            "不要查你自己——你完全了解自己; 也不要查玩家, 或玩家明显胡编乱造的名字;\n"
-            "      完整资料已在你的角色设定中"
-        ),
-    ))
-    registry.register(ActionSpec(
         "mmt_look",
         parse_mmt_look,
         APPROVAL_AUTO,
@@ -222,10 +183,11 @@ def build_mmt_registry() -> MMTActionRegistry:
             "             `..` 不含右端, `..=` 含, 左端可省（`back ..=6 day`）\n"
             "      某天 → `2026/09/25` · 没年份写 `09/25`（= 最近那一次）· 整月 `2026/09`\n"
             "      单位 = day / week / month / year（中文 `天 周 个月 年` 也收）\n"
-            "用途: **翻你自己的记忆**（旧事 / 你说过的话）——静默推理轮, 老师看不到,\n"
+            "用途: **翻你自己的记忆**（旧事 / 你说过的话）——老师看不到这一行,\n"
             "      翻到的东西回灌给你, 你再接着说。仅当你**必须知道它才能说下一句**时用\n"
             "      （「那次到底是哪天来着」）; 翻不到就照实说想不起来, 再问老师\n"
-            "clue 与 when **至少给一个**; 这是单独一轮——那一轮只有这一条行"
+            "clue 与 when **至少给一个**; 它是这一轮**唯一的操作行**（放最后一行 ——\n"
+            "      想说的那句「唔……我找找看」写在它**前面**的消息行里）"
         ),
     ))
     registry.register(ActionSpec(

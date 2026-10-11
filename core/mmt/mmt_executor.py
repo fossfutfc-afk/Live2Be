@@ -7,27 +7,27 @@ ExecResult(ok=True, message=回灌给 LLM 的内容)；不可执行抛 MmtExecEr
 
 动作执行（对应 core/mmt/mmt_actions.py 的动作集）:
     mmt_chat                 对白已在 action.reply——执行仅确认, 正常回复核心路径
-    mmt_inspect_character    深挖后备: 按 interperson 权重分级读目标资料
-                             （自检拒绝 / 无记录拒绝 / 1=profile 2=+personality 3=+experience）
+    mmt_look                 ⭐ 翻她自己的记忆（2026-10-08）—— 真正的实现在
+                             `core/brain/read/find.py`, 由引擎注入 `look_fn`;
+                             这里只兜"没接线"（MmtExecError, 硬）
     mmt_send_media           图片发送占位——媒体管线未接入, 仅回灌确认
     mmt_trigger_bond_story   触发放行——**引擎不拦节奏**（2026-09-02 v2 用户拍板:
                              轮数只是建议, 由 momotalk 每轮注记提示时机; 紧急剧情
                              sensei 遇险等 LLM 自行裁决随时触发）; 放行即切剧情模式
 
-信息架构（v2 五层认知, 与 mmt_actions 一致）:
-    L0 自我层 / L1 人际层（自表条目注入, self_entry_to_prompt）/ L2 硬知识 / L3 深挖层。
-    inspect 是 L3 的门控入口: 无记录=素不相识 → 拒绝, LLM 用知识回答公开信息。
+信息架构（2026-10-08 校正 —— ⛔ L3 深挖层随 `mmt_inspect_character` 退役）:
+    L0 自我层（角色设定）/ L1 人际层（**她眼里的他们** —— 立场物化成 `entity.text`,
+    由 brain 段注入, **不再经本文件**）/ L2 硬知识。
+    ⚠️ 从前那个"按权重分级读**别人**的客观档案"的入口已删（用户裁: 客观档案混进
+    主观看法里是错的 —— 她该只知道**自己眼里的他们**）。
 
 设计决策:
-    - 执行器持有会话当前角色（set_current_character）, inspect/trigger 依赖它。
-    - 自检防护（双重）: 本文件抛 MmtExecError 代码级报错 + mmt_actions schema 提示。
-    - 无记录≠不认识: 无记录=素不相识（可耳闻）, inspect 拒绝但可凭知识回答。
-    - 自表条目注入: self_entry_to_prompt 生成 L1 注入文本, 由 momotalk 拼进 system prompt。
+    - 执行器持有会话当前角色（set_current_character）, trigger/look 依赖它。
     - 触发 bool: 引擎建议不拦截（v1 曾硬拒不足 6 轮——2026-09-02 v2 用户复盘
       否决: 玩家遇险时角色尬聊是硬闸的伪正确; 时机建议由 momotalk._bond_progress_note
       每轮注入, 触发与否全权交给 LLM 的剧情判断）。
-    - 人际层工具（load_interperson / resolve_access_level / self_entry_to_prompt）
-      当前内联在本文件, 待 core/parsing/relation_parser.py 落地后移入。
+    - 人际层工具（`load_interperson` + 折行规整）当前内联在本文件,
+      待 core/parsing/relation_parser.py 落地后移入。
     - 错误统一走 MmtExecError（Live2BeError 子类）, 由调用方捕获回灌。
 
 TODO（后续 session）:
@@ -104,9 +104,12 @@ def load_interperson(path: str | Path) -> dict:
 
     ⭐ **两种形状都收**（2026-10-08 换写法, 一次换一个角色）:
       · **新形**（值 = dict）: `{叫法: {"text": 立场句, "id"?: 角色 id, "name"/"aliases"?: …}}`
-        —— "她眼里的他们"（主观看法, 从 `knowledge.yml` 的 `SIG~friends` 搬来）;
-      · **旧形**（值 = 数字）: `{角色 id: 1|2|3}` —— 熟知程度（给 `inspect` 开门用,
-        随 `inspect` 退役一起消失）。
+        —— "她眼里的他们"（主观看法, 从 `knowledge.yml` 的 `SIG~friends` 搬来,
+        由 `ensure_entities(stances=…)` 物化成 `entity.text`）;
+      · **旧形**（值 = 数字）: `{角色 id: 1|2|3}` —— 熟知程度。⚠️ 那是给
+        `mmt_inspect_character` 开门的数字, 而它 **2026-10-08 已退役** ⇒
+        今天**没有任何读者**（`hinomiya_chinatsu` 那一行还是这样）;
+        读取照样收（表是作者的, 引擎不擅自解释）。
 
     ⚠️ 2026-10-08 起是 **YAML**（原来是 `.json`）: 值变成长句立场, JSON 写不了折行、
     还要转义; YAML 还能写真注释。⛔ 只认这一种格式（**不留第二条真源**）。
@@ -142,77 +145,6 @@ def load_interperson(path: str | Path) -> dict:
     return data
 
 
-def resolve_access_level(interperson: dict, self_id: str, target_id: str) -> int:
-    """interperson 条目 → 访问层级（`inspect` 的门）。
-
-    旧形（值 = 权重）语义: 1 = 萍水相逢（见过几次/交手/共事）→ 只见 profile;
-    2 = 社团/队友 → + personality; 3 = 故知/青梅竹马 → + experience。
-    无记录 / 权重非法 → 0（素不相识: 可耳闻但无私人交集, inspect 拒绝）。
-
-    ⭐ **新形（值 = 立场 dict）⇒ 3**（2026-10-08, 换写法）: 表里写了立场 = 她认识他,
-    而作者写进这张表的都是同社/挚友。⚠️ **这是过渡判据** —— `mmt_inspect_character`
-    下一件就退役, 这条随之消失（届时"认识"由出厂立场 + 她自己的记忆承担）。
-    新形按 **键 / `id` / `name` / `aliases`** 命中（键是她的叫法 —— 她心里那个人叫什么,
-    引擎就把那个名字也当把手）。
-    """
-    entry = interperson.get(self_id)
-    if not isinstance(entry, dict) or not target_id:
-        return 0
-    # 旧形: 键**就是**角色 id, 值 = 权重
-    weight = entry.get(target_id)
-    if isinstance(weight, int) and not isinstance(weight, bool) and 1 <= weight <= 3:
-        return weight
-    # 新形: 键是**她的叫法** ⇒ 一律走这一条
-    # ⛔ 别另开"键命中"的第二条路: 两条路会互相遮住对方的回归（变异验红时踩到过 ——
-    #    "把这条改成 False" 照样绿, 因为另一条还兜着）。
-    for key, item in entry.items():
-        if not isinstance(item, dict):
-            continue
-        forms = {str(key), str(item.get("id") or ""), str(item.get("name") or ""),
-                 *(str(a) for a in (item.get("aliases") or []))}
-        if target_id in forms:
-            return 3
-    return 0
-
-
-def self_entry_to_prompt(interperson: dict, self_id: str) -> str:
-    """L1 人际层注入: self 的条目 → **她看得见的一段**。
-
-    2026-10-08（用户裁）**换了内容**: 从前印的是
-    `你的关系记录: {rikuhachima_aru: 2, …}`（键=id, 值=熟知程度）—— 那是给 `inspect`
-    开门的**数字**; 现在印的是**她自己的看法**（键=她的叫法, 值=一句立场）。
-
-    两种形状**可以同时存在**（表里一部分角色换了、一部分没换）⇒ **两段都印**:
-    宁可重复, 不可丢失（换写法是搬家, 不是重写）。
-
-    Returns:
-        注入文本; self 一条都没有 → 空串（调用方跳过注入）。
-    """
-    entry = interperson.get(self_id)
-    if not isinstance(entry, dict) or not entry:
-        return ""
-    stances = [(k, v) for k, v in entry.items() if isinstance(v, dict)]
-    levels = [(k, v) for k, v in entry.items()
-              if isinstance(v, int) and not isinstance(v, bool)]
-    blocks: list[str] = []
-    if stances:
-        lines = []
-        for key, item in sorted(stances):
-            text = str(item.get("text") or "").strip()
-            if text:
-                lines.append(f"  {key}：{text}")
-        if lines:
-            blocks.append("你眼里的他们（**你自己写的**，不是别人的档案）:\n"
-                          + "\n".join(lines))
-    if levels:
-        items = ", ".join(f"{k}: {w}" for k, w in sorted(levels))
-        blocks.append(
-            "你的关系记录: {" + items + "}\n"
-            "含义: 键=角色id（查资料时用）, 值=熟悉程度（1=萍水相逢 2=社团/队友 3=故知）; "
-            "未列出的角色=素不相识, 但你可能听说过其公开信息")
-    return "\n".join(blocks)
-
-
 # ============================================================================
 # 执行器
 # ============================================================================
@@ -246,7 +178,7 @@ class MmtExecutor:
     # ------------------------------------------------------------------
 
     def set_current_character(self, char: DynamicCharacter | None) -> None:
-        """设置会话当前角色（inspect/trigger 依赖它）。"""
+        """设置会话当前角色（trigger/look 依赖它）。"""
         self.current_char = char
 
     # ------------------------------------------------------------------
@@ -276,52 +208,6 @@ class MmtExecutor:
         模拟手机操作（operation）是展示层元数据, 由调用方渲染, 无需执行。
         """
         return ExecResult(ok=True, message="已回复")
-
-    # ==================================================================
-    # mmt_inspect_character — 深挖后备: 查角色私密资料（权重分级）
-    # ==================================================================
-
-    def _execute_mmt_inspect_character(self, action: AgentAction) -> ExecResult:
-        if self.current_char is None:
-            raise MmtExecError("尚未进入会话, 无法查角色资料")
-
-        target_id = action.payload["character_id"]
-        self_id = self.current_char.character_id
-
-        # 自检防护（代码级报错, 配合 mmt_actions schema 提示双重防线）
-        if target_id == self_id:
-            raise MmtExecError(
-                "目标角色是你自己——你完全了解自己, 完整资料已在你的角色设定中, 不要查自己"
-            )
-
-        try:
-            char = self.char_loader.load(target_id)
-        except FileNotFoundError:
-            raise MmtExecError(
-                f"角色不存在: {target_id}——请使用已建档角色, 不要查玩家或胡编的名字"
-            ) from None
-
-        interperson = load_interperson(self.interperson_path)
-        level = resolve_access_level(interperson, self_id, target_id)
-
-        # 无记录≠不认识: 素不相识 → 拒绝查私密资料, 用知识回答公开信息
-        if level == 0:
-            raise MmtExecError(
-                f"{char.display_name} 与你素不相识（无关系记录）——基于公开信息和你的知识"
-                "回答其基本信息即可, 无法查其私密资料"
-            )
-
-        merged = dict(char.profile)
-        if level >= 2:
-            merged.update(char.personality)
-        if level >= 3:
-            merged.update(char.experience)
-
-        data = yaml_to_prompt(merged, f"角色 {char.display_name} 资料")
-        return ExecResult(
-            ok=True,
-            message=f"[已查阅 {target_id} 资料, 访问层级 {level}/3]\n{data}",
-        )
 
     # ==================================================================
     # mmt_look — 翻阅她自己的记忆（⭐ 真检索走注入的回调）

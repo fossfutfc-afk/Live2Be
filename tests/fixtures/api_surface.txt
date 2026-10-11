@@ -276,7 +276,6 @@ contract.issues	declared_severity	function	contract.issues
 contract.issues	format_issues	function	contract.issues
 contract.issues	split_issues	function	contract.issues
 # ---- core.mmt.engine ----
-core.mmt.engine	ACTION_INSPECT	data	-
 core.mmt.engine	ACTION_TRIGGER	data	-
 core.mmt.engine	APPROVAL_AUTO	data	-
 core.mmt.engine	Affection	class	core.affection.affection_calc
@@ -339,7 +338,6 @@ core.mmt.engine	_stances_of	function	core.mmt.engine
 core.mmt.engine	_strip_action_brackets	function	core.tui.text_processors
 core.mmt.engine	_turn_k	function	core.mmt.engine
 core.mmt.engine	build_box	function	core.promptkit.box
-core.mmt.engine	build_candidates	function	core.mmt.mmt_repair
 core.mmt.engine	build_line_schema	function	contract.schema
 core.mmt.engine	build_mmt_registry	function	core.mmt.mmt_actions
 core.mmt.engine	char_names	function	core.parsing.names

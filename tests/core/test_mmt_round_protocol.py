@@ -5,7 +5,7 @@
     1. 纯说话轮 → 一行消息行 → 隐含 mmt_chat 走原管线
     2. 交错节奏: 话 → 发图 → 话（行序即事件序）
     3. 空轮 / 坏行 → 形状级重发 / 丢行记账（旧协议的"整轮回灌"已换成 §4 的分级）
-    4. trigger 独占操作行（见面的话可前置）; inspect 单独一轮
+    4. trigger 独占操作行（见面的话可前置）; 查询族（look）也是唯一操作行
     5. **旧形状（`{"messages": […]}` / `{"reply","actions"}`）必须被拒**
     6. registry 动作集收敛（3 真操作, 外壳 {action, payload}）
 
@@ -125,23 +125,6 @@ def test_trigger_text_before_action():
     assert "唯一操作行" in "\n".join(m["content"] for m in llm2.snapshots[1])
     print("    trigger: 消息行前置放行; 与其他操作行混排 → 回灌（唯一操作行）")
 
-
-def test_inspect_alone():
-    """inspect 单独一轮（静默）: 执行 → **资料回灌** → 继续说话; 混排 → 回灌修正。"""
-    insp = '{"action": "mmt_inspect_character", "payload": {"character_id": "rikuhachima_aru"}}'
-    llm = ScriptedLLM(insp, '{"text": "阿露她啊，是便利屋68的社长。"}')
-    engine = _engine(llm)
-    r = engine.agent_turn("她是个什么样的人")
-    assert r.ok and r.reply == "阿露她啊，是便利屋68的社长。"
-    fed = llm.snapshots[1][-1]
-    assert fed["role"] == "user" and fed["content"].startswith("[已查阅 rikuhachima_aru")
-    # 混排消息行 → 独占违规 → 行级续写
-    llm2 = ScriptedLLM('{"text": "问问看"}\n' + insp, '{"text": "啊……还是算了"}')
-    engine2 = _engine(llm2)
-    r2 = engine2.agent_turn("在吗")
-    assert r2.ok and r2.reply == "啊……还是算了"
-    assert "静默推理轮" in "\n".join(m["content"] for m in llm2.snapshots[1])
-    print("    inspect: 单独一轮合法（资料回灌后继续）; 混排 → 回灌")
 
 
 def test_legacy_shape_rejected():

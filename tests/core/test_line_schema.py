@@ -5,10 +5,10 @@
 `docs/DESIGN_STREAM_CONTRACT.md` §1（契约形式六条）/ §2（两域对照）/ §10.2 B1·B3。
 
 覆盖:
-    形状与硬规则   判别键两类行 / 一行一条 / 气泡粒度归模型 / 转义 / **三个**独占约束
+    形状与硬规则   判别键两类行 / 一行一条 / 气泡粒度归模型 / 转义 / **两个**独占约束
     动作表来自注册表  运行时渲染 —— 新增动作**自动进 prompt**（手写清单会漂）
     示范合法      示例每一行都是合法 JSON 对象, 且判别键 ∈ {text, action}
-    ⭐ 独占示范同款  inspect 那块只有一条行; look 那块它是**唯一操作行 + 最后一行**
+    ⭐ 独占示范同款  look 那块里它是**唯一操作行 + 最后一行**（trigger 式的口径）
     不教旧形状    文本里不出现 `messages`（旧协议 ⑥-2e 才删, 但不能同时教两种形状）
     关示例        with_examples=False 更短, 但硬规则与动作表仍在
 """
@@ -24,9 +24,11 @@ from contract.schema import build_line_schema                         # noqa: E4
 from contract.spec import ActionSpec                                  # noqa: E402
 from core.mmt.mmt_actions import build_mmt_registry                   # noqa: E402
 
-#: 独占动作（`mmt_check` 判 `mmt.exclusive-violation`）—— ⚠️ 两族**口径不同款**:
-#: `inspect` = 整轮只有它一条行; `look` = 唯一操作行 + 放最后一行（trigger 式）。
-_EXCLUSIVE = ("mmt_inspect_character", "mmt_look")
+#: 独占动作（`mmt_check` 判 `mmt.exclusive-violation`）—— ⚠️ **今天只有一款口径**:
+#: **唯一操作行**（trigger 式）—— 话可以写在它前面, 它自己放最后一行。
+#: 2026-10-08（D 笔）: 另一款（整轮只有它一条行的静默推理轮）随
+#: `mmt_inspect_character` 退役, 这里只剩 look。
+_EXCLUSIVE = ("mmt_look",)
 
 
 def _example_lines(text: str) -> list[str]:
@@ -63,16 +65,19 @@ def test_shape_and_hard_rules():
     assert "一个气泡" in text                       # 一行 = 一气泡（新语义）
     assert "气泡粒度由你定" in text
     assert '\\"' in text                            # 转义示范（实战唯一真实错误源）
-    # 三个独占约束（`mmt_check` 的硬校验与这里的文案必须同款; ⭐ 两族口径**不同款**）
+    # 两个独占约束（`mmt_check` 的硬校验与这里的文案必须同款 —— 口径 = **唯一操作行**）
     assert "必须是**唯一**的操作行" in text
-    assert "**单独一轮**" in text
     assert "至少要有一条行" in text
-    # ⭐ 5 = inspect（整轮只有它一条行）; 6 = look（唯一操作行 + **最后一行** — 用户 10-08 裁）
+    assert "单独一轮" not in text                 # ⛔ 退役的那一款口径不许留残句
+    assert "mmt_inspect_character" not in text    # ⛔ 退役动作整段不留
+    # ⭐ 4 = trigger; 5 = look（唯一操作行 + **最后一行** — 用户 10-08 裁）
+    rule4 = next(ln for ln in text.splitlines() if ln.startswith("4. "))
     rule5 = next(ln for ln in text.splitlines() if ln.startswith("5. "))
+    assert "mmt_trigger_bond_story" in rule4 and "唯一**的操作行" in rule4, rule4
+    assert "mmt_look" in rule5 and "唯一的操作行" in rule5, rule5
+    assert "最后一行" in rule5, rule5
     rule6 = next(ln for ln in text.splitlines() if ln.startswith("6. "))
-    assert "mmt_inspect_character" in rule5 and "单独一轮" in rule5, rule5
-    assert "mmt_look" in rule6 and "唯一的操作行" in rule6, rule6
-    assert "最后一行" in rule6, rule6
+    assert "想起行" in rule6, rule6               # 第 6 条 = 收尾那条（记账不代替说话）
     # 文案纪律: **示范行**里的戏词不包「」（用户裁决 #24）。
     # ⚠️ 只查示范行 —— payload 说明里会引"她可能说的原话"（一形一义: 「」= 原话）,
     # 那不是戏词示范; 拿全局断言会把"引语"和"戏词示范"混成一件事。
@@ -124,7 +129,6 @@ def test_exclusive_examples_match_the_hard_rules():
     """⭐ **示范与硬规则必须同款**（示范才是形状的来源 —— 真机 art 命中率 0/5 的根因就是
     取值清单 / 硬规则 / 规则书三处说法强度不一, 模型只照抄了示范那个形状）:
 
-      · `mmt_inspect_character` 那一块**只有它一条行**（静默推理轮）;
       · `mmt_look` 那一块里它必须是**唯一操作行**、且在**最后一行**
         （trigger 式 —— 2026-10-08 用户裁: "先说一句'让我想一想'再翻"必须合法）。
     """
@@ -134,14 +138,11 @@ def test_exclusive_examples_match_the_hard_rules():
         objs = [json.loads(r) for r in block]
         at = [(i, o["action"]) for i, o in enumerate(objs) if "action" in o]
         names = {a for _, a in at}
-        if "mmt_inspect_character" in names:
-            seen.add("inspect")
-            assert len(block) == 1, f"inspect 那一轮只能有它一条行: {block}"
         if "mmt_look" in names:
             seen.add("look")
             assert names == {"mmt_look"}, f"look 必须是那一轮唯一的操作行: {block}"
             assert at[0][0] == len(block) - 1, f"look 要放在那一块的最后一行: {block}"
-    assert seen == {"inspect", "look"}, f"两族都要有示范（实得 {sorted(seen)}）"
+    assert seen == {"look"}, f"look 那一款必须有示范（实得 {sorted(seen)}）"
 
 
 def test_examples_show_the_look_then_speak_pair():

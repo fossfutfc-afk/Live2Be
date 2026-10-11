@@ -52,20 +52,25 @@ def test_clean_turn_has_no_issues():
     print("    check: 正常轮（交错 / trigger 带前置消息）= 无问题")
 
 
-def test_noticed_row_does_not_break_inspect_exclusivity():
-    """⭐ N5b: **想起行不计入"整轮只有它一条行"** —— 它是账目不是内容。
+def test_noticed_row_does_not_break_exclusivity():
+    """⭐ N5b: **想起行不计入独占判据里的"行"** —— 它是账目不是内容。
 
-    那条规则的目的是"静默轮**一句话都不该上屏**"（内容是问题）, 而想起行不上屏、
+    判据的目的是"这一轮**还有没有别的行**"（内容/别的操作才是问题）, 而想起行不上屏、
     零成本、不触发任何调用。把它算进去只会产出**假硬问题** ⇒ 整轮回灌重发一次
-    （白跑）。⇒ 她和 `inspect` 同轮顺手记一笔, 是允许的。
+    （白跑）。⇒ 她和独占动作同轮顺手记一笔, 是允许的。
+
+    ⚠️ 2026-10-08（D 笔）: 这条性质原来挂在 `inspect` 上（那时它是"整轮只有它一条行"
+    的静默推理轮）—— 现在拿 `look`（唯一操作行那一款）来钉, 性质一字不变。
     """
-    rows = [_action("mmt_inspect_character", character_id="rikuhachima_aru"),
+    rows = [_action("mmt_look", clue="苔藓"),
             MmtLine(kind="noticed", noticed="瓦片缝里的苔藓")]
     assert check_turn(rows) == [], _codes(check_turn(rows))
-    # 对照: 夹一条**消息行**仍然违规（内容才是问题）
-    bad = [*rows, _text("诶……")]
+    # 对照: 夹一条**消息行** —— look 允许话写在前面, 所以仍然合规（口径是"唯一**操作**行"）
+    assert check_turn([*rows, _text("诶……")]) == []
+    # 对照: 夹一条**别的操作行**才违规（内容不是问题, 独占才是）
+    bad = [*rows, _action("mmt_send_media", image="苔藓")]
     assert MmtIssueCode.EXCLUSIVE_VIOLATION in _codes(check_turn(bad))
-    print("    N5b: 想起行不算「别的行」（inspect 独占不误伤）")
+    print("    N5b: 想起行不算「别的行」（独占判据不误伤）")
 
 
 def test_empty_turn_is_hard():
@@ -73,20 +78,6 @@ def test_empty_turn_is_hard():
     assert _codes(issues) == [MmtIssueCode.EMPTY_TURN]
     assert issues[0].hard, "空轮必须硬（否则模型以为说过了）"
     print("    check: 空轮 → mmt.empty-turn（硬）")
-
-
-def test_inspect_must_be_alone():
-    alone = [_action("mmt_inspect_character", character_id="rikuhachima_aru")]
-    assert check_turn(alone) == []
-    for bad in ([_text("我想想…"), *alone],
-                [*alone, _text("哦哦")],
-                [*alone, _action("mmt_send_media", image="x")]):
-        issues = check_turn(bad)
-        assert MmtIssueCode.EXCLUSIVE_VIOLATION in _codes(issues), issues
-        assert issues[0].hard
-    # 两条 inspect 也不行
-    assert MmtIssueCode.EXCLUSIVE_VIOLATION in _codes(check_turn([*alone, *alone]))
-    print("    check: inspect 静默轮 —— 夹消息/夹操作/重复 都判独占违规（硬）")
 
 
 def test_trigger_must_be_only_action():
