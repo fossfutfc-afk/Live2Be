@@ -87,27 +87,42 @@ def test_comment_key_is_not_a_person(tmp_path):
     print("    interperson: `__` 开头的键被丢掉")
 
 
-def test_yaml_line_folding_leaves_no_spaces(tmp_path):
-    """⑤ ⭐ **折行不留空格** —— 这是换 YAML 的主要理由之一。
+def test_line_folding_is_layout_not_content(tmp_path):
+    """⑤ ⭐ **换行 = 排版（无痕）, 空格 = 内容（保留）** —— 换 YAML 的主要理由之一。
 
-    `>` 折行只是排版: 解析后换行处会留一个空格, 而这一格是**中文人话**
-    （`knowledge.yml` 的 `SIG~friends` 今天正是这个毛病）⇒ 读取时把**汉字之间**的
-    空白规整掉。⚠️ **拉丁词之间的空格不许动**（`极度信任 sensei` 要留着那个空）。
+    · `|`（**推荐**）: 换行**直接删掉** ⇒ 汉字↔拉丁 交界处**也不会多出空格**
+      （作者把 `我非常信任 / sensei` 折成两行, 读出来是 `我非常信任sensei`）;
+    · `>`（兼容）: 解析时换行**已经变成空格** ⇒ 只能兜"汉字之间"那种
+      （`…在某个人面前 敞开心扉` —— `knowledge.yml` 的 `SIG~friends` 就是这个毛病）;
+    · **同一行里自己敲的空格一律保留**（那是内容, 不是排版）。
     """
-    raw = (
+    literal = (
+        "igusa_haruka:\n"
+        "  aru:\n"
+        "    text: |\n"
+        "      即陆八魔阿露：社长，\n"
+        "      曾带她逃出霸凌。\n"
+        "  sensei:\n"
+        "    text: |\n"
+        "      我非常信任\n"
+        "      sensei，也信任 Aru 这个人\n"
+    )
+    row = load_interperson(_write(tmp_path, literal))["igusa_haruka"]
+    assert row["aru"]["text"] == "即陆八魔阿露：社长，曾带她逃出霸凌。", row["aru"]["text"]
+    # ⭐ 折行删掉（汉字↔拉丁 也不留空格）, 但**行内**的空格照旧
+    assert row["sensei"]["text"] == "我非常信任sensei，也信任 Aru 这个人", \
+        row["sensei"]["text"]
+
+    folded = (
         "igusa_haruka:\n"
         "  aru:\n"
         "    text: >\n"
-        "      即陆八魔阿露：她所处社团便利屋68的社长，\n"
+        "      即陆八魔阿露：社长，\n"
         "      曾带她逃出霸凌。\n"
-        "  sensei:\n"
-        "    text: 她极度信任 sensei 与 Aru 两个人\n"
     )
-    row = load_interperson(_write(tmp_path, raw))["igusa_haruka"]
-    assert row["aru"]["text"] == "即陆八魔阿露：她所处社团便利屋68的社长，曾带她逃出霸凌。", \
-        row["aru"]["text"]
-    assert row["sensei"]["text"] == "她极度信任 sensei 与 Aru 两个人", row["sensei"]["text"]
-    print("    interperson: `>` 折行不留空格（拉丁词之间照旧）")
+    assert load_interperson(_write(tmp_path, folded))["igusa_haruka"]["aru"]["text"] == \
+        "即陆八魔阿露：社长，曾带她逃出霸凌。"
+    print("    interperson: 换行=排版（`|` 无痕）/ 空格=内容（行内保留）")
 
 
 def test_empty_file_is_not_an_error(tmp_path):

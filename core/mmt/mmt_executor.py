@@ -57,7 +57,7 @@ from core.parsing.dynamic_character_parser import (
 _PROJECT_ROOT = paths.ROOT
 DEFAULT_INTERPERSON_PATH = paths.INTERPERSON_PATH
 
-#: **汉字之间**的空白（折行产物）—— 见 `_fold_cjk_gaps`。
+#: **汉字之间**的空白（`>` 折叠块的产物）—— 见 `_fold_layout`。
 #: 两侧的字符类 = CJK 汉字 + 中文标点（`\u3000-\u303f` `\uff00-\uffef`）。
 _CJK_GAP = re.compile(
     r"(?<=[\u3000-\u303f\u4e00-\u9fff\uff00-\uffef])\s+"
@@ -83,16 +83,20 @@ class ExecResult:
 # 人际层工具（待 relation_parser.py 落地后移入）
 # ============================================================================
 
-def _fold_cjk_gaps(text: str) -> str:
-    """把**汉字之间**的空白折叠掉 + 去掉首尾空白（⛔ 不动拉丁词之间的空格）。
+def _fold_layout(text: str) -> str:
+    """**换行 = 排版, 空格 = 内容** —— 折行的痕不进 prompt。
 
-    YAML 的 `>` 折行只是**排版**: 解析后会在换行处留一个空格, 于是作者写的
-    `…在某个人面前 敞开心扉` 就多了一个空格 —— `knowledge.yml` 的 `SIG~friends`
-    今天正是这个毛病（2026-10-08 搬家时手工清过一轮）。既然这一格是**中文人话**,
-    读取时统一规整一次, 作者就怎么写都行。
-    ⚠️ `>` 的 **clip** 还会给末尾留一个换行 ⇒ 顺手 `strip()`（那一格也是排版）。
+    ⭐ 语义（2026-10-08 定, 作者就按这个写）:
+      · **换行删掉不留痕**（`|` 字面块 ⇒ 换行原样留着 ⇒ 这里直接删）——
+        作者可以把一句长立场折成任意多行, **汉字↔拉丁 交界处也不会多出空格**
+        （`我非常信任\\nsensei` ⇒ `我非常信任sensei`）;
+      · ⭐ **同一行里自己敲的空格保留**（`她极度信任 sensei 与 Aru` 照旧）——
+        那是**内容**, 不是排版。
+    ⚠️ 兼容 `>`（折叠块）: 它在**解析时**就把换行变成了空格 ⇒ 这里再用 `_CJK_GAP`
+    兜掉"汉字之间"那种（拉丁旁边那种兜不掉 —— 所以**推荐 `|`**）。
+    `knowledge.yml` 的 `SIG~friends` 今天正是被 `>` 咬的（`…在某个人面前 敞开心扉`）。
     """
-    return _CJK_GAP.sub("", text).strip()
+    return _CJK_GAP.sub("", text.replace("\r\n", "\n").replace("\n", "")).strip()
 
 
 def load_interperson(path: str | Path) -> dict:
@@ -106,7 +110,7 @@ def load_interperson(path: str | Path) -> dict:
 
     ⚠️ 2026-10-08 起是 **YAML**（原来是 `.json`）: 值变成长句立场, JSON 写不了折行、
     还要转义; YAML 还能写真注释。⛔ 只认这一种格式（**不留第二条真源**）。
-    ⚠️ 字符串值统一过 `_fold_cjk_gaps`（折行留下的空格不进 prompt）。
+    ⚠️ 字符串值统一过 `_fold_layout`（**换行 = 排版, 空格 = 内容**）。
 
     Returns:
         `{char_id: {…}}`; ⚠️ **`__` 开头的键被丢掉**（防御: 旧 `.json` 用 `__comment__`
@@ -131,9 +135,9 @@ def load_interperson(path: str | Path) -> dict:
             if isinstance(item, dict):
                 for key, value in item.items():
                     if isinstance(value, str):
-                        item[key] = _fold_cjk_gaps(value)
+                        item[key] = _fold_layout(value)
                     elif isinstance(value, list):
-                        item[key] = [_fold_cjk_gaps(v) if isinstance(v, str) else v
+                        item[key] = [_fold_layout(v) if isinstance(v, str) else v
                                      for v in value]
     return data
 
