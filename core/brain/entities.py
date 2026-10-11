@@ -73,10 +73,23 @@ SENSEI_FALLBACK_ALIASES = (CHARACTER_SENSEI,)
 
 
 def ensure_entities(store, *, char_name: str = "", aliases=(), player_name: str = "",
-                    player_aliases=(), sensei_name: str = "", sensei_aliases=()) -> list[str]:
-    """**初始化**: 没有就建 self(x0000) + sensei(x0001); 返回**本次新建**的 id 列表。
+                    player_aliases=(), sensei_name: str = "", sensei_aliases=(),
+                    stances=()) -> list[str]:
+    """**初始化**: 没有就建 self(x0000) + sensei(x0001) + ⭐ **她认识的人**;
+    返回**本次新建**的 id 列表。
 
-    幂等: 按 id 判存在, 已有则跳过 —— 反复调用不写盘、不改数据（调用方自己决定 save）。
+    幂等（反复调用不写盘、不改数据 —— 调用方自己决定 save）:
+      · self / sensei ⇒ 按**保留 id** 判;
+      · 她认识的人 ⇒ 按**名字**判（`surface_forms` 撞上就算已有）, ⭐ 撞上时**只填空 text**
+        —— 绝不覆盖 digest 后来长出来的立场。
+
+    ⭐ `stances`（2026-10-08 加, 用户裁"**出厂就要有她的看法**"）:
+        `(键, 主名, 别名, 立场)` 的序列 —— 来自 `interperson.yml` 的自表条目。
+        ⚠️ **名字已由调用方解析好**: 本模块是 brain 层（**纯 stdlib, 不许读 config**）,
+        所以"给了 `id` 的从角色档案取显示名/别名"那一步住在 `mmt/engine.py::_stances_of`。
+        · 键 ∈ {`self`, `sensei`} ⇒ **不建新的**, 只把立场填进那个保留号（text 空才填）;
+        · 别的键 ⇒ 建 entity（`text` = 立场）; 名字空 ⇒ **跳过 + warning**（宁可不建,
+          也不建个没名字的 —— 同 `char_name` 空那条纪律）。
 
     Args:
         char_name: 角色自己的**主名**（= `config/characters/{id}/profile.yml` 的
@@ -108,11 +121,69 @@ def ensure_entities(store, *, char_name: str = "", aliases=(), player_name: str 
             if extra and extra != name_s and extra not in aliases_s:
                 aliases_s.append(extra)
         out.append(store.add(_entity(SENSEI_ID, name_s, aliases_s)))
+
+    out.extend(_materialize_stances(store, stances))
     return out
 
 
-def _entity(nid: str, name: str, aliases):
-    """建一个只有身份的 entity（`text`/`state` 留空 —— 立场由第 3 轮从记忆里长出来）。
+#: `stances` 里代表保留号的两个键（**不是**角色的叫法 —— 见 `ensure_entities`）
+STANCE_KEYS_RESERVED = ("self", "sensei")
+
+
+def _materialize_stances(store, stances) -> list[str]:
+    """把**她认识的人**建出来（`stances` = `(键, 主名, 别名, 立场)` 序列）。
+
+    ⭐ **出厂就有看法**（2026-10-08 用户裁）: `text` 不是等 digest 从记忆里长,
+    而是作者在 `interperson.yml` 里写好的那句 → 建的时候一起装上。
+    ⚠️ 它是 `entity.text` 的**初值**; 之后 R3 照旧可以改写（看法随经历演化）。
+
+    幂等**按名字**（不是按 id）: `surface_forms` 撞上就算"这个人已经有了"。
+    ⭐ 撞上时**只填空 `text`** —— 绝不覆盖她后来长出来的立场（那是她的东西）。
+
+    Returns: 本次**新建**的 id 列表（调用方据此决定要不要写盘）。
+    """
+    by_form: dict[str, BrainNode] = {}
+    for node in store.all():
+        if getattr(node, "kind", "") != "entity":
+            continue
+        for form in surface_forms(node):
+            by_form.setdefault(form.casefold(), node)
+
+    made: list[str] = []
+    for key, name, aliases, text in stances:
+        stance = str(text or "").strip()
+        key = str(key or "").strip()
+        if key in STANCE_KEYS_RESERVED:
+            # 保留号: **不建新的**, 只把立场填进去（text 空才填）
+            node = store.get(SELF_ID if key == "self" else SENSEI_ID)
+            if node is not None and not str(node.text or "").strip() and stance:
+                node.text = stance
+                logger.info("entity 立场: %s ← interperson(%s)", node.id, key)
+            continue
+        name = str(name or "").strip()
+        if not name:
+            logger.warning("ensure_entities: 表里 %r 没解析出名字 → 跳过"
+                           "（name 是 entity 的必填, 宁可不建）", key)
+            continue
+        hit = by_form.get(name.casefold())
+        if hit is not None:
+            if not str(hit.text or "").strip() and stance:
+                hit.text = stance
+                logger.info("entity 立场: %s ← interperson(%s, 名字撞上已有)",
+                            hit.id, key)
+            continue
+        nid = store.next_id("x")
+        node = _entity(nid, name, aliases, text=stance)
+        store.add(node)
+        for form in surface_forms(node):
+            by_form.setdefault(form.casefold(), node)
+        made.append(nid)
+        logger.info("entity 出厂: %s %s（interperson 键 %s）", nid, name, key)
+    return made
+
+
+def _entity(nid: str, name: str, aliases, *, text: str = ""):
+    """建一个 entity。**`text` = 立场**（出厂的印象; 不写 = 等她从记忆里长出来）。
 
     ⚠️ 用 `BrainNode` 直接构造 + 钉 id（**不是** `make_node`, 那条路会走 `from_dict`;
     而 `from_dict` 现在认得 entity 了, 但显式钉 id 更直白 —— 保留号不能被自动分配覆盖）。
@@ -121,6 +192,7 @@ def _entity(nid: str, name: str, aliases):
     node.id = nid
     node.kind = "entity"
     node.name = name.strip()
+    node.text = str(text or "").strip()
     seen: list[str] = []
     for a in aliases or ():
         a = str(a).strip()

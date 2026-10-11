@@ -89,7 +89,7 @@ from core.session import SessionStore
 from core.session.events import TYPE_NOTICED, is_content_event, make_event
 from core.session.renderer import session_status, window_messages
 from core.digest import digest_segment
-from core.brain.entities import ensure_entities
+from core.brain.entities import STANCE_KEYS_RESERVED, ensure_entities
 from core.affection import Affection, load_affection_from_events
 from core.brain.address import find_episode
 from core.brain.read.find import compile_clue, find
@@ -202,8 +202,64 @@ def _name_aliases(profile: dict) -> tuple[str, ...]:
     return char_names(profile).aliases
 
 
-def _ensure_char_entities(wstore: WikiStoreV2, char, character_id: str) -> None:
-    """把 `self`(x0000) + `sensei`(x0001) 两个 entity 建出来（§3.0; §9-7 的落地）。
+def _stances_of(character_id: str, interperson_path, char_loader
+                ) -> list[tuple[str, str, list[str], str]]:
+    """`interperson.yml` 里**她自己的**那一行 → `(键, 主名, 别名, 立场)` 列表。
+
+    ⭐ **名字在这里解析** —— `core/brain/entities.py` 是 brain 层（纯 stdlib、**不许读
+    config**）, 所以"给了 `id` 的从角色档案取显示名/别名"这一步必须住 engine 侧:
+
+    | 表里那条 | 名字从哪来 |
+    |---|---|
+    | 给了 `id` | `config/characters/{id}/profile.yml`（`names_of` ⇒ 显示名 + 别名, **零手写**） |
+    | 没给 `id` | 表里的 `name` / `aliases` —— ⭐ **没角色档案的人也认识得成**（用户 2026-10-08 裁） |
+
+    ⚠️ 键是 `self` / `sensei` 的那两条**不用表里的名字**（保留号的 entity 已按 config
+    建好）, 只把 `text` 带过去。
+    ⚠️ 旧形（值 = 数字）跳过 —— 那些角色还没搬（引擎两种形状都认, 见 `load_interperson`）。
+    ⚠️ 读表失败 ⇒ 空列表（那是"还没写立场", 不是错误）。
+    """
+    if interperson_path is None:
+        return []
+    try:
+        table = load_interperson(interperson_path)
+    except MmtExecError as e:                       # noqa: BLE001 — 表坏了不挡 digest
+        logger.warning("interperson 读取失败（本次不物化立场）: %s", e)
+        return []
+    entry = table.get(character_id)
+    if not isinstance(entry, dict):
+        return []
+    out: list[tuple[str, str, list[str], str]] = []
+    for key, item in entry.items():
+        if not isinstance(item, dict):              # 旧形（权重）: 还没搬
+            continue
+        text = str(item.get("text") or "")
+        if str(key) in STANCE_KEYS_RESERVED:
+            out.append((str(key), "", [], text))
+            continue
+        name, aliases = "", []
+        target = str(item.get("id") or "").strip()
+        if target and char_loader is not None:
+            try:
+                n = names_of(char_loader.load(target))
+                name, aliases = n.display, list(n.aliases)
+            except Exception as e:                  # noqa: BLE001 — 单个档案坏了不拖累别人
+                logger.warning("interperson %r 的 id=%r 读不到档案（%s）——改用表里的名字",
+                               key, target, e)
+        if not name:
+            name = str(item.get("name") or "").strip()
+            aliases = [str(a).strip() for a in (item.get("aliases") or []) if str(a).strip()]
+        if not name:
+            logger.warning("interperson %r 既没 id 也没 name → 跳过（建不出没名字的对象）",
+                           key)
+            continue
+        out.append((str(key), name, aliases, text))
+    return out
+
+
+def _ensure_char_entities(wstore: WikiStoreV2, char, character_id: str, *,
+                          interperson_path=None, char_loader=None) -> None:
+    """把 `self`(x0000) + `sensei`(x0001) + ⭐ **她认识的人** 建出来（§3.0; §9-7 的落地）。
 
     **建的时刻**（用户 2026-09-23 裁决）: **第一次 digest 开始前** —— 也就是
     bond `vn_finish` 之后、digest 的 LLM 调用之前。接在 `_inject_brain(digest=True)`
@@ -227,6 +283,13 @@ def _ensure_char_entities(wstore: WikiStoreV2, char, character_id: str) -> None:
     |---|---|---|
     | `self`(x0000) | `config/characters/{id}/profile.yml` | 作者（进 git） |
     | `sensei`(x0001) | `config/player/profile.yml` + `data/basic/player.json` | 作者 + 玩家自己 |
+    | ⭐ 她认识的人 | `interperson.yml` 的 `id`（⇒ 档案的显示名/别名）或 `name`/`aliases` | 作者 |
+
+    ## ⭐ 立场（`text`）也在这里装上（2026-10-08 用户裁）
+
+    `interperson.yml` 里那句**她自己的看法**是 `entity.text` 的**初值** ——
+    "出厂就有角色的看法", 而不是等她慢慢从记忆里长（真档此前 `x0001` 的 text 一直是空的）。
+    幂等与"只填空的"由 `entities._materialize_stances` 管。
 
     ⚠️ **玩家档案读失败 = 报错, 不兜底**（用户 2026-09-23: *"静默兜底有点不负责任"*）:
     打一条 ERROR 再抛出去 ⇒ 本轮 digest 中止。代价是"config 坏一天就一天不消化",
@@ -245,13 +308,17 @@ def _ensure_char_entities(wstore: WikiStoreV2, char, character_id: str) -> None:
         # webgui 的 `routers/name.py` 也走它）—— 注意它是**玩家自取名**, 只作别名。
         from core.mmt.mmt_preset import load_player_name
         n = names_of(char)
+        stances = _stances_of(character_id, interperson_path, char_loader)
         made = ensure_entities(wstore, char_name=n.display, aliases=n.aliases,
                                sensei_name=player.display, sensei_aliases=player.aliases,
-                               player_name=load_player_name())
+                               player_name=load_player_name(), stances=stances)
         if made:
             wstore.save()
-            logger.info("[%s] entity 初始化: %s（sensei=%s）", character_id,
-                        ", ".join(made), player.display)
+            logger.info("[%s] entity 初始化: %s（sensei=%s, 表里的立场 %d 条）",
+                        character_id, ", ".join(made), player.display, len(stances))
+        elif stances:
+            wstore.save()                             # ⭐ 立场文本可能是**新填进已有节点**的
+            logger.info("[%s] entity 立场回填（表里 %d 条）", character_id, len(stances))
     except Exception as e:                            # noqa: BLE001 — 建/写盘失败才降级
         logger.warning("[%s] entity 初始化失败（照常 digest）: %s", character_id, e)
 
@@ -758,7 +825,9 @@ class MomoTalkEngine:
             if digest:
                 # entity 初始化（§3.0 / §9-7）: **第一次 digest 开始前** —— 必须在下面
                 # 任何"新建 entity"之前跑, 见 `_ensure_char_entities` 的撞号警告。
-                _ensure_char_entities(wstore, char, character_id)
+                _ensure_char_entities(wstore, char, character_id,
+                                      interperson_path=self.executor.interperson_path,
+                                      char_loader=self.char_loader)
                 interact_max = _interact_max(events, wstore.digested_seq)
                 # 编码时好感快照（§3.3.3）: 本段**开始之前**的累计好感标量。
                 # 按 digested_seq 过滤（不是 interact_max）——只算**已消化**的部分,
