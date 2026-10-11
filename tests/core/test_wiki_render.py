@@ -450,6 +450,7 @@ def test_they_block_prints_stances(tmp_path):
 
     出厂那批来自 `interperson.yml`（`ensure_entities(stances=…)` 物化）, 之后 R3 继续演化。
     ⚠️ 位置: 紧接"我记得的事"之后、belief 之前（先发生了什么 → 他们是谁 → 我想明白了什么）。
+    ⛔ **`self` 不在"他们"里** —— 她对自己的看法有**自己的一行**（见下一条）。
     """
     stances = make_node("entity", name="陆八魔 阿露", text="阿露大人是我所处社团的社长")
     stances.aliases = ["阿露"]
@@ -462,7 +463,9 @@ def test_they_block_prints_stances(tmp_path):
     assert "我眼里的他们：" in txt
     assert "- 陆八魔 阿露：阿露大人是我所处社团的社长" in txt
     assert "杂草屋" not in txt                             # 没立场的不印
-    assert "我是一株植物" not in txt                        # ⛔ self 不属于"他们"
+    # ⛔ self 不进那一条（但在**自己的**那一行里 —— 见下一条用例）
+    they_block = txt.split("我眼里的他们：")[1].split("\n\n")[0]
+    assert "我是一株植物" not in they_block
     # 位置: 河之后、belief 之前
     belief = make_node("belief", text="老师是值得信赖的")
     txt2 = render_character_view([stances, ep, belief], char_name="伊草 遥香")
@@ -470,15 +473,45 @@ def test_they_block_prints_stances(tmp_path):
     print("    C: 「我眼里的他们」—— 有立场才印 / 不含 self / 位置在河与 belief 之间")
 
 
+def test_self_stance_gets_its_own_line(tmp_path):
+    """⭐ **我是这样看自己的**（用户 2026-10-08 裁"单开一行"）: `x0000.text`。
+
+    ⚠️ 与「我眼里的他们」的关系: **同一个 entity 通道的两格**（`self` 是保留键）。
+    ⚠️ 只剩 `self`、没有别人时, 那一行**照样印**（它们是两块, 判据各自独立）。
+    """
+    self_node = make_node("entity", name="伊草 遥香",
+                          text="我也还是一株植物，可以一直长着，因为有人会来看我。")
+    self_node.id = "x0000"
+    blank_self = make_node("entity", name="伊草 遥香")     # ⚠️ 同一个 id 的"空立场"版本
+    blank_self.id = "x0000"
+
+    txt = render_character_view([self_node], char_name="伊草 遥香")
+    assert "我是这样看自己的：" in txt
+    assert "我也还是一株植物" in txt
+    assert "我眼里的他们" not in txt                       # 只有 self ⇒ 那一条不出现
+    # ⚠️ 位置: 紧挨「我眼里的他们」之后、belief 之前
+    other = make_node("entity", name="阿露", text="社长")
+    belief = make_node("belief", text="老师是值得信赖的")
+    txt2 = render_character_view([other, self_node, belief], char_name="伊草 遥香")
+    assert (txt2.index("我眼里的他们") < txt2.index("我是这样看自己的")
+            < txt2.index("我心里渐渐觉得"))
+    # 空立场 ⇒ 那一行不印（没有一个"空标题"）
+    assert "我是这样看自己的" not in render_character_view([blank_self], char_name="遥香")
+    print("    C: 「我是这样看自己的」—— self 单开一行（空则不印）")
+
+
 def test_they_bucket_lands_in_the_ledger(tmp_path):
-    """台账: `they` 桶进账（与渲染同源 —— 台账的价值就在"如实反映 LLM 看到了什么"）。"""
+    """台账: `they` 与 `self_stance` 两格都进账（与渲染同源 —— 台账要如实反映她看到了什么）。"""
     from core.brain.read.render import take_last_view_account
     stances = make_node("entity", name="陆八魔 阿露", text="社长")
     blank = make_node("entity", name="杂草屋")
-    render_character_view([stances, blank], char_name="遥香")
+    self_node = make_node("entity", name="伊草 遥香", text="我是一株植物")
+    self_node.id = "x0000"
+    render_character_view([stances, blank, self_node], char_name="遥香")
     acct = take_last_view_account()
     assert acct["buckets"]["they"] == 1, acct["buckets"]
-    print("    C: `they` 桶进账（空立场的不计）")
+    assert acct["buckets"]["self_stance"] == 1, acct["buckets"]
+    print("    C: `they` / `self_stance` 两格进账（空立场的不计）")
 
 
 def test_recall_budget_reads_config_knob(monkeypatch):

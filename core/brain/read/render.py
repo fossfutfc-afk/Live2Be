@@ -223,10 +223,16 @@ def _bucket_view(nodes: Iterable[BrainNode], graph=None) -> dict:
         #    本身就是信息）; ⚠️ 空立场的 entity **不进任何桶**（与改动前对**所有** entity
         #    的处理一致 —— 那时根本没有 entity 桶 ⇒ `sum(buckets) == total` 只在无 entity
         #    的库上成立, 这条老账没变）。
-        # ⛔ **不含 `self`**: 她对自己的立场不属于"他们"（`x0000` 那条在图上, 但目前
-        #    没有注入面 —— 见 `PROCEED` 的待裁项, ⛔ 别顺手塞进这一块）。
+        # ⛔ **不含 `self`**: 她对自己的立场不属于"他们" —— 它有自己的那一格
+        #（下面的 `self_stance`; 用户 2026-10-08 裁: **单开一行**）。
         "they": lambda n: (n.kind == "entity" and n.id != SELF_ID
                            and bool(str(n.text or "").strip())),
+        # ⭐ **她对自己的看法**（`x0000.text`）—— 单开一格（用户 2026-10-08 裁）。
+        # ⚠️ 这一格与 `interperson.yml` 里的 **`self` 键**是同一个格子
+        #（`ensure_entities(stances=…)` 的**保留键** ⇒ 按 id 认, ⛔ 不去 profile 里搜名字）;
+        #    真档今天那条是 digest 的 R3 长出来的, 出厂值作者还没写（表里留了空位）。
+        "self_stance": lambda n: (n.kind == "entity" and n.id == SELF_ID
+                                  and bool(str(n.text or "").strip())),
     }
     # ⭐ 经历 = **一条河（旧→新）**（2026-09-25, 链路 ⑤）: 从前按 `(珍贵, ts)` 降序,
     # 于是"同一个时刻的事"被 `is_precious` 劈到两段里 ⇒ 河的时间轴断掉。
@@ -242,6 +248,7 @@ def _bucket_view(nodes: Iterable[BrainNode], graph=None) -> dict:
                      key=lambda n: _count_of(n, graph), reverse=True)
     reported = [n for n in all_nodes if bucket["reported"](n)]
     they = sorted((n for n in all_nodes if bucket["they"](n)), key=lambda n: n.id)
+    self_stance = [n for n in all_nodes if bucket["self_stance"](n)]
     return {
         "total": len(all_nodes),
         "episodes": episodes,
@@ -249,6 +256,7 @@ def _bucket_view(nodes: Iterable[BrainNode], graph=None) -> dict:
         "players": players,
         "reported": reported,
         "they": they,
+        "self_stance": self_stance,
         # 台账口径: 桶名 → 注入条数（cap 已删 → 桶内全量, 无"选中/候选"之分）
         "buckets": {
             "episode": len(episodes),
@@ -256,6 +264,7 @@ def _bucket_view(nodes: Iterable[BrainNode], graph=None) -> dict:
             "player": len(players),
             "reported": len(reported),
             "they": len(they),
+            "self_stance": len(self_stance),
         },
     }
 
@@ -275,6 +284,7 @@ def render_character_view(
         - 我记得的事（**一条河, 从早到晚**）: episode 全量按 `ts` 升序（2026-09-25 链路 ⑤）
         - ⭐ **我眼里的他们**（2026-10-08, C 笔）: **有立场的对象**（entity `text` 非空）——
           出厂那批来自 `interperson.yml`（`SIG~friends` 搬过去的那份）, 之后 R3 继续演化
+        - ⭐ **我是这样看自己的**（同日, 用户裁"单开一行"）: `x0000.text`（**self 那一格**）
         - 我心里渐渐觉得（belief）: 按 sig
         - 老师的事（player experience 口癖）: count 降序
         - 我听说的（reported）: 兜底 —— ⚠️ **不进河**: 那是"听说的事"不是她经历的
@@ -299,8 +309,9 @@ def render_character_view(
     **时刻**（`datetime` 或 `ts` 串）—— 形状没变, 语义从"剧情时间槽"变成"今天"。
     """
     b = _bucket_view(nodes, graph)
-    episodes, beliefs, players, reported, they = (
-        b["episodes"], b["beliefs"], b["players"], b["reported"], b["they"])
+    episodes, beliefs, players, reported, they, self_stance = (
+        b["episodes"], b["beliefs"], b["players"], b["reported"], b["they"],
+        b["self_stance"])
     _last_view_account.append(b)
 
     blocks: list[str] = ["【角色记忆（brain）】"]
@@ -324,6 +335,12 @@ def render_character_view(
     if they:
         blocks.append("我眼里的他们：\n" + "\n".join(
             f"- {n.name.strip()}：{str(n.text).strip()}" for n in they))
+    # ⭐ **我是这样看自己的**（用户 2026-10-08 裁: 单开一行, 紧挨「我眼里的他们」）。
+    # 出处 = `x0000.text`（`interperson.yml` 的 `self` 保留键 / digest 的 R3 演化）。
+    # ⛔ 不过 `_me()`（那是**她自己**的话, 再做人称转换只会把"我"改坏）;
+    # ⛔ 也不加 `-` 列表符（她只有一条, 不是"他们"里的一员）。
+    if self_stance:
+        blocks.append("我是这样看自己的：\n" + str(self_stance[0].text).strip())
     if beliefs:
         blocks.append("我心里渐渐觉得：\n" + "\n".join(
             _belief_line(n, char_name, char_aliases) for n in beliefs))
