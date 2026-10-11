@@ -29,7 +29,7 @@ from contract import (APPROVAL_AUTO, DOMAIN_MMT, AgentAction,   # noqa: E402
                       ContractError)
 from core.brain import WikiStoreV2, make_node                   # noqa: E402
 from core.brain.read.render import (LOOK_EMPTY,                # noqa: E402
-                                    LOOK_EMPTY_TIME, LOOK_FUTURE)
+                                    LOOK_EMPTY_TIME, LOOK_FUTURE, look_empty)
 from core.mmt.mmt_actions import (MMT_RUNTIME_FIELDS,           # noqa: E402
                                   build_mmt_registry, parse_mmt_look)
 from core.mmt.mmt_check import (ACTION_LOOK, ACTION_TRIGGER,    # noqa: E402
@@ -212,6 +212,12 @@ def _engine(tmp_path, llm):
     name = eng.start_session(CHARACTER)
     root = store.create(CHARACTER, name)
     eng.attach_session(root.session_id)
+    # ⭐ **钉住"现在"**（同 `when.parse_when(now=…)` 的纪律: 模块不许偷读壁钟, 测试也不许）。
+    # ⚠️ 直接调 `_look_result`（不起 LLM）时 `agent_turn` 没跑过 ⇒ `_turn_now` 是空的,
+    # 它会**回落 `datetime.now()`** —— 于是 `上周` 这类相对时间随真实日期漂。
+    # 真踩到过: `test_look_ledger_and_trace` 的种子在 09-30、查 `上周`,
+    # 2026-10-08 那天在窗内（绿），10-12 就出了窗（红）—— **一条会过期的时间炸弹**。
+    eng._turn_now = NOW
     return eng
 
 
@@ -299,6 +305,7 @@ def test_no_store_degrades_to_a_human_sentence(tmp_path, caplog):
 
     ⚠️ 判据里的**"没有 warning"**不是装饰: 这一格与"异常被外层兜住"在返回值上
     完全一样, 差别只在**它是正常降级还是吞了一次崩溃** —— 后者会每轮刷一条警告。
+    ⭐ 而且**它不算"她翻空了"**: 引擎的配置问题不该记到她头上（计数保持 0）。
     """
     eng = MomoTalkEngine(ROOT / "config" / "characters", _ScriptedLLM())
     eng.start_session(CHARACTER)
@@ -306,6 +313,49 @@ def test_no_store_degrades_to_a_human_sentence(tmp_path, caplog):
         assert eng._look_result("苔藓", "") == LOOK_EMPTY
     assert not [r for r in caplog.records if r.levelname == "WARNING"], \
         [r.getMessage() for r in caplog.records]
+    assert eng._look_miss == 0, "无 store 不计入「翻空了几次」"
+
+
+def test_empty_look_counts_up_and_a_hit_resets(tmp_path):
+    """⭐ **翻空了要数次数, 命中就归零**（用户 2026-10-08 裁）。
+
+    为什么由引擎数: 云端 LLM 是**无状态函数**, 数不清自己翻过几次 —— 不把次数告诉它,
+    它就可能换个词一直查（轮内被 `MAX_STEPS=6` 截断, 而截断的形态是**整轮失败**）。
+    ⛔ 不设硬闸（用户: 相信她有特殊理由, "连续 3 次"本身也可能被误判）⇒ 这里只钉
+    **文案分档**与**计数口径**。
+    """
+    _seed(tmp_path, "苔藓的事", title="苔藓的约定", ts="2026-09-30T10:00:00")
+    eng = _engine(tmp_path, _ScriptedLLM())
+
+    assert eng._look_result("找不到的词", "") == LOOK_EMPTY        # 第 1 次: 原句不动
+    assert eng._look_miss == 1
+    again = eng._look_result("找不到的词", "")
+    assert again == look_empty(2) and "还是没想起来" in again       # 第 2 次: 给回忆方法
+    assert "换个说法" in again and "不写时间" in again
+    third = eng._look_result("找不到的词", "")
+    assert third == look_empty(3) and "连着 3 次" in third          # ≥3 次: 劝她停下
+
+    # ⭐ 命中 ⇒ **归零**（下一次空手又从第 1 档算起）
+    assert "苔藓的约定" in eng._look_result("苔藓", "")
+    assert eng._look_miss == 0
+    assert eng._look_result("找不到的词", "") == LOOK_EMPTY
+
+    # ⚠️ 三种"不是记忆里没有"的 **不累加**: 时间认不出 / 落在将来 / （无 store 见上一条）
+    assert eng._look_result("苔藓", "下周八") == LOOK_EMPTY_TIME
+    assert eng._look_result("苔藓", "2027/01/01") == LOOK_FUTURE
+    assert eng._look_miss == 1, "时间类失败不该记成「翻空」"
+    print("    look: 空手分档 1/2/≥3 + 命中归零 + 时间类不计数")
+
+
+def test_look_empty_copy_never_breaks_the_fourth_wall():
+    """⛔ 四句话（含两档新的）**零技术词** —— 她是"想不起来", 不是"解析失败"。"""
+    for miss in (1, 2, 3, 9):
+        line = look_empty(miss)
+        for bad in ("引擎", "格式", "解析", "参数", "错误", "JSON", "字段"):
+            assert bad not in line, (miss, bad, line)
+    assert look_empty(0) == LOOK_EMPTY and look_empty(1) == LOOK_EMPTY
+    assert "9 次" in look_empty(9)                     # 数字如实报, 不封顶
+    print("    look: 走空文案不破墙（零技术词）")
 
 
 def test_look_ledger_and_trace(tmp_path, caplog):
