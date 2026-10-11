@@ -563,9 +563,12 @@ CLI/测试同步路径在引擎内串行。
   为空时引擎用 `DynamicCharacter.image_persona_brief()`（`SIG~brief_traits`）兜底。
   ⚠️ 该文件的文本会被 `_fold_prompt_text` **折成单行**——写 `>` 折行整段，别写 `- ` 列表。
 - **世界观** overview.yml：common+system 注入（【世界常识】【世界规则】）, hidden 不注入。
-- **人际关系** settings/relation/interperson.json 扁平权重表：自表条目会话级注入 +
-  `mmt_inspect_character` 静默轮按权重访问他人人设（1=profile/2=+personality/
-  3=+experience——runtime 现网消费）。
+- **人际关系** settings/relation/**interperson.yml**（2026-10-08 换写法：值 = **entity 的 text**
+  —— 一句**她自己的看法**，从 `knowledge.yml` 的 `SIG~friends` 搬来；键 = 她的叫法，
+  有档案的角色给 `id`、没档案的给 `name`/`aliases`）：自表条目会话级注入（盒A 的
+  `interperson` 块 → 新形印「你眼里的他们」，旧形（权重 1/2/3）照旧照印 —— 一次换一个角色）
+  + `mmt_inspect_character` 静默轮按 `resolve_access_level` 分级读他人人设（**过渡判据**：
+  新形 ⇒ 3；`inspect` 退役后这条随之消失）。
 - **运行时配置** settings.toml（gitignore, GUI 设置页读写）：`[llm]`(api/base/model/
   reasoning_effort) · `[llm.tasks.*]`(按形态覆盖档位/max_tokens, 真源 llm/task_levels.py)
   · `[image]`(api/model/screen_size/**enabled 生图总开关**) · `[promptkit]`(task_card)

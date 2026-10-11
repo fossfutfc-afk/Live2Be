@@ -56,9 +56,11 @@ WORLD_OVERVIEW_PATH = WORLD_DIR / "overview.yml"
 REGIONS_PATH = WORLD_DIR / "regions.yml"
 #: 地点语义键表（`core/media/place_table.py`; 由 tempo 工作台导出, 会随时更新）
 PLACE_TABLE_PATH = WORLD_DIR / "place_entities.json"
-#: 人际权重表
+#: 人际层（**她眼里的他们**：谁 + 一句她自己的看法）
+#: ⚠️ 2026-10-08 从 `interperson.json` 换成 **`.yml`** —— 值从"熟知程度数字"变成长句
+#: 立场, JSON 写长中文太苦（不能折行、要转义）; YAML 还能写真注释。
 RELATION_DIR = CONFIG_DIR / "settings" / "relation"
-INTERPERSON_PATH = RELATION_DIR / "interperson.json"
+INTERPERSON_PATH = RELATION_DIR / "interperson.yml"
 #: MMT 白名单表（`core/common/mmt_registry.py`）
 MMT_REGISTRY_PATH = CONFIG_DIR / "settings" / "mmt_registry.toml"
 

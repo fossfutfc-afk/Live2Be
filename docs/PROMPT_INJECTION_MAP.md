@@ -39,7 +39,7 @@
 | 2 | `【世界常识】【世界规则】` | `world` 块 = `world_to_prompt(load_world(...))`（world_parser:70-89），overview.yml common+system 档 | hidden 不注入 |
 | 3 | `【本角色剧情基调】` | `story_tone` 块 = `load_story_tone(char)`（core/common/tone.py）：script.yml `SIG~main_tone` 优先，personality `SIG~story_tone` 兜底（parser:531-533） | 与块1 dump 里的 main tone 键值**二次出现**（既有行为） |
 | 4 | `【本角色 MMT 风格】` | `mmt_tone` 块 = script.yml `SIG~mmt_tone`（char.mmt_tone）| 缺失 → 不注入（条件块） |
-| 5 | 人际层自表 | `interperson` 块 = interperson.json self 条目（load_interperson + self_entry_to_prompt）| 便利屋68 权重 2；损坏 → 跳过不挡启动 |
+| 5 | 人际层自表 | `interperson` 块 = `interperson.yml` self 条目（load_interperson + self_entry_to_prompt）| ⭐ 新写法 = **她自己的看法**（"你眼里的他们"）；旧写法（权重 1/2/3 的"关系记录"）照旧照印；损坏 → 跳过不挡启动 |
 | 6 | MMT 环境 | `environment_mmt` 块 = `momotalk_environment.md` | 虚拟手机场景 |
 | 7 | MMT 规则 | `rules_mmt` 块 = `momotalk_rules.md` | 单人模式、语气/内容示范（**风格**）、契机导向触发规则；⚠️ **形状不在这里**（⑥-2e 拆分：形状只在下一行的契约块） |
 | 8 | 本轮输出契约 | `schema` 块 = **`build_line_schema(mmt_registry)`**（`contract/schema.py`）| ⚠️ **行流契约**（⑥-2e）：一行一条 JSON——`{"text": …}` 消息行 / `{"action": …, "payload": {…}}` 操作行 + 6 条硬规则 + **动作表（运行时渲染）** + 3 条示范 |

@@ -1,23 +1,26 @@
 # -*- coding: utf-8 -*-
-"""`interperson.json` 的**两种形状**与那一块注入（2026-10-08 换写法 · A 笔）。
+"""`interperson.yml` 的**两种形状**与那一块注入（2026-10-08 换写法 · A 笔）。
 
 背景（用户裁）: 值从**熟知程度数字**（1/2/3, 给 `inspect` 开门用）换成 **entity 的 text**
 （一句**她自己的看法**）—— 内容从 `knowledge.yml` 的 `SIG~friends` 搬来。
 一次换一个角色 ⇒ 引擎**必须同时认两种形状**, 且**两段都印**（宁可重复, 不可丢失）。
+⚠️ 文件同日从 `.json` 换成 **`.yml`**（长句立场写 JSON 太苦）。
 
 守门:
   ① 新形渲染成"她眼里的他们"（立场句 + 零数字）; 旧形**逐字照旧**（别的角色不受影响）
   ② 双形共存 ⇒ 两段都印（搬迁期的安全性）
-  ③ `__comment__` 不当角色（否则它会被候选表/渲染器当成一个"人"）
+  ③ `__comment__` 不当角色（旧 `.json` 用它写注释; 现在有真 `#` 注释, 过滤留作防御）
   ④ `resolve_access_level`: 旧形按权重 / 新形（按 id 或名字命中）⇒ 3（**过渡判据**,
      随 `inspect` 退役一起消失）
-  ⑤ ⭐ **真档**（`config/settings/relation/interperson.json`）能被这两条读通
+  ⑤ ⭐ **YAML 折行不留空格** —— 汉字之间的空白在读取时被规整掉（作者可以随便折行）
+  ⑥ ⭐ **真档**（`config/settings/relation/interperson.yml`）能被这两条读通
 """
 from __future__ import annotations
 
-import json
 import sys
 from pathlib import Path
+
+import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
@@ -26,7 +29,7 @@ from core.mmt.mmt_executor import (load_interperson,      # noqa: E402
                                    self_entry_to_prompt)
 
 ROOT = Path(__file__).resolve().parents[2]
-REAL = ROOT / "config" / "settings" / "relation" / "interperson.json"
+REAL = ROOT / "config" / "settings" / "relation" / "interperson.yml"
 
 HARUKA_ROW = {
     "sensei": {"text": "即主角/玩家：她极度信任sensei"},
@@ -36,9 +39,12 @@ HARUKA_ROW = {
 OLD_ROW = {"rikuhachima_aru": 2, "asagi_mutsuki": 3}
 
 
-def _write(tmp_path: Path, data: dict) -> Path:
-    p = tmp_path / "interperson.json"
-    p.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+def _write(tmp_path: Path, data) -> Path:
+    p = tmp_path / "interperson.yml"
+    if isinstance(data, str):
+        p.write_text(data, encoding="utf-8")
+    else:
+        p.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
     return p
 
 
@@ -74,22 +80,54 @@ def test_both_shapes_coexist_and_are_both_printed():
 
 
 def test_comment_key_is_not_a_person(tmp_path):
-    """④ `__comment__` 是注释不是角色（否则候选表/渲染器会把它当"人"）。"""
+    """③ `__comment__` 是注释不是角色（旧 `.json` 这么写; 现在有真 `#` 注释, 过滤留作防御）。"""
     p = _write(tmp_path, {"__comment__": ["说明"], "igusa_haruka": HARUKA_ROW})
     data = load_interperson(p)
     assert "__comment__" not in data and list(data) == ["igusa_haruka"]
     print("    interperson: `__` 开头的键被丢掉")
 
 
+def test_yaml_line_folding_leaves_no_spaces(tmp_path):
+    """⑤ ⭐ **折行不留空格** —— 这是换 YAML 的主要理由之一。
+
+    `>` 折行只是排版: 解析后换行处会留一个空格, 而这一格是**中文人话**
+    （`knowledge.yml` 的 `SIG~friends` 今天正是这个毛病）⇒ 读取时把**汉字之间**的
+    空白规整掉。⚠️ **拉丁词之间的空格不许动**（`极度信任 sensei` 要留着那个空）。
+    """
+    raw = (
+        "igusa_haruka:\n"
+        "  aru:\n"
+        "    text: >\n"
+        "      即陆八魔阿露：她所处社团便利屋68的社长，\n"
+        "      曾带她逃出霸凌。\n"
+        "  sensei:\n"
+        "    text: 她极度信任 sensei 与 Aru 两个人\n"
+    )
+    row = load_interperson(_write(tmp_path, raw))["igusa_haruka"]
+    assert row["aru"]["text"] == "即陆八魔阿露：她所处社团便利屋68的社长，曾带她逃出霸凌。", \
+        row["aru"]["text"]
+    assert row["sensei"]["text"] == "她极度信任 sensei 与 Aru 两个人", row["sensei"]["text"]
+    print("    interperson: `>` 折行不留空格（拉丁词之间照旧）")
+
+
+def test_empty_file_is_not_an_error(tmp_path):
+    """空 `.yml`（只有注释）= 没有关系, **不是错误**（⛔ 别把"没写"当损坏）。"""
+    p = _write(tmp_path, "# 什么都还没写\n")
+    assert load_interperson(p) == {}
+    assert load_interperson(tmp_path / "不存在.yml") == {}
+    print("    interperson: 空文件 / 缺文件 → {}（不是错误）")
+
+
 def test_access_level_covers_both_shapes():
-    """⑤ `inspect` 的门（**过渡判据**）: 旧形按权重; 新形按 id / 名字命中 ⇒ 3。"""
+    """④ `inspect` 的门（**过渡判据**）: 旧形按权重; 新形按 id / 名字命中 ⇒ 3。"""
     table = {"igusa_haruka": HARUKA_ROW, "asagi_mutsuki": OLD_ROW}
     assert resolve_access_level(table, "asagi_mutsuki", "rikuhachima_aru") == 2
     assert resolve_access_level(table, "asagi_mutsuki", "asagi_mutsuki") == 3
-    # 新形: 她发的是**角色 id**（引擎归一后的）, 也能按名字（没档案的人只有名字）
+    # 新形: 她发的是**角色 id**（引擎归一后的）, 也能按名字 / 键（没档案的人只有这些）
     assert resolve_access_level(table, "igusa_haruka", "rikuhachima_aru") == 3
     assert resolve_access_level(table, "igusa_haruka", "锭前纱织") == 3
     assert resolve_access_level(table, "igusa_haruka", "纱织") == 3
+    assert resolve_access_level(table, "igusa_haruka", "saori") == 3      # 键也是把手
     assert resolve_access_level(table, "igusa_haruka", "不存在的人") == 0
     assert resolve_access_level({}, "igusa_haruka", "rikuhachima_aru") == 0
     print("    interperson: 门 —— 旧形按权重 / 新形命中 ⇒ 3（过渡）")

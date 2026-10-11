@@ -82,7 +82,11 @@ def _mmt_tone(ctx: BlockContext) -> str | None:
 
 
 def _interperson(ctx: BlockContext) -> str | None:
-    """L1 人际层: interperson.json 自表条目（键值+权重）。文件损坏 → 跳过不挡会话。"""
+    """L1 人际层: `interperson.yml` 的自表条目（⭐ 新形 = **她自己的看法**; 旧形 = 权重）。
+
+    ⚠️ 形状与迁移状态见 `mmt_executor.self_entry_to_prompt` —— 新形印「你眼里的他们」,
+    旧形照旧印"关系记录"。文件损坏 → 跳过不挡会话。
+    """
     if ctx.interperson_path is None:
         return None
     try:
@@ -296,7 +300,7 @@ BLOCK_DOC: dict[str, str] = {
     "world": "世界常识/世界规则（common+system 档）",
     "story_tone": "本角色剧情基调（SIG~main_tone）",
     "mmt_tone": "本角色 MMT 风格（SIG~mmt_tone, 条件）",
-    "interperson": "人际层自表（interperson.json, 条件）",
+    "interperson": "人际层自表（interperson.yml: 她眼里的他们, 条件）",
     "environment_mmt": "MomoTalk 环境说明",
     "rules_mmt": "MomoTalk 行为规则书",
     "bond_tone": "本角色羁绊剧情建议（SIG~bond_tone, 条件）",

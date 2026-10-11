@@ -1,0 +1,103 @@
+# interperson.yml —— **她眼里的他们**（作者手编, 引擎只读）
+#
+# == 2026-10-08 换写法（用户裁） ==
+#   从前的值是**熟知程度权重**（1=萍水相逢 2=社团/队友 3=故知）—— 那是给
+#   `mmt_inspect_character` 开门的数字, 而它要退休了。现在的值是 **entity 的 text**:
+#   一句**她自己的看法**（主观, 不是客观档案 —— 看法会随经历演化）。
+#
+#   键   = 她的叫法（与 knowledge.yml 的 `SIG~friends` 同一套）
+#   text = 立场句（物化成 entity.text; 出厂的印象就是它）
+#   id   = 可选; **有角色档案的人给** —— 引擎据此取显示名与别名（零手写）
+#   name / aliases = 可选; **没角色档案的人给** —— 关系不再绑定角色卡
+#
+# ⚠️ `text` 可以**随便折行**: 读取时会把**汉字之间的空白**规整掉
+#    （YAML 的 `>` 折行只是排版, 不该在你的人话里留空格）。
+#
+# == 迁移状态 ==
+#   值仍是**数字**的 = 还没换（引擎认两种形状, 两段都印 —— 宁可重复, 不可丢失）。
+#   已换: igusa_haruka。
+
+igusa_haruka:
+  sensei:
+    text: >
+      即主角/玩家：在平日里总对遥香关爱有加，也愿意了解遥香不为人知的爱好以及善良的本性，
+      她第一次尝试在某个人面前敞开心扉，虽然她还是很不熟练，但她极度信任sensei，几乎也是
+      对sensei唯命是从，认为sensei对自己有莫大的恩情，把sensei的话奉为圭臬，并希望能够
+      回报sensei
+  aru:
+    id: rikuhachima_aru
+    text: >
+      即陆八魔阿露：她所处社团便利屋68的社长，曾带她逃出霸凌，她非常珍惜社长，总是愿意为
+      她做任何事情，尊称她阿露大人；阿露本人总是会装酷，立志成为冷酷的法外狂徒，虽然明显
+      不着调，但是遥香很认可这一点，总是把她时而懵懂的行为解释为法外狂徒的高级思维
+  mutsuki:
+    id: asagi_mutsuki
+    text: >
+      即浅黄睦月：她所处社团便利屋68的室长，是陆八魔阿露的童年玩伴，喜欢捉弄人，但其实很
+      有分寸，知道什么玩笑不能开，曾经称呼遥香杂草酱，她很喜欢这个称呼
+  kayoko:
+    id: onikata_kayoko
+    text: >
+      即鬼方佳代子：她所处社团便利屋68的课长，是社团里最年长的人，喜欢摇滚乐，虽然平时不
+      发话，但也会在关键情况下控制住失控的遥香并在生活中多加照料
+  saori:
+    name: 锭前纱织
+    aliases: [纱织]
+    text: >
+      即锭前纱织：前阿里乌斯学院的行动小队队长，现在的自由职业者，曾经与她交手，但是对方
+      实力过强被直接打飞，后来化敌为友，共同对抗唐阿兰西诺势力
+
+# ---- 还没换的角色（值仍是熟知程度 1/2/3）----
+
+onikata_kayoko:
+  rikuhachima_aru: 2
+  asagi_mutsuki: 2
+  igusa_haruka: 2
+
+asagi_mutsuki:
+  rikuhachima_aru: 3
+  onikata_kayoko: 2
+  igusa_haruka: 2
+
+rikuhachima_aru:
+  onikata_kayoko: 2
+  asagi_mutsuki: 2
+  igusa_haruka: 2
+  jindai_saori: 2
+  ajitani_hifumi: 1
+
+sorasaki_hina:
+  amau_ako: 2
+  ginkyou_iori: 2
+  hinomiya_chinatsu: 2
+  igusa_haruka: 1
+  rikuhachima_aru: 1
+  asagi_mutsuki: 1
+  onikata_kayoko: 1
+
+amau_ako:
+  sorasaki_hina: 2
+  ginkyou_iori: 2
+  hinomiya_chinatsu: 2
+  rikuhachima_aru: 1
+  asagi_mutsuki: 1
+  onikata_kayoko: 1
+  igusa_haruka: 1
+
+ginkyou_iori:
+  sorasaki_hina: 2
+  amau_ako: 2
+  hinomiya_chinatsu: 2
+  rikuhachima_aru: 1
+  asagi_mutsuki: 1
+  onikata_kayoko: 1
+  igusa_haruka: 1
+
+hinomiya_chinatsu:
+  sorasaki_hina: 2
+  amau_ako: 2
+  ginkyou_iori: 2
+  rikuhachima_aru: 1
+  asagi_mutsuki: 1
+  onikata_kayoko: 1
+  igusa_haruka: 1

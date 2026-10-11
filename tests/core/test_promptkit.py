@@ -65,7 +65,7 @@ def _ctx():
         names=[char.display_name],
         greeting_suffix="——以下是你的行为规则，请严格遵守：",
         schema=build_line_schema(build_mmt_registry()),
-        interperson_path=ROOT / "config" / "settings" / "relation" / "interperson.json",
+        interperson_path=ROOT / "config" / "settings" / "relation" / "interperson.yml",
     )
 
 
