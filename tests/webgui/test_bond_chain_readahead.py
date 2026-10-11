@@ -151,6 +151,11 @@ def test_chain_skips_when_enough_in_hand(tmp_path, monkeypatch):
     _bond.bond_start(CHARACTER, sid)
     state = _bond._state(CHARACTER, sid)
     assert _wait(lambda: _slot(state))
+    # ⚠️ 采样前先让**双路标注**跑完：它们也是 LLM 调用（`emotion` / `place`），
+    #    异步落在"采样之后、断言之前"就会让计数凭空多几条 —— 全量/组合跑时踩过
+    #    （单独跑绿、`tests/core` + `tests/webgui` 同跑红：`assert 6 == 3`）。
+    #    判据用 `busy` 复位（开场那次生成 + 标注 lane 都算在它里面）。
+    assert _wait(lambda: not state.busy)
     state.vn._pending_boards = [object()] * 6            # 手里 7 块 ⇒ 远够
     calls_before = len(getattr(llm, "snapshots", []))
     _pregen._pregenerate(state, CHARACTER, sid)

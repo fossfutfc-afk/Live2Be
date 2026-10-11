@@ -364,8 +364,11 @@ def test_look_ledger_and_trace(tmp_path, caplog):
     eng = _engine(tmp_path, _ScriptedLLM())
     with caplog.at_level("INFO", logger="core.mmt.engine"):
         eng._look_result("苔藓", "上周")
+    # ⚠️ 只挑**引擎自己**那条（`find` 也会打一条含 `cand=` 的 INFO 行）——
+    #    平时它被 logger 级别挡掉, 但**跨文件跑**时别处抬过全局级别, 它就会插到前面
+    #    ⇒ 不筛 logger 的话"全量跑红、单独跑绿"（真踩过）。
     line = next(r.getMessage() for r in caplog.records
-                if "cand=" in r.getMessage())            # 汇总行（不是过程行的"标题查"）
+                if r.name == "core.mmt.engine" and "cand=" in r.getMessage())
     assert "clue='苔藓'" in line and "cand=1" in line and "widened=False" in line, line
     assert "titles=苔藓的约定" in line, line
     print("    台账:", line)

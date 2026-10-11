@@ -35,14 +35,14 @@
 | # | 块 | 来源/装配点 | 备注 |
 |---|---|---|---|
 | 0 | 称呼行 | `greeting` 块（blocks.py）: `你好，{display_name}——以下是你的行为规则，请严格遵守：`（名单可多人, 一人分饰多角预留） | **v2 首段（身份先行）**——此前夹在 environment 与 rules 之间（位置不伦不类, 用户拍板 2026-09-07）|
-| 1 | `# 角色设定` + 行为规则 | `persona_mmt` 块 = `build_prompt("momotalk")`（parser:396-398）= 六文件 merged raw → `yaml_to_prompt` + `_BEHAVIOR_RULES`（behavior_rules.md，parser:421 模块级加载） | yaml_to_prompt **剥 REQ~/SIG~ 前缀**（parser:285）、下划线转空格。raw = 六文件全量合并（parser:502-509）→ **script.yml 三个 tone 键内容也以 yaml 键值形态出现一次** |
+| 1 | `# 角色设定` + 行为规则 | `persona_mmt` 块 = `build_prompt("momotalk")`（parser:396-398）= 六文件 merged raw → `yaml_to_prompt` + `_BEHAVIOR_RULES`（behavior_rules.md，parser:421 模块级加载） | yaml_to_prompt **剥 REQ~/SIG~ 前缀**（parser:285）、下划线转空格。raw = 六文件全量合并（parser:502-509）→ **script.yml 三个 tone 键内容也以 yaml 键值形态出现一次**。⚠️ 2026-10-08（C2 笔）: 各角色的 `SIG~friends` **已搬走并删除**（去 `interperson.yml`）|
 | 2 | `【世界常识】【世界规则】` | `world` 块 = `world_to_prompt(load_world(...))`（world_parser:70-89），overview.yml common+system 档 | hidden 不注入 |
 | 3 | `【本角色剧情基调】` | `story_tone` 块 = `load_story_tone(char)`（core/common/tone.py）：script.yml `SIG~main_tone` 优先，personality `SIG~story_tone` 兜底（parser:531-533） | 与块1 dump 里的 main tone 键值**二次出现**（既有行为） |
 | 4 | `【本角色 MMT 风格】` | `mmt_tone` 块 = script.yml `SIG~mmt_tone`（char.mmt_tone）| 缺失 → 不注入（条件块） |
-| 5 | 人际层自表 | `interperson` 块 = `interperson.yml` self 条目（load_interperson + self_entry_to_prompt）| ⭐ 新写法 = **她自己的看法**（"你眼里的他们"）；旧写法（权重 1/2/3 的"关系记录"）照旧照印；损坏 → 跳过不挡启动 |
-| 6 | MMT 环境 | `environment_mmt` 块 = `momotalk_environment.md` | 虚拟手机场景 |
-| 7 | MMT 规则 | `rules_mmt` 块 = `momotalk_rules.md` | 单人模式、语气/内容示范（**风格**）、契机导向触发规则；⚠️ **形状不在这里**（⑥-2e 拆分：形状只在下一行的契约块） |
-| 8 | 本轮输出契约 | `schema` 块 = **`build_line_schema(mmt_registry)`**（`contract/schema.py`）| ⚠️ **行流契约**（⑥-2e）：一行一条 JSON——`{"text": …}` 消息行 / `{"action": …, "payload": {…}}` 操作行 + 6 条硬规则 + **动作表（运行时渲染）** + 3 条示范 |
+| ~~5~~ | ~~人际层自表~~ | ⛔ **2026-10-08（C 笔）退出盒A** —— 整套 `interperson` 块（`load_interperson` + `self_entry_to_prompt`）已删。 | ⭐ 她的立场改住 **brain 段的「我眼里的他们」**（读 `entity.text`，**会随 digest 演化** ⇒ 静态盒装不住）。见下 §3 与 `CLAUDE.md §7/§8` |
+| 5 | MMT 环境 | `environment_mmt` 块 = `momotalk_environment.md` | 虚拟手机场景 |
+| 6 | MMT 规则 | `rules_mmt` 块 = `momotalk_rules.md` | 单人模式、语气/内容示范（**风格**）、契机导向触发规则、⭐ **【回忆】专段**（2026-10-08 —— 什么时候该翻）；⚠️ **形状不在这里**（⑥-2e 拆分：形状只在下一行的契约块） |
+| 7 | 本轮输出契约 | `schema` 块 = **`build_line_schema(mmt_registry)`**（`contract/schema.py`）| ⚠️ **行流契约**（⑥-2e）：一行一条 JSON——`{"text": …}` 消息行 / `{"action": …, "payload": {…}}` 操作行 + **6 条硬规则** + **动作表（运行时渲染，今天 3 个：`mmt_look` / `mmt_send_media` / `mmt_trigger_bond_story`）** + 示范（⚠️ **D 笔**删掉了"深挖资料那一轮"，硬规则重编号 5→6）|
 
 ---
 

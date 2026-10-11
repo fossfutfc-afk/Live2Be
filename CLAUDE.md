@@ -144,9 +144,14 @@ tests/ core/ webgui/ llm/ renderer/ apps/ 分别对应域; experiments/ 真 API 
   ⚠️ **判别键恰好其一**（三类互斥）；契约由 `contract/schema.py::build_line_schema(registry)`
   渲染（动作表运行时生成）；
   ⚠️ 旧 `{"messages":[…]}` / `{"reply","actions"}` 已**整段退役**（⑥-2f）。
-- **可用动作**：`mmt_send_media` / `mmt_inspect_character`
-  （静默推理轮, 按 interperson 权重访问他人人设; **查到的资料回灌后继续这一轮**）/
+- **可用动作**（2026-10-08 起**三个**）：`mmt_look`
+  （⭐ 翻她**自己的记忆**——静默轮, 翻到的**回灌后继续这一轮**; **trigger 式独占**:
+  唯一操作行 + 放最后一行, 话可前置）/
+  `mmt_send_media`（图片；禁视频）/
   `mmt_trigger_bond_story`（**唯一模式切换动作**, 独占操作行, 必须带 chapter_title 3-16 字）。
+  ⛔ **`mmt_inspect_character` 2026-10-08 已退役**：从前它按 `interperson` 权重分级读
+  **别人**的客观档案（profile/personality/experience）—— 用户裁"客观档案混进主观看法里是错的"。
+  她今天只知道**自己眼里的他们**（见 §7 的「我眼里的他们」）。
 - **messages 槽位**（`promptkit.round_messages` 唯一入口）：
   `[system=盒A(+brain 记忆段尾拼)] + history + [P16 羁绊进度注记] + [P17 时间注记]
    + [P19 你想起的事?] + [P17 系统注记?]
@@ -155,9 +160,10 @@ tests/ core/ webgui/ llm/ renderer/ apps/ 分别对应域; experiments/ 真 API 
   ⇒ 每轮都变 ⇒ 拼进 system 就逐轮破前缀缓存。内容 = 每轮召回的 1~2 条旧 episode
   （**带标题 `【…】`** —— 标题是引擎与她之间唯一的地址空间，她要照抄进 `{"noticed": …}`）。
 - 引擎判定（`_turn_lines` **⑥-3a 起流式**：`chat_full(on_chunk=…)` 边收边解析，行一到就分流）：
-  ① **内容行**（消息行 / `send_media`）**一行前瞻**交付——下一行到达时才上屏；下一行是
-  `inspect` 就把手里那行**丢掉**（静默推理轮一句话都不该上屏——"没查到就先答"）；
-  ② **独占行**（`WHOLE_TURN_ACTIONS` = trigger / inspect）**攒到块尾**判 + 执行
+  ① **内容行**（消息行 / `send_media`）**一行前瞻**交付——下一行到达时才上屏
+  （⚠️ 前瞻的**原始理由**是"下一行可能是静默轮 inspect", 那个动作退役后它只让最后一行
+  晚一格上屏 —— 撤不撤待裁, 见 `_turn_lines` 的注释）；
+  ② **独占行**（`WHOLE_TURN_ACTIONS` = trigger / look）**攒到块尾**判 + 执行
   （独占性是"同一轮还有没有别的行"，早判必错判）；③ 块尾 `check_turn` **看整轮**
   （`_run_lines(check_rows=…)`），**已交付的不回滚**：控制行不执行 + 记账 + 下一轮注记，
   **不抛 `MmtLoopError`**（玩家已经看见话，标成"发送失败"是错的）。
@@ -474,18 +480,28 @@ CLI/测试同步路径在引擎内串行。
 - 结算 delta → `affection|digest` 事件（events.jsonl 为真源）+ wiki 好感快照；
   数值**不直接喂 LLM**（无数字概念, 防讨好/数值化）——未来 relationship_view
   （阶段词）是规划方向。`core/affection/affection_calc.py` 数值层。
-- 注入形态：MMT **会话打开即装填一次**（`open_session` 两支都注, 2026-09-21 修 P1）+
+- 注入形态：MMT **会话打开即装填一次**（`open_session` 两支都注, 2026-09-21 修 P1）+  
   每轮拼 system 尾（digest 后**下轮**生效）；Bond 开场构造注入（剧情内固定）。
   resume 只注入不消化。⚠️ 装填只有两个时刻（开会话 / digest 完成）——`start_session`
   不清空旧串, 所以**进程重启后**第一个会话全靠"开会话那次装填"（此前缺 = 空 brain）。
+  ⭐ **brain 段的四块注入面**（`render_character_view`, 顺序即注入顺序）：
+  ① 我记得的事（episode 一条河）② ⭐ **我眼里的他们**（`entity.text` 非空 ——
+  出厂来自 `interperson.yml`, 之后 R3 演化；`x0000` **不在里面**）③ ⭐ **我是这样看自己的**
+  （`x0000.text` 单开一行 —— 她对自己的看法, 用户 2026-10-08 裁）④ 我心里渐渐觉得（belief）
+  + 老师的事 / 我听说的。⚠️ **②③ 的出厂物化在开会话时就跑**（`_ensure_char_entities`,
+  幂等）—— 否则**新档第一次 digest 之前**图上没有 entity, 那两块会是空的。
 
 ---
 
 ## 8. 提示词装配（promptkit）——改文案/加任务前必读
 
 - 代码：`core/promptkit/{box,tail,task,config,report}.py`；盒清单 = `DOMAIN_BOXES`：
-  盒A(mmt) **10 块**：greeting → persona_mmt → world → story_tone → mmt_tone →
-  interperson → environment → **time_sense（2026-09-17 加）** → rules_mmt → schema。
+  盒A(mmt) **9 块**（2026-10-08 起；`interperson` 退出，见下）：greeting → persona_mmt →
+  world → story_tone → mmt_tone → environment → **time_sense（2026-09-17 加）** →
+  rules_mmt → schema。
+  ⚠️ **`interperson` 块为什么退出盒A**（C 笔）：盒 = **一次拼死、逐字节稳定**（前缀缓存的地基），
+  而"她眼里的他们"读的是 **`entity.text`** —— 那个值**会随 digest 演化** ⇒ 静态的盒装不住它。
+  它搬进了 **brain 段的「我眼里的他们」**（+ 她自己那一行「我是这样看自己的」），见 §7。
   盒B(bond) **10 块**：greeting → persona_bond → world → story_tone → bond_tone →
   rules_bond → **bond_shots（镜头与手法, 2026-09-19 PL2）** → schema →
   **place_world（世界区域·剧情地理）** → brain。
@@ -563,12 +579,17 @@ CLI/测试同步路径在引擎内串行。
   为空时引擎用 `DynamicCharacter.image_persona_brief()`（`SIG~brief_traits`）兜底。
   ⚠️ 该文件的文本会被 `_fold_prompt_text` **折成单行**——写 `>` 折行整段，别写 `- ` 列表。
 - **世界观** overview.yml：common+system 注入（【世界常识】【世界规则】）, hidden 不注入。
-- **人际关系** settings/relation/**interperson.yml**（2026-10-08 换写法：值 = **entity 的 text**
-  —— 一句**她自己的看法**，从 `knowledge.yml` 的 `SIG~friends` 搬来；键 = 她的叫法，
-  有档案的角色给 `id`、没档案的给 `name`/`aliases`）：自表条目会话级注入（盒A 的
-  `interperson` 块 → 新形印「你眼里的他们」，旧形（权重 1/2/3）照旧照印 —— 一次换一个角色）
-  + `mmt_inspect_character` 静默轮按 `resolve_access_level` 分级读他人人设（**过渡判据**：
-  新形 ⇒ 3；`inspect` 退役后这条随之消失）。
+- **人际关系** settings/relation/**interperson.yml**（2026-10-08 换写法 + 搬家）：
+  值 = **entity 的 text**（一句**她自己的看法**，从 `knowledge.yml` 的 `SIG~friends` 搬来，
+  **逐字搬、搬完删副本**）；键 = **她的叫法**；能对上角色档案的给 `id`（名字/别名零手写）、
+  没档案的给 `name`/`aliases`（⭐ **没卡也能被认识**）；`self` / `sensei` 是**保留键**
+  （`self` = 她对自己的看法 → 独立那一行「我是这样看自己的」）。
+  ⭐ **注入面（2026-10-08 起）**：开会话时物化成 `entity.text`
+  （`engine._ensure_char_entities` → `entities.ensure_entities(stances=…)`，**幂等、
+  只填空 text、⛔ 不覆盖 digest 长出来的**），进 **brain 段的「我眼里的他们」**。
+  ⛔ 盒A 的 `interperson` 块已撤（见 §8）；⛔ `mmt_inspect_character` 与
+  `resolve_access_level` 已退役（见 §3.1）—— 她**不再读别人的客观档案**。
+  ⚠️ 旧形（值 = 权重 1/2/3）**照读但没有读者**（`hinomiya_chinatsu` 那一行还是这样）。
 - **运行时配置** settings.toml（gitignore, GUI 设置页读写）：`[llm]`(api/base/model/
   reasoning_effort) · `[llm.tasks.*]`(按形态覆盖档位/max_tokens, 真源 llm/task_levels.py)
   · `[image]`(api/model/screen_size/**enabled 生图总开关**) · `[promptkit]`(task_card)
