@@ -258,13 +258,19 @@ def _stances_of(character_id: str, interperson_path, char_loader
 
 
 def _ensure_char_entities(wstore: WikiStoreV2, char, character_id: str, *,
-                          interperson_path=None, char_loader=None) -> None:
+                          interperson_path=None, char_loader=None,
+                          strict: bool = True) -> None:
     """把 `self`(x0000) + `sensei`(x0001) + ⭐ **她认识的人** 建出来（§3.0; §9-7 的落地）。
 
-    **建的时刻**（用户 2026-09-23 裁决）: **第一次 digest 开始前** —— 也就是
-    bond `vn_finish` 之后、digest 的 LLM 调用之前。接在 `_inject_brain(digest=True)`
-    里（不是接在 `bond/api.py`）是为了**两个触发点都覆盖**: bond 闭环 **与** mmt 每 25 轮
-    —— 只接 bond 的话, 第一次 digest 若是 mmt 触发的, entity 就还不存在。
+    **建的时刻**（用户 2026-09-23 裁决 → 2026-10-08 / C 笔**扩大**）:
+      · **第一次 digest 开始前** —— bond `vn_finish` 之后、digest 的 LLM 调用之前;
+      · ⭐ **每次开会话/恢复也跑**（`_inject_brain` 的非 digest 路径）——
+        「我眼里的他们」那一块读的是 `entity.text`, 而**新档第一次 digest 之前**
+        图里一个 entity 都没有 ⇒ 那块会是空的（出厂印象就没了）。
+        幂等 ⇒ 平时**只读不写**。
+    接在 `_inject_brain(digest=True)` 里（不是接在 `bond/api.py`）是为了**两个触发点都覆盖**:
+    bond 闭环 **与** mmt 每 25 轮 —— 只接 bond 的话, 第一次 digest 若是 mmt 触发的,
+    entity 就还不存在。
 
     ⚠️ **必须在任何"自动建 entity"之前**（这就是"初始化"的含义）: 表里一个 entity 都没有时
     `store.next_id("x")` 返回的是 **x0001** —— 正是 sensei 的保留号（扫不到同前缀就从 1 起）。
@@ -276,6 +282,12 @@ def _ensure_char_entities(wstore: WikiStoreV2, char, character_id: str, *,
 
     ⚠️ **只有真建了才写盘**（幂等 ⇒ 平时零写盘）。不写的话 entity 只活在内存里, 下一次
     digest 再建一遍 —— 盘上永远没有, 看起来"建了又没了"。
+
+    Args:
+        strict: 玩家档案读不出来时**抛不抛**。
+            `True`（digest 路径）⇒ 抛 ⇒ 本轮消化中止（既有口径: "config 坏一天就一天不消化"）;
+            `False`（开会话/恢复）⇒ **只 warn** —— config 坏一天不该让她连记忆段都没有
+            （那一段是只读注入, 与消化无关）。
 
     ## 名字从哪来（2026-09-23 用户裁决: 玩家也走 config, 与角色对称）
 
@@ -298,7 +310,11 @@ def _ensure_char_entities(wstore: WikiStoreV2, char, character_id: str, *,
     """
     try:
         player = player_names()
-    except Exception as e:                            # noqa: BLE001 — 记录后原样抛
+    except Exception as e:                            # noqa: BLE001
+        if not strict:
+            logger.warning("[%s] 玩家档案读取失败（跳过 entity 初始化, 照常注入）: %s",
+                           character_id, e)
+            return
         logger.error("[%s] 玩家档案读取失败 → 本轮 digest 中止（修好 config/player/"
                      "profile.yml 即恢复）: %s", character_id, e)
         raise
@@ -690,7 +706,6 @@ class MomoTalkEngine:
             # ⑥-2e: 行流契约（`一行一条 JSON`）——取代 2026-09-02 的 messages 消息流。
             # 动作表由 registry **运行时**渲染（新增动作自动进 prompt）。
             schema=build_line_schema(self.registry),
-            interperson_path=self.executor.interperson_path,
         ))
 
         self._current_char = char
@@ -822,12 +837,14 @@ class MomoTalkEngine:
                                  char_id=character_id)
             # 本段事件（digest 与笔记注入共用 —— 提到 if 之前, 两条路都要）
             events = store.events(character_id)
+            # ⭐ **出厂物化（C 笔）: 开会话/恢复也要跑** —— 「我眼里的他们」读的是
+            #    `entity.text`, 而新档第一次 digest 之前图里什么都没有（那块会空着）。
+            #    幂等 ⇒ 平时只读不写。⚠️ 严格性跟着 digest 走: 消化路径沿用
+            #    "玩家档案坏了 ⇒ 中止本轮消化"; 只读注入路径只 warn（见 `strict`）。
+            _ensure_char_entities(wstore, char, character_id,
+                                  interperson_path=self.executor.interperson_path,
+                                  char_loader=self.char_loader, strict=digest)
             if digest:
-                # entity 初始化（§3.0 / §9-7）: **第一次 digest 开始前** —— 必须在下面
-                # 任何"新建 entity"之前跑, 见 `_ensure_char_entities` 的撞号警告。
-                _ensure_char_entities(wstore, char, character_id,
-                                      interperson_path=self.executor.interperson_path,
-                                      char_loader=self.char_loader)
                 interact_max = _interact_max(events, wstore.digested_seq)
                 # 编码时好感快照（§3.3.3）: 本段**开始之前**的累计好感标量。
                 # 按 digested_seq 过滤（不是 interact_max）——只算**已消化**的部分,

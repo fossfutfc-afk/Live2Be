@@ -18,7 +18,10 @@ DOMAIN_BOXES: dict[str, list[str]] = {
         "world",           # 世界常识/规则
         "story_tone",      # 本角色剧情基调
         "mmt_tone",        # MMT 风格（条件）
-        "interperson",     # 人际层（条件）
+        # ⛔ `interperson` 块 **2026-10-08（C 笔）退出盒A** —— "她眼里的他们"搬进了
+        #    **brain 段**（`render_character_view` 的那一块）: 它读的是 **entity.text**,
+        #    而立场会随经历演化（digest 的 R3 改写它）⇒ 静态的盒装不住它。
+        #    盒 = 一次拼死、逐字节稳定; 会变的东西必须住动态段（同 brain 视图）。
         "environment_mmt", # MMT 环境
         "time_sense",      # 时间感（第一人称世界观, 2026-09-17; 紧邻环境——载体就是手机）
         "rules_mmt",       # MMT 规则书

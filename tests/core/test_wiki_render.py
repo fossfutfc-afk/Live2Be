@@ -445,6 +445,42 @@ def test_look_copy_is_her_own_words_not_engine_coordinates():
     print("    look 文案: 回显原话 / 如实报边界 / 不印编号与日期")
 
 
+def test_they_block_prints_stances(tmp_path):
+    """⭐ **我眼里的他们**（2026-10-08, C 笔）: `entity.text` 非空才印 —— 那是**她的看法**。
+
+    出厂那批来自 `interperson.yml`（`ensure_entities(stances=…)` 物化）, 之后 R3 继续演化。
+    ⚠️ 位置: 紧接"我记得的事"之后、belief 之前（先发生了什么 → 他们是谁 → 我想明白了什么）。
+    """
+    stances = make_node("entity", name="陆八魔 阿露", text="阿露大人是我所处社团的社长")
+    stances.aliases = ["阿露"]
+    blank = make_node("entity", name="杂草屋")            # 没立场 ⇒ 只有一个名字, 不印
+    self_node = make_node("entity", name="伊草 遥香", text="我是一株植物")
+    self_node.id = "x0000"
+    ep = _ep("天台夜谈", event_seq=[1])
+
+    txt = render_character_view([stances, blank, self_node, ep], char_name="伊草 遥香")
+    assert "我眼里的他们：" in txt
+    assert "- 陆八魔 阿露：阿露大人是我所处社团的社长" in txt
+    assert "杂草屋" not in txt                             # 没立场的不印
+    assert "我是一株植物" not in txt                        # ⛔ self 不属于"他们"
+    # 位置: 河之后、belief 之前
+    belief = make_node("belief", text="老师是值得信赖的")
+    txt2 = render_character_view([stances, ep, belief], char_name="伊草 遥香")
+    assert txt2.index("我记得的事") < txt2.index("我眼里的他们") < txt2.index("我心里渐渐觉得")
+    print("    C: 「我眼里的他们」—— 有立场才印 / 不含 self / 位置在河与 belief 之间")
+
+
+def test_they_bucket_lands_in_the_ledger(tmp_path):
+    """台账: `they` 桶进账（与渲染同源 —— 台账的价值就在"如实反映 LLM 看到了什么"）。"""
+    from core.brain.read.render import take_last_view_account
+    stances = make_node("entity", name="陆八魔 阿露", text="社长")
+    blank = make_node("entity", name="杂草屋")
+    render_character_view([stances, blank], char_name="遥香")
+    acct = take_last_view_account()
+    assert acct["buckets"]["they"] == 1, acct["buckets"]
+    print("    C: `they` 桶进账（空立场的不计）")
+
+
 def test_recall_budget_reads_config_knob(monkeypatch):
     """预算的**真源**是 `[recall].turn_budget`（显式参数 > 配置 > 模块常量）。"""
     from core.brain import recall_config as rc
