@@ -4,8 +4,13 @@
 设计: `docs/DESIGN_STREAM_CONTRACT.md` §4.2（逐动作兜底表）/ §10.3 C2。
 
 ⭐ **必须跑在 `registry.parse` 之前**（§10.2 B5 发现②）：
-`inspect` 的 `character_id`（`[a-z0-9_]+`）与 `send_media` 的 `media_type` / `image`
-都是 registry 的**硬拒绝**——晚一步，写歪的 id 就没机会被修好，只能走回灌。
+`send_media` 的 `media_type` / `image` 都是 registry 的**硬拒绝**——晚一步，
+写歪的字段就没机会被修好，只能走回灌。
+
+⚠️ **2026-10-08（D 笔）**: 从前还修 `mmt_inspect_character` 的 `character_id`
+（角色名/别名归一成真实 id）—— 那个动作退役后, `build_candidates` /
+`normalize_character_id` / `repair_inspect` 连同 `candidates` 形参一并删掉
+（她今天**没有任何"按 id 查人"的动作**了）。
 
 ## 三条纪律
 
@@ -18,10 +23,10 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable, Mapping
+from collections.abc import Mapping
 
 from core.mmt.mmt_lines import KIND_ACTION, MmtLine
-from core.mmt.mmt_check import ACTION_INSPECT, ACTION_TRIGGER, TITLE_MAX, TITLE_MIN
+from core.mmt.mmt_check import ACTION_TRIGGER, TITLE_MAX, TITLE_MIN
 
 #: `media_type` 的唯一合法值（MMT 只支持图片；`mmt_actions.MMT_MEDIA_TYPES` 同源）
 MEDIA_TYPE_IMAGE = "image"
@@ -33,78 +38,6 @@ _DECOR_RE = re.compile(r"[\s_\-·．.,，、]+")
 def _fold(text: str) -> str:
     """比对用的折叠形：小写 + 抹掉装饰字符（`igusa-haruka` / `IGUSA_HARUKA` / `伊草 遥香`）。"""
     return _DECOR_RE.sub("", (text or "").strip()).lower()
-
-
-def build_candidates(
-    ids: Iterable[str],
-    names: Mapping[str, Iterable[str]] | None = None,
-) -> dict[str, tuple[str, ...]]:
-    """搭归一化用的候选表 `{真实 id: (别名/显示名, …)}`。
-
-    调用方（引擎）把两处搓一起喂进来：**角色注册表的 id + 显示名**、
-    **关系记录（interperson）的键**。本函数只做去重整形，不读文件。
-    """
-    out: dict[str, tuple[str, ...]] = {}
-    for cid in ids:
-        extra = tuple(names.get(cid, ())) if names else ()
-        pool = [n for n in extra if n and n != cid]
-        out[cid] = tuple(dict.fromkeys(pool))
-    return out
-
-
-def normalize_character_id(
-    raw: str,
-    *,
-    candidates: Mapping[str, Iterable[str]],
-) -> tuple[str, str]:
-    """把模型写的角色称呼归一成**真实 id**；拿不准 → `("", 原因)`。
-
-    匹配顺序（**每一档都要求唯一命中**，多命中一律放弃）：
-        ① 精确等于某个 id
-        ② 折叠后等于某个 id 或其别名/显示名（大小写、下划线/连字符/空格）
-        ③ 子串唯一命中（"遥香" ⊂ "伊草 遥香"）
-
-    Args:
-        raw: 模型写的 `character_id`（可能是别名、显示名、甚至中文名）。
-        candidates: `{真实 id: (别名, …)}`——用 `build_candidates` 搭。
-
-    Returns:
-        `(真实 id, 说明)`；放弃时 `("", 原因)`。
-    """
-    text = (raw or "").strip()
-    if not text:
-        return "", "character_id 是空的"
-    if text in candidates:                                  # ① 精确
-        return text, ""
-
-    fold_raw = _fold(text)
-    exact = [cid for cid, names in candidates.items()
-             if fold_raw and fold_raw in {_fold(cid), *(_fold(n) for n in names)}]
-    if len(exact) == 1:
-        return exact[0], f"character_id {text!r} → {exact[0]!r}（别名/写法归一）"
-    if len(exact) > 1:
-        return "", f"character_id {text!r} 归一后有 {len(exact)} 个候选（不猜）: {exact}"
-
-    subs = [cid for cid, names in candidates.items()
-            if any(fold_raw in _fold(p) or _fold(p) in fold_raw
-                   for p in (cid, *names) if _fold(p))]
-    if len(subs) == 1:
-        return subs[0], f"character_id {text!r} → {subs[0]!r}（子串唯一命中）"
-    if len(subs) > 1:
-        return "", f"character_id {text!r} 子串命中了 {len(subs)} 个角色（不猜）: {subs}"
-    return "", f"character_id {text!r} 对不上任何已建档角色"
-
-
-def repair_inspect(payload: Mapping, *, candidates: Mapping[str, Iterable[str]]
-                   ) -> tuple[dict | None, str]:
-    """`mmt_inspect_character`: 归一 `character_id`；对不上 → `(None, 原因)`。"""
-    cid, note = normalize_character_id(str(payload.get("character_id") or ""),
-                                       candidates=candidates)
-    if not cid:
-        return None, note
-    fixed = dict(payload)
-    fixed["character_id"] = cid
-    return fixed, note
 
 
 def repair_send_media(payload: Mapping) -> tuple[dict | None, str]:
@@ -148,14 +81,12 @@ def repair_trigger(payload: Mapping) -> tuple[dict | None, str]:
 
 #: 按动作名分派的自愈表（**只列能修的**；没列的动作原样返回，交 registry 判）
 _REPAIRS = {
-    ACTION_INSPECT: "inspect",
     "mmt_send_media": "media",
     ACTION_TRIGGER: "trigger",
 }
 
 
-def repair_line(line: MmtLine, *, candidates: Mapping[str, Iterable[str]] = {}
-                ) -> tuple[MmtLine | None, str]:
+def repair_line(line: MmtLine) -> tuple[MmtLine | None, str]:
     """一条操作行的自愈（**跑在 `registry.parse` 之前**）。
 
     Returns:
@@ -169,9 +100,7 @@ def repair_line(line: MmtLine, *, candidates: Mapping[str, Iterable[str]] = {}
     if kind is None:                             # 未知动作：交 registry.parse 报错
         return line, ""
 
-    if kind == "inspect":
-        fixed, note = repair_inspect(line.payload, candidates=candidates)
-    elif kind == "media":
+    if kind == "media":
         fixed, note = repair_send_media(line.payload)
     else:
         fixed, note = repair_trigger(line.payload)

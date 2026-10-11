@@ -16,11 +16,11 @@ MomoTalk 对话引擎 — **行协议** agent loop（一行一条 JSON; ⑥-2e �
     assistant: "[mmt_chat] 话1" / "[mmt_send_media] …"（消息行记为 [mmt_chat],
                事件流同款, 渲染零改动）
 
-五层认知（与 mmt_actions / mmt_executor 一致）:
+信息架构（2026-10-08 校正 —— ⛔ L3 深挖层随 `mmt_inspect_character` 退役）:
     L0 自我层   build_prompt("momotalk") + 世界观（common+system 档）→ 常驻
-    L1 人际层   interperson 自表条目注入（self_entry_to_prompt）→ 常驻
+    L1 人际层   ⭐ **她眼里的他们**: `interperson.yml` 的立场 → `entity.text`
+                → brain 段的「我眼里的他们」（+「我是这样看自己的」）→ 常驻（会随 digest 变）
     L2 硬知识   LLM 世界知识 + 知识库（规划中）
-    L3 深挖层   mmt_inspect_character（静默推理轮, 权重分级）→ 仅此入口
 
 MomoTalk 与羁绊剧情的区别:
     - MomoTalk = 手机聊天, 无动作描写, 短消息, 逐行输出（…打字指示 + 气泡）
@@ -57,7 +57,6 @@ from contract.issues import format_issues, split_issues
 from core.bond.bond_progress import BondProgress
 from core.mmt.mmt_actions import build_mmt_registry
 from core.mmt.mmt_check import (
-    ACTION_INSPECT,
     ACTION_TRIGGER,
     DROPPABLE_ACTIONS,
     QUERY_ACTIONS,
@@ -65,7 +64,7 @@ from core.mmt.mmt_check import (
     check_turn,
 )
 from core.mmt.mmt_lines import MmtLine, MmtStream, parse_lines, to_action_raw
-from core.mmt.mmt_repair import build_candidates, repair_line
+from core.mmt.mmt_repair import repair_line
 from core.mmt.mmt_executor import (
     MmtExecError,
     MmtExecutor,
@@ -453,7 +452,7 @@ DEFAULT_HISTORY_ROUNDS = 40
 # 会话存档走角色根目录（docs/archive/DESIGN_SAVE.md §三）: data/{char_id}/sessions/
 
 # agent loop 参数
-MAX_STEPS = 6          # 单轮动作步数上限（含 inspect 静默轮）
+MAX_STEPS = 6          # 单轮动作步数上限（含查询族那一轮：`look` 查完要接着说）
 # 行协议（⑥-2d）的重试预算 —— 用户 2026-09-25 裁决"行级 1 次 + 形状级 2 次"
 # （旧路径原来是 6 次**整轮**重发 = 最坏 6×4096 token 还什么都给不出）
 LINE_REASK_MAX = 1     # ② 行级续写（只补缺失的操作行）
@@ -468,7 +467,7 @@ MMT_MAX_TOKENS = task_levels_max_tokens("mmt")
 class _LineOutcome:
     """行协议一轮办理的结果（`_run_lines` 内部用）。"""
 
-    need_more: bool = False      # inspect 查完 → 这一轮还要再问一次（带着资料说话）
+    need_more: bool = False      # ⭐ 查询族（`look`）查完 → 这一轮还要接着说（带着结果说话）
     fatal: str = ""              # 办不了 ⇒ 未交付时：行级续写（回灌）; 已交付时：只记账（⑥-3a）
     dropped: str = ""            # 丢了软操作行 ⇒ 记账 + 下一轮注记
 
@@ -494,7 +493,7 @@ class _Planned:
 
     action: AgentAction | None = None
     why: str = ""                # 办不了的原因（`_line_failure` 统一措辞）
-    message: str = ""            # 执行回执（inspect 的资料回灌要读它 —— AUDIT §B9）
+    message: str = ""            # 执行回执（查询族的回灌要读它 —— AUDIT §B9）
 # ⛔ ~~羁绊剧情时机建议线~~（2026-09-02 v2 用户拍板: 引擎建议不拦截）—— **已随 P16 封印
 # 退役**（2026-10-08 用户裁决"封印一下/删除"）: 引擎不再按轮次对触发时机表态。
 # 常量**留着**只为一件事: 让"封印"这件事可被引用/可被守门（`test_mmt_trigger_note_sealed`
@@ -712,7 +711,7 @@ class MomoTalkEngine:
         self._system_prompt = sp
         self._history = []
         self._trace = []
-        self.executor.set_current_character(char)   # inspect/trigger 依赖会话角色
+        self.executor.set_current_character(char)   # trigger/look 依赖会话角色
         if self._task_card_override is None:        # 卡开关定值（会话内不变）
             self._task_on = task_card_enabled()
         else:
@@ -1128,7 +1127,7 @@ class MomoTalkEngine:
             {"action": "mmt_send_media", "payload": …}   # 操作行（不上屏）
             {"text": "话2"}
         消息行 → 隐含 `mmt_chat`（事件流/历史/渲染零改动）; 操作行只承载需要引擎
-        介入的事（send_media / inspect / trigger）。
+        介入的事（send_media / look / trigger）。
 
         轮内（`_turn_lines`, 上限 MAX_STEPS 步）:
             LLM 决策（**裸文本**）→ 行解析（坏行丢行记账）→ 四阶段办理
@@ -1248,8 +1247,8 @@ class MomoTalkEngine:
     # §10.3（三个注入点）。要点:
     # · 交付单元 = **行**：text 行 = 一个气泡，解析出来就落事件（C4"行交付即 append"）；
     # · 操作行**先自愈再校验**（自愈必须早于 `registry.parse` —— §10.2 B5 发现②）；
-    # · **没交付之前，有硬问题就不交付**（`inspect` 混排时绝不先把话放出去）；
-    # · ⭐ **inspect 查到的资料回灌后继续这一轮**（AUDIT §B9 的洞：旧路径把它丢了）；
+    # · **没交付之前，有硬问题就不交付**（批式路径：这批行前面全绿才交付）；
+    # · ⭐ **查询族查到的东西回灌后继续这一轮**（AUDIT §B9 的洞：旧路径把它丢了）；
     # · 重试三段：① 自愈（零 LLM 成本）② 行级续写（只收控制行）③ 形状级整轮重发。
     # · **⑥-3a 流式交付**：`chat_full(on_chunk=…)` 边收边解析，内容行**一行前瞻**交付
     #   （下一行到达时上屏），独占行攒到块尾——见 `_turn_lines` 的表格。
@@ -1419,51 +1418,29 @@ class MomoTalkEngine:
             logger.warning("mmt_look 失败（回「没想起来」）: %s", e)
             return LOOK_EMPTY
 
-    def _line_candidates(self) -> dict[str, tuple[str, ...]]:
-        """自愈用的角色候选表：角色注册表（id + 显示名）+ 关系记录（interperson）的键。
-
-        读失败一律降级（少几个候选 = 少救回几个写歪的 id, 不影响主链）。
-        """
-        ids: list[str] = []
-        try:
-            ids = list(self.char_loader.list_characters())
-        except Exception as e:                       # noqa: BLE001 — 候选表读不到就少救几个
-            logger.warning("角色注册表读取失败（归一化候选减少）: %s", e)
-        names: dict[str, list[str]] = {}
-        for cid in ids:
-            try:
-                names[cid] = [self.char_loader.load(cid).display_name]
-            except Exception:                        # noqa: BLE001 — 单个角色坏了不拖累别人
-                continue
-        try:
-            ids.extend(load_interperson(self.executor.interperson_path))
-        except Exception as e:                       # noqa: BLE001 — 关系记录可缺
-            logger.warning("关系记录读取失败（归一化候选减少）: %s", e)
-        return build_candidates(dict.fromkeys(ids), names)
-
     def _turn_lines(self, messages: list[dict], user_input: str, *,
                     record_input: bool) -> TurnResult:
         """行协议一轮（**⑥-3a 流式交付**）：`一行一条 JSON` → **边收边判边发** + 三段式兜底。
 
         | 行的类别 | 办理时机 | 为什么是这个时机 |
         |---|---|---|
-        | 内容行（消息行 / `send_media`） | **一行前瞻**：下一行到达时交付 | 有前瞻才收得回"下一行其实是 `inspect`"（见下） |
+        | 内容行（消息行 / `send_media`） | **一行前瞻**：下一行到达时交付 | ⚠️ 见下（前瞻的原始理由已随 `inspect` 退役） |
         | 独占行（`WHOLE_TURN_ACTIONS`） | **块尾**（整轮写完） | 合法性取决于"同一轮还有没有别的行"，早判必错判 |
         | ⭐ 想起行（`{"noticed": …}`） | **收在手里, 轮末统一落账** | 它是**账目不是内容**（不上屏/不独占/不调 LLM）——见 `_log_notices` |
         | 坏行 / 空轮 / 形状 | 块尾 | 同理：形状要整段才看得出来 |
 
         ⭐ **一行前瞻**（与 VN 切板同款手法）: 内容行**不立刻**交付，压到**下一行**解析
-        出来再交付——因为下一行可能是 `inspect`（静默推理轮），而那一轮**一句话都不该
-        上屏**（"没查到就先答"）。是 `inspect` ⇒ 手里那行丢掉、本轮内容行一律不交付
-        （与批式逐字相同）；是别的行（含 `trigger`——见面的话本来就写在它前面）⇒ 照常
-        交付。块尾再冲掉手里最后一行。
+        出来再交付。⚠️ **它当年的理由是 `mmt_inspect_character`**（静默推理轮 ⇒ 那一轮
+        一句话都不该上屏, 得留一手才收得回"下一行其实是它"）—— **2026-10-08 那个动作
+        退役了**, 今天**没有任何行会作废已交付的内容**（`look` / `trigger` 都允许话写在
+        它们前面）⇒ 前瞻如今只让**最后一行晚一格上屏**。⏸ 撤不撤待裁（撤 = 首末字都快
+        一格, 代价是交付时机与批式路径的差异大一格）。
 
         ⚠️ **已经交付的东西收不回**（用户 2026-09-25 裁决"折中方案"）: 块尾判出的硬问题
         **不回滚** —— 独占行不执行 + 行级续写 ≤1 次；续写也失败 ⇒ 记账 + 下一轮注记，
         **不抛 `MmtLoopError`**（玩家已经看见话，把整轮标成"发送失败"是错的）。
-        什么都没交付时（形状全坏 / 空轮 / `inspect` 混排）语义与批式逐字相同。
+        什么都没交付时（形状全坏 / 空轮）语义与批式逐字相同。
         """
-        candidates = self._line_candidates()
         delivered: list[AgentAction] = []      # 已交付（顺序 = 行序）
         notices: list[MmtLine] = []            # ⭐ 本轮已并入的想起行（N5b）
         reask = False                          # 下一轮是"行级续写"轮（只收控制行）
@@ -1479,7 +1456,6 @@ class MomoTalkEngine:
             dropped: list[str] = []            # 本步丢掉的软行（记账）
             deferred: list[MmtLine] = []       # 独占行（块尾判）
             held: list[MmtLine] = []           # 一行前瞻压着的行（0~1 条）
-            void: list[bool] = [False]         # 本步已作废（inspect 混排 ⇒ 内容行一句不交）
             step_notices: list[MmtLine] = []   # ⭐ 本步的想起行（账目, 块尾并入本轮）
 
             def _finish() -> TurnResult:
@@ -1496,7 +1472,7 @@ class MomoTalkEngine:
 
             def _plan_row(ln: MmtLine) -> None:
                 """**真正办理**压着的行（自愈 → parse → 执行 → 交付）。"""
-                planned = self._plan_line(ln, step=step, candidates=candidates)
+                planned = self._plan_line(ln, step=step)
                 if planned.action is None:
                     dropped.append(planned.why)
                     logger.info("行协议: 丢掉办不了的行（下一轮注记）: %s", planned.why)
@@ -1520,26 +1496,11 @@ class MomoTalkEngine:
                 # 与"哪一行什么时候上屏"无关。收在手里, 轮末统一落账（`_log_notices`）。
                 # ⚠️ 放在 `reask` 判断**之前**: 续写轮也照样收（账目与续写规则无关）。
                 if ln.is_noticed:
-                    if not void[0]:            # 本步已作废（inspect 混排）⇒ 账也不落
-                        step_notices.append(ln)
+                    step_notices.append(ln)
                     return
                 if reask:
                     return                     # 续写轮按批式办理（"只收控制行"要整轮可见）
-                if ln.is_action and ln.action == ACTION_INSPECT and not void[0]:
-                    # 静默推理轮：本轮**一句话都不该上屏** ⇒ 收回手里那行, 后面的也不交。
-                    if held:
-                        self._trace.append({
-                            "step": step, "action": "-", "summary": "", "reply": "",
-                            "payload": None, "parse_valid": True,
-                            "parse_errors": ["inspect 混排: 本轮内容行不交付（整轮回灌）"]})
-                        held.clear()
-                    step_notices.clear()       # 整轮作废 ⇒ 顺手记的那一笔也不算数
-                    void[0] = True
-                if void[0]:                    # 本步作废：只有独占行还值得留给块尾判
-                    if ln.is_action and ln.action in WHOLE_TURN_ACTIONS:
-                        deferred.append(ln)
-                    return
-                _flush()                       # 下一行不是 inspect ⇒ 手里那行可以出去了
+                _flush()                       # 下一行来了 ⇒ 手里那行可以出去了（见 `_turn_lines` 的前瞻说明）
                 if ln.is_action and ln.action in WHOLE_TURN_ACTIONS:
                     deferred.append(ln)        # 独占行：块尾（整轮可见）再判 + 执行
                 else:
@@ -1632,21 +1593,21 @@ class MomoTalkEngine:
 
             if batch_rows:
                 outcome = self._run_lines(
-                    batch_rows, messages, step=step, candidates=candidates,
+                    batch_rows, messages, step=step,
                     delivered=delivered, user_input=user_input,
                     record_input=record_input, check_rows=check_rows)
             else:
                 outcome = _LineOutcome()
 
             # 块尾冲掉手里最后一行（独占行**先**办过 ⇒ 事件顺序仍是行序）
-            if not outcome.fatal and not void[0]:
+            if not outcome.fatal:
                 _flush()
             if dropped:
                 outcome.dropped = "; ".join(
                     x for x in (outcome.dropped, "; ".join(dropped)) if x)
             if not delivered and not outcome.fatal and not outcome.need_more:
-                # ⚠️ `need_more` 排除在外：inspect 是**静默推理轮**，那一轮本来就不产出
-                #    可见内容（"没有可交付的行"不是失败）。
+                # ⚠️ `need_more` 排除在外：查询族（`look`）是**静默推理轮**，那一轮本来就
+                #    不产出可见内容（"没有可交付的行"不是失败）。
                 outcome.fatal = f"本轮没有产出任何可见内容（{outcome.dropped or '没有可交付的行'}）"
 
             if outcome.fatal:
@@ -1681,7 +1642,7 @@ class MomoTalkEngine:
                 raise MmtLoopError(
                     f"行协议: {outcome.fatal}（行级续写 {line_reask} 次仍失败）")
 
-            if outcome.need_more:                # inspect 查完 → 带着资料继续这一轮
+            if outcome.need_more:                # 查询族（`look`）查完 → 带着结果继续这一轮
                 continue
 
             if outcome.dropped:                  # 软丢行 → 记账 + 下一轮注记
@@ -1699,13 +1660,12 @@ class MomoTalkEngine:
 
         raise MmtLoopError(f"行协议: 单轮超过 {MAX_STEPS} 步仍未产出可见回复")
 
-    def _plan_line(self, ln: MmtLine, *, step: int,
-                   candidates: dict[str, tuple[str, ...]]) -> _Planned:
+    def _plan_line(self, ln: MmtLine, *, step: int) -> _Planned:
         """**单行办理**（①自愈 → ③parse + 执行）→ `_Planned`。
 
         = `_run_lines` 那条流水线的**单行版**（⑥-3a 流式交付用）。消息行直接造
         `mmt_chat`（无需自愈、不进 registry）；操作行**先自愈再喂 registry**——顺序
-        是正确性（§10.2 B5：写歪的 id / media_type 会被 registry 硬拒）。
+        是正确性（§10.2 B5：写歪的 media_type 会被 registry 硬拒）。
         失败原因由 `_line_failure` 统一措辞（流式与批式同一个出处）。
         """
         if ln.is_text:
@@ -1715,7 +1675,7 @@ class MomoTalkEngine:
             return _Planned(action=AgentAction(
                 action="mmt_chat", domain=DOMAIN_MMT,
                 approval=APPROVAL_AUTO, reply=ln.text, payload={}))
-        fixed, note = repair_line(ln, candidates=candidates)
+        fixed, note = repair_line(ln)
         if fixed is None:
             return _Planned(why=_line_failure(ln.action, "repair", note))
         if note:                                  # 自愈过 → 留痕（可 grep）
@@ -1741,7 +1701,6 @@ class MomoTalkEngine:
         return _Planned(action=action, message=exec_result.message)
 
     def _run_lines(self, lines: list[MmtLine], messages: list[dict], *, step: int,
-                   candidates: dict[str, tuple[str, ...]],
                    delivered: list[AgentAction], user_input: str,
                    record_input: bool,
                    check_rows: list[MmtLine] | None = None) -> _LineOutcome:
@@ -1749,10 +1708,10 @@ class MomoTalkEngine:
 
         | 阶段 | 做什么 | 为什么这个顺序 |
         |---|---|---|
-        | ① 自愈 | 逐操作行 `repair_line` | **必须早于 registry.parse**（inspect 的 id / send_media 的 media_type 都是硬拒绝 —— §10.2 B5 发现②） |
+        | ① 自愈 | 逐操作行 `repair_line` | **必须早于 registry.parse**（写歪的 media_type 是硬拒绝 —— §10.2 B5 发现②） |
         | ② 组合校验 | `check_turn(自愈后的行)` | 必须在**【自愈后】**：`chapter_title` 超长会被截断救回，先判就会误报 `control-invalid` |
-        | ③ parse + 执行 | `registry.parse` → `executor` | 执行很轻（读资料 / 占位 / 确认），先执行才能知道这一行到底行不行 |
-        | ④ 交付 | 逐行 `_deliver_line` | **这批行前面全绿才交付**——`inspect` 混排时绝不先把话放出去 |
+        | ③ parse + 执行 | `registry.parse` → `executor` | 执行很轻（读记忆 / 占位 / 确认），先执行才能知道这一行到底行不行 |
+        | ④ 交付 | 逐行 `_deliver_line` | **这批行前面全绿才交付** |
 
         ⚠️ **有硬问题（②）或修不了的操作行（①③）⇒ 这批行不交付** + 回灌；
         丢得起的软问题（`DROPPABLE_ACTIONS`）则**丢行 + 记账**，气泡照常交付。
@@ -1771,7 +1730,7 @@ class MomoTalkEngine:
             if ln.is_text:
                 repaired.append((ln, ln))
                 continue
-            fixed, note = repair_line(ln, candidates=candidates)
+            fixed, note = repair_line(ln)
             if fixed is None:
                 why = _line_failure(ln.action, "repair", note)
                 if ln.action in DROPPABLE_ACTIONS:
@@ -1807,7 +1766,7 @@ class MomoTalkEngine:
                                     "reply": fixed.text, "payload": {}, "parse_valid": True,
                                     "parse_errors": []})
                 continue
-            planned = self._plan_line(fixed, step=step, candidates=candidates)
+            planned = self._plan_line(fixed, step=step)
             if planned.action is None:
                 if fixed.action in DROPPABLE_ACTIONS:
                     droppable.append(planned.why)
@@ -1817,12 +1776,12 @@ class MomoTalkEngine:
             if planned.action.action in QUERY_ACTIONS:
                 # ⭐ AUDIT §B9 的洞：查到的资料**必须回灌** —— 旧路径把它丢了，
                 #    模型以为查过了却没资料（"答不上来 → 瞎编"的源头）。
-                #    查询族（inspect / look）查完 ⇒ 直接继续这一轮。
+                #    查询族（今天只有 `look`）查完 ⇒ 直接继续这一轮。
                 #    ⚠️ `trigger` 不在这一族（它是模式切换）。
                 #    ⚠️ **`plan` 这里必定是空的**: 走到这儿的查询动作都在 `deferred` 里
                 #       （`batch_rows = deferred`）, 而 `look` 允许前置的话**早在
-                #       `_accept_row` 里就由 `_flush()` 交付了**（下一行不是 inspect ⇒
-                #       手里那行放出去）—— 所以"先说一句'我找找看'再翻"不会把那句吞掉。
+                #       `_accept_row` 里就由 `_flush()` 交付了**（下一行来了 ⇒ 手里那行
+                #       放出去）—— 所以"先说一句'我找找看'再翻"不会把那句吞掉。
                 #       ⛔ 别在这里补"顺手交付 plan": 那是**到不了的代码**, 变异验不红。
                 feedback(messages, planned.message)
                 out.need_more = True

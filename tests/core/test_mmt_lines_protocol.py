@@ -6,8 +6,8 @@
 
     逐行交付      text 行 = 一个气泡；事件**行交付即 append**（C4）；历史一行一条
     丢行隔离      坏行只丢自己（软, 不触发回灌）
-    独占+不回灌   inspect 混排 → **整轮不交付** + 行级续写（只补控制行）
-    ⭐ B9        inspect 查到的资料**回灌**后继续这一轮（旧路径把它丢了）
+    ⭐ 独占       look 混排 → 硬问题 + 行级续写（只补控制行）
+    ⭐ 回灌       look 翻到的东西**回灌**后继续这一轮（AUDIT §B9 的洞）
     形状级预算    整段不是 JSONL → 整轮重发 ≤ SHAPE_RETRY_MAX 次 → 失败
     行级预算      修不了的操作行 → 续写 ≤ LINE_REASK_MAX 次 → 失败
     软丢行注记    send_media 修不了 ⇒ 丢行 + **下一轮**注记念一次（自清）
@@ -133,8 +133,8 @@ def _rows(*objs: dict) -> str:
 def test_content_rows_deliver_one_row_behind(tmp_path):
     """⭐ ⑥-3a **一行前瞻**: 内容行在**下一行**到达时上屏（不是整段收完才一口气发）。
 
-    前瞻是"能收回"的代价与手段: 下一行可能是 `inspect`，那时这一行必须还没上屏
-    （见 `test_inspect_mixed_drops_held_row_mid_stream`）。
+    前瞻 = 内容行压到**下一行**到达时才交付（⚠️ 它当年的理由 ——"下一行可能是
+    inspect"—— 已随那个动作退役; 今天它只让最后一行晚一格上屏, 见 `_turn_lines`）。
     """
     seen: list[int] = []
 
@@ -181,7 +181,7 @@ def test_look_keeps_the_words_that_came_before_it(tmp_path):
 
     ⚠️ 这是"两条路径同形"的**流式**那一半（批式那一半在
     `test_mmt_look_action.py::test_words_may_come_before_the_look`）:
-    旧口径（inspect 式）下整轮只能有 look 一条行 —— 这句话根本不允许存在。
+    （历史上"整轮只能有 look 一条行"的旧口径下, 这句话根本不允许存在。）
     """
     seen: list[list[str]] = []
 
@@ -202,29 +202,6 @@ def test_look_keeps_the_words_that_came_before_it(tmp_path):
     assert seen[:2] == [[], ["mmt_chat"]], seen
     print("    stream: 先说话再翻 —— 话在 look 那行到达时上屏, look 攒到块尾")
 
-
-def test_inspect_mixed_drops_held_row_mid_stream(tmp_path):
-    """流式下 `inspect` 混排: 手里压着的那句**丢掉**（整轮不交付）—— 一行前瞻就是为它。"""
-    insp = {"action": "mmt_inspect_character",
-            "payload": {"character_id": "rikuhachima_aru"}}
-    seen: list[list[str]] = []
-
-    def probe(subs, _line):
-        seen.append(list(subs))
-
-    _llm, engine, st, sid = _streamed_engine(
-        tmp_path,
-        _rows({"text": "我想想…"}, insp),         # ① 混排（违规: 静默轮只能有它一条）
-        _rows(insp),                              # ② 续写轮: 只补那一条控制行
-        _rows({"text": "阿露她啊，是个爱热闹的人。"}),   # ③ 拿到资料后说话
-        probe=probe)
-    r = engine.agent_turn("阿露是个什么样的人？")
-    assert r.ok and r.reply == "阿露她啊，是个爱热闹的人。"
-    # 喂完第 1 行: 压着; 喂完第 2 行（inspect）: **丢掉, 一句都没上屏**
-    assert seen[:2] == [[], []], seen
-    assert [e.subtype for e in st.events(CHARACTER, sid) if e.type == "mmt"] == ["mmt_chat"]
-    assert all("我想想" not in (h.get("content") or "") for h in engine.history)
-    print("    stream: inspect 混排 → 压着的那句丢掉（整轮不交付）")
 
 
 def test_late_hard_issue_after_delivery_does_not_rollback(tmp_path):
@@ -294,58 +271,6 @@ def test_bad_row_only_loses_itself(tmp_path):
     assert len(llm.snapshots) == 1, "软问题不该回灌"
     assert len(r.actions) == 2
     print("    rows: 坏行只丢自己（软, 零回灌）")
-
-
-# ---------------------------------------------------------------------------
-# 独占 + B9：inspect 回路
-# ---------------------------------------------------------------------------
-
-def test_inspect_mixed_is_not_delivered_and_loop_is_connected(tmp_path):
-    """⭐ 混排 → 整轮**不交付** + 行级续写；查到的资料**回灌**后继续这一轮（AUDIT §B9）。"""
-    insp = '{"action": "mmt_inspect_character", "payload": {"character_id": "rikuhachima_aru"}}'
-    llm = ScriptedLLM(
-        '{"text": "我想想…"}\n' + insp,      # ① 坏形状：话 + inspect 混排
-        insp,                                 # ② 续写轮：只补那一条控制行
-        '{"text": "阿露她啊，是个爱闹的人。"}')   # ③ 拿到资料后说话
-    engine, st, sid = _engine(llm, tmp_path)
-    r = engine.agent_turn("阿露是个什么样的人？")
-
-    assert r.ok and r.reply == "阿露她啊，是个爱闹的人。"
-    # ① 那一轮的话**没有**上屏（否则就是"没查到就先答"）
-    assert "我想想" not in r.reply
-    assert all("我想想" not in (h.get("content") or "") for h in engine.history)
-    assert [e.subtype for e in st.events(CHARACTER, sid) if e.type == "mmt"] == ["mmt_chat"]
-    # ② 那轮的回灌话术：只补缺失的控制行
-    assert "只补" in _last_user(llm, 1) and "不要再重复" in _last_user(llm, 1)
-    # ⭐ ③ inspect 的资料进了模型上下文（B9：旧路径把它丢了）
-    fed = llm.snapshots[2][-1]
-    assert fed["role"] == "user" and fed["content"].startswith("[已查阅 rikuhachima_aru")
-    assert "访问层级" in fed["content"]
-    print("    inspect: 混排不交付 + 只补控制行 + 资料回灌后继续说话（B9 已接上）")
-
-
-def test_inspect_alone_still_works(tmp_path):
-    """独占轮本身：只有 inspect 一条行 → 执行 → 回灌 → 下一轮说话。"""
-    insp = '{"action": "mmt_inspect_character", "payload": {"character_id": "rikuhachima_aru"}}'
-    llm = ScriptedLLM(insp, '{"text": "她是便利屋68的社长。"}')
-    engine, _st, _sid = _engine(llm, tmp_path)
-    r = engine.agent_turn("她是谁")
-    assert r.ok and r.reply == "她是便利屋68的社长。"
-    assert len(llm.snapshots) == 2
-    print("    inspect: 独占轮 → 回灌 → 说话（两跳）")
-
-
-def test_inspect_id_normalized_by_repair(tmp_path):
-    """写歪的 id（中文名）→ 自愈归一后**照常执行**（不是回灌）。"""
-    llm = ScriptedLLM(
-        '{"action": "mmt_inspect_character", "payload": {"character_id": "睦月"}}',
-        '{"text": "睦月啊，爱搞恶作剧的那个。"}')
-    engine, _st, _sid = _engine(llm, tmp_path)
-    r = engine.agent_turn("睦月是个什么样的人")
-    assert r.ok and r.reply == "睦月啊，爱搞恶作剧的那个。"
-    # 归一成真实 id 后执行器认得（否则"角色不存在"→ 回灌）
-    assert "asagi_mutsuki" in _last_user(llm, 1), _last_user(llm, 1)
-    print("    inspect: 写歪的 id 由自愈归一（零回灌）")
 
 
 # ---------------------------------------------------------------------------
