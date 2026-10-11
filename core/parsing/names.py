@@ -59,9 +59,23 @@ class CharNames:
 
 
 def _pick(profile: Mapping[str, Any], field: str) -> str:
-    """取一个名字字段（**裸键 → SIG~ → REQ~** 依次回落, 第一个非空者胜）。"""
+    """取一个名字字段（**裸键 → SIG~ → REQ~** 依次回落, 第一个非空者胜）。
+
+    ⚠️ **值可能是列表** —— `other_names: ['空崎阳奈', '阳奈']` 是**合法 YAML**, 作者
+    两种写法都用过（真档: 逗号串 / 行内 list / 块 list 三种并存）。
+    以前这里一律 `str()` ⇒ list 变成 **Python repr**（`"['空崎阳奈', '阳奈']"`）,
+    再被 `_SPLIT` 按逗号切 ⇒ 切出来的是**带引号与中括号的垃圾**
+    （`"['空崎阳奈'"` / `"'阳奈']"`）—— 而且**静默**: 名字车道认不出"阳奈/委员长"、
+    `find_entity` 也认不出（真机 `sorasaki_hina` / `ginkyou_iori` / `amau_ako` 就是这样,
+    2026-10-08 C2 摸底时抓到）。
+    ⇒ 列表**直接拼成 `，` 串**（与逗号串走同一套切分, 不另开一条路）。
+    """
     for pre in _PREFIXES:
-        v = str(profile.get(f"{pre}{field}") or "").strip()
+        raw = profile.get(f"{pre}{field}")
+        if isinstance(raw, (list, tuple)):
+            v = "，".join(str(x).strip() for x in raw if str(x).strip())
+        else:
+            v = str(raw or "").strip()
         if v:
             return v
     return ""
