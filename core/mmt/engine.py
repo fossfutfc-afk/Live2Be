@@ -94,7 +94,7 @@ from core.brain.address import find_episode
 from core.brain.read.find import compile_clue, find
 from core.brain.read.like import RecallCtx
 from core.brain.read.modes import DEFAULT_MODE as TURN_MODE
-from core.brain.read.modes import recall
+from core.brain.read.modes import recall, render_section
 from core.brain.read.render import (
     LOOK_EMPTY,
     LOOK_EMPTY_TIME,
@@ -105,7 +105,6 @@ from core.brain.read.render import (
     render_background_experience,
     render_candidates,
     render_character_view,
-    render_recall_block,
 )
 from core.worldtime.when import parse_when
 from core.brain.store import WikiStoreV2
@@ -1200,7 +1199,8 @@ class MomoTalkEngine:
                     notes.append(_n)
         except Exception as e:                       # noqa: BLE001 — 注记绝不阻断
             logger.warning("时间注记失败（本轮不注）: %s", e)
-        # ⭐ P19「你想起的事」（**N5**, 2026-09-29）—— 引擎每轮摆 1~2 条旧 episode。
+        # ⭐ P19「你想起的事」+「关于他们的」（**N5**, 2026-09-29 / 2026-10-12）——
+        # 引擎每轮摆 0~2 段旧 episode。
         # 两个"为什么"（别改回去）:
         #  ① **为什么进 notes 不进 brain**: 这一段的查询是**玩家这一句** ⇒ 每轮都不同;
         #     拼进 system（盒 + brain 的稳定前缀）就逐轮破上下文缓存 —— 而"稳定前缀"
@@ -1209,9 +1209,9 @@ class MomoTalkEngine:
         #     比"我想起了什么"更基础; 而 task 卡是目标层, 恒定压在所有材料之后。
         # 宁缺勿错: 召回失败/空库/没有一条像 ⇒ 不注（少一段上下文, 剧情照走）。
         try:
-            _recall = self._recall_note(user_input, _now, wstore=wstore)
-            if _recall:
-                notes.append(_recall)
+            _recalls = self._recall_notes(user_input, _now, wstore=wstore)
+            if _recalls:
+                notes.extend(_recalls)
         except Exception as e:                       # noqa: BLE001 — 召回绝不阻断对话
             logger.warning("每轮召回失败（本轮不注）: %s", e)
         if system_note:                                     # P17 本轮系统注记
@@ -1261,9 +1261,21 @@ class MomoTalkEngine:
         notes, self._line_notes = self._line_notes, []
         return notes
 
-    def _recall_note(self, user_input: str, now: datetime,
-                     *, wstore: WikiStoreV2 | None = None) -> str:
-        """本轮的「你想起的事」段（**N5**）—— 空串 = 不注入（宁缺勿错）。
+    def _recall_notes(self, user_input: str, now: datetime,
+                      *, wstore: WikiStoreV2 | None = None) -> list[str]:
+        """本轮的**记忆段**（**P19**）—— 0~2 段; 空列表 = 不注入（宁缺勿错）。
+
+        ⭐ **两种形式**（表 = `core/brain/read/modes.MODES`; 这里的顺序**就是**注入顺序）:
+
+        | 段 | 形式 | 什么时候摆 | 摆什么 |
+        |---|---|---|---|
+        | ① | `"name"`（set） | 老师这句话里**提到了一个名字** | 那个对象车道上**全部**（新→旧; 含正文里没写他名字的那些）|
+        | ② | `"turn"`（rank） | 每轮兜底 | 六路打分最像的 ≤ `[recall].turn_k` 条 |
+
+        ⚠️ **同一条 episode 只摆一次**: 名字段先定, 兜底段**剔掉它的 id** ——
+        `like` 的名字那一路（`part_name`）也在加成, 不剔就会两段各摆一遍同一件事。
+        ⚠️ **保留号不算"提到了谁"**（`modes.RESERVED_TRIGGERS`）: 她自己 / 老师的车道
+        ≈全部事件 ⇒ 那两行名字**不触发**名字段（表里那一格管, 不在这儿写 if）。
 
         ⭐ **为什么候选必须由引擎摆**（`DESIGN_MMT_NEW_ACTION §3.7`）:
         她是"想起来"的那一方, 但**摆哪几条**是引擎的活 —— 否则她要么凭印象瞎指
@@ -1275,7 +1287,7 @@ class MomoTalkEngine:
         地址空间就是标题（编号退回引擎内部）。她要做的动作是"指一下是哪条"
         （`{"noticed": "苔藓的约定"}`）, 指不到看不见的名字。
 
-        ⭐ **2026-10-08: 走 `like(spec="turn")`, 且这一档 `semantic` 权重 = 0**
+        ⭐ **2026-10-08: 兜底段走 `like(spec="turn")`, 且这一档 `semantic` 权重 = 0**
         （用户裁"把 MMT embed 那块实时注入先暂停"）。三条理由:
         1. **时延**: 语义那一路每轮要把整个库重新编码一遍 —— 真档实测 **916 ms**
            （2 次 embedding / 22 条文本, 纯 embedding ≈ 26 ms/条 ⇒ 库线性变慢:
@@ -1285,14 +1297,19 @@ class MomoTalkEngine:
            `akin` 的另一半来源是 R2（LLM 判关系）。所以停掉它**不影响记忆长边**。
         3. **能力没丢**: `PARTS["semantic"]` 还在, digest 那条（写路径、异步）继续用,
            将来的 `look` / 离线连边也用 —— 它属于**写入期/离线**, 不属于每轮读取。
+        ⚠️ 名字段是 `set` 形状（确定判据）—— **一次 embedding 都不碰**（它的执行器是 `find`）。
 
         `wstore`: 调用方手里这一轮的 wiki 视图（复用 —— 每轮重读一遍是白花的钱）。
+
+        Returns:
+            段列表（可能为空）。⚠️ **每段是一条独立的 system 消息** —— 它们的**落点**
+            （history 之后）是硬要求, 不是排版偏好, 见 `agent_turn` 里那段注释。
         """
         if self._store is None or self._current_char is None:
-            return ""
+            return []
         query = (user_input or "").strip()[:RECALL_QUERY_CHARS]
         if not query:
-            return ""
+            return []
         char = self._current_char
         if wstore is None:
             wstore = WikiStoreV2(self._store.data_root, world_id=self._store.world_id,
@@ -1301,22 +1318,31 @@ class MomoTalkEngine:
         # 后端。真要把语义接回实时路径, 得先解决"每轮全库重编码"那笔账（缓存 or 离线连边）。
         # ⭐ 2026-10-12: 走**唯一前门** `recall(mode=…)`（`core/brain/read/modes.py`）——
         # 形式名决定执行器与文案; `turn` = 六路打分那一行（与从前 `like(spec="turn")` 逐字同）。
-        cands = recall(wstore, RecallCtx(now=now, query=query),
-                       mode=TURN_MODE, k=_turn_k())
-        if not cands:
-            return ""
+        ctx = RecallCtx(now=now, query=query)
+        name_cands = recall(wstore, ctx, mode="name")        # set: 他车道上全部（不裁）
+        seen = {c.node.id for c in name_cands}
+        turn_cands = [c for c in recall(wstore, ctx, mode=TURN_MODE, k=_turn_k())
+                      if c.node.id not in seen]
         # ⭐ **候选直传渲染层**（2026-10-08）: 从前这里先摊平成 `[c.node for c in cands]`,
-        # 那是"渲染器只认裸节点"留下的转手 —— 现在 `render_recall_block` 与将来的 `look`
-        # 走同一支 `render_candidates`（`like` 给什么就印什么）。
-        seg = render_recall_block(cands, char_name=char.display_name or "",
-                                  char_aliases=_name_aliases(char.profile), now=now)
-        # 台账（可 grep）: 摆了几条 / 多少字 / 哪个档 / 摆了谁（**标题**——
+        # 那是"渲染器只认裸节点"留下的转手 —— 现在两段都走 `render_candidates`
+        # （`like` / `find` 给什么就印什么）, 文案从**形式表**取（`render_section`）。
+        kw = {"char_name": char.display_name or "",
+              "char_aliases": _name_aliases(char.profile), "now": now}
+        seg_name = render_section(name_cands, mode="name", **kw)
+        seg_turn = render_section(turn_cands, mode=TURN_MODE, **kw)
+        segs = [s for s in (seg_name, seg_turn) if s]
+        if not segs:
+            return []
+        # 台账（可 grep）: 摆了几段 / 各几条 / 多少字 / 摆了谁（**标题**——
         # 编号是她看不到的东西, 排查时要看的是她看到的那个串）。
         # ⭐ "为什么是这几条"在 `like` 自己那行 `recall_like … top=…←why` 里。
-        logger.info("mmt_recall %s/%s eps=%d chars=%d spec=turn titles=%s",
-                    char.character_id, self._session_id, len(cands), len(seg),
-                    " / ".join(c.node.title or c.node.id for c in cands))
-        return seg
+        logger.info("mmt_recall %s/%s modes=%s eps=%d name=%d chars=%d titles=%s",
+                    char.character_id, self._session_id,
+                    "+".join(m for m, s in (("name", seg_name), ("turn", seg_turn)) if s),
+                    len(turn_cands), len(name_cands), sum(len(s) for s in segs),
+                    " / ".join(c.node.title or c.node.id
+                               for c in (*name_cands, *turn_cands)))
+        return segs
 
     def _look_result(self, clue: str, when: str, *, wstore: WikiStoreV2 | None = None) -> str:
         """⭐ **`mmt_look` 的执行体**（2026-10-08）: 三级解析 → 一段给她看的字。
@@ -1347,7 +1373,7 @@ class MomoTalkEngine:
         给她"失败次数 + 回忆方法", 让这个无状态函数自己决定停; ⛔ 不设硬闸, 兜底仍只有
         `MAX_STEPS`）。
 
-        本函数**绝不抛**（照 `_recall_note` 的纪律）: 任何异常 ⇒ `logger.warning` +
+        本函数**绝不抛**（照 `_recall_notes` 的纪律）: 任何异常 ⇒ `logger.warning` +
         `LOOK_EMPTY`。⛔ 但"没接线/没会话"不在这里兜 —— 那是 `MmtExecError`（硬问题, 明确）。
         """
         char = self._current_char

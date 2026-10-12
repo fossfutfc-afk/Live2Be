@@ -13,6 +13,9 @@ VALUE: 这条测的是**接线与落点**（`agent_turn` 的 P19 槽位）, 不�
    反着验: 两条 episode 各带一个词, 换一句话就该换一条出来。
 3. 召回失败 / 空库 / 一条都不像 ⇒ **不注**（宁缺勿错: 少一段上下文, 剧情照走）。
 
+⭐ **2026-10-12 起 P19 是两段**（`modes.MODES`: 先 `name` 名字段, 后 `turn` 兜底段）——
+落在这一层的新判据有三条, 见文件末尾那三条用例（先后 / 去重 / 保留号不开段）。
+
 ⚠️ **后端一律走构造参数 `embed_fn=`（N5 接缝）, 不 patch 模块属性**:
 `core.mmt.engine` 在 `tests/core/test_split_safety.py` 的 TARGETS 里, patch 模块属性
 将来会**静默失效**（那条守门拦的就是这个）。这里给一个"一调就炸"的后端 ⇒
@@ -35,6 +38,7 @@ from tests import stub_tasks                              # noqa: E402
 ROOT = Path(__file__).resolve().parents[2]
 CHARACTER = "igusa_haruka"
 HEADER = "【你想起的事"
+NAME_HEADER = "【关于他们的"
 
 
 def _no_embed():
@@ -215,3 +219,116 @@ def test_recall_uses_the_now_of_the_turn(tmp_path):
                    now=datetime.fromisoformat("2026-09-21T10:00:00"))
     assert "〔《苔藓的约定》｜昨天｜9/20〕" in _joined(llm), _joined(llm)[-400:]
     print("    N5: 短语用本轮 now（昨天）")
+
+
+# ---------------------------------------------------------------------------
+# ⭐ 2026-10-12: P19 的第二段「关于他们的」（形式 `name`, set 形状）
+# ---------------------------------------------------------------------------
+
+def _seed_lane(tmp_path, *, titles: list[tuple[str, str]]) -> None:
+    """一个人（**便利屋68/老师之外的新名字**）+ 挂他车道的经历（`about` 边, 正文可无名）。
+
+    ⚠️ 两条夹具纪律（都踩过）:
+      · **名字要避开**她人设表里的那些人（阿露/睦月/佳代子/纱织…）: 撞名会让
+        `like.build_ctx` 的名字表 `setdefault` 命中**另一个** entity（车道是空的）——
+        那种失败看起来很玄, 其实是夹具撞车。
+      · **id 必须写死成非保留号**: 测试档里引擎不一定已经物化过 self/sensei
+        （那一步在脑注入那次）, `next_id("x")` 于是把 `x0001`（= 老师）分给它 ⇒
+        名字段被例外条款整条剔掉, 用例红得莫名其妙。
+    """
+    st = WikiStoreV2(tmp_path, world_id="world1", char_id=CHARACTER)
+    person = make_node("entity", name="拉面店的老板", text="")
+    person.id = "x0002"
+    person.aliases = ["老板"]
+    pid = st.add(person)
+    for title, text in titles:
+        eid = st.add(make_node("episode", text=text, title=title, tags=["拉面"],
+                               ts="2026-10-05T10:00:00", significance=0.4, event_seq=[9]))
+        st.add_edge("about", eid, pid, ts="2026-10-05T10:00:00")
+    st.save()
+
+
+def _seed_reserved(tmp_path) -> tuple[str, str]:
+    """按 `ensure_entities` 的形状建出**保留号**（她自己 / 老师）+ 各一条车道经历。
+
+    ⚠️ id 写死成 `entities.SELF_ID` / `SENSEI_ID` —— 例外条款是**按 id** 认的,
+    换个号这条用例就测不到东西了（而且会静默绿）。
+    """
+    from core.brain.entities import SELF_ID, SENSEI_ID
+    st = WikiStoreV2(tmp_path, world_id="world1", char_id=CHARACTER)
+    me = make_node("entity", name="伊草 遥香")
+    me.id = SELF_ID
+    me.aliases = ["遥香"]
+    st.add(me)
+    sen = make_node("entity", name="老师")
+    sen.id = SENSEI_ID
+    sen.aliases = ["sensei"]
+    st.add(sen)
+    for owner, title, text, seq in ((SENSEI_ID, "跟老师那天", "老师陪我在杂草屋蹲了一下午", 10),
+                                    (SELF_ID, "我自己那天", "我一个人在杂草屋发呆", 11)):
+        eid = st.add(make_node("episode", text=text, title=title, tags=["杂草"],
+                               ts="2026-10-05T10:00:00", significance=0.5, event_seq=[seq]))
+        st.add_edge("about", eid, owner, ts="2026-10-05T10:00:00")
+    st.save()
+    return SELF_ID, SENSEI_ID
+
+
+def test_name_form_opens_a_section_before_the_turn_section(tmp_path):
+    """⭐ 老师这句提到一个名字 ⇒ 多一段「关于他们的」, 且**排在兜底段之前**。
+
+    三条判据一次钉住（每一条都是能静默错的地方）:
+      · 名字段在（**含正文里没写"老板"二字**的那条 —— set 形状的语义）;
+      · 段序 = 确定命中在前（`joined.index` 比先后, 不比长度）;
+      · 同一条 episode **只出现一次**（`like` 的名字那一路也在加成 ⇒ 不剔就两段各摆一遍）。
+    """
+    llm = ScriptedLLM()
+    eng = _engine(tmp_path, llm)
+    _seed_lane(tmp_path, titles=[("多加叉烧", "老板多给了我一份叉烧"),      # 两段都会命中 ⇒ 去重靶子
+                                 ("留了一份", "他说下次还给我留一份")])      # 只挂车道 ⇒ 名字段独有
+    _seed(tmp_path, "他今天给我加了叉烧", title="别人也加了", tags=("料理",))
+    eng.agent_turn("老板给我加叉烧了吗")
+    joined = _joined(llm)
+
+    assert NAME_HEADER in joined, joined[-600:]
+    assert "《留了一份》" in joined, "车道上的那条（正文没写他名字）没摆出来"
+    assert joined.index(NAME_HEADER) < joined.index(HEADER), "两段的先后反了"
+    assert joined.count("《多加叉烧》") == 1, "同一条 episode 被两段各摆了一遍"
+    assert "《别人也加了》" in joined, "兜底段被名字段挤掉了"
+    # 落点照旧: 两段都在动态尾, 不进 system（前缀缓存的地基）
+    assert NAME_HEADER not in (llm.snapshots[-1][0].get("content") or "")
+    print("    P19: 名字段在兜底段之前 · 跨段去重 · 车道全量（含正文无名的）")
+
+
+def test_recall_log_says_which_sections_were_placed(tmp_path, caplog):
+    """台账那一行要说得清**摆了几段/各几条**（排查"她这轮到底看见了什么"的唯一线索）。"""
+    llm = ScriptedLLM()
+    eng = _engine(tmp_path, llm)
+    _seed_lane(tmp_path, titles=[("多加叉烧", "老板多给了我一份叉烧")])
+    _seed(tmp_path, "他今天给我加了叉烧", title="别人也加了", tags=("料理",))
+    with caplog.at_level("INFO", logger="core.mmt.engine"):
+        eng.agent_turn("老板给我加叉烧了吗")
+    line = next(r.getMessage() for r in caplog.records if "mmt_recall" in r.getMessage())
+    assert "modes=name+turn" in line and "name=1" in line and "eps=1" in line, line
+    assert "titles=多加叉烧" in line, line
+    print(f"    P19: 台账分得清两段（{line.split('modes=')[1].split(' titles=')[0]}）")
+
+
+def test_reserved_names_do_not_open_the_name_section(tmp_path):
+    """⛔ 她自己 / 老师的名字**不算"提到了谁"**（`modes.RESERVED_TRIGGERS`）。
+
+    ⚠️ **前提自己验**: 保留号真被字面命中了才算测到（否则名字表里压根没这两行 ⇒
+    用例会**假绿**）。老师几乎连着每一件事 ⇒ 少了这一格, 一句"老师你觉得呢"
+    就能把整条河摆进动态尾, 还顶着"关于他们的"这个抬头。
+    """
+    from core.brain.read.like import RecallCtx, build_ctx
+    llm = ScriptedLLM()
+    eng = _engine(tmp_path, llm)
+    self_id, sensei_id = _seed_reserved(tmp_path)
+    now = datetime.fromisoformat("2026-10-12T21:00:00")
+    wstore = WikiStoreV2(tmp_path, world_id="world1", char_id=CHARACTER)
+    for q, want in (("遥香你在吗", self_id), ("老师你觉得呢", sensei_id)):
+        base = build_ctx(wstore, RecallCtx(now=now, query=q), active=[])
+        assert want in base.named, f"前提不成立（{q} 没命中 {want}）—— 这条用例会假绿"
+        eng.agent_turn(q, now=now)
+        assert NAME_HEADER not in _joined(llm), q
+    print(f"    P19: 保留号（{self_id}/{sensei_id}）不触发名字段")

@@ -105,7 +105,8 @@ recall.py
        **永远想起最重要的那条** ⇒ 同一条边反复 ⇒ 群永远长不出成员
   · 宁缺勿错: 空 query / 空库 / 一条都不像 ⇒ **返 []（这一轮就不注）**
 recall_config.py
-  · [recall].turn_k = 2 · turn_budget = 700（"取几条"类, **不是阈值**）
+  · [recall].turn_k = 2 · turn_budget = 1000（"取几条"类, **不是阈值**; 2026-10-12 起
+    是**每段**预算 —— P19 有两段: `name` 名字段 + `turn` 兜底段）
 mmt/engine.py
   · agent_turn 加 **P19 槽位** —— ⭐ **进 notes（动态尾, history 之后）, 不进 system**:
     查询是玩家这一句 ⇒ 每轮都变 ⇒ 进 system 就逐轮破前缀缓存（tail.py 的不变式）
