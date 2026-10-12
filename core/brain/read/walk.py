@@ -22,7 +22,6 @@
 `decay`; 谁先够到、谁够得强, 谁排在前面。
 
 ## 四条边界（每条都踩过或算过, 别默默改）
-
 1. ⛔ **默认只走窄门**（`akin` = 她自己认过的相似 / `member_of` 的同类兄弟）——
    `about`（归属）太宽: 真机 haruka 「老师」车道 **10/21 条（48%）**, 走它等于每轮摆同一批。
 2. ⛔ **默认一跳**: 真机那个 `akin` 簇（5 条 + 同类 6 条 = 同一个 6 条簇）**两跳就会串到别的簇**
@@ -33,6 +32,10 @@
    （`neighbors` 内部直接把兄弟取出来）, 所以早过滤**掐不断**它; 早过滤真正会掐断的是
    **两跳里经过非 episode 节点的路**（例: `m1 →(about) who →(about) m7`）。
    结论不变（过滤归结果）, 但**别拿"兄弟会被掐断"当理由 —— 那是错的**。
+5. ⭐ **广度闸 `width`（缺省不裁）**: 一个类长到几十个成员时, "同类兄弟"一次带回几十条 ——
+   渲染预算（1000 字符）兜得住**上下文**, 兜不住**两跳的扇出平方放大**与**台账那一行**。
+   ⛔ 缺省 `None` = 与"没有这个参数"逐字一致; 给值 = **`near` 那一行的产品口径**
+   （它会漏, 与 `find` 的"不漏即正确"相反 —— 所以不写在通用层）。
 
 ## 接线还差什么（留给接的人）
 
@@ -103,7 +106,8 @@ def neighbors(g, nid: str, *, rels: Iterable[str] | None = NARROW,
 
 
 def bfs(store, seeds: dict[str, float], *, rels: Iterable[str] | None = NARROW,
-        hops: int = 1, decay: float = DECAY, kinds: Iterable[str] = ("episode",),
+        hops: int = 1, decay: float = DECAY, width: int | None = None,
+        kinds: Iterable[str] = ("episode",),
         skip: Iterable[str] = ()) -> list[Hit]:
     """从种子出发扩散（**语义跳** ≤ `hops`）—— 返回按"近 → 强 → 新"排好的 `Hit` 列表。
 
@@ -112,6 +116,13 @@ def bfs(store, seeds: dict[str, float], *, rels: Iterable[str] | None = NARROW,
         seeds: `{节点 id: 分}` —— **调用方给**（内容命中的那些, 与 `like.build_ctx` 同一份料;
             ⚠️ 本模块**不自己找种子**: 找种子是"哪几路算内容命中"的事, 那是 `like.PARTS` 的活）。
         rels / hops / decay: 见模块 docstring 的四条边界（默认 = 窄门 / 一跳 / `DECAY`）。
+        width: ⭐ **广度限制** —— **每一跳最多收几条**（按"分↓ → 新→旧"取, 超出的**丢**）。
+            ⛔ `None`（缺省）= 不裁（与"没有这个参数"逐字一致）。
+            **为什么要有它**: 一个 `experience` 类长到几十个成员时, "同类兄弟"那一步会
+            一次带回几十条 —— 上下文本身有渲染预算兜着（1000 字符）, 但**两跳会按扇出
+            平方放大**、台账那一行会长到读不了, 而且"谁被摆出来"就只剩新→旧一条依据。
+            ⚠️ **它会漏**（与 `find` 的"不漏即正确"相反）⇒ 这是**形式的产品口径**,
+            不是通用规则: 缺省不裁, 由调用方（`near` 那一行）给值。
         kinds: **结果**的 kind 白名单（⛔ 不在遍历中途过滤, 见边界 4）。
         skip: 已经在别的段摆过的 id（跨段去重 —— P19 三段共用一个 `seen`）。
 
@@ -144,6 +155,14 @@ def bfs(store, seeds: dict[str, float], *, rels: Iterable[str] | None = NARROW,
                     reached[other] = (score, why)            # 同一跳多父 ⇒ 取最强那条
         if not reached:
             break
+        if width is not None:                                # ⭐ 广度闸: 只留这一跳最强的头 N 条
+            def _keep_key(nid: str):
+                node = store.get(nid)
+                return (-reached[nid][0], _newest_key(node) if node is not None else ())
+            reached = {nid: reached[nid]
+                       for nid in sorted(reached, key=_keep_key)[:max(int(width), 0)]}
+            if not reached:
+                break
         for nid, (score, why) in reached.items():
             best[nid] = (score, hop, why)
         frontier = {nid: s for nid, (s, _why) in reached.items()}
