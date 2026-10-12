@@ -350,6 +350,64 @@ def test_empty_lane_prints_a_blank_line_only_when_a_name_was_mentioned(tmp_path,
     print("    P19: 空手只在真有钥匙时说话（提了名字没人 / 闲聊不响且不靠兜底）")
 
 
+def test_when_form_opens_a_section_and_dedup_keeps_it_honest(tmp_path):
+    """⭐ 三段的顺序与**去重掏空 ≠ 空手**（2026-10-12 的 `when` 形式）。
+
+    老师一句同时点名 + 点时间 ⇒ 名字段与时间窗段指着**同一条经历**:
+      · 段序 = `name` → `when` → `turn`（确定命中在前, 兜底在后）;
+      · 那条归**名字段**（先到先得）;
+      · ⛔ 时间窗那段**一个字都不印** —— 它空是因为"被前一段拿走了", 不是"没想起来",
+        印空手就是**假话**（`empty_ok` 那一格）。
+    """
+    llm = ScriptedLLM()
+    eng = _engine(tmp_path, llm)
+    now = datetime.fromisoformat("2026-10-12T21:00:00")          # 周一; 上周 = 10/5..10/11
+    st = WikiStoreV2(tmp_path, world_id="world1", char_id=CHARACTER)
+    person = make_node("entity", name="拉面店的老板", text="")
+    person.id = "x0002"
+    person.aliases = ["老板"]
+    st.add(person)
+    both = st.add(make_node("episode", text="老板多给了我一份叉烧", title="上周加叉烧",
+                            ts="2026-10-07T10:00:00", significance=0.5, event_seq=[20]))
+    st.add_edge("about", both, "x0002", ts="2026-10-07T10:00:00")
+    st.add(make_node("episode", text="老板上周也给我加了叉烧", title="别人也加了",
+                     ts="2026-09-20T10:00:00", significance=0.5, event_seq=[21]))
+    st.save()
+
+    # ① 上周里**只有**他车道那一条 ⇒ 名字段先拿走, 时间窗段被掏空 ⇒ ⛔ 一个字都不印
+    eng.agent_turn("老板上周给我加叉烧了吗", now=now)
+    joined = _joined(llm)
+    assert joined.index(NAME_HEADER) < joined.index(HEADER), "名字段不在兜底段之前"
+    assert "你想着「老板」" in joined and "《上周加叉烧》" in joined, joined[-600:]
+    assert joined.count("《上周加叉烧》") == 1, "同一条被两段各摆了一遍"
+    assert "你想着「上周」那阵子" not in joined, "被去重掏空的那段印了空手（那是假话）"
+    assert "《别人也加了》" in joined, "兜底段被挤掉了"
+    # ② 上周里再添一条**不在他车道**的 ⇒ 两段同时有货, 这才能钉两者的先后
+    _seed(tmp_path, "上周的课排得很满", title="上周的课", tags=("课",),
+          ts="2026-10-09T10:00:00")
+    eng.agent_turn("老板上周都忙什么了", now=now)
+    both = _joined(llm)
+    assert "你想着「老板」" in both and "你想着「上周」那阵子" in both, both[-600:]
+    assert both.index("你想着「老板」") < both.index("你想着「上周」那阵子"), "两段先后反了"
+    assert "《上周的课》" in both, "时间窗里那条（不在他车道上）没摆出来"
+    print("    P19: 三段顺序 name→when→turn · 去重掏空的那段不说话")
+
+
+def test_when_section_says_so_when_that_window_is_empty(tmp_path):
+    """⭐ 时间窗**真**空（那阵子一条都没有）⇒ 印空手那句; 闲聊里没有时间词 ⇒ 什么都不印。"""
+    llm = ScriptedLLM()
+    eng = _engine(tmp_path, llm)
+    now = datetime.fromisoformat("2026-10-12T21:00:00")
+    _seed(tmp_path, "在杂草屋蹲了一下午", title="苔藓的约定", tags=("杂草",),
+          ts="2026-09-20T10:00:00")
+    eng.agent_turn("上周我们都干什么了", now=now)
+    joined = _joined(llm)
+    assert "你想着「上周」那阵子" in joined and "那几天的事，一时没想起来" in joined, joined[-500:]
+    eng.agent_turn("今天的天气不错", now=now)      # ⚠️ "今天"是**还没过完**的窗口 ⇒ 不算旧事
+    assert "你想着「今天」" not in _joined(llm), _joined(llm)[-400:]
+    print("    P19: 时间窗真空 ⇒ 空手说话; 「今天」不算旧事（不许摆）")
+
+
 def test_blank_line_is_marked_in_the_ledger(tmp_path, caplog):
     """空手那一轮，台账要标 `name(empty)` —— 否则"摆了一段"与"摆了一句空手"在日志里一样。"""
     llm = ScriptedLLM()

@@ -68,9 +68,11 @@ SHAPE_RANK = "rank"
 SHAPE_SET = "set"
 SHAPES: tuple[str, ...] = (SHAPE_RANK, SHAPE_SET)
 
-#: `payload_from` 的**闭集** —— `set` 型的锚载荷从 `RecallCtx` 的哪份**派生料**取
-#: （`named` = `{entity_id: 她在 query 里被叫到的那个写法}`, 由 `like.build_ctx` 算）
+#: `payload_from` 的**闭集** —— `set` 型的锚载荷从 `RecallCtx` 的哪份**派生料**取：
+#: · `named` = `{entity_id: 她在 query 里被叫到的那个写法}`（由 `like.build_ctx` 算）
+#: · `when` = **在 query 里扫到的时间窗**（`(词, (start, end))`, 由 `when.scan_when` 扫）
 PAYLOAD_NAMED = "named"
+PAYLOAD_WHEN = "when"
 
 #: `set` 型的载荷里**不许触发**的保留号（真源 = `core.brain.entities` 的 `SELF_ID`/`SENSEI_ID`）。
 #: ⛔ **她自己（`x0000`）与老师（`x0001`）的名字不算"提到了谁"**:
@@ -78,7 +80,7 @@ PAYLOAD_NAMED = "named"
 #: 而且抬头写着"你想着某个人", 摆出来却是一整条河。它们各自的分身**另有住处**
 #: （她自己 → brain 段的「我是这样看自己的」; 老师 → 「老师的事」/ 河本身）。
 RESERVED_TRIGGERS: tuple[str, ...] = (SELF_ID, SENSEI_ID)
-PAYLOADS: tuple[str, ...] = (PAYLOAD_NAMED,)
+PAYLOADS: tuple[str, ...] = (PAYLOAD_NAMED, PAYLOAD_WHEN)
 
 
 @dataclass(frozen=True)
@@ -128,6 +130,14 @@ MODES: dict[str, Mode] = {
                  # 顺带把 `look` 的语义（一个词 → 一批记忆）在她眼前演示一遍。
                  header="【你想着「{key}」——浮上来的是这些（用不用由你判断）】",
                  empty="【你想着「{key}」——跟它有关的事，一时没想起来】"),
+    # 「你想着「上周」那阵子」：老师这句里有**时间词** ⇒ 那段时间里**全部** episode。
+    # ⚠️ **只查 `exact`, 不放宽**（用户 2026-10-12: *"可以让 LLM 干脆自己多开区间搜"*）——
+    # `When.wide` 是 `look` 的第二跳（那里会如实报告"那阵子没有；前后那阵子…"）,
+    # 而 P19 是**引擎主动摆**: 放宽 = 替她猜, 她会把"前后几天"的事当成"那阵子"的说出口。
+    # 时间矫正那条路 = 她自己多翻几次 `look`（`MAX_STEPS` 内随便翻）。
+    "when": Mode(shape=SHAPE_SET, anchors=("when",), payload_from=PAYLOAD_WHEN,
+                 header="【你想着「{key}」那阵子——浮上来的是这些（用不用由你判断）】",
+                 empty="【你想着「{key}」那阵子——那几天的事，一时没想起来】"),
     # P19「你想起的事」：每轮的兜底形式 —— 六路打分（权重与选面都在 `like.SPECS`）
     "turn": Mode(shape=SHAPE_RANK, spec="turn", order="",
                  header=RECALL_HEADER, hint=RECALL_ACTION_HINT),
@@ -146,6 +156,18 @@ def mode_of(name: Any) -> Mode:
     return m
 
 
+def _scan(base: RecallCtx) -> tuple[str, Any] | None:
+    """在**老师这一句**里扫到的时间窗: `(那个词, (start, end))`; 扫不到 ⇒ `None`。
+
+    ⭐ **解析整份借用** `worldtime.when.scan_when`（词表 = `when._PHRASES` 本身）——
+    ⛔ 这里不写第二份短语表, 也不碰 `_AGO`/`_RECENT` 那条参数化路线（见它的 docstring）。
+    ⚠️ `scan_when` 已经把"未过完的窗口"（今天/本周/本月/今年）挡掉了 —— 那些不是"旧事"。
+    """
+    from core.worldtime.when import scan_when          # 函数内: 只有这一条载荷要 worldtime
+    got = scan_when(base.query, now=base.now)
+    return (got[0], got[1].exact) if got else None
+
+
 def _payloads(base: RecallCtx, m: Mode) -> list[Any]:
     """`set` 型的锚载荷清单（可能 0 个 / 多个 —— 多个 = 并集）。
 
@@ -159,6 +181,9 @@ def _payloads(base: RecallCtx, m: Mode) -> list[Any]:
     if m.payload_from == PAYLOAD_NAMED:
         skip = set(m.skip_ids)
         return [eid for eid in base.named if eid not in skip]
+    if m.payload_from == PAYLOAD_WHEN:
+        got = _scan(base)
+        return [got[1]] if got else []
     raise KeyError(f"形式 {m.spec or m.anchors} 的 payload_from={m.payload_from!r} "
                    f"不在闭集里（可用: {PAYLOADS}）")
 
@@ -171,6 +196,9 @@ def _keys(base: RecallCtx, m: Mode) -> list[str]:
     """
     if m.payload_from == PAYLOAD_NAMED:
         return [base.named[eid] for eid in _payloads(base, m) if eid in base.named]
+    if m.payload_from == PAYLOAD_WHEN:
+        got = _scan(base)
+        return [got[0]] if got else []
     raise KeyError(f"形式 {m.spec or m.anchors} 的 payload_from={m.payload_from!r} "
                    f"还没有对应的「人话形式」（见 `_keys`）")
 
@@ -258,7 +286,7 @@ def _fill(template: str, key: Any, *, mode: Any) -> str:
 
 
 def render_section(cands: Iterable[Candidate], *, mode: Any = DEFAULT_MODE,
-                   key: Any = "", **kwargs) -> str:
+                   key: Any = "", empty_ok: bool = True, **kwargs) -> str:
     """⭐ **形式 → 她看到的那一段字**：文案（含钥匙）从表里取, 其余**原样透传**。
 
     = `render.render_candidates` 的一层薄壳（⛔ 这里不印字、不筛面、不截断 ——
@@ -271,6 +299,10 @@ def render_section(cands: Iterable[Candidate], *, mode: Any = DEFAULT_MODE,
        说话的事实（同 `look` 的三档空手）。
        ⛔ **没有钥匙 ⇒ 空手也不印**（普通闲聊每轮来一句"你什么也没想起来"是噪声）;
        ⛔ 空手那句话**不占字符预算**（就一行字, 走不到 `render_candidates` 的累积里）。
+
+    ⚠️ `empty_ok=False` = **这次的"空"不是因为没想起来** —— 是命中的那几条已经在**别的段**里
+    摆过了（engine 的跨段去重掏空的）。那种情况印空手就是**假话**（"想起来了, 只是摆在前一段"）
+    ⇒ ⛔ 一个字都不印。判据只有 engine 有（它知道去重前后各几条）⇒ 由它传。
     """
     m = mode_of(mode)
     picked = list(cands)
@@ -278,7 +310,7 @@ def render_section(cands: Iterable[Candidate], *, mode: Any = DEFAULT_MODE,
         # ⛔ **没有钥匙 ⇒ 空手也不印**（闲聊每轮来一句"你什么也没想起来"是噪声）。
         # ⚠️ 顺序要紧: 先看钥匙**再看 `empty`**, 而且**别在空手分支之前填抬头** ——
         #    空钥匙去填 `{key}` 槽会当场炸（`name` 没被触发的那些轮正是"空手 + 无钥匙"）。
-        if not m.empty or not str(key or "").strip():
+        if not m.empty or not empty_ok or not str(key or "").strip():
             return ""
         return _fill(m.empty, key, mode=mode)
     return render_candidates(picked, header=_fill(m.header, key, mode=mode),

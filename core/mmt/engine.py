@@ -1322,34 +1322,44 @@ class MomoTalkEngine:
         # ⭐ **带钥匙版本**（`recall_with_keys`）: 段头要把"她刚才想的是哪个词"印出来
         # （「你想着「阿露」——浮上来的是这些」）⇒ 钥匙与候选出自**同一次**载荷计算。
         name_cands, name_keys = recall_with_keys(wstore, ctx, mode="name")
-        name_key = "、".join(name_keys)
+        when_cands, when_keys = recall_with_keys(wstore, ctx, mode="when")
         seen = {c.node.id for c in name_cands}
+        when_kept = [c for c in when_cands if c.node.id not in seen]       # 三段共用一个 seen
+        seen.update(c.node.id for c in when_kept)
         turn_cands = [c for c in recall(wstore, ctx, mode=TURN_MODE, k=_turn_k())
                       if c.node.id not in seen]
         # ⭐ **候选直传渲染层**（2026-10-08）: 从前这里先摊平成 `[c.node for c in cands]`,
-        # 那是"渲染器只认裸节点"留下的转手 —— 现在两段都走 `render_candidates`
+        # 那是"渲染器只认裸节点"留下的转手 —— 现在三段都走 `render_candidates`
         # （`like` / `find` 给什么就印什么）, 文案从**形式表**取（`render_section`）。
-        # ⚠️ 名字段**空手也要说话**（钥匙扫到了、车道是空的 ⇒ 印 `Mode.empty` 那句）——
-        # 见 `modes.render_section` 的三步; 兜底段没有钥匙, 空手仍旧不印。
+        # ⚠️ 带钥匙的两段**空手也要说话**（钥匙扫到了、那条路上一条也没有 ⇒ 印 `Mode.empty`
+        # 那句）—— 见 `modes.render_section` 的三步; 兜底段没有钥匙, 空手仍旧不印。
+        # ⚠️ 但"**被跨段去重掏空**"不算空手（那几条已经在前面的段里摆过了 ⇒ 印就是假话）:
+        # `empty_ok` 由这里给 —— 只有 engine 知道去重前后各几条。
         kw = {"char_name": char.display_name or "",
               "char_aliases": _name_aliases(char.profile), "now": now}
-        seg_name = render_section(name_cands, mode="name", key=name_key, **kw)
+        seg_name = render_section(name_cands, mode="name", key="、".join(name_keys),
+                                  empty_ok=not name_cands, **kw)
+        seg_when = render_section(when_kept, mode="when", key="、".join(when_keys),
+                                  empty_ok=not when_cands, **kw)
         seg_turn = render_section(turn_cands, mode=TURN_MODE, **kw)
-        parts = (("name", seg_name, len(name_cands)), ("turn", seg_turn, len(turn_cands)))
+        parts = (("name", seg_name, len(name_cands)),
+                 ("when", seg_when, len(when_kept)),
+                 ("turn", seg_turn, len(turn_cands)))
         segs = [s for _label, s, _n in parts if s]
         if not segs:
             return []
         # 台账（可 grep）: 摆了几段 / 各几条 / 多少字 / 摆了谁（**标题**——
         # 编号是她看不到的东西, 排查时要看的是她看到的那个串）。
-        # ⭐ 空手段标 `name(empty)` —— 否则"摆了一段"与"摆了一句空手"在日志里长得一样。
+        # ⭐ 空手段标 `when(empty)` —— 否则"摆了一段"与"摆了一句空手"在日志里长得一样。
         # ⭐ "为什么是这几条"在 `like` 自己那行 `recall_like … top=…←why` 里。
-        logger.info("mmt_recall %s/%s modes=%s eps=%d name=%d chars=%d titles=%s",
+        logger.info("mmt_recall %s/%s modes=%s eps=%d name=%d when=%d chars=%d titles=%s",
                     char.character_id, self._session_id,
                     "+".join(label if n else f"{label}(empty)"
                              for label, s, n in parts if s),
-                    len(turn_cands), len(name_cands), sum(len(s) for s in segs),
+                    len(turn_cands), len(name_cands), len(when_cands),
+                    sum(len(s) for s in segs),
                     " / ".join(c.node.title or c.node.id
-                               for c in (*name_cands, *turn_cands)))
+                               for c in (*name_cands, *when_cands, *turn_cands)))
         return segs
 
     def _look_result(self, clue: str, when: str, *, wstore: WikiStoreV2 | None = None) -> str:
