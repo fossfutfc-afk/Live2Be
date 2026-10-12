@@ -3,11 +3,13 @@
 组织视图的节点必须带 id（真实流程由 store.add 分配）——测试用 _ids 助手分配。
 角色视图不依赖 id（渲染中从不出现）。
 """
+import re
 from datetime import datetime, timedelta
 
 from core.brain import make_node
 from core.brain.graph import Edge, Graph
-from core.brain.read.render import render_character_view, render_organize_view
+from core.brain.read.render import (KNOWN_NAMES_HEADER, render_character_view,
+                                    render_organize_view)
 
 
 def _ids(nodes):
@@ -483,6 +485,36 @@ def test_known_names_block_prints_every_entity(tmp_path):
     txt2 = render_character_view([stances, ep, belief], char_name="伊草 遥香")
     assert txt2.index("我记得的事") < txt2.index("我知道的名字") < txt2.index("我心里渐渐觉得")
     print("    C: 「我知道的名字」—— 全体上表（含只有名字的）/ 别名不上屏 / 她在表尾")
+
+
+def test_known_names_rows_are_names_not_ids(tmp_path):
+    """⭐ 名表每一行的形状 = `- 主名` 或 `- 主名：看法`（用户 2026-10-12 裁"只写主名"）。
+
+    四条"不许"一次钉住（每条都能静默破坏这张表的用途 —— 它是**键面**, 她要照抄）:
+      · ⛔ **别名不上屏**（同一份写法进两遍是臃肿; 别名照旧在匹配面里）;
+      · ⛔ **编号不进她的视图**（`x0002` 是引擎内部地址, 抄了永远指不中）;
+      · ⛔ **行里不许出现 `【】`**（段头只在块首, 混进行里会让"段"读不出来）;
+      · ⛔ **不许空标题**（`- ：看法` 那种 —— 名字是这一行的全部意义）。
+    """
+    person = make_node("entity", name="陆八魔 阿露", text="社长")
+    person.aliases = ["阿露", "Rikuhachima Aru"]
+    blank = make_node("entity", name="杂草屋")             # 没看法 ⇒ 光名字
+    me = make_node("entity", name="伊草 遥香", text="我是一株植物")
+    me.id = "x0000"
+    txt = render_character_view([person, blank, me], char_name="伊草 遥香")
+    rows = txt.split(KNOWN_NAMES_HEADER + "\n")[1].split("\n\n")[0].splitlines()
+    assert len(rows) == 3, rows
+    for ln in rows:
+        assert ln.startswith("- "), ln
+        body = ln[2:]
+        name = body.split("：")[0]
+        assert name.strip(), ln                                # ⛔ 空标题
+        assert not re.search(r"[emx]\d{4}", ln), ln            # ⛔ 编号
+        assert "【" not in ln and "】" not in ln, ln            # ⛔ 段头混进行里
+    # ⛔ 别名（主名之外的那些写法）一个字都不上屏
+    assert "阿露" not in "".join(rows).replace("陆八魔 阿露", ""), rows
+    assert "Rikuhachima" not in txt
+    print("    C: 名表行 = `- 主名[：看法]`（无别名/无编号/无段头/无空标题）")
 
 
 def test_self_row_is_the_last_line(tmp_path):

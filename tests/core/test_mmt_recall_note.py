@@ -333,6 +333,40 @@ def test_name_form_ignores_whitespace_in_the_name(tmp_path):
     print("    P19: 名字段空白不敏感（少打一个空格照样开段, 钥匙照印存档写法）")
 
 
+#: 引擎内部地址的形状（`m0007` 节点 / `x0001` 对象 / `e0003` 认知）—— ⛔ 她的视图里一个都不许有
+INTERNAL_ID = re.compile(r"(?<![0-9A-Za-z])[emx]\d{4}(?![0-9])")
+
+
+def test_no_internal_ids_in_what_she_sees(tmp_path):
+    """⭐ **编号永不进她的视图**（她看到的只有 `《标题》` 与名字）。
+
+    `m0014` / `x0001` / `e0003` 是**引擎内部地址**; 漏进注入面她会照着抄进
+    `{"noticed": "m0014"}`（永远指不中, 而且**静默**）。扫的是**整段注入文本**
+    （system 里的 brain 段 + P19 三段 + user）—— 漏点通常是"新加的那一行忘了走渲染器",
+    只看某一块是抓不到的。
+    ⚠️ **防恒绿**: 同时断言夹具里**真的**有这些编号、而且 brain 段真的注进去了。
+    """
+    llm = ScriptedLLM()
+    eng = _engine(tmp_path, llm)
+    _seed_lane(tmp_path, titles=[("多加叉烧", "老板多给了我一份叉烧")])
+    _seed(tmp_path, "他今天给我加了叉烧", title="别人也加了", tags=("料理",))
+    # ⭐ 把 **brain 段**也注进来（`attach_session` 自己不注）—— 要让这条守门同时罩住
+    #    "河 + 名表"那一块, 否则漏点只会在 P19 那三段里被抓到。
+    eng._inject_brain(CHARACTER, eng._session_id)
+    eng.agent_turn("老板给我加叉烧了吗")
+    joined = _joined(llm)
+
+    st = WikiStoreV2(tmp_path, world_id="world1", char_id=CHARACTER)
+    ids = sorted(n.id for n in st.all())
+    assert any(INTERNAL_ID.match(i) for i in ids), ids          # 图里真有编号
+    assert "我记得的事" in joined, joined[-400:]                  # brain 段真注进去了
+    assert "我知道的名字" in joined, joined[-400:]                # 名表也在
+    assert "多加叉烧" in joined, joined[-400:]                    # P19 真摆了东西
+    leaked = sorted(set(INTERNAL_ID.findall(joined)))
+    assert not leaked, f"这些内部编号漏进了她的视图: {leaked}"
+    print(f"    P19: 整段注入文本里零内部编号（图里 {len(ids)} 个节点, 一个都没漏）")
+
+
 def test_recall_log_says_which_sections_were_placed(tmp_path, caplog):
     """台账那一行要说得清**摆了几段/各几条/各多少字/花了多久**（排查"她这轮到底看见了什么"
     的唯一线索; 真机还要盯 `ms=` 随库长有没有恶化）。
