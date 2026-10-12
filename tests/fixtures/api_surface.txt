@@ -421,11 +421,13 @@ llm.client	_LAST_REASONING	data	-
 llm.client	_LAST_USAGE	data	-
 llm.client	_SETTINGS_PATH	data	pathlib
 llm.client	_build_payload	function	llm.client
+llm.client	_classify	function	llm.client
 llm.client	_ensure_json_instruction	function	llm.client
 llm.client	_load_dotenv_result	data	-
 llm.client	_parse_chat_response	function	llm.client
 llm.client	_parse_retry_after	function	llm.client
 llm.client	_project_root	data	pathlib
+llm.client	_raise_transport	function	llm.client
 llm.client	_settings_toml	function	llm.client
 llm.client	err	function	contract.errors
 llm.client	extract_json	function	contract.json_cleaner

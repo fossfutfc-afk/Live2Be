@@ -21,7 +21,7 @@ import os
 import time
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 
 import certifi
 import httpx
@@ -443,33 +443,13 @@ class LLMClient:
                     continue
                 raise
 
-            if resp.status_code == 200:
+            kind, wait = _classify(resp, attempt, self.max_retries)
+            if kind == "ok":
                 return _parse_chat_response(resp.json())
-
-            # 认证/权限错误（401/403）: 配置错误, 重试无意义——立即抛（假 key /
-            # key 失效时玩家秒得感叹号, 不再 6 步 × 指数退避转圈 1~2 分钟）
-            if resp.status_code in (401, 403):
-                raise httpx.HTTPStatusError(
-                    err("LLMAuth", f"API 认证失败 {resp.status_code}: {resp.text[:200]}"),
-                    request=resp.request,
-                    response=resp,
-                )
-
-            if resp.status_code == 429:
-                retry_after = _parse_retry_after(resp)
-                if attempt < self.max_retries:
-                    time.sleep(retry_after if retry_after > 0 else 2 ** attempt)
-                    continue
-
-            if resp.status_code >= 500 and attempt < self.max_retries:
-                time.sleep(2 ** attempt)
+            if kind == "retry":
+                time.sleep(wait)
                 continue
-
-            raise httpx.HTTPStatusError(
-                err("LLMAPI", f"LLM API error {resp.status_code}: {resp.text[:500]}"),
-                request=resp.request,
-                response=resp,
-            )
+            _raise_transport(resp, auth=kind == "auth")
 
         assert last_error is not None
         raise last_error
@@ -489,33 +469,13 @@ class LLMClient:
         for attempt in range(self.max_retries + 1):
             try:
                 with self._http.stream("POST", "/chat/completions", json=payload) as resp:
-                    if resp.status_code == 200:
+                    kind, wait = _classify(resp, attempt, self.max_retries)
+                    if kind == "ok":
                         return self._drain_stream(resp, on_chunk)
-
-                    # 认证/权限错误（401/403）: 配置错误, 重试无意义——立即抛
-                    if resp.status_code in (401, 403):
-                        raise httpx.HTTPStatusError(
-                            err("LLMAuth",
-                                f"API 认证失败 {resp.status_code}: {resp.text[:200]}"),
-                            request=resp.request,
-                            response=resp,
-                        )
-
-                    if resp.status_code == 429:
-                        retry_after = _parse_retry_after(resp)
-                        if attempt < self.max_retries:
-                            time.sleep(retry_after if retry_after > 0 else 2 ** attempt)
-                            continue
-
-                    if resp.status_code >= 500 and attempt < self.max_retries:
-                        time.sleep(2 ** attempt)
+                    if kind == "retry":
+                        time.sleep(wait)
                         continue
-
-                    raise httpx.HTTPStatusError(
-                        err("LLMAPI", f"LLM API error {resp.status_code}: {resp.text[:500]}"),
-                        request=resp.request,
-                        response=resp,
-                    )
+                    _raise_transport(resp, auth=kind == "auth")
             except httpx.TimeoutException as e:
                 last_error = e
                 if attempt < self.max_retries:
@@ -642,6 +602,46 @@ def _parse_retry_after(response: httpx.Response) -> float:
         return float(raw)
     except (ValueError, TypeError):
         return 5.0
+
+
+def _classify(resp: httpx.Response, attempt: int, max_retries: int) -> tuple[str, float]:
+    """传输级重试的**唯一判据** → `(kind, wait_seconds)`。
+
+    kind ∈ `ok`（200, 直接消费）/ `auth`（401·403, 配置错误, 重试无意义）/
+    `retry`（429 或 ≥500, 等 wait 秒再来）/ `fatal`（其余, 抛 API 错误）。
+
+    `_request_with_retry` 与 `_stream_collect` 原先各抄了一份同样的阶梯（连两条
+    错误消息都逐字重复），这里收成一处。⚠️ 超时是**异常**路径, 不在此列 ——
+    两边各自 `2 ** attempt` 退避（只有一行, 不值得为它绕一圈）。
+    """
+    if resp.status_code == 200:
+        return "ok", 0.0
+    if resp.status_code in (401, 403):
+        # 假 key / key 失效时玩家该秒得感叹号, 不该 6 步 × 指数退避转圈 1~2 分钟
+        return "auth", 0.0
+    if attempt >= max_retries:
+        return "fatal", 0.0
+    if resp.status_code == 429:
+        wait = _parse_retry_after(resp)
+        return "retry", wait if wait > 0 else 2 ** attempt
+    if resp.status_code >= 500:
+        return "retry", 2 ** attempt
+    return "fatal", 0.0
+
+
+def _raise_transport(resp: httpx.Response, *, auth: bool) -> NoReturn:
+    """两条传输错误消息的唯一出处（401/403 = 配置错误, 其余 = API 错误）。"""
+    if auth:
+        raise httpx.HTTPStatusError(
+            err("LLMAuth", f"API 认证失败 {resp.status_code}: {resp.text[:200]}"),
+            request=resp.request,
+            response=resp,
+        )
+    raise httpx.HTTPStatusError(
+        err("LLMAPI", f"LLM API error {resp.status_code}: {resp.text[:500]}"),
+        request=resp.request,
+        response=resp,
+    )
 
 
 def feedback(
