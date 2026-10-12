@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """`contract.streams` 的**行骨架**：一行文本 → 若干行对象 + 一条诊断。
 
 从 `contract.records.parse._parse_line_multi` 提出（⑥-1, **逐字未改**——只是把

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """`contract.records` 的**校验层**（C10, `docs/EXEC_SPLIT.md`）。
 
 `sensei_groups` / `sensei_group_labels`（把记录流切成"老师群"——群是换板与选项的判据）·

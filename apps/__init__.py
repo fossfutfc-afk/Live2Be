@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """`apps` —— **应用层**（C12b, `docs/EXEC_SPLIT.md`）: 面向人的入口, 不是引擎。
 
 | 模块 | 管什么 |

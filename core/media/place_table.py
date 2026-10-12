@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """place_table — 地点语义键表（`config/settings/world/place_entities.json`）。
 
 ## 这张表是什么

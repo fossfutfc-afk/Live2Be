@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """设置路由 — GUI 配置存档（settings.toml）读写。
 
 引擎已接入: llm/client.py 与 llm/image_gen.py 读配置时 settings.toml 非空

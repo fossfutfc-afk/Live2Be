@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """`core.bond.bond_story` 包**门面** —— 模块→包转换 + 内部拆分（C9, `docs/EXEC_SPLIT.md`）。
 
 ## 这是什么

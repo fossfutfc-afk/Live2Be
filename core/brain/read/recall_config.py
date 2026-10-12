@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """recall_config — 记忆召回旋钮（settings.toml `[recall]` 分组）。
 
 **为什么单独一个模块**（DESIGN_WIKI_V3 §3.1/§3.5，2026-09-13 V3-0）:

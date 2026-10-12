@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """剧情基调（story tone）— 从角色卡读取（personality.yml 的 SIG~story_tone）。
 
 **为什么写在五件套里**: 基调是"角色是谁"的一部分——AI 从卡学习角色,

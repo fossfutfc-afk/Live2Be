@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """llm/task_levels.py 单测 — 任务档位真源表（thinking + max_tokens 集中管理）。
 
 覆盖:

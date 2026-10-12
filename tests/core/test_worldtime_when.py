@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """`worldtime/when.py` + `worldtime/cal.py` —— 她写的时间 → 检索窗口。
 
 守门口径（每条都经**变异验红**: `.testtmp/verify_when_red.py`）:

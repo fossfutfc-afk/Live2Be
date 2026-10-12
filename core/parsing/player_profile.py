@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """player_profile.py — 玩家（老师）档案 `config/player/profile.yml`（2026-09-23 建立）。
 
 ## 为什么玩家要有一份 config 档案

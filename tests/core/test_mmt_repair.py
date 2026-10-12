@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """MMT 操作行自愈（`core/mmt/mmt_repair.py`，⑥-2c 2026-09-25）。
 
 覆盖:

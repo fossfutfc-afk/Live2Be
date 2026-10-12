@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """`read/find.py` —— **定向寻找**（锚 → 全量集合查询）。
 
 守门五条（每条都经**变异验红**: `.testtmp/verify_find_red.py`）:

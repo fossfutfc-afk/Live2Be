@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """合成层单测（`core/brain/read/compose.py`, 2026-09-20）。
 
 用户口径（四条道路 → 最终打分）:

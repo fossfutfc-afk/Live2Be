@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """会话存储 IO 原语 — 原子写 JSON / append-only JSONL（行级容错）。
 
 设计（core/docs/archive/DESIGN_SAVE.md §七）:

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """VN CLI 单测 — story_scene/story_end 双动作契约 + 双核（parse+exec）+ 事件流存档。
 
 send_vn_scene      : ScriptedLLM（chat 返回契约 dict）→ BondScene 结构正确 + 记紧凑 JSON 历史

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """renderer/ 单测 — 输入规范化 / 背景 / 差分 / 特效 / 管线同构 / CLI / 播放层。
 
 策略（DESIGN_RENDERER.md §十一）:

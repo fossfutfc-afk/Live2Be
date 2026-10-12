@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Bond 路由 — 羁绊剧情驱动端点（webgui/bond.py 状态机）。
 
 POST /api/bond/start   进入剧情（构造引擎 + 后台生成首场）→ {accepted, busy}

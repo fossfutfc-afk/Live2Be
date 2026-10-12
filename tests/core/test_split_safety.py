@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """守门: **拆分安全网**（C0, 2026-09-21）——两件事, 都是"拆分时最容易静默出错"的。
 
 ## ① API 面快照（`tests/fixtures/api_surface.txt`）

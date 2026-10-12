@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """core/media 查库单测 — 命名派生 / manifest / catalog 全路径。
 
 背景:  derive_background（BG_ 前缀 + 变体白名单 + camel→snake / 非 BG_ 防御）

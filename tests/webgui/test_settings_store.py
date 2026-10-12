@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """webgui 设置存档（settings.toml）单测 — 全部离线，只碰 tmp_path。
 
 重点: **[image].enabled 生图总开关的往返**（2026-09-11）——GUI 设置页复选框 →

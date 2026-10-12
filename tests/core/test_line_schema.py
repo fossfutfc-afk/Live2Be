@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """MMT **行流契约**渲染（`contract/schema.py::build_line_schema`，⑥-2a 2026-09-25）。
 
 与 `build_record_schema`（VN 记录流）并列的第三形态；设计见

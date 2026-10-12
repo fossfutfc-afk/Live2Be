@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """attribute.py — ④ R3「认人」: 她写下的**陌生名字** ⇒ 建一个新的 `entity`。
 
 ⭐ **2026-10-08（E4）重定义**: 这一轮从"归属 + 载荷维护"（`attach`/`new_entity`/`rewrite`

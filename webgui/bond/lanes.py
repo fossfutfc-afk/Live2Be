@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """`webgui.bond` 的**双路标注 lane**（C4, `docs/EXEC_SPLIT.md`）。
 
 ## 放什么

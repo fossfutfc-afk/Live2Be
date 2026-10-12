@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """MMT 回合级校验（`core/mmt/mmt_check.py`，⑥-2c 2026-09-25）。
 
 覆盖:

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """MMT 聊天域 — 引擎管理 + 会话生命周期 + 后台任务 + 事件查询。
 
 设计（docs/DESIGN_STREAM_CONTRACT.md）:

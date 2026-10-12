@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """ui/ 展示层回归测试 — 清理后的功能验证（everything works well）。
 
 覆盖范围:

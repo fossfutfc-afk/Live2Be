@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """`core.bond.bond_story` 的**场景容器**（C9, `docs/EXEC_SPLIT.md`）。
 
 `BondScene`（一场戏的载荷: `paragraphs` / `choices` / `branches` / `is_end` / `picked` +

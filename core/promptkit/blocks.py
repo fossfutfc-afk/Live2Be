@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """命名内容块 — 提示词的稳定注入段（DESIGN_PROMPTKIT §3 blocks.py）。
 
 每块 = (id, 说明, build(ctx) -> str | None); build 返回 None/空白 = 该块缺席

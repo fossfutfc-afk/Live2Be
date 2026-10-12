@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """视觉导演 — 纯算法映射器（只决定背景 + 音频占位, 消费主 LLM 意图 place）。
 
 v2（DESIGN_VISUAL_PROTOCOL.md）: 表情由主 LLM 意图 beats[].emotion 直查

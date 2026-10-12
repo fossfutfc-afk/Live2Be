@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """webgui 的**显式接缝**（可替换依赖）——拆分节点 C1a（`docs/EXEC_SPLIT.md`）。
 
 ## 为什么单列这个模块

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """promptkit 组装层单元测试（DESIGN_PROMPTKIT §3, Phase 1）。
 
 覆盖: round_messages 槽位协议 / build_box 装配 / describe 报表结构。

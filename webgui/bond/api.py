@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """`webgui.bond` 的**对外动作层**（C8, `docs/EXEC_SPLIT.md`）—— HTTP 门面 + 收尾。
 
 ## 放什么

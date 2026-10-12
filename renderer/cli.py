@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """CLI 输出 — RenderOutput → 终端渲染（DESIGN_RENDERER.md §八, 迁移自 `apps/vn_cli.py`）。
 
 消费 RenderOutput（平台无关）——背景标签 / per-para 表情标注 / 特效符号 / 打字机 / 选项:

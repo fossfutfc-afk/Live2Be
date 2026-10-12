@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """place_regions — 剧情地理词表（`config/settings/world/regions.yml`）。
 
 > ⚠️ **本 docstring 2026-09-19 重写过**（旧版有几句话把 AI 和我自己都带偏了，

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """角色情绪词表 — assets/illustration/{char}/emotions.yml 的逐行解析与注入渲染。
 
 与 core/media/manifest.py 的分工:

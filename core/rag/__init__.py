@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """core/rag — 本地语义检索基础设施（RAG）。
 
 双用例（同一 embedding 后端, 宁缺勿错统一降级）:

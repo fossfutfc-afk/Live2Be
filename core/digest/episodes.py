@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """episodes.py — **把 R1 的条目落成节点**（2026-09-29 从 `pipeline.py` 拆出）。
 
 L1 的**引擎侧**（零 LLM）: 条目 → `episode` / `experience` 节点，并把"召回侧才用"的字段

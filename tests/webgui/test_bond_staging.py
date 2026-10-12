@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """B0 整章暂存 —— **webgui 层接线**（2026-09-17）。
 
 钉住的是"接线对了没有"，产品机制本身在 `tests/core/test_session_staging.py`。

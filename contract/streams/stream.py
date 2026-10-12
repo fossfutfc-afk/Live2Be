@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """`contract.streams` 的**增量缓冲**：逐 chunk 喂入，行一完整就解析。
 
 从 `contract.records.parse.BlockStreamParser` 提出骨架（⑥-1）。⭐ 分工

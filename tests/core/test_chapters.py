@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """回忆册派生单测（core/session/chapters, 2026-09-12）。
 
 口径（DESIGN_COLLECTION_BOOK §1/§3）:

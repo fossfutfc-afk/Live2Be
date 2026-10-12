@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """akin.py — **本段的「想起」账 → `akin` 边**（2026-09-29 从 `pipeline.py` 拆出）。
 
 `DESIGN_MMT_NEW_ACTION §4.3 ④` / **N5c**。这是 digest 里**唯一零 LLM 的一步**:

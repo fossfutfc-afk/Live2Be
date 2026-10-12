@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """MMT 行流解析（`core/mmt/mmt_lines.py`，⑥-2b 2026-09-25）。
 
 契约: `docs/DESIGN_STREAM_CONTRACT.md` §1/§2；两段式校验 §10.2 B5。

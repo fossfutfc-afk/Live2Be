@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """material.py — digest 各轮的**料**（2026-09-29 从 `pipeline.py` 拆出）。
 
 "这一轮吃什么"的真源是 `rounds.ROUNDS` 的 `material` 格（段标题 + 顺序）;

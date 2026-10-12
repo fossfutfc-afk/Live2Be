@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """测试夹具: 把"场景意图"写成**记录流**（记录流 v2 后引擎唯一输入形态, P0-7b）。
 
 背景: 旧测试用 `{"action": "story_scene", "payload": {...}}` dict 喂 `send_vn_scene`;

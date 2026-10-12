@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """会话存储 — 统一互动会话（MomoTalk + Bond Story）的持久化与恢复。
 
 设计: core/docs/archive/DESIGN_SAVE.md（统一会话目录 + events.jsonl 事件流唯一真源 + marker 状态标记）。

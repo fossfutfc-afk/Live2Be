@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """统一上下文窗口测试（docs/DESIGN_CONTEXT_WINDOW.md, 2026-09-05 定稿）。
 
 覆盖:

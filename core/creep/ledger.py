@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """ledger.py — **creep 账**: 行形状 + 写 + 严格读（`core/creep` 的真源）。
 
 ## 这一行是什么

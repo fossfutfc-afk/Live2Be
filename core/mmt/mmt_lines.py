@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """MMT **行流**（⑥-2b, 2026-09-25）——"一行一条 JSON" → `MmtLine`。
 
 契约形式: `docs/DESIGN_STREAM_CONTRACT.md` §1（六条）/ §2（两域对照）/

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """任务档位集中表 — thinking level（reasoning_effort） + max_tokens 唯一真源。
 
 2026-09-02 集中管理（此前散落在 momotalk/bond_story/emotion_annotate/digest/

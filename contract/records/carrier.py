@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """`contract.records` 的**载体层**（C10, `docs/EXEC_SPLIT.md`）。
 
 `VnBlock`（一块记录 + 群 + 位置元数据 + 两种出口: 落库 dict / 渲染文本）·

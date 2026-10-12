@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """`core.bond.bond_story` 的**板派生与交付模式**（C9, `docs/EXEC_SPLIT.md`）。
 
 `DeliveryMode`（`BLOCK` 批式 / `STREAM` 流式, 节点 2′）· `_board_spans`（一块记录按

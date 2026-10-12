@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """`PlaceRetriever` 单测（PL4, 2026-09-19）——语料换基座后的行为。
 
 PL4 做的事: `core/rag/place.py` 的语料从**手维护的第二份词表** `places.yml`

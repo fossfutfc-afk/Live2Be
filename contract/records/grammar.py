@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """`contract.records` 的**文法层**（C10, `docs/EXEC_SPLIT.md`）。
 
 单一真源的取值表（kind / stage / speaker / 上限）+ 两个**纯叶子**数据对象:

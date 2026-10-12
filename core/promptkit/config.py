@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """promptkit 配置 — settings.toml [promptkit] 分组（运行时用户配置, gitignore）。
 
 与 llm/client.py 读取模式一致（tomllib）; 缺失/损坏 → 默认, 不阻塞。

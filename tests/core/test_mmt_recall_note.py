@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """⭐ N5 接线单测 —— 「你想起的事」真的进了 MMT 本轮的 messages（2026-09-29）。
 
 与 `tests/core/test_momotalk_time_notes.py` 同一套桩口径（**脚本按 `task=` 分派**）。

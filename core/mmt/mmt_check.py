@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """MMT **回合级校验**（⑥-2c, 2026-09-25）——码表 + 组合约束。
 
 设计: `docs/DESIGN_STREAM_CONTRACT.md` §1（六条）/ §4（兜底分级）/

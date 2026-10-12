@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """place 地点变更标注单测（DESIGN_BOND_CONTRACT_V2 §5/P2）。
 
 判定语义由 place_annotate.md prompt 承担（镜像编剧 rules 换场判据）; 本文件测

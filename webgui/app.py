@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """webgui/app.py — Live2Be 游戏 GUI 后端（薄壳装配）。
 
 路由按功能域拆分在 routers/（name 登录彩蛋 / settings 设置 / menu 页面背景）,

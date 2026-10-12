@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """MediaCatalog — assets/ 媒体查库总入口（纯数据, 背景全量 + 差分按角色懒加载）。
 
 查询（宁缺勿错: 未知 id / 缺资产 → None / 空列表, 不抛异常; 仅构造时 assets 根缺失抛 MediaError）:

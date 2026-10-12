@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """背景资源查库 — assets/background/ 命名派生（纯数据, 零 manifest）。
 
 命名规则（已核实 1089 张 jpg 全带 BG_ 前缀）:

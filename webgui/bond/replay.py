@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """`webgui.bond` 的**回放层**（C5, `docs/EXEC_SPLIT.md`）—— 0 LLM 的两条读路径。
 
 ## 放什么

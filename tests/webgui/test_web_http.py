@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """web 层 HTTP 级端到端（A 层）— 真实 FastAPI app, 走 ASGI 传输, 全离线。
 
 与 `test_bond.py` 那类"直接调驱动函数"的用例的区别: 这里**过 HTTP**——路由注册/

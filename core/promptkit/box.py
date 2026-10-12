@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """盒 = 会话级 system prompt 装配（DESIGN_PROMPTKIT §4.1, 盒A v2 起）。
 
 盒 = 域 → 块 id 有序清单; build_box 依清单渲染并 "\n\n" 连接（缺席块跳过）。

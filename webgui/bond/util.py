@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """`webgui.bond` 的**跨模块纯小工具**（C4 新开, `docs/EXEC_SPLIT.md`）。
 
 ## 为什么单开一个模块

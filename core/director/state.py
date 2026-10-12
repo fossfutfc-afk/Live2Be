@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """视觉记忆 — 导演维护的当前视觉状态（背景 + 音频占位）。
 
 表情不在导演职责内（DESIGN_VISUAL_PROTOCOL.md §2）: 主 LLM 意图 beats[].emotion

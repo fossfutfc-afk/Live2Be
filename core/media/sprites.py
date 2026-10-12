@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """差分/spine 资源查库 — 语义情绪 → 静态 png / spine 导出。
 
 角色资源布局（assets/illustration/{char}/{outfit}/）——标准外观格式（2026-09-12）:

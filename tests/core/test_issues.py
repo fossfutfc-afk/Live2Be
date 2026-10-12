@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """契约问题原语（`contract/issues.py`，a₀ 2026-09-25）——跨域共用的机制。
 
 搬来的四件在 VN 侧已由 `tests/core/test_records.py` 覆盖行为（软硬分级不看文案那条

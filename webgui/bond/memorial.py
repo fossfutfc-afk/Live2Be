@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """`webgui.bond` 的**纪念生图**（C6, `docs/EXEC_SPLIT.md`）—— 非 LLM 的那条支线。
 
 ## 放什么

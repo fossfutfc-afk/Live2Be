@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """角色生图提示（illustration.yml）加载单测。
 
 与 profile.yml 的 halo 字段**刻意分开**: 那里是给其他角色/扮演查阅的设定,

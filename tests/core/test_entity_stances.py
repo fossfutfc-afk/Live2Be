@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """**出厂物化**（B 笔, 2026-10-08）: `interperson.yml` 的立场 ⇒ 图里的 entity。
 
 用户裁: *"一旦新认识一个人……出场建立 interperson.json 中的角色 entity 节点,

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """GalleryStore 单测 — 图 + 元数据成对落盘 / 成对列表 / 单条读取。
 
 运行: python -m pytest tests/core/test_gallery.py

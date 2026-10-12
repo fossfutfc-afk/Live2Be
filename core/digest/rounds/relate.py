@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """relate.py — ③ L1「判关系」: 本段经历 + 认知列表 → **关系表**（只落边）。
 
 ⭐ 这一趟**一个字正文都不写**（`docs/DESIGN_DIGEST_TWO_PASSES.md` §9）—— 它只回答

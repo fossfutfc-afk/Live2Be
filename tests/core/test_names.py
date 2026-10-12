@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """名字接口测试（N1, 2026-09-23）+ 玩家档案（2026-09-23）。
 
 真机 profile 是**混合键形态**（`REQ~most_called_name` + 裸 `other_names`/`jp_name`/`en_name`），

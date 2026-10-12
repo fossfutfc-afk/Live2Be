@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """webgui chat 事件渲染单测 — bond 入口气泡: 进行中=粉泡 / 已完成=淡行。
 
 2026-09-07 气泡淡化: 完整走完的剧情（vn_exit completed=True）入口横幅

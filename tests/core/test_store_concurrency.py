@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """SessionStore 并发写测试（2026-09-08）: seq 分配在写锁内原子化——
 wrapup 线程与 chat worker 并发落库不得撞出重复 seq（前端按 seq 推进游标,
 重复行会被吞掉 → MMT 回复不渲染的元凶之一）。"""

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """会话模型 — meta 纯索引 + VN 恢复点 payload（core/docs/archive/DESIGN_SAVE.md §4）。
 
 SessionMeta — meta.json: **纯索引, 无状态机**（用户决策 2026-08-23: 状态由

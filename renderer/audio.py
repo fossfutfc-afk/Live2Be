@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """AudioRequest — 渲染器输出的音频指令（DESIGN_RENDERER.md §六, 未来占位）。
 
 渲染器只输出指令（不实现播放）——播放器（GUI WebAudio / CLI 无）未来接入。

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """SpriteResolver — 差分意图解算（DESIGN_RENDERER.md §4.2）。
 
 职责划分（§4.1 定稿）:
