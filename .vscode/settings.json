@@ -1,0 +1,29 @@
+{
+    "python.defaultInterpreterPath": "C:\\Users\\johnf\\miniconda3\\envs\\live2be\\python.exe",
+    "python.terminal.activateEnvironment": true,
+    "python.terminal.activateEnvInCurrentTerminal": true,
+    "python-envs.defaultEnvManager": "ms-python.python:conda",
+    "python-envs.defaultPackageManager": "ms-python.python:conda",
+
+    "python.analysis.typeCheckingMode": "basic",
+    "python.analysis.diagnosticMode": "openFilesOnly",
+    "python.analysis.exclude": [
+        "**/.testtmp/**",
+        "**/archive/**",
+        "**/l2d-demo/**",
+        "**/experiments/**",
+        "**/tools/**"
+    ],
+
+    "files.exclude": {
+        ".testtmp": true,
+        ".ruff_cache": true,
+        ".pytest_cache": true,
+        "**/__pycache__": true
+    },
+    "search.exclude": {
+        ".testtmp": true,
+        "l2d-demo": true,
+        "archive": true
+    }
+}
