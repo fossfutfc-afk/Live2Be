@@ -21,7 +21,6 @@
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from core.brain import WikiStoreV2
 from core.brain.entities import ensure_entities
@@ -31,7 +30,6 @@ from core.session import make_event
 from llm import task_labels as T
 from tests import stub_tasks
 
-ROOT = Path(__file__).resolve().parent.parent.parent
 CHAR = "c"
 
 

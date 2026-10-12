@@ -15,7 +15,6 @@ from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from core.bond.bond_story import BondScene, BondStoryEngine, SceneLoopError  # noqa: E402
 from llm import task_labels as T  # noqa: E402

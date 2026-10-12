@@ -17,7 +17,6 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent.parent
-sys.path.insert(0, str(ROOT))
 
 from core.mmt.engine import SUGGEST_BOND_ROUNDS, MomoTalkEngine   # noqa: E402
 from core.session import SessionStore                             # noqa: E402

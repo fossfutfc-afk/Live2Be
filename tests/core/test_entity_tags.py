@@ -15,7 +15,6 @@
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from contract.digest_registry import (ENTITY_TAG_PREFIX, ENTITY_TAGS_MAX,
                                       MAX_TAGS, PHASE_RECORD, _split_tags,

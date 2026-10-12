@@ -15,7 +15,6 @@ import json
 import sys
 import pathlib
 
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent.parent))
 
 from contract.constants import APPROVAL_AUTO                          # noqa: E402
 from contract.registry import ActionRegistry                          # noqa: E402

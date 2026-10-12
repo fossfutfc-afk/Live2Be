@@ -11,7 +11,6 @@ from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from webgui import chat, store  # noqa: E402
 from webgui.routers.settings import SettingsIn, post_settings  # noqa: E402

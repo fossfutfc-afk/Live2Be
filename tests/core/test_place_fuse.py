@@ -17,7 +17,6 @@ from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from core.media import place_fuse as pf                    # noqa: E402
 from core.media.place_table import load_table              # noqa: E402

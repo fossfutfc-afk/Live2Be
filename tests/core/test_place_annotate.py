@@ -11,7 +11,6 @@ prompt 占位替换/与 rules 的判据镜像防漂移。
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from core.bond.place_annotate import (_RESOLVE_CACHE, _clean_anchors,  # noqa: E402
                                       annotate_places, resolve_place)

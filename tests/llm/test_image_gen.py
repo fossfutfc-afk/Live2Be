@@ -16,7 +16,6 @@ from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 import llm.image_gen as ig  # noqa: E402
 from llm.image_gen import (DEFAULT_SCREEN_SIZE, ENV_ALLOW_REAL, ENV_SWITCH,  # noqa: E402

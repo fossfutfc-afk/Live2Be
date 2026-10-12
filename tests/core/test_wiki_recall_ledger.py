@@ -15,7 +15,6 @@ from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from core.brain import recall_config as rc            # noqa: E402
 from core.brain import recall_ledger as rl            # noqa: E402

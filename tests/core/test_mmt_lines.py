@@ -13,7 +13,6 @@
 import sys
 import pathlib
 
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent.parent))
 
 from core.mmt.mmt_actions import build_mmt_registry                    # noqa: E402
 from core.mmt.mmt_lines import (                                       # noqa: E402

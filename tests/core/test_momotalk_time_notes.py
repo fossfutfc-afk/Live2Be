@@ -11,7 +11,6 @@ import sys
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from core.mmt.engine import MomoTalkEngine        # noqa: E402
 from core.session.store import SessionStore     # noqa: E402

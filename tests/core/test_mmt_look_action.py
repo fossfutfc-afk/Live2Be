@@ -22,7 +22,6 @@ from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from contract import (APPROVAL_AUTO, DOMAIN_MMT, AgentAction,   # noqa: E402
                       ContractError)

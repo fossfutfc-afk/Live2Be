@@ -24,7 +24,6 @@ import time
 from dataclasses import MISSING
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from core.brain import graph, notes
 from core.brain.nodes import KINDS, BrainNode

@@ -18,7 +18,6 @@ from core.mmt.engine import MomoTalkEngine
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 import sys  # noqa: E402
-sys.path.insert(0, str(ROOT))
 from llm import task_labels as T  # noqa: E402
 from tests import stub_tasks  # noqa: E402
 from tests.vn_fixtures import scene as _scene  # noqa: E402

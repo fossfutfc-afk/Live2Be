@@ -10,7 +10,6 @@ models: SessionMeta / VNState to_dict/from_dict 往返 + 坏字段降级
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 

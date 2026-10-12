@@ -27,7 +27,6 @@ import sys
 from datetime import date, datetime, timezone
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from core.worldtime.cal import (shift_days, shift_months,  # noqa: E402
                                 shift_years, week_start)

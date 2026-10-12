@@ -24,7 +24,6 @@ from pathlib import Path
 
 import yaml
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from core.mmt.mmt_executor import load_interperson      # noqa: E402
 

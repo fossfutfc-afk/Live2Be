@@ -10,7 +10,6 @@ import sys
 import time
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from core.mmt.engine import MMT_DIGEST_INTERVAL, MomoTalkEngine
 from core.session import SessionStore

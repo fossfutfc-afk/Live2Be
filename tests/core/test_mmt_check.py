@@ -9,7 +9,6 @@
 import sys
 import pathlib
 
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent.parent))
 
 from contract.issues import IssueSeverity, declared_severity, split_issues   # noqa: E402
 from contract.records import ISSUE_SEVERITY as VN_SEVERITY                   # noqa: E402

@@ -19,8 +19,6 @@ from pathlib import Path
 
 import pytest
 
-ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT))
 
 from core.rag import embedder as E                              # noqa: E402
 

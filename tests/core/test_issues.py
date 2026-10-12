@@ -13,7 +13,6 @@
 import sys
 import pathlib
 
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent.parent))
 
 from contract.issues import (                                    # noqa: E402
     Issue,
