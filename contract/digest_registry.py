@@ -27,6 +27,7 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Any
 
+from contract.errors import err
 from contract.model import ValidationResult
 
 PHASE_RECORD = "record"
@@ -760,9 +761,14 @@ class DigestRegistry:
     # schema 渲染（prompt 的 {{digest_schema}} 占位; 含内联约束 + 语义 + 范例）
     # ------------------------------------------------------------------
 
-    def build_schema(self, phase: str, *, include_examples: bool = True,
-                     domain: str = "mmt", chapter_count: int = 1) -> str:
+    def build_schema(self, phase: str, *, domain: str = "mmt",
+                     chapter_count: int = 1) -> str:
         """渲染某一轮的输出格式文本。
+
+        ⚠️ `include_examples` **2026-10-13 删**（批次 1b）: 全仓**没有任何地方**传过
+        `False`（生产与测试都没有），而它对 `split` / `group` / `attribute` 三个相位
+        本来就不生效（实测开关同结果）⇒ 一个"看着能调、实际不调"的假旋钮。
+        示例一律带上；将来真需要"无示例"变体时再加，并同时补上那三个相位。
 
         record:     {"episodes": [...]}
         understand: {"decisions": [...], "affection_exp_delta": n}
@@ -842,7 +848,14 @@ class DigestRegistry:
                 "",
                 '    {"episodes": [',
             ]
-            a = self.spec("record_episode")
+            rec = self.actions(PHASE_RECORD)
+            # ⚠️ 从前这里是 `a = self.spec("record_episode")` —— 名字硬编码，改名后
+            # `spec()` 返回 None，报出来是一句难懂的
+            # `AttributeError: 'NoneType' object has no attribute 'field_schema'`。
+            if len(rec) != 1:
+                raise ValueError(err("BadPhaseDocs",
+                                     f"record 相位该恰好 1 份文档, 实得 {len(rec)}"))
+            a = rec[0]
             lines.append(a.field_schema)
             lines.extend(["    ],",
                           '     "affection_exp_delta": 0  // ⭐ **整段**的好感净变化 -100~100（int）;',
@@ -855,7 +868,7 @@ class DigestRegistry:
                           "",
                           f"【record_episode 释义】{a.role}",
                           "语义:", a.semantics])
-            if include_examples and a.example:
+            if a.example:
                 lines.extend(["", "【范例】", a.example])
             return "\n".join(lines)
 
@@ -896,11 +909,10 @@ class DigestRegistry:
                 "  认知（belief/experience）= **brief but descriptive**（简短, 但描述性 ——",
                 "  写的是模式/结论/看法, 不是事件; 不要复述剧情）;",
             ])
-            if include_examples:
-                lines.append("")
-                for a in actions:
-                    lines.extend([f"【{a.name} 释义】{a.role}", "语义:", a.semantics,
-                                  "【范例】", a.example, ""])
+            lines.append("")
+            for a in actions:
+                lines.extend([f"【{a.name} 释义】{a.role}", "语义:", a.semantics,
+                              "【范例】", a.example, ""])
             return "\n".join(lines)
 
         if phase == PHASE_RELATE:
@@ -931,11 +943,10 @@ class DigestRegistry:
                 "  · **方向不用你操心**: 两端的类型天然定了方向（经历 → 看法 / 经历 → 对象 /",
                 "    新看法 → 旧看法）; 对称的那两条（`akin` / `contradicts`）写哪边都一样。",
             ])
-            if include_examples:
-                lines.append("")
-                for a in rel_actions:
-                    lines.extend([f"【{a.name} 释义】{a.role}", "语义:", a.semantics,
-                                  "【范例】", a.example, ""])
+            lines.append("")
+            for a in rel_actions:
+                lines.extend([f"【{a.name} 释义】{a.role}", "语义:", a.semantics,
+                              "【范例】", a.example, ""])
             return "\n".join(lines)
 
         if phase == PHASE_ATTRIBUTE:
@@ -1044,11 +1055,10 @@ class DigestRegistry:
                 "    在图里没有任何连接的看法, 她以后再也想不起来;",
                 "  · ⚠️ 沉淀是**写窄了就丢信息**: 重写时保留旧那句说对的部分。",
             ])
-            if include_examples:
-                lines.append("")
-                for a in cog_actions:
-                    lines.extend([f"【{a.name} 释义】{a.role}", "语义:", a.semantics,
-                                  "【范例】", a.example, ""])
+            lines.append("")
+            for a in cog_actions:
+                lines.extend([f"【{a.name} 释义】{a.role}", "语义:", a.semantics,
+                              "【范例】", a.example, ""])
             return "\n".join(lines)
 
         raise ValueError(f"未知 digest phase: {phase!r}")

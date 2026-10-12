@@ -1,4 +1,6 @@
 """digest_registry 测试（AGENT_BRAIN.md §3 重构 / 板块 2）——LLM 契约层单源。"""
+import pytest
+
 from contract.digest_registry import (
     COGNIZE_ACTIONS,
     COGNIZE_KEYS,
@@ -18,6 +20,8 @@ from contract.digest_registry import (
     ROW_FIELDS,
     STATE_VALUES,
     TOPICS_MAX,
+    TOUCH,
+    DigestRegistry,
     digest_registry,
 )
 
@@ -456,9 +460,22 @@ def test_actions_by_phase():
 
 
 def test_unknown_phase_rejected():
-    import pytest
     with pytest.raises(ValueError):
         digest_registry.build_schema("deep")     # deep 未注册动作 → 暂不支持
+
+
+def test_record_phase_demands_exactly_one_document():
+    """⭐ `record` 相位该**恰好 1 份文档**。
+
+    从前这里是硬编码查名（`a = self.spec("record_episode")`）—— 名字一改，`spec()`
+    返回 `None`，报出来是一句难懂的
+    `AttributeError: 'NoneType' object has no attribute 'field_schema'`，
+    看不出是哪份契约缺了。现在走注册表 + 明确报错。
+    """
+    reg = DigestRegistry(actions=(TOUCH,))           # 故意不含 record_episode
+    with pytest.raises(ValueError, match="record 相位该恰好 1 份文档"):
+        reg.build_schema(PHASE_RECORD)
+    print("    build_schema: record 相位缺文档 → 明确报错（不是 AttributeError）")
 
 
 # ---------------------------------------------------------------------------
