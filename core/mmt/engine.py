@@ -1250,8 +1250,8 @@ class MomoTalkEngine:
     # · **没交付之前，有硬问题就不交付**（批式路径：这批行前面全绿才交付）；
     # · ⭐ **查询族查到的东西回灌后继续这一轮**（AUDIT §B9 的洞：旧路径把它丢了）；
     # · 重试三段：① 自愈（零 LLM 成本）② 行级续写（只收控制行）③ 形状级整轮重发。
-    # · **⑥-3a 流式交付**：`chat_full(on_chunk=…)` 边收边解析，内容行**一行前瞻**交付
-    #   （下一行到达时上屏），独占行攒到块尾——见 `_turn_lines` 的表格。
+    # · **⑥-3a 流式交付**：`chat_full(on_chunk=…)` 边收边解析，内容行**到达即上屏**，
+    #   独占行攒到块尾——见 `_turn_lines` 的表格（⭐ 前瞻已于 2026-10-12 撤）。
     # ------------------------------------------------------------------
 
     def _take_line_notes(self) -> list[str]:
@@ -1424,17 +1424,17 @@ class MomoTalkEngine:
 
         | 行的类别 | 办理时机 | 为什么是这个时机 |
         |---|---|---|
-        | 内容行（消息行 / `send_media`） | **一行前瞻**：下一行到达时交付 | ⚠️ 见下（前瞻的原始理由已随 `inspect` 退役） |
+        | 内容行（消息行 / `send_media`） | ⭐ **到达即交付**（边收边上屏） | 一个字都不等 —— 首字与末字都是它能到的最早时刻 |
         | 独占行（`WHOLE_TURN_ACTIONS`） | **块尾**（整轮写完） | 合法性取决于"同一轮还有没有别的行"，早判必错判 |
         | ⭐ 想起行（`{"noticed": …}`） | **收在手里, 轮末统一落账** | 它是**账目不是内容**（不上屏/不独占/不调 LLM）——见 `_log_notices` |
         | 坏行 / 空轮 / 形状 | 块尾 | 同理：形状要整段才看得出来 |
 
-        ⭐ **一行前瞻**（与 VN 切板同款手法）: 内容行**不立刻**交付，压到**下一行**解析
-        出来再交付。⚠️ **它当年的理由是 `mmt_inspect_character`**（静默推理轮 ⇒ 那一轮
-        一句话都不该上屏, 得留一手才收得回"下一行其实是它"）—— **2026-10-08 那个动作
-        退役了**, 今天**没有任何行会作废已交付的内容**（`look` / `trigger` 都允许话写在
-        它们前面）⇒ 前瞻如今只让**最后一行晚一格上屏**。⏸ 撤不撤待裁（撤 = 首末字都快
-        一格, 代价是交付时机与批式路径的差异大一格）。
+        ⭐ **"一行前瞻"已撤**（用户 2026-10-12 裁）: 从前内容行要压到**下一行**解析出来
+        才交付 —— 那个手法的**唯一理由**是 `mmt_inspect_character`（静默推理轮 ⇒ 那一轮
+        一句话都不该上屏, 得留一手才收得回"下一行其实是它"）。那个动作 2026-10-08 退役后,
+        **没有任何行会作废已交付的内容**（`look` / `trigger` 都允许话写在它们前面）
+        ⇒ 前瞻只剩"让最后一行晚一格上屏"这一个代价, 没有收益。
+        今天: **内容行到达即交付**（独占行照旧攒块尾 —— 它们要整轮可见才判得出）。
 
         ⚠️ **已经交付的东西收不回**（用户 2026-09-25 裁决"折中方案"）: 块尾判出的硬问题
         **不回滚** —— 独占行不执行 + 行级续写 ≤1 次；续写也失败 ⇒ 记账 + 下一轮注记，
@@ -1455,7 +1455,6 @@ class MomoTalkEngine:
             stream = MmtStream()
             dropped: list[str] = []            # 本步丢掉的软行（记账）
             deferred: list[MmtLine] = []       # 独占行（块尾判）
-            held: list[MmtLine] = []           # 一行前瞻压着的行（0~1 条）
             step_notices: list[MmtLine] = []   # ⭐ 本步的想起行（账目, 块尾并入本轮）
 
             def _finish() -> TurnResult:
@@ -1486,25 +1485,20 @@ class MomoTalkEngine:
                                 self._char_id, self._session_id, step,
                                 int((first_at[0] - t0) * 1000))
 
-            def _flush() -> None:
-                while held:
-                    _plan_row(held.pop(0))
-
             def _accept_row(ln: MmtLine) -> None:
                 """**一行解析出来**（⑥-3a 的分流口）——只在这里决定时机，不在这里判。"""
-                # ⭐ 想起行（N5b）: **不进前瞻机制、不占 held/deferred** —— 它是账目,
-                # 与"哪一行什么时候上屏"无关。收在手里, 轮末统一落账（`_log_notices`）。
+                # ⭐ 想起行（N5b）: **不进交付机制** —— 它是账目, 与"哪一行什么时候上屏"
+                # 无关。收在手里, 轮末统一落账（`_log_notices`）。
                 # ⚠️ 放在 `reask` 判断**之前**: 续写轮也照样收（账目与续写规则无关）。
                 if ln.is_noticed:
                     step_notices.append(ln)
                     return
                 if reask:
                     return                     # 续写轮按批式办理（"只收控制行"要整轮可见）
-                _flush()                       # 下一行来了 ⇒ 手里那行可以出去了（见 `_turn_lines` 的前瞻说明）
                 if ln.is_action and ln.action in WHOLE_TURN_ACTIONS:
                     deferred.append(ln)        # 独占行：块尾（整轮可见）再判 + 执行
                 else:
-                    held.append(ln)            # 一行前瞻
+                    _plan_row(ln)              # ⭐ 内容行**到达即交付**（前瞻已撤）
 
             def _feed(chunk: str) -> None:
                 stream.feed(chunk or "")
@@ -1599,9 +1593,6 @@ class MomoTalkEngine:
             else:
                 outcome = _LineOutcome()
 
-            # 块尾冲掉手里最后一行（独占行**先**办过 ⇒ 事件顺序仍是行序）
-            if not outcome.fatal:
-                _flush()
             if dropped:
                 outcome.dropped = "; ".join(
                     x for x in (outcome.dropped, "; ".join(dropped)) if x)
@@ -1780,8 +1771,8 @@ class MomoTalkEngine:
                 #    ⚠️ `trigger` 不在这一族（它是模式切换）。
                 #    ⚠️ **`plan` 这里必定是空的**: 走到这儿的查询动作都在 `deferred` 里
                 #       （`batch_rows = deferred`）, 而 `look` 允许前置的话**早在
-                #       `_accept_row` 里就由 `_flush()` 交付了**（下一行来了 ⇒ 手里那行
-                #       放出去）—— 所以"先说一句'我找找看'再翻"不会把那句吞掉。
+                #       `_accept_row` 里就交付了**（内容行到达即交付）—— 所以"先说一句
+                #       '我找找看'再翻"不会把那句吞掉。
                 #       ⛔ 别在这里补"顺手交付 plan": 那是**到不了的代码**, 变异验不红。
                 feedback(messages, planned.message)
                 out.need_more = True

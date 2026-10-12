@@ -124,11 +124,10 @@ def test_the_real_file_reads_through_both_paths():
     assert "__comment__" not in table
     haruka = table["igusa_haruka"]
     assert haruka and all(isinstance(v, dict) for v in haruka.values()), haruka
-    # ⚠️ `self`（她对自己的看法）是**故意留空**的占位 —— 用户 2026-10-08: "先不写, 但要补"。
-    #    ⛔ 别把它当成"搬漏了一条"：真档那条今天由 digest 的 R3 长着。
-    assert all(str(v.get("text") or "").strip()
-               for k, v in haruka.items() if k != "self"), haruka
-    assert "self" in haruka and not str(haruka["self"]["text"]).strip()
+    # ⚠️ `self`（她对自己的看法）**2026-10-12 作者写上了**（此前是留空占位）——
+    #    它是**出厂设置**那一格，⛔ 别当成"搬漏了"或"多出来了"。
+    assert all(str(v.get("text") or "").strip() for v in haruka.values()), haruka
+    assert str(haruka["self"]["text"]).strip().startswith("我总感觉"), haruka["self"]
 
     migrated = [k for k in table if k not in ("igusa_haruka", "hinomiya_chinatsu")]
     assert len(migrated) >= 6, sorted(table)
