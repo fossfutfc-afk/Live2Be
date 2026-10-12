@@ -22,7 +22,7 @@ from contract.digest_registry import (ENTITY_TAG_PREFIX, ENTITY_TAGS_MAX,
                                       MAX_TAGS, PHASE_RECORD, _split_tags,
                                       digest_registry)
 from core.brain import WikiStoreV2, make_node
-from core.brain.entities import (ensure_entities, find_entity,
+from core.brain.entities import (ensure_entities, find_entity, hit_set,
                                  normalize_entity_tags, surface_forms)
 from core.digest.episodes import _create_a_nodes
 
@@ -121,6 +121,25 @@ def test_find_entity_ignores_whitespace(tmp_path):
     assert find_entity(st, "伊草 遥香香") == (None, "miss")
     assert form_key("伊草 遥香") == form_key("伊草遥香") == "伊草遥香"
     print("    解析: 空白不敏感（主名少打一个空格也命中）; 多字照旧 miss")
+
+
+def test_hit_set_sees_a_name_written_without_the_space(tmp_path):
+    """⭐ **正文扫描也走 `form_key`**（2026-10-12）: 名字带空格、正文不带 ⇒ 照样算"提到了他"。
+
+    这条链是 **R3 的入口**（"这条经历挂谁" = `about` 边从 `hit_set` 来）—— 漏掉的后果是
+    "这段明明写了她，那条却挂不上去"，而且**静默**（`hit_set` 只回 id 列表）。
+    ⚠️ 长度按**归一后**算: `阿 `（带空白的单字）归一成单字 ⇒ 不扫（`MIN_HIT_LEN` 挡的
+    正是"单字扫全文"）。
+    """
+    st = _store(tmp_path)
+    assert st.get("x0000").name == "伊草 遥香"                 # 前提: 卡上主名带空格
+    assert hit_set(st, texts=["今天伊草遥香来看杂草了"]) == ["x0000"]
+    assert hit_set(st, texts=["伊草 遥香也来了"]) == ["x0000"]   # 正文带空格同样认
+    assert hit_set(st, texts=["今天杂草很多"]) == []             # ⛔ 不是"谁都算"
+    single = st.add(make_node("entity", name="阿", aliases=["阿 "]))
+    st.save()
+    assert single not in hit_set(st, texts=["阿今天来了"])        # ⛔ 归一后单字不扫
+    print("    hit_set: 正文扫描空白不敏感（归一后短于 MIN_HIT_LEN 的不扫）")
 
 
 def test_find_entity_never_guesses(tmp_path):
