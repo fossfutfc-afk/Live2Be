@@ -24,7 +24,6 @@ import os
 import pathlib
 import sys
 
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent.parent))
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
 FIXTURE = ROOT / "tests" / "fixtures" / "api_surface.txt"

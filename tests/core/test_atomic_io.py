@@ -13,7 +13,6 @@ import os
 import pathlib
 import sys
 
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent.parent))
 
 from core.common import atomic                                   # noqa: E402
 from core.session import io as sio                               # noqa: E402

@@ -16,8 +16,6 @@ from pathlib import Path
 
 import pytest
 
-ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT))
 
 from core.media import place_rename as tool                        # noqa: E402
 from core.media import place_renames as pr                         # noqa: E402

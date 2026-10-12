@@ -19,7 +19,6 @@
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from core.bond.place_annotate import _layer1                    # noqa: E402
 from core.media.place_table import WRITING_SDIR, load_table     # noqa: E402

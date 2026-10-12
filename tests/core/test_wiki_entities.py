@@ -8,7 +8,6 @@
 import sys
 import pathlib
 
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent.parent))
 
 from core.brain import WikiStoreV2, make_node                  # noqa: E402
 from core.brain.entities import (                             # noqa: E402

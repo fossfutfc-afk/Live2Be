@@ -17,8 +17,6 @@ from pathlib import Path
 
 import pytest
 
-ROOT = Path(__file__).resolve().parent.parent.parent
-sys.path.insert(0, str(ROOT))
 
 from webgui.routers.bond import (                        # noqa: E402
     _fallback_bg_url, _resolve_scene,

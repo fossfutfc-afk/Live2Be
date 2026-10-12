@@ -13,7 +13,6 @@ import pathlib
 
 import pytest
 
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent.parent))
 
 from core.brain import WikiStoreV2                      # noqa: E402
 from core.brain.graph import (                          # noqa: E402

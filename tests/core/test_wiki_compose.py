@@ -25,7 +25,6 @@ from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from core.brain import (                       # noqa: E402
     KIND_PRIOR,

@@ -19,7 +19,6 @@
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from tests.vn_fixtures import scene  # noqa: E402
 

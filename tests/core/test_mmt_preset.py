@@ -16,7 +16,6 @@ import sys
 import tempfile
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from core.mmt import mmt_preset
 from core.mmt.mmt_preset import (

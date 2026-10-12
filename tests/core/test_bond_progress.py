@@ -11,7 +11,6 @@ import sys
 import tempfile
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 
 import core.bond.bond_progress as bp_mod

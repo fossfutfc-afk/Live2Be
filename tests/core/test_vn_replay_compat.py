@@ -15,7 +15,6 @@
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from contract.records import VnBlock                                   # noqa: E402
 from core.bond.bond_story import BondScene, BondStoryEngine            # noqa: E402

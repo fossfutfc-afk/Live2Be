@@ -8,7 +8,6 @@
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from contract.records import (CHARACTER_NARRATOR, CHARACTER_SENSEI,  # noqa: E402
                               ISSUE_SEVERITY, KIND_CHARACTER, KIND_STAGE,

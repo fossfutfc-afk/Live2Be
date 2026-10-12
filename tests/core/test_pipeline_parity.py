@@ -42,7 +42,6 @@ import logging
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from contract import IssueCode  # noqa: E402
 from core.bond.bond_story import (  # noqa: E402

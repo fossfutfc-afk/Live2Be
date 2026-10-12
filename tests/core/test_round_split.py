@@ -15,7 +15,6 @@ import sys
 from datetime import date
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from core.brain import WikiStoreV2, make_node, notes
 from core.digest.material import (_ledger_ids, _open_pinned_text, _parse_month_day,

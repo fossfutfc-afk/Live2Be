@@ -10,7 +10,6 @@ import pathlib
 import pytest
 import yaml
 
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent.parent))
 
 from core import paths                                               # noqa: E402
 from core.parsing.dynamic_character_parser import CharacterLoader      # noqa: E402

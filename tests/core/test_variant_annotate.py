@@ -24,7 +24,6 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from core.bond.variant_annotate import pick_image                 # noqa: E402
 from core.media.place_table import (MOMENT_VARIANTS, load_table,  # noqa: E402

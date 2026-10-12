@@ -13,7 +13,6 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from core.brain import WikiStoreV2, make_node          # noqa: E402
 from core.digest.material import _round_b_material        # noqa: E402

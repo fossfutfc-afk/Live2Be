@@ -27,7 +27,6 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from core.brain import WikiStoreV2, make_node      # noqa: E402
 from core.mmt.engine import MomoTalkEngine                # noqa: E402
