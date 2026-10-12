@@ -318,6 +318,7 @@ core.mmt.engine	SUGGEST_BOND_ROUNDS	data	-
 core.mmt.engine	Session	class	core.mmt.engine
 core.mmt.engine	SessionStore	class	core.session.store
 core.mmt.engine	TEMP	data	-
+core.mmt.engine	TURN_MODE	data	-
 core.mmt.engine	TYPE_NOTICED	data	-
 core.mmt.engine	TurnResult	class	core.mmt.engine
 core.mmt.engine	WHOLE_TURN_ACTIONS	data	-
@@ -351,7 +352,6 @@ core.mmt.engine	find	function	core.brain.read.find
 core.mmt.engine	find_episode	function	core.brain.address
 core.mmt.engine	format_issues	function	contract.issues
 core.mmt.engine	is_content_event	function	core.session.events
-core.mmt.engine	like	function	core.brain.read.like
 core.mmt.engine	load_affection_from_events	function	core.affection.affection_calc
 core.mmt.engine	load_brain_segment	function	core.mmt.engine
 core.mmt.engine	load_interperson	function	core.mmt.mmt_executor
@@ -366,6 +366,7 @@ core.mmt.engine	names_of	function	core.parsing.names
 core.mmt.engine	parse_lines	function	core.mmt.mmt_lines
 core.mmt.engine	parse_when	function	core.worldtime.when
 core.mmt.engine	player_names	function	core.parsing.player_profile
+core.mmt.engine	recall	function	core.brain.read.modes
 core.mmt.engine	render_background_experience	function	core.brain.read.render
 core.mmt.engine	render_candidates	function	core.brain.read.render
 core.mmt.engine	render_character_view	function	core.brain.read.render
