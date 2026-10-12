@@ -15,11 +15,11 @@ from pathlib import Path
 
 import pytest
 
-from core.brain import recall_config as rc  # noqa: E402
-from core.brain import recall_ledger as rl  # noqa: E402
-from core.brain.nodes import make_node  # noqa: E402
-from core.brain.read.render import render_character_view, take_last_view_account  # noqa: E402
-from core.brain.store import WikiStoreV2  # noqa: E402
+from core.brain import recall_config as rc
+from core.brain import recall_ledger as rl
+from core.brain.nodes import make_node
+from core.brain.read.render import render_character_view, take_last_view_account
+from core.brain.store import WikiStoreV2
 
 
 @pytest.fixture(autouse=True)

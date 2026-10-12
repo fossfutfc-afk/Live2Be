@@ -13,7 +13,7 @@
 import pathlib
 import sys
 
-from contract.issues import (  # noqa: E402
+from contract.issues import (
     Issue,
     IssueSeverity,
     declare_severity,

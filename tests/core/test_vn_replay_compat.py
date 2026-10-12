@@ -15,10 +15,10 @@
 import sys
 from pathlib import Path
 
-from contract.records import VnBlock  # noqa: E402
-from core.bond.bond_story import BondScene, BondStoryEngine  # noqa: E402
-from core.session import SessionStore  # noqa: E402
-from core.session.renderer import render_bond_scene_text, render_events, window_messages  # noqa: E402
+from contract.records import VnBlock
+from core.bond.bond_story import BondScene, BondStoryEngine
+from core.session import SessionStore
+from core.session.renderer import render_bond_scene_text, render_events, window_messages
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 CHARACTER = "igusa_haruka"

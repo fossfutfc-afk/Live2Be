@@ -40,7 +40,6 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 import threading
 import time
 from collections.abc import Callable, Iterable

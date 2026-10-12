@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pytest
 
-from webgui.routers.bond import (  # noqa: E402
+from webgui.routers.bond import (
     _fallback_bg_url,
     _resolve_scene,
 )

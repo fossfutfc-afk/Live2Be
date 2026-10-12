@@ -16,8 +16,8 @@ from pathlib import Path
 
 import pytest
 
-import llm.image_gen as ig  # noqa: E402
-from llm.image_gen import (  # noqa: E402
+import llm.image_gen as ig
+from llm.image_gen import (
     DEFAULT_SCREEN_SIZE,
     ENV_ALLOW_REAL,
     ENV_SWITCH,

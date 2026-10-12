@@ -17,15 +17,15 @@ from pathlib import Path
 
 import pytest
 
-from core.mmt.engine import (  # noqa: E402
+from core.mmt.engine import (
     LINE_REASK_MAX,
     SHAPE_RETRY_MAX,
     MmtLoopError,
     MomoTalkEngine,
 )
-from core.session import SessionStore  # noqa: E402
-from llm import task_labels as T  # noqa: E402
-from tests import stub_tasks  # noqa: E402
+from core.session import SessionStore
+from llm import task_labels as T
+from tests import stub_tasks
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 CHARACTER = "igusa_haruka"

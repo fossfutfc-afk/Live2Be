@@ -12,12 +12,12 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from core.brain import WikiStoreV2, make_node  # noqa: E402
-from core.brain.address import find_episode, unique_title  # noqa: E402
-from core.digest.pipeline import digest_segment  # noqa: E402
-from core.session.events import make_event  # noqa: E402
-from llm import task_labels as T  # noqa: E402
-from tests import stub_tasks  # noqa: E402
+from core.brain import WikiStoreV2, make_node
+from core.brain.address import find_episode, unique_title
+from core.digest.pipeline import digest_segment
+from core.session.events import make_event
+from llm import task_labels as T
+from tests import stub_tasks
 
 CLOSE_EMPTY = {"add": [], "close": []}
 

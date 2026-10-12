@@ -25,12 +25,12 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from core.brain import WikiStoreV2, make_node  # noqa: E402
-from core.brain.entities import SELF_ID, SENSEI_ID, ensure_entities, surface_forms  # noqa: E402
-from core.brain.read.like import RecallCtx, like  # noqa: E402
-from core.mmt.engine import _stances_of  # noqa: E402
-from core.parsing.dynamic_character_parser import CharacterLoader  # noqa: E402
-from core.session.store import SessionStore  # noqa: E402
+from core.brain import WikiStoreV2, make_node
+from core.brain.entities import SELF_ID, SENSEI_ID, ensure_entities, surface_forms
+from core.brain.read.like import RecallCtx, like
+from core.mmt.engine import _stances_of
+from core.parsing.dynamic_character_parser import CharacterLoader
+from core.session.store import SessionStore
 
 ROOT = Path(__file__).resolve().parents[2]
 REAL_TABLE = ROOT / "config" / "settings" / "relation" / "interperson.yml"

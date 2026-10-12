@@ -13,8 +13,8 @@
 import sys
 from pathlib import Path
 
-from core.session.chapters import chapter_index, replayable_chapters  # noqa: E402
-from core.session.events import make_event, marker  # noqa: E402
+from core.session.chapters import chapter_index, replayable_chapters
+from core.session.events import make_event, marker
 
 
 def _board(seq, text="一板", **extra):

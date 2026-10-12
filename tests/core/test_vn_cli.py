@@ -22,7 +22,7 @@ from core.session import SessionStore
 from core.session.events import M_VN_EXIT
 from llm import task_labels as T
 from tests import stub_tasks
-from tests.vn_fixtures import scene  # noqa: E402
+from tests.vn_fixtures import scene
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 CHARACTER = "igusa_haruka"

@@ -9,17 +9,17 @@
 import pathlib
 import sys
 
-from contract.issues import IssueSeverity, declared_severity, split_issues  # noqa: E402
-from contract.records import ISSUE_SEVERITY as VN_SEVERITY  # noqa: E402
-from contract.streams import ParseDiag  # noqa: E402
-from core.mmt.mmt_check import (  # noqa: E402
+from contract.issues import IssueSeverity, declared_severity, split_issues
+from contract.records import ISSUE_SEVERITY as VN_SEVERITY
+from contract.streams import ParseDiag
+from core.mmt.mmt_check import (
     ISSUE_SEVERITY,
     TITLE_MAX,
     TITLE_MIN,
     MmtIssueCode,
     check_turn,
 )
-from core.mmt.mmt_lines import MmtLine  # noqa: E402
+from core.mmt.mmt_lines import MmtLine
 
 
 def _text(s="话"):

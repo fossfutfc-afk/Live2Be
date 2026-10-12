@@ -12,9 +12,9 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from core.session import staging  # noqa: E402
-from core.session.events import make_event  # noqa: E402
-from core.session.store import SessionStore  # noqa: E402
+from core.session import staging
+from core.session.events import make_event
+from core.session.store import SessionStore
 
 CHAR = "igusa_haruka"
 

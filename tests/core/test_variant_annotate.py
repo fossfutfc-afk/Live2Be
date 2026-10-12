@@ -24,11 +24,11 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from core.bond.variant_annotate import pick_image  # noqa: E402
-from core.media.place_table import MOMENT_VARIANTS, load_table, moment_label, moment_token  # noqa: E402
-from llm import task_labels as T  # noqa: E402
-from llm.prompts import load_prompt  # noqa: E402
-from tests import stub_tasks  # noqa: E402
+from core.bond.variant_annotate import pick_image
+from core.media.place_table import MOMENT_VARIANTS, load_table, moment_label, moment_token
+from llm import task_labels as T
+from llm.prompts import load_prompt
+from tests import stub_tasks
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 

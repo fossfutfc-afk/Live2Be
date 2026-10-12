@@ -15,9 +15,9 @@ from pathlib import Path
 
 import pytest
 
-from core.bond.bond_story import BondScene, BondStoryEngine, SceneLoopError  # noqa: E402
-from llm import task_labels as T  # noqa: E402
-from tests import stub_tasks  # noqa: E402
+from core.bond.bond_story import BondScene, BondStoryEngine, SceneLoopError
+from llm import task_labels as T
+from tests import stub_tasks
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 CHARACTER = "igusa_haruka"

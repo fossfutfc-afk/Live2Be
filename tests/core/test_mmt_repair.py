@@ -13,9 +13,9 @@
 import pathlib
 import sys
 
-from core.mmt.mmt_check import TITLE_MAX  # noqa: E402
-from core.mmt.mmt_lines import MmtLine  # noqa: E402
-from core.mmt.mmt_repair import (  # noqa: E402
+from core.mmt.mmt_check import TITLE_MAX
+from core.mmt.mmt_lines import MmtLine
+from core.mmt.mmt_repair import (
     repair_line,
     repair_send_media,
     repair_trigger,

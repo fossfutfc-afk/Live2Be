@@ -12,7 +12,7 @@ import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from core.brain import (  # noqa: E402
+from core.brain import (
     CHANNELS,
     KIND_GATE,
     KIND_PRIOR,
@@ -25,7 +25,7 @@ from core.brain import (  # noqa: E402
     get_channel,
     make_node,
 )
-from core.brain.read.channels import KINDS, SCALES  # noqa: E402
+from core.brain.read.channels import KINDS, SCALES
 
 
 def _store(tmp_path) -> WikiStoreV2:
