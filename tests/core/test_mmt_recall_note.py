@@ -23,6 +23,7 @@ VALUE: 这条测的是**接线与落点**（`agent_turn` 的 P19 槽位）, 不�
 """
 from __future__ import annotations
 
+import re
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -333,7 +334,12 @@ def test_name_form_ignores_whitespace_in_the_name(tmp_path):
 
 
 def test_recall_log_says_which_sections_were_placed(tmp_path, caplog):
-    """台账那一行要说得清**摆了几段/各几条**（排查"她这轮到底看见了什么"的唯一线索）。"""
+    """台账那一行要说得清**摆了几段/各几条/各多少字/花了多久**（排查"她这轮到底看见了什么"
+    的唯一线索; 真机还要盯 `ms=` 随库长有没有恶化）。
+
+    ⭐ `per=` 与 `chars=` 必须**自洽**（`per` 就是那几个段的字数, 按 `modes=` 同一套标签）——
+    不然"哪一段把预算吃掉了"这个问题在日志里答不出来。
+    """
     llm = ScriptedLLM()
     eng = _engine(tmp_path, llm)
     _seed_lane(tmp_path, titles=[("多加叉烧", "老板多给了我一份叉烧")])
@@ -343,7 +349,17 @@ def test_recall_log_says_which_sections_were_placed(tmp_path, caplog):
     line = next(r.getMessage() for r in caplog.records if "mmt_recall" in r.getMessage())
     assert "modes=name+turn" in line and "name=1" in line and "eps=1" in line, line
     assert "titles=多加叉烧" in line, line
-    print(f"    P19: 台账分得清两段（{line.split('modes=')[1].split(' titles=')[0]}）")
+    # ⭐ 每段各多少字 + 召回耗时
+    assert re.search(r"chars=\d+ per=\S+ ms=\d+\.\d", line), line
+    total = int(re.search(r"chars=(\d+)", line).group(1))
+    per_txt = re.search(r"per=(\S+)", line).group(1)
+    labels = [item.split(":")[0] for item in per_txt.split("/")]
+    per = [int(v.removesuffix("(empty)"))
+           for v in (item.split(":")[1] for item in per_txt.split("/"))]
+    assert labels == ["name", "turn"], per_txt      # 与 `modes=` 同一套标签
+    assert sum(per) == total, (per_txt, per, total)
+    print(f"    P19: 台账分清两段（{line.split('modes=')[1].split(' titles=')[0]}）"
+          f" + per={per_txt}")
 
 
 def test_empty_lane_prints_a_blank_line_only_when_a_name_was_mentioned(tmp_path, caplog):

@@ -1315,6 +1315,7 @@ class MomoTalkEngine:
         if not query:
             return []
         char = self._current_char
+        t0 = time.perf_counter()          # ⭐ 只量这一段（召回 + 渲染）—— 台账 `ms=`
         if wstore is None:
             wstore = WikiStoreV2(self._store.data_root, world_id=self._store.world_id,
                                  char_id=char.character_id)
@@ -1355,13 +1356,22 @@ class MomoTalkEngine:
         # 台账（可 grep）: 摆了几段 / 各几条 / 多少字 / 摆了谁（**标题**——
         # 编号是她看不到的东西, 排查时要看的是她看到的那个串）。
         # ⭐ 空手段标 `when(empty)` —— 否则"摆了一段"与"摆了一句空手"在日志里长得一样。
+        # ⭐ `per=` **每段各多少字**（标签与 `modes=` **同一套**, 含 `(empty)` 标记）:
+        #    总 `chars=` 说不出"是哪一段把预算吃掉了"（三段各自 1000 字符 ⇒ 要看分布）。
+        # ⭐ `ms=` = **这一段（召回 + 渲染）**的墙钟毫秒 —— 它同步跑在 `round_messages`
+        #    之前 ⇒ 直接进 TTFT; 真机要盯的就是"它随库长有没有线性恶化"。
+        #    ⛔ 不含 LLM 调用, 也不含 brain 段（那是 `recall_read` 那一行）。
         # ⭐ "为什么是这几条"在 `like` 自己那行 `recall_like … top=…←why` 里。
-        logger.info("mmt_recall %s/%s modes=%s eps=%d name=%d when=%d chars=%d titles=%s",
+        logger.info("mmt_recall %s/%s modes=%s eps=%d name=%d when=%d chars=%d "
+                    "per=%s ms=%.1f titles=%s",
                     char.character_id, self._session_id,
                     "+".join(label if n else f"{label}(empty)"
                              for label, s, n in parts if s),
                     len(turn_cands), len(name_cands), len(when_cands),
                     sum(len(s) for s in segs),
+                    "/".join(f"{label}:{len(s)}{'' if n else '(empty)'}"
+                             for label, s, n in parts if s),
+                    (time.perf_counter() - t0) * 1000.0,
                     " / ".join(c.node.title or c.node.id
                                for c in (*name_cands, *when_cands, *turn_cands)))
         return segs
