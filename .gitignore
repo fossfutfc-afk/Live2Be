@@ -1,4 +1,7 @@
-.vscode/
+# IDE 配置：只放行 VSCode 的 settings.json（类型检查目标版本 / 排除目录是团队共识，
+# 不进库就会重演「同一个注解在不同机器上报不同错」）；其余本机生成的一律忽略
+.vscode/*
+!.vscode/settings.json
 .env
 settings.toml
 *.exe
