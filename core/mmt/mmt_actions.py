@@ -132,16 +132,20 @@ def parse_mmt_look(payload: dict[str, Any]) -> dict[str, Any]:
     两格**至少给一个**（`DESIGN_MMT_NEW_ACTION §3.1`）: 只想查"那阵子的事"时
     可以不写 `clue`; 只想问"某件事"时可以不写 `when`。
     """
+    entity = payload.get("entity", "")
+    if not isinstance(entity, str):
+        raise ContractError("entity 必须是字符串（人名 —— 她的叫法/别名都认）")
     clue = payload.get("clue", "")
     if not isinstance(clue, str):
         raise ContractError("clue 必须是字符串（要翻找的线索）")
     when = payload.get("when", "")
     if not isinstance(when, str):
         raise ContractError("when 必须是字符串（时间范围, 可省）")
-    clue, when = clue.strip(), when.strip()
-    if not clue and not when:
+    entity, clue, when = entity.strip(), clue.strip(), when.strip()
+    if not entity and not clue and not when:
         raise ContractError(
-            "clue 与 when 至少要给一个——说不出要找什么、也不知道大概什么时候, 就没法翻"
+            "entity / clue / when 至少要给一个——说不出找谁 / 找什么 / 大概什么时候, "
+            "就没法翻"
         )
     if clue:
         # ⛔ 线索只认**字面** + `&`/`|`/半角括号; 正则味的字符当场拒（可归因, 不静默）
@@ -149,7 +153,7 @@ def parse_mmt_look(payload: dict[str, Any]) -> dict[str, Any]:
             compile_clue(clue)
         except ClueError as e:
             raise ContractError(f"clue 看不懂: {e}") from None
-    return {"clue": clue, "when": when}
+    return {"entity": entity, "clue": clue, "when": when}
 
 
 # ============================================================================
@@ -176,6 +180,7 @@ def build_mmt_registry() -> MMTActionRegistry:
             "clue: 要翻找的**字面**文字（不要写正则）:\n"
             "      两个词都要有 → `苔藓 && 杂草`（`&` 也行）; 任一即可 → `苔藓 || 杂草`;\n"
             "      分组用**半角**括号 → `(苔藓 || 杂草) && 老师`\n"
+            "entity: 可选, **人名**（你怎么叫他/别名都认）—— 只留\"跟他有关的事\"\n"
             "when: 可选, 什么时间的事 —— **只写时间, 别写整句话**:\n"
             "      整段 → `last 1 week`（上周）· `last 1 month` · `last 1 year`（去年）\n"
             "      那天 → `back 1 week`（一周前的今天）· `back 3 day` · `back 1 year`\n"
@@ -186,8 +191,10 @@ def build_mmt_registry() -> MMTActionRegistry:
             "用途: **翻你自己的记忆**（旧事 / 你说过的话）——老师看不到这一行,\n"
             "      翻到的东西回灌给你, 你再接着说。仅当你**必须知道它才能说下一句**时用\n"
             "      （「那次到底是哪天来着」）; 翻不到就照实说想不起来, 再问老师\n"
-            "clue 与 when **至少给一个**; 它是这一轮**唯一的操作行**（放最后一行 ——\n"
-            "      想说的那句「唔……我找找看」写在它**前面**的消息行里）"
+            "entity / clue / when **至少给一个**（三个都是\u201c都要满足\u201d: 给得越多越窄 ——\n"
+            "      \u201c阿露 上个月 跟便利屋有关的\u201d就是三个一起给）\n"
+            "它是这一轮**唯一的操作行**（放最后一行 —— 想说的那句「唔……我找找看」\n"
+            "      写在它**前面**的消息行里）"
         ),
     ))
     registry.register(ActionSpec(

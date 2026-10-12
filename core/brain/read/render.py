@@ -514,27 +514,29 @@ def render_recall_block(cands: Iterable[Candidate], *,
 #   · `look` = **她主动翻**（她自己在那一轮问的）, 段头要**回显她问的原话**,
 #     段尾不教 `noticed`（她翻完就接着说）—— 但"没想起来"那几句要给她**下一步**。
 
-def look_header(clue: str = "", when: str = "", *, n: int = 0,
+def look_header(entity: str = "", clue: str = "", when: str = "", *, n: int = 0,
                 widened: bool = False) -> str:
-    """⭐ `look` 的结果头: `【你翻到的（「苔藓 && 杂草」· 上周 · 2 条）】`。
+    """⭐ `look` 的结果头: `【你翻到的（阿露 · 「苔藓 && 杂草」· 上周 · 2 条）】`。
 
-    三格都是**她给的原话 / 我们数出来的条数**:
+    四格都是**她给的原话 / 我们数出来的条数**（`entity`/`clue`/`when` 三格是 AND 的筛选
+    条件, 回显它们 = 让她知道"这一条为什么在这儿"）:
     ⛔ 不印编号（那是引擎内部的地址, 她的视图里永不出现）;
     ⛔ 不印我们算出来的日期（`2026-09-14..=2026-10-08` 是引擎坐标 —— 一进她的视图
     就变成工程报告; 她要的是"我翻了什么"）。
     ⚠️ `「」` 在这里是**她说的原话**（一形一义里 `「」` 就是这个意思）—— 回显原话
-    比我们二次渲染更忠实, 也更省。
+    比我们二次渲染更忠实, 也更省。`entity` 不加引号（人名不是"线索串", 加了像在引别人的话）。
 
     `widened=True` ⇒ **如实报告筛选边界**（"那阵子没有；前后那阵子有 N 条"）——
     这是设计 §3.4 的第二种说法, ⛔ 不是猜。
     """
     echo = f"{marks.QUOTE_OPEN}{clue.strip()}{marks.QUOTE_CLOSE}" if clue.strip() else ""
+    who = entity.strip()
     when = when.strip()
     if widened:
         inner = f"{echo} · {when}那阵子没有；前后那阵子有 {n} 条" if echo \
             else f"{when}那阵子没有；前后那阵子有 {n} 条"
     else:
-        inner = " · ".join(x for x in (echo, when, f"{n} 条" if n else "") if x)
+        inner = " · ".join(x for x in (who, echo, when, f"{n} 条" if n else "") if x)
     return marks.section(f"你翻到的（{inner}）")
 
 
@@ -580,6 +582,14 @@ def look_empty(miss: int = 1) -> str:
     if miss == 2:
         return LOOK_EMPTY_AGAIN
     return LOOK_EMPTY_STOP.format(n=miss)
+
+#: 她说的**人名认不出**（miss / ambiguous 都不猜 —— 与 `address.find_episode` 同一套判据）
+#: 时用这句。⚠️ 与"翻空了"**分开**（用户 2026-10-12: `entity` 是筛选轴）:
+#: 翻空了是"记忆里没有这件事", 这句是"**这个叫法我对不上是谁**"—— 后者可行动（换个叫法）,
+#: 而且**不算"翻空了"**（不计数）。
+#: ⛔ 同样不报"解析失败"这类词 —— 她是"想不起有这么个叫法", 不是引擎报错。
+LOOK_EMPTY_ENTITY = ("（唔……这个名字我对不上是谁。换个叫法试试？"
+                     "或者干脆接着聊也行。）")
 
 #: 她说的时间**认不出来**时用这句（⛔ **不**静默当成"没给时间"去查全库 ——
 #: 那是静默放宽范围; 也⛔ 不报"格式错"—— 那是第四面墙）。

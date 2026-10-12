@@ -432,17 +432,24 @@ def test_render_cap_is_exclusive_with_the_char_budget():
 
 
 def test_look_copy_is_her_own_words_not_engine_coordinates():
-    """`look` 的段头/段尾: **回显她的原话**、⛔ 不印编号、⛔ 不印我们算的日期。"""
+    """`look` 的段头/段尾: **回显她的原话**、⛔ 不印编号、⛔ 不印我们算的日期。
+
+    ⚠️ **三个筛选轴都回显**（2026-10-12 加 `entity`）—— 且实参一律用**关键字**
+    （它们全是字符串, 位置调用一旦顺序改了就是静默串位）。
+    """
     from core.brain.read.render import look_header, look_hint
 
-    head = look_header("苔藓 && 杂草", "上周", n=2)
+    head = look_header(clue="苔藓 && 杂草", when="上周", n=2)
     assert head == "【你翻到的（「苔藓 && 杂草」 · 上周 · 2 条）】", head
     assert "m00" not in head and "2026" not in head
-    wide = look_header("苔藓", "上周", n=2, widened=True)
+    # ⭐ 人名**不加引号**（那不是"她引的原话", 是她要筛的人）
+    with_who = look_header(entity="阿露", clue="便利屋", when="上周", n=2)
+    assert with_who == "【你翻到的（阿露 · 「便利屋」 · 上周 · 2 条）】", with_who
+    wide = look_header(clue="苔藓", when="上周", n=2, widened=True)
     assert "那阵子没有；前后那阵子有 2 条" in wide
     assert look_hint(5, 3).endswith("还有 3 条同类的事。）")
     assert look_hint(2) == "（就这些。）"
-    print("    look 文案: 回显原话 / 如实报边界 / 不印编号与日期")
+    print("    look 文案: 回显原话与要筛的人 / 如实报边界 / 不印编号与日期")
 
 
 def test_they_block_prints_stances(tmp_path):

@@ -293,6 +293,7 @@ core.mmt.engine	LINE_REASK_MAX	data	-
 core.mmt.engine	LLMClient	class	llm.client
 core.mmt.engine	LOOK_CAP	data	-
 core.mmt.engine	LOOK_EMPTY	data	-
+core.mmt.engine	LOOK_EMPTY_ENTITY	data	-
 core.mmt.engine	LOOK_EMPTY_TIME	data	-
 core.mmt.engine	LOOK_FUTURE	data	-
 core.mmt.engine	LOOK_KINDS	data	-
@@ -349,6 +350,7 @@ core.mmt.engine	ensure_entities	function	core.brain.entities
 core.mmt.engine	err	function	contract.errors
 core.mmt.engine	feedback	function	llm.client
 core.mmt.engine	find	function	core.brain.read.find
+core.mmt.engine	find_entity	function	core.brain.entities
 core.mmt.engine	find_episode	function	core.brain.address
 core.mmt.engine	format_issues	function	contract.issues
 core.mmt.engine	is_content_event	function	core.session.events

@@ -157,9 +157,9 @@ class MmtExecutor:
         characters_root: str | Path,
         interperson_path: str | Path | None = None,
         *,
-        look_fn: Callable[[str, str], str] | None = None,
+        look_fn: Callable[[str, str, str], str] | None = None,
     ):
-        """`look_fn`: ⭐ `mmt_look` 的**取数接缝**（`(clue, when) -> 给她看的那段字`）。
+        """`look_fn`: ⭐ `mmt_look` 的**取数接缝**（`(entity, clue, when) -> 给她看的那段字`）。
 
         由 engine 注入（它手里有 store / 本轮 `now` / 角色名）—— 见
         `_execute_mmt_look` 的 docstring（为什么不把 store 塞进来）。
@@ -230,9 +230,10 @@ class MmtExecutor:
             raise MmtExecError("尚未进入会话, 无法翻阅记忆")
         if self.look_fn is None:
             raise MmtExecError("mmt_look 未接线（引擎没有注入 look_fn）")
+        entity = action.payload.get("entity") or ""
         clue = action.payload.get("clue") or ""
         when = action.payload.get("when") or ""
-        return ExecResult(ok=True, message=str(self.look_fn(clue, when)))
+        return ExecResult(ok=True, message=str(self.look_fn(entity, clue, when)))
 
     # ==================================================================
     # mmt_send_media — 发图片（占位, 媒体管线后续接入）
