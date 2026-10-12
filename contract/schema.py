@@ -42,6 +42,16 @@ _APPROVAL_NOTES = {
 }
 
 
+def _numbered(items: tuple[str, ...]) -> list[str]:
+    """硬规则 → 编号行。**编号由位置算，不手写**。
+
+    从前三个渲染器各自把 `"1." "2." …` 写死在字符串里 ⇒ 中间插一条就要把后面
+    全部改一遍（而且很容易漏一个数字，让 prompt 里的编号跳号）。规则现在是
+    数据（元组），加一条只管往元组里写。
+    """
+    return [f"{i}. {t}" for i, t in enumerate(items, 1)]
+
+
 def build_schema(registry: ActionRegistry) -> str:
     """生成该域给 LLM 的动作 schema（输入层裁剪）—— **单动作形态**。
 
@@ -101,6 +111,21 @@ def export_definitions(registry: ActionRegistry) -> dict[str, Any]:
     }
 
 
+#: MMT 行流的硬规则。⚠️ **编号不在这里** —— 由 `_numbered()` 按位置算。
+_MMT_RULES: tuple[str, ...] = (
+    "一行一个完整 JSON 对象；三类行可以任意交错（一行接一行地说下去没问题）。",
+    "**气泡粒度由你定**：想连发就写多条消息行（一条行 = 独立的一条手机消息）——"
+    "**一条行可以只是半句话**（不必凑成完整句子，行末也不必加标点）。",
+    '话里的半角双引号与反斜杠必须转义（写成 \\" 与 \\\\）——这是最常见的错误。',
+    "`mmt_trigger_bond_story` 是模式切换：它必须是**唯一**的操作行，"
+    "见面的话写在它**前面**的消息行里。",
+    "`mmt_look` 是那一轮**唯一的操作行**，并且放在**最后一行**："
+    "想说的话（\"唔……我找找看\"）写在它**前面**的消息行里——"
+    "翻到的东西要等它跑完才回到你手上。",
+    "本轮至少要有一条行（说话或做事）——**想起行只是记账，不代替说话**。",
+)
+
+
 def build_line_schema(registry: ActionRegistry, *, with_examples: bool = True) -> str:
     """渲染 **MMT 行流契约**（LLM 可见）——`build_schema` 的第四种形态（⑥-2a）。
 
@@ -129,16 +154,7 @@ def build_line_schema(registry: ActionRegistry, *, with_examples: bool = True) -
         '和我记得的某一条是同一件事"时记一笔',
         "",
         "硬规则（形状不对的行会被丢掉; 操作行不对会被要求重发）:",
-        "1. 一行一个完整 JSON 对象；三类行可以任意交错（一行接一行地说下去没问题）。",
-        "2. **气泡粒度由你定**：想连发就写多条消息行（一条行 = 独立的一条手机消息）——"
-        "**一条行可以只是半句话**（不必凑成完整句子，行末也不必加标点）。",
-        '3. 话里的半角双引号与反斜杠必须转义（写成 \\" 与 \\\\）——这是最常见的错误。',
-        "4. `mmt_trigger_bond_story` 是模式切换：它必须是**唯一**的操作行，"
-        "见面的话写在它**前面**的消息行里。",
-        "5. `mmt_look` 是那一轮**唯一的操作行**，并且放在**最后一行**："
-        "想说的话（\"唔……我找找看\"）写在它**前面**的消息行里——"
-        "翻到的东西要等它跑完才回到你手上。",
-        "6. 本轮至少要有一条行（说话或做事）——**想起行只是记账，不代替说话**。",
+        *_numbered(_MMT_RULES),
         "",
         "可用操作:",
     ]
@@ -186,6 +202,24 @@ def build_line_schema(registry: ActionRegistry, *, with_examples: bool = True) -
             '    {"text": "这不就跟上次屋顶上那盆一样吗"}',
         ]
     return "\n".join(lines)
+
+
+#: 一轮戏的篇幅目标（行）—— 只写进 prompt 当参考，引擎不校验。
+_VN_TURN_LINES = 40
+
+#: VN 记录流的硬规则。⚠️ 编号不在这里（`_numbered()` 按位置算）；
+#: 两条嵌了常量: 老师连续条数上限、篇幅行数。
+_VN_RULES: tuple[str, ...] = (
+    "一行一条完整记录；字段只有那两个；text 除 stage=end 外必填。",
+    'text 里的半角双引号与反斜杠必须转义（写成 \\" 与 \\\\）——这是最常见的错误。',
+    f"老师要说话就直接写 sensei 记录（连续 1~{MAX_SENSEI_RUN} 条）"
+    "——那几句就是玩家会看到、会挑的话。",
+    "本章第一条必须是 stage=switch（交代开场地点）。**含纪念的那一轮："
+    "art 放最前（switch 紧随其后）**——art 与 memorial **必须同轮成对**："
+    "写了 art 就要写 memorial，写了 memorial 就要有 art。",
+    "stage=end 必须是本轮最后一条；stage=memorial 之后到本轮结束都属于纪念正文。",
+    f"篇幅：一轮约 {_VN_TURN_LINES} 行（写下你觉得完整的一段戏）。",
+)
 
 
 def build_record_schema(*, with_examples: bool = True, char_id: str = "igusa_haruka",
@@ -239,15 +273,7 @@ def build_record_schema(*, with_examples: bool = True, char_id: str = "igusa_har
         lines.append("")
     lines += [
         "硬规则（违反即被丢弃）:",
-        "1. 一行一条完整记录；字段只有那两个；text 除 stage=end 外必填。",
-        '2. text 里的半角双引号与反斜杠必须转义（写成 \\" 与 \\\\）——这是最常见的错误。',
-        "3. 老师要说话就直接写 sensei 记录（连续 1~%d 条）——那几句就是玩家会看到、会挑的话。"
-        % MAX_SENSEI_RUN,
-        "4. 本章第一条必须是 stage=switch（交代开场地点）。**含纪念的那一轮："
-        "art 放最前（switch 紧随其后）**——art 与 memorial **必须同轮成对**："
-        "写了 art 就要写 memorial，写了 memorial 就要有 art。",
-        "5. stage=end 必须是本轮最后一条；stage=memorial 之后到本轮结束都属于纪念正文。",
-        "6. 篇幅：一轮约 %d 行（写下你觉得完整的一段戏）。" % 40,
+        *_numbered(_VN_RULES),
     ]
     if with_examples:
         lines += [
