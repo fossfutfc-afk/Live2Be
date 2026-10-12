@@ -92,7 +92,9 @@ from core.brain.entities import STANCE_KEYS_RESERVED, ensure_entities
 from core.affection import Affection, load_affection_from_events
 from core.brain.address import find_episode
 from core.brain.read.find import compile_clue, find
-from core.brain.read.like import RecallCtx, like
+from core.brain.read.like import RecallCtx
+from core.brain.read.modes import DEFAULT_MODE as TURN_MODE
+from core.brain.read.modes import recall
 from core.brain.read.render import (
     LOOK_EMPTY,
     LOOK_EMPTY_TIME,
@@ -1297,8 +1299,10 @@ class MomoTalkEngine:
                                  char_id=char.character_id)
         # ⚠️ **不传 `embed_fn`**: `turn` 那一档自己没有语义路（权重 0）⇒ `like` 压根不会去要
         # 后端。真要把语义接回实时路径, 得先解决"每轮全库重编码"那笔账（缓存 or 离线连边）。
-        cands = like(wstore, RecallCtx(now=now, query=query),
-                     spec="turn", k=_turn_k())
+        # ⭐ 2026-10-12: 走**唯一前门** `recall(mode=…)`（`core/brain/read/modes.py`）——
+        # 形式名决定执行器与文案; `turn` = 六路打分那一行（与从前 `like(spec="turn")` 逐字同）。
+        cands = recall(wstore, RecallCtx(now=now, query=query),
+                       mode=TURN_MODE, k=_turn_k())
         if not cands:
             return ""
         # ⭐ **候选直传渲染层**（2026-10-08）: 从前这里先摊平成 `[c.node for c in cands]`,
