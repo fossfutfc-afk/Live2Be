@@ -1,9 +1,22 @@
 # -*- coding: utf-8 -*-
-"""walk — 记忆图上的**联想扩散**（BFS）。纯读、**零 LLM、零后端**。
+"""walk — 记忆图上的两种走法: **找同类（BFS）** 与 **深挖（DFS）**。纯读、零 LLM、零后端。
 
 > ⛔ **未接线**（2026-10-12 用户: *"near 就是 BFS 吧，可以留接口……先写一个接口，
 > 不调用但需要有"*）—— 与 `channels.py` / `channel_impl.py` / `compose.py` 同一待遇:
 > 接口与守门齐了, 但**没有调用方**。接线那一笔要另行审（见文末"接线还差什么"）。
+
+## 两种走法对应两种记忆机制（用户 2026-10-12 的原话）
+
+| | `bfs` = **找同类** | `chain` = **深挖** |
+|---|---|---|
+| 走出来的是 | **一摊子**: 这件事挨着的那一圈 | **一串**: 一条道走到黑（来龙去脉 / 一串矛盾） |
+| 默认边 | `akin`（她认过的相似）+ `member_of`（同类兄弟） | `evolved_from`（新看法→旧看法）+ `contradicts`（互相打架, 对称） |
+| 分与序 | 分 = 父分 × 边权 × `decay`^跳; 序 = 近 → 强 → 新 | **不算分**; 序 = **走的顺序**（深度优先前序） |
+| 界 | 深度 `hops` + 广度 `width` | 深度 `max_depth` + **已访问集**（对称边会成环, ⛔ 没它就是死循环） |
+
+⚠️ **`contradicts` 为什么归"深挖"而不是"找同类"**（用户: *"要的不就是一串矛盾的事例"*）:
+它两端**同侧**（经历↔经历 或 看法↔看法, `relate` 的写侧规则）, 沿它走出来的是一**串**
+互相打架的事, 不是一个"圈"; 而 `akin`/`member_of` 是"像/同类", 沿它们走的是一**片**。
 
 ## 它跟 `like._reach` 什么关系（⛔ 别合并）
 
@@ -44,20 +57,29 @@
 - 两行形式: `near`（`rels=NARROW`）与 `echo`（`rels=(akin,)`, "这感觉以前有过"）——
   同一份料、白名单不同（用户 2026-10-12: *"echo 和 near 一起也行"*）;
 - 排序: `near` 想要的是"近的在前"（本文件已经这么排）, 而 `set` 型今天的排序口径是
-  `newest`（`Mode.order`）⇒ 要加**第二个取值** `"near"`。
+  `newest`（`Mode.order`）⇒ 要加**第二个取值** `"near"`;
+- ⏭ **`chain` 的用户还没定**: 它最自然的落点是 `look` 的第三种形态（她问"我为什么
+  这么想" ⇒ 顺着 `supports`/`evolved_from` 挖出一条线）或 brain 段里给信念标来历 ——
+  **都不是 P19 的段**（P19 四段都是"摊子"）。接线前先定"谁问、问什么、怎么摆"。
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Iterable
 
-from core.brain.graph import REL_AKIN, REL_MEMBER_OF, graph_of
+from core.brain.graph import (REL_AKIN, REL_CONTRADICTS, REL_EVOLVED_FROM,
+                              REL_MEMBER_OF, graph_of)
 from core.brain.read.find import _order as _newest_key
 from core.brain.read.like import _STRUCT_EDGES
 
 #: 关系白名单 —— 默认**只走窄门**（与 `like._STRUCT_EDGES` 同两条: 认过的相似 + 同类兄弟）。
 #: ⚠️ 表本身住在 `like`（热路径先有的）, 这里只是"默认值取它" —— ⛔ 不抄一份。
 NARROW: tuple[str, ...] = (REL_AKIN, REL_MEMBER_OF)
+
+#: 深挖默认走的两条: **看法进化**（新 → 旧, 有向）+ **互相打架**（对称, 同侧）。
+#: ⚠️ 两条的**语义差别**要记住: `evolved_from` 有方向（挖"我为什么这么想"是往回,
+#: 挖"这条后来被什么盖了"是往前）; `contradicts` 没方向（"跟它打架的那些"）。
+DEEP: tuple[str, ...] = (REL_EVOLVED_FROM, REL_CONTRADICTS)
 
 #: 每多一跳乘一次。**这是判断, 不是标定**（同 `when.WIDEN_DAYS` 那条纪律）:
 #: "第二跳还算联想, 第三跳就只剩噪声了" —— 0.6 让两跳后的分量掉到 0.36 × 边权。
@@ -76,6 +98,28 @@ class Hit:
     score: float
     hop: int
     why: str
+
+
+@dataclass(frozen=True)
+class Link:
+    """深挖的**一步**: 谁 / 第几层 / **从谁那儿走过来的** / 哪条边 / 哪个方向。
+
+    ⚠️ **为什么不是 `Hit`**: 扩散的一跳要"多少分"（它是排序依据）, 而深挖的一步要
+    "**来路**"（`via` —— 一条链之所以是链）。两者字段不同 ⇒ 两个类型, ⛔ 别硬塞。
+
+    ⚠️ 她眼前那句人话（"盖过它的那条" / "跟它打架的"）**归形式表**（文案层）——
+    这里只给"哪条边、哪个方向"这种**事实**, ⛔ 不在本模块写第二份说法。
+    """
+
+    node_id: str
+    #: 从 `start` 数起第几层（`0` = 链头自己）
+    depth: int
+    #: 从哪个节点走过来的（链头是 `""`）
+    via: str
+    #: 走的是哪条边（`evolved_from` / `contradicts`）
+    rel: str
+    #: 方向: `True` = 顺着出边（`evolved_from` 的"新 → 旧"）, `False` = 逆着
+    forward: bool
 
 
 def neighbors(g, nid: str, *, rels: Iterable[str] | None = NARROW,
@@ -175,3 +219,84 @@ def bfs(store, seeds: dict[str, float], *, rels: Iterable[str] | None = NARROW,
                      Hit(node_id=nid, score=score, hop=hop, why=why)))
     rows.sort(key=lambda r: r[0])
     return [h for _key, h in rows]
+
+
+def _deep_neighbors(g, nid: str, rels: Iterable[str],
+                    ) -> list[tuple[str, str, bool]]:
+    """深挖的一步: `[(对端, 边, 是不是顺着出边), …]`（**两个方向都走**）。
+
+    ⚠️ **两个方向都走是有意的**: `evolved_from` 的语义是"新 → 旧", 但"深挖"要能同时回答
+    "我为什么这么想"（往回）与"这条后来被什么盖了"（往前）—— 方向由 `Link.forward` 如实
+    带出去, **不由遍历替她决定**（那样会静默丢掉一半）。
+
+    ⚠️ **顺序 = 调用方给的 `rels` 顺序**, 同 rel 内**新→旧**: 链的走法必须**确定**
+    （否则同一个库两次跑出两条不同的链, 台账对不上）。
+    """
+    want = list(rels)
+    out: list[tuple[str, str, bool]] = []
+    for rel in want:
+        got: list[tuple[str, str, bool]] = []
+        for e in g.edges_from(nid, rel):
+            got.append((e.dst, rel, True))
+        for e in g.edges_to(nid, rel):
+            got.append((e.src, rel, False))
+        out.extend(got)
+    return out
+
+
+def chain(store, start: str, *, rels: Iterable[str] = DEEP,
+          max_depth: int | None = None, skip: Iterable[str] = ()) -> list[Link]:
+    """从一条**看法/经历**出发**深挖**（DFS）—— 返回按"走的顺序"排好的 `Link` 列表。
+
+    ⭐ **它跟 `bfs` 是两种记忆机制**（用户 2026-10-12: *"找同类和深挖"*）:
+    这个走的是**一串**（一条道走到黑: 来龙去脉 / 一串矛盾）, 那个走的是一**摊子**。
+
+    Args:
+        store: `WikiStoreV2`（**只读**）。
+        start: **链头**的节点 id（一条看法 / 一件经历）。
+        rels: 深挖走的边, **必须显式给**（缺省 `DEEP = (evolved_from, contradicts)`）。
+            ⛔ **`None` 会当场炸**: "什么边都走"不是深挖 —— 掺进 `about`（归属星形）/
+            `member_of`（整类）之后, 这条链立刻退化成一坨（那是 `bfs` 的活, 不是它的）。
+        max_depth: 挖几层; `None`（缺省）= 挖到走不动为止（⛔ 不设硬上限 ——
+            已访问集保证它有限: 每个节点最多进一次）。
+        skip: 已经摆过的 id（跨段去重）。
+
+    Returns:
+        `[Link, …]`, **深度优先前序**（= 链的读法: 从头一路往下, 遇到岔路先走完再回头）。
+        ⭐ **含链头自己**（`depth=0`, `via=""`）—— 一条链含它的第一节; 而且深挖**不算分**,
+        没有"同一份理由算两次"的问题（那是 `bfs` 把种子排除在外的原因）。
+
+    ⛔ **已访问集是安全件, 不是优化**: `contradicts` 是**对称**边 ⇒ `A—B—C—A` 这种环
+    在真图里完全可能; 少了它就是**死循环**（不是慢, 是停不下来）。
+    """
+    if not start:
+        return []
+    if rels is None:
+        raise ValueError("chain 的 rels 必须显式给（⛔ `None` = 走全部边 —— 那是 bfs 的对照台用法, "
+                         "深挖掺进 about/member_of 就退化成一坨了）")
+    rel_list = list(rels)
+    if not rel_list:
+        return []
+    if max_depth is not None and int(max_depth) < 0:
+        return []
+    skip_set = set(skip)
+    try:
+        g = graph_of(store)
+    except Exception:                                        # noqa: BLE001 — 图坏了不阻断
+        return []
+    seen: set[str] = {start}
+    out: list[Link] = []
+    stack: list[Link] = [Link(start, 0, "", "", True)]
+    while stack:
+        cur = stack.pop()
+        if cur.node_id not in skip_set:                      # ⚠️ 结果在 **pop 时**才收 ——
+            out.append(cur)                                  #    push 时收 = "压栈顺序"不是 DFS 序
+        if max_depth is not None and cur.depth >= int(max_depth):
+            continue
+        # ⚠️ 反着压栈 ⇒ `rels` 里**靠前的那条边**先走（链的走法确定）
+        for other, rel, forward in reversed(_deep_neighbors(g, cur.node_id, rel_list)):
+            if other in seen:
+                continue                                     # ⛔ 环 + 重复到达: 一个节点只进一次
+            seen.add(other)                                  # ⚠️ **push 时就标记**（pop 才标 = 环上死循环）
+            stack.append(Link(other, cur.depth + 1, cur.node_id, rel, forward))
+    return out
