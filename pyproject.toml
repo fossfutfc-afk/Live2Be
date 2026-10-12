@@ -1,0 +1,99 @@
+# Live2Be — 唯一工程真源。
+#
+#   pip install -e ".[dev]"      # 开发环境（含 pytest / ruff）
+#   pip install .                # 只装运行时
+#   python -m pytest             # 离线测试
+#   python -m uvicorn webgui.app:app --host 127.0.0.1 --port 8000
+#   python main.py               # 终端版 MMT
+#
+# 依赖、测试配置、lint 配置都只在这里写一份；不再有 requirements*.txt 或 pytest.ini。
+
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "live2be"
+version = "0.1.0"
+description = "LLM 驱动的角色互动叙事引擎（MomoTalk 聊天 + 羁绊剧情视觉小说）"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "httpx>=0.27",
+    "certifi>=2024.0.0",
+    "python-dotenv>=1.0",
+    "PyYAML>=6.0",
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
+    "pydantic>=2.6",
+    "jieba>=0.42",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.16",
+    # wiki 可视化（tools/wiki_viz.py）—— networkx 只进 dev，运行时仍是 dict 邻接
+    "networkx>=3.0",
+    "matplotlib>=3.8",
+    "pyvis>=0.3",
+]
+
+# 包自动发现（重构期改包名无需同步清单；只排除非包目录）
+[tool.setuptools.packages.find]
+exclude = [
+    "tests*", "experiments*", "tools*", "archive*", "docs*",
+    "l2d-demo*", "assets*", "data*", "config*", "guidance*",
+]
+
+# ── pytest ────────────────────────────────────────────────────────────────
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "--strict-markers"
+markers = [
+    "api: 需要真实 LLM API key 的手工/连通性测试（默认不跑，显式 -m api 才跑）",
+]
+
+# ── ruff（lint + format，唯一 linter）──────────────────────────────────────
+[tool.ruff]
+target-version = "py312"
+line-length = 110
+# 只认 Python 源文件。默认还会去解析 pyproject.toml 与 *.md，
+# 而 config/**/.md 是「没有文件名只有扩展名」的中文目录说明文件，会被当成 Python 报 invalid-syntax。
+include = ["*.py", "*.pyi"]
+extend-exclude = [
+    ".testtmp",
+    ".pytest_cache",
+    ".ruff_cache",
+    "archive",
+    "experiments",
+    "l2d-demo",
+    "tools",
+    "data",
+    "assets",
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM", "PIE", "RUF", "BLE"]
+ignore = [
+    "E501",   # 行宽 110 交给 formatter，不手抄
+    "B008",   # 默认参数里调函数是既有的构造器风格
+    "RUF001", # 中文全角标点在字符串里是刻意的（裸开就是 35000 条）
+    "RUF002",
+    "RUF003",
+    "UP042",  # `class X(str, Enum)` → `StrEnum` 会改 str()/f-string 输出，是行为变更不是风格
+]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]   # 门面的再导出是刻意的
+"tests/**" = ["F401", "F811"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["apps", "contract", "core", "llm", "renderer", "webgui"]
+
+# ── 类型检查（先只报，不当门禁）───────────────────────────────────────────
+[tool.pyright]
+pythonVersion = "3.12"
+typeCheckingMode = "basic"
+exclude = [".testtmp", "archive", "l2d-demo", "experiments", "tools"]

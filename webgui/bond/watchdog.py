@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """`webgui.bond` 的**看门狗**（C8, `docs/EXEC_SPLIT.md`）—— 把"卡住 = 永久卡住"变成"卡住 = 降级放行"。
 
 ## 放什么
@@ -30,6 +29,7 @@ from webgui.bond.lanes import (
     _scene_obj_visual_ready,
     _scene_visual_ready,
 )
+from webgui.bond.state import BondState
 from webgui.bond.util import _ms_since
 
 logger = logging.getLogger(__name__)

@@ -8,6 +8,10 @@ __pycache__/
 .tmp/
 .testtmp/
 pytest-cache-files-*
+# 打包/安装产物（pip install -e . 会生成 egg-info）
+*.egg-info/
+build/
+dist/
 data/
 assets/*
 !assets/_director_whitelist.json

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """`webgui.bond` 的**状态模型**（C2, `docs/EXEC_SPLIT.md`）—— 拆分的第一个叶子模块。
 
 ## 放什么
@@ -28,6 +27,7 @@
 """
 from __future__ import annotations
 
+import queue
 import threading
 from dataclasses import dataclass, field
 from enum import Enum
@@ -159,16 +159,16 @@ class BondState:
     # 异步标注（两遍式 C 2026-08-31）: emotion 解析挪出玩家等待路径——
     # 骨架先显示, 标注队列单 worker 串行补标, 写回经对象身份检查防竞态
     emo_version: int = 0                       # emotion 补标版本（前端感知补切表情）
-    _anno_queue: "queue.Queue | None" = field(default=None, repr=False)
+    _anno_queue: queue.Queue | None = field(default=None, repr=False)
     _anno_started: bool = field(default=False, repr=False)
     # place 标注 lane（DESIGN_BOND_CONTRACT_V2 §7, P3b-1 2026-09-07）: 与 emotion
     # 双路并行——各自队列/消费者; 推进门控 = 双路齐; 锚点写回 payload 变更句
     # （place 键, 稀有）。场景就绪标记挂 scene 对象（_place_done——判定完成即
     # 含 keep, gate 恒可达）; 分支反应段/无词表/纪念退出 = 视为就绪。
-    _place_queue: "queue.Queue | None" = field(default=None, repr=False)
+    _place_queue: queue.Queue | None = field(default=None, repr=False)
     _place_started: bool = field(default=False, repr=False)
-    _anno_thread: "threading.Thread | None" = field(default=None, repr=False)
-    _place_thread: "threading.Thread | None" = field(default=None, repr=False)
+    _anno_thread: threading.Thread | None = field(default=None, repr=False)
+    _place_thread: threading.Thread | None = field(default=None, repr=False)
     # 在途标注计数（2026-09-13 审计 A6）: worker 从队列取走 → `await` 标注 LLM →
     # 写回, 这段窗口里 `qsize()==0`, 光看队列深度会误判成"lane 空闲"。看门狗据此
     # 区分"慢但在途"（等它）与"没人会再来标"（才降级）——两路各自 +1/−1。

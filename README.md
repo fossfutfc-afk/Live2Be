@@ -43,12 +43,32 @@ assets/  data/          资源与运行时数据（均 gitignore；data/ 下 wor
 ## 测试
 
 ```bash
-pip install -r requirements-dev.txt   # 含 pytest
-python -m pytest                      # 全部离线测试（880 个）
+pip install -e ".[dev]"               # 依赖与测试/lint 配置都在 pyproject.toml
+python -m pytest                      # 全部离线测试
+python -m ruff check .                # lint
 python experiments/web_e2e/run.py     # B 层浏览器冒烟（Playwright 驱动本机 Chrome/Edge）
 ```
 
 需要真实 API 的验证脚本（e2e / 建卡 / API 连通）在 `experiments/`，手工运行、烧 token。
+
+### 环境
+
+解释器用 conda env `live2be`（`C:\Users\johnf\miniconda3\envs\live2be\python.exe`），
+`start.ps1` 与 `.vscode/settings.json` 都指向它。conda `base` 里**没有 jieba**，
+用 `base` 跑测试会挂。
+
+## 代码约定
+
+1. **文件头 docstring ≤ 5 行**：一句话说清"这个模块负责什么"，必要时补一句边界。
+   不写变更史、日期、"用户裁决"、决策编号、执行计划代号（`C8` / `N5b` / `P0-7c` 这类）。
+2. **不留底部注释块**。已删字段的悼词、跨文件考古（"与 `x.py` 的写法相同"——而 `x.py`
+   可能早就不存在了）一律删。史料归 `docs/`，不归代码。
+3. **行内注释只讲"为什么"**，且只在代码本身说不清时才写。讲"曾经是什么"的删。
+4. **类型注解用 `X | None`**（目标 3.12），不用 `Optional`。字符串注解只用于跨模块
+   前向引用，且被引用的名字必须在本模块可见（否则 `typing.get_type_hints` 会炸，
+   IDE 也会报"`|` 不能作用于 `None`"）。
+5. **一个文件只干一类事**；一类职责只有一个真源模块（路径、错误、JSON 容错、重试、原子写）。
+6. **依赖方向单向**：`contract` → `llm` → `engine` → `tui` / `webgui` / `cli`。反向 import 视为 bug。
 
 ## 文档索引
 
