@@ -72,7 +72,7 @@ def test_stances_are_materialized_with_text(tmp_path):
     # 阿露: 名字与别名来自 `profile.yml`（而不是手抄）
     aru = store.get("x0002")
     assert "阿露" in surface_forms(aru), surface_forms(aru)
-    assert aru.text.startswith("陆八魔阿露大人"), aru.text
+    assert aru.text.startswith("陆八魔阿露社长"), aru.text      # ⚠️ 跟着作者那句改（2026-10-12）
     # ⭐ sensei（保留号）的立场是**表里那句**（此前真档一直是空的）
     assert store.get(SENSEI_ID).text.startswith("sensei非常照顾我")
     assert table  # 防"表没读到却全绿"
