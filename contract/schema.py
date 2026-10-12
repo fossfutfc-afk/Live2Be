@@ -60,13 +60,13 @@ def build_schema(registry: ActionRegistry) -> str:
     的"messages 消息流"分支已随 `{"messages":[…]}` 协议**整段删除**。
     示例只给结构骨架——外壳字段以各动作声明为准。
     """
-    names = registry.action_names()
-    if not names:
+    specs = registry.specs()
+    if not specs:
         return "（该动作域尚未注册任何动作）"
 
     union: set[str] = set()
-    for name in names:
-        union |= set(registry.spec(name).prompt_fields)
+    for _name, spec in specs:
+        union |= set(spec.prompt_fields)
 
     lines = ["你必须以单个 JSON 对象输出一个动作。", ""]
     lines.append("外壳字段:")
@@ -75,8 +75,7 @@ def build_schema(registry: ActionRegistry) -> str:
         lines.append(f"  - {f}: {desc}".rstrip())
     lines.append("")
     lines.append("可用动作:")
-    for name in names:
-        spec = registry.spec(name)
+    for name, spec in specs:
         note = _APPROVAL_NOTES.get(spec.approval, spec.approval)
         lines.append(f"  - {name}  [{note}]")
         lines.append(f"      外壳字段: {', '.join(sorted(spec.prompt_fields))}")
@@ -97,8 +96,7 @@ def export_definitions(registry: ActionRegistry) -> dict[str, Any]:
     未来 JS/WebLLM 端可消费同一份数据生成自己的渲染/校验。
     """
     actions = []
-    for name in registry.action_names():
-        spec = registry.spec(name)
+    for name, spec in registry.specs():
         actions.append({
             "action": name,
             "approval": spec.approval,
@@ -158,8 +156,7 @@ def build_line_schema(registry: ActionRegistry, *, with_examples: bool = True) -
         "",
         "可用操作:",
     ]
-    for name in registry.prompt_action_names():          # ⭐ 封印的动作不进 prompt（`in_prompt`）
-        spec = registry.spec(name)
+    for name, spec in registry.prompt_specs():          # ⭐ 封印的动作不进 prompt（`in_prompt`）
         note = _APPROVAL_NOTES.get(spec.approval, spec.approval)
         lines.append(f"  - {name}  [{note}]")
         if spec.payload_schema:

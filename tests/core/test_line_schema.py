@@ -126,6 +126,29 @@ def test_sealed_action_leaves_the_prompt_but_keeps_parsing():
     print("    line-schema: 封印的动作不进 prompt, 但解析照旧认得")
 
 
+def test_specs_is_the_iteration_path_and_specs_are_never_none():
+    """⭐ 遍历注册表走 `specs()` / `prompt_specs()`，**规格必然存在**。
+
+    为什么单开这条（2026-10-13）: 渲染器原先写 `registry.spec(name).prompt_fields`
+    （`name` 来自 `action_names()`）—— 运行时不会炸，但**类型上那是对可能为 `None`
+    的东西取属性**，静态检查与 IDE 都报"不是 None 的已知属性"。那不是注解漏标，
+    是契约缺一个"遍历"入口：按名查可以合法地拿到 None，遍历不该有 None 这个概念。
+    下面三条就是新入口的契约，改坏了它渲染顺序或封印位都会在这里红。
+    """
+    reg = build_mmt_registry()
+    names = reg.action_names()
+    specs = reg.specs()
+    assert [n for n, _s in specs] == names, "遍历顺序必须等于 action_names()（它就是渲染顺序）"
+    for name, spec in specs:
+        assert spec is not None, f"{name} 的规格是 None —— 遍历入口不该有这种可能"
+        assert spec.name == name, (name, spec.name)
+    pnames = reg.prompt_action_names()
+    pspecs = reg.prompt_specs()
+    assert [n for n, _s in pspecs] == pnames, "prompt_specs 必须与 prompt_action_names 同源"
+    assert {n for n, _s in pspecs} < set(names), "封印的动作该在 action_names 里、不在 prompt 里"
+    print(f"    line-schema: specs 遍历 {len(specs)} 个（进 prompt {len(pspecs)} 个）· 规格非 None")
+
+
 def test_examples_are_valid_json_objects():
     """⭐ 示范本身必须合法——`示例才是形状的来源`（CLAUDE.md §8），形状错了模型照抄。"""
     text = build_line_schema(build_mmt_registry())
