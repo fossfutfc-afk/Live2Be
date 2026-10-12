@@ -49,8 +49,17 @@ class ActionRegistry:
         return self._specs.get(name)
 
     def action_names(self) -> list[str]:
-        """已注册动作名（排序）。"""
+        """已注册动作名（排序）—— **包括封印的**（解析/执行照旧认得它们）。"""
         return sorted(self._specs)
+
+    def prompt_action_names(self) -> list[str]:
+        """⭐ **进 prompt 的动作名**（排序）—— `in_prompt=False` 的封印动作**不在内**。
+
+        ⚠️ 与 `action_names()` 的差别就是**封印位**（`ActionSpec.in_prompt`）:
+        渲染"本轮输出契约"用这一个; 解析/执行用那一个。⛔ 别把两者合并
+        （合并 = 封印的动作连"她万一写了"都认不出）。
+        """
+        return sorted(n for n, s in self._specs.items() if getattr(s, "in_prompt", True))
 
     # ------------------------------------------------------------------
     # 校验层：解析 LLM 输出

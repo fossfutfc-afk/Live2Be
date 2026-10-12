@@ -95,7 +95,8 @@ def test_action_table_comes_from_registry():
     """
     reg = build_mmt_registry()
     before = build_line_schema(reg)
-    n = len(reg.action_names())
+    # ⭐ 表里只列**进 prompt** 的动作（封印的动作 `in_prompt=False` 不在内, 见下一条用例）
+    n = len(reg.prompt_action_names())
     assert before.count("  - mmt_") == n, before
     reg.register(ActionSpec(
         "mmt_fake_action", lambda payload: dict(payload), APPROVAL_AUTO,
@@ -105,6 +106,27 @@ def test_action_table_comes_from_registry():
     assert "mmt_fake_action" in after and "note: 假动作（用例用）" in after
     assert after.count("  - mmt_") == n + 1
     print(f"    line-schema: 动作表来自注册表（{n} → {n + 1}, 新增动作自动进 prompt）")
+
+
+def test_sealed_action_leaves_the_prompt_but_keeps_parsing():
+    """⛔⭐ **封印只收 prompt, 不收解析**（2026-10-12 用户裁: `mmt_send_media` 的提示词
+    "暂时先删掉/注释掉" —— 媒体管线还没接, 契约不该承诺"会发图"）。
+
+    两半都要钉住:
+      · 她**看不见**它（动作表不列、payload 描述不印、示例里也没有"发图"那一行）;
+      · 但她万一还是写了, **引擎照旧认得**（`action_names()` 还在、`parse` 不报未知动作）——
+        ⛔ 把两者合成一个 = 封印的动作连"兜底"都认不出。
+    """
+    reg = build_mmt_registry()
+    text = build_line_schema(reg)
+    assert "mmt_send_media" in reg.action_names(), "封印≠注销: 解析/执行照旧要认得它"
+    assert "mmt_send_media" not in reg.prompt_action_names()
+    assert "mmt_send_media" not in text, "封印的动作不许出现在她看到的契约里"
+    assert "发图" not in text and "图片" not in text, "示例/说明里也不许再承诺发图"
+    # 解析照旧（她写了不炸）: 注册表照着老路规范出 payload
+    spec = reg.spec("mmt_send_media")
+    assert spec is not None and spec.parse_payload({"image": "夕阳"})["media_type"] == "image"
+    print("    line-schema: 封印的动作不进 prompt, 但解析照旧认得")
 
 
 def test_examples_are_valid_json_objects():
@@ -120,8 +142,9 @@ def test_examples_are_valid_json_objects():
     kinds = [next(k for k in ("text", "action", "noticed") if k in json.loads(r))
              for r in rows]
     assert {"action", "text", "noticed"} <= set(kinds)   # 三类行都有示范
-    # 交错顺序：文本示范里第一条是 text、第二条是 action（话→图→话 的演示）
-    assert kinds[0] == "text" and kinds[1] == "action"
+    # 交错顺序：文本示范里第一条是 text、第二条是 text（连发形状；⛔ 发图那一版示范
+    # 随 `mmt_send_media` 封印于 2026-10-12 撤掉 —— 契约不再演示操作行与消息行交错）
+    assert kinds[0] == "text" and kinds[1] == "text"
     print(f"    line-schema: {len(rows)} 条示范行全部合法 JSON 且判别键唯一")
 
 
