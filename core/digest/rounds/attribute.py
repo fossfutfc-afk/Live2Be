@@ -61,6 +61,12 @@ def run(ctx: Ctx) -> RoundOut:
         # ⭐ **事件驱动**: 没有陌生人 ⇒ 一次调用都不发（这是 E4 的成本判据）
         ctx.log_skip(spec)
         return RoundOut.skipped()
+    # ⚠️ **故意还是 `casefold`**（不是 `entities.form_key`）: 这个集合要交给
+    #    `contract/digest_registry.parse_attribution`, 而**契约层不许 import core**
+    #    （`tests/core/test_import_direction.py`）⇒ 想两端同时换成 `form_key`,
+    #    得先把那个纯字符串件**下移到 `contract/`（或 `core.common`）** —— 那是代码组织的活。
+    #    今天不影响正确性: 执行层 `revise.apply_entities` 用 `find_entity`（**已经是 form_key**）
+    #    再挡一道 ⇒ 这里只是"早一步、友好地"丢行, 差别只在台账那一笔。
     known = {f.casefold() for n in ctx.store.all() if n.kind == "entity"
              for f in surface_forms(n)}
     obj_text, _obj_ids = object_lines(ctx.store, texts=_node_texts(ctx.store, ids))

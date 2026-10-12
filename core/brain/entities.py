@@ -56,11 +56,11 @@ x0001 = sensei   （老师/玩家）
 ⇒ `伊草遥香` ≡ `伊草 遥香` ≡ `伊草  遥香`（`str.split()` 按 Unicode 空白切, 含全角 U+3000）。
 
 ⛔ **别在调用方再 `casefold()` 一遍**（同一套归一只有这一处）;
-⚠️ 三个用它的地方: `find_entity`（`look` 的 `entity` 轴 + digest 的 `#entity:` 认人）·
-`like.build_ctx`（P19 的 `name` 段触发面）· `_materialize_stances` 的幂等键
-（否则 `伊草遥香` 与 `伊草 遥香` 会被当成两个人各建一个）。
-⚠️ **没铺到** `hit_set`/`_body_hits`（那是"称呼出现在正文里"的**正文扫描**, 另一套语义:
-正文里本来就少写空格, 且它按 `MIN_HIT_LEN` 卡短称呼）—— 要铺就说一声。
+⚠️ **四个用它的地方**（2026-10-12 起含 `hit_set`）: `find_entity`（`look` 的 `entity` 轴 +
+digest 的 `#entity:` 认人）· `like.build_ctx`（P19 的 `name` 段触发面）·
+`_materialize_stances` 的幂等键（否则 `伊草遥香` 与 `伊草 遥香` 会被当成两个人各建一个）·
+`hit_set`/`_body_hits`（R3 的**正文扫描** —— 两边都归一, 见 `_body_hits` 的实测注）。
+⚠️ **digest 侧还有一处它自己的归一**（`rounds/attribute.py` 的 `known` 集合）—— 同样走 `form_key`。
 """
 from __future__ import annotations
 
@@ -308,17 +308,20 @@ def hit_set(store: WikiStoreV2, *, texts=()) -> list[str]:
     ⇒ 正文就是全部（`REDUNDANCY.md` §十）。
 
     规则: 称呼出现在 `texts` 里（短于 `MIN_HIT_LEN` 的称呼**不扫** —— 中文没有词边界）。
+    ⭐ **2026-10-12: 两边都过 `form_key`**（去空白 + casefold）—— 与 `find_entity` /
+    `like.build_ctx` **同一套归一**（见模块 docstring）: 卡上的名字带一个空格
+    （`伊草 遥香`）而正文多半写成 `伊草遥香` ⇒ 逐字比会把这个人整条漏掉（**静默**）。
 
     Args:
         texts: 本轮正文（调用方给: 新节点的 `text`, 需要时连 `title`/`verbatim`）
 
     Returns: 命中的 entity id（id 升序; 空 = 一个都没提到）。
     """
-    texts_cf = [t.casefold() for t in _strings(texts)]
+    texts_key = [form_key(t) for t in _strings(texts)]
     out: list[str] = []
     for n in candidates(store):
         forms = surface_forms(n)
-        if any(_body_hits(f, texts_cf) for f in forms):
+        if any(_body_hits(f, texts_key) for f in forms):
             out.append(n.id)
     return out
 
@@ -544,12 +547,21 @@ def object_lines(store: WikiStoreV2, *, texts=()) -> tuple[str, list[str]]:
     return "\n".join(lines), [n.id for n in rows]
 
 
-def _body_hits(form: str, texts_cf: list[str]) -> bool:
-    """称呼出现在本轮正文里（`texts_cf` 已 casefold）。短称呼不扫, 见 `MIN_HIT_LEN`。"""
-    if len(form) < MIN_HIT_LEN:
+def _body_hits(form: str, texts_key: list[str]) -> bool:
+    """称呼出现在本轮正文里（`texts_key` 已 `form_key` 归一）。短称呼不扫, 见 `MIN_HIT_LEN`。
+
+    ⚠️ **长度按归一后的算**（`len(key)`）: `阿 ` 这种"带空白的两字符"归一后是单字,
+    放行就等于让一个单字去扫全文（中文没有词边界 —— `MIN_HIT_LEN` 挡的正是这个）。
+    ⚠️ 正文一侧也去空白 ⇒ 理论上存在"跨空白拼出一个名字"的误命中（`并没有 月色` 里
+    拼出 `无月`）。**真档实测（2026-10-12, haruka 21 条 episode × 4 个 entity）:
+    逐字 / 单边归一 / 双边归一 三种口径的命中集**完全相同** ⇒ 今天零误命中;
+    换来的是"名字带空格 vs 正文不带"这条整类漏检消失。要收紧就只归一 form 一侧
+    （代价: 正文写成 `伊草 遥香` 时反过来漏）。
+    """
+    key = form_key(form)
+    if len(key) < MIN_HIT_LEN:
         return False
-    f = form.casefold()
-    return any(f in t for t in texts_cf)
+    return any(key in t for t in texts_key)
 
 
 def _strings(v) -> list[str]:
