@@ -8,14 +8,28 @@
 import sys
 from pathlib import Path
 
-
-from contract.records import (CHARACTER_NARRATOR, CHARACTER_SENSEI,  # noqa: E402
-                              ISSUE_SEVERITY, KIND_CHARACTER, KIND_STAGE,
-                              MAX_SENSEI_RUN, VnBlock, VnRecord, Issue,
-                              IssueCode, IssueSeverity, check_block,
-                              is_main_speaker, normalize_main_character,
-                              parse_line, parse_stream, render_records,
-                              sensei_group_labels, sensei_groups, split_issues)
+from contract.records import (  # noqa: E402
+    CHARACTER_NARRATOR,
+    CHARACTER_SENSEI,
+    ISSUE_SEVERITY,
+    KIND_CHARACTER,
+    KIND_STAGE,
+    MAX_SENSEI_RUN,
+    Issue,
+    IssueCode,
+    IssueSeverity,
+    VnBlock,
+    VnRecord,
+    check_block,
+    is_main_speaker,
+    normalize_main_character,
+    parse_line,
+    parse_stream,
+    render_records,
+    sensei_group_labels,
+    sensei_groups,
+    split_issues,
+)
 
 
 def _rec(value, text="x", kind=KIND_CHARACTER, line_no=0) -> VnRecord:
@@ -466,8 +480,7 @@ def test_board_split_batch_stream_equivalence():
     （群后 switch / 超长群 / 群中 switch / 群结尾 / art+memorial）逐板比对,
     含 `place_hint`, 防的是"以后改一边忘了另一边"。
     """
-    from contract.records import (STAGE_ART, BlockStreamParser,  # noqa: E402
-                                  MAX_SENSEI_RUN)
+    from contract.records import MAX_SENSEI_RUN, STAGE_ART, BlockStreamParser  # noqa: E402
     from core.bond.bond_story import BondScene, _board_spans  # noqa: E402
 
     S = lambda t: '{"stage": "switch", "text": "%s"}' % t          # noqa: E731

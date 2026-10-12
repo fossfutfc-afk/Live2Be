@@ -11,8 +11,12 @@ from __future__ import annotations
 from typing import Any
 
 from contract.constants import (
-    DOMAIN_IDE, DOMAIN_MMT,
-    MAX_BASIS_COUNT, MAX_REPLY_LENGTH, MAX_SOURCE_COUNT, MAX_SUMMARY_LENGTH,
+    DOMAIN_IDE,
+    DOMAIN_MMT,
+    MAX_BASIS_COUNT,
+    MAX_REPLY_LENGTH,
+    MAX_SOURCE_COUNT,
+    MAX_SUMMARY_LENGTH,
 )
 from contract.errors import err
 from contract.model import AgentAction, ContractError, ValidationResult

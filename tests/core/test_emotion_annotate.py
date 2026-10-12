@@ -9,7 +9,6 @@
 import sys
 from pathlib import Path
 
-
 from llm import task_labels as T  # noqa: E402
 from tests import stub_tasks  # noqa: E402
 from tests.vn_fixtures import scene as _scene  # noqa: E402

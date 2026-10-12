@@ -40,7 +40,7 @@ class RenderState:
     sprite_stack: list[str] = field(default_factory=list)
     effects: list[list[str]] = field(default_factory=list)
     paragraph_index: int = -1
-    audio: "AudioRequest | None" = None       # noqa: F821 — 未来字段, audio.py 定义
+    audio: AudioRequest | None = None       # noqa: F821 — 未来字段, audio.py 定义
     choices: list[str] = field(default_factory=list)
     is_end: bool = False
 

@@ -10,12 +10,11 @@
     桥          to_action_raw → registry.parse（形状过了, 字段级仍由 registry 判）
     无救援      转义错 = 丢行（A5：MMT 不做 _rescape_repair）
 """
-import sys
 import pathlib
+import sys
 
-
-from core.mmt.mmt_actions import build_mmt_registry                    # noqa: E402
-from core.mmt.mmt_lines import (                                       # noqa: E402
+from core.mmt.mmt_actions import build_mmt_registry  # noqa: E402
+from core.mmt.mmt_lines import (  # noqa: E402
     KIND_ACTION,
     KIND_TEXT,
     MmtLine,
@@ -24,7 +23,6 @@ from core.mmt.mmt_lines import (                                       # noqa: E
     parse_lines,
     to_action_raw,
 )
-
 
 # ---------------------------------------------------------------------------
 # 形状

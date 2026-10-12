@@ -9,7 +9,6 @@
 import sys
 from pathlib import Path
 
-
 from core.session.events import make_event
 from core.session.renderer import (
     render_bond_scene_text,

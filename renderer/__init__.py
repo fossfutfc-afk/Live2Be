@@ -25,7 +25,7 @@
 """
 from renderer.audio import AudioRequest
 from renderer.background import BackgroundResolver, BackgroundResult
-from renderer.core import RenderOutput, Renderer
+from renderer.core import Renderer, RenderOutput
 from renderer.effects import EffectResolver
 from renderer.scene import RenderScene
 from renderer.sprite import SpriteResolver

@@ -23,8 +23,8 @@ scene_id 由**文件名**派生, 与目录层级无关（用户同步的是 `SDI
 from __future__ import annotations
 
 import os
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Iterator
 
 from core import paths
 from core.common.errors import Live2BeError

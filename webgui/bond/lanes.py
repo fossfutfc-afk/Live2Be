@@ -21,19 +21,19 @@
 """
 from __future__ import annotations
 
+import logging
 import queue
 import threading
 import time
-import logging
 
 from core.bond.bond_story import BondScene
 from webgui.bond.state import BondState
-from webgui.bond.util import _ms_since      # ⚠️ C4 漏了这一行（见 tests/core/test_split_safety.py 的泄漏守门）
+from webgui.bond.util import _ms_since  # ⚠️ C4 漏了这一行（见 tests/core/test_split_safety.py 的泄漏守门）
 
 logger = logging.getLogger(__name__)
 
 
-def _memorial_no_visuals(state: "BondState", scene=None) -> bool:
+def _memorial_no_visuals(state: BondState, scene=None) -> bool:
     """这一板**整板**都在纪念视觉里（立绘隐藏 + 普通背景清空）→ 标注无意义。
 
     依据（前端定稿行为, `bond.js::applyMemorial`）: 纪念窗口期间立绘整层隐藏 +

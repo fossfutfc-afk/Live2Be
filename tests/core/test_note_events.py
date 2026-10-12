@@ -16,9 +16,8 @@
 import sys
 from pathlib import Path
 
-
-from core.digest.pipeline import digest_segment
 from core.brain.store import WikiStoreV2
+from core.digest.pipeline import digest_segment
 from core.mmt.engine import _interact_max
 from core.session import make_event
 from core.session.events import (

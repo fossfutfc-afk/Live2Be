@@ -15,10 +15,14 @@ import sys
 from datetime import date
 from pathlib import Path
 
-
 from core.brain import WikiStoreV2, make_node, notes
-from core.digest.material import (_ledger_ids, _open_pinned_text, _parse_month_day,
-                                  _segment_days, _segment_time_text)
+from core.digest.material import (
+    _ledger_ids,
+    _open_pinned_text,
+    _parse_month_day,
+    _segment_days,
+    _segment_time_text,
+)
 from core.digest.pipeline import digest_segment
 from core.session import make_event
 from llm import task_labels as T

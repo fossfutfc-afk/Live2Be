@@ -63,11 +63,10 @@
 """
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Iterable
 
-from core.brain.graph import (REL_AKIN, REL_CONTRADICTS, REL_EVOLVED_FROM,
-                              REL_MEMBER_OF, graph_of)
+from core.brain.graph import REL_AKIN, REL_CONTRADICTS, REL_EVOLVED_FROM, REL_MEMBER_OF, graph_of
 from core.brain.read.find import _order as _newest_key
 from core.brain.read.like import _STRUCT_EDGES
 

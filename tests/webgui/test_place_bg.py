@@ -15,8 +15,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-
-from webgui.routers.bond import _place_bg, _resolve_scene      # noqa: E402
+from webgui.routers.bond import _place_bg, _resolve_scene  # noqa: E402
 
 
 def test_table_keys_resolve_to_real_urls():

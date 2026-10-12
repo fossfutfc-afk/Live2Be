@@ -19,8 +19,9 @@ import json
 import logging
 import os
 import time
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 import certifi
 import httpx
@@ -355,7 +356,7 @@ class LLMClient:
     def close(self) -> None:
         self._http.close()
 
-    def __enter__(self) -> "LLMClient":
+    def __enter__(self) -> LLMClient:
         return self
 
     def __exit__(self, *args: object) -> None:

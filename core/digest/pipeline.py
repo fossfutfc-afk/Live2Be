@@ -66,22 +66,30 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Any
 
 from core.brain.read.recall import EmbedFn
 from core.brain.store import WikiStoreV2
-from core.creep import KIND_DIGEST_GAP, KIND_DIGEST_SKIP, build as creep_build
+from core.creep import KIND_DIGEST_GAP, KIND_DIGEST_SKIP
+from core.creep import build as creep_build
 from core.creep import pick as creep_pick
 from core.digest.material import _collect_visual_prompts, _segment_emotion_keys
 from core.digest.rounds import (
-    ROUNDS,
     DIGEST_SEGMENT_HARD_CAP,
+    ROUNDS,
     Cursor,
     RoundSpec,
+    akin,
+    attribute,
+    cognize,
+    group,
+    record,
+    relate,
     reset_result,
+    split,
 )
-from core.digest.rounds import akin, attribute, cognize, group, record, relate, split
 from core.digest.rounds.base import Ctx, RoundOut
 from core.digest.segment import _segment_domain
 from core.session.events import is_content_event
@@ -337,7 +345,7 @@ def digest_segment(
     #    → **玩完（`vn_exit`）那一刻 = 玩家过完整段** → 那一刻才是记忆形成时刻。
     # **为什么用 `new_events` 而不是全部事件**: 后者会取到 digest 自己刚写的
     #    `affection/digest`（本次调用内生成）—— 循环依赖。
-    from core.worldtime.age import now_ts as _now_ts      # 写侧单一真源（带时区）
+    from core.worldtime.age import now_ts as _now_ts  # 写侧单一真源（带时区）
     now_ts = ((new_events[-1].ts or "").strip()
               or _now_ts())
     # （原 `segment_id = f"seg-{interact_max}"` 2026-09-21 删——段边界本来就由 marker

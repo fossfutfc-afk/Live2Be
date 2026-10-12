@@ -17,7 +17,6 @@ from pathlib import Path
 
 import pytest
 
-
 from core.mmt.engine import SHAPE_RETRY_MAX, MmtLoopError, MomoTalkEngine
 from llm import task_labels as T
 from tests import stub_tasks

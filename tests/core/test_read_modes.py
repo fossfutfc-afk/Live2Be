@@ -25,12 +25,11 @@ from pathlib import Path
 
 import pytest
 
-
-from core.brain import WikiStoreV2, make_node                     # noqa: E402
-from core.brain.read import modes                                 # noqa: E402
-from core.brain.read.find import ANCHORS                          # noqa: E402
-from core.brain.read.like import SPECS, RecallCtx, like           # noqa: E402
-from core.brain.read.render import render_recall_block            # noqa: E402
+from core.brain import WikiStoreV2, make_node  # noqa: E402
+from core.brain.read import modes  # noqa: E402
+from core.brain.read.find import ANCHORS  # noqa: E402
+from core.brain.read.like import SPECS, RecallCtx, like  # noqa: E402
+from core.brain.read.render import render_recall_block  # noqa: E402
 
 NOW = datetime(2026, 10, 12, 21, 0, tzinfo=timezone(timedelta(hours=8)))
 CHAR = "igusa_haruka"

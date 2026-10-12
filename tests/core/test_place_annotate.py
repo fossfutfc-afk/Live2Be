@@ -11,9 +11,7 @@ prompt 占位替换/与 rules 的判据镜像防漂移。
 import sys
 from pathlib import Path
 
-
-from core.bond.place_annotate import (_RESOLVE_CACHE, _clean_anchors,  # noqa: E402
-                                      annotate_places, resolve_place)
+from core.bond.place_annotate import _RESOLVE_CACHE, _clean_anchors, annotate_places, resolve_place  # noqa: E402
 from llm import task_labels as T  # noqa: E402
 from llm.prompts import load_prompt
 from llm.task_levels import max_tokens as tl_max_tokens

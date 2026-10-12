@@ -5,15 +5,19 @@
 三条钉第 3 轮**输入侧**三件套（候选表只给身份 / 命中集确定性规则 / 载荷区只给命中集）。
 其余（audit 干净 / 渲染不误注入 / classify_pair 的 about 方向）已有别处覆盖。
 """
-import sys
 import pathlib
+import sys
 
-
-from core.brain import WikiStoreV2, make_node                  # noqa: E402
-from core.brain.entities import (                             # noqa: E402
-    SELF_ID, SENSEI_ID, candidate_table, ensure_entities, hit_set, payload_block,
+from core.brain import WikiStoreV2, make_node  # noqa: E402
+from core.brain.entities import (  # noqa: E402
+    SELF_ID,
+    SENSEI_ID,
+    candidate_table,
+    ensure_entities,
+    hit_set,
+    payload_block,
 )
-from core.brain.nodes import KINDS, BrainNode                  # noqa: E402
+from core.brain.nodes import KINDS, BrainNode  # noqa: E402
 
 
 def _store(tmp_path) -> WikiStoreV2:

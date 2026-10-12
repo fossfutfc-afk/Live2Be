@@ -18,9 +18,23 @@ from pathlib import Path
 import pytest
 
 from core.brain import WikiStoreV2, make_node
-from core.brain.read.like import (EVIDENCE, GATE, PARTS, SPECS, Part, RecallCtx, Spec,
-                                  build_ctx, like, part_lexical, part_name, part_prior,
-                                  part_struct, part_temporal, plan)
+from core.brain.read.like import (
+    EVIDENCE,
+    GATE,
+    PARTS,
+    SPECS,
+    Part,
+    RecallCtx,
+    Spec,
+    build_ctx,
+    like,
+    part_lexical,
+    part_name,
+    part_prior,
+    part_struct,
+    part_temporal,
+    plan,
+)
 from core.brain.read.pack import Candidate, ledger_line
 
 #: 固定的"现在"（**现实日**轴; 与 `age_days` / `freshness` 同一套时区）

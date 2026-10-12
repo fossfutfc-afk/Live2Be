@@ -18,7 +18,8 @@ from __future__ import annotations
 import json
 import logging
 import time
-from typing import TYPE_CHECKING, Any, Callable
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
 
 from contract.digest_registry import digest_registry
 from core.digest.llm_call import llm_chat
@@ -74,7 +75,7 @@ def _round_call(
     extra_body: dict | None,
     hard_deadline: float,
     parse_fn: Callable[[dict], tuple[Any, Any]],
-    result: "DigestResult",
+    result: DigestResult,
 ) -> tuple[Any | None, dict | None]:
     """一轮 LLM 调用: 调用 → parse → 结构被拒 → assistant 原文 + 错误回灌重试 1 次。
 

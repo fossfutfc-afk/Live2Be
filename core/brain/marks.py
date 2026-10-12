@@ -100,7 +100,7 @@ def name(title: object) -> str:
     return f"{NAME_OPEN}{title}{NAME_CLOSE}"
 
 
-def kind_tag(node: "BrainNode") -> str:
+def kind_tag(node: BrainNode) -> str:
     """节点类型: `episode` / `belief` / `group`（**不带方括号** —— 括号表里 `[]` 另有含义）。
 
     ⚠️ **类型从节点上取, 不由调用方传进来**（传进来就有两个真源, 而"类型怎么印"
@@ -151,7 +151,7 @@ def abs_date(ts: object, now) -> str:
 # 3. 信息头
 # ---------------------------------------------------------------------------
 
-def head(node: "BrainNode | None" = None, *, key: str = "", kind: bool = False,
+def head(node: BrainNode | None = None, *, key: str = "", kind: bool = False,
          now=None, extra: object = ()) -> str:
     """⭐ **信息头**: `〔钥匙｜《名字》｜类型｜相对｜绝对｜…读者自己的字段〕`。
 

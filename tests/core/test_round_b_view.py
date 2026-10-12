@@ -13,13 +13,13 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-
-from core.brain import WikiStoreV2, make_node          # noqa: E402
-from core.digest.material import _round_b_material        # noqa: E402
-from core.brain.read.recall import recommend_candidates     # noqa: E402
-from core.brain.read.render import (                        # noqa: E402
-    render_cognition_line, render_cognition_list,
+from core.brain import WikiStoreV2, make_node  # noqa: E402
+from core.brain.read.recall import recommend_candidates  # noqa: E402
+from core.brain.read.render import (  # noqa: E402
+    render_cognition_line,
+    render_cognition_list,
 )
+from core.digest.material import _round_b_material  # noqa: E402
 
 
 def _belief(st, text, *, subject="", sig=0.9, tags=None, eid=None):

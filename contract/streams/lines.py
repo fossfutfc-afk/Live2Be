@@ -23,7 +23,6 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from typing import Any
 
-
 #: 末行悬空修复候选（依次尝试）
 TAIL_REPAIRS = ('"}', "}")
 

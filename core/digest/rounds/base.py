@@ -22,8 +22,9 @@
 """
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any
 
 from core.digest.call import _log_skip, _parse_for, _round_call, _system_for
 from core.digest.material import _sections_for
@@ -40,9 +41,9 @@ class Ctx:
     """这一段共享的一切 —— 编排建一次, 六轮各拿它干活。"""
 
     # ── 引擎四件 ──
-    store: "WikiStoreV2"
+    store: WikiStoreV2
     llm: Any
-    result: "DigestResult"
+    result: DigestResult
     cursor: Cursor
 
     # ── 模型参数六件（六轮同一套; 每轮调用只差 system / user / parse）──
@@ -73,7 +74,7 @@ class Ctx:
     now_ts: str
     """段的日期 = **段内最后一条内容事件**的时刻（不是"写库时刻"）。"""
 
-    embed_fn: "EmbedFn | None" = None
+    embed_fn: EmbedFn | None = None
     aff_at_encoding: float | None = None
 
     # ── 跨轮产物（⭐ 只有这四样）──
@@ -154,21 +155,21 @@ class RoundOut:
     说（编排不去猜），且必须是表里 `result_fields` 声明过的字段（编排当场核对）。"""
 
     @classmethod
-    def done(cls) -> "RoundOut":
+    def done(cls) -> RoundOut:
         """跑成了。"""
         return cls(ok=True)
 
     @classmethod
-    def skipped(cls) -> "RoundOut":
+    def skipped(cls) -> RoundOut:
         """按表跳过 —— 不是失败。"""
         return cls(ok=True, skip=True)
 
     @classmethod
-    def failed(cls) -> "RoundOut":
+    def failed(cls) -> RoundOut:
         """挂了 ⇒ **整段回滚**（默认; 要自吞就得明说）。"""
         return cls()
 
     @classmethod
-    def swallowed(cls, field: str) -> "RoundOut":
+    def swallowed(cls, field: str) -> RoundOut:
         """挂了, 但只回滚自己（`field` = errors 挪去哪）—— 只有分群走这条。"""
         return cls(swallow=True, warnings_field=field)

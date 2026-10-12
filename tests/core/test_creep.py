@@ -17,7 +17,6 @@ import random
 import sys
 from pathlib import Path
 
-
 from core.creep import (  # noqa: E402
     KIND_DIGEST_SKIP,
     KINDS,

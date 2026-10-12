@@ -24,8 +24,7 @@ from pathlib import Path
 
 import yaml
 
-
-from core.mmt.mmt_executor import load_interperson      # noqa: E402
+from core.mmt.mmt_executor import load_interperson  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 REAL = ROOT / "config" / "settings" / "relation" / "interperson.yml"

@@ -22,9 +22,11 @@
 
 from __future__ import annotations
 
+import logging
 import threading
 import time
-import logging
+from pathlib import Path
+
 from core.media.gallery import GalleryStore
 from core.session.events import (
     M_MEMORIAL_IMAGE,
@@ -34,7 +36,6 @@ from core.session.events import (
 )
 from core.session.staging import staging_store
 from llm.image_gen import collect_ref_images
-from pathlib import Path
 from webgui import chat, deps
 from webgui.bond.state import BondState
 from webgui.bond.stores import (

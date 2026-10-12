@@ -72,15 +72,20 @@ from __future__ import annotations
 
 import logging
 import math
+from collections.abc import Callable
 from dataclasses import dataclass, field, replace
-from typing import Callable
 
 from core.brain.address import normalize_title
 from core.brain.entities import form_key
 from core.brain.graph import REL_AKIN, REL_MEMBER_OF, graph_of
 from core.brain.read.pack import Candidate, body_of, ledger_line
-from core.worldtime.age import (DEFAULT_FRESHNESS_FLOOR, DEFAULT_HALF_LIFE_DAYS,
-                               age_days, freshness, render_relative)
+from core.worldtime.age import (
+    DEFAULT_FRESHNESS_FLOOR,
+    DEFAULT_HALF_LIFE_DAYS,
+    age_days,
+    freshness,
+    render_relative,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -170,7 +175,7 @@ class RecallCtx:
     degraded: tuple[str, ...] = ()
 
 
-def build_ctx(store, ctx: RecallCtx, *, active: "tuple[str, ...] | list[str]" = (),
+def build_ctx(store, ctx: RecallCtx, *, active: tuple[str, ...] | list[str] = (),
               ) -> RecallCtx:
     """把**派生料**算出来（只算"这次真调的那几路"要的那几份）:
 
@@ -456,7 +461,7 @@ class Part:
     ⚠️ 权重**不在这儿** —— 它是"这个场景怎么用这一路", 归 `Spec`（见 `_plan`）。
     """
 
-    fn: Callable[[object, "RecallCtx"], tuple[float, str]]
+    fn: Callable[[object, RecallCtx], tuple[float, str]]
     #: 轴: `EVIDENCE`（证据轴, **可准入**）· `PRIOR`（先验轴, 只加成）· `GATE`（闸门, **不进加权平均**）
     axis: str = EVIDENCE
     #: 尺度: `UNIT`（自报 [0,1] 绝对分, 原样用）· `COSINE`（池内 min-max 归一后再用）
@@ -557,7 +562,7 @@ def plan(spec: str = "turn", weights: dict[str, float] | None = None,
     return out
 
 
-def like(store, ctx: "RecallCtx", *, spec: str = "turn",
+def like(store, ctx: RecallCtx, *, spec: str = "turn",
          k: int | None = None, weights: dict[str, float] | None = None,
          ) -> list[Candidate]:
     """一段情境 → **最像的 k 条**（降序; 准入 = 证据轴至少一路命中）。
@@ -671,7 +676,7 @@ def _hit_k() -> int:
     return max(int(_knob("sim_k", DEFAULT_HIT_K)), 1)
 
 
-def _has(ctx: "RecallCtx", name: str) -> bool:
+def _has(ctx: RecallCtx, name: str) -> bool:
     """`ctx` 的某个输入字段有没有值（`None` / 空串 / 空序列都算没有）。"""
     val = getattr(ctx, name, None)
     if val is None:

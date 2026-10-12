@@ -41,11 +41,16 @@ from __future__ import annotations
 
 import logging
 
-from core.digest.material import (_ledger_ids, _open_pinned_text, _overdue_detail,
-                                 _segment_days, _segment_time_text, _special_days_text)
+from core.digest.material import (
+    _ledger_ids,
+    _open_pinned_text,
+    _overdue_detail,
+    _segment_days,
+    _segment_time_text,
+    _special_days_text,
+)
 from core.digest.rounds.base import Ctx, RoundOut
-from core.digest.segment import (_collapse_bond_episodes, _coverage, _expand_spans,
-                                _tail_and_holes)
+from core.digest.segment import _collapse_bond_episodes, _coverage, _expand_spans, _tail_and_holes
 
 logger = logging.getLogger(__name__)
 

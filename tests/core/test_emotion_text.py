@@ -19,7 +19,6 @@
 import sys
 from pathlib import Path
 
-
 from tests.vn_fixtures import scene  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent.parent

@@ -13,9 +13,8 @@ import os
 import pathlib
 import sys
 
-
-from core.common import atomic                                   # noqa: E402
-from core.session import io as sio                               # noqa: E402
+from core.common import atomic  # noqa: E402
+from core.session import io as sio  # noqa: E402
 
 
 def _boom(*_a, **_kw):

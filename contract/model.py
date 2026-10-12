@@ -91,7 +91,7 @@ class AgentAction:
         }
 
     @classmethod
-    def from_dict(cls, raw: dict[str, Any]) -> "AgentAction":
+    def from_dict(cls, raw: dict[str, Any]) -> AgentAction:
         """从 wire format 还原（JS 端传来的动作 JSON 等）。
 
         容错处理：缺失字段取默认值；sources/basis 逐项转 str。

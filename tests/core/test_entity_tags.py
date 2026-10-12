@@ -15,13 +15,16 @@
 import sys
 from pathlib import Path
 
-
-from contract.digest_registry import (ENTITY_TAG_PREFIX, ENTITY_TAGS_MAX,
-                                      MAX_TAGS, PHASE_RECORD, _split_tags,
-                                      digest_registry)
+from contract.digest_registry import (
+    ENTITY_TAG_PREFIX,
+    ENTITY_TAGS_MAX,
+    MAX_TAGS,
+    PHASE_RECORD,
+    _split_tags,
+    digest_registry,
+)
 from core.brain import WikiStoreV2, make_node
-from core.brain.entities import (ensure_entities, find_entity, hit_set,
-                                 normalize_entity_tags, surface_forms)
+from core.brain.entities import ensure_entities, find_entity, hit_set, normalize_entity_tags, surface_forms
 from core.digest.episodes import _create_a_nodes
 
 CHAR = "c"

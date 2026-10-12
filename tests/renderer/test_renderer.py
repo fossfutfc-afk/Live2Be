@@ -13,21 +13,18 @@
 import sys
 from pathlib import Path
 
-
-
+from core.media.catalog import MediaCatalog
 from renderer import (
     AudioRequest,
     BackgroundResolver,
     BackgroundResult,
     EffectResolver,
-    RenderScene,
     Renderer,
+    RenderScene,
     RenderState,
     SpriteResolver,
 )
 from renderer.cli import _fx_symbol, render_choices
-from core.media.catalog import MediaCatalog
-
 
 # ----------------------------------------------------------------------------
 # 假资产（与 tests/core/test_media.py 同构——tmp 目录免真实 assets 依赖）

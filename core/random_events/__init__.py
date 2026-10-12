@@ -20,8 +20,8 @@ from __future__ import annotations
 import random
 from typing import Any
 
-from core.random_events.spec import EventSpec, get_event, register
 from core.random_events.events import build_default_events
+from core.random_events.spec import EventSpec, get_event, register
 
 #: 全局开关（False → fire_event 恒返回 None; 测试/确定性场景）
 _ENABLED = True

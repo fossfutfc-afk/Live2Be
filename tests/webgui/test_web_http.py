@@ -24,7 +24,6 @@ from pathlib import Path
 
 import pytest
 
-
 from core.mmt.engine import MomoTalkEngine  # noqa: E402
 from core.session import SessionStore  # noqa: E402
 from llm import task_labels as T  # noqa: E402

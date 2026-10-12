@@ -20,14 +20,11 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import pytest  # noqa: E402
 
-from core.brain import WikiStoreV2, make_node                       # noqa: E402
-from core.brain.graph import (REL_AKIN, REL_CONTRADICTS,            # noqa: E402
-                              REL_EVOLVED_FROM, REL_MEMBER_OF)
-from core.brain.read.walk import (DECAY, DEEP, NARROW, bfs, chain,  # noqa: E402
-                                  neighbors)
-
-import pytest                                                       # noqa: E402
+from core.brain import WikiStoreV2, make_node  # noqa: E402
+from core.brain.graph import REL_AKIN, REL_CONTRADICTS, REL_EVOLVED_FROM, REL_MEMBER_OF  # noqa: E402
+from core.brain.read.walk import DECAY, DEEP, NARROW, bfs, chain, neighbors  # noqa: E402
 
 CHAR = "igusa_haruka"
 

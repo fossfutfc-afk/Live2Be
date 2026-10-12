@@ -17,9 +17,9 @@ from pathlib import Path
 
 import pytest
 
-
-from webgui.routers.bond import (                        # noqa: E402
-    _fallback_bg_url, _resolve_scene,
+from webgui.routers.bond import (  # noqa: E402
+    _fallback_bg_url,
+    _resolve_scene,
 )
 
 CHAR = "igusa_haruka"

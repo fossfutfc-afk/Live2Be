@@ -30,8 +30,7 @@ import logging
 
 from core.brain.read.render import render_cognition_list
 from core.brain.revise import apply_cognitions
-from core.digest.material import (_groups_for_l2, _l2_material,
-                                    existing_entities_line, _node_texts)
+from core.digest.material import _groups_for_l2, _l2_material, _node_texts, existing_entities_line
 from core.digest.rounds.base import Ctx, RoundOut
 from core.digest.rounds.relate import DIGEST_COGNITION_CAP
 

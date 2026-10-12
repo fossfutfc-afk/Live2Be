@@ -21,10 +21,11 @@ player experience（§4.4）: 组织视图带 [关于老师] 标记; 角色视�
 """
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Iterable
+from collections.abc import Iterable
+from typing import TYPE_CHECKING, Any
 
 from core.brain import marks
-from core.brain.entities import SELF_ID          # 「我知道的名字」里她那一行要挪到表尾
+from core.brain.entities import SELF_ID  # 「我知道的名字」里她那一行要挪到表尾
 from core.brain.nodes import BrainNode
 from core.brain.read.pack import Candidate
 

@@ -7,8 +7,13 @@ import pytest
 from core.brain import WikiStoreV2, make_node, notes
 from core.brain.entities import ensure_entities
 from core.brain.evolution import EvolutionLog
-from core.brain.revise import (apply_cognitions, apply_decisions, apply_entities,
-                               apply_revision_package, link_entity_tags)
+from core.brain.revise import (
+    apply_cognitions,
+    apply_decisions,
+    apply_entities,
+    apply_revision_package,
+    link_entity_tags,
+)
 
 
 def _store(tmp_path) -> WikiStoreV2:

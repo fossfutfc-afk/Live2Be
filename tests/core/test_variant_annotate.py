@@ -24,13 +24,11 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-
-from core.bond.variant_annotate import pick_image                 # noqa: E402
-from core.media.place_table import (MOMENT_VARIANTS, load_table,  # noqa: E402
-                                    moment_label, moment_token)
-from llm import task_labels as T                                  # noqa: E402
-from llm.prompts import load_prompt                               # noqa: E402
-from tests import stub_tasks                                      # noqa: E402
+from core.bond.variant_annotate import pick_image  # noqa: E402
+from core.media.place_table import MOMENT_VARIANTS, load_table, moment_label, moment_token  # noqa: E402
+from llm import task_labels as T  # noqa: E402
+from llm.prompts import load_prompt  # noqa: E402
+from tests import stub_tasks  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 
@@ -218,7 +216,7 @@ def test_anchor_switch_also_picks_image():
     缺口补于 2026-09-19: 此前板首 switch 会选图、板内锚点只会定键 ⇒ 板内换场
     永远退回默认图（真机上板 2 出现过 `[place][SCAN] cue=进了`）。
     """
-    from core.bond.bond_story import BondStoryEngine, BondScene
+    from core.bond.bond_story import BondScene, BondStoryEngine
     from tests.vn_fixtures import scene as _scene
 
     board = _scene(switch_to="教室", lines=["她放下书包。", "她拉着我走出教室，来到天台。"])

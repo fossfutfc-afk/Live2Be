@@ -16,7 +16,6 @@ import sys
 import tempfile
 from pathlib import Path
 
-
 from core.mmt import mmt_preset
 from core.mmt.mmt_preset import (
     DEFAULT_PLAYER_NAME,

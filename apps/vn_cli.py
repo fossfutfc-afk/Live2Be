@@ -23,12 +23,12 @@ import logging
 import threading
 from pathlib import Path
 
-from core.mmt.engine import MomoTalkEngine, load_brain_segment
 from core.bond.bond_story import BondScene, BondStoryEngine, SceneLoopError
 from core.brain.store import WikiStoreV2
-from core.director.wiring import _build_director, _trigger_title   # C11: 接线层（webgui 也用它）
+from core.director.wiring import _build_director, _trigger_title  # C11: 接线层（webgui 也用它）
 from core.media.gallery import GalleryStore
-from core.parsing.names import speaker_names          # 名字接口（N1）
+from core.mmt.engine import MomoTalkEngine, load_brain_segment
+from core.parsing.names import speaker_names  # 名字接口（N1）
 from core.session import SessionStore
 from core.session.events import (
     M_MEMORIAL_ENTER,
@@ -38,7 +38,7 @@ from core.session.events import (
 )
 from core.tui.streaming import simulate_steps
 from llm.image_gen import ImageGenerator, collect_ref_images
-from renderer import RenderScene, Renderer
+from renderer import Renderer, RenderScene
 from renderer.cli import PARA_CHAR_MS, read_choice, read_free_input, render_scene
 
 logger = logging.getLogger(__name__)

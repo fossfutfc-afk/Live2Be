@@ -11,10 +11,8 @@ from __future__ import annotations
 import logging
 import sys
 
-from llm.client import LLMClient
-from llm.image_gen import ImageGenerator
+from apps.vn_cli import run_bond_story_vn, wrapup_after_vn
 from core.mmt.engine import MomoTalkEngine
-from core.session import SessionStore
 from core.mmt.mmt_preset import (
     LoopResult,
     ensure_player_name,
@@ -22,9 +20,10 @@ from core.mmt.mmt_preset import (
     load_player_name,
     select_character,
 )
+from core.session import SessionStore
 from core.tui.streaming import simulate_steps
-from apps.vn_cli import run_bond_story_vn, wrapup_after_vn
-
+from llm.client import LLMClient
+from llm.image_gen import ImageGenerator
 
 # ---------------------------------------------------------------------------
 # 对话循环

@@ -119,8 +119,8 @@ class IntensityPrior:
     def gather(self, store, ctx: RecallContext) -> ChannelResult:
         res = ChannelResult(channel=self.name, kind=self.kind, scale=self.scale)
         try:
-            from core.worldtime.age import age_days, date_of, freshness
             from core.brain.read.recall_config import get as _knob
+            from core.worldtime.age import age_days, date_of, freshness
         except Exception as e:                       # noqa: BLE001 — 链路失败不抛
             res.degraded = True
             res.note = f"依赖不可用: {e}"

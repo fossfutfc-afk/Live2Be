@@ -24,7 +24,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from core.media.catalog import MediaCatalog
-from core.parsing.names import speaker_names        # 名字接口（N1）
+from core.parsing.names import speaker_names  # 名字接口（N1）
 from renderer.effects import EffectResolver
 from webgui import bond
 

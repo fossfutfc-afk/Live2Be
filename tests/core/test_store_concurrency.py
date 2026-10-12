@@ -5,7 +5,6 @@ import sys
 import threading
 from pathlib import Path
 
-
 from core.session.events import make_event
 from core.session.store import SessionStore
 

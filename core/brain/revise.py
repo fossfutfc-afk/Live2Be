@@ -21,8 +21,7 @@ from datetime import datetime
 from typing import Any
 
 from core.brain import notes as note_ops
-from core.brain.entities import (SELF_ID, SENSEI_ID, find_entity,
-                                 normalize_entity_tags, surface_forms)
+from core.brain.entities import SELF_ID, SENSEI_ID, find_entity, normalize_entity_tags, surface_forms
 from core.brain.evolution import EvolutionLog
 from core.brain.graph import (
     REL_ABOUT,
@@ -31,9 +30,9 @@ from core.brain.graph import (
     REL_SUPPORTS,
 )
 from core.brain.nodes import (
+    KINDS,
     PLAYER_SUBJECT,
     BrainNode,
-    KINDS,
     make_node,
 )
 from core.brain.notes import NotesState

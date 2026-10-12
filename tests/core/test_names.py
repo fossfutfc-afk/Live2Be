@@ -4,18 +4,19 @@
 这是本接口存在的直接原因，所以用它当真样本。
 玩家档案（`config/player/profile.yml`）走**同一条路** —— 所以也在这里钉。
 """
-import sys
 import pathlib
+import sys
 
 import pytest
 import yaml
 
-
-from core import paths                                               # noqa: E402
-from core.parsing.dynamic_character_parser import CharacterLoader      # noqa: E402
-from core.parsing.names import char_names, names_of, speaker_names     # noqa: E402
-from core.parsing.player_profile import (                              # noqa: E402
-    ERR_INCOMPLETE, load_player_profile, player_names,
+from core import paths  # noqa: E402
+from core.parsing.dynamic_character_parser import CharacterLoader  # noqa: E402
+from core.parsing.names import char_names, names_of, speaker_names  # noqa: E402
+from core.parsing.player_profile import (  # noqa: E402
+    ERR_INCOMPLETE,
+    load_player_profile,
+    player_names,
 )
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent.parent

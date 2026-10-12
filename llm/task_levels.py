@@ -42,7 +42,6 @@ low|medium|high = 显式覆盖（reasoning_effort）。
 """
 from __future__ import annotations
 
-
 from core import paths
 
 #: 输出形态 → (thinking 档位, max_tokens, 备注)

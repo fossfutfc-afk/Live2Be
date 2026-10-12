@@ -10,8 +10,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-
-from core.brain import WikiStoreV2, make_node          # noqa: E402
+from core.brain import WikiStoreV2, make_node  # noqa: E402
 from core.brain.address import find_episode, normalize_title  # noqa: E402
 
 

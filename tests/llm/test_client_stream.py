@@ -4,9 +4,9 @@ Step 1（方案 A 流式嗅探基座）: chat_stream 支持 response_format; cha
 收集完整文本（等价 chat）+ on_chunk 每块增量回调 + json_object 自纠错复用。
 """
 import json
+from unittest.mock import MagicMock
 
 import pytest
-from unittest.mock import MagicMock
 
 from llm.client import LLMClient
 

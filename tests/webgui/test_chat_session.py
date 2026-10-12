@@ -15,11 +15,10 @@
 import sys
 from pathlib import Path
 
-
-from core.brain import WikiStoreV2                       # noqa: E402
-from core.brain.nodes import make_node                  # noqa: E402
-from core.session import SessionStore                           # noqa: E402
-from webgui import chat, deps                                   # noqa: E402
+from core.brain import WikiStoreV2  # noqa: E402
+from core.brain.nodes import make_node  # noqa: E402
+from core.session import SessionStore  # noqa: E402
+from webgui import chat, deps  # noqa: E402
 
 CHARACTER = "igusa_haruka"
 #: 模块级 store 快照（禁止硬编码真 data —— 同 test_bond 的纪律）

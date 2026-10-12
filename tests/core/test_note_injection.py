@@ -11,7 +11,6 @@
 import sys
 from pathlib import Path
 
-
 from core.brain import WikiStoreV2, make_node, notes
 from core.mmt.engine import MomoTalkEngine, load_brain_segment, load_note_segment
 from core.session import SessionStore, make_event

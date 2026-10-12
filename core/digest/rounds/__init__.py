@@ -60,8 +60,9 @@
 """
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import MISSING, dataclass, fields
-from typing import Any, Callable
+from typing import Any
 
 from contract.digest_registry import digest_registry
 

@@ -15,13 +15,11 @@ from pathlib import Path
 
 import pytest
 
-
-from core.brain import recall_config as rc            # noqa: E402
-from core.brain import recall_ledger as rl            # noqa: E402
-from core.brain.nodes import make_node               # noqa: E402
-from core.brain.read.render import (                      # noqa: E402
-    render_character_view, take_last_view_account)
-from core.brain.store import WikiStoreV2             # noqa: E402
+from core.brain import recall_config as rc  # noqa: E402
+from core.brain import recall_ledger as rl  # noqa: E402
+from core.brain.nodes import make_node  # noqa: E402
+from core.brain.read.render import render_character_view, take_last_view_account  # noqa: E402
+from core.brain.store import WikiStoreV2  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -70,8 +68,8 @@ def test_no_threshold_knobs_left():
     `like` 里那条**准入**（内容轴 > 0）是**代码规则不是旋钮** —— 配置面只留"取几条"
     与"半衰期/下界"。
     """
-    from core.brain.read import recall as R
     from core.brain.read import like as L
+    from core.brain.read import recall as R
     snap = rc.snapshot()
     assert set(snap) == {"cand_k", "sim_k", "like_k", "turn_k", "turn_budget",
                          "time_half_life_days", "time_freshness_floor"}, snap

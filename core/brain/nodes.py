@@ -211,7 +211,7 @@ class BrainNode:
             errors.append(f"significance 越界: {self.significance}（须 0~1）")
         return errors
 
-    def normalize(self) -> "BrainNode":
+    def normalize(self) -> BrainNode:
         """引擎侧归一: significance clamp 0~1; examples 截断 3。"""
         self.significance = max(0.0, min(1.0, float(self.significance)))
         if self.kind == "profile":
@@ -282,7 +282,7 @@ class BrainNode:
         return d
 
     @classmethod
-    def from_dict(cls, raw: dict | None) -> "BrainNode":
+    def from_dict(cls, raw: dict | None) -> BrainNode:
         """宽松解析（宁缺勿错: 坏字段取默认, 不 raise; 校验走 validate()）。"""
         if not isinstance(raw, dict):
             return cls()
@@ -324,7 +324,7 @@ class BrainNode:
         return json.dumps(self.to_dict(), ensure_ascii=False, separators=(",", ":"))
 
     @classmethod
-    def from_json_line(cls, line: str) -> "BrainNode":
+    def from_json_line(cls, line: str) -> BrainNode:
         """jsonl 一行 → 节点（坏行 → 空节点, 宁缺勿错）。"""
         try:
             return cls.from_dict(json.loads(line))

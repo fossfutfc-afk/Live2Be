@@ -17,9 +17,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from contract.streams.lines import ParseDiag      # ⑥-1: 真家上提，此处再导出
-from contract.streams.lines import TAIL_REPAIRS as _TAIL_REPAIRS   # 同上
-
+from contract.streams.lines import TAIL_REPAIRS as _TAIL_REPAIRS  # 同上
+from contract.streams.lines import ParseDiag  # ⑥-1: 真家上提，此处再导出
 
 # ---------------------------------------------------------------------------
 # 文法常量（单一真源：schema 渲染 / 解析器 / 引擎校验共用）

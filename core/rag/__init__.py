@@ -16,9 +16,9 @@ embedder 对接本地 OpenAI 兼容 /v1/embeddings（LM Studio / Bionic, :1234�
     PlaceRetriever().resolve_one("她们在天台上看星星")   # → "school_rooftop"（表键）
     recall_with(store, query="遥香第一次埋炸弹的经历")     # → [BrainNode, ...]
 """
+from core.rag.brain import make_embed_fn, recall_with, recommend_with
 from core.rag.embedder import LocalEmbedder, RagError
 from core.rag.place import PlaceError, PlaceRetriever
-from core.rag.brain import make_embed_fn, recall_with, recommend_with
 
 __all__ = [
     "LocalEmbedder",

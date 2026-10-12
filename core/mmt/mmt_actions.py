@@ -45,10 +45,10 @@ from __future__ import annotations
 from typing import Any
 
 from contract import (
-    MMTActionRegistry,
-    ActionSpec,
     APPROVAL_AUTO,
+    ActionSpec,
     ContractError,
+    MMTActionRegistry,
 )
 from core.brain.read.find import ClueError, compile_clue
 

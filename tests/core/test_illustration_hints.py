@@ -8,7 +8,6 @@ illustration.yml 专供生图。缺失/坏值 → 空（不阻断生图）。
 import sys
 from pathlib import Path
 
-
 from core.parsing.dynamic_character_parser import CharacterLoader
 
 ROOT = Path(__file__).resolve().parent.parent.parent

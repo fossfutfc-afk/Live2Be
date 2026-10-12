@@ -10,7 +10,6 @@ import sys
 import time
 from pathlib import Path
 
-
 from core.mmt.engine import MMT_DIGEST_INTERVAL, MomoTalkEngine
 from core.session import SessionStore
 from tests import stub_tasks

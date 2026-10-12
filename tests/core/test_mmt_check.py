@@ -6,21 +6,20 @@
     丢行记账（软, 一条汇总）
     码表完整 + 与 VN 的码表在同一张总表里共存（`contract.issues`）
 """
-import sys
 import pathlib
+import sys
 
-
-from contract.issues import IssueSeverity, declared_severity, split_issues   # noqa: E402
-from contract.records import ISSUE_SEVERITY as VN_SEVERITY                   # noqa: E402
-from contract.streams import ParseDiag                                       # noqa: E402
-from core.mmt.mmt_check import (                                             # noqa: E402
+from contract.issues import IssueSeverity, declared_severity, split_issues  # noqa: E402
+from contract.records import ISSUE_SEVERITY as VN_SEVERITY  # noqa: E402
+from contract.streams import ParseDiag  # noqa: E402
+from core.mmt.mmt_check import (  # noqa: E402
     ISSUE_SEVERITY,
-    MmtIssueCode,
     TITLE_MAX,
     TITLE_MIN,
+    MmtIssueCode,
     check_turn,
 )
-from core.mmt.mmt_lines import MmtLine                                       # noqa: E402
+from core.mmt.mmt_lines import MmtLine  # noqa: E402
 
 
 def _text(s="话"):

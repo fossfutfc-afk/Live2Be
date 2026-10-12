@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
-from core.session.events import TYPE_MMT   # 板块类型值单源（见下方注释; events.py 才是真源）
+from core.session.events import TYPE_MMT  # 板块类型值单源（见下方注释; events.py 才是真源）
 
 #: 会话类型（= 会话内主导事件板块）——**板块词表真源 = `events.py`**。
 #: ⚠️ 原 `TYPE_MMT = "mmt"` / `TYPE_BOND = "bond"` 两份本模块副本 2026-09-21 合并:
@@ -72,7 +72,7 @@ class SessionMeta:
         return d
 
     @classmethod
-    def from_dict(cls, raw: dict | None) -> "SessionMeta":
+    def from_dict(cls, raw: dict | None) -> SessionMeta:
         """宽松解析（坏字段 → 默认, 不 raise）。"""
         if not isinstance(raw, dict):
             return cls()
@@ -108,7 +108,7 @@ class VNState:
         return d
 
     @classmethod
-    def from_dict(cls, raw: dict | None) -> "VNState":
+    def from_dict(cls, raw: dict | None) -> VNState:
         if not isinstance(raw, dict):
             return cls()
         visual = raw.get("visual")

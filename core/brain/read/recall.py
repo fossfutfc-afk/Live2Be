@@ -21,8 +21,8 @@ from __future__ import annotations
 import logging
 import math
 import random
+from collections.abc import Callable
 from datetime import datetime
-from typing import Callable
 
 from core.brain.nodes import PRECIOUS_THRESHOLD, BrainNode
 from core.brain.store import WikiStoreV2

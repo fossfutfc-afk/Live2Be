@@ -28,9 +28,10 @@
 
 from __future__ import annotations
 
-import threading
 import logging
+import threading
 import time
+
 from core.bond.bond_story import (
     BondScene,
     SceneLoopError,

@@ -17,12 +17,14 @@ import sys
 import time
 from pathlib import Path
 
-
-from tests.webgui.test_bond import (                       # noqa: E402
-    CHARACTER, RECORD_BLOCK, _setup, scene,
+from tests.webgui.test_bond import (  # noqa: E402
+    CHARACTER,
+    RECORD_BLOCK,
+    _setup,
+    scene,
 )
-from webgui.bond import _state                             # noqa: E402
-from webgui.bond import pregen as _pregen                  # noqa: E402
+from webgui.bond import _state  # noqa: E402
+from webgui.bond import pregen as _pregen  # noqa: E402
 
 _bond = __import__("webgui.bond", fromlist=["bond_start"])
 

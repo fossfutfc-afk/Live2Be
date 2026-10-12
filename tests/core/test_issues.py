@@ -10,11 +10,10 @@
     跨域共存     两个域各自的码在同一张总表里互不干扰（MMT/VN 并存的前提）
     文案无关     同一码换文案, 分级不变（跨域的版本；VN 的版本在 test_records）
 """
-import sys
 import pathlib
+import sys
 
-
-from contract.issues import (                                    # noqa: E402
+from contract.issues import (  # noqa: E402
     Issue,
     IssueSeverity,
     declare_severity,

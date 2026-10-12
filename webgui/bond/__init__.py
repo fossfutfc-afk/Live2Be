@@ -41,7 +41,123 @@
   漏了会被守门当场指出（`webgui.bond: 丢了 X` / `多出 X`）。
 """
 
-from webgui.bond.state import (          # C2: 状态模型
+from contract import (  # 定义处不在 bond 包内（当年作为「对外面」一路被再导出 → 直指真家）
+    NON_PICKS,
+)
+from core.bond.bond_story import (  # 定义处不在 bond 包内（当年作为「对外面」一路被再导出 → 直指真家）
+    BondScene,
+    BondStoryEngine,
+    SceneLoopError,
+)
+from core.director.wiring import (  # 定义处不在 bond 包内（C11 起真家=接线层; 不再借道 CLI）
+    _build_director,
+    _trigger_title,
+)
+from core.media.gallery import (  # 定义处不在 bond 包内（当年作为「对外面」一路被再导出 → 直指真家）
+    GalleryStore,
+)
+from core.mmt.engine import (  # 定义处不在 bond 包内（当年作为「对外面」一路被再导出 → 直指真家）
+    load_brain_segment,
+)
+from core.session.chapters import (  # 定义处不在 bond 包内（当年作为「对外面」一路被再导出 → 直指真家）
+    replayable_chapters,
+)
+from core.session.events import (  # 定义处不在 bond 包内（当年作为「对外面」一路被再导出 → 直指真家）
+    M_MEMORIAL_ENTER,
+    M_MEMORIAL_EXIT,
+    M_MEMORIAL_IMAGE,
+    M_SESSION_END,
+    M_VN_ABANDON,
+    M_VN_EXIT,
+    M_VN_STATE,
+    make_event,
+)
+from core.session.maintenance import (  # 定义处不在 bond 包内（当年作为「对外面」一路被再导出 → 直指真家）
+    abandoned_ranges,
+    exclude_abandoned,
+)
+from core.session.renderer import (  # 定义处不在 bond 包内（当年作为「对外面」一路被再导出 → 直指真家）
+    render_bond_scene_text,
+    window_messages,
+)
+from core.session.staging import (  # 定义处不在 bond 包内（当年作为「对外面」一路被再导出 → 直指真家）
+    close_open_attempts,
+    commit_staging,
+    staging_store,
+    truth_store,
+)
+from llm.image_gen import (  # 定义处不在 bond 包内（当年作为「对外面」一路被再导出 → 直指真家）
+    collect_ref_images,
+    image_enabled,
+)
+from webgui.bond.api import (  # C8: 轮次 / 查询 / 收尾
+    _clear_rejects,
+    _note_reject,
+    _wrapup,
+    _wrapup_inner,
+    bond_finish,
+    bond_status,
+    bond_turn,
+    logger,
+)
+from webgui.bond.entry import (  # ○C8b: 开场与场景载荷
+    DEMO_SCRIPT,
+    _entry_already_done,
+    _ready_scene_payload,
+    _role_info,
+    _start_replay,
+    bond_start,
+    bond_start_demo,
+)
+from webgui.bond.lanes import (  # C4: 双路 lane + 就绪门控
+    _anno_worker,
+    _enqueue_annotate,
+    _enqueue_place_annotate,
+    _ensure_lane,
+    _fallback_fill,
+    _memorial_no_visuals,
+    _place_worker,
+    _scene_emotions_ready,
+    _scene_obj_visual_ready,
+    _scene_places_ready,
+    _scene_ready_or_busy,
+    _scene_visual_ready,
+    _wait_annotated,
+)
+from webgui.bond.memorial import (  # C6: 纪念生图
+    _ensure_memorial_img,
+    _make_memorial_cb,
+    _memorial_gen,
+    _persisted_memorial_img,
+)
+from webgui.bond.pregen import (  # C7: 生成/预生成/候选/丢弃
+    _CLOSING_PARA,
+    _CLOSING_TEXT,
+    _END_ROUNDS,
+    _REMIND_ROUNDS,
+    MAX_GEN_FAILURES,
+    _candidate_worker,
+    _choice_pregen_enabled,
+    _discard_boards,
+    _discard_candidates,
+    _generate,
+    _log_board_deliver,
+    _pregenerate,
+    _scene_landed,
+    _spawn_candidates,
+    _system_note,
+)
+from webgui.bond.replay import (  # C5: 回放层
+    _enter_title,
+    _interrupted_replay_queue,
+    _narrativize,
+    _pending_in_vn,
+    _prev_chapter_quit,
+    _title_from_events,
+    chapter_replay,
+    replay_attempts,
+)
+from webgui.bond.state import (  # C2: 状态模型
     BoardLifecycle,
     BondState,
     ChoiceCandidate,
@@ -49,8 +165,7 @@ from webgui.bond.state import (          # C2: 状态模型
     _memorial_open_in_events,
     _state,
 )
-
-from webgui.bond.stores import (          # C3: 落库层
+from webgui.bond.stores import (  # C3: 落库层
     _DRAFT_FILE,
     _PREWARM_FILE,
     _close_memorial_window,
@@ -76,149 +191,14 @@ from webgui.bond.stores import (          # C3: 落库层
     _stage_store,
     _store,
 )
-
-from webgui.bond.lanes import (          # C4: 双路 lane + 就绪门控
-    _anno_worker,
-    _enqueue_annotate,
-    _enqueue_place_annotate,
-    _ensure_lane,
-    _fallback_fill,
-    _memorial_no_visuals,
-    _place_worker,
-    _scene_emotions_ready,
-    _scene_obj_visual_ready,
-    _scene_places_ready,
-    _scene_ready_or_busy,
-    _scene_visual_ready,
-    _wait_annotated,
-)
-
-from webgui.bond.util import (          # C4: 跨模块纯小工具
+from webgui.bond.util import (  # C4: 跨模块纯小工具
     _ms_since,
 )
-
-from webgui.bond.replay import (          # C5: 回放层
-    _enter_title,
-    _interrupted_replay_queue,
-    _narrativize,
-    _pending_in_vn,
-    _prev_chapter_quit,
-    _title_from_events,
-    chapter_replay,
-    replay_attempts,
-)
-
-from webgui.bond.memorial import (          # C6: 纪念生图
-    _ensure_memorial_img,
-    _make_memorial_cb,
-    _memorial_gen,
-    _persisted_memorial_img,
-)
-
-from webgui.bond.pregen import (          # C7: 生成/预生成/候选/丢弃
-    MAX_GEN_FAILURES,
-    _CLOSING_PARA,
-    _CLOSING_TEXT,
-    _END_ROUNDS,
-    _REMIND_ROUNDS,
-    _candidate_worker,
-    _choice_pregen_enabled,
-    _discard_boards,
-    _discard_candidates,
-    _generate,
-    _log_board_deliver,
-    _pregenerate,
-    _scene_landed,
-    _spawn_candidates,
-    _system_note,
-)
-
-from webgui.bond.entry import (          # ○C8b: 开场与场景载荷
-    DEMO_SCRIPT,
-    _entry_already_done,
-    _ready_scene_payload,
-    _role_info,
-    _start_replay,
-    bond_start,
-    bond_start_demo,
-)
-
-from webgui.bond.api import (          # C8: 轮次 / 查询 / 收尾
-    _clear_rejects,
-    _note_reject,
-    _wrapup,
-    _wrapup_inner,
-    bond_finish,
-    bond_status,
-    bond_turn,
-    logger,
-)
-
-from webgui.bond.watchdog import (          # C8: 看门狗
+from webgui.bond.watchdog import (  # C8: 看门狗
     _force_scene_ready,
     _gate_stalled,
     _lane_writer_alive,
     _lanes_idle,
     _thread_alive,
     _watchdog,
-)
-
-from contract import (          # 定义处不在 bond 包内（当年作为「对外面」一路被再导出 → 直指真家）
-    NON_PICKS,
-)
-
-from core.bond.bond_story import (          # 定义处不在 bond 包内（当年作为「对外面」一路被再导出 → 直指真家）
-    BondScene,
-    BondStoryEngine,
-    SceneLoopError,
-)
-
-from core.media.gallery import (          # 定义处不在 bond 包内（当年作为「对外面」一路被再导出 → 直指真家）
-    GalleryStore,
-)
-
-from core.mmt.engine import (          # 定义处不在 bond 包内（当年作为「对外面」一路被再导出 → 直指真家）
-    load_brain_segment,
-)
-
-from core.session.chapters import (          # 定义处不在 bond 包内（当年作为「对外面」一路被再导出 → 直指真家）
-    replayable_chapters,
-)
-
-from core.session.events import (          # 定义处不在 bond 包内（当年作为「对外面」一路被再导出 → 直指真家）
-    M_MEMORIAL_ENTER,
-    M_MEMORIAL_EXIT,
-    M_MEMORIAL_IMAGE,
-    M_SESSION_END,
-    M_VN_ABANDON,
-    M_VN_EXIT,
-    M_VN_STATE,
-    make_event,
-)
-
-from core.session.maintenance import (          # 定义处不在 bond 包内（当年作为「对外面」一路被再导出 → 直指真家）
-    abandoned_ranges,
-    exclude_abandoned,
-)
-
-from core.session.renderer import (          # 定义处不在 bond 包内（当年作为「对外面」一路被再导出 → 直指真家）
-    render_bond_scene_text,
-    window_messages,
-)
-
-from core.session.staging import (          # 定义处不在 bond 包内（当年作为「对外面」一路被再导出 → 直指真家）
-    close_open_attempts,
-    commit_staging,
-    staging_store,
-    truth_store,
-)
-
-from core.director.wiring import (          # 定义处不在 bond 包内（C11 起真家=接线层; 不再借道 CLI）
-    _build_director,
-    _trigger_title,
-)
-
-from llm.image_gen import (          # 定义处不在 bond 包内（当年作为「对外面」一路被再导出 → 直指真家）
-    collect_ref_images,
-    image_enabled,
 )

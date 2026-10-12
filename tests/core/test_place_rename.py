@@ -16,9 +16,8 @@ from pathlib import Path
 
 import pytest
 
-
-from core.media import place_rename as tool                        # noqa: E402
-from core.media import place_renames as pr                         # noqa: E402
+from core.media import place_rename as tool  # noqa: E402
+from core.media import place_renames as pr  # noqa: E402
 
 
 @pytest.fixture(autouse=True)

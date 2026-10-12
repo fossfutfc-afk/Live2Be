@@ -179,7 +179,7 @@ class Event:
         return d
 
     @classmethod
-    def from_dict(cls, raw: dict | None) -> "Event | None":
+    def from_dict(cls, raw: dict | None) -> Event | None:
         """宽松解析: 骨架坏 → None（宁缺勿错, 丢坏事件）; payload 非 dict → 空。"""
         if not isinstance(raw, dict):
             return None

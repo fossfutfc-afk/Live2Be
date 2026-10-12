@@ -24,17 +24,11 @@ from contract.constants import (
     is_valid_identifier,
 )
 from contract.model import AgentAction, ContractError, ValidationResult
-from contract.spec import ActionSpec
-from contract.registry import (
-    ActionRegistry,
-    IDEActionRegistry,
-    MMTActionRegistry,
-    parse_action_text,
-)
 from contract.records import (
     CHARACTER_NARRATOR,
     CHARACTER_SENSEI,
     DEFAULT_SPEAKER_NAMES,
+    ISSUE_SEVERITY,
     KIND_CHARACTER,
     KIND_STAGE,
     MAX_SENSEI_RUN,
@@ -46,7 +40,6 @@ from contract.records import (
     STAGE_MEMORIAL,
     STAGE_SWITCH,
     STAGE_VALUES,
-    ISSUE_SEVERITY,
     BlockStreamParser,
     Issue,
     IssueCode,
@@ -69,12 +62,19 @@ from contract.records import (
     sensei_groups,
     split_issues,
 )
+from contract.registry import (
+    ActionRegistry,
+    IDEActionRegistry,
+    MMTActionRegistry,
+    parse_action_text,
+)
 from contract.schema import (
-    build_schema,
-    build_record_schema,
     build_line_schema,
+    build_record_schema,
+    build_schema,
     export_definitions,
 )
+from contract.spec import ActionSpec
 
 __all__ = [
     "ALL_SHELL_FIELDS",

@@ -18,7 +18,6 @@ import re
 import sys
 from pathlib import Path
 
-
 from llm import task_labels as T  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent.parent
