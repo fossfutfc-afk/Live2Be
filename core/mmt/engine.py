@@ -94,7 +94,7 @@ from core.brain.address import find_episode
 from core.brain.read.find import compile_clue, find
 from core.brain.read.like import RecallCtx
 from core.brain.read.modes import DEFAULT_MODE as TURN_MODE
-from core.brain.read.modes import recall, render_section
+from core.brain.read.modes import recall, recall_with_keys, render_section
 from core.brain.read.render import (
     LOOK_EMPTY,
     LOOK_EMPTY_TIME,
@@ -1199,8 +1199,8 @@ class MomoTalkEngine:
                     notes.append(_n)
         except Exception as e:                       # noqa: BLE001 — 注记绝不阻断
             logger.warning("时间注记失败（本轮不注）: %s", e)
-        # ⭐ P19「你想起的事」+「关于他们的」（**N5**, 2026-09-29 / 2026-10-12）——
-        # 引擎每轮摆 0~2 段旧 episode。
+        # ⭐ P19「你想起的事」+「你想着「X」」（**N5**, 2026-09-29 / 2026-10-12）——
+        # 引擎每轮摆 0~2 段旧 episode（带钥匙那段**空手也会说话**, 见 `_recall_notes`）。
         # 两个"为什么"（别改回去）:
         #  ① **为什么进 notes 不进 brain**: 这一段的查询是**玩家这一句** ⇒ 每轮都不同;
         #     拼进 system（盒 + brain 的稳定前缀）就逐轮破上下文缓存 —— 而"稳定前缀"
@@ -1319,26 +1319,34 @@ class MomoTalkEngine:
         # ⭐ 2026-10-12: 走**唯一前门** `recall(mode=…)`（`core/brain/read/modes.py`）——
         # 形式名决定执行器与文案; `turn` = 六路打分那一行（与从前 `like(spec="turn")` 逐字同）。
         ctx = RecallCtx(now=now, query=query)
-        name_cands = recall(wstore, ctx, mode="name")        # set: 他车道上全部（不裁）
+        # ⭐ **带钥匙版本**（`recall_with_keys`）: 段头要把"她刚才想的是哪个词"印出来
+        # （「你想着「阿露」——浮上来的是这些」）⇒ 钥匙与候选出自**同一次**载荷计算。
+        name_cands, name_keys = recall_with_keys(wstore, ctx, mode="name")
+        name_key = "、".join(name_keys)
         seen = {c.node.id for c in name_cands}
         turn_cands = [c for c in recall(wstore, ctx, mode=TURN_MODE, k=_turn_k())
                       if c.node.id not in seen]
         # ⭐ **候选直传渲染层**（2026-10-08）: 从前这里先摊平成 `[c.node for c in cands]`,
         # 那是"渲染器只认裸节点"留下的转手 —— 现在两段都走 `render_candidates`
         # （`like` / `find` 给什么就印什么）, 文案从**形式表**取（`render_section`）。
+        # ⚠️ 名字段**空手也要说话**（钥匙扫到了、车道是空的 ⇒ 印 `Mode.empty` 那句）——
+        # 见 `modes.render_section` 的三步; 兜底段没有钥匙, 空手仍旧不印。
         kw = {"char_name": char.display_name or "",
               "char_aliases": _name_aliases(char.profile), "now": now}
-        seg_name = render_section(name_cands, mode="name", **kw)
+        seg_name = render_section(name_cands, mode="name", key=name_key, **kw)
         seg_turn = render_section(turn_cands, mode=TURN_MODE, **kw)
-        segs = [s for s in (seg_name, seg_turn) if s]
+        parts = (("name", seg_name, len(name_cands)), ("turn", seg_turn, len(turn_cands)))
+        segs = [s for _label, s, _n in parts if s]
         if not segs:
             return []
         # 台账（可 grep）: 摆了几段 / 各几条 / 多少字 / 摆了谁（**标题**——
         # 编号是她看不到的东西, 排查时要看的是她看到的那个串）。
+        # ⭐ 空手段标 `name(empty)` —— 否则"摆了一段"与"摆了一句空手"在日志里长得一样。
         # ⭐ "为什么是这几条"在 `like` 自己那行 `recall_like … top=…←why` 里。
         logger.info("mmt_recall %s/%s modes=%s eps=%d name=%d chars=%d titles=%s",
                     char.character_id, self._session_id,
-                    "+".join(m for m, s in (("name", seg_name), ("turn", seg_turn)) if s),
+                    "+".join(label if n else f"{label}(empty)"
+                             for label, s, n in parts if s),
                     len(turn_cands), len(name_cands), sum(len(s) for s in segs),
                     " / ".join(c.node.title or c.node.id
                                for c in (*name_cands, *turn_cands)))

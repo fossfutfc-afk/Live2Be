@@ -38,7 +38,10 @@ from tests import stub_tasks                              # noqa: E402
 ROOT = Path(__file__).resolve().parents[2]
 CHARACTER = "igusa_haruka"
 HEADER = "【你想起的事"
-NAME_HEADER = "【关于他们的"
+#: 名字段的段头（2026-10-12 起带**钥匙** —— "你想着「老师用的那个词」"）
+NAME_HEADER = "【你想着「"
+#: 空手那句（钥匙扫到了、车道上一条也没有）
+NAME_EMPTY = "一时没想起来"
 
 
 def _no_embed():
@@ -222,7 +225,7 @@ def test_recall_uses_the_now_of_the_turn(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# ⭐ 2026-10-12: P19 的第二段「关于他们的」（形式 `name`, set 形状）
+# ⭐ 2026-10-12: P19 的第二段（形式 `name`, set 形状）—— 段头带**钥匙**, 空手也说话
 # ---------------------------------------------------------------------------
 
 def _seed_lane(tmp_path, *, titles: list[tuple[str, str]]) -> None:
@@ -274,7 +277,7 @@ def _seed_reserved(tmp_path) -> tuple[str, str]:
 
 
 def test_name_form_opens_a_section_before_the_turn_section(tmp_path):
-    """⭐ 老师这句提到一个名字 ⇒ 多一段「关于他们的」, 且**排在兜底段之前**。
+    """⭐ 老师这句提到一个名字 ⇒ 多一段「你想着「X」」, 且**排在兜底段之前**。
 
     三条判据一次钉住（每一条都是能静默错的地方）:
       · 名字段在（**含正文里没写"老板"二字**的那条 —— set 形状的语义）;
@@ -290,6 +293,7 @@ def test_name_form_opens_a_section_before_the_turn_section(tmp_path):
     joined = _joined(llm)
 
     assert NAME_HEADER in joined, joined[-600:]
+    assert "你想着「老板」" in joined, "段头没印出**老师用的那个词**（钥匙）"
     assert "《留了一份》" in joined, "车道上的那条（正文没写他名字）没摆出来"
     assert joined.index(NAME_HEADER) < joined.index(HEADER), "两段的先后反了"
     assert joined.count("《多加叉烧》") == 1, "同一条 episode 被两段各摆了一遍"
@@ -313,12 +317,62 @@ def test_recall_log_says_which_sections_were_placed(tmp_path, caplog):
     print(f"    P19: 台账分得清两段（{line.split('modes=')[1].split(' titles=')[0]}）")
 
 
+def test_empty_lane_prints_a_blank_line_only_when_a_name_was_mentioned(tmp_path, caplog):
+    """⭐ 空手也要说话（2026-10-12 用户: *"即使思索了（词语）……"*）—— 但**只在真有钥匙时**。
+
+    三件一次钉住:
+      · 提了名字、车道上**一条也没有** ⇒ 印那句"一时没想起来"（**沉默有歧义**:
+        "引擎没查"和"查了没有"在她眼里长得一样; 这句是她**能拿来说话的事实**）;
+      · 没提名字（普通闲聊）⇒ ⛔ 不印（否则每轮收一句"你什么也没想起来"）;
+      · ⭐ 而且那一轮的沉默必须是**判据**的结果, **不是兜底**的结果 —— 召回这条路上任何
+        异常都会被 `agent_turn` 吞掉（宁缺勿错）, 光看"没印"分不出"正确地不印"和
+        "炸了所以没印" ⇒ 这里连**日志**一起钉（变异验红时正是这一条抓的）。
+    """
+    llm = ScriptedLLM()
+    eng = _engine(tmp_path, llm)
+    st = WikiStoreV2(tmp_path, world_id="world1", char_id=CHARACTER)
+    person = make_node("entity", name="拉面店的老板", text="")
+    person.id = "x0002"
+    person.aliases = ["老板"]
+    st.add(person)                       # ⚠️ 只建人、**不挂任何经历** = 车道空
+    st.save()
+
+    eng.agent_turn("老板今天在店里吗")            # 有钥匙、无货
+    joined = _joined(llm)
+    assert NAME_HEADER in joined and NAME_EMPTY in joined, joined[-400:]
+    assert "你想着「老板」" in joined
+
+    caplog.clear()
+    with caplog.at_level("WARNING", logger="core.mmt.engine"):
+        eng.agent_turn("今天天气不错")            # 没钥匙 ⇒ 空手也不印
+    assert NAME_EMPTY not in _joined(llm), _joined(llm)[-400:]
+    assert "每轮召回失败" not in caplog.text, caplog.text   # ⛔ 沉默不是"炸了"
+    print("    P19: 空手只在真有钥匙时说话（提了名字没人 / 闲聊不响且不靠兜底）")
+
+
+def test_blank_line_is_marked_in_the_ledger(tmp_path, caplog):
+    """空手那一轮，台账要标 `name(empty)` —— 否则"摆了一段"与"摆了一句空手"在日志里一样。"""
+    llm = ScriptedLLM()
+    eng = _engine(tmp_path, llm)
+    st = WikiStoreV2(tmp_path, world_id="world1", char_id=CHARACTER)
+    person = make_node("entity", name="拉面店的老板", text="")
+    person.id = "x0002"
+    person.aliases = ["老板"]
+    st.add(person)
+    st.save()
+    with caplog.at_level("INFO", logger="core.mmt.engine"):
+        eng.agent_turn("老板今天在店里吗")
+    line = next(r.getMessage() for r in caplog.records if "mmt_recall" in r.getMessage())
+    assert "name(empty)" in line and "name=0" in line, line
+    print(f"    P19: 空手在台账里看得见（{line.split('modes=')[1].split(' chars=')[0]}）")
+
+
 def test_reserved_names_do_not_open_the_name_section(tmp_path):
     """⛔ 她自己 / 老师的名字**不算"提到了谁"**（`modes.RESERVED_TRIGGERS`）。
 
     ⚠️ **前提自己验**: 保留号真被字面命中了才算测到（否则名字表里压根没这两行 ⇒
     用例会**假绿**）。老师几乎连着每一件事 ⇒ 少了这一格, 一句"老师你觉得呢"
-    就能把整条河摆进动态尾, 还顶着"关于他们的"这个抬头。
+    就能把整条河摆进动态尾, 还顶着"你想着…"这个抬头。
     """
     from core.brain.read.like import RecallCtx, build_ctx
     llm = ScriptedLLM()
