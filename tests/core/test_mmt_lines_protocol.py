@@ -130,11 +130,12 @@ def _rows(*objs: dict) -> str:
     return "\n".join(json.dumps(o, ensure_ascii=False) for o in objs) + "\n"
 
 
-def test_content_rows_deliver_one_row_behind(tmp_path):
-    """⭐ ⑥-3a **一行前瞻**: 内容行在**下一行**到达时上屏（不是整段收完才一口气发）。
+def test_content_rows_deliver_immediately(tmp_path):
+    """⭐ ⑥-3a **到达即交付**: 一行解析出来就上屏（一个字都不等）。
 
-    前瞻 = 内容行压到**下一行**到达时才交付（⚠️ 它当年的理由 ——"下一行可能是
-    inspect"—— 已随那个动作退役; 今天它只让最后一行晚一格上屏, 见 `_turn_lines`）。
+    ⚠️ 2026-10-12 用户裁**撤掉"一行前瞻"**：那个手法的唯一理由是"下一行可能是
+    静默轮 `inspect`"（要留一手才收得回），而它 2026-10-08 退役 ⇒ 前瞻只剩
+    "让最后一行晚一格上屏"这一个代价。今天每喂一行都立刻多一条气泡。
     """
     seen: list[int] = []
 
@@ -147,9 +148,9 @@ def test_content_rows_deliver_one_row_behind(tmp_path):
         probe=probe)
     r = engine.agent_turn("在吗")
     assert r.ok and r.reply == "第一句\n第二句\n第三句"
-    # 喂完第 1 行: 0 条（压着）; 第 2 行: 1 条（第 1 句出）; 第 3 行: 2 条（第 2 句出）
-    assert seen == [0, 1, 2], seen
-    print("    stream: 内容行一行前瞻（第 N 句在第 N+1 行到达时上屏）")
+    # 喂完第 1/2/3 行 ⇒ 分别已经 1/2/3 条上屏（旧口径是 0/1/2）
+    assert seen == [1, 2, 3], seen
+    print("    stream: 内容行到达即交付（每行都立刻上屏）")
 
 
 def test_whole_turn_action_waits_until_block_end(tmp_path):
@@ -167,8 +168,9 @@ def test_whole_turn_action_waits_until_block_end(tmp_path):
         probe=probe)
     r = engine.agent_turn("好啊")
     assert r.ok and r.bond_story
-    # 第 1 行（话）压着 → 第 2 行（trigger）到达时话才上屏, 而 trigger 自己还没执行
-    assert seen == [[], ["mmt_chat"]], seen
+    # 第 1 行（话）**到达即上屏**; 第 2 行（trigger）到达时只看到那一条 chat ——
+    # trigger 自己攒到块尾才执行（不在这两次喂行的快照里）
+    assert seen == [["mmt_chat"], ["mmt_chat"]], seen
     assert [e.subtype for e in st.events(CHARACTER, sid) if e.type == "mmt"] == \
         ["mmt_chat", "mmt_trigger_bond_story"]
     print("    stream: 独占行攒到块尾（流中间不执行）")
@@ -176,7 +178,7 @@ def test_whole_turn_action_waits_until_block_end(tmp_path):
 
 def test_look_keeps_the_words_that_came_before_it(tmp_path):
     """⭐ `look` 是 **trigger 式独占**（2026-10-08 用户裁）: 先说一句"我找找看"再翻 ——
-    那句话**在 `look` 那一行到达时就已经上屏**（一行前瞻的 `_flush`）, 而 `look` 自己
+    那句话**在它自己那一行到达时就上屏了**（到达即交付）, 而 `look` 自己
     攒到块尾才执行（它要整轮可见才判得出"我是不是唯一操作行"）。
 
     ⚠️ 这是"两条路径同形"的**流式**那一半（批式那一半在
@@ -197,9 +199,9 @@ def test_look_keeps_the_words_that_came_before_it(tmp_path):
     r = engine.agent_turn("我们上次说的那件事？")
     assert r.ok and r.reply == "唔……我找找看\n……嗯，想不起来了", r.reply
     # ⚠️ 只看**头两次**喂行（第 1 块的两行）: 第 3 次是第二块的续写行（同一批事件流）。
-    # 喂完第 1 行（话）: 还压着; 喂完第 2 行（look）: 话上屏 —— 而 look 自己不上屏
-    # （事件流里只有 mmt_chat, 没有 mmt_look）。
-    assert seen[:2] == [[], ["mmt_chat"]], seen
+    # 喂完第 1 行（话）: 已经上屏; 喂完第 2 行（look）: 仍然只有那一条 ——
+    # look 自己不上屏（事件流里只有 mmt_chat, 没有 mmt_look）。
+    assert seen[:2] == [["mmt_chat"], ["mmt_chat"]], seen
     print("    stream: 先说话再翻 —— 话在 look 那行到达时上屏, look 攒到块尾")
 
 

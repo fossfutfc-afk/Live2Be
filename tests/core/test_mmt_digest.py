@@ -170,7 +170,9 @@ def test_first_digest_creates_char_entities(tmp_path, monkeypatch):
     assert ids[2:] == ["x0002", "x0003", "x0004", "x0005"], ids
     assert ws.get(SELF_ID).name == names_of(char).display        # 角色自己的显示名
     assert set(names_of(char).aliases) <= set(ws.get(SELF_ID).aliases)
-    assert ws.get(SELF_ID).text == ""                            # 表里 `self` 留空 + 立场留给第 3 轮
+    # ⭐ `self` 的立场来自 `interperson.yml` 的**保留键 `self`**（2026-10-12 作者写上;
+    #    在此之前这一格一直空着, 只有 digest 长出来的那一份）
+    assert ws.get(SELF_ID).text.startswith("我总感觉"), ws.get(SELF_ID).text
     assert ws.get(SENSEI_ID).name == player.display              # 玩家主名: config/player
     assert set(player.aliases) <= set(ws.get(SENSEI_ID).aliases)  # 作者别名
     assert "阿宅" in ws.get(SENSEI_ID).aliases                    # 玩家自取名（player.json）
