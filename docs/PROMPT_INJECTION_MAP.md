@@ -39,7 +39,7 @@
 | 2 | `【世界常识】【世界规则】` | `world` 块 = `world_to_prompt(load_world(...))`（world_parser:70-89），overview.yml common+system 档 | hidden 不注入 |
 | 3 | `【本角色剧情基调】` | `story_tone` 块 = `load_story_tone(char)`（core/common/tone.py）：script.yml `SIG~main_tone` 优先，personality `SIG~story_tone` 兜底（parser:531-533） | 与块1 dump 里的 main tone 键值**二次出现**（既有行为） |
 | 4 | `【本角色 MMT 风格】` | `mmt_tone` 块 = script.yml `SIG~mmt_tone`（char.mmt_tone）| 缺失 → 不注入（条件块） |
-| ~~5~~ | ~~人际层自表~~ | ⛔ **2026-10-08（C 笔）退出盒A** —— 整套 `interperson` 块（`load_interperson` + `self_entry_to_prompt`）已删。 | ⭐ 她的立场改住 **brain 段的「我眼里的他们」**（读 `entity.text`，**会随 digest 演化** ⇒ 静态盒装不住）。见下 §3 与 `CLAUDE.md §7/§8` |
+| ~~5~~ | ~~人际层自表~~ | ⛔ **2026-10-08（C 笔）退出盒A** —— 整套 `interperson` 块（`load_interperson` + `self_entry_to_prompt`）已删。 | ⭐ 她认识的人改住 **brain 段的「我知道的名字」**（2026-10-12 起 = 全体 entity, 读 `name` + `text`，**会随 digest 演化** ⇒ 静态盒装不住）。见下 §3 与 `CLAUDE.md §7/§8` |
 | 5 | MMT 环境 | `environment_mmt` 块 = `momotalk_environment.md` | 虚拟手机场景 |
 | 6 | MMT 规则 | `rules_mmt` 块 = `momotalk_rules.md` | 单人模式、语气/内容示范（**风格**）、契机导向触发规则、⭐ **【回忆】专段**（2026-10-08 —— 什么时候该翻）；⚠️ **形状不在这里**（⑥-2e 拆分：形状只在下一行的契约块） |
 | 7 | 本轮输出契约 | `schema` 块 = **`build_line_schema(mmt_registry)`**（`contract/schema.py`）| ⚠️ **行流契约**（⑥-2e）：一行一条 JSON——`{"text": …}` 消息行 / `{"action": …, "payload": {…}}` 操作行 + **6 条硬规则** + **动作表（运行时渲染，只列 `in_prompt=True` 的；今天 2 个：`mmt_look` / `mmt_trigger_bond_story`）** + 示范（⚠️ **D 笔**删掉了"深挖资料那一轮"，硬规则重编号 5→6；⚠️ **2026-10-12** `mmt_send_media` **封印**（`in_prompt=False`）—— 媒体管线未接、端到端 no-op，契约不该承诺"会发图"；解析/执行照旧认得它）|

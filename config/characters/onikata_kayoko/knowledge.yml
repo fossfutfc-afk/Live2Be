@@ -1,6 +1,6 @@
 # ⛔ `SIG~friends` 2026-10-08 **搬走了**（C2 笔）—— 内容是"她眼里的他们"（主观立场）,
 #    现在住 `config/settings/relation/interperson.yml`（键 = 她的叫法, 值 = 一句看法）,
-#    由引擎在开会话时物化成 `entity.text`、注入 brain 段的「我眼里的他们」。
+#    由引擎在开会话时物化成 `entity.text`、注入 brain 段的「我知道的名字」。
 #    ⚠️ 这里不再留副本 —— 两处写同一件事, 迟早对不上。
 
 SIG~technique: >

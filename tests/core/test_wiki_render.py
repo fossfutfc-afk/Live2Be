@@ -452,63 +452,74 @@ def test_look_copy_is_her_own_words_not_engine_coordinates():
     print("    look 文案: 回显原话与要筛的人 / 如实报边界 / 不印编号与日期")
 
 
-def test_they_block_prints_stances(tmp_path):
-    """⭐ **我眼里的他们**（2026-10-08, C 笔）: `entity.text` 非空才印 —— 那是**她的看法**。
+def test_known_names_block_prints_every_entity(tmp_path):
+    """⭐ **我知道的名字**（2026-10-12, 用户裁"合并 + 保留号都收"）: **全体 entity 都上表**。
 
-    出厂那批来自 `interperson.yml`（`ensure_entities(stances=…)` 物化）, 之后 R3 继续演化。
+    2026-10-08 的口径是"`entity.text` 非空才印"（原「我眼里的他们」）⇒ 只有名字、
+    还没长出看法的对象**不进任何桶**、在图里完全隐形（真机 `老师`/`杂草屋`/`夏莱`
+    三条都看不见）。而这一格正是她的**键面**: `look(entity=…)` 与 P19 的 `name` 段
+    用的都是同一张面（`entities.surface_forms`）。
     ⚠️ 位置: 紧接"我记得的事"之后、belief 之前（先发生了什么 → 他们是谁 → 我想明白了什么）。
-    ⛔ **`self` 不在"他们"里** —— 她对自己的看法有**自己的一行**（见下一条）。
+    ⛔ **别名不上屏**（用户同日裁"臃肿"）—— 别名照旧在匹配面里, 只是不印。
+    ⭐ **她自己在表尾**（原「我是这样看自己的」那一格并了进来 —— 见下一条用例）。
     """
     stances = make_node("entity", name="陆八魔 阿露", text="阿露大人是我所处社团的社长")
     stances.aliases = ["阿露"]
-    blank = make_node("entity", name="杂草屋")            # 没立场 ⇒ 只有一个名字, 不印
+    blank = make_node("entity", name="杂草屋")            # 没立场 ⇒ 光一个名字, **照样上表**
     self_node = make_node("entity", name="伊草 遥香", text="我是一株植物")
     self_node.id = "x0000"
     ep = _ep("天台夜谈", event_seq=[1])
 
     txt = render_character_view([stances, blank, self_node, ep], char_name="伊草 遥香")
-    assert "我眼里的他们：" in txt
+    assert "我知道的名字（想起谁、翻谁的事，都用这些叫法）：" in txt
     assert "- 陆八魔 阿露：阿露大人是我所处社团的社长" in txt
-    assert "杂草屋" not in txt                             # 没立场的不印
-    # ⛔ self 不进那一条（但在**自己的**那一行里 —— 见下一条用例）
-    they_block = txt.split("我眼里的他们：")[1].split("\n\n")[0]
-    assert "我是一株植物" not in they_block
+    assert "- 杂草屋" in txt                               # ⭐ 没立场的也上表（旧口径不印）
+    assert "（阿露" not in txt                             # ⛔ 别名不上屏
+    rows = txt.split("我知道的名字（想起谁、翻谁的事，都用这些叫法）：\n")[1].split("\n\n")[0]
+    assert rows.splitlines()[-1].startswith("- 伊草 遥香：")   # ⭐ 她在表尾
+    assert "我是这样看自己的" not in txt                    # 那一格已并进来, 不再单开
     # 位置: 河之后、belief 之前
     belief = make_node("belief", text="老师是值得信赖的")
     txt2 = render_character_view([stances, ep, belief], char_name="伊草 遥香")
-    assert txt2.index("我记得的事") < txt2.index("我眼里的他们") < txt2.index("我心里渐渐觉得")
-    print("    C: 「我眼里的他们」—— 有立场才印 / 不含 self / 位置在河与 belief 之间")
+    assert txt2.index("我记得的事") < txt2.index("我知道的名字") < txt2.index("我心里渐渐觉得")
+    print("    C: 「我知道的名字」—— 全体上表（含只有名字的）/ 别名不上屏 / 她在表尾")
 
 
-def test_self_stance_gets_its_own_line(tmp_path):
-    """⭐ **我是这样看自己的**（用户 2026-10-08 裁"单开一行"）: `x0000.text`。
+def test_self_row_is_the_last_line(tmp_path):
+    """⭐ **她那一格在表尾**（用户 2026-10-12: *"她自己一格还是跟着放在这里吧"*）。
 
-    ⚠️ 与「我眼里的他们」的关系: **同一个 entity 通道的两格**（`self` 是保留键）。
-    ⚠️ 只剩 `self`、没有别人时, 那一行**照样印**（它们是两块, 判据各自独立）。
+    原「我是这样看自己的」（2026-10-08 裁"单开一行"）**并进这张表** —— 同一份内容
+    印两遍就是同一份东西两次进上下文。`x0000.text` = 她对自己的看法
+    （出厂来自 `interperson.yml` 的 `self` 保留键, 之后 R3 继续演化）。
     """
     self_node = make_node("entity", name="伊草 遥香",
                           text="我也还是一株植物，可以一直长着，因为有人会来看我。")
     self_node.id = "x0000"
-    blank_self = make_node("entity", name="伊草 遥香")     # ⚠️ 同一个 id 的"空立场"版本
-    blank_self.id = "x0000"
-
-    txt = render_character_view([self_node], char_name="伊草 遥香")
-    assert "我是这样看自己的：" in txt
-    assert "我也还是一株植物" in txt
-    assert "我眼里的他们" not in txt                       # 只有 self ⇒ 那一条不出现
-    # ⚠️ 位置: 紧挨「我眼里的他们」之后、belief 之前
     other = make_node("entity", name="阿露", text="社长")
-    belief = make_node("belief", text="老师是值得信赖的")
-    txt2 = render_character_view([other, self_node, belief], char_name="伊草 遥香")
-    assert (txt2.index("我眼里的他们") < txt2.index("我是这样看自己的")
-            < txt2.index("我心里渐渐觉得"))
-    # 空立场 ⇒ 那一行不印（没有一个"空标题"）
-    assert "我是这样看自己的" not in render_character_view([blank_self], char_name="遥香")
-    print("    C: 「我是这样看自己的」—— self 单开一行（空则不印）")
+
+    txt = render_character_view([other, self_node], char_name="伊草 遥香")
+    rows = txt.split("我知道的名字（想起谁、翻谁的事，都用这些叫法）：\n")[1].split("\n\n")[0]
+    lines = rows.splitlines()
+    assert lines[-1] == "- 伊草 遥香：我也还是一株植物，可以一直长着，因为有人会来看我。"
+    assert lines[0] == "- 阿露：社长"                       # 别人按 id 序在前
+    assert "我是这样看自己的" not in txt
+    # 只有 self（没别人）⇒ 表里就她一行, 照样印
+    only = render_character_view([self_node], char_name="伊草 遥香")
+    assert "- 伊草 遥香：我也还是一株植物" in only
+    # 连看法都没有 ⇒ 光名字一行（表里不出现空标题）
+    blank_self = make_node("entity", name="伊草 遥香")
+    blank_self.id = "x0000"
+    txt3 = render_character_view([blank_self], char_name="遥香")
+    assert txt3.splitlines()[-1] == "- 伊草 遥香"
+    print("    C: 她那一格 = 表尾一行（有看法接 `：看法`, 没有就光名字）")
 
 
-def test_they_bucket_lands_in_the_ledger(tmp_path):
-    """台账: `they` 与 `self_stance` 两格都进账（与渲染同源 —— 台账要如实反映她看到了什么）。"""
+def test_known_bucket_lands_in_the_ledger(tmp_path):
+    """台账: `known` 一格进账（与渲染同源 —— 台账要如实反映她看到了什么）。
+
+    ⚠️ 判据是"**是 entity**"（不是"有立场"）⇒ 只有名字的对象也进账, 这才与上表一致;
+    旧口径 `they` 只数有立场的, 于是"名单里有几条"在账上是看不见的。
+    """
     from core.brain.read.render import take_last_view_account
     stances = make_node("entity", name="陆八魔 阿露", text="社长")
     blank = make_node("entity", name="杂草屋")
@@ -516,9 +527,9 @@ def test_they_bucket_lands_in_the_ledger(tmp_path):
     self_node.id = "x0000"
     render_character_view([stances, blank, self_node], char_name="遥香")
     acct = take_last_view_account()
-    assert acct["buckets"]["they"] == 1, acct["buckets"]
-    assert acct["buckets"]["self_stance"] == 1, acct["buckets"]
-    print("    C: `they` / `self_stance` 两格进账（空立场的不计）")
+    assert acct["buckets"]["known"] == 3, acct["buckets"]
+    assert "they" not in acct["buckets"] and "self_stance" not in acct["buckets"]
+    print("    C: `known` 进账（含只有名字的 + 她自己）")
 
 
 def test_recall_budget_reads_config_knob(monkeypatch):

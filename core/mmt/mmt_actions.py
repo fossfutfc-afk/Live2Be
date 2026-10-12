@@ -16,8 +16,8 @@
 
 信息架构（2026-10-08 校正 —— ⛔ L3 深挖层随 `mmt_inspect_character` 一起退役）:
     L0 自我层   角色设定（六件套）+ 世界观 → 常驻 system prompt
-    L1 人际层   ⭐ **她眼里的他们**: `interperson.yml` 的立场物化成 `entity.text`,
-                注入 brain 段的「我眼里的他们」（+ 她自己那一行「我是这样看自己的」）
+    L1 人际层   ⭐ **我知道的名字**: `interperson.yml` 的立场物化成 `entity.text`,
+                注入 brain 段的「我知道的名字」（全体 entity, 含保留号; 她自己在表尾）
     L2 硬知识层 knowledge 硬知识 + LLM 世界知识
 
     - 关系问答 / 大人物常识 → 走 L0-L2 直接回答, **没有"查资料"这个动作了**

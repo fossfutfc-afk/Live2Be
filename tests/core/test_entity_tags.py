@@ -98,6 +98,31 @@ def test_find_entity_accepts_name_aliases_and_case(tmp_path):
     print(f"    解析: {surface_forms(st.get('x0001'))} 的各种写法都命中")
 
 
+def test_find_entity_ignores_whitespace(tmp_path):
+    """⭐ **空白不敏感**（`entities.form_key`，2026-10-12）: `伊草遥香` ≡ `伊草 遥香`。
+
+    为什么必须有（用户 2026-10-12: *"注意处理空格"*）: brain 段的「我知道的名字」
+    **只印主名**，而卡上的主名中间就带一个空格（`伊草 遥香` / `陆八魔 阿露` / …）
+    —— 她/他少打一个空格就 `miss`（`look` 会答"这个名字我对不上是谁"）。
+    ⚠️ 归一 = **去所有空白**（含全角 U+3000）+ `casefold`; ⛔ 不是"近似匹配":
+    多一个字、少一个字照旧 `miss`。
+    """
+    from core.brain.entities import form_key
+    st = _store(tmp_path)
+    aru = st.add(make_node("entity", name="陆八魔 阿露", aliases=["阿露"]))
+    st.save()
+    for raw in ("伊草遥香", "伊草  遥香", "伊草\t遥香", "伊草\u3000遥香", " 伊草遥香 "):
+        node, reason = find_entity(st, raw)
+        assert node is not None and node.id == "x0000", (raw, reason)
+    for raw in ("陆八魔阿露", "陆八魔  阿露", "陆 八 魔 阿 露"):
+        node, reason = find_entity(st, raw)
+        assert node is not None and node.id == aru, (raw, reason)
+    # ⛔ 归一不等于放宽: 多一个字还是 miss（那是"还没建的人", 不许猜）
+    assert find_entity(st, "伊草 遥香香") == (None, "miss")
+    assert form_key("伊草 遥香") == form_key("伊草遥香") == "伊草遥香"
+    print("    解析: 空白不敏感（主名少打一个空格也命中）; 多字照旧 miss")
+
+
 def test_find_entity_never_guesses(tmp_path):
     """命中 0 / 多条 / 空 ⇒ **不猜**（与 `address` 同一套三条纪律）。"""
     st = _store(tmp_path)

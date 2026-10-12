@@ -18,8 +18,9 @@ MomoTalk 对话引擎 — **行协议** agent loop（一行一条 JSON; ⑥-2e �
 
 信息架构（2026-10-08 校正 —— ⛔ L3 深挖层随 `mmt_inspect_character` 退役）:
     L0 自我层   build_prompt("momotalk") + 世界观（common+system 档）→ 常驻
-    L1 人际层   ⭐ **她眼里的他们**: `interperson.yml` 的立场 → `entity.text`
-                → brain 段的「我眼里的他们」（+「我是这样看自己的」）→ 常驻（会随 digest 变）
+    L1 人际层   ⭐ **我知道的名字**: `interperson.yml` 的立场 → `entity.text`
+                → brain 段的「我知道的名字」（全体 entity, 含保留号; 她自己在表尾）
+                → 常驻（会随 digest 变）
     L2 硬知识   LLM 世界知识 + 知识库（规划中）
 
 MomoTalk 与羁绊剧情的区别:
@@ -267,9 +268,9 @@ def _ensure_char_entities(wstore: WikiStoreV2, char, character_id: str, *,
     **建的时刻**（用户 2026-09-23 裁决 → 2026-10-08 / C 笔**扩大**）:
       · **第一次 digest 开始前** —— bond `vn_finish` 之后、digest 的 LLM 调用之前;
       · ⭐ **每次开会话/恢复也跑**（`_inject_brain` 的非 digest 路径）——
-        「我眼里的他们」那一块读的是 `entity.text`, 而**新档第一次 digest 之前**
-        图里一个 entity 都没有 ⇒ 那块会是空的（出厂印象就没了）。
-        幂等 ⇒ 平时**只读不写**。
+        「我知道的名字」那一块读的是 **entity 本身**（`name` + 有看法就接 `text`）,
+        而**新档第一次 digest 之前**图里一个 entity 都没有 ⇒ 那块会是空的
+        （出厂的名字与印象就都没了）。幂等 ⇒ 平时**只读不写**。
     接在 `_inject_brain(digest=True)` 里（不是接在 `bond/api.py`）是为了**两个触发点都覆盖**:
     bond 闭环 **与** mmt 每 25 轮 —— 只接 bond 的话, 第一次 digest 若是 mmt 触发的,
     entity 就还不存在。
@@ -839,8 +840,9 @@ class MomoTalkEngine:
                                  char_id=character_id)
             # 本段事件（digest 与笔记注入共用 —— 提到 if 之前, 两条路都要）
             events = store.events(character_id)
-            # ⭐ **出厂物化（C 笔）: 开会话/恢复也要跑** —— 「我眼里的他们」读的是
-            #    `entity.text`, 而新档第一次 digest 之前图里什么都没有（那块会空着）。
+            # ⭐ **出厂物化（C 笔）: 开会话/恢复也要跑** —— 「我知道的名字」读的是
+            #    entity 本身（`name` + `text`）, 而新档第一次 digest 之前图里
+            #    什么都没有（那块会空着）。
             #    幂等 ⇒ 平时只读不写。⚠️ 严格性跟着 digest 走: 消化路径沿用
             #    "玩家档案坏了 ⇒ 中止本轮消化"; 只读注入路径只 warn（见 `strict`）。
             _ensure_char_entities(wstore, char, character_id,
@@ -1375,9 +1377,10 @@ class MomoTalkEngine:
         | ③ | 空 ⇒ 用 `when.wide` **再查一次** | "那段时间没有；前后那阵子…" —— **如实报告筛选边界** |
 
         ⭐ **`entity` 是筛选轴, 不是"看档案"**（用户 2026-10-12: *"我觉得 entity 更像筛选
-        某人的事例"*）: 她的叫法经 `entities.find_entity`（**只归一格式, 不做近似匹配**）
-        翻成 entity id ⇒ `find` 的 `entity` 锚 = **他车道上全部**, 与 `clue`/`when` **AND**。
-        ⛔ **不印 `entity.text`**: "我眼里的他们"已经在 brain 段**常驻**, 这里再印一遍
+        某人的事例"*）: 她的叫法经 `entities.find_entity`（**`form_key` 归一: 去空白 +
+        casefold, ⛔ 不做近似匹配**）翻成 entity id ⇒ `find` 的 `entity` 锚 = **他车道上全部**,
+        与 `clue`/`when` **AND**。
+        ⛔ **不印 `entity.text`**: 「我知道的名字」已经在 brain 段**常驻**, 这里再印一遍
         是同一份内容进两次上下文; 她要的只是"**跟他有关的事例**"。
         ⚠️ **名字认不出 ⇒ `LOOK_EMPTY_ENTITY`**（miss / ambiguous 都不猜 —— 与
         `address.find_episode` 同一套判据）; 而且**不算"翻空了"**（不计数）。

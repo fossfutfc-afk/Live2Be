@@ -153,7 +153,7 @@ tests/ core/ webgui/ llm/ renderer/ apps/ 分别对应域; experiments/ 真 API 
   `mmt_trigger_bond_story`（**唯一模式切换动作**, 独占操作行, 必须带 chapter_title 3-16 字）。
   ⛔ **`mmt_inspect_character` 2026-10-08 已退役**：从前它按 `interperson` 权重分级读
   **别人**的客观档案（profile/personality/experience）—— 用户裁"客观档案混进主观看法里是错的"。
-  她今天只知道**自己眼里的他们**（见 §7 的「我眼里的他们」）。
+  她今天只有**自己眼里的他们**（主观看法 —— 见 §7 的「我知道的名字」）。
   ⚠️ **`look` 的"放宽"是唯一一处兜底，而且它已经带提示**：`exact` 查空 ⇒ 用 `win.wide`
   再查一次（⛔ **只有单日窗口才有 `wide`** —— `start == end` 时才非 None；「上周」这种
   区间窗口 `wide=None` ⇒ 空了就是真空）, 命中时段头如实报告边界
@@ -481,7 +481,7 @@ CLI/测试同步路径在引擎内串行。
     写 `entity` 节点（name/aliases/event_seq/ts）+ 补 `about` 边，⛔ **不写正文**；
     **跳过条件 = 本段没有解析不到的 `#entity:` 名字**（没有新人 ⇒ 一次调用都不发）；
   · ⚠️ 由此带来一个**已知缺口**（用户 2026-10-12 裁"以后再说"）：`entity.text`
-    （她眼里的他们 + 她对自己）今天**只有出厂物化在写**（`interperson.yml`），
+    （「我知道的名字」里那些看法）今天**只有出厂物化在写**（`interperson.yml`），
     digest 侧没有任何写者 ⇒ 那一格**不会随经历演化**；新看法以 **belief** 落进
     「我心里渐渐觉得」（E4 的分工："造看法归 L2"）。
   —— 本文下面凡写 R1/R2/R3/R4 的按这行对。
@@ -524,12 +524,19 @@ CLI/测试同步路径在引擎内串行。
   每轮拼 system 尾（digest 后**下轮**生效）；Bond 开场构造注入（剧情内固定）。
   resume 只注入不消化。⚠️ 装填只有两个时刻（开会话 / digest 完成）——`start_session`
   不清空旧串, 所以**进程重启后**第一个会话全靠"开会话那次装填"（此前缺 = 空 brain）。
-  ⭐ **brain 段的四块注入面**（`render_character_view`, 顺序即注入顺序）：
-  ① 我记得的事（episode 一条河）② ⭐ **我眼里的他们**（`entity.text` 非空 ——
-  出厂来自 `interperson.yml`, 之后 R3 演化；`x0000` **不在里面**）③ ⭐ **我是这样看自己的**
-  （`x0000.text` 单开一行 —— 她对自己的看法, 用户 2026-10-08 裁）④ 我心里渐渐觉得（belief）
-  + 老师的事 / 我听说的。⚠️ **②③ 的出厂物化在开会话时就跑**（`_ensure_char_entities`,
-  幂等）—— 否则**新档第一次 digest 之前**图上没有 entity, 那两块会是空的。
+  ⭐ **brain 段的三块注入面**（`render_character_view`, 顺序即注入顺序）：
+  ① 我记得的事（episode 一条河）② ⭐ **我知道的名字**（2026-10-12 起 —— **全体 entity**:
+  一行 = `主名` + 有看法就接 `：text`, ⛔ 不印别名/不印类别; **保留号都收**, 她自己在**表尾**;
+  出厂来自 `interperson.yml`, 之后 R3 演化）③ 我心里渐渐觉得（belief）
+  + 老师的事 / 我听说的。
+  ⚠️ **那两块（“我眼里的他们”+“我是这样看自己的”）2026-10-12 合成这一块**：
+  ② 的判据从"`text` 非空"放宽成"**是 entity**"（只有名字、还没长出看法的对象此前
+  **不进任何桶** ⇒ 真机 `老师`/`杂草屋`/`夏莱` 三条在图里完全隐形），③ 并成**她那一行**
+  （同一份内容不再印两遍）。那张表同时是她的**键面**：`look(entity=…)` 与 P19 的
+  `name` 段认的都是 `entities.surface_forms`，而匹配走 **`entities.form_key`**
+  （去空白 + casefold）⇒ 表上印的主名少打一个空格也命中。
+  ⚠️ **②的出厂物化在开会话时就跑**（`_ensure_char_entities`, 幂等）—— 否则
+  **新档第一次 digest 之前**图上没有 entity, 那一块会是空的。
 
 ---
 
@@ -540,8 +547,8 @@ CLI/测试同步路径在引擎内串行。
   world → story_tone → mmt_tone → environment → **time_sense（2026-09-17 加）** →
   rules_mmt → schema。
   ⚠️ **`interperson` 块为什么退出盒A**（C 笔）：盒 = **一次拼死、逐字节稳定**（前缀缓存的地基），
-  而"她眼里的他们"读的是 **`entity.text`** —— 那个值**会随 digest 演化** ⇒ 静态的盒装不住它。
-  它搬进了 **brain 段的「我眼里的他们」**（+ 她自己那一行「我是这样看自己的」），见 §7。
+  而"她眼里的他们"读的是 **entity 本身**（`name` + `text`，`text` **会随 digest 演化**）
+  ⇒ 静态的盒装不住它。它搬进了 **brain 段的「我知道的名字」**，见 §7。
   盒B(bond) **10 块**：greeting → persona_bond → world → story_tone → bond_tone →
   rules_bond → **bond_shots（镜头与手法, 2026-09-19 PL2）** → schema →
   **place_world（世界区域·剧情地理）** → brain。
@@ -623,10 +630,10 @@ CLI/测试同步路径在引擎内串行。
   值 = **entity 的 text**（一句**她自己的看法**，从 `knowledge.yml` 的 `SIG~friends` 搬来，
   **逐字搬、搬完删副本**）；键 = **她的叫法**；能对上角色档案的给 `id`（名字/别名零手写）、
   没档案的给 `name`/`aliases`（⭐ **没卡也能被认识**）；`self` / `sensei` 是**保留键**
-  （`self` = 她对自己的看法 → 独立那一行「我是这样看自己的」）。
+  （`self` = 她对自己的看法 → brain 段那张表里**她那一行**，表尾）。
   ⭐ **注入面（2026-10-08 起）**：开会话时物化成 `entity.text`
   （`engine._ensure_char_entities` → `entities.ensure_entities(stances=…)`，**幂等、
-  只填空 text、⛔ 不覆盖 digest 长出来的**），进 **brain 段的「我眼里的他们」**。
+  只填空 text、⛔ 不覆盖 digest 长出来的**），进 **brain 段的「我知道的名字」**。
   ⛔ 盒A 的 `interperson` 块已撤（见 §8）；⛔ `mmt_inspect_character` 与
   `resolve_access_level` 已退役（见 §3.1）—— 她**不再读别人的客观档案**。
   ⚠️ 旧形（值 = 权重 1/2/3）**照读但没有读者**（`hinomiya_chinatsu` 那一行还是这样）。

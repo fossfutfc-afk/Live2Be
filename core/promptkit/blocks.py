@@ -280,7 +280,7 @@ BLOCK_DOC: dict[str, str] = {
     "world": "世界常识/世界规则（common+system 档）",
     "story_tone": "本角色剧情基调（SIG~main_tone）",
     "mmt_tone": "本角色 MMT 风格（SIG~mmt_tone, 条件）",
-    "interperson": "⛔ 2026-10-08（C 笔）**已退出盒A** —— 搬进 brain 段的「我眼里的他们」",
+    "interperson": "⛔ 2026-10-08（C 笔）**已退出盒A** —— 搬进 brain 段的「我知道的名字」",
     "environment_mmt": "MomoTalk 环境说明",
     "rules_mmt": "MomoTalk 行为规则书",
     "bond_tone": "本角色羁绊剧情建议（SIG~bond_tone, 条件）",

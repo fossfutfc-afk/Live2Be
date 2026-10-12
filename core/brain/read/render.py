@@ -24,7 +24,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Iterable
 
 from core.brain import marks
-from core.brain.entities import SELF_ID          # 「我眼里的他们」要把 self 摘出去
+from core.brain.entities import SELF_ID          # 「我知道的名字」里她那一行要挪到表尾
 from core.brain.nodes import BrainNode
 from core.brain.read.pack import Candidate
 
@@ -217,22 +217,15 @@ def _bucket_view(nodes: Iterable[BrainNode], graph=None) -> dict:
         "player": lambda n: n.kind == "profile",
         "reported": lambda n: (n.kind == "episode"
                                and bool(n.observer.strip())),
-        # ⭐ **我眼里的他们**（2026-10-08, C 笔）: **有立场的对象**（`entity.text` 非空）。
-        # 出厂那批由 `interperson.yml` 物化（`ensure_entities(stances=…)`）, 之后 R3 继续演化。
-        # ⚠️ 判据**含"立场非空"**: 只有一个名字的对象印出来是一行噪音（"还没长出看法"
-        #    本身就是信息）; ⚠️ 空立场的 entity **不进任何桶**（与改动前对**所有** entity
-        #    的处理一致 —— 那时根本没有 entity 桶 ⇒ `sum(buckets) == total` 只在无 entity
-        #    的库上成立, 这条老账没变）。
-        # ⛔ **不含 `self`**: 她对自己的立场不属于"他们" —— 它有自己的那一格
-        #（下面的 `self_stance`; 用户 2026-10-08 裁: **单开一行**）。
-        "they": lambda n: (n.kind == "entity" and n.id != SELF_ID
-                           and bool(str(n.text or "").strip())),
-        # ⭐ **她对自己的看法**（`x0000.text`）—— 单开一格（用户 2026-10-08 裁）。
-        # ⚠️ 这一格与 `interperson.yml` 里的 **`self` 键**是同一个格子
-        #（`ensure_entities(stances=…)` 的**保留键** ⇒ 按 id 认, ⛔ 不去 profile 里搜名字）;
-        #    真档今天那条是 digest 的 R3 长出来的, 出厂值作者还没写（表里留了空位）。
-        "self_stance": lambda n: (n.kind == "entity" and n.id == SELF_ID
-                                  and bool(str(n.text or "").strip())),
+        # ⭐ **我知道的名字**（2026-10-12, 用户裁"合并 + 保留号都收"）: **全体 entity** ——
+        # 含 `x0000` 她自己与 `x0001` 老师。
+        # ⚠️ 判据从"`entity.text` 非空"（原「我眼里的他们」）改成"**是 entity**":
+        #    只有名字、还没长出看法的对象（真机 `老师` / `杂草屋` / `夏莱`）此前**不进任何桶**
+        #    ⇒ "她认识谁"在图里是隐形的, 而那一格正是她的**键面**
+        #    （`look(entity=…)` 与 P19 的 `name` 段用的都是 `surface_forms`）。
+        # ⛔ **不印类别**（`etype` 已裁不做）⇒ 人/地方/机构混在一张表里, 靠名字自己看懂。
+        # ⛔ 那一块**不印别名**（用户同日裁"臃肿"）—— 别名照旧是匹配面, 只是不上屏。
+        "known": lambda n: n.kind == "entity",
     }
     # ⭐ 经历 = **一条河（旧→新）**（2026-09-25, 链路 ⑤）: 从前按 `(珍贵, ts)` 降序,
     # 于是"同一个时刻的事"被 `is_precious` 劈到两段里 ⇒ 河的时间轴断掉。
@@ -247,24 +240,21 @@ def _bucket_view(nodes: Iterable[BrainNode], graph=None) -> dict:
     players = sorted((n for n in all_nodes if bucket["player"](n)),
                      key=lambda n: _count_of(n, graph), reverse=True)
     reported = [n for n in all_nodes if bucket["reported"](n)]
-    they = sorted((n for n in all_nodes if bucket["they"](n)), key=lambda n: n.id)
-    self_stance = [n for n in all_nodes if bucket["self_stance"](n)]
+    known = sorted((n for n in all_nodes if bucket["known"](n)), key=lambda n: n.id)
     return {
         "total": len(all_nodes),
         "episodes": episodes,
         "beliefs": beliefs,
         "players": players,
         "reported": reported,
-        "they": they,
-        "self_stance": self_stance,
+        "known": known,
         # 台账口径: 桶名 → 注入条数（cap 已删 → 桶内全量, 无"选中/候选"之分）
         "buckets": {
             "episode": len(episodes),
             "belief": len(beliefs),
             "player": len(players),
             "reported": len(reported),
-            "they": len(they),
-            "self_stance": len(self_stance),
+            "known": len(known),
         },
     }
 
@@ -282,9 +272,10 @@ def render_character_view(
 
     分层（运行时分区, 决定**注入顺序**而非截断）:
         - 我记得的事（**一条河, 从早到晚**）: episode 全量按 `ts` 升序（2026-09-25 链路 ⑤）
-        - ⭐ **我眼里的他们**（2026-10-08, C 笔）: **有立场的对象**（entity `text` 非空）——
-          出厂那批来自 `interperson.yml`（`SIG~friends` 搬过去的那份）, 之后 R3 继续演化
-        - ⭐ **我是这样看自己的**（同日, 用户裁"单开一行"）: `x0000.text`（**self 那一格**）
+        - ⭐ **我知道的名字**（2026-10-12, 用户裁"合并 + 保留号都收"）: **全体 entity**
+          （`name` + 有看法就接 `：text`）—— 出厂那批来自 `interperson.yml`, 之后 R3 继续演化。
+          ⛔ 不印别名（别名照旧是匹配面, 只是不上屏）· ⛔ 不印类别（`etype` 已裁不做）;
+          ⭐ **她自己在表尾**（同日的「我是这样看自己的」那一格并进来了, 不再单开一段）。
         - 我心里渐渐觉得（belief）: 按 sig
         - 老师的事（player experience 口癖）: count 降序
         - 我听说的（reported）: 兜底 —— ⚠️ **不进河**: 那是"听说的事"不是她经历的
@@ -309,9 +300,8 @@ def render_character_view(
     **时刻**（`datetime` 或 `ts` 串）—— 形状没变, 语义从"剧情时间槽"变成"今天"。
     """
     b = _bucket_view(nodes, graph)
-    episodes, beliefs, players, reported, they, self_stance = (
-        b["episodes"], b["beliefs"], b["players"], b["reported"], b["they"],
-        b["self_stance"])
+    episodes, beliefs, players, reported, known = (
+        b["episodes"], b["beliefs"], b["players"], b["reported"], b["known"])
     _last_view_account.append(b)
 
     blocks: list[str] = ["【角色记忆（brain）】"]
@@ -328,19 +318,19 @@ def render_character_view(
     if episodes:
         blocks.append("我记得的事（从早到晚）：\n" + "\n".join(
             _memory_line(n, char_name, char_aliases, now) for n in episodes))
-    # ⭐ **我眼里的他们**（2026-10-08, C 笔）—— 出厂立场（`interperson.yml` 物化）+ R3 的演化。
-    # 位置: 紧接"河"之后、belief 之前 —— 先"发生了什么", 再"他们是谁", 再"我想明白了什么"。
+    # ⭐ **我知道的名字**（2026-10-12, 用户裁"合并 + 保留号都收"）—— 出厂立场
+    # （`interperson.yml` 物化）+ R3 的演化, 与**键面**（她的叫法）合成一块。
+    # 位置: 紧接"河"之后、belief 之前 —— 先"发生了什么", 再"他们是谁/我怎么看他们",
+    # 再"我想明白了什么"。
     # ⚠️ **原样印, 不过 `_me()`**: 这些是**她自己写的**（作者按她的口吻写的第一人称）,
     #    再做一次人称转换只会把"我"改坏。
-    if they:
-        blocks.append("我眼里的他们：\n" + "\n".join(
-            f"- {n.name.strip()}：{str(n.text).strip()}" for n in they))
-    # ⭐ **我是这样看自己的**（用户 2026-10-08 裁: 单开一行, 紧挨「我眼里的他们」）。
-    # 出处 = `x0000.text`（`interperson.yml` 的 `self` 保留键 / digest 的 R3 演化）。
-    # ⛔ 不过 `_me()`（那是**她自己**的话, 再做人称转换只会把"我"改坏）;
-    # ⛔ 也不加 `-` 列表符（她只有一条, 不是"他们"里的一员）。
-    if self_stance:
-        blocks.append("我是这样看自己的：\n" + str(self_stance[0].text).strip())
+    # ⭐ **她自己在表尾**: 原「我是这样看自己的」那一格（`x0000.text`）并成最后一行 ——
+    #    同一份内容印两遍就是同一份东西两次进上下文（用户同日裁"她那一格跟着放在这里"）。
+    if known:
+        rows = ([n for n in known if n.id != SELF_ID]
+                + [n for n in known if n.id == SELF_ID])
+        blocks.append(KNOWN_NAMES_HEADER + "\n" + "\n".join(
+            _known_line(n) for n in rows))
     if beliefs:
         blocks.append("我心里渐渐觉得：\n" + "\n".join(
             _belief_line(n, char_name, char_aliases) for n in beliefs))
@@ -598,6 +588,29 @@ LOOK_EMPTY_TIME = ("（唔……那阵子的事我怎么也想不起来了。要
 
 #: 她说的时间**落在将来**（规则⑥: 合法但空 —— 不是她写错了）。
 LOOK_FUTURE = "（那是还没发生的事呢。）"
+
+
+#: ⭐ **「我知道的名字」的抬头**（2026-10-12, 用户裁 —— 合并「我眼里的他们」+「我是这样看自己的」，
+#: 并把这张表立成她的**键面**）。括号里两句话说的是同一件事的两条用法:
+#: **想起谁** = P19 的「你想着「X」」（`name` 段；引擎按这份名单去认老师那句里的名字）·
+#: **翻谁的事** = `mmt_look` 的 `entity` 轴（`entities.find_entity`，同一张面）。
+#: ⚠️ 匹配是 **`entities.form_key` 归一**（去空白 + casefold）⇒ 表上印的写法少打一个
+#: 空格也能命中; ⛔ 别名不上屏（用户同日裁"臃肿"）—— 但它照旧在匹配面里。
+#: ⛔ 改这句要**同批**改 `llm/prompts/momotalk_rules.md`【回忆】那一句（两处说同一件事）。
+KNOWN_NAMES_HEADER = "我知道的名字（想起谁、翻谁的事，都用这些叫法）："
+
+
+def _known_line(node: BrainNode) -> str:
+    """她的名单里的一行: `- 主名` 或 `- 主名：看法`。
+
+    ⚠️ **只印主名**（用户 2026-10-12 裁: 别名堆在表里臃肿）—— 别名仍是匹配面的一部分,
+    只是不上屏（印出来的写法可抄, 没印的写法照样认）。
+    ⛔ 不过 `_me()`: 看法是**她自己写的**第一人称, 再做一次人称转换会把"我"改坏。
+    ⛔ 不印类别（`etype` 已裁不做）: 人/地方/机构在这张表里平等, 靠名字自己看懂。
+    """
+    name = str(node.name or "").strip()
+    text = str(node.text or "").strip()
+    return f"- {name}：{text}" if text else f"- {name}"
 
 
 def _reported_line(node: BrainNode, char_name: str,
