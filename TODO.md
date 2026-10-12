@@ -22,6 +22,29 @@
 
 ## 进行中 / 即将
 
+### ⏳ 把硬编码的 prompt 文案从代码里拆出来（2026-10-13 用户提出）
+
+> 原话：*"把所有硬编码的 prompt 拆出来，它们基本都在 registry 里"*
+
+**问题**：LLM 可见的 prompt 文案有一大半**压在 Python 代码里**，跟逻辑挤在同一个文件 ——
+改一句话要动代码，也没法让非程序员审。重构审计实测到的分布：
+
+| 位置 | 什么 | 量 |
+|---|---|---|
+| `contract/digest_registry.py:160-372` + `:763-1059` | 七个相位的取值清单 / 字段块 / 语义块 / **示例**，全是手写长串 | ≈470 行 |
+| `contract/schema.py` | 三个渲染器（`build_schema` / `build_line_schema` / `build_record_schema`）里的外壳字段说明、硬规则、示例 | 全文 |
+| `contract/registry.py` · `spec.py` | 各动作的 `payload_schema` 描述串 | 逐动作 |
+| 标注层四个模块（`emo_text` / `emotion_annotate` / `place_annotate` / `variant_annotate`） | 手搓 system 字符串（**绕过 promptkit**） | 4 处 |
+
+**目标形态**：文案真源统一到 `llm/prompts/`（人可改的 `.md` 或一张文案表），代码只管
+「取值 → 填槽 → 渲染」。顺带收口**装配路径**：现在实际有 **5 条互不相通**的路径
+（promptkit 盒/尾/任务卡 · contract 渲染器 · `llm/prompts` 文案仓库 · 标注层手搓 · digest 自有
+`core/digest/call.py`），现状地图见 `docs/PROMPT_INJECTION_MAP.md`。
+
+**判据**：`contract/` 里搜不到成段的 prompt 散文；改一句提示词只动 `.md`。
+**依赖**：批次 1（`contract/` 重构）—— `digest_registry.py` 本来就要按「数据表 / 文案 / 解析」
+三层拆开，拆的时候顺手把文案挪出去最省事。
+
 ### ⏳ 时间轴换代：剧情日历 → 现实日期（2026-09-17 讨论定稿 + 用户五问五答）
 
 > 讨论全过程（含两次翻盘与三次误判）：**docs/ESSAY_TIME_MODEL.md**（§10 = 结论）
