@@ -1,11 +1,13 @@
 # PROCEED.md — **接续用**（整篇覆盖写；上一版见 git 历史）
 
-> 位置（2026-10-12 夜）：**树干净 · 远端已同步（ahead 0）· 最新 `cbdbe3e`**。
-> 这一段做完了两件事：① **"她怎么认识人"整条线**（换写法 → 出厂物化 → brain 段注入 →
+> 位置（2026-10-12 夜 / 第二版）：**树干净 · 最新 `fe61c15`**（推送状态见文末）。
+> 这一段做完了三件事：① **"她怎么认识人"整条线**（换写法 → 出厂物化 → brain 段注入 →
 > `inspect` 退役 → 规则书【回忆】专段 → 文档收口 + 全量 1403 passed）；
 > ② ⭐ **召回的"形式表 + 唯一前门"**（`core/brain/read/modes.py` —— 六路加权从唯一外部 API
-> 降级为"`rank` 形状里的一行"）。
-> ⏭ **下一步 = 把 `name` 形式接线到 P19**（见 §2①）。
+> 降级为"`rank` 形状里的一行"）；
+> ③ ⭐ **`name` 形式接线到 P19** ⇒ **P19 现在是两段**（「关于他们的」（确定命中）+
+> 「你想起的事」（六路兜底）），每段各自吃 1000 字符预算。
+> ⏭ **下一步 = 下一批召回形式**（见 §2）。
 
 ---
 
@@ -21,9 +23,9 @@ seg   = render_section(cands, *, mode="turn", cap=None, budget=None,
 
 | 参数 | 规矩 |
 |---|---|
-| `mode` | **形式名**（`MODES` 的键）。今天两个：`"turn"`（rank, = 从前的 `like(spec="turn")`, **逐条同**）· `"name"`（set, 「关于他们的」） |
+| `mode` | **形式名**（`MODES` 的键）。今天两个：`"name"`（set, 「关于他们的」——⭐ **已接线到 P19 第一段**）· `"turn"`（rank, 「你想起的事」= 从前的 `like(spec="turn")`, **逐条同**, P19 第二段） |
 | `k` / `weights` | ⚠️ **只有 rank 型认识**；给 set 型传 ⇒ `ValueError`（⛔ 不静默忽略） |
-| `cap` / `budget` | **渲染层**的"摆几条 / 多长"（互斥, `cap` 优先）—— ⛔ 不是召回层的旋钮 |
+| `cap` / `budget` | **渲染层**的"摆几条 / 多长"（互斥, `cap` 优先）—— ⛔ 不是召回层的旋钮。⭐ P19 两段**各自**读 `[recall].turn_budget`（1000） |
 | 返回 | 两种形状**同一个类型**：rank 型 ≤ k 条（降序）；set 型 = 命中**全部**（新→旧, **不裁**） |
 | 未知名 | `KeyError` + 可用清单（⛔ 不静默回落缺省） |
 
@@ -31,9 +33,11 @@ seg   = render_section(cands, *, mode="turn", cap=None, budget=None,
 ```python
 "when": Mode(shape=SHAPE_SET, anchors=("when",), payload_from=…, header="【那阵子的】")
 ```
-`Mode` 字段: `shape / spec / anchors / payload_from / kinds / order / header / hint`。
+`Mode` 字段: `shape / spec / anchors / payload_from / skip_ids / kinds / order / header / hint`。
 ⛔ **故意没加** `admit` / `cap` 两格（今天每种形状只有一种准入规则; 截断归渲染层）——
 加格子要等真有第二种规则, 否则是配了没人读的**假旋钮**。
+⭐ **加了的只有 `skip_ids`**（`name` 行用它剔保留号）—— 它不是旋钮, 是**一行形式的固有
+属性**（"谁的叫法能触发这一段"），而且真有第二取值。
 ⛔ **没接线的形式不许先写进表**（空行 = 假承诺）。
 
 **设计依据**（为什么分形式、不混分; 别人怎么做的六类范式 + 出处）= `docs/DESIGN_RECALL_MODES.md`。
@@ -48,19 +52,22 @@ digest/material.py ─┐
 rag/brain.py ───────┴→ recall.py::recommend_candidates / recall_subgraph   现役（R2 的料 + rag）
                       → render.py::render_cognition_list                   现役（relate / cognize 的料）
 
-MMT 引擎 ─┬→ modes.recall(mode="turn") → like.like(spec="turn") → pack.Candidate
-          │                                                   → render.render_recall_block   ⭐ P19 每轮
-          ├→ modes.recall(mode="name") → find.find({"entity":…}) → render.render_section     ⚠️ 未接线
+MMT 引擎 ─┬→ modes.recall(mode="name") → find.find({"entity":…})  → render.render_section  ⭐ P19 第一段
+          │   （⛔ 保留号 x0000/x0001 不触发 —— `Mode.skip_ids`）
+          ├→ modes.recall(mode="turn") → like.like(spec="turn") → pack.Candidate
+          │                                                   → render.render_section   ⭐ P19 第二段
           ├→ render.render_character_view                                                ⭐ brain 段
           └→ recall_ledger.log_read · recall_config（台账 + 旋钮）
 
 ⛔ 未接线: channels.py + channel_impl.py + compose.py（五链路 A–E + 合成层; 只有 experiments 在跑）
 ⛔ legacy: recall.py::recall_episodes（P19 已改用 like/modes; 只剩测试在调）
+⚠️ `render.render_recall_block`（= turn 档文案的老门面）**留着**（render 的公开函数 + 测试在用），
+   但 **engine 不再 import 它**（两段统一走 `render_section`）—— api 快照那一行已换。
 ```
 
 | 文件 | 行 | 干什么 | 现役 |
 |---|---|---|---|
-| `modes.py` | 192 | ⭐ **形式表 + 唯一前门**（`recall` / `render_section` / `describe`） | ✅ engine |
+| `modes.py` | 215 | ⭐ **形式表 + 唯一前门**（`recall` / `render_section` / `describe`） | ✅ engine（P19 两段） |
 | `like.py` | 718 | 相似召回：`PARTS`（六路）+ `SPECS`（档位）+ `like()` + `build_ctx` | ✅ engine |
 | `find.py` | 425 | 定向寻找：五锚 `title/entity/group/when/text` **AND** ⇒ 全部（不漏即正确）+ `compile_clue` | ✅ engine（`look`） |
 | `pack.py` | 136 | 候选形状 `Candidate` + **共用命中面** `body_of` + 台账行 | ✅ 包内共用 |
@@ -71,23 +78,28 @@ MMT 引擎 ─┬→ modes.recall(mode="turn") → like.like(spec="turn") → pa
 | `channels.py`+`channel_impl.py` | 747 | 五链路（A 强度先验 / B 情绪 RAG / C 地点 / D 既视感 / E 认知碎片） | ⛔ 未接线 |
 | `compose.py` | 345 | 五链路合成（归一 + noisy-or + 名次门槛）· `recall_now()` | ⛔ 未接线 |
 
-⚠️ 两条事实别踩：`turn` 档 `semantic` 权重 = **0**（真机 916ms → 2ms 的取舍 ⇒ **召回不靠语义**）；
-`find` 的 `entity` 锚是 **set 语义**（车道上全部），而 `like` 的 `name` 路**只加成、不作准入**。
+⚠️ 三条事实别踩：`turn` 档 `semantic` 权重 = **0**（真机 916ms → 2ms 的取舍 ⇒ **召回不靠语义**）；
+`find` 的 `entity` 锚是 **set 语义**（车道上全部），而 `like` 的 `name` 路**只加成、不作准入**
+⇒ 所以两段**会撞同一条**（engine 层跨段去重是必需的，不是优化）；
+⭐ 「提到了谁」是**字面子串**命中（`cf in query`）⇒ 保留号（她自己/老师）会把整条河捞出来
+（`RESERVED_TRIGGERS` 就是为它设的）。
 
 ---
 
 ## 2. 下一步（每件一个提交 + 用户审一关）
 
-### ⏭ ① `name` 形式**接线到 P19**（下一件；会改她看到的东西）
-`MODES["name"]` 已能用、已有守门（8 条 + 变异 6/6），但 `engine._recall_note` 只跑 `mode="turn"`。
-接线 = 玩家这句点到某个对象名时**多摆一段**「关于他们的」（抬头在 `MODES["name"].header`）。
-⚠️ 一起定：形式多了**注入变长** —— 谁有保底名额、谁吃剩下的（`render` 的 700 字预算）。
-
-### ⏭ ② 下一批形式（落一个加一行）
+### ⏭ ① 下一批形式（落一个加一行）
 `when`（时间窗, set）· `echo`（既视感, rank）· `mood`（情绪, rank）· `near`（图上相邻, set）。
 清单与判据见 `docs/DESIGN_RECALL_MODES.md §4`。
+⚠️ **每落一个之前先报"判据 + 触发时机 + 抬头 + 预算"**（会改她看到的东西 ⇒ 先审后动）。
+⚠️ **触发时机要单独拍**: 今天 `name` 是"**玩家这句**提到了名字"; 而 `echo` / `mood` 那类
+更该由"她上一句 / 当前情境"触发 —— 但引擎现成的料只有玩家这一句（`RecallCtx.query`）。
+⚠️ P19 两段已经能撞满 **2×1000** 字符 —— **加第三段之前先定"谁有保底名额"**。
 
 ### ⏸ 已裁（2026-10-12，用户）—— 别再翻案
+- ⭐ **P19 两段的四条口径**（`fe61c15`）: **每段各自** 1000 字符（`[recall].turn_budget`）·
+  段序「关于他们的」在前 · **保留号不触发**名字段（她自己/老师）· 名字段**不挂**
+  `{"noticed": …}` 提示（两段同屏不重复一句话; 兜底段挂着）。
 - **`一行前瞻`：撤了**（`30fe6b6`）⇒ 内容行**到达即交付**。
 - **`self` 出厂值：写了**（`9379a91`）。⚠️ 引擎仍是"只填空 text" ⇒ 真档 `x0000` 已有 R3 那份,
   **新世界线才生效**（用户: "先不管"）。
@@ -103,7 +115,7 @@ P19 的 cap + 标题清单 · `look` 给 `entity` 锚（"关于阿露的全部"�
 
 ---
 
-## 3. 已落地的链（这一段 17 笔, 全部已验证 · 远端同步）
+## 3. 已落地的链（这一段 18 笔, 全部已验证 · 远端同步）
 
 | 提交 | 一句话 |
 |---|---|
@@ -117,6 +129,7 @@ P19 的 cap + 标题清单 · `look` 给 `entity` 锚（"关于阿露的全部"�
 | `30fe6b6` `9379a91` | 撤前瞻 · 作者写上的 `self` |
 | `7cfcda2` `4d93258` | PROCEED 推送命令改代理 · CLAUDE.md §7/§2 校正 digest **7 轮** |
 | `cbdbe3e` | ⭐ **召回形式表 + 唯一前门** `modes.recall(mode=…)` |
+| `fe61c15` | ⭐ **`name` 接线到 P19** —— 两段（名字段在前 + 兜底段在后）· 跨段去重 · 保留号不触发 · 每段 1000 字符 · 变异 5 靶全红 |
 
 ---
 
@@ -133,6 +146,10 @@ P19 的 cap + 标题清单 · `look` 给 `entity` 锚（"关于阿露的全部"�
 - **⛔ 假旋钮**: 加配置格之前先问"有没有第二个取值"; 没有就别加（`test_no_threshold_knobs_left`）。
 - **变异靶子要选对**: `check_turn` 那层用例**管不到**流式暂存（`WHOLE_TURN_ACTIONS`）——
   它有专门的流式用例; 靶子选错 ⇒ 变异"绿"其实是没验到。
+- **测试夹具别借保留号**（`fe61c15` 踩到）: 测试里造 entity 若不写死 id, `next_id("x")`
+  会把 `x0001`（= 老师）分给它 ⇒ 名字段被 `skip_ids` 整条剔掉, 用例**红得莫名其妙**;
+  反过来, 想验"保留号不触发"就必须**自己按 `entities.SELF_ID/SENSEI_ID` 建**那两行
+  （测试档里引擎不一定物化过它们 —— 那一步在脑注入那次）+ **自验前提**（`named` 真命中了）。
 
 ## 5. 流程纪律与环境（踩过的都在这儿）
 
