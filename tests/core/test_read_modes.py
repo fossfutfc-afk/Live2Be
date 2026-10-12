@@ -270,6 +270,51 @@ def test_keys_come_from_the_same_payload_as_the_candidates(tmp_path):
     print(f"    modes: 钥匙与候选同源（{keys2}）；rank 型无钥匙")
 
 
+def test_when_mode_takes_the_whole_window_and_never_widens(tmp_path):
+    """⑬ ⭐ `when` 形式: 老师说了个时间词 ⇒ **那段时间里全部**（新→旧）, 且**只查 exact**。
+
+    三条判据:
+      · **区间**当家（与 `turn` 的"像不像"无关）: 正文一个字都没提那段时间的照样进来;
+      · **无 `ts` 的不命中**（时间锚的哨兵纪律: 不知道是哪天的不许冒充"落在这段时间里"）;
+      · ⛔ **不放宽**（用户 2026-10-12: *"可以让 LLM 干脆自己多开区间搜"*）——
+        「前天」的 `wide` 是 ±2 天, 那条 10/8 的经历**不许**被摆出来。
+    """
+    store = _store(tmp_path)
+    for title, text, ts in (("上周的事", "我把箱子搬去了仓库", "2026-10-07T10:00:00"),
+                            ("很久以前", "在杂草屋蹲了一下午", "2026-09-20T10:00:00"),
+                            ("没日期的", "流水账", ""),
+                            # ⚠️ 这条在**今天**（10/12）: 不属于上周, 但落在「前天」的 `wide`
+                            # 里（10/10 ± 2 天 = 10/8..10/12 ⇒ 放宽的话它会被摆出来）。
+                            ("今天的事", "搬箱子那天", "2026-10-12T09:00:00")):
+        store.add(make_node("episode", text=text, title=title, ts=ts, significance=0.5))
+    store.save()
+    got = [c.node.title for c in modes.recall(store, _ctx("上周那个箱子呢"), mode="when")]
+    assert got == ["上周的事"], got          # 10/12 那条不在上周里 ⇒ 不许混进来
+    # 单日窗口（前天 = 10/10）: 今天那条**落在 `wide` 里** —— 不放宽 ⇒ 一条都没有
+    assert modes.recall(store, _ctx("前天那个箱子呢"), mode="when") == []
+    # 没时间词 ⇒ 空（不猜、不拿最近一条凑）
+    assert modes.recall(store, _ctx("那个箱子呢"), mode="when") == []
+    # 空手: 钥匙扫到了、那阵子真没有 ⇒ 印那句
+    empty = modes.render_section([], mode="when", key="前天")
+    assert empty.startswith("【你想着「前天」那阵子") and "一时没想起来" in empty, empty
+    print("    modes: `when` = 区间全量（含正文无时间词的）· 不放宽 · 无 ts 不命中")
+
+
+def test_emptied_by_dedup_is_not_a_blank_line(tmp_path):
+    """⑭ ⛔ **"被别的段拿走了"不是"没想起来"** —— `empty_ok=False` 时一个字都不印。
+
+    没有这一格就会说假话: 名字段先摆走了那条, 时间窗那段便空了 ⇒ 空手文案会说
+    "那几天的事，一时没想起来" —— 可她**想起来了**, 就在上一段里。
+    """
+    store = _store(tmp_path)
+    _seed_aru(store)
+    cands = modes.recall(store, _ctx("阿露"), mode="name")
+    assert cands, "先得有货, 否则两边都是空手（假绿）"
+    assert modes.render_section([], mode="name", key="阿露")              # 真·空手 ⇒ 印
+    assert modes.render_section([], mode="name", key="阿露", empty_ok=False) == ""
+    print("    modes: 去重掏空 ≠ 空手（`empty_ok=False` 一个字都不印）")
+
+
 def test_the_blank_line_needs_a_key(tmp_path):
     """⑫ ⭐ **空手**的收放: 有钥匙 ⇒ 印; 没钥匙 ⇒ 不印; 模板带槽而没钥匙 ⇒ **当场炸**。"""
     store = _store(tmp_path)

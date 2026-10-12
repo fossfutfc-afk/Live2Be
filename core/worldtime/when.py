@@ -411,6 +411,18 @@ def _parse_phrase(text: str, today: date, occs: list[Occasion]) -> tuple[date, d
 # 出口
 # ---------------------------------------------------------------------------
 
+def _today_of(now: object) -> date | None:
+    """`now`（`datetime` / `date` / `ts` 串）→ **今天**; 认不出 ⇒ `None`。
+
+    ⚠️ **一处实现**（`parse_when` 与 `scan_when` 共用）—— "裸 `date` 也收"这条口径
+    写在两个地方就会漂。⛔ 谁也不许偷读壁钟（`now` 必填）。
+    """
+    today = date_of(now)
+    if today is None and isinstance(now, date) and not hasattr(now, "hour"):
+        today = now          # 直接给一个 `date` 也行（这一层的粒度本来就是"哪一天"）
+    return today
+
+
 def parse_when(raw: object, *, now: object) -> When | None:
     """她写的 `when` → `When`; **认不出 ⇒ `None`**（⛔ 不猜, ⛔ 不抛）。
 
@@ -427,9 +439,7 @@ def parse_when(raw: object, *, now: object) -> When | None:
     那个键）, 不需要本模块替它区分。
     """
     text = str(raw or "").strip()
-    today = date_of(now)
-    if today is None and isinstance(now, date) and not hasattr(now, "hour"):
-        today = now          # 直接给一个 `date` 也行（这一层的粒度本来就是"哪一天"）
+    today = _today_of(now)
     if not text or today is None:
         return None
     occs = load_occasions()
@@ -451,4 +461,38 @@ def parse_when(raw: object, *, now: object) -> When | None:
     return None
 
 
-__all__ = ["WIDEN_DAYS", "When", "parse_when"]
+def scan_when(text: object, *, now: object) -> tuple[str, When] | None:
+    """⭐ 在**一句人话**里找时间词 —— 找到 ⇒ `(那个词, When)`; 找不到 ⇒ `None`。
+
+    ⭐ 为什么要有它（2026-10-12, 用户: *"变成这是你在思索(词语)的时候回忆起来的事情"*）:
+    `parse_when` 只吃**整串** spec（`_PHRASES.get(text)` + `^…$` 正则）, 而 P19 拿到的是
+    **老师的一句聊天**（"上周那个箱子你到底放哪了"）—— 整串喂进去必然认不出。
+    本函数只做一件事: **在句子里挑出值得一试的子串**; 解析**还是那一份** `parse_when`
+    （⛔ 零第二真源: 词表就是 `_PHRASES` 本身, 不新写短语表）。
+
+    规则:
+      · **最长优先**（「上上周」不许被「上周」截走）, 同长取**靠前**的那个;
+      · ⭐ **只认已经过完的窗口**（`end < 今天`）—— "今天 / 本周 / 本月 / 今年"这类
+        **还没过完**的窗口**不返**: 那些事全在她眼前的河里（摆出来只是重复）,
+        而且段头说的是"那阵子";
+      · ⚠️ **只扫固定短语**（`_PHRASES` 的键）—— 「三天前 / 最近一周」那两条**参数化**
+        写法 v1 **不扫**（要动 `_AGO` / `_RECENT` 的 `^…$` 锚, 那是 `look` 的整串语义）;
+      · 认不出 / 空串 / 落将来 ⇒ `None`（⛔ 不猜, ⛔ 不抛 —— 同 `parse_when`）。
+    """
+    raw = str(text or "")
+    if not raw.strip():
+        return None
+    today = _today_of(now)
+    if today is None:
+        return None
+    hits = [k for k in _PHRASES if k in raw]
+    if not hits:
+        return None
+    word = min(hits, key=lambda k: (-len(k), raw.index(k)))
+    win = parse_when(word, now=now)
+    if win is None or win.exact[1] >= today:          # 未过完 / 落将来 ⇒ 不是"旧事"
+        return None
+    return word, win
+
+
+__all__ = ["WIDEN_DAYS", "When", "parse_when", "scan_when"]

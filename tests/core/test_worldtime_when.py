@@ -14,6 +14,12 @@
   ⑥ ⛔ 拒绝清单: `back 1..`（无下界）· `N > 99` · 表外具名日 · 端点反了 ·
      节日名写成区间 · 整句话里塞时间（**绝不从句抽取**）· **不存在的日期**
      （`13/45` / `2026/02/30` / `4/31` —— 交给 `date()` 判, 闰年自动对）
+  ⑦ ⭐ **`scan_when`（2026-10-12）= "从句抽取"的唯一入口, 而它只是挑子串**:
+     解析**还是** `parse_when`（词表 = `_PHRASES` 本身, ⛔ 零第二真源）·
+     **最长优先**（「上上周」不许被「上周」截走）· **只认过完的窗口**
+     （"今天/本周/本月/今年"不返 —— 那些事还在她眼前）。
+     ⚠️ 两条纪律的分工: `parse_when` **永不**从句抽取（她给的 `when` 载荷必须整串是 spec）;
+     只有 P19 那条"她**没在查**、是引擎在摆"的路才用 `scan_when`。
 """
 from __future__ import annotations
 
@@ -26,7 +32,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from core.worldtime.cal import (shift_days, shift_months,  # noqa: E402
                                 shift_years, week_start)
-from core.worldtime.when import WIDEN_DAYS, When, parse_when  # noqa: E402
+from core.worldtime.when import (WIDEN_DAYS, When, parse_when,  # noqa: E402
+                                 scan_when)
 
 #: 固定的"现在" —— **2026-10-08 是周四**（周五/周一/月末那几条单独造 `now`）
 NOW = date(2026, 10, 8)
@@ -248,3 +255,38 @@ def test_parse_when_never_raises_and_records_the_source():
     assert parse_when("last 1 week",
                       now=datetime(2026, 10, 8, 21, 0,
                                    tzinfo=timezone.utc)) is not None
+
+
+# ---------------------------------------------------------------------------
+# ⑦ ⭐ `scan_when` —— 从句抽取（**只挑子串, 解析仍是 parse_when**）
+# ---------------------------------------------------------------------------
+
+def test_scan_when_finds_a_time_word_inside_a_sentence():
+    """⭐ 老师的一句聊天 ⇒ 挑出那个时间词（`parse_when` 自己**永远**做不到这件事）。"""
+    got = scan_when("上周那个箱子你到底放哪了", now=NOW)
+    assert got is not None, "整串喂 parse_when 必然认不出（这才是 scan 存在的理由）"
+    word, win = got
+    assert word == "上周" and win.exact == parse_when("上周", now=NOW).exact
+    assert parse_when("上周那个箱子你到底放哪了", now=NOW) is None   # 对照: 整串 = 不认
+
+
+def test_scan_when_prefers_the_longest_word():
+    """⛔ **最长优先** —— 少了它,「上上周」会被「上周」截走（窗口整错一周, 而且静默）。"""
+    word, win = scan_when("上上周的作业我还没写完", now=NOW)
+    assert word == "上上周", word
+    assert win.exact == parse_when("上上周", now=NOW).exact
+
+
+def test_scan_when_ignores_unfinished_windows():
+    """⭐ **还没过完的窗口不算旧事** —— "今天/本周/本月/今年" ⇒ `None`（那些事还在她眼前）。"""
+    for text in ("今天天气不错", "本周的课好多", "这个月好忙", "今年也要加油"):
+        assert scan_when(text, now=NOW) is None, text
+    assert scan_when("昨天那个箱子", now=NOW)[0] == "昨天"      # 过完的照常认
+
+
+def test_scan_when_returns_none_when_nothing_matches():
+    """认不出 / 空串 / 参数化写法（v1 不扫）⇒ `None`（⛔ 不猜, ⛔ 不抛）。"""
+    assert scan_when("今天吃什么", now=NOW) is None
+    assert scan_when("三天前的事", now=NOW) is None              # ⚠️ 参数化 v1 不扫（见 docstring）
+    assert scan_when("", now=NOW) is None and scan_when(None, now=NOW) is None
+    assert scan_when("上周", now=None) is None                   # 不给"现在" ⇒ 不猜
