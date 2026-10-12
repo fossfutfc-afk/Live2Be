@@ -129,6 +129,25 @@ def test_nameless_and_dup_entries_are_skipped(tmp_path):
     print("    materialize: 没名字跳过 / 同名（含别名）不重复建")
 
 
+def test_same_name_modulo_whitespace_is_not_a_new_person(tmp_path):
+    """⭐ 幂等**跨空白**（`form_key`, 2026-10-12）: `陆八魔阿露` ≡ `陆八魔 阿露`。
+
+    判据从 `casefold` 换成 `form_key`（去空白）—— 否则"名字中间差一个空格"会被当成
+    一个**新人**建出来, 而此后 `look(entity="陆八魔阿露")` 会 **ambiguous**
+    （两个人都叫这个名; `entities.find_entity` 不猜）⇒ 静默查不出来。
+    """
+    store = _store(tmp_path)
+    made = ensure_entities(store, char_name="伊草 遥香", sensei_name="老师",
+                           stances=[("aru", "陆八魔 阿露", [], "她是我社长")])
+    assert len(made) == 3, made                     # self + sensei + 阿露
+    again = ensure_entities(store, char_name="伊草 遥香", sensei_name="老师",
+                            stances=[("aru2", "陆八魔阿露", [], "另一个写法")])
+    assert again == [], again                       # ⛔ 不建第二个人
+    assert len(_names(store)) == 3, _names(store)
+    assert store.get("x0002").text == "她是我社长"   # ⛔ 也不覆盖已有的看法
+    print("    materialize: 名字差一个空格 ⇒ 还是同一个人（不重复建, 不覆盖看法）")
+
+
 def test_the_real_table_materializes_six_entities(tmp_path):
     """⑦ ⭐ 端到端: **真表 + 真档案** ⇒ self/sensei + 表里那 5 个人。"""
     loader = CharacterLoader(CHAR_ROOT)
@@ -146,7 +165,7 @@ def test_the_real_table_materializes_six_entities(tmp_path):
 def test_session_open_materializes_before_the_first_digest(tmp_path):
     """⭐ **开会话就物化**（C 笔）: 新档在**第一次 digest 之前**也得有那几个人。
 
-    否则 brain 段的「我眼里的他们」是空的 —— 出厂印象要等到消化完才出现,
+    否则 brain 段的「我知道的名字」是空的 —— 出厂印象要等到消化完才出现,
     而"出厂就有看法"正是这一整条的目的。
     ⚠️ 同时钉住**严格性分档**: 只读注入路径（`digest=False`）**不抛** ——
     config 坏一天不该让她连记忆段都没有（消化的严格性照旧, 见 `_ensure_char_entities`）。
@@ -165,15 +184,23 @@ def test_session_open_materializes_before_the_first_digest(tmp_path):
     assert len(names) == 6, names                          # self/sensei + 表里那 4 个
     assert SELF_ID in names and SENSEI_ID in names
     seg = eng._brain_injection
-    assert "我眼里的他们" in seg and "陆八魔" in seg, seg[:200]
+    assert "我知道的名字" in seg and "陆八魔" in seg, seg[:200]
     assert "sensei非常照顾我" in seg, seg[:200]             # sensei 的立场也在
-    # ⛔ self 不在这块里（她对自己的立场没有注入面 —— 见 PROCEED 待裁项）
-    assert "我眼里的他们：\n- 伊草" not in seg
-    print(f"    materialize: 开会话即物化（{len(names)} 个）+ brain 段里有「我眼里的他们」")
+    # ⭐ 她那一格在**表尾**（用户 2026-10-12: 原「我是这样看自己的」并进那张表）
+    table = seg.split("我知道的名字（想起谁、翻谁的事，都用这些叫法）：\n")[1].split("\n\n")[0]
+    lines = table.splitlines()
+    assert lines[-1].startswith("- 伊草"), lines[-1]
+    assert any(ln.startswith("- 陆八魔") for ln in lines), lines
+    print(f"    materialize: 开会话即物化（{len(names)} 个）+ brain 段里有「我知道的名字」")
 
 
 def test_session_open_survives_a_broken_table(tmp_path):
-    """⚠️ 表坏了/没了 ⇒ **照常开会话**（只 warn）—— 那条路是只读注入, 不是消化。"""
+    """⚠️ 表坏了/没了 ⇒ **照常开会话**（只 warn）—— 那条路是只读注入, 不是消化。
+
+    ⭐ 顺带钉住"表不是**全部**的名字来源": `self` + `sensei` 两个保留号来自
+    **各自的档案**（不读 `interperson.yml`）⇒ 表没了, 那张表上仍然有这两行
+    （只有别人不见了）—— 这与"表坏了不该让她连记忆段都没有"是同一条纪律。
+    """
     from core.mmt.engine import MomoTalkEngine
 
     store = SessionStore(data_root=tmp_path)
@@ -183,8 +210,14 @@ def test_session_open_survives_a_broken_table(tmp_path):
     root = store.create(CHARACTER, name)
     eng.attach_session(root.session_id)
     eng._inject_brain(CHARACTER, root.session_id)
-    assert "我眼里的他们" not in (eng._brain_injection or "")
-    print("    materialize: 表缺失 ⇒ 只 warn, 不挡开会话")
+    seg = eng._brain_injection or ""
+    assert "- 陆八魔" not in seg                           # 表没了 ⇒ 那四个人不物化
+    table = seg.split("我知道的名字（想起谁、翻谁的事，都用这些叫法）：\n")[1].split("\n\n")[0]
+    lines = table.splitlines()
+    assert lines[0] == "- 老师", lines                     # sensei 的档案不在这张表里
+    assert lines[-1].startswith("- 伊草"), lines           # 她那一格照旧在表尾
+    assert len(lines) == 2, lines
+    print("    materialize: 表缺失 ⇒ 只 warn, 不挡开会话（self/sensei 照旧在表上）")
 
 
 def test_the_name_lane_boosts_what_was_about_her(tmp_path):

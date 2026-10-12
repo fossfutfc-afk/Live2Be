@@ -523,6 +523,22 @@ def test_words_may_come_before_the_look(tmp_path):
 RULES = Path(__file__).resolve().parents[2] / "llm" / "prompts" / "momotalk_rules.md"
 
 
+def test_rulebook_points_at_the_name_list():
+    """⭐ 规则书那句要**指向名表**（「我知道的名字」，2026-10-12）—— 两处说的是同一件事。
+
+    brain 段的抬头（`render.KNOWN_NAMES_HEADER`）把那张表立成她的**键面**
+    （想起谁 = P19 的「你想着「X」」 / 翻谁的事 = `look` 的 `entity` 轴）;
+    规则书【回忆】那条执行要求则告诉她"名字照那份名单上的写法"。
+    ⛔ 抬头一旦改名而规则书没跟, 那句话就指向一个**不存在的块**
+    （她照着一个看不见的名字找, 而且**静默**）。
+    """
+    from core.brain.read.render import KNOWN_NAMES_HEADER
+    title = KNOWN_NAMES_HEADER.split("（")[0]          # 「我知道的名字」
+    text = RULES.read_text(encoding="utf-8")
+    assert title in text, f"规则书没指向名表（{title}）"
+    print("    look: 规则书那句话指向 brain 段的名表（改名会当场红）")
+
+
 def test_rulebook_section_and_the_contract_say_the_same_thing():
     """⭐ **规则书那段【回忆】必须与输出契约同款**（示范才是形状的来源 —— 契约/规则书
     两处说法强度不一, 模型只照抄更强的那一处）。

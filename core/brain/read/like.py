@@ -77,6 +77,7 @@ from dataclasses import dataclass, field, replace
 from typing import Callable
 
 from core.brain.address import normalize_title
+from core.brain.entities import form_key
 from core.brain.graph import REL_AKIN, REL_MEMBER_OF, graph_of
 from core.brain.read.pack import Candidate, body_of, ledger_line
 from core.worldtime.age import (DEFAULT_FRESHNESS_FLOOR, DEFAULT_HALF_LIFE_DAYS,
@@ -177,6 +178,9 @@ def build_ctx(store, ctx: RecallCtx, *, active: "tuple[str, ...] | list[str]" = 
     名字表（entity 的名字 + 别名）→ query 里命中的那几个 → 它们的车道;
     内容种子（`material="seeds"` 的路要）→ 结构一跳; 相似度（`material="sim"` 的路要）。
 
+    ⚠️ 名字那一路的匹配 = **`entities.form_key` 归一**（去空白 + casefold）——
+    `伊草遥香` 与 `伊草 遥香` 是同一个人（见 `core/brain/entities.py` 模块 docstring）。
+
     ⚠️ 节点表**在这里自己取全量**（不接调用方传进来的表）—— 名字表要从里面挑 entity;
     若让调用方传"选面过滤后"的那一份, 名字那一路会**恒空**而且**静默**
     （只是少一份加成, 不报错）。踩过一次, 所以这条做成结构性不可能。
@@ -189,7 +193,7 @@ def build_ctx(store, ctx: RecallCtx, *, active: "tuple[str, ...] | list[str]" = 
     active = list(active)
     need = {PARTS[n].material for n in active if n in PARTS} - {""}
     q = (ctx.query or "").strip()
-    names: dict[str, tuple[str, str]] = {}          # 名字(casefold) → (entity_id, 原写法)
+    names: dict[str, tuple[str, str]] = {}          # 名字(form_key) → (entity_id, 原写法)
     universe = list(store.all())
     for n in universe:
         if getattr(n, "kind", "") != "entity":
@@ -197,8 +201,8 @@ def build_ctx(store, ctx: RecallCtx, *, active: "tuple[str, ...] | list[str]" = 
         forms = [getattr(n, "name", "")] + list(getattr(n, "aliases", ()) or ())
         for form in forms:
             if form:
-                names.setdefault(form.casefold(), (n.id, form))
-    qf = q.casefold()
+                names.setdefault(form_key(form), (n.id, form))
+    qf = form_key(q)
     named = {eid: raw for cf, (eid, raw) in names.items() if cf in qf}
     lanes: dict[str, frozenset[str]] = {}
     if named:

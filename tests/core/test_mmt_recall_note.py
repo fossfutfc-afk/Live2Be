@@ -303,6 +303,35 @@ def test_name_form_opens_a_section_before_the_turn_section(tmp_path):
     print("    P19: 名字段在兜底段之前 · 跨段去重 · 车道全量（含正文无名的）")
 
 
+def test_name_form_ignores_whitespace_in_the_name(tmp_path):
+    """⭐ **空白不敏感**（2026-10-12）: 表上印的主名带空格, 老师话里没打空格**照样开段**。
+
+    名表只印主名, 而卡上的主名中间就带一个空格（`陆八魔 阿露` / `浅黄 睦月` / …）
+    ⇒ 若匹配要求逐字相同, 老师少打一个空格就**静默不开段**（这段的全部价值就在
+    "引擎认得出那个词"）。
+    ⚠️ 归一 = `entities.form_key`（去空白 + casefold）; 而**钥匙仍印存档里的写法**
+    （`named` 的第二项 = 原写法）—— 段头要让她看见"引擎认的是这个名字"。
+    ⚠️ 夹具**不带别名**: 带了"老板"这种短别名, 老代码也会命中, 用例就测不到东西了。
+    """
+    llm = ScriptedLLM()
+    eng = _engine(tmp_path, llm)
+    st = WikiStoreV2(tmp_path, world_id="world1", char_id=CHARACTER)
+    person = make_node("entity", name="荞麦面 老板", text="")
+    person.id = "x0002"                       # 非保留号（见 `_seed_lane` 的两条纪律）
+    pid = st.add(person)
+    eid = st.add(make_node("episode", text="他多给了我一份荞麦面", title="多加一份",
+                           tags=["荞麦"], ts="2026-10-05T10:00:00",
+                           significance=0.4, event_seq=[9]))
+    st.add_edge("about", eid, pid, ts="2026-10-05T10:00:00")
+    st.save()
+
+    eng.agent_turn("荞麦面老板今天还开门吗")          # ⚠️ 查询里**没打**那个空格
+    joined = _joined(llm)
+    assert "你想着「荞麦面 老板」" in joined, joined[-600:]
+    assert "《多加一份》" in joined
+    print("    P19: 名字段空白不敏感（少打一个空格照样开段, 钥匙照印存档写法）")
+
+
 def test_recall_log_says_which_sections_were_placed(tmp_path, caplog):
     """台账那一行要说得清**摆了几段/各几条**（排查"她这轮到底看见了什么"的唯一线索）。"""
     llm = ScriptedLLM()

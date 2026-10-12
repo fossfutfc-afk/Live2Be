@@ -43,6 +43,24 @@ x0001 = sensei   （老师/玩家）
 ⚠️ 名字读取**已于 2026-09-23 归一**（N1 → `core/parsing/names.py` 的 `char_names(profile)`
 / `names_of(char)`）—— 本文件的调用方直接把那个接口的结果当参数传进来即可,
 **本文件仍然只收参数**（`core/brain/` 是纯 stdlib 叶子, 不反向读 `config/`）。
+
+## ⭐ 名字匹配的**唯一归一** = `form_key`（2026-10-12）
+
+匹配面永远是 `surface_forms(node)`（`name` + `aliases`）—— `form_key` 只是**归一**,
+不是第二种匹配面。它做两件事：**去掉所有空白** + `casefold`。
+
+为什么去空白（用户 2026-10-12: *"注意处理空格"*）: 卡上的主名中间就带一个空格
+（`伊草 遥香` / `陆八魔 阿露` / `浅黄 睦月` / `鬼方 佳代子`），而 brain 段的
+「我知道的名字」**印的就是她要照抄的键** —— 少打/多打一个空白就 `miss`（`look(entity=…)`
+返回 `LOOK_EMPTY_ENTITY`、P19 的 `name` 段静默不开）是不能接受的。
+⇒ `伊草遥香` ≡ `伊草 遥香` ≡ `伊草  遥香`（`str.split()` 按 Unicode 空白切, 含全角 U+3000）。
+
+⛔ **别在调用方再 `casefold()` 一遍**（同一套归一只有这一处）;
+⚠️ 三个用它的地方: `find_entity`（`look` 的 `entity` 轴 + digest 的 `#entity:` 认人）·
+`like.build_ctx`（P19 的 `name` 段触发面）· `_materialize_stances` 的幂等键
+（否则 `伊草遥香` 与 `伊草 遥香` 会被当成两个人各建一个）。
+⚠️ **没铺到** `hit_set`/`_body_hits`（那是"称呼出现在正文里"的**正文扫描**, 另一套语义:
+正文里本来就少写空格, 且它按 `MIN_HIT_LEN` 卡短称呼）—— 要铺就说一声。
 """
 from __future__ import annotations
 
@@ -147,7 +165,7 @@ def _materialize_stances(store, stances) -> list[str]:
         if getattr(node, "kind", "") != "entity":
             continue
         for form in surface_forms(node):
-            by_form.setdefault(form.casefold(), node)
+            by_form.setdefault(form_key(form), node)
 
     made: list[str] = []
     for key, name, aliases, text in stances:
@@ -165,7 +183,7 @@ def _materialize_stances(store, stances) -> list[str]:
             logger.warning("ensure_entities: 表里 %r 没解析出名字 → 跳过"
                            "（name 是 entity 的必填, 宁可不建）", key)
             continue
-        hit = by_form.get(name.casefold())
+        hit = by_form.get(form_key(name))
         if hit is not None:
             if not str(hit.text or "").strip() and stance:
                 hit.text = stance
@@ -228,6 +246,15 @@ def candidates(store: WikiStoreV2) -> list[BrainNode]:
     return sorted((n for n in store.all()
                    if n.kind == "entity" and n.id and n.name.strip()),
                   key=lambda n: n.id)
+
+
+def form_key(text: object) -> str:
+    """名字匹配的**唯一归一**: **去掉所有空白** + `casefold`（2026-10-12, 见模块 docstring）。
+
+    ⚠️ 它是**归一**，不是第二种匹配面 —— 匹配面仍是 `surface_forms`。
+    ⛔ 调用方拿到结果后**不要再 `casefold()`**（同一套归一只有这一处实现）。
+    """
+    return "".join(str(text or "").split()).casefold()
 
 
 def surface_forms(node: BrainNode) -> list[str]:
@@ -392,15 +419,16 @@ def find_entity(store: WikiStoreV2, raw: object) -> tuple[BrainNode | None, str]
         `"ok"` 命中唯一一个 · `"empty"` 没写名字（**不是错误**）·
         `"miss"` 谁都不叫这个名字（可能是**还没建的人**）· `"ambiguous"` ≥2 个都叫
 
-    ⚠️ 匹配面 = `surface_forms`（`name` + `aliases`, **casefold**）—— 那是"她可能怎么
-    称呼他"的唯一真源; ⛔ 不在这里发明第二种匹配。
+    ⚠️ 匹配面 = `surface_forms`（`name` + `aliases`）经 **`form_key` 归一**
+    （去空白 + casefold, 见模块 docstring）—— 那是"她可能怎么称呼他"的唯一真源;
+    ⛔ 不在这里发明第二种匹配。
     """
     name = str(raw or "").strip()
     if not name:
         return None, "empty"
-    want = name.casefold()
+    want = form_key(name)
     hits = [n for n in candidates(store)
-            if want in {f.casefold() for f in surface_forms(n)}]
+            if want in {form_key(f) for f in surface_forms(n)}]
     if not hits:
         return None, "miss"
     if len(hits) > 1:
