@@ -392,9 +392,10 @@ RECALL_ACTION_HINT = (
     f'{marks.NAME_OPEN}{marks.NAME_CLOSE}里那几个字，'
     '单独写一行 {"noticed": "名字"}；认不出就不用写。）')
 
-#: 该段的字符预算（`[recall].turn_budget` 的回落值）。真闸门是它, 不是条数
+#: **每一段**召回的字符预算（`[recall].turn_budget` 的回落值）。真闸门是它, 不是条数
 #: （一条 episode 长短不均; 设计原话 = "召回预算按 token（不是条数）"）。
-RECALL_BUDGET = 700
+#: ⚠️ P19 一次可能摆**两段**（名字段 + 兜底段）—— 每段各自读这一个数（2026-10-12）。
+RECALL_BUDGET = 1000
 
 
 def _recall_budget(override: int | None) -> int:
@@ -435,7 +436,7 @@ def render_candidates(cands: Iterable[Candidate], *, header: str, hint: str = ""
 
     | 参数 | 按什么截 | 谁在用 |
     |---|---|---|
-    | `budget` | **字符**（按行累积; 第一条永远留） | P19（读 `[recall].turn_budget`, 默认 700） |
+    | `budget` | **字符**（按行累积; 第一条永远留） | P19（读 `[recall].turn_budget`, 默认 1000 **每段**） |
     | `cap` | **条数** | `look`（用户 2026-10-08 裁: 5 条） |
 
     ⛔ **两个都给时只认 `cap`**（跳过字符预算）—— 叠加必然出现"说好 5 条却只给 2 条",

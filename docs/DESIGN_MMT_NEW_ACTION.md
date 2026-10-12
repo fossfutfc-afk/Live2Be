@@ -442,7 +442,7 @@ BFS from episode, 只走 episode↔episode 边（akin）
 | `render.render_recall_block` | 新段「你想起的事（此刻浮上来的旧事——跟你现在要说的话有没有关系, 由你判断）」 | 段头自带边界（**候选不是待办**）· 预算是**装填停止条件**（第一条永远留, 绝不截半条） |
 | `recall.recall_episodes` | ⭐ **只出 episode + 按相关度排**（不是 `recall_subgraph`：那个是"取一块子图去归纳"的语义, 1-hop 会把 belief/entity 带进来、排序按 significance ⇒ **同一条每次都被想起 = 永远长不出新边**） | 真机 8 句命中 4/8 |
 | `engine.agent_turn` | **P19 槽位**（动态尾, history 之后）· ⭐ **不许进 system**（每轮都变 ⇒ 破前缀缓存） | 守门用例: `msgs[0]` 里不许出现段头 |
-| 旋钮 | `[recall].turn_k=2` / `turn_budget=700`（"取几条"类, **不是阈值**） | 真机一条 episode 300~570 字 ⇒ 实际 = 1~2 条 |
+| 旋钮 | `[recall].turn_k=2` / `turn_budget=1000`（"取几条"类, **不是阈值**; 2026-10-12 起 = **每段**预算 —— P19 可能两段） | 真机一条 episode 300~570 字 ⇒ 实际 = 1~2 条 |
 
 ⭐ **用户裁决**：**照旧全文注入**（*"实在不行 digest 的时候让 LLM 精简即可；后续会考虑如何常驻信息，但这不是现在的问题"*）。
 

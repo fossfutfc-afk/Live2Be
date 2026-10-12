@@ -370,7 +370,7 @@ core.mmt.engine	recall	function	core.brain.read.modes
 core.mmt.engine	render_background_experience	function	core.brain.read.render
 core.mmt.engine	render_candidates	function	core.brain.read.render
 core.mmt.engine	render_character_view	function	core.brain.read.render
-core.mmt.engine	render_recall_block	function	core.brain.read.render
+core.mmt.engine	render_section	function	core.brain.read.modes
 core.mmt.engine	repair_line	function	core.mmt.mmt_repair
 core.mmt.engine	round_messages	function	core.promptkit.tail
 core.mmt.engine	session_status	function	core.session.renderer

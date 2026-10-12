@@ -27,13 +27,18 @@
 规则（rank = 证据轴命中；set = 命中即准入），`cap` 归渲染层的预算管。
 加要等真有第二种规则，否则就是"配了没人读"的**假旋钮**（`test_no_threshold_knobs_left`
 那条纪律的同款）。
+⭐ 相比之下 `skip_ids` **加了** —— 它不是旋钮而是**一行形式的固有属性**（"谁的叫法能触发
+这一段"），而且**真的有第二种取值**（`turn` 行用它不到, `name` 行必须用）。
 
 ## 今天表里有什么
 
 | mode | 形状 | 干什么 | 谁在用 |
 |---|---|---|---|
-| `turn` | rank | P19「你想起的事」——每轮的兜底形式（六路，权重在 `like.SPECS["turn"]`） | `engine._recall_note` |
-| `name` | set | 「关于他们的」——玩家这句点到了某个对象 ⇒ 他**车道上全部**（`about` 入边） | ⏭ **还没接线**（API 先备好；接线会改她看到的东西 ⇒ 单独一件） |
+| `name` | set | 「关于他们的」——老师这句**提到了一个名字** ⇒ 那个对象**车道上全部**（`about` 入边） | `engine._recall_notes`（P19 的第一段） |
+| `turn` | rank | 「你想起的事」——每轮的兜底形式（六路，权重在 `like.SPECS["turn"]`） | `engine._recall_notes`（P19 的第二段） |
+
+⭐ **P19 两段都从这张表出**（顺序 = `engine._recall_notes` 里的注入顺序: 先确定命中, 后模糊）。
+⚠️ **`name` 不许被保留号触发**（`RESERVED_TRIGGERS`）—— 见那一行的注释。
 
 ⏭ 下一批形式（`when` 时间窗 / `echo` 既视感 / `mood` 情绪 / `near` 图上相邻）——
 **落一个加一行**；没接线的**不许先写进表**（空行 = 假承诺）。
@@ -43,6 +48,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Iterable
 
+from core.brain.entities import SELF_ID, SENSEI_ID
 from core.brain.read.find import ANCHORS, _order as _newest_key, find
 from core.brain.read.like import SPECS, RecallCtx, build_ctx, like
 from core.brain.read.pack import Candidate
@@ -57,6 +63,13 @@ SHAPES: tuple[str, ...] = (SHAPE_RANK, SHAPE_SET)
 #: `payload_from` 的**闭集** —— `set` 型的锚载荷从 `RecallCtx` 的哪份**派生料**取
 #: （`named` = `{entity_id: 她在 query 里被叫到的那个写法}`, 由 `like.build_ctx` 算）
 PAYLOAD_NAMED = "named"
+
+#: `set` 型的载荷里**不许触发**的保留号（真源 = `core.brain.entities` 的 `SELF_ID`/`SENSEI_ID`）。
+#: ⛔ **她自己（`x0000`）与老师（`x0001`）的名字不算"提到了谁"**:
+#: 那两条车道 ≈ **全部事件**（哪一件事不连着老师、不连着她自己?）—— 一提到就糊一整面,
+#: 而且抬头写着"关于他们的", 摆出来却是一整条河。它们各自的分身**另有住处**
+#: （她自己 → brain 段的「我是这样看自己的」; 老师 → 「老师的事」/ 河本身）。
+RESERVED_TRIGGERS: tuple[str, ...] = (SELF_ID, SENSEI_ID)
 PAYLOADS: tuple[str, ...] = (PAYLOAD_NAMED,)
 
 
@@ -72,6 +85,8 @@ class Mode:
     anchors: tuple[str, ...] = ()
     #: `set` 型：锚载荷从哪份派生料来（闭集 = `PAYLOADS`）
     payload_from: str = ""
+    #: `set` 型：载荷里**不许触发**的 id（保留号 —— 见 `RESERVED_TRIGGERS`）
+    skip_ids: tuple[str, ...] = ()
     #: 选面（`set` 型传给 `find`; `rank` 型的选面在 `SPECS[…].kinds`）
     kinds: tuple[str, ...] = ("episode",)
     #: `set` 型的排序：`newest`（口径 = `find._order`, 同一条规则不抄第二份）
@@ -84,13 +99,15 @@ class Mode:
 
 #: ⭐ **形式表**（唯一注册点）—— 加形式 = 加一行
 MODES: dict[str, Mode] = {
+    # 「关于他们的」：老师这句点到了某个名字 ⇒ 他**车道上全部**（含正文没写他名字的那些）
+    # ⚠️ 保留号不许触发（`skip_ids`）—— 她自己/老师的车道≈全部事件, 见 `RESERVED_TRIGGERS`。
+    "name": Mode(shape=SHAPE_SET, anchors=("entity",), payload_from=PAYLOAD_NAMED,
+                 skip_ids=RESERVED_TRIGGERS,
+                 header="【关于他们的（老师这句话里提到了一个名字——下面是你记得的、"
+                        "跟那个名字有关的事，用不用由你判断）】"),
     # P19「你想起的事」：每轮的兜底形式 —— 六路打分（权重与选面都在 `like.SPECS`）
     "turn": Mode(shape=SHAPE_RANK, spec="turn", order="",
                  header=RECALL_HEADER, hint=RECALL_ACTION_HINT),
-    # 「关于他们的」：玩家这句点到了某个对象 ⇒ 他**车道上全部**（含正文没写他名字的那些）
-    "name": Mode(shape=SHAPE_SET, anchors=("entity",), payload_from=PAYLOAD_NAMED,
-                 header="【关于他们的（你正好提到了某个人——这些是你记得的、跟他有关的事，"
-                        "用不用由你判断）】"),
 }
 
 #: 缺省形式（P19 那条；⛔ 与"什么都不知道"区分开: 缺省 ≠ 空）
@@ -111,9 +128,14 @@ def _payloads(base: RecallCtx, m: Mode) -> list[Any]:
 
     ⚠️ 今天**所有锚共用同一个载荷**（`name` 只有 `entity` 一个锚）。
     要用"不同锚各自载荷"的形式 ⇒ 表里加一格（⛔ 别在这儿猜）。
+
+    ⭐ 载荷一律**去掉 `Mode.skip_ids`**（保留号 —— 见 `RESERVED_TRIGGERS`）:
+    这条只对"载荷是 entity id"的那份派生料有意义, 所以写在**这里**而不是 `recall()` 里
+    （`when` / `near` 那类载荷不是 id, 不该被这条例外碰到）。
     """
     if m.payload_from == PAYLOAD_NAMED:
-        return list(base.named)                    # 提到的对象 id（顺序无所谓, 后面重排）
+        skip = set(m.skip_ids)
+        return [eid for eid in base.named if eid not in skip]
     raise KeyError(f"形式 {m.spec or m.anchors} 的 payload_from={m.payload_from!r} "
                    f"不在闭集里（可用: {PAYLOADS}）")
 
@@ -186,7 +208,8 @@ def describe() -> list[tuple[str, str, str]]:
             out.append((name, m.shape, f"like(spec={m.spec!r}) kinds={spec.kinds if spec else '?'}"
                                        f" parts={parts}"))
         else:
+            skip = f" skip={list(m.skip_ids)}" if m.skip_ids else ""
             out.append((name, m.shape,
                         f"find({list(m.anchors)} ⊆ {sorted(ANCHORS)}) "
-                        f"payload={m.payload_from} kinds={m.kinds} order={m.order}"))
+                        f"payload={m.payload_from} kinds={m.kinds} order={m.order}{skip}"))
     return out
