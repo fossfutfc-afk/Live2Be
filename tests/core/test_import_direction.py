@@ -77,8 +77,13 @@ def _imports(path: pathlib.Path) -> list[tuple[int, str]]:
     return out
 
 
-def _scan() -> list[tuple[str, str, int, str]]:
-    """→ [(相对路径, 被依赖顶层, 行号, 绝对模块名)]（**全部**违规, 未过滤白名单）。"""
+def _scan() -> list[tuple[str, str, str, int, str]]:
+    """→ [(所属包, 相对路径, 被依赖顶层, 行号, 绝对模块名)]（**全部**违规, 未过滤白名单）。
+
+    ⚠️ `所属包` 必须带上：失败文案要写「`{pkg}` 不得依赖 `{top}`」，
+    只返回 4 列时那句 f-string 会因 `pkg` 未绑定而 `NameError` —— 而它只在
+    **真有违规**时才求值，于是"守门永远报不出那句好话"这件事可以潜伏很久。
+    """
     found: list[tuple[str, str, int, str]] = []
     for pkg, banned in RULES.items():
         for path in sorted((ROOT / pkg).rglob("*.py")):
@@ -92,14 +97,14 @@ def _scan() -> list[tuple[str, str, int, str]]:
                 if pkg == "llm" and top == "core" and \
                         any(name == a or name.startswith(a + ".") for a in LLM_CORE_ALLOWED):
                     continue                     # 薄横切豁免
-                found.append((rel, top, line, name))
+                found.append((pkg, rel, top, line, name))
     return found
 
 
 def test_no_new_layering_violations():
     """除白名单外, 不得出现新的反向依赖。"""
     new = [f"{rel}:{line}  import {name}（{pkg} 不得依赖 {top}）"
-           for rel, top, line, name in _scan()
+           for pkg, rel, top, line, name in _scan()
            if (rel, top) not in ALLOWED]
     assert not new, (
         "出现新的分层违规（引擎/契约层反向依赖壳或表现层）:\n  " + "\n  ".join(new)
@@ -109,7 +114,7 @@ def test_no_new_layering_violations():
 
 def test_whitelist_is_not_stale():
     """反向判据: 白名单里每条都必须**仍然是违规**（搬完就该删, 忘了删 → 红）。"""
-    live = {(rel, top) for rel, top, _l, _n in _scan()}
+    live = {(rel, top) for _p, rel, top, _l, _n in _scan()}
     stale = [f"{rel} → {top}（{why}）" for (rel, top), why in ALLOWED.items()
              if (rel, top) not in live]
     assert not stale, (
@@ -127,6 +132,9 @@ def test_scan_can_actually_fail():
         assert (1, "webgui") in hits and (2, "core") in hits, hits
     finally:
         probe.unlink(missing_ok=True)
+    rows = _scan()
+    assert all(len(r) == 5 for r in rows), \
+        "`_scan` 的列数 = 失败文案的契约（少了所属包, 那句 f-string 会 NameError）"
     print(f"    layering: 规则 {len(RULES)} 条 / 白名单 {len(ALLOWED)} 条 / 扫描可失败")
 
 
