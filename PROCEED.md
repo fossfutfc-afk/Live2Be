@@ -127,6 +127,14 @@ python experiments/recall_report.py --selftest                    # 解析器自
 | `look` 用了几次 | 三段摆得多 ⇒ 她**该少翻**才对（P19 与 `look` 互补） |
 | `ms=` | 召回耗时有没有随库长线性恶化（真档 21 条 episode 时 ≈ 0.5 ms 量级） |
 
+### ⏭ ⑤ `form_key` **下移**（代码组织的活；统一 R3 重名挡板的两端）
+`digest/rounds/attribute.py` 的 `known` 与 `contract/digest_registry.parse_attribution` 是
+**一对** `casefold`（两端自洽, 但对空白敏感）⇒ 想让 R3 的重名挡板也空白不敏感, 必须**两端同时**
+换成 `form_key`; 而**契约层不许 import core**（`tests/core/test_import_direction.py`）
+⇒ 修法 = 把那个纯字符串件**下移到 `contract/`（或 `core.common`）**, `entities` 改成 import 它。
+⚠️ 今天**不影响正确性**: 执行层 `revise.apply_entities` 用 `find_entity`（**已经是 form_key**）
+再挡一道 ⇒ 差别只在台账那一笔（路标注释已写在 `attribute.py` 那一行上方）。
+
 ### 押后（不做, 除非用户点名）
 P19 的 cap + 标题清单 · `specificity` 加权 · `part_axis` · BFS 对照台 · `noticed` 带想法 ·
 `emotion`/`place`/`mood` 进图（= `mood` 形式的前置）· interperson 渲染要不要印档案显示名 ·
@@ -187,8 +195,10 @@ P19 的 cap + 标题清单 · `specificity` 加权 · `part_axis` · BFS 对照�
 - **`walk.chain` 的已访问集是安全件**：`contradicts` 对称 ⇒ 环在真图里可能, 少了它**不是慢, 是停不下来**。
 - **变异靶子要选对**：`check_turn` 那层用例**管不到**流式暂存; 靶子选错 ⇒ 变异"绿"其实是没验到。
 - ⭐ **名字归一只有一处**（`entities.form_key`）：⛔ 别在调用方再 `casefold()` 一遍;
-  ⚠️ **没铺** `hit_set`/`_body_hits`（那是"称呼出现在正文里"的**正文扫描**, 另一套语义:
-  正文里本来就少写空格, 且按 `MIN_HIT_LEN` 卡短称呼）—— 要铺得用户点头。
+  已铺 **四处**（`find_entity` / `like.build_ctx` / `_materialize_stances` / `hit_set` 的正文扫描,
+  2026-10-12 全齐 —— 真档实测三种口径命中集相同, 零误命中）。
+  ⚠️ **唯一的例外是一对**（不是一处）: `attribute.py` 的 `known` + `parse_attribution` 两边
+  都用 `casefold` —— 见 §2⑤（要下移纯字符串件才能统一）。
 - ⭐ **编号永不进她的视图**：守门 = `test_no_internal_ids_in_what_she_sees`（扫**整段注入文本**）+
   `test_known_names_rows_are_names_not_ids`。⚠️ 新加注入行时**别印 `node.id`**。
 - ⭐ **名表行形状**：`- 主名` / `- 主名：看法`, ⛔ 别名/编号/`【】`/空标题都不许。
@@ -235,3 +245,6 @@ P19 的 cap + 标题清单 · `specificity` 加权 · `part_axis` · BFS 对照�
 | `5a5973e` | **台账收口**：`mmt_recall` 加 `per=`（每段字数）与 `ms=`（召回+渲染耗时） |
 | `593d1a1` | ⭐ **真机观察脚本** `experiments/recall_report.py`（只读, 两代格式都认, `--selftest`） |
 | `3ad6e71` | 两条新守门（**编号不入视图** · **名表行形状**）+ 3 个变异靶 + 重跑旧靶 14/14、13/13 |
+| `c350a3b` | PROCEED 第四版 |
+| `d32c8f3` | config: **作者缩短出厂立场句**（名表 1116 → 938 字; 跟一条断言） |
+| `c7a4ac7` | 名字归一推广到 **`hit_set` 的正文扫描**（第三处; 真档实测三口径命中集相同） |
