@@ -65,6 +65,28 @@ class ActionRegistry:
         """
         return sorted(n for n, s in self._specs.items() if getattr(s, "in_prompt", True))
 
+    def specs(self) -> list[tuple[str, ActionSpec]]:
+        """已注册的 `(名字, 规格)`，按名字排序 —— **遍历一律用这个**。
+
+        与 `spec(name)` 的分工：那个是"按名查"，名字可以不在（合法地拿到 `None`）；
+        这个是"遍历全部"，规格必然存在。
+
+        ⭐ 为什么要有它（2026-10-13）: 渲染器原先写
+        `registry.spec(name).prompt_fields`（`name` 来自 `action_names()`）——
+        运行时不会炸，但**类型上那是对可能为 `None` 的东西取属性**，静态检查与 IDE
+        都会报"不是 None 的已知属性"。那是契约表达力的问题，不是注解漏标：
+        遍历走这里，歧义从源头消失，调用点也不必再写 `assert spec is not None`。
+        """
+        return [(n, self._specs[n]) for n in self.action_names()]
+
+    def prompt_specs(self) -> list[tuple[str, ActionSpec]]:
+        """**进 prompt** 的 `(名字, 规格)`，按名字排序 —— 与 `prompt_action_names()` 同源。
+
+        ⚠️ 与 `specs()` 的差别同 `prompt_action_names()` 与 `action_names()` 的差别：
+        封印位（`ActionSpec.in_prompt`）。渲染契约用这个，解析/执行用那个。
+        """
+        return [(n, self._specs[n]) for n in self.prompt_action_names()]
+
     # ------------------------------------------------------------------
     # 校验层：解析 LLM 输出
     # ------------------------------------------------------------------
