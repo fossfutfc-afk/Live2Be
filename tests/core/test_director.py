@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """core/director 单测 — v2 视觉导演（只决定背景 + 音频占位）。
 
 Director:  place → background 查表（合法 / 非法 / 缺失保持 / 冷启动默认）

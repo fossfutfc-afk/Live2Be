@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """place_renames — 地点改名台账（`data/worlds/{world}/place_renames.jsonl`）。
 
 ## 为什么需要它

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """`contract.streams` —— **域无关的行流解析层**（⑥-1, 2026-09-25）。
 
 从 `contract.records.parse` 提出来的通用件：**"一行一个 JSON 对象"的骨架**

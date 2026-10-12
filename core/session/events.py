@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """事件模型 — events.jsonl 的事件骨架 + 板块 payload（core/docs/archive/DESIGN_SAVE.md §4.2）。
 
 Event 骨架: {seq, ts, type, subtype, payload}

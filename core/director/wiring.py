@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """`core.director` 的**接线层**（C11, `docs/EXEC_SPLIT.md`）。
 
 两个"给 VN 上层用"的小接线函数, 与导演本体分开:

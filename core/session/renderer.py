@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """事件流派生视图 — 喂 LLM / 回放过滤 / 状态推导 / brain 时间线。
 
 设计（core/docs/archive/DESIGN_SAVE.md §4.2/§4.6/§六）: **events.jsonl 是唯一真源**,

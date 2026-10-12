@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """视觉导演 — 纯算法映射器（只决定背景 + 音频占位, 无辅助 LLM）。
 
 职责（DESIGN_VISUAL_PROTOCOL.md §2/§6/§11）:

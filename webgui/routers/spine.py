@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """spine 路由 — SpinePlayer 前端元信息端点（side-request: spine-player 接口）。
 
 GET /api/spine/{char_id}?outfit=default → 用现有 core/media/sprite_player.py（SpritePlayer）查库:

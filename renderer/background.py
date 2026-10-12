@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """BackgroundResolver — 背景解算（DESIGN_RENDERER.md §三）。
 
 职责: scene_id → 背景媒体 + 过渡（复用 core/media/catalog 的 MediaCatalog 查库）;

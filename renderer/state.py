@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """RenderState — 渲染状态机（DESIGN_RENDERER.md §2.2 / §十）。
 
 状态流:

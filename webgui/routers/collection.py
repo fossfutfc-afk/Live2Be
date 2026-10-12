@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """回忆册路由（DESIGN_COLLECTION_BOOK.md）—— 书页 / 角色页 / 只读回放。
 
     GET /api/collection/book                    书页: 按白名单顺序的角色格（封面 collection.png）

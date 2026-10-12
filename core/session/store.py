@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """SessionStore — 世界（周目）顶层 + 角色线存储（v2, docs/archive/world_model_evolution.md（已归档））。
 
 **v2 路径（平行世界顶层, 世界上限 WORLD_LIMIT 个槽位）**:

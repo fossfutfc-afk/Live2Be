@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """VN 记录流契约（记录流 v2）——"行 → 记录"解析 + 群/位置校验。
 
 设计: `docs/DESIGN_STREAM_CONTRACT.md` §2（文法）/ §6（群与推进）/ §8（与 registry 的关系）。

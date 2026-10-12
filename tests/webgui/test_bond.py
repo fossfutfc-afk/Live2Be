@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """webgui bond 驱动单测 — 羁绊剧情状态机（start/turn/status/finish 全流程）。
 
 ScriptedLLM（不碰 API）:

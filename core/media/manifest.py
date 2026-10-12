@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """角色差分 manifest — assets/illustration/{char}/emotions.yml（情绪词表真源）。
 
 形态（v2 视觉意图协议, DESIGN_VISUAL_PROTOCOL.md §4/§8 + 2026-08-28 双投影架构）:

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """`contract.records` 的**解析层**（C10 拆分；⑥-1 起通用件来自 `contract.streams`）。
 
 **行 → 记录**：`_record_from_obj`（字典 → `VnRecord` 的形状归一）· 五条容错纪律的

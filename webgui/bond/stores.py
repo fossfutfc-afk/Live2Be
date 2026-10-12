@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """`webgui.bond` 的**落库层**（C3, `docs/EXEC_SPLIT.md`）—— 事件流读写的唯一出口。
 
 ## 放什么

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """RenderScene — 渲染器输入规范化（实时 + 回放双用途, DESIGN_RENDERER.md §2.1）。
 
 实时与回放的 scene dict 字段完全一致（BondScene.to_dict() 契约）:

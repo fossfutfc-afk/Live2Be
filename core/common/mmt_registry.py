@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """MMT 白名单（config/settings/mmt_registry.toml）— 作者维护: 哪些角色显示在桃信。
 
 项目约定: 便于机器读取的用 toml（settings / mmt_registry）; 人审查方便的用 yaml（五件套）。

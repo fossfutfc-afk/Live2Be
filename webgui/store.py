@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """GUI 配置存储（settings.toml）— 与路由分离的配置层。
 
 **定位**: GUI 设置页的读写存档——**引擎已接入**: llm/client.py（LLMClient）

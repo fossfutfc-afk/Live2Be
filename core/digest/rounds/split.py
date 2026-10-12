@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """split.py — ⓪ R0「切分员」: 本段时间线 → **切片骨架 + 账目**（区间 · `abstract` · `state`/`id`/`due`）。
 
 料（表里那五行, `ctx.sections_for` 逐字校对）: 本段新增互动 · **本段的时间** · **日子** ·

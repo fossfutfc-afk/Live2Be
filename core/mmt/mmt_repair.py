@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """MMT 操作行的**引擎侧自愈**（⑥-2c, 2026-09-25）。
 
 设计: `docs/DESIGN_STREAM_CONTRACT.md` §4.2（逐动作兜底表）/ §10.3 C2。

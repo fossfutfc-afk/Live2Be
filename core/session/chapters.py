@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """回忆册（DESIGN_COLLECTION_BOOK.md）— 事件流 → 可回放章节列表（纯派生, 0 LLM）。
 
 口径（2026-09-12 作者拍板）:

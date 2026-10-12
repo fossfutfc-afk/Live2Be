@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """renderer/ — 羁绊剧情渲染器（DESIGN_RENDERER.md）。
 
 显示层——与引擎（BondStoryEngine）解耦的纯消费方: 输入场景数据（RenderScene,

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """登录/名字路由 — 玩家名读写 + namegg 彩蛋（前缀两大类: 给取/不给取 + FT 伪 404）。"""
 from __future__ import annotations
 

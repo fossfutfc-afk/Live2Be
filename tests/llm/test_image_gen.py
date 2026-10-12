@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """llm/image_gen.py 单测 — 单后端（APIYI）接口契约, 全部离线, 不碰 API。
 
 覆盖:

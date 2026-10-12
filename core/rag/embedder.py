@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """embedder.py — 本地 embedding 客户端（RAG 向量来源, core/rag/ 地基）。
 
 对接本地 OpenAI 兼容 `/v1/embeddings`（LM Studio / llama.cpp / Bionic 等），

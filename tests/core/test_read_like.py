@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """`read/like.py` —— **相似召回**第一笔（M1 字面 / M5 时间 / M6 先验）。
 
 守门五条（每条都经**变异验红**: `.testtmp/verify_like_red.py`）:

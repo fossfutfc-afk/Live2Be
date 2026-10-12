@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """`webgui.bond` 的**生成与预生成**（C7, `docs/EXEC_SPLIT.md`）—— 板是怎么被造出来的。
 
 ## 放什么

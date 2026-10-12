@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """本回合任务卡（DESIGN_PROMPTKIT §4）——Phase 2 启用（MMT chat/wrapup）。
 
 职责: 卡 = 目标层（这回合达成什么）; 约束层（配额/提醒/边界）仍由引擎/调用方

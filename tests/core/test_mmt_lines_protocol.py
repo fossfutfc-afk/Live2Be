@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """MMT **行协议**接线（⑥-2d 接线 / ⑥-2f 起是唯一路径）。
 
 契约: `docs/DESIGN_STREAM_CONTRACT.md` §3（内容行/控制行）/ §4（兜底分级 +

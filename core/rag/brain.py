@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """brain.py — RAG × Brain 适配（记忆召回的语义检索后端）。
 
 brain/recall.py 已预留 EmbedFn 接口（"RAG 后路: 只换 embed_fn 实现, 调用方

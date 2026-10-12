@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """promptkit — 提示词组装层（docs/DESIGN_PROMPTKIT.md）。
 
 职责边界:

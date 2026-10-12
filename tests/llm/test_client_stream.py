@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """LLMClient 流式路径测试（chat_full / chat_stream, mock httpx stream——不打网络）。
 
 Step 1（方案 A 流式嗅探基座）: chat_stream 支持 response_format; chat_full

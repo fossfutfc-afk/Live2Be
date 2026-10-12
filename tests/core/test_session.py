@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """core/session 单测 — 存储原语（io）+ 会话模型（models）。
 
 io:     atomic_write_json（原子替换）/ append_jsonl（追加不重写）/ read_jsonl 行级容错

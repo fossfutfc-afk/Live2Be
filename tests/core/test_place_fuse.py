@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """地点两轴融合单测（`core/media/place_fuse.py`, 2026-09-20）。
 
 用户口径: *"混合策略，一个特殊的 magic function，在 writer 词和 key 相似度都高的

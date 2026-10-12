@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """每轮动态尾装配（DESIGN_PROMPTKIT §2/§3 tail.py）——唯一每轮装配入口。
 
 槽位协议:

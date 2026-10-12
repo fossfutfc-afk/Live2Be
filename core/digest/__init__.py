@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """digest — **记忆消化管线**（跑在 `core/brain/` 那套图与笔记之上）。
 
 ⭐ 2026-09-29 从 `core/brain/digest.py` 抬出来（代码管理节点 B 的第一步）。为什么单独一个包:

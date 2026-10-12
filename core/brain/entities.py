@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """entities.py — entity 的初始化 + 第 3 轮的**输入侧**（`DESIGN_GRAPH_V4.md` §3.0 / §8.3）。
 
 | 函数 | 谁用 | 干什么 |

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Promptkit Phase 0 — 现网装配基线黄金夹具（DESIGN_PROMPTKIT.md §7 Phase 0）。
 
 锁定三件事（重构 Phase 1+ 不得破坏; 唯一例外 = 设计内规定的称呼行归位,

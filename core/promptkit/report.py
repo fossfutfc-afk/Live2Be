@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """describe() — 实际注入报表（DESIGN_PROMPTKIT §3 report.py, Phase 1 只读）。
 
 把"某域当前实际注入了什么"渲染成 md——与 docs/PROMPT_INJECTION_MAP.md 同构,

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """brain — 角色记忆（**图式 wiki**；实现蓝图 = 同目录 `AGENT_BRAIN.md`）。
 
 ⭐ **2026-09-29 改名**: `core/brain/wiki_v2/` → **`core/brain/`**（用户裁决: 去版本号、

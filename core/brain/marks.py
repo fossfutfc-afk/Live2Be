@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """marks.py — **括号与信息头的唯一实现**（`docs/CONTEXT_MARKS.md` 的代码真源）。
 
 她（以及 digest 那五轮）眼前那几行字的形状全从这里出::

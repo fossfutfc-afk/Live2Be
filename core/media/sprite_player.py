@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """差分播放层 — 差分/骨骼动画播放（DESIGN_RENDERER.md §4.3, 独立于 renderer）。
 
 renderer 只出意图（emotion 序列）——播放由本模块负责:

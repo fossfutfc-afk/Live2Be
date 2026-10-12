@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """回归: 原子写的 **Windows 占用重试**（`core/common/atomic.py` + `core/session/io.py`）。
 
 背景（实测过一次真实红）: Windows 上 `os.replace` 在目标文件被别的进程/线程**短暂打开**时

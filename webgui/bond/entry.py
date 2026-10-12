@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """`webgui.bond` 的**开场与场景载荷**（○C8b, `docs/EXEC_SPLIT.md`）。
 
     `bond_start`        构造引擎 + 落 vn_enter + 首场 seed（路由层 POST /bond/start）

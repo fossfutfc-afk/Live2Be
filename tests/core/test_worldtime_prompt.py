@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """时间注记单测（T13 / `§4.11` 的"进 prompt"）—— `core/worldtime/prompt_time.py`。
 
 钉住四条:

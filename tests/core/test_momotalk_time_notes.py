@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """时间注记接线单测（T13）—— 注记真的进了 MMT 的 messages。
 
 与 `tests/core/test_mmt_round_protocol.py` 同一套桩口径（**脚本返回 dict, 不是 str**）。

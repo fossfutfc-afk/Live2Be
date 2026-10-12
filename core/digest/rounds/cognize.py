@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """cognize.py — ⑥ L2「造认知 / 写正文」: 造看法 + 给本段归过类的群写沉淀。
 
 ⭐ **它是第二趟**（`docs/DESIGN_DIGEST_TWO_PASSES.md` §3）:

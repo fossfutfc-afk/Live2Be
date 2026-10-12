@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """生图接口 — APIYI（Gemini 图像 / nano banana）单后端。
 
 **单后端（2026-09-10 用户拍板: 移除本地 diffusers 兜底）**:

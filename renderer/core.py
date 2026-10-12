@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Renderer — 羁绊剧情渲染管线（DESIGN_RENDERER.md §二/§九）。
 
 输入 RenderScene（实时 from_live / 回放 from_event——同构, 渲染器不区分来源）;

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """EffectResolver — 特效解算（DESIGN_RENDERER.md §五）。
 
 设计原则:
