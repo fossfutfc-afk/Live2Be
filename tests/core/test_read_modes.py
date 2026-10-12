@@ -68,6 +68,18 @@ def _seed_aru(store) -> None:
     store.save()
 
 
+def _seed_msk(store) -> None:
+    """第二个对象（睦月 `x0003`）+ 一条挂她车道的经历 —— 用来验"两个人 = 两把钥匙"。"""
+    msk = make_node("entity", name="浅黄 睦月", text="")
+    msk.id = "x0003"
+    msk.aliases = ["睦月"]
+    store.add(msk)
+    eid = store.add(make_node("episode", text="睦月请我吃了拉面", title="拉面",
+                              ts="2026-10-12T09:00:00", significance=0.5, event_seq=[4]))
+    store.add_edge("about", eid, "x0003", ts="2026-10-12T09:00:00")
+    store.save()
+
+
 def test_mode_table_is_well_formed():
     """① 表里每一行都自洽 —— 加形式 = 加一行, 所以**这一条就是给"加行"立的规矩**。"""
     assert modes.MODES and modes.DEFAULT_MODE in modes.MODES
@@ -190,7 +202,7 @@ def test_reserved_ids_never_trigger_the_name_form(tmp_path):
     """⑨ ⭐ **保留号不算"提到了谁"**（`skip_ids`）—— 她自己 / 老师的车道≈全部事件。
 
     没这一格的后果（真机尺度）: 老师出现在**几乎每一件事**上 ⇒ 玩家一句"老师你觉得呢"
-    就能把整条河摆进动态尾, 还顶着"关于他们的"这个抬头。
+    就能把整条河摆进动态尾, 还顶着"你想着「X」"这个抬头。
     """
     from core.brain.entities import SELF_ID, SENSEI_ID
     store = _store(tmp_path)
@@ -227,10 +239,47 @@ def test_name_section_shares_the_budget_and_the_copy(tmp_path, monkeypatch):
     _seed_aru(store)
     cands = modes.recall(store, _ctx("阿露"), mode="name")
     assert len(cands) == 3, [c.node.title for c in cands]
-    full = modes.render_section(cands, mode="name", now=NOW)
-    assert full.startswith(modes.MODES["name"].header)        # 抬头 = 表里那一行
+    full = modes.render_section(cands, mode="name", key="阿露", now=NOW)
+    assert full.startswith("【你想着「阿露」"), full          # 抬头 = 表里那一行 + 钥匙
     assert full.count("\n") == 3, full                        # 段头 + 三条（名字段无段尾提示）
     monkeypatch.setattr(rc, "_cache", {"turn_budget": 30.0}, raising=False)
-    tight = modes.render_section(cands, mode="name", now=NOW)
+    tight = modes.render_section(cands, mode="name", key="阿露", now=NOW)
     assert tight.count("\n") == 1, tight                      # 段头 + 第一条（第一条永远留）
     print("    modes: 名字段一样吃 `[recall].turn_budget`（不是有多少摆多少）")
+
+
+def test_keys_come_from_the_same_payload_as_the_candidates(tmp_path):
+    """⑪ ⭐ **钥匙**（段头印的那个词）= 老师用的写法, 与候选**同一次载荷**算出。
+
+    ⛔ 印 id（`x0002`）或印她自己的叫法都不行: 要教的是"**老师说的那个词**就是钥匙"
+    （`look` 的 `clue` 是同一件事）。
+    """
+    store = _store(tmp_path)
+    _seed_aru(store)
+    cands, keys = modes.recall_with_keys(store, _ctx("阿露今天怎么样"), mode="name")
+    assert keys == ["阿露"], keys
+    # 前门 = 薄壳（逐条同 id + 同分）
+    plain = modes.recall(store, _ctx("阿露今天怎么样"), mode="name")
+    assert [(c.node.id, c.score) for c in plain] == [(c.node.id, c.score) for c in cands]
+    # 两个名字 ⇒ 两把钥匙（段头会印成「阿露、睦月」）
+    _seed_msk(store)
+    _cands2, keys2 = modes.recall_with_keys(store, _ctx("阿露和睦月"), mode="name")
+    assert sorted(keys2) == ["睦月", "阿露"], keys2
+    # rank 型**没有**钥匙（"问哪个面"是六路加权, 没有单一钥匙）
+    assert modes.recall_with_keys(store, _ctx("阿露"), mode="turn")[1] == []
+    print(f"    modes: 钥匙与候选同源（{keys2}）；rank 型无钥匙")
+
+
+def test_the_blank_line_needs_a_key(tmp_path):
+    """⑫ ⭐ **空手**的收放: 有钥匙 ⇒ 印; 没钥匙 ⇒ 不印; 模板带槽而没钥匙 ⇒ **当场炸**。"""
+    store = _store(tmp_path)
+    _seed_aru(store)
+    empty = modes.render_section([], mode="name", key="阿露")
+    assert empty.startswith("【你想着「阿露」") and "一时没想起来" in empty, empty
+    # 没钥匙（普通闲聊）⇒ 空手也不印
+    assert modes.render_section([], mode="name") == ""
+    # 有货但模板带槽、钥匙没给 ⇒ 不印半成品（`{key}` 四个字符不许进她的视图）
+    cands = modes.recall(store, _ctx("阿露"), mode="name")
+    with pytest.raises(ValueError):
+        modes.render_section(cands, mode="name")
+    print("    modes: 空手要钥匙; 带槽不填当场炸")

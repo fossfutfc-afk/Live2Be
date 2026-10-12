@@ -34,11 +34,19 @@
 
 | mode | 形状 | 干什么 | 谁在用 |
 |---|---|---|---|
-| `name` | set | 「关于他们的」——老师这句**提到了一个名字** ⇒ 那个对象**车道上全部**（`about` 入边） | `engine._recall_notes`（P19 的第一段） |
-| `turn` | rank | 「你想起的事」——每轮的兜底形式（六路，权重在 `like.SPECS["turn"]`） | `engine._recall_notes`（P19 的第二段） |
+| `name` | set | 「你想着「阿露」——浮上来的是这些」= 老师这句**提到了一个名字** ⇒ 那个对象**车道上全部**（`about` 入边） | `engine._recall_notes`（P19 第一段） |
+| `turn` | rank | 「你想起的事」——每轮的兜底形式（六路，权重在 `like.SPECS["turn"]`） | `engine._recall_notes`（P19 第二段） |
 
 ⭐ **P19 两段都从这张表出**（顺序 = `engine._recall_notes` 里的注入顺序: 先确定命中, 后模糊）。
 ⚠️ **`name` 不许被保留号触发**（`RESERVED_TRIGGERS`）—— 见那一行的注释。
+
+## ⭐ 钥匙与空手（2026-10-12, 用户: *"这是你在思索（词语）的时候回忆起来的事情"*）
+
+- **钥匙** = 这次触发召回的那个**词**（`recall_with_keys()` 的第二项；`{key}` 槽）——
+  段头把它印出来，"一个词 → 一批记忆"才在她眼前成立（`look` 的语义, 顺带演示）。
+- **空手**（`Mode.empty`）= 钥匙扫到了、一条也没命中时**印一句话**而不是沉默 ——
+  沉默有歧义（"没查" vs "查了没有"）, 而"想了一下没想起来"是她**能拿来说话的事实**。
+  ⛔ 没有钥匙就不印（闲聊不摆）；⛔ 措辞不许"一片空白"（她的 system 里就有整条河）。
 
 ⏭ 下一批形式（`when` 时间窗 / `echo` 既视感 / `mood` 情绪 / `near` 图上相邻）——
 **落一个加一行**；没接线的**不许先写进表**（空行 = 假承诺）。
@@ -67,7 +75,7 @@ PAYLOAD_NAMED = "named"
 #: `set` 型的载荷里**不许触发**的保留号（真源 = `core.brain.entities` 的 `SELF_ID`/`SENSEI_ID`）。
 #: ⛔ **她自己（`x0000`）与老师（`x0001`）的名字不算"提到了谁"**:
 #: 那两条车道 ≈ **全部事件**（哪一件事不连着老师、不连着她自己?）—— 一提到就糊一整面,
-#: 而且抬头写着"关于他们的", 摆出来却是一整条河。它们各自的分身**另有住处**
+#: 而且抬头写着"你想着某个人", 摆出来却是一整条河。它们各自的分身**另有住处**
 #: （她自己 → brain 段的「我是这样看自己的」; 老师 → 「老师的事」/ 河本身）。
 RESERVED_TRIGGERS: tuple[str, ...] = (SELF_ID, SENSEI_ID)
 PAYLOADS: tuple[str, ...] = (PAYLOAD_NAMED,)
@@ -92,19 +100,34 @@ class Mode:
     #: `set` 型的排序：`newest`（口径 = `find._order`, 同一条规则不抄第二份）
     #: ⚠️ **`rank` 型留空**：排序是 `like` 的事（它有归一与加权，不该在这儿再排一次）
     order: str = "newest"
-    #: 她看到的那一段的**抬头** / **尾注**（`render_section` 用；空 = 该形式不摆字）
+    #: 她看到的那一段的**抬头** / **尾注**（`render_section` 用；空 = 该形式不摆字）。
+    #: ⭐ 两者都可以带**一个 `{key}` 槽** —— 填的是"这次用的那把钥匙"（老师用的那个写法 /
+    #: 扫到的那段时间的原话）。`set` 型的抬头**应该**带它: "一个词 → 一批记忆"要印在她眼前。
+    #: ⛔ 带槽而没算出钥匙 ⇒ **当场炸**（见 `_fill`）——不许把 `{key}` 四个字符印给她看。
     header: str = ""
     hint: str = ""
+    #: ⭐ **钥匙扫到了、但那批候选一条都没有**时印的那句话（`{key}` 槽；空 = 什么都不印）。
+    #: ⚠️ 与 `hint` 分工: `hint` 是"**有货**时的尾注", 这一格是"**空手**时的正文"。
+    #: 为什么空手也要说话（2026-10-12 用户）: 沉默**有歧义** —— LLM 分不清"引擎没查"与
+    #: "查了、没有"; 而"想了一下没想起来"是她**可以拿来说话的事实**（同 `look` 的三档空手）。
+    #: ⚠️ ⛔ 措辞两条纪律（写这一格时别犯）:
+    #:   · **限定在这把钥匙上** —— ⛔ 不许写"一片空白/什么都想不起来": 她的 system 里就摆着
+    #:     「我记得的事」整条河, 同一份上下文里自相矛盾, 还会诱发她答得出来也说想不起来;
+    #:   · **瞬时**（"一时"/"这一下"）—— ⛔ 不写"良久/努力思索"那种**时间**词, 那会诱使她演
+    #:     "唔……我想想……"那段戏。
+    empty: str = ""
 
 
 #: ⭐ **形式表**（唯一注册点）—— 加形式 = 加一行
 MODES: dict[str, Mode] = {
-    # 「关于他们的」：老师这句点到了某个名字 ⇒ 他**车道上全部**（含正文没写他名字的那些）
+    # 「你想着「X」」：老师这句点到了某个名字 ⇒ 他**车道上全部**（含正文没写他名字的那些）
     # ⚠️ 保留号不许触发（`skip_ids`）—— 她自己/老师的车道≈全部事件, 见 `RESERVED_TRIGGERS`。
     "name": Mode(shape=SHAPE_SET, anchors=("entity",), payload_from=PAYLOAD_NAMED,
                  skip_ids=RESERVED_TRIGGERS,
-                 header="【关于他们的（老师这句话里提到了一个名字——下面是你记得的、"
-                        "跟那个名字有关的事，用不用由你判断）】"),
+                 # ⭐ 抬头 = "这是**你想着那个词**的时候浮上来的"（不是"引擎给你一段资料"）——
+                 # 顺带把 `look` 的语义（一个词 → 一批记忆）在她眼前演示一遍。
+                 header="【你想着「{key}」——浮上来的是这些（用不用由你判断）】",
+                 empty="【你想着「{key}」——跟它有关的事，一时没想起来】"),
     # P19「你想起的事」：每轮的兜底形式 —— 六路打分（权重与选面都在 `like.SPECS`）
     "turn": Mode(shape=SHAPE_RANK, spec="turn", order="",
                  header=RECALL_HEADER, hint=RECALL_ACTION_HINT),
@@ -140,10 +163,24 @@ def _payloads(base: RecallCtx, m: Mode) -> list[Any]:
                    f"不在闭集里（可用: {PAYLOADS}）")
 
 
+def _keys(base: RecallCtx, m: Mode) -> list[str]:
+    """载荷的**人话形式** —— 段头要印的那把**钥匙**（「你想着「阿露」…」）。
+
+    ⚠️ 与 `_payloads` **同派生料、同一套规则**（直接调它）—— ⛔ 别在这儿重算一遍,
+    更不许把 id 印出去（编号永不进她的视图）。
+    """
+    if m.payload_from == PAYLOAD_NAMED:
+        return [base.named[eid] for eid in _payloads(base, m) if eid in base.named]
+    raise KeyError(f"形式 {m.spec or m.anchors} 的 payload_from={m.payload_from!r} "
+                   f"还没有对应的「人话形式」（见 `_keys`）")
+
+
 def recall(store, ctx: RecallCtx, *, mode: Any = DEFAULT_MODE,
            k: int | None = None, weights: dict[str, float] | None = None,
            ) -> list[Candidate]:
     """⭐ **唯一对外前门**：一次召回 = 一种**形式**（`mode`，见 `MODES`）。
+
+    = `recall_with_keys()` 丢掉第二项（⛔ 不是第二份实现 —— 形式一多, 两份实现必漂）。
 
     Args:
         store: `WikiStoreV2`（**只读**）。
@@ -158,9 +195,26 @@ def recall(store, ctx: RecallCtx, *, mode: Any = DEFAULT_MODE,
         · `set` 型 = 命中的**全部**（新→旧；**不裁** —— 摆几条由 `render_candidates`
           的 `cap` / `budget` 管, 那是"她眼前有多长"的事, 不是"存不存在"的事）。
     """
+    return recall_with_keys(store, ctx, mode=mode, k=k, weights=weights)[0]
+
+
+def recall_with_keys(store, ctx: RecallCtx, *, mode: Any = DEFAULT_MODE,
+                     k: int | None = None, weights: dict[str, float] | None = None,
+                     ) -> tuple[list[Candidate], list[str]]:
+    """⭐ 前门的**带钥匙版本** —— 候选与 `recall()` **逐条相同**, 另给"这次用的钥匙"。
+
+    钥匙 = **载荷的人话形式**（`set` 型: 老师用的那个写法 / 扫到的那段时间的原话）。
+    为什么要它（2026-10-12 用户）: 段头要写成「**你想着「阿露」**——浮上来的是这些」,
+    这样"**一个词 → 一批记忆**"就在她眼前成立 —— 那正是 `look` 的语义,
+    P19 每轮顺带演示一遍（她下次自己写 `clue` / `when` 时心里有数）。
+
+    ⚠️ 钥匙与候选出自**同一次** `_payloads`（同一份派生料、同一套剔除规则）——
+    ⛔ 不重算、不抄第二份。
+    ⛔ `rank` 型**没有**钥匙（"问哪个面"是六路加权, 没有单一钥匙）⇒ 返 `[]`。
+    """
     m = mode_of(mode)
     if m.shape == SHAPE_RANK:
-        return like(store, ctx, spec=m.spec, k=k, weights=weights)
+        return like(store, ctx, spec=m.spec, k=k, weights=weights), []
     if m.shape != SHAPE_SET:                       # 表写歪了 ⇒ 当场炸（不静默）
         raise KeyError(f"形式 {mode!r} 的 shape={m.shape!r} 不在 {SHAPES}")
     if k is not None or weights is not None:
@@ -175,7 +229,7 @@ def recall(store, ctx: RecallCtx, *, mode: Any = DEFAULT_MODE,
                 seen.add(cand.node.id)
                 out.append(cand)
     _sort_set(out, m)                              # 多锚并集 ⇒ 按 `find` 的同一口径重排
-    return out
+    return out, _keys(base, m)
 
 
 def _sort_set(cands: list[Candidate], m: Mode) -> None:
@@ -187,15 +241,48 @@ def _sort_set(cands: list[Candidate], m: Mode) -> None:
                        f"（`set` 型只有 'newest'）")
 
 
+def _fill(template: str, key: Any, *, mode: Any) -> str:
+    """把文案里的 `{key}` 槽填上 —— ⛔ **没钥匙就不许印**。
+
+    ⚠️ 用 `str.replace` 而**不是** `str.format`: 文案里还有 JSON（`{"noticed": …}`）
+    —— `format` 会把那对花括号当成占位符炸掉。
+    ⛔ 带槽而钥匙为空 ⇒ **当场炸**（不静默印 `{key}` 四个字符给她看）。
+    """
+    if "{key}" not in template:
+        return template
+    text = str(key or "").strip()
+    if not text:
+        raise ValueError(f"形式 {mode!r} 的文案带 {{key}} 槽, 但这次**没算出钥匙** —— "
+                         f"⛔ 不印半成品（宁可不摆这一段）")
+    return template.replace("{key}", text)
+
+
 def render_section(cands: Iterable[Candidate], *, mode: Any = DEFAULT_MODE,
-                   **kwargs) -> str:
-    """⭐ **形式 → 她看到的那一段字**：抬头/尾注从表里取, 其余**原样透传**。
+                   key: Any = "", **kwargs) -> str:
+    """⭐ **形式 → 她看到的那一段字**：文案（含钥匙）从表里取, 其余**原样透传**。
 
     = `render.render_candidates` 的一层薄壳（⛔ 这里不印字、不筛面、不截断 ——
-    那些都在渲染层; 本函数只负责"用这个形式的文案"）。
+    那些都在渲染层; 本函数只负责"用这个形式的文案"）。三件事按顺序:
+
+    1. **填钥匙**：`Mode.header` / `Mode.hint` 里的 `{key}` 槽 ← `key`（老师用的那个词）;
+    2. **有货** ⇒ 照旧交给 `render_candidates`（段头 + 逐条记忆行 + 段尾）;
+    3. ⭐ **空手**（`cands` 空 且 钥匙非空 且 表里有 `Mode.empty`）⇒ 印**空手那句话**
+       —— 沉默是有歧义的（"没查" vs "查了没有"）, 而"想了一下没想起来"是她能拿来
+       说话的事实（同 `look` 的三档空手）。
+       ⛔ **没有钥匙 ⇒ 空手也不印**（普通闲聊每轮来一句"你什么也没想起来"是噪声）;
+       ⛔ 空手那句话**不占字符预算**（就一行字, 走不到 `render_candidates` 的累积里）。
     """
     m = mode_of(mode)
-    return render_candidates(cands, header=m.header, hint=m.hint, **kwargs)
+    picked = list(cands)
+    if not picked:
+        # ⛔ **没有钥匙 ⇒ 空手也不印**（闲聊每轮来一句"你什么也没想起来"是噪声）。
+        # ⚠️ 顺序要紧: 先看钥匙**再看 `empty`**, 而且**别在空手分支之前填抬头** ——
+        #    空钥匙去填 `{key}` 槽会当场炸（`name` 没被触发的那些轮正是"空手 + 无钥匙"）。
+        if not m.empty or not str(key or "").strip():
+            return ""
+        return _fill(m.empty, key, mode=mode)
+    return render_candidates(picked, header=_fill(m.header, key, mode=mode),
+                             hint=_fill(m.hint, key, mode=mode), **kwargs)
 
 
 def describe() -> list[tuple[str, str, str]]:

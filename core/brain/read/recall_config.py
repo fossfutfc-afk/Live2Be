@@ -35,7 +35,7 @@ v2 的记忆召回参数是**散落的模块常量**，后果有两条:
       sim_k     = 5         # 读路径语义通道 top-k
       like_k    = 3         # ⭐ 相似召回 `like.like()` 取几条（2026-10-08）
       turn_k    = 2         # ⭐ N5: MMT 每轮"你想起的事"摆几条（`recall.recall_episodes`）
-      turn_budget = 1000    # ⭐ N5: **每段**召回（「关于他们的」/「你想起的事」）的字符预算
+      turn_budget = 1000    # ⭐ N5: **每段**召回（「你想着「X」」/「你想起的事」）的字符预算
       time_half_life_days  = 5.0   # A 链路新鲜度半衰期（**现实日**）
       time_freshness_floor = 0.25  # A 链路新鲜度**下界**（0 = 关掉下界）
 

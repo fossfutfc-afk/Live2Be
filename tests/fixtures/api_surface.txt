@@ -367,6 +367,7 @@ core.mmt.engine	parse_lines	function	core.mmt.mmt_lines
 core.mmt.engine	parse_when	function	core.worldtime.when
 core.mmt.engine	player_names	function	core.parsing.player_profile
 core.mmt.engine	recall	function	core.brain.read.modes
+core.mmt.engine	recall_with_keys	function	core.brain.read.modes
 core.mmt.engine	render_background_experience	function	core.brain.read.render
 core.mmt.engine	render_candidates	function	core.brain.read.render
 core.mmt.engine	render_character_view	function	core.brain.read.render
