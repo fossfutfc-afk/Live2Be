@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import logging
 from datetime import date
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from core.brain.address import unique_title
 from core.brain.nodes import PLAYER_SUBJECT, make_node

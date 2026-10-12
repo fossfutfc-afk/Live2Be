@@ -14,6 +14,9 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterable
+from enum import Enum
+from typing import TYPE_CHECKING
 
 from contract import (
     MAX_SENSEI_RUN,
@@ -22,8 +25,9 @@ from contract import (
     sensei_groups,
 )
 from core.bond.bond_story.scene import BondScene
-from enum import Enum
-from typing import Iterable
+
+if TYPE_CHECKING:               # 仅注解求值期 —— 运行期 import engine 会成环（见模块头纪律）
+    from core.bond.bond_story.engine import BondStoryEngine
 
 logger = logging.getLogger(__name__)
 
@@ -98,7 +102,7 @@ class _BoardAssembler:
     批量（批式）: 依次 `push` 再 `finish`, 收 `boards`。
     """
 
-    def __init__(self, engine: "BondStoryEngine", *, block_art: str = "",
+    def __init__(self, engine: BondStoryEngine, *, block_art: str = "",
                  notes: Iterable[str] = (),
                  max_boards: int = MAX_BOARDS_PER_TURN) -> None:
         self._engine = engine

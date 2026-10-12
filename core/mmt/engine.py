@@ -43,56 +43,18 @@ import logging
 import re
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from core.common import Live2BeError, err
-from llm.client import LLMClient, feedback
-from llm.task_labels import MMT
-from llm.task_levels import max_tokens as task_levels_max_tokens
 from contract import APPROVAL_AUTO, DOMAIN_MMT, AgentAction, build_line_schema
 from contract.issues import format_issues, split_issues
-from core.bond.bond_progress import BondProgress
-from core.mmt.mmt_actions import build_mmt_registry
-from core.mmt.mmt_check import (
-    ACTION_TRIGGER,
-    DROPPABLE_ACTIONS,
-    QUERY_ACTIONS,
-    WHOLE_TURN_ACTIONS,
-    check_turn,
-)
-from core.mmt.mmt_lines import MmtLine, MmtStream, parse_lines, to_action_raw
-from core.mmt.mmt_repair import repair_line
-from core.mmt.mmt_executor import (
-    MmtExecError,
-    MmtExecutor,
-    load_interperson,
-)
-from core.parsing.dynamic_character_parser import (
-    CharacterLoader,
-    DynamicCharacter,
-    yaml_to_prompt,
-)
-from core.parsing.names import char_names, names_of   # 名字接口（N1: 别名/显示名的唯一实现）
-from core.parsing.player_profile import player_names   # 玩家档案（config/player/profile.yml）
-from core.promptkit import (
-    BlockContext,
-    build_box,
-    round_messages,
-    task_card,
-    task_card_enabled,
-)
-from core.session import SessionStore
-from core.session.events import TYPE_NOTICED, is_content_event, make_event
-from core.session.renderer import session_status, window_messages
-from core.digest import digest_segment
-from core.brain.entities import STANCE_KEYS_RESERVED, ensure_entities
 from core.affection import Affection, load_affection_from_events
+from core.bond.bond_progress import BondProgress
 from core.brain.address import find_episode
-from core.brain.entities import find_entity
+from core.brain.entities import STANCE_KEYS_RESERVED, ensure_entities, find_entity
 from core.brain.read.find import compile_clue, find
 from core.brain.read.like import RecallCtx
 from core.brain.read.modes import DEFAULT_MODE as TURN_MODE
@@ -109,16 +71,54 @@ from core.brain.read.render import (
     render_candidates,
     render_character_view,
 )
-from core.worldtime.when import parse_when
 from core.brain.store import WikiStoreV2
+from core.common import Live2BeError, err
+from core.digest import digest_segment
+from core.mmt.mmt_actions import build_mmt_registry
+from core.mmt.mmt_check import (
+    ACTION_TRIGGER,
+    DROPPABLE_ACTIONS,
+    QUERY_ACTIONS,
+    WHOLE_TURN_ACTIONS,
+    check_turn,
+)
+from core.mmt.mmt_executor import (
+    MmtExecError,
+    MmtExecutor,
+    load_interperson,
+)
+from core.mmt.mmt_lines import MmtLine, MmtStream, parse_lines, to_action_raw
+from core.mmt.mmt_repair import repair_line
+from core.parsing.dynamic_character_parser import (
+    CharacterLoader,
+    DynamicCharacter,
+    yaml_to_prompt,
+)
+from core.parsing.names import char_names, names_of  # 名字接口（N1: 别名/显示名的唯一实现）
+from core.parsing.player_profile import player_names  # 玩家档案（config/player/profile.yml）
+from core.promptkit import (
+    BlockContext,
+    build_box,
+    round_messages,
+    task_card,
+    task_card_enabled,
+)
 from core.rag.brain import make_embed_fn
 from core.rag.embedder import LocalEmbedder
+from core.session import SessionStore
+from core.session.events import TYPE_NOTICED, is_content_event, make_event
+from core.session.renderer import session_status, window_messages
 from core.tui.display import MomoTalkOutput
 from core.tui.streaming import DisplayStep
+
 # ⚠️ `split_reply_chunks` 不再进引擎（⑥-2e 起一行 = 一个气泡, 不再切句）——
 # 切句器本体与单测按用户裁决**保留**（`core/tui/text_processors.py`; 见
 # DESIGN_STREAM_CONTRACT §6: 将来真要用, 回退位置是"行内二次切分"）。
 from core.tui.text_processors import _process_for_momotalk, _strip_action_brackets
+from core.worldtime.when import parse_when
+from llm.client import LLMClient, feedback
+from llm.task_labels import MMT
+from llm.task_levels import max_tokens as task_levels_max_tokens
 
 logger = logging.getLogger(__name__)
 
@@ -359,7 +359,7 @@ def load_note_segment(store: SessionStore, char_id: str, *,
     （省一次读盘 —— 调用方手上本来就有）。
     """
     try:
-        from core.brain.notes import render_note_block   # 局部导入（同 time_notes 那处）
+        from core.brain.notes import render_note_block  # 局部导入（同 time_notes 那处）
         if wstore is None:
             wstore = WikiStoreV2(store.data_root, world_id=store.world_id,
                                  char_id=char_id)
@@ -937,8 +937,8 @@ class MomoTalkEngine:
         返回值保持调用方原先的那份 `events`（没变就别假装变了）。
         """
         try:
-            from core.brain.notes import check as notes_check   # 局部导入（同笔记注入那处）
-            from core.brain.notes import note_event   # 局部导入（同笔记注入那处）
+            from core.brain.notes import check as notes_check  # 局部导入（同笔记注入那处）
+            from core.brain.notes import note_event  # 局部导入（同笔记注入那处）
             from core.brain.notes import stats as notes_stats
             for op in ops:
                 session_store.append_event(character_id, "", note_event(op))
