@@ -26,8 +26,9 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, Mapping
+from typing import Any
 
 from contract import CHARACTER_NARRATOR, DEFAULT_SPEAKER_NAMES
 from core.parsing.dynamic_character_parser import get_display_name

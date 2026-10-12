@@ -11,7 +11,6 @@ v1 时代那段（dict 场景 + 「（选择了: X）」旧注解）见
 import sys
 from pathlib import Path
 
-
 from core.bond.bond_story import BondStoryEngine  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent.parent

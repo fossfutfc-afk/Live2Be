@@ -23,7 +23,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from enum import Enum
 
-from contract.issues import (                    # a₀: 机制真家在 contract/issues.py
+from contract.issues import (  # a₀: 机制真家在 contract/issues.py
     Issue,
     IssueSeverity,
     declare_severity,
@@ -41,7 +41,6 @@ from contract.records.grammar import (
     STAGE_SWITCH,
     VnRecord,
 )
-
 
 # ---------------------------------------------------------------------------
 # 块内结构校验（P0-1 文法；引擎复用）

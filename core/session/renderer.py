@@ -20,6 +20,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from contract.records import render_records
+from contract.timeline_index import REC_PICKED, format_event, format_record
 from core.session.events import (
     M_MEMORIAL_ENTER,
     M_MEMORIAL_EXIT,
@@ -39,8 +41,6 @@ from core.session.events import (
 )
 from core.session.models import VNState
 from core.tui.text_processors import _strip_action_brackets
-from contract.records import render_records
-from contract.timeline_index import REC_PICKED, format_event, format_record
 
 #: brain 时间线的板块标签
 _LABELS: dict[str, str] = {

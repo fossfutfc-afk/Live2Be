@@ -10,17 +10,16 @@
 `build_candidates` / `normalize_character_id` / `repair_inspect` 一起删了
 （她今天没有任何"按 id 查人"的动作）。
 """
-import sys
 import pathlib
+import sys
 
-
-from core.mmt.mmt_repair import (                                        # noqa: E402
+from core.mmt.mmt_check import TITLE_MAX  # noqa: E402
+from core.mmt.mmt_lines import MmtLine  # noqa: E402
+from core.mmt.mmt_repair import (  # noqa: E402
     repair_line,
     repair_send_media,
     repair_trigger,
 )
-from core.mmt.mmt_lines import MmtLine                                   # noqa: E402
-from core.mmt.mmt_check import TITLE_MAX                                 # noqa: E402
 
 
 def test_repair_send_media():

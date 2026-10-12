@@ -11,13 +11,14 @@ registry 与 executor, 块只做"渲染段落"）。
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
+from core import paths
 from core.common.tone import load_story_tone
 from core.media.emotion_lexicon import build_emotion_injection
-from core import paths
 from core.parsing.place_regions import load_regions
 from core.parsing.world_parser import DEFAULT_WORLD_PATH, load_world, world_to_prompt
 from llm.prompts import load_prompt

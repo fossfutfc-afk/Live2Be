@@ -23,7 +23,6 @@ import logging
 import sys
 from pathlib import Path
 
-
 from core.brain import WikiStoreV2, make_node
 from core.digest.pipeline import digest_segment
 from core.session import make_event

@@ -69,14 +69,18 @@ from core.worldtime.age import (
 )
 from core.worldtime.prompt_time import (
     notes as time_notes,
+)
+from core.worldtime.prompt_time import (
     phone_date_note,
     real_gap_note,
 )
 from core.worldtime.realtime import (
     Occasion,
-    due_notes as realtime_notes,
     load_clock,
     load_occasions,
+)
+from core.worldtime.realtime import (
+    due_notes as realtime_notes,
 )
 from core.worldtime.span import SPANS, SpanError, parse_span
 from core.worldtime.when import WIDEN_DAYS, When, parse_when

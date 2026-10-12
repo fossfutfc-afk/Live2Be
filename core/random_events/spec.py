@@ -11,8 +11,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any
 
 #: 触发时机常量（引擎钩子名）
 TRIGGER_MMT_TURN = "mmt_turn"        # momotalk.agent_turn 每轮前

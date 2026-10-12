@@ -60,9 +60,9 @@ note 是**三种组织形式**里的第二种（图 / **笔记** / 台账, §1.1
 from __future__ import annotations
 
 import logging
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
-from typing import Any, Iterable
+from typing import Any
 
 from core.brain import marks
 from core.common import err
@@ -182,7 +182,7 @@ class NoteItem:
     since: str = ""
     due: str = ""
 
-    def copy(self) -> "NoteItem":
+    def copy(self) -> NoteItem:
         return NoteItem(id=self.id, text=self.text, refs=list(self.refs),
                         since=self.since, due=self.due)
 
@@ -196,7 +196,7 @@ class NoteItem:
         return d
 
     @classmethod
-    def from_dict(cls, raw: Any) -> "NoteItem | None":
+    def from_dict(cls, raw: Any) -> NoteItem | None:
         """宽松读（坏值 / **已划掉的** → None）。
 
         ⚠️ **裸字符串也收**（`{"text": raw}`）—— 那是 `on_mind` 时代的形状
@@ -251,7 +251,7 @@ class NotesState:
         """槽 → 条目列表（今天只有 `pinned`; 一个槽也要走这一层, 口径统一）。"""
         return list(getattr(self, slot, []) or [])
 
-    def clone(self) -> "NotesState":
+    def clone(self) -> NotesState:
         return NotesState(up_to_seq=self.up_to_seq, next_n=self.next_n,
                           pinned=[it.copy() for it in self.pinned])
 
@@ -260,7 +260,7 @@ class NotesState:
                 SLOT_PINNED: [it.to_dict() for it in self.pinned]}
 
     @classmethod
-    def from_dict(cls, raw: Any) -> "NotesState":
+    def from_dict(cls, raw: Any) -> NotesState:
         """宽松读（坏文件 → 空状态 = 现折一遍就回来了, 不会丢真源）。
 
         ⚠️ 旧档里的 `habits` / `on_mind` 两个键**直接忽略**（N4a / N4e 退役；

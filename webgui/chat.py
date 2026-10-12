@@ -22,7 +22,7 @@ from core.mmt.engine import MomoTalkEngine
 from core.session.events import M_VN_ENTER, M_VN_EXIT
 from core.tui.text_processors import _strip_action_brackets
 from llm.client import LLMClient
-from webgui import deps                       # 接缝（C1a）: store 等可替换依赖
+from webgui import deps  # 接缝（C1a）: store 等可替换依赖
 
 logger = logging.getLogger(__name__)
 

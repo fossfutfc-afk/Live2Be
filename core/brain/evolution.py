@@ -23,7 +23,7 @@ class EvolutionLog:
         self.path = Path(path)
 
     @classmethod
-    def for_store(cls, store) -> "EvolutionLog":
+    def for_store(cls, store) -> EvolutionLog:
         """默认位置: wiki.jsonl 同目录下 evolution.jsonl。"""
         return cls(store.path.parent / "evolution.jsonl")
 

@@ -1,7 +1,6 @@
 """页面/背景路由 — 静态页（登录/伪404）+ menu 背景列表。"""
 from __future__ import annotations
 
-
 from fastapi import APIRouter
 from fastapi.responses import FileResponse
 

@@ -44,9 +44,9 @@ from pathlib import Path
 
 import yaml
 
+from contract import DOMAIN_MMT, AgentAction
 from core import paths
 from core.common import Live2BeError
-from contract import AgentAction, DOMAIN_MMT
 from core.parsing.dynamic_character_parser import (
     CharacterLoader,
     DynamicCharacter,

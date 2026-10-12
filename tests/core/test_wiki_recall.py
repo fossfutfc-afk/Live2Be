@@ -5,8 +5,8 @@ from datetime import datetime, timedelta
 from core.brain import WikiStoreV2, make_node
 from core.brain.read.recall import (
     recall_episodes,
-    recommend_candidates,
     recall_subgraph,
+    recommend_candidates,
 )
 
 
@@ -286,6 +286,7 @@ def test_candidates_are_hints_not_gates(tmp_path):
     assert "accept_hit_rate" not in rc.DEFAULTS
     # 契约层不再有结构强制参数
     import inspect
+
     from contract.digest_registry import digest_registry
     sig = inspect.signature(digest_registry.parse_round_b)
     assert "must_touch" not in sig.parameters, "结构强制未删干净"
@@ -395,8 +396,8 @@ def test_recall_episodes_empty_cases(tmp_path):
 
 def test_recall_episodes_k_defaults_to_the_knob(tmp_path, monkeypatch):
     """条数缺省 = `[recall].turn_k`（**"取几条"类旋钮, 不是阈值**）。"""
-    from core.brain.read import recall as R
     from core.brain import recall_config as rc
+    from core.brain.read import recall as R
 
     st = _store(tmp_path, _ids([_ep(f"苔藓第{i}次", tags=["苔藓"]) for i in range(4)]))
     monkeypatch.setattr(rc, "_cache", {"turn_k": 1.0}, raising=False)

@@ -15,7 +15,6 @@
 import sys
 from pathlib import Path
 
-
 from core.brain import WikiStoreV2
 from core.brain.entities import ensure_entities
 from core.creep import KIND_DIGEST_SKIP, TYPE_CREEP, read_raw

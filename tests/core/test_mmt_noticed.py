@@ -17,13 +17,12 @@ from pathlib import Path
 
 import pytest
 
-
-from core.brain import WikiStoreV2, make_node      # noqa: E402
-from core.mmt.engine import MmtLoopError, MomoTalkEngine   # noqa: E402
-from core.session import SessionStore                      # noqa: E402
-from core.session.renderer import window_messages          # noqa: E402
-from llm import task_labels as T                           # noqa: E402
-from tests import stub_tasks                              # noqa: E402
+from core.brain import WikiStoreV2, make_node  # noqa: E402
+from core.mmt.engine import MmtLoopError, MomoTalkEngine  # noqa: E402
+from core.session import SessionStore  # noqa: E402
+from core.session.renderer import window_messages  # noqa: E402
+from llm import task_labels as T  # noqa: E402
+from tests import stub_tasks  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 CHARACTER = "igusa_haruka"

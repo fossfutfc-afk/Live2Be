@@ -24,8 +24,8 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping
 
-from core.mmt.mmt_lines import KIND_ACTION, MmtLine
 from core.mmt.mmt_check import ACTION_TRIGGER, TITLE_MAX, TITLE_MIN
+from core.mmt.mmt_lines import KIND_ACTION, MmtLine
 
 #: `media_type` 的唯一合法值（MMT 只支持图片；`mmt_actions.MMT_MEDIA_TYPES` 同源）
 MEDIA_TYPE_IMAGE = "image"

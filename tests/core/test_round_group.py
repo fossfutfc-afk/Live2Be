@@ -11,12 +11,10 @@
 import sys
 from pathlib import Path
 
-
-from core.brain import WikiStoreV2, make_node
-from core.brain import groups
-from core.digest.pipeline import digest_segment
+from core.brain import WikiStoreV2, groups, make_node
 from core.brain.entities import ensure_entities
 from core.brain.graph import REL_AKIN, REL_MEMBER_OF
+from core.digest.pipeline import digest_segment
 from core.session import make_event
 from llm import task_labels as T
 from tests import stub_tasks

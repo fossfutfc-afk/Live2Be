@@ -49,8 +49,8 @@ import unicodedata
 from enum import Enum
 
 from core import paths
-from core.mmt.engine import MomoTalkEngine
 from core.common import err
+from core.mmt.engine import MomoTalkEngine
 
 # 玩家名存储——`core/paths.py` 的宏（项目根绝对路径, cwd 无关）
 _PROJECT_ROOT = paths.ROOT

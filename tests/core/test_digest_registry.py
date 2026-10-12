@@ -4,23 +4,22 @@ from contract.digest_registry import (
     COGNIZE_KEYS,
     MAX_COGNITIONS,
     MAX_SEGMENTS,
-    PHASE_COGNIZE,
-    PHASE_RELATE,
-    RELATION_ACTIONS,
-    RELATION_ANCHORS,
-    TOPICS_MAX,
     OUTPUT_DISCIPLINE,
     OUTPUT_RULES,
     PHASE_ATTRIBUTE,
+    PHASE_COGNIZE,
     PHASE_GROUP,
     PHASE_RECORD,
+    PHASE_RELATE,
     PHASE_SPLIT,
     PHASE_UNDERSTAND,
+    RELATION_ACTIONS,
+    RELATION_ANCHORS,
     ROW_FIELDS,
     STATE_VALUES,
+    TOPICS_MAX,
     digest_registry,
 )
-
 
 # ---------------------------------------------------------------------------
 # 收口相位 —— `{"add": […], "close": […]}`

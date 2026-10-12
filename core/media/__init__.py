@@ -26,6 +26,8 @@ from core.media.place_table import (
     PlaceEntry,
     PlaceTable,
     load_table,
+)
+from core.media.place_table import (
     reset_cache as reset_place_cache,
 )
 from core.media.sprites import SpinePack, SpriteMedia

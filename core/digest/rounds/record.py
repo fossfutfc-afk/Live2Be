@@ -30,8 +30,7 @@ import logging
 
 from core.brain.notes import PINNED_TAG, add_op, close_op, update_op
 from core.digest.episodes import _create_a_nodes, _resolve_verbatim, _spanless_nodes
-from core.digest.material import SKELETON_HINT, _skeleton_rows, _skeleton_text
-from core.digest.material import existing_entities_line
+from core.digest.material import SKELETON_HINT, _skeleton_rows, _skeleton_text, existing_entities_line
 from core.digest.rounds.base import Ctx, RoundOut
 
 logger = logging.getLogger(__name__)

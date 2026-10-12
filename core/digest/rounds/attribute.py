@@ -20,8 +20,7 @@ from __future__ import annotations
 
 import logging
 
-from core.brain.entities import (find_entity, object_lines, strangers_block,
-                                 surface_forms)
+from core.brain.entities import find_entity, object_lines, strangers_block, surface_forms
 from core.brain.revise import apply_entities, link_entity_tags
 from core.digest.material import _node_texts
 from core.digest.rounds.base import Ctx, RoundOut

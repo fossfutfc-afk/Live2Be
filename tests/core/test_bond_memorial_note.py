@@ -15,7 +15,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 
-from core.bond.bond_story.engine import BondStoryEngine     # noqa: E402
+from core.bond.bond_story.engine import BondStoryEngine  # noqa: E402
 
 CHAR = "igusa_haruka"
 BLOCK = "\n".join([

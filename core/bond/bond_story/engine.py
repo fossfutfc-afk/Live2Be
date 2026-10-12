@@ -31,17 +31,45 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Callable, Iterable
 
-from contract import (BlockStreamParser, CHARACTER_NARRATOR, Issue,
-                      IssueCode, KIND_CHARACTER, MAX_SENSEI_RUN, NON_PICKS,
-                      STAGE_ART, STAGE_END, STAGE_EXIT, STAGE_MEMORIAL,
-                      STAGE_SWITCH, VnBlock, VnRecord, build_record_schema,
-                      check_board, check_block, format_issues, sensei_groups,
-                      split_issues)
+from contract import (
+    CHARACTER_NARRATOR,
+    KIND_CHARACTER,
+    MAX_SENSEI_RUN,
+    NON_PICKS,
+    STAGE_ART,
+    STAGE_END,
+    STAGE_EXIT,
+    STAGE_MEMORIAL,
+    STAGE_SWITCH,
+    BlockStreamParser,
+    Issue,
+    IssueCode,
+    VnBlock,
+    VnRecord,
+    build_record_schema,
+    check_block,
+    check_board,
+    format_issues,
+    sensei_groups,
+    split_issues,
+)
+from core.bond import place_cues  # 换场线索词（PL3 预筛）
+from core.bond.bond_story.boards import (
+    DeliveryMode,
+    _board_spans,
+    _BoardAssembler,
+)
+from core.bond.bond_story.scene import (
+    BondScene,
+    SceneLoopError,
+)
+from core.bond.place_annotate import annotate_places, resolve_place
+from core.bond.variant_annotate import pick_image  # 第二遍: 选图（时刻/差分）
 from core.common import Live2BeError, err
 from core.media.emotion_lexicon import (
     assets_root,
@@ -50,14 +78,8 @@ from core.media.emotion_lexicon import (
     load_place_lexicon,
 )
 from core.media.place_table import PlaceTable, load_table
-from core.bond.place_annotate import annotate_places, resolve_place
-from core.bond.variant_annotate import pick_image           # 第二遍: 选图（时刻/差分）
-from core.bond import place_cues                      # 换场线索词（PL3 预筛）
-from llm.client import LLMClient, feedback
-from llm.task_labels import BOND
-from llm.task_levels import max_tokens as task_levels_max_tokens
 from core.parsing.dynamic_character_parser import CharacterLoader, DynamicCharacter
-from core.parsing.names import names_of        # 名字接口（N1）
+from core.parsing.names import names_of  # 名字接口（N1）
 from core.promptkit import (
     BlockContext,
     build_box,
@@ -66,17 +88,9 @@ from core.promptkit import (
     task_card_enabled,
 )
 from core.session.renderer import render_bond_scene_text
-
-from core.bond.bond_story.boards import (
-    DeliveryMode,
-    _BoardAssembler,
-    _board_spans,
-)
-
-from core.bond.bond_story.scene import (
-    BondScene,
-    SceneLoopError,
-)
+from llm.client import LLMClient, feedback
+from llm.task_labels import BOND
+from llm.task_levels import max_tokens as task_levels_max_tokens
 
 logger = logging.getLogger(__name__)
 
@@ -100,7 +114,7 @@ MAX_SCENE_RETRIES = 3
 #: 本文件**不再**有任何按问题文案判分级的代码（`tests/core/test_records.py` 有守门用例）。
 
 
-def _personality_summary(char: "DynamicCharacter") -> str:
+def _personality_summary(char: DynamicCharacter) -> str:
     """标注层角色人设摘要（2026-09-02）: 身份 + personality 行为逻辑要点。
 
     给 emotion-LLM 作人设化情绪判断基准——"逞强笑着说没事"的角色该标
@@ -144,6 +158,7 @@ def memorial_allowed() -> bool:
         return True
     try:
         import tomllib
+
         from core import paths
         text = paths.SETTINGS_PATH.read_text(encoding="utf-8")
         cfg = (tomllib.loads(text).get("bond") or {})
@@ -202,7 +217,7 @@ class BondStoryEngine:
         # 锚点句写回 payload 的 place 键, 视觉键不进 LLM 上下文（renderer 忽略）。
         # `_place_table`（C2, 2026-09-19）= 层1 别名索引 + 层2 词表文本来源;
         # `_place_keys` 仍是"有没有地点能力"的门控（webgui 双路 lane 据此决定入队）
-        self._place_table: "PlaceTable" = PlaceTable()
+        self._place_table: PlaceTable = PlaceTable()
         self._place_keys: list[str] = []
         self._current_place = ""
         #: 当前画面用的那张图（表 `files` 相对路径）——第二遍"选图"的延续态:
@@ -311,7 +326,7 @@ class BondStoryEngine:
         system_note: str | None = None,
         annotate: bool = True,
         on_memorial_prompt: Callable[[str], None] | None = None,
-        on_board: Callable[["BondScene"], None] | None = None,
+        on_board: Callable[[BondScene], None] | None = None,
         readahead: bool = False,
     ) -> BondScene:
         """结构化场景 API：单次 LLM 调用 → BondScene（段落 + 选项 + 是否结束）。
@@ -439,7 +454,7 @@ class BondStoryEngine:
                                        if self._current_char else "",
                                        aliases=self._speaker_names()) \
                 if on_board is not None else None
-            delivered: list["BondScene"] = []
+            delivered: list[BondScene] = []
             # 交付模式（节点 2′）: 流式 = 增量交付（板级闸只在首板交付前拦）;
             # 批式 = 整块交付（板级 + 块级全拦）。写进 trace 便于事后归因。
             mode = DeliveryMode.STREAM if stream is not None else DeliveryMode.BLOCK
@@ -447,7 +462,7 @@ class BondStoryEngine:
             asm = _BoardAssembler(self)
             gate_issues: list[str] = []      # 板级闸拦下的违规（本 attempt 作废）
 
-            def _deliver(boards_now: list["BondScene"]) -> None:
+            def _deliver(boards_now: list[BondScene]) -> None:
                 for scene_b in boards_now:
                     scene_b._streamed = True     # 已在流中交付, 调用方勿重复落地
                     delivered.append(scene_b)
@@ -737,7 +752,7 @@ class BondStoryEngine:
         return {char.character_id: names_of(char).display}
 
     def _build_record_boards(self, raw: str,
-                             attempt: int) -> tuple[list["BondScene"], list[Issue]]:
+                             attempt: int) -> tuple[list[BondScene], list[Issue]]:
         """LLM 原始记录流文本 → (板列表, 硬违规 `Issue` 清单)。
 
         板列表首板本次发, 其余进待发队列; 每板的历史文本由
@@ -791,9 +806,9 @@ class BondStoryEngine:
         asm.finish()                                  # 块尾: 挂起的不可见板成板
         return asm.boards, []
 
-    def _finish_scene(self, scene: "BondScene", user_input: str, *,
+    def _finish_scene(self, scene: BondScene, user_input: str, *,
                       payload: dict | None = None, fallback_text: str = "",
-                      annotate: bool = True) -> "BondScene":
+                      annotate: bool = True) -> BondScene:
         """本板收尾（回录基准 + 历史灌入 + 两遍式标注 + 导演视觉）——记录流/旧动作共用。
 
         历史文本一律由 `render_bond_scene_text(payload)` 现算（**唯一渲染源**——
@@ -849,7 +864,7 @@ class BondStoryEngine:
         except Exception:                       # noqa: BLE001 — 翻不动就原样, 不阻断
             return key
 
-    def fill_scene_emotions_text(self, scene: "BondScene") -> bool:
+    def fill_scene_emotions_text(self, scene: BondScene) -> bool:
         """按**板**标注回填（公共方法——同步路径与 webgui emo lane 同一入口,
         取代整场批标 fill_scene_emotions）。
 
@@ -885,7 +900,7 @@ class BondStoryEngine:
         return True
 
     @staticmethod
-    def _scene_emo_complete(scene: "BondScene") -> bool:
+    def _scene_emo_complete(scene: BondScene) -> bool:
         """骨架是否已全带 emotion（幂等短路——重入/晚到回填不再重复调用）。"""
         for p in scene.paragraphs:
             if isinstance(p, dict) and not (p.get("emotion") or "").strip():
@@ -908,8 +923,8 @@ class BondStoryEngine:
         "上一条已生效键"（立绘保持不变, 零 LLM 决策）; `sensei` 记录同理
         （v2 里它本来就是选项槽, 不进 paragraphs）。
         """
-        from core.bond.emo_text import annotate_items
         from contract import is_main_speaker
+        from core.bond.emo_text import annotate_items
 
         main_id = self._current_char.character_id if self._current_char else ""
         aliases = self._main_aliases()
@@ -976,7 +991,7 @@ class BondStoryEngine:
             self._carry_text = "\n".join(texts)         # 已生效链: 上一板记录原文
             self._carry_emo = cur                       # + 末条已生效情绪
 
-    def fill_scene_places(self, scene: "BondScene") -> bool:
+    def fill_scene_places(self, scene: BondScene) -> bool:
         """地点变更回填（DESIGN_BOND_CONTRACT_V2 §5, P3a; 公共方法供同步/异步调用）。
 
         ## 一条路（C6, 2026-09-19）
@@ -1154,7 +1169,7 @@ class BondStoryEngine:
         """
         return "scene"
 
-    def adopt_replayed(self, scene: "BondScene | None") -> None:
+    def adopt_replayed(self, scene: BondScene | None) -> None:
         """接入一块**来自事件流**的板（回放/续看）: 把回录基准指向它（2026-09-21）。
 
         为什么需要它: `record_picked`（A1 物化 `老师：X`）靠 `self._last_payload`
@@ -1197,7 +1212,7 @@ class BondStoryEngine:
     # SceneStream P1.5: 候选支 fork 原语（DESIGN_CHOICE_PREGEN §2）
     # ------------------------------------------------------------------
 
-    def fork_for_pick(self, picked: str) -> "BondStoryEngine | None":
+    def fork_for_pick(self, picked: str) -> BondStoryEngine | None:
         """候选世界线草稿（sibling 预生成的引擎原语, 2026-09-08）。
 
         板块带 choices → 调用方对每个候选 fork 一个引擎, 各自后台

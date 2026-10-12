@@ -28,31 +28,8 @@ import 路径 `core.bond.bond_story` **不变** ⇒ 39 处引用（`webgui/` · 
   `bond_story` 的 `contract` / `core.*` / `llm.*` 名字 —— 这里直指真家（不再借道）。
 """
 
-from core.bond.bond_story.scene import (          # C9: 场景容器（叶子）
-    BondScene,
-    SceneLoopError,
-)
-
-from core.bond.bond_story.boards import (          # C9: 板派生 + 交付模式
-    DeliveryMode,
-    MAX_BOARDS_PER_TURN,
-    _BoardAssembler,
-    _board_spans,
-)
-
-from core.bond.bond_story.engine import (          # C9: 引擎（记录流 → 板 → 状态机）
-    BondStoryEngine,
-    DEFAULT_HISTORY_ROUNDS,
-    MAX_SCENE_RETRIES,
-    _personality_summary,
-    logger,
-)
-
-from contract import (          # 定义处不在本包内（当年路过 → 直指真家）
-    BlockStreamParser,
+from contract import (  # 定义处不在本包内（当年路过 → 直指真家）
     CHARACTER_NARRATOR,
-    Issue,
-    IssueCode,
     KIND_CHARACTER,
     MAX_SENSEI_RUN,
     NON_PICKS,
@@ -61,6 +38,9 @@ from contract import (          # 定义处不在本包内（当年路过 → �
     STAGE_EXIT,
     STAGE_MEMORIAL,
     STAGE_SWITCH,
+    BlockStreamParser,
+    Issue,
+    IssueCode,
     VnBlock,
     VnRecord,
     build_record_schema,
@@ -70,59 +50,65 @@ from contract import (          # 定义处不在本包内（当年路过 → �
     sensei_groups,
     split_issues,
 )
-
-from core.bond.place_annotate import (          # 定义处不在本包内（当年路过 → 直指真家）
+from core.bond.bond_story.boards import (  # C9: 板派生 + 交付模式
+    MAX_BOARDS_PER_TURN,
+    DeliveryMode,
+    _board_spans,
+    _BoardAssembler,
+)
+from core.bond.bond_story.engine import (  # C9: 引擎（记录流 → 板 → 状态机）
+    DEFAULT_HISTORY_ROUNDS,
+    MAX_SCENE_RETRIES,
+    BondStoryEngine,
+    _personality_summary,
+    logger,
+)
+from core.bond.bond_story.scene import (  # C9: 场景容器（叶子）
+    BondScene,
+    SceneLoopError,
+)
+from core.bond.place_annotate import (  # 定义处不在本包内（当年路过 → 直指真家）
     annotate_places,
     resolve_place,
 )
-
-from core.bond.variant_annotate import (          # 定义处不在本包内（当年路过 → 直指真家）
+from core.bond.variant_annotate import (  # 定义处不在本包内（当年路过 → 直指真家）
     pick_image,
 )
-
-from core.common import (          # 定义处不在本包内（当年路过 → 直指真家）
+from core.common import (  # 定义处不在本包内（当年路过 → 直指真家）
     Live2BeError,
     err,
 )
-
-from core.media.emotion_lexicon import (          # 定义处不在本包内（当年路过 → 直指真家）
+from core.media.emotion_lexicon import (  # 定义处不在本包内（当年路过 → 直指真家）
     assets_root,
     build_emotion_injection,
     load_emotion_lexicon,
     load_place_lexicon,
 )
-
-from core.media.place_table import (          # 定义处不在本包内（当年路过 → 直指真家）
+from core.media.place_table import (  # 定义处不在本包内（当年路过 → 直指真家）
     PlaceTable,
     load_table,
 )
-
-from core.parsing.dynamic_character_parser import (          # 定义处不在本包内（当年路过 → 直指真家）
+from core.parsing.dynamic_character_parser import (  # 定义处不在本包内（当年路过 → 直指真家）
     CharacterLoader,
     DynamicCharacter,
 )
-
-from core.promptkit import (          # 定义处不在本包内（当年路过 → 直指真家）
+from core.promptkit import (  # 定义处不在本包内（当年路过 → 直指真家）
     BlockContext,
     build_box,
     round_messages,
     task_card,
     task_card_enabled,
 )
-
-from core.session.renderer import (          # 定义处不在本包内（当年路过 → 直指真家）
+from core.session.renderer import (  # 定义处不在本包内（当年路过 → 直指真家）
     render_bond_scene_text,
 )
-
-from llm.client import (          # 定义处不在本包内（当年路过 → 直指真家）
+from llm.client import (  # 定义处不在本包内（当年路过 → 直指真家）
     LLMClient,
     feedback,
 )
-
-from llm.task_labels import (          # 定义处不在本包内（当年路过 → 直指真家）
+from llm.task_labels import (  # 定义处不在本包内（当年路过 → 直指真家）
     BOND,
 )
-
-from llm.task_levels import (          # 定义处不在本包内（当年路过 → 直指真家）
+from llm.task_levels import (  # 定义处不在本包内（当年路过 → 直指真家）
     max_tokens as task_levels_max_tokens,
 )

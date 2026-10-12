@@ -21,8 +21,9 @@
 
 from __future__ import annotations
 
-import time
 import logging
+import time
+
 from webgui import deps
 from webgui.bond.lanes import (
     _fallback_fill,
@@ -42,7 +43,7 @@ def _thread_alive(th) -> bool:
         return False
 
 
-def _lanes_idle(state: "BondState") -> bool:
+def _lanes_idle(state: BondState) -> bool:
     """标注 lane 是否**真的**空闲（无积压 且 无在途）。
 
     2026-09-13 修正（审计 A6）: 原先只看 `qsize()`——worker 一旦把场景从队列取走、
@@ -60,7 +61,7 @@ def _lanes_idle(state: "BondState") -> bool:
     return True
 
 
-def _lane_writer_alive(state: "BondState") -> bool:
+def _lane_writer_alive(state: BondState) -> bool:
     """是否还有标注 worker 线程在跑（诊断/测试用, **不是**兜底判据）。
 
     ⚠️ 2026-09-13 复核: 这个信号在真实会话里**恒为 True**, 不能拿来做"没人会再来标"
@@ -80,7 +81,7 @@ def _lane_writer_alive(state: "BondState") -> bool:
     return False
 
 
-def _gate_stalled(state: "BondState") -> bool:
+def _gate_stalled(state: BondState) -> bool:
     """视觉门兜底的**前置条件**: 没有积压、也没有在途标注。
 
     `_lanes_idle` 本身已经是 A6 要的语义（2026-09-13 收紧: 队列深度 **且** 在途
@@ -97,7 +98,7 @@ def _gate_stalled(state: "BondState") -> bool:
     return _lanes_idle(state)
 
 
-def _force_scene_ready(state: "BondState", scene) -> None:
+def _force_scene_ready(state: BondState, scene) -> None:
     """强制把场景标成视觉就绪（兜底放行用）: 空 emotion 回填 + place 标记。"""
     if scene is None:
         return
@@ -111,7 +112,7 @@ def _force_scene_ready(state: "BondState", scene) -> None:
         pass
 
 
-def _watchdog(state: "BondState", char_id: str, session_id: str) -> None:
+def _watchdog(state: BondState, char_id: str, session_id: str) -> None:
     """看门狗（bond_status 顺手调用）: 把"卡住=永久卡住"变成"卡住=降级放行"。
 
     三类异常各有兜底:

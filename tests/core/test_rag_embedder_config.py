@@ -19,8 +19,7 @@ from pathlib import Path
 
 import pytest
 
-
-from core.rag import embedder as E                              # noqa: E402
+from core.rag import embedder as E  # noqa: E402
 
 
 @pytest.fixture(autouse=True)

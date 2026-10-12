@@ -54,8 +54,7 @@ from core.session.maintenance import exclude_abandoned
 from core.session.renderer import window_messages
 from core.session.staging import commit_staging
 from webgui import chat, deps
-
-from webgui.bond.entry import (          # ○C8b: 开场与场景载荷（方向 api → entry）
+from webgui.bond.entry import (  # ○C8b: 开场与场景载荷（方向 api → entry）
     _ready_scene_payload,
     _role_info,
 )
@@ -103,7 +102,7 @@ from webgui.bond.watchdog import _watchdog
 logger = logging.getLogger(__name__)
 
 
-def _note_reject(state: "BondState", reason: str, char_id: str,
+def _note_reject(state: BondState, reason: str, char_id: str,
                  session_id: str) -> None:
     """推进被拒留痕（2026-09-11）: 前端会重试, 后端不记就等于没发生。
 
@@ -117,7 +116,7 @@ def _note_reject(state: "BondState", reason: str, char_id: str,
                        char_id, session_id, reason, n)
 
 
-def _clear_rejects(state: "BondState", char_id: str, session_id: str,
+def _clear_rejects(state: BondState, char_id: str, session_id: str,
                    *, src: str = "", text: str = "") -> None:
     """推进成功: **每次都留一行 `bond_turn ok`** + 报一次"此前被拒 N 次"。
 

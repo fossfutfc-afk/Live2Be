@@ -8,8 +8,7 @@ from datetime import datetime, timedelta
 
 from core.brain import make_node
 from core.brain.graph import Edge, Graph
-from core.brain.read.render import (KNOWN_NAMES_HEADER, render_character_view,
-                                    render_organize_view)
+from core.brain.read.render import KNOWN_NAMES_HEADER, render_character_view, render_organize_view
 
 
 def _ids(nodes):

@@ -22,22 +22,22 @@ from pathlib import Path
 
 import pytest
 
-
-from contract import (APPROVAL_AUTO, DOMAIN_MMT, AgentAction,   # noqa: E402
-                      ContractError)
-from core.brain import WikiStoreV2, make_node                   # noqa: E402
-from core.brain.read.render import (LOOK_EMPTY,                # noqa: E402
-                                    LOOK_EMPTY_ENTITY, LOOK_EMPTY_TIME,
-                                    LOOK_FUTURE, look_empty)
-from core.mmt.mmt_actions import (MMT_RUNTIME_FIELDS,           # noqa: E402
-                                  build_mmt_registry, parse_mmt_look)
-from core.mmt.mmt_check import (ACTION_LOOK, ACTION_TRIGGER,    # noqa: E402
-                                QUERY_ACTIONS, WHOLE_TURN_ACTIONS,
-                                MmtIssueCode, check_turn)
-from core.mmt.mmt_executor import MmtExecError, MmtExecutor     # noqa: E402
-from core.mmt.mmt_lines import MmtLine                          # noqa: E402
-from core.mmt.engine import MomoTalkEngine                      # noqa: E402
-from core.session.store import SessionStore                     # noqa: E402
+from contract import APPROVAL_AUTO, DOMAIN_MMT, AgentAction, ContractError  # noqa: E402
+from core.brain import WikiStoreV2, make_node  # noqa: E402
+from core.brain.read.render import LOOK_EMPTY, LOOK_EMPTY_ENTITY, LOOK_EMPTY_TIME, LOOK_FUTURE, look_empty  # noqa: E402
+from core.mmt.engine import MomoTalkEngine  # noqa: E402
+from core.mmt.mmt_actions import MMT_RUNTIME_FIELDS, build_mmt_registry, parse_mmt_look  # noqa: E402
+from core.mmt.mmt_check import (  # noqa: E402
+    ACTION_LOOK,
+    ACTION_TRIGGER,
+    QUERY_ACTIONS,
+    WHOLE_TURN_ACTIONS,
+    MmtIssueCode,
+    check_turn,
+)
+from core.mmt.mmt_executor import MmtExecError, MmtExecutor  # noqa: E402
+from core.mmt.mmt_lines import MmtLine  # noqa: E402
+from core.session.store import SessionStore  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 CHARACTER = "igusa_haruka"

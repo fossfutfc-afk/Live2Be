@@ -20,8 +20,9 @@ entity 车道的查询在 G1 阶段只能验形状（测试里用直接构造的
 """
 from __future__ import annotations
 
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
-from typing import Any, Iterable, Iterator
+from typing import Any
 
 # ---------------------------------------------------------------------------
 # 边类型（`DESIGN_GRAPH_V4.md` §2）
@@ -145,7 +146,7 @@ class Edge:
         return json.dumps(self.to_dict(), ensure_ascii=False, separators=(",", ":"))
 
     @classmethod
-    def from_dict(cls, raw: Any) -> "Edge | None":
+    def from_dict(cls, raw: Any) -> Edge | None:
         """宽松解析（坏行 → None, 不抛; 与 `read_jsonl` 的"旧档宽容读"同一纪律）。"""
         if not isinstance(raw, dict):
             return None
@@ -339,7 +340,7 @@ class Graph:
     # ── 构造 ──
 
     @classmethod
-    def from_rows(cls, rows: Iterable[Any], nodes: Iterable[Any] = ()) -> "Graph":
+    def from_rows(cls, rows: Iterable[Any], nodes: Iterable[Any] = ()) -> Graph:
         """**旧档自举入口**: 点表的原始行 → 推断出的边 + 索引。
 
         （原 `from_nodes` 于 G4 删除 —— 它从 `BrainNode.links` 推断, 而那个字段没了;
@@ -348,7 +349,7 @@ class Graph:
         return cls(edges=infer_edges(rows), nodes=list(nodes))
 
     @classmethod
-    def from_edges(cls, edges: Iterable[Any], nodes: Iterable[Any] = ()) -> "Graph":
+    def from_edges(cls, edges: Iterable[Any], nodes: Iterable[Any] = ()) -> Graph:
         """**读边表入口**: 磁盘上的边（dict 或 `Edge`）→ 建索引（坏行逐条丢弃, 不抛）。"""
         parsed = [e if isinstance(e, Edge) else Edge.from_dict(e) for e in edges]
         return cls(edges=[e for e in parsed if e is not None], nodes=list(nodes))

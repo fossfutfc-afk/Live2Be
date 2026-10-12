@@ -27,11 +27,8 @@ import sys
 from datetime import date, datetime, timezone
 from pathlib import Path
 
-
-from core.worldtime.cal import (shift_days, shift_months,  # noqa: E402
-                                shift_years, week_start)
-from core.worldtime.when import (WIDEN_DAYS, When, parse_when,  # noqa: E402
-                                 scan_when)
+from core.worldtime.cal import shift_days, shift_months, shift_years, week_start  # noqa: E402
+from core.worldtime.when import WIDEN_DAYS, When, parse_when, scan_when  # noqa: E402
 
 #: 固定的"现在" —— **2026-10-08 是周四**（周五/周一/月末那几条单独造 `now`）
 NOW = date(2026, 10, 8)

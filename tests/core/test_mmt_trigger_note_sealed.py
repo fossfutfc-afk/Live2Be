@@ -18,8 +18,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 
-from core.mmt.engine import SUGGEST_BOND_ROUNDS, MomoTalkEngine   # noqa: E402
-from core.session import SessionStore                             # noqa: E402
+from core.mmt.engine import SUGGEST_BOND_ROUNDS, MomoTalkEngine  # noqa: E402
+from core.session import SessionStore  # noqa: E402
 
 CHARACTER = "igusa_haruka"
 

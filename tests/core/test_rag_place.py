@@ -17,11 +17,9 @@ PL4 做的事: `core/rag/place.py` 的语料从**手维护的第二份词表** `
 import sys
 from pathlib import Path
 
-
-from core import paths                                              # noqa: E402
+from core import paths  # noqa: E402
 from core.media.place_table import PlaceEntry, PlaceTable, load_table  # noqa: E402
-from core.rag.place import PlaceRetriever                            # noqa: E402
-
+from core.rag.place import PlaceRetriever  # noqa: E402
 
 
 class StubEmbedder:

@@ -20,7 +20,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 
-from core import paths                                           # noqa: E402
+from core import paths  # noqa: E402
 
 #: 约定里"必须存在"的固定路径（运行时数据/诊断日志允许不存在——它们会被创建）
 MUST_EXIST = (

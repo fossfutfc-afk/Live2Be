@@ -6,8 +6,8 @@
 —— 与产品桩（`tests/stub_tasks.py`）同一口径。
 """
 from core.brain import WikiStoreV2, make_node
-from core.digest.pipeline import digest_segment
 from core.brain.evolution import EvolutionLog
+from core.digest.pipeline import digest_segment
 from core.session import make_event
 from llm import task_labels as T
 from tests import stub_tasks
@@ -1315,6 +1315,7 @@ def test_span_expansion_runs_before_bond_collapse():
     import ast
     import inspect
     import textwrap
+
     from core.digest.rounds.split import run as split_run
 
     fn = ast.parse(textwrap.dedent(inspect.getsource(split_run))).body[0]

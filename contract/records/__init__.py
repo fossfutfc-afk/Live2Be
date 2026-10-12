@@ -54,57 +54,7 @@ import 路径 `contract.records` **不变** ⇒ 全仓 28 处引用（`contract/
 
 from __future__ import annotations
 
-
-from contract.records.grammar import (          # C10: 文法常量 + 记录形状（VnRecord / ParseDiag / ParseResult）
-    CHARACTER_NARRATOR,
-    CHARACTER_SENSEI,
-    KINDS,
-    KIND_CHARACTER,
-    KIND_STAGE,
-    MAX_SENSEI_RUN,
-    ParseDiag,
-    ParseResult,
-    STAGE_ART,
-    STAGE_BLOCK_HEAD,
-    STAGE_BLOCK_TAIL,
-    STAGE_END,
-    STAGE_EXIT,
-    STAGE_FORBIDDEN_IN_MEMORIAL,
-    STAGE_MEMORIAL,
-    STAGE_SWITCH,
-    STAGE_VALUES,
-    TEXT_OPTIONAL_STAGES,
-    VnRecord,
-    _JSON_ISH_RE,
-    _RECORD_HEAD_RE,
-    _TAIL_REPAIRS,
-    _TEXT_FIELD_RE,
-)
-
-from contract.records.parse import (          # C10: 行解析 + 增量解析（两段都在这里）
-    BlockStreamParser,
-    _parse_line_multi,
-    _record_from_obj,
-    _rescape_repair,
-    _tail_repair,
-    parse_line,
-    parse_stream,
-)
-
-from contract.records.check import (          # C10: sensei 群分组 + 契约问题（软硬分级）+ 块/板校验
-    ISSUE_SEVERITY,
-    Issue,
-    IssueCode,
-    IssueSeverity,
-    check_block,
-    check_board,
-    format_issues,
-    sensei_group_labels,
-    sensei_groups,
-    split_issues,
-)
-
-from contract.records.carrier import (          # C10: 块载体（VnBlock）+ 渲染/取选项
+from contract.records.carrier import (  # C10: 块载体（VnBlock）+ 渲染/取选项
     DEFAULT_SPEAKER_NAMES,
     NON_PICKS,
     SPEAKER_SENSEI_LABEL,
@@ -117,4 +67,50 @@ from contract.records.carrier import (          # C10: 块载体（VnBlock）+ �
     normalize_main_character,
     pick_insert_index,
     render_records,
+)
+from contract.records.check import (  # C10: sensei 群分组 + 契约问题（软硬分级）+ 块/板校验
+    ISSUE_SEVERITY,
+    Issue,
+    IssueCode,
+    IssueSeverity,
+    check_block,
+    check_board,
+    format_issues,
+    sensei_group_labels,
+    sensei_groups,
+    split_issues,
+)
+from contract.records.grammar import (  # C10: 文法常量 + 记录形状（VnRecord / ParseDiag / ParseResult）
+    _JSON_ISH_RE,
+    _RECORD_HEAD_RE,
+    _TAIL_REPAIRS,
+    _TEXT_FIELD_RE,
+    CHARACTER_NARRATOR,
+    CHARACTER_SENSEI,
+    KIND_CHARACTER,
+    KIND_STAGE,
+    KINDS,
+    MAX_SENSEI_RUN,
+    STAGE_ART,
+    STAGE_BLOCK_HEAD,
+    STAGE_BLOCK_TAIL,
+    STAGE_END,
+    STAGE_EXIT,
+    STAGE_FORBIDDEN_IN_MEMORIAL,
+    STAGE_MEMORIAL,
+    STAGE_SWITCH,
+    STAGE_VALUES,
+    TEXT_OPTIONAL_STAGES,
+    ParseDiag,
+    ParseResult,
+    VnRecord,
+)
+from contract.records.parse import (  # C10: 行解析 + 增量解析（两段都在这里）
+    BlockStreamParser,
+    _parse_line_multi,
+    _record_from_obj,
+    _rescape_repair,
+    _tail_repair,
+    parse_line,
+    parse_stream,
 )

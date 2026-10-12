@@ -13,7 +13,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 
-from core.parsing.place_regions import (                       # noqa: E402
+from core.parsing.place_regions import (  # noqa: E402
     DEFAULT_REGIONS_PATH,
     load_regions,
 )
@@ -87,8 +87,8 @@ def test_load_regions_missing_or_broken_degrades():
 
 def test_place_world_block_and_box():
     """盒B 的【世界区域】块; `place_palette` 已退役。"""
-    from core.promptkit.box import DOMAIN_BOXES
     from core.promptkit.blocks import BlockContext, render_block
+    from core.promptkit.box import DOMAIN_BOXES
     assert "place_palette" not in DOMAIN_BOXES["bond"], "旧菜单块未退出盒B"
     # PL2（2026-09-19）: `bond_shots`（镜头与手法）插在 rules_bond 与 schema 之间
     # ⇒ place_world 从 index 7 挪到 8 —— 断言按"位置关系"写, 免得再加块又红

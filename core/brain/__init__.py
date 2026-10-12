@@ -44,6 +44,8 @@
 3. `marks.py` 是**她眼前那一行字**的唯一实现 —— 别的模块只许调它, 不许手写括号
    （守门 `tests/core/test_marks_guard.py`）。
 """
+from core.brain.evolution import EvolutionLog
+from core.brain.graph import Edge, Graph, graph_of
 from core.brain.nodes import (
     KINDS,
     PLAYER_SUBJECT,
@@ -51,17 +53,6 @@ from core.brain.nodes import (
     BrainNode,
     make_node,
 )
-from core.brain.store import WikiStoreV2
-from core.brain.graph import Edge, Graph, graph_of
-from core.brain.evolution import EvolutionLog
-from core.brain.revise import RevisionResult, apply_revision_package
-from core.brain.read.render import (
-    render_background_experience,
-    render_character_view,
-    render_organize_view,
-    render_recall_block,
-)
-from core.brain.read.recall import recall_episodes, recall_subgraph
 from core.brain.read import recall_config, recall_ledger
 from core.brain.read.channels import (
     CHANNELS,
@@ -73,16 +64,29 @@ from core.brain.read.channels import (
     ChannelHit,
     ChannelResult,
     RecallContext,
+)
+from core.brain.read.channels import (
     describe as describe_channels,
+)
+from core.brain.read.channels import (
     get as get_channel,
 )
 from core.brain.read.compose import (
-    ComposeResult,
     Composed,
+    ComposeResult,
     compose,
     gather_all,
     recall_now,
 )
+from core.brain.read.recall import recall_episodes, recall_subgraph
+from core.brain.read.render import (
+    render_background_experience,
+    render_character_view,
+    render_organize_view,
+    render_recall_block,
+)
+from core.brain.revise import RevisionResult, apply_revision_package
+from core.brain.store import WikiStoreV2
 
 __all__ = [
     "KINDS",

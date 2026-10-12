@@ -82,7 +82,6 @@ from webgui.bond.stores import (
 )
 from webgui.bond.util import _ms_since
 
-
 logger = logging.getLogger(__name__)
 
 

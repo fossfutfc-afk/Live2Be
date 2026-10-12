@@ -11,19 +11,17 @@ import sys
 from datetime import date, datetime
 from pathlib import Path
 
-
-from core.worldtime import (                        # noqa: E402
+from core.worldtime import (  # noqa: E402
     SPANS,
     age_days,
     date_of,
     freshness,
     parse_span,
+    realtime,  # noqa: E402
     render_date,
     render_relative,
 )
-from core.worldtime.age import DEFAULT_HALF_LIFE_DAYS   # noqa: E402
-from core.worldtime import realtime                     # noqa: E402
-
+from core.worldtime.age import DEFAULT_HALF_LIFE_DAYS  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # ---------------------------------------------------------------------------

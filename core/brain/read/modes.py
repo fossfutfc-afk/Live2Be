@@ -52,15 +52,16 @@
 """
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Any, Iterable
+from typing import Any
 
 from core.brain.entities import SELF_ID, SENSEI_ID
-from core.brain.read.find import ANCHORS, _order as _newest_key, find
+from core.brain.read.find import ANCHORS, find
+from core.brain.read.find import _order as _newest_key
 from core.brain.read.like import SPECS, RecallCtx, build_ctx, like
 from core.brain.read.pack import Candidate
-from core.brain.read.render import (RECALL_ACTION_HINT, RECALL_HEADER,
-                                    render_candidates)
+from core.brain.read.render import RECALL_ACTION_HINT, RECALL_HEADER, render_candidates
 
 #: 形状 —— 两种执行器（见模块 docstring 的对照表）
 SHAPE_RANK = "rank"
@@ -162,7 +163,7 @@ def _scan(base: RecallCtx) -> tuple[str, Any] | None:
     ⛔ 这里不写第二份短语表, 也不碰 `_AGO`/`_RECENT` 那条参数化路线（见它的 docstring）。
     ⚠️ `scan_when` 已经把"未过完的窗口"（今天/本周/本月/今年）挡掉了 —— 那些不是"旧事"。
     """
-    from core.worldtime.when import scan_when          # 函数内: 只有这一条载荷要 worldtime
+    from core.worldtime.when import scan_when  # 函数内: 只有这一条载荷要 worldtime
     got = scan_when(base.query, now=base.now)
     return (got[0], got[1].exact) if got else None
 

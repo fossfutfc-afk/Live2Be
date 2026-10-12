@@ -19,11 +19,10 @@
 import sys
 from pathlib import Path
 
-
-from core.bond.place_annotate import _layer1                    # noqa: E402
-from core.media.place_table import WRITING_SDIR, load_table     # noqa: E402
-from core.promptkit.blocks import BlockContext, render_block    # noqa: E402
-from llm.prompts import load_prompt                             # noqa: E402
+from core.bond.place_annotate import _layer1  # noqa: E402
+from core.media.place_table import WRITING_SDIR, load_table  # noqa: E402
+from core.promptkit.blocks import BlockContext, render_block  # noqa: E402
+from llm.prompts import load_prompt  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 FIXT_BOX = ROOT / "tests" / "fixtures" / "promptkit" / "bond_box.txt"

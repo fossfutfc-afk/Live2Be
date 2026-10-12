@@ -32,7 +32,7 @@
 """
 from __future__ import annotations
 
-from typing import Iterable
+from collections.abc import Iterable
 
 #: 预筛用的全量线索词（**宽**; 见模块 docstring 的代价不对称说明）
 CUES: tuple[str, ...] = (

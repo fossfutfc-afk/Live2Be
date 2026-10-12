@@ -6,7 +6,6 @@
 import sys
 from pathlib import Path
 
-
 from contract import build_line_schema
 from core.mmt.mmt_actions import build_mmt_registry
 from core.parsing.dynamic_character_parser import CharacterLoader

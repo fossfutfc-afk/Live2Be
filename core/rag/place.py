@@ -37,8 +37,8 @@
 """
 from __future__ import annotations
 
-from core.media.place_table import PlaceTable, load_table
 from core.common.errors import Live2BeError
+from core.media.place_table import PlaceTable, load_table
 from core.rag.embedder import LocalEmbedder
 
 #: 默认最低置信（低于 → 不返回, 上层保持上一场景）; 调参见 experiments/rag_test.py

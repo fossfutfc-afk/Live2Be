@@ -168,8 +168,8 @@ def _segment_emotion_keys(events) -> list[str]:
 # ---------------------------------------------------------------------------
 
 def _open_pinned_text(items: list, *, now: object | None = None,
-                      today: "date | None" = None,
-                      first_day: "date | None" = None) -> str:
+                      today: date | None = None,
+                      first_day: date | None = None) -> str:
     """**还开着的约定**（带编号 —— 写 `close` / 更正要照着 `id`）。
 
     ⭐ **R4（收口轮）与 R0（切分员, L3 2026-10-05）共用这一份**: 行格式 = 她备忘录那一行
@@ -193,7 +193,7 @@ def _open_pinned_text(items: list, *, now: object | None = None,
 # 日期会与"剧情里不走绝对日期"那条口径打架（用户裁决: `DESIGN_DIGEST_LEDGER §3.6`）。
 # ---------------------------------------------------------------------------
 
-def _day_of(ts: object) -> "date | None":
+def _day_of(ts: object) -> date | None:
     """事件 `ts` → **那一天**（`2026-05-10T21:33:00+08:00` ⇒ `2026-05-10`）; 坏值 ⇒ None。"""
     raw = str(ts or "").strip()
     if len(raw) < 10:
@@ -204,7 +204,7 @@ def _day_of(ts: object) -> "date | None":
         return None
 
 
-def _segment_days(events) -> list["date"]:
+def _segment_days(events) -> list[date]:
     """本段跨了哪几天（升序去重）—— 【本段的时间】与"段起"共用这一处。
 
     ⚠️ 段的**最后一天**就是这一段的"今天"（`ctx.now_ts` 同源: 段内最后一条内容事件）
@@ -213,7 +213,7 @@ def _segment_days(events) -> list["date"]:
     return sorted({d for d in (_day_of(getattr(e, "ts", "")) for e in events) if d})
 
 
-def _segment_time_text(days: list["date"]) -> str:
+def _segment_time_text(days: list[date]) -> str:
     """⭐ R0 的料之一: **本段的时间** —— `2026-05-08 ~ 2026-05-10`（**单日只印一个**）。
 
     段可能跨天（水位欠着的尾巴会并进下一段）⇒ 给范围, 不给单点。
@@ -229,7 +229,7 @@ def _segment_time_text(days: list["date"]) -> str:
 _MONTH_DAY = re.compile(r"^\s*(\d{1,2})\s*[月/\-.]\s*(\d{1,2})\s*日?\s*$")
 
 
-def _parse_month_day(raw: str) -> "tuple[int, int] | None":
+def _parse_month_day(raw: str) -> tuple[int, int] | None:
     """`5/13` / `5月13日` → `(5, 13)`; 认不出 ⇒ **None**（绝不猜 —— 猜错 = 误判失约）。
 
     ⚠️ 真机两种格式并存（`5/13` 与 `5月13日`, 见 `DESIGN_DIGEST_LEDGER §3.5` 实情 1）
@@ -246,7 +246,7 @@ def _parse_month_day(raw: str) -> "tuple[int, int] | None":
     return month, day
 
 
-def _role_birthday(char_id: str) -> "tuple[int, int] | None":
+def _role_birthday(char_id: str) -> tuple[int, int] | None:
     """角色的生日 —— 读**档案** `config/characters/{id}/profile.yml` 的 `birthday`。
 
     为什么读档案、不读 `mmt_registry.toml`: 后者是**显示用**生日, 而这份料是给 AI
@@ -296,7 +296,7 @@ def _special_days_text(*, char_id: str) -> str:
     return "｜".join(parts)
 
 
-def _due_date(item) -> "date | None":
+def _due_date(item) -> date | None:
     """条目的 `due` → 那一天; **不是全日期 ⇒ None**（= 没有期限）。
 
     ⚠️ 判据与契约**同源**（`contract.digest_registry.is_full_date`）——
@@ -311,7 +311,7 @@ def _due_date(item) -> "date | None":
 _DUE_LEAD = "    期限 "
 
 
-def _due_cell(item, *, today: "date | None", first_day: "date | None" = None) -> str:
+def _due_cell(item, *, today: date | None, first_day: date | None = None) -> str:
     """名单行尾巴那一格: **期限**（三态）。`today is None` ⇒ 整格不印。"""
     if today is None:
         return ""
@@ -325,7 +325,7 @@ def _due_cell(item, *, today: "date | None", first_day: "date | None" = None) ->
     return f"{_DUE_LEAD}{due.isoformat()}"
 
 
-def _overdue_detail(items: list, overdue_ids: set[str], *, today: "date | None") -> str:
+def _overdue_detail(items: list, overdue_ids: set[str], *, today: date | None) -> str:
     """**超期未决**那几条的一句话明细（日志/体检用）—— L9（2026-10-05）。
 
     形态: `n3（已过 4 天） · n7（已过 1 天）`；没有 ⇒ `"-"`（最多 4 条 + 省略号）。
@@ -373,7 +373,7 @@ def _mentioned(store, item, *, seq_set: set[int], timeline: str) -> bool:
 
 
 def _ledger_ids(store, items: list, *, seq_set: set[int], timeline: str,
-                today: "date | None") -> "tuple[set[str], set[str]]":
+                today: date | None) -> tuple[set[str], set[str]]:
     """→（**闭集** `note_ids`, **资格位** `overdue_ids`）—— L3。
 
     `note_ids` = 料里印出来的每一条（`open.id` / `close.id` 只能引用它）;
@@ -396,7 +396,7 @@ def _ledger_ids(store, items: list, *, seq_set: set[int], timeline: str,
     return note_ids, overdue
 
 
-def _episode_lines(store: "WikiStoreV2", episode_ids: list[str]) -> str:
+def _episode_lines(store: WikiStoreV2, episode_ids: list[str]) -> str:
     """R4 输入之二: **本段新增的经历**（真 id —— `add`/`close` 的 `refs` 只能引它们）。
 
     ⭐ **2026-09-29**: 行首那一段从 `- m0021 「标题」 正文` 改成 **`- 〔m0021｜《标题》〕正文`**
@@ -444,7 +444,7 @@ def _axes_field(topics) -> list[str]:
     return [f"轴 {'·'.join(vals)}"] if vals else []
 
 
-def _episode_candidates(store: "WikiStoreV2", episode_ids: list[str], *,
+def _episode_candidates(store: WikiStoreV2, episode_ids: list[str], *,
                         k: int = DIGEST_RELATE_CAND_K,
                         now="" ) -> tuple[str, list[str]]:
     """L1 的料之二: **已有的经历里, 可能跟这一段同类的那几条**（P2）。
@@ -729,7 +729,7 @@ def _group_block(store, gid: str, *, new_ids: list[str], linked_ids: set[str],
 # R2 / R3 的料
 # ---------------------------------------------------------------------------
 
-def _node_texts(store: "WikiStoreV2", ids: list[str]) -> list[str]:
+def _node_texts(store: WikiStoreV2, ids: list[str]) -> list[str]:
     """**要归属的那些节点的正文**（喂 `entities.hit_set` 扫称呼用）。
 
     连 `title` / `verbatim` 一起给 —— 称呼常出现在这两处（"老师"多半在标题或原话里,
@@ -746,9 +746,9 @@ def _node_texts(store: "WikiStoreV2", ids: list[str]) -> list[str]:
     return out
 
 
-def _round_b_material(store: "WikiStoreV2", episode_ids: list[str],
+def _round_b_material(store: WikiStoreV2, episode_ids: list[str],
                       local_of: dict[str, str],
-                      embed_fn: "EmbedFn | None",
+                      embed_fn: EmbedFn | None,
                       *, char_id: str = "") -> str:
     """Round B 输入: 新经历摘要 + 每条引擎候选提示（板块 5）。
 
@@ -773,8 +773,7 @@ def _round_b_material(store: "WikiStoreV2", episode_ids: list[str],
     Returns: episodes_text（含候选提示行）。
     """
     from core.brain.read import recall_ledger
-    from core.brain.read.recall import _thr, CAND_K
-    from core.brain.read.recall import recommend_candidates
+    from core.brain.read.recall import CAND_K, _thr, recommend_candidates
     from core.brain.read.render import render_cognition_line
 
     thr_k = int(_thr("cand_k", CAND_K))

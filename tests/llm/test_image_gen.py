@@ -16,13 +16,22 @@ from pathlib import Path
 
 import pytest
 
-
 import llm.image_gen as ig  # noqa: E402
-from llm.image_gen import (DEFAULT_SCREEN_SIZE, ENV_ALLOW_REAL, ENV_SWITCH,  # noqa: E402
-                           GeneratedImage, ImageGenerator, _build_api_parts,
-                           _settings_image_cfg, _unsupported_aspect,
-                           collect_ref_images, image_dry_run, image_enabled,
-                           parse_size, ref_specs)
+from llm.image_gen import (  # noqa: E402
+    DEFAULT_SCREEN_SIZE,
+    ENV_ALLOW_REAL,
+    ENV_SWITCH,
+    GeneratedImage,
+    ImageGenerator,
+    _build_api_parts,
+    _settings_image_cfg,
+    _unsupported_aspect,
+    collect_ref_images,
+    image_dry_run,
+    image_enabled,
+    parse_size,
+    ref_specs,
+)
 
 
 def _png(path: Path, size=(64, 64), color=(10, 20, 30)) -> Path:
@@ -334,8 +343,8 @@ def test_end_to_end_yml_hint_reaches_request_body(tmp_path, monkeypatch):
 
     from PIL import Image
 
-    from core.parsing.dynamic_character_parser import CharacterLoader
     import llm.image_gen as ig
+    from core.parsing.dynamic_character_parser import CharacterLoader
 
     monkeypatch.setenv(ENV_SWITCH, "on")       # 套件默认 off——本用例要走真 generate()
 

@@ -27,7 +27,6 @@ import ast
 import pathlib
 import sys
 
-
 ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
 
 #: 被扫描的包 → 它**禁止**依赖的顶层包

@@ -15,7 +15,6 @@ from pathlib import Path
 
 import pytest
 
-
 from core.bond.bond_story import BondScene, BondStoryEngine, SceneLoopError  # noqa: E402
 from llm import task_labels as T  # noqa: E402
 from tests import stub_tasks  # noqa: E402

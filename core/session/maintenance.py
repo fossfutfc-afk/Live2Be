@@ -30,12 +30,11 @@
 
 from __future__ import annotations
 
-
 from core.session.events import (
-    TYPE_BOND,
     M_VN_ABANDON,
     M_VN_ENTER,
     M_VN_EXIT,
+    TYPE_BOND,
     is_board_event,
 )
 

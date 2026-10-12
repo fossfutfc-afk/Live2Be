@@ -13,11 +13,10 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-
-from core.session.events import make_event                      # noqa: E402
-from core.session.store import SessionStore                     # noqa: E402
-from webgui import bond, deps                                   # noqa: E402
-from webgui.bond import BondState                               # noqa: E402
+from core.session.events import make_event  # noqa: E402
+from core.session.store import SessionStore  # noqa: E402
+from webgui import bond, deps  # noqa: E402
+from webgui.bond import BondState  # noqa: E402
 
 CHAR = "igusa_haruka"
 

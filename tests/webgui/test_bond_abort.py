@@ -10,12 +10,13 @@
 import time
 from pathlib import Path
 
-from webgui import bond, chat, deps
-from core.session.store import SessionStore
 from core.mmt.engine import MomoTalkEngine
+from core.session.store import SessionStore
+from webgui import bond, chat, deps
 
 sys_path_root = Path(__file__).resolve().parent.parent.parent
 import sys  # noqa: E402
+
 from llm import task_labels as T  # noqa: E402
 from tests import stub_tasks  # noqa: E402
 from tests.vn_fixtures import scene as _scene  # noqa: E402
@@ -118,7 +119,7 @@ def test_fail_abort_no_closing_and_retry(tmp_path):
 # ----------------------------------------------------------------------------
 
 def test_system_note_force_end_after_limit():
-    from webgui.bond import BondState, _END_ROUNDS
+    from webgui.bond import _END_ROUNDS, BondState
 
     st50 = BondState(round=_END_ROUNDS)
     note50 = bond._system_note(st50)

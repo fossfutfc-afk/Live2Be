@@ -11,8 +11,6 @@ import sys
 import tempfile
 from pathlib import Path
 
-
-
 import core.bond.bond_progress as bp_mod
 from core.bond.bond_progress import BondProgress
 

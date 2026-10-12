@@ -24,14 +24,12 @@ import time
 from dataclasses import MISSING
 from pathlib import Path
 
-
-from core.brain import graph, notes
+from core.brain import WikiStoreV2, graph, notes
+from core.brain.entities import ensure_entities
 from core.brain.nodes import KINDS, BrainNode
 from core.digest import rounds as R
 from core.digest.pipeline import DigestResult, digest_segment
-from core.brain import WikiStoreV2
 from core.digest.rounds import Cursor
-from core.brain.entities import ensure_entities
 from core.session import make_event
 from llm import task_labels as T  # noqa: E402
 from tests import stub_tasks
@@ -195,8 +193,14 @@ def test_every_phase_is_a_real_contract_phase():
     所以由这条用例来钉"key 与契约相位是同一批词"。
     """
     from contract.digest_registry import (
-        PHASE_ATTRIBUTE, PHASE_COGNIZE, PHASE_GROUP, PHASE_RECORD, PHASE_RELATE,
-        PHASE_SPLIT, PHASE_UNDERSTAND, digest_registry,
+        PHASE_ATTRIBUTE,
+        PHASE_COGNIZE,
+        PHASE_GROUP,
+        PHASE_RECORD,
+        PHASE_RELATE,
+        PHASE_SPLIT,
+        PHASE_UNDERSTAND,
+        digest_registry,
     )
     # ⚠️ `PHASE_UNDERSTAND`（旧一族 touch/update/add 的相位）**还在**契约里 ——
     # 那一族留给 L2（2026-10-07 用户裁"不着急删"）, 只是**没有轮在用它**。

@@ -39,8 +39,9 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterable
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Iterable
+from typing import TYPE_CHECKING
 
 from core.brain import marks
 from core.brain.address import find_group, normalize_title, unique_title

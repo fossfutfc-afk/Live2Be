@@ -65,9 +65,10 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date, datetime
-from typing import Any, Callable
+from typing import Any
 
 from core.brain import marks
 from core.brain.address import normalize_title
@@ -138,7 +139,7 @@ class Clue:
 
     op: str = "lit"
     text: str = ""
-    args: tuple["Clue", ...] = field(default_factory=tuple)
+    args: tuple[Clue, ...] = field(default_factory=tuple)
 
     def matches(self, text: str) -> bool:
         if self.op == "lit":

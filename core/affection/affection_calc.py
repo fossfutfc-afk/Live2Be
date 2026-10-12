@@ -170,7 +170,7 @@ class Affection:
         return {"level": self.level, "exp": self.exp}
 
     @classmethod
-    def from_dict(cls, d: dict, table: dict[str, tuple[int, int]] | None = None) -> "Affection":
+    def from_dict(cls, d: dict, table: dict[str, tuple[int, int]] | None = None) -> Affection:
         return cls(level=d.get("level", MIN_LEVEL), exp=d.get("exp", 0), table=table)
 
     # -- 内部 -----------------------------------------------------------

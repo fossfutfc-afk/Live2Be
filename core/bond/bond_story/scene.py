@@ -11,6 +11,11 @@
 
 from __future__ import annotations
 
+from dataclasses import (
+    dataclass,
+    field,
+)
+
 from contract import (
     NON_PICKS,
     STAGE_ART,
@@ -20,10 +25,6 @@ from contract import (
     STAGE_SWITCH,
 )
 from core.common import Live2BeError
-from dataclasses import (
-    dataclass,
-    field,
-)
 
 
 class SceneLoopError(Live2BeError):
@@ -95,7 +96,7 @@ class BondScene:
     @classmethod
     def from_board(cls, records: tuple, group: tuple[int, ...] = (), *,
                    notes: list[str] | None = None,
-                   in_memorial: bool = False) -> "BondScene":
+                   in_memorial: bool = False) -> BondScene:
         """一块记录（板切片）→ BondScene（记录流 v2, P0-4b）。
 
         - `paragraphs` **由记录派生**（一记录 = 一判定/显示单元）:
@@ -188,7 +189,7 @@ class BondScene:
         return d
 
     @classmethod
-    def from_dict(cls, raw: dict | None) -> "BondScene":
+    def from_dict(cls, raw: dict | None) -> BondScene:
         """宽松解析 dict → BondScene（运行时契约解析与回放读档同一条路径）。
 
         逐字段 .get 容错 + 过滤坏项 + is_end 缺省 False——宁缺勿错,

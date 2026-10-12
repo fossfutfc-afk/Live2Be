@@ -12,13 +12,10 @@ Director:  place → background 查表（合法 / 非法 / 缺失保持 / 冷启
 import sys
 from pathlib import Path
 
-
-
 from core.bond.bond_story import BondStoryEngine
 from core.director import Director, VisualState, build_director
 from core.media import MediaCatalog
 from llm import task_labels as T
-
 from tests import stub_tasks
 from tests.vn_fixtures import scene as _scene  # noqa: E402
 

@@ -12,13 +12,13 @@ from core.session.chapters import (
 )
 from core.session.events import (
     EVENT_TYPES,
-    MARKER_SUBTYPES,
     M_MEMORIAL_IMAGE,
     M_SESSION_END,
     M_SESSION_START,
     M_VN_ENTER,
     M_VN_EXIT,
     M_VN_STATE,
+    MARKER_SUBTYPES,
     TYPE_BOND,
     TYPE_L2D,
     TYPE_MARKER,

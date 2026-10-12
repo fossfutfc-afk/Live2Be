@@ -20,8 +20,8 @@ memorial_enter 三动作 registry）、`bond_executor.py`（StoryExecutor）、`
 
 from __future__ import annotations
 
-from core.bond.bond_story import BondScene, BondStoryEngine, SceneLoopError
 from core.bond.bond_progress import BondProgress
+from core.bond.bond_story import BondScene, BondStoryEngine, SceneLoopError
 
 __all__ = [
     "BondScene",

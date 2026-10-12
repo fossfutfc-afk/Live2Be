@@ -11,7 +11,7 @@ try/except 自动落 tags 关键词匹配（宁缺勿错, 不阻断 digest）。
 """
 from __future__ import annotations
 
-from typing import Callable
+from collections.abc import Callable
 
 from core.brain.nodes import BrainNode
 from core.brain.read.recall import recall_subgraph, recommend_candidates

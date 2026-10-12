@@ -6,7 +6,6 @@ import sys
 import tempfile
 from pathlib import Path
 
-
 from core.parsing.world_parser import load_world, world_to_prompt
 
 PASS = 0

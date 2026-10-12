@@ -13,7 +13,6 @@
 import sys
 from pathlib import Path
 
-
 from core.session.chapters import chapter_index, replayable_chapters  # noqa: E402
 from core.session.events import make_event, marker  # noqa: E402
 

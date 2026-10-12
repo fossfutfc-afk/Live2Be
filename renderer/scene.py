@@ -40,7 +40,7 @@ class RenderScene:
     # ------------------------------------------------------------------
 
     @classmethod
-    def from_live(cls, scene) -> "RenderScene":
+    def from_live(cls, scene) -> RenderScene:
         """实时: 引擎场景对象 → RenderScene。
 
         scene 是鸭子类型（BondScene 或任何有 to_dict() 的对象）——渲染器
@@ -58,7 +58,7 @@ class RenderScene:
         return out
 
     @classmethod
-    def from_event(cls, payload: dict | None) -> "RenderScene":
+    def from_event(cls, payload: dict | None) -> RenderScene:
         """回放: 事件流 bond 事件 payload → RenderScene。
 
         事件流里 bond 事件的 payload = {**scene.to_dict(), "input": ..., "picked": ...}
@@ -73,7 +73,7 @@ class RenderScene:
     # ------------------------------------------------------------------
 
     @classmethod
-    def _from_dict(cls, raw) -> "RenderScene":
+    def _from_dict(cls, raw) -> RenderScene:
         if not isinstance(raw, dict):
             return cls()
         paras: list[dict] = []

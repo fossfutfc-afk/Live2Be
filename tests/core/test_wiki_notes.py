@@ -15,7 +15,6 @@ from pathlib import Path
 
 import pytest
 
-
 from core.brain import notes
 from core.session import make_event
 from core.session.events import N_ADD, N_CLOSE, N_RETIRE, N_REWRITE, N_UPDATE, TYPE_NOTE

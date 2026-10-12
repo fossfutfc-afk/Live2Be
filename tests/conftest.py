@@ -100,9 +100,10 @@ def _isolate_runtime_files(tmp_path_factory):
     会话级兜底: 任何用例/新代码只要碰这两个路径就落到 tmp, **测试永远碰不到
     data/**。新增全局落盘点时也请一并登记到这里。
     """
+    from pathlib import Path
+
     from core.bond import bond_progress as bp
     from core.mmt import mmt_preset
-    from pathlib import Path
 
     root = tmp_path_factory.mktemp("runtime")
     (root / "basic").mkdir(parents=True, exist_ok=True)

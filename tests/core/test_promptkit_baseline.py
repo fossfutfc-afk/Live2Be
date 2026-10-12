@@ -16,7 +16,6 @@ import tempfile
 from datetime import datetime
 from pathlib import Path
 
-
 from core.bond.bond_story import BondStoryEngine
 from core.mmt.engine import MomoTalkEngine
 

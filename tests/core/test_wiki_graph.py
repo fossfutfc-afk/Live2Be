@@ -8,14 +8,13 @@
 `links`/`contradictions` 字段已从节点上删除, 自举活在文件格式层。
 """
 import json
-import sys
 import pathlib
+import sys
 
 import pytest
 
-
-from core.brain import WikiStoreV2                      # noqa: E402
-from core.brain.graph import (                          # noqa: E402
+from core.brain import WikiStoreV2  # noqa: E402
+from core.brain.graph import (  # noqa: E402
     REL_ABOUT,
     REL_CONTRADICTS,
     REL_SUPPORTS,
@@ -27,7 +26,7 @@ from core.brain.graph import (                          # noqa: E402
     infer_edges,
     iter_edges,
 )
-from core.brain.nodes import BrainNode                  # noqa: E402
+from core.brain.nodes import BrainNode  # noqa: E402
 
 
 def _row(nid: str, kind: str, *, links=(), contradictions=(), ts="") -> dict:

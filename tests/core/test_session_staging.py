@@ -12,10 +12,9 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-
-from core.session import staging                                   # noqa: E402
-from core.session.events import make_event                 # noqa: E402
-from core.session.store import SessionStore                        # noqa: E402
+from core.session import staging  # noqa: E402
+from core.session.events import make_event  # noqa: E402
+from core.session.store import SessionStore  # noqa: E402
 
 CHAR = "igusa_haruka"
 
@@ -382,6 +381,7 @@ def test_parse_ts_reads_old_and_new_as_same_instant():
     """★ **新旧并存安全** —— 旧 `ts`（朴素本地）与新 `ts`（带时区）指**同一时刻**,
     故 `age_days` 相同 ⇒ **收敛前写下的数据不会被重新解释**。"""
     from datetime import datetime
+
     from core.worldtime.age import REAL_TZ, age_days, parse_ts
     aware = "2026-09-16T23:00:00+08:00"
     naive = "2026-09-16T23:00:00"                 # 旧格式（朴素一律按 REAL_TZ）

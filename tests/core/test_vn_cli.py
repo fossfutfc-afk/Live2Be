@@ -15,14 +15,12 @@ import sys
 import tempfile
 from pathlib import Path
 
-
-from core.mmt.engine import MomoTalkEngine
+from apps.vn_cli import run_bond_story_vn, simulate_vn_scene
 from core.bond.bond_story import BondScene, BondStoryEngine
+from core.mmt.engine import MomoTalkEngine
 from core.session import SessionStore
 from core.session.events import M_VN_EXIT
-from apps.vn_cli import run_bond_story_vn, simulate_vn_scene
 from llm import task_labels as T
-
 from tests import stub_tasks
 from tests.vn_fixtures import scene  # noqa: E402
 
@@ -352,8 +350,8 @@ def test_run_vn_remind_then_natural_end(tmp_path):
 # ----------------------------------------------------------------------------
 
 def test_wrapup_after_vn():
-    from core.bond.bond_progress import BondProgress
     from apps.vn_cli import wrapup_after_vn
+    from core.bond.bond_progress import BondProgress
 
     # 行协议（⑥-2e）: 一行一条 JSON; trigger payload = chapter_title
     trig = '{"action": "mmt_trigger_bond_story", "payload": {"chapter_title": "天台的气氛"}}'

@@ -10,7 +10,6 @@ models: SessionMeta / VNState to_dict/from_dict 往返 + 坏字段降级
 import sys
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parent.parent.parent
 
 from core.session import (
@@ -24,13 +23,13 @@ from core.session import (
     read_jsonl,
 )
 from core.session.events import (
-    TYPE_L2D,
-    TYPE_MARKER,
     M_SESSION_END,
     M_SESSION_START,
     M_VN_ENTER,
     M_VN_EXIT,
     M_VN_STATE,
+    TYPE_L2D,
+    TYPE_MARKER,
     make_event,
     marker,
     parse_events,
@@ -42,7 +41,6 @@ from core.session.renderer import (
     session_status,
 )
 from core.session.store import SessionStore
-
 
 # ----------------------------------------------------------------------------
 # io: 原子写 / append-only / 行级容错
@@ -388,7 +386,11 @@ def test_digest_record_prompt_matches_index_format():
 def test_timeline_index_vocabulary():
     """`contract.timeline_index`: 渲染/解析**同源**（漂移 = 静默取错原文）。"""
     from contract.timeline_index import (
-        REC_PICKED, format_event, format_record, parse_index, parse_index_list,
+        REC_PICKED,
+        format_event,
+        format_record,
+        parse_index,
+        parse_index_list,
     )
 
     assert format_event(28) == "[28]"
@@ -609,6 +611,7 @@ def test_engine_resume_rebuilds_history(tmp_path):
 
 def test_engine_resume_rejects_ended(tmp_path):
     import pytest
+
     from core.mmt.engine import MomoTalkEngine
     from core.session import SessionStore
 

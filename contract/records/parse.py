@@ -24,19 +24,19 @@ from collections.abc import Iterable
 from typing import Any
 
 from contract.records.grammar import (
+    _JSON_ISH_RE,
+    _RECORD_HEAD_RE,
+    _TEXT_FIELD_RE,
     KIND_CHARACTER,
     KIND_STAGE,
     MAX_SENSEI_RUN,
-    ParseDiag,
-    ParseResult,
     STAGE_ART,
     STAGE_SWITCH,
     STAGE_VALUES,
     TEXT_OPTIONAL_STAGES,
+    ParseDiag,
+    ParseResult,
     VnRecord,
-    _JSON_ISH_RE,
-    _RECORD_HEAD_RE,
-    _TEXT_FIELD_RE,
 )
 from contract.streams import LineStreamBase, parse_line_items
 from contract.streams import tail_repair as _tail_repair

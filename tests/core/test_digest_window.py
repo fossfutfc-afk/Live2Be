@@ -21,7 +21,6 @@
 import sys
 from pathlib import Path
 
-
 from core.brain import WikiStoreV2
 from core.brain.entities import ensure_entities
 from core.digest import pipeline
@@ -252,8 +251,7 @@ def test_null_span_row_claims_no_position_and_is_never_collapsed():
     ⚠️ 它的 `event_seq`（L7 建节点时才落 `[interact_max]`）是**账的指针, 不是覆盖声明** ——
     在这里认领了, 日志就会说"这一段全被它记下了"。
     """
-    from core.digest.segment import (_collapse_bond_episodes, _coverage, _expand_spans,
-                                     _seqs_of)
+    from core.digest.segment import _collapse_bond_episodes, _coverage, _expand_spans, _seqs_of
 
     segs = [{"span": None, "state": "close", "id": "n3",
              "abstract": "生日那天, 老师没有来"}]

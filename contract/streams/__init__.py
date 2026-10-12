@@ -23,14 +23,12 @@
 
 from __future__ import annotations
 
-
-from contract.streams.lines import (        # 行骨架（判别注入）+ 诊断 + 末行悬空
-    ParseDiag,
+from contract.streams.lines import (  # 行骨架（判别注入）+ 诊断 + 末行悬空
     TAIL_REPAIRS,
+    ParseDiag,
     parse_line_items,
     tail_repair,
 )
-
-from contract.streams.stream import (       # 增量缓冲基类（交付单元留子类）
+from contract.streams.stream import (  # 增量缓冲基类（交付单元留子类）
     LineStreamBase,
 )

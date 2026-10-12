@@ -32,6 +32,7 @@ import threading
 from datetime import datetime
 from pathlib import Path
 
+from core import paths
 from core.session.events import (
     M_SESSION_END,
     M_SESSION_START,
@@ -41,7 +42,6 @@ from core.session.events import (
     marker,
     parse_events,
 )
-from core import paths
 from core.session.io import append_jsonl, atomic_write_json, read_jsonl
 from core.session.models import TYPE_CONVERSATION, SessionMeta
 from core.session.renderer import session_status

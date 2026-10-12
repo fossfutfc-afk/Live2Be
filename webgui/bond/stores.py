@@ -51,7 +51,7 @@ def _store():
     return deps.store()
 
 
-def _flow_store(state: "BondState | None"):
+def _flow_store(state: BondState | None):
     """**章内的统一读写口** —— 真源 + 暂存（2026-09-17, B0 整章暂存）。
 
     | 读 / 写 | 落到哪 |
@@ -67,7 +67,7 @@ def _flow_store(state: "BondState | None"):
     return staging_store(getattr(state, "store", None) or _store())
 
 
-def _stage_store(state: "BondState | None"):
+def _stage_store(state: BondState | None):
     """**章内写入口** —— 章进行中返回**暂存** store（B0 整章暂存, 2026-09-17）。
 
     章内的一切（`vn_enter` / 板 / `vn_state` / memorial 标记）先落
@@ -164,7 +164,7 @@ def _draft_path(char_id: str, store=None) -> Path | None:
         return None
 
 
-def _draft_boards(state: "BondState") -> list[dict]:
+def _draft_boards(state: BondState) -> list[dict]:
     """当前草稿 = [未落库的当前板?] + 引擎待发板队列（播放顺序）。"""
     boards: list[dict] = []
     if state.scene_obj is not None and not state.scene_state.committed:
@@ -180,7 +180,7 @@ def _draft_boards(state: "BondState") -> list[dict]:
     return boards
 
 
-def _draft_save(state: "BondState", char_id: str, session_id: str,
+def _draft_save(state: BondState, char_id: str, session_id: str,
                 *, epoch: int | None = None) -> None:
     """落草稿旁路（原子写）。无可存内容 → 删旧档（宁缺勿错, 不留过期草稿）。
 
@@ -267,7 +267,7 @@ def _draft_pending(char_id: str, session_id: str, store=None) -> list[dict]:
     return boards[1:] if boards and len(boards) > 1 else []
 
 
-def _draft_queue(state: "BondState", char_id: str, session_id: str) -> int:
+def _draft_queue(state: BondState, char_id: str, session_id: str) -> int:
     """把草稿旁路的板**灌进引擎待发队列**（不动屏上场景）——回放交棒用。
 
     与旧 `_draft_adopt` 的区别（2026-09-12 修正）: 后者把草稿首板当"当前板"上屏;
@@ -391,7 +391,7 @@ def _log_scene(state: BondState, char_id: str, session_id: str, picked) -> None:
     state.scene_state = BoardLifecycle.COMMITTED
 
 
-def _unpicked_board_seq(state: "BondState", char_id: str,
+def _unpicked_board_seq(state: BondState, char_id: str,
                         session_id: str) -> int | None:
     """当前屏上这一板在事件流里的 seq —— **仅当它以 `picked` 为空落过库**（= 退出补录）。
 
@@ -414,7 +414,7 @@ def _unpicked_board_seq(state: "BondState", char_id: str,
     return None
 
 
-def _log_pick(state: "BondState", char_id: str, session_id: str, picked: str) -> int:
+def _log_pick(state: BondState, char_id: str, session_id: str, picked: str) -> int:
     """**补录裁决**（`bond/story_pick`）→ 写入事件的 seq（`0` = 没写）。
 
     为什么需要它（2026-09-21 探针实测的系统性漏记）: 玩家在**未裁决的选项板**上点

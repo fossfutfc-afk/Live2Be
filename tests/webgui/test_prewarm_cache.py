@@ -12,12 +12,13 @@ import json
 import time
 from pathlib import Path
 
-from webgui import bond, chat, deps
-from core.session.store import SessionStore
 from core.mmt.engine import MomoTalkEngine
+from core.session.store import SessionStore
+from webgui import bond, chat, deps
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 import sys  # noqa: E402
+
 from llm import task_labels as T  # noqa: E402
 from tests import stub_tasks  # noqa: E402
 from tests.vn_fixtures import scene as _scene  # noqa: E402

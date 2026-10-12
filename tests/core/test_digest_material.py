@@ -7,9 +7,15 @@ L1 的「现有经历（候选）」（按 `topics` 相交摆）与「候选对�
 """
 from core.brain import WikiStoreV2, make_node
 from core.brain.entities import ensure_entities, object_lines
-from core.digest.material import (DIGEST_L2_MEMBERS, DIGEST_RELATE_CAND_K,
-                                  _axes_field, _episode_candidates, _group_block,
-                                  _groups_for_l2, _l2_material)
+from core.digest.material import (
+    DIGEST_L2_MEMBERS,
+    DIGEST_RELATE_CAND_K,
+    _axes_field,
+    _episode_candidates,
+    _group_block,
+    _groups_for_l2,
+    _l2_material,
+)
 
 
 def _store(tmp_path) -> WikiStoreV2:

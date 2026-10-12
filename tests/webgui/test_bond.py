@@ -17,7 +17,6 @@ from pathlib import Path
 
 import pytest
 
-
 from core.mmt.engine import MomoTalkEngine
 from core.session import SessionStore
 from llm import task_labels as T  # noqa: E402
@@ -359,6 +358,7 @@ def test_system_note_v2_only_pacing_hints():
     那条注记在 v2 下每轮白喂 token, 还会诱导模型为"切换单元"碎化输出。
     """
     from types import SimpleNamespace
+
     from webgui.bond import BondState, _system_note
 
     vn = SimpleNamespace(in_memorial=False)
@@ -430,8 +430,8 @@ def test_promote_gate_blocks_until_pregen_annotated():
     """预生成消费门（2026-09-08）: 预生成场景自身 emotion/place 未就绪 → 不提升
     （busy, 前端轮询）; 就绪（含 place keep 标记）→ 放行——防"消费后标注被丢弃
     → 整板表情卡 nomal"。"""
-    from webgui.bond import BondState, _scene_obj_visual_ready
     from core.bond.bond_story import BondScene
+    from webgui.bond import BondState, _scene_obj_visual_ready
 
     class FakeVN:
         def __init__(self, emo_keys, place_keys):
@@ -522,7 +522,7 @@ def test_bond_midway_finish_no_digest(tmp_path):
 
 def test_bond_warm_render_deps(tmp_path):
     """P2: 渲染依赖预热幂等——MediaCatalog/特效表构造一次不抛, 资产缺失降级。"""
-    from webgui.routers.bond import warm_render, _catalog
+    from webgui.routers.bond import _catalog, warm_render
     warm_render(CHARACTER)                # 首次: catalog 构造 + 角色特效表
     assert _catalog() is not None         # 单例已就绪（后续 status 不再现构造）
     warm_render(CHARACTER)                # 幂等

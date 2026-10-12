@@ -61,7 +61,7 @@ from __future__ import annotations
 
 import re
 
-from core.common.fuse import (                       # noqa: F401 — re-export（形状唯一实现在那儿）
+from core.common.fuse import (  # noqa: F401 — re-export（形状唯一实现在那儿）
     DEFAULT_MODE,
     MODES,
     fuse,
