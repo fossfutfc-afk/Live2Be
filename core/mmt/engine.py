@@ -91,12 +91,14 @@ from core.digest import digest_segment
 from core.brain.entities import STANCE_KEYS_RESERVED, ensure_entities
 from core.affection import Affection, load_affection_from_events
 from core.brain.address import find_episode
+from core.brain.entities import find_entity
 from core.brain.read.find import compile_clue, find
 from core.brain.read.like import RecallCtx
 from core.brain.read.modes import DEFAULT_MODE as TURN_MODE
 from core.brain.read.modes import recall, recall_with_keys, render_section
 from core.brain.read.render import (
     LOOK_EMPTY,
+    LOOK_EMPTY_ENTITY,
     LOOK_EMPTY_TIME,
     LOOK_FUTURE,
     look_empty,
@@ -1362,22 +1364,32 @@ class MomoTalkEngine:
                                for c in (*name_cands, *when_cands, *turn_cands)))
         return segs
 
-    def _look_result(self, clue: str, when: str, *, wstore: WikiStoreV2 | None = None) -> str:
-        """⭐ **`mmt_look` 的执行体**（2026-10-08）: 三级解析 → 一段给她看的字。
+    def _look_result(self, entity: str, clue: str, when: str, *,
+                     wstore: WikiStoreV2 | None = None) -> str:
+        """⭐ **`mmt_look` 的执行体**（2026-10-08；2026-10-12 加 `entity` 筛选轴）: 三级解析 → 一段给她看的字。
 
         | 级 | 做什么 | 为什么 |
         |---|---|---|
         | ① | 线索是**单个纯字面**（`op == "lit"`）时先当**标题**精确查（`find_episode`）| 设计 §3.2: "一步到位" —— 她抄的往往是标题本身（抄整段元信息也认, `normalize_title` 取 `｜` 第一段）|
-        | ② | `find({"text": Clue} ∪ {"when": exact}, kinds=LOOK_KINDS)` | **全量**命中（⛔ 不 top-k —— 那是 `find` 的不变量）|
+        | ② | `find({…}, kinds=LOOK_KINDS)` —— **三格是 AND** | **全量**命中（⛔ 不 top-k —— 那是 `find` 的不变量）|
         | ③ | 空 ⇒ 用 `when.wide` **再查一次** | "那段时间没有；前后那阵子…" —— **如实报告筛选边界** |
 
-        ⚠️ **①级也要过 `when`**（锚是 AND, 不是"找到标题就直接返回那一条"）——
+        ⭐ **`entity` 是筛选轴, 不是"看档案"**（用户 2026-10-12: *"我觉得 entity 更像筛选
+        某人的事例"*）: 她的叫法经 `entities.find_entity`（**只归一格式, 不做近似匹配**）
+        翻成 entity id ⇒ `find` 的 `entity` 锚 = **他车道上全部**, 与 `clue`/`when` **AND**。
+        ⛔ **不印 `entity.text`**: "我眼里的他们"已经在 brain 段**常驻**, 这里再印一遍
+        是同一份内容进两次上下文; 她要的只是"**跟他有关的事例**"。
+        ⚠️ **名字认不出 ⇒ `LOOK_EMPTY_ENTITY`**（miss / ambiguous 都不猜 —— 与
+        `address.find_episode` 同一套判据）; 而且**不算"翻空了"**（不计数）。
+
+        ⚠️ **①级也要过 `when` / `entity`**（锚是 AND, 不是"找到标题就直接返回那一条"）——
         否则她问"上周的《某条》"而那条在两周前, 时间条件会被**静默忽略**。
 
         ⚠️ **`wide` 只用来"再查一次", 绝不替代 `exact`**: 顺序反了就是**静默换掉
         她问的范围**（"上周有 3 条"变成"前后一大堆"）。
 
-        ⚠️ **三种失败分得开**:
+        ⚠️ **四种失败分得开**:
+          · 名字**认不出** ⇒ `LOOK_EMPTY_ENTITY`（"这个叫法我对不上是谁" —— 可行动）;
           · 时间**认不出** ⇒ `LOOK_EMPTY_TIME`（⛔ **不**静默当成"没给时间"去查全库 ——
             那是静默放宽范围; ⛔ 也不报"格式错" —— 那是第四面墙）;
           · 时间**落在将来** ⇒ `LOOK_FUTURE`（规则⑥: 合法但空, 不是她写错了）;
@@ -1386,7 +1398,7 @@ class MomoTalkEngine:
             不带计数的 `LOOK_EMPTY`（**宁缺勿错**: 引擎的配置问题不伪装成"她这一轮
             失败了", 与 P19 在无 store 时静默不注同款）。
 
-        ⭐ **计数只有一处会动**（"真的查空了"）: 时间认不出 / 将来 / 无 store / 异常
+        ⭐ **计数只有一处会动**（"真的查空了"）: 名字/时间认不出 / 将来 / 无 store / 异常
         **都不算** —— 它们不是"记忆里没有"。命中则**归零**（用户 2026-10-08 裁:
         给她"失败次数 + 回忆方法", 让这个无状态函数自己决定停; ⛔ 不设硬闸, 兜底仍只有
         `MAX_STEPS`）。
@@ -1414,6 +1426,14 @@ class MomoTalkEngine:
                 return LOOK_FUTURE
 
             anchors: dict = {}
+            who = None
+            if (entity or "").strip():
+                who, why = find_entity(wstore, entity)
+                if who is None:                  # miss / ambiguous ⇒ 不猜（给可行动的一句）
+                    logger.info("mmt_look %s/%s entity=%r ⇒ %s",
+                                char.character_id, self._session_id, entity, why)
+                    return LOOK_EMPTY_ENTITY
+                anchors["entity"] = who.id
             if (clue or "").strip():
                 compiled = compile_clue(clue)
                 if compiled.op == "lit":
@@ -1429,7 +1449,7 @@ class MomoTalkEngine:
                     anchors["text"] = compiled
             if win is not None:
                 anchors["when"] = win.exact
-            if not anchors:                   # 两格都空（parse 层已挡, 这里兜底）
+            if not anchors:                   # 三格都空（parse 层已挡, 这里兜底）
                 return LOOK_EMPTY
 
             cands = find(wstore, anchors, kinds=LOOK_KINDS)
@@ -1442,8 +1462,8 @@ class MomoTalkEngine:
                 # ⭐ **真的翻空了** ⇒ 计数 +1, 并把"这是第几次"写进她看得见的字里
                 # （`look_empty` 分档: 第 1 次照旧 / 第 2 次给回忆方法 / ≥3 次劝她停下）。
                 self._look_miss += 1
-                logger.info("mmt_look %s/%s clue=%r when=%r ⇒ 空（连着第 %d 次）",
-                            char.character_id, self._session_id, clue, when,
+                logger.info("mmt_look %s/%s entity=%r clue=%r when=%r ⇒ 空（连着第 %d 次）",
+                            char.character_id, self._session_id, entity, clue, when,
                             self._look_miss)
                 return look_empty(self._look_miss)
 
@@ -1451,13 +1471,14 @@ class MomoTalkEngine:
             shown = min(len(cands), LOOK_CAP)
             seg = render_candidates(
                 cands, cap=LOOK_CAP,
-                header=look_header(clue, when, n=len(cands), widened=widened),
+                header=look_header(entity, clue, when, n=len(cands), widened=widened),
                 hint=look_hint(shown, len(cands) - shown),
                 char_name=char.display_name or "",
                 char_aliases=_name_aliases(char.profile), now=now)
             # 台账（可 grep）: 查了什么 / 命中几条 / 摆了谁（**标题** —— 她看得见的那个串）
-            logger.info("mmt_look %s/%s clue=%r when=%r form=%s cand=%d shown=%d widened=%s titles=%s",
-                        char.character_id, self._session_id, clue, when,
+            logger.info("mmt_look %s/%s entity=%r clue=%r when=%r form=%s cand=%d "
+                        "shown=%d widened=%s titles=%s",
+                        char.character_id, self._session_id, entity, clue, when,
                         (win.source if win is not None else "-"),
                         len(cands), shown, widened,
                         " / ".join(c.node.title or c.node.id for c in cands[:LOOK_CAP]))

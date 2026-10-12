@@ -29,7 +29,8 @@ from contract import (APPROVAL_AUTO, DOMAIN_MMT, AgentAction,   # noqa: E402
                       ContractError)
 from core.brain import WikiStoreV2, make_node                   # noqa: E402
 from core.brain.read.render import (LOOK_EMPTY,                # noqa: E402
-                                    LOOK_EMPTY_TIME, LOOK_FUTURE, look_empty)
+                                    LOOK_EMPTY_ENTITY, LOOK_EMPTY_TIME,
+                                    LOOK_FUTURE, look_empty)
 from core.mmt.mmt_actions import (MMT_RUNTIME_FIELDS,           # noqa: E402
                                   build_mmt_registry, parse_mmt_look)
 from core.mmt.mmt_check import (ACTION_LOOK, ACTION_TRIGGER,    # noqa: E402
@@ -80,16 +81,20 @@ def test_registry_registers_look_with_its_field_doc():
 # ---------------------------------------------------------------------------
 
 def test_parse_accepts_clue_when_or_both_and_strips():
-    assert parse_mmt_look({"clue": " 苔藓 && 杂草 "}) == {"clue": "苔藓 && 杂草", "when": ""}
-    assert parse_mmt_look({"when": " 上周 "}) == {"clue": "", "when": "上周"}
+    assert parse_mmt_look({"clue": " 苔藓 && 杂草 "}) == \
+        {"entity": "", "clue": "苔藓 && 杂草", "when": ""}
+    assert parse_mmt_look({"when": " 上周 "}) == {"entity": "", "clue": "", "when": "上周"}
+    assert parse_mmt_look({"entity": " 阿露 "}) == {"entity": "阿露", "clue": "", "when": ""}
     assert parse_mmt_look({"clue": "苔藓", "when": "last 1 week"}) == \
-        {"clue": "苔藓", "when": "last 1 week"}
+        {"entity": "", "clue": "苔藓", "when": "last 1 week"}
+    assert parse_mmt_look({"entity": "阿露", "clue": "便利屋", "when": "上个月"}) == \
+        {"entity": "阿露", "clue": "便利屋", "when": "上个月"}
     print("    parse: clue / when / 两个都给 都收（并去首尾空白）")
 
 
 def test_parse_output_is_json_safe_strings():
     """⭐ payload 里**只有字符串** —— 真序列化一次, 编译好的 `Clue` 会在这儿炸。"""
-    out = parse_mmt_look({"clue": "(苔藓 || 杂草) && 老师", "when": "上周"})
+    out = parse_mmt_look({"clue": "(苔藓 || 杂草) && 老师", "when": "上周", "entity": "阿露"})
     assert all(isinstance(v, str) for v in out.values()), out
     json.dumps(out, ensure_ascii=False)                      # 不抛 = 前端/TurnResult 安全
     print("    parse: 返回值 JSON 安全（⛔ 不塞自定义对象）")
@@ -168,13 +173,18 @@ def test_executor_needs_the_look_hook(tmp_path):
     print("    接线: 没注入 look_fn ⇒ MmtExecError（硬问题, 不伪装成「没翻到」）")
 
 
-def test_executor_passes_clue_and_when_through(tmp_path):
-    """执行器只管**透传**（取数在 engine）—— 用假回调钉住参数。"""
-    seen: list[tuple[str, str]] = []
-    ex = MmtExecutor(tmp_path, look_fn=lambda clue, when: seen.append((clue, when)) or "段")
+def test_executor_passes_the_three_axes_through(tmp_path):
+    """执行器只管**透传**（取数在 engine）—— 用假回调钉住三个筛选轴（entity/clue/when）。"""
+    seen: list[tuple[str, str, str]] = []
+    ex = MmtExecutor(tmp_path,
+                     look_fn=lambda entity, clue, when:
+                     seen.append((entity, clue, when)) or "段")
     ex.set_current_character(object())
-    res = ex.execute(_action(clue="苔藓 && 杂草", when="上周"))
-    assert res.ok and res.message == "段" and seen == [("苔藓 && 杂草", "上周")], seen
+    res = ex.execute(_action(entity="阿露", clue="苔藓 && 杂草", when="上周"))
+    assert res.ok and res.message == "段"
+    assert seen == [("阿露", "苔藓 && 杂草", "上周")], seen
+    ex.execute(_action(clue="苔藓"))                     # 只给一格也照旧透传（另两格空串）
+    assert seen[-1] == ("", "苔藓", ""), seen
 
 
 class _ScriptedLLM:
@@ -189,6 +199,76 @@ class _ScriptedLLM:
     def chat(self, messages, **kw):
         self.snapshots.append([dict(m) for m in messages])
         return self.replies[min(len(self.snapshots) - 1, len(self.replies) - 1)]
+
+
+# ---------------------------------------------------------------------------
+# S1b · `entity` 筛选轴（2026-10-12 用户: "entity 更像筛选某人的事例"）
+# ---------------------------------------------------------------------------
+
+def _seed_with_person(tmp_path, text, *, title, ts, person="陆八魔 阿露", alias="阿露"):
+    """一条**挂某人车道**的经历（`about` 边）—— 用来验 entity 锚。
+
+    ⚠️ **幂等建人**（同一个用例里连建两条经历时不该撞 id —— `DuplicateId` 踩过一次）。
+    """
+    st = WikiStoreV2(tmp_path, world_id="world1", char_id=CHARACTER)
+    if st.get("x0002") is None:
+        who = make_node("entity", name=person, text="我社长")
+        who.id = "x0002"
+        who.aliases = [alias]
+        st.add(who)
+    eid = st.add(make_node("episode", text=text, title=title, ts=ts,
+                           significance=0.6, event_seq=[1]))
+    st.add_edge("about", eid, "x0002", ts=ts)
+    st.save()
+
+
+def test_entity_is_a_filter_axis_not_a_profile_view(tmp_path):
+    """⭐ `look(entity=阿露)` = **只留跟他有关的事例**（车道全量）, 而且**不印他的档案**。
+
+    用户 2026-10-12 的裁决（这一条守的就是它）:
+      · "entity 更像**筛选某人的事例**" ⇒ `entity` 锚 = `about` 入边（含正文没写他名字的）;
+      · ⛔ **不印 `entity.text`**：她眼里的他们已经在 brain 段**常驻**, 这里再印一遍
+        是同一份内容进两次上下文（`我社长` 只存在于 fixture 里, 不该出现在结果里）。
+    """
+    _seed_with_person(tmp_path, "她让我把箱子搬去仓库", title="搬箱子", ts="2026-09-30T10:00:00")
+    _seed(tmp_path, "在杂草屋蹲了一下午", title="苔藓的约定", ts="2026-09-30T10:00:00")
+    eng = _engine(tmp_path, _ScriptedLLM())
+    seg = eng._look_result("阿露", "", "")                   # ⭐ 只给人名（另两格空）
+    assert "《搬箱子》" in seg, seg
+    assert "《苔藓的约定》" not in seg, "没挂他车道的不该进来"
+    assert "我社长" not in seg, "⛔ entity.text 不许在这儿再印一遍（brain 段常驻已有）"
+    assert "阿露" in seg, "结果头要回显她给的那个人名"
+    print("    look: `entity` = 筛他的事例（不印档案）")
+
+
+def test_entity_combines_with_clue_and_when_as_and(tmp_path):
+    """⭐ **三格 AND**（用户问的"entity: aru, clue: 便利屋"就是这个形状）。"""
+    _seed_with_person(tmp_path, "便利屋接了新委托", title="新委托", ts="2026-09-30T10:00:00")
+    _seed_with_person(tmp_path, "她请我吃了拉面", title="拉面", ts="2026-09-30T10:00:00")
+    _seed(tmp_path, "便利屋的大家在仓库", title="仓库", ts="2026-09-30T10:00:00")
+    eng = _engine(tmp_path, _ScriptedLLM())
+    seg = eng._look_result("阿露", "便利屋", "")
+    assert "《新委托》" in seg, seg                            # 人名 ∧ 线索
+    assert "《拉面》" not in seg, "人名对了但线索不对 ⇒ 不出"
+    assert "《仓库》" not in seg, "线索对了但没挂他车道 ⇒ 不出"
+    # 三格一起给（时间也收窄）
+    assert "《新委托》" in eng._look_result("阿露", "便利屋", "2026/09/30")
+    assert eng._look_result("阿露", "便利屋", "2026/09/15") == LOOK_EMPTY
+    print("    look: entity ∧ clue（∧ when）—— 给得越多越窄")
+
+
+def test_unresolvable_name_is_its_own_answer_and_does_not_count(tmp_path):
+    """⛔ **名字对不上 ≠ 翻空了**: 给她一句可行动的话, 而且**不计数**（不推进"劝停"档）。
+
+    ⚠️ 与时间认不出同款待遇: 那也不是"记忆里没有"。
+    """
+    _seed(tmp_path, "在杂草屋蹲了一下午", title="苔藓的约定", ts="2026-09-30T10:00:00")
+    eng = _engine(tmp_path, _ScriptedLLM())
+    assert eng._look_result("这个叫法不存在", "", "") == LOOK_EMPTY_ENTITY
+    assert eng._look_miss == 0, "认不出名字不算「翻空了」"
+    # 换个叫法仍能正常翻（她不会因为一次对不上就被劝停）
+    assert "《苔藓的约定》" in eng._look_result("", "苔藓", "")
+    print("    look: 名字认不出 ⇒ 自己那句（不计数）")
 
 
 # ---------------------------------------------------------------------------
@@ -223,14 +303,14 @@ def _engine(tmp_path, llm):
 
 def _look_text(eng) -> str:
     """直接调执行体（不起 LLM）—— 单元级验三级解析。"""
-    return eng._look_result("苔藓", "")
+    return eng._look_result("", "苔藓", "")
 
 
 def test_level1_title_hit_is_exact(tmp_path):
     """①级: 线索是**单个纯字面** ⇒ 先当**标题**精确查（一步到位）。"""
     _seed(tmp_path, "瓦片缝里的苔藓长得很好", title="瓦片缝里的苔藓", ts="2026-09-26T10:00:00")
     eng = _engine(tmp_path, _ScriptedLLM())
-    seg = eng._look_result("瓦片缝里的苔藓", "")
+    seg = eng._look_result("", "瓦片缝里的苔藓", "")
     assert "【你翻到的" in seg and "《瓦片缝里的苔藓》" in seg, seg
     assert "1 条" in seg, seg
     print("    ①级: 标题精确查（`normalize_title` 剥壳 ⇒ 抄整段元信息也认）")
@@ -240,7 +320,7 @@ def test_level1_still_obeys_when(tmp_path):
     """⭐ ①级**也要过 `when`** —— 否则"上周的《某条》"会把两周前那条当命中。"""
     _seed(tmp_path, "很久以前的事", title="瓦片缝里的苔藓", ts="2026-09-01T10:00:00")
     eng = _engine(tmp_path, _ScriptedLLM())
-    seg = eng._look_result("瓦片缝里的苔藓", "2026/09/25")
+    seg = eng._look_result("", "瓦片缝里的苔藓", "2026/09/25")
     assert "《瓦片缝里的苔藓》" not in seg, seg          # 标题在窗外 ⇒ 不算命中
     print("    ①级: 标题命中也要满足时间（锚是 AND）")
 
@@ -251,7 +331,7 @@ def test_level2_text_search_and_cap(tmp_path):
         _seed(tmp_path, f"苔藓的事第 {i} 件", title=f"苔藓 {i}",
               ts=f"2026-10-0{i % 8 + 1}T10:00:00")
     eng = _engine(tmp_path, _ScriptedLLM())
-    seg = eng._look_result("苔藓", "")
+    seg = eng._look_result("", "苔藓", "")
     assert "8 条" in seg, seg
     assert seg.count("\n- ") == 5, seg.count("\n- ")     # cap = 5
     assert "还有 3 条同类的事" in seg, seg
@@ -267,9 +347,9 @@ def test_level3_widening_is_for_points_only(tmp_path):
     _seed(tmp_path, "三周前的那件事", title="很久以前", ts="2026-09-17T10:00:00")
     eng = _engine(tmp_path, _ScriptedLLM())
     # 周期窗口不放宽 ⇒ 空就是空
-    assert eng._look_result("很久以前", "last 1 week") == LOOK_EMPTY
+    assert eng._look_result("", "很久以前", "last 1 week") == LOOK_EMPTY
     # 单点窗口 + ±2 天 ⇒ 够得到（9/15 ±2 = 9/13~9/17）
-    seg = eng._look_result("很久以前", "2026/09/15")
+    seg = eng._look_result("", "很久以前", "2026/09/15")
     assert "前后那阵子有" in seg and "《很久以前》" in seg, seg
     print("    ③级: 单点放宽命中（并说明「那阵子没有」）; 周期窗口**不放宽**")
 
@@ -282,7 +362,7 @@ def test_exact_window_wins_over_the_widened_one(tmp_path):
     _seed(tmp_path, "窗口里的事", title="正日子", ts="2026-09-15T10:00:00")
     _seed(tmp_path, "窗口外但在放宽范围内", title="隔壁那天", ts="2026-09-17T10:00:00")
     eng = _engine(tmp_path, _ScriptedLLM())
-    seg = eng._look_result("窗口", "2026/09/15")
+    seg = eng._look_result("", "窗口", "2026/09/15")
     assert "《正日子》" in seg and "《隔壁那天》" not in seg, seg
     assert "前后那阵子" not in seg, seg                  # 没放宽 ⇒ 不许说放宽的话
     print("    ③级: exact 有货 ⇒ 不放宽（range 是她问的, 不许静默扩大）")
@@ -292,11 +372,11 @@ def test_time_failures_are_human_and_never_widen(tmp_path):
     """⭐ 三种失败分得开, 且都**不破墙**（她的内心话, 没有"格式/引擎"这类词）。"""
     _seed(tmp_path, "苔藓的事", title="苔藓的约定", ts="2026-09-26T10:00:00")
     eng = _engine(tmp_path, _ScriptedLLM())
-    bad = eng._look_result("苔藓", "下周八")
+    bad = eng._look_result("", "苔藓", "下周八")
     assert bad == LOOK_EMPTY_TIME, bad                   # 认不出 ⇒ 不查（不静默放宽）
     assert "格式" not in bad and "引擎" not in bad
-    assert eng._look_result("苔藓", "2027/01/01") == LOOK_FUTURE
-    assert eng._look_result("找不到的词", "") == LOOK_EMPTY
+    assert eng._look_result("", "苔藓", "2027/01/01") == LOOK_FUTURE
+    assert eng._look_result("", "找不到的词", "") == LOOK_EMPTY
     print("    失败: 时间认不出 / 落在将来 / 查了没有 —— 三句各归各的")
 
 
@@ -310,7 +390,7 @@ def test_no_store_degrades_to_a_human_sentence(tmp_path, caplog):
     eng = MomoTalkEngine(ROOT / "config" / "characters", _ScriptedLLM())
     eng.start_session(CHARACTER)
     with caplog.at_level("WARNING", logger="core.mmt.engine"):
-        assert eng._look_result("苔藓", "") == LOOK_EMPTY
+        assert eng._look_result("", "苔藓", "") == LOOK_EMPTY
     assert not [r for r in caplog.records if r.levelname == "WARNING"], \
         [r.getMessage() for r in caplog.records]
     assert eng._look_miss == 0, "无 store 不计入「翻空了几次」"
@@ -327,22 +407,22 @@ def test_empty_look_counts_up_and_a_hit_resets(tmp_path):
     _seed(tmp_path, "苔藓的事", title="苔藓的约定", ts="2026-09-30T10:00:00")
     eng = _engine(tmp_path, _ScriptedLLM())
 
-    assert eng._look_result("找不到的词", "") == LOOK_EMPTY        # 第 1 次: 原句不动
+    assert eng._look_result("", "找不到的词", "") == LOOK_EMPTY        # 第 1 次: 原句不动
     assert eng._look_miss == 1
-    again = eng._look_result("找不到的词", "")
+    again = eng._look_result("", "找不到的词", "")
     assert again == look_empty(2) and "还是没想起来" in again       # 第 2 次: 给回忆方法
     assert "换个说法" in again and "不写时间" in again
-    third = eng._look_result("找不到的词", "")
+    third = eng._look_result("", "找不到的词", "")
     assert third == look_empty(3) and "连着 3 次" in third          # ≥3 次: 劝她停下
 
     # ⭐ 命中 ⇒ **归零**（下一次空手又从第 1 档算起）
-    assert "苔藓的约定" in eng._look_result("苔藓", "")
+    assert "苔藓的约定" in eng._look_result("", "苔藓", "")
     assert eng._look_miss == 0
-    assert eng._look_result("找不到的词", "") == LOOK_EMPTY
+    assert eng._look_result("", "找不到的词", "") == LOOK_EMPTY
 
     # ⚠️ 三种"不是记忆里没有"的 **不累加**: 时间认不出 / 落在将来 / （无 store 见上一条）
-    assert eng._look_result("苔藓", "下周八") == LOOK_EMPTY_TIME
-    assert eng._look_result("苔藓", "2027/01/01") == LOOK_FUTURE
+    assert eng._look_result("", "苔藓", "下周八") == LOOK_EMPTY_TIME
+    assert eng._look_result("", "苔藓", "2027/01/01") == LOOK_FUTURE
     assert eng._look_miss == 1, "时间类失败不该记成「翻空」"
     print("    look: 空手分档 1/2/≥3 + 命中归零 + 时间类不计数")
 
@@ -363,7 +443,7 @@ def test_look_ledger_and_trace(tmp_path, caplog):
     _seed(tmp_path, "苔藓的事", title="苔藓的约定", ts="2026-09-30T10:00:00")  # 上周内
     eng = _engine(tmp_path, _ScriptedLLM())
     with caplog.at_level("INFO", logger="core.mmt.engine"):
-        eng._look_result("苔藓", "上周")
+        eng._look_result("", "苔藓", "上周")
     # ⚠️ 只挑**引擎自己**那条（`find` 也会打一条含 `cand=` 的 INFO 行）——
     #    平时它被 logger 级别挡掉, 但**跨文件跑**时别处抬过全局级别, 它就会插到前面
     #    ⇒ 不筛 logger 的话"全量跑红、单独跑绿"（真踩过）。
