@@ -209,6 +209,33 @@ def test_skip_and_degrades_never_raise(tmp_path):
     print("    walk: skip 生效 · 空种子/坏图 ⇒ 空（不抛）")
 
 
+def test_width_caps_the_flood_from_a_big_class(tmp_path):
+    """⭐ **广度闸**: 一个 30 条的类不许把整段吃光 —— 每一跳最多收 `width` 条。
+
+    没有它会发生什么（这是"超级大群"的真实形状）:
+      · "同类兄弟"那一步一次带回 29 条（同分同跳）⇒ 她看到的由**渲染预算**先到先得,
+        依据只剩"新→旧";
+      · 两跳时**每个兄弟各自再展开** ⇒ 扇出平方放大; 台账那一行也会长到读不了。
+    ⚠️ 它会**漏**（与 `find` 的"不漏即正确"相反）⇒ 缺省 `None` 不裁, 由调用方给值。
+    """
+    st = _store(tmp_path)
+    seed = _ep(st, "seed", "2026-10-01T10:00:00")
+    g1 = st.add(make_node("experience", text="一大类", title="很大的一类",
+                          ts="2026-09-01T10:00:00"))
+    st.add_edge(REL_MEMBER_OF, seed, g1)
+    sibs = [_ep(st, f"s{i:02d}", f"2026-09-{i + 1:02d}T10:00:00") for i in range(29)]
+    for s in sibs:
+        st.add_edge(REL_MEMBER_OF, s, g1)
+    st.save()
+
+    assert len(bfs(st, {seed: S})) == 29, "缺省不裁（与没有这个参数逐字一致）"
+    got = bfs(st, {seed: S}, width=3)
+    assert len(got) == 3, got
+    assert [h.node_id for h in got] == sibs[-1:-4:-1], "同分同跳时要留**最新**的三条"
+    assert bfs(st, {seed: S}, width=0) == []
+    print("    walk: `width` 掐住大群（29 → 3, 同分取最新）")
+
+
 def test_neighbors_all_edges_mode_is_for_the_bench_only(tmp_path):
     """⚠️ `rels=None` = **全部边**（对照台用）: `about` 这时才进得来。"""
     st, ids = _seed_graph(tmp_path)
