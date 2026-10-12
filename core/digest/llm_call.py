@@ -65,7 +65,9 @@ def llm_chat(
         max_tokens = _tl_mt("digest")
     last_err: Exception | None = None
     for attempt in range(max_retries):
-        if deadline is not None and time.monotonic() > deadline:
+        if deadline is not None and time.monotonic() >= deadline:
+            # `>=` 而非 `>`: Windows 的 monotonic() 粒度约 15.6ms，deadline 恰好落在
+            # 当前 tick 时 `>` 恒为 False ⇒ 0 秒预算等于没有预检，调用照发。
             return None, "LLM 调用撞上时间预算"
         try:
             resp = llm.chat(
