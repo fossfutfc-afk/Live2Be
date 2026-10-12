@@ -11,11 +11,11 @@ prompt 占位替换/与 rules 的判据镜像防漂移。
 import sys
 from pathlib import Path
 
-from core.bond.place_annotate import _RESOLVE_CACHE, _clean_anchors, annotate_places, resolve_place  # noqa: E402
-from llm import task_labels as T  # noqa: E402
+from core.bond.place_annotate import _RESOLVE_CACHE, _clean_anchors, annotate_places, resolve_place
+from llm import task_labels as T
 from llm.prompts import load_prompt
 from llm.task_levels import max_tokens as tl_max_tokens
-from tests import stub_tasks  # noqa: E402
+from tests import stub_tasks
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 CHARACTER = "igusa_haruka"

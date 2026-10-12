@@ -19,10 +19,10 @@ import pytest
 
 from core.mmt.engine import MomoTalkEngine
 from core.session import SessionStore
-from llm import task_labels as T  # noqa: E402
-from tests import stub_tasks  # noqa: E402
-from tests.vn_fixtures import from_v1_scene as _rec  # noqa: E402
-from tests.vn_fixtures import scene  # noqa: E402
+from llm import task_labels as T
+from tests import stub_tasks
+from tests.vn_fixtures import from_v1_scene as _rec
+from tests.vn_fixtures import scene
 from webgui import bond, chat, deps
 
 ROOT = Path(__file__).resolve().parent.parent.parent

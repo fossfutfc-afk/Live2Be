@@ -17,7 +17,7 @@ import random
 import sys
 from pathlib import Path
 
-from core.creep import (  # noqa: E402
+from core.creep import (
     KIND_DIGEST_SKIP,
     KINDS,
     TYPE_CREEP,
@@ -26,10 +26,10 @@ from core.creep import (  # noqa: E402
     read_raw,
     record,
 )
-from core.creep.skeptical import POOLS  # noqa: E402
-from core.session import SessionStore, make_event  # noqa: E402
-from core.session.io import append_jsonl, read_jsonl  # noqa: E402
-from core.session.renderer import window_messages  # noqa: E402
+from core.creep.skeptical import POOLS
+from core.session import SessionStore, make_event
+from core.session.io import append_jsonl, read_jsonl
+from core.session.renderer import window_messages
 
 CHAR = "haruka"
 

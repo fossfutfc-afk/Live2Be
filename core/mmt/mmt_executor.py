@@ -50,7 +50,6 @@ from core.common import Live2BeError
 from core.parsing.dynamic_character_parser import (
     CharacterLoader,
     DynamicCharacter,
-    yaml_to_prompt,
 )
 
 # interperson.yml 默认路径（`core/paths.py` 的宏——项目根绝对, cwd 无关）

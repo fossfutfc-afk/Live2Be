@@ -31,7 +31,7 @@ from core.digest import rounds as R
 from core.digest.pipeline import DigestResult, digest_segment
 from core.digest.rounds import Cursor
 from core.session import make_event
-from llm import task_labels as T  # noqa: E402
+from llm import task_labels as T
 from tests import stub_tasks
 
 ROOT = Path(__file__).resolve().parent.parent.parent

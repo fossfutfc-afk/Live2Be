@@ -17,7 +17,7 @@ from core.director import Director, VisualState, build_director
 from core.media import MediaCatalog
 from llm import task_labels as T
 from tests import stub_tasks
-from tests.vn_fixtures import scene as _scene  # noqa: E402
+from tests.vn_fixtures import scene as _scene
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 _CHARACTER = "igusa_haruka"

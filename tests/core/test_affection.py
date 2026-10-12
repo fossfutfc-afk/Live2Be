@@ -16,7 +16,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from core.affection.affection_calc import (  # noqa: E402
+from core.affection.affection_calc import (
     MAX_LEVEL,
     MIN_EXP,
     MIN_LEVEL,

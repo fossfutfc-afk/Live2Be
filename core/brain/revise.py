@@ -20,8 +20,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
-from core.brain import notes as note_ops
-from core.brain.entities import SELF_ID, SENSEI_ID, find_entity, normalize_entity_tags, surface_forms
+from core.brain.entities import SELF_ID, SENSEI_ID, find_entity, normalize_entity_tags
 from core.brain.evolution import EvolutionLog
 from core.brain.graph import (
     REL_ABOUT,
@@ -35,7 +34,6 @@ from core.brain.nodes import (
     BrainNode,
     make_node,
 )
-from core.brain.notes import NotesState
 from core.brain.store import WikiStoreV2
 from core.common import err
 

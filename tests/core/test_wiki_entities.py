@@ -8,8 +8,8 @@
 import pathlib
 import sys
 
-from core.brain import WikiStoreV2, make_node  # noqa: E402
-from core.brain.entities import (  # noqa: E402
+from core.brain import WikiStoreV2, make_node
+from core.brain.entities import (
     SELF_ID,
     SENSEI_ID,
     candidate_table,
@@ -17,7 +17,7 @@ from core.brain.entities import (  # noqa: E402
     hit_set,
     payload_block,
 )
-from core.brain.nodes import KINDS, BrainNode  # noqa: E402
+from core.brain.nodes import KINDS, BrainNode
 
 
 def _store(tmp_path) -> WikiStoreV2:

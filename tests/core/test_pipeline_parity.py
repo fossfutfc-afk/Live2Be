@@ -42,8 +42,8 @@ import logging
 import sys
 from pathlib import Path
 
-from contract import IssueCode  # noqa: E402
-from core.bond.bond_story import (  # noqa: E402
+from contract import IssueCode
+from core.bond.bond_story import (
     MAX_BOARDS_PER_TURN,
     BondStoryEngine,
     SceneLoopError,

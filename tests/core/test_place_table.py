@@ -14,7 +14,7 @@ import json
 import sys
 from pathlib import Path
 
-from core.media import place_table as pt  # noqa: E402
+from core.media import place_table as pt
 
 
 def _table() -> pt.PlaceTable:

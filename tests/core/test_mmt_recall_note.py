@@ -27,11 +27,11 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from core.brain import WikiStoreV2, make_node  # noqa: E402
-from core.mmt.engine import MomoTalkEngine  # noqa: E402
-from core.session.store import SessionStore  # noqa: E402
-from llm import task_labels as T  # noqa: E402
-from tests import stub_tasks  # noqa: E402
+from core.brain import WikiStoreV2, make_node
+from core.mmt.engine import MomoTalkEngine
+from core.session.store import SessionStore
+from llm import task_labels as T
+from tests import stub_tasks
 
 ROOT = Path(__file__).resolve().parents[2]
 CHARACTER = "igusa_haruka"

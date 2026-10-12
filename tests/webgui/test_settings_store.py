@@ -11,8 +11,8 @@ from pathlib import Path
 
 import pytest
 
-from webgui import chat, store  # noqa: E402
-from webgui.routers.settings import SettingsIn, post_settings  # noqa: E402
+from webgui import chat, store
+from webgui.routers.settings import SettingsIn, post_settings
 
 
 @pytest.fixture(autouse=True)

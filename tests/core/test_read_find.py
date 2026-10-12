@@ -18,8 +18,8 @@ from pathlib import Path
 
 import pytest
 
-from core.brain import WikiStoreV2, make_node  # noqa: E402
-from core.brain.read.find import ANCHORS, Clue, ClueError, compile_clue, find  # noqa: E402
+from core.brain import WikiStoreV2, make_node
+from core.brain.read.find import ANCHORS, Clue, ClueError, compile_clue, find
 
 ROOT = Path(__file__).resolve().parents[2]
 FIND_PY = ROOT / "core" / "brain" / "read" / "find.py"

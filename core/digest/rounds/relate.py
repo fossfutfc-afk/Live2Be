@@ -57,7 +57,7 @@ import logging
 
 from core.brain.read.render import render_cognition_list
 from core.brain.revise import apply_relations
-from core.digest.material import _episode_candidates, _node_texts, _round_b_material
+from core.digest.material import _episode_candidates, _round_b_material
 from core.digest.rounds.base import Ctx, RoundOut
 
 logger = logging.getLogger(__name__)

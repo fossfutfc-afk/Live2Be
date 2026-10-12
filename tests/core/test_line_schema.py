@@ -15,11 +15,11 @@ import json
 import pathlib
 import sys
 
-from contract.constants import APPROVAL_AUTO  # noqa: E402
-from contract.registry import ActionRegistry  # noqa: E402
-from contract.schema import build_line_schema  # noqa: E402
-from contract.spec import ActionSpec  # noqa: E402
-from core.mmt.mmt_actions import build_mmt_registry  # noqa: E402
+from contract.constants import APPROVAL_AUTO
+from contract.registry import ActionRegistry
+from contract.schema import build_line_schema
+from contract.spec import ActionSpec
+from core.mmt.mmt_actions import build_mmt_registry
 
 #: 独占动作（`mmt_check` 判 `mmt.exclusive-violation`）—— ⚠️ **今天只有一款口径**:
 #: **唯一操作行**（trigger 式）—— 话可以写在它前面, 它自己放最后一行。

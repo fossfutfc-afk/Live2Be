@@ -12,12 +12,12 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from core.worldtime import (  # noqa: E402
+from core.worldtime import (
     phone_date_note,
     real_gap_note,
     time_notes,
 )
-from core.worldtime.prompt_time import WEEKDAYS, phone_date  # noqa: E402
+from core.worldtime.prompt_time import WEEKDAYS, phone_date
 
 # ---------------------------------------------------------------------------
 

@@ -25,7 +25,7 @@ from pathlib import Path
 
 import pytest
 
-from core.brain import (  # noqa: E402
+from core.brain import (
     KIND_PRIOR,
     KIND_SIMILARITY,
     ChannelHit,
@@ -34,13 +34,13 @@ from core.brain import (  # noqa: E402
     WikiStoreV2,
     compose,
     make_node,
-    recall_ledger,  # noqa: E402
+    recall_ledger,
     recall_now,
 )
-from core.brain.read.channel_impl import build_channels  # noqa: E402
-from core.brain.read.channels import KIND_GATE, SCALE_COSINE, SCALE_UNIT  # noqa: E402
-from core.common import fuse as shapes  # noqa: E402
-from core.media import place_fuse as pf  # noqa: E402
+from core.brain.read.channel_impl import build_channels
+from core.brain.read.channels import KIND_GATE, SCALE_COSINE, SCALE_UNIT
+from core.common import fuse as shapes
+from core.media import place_fuse as pf
 
 # ---------------------------------------------------------------------------
 # 构造器

@@ -13,8 +13,8 @@
 import pathlib
 import sys
 
-from core.mmt.mmt_actions import build_mmt_registry  # noqa: E402
-from core.mmt.mmt_lines import (  # noqa: E402
+from core.mmt.mmt_actions import build_mmt_registry
+from core.mmt.mmt_lines import (
     KIND_ACTION,
     KIND_TEXT,
     MmtLine,

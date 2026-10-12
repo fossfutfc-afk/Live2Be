@@ -17,8 +17,8 @@ from pathlib import Path
 
 import pytest
 
-from core.media import place_fuse as pf  # noqa: E402
-from core.media.place_table import load_table  # noqa: E402
+from core.media import place_fuse as pf
+from core.media.place_table import load_table
 
 # ---------------------------------------------------------------------------
 # ① 形状

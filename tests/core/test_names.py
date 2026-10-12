@@ -10,10 +10,10 @@ import sys
 import pytest
 import yaml
 
-from core import paths  # noqa: E402
-from core.parsing.dynamic_character_parser import CharacterLoader  # noqa: E402
-from core.parsing.names import char_names, names_of, speaker_names  # noqa: E402
-from core.parsing.player_profile import (  # noqa: E402
+from core import paths
+from core.parsing.dynamic_character_parser import CharacterLoader
+from core.parsing.names import char_names, names_of, speaker_names
+from core.parsing.player_profile import (
     ERR_INCOMPLETE,
     load_player_profile,
     player_names,

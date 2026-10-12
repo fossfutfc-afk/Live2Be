@@ -25,8 +25,6 @@
 
 from __future__ import annotations
 
-import json
-import time
 
 from contract import NON_PICKS
 from core.director.wiring import _trigger_title  # C11: 接线层（此前借道 apps.vn_cli）
@@ -34,7 +32,7 @@ from core.session.chapters import replayable_chapters
 from core.session.events import M_VN_EXIT, is_board_event, pick_supplements
 from core.session.maintenance import abandoned_ranges
 from core.session.staging import staging_store
-from webgui import chat, deps  # chat: 取内存态章节标题（_enter_title）
+from webgui import chat  # chat: 取内存态章节标题（_enter_title）
 from webgui.bond.state import (
     BondState,
     _state,

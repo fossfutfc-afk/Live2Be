@@ -13,8 +13,8 @@ import sys
 
 import pytest
 
-from core.brain import WikiStoreV2  # noqa: E402
-from core.brain.graph import (  # noqa: E402
+from core.brain import WikiStoreV2
+from core.brain.graph import (
     REL_ABOUT,
     REL_CONTRADICTS,
     REL_SUPPORTS,
@@ -26,7 +26,7 @@ from core.brain.graph import (  # noqa: E402
     infer_edges,
     iter_edges,
 )
-from core.brain.nodes import BrainNode  # noqa: E402
+from core.brain.nodes import BrainNode
 
 
 def _row(nid: str, kind: str, *, links=(), contradictions=(), ts="") -> dict:

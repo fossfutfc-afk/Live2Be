@@ -8,7 +8,7 @@
 import sys
 from pathlib import Path
 
-from contract.records import (  # noqa: E402
+from contract.records import (
     CHARACTER_NARRATOR,
     CHARACTER_SENSEI,
     ISSUE_SEVERITY,
@@ -480,8 +480,8 @@ def test_board_split_batch_stream_equivalence():
     （群后 switch / 超长群 / 群中 switch / 群结尾 / art+memorial）逐板比对,
     含 `place_hint`, 防的是"以后改一边忘了另一边"。
     """
-    from contract.records import MAX_SENSEI_RUN, STAGE_ART, BlockStreamParser  # noqa: E402
-    from core.bond.bond_story import BondScene, _board_spans  # noqa: E402
+    from contract.records import MAX_SENSEI_RUN, STAGE_ART, BlockStreamParser
+    from core.bond.bond_story import BondScene, _board_spans
 
     S = lambda t: '{"stage": "switch", "text": "%s"}' % t          # noqa: E731
     C = lambda c, t: '{"character": "%s", "text": "%s"}' % (c, t)  # noqa: E731

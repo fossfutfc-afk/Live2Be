@@ -31,21 +31,14 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable, Iterable
-from dataclasses import dataclass, field
-from enum import Enum
+from collections.abc import Callable
 from pathlib import Path
 
 from contract import (
     CHARACTER_NARRATOR,
     KIND_CHARACTER,
-    MAX_SENSEI_RUN,
-    NON_PICKS,
     STAGE_ART,
-    STAGE_END,
-    STAGE_EXIT,
     STAGE_MEMORIAL,
-    STAGE_SWITCH,
     BlockStreamParser,
     Issue,
     IssueCode,
@@ -55,7 +48,6 @@ from contract import (
     check_block,
     check_board,
     format_issues,
-    sensei_groups,
     split_issues,
 )
 from core.bond import place_cues  # 换场线索词（PL3 预筛）
@@ -70,7 +62,7 @@ from core.bond.bond_story.scene import (
 )
 from core.bond.place_annotate import annotate_places, resolve_place
 from core.bond.variant_annotate import pick_image  # 第二遍: 选图（时刻/差分）
-from core.common import Live2BeError, err
+from core.common import err
 from core.media.emotion_lexicon import (
     assets_root,
     build_emotion_injection,
