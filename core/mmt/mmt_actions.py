@@ -204,6 +204,17 @@ def build_mmt_registry() -> MMTActionRegistry:
             "传 video 会被拒绝）\n"
             "附带的话**另起一行消息行**（操作行不上屏, 只负责把图发出去）"
         ),
+        # ⛔ **封印（2026-10-12 用户裁: *"动作提示词被注入了，可以暂时先删掉/注释掉"*）**:
+        # 媒体管线还没接 —— 执行层只回"[图片占位]"、前端没有渲染分支, 而契约在承诺
+        # "先查资源库…就发"（AUDIT B10 记过这条"端到端 no-op"）⇒ 先把这座承诺**从
+        # prompt 上收掉**（动作表不列、payload 描述不印）。
+        # ⚠️ **只管"她看不看得见"**: 解析 / 校验 / 执行**一律照旧**（她万一还是写了,
+        # 走老路: `repair_send_media` → `parse` → 执行占位, 不炸）。
+        # ⏭ **恢复** = 这一格改回 `True` + **同批**改回: `momotalk_rules.md` 三处
+        # （【说话与做事】的"发图" / 操作使用时机的"发图片 →" / trigger 段的"不能再夹发图"）
+        # · `momotalk_environment.md` 两处（"文字 + 图片" / "图片 → 用 mmt_send_media 发"）
+        # · `build_line_schema` 的示例（"话 → 图 → 话"那一段）+ 刷 promptkit 夹具。
+        in_prompt=False,
     ))
     registry.register(ActionSpec(
         "mmt_trigger_bond_story",

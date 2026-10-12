@@ -31,7 +31,7 @@ class ActionSpec:
 
     __slots__ = (
         "name", "parse_payload", "approval", "validate",
-        "prompt_fields", "payload_schema",
+        "prompt_fields", "payload_schema", "in_prompt",
     )
 
     def __init__(
@@ -43,6 +43,7 @@ class ActionSpec:
         *,
         prompt_fields: frozenset[str] | None = None,
         payload_schema: str = "",
+        in_prompt: bool = True,
     ):
         """
         Args:
@@ -54,6 +55,11 @@ class ActionSpec:
                 默认 = 全集（写动作需要 sources/basis 追溯）。
                 运行时动作应传 RUNTIME_SHELL_FIELDS。
             payload_schema: 给 LLM 看的 payload 字段描述（build_schema 输出用）
+            in_prompt: ⭐ **封印位**（2026-10-12）: `False` = **不进 prompt**（动作表不列、
+                payload 描述不印）—— 用于"引擎还没兑现、先在 prompt 上收掉"的动作。
+                ⛔ **它只管"她看不看得见"**: 解析 / 校验 / 执行**一律照旧**
+                （她万一还是写了, 走老路, 不炸 —— 见 `core/mmt/mmt_actions.py` 的用例）。
+                恢复 = 把这一格改回 `True`（+ 同批改回规则书/环境/示例）。
         """
         if not isinstance(name, str) or not name.strip():
             raise ValueError(err("BadName", "动作名必须是非空字符串"))
@@ -70,3 +76,4 @@ class ActionSpec:
         if "action" not in self.prompt_fields:
             raise ValueError(err("MissingActionField", "prompt_fields 必须包含 action"))
         self.payload_schema = payload_schema
+        self.in_prompt = bool(in_prompt)

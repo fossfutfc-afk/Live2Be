@@ -129,7 +129,7 @@ def build_line_schema(registry: ActionRegistry, *, with_examples: bool = True) -
         '和我记得的某一条是同一件事"时记一笔',
         "",
         "硬规则（形状不对的行会被丢掉; 操作行不对会被要求重发）:",
-        "1. 一行一个完整 JSON 对象；三类行可以任意交错（话→图→话 的节奏没问题）。",
+        "1. 一行一个完整 JSON 对象；三类行可以任意交错（一行接一行地说下去没问题）。",
         "2. **气泡粒度由你定**：想连发就写多条消息行（一条行 = 独立的一条手机消息）——"
         "**一条行可以只是半句话**（不必凑成完整句子，行末也不必加标点）。",
         '3. 话里的半角双引号与反斜杠必须转义（写成 \\" 与 \\\\）——这是最常见的错误。',
@@ -142,7 +142,7 @@ def build_line_schema(registry: ActionRegistry, *, with_examples: bool = True) -
         "",
         "可用操作:",
     ]
-    for name in registry.action_names():
+    for name in registry.prompt_action_names():          # ⭐ 封印的动作不进 prompt（`in_prompt`）
         spec = registry.spec(name)
         note = _APPROVAL_NOTES.get(spec.approval, spec.approval)
         lines.append(f"  - {name}  [{note}]")
@@ -153,10 +153,8 @@ def build_line_schema(registry: ActionRegistry, *, with_examples: bool = True) -
     lines.append("")
     if with_examples:
         lines += [
-            "示例（话 → 发图 → 话；第 3 行演示转义引号）:",
+            "示例（第 2 行演示转义引号）:",
             '    {"text": "老师你看这个！"}',
-            '    {"action": "mmt_send_media",'
-            ' "payload": {"image": "天台拍到的夕阳", "media_type": "image"}}',
             '    {"text": "他说 \\"好看\\" 的时候，我才真的放心了。"}',
             "",
             "连发那一种（一次回复四行 = 四个气泡；每条不必是完整句子、行末不必加标点）:",
