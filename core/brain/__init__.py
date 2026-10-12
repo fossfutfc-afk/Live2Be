@@ -28,9 +28,11 @@
         compose.py       **最终打分**（四条道路合成 = 调和平均 rel×prior）✅ 2026-09-20
         recall_config.py 召回旋钮（settings.toml [recall]）          ✅ V3-0
         recall_ledger.py 召回台账（写路径候选碰撞 / 读路径注入视图）  ✅ V3-0
-        walk.py   记忆图上的**联想扩散**（BFS; ⛔ **未接线** —— 用户
-                  2026-10-12 裁"先写一个接口, 不调用但需要有"; 接线时
-                  给 `near`/`echo` 两行形式用）                      ⏸ 接口
+        walk.py   记忆图上的两种走法（⛔ **未接线** —— 用户 2026-10-12 裁
+                  "先写一个接口, 不调用但需要有"）: `bfs` = **找同类**
+                  （akin/member_of 横向扩散, 有分/深度/广度闸）·
+                  `chain` = **深挖**（evolved_from/contradicts 纵向 DFS,
+                  来路+方向, 已访问集防环）                    ⏸ 接口
     seed.py    （2026-09-05 出厂链归档——seed_from_config 不再导出,
                主进程解耦; 本体已移 archive/factory_memory/）
 

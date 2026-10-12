@@ -24,8 +24,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from core.brain import WikiStoreV2, make_node                       # noqa: E402
-from core.brain.graph import REL_AKIN, REL_MEMBER_OF                # noqa: E402
-from core.brain.read.walk import DECAY, NARROW, bfs, neighbors      # noqa: E402
+from core.brain.graph import (REL_AKIN, REL_CONTRADICTS,            # noqa: E402
+                              REL_EVOLVED_FROM, REL_MEMBER_OF)
+from core.brain.read.walk import (DECAY, DEEP, NARROW, bfs, chain,  # noqa: E402
+                                  neighbors)
+
+import pytest                                                       # noqa: E402
 
 CHAR = "igusa_haruka"
 
@@ -234,6 +238,100 @@ def test_width_caps_the_flood_from_a_big_class(tmp_path):
     assert [h.node_id for h in got] == sibs[-1:-4:-1], "同分同跳时要留**最新**的三条"
     assert bfs(st, {seed: S}, width=0) == []
     print("    walk: `width` 掐住大群（29 → 3, 同分取最新）")
+
+
+# ---------------------------------------------------------------------------
+# ⭐ 深挖（DFS）: `chain` —— 找同类之外的另一种记忆机制
+# ---------------------------------------------------------------------------
+
+def _deep_graph(tmp_path):
+    """看法进化链 + 一串矛盾 + **一个环**:
+
+        b1 ──evolved_from──> b2 ──evolved_from──> b3      （新 → 旧）
+        b1 ──contradicts─── b4 ──contradicts─── b5
+        b4 ──contradicts─── b1                            ⇒ **环**（b1—b4—b5—b1… 不许转不出来）
+        m1 ──about──> who                                 （⛔ 深挖不许走 about）
+    """
+    st = WikiStoreV2(tmp_path, world_id="world1", char_id=CHAR)
+    b = {t: st.add(make_node("belief", text=f"{t} 的正文", ts=f"2026-10-0{i}T10:00:00"))
+         for i, t in enumerate(("b1", "b2", "b3", "b4", "b5"), start=1)}
+    st.add_edge(REL_EVOLVED_FROM, b["b1"], b["b2"])          # 新 → 旧
+    st.add_edge(REL_EVOLVED_FROM, b["b2"], b["b3"])
+    st.add_edge(REL_CONTRADICTS, b["b1"], b["b4"])           # 对称
+    st.add_edge(REL_CONTRADICTS, b["b4"], b["b5"])
+    who = st.add(make_node("entity", name="某个人", text=""))
+    m1 = _ep(st, "m1", "2026-09-01T10:00:00")
+    st.add_edge("about", m1, who)
+    st.save()
+    b["who"] = who
+    b["m1"] = m1
+    return st, b
+
+
+def test_chain_walks_the_evolution_line_and_reports_the_direction(tmp_path):
+    """⭐ 深挖一条**看法进化链**: 一路往回挖, 每一步都带**来路**与**方向**。"""
+    st, b = _deep_graph(tmp_path)
+    got = chain(st, b["b1"], rels=(REL_EVOLVED_FROM,))
+    assert [(x.node_id, x.depth, x.via, x.rel, x.forward) for x in got] == [
+        (b["b1"], 0, "", "", True),                          # ⭐ 链头自己在（一条链含第一节）
+        (b["b2"], 1, b["b1"], REL_EVOLVED_FROM, True),
+        (b["b3"], 2, b["b2"], REL_EVOLVED_FROM, True),
+    ], got
+    # 从最旧的那头出发 ⇒ 挖到的是"谁盖过了它" —— 方向如实报成 False, ⛔ 不替她决定
+    back = chain(st, b["b3"], rels=(REL_EVOLVED_FROM,))
+    assert [x.node_id for x in back] == [b["b3"], b["b2"], b["b1"]], back
+    assert all(x.forward is False for x in back[1:]), back
+    print("    walk: 深挖进化链（来路 + 方向都带出去）")
+
+
+def test_chain_survives_a_cycle_and_visits_each_node_once(tmp_path):
+    """⛔⭐ **已访问集是安全件**: `contradicts` 对称 ⇒ 环在真图里完全可能, 少了它就是**死循环**。"""
+    st, b = _deep_graph(tmp_path)
+    got = chain(st, b["b1"], rels=(REL_CONTRADICTS,))
+    ids = [x.node_id for x in got]
+    assert ids[0] == b["b1"] and sorted(ids) == sorted([b["b1"], b["b4"], b["b5"]]), ids
+    assert len(ids) == len(set(ids)), "一个节点只许进一次"
+    print(f"    walk: 环上不转圈（{len(ids)} 个节点各一次）")
+
+
+def test_chain_order_is_deterministic_and_rel_driven(tmp_path):
+    """链的走法必须**确定**: 先按 `rels` 给的顺序, 同 rel 内新→旧。"""
+    st, b = _deep_graph(tmp_path)
+    # 缺省 DEEP 的顺序 = (evolved_from, contradicts) ⇒ 先挖完进化那条, 再回来挖矛盾那条
+    got = chain(st, b["b1"])
+    assert [x.node_id for x in got] == [b["b1"], b["b2"], b["b3"], b["b4"], b["b5"]], got
+    assert [x.rel for x in got][1:] == [REL_EVOLVED_FROM, REL_EVOLVED_FROM,
+                                        REL_CONTRADICTS, REL_CONTRADICTS]
+    # 换个顺序 ⇒ 走法跟着换（说明它真是"由 rels 驱动"的, 不是碰巧）
+    swapped = chain(st, b["b1"], rels=(REL_CONTRADICTS, REL_EVOLVED_FROM))
+    assert [x.node_id for x in swapped][:3] == [b["b1"], b["b4"], b["b5"]], swapped
+    print("    walk: 链的走法由 `rels` 决定（确定、可复现）")
+
+
+def test_chain_bounds_skip_and_refusals(tmp_path):
+    """深度上限 / `skip` / ⛔ `rels=None` 当场炸 / 空 start / 坏图 ⇒ 各自的行为。"""
+    st, b = _deep_graph(tmp_path)
+    assert [x.node_id for x in chain(st, b["b1"], rels=(REL_EVOLVED_FROM,),
+                                     max_depth=1)] == [b["b1"], b["b2"]]
+    got = chain(st, b["b1"], rels=(REL_EVOLVED_FROM,), skip=(b["b1"], b["b3"],))
+    assert [x.node_id for x in got] == [b["b2"]], "skip 只挡结果; 链头不摆但**照样从它出发**"
+    with pytest.raises(ValueError):
+        chain(st, b["b1"], rels=None)                        # ⛔ 深挖没有"走全部边"这回事
+    assert chain(st, "", rels=(REL_EVOLVED_FROM,)) == []
+    assert chain(st, b["b1"], rels=()) == []
+    assert chain(st, b["b1"], rels=(REL_EVOLVED_FROM,), max_depth=-1) == []
+
+    class Broken:
+        def get(self, _nid):                                 # pragma: no cover - 只验不抛
+            return None
+
+        def all(self):
+            return []
+
+    assert chain(Broken(), "b1") == []
+    # ⛔ 深挖不许走 about（那是"找同类"那一侧的对照台用法; 掺进来就退化成一坨）
+    assert all(x.node_id != b["who"] for x in chain(st, b["m1"])), "about 不该被深挖走到"
+    print("    walk: 深度上限 / skip / `rels=None` 当场炸 / 坏图不抛")
 
 
 def test_neighbors_all_edges_mode_is_for_the_bench_only(tmp_path):
