@@ -106,7 +106,9 @@
 
 ## 5. 环境/本机
 
-- 代理 `127.0.0.1:7897`；**git 推送要** `git -c http.proxy= -c https.proxy= push origin master`。
+- 代理 `127.0.0.1:7897`；⚠️ **git 推送现在必须走代理**（2026-10-12 实测：直连
+  `-c http.proxy= -c https.proxy=` 报 `Recv failure: Connection was reset`）：
+  `git -c http.proxy=http://127.0.0.1:7897 -c https.proxy=http://127.0.0.1:7897 push origin master`。
 - LM Studio（`lms server start`，端口 1235）只在 **digest 语义召回**时要 —— 不在就静默降级
   （`digest_embed fn=none`，候选退化成字面命中；grep 这行能分辨）。
 - 生图默认硬关（`tests/conftest.py` 设 `LIVE2BE_IMAGE=off`）；真机数据在 `data/`（**只读**）。
