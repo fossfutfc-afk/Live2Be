@@ -107,11 +107,13 @@ class BrainNode:
     #: ⇒ **"这条是不是听说的"就由这个字段判**（读侧只此一处判据, 不再有第二个真源）。
     observer: str = ""
     tags: list[str] = field(default_factory=list)
-    #: ⭐ **这条经历"关于什么"** —— 1~3 个**具体的东西**（人 / 地方 / 物件 / 事情）。
-    #: 它是"同类的事"认亲的把手: L1 的 `akin` 要求 `on` ∈ 两端 `topics` 的**交集**
-    #: （传递只在同值内 ⇒ 挡链式膨胀）。
-    #: ⚠️ 与 `tags` **分工不同**: tags = **检索导向**的词（"以后可能被提到的词"）,
-    #: `topics` = **轴上的具体东西**（不写泛词 —— 泛词分不出类）。
+    #: ⏸ **`topics`（"这条经历关于什么"的轴）2026-10-14 停产**（用户裁"退役"）——
+    #: 零写者: 契约不再要它（`contract/digest/prompts/record.md`）, `parse` 也不再登记
+    #: （白名单外的键静默不落库）。当年它是"同类的事"认亲的把手（L1 的 `akin` 要求
+    #: `on` ∈ 两端 `topics` 的交集）, 而真机上大半是空的 + 有值的三条互相不共轴 ⇒
+    #: 挑候选改走 `like(spec="digest")`（语义/字面打分, 见 `digest.material`）。
+    #: ⚠️ **字段留着是"停产不删格式"**（同 `profile`）: 老档那几格还读得回来, ⛔ 别再给它
+    #: 添写者 —— 要复活先想清"谁来判这两个词是一回事"（`on` 那道校验就是这么塌的）。
     topics: list[str] = field(default_factory=list)
     event_seq: list[int] = field(default_factory=list)
     ts: str = ""

@@ -92,7 +92,7 @@ def test_digest_runs_cognize_after_group(tmp_path):
     st = _store(tmp_path)
     a, old = _linked_pair(st)
     llm = RoundLLM(a={"episodes": [{"text": "老师约我去咖啡厅吃甜点", "title": "咖啡厅的甜点",
-                                    "tags": ["咖啡厅"], "topics": ["咖啡厅"]}]},
+                                    "tags": ["咖啡厅"]}]},
                    group={"attach": [], "new": [{"block": "b1", "title": "甜点的那些事"}],
                           "merge": []},
                    cognize={"cognitions": [
@@ -183,7 +183,7 @@ def test_cognize_evidence_is_what_the_material_printed(tmp_path):
     st.add_edge(REL_MEMBER_OF, a, gid, ts=_NOW)
     st.save()
     llm = RoundLLM(a={"episodes": [{"text": "老师约我去咖啡厅吃甜点", "title": "咖啡厅的甜点",
-                                    "tags": ["咖啡厅"], "topics": ["咖啡厅"]}]},
+                                    "tags": ["咖啡厅"]}]},
                    cognize={"cognitions": [
                        {"belief": {"text": "甜点这件事她记了很久"},
                         "supports": [a, old]}]},          # ⭐ 老经历照引

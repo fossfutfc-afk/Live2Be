@@ -71,7 +71,7 @@ def _store(tmp_path) -> WikiStoreV2:
 
 def _episode(tags, text="第一次见到小玉", title="转角的相遇"):
     return {"text": text, "title": title, "tags": tags, "significance": 0.6,
-            "topics": ["转角"]}
+            }
 
 
 def _mmt(seq, reply="嗯"):
@@ -121,7 +121,7 @@ def test_no_reference_no_stranger_no_call(tmp_path):
     """
     st = _store(tmp_path)
     llm = RoundLLM(a={"episodes": [{"text": "一个人在屋顶坐着, 天很蓝。", "title": "屋顶",
-                                    "tags": ["屋顶"], "topics": ["屋顶"]}]},
+                                    "tags": ["屋顶"]}]},
                    split=_one_slice())
     res = digest_segment(st, llm, [_mmt(3)])
 
