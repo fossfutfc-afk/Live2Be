@@ -15,12 +15,10 @@ from contract.digest import (
     PHASE_RECORD,
     PHASE_RELATE,
     PHASE_SPLIT,
-    PHASE_UNDERSTAND,
     RELATION_ACTIONS,
     RELATION_ANCHORS,
     STATE_VALUES,
     TOPICS_MAX,
-    TOUCH,
     DigestRegistry,
     digest_registry,
     fill,
@@ -419,8 +417,7 @@ def test_the_output_discipline_lives_only_in_the_contract():
                 f"{path.name} 又抄了一遍输出纪律: {rule!r} —— 它只该住契约层"
                 "（`contract.digest.OUTPUT_RULES`）。")
 
-    for phase in (PHASE_SPLIT, PHASE_RECORD,
-                  PHASE_UNDERSTAND, PHASE_ATTRIBUTE, PHASE_GROUP):
+    for phase in (PHASE_SPLIT, PHASE_RECORD, PHASE_ATTRIBUTE, PHASE_GROUP):
         assert OUTPUT_DISCIPLINE in digest_registry.build_schema(phase), (
             f"{phase} 相位的 schema 里没有输出纪律 —— 那句话现在谁都不说了。")
 
@@ -443,22 +440,10 @@ def test_schema_record_phase():
     assert "【范例】" in text
 
 
-def test_schema_understand_phase():
-    text = digest_registry.build_schema(PHASE_UNDERSTAND)
-    assert '"decisions": [' in text
-    for name in ("touch", "update", "add"):
-        assert f"【{name} 释义】" in text
-    # ⭐ 2026-09-29: `evidence` 退役 —— schema 里**不许再出现它**（防契约键名的回音长回来）
-    # ⭐ 2026-10-05（M1）: `affection_exp_delta` 也**搬走了**（归 record 相位）
-    assert "evidence" not in text and "affection_exp_delta" not in text
-    assert "编造 id → 整包拒" in text
-    assert "疑似印证" in text
-
-
 def test_actions_by_phase():
     assert {a.name for a in digest_registry.actions(PHASE_RECORD)} == {"record_episode"}
-    assert {a.name for a in digest_registry.actions(PHASE_UNDERSTAND)} == {
-        "touch", "update", "add"}
+    assert {a.name for a in digest_registry.actions(PHASE_RELATE)} == {
+        "supports", "akin", "contradicts", "evolved_from"}
     assert digest_registry.actions()  # 全量非空
 
 
@@ -474,7 +459,7 @@ def test_record_phase_demands_exactly_one_document():
     返回 `None`，报出来是一句难懂的 `AttributeError`，看不出是哪份契约缺了。
     现在按**相位**取，缺了/多了都当场点名。
     """
-    reg = DigestRegistry(actions=(TOUCH,))           # 故意不含 record_episode
+    reg = DigestRegistry(actions=())                 # 故意不含 record_episode
     with pytest.raises(ValueError, match="record 相位该恰好 1 份文档"):
         reg.build_schema(PHASE_RECORD)
     print("    build_schema: record 相位缺文档 → 明确报错（不是 AttributeError）")
@@ -489,15 +474,13 @@ def test_affection_lives_in_the_record_phase_only():
 
     两处判据一起钉:
       · **判据（打分档位）在契约里** —— 不许只在 prompt 里说（文体五条 #1）;
-      · **只有一份** —— 它从 understand 相位**搬走**了, 不是抄一份（抄 = 迟早两套尺子）。
+      · **只有一份** —— 它是从 R2 相位**搬过来**的, 不是抄一份（抄 = 迟早两套尺子）。
     """
     from llm.prompts import load_prompt
 
     rec = digest_registry.build_schema(PHASE_RECORD)
-    und = digest_registry.build_schema(PHASE_UNDERSTAND)
     assert "affection_exp_delta" in rec
     assert "0~10" in rec and "负值" in rec                 # 档位与负值判据都在契约层
-    assert "affection_exp_delta" not in und, "R2 那一格已经不是好感的家了"
 
     # ⭐ "不必都写"（M1 顺手加的那一句）: 骨架**不是硬双射**
     assert "也不必都写" in rec and "不是硬性一一对应" in rec
@@ -775,230 +758,6 @@ def test_round_a_emo_clamped_and_bad_ignored():
         for f in ("emo_int", "emo_span", "emo_valence"):
             assert f not in items[0], f"{bad!r} 的 {f} 应被忽略而非折成 0.0"
     print("    emo_*: 越界夹紧（span 负值→0） / 坏值忽略（不折 0.0, 不整条丢）")
-
-
-# ---------------------------------------------------------------------------
-# Round B parse
-# ---------------------------------------------------------------------------
-
-def test_round_b_valid_decisions():
-    raw = {"decisions": [
-        {"episode": "m0001", "decision": "touch", "target": "u0001"},
-        {"episode": "m0002", "decision": "update", "target": "u0002",
-         "patch": {"text": "新表述", "significance": 0.9}},
-        {"episode": "m0003", "decision": "add", "kind": "belief",
-         "subject": "我对老师的信任", "text": "老师是第一个不嫌弃我的人",
-         "tags": ["信任"], "significance": 0.85},
-    ], "affection_exp_delta": 30}
-    rows, result = digest_registry.parse_round_b(
-        raw, episode_ids={"m0001", "m0002", "m0003"},
-        target_ids={"u0001", "u0002", "u0003"})
-    assert result.is_valid, result.errors
-    assert len(rows) == 3
-    assert rows[0] == {"episode": "m0001", "decision": "touch", "target": "u0001"}
-    assert rows[1]["patch"]["text"] == "新表述"
-    assert rows[2]["kind"] == "belief" and rows[2]["text"]
-
-
-def test_round_b_coverage_required():
-    raw = {"decisions": [
-        {"episode": "m0001", "decision": "touch", "target": "u0001"},
-    ]}
-    rows, result = digest_registry.parse_round_b(
-        raw, episode_ids={"m0001", "m0002"}, target_ids={"u0001"})
-    assert not result.is_valid
-    assert any("未覆盖" in e and "m0002" in e for e in result.errors)
-
-
-def test_round_b_id_discipline():
-    raw = {"decisions": [
-        {"episode": "ghost001", "decision": "touch", "target": "u0001"},  # 编造 episode
-        {"episode": "m0001", "decision": "touch", "target": "u0099"},      # 编造 target
-        {"episode": "m0002", "decision": "add", "kind": "belief",
-         "subject": "s", "text": "c"},
-    ]}
-    rows, result = digest_registry.parse_round_b(
-        raw, episode_ids={"m0001", "m0002"}, target_ids={"u0001"})
-    assert not result.is_valid
-    assert any("episode 不在本轮" in e for e in result.errors)
-    assert any("target 不在可 touch/update 的列表内" in e for e in result.errors)
-
-
-def test_round_b_update_guards():
-    """⏸ 原「patch 不得含 epistemic」那条守卫 2026-09-29 随字段退役 —— 它今天只是
-    白名单外的未知键, 由执行器（`revise._PATCH_FIELDS` 滤空 ⇒ 拒整包）拦下。"""
-    raw = {"decisions": [
-        {"episode": "m0002", "decision": "update", "target": "u0001",
-         "patch": {}},                                     # 空 patch
-        {"episode": "m0003", "decision": "add", "kind": "belief",
-         "text": "老师总说摸鱼"},                          # add 走 belief（含模式句）
-    ]}
-    rows, result = digest_registry.parse_round_b(
-        raw, episode_ids={"m0001", "m0002", "m0003"}, target_ids={"u0001"})
-    assert not result.is_valid
-    assert any("patch" in e for e in result.errors)
-    assert len(rows) == 1 and rows[0]["kind"] == "belief"
-
-
-def test_round_b_add_experience_is_rejected():
-    """⭐ 2026-09-25（§5.1）: `add kind=profile` **被拒** —— 那个 kind 是
-    玩家画像专用（写者只有第 1 轮），"反复出现的模式"要写成 `belief` 的模式句（§9-10）。
-
-    为什么不是"悄悄降级成 belief": 契约要**教会**模型这条边界, 静默改 kind 会让它
-    一直以为自己在写 profile（下次还写）; 拒一次带反馈, 它才学得会。
-    ⭐ 2026-10-06: **两个都不是它的** —— `profile` 归第 1 轮（玩家画像）, `experience`（经验）归分群轮。
-    """
-    raw = {"decisions": [
-        {"episode": "m0001", "decision": "add", "kind": "profile",
-         "subject": "我表达善意时的习惯", "text": "我总先说好意再道歉"},
-        {"episode": "m0001", "decision": "add", "kind": "experience",
-         "subject": "我和老师之间关于苔藓的那些事", "text": "这一类事该由分群轮建"},
-    ]}
-    rows, result = digest_registry.parse_round_b(
-        raw, episode_ids={"m0001"}, target_ids=set())
-    assert not result.is_valid and rows == []
-    assert any("kind 非法" in e and "belief" in e for e in result.errors)
-
-
-def test_round_b_links_are_extra_edges():
-    """⭐ `links` = R2 的**补充边**（做决策表做不到的事）: 「看法支撑看法」· 取代 · 打架。
-
-    ⚠️ 它与决策行**同一个数组**交出去（执行器一个循环处理两类）, 但**不参与覆盖统计**
-    （`link` 行没有 episode —— 覆盖检查说的还是"每个 episode 恰好一行 decision"）。
-    ⭐ **2026-09-29 用户裁决**: `supports` 的**两种形状都留** —— 决策表写
-    `episode → 认知`, `links` 写 `认知 → 认知`（真机有 2 条实例 `m0003→m0008`/`m0003→m0018`）
-    ⇒ 这一档**不是冗余入口**, 别当"两个入口"删掉。
-    """
-    raw = {"decisions": [{"episode": "m0001", "decision": "add", "kind": "belief",
-                          "subject": "sensei", "text": "老师答应的事都做到了"}],
-           "links": [{"from": "u0009", "rel": "supports", "to": "u0002"},
-                     {"from": "u0007", "rel": "evolved_from", "to": "u0009"},
-                     {"from": "u0003", "rel": "contradicts", "to": "u0005"},
-                     {"from": "u0009", "rel": "supports", "to": "u0002"}]}   # 重复
-    rows, result = digest_registry.parse_round_b(
-        raw, episode_ids={"m0001"}, target_ids={"u0002"},
-        link_ids={"u0002", "u0003", "u0005", "u0007", "u0009"})
-
-    assert result.is_valid, result.errors
-    links = [r for r in rows if r.get("action") == "link"]
-    assert links == [
-        {"action": "link", "rel": "supports", "from": "u0009", "to": "u0002"},
-        {"action": "link", "rel": "evolved_from", "from": "u0007", "to": "u0009"},
-        {"action": "link", "rel": "contradicts", "from": "u0003", "to": "u0005"}]
-    assert any("重复" in w for w in result.warnings)          # 多说一遍 = warning 不是错
-    assert [r for r in rows if r.get("action") != "link"][0]["decision"] == "add"
-
-
-def test_round_b_links_reject_bad_shape():
-    """形状错同样**拒整包**: rel 是契约词汇的一部分, 两端是列表里的编号。"""
-    def _parse(links, **kw):
-        return digest_registry.parse_round_b(
-            {"decisions": [{"episode": "m0001", "decision": "add", "kind": "belief",
-                            "subject": "s", "text": "t"}], "links": links},
-            episode_ids={"m0001"}, target_ids={"u0001"},
-            link_ids=kw.get("link_ids", {"u0001", "u0002"}))
-
-    _, r = _parse([{"from": "u0001", "rel": "about", "to": "u0002"}])
-    assert not r.is_valid and any("rel 非法" in e for e in r.errors)
-    _, r = _parse([{"from": "u0009", "rel": "supports", "to": "u0002"}])
-    assert not r.is_valid and any("不在渲染列表内" in e for e in r.errors)
-    _, r = _parse([{"from": "u0001", "rel": "supports", "to": "u0001"}])
-    assert not r.is_valid and any("自环" in e for e in r.errors)
-    _, r = _parse({"from": "u0001"})
-    assert not r.is_valid and any("links 必须是数组" in e for e in r.errors)
-    # 省略这个键 = 合法（可选）
-    rows, r = digest_registry.parse_round_b(
-        {"decisions": [{"episode": "m0001", "decision": "add", "kind": "belief",
-                        "subject": "s", "text": "t"}]},
-        episode_ids={"m0001"}, target_ids={"u0001"})
-    assert r.is_valid and not [x for x in rows if x.get("action") == "link"]
-
-
-def test_promise_can_be_linked_but_not_touched():
-    """⏸ **原 §9-13 的那条**（"承诺进 `link_ids` 但**不进 `target_ids`**"）**2026-09-29 作废** ——
-    承诺退图, 不再有"两个 id 空间故意不同"这回事。
-
-    留下的守门: ① `link_ids` 与 `target_ids` **可以不同**（参数照旧分开传, 那是通用形状）,
-    不同的一条照样被拒; ② 端点必须在渲染列表里 —— 一条 **episode id** 进 `links`
-    会被拒（这正是"`links` 写不出 `episode → 认知`"那条分工的机器守门）。
-    """
-    rows, result = digest_registry.parse_round_b(
-        {"decisions": [{"episode": "m0001", "decision": "touch", "target": "u0009"}]},
-        episode_ids={"m0001"}, target_ids={"u0001"}, link_ids={"u0001", "u0009"})
-    assert not result.is_valid
-    assert any("不在可 touch/update 的列表内" in e for e in result.errors)
-    # 同一个 id 走 links 就合法（它只在 link_ids 里）
-    rows, result = digest_registry.parse_round_b(
-        {"decisions": [{"episode": "m0001", "decision": "add", "kind": "belief",
-                        "subject": "s", "text": "t"}],
-         "links": [{"from": "u0009", "rel": "supports", "to": "u0001"}]},
-        episode_ids={"m0001"}, target_ids={"u0001"}, link_ids={"u0001", "u0009"})
-    assert result.is_valid, result.errors
-    # ⚠️ **episode 不在 `links` 的可达域**: `links` 只能写"看法之间"的边
-    rows, result = digest_registry.parse_round_b(
-        {"decisions": [{"episode": "m0001", "decision": "add", "kind": "belief",
-                        "subject": "s", "text": "t"}],
-         "links": [{"from": "m0001", "rel": "supports", "to": "u0001"}]},
-        episode_ids={"m0001"}, target_ids={"u0001"}, link_ids={"u0001", "u0009"})
-    assert not result.is_valid
-    assert any("不在渲染列表内" in e for e in result.errors)
-
-
-def test_round_b_bad_decision_kind():
-    raw = {"decisions": [
-        {"episode": "m0001", "decision": "delete"},       # 非法决策
-    ]}
-    rows, result = digest_registry.parse_round_b(
-        raw, episode_ids={"m0001"}, target_ids={"u0001"})
-    assert not result.is_valid
-    assert any("decision 非法" in e for e in result.errors)
-
-
-# ---------------------------------------------------------------------------
-# must_touch 已删（T17, 2026-09-15）——候选降为提示，引擎不设闸门
-# ---------------------------------------------------------------------------
-
-def test_round_b_add_is_never_gated():
-    """★ **引擎不再禁 add**（Q11/Q31/Q32）。
-
-    旧行为: 引擎候选 ≥ `CAND_HIGH` → 该 episode 出 `add` 整行作废。
-    那个阈值从未标定过、实测两模型下候选 6/6 全越线 → **新认知永远长不出来**。
-    现在判 add/touch/update 全归 LLM（prompt 要求判 add 时在 note 里说明理由）。
-    """
-    raw = {"decisions": [
-        {"episode": "m0001", "decision": "add", "kind": "belief",
-         "subject": "s", "text": "一条全新的认知", "note": "与候选只是字面像"},
-    ]}
-    rows, result = digest_registry.parse_round_b(
-        raw, episode_ids={"m0001"}, target_ids={"u0001"})
-    assert result.is_valid, result.errors
-    assert len(rows) == 1 and rows[0]["decision"] == "add"
-    # 引擎里不再有任何"候选 → 禁 add"的入口
-    import inspect
-    sig = inspect.signature(digest_registry.parse_round_b)
-    assert "must_touch" not in sig.parameters
-    assert not any("疑似同主题" in e for e in result.errors)
-    print("    Round B: add 不再被引擎闸门拦（must_touch 已删）")
-
-
-def test_relate_phase_names_match_the_graph_truth():
-    """⭐ P1a: 关系动作的名字**必须都是 `graph.RELS` 里的边名**（真源一致）。
-
-    键的域 = 图上真实存在的名字 —— 这条是那个设计的全部好处所在（零第三处维护）。
-
-    ⭐ **2026-10-08（P7 第 2 笔, 用户裁决）: 加第五个 `evolved_from`** —— 判据是
-    "谁手里有两端": 两条**旧看法**都印在 L1 的「现有认知」里, 所以只有它能写
-    "旧 → 更旧"的进化边。在这之前它**零写者**（L1 的动作面没有它; L2 的出生行
-    只能写"新 → 旧"）—— 而图层**永不推断**它（`graph.classify_pair` 的纪律）。
-    """
-    from core.brain.graph import RELS
-
-    names = [a.name for a in RELATION_ACTIONS]
-    assert names == ["supports", "akin", "contradicts", "evolved_from"], names
-    assert set(names) <= set(RELS), f"契约里的动作名必须在 RELS 里: {set(names) - set(RELS)}"
-    # 锚点类型与 nodes.KINDS 同源 —— ⚠️ **2026-10-08（E3）起是 `<=`（不再相等）**:
-    # `entity` **永远不在任何关系的左端**（它只是 `about` 的右端, 而 `about` 不再由 LLM 写）
-    # ⇒ 锚点名单里留着它的唯一效果, 是让"她拿对象当锚点"那类坏行多走一段路才被丢掉。
     from core.brain.nodes import KINDS
     assert set(RELATION_ANCHORS) <= set(KINDS), set(RELATION_ANCHORS) - set(KINDS)
     assert "entity" not in RELATION_ANCHORS, "E3 之后没有关系以对象为左端"

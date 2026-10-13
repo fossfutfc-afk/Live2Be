@@ -32,15 +32,12 @@ digest 从前是"数据产出"风格: 手写 schema（LLM 可见面）与 `revis
 from __future__ import annotations
 
 from contract.digest.docs import (  # 文档清单（哪个相位有哪几份文档）
-    ADD,
     COGNIZE_ACTIONS,
     DEFAULT_ACTIONS,
     OUTPUT_DISCIPLINE,
     OUTPUT_RULES,
     RECORD_EPISODE,
     RELATION_ACTIONS,
-    TOUCH,
-    UPDATE,
     DigestAction,
 )
 from contract.digest.parse import (  # 七个相位的结构校验
@@ -49,7 +46,6 @@ from contract.digest.parse import (  # 七个相位的结构校验
     parse_group,
     parse_relations,
     parse_round_a,
-    parse_round_b,
     parse_split,
 )
 from contract.digest.prompts import (  # 契约文案仓库（md）+ 填槽
@@ -66,7 +62,6 @@ from contract.digest.tables import (  # 值表（相位名 / 上限 / 取值域 
     ABSTRACT_MAX_FREEFORM,
     COGNIZE_ANCHORS,
     COGNIZE_KEYS,
-    DECISIONS,
     ENTITY_TAG_PREFIX,
     ENTITY_TAGS_MAX,
     GROUP_TITLE_MAX,
@@ -83,7 +78,6 @@ from contract.digest.tables import (  # 值表（相位名 / 上限 / 取值域 
     PHASE_RECORD,
     PHASE_RELATE,
     PHASE_SPLIT,
-    PHASE_UNDERSTAND,
     PLAYER_SUBJECT,
     RELATION_ANCHORS,
     STATE_VALUES,
