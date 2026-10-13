@@ -80,16 +80,13 @@ def _mmt(seq, player, reply):
 
 
 def _a_episode(text="老师请我吃了甜品，还说下次再去", sig=0.8, title="甜点之约",
-               verbatim=("3.1",), tags=("甜品", "老师"), delta=30, topics=None):
+               verbatim=("3.1",), tags=("甜品", "老师"), delta=30):
     """⚠️ `verbatim` 从 2026-09-29 起是**记录行号**（文本通道退役）——
     默认那条指的正是 `_events(_mmt(3, …))` 的回复记录 `[3.1]`。
-
-    `topics`（P0 起 R1 的字段）= 这条经历**围绕的那几样东西**; L1 的 `akin` 靠它认亲。
+    ⏸ 2026-10-14: `topics` 退役（用户裁）⇒ 这个 helper 不再摆那一格。
     """
     ep = {"text": text, "title": title,
           "tags": list(tags), "significance": sig}
-    if topics:
-        ep["topics"] = list(topics)
     if verbatim:
         ep["verbatim"] = list(verbatim)
     # ⭐ **M1**: 好感是**整段**一个数, 归 R1（`affection_exp_delta`）
@@ -271,15 +268,15 @@ def test_full_pipeline(tmp_path):
 #    （旧的 `touch` / `add` 那一族随 R2 一起退役 —— 造看法与写正文归 L2）
 # ---------------------------------------------------------------------------
 
-def test_l1_writes_edges_and_enforces_the_axis(tmp_path):
-    """L1 一次跑齐四件事: **本地号翻译** · **轴的交集校验** · **on 留痕** · `about` 无候选。
+def test_l1_writes_edges_and_drops_the_bad_rows(tmp_path):
+    """L1 一次跑齐四件事: **本地号翻译** · **丢行不毁整包** · `about` 已不是动作 · 变更史不写 `on`。
 
-    为什么这一条要写: 这四个判据分属四个文件（`relate.py` 的 `id_map` / `topics_of`、
-    `parse_relations` 的交集、`apply_relations` 的翻译）, 只有端到端跑一段才看得出
+    为什么这一条要写: 这几个判据分属几个文件（`relate.py` 的 `id_map`、`parse_relations`
+    的两端类型 / 形状坏、`apply_relations` 的翻译）, 只有端到端跑一段才看得出
     "它们凑在一起是对的"。
 
-    ⚠️ **`akin` 今天只能连本段之内的两条**（P2 那笔之前, 料里还没有"现有经历"候选）
-    ⇒ 这一条用**本段两条新经历**当两端。
+    ⏸ **2026-10-14**: `on` / `topics` 两格退役（用户裁 A2/C1）—— 这一条从前钉的是
+    "轴的交集校验 + `on` 留痕", 那两个判据没有载体了, 换成"**两端类型**不对 ⇒ 丢那一行"。
     """
     from core.brain.evolution import EvolutionLog
 
@@ -287,18 +284,18 @@ def test_l1_writes_edges_and_enforces_the_axis(tmp_path):
     llm = FakeLLM(
         {"episodes": [
             {"text": "又和老师在天台看苔藓", "title": "天台看苔藓",
-             "tags": ["天台", "苔藓"], "topics": ["天台", "苔藓"], "significance": 0.7},
+             "tags": ["天台", "苔藓"], "significance": 0.7},
             {"text": "老师又说这片苔藓长得最好", "title": "苔藓长得最好",
-             "tags": ["苔藓"], "topics": ["苔藓"], "significance": 0.6},
+             "tags": ["苔藓"], "significance": 0.6},
         ]},
         _b_ok(relations=[
             # ① 认知那一端是**本地号**（u0001）⇒ 执行时要翻成真实 id（m0002）
             {"episode": "m0003", "supports": "u0001"},
-            # ② 轴对得上（两条经历的 topics 交集里有它）⇒ 落边
-            {"episode": "m0004", "akin": "m0003", "on": "苔藓"},
-            # ③ 轴对不上 ⇒ **丢这一行**（不毁整包）
-            {"episode": "m0004", "akin": "m0003", "on": "猫"},
-            # ④ `about`: 料里还没印对象候选 ⇒ 候选集是空的 ⇒ 一行都落不下来
+            # ② 两条经历之间的 `akin`（今天**不要** `on` 了）⇒ 落边
+            {"episode": "m0004", "akin": "m0003"},
+            # ③ `akin` 指向一条**看法** ⇒ 两端类型不对 ⇒ **丢这一行**（不毁整包）
+            {"episode": "m0004", "akin": "u0001"},
+            # ④ `about` 已不是 L1 的动作（E3 起）⇒ 形状坏 ⇒ 丢行
             {"episode": "m0003", "about": "x0001"},
         ]))
     res = digest_segment(st, llm, _events(_mmt(3, "x", "天台很安静"),
@@ -308,24 +305,24 @@ def test_l1_writes_edges_and_enforces_the_axis(tmp_path):
     # ① 翻译对了: 边落在**真实 id** 上（不是 `u0001`）
     assert "m0003" in st.graph().supporters("m0002")
     assert "u0001" not in {n.id for n in st.all()}
-    # ②③ 轴对的落了、轴不对的**没落** ⇒ `akin` 恰好一条（两条 = 重了, 零条 = 全丢了）
+    # ②③ `akin` 恰好一条（两条 = 重了, 零条 = 全丢了）
     akin = [e for e in st.graph().edges if e.rel == "akin"]
     assert len(akin) == 1 and {akin[0].src, akin[0].dst} == {"m0003", "m0004"}, akin
-    # ⭐ 丢行有账（③ 那条）—— 它**不**毁整段
-    assert any("交集" in d for d in res.contract_drops), res.contract_drops
-    # ④ 对象候选是空的 ⇒ `about` 也没落（P2 印出候选之后这条会变）
+    # ⭐ 丢行有账（③④ 两条, 各自一句）—— 它们**不**毁整段
+    assert any("两端必须都是经历" in d for d in res.contract_drops), res.contract_drops
+    assert any("形状坏" in d for d in res.contract_drops), res.contract_drops
+    # ④ 归属不由 L1 落（`about` 归引擎从节点 `entity` 派生）
     assert not [e for e in st.graph().edges if e.rel == "about"]
-    # `on` 留痕: 轴上的那个词可回溯（"这个概念是怎么长出来的"）
-    entries = EvolutionLog.for_store(st).read()
-    logged = [e for e in entries if e["rel"] == "akin"]
-    assert logged and logged[0]["on"] == "苔藓", entries
+    # 变更史: `akin` 那一条**没有** `on` 格了（那一格随 `topics` 退役）
+    logged = [e for e in EvolutionLog.for_store(st).read() if e["rel"] == "akin"]
+    assert logged and "on" not in logged[0], logged
 
 
 def test_l1_invented_id_rejects_the_whole_package(tmp_path):
     """L1 的**硬档**: 引用了列表里没有的 id ⇒ 整包拒 ⇒ **整段原子回滚**（水位不推进）。
 
-    判据的分界（`DESIGN_DIGEST_TWO_PASSES §2`）: 行内的毛病（缺 `on` / 轴不对）只丢那一行;
-    **编造 id** 说明她没在引用真实世界 ⇒ 整包不可信。
+    判据的分界（`DESIGN_DIGEST_TWO_PASSES §2`）: 行内的毛病（形状坏 / 两端类型不对）
+    只丢那一行; **编造 id** 说明她没在引用真实世界 ⇒ 整包不可信。
     """
     st = _seed_store(tmp_path)
     before = {n.id: n.to_dict() for n in st.all()}
@@ -341,37 +338,33 @@ def test_l1_invented_id_rejects_the_whole_package(tmp_path):
 
 # ---------------------------------------------------------------------------
 # ⭐ P2（2026-10-07）: L1 的料补齐 ——「现有经历（候选）」+「候选对象」+ 两端类型
+# ⭐ 2026-10-14: 候选**换源**（`topics` 交集 → `like(spec="digest")`）
 # ---------------------------------------------------------------------------
 
 def test_l1_akin_reaches_an_older_episode(tmp_path):
-    """⭐ **P2 的核心验收**: `akin` 连得上**更早的**经历 —— 前提是料里有它。
+    """⭐ **P2 的核心验收**（2026-10-14 换源后照旧要守）: `akin` 连得上**更早的**经历。
 
-    P1b-2 之前「现有经历（候选）」这一格不存在 ⇒ `akin` 只能连本段之内的两条
-    （真机 `akin` = 0 条, 这至少是原因之一）。现在引擎按 **`topics` 相交**摆出旧经历,
-    并把新旧两头各自的 `轴 …` 都印出来 —— 那个 `on` 才有地方挑。
+    前提是**料里有它**: 引擎摆出「现有经历（候选）」（今天由 `like(spec="digest")` 排）,
+    她才有 id 可引 —— ⛔ 否则那条 `akin` 会被判**编造 id** ⇒ **整包拒** ⇒ 白跑一次。
     """
     st = _seed_store(tmp_path)
-    st.get("m0001").topics = ["苔藓", "天台"]           # 早年那条（同一根轴）
-    st.get("m0002").topics = ["甜品"]                   # 认知也有轴, 但它是看法不是经历
+    st.get("m0001").tags = ["苔藓"]                     # 早年那条: 跟本段撞检索词 ⇒ 排得出来
     st.save()
     llm = FakeLLM(
-        _a_episode(text="又去看了那片苔藓", title="又见苔藓", topics=["苔藓"]),
-        _b_ok(relations=[{"episode": "m0003", "akin": "m0001", "on": "苔藓"}]))
+        _a_episode(text="又去看了那片苔藓", title="又见苔藓", tags=("苔藓",)),
+        _b_ok(relations=[{"episode": "m0003", "akin": "m0001"}]))
 
     res = digest_segment(st, llm, _events(_mmt(3, "x", "苔藓还在那儿")))
 
     assert res.ok, res.errors
-    user = llm.calls[1][1]["content"]
+    user = llm.calls[1][1]["content"]                  # 第二通 = L1（第一通是 R1）
     assert "【现有经历（候选）】" in user, user
-    assert "m0001" in user and "轴 苔藓" in user, "候选经历要带 id 与它的轴"
-    # ⚠️ 候选那一行印的是**交集**（不是它全部 `topics`）—— 摆出来的每个词都得能用:
-    # 印 `天台` 会诱她写一个过不了交集的 `on`（那一行会被丢掉）。
-    assert "轴 苔藓·天台" not in user, "候选行只印交集"
-    assert "轴 苔藓" in user, "新经历那一行也要印轴（否则 `on` 没得挑）"
-    # 边真的落上了（旧经历 ↔ 新经历）, 且轴留痕
+    assert "m0001" in user, "旧经历要摆出来（不然她引不到 ⇒ 编造 id ⇒ 整包拒）"
+    assert "候选 0." in user, "候选行要带分（`like` 的那一格）"
+    # 边真的落上了（旧经历 ↔ 新经历）
     akin = [e for e in st.graph().edges if e.rel == "akin"]
     assert len(akin) == 1 and {akin[0].src, akin[0].dst} == {"m0001", "m0003"}, akin
-    assert not [d for d in res.contract_drops if "交集" in d], res.contract_drops
+    assert not res.contract_drops, res.contract_drops
 
 
 def test_l1_about_is_no_longer_an_action(tmp_path):
@@ -407,7 +400,7 @@ def test_l1_type_mismatch_is_dropped(tmp_path):
     st = _seed_store(tmp_path)          # 认知列表里: u0001 = belief m0002 · u0002 = profile e0001
     st.save()
     llm = FakeLLM(
-        _a_episode(text="又见苔藓", title="又见苔藓", topics=["苔藓"]),
+        _a_episode(text="又见苔藓", title="又见苔藓"),
         _b_ok(relations=[
             {"episode": "m0003", "akin": "u0001", "on": "苔藓"},   # 经历 ↔ 看法 ⇒ 丢
             {"episode": "m0003", "contradicts": "u0001"},          # 混着 ⇒ 丢

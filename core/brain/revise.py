@@ -102,8 +102,8 @@ def apply_relations(store: WikiStoreV2, rows: list[dict], *, ts: str = "",
         store.add_edge(rel, src, dst, ts=ts)          # 幂等 + 拒悬空 / 拒自环
         entry: dict = {"pkg": "digest", "action": "relate", "rel": rel,
                        "from": src, "to": dst, "ts": ts}
-        if row.get("on"):
-            entry["on"] = row["on"]
+        # ⏸ `on`（`akin` 的"那个共同的东西"）2026-10-14 随 `topics` 一起退役 ——
+        # 契约不再要它、parse 也不再收（白名单外）⇒ 这一格不再有来源。
         log.append(entry)
         out.append(dict(row))
     return out

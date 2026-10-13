@@ -33,7 +33,6 @@ from contract.digest.tables import (
     MAX_TEXT,
     RELATION_ANCHORS,
     STATE_VALUES,
-    TOPICS_MAX,
     is_full_date,
 )
 from contract.model import ValidationResult
@@ -81,12 +80,11 @@ def parse_round_a(raw: Any, *, seq_set: set[int] | None = None
 
 def parse_relations(raw: Any, *, episode_ids: set[str] | None = None,
                     target_ids: set[str] | None = None,
-                    topics_of: dict[str, list[str]] | None = None,
                     kind_of: dict[str, str] | None = None,
                     ) -> tuple[list[dict], ValidationResult]:
     """⭐ **L1（判关系）**: `{"relations": [...]}` → 规范化的**边行**列表。
 
-    一行 → `{"rel": …, "src": …, "dst": …, "on"?: …}`（内部形状, 由 `apply_relations` 落库）。
+    一行 → `{"rel": …, "src": …, "dst": …}`（内部形状, 由 `apply_relations` 落库）。
 
     ## 校验（⚠️ **分两档** —— 这是本函数最要紧的决定）
 
@@ -94,13 +92,12 @@ def parse_relations(raw: Any, *, episode_ids: set[str] | None = None,
     |---|---|
     | 行形状坏（锚点键 ≠ 1 个 / 关系键 ≠ 1 个 / 值不是字符串 / 未知键）| **丢这一行** + 记账 |
     | `id` **不在渲染列表里**（编造）| ⛔ **整包拒** —— 那说明她没在引用真实世界, 整包不可信 |
-    | `akin` 缺 `on` / `on` 不在**两端 `topics` 的交集**里 | **丢这一行** + 记账（轴是**逐行**的性质, 一行坏不毁整段记忆）|
     | `akin` / `contradicts` 的**两端类型**不对（P2）| **丢这一行** —— `akin` 两端都得是经历; `contradicts` 得**同侧**（经历↔经历 或 非经历↔非经历）|
     | `evolved_from` 的两端**不是看法**（P7-2, 2026-10-08）| **丢这一行** —— 那是"看法 ↔ 看法"的边（经历没有进化可言）|
 
-    ⚠️ `on` 的判据用**原样字符串**（大小写 / 标点都不归一）—— 归一就等于引擎在替她判
-    "这两个词是一回事"。`topics_of` = `{节点 id: [topics]}`（料侧提供; 缺省 `None` =
-    **不校验交集**, 只查 `on` 给没给）。
+    ⏸ **`akin` 的 `on` 与它那道交集校验 2026-10-14 一起退役**（用户裁 A2）: 判据原本是
+    "`on` ∈ 两端 `topics` 交集", 而 `topics` 退役 ⇒ 判据塌了; 留一个**没有判据的必填格**
+    只会教她写空话。她惯性还写着 `on` ⇒ 静默忽略（白名单外的键）。
 
     ⚠️ `kind_of` = `{她能写的 id: kind}`（P2）—— 键必须与她看到的那一套 id 同空间
     （经历/对象是真实 id · 认知是本地号 `u0001`）。缺省 `None` = **不校验类型**
@@ -141,7 +138,7 @@ def parse_relations(raw: Any, *, episode_ids: set[str] | None = None,
         if bad:
             errors.append(f"relations[{i}] 引用了列表里没有的 id: {bad}（整包拒）")
             continue
-        # ⭐ **两端类型**（P2）: 与 `on` 同一档（**丢这一行**）—— 判据是"这条边的
+        # ⭐ **两端类型**（P2）: **丢这一行**（⛔ 不是整包拒）—— 判据是"这条边的
         # 语义对不对", 一行错不该毁整段。`akin` 只要经历; `contradicts` 要**同侧**
         # （经历↔经历 或 看法↔看法 —— 混着来的那条边没有语义）。
         if kind_of and rel in ("akin", "contradicts", "evolved_from"):
@@ -162,23 +159,10 @@ def parse_relations(raw: Any, *, episode_ids: set[str] | None = None,
                                  f"（实得 {ka} ↔ {kb}）")
                     continue
         row: dict = {"rel": rel, "src": aid, "dst": dst}
-        on = r.get("on")
-        if rel == "akin":
-            if not isinstance(on, str) or not on.strip():
-                drops.append(f"relations[{i}] akin 缺 on（轴必填）")
-                continue
-            on = on.strip()
-            if topics_of is not None:
-                a_topics = list(topics_of.get(aid) or [])
-                b_topics = list(topics_of.get(dst) or [])
-                common = [t for t in a_topics if t in b_topics]
-                if on not in common:
-                    drops.append(f"relations[{i}] on={on!r} 不在两端 topics 的交集里"
-                                 f"（{aid} ∩ {dst} = {common or '空'}）")
-                    continue
-            row["on"] = on
-        elif on is not None:
-            warnings.append(f"relations[{i}] 写了 on（只有 akin 用它）—— 已忽略")
+        # ⏸ `on`（akin 的"那个共同的东西"）**2026-10-14 一起退役**（用户裁 A2）——
+        # 它当年的判据是"必须是两端 `topics` 交集里的词", 而 `topics` 没了 ⇒ 判据也塌了;
+        # 留一个**没有判据的必填格**只会教她写空话（"假威胁"那条纪律的反面）。
+        # ⚠️ 她惯性还写着 `on` ⇒ 白名单外的键, **静默忽略**（同 `topics`）。
         out.append(row)
     return out, ValidationResult(tuple(errors), tuple(warnings), tuple(drops))
 
@@ -1174,16 +1158,10 @@ def _clean_episode_item(e: dict, i: int, errors: list[str], warnings: list[str],
         item["tags"] = tags
     if refs:
         item["entity"] = refs                   # 这条经历**涉及谁**（引擎据此落 `about`）
-    # ⭐ `topics`（2026-10-07, `TODO_TWO_PASSES` 的 P0）—— "这条经历关于什么"的**具体东西**,
-    # 是"同类的事"认亲的把手（L1 的 `akin` 要求 `on` ∈ 两端 `topics` 的交集）。
-    # ⚠️ **缺了不告警**（想不出具体的 ⇒ 空数组是合法的 —— 那是"这条还没轴"的正常状态）;
-    # 超上限 ⇒ 截 + 告警（与 `MAX_SEGMENTS` 同族: 上限要能看见）。
-    topics = [t.strip() for t in e.get("topics", []) if isinstance(t, str) and t.strip()]
-    if len(topics) > TOPICS_MAX:
-        warnings.append(f"episodes[{i}].topics 超过 {TOPICS_MAX} 个（截到前 {TOPICS_MAX} 个）")
-        topics = topics[:TOPICS_MAX]
-    if topics:
-        item["topics"] = list(dict.fromkeys(topics))      # 去重保序
+    # ⏸ `topics`（2026-10-07 P0 加的"轴"）**2026-10-14 退役**（用户裁）—— 这里不再有
+    # 清洗代码, 同 `about_hint` / `items` 的先例: **白名单外的键本来就不落库**
+    # （她惯性还写着 `topics` ⇒ 静默不登记, ⛔ 不丢行、不告警 —— 那一行本身没毛病）。
+    # ⚠️ 节点上的 `topics` 字段**留着**（停产不删格式）: 老档那几格还读得回来。
     # ⏸ `about_hint`（归属线索）与 `items`（物品台账）两个字段 2026-09-29 退役 ——
     # 这里不再有清洗代码: **白名单外的键本来就不落库**。（前者与 R3 的"挂谁"判两次,
     # 见 `core/brain/REDUNDANCY.md` #2。）

@@ -84,6 +84,5 @@ from contract.digest.tables import (  # 值表（相位名 / 上限 / 取值域 
     PLAYER_SUBJECT,
     RELATION_ANCHORS,
     STATE_VALUES,
-    TOPICS_MAX,
     is_full_date,
 )

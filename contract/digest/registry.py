@@ -118,11 +118,10 @@ class DigestRegistry:
 
     def parse_relations(self, raw: Any, *, episode_ids: set[str] | None = None,
                         target_ids: set[str] | None = None,
-                        topics_of: dict[str, list[str]] | None = None,
                         kind_of: dict[str, str] | None = None,
                         ) -> tuple[list[dict], ValidationResult]:
         """实现在 `contract.digest.parse.parse_relations`（本模块只转交）。"""
-        return digest_parse.parse_relations(raw, episode_ids=episode_ids, target_ids=target_ids, topics_of=topics_of, kind_of=kind_of)
+        return digest_parse.parse_relations(raw, episode_ids=episode_ids, target_ids=target_ids, kind_of=kind_of)
 
     def parse_cognitions(self, raw: Any, *,
                          evidence_ids: set[str] | None = None,

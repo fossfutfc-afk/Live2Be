@@ -240,10 +240,14 @@ ROUNDS: tuple[RoundSpec, ...] = (
         writes=(
             # 条目自带的位置是 `span` 区间, 由 `_expand_spans` 展开成 `event_seq`。
             ("episode", ("title", "text", "verbatim", "verbatim_seq", "tags", "entity",
-                         "topics", "significance", "emo_int", "emo_span", "observer",
+                         "significance", "emo_int", "emo_span", "observer",
                          "event_seq", "ts",
                          # 引擎物化（🚫 只进召回侧, 绝不进 LLM 上下文）:
                          "emo_shape", "place", "place_raw", "aff_at_encoding")),
+            # ⏸ **`topics` 2026-10-14 摘掉**（用户裁"退役"）—— 它唯一的读者是 `akin`
+            # 那条链（挑候选 / 印 `轴` / 校验 `on`），而真机上**大半是空的**（6 个 akin
+            # anchor 里 4 个 `topics=[]`）+ 有值的三条互相不共轴 ⇒ 候选**恒 0 条**。
+            # ⚠️ 节点字段**留着**（停产不删格式, 同 `profile`）: 老档那几格还读得回来。
             # ⏸ **`("profile", …)` 2026-10-12 摘掉**（玩家画像停产, 用户裁:
             # *"`entity.text` 取代了它的定位"*）—— 契约不再要它、`parse_round_a`
             # 认得出但**丢行**, 所以这一步在真机上**不会再产 profile 节点**。

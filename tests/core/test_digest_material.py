@@ -1,16 +1,17 @@
 """`core/digest/material.py` 的**引擎侧**判据（P2, 2026-10-07）。
 
 这里测的不是"她写了什么", 而是"引擎摆了什么"—— 两件都是**纯计算**（零 LLM）:
-L1 的「现有经历（候选）」（按 `topics` 相交摆）与「候选对象」（≤10 个真 id + 命中提示）。
+L1 的「现有经历（候选）」（⭐ 2026-10-14 起由 `like(spec="digest")` 排）
+与「候选对象」（≤10 个真 id + 命中提示）。
 端到端那两条在 `test_wiki_digest.py`（`test_l1_akin_reaches_an_older_episode` 等）;
 这里钉的是**挑法与上限**这类单看料才看得出的性质。
 """
 from core.brain import WikiStoreV2, make_node
 from core.brain.entities import ensure_entities, object_lines
+from core.digest import material
 from core.digest.material import (
     DIGEST_L2_AKIN,
     DIGEST_RELATE_CAND_K,
-    _axes_field,
     _episode_candidates,
     _l2_material,
 )
@@ -23,57 +24,56 @@ def _store(tmp_path) -> WikiStoreV2:
     return st
 
 
-def _ep(st, text, *, title="", topics=(), ts=""):
-    return st.add(make_node("episode", text=text, title=title, topics=list(topics),
+def _ep(st, text, *, title="", tags=(), ts=""):
+    return st.add(make_node("episode", text=text, title=title, tags=list(tags),
                             ts=ts, event_seq=[3]))
 
 
-def test_episode_candidates_pick_by_shared_topics(tmp_path):
-    """候选 = **`topics` 有交集**的旧经历; 排序按交集大小; 上限吃 `CAND_K`。
+def test_episode_candidates_come_from_like_with_score_and_reason(tmp_path):
+    """候选 = **`like(spec="digest")` 排出来的最像的几条**（⭐ 2026-10-14 换源）。
 
-    ⭐ 判据与 `akin` 的校验**同源**（`on` ∈ 两端交集）—— 引擎不判"像不像", 它只摆
-    "过得了校验的两端"。共享 2 个轴的排在共享 1 个的前面。
+    ⏸ **换源前**这里钉的是"`topics` 有交集、按交集大小排"—— `topics` 退役后那条判据
+    没有载体了（真机上它也恒空: 21 条经历只有 3 条标了轴、互相还不共轴）。
+    今天引擎**不判**"像不像"（那是她的活）: 它摆**最像的** + **为什么像**（`like` 的 `why`）。
+    ⚠️ 测试里没有 embedder ⇒ `semantic` 那一路不在, 摆出来的靠**字面**（tags/标题/覆盖）。
     """
     st = _store(tmp_path)
-    old_two = _ep(st, "同两个轴", title="两条轴", topics=["苔藓", "天台"], ts="2026-09-01T10:00:00")
-    old_one = _ep(st, "同一个轴", title="一条轴", topics=["苔藓"], ts="2026-09-05T10:00:00")
-    _ep(st, "无关的那条", title="无关", topics=["甜品"], ts="2026-09-06T10:00:00")
-    new = _ep(st, "这次又说苔藓", title="又说苔藓", topics=["苔藓", "天台"],
+    old_two = _ep(st, "天台上的苔藓", title="苔藓的事", tags=["苔藓", "天台"],
+                  ts="2026-09-01T10:00:00")
+    old_one = _ep(st, "苔藓长得好", title="苔藓", tags=["苔藓"],
+                  ts="2026-09-05T10:00:00")
+    _ep(st, "甜品店的新品", title="甜品", tags=["甜品"], ts="2026-09-06T10:00:00")
+    new = _ep(st, "这次又说苔藓", title="又说苔藓", tags=["苔藓"],
               ts="2026-09-09T10:00:00")
     st.save()
 
     text, ids = _episode_candidates(st, [new], now="2026-09-10T10:00:00")
 
-    assert ids == [old_two, old_one], ids                       # 交集多的在前; 无关的不进
-    assert "轴 苔藓·天台" in text                                # 印的是**交集**
-    assert "无关" not in text                                   # 没有共同轴 ⇒ 不摆
+    assert set(ids) == {old_two, old_one}, ids           # 无关那条不进来
+    assert "候选 0." in text, text                        # 带分（`like` 那一格）
+    assert "→ 为什么: tags[苔藓]" in text, text            # 带理由（看不见就判不准）
+    assert "甜品" not in text, "没被排上的不摆"
     # ⭐ 时间两格（相对 + 日期）也在 —— 契约那句"时间上接着的不算同类"要她判得出来
-    assert "1 周前" in text and "9/1" in text, text
+    assert "9/1" in text, text
 
-    # 新的那条**自己没有轴** ⇒ 摆不出候选（交集恒空）—— 那也是结论, 不硬凑。
-    # ⚠️ **P6（2026-10-08）**: 摆不出时**不是空串** —— 空串会被 `_join_sections` 的
-    # `if body` 连抬头一起吞掉, 她看不见这个结论。而且两种"空"是**两件事**:
-    # "本段没标轴"（没法比）≠ "没有一条同轴"（比过了, 真没有）。
-    bare = _ep(st, "没有轴的一条", title="没轴", ts="2026-09-09T10:00:00")
-    lonely = _ep(st, "谁都不认识的轴", title="沙漠", topics=["沙漠"], ts="2026-09-09T10:00:00")
+    # 跟谁都不像 ⇒ 摆不出候选 —— 那也是结论, ⛔ 不许回空串（会被 `_join_sections`
+    # 的 `if body` 连抬头一起吞掉, 她看不见这个结论）。
+    lonely = _ep(st, "沙漠里的一粒沙", title="沙漠", tags=["沙漠"],
+                 ts="2026-09-09T10:00:00")
     st.save()
-    text_bare, ids_bare = _episode_candidates(st, [bare], now="")
-    assert ids_bare == []
-    assert text_bare == "（无 —— 本段经历没有标轴, 无法比对）", text_bare
     text_lone, ids_lone = _episode_candidates(st, [lonely], now="")
     assert ids_lone == []
-    assert text_lone == "（无 —— 已有的经历里没有一条与本段同轴）", text_lone
+    assert text_lone == "（无 —— 召回没找到跟这一段像的旧经历）", text_lone
 
-    # 上限: 交集数一样时按 ts 新的在前, 且最多 `DIGEST_RELATE_CAND_K` 条
+    # 上限吃 `DIGEST_RELATE_CAND_K`（也是每次问 `like` 的 k）
     st2 = _store(tmp_path / "b")
     for i in range(DIGEST_RELATE_CAND_K + 3):
-        _ep(st2, f"旧事 {i}", title=f"旧事{i}", topics=["苔藓"],
+        _ep(st2, f"旧事 {i}", title=f"旧事{i}", tags=["苔藓"],
             ts=f"2026-09-{i + 1:02d}T10:00:00")
-    new2 = _ep(st2, "又来", title="又来", topics=["苔藓"], ts="2026-09-20T10:00:00")
+    new2 = _ep(st2, "又来看苔藓", title="又来", tags=["苔藓"], ts="2026-09-20T10:00:00")
     st2.save()
     _text2, ids2 = _episode_candidates(st2, [new2], now="2026-09-21T10:00:00")
     assert len(ids2) == DIGEST_RELATE_CAND_K, ids2
-    assert ids2[0].endswith("0009"), f"ts 新的要排前面: {ids2}"
 
 
 def test_object_lines_prints_real_ids_and_hit_hint(tmp_path):
@@ -99,14 +99,16 @@ def test_object_lines_prints_real_ids_and_hit_hint(tmp_path):
     assert object_lines(empty) == ("", [])
 
 
-def test_axes_field_uses_the_parallel_mark_not_the_field_sep():
-    """`轴` 一格用 `·` 并列 —— ⛔ 不能用 `｜`（那是信息头的字段分隔, 会把格子切坏）。"""
-    from core.brain import marks
+def test_topics_is_gone_from_the_material():
+    """⏸ **2026-10-14**: `topics` 退役后料里**不再有 `轴 …` 那一格**（用户裁 C1）。
 
-    assert _axes_field(["苔藓", "天台"]) == ["轴 苔藓·天台"]
-    assert marks.FIELD_SEP not in _axes_field(["苔藓", "天台"])[0]
-    assert _axes_field([]) == [] and _axes_field(None) == []
-    assert _axes_field(["  ", ""]) == [], "空词不占格"
+    ⛔ **别拿 `tags` 顶替**: 真机实测那些词大半是泛词（"约定 / 笔记"），一条经历能跟
+    9 条相连 ⇒ 零区分力。判"像不像"的依据改成 `like` 的**分 + 为什么**。
+    ⚠️ 信息头本身的形状（格序 / 空的不占位）仍由 `test_marks_guard.py` 钉着 ——
+    这里只管"那一格没了"。
+    """
+    assert not hasattr(material, "_axes_field"), "那一格该随 topics 一起撤"
+    assert not hasattr(material, "_likeness_axis"), "相似簇的轴也是同一格"
 
 
 # ---------------------------------------------------------------------------
@@ -120,8 +122,8 @@ class _Ctx:
         self.store, self.episode_ids, self.now_ts = store, episode_ids, now_ts
 
 
-def _new_ep(st, text, *, title="", topics=(), ts="2026-10-04T10:00:00+08:00", sig=0.5):
-    return st.add(make_node("episode", text=text, title=title, topics=list(topics),
+def _new_ep(st, text, *, title="", tags=(), ts="2026-10-04T10:00:00+08:00", sig=0.5):
+    return st.add(make_node("episode", text=text, title=title, tags=list(tags),
                             ts=ts, significance=sig, event_seq=[3]))
 
 
@@ -132,10 +134,10 @@ def test_l2_linked_episodes_only_takes_the_connected_ones(tmp_path):
     连抬头一起吞掉, 她既看不见这一格、也不知道那个结论）。
     """
     st = WikiStoreV2(tmp_path, world_id="world1", char_id="c")
-    a = _new_ep(st, "又去看苔藓", title="苔藓", topics=["苔藓"])
+    a = _new_ep(st, "又去看苔藓", title="苔藓", tags=["苔藓"])
     b = _new_ep(st, "老师夸我", title="被夸")
     lonely = _new_ep(st, "一个人发呆", title="发呆")
-    old = _new_ep(st, "更早的苔藓", title="旧苔藓", topics=["苔藓"],
+    old = _new_ep(st, "更早的苔藓", title="旧苔藓", tags=["苔藓"],
                   ts="2026-09-01T10:00:00+08:00")
     st.save()
     st.add_edge("akin", a, old)
@@ -145,36 +147,34 @@ def test_l2_linked_episodes_only_takes_the_connected_ones(tmp_path):
     assert f"〔{a}｜" in linked and f"〔{b}｜" in linked
     assert lonely not in linked, "孤立经历不进 L2"
     assert "一个人发呆" not in linked, "正文也不许漏进来"
-    assert "轴 苔藓" in linked, "行头带轴（与 L1 同一印法）"
+    assert "轴" not in linked, "⏸ 2026-10-14: `topics` 退役 ⇒ 行头不再有 `轴 …` 那一格"
 
     _only_lonely, _ev2 = _l2_material(_Ctx(st, [lonely]))
     assert "（这一段没有被连过的经历" in _only_lonely, _only_lonely
 
 
-def test_akin_block_hangs_under_its_anchor_with_axis_and_time(tmp_path):
-    """⭐ **2026-10-13**: 相似簇**挂在每条经历下面**, `轴` = **现算两端 `topics` 交集**。
+def test_akin_block_hangs_under_its_anchor(tmp_path):
+    """⭐ **2026-10-13**: 相似簇**挂在每条经历下面**（⏸ 2026-10-14: `轴` 那一格随 `topics` 撤）。
 
     判据（用户裁 A 案）: 老块（【本段归类的群】）是给她**写沉淀**用的, 而沉淀已停产;
     新块是给她**写结论**用的 —— "这条看法不只被这一段那一条撑着, 还有她早先认过'像'的那些"。
-    ⚠️ `轴` 只印**相交**的那几个（`akin` 的 `on` 只在 `evolution.jsonl`, `Edge` 上没有它）
-    ⇒ 现算; 交集空 ⇒ 整格不出现（不猜）。
     """
     st = _store(tmp_path)
-    a = _ep(st, "老师约我去咖啡厅吃甜点", title="咖啡厅的甜点", topics=["甜点", "咖啡厅"],
+    a = _ep(st, "老师约我去咖啡厅吃甜点", title="咖啡厅的甜点", tags=["甜点", "咖啡厅"],
             ts="2026-10-04T10:00:00+08:00")
-    old = _ep(st, "更早的一次甜点", title="上次的甜点", topics=["甜点"],
+    old = _ep(st, "更早的一次甜点", title="上次的甜点", tags=["甜点"],
               ts="2026-09-20T10:00:00+08:00")
-    b = _ep(st, "天台上的事", title="天台", topics=["天台"])
+    b = _ep(st, "天台上的事", title="天台", tags=["天台"])
     st.save()
     st.add_edge("akin", a, old)
     st.add_edge("akin", b, a)                       # 本段的另一条也能是"像的"
 
     text, evidence = _l2_material(_Ctx(st, [a, b]))
     assert "   ↳ 她认过跟它像的（这些也会算作这条看法的证据）:" in text, text
-    # 邻居那一行: 带 **轴（= 交集, `咖啡厅` 只有 anchor 有 ⇒ 不出现）** 与时间
+    # 邻居那一行: 钥匙 + 标题 + 时间（⛔ 没有 `轴 …` 那一格了）
     line = next(ln for ln in text.splitlines() if "上次的甜点" in ln)
-    assert "轴 甜点〕" in line, line
-    assert "咖啡厅" not in line, line
+    assert "〔m0002｜《上次的甜点》｜" in line, line
+    assert "轴" not in line, line
     assert "周前" in line or "天前" in line, line
     # 挂在它自己那条 anchor **下面**（顺序: anchor 行 → 簇 → 下一条 anchor 行）
     assert text.index("〔m0001｜") < text.index("↳ 她认过跟它像的") < text.index("〔m0003｜"), text
@@ -195,8 +195,8 @@ def test_akin_block_caps_and_says_how_many_left(tmp_path):
     text, evidence = _l2_material(_Ctx(st, [a]))
     heads = [ln for ln in text.splitlines() if ln.strip().startswith("〔")]
     assert len(heads) == DIGEST_L2_AKIN + 1, text          # anchor 那一行 + 印出来的邻居
-    assert f"（还有 2 条没印 —— 先照印出来的这几条写）" in text, text
-    assert evidence == [a] + others[:DIGEST_L2_AKIN], evidence
+    assert "（还有 2 条没印 —— 先照印出来的这几条写）" in text, text
+    assert evidence == [a, *others[:DIGEST_L2_AKIN]], evidence
 
 
 def test_akin_block_never_prints_a_body_twice(tmp_path):

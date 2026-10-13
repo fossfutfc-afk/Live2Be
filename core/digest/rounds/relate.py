@@ -20,7 +20,7 @@
 | 经历 `m…`（本段新的 + 候选里的旧的）| **真实 id** | 料里印的就是真身（`_round_b_material` / `_episode_candidates`）|
 | 认知 `u0001…` | **本地号** | `render_cognition_list`（它的判据: "parse 层只认本地 id, 防 LLM 猜真实 id"）|
 
-⇒ 执行时用 `id_map` 把认知那一路翻回来; 而 `topics_of` / `kind_of`（轴与类型校验要它们）
+⇒ 执行时用 `id_map` 把认知那一路翻回来; 而 `kind_of`（类型校验要它）
 **三个空间都要有键**（她写的那一端用哪个空间的 id, 就用哪一边去查）。
 
 ## 一处"关着"的东西（**有意**, ⛔ 别当成漏了）
@@ -31,7 +31,7 @@
 ## 观测账（P6, 2026-10-08）—— 一行日志, 七个字段
 
 ```
-digest_relate rows=2 rels=1 alone=1 lone=m0002 cands=0 pool=1 dropped=0
+digest_relate rows=2 rels=1 alone=1 lone=m0002 cands=0 sim=0 dropped=0
 ```
 
 | 字段 | 是什么 |
@@ -41,15 +41,17 @@ digest_relate rows=2 rels=1 alone=1 lone=m0002 cands=0 pool=1 dropped=0
 | `alone` | 本段经历里**一行关系都没连上**的条数（分母 = `ctx.episode_ids`）|
 | `lone` | 那些 id（最多 5 个, `·` 并列; 没有 ⇒ `-`）|
 | `cands` | 「现有经历（候选）」摆出来几条 |
-| `pool` | ⭐ **前提读数**: 库里 `kind=episode` 且**标了 `轴`** 的条数 |
+| `sim` | ⭐ **前提读数**: 这一段有没有语义那一路（`1` = embedder 在 · `0` = 不在）|
 | `dropped` | 这一轮被契约层丢掉的行数（取**调用前后** `contract_drops` 的差, 不猜中文）|
 
 **为什么 `alone` 值得记**: 孤立经历**不进 L2**（`DESIGN_DIGEST_TWO_PASSES.md` §3 的
 天然归纳门槛）⇒ 这一格 = 下一趟收料的实际范围。
-**为什么 `pool` 必须一起记**: `cands=0` 有两种相反的解释 —— "这一段真没有同类旧经历"
-（结论）vs "老经历压根没标轴"（数据缺陷, `topics` 是 P0 才加的字段）。缺了 `pool`,
-那格数字读不出意思。⚠️ 用户 2026-10-08 裁: **只观测**, 不写补 `topics` 的维护脚本
-（*"以后也要测试新的 digest, 之后就删掉数据重来了"*）。
+**为什么 `sim` 必须一起记**: `cands=0` 有两种相反的解释 —— "这一段真没有同类旧经历"
+（结论）vs "语义那一路没起来（embedder 不在 / 配置没指对）"（**能力问题**）。
+⚠️ 2026-10-14 之前这一格记的是 `pool`（库里**标了 `轴`** 的条数）—— `topics` 退役之后
+那个数不再说明任何事, 换成"语义那一路在不在"（`like(spec="digest")` 的 `semantic` 权重
+是 1.00, 它不在就只剩字面/结构/时间/重要四路）。⚠️ 用户 2026-10-08 裁: **只观测**,
+不写补数据的维护脚本（*"以后也要测试新的 digest, 之后就删掉数据重来了"*）。
 """
 from __future__ import annotations
 
@@ -75,6 +77,7 @@ def run(ctx: Ctx) -> RoundOut:
                                 embed_fn=ctx.embed_fn,
                                 char_id=getattr(ctx.store, "char_id", ""))
     cand_text, cand_ids = _episode_candidates(ctx.store, ctx.episode_ids,
+                                              embed_fn=ctx.embed_fn,
                                               now=ctx.now_ts)
     system = ctx.system_for(spec)
     user = ctx.sections_for(spec, [
@@ -95,7 +98,6 @@ def run(ctx: Ctx) -> RoundOut:
                                # ⇒ 整包拒（P1b-2 的端到端用例逼出来的那一处）。
                                target_ids=(set(local_of.values())
                                            | set(ctx.episode_ids) | set(cand_ids)),
-                               topics_of=_topics_of(ctx, local_of, cand_ids),
                                kind_of=_kind_of(ctx, local_of, cand_ids)))
     if rows is None:
         return RoundOut.failed()
@@ -111,9 +113,9 @@ def _log_ledger(ctx: Ctx, rows: list[dict], cand_ids: list[str], *,
                 edges_before: int, drops_before: int) -> None:
     """这一段的观测账（字段表见模块 docstring）—— **只记, 不判**。"""
     lone = _lone_episodes(ctx, rows)
-    logger.info("digest_relate rows=%d rels=%d alone=%d lone=%s cands=%d pool=%d dropped=%d",
+    logger.info("digest_relate rows=%d rels=%d alone=%d lone=%s cands=%d sim=%d dropped=%d",
                 len(rows), len(ctx.store.edges()) - edges_before, len(lone),
-                "·".join(lone[:5]) or "-", len(cand_ids), _episodes_with_axis(ctx),
+                "·".join(lone[:5]) or "-", len(cand_ids), int(ctx.embed_fn is not None),
                 len(ctx.result.contract_drops) - drops_before)
 
 
@@ -135,33 +137,6 @@ def _lone_episodes(ctx: Ctx, rows: list[dict]) -> list[str]:
         touched.add(str(row["src"]))
         touched.add(str(row["dst"]))
     return [str(e) for e in ctx.episode_ids if str(e) not in touched]
-
-
-def _episodes_with_axis(ctx: Ctx) -> int:
-    """库里 `kind=episode` 且**标了 `轴`** 的条数 —— `cands=0` 的解释器。"""
-    return sum(1 for n in ctx.store.all() if n.kind == "episode" and n.topics)
-
-
-def _node_topics(ctx: Ctx, nid: str) -> list[str]:
-    node = ctx.store.get(str(nid))
-    return list(node.topics) if node is not None else []
-
-
-def _topics_of(ctx: Ctx, local_of: dict[str, str],
-               cand_ids: list[str]) -> dict[str, list[str]]:
-    """`{她能写的 id: topics}` —— ⚠️ **三个空间都要有键**（见模块 docstring）。
-
-    经历用真实 id（本段新的 + 候选里的旧的）· 认知用本地号（她看到的是 `u0001`）。
-    取不到节点的落空表 —— 空表 ⇒ 交集为空 ⇒ 那一行丢, **不炸**。
-    """
-    out: dict[str, list[str]] = {}
-    for nid in [*ctx.episode_ids, *cand_ids]:
-        out[str(nid)] = _node_topics(ctx, nid)
-    for real, local in local_of.items():
-        node = ctx.store.get(real)
-        if node is not None:
-            out[local] = list(node.topics)
-    return out
 
 
 def _kind_of(ctx: Ctx, local_of: dict[str, str], cand_ids: list[str],
