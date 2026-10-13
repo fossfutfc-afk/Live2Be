@@ -26,7 +26,7 @@ from __future__ import annotations
 import logging
 
 from core.brain.entities import find_entity, object_lines, strangers_block, surface_forms
-from core.brain.revise import apply_entities, link_entity_tags
+from core.brain.revise import apply_entities, apply_stances, link_entity_tags
 from core.digest.material import _node_texts, settle_objects_block
 from core.digest.rounds.base import Ctx, RoundOut
 
@@ -56,12 +56,13 @@ def _strangers(ctx: Ctx, ids: list[str]) -> list[str]:
 
 
 def run(ctx: Ctx) -> RoundOut:
-    """④ 认人 —— 本段那些"她写了、但库里没有"的名字 ⇒ 建对象 + **回头补边**。"""
+    """④ 沉淀 —— 认人（建新对象）+ 改名 / 写看法（改已有的对象）。"""
     spec = ctx.enter("settle")
     ids = _segment_ids(ctx)
     strangers = _strangers(ctx, ids)
-    if not strangers:
-        # ⭐ **事件驱动**: 没有陌生人 ⇒ 一次调用都不发（这是 E4 的成本判据）
+    obj_text, obj_ids = settle_objects_block(ctx.store, ids, now=ctx.now_ts)
+    if not strangers and not obj_ids:
+        # 没有陌生人、也没提到任何认识的对象 ⇒ 这一趟没有活干（**跳过不是失败**）
         ctx.log_skip(spec)
         return RoundOut.skipped()
     # ⚠️ **故意还是 `casefold`**（不是 `entities.form_key`）: 这个集合要交给
@@ -72,7 +73,6 @@ def run(ctx: Ctx) -> RoundOut:
     #    再挡一道 ⇒ 这里只是"早一步、友好地"丢行, 差别只在台账那一笔。
     known = {f.casefold() for n in ctx.store.all() if n.kind == "entity"
              for f in surface_forms(n)}
-    obj_text, _obj_ids = settle_objects_block(ctx.store, ids, now=ctx.now_ts)
     have_text, _have_ids = object_lines(ctx.store, texts=_node_texts(ctx.store, ids))
     system = ctx.system_for(spec)
     user = ctx.sections_for(spec, [
@@ -81,17 +81,29 @@ def run(ctx: Ctx) -> RoundOut:
         ("已有的对象", have_text or "（还没有任何对象）"),
         ("角色人设（锚点）", ctx.character_prompt),
     ])
-    rows, _resp = ctx.call(spec, system, user,
-                           parse_fn=ctx.parse_for(spec, known_names=known))
+    rows, _resp = ctx.call(
+        spec, system, user,
+        parse_fn=ctx.parse_for(spec, known_names=known, object_ids=set(obj_ids)))
     if rows is None:
         return RoundOut.failed()
+    # ⭐ **一行一个对象, 靠 `id` 分路**（`parse_attribution` 已经分好）
+    creates = [r for r in rows if r.get("action") == "create"]
+    updates = [r for r in rows if r.get("action") == "update"]
     ctx.result.created_entities = apply_entities(
-        ctx.store, rows, ts=ctx.now_ts, event_seq=[ctx.interact_max])
-    # ⭐ **建完补边**: 重扫本段全部节点 —— 刚才那个名字现在解析得到了 ⇒ 落 `about` + 归一 tag
+        ctx.store, creates, ts=ctx.now_ts, event_seq=[ctx.interact_max])
+    stances = apply_stances(ctx.store, updates, ts=ctx.now_ts,
+                            event_seq=[ctx.interact_max])
+    ctx.result.renamed_entities = list(stances.renamed)
+    ctx.result.rewritten_entities = list(stances.rewritten)
+    # ⭐ **建完补边**: 重扫本段全部节点 —— 刚才那个名字现在解析得到了 ⇒ 落 `about` + 归一
     linked = 0
     for nid in ids:
         targets, _left = link_entity_tags(ctx.store, nid, ts=ctx.now_ts)
         linked += len(targets)
-    logger.info("digest_settle strangers=%d rows=%d new=%d linked=%d",
-                len(strangers), len(rows), len(ctx.result.created_entities), linked)
+    logger.info("digest_settle strangers=%d objects=%d rows=%d new=%d renamed=%d "
+                "rewritten=%d clash=%d empty=%d stale=%d linked=%d",
+                len(strangers), len(obj_ids), len(rows),
+                len(ctx.result.created_entities), len(stances.renamed),
+                len(stances.rewritten), len(stances.collisions),
+                len(stances.empty_skips), len(stances.watermark_skips), linked)
     return RoundOut.done()

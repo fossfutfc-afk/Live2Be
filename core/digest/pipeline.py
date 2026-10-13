@@ -183,6 +183,12 @@ class DigestResult:
     #: ⏸ ~~R4 物化的 promise 节点 id~~ **2026-09-29 删** —— 承诺退图, R4 不再建节点。
     #: R3 新建的 entity id（`new_entity` 的产物; 归属边在那边一起写）
     created_entities: list[str] = field(default_factory=list)
+    #: ⭐ **settle 改了名**的对象 id（旧主名已降级成别名）—— `apply_stances.renamed`。
+    renamed_entities: list[str] = field(default_factory=list)
+    #: ⭐ **settle 覆写了看法**的对象 id（只收**真的变了**的: 一字未变不进这里, 但账上仍有
+    #: 一笔 `changed={}` 的 rewrite —— 同 `soaked_groups` 的口径）。被**水位**挡下的那次
+    #: （段级重跑）也不进这里（见 `nodes.BrainNode.text_seq`）。
+    rewritten_entities: list[str] = field(default_factory=list)
     #: ⏸ ~~`created_groups` / `grouped_episodes` / `merged_groups` / `group_warnings`~~
     #: **2026-10-13 随 L2-a 分群退役删**（那一轮整族搬 `archive/digest_group/`,
     #: 这四个字段当时只有它在写、live 侧零读者）。要复活就照那份 README 一起加回来。

@@ -316,22 +316,18 @@ ROUNDS: tuple[RoundSpec, ...] = (
         material=("这一段认下的对象", "她写了、但库里还没有的名字",
                   "已有的对象", "角色人设（锚点）"),
         writes=(
-            # ⭐ 今天**只认人**（2026-10-08 E4）: 造 `entity` **节点**（name / aliases /
-            # `event_seq` / ts）—— 契约与料已扩成"认人 + 改名 / 写看法", 但**执行那一半
-            # 还没接**（她写的 `{"id": …, "text" / "name": …}` 行今天会被静默丢掉）。
-            # ⏸ 接线后才写: `("entity", ("text", "text_seq"))`（`text` = 看法, 每轮注入
-            # 「我知道的名字」; `text_seq` = 防段级重试折两遍的水位）。
-            # ⛔ **一条旧判据已作废**: "`entity.text` 那一格今天没有读者" —— 名表现在每轮印
-            # `- 主名：看法`（`render._known_line`), 读者一直在（见 `rounds/settle.py` 的 docstring）。
-            ("entity", ("name", "aliases", "event_seq", "ts")),
+            # ⭐ **两路**（2026-10-13 接线, `parse_attribution` 按 `id` 分好）:
+            # 没有 `id` ⇒ 造 `entity` 节点（name / aliases / `event_seq` / ts, 行里带了
+            # `text` 就顺手装第一句看法）; 有 `id` ⇒ 改已有的（`name` 改名 / `text` 写看法
+            # + **水位 `text_seq`**）。
+            ("entity", ("name", "aliases", "text", "text_seq", "event_seq", "ts")),
             # ⚠️ **`about` 不由 LLM 写**: 她只在写节点时留下引用, 引擎据此派生边;
             # 这一轮**建完新对象之后回头补边**（同段闭合, 零 LLM）。
             ("edge", ("about",)),
         ),
-        result_fields=(*CONTRACT_FIELDS, "created_entities"),
-        # ⏸ **接线后这一格要改**: skip 的判据从"有解析不到的引用"放宽成"**引用为空**且
-        # 没有陌生人"（有引用就要跑 —— 那才有对象可改名 / 写看法）。
-        skip="本段没有解析不到的 `#entity:` 名字（没有新人要认 ⇒ 一次调用都不发）",
+        result_fields=(*CONTRACT_FIELDS, "created_entities",
+                       "renamed_entities", "rewritten_entities"),
+        skip="本段没有被引用的对象, 也没有解析不到的名字（这一趟没有活干）",
         # ⭐ 加法的: 失败只丢"新对象 + 这一次补边" —— 经历/看法照旧（同 group / cognize 的判据）。
         own_snapshot=True,
     ),

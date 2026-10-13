@@ -18,7 +18,13 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
-from core.brain.entities import SELF_ID, SENSEI_ID, find_entity, normalize_entity_tags
+from core.brain.entities import (
+    SELF_ID,
+    SENSEI_ID,
+    find_entity,
+    form_key,
+    normalize_entity_tags,
+)
 from core.brain.evolution import EvolutionLog
 from core.brain.graph import (
     REL_ABOUT,
@@ -241,6 +247,8 @@ def apply_entities(store: WikiStoreV2, rows: list[dict], *, ts: str = "",
     log = log or EvolutionLog.for_store(store)
     ts = ts or datetime.now().isoformat(timespec="seconds")
     out: list[str] = []
+    #: 水位 = **这一段的上界**（`event_seq` 的上界; settle 传 `[ctx.interact_max]`）
+    seq = max(event_seq) if event_seq else 0
     if not _entities_ready(store):
         logger.warning("apply_entities 跳过: self/sensei 保留号不在 —— "
                        "next_id('x') 会撞上保留号（先跑 ensure_entities）")
@@ -263,6 +271,12 @@ def apply_entities(store: WikiStoreV2, rows: list[dict], *, ts: str = "",
             continue
         node = make_node("entity", name=name, aliases=aliases, ts=ts)
         node.event_seq = list(event_seq or [])
+        # ⭐ **刚认识就有话说 ⇒ 顺手装上第一句看法**（行里带了 `text` 才写; **空 = 不写**）。
+        # 「没话说就不写」是常态 —— ⛔ 别因为这一格可选就把它变成必填。
+        text = str(row.get("text", "") or "").strip()
+        if text:
+            node.text = text
+            node.text_seq = seq
         bad = node.validate()
         if bad:
             raise ValueError(err("InvalidNode", f"entities[{i}] 无效: {'; '.join(bad)}"))
@@ -278,6 +292,112 @@ def apply_entities(store: WikiStoreV2, rows: list[dict], *, ts: str = "",
 def _entities_ready(store: WikiStoreV2) -> bool:
     """两个**保留号**都在吗（`x0000` 她 / `x0001` 老师）—— 不在就不能建新对象。"""
     return SELF_ID in store and SENSEI_ID in store
+
+
+@dataclass
+class StanceResult:
+    """`apply_stances` 的执行结果 —— 编排层拿去记账。"""
+
+    renamed: list[str] = field(default_factory=list)
+    """**真改了名**的对象 id（旧主名已降级成别名）。"""
+    rewritten: list[str] = field(default_factory=list)
+    """**真覆写了看法**的对象 id（一字未变不进这里 —— 同 `soaked_groups` 的口径）。"""
+    collisions: list[str] = field(default_factory=list)
+    """**撞车被丢掉的改名**（`"x0004:小玉"`）—— 那个名字已经属于**别的**对象（⛔ 绝不合并）。"""
+    empty_skips: list[str] = field(default_factory=list)
+    """⭐ **空值被当成"不改"而跳过的格**（`"x0001:text"`）—— 见 `apply_stances` 的纪律①:
+    `""` 不是"清空", 是"没话可说"。只记账, ⛔ 不算失败。"""
+    watermark_skips: list[str] = field(default_factory=list)
+    """⭐ **被水位挡下的改写**（`"x0001:text"`）—— 这一段已经写过它了（段级重跑）。"""
+
+
+def apply_stances(store: WikiStoreV2, rows: list[dict], *, ts: str = "",
+                  log: EvolutionLog | None = None,
+                  event_seq: list[int] | None = None) -> StanceResult:
+    """⭐ **`settle`「改已有的对象」的执行器**（2026-10-13）—— **改名 / 写看法**, ⛔ 一个节点都不建。
+
+    行形 = `{"action": "update", "id", ["name"], ["text"]}`（`parse_attribution` 的产出）。
+
+    | 行里有什么 | 做什么 |
+    |---|---|
+    | `name` | **改名**: 旧主名**降级成别名**（两个叫法从此都指它）+ 留痕 `rename` |
+    | `text` | **写看法**: 覆盖 `entity.text` + 落**水位** `text_seq` + 留痕 `rewrite` |
+
+    ## 四条纪律（每一条都对应一个具体的坏结果）
+
+    ① ⭐ **空值 = 明确的不改**（用户 2026-10-13 裁）: `{"id": "x0001", "text": ""}`
+       是"**这一格没话可说**", ⛔ **不是"把看法清空"** —— 引擎什么都不做, 只记一笔
+       `empty_skips`（⛔ 不记 `drops`: 这里**没有东西可丢**）。同理 `name: ""` = 不改名。
+    ② **改名撞车 ⇒ 丢这一格**（⛔ **绝不合并**）: 新名字已经属于**别的**对象 ⇒ 那是
+       "把两个人并成一个"、**不可逆**（重复建对象还能合并, 身份并错分不开）——
+       只丢 `name`, 同一行的 `text` 照写。
+    ③ **值没变 = 不写、不留痕**（同 `_soak` 的口径）: 段级重跑时她上次已经改过 ⇒ 料里印的
+       就是新值 ⇒ 她再写同一个 ⇒ 这里 no-op ⇒ ⭐ **改名天然幂等**（所以它不需要水位）。
+    ④ ⭐ **`text` 要过水位**（它是这一层**唯一不幂等**的写入）: "整段重写"每次措辞都可能不同 ⇒
+       段级重跑**不能**再折一遍 —— `最大 event_seq ≤ node.text_seq` ⇒ 那一段已经写过 ⇒
+       **丢掉这一格 + 记账**（`watermark_skips`）。⚠️ 水位必须与它守的那句话**同住一个节点**
+       （见 `nodes.BrainNode.text_seq` 的注释: 两种失败语义因此都对）。
+
+    ⚠️ **不吞错**: 能走到这里说明契约层已经挡过形状问题 ⇒ 剩下的异常都是真 bug（照「不吞错」抛）。
+    """
+    log = log or EvolutionLog.for_store(store)
+    ts = ts or datetime.now().isoformat(timespec="seconds")
+    seq = max(event_seq) if event_seq else 0
+    res = StanceResult()
+    for i, row in enumerate(rows):
+        nid = str(row.get("id", "")).strip()
+        node = store.get(nid)
+        if node is None:
+            raise ValueError(err("BadStance",
+                                 f"entities[{i}] 要改的对象不存在: {nid}"
+                                 "（料里刚印过它, 不该消失 —— 这是引擎侧的 bug）"))
+        # ── 改名 ──
+        new_name = str(row.get("name", "") or "").strip()
+        if not new_name:
+            if "name" in row:                             # 纪律①: 空 = 不改名
+                res.empty_skips.append(f"{nid}:name")
+        else:
+            old = str(node.name or "").strip()
+            if form_key(new_name) == form_key(old):
+                pass                                      # 纪律③: 值没变 ⇒ 不写、不留痕
+            else:
+                hit, _why = find_entity(store, new_name)
+                if hit is not None and hit.id != nid:
+                    res.collisions.append(f"{nid}:{new_name}")    # 纪律②: 只丢这一格
+                    logger.warning("digest_settle rename_clash id=%s %r 已属于 %s —— 丢掉这一格",
+                                   nid, new_name, hit.id)
+                else:
+                    aliases = list(node.aliases or [])
+                    if old and all(form_key(old) != form_key(a) for a in aliases):
+                        aliases.append(old)               # 旧主名降级成别名
+                    store.update(nid, {"name": new_name, "aliases": aliases})
+                    res.renamed.append(nid)
+                    log.append({"pkg": "digest", "action": "rename", "id": nid,
+                                "changed": {"name": [old, new_name]}, "ts": ts})
+                    logger.info("digest_settle rename=%s %r → %r", nid, old, new_name)
+        # ── 写看法 ──
+        if "text" not in row:
+            continue
+        new_text = str(row.get("text", "") or "").strip()
+        if not new_text:                                  # 纪律①: 空 = 不改（不是清空）
+            res.empty_skips.append(f"{nid}:text")
+            continue
+        if seq and int(node.text_seq or 0) >= seq:        # 纪律④: 水位
+            res.watermark_skips.append(f"{nid}:text")
+            logger.info("digest_settle text_skip=%s 水位 %s ≥ 本段 %s（这一段已经写过）",
+                        nid, node.text_seq, seq)
+            continue
+        before = str(node.text or "")
+        if before == new_text:                            # 纪律③: 值没变
+            log.append({"pkg": "digest", "action": "rewrite", "id": nid,
+                        "changed": {}, "ts": ts})
+            continue
+        store.update(nid, {"text": new_text, "text_seq": seq})
+        res.rewritten.append(nid)
+        log.append({"pkg": "digest", "action": "rewrite", "id": nid,
+                    "changed": {"text": [before, new_text]}, "ts": ts})
+        logger.info("digest_settle rewrite=%s（%d → %d 字）", nid, len(before), len(new_text))
+    return res
 
 
 def link_entity_tags(store: WikiStoreV2, nid: str, *, ts: str = ""

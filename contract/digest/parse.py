@@ -20,8 +20,10 @@ from contract.digest.tables import (
     COGNIZE_ANCHORS,
     COGNIZE_KEYS,
     COGNIZE_RETIRED,
+    ENTITY_NAME_MAX,
     ENTITY_TAG_PREFIX,
     ENTITY_TAGS_MAX,
+    ENTITY_TEXT_MAX,
     GROUP_TITLE_MAX,
     MAX_ALIASES,
     MAX_COGNITIONS,
@@ -596,64 +598,131 @@ def parse_group(raw: Any, *, block_ids: set[str]
     return out, ValidationResult(tuple(errors), tuple(warnings))
 
 def parse_attribution(raw: Any, *, known_names: set[str] | None = None,
+                      object_ids: set[str] | None = None,
                       ) -> tuple[list[dict], ValidationResult]:
-    """⭐ **R3「认人」**（E4, 2026-10-08）: `{"entities": [...]}` → 建对象的行。
+    """⭐ **settle「沉淀」**（2026-10-13 从"只认人"扩成两路）: `{"entities": [...]}` → **动作行**。
 
-    一行 → `{"name": …, ["aliases"], "reason": …}` —— **只造对象**:
-    ⛔ 不写正文（印象归 belief）· ⛔ 不连边（归属由引擎从 `tags` 里的 `#entity:` 派生）。
+    ⭐ **`id` 决定这一行是"建"还是"改"**（项目自己的形状规则, `docs.py` 的规则④）:
+      · **没有 `id`** → `{"action": "create", "name", "reason", ["aliases"], ["text"]}`
+        —— 建一个新的长期对象（号由引擎发）;
+      · **有 `id`** → `{"action": "update", "id", ["name"], ["text"]}`
+        —— 改一个已经认识的对象（改名 ⇒ 旧叫法降级成别名; 写看法 ⇒ 覆盖 `text`）。
 
-    ## 校验（**行级一律丢行** —— 这个相位没有 id 可编造, 所以没有"整包拒"档）
+    ## 校验（**没有"整包拒"档** —— 只有顶层形状坏才拒, 见下）
 
     | 情况 | 处置 |
     |---|---|
     | 顶层不是对象 / `entities` 不是数组 | **整包拒**（形状坏）|
-    | 行不是对象 · `name` 空 · `reason` 空 | **丢这一行** + 记账 |
-    | `name` 已经在 `known_names` 里（= 【已有的对象】里有）| **丢这一行** + 记账 |
-    | `aliases` 不是字符串数组 / 超上限 | 忽略 / 截断 + 一句 warning（别名只是效率优化）|
+    | 行不是对象 | **丢这一行** + 记账 |
+    | **改**: `id` 不在【这一段认下的对象】里（编造）| **丢这一行** + 记账 |
+    | **改**: `name` 与 `text` **两个键都没出现** | **丢这一行** + 记账（这行没说改什么）|
+    | **改**: `name` 超 `ENTITY_NAME_MAX` | **只丢这一格** + warning（`text` 照收）|
+    | **建**: `name` 空 / 超 `ENTITY_NAME_MAX` / 已在 `known_names` 里 | **丢这一行** + 记账 |
+    | **建**: `reason` 空 | **丢这一行** + 记账 |
+    | `text` 超 `ENTITY_TEXT_MAX` | **收下 + 告警**（⭐ 软尺: 不截断、也不丢行）|
+    | **任一格的值是空的**（`""` / 没写）| ⭐ **当"不改"**（⛔ 不是"清空"）—— 见下 |
+    | `aliases` 不是数组 / 超 `MAX_ALIASES` | 忽略 / 截断 + warning（别名只是效率优化）|
+    | **改**那一路写了 `reason` / `aliases` | warning（忽略, ⛔ 不丢行）|
 
-    ⚠️ `known_names` = 既有对象的**全部叫法**（`surface_forms`, casefold）—— 引擎先挡一道
-    "别重复建"; 执行层（`apply_entities`）还会再挡一道（万一名字在料印出来之后才建出来）。
+    ⭐ **空值 = 明确的不改**（用户 2026-10-13 裁）: `{"id": "x0001", "text": ""}` 是
+    "**这一格没话可说**", ⛔ **不是"把看法清空"** ⇒ 引擎什么都不做（`apply_stances` 那一侧
+    只记一笔 `empty_skips`, ⛔ **不记 `drops`** —— 这里没有东西可丢）。
+    ⇒ 判"这行到底改了什么"**只看键在不在, 不看值空不空**。
+
+    ⚠️ **为什么这个相位没有"整包拒"档**（与 L1/L2 不同, 2026-10-13 用户裁）: L1/L2 的
+    **一行不是一个独立事实**（一行关系 / 一条看法 + 它的证据 ⇒ 编一个 id 说明整包没在看
+    真实世界）; 而这一趟的每行是**互相独立的对象操作**（建小玉 与 改老师 毫无关系）——
+    一行坏了没必要连坐（整包拒还要白花一次反馈重试）。
+    ⚠️ **`known_names` 只挡"已经存在的对象"**（防重复建）; ⭐ **不核"名字在不在
+    【她写了、但库里还没有的名字】里"** —— 那份名单是引擎扫**本段新节点**数出来的,
+    而"这一段让我想记住的人"完全可能**没标引用**（用户 2026-10-13 裁: *"那一种情况
+    不应该是我们的新建吗"*）⇒ 名单是**提示**不是笼子; 引擎只拦**能判定**的
+    （已在库里的名字 · 超长 · 空）。
+    ⚠️ `object_ids` = 【这一段认下的对象】（`settle_objects_block` 的第二个返回值,
+    **真身 id**）—— 编号只能照抄它。缺省 `None` = 不校验（单测 / 老调用方）。
     """
     known = {str(x).casefold() for x in (known_names or set())}
     errors: list[str] = []
     warnings: list[str] = []
     drops: list[str] = []
     if not isinstance(raw, dict):
-        return [], ValidationResult(errors=("R3 输出必须是 JSON 对象",))
+        return [], ValidationResult(errors=("settle 输出必须是 JSON 对象",))
     rows = raw.get("entities")
     if not isinstance(rows, list):
         return [], ValidationResult(errors=("entities 必须是数组",))
     out: list[dict] = []
     for i, row in enumerate(rows):
         if not isinstance(row, dict):
-            drops.append(f"entities[{i}] 不是对象 —— 丢了")
+            _drop(warnings, drops, f"entities[{i}] 不是对象 —— 丢了")
             continue
+        where = f"entities[{i}]"
         name = str(row.get("name", "") or "").strip()
+        text = str(row.get("text", "") or "").strip()
+        if text and len(text) > ENTITY_TEXT_MAX:          # ⭐ 软尺: 收下 + 告警
+            warnings.append(f"{where}.text 超过 {ENTITY_TEXT_MAX} 字"
+                            f"（收下 —— 但这一格每轮都注入, 长了要压）")
+        # ── 有 id ⇒ 改 ──────────────────────────────────────────────
+        eid = str(row.get("id", "") or "").strip()
+        if eid:
+            if object_ids is not None and eid not in object_ids:
+                _drop(warnings, drops,
+                      f"{where} 的 id={eid!r} 不在【这一段认下的对象】里 —— 丢了")
+                continue
+            # ⭐ **判"这行改了什么"只看键在不在, 不看值空不空**（用户 2026-10-13 裁:
+            # 空值 = "这一格没话可说", ⛔ 不是"清空"）—— 所以空值**照样收下**,
+            # 由执行层记一笔 `empty_skips` 后什么都不做。
+            if "name" not in row and "text" not in row:
+                _drop(warnings, drops, f"{where} 既没写 name 也没写 text —— 丢了"
+                                       "（改的那一行总得说改哪一格）")
+                continue
+            item: dict = {"action": "update", "id": eid}
+            if "name" in row:
+                if not name:
+                    item["name"] = ""                     # 空 ⇒ 不改名（执行层记账）
+                elif len(name) > ENTITY_NAME_MAX:         # 只丢这一格（text 照收）
+                    warnings.append(f"{where}.name 超过 {ENTITY_NAME_MAX} 字 —— 丢掉这一格"
+                                    "（更长的不是称呼, 是一句话）")
+                else:
+                    item["name"] = name
+            if "text" in row:
+                item["text"] = text                       # 空 ⇒ 不写看法（执行层记账）
+            for k in ("reason", "aliases"):
+                if row.get(k) not in (None, "", []):
+                    warnings.append(f"{where} 改已有的对象不用写 {k} —— 已忽略")
+            out.append(item)
+            continue
+        # ── 没有 id ⇒ 建 ────────────────────────────────────────────
         if not name:
-            drops.append(f"entities[{i}] 没写 name —— 丢了")
+            _drop(warnings, drops, f"{where} 没写 name —— 丢了")
+            continue
+        if len(name) > ENTITY_NAME_MAX:
+            _drop(warnings, drops, f"{where} 的 name 超过 {ENTITY_NAME_MAX} 字 —— 丢了"
+                                   "（超过这个长度的不是称呼, 是一句话）")
             continue
         if name.casefold() in known:
-            drops.append(f"entities[{i}] {name!r} 已经在【已有的对象】里 —— 丢了"
-                         "（同一个人/地方/东西只能有一个对象）")
+            _drop(warnings, drops, f"{where} {name!r} 已经在【已有的对象】里 —— 丢了"
+                                   "（同一个人 / 地方 / 东西只能有一个对象）")
             continue
         reason = str(row.get("reason", "") or "").strip()
         if not reason:
-            drops.append(f"entities[{i}] {name!r} 没给 reason —— 丢了"
-                         "（建对象是永久成本, 得说清为什么值得）")
+            _drop(warnings, drops, f"{where} {name!r} 没给 reason —— 丢了"
+                                   "（建对象是永久成本, 得说清为什么值得）")
             continue
-        item: dict = {"name": name, "reason": reason}
+        item = {"action": "create", "name": name, "reason": reason}
         raw_aliases = row.get("aliases")
         if raw_aliases is not None and not isinstance(raw_aliases, list):
-            warnings.append(f"entities[{i}].aliases 不是数组 —— 忽略")
+            warnings.append(f"{where}.aliases 不是数组 —— 忽略")
         aliases = [str(a).strip() for a in (raw_aliases or [])
                    if isinstance(raw_aliases, list)
                    and isinstance(a, str) and str(a).strip()]
         if len(aliases) > MAX_ALIASES:
-            warnings.append(f"entities[{i}].aliases 超过 {MAX_ALIASES} 个"
+            warnings.append(f"{where}.aliases 超过 {MAX_ALIASES} 个"
                             f"（截到前 {MAX_ALIASES} 个）")
             aliases = aliases[:MAX_ALIASES]
         if aliases:
             item["aliases"] = list(dict.fromkeys(aliases))
+        if text:                                          # 刚认识就有话说 ⇒ 顺手装上
+            item["text"] = text
         out.append(item)
     return out, ValidationResult(tuple(errors), tuple(warnings), tuple(drops))
 # ============================================================================
