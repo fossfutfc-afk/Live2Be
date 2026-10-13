@@ -35,6 +35,43 @@ webgui/  cli/(←apps/)   tests/   docs/{design,spec,archive}/
 
 ## 1. 下一步该怎么做（按顺序，可直接执行）
 
+### 1h · 调用层归位（**2026-10-13 用户提出；小活，但有一个岔路**）
+用户原话: *"digest 里有两个 call, 我觉得有必要放入 `client.py` 中, 这工作量大吗,
+函数可以不动, 但是它的位置错了"*。⛔ 两个文件**不是一类东西**（名字撞车而已）：
+
+| 文件 | 行数 | 依赖 | 判决 |
+|---|---|---|---|
+| `core/digest/llm_call.py` | 85（`llm_chat` 56 + docstring） | ⭐ **零 digest 依赖**：只用 `core.common.err` · `llm.task_labels` · `llm.task_levels` | ✅ **位置错了**（就是用户说的那个）—— 真家是 `llm/`，与 `client._classify`/`_raise_transport`/`retry.call_with_feedback` 同一族 |
+| `core/digest/call.py` | 164（6 函数） | `contract.digest`（**渲染产出契约**）· `core.digest.rounds.RoundSpec/budget_of` · TYPE_CHECKING `pipeline.DigestResult` | ❌ **位置是对的** —— 搬进 `llm/` = 新开 `llm → core.digest.rounds` 的反向依赖（`llm → core` 现在只剩 `task_levels` 那**一根**线，正等 `infra/paths.py` 断掉）。错的只是**名字**：看着与 `llm_call.py` 像一对。想治就改名 `round_call.py`（它自己的 docstring 就写"一轮 LLM 调用的四件套"） |
+
+**搬 `llm_call.py` 的完整工作面（实测，AST 认 import）**：
+```
+搬家            core/digest/llm_call.py → llm/client.py（或 llm/robust.py, 见岔路）
+改 import       core/digest/call.py:26   ← 唯一生产引用
+                tests/core/test_llm_call.py:4（文件名/首行 docstring 一并改）
+⛔ 必须同改     `from core.common import err` → `from contract.errors import err`
+                （不改成真源, 搬完就是 `llm → core`, 把"刀 1"刚断的线又接回去）
+文档指针 5 处   core/digest/__init__.py:37 · llm/task_labels.py:38,106 ·
+                core/digest/pipeline.py:265 · core/digest/rounds/__init__.py:95,167
+不用动          MAX_CALL_RETRIES（0 个外部引用）· digest 门面**没有**再导出 llm_chat
+```
+⇒ **工作量：小**（85 行搬家 + 2 处 import + 1 行改真源 + 6 行文档指针，**零行为变化**）。
+冒烟 = `tests/core/test_llm_call.py` + `tests/core/test_digest_rounds.py`。
+
+**岔路（要用户点头）**：搬进 `llm/client.py`（**他说的**，但那份已经 672 行 =
+`LLMClient` 459 + 8 个模块级函数，主题是"OpenAI 协议封装"）**还是**新开 `llm/robust.py`
+（主题是"怎么发得稳"：重试/deadline/档位透传/回灌）？⚠️ 我倾向**后者**：
+`llm_chat` 不是协议件，它是**策略件**（它收一个鸭子类型的 `llm` 当参数，不是 `LLMClient`
+的方法）。但这一条**等他定**，别自己选。
+
+⭐ **顺带一个更值钱的发现**（同一片区域，**中活，要拍板**）：
+`core/digest/call.py::_round_call`（68 行）里那个"调用 → parse → 被拒就回灌重试 1 次"
+的循环，是 **`llm/retry.py::call_with_feedback` 的第三份实现** ——
+`llm/retry.py` 的 docstring **自己就把 digest 那一份列在待收口的三份里**
+（bond `engine.py:436-602` · mmt 三段式 · digest `call.py:99-131`）。
+⇒ 真正"本该用公共契约却自己写了一份"的地方在这儿，而它的收法**不是搬文件而是改走已有实现**
+（要定：重试次数 bond 3 / digest 1、错误文案带轮次、parse 怎么绑）⇒ 报给他, 没动。
+
 ### 1e · `contract/schema.py` 外移（**下一个大件；两处等他拍板**）
 用户说过 *"我可能希望这个也做掉"*，并问"你有什么问题" —— 问题已报（见下），
 **他还没回** ⇒ ⛔ **别自己选**，把这两条摆给他：
@@ -97,9 +134,12 @@ frozen 下三者不重合，`data/` 落临时目录 = **退出即丢**。
 纯移动：`core` → `infra/` + `engine/`；`renderer` + `core/tui` → `tui/`；`apps` → `cli/`。
 ⚠️ 顺带：`renderer → core.media.catalog` 3 处（表现层反向依赖引擎），`tui/` 那一步一起处理。
 
-### ⏸ 已撤下（**别自己捡起来**）
-- **1b 删 `examples` 字段**：用户 2026-10-12 裁 *"由于我们没有真删 profile，可以留着"*
-  —— `examples` 的不变量是 `profile` 门控的，`profile` 只**停产**没删格式 ⇒ 护栏照留。
+### ⏸ 已撤下 / 划去（**别自己捡起来**）
+- ✅ **划去: 删 `examples` 字段**（原 1b）。用户 2026-10-13 裁: *"算了 examples 感觉没有
+  删除的必要, 这个还可以看作扩展, 延后, 可以划去"* ⇒ **不再是待办**。
+  现状照旧: 有读者（`read/pack.py` 的正文面 / `recall.py` / `render.py`）、有守卫
+  （`profile.examples ≤3` 的不变量）、**零活写者**（`_apply_accrue` 随 1a 一起删了）。
+  ⇒ 当它是"留着的扩展位"。
 - **batch 2** 的目录改名：要他在场。
 
 ---
@@ -260,10 +300,11 @@ ruff 在 `…\envs\live2be\Scripts\ruff.exe`。
   三趟执行器）· 上移（行形状解析与结构硬规则搬到**契约层**）· 砍（`update` 改写 /
   `unlink` / `resolve` / `accrue` 计数）。**机器件被留下复用**（`_create_belief` /
   `_soak` / `_add_edge` / `_find_duplicate` / `link_entity_tags`）。
-- ⭐ **三层重试**（1d 之后仍是三条，但 ③ 与 ①a 抽出的 `llm.retry.call_with_feedback`
-  是**同一件事的两份实现**）：① 传输级 `llm/client._request_with_retry` ② 解析级
-  `core/digest/llm_call.llm_chat`（不抛，返回 `(resp, err)`）③ 结构级
-  `core/digest/call._round_call`（回灌重试 1 次）。
+- ⭐ **三层重试**（1i 起要收的是第 ③ 层）：① 传输级 `llm/client._request_with_retry`
+  ② 解析级 `core/digest/llm_call.llm_chat`（不抛，返回 `(resp, err)`）③ 结构级
+  `core/digest/call._round_call`（回灌重试 1 次）。**③ 是 `llm/retry.call_with_feedback`
+  的第三份实现**, 而且 `llm/retry.py` 的 docstring **自己就把 digest 列在待收口的三份里**
+  （bond · mmt 三段式 · digest）⇒ 这一条不是我的推断, 是那份文件自己招的。
 
 ### 5.3 1f 抓到 / 顺手改掉的三处（**这就是那条守门的价值证明**）
 1. ⭐ **`digest_relate.md` 把料名写短了**：文案说 `【本次新经历】`，而引擎真正印的段头是
@@ -277,6 +318,13 @@ ruff 在 `…\envs\live2be\Scripts\ruff.exe`。
    因此有**第三类**（`core/session/renderer.py::_LABELS`）。
 
 ### 5.4 还没查完 / 已报待裁的
+- **`examples` 字段**（✅ **已划去**, 见 §1）: 用户 2026-10-13 裁"没有删除的必要,
+  可以看作扩展, 延后"。现状 = **有读者、有守卫、零活写者**（写者 `_apply_accrue`
+  随 1a 删了）—— 留着当扩展位, ⛔ 别再报"它是死代码"。
+- **调用层归位**（2026-10-13 用户提出）: `core/digest/llm_call.py`（85 行, 零 digest
+  依赖）**位置错了** ⇒ 搬 `llm/`（岔路: `client.py` 还是新开 `robust.py`）;
+  `core/digest/call.py`（164 行, 认 `RoundSpec`+契约渲染）**位置是对的** ⇒ 只改名。
+  详见 §1h。
 - **`contract/schema.py` 的 61 行生产死代码**（`build_schema` + `export_definitions` +
   `_SHELL_FIELD_DESCRIPTIONS`）：AST 核实 = 无生产调用者（`build_schema` 只被
   `archive/ide_editor` 用；`export_definitions` **全死**，0 生产 0 测试，只在
