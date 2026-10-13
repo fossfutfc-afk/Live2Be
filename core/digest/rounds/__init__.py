@@ -242,9 +242,11 @@ ROUNDS: tuple[RoundSpec, ...] = (
                          "event_seq", "ts",
                          # 引擎物化（🚫 只进召回侧, 绝不进 LLM 上下文）:
                          "emo_shape", "place", "place_raw", "aff_at_encoding")),
-            ("profile", ("text", "subject", "verbatim", "verbatim_seq", "tags",
-                            "significance", "event_seq", "ts")),
-            # ⛔ ~~note 的 `on_mind`~~ **2026-09-29（N4e）退役** —— 它只写图;
+            # ⏸ **`("profile", …)` 2026-10-12 摘掉**（玩家画像停产, 用户裁:
+            # *"`entity.text` 取代了它的定位"*）—— 契约不再要它、`parse_round_a`
+            # 认得出但**丢行**, 所以这一步在真机上**不会再产 profile 节点**。
+            # ⚠️ `episodes._create_a_nodes` 里那一支**仍在**（直接喂条目的调用方
+            # 还能用它, 单测也还打着）—— 那是**停用**不是**删机器**, 见那边的注释。
             # ⭐ note 的写者 **2026-10-05（L7/L8）起只有这一轮**: 按 R0 的表产
             # `add` / `update` / `close`（收口轮已删）。
         ),

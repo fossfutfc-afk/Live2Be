@@ -28,16 +28,12 @@ from contract.digest.tables import (
     MAX_SEGMENTS,
     MAX_TAGS,
     MAX_TEXT,
-    PLAYER_SUBJECT,
     RELATION_ANCHORS,
     STATE_VALUES,
     TOPICS_MAX,
     is_full_date,
 )
 from contract.model import ValidationResult
-
-#: `links` 允许的 rel —— 见 `_parse_links` 的说明。
-LINK_RELS: tuple[str, ...] = ("supports", "contradicts", "evolved_from")
 
 
 def parse_round_a(raw: Any, *, seq_set: set[int] | None = None
@@ -801,8 +797,12 @@ def _clean_episode(e: Any, i: int, seq_set: set[int] | None = None,
         if f in e:
             warnings.append(f"episodes[{i}] 含引擎字段 {f}——已忽略")
     # ⭐ **2026-09-29: `kind` 只在"例外"时写**（用户裁决: 轮次决定的常量不该由 LLM 声明）——
-    # 缺键 / 空串 ⇒ 默认 **episode**; 只有 `experience`（玩家画像）需要显式写;
-    # 写坏值照旧拒（不静默降级 —— 静默改 kind 会让模型下次还这么写）。
+    # 缺键 / 空串 ⇒ 默认 **episode**；写坏值照旧拒（不静默降级 —— 静默改 kind 会让模型
+    # 下次还这么写）。
+    # ⏸ **2026-10-12 起"例外"没有了**: `profile`（玩家画像）停产（用户裁:
+    # *"`entity.text` 取代了它的定位"*）⇒ 今天只有"经历"一种条目。但这条通路**不删**、
+    # 也**不判成非法**（见下面那个 `if`）—— 契约已经不再要它, 可她惯性还会写,
+    # 而"多写一条我们不要的东西"**不该罚她重写整段**（坏 kind 才拒）。
     kind = str(e.get("kind", "") or "").strip() or "episode"
     if kind == "episode":
         item, errors, warnings = _clean_episode_item(
@@ -811,27 +811,16 @@ def _clean_episode(e: Any, i: int, seq_set: set[int] | None = None,
             item["kind"] = "episode"
         return item, errors, warnings
     if kind == "profile":
-        # 玩家画像条目（MMT 专则, 2026-09-02）: text 必填, subject 引擎固定 player
-        text = _read_text(e, i, warnings)
-        if not text:
-            return None, [f"episodes[{i}]: kind=experience（玩家画像）必须填 text"], []
-        item: dict = {"kind": "profile", "text": text,
-                      "subject": PLAYER_SUBJECT}
-        # 画像条目无 episode 载体——原话同样走**记录行号**（玩家那句 = `[N.0]`）
-        _fill_verbatim(item, e, i, warnings, seq_set, drops=drops)
-        tags, ent_tags = _split_tags(e.get("tags"), warnings, drops,
-                                     where=f"episodes[{i}]")
-        if tags or ent_tags:
-            item["tags"] = tags + ent_tags
-        sig = e.get("significance")
-        try:
-            sig_f = float(sig) if sig is not None else 0.5
-        except (TypeError, ValueError):
-            sig_f = 0.5
-        item["significance"] = max(0.0, min(1.0, sig_f))
-        return item, errors, warnings
-    return None, [f"episodes[{i}].kind 非法: {kind!r}（不写 = 经历; 只有"
-                  f"「玩家画像」才写 'profile'）"], []
+        # ⏸ **停产 = 认得出 + 不产条目**。`_drop` 写进 `ValidationResult.drops`
+        #（"真的丢了东西"的账目行, 与 `warnings` 分开）⇒ 图上一个 profile 节点都不会
+        # 再新建。⚠️ **存量档照旧读得到**（`nodes.KINDS` / 读侧 / `_PREFIX["profile"]`
+        # 都留着）: 停的是**生产**, 不是**格式**（用户 2026-10-12 裁: 先停产, 真删等
+        # 确认没有老档依赖）。
+        _drop(warnings, drops, f"episodes[{i}]: kind=profile（玩家画像）"
+                               "已停产, 这一条丢")
+        return None, [], warnings
+    return None, [f"episodes[{i}].kind 非法: {kind!r}（不写 = 经历; 今天没有"
+                  f"第二种合法条目）"], []
 
 
 def _split_tags(raw: Any, warnings: list[str], drops: list[str], *,

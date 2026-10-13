@@ -677,49 +677,6 @@ def test_candidate_hint_is_only_a_hint(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# MMT 专则: 玩家画像条目（kind=experience, subject=player）
-# ---------------------------------------------------------------------------
-
-def test_player_portrait_entry_lands_and_hides_from_relate(tmp_path):
-    """R1 的画像条目 → subject=player 落库; **不进本段的关系轮认知列表**。
-
-    ⚠️ **3b-2: 一段里两块内容事件会被切成一条切片**（本用例的时间线只有一个块
-    `[3]`）⇒ 两条条目（经历 + 画像）都落在**同一条切片**上 —— 这正是真实情形:
-    切分员看到一块就说"这是一件事", 而她在这一件事里同时写了经历与画像。
-    """
-    st = WikiStoreV2(tmp_path, world_id="world1", char_id="c")
-    llm = FakeLLM(
-        {"episodes": [
-            {"text": "老师说下周放假带我去看烟火大会, 我紧张得直结巴还是答应了",
-             "title": "烟火大会之约", "verbatim": ["3.1"],
-             "tags": ["约定", "烟火"], "significance": 0.85},
-            {"kind": "profile", "text": "玩家的生日是 5 月 20 日",
-             "verbatim": ["3.0"], "tags": ["玩家生日"],
-             "significance": 0.7},
-        ]},
-        {"relations": []},          # L1: 这一段没看出关系（造看法是 L2 的活）
-        split={"segments": [{"span": [3, 3],
-                             "abstract": "烟火大会之约"}]})
-    events = _events(_mmt(3, "我生日是 5 月 20 日哦", "下周放假, 一起去看烟火吧"))
-    res = digest_segment(st, llm, events)
-    assert res.ok, res.errors
-    assert res.created == ["m0001"]                    # episode 正常建
-    p = st.get("e0001")                                # 画像条目 → subject=player experience
-    assert p is not None and p.kind == "profile"
-    assert p.subject == "player" and p.text.startswith("玩家的生日")
-    assert p.verbatim == "我生日是 5 月 20 日哦"        # 玩家原话 = 行号 `[3.0]` → 逐字原文
-    # ⚠️ **3b-2: 位置来自切片** —— 两条条目落在同一条切片（本段只有一块内容事件）⇒
-    # 位置 = 那条切片的区间（`[3]` 那一块）。"一条对一条切片"的判据在
-    # `test_mmt_segment_fills_one_row_per_slice` 与 `_align_to_skeleton` 的用例里钉着。
-    assert p.event_seq == [3]
-    # L1 的认知列表不含刚建的画像条目（冷启动提示仍在 = 没有可接的认知）
-    b_user = llm.calls[1][1]["content"]
-    assert "玩家的生日" not in b_user
-    assert "尚无稳定认知" in b_user or "u0001" in b_user  # 画像被排除后无旧认知
-    assert "m0001" in b_user                           # episode 摘要正常进 L1 的料
-
-
-# ---------------------------------------------------------------------------
 # deadline: 全程时间预算（撞上 → 回滚, 水位不推进）
 # ---------------------------------------------------------------------------
 
