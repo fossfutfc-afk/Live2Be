@@ -1,13 +1,19 @@
 """digest_registry 测试（AGENT_BRAIN.md §3 重构 / 板块 2）——LLM 契约层单源。"""
 import pytest
 
-from contract.digest_registry import (
+from contract.digest_docs import (
     COGNIZE_ACTIONS,
+    OUTPUT_DISCIPLINE,
+    OUTPUT_RULES,
+    RELATION_ACTIONS,
+    ROW_FIELDS,
+    TOUCH,
+)
+from contract.digest_registry import DigestRegistry, digest_registry
+from contract.digest_tables import (
     COGNIZE_KEYS,
     MAX_COGNITIONS,
     MAX_SEGMENTS,
-    OUTPUT_DISCIPLINE,
-    OUTPUT_RULES,
     PHASE_ATTRIBUTE,
     PHASE_COGNIZE,
     PHASE_GROUP,
@@ -15,14 +21,9 @@ from contract.digest_registry import (
     PHASE_RELATE,
     PHASE_SPLIT,
     PHASE_UNDERSTAND,
-    RELATION_ACTIONS,
     RELATION_ANCHORS,
-    ROW_FIELDS,
     STATE_VALUES,
     TOPICS_MAX,
-    TOUCH,
-    DigestRegistry,
-    digest_registry,
 )
 
 # ---------------------------------------------------------------------------
@@ -414,7 +415,7 @@ def test_the_output_discipline_lives_only_in_the_contract():
         for rule in OUTPUT_RULES:
             assert rule not in raw, (
                 f"{path.name} 又抄了一遍输出纪律: {rule!r} —— 它只该住契约层"
-                "（`contract/digest_registry.OUTPUT_RULES`）。")
+                "（`contract/digest_docs.OUTPUT_RULES`）。")
 
     for phase in (PHASE_SPLIT, PHASE_RECORD,
                   PHASE_UNDERSTAND, PHASE_ATTRIBUTE, PHASE_GROUP):

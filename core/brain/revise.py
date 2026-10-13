@@ -7,8 +7,8 @@
     apply_attribution        —— **第 3 轮**决策表（D2b: 归属 + entity 维护）:
                                 attach/new_entity/rewrite 三类行 → `about` 边 + entity 载荷
 
-不做: 渲染（render.py）· 召回（recall.py）· LLM 契约校验（contract/digest_registry.py
-parse 层——结构校验在那; 本文件只管执行语义）· 存储细节（store.py 原语）。
+不做: 渲染（render.py）· 召回（recall.py）· LLM 契约校验（contract/digest_parse.py
+——结构校验在那; 本文件只管执行语义）· 存储细节（store.py 原语）。
 
 原子性由编排层保证（digest 全程快照, 任一失败 restore_state）; 本文件执行中抛
 ValueError → 编排层回滚（宁缺勿错）。

@@ -192,7 +192,8 @@ def test_every_phase_is_a_real_contract_phase():
     这条替换了从前"表里写死 `PHASE_*` 常量"的那份保证: 现在表里**没有**相位那一格了,
     所以由这条用例来钉"key 与契约相位是同一批词"。
     """
-    from contract.digest_registry import (
+    from contract.digest_registry import digest_registry
+    from contract.digest_tables import (
         PHASE_ATTRIBUTE,
         PHASE_COGNIZE,
         PHASE_GROUP,
@@ -200,7 +201,6 @@ def test_every_phase_is_a_real_contract_phase():
         PHASE_RELATE,
         PHASE_SPLIT,
         PHASE_UNDERSTAND,
-        digest_registry,
     )
     # ⚠️ `PHASE_UNDERSTAND`（旧一族 touch/update/add 的相位）**还在**契约里 ——
     # 那一族留给 L2（2026-10-07 用户裁"不着急删"）, 只是**没有轮在用它**。
