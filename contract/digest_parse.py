@@ -1,21 +1,20 @@
-"""digest 的**结构校验**（原 `contract/digest_registry.py` 的方法与助手，批次 1b-2a 搬来）。
+"""digest 的**结构校验** —— 七个相位的文档形状不同, 所以有七个入口。
 
-七个相位各自的文档形状不同，所以有七个入口。它们**一处 `self` 都不用**（原先只是碰巧
-写成方法），搬到模块级是纯搬运 —— 调用点仍走 `DigestRegistry` 上的同名薄委托。
+七个入口都**一处 `self` 都不用**（原先只是碰巧写成方法, 1b-2a 搬成模块级函数）——
+调用点仍走 `DigestRegistry` 上的同名**薄委托**。
 
-取值表 / 上限 / 文案仍在 `contract/digest_registry.py`（2b 起会拆去 tables / docs）。
+取值 / 上限读 `contract.digest_tables.py`, 文档形状（字段块 / 语义 / 范例）读
+`contract.digest_docs.py` —— **本模块不定义任何契约文案**: 渲染与校验读的是同一份。
 
-⚠️ `is_full_date` **留在 `digest_registry`**：它既被 `parse_group` 用，也被
-`core/digest/material.py` 从外部导入 —— 它是「日期取值语义」而不是校验逻辑。
-
-⚠️ 本模块**在模块级**从 `digest_registry` 取常量，所以那边的类体**不能**在模块级读本模块
-（会变成顺序依赖）。那边的委托因此用函数内 import。
+⚠️ `is_full_date` 住在 `digest_tables`（不在本模块）: 它既被 `parse_group` 用, 也被
+`core/digest/material.py` 从外部导入 —— 它是「日期**取值**语义」而不是校验逻辑。
 """
 from __future__ import annotations
 
 from typing import Any
 
-from contract.digest_registry import (
+from contract.digest_docs import RELATION_ACTIONS
+from contract.digest_tables import (
     ABSTRACT_MAX,
     ABSTRACT_MAX_FREEFORM,
     COGNIZE_ANCHORS,
@@ -31,7 +30,6 @@ from contract.digest_registry import (
     MAX_TAGS,
     MAX_TEXT,
     PLAYER_SUBJECT,
-    RELATION_ACTIONS,
     RELATION_ANCHORS,
     STATE_VALUES,
     TOPICS_MAX,

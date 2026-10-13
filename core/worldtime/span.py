@@ -99,7 +99,7 @@ def _or_raise(fallback: str, strict: bool, why: str) -> str:
 #: `SPANS` / `parse_span` —— **没有任何运行时消费方**。
 #:
 #: 契约侧的 `time_span` 字段**也已删**（2026-09-17 用户裁决, 见
-#: `contract/digest_registry.py` 的删除说明）。当时给它和本模块的免死理由是
+#: `contract/digest_tables.py` 的删除说明）。当时给它和本模块的免死理由是
 #: "为衰减新模型预留" —— **那个理由不成立**: 新模型的年龄单位是**活跃日/会话**,
 #: 输入是 `node.ts` + 事件流, `time_span` 不是它的输入。
 #:

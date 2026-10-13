@@ -27,7 +27,8 @@ from datetime import date
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from contract.digest_registry import RELATION_ACTIONS, STATE_VALUES, is_full_date
+from contract.digest_docs import RELATION_ACTIONS
+from contract.digest_tables import STATE_VALUES, is_full_date
 from core import paths
 from core.brain import marks
 from core.digest.rounds import RoundSpec
@@ -299,7 +300,7 @@ def _special_days_text(*, char_id: str) -> str:
 def _due_date(item) -> date | None:
     """条目的 `due` → 那一天; **不是全日期 ⇒ None**（= 没有期限）。
 
-    ⚠️ 判据与契约**同源**（`contract.digest_registry.is_full_date`）——
+    ⚠️ 判据与契约**同源**（`contract.digest_tables.is_full_date`）——
     料与校验对"什么算日期"必须一个口径, 否则会印出一个校验层不认的日期。
     ⛔ **绝不喂 `age_days`**（它吃 aware 时间戳, 裸日期当场 TypeError —— P1）。
     """

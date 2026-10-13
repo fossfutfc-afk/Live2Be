@@ -1,738 +1,59 @@
-"""digest 域注册表 — 记忆整理 LLM 输出的动作 spec 单源（AGENT_BRAIN.md §3 重构 / 板块 2）。
+"""digest 域注册表 —— LLM 契约层的**装配与渲染**（结构校验在 `digest_parse`）。
 
-背景: digest 曾是"数据产出"风格——build_digest_schema_v2 手写 schema（LLM 可见面）
-与 revise.py 手写校验（runtime 接受面）双写, 漂移源。重构为动作注册表:
-每个动作 spec 一份, 驱动两层——
-    ① build_schema(phase)  → prompt 内嵌的输出格式文本（字段旁内联约束注释,
-                              A-MEM Ps1 模板同款: 规则贴字段, 不散散文）
-    ② parse_round_a/b      → 结构校验（宁缺勿错, 逐条报错; 内容质量用 warning
-                              不阻断, 引擎执行层再叠加引用级/图语义校验）
+digest 从前是"数据产出"风格: 手写 schema（LLM 可见面）与 `revise.py` 手写校验（runtime
+接受面）**两处双写**, 漂移源。现在是动作注册表: **一份文档一份 spec**, 同一份 spec 驱动两层——
+    ① `build_schema(phase)` → 注入 prompt 的输出格式文本（约束内联在字段旁, A-MEM Ps1 式:
+                              规则贴着字段写, 不散成散文）
+    ② `parse_*`             → 结构校验（宁缺勿错, 逐条报错; 内容质量只 warning 不阻断,
+                              引用级 / 图语义再往上一层交给引擎执行层）
 
-分轮（两轮 digest, 2026-09-02 定稿 + 深度整理占位）:
-    phase=record     Round A 记录员: record_episode——只产 episode, 不看旧记忆
-    phase=understand Round B 理解者: touch / update / add——决策表（逐 episode 一行,
-                     结构保证不漏不编 id; 输出对齐输入 = A-MEM 列表对齐的升级）
-    phase=deep       深度整理（merge/contradict/…: 后续板块注册, 每 N=5 段触发）
-包级字段（B 轮）: affection_exp_delta（引擎消费）。
-⚠️ ~~`evidence`~~ **2026-09-29 删** —— 零产品消费者, 而契约每段要它 ≤5 条 + `quote`
-逐字引用时间线 ⇒ 白付；详见 `core/brain/REDUNDANCY.md`。
+四个模块的分工（`contract/digest_*`）:
+    `digest_tables`  值表 —— 相位名 / 上限 / 取值域 / 日期格式（只有机器读）
+    `digest_docs`    文案与文档定义 —— LLM 看得见的每一个字, 每个字段只写一遍
+    `digest_parse`   七个相位的结构校验（七个入口都只是函数, 一处 `self` 都不用）
+    本模块           建表 + 渲染; 七个 `DigestRegistry.parse_*` 是**薄委托**（转交到
+                     `digest_parse`）—— 留着是为了 `ROUNDS` 与测试那几十处调用点不用改
 
-引擎执行层 = `core/digest/pipeline.py`（**每段 5 轮**编排）+ `core/brain/revise.py` /
-`core/brain/groups.py`（各轮的执行器）; 本文件只管"LLM 契约层": 结构/类型/边界/字段约束。
+⚠️ **加载顺序**（从前是个环, 1b-2b 拆没了）: tables → docs → parse → 本模块, 单向。
+   所以这里的 import 全在模块级; 从前那七个函数内 import 是为了绕开
+   `parse → 常量 → registry` 的环, 常量搬去 `digest_tables` 之后不再需要。
+
+引擎执行层 = `core/digest/pipeline.py`（编排）+ `core/brain/revise.py` / `groups.py`（各轮
+执行器）。⭐ **轮次真源 = `core/digest/rounds/__init__.py` 的 `ROUNDS`**（key / 步序 /
+LLM 身份 / prompt / 相位 / parse / 料 / 写什么 / 跳过 / 预算一处说全）—— 本文件从前那段
+手抄的分轮表已删: 它写着"两轮 digest / 每段 5 轮", 早就不成立了。
 """
 from __future__ import annotations
 
 import textwrap
-from dataclasses import dataclass
-from datetime import date
 from typing import Any
 
+import contract.digest_parse as digest_parse
+from contract.digest_docs import (
+    _DOMAIN_CONTRACT,
+    _RECORD_CONTRACT,
+    ABSTRACT_SEMANTICS,
+    CLOSE_SEMANTICS,
+    DEFAULT_ACTIONS,
+    LATE_DUE_SEMANTICS,
+    OUTPUT_DISCIPLINE,
+    ROW_FIELDS,
+    STATE_SEMANTICS,
+    DigestAction,
+)
+from contract.digest_tables import (
+    MAX_COGNITIONS,
+    PHASE_ATTRIBUTE,
+    PHASE_COGNIZE,
+    PHASE_GROUP,
+    PHASE_RECORD,
+    PHASE_RELATE,
+    PHASE_SPLIT,
+    PHASE_UNDERSTAND,
+)
 from contract.errors import err
 from contract.model import ValidationResult
 
-PHASE_RECORD = "record"
-#: ⭐ **R0「切分」**（2026-09-29, N4d）—— 每段的**第一步**: 只划区间 + 写一句总括
-#: + 挑出"要一直带着的"那几条。**不写正文、不填情绪、不打分、不建节点。**
-#: ⚠️ 它拿走了 R1 从前最重的那件事（划区间）⇒ **图的形状由它一个人决定**
-#: （几个节点、每个覆盖哪段）, 所以它的产出必须**可校验**（区间在不在时间线里）
-#: 且**可观测**（覆盖了多少 / 丢了几条 —— 见 D1 那本缺口账）。
-PHASE_SPLIT = "split"
-PHASE_UNDERSTAND = "understand"
-#: ⭐ **L1「判关系」那一趟**（`docs/DESIGN_DIGEST_TWO_PASSES.md` §9）。
-#: ⚠️ 今天**没有轮在用它** —— 这是 P1a 的"新增并立": 形状与解析先落, 接线在 P1b
-#: （换骨头那笔把 `ROUNDS` 的 key 从 `understand` 改成 `relate`, 并删掉旧一族）。
-PHASE_RELATE = "relate"
-#: ⏸ ~~`PHASE_CLOSE`~~（R4 收口）**2026-10-05（L8）删** —— 账目归 R0 的表
-#: （`state`/`id`/`due` 三个键）, 那一轮整轮消失。它的判据搬去了哪里:
-#: 判"这条约定还开着吗 / 这一段里有没有新说定的"= `parse_split` + `STATE_SEMANTICS`
-#: / `CLOSE_SEMANTICS`（R0 手里是本段**原文**, 比 R4 读的 120 字转述强）。
-#: ⚠️ ~~`PHASE_PANORAMA`~~（全景轮/写卡）**2026-09-29（N4a / N4e）已退役** —— 它的两个槽
-#: 都没了（`habits` 取消 · `on_mind` 自己也退役: *"太煽情了"*）⇒ 它没有输出了。
-#: **R3 归属轮**（§8 第 3 行: 归属 + entity 维护）—— 每段的**最后一步**。
-#: 它写 `about`（hint/正文 → 候选表里的对象）、`new_entity` 提案、entity 载荷改写；
-#: ⚠️ **不碰正文**（改正文是 R2 的活）、**不合并节点**（§9-12 ④ 未裁）。
-PHASE_ATTRIBUTE = "attribute"
-#: ⭐ **L2-a 分群轮**（N7, 2026-09-29）—— 每段的**最后一步**, 与 R1–R4 **不同层**:
-#: 它吃的是"**她连过的块**"（`akin` 连通块, 由引擎切好）, 产的是**群节点 + `member_of` 边**。
-#: ⚠️ 它**不给块判像不像**（那是她的活, 也是为什么要分两步）—— 只做两件事:
-#: **起名**（new）/ **认出它属于已有的类**（attach）。
-PHASE_GROUP = "group"
-#: ⭐⭐ **L2「造认知 / 写正文」那一趟**（`DESIGN_DIGEST_TWO_PASSES.md` §3/§5,
-#: 2026-10-08 用户定稿）—— 它是**第二趟**:
-#:   · L1（`relate`）只判关系, **一个字的正文都不写**;
-#:   · 这一趟**只写正文** —— 造新的 `belief`（⛔ 不判已有成分之间的关系: 那是 L1 判过的）,
-#:     并给**已有的类**（`experience`）重写它的**沉淀**。
-#: ⚠️ **顺序上它排在 `group` 之后** —— 沉淀要写给"本段刚归好类的那些类", 类得先存在。
-#: ⚠️ 今天**没有轮在用它**: 形状与解析先落, 接线（`ROUNDS` 那一行 + prompt + 桩）在 P10
-#: —— 与 P1a 的 `PHASE_RELATE` 当时同一个状态。
-#: ⚠️ 建**新类**不归它（那是 `group` 的活）⇒ `experience` 那一行**必须带 `id`**。
-PHASE_COGNIZE = "cognize"
-# EXT: digest-deep — 三相位之 deep（设计已声明, 未实现）; 勿删（docs/EXTENSION_POINTS.md）
-PHASE_DEEP = "deep"
-
-#: B 轮决策类型
-DECISIONS = ("touch", "update", "add")
-
-#: ⏸ ~~`PINNED_OUTCOMES = ("kept", "broken", "superseded")`~~ **2026-10-05（L8）删** ——
-#: 它守的是收口轮 `close` 行的 `state`（结局词）。三种结局如今**一律划掉**,
-#: 结局写在**图里那条经历**的正文里; 而那条 note 操作只剩 `{"action": "close", "id": …}`
-#: （见 `core.brain.notes.close_op`）⇒ 词表没有读者了。
-#: ⚠️ 旧档里带着 `state` 的 `note` 事件读侧照认（`notes.fold` 只当账, 不校验）。
-
-#: 玩家画像条目的 subject 固定值（与 nodes.PLAYER_SUBJECT 对齐, 契约层不依赖 core）
-PLAYER_SUBJECT = "player"
-
-#: 边界（parse 级）
-#: ⚠️ 2026-09-21 删 `MAX_CONTENT` / `MAX_EXAMPLES` / `MAX_EVIDENCE`——全仓（含本文件）
-#: 零引用: 注释写着"parse 级边界", 但没有任何校验器消费它们, prompt 侧也没硬编码对应
-#: 数字 ⇒ 属"契约声明与执行脱钩"的残留。**要恢复边界必须同时落校验器**,
-#: 只把常量加回来 = 又留一处看起来生效的假边界。
-MAX_EPISODES = 5        # A 轮单包最多 episode 数
-#: ⭐ **L2（`cognize`）单包最多造几条看法**（用户 2026-10-08 裁决 = 5, 同 `MAX_EPISODES` 量级）。
-#: ⚠️ 写沉淀的类**不算**在这条里（那是"更新正文", 不是"长出新节点"）—— 一段里造太多看法
-#: 就变成流水账, 而"没话说就不写"本来就是它的纪律。超了**丢行 + 记账**（同 `MAX_SEGMENTS`
-#: 的"超出的丢弃"口径）。
-MAX_COGNITIONS = 5
-MAX_ALIASES = 8         # `new_entity` 的别名上限（超了截断 + warning —— 别名是效率优化）
-MAX_TEXT = 300          # 正文（text）单行上限（汉字）——三槽合流后两种 kind 共用
-MAX_TAGS = 4            # tags 检索词上限（⭐ 只数**检索词** —— `#` 开头的标记不算, 见下）
-
-#: ⭐ **结构 tag 的语法**（E1, 2026-10-08）: `#entity:<名字>` = 这条经历/看法**涉及谁**。
-#: `#` 开头 = **标记, 不是检索词** —— 这条约定已经有第一个成员（`notes.PINNED_TAG =
-#: "#pinned"`, 判据写在 `core/digest/material.py`: *"`#pinned` 那种标记不是词"*）⇒
-#: 检索侧天然已经跳过它们（`startswith("#")`）, 本常量只是把第二个成员写下来。
-#: ⚠️ 名字**不在这里解析**（契约层没有 store）—— 归一与落边见
-#: `core/brain/entities.normalize_entity_tags` 与 `core/digest/episodes._link_about`。
-ENTITY_TAG_PREFIX = "#entity:"
-#: 一条经历最多带几个 `#entity:` —— ⚠️ 它**不占** `MAX_TAGS` 的额度（分开计数）。
-#: 上限 2 = "这段涉及谁"必须挑（宽口径也要有边）; 超了截 + 告警。
-ENTITY_TAGS_MAX = 2
-#: ⭐ `topics` 上限（**≤3**, 用户 2026-10-07 裁决）—— "这条经历关于什么"的**具体东西**。
-#: 它是"同类的事"认亲的把手（L1 的 `akin` 要求 `on` ∈ 两端 `topics` 的交集）。
-TOPICS_MAX = 3
-#: ⏸ `MAX_ITEMS` / `items` 字段 **2026-09-29 删** —— 零活读者, 且"是不是同一个东西"
-#: 写在 episode 里分不清（见 `nodes.py` 的字段区注释）⇒ 物品面将来走 `inventory` 旁路。
-#: 类名（group 的 `title`）上限 —— ⚠️ **与 episode 的 8~16 字不是同一条**: 类名可以很短
-#: （"那片苔藓" 4 字就够）, 这里只挡"写成一整句话的那种"; 超了**只告警不截断**
-#: （截断会把名字截坏, 而名字是**地址**）。
-GROUP_TITLE_MAX = 16
-
-#: ⭐ **R0 行的账目状态**（2026-10-05 取代旧的 `keep`）。
-#:
-#: `open`  = 到**本段结束时还开着**的约定（进她的备忘录）
-#: `close` = 这一行**了结**了名单里的某条（`id` 必填）
-#: ⛔ **没有"与账无关"这个取值** —— 那就是**不写这个键**（缺键 = 无关, 是绝大多数）。
-#: ⇒ 旧那套"缺键/非法值 ⇒ 按默认档 `temporary` 收下"的口径**随之取消**:
-#:   缺键不是"取了个默认值", 而是"这件事跟账无关"。
-#: ⚠️ 但**值写错（`"opne"` 这种）仍然按"缺键"收 + 告警** —— 理由是内容: 这一条切片
-#:   的区间与 `abstract` 都是真的, 把它整条丢掉 = 那段事从此没有任何记录;
-#:   而账目效果丢了会**自愈**（那条约定下一段还在名单里, 引擎会再摆一次）。
-STATE_VALUES = ("open", "close")
-#: `abstract`（一句总括）的字数上限 —— **软上限**: 超了**收下但告警**
-#: （同 `ON_MIND_MAX` 当年的口径: 它不是"形状错", 不该废整包）。
-#: ⭐ **note 正文的长度真源就是它**（2026-10-05）: `state=open` 的切片, 它的 `abstract`
-#: 会被**原样**抄进常驻备忘录 —— 而 note 侧那条"≤20 字"的体检判据已删
-#: （3b-3 起它必然恒响, 只会制造噪音）⇒ **长度只在这里管一次**。
-#: 60 = 一句散文的上界, 再长就该怀疑她在写正文了。
-ABSTRACT_MAX = 60
-#: ⭐ **没有区间那一行的字数上限**（`state=close` + `span: null`）—— 那一行的 `abstract`
-#: **就是那条回忆的正文**（"老师生日那天没有来"）, 所以它按 **episode 正文**的尺子量,
-#: 不按上面那句"一句总括"的 60 量。数值与 `MAX_TEXT`（episode 正文）同源。
-ABSTRACT_MAX_FREEFORM = 300
-#: 一段最多切几件事。⭐ **这是防"切太碎"的唯一边界** —— R0 不写正文, 没有别的信号
-#: 能拦住它把一场戏切成好几件（那是流水账, 不是记忆）。越界 ⇒ 截断 + 告警。
-#: ⚠️ **12 → 20**（2026-09-29 / 3b-2）**是错的; 2026-10-06 收回 20 → 12**:
-#: 那次改动同时做了三件推"过切"的事（加"必须覆盖全部" + "连闲聊自成一件" + 抬上限）——
-#: 真机实测 **9 次调用切了 18 件**, 一个段（Trigger+Bond+Finish）被切成 5 件。
-#: ⇒ **上限从来不只是上限, 它是标尺。** 一件 = 一场戏之后, 一段的件数应当 ≈ 1。
-#: **数值标定**: 看 `digest_split segments=` 那行的分布。
-MAX_SEGMENTS = 12
-
-#: ⭐ **输出纪律 = 契约层的独占句**（G1, 2026-10-05）—— 六个相位共用下面那一行,
-#: **prompt 文件里一个字都不许再抄**（守门 `test_the_output_discipline_lives_only_in_the_contract`）。
-#:
-#: 合并前的样子是**同一句话两处各一份**: 契约层每个相位开头写"不要任何解释文字 /
-#: 不要 ```json 代码块", 而每个 `digest_*.md` 结尾又各写一遍"必须输出完整 JSON（键名开头）"
-#: —— 同一次调用的 system 里就重了两遍, 而模型只学会它看到的那一份。
-#: **只有 prompt 有、契约没有**的那两点现在收进这里: **别在思考后停止**（reasoning
-#: 截断那个坑）· **别交空输出**。
-#: ⚠️ **修复轮不算重复**: 输出被整包拒之后 `core/digest/call.py` 的 feedback 与
-#: `llm/client.py` 的 JSON 修复循环**故意各留一份** —— 那时模型才需要被提醒一次。
-OUTPUT_RULES = (
-    "不要任何解释文字",
-    "不要 ```json 代码块",
-    "不要在思考后停止",
-    "不要空输出",
-)
-#: 渲染成给 LLM 的那一行（`build_schema` 每个相位的第一行）: 元组 ⇒ 句子, 单源。
-OUTPUT_DISCIPLINE = f"输出 JSON（{', '.join(OUTPUT_RULES)}）:"
-
-#: ⚠️ **`TASK_TIMESPAN` 已于 2026-09-17 删除**（用户裁决）—— 连同 schema 里那行
-#: `"time_span": "halfday"`。
-#:
-#: 它曾是 A 轮要求 LLM 回答的"本段剧情跨了多久"（枚举 `same`/`halfday`/`day`/
-#: `days:N`/`week`/`weeks:N`/`month`），唯一目的是喂**剧情游标**（`sim_day` 累加）。
-#: 时间轴换代（`ESSAY_TIME_MODEL §10`）把剧情日历整族作废之后：
-#:
-#: 1. **推进链已删**（`digest.py` 的 `_clock.advance` 那一段）
-#: 2. **parse 层从来没取过它** —— `parse_round_a` 只读 `raw["episodes"]`,
-#:    所以它**连落库都没有**（真机 `data/` 里 grep 一条都没有）
-#: 3. ⇒ 它成了**每轮 digest 都要付的 token 开销, 收益为零**
-#:
-#: ⚠️ 当时给它的免死理由（"为衰减新模型预留"）**不成立** —— 新模型的年龄单位是
-#: **活跃日/会话**, 输入是 `node.ts` + 事件流, `time_span` 不是它的输入。
-#: 详见 `TODO.md`「记忆衰减」。
-#:
-#: **枚举定义（`core/worldtime/span.py`）保留** —— 契约死了, 语法不必跟着死;
-#: 将来真要有"她口述跨了多久"的需求, 那套枚举可以直接拿回来用。
-
-
-
-@dataclass(frozen=True)
-class DigestAction:
-    """digest 动作 spec（单源真值）。
-
-    渲染与校验共用: schema_text 的每个字段约束同时是 parse 的检查依据——
-    改字段约束只改这一处。
-    """
-
-    name: str                       # record_episode / touch / update / add
-    phase: str                      # PHASE_*
-    role: str                       # 一句释义（LLM 可见）
-    semantics: str                  # 何时用/怎么改/禁什么（三段式规则文案）
-    field_schema: str               # 字段块（// 内联约束注释, A-MEM Ps1 式）
-    example: str = ""               # 范例 JSON 片段（正例）
-
-
-# ============================================================================
-# 动作定义
-# ============================================================================
-
-#: 段类型 → **产出契约块**（进 Round A 的 `{{digest_schema}}`; 2026-09-20 用户裁决）
-#:
-#: 为什么按段类型给不同契约: `mmt` 是碎聊（**需要被切分**）, `bond` 是作者写的完整一章
-#: （**本身就是一个 episode**, 再切就是把一个 episode 切断）。用户原话:
-#: *"你细看这些 episode 像流水账一样，真正的 episode 一个就可以定下，需要被切分的是
-#: 长篇 MMT 等；episode 应该 informative but single，belief 则是 brief but descriptive"*
-#: ⭐ **2026-10-06 收窄（`docs/DESIGN_SPLIT_AND_AXES.md` §3）: 一件 = 一场戏。**
-#: 真机那种"一个段切成 5 件"的切法直接违反 `DESIGN_SEGMENT.md` 的"段是最小单元、
-#: 根本不产生截断" —— 肇事者是下面 bond 支末尾那三行（明写"聊天另行切件"）, 已改。
-_DOMAIN_CONTRACT = {
-    "bond": (
-        "【本段含一章羁绊剧情（**作者单位**: 有始有终的完整一段）】\n"
-        "→ **这一段恰好 1 件**（它就是**这一段经历过的事**）:\n"
-        "   · informative but single —— 把这一段讲透（起因/关键推进/落点都在里面）,\n"
-        "     但**只讲这一件事**; 不按时间把每个回合罗列一遍。\n"
-        "   · ⚠️ 时间线里的每一步**不是**要分别切的件 —— 那会写成流水账, 是本轮的典型错误。\n"
-        "   · title 用**本章标题**（上方【本章标题】给了）。\n"
-        "⚠️ 本段**同时含 MomoTalk 聊天**（时间线里那些不是剧情画面的来回消息）时:\n"
-        "   那些**是这一次见面的铺垫与余韵** —— **写进这一件里**, 不另起件。\n"
-        "   （判据: 聊天里换了几次话题**不算**新的一件; 只有**另一次见面**开始才算。）"
-    ),
-    "mmt": (
-        "【本段类型 = MomoTalk 聊天（**无作者单位**: 一次覆盖多轮碎聊）】\n"
-        "→ **一件 = 一次见面 / 一段连续聊天**（informative but single）。\n"
-        "   · ⚠️ **中间换了话题、换了人、换了地方, 都还是同一件事** —— 那只是它的过程;\n"
-        "     只有**另一件事真的开始了**（人走了、事结了、隔到下一次）才新起一行。\n"
-        "   · 同一件事不拆两件; 两件事不并一件;\n"
-        "   · ⚠️ **不能留空档**: 落在所有件外面的记录 = 谁也没读到它。\n"
-        "     （`abstract` 老实写就行 —— 记不记是**下一轮**的事, 不是你的。）\n"
-        "   · ⚠️ 但**最后那一截如果明显还没结束**（话没落点、事还在推进）⇒ **不要写它**:\n"
-        "     那一截会自动并进下一次, 跟后文连成一件。**只有\"明显\"才留** —— 拿不准就照写。"
-    ),
-}
-
-#: ⭐ **R1 记录员的条数契约**（3b-2, 2026-09-29）—— 与 `_DOMAIN_CONTRACT` **分开**:
-#: `_DOMAIN_CONTRACT` 说的是"这一段该**切成**几件事"（切分权在 R0, 那句话跟着它）;
-#: 而 R1 拿到的是**已经切好的骨架**, 它只需**按顺序填**。
-#: ⚠️ 两处合一 = 模型会以为自己还有切分权（那正是 3b-1 刚拿走的东西）。
-_RECORD_CONTRACT = {
-    "bond": (
-        "【本段含羁绊剧情（作者单位: 有始有终的完整一段）】\n"
-        "→ 骨架里**每一条切片给一行**（`drop` 的除外）—— 某一条是整章的总结时,\n"
-        "   就把它写成那**一章**的总结（起因/关键推进/落点都在里面）;\n"
-        "   不按时间把每个回合罗列一遍。title 优先用**本章标题**（上方给了）。"
-    ),
-    "mmt": (
-        "【本段类型 = MomoTalk 聊天（无作者单位: 一次覆盖多轮碎聊）】\n"
-        "→ 骨架里**每一条切片给一行**（`drop` 的除外; 顺序一一对应）。\n"
-        "   · 一条 = 一件可独立复述的事（informative but single）;\n"
-        "   · ⚠️ 骨架里那条**本来就是闲聊**的（`abstract` 写着「几轮寒暄」这种）\n"
-        "     ⇒ 写 `{\"drop\": true}` 跳过它, 别硬编一条出来;\n"
-        "   · 没有值得记的 → `\"episodes\": []` 只在骨架为空时才对（那时也不会问你）。"
-    ),
-}
-
-#: ⭐ **R0 每行的字段与释义**（2026-10-05: 三键 → 五键, `keep` 换 `state`）。
-#:
-#: ⚠️ **2026-10-04 收窄过判据**（真机 13 段实测之后用户裁的）: 从"三种"（誓约 /
-#: **被改了看法的时刻** / 她给自己定的规矩）收成"**一种**"（答应了谁一件还没了结的事）。
-#: **为什么删那两条**: ① 它们是 **belief 的本职**（R2 的 `add` 就是"新经历形成了
-#: 稳定结论"）—— 同一个东西两处收 = 第二个 belief 库; ② 它们的判据是"我明白了",
-#: **忘了没有代价**, 而 `pinned` 的判据是"忘了会出事"。
-#: ⭐ **实测症状**（13 段真机跑, `.testtmp/probe_r0_real.py`）: 6 章**每章恰好一条 ⭐**,
-#: 全是章末的自我领悟（「原来不是只有被踩在脚下才算我的价值」）⇒ 走廊无限长、本子就无限长。
-#: ⛔ **别再用"她会不会一直带着它"当判据** —— 那句话太宽, 任何一章的高潮都满足它。
-#: 判据只能是"**忘了它, 就真会出问题**"。
-#:
-#: ⭐ **2026-10-05 换形状**（`DESIGN_DIGEST_LEDGER`）: 骨架与账目**合成一张表** ——
-#: 一行 = 一件切片 + 它的账目状态（`state` / `id` / `due`）。约定从**出生切片**长出来、
-#: 在**了结切片**上关掉; **没有那一刻的**（她等过、那天没人来）用 `span: null` 自成一行;
-#: **后来才知道的日期**用 `state: open` + `id` 补。⇒ 收口轮整轮消失（它读的备忘录,
-#: R0 手里就是原文）。
-#:
-#: ⚠️ **这里是唯一副本** —— `build_schema("split")` 的**示例**与它下面那段
-#: **逐字段说明**都从这几个常量拼出来。为什么非要这样（而不是各写一遍）:
-#: `contract/schema.py` 那条纪律 —— **"示例才是形状的来源"**; 而"取值清单 / 说明 /
-#: 示例"三处强度不一的时候, 模型只学会示例那个形状（2026-09-20 art 命中率 0/5
-#: 就是这么来的）。
-#: ⇒ 每个字段**只写一遍**（左对齐、缩进按"逐字段说明"那一份）, 进示例时整体缩 5 格
-#: （`textwrap.indent`）—— 两边的**注释列因此也对齐**, 不需要各写一份文案。
-#:
-#: ⚠️ 与那些 `DigestAction.field_schema`（渲染 `episodes[]` 里的**行形状**）不同:
-#: 一行切片只有五个键, 不值得为它造一个 `DigestAction`。
-_SPAN_FIELD = (
-    '"span": [28, 30],       // ⭐ 这件事覆盖【哪一段】—— 起止**两块事件的编号**\n'
-    '                        //（`[28] 【羁绊剧情】` 里的 28）; 这是指**位置**, 不是打分;\n'
-    '                        // 区间内的事件**全部**算它覆盖了, 不必逐块列;\n'
-    '                        // 两端必须真实存在、且 起 ≤ 止; 拿不准就写宽一点;\n'
-    '                        // ⚠️ 两条切片**可以重叠**（同一段事可以同时是两件事）;\n'
-    '                        // ⚠️ **只有「没有那一刻的了结」才写 null**（见 state）'
-)
-_ABSTRACT_FIELD = (
-    '"abstract": "…",        // 必填; 一句 ≤%d 字 —— **那件事是什么**;\n'
-    '                        // 写法随 state 变（见下面【abstract 怎么写】）' % ABSTRACT_MAX
-)
-_STATE_FIELD = (
-    '"state": "open",        // **省略**（绝大多数, = 这件事跟账无关）/ "open" / "close";\n'
-    '                        // open  = 到**这一段结束时还开着**的约定（进她的备忘录）;\n'
-    '                        // close = 这一行**了结**了名单里的某条（那时必须写 id）'
-)
-_ID_FIELD = (
-    '"id": "n1",             // 只在 state 有值时出现; 必须是**【还开着的约定】名单里\n'
-    '                        // 出现过的编号**（编的会被丢掉）; "close" 时指被了结的那条,\n'
-    '                        // "open" 时指**要更正**的那条（后来才知道日期的那种）'
-)
-_DUE_FIELD = (
-    '"due": "2027-05-13",    // 只在 state="open" 时; **哪一天到期** —— 全日期（年-月-日）;\n'
-    '                        // 没有明确的一天就别写（不写 = 它不会过期）'
-)
-#: 逐字段说明（接在示例后面）—— 与示例**同源**
-ROW_FIELDS = "\n".join([_SPAN_FIELD, _ABSTRACT_FIELD, _STATE_FIELD,
-                        _ID_FIELD, _DUE_FIELD])
-STATE_SEMANTICS = (
-    "【state 怎么判】只有这件事该写 `open`: **她与老师之间说定的一件事, 还没了结,\n"
-    "而且失约会真的伤到谁**（或者只此一次、补不回来）。\n"
-    "  ⭐ 跟一件**小事**的界线: **「今天带个东西」办完就没了;「每年都来」说的是\n"
-    "     往后一直算数的事。**\n"
-    "  ⭐ 再一条: **真重要的事, 人是不会等到翻备忘录才想起来的** ——\n"
-    "     所以「答应了」本身不是理由, **分量**才是。\n"
-    "  ⭐ **只标「这一段结束时还开着」的** —— 一段之内说了又办完的（出现和消失都在本段）,\n"
-    "     **一行都不要标**: 它不需要被带到下一段去。\n"
-    "  ⇒ 写成**还没完的那件事**（「答应老师：以后每年都一起过生日」）,\n"
-    "     **不是**一句已经想通了的道理。\n"
-    "  ⚠️ 反过来说: **当时想通了什么 / 看清了什么, 不写在这儿** —— 那句话说的是\n"
-    "     「我已经明白了」, 没有欠着谁, 忘了也不会有代价（下一轮会把它写成一条**看法**收好）。\n"
-    "  其余**一律省略 state**（这是绝大多数）。包括这些看似重要的:\n"
-    "    · **日常安排 / 顺路的小事**: 「明天把团子带去夏莱」「周六下午两点集合」\n"
-    "      「顺路帮我看一眼」「把复印件送过去」—— 那些**补得上、改期就行**;\n"
-    "    · **随口一说**: 「下次一起去吧」「有空来玩」「想看你穿那件」;\n"
-    "    · **夸奖与安慰**: 「你今天做得很好」「别紧张, 有我在」「你已经很努力了」;\n"
-    "    · ⭐ **当时的领悟与触动**: 「原来不是只有被踩在脚下才算我的价值」\n"
-    "      「重要的东西不用再埋起来」—— 这些是**那一刻的心情**, 不是欠着的事;\n"
-    "      真走出来一条看法, 下一轮自然会把它写成一条「看法」收好。\n"
-    "  ⇒ 判据的一句话: **`open` 记的是欠着的债, 不是想通的道理; 而且只有那种\n"
-    "     欠着不还就真的伤了人的债。**\n"
-    "  ⇒ **一整段里一条 `open` 都没有, 是正常结果**, 不是漏了。"
-)
-CLOSE_SEMANTICS = (
-    "【close 什么时候写】两种情况:\n"
-    "  · 这一段里**有一刻**那件事了了（兑现 / 说好了不做了 / 被新的约定盖过）\n"
-    "    ⇒ `state`: \"close\" + `id`: 名单里那条的编号 + `span` 指**那一刻**（它就在本段原文里）;\n"
-    "  · ⚠️ **没有那一刻**（她等过、那天没人来; 或者那条约定悄悄过期了）\n"
-    "    ⇒ `state`: \"close\" + `span`: null + `id`, 而 **`abstract` 就是那条回忆的正文** ——\n"
-    "      如实写「老师生日那天没有来」这种; ⛔ 不许编日期、也不许编当时的心情。\n"
-    "      ⭐ **这一行还要多给两样**（`title` + `significance`）: 它没有事件、也不经过写正文\n"
-    "      的那一轮 ⇒ **标题与「值不值」只能由你给**（缺了它, 这条记忆在回忆册里引不到）。"
-)
-LATE_DUE_SEMANTICS = (
-    "【名单里那条的日期后来才知道】⇒ 再用一行: `state`: \"open\" + `id` + 新的 `due`\n"
-    "  （`abstract` 也跟着改就是她本子上新的那句话）。\n"
-    "  ⚠️ 这是唯一允许「重提旧条目」的写法; 其余情况**不许**给旧条目再写一行。"
-)
-ABSTRACT_SEMANTICS = (
-    "【abstract 怎么写】这一个字段**有三个去处**:\n"
-    "  · 普通的一行 —— 平实描述**发生了什么**（后面有人照着它写回忆的正文; 别写成文学片段,\n"
-    "    也别在这儿抒情）;\n"
-    "  · `state: \"open\"` —— **就是她带走的那句话**（会被原样抄进她的备忘录）:\n"
-    "    写「答应/欠着什么 + 她此刻对它的那点意思」。\n"
-    "  例: open →「答应老师：以后每年生日都一起过, 这次我不许自己忘」\n"
-    "  · `state: \"close\"` + `span: null` —— **就是那条回忆的正文**（没有那一刻, 只有这句话）。"
-)
-
-
-RECORD_EPISODE = DigestAction(
-    name="record_episode",
-    phase=PHASE_RECORD,
-    role="把本段新增互动浓缩为值得记住的经历条目（一条一对象）。",
-    semantics=(
-        "何时用: 骨架里**每一条切片**都要给一行（`drop: true` 的那些除外）;\n"
-        "怎么改: 第一人称浓缩——起点→关键推进→落点, 保留角色当时的感受与反应;\n"
-        "指位置（⭐ **3b-2, 2026-09-29**）: **位置不归你** —— 每条经历覆盖哪一段由 R0 的骨架\n"
-        " 决定（`【本段骨架】` 里那一行的区间）, 引擎按**顺序**把你这行并到那条切片上。\n"
-        " ⇒ 所以**没有 `span` 这个字段**了; `verbatim` 仍抄 `[28.3]`/`[28.p]` 这类记录行号;\n"
-        "不记（`drop`）: **只有一种情况** —— 那一条切片压根没什么可记的（纯寒暄 / 无实质\n"
-        " 进展）。⚠️ 骨架里带 ⭐ 的**不许 drop** —— 那是**账目行**（她答应了什么 /\n"
-        " 哪一件把一笔账了结了）: 丢了它, 账就不平。\n"
-        "禁什么: 不升华成人生感悟; 不记寒暄流水账; 不写旧记忆里已有的事;"
-        " 情绪词堆砌但无情节支撑 → 舍弃。"
-    ),
-    field_schema=(
-        '    {  // 一条记录; ⭐ **骨架里有几条切片就给几行, 按顺序对应**（`drop` 的除外;\n'
-        '      // ⭐ **也不必都写** —— 不是硬性一一对应）//\n'
-        '      // ⚠️ **默认就是"经历", 不用写 `kind`**（2026-09-29）—— 只有**例外**才写:\n'
-        '      "kind": "profile",  // 可选; 只在"**玩家画像**"那一条上写\n'
-        '                            //（玩家口癖/偏好/一次性个人信息——text 写画像句,\n'
-        '                            //  subject 不用填, 引擎固定为 player）//\n'
-        '      "drop": true,       // 可选; **这一条切片不记**（只有真的没什么可记时才用:\n'
-        '                          // 纯寒暄 / 无实质进展）。⚠️ 骨架里带 ⭐ 的**不许 drop**\n'
-        '                          //（账目行: 她答应了什么 / 哪一件把一笔账了结了）;\n'
-        '                          // 写了 drop 的行**不用**再给 text/title //\n'
-        '      "text": "…",        // 必填（`drop` 行除外）; 单行 ≤300 字;\n'
-        '                          // 经历 → 第一人称浓缩, 不流水账;\n'
-        '                          // 玩家画像 → 画像句, 如"玩家的生日是\n'
-        '                          // 5 月 20 日""玩家总说摸鱼" //\n'
-        '      "title": "…",      // 经历必填（画像条目不用）; 8-16 字短标题; 拿不准也给朴素标题 //\n'
-        '                          // ⛔ **没有 `span`**（位置由 R0 的骨架定, 不归你）//\n'
-        '      "verbatim": ["28.3", "20.p"],   // 可选; 抄**时间线的记录行号**（印象最深的\n'
-        '                          // 1~2 句）—— 引擎据此取回**逐字原文**, 你不必抄文本。\n'
-        '                          // ⚠️ **只给行号（数组）**; 写成字符串会被忽略 //\n'
-        '      "tags": ["…"],     // 必填 1-4 个; 检索导向——未来玩家输入/叙事可能出现的词\n'
-        '                          //（人名/地点/物品/动作/话题）; 不含时间词; 从最重要排起;\n'
-        '                          // ⭐ 可以**再**带 0-2 个 `#entity:名字`（`#entity:老师`）——\n'
-        '                          //   这条**涉及谁**: 名字写你认识的叫法都行（老师 / sensei\n'
-        '                          //   都行, 引擎会归一）; **还没正式认识的人也可以写**\n'
-        '                          //   （引擎先留着它, 以后真遇到了再建）;\n'
-        '                          //   ⚠️ 它**不占**那 1-4 个的额度: `#` 开头的是**标记, 不是检索词**\n'
-        '                          //      ⇒ ⛔ **检索词本身别用 `#` 开头**（那样写的不会被检索到）;\n'
-        '                          //   ⛔ 归属边**不归你连** —— 引擎按这个标记自己连 //\n'        '      「#entity:」什么时候写（0-2 个; **拿不准就不写, 0 个是绝大多数**）:\n'
-        '        · ⭐ **新认识的角色 — 必须写**: 这一段里第一次出现的人（刚遇到 / 刚知道名字）;\n'
-        '        · ⭐ **跨时间段反复出现的具体东西 — 考虑写**: 如她**常去的地方**、一直带着的物件;\n'
-        '          ⚠️ 判据是「**跨时间段**」—— 同一场戏里反复出现的同一个词**不算**\n'
-        '          （那是一件事的连续片段, 不是同一个「谁」; 那种相似由 `topics` 承担）;\n'
-        '        · ⭐ **名字要照【已有的对象】写**（那里有名字与别名）—— ⛔ **别自己造一个新叫法**:\n'
-        '          同一个人只能有一个对象, 造了别名引擎就认不出、会重复建;\n'
-        '        · ⛔ **不写抽象的**（心情 / 价值观 / 「孤独」/「迟到」）—— 只能是人 / 地方 / 东西;\n'
-        '        · ⛔ **不写司空见惯的**（教室 / 手机 / 天空）—— 它得是**这一个**, 不是随处可见的;\n'
-        '        · ⛔ **不要因为某段故事里冒出一个词就写**;\n'
-        '        · ⚠️ 库里已有的对象**超过 10 个**之后**不建议**再加 —— ⛔ **新认识的人除外** //\n'
-        '      "topics": ["苔藓", "生日"],  // ⭐ 这条经历**关于什么** —— 1~3 个**具体的东西**\n'
-        '                          //（人 / 地方 / 物件 / 事情）; 以后"同类的事"靠它认亲;\n'
-        '                          // ⛔ **不写泛词**（"老师" / "日常" / "心情" / "学校"）:\n'
-        '                          // 那种词谁都有, 分不出类; 想不出具体的 ⇒ 写 []（合法）//\n'
-        '      "significance": 0~1,  // 行为锚点: 0.9+ 改变认知/极深刻（初遇/告白）;\n'
-        '                          // 0.7~0.9 重要约定/特别难忘的日常; <0.7 普通但角色在意的细节;\n'
-        '                          // 拿不准往低给 //\n'
-        '      "observer": "…",    // 可选; **只有"听别人说的"才填**（写转述者是谁, 如\n'
-        '                          // "阿露"）—— 不填 = 你亲历/亲眼所见。\n'
-        '                          // 引擎按"有没有 observer"把这条放进「我记得的事」\n'
-        '                          // 或「我听说的」，所以**别为了亲历也写一个占位值** //\n'
-        '      "emo_int": 0~1,     // 峰值情绪强度: 这条经历里角色情绪最猛的那一下有多猛。\n'
-        '                          // 判据 = 时间线里记录后的 (情绪键) + 【本段情绪标尺】\n'
-        '                          // （作者为该角色手写的强度语义）。\n'
-        '                          // **不是** significance（那个问"改不改变认知"）;\n'
-        '                          // 0.9+ 失控/崩溃级; 0.6~0.9 明显起伏; 0.3~0.6 平常情绪;\n'
-        '                          // <0.3 近乎无波澜（纯事务性寒暄）。拿不准往低给 //\n'
-        '      "emo_span": 0~1,    // 情绪摆幅: 这条经历里情绪**从最低摆到最高跨了多远**。\n'
-        '                          // 与 emo_int 分工: 一直很猛但没转折 → int 高 span 低;\n'
-        '                          // 先炸后真心笑（爆发→释然）→ 两个都高;\n'
-        '                          // 缓慢的起伏（不安→期待→不安）→ span 高 int 低;\n'
-        '                          // 全程一个调子 → 0。**必须非负**（是幅度不是方向）//\n'
-        '    }'
-    ),
-    example=(
-        '{"text": "老师约我去公园散步, 我紧张但努力答应了; 在长椅上一起喝热茶时,'
-        ' 一只流浪猫来蹭老师的裤脚, 我鼓起勇气摸了摸它。回家时老师把没喝完的纸杯'
-        '塞给我说「拿着暖手」, 我一路捧着它, 嘴角一直藏着笑。",'
-        ' "title": "和老师的公园散步",'
-        ' "verbatim": ["33.2", "33.p"],'
-        ' "tags": ["公园", "流浪猫", "热茶", "#entity:老师"],'
-        ' "topics": ["公园", "流浪猫"],'
-        ' "significance": 0.8,'
-        ' "emo_int": 0.6, "emo_span": 0.7}'
-    ),
-)
-
-# ⛔ ~~`ON_MIND_FIELD` / `ON_MIND_SEMANTICS` / `ON_MIND_MAX`~~ **2026-09-29（N4e）随
-# `on_mind` 槽退役** —— 用户裁决: *"它太煽情了, 煽情的剧情过去了, 就不必一直耿耿于怀了"*。
-# L1 的输出**从此只有 `episodes` 一个键**（心境不是"经历", 也就不该跟 episodes 平级）。
-# ⚠️ 将来若真要"她此刻在想什么", 该走 belief（图里、有边、能被召回、会被新经历更新）。
-
-TOUCH = DigestAction(
-    name="touch",
-    phase=PHASE_UNDERSTAND,
-    role="episode 只是再次印证了某条已有认知——连一条边即可。",
-    semantics=(
-        "何时用: 引擎候选标注'疑似印证'或你判断新经历只是重复已知相处模式;\n"
-        "怎么改: 什么都不改——引擎自动把 episode 链到 target 认知;\n"
-        "禁什么: 禁止带 patch/content——印证不动原文（改动只发生在 update）。"
-    ),
-    field_schema=(
-        '    {  // 每个 episode 恰好一行; decisions 覆盖全部 episode（引擎结构检查）//\n'
-        '      "episode": "m0001",   // 本行处理的 episode id（Round A 产物, 真实 id）//\n'
-        '      "decision": "touch",  // touch=印证, 只连边 //\n'
-        '      "target": "u0002",    // 必填: 目标认知 id（只能来自下方渲染列表 u0001..）//\n'
-        '      "note": "…"           // 可选: 一句印证理由（不进记忆, 仅供审计）//\n'
-        '    }'
-    ),
-    example=(
-        '{"episode": "m0001", "decision": "touch", "target": "u0002",'
-        ' "note": "又是老师带猫粮来喂, 印证了猫粮约定"}'
-    ),
-)
-
-UPDATE = DigestAction(
-    name="update",
-    phase=PHASE_UNDERSTAND,
-    role="新经历带来新角度/修正/深化——改写既有认知并连接。",
-    semantics=(
-        "何时用: 找到同主题认知, 新经历改变/丰富了它;\n"
-        "怎么改: patch 部分字段合并改写——只写要变的字段, 空=保留旧值;"
-        " 新认知是已有认知的子/超集 → 改宽已有 subject, 不新建;\n"
-        " 新 text 应覆盖新旧理解, 重新表述为连贯结论;\n"
-        "禁什么: 不复制原文进 text; 不改来源（observer）; 不碰出厂基座(canon 只读)。"
-    ),
-    field_schema=(
-        '    {  // 每个 episode 恰好一行 //\n'
-        '      "episode": "m0001",   // 真实 id //\n'
-        '      "decision": "update",\n'
-        '      "target": "u0002",    // 必填: 目标认知 id //\n'
-        '      "patch": {            // 部分字段, 空=保留; 至少一个非空 //\n'
-        '        "subject": "…",     // 可选; 认知主体, 不按情境命名（太窄→并入更宽维度）//\n'
-        '        "text": "…",        // 可选; 结论式 ≤200 字, 不描述事件 //\n'
-        '        "significance": 0~1,// 可选; 行为锚点同 A 轮 //\n'
-        '        "tags": ["…"],      // 可选; 检索导向 //\n'
-        '        "growth": "…"       // 可选; 认知的成长方向（一句）//\n'
-        '      }\n'
-        '    }'
-    ),
-    example=(
-        '{"episode": "m0002", "decision": "update", "target": "u0001",'
-        ' "patch": {"text": "和老师在一起可以安静相处, 沉默也是自然的——现在连'
-        ' 带猫粮喂猫这种小事, 我都敢主动约老师一起做了。"}}'
-    ),
-)
-
-ADD = DigestAction(
-    name="add",
-    phase=PHASE_UNDERSTAND,
-    role="无同主题认知——新建一条 belief 并连回 episode。",
-    semantics=(
-        "何时用: 候选里没有同主题认知, 且新经历形成了稳定结论或可复用模式;\n"
-        "怎么改: subject 用稳定维度命名（人/关系/互动模式/性格特征）;"
-        " text 写结论/模式不写事件 —— ⭐ **反复出现的模式也写成 belief 的模式句**"
-        "（没有单独的 kind: 模式 = 她的看法, 见 DESIGN_GRAPH_V4 §5.1/§9-10）;\n"
-        "禁什么: 与已有认知同抽象层或更窄 → 应 update 已有而非 add;"
-        " 只印证不新增 → 应 touch; 引擎标注'疑似重复'仍 add → 整包拒。"
-    ),
-    field_schema=(
-        '    {  // 每个 episode 恰好一行 //\n'
-        '      "episode": "m0001",   // 真实 id //\n'
-        '      "decision": "add",\n'
-        '      "kind": "belief",     // 只有 belief（模式也写成 belief 的模式句）//\n'
-        '      "subject": "…",       // 必填; 稳定维度命名, 不按情境 //\n'
-        '      "text": "…",          // 必填; 结论式/模式句, ≤200 字, 不复述事件 //\n'
-        '      "tags": ["…"],        // 可选; 检索导向 //\n'
-        '      "significance": 0~1,  // 可选; 行为锚点 //\n'
-        '      "growth": "…"         // 可选; 成长方向 //\n'
-        '    }'
-    ),
-    example=(
-        '{"episode": "m0003", "decision": "add", "kind": "belief",'
-        ' "subject": "我对老师的信任",'
-        ' "text": "老师是第一个不嫌弃我的人——把猫抱到我腿边这种小事, 都让我'
-        ' 觉得自己也被放在心上。", "significance": 0.9}'
-    ),
-)
-
-#: L1 的**锚点类型**（行首那个键能写哪几个 kind）。
-#: ⚠️ 与 `nodes.KINDS` **同源**，但契约层不 import core ⇒ 手写一份 + 守门钉住两边相等。
-#: ⚠️ **2026-10-08（E3）删掉 `"entity"`** —— 它是 `about` 那一行的锚点, 而 `about` 不再是
-#: LLM 的动作（**归属由引擎从节点 `tags` 里的 `#entity:` 派生**, 见 `DESIGN_ENTITY_TAGS`）。
-RELATION_ANCHORS = ("episode", "belief", "experience", "profile")
-
-
-#: ⭐⭐ **L1「判关系」的四个动作**
-#: ⭐⭐ **L1「判关系」的四个动作**（`DESIGN_DIGEST_TWO_PASSES.md` §9, 2026-10-07 用户定稿）
-#:
-#: 与 `TOUCH`/`UPDATE`/`ADD` 那一族的根本不同: **它们一个字的正文都不写** ——
-#: **键本身就是动作**, 值恒是一个 **id**（凡是要"写点什么"的东西都在另一趟）。
-#: ⚠️ `graph.RELS` 是边名的真源 ⇒ 守门钉住"这四个名字必须都在 `RELS` 里"。
-RELATION_ACTIONS = (
-    DigestAction(
-        name="supports",
-        phase=PHASE_RELATE,
-        role="这条经历**印证**了那条看法。",
-        semantics=(
-            "两端: 左 = 本段的一条**经历**（`m…`）· 右 = 一条**已有的认知**（`u…`: 看法 / 画像）;\n"
-            "何时用: 这条经历又一次验证了那条已有结论 —— 不是新角度, 也没有推翻它;\n"
-            "禁什么: 想说\"这两条经历像\" ⇒ 那是 `akin`。"
-        ),
-        field_schema='        {"episode": "m0017", "supports": "u0003"},',
-        example='{"episode": "m0017", "supports": "u0003"}',
-    ),
-    DigestAction(
-        name="akin",
-        phase=PHASE_RELATE,
-        role="这两条经历**是同一类事** —— ⭐ **只有「平行同类」才算**。",
-        semantics=(
-            "两端: **都是经历**（左 = 本段新经历 · 右 = 已有经历）;\n"
-            "✅ 算数: 老师**又**送了我一次花（上次也送过）· **又**被老师夸了一次 · 又在同一个地方看见苔藓;\n"
-            "⛔ **不算数**: **同一件事的先后两段**（刚才那件事的下半截）—— 那是时间上的接续,\n"
-            "  **不是同类**; 时间上接续的**什么边都不要写**（时间线自己会说清）;\n"
-            "必填 `on`: 那个**共同的具体东西**（花 / 夸奖 / 苔藓）—— 必须是**两端 `topics` 交集里**的词。"
-        ),
-        field_schema='        {"episode": "m0017", "akin": "m0014", "on": "苔藓"},',
-        example='{"episode": "m0017", "akin": "m0014", "on": "苔藓"}',
-    ),
-    DigestAction(
-        name="contradicts",
-        phase=PHASE_RELATE,
-        role="这条和那条**对着来**。",
-        semantics=(
-            "两端: 经历 ↔ 经历, **或** 看法 ↔ 看法（**对称**, 方向无所谓）;\n"
-            "何时用: 她后来发现\"不对\" / 两边说不通;\n"
-            "禁什么: \"程度不同\"（不算对立）· \"后来变了\"（那是同族的 `evolved_from`, 见下）。"
-        ),
-        field_schema='        {"episode": "m0015", "contradicts": "m0009"},',
-        example='{"episode": "m0015", "contradicts": "m0009"}',
-    ),
-    DigestAction(
-        name="evolved_from",
-        phase=PHASE_RELATE,
-        role="这条看法**取代了**那条更旧的（她变了 —— 旧的那条原样留着）。",
-        semantics=(
-            "两端: **都是看法**（`u…` / `g…`, 行首写较**新**的那条）—— 图上的方向是"
-            "「新 → 旧」;\n"
-            "何时用: 两条看法说的是**同一件事**, 而这一条明显更晚 / 更准（她后来想通了）;\n"
-            "⚠️ **旧的那条一个字都不改**（`graph` 层永不推断这条边 —— 只有知道作者意图的写路径能产它）:\n"
-            "  *\"我以前觉得不配, 现在不这么想了\"本身就是两条看法, 用这条边连起来*;\n"
-            "禁什么: ⛔ \"程度不同\"（那是 `supports` / `contradicts`）· ⛔ \"后来发生了别的事\"\n"
-            "  （那是经历的时间线, 不是看法的进化）· ⛔ 拿不准就不写（真机到今天 0 条）。"
-        ),
-        field_schema='        {"belief": "u0009", "evolved_from": "u0007"},',
-        example='{"belief": "u0009", "evolved_from": "u0007"}',
-    ),
-)
-
-#: L2 的**锚点键**（= 她能动手的两种 kind: 造看法 / 给类写沉淀）。
-COGNIZE_ANCHORS = ("belief", "experience")
-#: L2 一行的**合法键域** = 两个锚点 + 三个关系名（⊆ `RELS`）。
-#: ⚠️ 多值只发生在 `supports`（一条看法常被好几条经历支撑）与 `contradicts`（可能跟好几条打架）上;
-#: ⛔ **没有 `evidence` 这个键** —— 它 2026-09-29 就退役了（零产品消费者）, 别让它长回来。
-COGNIZE_KEYS = (*COGNIZE_ANCHORS, "supports", "evolved_from", "contradicts")
-
-#: ⭐⭐ **L2「造认知 / 写正文」的两个动作**（`DESIGN_DIGEST_TWO_PASSES.md` §3/§5,
-#: 2026-10-08 用户裁决 · P7 落契约）。
-#:
-#: ⚠️ **与 L1 那一族正好对偶**: L1 的键**全是边名**（`RELATION_ACTIONS` ⊆ `graph.RELS`）,
-#: 这一族的键**全是节点 kind**（⊆ `nodes.KINDS`）—— 因为这一趟干的是"造节点 / 写正文"。
-#: 两边合起来仍然只有 `RELS`(6) + `KINDS`(5) 两个真源, **零第三处维护**（§4 的纪律）。
-#:
-#: 两处**形状规则**（§4 的两条 + 这次的一处扩展, 用户 2026-10-08 点头）:
-#:   ① 值是字符串 = 引用一个已有节点（`"evolved_from": "u0002"`）
-#:   ② 值是对象 = 造一个新节点（`"belief": {…}`）
-#:   ③ ⭐ **值是数组 = 引用多条**（`"supports": ["m0007", "m0011"]` —— 每条落一条边;
-#:      写单个字符串也收, 见 `_ref_list`）
-#:   ④ ⭐ **对象里带 `id` = 给那个已有节点写正文**（`"experience": {"id": "g0001", …}`）
-#:      —— 与 ② 同一个键的两面（有 id = 改, 无 id = 造）。⛔ `id` 只在这一处合法。
-#: ⚠️ **建类不归这一趟**（用户 2026-10-08: *"experience 本质是群 belief … 类是事件,
-#: 事件归 L1"*）—— 起类名 / 圈成员是 `group` 那一环的结构活; 这里只**写它的正文**。
-COGNIZE_ACTIONS = (
-    DigestAction(
-        name="belief",
-        phase=PHASE_COGNIZE,
-        role="这一段的经历**说出了一个结论** —— 把这个结论写下来（一条新的看法）。",
-        semantics=(
-            "何时用: 从**已有的经历**里看得出一个站得住的结论（模式 / 判断 / 她对某件事的看法）;\n"
-            "怎么写: `brief but descriptive` —— **短, 但描述性**（写模式与结论, ⛔ 不复述事件、\n"
-            "  不写成\"今天老师又…\"那种记叙）;\n"
-            "⭐ **出生自带证据边**: `supports` 点名这条结论是**被哪几条经历**支撑的 ——\n"
-            "  这是它与图连接的唯一方式（没有立足点的看法谁也召不回它）;\n"
-            "`contradicts`（可选）: 这条新结论**跟哪几条已有看法打架** —— 写在一行里落"
-            "**对称边**\n"
-            "  （打架就是打架, 没有方向）; ⛔ 它**不算立足点**: 光跟人打架不构成一条看法;\n"
-            "禁什么: ⛔ 经历本身（\"发生了什么\"是上一趟的活）· ⛔ 已有成分之间的关系\n"
-            "  （上一趟已经判过了; 只有\"这条**新**结论跟谁打架\"归你）· ⛔ 空泛的感悟"
-            "（\"要珍惜当下\"不是她的结论）。"
-        ),
-        field_schema=(
-            '    {  // 一行 = 一条**新的看法**（造节点; ⭐ 出生自带证据边）//\n'
-            '      "belief": {\n'
-            '        "text": "老师会把我说的话记在心上",  // 必填; 一条**结论** ——\n'
-            '                            // brief but descriptive（短, 但描述性:\n'
-            '                            // 写模式 / 结论, ⛔ 不复述事件）; ≤300 字 //\n'
-            '        "subject": "sensei",   // 可选; 这条看法**关于谁**\n'
-            '                            //（关于老师的事就写 sensei; 不是关于谁的就不写）//\n'
-            '        "significance": 0.7,   // 可选 0~1; 越难忘越高（≥0.8 进"珍贵档",\n'
-            '                            // 会优先出现在她的认知列表里）; 拿不准给 0.5 //\n'
-            '        "tags": ["#entity:老师"]  // 可选 0-2 个; 这条看法**关于谁**的**地址**\n'
-            '                            //（`#entity:名字`）—— ⚠️ 与 `subject` 分工:\n'
-            '                            // `subject` = 一句话说清这条在讲什么（给人看）,\n'
-            '                            // `#entity:` = 指到那个人/地方（**进图**: 引擎据此\n'
-            '                            // 连一条边, 以后"他对她的看法"查得出来）;\n'
-            '                            // ⭐ **名字照【已有的对象】写**（有名字与别名）—— 别自造新叫法;\n'
-            '                            // ⚠️ 判据与经历那条相同, 但**更严**: 看法通常只关于**人**\n'
-            '                            // （关于一个地方 / 东西的看法很罕见 ⇒ 拿不准就不写）//\n'
-            '      },\n'
-            '      "supports": ["m0007", "m0011"],  // 这条看法**被哪几条经历**支撑 ——\n'
-            '                            // 点名到具体经历（一条也行, 写字符串）;\n'
-            '                            // ⚠️ 与 evolved_from **至少给一个** //\n'
-            '      "evolved_from": "u0002"  // 可选; 它是从**哪条旧看法**长出来的\n'
-            '                            //（新看法 → 旧看法）—— 旧的那条**原样留着**:\n'
-            '                            // 它没说错, 只是窄了 //\n'
-            '      "contradicts": ["u0005"] // 可选; 这条新结论**跟哪几条已有看法打架**\n'
-            '                            //（对称边, 写一次就够; ⛔ 它不当立足点用）//\n'
-            '    }'
-        ),
-        example=('{"belief": {"text": "老师会把我说的话记在心上", "subject": "sensei",'
-                 ' "tags": ["#entity:老师"],'
-                 ' "significance": 0.7}, "supports": ["m0007", "m0011"]}'),
-    ),
-    DigestAction(
-        name="experience",
-        phase=PHASE_COGNIZE,
-        role="给**已有的那个类**重写它的沉淀 —— 这一类事的共同点。",
-        semantics=(
-            "何时用: 上方【本段归类的群】里那个类**这一段刚多了成员**（它的沉淀该更新了）;\n"
-            "怎么写: 把成员们的正文收成**一句更抽象的话**（它们的共同点 / 这个类意味着什么）——\n"
-            "  ⛔ 不是把几件事复述一遍, 也不是给类改名;\n"
-            "⚠️ **整段重写**（不是追加）: 你这一句会**替掉**旧沉淀 ⇒ 它必须**包含**\n"
-            "  原来那句说对的东西（写窄了 = 丢信息）;\n"
-            "禁什么: ⛔ **不建新类**（建类是上一道工序的活 · 这一段没有新成员就别写它）。"
-        ),
-        field_schema=(
-            '    {  // 一行 = 给**一个已有的类**重写沉淀（⛔ 不是造新类）//\n'
-            '      "experience": {\n'
-            '        "id": "g0001",   // 必填; 【本段归类的群】里那个类的编号（照抄）//\n'
-            '        "text": "…"      // 必填; 这一类事的**沉淀** —— 成员们的共同点,\n'
-            '                         // 一句更抽象的话（⛔ 不复述事件）; ≤300 字;\n'
-            '                         // ⚠️ **整段重写**: 旧的那句会被替掉 ⇒ 要包含它对的部分 //\n'
-            '      }\n'
-            '    }'
-        ),
-        example=('{"experience": {"id": "g0001",'
-                 ' "text": "和老师一起去的那些小店, 最后都变成了我会一个人再去的地方。"}}'),
-    ),
-)
-
-DEFAULT_ACTIONS = (RECORD_EPISODE, TOUCH, UPDATE, ADD, *RELATION_ACTIONS,
-                   *COGNIZE_ACTIONS)
-
-
-# ============================================================================
-# 注册表
-# ============================================================================
 
 class DigestRegistry:
     """digest 动作注册表: schema 渲染 + 结构解析（LLM 契约层）。"""
@@ -1066,15 +387,15 @@ class DigestRegistry:
     # 解析（结构校验; 引用级/图语义在引擎执行层）
     # ⚠️ **实现在 `contract.digest_parse`** —— 这里只留薄委托，让 `ROUNDS` 与测试里
     #    那几十处 `digest_registry.parse_x(...)` 的调用点不用改。
-    #    函数内 import 是有意的：本模块与 `digest_parse` 两个方向都在模块级读对方的名字
-    #    会出现顺序依赖。2b 把常量搬去 tables 之后这个环就没了。
+    #    （1b-2a 时这七个委托用的是**函数内 import**，为了绕开
+    #     `parse → 常量 → 本模块` 的环; 1b-2b 把常量搬去 `digest_tables` 之后环没了,
+    #     import 已收回模块级 —— 见模块 docstring 的"加载顺序"。）
     # ------------------------------------------------------------------
 
     def parse_round_a(self, raw: Any, *, seq_set: set[int] | None = None
                       ) -> tuple[list[dict], ValidationResult]:
         """实现在 `contract.digest_parse.parse_round_a`（本模块只转交）。"""
-        from contract.digest_parse import parse_round_a as _impl
-        return _impl(raw, seq_set=seq_set)
+        return digest_parse.parse_round_a(raw, seq_set=seq_set)
 
     def parse_relations(self, raw: Any, *, episode_ids: set[str] | None = None,
                         target_ids: set[str] | None = None,
@@ -1082,8 +403,7 @@ class DigestRegistry:
                         kind_of: dict[str, str] | None = None,
                         ) -> tuple[list[dict], ValidationResult]:
         """实现在 `contract.digest_parse.parse_relations`（本模块只转交）。"""
-        from contract.digest_parse import parse_relations as _impl
-        return _impl(raw, episode_ids=episode_ids, target_ids=target_ids, topics_of=topics_of, kind_of=kind_of)
+        return digest_parse.parse_relations(raw, episode_ids=episode_ids, target_ids=target_ids, topics_of=topics_of, kind_of=kind_of)
 
     def parse_cognitions(self, raw: Any, *,
                          evidence_ids: set[str] | None = None,
@@ -1092,54 +412,31 @@ class DigestRegistry:
                          kind_of: dict[str, str] | None = None,
                          ) -> tuple[list[dict], ValidationResult]:
         """实现在 `contract.digest_parse.parse_cognitions`（本模块只转交）。"""
-        from contract.digest_parse import parse_cognitions as _impl
-        return _impl(raw, evidence_ids=evidence_ids, cognition_ids=cognition_ids, group_ids=group_ids, kind_of=kind_of)
+        return digest_parse.parse_cognitions(raw, evidence_ids=evidence_ids, cognition_ids=cognition_ids, group_ids=group_ids, kind_of=kind_of)
 
     def parse_split(self, raw: Any, *, seq_set: set[int] | None = None,
                     note_ids: set[str] | None = None,
                     overdue_ids: set[str] | None = None,
                     ) -> tuple[list[dict], ValidationResult]:
         """实现在 `contract.digest_parse.parse_split`（本模块只转交）。"""
-        from contract.digest_parse import parse_split as _impl
-        return _impl(raw, seq_set=seq_set, note_ids=note_ids, overdue_ids=overdue_ids)
+        return digest_parse.parse_split(raw, seq_set=seq_set, note_ids=note_ids, overdue_ids=overdue_ids)
 
     def parse_group(self, raw: Any, *, block_ids: set[str]
                     ) -> tuple[list[dict], ValidationResult]:
         """实现在 `contract.digest_parse.parse_group`（本模块只转交）。"""
-        from contract.digest_parse import parse_group as _impl
-        return _impl(raw, block_ids=block_ids)
+        return digest_parse.parse_group(raw, block_ids=block_ids)
 
     def parse_attribution(self, raw: Any, *, known_names: set[str] | None = None,
                           ) -> tuple[list[dict], ValidationResult]:
         """实现在 `contract.digest_parse.parse_attribution`（本模块只转交）。"""
-        from contract.digest_parse import parse_attribution as _impl
-        return _impl(raw, known_names=known_names)
+        return digest_parse.parse_attribution(raw, known_names=known_names)
 
     def parse_round_b(self, raw: Any, *, episode_ids: set[str],
                       target_ids: set[str],
                       link_ids: set[str] | None = None,
                       ) -> tuple[list[dict], ValidationResult]:
         """实现在 `contract.digest_parse.parse_round_b`（本模块只转交）。"""
-        from contract.digest_parse import parse_round_b as _impl
-        return _impl(raw, episode_ids=episode_ids, target_ids=target_ids, link_ids=link_ids)
-
-
-def is_full_date(v: str) -> bool:
-    """`YYYY-MM-DD`（**全日期**）—— `due` 唯一的格式规矩。
-
-    ⚠️ **公开**（2026-10-05, L3）: 料那一侧（`material._due_cell` / 资格位）**也要判同一件事**
-    —— "什么算全日期"只许有这一个实现, 否则"料里印成日期、契约当没期限"就会漂。
-
-    ⚠️ **只在这里校验格式**: 引擎判"过期没有"时用 `date` 自己比
-    （`date.fromisoformat(due) < 今天`）—— **绝不把它喂给 `worldtime.age.age_days`**
-    （那个函数吃的是节点 `ts` 那种 **aware** 时间戳, 裸日期会 `aware − naive` 当场 TypeError,
-    `tests/core/test_wiki_recall.py:146` 踩过一次）。
-    """
-    try:
-        date.fromisoformat(v)
-    except ValueError:
-        return False
-    return True
+        return digest_parse.parse_round_b(raw, episode_ids=episode_ids, target_ids=target_ids, link_ids=link_ids)
 
 
 digest_registry = DigestRegistry()
