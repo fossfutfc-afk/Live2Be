@@ -160,6 +160,17 @@ class BrainNode:
     #: ⚠️ **不造自动维护机制**（2026-09-21 裁决: 那是效率优化不是能力）——初始化写死几个,
     #: 第 3 轮在它已经判定"hint 就是这个人"时**顺手**写进去。
     aliases: list[str] = field(default_factory=list)
+    #: ⭐ **沉淀水位**（2026-10-13, `settle` 写看法时要它）: 写这条 `text` 时**那一段的
+    #: `event_seq` 上界**（= `ctx.interact_max`）。0 = 从没写过。
+    #:
+    #: **为什么只有 `text` 需要它**: `text` 是**单槽改写**, 而契约要求"整段重写"⇒ 段级重跑
+    #: 时她会对**已经写进去的那句**再改写一次（措辞会漂）—— 它是这一层**唯一不幂等**的写入
+    #: （episode/belief 有 `_find_duplicate`、边有 `add_edge` 幂等、**改名**靠"值没变就不写"）。
+    #: 重跑时若水位 ≥ 本段上界 ⇒ **引擎丢掉那一格**（⛔ 不靠她自觉）。
+    #: ⚠️ **它必须与它守的那句话住在同一个原子单位里**（同一个节点上）—— 于是两种失败语义
+    #: 都对: 整段快照回滚 ⇒ 两者一起回滚（该重写就重写）; `own_snapshot` 只回滚自己
+    #: ⇒ 两者都留着（该跳过就跳过）。
+    text_seq: int = 0
     #: **物理状况句清单**（世界侧: 身体 / 外观 / 随身）——"手上多了道划痕" "今天戴了眼镜"。
     #: 与 `text`（立场/成长基线, 心智侧）分工; 会变、**会自愈**（谁判它过期 = §9-4 未定）。
     #: ⚠️ **这是 entity 专属、且是 list**；promise 那个 `outcome` 字段 2026-09-29 已随
@@ -269,7 +280,7 @@ class BrainNode:
                   "verbatim_seq", "title", "emo_shape", "place",
                   "place_raw",
                   "subject", "examples", "growth",
-                  "name", "aliases", "state"):
+                  "name", "aliases", "state", "text_seq"):
             v = getattr(self, f)
             if v in (None, "", [], 0):
                 continue
@@ -312,6 +323,7 @@ class BrainNode:
         node.name = _str(raw.get("name"))
         node.aliases = _str_list(raw.get("aliases"))
         node.state = _str_list(raw.get("state"))
+        node.text_seq = _int(raw.get("text_seq"))
         # ⏸ 旧档的 `outcome` 键（promise 节点）**读不进来也不报错**（2026-09-29 退图）
         node.aff_at_encoding = _opt_clamp(raw.get("aff_at_encoding"), -1.0, 1.0)
         node.emo_int = _opt_clamp(raw.get("emo_int"), 0.0, 1.0)
@@ -352,6 +364,14 @@ def _str_list(v: Any) -> list[str]:
     if not isinstance(v, list):
         return []
     return [x.strip() for x in v if isinstance(x, str) and x.strip()]
+
+
+def _int(v: Any) -> int:
+    """宽松取整数（坏值 → 0）。`text_seq` 用它 —— 0 = **从没写过**（见那个字段的注释）。"""
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return 0
 
 
 def _int_list(v: Any) -> list[int]:
