@@ -20,7 +20,7 @@ from tests import stub_tasks
 class FakeLLM:
     """假 LLM: 按序吐出预置响应（A 轮/反馈/B 轮…）; 记录调用。
 
-    挂（`digest.attribute`）与分群**不进位置队列** —— 按 task 短路成标准空包
+    沉淀（`digest.settle`）与分群**不进位置队列** —— 按 task 短路成标准空包
     （"没有可归属的 / 一个类都不分"）。
     """
 
@@ -39,10 +39,10 @@ class FakeLLM:
             return (self.split if self.split is not None
                     else stub_tasks.splits_for_episodes(
                         self.responses[0] if self.responses else [], messages))
-        if task == T.DIGEST_ATTRIBUTE:
+        if task == T.DIGEST_SETTLE:
             return {"attributions": []}
         if task == T.DIGEST_COGNIZE:
-            # ⭐ L2-b（P10 接线）: 与 attribute / split 同一口径 —— **不进位置队列**,
+            # ⭐ L2-b（P10 接线）: 与 settle / split 同一口径 —— **不进位置队列**,
             # 按 task 短路成"这一段没什么可写的"。位置队列里仍然只排 R0/R1/L1 三轮
             # （本文件的用例全都不关心"造看法 / 写沉淀"）。
             return {"cognitions": []}
@@ -690,7 +690,7 @@ def test_deadline_budget_fails_atomically(tmp_path):
 
         def chat(self, messages, **kw):
             import time
-            if kw.get("task") == T.DIGEST_ATTRIBUTE:        # ④ 挂: 同样要超预算（本用例测的是预算）
+            if kw.get("task") == T.DIGEST_SETTLE:        # ④ 挂: 同样要超预算（本用例测的是预算）
                 time.sleep(0.2)
                 self.calls += 1
                 return {"attributions": []}

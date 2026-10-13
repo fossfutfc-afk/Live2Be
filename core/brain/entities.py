@@ -59,7 +59,7 @@ x0001 = sensei   （老师/玩家）
 digest 的 `#entity:` 认人）· `like.build_ctx`（P19 的 `name` 段触发面）·
 `_materialize_stances` 的幂等键（否则 `伊草遥香` 与 `伊草 遥香` 会被当成两个人各建一个）·
 `hit_set`/`_body_hits`（R3 的**正文扫描** —— 两边都归一, 见 `_body_hits` 的实测注）。
-⚠️ **digest 侧还有一处它自己的归一**（`rounds/attribute.py` 的 `known` 集合）—— 同样走 `form_key`。
+⚠️ **digest 侧还有一处它自己的归一**（`rounds/settle.py` 的 `known` 集合）—— 同样走 `form_key`。
 """
 from __future__ import annotations
 

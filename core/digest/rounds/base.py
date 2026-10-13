@@ -9,7 +9,7 @@
 
 ⚠️ **为什么是 `Ctx` 而不是继承**（`core/brain/DESIGN_GRAPH_V4.md §10` 已否决父子类, 本仓
 也没有类型检查）: 六轮形状根本不统一 —— `akin` 不调 LLM、`group` 双执行器 + 失败自吞、
-`attribute` 两套本地号。继承会逼出一个"什么都有"的基类; 而 `Ctx` 只是**同一个段**这件
+`settle` 两套本地号。继承会逼出一个"什么都有"的基类; 而 `Ctx` 只是**同一个段**这件
 事实的载体 —— 谁读哪几段料仍由 `rounds.ROUNDS` 的 `material` 格说了算。
 
 ⚠️ **跨轮状态只有四样**（`episode_ids` / `player_ids` / `r2_created` / `resp_a`）——

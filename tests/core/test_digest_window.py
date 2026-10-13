@@ -55,7 +55,7 @@ class Stub:
             return {"episodes": self.episodes}
         if task in (T.DIGEST_RELATE, T.DIGEST):
             return {"relations": []}          # L1: 料照收, 一行关系都不判
-        if task == T.DIGEST_ATTRIBUTE:
+        if task == T.DIGEST_SETTLE:
             return {"attributions": []}
         if task == T.DIGEST_COGNIZE:      # L2-b（P10）: 不测它 ⇒ 空包
             return {"cognitions": []}

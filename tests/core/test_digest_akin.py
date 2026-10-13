@@ -38,7 +38,7 @@ class FakeLLM:
             return stub_tasks.split_for_scripted(messages, self.responses[0]
                                                  if self.responses else [])
             return CLOSE_EMPTY
-        if task == T.DIGEST_ATTRIBUTE:
+        if task == T.DIGEST_SETTLE:
             return {"attributions": []}
         if self.responses:
             return self.responses.pop(0)

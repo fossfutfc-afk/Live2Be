@@ -23,7 +23,7 @@ _NOW = "2026-10-08T21:00:00+08:00"
 
 
 class RoundLLM:
-    """五轮可控（不关心哪一轮的给空包）—— `attribute` 缺省"没有要认的"。"""
+    """五轮可控（不关心哪一轮的给空包）—— `settle` 缺省"没有要认的"。"""
 
     def __init__(self, a=None, attr=None, *, split=None):
         self.a = {"episodes": []} if a is None else a
@@ -43,7 +43,7 @@ class RoundLLM:
             return self.a
         if task == T.DIGEST_RELATE:
             return {"relations": []}          # 这些用例不测 L1
-        if task == T.DIGEST_ATTRIBUTE:
+        if task == T.DIGEST_SETTLE:
             return self.attr
         return {"cognitions": []}             # L2: 不造看法（本文件不测它）
 
@@ -85,12 +85,12 @@ def test_stranger_tag_is_recognized_and_the_edge_is_backfilled(tmp_path):
     res = digest_segment(st, llm, [_mmt(3)], character_prompt="（人设）")
 
     assert res.ok, res.errors
-    assert T.DIGEST_ATTRIBUTE in llm.tasks, llm.tasks
-    assert llm.tasks[-1] == T.DIGEST_ATTRIBUTE, "它必须排在最后（要看到 L2 的看法）"
+    assert T.DIGEST_SETTLE in llm.tasks, llm.tasks
+    assert llm.tasks[-1] == T.DIGEST_SETTLE, "它必须排在最后（要看到 L2 的看法）"
     # ⭐ E1b: **写 tag 的那一轮也要看得到【已有的对象】**（防自造 alias ⇒ 重复建对象）
     r1_user = llm.user_of(T.DIGEST_RECORD)
     assert "【已有的对象】" in r1_user and "x0001 老师" in r1_user, r1_user
-    user = llm.user_of(T.DIGEST_ATTRIBUTE)
+    user = llm.user_of(T.DIGEST_SETTLE)
     for title in ("【要认的名字】", "【已有的对象】", "【角色人设（锚点）】"):
         assert title in user, (title, user)
     assert "小玉" in user and res.created[0] in user, user      # 名字 + 它出现在哪一条
@@ -113,7 +113,7 @@ def test_no_stranger_no_call(tmp_path):
     res = digest_segment(st, llm, [_mmt(3)])
 
     assert res.ok, res.errors
-    assert T.DIGEST_ATTRIBUTE not in llm.tasks, llm.tasks
+    assert T.DIGEST_SETTLE not in llm.tasks, llm.tasks
     assert res.created_entities == []
     # ⚠️ 但 tag 照旧落了边（E1 的活, 不由这一轮负责）
     assert st.graph().targets(res.created[0], "about") == ["x0001"]
