@@ -8,12 +8,10 @@ L1 的「现有经历（候选）」（按 `topics` 相交摆）与「候选对�
 from core.brain import WikiStoreV2, make_node
 from core.brain.entities import ensure_entities, object_lines
 from core.digest.material import (
-    DIGEST_L2_MEMBERS,
+    DIGEST_L2_AKIN,
     DIGEST_RELATE_CAND_K,
     _axes_field,
     _episode_candidates,
-    _group_block,
-    _groups_for_l2,
     _l2_material,
 )
 
@@ -153,96 +151,107 @@ def test_l2_linked_episodes_only_takes_the_connected_ones(tmp_path):
     assert "（这一段没有被连过的经历" in _only_lonely, _only_lonely
 
 
-def test_l2_group_pick_ranks_by_new_members(tmp_path):
-    """⭐ P8: 挑组 = **本段新归入最多**的在前（"这一段刚给它添了最多东西"）。
+def test_akin_block_hangs_under_its_anchor_with_axis_and_time(tmp_path):
+    """⭐ **2026-10-13**: 相似簇**挂在每条经历下面**, `轴` = **现算两端 `topics` 交集**。
 
-    ⏸ **2026-10-13**: 群块已随 `group` 退役**撤出料面**（`_l2_material` 只出【被连过的经历】，
-    判据见它的 docstring）—— 所以这一条今天直接测 `_groups_for_l2`（**停产机器留着**,
-    将来 `akin` 簇要复活的正是这套挑法）。
+    判据（用户裁 A 案）: 老块（【本段归类的群】）是给她**写沉淀**用的, 而沉淀已停产;
+    新块是给她**写结论**用的 —— "这条看法不只被这一段那一条撑着, 还有她早先认过'像'的那些"。
+    ⚠️ `轴` 只印**相交**的那几个（`akin` 的 `on` 只在 `evolution.jsonl`, `Edge` 上没有它）
+    ⇒ 现算; 交集空 ⇒ 整格不出现（不猜）。
     """
-    st = WikiStoreV2(tmp_path, world_id="world1", char_id="c")
-    g1 = st.add(make_node("experience", title="吃饭"))
-    g2 = st.add(make_node("experience", title="苔藓"))
-    e1 = _new_ep(st, "一起吃饭", title="吃饭")
-    e2 = _new_ep(st, "又见苔藓", title="苔藓一")
-    e3 = _new_ep(st, "再见到苔藓", title="苔藓二")
+    st = _store(tmp_path)
+    a = _ep(st, "老师约我去咖啡厅吃甜点", title="咖啡厅的甜点", topics=["甜点", "咖啡厅"],
+            ts="2026-10-04T10:00:00+08:00")
+    old = _ep(st, "更早的一次甜点", title="上次的甜点", topics=["甜点"],
+              ts="2026-09-20T10:00:00+08:00")
+    b = _ep(st, "天台上的事", title="天台", topics=["天台"])
     st.save()
-    st.add_edge("member_of", e1, g1)                     # g1 收 1 条
-    st.add_edge("member_of", e2, g2)                     # g2 收 2 条
-    st.add_edge("member_of", e3, g2)
+    st.add_edge("akin", a, old)
+    st.add_edge("akin", b, a)                       # 本段的另一条也能是"像的"
 
-    ctx = _Ctx(st, [e1, e2, e3])
-    # ⚠️ 缺省 = `DIGEST_L2_GROUPS`（2026-10-08 用户抬到 3）⇒ **两组都出**
-    assert [g for g, _new in _groups_for_l2(ctx, cap=2)] == [g2, g1]
-    # 旋钮给 1 ⇒ 只出最该更新的那一组
-    assert [g for g, _new in _groups_for_l2(ctx, cap=1)] == [g2]
+    text, evidence = _l2_material(_Ctx(st, [a, b]))
+    assert "   ↳ 她认过跟它像的（这些也会算作这条看法的证据）:" in text, text
+    # 邻居那一行: 带 **轴（= 交集, `咖啡厅` 只有 anchor 有 ⇒ 不出现）** 与时间
+    line = next(ln for ln in text.splitlines() if "上次的甜点" in ln)
+    assert "轴 甜点〕" in line, line
+    assert "咖啡厅" not in line, line
+    assert "周前" in line or "天前" in line, line
+    # 挂在它自己那条 anchor **下面**（顺序: anchor 行 → 簇 → 下一条 anchor 行）
+    assert text.index("〔m0001｜") < text.index("↳ 她认过跟它像的") < text.index("〔m0003｜"), text
+    # ⭐ 印出来 ⇒ 能引用（老经历也算证据 —— 判它"编造 id"就是把她自己的簇锁在门外）
+    assert evidence == [a, b, old], evidence
 
 
-def test_l2_group_pick_prefers_the_unsoaked_when_tied(tmp_path):
-    """⭐ 平手时**还没写过沉淀的类**优先 —— ⛔ 否则"从没写过"的类会永远排在队尾。
-
-    一段只摆 `DIGEST_L2_GROUPS` 组 ⇒ 若平手时只按 id 排, 那个 id 大的新类**永远轮不到**,
-    它的沉淀就"**永远不写**"了。用户 2026-10-08 把旋钮抬到 2~3, 这条排序是另一半解药。
-    """
-    st = WikiStoreV2(tmp_path, world_id="world1", char_id="c")
-    g1 = st.add(make_node("experience", title="早写过沉淀的", text="早有的一句话"))
-    g2 = st.add(make_node("experience", title="这一段添得最多的"))
-    g3 = st.add(make_node("experience", title="从没写过沉淀的"))     # id 最大 ⇒ 旧排序会漏它
-    e1 = _new_ep(st, "a", title="a")
-    e2 = _new_ep(st, "b", title="b")
-    e3 = _new_ep(st, "c", title="c")
-    e4 = _new_ep(st, "d", title="d")
+def test_akin_block_caps_and_says_how_many_left(tmp_path):
+    """超 `DIGEST_L2_AKIN` 只印前几条 + **明说还有几条没印**（⛔ 不静默截断）。"""
+    st = _store(tmp_path)
+    a = _ep(st, "锚", title="锚")
+    others = [_ep(st, f"第 {i} 件事", title=f"第{i}件", ts=f"2026-09-{i + 1:02d}T10:00:00+08:00")
+              for i in range(DIGEST_L2_AKIN + 2)]
     st.save()
-    st.add_edge("member_of", e1, g1)                    # g1: 1 条新归入 + **有**沉淀
-    st.add_edge("member_of", e2, g2)                    # g2: 2 条新归入
-    st.add_edge("member_of", e3, g2)
-    st.add_edge("member_of", e4, g3)                    # g3: 1 条新归入 + **无**沉淀
+    for o in others:
+        st.add_edge("akin", a, o)
 
-    picked = [g for g, _new in _groups_for_l2(_Ctx(st, [e1, e2, e3, e4]), cap=2)]
-    assert picked == [g2, g3], picked
-    assert g1 not in picked, "有沉淀的那个该给'从没写过'的让位"
-    print("    挑组: 新归入多的先; 平手时**还没写过沉淀的**先（不再只看 id）")
+    text, evidence = _l2_material(_Ctx(st, [a]))
+    heads = [ln for ln in text.splitlines() if ln.strip().startswith("〔")]
+    assert len(heads) == DIGEST_L2_AKIN + 1, text          # anchor 那一行 + 印出来的邻居
+    assert f"（还有 2 条没印 —— 先照印出来的这几条写）" in text, text
+    assert evidence == [a] + others[:DIGEST_L2_AKIN], evidence
 
 
-def test_l2_group_block_caps_members_and_says_how_many_left(tmp_path):
-    """⭐ P8: 已有成员截到 `DIGEST_L2_MEMBERS`（4）并**明说还有几条没印**（不静默截断）。"""
-    st = WikiStoreV2(tmp_path, world_id="world1", char_id="c")
-    gid = st.add(make_node("experience", title="一类事"))
-    members = [_new_ep(st, f"第 {i} 件事", title=f"第{i}件",
-                       ts=f"2026-09-{i + 1:02d}T10:00:00+08:00") for i in range(6)]
+def test_akin_block_never_prints_a_body_twice(tmp_path):
+    """一份料里**同一段正文只印一次**: 本段的邻居只出信息头, 挂在两条 anchor 上的只印一次。"""
+    st = _store(tmp_path)
+    a = _ep(st, "本段第一条", title="甲")
+    b = _ep(st, "本段第二条", title="乙")
+    old = _ep(st, "很老的一条", title="旧", ts="2026-09-01T10:00:00+08:00")
     st.save()
-    for m in members:
-        st.add_edge("member_of", m, gid)
+    st.add_edge("akin", a, b)                        # 本段的 b 是 a 的同类
+    st.add_edge("akin", b, old)                      # b 的簇里有 old
+    st.add_edge("akin", a, old)                      # a 的簇里也有 old（先到先得）
 
-    block, printed = _group_block(st, gid, new_ids=[], linked_ids=set(),
-                                  cap=DIGEST_L2_MEMBERS)
-    heads = [ln for ln in block.splitlines() if ln.strip().startswith("〔")]
-    assert len(heads) == DIGEST_L2_MEMBERS, block
-    assert f"已有成员（按难忘排, 最多印 {DIGEST_L2_MEMBERS} 条; 还有 2 条没印）:" in block, block
-    # 难忘降序 → 同分时**时间新的在前**（第 6 件在最上面）
-    assert "第5件" in heads[0], heads
-    # 不超上限 ⇒ 不印"还有 N 条"
-    small, _p2 = _group_block(st, gid, new_ids=[], linked_ids=set(), cap=6)
-    assert "没印" not in small, small
+    text, evidence = _l2_material(_Ctx(st, [a, b]))
+    assert text.count("很老的一条") == 1, text        # 同一段正文只印一次
+    assert text.count("本段第二条") == 1, text        # 本段那条: 只在簇里出信息头, 正文在它自己那行
+    assert evidence == [a, b, old], evidence
+    print("    相似簇: 正文一条只印一次（本段的只出钥匙, 重复的整个省掉）")
+
+
+def test_akin_block_skips_a_neighbour_that_fights_the_anchor(tmp_path):
+    """与 anchor 打架的邻居**不摆**（同写入侧: 打架的证据不共撑一个结论）—— 摆出来只会诱
+    她写一条自己拆自己台的结论。"""
+    st = _store(tmp_path)
+    a = _ep(st, "锚", title="锚")
+    bad = _ep(st, "跟它打架的那条", title="打架")
+    good = _ep(st, "和平共处的那条", title="和平")
+    st.save()
+    st.add_edge("akin", a, bad)
+    st.add_edge("akin", a, good)
+    st.add_edge("contradicts", a, bad)
+
+    text, _ev = _l2_material(_Ctx(st, [a]))
+    assert "打架" not in text, text
+    assert "和平" in text, text
 
 
 def test_l2_evidence_is_exactly_what_the_block_printed(tmp_path):
     """⭐ P10: **料里印出来过的经历 = 她能引用的那批** —— 一个不多一个不少。
 
-    ⚠️ **2026-10-13 改写**: 原版钉的是"两块料（群块 + 被连过的经历）互相知道, 同一段正文
-    只印一遍"—— 群块随 `group` 退役撤掉之后, 那句话没有载体了。**下半句照旧要守**:
+    ⚠️ **2026-10-13 改写（第二次）**: 群块随 `group` 退役撤掉之后, 这一条钉的是
+    "印出来的经历就能引用"; 现在**相似簇印出来的老经历也算**（它们正是"这一类事"的
+    另外几条, ⛔ 判它们"编造 id"就是把她自己的簇锁在门外）—— 判据本身一个字没变:
     `evidence_ids` 是**从渲染里带出来的**（⛔ 不另算一份）, 少收一条就是"合法行被判编造 id"
     ⇒ 整包拒 ⇒ 白跑一次重试（L1 的教训）。
     """
-    st = WikiStoreV2(tmp_path, world_id="world1", char_id="c")
-    linked_ep = _new_ep(st, "被连过的那条", title="连过的")
-    lonely = _new_ep(st, "没人连过的那条", title="没连的")
-    old = _new_ep(st, "更早的一条", title="旧的", ts="2026-09-01T10:00:00+08:00")
+    st = _store(tmp_path)
+    linked_ep = _ep(st, "被连过的那条", title="连过的")
+    lonely = _ep(st, "没人连过的那条", title="没连的")
+    old = _ep(st, "更早的一条", title="旧的", ts="2026-09-01T10:00:00+08:00")
     st.save()
     st.add_edge("akin", linked_ep, old)
 
     linked, evidence = _l2_material(_Ctx(st, [linked_ep, lonely]))
-    assert evidence == [linked_ep], evidence          # ⛔ 没印过的不算（lonely 没被连过）
+    assert evidence == [linked_ep, old], evidence      # ⛔ 没印过的不算（lonely 没被连过）
     assert "被连过的那条" in linked
     assert "没人连过的那条" not in linked, "孤立经历不进料 ⇒ 也不该进证据名单"
     assert linked.count("被连过的那条") == 1, linked   # 一条只印一次

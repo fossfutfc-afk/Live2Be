@@ -90,7 +90,7 @@ def _linked_pair(st):
 def test_digest_runs_cognize_after_group(tmp_path):
     """⭐ P10: 有立足点 ⇒ 发一次 `digest.cognize`; ⏸ `group` 退役后**不再被调用**。"""
     st = _store(tmp_path)
-    a, _old = _linked_pair(st)
+    a, old = _linked_pair(st)
     llm = RoundLLM(a={"episodes": [{"text": "老师约我去咖啡厅吃甜点", "title": "咖啡厅的甜点",
                                     "tags": ["咖啡厅"], "topics": ["咖啡厅"]}]},
                    group={"attach": [], "new": [{"block": "b1", "title": "甜点的那些事"}],
@@ -108,19 +108,24 @@ def test_digest_runs_cognize_after_group(tmp_path):
     #    换成"**它不再被调用**"（顺序保证由 `ROUNDS` 的元组序承担, 见 test_digest_rounds）。
     assert T.DIGEST_GROUP not in llm.tasks, llm.tasks
     user = llm.user_of(T.DIGEST_COGNIZE)
-    # ⭐ E1b: L2 写 `#entity:` 之前也要看得到【已有的对象】（同 R1）
+    # ⭐ E1b: L2 写引用名之前也要看得到【已有的对象】（同 R1）
     for title in ("【被连过的经历】", "【现有认知】",
                   "【已有的对象】", "【角色人设（锚点）】"):
         assert title in user, (title, user)
     # ⏸ 【本段归类的群】随 `group` 退役一起撤（料与契约两边同撤, 守门
     #    `test_material_names_are_not_dead` 看着）—— 它那一格由 `member_of` 喂, 恒空。
     assert "【本段归类的群】" not in user, user
+    # ⭐ 2026-10-13: 她认过的相似簇**挂在经历下面**（`old` 是早先那次, 不属于这一段）
+    assert "↳ 她认过跟它像的" in user, user
+    assert "《上次的甜点》" in user, user
     # 产出落对了
     assert len(res.created_beliefs) == 1, res.created_beliefs
     new = res.created_beliefs[0]
     assert st.get(new).kind == "belief" and st.get(new).subject == "sensei"
     assert new in st.graph().targets(a, REL_SUPPORTS), "经历 → 新看法"
-    print(f"    digest 接线: {res.created_beliefs} 条看法; 料里只剩经历那块（群块已撤）")
+    # ⭐ 她只点了这一条 ⇒ 引擎把它的同类（`old`）也并成了证据
+    assert new in st.graph().targets(old, REL_SUPPORTS), "一跳 akin 并进证据（零 LLM）"
+    print(f"    digest 接线: {res.created_beliefs} 条看法; 料里带相似簇 + 并边落住")
 
 
 def test_cognize_drops_a_retired_soak_row_and_keeps_the_beliefs(tmp_path):
@@ -167,9 +172,9 @@ def test_cognize_evidence_is_what_the_material_printed(tmp_path):
 
     （L1 的教训: `target_ids` 少收一类 ⇒ 合法行被判"编造 id" ⇒ 整包拒 ⇒ 白跑一次重试。）
 
-    ⏸ **2026-10-13 改写**: 原本这条钉的是"**两段**（群块 + 被连过的经历）印过的都算证据"——
-    群块随 `group` 退役撤掉之后, 印出来只剩一类。**判据本身照旧要守**（"料里印的 =
-    她能引用的"）, 所以改成钉那一句话 + 群块确实不在料里。
+    ⚠️ **2026-10-13 改写（第二次）**: 群块退役后这一条钉"料里印的 = 她能引用的";
+    现在**相似簇印出来的老经历也算**（不认它 ⇒ 她引不了自己早先认过的同类, 而引擎
+    偏偏会把它们并进证据 —— 两边对不上）。所以这一条让她**明确引用那条老经历**。
     """
     st = _store(tmp_path)
     a, old = _linked_pair(st)
@@ -180,7 +185,8 @@ def test_cognize_evidence_is_what_the_material_printed(tmp_path):
     llm = RoundLLM(a={"episodes": [{"text": "老师约我去咖啡厅吃甜点", "title": "咖啡厅的甜点",
                                     "tags": ["咖啡厅"], "topics": ["咖啡厅"]}]},
                    cognize={"cognitions": [
-                       {"belief": {"text": "甜点这件事她记了很久"}, "supports": [a]}]},
+                       {"belief": {"text": "甜点这件事她记了很久"},
+                        "supports": [a, old]}]},          # ⭐ 老经历照引
                    split=_one_slice())
     res = digest_segment(st, llm, [_mmt(3)])
 
@@ -188,10 +194,13 @@ def test_cognize_evidence_is_what_the_material_printed(tmp_path):
     user = llm.user_of(T.DIGEST_COGNIZE)
     assert "【本段归类的群】" not in user, "群块已随 group 退役撤掉"
     assert "《咖啡厅的甜点》" in user, user            # 印出来了 ⇒ 就该能引用
+    assert "《上次的甜点》" in user, user              # 老经历也印出来了（相似簇那一行）
     assert len(res.created_beliefs) == 1, (res.created_beliefs, res.errors)
     assert res.contract_drops == [], res.contract_drops      # 没被判"编造 id"
-    assert res.created_beliefs[0] in st.graph().targets(a, REL_SUPPORTS)
-    print("    证据名单: 料里印过的经历就能当证据（没被整包拒）; 群块已不在料里")
+    new = res.created_beliefs[0]
+    assert new in st.graph().targets(a, REL_SUPPORTS)
+    assert new in st.graph().targets(old, REL_SUPPORTS), "老经历也当得了证据"
+    print("    证据名单: 料里印过的（含相似簇里的老经历）就能当证据; 群块已不在料里")
 
 
 def test_no_basis_no_call(tmp_path):
