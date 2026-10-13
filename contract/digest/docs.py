@@ -320,10 +320,9 @@ RECORD_EPISODE = DigestAction(
     ),
 )
 
-# ⛔ ~~`ON_MIND_FIELD` / `ON_MIND_SEMANTICS` / `ON_MIND_MAX`~~ **2026-09-29（N4e）随
-# `on_mind` 槽退役** —— 用户裁决: *"它太煽情了, 煽情的剧情过去了, 就不必一直耿耿于怀了"*。
-# L1 的输出**从此只有 `episodes` 一个键**（心境不是"经历", 也就不该跟 episodes 平级）。
-# ⚠️ 将来若真要"她此刻在想什么", 该走 belief（图里、有边、能被召回、会被新经历更新）。
+# ⏸ `on_mind` 槽（连同它的字段常量）2026-09-29 退役 —— L1 的输出只有 `episodes` 一个键
+# （心境不是"经历", 不该跟 episodes 平级）。将来真要"她此刻在想什么"走 **belief**
+# （进图、有边、能被召回、会被新经历更新）。
 
 TOUCH = DigestAction(
     name="touch",

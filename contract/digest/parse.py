@@ -712,9 +712,8 @@ def parse_round_b(raw: Any, *, episode_ids: set[str],
                            for v in patch.values()):
                     errors.append(f"decisions[{i}]: update.patch 至少一个非空字段")
                     continue
-                # ⏸ 原「patch 不得含 epistemic」2026-09-29 删 —— 字段退役后它是
-                # 白名单外的未知键, 执行器那边照样拒（`revise` 的可改字段表 + store 守卫）;
-                # 这里不再为它单开一条错误文案。
+                # ⏸ 原「patch 不得含 `epistemic`」已删 —— 字段退役后它是白名单外的未知键,
+                # 执行器那边照样拒; 这里不再为它单开一条错误文案。
                 item["patch"] = patch
         else:  # add
             kind = str(row.get("kind", "belief")).strip()
@@ -752,9 +751,8 @@ def parse_round_b(raw: Any, *, episode_ids: set[str],
 # ============================================================================
 
 #: `links` 允许的 rel（**只有这三种** —— 见 DESIGN_GRAPH_V4 §2 的边表）。
-#: ⚠️ 别加 `about`（⛔ **它不由 LLM 写**: 引擎从节点 `tags` 里的 `#entity:` 派生, 见 E1/E3）·
-#: 别加 `source`（已删）·
-#: 别加 `formed_by`/`from`/`to`（2026-09-29 随 promise 退图一起删）。
+#: ⚠️ 别加 `about`（⛔ **它不由 LLM 写**: 引擎从节点 `tags` 里的 `#entity:` 派生）·
+#: 别加 `source` / `formed_by` / `from` / `to`（都随 promise 退图一起删了）。
 #: ⭐ `supports` 在 `links` 这里**只认"看法 → 看法"那一种形状** ——
 #: `supports` 共两种形状（§2）: `episode → 认知` 由**决策表**的 touch/update/add 写,
 #: `认知 → 认知` 才轮到 links（用户 2026-09-29 裁决两条都留, 所以这一档**不是冗余**）。
@@ -950,11 +948,9 @@ def _clean_episode(e: Any, i: int, seq_set: set[int] | None = None,
     if not isinstance(e, dict):
         return None, [f"episodes[{i}] 必须是对象"], []
     # 引擎字段一律不收（id/ts——LLM 塞了也丢弃）
-    # ⚠️ `event_seq` **已从这份名单移出**（T14, 2026-09-15）: 它现在是**板指针**,
-    #    是 §3.3.1 里 LLM 唯一的"指位置"输出之一。旧版把它当引擎字段丢弃,
-    #    而 `digest.py` 又把它覆写成常量 → 两者相加 = 板指针从来没存在过。
-    # ⚠️ `segment_id` 2026-09-21 移出: 那个字段本身已退役（引擎不再落它）,
-    #    把它继续当"引擎字段"警告是历史残留。
+    # ⚠️ `event_seq`（**板指针**, 引擎展开 `span` 后写上的）**不在这份名单里** ——
+    #    旧版把它当引擎字段丢弃, 而 `digest.py` 又把它覆写成常量 ⇒ 板指针从来没存在过。
+    # ⚠️ `segment_id` 也不在（那个字段本身已退役, 引擎不再落它）。
     for f in ("id", "ts"):
         if f in e:
             warnings.append(f"episodes[{i}] 含引擎字段 {f}——已忽略")
@@ -1220,13 +1216,10 @@ def _clean_episode_item(e: dict, i: int, errors: list[str], warnings: list[str],
         item["title"] = title.strip()
     else:
         warnings.append(f"episodes[{i}] 缺 title（建议 8-16 字短标题）")
-    # ⛔ **位置不再从这里读**（3b-2, 2026-09-29）: 切分权归 R0 ⇒ 一条经历覆盖哪一段
-    # 由**骨架**定（`split` 那一轮的 `seqs`）, 引擎按顺序把这一行并到那条切片上。
-    # 所以:
-    #  · `span` 字段**退役**（契约里不再渲染它; 她还写就只记一句 warning）;
-    #  · 旧形状 `event_seq`（逐点挑选）**一并退役** —— 它是"她自己挑位置"的时代的产物。
-    # 原先那两段"没位置 ⇒ 回落段级指针 ⇒ 进 `no_pos` 账"的逻辑因此整套消失:
-    # **没有"她的位置"可错了**（位置是引擎算的区间）。
+    # ⛔ **位置不从这里读**（3b-2）: 切分权归 R0 ⇒ 一条经历覆盖哪一段由**骨架**定
+    # （`split` 那轮的 `seqs`）, 引擎按顺序把这一行并到那条切片上。
+    # ⇒ `span` 与旧形状 `event_seq`（"她自己挑位置"时代的产物）**都已退役**:
+    # 还写就只记一句 warning, 引擎忽略它（没有"她的位置"可错了）。
     for gone in ("span", "event_seq"):
         if gone in e:
             warnings.append(f"episodes[{i}] 写了 {gone}——位置由【本段骨架】定, 这个字段已退役"
@@ -1249,11 +1242,9 @@ def _clean_episode_item(e: dict, i: int, errors: list[str], warnings: list[str],
         topics = topics[:TOPICS_MAX]
     if topics:
         item["topics"] = list(dict.fromkeys(topics))      # 去重保序
-    # ⏸ `about_hint`（归属线索, §8.2/D1）清洗 **2026-09-29 删** —— 字段退役:
-    # 它和 R3 的"挂谁"**判两次**（R1 猜一次、R3 再判一次, 还可能不一致）,
-    # 而 R3 本来就拿得到候选表（全量）+ 新节点正文 ⇒ **引擎不必替它预判一个名字**。
-    # 详见 `core/brain/REDUNDANCY.md` #2。
-    # ⏸ `items`（物品台账）清洗 **2026-09-29 删** —— 字段退役, 旧档里的值一并清掉。
+    # ⏸ `about_hint`（归属线索）与 `items`（物品台账）两个字段 2026-09-29 退役 ——
+    # 这里不再有清洗代码: **白名单外的键本来就不落库**。（前者与 R3 的"挂谁"判两次,
+    # 见 `core/brain/REDUNDANCY.md` #2。）
     sig = e.get("significance")
     try:
         sig_f = float(sig) if sig is not None else 0.5
@@ -1280,10 +1271,9 @@ def _clean_episode_item(e: dict, i: int, errors: list[str], warnings: list[str],
             warnings.append(f"episodes[{i}].{fname} 是 NaN——忽略")
             continue
         item[fname] = max(lo, min(hi, v))       # 越界**夹紧**（不丢弃——值仍可用）
-    # 来源（2026-09-29 起**只有 `observer` 一个字段**）: 非空 = 听说的 + 转述者是谁;
-    # 空 = 亲历。⏸ 原 `epistemic` 字段退役（判据: 与 observer 互为函数 + 跨 kind 两个意思,
-    # `REDUNDANCY.md` #3）—— 旧 prompt 缓存里若还带着它, 这里只**提一句**不落库
-    # （不废整包: 值与 observer 重复, 信息没丢）。
+    # 来源: 非空 = 听说的 + 转述者是谁; 空 = 亲历。
+    # ⏸ `epistemic` 已退役（与 observer 互为函数, 见 `REDUNDANCY.md` #3）—— 旧 prompt 缓存
+    # 里还带着它的话只**提一句**不落库（值与 observer 重复, 信息没丢, 不废整包）。
     if e.get("epistemic") not in (None, ""):
         warnings.append(f"episodes[{i}].epistemic 字段已退役——只填 observer（忽略）")
     obs = e.get("observer")
