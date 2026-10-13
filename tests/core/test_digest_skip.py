@@ -74,7 +74,7 @@ class FlakyOnce:
             return {"episodes": [{"text": "一段经历", "title": "经历"}]}
         if task in (T.DIGEST_RELATE, T.DIGEST):
             return {"relations": []}          # L1: 没看出关系（本用例测的是失败重试次数）
-        if task == T.DIGEST_ATTRIBUTE:
+        if task == T.DIGEST_SETTLE:
             return {"attributions": []}
         if task == T.DIGEST_COGNIZE:      # L2-b（P10）: 不测它 ⇒ 空包
             return {"cognitions": []}

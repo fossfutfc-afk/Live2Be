@@ -92,7 +92,7 @@ core/          引擎层（无 web 依赖, CLI/实验同源复用）
    │                         召回 recall/channels/channel_impl/compose 与两个台账/旋钮
    ├ digest/                 **记忆消化管线**（⭐ **7 轮, 真源 = `rounds/__init__.py` 的 `ROUNDS`**:
    │                         ⓪ `split` 切 → ① `record` 记 → `akin` 补边(0 LLM) → ② `relate` 接(L1)
-   │                         → ⑤ `group` 分群(L2-a) → `cognize`(L2-b) → ⑦ `attribute` 认人；
+   │                         → ⑤ `group` 分群(L2-a) → `cognize`(L2-b) → ⑦ `settle` 沉淀（认人）；
    │                         ⛔ R4=close 收口轮 2026-10-05 已删）· ⭐ **`rounds/` 包 = 轮次表**（`__init__.py` 是表, `base.py` 是 `Ctx`/`RoundOut`,
    │                         六个轮文件各一个 `run(ctx)` —— 2026-09-29 乙-1）
    │                         （**key/步序/LLM 身份/prompt/相位/parse/料/写什么/跳过/预算/快照**的单源 ——
@@ -474,10 +474,10 @@ CLI/测试同步路径在引擎内串行。
   本行只是导读 —— 轮次改了以那张表为准）：
   **⓪ `split` 切**（叙事单元）→ **① `record` 记**（episode/profile + note 操作的**唯一写者**）
   → **`akin` 补边**（0 LLM）→ **② `relate` 接**（L1 判关系，**只判关系、一个字正文都不写**）
-  → **⑤ `group` 分群**（经验 = L2-a）→ **`cognize`**（L2-b 认知）→ **⑦ `attribute` 认人**。
+  → **⑤ `group` 分群**（经验 = L2-a）→ **`cognize`**（L2-b 认知）→ **⑦ `settle` 沉淀**。
   ⚠️ 三处别读错：
   · ⛔ **R4=close 收口轮 2026-10-05 已整族删**（账目归 R0 的表）；
-  · ⭐ **`attribute` 是活的**（不是文档里曾写的"暂停"）—— 但它**只认人**：
+  · ⭐ **`settle`（原 `attribute`）是活的**（不是文档里曾写的"暂停"）—— 但它**只认人**：
     写 `entity` 节点（name/aliases/event_seq/ts）+ 补 `about` 边，⛔ **不写正文**；
     **跳过条件 = 本段没有解析不到的 `#entity:` 名字**（没有新人 ⇒ 一次调用都不发）；
   · ⚠️ 由此带来一个**已知缺口**（用户 2026-10-12 裁"以后再说"）：`entity.text`
@@ -513,10 +513,10 @@ CLI/测试同步路径在引擎内串行。
   **R2 的动作面**：输出多一个**可选键 `links`**（`supports`/`contradicts`/`evolved_from`，
   两端是渲染列表里的本地 id）—— ⏸ 当年"两个 id 空间"（能 `touch` 的只有看法、能 `link` 的
   含承诺）随承诺退图**实际同集**。
-  **R3 归属**也已接线（`digest.attribute`，排在**最后**）：料 = `entities.py` 四块纯函数
+  **R3 归属**也已接线（`digest.settle`，排在**最后**）：料 = `entities.py` 四块纯函数
   （候选表 `c0001` / 命中集 / 载荷 / 本轮新节点 **`u0001`**）⇒ `about` 边 + `new_entity` +
   entity 载荷；⚠️ **两套本地号必须分开**（混用会让"挂谁"与"挂在谁身上"写反）。
-  ⇒ **链路 ③ 完成**（今天 7 轮见上面的导读；`attribute` 只认人, 见那条警告）。
+  ⇒ **链路 ③ 完成**（今天 7 轮见上面的导读；`settle` 只认人, 见那条警告）。
 - 结算 delta → `affection|digest` 事件（events.jsonl 为真源）+ wiki 好感快照；
   数值**不直接喂 LLM**（无数字概念, 防讨好/数值化）——未来 relationship_view
   （阶段词）是规划方向。`core/affection/affection_calc.py` 数值层。

@@ -223,7 +223,7 @@ def _add_edge(store: WikiStoreV2, rel: str, src: str, dst: str, *, ts: str,
 def apply_entities(store: WikiStoreV2, rows: list[dict], *, ts: str = "",
                    event_seq: list[int] | None = None,
                    log: EvolutionLog | None = None) -> list[str]:
-    """R3（`attribute`）的执行器 —— ⭐ **只认人**（E4, 2026-10-08）。
+    """R3（`settle`）的执行器 —— ⭐ **只认人**（E4, 2026-10-08）。
 
     把"**她还不认识的名字**"建成 `entity` 节点。⛔ **不写正文、不连边**:
       · 归属边（`about`）由**引擎**从节点 `tags` 里的 `#entity:` 派生 —— 这一轮**建完对象
@@ -270,7 +270,7 @@ def apply_entities(store: WikiStoreV2, rows: list[dict], *, ts: str = "",
         out.append(nid)
         log.append({"pkg": "digest", "action": "new_entity", "id": nid, "name": name,
                     "reason": reason, "ts": ts})
-        logger.info("digest_attribute new_entity=%s name=%r aliases=%s",
+        logger.info("digest_settle new_entity=%s name=%r aliases=%s",
                     nid, name, aliases)
     return out
 
@@ -285,7 +285,7 @@ def link_entity_tags(store: WikiStoreV2, nid: str, *, ts: str = ""
     """⭐ **一个节点 `tags` 里的 `#entity:` ⇒ `about` 边** —— **唯一实现**（引擎派生, 零 LLM）。
 
     三处调用: R1 造 episode（`episodes._create_a_nodes`）· L2 造看法（`_create_belief`）·
-    R3 **建完新对象之后回头补边**（`rounds/attribute.py` —— 它把"先写 tag 后建对象"接上）。
+    R3 **建完新对象之后回头补边**（`rounds/settle.py` —— 它把"先写 tag 后建对象"接上）。
     做三件事: ① 归一（能解析的叫法换成**主名**）② 落 `about`（节点 → 对象）③ 把归一后的
     `tags` **写回节点**（她下次看到的与库里一致）。
 

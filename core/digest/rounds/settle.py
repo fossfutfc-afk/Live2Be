@@ -1,4 +1,4 @@
-"""attribute.py — ④ R3「认人」: 她写下的**陌生名字** ⇒ 建一个新的 `entity`。
+"""settle.py — ④ R3「认人」: 她写下的**陌生名字** ⇒ 建一个新的 `entity`。
 
 ⭐ **2026-10-08（E4）重定义**: 这一轮从"归属 + 载荷维护"（`attach`/`new_entity`/`rewrite`
 三动作）缩成**只认人**。判据 = `docs/DESIGN_ENTITY_TAGS.md`:
@@ -52,7 +52,7 @@ def _strangers(ctx: Ctx, ids: list[str]) -> list[str]:
 
 def run(ctx: Ctx) -> RoundOut:
     """④ 认人 —— 本段那些"她写了、但库里没有"的名字 ⇒ 建对象 + **回头补边**。"""
-    spec = ctx.enter("attribute")
+    spec = ctx.enter("settle")
     ids = _segment_ids(ctx)
     strangers = _strangers(ctx, ids)
     if not strangers:
@@ -85,6 +85,6 @@ def run(ctx: Ctx) -> RoundOut:
     for nid in ids:
         targets, _left = link_entity_tags(ctx.store, nid, ts=ctx.now_ts)
         linked += len(targets)
-    logger.info("digest_attribute strangers=%d rows=%d new=%d linked=%d",
+    logger.info("digest_settle strangers=%d rows=%d new=%d linked=%d",
                 len(strangers), len(rows), len(ctx.result.created_entities), linked)
     return RoundOut.done()

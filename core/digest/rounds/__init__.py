@@ -6,7 +6,7 @@
     rounds/__init__.py  ← 本文件: **只有表**（+ Cursor / 预算 / 回滚清单）
     rounds/base.py      Ctx（段级上下文）+ RoundOut（一轮跑完的交代）
     rounds/record.py    ① R1 记        rounds/akin.py       补边（0 LLM）
-    rounds/relate.py     ③ L1 接       rounds/attribute.py  ④ R3 挂
+    rounds/relate.py     ③ L1 接       rounds/settle.py     ④ R3 沉淀
     ⏸ ⑤ L2-a 分群（`rounds/group.py` + `core/brain/groups.py`）**2026-10-13 退役**
       —— 整族搬 `archive/digest_group/`（理由与去向见那份 README）。
     ⏸ ② R4 收口（`rounds/close.py`）**2026-10-05（L8）删** —— 账目归 R0 的表。
@@ -135,7 +135,7 @@ class RoundSpec:
 
     key: str
     """表内主键 —— 契约相位名（`record` / `akin` / `relate` /
-    `attribute` / `group`）。见类 docstring: 另外四个标识都从它来。"""
+    `settle` / `group`）。见类 docstring: 另外四个标识都从它来。"""
 
     step: str
     """人读的步号（与 `core/digest/__init__.py` 的步序表同一份写法）。
@@ -310,7 +310,7 @@ ROUNDS: tuple[RoundSpec, ...] = (
         own_snapshot=True,
     ),
     RoundSpec(
-        key="attribute",
+        key="settle",
         step="⑦ 认人",
         parse=digest_registry.parse_attribution,
         material=("要认的名字", "已有的对象", "角色人设（锚点）"),

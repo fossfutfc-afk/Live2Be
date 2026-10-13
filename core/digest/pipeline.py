@@ -11,14 +11,14 @@
     core/digest/rounds/__init__.py  轮次表（key/步序/LLM 身份/prompt/相位/parse/料/写什么/跳过/预算/快照）
     core/digest/rounds/base.py      Ctx（段级上下文）+ RoundOut（一轮跑完的交代）
     core/digest/rounds/record.py    ① 记        akin.py 补边（0 LLM）
-    core/digest/rounds/relate.py     ② 接（L1 判关系）  attribute.py ③ 挂
+    core/digest/rounds/relate.py     ② 接（L1 判关系）  settle.py ③ 沉淀
     core/digest/rounds/group.py      ④ 分群 L2-a（自带快照）
     ⏸ 收口轮（`rounds/close.py`）**2026-10-05（L8）删** —— 账目归 R0 的表（`record` 那一轮产 op）。
 
 **实际跑的步数**（一眼看全在 `core/digest/__init__.py`）: 切分 → 记 → akin 补边 → 接 → 挂 →
 分群（共 5 次 LLM 调用 + 1 次零成本补边）。
 ⏸ 旧文档/旧注释里的 **`R1`/`R2`/`R3`/`R4`** 按这张表对: **R1=记(record) · R2=接(relate) ·
-R3=挂(attribute)**（`R4=收口` 已删）—— 轮次 key 就是契约相位名, 见 `rounds.RoundSpec`。
+R3=挂(settle)**（`R4=收口` 已删）—— 轮次 key 就是契约相位名, 见 `rounds.RoundSpec`。
 
 编排（`digest_segment`）::
     1. 增量: new_events = seq > store.digested_seq（无新增 → 0 次 LLM 调用）
@@ -82,11 +82,11 @@ from core.digest.rounds import (
     Cursor,
     RoundSpec,
     akin,
-    attribute,
     cognize,
     record,
     relate,
     reset_result,
+    settle,
     split,
 )
 from core.digest.rounds.base import Ctx, RoundOut
@@ -107,7 +107,7 @@ IMPL: dict[str, Callable[[Ctx], RoundOut]] = {
     "akin": akin.run,
     "relate": relate.run,
     "cognize": cognize.run,
-    "attribute": attribute.run,       # ⭐ E4: 认人排在**最后**（要看到 L2 的看法）
+    "settle": settle.run,             # ⭐ E4: 认人排在**最后**（要看到 L2 的看法）
     # ⏸ `group`（L2-a 分群）2026-10-13 退役 —— 代码在 `archive/digest_group/`
     #    （表里那一行也一起摘了; 两处必须同改, 守门用例钉着"一一对应"）。
 }
@@ -376,7 +376,7 @@ def digest_segment(
         # 归属 / 分群）全在空转 —— `relate` 还会被契约判形状错。
         # ⚠️ 判据只认 **R0 那一次的产出**（`result.segments`）: 若写成"任何一轮之后
         # `segments` 为空", 就会把"R1 合法地什么都没记"也当成空骨架 ——
-        # 那会顺手跳过 `relate`/`attribute`, 与今天的失败语义**两回事**。
+        # 那会顺手跳过 `relate`/`settle`, 与今天的失败语义**两回事**。
         # ⚠️ **`needs_segments=False` 那一格今天没有轮**（从前是收口轮, L8 删了）——
         # 机制留着: 将来"只看备忘录/只看时间"的轮就在表里写 False。
         # ⚠️ 水位**照推**（成功路径那句 `_next_watermark` 的 0 覆盖兜底会推到
@@ -485,7 +485,7 @@ def _next_watermark(store: WikiStoreV2, episode_ids: list[str], *,
 # ---------------------------------------------------------------------------
 # 各轮的正文已搬走（2026-09-29 乙-1）：
 #   `rounds/split.py` R0 · `rounds/record.py` R1 · `rounds/akin.py` 补边 ·
-#   `rounds/relate.py` R2 · `rounds/attribute.py` R3 · `rounds/group.py` L2-a
+#   `rounds/relate.py` R2 · `rounds/settle.py` R3 · `rounds/group.py` L2-a
 # 本文件只剩编排与事务。料的公共件在 `material.py`, 一轮调用的四件套在 `call.py`。
 # ⏸ `_clean_evidence()` **2026-09-29 删** —— 随 `evidence` 字段一起退役（零消费者）。
 # 它当年清洗的是 `function/quote/confidence/note` 四键, 而全仓没有一个产品读者:

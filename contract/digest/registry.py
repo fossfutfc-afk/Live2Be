@@ -20,10 +20,10 @@ from contract.digest.prompts import fill, fragment, load
 from contract.digest.tables import (
     ABSTRACT_MAX,
     MAX_COGNITIONS,
-    PHASE_ATTRIBUTE,
     PHASE_COGNIZE,
     PHASE_RECORD,
     PHASE_RELATE,
+    PHASE_SETTLE,
     PHASE_SPLIT,
 )
 from contract.errors import err
@@ -37,7 +37,7 @@ PHASE_FILES = {
     PHASE_RECORD: "record",
     PHASE_RELATE: "relate",
     PHASE_COGNIZE: "cognize",
-    PHASE_ATTRIBUTE: "attribute",
+    PHASE_SETTLE: "settle",
 }
 
 #: `digest._segment_domain` 只产这两个; 认不得的按 mmt 收（与拆包前同口径）

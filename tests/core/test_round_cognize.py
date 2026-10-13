@@ -46,7 +46,7 @@ class RoundLLM:
         if task == T.DIGEST_SPLIT:            # R0: 缺省照搬 R1 那份应答里的区间
             return (self.split if self.split is not None
                     else stub_tasks.split_for_scripted(messages, self.a))
-        if task == T.DIGEST_ATTRIBUTE:
+        if task == T.DIGEST_SETTLE:
             return {"attributions": []}
         return {T.DIGEST_RECORD: self.a, T.DIGEST_RELATE: self.b, T.DIGEST: self.b,
                 T.DIGEST_GROUP: self.group, T.DIGEST_COGNIZE: self.cognize}[task]

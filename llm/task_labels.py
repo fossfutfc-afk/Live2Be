@@ -43,7 +43,7 @@ DIGEST = "digest"
 #: + **账目**（`state` / `id` / `due` —— "切片即账目", 2026-10-05 取代旧的 `keep`）。
 #: ⚠️ 2026-09-29（N4d）新增: 它拿走了 R1 从前最重的那件事（划区间）。
 #: ⭐ **2026-10-05（L8）: 收口轮删掉之后, digest 一共 5 个 LLM 轮**（split / record /
-#: relate / attribute / group）—— 硬顶随之回到 **600**（见 `rounds.DIGEST_SEGMENT_HARD_CAP`）。
+#: relate / settle / cognize）—— 硬顶随之回到 **600**（见 `rounds.DIGEST_SEGMENT_HARD_CAP`）。
 DIGEST_SPLIT = "digest.split"
 #: ① R1 记录员（`rounds/record.py`）—— ⭐ 它**同时**是 note 账目的落地点（按 R0 的表产
 #: `add` / `update` / `close`; 收口轮 2026-10-05 删）
@@ -51,7 +51,7 @@ DIGEST_RECORD = "digest.record"
 #: ② L1 判关系（`rounds/relate.py`）—— ⭐ 只落边, **一个字正文都不写**
 DIGEST_RELATE = "digest.relate"
 #: ③ R3 归属（把本轮新节点挂到 entity 上 + 维护载荷）
-DIGEST_ATTRIBUTE = "digest.attribute"
+DIGEST_SETTLE = "digest.settle"
 #: ⭐ N7（2026-09-29）**L2-a 分群** —— 每段的**最后一步**, 与 R1–R3 不同层:
 #: 吃"她连过的块"（`akin` 连通块）, 产**群节点 + `member_of` 边**（引擎切块 + 只起名）
 DIGEST_GROUP = "digest.group"
@@ -73,7 +73,7 @@ BOND = "bond"
 ALL: frozenset[str] = frozenset({
     EMOTION, PLACE, PLACE_BOARD, PLACE_VARIANT,
     DIGEST, DIGEST_SPLIT, DIGEST_RECORD, DIGEST_RELATE,
-    DIGEST_ATTRIBUTE, DIGEST_GROUP, DIGEST_COGNIZE, MMT, BOND,
+    DIGEST_SETTLE, DIGEST_GROUP, DIGEST_COGNIZE, MMT, BOND,
 })
 
 #: 主链（输出是"创作"本身, 桩按脚本队列回）
@@ -94,7 +94,7 @@ PROFILE_OF: dict[str, str] = {
     DIGEST_SPLIT: "digest",
     DIGEST_RECORD: "digest",
     DIGEST_RELATE: "digest",
-    DIGEST_ATTRIBUTE: "digest",
+    DIGEST_SETTLE: "digest",
     DIGEST_GROUP: "digest",
     DIGEST_COGNIZE: "digest",
     MMT: "mmt",

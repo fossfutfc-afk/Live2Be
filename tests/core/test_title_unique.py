@@ -33,7 +33,7 @@ class FakeLLM:
         if task == T.DIGEST_SPLIT:
             return stub_tasks.split_reply(messages)
             return CLOSE_EMPTY
-        if task == T.DIGEST_ATTRIBUTE:
+        if task == T.DIGEST_SETTLE:
             return {"attributions": []}
         if self.responses:
             return self.responses.pop(0)

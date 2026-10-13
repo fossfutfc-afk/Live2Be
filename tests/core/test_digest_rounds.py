@@ -193,17 +193,17 @@ def test_every_phase_is_a_real_contract_phase():
     所以由这条用例来钉"key 与契约相位是同一批词"。
     """
     from contract.digest import (
-        PHASE_ATTRIBUTE,
         PHASE_COGNIZE,
         PHASE_RECORD,
         PHASE_RELATE,
+        PHASE_SETTLE,
         PHASE_SPLIT,
         digest_registry,
     )
     # ⏸ `PHASE_GROUP` 2026-10-13 退役 —— 相位名与 `parse_group` 仍活着（老档要解析）,
     #    但它不再是一个"能渲染契约的轮", 所以不进这张表。
     real = {PHASE_SPLIT, PHASE_RECORD, PHASE_RELATE,
-            PHASE_ATTRIBUTE, PHASE_COGNIZE}
+            PHASE_COGNIZE, PHASE_SETTLE}
     for spec in R.ROUNDS:
         if not spec.llm:
             continue
@@ -298,7 +298,7 @@ def test_only_the_additive_steps_carry_their_own_snapshot():
     判据没放松: 除这两步外, 别的步失败**必须连累整段**（宁缺勿错: 半截记忆比没有记忆坏）。
     """
     own = [s.key for s in R.ROUNDS if s.own_snapshot]
-    assert own == ["cognize", "attribute"], (
+    assert own == ["cognize", "settle"], (
         f"自带快照的只该是这两步（它们产的是加法）, 实得 {own} —— 别的步骤失败必须连累整段"
         "（宁缺勿错: 半截记忆比没有记忆坏）")
     assert [s.key for s in R.ROUNDS[-2:]] == own, "这两步必须是每段的最后两步"
@@ -317,7 +317,7 @@ def test_cursor_allows_skips_but_never_goes_back():
     else:
         raise AssertionError("游标允许回头了 —— 表就不再是顺序的真源")
     cur.enter("cognize")                            # 往前走照旧（跳过 akin/group 那两个位置）
-    cur.enter("attribute")                          # ⭐ E4: 表里最后一步（认人）
+    cur.enter("settle")                          # ⭐ E4: 表里最后一步（认人）
     assert cur.at == len(R.ROUNDS)
     print("    cursor: 可跳步, 不可回头（越序当场炸）")
 
@@ -437,7 +437,7 @@ class RoundLLM:
             return self.a
         if task in (T.DIGEST_RELATE, T.DIGEST):
             return self.b
-        if task == T.DIGEST_ATTRIBUTE:      # 挂 —— 这些用例不测它, 空包放行
+        if task == T.DIGEST_SETTLE:      # 挂 —— 这些用例不测它, 空包放行
             return {"attributions": []}
         if task == T.DIGEST_COGNIZE:        # L2-b（P10）—— 同上
             return {"cognitions": []}
@@ -626,7 +626,7 @@ if __name__ == "__main__":
     test_every_round_is_implemented_and_entered()
     test_material_sections_are_all_named()
     test_sections_check_is_wired()
-    test_only_the_group_step_carries_its_own_snapshot()
+    test_only_the_additive_steps_carry_their_own_snapshot()
     test_cursor_allows_skips_but_never_goes_back()
     test_round_budgets_fit_inside_the_segment_cap()
     test_round_deadline_is_the_tighter_of_the_two()
@@ -634,5 +634,5 @@ if __name__ == "__main__":
     with tempfile.TemporaryDirectory() as d:
         test_budget_hit_names_the_round(Path(d))
     with tempfile.TemporaryDirectory() as d:
-        test_batch_rollback_also_drops_the_close_warnings(Path(d))
+        test_batch_rollback_clears_the_fields_the_table_declares(Path(d))
     print("all digest rounds guard tests passed")
