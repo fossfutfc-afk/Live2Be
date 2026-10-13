@@ -62,7 +62,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-from core.common import err
+from contract.errors import err
 
 logger = logging.getLogger(__name__)
 

@@ -4,7 +4,7 @@
 
     contract/  最底层: 不得依赖 core / llm / webgui / renderer / tests / experiments / apps
     llm/       传输层: 不得依赖 webgui / renderer / tests / experiments / apps;
-                       对 core 只允许薄横切 core.paths / core.common（见 LLM_CORE_ALLOWED）
+                       对 core 只允许薄横切 core.paths（见 LLM_CORE_ALLOWED）
     core/      引擎层: 不得依赖 webgui / renderer / tests / experiments / apps
     renderer/  表现层: 不得依赖 webgui / tests / experiments / apps
     webgui/    壳    : 不得依赖 tests / experiments / apps
@@ -40,8 +40,10 @@ RULES: dict[str, frozenset[str]] = {
     "webgui": frozenset({"tests", "experiments", "apps"}),
 }
 
-#: `llm/` 对 `core` 的**薄横切**豁免（`core.paths` = 固定路径宏, `core.common` = err）
-LLM_CORE_ALLOWED = frozenset({"core.paths", "core.common"})
+#: `llm/` 对 `core` 的**薄横切**豁免（`core.paths` = 固定路径宏）
+#: ⚠️ `core.common`（err 的旧壳）**已从这个表里删掉**（1c 收尾）: `llm/` 三处改直连
+#: `contract.errors` —— 豁免收窄 = 守门变强, 以后谁再绕旧壳会当场红。
+LLM_CORE_ALLOWED = frozenset({"core.paths"})
 
 #: 既存违规白名单: (相对路径, 被 import 的顶层包) → 归宿（`docs/EXEC_SPLIT.md` 节点）
 #: ✅ **C12b 起是空表** —— 6 处既存违规全部有归宿并已消:
