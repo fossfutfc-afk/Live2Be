@@ -1,23 +1,19 @@
-"""cognize.py — ⑥ L2「造认知 / 写正文」: 造看法 + 给本段归过类的群写沉淀。
+"""cognize.py — ⑥ L2「造认知 / 写正文」: 造看法（这一趟唯一的动作）。
 
 ⭐ **它是第二趟**（`docs/DESIGN_DIGEST_TWO_PASSES.md` §3）:
     · L1（`relate`）只判关系, **一个字的正文都不写**;
-    · 这一趟**只写正文** —— 造新的 `belief`（出生自带证据边 / 进化 / 打架）,
-      并给**已有的类**（`experience`）重写它的**沉淀**。
+    · 这一趟**只写正文** —— 造新的 `belief`（出生自带证据边 / 进化 / 打架）。
 
-## 它为什么排在最后
-
-⭐ **顺序 = 结构先于正文**: 沉淀要写给"**本段刚归好类的那些类**", 而类由 `group` 建/挂
-（它是上一轮）⇒ 这一趟才看得见"这一段给它添了哪几条"。`group` 那一步失败会**自吞**
-（`own_snapshot`）⇒ 那些经历这段没有成员 ⇒ 这一趟自然跳过它们的沉淀（下一段再来）——
-**不用任何额外机制**。
+⏸ **2026-10-13**: 原先它还有第二件事 —— 给**已有的类**（`experience`）重写**沉淀**。
+那是 `group`（分群, 同一趟的上一轮）的下游, 而 `group` 退役了 ⇒ 那一半**停产**
+（契约不再要它, `COGNIZE_RETIRED` 认得出、丢行、⛔ 不判非法）。所以本节原来的
+"它为什么排在最后"（顺序 = 结构先于正文）也**不再成立** —— 今天它没有需要等待的上游。
 
 ## 它的两条纪律
 
 1. **不判已有成分之间的关系** —— 那是 L1 判过的（契约里明写"不用你判"）;
    这一趟只写"**新造的那条**跟谁相连"。
-2. **不建类、不改类名、不动 `ts`** —— 起类名 / 圈成员是 `group` 的活
-   （用户 2026-10-08: *"experience 本质是群 belief … 类是事件, 事件归 L1"*）。
+2. **一个节点面只造一种东西**: `belief`; ⛔ 不改已有的正文、不动 `ts` / `title`。
 
 ## 失败语义
 
@@ -30,7 +26,7 @@ import logging
 
 from core.brain.read.render import render_cognition_list
 from core.brain.revise import apply_cognitions
-from core.digest.material import _groups_for_l2, _l2_material, _node_texts, existing_entities_line
+from core.digest.material import _l2_material, _node_texts, existing_entities_line
 from core.digest.rounds.base import Ctx, RoundOut
 from core.digest.rounds.relate import DIGEST_COGNITION_CAP
 
@@ -38,19 +34,17 @@ logger = logging.getLogger(__name__)
 
 
 def run(ctx: Ctx) -> RoundOut:
-    """⑥ 想 —— 造看法 + 写沉淀（失败只回滚自己）。"""
+    """⑥ 想 —— 造看法（失败只回滚自己）。"""
     spec = ctx.enter("cognize")
-    grp_text, linked_text, evidence_ids = _l2_material(ctx)
-    groups = _groups_for_l2(ctx)
-    if not groups and not evidence_ids:
-        # 既没有可写的类、也没有被连过的经历 ⇒ 归纳没有立足点（**跳过不是失败**）
+    linked_text, evidence_ids = _l2_material(ctx)
+    if not evidence_ids:
+        # 没有被 L1 连过的经历 ⇒ 归纳没有立足点（**跳过不是失败**）
         ctx.log_skip(spec)
         return RoundOut.skipped()
     cog_text, local_of = render_cognition_list(
         ctx.store, cap=DIGEST_COGNITION_CAP, exclude=set(ctx.player_ids))
     system = ctx.system_for(spec)
     user = ctx.sections_for(spec, [
-        ("本段归类的群", grp_text),
         ("被连过的经历", linked_text),
         ("现有认知", cog_text),
         # ⭐ E1b: 写 `#entity:` 之前先看**已有的对象**（防自造别名 ⇒ 重复建对象）
@@ -63,12 +57,14 @@ def run(ctx: Ctx) -> RoundOut:
         spec, system, user,
         parse_fn=ctx.parse_for(
             spec,
-            # ⭐ 她能引用的 = **料里印出来过的全部**（`_l2_material` 的第三个返回值 ——
+            # ⭐ 她能引用的 = **料里印出来过的全部**（`_l2_material` 的第二个返回值 ——
             # 从渲染里带出来的, 不另算一份）; 少一类就整包拒。
             evidence_ids=set(evidence_ids),
             # 认知那一端是**本地号**（`u0001…`）—— 与 L1 同一个口径。
             cognition_ids=set(local_of.values()),
-            group_ids={g for g, _new in groups},
+            # ⏸ `group_ids` **不传**（缺省 None = 不校验）: 没有类可写了, 停产的那一行
+            # 在契约层就被丢掉了（`COGNIZE_RETIRED`）。⛔ 传一个恒空的集合, 反而会把
+            # 停产行判成"不在名单里" ⇒ **整包拒** —— 那正是这一刀要修的口子。
             # `evolved_from` / `contradicts` 的另一端必须是**看法**（挡画像: 画像没有
             # "进化"可言, 也不是"看法"）。
             kind_of=_kind_of(ctx, local_of)))

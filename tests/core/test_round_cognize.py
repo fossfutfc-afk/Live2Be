@@ -1,12 +1,15 @@
-"""L2-b 造看法 / 写沉淀（`cognize`, P10 接线 · 2026-10-08）—— 一段的**最后一步**。
+"""L2-b 造看法（`cognize`, P10 接线 · 2026-10-08）—— 一段的**最后一步**。
 
-钉六件事:
-    ① **接上了**: 有立足点 ⇒ 发一次 `digest.cognize`, 料里两段都在（群块 + 被连过的经历）;
-    ② ⭐ **顺序**: 它排在 `group` **之后**（沉淀要写给本段刚归好类的那些类）;
-    ③ **产落对**: 新 belief 节点 + `supports` 边 + 覆写 `experience.text`;
-    ④ ⭐ **证据名单 = 料里印过的全部**（引用群块里的成员**不该**被判成编造 id）;
+钉七件事:
+    ① **接上了**: 有立足点 ⇒ 发一次 `digest.cognize`, 料里那几段都在;
+    ② ⏸ **`group` 退役**（2026-10-13）⇒ 那条"L2 必须排在分群之后"的断言换成
+       "**它不再被调用**"（顺序保证由 `ROUNDS` 的元组序承担, 见 `test_digest_rounds`）;
+    ③ **产落对**: 新 belief 节点 + `supports` 边;
+    ④ ⭐ **证据名单 = 料里印过的全部**（印出来的经历**不该**被判成编造 id）;
     ⑤ **没有立足点 ⇒ 0 次调用**（孤立经历不进 L2 —— 天然的归纳门槛）;
-    ⑥ ⭐ **失败不连累整段**: 整包拒两次后放弃 ⇒ 只丢这一步, episode 照常落。
+    ⑥ ⭐ **失败不连累整段**: 整包拒两次后放弃 ⇒ 只丢这一步, episode 照常落;
+    ⑦ ⏸ **停产的行不陪葬**（2026-10-13 止血）: 她写一行 `experience` ⇒ 丢那一行,
+       同包的看法照落、⛔ 不整包拒（判据见 `contract.digest.tables.COGNIZE_RETIRED`）。
 """
 import sys
 from pathlib import Path
@@ -85,7 +88,7 @@ def _linked_pair(st):
 
 
 def test_digest_runs_cognize_after_group(tmp_path):
-    """⭐ P10: 有立足点 ⇒ 发一次 `digest.cognize`; ⏸ `group` 退役后**不再被调用**; 料里两段都在。"""
+    """⭐ P10: 有立足点 ⇒ 发一次 `digest.cognize`; ⏸ `group` 退役后**不再被调用**。"""
     st = _store(tmp_path)
     a, _old = _linked_pair(st)
     llm = RoundLLM(a={"episodes": [{"text": "老师约我去咖啡厅吃甜点", "title": "咖啡厅的甜点",
@@ -106,66 +109,89 @@ def test_digest_runs_cognize_after_group(tmp_path):
     assert T.DIGEST_GROUP not in llm.tasks, llm.tasks
     user = llm.user_of(T.DIGEST_COGNIZE)
     # ⭐ E1b: L2 写 `#entity:` 之前也要看得到【已有的对象】（同 R1）
-    for title in ("【本段归类的群】", "【被连过的经历】", "【现有认知】",
+    for title in ("【被连过的经历】", "【现有认知】",
                   "【已有的对象】", "【角色人设（锚点）】"):
         assert title in user, (title, user)
+    # ⏸ 【本段归类的群】随 `group` 退役一起撤（料与契约两边同撤, 守门
+    #    `test_material_names_are_not_dead` 看着）—— 它那一格由 `member_of` 喂, 恒空。
+    assert "【本段归类的群】" not in user, user
     # 产出落对了
     assert len(res.created_beliefs) == 1, res.created_beliefs
     new = res.created_beliefs[0]
     assert st.get(new).kind == "belief" and st.get(new).subject == "sensei"
     assert new in st.graph().targets(a, REL_SUPPORTS), "经历 → 新看法"
-    print(f"    digest 接线: {res.created_beliefs} 条看法; 料里群块与经历块都在")
+    print(f"    digest 接线: {res.created_beliefs} 条看法; 料里只剩经历那块（群块已撤）")
 
 
-def test_cognize_soaks_the_group_and_leaves_a_trail(tmp_path):
-    """⭐ P10: 段末那一步能**覆写沉淀** —— `soaked_groups` + `evolution.jsonl` 留痕。"""
+def test_cognize_drops_a_retired_soak_row_and_keeps_the_beliefs(tmp_path):
+    """⏸ **2026-10-13**: 停产之后她写一行 `experience` ⇒ **丢那一行**, 同包的看法照常落。
+
+    ⚠️ **这一条守的是一个真口子**（不是"顺手加的用例"）: `experience` 停产前是**锚点**,
+    而 `group` 退役后 `_groups_for_l2` 恒空 ⇒ `cognize` 传下来的 `group_ids` 恒是**空集**
+    ⇒ `_clean_soak` 判"不在名单里" ⇒ **整包拒** ⇒ 这一段的看法**全丢**（她能写得出来:
+    【现有认知】渲染的 `u…` 含 `experience` 节点, 老契约又教了两版）。
+    判据 = B 案第三档（停止生产 ≠ 判非法; 罚她重写整段不值）。
+    """
     st = _store(tmp_path)
     a, _old = _linked_pair(st)
     gid = st.add(make_node("experience", title="和老师吃饭送团子", ts="2026-09-20T10:00:00"))
     st.add_edge(REL_MEMBER_OF, a, gid, ts=_NOW)
     st.save()
-    text = "和老师一起吃饭的时候，我总先说自己不值得，他却每次都把话接住。"
+    before = st.get(gid).text
     llm = RoundLLM(a={"episodes": [{"text": "老师约我去咖啡厅吃甜点", "title": "咖啡厅的甜点",
                                     "tags": ["咖啡厅"]}]},
-                   cognize={"cognitions": [{"experience": {"id": gid, "text": text}}]},
+                   cognize={"cognitions": [
+                       {"experience": {"id": gid, "text": "停产之后不该再被写进来"}},
+                       {"belief": {"text": "老师会把我随口说的话记住"},
+                        "supports": [a]}]},
                    split=_one_slice())
     res = digest_segment(st, llm, [_mmt(3)])
 
     assert res.ok, res.errors
-    assert res.soaked_groups == [gid], res.soaked_groups
-    assert st.get(gid).text == text
-    assert st.get(gid).title == "和老师吃饭送团子", "⛔ 名字是地址, 这一趟不许动"
-    # 群块把"本段新归入"摆出来了（沉淀的理由）
-    user = llm.user_of(T.DIGEST_COGNIZE)
-    assert f"群 {gid}《和老师吃饭送团子》" in user and "本段新归入 1 条" in user, user
+    # ⭐ 同包那条看法**照落**（停产的一行不许陪葬它）
+    assert len(res.created_beliefs) == 1, (res.created_beliefs, res.errors)
+    assert res.cognize_warnings == [], res.cognize_warnings
+    assert llm.tasks.count(T.DIGEST_COGNIZE) == 1, "⛔ 不该打回重试（它不是非法, 只是停产）"
+    # ⏸ 沉淀一行都没写; 名字与正文原样
+    assert res.soaked_groups == [], res.soaked_groups
+    assert st.get(gid).text == before, "停产的类不许被覆写"
+    assert st.get(gid).title == "和老师吃饭送团子", "⛔ 名字是地址, 谁也不许动"
+    assert any("已停产" in d for d in res.contract_drops), res.contract_drops
     entries = [e["action"] for e in EvolutionLog.for_store(st).read()]
-    assert "rewrite" in entries and "create" not in entries, entries
-    print(f"    沉淀: 覆写 {res.soaked_groups}（账里有一笔 rewrite）")
+    assert "create" in entries and "rewrite" not in entries, entries
+    print(f"    ⏸ 停产: 丢 1 行沉淀（{res.contract_drops}）, 看法 {res.created_beliefs} 照落")
 
 
-def test_cognize_evidence_covers_both_blocks(tmp_path):
-    """⭐ P10: **证据名单 = 料里印过的全部** —— 引用【群块】里的成员**不该**被判成编造 id。
+def test_cognize_evidence_is_what_the_material_printed(tmp_path):
+    """⭐ P10: **证据名单 = 料里印过的全部** —— 印出来的经历就能当证据, ⛔ 不许判"编造 id"。
 
     （L1 的教训: `target_ids` 少收一类 ⇒ 合法行被判"编造 id" ⇒ 整包拒 ⇒ 白跑一次重试。）
+
+    ⏸ **2026-10-13 改写**: 原本这条钉的是"**两段**（群块 + 被连过的经历）印过的都算证据"——
+    群块随 `group` 退役撤掉之后, 印出来只剩一类。**判据本身照旧要守**（"料里印的 =
+    她能引用的"）, 所以改成钉那一句话 + 群块确实不在料里。
     """
     st = _store(tmp_path)
     a, old = _linked_pair(st)
     gid = st.add(make_node("experience", title="甜点的那些事", ts="2026-09-20T10:00:00"))
-    st.add_edge(REL_MEMBER_OF, old, gid, ts="2026-09-21T10:00:00")   # 老成员（在群块里印）
-    st.add_edge(REL_MEMBER_OF, a, gid, ts=_NOW)                      # 本段新归入
+    st.add_edge(REL_MEMBER_OF, old, gid, ts="2026-09-21T10:00:00")
+    st.add_edge(REL_MEMBER_OF, a, gid, ts=_NOW)
     st.save()
     llm = RoundLLM(a={"episodes": [{"text": "老师约我去咖啡厅吃甜点", "title": "咖啡厅的甜点",
                                     "tags": ["咖啡厅"], "topics": ["咖啡厅"]}]},
                    cognize={"cognitions": [
-                       {"belief": {"text": "甜点这件事她记了很久"}, "supports": [old]}]},
+                       {"belief": {"text": "甜点这件事她记了很久"}, "supports": [a]}]},
                    split=_one_slice())
     res = digest_segment(st, llm, [_mmt(3)])
 
     assert res.ok, res.errors
+    user = llm.user_of(T.DIGEST_COGNIZE)
+    assert "【本段归类的群】" not in user, "群块已随 group 退役撤掉"
+    assert "《咖啡厅的甜点》" in user, user            # 印出来了 ⇒ 就该能引用
     assert len(res.created_beliefs) == 1, (res.created_beliefs, res.errors)
     assert res.contract_drops == [], res.contract_drops      # 没被判"编造 id"
-    assert res.created_beliefs[0] in st.graph().targets(old, REL_SUPPORTS)
-    print("    证据名单: 群块里的老成员也能当证据（没被整包拒）")
+    assert res.created_beliefs[0] in st.graph().targets(a, REL_SUPPORTS)
+    print("    证据名单: 料里印过的经历就能当证据（没被整包拒）; 群块已不在料里")
 
 
 def test_no_basis_no_call(tmp_path):

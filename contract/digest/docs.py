@@ -68,26 +68,24 @@ RELATION_ACTIONS = (
     DigestAction("evolved_from", PHASE_RELATE),
 )
 
-#: ⭐⭐ **L2「造认知 / 写正文」的两个动作**（`DESIGN_DIGEST_TWO_PASSES.md` §3/§5,
+#: ⭐⭐ **L2「造认知 / 写正文」的动作**（`DESIGN_DIGEST_TWO_PASSES.md` §3/§5,
 #: 2026-10-08 用户裁决 · P7 落契约）。
 #:
 #: ⚠️ **与 L1 那一族正好对偶**: L1 的键**全是边名**（⊆ `graph.RELS`）,
 #: 这一族的键**全是节点 kind**（⊆ `nodes.KINDS`）—— 因为这一趟干的是"造节点 / 写正文"。
 #: 两边合起来仍然只有 `RELS`(6) + `KINDS`(5) 两个真源, **零第三处维护**（§4 的纪律）。
 #:
-#: 两处**形状规则**（§4 的两条 + 这次的一处扩展, 用户 2026-10-08 点头）:
+#: 三处**形状规则**（§4 的两条 + 一次扩展, 用户 2026-10-08 点头）:
 #:   ① 值是字符串 = 引用一个已有节点（`"evolved_from": "u0002"`）
 #:   ② 值是对象 = 造一个新节点（`"belief": {…}`）
 #:   ③ ⭐ **值是数组 = 引用多条**（`"supports": ["m0007", "m0011"]` —— 每条落一条边;
 #:      写单个字符串也收, 见 `_ref_list`）
-#:   ④ ⭐ **对象里带 `id` = 给那个已有节点写正文**（`"experience": {"id": "g0001", …}`）
-#:      —— 与 ② 同一个键的两面（有 id = 改, 无 id = 造）。⛔ `id` 只在这一处合法。
-#: ⚠️ **建类不归这一趟**（用户 2026-10-08: *"experience 本质是群 belief … 类是事件,
-#: 事件归 L1"*）—— 起类名 / 圈成员是 `group` 那一环的结构活; 这里只**写它的正文**。
+#:   ⏸ ④ ~~对象里带 `id` = 给那个已有节点写正文~~（`"experience": {"id": "g0001", …}`）——
+#:      **2026-10-13 随 `group` 退役一起停产**: 没有类可写, 这一条形状规则今天没有载体。
+#:      它在**键域**里仍认得出来（`COGNIZE_RETIRED` ⇒ 丢那一行 + 记账, ⛔ 不判非法）。
 #: 正文: `prompts/cognize.md`。
 COGNIZE_ACTIONS = (
     DigestAction("belief", PHASE_COGNIZE),
-    DigestAction("experience", PHASE_COGNIZE),
 )
 
 DEFAULT_ACTIONS = (RECORD_EPISODE, *RELATION_ACTIONS, *COGNIZE_ACTIONS)

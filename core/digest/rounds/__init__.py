@@ -286,20 +286,26 @@ ROUNDS: tuple[RoundSpec, ...] = (
         key="cognize",
         step="⑥ 想",
         parse=digest_registry.parse_cognitions,
-        material=("本段归类的群", "被连过的经历", "现有认知", "已有的对象",
-                  "角色人设（锚点）"),
+        material=("被连过的经历", "现有认知", "已有的对象", "角色人设（锚点）"),
         writes=(
             # ⭐ **L2 的产出 = 正文 + 它出生自带的那几条边**（`apply_cognitions`）:
-            # 造 `belief` · 给**已有的类**覆写沉淀（`experience.text`）· 三条边。
-            # ⛔ 不建类（起类名 / 圈成员是 `group` 那一环的结构活）· ⛔ 不改 `title` / `ts`。
+            # 造 `belief` + 三条边。
+            # ⏸ **`("experience", ("text",))` 2026-10-13 摘掉** —— 给类写沉淀随 `group`
+            # 退役停产（契约不再要它 ⇒ `parse_cognitions` 丢那一行 + 记账）。⛔ 不改
+            # `title` / `ts` 那条纪律照旧（停产不是删机器: `revise._soak` 那一支还在）。
             ("belief", ("text", "subject", "significance", "event_seq", "ts")),
-            ("experience", ("text",)),
             ("edge", ("supports", "evolved_from", "contradicts")),
         ),
         result_fields=(*CONTRACT_FIELDS, "created_beliefs", "reused_beliefs",
+                       # ⏸ `soaked_groups` **留着但恒空**（没有类可写了）—— 它是
+                       # `DigestResult` 上的字段, 删它要一起动回滚清空清单与守门;
+                       # 与"停产不是删机器"同一条口径, 单独一刀再说。
                        "soaked_groups", "cognize_warnings"),
-        skip="本段既没有被连过的经历, 也没有新归类的群（归纳没有立足点）",
-        # ⭐ **它也是加法的**: 失败只丢"新造的看法 / 这一笔沉淀", 经历与边照旧
+        # ⏸ **「本段归类的群」那一格 2026-10-13 摘掉** —— 它由 `member_of` 喂, 而那条边
+        # 不再有人落 ⇒ 恒空（守门 `test_material_names_are_not_dead` 当场抓到这个不一致:
+        # "料还在、没人提"）。下一刀（`akin` 生到一起）会在同一位置加**「她认过的相似簇」**。
+        skip="本段没有被 L1 连过的经历（孤立经历不进 L2 —— 归纳没有立足点）",
+        # ⭐ **它也是加法的**: 失败只丢"新造的那几条看法", 经历与边照旧
         # （与 `group` 同一个理由 —— 拿真东西换装饰是亏的; 用户 2026-10-08 裁）。
         own_snapshot=True,
     ),
