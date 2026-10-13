@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from contract.prompt_files import load_md
 from contract.slots import render_template as fill
 
 #: 本包目录 = md 文件所在目录
@@ -22,15 +23,13 @@ _DIR = Path(__file__).resolve().parent
 def load(name: str) -> str:
     """读 `<name>.md` 的全文（`.strip()` 后）。
 
+    ⚠️ 读法本身与 `llm/prompts` **同一实现**: `contract.prompt_files.load_md`
+    —— 这里只钉住"读哪个目录"。
+
     Raises:
         FileNotFoundError: 文件不存在（列出可用清单辅助定位）。
     """
-    path = _DIR / f"{name}.md"
-    if not path.exists():
-        available = sorted(p.stem for p in _DIR.glob("*.md"))
-        raise FileNotFoundError(
-            f"digest 契约 md 不存在: {name}.md（可用: {', '.join(available) or '无'}）")
-    return path.read_text(encoding="utf-8").strip()
+    return load_md(_DIR, name, what="digest 契约")
 
 
 def fragment(name: str) -> str:

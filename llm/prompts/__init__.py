@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from contract.errors import err
+from contract.prompt_files import load_md
 
 #: 本包目录 = md 文件所在目录
 _PROMPTS_DIR = Path(__file__).resolve().parent
@@ -26,6 +26,9 @@ _PROMPTS_DIR = Path(__file__).resolve().parent
 
 def load_prompt(name: str) -> str:
     """读取 llm/prompts/{name}.md 的全文（.strip() 后）。
+
+    ⚠️ 读法本身（strip + 找不到时列清单）与 `contract/digest/prompts` **同一实现**:
+    `contract.prompt_files.load_md` —— 这里只钉住"读哪个目录"。
 
     Args:
         name: md 文件名（不含 .md 扩展名）。
@@ -36,11 +39,4 @@ def load_prompt(name: str) -> str:
     Raises:
         FileNotFoundError: 文件不存在（列出可用 prompt 清单辅助定位）。
     """
-    path = _PROMPTS_DIR / f"{name}.md"
-    if not path.exists():
-        available = sorted(p.stem for p in _PROMPTS_DIR.glob("*.md"))
-        raise FileNotFoundError(err(
-            "NotFound",
-            f"prompt 文件不存在: {path.name}（llm/prompts/ 可用: {', '.join(available) or '无'}）",
-        ))
-    return path.read_text(encoding="utf-8").strip()
+    return load_md(_PROMPTS_DIR, name, what="prompt")
