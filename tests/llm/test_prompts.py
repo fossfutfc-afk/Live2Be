@@ -2,6 +2,7 @@
 
 运行: python -m pytest tests/llm/test_prompts.py
 """
+import re
 import sys
 from pathlib import Path
 
@@ -51,12 +52,33 @@ def test_missing_raises_with_list():
         raise AssertionError("缺失文件应抛 FileNotFoundError")
 
 
+def test_no_single_brace_slots_left():
+    """⭐ **槽写法只有一种**（`{{名字}}`, 2026-10-12 统一）—— 谁改回 `{名字}` 这条先红。
+
+    为什么要有这条: 单花括号的填法是 `.replace("{x}", v)` —— 两个方向**都静默**
+    （模板没这个槽 ⇒ 什么也没发生; 有槽没给值 ⇒ `{x}` 原样进 system prompt）。
+    这一刀在 `llm/prompts/` 里改掉了 9 份 md / 43 处槽; 顺便炸出两处**一直在空转**
+    的替换（`bond_story_rules.md` 与 `bond_shots.md` 里的 `{char_name}`）。
+
+    ⚠️ 判据只看**标识符形状**的 `{name}` —— JSON 示例里的 `{"key": …}`（`{` 后是
+    引号）与已经双写的 `{{name}}` 都不算。
+    """
+    slot = re.compile(r"(?<!\{)\{([a-z_][a-z0-9_]*)\}")
+    md_dir = Path(__file__).resolve().parents[2] / "llm" / "prompts"
+    bad: list[str] = []
+    for p in sorted(md_dir.glob("*.md")):
+        for hit in slot.findall(p.read_text(encoding="utf-8")):
+            bad.append(f"{p.name}: {{{hit}}}")
+    assert not bad, f"还有单花括号槽（改成 {{{{名字}}}}）: {bad}"
+
+
 if __name__ == "__main__":
     for fn in (
         test_load_momotalk_rules,
         test_load_behavior_rules,
         test_no_trailing_whitespace,
         test_missing_raises_with_list,
+        test_no_single_brace_slots_left,
     ):
         check(fn.__name__, fn)
     print(f"\nllm/prompts 回归: {PASS}/{PASS + FAIL} 通过")

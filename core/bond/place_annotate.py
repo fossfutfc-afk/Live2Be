@@ -23,6 +23,7 @@ import json
 import logging
 import re
 
+from contract.slots import render_template
 from core.bond.emotion_annotate import _extract_array  # 共享文本模式数组提取
 from llm.prompts import load_prompt
 from llm.task_labels import PLACE, PLACE_BOARD
@@ -138,15 +139,12 @@ def annotate_places(
     current = (current_place or "").strip()
 
     for attempt in range(retries + 1):
-        system = load_prompt("place_annotate").replace(
-            "{lexicon}", lexicon_hint,
-        ).replace(
-            "{current_place}",
-            current or "（初始/未知——出现首次变更即起始地点）",
-        ).replace(
-            "{sentences}",
-            "\n".join(f"{i + 1}: {s}" for i, s in enumerate(sentences)),
-        )
+        system = render_template(
+            load_prompt("place_annotate"),
+            {"lexicon": lexicon_hint,
+             "current_place": current or "（初始/未知——出现首次变更即起始地点）",
+             "sentences": "\n".join(f"{i + 1}: {s}" for i, s in enumerate(sentences))},
+            where="place_annotate.md")
         user = "请输出变更句数组 JSON。" + (
             "（上一次输出无法解析——请只输出 JSON 数组, 无变更输出 []）"
             if attempt > 0 else "")
@@ -239,10 +237,12 @@ def resolve_place(
     if max_tokens is None:
         max_tokens = _tl_max_tokens("place")
     lexicon_hint = _lexicon_hint(place_keys, table)
-    system = (load_prompt("place_resolve")
-              .replace("{lexicon}", lexicon_hint)
-              .replace("{current_place}", current or "（还没定）")
-              .replace("{text}", text))
+    system = render_template(
+        load_prompt("place_resolve"),
+        {"lexicon": lexicon_hint,
+         "current_place": current or "（还没定）",
+         "text": text},
+        where="place_resolve.md")
     user = "请输出地点 id JSON。"
     for attempt in range(retries + 1):
         try:

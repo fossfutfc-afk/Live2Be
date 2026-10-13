@@ -56,6 +56,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any
 
+from contract.slots import render_template
 from core.brain.entities import SELF_ID, SENSEI_ID
 from core.brain.read.find import ANCHORS, find
 from core.brain.read.find import _order as _newest_key
@@ -128,16 +129,16 @@ MODES: dict[str, Mode] = {
                  skip_ids=RESERVED_TRIGGERS,
                  # ⭐ 抬头 = "这是**你想着那个词**的时候浮上来的"（不是"引擎给你一段资料"）——
                  # 顺带把 `look` 的语义（一个词 → 一批记忆）在她眼前演示一遍。
-                 header="【你想着「{key}」——浮上来的是这些（用不用由你判断）】",
-                 empty="【你想着「{key}」——跟它有关的事，一时没想起来】"),
+                 header="【你想着「{{key}}」——浮上来的是这些（用不用由你判断）】",
+                 empty="【你想着「{{key}}」——跟它有关的事，一时没想起来】"),
     # 「你想着「上周」那阵子」：老师这句里有**时间词** ⇒ 那段时间里**全部** episode。
     # ⚠️ **只查 `exact`, 不放宽**（用户 2026-10-12: *"可以让 LLM 干脆自己多开区间搜"*）——
     # `When.wide` 是 `look` 的第二跳（那里会如实报告"那阵子没有；前后那阵子…"）,
     # 而 P19 是**引擎主动摆**: 放宽 = 替她猜, 她会把"前后几天"的事当成"那阵子"的说出口。
     # 时间矫正那条路 = 她自己多翻几次 `look`（`MAX_STEPS` 内随便翻）。
     "when": Mode(shape=SHAPE_SET, anchors=("when",), payload_from=PAYLOAD_WHEN,
-                 header="【你想着「{key}」那阵子——浮上来的是这些（用不用由你判断）】",
-                 empty="【你想着「{key}」那阵子——那几天的事，一时没想起来】"),
+                 header="【你想着「{{key}}」那阵子——浮上来的是这些（用不用由你判断）】",
+                 empty="【你想着「{{key}}」那阵子——那几天的事，一时没想起来】"),
     # P19「你想起的事」：每轮的兜底形式 —— 六路打分（权重与选面都在 `like.SPECS`）
     "turn": Mode(shape=SHAPE_RANK, spec="turn", order="",
                  header=RECALL_HEADER, hint=RECALL_ACTION_HINT),
@@ -270,19 +271,23 @@ def _sort_set(cands: list[Candidate], m: Mode) -> None:
 
 
 def _fill(template: str, key: Any, *, mode: Any) -> str:
-    """把文案里的 `{key}` 槽填上 —— ⛔ **没钥匙就不许印**。
+    """把文案里的 `{{key}}` 槽填上 —— ⛔ **没钥匙就不许印**。
 
-    ⚠️ 用 `str.replace` 而**不是** `str.format`: 文案里还有 JSON（`{"noticed": …}`）
-    —— `format` 会把那对花括号当成占位符炸掉。
-    ⛔ 带槽而钥匙为空 ⇒ **当场炸**（不静默印 `{key}` 四个字符给她看）。
+    ⚠️ 本函数从前是 `str.replace` 的**第三份**手写填槽实现（另两份在
+    `contract/digest/` 与 `llm/prompts/` 的调用方）—— 2026-10-12 收口到
+    `contract.slots.render_template`（**一个实现，三处用**）。当初不用 `str.format`
+    的理由照旧成立: 文案里还有 JSON（`{"noticed": …}`）, `format` 会把那对花括号
+    当占位符炸掉。
+    ⛔ 带槽而钥匙为空 ⇒ **当场炸**（不静默印 `{{key}}` 四个字符给她看）——
+    这条纪律是**本层**的（`render_template` 只管"槽与值对得上"）, 所以留在调用侧。
     """
-    if "{key}" not in template:
+    if "{{key}}" not in template:
         return template
     text = str(key or "").strip()
     if not text:
-        raise ValueError(f"形式 {mode!r} 的文案带 {{key}} 槽, 但这次**没算出钥匙** —— "
+        raise ValueError(f"形式 {mode!r} 的文案带 {{{{key}}}} 槽, 但这次**没算出钥匙** —— "
                          f"⛔ 不印半成品（宁可不摆这一段）")
-    return template.replace("{key}", text)
+    return render_template(template, {"key": text}, where=f"形式 {mode!r} 的文案")
 
 
 def render_section(cands: Iterable[Candidate], *, mode: Any = DEFAULT_MODE,

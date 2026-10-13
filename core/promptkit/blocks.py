@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from contract.slots import render_template
 from core import paths
 from core.common.tone import load_story_tone
 from core.media.emotion_lexicon import build_emotion_injection
@@ -118,15 +119,12 @@ def _bond_tone(ctx: BlockContext) -> str | None:
 def _rules_bond(ctx: BlockContext) -> str:
     """bond_story_rules.md: 单人视角/对白节奏/记录流写法（switch·群·memorial·end）。
 
-    记录流 v2: 范本里的 `{char_id}` / `{char_name}` 占位按**本会话角色**替换——
-    范例一律用真实 id（不许再出现 `haruka` 这类短名, 决策 #24）。
+    ⛔ **没有槽**（2026-10-12 核）: 从前这里按会话角色替换 `{char_id}` / `{char_name}`,
+    而那份 md 里**一个槽都没有**（5 处 `{` 全是 JSON 示例）⇒ 两次 `replace` 一直是
+    **静默空转**。改用 `contract.slots.render_template` 之后这种"填了个不存在的槽"
+    会当场炸; 这里确实不需要填, 所以直接返回原文。
     """
-    text = load_prompt("bond_story_rules")
-    char = ctx.char
-    if char is not None:
-        text = (text.replace("{char_id}", char.character_id)
-                    .replace("{char_name}", char.display_name))
-    return text
+    return load_prompt("bond_story_rules")
 
 
 def _bond_shots(ctx: BlockContext) -> str:
@@ -142,14 +140,16 @@ def _bond_shots(ctx: BlockContext) -> str:
 
     镜头词（星空/夜空/黄昏/纯黑…）是**刻意给 writer 的**——*"这些词能让 LLM
     更好的写作"*; 与"主 LLM 零内容词表"不矛盾（那条打的是 168 条资产菜单会框死
-    writer）。`{char_id}` / `{char_name}` 占位与 `_rules_bond` 同手替换。
+    writer）。
+    ⚠️ **这份 md 只有 `{{char_id}}` 一个槽**（范例里那些记录行）—— 从前这里还
+    `.replace("{char_name}", …)`，而 md 里没有那个槽 ⇒ 一直是静默空转; 现在只填
+    真的有的那个（多填一个会当场炸）。
     """
     text = load_prompt("bond_shots")
     char = ctx.char
-    if char is not None:
-        text = (text.replace("{char_id}", char.character_id)
-                    .replace("{char_name}", char.display_name))
-    return text
+    if char is None:
+        return text
+    return render_template(text, {"char_id": char.character_id}, where="bond_shots.md")
 
 
 def _lexicon_emotion(ctx: BlockContext) -> str | None:

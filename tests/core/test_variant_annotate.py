@@ -152,8 +152,8 @@ def test_prompt_carries_the_four_counter_examples():
                  "私は夜の散歩が一番好きです"):
         assert line in text, f"反例丢了: {line}"
     assert "不是里面有没有" in text, "得写明判据是'这句话在说什么', 不是找词"
-    for ph in ("{place}", "{candidates}", "{note}", "{text}"):
-        assert ph in text, f"占位符缺了: {ph}"
+    for ph in ("{{place}}", "{{candidates}}", "{{note}}", "{{text}}"):
+        assert ph in text, f"占位符缺了: {ph}（槽写法 2026-10-12 起是 `{{}}`）"
     print("    prompt: 四句反例 + 占位符齐全")
 
 

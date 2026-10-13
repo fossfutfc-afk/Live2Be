@@ -3,7 +3,7 @@
 职责: 卡 = 目标层（这回合达成什么）; 约束层（配额/提醒/边界）仍由引擎/调用方
 注记承担——卡内不重复规则书/注记内容。
 
-模板 = llm/prompts/task_*.md（人可改, {char} 占位 replace, 同 digest 约定）:
+模板 = llm/prompts/task_*.md（人可改, `{{char}}` 槽, 同 digest 约定）:
     task_<domain>.md            = 域默认 kind（mmt→chat; bond→scene, Phase 3）
     task_<domain>_<kind>.md     = 其他 kind（mmt_wrapup; bond_memorial, Phase 3）
 预算 ≤ 100 token（超过即稀释, 作者改模板时自重）。模板缺失 → 不注入（宁缺勿错）。
@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import logging
 
+from contract.slots import render_template
 from core.promptkit.config import task_card_enabled
 from llm.prompts import load_prompt
 
@@ -58,12 +59,15 @@ def task_card(
     kind = (kind or _DEFAULT_KIND.get(domain, "")).strip()
     if not kind:
         return None
+    name = _template_name(domain, kind)
     try:
-        text = load_prompt(_template_name(domain, kind))
+        text = load_prompt(name)
     except FileNotFoundError:                # 模板未建（其他域/kind 未启用）→ 静默不注入
         return None
     if not text.strip():
         return None
-    if "{char}" in text:
-        text = text.replace("{char}", (char or "").strip())
+    # 槽 = `{{char}}`（今天三份 task 模板各一个, 都在首行）—— 用契约层的填槽原语:
+    # 模板有槽没给值 / 给了不存在的槽都会**当场炸**（从前 `.replace` 是静默的）。
+    if "{{char}}" in text:
+        text = render_template(text, {"char": (char or "").strip()}, where=name)
     return text

@@ -43,10 +43,10 @@ switch 不只是"搬家"，它是你**切节奏**的手段:
 
 【四、收尾的几种收法】（任选，也可以自己变）
 ① 角色最后一句 + 收束余韵:
-   {"character": "{char_id}", "text": "老师……晚安。"}
+   {"character": "{{char_id}}", "text": "老师……晚安。"}
    {"stage": "end", "text": "（她走进夜色里，脚步比来时轻了很多。）"}
 ② 角色最后一句 + 直接黑屏:
-   {"character": "{char_id}", "text": "……明天见。"}
+   {"character": "{{char_id}}", "text": "……明天见。"}
    {"stage": "end", "text": ""}
 ③ 老师的话 + 空镜 + 黑屏（见上面【二】的组合拳）
 ④ **收在纪念里**（例外，不是默认）: 纪念正文的最后一句之后直接 end——这一段就停在最动人的地方。
@@ -57,26 +57,26 @@ switch 不只是"搬家"，它是你**切节奏**的手段:
 
 中段（换场 → 对白为主 → 老师的话成群）:
 {"stage": "switch", "text": "放学后的天台"}
-{"character": "{char_id}", "text": "老、老师……你真的来了。"}
-{"character": "{char_id}", "text": "我以为你不会来……我、我都想好一个人回去了。"}
+{"character": "{{char_id}}", "text": "老、老师……你真的来了。"}
+{"character": "{{char_id}}", "text": "我以为你不会来……我、我都想好一个人回去了。"}
 {"character": "narrator", "text": "（她把手里的旧铁盒往身后藏了藏。）"}
 {"character": "sensei", "text": "我想和你一起去。"}
 {"character": "sensei", "text": "你不想让我陪着吗？"}
-{"character": "{char_id}", "text": "……！！"}
-{"character": "{char_id}", "text": "不、不是的……我是说，老师会很麻烦吧……"}
+{"character": "{{char_id}}", "text": "……！！"}
+{"character": "{{char_id}}", "text": "不、不是的……我是说，老师会很麻烦吧……"}
 
 纪念那一轮（**art 在最前、与 memorial 成对**; memorial 那句落在黑屏上，之后都是纪念正文。这一轮**不收尾**）:
 {"stage": "art", "text": "她在开满杂草的坡道上回头，夕阳打在脸上，眼里有一点水光"}
 {"stage": "switch", "text": "傍晚的杂草坡道"}
-{"character": "{char_id}", "text": "老师，你看……这些名字，我都记住了。"}
-{"character": "{char_id}", "text": "就算没有人看，它们也一直在长。"}
+{"character": "{{char_id}}", "text": "老师，你看……这些名字，我都记住了。"}
+{"character": "{{char_id}}", "text": "就算没有人看，它们也一直在长。"}
 {"stage": "memorial", "text": "（她抬起头，第一次直视我的眼睛。）"}
-{"character": "{char_id}", "text": "……所以，我也可以再撑一会儿。"}
-{"character": "{char_id}", "text": "只要还有人记得，杂草也是花吧。"}
-{"character": "{char_id}", "text": "老师……谢谢你今天来。"}
+{"character": "{{char_id}}", "text": "……所以，我也可以再撑一会儿。"}
+{"character": "{{char_id}}", "text": "只要还有人记得，杂草也是花吧。"}
+{"character": "{{char_id}}", "text": "老师……谢谢你今天来。"}
 {"character": "narrator", "text": "（她把那页纸按在胸口，很久没有松手。）"}
 
 收尾那一轮（**是另外一轮**; 黑屏退场）:
-{"character": "{char_id}", "text": "老师……晚安。"}
+{"character": "{{char_id}}", "text": "老师……晚安。"}
 {"character": "narrator", "text": "（她笑着朝我挥了挥手，转身走进夜色里。）"}
 {"stage": "end", "text": "（我站在原地，低头看那沓写得歪歪扭扭却格外认真的小卡片。）"}

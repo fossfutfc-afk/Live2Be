@@ -20,6 +20,7 @@ import json
 import logging
 import re
 
+from contract.slots import render_template
 from core.bond.emotion_annotate import _extract_array
 from llm.prompts import load_prompt
 from llm.task_labels import EMOTION
@@ -209,17 +210,17 @@ def annotate_items(
     numbered = "\n".join(f"{i + 1}: {s}" for i, s in enumerate(items))
 
     def _system(retry_msg: str) -> str:
-        return load_prompt("emotion_text_annotate").replace(
-            "{group_no}", str(group_no),
-        ).replace("{char_name}", char_name or "（角色）").replace(
-            "{character_hint}", character or "（角色信息未注入）",
-        ).replace("{context}", context or "（本章开场, 无更多情境。）").replace(
-            "{n}", str(n),
-        ).replace("{records}", numbered).replace(
-            "{lexicon}", lexicon,
-        ).replace("{key_n}", key_n).replace("{key_a}", key_a).replace(
-            "{key_b}", key_b,
-        ) + retry_msg
+        return render_template(
+            load_prompt("emotion_text_annotate"),
+            {"group_no": str(group_no),
+             "char_name": char_name or "（角色）",
+             "character_hint": character or "（角色信息未注入）",
+             "context": context or "（本章开场, 无更多情境。）",
+             "n": str(n),
+             "records": numbered,
+             "lexicon": lexicon,
+             "key_n": key_n, "key_a": key_a, "key_b": key_b},
+            where="emotion_text_annotate.md") + retry_msg
 
     mismatch: str | None = None                 # 上次失败原因（"期望 N, 实得 M"）
     length_bad = False                          # 长度不符记账（重试消息 + 日志）
