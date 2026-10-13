@@ -543,28 +543,32 @@ def test_round_a_not_dict():
 
 
 def test_round_a_kind_is_exception_only():
-    """⭐ 2026-09-29: **`kind` 只在例外时写**（用户裁决: 轮次决定的常量不该由 LLM 声明）。
+    """⭐ `kind` 只在"例外"时写（2026-09-29 裁决: 轮次决定的常量不该由 LLM 声明）。
 
-    默认 = 经历（缺键 / 空串都算）; 唯一要显式写的例外 = `experience`（玩家画像）;
-    写坏值照旧**拒**（不静默降级 —— 静默改 kind 会让模型下次还这么写）。
+    默认 = 经历（缺键 / 空串都算）; 写坏值照旧**拒**（不静默降级 —— 静默改 kind
+    会让模型下次还这么写）。
+
+    ⏸ **2026-10-12: 那个"例外"（`profile` 玩家画像）停产了** —— 用户裁
+    *"`entity.text` 取代了它的定位"*。判据因此变成三条:
+      · 契约不再要它（`record.md` 里没有这个字段了）;
+      · 她惯性还写得出 ⇒ **认得出**（⛔ 不判非法: 那会罚她重写整段）,
+        但**不产条目**（丢行进 `drops` 的账）;
+      · 图上因此不会再有新的 profile 节点。
     """
     raw = {"episodes": [
         {"text": "老师约我去公园散步。", "title": "公园散步", "tags": ["公园"]},
         {"kind": "", "text": "空串也算默认。", "title": "空 kind", "tags": ["x"]},
         {"kind": "profile", "text": "玩家的生日是 5 月 20 日",
          "verbatim": ["3.0"], "tags": ["玩家"], "significance": 0.7},
-        {"kind": "profile", "title": "忘了 text"},          # 缺 text → 拒
     ]}
     items, result = digest_registry.parse_round_a(raw)
-    assert not result.is_valid                                # 只有第 4 条坏
-    assert any("text" in e for e in result.errors)
-    assert len(items) == 3
-    assert [it["kind"] for it in items] == ["episode", "episode", "profile"]
+    assert result.is_valid, result.errors          # ⭐ 停产**不是**错误
+    assert len(items) == 2 and [it["kind"] for it in items] == ["episode", "episode"]
     assert items[0]["text"].startswith("老师约我")            # 不写 kind ⇒ 经历
     assert items[1]["kind"] == "episode"                     # 空串 ⇒ 也是经历
-    assert items[2]["subject"] == "player"                   # 引擎固定, 不信任 LLM
-    assert items[2]["text"].startswith("玩家的生日")
-    assert items[2]["verbatim_seq"] == ["3.0"]               # 玩家原话走**记录行号**（`[N.0]`）
+    # 丢了东西要**有账**（`drops` 与 `warnings` 分家）
+    assert any("profile" in d and "停产" in d for d in result.drops), result.drops
+    assert not any("profile" in e for e in result.errors)
 
 
 def test_round_a_bad_kind_rejected():
@@ -643,14 +647,16 @@ def test_schema_documents_pointer_and_channels():
     ⇒ 这条镜像断言必须跟着改，否则文案漂了没人知道。
     ⭐ **⑤（2026-09-29）把 `verbatim` 收成一条通道**（记录行号）⇒ 这里同时钉住
     "只给行号"与"字符串会被忽略"，防那条老通道被谁顺手加回来。
-    ⭐ **⑥（2026-09-29）把 `kind` 收成"例外才写"** ⇒ 这里钉住契约文案说了这句话,
-    并且**示例 JSON 里不再带 `"kind": "episode"`**（示例才是形状的来源, 陷阱 3/46）。
+    ⭐ **⑥（2026-09-29）把 `kind` 收成"例外才写"**; ⏸ **2026-10-12 连那个例外也
+    停产了**（`profile` 玩家画像）⇒ 今天契约要**明说没有 `kind` 这个字段**,
+    并且**示例 JSON 里既不带 `"kind": "episode"` 也不带 `"kind": "profile"`**
+    （示例才是形状的来源, 陷阱 3/46）。
     """
     text = digest_registry.build_schema(PHASE_RECORD)
     assert "28.3" in text and "20.p" in text
     assert "记录行号" in text
     assert "只给行号" in text and "写成字符串会被忽略" in text
-    assert "默认就是" in text and "不用写 `kind`" in text
+    assert "没有 `kind` 这个字段" in text, "契约没告诉她不要写 kind"
     # ⭐ **3b-2（2026-09-29）: 位置归骨架** —— 契约要同时说清两件新事
     assert "本段骨架" in text, "契约没告诉它按骨架填"
     assert "顺序一一对应" in text
@@ -660,7 +666,8 @@ def test_schema_documents_pointer_and_channels():
     assert '"event_seq"' not in text
     assert "两条通道" not in text
     assert '"kind": "episode"' not in text            # 示例里不该再出现这一行
-    print("    schema: 按骨架填 + drop + verbatim 记录行号 + kind 只在例外时写")
+    assert '"kind": "profile"' not in text            # ⏸ 停产的那一档更不该出现
+    print("    schema: 按骨架填 + drop + verbatim 记录行号 + 今天没有 kind 例外")
 
 
 # ---------------------------------------------------------------------------

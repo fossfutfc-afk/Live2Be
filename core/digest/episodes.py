@@ -65,8 +65,12 @@ def _create_a_nodes(store: WikiStoreV2, entries: list[dict], *, ts: str,
     """Round A 条目 → 节点（引擎字段归属——确定性归引擎, 防幻觉）。
 
     kind=episode  → episode 节点
-    kind=experience（玩家画像, MMT 专则）→ subject=player experience 节点:
+    kind=profile（玩家画像）→ subject=player 的 profile 节点:
         口癖/偏好/一次性个人信息——不进本轮 B（B 只组织 episode）, 下轮起参与认知层
+    ⏸ **2026-10-12 停产**（用户裁: *"`entity.text` 取代了它的定位"*）: 契约不再要它,
+    `parse_round_a` **认得出但丢行** ⇒ 真机上这一段**收不到** profile 条目。
+    这一支**留着**（停用的是"生产", 不是"机器"）—— 直接喂条目的调用方仍可用它,
+    `test_entity_tags` 也还打着这条支路。
     dedupe: (kind, event_seq, 主文本) 命中已有节点 → 复用 id（崩溃窗口重跑防双写）。
 
     event_seq（T14, 2026-09-15）: **条目自带就用条目自带的**（Round A 抄的行号,
@@ -97,10 +101,15 @@ def _create_a_nodes(store: WikiStoreV2, entries: list[dict], *, ts: str,
     player_ids: list[str] = []
     for ent in entries:
         if ent.get("kind") == "profile":
-            # ⚠️ `subject` **强制**成 `player`（§5.1）: `experience` 只有一个意思
-            # （"关于老师的事"），而 `subject` 是自由文本 —— 契约层已经强制过一次,
-            # 这里再强制一次是因为**可见性曾经挂在它上面**（真机 haruka e0001 就是
-            # 被一个自造的 subject 藏起来的）。别再让它有第二个写者。
+            # ⏸ **停产, 不是删除**（2026-10-12）—— 真机路径上这些条目在
+            # `parse_round_a` 就被丢掉了（`kind=profile` → `drops`）, 所以这一支今天
+            # **不会再被生产路径喂到**。留着的理由: 它是"照条目建节点"的完整机器,
+            # 停掉的是**上游的产出**, 而把机器拆了会让"将来要不要复活画像"重新变成
+            # 一件要重写的事。
+            # ⚠️ `subject` **强制**成 `player`（§5.1）: 画像只有一个意思（"关于老师
+            # 的事"），而 `subject` 是自由文本 —— 契约层已经强制过一次, 这里再强制一次
+            # 是因为**可见性曾经挂在它上面**（真机 haruka e0001 就是被一个自造的
+            # subject 藏起来的）。别再让它有第二个写者。
             node = make_node("profile",
                              text=ent["text"], subject=PLAYER_SUBJECT,
                              verbatim=ent.get("verbatim", ""),
