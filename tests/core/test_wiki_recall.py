@@ -284,13 +284,7 @@ def test_candidates_are_hints_not_gates(tmp_path):
     from core.brain import recall_config as rc
     assert "cand_high" not in rc.DEFAULTS and "cand_med" not in rc.DEFAULTS
     assert "accept_hit_rate" not in rc.DEFAULTS
-    # 契约层不再有结构强制参数
-    import inspect
-
-    from contract.digest import digest_registry
-    sig = inspect.signature(digest_registry.parse_round_b)
-    assert "must_touch" not in sig.parameters, "结构强制未删干净"
-    print("    cand_high 全删: 无阈值常量 / 无配置项 / parse_round_b 无 must_touch")
+    print("    cand_high 全删: 无阈值常量 / 无配置项")
 
 
 def test_candidates_keyword_fallback(tmp_path):

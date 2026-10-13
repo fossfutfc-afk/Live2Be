@@ -19,7 +19,6 @@ from contract.digest.tables import (
     ABSTRACT_MAX_FREEFORM,
     COGNIZE_ANCHORS,
     COGNIZE_KEYS,
-    DECISIONS,
     ENTITY_TAG_PREFIX,
     ENTITY_TAGS_MAX,
     GROUP_TITLE_MAX,
@@ -643,109 +642,6 @@ def parse_attribution(raw: Any, *, known_names: set[str] | None = None,
             item["aliases"] = list(dict.fromkeys(aliases))
         out.append(item)
     return out, ValidationResult(tuple(errors), tuple(warnings), tuple(drops))
-
-def parse_round_b(raw: Any, *, episode_ids: set[str],
-                  target_ids: set[str],
-                  link_ids: set[str] | None = None,
-                  ) -> tuple[list[dict], ValidationResult]:
-    """Round B: `{"decisions": [...], "links": [...], "affection_exp_delta": n}`。
-
-    episode_ids: 本轮 Round A 产出的真实 episode id 集（引用检查）。
-    target_ids: **可被 `touch`/`update` 的**本地 id 集（u0001..; 只有看法）。
-    link_ids: **可出现在 `links` 两端的**本地 id 集。⏸ 2026-09-29 承诺退图之后,
-        它与 `target_ids` 实际同集（渲染列表里只剩看法）—— 参数**留着**: 它是
-        "可连接的端点"这件通用事, 而调用方今天传的是渲染列表的全集。
-        `None` → 退化成 `target_ids`（老调用方/单测不必改）。
-
-    ⚠️ **`must_touch` 参数已删**（2026-09-15 T17）: 它曾是"引擎候选 ≥ 阈值 →
-    该 episode 禁 `add`"的**结构强制**，而那个阈值从未标定过、实测两模型下
-    候选皆 6/6 全越线 → **新认知永远长不出来**（DESIGN_WIKI_V3 Q11/Q31/Q32
-    已裁"取消结构强制, 候选仅作提示"）。现在候选只是输入里的一行提示,
-    判 add/touch/update 全归 LLM, **引擎不设闸门**。
-    """
-    if link_ids is None:
-        link_ids = target_ids
-    errors: list[str] = []
-    warnings: list[str] = []
-    if not isinstance(raw, dict):
-        return [], ValidationResult(errors=("Round B 输出必须是 JSON 对象",))
-    rows = raw.get("decisions")
-    if not isinstance(rows, list):
-        return [], ValidationResult(errors=("decisions 必须是数组",))
-    seen: set[str] = set()
-    out: list[dict] = []
-    for i, row in enumerate(rows):
-        if not isinstance(row, dict):
-            errors.append(f"decisions[{i}] 必须是对象")
-            continue
-        ep = str(row.get("episode", "")).strip()
-        if ep not in episode_ids:
-            errors.append(f"decisions[{i}].episode 不在本轮 episode 集内: {ep!r}")
-            continue
-        decision = str(row.get("decision", "")).strip()
-        if decision not in DECISIONS:
-            errors.append(f"decisions[{i}].decision 非法: {decision!r}（touch|update|add）")
-            continue
-        seen.add(ep)
-        item: dict = {"episode": ep, "decision": decision}
-        if decision in ("touch", "update"):
-            target = str(row.get("target", "")).strip()
-            if not target:
-                errors.append(f"decisions[{i}]: {decision} 必须填 target")
-                continue
-            if target not in target_ids:
-                errors.append(f"decisions[{i}].target 不在可 touch/update 的列表内"
-                              f"（只有看法）: {target!r}")
-                continue
-            item["target"] = target
-            if decision == "touch":
-                note = row.get("note")
-                if isinstance(note, str) and note.strip():
-                    item["note"] = note.strip()
-            else:  # update
-                patch = row.get("patch")
-                if not isinstance(patch, dict) or not patch:
-                    errors.append(f"decisions[{i}]: update 必须带非空 patch 对象")
-                    continue
-                if not any(isinstance(v, (str, int, float, list))
-                           and v not in (None, "", [], 0)
-                           for v in patch.values()):
-                    errors.append(f"decisions[{i}]: update.patch 至少一个非空字段")
-                    continue
-                # ⏸ 原「patch 不得含 `epistemic`」已删 —— 字段退役后它是白名单外的未知键,
-                # 执行器那边照样拒; 这里不再为它单开一条错误文案。
-                item["patch"] = patch
-        else:  # add
-            kind = str(row.get("kind", "belief")).strip()
-            # ⚠️ **只有 belief**（2026-09-25, DESIGN_GRAPH_V4 §5.1）: `profile`
-            # 已定名 **玩家画像专用**（"关于老师的事"），写者只有第 1 轮 ⇒ 这一轮
-            # 想写"反复出现的模式"就写成 **belief 的模式句**（§9-10）。
-            if kind != "belief":
-                errors.append(f"decisions[{i}].kind 非法: {kind!r}（只有 belief ——"
-                              " 模式也写成 belief 的模式句; profile 是玩家画像专用，"
-                              " 由第 1 轮产出）")
-                continue
-            item["kind"] = kind
-            for f in ("subject", "text", "tags",
-                      "significance", "growth"):
-                v = row.get(f)
-                if v not in (None, "", []):
-                    item[f] = v
-            if not _nonempty_str(item.get("text")):
-                errors.append(f"decisions[{i}]: add({kind}) 必须填 text")
-                continue
-            if not _nonempty_str(item.get("subject")):
-                warnings.append(f"decisions[{i}]: add 缺 subject（建议稳定维度命名）")
-        out.append(item)
-    # 包级: 覆盖检查（结构保证——漏 episode 直接报错, 引擎不补）
-    missing = sorted(episode_ids - seen)
-    if missing:
-        errors.append(f"decisions 未覆盖全部 episode: 漏 {', '.join(missing)}")
-    # 可选的补充边（`links`）—— 形状错同样**拒整包**（rel 是契约词汇的一部分）
-    out.extend(_parse_links(raw.get("links"), link_ids, errors, warnings))
-    return out, ValidationResult(tuple(errors), tuple(warnings))
-
-
 # ============================================================================
 # 内部清洗（宁缺勿错: 坏项丢弃 + 报错; 质量项 warning 不阻断）
 # ============================================================================
@@ -757,56 +653,6 @@ def parse_round_b(raw: Any, *, episode_ids: set[str],
 #: `supports` 共两种形状（§2）: `episode → 认知` 由**决策表**的 touch/update/add 写,
 #: `认知 → 认知` 才轮到 links（用户 2026-09-29 裁决两条都留, 所以这一档**不是冗余**）。
 LINK_RELS: tuple[str, ...] = ("supports", "contradicts", "evolved_from")
-
-
-def _parse_links(raw: Any, link_ids: set[str], errors: list[str],
-                 warnings: list[str]) -> list[dict]:
-    """R2 的可选补充边 `[{"from","rel","to"}]` → 执行器认的行（`action="link"`）。
-
-    与决策行**同一个数组**交出去（`apply_decisions` 一个循环处理两类行）—— 但那两类行的
-    校验口径不同: 决策行必须覆盖每个 episode, `link` 行**不参与覆盖统计**（它没有 episode）。
-
-    形状错 = **拒整包**（rel 是契约词汇、两端是渲染列表里的编号 —— 都是"没读契约"）;
-    重复的边只留一条（warning, 不算错: 模型多说了一遍同一件事）。
-    """
-    if raw is None:
-        return []
-    if not isinstance(raw, list):
-        errors.append("links 必须是数组（没有就写 [] 或省略这个键）")
-        return []
-    out: list[dict] = []
-    seen: set[tuple[str, str, str]] = set()
-    for i, row in enumerate(raw):
-        if not isinstance(row, dict):
-            errors.append(f"links[{i}] 必须是对象")
-            continue
-        src = str(row.get("from", "")).strip()
-        dst = str(row.get("to", "")).strip()
-        rel = str(row.get("rel", "")).strip()
-        if rel not in LINK_RELS:
-            errors.append(f"links[{i}].rel 非法: {rel!r}（只有 "
-                          f"{'|'.join(LINK_RELS)}）")
-            continue
-        bad = [lbl for lbl, val in (("from", src), ("to", dst))
-               if val not in link_ids]
-        for lbl, val in (("from", src), ("to", dst)):
-            if lbl in bad:
-                errors.append(f"links[{i}].{lbl} 不在渲染列表内: {val!r}"
-                              "（端点也得先在列表里出现过; 本轮新建的连不上）")
-        if bad:
-            continue
-        if src == dst:
-            errors.append(f"links[{i}] 两端相同: {src!r}（边不能自环）")
-            continue
-        key = (rel, src, dst)
-        if key in seen:
-            warnings.append(f"links[{i}] 重复（只留一条）: {src} -{rel}-> {dst}")
-            continue
-        seen.add(key)
-        out.append({"action": "link", "rel": rel, "from": src, "to": dst})
-    return out
-
-
 def _local_nodes(raw: Any, i: int, node_ids: set[str], errors: list[str],
                  optional: bool = False) -> list[str] | None:
     """`nodes` 字段清洗: 本地 id 数组（`u0001..`）。

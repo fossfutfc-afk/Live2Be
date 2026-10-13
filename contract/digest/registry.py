@@ -26,7 +26,6 @@ from contract.digest.tables import (
     PHASE_RECORD,
     PHASE_RELATE,
     PHASE_SPLIT,
-    PHASE_UNDERSTAND,
 )
 from contract.errors import err
 from contract.model import ValidationResult
@@ -39,7 +38,6 @@ PHASE_FILES = {
     PHASE_GROUP: "group",
     PHASE_COGNIZE: "cognize",
     PHASE_ATTRIBUTE: "attribute",
-    PHASE_UNDERSTAND: "understand",      # ⏸ 停放的旧一族（今天没有轮在用）
 }
 
 #: `digest._segment_domain` 只产这两个; 认不得的按 mmt 收（与拆包前同口径）
@@ -151,14 +149,6 @@ class DigestRegistry:
                           ) -> tuple[list[dict], ValidationResult]:
         """实现在 `contract.digest.parse.parse_attribution`（本模块只转交）。"""
         return digest_parse.parse_attribution(raw, known_names=known_names)
-
-    def parse_round_b(self, raw: Any, *, episode_ids: set[str],
-                      target_ids: set[str],
-                      link_ids: set[str] | None = None,
-                      ) -> tuple[list[dict], ValidationResult]:
-        """实现在 `contract.digest.parse.parse_round_b`（本模块只转交）。"""
-        return digest_parse.parse_round_b(raw, episode_ids=episode_ids, target_ids=target_ids, link_ids=link_ids)
-
 
 def _part(name: str) -> str:
     """取一份共用片段（`prompts/parts/*.md`）。"""

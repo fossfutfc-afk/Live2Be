@@ -7,9 +7,6 @@
 ⚠️ **每个字段只写一遍**的纪律没变, 只是落点换了: 示例与【逐字段】同源于
 `prompts/parts/row_fields.md`, 域契约同源于 `prompts/parts/domain.*.md`。
 
-⚠️ ~~`TOUCH` / `UPDATE` / `ADD`~~ 与 `parse_round_b` / `apply_decisions` 是**停放的旧一族**:
-生产代码零调用者, 但用户裁"有些可能会留给 L2, 不用着急删"（`docs/TODO_TWO_PASSES.md` §94）
-⇒ ⛔ **只改名, 不删**。
 """
 from dataclasses import dataclass
 
@@ -17,7 +14,6 @@ from contract.digest.tables import (
     PHASE_COGNIZE,
     PHASE_RECORD,
     PHASE_RELATE,
-    PHASE_UNDERSTAND,
 )
 
 #: ⭐ **输出纪律 = 契约层的独占句**（G1, 2026-10-05）—— 各相位共用,
@@ -58,10 +54,6 @@ RECORD_EPISODE = DigestAction("record_episode", PHASE_RECORD)
 #: ⏸ `on_mind` 槽（连同它的字段常量）2026-09-29 退役 —— L1 的输出只有 `episodes` 一个键
 #: （心境不是"经历", 不该跟 episodes 平级）。将来真要"她此刻在想什么"走 **belief**
 #: （进图、有边、能被召回、会被新经历更新）。
-#: ⚠️ 下面三个是**停放的旧一族**: 没有轮在用, 形状与解析留着。正文: `prompts/understand.md`。
-TOUCH = DigestAction("touch", PHASE_UNDERSTAND)
-UPDATE = DigestAction("update", PHASE_UNDERSTAND)
-ADD = DigestAction("add", PHASE_UNDERSTAND)
 
 #: ⭐⭐ **L1「判关系」的四个动作**（`DESIGN_DIGEST_TWO_PASSES.md` §9, 2026-10-07 用户定稿）
 #:
@@ -98,8 +90,7 @@ COGNIZE_ACTIONS = (
     DigestAction("experience", PHASE_COGNIZE),
 )
 
-DEFAULT_ACTIONS = (RECORD_EPISODE, TOUCH, UPDATE, ADD, *RELATION_ACTIONS,
-                   *COGNIZE_ACTIONS)
+DEFAULT_ACTIONS = (RECORD_EPISODE, *RELATION_ACTIONS, *COGNIZE_ACTIONS)
 
 
 # ============================================================================

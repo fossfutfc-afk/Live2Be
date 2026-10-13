@@ -9,7 +9,6 @@ from core.brain.entities import ensure_entities
 from core.brain.evolution import EvolutionLog
 from core.brain.revise import (
     apply_cognitions,
-    apply_decisions,
     apply_entities,
     apply_revision_package,
     link_entity_tags,
@@ -97,58 +96,6 @@ def test_update_rules(tmp_path):
                                        "patch": {"significance": 0.95}}],
                                  subgraph_ids=scope)
     assert res.ok and st.get("m0001").significance == 0.95
-    # ⏸ 原"epistemic 不可改"那半段 2026-09-29 删 —— 字段退役后它就是**未知字段**,
-    # 由 `store.update` 的未知字段守卫拦（同一条语义: LLM 不许碰来源）。
-    # ⏸ 原"出厂基座只允许 notes 追加"那半段 2026-09-21 删——`is_seed()`/`source`/`notes`
-    # 整族退役（生产者已归档, 真机 0 个 seed 节点）。update 现在只受字段白名单约束。
-
-
-def test_apply_decisions_link_rows_write_extra_edges(tmp_path):
-    """`link` 行（§9-13, 2026-09-25）: 决策表之外的补充边。
-
-    动机是 R2 的**视野之外还有动作面**: `touch`/`update`/`add` 一律只写
-    `supports(episode → target)` ⇒ "这一条看法支撑那一条"（`supports`）与
-    "新的盖过旧的"（`evolved_from`）**根本没处可写**。
-    ⚠️ 2026-09-29 承诺退图后, 这里的端点只剩看法（不再有 promise 节点可连）。
-    """
-    st = _store(tmp_path)
-    st.add(make_node("belief", text="老师答应的事都做到了", subject="sensei",
-                     significance=0.9, event_seq=[5]))
-    st.save()
-    before = len(st.graph().edges)
-
-    apply_decisions(st, [
-        {"action": "link", "rel": "supports", "from": "u0001", "to": "u0002"},
-        {"action": "link", "rel": "evolved_from", "from": "u0002", "to": "u0003"},
-    ], id_map={"u0001": "m0003", "u0002": "m0004", "u0003": "m0002"}, ts="2026-09-25T10:00:00")
-
-    g = st.graph()
-    assert len(g.edges) == before + 2                           # 只多了这两条
-    assert "m0004" in g.targets("m0003", "supports")             # 经历 → 看法
-    assert g.targets("m0004", "evolved_from") == ["m0002"]      # 新看法 → 旧的
-    entries = _log(st).read()
-    assert [e["action"] for e in entries] == ["link", "link"]
-    assert entries[0]["rel"] == "supports" and entries[0]["from"] == "m0003"
-    # ⭐ **看法支撑看法**那种形状（真机实例 `m0003→m0008`）—— 走的是同一条 `link` 行
-    apply_decisions(st, [{"action": "link", "rel": "supports",
-                          "from": "u0001", "to": "u0002"}],
-                    id_map={"u0001": "m0002", "u0002": "m0004"}, ts="2026-09-26T10:00:00")
-    g = st.graph()                                              # 重取（上面那份是旧图）
-    assert g.targets("m0002", "supports") == ["m0004"]           # 看法 → 看法
-    assert _log(st).read()[-1]["action"] == "link"
-
-
-def test_apply_decisions_link_endpoint_must_resolve(tmp_path):
-    """端点解析不出真实 id ⇒ **抛**（编排层有快照 ⇒ 整包回滚）—— 宁缺勿错。"""
-    st = _store(tmp_path)
-    with pytest.raises(ValueError, match="link 端点"):
-        apply_decisions(st, [{"action": "link", "rel": "supports",
-                              "from": "u0009", "to": "m0002"}],
-                        id_map={"u0002": "m0002"})
-
-
-def test_merge_inherits_and_deletes_sources(tmp_path):
-    st = _store(tmp_path)
     scope = _scope(st)
     res = apply_revision_package(st, [{"action": "merge", "ids": ["m0001", "m0003"],
                                        "into": {"kind": "episode",
@@ -285,104 +232,6 @@ def _episode(st, text="老师请我吃甜品"):
     """决策行引用的 episode 已由 Round A 建好（本测试直接预置）。"""
     st.add(make_node("episode", text=text, event_seq=[3],
                      ts="2026-09-02T12:00:00"))
-
-
-def test_decisions_update_logs_before_after(tmp_path):
-    """update 的溯源**落在 evolution 日志**（before/after）, 不在节点字段里。
-
-    2026-09-21 之前是往 `belief.history` 追加"改写后的正文"——那个字段只写不读,
-    且记的是**新值**（原文丢失）, 不是可用的溯源。现在同一件事记在 evolution.jsonl,
-    形状与修订包路径的 `changed: {k: [before, after]}` 对齐。
-    """
-    st = _store(tmp_path)
-    _episode(st)
-    rows = [
-        {"episode": "m0004", "decision": "update", "target": "u0001",
-         "patch": {"text": "老师会记得我的喜好", "significance": 0.95}},
-    ]
-    created = apply_decisions(st, rows, id_map={"u0001": "m0002"}, **_ctx_kw())
-    assert created == []
-    bel = st.get("m0002")
-    assert bel.text == "老师会记得我的喜好" and bel.significance == 0.95
-    assert not hasattr(bel, "history")                  # 字段已退役
-    assert "m0004" in st.graph().supporters("m0002")
-    row = _log(st).read()[-1]
-    assert row["action"] == "update" and row["target"] == "m0002"
-    assert row["changed"]["text"][1] == "老师会记得我的喜好"   # after
-    assert row["changed"]["text"][0] != "老师会记得我的喜好"  # before（旧正文）
-    assert row["changed"]["significance"] == [0.9, 0.95]
-
-
-def test_decisions_update_rerun_logs_nothing_changed(tmp_path):
-    """崩溃窗口重跑: 同正文重放 → before == after ⇒ `changed` 是空 dict（幂等可判）。"""
-    st = _store(tmp_path)
-    _episode(st)
-    rows = [{"episode": "m0004", "decision": "update", "target": "u0001",
-             "patch": {"text": "老师会记得我的喜好"}}]
-    for _ in range(2):
-        apply_decisions(st, rows, id_map={"u0001": "m0002"}, **_ctx_kw())
-    bel = st.get("m0002")
-    assert bel.text == "老师会记得我的喜好"
-    rows_log = [r for r in _log(st).read() if r.get("action") == "update"]
-    assert len(rows_log) == 2
-    assert rows_log[0]["changed"]["text"][1] == "老师会记得我的喜好"   # 首次: 真改了
-    assert rows_log[1]["changed"] == {}                                  # 重跑: 无变化
-
-
-def test_decisions_update_patch_outside_whitelist_rejected(tmp_path):
-    """patch 只有引擎字段（links 等）→ 白名单滤空 = 行无操作 → 整包拒。"""
-    st = _store(tmp_path)
-    _episode(st)
-    rows = [{"episode": "m0004", "decision": "update", "target": "u0001",
-             "patch": {"links": ["e0001"]}}]            # parse 能过（非空）但不可执行
-    with pytest.raises(ValueError, match="patch 不含可改字段"):
-        apply_decisions(st, rows, id_map={"u0001": "m0002"}, **_ctx_kw())
-
-
-def test_decisions_add_belief_linked_before_store(tmp_path):
-    """add belief: 入仓后立刻补 supports 边（G3: 边表）; 来源字段由引擎保证为空。"""
-    st = _store(tmp_path)
-    _episode(st, text="老师把猫抱到我腿边")
-    rows = [{"episode": "m0004", "decision": "add", "kind": "belief",
-             "subject": "老师的温柔", "text": "老师会把小猫抱到我腿上", "significance": 0.85}]
-    created = apply_decisions(st, rows, id_map={}, **_ctx_kw())
-    assert created == ["m0005"]                          # belief 与 episode 同 m 前缀
-    bel = st.get("m0005")
-    assert bel.observer == ""                            # ⭐ 新认知不是"听说的"（observer 空）
-    assert st.graph().supporters("m0005") == ["m0004"]
-    # 边带**本段日期**（digest 传的 ts, 不是"写库时刻"）—— 2026-09-22 补
-    e = st.graph().edges_to("m0005", "supports")[0]
-    assert e.ts == _ctx_kw()["ts"]
-    assert st.audit() == []
-
-
-def test_decisions_touch_target_must_be_cognition(tmp_path):
-    """target 解析到 episode（非认知）→ _ensure_cognition 拒（防御兜底）。"""
-    st = _store(tmp_path)
-    _episode(st, text="天台夜谈二号")
-    rows = [{"episode": "m0004", "decision": "touch", "target": "u0001"}]
-    with pytest.raises(ValueError, match="target 必须是 belief/experience"):
-        apply_decisions(st, rows, id_map={"u0001": "m0001"}, **_ctx_kw())  # m0001 是 episode
-
-
-def test_decisions_empty_rows_noop(tmp_path):
-    st = _store(tmp_path)
-    before = {n.id: n.to_dict() for n in st.all()}
-    assert apply_decisions(st, [], id_map={}, **_ctx_kw()) == []
-    after = {n.id: n.to_dict() for n in st.all()}
-    assert after == before
-
-
-# ---------------------------------------------------------------------------
-# D2b —— 第 3 轮执行器（归属 + entity 维护）
-# ---------------------------------------------------------------------------
-
-def _attr_store(tmp_path) -> WikiStoreV2:
-    """`_store` + 两个初始化 entity（`self`/`sensei`）—— 第 3 轮的前提。"""
-    st = _store(tmp_path)
-    ensure_entities(st, char_name="伊草 遥香", aliases=("遥香",), player_name="阿宅")
-    return st
-
 
 def test_apply_cognitions_birth_edges_have_the_right_direction(tmp_path):
     """⭐ P9: 造看法 = 节点 + **出生自带的三条边**, 方向由两端类型定死。

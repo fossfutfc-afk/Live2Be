@@ -17,7 +17,6 @@ PHASE_RECORD = "record"
 #: （几个节点、每个覆盖哪段）, 所以它的产出必须**可校验**（区间在不在时间线里）
 #: 且**可观测**（覆盖了多少 / 丢了几条 —— 见 D1 那本缺口账）。
 PHASE_SPLIT = "split"
-PHASE_UNDERSTAND = "understand"
 #: ⭐ **L1「判关系」那一趟**（`docs/DESIGN_DIGEST_TWO_PASSES.md` §9）—— 行首 = 本段新来的
 #: 那条经历, 右边 = 它印证 / 反驳 / 同类的那一条; **一个字的正文都不写**（写正文是下一趟）。
 PHASE_RELATE = "relate"
@@ -42,9 +41,6 @@ PHASE_GROUP = "group"
 PHASE_COGNIZE = "cognize"
 # EXT: digest-deep — 三相位之 deep（设计已声明, 未实现）; 勿删（docs/EXTENSION_POINTS.md）
 PHASE_DEEP = "deep"
-
-#: B 轮决策类型
-DECISIONS = ("touch", "update", "add")
 
 #: ⏸ ~~`PINNED_OUTCOMES`~~（收口轮 `close` 行的结局词）已随那一轮删掉 —— 三种结局
 #: 一律划掉, 结局写在图里那条经历的正文里; 旧档里带 `state` 的 `note` 事件读侧照认。

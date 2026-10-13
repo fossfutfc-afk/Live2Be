@@ -1,11 +1,9 @@
 """revise.py — 修订执行器（AGENT_BRAIN.md §5 / 板块 4a 扩展）。
 
-职责: 图语义执行 + 原子性。三个入口:
-    apply_revision_package   —— 修订包（revisions 数组, ref 机制）: 深度整理轮用
-    apply_decisions          —— Round B 决策表（板块 4a: digest 两轮化的执行器）:
-                                touch/update/add 三类行 → 图操作 + history 溯源
-    apply_attribution        —— **第 3 轮**决策表（D2b: 归属 + entity 维护）:
-                                attach/new_entity/rewrite 三类行 → `about` 边 + entity 载荷
+职责: 图语义执行 + 原子性。三趟各一个入口（与 `ROUNDS` 的三轮一一对应）:
+    apply_relations   —— L1「判关系」: 四类边 → 边表（**一个字的正文都不写**）
+    apply_cognitions  —— L2「造认知 / 写正文」: 造 belief / 覆写沉淀 + 出生自带边
+    apply_entities    —— R3「认人」: entity 载荷 + `about` 边
 
 不做: 渲染（render.py）· 召回（recall.py）· LLM 契约校验（contract/digest/parse.py
 ——结构校验在那; 本文件只管执行语义）· 存储细节（store.py 原语）。
@@ -43,8 +41,6 @@ logger = logging.getLogger(__name__)
 _REF_KEY = "ref"
 #: create entry 里引擎忽略的字段（id/ts 由引擎分配——确定性归引擎）
 _IGNORED_ON_CREATE = ("id", "ts")
-#: update.patch 允许的字段（图边 / 来源字段由引擎管, LLM 不可碰）
-_PATCH_FIELDS = ("subject", "text", "significance", "tags", "growth")
 #: `about` 边的可归属 kind（§2: belief → entity · episode → entity）。
 #: ⚠️ **含 `experience`**: 今天的"玩家画像"（`subject=player`）就落在它上面, 它显然是
 #: "关于老师的"; §9-3 把 experience 并成 `belief + nature=pattern` 之后删掉这一项。
@@ -151,11 +147,11 @@ def apply_cognitions(store: WikiStoreV2, rows: list[dict], *, ts: str = "",
     料里就是这么印的）; `evolved_from` / `contradicts` 的值是**认知本地号**（`u…`）⇒ 过 `id_map`。
     ⚠️ **方向不再判**（契约层已归一）: `supports` = 经历 → 新看法 · `evolved_from` =
     新看法 → 旧看法 · `contradicts` **对称**（`add_edge` 内部走 `canonical_for`）。
-    ⚠️ **改写既有正文必须留痕**（同 `_rewrite` / `apply_decisions` 的 update 行）:
+    ⚠️ **改写既有正文必须留痕**（`_soak` 那一段写着口径）:
     `{"action": "rewrite", "id": …, "changed": {"text": [旧, 新]}, "ts": …}` —— 崩溃窗口
     重跑时记的是一个 **空 `changed`**（"这次没改任何东西", 一眼可判; ⛔ 不是不留账）。
     ⚠️ **不吞错**: 能走到这里说明契约层已经挡过形状问题 ⇒ 剩下的异常都是真 bug,
-    照 `_rewrite` 的口径抛（整段回滚 / 只丢自己是编排层的事, 见 `RoundOut`）。
+    照「不吞错」的口径抛（整段回滚 / 只丢自己是编排层的事, 见 `RoundOut`）。
     """
     log = log or EvolutionLog.for_store(store)
     ts = ts or datetime.now().isoformat(timespec="seconds")
@@ -234,140 +230,6 @@ def _add_edge(store: WikiStoreV2, rel: str, src: str, dst: str, *, ts: str,
              "from": src, "to": dst, "ts": ts}
     log.append(entry)
     res.edges.append(dict(entry))
-
-
-def apply_decisions(
-    store: WikiStoreV2,
-    rows: list[dict],
-    *,
-    id_map: dict[str, str],
-    log: EvolutionLog | None = None,
-    ts: str | None = None,
-    event_seq: list[int] | None = None,
-) -> list[str]:
-    """执行 Round B 决策表（板块 4a）: touch / update / add 行 → 图操作。
-
-    行已过 registry.parse_round_b 结构校验（episode/target 引用、覆盖检查）;
-    本函数只做执行语义:
-        touch  —— add_link(episode → 认知)（不动原文）
-        update —— 部分字段合并（空=保留; patch 白名单）+ **before/after 进 evolution 日志**
-                  + 自动链 episode
-        add    —— 新建 belief/experience（引擎字段归属）+ 链回 episode
-        link   —— ⭐ **补充边**（§9-13, 2026-09-25）: `{"action":"link","rel","from","to"}`
-                  两端是**本地 id**（`u0001..`）—— 让"承诺 → 看法"（`supports`）、
-                  "新承诺盖过旧的"（`evolved_from`）、"这两条打架"（`contradicts`）
-                  有处可写。⚠️ 这是**决策行之外的第二种行**, 它没有 `episode`,
-                  也不参与覆盖统计（`parse_round_b` 已按 `link_ids` 校验过两端）。
-
-    Args:
-        id_map: 渲染本地 id（u0001..）→ 真实节点 id
-        ts/event_seq: 引擎字段（digest 上下文; add 建节点用）
-
-    Returns: 新建节点 id 列表。执行中抛 ValueError → 编排层快照回滚。
-    """
-    log = log or EvolutionLog.for_store(store)
-    ts = ts or datetime.now().isoformat(timespec="seconds")
-    event_seq = list(event_seq or [])
-    created: list[str] = []
-    for row in rows:
-        if row.get("action") == "link":          # 补充边（没有 episode 字段）
-            src, dst = id_map.get(row["from"]), id_map.get(row["to"])
-            if not src or not dst:
-                # parse 层已按 link_ids 校验; 走到这里 = 调用方与契约不同步（宁缺勿错: 拒）
-                raise ValueError(err("BadLink",
-                                     f"link 端点解析不出真实 id: {row!r}"))
-            store.add_edge(row["rel"], src, dst, ts=ts)     # 幂等 + 拒悬空/自环
-            log.append({"pkg": "digest", "action": "link", "rel": row["rel"],
-                        "from": src, "to": dst, "ts": ts})
-            continue
-        ep_id = row["episode"]
-        real = id_map.get(row["target"]) if row.get("target") else None
-        decision = row["decision"]
-        if decision == "touch":
-            _ensure_cognition(store, real)
-            store.add_edge(REL_SUPPORTS, ep_id, real, ts=ts)
-            log.append({"pkg": "digest", "action": "touch", "episode": ep_id,
-                        "target": real, "ts": ts})
-        elif decision == "update":
-            _ensure_cognition(store, real)
-            node = store.get(real)
-            patch = {k: v for k, v in (row.get("patch") or {}).items()
-                     if k in _PATCH_FIELDS and v not in (None, "", [], 0)}
-            if not patch:
-                # parse 层只查"patch 非空"; 白名单外的字段（如 links/epistemic）
-                # 在这里被滤空 → 行无操作 = 静默违约, 宁缺勿错: 整包拒
-                raise ValueError(err("BadPatch",
-                                     f"update 的 patch 不含可改字段: {sorted((row.get('patch') or {}).keys())}"))
-            # 变更审计（2026-09-21）: before/after 落 evolution.jsonl。
-            # 原实现是把"改写后的 content"追加进节点字段 `history`——它只写不读,
-            # 且记的是**新值**（原文丢失）, 所以那不是一个可用的溯源。审计该待的地方
-            # 是 evolution 日志（append-only + 带包归属 + 不进 LLM 上下文）,
-            # 形状与修订包路径的 `changed: {k: [before, after]}` 对齐。
-            # `changed` 只收**真的变了**的键 ⇒ 崩溃窗口重跑（before == after）
-            # 落在日志里就是一个空 dict, 一眼可判"这次没改任何东西"。
-            before = {k: getattr(node, k, None) for k in patch
-                      if getattr(node, k, None) != patch[k]}
-            new = store.update(real, patch)
-            store.add_edge(REL_SUPPORTS, ep_id, real, ts=ts)
-            log.append({"pkg": "digest", "action": "update", "episode": ep_id,
-                        "target": real,
-                        "changed": {k: [v, getattr(new, k, None)]
-                                    for k, v in before.items()},
-                        "ts": ts})
-        else:                                   # add
-            kind = row.get("kind", "belief")
-            fields: dict[str, Any] = {}
-            for f in ("subject", "text", "tags",
-                      "significance", "growth"):
-                v = row.get(f)
-                if v not in (None, "", []):
-                    fields[f] = v
-            # ⏸ 原 `example → examples` 的映射 **2026-09-29 删** —— 它只在
-            # `kind == "profile"` 时生效, 而 `add` 的契约**只许 belief**
-            # （`parse_round_b` 直接拒 experience）⇒ 那两行从来没跑到过;
-            # 而 belief 那条路把 `example` 原样传进 `make_node`, 又被
-            # `from_dict` 静默丢掉（belief 没有 `example`/`examples` 的读者）。
-            if kind == "profile":
-                # ⚠️ §5.1: `experience` = 玩家画像 ⇒ `subject` **强制** `player`
-                # （可见性不许挂在自由文本上; 今天这一路的产品写者已收掉,
-                #  但 `apply_revision_package` 等口径仍可能传进来自造的 subject）。
-                fields["subject"] = PLAYER_SUBJECT
-            node = make_node(kind, **fields)
-            # ⏸ 原「epistemic 引擎归属」2026-09-29 删 —— 字段退役;
-            # 新认知的"来源"就是**没有 observer**（它由 R2 推出来, 不是听谁说的）。
-            node.ts = ts
-            if event_seq:
-                node.event_seq = list(event_seq)
-            # 崩溃窗口重跑幂等: (kind, event_seq, 主文本) 命中 → 只补链, 不双写
-            dup = _find_duplicate(store, node)
-            if dup is not None:
-                store.add_edge(REL_SUPPORTS, ep_id, dup.id, ts=ts)
-                continue
-            errors = node.validate()            # supports 边已不在字段校验里（G3）
-            if errors:
-                raise ValueError(err("InvalidNode",
-                                     f"add 节点无效: {'; '.join(errors)}"))
-            nid = store.add(node)
-            created.append(nid)
-            # belief 的支撑不变量（原在 `nodes.validate`: links ≥ 1）—— 现在住在边表,
-            # 所以**先入仓再补边**（§2.1: add_edge 拒悬空 ⇒ 点必须先在）
-            store.add_edge(REL_SUPPORTS, ep_id, nid, ts=ts)
-            log.append({"pkg": "digest", "action": "add", "episode": ep_id,
-                        "id": nid, "kind": kind, "ts": ts})
-    return created
-
-
-def _ensure_cognition(store: WikiStoreV2, nid: str | None) -> None:
-    """touch/update 的目标必须是 belief/experience 节点（结构保证的兜底）。"""
-    if not nid:
-        raise ValueError(err("BadTarget", "touch/update 缺 target"))
-    node = store.get(nid)
-    if node is None or node.kind not in ("belief", "profile"):
-        raise ValueError(err("BadTarget", f"target 必须是 belief/experience: {nid!r}"))
-
-
-# ---------------------------------------------------------------------------
-# 第 3 轮: 归属 + entity 维护（D2b —— DESIGN_GRAPH_V4 §8 第 3 轮）
 # ---------------------------------------------------------------------------
 
 def apply_entities(store: WikiStoreV2, rows: list[dict], *, ts: str = "",
@@ -384,7 +246,7 @@ def apply_entities(store: WikiStoreV2, rows: list[dict], *, ts: str = "",
     此后每一轮的候选表里都有它）· **重名不重复建**（名字或别名对得上既有对象 ⇒ 跳过 + 留痕）。
     ⚠️ **保留号防撞**: `self` / `sensei` 不在 ⇒ **跳过全部** —— `next_id("x")` 会发出 `x0001`,
     那是 sensei 的保留号（谁先建谁占坑）。
-    ⚠️ **不吞错**: 能走到这里说明契约层已经挡过形状问题 ⇒ 剩下的异常都是真 bug（照 `_rewrite` 的口径抛）。
+    ⚠️ **不吞错**: 能走到这里说明契约层已经挡过形状问题 ⇒ 剩下的异常都是真 bug（照「不吞错」的口径抛）。
 
     Returns: **真新建**的 entity id（重名跳过的**不算**）。
     """

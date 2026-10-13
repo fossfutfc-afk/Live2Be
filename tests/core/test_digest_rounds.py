@@ -199,12 +199,9 @@ def test_every_phase_is_a_real_contract_phase():
         PHASE_RECORD,
         PHASE_RELATE,
         PHASE_SPLIT,
-        PHASE_UNDERSTAND,
         digest_registry,
     )
-    # ⚠️ `PHASE_UNDERSTAND`（旧一族 touch/update/add 的相位）**还在**契约里 ——
-    # 那一族留给 L2（2026-10-07 用户裁"不着急删"）, 只是**没有轮在用它**。
-    real = {PHASE_SPLIT, PHASE_RECORD, PHASE_RELATE, PHASE_UNDERSTAND,
+    real = {PHASE_SPLIT, PHASE_RECORD, PHASE_RELATE,
             PHASE_ATTRIBUTE, PHASE_GROUP, PHASE_COGNIZE}
     for spec in R.ROUNDS:
         if not spec.llm:
