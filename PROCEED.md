@@ -129,7 +129,7 @@ frozen 下三者不重合，`data/` 落临时目录 = **退出即丢**。
 | **1a** | `920f814` | **清残党第二刀**：删 v1 万能修订包执行器（`apply_revision_package` 96 · `_apply_action` 92 · `_apply_accrue` 34 · `_parse_create` 33 · `_build_merged` 17 · `_connection_rule_violations` 17 · `_err` · `RevisionResult`）+ store 的 4 个旧 shim（`add_link`/`remove_link`/`add_contradiction`/`remove_contradiction`，**零生产调用者**）+ 14 条测试。**-659/+67**。⛔ `classify_pair` 留下（旧档自举活路）。顺手修 5 处死指针 + `graph` docstring 里**与代码相反**的一行 | 焦点 120 passed · ruff 386→378 |
 | **1c** | `8e57359` | ⭐ **`profile` 节点停产（B 案）**：契约删掉 `kind` 那一档（`record.md` 3 处 + `digest_record.md` + `digest_relate.md`）· `parse._clean_episode` 的 profile 支路改成 **`_drop`（认得出、不产条目、⛔ 不报错 ⇒ 绝不触发重写整段）** · `ROUNDS.record.writes` 摘掉 profile 一格。**留**：`KINDS`/读侧/`_PREFIX`/`_COGNITION`/`episodes` 那一支（停用不是删机器）。+2 测试删、+2 镜像断言改 | `verify_1c` 15→**相同 7·尾随空行 4·有意改动 2·计划外 0**（跳过 2）· core+llm 1330 passed |
 | **1d** | `67a8dee` | ⭐ **槽语法统一**：9 份 md / **43 处** `{x}` → `{{x}}`；7 处调用方改走 `contract.slots.render_template`（漏填/多填**当场炸**）。⭐ **炸出 2 处一直静默空转的 replace**（`bond_story_rules.md` 根本没有槽 · `bond_shots.md` 没有 `{char_name}`）。⭐ `core/brain/read/modes.py::_fill` 是同一件事的**第三份**手写实现，一并收口。+守门：`llm/prompts/*.md` 不许再有单花括号槽 | `capture_prompts_1d check` 19 份全过（**折回单括号 = 逐字节原文**）· core+llm+renderer+webgui **1453 passed** |
-| **1f** | `8e7fb00` | ⭐ **新守门** `tests/core/test_digest_contract_refs.py`：契约/digest 文案里每个 `【X】` 必须说得出出处（**料名 AST 取** / 时间线标签取 `renderer._LABELS` / 自造小节），**正向 + 反向**两个方向。第一次跑就抓到 **3 处真东西**（见 §5.3） | 19 份 md 全有出处 · 20 个料名全被点到 · 217 passed |
+| **1f** | `8e7fb00` | ⭐ **新守门** `tests/core/test_digest_contract_refs.py`：契约/digest 文案里每个 `【X】` 必须说得出出处（**料名 AST 取** / 时间线标签取 `renderer._LABELS` / 自造小节），**正向 + 反向**两个方向。第一次跑就抓到 **3 处真东西**（见 §5.3） | 19 份 md 全有出处 · 20 个料名全被点到 · 217 passed · `verify_1c` **计划外 0**（3 处 split 形态是**有意**改的, 已登记 —— 见坑 4.18） |
 
 **当前层间账**（AST 实测，未变）：
 ```
@@ -212,6 +212,14 @@ ruff 在 `…\envs\live2be\Scripts\ruff.exe`。
 （`bond_shots.md` 的 `见上面【二】的组合拳`）③ **短形式交叉引用**（`见下方【回忆】专段`）
 用。那三处**没动**（记在这儿, 等用户裁）—— 1f 的守门**故意只圈 digest 那一家**
 （那里 `_sections_for` 会逐字对账, 段头是真契约）。
+
+**4.18 改 `contract/digest/prompts/` 下**任何**一个字节，都要跑 `verify_1c.py`。**
+本会话栽过：1f 只把 `parts/row_fields.md` 的一句正文从 `【哪一段】` 改成 `**哪一段**`
+（`【】` 是段头不是强调号），**焦点测试 217 条全绿**，而 `verify_1c` 有 **3 个形态**
+（`split|bond|1` / `split|bond|2` / `split|mmt|1`）对不上 —— 因为它进的是 **split 相位**。
+⇒ 纪律两条: ① 动完**立刻**跑三个 verifier（`verify_1c` / `capture_prompts_1d check` /
+`capture_1e check`）; ② **有意的**改动要写进 `EXPECTED_CHANGED` **并写为什么** ——
+一条长期红着的判据 = 没人看的判据**（与它拦的东西同归于尽）**。
 
 ---
 
