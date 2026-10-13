@@ -5,8 +5,10 @@
 `from core.common import err` / `from core.common.errors import Live2BeError` 照旧可用——
 全仓 20+ 处消费点一个字都不用改。
 
-⚠️ 新代码（尤其 `contract/` 内）请直接 `from contract.errors import ...`;
-`core/` 与 `llm/` 侧继续用这里也可以（`core.common` 是薄横切豁免项）。
+⚠️ 新代码请直接 `from contract.errors import ...`。
+⚠️ **`llm/` 已不再走这里**（三处改直连 `contract.errors`）—— `llm → core` 的豁免表
+同步收窄成只剩 `core.paths`（`tests/core/test_import_direction.py`）。
+`core/` 内部继续用本壳也可以, 但**别再往上/往外引**。
 """
 
 from __future__ import annotations
