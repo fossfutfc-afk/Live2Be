@@ -34,6 +34,7 @@ import json
 import logging
 import re
 
+from contract.slots import render_template
 from llm.prompts import load_prompt
 from llm.task_labels import PLACE_VARIANT
 from llm.task_levels import extra_body as _tl_extra
@@ -90,14 +91,16 @@ def pick_image(
     by_name = {rel.rsplit("/", 1)[-1]: rel for rel, _ in candidates}
     if max_tokens is None:
         max_tokens = _tl_max_tokens("place")
-    system = (load_prompt("place_variant")
-              .replace("{place}", entry.place)
-              .replace("{aliases}", "/".join(entry.keywords) or "（无别名）")
-              .replace("{candidates}", entry.image_candidate_lines())
-              .replace("{note}", entry.note or "（作者没写说明——那就只看文本）")
-              .replace("{current_image}",
-                       current_image.rsplit("/", 1)[-1] if current_image else "（还没定）")
-              .replace("{text}", text))
+    system = render_template(
+        load_prompt("place_variant"),
+        {"place": entry.place,
+         "aliases": "/".join(entry.keywords) or "（无别名）",
+         "candidates": entry.image_candidate_lines(),
+         "note": entry.note or "（作者没写说明——那就只看文本）",
+         "current_image":
+             current_image.rsplit("/", 1)[-1] if current_image else "（还没定）",
+         "text": text},
+        where="place_variant.md")
     user = "请输出选中的文件名 JSON。"
     for attempt in range(retries + 1):
         try:

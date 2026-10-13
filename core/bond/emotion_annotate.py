@@ -30,6 +30,7 @@ import json
 import logging
 import re
 
+from contract.slots import render_template
 from llm.prompts import load_prompt
 from llm.task_labels import EMOTION
 from llm.task_levels import extra_body as _tl_extra
@@ -77,13 +78,12 @@ def _try_batch(
         None: 调用异常 / 输出无法解析 / 长度不对齐（触发二分降级）。
     """
     lexicon = set(lexicon_keys)
-    system = load_prompt("emotion_annotate").replace(
-        "{lexicon}",
-        lexicon_hint or "\n".join(f"  {k}" for k in lexicon_keys),
-    ).replace(
-        "{sentences}",
-        "\n".join(f"{i + 1}: {s}" for i, s in enumerate(sentences)),
-    ).replace("{character}", character or "（角色信息未注入）")
+    system = render_template(
+        load_prompt("emotion_annotate"),
+        {"lexicon": lexicon_hint or "\n".join(f"  {k}" for k in lexicon_keys),
+         "sentences": "\n".join(f"{i + 1}: {s}" for i, s in enumerate(sentences)),
+         "character": character or "（角色信息未注入）"},
+        where="emotion_annotate.md")
     try:
         # text 模式（非 json_object）: 输出是纯数组, json_object 的自纠错会
         # 拉长等待——标注是低价值重试（失败只影响表情精度）, 快速失败快速降级
@@ -198,13 +198,12 @@ def annotate_emotions(
     if max_tokens is None:
         max_tokens = _anno_max_tokens(None)
     lexicon = set(lexicon_keys)
-    system = load_prompt("emotion_annotate").replace(
-        "{lexicon}",
-        lexicon_hint or "\n".join(f"  {k}" for k in lexicon_keys),
-    ).replace(
-        "{sentences}",
-        "\n".join(f"{i + 1}: {s}" for i, s in enumerate(sentences)),
-    ).replace("{character}", character or "（角色信息未注入）")
+    system = render_template(
+        load_prompt("emotion_annotate"),
+        {"lexicon": lexicon_hint or "\n".join(f"  {k}" for k in lexicon_keys),
+         "sentences": "\n".join(f"{i + 1}: {s}" for i, s in enumerate(sentences)),
+         "character": character or "（角色信息未注入）"},
+        where="emotion_annotate.md")
     try:
         # text 模式 + 显式关 reasoning（同 _try_batch——标注低价值, 快速失败快速兜底;
         # thinking 档位真源 = task_levels 形态 "emotion"）
