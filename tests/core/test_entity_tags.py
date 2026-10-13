@@ -1,30 +1,33 @@
-"""E1（2026-10-08）—— `#entity:<名字>`：**她写的 tag → 引擎落的边**。
+"""E1（2026-10-08）—— **她写的引用 → 引擎落的边**（`entity` 字段, 2026-10-13 从 `tags` 搬出）。
 
 钉五件事:
-    ① **语法分栏**: `#entity:` 不占检索词的 1~4 个额度; 空名字 ⇒ 丢项 + 记账;
-    ② **名字解析**（`entities.find_entity`）: `name` + `aliases` + 大小写都认;
+    ① **形状**: 引用住自己那一格（`entity`, 0~2 个）—— ⛔ 它**不占**检索词 1~4 个的额度;
+       老写法（`tags` 里的 `#entity:名字`）**认得出并挪进来**（⛔ 不丢行）;
+    ② **名字解析**（`entities.find_entity`）: `name` + `aliases` + 大小写 + 空白都认;
        命中 0 / 多条 ⇒ **不猜**（与 `address.find_episode` 同一套纪律）;
-    ③ ⭐ **归一 + 落边**: `#entity:sensei` ⇒ 节点上是 `#entity:老师`（主名）+
-       `about(m0001 → x0001)` 真的落了（**边由引擎派生, 零 LLM**）;
-    ④ ⭐ **陌生人**: `#entity:小玉`（库里没有）⇒ tag **原样留着** + 报上去 + ⛔ **不落边**
-       （那正是"认人"那一轮的线索 —— 她本来没有语法说"这条关于一个我还不知道的人"）;
-    ⑤ **契约文案**: 渲出来的 `record` schema 与示例里都有它（示例才是形状的来源）。
+    ③ ⭐ **归一 + 落边**: `sensei` ⇒ 节点上是 `老师`（主名）+ `about(m0001 → x0001)`
+       真的落了（**边由引擎派生, 零 LLM**）;
+    ④ ⭐ **陌生人**: `小玉`（库里没有）⇒ 引用**原样留着** + 报上去 + ⛔ **不落边**
+       （那正是"沉淀"那一轮认人的线索 —— 她本来没有语法说"这条关于一个我还不知道的人"）;
+    ⑤ **契约文案**: 渲出来的 `record` / `cognize` schema 与示例里都有它
+       （**示例才是形状的来源**）—— 而且 ⛔ **不再教老写法**。
 
-⛔ 本文件只测 E1 的三面（契约分栏 / 引擎解析 / 落边），不测 R3 认人（那是 E4）。
+⛔ 本文件只测 E1 的三面（契约形状 / 引擎解析 / 落边），不测认人（那是 `test_round_settle.py`）。
 """
 import sys
 from pathlib import Path
 
 from contract.digest import (
+    ENTITY_REFS_MAX,
     ENTITY_TAG_PREFIX,
-    ENTITY_TAGS_MAX,
     MAX_TAGS,
     PHASE_RECORD,
     digest_registry,
 )
 from contract.digest.parse import _split_tags
 from core.brain import WikiStoreV2, make_node
-from core.brain.entities import ensure_entities, find_entity, hit_set, normalize_entity_tags, surface_forms
+from core.brain.entities import ensure_entities, find_entity, hit_set, normalize_entity_refs, surface_forms
+from core.brain.nodes import BrainNode
 from core.digest.episodes import _create_a_nodes
 
 CHAR = "c"
@@ -38,52 +41,69 @@ def _store(tmp_path) -> WikiStoreV2:
     return st
 
 
-def _ep(text, title, tags):
-    return {"text": text, "title": title, "tags": tags, "significance": 0.5}
+def _ep(text, title, tags, entity=None):
+    d = {"text": text, "title": title, "tags": tags, "significance": 0.5}
+    if entity is not None:
+        d["entity"] = entity
+    return d
 
 
 # ---------------------------------------------------------------------------
-# ① 语法分栏（契约层, 纯字符串）
+# ① 形状（契约层, 纯字符串）
 # ---------------------------------------------------------------------------
 
-def test_entity_tag_does_not_eat_the_search_word_quota():
-    """⭐ `#entity:` **不占** 1~4 个检索词的额度（`#` 开头 = 标记, 不是词）。"""
+def test_entity_refs_live_in_their_own_slot_and_do_not_eat_the_word_quota():
+    """⭐ 引用住 `entity` 那一格（0~2），**不占** 1~4 个检索词的额度。"""
     warnings: list[str] = []
     drops: list[str] = []
-    words, marks = _split_tags(["公园", "流浪猫", "热茶", "长椅", "#entity:老师"],
-                               warnings, drops, where="episodes[0]")
+    words, refs = _split_tags(["公园", "流浪猫", "热茶", "长椅"], ["老师"],
+                              warnings, drops, where="episodes[0]")
     assert words == ["公园", "流浪猫", "热茶", "长椅"], words      # 4 个检索词**全收**
-    assert marks == [f"{ENTITY_TAG_PREFIX}老师"], marks
+    assert refs == ["老师"], refs
     assert warnings == [] and drops == [], (warnings, drops)
 
 
 def test_over_quota_is_trimmed_and_said_out_loud():
     """两栏各自的上限**都**要看得见（不静默截断）。"""
     warnings: list[str] = []
-    words, marks = _split_tags(["a1", "a2", "a3", "a4", "a5",
-                                "#entity:x1", "#entity:x2", "#entity:x3"],
-                               warnings, [], where="episodes[3]")
+    words, refs = _split_tags(["a1", "a2", "a3", "a4", "a5"],
+                              ["x1", "x2", "x3", "老师"],
+                              warnings, [], where="episodes[3]")
     assert words == ["a1", "a2", "a3", "a4"], words               # MAX_TAGS = 4
-    assert len(marks) == ENTITY_TAGS_MAX, marks
+    assert refs == ["x1", "x2"], refs                             # 截到 ENTITY_REFS_MAX
+    assert len(refs) == ENTITY_REFS_MAX, refs
     assert any("检索词" in w for w in warnings), warnings
-    assert any("#entity:" in w for w in warnings), warnings
+    assert any("entity" in w for w in warnings), warnings
 
 
-def test_empty_entity_tag_is_dropped_not_kept():
-    """`#entity:` 后面没名字 ⇒ **丢那一项** + 记账（没有名字就没有对象可指）。"""
+def test_legacy_entity_tag_is_moved_into_the_slot_not_dropped():
+    """⏸ **老写法照收**（停产不是删格式）: `tags` 里的 `#entity:老师` ⇒ **挪进 `entity`**
+    —— ⛔ 不丢行、不判非法, 只记一条 warning 提醒她下次写对格子。"""
+    warnings: list[str] = []
     drops: list[str] = []
-    words, marks = _split_tags(["公园", ENTITY_TAG_PREFIX, f"{ENTITY_TAG_PREFIX}   "],
-                               [], drops, where="episodes[7]")
-    assert words == ["公园"] and marks == [], (words, marks)
+    words, refs = _split_tags(["公园", f"{ENTITY_TAG_PREFIX}老师"], None,
+                              warnings, drops, where="episodes[2]")
+    assert words == ["公园"] and refs == ["老师"], (words, refs)
+    assert drops == [], "老写法不该丢行"
+    assert any("旧的写法" in w for w in warnings), warnings
+
+
+def test_empty_legacy_entity_tag_is_dropped_not_kept():
+    """老写法后面没名字 ⇒ **丢那一项** + 记账（没有名字就没有对象可指）。"""
+    drops: list[str] = []
+    words, refs = _split_tags(["公园", ENTITY_TAG_PREFIX, f"{ENTITY_TAG_PREFIX}   "], None,
+                              [], drops, where="episodes[7]")
+    assert words == ["公园"] and refs == [], (words, refs)
     assert len(drops) == 2, drops
 
 
-def test_contract_text_and_example_carry_the_syntax():
-    """⭐ **示例才是形状的来源** —— 契约正文与示例都必须有 `#entity:`。"""
+def test_contract_text_and_example_carry_the_slot_and_stop_teaching_the_old_one():
+    """⭐ **示例才是形状的来源** —— 契约正文与示例都必须有 `entity`;
+    ⛔ 而且**不再教老写法**（教了就等于让她继续往 `tags` 里塞结构）。"""
     text = digest_registry.build_schema(PHASE_RECORD)
-    assert ENTITY_TAG_PREFIX in text, "契约正文里没有 `#entity:` 那一行"
-    assert f'"{ENTITY_TAG_PREFIX}老师"' in text, "示例里没有 `#entity:老师`（她只照抄示例）"
-    assert "不占" in text, "没写清它不占检索词额度"
+    assert '"entity": ["老师"]' in text, "契约示例里没有 `entity`（她只照抄示例）"
+    assert "涉及谁" in text and "0-2 个" in text, "没写清这一格是干什么的"
+    assert ENTITY_TAG_PREFIX not in text, "契约里还在教老写法 `#entity:`"
 
 
 # ---------------------------------------------------------------------------
@@ -157,80 +177,91 @@ def test_find_entity_never_guesses(tmp_path):
 # ③④ 归一 + 落边（执行层）
 # ---------------------------------------------------------------------------
 
-def test_tag_lands_as_an_about_edge_and_normalizes_to_the_main_name(tmp_path):
-    """⭐ 她写 `#entity:sensei` ⇒ 节点上是主名, 图上多一条 `about` 边。"""
+def test_legacy_tag_in_tags_is_migrated_on_read(tmp_path):
+    """⏸ **老档的一次性迁移**（2026-10-13）: `#entity:` 从前住在 `tags` 里 ⇒
+    **读的这一刻**挪进 `entity`（幂等; 真正的写盘在下一次 `save`）。
+
+    ⚠️ 不影响 `about` 边（那些边早落好了）—— 这一步只是让"她写的引用"在盘上有个
+    **正经的格子**, 否则将来任何一次重派生都读不到它。
+    """
+    node = BrainNode.from_dict({"kind": "episode", "text": "x",
+                                "tags": ["公园", f"{ENTITY_TAG_PREFIX}老师",
+                                         f"{ENTITY_TAG_PREFIX}小玉"],
+                                "entity": ["老师"]})
+    assert node.entity == ["老师", "小玉"], node.entity        # 去重保序（字段里的在前）
+    assert node.tags == ["公园"], node.tags
+    print(f"    老档迁移: tags {['公园']} + entity {node.entity}")
+
+
+def test_ref_lands_as_an_about_edge_and_normalizes_to_the_main_name(tmp_path):
+    """⭐ 她写 `sensei` ⇒ 节点上是主名, 图上多一条 `about` 边。"""
     st = _store(tmp_path)
     out: list[str] = []
     ids, _players = _create_a_nodes(
-        st, [_ep("老师约我去公园", "和老师的公园散步", ["公园", "#entity:sensei"])],
+        st, [_ep("老师约我去公园", "和老师的公园散步", ["公园"], ["sensei"])],
         ts="2026-10-08T21:00:00+08:00", event_seq=[3], strangers_out=out)
     ep = st.get(ids[0])
-    assert f"{ENTITY_TAG_PREFIX}老师" in ep.tags, ep.tags          # 归一成主名
-    assert "#entity:sensei" not in ep.tags, ep.tags
-    assert ep.tags[:1] == ["公园"], "检索词要排在前面（`#entity:` 在后）"
+    assert ep.entity == ["老师"], ep.entity                        # 归一成主名
+    assert ep.tags == ["公园"], ep.tags                            # tags 一个字没被碰
     assert st.graph().targets(ep.id, "about") == ["x0001"], "边没落上"
     assert out == [], out
-    print(f"    {ep.id} → about → x0001（tag 归一成 `#entity:老师`）")
+    print(f"    {ep.id} → about → x0001（`sensei` 归一成 `老师`）")
 
 
-def test_stranger_tag_stays_and_leaves_no_dangling_edge(tmp_path):
-    """⭐ 陌生人: tag **原样留着** · **不落边** · 名字报上去（认人那一轮的线索）。"""
+def test_stranger_ref_stays_and_leaves_no_dangling_edge(tmp_path):
+    """⭐ 陌生人: 引用**原样留着** · **不落边** · 名字报上去（认人那一轮的线索）。"""
     st = _store(tmp_path)
     out: list[str] = []
     ids, _players = _create_a_nodes(
-        st, [_ep("第一次见到小玉", "转角的相遇", ["公园", "#entity:小玉"])],
+        st, [_ep("第一次见到小玉", "转角的相遇", ["公园"], ["小玉"])],
         ts="2026-10-08T21:00:00+08:00", event_seq=[3], strangers_out=out)
     ep = st.get(ids[0])
-    assert f"{ENTITY_TAG_PREFIX}小玉" in ep.tags, ep.tags          # 原样（不丢）
+    assert ep.entity == ["小玉"], ep.entity                        # 原样（不丢）
     assert st.graph().targets(ep.id, "about") == [], "陌生人**不该**落边（会悬空）"
     assert out == ["小玉"], out
     assert list(st.edges()) == [], "图上一条新边都不该有"
-    print(f"    陌生人: tag 留着 · 0 条边 · 报账 {out}")
+    print(f"    陌生人: 引用留着 · 0 条边 · 报账 {out}")
 
 
-def test_profile_entries_can_carry_entity_tags_too(tmp_path):
-    """画像条目（`kind=profile`）走同一套语法 —— 同一件事不留两个写法。"""
+def test_profile_entries_can_carry_refs_too(tmp_path):
+    """画像条目（`kind=profile`）走同一套形状 —— 同一件事不留两个写法。"""
     st = _store(tmp_path)
     _eps, player_ids = _create_a_nodes(
-        st, [{"kind": "profile", "text": "老师总忘带伞", "tags": ["雨天", "#entity:老师"],
-              "significance": 0.6}],
+        st, [{"kind": "profile", "text": "老师总忘带伞", "tags": ["雨天"],
+              "entity": ["老师"], "significance": 0.6}],
         ts="2026-10-08T21:00:00+08:00", event_seq=[3], strangers_out=[])
     pf = st.get(player_ids[0])
-    assert pf.kind == "profile" and f"{ENTITY_TAG_PREFIX}老师" in pf.tags, pf.tags
+    assert pf.kind == "profile" and pf.entity == ["老师"], pf.entity
     assert st.graph().targets(pf.id, "about") == ["x0001"]
     print(f"    画像条目也认: {pf.id} → about → x0001")
 
 
-def test_plain_tags_are_untouched(tmp_path):
-    """没有 `#entity:` 的节点**一个字都不变**（这是加法）。"""
+def test_plain_nodes_are_untouched(tmp_path):
+    """没有引用的节点**一个字都不变**（这是加法）。"""
     st = _store(tmp_path)
     ids, _players = _create_a_nodes(
         st, [_ep("一个人在屋顶", "屋顶", ["屋顶", "傍晚"])],
         ts="2026-10-08T21:00:00+08:00", event_seq=[3], strangers_out=[])
     assert st.get(ids[0]).tags == ["屋顶", "傍晚"]
+    assert st.get(ids[0]).entity == []
     assert list(st.edges()) == []
-    assert MAX_TAGS == 4, "`MAX_TAGS` 是既有约定, E1 不该动它"
+    assert MAX_TAGS == 4, "`MAX_TAGS` 是既有约定, 搬字段这一刀不该动它"
 
 
 def test_normalize_dedupes_the_same_person_written_two_ways(tmp_path):
-    """她写了两种叫法 ⇒ 归一后**只留一条**（去重**保序**）, 边也只有一条。
-
-    ⚠️ 分工: **保序是这一层的语义**（它只做"把叫法换成主名"）——
-    "检索词排在 `#entity:` 前面"是**契约层**（`_split_tags` 的 `tags + ent_tags`）的事。
-    """
+    """她写了两种叫法 ⇒ 归一后**只留一条**（去重**保序**）, 边也只有一条。"""
     st = _store(tmp_path)
-    tags, targets, strangers = normalize_entity_tags(
-        st, ["#entity:sensei", "公园", "#entity:老师"])
-    assert tags == [f"{ENTITY_TAG_PREFIX}老师", "公园"], tags
+    refs, targets, strangers = normalize_entity_refs(st, ["sensei", "老师"])
+    assert refs == ["老师"], refs
     assert targets == ["x0001"] and strangers == [], (targets, strangers)
 
 
 # ---------------------------------------------------------------------------
-# E2（2026-10-08）—— **看法也能带地址**: belief 的 `#entity:` ⇒ 归一 + 落边
+# E2（2026-10-08）—— **看法也能带地址**: belief 的 `entity` ⇒ 归一 + 落边
 # ---------------------------------------------------------------------------
 
 def test_belief_can_carry_an_address_and_lands_an_edge(tmp_path):
-    """⭐ E2: 看法带 `#entity:sensei` ⇒ 归一成主名 + 落 `about(belief → 对象)`。
+    """⭐ E2: 看法带 `entity: ["sensei"]` ⇒ 归一成主名 + 落 `about(belief → 对象)`。
 
     真机依据: belief 的 `subject` **实际用法已漂成"主题句"**（4/4 条解析不到 entity）
     ⇒ 它当不了地址; 这一格是看法的"关于谁"。
@@ -240,12 +271,14 @@ def test_belief_can_carry_an_address_and_lands_an_edge(tmp_path):
     st = _store(tmp_path)
     res = apply_cognitions(st, [{"text": "老师会把我说的话记在心上",
                                  "subject": "老师对我的接纳",
-                                 "tags": ["#entity:sensei"], "significance": 0.8}],
+                                 "tags": ["温柔"], "entity": ["sensei"],
+                                 "significance": 0.8}],
                            ts="2026-10-08T21:00:00+08:00", event_seq=[3])
     nid = res.created[0]
     node = st.get(nid)
     assert node.kind == "belief"
-    assert node.tags == [f"{ENTITY_TAG_PREFIX}老师"], node.tags     # 归一成主名
+    assert node.entity == ["老师"], node.entity                    # 归一成主名
+    assert node.tags == ["温柔"], node.tags                        # 检索词原样
     assert node.subject == "老师对我的接纳", "`subject`（主题句）原样留着, 两者分工"
     assert st.graph().targets(nid, "about") == ["x0001"], "看法 → 对象的边没落上"
     assert res.strangers == [], res.strangers
@@ -253,18 +286,18 @@ def test_belief_can_carry_an_address_and_lands_an_edge(tmp_path):
 
 
 def test_belief_stranger_address_stays_and_is_reported(tmp_path):
-    """看法指向还没建的人 ⇒ tag **原样留着** + 报上来 + ⛔ 不落边（不然会悬空）。"""
+    """看法指向还没建的人 ⇒ 引用**原样留着** + 报上来 + ⛔ 不落边（不然会悬空）。"""
     from core.brain.revise import apply_cognitions
 
     st = _store(tmp_path)
     res = apply_cognitions(st, [{"text": "小玉好像不太喜欢说话",
-                                 "tags": ["#entity:小玉"]}],
+                                 "entity": ["小玉"]}],
                            ts="2026-10-08T21:00:00+08:00", event_seq=[3])
     node = st.get(res.created[0])
-    assert f"{ENTITY_TAG_PREFIX}小玉" in node.tags, node.tags
+    assert node.entity == ["小玉"], node.entity
     assert st.graph().targets(node.id, "about") == []
     assert res.strangers == ["小玉"], res.strangers
-    print(f"    陌生人: tag 留着 · 0 条边 · 报账 {res.strangers}")
+    print(f"    陌生人: 引用留着 · 0 条边 · 报账 {res.strangers}")
 
 
 def test_belief_contract_speaks_the_address_slot():
@@ -272,34 +305,35 @@ def test_belief_contract_speaks_the_address_slot():
     from contract.digest import PHASE_COGNIZE
 
     text = digest_registry.build_schema(PHASE_COGNIZE)
-    assert ENTITY_TAG_PREFIX in text, "belief 的契约里没有 `#entity:`"
-    assert f'"{ENTITY_TAG_PREFIX}老师"' in text, "示例里没有（她只照抄示例）"
+    assert '"entity": ["老师"]' in text, "示例里没有（她只照抄示例）"
     assert "subject" in text and "进图" in text, "没写清与 `subject` 的分工"
+    assert ENTITY_TAG_PREFIX not in text, "契约里还在教老写法 `#entity:`"
 
 
-def test_parse_cognitions_carries_belief_tags():
-    """⭐ 断链守门: **契约层**要能把 belief 的 `tags` 带到行里 ——
+def test_parse_cognitions_carries_the_belief_address():
+    """⭐ 断链守门: **契约层**要能把 belief 的 `entity` 带到行里 ——
 
-    上面那两条直接给 `apply_cognitions` 喂行（绕过 parse）⇒ "parse 忘了收 tags"
+    上面那两条直接给 `apply_cognitions` 喂行（绕过 parse）⇒ "parse 忘了收它"
     这个断链它们抓不住（写侧永远收不到东西, 而图上什么都不缺的样子）。
     """
     items, vr = digest_registry.parse_cognitions(
         {"cognitions": [{"belief": {"text": "老师会记住我说的话",
-                                    "tags": ["#entity:sensei"]},
+                                    "tags": ["温柔"], "entity": ["sensei"]},
                          "supports": ["m0001"]}]},
         evidence_ids={"m0001"}, cognition_ids=set(), group_ids=set(), kind_of={})
     assert not vr.errors, vr.errors
     assert len(items) == 1, (items, vr.drops)
-    assert items[0].get("tags") == [f"{ENTITY_TAG_PREFIX}sensei"], items[0]
+    assert items[0].get("entity") == ["sensei"], items[0]
+    assert items[0].get("tags") == ["温柔"], items[0]
 
 
 def test_parse_cognitions_drops_a_nameless_entity_tag():
-    """空的 `#entity:`（没名字）在**看法**那条路上也要丢项 + 记账（文案不能自称 episodes）。"""
+    """空的**老写法** `#entity:` 在**看法**那条路上也要丢项 + 记账（文案不能自称 episodes）。"""
     items, vr = digest_registry.parse_cognitions(
         {"cognitions": [{"belief": {"text": "……", "tags": ["#entity:"]},
                          "supports": ["m0001"]}]},
         evidence_ids={"m0001"}, cognition_ids=set(), group_ids=set(), kind_of={})
-    assert items[0].get("tags") is None, items[0]
+    assert items[0].get("entity") is None, items[0]
     assert any("cognitions[0].belief" in d for d in vr.drops), vr.drops
 
 
@@ -307,10 +341,11 @@ def test_parse_cognitions_drops_a_nameless_entity_tag():
 # E1b（2026-10-08）—— 判据补全 + 防 alias（把【已有的对象】摆给写 tag 的那两轮）
 # ---------------------------------------------------------------------------
 
-def test_contract_spells_out_the_entity_tag_judgement():
-    """⭐ 判据必须在**契约**里（用户 2026-10-08 逐条给的），三条一条都不能少。"""
+def test_contract_spells_out_the_ref_judgement():
+    """⭐ 判据必须在**契约**里（用户 2026-10-08 逐条给的, 2026-10-13 跟着字段改名）——
+    一条都不能少。"""
     text = digest_registry.build_schema(PHASE_RECORD)
-    assert "检索词本身别用" in text and "`#` 开头" in text, "缺「检索词别用 `#` 开头」那条禁令"
+    assert "别往这里塞结构" in text, "缺「检索词别塞结构」那条禁令"
     assert "新认识的角色" in text and "必须写" in text, "缺「新认识的角色必须写」"
     assert "跨时间段" in text, "缺「跨时间段反复出现」的判据（与连续事件的同一个词区分开）"
     assert "抽象的" in text and "司空见惯" in text, "缺两条「不写」"
@@ -320,12 +355,11 @@ def test_contract_spells_out_the_entity_tag_judgement():
 def test_hash_prefixed_search_word_is_reported_not_silently_dropped():
     """⭐ 静默 no-op 的入口: `#` 开头 = 标记空间（检索侧会跳过它）⇒ **必须记一笔**。"""
     warnings: list[str] = []
-    words, marks = _split_tags(["公园", "#日常", "#entity:老师"], warnings, [],
+    words, refs = _split_tags(["公园", "#日常"], None, warnings, [],
                               where="episodes[0]")
     assert words == ["公园", "#日常"], words          # 词照收（不丢内容）
-    assert marks == [f"{ENTITY_TAG_PREFIX}老师"], marks
+    assert refs == [], refs
     assert any("#日常" in w and "标记空间" in w for w in warnings), warnings
-    # ⚠️ 而且**只有**它一条告警（`#entity:` 与普通词都不该告警）
     assert len(warnings) == 1, warnings
 
 

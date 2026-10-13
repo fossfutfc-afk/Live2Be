@@ -67,7 +67,6 @@ import logging
 from typing import TYPE_CHECKING
 
 from contract import CHARACTER_SENSEI, DEFAULT_SPEAKER_NAMES
-from contract.digest import ENTITY_TAG_PREFIX
 from core.brain import marks
 from core.brain.nodes import BrainNode, format_id
 
@@ -438,38 +437,37 @@ def find_entity(store: WikiStoreV2, raw: object) -> tuple[BrainNode | None, str]
     return hits[0], "ok"
 
 
-def normalize_entity_tags(store: WikiStoreV2, tags
+def normalize_entity_refs(store: WikiStoreV2, names
                           ) -> tuple[list[str], list[str], list[str]]:
-    """`tags` 里的 `#entity:<她写的叫法>` → **归一成主名**; 解析不到的**原样留着**。
+    """她写的**引用**（`node.entity` 里那些叫法）→ **归一成主名**; 解析不到的**原样留着**。
 
-    Returns: `(归一后的 tags, 能落边的对象 id, 陌生的名字)`
+    Returns: `(归一后的引用, 能落边的对象 id, 陌生的名字)`
 
     ⭐ **第三个返回值就是"该建这个人"的线索**（E1 §1 的洞①）: `about` 的值必须是
-    **已存在的 id** ⇒ 她本来**没有语法**表达"这条关于一个我还不知道的人"; 现在
-    `#entity:小玉` 填上了它 —— 引擎**原样保留**那条 tag（不落边、不报错）, 把它报上去,
-    等认人那一轮把对象建出来之后**再补边**。
+    **已存在的 id** ⇒ 她本来**没有语法**表达"这条关于一个我还不知道的人"; 引用结构填上了
+    它 —— 引擎**原样保留**那条引用（不落边、不报错）, 把它报上去, 等认人那一轮把对象
+    建出来之后**再补边**。
 
-    ⚠️ 本函数是**纯查**（不写边、不改库）—— 本文件是"喂给轮次看什么"的输入侧,
-    写路径在 `core/digest/episodes._link_about`。
-    ⚠️ 归一可能把两条并成一条（`#entity:老师` + `#entity:sensei`）⇒ 输出**去重保序**。
+    ⚠️ **2026-10-13 改口**: 入参从"节点 `tags` 那种带 `#entity:` 前缀的列表"改成**纯名字
+    列表**（= `node.entity`）—— 函数名跟着从 `normalize_entity_tags` 改过来; 老档的迁移
+    在 `nodes.BrainNode.from_dict`（**读一次**就把 `#entity:` 挪进 `entity`, `tags` 变干净）。
+    ⚠️ **本函数是纯查**（不写边、不改库）—— 本文件是"喂给轮次看什么"的输入侧,
+    写路径在 `core/brain/revise.link_entity_refs`。
+    ⚠️ 归一可能把两个叫法并成一个（`老师` + `sensei`）⇒ 输出**去重保序**。
     """
     out: list[str] = []
     targets: list[str] = []
     strangers: list[str] = []
-    for t in (tags if isinstance(tags, (list, tuple)) else []):
-        s = str(t).strip()
-        if not s:
+    for t in (names if isinstance(names, (list, tuple)) else []):
+        name = str(t).strip()
+        if not name:
             continue
-        if not s.startswith(ENTITY_TAG_PREFIX):
-            out.append(s)
-            continue
-        name = s[len(ENTITY_TAG_PREFIX):].strip()
         node, _reason = find_entity(store, name)
         if node is None:
             strangers.append(name)
-            out.append(s)                       # ⭐ 原样留着（陌生人不丢）
+            out.append(name)                    # ⭐ 原样留着（陌生人不丢）
             continue
-        out.append(f"{ENTITY_TAG_PREFIX}{surface_forms(node)[0]}")   # 归一成主名
+        out.append(surface_forms(node)[0])      # 归一成主名
         targets.append(node.id)
     return (list(dict.fromkeys(out)), list(dict.fromkeys(targets)),
             list(dict.fromkeys(strangers)))
@@ -481,7 +479,7 @@ def strangers_block(store: WikiStoreV2, ids, names) -> str:
     每个名字下面摆**它出现在哪几条里**（`〔m0023｜《...》〕` + 那一行里含它的那句话）——
     那是她判"**这是不是一个值得记住的人/地方/东西**"的全部依据。
 
-    ⚠️ 名字来自节点 `tags` 里的 `#entity:`（`normalize_entity_tags` 的第三个返回值,
+    ⚠️ 名字来自节点的 `entity` 字段（`normalize_entity_refs` 的第三个返回值,
     **引擎算出来的**, 不是 LLM 再读一遍正文猜的）⇒ 它与"她当时想指谁"是同一次判断。
     """
     out: list[str] = []

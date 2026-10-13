@@ -1,7 +1,7 @@
 """`revise.py` 三趟执行器的落地测试（AGENT_BRAIN.md §5 / M2b）。
 
 覆盖: L1 判关系（`apply_relations`）· L2 造认知（`apply_cognitions`）·
-R3 认人（`apply_entities`）· tag → `about` 边（`link_entity_tags`）。
+R3 认人（`apply_entities`）· 引用 → `about` 边（`link_entity_refs`）。
 
 ⏸ v1 的**万能修订包执行器** `apply_revision_package`（`create`/`update`/`merge`/
 `link`/`unlink`/`contradict`/`resolve`/`accrue` 一张大动作表）连同它的 11 条用例
@@ -16,7 +16,7 @@ from core.brain.evolution import EvolutionLog
 from core.brain.revise import (
     apply_cognitions,
     apply_entities,
-    link_entity_tags,
+    link_entity_refs,
 )
 
 
@@ -207,26 +207,27 @@ def test_apply_entities_needs_a_reason(tmp_path):
         raise AssertionError("没给 reason 也建出来了")
 
 
-def test_link_entity_tags_lands_edges_and_normalizes(tmp_path):
-    """⭐ **落边的唯一实现**: 节点 `tags` 里的 `#entity:` ⇒ `about` + tag 归一成主名。"""
+def test_link_entity_refs_lands_edges_and_normalizes(tmp_path):
+    """⭐ **落边的唯一实现**: 节点 `entity` 里的引用 ⇒ `about` + 引用归一成主名。"""
     st = _store(tmp_path)
     ensure_entities(st, char_name="伊草 遥香", aliases=("遥香",),
                     sensei_name="老师", sensei_aliases=("sensei",))
     st.save()
     nid = st.add(make_node("episode", text="老师约我去公园", title="公园",
-                           tags=["公园", "#entity:sensei"], ts="2026-10-08T10:00:00+08:00",
-                           event_seq=[3]))
-    targets, strangers = link_entity_tags(st, nid, ts="2026-10-08T21:00:00+08:00")
+                           tags=["公园"], entity=["sensei"],
+                           ts="2026-10-08T10:00:00+08:00", event_seq=[3]))
+    targets, strangers = link_entity_refs(st, nid, ts="2026-10-08T21:00:00+08:00")
     assert targets == ["x0001"] and strangers == [], (targets, strangers)
     assert st.graph().targets(nid, "about") == ["x0001"]
-    assert st.get(nid).tags == ["公园", "#entity:老师"], st.get(nid).tags
+    assert st.get(nid).entity == ["老师"], st.get(nid).entity
+    assert st.get(nid).tags == ["公园"], "tags 一个字都不该被碰"
     # 幂等: 再跑一遍不变、不重复落边
-    link_entity_tags(st, nid, ts="2026-10-08T21:00:00+08:00")
+    link_entity_refs(st, nid, ts="2026-10-08T21:00:00+08:00")
     assert len(st.graph().targets(nid, "about")) == 1
     # 陌生人: 原样留着 + 报上来 + 不落边
     nid2 = st.add(make_node("episode", text="第一次见到小玉", title="相遇",
-                            tags=["#entity:小玉"], ts="2026-10-08T11:00:00+08:00"))
-    t2, s2 = link_entity_tags(st, nid2)
+                            entity=["小玉"], ts="2026-10-08T11:00:00+08:00"))
+    t2, s2 = link_entity_refs(st, nid2)
     assert t2 == [] and s2 == ["小玉"], (t2, s2)
-    assert st.get(nid2).tags == ["#entity:小玉"]
+    assert st.get(nid2).entity == ["小玉"]
     print("    落边: 归一 + 幂等 + 陌生人留档 ✓")

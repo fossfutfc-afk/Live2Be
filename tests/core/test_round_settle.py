@@ -105,10 +105,10 @@ def test_stranger_tag_is_recognized_and_the_edge_is_backfilled(tmp_path):
     new_id = res.created_entities[0]
     assert st.get(new_id).kind == "entity" and st.get(new_id).name == "小玉"
     assert st.get(new_id).aliases == ["tama"]
-    # ⭐ **闭环**: 那条经历现在挂到了新对象上, 而且 tag 归一成了主名
+    # ⭐ **闭环**: 那条经历现在挂到了新对象上, 而且引用归一成了主名
     ep = st.get(res.created[0])
     assert st.graph().targets(ep.id, "about") == [new_id], "补边没落上"
-    assert "#entity:小玉" in ep.tags and "#entity:tama" not in ep.tags, ep.tags
+    assert ep.entity == ["小玉"] and ep.tags == ["转角"], (ep.entity, ep.tags)
     print(f"    认人: {res.created_entities} · {ep.id} → about → {new_id}")
 
 
