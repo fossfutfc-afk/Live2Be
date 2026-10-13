@@ -15,9 +15,14 @@
 import sys
 from pathlib import Path
 
-from contract.digest_parse import _split_tags
-from contract.digest_registry import digest_registry
-from contract.digest_tables import ENTITY_TAG_PREFIX, ENTITY_TAGS_MAX, MAX_TAGS, PHASE_RECORD
+from contract.digest import (
+    ENTITY_TAG_PREFIX,
+    ENTITY_TAGS_MAX,
+    MAX_TAGS,
+    PHASE_RECORD,
+    digest_registry,
+)
+from contract.digest.parse import _split_tags
 from core.brain import WikiStoreV2, make_node
 from core.brain.entities import ensure_entities, find_entity, hit_set, normalize_entity_tags, surface_forms
 from core.digest.episodes import _create_a_nodes
@@ -264,7 +269,7 @@ def test_belief_stranger_address_stays_and_is_reported(tmp_path):
 
 def test_belief_contract_speaks_the_address_slot():
     """契约正文与示例都要有它, 并写清与 `subject` 的**分工**（不然她会写混）。"""
-    from contract.digest_tables import PHASE_COGNIZE
+    from contract.digest import PHASE_COGNIZE
 
     text = digest_registry.build_schema(PHASE_COGNIZE)
     assert ENTITY_TAG_PREFIX in text, "belief 的契约里没有 `#entity:`"

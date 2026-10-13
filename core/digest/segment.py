@@ -194,7 +194,7 @@ def _collapse_bond_episodes(entries: list[dict], chapters: list[dict], *,
                             dropped_out: list[dict] | None = None) -> list[dict]:
     """**按章**收口: 每一章只留 1 条 —— "一章一件事"的引擎侧兜底（⛔ 丢的是**切片**）。
 
-    契约在 `contract/digest_docs._DOMAIN_CONTRACT`（提示词侧）；这里是
+    契约在 `contract/digest/docs.py` 的 `_DOMAIN_CONTRACT`（提示词侧）；这里是
     **确定性兜底**: 提示词没压住时留一条, 其余丢弃, 并留一行 `WARNING`（可 grep）
     —— 免得契约被违反是**静默**的。
 

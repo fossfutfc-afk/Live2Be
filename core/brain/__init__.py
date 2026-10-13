@@ -38,9 +38,10 @@
 ⭐ **本包的三条边界**（2026-09-29 两次搬家之后）:
 1. **写路径**（`store` / `graph` / `revise` / `groups` / `notes` / `entities`）与
    **读路径**（`read/`）分家 —— 读路径**只读不写图**, 谁要写就走写路径那几件。
-2. **零 LLM**: 本包不 import `llm` / `contract.digest_registry` / `core.session` 的编排件
+2. **零 LLM**: 本包不 import `llm` / `core.digest` / `core.session` 的编排件
    ⇒ digest 管线（要那三样）搬去了 **`core/digest/`**; 她视图里的 `digest_segment`
-   从 `core.digest` 取。
+   从 `core.digest` 取。⚠️ 契约层只许取**纯值常量**（`contract.digest` 的
+   `ENTITY_TAG_PREFIX` 那种）, 不许取 schema 渲染与动作注册表。
 3. `marks.py` 是**她眼前那一行字**的唯一实现 —— 别的模块只许调它, 不许手写括号
    （守门 `tests/core/test_marks_guard.py`）。
 """

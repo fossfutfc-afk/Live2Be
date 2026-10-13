@@ -21,7 +21,7 @@ import time
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
-from contract.digest_registry import digest_registry
+from contract.digest import digest_registry
 from core.digest.llm_call import llm_chat
 from core.digest.rounds import RoundSpec, budget_of
 from llm.client import feedback

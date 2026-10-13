@@ -17,7 +17,7 @@
 """
 from dataclasses import dataclass
 
-from contract.digest_tables import (
+from contract.digest.tables import (
     ABSTRACT_MAX,
     PHASE_COGNIZE,
     PHASE_RECORD,

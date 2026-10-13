@@ -1,35 +1,25 @@
-"""digest 域注册表 —— LLM 契约层的**装配与渲染**（结构校验在 `digest_parse`）。
+"""digest 注册表 —— **建表 + 渲染 LLM 可见的那份 schema**。
 
-digest 从前是"数据产出"风格: 手写 schema（LLM 可见面）与 `revise.py` 手写校验（runtime
-接受面）**两处双写**, 漂移源。现在是动作注册表: **一份文档一份 spec**, 同一份 spec 驱动两层——
-    ① `build_schema(phase)` → 注入 prompt 的输出格式文本（约束内联在字段旁, A-MEM Ps1 式:
-                              规则贴着字段写, 不散成散文）
-    ② `parse_*`             → 结构校验（宁缺勿错, 逐条报错; 内容质量只 warning 不阻断,
-                              引用级 / 图语义再往上一层交给引擎执行层）
+`DigestRegistry` 把 `contract.digest.docs` 里的**文档定义**装成表, 再按相位渲染成注入
+prompt 的输出格式文本（约束内联在字段旁, A-MEM Ps1 式: 规则贴着字段写, 不散成散文）。
 
-四个模块的分工（`contract/digest_*`）:
-    `digest_tables`  值表 —— 相位名 / 上限 / 取值域 / 日期格式（只有机器读）
-    `digest_docs`    文案与文档定义 —— LLM 看得见的每一个字, 每个字段只写一遍
-    `digest_parse`   七个相位的结构校验（七个入口都只是函数, 一处 `self` 都不用）
-    本模块           建表 + 渲染; 七个 `DigestRegistry.parse_*` 是**薄委托**（转交到
-                     `digest_parse`）—— 留着是为了 `ROUNDS` 与测试那几十处调用点不用改
+七个 `parse_*` 是**薄委托**: 实现在 `contract.digest.parse`, 留着是为了 `ROUNDS` 与测试
+那几十处 `digest_registry.parse_x(...)` 的调用点不用改。
 
-⚠️ **加载顺序**（从前是个环, 1b-2b 拆没了）: tables → docs → parse → 本模块, 单向。
-   所以这里的 import 全在模块级; 从前那七个函数内 import 是为了绕开
-   `parse → 常量 → registry` 的环, 常量搬去 `digest_tables` 之后不再需要。
+⛔ 各相位的**框架散文**（"relations 规则: "那几段）仍在本模块的 `build_schema` 里 ——
+它们与渲染顺序绑在一起; 外移到 `llm/prompts/*.md` 是批次 1c。
 
-引擎执行层 = `core/digest/pipeline.py`（编排）+ `core/brain/revise.py` / `groups.py`（各轮
-执行器）。⭐ **轮次真源 = `core/digest/rounds/__init__.py` 的 `ROUNDS`**（key / 步序 /
-LLM 身份 / prompt / 相位 / parse / 料 / 写什么 / 跳过 / 预算一处说全）—— 本文件从前那段
-手抄的分轮表已删: 它写着"两轮 digest / 每段 5 轮", 早就不成立了。
+引擎执行层 = `core/digest/pipeline.py`（编排）+ `core/brain/revise.py` / `groups.py`。
+⭐ **轮次真源 = `core/digest/rounds/__init__.py` 的 `ROUNDS`**（key / 步序 / LLM 身份 /
+prompt / 相位 / parse / 料 / 写什么 / 跳过 / 预算一处说全）。
 """
 from __future__ import annotations
 
 import textwrap
 from typing import Any
 
-import contract.digest_parse as digest_parse
-from contract.digest_docs import (
+import contract.digest.parse as digest_parse
+from contract.digest.docs import (
     _DOMAIN_CONTRACT,
     _RECORD_CONTRACT,
     ABSTRACT_SEMANTICS,
@@ -41,7 +31,7 @@ from contract.digest_docs import (
     STATE_SEMANTICS,
     DigestAction,
 )
-from contract.digest_tables import (
+from contract.digest.tables import (
     MAX_COGNITIONS,
     PHASE_ATTRIBUTE,
     PHASE_COGNIZE,
@@ -385,7 +375,7 @@ class DigestRegistry:
         raise ValueError(f"未知 digest phase: {phase!r}")
     # ------------------------------------------------------------------
     # 解析（结构校验; 引用级/图语义在引擎执行层）
-    # ⚠️ **实现在 `contract.digest_parse`** —— 这里只留薄委托，让 `ROUNDS` 与测试里
+    # ⚠️ **实现在 `contract.digest.parse`** —— 这里只留薄委托，让 `ROUNDS` 与测试里
     #    那几十处 `digest_registry.parse_x(...)` 的调用点不用改。
     #    （1b-2a 时这七个委托用的是**函数内 import**，为了绕开
     #     `parse → 常量 → 本模块` 的环; 1b-2b 把常量搬去 `digest_tables` 之后环没了,
@@ -394,7 +384,7 @@ class DigestRegistry:
 
     def parse_round_a(self, raw: Any, *, seq_set: set[int] | None = None
                       ) -> tuple[list[dict], ValidationResult]:
-        """实现在 `contract.digest_parse.parse_round_a`（本模块只转交）。"""
+        """实现在 `contract.digest.parse.parse_round_a`（本模块只转交）。"""
         return digest_parse.parse_round_a(raw, seq_set=seq_set)
 
     def parse_relations(self, raw: Any, *, episode_ids: set[str] | None = None,
@@ -402,7 +392,7 @@ class DigestRegistry:
                         topics_of: dict[str, list[str]] | None = None,
                         kind_of: dict[str, str] | None = None,
                         ) -> tuple[list[dict], ValidationResult]:
-        """实现在 `contract.digest_parse.parse_relations`（本模块只转交）。"""
+        """实现在 `contract.digest.parse.parse_relations`（本模块只转交）。"""
         return digest_parse.parse_relations(raw, episode_ids=episode_ids, target_ids=target_ids, topics_of=topics_of, kind_of=kind_of)
 
     def parse_cognitions(self, raw: Any, *,
@@ -411,31 +401,31 @@ class DigestRegistry:
                          group_ids: set[str] | None = None,
                          kind_of: dict[str, str] | None = None,
                          ) -> tuple[list[dict], ValidationResult]:
-        """实现在 `contract.digest_parse.parse_cognitions`（本模块只转交）。"""
+        """实现在 `contract.digest.parse.parse_cognitions`（本模块只转交）。"""
         return digest_parse.parse_cognitions(raw, evidence_ids=evidence_ids, cognition_ids=cognition_ids, group_ids=group_ids, kind_of=kind_of)
 
     def parse_split(self, raw: Any, *, seq_set: set[int] | None = None,
                     note_ids: set[str] | None = None,
                     overdue_ids: set[str] | None = None,
                     ) -> tuple[list[dict], ValidationResult]:
-        """实现在 `contract.digest_parse.parse_split`（本模块只转交）。"""
+        """实现在 `contract.digest.parse.parse_split`（本模块只转交）。"""
         return digest_parse.parse_split(raw, seq_set=seq_set, note_ids=note_ids, overdue_ids=overdue_ids)
 
     def parse_group(self, raw: Any, *, block_ids: set[str]
                     ) -> tuple[list[dict], ValidationResult]:
-        """实现在 `contract.digest_parse.parse_group`（本模块只转交）。"""
+        """实现在 `contract.digest.parse.parse_group`（本模块只转交）。"""
         return digest_parse.parse_group(raw, block_ids=block_ids)
 
     def parse_attribution(self, raw: Any, *, known_names: set[str] | None = None,
                           ) -> tuple[list[dict], ValidationResult]:
-        """实现在 `contract.digest_parse.parse_attribution`（本模块只转交）。"""
+        """实现在 `contract.digest.parse.parse_attribution`（本模块只转交）。"""
         return digest_parse.parse_attribution(raw, known_names=known_names)
 
     def parse_round_b(self, raw: Any, *, episode_ids: set[str],
                       target_ids: set[str],
                       link_ids: set[str] | None = None,
                       ) -> tuple[list[dict], ValidationResult]:
-        """实现在 `contract.digest_parse.parse_round_b`（本模块只转交）。"""
+        """实现在 `contract.digest.parse.parse_round_b`（本模块只转交）。"""
         return digest_parse.parse_round_b(raw, episode_ids=episode_ids, target_ids=target_ids, link_ids=link_ids)
 
 
