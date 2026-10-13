@@ -1,20 +1,25 @@
-"""settle.py — ④ R3「认人」: 她写下的**陌生名字** ⇒ 建一个新的 `entity`。
+"""settle.py — ④「沉淀」: 认人（建**长期对象**）+ 改名 / 写看法（⏸ 后两件待接线）。
 
-⭐ **2026-10-08（E4）重定义**: 这一轮从"归属 + 载荷维护"（`attach`/`new_entity`/`rewrite`
-三动作）缩成**只认人**。判据 = `docs/DESIGN_ENTITY_TAGS.md`:
-  · 她只在**写节点时**在 `tags` 里带 `#entity:名字`（R1 写经历 · L2 写看法）;
-  · 引擎按那个标记落 `about` 边（`revise.link_entity_tags`）—— **解析不到的**原样留着;
-  · 那些"解析不到的"就是这一轮的**全部输入** ⇒ **没有陌生人 ⇒ 一次调用都不发**;
-  · 建完对象**回头补边**: 本段那些 `#entity:<新名字>` 现在解析得到了 ⇒ 落边 + 归一
-    （同一段内闭合, 零 LLM）。
+⭐ **2026-10-13 改名 + 扩职**（`attribute` → `settle`）—— **这一轮的活分三截落地**:
+  · **命名**: 相位 / prompt 文件名 / 任务标签 / 日志前缀全跟着 key 派生（见 `tables.PHASE_SETTLE`）✅ 已落;
+  · **文案与料**: 契约与 llm prompt 扩成"认人 + 改名 / 写看法", 并新增料
+    【这一段认下的对象】（`material.settle_objects_block`）✅ 已落;
+  · ⏸ **执行**: `_strangers` / `apply_entities` 今天**仍只认人** —— 她这一趟若写
+    `{"id": …, "text" / "name": …}` 的行, 契约层会**静默丢掉**（下一半补 `allowed_names`
+    闭环 + `parse_attribution` 的两路 + `revise.apply_stances` + `text_seq` 水位）。
 
-⛔ **它不写正文**: entity 的"印象 / 现状"归 **belief**（`DESIGN_ENTITY_TAGS §6.1` ——
-`entity.text` 那一格今天没有读者, 而 note 那条路已被 `on_mind`/`habits` 的退役判据封死）。
+⭐ **它为什么排在最后**: 要看到**本段全部新节点**（R1 的经历 + L2 的看法）—— 陌生名字可能
+第一次出现在任何一条里; 而"写看法"同样要看到这一段**全部**提到过它的地方。
+⚠️ **它只动 `entity` 与 `about` 边**, 一个字都不写进 episode / belief。
+⚠️ **料里没有本地号**: `entity` 用**真身**（`x0001` —— 与 L1 的对象端同一个印法,
+`object_lines` 也是真身）, ⛔ 不引第三套本地号（`payload_block` 的老 docstring 记着那个病:
+同一批对象印两套 id ⇒ 同一个人的两行被当成两个人）。
 
-⚠️ **为什么它排在最后**: 它要看到**本段全部新节点**（R1 的经历/画像 + L2 的看法）——
-陌生名字可能第一次出现在任何一条里。
-⚠️ **料里没有本地号**: 她只写名字（`reason` 是准入门槛）—— 旧的 `c0001`/`u0001` 两套本地号
-随 `attach`/载荷一起退休（"挂谁"这件事已经归 `tags` 了）。
+⛔ **一条旧判据已作废**（别把它捡回来）: 本文件从前写着"**它不写正文**: `entity.text` 那一格
+今天没有读者 ⇒ 印象归 belief"（`DESIGN_ENTITY_TAGS §6.1`）—— **那条理由 2026-10-12 就死了**:
+名表现在每轮印 `- 主名：看法`（`render._known_line`）, 它是**每轮都在的**读者。
+⇒ 分工改成**粒度**问题: `belief` = 一条**结论**（有 `supports` 边、能进化 / 打架）;
+`entity.text` = 对**这一个人**的一句话总览（单槽改写 ⇒ 要防漂, 见契约里那三条）。
 """
 from __future__ import annotations
 
@@ -22,7 +27,7 @@ import logging
 
 from core.brain.entities import find_entity, object_lines, strangers_block, surface_forms
 from core.brain.revise import apply_entities, link_entity_tags
-from core.digest.material import _node_texts
+from core.digest.material import _node_texts, settle_objects_block
 from core.digest.rounds.base import Ctx, RoundOut
 
 logger = logging.getLogger(__name__)
@@ -67,11 +72,13 @@ def run(ctx: Ctx) -> RoundOut:
     #    再挡一道 ⇒ 这里只是"早一步、友好地"丢行, 差别只在台账那一笔。
     known = {f.casefold() for n in ctx.store.all() if n.kind == "entity"
              for f in surface_forms(n)}
-    obj_text, _obj_ids = object_lines(ctx.store, texts=_node_texts(ctx.store, ids))
+    obj_text, _obj_ids = settle_objects_block(ctx.store, ids, now=ctx.now_ts)
+    have_text, _have_ids = object_lines(ctx.store, texts=_node_texts(ctx.store, ids))
     system = ctx.system_for(spec)
     user = ctx.sections_for(spec, [
-        ("要认的名字", strangers_block(ctx.store, ids, strangers)),
-        ("已有的对象", obj_text or "（还没有任何对象）"),
+        ("这一段认下的对象", obj_text),
+        ("她写了、但库里还没有的名字", strangers_block(ctx.store, ids, strangers)),
+        ("已有的对象", have_text or "（还没有任何对象）"),
         ("角色人设（锚点）", ctx.character_prompt),
     ])
     rows, _resp = ctx.call(spec, system, user,

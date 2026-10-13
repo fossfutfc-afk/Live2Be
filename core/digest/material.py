@@ -510,6 +510,99 @@ def _episode_candidates(store: WikiStoreV2, episode_ids: list[str], *,
 
 
 # ---------------------------------------------------------------------------
+# settle 的料 —— 「这一段认下的对象」（2026-10-13, 那一轮从"只认人"扩成"认人 + 写看法"）
+# ---------------------------------------------------------------------------
+
+#: settle 的「这一段认下的对象」**摆几个** —— ⚠️ 它是**标尺不是硬闸**（超出只截 + 明说还有几个）。
+#: 3 = 一段里她不可能对十个人改观, 而每个对象四五行的料不短。
+DIGEST_SETTLE_OBJECTS = 3
+#: 每个对象最多印几条「这一段它出现的地方」（同 `DIGEST_L2_MEMBERS` 的量级）。
+DIGEST_SETTLE_REFS = 3
+
+
+def settle_objects_block(store, ids, *, now="", body: int = 110) -> tuple[str, list[str]]:
+    """【这一段认下的对象】—— settle **写看法**那一半的唯一依据（2026-10-13）。
+
+    来源 = 本段新节点（`ids`）里那些**解析得到的引用** = `about` 边的 `dst`。
+    ⛔ **不是"库里全体对象"**（那是名字表: 印不下, 也不必印 —— 她只该改**这一段提到过的**）。
+
+    每个对象印::
+
+        x0001 老师（sensei）
+          立场: 老师是第一个不会嫌弃我的人        ← 现 text; 空 ⇒ （还没写过）
+          这一段它出现的地方:
+            〔m0031｜《和老师的公园散步》｜3 天前｜10/10〕…正文…
+            〔u0002｜belief｜被引 1〕老师会把我随口说的话记住
+          正文里还提到过它 1 次（没标引用）        ← ⭐ 只当提示
+          共出现 3 次（第一次在 2 周前）           ← 它的**引用面**（全部 `about` 入边）
+
+    ⚠️ **两个提示的分工**（用户 2026-10-13 裁"两个都印"）:
+      · 「正文里还提到过它 N 次（没标引用）」= 引擎扫**本段正文**数出来的 —— 真机实测
+        "老师" **21/21 恒真、零区分力**（`DESIGN_ENTITY_TAGS §6.3`）⇒ 它**只能当提示**:
+        正文里出现一个称呼 ≠ "这条记忆是关于它的";
+      · 「共出现 N 次（第一次在 …）」= **她认过的引用面**（`about` 入边数 + 最早那条的时间）
+        —— 这一条才是**可依据的**（她自己在写节点时标过"这条涉及谁"）。
+    ⚠️ `（还没写过）` **不是错**: 出厂只给 `interperson.yml` 里的人装立场, 真机
+      `老师`/`杂草屋`/`夏莱` 三条里就有空的 —— 那只是"她还没想过这个人"。
+
+    Returns: `(文本, 印出来的那些对象的真身 id —— 一一对应)`。
+    空 ⇒ 印一句**为什么空**（P6 的口径: 空串会被 `_join_sections` 连抬头一起吞掉）。
+    """
+    from core.brain.entities import _body_hits, entity_label, form_key, surface_forms
+
+    seg = [str(i) for i in ids]
+    segset = set(seg)
+    edges = list(store.edges())
+    graph = store.graph()
+    refs: list[str] = []
+    for e in edges:
+        if str(e.rel) == "about" and str(e.src) in segset and str(e.dst) not in refs:
+            refs.append(str(e.dst))
+    if not refs:
+        return "（这一段没有提到任何认识的对象 —— 写看法那半这趟没有依据）", []
+
+    texts_key = [form_key(t) for nid in seg
+                 for t in ((getattr(store.get(nid), "text", "") or ""),
+                           (getattr(store.get(nid), "title", "") or ""))]
+    shown: list[str] = []
+    out: list[str] = []
+    for eid in refs[:max(int(DIGEST_SETTLE_OBJECTS), 0)]:
+        node = store.get(eid)
+        if node is None:
+            continue
+        shown.append(eid)
+        out.append(entity_label(node))
+        text = str(node.text or "").strip()
+        out.append(f"  立场: {text}" if text else "  立场: （还没写过）")
+        mine = [nid for nid in seg
+                if any(str(e.rel) == "about" and str(e.src) == nid and str(e.dst) == eid
+                       for e in edges)]
+        out.append("  这一段它出现的地方:")
+        for nid in mine[:max(int(DIGEST_SETTLE_REFS), 0)]:
+            src = store.get(nid)
+            if src is None:
+                continue
+            if src.kind == "episode":
+                out.append("    " + _episode_line(store, nid, now=now, body=body))
+            else:
+                head = marks.head(src, key=str(nid), kind=True, now=now,
+                                  extra=[f"被引 {len(graph.supporters(str(nid)))}"])
+                out.append(f"    {head}{_clip(src.text, body)}")
+        unmarked = sum(1 for nid in seg if nid not in mine
+                       and any(_body_hits(f, texts_key) for f in surface_forms(node)))
+        if unmarked:                                   # ⭐ 只当提示（见 docstring）
+            out.append(f"  正文里还提到过它 {unmarked} 次（没标引用）")
+        fans = [str(e.src) for e in edges
+                if str(e.rel) == "about" and str(e.dst) == eid]
+        first = min((getattr(store.get(s), "ts", "") or "" for s in fans), default="")
+        rel = marks.relative(first, now)
+        out.append(f"  共出现 {len(fans)} 次" + (f"（第一次在 {rel}）" if rel else ""))
+    if len(refs) > len(shown):                         # 截了要说（同群块的"还有 N 条没印"）
+        out.append(f"（还有 {len(refs) - len(shown)} 个对象没印 —— 先写印出来的这几个）")
+    return "\n".join(out), shown
+
+
+# ---------------------------------------------------------------------------
 # L2（`cognize`）的料 —— 「被连过的经历」（2026-10-08, P8）
 # ⏸ **2026-10-13: 「本段归类的群」那一半撤出料面**（`group` 退役 ⇒ 它由 `member_of` 喂,
 #    而那条边不再有人落 ⇒ 恒空）。`DIGEST_L2_GROUPS` / `DIGEST_L2_MEMBERS` /

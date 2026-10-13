@@ -2,7 +2,7 @@
 
 这一轮从"归属 + 载荷维护"（三动作）缩成**只认人**。钉六件事:
     ① ⭐ **事件驱动**: 本段**没有**解析不到的 `#entity:` ⇒ **一次调用都不发**;
-    ② ⭐ **料**: 【要认的名字】（含它出现在哪几条）+【已有的对象】+ 人设 —— 没有本地号;
+    ② ⭐ **料**: 【她写了、但库里还没有的名字】（含它出现在哪几条）+【已有的对象】+ 人设 —— 没有本地号;
     ③ ⭐ **闭环**: 建出对象之后, 引擎**回头补边**（`about` 落上 + tag 归一成主名）;
     ④ **准入门槛**: `reason` 必填 · `name` 空 ⇒ 丢行（不建）;
     ⑤ **不重复建**: 提案一个【已有的对象】里有的名字 ⇒ 丢行（同一个人只有一个对象）;
@@ -91,7 +91,7 @@ def test_stranger_tag_is_recognized_and_the_edge_is_backfilled(tmp_path):
     r1_user = llm.user_of(T.DIGEST_RECORD)
     assert "【已有的对象】" in r1_user and "x0001 老师" in r1_user, r1_user
     user = llm.user_of(T.DIGEST_SETTLE)
-    for title in ("【要认的名字】", "【已有的对象】", "【角色人设（锚点）】"):
+    for title in ("【她写了、但库里还没有的名字】", "【已有的对象】", "【角色人设（锚点）】"):
         assert title in user, (title, user)
     assert "小玉" in user and res.created[0] in user, user      # 名字 + 它出现在哪一条
     # ⭐ 建出来了
