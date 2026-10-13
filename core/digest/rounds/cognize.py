@@ -79,10 +79,10 @@ def run(ctx: Ctx) -> RoundOut:
     ctx.result.soaked_groups = list(res.soaked)
     # 观测账（可 grep）: 这一趟干了什么 —— 与 P6 的 `digest_relate` 同一个口径
     # （`dropped=` 取**调用前后** `contract_drops` 的差, ⛔ 不靠中文子串匹配）
-    logger.info("digest_cognize rows=%d beliefs=%d reused=%d edges=%d soaked=%d "
+    logger.info("digest_cognize rows=%d beliefs=%d reused=%d edges=%d akin=%d soaked=%d "
                 "dropped=%d strangers=%s",
                 len(rows), len(res.created), len(res.reused),
-                len(res.edges), len(res.soaked),
+                len(res.edges), res.akin_joined, len(res.soaked),
                 len(ctx.result.contract_drops) - drops_before,
                 res.strangers or "-")
     return RoundOut.done()

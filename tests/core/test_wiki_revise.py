@@ -14,6 +14,7 @@ from core.brain import WikiStoreV2, make_node
 from core.brain.entities import ensure_entities
 from core.brain.evolution import EvolutionLog
 from core.brain.revise import (
+    AKIN_JOIN_MAX,
     apply_cognitions,
     apply_entities,
     link_entity_refs,
@@ -169,6 +170,156 @@ def test_apply_cognitions_keeps_its_hands_off_everything_else(tmp_path):
     assert all(after[k] == v for k, v in nodes_before.items()), "已有节点一个字都不许改"
     assert len(st.graph().edges) == edges_before + 1, "只多了那一条证据边"
     assert [n.id for n in st.all() if n.kind == "experience"] == [], "⛔ 不建类"
+
+
+# ---------------------------------------------------------------------------
+# ⭐ 2026-10-13 —— L2 的 `akin` 并边: "一类事"那个门槛**换载体**（零 LLM）
+# ---------------------------------------------------------------------------
+
+def _graph(tmp_path) -> WikiStoreV2:
+    """一张干净的图（只有本测试自己建的经历 —— `_store` 那四条固定节点不掺进来）。"""
+    return WikiStoreV2(tmp_path, world_id="world1", char_id="igusa_haruka")
+
+
+def _ep(st, text, ts="2026-10-01T10:00:00+08:00"):
+    """一条**本段**的经历（`event_seq` 与这一段相交 —— 只有它当得了证据）。"""
+    return st.add(make_node("episode", text=text, event_seq=[3], ts=ts))
+
+
+def _belief_row(supports, **kw):
+    return dict({"action": "belief", "text": "老师总会记得我爱吃什么",
+                 "supports": list(supports)}, **kw)
+
+
+def test_akin_neighbours_join_the_belief_evidence(tmp_path):
+    """⭐ 她点名一条经历 ⇒ 引擎把它的**一跳 `akin` 邻居**也并成这条看法的证据。
+
+    这是 `experience`（"一类事"）退役之后**那个门槛的新载体**（用户 2026-10-13 裁:
+    "门槛不废换载体 —— `akin` 簇直接对着 belief"）: 从前"一群同类经历 → 一条沉淀",
+    今天"一群同类经历 → 一条看法", 而"一群"由**她自己认过的 `akin`** 说了算。
+    ⚠️ 并进来的边与她亲手点的**在图里同形**（用户已接受这个代价）⇒ 唯一分得出的是
+    变更史里那一条多带的 `"via": "akin"`。
+    """
+    st = _graph(tmp_path)
+    ev = _ep(st, "老师请我吃甜点")
+    old = _ep(st, "更早的一次甜点", ts="2026-09-01T10:00:00+08:00")
+    lonely = _ep(st, "一个人看苔藓")                 # 没被认过"像" ⇒ 不该进来
+    st.save()
+    st.add_edge("akin", ev, old)
+
+    res = apply_cognitions(st, [_belief_row([ev])],
+                           ts="2026-10-08T21:00:00+08:00", event_seq=[3])
+    nid = res.created[0]
+    assert st.graph().supporters(nid) == [ev, old], st.graph().supporters(nid)
+    assert lonely not in st.graph().supporters(nid)
+    assert res.akin_joined == 1, res.akin_joined
+    # 账: 她点的那条**没有** `via`; 引擎并进来的那条有
+    rel = [e for e in _log(st).read() if e.get("action") == "relate"]
+    assert [(e["from"], e.get("via")) for e in rel] == [(ev, None), (old, "akin")], rel
+
+
+def test_akin_join_reads_both_directions(tmp_path):
+    """⚠️ **两个方向都得查**: `akin` 对称, 而 `store.add_edge` 会把它归一到"id 小的当 `src`"
+    ⇒ 只查一个方向**必然漏一半**, 漏哪一半取决于**字典序**（不是语义）。
+    """
+    st = _graph(tmp_path)
+    first = _ep(st, "先建的那条")                    # m0001 —— 规范化之后它当 src
+    anchor = _ep(st, "后来那条（被她点名的）")        # m0002
+    st.save()
+    st.add_edge("akin", first, anchor)              # 写的时候 anchor 落在 dst
+
+    res = apply_cognitions(st, [_belief_row([anchor])],
+                           ts="2026-10-08T21:00:00+08:00", event_seq=[3])
+    assert st.graph().supporters(res.created[0]) == [anchor, first]
+    assert res.akin_joined == 1, res.akin_joined
+
+
+def test_akin_join_stops_at_the_cap(tmp_path):
+    """额度 `AKIN_JOIN_MAX`（**每条看法**）—— 超了就少并几条（⛔ 不报错、不重试）。"""
+    st = _graph(tmp_path)
+    ev = _ep(st, "锚")
+    others = [_ep(st, f"同类第 {i} 条") for i in range(AKIN_JOIN_MAX + 1)]
+    st.save()
+    for o in others:
+        st.add_edge("akin", ev, o)
+
+    res = apply_cognitions(st, [_belief_row([ev])],
+                           ts="2026-10-08T21:00:00+08:00", event_seq=[3])
+    assert res.akin_joined == AKIN_JOIN_MAX, res.akin_joined
+    got = st.graph().supporters(res.created[0])
+    assert len(got) == 1 + AKIN_JOIN_MAX, got
+    assert others[-1] not in got, "第 N+1 条该被额度挡住（按边的建立序取前 N 条）"
+
+
+def test_akin_join_leaves_the_fighting_ones_out(tmp_path):
+    """打架的证据**不共撑一个结论** —— 一条规则管住三种情形:
+
+      ① 跟**这条看法**打架的（行里的 `contradicts`）
+      ② 跟**她点的证据**打架的
+      ③ **两条候选互相打架**的（先并进来的那条把后来的挡在门外）
+    """
+    st = _graph(tmp_path)
+    ev = _ep(st, "锚")
+    fights_belief = _ep(st, "跟看法打架的")
+    fights_evidence = _ep(st, "跟证据打架的")
+    cand_a = _ep(st, "候选甲")
+    cand_b = _ep(st, "候选乙（跟甲打架）")
+    st.save()
+    for x in (fights_belief, fights_evidence, cand_a, cand_b):
+        st.add_edge("akin", ev, x)
+    st.add_edge("contradicts", ev, fights_evidence)
+    st.add_edge("contradicts", cand_a, cand_b)
+
+    res = apply_cognitions(st, [_belief_row([ev], contradicts=["u0001"])],
+                           id_map={"u0001": fights_belief},
+                           ts="2026-10-08T21:00:00+08:00", event_seq=[3])
+    got = st.graph().supporters(res.created[0])
+    assert fights_belief not in got, f"① 跟看法打架的不算证据: {got}"
+    assert fights_evidence not in got, f"② 跟证据打架的不算证据: {got}"
+    assert cand_a in got and cand_b not in got, f"③ 互相打架的只留先来的: {got}"
+
+
+def test_akin_join_is_one_hop_and_never_snowballs_on_a_rerun(tmp_path):
+    """两条纪律合起来钉:
+
+      ① **只走一跳**（`walk.py` 那条: 真机那个 `akin` 簇**两跳就串到别的簇**去了）;
+      ② **重跑不滚雪球** —— 起点**只有她写的那几条**, ⛔ 不拿上一趟并进来的当起点
+         （否则崩溃窗口重跑每跑一次就往外多一圈, 而 `supports` 本该是幂等的）。
+    """
+    st = _graph(tmp_path)
+    ev = _ep(st, "锚")
+    mid = _ep(st, "一跳的邻居")
+    far = _ep(st, "两跳的那条")
+    st.save()
+    st.add_edge("akin", ev, mid)
+    st.add_edge("akin", mid, far)
+    row = _belief_row([ev])
+
+    first = apply_cognitions(st, [dict(row)],
+                             ts="2026-10-08T21:00:00+08:00", event_seq=[3])
+    nid = first.created[0]
+    assert st.graph().supporters(nid) == [ev, mid]
+    assert far not in st.graph().supporters(nid), "两跳的不许进来"
+
+    again = apply_cognitions(st, [dict(row)],
+                             ts="2026-10-08T21:00:00+08:00", event_seq=[3])
+    assert again.reused == [nid], again.reused
+    assert st.graph().supporters(nid) == [ev, mid], "重跑不长新边"
+
+
+def test_akin_join_only_takes_episodes(tmp_path):
+    """防御: `akin` 契约上是 ep↔ep, 但执行层**不靠契约活着**（旧档里什么都有）——
+    邻居不是经历就不并（⛔ 一条看法撑不起另一条看法的"证据"）。"""
+    st = _graph(tmp_path)
+    ev = _ep(st, "锚")
+    old_belief = st.add(make_node("belief", text="一条旧看法", event_seq=[1]))
+    st.save()
+    st.add_edge("akin", ev, old_belief)             # 契约上不该出现
+
+    res = apply_cognitions(st, [_belief_row([ev])],
+                           ts="2026-10-08T21:00:00+08:00", event_seq=[3])
+    assert st.graph().supporters(res.created[0]) == [ev]
+    assert res.akin_joined == 0, res.akin_joined
 
 
 # ---------------------------------------------------------------------------

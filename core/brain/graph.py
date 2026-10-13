@@ -286,6 +286,39 @@ def canonical_for(rel: str, src: str, dst: str) -> tuple[str, str]:
     return canonical_pair(src, dst) if rel in SYMMETRIC_RELS else (src, dst)
 
 
+def related(edges: Iterable[Edge], nid: str, rel: str) -> list[str]:
+    """⭐ **对称 rel 的一跳对端**（两个方向都算, 按传入的边序 = **建立序**, 去重保序）。
+
+    ⚠️ **为什么必须有它**: `akin` / `contradicts` 是**对称**的, 但存进去时被
+    `canonical_for` 归一到"id 小的当 `src`" ⇒ 只查 `targets`（或只查 `sources`）
+    **必然漏一半**, 而漏的是哪一半取决于两个 id 的**字典序**, 不是语义。
+    （真机后果: 她认过的相似时灵时不灵 —— 连"看起来像不像"都做不到。）
+    ⛔ **有向 rel 别用它**: 那会把方向语义抹平（`supports` 的"谁支撑谁"就没了）。
+    """
+    out: dict[str, None] = {}
+    for e in edges:
+        if e.rel != rel:
+            continue
+        if e.src == nid:
+            out.setdefault(e.dst, None)
+        elif e.dst == nid:
+            out.setdefault(e.src, None)
+    return list(out)
+
+
+def conflicting(edges: Iterable[Edge], a: str, b: str) -> bool:
+    """`a` 与 `b` 之间有没有一条 `contradicts`（**对称 ⇒ 两个方向都算**）。
+
+    ⚠️ 与 `related` 同一个理由: 一条"打架"的边可能把 `a` 存在 `src`、也可能存在 `dst`。
+    """
+    for e in edges:
+        if e.rel != REL_CONTRADICTS:
+            continue
+        if (e.src == a and e.dst == b) or (e.src == b and e.dst == a):
+            return True
+    return False
+
+
 def _edge_ts(meta: dict, src: str, dst: str) -> str:
     """推断边的时刻 —— 取两端 `ts` 中**较晚**的那个（≈ 这条关系形成的时刻）。
 
@@ -504,7 +537,9 @@ __all__ = [
     "canonical_for",
     "canonical_pair",
     "classify_pair",
+    "conflicting",
     "graph_of",
     "infer_edges",
     "iter_edges",
+    "related",
 ]
