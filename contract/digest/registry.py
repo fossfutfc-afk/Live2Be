@@ -160,8 +160,8 @@ class DigestRegistry:
                 '    {"episodes": [',
             ]
             rec = self.actions(PHASE_RECORD)
-            # ⚠️ 从前这里是 `a = self.spec("record_episode")` —— 名字硬编码，改名后
-            # `spec()` 返回 None，报出来是一句难懂的
+            # ⚠️ 这里刻意**按相位取文档**（不是 `spec("record_episode")`）: 名字硬编码的话,
+            # 哪天改了动作名, `spec()` 返回 None, 报出来的是一句难懂的
             # `AttributeError: 'NoneType' object has no attribute 'field_schema'`。
             if len(rec) != 1:
                 raise ValueError(err("BadPhaseDocs",
