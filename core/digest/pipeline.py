@@ -84,7 +84,6 @@ from core.digest.rounds import (
     akin,
     attribute,
     cognize,
-    group,
     record,
     relate,
     reset_result,
@@ -107,9 +106,10 @@ IMPL: dict[str, Callable[[Ctx], RoundOut]] = {
     "record": record.run,
     "akin": akin.run,
     "relate": relate.run,
-    "group": group.run,
     "cognize": cognize.run,
     "attribute": attribute.run,       # ⭐ E4: 认人排在**最后**（要看到 L2 的看法）
+    # ⏸ `group`（L2-a 分群）2026-10-13 退役 —— 代码在 `archive/digest_group/`
+    #    （表里那一行也一起摘了; 两处必须同改, 守门用例钉着"一一对应"）。
 }
 
 #: ⭐ **一段最多试几次**（2026-09-29 刀 2）—— 数到就**放弃**这一段（见 `_note_failure`）。
@@ -183,14 +183,9 @@ class DigestResult:
     #: ⏸ ~~R4 物化的 promise 节点 id~~ **2026-09-29 删** —— 承诺退图, R4 不再建节点。
     #: R3 新建的 entity id（`new_entity` 的产物; 归属边在那边一起写）
     created_entities: list[str] = field(default_factory=list)
-    #: ⭐ **L2-a 分群（N7）**: 本段**新建的群节点** id
-    created_groups: list[str] = field(default_factory=list)
-    #: 分群这一步**挂上类**的 episode 数（产出的规模; 0 = 这一段的块都还没成类）
-    grouped_episodes: int = 0
-    #: ⭐ **N7b 并群**: 本段并掉的类 `[(输家 id, 赢家 id), …]`
-    merged_groups: list[tuple[str, str]] = field(default_factory=list)
-    #: 分群这一步的记账（同名并群 / 类名找不到 / 这一步整体失败…）—— **不阻断**
-    group_warnings: list[str] = field(default_factory=list)
+    #: ⏸ ~~`created_groups` / `grouped_episodes` / `merged_groups` / `group_warnings`~~
+    #: **2026-10-13 随 L2-a 分群退役删**（那一轮整族搬 `archive/digest_group/`,
+    #: 这四个字段当时只有它在写、live 侧零读者）。要复活就照那份 README 一起加回来。
     #: ⭐ **L2（`cognize`）新造的看法 id**（P10 接线）—— `apply_cognitions` 的 `created`。
     created_beliefs: list[str] = field(default_factory=list)
     #: ⭐ **幂等命中而复用的看法 id**（崩溃窗口重跑: 同段 `event_seq` 相交且正文相同）。

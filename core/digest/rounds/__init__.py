@@ -7,7 +7,8 @@
     rounds/base.py      Ctx（段级上下文）+ RoundOut（一轮跑完的交代）
     rounds/record.py    ① R1 记        rounds/akin.py       补边（0 LLM）
     rounds/relate.py     ③ L1 接       rounds/attribute.py  ④ R3 挂
-    rounds/group.py      ⑤ L2-a 分群
+    ⏸ ⑤ L2-a 分群（`rounds/group.py` + `core/brain/groups.py`）**2026-10-13 退役**
+      —— 整族搬 `archive/digest_group/`（理由与去向见那份 README）。
     ⏸ ② R4 收口（`rounds/close.py`）**2026-10-05（L8）删** —— 账目归 R0 的表。
 
 ⚠️ 表住在 `__init__` 里, 每轮的**正文**在各自文件里 —— 所以本文件**不 import 任何**
@@ -108,11 +109,12 @@ DIGEST_ROUND_BUDGET_SECONDS = 120.0
 #: `planned_seconds()` 只数 `llm=True` 的轮）⇒ 再多一轮守门当场红。
 #: ⭐ **2026-10-05（L8）: 840 → 600** —— 收口轮删掉, 又回到 5 个 LLM 轮 × 120s。
 #: ⭐ **2026-10-08（P10）: 600 → 720** —— 加上 L2（`cognize`）= 6 个 LLM 轮 × 120s。
-#: ⚠️ **每轮 120s 依然没动**（理由同上一条, 别砍）; 真机最坏墙钟因此从 10 分钟到 12 分钟,
-#: 而**典型路径不变**: `attribute` 还在暂停（跳过 ⇒ 不发调用）⇒ 一段实际最多 5 次调用。
+#: ⭐ **2026-10-13: 720 → 600** —— **`group`（L2-a 分群）退役**（代码搬
+#: `archive/digest_group/`）= 5 个 LLM 轮 × 120s。
+#: ⚠️ **每轮 120s 依然没动**（理由同上一条, 别砍）; 真机最坏墙钟因此回到 10 分钟。
 #: ⚠️ **每轮 120s 没动**（它是按 high 档长考标定的, 砍它会重新制造"前几轮把后几轮
 #: 饿死"那个病; 标定入口 = 真机日志 `llm chat task=digest.… ms=`）。
-DIGEST_SEGMENT_HARD_CAP = 720.0
+DIGEST_SEGMENT_HARD_CAP = 600.0
 
 
 @dataclass(frozen=True)
@@ -279,23 +281,6 @@ ROUNDS: tuple[RoundSpec, ...] = (
         ),
         result_fields=(*CONTRACT_FIELDS,),
         skip="",
-    ),
-    RoundSpec(
-        key="group",
-        step="⑤ 分群（L2-a）",
-        parse=digest_registry.parse_group,
-        material=("还没归类的块", "已有的类", "可能重复的类"),
-        writes=(
-            # `aliases` 是**并群**那条路的产物（输家的名字写进赢家, 名字是地址）。
-            ("experience", ("title", "aliases", "ts")),
-            ("edge", ("member_of",)),
-        ),
-        result_fields=(*CONTRACT_FIELDS, "created_groups", "grouped_episodes",
-                       "merged_groups", "group_warnings"),
-        skip="没有未归群的块, 也没有可能重复的类",
-        # ⭐ 它是**加法**的（块留到下段再来 ⇒ 自愈）: 失败只回滚这一步,
-        # R1–R3 的活照常提交（把"命名没成"升级成"整段记忆全丢"是拿真东西换装饰）。
-        own_snapshot=True,
     ),
     RoundSpec(
         key="cognize",
