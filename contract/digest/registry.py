@@ -22,7 +22,6 @@ from contract.digest.tables import (
     MAX_COGNITIONS,
     PHASE_ATTRIBUTE,
     PHASE_COGNIZE,
-    PHASE_GROUP,
     PHASE_RECORD,
     PHASE_RELATE,
     PHASE_SPLIT,
@@ -31,11 +30,12 @@ from contract.errors import err
 from contract.model import ValidationResult
 
 #: 相位 → 它那份契约文本（`prompts/<名字>.md`）。没有条目 = 这个相位没有契约可渲染。
+#: ⏸ `PHASE_GROUP` 2026-10-13 退役 ⇒ 那一格摘掉（md 搬 `archive/digest_group/group.md`）;
+#:    `parse_group` 与相位名**留着**（老档/回放仍要解析, 见 `tables.PHASE_GROUP`）。
 PHASE_FILES = {
     PHASE_SPLIT: "split",
     PHASE_RECORD: "record",
     PHASE_RELATE: "relate",
-    PHASE_GROUP: "group",
     PHASE_COGNIZE: "cognize",
     PHASE_ATTRIBUTE: "attribute",
 }

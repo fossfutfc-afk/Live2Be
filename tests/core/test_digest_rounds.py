@@ -195,14 +195,15 @@ def test_every_phase_is_a_real_contract_phase():
     from contract.digest import (
         PHASE_ATTRIBUTE,
         PHASE_COGNIZE,
-        PHASE_GROUP,
         PHASE_RECORD,
         PHASE_RELATE,
         PHASE_SPLIT,
         digest_registry,
     )
+    # ⏸ `PHASE_GROUP` 2026-10-13 退役 —— 相位名与 `parse_group` 仍活着（老档要解析）,
+    #    但它不再是一个"能渲染契约的轮", 所以不进这张表。
     real = {PHASE_SPLIT, PHASE_RECORD, PHASE_RELATE,
-            PHASE_ATTRIBUTE, PHASE_GROUP, PHASE_COGNIZE}
+            PHASE_ATTRIBUTE, PHASE_COGNIZE}
     for spec in R.ROUNDS:
         if not spec.llm:
             continue
@@ -289,19 +290,19 @@ def test_sections_check_is_wired():
 # ⑤ 只有一步自带快照 ⑥ 游标不许回头
 # ---------------------------------------------------------------------------
 
-def test_only_the_group_step_carries_its_own_snapshot():
-    """自带快照的只有**加法性的那两步**（分群 + L2 造看法/写沉淀）—— 而且它们排在最后。
+def test_only_the_additive_steps_carry_their_own_snapshot():
+    """自带快照的只有**加法性的那两步**（L2 造看法 · R3 认人）—— 而且它们排在最后。
 
     ⚠️ **2026-10-08（P10 接线）加上了 `cognize`**（用户裁决: L2 也是加法的 —— 失败只丢
-    "新造的看法 / 这一笔沉淀", 经历与边照旧）。判据没放松: 除这两步外, 别的步失败
-    **必须连累整段**（宁缺勿错: 半截记忆比没有记忆坏）。
+    "新造的看法", 经历与边照旧）。⚠️ **2026-10-13 去掉了 `group`**（那一轮退役）。
+    判据没放松: 除这两步外, 别的步失败**必须连累整段**（宁缺勿错: 半截记忆比没有记忆坏）。
     """
     own = [s.key for s in R.ROUNDS if s.own_snapshot]
-    assert own == ["group", "cognize", "attribute"], (
+    assert own == ["cognize", "attribute"], (
         f"自带快照的只该是这两步（它们产的是加法）, 实得 {own} —— 别的步骤失败必须连累整段"
         "（宁缺勿错: 半截记忆比没有记忆坏）")
-    assert [s.key for s in R.ROUNDS[-3:]] == own, "这三步必须是每段的最后三步"
-    print("    快照: 分群 + 造看法 + 认人自带（失败只回滚自己）")
+    assert [s.key for s in R.ROUNDS[-2:]] == own, "这两步必须是每段的最后两步"
+    print("    快照: 造看法 + 认人自带（失败只回滚自己）")
 
 
 def test_cursor_allows_skips_but_never_goes_back():
@@ -315,8 +316,7 @@ def test_cursor_allows_skips_but_never_goes_back():
         assert "越序" in str(e), e
     else:
         raise AssertionError("游标允许回头了 —— 表就不再是顺序的真源")
-    cur.enter("group")                              # 往前走照旧（跳过 attribute）
-    cur.enter("cognize")
+    cur.enter("cognize")                            # 往前走照旧（跳过 akin/group 那两个位置）
     cur.enter("attribute")                          # ⭐ E4: 表里最后一步（认人）
     assert cur.at == len(R.ROUNDS)
     print("    cursor: 可跳步, 不可回头（越序当场炸）")

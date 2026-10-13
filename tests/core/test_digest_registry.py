@@ -417,7 +417,8 @@ def test_the_output_discipline_lives_only_in_the_contract():
                 f"{path.name} 又抄了一遍输出纪律: {rule!r} —— 它只该住契约层"
                 "（`contract.digest.OUTPUT_RULES`）。")
 
-    for phase in (PHASE_SPLIT, PHASE_RECORD, PHASE_ATTRIBUTE, PHASE_GROUP):
+    # ⏸ `PHASE_GROUP` 2026-10-13 退役（那一格从 `PHASE_FILES` 摘了, md 搬 archive）
+    for phase in (PHASE_SPLIT, PHASE_RECORD, PHASE_ATTRIBUTE, PHASE_COGNIZE):
         assert OUTPUT_DISCIPLINE in digest_registry.build_schema(phase), (
             f"{phase} 相位的 schema 里没有输出纪律 —— 那句话现在谁都不说了。")
 

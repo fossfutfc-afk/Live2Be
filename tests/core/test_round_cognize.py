@@ -85,7 +85,7 @@ def _linked_pair(st):
 
 
 def test_digest_runs_cognize_after_group(tmp_path):
-    """⭐ P10: 有立足点 ⇒ 发一次 `digest.cognize`; **它排在 `group` 之后**; 料里两段都在。"""
+    """⭐ P10: 有立足点 ⇒ 发一次 `digest.cognize`; ⏸ `group` 退役后**不再被调用**; 料里两段都在。"""
     st = _store(tmp_path)
     a, _old = _linked_pair(st)
     llm = RoundLLM(a={"episodes": [{"text": "老师约我去咖啡厅吃甜点", "title": "咖啡厅的甜点",
@@ -101,8 +101,9 @@ def test_digest_runs_cognize_after_group(tmp_path):
 
     assert res.ok, res.errors
     assert T.DIGEST_COGNIZE in llm.tasks, llm.tasks
-    assert llm.tasks.index(T.DIGEST_GROUP) < llm.tasks.index(T.DIGEST_COGNIZE), \
-        "L2 必须排在 group 之后（沉淀要写给本段刚归好类的那些类）"
+    # ⏸ 2026-10-13: `group`（L2-a 分群）退役 ⇒ 那条"L2 必须排在 group 之后"的断言
+    #    换成"**它不再被调用**"（顺序保证由 `ROUNDS` 的元组序承担, 见 test_digest_rounds）。
+    assert T.DIGEST_GROUP not in llm.tasks, llm.tasks
     user = llm.user_of(T.DIGEST_COGNIZE)
     # ⭐ E1b: L2 写 `#entity:` 之前也要看得到【已有的对象】（同 R1）
     for title in ("【本段归类的群】", "【被连过的经历】", "【现有认知】",
