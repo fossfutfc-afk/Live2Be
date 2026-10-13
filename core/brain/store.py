@@ -33,11 +33,9 @@ from collections.abc import Iterable
 from pathlib import Path
 
 from core.brain.graph import (
-    REL_CONTRADICTS,
     Edge,
     Graph,
     canonical_for,
-    classify_pair,
     infer_edges,
 )
 from core.brain.nodes import BrainNode, format_id
@@ -204,8 +202,8 @@ class WikiStoreV2:
     def add(self, node: BrainNode) -> str:
         """新增节点（自动分配 id; 无效节点拒绝）。返回 id。
 
-        入仓前 normalize——create 路径的 links 可能在构造后才补挂
-        （revise._parse_create）, 不变量（examples ≤3）必须入仓时钉死。
+        入仓前 normalize——字段级不变量（如 `examples` ≤3）**必须在入仓这一处钉死**,
+        别指望每个调用方自己记得。边不在这里（边表是 `add_edge` 的家）。
         """
         if not node.id:
             node.id = self.next_id(_PREFIX.get(node.kind, "m"))
@@ -311,34 +309,6 @@ class WikiStoreV2:
         src, dst = canonical_for(rel, src, dst)
         self._edges = [e for e in self._edges
                        if not (e.rel == rel and e.src == src and e.dst == dst)]
-
-    # ── 旧接口 shim（无向 link/contradiction）──
-    # 给**死路径**（`apply_revision_package` 的 create-link / `link` 动作 / `merge`
-    # 的入边重接）与存量测试留的窄接口: 它们只知道"这两条挨着", 不知道 rel
-    # ⇒ 用与旧档自举**同一张**分类表（`graph.classify_pair`）推。活路径请直接用
-    # `add_edge`。⚠️ **不删**: 删了就得把那条已规划的深整理路径（V3-6）的连线能力
-    # 一起废掉 —— 而它说不出 rel, 只能靠这张表。
-
-    def add_link(self, a: str, b: str) -> None:
-        """无向 link → 按两端 kind 推断 rel（`episode → 认知` = supports）。"""
-        na, nb = self._require(a), self._require(b)
-        rel, src, dst = classify_pair(na.kind, nb.kind, na.id, nb.id)
-        self.add_edge(rel, src, dst)
-
-    def remove_link(self, a: str, b: str) -> None:
-        """删掉 a/b 之间**任意方向、任意 rel** 的那条边（旧语义: 无向）。"""
-        self._edges = [e for e in self._edges
-                       if {e.src, e.dst} != {a, b}]
-
-    def add_contradiction(self, a: str, b: str) -> None:
-        """矛盾边（对称 ⇒ 端点规范化**在 `add_edge` 里做** —— 唯一一处, 见 N1a）。"""
-        self._require(a)
-        self._require(b)
-        self.add_edge(REL_CONTRADICTS, a, b)
-
-    def remove_contradiction(self, a: str, b: str) -> None:
-        """（对称 ⇒ 反着传也删得掉, 同上。）"""
-        self.remove_edge(REL_CONTRADICTS, a, b)
 
     def _require(self, nid: str) -> BrainNode:
         node = self._nodes.get(nid)

@@ -113,20 +113,20 @@ def test_edge_primitives(tmp_path):
     st.add(make_node("episode", text="e1", event_seq=[1]))
     st.add(make_node("episode", text="e2", event_seq=[2]))
     st.add(make_node("belief", text="b"))
-    st.add_link("m0001", "m0002")            # 无向 link → rel 由两端 kind 推断
-    st.add_link("m0001", "m0002")            # 幂等
-    # episode ↔ episode 判不出类型 → unknown（**不猜**, 见 graph.classify_pair）
+    # 旧档 episode ↔ episode 的落点: 判不出类型 → unknown（**不猜**, 见 graph.classify_pair）
+    st.add_edge("unknown", "m0001", "m0002")
+    st.add_edge("unknown", "m0001", "m0002")  # 幂等
     assert [(e.rel, e.src, e.dst) for e in st.edges()] == [("unknown", "m0001", "m0002")]
     assert st.edges()[0].ts                   # 不给 ts → 取当下（边总有时刻）
     assert st.neighbors("m0001") == ["m0002"]         # 无向: 两边都算邻居
     assert st.neighbors("m0002") == ["m0001"]
-    st.add_link("m0002", "m0003")            # episode → belief = supports
+    st.add_edge("supports", "m0002", "m0003")
     assert ("supports", "m0002", "m0003") in [(e.rel, e.src, e.dst) for e in st.edges()]
-    st.add_contradiction("m0001", "m0003")
+    st.add_edge("contradicts", "m0001", "m0003")
     assert ("contradicts", "m0001", "m0003") in [(e.rel, e.src, e.dst) for e in st.edges()]
-    st.remove_link("m0001", "m0002")
-    st.remove_link("m0002", "m0003")
-    st.remove_contradiction("m0001", "m0003")
+    st.remove_edge("unknown", "m0001", "m0002")
+    st.remove_edge("supports", "m0002", "m0003")
+    st.remove_edge("contradicts", "m0001", "m0003")
     assert st.edges() == []
 
 
@@ -299,9 +299,9 @@ def test_delete_filters_edges(tmp_path):
     st.add(make_node("episode", text="hub", event_seq=[1]))
     st.add(make_node("episode", text="a", event_seq=[2]))
     st.add(make_node("belief", text="b"))
-    st.add_link("m0002", "m0001")
-    st.add_link("m0003", "m0001")
-    st.add_contradiction("m0001", "m0003")
+    st.add_edge("unknown", "m0001", "m0002")   # 两条 episode 判不出类型（旧档 link 的落点）
+    st.add_edge("supports", "m0001", "m0003")
+    st.add_edge("contradicts", "m0001", "m0003")
     assert len(st.edges()) == 3
     st.delete("m0001")
     assert st.edges() == []                    # 三条边全部触及 hub → 全清

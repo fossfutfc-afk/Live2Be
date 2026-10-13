@@ -227,17 +227,24 @@ def _emit(out: list[Edge], seen: set, meta: dict, a: str, b: str, *,
 def classify_pair(ka: str, kb: str, a_id: str, b_id: str) -> tuple[str, str, str]:
     """两端 kind + 两个 id → `(rel, src, dst)`。**唯一**的分类表。
 
-    两个调用方: ① 旧档**自举**（`infer_edges` 从盘上的 `links`/`contradictions` 推）
-    ② 写路径的**旧接口 shim**（`store.add_link` —— 那条窄路径只知道"这两条挨着"，
-    不知道 rel）。活路径**一律走 `store.add_edge(rel, …)`**，显式 rel 才有"类型化"。
+    唯一调用方 = 旧档**自举**（`infer_edges` 从盘上的 `links`/`contradictions` 推）——
+    那条路只有"这两条挨着", 说不出 rel, 所以只能靠这张表猜。活路径**一律走
+    `store.add_edge(rel, …)`**, 显式 rel 才有"类型化"（2026-10-12: 旧接口 shim
+    `store.add_link` 已删, 这张表只剩自举一个调用方）。
 
     ## 推断表（今天能判的只有这些）
 
     | 对 | 判成 | 依据 |
     |---|---|---|
-    | `episode` ↔ `belief` / `experience` | `supports`（**经历 → 认知**） | §2; 方向由 kind 定, 不是猜 |
-    | `entity` ↔ `belief` / `episode` / `experience` / `group` | `about`（**对方 → entity**） | §2 归属 |
-    | 其余（`belief`↔`belief`、`belief`↔`experience`、`episode`↔`episode`、`entity`↔`entity`） | `unknown` | **不猜** |
+    | `episode` ↔ `belief` / `profile` | `supports`（**经历 → 认知**） | §2; 方向由 kind 定, 不是猜 |
+    | `entity` ↔ `belief` / `episode` / `profile` / `experience` | `about`（**对方 → entity**） | §2 归属 |
+    | 其余（`belief`↔`belief`、`belief`↔`experience`、`episode`↔`experience`、`episode`↔`episode`、`entity`↔`entity`） | `unknown` | **不猜** |
+
+    ⚠️ **`experience` 不进 `_COGNITION`, 这是有意的**（别"顺手"补上）: 经验**不是认知**,
+    `episode ↔ experience` 之间那条边是 `member_of` 的活, 由写路径显式写 ——
+    自举猜成 `supports` 会把它变成"这类事的一次证据"。⛔ 也别把早就退役的 `fact`
+    或改名前的 `group` 补回白名单 —— 那些 kind 只会出现在旧档的 `links` 里,
+    给它们判 `about`/`supports` 就是**替旧数据编意图**（`test_wiki_graph.py` 钉着这两条）。
 
     ⚠️ 为什么 `belief`↔`belief` 不判成 `evolved_from`: 那条边的语义是"**新看法取代
     旧的**"，而一条无向边说不出谁取代谁 —— **猜错方向比不判更贵**（错的方向会让
