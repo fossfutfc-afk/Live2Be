@@ -86,7 +86,6 @@ from core.brain.read.render import (
     render_organize_view,
     render_recall_block,
 )
-from core.brain.revise import RevisionResult, apply_revision_package
 from core.brain.store import WikiStoreV2
 
 __all__ = [
@@ -100,8 +99,6 @@ __all__ = [
     "Graph",
     "graph_of",
     "EvolutionLog",
-    "RevisionResult",
-    "apply_revision_package",
     "recall_subgraph",
     "recall_episodes",
     "recall_config",

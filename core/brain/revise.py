@@ -27,8 +27,6 @@ from core.brain.graph import (
     REL_SUPPORTS,
 )
 from core.brain.nodes import (
-    KINDS,
-    PLAYER_SUBJECT,
     BrainNode,
     make_node,
 )
@@ -52,16 +50,6 @@ _ATTACHABLE = ("episode", "belief", "profile")
 MAX_ALIAS_LEN = 8
 
 
-@dataclass
-class RevisionResult:
-    """修订包执行结果。"""
-
-    ok: bool
-    errors: list[str] = field(default_factory=list)
-    created: dict[str, str] = field(default_factory=dict)   # ref → 真实 id
-    pkg: str = ""
-
-
 def apply_relations(store: WikiStoreV2, rows: list[dict], *, ts: str = "",
                     log: EvolutionLog | None = None,
                     id_map: dict[str, str] | None = None) -> list[dict]:
@@ -73,12 +61,12 @@ def apply_relations(store: WikiStoreV2, rows: list[dict], *, ts: str = "",
       · 经历 / 对象那一端是**真实 id**（`m…` / `x…` —— 料里就是这么印的）;
       · 认知那一端是**本地号**（`u0001…`, `render_cognition_list` 发的 —— 它的 docstring
         写着"parse 层只认本地 id, 防 LLM 猜真实 id"）。
-      ⇒ `id_map`（本地 → 真实）就是这两者之间的那道翻译, 与 `apply_decisions` 同构。
+      ⇒ `id_map`（本地 → 真实）就是这两者之间的那道翻译。
       不在表里的 id **原样过**（真实 id 本来就不在表里）。
 
-    与 `apply_decisions` 的分工（⛔ 别混）:
-      · 那边 = **决策表**（`touch`/`update`/`add`）—— 会**建节点 / 改正文**;
-      · 这边 = **关系**（`supports`/`akin`/`contradicts`/`about`）—— **正文一个字都不写**。
+    与 `apply_cognitions` 的分工（⛔ 别混）:
+      · 那边 = **认知**（`belief` / `experience`）—— 会**建节点 / 改正文**;
+      · 这边 = **关系**（`supports` / `akin` / `contradicts` / `about`）—— **正文一个字都不写**。
 
     ⚠️ **方向**: `about` 在行里已经归一成"节点 → entity"（`parse_relations` 做的）;
     `akin` / `contradicts` 的对称性由 `store.add_edge` 内部归一（`canonical_for`）——
@@ -142,7 +130,7 @@ def apply_cognitions(store: WikiStoreV2, rows: list[dict], *, ts: str = "",
 
     ⚠️ **幂等 = `_find_duplicate`**（`(kind, event_seq 交集, 主文本相同)` ⇒ 复用旧 id,
     不重复创建）—— 与 R1 的 episode **同一个判据、同一个实现**, ⛔ 不另写一份
-    （崩溃窗口重跑防双写; 见 `apply_revision_package` 的 `dedupe=`）。
+    （它是崩溃窗口重跑的防双写网）。
     ⚠️ **两套 id 空间**（同 `apply_relations`）: `supports` 的值是**经历真身**（`m…`,
     料里就是这么印的）; `evolved_from` / `contradicts` 的值是**认知本地号**（`u…`）⇒ 过 `id_map`。
     ⚠️ **方向不再判**（契约层已归一）: `supports` = 经历 → 新看法 · `evolved_from` =
@@ -202,7 +190,7 @@ def _soak(store: WikiStoreV2, row: dict, *, ts: str, log: EvolutionLog,
           res: CognitionResult) -> None:
     """给**已有的类**覆写沉淀正文（⛔ 不建类、不改名、不动 `ts`）。
 
-    ⚠️ **留痕口径照 `apply_decisions` 的 update 行**（那里写着这条纪律）:
+    ⚠️ **留痕口径**（这一条是纪律, 不是这段代码的细节）:
     **照记一笔**, 而 `changed` 只收**真的变了**的键 ⇒ 崩溃窗口重跑时留下的是一个
     **空 `changed`**, 一眼可判"这次没改任何东西"（⛔ 不是"不留账"）。
     `res.soaked` 只收**真变了**的那些（它是"覆写了"的账, 不是"收到过这一行"的账）。
@@ -319,319 +307,6 @@ def link_entity_tags(store: WikiStoreV2, nid: str, *, ts: str = ""
     return targets, strangers
 
 
-def apply_revision_package(
-    store: WikiStoreV2,
-    revisions: Any,
-    *,
-    subgraph_ids: set[str] | None = None,
-    log: EvolutionLog | None = None,
-    dedupe: bool = False,
-) -> RevisionResult:
-    """校验 + 原子执行一个修订包。
-
-    subgraph_ids: 本次渲染子图的 id 集（规则 1: 引用的 id 必须在此内; None = 全部节点,
-    用于深度整理等全量场景）。created 条目可通过 ref 被包内其他动作引用。
-    dedupe: 对 create 做 (kind, event_seq, 内容) 去重——命中已存在节点 → ref 指向
-    旧 id, 不重复创建（digest 崩溃窗口重跑用: 落盘成功但水位未推进的场景）。
-    """
-    log = log or EvolutionLog.for_store(store)
-    scope = subgraph_ids if subgraph_ids is not None else {n.id for n in store.all()}
-    result = RevisionResult(ok=False, pkg=log.next_pkg_id())
-
-    if not isinstance(revisions, list):
-        result.errors.append("revisions 必须是数组")
-        return result
-    if not revisions:
-        result.ok = True                    # 空包合法（无值得记的, 深度整理轮同样适用）
-        return result
-
-    pending_log: list[dict] = []
-    ref_map: dict[str, str] = {}
-    # 引用允许集 = 渲染子图 ∪ 包内新建 id（create/merge 产物）——动作可以引用
-    # 本包新建的节点（ref 解析后落此集; 集合可变, merge 产物也加入）
-    allowed = set(scope)
-    snapshot = store.clone_state()           # 原子性: 执行前内存快照
-
-    def fail(msg: str) -> RevisionResult:
-        store.restore_state(snapshot)        # 回滚内存（不落盘——磁盘本就是提交态）
-        result.errors.append(msg)
-        return result
-
-    try:
-        # ── pass 1: create（先建, 建立 ref→id 映射）──
-        create_i = 0
-        for i, raw in enumerate(revisions):
-            if not isinstance(raw, dict) or raw.get("action") != "create":
-                continue
-            # ref 约定在动作顶层（schema v2）; entry 内层兼容; 缺省 → 包内序号兜底
-            if not (raw.get("ref")
-                    or (isinstance(raw.get("entry"), dict) and raw["entry"].get("ref"))):
-                raw = dict(raw)
-                raw["ref"] = f"n{create_i + 1}"
-            create_i += 1
-            node, ref, entry_links = _parse_create(raw, scope, ref_map, result)
-            if node is None:
-                return fail(f"revisions[{i}] {result.errors[-1]}")
-            if dedupe:
-                dup = _find_duplicate(store, node)
-                if dup is not None:
-                    ref_map[ref] = dup.id          # 幂等: 指向已存在节点
-                    allowed.add(dup.id)
-                    continue
-            nid = store.add(node)
-            allowed.add(nid)
-            ref_map[ref] = nid
-            pending_log.append({"pkg": result.pkg, "action": "create",
-                                "id": nid, "kind": node.kind})
-            # 链接补挂: entry 的 links/contradictions 已在 _parse_create 解析为
-            # 真实 id——目标 = 子图已有节点或本包已建节点（存在性检查; 曾误用
-            # ref_map 键检查导致链到新建节点时反向边被跳过, 2026-09-02 修复）
-            for other in entry_links.get("links", []):
-                if store.get(other) is not None:
-                    store.add_link(nid, other)
-            for other in entry_links.get("contradictions", []):
-                if store.get(other) is not None:
-                    store.add_contradiction(nid, other)
-
-        # ── pass 2: 其余动作（id 引用解析 ref; allowed 允许引用包内新 id）──
-        for i, raw in enumerate(revisions):
-            if not isinstance(raw, dict) or raw.get("action") == "create":
-                continue
-            if not _apply_action(store, raw, allowed, ref_map, pending_log,
-                                 result, pkg=result.pkg):
-                return fail(f"revisions[{i}] {result.errors[-1]}")
-    except Exception as e:                     # noqa: BLE001 — 意外异常同样回滚
-        return fail(f"修订执行异常: {e}")
-
-    # ── 包级后检: 连接裁定（规则 7）──
-    bad = _connection_rule_violations(store, ref_map)
-    if bad:
-        return fail("连接裁定: 新 episode 未链接任何 belief/experience——"
-                    f"{', '.join(bad)}（必须连已有或新建并链接）")
-
-    # ── 成功: 落 evolution_log（内存暂存, 全过才写）──
-    for entry in pending_log:
-        log.append(entry)
-    result.ok = True
-    result.created = dict(ref_map)
-    return result
-
-
-# ---------------------------------------------------------------------------
-# create
-# ---------------------------------------------------------------------------
-
-def _parse_create(raw: dict, scope: set[str], ref_map: dict,
-                  result: RevisionResult) -> tuple[BrainNode | None, str, dict]:
-    """解析 create 动作 → (节点, ref, 链接引用)。失败 → (None, …) 并记错误。"""
-    entry = raw.get("entry")
-    if not isinstance(entry, dict):
-        result.errors.append("create 缺少 entry 对象")
-        return None, "", {}
-    entry = {k: v for k, v in entry.items() if k not in _IGNORED_ON_CREATE}
-    # ref 顶层优先（schema v2 约定）; entry 内层兼容; 调用方已兜底序号, 此处防御
-    ref = str(raw.get("ref") or entry.pop(_REF_KEY, "") or "").strip()
-    if not ref:
-        ref = f"n{len(ref_map) + 1}"
-    kind = str(entry.pop("kind", "episode")).strip()
-    if kind not in KINDS:
-        result.errors.append(f"create 的 kind 非法: {kind!r}")
-        return None, "", {}
-    raw_links = _as_str_list(entry.get("links"))
-    raw_contr = _as_str_list(entry.get("contradictions"))
-    # 链接引用检查: 只能指子图内 id 或已创建的包内 ref（顺序依赖: 先建先引用）
-    for other in raw_links + raw_contr:
-        if other not in scope and other not in ref_map:
-            result.errors.append(f"create.links 引用了子图外的 id: {other}")
-            return None, "", {}
-    # ref → 真实 id 就地解析（节点字段里不留 ref）
-    entry.pop("links", None)
-    entry.pop("contradictions", None)
-    node = make_node(kind, **entry)
-    node.ts = datetime.now().isoformat(timespec="seconds")
-    # ⚠️ 边**不落在节点上**（G4: `links`/`contradictions` 字段已删）——解析好的真实 id
-    # 交回调用方, 由它 `store.add_link` / `add_contradiction` 落进边表。
-    resolved = {"links": [ref_map.get(x, x) for x in raw_links],
-                "contradictions": [ref_map.get(x, x) for x in raw_contr]}
-    return node, ref, resolved
-
-
-# ---------------------------------------------------------------------------
-# 其余动作
-# ---------------------------------------------------------------------------
-
-def _apply_action(store: WikiStoreV2, raw: dict, scope: set[str],
-                  ref_map: dict, pending_log: list[dict],
-                  result: RevisionResult, *, pkg: str) -> bool:
-    action = raw.get("action")
-    resolver = lambda x: ref_map.get(x, x)          # ref → 真实 id
-    if action == "update":
-        nid = resolver(str(raw.get("id", "")))
-        patch = raw.get("patch")
-        if not isinstance(patch, dict) or nid not in scope:
-            return _err(result, "update 的 id 必须在子图内且 patch 为对象")
-        node = store.get(nid)
-        if node is None:
-            return _err(result, f"update 目标不存在: {nid}")
-        # ⚠️ 原"update 不得修改出厂基座（只允许 notes 追加）"守卫 2026-09-21 删——
-        # 判据 `is_seed()` 随 `source` 退役（出厂记忆不进 wiki, 见 nodes.py docstring）。
-        # ⏸ 原「update 不得改变 epistemic」2026-09-29 删 —— 字段退役后它就是白名单外
-        # 的未知键, `store.update` 的未知字段守卫已经拦得住（错误文案从"不得改变 epistemic"
-        # 变成"未知字段", 语义同一条: LLM 不许碰来源）。
-        before = {k: v for k, v in patch.items() if v != getattr(node, k, None)}
-        new = store.update(nid, patch)
-        pending_log.append({"pkg": pkg, "action": "update", "id": nid,
-                            "changed": {k: [before.get(k), getattr(new, k, None)]
-                                        for k in before}})
-        return True
-    if action == "merge":
-        ids = [resolver(x) for x in _as_str_list(raw.get("ids"))]
-        into = raw.get("into")
-        if len(ids) < 2 or not isinstance(into, dict):
-            return _err(result, "merge 需要 ≥2 个 ids 和 into 条目")
-        if any(i not in scope or store.get(i) is None for i in ids):
-            return _err(result, "merge 的 ids 必须在子图内且存在")
-        merged = _build_merged(store, ids, into)
-        if merged is None:
-            return _err(result, "merge: into.kind 缺失且源 kind 不一致")
-        merged.ts = datetime.now().isoformat(timespec="seconds")
-        new_id = store.add(merged)
-        scope.add(new_id)                    # merge 产物可被包内后续动作引用
-        # ── 边重接（G3: 边在边表里, 不在节点字段里）──
-        # 指向源节点的边**改指产物**（只继承出边会断掉入边的支撑链）; rel 与 **ts**
-        # 都原样保留（merge 是端点 remap, 不是"新建一条边"—— 重置时刻会丢掉历史）;
-        # 源之间的内部边变自环 → 丢。先收集再删源（delete 会过滤掉所有触及源的边）。
-        remap = {i: new_id for i in ids}
-        keep: list[tuple[str, str, str, str]] = []
-        seen: set[tuple[str, str, str]] = set()
-        for e in store.edges():
-            src, dst = remap.get(e.src, e.src), remap.get(e.dst, e.dst)
-            if src == dst or (e.rel, src, dst) in seen:
-                continue
-            seen.add((e.rel, src, dst))
-            keep.append((e.rel, src, dst, e.ts))
-        for i in ids:
-            store.delete(i)
-        for rel, src, dst, ts in keep:
-            store.add_edge(rel, src, dst, ts=ts)
-        if not any(e.src == new_id or e.dst == new_id for e in store.edges()):
-            return _err(result, "merge 产物必须至少 1 条边（无孤立节点）")
-        pending_log.append({"pkg": pkg, "action": "merge",
-                            "ids": ids, "into": new_id, "kind": merged.kind})
-        return True
-    if action == "link":
-        a, b = resolver(str(raw.get("from", ""))), resolver(str(raw.get("to", "")))
-        if a == b or a not in scope or b not in scope or store.get(a) is None \
-                or store.get(b) is None:
-            return _err(result, "link 需要子图内两个不同且存在的 id")
-        store.add_link(a, b)
-        pending_log.append({"pkg": pkg, "action": "link", "a": a, "b": b})
-        return True
-    if action == "unlink":
-        a, b = resolver(str(raw.get("from", ""))), resolver(str(raw.get("to", "")))
-        if a not in scope or b not in scope:
-            return _err(result, "unlink 的 id 必须在子图内")
-        store.remove_link(a, b)
-        pending_log.append({"pkg": pkg, "action": "unlink", "a": a, "b": b})
-        return True
-    if action == "contradict":
-        a, b = resolver(str(raw.get("a", ""))), resolver(str(raw.get("b", "")))
-        if a == b or a not in scope or b not in scope or store.get(a) is None \
-                or store.get(b) is None:
-            return _err(result, "contradict 需要子图内两个不同且存在的 id")
-        store.add_contradiction(a, b)
-        pending_log.append({"pkg": pkg, "action": "contradict", "a": a, "b": b})
-        return True
-    if action == "resolve":
-        a, b = resolver(str(raw.get("a", ""))), resolver(str(raw.get("b", "")))
-        if a not in scope or b not in scope:
-            return _err(result, "resolve 的 id 必须在子图内")
-        store.remove_contradiction(a, b)
-        pending_log.append({"pkg": pkg, "action": "resolve", "a": a, "b": b})
-        return True
-    if action == "accrue":
-        return _apply_accrue(store, raw, scope, ref_map, pending_log, result, pkg=pkg)
-    return _err(result, f"未知修订动作: {action!r}")
-
-
-def _apply_accrue(store: WikiStoreV2, raw: dict, scope: set[str],
-                  ref_map: dict, pending_log: list[dict],
-                  result: RevisionResult, *, pkg: str) -> bool:
-    """accrue: 同类事件并入 profile（玩家画像）——引擎数 occurrence, 不信任 LLM 的 count。
-
-    证据 episode 由 occurrence.episode_ref（包内新建的 ref）或 occurrence.episode_id
-    （子图内已有 id）指定——LLM 不猜 event_seq（引擎从 episode 继承, 防幻觉）。
-    应用: add_link(exp, episode) + event_seq 去重并入 + example 追加（cap 3）。
-    """
-    eid = ref_map.get(str(raw.get("id", "")), str(raw.get("id", "")))
-    occ = raw.get("occurrence")
-    if eid not in scope or not isinstance(occ, dict):
-        return _err(result, "accrue 需要子图内的 experience id 和 occurrence 对象")
-    exp = store.get(eid)
-    if exp is None or exp.kind != "profile":
-        return _err(result, f"accrue 目标必须是 experience 节点: {eid}")
-    ep_id = ""
-    if occ.get("episode_ref"):
-        ep_id = ref_map.get(str(occ["episode_ref"]), "")
-    elif occ.get("episode_id"):
-        ep_id = str(occ["episode_id"])
-    ep = store.get(ep_id) if ep_id else None
-    if ep is None or ep.kind != "episode":
-        return _err(result,
-                    "accrue 必须指向 episode 证据（occurrence.episode_ref 包内 ref "
-                    "或 episode_id 子图 id——同类判定必须指向证据）")
-    store.add_edge(REL_SUPPORTS, ep.id, eid)          # 经历 → 认知（G3: 边表）
-    merged_seq = list(dict.fromkeys(exp.event_seq + ep.event_seq))   # 去重保序
-    store.update(eid, {"event_seq": merged_seq})
-    if occ.get("example"):
-        store.update(eid, {"examples": (exp.examples + [str(occ["example"])])[:3]})
-    pending_log.append({"pkg": pkg, "action": "accrue", "id": eid,
-                        "episode": ep.id, "event_seq": ep.event_seq})
-    return True
-
-
-def _build_merged(store: WikiStoreV2, ids: list[str], into: dict) -> BrainNode | None:
-    """merge 产物: into 字段 + 继承源条目的 `event_seq` 并集。
-
-    ⚠️ **边不在这里继承**（G3）—— 边住在 `edges.jsonl`, 由调用方 remap 端点后重接。
-    """
-    sources = [store.get(i) for i in ids]
-    into = {k: v for k, v in into.items() if k not in _IGNORED_ON_CREATE}
-    kind = str(into.get("kind", "")).strip() or (
-        sources[0].kind if len({s.kind for s in sources}) == 1 else "")
-    if not kind or kind not in KINDS:
-        return None
-    node = make_node(kind, **{k: v for k, v in into.items() if k != "kind"})
-    node.event_seq = sorted({seq for s in sources for seq in s.event_seq})
-    # ⏸ 原「epistemic 随赢家继承」2026-09-29 删 —— 字段退役。
-    # ⚠️ `observer` **故意不继承**: 合并的语义是"这几条说的是同一件事", 而不是
-    # "它们的来源也一样"；真要带来源得由写入方显式给（今天没有这种调用方）。
-    return node
-
-
-# ---------------------------------------------------------------------------
-# 包级后检 / 助手
-# ---------------------------------------------------------------------------
-
-def _connection_rule_violations(store: WikiStoreV2, ref_map: dict) -> list[str]:
-    """规则 7: 每条新 episode 必须与 belief/profile 相连（已有或新建）。
-
-    G3 起"相连"看**边表**（点上的 `links` 已不再被写）。
-    """
-    created_ids = set(ref_map.values())
-    g = store.graph()
-    bad: list[str] = []
-    for n in store.all():
-        if n.id not in created_ids or n.kind != "episode":
-            continue
-        supported = any(
-            store.get(t) is not None and store.get(t).kind in ("belief", "profile")
-            for t in g.neighbors(n.id))
-        if not supported:
-            bad.append(n.id)
-    return bad
-
-
 def _find_duplicate(store: WikiStoreV2, node: BrainNode) -> BrainNode | None:
     """(kind, event_seq 交集, 主文本相同) 去重——digest 崩溃窗口重跑防双写。"""
     if not node.event_seq:
@@ -643,11 +318,6 @@ def _find_duplicate(store: WikiStoreV2, node: BrainNode) -> BrainNode | None:
         if n.text == main:
             return n
     return None
-
-
-def _err(result: RevisionResult, msg: str) -> bool:
-    result.errors.append(msg)
-    return False
 
 
 def _as_str_list(v: Any) -> list[str]:

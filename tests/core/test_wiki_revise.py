@@ -1,230 +1,54 @@
-"""revise.py 修订契约测试（AGENT_BRAIN.md §5 / M2b / 板块 4b 决策执行器）。"""
-import copy
-import logging
+"""`revise.py` 三趟执行器的落地测试（AGENT_BRAIN.md §5 / M2b）。
 
+覆盖: L1 判关系（`apply_relations`）· L2 造认知（`apply_cognitions`）·
+R3 认人（`apply_entities`）· tag → `about` 边（`link_entity_tags`）。
+
+⏸ v1 的**万能修订包执行器** `apply_revision_package`（`create`/`update`/`merge`/
+`link`/`unlink`/`contradict`/`resolve`/`accrue` 一张大动作表）连同它的 11 条用例
+已于 2026-10-12 删除：它的能力被**拆成上面三趟**顶掉了（见 `revise.py` 模块
+docstring）。死掉的不是"能力", 是那个**装在同一个函数里的箱子**。
+"""
 import pytest
 
-from core.brain import WikiStoreV2, make_node, notes
+from core.brain import WikiStoreV2, make_node
 from core.brain.entities import ensure_entities
 from core.brain.evolution import EvolutionLog
 from core.brain.revise import (
     apply_cognitions,
     apply_entities,
-    apply_revision_package,
     link_entity_tags,
 )
 
 
 def _store(tmp_path) -> WikiStoreV2:
     st = WikiStoreV2(tmp_path, world_id="world1", char_id="igusa_haruka")
-    # 固定子图: m0001 episode(拆炸弹) + m0002 belief(信任) + m0003 episode(天台) + e0001 experience
+    # 固定子图: m0001 episode(拆炸弹) + m0002 belief(信任) + m0003 episode(天台) + m0004 belief(旧结论)
     st.add(make_node("episode", text="拆炸弹初遇", event_seq=[1], ts="2026-08-01T00:00:00"))
     st.add(make_node("belief", text="老师是第一个不会嫌弃我的人", subject="sensei",
                      significance=0.9, event_seq=[1]))
     st.add(make_node("episode", text="天台夜谈", event_seq=[2], ts="2026-08-02T00:00:00"))
-    st.add(make_node("profile", text="提到工作繁忙", subject="sensei",
-                     significance=0.7, event_seq=[2]))
-    # 真实流程同款: 双向边走 add_link（audit 不变量要求双向共识）
-    st.add_link("m0001", "m0002")
-    st.add_link("m0003", "m0002")
-    st.add_link("e0001", "m0003")
+    # 第 4 条是**另一条看法**: `contradicts` 在真机上两端都是"认知本地号"（看法 ↔ 看法）,
+    # ⛔ 不是"看法 ↔ 画像" —— 后者只是 `_COGNITION` 表恰好也认, 不是真实形状。
+    st.add(make_node("belief", text="我这样的人不该麻烦别人", subject="sensei",
+                     significance=0.6, event_seq=[2]))
+    # 真实流程同款: **显式 rel** 走边表（旧的无向 shim `add_link` 已删 —— 它只会靠
+    # kind 猜 rel, 而"这两条挨着"本来就不是作者说过的话）。
+    st.add_edge("supports", "m0001", "m0002")
+    st.add_edge("supports", "m0003", "m0002")
+    st.add_edge("supports", "m0003", "m0004")
     return st
-
-
-def _scope(st) -> set[str]:
-    return {n.id for n in st.all()}
 
 
 def _log(st) -> EvolutionLog:
     return EvolutionLog.for_store(st)
 
 
-def test_create_and_link_package(tmp_path):
-    st = _store(tmp_path)
-    pkg = [
-        {"action": "create", "entry": {"ref": "n1", "kind": "episode",
-                                       "text": "老师带我去甜品店",
-                                       "event_seq": [3], "links": ["m0002"]}},
-        {"action": "create", "entry": {"ref": "n2", "kind": "belief",
-                                       "text": "老师会认真听我说话", "subject": "sensei",
-                                       "links": ["n1"]}},
-    ]
-    res = apply_revision_package(st, pkg, subgraph_ids=_scope(st))
-    assert res.ok, res.errors
-    assert res.created == {"n1": "m0004", "n2": "m0005"}
-    ep = st.get("m0004")
-    # 两条出边都在（G3: 边表）—— n1→m0002 与 belief 的支撑链 supports→m0005
-    assert ep.text == "老师带我去甜品店"
-    assert set(st.graph().targets("m0004", "supports")) == {"m0002", "m0005"}
-    bel = st.get("m0005")
-    assert bel.text == "老师会认真听我说话"
-    assert st.graph().supporters("m0005") == ["m0004"]
-    assert st.audit() == []                      # 全链路后图干净
-    # evolution log
-    entries = _log(st).read()
-    assert [e["action"] for e in entries] == ["create", "create"]
-    assert entries[0]["pkg"] == "r0001" and entries[0]["id"] == "m0004"
-
-
-def test_connection_rule_violation_rejected_atomic(tmp_path):
-    st = _store(tmp_path)
-    pkg = [{"action": "create", "entry": {"kind": "episode",
-                                          "text": "孤立的日常", "event_seq": [9]}}]
-    res = apply_revision_package(st, pkg, subgraph_ids=_scope(st))
-    assert not res.ok
-    assert any("连接裁定" in e for e in res.errors)
-    assert len(st) == 4 and st.get("m0004") is None      # 原子: 无残留
-    assert _log(st).read() == []                          # 失败不写日志
-
-
-def test_create_id_ts_engine_assigns(tmp_path):
-    st = _store(tmp_path)
-    pkg = [{"action": "create", "entry": {"id": "hack0001", "ts": "1999-01-01T00:00:00",
-                                          "kind": "episode", "text": "x",
-                                          "event_seq": [9], "links": ["m0002"]}}]
-    res = apply_revision_package(st, pkg, subgraph_ids=_scope(st))
-    assert res.ok
-    node = st.get("m0004")
-    assert node is not None and node.id == "m0004" and node.ts != "1999-01-01T00:00:00"
-
-
-def test_update_rules(tmp_path):
-    st = _store(tmp_path)
-    scope = _scope(st)
-    # 正常 update
-    res = apply_revision_package(st, [{"action": "update", "id": "m0001",
-                                       "patch": {"significance": 0.95}}],
-                                 subgraph_ids=scope)
-    assert res.ok and st.get("m0001").significance == 0.95
-    scope = _scope(st)
-    res = apply_revision_package(st, [{"action": "merge", "ids": ["m0001", "m0003"],
-                                       "into": {"kind": "episode",
-                                                "text": "和老师的两次难忘日常"}}],
-                                 subgraph_ids=scope)
-    assert res.ok, res.errors
-    merged = st.get("m0004")
-    assert merged is not None and merged.text == "和老师的两次难忘日常"
-    assert merged.event_seq == [1, 2]
-    # 出边继承（m0001/m0003 原有支撑 m0002）+ 端点 remap 到产物（G3: 边表）
-    assert set(st.graph().targets("m0004", "supports")) == {"m0002", "e0001"}
-    assert "m0004" in st.graph().supporters("m0002")     # belief 支撑不断链
-    assert st.graph().supporters("e0001") == ["m0004"]   # 入边重接
-    assert st.get("m0001") is None and st.get("m0003") is None
-    entries = _log(st).read()
-    assert entries[-1]["action"] == "merge" and entries[-1]["ids"] == ["m0001", "m0003"]
-
-
-def test_merge_orphan_rejected(tmp_path):
-    st = WikiStoreV2(tmp_path, world_id="world1", char_id="x")
-    st.add(make_node("episode", text="a", event_seq=[1]))
-    st.add(make_node("episode", text="b", event_seq=[2]))
-    scope = _scope(st)
-    res = apply_revision_package(st, [{"action": "merge", "ids": ["m0001", "m0002"],
-                                       "into": {"kind": "episode",
-                                                "text": "合并"}}],
-                                 subgraph_ids=scope)
-    assert not res.ok and any("至少 1 条边" in e for e in res.errors)
-    assert len(st) == 2                                   # 原子
-
-
-def test_link_unlink_contradict_resolve(tmp_path):
-    st = _store(tmp_path)
-    scope = _scope(st)
-    ok = apply_revision_package(st, [
-        {"action": "link", "from": "m0001", "to": "m0003"},
-        {"action": "contradict", "a": "m0001", "b": "m0003"},
-    ], subgraph_ids=scope)
-    assert ok.ok
-    assert "m0003" in st.neighbors("m0001")
-    assert st.graph().edges_from("m0001", "contradicts")
-    ok = apply_revision_package(st, [
-        {"action": "unlink", "from": "m0001", "to": "m0003"},
-        {"action": "resolve", "a": "m0001", "b": "m0003"},
-    ], subgraph_ids=scope)
-    assert ok.ok
-    assert st.graph().targets("m0001") == ["m0002"]
-    assert st.graph().edges_from("m0001", "contradicts") == []
-
-
-def test_accrue_counts_by_engine(tmp_path):
-    st = _store(tmp_path)
-    scope = _scope(st)
-    pkg = [
-        {"action": "create", "entry": {"ref": "n1", "kind": "episode",
-                                       "text": "老师又说忙到深夜", "event_seq": [7],
-                                       "links": ["e0001"]}},
-        {"action": "accrue", "id": "e0001",
-         "occurrence": {"episode_ref": "n1", "example": "「这周又忙成狗了」"}},
-    ]
-    res = apply_revision_package(st, pkg, subgraph_ids=scope)
-    assert res.ok, res.errors
-    exp = st.get("e0001")
-    assert exp.event_seq == [2, 7]                        # 从证据 episode 继承
-    assert st.graph().supporters("e0001") == ["m0003", "m0004"]   # 证据 episode 链入
-    assert "「这周又忙成狗了」" in exp.examples
-    # accrue 无证据 → 拒绝
-    res = apply_revision_package(st, [{"action": "accrue", "id": "e0001",
-                                       "occurrence": {"episode_ref": "nope"}}],
-                                 subgraph_ids=scope)
-    assert not res.ok and any("证据" in e for e in res.errors)
-
-
-def test_accrue_existing_episode_by_id(tmp_path):
-    st = _store(tmp_path)
-    scope = _scope(st)
-    res = apply_revision_package(st, [{"action": "accrue", "id": "e0001",
-                                       "occurrence": {"episode_id": "m0001",
-                                                      "example": "旧例"}}],
-                                 subgraph_ids=scope)
-    assert res.ok, res.errors
-    exp = st.get("e0001")
-    assert st.graph().supporters("e0001") == ["m0003", "m0001"]
-    assert exp.event_seq == [2, 1]
-
-
-def test_ids_outside_subgraph_rejected(tmp_path):
-    st = _store(tmp_path)
-    # 子图只含 m0001
-    res = apply_revision_package(st, [{"action": "update", "id": "m0002",
-                                       "patch": {"significance": 0.5}}],
-                                 subgraph_ids={"m0001"})
-    assert not res.ok and any("子图" in e for e in res.errors)
-    # create 的 links 引用子图外 id
-    res = apply_revision_package(st, [{"action": "create", "entry": {
-        "kind": "episode", "text": "x", "event_seq": [5], "links": ["m0002"]}}],
-        subgraph_ids={"m0001"})
-    assert not res.ok and any("子图外" in e for e in res.errors)
-
-
-def test_unknown_action_rejected(tmp_path):
-    st = _store(tmp_path)
-    res = apply_revision_package(st, [{"action": "teleport", "id": "m0001"}],
-                                 subgraph_ids=_scope(st))
-    assert not res.ok and any("未知修订动作" in e for e in res.errors)
-
-
-def test_failure_writes_no_log_and_reloads(tmp_path):
-    st = _store(tmp_path)
-    # 深拷贝——to_dict 的列表字段是原节点引用, 直接存会被原地铁改污染
-    before = {n.id: copy.deepcopy(n.to_dict()) for n in st.all()}
-    pkg = [
-        {"action": "create", "entry": {"kind": "episode", "text": "会成功的",
-                                       "event_seq": [3], "links": ["m0002"]}},
-        {"action": "update", "id": "m0002", "patch": {"unknown_field": "x"}},   # 未知字段
-    ]
-    res = apply_revision_package(st, pkg, subgraph_ids=_scope(st))
-    assert not res.ok
-    after = {n.id: n.to_dict() for n in st.all()}
-    assert after == before                                 # 内存回滚到磁盘态
-    assert _log(st).read() == []                           # 日志零残留
-
-
 # ============================================================================
-# 板块 4b: apply_decisions（Round B 决策表执行器护栏）
+# 板块 4b: L2 造认知 + R3 认人
 # ============================================================================
 
 def _ctx_kw():
-    """决策执行的引擎字段（apply_decisions 的 ts/event_seq）。"""
+    """执行器的引擎字段（`apply_cognitions` 的 ts/event_seq）。"""
     return {"ts": "2026-09-02T12:00:00", "event_seq": [3]}
 
 
@@ -249,18 +73,18 @@ def test_apply_cognitions_birth_edges_have_the_right_direction(tmp_path):
         "significance": 0.7,
         "supports": ["m0001", "m0003"],                    # 两条经历
         "evolved_from": "u0007",                           # 本地号 → m0002
-        "contradicts": ["u0008"],                          # 本地号 → e0001
-    }], id_map={"u0007": old_belief, "u0008": "e0001"},
+        "contradicts": ["u0008"],                          # 本地号 → m0004
+    }], id_map={"u0007": old_belief, "u0008": "m0004"},
         event_seq=[2], ts="2026-10-08T21:00:00+08:00")
 
     assert len(res.created) == 1 and not res.reused
     new = res.created[0]
     g = st.graph()
-    # ⚠️ fixture 自己已经连过几条（`_store` 的 `add_link`）⇒ 判据按**新节点**数, 不按总数
+    # ⚠️ fixture 自己已经连过几条（`_store` 的 `add_edge`）⇒ 判据按**新节点**数, 不按总数
     assert new in g.targets("m0001", "supports"), "经历 → 新看法"
     assert new in g.targets("m0003", "supports"), "经历 → 新看法"
     assert g.targets(new, "evolved_from") == [old_belief], "新看法 → 旧看法"
-    assert new in g.neighbors("e0001"), "contradicts 是对称边"
+    assert new in g.neighbors("m0004"), "contradicts 是对称边"
     assert [e.rel for e in g.edges if new in (e.src, e.dst)].count("supports") == 2
     node = st.get(new)
     assert node.kind == "belief" and node.subject == "sensei"
@@ -319,7 +143,7 @@ def test_apply_cognitions_soak_rewrites_and_leaves_a_trail(tmp_path):
     assert last["action"] == "rewrite" and last["id"] == gid
     assert last["changed"]["text"] == ["", entry["text"]], last
 
-    # 一字未变 ⇒ **照记一笔**, 但 `changed` 为空（照 `apply_decisions` 的 update 行:
+    # 一字未变 ⇒ **照记一笔**, 但 `changed` 为空（口径写在 `_soak` 的 docstring:
     # "崩溃窗口重跑落在日志里就是一个空 dict, 一眼可判这次没改任何东西"）
     n_entries = len(_log(st).read())
     res2 = apply_cognitions(st, [dict(entry)], ts="2026-10-09T21:00:00+08:00")
