@@ -36,7 +36,9 @@ from core.brain.graph import (
     Edge,
     Graph,
     canonical_for,
+    conflicting,
     infer_edges,
+    related,
 )
 from core.brain.nodes import BrainNode, format_id
 from core.brain.notes import NotesState, fold
@@ -273,6 +275,17 @@ class WikiStoreV2:
             elif e.dst == nid:
                 out.setdefault(e.src, None)
         return list(out)
+
+    def related(self, nid: str, rel: str) -> list[str]:
+        """**对称 rel 的一跳对端**（两个方向都算, 按边的**建立序**）—— 见 `graph.related`。
+
+        ⚠️ 有向 rel（`supports` / `about` / `member_of` / `evolved_from`）别用它。
+        """
+        return related(self._edges, nid, rel)
+
+    def conflicting(self, a: str, b: str) -> bool:
+        """`a` 与 `b` 是否互相打架（`contradicts`, **对称 ⇒ 两个方向都算**）。"""
+        return conflicting(self._edges, a, b)
 
     def add_edge(self, rel: str, src: str, dst: str, *, ts: str = "") -> None:
         """加一条类型化边（幂等: 同 `(rel, src, dst)` 已存在则跳过）。

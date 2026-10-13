@@ -28,6 +28,7 @@ from core.brain.entities import (
 from core.brain.evolution import EvolutionLog
 from core.brain.graph import (
     REL_ABOUT,
+    REL_AKIN,
     REL_CONTRADICTS,
     REL_EVOLVED_FROM,
     REL_SUPPORTS,
@@ -54,6 +55,11 @@ _ATTACHABLE = ("episode", "belief", "profile")
 #: （同 `core.parsing.names.MAX_NAME_LEN` 的口径; 本模块**不 import 它** ——
 #: `brain` 的运行时依赖要保持纯 stdlib, 而 names 会拖进 yaml。）
 MAX_ALIAS_LEN = 8
+#: ⭐ **`akin` 并边上限**（**每条 belief**）: 一次归纳最多把几条"她认过的同类"并进证据。
+#: 为什么需要额度: 并进来的边与她亲手点的证据**在图里同形**（用户 2026-10-13 裁决"接受"）
+#: ⇒ 这个数就是"引擎替她说了多少话"的上限。5 ≈ 一次归纳的立足点规模, 且真机全库
+#: `akin` 只有 5 条 ⇒ 生产上基本触不到（触到了也只是"少并几条", 不是错）。
+AKIN_JOIN_MAX = 5
 
 
 def apply_relations(store: WikiStoreV2, rows: list[dict], *, ts: str = "",
@@ -119,6 +125,10 @@ class CognitionResult:
     """落下的边（原样回传, 编排层记账用）。"""
     soaked: list[str] = field(default_factory=list)
     """**覆写了沉淀**的类 id（同一个类只会有一条 —— 契约层已去重）。"""
+    akin_joined: int = 0
+    """⭐ **引擎并进来的证据边数**（`akin` 一跳邻域 → `supports`; 零 LLM）。
+    ⚠️ 口径同 `edges=`: 记的是"**这一趟算了 N 条**", ⛔ 不是"新落了 N 条"
+    （重跑窗口里 `add_edge` 幂等, 但账照记 —— 与 `supports` 逐字同口径）。"""
 
 
 def apply_cognitions(store: WikiStoreV2, rows: list[dict], *, ts: str = "",
@@ -131,8 +141,15 @@ def apply_cognitions(store: WikiStoreV2, rows: list[dict], *, ts: str = "",
 
     | 行 | 做什么 |
     |---|---|
-    | `belief` | 造节点（`kind=belief`: 正文 / `subject` / `significance`）+ **出生自带边**: `supports`（经历 → 新看法）· `evolved_from`（新看法 → 旧看法）· `contradicts`（对称）|
+    | `belief` | 造节点（`kind=belief`: 正文 / `subject` / `significance`）+ **出生自带边**: `supports`（经历 → 新看法）· `evolved_from`（新看法 → 旧看法）· `contradicts`（对称）· ⭐ **`akin` 并边**（见下）|
     | `experience` | **覆写**那个类的沉淀正文 —— ⛔ `title` / `ts` 一律不动（名字是地址, 时间是"这一类事"的时间）|
+
+    ⭐ **`akin` 并边**（2026-10-13, 零 LLM）: `supports` 落完之后, 把**每条证据的一跳
+    `akin` 邻居**也并成这条看法的证据（`_join_akin`, 额度 `AKIN_JOIN_MAX`）。
+    它接的是 `experience` 退役留下的那个位置: **"一类事"这个门槛不废、换载体** ——
+    从前"一群同类经历 → 一条沉淀", 今天"一群同类经历 → 一条看法", 而"一群"由**她自己
+    认过的 `akin`** 说了算。⚠️ 并进来的边与她亲手点的**图里同形**, 只有变更史分得出
+    （`"via": "akin"`）—— 这是用户 2026-10-13 的裁决（代价: 她的「被引 N」会变大, 只影响读数）。
 
     ⚠️ **幂等 = `_find_duplicate`**（`(kind, event_seq 交集, 主文本相同)` ⇒ 复用旧 id,
     不重复创建）—— 与 R1 的 episode **同一个判据、同一个实现**, ⛔ 不另写一份
@@ -155,10 +172,17 @@ def apply_cognitions(store: WikiStoreV2, rows: list[dict], *, ts: str = "",
         if row.get("action") == "experience":
             _soak(store, row, ts=ts, log=log, res=res)
             continue
+        supports = [str(ep) for ep in (row.get("supports") or ())]
+        # ⚠️ **排除集要在落 `contradicts` 之前算** —— 那几条边在下面才落（"先落 supports,
+        #    再算邻居"是顺序纪律; 而"跟这条看法打架的不算它的证据"这条规则不能等它们落完）。
+        blocked = {id_map.get(str(x), str(x)) for x in (row.get("contradicts") or ())}
         nid = _create_belief(store, row, ts=ts, log=log,
                              event_seq=event_seq, res=res)
-        for ep in row.get("supports") or ():
-            _add_edge(store, REL_SUPPORTS, str(ep), nid, ts=ts, log=log, res=res)
+        for ep in supports:
+            _add_edge(store, REL_SUPPORTS, ep, nid, ts=ts, log=log, res=res)
+        # ⭐ **她从一条证据看出结论, 引擎把"同一类事"的其他几条也并进来**（零 LLM）
+        _join_akin(store, nid, supports, excluded=blocked,
+                   ts=ts, log=log, res=res)
         evo = str(row.get("evolved_from") or "")
         if evo:
             _add_edge(store, REL_EVOLVED_FROM, nid, id_map.get(evo, evo),
@@ -167,6 +191,69 @@ def apply_cognitions(store: WikiStoreV2, rows: list[dict], *, ts: str = "",
             _add_edge(store, REL_CONTRADICTS, nid, id_map.get(str(other), str(other)),
                       ts=ts, log=log, res=res)
     return res
+
+
+def _akin_neighbors(store: WikiStoreV2, nid: str) -> list[str]:
+    """一跳 `akin` 邻居 —— ⭐ 实现住在图层（`store.related`, 两个方向都算）。
+
+    ⚠️ **为什么要双向**: `akin` 对称、写进去时被 `canonical_for` 归一（`store.add_edge`）
+    —— 归一只保证"同一条边不会存两遍", ⛔ 不保证**起点落在 `src`**。只查 `src == nid`
+    会漏掉一半（她指认的那条恰好是 id 小的那个时）, 而漏哪一半取决于**字典序**。
+    ⚠️ **只走 `akin`**: 并证据只认"她亲口认过的像"（`walk.py` 的窄门同一条判据）——
+    `member_of` 是分类, `supports` 是看法, 都不是"同类"。
+    """
+    return store.related(nid, REL_AKIN)
+
+
+def _join_akin(store: WikiStoreV2, nid: str, evidence: list[str], *,
+               excluded: set[str], ts: str, log: EvolutionLog,
+               res: CognitionResult, cap: int = AKIN_JOIN_MAX) -> list[str]:
+    """⭐ **把每条已落证据的一跳 `akin` 邻居并进 `supports`**（零 LLM, 返回并进来的 id）。
+
+    这是 `experience`（"一类事"）退役之后**那个门槛的新载体**（用户 2026-10-13 裁:
+    "门槛不废换载体 —— `akin` 簇直接对着 belief"）: 从前"一群同类的经历 → 一条沉淀",
+    今天"一群同类的经历 → 一条看法", 而"一群"由**她自己认过的 `akin`** 说了算。
+
+    ## 四条纪律（都是判据, 不是实现细节）
+
+    1. **起点只有她写的那几条**（`supports`）—— ⛔ 绝不把**上一趟并进来的**当起点:
+       那会每次重跑都往外长一圈（滚雪球）, 而 `supports` 是幂等的。
+    2. **先落 `supports` 再算邻居**: 邻居是"跟她点的证据像的那些", 不是"跟这条看法像的"
+       —— 顺序反了就成了拿结论去找证据。
+    3. **排除打架的**: 与这条 belief 有 `contradicts` 的（`excluded`）· 与**证据集里任一
+       节点**有 `contradicts` 的 —— 后者一条规则同时管住"跟证据打架的"和"两条候选互相
+       打架的"（先并进来的那条把后来的挡在门外）。⚠️ 打架的证据**不能**共撑一个结论。
+    4. **额度 `cap`**: 见 `AKIN_JOIN_MAX`（超了就少并几条, ⛔ 不报错、不重试）。
+
+    ⚠️ **只并 `episode`**（`akin` 契约上就是 ep↔ep; 这是防御, 不是判据）。
+    ⚠️ **轨迹**: 边本身与她自己点的 `supports` **同形**（用户已接受）⇒ 唯一分得出的是
+    `evolution.jsonl` 里那一条多带的 `"via": "akin"`（见 `_add_edge`）。
+    """
+    have: list[str] = list(evidence)
+    joined: list[str] = []
+    for ep in evidence:
+        for cand in _akin_neighbors(store, ep):
+            if len(joined) >= cap:
+                break
+            node = store.get(cand)
+            if node is None or str(node.kind) != "episode":
+                continue
+            if cand in have or cand in excluded:
+                continue
+            if any(store.conflicting(cand, other) for other in have):
+                continue                                    # 打架的不共撑一个结论
+            _add_edge(store, REL_SUPPORTS, cand, nid, ts=ts, log=log, res=res,
+                      via="akin")
+            joined.append(cand)
+            have.append(cand)
+        if len(joined) >= cap:
+            break
+    if joined:
+        res.akin_joined += len(joined)
+        logger.info("digest_cognize akin_joined=%d belief=%s evidence=%d"
+                    "（一跳 akin 并进证据 —— 零 LLM）",
+                    len(joined), nid, len(evidence))
+    return joined
 
 
 def _create_belief(store: WikiStoreV2, row: dict, *, ts: str, log: EvolutionLog,
@@ -218,11 +305,19 @@ def _soak(store: WikiStoreV2, row: dict, *, ts: str, log: EvolutionLog,
 
 
 def _add_edge(store: WikiStoreV2, rel: str, src: str, dst: str, *, ts: str,
-              log: EvolutionLog, res: CognitionResult) -> None:
-    """落一条边 + 一条账（形状与 `apply_relations` 逐字相同 —— 同一个含义同一个印法）。"""
+              log: EvolutionLog, res: CognitionResult, via: str = "") -> None:
+    """落一条边 + 一条账（形状与 `apply_relations` 逐字相同 —— 同一个含义同一个印法）。
+
+    `via` 只有一处会传: **引擎自己并进来的证据**（`_join_akin` → `"akin"`）。
+    ⚠️ 为什么只在这一格留痕: 边表（`Edge`）只有 `rel/src/dst/ts`, **图里分不出**"她点的"
+    与"引擎并的"（用户 2026-10-13 裁"接受" —— 它们的语义**确实**是同一条: 这条经历撑着
+    这条看法）; 而变更史是审计用的, 那里必须分得出是谁的手。
+    """
     store.add_edge(rel, src, dst, ts=ts)
-    entry = {"pkg": "digest", "action": "relate", "rel": rel,
-             "from": src, "to": dst, "ts": ts}
+    entry: dict = {"pkg": "digest", "action": "relate", "rel": rel,
+                   "from": src, "to": dst, "ts": ts}
+    if via:
+        entry["via"] = via
     log.append(entry)
     res.edges.append(dict(entry))
 # ---------------------------------------------------------------------------
