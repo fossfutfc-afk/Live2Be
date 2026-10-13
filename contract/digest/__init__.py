@@ -5,23 +5,25 @@ digest 从前是"数据产出"风格: 手写 schema（LLM 可见面）与 `revis
 驱动两层 —— `build_schema(phase)` 渲染 prompt 里的输出格式, `parse_*` 做结构校验
 （宁缺勿错, 逐条报错; 内容质量只 warning, 引用级 / 图语义交给引擎执行层）。
 
-## 四个模块: 按"谁读它"分家
+## 五个模块: 按"谁读它"分家
 
 | 模块 | 装什么 | 谁读 |
 |---|---|---|
 | `tables.py` | **值表** —— 相位名 / 上限 / 取值域 / 日期格式 | 只有机器; ⛔ 一句给 LLM 看的话都没有 |
-| `docs.py` | **文案与文档定义** —— 每个字段只写一遍 | 渲染**与**校验读的是同一份 |
+| `prompts/` | **文案**（md）—— 每个相位要说给 LLM 听的那段字 + 共用片段 | 人改; `registry` 读它 + 填槽 |
+| `docs.py` | **文档清单** —— 哪个相位有哪几份文档（名称 / 相位） | `actions(phase)` · `parse` 的键域 |
 | `parse.py` | 七个相位的**结构校验** | 引擎执行层 |
-| `registry.py` | 建表 + 渲染 schema + 七个薄委托 | 调用点 |
+| `registry.py` | 取哪份 md + 槽填什么 + 七个薄委托 | 调用点 |
 
-⚠️ **加载顺序**: tables → docs → parse → registry, **单向**。所以包内子模块之间一律
-**直接**互导（`from contract.digest.tables import X`）—— ⛔ **不许经本文件**, 那会把环接回来。
+⚠️ **加载顺序**: `contract.slots` → tables → docs / prompts → parse → registry, **单向**。
+所以包内子模块之间一律**直接**互导（`from contract.digest.tables import X`）——
+⛔ **不许经本文件**, 那会把环接回来。
 
 ## 本文件只做再导出
 
 对外只有这一个入口: `from contract.digest import PHASE_SPLIT, digest_registry, …`。
 
-⚠️ **私有名刻意不在这里**（`_split_tags` / `_DOMAIN_CONTRACT` …）: 要用的地方写全路径
+⚠️ **私有名刻意不在这里**（`_split_tags` / `_domain_part` …）: 要用的地方写全路径
 （`from contract.digest.parse import _split_tags`）—— 让"我在碰私有名"在调用点看得见,
 而不是从门面混出来。
 
@@ -29,19 +31,14 @@ digest 从前是"数据产出"风格: 手写 schema（LLM 可见面）与 `revis
 """
 from __future__ import annotations
 
-from contract.digest.docs import (  # 文案与文档定义（LLM 看得见的每一个字）
-    ABSTRACT_SEMANTICS,
+from contract.digest.docs import (  # 文档清单（哪个相位有哪几份文档）
     ADD,
-    CLOSE_SEMANTICS,
     COGNIZE_ACTIONS,
     DEFAULT_ACTIONS,
-    LATE_DUE_SEMANTICS,
     OUTPUT_DISCIPLINE,
     OUTPUT_RULES,
     RECORD_EPISODE,
     RELATION_ACTIONS,
-    ROW_FIELDS,
-    STATE_SEMANTICS,
     TOUCH,
     UPDATE,
     DigestAction,
@@ -54,6 +51,11 @@ from contract.digest.parse import (  # 七个相位的结构校验
     parse_round_a,
     parse_round_b,
     parse_split,
+)
+from contract.digest.prompts import (  # 契约文案仓库（md）+ 填槽
+    fill,
+    fragment,
+    load,
 )
 from contract.digest.registry import (  # 建表 + 渲染 schema + 七个薄委托 + 单例
     DigestRegistry,

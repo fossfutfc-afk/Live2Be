@@ -2,6 +2,7 @@
 import pytest
 
 from contract.digest import (
+    ABSTRACT_MAX,
     COGNIZE_ACTIONS,
     COGNIZE_KEYS,
     MAX_COGNITIONS,
@@ -17,12 +18,13 @@ from contract.digest import (
     PHASE_UNDERSTAND,
     RELATION_ACTIONS,
     RELATION_ANCHORS,
-    ROW_FIELDS,
     STATE_VALUES,
     TOPICS_MAX,
     TOUCH,
     DigestRegistry,
     digest_registry,
+    fill,
+    fragment,
 )
 
 # ---------------------------------------------------------------------------
@@ -252,8 +254,9 @@ def test_parse_split_empty_is_legal():
 
 
 def _row_block() -> str:
-    """逐字段那一块（`ROW_FIELDS`）—— 示例必须**逐字**带上它（只差整体缩进, 见下）。"""
-    return ROW_FIELDS
+    """逐字段那一块（`prompts/parts/row_fields.md`）—— 示例必须**逐字**带上它
+    （只差整体缩进, 见下）。⚠️ 与渲染侧读**同一个片段**, 不是抄一份进来。"""
+    return fill(fragment("row_fields"), {"abstract_max": str(ABSTRACT_MAX)})
 
 
 def test_schema_split_phase():
@@ -286,10 +289,10 @@ def test_schema_split_phase():
 
 
 def test_schema_split_reuses_the_domain_contract_by_reference():
-    """⭐ 切分的**条数契约** `_DOMAIN_CONTRACT` **只服务 R0**（3b-2 起与 R1 分家）。
+    """⭐ 切分的**条数契约**（`prompts/parts/domain.*.md`）**只服务 R0**（3b-2 起与 R1 分家）。
 
     ⚠️ 从前它与 `record` 共用一份（因为切分权在 R1）; 3b-2 把切分权冻结给 R0 之后,
-    record 换成了 `_RECORD_CONTRACT`（"按骨架填"）—— **两句话术不同**:
+    record 换成了 `parts/record.*.md`（"按骨架填"）—— **两句话术不同**:
     一份说"怎么切", 一份说"怎么填"。谁把它们合回去, `test_schema_record_phase`
     与这条会一起红。
     """
@@ -329,7 +332,7 @@ def test_split_prompt_does_not_restate_the_schema_criteria():
                    "最后那一截"):
         assert phrase not in raw, (
             f"判据原文 {phrase!r} 出现在 prompt 文件里了 —— 它只该在契约层"
-            "（`STATE_SEMANTICS` / `CLOSE_SEMANTICS` …）。两处各写一份 = 迟早强度不一。")
+            "（`prompts/split.md` 里那四段语义）。两处各写一份 = 迟早强度不一。")
     # ⭐ **判据指针必须真在**（"怎么判在契约里"这件事本身要说出来 —— 2026-10-05 L2）
     assert "以那里为准" in raw
     # ⭐ 边界声明该在（"别自作聪明"的那道闸; 与判据无关）: 正文/领悟不归它 + 输出示范
@@ -468,9 +471,8 @@ def test_record_phase_demands_exactly_one_document():
     """⭐ `record` 相位该**恰好 1 份文档**。
 
     从前这里是硬编码查名（`a = self.spec("record_episode")`）—— 名字一改，`spec()`
-    返回 `None`，报出来是一句难懂的
-    `AttributeError: 'NoneType' object has no attribute 'field_schema'`，
-    看不出是哪份契约缺了。现在走注册表 + 明确报错。
+    返回 `None`，报出来是一句难懂的 `AttributeError`，看不出是哪份契约缺了。
+    现在按**相位**取，缺了/多了都当场点名。
     """
     reg = DigestRegistry(actions=(TOUCH,))           # 故意不含 record_episode
     with pytest.raises(ValueError, match="record 相位该恰好 1 份文档"):
