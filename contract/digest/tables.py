@@ -22,7 +22,7 @@ PHASE_UNDERSTAND = "understand"
 #: 那条经历, 右边 = 它印证 / 反驳 / 同类的那一条; **一个字的正文都不写**（写正文是下一趟）。
 PHASE_RELATE = "relate"
 #: ⏸ 两个相位已删（`close` R4 收口 · `panorama` 全景轮/写卡）—— 账目判据现在归 R0 的
-#: `parse_split`（见 `docs.py` 的 `STATE_SEMANTICS` / `CLOSE_SEMANTICS`）。
+#: `parse_split`（见 `prompts/split.md` 的四段语义）。
 #: **R3 归属轮**（§8 第 3 行: 归属 + entity 维护）—— 每段的**最后一步**。
 #: 它写 `about`（hint/正文 → 候选表里的对象）、`new_entity` 提案、entity 载荷改写；
 #: ⚠️ **不碰正文**（改正文是 R2 的活）、**不合并节点**（§9-12 ④ 未裁）。

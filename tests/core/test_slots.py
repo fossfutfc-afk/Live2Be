@@ -1,4 +1,4 @@
-"""`llm.prompts.render_template` —— `{{名字}}` 填槽，两个方向都对不上就炸。
+"""`contract.slots.render_template` —— `{{名字}}` 填槽，两个方向都对不上就炸。
 
 它替掉的是裸 `text.replace("{{x}}", v)`：那种写法下「模板没这个槽」与「有槽没给值」
 **两种错都静默**，而后者会让 `{{x}}` 原样进 system prompt（她看得见字面量）。
@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import pytest
 
-from llm.prompts import render_template
+from contract.slots import render_template
 
 
 def test_fills_a_slot():

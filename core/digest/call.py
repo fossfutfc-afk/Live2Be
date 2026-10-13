@@ -22,6 +22,7 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from contract.digest import digest_registry
+from contract.slots import render_template
 from core.digest.llm_call import llm_chat
 from core.digest.rounds import RoundSpec, budget_of
 from llm.client import feedback
@@ -43,10 +44,11 @@ def _system_for(spec: RoundSpec, *, domain: str = "mmt", chapter_count: int = 1)
     "这一段该切成几件事"的说明跟着"作者单位"走）。⚠️ 原先这里是 `**schema_kw`,
     名单藏在 kwargs 里; 写死成具名参数之后,**谁要传什么一眼看得见**, 传错当场 TypeError。
     """
-    return load_prompt(spec.prompt).replace(
-        "{{digest_schema}}",
-        digest_registry.build_schema(spec.phase, domain=domain,
-                                     chapter_count=chapter_count))
+    return render_template(
+        load_prompt(spec.prompt),
+        {"digest_schema": digest_registry.build_schema(
+            spec.phase, domain=domain, chapter_count=chapter_count)},
+        where=f"{spec.prompt}.md")
 
 
 def _parse_for(spec: RoundSpec, **ctx) -> Callable[[dict], tuple[Any, Any]]:
