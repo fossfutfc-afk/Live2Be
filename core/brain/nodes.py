@@ -33,6 +33,10 @@ import json
 from dataclasses import dataclass, field
 from typing import Any
 
+#: 老档的 `tags` 里那个前缀（`#entity:名字`）—— ⚠️ **唯一真源在契约层**, 这里只是
+#: `from_dict` 做一次性迁移时要用它剥壳（`core/brain/entities.py` 同样从那儿取）。
+from contract.digest import ENTITY_TAG_PREFIX
+
 #: 节点类型（fact 已退役, 2026-09-02——出厂与 digest 同构: 记忆 = 经历 + 认知）
 #: ⭐ **`experience` 2026-10-06 定名**（原 `group` · N1b · `DESIGN_MMT_NEW_ACTION §4.5`）: **经验**是 L2 归纳出来的
 #: "一类事"，成员靠 `member_of` 边指过来（**不在节点上存列表** —— 成员会生长、各有自己的 `ts`）。
@@ -121,6 +125,17 @@ class BrainNode:
     #: 2026-09-21 用户裁决"overview 就是 text"）—— 所以 entity 不新增字段、`text` 也不必
     #: 从"共用"里降级出去。
     text: str = ""
+    #: ⭐ **这条记忆涉及谁**（2026-10-13 用户裁: 从 `tags` 里的 `#entity:名字` **搬出来**）——
+    #: 值是她写的**叫法**（`["老师"]`），引擎按它 find-or-create + 落 `about` 边。
+    #:
+    #: **为什么单开一格**（而不是继续塞在 `tags` 里带个前缀）: 那个前缀养着三样东西 ——
+    #: 契约层的前缀识别、`MAX_TAGS` 的**分开计数**、以及"`#` 开头 = 标记空间"这条约定
+    #: （而它在**节点 tags** 里只有 `#entity:` 一个成员, `#pinned` 是 note 的）。
+    #: 换成字段 ⇒ 三样一起拆掉, `tags` 回到一句话: **检索词**; 而且字段对模型**自解释**
+    #: （`"#entity:老师"` 是个要记住的魔法拼法, `"entity": ["老师"]` 是看得懂的槽）。
+    #: ⚠️ **不落边的那些名字照旧留着**（解析不到的 = "该建这个人"的线索）—— 见
+    #: `entities.normalize_entity_refs` 与 `revise.link_entity_refs`（归一 + 落边 + 写回）。
+    entity: list[str] = field(default_factory=list)
     # ── episode 专属 ──
     verbatim: str = ""
     #: `verbatim` 的**唯一来源**（地址如 `"28.3"`/`"20.p"`, 词表 = `contract/timeline_index.py`）。
@@ -278,7 +293,7 @@ class BrainNode:
         for f in ("observer", "tags", "topics", "event_seq", "ts",
                   "text", "verbatim",
                   "verbatim_seq", "title", "emo_shape", "place",
-                  "place_raw",
+                  "place_raw", "entity",
                   "subject", "examples", "growth",
                   "name", "aliases", "state", "text_seq"):
             v = getattr(self, f)
@@ -305,6 +320,20 @@ class BrainNode:
         # ⏸ 旧档的 `epistemic` 键**读不进来也不报错**（2026-09-29 退役; 信息在 `observer` 里）
         node.observer = _str(raw.get("observer"))
         node.tags = _str_list(raw.get("tags"))
+        # ⭐ **老档的一次性迁移**（2026-10-13）: `#entity:名字` 从前住在 `tags` 里,
+        # 现在**读的这一刻**把它挪进 `entity`（`tags` 于是变干净）—— 幂等、可重读
+        # （`events.jsonl`/`wiki.jsonl` 都是 append/派生, 真正的写入在下一次 `save`）。
+        # ⚠️ **不影响 `about` 边**: 那些边早就落好了（索引能力在那边）, 这一步只是让
+        # "她写的引用"在盘上有个**正经的格子**（否则将来任何一次重派生都读不到它）。
+        node.entity = _str_list(raw.get("entity"))
+        node.tags = [t for t in node.tags
+                     if not t.startswith(ENTITY_TAG_PREFIX)]
+        for t in _str_list(raw.get("tags")):
+            if t.startswith(ENTITY_TAG_PREFIX):
+                name = t[len(ENTITY_TAG_PREFIX):].strip()
+                if name:
+                    node.entity.append(name)
+        node.entity = list(dict.fromkeys(node.entity))
         node.topics = _str_list(raw.get("topics"))
         node.event_seq = _int_list(raw.get("event_seq"))
         node.ts = _str(raw.get("ts"))

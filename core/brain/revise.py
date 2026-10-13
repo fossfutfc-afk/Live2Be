@@ -23,7 +23,7 @@ from core.brain.entities import (
     SENSEI_ID,
     find_entity,
     form_key,
-    normalize_entity_tags,
+    normalize_entity_refs,
 )
 from core.brain.evolution import EvolutionLog
 from core.brain.graph import (
@@ -175,6 +175,7 @@ def _create_belief(store: WikiStoreV2, row: dict, *, ts: str, log: EvolutionLog,
     node = make_node("belief", text=row["text"], subject=row.get("subject", ""),
                      significance=row.get("significance", 0.5),
                      tags=list(row.get("tags", []) or []),
+                     entity=list(row.get("entity", []) or []),
                      ts=ts, event_seq=list(event_seq or []))
     dup = _find_duplicate(store, node)
     if dup is not None:
@@ -183,8 +184,8 @@ def _create_belief(store: WikiStoreV2, row: dict, *, ts: str, log: EvolutionLog,
                     dup.id)
         return dup.id
     nid = store.add(node)
-    # ⭐ 边由**引擎从 tag 派生**（零 LLM）—— `link_entity_tags` 是唯一实现
-    _targets, strangers = link_entity_tags(store, nid, ts=ts)
+    # ⭐ 边由**引擎从引用派生**（零 LLM）—— `link_entity_refs` 是唯一实现
+    _targets, strangers = link_entity_refs(store, nid, ts=ts)
     res.strangers.extend(strangers)
     res.created.append(nid)
     log.append({"pkg": "digest", "action": "create", "id": nid,
@@ -233,7 +234,7 @@ def apply_entities(store: WikiStoreV2, rows: list[dict], *, ts: str = "",
 
     把"**她还不认识的名字**"建成 `entity` 节点。⛔ **不写正文、不连边**:
       · 归属边（`about`）由**引擎**从节点 `tags` 里的 `#entity:` 派生 —— 这一轮**建完对象
-        之后回头补边**（`link_entity_tags`, 同一段内闭合）;
+        之后回头补边**（`link_entity_refs`, 同一段内闭合）;
       · entity 的"印象 / 现状"归 **belief** ⇒ 这里一个字都不写（判据见 `DESIGN_ENTITY_TAGS §6.1`）。
 
     ⚠️ **准入门槛**（旧口径原样保留）: `name` 必填 · **`reason` 必填**（建对象是**永久成本**:
@@ -400,27 +401,30 @@ def apply_stances(store: WikiStoreV2, rows: list[dict], *, ts: str = "",
     return res
 
 
-def link_entity_tags(store: WikiStoreV2, nid: str, *, ts: str = ""
+def link_entity_refs(store: WikiStoreV2, nid: str, *, ts: str = ""
                      ) -> tuple[list[str], list[str]]:
-    """⭐ **一个节点 `tags` 里的 `#entity:` ⇒ `about` 边** —— **唯一实现**（引擎派生, 零 LLM）。
+    """⭐ **一个节点 `entity` 里的引用 ⇒ `about` 边** —— **唯一实现**（引擎派生, 零 LLM）。
 
     三处调用: R1 造 episode（`episodes._create_a_nodes`）· L2 造看法（`_create_belief`）·
-    R3 **建完新对象之后回头补边**（`rounds/settle.py` —— 它把"先写 tag 后建对象"接上）。
+    `settle` **建完新对象之后回头补边**（`rounds/settle.py` —— 它把"先写引用后建对象"接上）。
     做三件事: ① 归一（能解析的叫法换成**主名**）② 落 `about`（节点 → 对象）③ 把归一后的
-    `tags` **写回节点**（她下次看到的与库里一致）。
+    引用**写回节点**（她下次看到的与库里一致）。
 
+    ⚠️ **2026-10-13 改口**: 从前它读 `tags` 里的 `#entity:名字`（那时叫 `link_entity_refs`）;
+    现在读**独立字段** `node.entity`（名字就是她写的那个叫法）。老档的迁移在
+    `nodes.BrainNode.from_dict`。
     ⚠️ `ts` 缺省 = **节点自己的时刻**（不是我落边的时刻）; 幂等靠 `store.add_edge`;
-    ⚠️ 解析不到的**原样留着**（那是"认人"的线索, 见 `entities.normalize_entity_tags`）。
-    ⛔ **不留 `evolution` 账** —— 边是 tag 的**派生**（可重建）, 不是她的一个决定。
+    ⚠️ 解析不到的**原样留着**（那是"认人"的线索, 见 `entities.normalize_entity_refs`）。
+    ⛔ **不留 `evolution` 账** —— 边是引用的**派生**（可重建）, 不是她的一个决定。
 
     Returns: `(落下的对象 id, 解析不到的名字)`。
     """
     node = store.get(nid)
     if node is None:
         return [], []
-    tags, targets, strangers = normalize_entity_tags(store, node.tags)
-    if tags != list(node.tags or []):
-        store.update(nid, {"tags": tags})
+    refs, targets, strangers = normalize_entity_refs(store, node.entity)
+    if refs != list(node.entity or []):
+        store.update(nid, {"entity": refs})
     stamp = ts or node.ts
     for eid in targets:
         store.add_edge(REL_ABOUT, nid, eid, ts=stamp)

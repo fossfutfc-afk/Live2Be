@@ -239,8 +239,8 @@ ROUNDS: tuple[RoundSpec, ...] = (
                   "角色人设（锚点）", "本段情绪标尺"),
         writes=(
             # 条目自带的位置是 `span` 区间, 由 `_expand_spans` 展开成 `event_seq`。
-            ("episode", ("title", "text", "verbatim", "verbatim_seq", "tags", "topics",
-                         "significance", "emo_int", "emo_span", "observer",
+            ("episode", ("title", "text", "verbatim", "verbatim_seq", "tags", "entity",
+                         "topics", "significance", "emo_int", "emo_span", "observer",
                          "event_seq", "ts",
                          # 引擎物化（🚫 只进召回侧, 绝不进 LLM 上下文）:
                          "emo_shape", "place", "place_raw", "aff_at_encoding")),
@@ -293,7 +293,8 @@ ROUNDS: tuple[RoundSpec, ...] = (
             # ⏸ **`("experience", ("text",))` 2026-10-13 摘掉** —— 给类写沉淀随 `group`
             # 退役停产（契约不再要它 ⇒ `parse_cognitions` 丢那一行 + 记账）。⛔ 不改
             # `title` / `ts` 那条纪律照旧（停产不是删机器: `revise._soak` 那一支还在）。
-            ("belief", ("text", "subject", "significance", "event_seq", "ts")),
+            ("belief", ("text", "subject", "significance", "tags", "entity",
+                        "event_seq", "ts")),
             ("edge", ("supports", "evolved_from", "contradicts")),
         ),
         result_fields=(*CONTRACT_FIELDS, "created_beliefs", "reused_beliefs",

@@ -67,18 +67,21 @@ MAX_EPISODES = 5        # A 轮单包最多 episode 数
 MAX_COGNITIONS = 5
 MAX_ALIASES = 8         # `new_entity` 的别名上限（超了截断 + warning —— 别名是效率优化）
 MAX_TEXT = 300          # 正文（text）单行上限（汉字）——三槽合流后两种 kind 共用
-MAX_TAGS = 4            # tags 检索词上限（⭐ 只数**检索词** —— `#` 开头的标记不算, 见下）
+MAX_TAGS = 4            # tags 检索词上限（⭐ 它只数**检索词** —— 引用早在 `entity` 那一格）
 
-#: ⭐ **结构 tag 的语法**（E1, 2026-10-08）: `#entity:<名字>` = 这条经历/看法**涉及谁**。
-#: `#` 开头 = **标记, 不是检索词** —— 这条约定已经有第一个成员（`notes.PINNED_TAG =
-#: "#pinned"`, 判据写在 `core/digest/material.py`: *"`#pinned` 那种标记不是词"*）⇒
-#: 检索侧天然已经跳过它们（`startswith("#")`）, 本常量只是把第二个成员写下来。
-#: ⚠️ 名字**不在这里解析**（契约层没有 store）—— 归一与落边见
-#: `core/brain/entities.normalize_entity_tags` 与 `core/digest/episodes._link_about`。
+#: ⏸ **结构 tag 的语法**（E1, 2026-10-08）: `#entity:<名字>` = 这条经历/看法**涉及谁**,
+#: 当时塞在 `tags` 里带前缀。
+#: ⭐ **2026-10-13 退役**: 引用搬进**独立字段 `node.entity`**（用户裁）—— 那个前缀养着
+#: 三样东西（前缀识别 / 分开计数 / "`#` 是标记空间"这条约定, 而它在**节点 `tags`** 里
+#: 只有它一个成员 —— `#pinned` 是 note 的）⇒ 换成字段后三样一起拆掉, `tags` 回到一句话:
+#: **检索词**; 而且字段对模型**自解释**（魔法拼法 → 看得懂的槽）。
+#: ⚠️ **常量与识别都留着**（停产不是删格式, 同 `profile` / `experience` 的 B 案）:
+#: `_split_tags` 认得出它 ⇒ **挪进 `entity`**（⛔ 不丢行、不判非法, 只记一条 warning）,
+#: `nodes.BrainNode.from_dict` 读老档时做同一次搬迁。⛔ 别再往 `tags` 里塞结构前缀。
 ENTITY_TAG_PREFIX = "#entity:"
-#: 一条经历最多带几个 `#entity:` —— ⚠️ 它**不占** `MAX_TAGS` 的额度（分开计数）。
-#: 上限 2 = "这段涉及谁"必须挑（宽口径也要有边）; 超了截 + 告警。
-ENTITY_TAGS_MAX = 2
+#: ⭐ **一条记忆最多带几个引用**（`entity` 字段的长度 —— 原 `ENTITY_TAGS_MAX`,
+#: 2026-10-13 跟着字段改名）。上限 2 = "这段涉及谁"必须挑（宽口径也要有边）; 超了截 + 告警。
+ENTITY_REFS_MAX = 2
 #: ⭐ **新建对象的名字上限**（2026-10-13 用户裁: 复用 `core/brain/revise.MAX_ALIAS_LEN`
 #: 那把尺 —— 判据原文"超过这个长度的东西**不是称呼, 是一句话**"）。
 #: 真机名字都在 3~6 字（`杂草屋` 3 · `陆八魔阿露` 5 · `拉面店的老板` 6）⇒ 8 够用;

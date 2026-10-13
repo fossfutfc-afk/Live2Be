@@ -21,8 +21,8 @@ from contract.digest.tables import (
     COGNIZE_KEYS,
     COGNIZE_RETIRED,
     ENTITY_NAME_MAX,
+    ENTITY_REFS_MAX,
     ENTITY_TAG_PREFIX,
-    ENTITY_TAGS_MAX,
     ENTITY_TEXT_MAX,
     GROUP_TITLE_MAX,
     MAX_ALIASES,
@@ -784,10 +784,12 @@ def _clean_belief(val: dict, i: int, drops: list[str],
     subject = str(val.get("subject", "") or "").strip()
     if subject:
         item["subject"] = subject
-    tags, ent_tags = _split_tags(val.get("tags"), warnings, drops,
-                                 where=f"cognitions[{i}].belief")
-    if tags or ent_tags:
-        item["tags"] = tags + ent_tags
+    tags, refs = _split_tags(val.get("tags"), val.get("entity"), warnings, drops,
+                             where=f"cognitions[{i}].belief")
+    if tags:
+        item["tags"] = tags
+    if refs:
+        item["entity"] = refs
     sig = val.get("significance")
     if sig is not None and not isinstance(sig, bool):
         try:
@@ -916,46 +918,56 @@ def _clean_episode(e: Any, i: int, seq_set: set[int] | None = None,
                   f"第二种合法条目）"], []
 
 
-def _split_tags(raw: Any, warnings: list[str], drops: list[str], *,
+def _split_tags(raw: Any, refs: Any, warnings: list[str], drops: list[str], *,
                 where: str) -> tuple[list[str], list[str]]:
-    """`tags` → （**检索词** ≤`MAX_TAGS`, **`#entity:` 项** ≤`ENTITY_TAGS_MAX`）。
+    """`tags` + `entity` → （**检索词** ≤`MAX_TAGS`, **引用** ≤`ENTITY_REFS_MAX`）。
 
-    ⭐ **分两栏**（E1, 2026-10-08）: `#` 开头的是**结构标记, 不是检索词** ——
-    既有判据见 `core/digest/material.py`（*"`#pinned` 那种标记不是词"*）⇒
-    它们**不占**那 1-4 个额度, 自己一栏、自己一个上限。
+    ⭐ **2026-10-13**: 引用从 `tags` 里的 `#entity:名字` **搬进了独立字段 `entity`**
+    （用户裁 —— 那个前缀养着前缀识别 / 分开计数 / "`#` 是标记空间"三样东西, 而它在节点
+    `tags` 里只有 `#entity:` 一个成员）。所以这里收**两处**:
+      · `entity` = **正路**（一个新字段, 对模型自解释）;
+      · `tags` 里那些 `#entity:名字` = **她惯性还在写**（老契约教了两版）⇒ **认得出、
+        挪进 `entity`**（⛔ 不丢行、不判非法 —— 同 `profile` / `experience` 的 B 案口径）,
+        只记一条 warning 提醒她"下次写在 `entity` 那一格"。
+    ⛔ **`#` 开头的别的东西**照旧只告警（那是引擎的标记空间, 不该占检索词）——
+    但 `#pinned` 那种**根本不在节点 tags 上**的东西, 不必在这里编故事。
 
-    ⚠️ 本函数**只做形状**（纯字符串）: `#entity:` 里的名字**不在这里解析**
-    （契约层没有 store）⇒ 归一与落边在执行层。形状坏（`#entity:` 后面空名字）
-    ⇒ **丢那一项** + 记账（少了名字就没有对象可指）。
+    ⚠️ 本函数**只做形状**（纯字符串）: 引用里的名字**不在这里解析**（契约层没有 store）
+    ⇒ 归一与落边在执行层（`entities.normalize_entity_refs` / `revise.link_entity_refs`）。
     """
     words: list[str] = []
-    marks: list[str] = []
+    names: list[str] = []
     for t in (raw if isinstance(raw, list) else []):
         if not isinstance(t, str) or not t.strip():
             continue
         s = t.strip()
         if s.startswith(ENTITY_TAG_PREFIX):
-            name = s[len(ENTITY_TAG_PREFIX):].strip()
-            if not name:
-                drops.append(f"{where}.tags 里那个 `#entity:` 没写名字 —— 丢了")
+            legacy = s[len(ENTITY_TAG_PREFIX):].strip()
+            if not legacy:
+                _drop(warnings, drops, f"{where}.tags 里那个 `#entity:` 没写名字 —— 丢了")
                 continue
-            marks.append(f"{ENTITY_TAG_PREFIX}{name}")
+            warnings.append(f"{where}.tags 里的 `{s}` 是**旧的写法** —— 已挪进 `entity`"
+                            "（引用现在写在自己的那一格里）")
+            names.append(legacy)
             continue
         if s.startswith("#"):
-            # ⚠️ 静默 no-op 的入口: `#` 开头 = **标记空间**, 检索侧一律跳过它
-            # （`core/digest/material.py` 的「`#pinned` 那种标记不是词」）⇒ 记账, 别让它无声地丢
             warnings.append(f"{where}.tags 里 {s!r} 以 `#` 开头 —— 那不会被当检索词"
-                            f"（`#` 是引擎的标记空间, 只有 `{ENTITY_TAG_PREFIX}` 是给你用的）")
+                            "（`#` 是引擎的标记空间）")
         words.append(s)
+    for t in (refs if isinstance(refs, list) else []):
+        if isinstance(t, str) and t.strip():
+            names.append(t.strip())
+    if refs is not None and not isinstance(refs, list):
+        warnings.append(f"{where}.entity 必须是数组 —— 忽略")
+    names = list(dict.fromkeys(names))
     if len(words) > MAX_TAGS:
-        warnings.append(f"{where}.tags 超过 {MAX_TAGS} 个检索词（截到前 {MAX_TAGS} 个;"
-                        f" `#entity:` 不算在内）")
+        warnings.append(f"{where}.tags 超过 {MAX_TAGS} 个检索词（截到前 {MAX_TAGS} 个）")
         words = words[:MAX_TAGS]
-    if len(marks) > ENTITY_TAGS_MAX:
-        warnings.append(f"{where}.tags 超过 {ENTITY_TAGS_MAX} 个 `#entity:`"
-                        f"（截到前 {ENTITY_TAGS_MAX} 个）")
-        marks = marks[:ENTITY_TAGS_MAX]
-    return words, marks
+    if len(names) > ENTITY_REFS_MAX:
+        warnings.append(f"{where}.entity 超过 {ENTITY_REFS_MAX} 个引用"
+                        f"（截到前 {ENTITY_REFS_MAX} 个 —— 这条涉及谁要挑）")
+        names = names[:ENTITY_REFS_MAX]
+    return words, names
 
 
 def _norm_index(raw: Any) -> str | None:
@@ -1154,12 +1166,14 @@ def _clean_episode_item(e: dict, i: int, errors: list[str], warnings: list[str],
                             f"（引擎忽略它）")
     # verbatim: 记录行号（唯一通道 —— 文本通道 2026-09-29 退役）
     _fill_verbatim(item, e, i, warnings, seq_set, drops=drops)
-    tags, ent_tags = _split_tags(e.get("tags"), warnings, drops,
-                                 where=f"episodes[{i}]")
+    tags, refs = _split_tags(e.get("tags"), e.get("entity"), warnings, drops,
+                             where=f"episodes[{i}]")
     if not tags:
         warnings.append(f"episodes[{i}] 缺 tags（检索导向 1-4 个）")
-    if tags or ent_tags:
-        item["tags"] = tags + ent_tags          # 检索词在前, `#entity:` 在后
+    if tags:
+        item["tags"] = tags
+    if refs:
+        item["entity"] = refs                   # 这条经历**涉及谁**（引擎据此落 `about`）
     # ⭐ `topics`（2026-10-07, `TODO_TWO_PASSES` 的 P0）—— "这条经历关于什么"的**具体东西**,
     # 是"同类的事"认亲的把手（L1 的 `akin` 要求 `on` ∈ 两端 `topics` 的交集）。
     # ⚠️ **缺了不告警**（想不出具体的 ⇒ 空数组是合法的 —— 那是"这条还没轴"的正常状态）;

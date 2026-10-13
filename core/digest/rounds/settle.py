@@ -26,7 +26,7 @@ from __future__ import annotations
 import logging
 
 from core.brain.entities import find_entity, object_lines, strangers_block, surface_forms
-from core.brain.revise import apply_entities, apply_stances, link_entity_tags
+from core.brain.revise import apply_entities, apply_stances, link_entity_refs
 from core.digest.material import _node_texts, settle_objects_block
 from core.digest.rounds.base import Ctx, RoundOut
 
@@ -39,19 +39,23 @@ def _segment_ids(ctx: Ctx) -> list[str]:
 
 
 def _strangers(ctx: Ctx, ids: list[str]) -> list[str]:
-    """本段节点 `tags` 里那些 `#entity:` **解析不到**的名字（引擎算, 不是再读一遍正文猜）。"""
+    """本段节点 `entity` 字段里那些**解析不到**的名字（引擎算, 不是再读一遍正文猜）。
+
+    ⚠️ **2026-10-13**: 从"扫 `tags` 里的 `#entity:` 前缀"改成**读独立字段**
+    （`node.entity`, 名字就是她写的那个叫法）—— 老档的搬迁在 `nodes.BrainNode.from_dict`
+    （**读一次**就把它挪进字段）。
+    ⚠️ 这一格也是"名单只扫**本段新节点**"的证据: "这一段让我想记住的人"完全可能不在名单里
+    （她当时没标引用）⇒ 名单是**提示**不是笼子（见 `parse_attribution` 的 docstring）。
+    """
     out: list[str] = []
     for nid in ids:
         node = ctx.store.get(str(nid))
         if node is None:
             continue
-        for t in (node.tags or []):
-            s = str(t).strip()
-            if not s.startswith("#entity:"):
-                continue
-            name = s[len("#entity:"):].strip()
-            if name and find_entity(ctx.store, name)[0] is None:
-                out.append(name)
+        for name in (node.entity or []):
+            s = str(name).strip()
+            if s and find_entity(ctx.store, s)[0] is None:
+                out.append(s)
     return list(dict.fromkeys(out))
 
 
@@ -98,7 +102,7 @@ def run(ctx: Ctx) -> RoundOut:
     # ⭐ **建完补边**: 重扫本段全部节点 —— 刚才那个名字现在解析得到了 ⇒ 落 `about` + 归一
     linked = 0
     for nid in ids:
-        targets, _left = link_entity_tags(ctx.store, nid, ts=ctx.now_ts)
+        targets, _left = link_entity_refs(ctx.store, nid, ts=ctx.now_ts)
         linked += len(targets)
     logger.info("digest_settle strangers=%d objects=%d rows=%d new=%d renamed=%d "
                 "rewritten=%d clash=%d empty=%d stale=%d linked=%d",

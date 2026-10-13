@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, Any
 
 from core.brain.address import unique_title
 from core.brain.nodes import PLAYER_SUBJECT, make_node
-from core.brain.revise import link_entity_tags
+from core.brain.revise import link_entity_refs
 from core.digest.segment import _seqs_of
 
 if TYPE_CHECKING:                       # 仅注解求值期
@@ -115,6 +115,7 @@ def _create_a_nodes(store: WikiStoreV2, entries: list[dict], *, ts: str,
                              verbatim=ent.get("verbatim", ""),
                              verbatim_seq=ent.get("verbatim_seq", []),
                              tags=ent.get("tags", []),
+                             entity=ent.get("entity", []),
                              significance=ent.get("significance", 0.5))
             node.event_seq = list(_seqs_of(ent) or event_seq)
             node.ts = _node_ts(node.event_seq, by_seq, ts)   # ⭐ 自己的时刻（④-①）
@@ -125,7 +126,7 @@ def _create_a_nodes(store: WikiStoreV2, entries: list[dict], *, ts: str,
                 player_ids.append(dup.id)
                 continue
             pid = store.add(node)
-            _t, _strangers = link_entity_tags(store, pid, ts=node.ts)
+            _t, _strangers = link_entity_refs(store, pid, ts=node.ts)
             if strangers_out is not None:
                 strangers_out.extend(_strangers)
             player_ids.append(pid)
@@ -152,7 +153,7 @@ def _create_a_nodes(store: WikiStoreV2, entries: list[dict], *, ts: str,
             continue
         nid = store.add(node)
         episode_ids.append(nid)
-        _t, _strangers = link_entity_tags(store, nid, ts=node.ts)
+        _t, _strangers = link_entity_refs(store, nid, ts=node.ts)
         if strangers_out is not None:
             strangers_out.extend(_strangers)
     return episode_ids, player_ids
