@@ -15,12 +15,12 @@
 import sys
 from pathlib import Path
 
+from contract.digest_parse import _split_tags
 from contract.digest_registry import (
     ENTITY_TAG_PREFIX,
     ENTITY_TAGS_MAX,
     MAX_TAGS,
     PHASE_RECORD,
-    _split_tags,
     digest_registry,
 )
 from core.brain import WikiStoreV2, make_node

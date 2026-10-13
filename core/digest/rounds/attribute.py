@@ -60,7 +60,7 @@ def run(ctx: Ctx) -> RoundOut:
         ctx.log_skip(spec)
         return RoundOut.skipped()
     # ⚠️ **故意还是 `casefold`**（不是 `entities.form_key`）: 这个集合要交给
-    #    `contract/digest_registry.parse_attribution`, 而**契约层不许 import core**
+    #    `contract/digest_parse.parse_attribution`, 而**契约层不许 import core**
     #    （`tests/core/test_import_direction.py`）⇒ 想两端同时换成 `form_key`,
     #    得先把那个纯字符串件**下移到 `contract/`（或 `core.common`）** —— 那是代码组织的活。
     #    今天不影响正确性: 执行层 `revise.apply_entities` 用 `find_entity`（**已经是 form_key**）
