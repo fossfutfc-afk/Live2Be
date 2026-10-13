@@ -30,6 +30,7 @@ from typing import TYPE_CHECKING
 from contract.digest import RELATION_ACTIONS, STATE_VALUES, is_full_date
 from core import paths
 from core.brain import marks
+from core.brain.graph import REL_AKIN
 from core.digest.rounds import RoundSpec
 from core.digest.segment import _span_range
 
@@ -516,7 +517,7 @@ def _episode_candidates(store: WikiStoreV2, episode_ids: list[str], *,
 #: settle 的「这一段认下的对象」**摆几个** —— ⚠️ 它是**标尺不是硬闸**（超出只截 + 明说还有几个）。
 #: 3 = 一段里她不可能对十个人改观, 而每个对象四五行的料不短。
 DIGEST_SETTLE_OBJECTS = 3
-#: 每个对象最多印几条「这一段它出现的地方」（同 `DIGEST_L2_MEMBERS` 的量级）。
+#: 每个对象最多印几条「这一段它出现的地方」（同 `DIGEST_L2_AKIN` 的量级: 都只是"摆几条看得见的", ⛔ 不是闸）。
 DIGEST_SETTLE_REFS = 3
 
 
@@ -603,39 +604,34 @@ def settle_objects_block(store, ids, *, now="", body: int = 110) -> tuple[str, l
 
 
 # ---------------------------------------------------------------------------
-# L2（`cognize`）的料 —— 「被连过的经历」（2026-10-08, P8）
-# ⏸ **2026-10-13: 「本段归类的群」那一半撤出料面**（`group` 退役 ⇒ 它由 `member_of` 喂,
-#    而那条边不再有人落 ⇒ 恒空）。`DIGEST_L2_GROUPS` / `DIGEST_L2_MEMBERS` /
-#    `_groups_for_l2` / `_group_block` **四个都留着但生产上零调用**（停产不是删机器）——
-#    下一刀（`akin` 生到一起）复活的正是"一类事"这个位置, 那时再决定它们是继承还是替换。
+# L2（`cognize`）的料 —— 「被连过的经历」+「她认过的相似簇」（2026-10-08 P8 / 2026-10-13）
+# ⭐ **2026-10-13: 相似簇接替了「本段归类的群」** —— 那一格由 `member_of` 喂, 而 `group`
+#    退役后那条边不再有人落 ⇒ 恒空。新的一格喂它的是 **`akin`**（她自己认过的"同一类事"）,
+#    形状也从"类 id + 沉淀正文 + 成员表"换成了"挂在每条经历下面的一行"（用户 2026-10-13 裁 A 案）:
+#    老块是给她**写沉淀**用的, 而沉淀已停产; 新块是给她**写结论**用的 —— "这条看法不只被
+#    这一段那一条撑着, 还有她早先认过'像'的那些" ⇒ 她才写得出"总是/每次"而不是"这一次"。
 # ---------------------------------------------------------------------------
 
-#: ⏸ **生产上零调用**（群块已撤）: L2 的「本段归类的群」**摆几组**。
-#: 判据存档（用户 2026-10-08: *"GROUPS 数可以增加了… 我觉得 2-3 都可以"* ——
-#: 前提是把每块摆的成员数砍小了: 每块的料短了 ⇒ 一次摆得下更多块）。
-#: 挑法见 `_groups_for_l2`: **本段新归入多的先**, 平手时**还没写过沉淀的先**。
-DIGEST_L2_GROUPS = 3
+#: ⭐ L2 的「她认过的相似簇」: **每条被连过的经历**最多印几条同类邻居（一跳 `akin`）。
+#: 3 = 看得见"一类事"的形状, 又不至于把一段料铺成一棵树（真机全库 `akin` 只有 5 条 ⇒ 基本截不到）。
+#: ⚠️ 超了**明说还有几条没印**（⛔ 不静默截断）; 而写入侧的额度是另一件事（`AKIN_JOIN_MAX`）。
+DIGEST_L2_AKIN = 3
 
 #: 「被 L1 连过」= **L1 的动作面那几条边**（`RELATION_ACTIONS` —— 契约单源, ⛔ 不另抄一份）。
 #: ⚠️ **2026-10-08（E3）起是四条**（`supports`/`akin`/`contradicts`/`evolved_from`）——
-#: `about` 移出了动作面（归属改由**引擎**从节点 `tags` 的 `#entity:` 派生）⇒ 它不再算
+#: `about` 移出了动作面（归属改由**引擎**从节点 `entity` 派生）⇒ 它不再算
 #: "被 L1 连过"。**这是判据的正确收紧**: 一条经历只带"关于谁"的标记, 不等于"她把它
 #: 跟别的经历/看法连上了" ⇒ 它仍然是**孤立经历**, 不进 L2（P8 的原始门槛）。
 #: ⚠️ `member_of` **不在里面**（那是 `group` 落的边）—— 它要是算进来, 每个归了类的经历
 #: 都成了"被连过", 孤立经历那道理应存在的门槛就失效了。
 _L2_LINK_RELS = frozenset(a.name for a in RELATION_ACTIONS)
 
-#: ⏸ **生产上零调用**（同 `DIGEST_L2_GROUPS`）: 一类最多印几条**已有成员**。
-#: 判据存档（用户 2026-10-08 裁: 4 条 —— 8 条太多）。
-#: ⚠️ **本段新归入的不吃这个上限**（它们是那一趟的**理由**, 必须看得见）。
-DIGEST_L2_MEMBERS = 4
-
 
 def existing_entities_line(store, *, texts=()) -> str:
-    """【已有的对象】—— ⭐ **写 `#entity:` 的那两轮都要看这一栏**（R1 记经历 / L2 写看法）。
+    """【已有的对象】—— ⭐ **写引用名的那两轮都要看这一栏**（R1 记经历 / L2 写看法）。
 
     **为什么要给**（用户 2026-10-08 裁）: 防她自己造 alias —— 她只该照这里出现过的
-    **名字或别名**写 `#entity:`; 自造一个新叫法 ⇒ 引擎 `find_entity` 认不出 ⇒
+    **名字或别名**写引用; 自造一个新叫法 ⇒ 引擎 `find_entity` 认不出 ⇒
     **同一个人被重复建**（认人那一轮的目的正是建"还没有的"对象, 所以它不会替你拦住）。
 
     ⚠️ 印法与 L1 当年那一栏**同一个实现**（`entities.object_lines`: 真身 id + 名字（别名）
@@ -648,34 +644,114 @@ def existing_entities_line(store, *, texts=()) -> str:
 
 
 def _l2_material(ctx) -> tuple[str, list[str]]:
-    """L2 的料 → `(「被连过的经历」, **她能引用的经历 id**)`。
+    """L2 的料 → `(「被连过的经历」（含相似簇）, **她能引用的经历 id**)`。
 
-    ⏸ **2026-10-13（`group` 退役那一刀）: 原来的第一样「本段归类的群」摘掉了** ——
-    它由 `member_of` 边喂, 而那条边不再有人落 ⇒ **恒空**, 印出来只是一句自我说明。
-    摘它的判据 = 守门 `test_material_names_are_not_dead`（"料还在、没人提"）:
-    契约 md 与 llm prompt md 里都不再提它 ⇒ **两边必须一起撤**（只撤一边, 守门当场红）。
-    ⚠️ **它的继承者是「她认过的相似簇」**（`akin` 生到一起那一刀 —— 那时重新加一段料）;
-    `_groups_for_l2` / `_group_block` 两个函数**留着**（停产不是删机器）。
+    ⭐ **形状**（用户 2026-10-13 裁 A 案）: 相似簇**挂在每条经历下面** ——
 
-    ⭐ **第二个返回值（P10 补）** = `parse` 的 `evidence_ids`: **料里印出来过的全部经历**
+        〔m0013｜《咖啡厅的甜点》｜3 天前｜10-05｜轴 咖啡厅〕老师约我去咖啡厅…
+           ↳ 关于: x0001 老师
+           ↳ 她认过跟它像的（这些也会算作这条看法的证据）:
+              〔m0004｜《上次的甜点》｜三周前｜09-20｜轴 甜点〕上次老师也把点心分给我…
+              （还有 2 条没印 —— 先照印出来的这几条写）
+
+    **判据**: 邻居 = **一跳 `akin`**（她认过的像, ⛔ 不走两跳 —— `walk.py` 那条纪律:
+    真机那个簇两跳就串到别的簇去了）; `轴` = **现算两端 `topics` 的交集**（`akin` 的 `on`
+    只在 `evolution.jsonl` 里, `Edge` 上没有它）⇒ 交集空就**整格不出现**（不猜）。
+
+    ⭐ **第二个返回值** = `parse` 的 `evidence_ids`: **料里印出来过的全部经历**
     （"右边能引用的 = 她看到的全部" —— L1 的教训: 少一类就把合法行判成**编造 id**
-    ⇒ 整包拒 ⇒ 白跑一次重试）。⛔ **不另算一份**（另算必然与渲染漂开）。
+    ⇒ 整包拒 ⇒ 白跑一次重试）。⚠️ **老经历也在内**（相似簇里印出来的那些）—— 它们正是
+    "这一类事"的另外几条, ⛔ 判它们"编造 id"就是把她自己的相似簇锁在门外。
+    ⛔ **不另算一份**（另算必然与渲染漂开）。
 
     空 ⇒ 印一句**为什么空**（P6 的口径: 空串会被 `_join_sections` 连抬头一起吞掉,
     她既看不见这一格、也不知道那个结论）。
     """
-    linked_ids = _linked_episode_ids(ctx)
+    ids = [str(m) for m in _linked_episode_ids(ctx)]
+    linked = set(ids)
+    shown: set[str] = set()                       # 料里已经露过面的（簇的"先到先得"）
+    joined: list[str] = []                        # 相似簇里印出来的老经历（它们也能当证据）
     rows: list[str] = []
-    for m in linked_ids:
-        node = ctx.store.get(str(m))
+    for m in ids:
+        node = ctx.store.get(m)
+        if node is None:
+            continue
+        # ⚠️ 本段的每一条**都在自己这一行印正文**（簇里对它们只出信息头 —— 一份料里
+        #    同一段正文只印一次, 而"印全文"这件事归这一块负责）
         rows.append(_episode_line(ctx.store, m, now=ctx.now_ts, body=150,
                                   extra=_axes_field(getattr(node, "topics", None))))
-        about = _about_line(ctx.store, m)              # 只在真有 `about` 边时出现
+        shown.add(m)
+        about = _about_line(ctx.store, m)          # 只在真有 `about` 边时出现
         if about:
             rows.append(about)
-    linked = "\n".join(rows) or (
+        block, got = _akin_block(ctx.store, m, linked=linked, shown=shown,
+                                 now=ctx.now_ts)
+        if block:
+            rows.append(block)
+            shown |= set(got)
+            joined.extend(got)
+    text = "\n".join(rows) or (
         "（这一段没有被连过的经历 —— 归纳没有立足点, 那就什么都别造）")
-    return linked, list(dict.fromkeys(linked_ids))            # 去重保序
+    return text, list(dict.fromkeys(ids + joined))            # 去重保序: 本段的在前
+
+
+def _likeness_axis(anchor, other) -> list[str]:
+    """相似簇那一行的 `轴` = **两端 `topics` 的交集**（按 anchor 的顺序 ⇒ 结果可复现）。
+
+    ⭐ 为什么是交集而不是某一端自己的 `topics`: 这就是 L1 写下那条 `akin` 时的判据
+    （`on` ∈ 两端交集）—— 现算一遍, 她一眼看得出"引擎凭什么说这两条是一类事"。
+    交集空 ⇒ `[]`（整格不出现 —— ⛔ 不印"轴 ——"这种假格子）。
+    """
+    a = [str(t).strip() for t in (getattr(anchor, "topics", None) or ()) if str(t or "").strip()]
+    b = {str(t).strip() for t in (getattr(other, "topics", None) or ()) if str(t or "").strip()}
+    return _axes_field([t for t in a if t in b])
+
+
+def _akin_block(store, anchor_id: str, *, linked: set[str], shown: set[str],
+                now="", cap: int = DIGEST_L2_AKIN, body: int = 150
+                ) -> tuple[str, list[str]]:
+    """【被连过的经历】某一条下面的 `↳ 她认过跟它像的` 一小块 → `(文本, 印出来的 id)`。
+
+    ⚠️ **本段的经历只出信息头**（它的正文由【被连过的经历】那一行负责印 —— 一份料里
+    同一段正文只印一次）; 老的（不属于这一段）才印正文, 因为除了这里没有别处会印它。
+    ⚠️ **`shown` 里已经有的一律不摆**（先到先得）—— 同一个邻居挂在两条 anchor 上、
+    或者它自己那一行已经印过 ⇒ 不重复（⛔ 也不算"没印"）。
+    ⚠️ 与 anchor 打架的（`contradicts`）**不摆** —— 与写入侧同一条规则（打架的证据不共撑
+    一个结论, 见 `revise._join_akin`); 摆出来只会诱她写一条自己拆自己台的结论。
+    ⚠️ 排序 = **边的建立序**（= 她认过的先后）—— 与写入侧取前 `AKIN_JOIN_MAX` 条的顺序
+    **同一个口径**, 免得"她看到的"与"引擎并的"在截断时各挑各的。
+    """
+    anchor = store.get(str(anchor_id))
+    if anchor is None:
+        return "", []
+    out: list[str] = []
+    got: list[str] = []
+    rest = 0
+    for cand in store.related(str(anchor_id), REL_AKIN):
+        if cand in shown or cand == str(anchor_id):
+            continue
+        node = store.get(cand)
+        if node is None or str(node.kind) != "episode":
+            continue
+        if store.conflicting(cand, str(anchor_id)):          # 打架的不摆（同写入侧）
+            continue
+        if len(got) >= max(int(cap), 0):
+            rest += 1
+            continue
+        got.append(cand)
+        if cand in linked:                        # 本段的经历: 正文在它自己那一行
+            out.append("      " + marks.head(node, key=cand, now=now,
+                                             extra=_likeness_axis(anchor, node)))
+        else:
+            out.append("      " + _episode_line(store, cand, now=now, body=body,
+                                                extra=_likeness_axis(anchor, node)))
+    if not got and not rest:
+        return "", []
+    head = ["   ↳ 她认过跟它像的（这些也会算作这条看法的证据）:"]
+    head.extend(out)
+    if rest:
+        head.append(f"      （还有 {rest} 条没印 —— 先照印出来的这几条写）")
+    return "\n".join(head), got
 
 
 def _linked_episode_ids(ctx) -> list[str]:
@@ -696,33 +772,6 @@ def _linked_episode_ids(ctx) -> list[str]:
             touched.add(str(e.src))
             touched.add(str(e.dst))
     return [str(m) for m in ctx.episode_ids if str(m) in touched]
-
-
-def _groups_for_l2(ctx, *, cap: int = DIGEST_L2_GROUPS) -> list[tuple[str, list[str]]]:
-    """本段**新归入过成员**的类 → `[(类 id, 本段新归入的成员 id), …]`（最多 `cap` 组）。
-
-    ⚠️ 「本段新归入」的判据 = **本段新建的经历 ∩ 有 `member_of` 边**（用户 2026-10-08 点头:
-    不覆盖"老经历本段才被归类"那个边角 —— `group` 自吞后补归类的那些要等下一段）。
-
-    ⭐ **排序 = `(-本段新归入数, 有没有沉淀, 类 id)`**:
-      · 新归入多的先（"这一段刚给它添了最多东西" ⇒ 最该更新）;
-      · ⚠️ 平手时**还没写过沉淀的先** —— ⛔ 不能只按 id 排: 那样"**从没写过沉淀的类**"
-        会永远排在队尾, 而它可能**永远轮不到**（一段只摆 `cap` 组）。这条是"永远不写"
-        那个缺口的一半解药（另一半 = 旋钮给到 2~3）;
-      · 最后按 id ⇒ 结果稳定可复现（同输入同输出）。
-    """
-    seg = {str(m) for m in ctx.episode_ids}
-    by_group: dict[str, list[str]] = {}
-    for e in ctx.store.edges():
-        if e.rel == "member_of" and str(e.src) in seg:
-            by_group.setdefault(str(e.dst), []).append(str(e.src))
-
-    def _rank(kv: tuple[str, list[str]]) -> tuple:
-        gid, new = kv
-        node = ctx.store.get(gid)
-        return (-len(new), bool(node is not None and node.text), gid)
-
-    return sorted(by_group.items(), key=_rank)[:max(int(cap), 0)]
 
 
 def _episode_line(store, nid: str, *, now="", body: int = 120, extra=()) -> str:
@@ -753,66 +802,6 @@ def _about_line(store, nid: str) -> str:
     if not ends:
         return ""
     return "   ↳ 关于: " + " · ".join(_ent.entity_label(n) for n in ends)
-
-
-def _members_by_precious(store, gid: str) -> list[str]:
-    """类的成员（`member_of` 入边）—— **难忘降序**, 同分**时间新的在前**（结果稳定）。"""
-    ids = [str(e.src) for e in store.edges()
-           if e.rel == "member_of" and str(e.dst) == str(gid)]
-    nodes = [n for n in (store.get(i) for i in ids) if n is not None]
-    nodes.sort(key=lambda n: (n.significance or 0.0, str(n.ts or "")), reverse=True)
-    return [n.id for n in nodes]
-
-
-def _group_block(store, gid: str, *, new_ids: list[str], linked_ids: set[str],
-                 cap: int = DIGEST_L2_MEMBERS, now="", body: int = 120
-                 ) -> tuple[str, list[str]]:
-    """【本段归类的群】的**一块** → `(文本, **印出来的成员 id**)`。
-
-    ⭐ 第二个返回值是 `evidence_ids` 的一半（"她看到的 == 她能引用的"）——
-    从渲染里带出来, ⛔ 不另算一份（另算必然与这里的截断/顺序漂开）。
-
-    ⚠️ 「已有成员」按**难忘降序**（同分时间新的在前）—— 沉淀要概括"这一类事的共同点",
-    难忘的更有代表性; 超 `cap` 只印前几条并**明说还有几条没印**（不静默截断）。
-    ⚠️ 「本段新归入」**不吃 `cap`**（见 `DIGEST_L2_MEMBERS`）。
-    """
-    node = store.get(str(gid))
-    if node is None:
-        return "", []
-    members = _members_by_precious(store, str(gid))
-    new_set = {str(x) for x in new_ids}
-    others = [m for m in members if m not in new_set]
-    printed: list[str] = []
-    out = [f"群 {gid}《{node.title}》（这一类现在有 {len(members)} 条经历 · "
-           f"本段新归入 {len(new_ids)} 条）"]
-    if node.text:
-        out.append(f"  现状沉淀: {_clip(node.text, 200)}")
-        out.append("            （⚠️ 整段重写: 你新写的这句会替掉它 —— 要保留它说对的部分）")
-    else:
-        out.append("  现状沉淀:（还没有 —— 你写的这一句会是它的第一句）")
-    out.append("  本段新归入:")
-    for m in new_ids:
-        mn = store.get(str(m))
-        if mn is None:
-            continue
-        printed.append(str(m))
-        if str(m) in linked_ids:
-            # 正文在【被连过的经历】里印过全文（一份料里同一段正文只出现一次）
-            out.append(f"    〔{m}｜《{mn.title}》〕（正文见下）")
-        else:
-            out.append("    " + _episode_line(store, m, now=now, body=body,
-                                              extra=_axes_field(mn.topics)))
-    if others:
-        shown, rest = others[:cap], max(len(others) - cap, 0)
-        out.append(f"  已有成员（按难忘排, 最多印 {cap} 条"
-                   + (f"; 还有 {rest} 条没印" if rest else "") + "）:")
-        for m in shown:
-            mn = store.get(str(m))
-            if mn is not None:
-                printed.append(str(m))
-                out.append("    " + _episode_line(store, m, now=now, body=body,
-                                                  extra=_axes_field(mn.topics)))
-    return "\n".join(out), printed
 
 
 # ---------------------------------------------------------------------------

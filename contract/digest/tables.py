@@ -150,7 +150,7 @@ RELATION_ANCHORS = ("episode", "belief", "experience", "profile")
 COGNIZE_ANCHORS = ("belief",)
 #: ⏸ **停产的锚点键**（认得出 ⇒ **丢这一行** + 记账; ⛔ **不判非法** —— 同 `profile` 的 B 案口径）。
 #:
-#: ⚠️ **这一格修的是一个真口子**（2026-10-13 查到）: `group` 退役后 `_groups_for_l2` 恒空 ⇒
+#: ⚠️ **这一格修的是一个真口子**（2026-10-13 查到）: `group` 退役后没有谁再落 `member_of` ⇒
 #: `cognize` 传下来的 `group_ids` 恒是**空集** ⇒ 她只要写一行 `experience`, `_clean_soak`
 #: 就判"不在名单里" ⇒ **整包拒** ⇒ 这一段的看法**全丢** + 白跑一次反馈重试。
 #: 而她是**写得出来**的: 老契约教了两版（`prompts/cognize.md` 的【experience 释义】与范例）,

@@ -217,8 +217,8 @@ def parse_cognitions(raw: Any, *,
     ⚠️ `kind_of` = `{她能写的认知 id: kind}`（只用来挡 `evolved_from` 指向 `profile`:
     画像不是"看法", 没有"进化"可言）。缺省 `None` = 不校验。
     ⚠️ **三个名单缺省 `None` = 不校验**（单测 / 老调用方）; 给了就必须全都对得上。
-    ⚠️ `group_ids` 今天**恒是空集**（`group` 退役 ⇒ `_groups_for_l2` 恒空）—— 参数留着,
-    供 `_clean_soak` 的直接调用方（停产不删机器）。
+    ⚠️ `group_ids` 今天**恒是空集**（`group` 退役 ⇒ 那条边不再有人落, 名单没有写者）——
+    参数留着, 供 `_clean_soak` 的直接调用方（停产不删机器）。
     ⚠️ 锚点对象**内部的**未知键**静默忽略**（同 `_clean_episode_item` 的口径）,
     只有 `id` 是例外（`belief` 那处显式丢行）。
     """
