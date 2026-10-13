@@ -67,7 +67,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from contract import CHARACTER_SENSEI, DEFAULT_SPEAKER_NAMES
-from contract.digest_tables import ENTITY_TAG_PREFIX
+from contract.digest import ENTITY_TAG_PREFIX
 from core.brain import marks
 from core.brain.nodes import BrainNode, format_id
 

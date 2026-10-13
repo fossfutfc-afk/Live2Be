@@ -8,8 +8,8 @@
 | 出现处 | 形态 |
 |---|---|
 | 渲染（`core/session/renderer.render_timeline(indexed=True)`） | 生成 `[28.3]` |
-| prompt（`contract.digest_registry.build_schema` 渲染的文案） | 告诉 LLM 抄哪个 |
-| 解析（`contract.digest_parse` 的校验 + `digest.py` 的落库） | 读回 `(28, 3)` |
+| prompt（`contract.digest.digest_registry.build_schema` 渲染的文案） | 告诉 LLM 抄哪个 |
+| 解析（`contract.digest.parse` 的校验 + `digest.py` 的落库） | 读回 `(28, 3)` |
 
 三处各写一遍 = 迟早漂移，而漂移的表现是**静默取错原文**（不是报错）。
 所以词汇表在这里定义一次，三处都 import 它——与 `contract` 层

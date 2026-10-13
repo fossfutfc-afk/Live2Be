@@ -3,8 +3,8 @@
 七个入口都**一处 `self` 都不用**（原先只是碰巧写成方法, 1b-2a 搬成模块级函数）——
 调用点仍走 `DigestRegistry` 上的同名**薄委托**。
 
-取值 / 上限读 `contract.digest_tables.py`, 文档形状（字段块 / 语义 / 范例）读
-`contract.digest_docs.py` —— **本模块不定义任何契约文案**: 渲染与校验读的是同一份。
+取值 / 上限读 `contract.digest/tables.py`, 文档形状（字段块 / 语义 / 范例）读
+`contract/digest/docs.py` —— **本模块不定义任何契约文案**: 渲染与校验读的是同一份。
 
 ⚠️ `is_full_date` 住在 `digest_tables`（不在本模块）: 它既被 `parse_group` 用, 也被
 `core/digest/material.py` 从外部导入 —— 它是「日期**取值**语义」而不是校验逻辑。
@@ -13,8 +13,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from contract.digest_docs import RELATION_ACTIONS
-from contract.digest_tables import (
+from contract.digest.docs import RELATION_ACTIONS
+from contract.digest.tables import (
     ABSTRACT_MAX,
     ABSTRACT_MAX_FREEFORM,
     COGNIZE_ANCHORS,

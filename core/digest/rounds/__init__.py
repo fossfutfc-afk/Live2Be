@@ -32,9 +32,8 @@
 ## 它是什么 / 不是什么
 
 这是**声明**: 跑哪几步、每步是谁（LLM 身份）、吃哪几段料、往哪写、什么时候跳过。
-**执行体仍在各家**（prompt 在 `llm/prompts/`、契约在 `contract/digest_tables.py` /
-`digest_docs.py` / `digest_parse.py`、落库在 `revise.py` / `groups.py`）—— 表只说"是什么",
-不说"怎么写"。
+**执行体仍在各家**（prompt 在 `llm/prompts/`、契约在 `contract/digest/`、落库在
+`revise.py` / `groups.py`）—— 表只说"是什么", 不说"怎么写"。
 
 | 列 | 谁在读它 |
 |---|---|
@@ -65,7 +64,7 @@ from collections.abc import Callable
 from dataclasses import MISSING, dataclass, fields
 from typing import Any
 
-from contract.digest_registry import digest_registry
+from contract.digest import digest_registry
 
 #: `writes` 的"面" —— 每个字段名归一个面, 守门用例按面去查真源:
 #:   节点面 → `nodes.BrainNode` 的字段名 · `edge` → `graph.REL_*` 的取值 ·
@@ -128,7 +127,7 @@ class RoundSpec:
                             →  prompt = "digest_record"       （`llm/prompts/digest_record.md`）
                             →  phase  = "record"              （`PHASE_RECORD` 的取值）
 
-    判据: key 取的**就是契约相位名**（`contract/digest_tables.PHASE_*` 的取值）, 而
+    判据: key 取的**就是契约相位名**（`contract.digest.PHASE_*` 的取值）, 而
     LLM 调用身份的后缀与日志前缀本来就该跟它同名 —— 于是"三个派生"其实是**零个新名字**。
     """
 
@@ -143,7 +142,7 @@ class RoundSpec:
 
     parse: Callable[..., Any] | None
     """`(raw, **ctx) -> (parsed, ValidationResult)` —— 结构校验的入口（住在契约层,
-    `contract/digest_parse.py`; ⚠️ 它的函数名仍叫 `parse_round_a` / `parse_round_b`
+    `contract/digest/parse.py`; ⚠️ 它的函数名仍叫 `parse_round_a` / `parse_round_b`
     —— 契约层是独立面, 改名要动 60 多处引用, 留作单独一刀）。"""
 
     material: tuple[str, ...]

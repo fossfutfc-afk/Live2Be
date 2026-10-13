@@ -1,7 +1,7 @@
 """digest 契约的**值表** —— 相位名 / 上限 / 取值域 / 日期格式。
 
-这一层只有机器读: 校验器（`digest_parse`）、渲染器（`digest_registry`）、引擎（`core/digest`）。
-⛔ 这里不放**一句给 LLM 看的话** —— 那些在 `contract/digest_docs.py`。
+这一层只有机器读: 校验器（`parse.py`）、渲染器（`registry.py`）、引擎（`core/digest`）。
+⛔ 这里不放**一句给 LLM 看的话** —— 那些在 `contract/digest/docs.py`。
 
 ⚠️ 上限这类数字**不只是上限, 它还是标尺**（改一个数字 = 改模型的行为 —— 见 `MAX_SEGMENTS`
 那段注释里 12 → 20 → 12 的教训）。动之前先看真机那一行的分布。

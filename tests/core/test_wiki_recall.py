@@ -287,7 +287,7 @@ def test_candidates_are_hints_not_gates(tmp_path):
     # 契约层不再有结构强制参数
     import inspect
 
-    from contract.digest_registry import digest_registry
+    from contract.digest import digest_registry
     sig = inspect.signature(digest_registry.parse_round_b)
     assert "must_touch" not in sig.parameters, "结构强制未删干净"
     print("    cand_high 全删: 无阈值常量 / 无配置项 / parse_round_b 无 must_touch")

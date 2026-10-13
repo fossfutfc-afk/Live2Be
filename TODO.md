@@ -31,7 +31,7 @@
 
 | 位置 | 什么 | 量 |
 |---|---|---|
-| `contract/digest_registry.py:160-372` + `:763-1059` | 七个相位的取值清单 / 字段块 / 语义块 / **示例**，全是手写长串 | ≈470 行 |
+| `contract/digest/docs.py`（全部）+ `contract/digest/registry.py` 的 `build_schema` 外壳 | 七个相位的取值清单 / 字段块 / 语义块 / **示例**，全是手写长串 | ≈530 行 |
 | `contract/schema.py` | 三个渲染器（`build_schema` / `build_line_schema` / `build_record_schema`）里的外壳字段说明、硬规则、示例 | 全文 |
 | `contract/registry.py` · `spec.py` | 各动作的 `payload_schema` 描述串 | 逐动作 |
 | 标注层四个模块（`emo_text` / `emotion_annotate` / `place_annotate` / `variant_annotate`） | 手搓 system 字符串（**绕过 promptkit**） | 4 处 |
