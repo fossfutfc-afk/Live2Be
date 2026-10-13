@@ -143,18 +143,23 @@ def test_l2_linked_episodes_only_takes_the_connected_ones(tmp_path):
     st.add_edge("akin", a, old)
     st.add_edge("akin", b, old)
 
-    _grp, linked, _ev = _l2_material(_Ctx(st, [a, b, lonely]))
+    linked, _ev = _l2_material(_Ctx(st, [a, b, lonely]))
     assert f"〔{a}｜" in linked and f"〔{b}｜" in linked
     assert lonely not in linked, "孤立经历不进 L2"
     assert "一个人发呆" not in linked, "正文也不许漏进来"
     assert "轴 苔藓" in linked, "行头带轴（与 L1 同一印法）"
 
-    _g2, only_lonely, _ev2 = _l2_material(_Ctx(st, [lonely]))
-    assert "（这一段没有被连过的经历" in only_lonely, only_lonely
+    _only_lonely, _ev2 = _l2_material(_Ctx(st, [lonely]))
+    assert "（这一段没有被连过的经历" in _only_lonely, _only_lonely
 
 
-def test_l2_picks_the_group_with_the_most_new_members(tmp_path):
-    """⭐ P8: 旋钮 = 1 时挑**本段新归入最多**的那一组（"这一段刚给它添了最多东西"）。"""
+def test_l2_group_pick_ranks_by_new_members(tmp_path):
+    """⭐ P8: 挑组 = **本段新归入最多**的在前（"这一段刚给它添了最多东西"）。
+
+    ⏸ **2026-10-13**: 群块已随 `group` 退役**撤出料面**（`_l2_material` 只出【被连过的经历】，
+    判据见它的 docstring）—— 所以这一条今天直接测 `_groups_for_l2`（**停产机器留着**,
+    将来 `akin` 簇要复活的正是这套挑法）。
+    """
     st = WikiStoreV2(tmp_path, world_id="world1", char_id="c")
     g1 = st.add(make_node("experience", title="吃饭"))
     g2 = st.add(make_node("experience", title="苔藓"))
@@ -168,10 +173,6 @@ def test_l2_picks_the_group_with_the_most_new_members(tmp_path):
 
     ctx = _Ctx(st, [e1, e2, e3])
     # ⚠️ 缺省 = `DIGEST_L2_GROUPS`（2026-10-08 用户抬到 3）⇒ **两组都出**
-    grp, _linked, _ev = _l2_material(ctx)
-    assert f"群 {g2}《苔藓》" in grp and f"群 {g1}《" in grp, grp
-    assert "这一类现在有 2 条经历 · 本段新归入 2 条" in grp, grp
-    # 排序: 新归入多的在前
     assert [g for g, _new in _groups_for_l2(ctx, cap=2)] == [g2, g1]
     # 旋钮给 1 ⇒ 只出最该更新的那一组
     assert [g for g, _new in _groups_for_l2(ctx, cap=1)] == [g2]
@@ -225,31 +226,26 @@ def test_l2_group_block_caps_members_and_says_how_many_left(tmp_path):
     assert "没印" not in small, small
 
 
-def test_l2_body_text_appears_exactly_once(tmp_path):
-    """⭐ P8: 同一段正文在一份料里**只出现一次**。
+def test_l2_evidence_is_exactly_what_the_block_printed(tmp_path):
+    """⭐ P10: **料里印出来过的经历 = 她能引用的那批** —— 一个不多一个不少。
 
-    既"本段新归入"又"被连过" ⇒ 群块印**把手**、正文在【被连过的经历】里（全文一处）;
-    只"新归入"、**没被连过** ⇒ 群块印全文（⛔ 不许丢 —— 那是写沉淀的素材）。
+    ⚠️ **2026-10-13 改写**: 原版钉的是"两块料（群块 + 被连过的经历）互相知道, 同一段正文
+    只印一遍"—— 群块随 `group` 退役撤掉之后, 那句话没有载体了。**下半句照旧要守**:
+    `evidence_ids` 是**从渲染里带出来的**（⛔ 不另算一份）, 少收一条就是"合法行被判编造 id"
+    ⇒ 整包拒 ⇒ 白跑一次重试（L1 的教训）。
     """
     st = WikiStoreV2(tmp_path, world_id="world1", char_id="c")
-    gid = st.add(make_node("experience", title="一类事"))
-    linked_ep = _new_ep(st, "既归了类又被连过的那条", title="连过的")
-    only_group = _new_ep(st, "只归了类没被连过的那条", title="只归类的")
+    linked_ep = _new_ep(st, "被连过的那条", title="连过的")
+    lonely = _new_ep(st, "没人连过的那条", title="没连的")
     old = _new_ep(st, "更早的一条", title="旧的", ts="2026-09-01T10:00:00+08:00")
     st.save()
-    st.add_edge("member_of", linked_ep, gid)
-    st.add_edge("member_of", only_group, gid)
     st.add_edge("akin", linked_ep, old)
 
-    grp, linked, evidence = _l2_material(_Ctx(st, [linked_ep, only_group]))
-    assert f"〔{linked_ep}｜《连过的》〕（正文见下）" in grp, grp
-    assert "既归了类又被连过的那条" not in grp, "正文只在被连块里印"
-    assert "既归了类又被连过的那条" in linked
-    assert "只归了类没被连过的那条" in grp, "没在别处印过的照印全文（不许丢）"
-    # ⭐ P10: 第三个返回值 = **料里印出来过的全部经历**（她被允许引用的就这一批）
-    assert evidence == [linked_ep, only_group], evidence
-    all_text = grp + linked
-    assert all_text.count("既归了类又被连过的那条") == 1
+    linked, evidence = _l2_material(_Ctx(st, [linked_ep, lonely]))
+    assert evidence == [linked_ep], evidence          # ⛔ 没印过的不算（lonely 没被连过）
+    assert "被连过的那条" in linked
+    assert "没人连过的那条" not in linked, "孤立经历不进料 ⇒ 也不该进证据名单"
+    assert linked.count("被连过的那条") == 1, linked   # 一条只印一次
 
 
 def test_l2_about_line_follows_the_edge_and_prints_the_object(tmp_path):
@@ -267,7 +263,7 @@ def test_l2_about_line_follows_the_edge_and_prints_the_object(tmp_path):
     st.add_edge("about", with_about, "x0001")
     st.add_edge("akin", without, with_about)              # 有边（但**没有** about）
 
-    _grp, linked, _ev3 = _l2_material(_Ctx(st, [with_about, without]))
+    linked, _ev = _l2_material(_Ctx(st, [with_about, without]))
     assert "   ↳ 关于: x0001 老师" in linked, linked       # 别名由 entity_label 决定
     assert "↳ 印证" not in linked and "↳ 同类" not in linked, linked
     # 没有 about 的那条**不该**有这一行: 全文里只出现一次「↳ 关于」

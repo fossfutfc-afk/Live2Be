@@ -122,12 +122,27 @@ MAX_SEGMENTS = 12
 RELATION_ANCHORS = ("episode", "belief", "experience", "profile")
 
 
-#: L2 的**锚点键**（= 她能动手的两种 kind: 造看法 / 给类写沉淀）。
-COGNIZE_ANCHORS = ("belief", "experience")
-#: L2 一行的**合法键域** = 两个锚点 + 三个关系名（⊆ `RELS`）。
+#: L2 的**锚点键**（= 她今天能动手的 kind: **只剩"造看法"**）。
+#: ⏸ **`experience`（给已有的类写沉淀）2026-10-13 随 `group` 退役一起停产** ——
+#: 它从**锚点**里摘掉（契约不再要它）, 但**仍是合法键**（见 `COGNIZE_RETIRED`）。
+COGNIZE_ANCHORS = ("belief",)
+#: ⏸ **停产的锚点键**（认得出 ⇒ **丢这一行** + 记账; ⛔ **不判非法** —— 同 `profile` 的 B 案口径）。
+#:
+#: ⚠️ **这一格修的是一个真口子**（2026-10-13 查到）: `group` 退役后 `_groups_for_l2` 恒空 ⇒
+#: `cognize` 传下来的 `group_ids` 恒是**空集** ⇒ 她只要写一行 `experience`, `_clean_soak`
+#: 就判"不在名单里" ⇒ **整包拒** ⇒ 这一段的看法**全丢** + 白跑一次反馈重试。
+#: 而她是**写得出来**的: 老契约教了两版（`prompts/cognize.md` 的【experience 释义】与范例）,
+#: 而【现有认知】渲染的 `u…` 里**包含 `experience` 节点**（真机 haruka 就有一个）——
+#: 她看得见一个类号, 契约又告诉她"给已有的类写沉淀"。
+#: ⇒ 判据 = B 案第三档（① 契约不再要 ② 她惯性还写得出 ⇒ **认得出、不判非法**）。
+COGNIZE_RETIRED = ("experience",)
+#: L2 一行的**合法键域** = 锚点 + **停产锚点** + 三个关系名（⊆ `RELS`）。
+#: ⚠️ 停产的键**必须留在这里**: 一旦掉出键域, 它就成了"未知键" ⇒ 连**同一行里合法的那个锚点**
+#: 一起丢掉（`{"belief": …, "experience": …}` 这种混写 ⇒ 白丢一条看法）。
 #: ⚠️ 多值只发生在 `supports`（一条看法常被好几条经历支撑）与 `contradicts`（可能跟好几条打架）上;
 #: ⛔ **没有 `evidence` 这个键**（2026-09-29 退役, 零消费者）—— 别让它长回来。
-COGNIZE_KEYS = (*COGNIZE_ANCHORS, "supports", "evolved_from", "contradicts")
+COGNIZE_KEYS = (*COGNIZE_ANCHORS, *COGNIZE_RETIRED,
+                "supports", "evolved_from", "contradicts")
 
 
 def is_full_date(v: str) -> bool:

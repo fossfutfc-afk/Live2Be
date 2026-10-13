@@ -510,12 +510,16 @@ def _episode_candidates(store: WikiStoreV2, episode_ids: list[str], *,
 
 
 # ---------------------------------------------------------------------------
-# L2（`cognize`）的料 —— 「本段归类的群」+「被连过的经历」（2026-10-08, P8）
+# L2（`cognize`）的料 —— 「被连过的经历」（2026-10-08, P8）
+# ⏸ **2026-10-13: 「本段归类的群」那一半撤出料面**（`group` 退役 ⇒ 它由 `member_of` 喂,
+#    而那条边不再有人落 ⇒ 恒空）。`DIGEST_L2_GROUPS` / `DIGEST_L2_MEMBERS` /
+#    `_groups_for_l2` / `_group_block` **四个都留着但生产上零调用**（停产不是删机器）——
+#    下一刀（`akin` 生到一起）复活的正是"一类事"这个位置, 那时再决定它们是继承还是替换。
 # ---------------------------------------------------------------------------
 
-#: L2 的「本段归类的群」**摆几组**（用户 2026-10-08: *"GROUPS 数可以增加了…
-#: 我觉得 2-3 都可以"* —— 前提是他把每块摆的成员数砍小了（`DIGEST_L2_MEMBERS=4`）:
-#: 每块的料短了 ⇒ 一次摆得下更多块）。
+#: ⏸ **生产上零调用**（群块已撤）: L2 的「本段归类的群」**摆几组**。
+#: 判据存档（用户 2026-10-08: *"GROUPS 数可以增加了… 我觉得 2-3 都可以"* ——
+#: 前提是把每块摆的成员数砍小了: 每块的料短了 ⇒ 一次摆得下更多块）。
 #: 挑法见 `_groups_for_l2`: **本段新归入多的先**, 平手时**还没写过沉淀的先**。
 DIGEST_L2_GROUPS = 3
 
@@ -528,8 +532,9 @@ DIGEST_L2_GROUPS = 3
 #: 都成了"被连过", 孤立经历那道理应存在的门槛就失效了。
 _L2_LINK_RELS = frozenset(a.name for a in RELATION_ACTIONS)
 
-#: 一类最多印几条**已有成员**（用户 2026-10-08 裁: 4 条 —— 8 条太多）。
-#: ⚠️ **本段新归入的不吃这个上限**（它们是这一趟的**理由**, 必须看得见）。
+#: ⏸ **生产上零调用**（同 `DIGEST_L2_GROUPS`）: 一类最多印几条**已有成员**。
+#: 判据存档（用户 2026-10-08 裁: 4 条 —— 8 条太多）。
+#: ⚠️ **本段新归入的不吃这个上限**（它们是那一趟的**理由**, 必须看得见）。
 DIGEST_L2_MEMBERS = 4
 
 
@@ -549,21 +554,22 @@ def existing_entities_line(store, *, texts=()) -> str:
     return text or "（还没有任何对象 —— 这条涉及谁, 就照你看到的那个称呼写）"
 
 
-def _l2_material(ctx) -> tuple[str, str, list[str]]:
-    """L2 的三样料 → `(「本段归类的群」, 「被连过的经历」, **她能引用的经历 id**)`。
+def _l2_material(ctx) -> tuple[str, list[str]]:
+    """L2 的料 → `(「被连过的经历」, **她能引用的经历 id**)`。
 
-    ⚠️ **两块互相知道**（所以必须同一个函数产出）: 已经在【被连过的经历】里印过**全文**的
-    经历, 在群块的「本段新归入」里**只印把手**（`〔m0022｜《被感谢的人》〕（正文见下）`）——
-    免得同一段正文在一份料里出现两遍。⛔ 但**不许丢**: 没在别处印过的照印全文
-    （经历可能"刚归了类却没被连过"）。
+    ⏸ **2026-10-13（`group` 退役那一刀）: 原来的第一样「本段归类的群」摘掉了** ——
+    它由 `member_of` 边喂, 而那条边不再有人落 ⇒ **恒空**, 印出来只是一句自我说明。
+    摘它的判据 = 守门 `test_material_names_are_not_dead`（"料还在、没人提"）:
+    契约 md 与 llm prompt md 里都不再提它 ⇒ **两边必须一起撤**（只撤一边, 守门当场红）。
+    ⚠️ **它的继承者是「她认过的相似簇」**（`akin` 生到一起那一刀 —— 那时重新加一段料）;
+    `_groups_for_l2` / `_group_block` 两个函数**留着**（停产不是删机器）。
 
-    ⭐ **第三个返回值（P10 补）** = `parse` 的 `evidence_ids`: **料里印出来过的全部经历**
-    =【被连过的经历】∪【群块印过的成员】—— "右边能引用的 = 她看到的全部"
-    （L1 的教训: 少一类就把合法行判成**编造 id** ⇒ 整包拒 ⇒ 白跑一次重试）。
-    ⛔ **不另算一份**（另算必然与渲染漂开）。
+    ⭐ **第二个返回值（P10 补）** = `parse` 的 `evidence_ids`: **料里印出来过的全部经历**
+    （"右边能引用的 = 她看到的全部" —— L1 的教训: 少一类就把合法行判成**编造 id**
+    ⇒ 整包拒 ⇒ 白跑一次重试）。⛔ **不另算一份**（另算必然与渲染漂开）。
 
-    两块各自的空 ⇒ 印一句**为什么空**（P6 的口径: 空串会被 `_join_sections` 连抬头
-    一起吞掉, 她既看不见这一格、也不知道那个结论）。
+    空 ⇒ 印一句**为什么空**（P6 的口径: 空串会被 `_join_sections` 连抬头一起吞掉,
+    她既看不见这一格、也不知道那个结论）。
     """
     linked_ids = _linked_episode_ids(ctx)
     rows: list[str] = []
@@ -576,16 +582,7 @@ def _l2_material(ctx) -> tuple[str, str, list[str]]:
             rows.append(about)
     linked = "\n".join(rows) or (
         "（这一段没有被连过的经历 —— 归纳没有立足点, 那就什么都别造）")
-    blocks: list[str] = []
-    shown: list[str] = []
-    for gid, new in _groups_for_l2(ctx):
-        block, ids = _group_block(ctx.store, gid, new_ids=new,
-                                  linked_ids=set(linked_ids), now=ctx.now_ts)
-        blocks.append(block)
-        shown += ids
-    grp = "\n\n".join(blocks) or (
-        "（这一段没有新归类的群 —— 沉淀那半这趟不用写, 只造看法）")
-    return grp, linked, list(dict.fromkeys([*linked_ids, *shown]))    # 去重保序
+    return linked, list(dict.fromkeys(linked_ids))            # 去重保序
 
 
 def _linked_episode_ids(ctx) -> list[str]:

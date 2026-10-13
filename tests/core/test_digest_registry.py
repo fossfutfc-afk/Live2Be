@@ -5,6 +5,7 @@ from contract.digest import (
     ABSTRACT_MAX,
     COGNIZE_ACTIONS,
     COGNIZE_KEYS,
+    COGNIZE_RETIRED,
     MAX_COGNITIONS,
     MAX_SEGMENTS,
     OUTPUT_DISCIPLINE,
@@ -1008,45 +1009,53 @@ def test_cognize_keys_come_from_the_two_truth_sources():
     `belief` / `experience` = 节点 kind; `supports` / `evolved_from` / `contradicts` = 边名。
     **零新增键**（§4 的"两个真源、零第三处维护"在第二趟上同样成立）。
     ⛔ 也没有 `evidence` —— 那个键 2026-09-29 退役了（零产品消费者）。
+
+    ⭐ **2026-10-13 起"动作"与"键域"分家**（`group` 退役带出来的）:
+      · `COGNIZE_ACTIONS` = **她该写的动作** ⇒ 只剩 `belief`;
+      · `COGNIZE_KEYS` = **她写了我们认得的键域** ⇒ `experience` 仍在里面 ——
+        掉出去它就成了"未知键", 连同一行里合法的 `belief` 一起丢（见那一格的注释）。
     """
     from core.brain.graph import RELS
     from core.brain.nodes import KINDS
 
     names = [a.name for a in COGNIZE_ACTIONS]
-    assert names == ["belief", "experience"], names
+    assert names == ["belief"], names
     assert set(names) <= set(KINDS)
     assert not (set(names) & set(RELS)), "锚点键是 kind, 不是边名"
+    assert COGNIZE_RETIRED == ("experience",), COGNIZE_RETIRED
+    assert not (set(COGNIZE_RETIRED) & set(COGNIZE_ACTIONS)), "停产的键不许还在动作面上"
     assert set(COGNIZE_KEYS) == {"belief", "experience", "supports",
                                  "evolved_from", "contradicts"}, COGNIZE_KEYS
     assert set(COGNIZE_KEYS) <= set(KINDS) | set(RELS), COGNIZE_KEYS
-    print("    P7: L2 的五个键 ∈ KINDS ∪ RELS（零新增键, 无 evidence）")
+    print("    P7: L2 的动作 1 个 / 键域 5 个（全 ∈ KINDS ∪ RELS, 无 evidence）")
 
 
 def test_cognize_contract_shapes_and_rules():
-    """⭐ P7: 契约里**三种行 + 硬规则**都在; ⛔ 退役键 / 别的相位的壳不许出现。"""
+    """⭐ P7: 契约里**看法那一行 + 硬规则**都在; ⏸ **停产的那一半一个字都不许剩**。"""
     text = digest_registry.build_schema(PHASE_COGNIZE)
 
-    # 三种行: 造看法（证据）· 造看法（进化/打架）· 给已有的类写沉淀
+    # 看法那一行（造看法 · 证据 / 进化 / 打架）
     assert '"cognitions": [' in text
-    assert '"belief": {' in text and '"experience": {' in text
+    assert '"belief": {' in text
     assert '"supports": ["m0007", "m0011"]' in text
     assert '"evolved_from": "u0002"' in text
     assert '"contradicts": ["u0005"]' in text
-    assert '"id": "g0001"' in text
     # 硬规则
     assert "整包拒" in text
     assert "没话说就不写" in text
     assert f"一段最多造 {MAX_COGNITIONS} 条新看法" in text
-    assert "沉淀与看法别互相复述" in text
     assert "引擎发" in text                       # ⛔ 别写 id / ts / event_seq
-    assert "整段重写" in text                     # 沉淀是重写, 不是追加
-    assert "不建新类" in text                     # 建类归 group
-    for name in ("belief", "experience"):
-        assert f"【{name} 释义】" in text          # include_examples 默认开
+    assert "【belief 释义】" in text              # include_examples 默认开
+    # ⏸ **停产（`group` 退役, 2026-10-13）: 契约不再要它** ⇒ 教她写的那些字都不许剩,
+    #    否则她照旧写得出来（而那是**丢行**）—— "契约不再要"必须落到文案上才算数。
+    assert '"experience"' not in text
+    assert "【experience 释义】" not in text
+    assert "沉淀" not in text and "整段重写" not in text and "不建新类" not in text
+    assert '"id": "g0001"' not in text
     # ⛔ 退役键名的回声 / 别的相位的壳
     assert "evidence" not in text
     assert "relations" not in text and '"decisions"' not in text
-    print("    P7: L2 契约（三种行 · 多值 · 上限 · 不写 id · 沉淀整段重写）")
+    print("    P7: L2 契约（看法一行 · 多值 · 上限 · 不写 id · 沉淀那一半已停产）")
 
 
 def test_parse_cognitions_three_tiers():
@@ -1058,14 +1067,11 @@ def test_parse_cognitions_three_tiers():
         {"belief": {"text": "老师会把我说的话记在心上", "significance": 0.7},
          "supports": ["m0007", "m0011"], "contradicts": ["u0001"]},
         {"belief": {"text": "我大概不值得谁特意跑一趟"}, "evolved_from": "u0002"},
-        {"experience": {"id": "g0001", "text": "和老师去过的店, 我会一个人再去。"}},
     ]}, **common)
-    assert vr.is_valid and len(ok) == 3, (ok, vr.errors)
+    assert vr.is_valid and len(ok) == 2, (ok, vr.errors)
     assert ok[0]["supports"] == ["m0007", "m0011"]
     assert ok[0]["contradicts"] == ["u0001"] and ok[0]["significance"] == 0.7
     assert ok[1]["evolved_from"] == "u0002"
-    assert ok[2] == {"action": "experience", "group": "g0001",
-                     "text": "和老师去过的店, 我会一个人再去。"}
 
     # ⭐ 单条也收（形状规则的①就是"值是字符串"）—— 多值只是省行
     one, _ = digest_registry.parse_cognitions(
@@ -1076,7 +1082,6 @@ def test_parse_cognitions_three_tiers():
     rows, vr2 = digest_registry.parse_cognitions({"cognitions": [
         {"belief": {"text": "没有立足点"}},                                    # 两个都没给
         {"belief": {"text": "想改已有的", "id": "m0003"}, "supports": ["m0007"]},  # 带 id
-        {"experience": {"text": "想建新类"}},                                  # 缺 id
         {"nonsense": {"text": "x"}},                                          # 不是锚点 kind
         {"belief": {"text": "跟画像打架"}, "supports": ["m0007"],
          "contradicts": ["u0002"]},                                          # 另一端是画像
@@ -1085,8 +1090,7 @@ def test_parse_cognitions_three_tiers():
     assert rows == []
     assert vr2.is_valid, "这些都该是**丢行**, 不是整包拒"
     joined = " | ".join(vr2.drops)
-    for want in ("没有立足点", "不带 id", "必须带 id", "形状坏",
-                 "contradicts 的另一端"):
+    for want in ("没有立足点", "不带 id", "形状坏", "contradicts 的另一端"):
         assert want in joined, (want, vr2.drops)
 
     # 整包拒（编造 id）
@@ -1094,11 +1098,38 @@ def test_parse_cognitions_three_tiers():
         {"cognitions": [{"belief": {"text": "编的"}, "supports": ["m9999"]}]},
         evidence_ids={"m0007"}, cognition_ids=set(), group_ids=set())
     assert bad == [] and not vr3.is_valid and "不在列表里" in vr3.errors[0], vr3.errors
-    print("    P7: 三档分得开（3 收 · 5 丢 · 1 整包拒）")
+    print("    P7: 三档分得开（2 收 · 4 丢 · 1 整包拒）")
 
 
-def test_parse_cognitions_caps_beliefs_but_not_soaks():
-    """⭐ P7: 造看法有上限（`MAX_COGNITIONS`）; ⛔ **写沉淀不算在里面**。"""
+def test_retired_soak_row_is_dropped_not_a_package_reject():
+    """⏸ **2026-10-13 止血那一刀**: 停产之后她写一行 `experience` ⇒ **丢那一行**, ⛔ 不整包拒。
+
+    ⚠️ **这一条测的是真口子**: 停产前 `experience` 是锚点, 而 `group` 退役后 `group_ids`
+    恒是**空集** ⇒ `_clean_soak` 判"不在名单里" ⇒ **整包拒** ⇒ 这一段的看法全丢
+    （她能写得出来: 【现有认知】里渲染的 `u…` 含 `experience` 节点, 老契约又教了两版）。
+    判据 = B 案第三档（停止生产 ≠ 判非法）。
+    """
+    rows, vr = digest_registry.parse_cognitions(
+        {"cognitions": [{"experience": {"id": "g0001", "text": "给类写沉淀"}}]},
+        evidence_ids={"m0007"}, group_ids=set())           # ⭐ 空集 —— 就是生产里的样子
+    assert rows == [] and vr.is_valid, (rows, vr.errors)
+    assert any("已停产" in d for d in vr.drops), vr.drops
+    assert not vr.errors, "⛔ 停产的行不许整包拒（那会陪葬同段合法的看法）"
+
+    # ⭐ 混写: 活的那个锚点**照收**（停产的半条只告警, ⛔ 不为它丢一行看法）
+    rows2, vr2 = digest_registry.parse_cognitions(
+        {"cognitions": [{"belief": {"text": "同一条里混写了停产键"},
+                         "experience": {"id": "g0001", "text": "x"},
+                         "supports": ["m0007"]}]},
+        evidence_ids={"m0007"}, group_ids=set())
+    assert len(rows2) == 1 and rows2[0]["action"] == "belief", rows2
+    assert vr2.is_valid and not vr2.drops, (vr2.drops, vr2.errors)
+    assert any("已停产" in w for w in vr2.warnings), vr2.warnings
+    print("    ⏸ 停产: 一行 experience 丢行不整包拒; 混写的看法照收")
+
+
+def test_parse_cognitions_caps_beliefs():
+    """⭐ P7: 造看法有上限（`MAX_COGNITIONS`）; ⏸ 停产那一行不占额度（它本来就丢了）。"""
     rows, vr = digest_registry.parse_cognitions(
         {"cognitions": [{"belief": {"text": f"第 {i} 条"}, "supports": ["m0007"]}
                         for i in range(MAX_COGNITIONS + 2)]},
@@ -1109,10 +1140,11 @@ def test_parse_cognitions_caps_beliefs_but_not_soaks():
     rows2, vr2 = digest_registry.parse_cognitions({"cognitions": [
         *[{"belief": {"text": f"第 {i} 条"}, "supports": ["m0007"]}
           for i in range(MAX_COGNITIONS)],
-        {"experience": {"id": "g0001", "text": "沉淀不算条数"}},
-    ]}, evidence_ids={"m0007"}, group_ids={"g0001"})
-    assert len(rows2) == MAX_COGNITIONS + 1 and vr2.is_valid, rows2
-    print(f"    P7: 看法上限 {MAX_COGNITIONS}（超出的丢行）, 沉淀不占额度")
+        {"experience": {"id": "g0001", "text": "停产的行不算条数"}},
+    ]}, evidence_ids={"m0007"}, group_ids=set())
+    assert len(rows2) == MAX_COGNITIONS and vr2.is_valid, (rows2, vr2.drops)
+    assert any("已停产" in d for d in vr2.drops), vr2.drops
+    print(f"    P7: 看法上限 {MAX_COGNITIONS}（超出的丢行）, 停产行既不占额度也不陪葬")
 
 
 def test_relate_evolved_from_is_belief_to_belief_only():

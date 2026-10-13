@@ -19,6 +19,7 @@ from contract.digest.tables import (
     ABSTRACT_MAX_FREEFORM,
     COGNIZE_ANCHORS,
     COGNIZE_KEYS,
+    COGNIZE_RETIRED,
     ENTITY_TAG_PREFIX,
     ENTITY_TAGS_MAX,
     GROUP_TITLE_MAX,
@@ -189,21 +190,23 @@ def parse_cognitions(raw: Any, *,
 
     一行 → `{"action": "belief", "text": …, ["subject"], ["significance"],`
            ` ["supports"], ["evolved_from"]}` —— **造**一条新看法
-    或   → `{"action": "experience", "group": "g0001", "text": …}` —— 给已有的类**写沉淀**
+    ⏸ 从前还有第二种行 `{"action": "experience", "group": "g0001", "text": …}`
+       （给已有的类**写沉淀**）—— **2026-10-13 随 `group` 退役停产**: 今天**丢这一行** + 记账
+       （认得出、⛔ 不判非法; 判据与那一格见 `COGNIZE_RETIRED`）。
 
     ## 校验（**分两档**, 与 `parse_relations` 同一口径）
 
     | 情况 | 处置 |
     |---|---|
+    | **停产的锚点**（`experience` 行, 没带活着的锚点）| **丢这一行** + 记账（`group` 退役 ⇒ 没有类可写; ⛔ 不判非法）|
     | 行形状坏（锚点键 ≠ 1 个 / 有未知键 / 锚点值不是对象）| **丢这一行** + 记账 |
+    | 一行**同时**带活锚点与停产锚点 | **照收活的那个**, 停产那一半忽略（只告警 —— ⛔ 别为它丢整行）|
     | 造看法：**缺 `text`**（或全空白 / 超 `MAX_TEXT`）| **丢这一行** + 记账（⛔ 不截断: 截断是静默改内容）|
     | 造看法：**带 `id`**（想改已有的看法）| **丢这一行** + 记账（这一趟只**造**）|
-    | 写沉淀：**缺 `id`**（= 想造新类）| **丢这一行** + 记账（建类是 `group` 的活）|
     | 一行**既没 `supports` 也没 `evolved_from`** | **丢这一行** + 记账（没有立足点的看法不进图; ⛔ 光跟人打架不算）|
     | `contradicts` 的另一端**不是看法** | **丢这一行** + 记账（同 `evolved_from`）|
     | 造看法**超过 `MAX_COGNITIONS`** | **丢这一行** + 记账（超出的丢弃 —— 一段里造太多就是流水账）|
     | `evolved_from` 指到的**不是看法** | **丢这一行** + 记账（语义错: 一行坏不毁整段）|
-    | 同一个类写了**两次**沉淀 | **丢后一条** + 记账（第一条为准）|
     | id **不在发下去的名单里**（编造）| ⛔ **整包拒** —— 与 L1 同档: 那说明她没在引用真实世界 |
 
     ⚠️ **方向**（同 `parse_relations`）: 行里已经归一成"经历 → 新看法"（`supports`）
@@ -212,6 +215,8 @@ def parse_cognitions(raw: Any, *,
     ⚠️ `kind_of` = `{她能写的认知 id: kind}`（只用来挡 `evolved_from` 指向 `profile`:
     画像不是"看法", 没有"进化"可言）。缺省 `None` = 不校验。
     ⚠️ **三个名单缺省 `None` = 不校验**（单测 / 老调用方）; 给了就必须全都对得上。
+    ⚠️ `group_ids` 今天**恒是空集**（`group` 退役 ⇒ `_groups_for_l2` 恒空）—— 参数留着,
+    供 `_clean_soak` 的直接调用方（停产不删机器）。
     ⚠️ 锚点对象**内部的**未知键**静默忽略**（同 `_clean_episode_item` 的口径）,
     只有 `id` 是例外（`belief` 那处显式丢行）。
     """
@@ -231,11 +236,24 @@ def parse_cognitions(raw: Any, *,
             drops.append(f"cognitions[{i}] 不是对象")
             continue
         anchors = [(k, v) for k, v in r.items() if k in COGNIZE_ANCHORS]
+        retired = sorted(k for k in r if k in COGNIZE_RETIRED)
         unknown = sorted(k for k in r if k not in COGNIZE_KEYS)
+        if not anchors and retired:
+            # ⏸ **停产 = 认得出 + 丢这一行**（B 案第三档; ⛔ **不判非法** —— 判非法 = 罚她
+            # 重写整段, 而"多写一条我们不要的东西"不值那个价。判据见 `COGNIZE_RETIRED`）。
+            # ⚠️ 它**必须排在下面那道"形状坏"之前**: 停产的键已经不在 `COGNIZE_ANCHORS` 里,
+            # 掉到下面去只会得到一句"锚点键 0 个"—— 读不出"这是停产", 而它每段都可能出现。
+            _drop(warnings, drops,
+                  f"cognitions[{i}]: {retired[0]}（给已有的类写沉淀）已停产 —— 这一行丢")
+            continue
         if len(anchors) != 1 or unknown:
             drops.append(f"cognitions[{i}] 形状坏（锚点键 {len(anchors)} 个"
                          + (f"; 未知键 {'、'.join(unknown)}" if unknown else "") + "）")
             continue
+        if retired:
+            # 混写（`{"belief": …, "experience": …}`）: **活着的那个锚点照收**, 停产的
+            # 那一半忽略 —— ⛔ 别为它丢掉整行（那会白丢一条看法）。
+            warnings.append(f"cognitions[{i}]: {retired[0]} 那一半已停产 —— 已忽略")
         kind, val = anchors[0]
         if not isinstance(val, dict):
             drops.append(f"cognitions[{i}] 的 {kind} 必须是对象")
@@ -713,7 +731,13 @@ def _clean_belief(val: dict, i: int, drops: list[str],
 
 def _clean_soak(val: dict, i: int, group_ids: set[str] | None,
                 errors: list[str], drops: list[str]) -> dict | None:
-    """`experience` 行的**对象内清洗**（给**已有的类**重写沉淀 —— 建类不归它）。"""
+    """`experience` 行的**对象内清洗**（给**已有的类**重写沉淀 —— 建类不归它）。
+
+    ⏸ **2026-10-13 停产**（随 `group` 退役）: `parse_cognitions` 已经**不再走到这里**
+    （停产锚点在更前面就被丢行 + 记账了）。**函数留着** —— 停产不是删机器:
+    `revise.apply_cognitions` 的 `_soak` 那一支也还在, 直接喂条目的调用方（单测 / 老档重放）
+    照旧能用。
+    """
     gid = str(val.get("id", "") or "").strip()
     if not gid:
         drops.append(f"cognitions[{i}]: experience 必须带 id（那是**已有的类**;"

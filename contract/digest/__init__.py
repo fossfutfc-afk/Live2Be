@@ -62,6 +62,7 @@ from contract.digest.tables import (  # 值表（相位名 / 上限 / 取值域 
     ABSTRACT_MAX_FREEFORM,
     COGNIZE_ANCHORS,
     COGNIZE_KEYS,
+    COGNIZE_RETIRED,
     ENTITY_TAG_PREFIX,
     ENTITY_TAGS_MAX,
     GROUP_TITLE_MAX,
