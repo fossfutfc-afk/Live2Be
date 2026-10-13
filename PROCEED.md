@@ -1,11 +1,13 @@
 # PROCEED.md — 接续用（**整篇覆盖写**；上一版见 git 历史）
 
-> **树干净 · `ahead 44`（没 push —— 推不推由用户定）**。真实头看 `git log -1`。
-> 现状：`tests/core` **1253 passed** · `tests/webgui`+`tests/llm`+`tests/renderer` **196 passed**
+> **树干净 · `ahead 47`（没 push —— 推不推由用户定）**。真实头看 `git log -1`。
+> 现状：`tests/core` **1260 passed** · `tests/webgui`+`tests/llm`+`tests/renderer` **196 passed**
 > （⚠️ **按域分开跑**，理由见坑 4.25）· 三个 verifier 全 exit 0。
 > ⚠️ **这棵树里有两条线**，别混：**线 A = 记忆层重新设计（本会话主线）** ·
 > **线 B = 包重组（另一个 agent 做的 1a/1c/1d/1f，1e/1h 等他拍板）**。
-> 上一版（`4adc7f7`）把线 A 的四件写成"设计已定、代码未落"；**现在四件里落了三件**。
+> v6（`74668ef`）时线 A 的四件落了三件；**现在四件全落**（最后一件 = **akin 共 belief**，两个提交）。
+> ⚠️ **编号变过**：本版 `1A-2` = `topics` 退役（v6 里它是 `1A-3`），`1A-3` = `aliases` 的写者
+> —— ⛔ **别拿旧编号对新文件**（旧的 `1A-1` 是"引擎寻址"，早就不在了）。
 
 ---
 
@@ -15,9 +17,11 @@
 - 已落：① brain 段那块 = **「我知道的名字」** ② 名字匹配 **空白不敏感**（`entities.form_key`）
   ③ 台账 `mmt_recall` 的 `per=`/`ms=` ④ 真机观察脚本 ⑤ **group（L2-a）退役**（整族搬 `archive/digest_group/`）
   ⑥ **`experience` 的沉淀行停产**（认得出、丢行、⛔ 不判非法）⑦ ⭐ **`attribute` → `settle`** 改名 +
-  扩职（认人 + **改名 / 写看法**）+ 执行接线 + **`text_seq` 水位** ⑧ ⭐ **引用从 `tags` 搬进独立字段 `entity`**。
-- **只剩一件没落**：⭐ **akin 共 belief**（见 §1A-1，形式已定稿，等一句"开"）。
-- 之后再收：`topics` 退役 · belief collision 的其余两条。
+  扩职（认人 + **改名 / 写看法**）+ 执行接线 + **`text_seq` 水位** ⑧ ⭐ **引用从 `tags` 搬进独立字段 `entity`**
+  ⑨ ⭐ **akin 共 belief**（写侧一跳邻域并进证据 + 料侧「她认过跟它像的」）。
+- **下一件**：⭐ **`topics` 退役 + 挑候选改走 `like(spec="digest")`**（§1A-2）—— 真机刚点了它的名:
+  6 个 `akin` anchor 里 **4 个 `topics` 是空的** ⇒ 新加的 `轴` 那一格在真机上基本不出现。
+- 之后再收：belief collision 的其余两条（§1A-4）· `aliases` 的写者（§1A-3）。
 
 **线 B（另一 agent）**：把"缝补出来的项目"改成正常 Python 项目的形状。已做 1a/1c/1d/1f；
 **1e（`contract/schema.py` 外移）与 1h（调用层归位）等他拍板**（岔路见 §1B）。
@@ -29,54 +33,68 @@
 
 ## 1. 下一步该怎么做
 
-### 1A-1 ⭐⭐ **下一件：akin 共 belief**（形式已定稿，动代码前先报形式给用户）
+### 1A-1 ✅ **akin 共 belief —— 已落**（`6cf1151` 写侧 + `794add5` 料侧）
 
-**判据（用户 2026-10-13 裁）**：group 死后"一类事"没了载体 ⇒ **让 `akin` 继承它的活** ——
-"akin 连的东西在 belief 创建之初就生到一起"。
+落定的形式记在这儿（**改它之前先读这段**）：
 
-- **写侧**（`revise.apply_cognitions` → `_create_belief`）：建完 belief、落完**她给的** `supports`
-  之后, 把**每条已落证据的一跳 akin 邻居**并进 `supports`（零 LLM、纯图算）:
-  - ⛔ 三个坑：① **先落 supports 再算邻居**（否则没有起点）② `akin` 是**对称边**
-    （`add_edge` 内部 `canonical_for` 归一存储方向）⇒ **`edges_from` + `edges_to` 双向查**
-    ③ **排除集**：与这条 belief 已有 `contradicts` 的、以及互相打架的证据对 —— 否则会并出
-    **自相矛盾的证据面**（用户选的就是"一跳 + 排除已矛盾的"）
-  - 上限 **5**（用户定的数；真机那个 akin 簇正好 5 条）; 台账加一格 `akin_joined=N`
-- **料侧**（`material._l2_material`）：group 退役时撤掉的那一格【本段归类的群】**换成
-  「她认过的相似簇」**（本段经历的**一跳 akin 邻域**，带轴与时间）—— 她这才写得出"覆盖这一类"
-  的结论; ⭐ 顺带把**老经历重新变成可引用**（今天 `evidence_ids` 只剩本段被连过的经历,
-  老经历一条都引用不了）。
-  ⚠️ 簇的标签怎么算: 她写 `akin` 时的**轴词 `on` 只落在 `evolution.jsonl`、不在边上**
-  （`Edge` 只有 `rel/src/dst/ts`）⇒ 要印就**现算两端 `topics` 的交集**（与 `parse_relations`
-  的校验同源）。⚠️ 若先做 §1A-3（`topics` 退役）这一步就要改口径 —— **建议先做这件**。
-- **记着那条副作用**（已裁"接受"）：并进去的边与"她自己认的证据"在图上**同形**，事后只有
-  那一行日志分得出; 她的「被引 N」（= `supports` 入边数）会因此变大 —— ⚠️ 只影响**她的读数**,
-  ⛔ 不影响引擎决策、不影响召回、不进 brain 段（`_belief_line` 不印 count）。
+- **写侧**（`revise._join_akin`）：她给的 `supports` 落完之后，把**每条证据的一跳 `akin` 邻居**
+  并进 `supports`；额度 `AKIN_JOIN_MAX = 5`；台账 `digest_cognize … akin=N` + 每条看法一行
+  `akin_joined=N belief=… evidence=…`。
+- **四条纪律**：① 起点**只有她写的那几条**（⛔ 不拿上一趟并进来的当起点 ⇒ 重跑不滚雪球）
+  ② **先落 `supports` 再算邻居**，而**排除集要在落 `contradicts` 之前算**（那两条边在循环里
+  落得比它晚 —— "跟这条看法打架的不算证据"这条规则不能等它们落完）③ **打架的不共撑一个结论**
+  （跟看法打架的 / 跟她点的证据打架的 / 两条候选互相打架的 —— 一条规则全管住）④ 额度超了就
+  少并几条（⛔ 不报错、不重试）。
+- **料侧**（`material._akin_block`）：【被连过的经历】每条下面一行 `↳ 她认过跟它像的` ——
+  **A 案 = 挂在经历下面**（用户裁的，⛔ 不是独立的一格）；`轴` = **现算两端 `topics` 的交集**
+  （交集空 ⇒ 整格不出现）；每条 anchor 最多印 `DIGEST_L2_AKIN = 3` 条 + **明说还有几条没印**；
+  **本段的邻居只出信息头**（正文归它自己那一行）；与 anchor 打架的邻居**不摆**。
+- ⭐ **老经历回到 `evidence_ids`**（料里印出来的都算引用面）—— 不认它，她就引不了自己早先
+  认过的同类，而引擎偏偏会把它们并进证据 ⇒ 两边对不上。
+- ⚠️ **已知副作用**（用户裁"接受"）：并进来的边与她亲手点的**在图里同形**，事后只有
+  `evolution.jsonl` 里那一条多带的 `"via": "akin"` 分得出；她的「被引 N」会变大（只影响读数）。
+- **删掉的机器**（用户裁"删掉"）：`DIGEST_L2_GROUPS` / `DIGEST_L2_MEMBERS` / `_groups_for_l2` /
+  `_group_block` / `_members_by_precious` —— 它们由 `member_of` 喂，而那条边**已无写者**；
+  ⛔ **读侧的"同类兄弟"没动**（`find.py` 的类成员 / `walk.py` 的窄门 —— 旧档还走得到）。
+- **文案分工**（这一刀立的规矩）：`llm/prompts/digest_cognize.md` 提一句（它们也算证据 ⇒
+  该写"总是 / 每次"就别只写"这一次"）；**契约（`contract/digest/prompts/`）不提** ——
+  引擎行为**不是她要遵守的形状**。
 
-### 1A-2 `aliases` 的写者（**记着, 还没做**）
+### 1A-2 ⭐⭐ **下一件：`topics` 退役**（真机刚点了它的名）
 
-今天 `aliases` 只在**建对象时**写一次; `settle` 改名时会自动把**旧主名**降级成别名（已落）。
+**要做的**：`tags` 留（召回在用）；**`topics` 退役** —— 它今天**全部**读者都在 `akin` 那条链上
+（`material._episode_candidates` 挑候选 · `_axes_field` 印 `轴 …` · `parse_relations` 校验
+`on ∈ 两端交集` · `relate.py` 那条观测计数），别的读者一个都没有；
+挑候选改走 **`like(spec="digest")`**（那个档位写好了却**零调用**）。
+⚠️ **退役它会带走 `akin` 的那道校验**（只剩"两端都得是 episode"）—— 要么接受，要么另找载体；
+⚠️ 也会带走**所有 `轴 …` 那一格**（L1 的新经历行、候选行、§1A-1 新加的相似簇行）。
+
+⭐ **真机新证据（2026-10-13 探针，只读）**：6 个 `akin` anchor 里 **4 个 `topics=[]`**
+（只有 `m0022` / `m0023` 有）⇒ ① 新加的 `轴` 那一格在真机上**基本不出现**（交集空 ⇒ 整格不出，
+**不是我写错**）② "`on` ∈ 两端交集"那道校验**今天就已经拦不住什么**（`topics` 空的边照样落了 5 条）。
+⇒ 这一件**优先级升到最高**：它是"料里那些 `轴 …` 到底是真是假"的根。
+
+### 1A-3 `aliases` 的写者（**记着, 还没做**）
+
+今天 `aliases` 只在**建对象时**写一次；`settle` 改名时会自动把**旧主名**降级成别名（已落）。
 ⛔ **仍冻结**的是"她主动补一个**新**别名"（`{"id": …, "aliases": [...]}`）—— 并错**不可逆**
-（重复建对象还能合并, 身份并错分不开）。要做先想清判据。
-
-### 1A-3 `topics` 退役（待拍, 与 akin 的校验耦合）
-
-`tags` 留（召回在用）; **`topics` 退役**（唯一读者是 `akin` 链: 挑候选 + 校验 `on ∈ 两端交集`）;
-挑候选改走 **`like(spec="digest")`**（那个档位**写好了却零调用**）。
-⚠️ **退役它会带走 `akin` 的那道校验**（只剩"两端都得是 episode"）—— 要么接受, 要么另找载体。
+（重复建对象还能合并，身份并错分不开）。要做先想清判据。
 
 ### 1A-4 belief collision 的其余两条（待拍）
 
-① belief **默认综合 ≥2 条**（相似或矛盾都行）; 单点要过门槛 —— ⭐ 判据 = **"写得出一句『所以』"**
-   （`DESIGN_MEMORY_MODES.md:58`：簇的代表性总结是**描述**, 不该住 belief）
+① belief **默认综合 ≥2 条**（相似或矛盾都行）；单点要过门槛 —— ⭐ 判据 = **"写得出一句『所以』"**
+   （`DESIGN_MEMORY_MODES.md:58`：簇的代表性总结是**描述**，不该住 belief）
 ② **软强制 + 允许一次显式 defer**（defer 记账）—— 完全强制会造垃圾 belief。
+   ⭐ 与 §1A-1 的关系：`akin` 并边**已经把"多条"喂厚了**（她点 1 条 ⇒ 图上可能 4 条），
+   所以这两条今天更多是"**要不要拦单点**"的问题，不是"她写不写得出来"的问题。
 ⛔ **已撤回的一条**（别捡回来）：~~`relate` 的 `akin` 行退役~~ —— group 死后 `akin` 是**唯一**
-还活着的"同类"判断源（`noticed` 太稀, 真机全库 5 条）⇒ 退役它 = 把 §1A-1 的继承者腿砍了。
+还活着的"同类"判断源（`noticed` 太稀，真机全库 5 条）⇒ 退役它 = 把 §1A-1 的继承者腿砍了。
 
 ### 1B 线 B 那两条（另一 agent 的；**别替他拍**）
 
 - **1h 调用层归位**（用户提出）：`core/digest/llm_call.py`（85 行、零 digest 依赖）**位置错了** ⇒
   搬 `llm/`（岔路：`llm/client.py` = 用户说的 **vs** 新开 `llm/robust.py` = 那份建议，因为它是
-  **策略件**不是协议件）; `core/digest/call.py`（164 行）**位置对、名字错** ⇒ 只改名 `round_call.py`。
+  **策略件**不是协议件）；`core/digest/call.py`（164 行）**位置对、名字错** ⇒ 只改名 `round_call.py`。
   ⭐ 同一片区域还有个更值钱的发现：`call.py::_round_call` 的"调用→parse→回灌重试"是
   **`llm/retry.py::call_with_feedback` 的第三份实现**（那份 docstring 自己就把 digest 列在待收口里）。
 - **1e `contract/schema.py` 外移**：待拍 ① 归属（新 `contract/schema/` 包 **vs** 并进 `contract/records/`；
@@ -90,7 +108,7 @@
 - **删 `examples` 字段**（用户 2026-10-13：*"算了…可以看作扩展, 延后, 划去"*）—— 现状有读者、
   有守卫、零活写者，当扩展位留着。
 - **`profile` 真删格式**：1c 只做了"停产"（B 案），真删等确认没有老档依赖。
-- ⛔ **`ambiguous` 不加机制**（用户 2026-10-13）: 真机实测**零实例**（4 个 entity 两两不撞,
+- ⛔ **`ambiguous` 不加机制**（用户 2026-10-13）: 真机实测**零实例**（4 个 entity 两两不撞，
   而"社长/室长/课长/普通职员"这类头衔**都不在匹配面上**）⇒ 分档、单列栏、台账**一律不做**。
 - ⛔ **bond 开场不补 entity 物化**（用户裁"不用了"）: 出厂物化只有 MMT 开会话那一个入口
   （`_engine._ensure_char_entities`）—— 理论缺口（只走剧情的新档名表会是空的）**记着, 不动**。
@@ -104,15 +122,18 @@
 | 本文件 | —— |
 | **`core/digest/rounds/__init__.py`** | ⭐ **轮次真源 `ROUNDS`**（key/步序/相位/parse/**料**/**写什么**/预算/快照一处说全；`material` 是硬契约，`_sections_for` 逐字对账） |
 | **`core/digest/rounds/settle.py`** + `contract/digest/prompts/settle.md` + `llm/prompts/digest_settle.md` | ⭐ **最新那一轮的完整形状**（`id` 决定"建/改"· 空=不改 · 名字 ≤8 · 看法 ≤60 软尺 · 改名要有依据）—— 也是"文案与形状怎么分工"的范本 |
+| **`core/digest/rounds/cognize.py`** + `core/digest/material.py::_l2_material`/`_akin_block` | ⭐ **L2 的全貌**：料（被连过的经历 + 相似簇）· 执行（`apply_cognitions` + `_join_akin`）· 台账 `digest_cognize … akin=N` |
+| **`core/brain/graph.py`** | ⭐ 边词汇表（6 条 · `SYMMETRIC_RELS` · `canonical_for`）+ **`related` / `conflicting`**（对称 rel 的**唯一**实现处）；`store` 上有同名薄封装 |
 | **`core/brain/nodes.py`** | ⭐ 节点字段真源（`entity` 引用 / `text_seq` 水位 / `kind` 五种的必填表 / `from_dict` 的**老档一次迁移**） |
-| **`core/brain/revise.py`** | ⭐ 三个执行器（`apply_relations` / `apply_cognitions` / `apply_entities` + **`apply_stances` 改名与写看法**）+ `link_entity_refs`（落边唯一实现, 含"旧名降级成别名"与撞车检查） |
+| **`core/brain/revise.py`** | ⭐ 三个执行器（`apply_relations` / `apply_cognitions` **+ `_join_akin`** / `apply_entities` + **`apply_stances` 改名与写看法**）+ `link_entity_refs`（落边唯一实现, 含"旧名降级成别名"与撞车检查） |
 | `core/brain/entities.py` | ⭐ `form_key` / `surface_forms` / `find_entity` / `normalize_entity_refs` / `hit_set` / `ensure_entities` —— **名字匹配的唯一归一在这** |
 | `contract/digest/`（`tables.py`/`docs.py`/`parse.py`/`registry.py`/`prompts/`） | ⭐ 契约五模块（值表/清单/校验/渲染/文案）—— `_split_tags` 认老写法就在 `parse.py` |
 | `docs/DESIGN_MEMORY_MODES.md` | ⭐ 四种模式（抽象/佐证/经验/进化）+ **`akin` 原料 → 门槛(n) → belief 产出** + "簇总结不是决定" |
-| `core/brain/read/render.py` · `like.py` · `modes.py` | brain 段那块（`KNOWN_NAMES_HEADER`/`_known_line`）· 六路打分 · P19 三段（`SPECS["digest"]` **零调用**） |
+| `core/brain/read/render.py` · `like.py` · `modes.py` | brain 段那块（`KNOWN_NAMES_HEADER`/`_known_line`）· 六路打分 · P19 三段（`SPECS["digest"]` **零调用** ⇒ §1A-2 要接的就是它） |
 | `archive/digest_group/README.md` | ⭐ group 退役的**是什么/为什么/怎么复活**；点了名哪些读侧机器件**别删** |
-| `.testtmp/verify_1c.py` · `capture_prompts_1d.py` · `capture_1e.py` | ⭐ 动契约/文案的三份**逐字节判据**（各自 `check`；`EXPECTED_CHANGED` 要写"为什么"） |
-| `tests/core/test_digest_rounds.py` · `test_digest_contract_refs.py` · `test_entity_tags.py` · `test_round_settle.py` | 轮次表守门 · `【X】` 必须有出处 · 引用形状/老写法兼容 · settle 的十一条行为 |
+| `.testtmp/verify_1c.py` · `capture_prompts_1d.py` · `capture_1e.py` | ⭐ 动契约/文案的三份**逐字节判据**（各自 `check`；`EXPECTED_CHANGED` / `CHANGED` 要写"为什么"） |
+| `.testtmp/probe_akin_block.py` | ⭐ 真机那个 `akin` 簇的**只读**渲染探针（改料之前拿它看真数据长什么样） |
+| `tests/core/test_digest_rounds.py` · `test_digest_contract_refs.py` · `test_entity_tags.py` · `test_round_settle.py` · `test_wiki_revise.py` | 轮次表守门 · `【X】` 必须有出处 · 引用形状/老写法兼容 · settle 的十一条行为 · **`akin` 并边的六条** |
 | `CLAUDE.md` | ⚠️ 89 KB 且多处过时；当索引读，冲突时**信代码** |
 
 ---
@@ -142,11 +163,20 @@
 | **`fa8c906`** | settle 的**文案 + 料**: 契约扩成"认人 + 改名/写看法" · 新增 `material.settle_objects_block`（【这一段认下的对象】+ 两个计数提示） |
 | **`457310d`** | ⭐ **settle 接线**: `parse_attribution` 两路（`id` 决定建/改）· 新增 `apply_stances` · `nodes.text_seq` 水位 · skip 放宽成"谁也没提到" · `DigestResult` 两字段 · **两条判据订正**（撤销 `allowed_names` 闭环 · 空=不改） |
 | **`11682ba`** | ⭐ **引用搬进独立字段 `entity`**（从 `tags` 里的 `#entity:名字`）: 老写法**认得出并挪进来** · `from_dict` 读老档时同一次搬迁 · 三个函数/常量跟着改名（`link_entity_refs` / `normalize_entity_refs` / `ENTITY_REFS_MAX`） |
+| `74668ef` | PROCEED 第六版（线 A 四件落三件 + 坑 4.21–4.27） |
+| **`6cf1151`** | ⭐ **akin 共 belief（写侧）**: `_join_akin`（一跳邻域 → `supports`，额度 5）· `graph.related`/`conflicting` + `store` 薄封装（对称 rel 的唯一实现处）· `"via": "akin"` 留痕 · 台账 `akin=` · 六条用例 |
+| **`794add5`** | ⭐ **akin 共 belief（料侧）**: `_akin_block`（`↳ 她认过跟它像的`，轴=交集，印 3 + 明说还有几条）· 老经历回到 `evidence_ids` · **删掉五个停产件 + 三条用例** · `digest_cognize.md` 一行说明 |
 
-**真机读数（只读探针，⛔ 全程不 save）**：haruka —— 节点 `episode 21 · belief 4 · entity 4 ·
-experience 1`；边 `about 22 · supports 25 · member_of 6 · akin 5`；名表那块 938 字。
-⭐ 新增读数：**30 个节点里 0 个带老写法 `#entity:`、0 个有 `entity` 字段** ⇒ 那 22 条 `about`
-边是**更早的路径**落的（不是 tag 来的）⇒ `from_dict` 那条迁移在真机上**无事可做**。
+**真机读数（只读探针，⛔ 全程不 save）**：haruka —— 节点 30 · 边 58 · `episode 21 · belief 4 ·
+entity 4 · experience 1`；边 `about 22 · supports 25 · member_of 6 · akin 5`；名表那块 938 字。
+⭐ 2026-10-13 新增（`probe_akin_block.py`）：
+- `akin` **5 条全在一个 6 条的簇里**（`m0021` / `m0022` / `m0004` / `m0023` / `m0013` / `m0016`）——
+  渲染出来读得通（"老师给我的好 / 我值得"那一类事），一个 anchor 的一跳邻域 **≤ 3 条** ⇒
+  两个额度（印 3 / 并 5）在生产上**都截不到**。
+- 全图 `contradicts` = **0** ⇒ 并边那三条"排除打架的"在真机上**是防御, 不是日常**。
+- 6 个 anchor 里 **4 个 `topics=[]`** ⇒ `轴` 那一格在真机上**基本不出现**（§1A-2 的又一条证据）。
+- 30 个节点里 0 个带老写法 `#entity:`、0 个有 `entity` 字段 ⇒ 那 22 条 `about` 边是**更早的路径**
+  落的 ⇒ `from_dict` 那条迁移在真机上**无事可做**。
 
 ---
 
@@ -170,7 +200,8 @@ vs `contract.schema.build_schema`（函数, 生产零调用）。
 `git commit` 一律 `-F 消息文件`。
 **4.11 行尾混杂**（无 `.gitattributes`）—— ⚠️ **`write` 工具写出来的 md 是 LF**, 而全仓 prompt 是
 **CRLF** ⇒ 每次重写 md 之后**拉一次 CRLF**（脚本：读文本 → `\r\n` → `write_bytes`）；否则她看到的
-渲染字节与别的 prompt 不同形。按行号改文件要按字节切 `\n`。
+渲染字节与别的 prompt 不同形。按行号改文件要按字节切 `\n`。⭐ **`edit` 工具不会把行尾改混**
+（本会话核过 8 个文件: 改完 CRLF/LF 计数与改前一致），只有 `write` 要拉。
 **4.12 删顶层类/函数要连 `@decorator` 一起删**（`ClassDef.lineno` 不含装饰器）。
 **4.13 API 面守门**：给那 9 个模块增删模块级名字要刷 `tests/fixtures/api_surface.txt`
 （`$env:SPLIT_API_UPDATE='1'`）—— 今天动过的 `contract/digest/*`、`core/digest/*` **不在那 9 个里**。
@@ -179,14 +210,15 @@ vs `contract.schema.build_schema`（函数, 生产零调用）。
 **4.16 一个名字在 md 里不等于它是"料名"**（`【】` 还当角色代称/序数小节/交叉引用）。
 **4.17 ⭐ 改 `contract/digest/prompts/` 或 `llm/prompts/` 任何**一个字节** ⇒ 立刻跑三份 verifier**
 （`verify_1c.py check` / `capture_prompts_1d.py check` / `capture_1e.py check`）；
-**有意的改动写进 `EXPECTED_CHANGED` 并写为什么**（长期红的判据 = 没人看的判据）。
+**有意的改动写进 `EXPECTED_CHANGED` / `CHANGED` 并写为什么**（长期红的判据 = 没人看的判据）。
 ⚠️ **前一道红会盖住后一道**：`capture_prompts_1d` 的"名单变了"先 return ⇒ **内容比对根本没跑**
 （`digest_relate.md` 的一处改动因此漏登记了很久）⇒ 修名单的时候要把内容也比一遍。
 ⚠️ **改相位名 / 归档 md** ⇒ `verify_1c` 的基线键会认不出（`build_schema` 当场抛）⇒ 进 `SKIP_PHASES`；
 `capture_prompts_1d` 有 `ARCHIVED` / `RENAMED` / `CHANGED` 三档（**改名那一档仍拿旧名基线比内容**,
 这样"只是改了名"是**被证明**的）。
 **4.18 真机数据只读**：探针可以读真档、可以在内存里 `store.add`，⛔ **绝不 `save()`**
-（验证法：`git status data` 干净 + `wiki.jsonl` 的 mtime 不变）。
+（验证法：`git status data` 干净 + `wiki.jsonl` 的 mtime 不变）。⚠️ 加载真档要 `WikiStoreV2(path=
+…/soul/wiki.jsonl, …)` —— 第一个位置参数是 **data_root 不是 soul 目录**，传错了会静默得到 0 个节点。
 **4.19 推送必须走代理**：`git -c http.proxy=http://127.0.0.1:7897 -c https.proxy=… push`（直连被 reset）。
 **4.20 `git mv` 用显式路径**（不用通配符）；归档目录里的测试**不会**被 pytest 收集，
 但它的 `parents[2]` 路径算过了 —— 要跑得先改。
@@ -214,6 +246,18 @@ vs `contract.schema.build_schema`（函数, 生产零调用）。
 （料名必须出现在某份 md 里）**反向**由 `test_every_bracket_in_prompts_has_a_home`（md 里的 `【X】`
 必须说得出出处）看着 ⇒ **改段标题必须两边同改**（`ROUNDS.material` + md）。本会话那一刀就是被后者
 逼出来的: 原本只想写文案, 它当场红了。
+**4.28 ⭐ "一份料里同一段正文只印一次"的正确实现**: 簇里对**本段**的邻居**只出信息头**
+（正文归它自己那一行）。⚠️ 我第一版把"只出信息头"也算进"正文已印" ⇒ 轮到它自己那一行时走
+"（正文见上）"分支 ⇒ **那一条的正文在整份料里一个字都不剩**（自审抓到）。判据: `printed`/`shown`
+这类集合**只收真的印过正文的那些**; 主列表**永远印自己那一条的正文**（⛔ 不看那个集合）。
+**4.29 ⭐ 对称 rel 只查一个方向必然漏一半**（`akin` / `contradicts`）: 存进去时被 `canonical_for`
+归一到"id 小的当 `src`" ⇒ 漏掉的是哪一半**取决于两个 id 的字典序, 不是语义**（真机后果:
+"她认过的相似"时灵时不灵）。唯一实现 = `graph.related(edges, nid, rel)` / `graph.conflicting(edges, a, b)`
+（`store` 上是薄封装），⛔ 别在调用点手写 `edges_from` + 条件。
+**4.30 删一个停产件要连带清掉"注释里提到它"的地方**: 删 `_groups_for_l2` 之后,
+`contract/digest/parse.py` 与 `tables.py` 的 docstring 还在讲"`_groups_for_l2` 恒空"
+（grep 死符号名才找得到 —— 编译器/测试都不会报）。做法: 删完**按名字 grep 全仓**,
+把解释**改写**成"没有写者"而不是"某个已删的函数恒空"。
 
 ---
 
@@ -248,9 +292,14 @@ vs `contract.schema.build_schema`（函数, 生产零调用）。
   （`_strangers` 只扫本段新节点）⇒ 那个对象就建不出来。
 - ⭐ **`allowed_names` 闭环撤销** —— **名单是提示, 不是笼子**（名单外的名字照样建）。
 - ⭐ **空 = 不改**（见坑 4.22）。
-- ⭐ **akin 共 belief**: **一跳 + 排除已矛盾的 + 上限 5**（用户给的数）。
+- ⭐ **akin 共 belief**: **一跳 + 排除已矛盾的 + 上限 5**（用户给的数）；
+  ⭐ **料侧形状选 A 案**（`↳ 她认过跟它像的` **挂在每条经历下面**，⛔ 不是独立的一格）——
+  代价（多一个料名 + anchor 名字要防重复印）用户认了 A 案不认。
+  ⭐ **`group` 留下的五个停产件：删**（用户裁"删掉"）—— 它们由 `member_of` 喂, 而那条边已无写者。
 - ⭐ **引用搬进独立字段 `entity`**（`tags` 回到纯检索词）—— 老写法**认得出并挪进来**。
-- ⛔ **`ambiguous` 不加机制** · ⛔ **bond 开场不补物化** · ⏸ **`aliases` 仍冻结**（见 §1A-2）。
+- ⭐ **文案分工**: "引擎会做什么"进 `llm/prompts/digest_*.md`（角色说明）; **契约只写她要遵守的形状**
+  （`contract/digest/prompts/*.md`）—— 并进来的边、相似簇都**不写进契约**。
+- ⛔ **`ambiguous` 不加机制** · ⛔ **bond 开场不补物化** · ⏸ **`aliases` 仍冻结**（见 §1A-3）。
 
 **更早的**：`mmt_send_media` 封印（prompt 上收, 解析/执行照旧）· ⛔ 不做 `inspect entity` ·
 `echo`/`mood`/`precious`/`recent`/`notes` 不做 · `walk` **暂不接线** · 非便利屋68 的角色不维护。
@@ -258,6 +307,10 @@ vs `contract.schema.build_schema`（函数, 生产零调用）。
 ### 5.2 设计判断（推出来的，已写进代码注释或本文件）
 
 - ⭐ **对象留下，容器走人**：entity = **指向**; 类 = **概括** ⇒ 概括是 `belief` 的活。
+- ⭐ **"一类事"那个门槛不废、换载体**：从前"一群同类经历 → 一条沉淀"，今天"一群同类经历 →
+  一条看法"，而"一群"由**她自己认过的 `akin`** 说了算（一跳；两跳会串到别的簇 —— `walk.py` 那条）。
+  ⭐ 配套: **写侧并的是"证据"、料侧摆的是"立足点"** —— 两边同一口径（一跳 + 同一排除 + 同一排序
+  = 边的建立序），她看到的与引擎并的才对得上。
 - ⭐ **`entity.text` 与 `belief` 的分工是"粒度"** —— 而且 ⛔ **一条旧判据已作废**:
   `DESIGN_ENTITY_TAGS §6.1` / `settle.py` 从前写着"`entity.text` 那一格**今天没有读者** ⇒
   印象归 belief"。**那条理由 2026-10-12 就死了**: 名表现在每轮印 `- 主名：看法`
@@ -269,7 +322,9 @@ vs `contract.schema.build_schema`（函数, 生产零调用）。
   都可能不同 ⇒ `text` 是这一层**唯一不幂等**的写入。
 - ⭐ **撞车绝不合并**: 改名撞上别的对象 ⇒ **只丢 `name` 那一格**（`text` 照收）——"把两个人并成
   一个"**不可逆**（重复建对象还能合并, 身份并错分不开）。
-- ⭐ **门槛不废、换载体**：`akin` 簇**直接对着 belief**（"兄弟" = 共同 `supports`，可图推导）。
+- ⭐ **"引擎的手"要在变更史里留指纹**: 边表（`Edge`）只有 `rel/src/dst/ts` ⇒ 图里分不出"她点的"
+  与"引擎并的"（用户裁"接受"：它们的语义**确实**是同一条）; 但 `evolution.jsonl` 里那一格
+  `"via": "akin"` 必须分得出 —— **审计与图是两件事**。
 - ⭐ **tag vs 边（二择）的判据**：这个关系**需要一个名字**吗？需要 ⇒ 标签; 不需要 ⇒ 边。
   硬差别: **传递性**（归属传递、"像"不传递）· **守恒方式**（标签靠名字守恒 ⇒ 怕抄错; 边不靠名字
   ⇒ 但没法合并）。
@@ -286,10 +341,11 @@ vs `contract.schema.build_schema`（函数, 生产零调用）。
 
 ### 5.3 待用户拍 / 待办（**集中在这儿**）
 
-1. ⭐ **akin 共 belief**（§1A-1）—— **形式已定稿, 等一句"开"**（下一件就是它）。
-2. **`topics` 退役**（§1A-3）—— 会带走 `akin` 的 `on` 校验 ⇒ 要么接受, 要么另找载体。
-3. **belief collision 的其余两条**（§1A-4）。
-4. **`aliases` 的写者**（§1A-2）—— 改名带旧名已落; "她主动补新别名"仍冻结。
-5. **线 B 那两条**（1h 的岔路 · 1e 的两处待拍）—— **另一 agent 的, 别替他答**。
-6. ⏸ 记着不动的: `ambiguous` 不加机制 · bond 开场不补物化 · `examples` 字段当扩展位留着 ·
+1. ⭐ **`topics` 退役**（§1A-2）—— **下一件**; 会带走 `akin` 的 `on` 校验 ⇒ 要么接受, 要么另找载体。
+2. **belief collision 的其余两条**（§1A-4）。
+3. **`aliases` 的写者**（§1A-3）—— 改名带旧名已落; "她主动补新别名"仍冻结。
+4. **线 B 那两条**（1h 的岔路 · 1e 的两处待拍）—— **另一 agent 的, 别替他答**。
+5. ⏸ 记着不动的: `ambiguous` 不加机制 · bond 开场不补物化 · `examples` 字段当扩展位留着 ·
    `profile` 只停产不删格式。
+6. **收口类**（不是设计, 是欠的活）: `form_key` 下移 `contract/`（统一 `parse_attribution` 两端）·
+   真机跑一次端到端（uvicorn + `experiments/recall_report.py`）· `ahead 47` 未 push。
