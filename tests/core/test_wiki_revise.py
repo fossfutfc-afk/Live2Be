@@ -61,7 +61,7 @@ def _episode(st, text="老师请我吃甜品"):
 def test_apply_cognitions_birth_edges_have_the_right_direction(tmp_path):
     """⭐ P9: 造看法 = 节点 + **出生自带的三条边**, 方向由两端类型定死。
 
-    `supports`（**经历 → 新看法**）· `evolved_from`（**新看法 → 旧看法**）·
+    `supports`（**经历 → 新看法**）· `evolved_from`（**旧看法 → 新看法** ⭐ 2026-10-14 翻过方向）·
     `contradicts`（对称 —— 写哪边都一样）。
     ⚠️ 两套 id 空间（同 L1）: `supports` 收**经历真身**（`m…`）;
     `evolved_from` / `contradicts` 收**认知本地号**（`u…`）⇒ 过 `id_map` 翻真身。
@@ -84,7 +84,7 @@ def test_apply_cognitions_birth_edges_have_the_right_direction(tmp_path):
     # ⚠️ fixture 自己已经连过几条（`_store` 的 `add_edge`）⇒ 判据按**新节点**数, 不按总数
     assert new in g.targets("m0001", "supports"), "经历 → 新看法"
     assert new in g.targets("m0003", "supports"), "经历 → 新看法"
-    assert g.targets(new, "evolved_from") == [old_belief], "新看法 → 旧看法"
+    assert g.targets(old_belief, "evolved_from") == [new], "旧看法 → 新看法（2026-10-14 翻过方向）"
     assert new in g.neighbors("m0004"), "contradicts 是对称边"
     assert [e.rel for e in g.edges if new in (e.src, e.dst)].count("supports") == 2
     node = st.get(new)

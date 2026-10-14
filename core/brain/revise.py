@@ -141,7 +141,7 @@ def apply_cognitions(store: WikiStoreV2, rows: list[dict], *, ts: str = "",
 
     | 行 | 做什么 |
     |---|---|
-    | `belief` | 造节点（`kind=belief`: 正文 / `subject` / `significance`）+ **出生自带边**: `supports`（经历 → 新看法）· `evolved_from`（新看法 → 旧看法）· `contradicts`（对称）· ⭐ **`akin` 并边**（见下）|
+    | `belief` | 造节点（`kind=belief`: 正文 / `subject` / `significance`）+ **出生自带边**: `supports`（经历 → 新看法）· `evolved_from`（**旧看法 → 新看法**）· `contradicts`（对称）· ⭐ **`akin` 并边**（见下）|
     | `experience` | **覆写**那个类的沉淀正文 —— ⛔ `title` / `ts` 一律不动（名字是地址, 时间是"这一类事"的时间）|
 
     ⭐ **`akin` 并边**（2026-10-13, 零 LLM）: `supports` 落完之后, 把**每条证据的一跳
@@ -156,8 +156,10 @@ def apply_cognitions(store: WikiStoreV2, rows: list[dict], *, ts: str = "",
     （它是崩溃窗口重跑的防双写网）。
     ⚠️ **两套 id 空间**（同 `apply_relations`）: `supports` 的值是**经历真身**（`m…`,
     料里就是这么印的）; `evolved_from` / `contradicts` 的值是**认知本地号**（`u…`）⇒ 过 `id_map`。
-    ⚠️ **方向不再判**（契约层已归一）: `supports` = 经历 → 新看法 · `evolved_from` =
-    新看法 → 旧看法 · `contradicts` **对称**（`add_edge` 内部走 `canonical_for`）。
+    ⚠️ **方向在这里摆正**（她那一行行首写的是**新**看法, 而图上恒为 **旧 → 新**）:
+    `supports` = 经历 → 新看法 · `evolved_from` = **旧看法 → 新看法**（⭐ 2026-10-14 翻过,
+    用户裁"顺序太怪"; 契约层那一行没变, 只是落边时把两端摆成时间顺向）·
+    `contradicts` **对称**（`add_edge` 内部走 `canonical_for`）。
     ⚠️ **改写既有正文必须留痕**（`_soak` 那一段写着口径）:
     `{"action": "rewrite", "id": …, "changed": {"text": [旧, 新]}, "ts": …}` —— 崩溃窗口
     重跑时记的是一个 **空 `changed`**（"这次没改任何东西", 一眼可判; ⛔ 不是不留账）。
@@ -185,7 +187,8 @@ def apply_cognitions(store: WikiStoreV2, rows: list[dict], *, ts: str = "",
                    ts=ts, log=log, res=res)
         evo = str(row.get("evolved_from") or "")
         if evo:
-            _add_edge(store, REL_EVOLVED_FROM, nid, id_map.get(evo, evo),
+            # ⭐ **旧 → 新**（2026-10-14 起）: 她那一行行首是**新**看法, 这里把两端摆正
+            _add_edge(store, REL_EVOLVED_FROM, id_map.get(evo, evo), nid,
                       ts=ts, log=log, res=res)
         for other in row.get("contradicts") or ():
             _add_edge(store, REL_CONTRADICTS, nid, id_map.get(str(other), str(other)),

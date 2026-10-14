@@ -47,7 +47,7 @@
 `docs/DESIGN_MEMORY_MODES.md` §2。
 
 **边 6 条**：`about`（归属）· `supports`（**两种形状**：`episode → 认知` = 佐证 ·
-`认知 → 认知` = 支撑）· `contradicts`（**对称**）· `evolved_from`（新看法 → 旧看法）·
+`认知 → 认知` = 支撑）· `contradicts`（**对称**）· `evolved_from`（**旧看法 → 新看法** ⭐ 2026-10-14 翻过方向）·
 `akin`（**对称**，她的"同类"）· `member_of`（经验 → 成员）。真源 `graph.RELS`。
 ⚠️ 真机（haruka 39 条边）只有 `supports` 20 + `about` 19 —— **`contradicts` / `evolved_from` /
 `akin` / `member_of` 各 0 条**。

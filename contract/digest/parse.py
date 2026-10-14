@@ -159,6 +159,12 @@ def parse_relations(raw: Any, *, episode_ids: set[str] | None = None,
                                  f"（实得 {ka} ↔ {kb}）")
                     continue
         row: dict = {"rel": rel, "src": aid, "dst": dst}
+        if rel == "evolved_from":
+            # ⭐ **方向在契约层摆正**（2026-10-14 用户裁"顺序太怪, 改一下, 名字不动"）:
+            # 她那一行的行首写的是**较新**的那条（`{"belief": "u0009", …}` = 新看法）,
+            # 而图上恒为 **旧 → 新**（`src` = 被取代的那条）⇒ 这里把两端翻过来。
+            # ⚠️ 执行侧（`apply_relations`）因此**不用再判方向** —— 与 `supports` 同一条纪律。
+            row = {"rel": rel, "src": dst, "dst": aid}
         # ⏸ `on`（akin 的"那个共同的东西"）**2026-10-14 一起退役**（用户裁 A2）——
         # 它当年的判据是"必须是两端 `topics` 交集里的词", 而 `topics` 没了 ⇒ 判据也塌了;
         # 留一个**没有判据的必填格**只会教她写空话（"假威胁"那条纪律的反面）。
@@ -196,7 +202,8 @@ def parse_cognitions(raw: Any, *,
     | id **不在发下去的名单里**（编造）| ⛔ **整包拒** —— 与 L1 同档: 那说明她没在引用真实世界 |
 
     ⚠️ **方向**（同 `parse_relations`）: 行里已经归一成"经历 → 新看法"（`supports`）
-    与"新看法 → 旧看法"（`evolved_from`）—— 执行侧**不再判方向**。
+    与"**旧看法 → 新看法**"（`evolved_from` —— ⭐ 2026-10-14 翻过: 她那一行行首写的是
+    新的那条, 落边时摆成时间顺向）—— 执行侧**不再判方向**。
 
     ⚠️ `kind_of` = `{她能写的认知 id: kind}`（只用来挡 `evolved_from` 指向 `profile`:
     画像不是"看法", 没有"进化"可言）。缺省 `None` = 不校验。
