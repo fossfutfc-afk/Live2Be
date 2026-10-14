@@ -340,10 +340,12 @@ def conflicting(edges: Iterable[Edge], a: str, b: str) -> bool:
 #:     与"她没说、按介质默认" —— 而**那个区分正是"归属"这个信号的全部价值**。
 #: ⚠️ 那两个串 = `core.brain.entities.SELF_ID` / `SENSEI_ID`（守门用例钉住不许漂）——
 #:   本模块**零项目内 import** 是它刻意的性质（同 `marks.py`）, 所以只能写字面量。
-#: ⏸ **`belief` 那一行还没加** —— L2（`cognize`）的"留空 ⇒ self"用户已裁,
-#:   等它的默认随碰撞那一件落地时一起加（今天加了没有第二个读者）。
+#: ⭐ **`belief` 那一行 2026-10-14 补上了**（用户裁"L2 的 `entity` 留空 ⇒ self"）——
+#:   它今天才有第二个读者 = `material.collided_beliefs_block` 的**面**那一格
+#:   （面只在**非默认**时印, 免得每行都写"关于我"）。
 DEFAULT_FACES: dict[str, tuple[str, ...]] = {
     "episode": ("x0000", "x0001"),
+    "belief": ("x0000",),
 }
 
 

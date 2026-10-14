@@ -740,6 +740,149 @@ def _akin_block(store, anchor_id: str, *, linked: set[str], shown: set[str],
     return "\n".join(head), got
 
 
+# ---------------------------------------------------------------------------
+# 两趟各补一格: 「同类印证过的看法」(L1) / 「跟这条撞上的现有看法」(L2)
+# ---------------------------------------------------------------------------
+
+#: 【她认过的同类印证过的看法】最多印几条**看法**（超了明说还有几条没印）。
+#: 量级同 `DIGEST_L2_AKIN`: 都只是"摆几条看得见的", ⛔ 不是闸。
+DIGEST_L1_AKIN_BELIEFS = 5
+#: 【跟这条撞上的现有看法】最多印几条（同上; 真机 `m0022` 一条就撞 3 条 ⇒ 这个额度会用到）。
+DIGEST_L2_COLLIDE = 5
+
+
+def _key_title(store, nid: str) -> str:
+    """`m0004《和老师的第一顿高级料理》` —— **钥匙 + 标题**（重复引用只留这几个字）。
+
+    ⚠️ 书名号走 `marks.name`（那四个字符是唯一实现处, 守门扫代码字面量）。
+    没标题 ⇒ 只给钥匙（⛔ 不编）。
+    """
+    node = store.get(str(nid))
+    title = str(getattr(node, "title", "") or "").strip() if node is not None else ""
+    return f"{nid}{marks.name(title)}" if title else str(nid)
+
+
+def akin_supported_beliefs_block(store: WikiStoreV2, episode_ids: list[str],
+                                 local_of: dict[str, str]) -> str:
+    """L1 的第七段【她认过的同类印证过的看法】（零 LLM）—— 补的是 L1 唯一缺的那一刀。
+
+    她今天看得见**候选旧经历**, 却看不见"**那条旧经历当年印证过哪条看法**" ⇒
+    "挂证据"（`supports`）只能靠猜。这一段把那两步接起来:
+
+        本段经历 ——(`akin`)——> 同类旧经历 ——(`supports`)——> 已有看法
+
+    ⚠️ **方向**: `supports` 是"经历 → 看法" ⇒ 经历那一头查 `targets`（**出边**）。
+    写成 `sources` 就**恒空且不报错**（经历永远不是被支撑的那一头 —— 坑 4.34 的第四次
+    就是这么来的, 而它已经在交接文档里骗过一次人）。
+
+    ⚠️ **按看法归并**（用户 2026-10-14 裁）: 同一看法被好几条同类印证过 ⇒ **一行**,
+    右边只印那些经历的**钥匙 + 标题**（⛔ 不重复正文 —— 一份料里同一段正文只印一次,
+    而且重复的信息只留关键的那几个字）。
+
+    ⚠️ **看见就得能引用**: 看法若没进【现有认知】（cap 之外）⇒ 印全行**并给它发一个本地号**
+    （并进调用方那份 `local_of`）—— 否则"看见了却写不了"（写了对不上名单 ⇒ **整包拒**）。
+
+    空 ⇒ `""`（`_join_sections` 跳过空块 ⇒ **整段不印**, 与她视图里"没有钥匙就不印空手"同一条纪律）。
+    """
+    from core.brain.graph import REL_SUPPORTS
+    from core.brain.read.render import render_cognition_line
+
+    graph = store.graph()
+    grouped: dict[str, list[str]] = {}            # 看法 id → 印证过它的同类经历（保序去重）
+    for m in episode_ids:
+        for cand in store.related(str(m), REL_AKIN):
+            node = store.get(cand)
+            if node is None or str(node.kind) != "episode":
+                continue
+            for b in graph.targets(cand, REL_SUPPORTS):
+                bn = store.get(b)
+                if bn is None or str(bn.kind) != "belief":
+                    continue
+                seen = grouped.setdefault(b, [])
+                if cand not in seen:
+                    seen.append(cand)
+    if not grouped:
+        return ""
+    rows = ["（← 后面那几条是**认过跟本段经历像**的旧经历 —— ⚠️ 同类 ≠ 印证:"
+            " 这一条经历到底印证没印证那条看法, 由你判）"]
+    for b, eps in list(grouped.items())[:DIGEST_L1_AKIN_BELIEFS]:
+        keys = " · ".join(_key_title(store, e) for e in eps)
+        local = local_of.get(b)
+        if local:
+            rows.append(f"{local} ← {keys}")
+            continue
+        local = f"u{len(local_of) + 1:04d}"       # 没印过 ⇒ 发一个本地号（并进引用面）
+        local_of[b] = local
+        rows.extend(render_cognition_line(store, store.get(b), graph, local_of, max_body=60))
+        rows.append(f"    ← {keys}")
+    rest = len(grouped) - DIGEST_L1_AKIN_BELIEFS
+    if rest > 0:
+        rows.append(f"（还有 {rest} 条没印 —— 先照印出来的这几条判）")
+    return "\n".join(rows)
+
+
+def collided_beliefs_block(store: WikiStoreV2, evidence_ids: list[str],
+                           local_of: dict[str, str]) -> str:
+    """L2 的第五段【跟这条撞上的现有看法】（零 LLM）—— 治"同一个结论写第二条"。
+
+    **判据**: `本段证据集 ∩ 那条看法的 supporters`（**共同证据优先**）——
+    同一条经历支撑过它 ⇒ 她这次很可能要说的就是同一件事。
+    排序: **交集条数降序**, 其次**被引数降序**, 再 id。
+
+    ⏸ **语义那一路**（`like(spec="digest")` 对看法面）暂缺: 那一刻她**还没写出**新看法的正文,
+    query 只能拿本段经历正文顶; 而没有 embedder 时 `like` 也只退化成词面 ⇒ 等 `[embed]`
+    在位时再补, 那时它印的是 `相近 0.58（为什么: …）`（**弱**那一档, 与 `同一条证据` 分开写）。
+
+    ⚠️ **看见就得能引用**: 没进【现有认知】的看法 ⇒ 印全行 + 发本地号（并进 `local_of`）。
+    ⚠️ **面只在"有信息"时印**（用户 2026-10-14 裁）: 没写 `entity` 的看法按 `DEFAULT_FACES`
+    算成**她自己** —— 那是绝大多数 ⇒ 每行都写"关于我"是纯噪声。所以:
+      · ⛔ **她自己那一条不印**（明确写了 `x0000` 与"没写"在这件事上是同一句话）;
+      · 其余的面最多印两个（`关于「老师」「杂草屋」`）—— 面是次要信息, 别把行撑长。
+    ⚠️ 撞在哪的**强弱分开写**: `同一条证据 …`（强）与 `相近 …`（弱）⛔ 不混在一格里读。
+    """
+    from core.brain.entities import SELF_ID
+    from core.brain.graph import REL_ABOUT
+    from core.brain.read.render import render_cognition_line
+
+    graph = store.graph()
+    pool = {str(x) for x in evidence_ids}
+    hits: list[tuple[int, int, str, list[str]]] = []
+    for n in store.all():
+        if str(n.kind) != "belief":
+            continue
+        shared = [e for e in graph.supporters(n.id) if str(e) in pool]
+        if shared:
+            hits.append((len(shared), len(graph.supporters(n.id)), n.id, shared))
+    if not hits:
+        return ""
+    hits.sort(key=lambda t: (-t[0], -t[1], t[2]))
+    rows: list[str] = []
+    for _n_shared, _n_all, bid, shared in hits[:DIGEST_L2_COLLIDE]:
+        node = store.get(bid)
+        names: list[str] = []
+        for x in graph.targets(bid, REL_ABOUT):
+            if str(x) == SELF_ID:                     # ⛔ 她自己那一条不印（零信息）
+                continue
+            end = store.get(x)
+            label = str(getattr(end, "name", "") or "").strip() if end is not None else ""
+            if label and label not in names:
+                names.append(label)
+        face = " · 关于「" + "」「".join(names[:2]) + "」" if names else ""
+        where = "撞在哪: 同一条证据 " + "、".join(shared) + face
+        local = local_of.get(bid)
+        if local:
+            rows.append(f"{local}（正文见上）· {where}")
+            continue
+        local = f"u{len(local_of) + 1:04d}"
+        local_of[bid] = local
+        rows.extend(render_cognition_line(store, node, graph, local_of, max_body=60))
+        rows.append(f"    ↳ {where}")
+    rest = len(hits) - DIGEST_L2_COLLIDE
+    if rest > 0:
+        rows.append(f"（还有 {rest} 条没印 —— 只照印出来的这几条判）")
+    return "\n".join(rows)
+
+
 def _linked_episode_ids(ctx) -> list[str]:
     """**被 L1 连过的**本段经历（规格 §3: "读边取两端, 纯计算"）。
 

@@ -274,6 +274,10 @@ ROUNDS: tuple[RoundSpec, ...] = (
         step="③ 接",
         parse=digest_registry.parse_relations,
         material=("本次新经历（含引擎候选标注）", "现有经历（候选）",
+                  # ⭐ 2026-10-14（L2 碰撞这一刀）: 她认过的同类经历**印证过哪条看法**。
+                  # 补的是 L1 唯一缺的那一刀 —— 看得见候选经历, 却看不见"它印证过谁"
+                  # ⇒ `supports` 只能靠猜（详见 `material.akin_supported_beliefs_block`）。
+                  "她认过的同类印证过的看法",
                   "本段时间线", "现有认知", "角色人设（锚点）"),
         writes=(
             # ⭐ **只落边**（`apply_relations`）—— 一个节点都不建、一个字正文都不写
@@ -290,7 +294,11 @@ ROUNDS: tuple[RoundSpec, ...] = (
         key="cognize",
         step="⑥ 想",
         parse=digest_registry.parse_cognitions,
-        material=("被连过的经历", "现有认知", "已有的对象", "角色人设（锚点）"),
+        material=("被连过的经历", "现有认知",
+                  # ⭐ 2026-10-14（L2 碰撞这一刀）: 跟这一段的证据**共享证据**的已有看法 ——
+                  # 治"同一个结论写第二条"（判据/印法见 `material.collided_beliefs_block`）。
+                  "跟这条撞上的现有看法",
+                  "已有的对象", "角色人设（锚点）"),
         writes=(
             # ⭐ **L2 的产出 = 正文 + 它出生自带的那几条边**（`apply_cognitions`）:
             # 造 `belief` + 三条边。

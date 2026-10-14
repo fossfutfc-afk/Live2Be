@@ -118,7 +118,8 @@ def test_default_faces_fill_the_lane_but_never_the_graph():
       ③ **那个对象不存在** ⇒ 车道仍空（没有这个对象就谈不上它的车道）;
       ④ ⛔ **一条边都不落**: 它是**读侧口径**, `about` 边表不许因为默认而变长
          （真机算过: 落边 = +46 条常数边, 且图里再也分不出"明确说"与"默认"）。
-     顺便钉住 `belief` 那一行**还没加**（L2 的默认随碰撞那一件落）。
+     顺便钉住 **`belief` 那一行也加了**（2026-10-14: L2 留空 ⇒ **她自己**那条线;
+      它今天才有第二个读者 = `material.collided_beliefs_block` 的**面**）。
     """
     from core.brain.entities import SELF_ID, SENSEI_ID
     from core.brain.graph import DEFAULT_FACES, default_faces
@@ -126,28 +127,30 @@ def test_default_faces_fill_the_lane_but_never_the_graph():
     # ⚠️ `graph.py` 零项目内 import ⇒ 保留号只能写字面量 —— 这条用例钉住"两处不许漂"
     assert DEFAULT_FACES["episode"] == (SELF_ID, SENSEI_ID), DEFAULT_FACES
     assert default_faces("episode") == (SELF_ID, SENSEI_ID)
-    assert default_faces("belief") == (), "belief 那一行还没加（L2 落地时再加）"
+    # ⭐ 看法没说"关于谁" ⇒ 算她自己那条线（⛔ 不含老师 —— 看法通常关于人, 但那是要写的）
+    assert default_faces("belief") == (SELF_ID,), DEFAULT_FACES
     assert default_faces("experience") == ()
 
     nodes = [_node("x0000", "entity"), _node("x0001", "entity"),
              _node("m0010", "episode"),                       # 没写归属 ⇒ 默认面
              _node("m0011", "episode"),                       # 明确写了小玉 ⇒ 不兜底
              _node("m0012", "episode"),                       # 明确写了老师 ⇒ 直连
-             _node("m0013", "belief"),                        # belief 没有默认面
+             _node("m0013", "belief"),                        # belief: 默认面 = 她自己
              _node("x0002", "entity")]
     g = Graph(edges=[Edge(REL_ABOUT, "m0011", "x0002"),
                      Edge(REL_ABOUT, "m0012", "x0001")], nodes=nodes)
 
     # ① 默认面 + 明确的都在; ② 写了小玉的不在（self 那条没有明确的, 只剩默认面）
-    assert g.lane(SELF_ID) == ["m0010"], g.lane(SELF_ID)
+    #    ⚠️ 顺序 = 表里 kind 的**插入序**（episode 先、belief 后）
+    assert g.lane(SELF_ID) == ["m0010", "m0013"], g.lane(SELF_ID)
     assert g.lane(SENSEI_ID) == ["m0012", "m0010"], g.lane(SENSEI_ID)
     assert g.lane("x0002") == ["m0011"], "非保留号照旧**只认明确写过的**（筛子还在）"
     # ③ 对象不在 ⇒ 不兜底（旧档/单测里 x0000 常常不存在）
     g2 = Graph(edges=[Edge(REL_ABOUT, "m0011", "x0002")],
                nodes=[n for n in nodes if n.id not in (SELF_ID, SENSEI_ID)])
     assert g2.lane(SELF_ID) == [], g2.lane(SELF_ID)
-    # kind 过滤照旧（belief 没有默认面 ⇒ 只剩明确的）
-    assert g.lane(SELF_ID, "belief") == []
+    # kind 过滤照旧: 只看 belief ⇒ 默认面也认（m0013 没写归属 ⇒ 她那条线）
+    assert g.lane(SELF_ID, "belief") == ["m0013"]
     # ④ 一条边都没落
     assert [e.rel for e in g.edges] == [REL_ABOUT, REL_ABOUT]
     # `unattributed` 的语义变了: 它们不是"没归属", 而是"没被明确写过"
@@ -155,7 +158,11 @@ def test_default_faces_fill_the_lane_but_never_the_graph():
 
 
 def test_entity_lane_and_unattributed():
-    """查询 1/5: entity 车道 = `inc[E]`; **未归属清单必须排掉 entity 自己**。"""
+    """查询 1/5: entity 车道 = `inc[E]` **+ 默认面**; **未归属清单必须排掉 entity 自己**。
+
+    ⚠️ 2026-10-14 起 `belief` 也有默认面（留空 ⇒ 她自己那条线）⇒ `m0012`（没写归属的看法）
+    **进得了** `x0000` 的车道 —— 这条用例原来的期望（`["m0010", "m0011"]`）正是那一刀改掉的。
+    """
     # 分类表: 方向恒为"节点 → entity"（entity 永远当 dst, 两种入参顺序都对）
     assert classify_pair("belief", "entity", "m0010", "x0000") == \
         (REL_ABOUT, "m0010", "x0000")
@@ -165,8 +172,9 @@ def test_entity_lane_and_unattributed():
              _node("m0011", "episode"), _node("m0012", "belief")]
     g = Graph(edges=[Edge(REL_ABOUT, "m0010", "x0000"),
                      Edge(REL_ABOUT, "m0011", "x0000")], nodes=nodes)
-    assert g.lane("x0000") == ["m0010", "m0011"]
-    assert g.beliefs_of("x0000") == ["m0010"]
+    # 明确的在前（m0010 · m0011）, 默认面的在后（m0012 —— 它是**没写归属的看法**）
+    assert g.lane("x0000") == ["m0010", "m0011", "m0012"]
+    assert g.beliefs_of("x0000") == ["m0010", "m0012"]
     assert g.kind_of("x0000") == "entity"
     # ⚠️ 这条就是 2026-09-21 复核 §2.1 时发现的那个坑: 不排 entity 的话
     # 每个 entity 都会冒充"未归属"（它永远不会是 about 的 src）

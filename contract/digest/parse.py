@@ -11,6 +11,7 @@
 """
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from contract.digest.docs import RELATION_ACTIONS
@@ -194,12 +195,22 @@ def parse_cognitions(raw: Any, *,
     | 行形状坏（锚点键 ≠ 1 个 / 有未知键 / 锚点值不是对象）| **丢这一行** + 记账 |
     | 一行**同时**带活锚点与停产锚点 | **照收活的那个**, 停产那一半忽略（只告警 —— ⛔ 别为它丢整行）|
     | 造看法：**缺 `text`**（或全空白 / 超 `MAX_TEXT`）| **丢这一行** + 记账（⛔ 不截断: 截断是静默改内容）|
-    | 造看法：**带 `id`**（想改已有的看法）| **丢这一行** + 记账（这一趟只**造**）|
-    | 一行**既没 `supports` 也没 `evolved_from`** | **丢这一行** + 记账（没有立足点的看法不进图; ⛔ 光跟人打架不算）|
+    | ⭐ **改看法**（`belief` 对象里带 `id`）| **改那条已有的** —— `id` 先过**唯一前缀容错**（`u1` → `u0001`）|
+    | 改看法：`id` **没命中**【现有认知】名单（编造）| **丢这一行** + 记账（⛔ **不连坐**同包其他行 —— 同 `settle` 那条口径）|
+    | 改看法：**一格都没写**（空转行）| **丢这一行** + 记账 |
+    | 改看法：又写了 `evolved_from` | **只丢那一格** + 记账（**改口 ≠ 取代**; 真被取代了该造新的那条）|
+    | 改看法：`text` 留空 | ⭐ **正文不动**（空 = 不改 —— 只加边 / 只改别的格子）|
+    | 一行**既没 `supports` 也没 `evolved_from`**（**造**看法那一路）| **丢这一行** + 记账（没有立足点的看法不进图; ⛔ 光跟人打架不算）|
     | `contradicts` 的另一端**不是看法** | **丢这一行** + 记账（同 `evolved_from`）|
-    | 造看法**超过 `MAX_COGNITIONS`** | **丢这一行** + 记账（超出的丢弃 —— 一段里造太多就是流水账）|
+    | **造**看法超过 `MAX_COGNITIONS` | **丢这一行** + 记账（⭐ **改已有的不算在里面** —— 上限管的是"长出新节点"）|
     | `evolved_from` 指到的**不是看法** | **丢这一行** + 记账（语义错: 一行坏不毁整段）|
-    | id **不在发下去的名单里**（编造）| ⛔ **整包拒** —— 与 L1 同档: 那说明她没在引用真实世界 |
+    | `supports` / `evolved_from` / `contradicts` 的值**不在名单里**（编造）| ⛔ **整包拒** —— 与 L1 同档: 那说明她没在引用真实世界 |
+
+    ⚠️ **锚点 `id` 错与证据 id 错为什么不同档**（2026-10-14 用户裁）:
+    **锚点 id 错 ⇒ 那一行无从落地**（"改一条不存在的看法"根本没有落法 ⇒ 只能丢行）;
+    **证据 id 错 ⇒ 那一行立在不存在的证据上**（那是编造 ⇒ 整包拒）。
+    同一条判据见 `parse_attribution`（`settle`）的 docstring —— 那一相位**整包只有丢行**,
+    因为它每行是互相独立的对象操作; 而这一相位**两档都要**, 因为一行 = 一条看法 + 它的证据。
 
     ⚠️ **方向**（同 `parse_relations`）: 行里已经归一成"经历 → 新看法"（`supports`）
     与"**旧看法 → 新看法**"（`evolved_from` —— ⭐ 2026-10-14 翻过: 她那一行行首写的是
@@ -211,8 +222,9 @@ def parse_cognitions(raw: Any, *,
     ⚠️ **三个名单缺省 `None` = 不校验**（单测 / 老调用方）; 给了就必须全都对得上。
     ⚠️ `group_ids` 今天**恒是空集**（`group` 退役 ⇒ 那条边不再有人落, 名单没有写者）——
     参数留着, 供 `_clean_soak` 的直接调用方（停产不删机器）。
-    ⚠️ 锚点对象**内部的**未知键**静默忽略**（同 `_clean_episode_item` 的口径）,
-    只有 `id` 是例外（`belief` 那处显式丢行）。
+    ⚠️ `cognition_ids` = **她能看到的那份 `u…` 名单**（`render_cognition_list` 的本地号,
+    ⭐ 含两格新料里补发的号）—— 改看法那一路靠它判"命中还是编造"; 缺省 `None` = 不校验。
+    ⚠️ 锚点对象**内部的**未知键**静默忽略**（同 `_clean_episode_item` 的口径）。
     """
     errors: list[str] = []
     warnings: list[str] = []
@@ -253,11 +265,7 @@ def parse_cognitions(raw: Any, *,
             drops.append(f"cognitions[{i}] 的 {kind} 必须是对象")
             continue
         if kind == "belief":
-            if n_belief >= MAX_COGNITIONS:
-                drops.append(f"cognitions[{i}]: 一段最多造 {MAX_COGNITIONS} 条看法"
-                             "（超出的丢弃）")
-                continue
-            item = _clean_belief(val, i, drops, warnings)
+            item = _clean_belief(val, i, drops, warnings, cognition_ids=cognition_ids)
             if item is None:
                 continue
             sup = _ref_list(r.get("supports"), f"cognitions[{i}].supports",
@@ -268,22 +276,43 @@ def parse_cognitions(raw: Any, *,
                             cognition_ids, errors, drops)
             if sup is None or evo is None or con is None:
                 continue                           # 有错 ⇒ 整包拒（上面的 errors 说了）
-            if not sup and not evo:
-                drops.append(f"cognitions[{i}]: 这条看法**没有立足点**"
-                             "（supports / evolved_from 至少给一个 —— "
-                             "光跟人打架不构成一条看法）")
-                continue
-            if evo and kind_of and kind_of.get(evo) not in (None, "belief"):
-                drops.append(f"cognitions[{i}]: evolved_from 只能指向**看法**"
-                             f"（{evo} 是 {kind_of.get(evo)}）")
-                continue
+            if item.get("id"):
+                # ⭐ **改那一路**（`id` 在场）: ⛔ 不数进上限（上限管的是"长出新节点"）、
+                # ⛔ 不要求立足点（那条看法早就立住了）—— 只管两件事。
+                if evo:
+                    _drop(warnings, drops,
+                          f"cognitions[{i}]: 带 id 又写了 evolved_from —— 丢那一格"
+                          "（改口 ≠ 取代; 真被取代了就该造新的那条）")
+                    evo = ""
+                if not (set(item) - {"action", "id"}) and not (sup or con):
+                    # ⚠️ **整行**一格都没写（`belief` 对象里没有格子, 边也没有）⇒ 空转行。
+                    # ⛔ 别只看 `belief` 对象: `{"belief": {"id": "u0001"}, "supports": […]}`
+                    # 是**合法且最常用**的一路（只挂证据, 正文不动）。
+                    _drop(warnings, drops,
+                          f"cognitions[{i}]: 带 id 但一格都没写 —— 空转行, 丢了")
+                    continue
+            else:
+                # 造那一路: 上限 + 立足点照旧（没有立足点的看法谁也召不回它）
+                if n_belief >= MAX_COGNITIONS:
+                    drops.append(f"cognitions[{i}]: 一段最多造 {MAX_COGNITIONS} 条看法"
+                                 "（超出的丢弃; ⭐ 改已有的**不算**在里面）")
+                    continue
+                if not sup and not evo:
+                    drops.append(f"cognitions[{i}]: 这条看法**没有立足点**"
+                                 "（supports / evolved_from 至少给一个 —— "
+                                 "光跟人打架不构成一条看法）")
+                    continue
+                if evo and kind_of and kind_of.get(evo) not in (None, "belief"):
+                    drops.append(f"cognitions[{i}]: evolved_from 只能指向**看法**"
+                                 f"（{evo} 是 {kind_of.get(evo)}）")
+                    continue
+                n_belief += 1
             bad_con = [c for c in con
                        if kind_of and kind_of.get(c) not in (None, "belief")]
             if bad_con:
                 drops.append(f"cognitions[{i}]: contradicts 的另一端也得是**看法**"
                              f"（{'、'.join(bad_con)} 不是）")
                 continue
-            n_belief += 1
             if sup:
                 item["supports"] = sup
             if evo:
@@ -752,19 +781,90 @@ def _local_nodes(raw: Any, i: int, node_ids: set[str], errors: list[str],
     return out
 
 
-def _clean_belief(val: dict, i: int, drops: list[str],
-                  warnings: list[str]) -> dict | None:
-    """`belief` 行的**对象内清洗**（L2 造看法 —— 缺正文/想改已有的 ⇒ 丢这一行）。
+#: id 的"字母前缀 + 数字"分解（`u0002` → `("u", "0002")`）—— 只给下面那条容错用。
+_ID_PARTS = re.compile(r"([A-Za-z_]*)(\d+)\Z")
 
-    ⛔ **不截断超长正文**: 截断是静默改内容（同 `_clean_episode_item` 的口径）。
-    ⛔ **`id` 不合法**: 这一趟只**造**看法, 改已有的正文是另一件事（用户裁过"`update`
-    那个词一个词扛三件事", 不复活它）。
+
+def _resolve_cognition_id(raw: str, cognition_ids: set[str] | None,
+                          warnings: list[str], where: str) -> str:
+    """她写的 `id` → 名单里的真号（⭐ **唯一命中才救**；歧义不救）。
+
+    两条容错（都是"她抄号抄走样"的常见形态, ⛔ 不是编造）:
+      ① **数字等价**: `u2` ≡ `u0002` —— 我们印的是**零填充**四位, 而她可能写 `u2`
+         （⚠️ AgentGal 那条**纯前缀**匹配在这儿不管用: `"u0002".startswith("u2")` 是假）;
+      ② **唯一前缀**（照抄 AgentGal `_resolve_understanding_update_id` 那条）: 她只写了前半截。
+    ⇒ 救得回来就救（记一行 warning, ⛔ 契约里不教她偷懒）; 救不回来原样返回,
+    由调用方按"没命中 ⇒ 丢这一行"处理。
     """
-    if str(val.get("id", "") or "").strip():
-        drops.append(f"cognitions[{i}]: belief 行不带 id"
-                     "（这一趟只**造**新看法, 不改已有的正文）")
-        return None
+    if cognition_ids is None or raw in cognition_ids:
+        return raw
+
+    def _same_number(cand: str) -> bool:
+        a = _ID_PARTS.fullmatch(raw)
+        b = _ID_PARTS.fullmatch(cand)
+        return bool(a and b and a.group(1).lower() == b.group(1).lower()
+                    and int(a.group(2)) == int(b.group(2)))
+
+    hits = [x for x in cognition_ids if _same_number(x)]
+    if not hits:
+        hits = [x for x in cognition_ids if x.startswith(raw)]
+    if len(hits) == 1:
+        warnings.append(f"{where}: id={raw!r} 按唯一匹配认成 {hits[0]!r}")
+        return hits[0]
+    return raw
+
+
+def _clean_belief(val: dict, i: int, drops: list[str], warnings: list[str],
+                  *, cognition_ids: set[str] | None = None) -> dict | None:
+    """`belief` 行的**对象内清洗** —— ⭐ **带 `id` = 改那条已有的; 不带 = 造一条新的**。
+
+    改那一路（`id` 在场）: `id` **必须在【现有认知】名单里**（先过唯一前缀容错）——
+    没命中 ⇒ **丢这一行 + 记账**, ⛔ **不连坐同包其他行**（同 `settle`:
+    "id 不在名单里（编造）⇒ 丢这一行 + 记账"）。⚠️ 行里的**边引用**没命中仍走**整包拒**
+    （`supports` / `evolved_from` / `contradicts` 在 `parse_cognitions` 里查）——
+    判据见 `parse_attribution` 的 docstring: 锚点 id 错 ⇒ **那一行无从落地**;
+    证据 id 错 ⇒ **那一行立在不存在的证据上**（那是编造）。两件事不同档。
+       · `text` 可空（空 = **正文不动**）· 其余格子写了才改。
+    ⚠️ **"空转行"（整行一格都没写）不在这里判** —— 边住在**行**那一层, 这一层看不见它们
+    （见函数末尾那条注释）。
+    造那一路: `text` **必填**（缺/超 `MAX_TEXT` ⇒ 丢这一行; ⛔ 不截断 —— 截断是静默改内容）。
+
+    ⚠️ `entity` / `tags` 两格由 `_split_tags` 收（与经历那条同一个实现）。
+    """
+    bid = str(val.get("id", "") or "").strip()
     text = str(val.get("text", "") or "").strip()
+    if bid:
+        where = f"cognitions[{i}]"
+        bid = _resolve_cognition_id(bid, cognition_ids, warnings, where)
+        if cognition_ids is not None and bid not in cognition_ids:
+            _drop(warnings, drops,
+                  f"{where}: id={bid!r} 不在【现有认知】里（编造）—— 丢了")
+            return None
+        if len(text) > MAX_TEXT:
+            _drop(warnings, drops, f"{where}.text 超过 {MAX_TEXT} 字 —— 丢了")
+            return None
+        item: dict = {"action": "belief", "id": bid}
+        if "text" in val and text:
+            item["text"] = text
+        subject = str(val.get("subject", "") or "").strip()
+        if subject:
+            item["subject"] = subject
+        tags, refs = _split_tags(val.get("tags"), val.get("entity"), warnings, drops,
+                                 where=f"{where}.belief")
+        if tags:
+            item["tags"] = tags
+        if refs:
+            item["entity"] = refs
+        sig = val.get("significance")
+        if sig is not None and not isinstance(sig, bool):
+            try:
+                item["significance"] = max(0.0, min(1.0, float(sig)))
+            except (TypeError, ValueError):
+                warnings.append(f"{where}.significance 不是数——按缺省")
+        # ⚠️ **"空转行"这一步判不了** —— `supports` / `contradicts` 住在**行**那一层,
+        # 而这里只看得到 `belief` 对象 ⇒ 交给 `parse_cognitions` 在两边都齐了之后判
+        # （`{"belief": {"id": "u0001"}, "supports": […]}` = 只挂证据, 是**合法且最常用**的一路）。
+        return item
     if not text:
         drops.append(f"cognitions[{i}]: 造看法必须填 text（一条结论）")
         return None
@@ -772,7 +872,7 @@ def _clean_belief(val: dict, i: int, drops: list[str],
         drops.append(f"cognitions[{i}].text 超过 {MAX_TEXT} 字——丢这一行"
                      "（⛔ 不截断: 截断是静默改内容）")
         return None
-    item: dict = {"action": "belief", "text": text}
+    item = {"action": "belief", "text": text}
     subject = str(val.get("subject", "") or "").strip()
     if subject:
         item["subject"] = subject

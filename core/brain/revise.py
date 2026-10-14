@@ -128,6 +128,12 @@ class CognitionResult:
     """⭐ **引擎并进来的证据边数**（`akin` 一跳邻域 → `supports`; 零 LLM）。
     ⚠️ 口径同 `edges=`: 记的是"**这一趟算了 N 条**", ⛔ 不是"新落了 N 条"
     （重跑窗口里 `add_edge` 幂等, 但账照记 —— 与 `supports` 逐字同口径）。"""
+    patched: list[str] = field(default_factory=list)
+    """⭐ **改过的已有看法**（`id` 在场那一行; 只记**真的写了格子**的那些）。"""
+    empty_skips: list[str] = field(default_factory=list)
+    """`"<id>:<格>"` —— 键在但值是空 ⇒ **"这一格没话可说"**（⛔ 不是清空, 同 `settle`）。"""
+    watermark_skips: list[str] = field(default_factory=list)
+    """`"<id>:text"` —— **水位**挡住的那一格（本段已经写过它, 重跑不许再改一遍）。"""
 
 
 def apply_cognitions(store: WikiStoreV2, rows: list[dict], *, ts: str = "",
@@ -168,6 +174,7 @@ def apply_cognitions(store: WikiStoreV2, rows: list[dict], *, ts: str = "",
     log = log or EvolutionLog.for_store(store)
     ts = ts or datetime.now().isoformat(timespec="seconds")
     id_map = id_map or {}
+    seq = max(event_seq) if event_seq else 0
     res = CognitionResult()
     for row in rows:
         if row.get("action") == "experience":
@@ -177,6 +184,16 @@ def apply_cognitions(store: WikiStoreV2, rows: list[dict], *, ts: str = "",
         # ⚠️ **排除集要在落 `contradicts` 之前算** —— 那几条边在下面才落（"先落 supports,
         #    再算邻居"是顺序纪律; 而"跟这条看法打架的不算它的证据"这条规则不能等它们落完）。
         blocked = {id_map.get(str(x), str(x)) for x in (row.get("contradicts") or ())}
+        bid = str(row.get("id") or "")
+        if bid:
+            # ⭐ **改那一路**（`id` 在场）: 只改写出来的格子 + 只加边; ⛔ 不并 `akin` 邻居。
+            _apply_belief_patch(store, row, ts=ts, log=log, res=res, seq=seq)
+            for ep in supports:
+                _add_edge(store, REL_SUPPORTS, ep, bid, ts=ts, log=log, res=res)
+            for other in row.get("contradicts") or ():
+                _add_edge(store, REL_CONTRADICTS, bid, id_map.get(str(other), str(other)),
+                          ts=ts, log=log, res=res)
+            continue
         nid = _create_belief(store, row, ts=ts, log=log,
                              event_seq=event_seq, res=res)
         for ep in supports:
@@ -280,6 +297,65 @@ def _create_belief(store: WikiStoreV2, row: dict, *, ts: str, log: EvolutionLog,
     log.append({"pkg": "digest", "action": "create", "id": nid,
                 "text": node.text, "ts": ts})
     return nid
+
+
+def _apply_belief_patch(store: WikiStoreV2, row: dict, *, ts: str, log: EvolutionLog,
+                        res: CognitionResult, seq: int = 0) -> None:
+    """⭐ **改一条已有的看法**（`id` 在场那一行）—— **只改写出来的格子**。
+
+    四条纪律**照抄 `apply_stances`**（`settle` 那一层立的, 同一个道理）:
+      ① **空 = 不改**（键在但值是空串/空数组 ⇒ "这一格没话可说", ⛔ 不是清空）;
+      ② **值没变 ⇒ 不写**（但**照记一笔空 `changed`** —— "这次没改任何东西"一眼可判）;
+      ③ **水位只守 `text`**（它是这一层唯一的单槽改写; `tags`/`entity`/`significance`
+         天然幂等 —— 同一个值再写一次等于没写）;
+      ④ ⛔ **删不掉东西**: `supports` / `contradicts` 由调用方**只增**（`add_edge` 幂等）。
+
+    ⚠️ **为什么不在这里并 `akin` 邻居**: 并边属于**归纳**（她认了这一簇、正在下结论
+    的那一刻, 见 `_join_akin`）—— 而这一行只是"改改说法 / 补一条证据"。
+    用户 2026-10-14 裁: *"挂证据不算归纳"*（同 L1 挂证据时不并）。
+    """
+    bid = str(row["id"])
+    node = store.get(bid)
+    if node is None:
+        raise ValueError(err("BadCognition",
+                             f"要改的看法不存在: {bid}（料里刚印过它, 不该消失 —— "
+                             "这是引擎侧的 bug）"))
+    patch: dict = {}
+    changed: dict = {}
+    for f in ("text", "subject", "tags", "entity", "significance"):
+        if f not in row:
+            continue
+        new = row[f]
+        if f == "text":
+            new = str(new or "").strip()
+            if not new:                                     # ① 空 = 不改
+                res.empty_skips.append(f"{bid}:text")
+                continue
+            if seq and int(node.text_seq or 0) >= seq:       # ③ 水位
+                res.watermark_skips.append(f"{bid}:text")
+                logger.info("digest_cognize text_skip=%s 水位 %s ≥ 本段 %s"
+                            "（这一段已经改过它了）", bid, node.text_seq, seq)
+                continue
+        elif f == "significance":
+            if new is None:                                  # ① 空 = 不改
+                res.empty_skips.append(f"{bid}:{f}")
+                continue
+        elif not new:                                        # ① "" / [] = 不改
+            res.empty_skips.append(f"{bid}:{f}")
+            continue
+        old = getattr(node, f, None)
+        if new == old:                                       # ② 值没变 ⇒ 不写
+            continue
+        patch[f] = new
+        changed[f] = [old, new]
+    if patch:
+        if "text" in patch:
+            patch["text_seq"] = seq                          # 与那句话同住一个原子单位
+        store.update(bid, patch)
+        res.patched.append(bid)
+        logger.info("digest_cognize patch=%s 改了 %s", bid, "、".join(sorted(changed)))
+    log.append({"pkg": "digest", "action": "rewrite", "id": bid,
+                "changed": changed, "ts": ts})               # 空 changed = 这次没改东西
 
 
 def _soak(store: WikiStoreV2, row: dict, *, ts: str, log: EvolutionLog,
