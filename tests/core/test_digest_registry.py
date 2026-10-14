@@ -310,7 +310,7 @@ def test_schema_split_reuses_the_domain_contract_by_reference():
 def test_split_prompt_does_not_restate_the_schema_criteria():
     """⭐ **判据只有一处**: `digest_split.md` 是"你是谁 / 看什么", 判据全在 schema 里。
 
-    为什么值得钉: 这次特意把账目的判据**只写在契约层**, 因为 `contract/schema.py`
+    为什么值得钉: 这次特意把账目的判据**只写在契约层**, 因为 `contract/schema/`
     那条纪律说 *"示例才是形状的来源"* —— 一旦 prompt 里也抄一份, 两处迟早强度不一,
     而模型只学会它看到的那一份（2026-09-20 art 命中率 0/5 就是这么来的）。
 

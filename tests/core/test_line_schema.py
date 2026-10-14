@@ -1,6 +1,7 @@
-"""MMT **行流契约**渲染（`contract/schema.py::build_line_schema`，⑥-2a 2026-09-25）。
+"""MMT **行流契约**渲染（`contract/schema/lines.py::build_line_schema`，⑥-2a 2026-09-25）。
 
-与 `build_record_schema`（VN 记录流）并列的第三形态；设计见
+与 `build_record_schema`（VN 记录流, `../records.py`）并列；文案住在
+`contract/schema/prompts/line*.md`（2026-10-14 从代码搬进 md）。设计见
 `docs/DESIGN_STREAM_CONTRACT.md` §1（契约形式六条）/ §2（两域对照）/ §10.2 B1·B3。
 
 覆盖:

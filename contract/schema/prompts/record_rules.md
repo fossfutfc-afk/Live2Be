@@ -1,0 +1,6 @@
+- 一行一条完整记录；字段只有那两个；text 除 stage=end 外必填。
+- text 里的半角双引号与反斜杠必须转义（写成 \" 与 \\）——这是最常见的错误。
+- 老师要说话就直接写 sensei 记录（连续 1~{{max_sensei_run}} 条）——那几句就是玩家会看到、会挑的话。
+- 本章第一条必须是 stage=switch（交代开场地点）。**含纪念的那一轮：art 放最前（switch 紧随其后）**——art 与 memorial **必须同轮成对**：写了 art 就要写 memorial，写了 memorial 就要有 art。
+- stage=end 必须是本轮最后一条；stage=memorial 之后到本轮结束都属于纪念正文。
+- 篇幅：一轮约 {{turn_lines}} 行（写下你觉得完整的一段戏）。
