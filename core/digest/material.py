@@ -9,6 +9,7 @@
 | R1 | `_collect_visual_prompts` · `_segment_emotion_keys` | 画面记忆 · 本段情绪标尺 |
 | R4 | `_open_pinned_text` · `_episode_lines` | 还开着的约定（带编号）· 本段新增经历 |
 | **L1** | `_round_b_material` · `_episode_candidates` | 新经历（钥匙 + 标题 + 正文 + 原话）+ 每条候选（正文/被引/边/为什么）· **现有经历（候选）**（`like(spec="digest")` 排出来的最像的几条 + 为什么）|
+| **L2** | `_l2_material` · `_akin_region_rows` · `collided_beliefs_block` | **这次的事**（本段被 L1 连过的, 立足点）· **这一类事**（一跳 `akin` 邻居 —— 本段那几条只出信息头）· **跟这条撞上的现有看法**（共享证据 + 撞在哪）|
 | R3 | `_node_texts` | 本轮**动过**的节点正文（喂 `entities.hit_set`） |
 | 全体 | `_sections_for` · `_join_sections` | 按表校对段标题 → 拼成 user 串 |
 
@@ -604,18 +605,25 @@ def settle_objects_block(store, ids, *, now="", body: int = 110) -> tuple[str, l
 
 
 # ---------------------------------------------------------------------------
-# L2（`cognize`）的料 —— 「被连过的经历」+「她认过的相似簇」（2026-10-08 P8 / 2026-10-13）
+# L2（`cognize`）的料 —— 「这次的事」+「这一类事」（2026-10-08 P8 / 2026-10-13 / 2026-10-14）
 # ⭐ **2026-10-13: 相似簇接替了「本段归类的群」** —— 那一格由 `member_of` 喂, 而 `group`
-#    退役后那条边不再有人落 ⇒ 恒空。新的一格喂它的是 **`akin`**（她自己认过的"同一类事"）,
-#    形状也从"类 id + 沉淀正文 + 成员表"换成了"挂在每条经历下面的一行"（用户 2026-10-13 裁 A 案）:
+#    退役后那条边不再有人落 ⇒ 恒空。新的一格喂它的是 **`akin`**（她自己认过的"同一类事"）:
 #    老块是给她**写沉淀**用的, 而沉淀已停产; 新块是给她**写结论**用的 —— "这条看法不只被
 #    这一段那一条撑着, 还有她早先认过'像'的那些" ⇒ 她才写得出"总是/每次"而不是"这一次"。
+# ⭐ **2026-10-14 区域化**（用户裁）: 这两样东西**分成两个段头** —— 【这次的事】（本段被 L1
+#    连过的, 归纳的立足点）与【这一类事】（它们的一跳 `akin` 邻居, 额外的证据）。
+#    ⚠️ 从前它们挤在**一张平表**里（靠缩进与一个 `↳` 抬头区分）, 而簇**散在每条 anchor
+#    下面** ⇒ 她数不出"这一类一共几条 / 跨多长时间", 而那正是"总是 / 每次"与"这一次"
+#    的区别所在。**判据一个字没改**（一跳 · 打架的不摆 · 边建立序 · 先到先得）——
+#    换的只是**摆放**, 顺带修掉"谁先处理谁的位置随机"那个顺序毛病。
 # ---------------------------------------------------------------------------
 
-#: ⭐ L2 的「她认过的相似簇」: **每条被连过的经历**最多印几条同类邻居（一跳 `akin`）。
-#: 3 = 看得见"一类事"的形状, 又不至于把一段料铺成一棵树（真机全库 `akin` 只有 5 条 ⇒ 基本截不到）。
+#: ⭐ L2 的「这一类事」**整区**最多印几条**老经历**（= 印正文的那些）。
+#: 5 = 与 `AKIN_JOIN_MAX` / `DIGEST_L2_COLLIDE` 同量级（一次归纳的立足点规模）。
+#: ⚠️ **本段的信息头不占这个额度** —— 它们的正文在【这次的事】里, 让它们吃额度只会把
+#: 老经历挤没（"这一类跨了多长时间"正是这一区存在的理由）。⏸ 旧语义 = 每条 anchor 3 条。
 #: ⚠️ 超了**明说还有几条没印**（⛔ 不静默截断）; 而写入侧的额度是另一件事（`AKIN_JOIN_MAX`）。
-DIGEST_L2_AKIN = 3
+DIGEST_L2_AKIN = 5
 
 #: 「被 L1 连过」= **L1 的动作面那几条边**（`RELATION_ACTIONS` —— 契约单源, ⛔ 不另抄一份）。
 #: ⚠️ **2026-10-08（E3）起是四条**（`supports`/`akin`/`contradicts`/`evolved_from`）——
@@ -643,101 +651,106 @@ def existing_entities_line(store, *, texts=()) -> str:
     return text or "（还没有任何对象 —— 这条涉及谁, 就照你看到的那个称呼写）"
 
 
-def _l2_material(ctx) -> tuple[str, list[str]]:
-    """L2 的料 → `(「被连过的经历」（含相似簇）, **她能引用的经历 id**)`。
+def _l2_material(ctx) -> tuple[str, str, list[str]]:
+    """L2 的料 → `(【这次的事】, 【这一类事】, **她能引用的经历 id**)`。
 
-    ⭐ **形状**（用户 2026-10-13 裁 A 案）: 相似簇**挂在每条经历下面** ——
+    ⭐ **两个区**（用户 2026-10-14 裁; 判据一个字没改, 只换了摆放）——
 
+        【这次的事】 本段被 L1 连过的那几条（**归纳的立足点**）
         〔m0013｜《咖啡厅的甜点》｜3 天前｜10-05〕老师约我去咖啡厅…
            ↳ 关于: x0001 老师
-           ↳ 她认过跟它像的（这些也会算作这条看法的证据）:
-              〔m0004｜《上次的甜点》｜三周前｜09-20〕上次老师也把点心分给我…
-              （还有 2 条没印 —— 先照印出来的这几条写）
+
+        【这一类事】 它们的一跳 `akin` 邻居（**她认过"是同一类事"的那些, 也算证据**）
+        〔m0004｜《上次的甜点》｜三周前｜09-20〕上次老师也把点心分给我…
+              〔m0022｜《被感谢的人》｜6 天前｜10/8〕（正文见上面【这次的事】）
+        （还有 2 条没印 —— 先照印出来的这几条写）
+
+    ⭐ **正文互斥**: 一条正文**全料只印一次** —— 本段的条目在第二区只出一行**信息头**
+    （`（正文见上面【这次的事】）`）, ⛔ 不重复正文、**也不占额度**（额度只管老经历）。
 
     **判据**: 邻居 = **一跳 `akin`**（她认过的像, ⛔ 不走两跳 —— `walk.py` 那条纪律:
     真机那个簇两跳就串到别的簇去了）。
 
-    ⭐ **第二个返回值** = `parse` 的 `evidence_ids`: **料里印出来过的全部经历**
+    ⭐ **第三个返回值** = `parse` 的 `evidence_ids`: **料里印出来过的全部经历**
     （"右边能引用的 = 她看到的全部" —— L1 的教训: 少一类就把合法行判成**编造 id**
-    ⇒ 整包拒 ⇒ 白跑一次重试）。⚠️ **老经历也在内**（相似簇里印出来的那些）—— 它们正是
-    "这一类事"的另外几条, ⛔ 判它们"编造 id"就是把她自己的相似簇锁在门外。
+    ⇒ 整包拒 ⇒ 白跑一次重试）。⚠️ **老经历也在内**（第二区里印出来的那些）—— 它们正是
+    "这一类事"的另外几条, ⛔ 判它们"编造 id"就是把她自己的这一类锁在门外。
     ⛔ **不另算一份**（另算必然与渲染漂开）。
 
-    空 ⇒ 印一句**为什么空**（P6 的口径: 空串会被 `_join_sections` 连抬头一起吞掉,
-    她既看不见这一格、也不知道那个结论）。
+    第一区空 ⇒ 印一句**为什么空**（P6 的口径: 空串会被 `_join_sections` 连抬头一起吞掉,
+    她既看不见这一格、也不知道那个结论）; 第二区空 ⇒ 整区连段头一起不印。
     """
     ids = [str(m) for m in _linked_episode_ids(ctx)]
-    linked = set(ids)
-    shown: set[str] = set()                       # 料里已经露过面的（簇的"先到先得"）
-    joined: list[str] = []                        # 相似簇里印出来的老经历（它们也能当证据）
-    rows: list[str] = []
+    mine = set(ids)
+    this_rows: list[str] = []
     for m in ids:
         node = ctx.store.get(m)
         if node is None:
             continue
-        # ⚠️ 本段的每一条**都在自己这一行印正文**（簇里对它们只出信息头 —— 一份料里
+        # ⚠️ 本段的每一条**都在自己这一行印正文**（第二区对它们只出信息头 —— 一份料里
         #    同一段正文只印一次, 而"印全文"这件事归这一块负责）
-        rows.append(_episode_line(ctx.store, m, now=ctx.now_ts, body=150))
-        shown.add(m)
+        this_rows.append(_episode_line(ctx.store, m, now=ctx.now_ts, body=150))
         about = _about_line(ctx.store, m)          # 只在真有 `about` 边时出现
         if about:
-            rows.append(about)
-        block, got = _akin_block(ctx.store, m, linked=linked, shown=shown,
-                                 now=ctx.now_ts)
-        if block:
-            rows.append(block)
-            shown |= set(got)
-            joined.extend(got)
-    text = "\n".join(rows) or (
+            this_rows.append(about)
+    cls_rows, joined = _akin_region_rows(ctx.store, ids, mine=mine, now=ctx.now_ts)
+    this_text = "\n".join(this_rows) or (
         "（这一段没有被连过的经历 —— 归纳没有立足点, 那就什么都别造）")
-    return text, list(dict.fromkeys(ids + joined))            # 去重保序: 本段的在前
+    # 去重保序: 本段的在前（第二区里印出正文的老经历接在后面）
+    return this_text, "\n".join(cls_rows), list(dict.fromkeys(ids + joined))
 
 
-def _akin_block(store, anchor_id: str, *, linked: set[str], shown: set[str],
-                now="", cap: int = DIGEST_L2_AKIN, body: int = 150
-                ) -> tuple[str, list[str]]:
-    """【被连过的经历】某一条下面的 `↳ 她认过跟它像的` 一小块 → `(文本, 印出来的 id)`。
+def _akin_region_rows(store, anchor_ids: list[str], *, mine: set[str], now="",
+                      cap: int = DIGEST_L2_AKIN, body: int = 150
+                      ) -> tuple[list[str], list[str]]:
+    """【这一类事】**整区**的行 → `(行, 印出正文的老经历 id)`。
 
-    ⚠️ **本段的经历只出信息头**（它的正文由【被连过的经历】那一行负责印 —— 一份料里
-    同一段正文只印一次）; 老的（不属于这一段）才印正文, 因为除了这里没有别处会印它。
-    ⚠️ **`shown` 里已经有的一律不摆**（先到先得）—— 同一个邻居挂在两条 anchor 上、
-    或者它自己那一行已经印过 ⇒ 不重复（⛔ 也不算"没印"）。
-    ⚠️ 与 anchor 打架的（`contradicts`）**不摆** —— 与写入侧同一条规则（打架的证据不共撑
-    一个结论, 见 `revise._join_akin`); 摆出来只会诱她写一条自己拆自己台的结论。
-    ⚠️ 排序 = **边的建立序**（= 她认过的先后）—— 与写入侧取前 `AKIN_JOIN_MAX` 条的顺序
-    **同一个口径**, 免得"她看到的"与"引擎并的"在截断时各挑各的。
+    ⭐ **一个区, 不再是每条 anchor 一小块**（用户 2026-10-14 裁）: 同一个邻居挂在两条
+    anchor 上 ⇒ 区内**先到先得**只印一次 —— 从前"它落在谁下面"由**处理顺序**决定,
+    位置看起来随机（而且先处理过的 anchor 会从后面的簇里整个消失、后处理的才露信息头,
+    同一件事两副面孔）。
+
+    ⭐ **本段的条目（`mine`）只出信息头**: 它的正文在上面【这次的事】里, 全料只印一次;
+    ⚠️ **信息头不占 `cap`** —— 额度管的是"这一类能看见几条**老经历**", 而本段那几条
+    本来就在她眼前（让它们吃额度只会把老经历挤没）。
+
+    ⚠️ **判据照抄旧版, 一字未改**: 一跳 `akin` · 与**它认过的那条**打架的不摆
+    （同写入侧 `revise._join_akin`: 打架的证据不共撑一个结论）· 排序 = **边的建立序**
+    （= 她认过的先后, 与写入侧取前 `AKIN_JOIN_MAX` 条**同一个口径**, 免得"她看到的"与
+    "引擎并的"在截断时各挑各的）· ⛔ 只收 `episode`。
     ⏸ **`轴` 那一格 2026-10-14 撤**（随 `topics` 退役）: 邻居行的信息头只剩
     钥匙 + 标题 + 时间（`marks.head` 出）。
+
+    Returns: `(行, 要当证据的老经历 id)` —— ⚠️ **信息头那几条不在第二个返回值里**
+    （它们已经在第一区, 调用方的 `ids` 收着; 重复收也不出错, 但那是两个真源）。
     """
-    anchor = store.get(str(anchor_id))
-    if anchor is None:
-        return "", []
-    out: list[str] = []
+    rows: list[str] = []
     got: list[str] = []
+    seen: set[str] = set()                        # 区内先到先得（正文 / 信息头都算）
     rest = 0
-    for cand in store.related(str(anchor_id), REL_AKIN):
-        if cand in shown or cand == str(anchor_id):
-            continue
-        node = store.get(cand)
-        if node is None or str(node.kind) != "episode":
-            continue
-        if store.conflicting(cand, str(anchor_id)):          # 打架的不摆（同写入侧）
-            continue
-        if len(got) >= max(int(cap), 0):
-            rest += 1
-            continue
-        got.append(cand)
-        if cand in linked:                        # 本段的经历: 正文在它自己那一行
-            out.append("      " + marks.head(node, key=cand, now=now))
-        else:
-            out.append("      " + _episode_line(store, cand, now=now, body=body))
-    if not got and not rest:
-        return "", []
-    head = ["   ↳ 她认过跟它像的（这些也会算作这条看法的证据）:"]
-    head.extend(out)
+    for anchor in anchor_ids:
+        aid = str(anchor)
+        for cand in store.related(aid, REL_AKIN):
+            if cand in seen or cand == aid:
+                continue
+            node = store.get(cand)
+            if node is None or str(node.kind) != "episode":
+                continue
+            if store.conflicting(cand, aid):          # 打架的不摆（同写入侧）
+                continue
+            seen.add(cand)
+            if cand in mine:                          # 正文在上面那区印过了
+                rows.append("      " + marks.head(node, key=cand, now=now)
+                            + "（正文见上面【这次的事】）")
+                continue
+            if len(got) >= max(int(cap), 0):
+                rest += 1
+                continue
+            got.append(cand)
+            rows.append(_episode_line(store, cand, now=now, body=body))
     if rest:
-        head.append(f"      （还有 {rest} 条没印 —— 先照印出来的这几条写）")
-    return "\n".join(head), got
+        rows.append(f"（还有 {rest} 条没印 —— 先照印出来的这几条写）")
+    return rows, got
 
 
 # ---------------------------------------------------------------------------

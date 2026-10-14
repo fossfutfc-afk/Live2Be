@@ -109,15 +109,18 @@ def test_digest_runs_cognize_after_group(tmp_path):
     assert T.DIGEST_GROUP not in llm.tasks, llm.tasks
     user = llm.user_of(T.DIGEST_COGNIZE)
     # ⭐ E1b: L2 写引用名之前也要看得到【已有的对象】（同 R1）
-    for title in ("【被连过的经历】", "【现有认知】",
+    for title in ("【这次的事】", "【这一类事】", "【现有认知】",
                   "【已有的对象】", "【角色人设（锚点）】"):
         assert title in user, (title, user)
     # ⏸ 【本段归类的群】随 `group` 退役一起撤（料与契约两边同撤, 守门
     #    `test_material_names_are_not_dead` 看着）—— 它那一格由 `member_of` 喂, 恒空。
     assert "【本段归类的群】" not in user, user
-    # ⭐ 2026-10-13: 她认过的相似簇**挂在经历下面**（`old` 是早先那次, 不属于这一段）
-    assert "↳ 她认过跟它像的" in user, user
+    # ⭐ 2026-10-14 区域化: 她认过的同类收进【这一类事】那一区（`old` 是早先那次, 不属于这一段）
     assert "《上次的甜点》" in user, user
+    assert "↳ 关于" not in user, "这一对没有 `about` 边 ⇒ 那一行不出现"
+    # ⚠️ **顺序也是契约**（`_sections_for` 拿 `ROUNDS.material` 逐字对账）:
+    #    立足点在前, "这一类"在后, 已有的看法再往后。
+    assert user.index("【这次的事】") < user.index("【这一类事】") < user.index("【现有认知】"), user
     # 产出落对了
     assert len(res.created_beliefs) == 1, res.created_beliefs
     new = res.created_beliefs[0]
