@@ -1,12 +1,13 @@
-"""settle.py — ④「沉淀」: 认人（建**长期对象**）+ 改名 / 写看法（⏸ 后两件待接线）。
+"""settle.py — ④「沉淀」: 认人（建**长期对象**）+ 改名 / 写看法（改已有的对象）。
 
-⭐ **2026-10-13 改名 + 扩职**（`attribute` → `settle`）—— **这一轮的活分三截落地**:
-  · **命名**: 相位 / prompt 文件名 / 任务标签 / 日志前缀全跟着 key 派生（见 `tables.PHASE_SETTLE`）✅ 已落;
-  · **文案与料**: 契约与 llm prompt 扩成"认人 + 改名 / 写看法", 并新增料
-    【这一段认下的对象】（`material.settle_objects_block`）✅ 已落;
-  · ⏸ **执行**: `_strangers` / `apply_entities` 今天**仍只认人** —— 她这一趟若写
-    `{"id": …, "text" / "name": …}` 的行, 契约层会**静默丢掉**（下一半补 `allowed_names`
-    闭环 + `parse_attribution` 的两路 + `revise.apply_stances` + `text_seq` 水位）。
+⭐ **2026-10-13 改名 + 扩职**（`attribute` → `settle`）—— **三截都已落地**:
+  · **命名**: 相位 / prompt 文件名 / 任务标签 / 日志前缀全跟着 key 派生（见 `tables.PHASE_SETTLE`）;
+  · **文案与料**: 契约与 llm prompt = "认人 + 改名 / 写看法", 新增料【这一段认下的对象】
+    （`material.settle_objects_block`）;
+  · **执行**: `parse_attribution` 按 `id` 分两路 ⇒ 建新的走 `apply_entities`,
+    改已有的走 `apply_stances`（改名 / 覆写 `text` + `text_seq` 水位 —— 四条纪律见那边）。
+    ⏸ 收尾那一截落地时, 本文件头上那句"后两件**待接线** / 执行仍只认人"忘了删
+    （2026-10-14 校正: 它已经**不成立**, 而 `test_round_settle.py` 一直在测那两路）。
 
 ⭐ **它为什么排在最后**: 要看到**本段全部新节点**（R1 的经历 + L2 的看法）—— 陌生名字可能
 第一次出现在任何一条里; 而"写看法"同样要看到这一段**全部**提到过它的地方。
