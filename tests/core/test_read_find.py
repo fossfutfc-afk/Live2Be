@@ -63,14 +63,23 @@ def _ids(cands):
 # ---------------------------------------------------------------------------
 
 def test_find_returns_the_whole_lane_not_top_k(tmp_path):
-    """⭐ 车道上 10 条 ⇒ **10 条全出**（`like` 会给 top-3, `find` 一条都不许漏）。"""
+    """⭐ 车道上 10 条 ⇒ **10 条全出**（`like` 会给 top-3, `find` 一条都不许漏）。
+
+    ⚠️ **两条"不在车道上"的必须明确写个归属**（这里给 `x0001` 杂草屋）——
+    2026-10-14 起「`entity` 留空」有**默认面**（`episode` ⇒ self + sensei）,
+    留空的话它们会自己走进 `x0000` 的车道, 这一条就测不出"不漏"了。
+    """
     nodes = [_ep(f"m{i:04d}", f"第 {i} 件事", ts=_ts(i)) for i in range(1, 11)]
     nodes += [_ep("m0011", "不在车道上的一件"), _ep("m0012", "另一件不在车道上的")]
     st = _store(tmp_path, nodes,
-                edges=[("about", f"m{i:04d}", "x0000") for i in range(1, 11)])
+                edges=[("about", f"m{i:04d}", "x0000") for i in range(1, 11)]
+                      + [("about", "m0011", "x0001"), ("about", "m0012", "x0001")])
     got = find(st, {"entity": "x0000"})
     assert len(got) == 10, _ids(got)                     # ⛔ 不是 3 条
     assert "m0011" not in _ids(got) and "m0012" not in _ids(got)
+    # ⭐ 顺带把新口径钉住: `x0001`（杂草屋）的车道 = 那两条**明确写了它**的
+    # （⛔ 不含默认面 —— 默认面只给 self / sensei 那两个保留号）
+    assert sorted(_ids(find(st, {"entity": "x0001"}))) == ["m0011", "m0012"]
     # `find` 没有分: 恒 0（⛔ 不拿 significance 冒充）; 台账靠 `why`
     assert {c.score for c in got} == {0.0}
     assert got[0].why == "对象 x0000 老师（sensei）", got[0].why

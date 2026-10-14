@@ -313,13 +313,19 @@ def test_admission_needs_content_evidence(tmp_path):
 
 
 def test_name_hit_is_a_bonus_not_an_admission(tmp_path):
-    """名字命中**只加成**: 同内容分的两条, 车道上那条被顶上来（而不是凭空准入）。"""
+    """名字命中**只加成**: 同内容分的两条, 车道上那条被顶上来（而不是凭空准入）。
+
+    ⚠️ **m0001 必须明确写个归属**（这里给 `x0000` 老师）—— 2026-10-14 起
+    「`entity` 留空」有**默认面**（`episode` ⇒ self + sensei）, 留空的话它也会
+    落在**杂草屋**的车道上（`x0001` 就是杂草屋）, 名字加成就不再是"决定性的那一下"。
+    """
     st = _store(tmp_path, [
         _ep("m0001", "在屋顶看了很久的月亮", title="屋顶的夜", tags=["月亮"]),
         _ep("m0002", "那天和老师一起走去杂草屋", title="走过去的那段路", tags=["月亮"]),
         # m0003 也在「杂草屋」车道上, 但**正文里没有那三个字** ⇒ 名字单独救不了它
         _ep("m0003", "那次我们一起走夜路回家", title="夜路", tags=["夜路"]),
-    ], edges=[("about", "m0002", "x0001"), ("about", "m0003", "x0001")])
+    ], edges=[("about", "m0001", "x0000"),
+              ("about", "m0002", "x0001"), ("about", "m0003", "x0001")])
     out = _like(st, "今晚的月亮真好看（杂草屋）")
     assert [c.node.id for c in out] == ["m0002", "m0001"], out  # 内容分相同 ⇒ 名字加成决胜
     assert "名字[杂草屋]" in out[0].why
