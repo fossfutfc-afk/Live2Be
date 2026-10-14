@@ -40,7 +40,7 @@ run=1 单选项、run=2~3 多选项；群一律弹选项（不做"自动播的�
 `docs/DESIGN_STREAM_CONTRACT.md` §7 复用判定表 / §10.1。
 
 import 路径 `contract.records` **不变** ⇒ 全仓 28 处引用（`contract/__init__.py` ·
-`contract/schema.py` · `core/session/renderer.py` · `core/bond/bond_story/engine.py` ·
+`contract/schema/` · `core/session/renderer.py` · `core/bond/bond_story/engine.py` ·
 `tests/`）**一个字都不用改**。
 
 ## 纪律

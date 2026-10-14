@@ -127,7 +127,7 @@ DEFAULT_ACTIONS = (RECORD_EPISODE, *RELATION_ACTIONS, *COGNIZE_ACTIONS)
 #:
 #: ⚠️ **每个字段仍然只写一遍** —— 示例与【逐字段说明】都从 `parts/row_fields.md` 出
 #: （左对齐、缩进按"逐字段说明"那一份; 进示例时整体缩 5 格, 由 `textwrap.indent` 做）。
-#: 为什么非要这样: `contract/schema.py` 那条纪律 —— **"示例才是形状的来源"**; 而
+#: 为什么非要这样: `contract/schema/` 那条纪律 —— **"示例才是形状的来源"**; 而
 #: "取值清单 / 说明 / 示例"三处强度不一的时候, 模型只学会示例那个形状
 #: （2026-09-20 art 命中率 0/5 就是这么来的）。
 #: ⚠️ 它渲染的是 `episodes[]` 里的**行形状**（不是某一份文档的字段块）, 所以它没有
