@@ -23,9 +23,8 @@ from typing import TYPE_CHECKING, Any
 
 from contract.digest import digest_registry
 from contract.slots import render_template
-from core.digest.llm_call import llm_chat
 from core.digest.rounds import RoundSpec, budget_of
-from llm.client import feedback
+from llm.client import feedback, llm_chat
 from llm.prompts import load_prompt
 
 if TYPE_CHECKING:                       # 仅注解求值期（避免与编排层循环 import）
@@ -152,7 +151,7 @@ def _call_failed(label: str, call_err: str | None, round_deadline: float | None,
                  hard_deadline: float | None) -> str:
     """一轮调用失败的记账 —— **带上轮次**, 并说清是"本轮预算用完"还是"整段硬顶到了"。
 
-    从前这句是裸的 `LLM 调用撞上时间预算`（`llm_call` 的原文）, grep 出来分不出
+    从前这句是裸的 `LLM 调用撞上时间预算`（`llm_chat` 的原文）, grep 出来分不出
     是哪一轮、也分不出是哪种预算 ⇒ 事后无法定位"谁把时间吃掉了"。
     """
     msg = call_err or "LLM 调用失败"
