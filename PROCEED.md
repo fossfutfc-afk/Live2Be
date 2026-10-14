@@ -3,7 +3,7 @@
 > ⚠️ **本文件不记 `ahead` 数**（写死过两次、两次都对不上）—— 真源 = `git status -sb` 与 `git log -1`。
 > ⚠️ **`git status` 里常年挂着一份"作者手改未提交"的文件**（本章 = `config/settings/relation/interperson.yml`
 > 的立场句重排）—— 那是**作者的改动, ⛔ 不是脏改动**, 别 `checkout` 掉。
-> 现状：`tests/core` **1265 passed** · `tests/llm+renderer+webgui` **196 passed**（⚠️ **按域分开跑**, 见 §5 坑 4）·
+> 现状：`tests/core` **1266 passed** · `tests/llm+renderer+webgui` **196 passed**（⚠️ **按域分开跑**, 见 §5 坑 4）·
 > 三份 verifier 全 exit 0 · 真机数据未动。
 
 ---
@@ -17,7 +17,7 @@
 | 轮 | 今天的活 | 料（段名） | 产出 |
 |---|---|---|---|
 | `relate`（**判关系**） | 判这一段的新经历跟谁有关系, **一个字的正文都不写** | 本次新经历 · 现有经历（候选）· ⭐**她认过的同类印证过的看法** · 本段时间线 · 现有认知 · 人设 | 四种边：`akin` / `supports` / `contradicts` / `evolved_from` |
-| `cognize`（**写正文**） | 造新看法 **或** 改已有的看法, 不判已有成分之间的关系 | 被连过的经历 · 现有认知 · ⭐**跟这条撞上的现有看法** · 已有的对象 · 人设 | `belief` 节点 + 出生自带边 |
+| `cognize`（**写正文**） | 造新看法 **或** 改已有的看法, 不判已有成分之间的关系 | ⭐**这次的事** · ⭐**这一类事** · 现有认知 · ⭐**跟这条撞上的现有看法** · 已有的对象 · 人设 | `belief` 节点 + 出生自带边 |
 
 ⭐ **今天刚落地的那一刀（`2597737`）：看法可改** ——
 `{"belief": {"id": "u0003", "text": …}, "supports": […]}`
@@ -27,6 +27,16 @@
 - 三档分开：**锚点 `id` 没命中 ⇒ 丢这一行**（不连坐）· **证据 id 没命中 ⇒ 整包拒**
 - **`text_seq` 水位**：同一段重跑不许把同一条正文再改写一遍（防措辞漂移）· ⛔ 改那一路**不并 `akin`**
 - ⭐ 两个新料格都走同一条纪律：**看见就得能引用**（cap 之外的看法补发本地号并进引用面）
+
+⭐ **`f6541b0`：L2 的料区域化** —— 【被连过的经历】拆成 **`【这次的事】`**（本段被 L1 连过的,
+立足点）与 **`【这一类事】`**（它们一跳 `akin` 的邻居, 额外的证据）。**判据一个字没改**
+（一跳 · 打架的不摆 · 边建立序 · 先到先得）, 换的只是摆放 —— 从前簇散在每条 anchor 底下,
+她数不出"这一类一共几条 / 跨多长时间"。
+- **正文互斥**（不是条目互斥）：本段的条目在第二区只出**信息头** + `（正文见上面【这次的事】）`,
+  且**不占额度**（否则本段三条就把 5 格吃光, 老经历反而看不见）
+- 额度：`DIGEST_L2_AKIN` **3/每条 anchor → 5/整区**（与 `AKIN_JOIN_MAX` / 撞上那格同量级）
+- 空区 ⇒ 空串 ⇒ `_join_sections` **连段头一起不印** · `evidence_ids` 的集合与改前逐条相同
+- "这些也算作证据"那句从**料的抬头**搬进契约【belief 释义】（抬头撤了, 留着就是假描述）
 
 **其余已落的**（细节看提交信息, 不在这儿复述）：
 `kind` 只剩四种（`episode/experience/belief/entity`; **`profile` 2026-10-14 删格式**）·
@@ -56,11 +66,7 @@ python experiments/recall_report.py
 · `digest_embed fn=`（`none` = 降级）。⚠️ 真机数据只读之外, 这一次**会写**（真要跑 digest 才写）——
 先想清是不是要在真档上跑。
 
-### 2.2 一件**没做**的小刀（你提过、我赞成, 但不在上一轮批准的清单里）
-**L2 的【被连过的经历】区域化**：拆成【这一类（她认过是同一类事的）】/【这次的事】。
-两区**互斥**（正文只印一次）· `ROUNDS.material` 与两份 md 交叉引用要同批改 · verifier 登记。
-
-### 2.3 ⏸ 已知缺口（记着, 不是现在做）
+### 2.2 ⏸ 已知缺口（记着, 不是现在做）
 - **撞上的"语义那一路"暂缺**：那一刻她还没写出新看法, query 只能拿本段经历顶 ⇒ 等 `[embed]` 在位再补。
 - **判错的 `akin` 无法撤回**（你裁"只为删边没必要"）。⚠️ 业界对**边**的撤回是**标记失效**
   （Graphiti `invalid_at`/`expired_at`, 从不 delete）—— 我们缺的正是这一层。
@@ -68,7 +74,7 @@ python experiments/recall_report.py
 - **召回折叠演化链**（"以后再说"）· **`aliases` 的写者**（"她主动补新别名"仍冻结: 并错不可逆）。
 - `noticed` 那条路落的 `akin` 边**不写变更史**（只有一行日志）。
 
-### 2.4 收口类（欠的活, 都不阻塞）
+### 2.3 收口类（欠的活, 都不阻塞）
 `form_key` 下移 `contract/`（统一 `parse_attribution` 两端）· **未 push**（走代理:
 `git -c http.proxy=http://127.0.0.1:7897 -c https.proxy=http://127.0.0.1:7897 push`）·
 四份契约的**文风/结构统一**（向 `settle` 看齐 —— 值表 → 判据 → 【释义】→【范例】的固定顺序）。
@@ -80,7 +86,7 @@ python experiments/recall_report.py
 | 文件 | 为什么 |
 |---|---|
 | `core/digest/rounds/__init__.py` | ⭐ **轮次真源 `ROUNDS`**：key/步序/相位/prompt/**料**/**写什么**/预算一处说全；`material` 是硬契约（改了必须与 md 两边同改） |
-| `core/digest/material.py` | 各轮的料（两个新格在这儿：`akin_supported_beliefs_block` / `collided_beliefs_block`） |
+| `core/digest/material.py` | 各轮的料（L2 那两个区在这儿：`_l2_material` / `_akin_region_rows`；两个新格：`akin_supported_beliefs_block` / `collided_beliefs_block`） |
 | `contract/digest/prompts/cognize.md` | ⭐ **今天刚改的契约**（带 id = 改 / 不带 = 造；边只增；撞上四条出路）—— 改它先读 `docs/EXPERIMENT_CONTRACT_SHAPE.md` |
 | `contract/digest/parse.py` | 两档校验（丢行 vs 整包拒）与 **id 容错**都在 `parse_cognitions` / `_clean_belief` |
 | `core/brain/revise.py` | 三个执行器 + `_join_akin` + **`_apply_belief_patch`**（覆写/水位/留痕） |
@@ -102,6 +108,7 @@ python experiments/recall_report.py
 | `f7a280a` | PROCEED 修三处会误导的（`supports` 出边 · 去掉写死的 `ahead` · "树干净"那句） |
 | `f738ea5` | **删掉 `profile` kind 与 `examples` 字段**（真机零依赖; `subject` 留着 —— belief 的活读者） |
 | `2597737` | ⭐ **L2 碰撞那一刀**：看法可改（`id` 决定建/改）+ 两趟各补一格 + `DEFAULT_FACES["belief"]` |
+| `f6541b0` | ⭐ **L2 料区域化**：【这次的事】/【这一类事】两区 + 正文互斥（信息头不占额度）+ 额度 3/条 → 5/区 |
 
 ---
 
@@ -151,13 +158,16 @@ python experiments/recall_report.py
 22. 加载真档要 `WikiStoreV2(path=…/soul/wiki.jsonl, …)` —— 第一个位置参数是 **data_root 不是 soul 目录**
     （传错会静默得到 0 个节点）。
 23. ⚠️ **`[embed]` 服务不在 = 语义召回静默降级**（`digest_embed fn=none`）⇒ 排查"记忆只增不并"先 grep 这一行。
+24. ⭐ **探针不许手搓判据**：我在对照探针里自己写了"本段的条目整个剔出第二区"⇒ 跑出"整区空",
+    看着像数据的事, 其实是**我编的规则**（真实现是**正文互斥**）。改判据的活儿要**照抄现役
+    实现**, 或者干脆**调真函数**（`.testtmp/probe_l2_region_final.py` 那一版）。
 
 ---
 
 ## 6. 等你拍 / 已裁"不做"（别自己捡回来）
 
-- **拍**：要不要先跑真机端到端（§2.1）· 要不要做区域化那一小刀（§2.2）· 要不要现在推 push（§2.4）。
+- **拍**：要不要先跑真机端到端（§2.1）· 要不要现在推 push（§2.3）。
 - **已裁不做**：`ambiguous` 不加机制 · bond 开场不补 entity 物化 · `examples` 字段已删（⛔ 别加回来）·
-  `profile` 已删格式 · `topics` 只停产不删格式 · 撤回边不做（缺口见 §2.3）· 撤回/删证据不做 ·
+  `profile` 已删格式 · `topics` 只停产不删格式 · 撤回边不做（缺口见 §2.2）· 撤回/删证据不做 ·
   召回折叠演化链"以后再说" · ⛔ **belief 正文不原地改**这条**已被推翻**（今天起: 差不多就覆写,
   旧的那句不再成立才 `evolved_from`）。
