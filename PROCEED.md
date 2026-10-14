@@ -10,7 +10,8 @@
 
 ## 1. 现状：记忆层（线 A）走到哪了
 
-**一句话**：写侧只写地址、引擎物化、内容归 LLM；**一段 7 轮**（`ROUNDS` 是唯一真源）：
+**一句话**：写侧只写地址、引擎物化、内容归 LLM；**一段 6 轮**（`ROUNDS` 是唯一真源 ——
+`group` 退役后从 7 掉到 6, 其中 5 轮发 LLM、`akin` 零 LLM）：
 `split ⓪切 → record ①记 → akin 补边(0 LLM) → relate ③接 → cognize ⑥想 → settle ⑦沉淀`
 （`understand`/`group`/`close` 已退役, 编号留空档）。
 
@@ -75,8 +76,11 @@ python experiments/recall_report.py
 - `noticed` 那条路落的 `akin` 边**不写变更史**（只有一行日志）。
 
 ### 2.3 收口类（欠的活, 都不阻塞）
-`form_key` 下移 `contract/`（统一 `parse_attribution` 两端）· **未 push**（走代理:
-`git -c http.proxy=http://127.0.0.1:7897 -c https.proxy=http://127.0.0.1:7897 push`）·
+⭐ **代码里 19 处 `PROCEED §2 #10/#11/#16` 这类交叉引用指向的是"旧版 PROCEED 的结构"**
+（第十二版重排后那些节号已经不存在 ⇒ 全是死链, 但**裁决本身都还在**）。两条出路, 二选一:
+给 PROCEED 加一节「旧编号 → 今天在哪」, 或者把那些注释改成不依赖节号的写法（`akin.py` 那处
+今天顺手改了, 其余 19 处没动）。
+`form_key` 下移 `contract/`（统一 `parse_attribution` 两端）·
 四份契约的**文风/结构统一**（向 `settle` 看齐 —— 值表 → 判据 → 【释义】→【范例】的固定顺序）。
 
 ---

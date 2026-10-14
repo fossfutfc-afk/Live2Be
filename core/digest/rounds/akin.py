@@ -54,8 +54,8 @@ def _link_akin(store: WikiStoreV2, episode_ids: list[str], noticed: list, *,
       会落到**上一轮**（静默错归属 —— 边连到了错误的那条记忆上）。
 
     ⚠️ **一跳都不猜**: 找不到归属（本段没产出 episode / 那笔落在所有内容之前）⇒
-    **不落边 + 记账**（`unclaimed`）。⚠️ `PROCEED §3` 待裁 #7（"下次 L1 要不要重扫"）
-    按 2026-09-29 用户裁决**先不做**: 先丢 + 看台账, 真机上 `unclaimed` 多起来再谈
+    **不落边 + 记账**（`unclaimed`）。⚠️「下次 L1 要不要重扫」这条待裁按 2026-09-29
+    用户裁决**先不做**: 先丢 + 看台账, 真机上 `unclaimed` 多起来再谈
     （重扫要新存一个"未认领水位", 而"零新存储"正是这条设计的好处之一）。
 
     幂等: `add_edge` 同 `(rel, src, dst)` 跳过（且 `akin` 对称 ⇒ `canonical_for` 归一）。
