@@ -128,10 +128,11 @@ def _new_ep(st, text, *, title="", tags=(), ts="2026-10-04T10:00:00+08:00", sig=
 
 
 def test_l2_linked_episodes_only_takes_the_connected_ones(tmp_path):
-    """⭐ P8: 【被连过的经历】只收**图上有边**的那些 —— 孤立经历不进（天然的归纳门槛）。
+    """⭐ P8: 【这次的事】只收**图上有边**的那些 —— 孤立经历不进（天然的归纳门槛）。
 
     ⚠️ 一条都没连过 ⇒ 印一句"**为什么空**"（P6 的口径: 空串会被 `_join_sections`
-    连抬头一起吞掉, 她既看不见这一格、也不知道那个结论）。
+    连抬头一起吞掉, 她既看不见这一格、也不知道那个结论）;
+    ⚠️ 一条 `akin` 邻居都没有 ⇒ 第二区返回**空串**（整区连段头一起不印）。
     """
     st = WikiStoreV2(tmp_path, world_id="world1", char_id="c")
     a = _new_ep(st, "又去看苔藓", title="苔藓", tags=["苔藓"])
@@ -143,47 +144,55 @@ def test_l2_linked_episodes_only_takes_the_connected_ones(tmp_path):
     st.add_edge("akin", a, old)
     st.add_edge("akin", b, old)
 
-    linked, _ev = _l2_material(_Ctx(st, [a, b, lonely]))
-    assert f"〔{a}｜" in linked and f"〔{b}｜" in linked
-    assert lonely not in linked, "孤立经历不进 L2"
-    assert "一个人发呆" not in linked, "正文也不许漏进来"
-    assert "轴" not in linked, "⏸ 2026-10-14: `topics` 退役 ⇒ 行头不再有 `轴 …` 那一格"
+    this_text, cls_text, _ev = _l2_material(_Ctx(st, [a, b, lonely]))
+    assert f"〔{a}｜" in this_text and f"〔{b}｜" in this_text
+    assert lonely not in this_text, "孤立经历不进 L2"
+    assert "一个人发呆" not in this_text + cls_text, "正文也不许漏进来"
+    assert "轴" not in this_text, "⏸ 2026-10-14: `topics` 退役 ⇒ 行头不再有 `轴 …` 那一格"
+    assert "更早的苔藓" in cls_text, "老邻居带正文进第二区"
 
-    _only_lonely, _ev2 = _l2_material(_Ctx(st, [lonely]))
-    assert "（这一段没有被连过的经历" in _only_lonely, _only_lonely
+    only_this, only_cls, _ev2 = _l2_material(_Ctx(st, [lonely]))
+    assert "（这一段没有被连过的经历" in only_this, only_this
+    assert only_cls == "", "没有任何邻居 ⇒ 第二区是空串（段头一起不印）"
 
 
-def test_akin_block_hangs_under_its_anchor(tmp_path):
-    """⭐ **2026-10-13**: 相似簇**挂在每条经历下面**（⏸ 2026-10-14: `轴` 那一格随 `topics` 撤）。
+def test_class_region_gathers_the_one_hop_neighbours(tmp_path):
+    """⭐ **2026-10-14 区域化**: 两区分开 —— 【这次的事】(立足点) / 【这一类事】(一跳 `akin`)。
 
-    判据（用户裁 A 案）: 老块（【本段归类的群】）是给她**写沉淀**用的, 而沉淀已停产;
-    新块是给她**写结论**用的 —— "这条看法不只被这一段那一条撑着, 还有她早先认过'像'的那些"。
+    判据（用户裁）: 从"挂在每条 anchor 下面"改成"**收成一个区**" ⇒ 她一眼数得出
+    "这一类一共几条、跨多长时间"（那正是"总是 / 每次"与"这一次"的区别所在）。
+    ⭐ **正文互斥**: 本段的条目在第二区**只出信息头**（正文全料只印一次）, 且**不占额度**。
     """
     st = _store(tmp_path)
     a = _ep(st, "老师约我去咖啡厅吃甜点", title="咖啡厅的甜点", tags=["甜点", "咖啡厅"],
             ts="2026-10-04T10:00:00+08:00")
     old = _ep(st, "更早的一次甜点", title="上次的甜点", tags=["甜点"],
               ts="2026-09-20T10:00:00+08:00")
-    b = _ep(st, "天台上的事", title="天台", tags=["天台"])
+    b = _ep(st, "天台上的事", title="天台", tags=["天台"],
+            ts="2026-10-03T10:00:00+08:00")
     st.save()
     st.add_edge("akin", a, old)
     st.add_edge("akin", b, a)                       # 本段的另一条也能是"像的"
 
-    text, evidence = _l2_material(_Ctx(st, [a, b]))
-    assert "   ↳ 她认过跟它像的（这些也会算作这条看法的证据）:" in text, text
-    # 邻居那一行: 钥匙 + 标题 + 时间（⛔ 没有 `轴 …` 那一格了）
-    line = next(ln for ln in text.splitlines() if "上次的甜点" in ln)
-    assert "〔m0002｜《上次的甜点》｜" in line, line
-    assert "轴" not in line, line
-    assert "周前" in line or "天前" in line, line
-    # 挂在它自己那条 anchor **下面**（顺序: anchor 行 → 簇 → 下一条 anchor 行）
-    assert text.index("〔m0001｜") < text.index("↳ 她认过跟它像的") < text.index("〔m0003｜"), text
-    # ⭐ 印出来 ⇒ 能引用（老经历也算证据 —— 判它"编造 id"就是把她自己的簇锁在门外）
+    this_text, cls_text, evidence = _l2_material(_Ctx(st, [a, b]))
+    # 第一区: 本段那两条（正文**只**在这儿）
+    assert "老师约我去咖啡厅吃甜点" in this_text and "天台上的事" in this_text
+    assert "上次的甜点" not in this_text
+    # 第二区: 老的那条带正文; 本段的 `b`（它是 `a` 的邻居）只出信息头
+    assert "更早的一次甜点" in cls_text, cls_text
+    head = next(ln for ln in cls_text.splitlines() if f"〔{b}｜" in ln)
+    assert head.strip().startswith(f"〔{b}｜《天台》") and "（正文见上面【这次的事】）" in head, head
+    assert "周前" in head or "天前" in head, head
+    assert "轴" not in head, head
+    assert "老师约我去咖啡厅吃甜点" not in cls_text, "正文只印一次"
+    # ⭐ 印出来 ⇒ 能引用（老经历也算证据 —— 判它"编造 id"就是把她自己的这一类锁在门外）
     assert evidence == [a, b, old], evidence
 
 
-def test_akin_block_caps_and_says_how_many_left(tmp_path):
-    """超 `DIGEST_L2_AKIN` 只印前几条 + **明说还有几条没印**（⛔ 不静默截断）。"""
+def test_class_region_caps_the_old_ones_and_says_how_many_left(tmp_path):
+    """额度管的是**老经历**（印正文的那些）: 超 `DIGEST_L2_AKIN` 只印前几条 +
+    **明说还有几条没印**（⛔ 不静默截断）。
+    """
     st = _store(tmp_path)
     a = _ep(st, "锚", title="锚")
     others = [_ep(st, f"第 {i} 件事", title=f"第{i}件", ts=f"2026-09-{i + 1:02d}T10:00:00+08:00")
@@ -192,34 +201,61 @@ def test_akin_block_caps_and_says_how_many_left(tmp_path):
     for o in others:
         st.add_edge("akin", a, o)
 
-    text, evidence = _l2_material(_Ctx(st, [a]))
-    heads = [ln for ln in text.splitlines() if ln.strip().startswith("〔")]
-    assert len(heads) == DIGEST_L2_AKIN + 1, text          # anchor 那一行 + 印出来的邻居
-    assert "（还有 2 条没印 —— 先照印出来的这几条写）" in text, text
+    _this, cls_text, evidence = _l2_material(_Ctx(st, [a]))
+    heads = [ln for ln in cls_text.splitlines() if ln.strip().startswith("〔")]
+    assert len(heads) == DIGEST_L2_AKIN, cls_text
+    assert "（还有 2 条没印 —— 先照印出来的这几条写）" in cls_text, cls_text
     assert evidence == [a, *others[:DIGEST_L2_AKIN]], evidence
 
 
-def test_akin_block_never_prints_a_body_twice(tmp_path):
-    """一份料里**同一段正文只印一次**: 本段的邻居只出信息头, 挂在两条 anchor 上的只印一次。"""
+def test_class_region_heads_do_not_eat_the_budget(tmp_path):
+    """⭐ 本段那几条的**信息头不占额度**（2026-10-14 用户裁）—— 老经历照旧印满
+    `DIGEST_L2_AKIN` 条。⚠️ 让信息头吃额度 = 本段三条就把 5 格吃光、老的反而看不见
+    （而"这一类跨了多长时间"正是这一区存在的理由）。
+    """
+    st = _store(tmp_path)
+    a = _ep(st, "本段第一条", title="甲")
+    b = _ep(st, "本段第二条", title="乙")
+    olds = [_ep(st, f"老 {i}", title=f"旧{i}", ts=f"2026-09-{i + 1:02d}T10:00:00+08:00")
+            for i in range(DIGEST_L2_AKIN)]
+    st.save()
+    st.add_edge("akin", a, b)                        # 本段的邻居 ⇒ 信息头
+    for o in olds:
+        st.add_edge("akin", a, o)
+
+    _this, cls_text, evidence = _l2_material(_Ctx(st, [a, b]))
+    assert "（正文见上面【这次的事】）" in cls_text, cls_text
+    assert all(f"老 {i}" in cls_text for i in range(DIGEST_L2_AKIN)), cls_text
+    assert "没印" not in cls_text, "额度没被信息头吃掉 ⇒ 一条都不用说'没印'"
+    assert evidence == [a, b, *olds], evidence
+
+
+def test_class_region_never_prints_a_body_twice(tmp_path):
+    """一份料里**同一段正文只印一次**: 本段的条目在第二区只出信息头, 挂在两条 anchor
+    上的老经历也只印一次（**区内先到先得** —— 从前"落在谁下面"由处理顺序决定）。
+    """
     st = _store(tmp_path)
     a = _ep(st, "本段第一条", title="甲")
     b = _ep(st, "本段第二条", title="乙")
     old = _ep(st, "很老的一条", title="旧", ts="2026-09-01T10:00:00+08:00")
     st.save()
     st.add_edge("akin", a, b)                        # 本段的 b 是 a 的同类
-    st.add_edge("akin", b, old)                      # b 的簇里有 old
-    st.add_edge("akin", a, old)                      # a 的簇里也有 old（先到先得）
+    st.add_edge("akin", b, old)                      # b 的邻居里有 old
+    st.add_edge("akin", a, old)                      # a 的邻居里也有 old（先到先得）
 
-    text, evidence = _l2_material(_Ctx(st, [a, b]))
-    assert text.count("很老的一条") == 1, text        # 同一段正文只印一次
-    assert text.count("本段第二条") == 1, text        # 本段那条: 只在簇里出信息头, 正文在它自己那行
+    this_text, cls_text, evidence = _l2_material(_Ctx(st, [a, b]))
+    whole = this_text + "\n" + cls_text
+    assert whole.count("很老的一条") == 1, whole      # 同一段正文只印一次
+    assert whole.count("本段第二条") == 1, whole      # 本段那条: 正文在第一区, 这里只有信息头
+    assert "本段第二条" in this_text and "本段第二条" not in cls_text
+    assert "（正文见上面【这次的事】）" in cls_text, cls_text
     assert evidence == [a, b, old], evidence
-    print("    相似簇: 正文一条只印一次（本段的只出钥匙, 重复的整个省掉）")
 
 
-def test_akin_block_skips_a_neighbour_that_fights_the_anchor(tmp_path):
+def test_class_region_skips_a_neighbour_that_fights_the_anchor(tmp_path):
     """与 anchor 打架的邻居**不摆**（同写入侧: 打架的证据不共撑一个结论）—— 摆出来只会诱
-    她写一条自己拆自己台的结论。"""
+    她写一条自己拆自己台的结论。⚠️ 这条判据**一个字没改**（区域化只换了摆放）。
+    """
     st = _store(tmp_path)
     a = _ep(st, "锚", title="锚")
     bad = _ep(st, "跟它打架的那条", title="打架")
@@ -229,9 +265,9 @@ def test_akin_block_skips_a_neighbour_that_fights_the_anchor(tmp_path):
     st.add_edge("akin", a, good)
     st.add_edge("contradicts", a, bad)
 
-    text, _ev = _l2_material(_Ctx(st, [a]))
-    assert "打架" not in text, text
-    assert "和平" in text, text
+    _this, cls_text, _ev = _l2_material(_Ctx(st, [a]))
+    assert "打架" not in cls_text, cls_text
+    assert "和平" in cls_text, cls_text
 
 
 def test_l2_evidence_is_exactly_what_the_block_printed(tmp_path):
@@ -250,11 +286,11 @@ def test_l2_evidence_is_exactly_what_the_block_printed(tmp_path):
     st.save()
     st.add_edge("akin", linked_ep, old)
 
-    linked, evidence = _l2_material(_Ctx(st, [linked_ep, lonely]))
+    this_text, cls_text, evidence = _l2_material(_Ctx(st, [linked_ep, lonely]))
     assert evidence == [linked_ep, old], evidence      # ⛔ 没印过的不算（lonely 没被连过）
-    assert "被连过的那条" in linked
-    assert "没人连过的那条" not in linked, "孤立经历不进料 ⇒ 也不该进证据名单"
-    assert linked.count("被连过的那条") == 1, linked   # 一条只印一次
+    assert "被连过的那条" in this_text
+    assert "没人连过的那条" not in this_text + cls_text, "孤立经历不进料 ⇒ 也不该进证据名单"
+    assert (this_text + cls_text).count("被连过的那条") == 1, "一条只印一次"
 
 
 def test_l2_about_line_follows_the_edge_and_prints_the_object(tmp_path):
@@ -262,7 +298,8 @@ def test_l2_about_line_follows_the_edge_and_prints_the_object(tmp_path):
     （与 L1 的对象候选**同一处实现** —— 同一张图两处长得一样）。
 
     ⛔ 同一块的 `↳ 印证` / `↳ 同类` **不印**（用户 2026-10-08: 那是"已有成分之间的关系",
-    契约明写着"上一趟已经判过了"）。
+    契约明写着"上一趟已经判过了"）;
+    ⚠️ 这一行**只跟【这次的事】那几条走**（第二区是"这一类"的证据池, 不是归类对象）。
     """
     st = WikiStoreV2(tmp_path, world_id="world1", char_id="c")
     ensure_entities(st, char_name="伊草 遥香", aliases=("遥香",), sensei_name="老师")
@@ -272,8 +309,9 @@ def test_l2_about_line_follows_the_edge_and_prints_the_object(tmp_path):
     st.add_edge("about", with_about, "x0001")
     st.add_edge("akin", without, with_about)              # 有边（但**没有** about）
 
-    linked, _ev = _l2_material(_Ctx(st, [with_about, without]))
-    assert "   ↳ 关于: x0001 老师" in linked, linked       # 别名由 entity_label 决定
-    assert "↳ 印证" not in linked and "↳ 同类" not in linked, linked
+    this_text, cls_text, _ev = _l2_material(_Ctx(st, [with_about, without]))
+    assert "   ↳ 关于: x0001 老师" in this_text, this_text       # 别名由 entity_label 决定
+    assert "↳ 印证" not in this_text and "↳ 同类" not in this_text, this_text
     # 没有 about 的那条**不该**有这一行: 全文里只出现一次「↳ 关于」
-    assert linked.count("↳ 关于") == 1, linked
+    assert this_text.count("↳ 关于") == 1, this_text
+    assert "↳ 关于" not in cls_text, cls_text

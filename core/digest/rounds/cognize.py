@@ -36,7 +36,9 @@ logger = logging.getLogger(__name__)
 def run(ctx: Ctx) -> RoundOut:
     """⑥ 想 —— 造看法（失败只回滚自己）。"""
     spec = ctx.enter("cognize")
-    linked_text, evidence_ids = _l2_material(ctx)
+    # ⭐ 两个区（用户 2026-10-14 裁）: 【这次的事】= 立足点 · 【这一类事】= 她认过的同类
+    # （额外的证据, 本段的条目在那里只出信息头 —— 正文全料只印一次）。
+    this_text, cls_text, evidence_ids = _l2_material(ctx)
     if not evidence_ids:
         # 没有被 L1 连过的经历 ⇒ 归纳没有立足点（**跳过不是失败**）
         ctx.log_skip(spec)
@@ -48,7 +50,8 @@ def run(ctx: Ctx) -> RoundOut:
     collide_text = collided_beliefs_block(ctx.store, evidence_ids, local_of)
     system = ctx.system_for(spec)
     user = ctx.sections_for(spec, [
-        ("被连过的经历", linked_text),
+        ("这次的事", this_text),
+        ("这一类事", cls_text),
         ("现有认知", cog_text),
         ("跟这条撞上的现有看法", collide_text),
         # ⭐ E1b: 写 `#entity:` 之前先看**已有的对象**（防自造别名 ⇒ 重复建对象）
