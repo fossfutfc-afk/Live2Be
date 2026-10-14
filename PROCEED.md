@@ -1,6 +1,6 @@
 # PROCEED.md — 接续用（**整篇覆盖写**；上一版见 git 历史）
 
-> **树干净 · `ahead 53`（没 push —— 推不推由用户定）**。真实头看 `git log -1`。
+> **树干净 · `ahead 54`** ⚠️ **这个数在提交本文件之后就 +1 —— 别拿它当判据, 真实头看 `git log -1`**。
 > 现状：`tests/core` **1261 passed** · `tests/webgui`+`tests/llm`+`tests/renderer` **196 passed**
 > （⚠️ **按域分开跑**，理由见坑 4.25）· 三个 verifier 全 exit 0。
 > ⚠️ **这棵树里有两条线**，别混：**线 A = 记忆层重新设计（本会话主线）** ·
@@ -21,9 +21,11 @@
   ⑥ **`experience` 的沉淀行停产** ⑦ ⭐ **`attribute` → `settle`** 改名 + 扩职 + 执行接线 + **`text_seq` 水位**
   ⑧ ⭐ **引用从 `tags` 搬进独立字段 `entity`** ⑨ ⭐ **akin 共 belief**（一跳邻域并进证据 + 料侧相似簇）
   ⑩ ⭐ **`topics` 退役**（`on` 的判据随载体走；L1 候选**换源**走 `like(spec="digest")`）
-  ⑪ ⭐ **`entity` 留空 ⇒ 默认归属**（R1: 你 + 老师；**读侧兜底**、⛔ 不落边）。
-- **下一件**：⭐ **belief collision**（§1A-4）—— 料要补两格 + 拿 `entity` 当"面"，
-  形式见我给他的那份报告（三格料 + 两条可判规则 + 不做 `id` 两态）。
+  ⑪ ⭐ **`entity` 留空 ⇒ 默认归属**（R1: 你 + 老师；**读侧兜底**、⛔ 不落边）
+  ⑫ ⭐ **`evolved_from` 的方向翻成 旧 → 新**（名字不动；与 `supports` 同向）。
+- **下一件**：⭐ **belief collision**（§1A-4）—— **形式已定**（料补两格 + 一句提示 +
+  "看见就得能引用" + 开工顺序都写在 §1A-4），**只差用户裁三条岔路**（§5.3-1）：
+  并边对称化 / 单点 defer / 四份契约统一何时做。
 - ⚠️ **真机提醒**（这一刀探到的）：`like(spec="digest")` 的 `semantic` 权重是 1.00，
   **embedder 不在时排序会被 `tags[老师]` 这类泛词主导** ⇒ 真机跑 digest 前先确认
   `[embed]` 服务在（`lms server start`）并 grep `digest_embed` / `recall_like … skip=`。
@@ -124,6 +126,27 @@
    别写第二条）—— ⚠️ 只能是提示（引擎判不了"是不是同一个结论"，写成"违反即丢弃"就是假威胁）；
 ④ ⚠️ **看见就得能引用**：新格里的看法**必须并进渲染列表**（`target_ids = local_of ∪ …`），
    否则"看见了却写不了"（写了对不上名单 ⇒ **整包拒**）。
+
+**⭐ 用户答完那三条岔路之后的开工顺序**（照这个走, 别重新设计）：
+1. **两个新格**是**新的段**（不是塞进旧格）⇒ 要**两边同改**：`ROUNDS["relate"].material` /
+   `ROUNDS["cognize"].material` + 对应 `llm/prompts/digest_*.md`（守门
+   `test_material_names_are_not_dead` ↔ `test_every_bracket_in_prompts_has_a_home`, 见坑 4.27）。
+2. **L1 那一格**（同类印证过的看法）：纯图算 —— 本段经历的一跳 `akin` 邻域（`store.related`）
+   → 那些经历的 `supports` **入边**（`graph.supporters` 反过来: 即"这条经历支撑了谁" =
+   `store.graph().targets(m, "supports")`）→ 去重后印。
+3. **L2 那一格**（撞上的现有看法）：共同证据 = 新证据集 ∩ 那条 belief 的 `supporters`；
+   语义 = `like(spec="digest")` 对 belief 面（**注意 `k` 要补名额**, 见坑 4.31）。
+4. **并进渲染列表**: 两格印出来的看法都要进 `render_cognition_list` 的那份 `local_of`
+   （或至少并进 `target_ids`）—— ⛔ 否则她一写就是"编造 id"。
+5. **面分组**（用 `entity`）的如实提醒: 默认 self 一生效, **大部分看法会落进「我」那一组**
+   ⇒ 区分力主要来自**非默认**的 entity; 想再加一个轴可以用现成的 `subject`（用户还没裁）。
+6. 用例: 两条"料里摆得出 + 印出来的能引用"; 一条"引擎不判同一个结论"（⛔ 别写成硬规则）。
+7. 收尾: 三份 verifier（两个 md 都动了）+ `tests/core` + PROCEED 下一版。
+
+⭐ **术语（下一个会话可能会撞上）**: **`tip` = 演化链的末端**（= 没有任何 `evolved_from`
+**入边**的那条看法, 也就是"她今天还相信的那条"）。用户已裁: ⛔ **不给 `supports` 设
+"只能指 tip"的硬规则** · ⏸ **召回折叠（常驻视图只摆 tip）以后再说** —— 所以今天
+**没有**任何代码依赖 `tip`, 它只是讨论用的词。
 
 ⛔ **已撤回的一条**（别捡回来）：~~`relate` 的 `akin` 行退役~~ —— group 死后 `akin` 是**唯一**
 还活着的"同类"判断源（`noticed` 太稀，真机全库 5 条）⇒ 退役它 = 把 §1A-1 的继承者腿砍了。
