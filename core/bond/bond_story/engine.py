@@ -17,7 +17,8 @@
     （读存档 json[] 回放与运行时同一条路径）。
     双空格/【选择】/【完】等自由文本标记解析已删除——结构由 JSON 字段强制。
     行为规则在 llm/prompts/bond_story_rules.md; 契约 schema 由 build_record_schema 注入
-    （2026-09-10 记录流 v2——story 域不再用 build_schema 的单动作外壳）。
+    （2026-09-10 记录流 v2——story 域不再用"单动作 JSON"那个外壳; 那套外壳本身
+    已于 2026-10-14 删除, 见 `contract/schema.py` 的模块 docstring）。
 
 用法:
     from core.bond.bond_story import BondStoryEngine

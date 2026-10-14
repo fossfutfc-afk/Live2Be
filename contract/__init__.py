@@ -71,8 +71,6 @@ from contract.registry import (
 from contract.schema import (
     build_line_schema,
     build_record_schema,
-    build_schema,
-    export_definitions,
 )
 from contract.spec import ActionSpec
 
@@ -98,10 +96,8 @@ __all__ = [
     "IDEActionRegistry",
     "MMTActionRegistry",
     "parse_action_text",
-    "build_schema",
     "build_record_schema",
     "build_line_schema",
-    "export_definitions",
     # —— VN 记录流（记录流 v2, 2026-09-10）——
     "KIND_CHARACTER",
     "KIND_STAGE",

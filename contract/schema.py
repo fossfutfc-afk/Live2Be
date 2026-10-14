@@ -1,15 +1,23 @@
-"""契约渲染与导出 — 输入层 + A 方案数据面。
+"""契约渲染 — **LLM 可见的输出形态**（三个形态里的两个活的）。
 
-build_schema():       把动作域渲染成 LLM 可见的动作 schema（输入层裁剪）。
-                      AI 只看到它需要的字段——运行时动作域的输出中不会出现 sources/basis。
-export_definitions(): 把动作域导出为纯数据（A 方案的数据面），供 JS/WebLLM 端消费。
+    build_line_schema()    **MMT 行流**契约（盒A 的 `schema` 块）——`registry` 运行时
+                           渲染"可用操作"表（新增动作自动进 prompt, ⛔ 不手写清单）。
+    build_record_schema()  **VN 记录流**契约（盒B 的 `schema` 块）——**不依赖注册表**,
+                           参数是角色 id 与显示名。
 
-依赖: constants（审批常量）、registry（遍历注册表公共方法）。
+⚠️ **第三种形态（单动作 JSON / story·IDE 域）已在 2026-10-14 删除**：
+`build_schema()` 生产零调用者（只有 `archive/ide_editor` 还在 import）、
+`export_definitions()`（"A 方案数据面，给 JS/WebLLM 用"）**0 生产 0 测试**，
+`_SHELL_FIELD_DESCRIPTIONS` 只有前者用 ⇒ 三件一起走。那些字段说明的正主是
+`contract/spec.py` 的 `payload_schema` 与 `prompt_fields`。
+
+⚠️ 本文案**进 system prompt**（盒的 `schema` 块）: 改一个字节 ⇒ 跑三份 verifier
+（`.testtmp/capture_1e.py` 是这一族的逐字节判据）。
+
+依赖: constants（审批常量）、records（记录流取值）、registry（遍历注册表公共方法）。
 """
 
 from __future__ import annotations
-
-from typing import Any
 
 from contract.constants import APPROVAL_AUTO, APPROVAL_NEVER, APPROVAL_REQUIRED
 from contract.records import (
@@ -24,16 +32,6 @@ from contract.records import (
     STAGE_SWITCH,
 )
 from contract.registry import ActionRegistry
-
-# 外壳字段的说明文本（build_schema 渲染用）
-_SHELL_FIELD_DESCRIPTIONS = {
-    "action": "动作名（从下方可用动作中精确选择）",
-    "summary": "给用户看的一句话说明",
-    "reply": "对用户的话：给用户看的完整回复/解释（可选, 区别于 summary 的一句话）",
-    "payload": "动作参数（见各动作的 payload 说明）",
-    "sources": "事实依据：来源 URL 列表。宁缺勿错——无可靠依据时留空，改在 basis 说明决策依据；请勿编造",
-    "basis": "决策依据：字符串数组（列表），如 [\"用户要求整理资料\", \"宁缺勿错\"]，每项一句话；无依据则留空 []，不要写成单个字符串",
-}
 
 _APPROVAL_NOTES = {
     APPROVAL_REQUIRED: "需用户批准",
@@ -52,63 +50,6 @@ def _numbered(items: tuple[str, ...]) -> list[str]:
     return [f"{i}. {t}" for i, t in enumerate(items, 1)]
 
 
-def build_schema(registry: ActionRegistry) -> str:
-    """生成该域给 LLM 的动作 schema（输入层裁剪）—— **单动作形态**。
-
-    用于 story / IDE 这类"一轮一个动作"的域。⚠️ **MMT 不用它**（⑥-2f 起）：
-    手机聊天走 `build_line_schema`（一行一条 JSON 的行流），旧 `action_list=True`
-    的"messages 消息流"分支已随 `{"messages":[…]}` 协议**整段删除**。
-    示例只给结构骨架——外壳字段以各动作声明为准。
-    """
-    specs = registry.specs()
-    if not specs:
-        return "（该动作域尚未注册任何动作）"
-
-    union: set[str] = set()
-    for _name, spec in specs:
-        union |= set(spec.prompt_fields)
-
-    lines = ["你必须以单个 JSON 对象输出一个动作。", ""]
-    lines.append("外壳字段:")
-    for f in sorted(union):
-        desc = _SHELL_FIELD_DESCRIPTIONS.get(f, "")
-        lines.append(f"  - {f}: {desc}".rstrip())
-    lines.append("")
-    lines.append("可用动作:")
-    for name, spec in specs:
-        note = _APPROVAL_NOTES.get(spec.approval, spec.approval)
-        lines.append(f"  - {name}  [{note}]")
-        lines.append(f"      外壳字段: {', '.join(sorted(spec.prompt_fields))}")
-        if spec.payload_schema:
-            lines.append(f"      payload: {spec.payload_schema}")
-        else:
-            lines.append("      payload: （未提供描述）")
-    lines.append("")
-    lines.append('格式示例: {"action": "<动作名>", "payload": {...}}'
-                 '（外壳字段以各动作声明为准）')
-    return "\n".join(lines)
-
-
-def export_definitions(registry: ActionRegistry) -> dict[str, Any]:
-    """导出该域的动作定义（纯数据，JSON 兼容）。
-
-    A 方案的数据面：Python 端是唯一执行引擎，但定义本身与语言无关，
-    未来 JS/WebLLM 端可消费同一份数据生成自己的渲染/校验。
-    """
-    actions = []
-    for name, spec in registry.specs():
-        actions.append({
-            "action": name,
-            "approval": spec.approval,
-            "prompt_fields": sorted(spec.prompt_fields),
-            "payload_schema": spec.payload_schema,
-        })
-    return {
-        "domain": registry.domain,
-        "actions": actions,
-    }
-
-
 #: MMT 行流的硬规则。⚠️ **编号不在这里** —— 由 `_numbered()` 按位置算。
 _MMT_RULES: tuple[str, ...] = (
     "一行一个完整 JSON 对象；三类行可以任意交错（一行接一行地说下去没问题）。",
@@ -125,10 +66,11 @@ _MMT_RULES: tuple[str, ...] = (
 
 
 def build_line_schema(registry: ActionRegistry, *, with_examples: bool = True) -> str:
-    """渲染 **MMT 行流契约**（LLM 可见）——`build_schema` 的第四种形态（⑥-2a）。
+    """渲染 **MMT 行流契约**（LLM 可见）——三个输出形态里**唯一要动作注册表**的那个。
 
-    三个并列形态：单动作 JSON（story/IDE, `build_schema`）· 记录流（VN,
-    `build_record_schema`）· **行流（MMT, 本函数）**。
+    ⚠️ **今天只剩两个形态**（2026-10-14）: 行流（MMT, 本函数）· 记录流（VN,
+    `build_record_schema`）。第三个"单动作 JSON（story/IDE）"随 `build_schema`
+    一起删了（生产零调用者, 见模块 docstring）。
     设计: `docs/DESIGN_STREAM_CONTRACT.md` §1（契约形式六条）/ §2（两域对照）/
     §10.2 B1·B3。
 
@@ -136,9 +78,8 @@ def build_line_schema(registry: ActionRegistry, *, with_examples: bool = True) -
     是独立入口），而行流的**操作行**要用注册表里的动作 ⇒ 本函数收 `registry`
     （新增动作**自动进 prompt**，不手写清单）。
 
-    ⚠️ 旧的 `build_schema(action_list=True)`（`{"messages":[…]}` 消息流）**已整段删除**
-    （⑥-2f："旧协议统统改掉"）——三个形态现在是: 单动作 JSON（story/IDE）· 行流
-    （MMT, 本函数）· 记录流（VN, `build_record_schema`）。
+    ⚠️ 更早的 `build_schema(action_list=True)`（`{"messages":[…]}` 消息流）**更早已整段
+    删除**（⑥-2f："旧协议统统改掉"）。
 
     文案纪律（同用户裁决 #24）：不写"不要写 X 字段"式负面提醒；示范里戏词不包「」。
     """
@@ -221,14 +162,15 @@ _VN_RULES: tuple[str, ...] = (
 
 def build_record_schema(*, with_examples: bool = True, char_id: str = "igusa_haruka",
                         char_display: str = "") -> str:
-    """渲染 **VN 记录流契约**（LLM 可见）——`build_schema` 的第三种形态。
+    """渲染 **VN 记录流契约**（LLM 可见）——三个形态里**不吃动作注册表**的那个。
 
-    与"单动作 JSON"（story/IDE）和"行流"（MMT, `build_line_schema`）并列。
+    与"行流"（MMT, `build_line_schema`）并列（第三个"单动作 JSON / story·IDE"
+    2026-10-14 已随 `build_schema` 删除，见模块 docstring）。
     设计: `docs/DESIGN_STREAM_CONTRACT.md` §2（文法）/ §10.4（`art` 预告制）。
     文案单源: 取值与约束全部取自 `contract.records` 常量。
 
-    不进 `build_schema()` 是因为记录文法**不依赖动作注册表**（参数是角色 id 与状态约束，
-    不是 ActionSpec 集合）——保留独立入口，语义更清楚（§8.2 已按此对齐）。
+    独立入口（而不是并进一个吃注册表的函数）是因为记录文法**不依赖动作注册表**
+    （参数是角色 id 与状态约束，不是 ActionSpec 集合）——语义更清楚（§8.2 已按此对齐）。
 
     文案纪律（2026-09-10 用户裁决 #24）:
     - **不写"不要写 X 字段"这类负面提醒**（白熊效应: 不说模型不知道, 一说反而幻觉 + 废 token）;
