@@ -33,7 +33,13 @@ REL_SUPPORTS = "supports"            # ⭐ **两种形状**: episode → 认知�
                                      #    认知 → 认知（R2 的 `links` 写 —— "这条看法支撑那条",
                                      #    真机有实例; 2026-09-29 用户裁决"belief-belief 以后也需要"）
 REL_CONTRADICTS = "contradicts"      # 同层之间（她后来发现不对; **对称**）
-REL_EVOLVED_FROM = "evolved_from"    # belief → belief（新看法取代旧的）
+#: ⭐ **`evolved_from`（旧 → 新）**: 她后来想通了 ⇒ 从旧那条长出新的那条。
+#: ⚠️ **方向 2026-10-14 翻过**（用户裁"顺序太怪, 改一下, 名字不动"）: 从前存的是"新 → 旧"
+#: （跟着边名读），今天存的是**时间顺向**（旧 → 新）—— 与 `supports`（经历 → 看法, 也是顺向）
+#: **同向**了, 而"谁取代了我"变成**入边**（`sources`）。
+#: ⚠️ 翻的时候真机**零条**这种边（`contradicts` / `evolved_from` 到今天都没写过）
+#: ⇒ **没有老档要迁移**; 旧档里若真有"新 → 旧"的行, 读出来方向就是反的（记着这条）。
+REL_EVOLVED_FROM = "evolved_from"
 #: ⏸ `formed_by`（promise → episode）· `from` / `to`（promise → entity）**2026-09-29 删** ——
 #: 它们唯一的起点 kind 是 `promise`，而 **promise 退出了图**（用户裁决: 承诺太轻,
 #: 不足以长期记录 ⇒ 留在 note 当工作记忆, 见 `notes.SLOT_PINNED`）。

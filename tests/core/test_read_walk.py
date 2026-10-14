@@ -242,7 +242,7 @@ def test_width_caps_the_flood_from_a_big_class(tmp_path):
 def _deep_graph(tmp_path):
     """看法进化链 + 一串矛盾 + **一个环**:
 
-        b1 ──evolved_from──> b2 ──evolved_from──> b3      （新 → 旧）
+        b1 ──evolved_from──> b2 ──evolved_from──> b3      （旧 → 新: b1 最早, b3 最新）
         b1 ──contradicts─── b4 ──contradicts─── b5
         b4 ──contradicts─── b1                            ⇒ **环**（b1—b4—b5—b1… 不许转不出来）
         m1 ──about──> who                                 （⛔ 深挖不许走 about）
@@ -250,7 +250,7 @@ def _deep_graph(tmp_path):
     st = WikiStoreV2(tmp_path, world_id="world1", char_id=CHAR)
     b = {t: st.add(make_node("belief", text=f"{t} 的正文", ts=f"2026-10-0{i}T10:00:00"))
          for i, t in enumerate(("b1", "b2", "b3", "b4", "b5"), start=1)}
-    st.add_edge(REL_EVOLVED_FROM, b["b1"], b["b2"])          # 新 → 旧
+    st.add_edge(REL_EVOLVED_FROM, b["b1"], b["b2"])          # 旧 → 新（2026-10-14 起）
     st.add_edge(REL_EVOLVED_FROM, b["b2"], b["b3"])
     st.add_edge(REL_CONTRADICTS, b["b1"], b["b4"])           # 对称
     st.add_edge(REL_CONTRADICTS, b["b4"], b["b5"])
@@ -264,7 +264,12 @@ def _deep_graph(tmp_path):
 
 
 def test_chain_walks_the_evolution_line_and_reports_the_direction(tmp_path):
-    """⭐ 深挖一条**看法进化链**: 一路往回挖, 每一步都带**来路**与**方向**。"""
+    """⭐ 深挖一条**看法进化链**: 一路往下走, 每一步都带**来路**与**方向**。
+
+    ⚠️ **2026-10-14 方向翻过**（用户裁"顺序太怪, 名字不动"）: 图上恒为 **旧 → 新**
+    ⇒ 从**最早**那条出发是**顺着出边**（`forward=True`, "这条后来长成了什么"）,
+    从**最新**那条出发是逆着（`forward=False`, "我为什么会这么想"）。
+    """
     st, b = _deep_graph(tmp_path)
     got = chain(st, b["b1"], rels=(REL_EVOLVED_FROM,))
     assert [(x.node_id, x.depth, x.via, x.rel, x.forward) for x in got] == [
@@ -272,7 +277,7 @@ def test_chain_walks_the_evolution_line_and_reports_the_direction(tmp_path):
         (b["b2"], 1, b["b1"], REL_EVOLVED_FROM, True),
         (b["b3"], 2, b["b2"], REL_EVOLVED_FROM, True),
     ], got
-    # 从最旧的那头出发 ⇒ 挖到的是"谁盖过了它" —— 方向如实报成 False, ⛔ 不替她决定
+    # 从**最新**的那头出发 ⇒ 挖到的是"它是从哪来的" —— 方向如实报成 False, ⛔ 不替她决定
     back = chain(st, b["b3"], rels=(REL_EVOLVED_FROM,))
     assert [x.node_id for x in back] == [b["b3"], b["b2"], b["b1"]], back
     assert all(x.forward is False for x in back[1:]), back

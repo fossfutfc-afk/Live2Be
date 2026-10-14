@@ -50,7 +50,7 @@ entity 节点 = 身份:  name（主名）+ aliases（别称）
 
 "她对某人的看法" = belief（+ 它的 #entity: tag）
                     ✅ 注入（认知列表已经在注入 belief）
-                    ✅ 进化（evolved_from: 新看法 → 旧看法）
+                    ✅ 进化（evolved_from: 旧看法 → 新看法 ⭐ 2026-10-14 翻过方向）
                     ✅ 召回（belief 本来就在召回候选里）
 ```
 

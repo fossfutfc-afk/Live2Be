@@ -1136,17 +1136,20 @@ def test_relate_evolved_from_is_belief_to_belief_only():
     ⚠️ 这条用例是**探针抓出来的那个真 bug** 的守门: 校验一度只挂在
     `rel in ("akin", "contradicts")` 那个 `if` 里 ⇒ `{"episode": …, "evolved_from": …}`
     一路绿灯（经历"进化"了）。
+    ⭐ **2026-10-14**: 图上的方向翻成 **旧 → 新**（用户裁"顺序太怪, 名字不动"）——
+    她那一行**行首仍写较新的那条**（`{"belief": "u0001", …}`）, 而**契约层把两端摆正**
+    ⇒ 落出来的行是 `src=旧的 / dst=新的`（执行侧不再判方向, 与 `supports` 同一条纪律）。
     """
     rows, vr = digest_registry.parse_relations(
         {"relations": [
-            {"belief": "u0001", "evolved_from": "u0002"},      # ✅ 新 → 旧（两条都已有）
+            {"belief": "u0001", "evolved_from": "u0002"},      # ✅ 行首 = 新的; u0002 = 旧的
             {"episode": "m0023", "evolved_from": "u0002"},      # ⇒ 丢: 经历没有"进化"
             {"belief": "u0001", "supports": "u0002"},           # ✅ 看法撑看法（本来就能）
         ]},
         episode_ids={"m0023"}, target_ids={"u0001", "u0002"},
         kind_of={"u0001": "belief", "u0002": "belief", "m0023": "episode"})
     assert [r["rel"] for r in rows] == ["evolved_from", "supports"], rows
-    assert rows[0] == {"rel": "evolved_from", "src": "u0001", "dst": "u0002"}
+    assert rows[0] == {"rel": "evolved_from", "src": "u0002", "dst": "u0001"}, rows[0]
     assert vr.is_valid and len(vr.drops) == 1, vr.drops
     assert "evolved_from 两端必须都是" in vr.drops[0], vr.drops
-    print("    P7-2: evolved_from 只认看法 ↔ 看法（经历那头丢行）")
+    print("    P7-2: evolved_from 只认看法 ↔ 看法（经历那头丢行）; 落边恒为 旧 → 新")
