@@ -23,7 +23,7 @@ class ActionSpec:
     """单个动作类型的注册规格。
 
     prompt_fields 是单一真源（single source of truth），同时驱动三层行为:
-        1. 输入层  build_schema() 只输出集合内的字段 → LLM 只看到这些字段
+        1. 输入层  build_line_schema() 只输出集合内的字段 → LLM 只看到这些字段
         2. 输出层  AgentAction 按集合取字段，未声明的一律为空
         3. 校验层  parse() 按集合处理——声明了 sources 强制非空（宁缺勿错）;
                    未声明则丢弃违规返回（不污染数据）
@@ -54,7 +54,7 @@ class ActionSpec:
             prompt_fields: 该动作需要的外壳字段子集（⊆ ALL_SHELL_FIELDS）。
                 默认 = 全集（写动作需要 sources/basis 追溯）。
                 运行时动作应传 RUNTIME_SHELL_FIELDS。
-            payload_schema: 给 LLM 看的 payload 字段描述（build_schema 输出用）
+            payload_schema: 给 LLM 看的 payload 字段描述（build_line_schema 输出用）
             in_prompt: ⭐ **封印位**（2026-10-12）: `False` = **不进 prompt**（动作表不列、
                 payload 描述不印）—— 用于"引擎还没兑现、先在 prompt 上收掉"的动作。
                 ⛔ **它只管"她看不看得见"**: 解析 / 校验 / 执行**一律照旧**
