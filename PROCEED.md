@@ -1,6 +1,9 @@
 # PROCEED.md — 接续用（**整篇覆盖写**；上一版见 git 历史）
 
-> **树干净 · `ahead 54`** ⚠️ **这个数在提交本文件之后就 +1 —— 别拿它当判据, 真实头看 `git log -1`**。
+> ⚠️ **本文件不记 `ahead` 数**（写死过一次 54、一次 53，两次都对不上）—— 真源 = `git status -sb`
+> 的 `ahead N` 与 `git log -1`。
+> ⚠️ **`git status` 里常年挂着一份"你手改未提交"的文件**（本章 = `config/settings/relation/interperson.yml`
+> 的立场句重排）—— 那是**作者的改动, ⛔ 不是脏改动**, 别顺手 `checkout` 掉；判"树干净"要连它一起说。
 > 现状：`tests/core` **1261 passed** · `tests/webgui`+`tests/llm`+`tests/renderer` **196 passed**
 > （⚠️ **按域分开跑**，理由见坑 4.25）· 三个 verifier 全 exit 0。
 > ⚠️ **这棵树里有两条线**，别混：**线 A = 记忆层重新设计（本会话主线）** ·
@@ -132,8 +135,10 @@
    `ROUNDS["cognize"].material` + 对应 `llm/prompts/digest_*.md`（守门
    `test_material_names_are_not_dead` ↔ `test_every_bracket_in_prompts_has_a_home`, 见坑 4.27）。
 2. **L1 那一格**（同类印证过的看法）：纯图算 —— 本段经历的一跳 `akin` 邻域（`store.related`）
-   → 那些经历的 `supports` **入边**（`graph.supporters` 反过来: 即"这条经历支撑了谁" =
-   `store.graph().targets(m, "supports")`）→ 去重后印。
+   → 每条邻域经历的 `supports` **出边**（= "这条经历支撑了谁" = `store.graph().targets(m, "supports")`）
+   → 去重后印。⚠️ **方向别写反**（坑 4.34 第四次就是这么来的）: `supports` 是"**经历 → 看法**",
+   所以经历那一头要查 `targets`; 写成 `sources(m, "supports")` ⇒ **恒空且不报错**。
+   `graph.supporters(nid)` 是**站在看法那一头的同一张表**（"谁支撑了我"）, ⛔ 别拿它查经历。
 3. **L2 那一格**（撞上的现有看法）：共同证据 = 新证据集 ∩ 那条 belief 的 `supporters`；
    语义 = `like(spec="digest")` 对 belief 面（**注意 `k` 要补名额**, 见坑 4.31）。
 4. **并进渲染列表**: 两格印出来的看法都要进 `render_cognition_list` 的那份 `local_of`
@@ -449,5 +454,5 @@ E 下面"才查**入**边（`sources`）。我第一版把"明确写了别人就
    ⛔ **belief 正文不原地改** · ⛔ **不给"挂证据"设"只能指常驻"的硬规则**。
 5. **收口类**（不是设计, 是欠的活）: `form_key` 下移 `contract/`（统一 `parse_attribution` 两端）·
    **真机跑一次端到端**（uvicorn + `experiments/recall_report.py`; ⚠️ 先确认 `[embed]` 服务在,
-   否则 L1 的候选只看得到字面那几路）· `ahead 53` 未 push ·
+   否则 L1 的候选只看得到字面那几路）· **未 push**（差几个看 `git status -sb`）·
    `noticed` 那条路落的 `akin` 边**不写变更史**（只有一行日志 —— 要不要补留痕, 记着）。
