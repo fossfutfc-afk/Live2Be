@@ -263,7 +263,7 @@ def digest_segment(
                     截止 = `min(整段硬顶, 本轮开始 + 本轮预算)`。撞上 → 判失败回滚,
                     水位不推进可重算。默认 = `rounds.DIGEST_SEGMENT_HARD_CAP`。
                     ⚠️ **它是"每次尝试前"的检查, 不掐断正在飞的那一次调用**
-                    （`llm_call` 的既有语义; 单次请求仍受 `llm_timeout` 约束）——
+                    （`llm_chat` 的既有语义; 单次请求仍受 `llm_timeout` 约束）——
                     所以"某轮用满预算"能保证的是**后面的轮不被它饿死**, 不是"这一段
                     总时长必然 ≤ 硬顶"。真机要收紧就得看 `task=digest.* ms=` 调数值。
         llm_timeout: per-call 超时覆盖（None = 客户端构造超时; 后台 digest

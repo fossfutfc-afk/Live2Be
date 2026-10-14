@@ -34,7 +34,11 @@
 | **`material.py`** | **各轮的料**（引擎侧零 LLM）：段标题校对/拼装 · 视觉记忆 · 情绪标尺 · 约定行 · 新经历 · L1 候选 · R3 对象正文 |
 | **`segment.py`** | **这一段是什么**：段类型/章分组 · `span` 区间展开 · 一章一条收口 |
 | **`episodes.py`** | **L1 落节点**：字段归属 + 去重 · 自己的时刻 · 逐字原话 · 情绪/地点/叙事轴物化 |
-| **`llm_call.py`** | LLM 鲁棒层（重试 / deadline / 档位透传） |
+
+⚠️ **`llm_call.py` 不在这个包里了**（2026-10-13 搬家）—— 那 85 行**零 digest 依赖**
+（不认轮次 / 不认契约 / 不认 parse），是"一次调用怎么发得稳"的**策略件**
+⇒ 真家 = `llm/client.py::llm_chat`（与 `feedback` / `_classify` /
+`llm/retry.py::call_with_feedback` 同族）。本包只留 `call.py` 里**认轮次表**的那一半。
 
 ⇒ 三层（L1 本段 / L2 跨段 / L3 实体）要改的刀各有落点:
 L1 落 `rounds/record.py`（+ `episodes.py` / `segment.py`）· L2 落 `rounds/relate.py` /

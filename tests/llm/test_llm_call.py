@@ -1,7 +1,14 @@
-"""llm_call.py 鲁棒层测试（板块 3）——重试/deadline/timeout 透传/extra_body 语义。"""
+"""`llm/client.py::llm_chat` —— 结构化调用的鲁棒层（重试 / deadline / 透传语义）。
+
+2026-10-13 随函数一起从 `core/digest/llm_call.py` 搬来（那 85 行**零 digest 依赖**，
+放 digest 里是位置错了; 它和 `client.py` 里的 `feedback` / `_classify` /
+`llm/retry.py::call_with_feedback` 才是同一族）。
+⚠️ 它**不是** `LLMClient` 的方法而是模块级函数 ——原因写在它的 docstring 里
+（`llm` 是鸭子类型, 桩只实现 `.chat()`）。
+"""
 import time
 
-from core.digest.llm_call import llm_chat
+from llm.client import llm_chat
 
 
 class FakeLLM:
@@ -23,7 +30,7 @@ class FakeLLM:
 
 
 def test_success_passthrough_and_extra_body_semantics():
-    """extra_body=None 原样透传（默认档由客户端 settings 注入, llm_call 不硬编码）;
+    """extra_body=None 原样透传（默认档由客户端 settings 注入, llm_chat 不硬编码）;
     显式 dict 原样传给客户端。"""
     llm = FakeLLM(responses=[{"revisions": []}])
     resp, err = llm_chat(llm, "sys", "user")
@@ -74,3 +81,11 @@ def test_deadline_cuts_retries():
     resp, err = llm_chat(llm, "sys", "user", deadline=deadline, max_retries=5)
     assert resp is None and "时间预算" in err
     assert len(llm.calls) == 0
+
+
+def test_label_maps_to_task_tag():
+    """`label`（轮次 key）→ task 标签: 测试桩据此分轮, 不认中文关键字。"""
+    from llm.task_labels import digest_label
+    llm = FakeLLM()
+    llm_chat(llm, "sys", "user", label="record")
+    assert llm.calls[0]["task"] == digest_label("record")

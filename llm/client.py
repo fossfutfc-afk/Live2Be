@@ -29,6 +29,7 @@ from dotenv import load_dotenv
 
 from contract.errors import err
 from contract.json_cleaner import extract_json
+from llm.task_labels import digest_label
 
 logger = logging.getLogger(__name__)
 
@@ -670,3 +671,76 @@ def feedback(
     if guidance:
         content = f"{content}\n{guidance}"
     messages.append({"role": "user", "content": content})
+
+
+# ---------------------------------------------------------------------------
+# 结构化调用（一次调用发得稳）—— 2026-10-13 从 `core/digest/llm_call.py` 搬到这儿
+# ---------------------------------------------------------------------------
+
+#: 调用重试上限（偶发空响应/坏 JSON; 耗尽 → 降级; deadline 优先于次数）
+MAX_CALL_RETRIES = 3
+
+
+def llm_chat(
+    llm,
+    system: str,
+    user_msg: str,
+    *,
+    messages: list[dict] | None = None,
+    model: str | None = None,
+    temperature: float = 0.3,
+    max_tokens: int | None = None,
+    extra_body: dict | None = None,
+    deadline: float | None = None,
+    max_retries: int = MAX_CALL_RETRIES,
+    timeout: float | None = None,
+    label: str = "digest",
+) -> tuple[dict | None, str | None]:
+    """单次结构化调用（json_object）: 重试 N 次或撞 deadline。
+
+    ⚠️ **它是"策略件", 不是 `LLMClient` 的方法**（2026-10-13 用户裁"搬进 client.py"时
+    一并议定）: `llm` 是**鸭子类型**的（任何有 `.chat()` 的东西）——
+    digest 那一族的测试桩只实现 `.chat()`（80 个桩 / 41 个文件里绝大多数如此），
+    而"重试几次 / deadline 怎么算 / 档位怎么透传"是**引擎策略**:
+    挂到具体类上, 桩就得**复刻策略**, 那 130 处用例就不再验真策略了。
+    同形状的还有 `llm/retry.py::call_with_feedback`（也是模块级 + 鸭子类型）。
+
+    Args:
+        messages: 完整消息列表（反馈回灌用——同一上下文续调: 编排层追加
+                  assistant 被拒输出 + 引擎错误后传入; None → 由 system+user 组装）
+        llm: 兼容 llm.chat(messages, model=, temperature=, max_tokens=,
+             response_format=, extra_body=) 的客户端
+        deadline: time.monotonic() 绝对截止时刻; None = 不限
+        timeout: per-call 超时覆盖（后台长考放宽; None = 客户端构造超时）
+        label: 日志上下文（digest / record / understand … 即轮次 key）
+
+    Returns:
+        (resp, None): 成功, resp = 解析后的 dict
+        (None, err_str): 重试耗尽 / 撞 deadline
+    """
+    if messages is None:
+        messages = [{"role": "system", "content": system},
+                    {"role": "user", "content": user_msg}]
+    if max_tokens is None:                       # 真源: task_levels 形态 digest
+        from llm.task_levels import max_tokens as _tl_mt
+        max_tokens = _tl_mt("digest")
+    last_err: Exception | None = None
+    for attempt in range(max_retries):
+        if deadline is not None and time.monotonic() >= deadline:
+            # `>=` 而非 `>`: Windows 的 monotonic() 粒度约 15.6ms，deadline 恰好落在
+            # 当前 tick 时 `>` 恒为 False ⇒ 0 秒预算等于没有预检，调用照发。
+            return None, "LLM 调用撞上时间预算"
+        try:
+            resp = llm.chat(
+                list(messages),
+                model=model, temperature=temperature, max_tokens=max_tokens,
+                response_format="json_object", extra_body=extra_body, timeout=timeout,
+                # 调用身份（节点 5b）: label 已有（digest / record / understand …）,
+                # 直接映射成 task 标签——测试桩据此分 A/B 轮, 不再认中文关键字
+                task=digest_label(label))
+            return resp, None
+        except Exception as e:                       # noqa: BLE001
+            last_err = e
+            logger.warning(err("DigestFailed",
+                               f"{label} LLM 调用失败（第 {attempt + 1}/{max_retries} 次）: {e}"))
+    return None, f"LLM 调用重试耗尽: {last_err}"
