@@ -416,6 +416,7 @@ apps.vn_cli	speaker_names	function	core.parsing.names
 apps.vn_cli	wrapup_after_vn	function	apps.vn_cli
 # ---- llm.client ----
 llm.client	LLMClient	class	llm.client
+llm.client	MAX_CALL_RETRIES	data	-
 llm.client	_EFFORT_LEVELS	data	-
 llm.client	_LAST_REASONING	data	-
 llm.client	_LAST_USAGE	data	-
@@ -432,6 +433,7 @@ llm.client	_settings_toml	function	llm.client
 llm.client	err	function	contract.errors
 llm.client	extract_json	function	contract.json_cleaner
 llm.client	feedback	function	llm.client
+llm.client	llm_chat	function	llm.client
 llm.client	logger	data	logging
 # ---- webgui.deps ----
 webgui.deps	BUSY_WATCHDOG_MS	data	-
