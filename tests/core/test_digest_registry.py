@@ -1043,6 +1043,44 @@ def test_cognize_contract_shapes_and_rules():
     print("    P7: L2 契约（看法一行 · 多值 · 上限 · 不写 id · 沉淀那一半已停产）")
 
 
+def test_cognize_two_states_id_decides_create_or_patch():
+    """⭐ 2026-10-14（L2 碰撞那一刀）: **带 `id` = 改那条已有的 · 不带 `id` = 造一条新的**。
+
+    三档要分得开（判据见 `parse_attribution` 的 docstring —— **锚点 id 错 ⇒ 丢行**;
+    **证据 id 错 ⇒ 整包拒**）:
+      · 命中 ⇒ 收下（就是"改"那一路）, 且**不数进 `MAX_COGNITIONS`**（上限管的是"长出新节点"）;
+      · 没命中 ⇒ **丢这一行**（⛔ 不连坐同包其他行 —— 同 `settle`）;
+      · 空转行（带 id 一格没写）⇒ 丢这一行;
+      · 带 id 又写 `evolved_from` ⇒ **只丢那一格**（改口 ≠ 取代）;
+      · 前缀容错: `u2` → `u0002`（**唯一命中**才救, 且记一行 warning）。
+    """
+    common = {"evidence_ids": {"m0007"}, "cognition_ids": {"u0001", "u0002"},
+              "kind_of": {"u0001": "belief", "u0002": "belief"}}
+    rows, vr = digest_registry.parse_cognitions({"cognitions": [
+        {"belief": {"id": "u0001"}, "supports": ["m0007"]},                 # 只挂证据（text 留空）
+        {"belief": {"id": "u2", "text": "改得更准一点"}},                    # 前缀容错 + 改正文
+        {"belief": {"id": "u0001", "text": "改措辞"}, "evolved_from": "u0002"},  # 改口 ≠ 取代
+        {"belief": {"id": "u0003", "text": "编的号"}},                       # 没命中 ⇒ 丢行
+        {"belief": {"id": "u0002"}},                                        # 空转行 ⇒ 丢行
+    ]}, **common)
+    assert vr.is_valid, vr.errors                       # ⛔ 一条都没到"整包拒"那一档
+    assert len(rows) == 3, rows
+    assert rows[0] == {"action": "belief", "id": "u0001", "supports": ["m0007"]}, rows[0]
+    assert rows[1]["id"] == "u0002" and rows[1]["text"] == "改得更准一点"
+    assert rows[2]["id"] == "u0001" and "evolved_from" not in rows[2], rows[2]
+    joined = " | ".join(vr.drops)
+    assert "不在【现有认知】里" in joined and "空转行" in joined, vr.drops
+    assert any("唯一匹配" in w and "u0002" in w for w in vr.warnings), vr.warnings
+
+    # ⭐ **上限只数新建**: 造 6 条（只收 5）+ 改 3 条 —— 改的那 3 条一条都不许被上限挤掉
+    many = [{"belief": {"text": f"新结论{i}"}, "supports": ["m0007"]} for i in range(6)]
+    many += [{"belief": {"id": "u0001", "text": "改一下"}} for _ in range(3)]
+    ok, vr3 = digest_registry.parse_cognitions({"cognitions": many}, **common)
+    assert len([r for r in ok if not r.get("id")]) == MAX_COGNITIONS, ok
+    assert len([r for r in ok if r.get("id")]) == 3, ok
+    assert sum("最多造" in d for d in vr3.drops) == 1, vr3.drops
+
+
 def test_parse_cognitions_three_tiers():
     """⭐ P7: 合法行全过; **丢行**与**整包拒**分两档（与 L1 同一口径）。"""
     common = dict(evidence_ids={"m0007", "m0011"}, cognition_ids={"u0001", "u0002"},
@@ -1066,7 +1104,8 @@ def test_parse_cognitions_three_tiers():
     # 丢行（**不废整包**）
     rows, vr2 = digest_registry.parse_cognitions({"cognitions": [
         {"belief": {"text": "没有立足点"}},                                    # 两个都没给
-        {"belief": {"text": "想改已有的", "id": "m0003"}, "supports": ["m0007"]},  # 带 id
+        {"belief": {"text": "想改已有的（但号不在名单里）", "id": "m0003"},
+         "supports": ["m0007"]},                                              # ⭐ 锚点 id 没命中 ⇒ 丢行
         {"nonsense": {"text": "x"}},                                          # 不是锚点 kind
         {"belief": {"text": "跟不是看法的一端打架"}, "supports": ["m0007"],
          "contradicts": ["u0002"]},                                          # 另一端不是看法
@@ -1075,7 +1114,7 @@ def test_parse_cognitions_three_tiers():
     assert rows == []
     assert vr2.is_valid, "这些都该是**丢行**, 不是整包拒"
     joined = " | ".join(vr2.drops)
-    for want in ("没有立足点", "不带 id", "形状坏", "contradicts 的另一端"):
+    for want in ("没有立足点", "不在【现有认知】里", "形状坏", "contradicts 的另一端"):
         assert want in joined, (want, vr2.drops)
 
     # 整包拒（编造 id）

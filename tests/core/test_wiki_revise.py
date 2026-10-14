@@ -158,7 +158,11 @@ def test_apply_cognitions_soak_rewrites_and_leaves_a_trail(tmp_path):
 
 
 def test_apply_cognitions_keeps_its_hands_off_everything_else(tmp_path):
-    """⭐ P9: 这一趟**只做三件事** —— 不改已有正文、不建类、不删任何东西。"""
+    """⭐ P9: **不带 `id` 的行**只做三件事 —— 不改已有正文、不建类、不删任何东西。
+
+    ⚠️ 2026-10-14 起"不改已有正文"只对**不带 `id` 的行**成立: 带 `id` 就是**改那条**
+    （见下面那一组用例）—— 关键仍然是"**只有她点名了, 引擎才动**"。
+    """
     st = _store(tmp_path)
     st.save()
     nodes_before = {n.id: n.text for n in st.all()}
@@ -170,6 +174,99 @@ def test_apply_cognitions_keeps_its_hands_off_everything_else(tmp_path):
     assert all(after[k] == v for k, v in nodes_before.items()), "已有节点一个字都不许改"
     assert len(st.graph().edges) == edges_before + 1, "只多了那一条证据边"
     assert [n.id for n in st.all() if n.kind == "experience"] == [], "⛔ 不建类"
+
+
+# ---------------------------------------------------------------------------
+# ⭐ 2026-10-14（L2 碰撞那一刀）: **带 `id` = 改那条已有的**（只增不减 · 水位 · 留痕）
+# ---------------------------------------------------------------------------
+
+def test_patch_rewrites_only_the_cells_you_write(tmp_path):
+    """改看法: **只改写出来的格子** + 变更史留 before/after + ⭐ **落水位**。
+
+    四条纪律照抄 `settle` 那一层（`apply_stances`）—— 判据写在 `_apply_belief_patch`。
+    """
+    st = _store(tmp_path)
+    log = _log(st)
+    res = apply_cognitions(st, [{"action": "belief", "id": "m0002",
+                                 "text": "老师是第一个不会嫌弃我的人 —— 连我的道歉也接住了",
+                                 "tags": ["温柔"]}],
+                           log=log, event_seq=[7], ts="2026-10-14T21:00:00+08:00")
+    node = st.get("m0002")
+    assert node.text.endswith("连我的道歉也接住了")
+    assert node.tags == ["温柔"]
+    assert node.subject == "sensei", "⛔ 没写的格子一个字都不许动"
+    assert node.text_seq == 7, "⭐ 水位与它守的那句话同住一个原子单位"
+    assert res.patched == ["m0002"] and not res.created and not res.reused
+    entry = [x for x in log.read() if x.get("id") == "m0002"][-1]
+    assert entry["action"] == "rewrite"
+    assert entry["changed"]["text"][1].endswith("连我的道歉也接住了"), entry
+
+    # 值没变 ⇒ 不写盘, 但**照记一笔空 changed**（"这次没改任何东西"一眼可判）
+    n = len(log.read())
+    res2 = apply_cognitions(st, [{"action": "belief", "id": "m0002",
+                                  "text": node.text}],
+                            log=log, event_seq=[7], ts="2026-10-14T21:05:00+08:00")
+    assert res2.patched == [], "一字未变 ⇒ 不算改过"
+    assert log.read()[-1]["changed"] == {} and len(log.read()) == n + 1
+
+    # 要改的看法不存在 ⇒ **抛**（执行器不吞错; 回滚是编排层的事）
+    with pytest.raises(ValueError, match="要改的看法不存在"):
+        apply_cognitions(st, [{"action": "belief", "id": "m0099", "text": "x"}], **_ctx_kw())
+
+
+def test_patch_only_adds_edges_and_never_joins_akin(tmp_path):
+    """⭐ **只挂证据**（`text` 留空）: 正文不动 · 边只增 · ⛔ **不跑 `_join_akin`**。
+
+    判据: 并边属于**归纳**（她认了这一簇、正在下结论的那一刻）; "补一条证据"不是归纳
+    —— 用户 2026-10-14 裁"不并"（同 L1 挂证据时不并）。
+    """
+    st = _graph(tmp_path)
+    anchor = _ep(st, "老师记得我爱吃什么", ts="2026-10-01T10:00:00+08:00")
+    neighbour = _ep(st, "老师又带了我爱吃的那家", ts="2026-10-02T10:00:00+08:00")
+    st.add_edge("akin", anchor, neighbour)
+    belief = st.add(make_node("belief", text="老师总会记得我爱吃什么",
+                              event_seq=[1], significance=0.8))
+    before_text = st.get(belief).text
+
+    res = apply_cognitions(st, [{"action": "belief", "id": belief, "supports": [anchor]}],
+                           event_seq=[3], ts="2026-10-14T21:00:00+08:00")
+    assert st.get(belief).text == before_text, "text 留空 = 正文不动"
+    assert st.graph().supporters(belief) == [anchor], "只该有她自己点的那一条"
+    assert res.akin_joined == 0 and neighbour not in st.graph().supporters(belief), \
+        "⛔ 改那一路不并 akin 邻居（挂证据 ≠ 归纳）"
+    # ⚠️ `patched` 只收"**真的写了格子**"的那些 ⇒ 只挂边的行不算（它没改任何格子）
+    assert res.patched == [] and len(res.edges) == 1
+
+
+def test_patch_honours_the_watermark(tmp_path):
+    """⭐ **水位**: 同一段再跑一次不许把同一条正文再改写一遍（防措辞漂移）。"""
+    st = _store(tmp_path)
+    row = {"action": "belief", "id": "m0002", "text": "第一次改写"}
+    apply_cognitions(st, [dict(row)], event_seq=[7], ts="2026-10-14T21:00:00+08:00")
+    assert st.get("m0002").text == "第一次改写"
+    # 同一段（上界还是 7）再来一次 ⇒ 水位挡住, 一个字都不许改
+    res2 = apply_cognitions(st, [{"action": "belief", "id": "m0002", "text": "第二次改写"}],
+                            event_seq=[7], ts="2026-10-14T21:10:00+08:00")
+    assert st.get("m0002").text == "第一次改写"
+    assert res2.patched == [] and res2.watermark_skips == ["m0002:text"]
+    # 下一段（上界推到 9）⇒ 照改
+    res3 = apply_cognitions(st, [{"action": "belief", "id": "m0002", "text": "第二次改写"}],
+                            event_seq=[9], ts="2026-10-14T22:00:00+08:00")
+    assert st.get("m0002").text == "第二次改写" and res3.patched == ["m0002"] and res3.watermark_skips == []
+
+
+def test_patch_treats_empty_cells_as_do_not_touch(tmp_path):
+    """⭐ **空 = 不改**（⛔ 不是清空）: `""` / `[]` / 缺键都当"这一格没话可说"。"""
+    st = _store(tmp_path)
+    before = st.get("m0002")
+    res = apply_cognitions(st, [{"action": "belief", "id": "m0002", "text": "",
+                                 "tags": [], "supports": ["m0001"]}],
+                           event_seq=[7], ts="2026-10-14T21:00:00+08:00")
+    node = st.get("m0002")
+    assert node.text == before.text and node.tags == before.tags, "空格子不许清空"
+    assert set(res.empty_skips) == {"m0002:text", "m0002:tags"}, res.empty_skips
+    assert node.text_seq == 0, "没写正文 ⇒ 水位也不动"
+    assert st.graph().supporters("m0002") == ["m0001", "m0003"], "边照挂（只增）"
 
 
 # ---------------------------------------------------------------------------

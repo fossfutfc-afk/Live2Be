@@ -59,7 +59,7 @@ import logging
 
 from core.brain.read.render import render_cognition_list
 from core.brain.revise import apply_relations
-from core.digest.material import _episode_candidates, _round_b_material
+from core.digest.material import _episode_candidates, _round_b_material, akin_supported_beliefs_block
 from core.digest.rounds.base import Ctx, RoundOut
 
 logger = logging.getLogger(__name__)
@@ -73,6 +73,9 @@ def run(ctx: Ctx) -> RoundOut:
     spec = ctx.enter("relate")
     cog_text, local_of = render_cognition_list(
         ctx.store, cap=DIGEST_COGNITION_CAP)
+    # ⭐ **先建认知列表, 再补这一格** —— 它可能给"cap 之外"的看法发新本地号,
+    # 所以必须赶在下面那份 `target_ids` 之前跑（否则她看见了却引不了 ⇒ 整包拒）。
+    akin_text = akin_supported_beliefs_block(ctx.store, ctx.episode_ids, local_of)
     ep_text = _round_b_material(ctx.store, ctx.episode_ids, local_of,
                                 embed_fn=ctx.embed_fn,
                                 char_id=getattr(ctx.store, "char_id", ""))
@@ -83,6 +86,7 @@ def run(ctx: Ctx) -> RoundOut:
     user = ctx.sections_for(spec, [
         ("本次新经历（含引擎候选标注）", ep_text),
         ("现有经历（候选）", cand_text),
+        ("她认过的同类印证过的看法", akin_text),
         ("本段时间线", ctx.timeline),
         ("现有认知", cog_text),
         ("角色人设（锚点）", ctx.character_prompt),

@@ -26,7 +26,7 @@ import logging
 
 from core.brain.read.render import render_cognition_list
 from core.brain.revise import apply_cognitions
-from core.digest.material import _l2_material, _node_texts, existing_entities_line
+from core.digest.material import _l2_material, _node_texts, collided_beliefs_block, existing_entities_line
 from core.digest.rounds.base import Ctx, RoundOut
 from core.digest.rounds.relate import DIGEST_COGNITION_CAP
 
@@ -43,10 +43,14 @@ def run(ctx: Ctx) -> RoundOut:
         return RoundOut.skipped()
     cog_text, local_of = render_cognition_list(
         ctx.store, cap=DIGEST_COGNITION_CAP)
+    # ⭐ **撞上那一格**: 跟本段证据**共享证据**的已有看法（共同证据优先）。
+    # ⚠️ 它可能给"cap 之外"的看法发新本地号 ⇒ 必须赶在下面那份 `cognition_ids` 之前跑。
+    collide_text = collided_beliefs_block(ctx.store, evidence_ids, local_of)
     system = ctx.system_for(spec)
     user = ctx.sections_for(spec, [
         ("被连过的经历", linked_text),
         ("现有认知", cog_text),
+        ("跟这条撞上的现有看法", collide_text),
         # ⭐ E1b: 写 `#entity:` 之前先看**已有的对象**（防自造别名 ⇒ 重复建对象）
         ("已有的对象",
          existing_entities_line(ctx.store, texts=_node_texts(ctx.store, ctx.episode_ids))),
@@ -79,10 +83,11 @@ def run(ctx: Ctx) -> RoundOut:
     ctx.result.soaked_groups = list(res.soaked)
     # 观测账（可 grep）: 这一趟干了什么 —— 与 P6 的 `digest_relate` 同一个口径
     # （`dropped=` 取**调用前后** `contract_drops` 的差, ⛔ 不靠中文子串匹配）
-    logger.info("digest_cognize rows=%d beliefs=%d reused=%d edges=%d akin=%d soaked=%d "
-                "dropped=%d strangers=%s",
-                len(rows), len(res.created), len(res.reused),
+    logger.info("digest_cognize rows=%d beliefs=%d reused=%d patched=%d edges=%d akin=%d "
+                "soaked=%d empty=%d watermark=%d dropped=%d strangers=%s",
+                len(rows), len(res.created), len(res.reused), len(res.patched),
                 len(res.edges), res.akin_joined, len(res.soaked),
+                len(res.empty_skips), len(res.watermark_skips),
                 len(ctx.result.contract_drops) - drops_before,
                 res.strangers or "-")
     return RoundOut.done()
