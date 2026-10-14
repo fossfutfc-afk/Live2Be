@@ -29,7 +29,6 @@ from dotenv import load_dotenv
 
 from contract.errors import err
 from contract.json_cleaner import extract_json
-from llm.task_labels import digest_label
 
 logger = logging.getLogger(__name__)
 
@@ -724,6 +723,10 @@ def llm_chat(
     if max_tokens is None:                       # 真源: task_levels 形态 digest
         from llm.task_levels import max_tokens as _tl_mt
         max_tokens = _tl_mt("digest")
+    # ⚠️ 两处都是**函数内 import**, 不是风格洁癖: 本模块的模块级名字被
+    # `tests/fixtures/api_surface.txt` 逐个钉着（`llm.client` 是那 9 个受守门模块之一）
+    # —— 提上去就等于把 `digest_label` / `max_tokens` **再导出**成本模块的 API。
+    from llm.task_labels import digest_label as _digest_label
     last_err: Exception | None = None
     for attempt in range(max_retries):
         if deadline is not None and time.monotonic() >= deadline:
@@ -737,7 +740,7 @@ def llm_chat(
                 response_format="json_object", extra_body=extra_body, timeout=timeout,
                 # 调用身份（节点 5b）: label 已有（digest / record / understand …）,
                 # 直接映射成 task 标签——测试桩据此分 A/B 轮, 不再认中文关键字
-                task=digest_label(label))
+                task=_digest_label(label))
             return resp, None
         except Exception as e:                       # noqa: BLE001
             last_err = e
