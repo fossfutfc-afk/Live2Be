@@ -319,6 +319,35 @@ def conflicting(edges: Iterable[Edge], a: str, b: str) -> bool:
     return False
 
 
+# ---------------------------------------------------------------------------
+# 归属的兜底（2026-10-14 用户裁: "R1 的 `entity` 留空 ⇒ 默认 self+sensei"）
+# ---------------------------------------------------------------------------
+
+#: ⭐ **`entity` 留空时, 这条记录默认属于谁**（`kind` → 保留号）。
+#: 判据: 这个介质里"她的事"**天然**是"她与老师的事" ⇒ R1 不必每条都写一遍。
+#:
+#: ⛔ **只当读侧的口径, 绝不落边**（两个理由都是真机算过的）:
+#:   · 落边 = 21 条经历 + 4 条看法会多出 **46 条常数边**（图 58 → ~104）;
+#:   · `Edge` 里**没有位置**记"这条边是默认来的" ⇒ 图里再也分不出"她明确说关于老师"
+#:     与"她没说、按介质默认" —— 而**那个区分正是"归属"这个信号的全部价值**。
+#: ⚠️ 那两个串 = `core.brain.entities.SELF_ID` / `SENSEI_ID`（守门用例钉住不许漂）——
+#:   本模块**零项目内 import** 是它刻意的性质（同 `marks.py`）, 所以只能写字面量。
+#: ⏸ **`belief` 那一行还没加** —— L2（`cognize`）的"留空 ⇒ self"用户已裁,
+#:   等它的默认随碰撞那一件落地时一起加（今天加了没有第二个读者）。
+DEFAULT_FACES: dict[str, tuple[str, ...]] = {
+    "episode": ("x0000", "x0001"),
+}
+
+
+def default_faces(kind: str) -> tuple[str, ...]:
+    """`entity` 留空时那条记录**默认归属谁**（没有兜底的 kind ⇒ `()`）。
+
+    ⭐ 与 `lane` **同一张表**（`DEFAULT_FACES`）—— 将来"面"（碰撞分组）也走这里,
+    ⛔ 别在别处再写一份默认。
+    """
+    return DEFAULT_FACES.get(str(kind), ())
+
+
 def _edge_ts(meta: dict, src: str, dst: str) -> str:
     """推断边的时刻 —— 取两端 `ts` 中**较晚**的那个（≈ 这条关系形成的时刻）。
 
@@ -421,12 +450,38 @@ class Graph:
     # ── 六类查询（§2.1 的表; 这就是"够不够用"的验收口径） ──
 
     def lane(self, entity_id: str, kind: str | None = None) -> list[str]:
-        """**entity 车道**（查询 1 的推广）: 挂着 `about` → E 的节点, 可选按 kind 过滤。
+        """**entity 车道**: 关于 E 的全部记录 = **她明确写明的** + ⭐ **默认归属的**。
 
         `about` 边的方向是"节点 → entity"（`inc[E]` 才是车道; `out[E]` 是空的）。
+
+        ⭐ **2026-10-14（用户裁"R1 的 `entity` 留空默认 self+sensei"）**: 车道加上
+        **兜底那一面** —— 没写归属的 `episode` 也算进 self / sensei 的车道
+        （`default_faces`）。⚠️ 两条边界:
+          ① **明确写了别人**（有任何 `about` 出边）**就不兜底** —— 否则"归属"这个筛子
+             会退化成全集（她写了 `["小玉"]` 就是"关于小玉");
+          ② **那个对象不存在 ⇒ 车道仍空** —— 没有这个对象, 就谈不上它的车道
+             （旧档与单测里 `x0000` 经常不存在）。
+        ⚠️ 保留号（self / sensei）的车道**天然接近全量** —— 那是**语义如此**,
+        ⛔ 不是 bug（P19 的 `name` 段早就为此把保留号排除在"提到了谁"之外）。
+        ⚠️ 顺序: **明确写的在前**, 兜底的在后（`dict` 保插入序）。
         """
-        return [src for src in self.sources(entity_id, REL_ABOUT)
-                if kind is None or self.kind_of(src) == kind]
+        want = None if kind is None else str(kind)
+        seen: dict[str, None] = {}
+        for src in self.sources(entity_id, REL_ABOUT):
+            if want is None or self.kind_of(src) == want:
+                seen.setdefault(src, None)
+        if self._by_id.get(entity_id) is None:              # ② 对象不在 ⇒ 不兜底
+            return list(seen)
+        for k, faces in DEFAULT_FACES.items():              # ① 只有"有默认面"的 kind
+            if entity_id not in faces or (want is not None and want != k):
+                continue
+            for nid, node in self._by_id.items():
+                if str(getattr(node, "kind", "")) != k:
+                    continue
+                if self.targets(nid, REL_ABOUT):            # ① 明确写了谁 ⇒ 不兜底
+                    continue
+                seen.setdefault(nid, None)
+        return list(seen)
 
     def beliefs_of(self, entity_id: str) -> list[str]:
         """查询 1: entity E 下的 beliefs。"""
@@ -453,6 +508,10 @@ class Graph:
 
     def unattributed(self) -> list[str]:
         """查询 5: **未归属清单** = 非 entity 节点 − 有 `about` 边的节点。
+
+        ⭐ **2026-10-14 起这个名字要读准**: 它们**不是"没有归属"**, 而是**走了默认面**
+        （`lane` 的兜底: `episode` ⇒ self + sensei）—— 这张清单的用途因此变成
+        "**谁没被明确写过**"（观测用）, ⛔ 不再是缺陷清单。
 
         ⚠️ 宇宙必须**排掉 entity 自己** —— entity 永远不会是 `about` 的 src
         （边是"节点 → entity"）, 不排的话每个 entity 都会冒充"未归属"
@@ -521,6 +580,7 @@ def iter_edges(store, *, rel: str | None = None) -> Iterator[Edge]:
 
 
 __all__ = [
+    "DEFAULT_FACES",
     "KIND_ENTITY",
     "KIND_EXPERIENCE",
     "RELS",
@@ -538,6 +598,7 @@ __all__ = [
     "canonical_pair",
     "classify_pair",
     "conflicting",
+    "default_faces",
     "graph_of",
     "infer_edges",
     "iter_edges",

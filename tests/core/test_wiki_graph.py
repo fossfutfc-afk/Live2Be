@@ -99,6 +99,51 @@ def test_infer_keeps_raw_kind_without_coercion():
 # §2.1 的六类查询
 # ---------------------------------------------------------------------------
 
+def test_default_faces_fill_the_lane_but_never_the_graph():
+    """⭐ **归属的兜底**（2026-10-14 用户裁"R1 的 `entity` 留空默认 self+sensei"）。
+
+    四条判据（缺一条就会把"归属"这个信号弄坏）:
+      ① 没写归属的 `episode` ⇒ **算进** self / sensei 的车道（这才是"默认"）;
+      ② **明确写了别人**的 ⇒ **不算**（写了谁就只是谁 —— 否则车道退化成全集）;
+      ③ **那个对象不存在** ⇒ 车道仍空（没有这个对象就谈不上它的车道）;
+      ④ ⛔ **一条边都不落**: 它是**读侧口径**, `about` 边表不许因为默认而变长
+         （真机算过: 落边 = +46 条常数边, 且图里再也分不出"明确说"与"默认"）。
+     顺便钉住 `belief` 那一行**还没加**（L2 的默认随碰撞那一件落）。
+    """
+    from core.brain.entities import SELF_ID, SENSEI_ID
+    from core.brain.graph import DEFAULT_FACES, default_faces
+
+    # ⚠️ `graph.py` 零项目内 import ⇒ 保留号只能写字面量 —— 这条用例钉住"两处不许漂"
+    assert DEFAULT_FACES["episode"] == (SELF_ID, SENSEI_ID), DEFAULT_FACES
+    assert default_faces("episode") == (SELF_ID, SENSEI_ID)
+    assert default_faces("belief") == (), "belief 那一行还没加（L2 落地时再加）"
+    assert default_faces("experience") == ()
+
+    nodes = [_node("x0000", "entity"), _node("x0001", "entity"),
+             _node("m0010", "episode"),                       # 没写归属 ⇒ 默认面
+             _node("m0011", "episode"),                       # 明确写了小玉 ⇒ 不兜底
+             _node("m0012", "episode"),                       # 明确写了老师 ⇒ 直连
+             _node("m0013", "belief"),                        # belief 没有默认面
+             _node("x0002", "entity")]
+    g = Graph(edges=[Edge(REL_ABOUT, "m0011", "x0002"),
+                     Edge(REL_ABOUT, "m0012", "x0001")], nodes=nodes)
+
+    # ① 默认面 + 明确的都在; ② 写了小玉的不在（self 那条没有明确的, 只剩默认面）
+    assert g.lane(SELF_ID) == ["m0010"], g.lane(SELF_ID)
+    assert g.lane(SENSEI_ID) == ["m0012", "m0010"], g.lane(SENSEI_ID)
+    assert g.lane("x0002") == ["m0011"], "非保留号照旧**只认明确写过的**（筛子还在）"
+    # ③ 对象不在 ⇒ 不兜底（旧档/单测里 x0000 常常不存在）
+    g2 = Graph(edges=[Edge(REL_ABOUT, "m0011", "x0002")],
+               nodes=[n for n in nodes if n.id not in (SELF_ID, SENSEI_ID)])
+    assert g2.lane(SELF_ID) == [], g2.lane(SELF_ID)
+    # kind 过滤照旧（belief 没有默认面 ⇒ 只剩明确的）
+    assert g.lane(SELF_ID, "belief") == []
+    # ④ 一条边都没落
+    assert [e.rel for e in g.edges] == [REL_ABOUT, REL_ABOUT]
+    # `unattributed` 的语义变了: 它们不是"没归属", 而是"没被明确写过"
+    assert set(g.unattributed()) == {"m0010", "m0013"}
+
+
 def test_entity_lane_and_unattributed():
     """查询 1/5: entity 车道 = `inc[E]`; **未归属清单必须排掉 entity 自己**。"""
     # 分类表: 方向恒为"节点 → entity"（entity 永远当 dst, 两种入参顺序都对）
