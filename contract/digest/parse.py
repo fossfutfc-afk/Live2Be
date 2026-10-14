@@ -205,8 +205,9 @@ def parse_cognitions(raw: Any, *,
     与"**旧看法 → 新看法**"（`evolved_from` —— ⭐ 2026-10-14 翻过: 她那一行行首写的是
     新的那条, 落边时摆成时间顺向）—— 执行侧**不再判方向**。
 
-    ⚠️ `kind_of` = `{她能写的认知 id: kind}`（只用来挡 `evolved_from` 指向 `profile`:
-    画像不是"看法", 没有"进化"可言）。缺省 `None` = 不校验。
+    ⚠️ `kind_of` = `{她能写的认知 id: kind}`（用来挡 `evolved_from` / `contradicts`
+    指向不是"看法"的东西 —— 而今天图上能当认知的只有 `belief`, 所以这一层与下面那条
+    "两端必须都是看法"的检查重叠; 留着是因为它管的是**名单**而不是**语义**）。缺省 `None` = 不校验。
     ⚠️ **三个名单缺省 `None` = 不校验**（单测 / 老调用方）; 给了就必须全都对得上。
     ⚠️ `group_ids` 今天**恒是空集**（`group` 退役 ⇒ 那条边不再有人落, 名单没有写者）——
     参数留着, 供 `_clean_soak` 的直接调用方（停产不删机器）。
@@ -885,10 +886,11 @@ def _clean_episode(e: Any, i: int, seq_set: set[int] | None = None,
     # ⭐ **2026-09-29: `kind` 只在"例外"时写**（用户裁决: 轮次决定的常量不该由 LLM 声明）——
     # 缺键 / 空串 ⇒ 默认 **episode**；写坏值照旧拒（不静默降级 —— 静默改 kind 会让模型
     # 下次还这么写）。
-    # ⏸ **2026-10-12 起"例外"没有了**: `profile`（玩家画像）停产（用户裁:
-    # *"`entity.text` 取代了它的定位"*）⇒ 今天只有"经历"一种条目。但这条通路**不删**、
-    # 也**不判成非法**（见下面那个 `if`）—— 契约已经不再要它, 可她惯性还会写,
-    # 而"多写一条我们不要的东西"**不该罚她重写整段**（坏 kind 才拒）。
+    # ⏸ **2026-10-12 停产, 2026-10-14 连格式一起删**（用户裁"顺手删掉"）: 玩家画像那个
+    # kind 已不在 `nodes.KINDS` 里（真机 9 个 jsonl 零个 profile 节点 ⇒ 无老档依赖）。
+    # ⚠️ **这条通路不删**: 契约早就不再要它, 可她惯性还会写 —— "多写一条我们不要的东西"
+    # **不该罚她重写整段**（坏 kind 才拒）。它跟 `COGNIZE_RETIRED` / `#entity:` 是同一档
+    # （**认得出 + 丢这一行 + 记账, ⛔ 不判非法**）。
     kind = str(e.get("kind", "") or "").strip() or "episode"
     if kind == "episode":
         item, errors, warnings = _clean_episode_item(
@@ -897,13 +899,8 @@ def _clean_episode(e: Any, i: int, seq_set: set[int] | None = None,
             item["kind"] = "episode"
         return item, errors, warnings
     if kind == "profile":
-        # ⏸ **停产 = 认得出 + 不产条目**。`_drop` 写进 `ValidationResult.drops`
-        #（"真的丢了东西"的账目行, 与 `warnings` 分开）⇒ 图上一个 profile 节点都不会
-        # 再新建。⚠️ **存量档照旧读得到**（`nodes.KINDS` / 读侧 / `_PREFIX["profile"]`
-        # 都留着）: 停的是**生产**, 不是**格式**（用户 2026-10-12 裁: 先停产, 真删等
-        # 确认没有老档依赖）。
         _drop(warnings, drops, f"episodes[{i}]: kind=profile（玩家画像）"
-                               "已停产, 这一条丢")
+                               "已退役, 这一条丢")
         return None, [], warnings
     return None, [f"episodes[{i}].kind 非法: {kind!r}（不写 = 经历; 今天没有"
                   f"第二种合法条目）"], []

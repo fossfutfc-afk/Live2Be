@@ -49,7 +49,6 @@ from core.brain.evolution import EvolutionLog
 from core.brain.graph import Edge, Graph, graph_of
 from core.brain.nodes import (
     KINDS,
-    PLAYER_SUBJECT,
     PRECIOUS_THRESHOLD,
     BrainNode,
     make_node,
@@ -90,7 +89,6 @@ from core.brain.store import WikiStoreV2
 
 __all__ = [
     "KINDS",
-    "PLAYER_SUBJECT",
     "PRECIOUS_THRESHOLD",
     "BrainNode",
     "make_node",

@@ -2,7 +2,7 @@
 import json
 
 from core.brain import (
-    PLAYER_SUBJECT,
+    KINDS,
     PRECIOUS_THRESHOLD,
     BrainNode,
     make_node,
@@ -92,7 +92,7 @@ def test_every_serialized_field_is_parsed_back():
         "event_seq": [1], "ts": "2026-09-01T20:00:00",
         "text": "n", "verbatim": "v", "verbatim_seq": ["1.1"],
         "title": "t", "emo_shape": ["smile"], "text": "p", "subject": "player",
-        "examples": ["e"], "text": "c", "growth": "g",
+        "text": "c", "growth": "g",
         "aff_at_encoding": 0.5, "emo_int": 0.5,
         "emo_span": 0.5,
     }
@@ -227,25 +227,25 @@ def test_belief_support_is_not_a_field_concern():
     assert node.validate() == []            # 字段层不再判支撑
 
 
-def test_experience_and_player_emphasis():
-    exp = make_node("profile", text="sensei 提到工作繁忙", subject="sensei",
-                    examples=["「这周又忙成狗了」"], links=["m0011", "m0015", "m0020"])
-    assert exp.validate() == []
-    # ⭐ 2026-09-25（DESIGN_GRAPH_V4 §5.1）: **按 kind 判，不看 `subject`** ——
-    # 可见性不许挂在自由文本上（真机 haruka e0001 就是被一个自造的 subject 藏起来的）。
-    assert exp.is_player_profile is True
-    pe = make_node("profile", text="摸鱼", subject=PLAYER_SUBJECT,
-                   examples=["「今天也摸鱼」"], links=["m0030", "m0033"])
-    assert pe.validate() == []
-    assert pe.is_player_profile is True
-    assert pe.dedup_key() == ("profile", tuple(pe.event_seq))  # 空 event_seq 不去重冲突
-    # 别的 kind 一律不是（桶只收 experience）
-    assert make_node("belief", text="老师会等我"
-                     ).is_player_profile is False
-    # examples 超限截断
-    many = make_node("profile", text="p", subject="s",
-                     examples=["1", "2", "3", "4"], links=["m0001"])
-    assert len(many.examples) == 3
+def test_profile_kind_is_gone_but_old_rows_still_load():
+    """⭐ 2026-10-14: `profile`（玩家画像）**删格式** —— kind 与 `examples` 一起没了。
+
+    两半判据, 缺一不可:
+      ① **今天没有这个 kind** —— `KINDS` 里没有它, `make_node("profile")` 于是像任何
+         未知 kind 一样**降级成 episode**。⚠️ 这正是 `episodes._create_a_nodes` 那一支
+         必须**删干净**、不能只"停产"的原因: 留着它 = 埋一条"画像被静默写成经历"的路。
+      ② **老档照样读得进、不炸** —— 那一行的 `text`/`subject` 还在（`subject` 字段
+         留着, 今天的读者是 belief）, 而 `examples` 键**静默忽略**（字段没了, 不是
+         "清空"⇒ 旧档不会因为多一个键而变脏）。
+    """
+    assert "profile" not in KINDS
+    old = BrainNode.from_dict({"id": "e0001", "kind": "profile", "text": "摸鱼",
+                               "subject": "sensei", "examples": ["「今天也摸鱼」"],
+                               "significance": 0.75})
+    assert old.kind == "episode" and old.text == "摸鱼"
+    assert old.subject == "sensei"                  # `subject` 留着（belief 的主题句）
+    assert not hasattr(old, "examples")             # 字段本身删了
+    assert make_node("profile", text="p", subject="s").kind == "episode"
 
 
 def test_relation_kind_removed():
@@ -303,9 +303,9 @@ def test_loose_from_dict_bad_kind_and_legacy_epistemic():
 
 def test_json_line_bad_input():
     assert BrainNode.from_json_line("{bad json").id == ""
-    line = json.dumps({"id": "e0002", "kind": "profile", "text": "摸鱼",
-                       "subject": "player", "significance": 0.75},
+    line = json.dumps({"id": "m0002", "kind": "belief", "text": "老师会记得",
+                       "subject": "sensei", "significance": 0.75},
                       ensure_ascii=False)
     node = BrainNode.from_json_line(line)
-    assert node.kind == "profile" and node.text == "摸鱼"
-    assert node.subject == PLAYER_SUBJECT
+    assert node.kind == "belief" and node.text == "老师会记得"
+    assert node.subject == "sensei"

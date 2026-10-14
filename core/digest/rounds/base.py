@@ -12,10 +12,12 @@
 `settle` 两套本地号。继承会逼出一个"什么都有"的基类; 而 `Ctx` 只是**同一个段**这件
 事实的载体 —— 谁读哪几段料仍由 `rounds.ROUNDS` 的 `material` 格说了算。
 
-⚠️ **跨轮状态只有四样**（`episode_ids` / `player_ids` / `r2_created` / `resp_a`）——
-想加第五样之前先问一句: 它真是"跨轮的产物", 还是"某一轮自己的中间量"?
+⚠️ **跨轮状态只有三样**（`episode_ids` / `r2_created` / `resp_a`）——
+想加第四样之前先问一句: 它真是"跨轮的产物", 还是"某一轮自己的中间量"?
 后者该留在那个轮的 `run()` 里（`record.py` 里那几个 `_no_pos` / `reused` 就是这么留的 ——
 它们都是 R1 自己的手, 下一轮谁也不需要）。
+⏸ 原来的第四样 `player_ids`（R1 建的玩家画像 id）**2026-10-14 随 `profile` 删** ——
+它的唯一用途是让 R2/R3 的认知列表排除本段刚建的画像, 而那个 kind 已经不存在。
 
 ⚠️ **六个方法全是薄转发**（`call.py` / `material.py` 的实现）—— 这里不长业务:
 料怎么拼在 `material.py`、这一轮怎么发在 `call.py`、写什么在轮次表。
@@ -77,11 +79,9 @@ class Ctx:
     embed_fn: EmbedFn | None = None
     aff_at_encoding: float | None = None
 
-    # ── 跨轮产物（⭐ 只有这四样）──
+    # ── 跨轮产物（⭐ 只有这三样）──
     episode_ids: list[str] = field(default_factory=list)
     """R1 建的 episode id —— R2 的覆盖检查 / R3 的归属都要它。"""
-    player_ids: list[str] = field(default_factory=list)
-    """R1 建的**玩家画像**（`experience`）id —— R2 的认知列表要按它排除。"""
     r2_created: list[str] = field(default_factory=list)
     """R2 新建的 belief id —— R3 要挂的就是"本轮全部新节点"。"""
     resp_a: dict | None = None

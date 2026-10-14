@@ -223,15 +223,17 @@ def test_result_sorted_by_significance(tmp_path):
 # ============================================================================
 
 def _cog_store(tmp_path) -> WikiStoreV2:
-    """稳定认知库: 猫粮约定 belief + 摸鱼 experience + 出厂 episode（不应被候选）。
+    """稳定认知库: 猫粮约定 belief + 摸鱼 belief + 两条 episode（不应被候选）。
 
-    id: episode m0001 / belief m0002 / experience e0001 / 出厂 episode m0003。
+    id: episode m0001 / belief m0002 / belief m0003（摸鱼）/ episode m0004。
+    ⏸ 摸鱼那条原来是 `profile`（玩家画像）—— 2026-10-14 那个 kind 删格式 ⇒ 改成 belief
+    （**今天唯一的认知 kind**）; 它要证的东西没变: 候选只收认知、不收 episode。
     """
     st = WikiStoreV2(tmp_path, world_id="world1", char_id="c")
     st.add(make_node("episode", text="天台旧事", event_seq=[1]))
     st.add(make_node("belief", text="老师会记得给猫带猫粮的约定", subject="老师与我的约定", significance=0.9, tags=["猫", "约定"],
                      event_seq=[1]))
-    st.add(make_node("profile", text="老师总说摸鱼", subject="sensei",
+    st.add(make_node("belief", text="老师总说摸鱼", subject="sensei",
                      significance=0.85, tags=["摸鱼"], event_seq=[1]))
     st.add(make_node("episode", text="遥香喜欢杂草"))
     return st
@@ -257,7 +259,7 @@ def test_candidates_kind_filter_and_embed_path(tmp_path):
     assert cands[0][1] > 0.9                           # 相似度原样给出（**不判档**）
 
     cands2 = recommend_candidates(st, "老师又说摸鱼", embed_fn=fake_embed)
-    assert cands2[0][0].id == "e0001" and cands2[0][1] > 0.9
+    assert cands2[0][0].id == "m0003" and cands2[0][1] > 0.9
 
 
 def test_candidates_are_hints_not_gates(tmp_path):

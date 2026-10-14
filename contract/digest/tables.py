@@ -38,7 +38,7 @@ PHASE_SETTLE = "settle"
 #: 而它带来的**名字守恒风险**（类名抄错 ⇒ 分裂 + 并群收口）不值这个价。
 #: 代码与文案已搬 `archive/digest_group/`（`groups.py` / `round_group.py` / `group.md`）。
 #: ⚠️ **只退役生产**: 相位名与 `parse_group` **留着**（老档/回放仍要解析;
-#:    真机 haruka 就有 1 个 `experience` + 6 条 `member_of`）—— 同 `profile` 的 B 案口径。
+#:    真机 haruka 就有 1 个 `experience` + 6 条 `member_of`）—— 同"停产 ≠ 删格式"的 B 案口径。
 PHASE_GROUP = "group"
 #: ⭐⭐ **L2「造认知 / 写正文」那一趟**（`DESIGN_DIGEST_TWO_PASSES.md` §3/§5,
 #: 2026-10-08 用户定稿）—— 它是**第二趟**:
@@ -54,8 +54,10 @@ PHASE_DEEP = "deep"
 #: ⏸ ~~`PINNED_OUTCOMES`~~（收口轮 `close` 行的结局词）已随那一轮删掉 —— 三种结局
 #: 一律划掉, 结局写在图里那条经历的正文里; 旧档里带 `state` 的 `note` 事件读侧照认。
 
-#: 玩家画像条目的 subject 固定值（与 nodes.PLAYER_SUBJECT 对齐, 契约层不依赖 core）
-PLAYER_SUBJECT = "player"
+#: ⏸ **`PLAYER_SUBJECT = "player"` 2026-10-14 随 `profile` 删** —— 玩家画像那个 kind
+#: 整个退役（`nodes.KINDS` 少一个, `parse_round_a` 仍认得出 `kind=profile` ⇒ 丢行 + 记账）。
+#: ⚠️ **别把 `subject` 当成"归属"**: 它是 belief 的**主题句**（"这条看法在讲什么"）,
+#: 归属走 `entity` 字段 + `about` 边。
 
 #: 边界（parse 级）—— ⛔ **加边界必须同时落校验器**: 只把常量加回来 = 一处看起来生效的
 #: 假边界（`MAX_CONTENT` / `MAX_EXAMPLES` / `MAX_EVIDENCE` 2026-09-21 就是这么删的）。
@@ -139,15 +141,17 @@ MAX_SEGMENTS = 12
 
 #: L1 的**锚点类型**（行首那个键能写哪几个 kind）。
 #: ⚠️ 与 `nodes.KINDS` **同源**，但契约层不 import core ⇒ 手写一份 + 守门钉住两边相等。
-#: ⛔ 里面**没有 `"entity"`**: 归属不是 LLM 的动作（引擎从节点 `tags` 的 `#entity:` 派生）。
-RELATION_ANCHORS = ("episode", "belief", "experience", "profile")
+#: ⛔ 里面**没有 `"entity"`**: 归属不是 LLM 的动作（引擎从节点 `entity` 字段派生）。
+#: ⏸ `profile`（玩家画像）**2026-10-14 摘掉** —— 整个 kind 删格式 ⇒ 她的行若还写
+#: `{"profile": …}` 会掉进"锚点键 0 个"⇒ **丢那一行**（⛔ 不是整包拒 —— 同 B 案口径）。
+RELATION_ANCHORS = ("episode", "belief", "experience")
 
 
 #: L2 的**锚点键**（= 她今天能动手的 kind: **只剩"造看法"**）。
 #: ⏸ **`experience`（给已有的类写沉淀）2026-10-13 随 `group` 退役一起停产** ——
 #: 它从**锚点**里摘掉（契约不再要它）, 但**仍是合法键**（见 `COGNIZE_RETIRED`）。
 COGNIZE_ANCHORS = ("belief",)
-#: ⏸ **停产的锚点键**（认得出 ⇒ **丢这一行** + 记账; ⛔ **不判非法** —— 同 `profile` 的 B 案口径）。
+#: ⏸ **停产的锚点键**（认得出 ⇒ **丢这一行** + 记账; ⛔ **不判非法** —— B 案口径）。
 #:
 #: ⚠️ **这一格修的是一个真口子**（2026-10-13 查到）: `group` 退役后没有谁再落 `member_of` ⇒
 #: `cognize` 传下来的 `group_ids` 恒是**空集** ⇒ 她只要写一行 `experience`, `_clean_soak`

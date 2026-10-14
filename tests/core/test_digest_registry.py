@@ -549,12 +549,12 @@ def test_round_a_kind_is_exception_only():
     默认 = 经历（缺键 / 空串都算）; 写坏值照旧**拒**（不静默降级 —— 静默改 kind
     会让模型下次还这么写）。
 
-    ⏸ **2026-10-12: 那个"例外"（`profile` 玩家画像）停产了** —— 用户裁
-    *"`entity.text` 取代了它的定位"*。判据因此变成三条:
+    ⏸ **2026-10-12 停产, 2026-10-14 连格式一起删**（`profile` 玩家画像; 见 `nodes.KINDS`）
+    —— 用户先裁 *"`entity.text` 取代了它的定位"*, 后裁"顺手删掉"。判据因此变成三条:
       · 契约不再要它（`record.md` 里没有这个字段了）;
       · 她惯性还写得出 ⇒ **认得出**（⛔ 不判非法: 那会罚她重写整段）,
         但**不产条目**（丢行进 `drops` 的账）;
-      · 图上因此不会再有新的 profile 节点。
+      · 图与 `_PREFIX` 里**都没有那个 kind 了**（老档若还有 `e…` 行, 读进来降级成经历）。
     """
     raw = {"episodes": [
         {"text": "老师约我去公园散步。", "title": "公园散步", "tags": ["公园"]},
@@ -563,12 +563,12 @@ def test_round_a_kind_is_exception_only():
          "verbatim": ["3.0"], "tags": ["玩家"], "significance": 0.7},
     ]}
     items, result = digest_registry.parse_round_a(raw)
-    assert result.is_valid, result.errors          # ⭐ 停产**不是**错误
+    assert result.is_valid, result.errors          # ⭐ 退役**不是**错误
     assert len(items) == 2 and [it["kind"] for it in items] == ["episode", "episode"]
     assert items[0]["text"].startswith("老师约我")            # 不写 kind ⇒ 经历
     assert items[1]["kind"] == "episode"                     # 空串 ⇒ 也是经历
     # 丢了东西要**有账**（`drops` 与 `warnings` 分家）
-    assert any("profile" in d and "停产" in d for d in result.drops), result.drops
+    assert any("profile" in d and "退役" in d for d in result.drops), result.drops
     assert not any("profile" in e for e in result.errors)
 
 
@@ -648,8 +648,8 @@ def test_schema_documents_pointer_and_channels():
     ⇒ 这条镜像断言必须跟着改，否则文案漂了没人知道。
     ⭐ **⑤（2026-09-29）把 `verbatim` 收成一条通道**（记录行号）⇒ 这里同时钉住
     "只给行号"与"字符串会被忽略"，防那条老通道被谁顺手加回来。
-    ⭐ **⑥（2026-09-29）把 `kind` 收成"例外才写"**; ⏸ **2026-10-12 连那个例外也
-    停产了**（`profile` 玩家画像）⇒ 今天契约要**明说没有 `kind` 这个字段**,
+    ⭐ **⑥（2026-09-29）把 `kind` 收成"例外才写"**; ⏸ **2026-10-12 停产、2026-10-14
+    连那个例外（`profile` 玩家画像）一起删** ⇒ 今天契约要**明说没有 `kind` 这个字段**,
     并且**示例 JSON 里既不带 `"kind": "episode"` 也不带 `"kind": "profile"`**
     （示例才是形状的来源, 陷阱 3/46）。
     """
@@ -667,7 +667,7 @@ def test_schema_documents_pointer_and_channels():
     assert '"event_seq"' not in text
     assert "两条通道" not in text
     assert '"kind": "episode"' not in text            # 示例里不该再出现这一行
-    assert '"kind": "profile"' not in text            # ⏸ 停产的那一档更不该出现
+    assert '"kind": "profile"' not in text            # ⏸ 已删的那一档更不该出现（`kind` 只有 episode 合法）
     print("    schema: 按骨架填 + drop + verbatim 记录行号 + 今天没有 kind 例外")
 
 
@@ -950,8 +950,10 @@ def test_topics_is_retired_everywhere():
          的先例: ⛔ 不丢行、不告警 —— 那一行本身没毛病）;
       ③ **`ROUNDS.writes` 摘掉它**（那张表是"这一步往哪写"的地图, 漏了功能不报错, 地图就错了）。
 
-    ⚠️ 节点上的字段**留着**（停产不删格式, 同 `profile`）—— 老档那几格还读得回来,
+    ⚠️ 节点上的字段**留着**（停产不删格式）—— 老档那几格还读得回来,
     见下一条用例。退役的**判据**（`akin` 的 `on` ∈ 两端交集）同批撤, 见 `test_relate_*`。
+    ⛔ **别拿它跟已删的 `profile` 比**: 那是整个 kind 删格式（`KINDS` 里没有它了）,
+    而 `topics` 是**行内一格**退役 ⇒ 字段留着（见坑 4.32 那两条先例）。
     """
     from core.digest.rounds import BY_KEY
     from llm.prompts import load_prompt
@@ -1066,10 +1068,10 @@ def test_parse_cognitions_three_tiers():
         {"belief": {"text": "没有立足点"}},                                    # 两个都没给
         {"belief": {"text": "想改已有的", "id": "m0003"}, "supports": ["m0007"]},  # 带 id
         {"nonsense": {"text": "x"}},                                          # 不是锚点 kind
-        {"belief": {"text": "跟画像打架"}, "supports": ["m0007"],
-         "contradicts": ["u0002"]},                                          # 另一端是画像
+        {"belief": {"text": "跟不是看法的一端打架"}, "supports": ["m0007"],
+         "contradicts": ["u0002"]},                                          # 另一端不是看法
     ]}, evidence_ids={"m0007"}, cognition_ids={"u0001", "u0002"},
-        group_ids={"g0001"}, kind_of={"u0001": "belief", "u0002": "profile"})
+        group_ids={"g0001"}, kind_of={"u0001": "belief", "u0002": "experience"})
     assert rows == []
     assert vr2.is_valid, "这些都该是**丢行**, 不是整包拒"
     joined = " | ".join(vr2.drops)

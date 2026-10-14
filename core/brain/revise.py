@@ -46,11 +46,10 @@ logger = logging.getLogger(__name__)
 _REF_KEY = "ref"
 #: create entry 里引擎忽略的字段（id/ts 由引擎分配——确定性归引擎）
 _IGNORED_ON_CREATE = ("id", "ts")
-#: `about` 边的可归属 kind（§2: belief → entity · episode → entity）。
-#: ⚠️ **含 `experience`**: 今天的"玩家画像"（`subject=player`）就落在它上面, 它显然是
-#: "关于老师的"; §9-3 把 experience 并成 `belief + nature=pattern` 之后删掉这一项。
+#: `about` 边的可归属 kind（§2: belief → entity · episode → entity · experience → entity）。
 #: ⏸ `promise` 2026-09-29 摘掉（它退出了图 —— 见 `nodes.KINDS`）。
-_ATTACHABLE = ("episode", "belief", "profile")
+#: ⏸ `profile`（玩家画像）**2026-10-14 摘掉** —— 整个 kind 删格式（见 `nodes.KINDS`）。
+_ATTACHABLE = ("episode", "belief", "experience")
 #: hint 写回别名的长度上限 —— 超过这个长度的东西**不是称呼, 是一句话**。
 #: （同 `core.parsing.names.MAX_NAME_LEN` 的口径; 本模块**不 import 它** ——
 #: `brain` 的运行时依赖要保持纯 stdlib, 而 names 会拖进 yaml。）

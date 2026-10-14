@@ -72,7 +72,7 @@ def run(ctx: Ctx) -> RoundOut:
     """③ 接 —— 把本段经历接到已有认知 / 已有经历 / 对象上。"""
     spec = ctx.enter("relate")
     cog_text, local_of = render_cognition_list(
-        ctx.store, cap=DIGEST_COGNITION_CAP, exclude=set(ctx.player_ids))
+        ctx.store, cap=DIGEST_COGNITION_CAP)
     ep_text = _round_b_material(ctx.store, ctx.episode_ids, local_of,
                                 embed_fn=ctx.embed_fn,
                                 char_id=getattr(ctx.store, "char_id", ""))

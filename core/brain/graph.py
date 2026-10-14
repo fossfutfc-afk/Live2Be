@@ -28,7 +28,7 @@ from typing import Any
 # 边类型（`DESIGN_GRAPH_V4.md` §2）
 # ---------------------------------------------------------------------------
 
-REL_ABOUT = "about"                  # belief/episode/profile/experience → entity（归属）
+REL_ABOUT = "about"                  # belief/episode/experience → entity（归属）
 REL_SUPPORTS = "supports"            # ⭐ **两种形状**: episode → 认知（决策表 touch 写）·
                                      #    认知 → 认知（R2 的 `links` 写 —— "这条看法支撑那条",
                                      #    真机有实例; 2026-09-29 用户裁决"belief-belief 以后也需要"）
@@ -108,17 +108,19 @@ KIND_ENTITY = "entity"
 #: （混了会让 `graph.supporters()` 把群也捞出来 —— 而它今天用来算"被引数"）。
 KIND_EXPERIENCE = "experience"
 
-#: 会挂 `about` 的 kind（§2: belief/episode/profile/experience）。
+#: 会挂 `about` 的 kind（§2: belief/episode/experience）。
 #: ⚠️ `fact` 2026-09-25 摘掉 —— 它是**死配置**（kind 已退役 ⇒ 这条白名单永远匹配不到
 #: 任何节点）。`experience` **留着**，但理由换了: 不再是"押 §9-3 的合并预案"（那条
 #: 2026-09-25 由用户关掉），而是**它本身就是"关于老师的事"** ⇒ 该被 `about → sensei`
 #: 指着（§9-8）。⚠️ `promise` 2026-09-29 摘掉（它退出了图）。
 #: ⭐ `experience`（经验; 原 `group`）**加进来** —— 经验也能归属 entity（"苔藓"属于老师那条线）。
 #: 今天**零写者**（要 L2 才写），这是"先开接口、别锁死"。
-_ABOUTABLE = ("belief", "episode", "profile", "experience")
-#: 认知侧（`supports` 的 dst）: 她的结论 + 玩家画像（两者都是"稳定下来的东西"）
+#: ⏸ `profile`（玩家画像）**2026-10-14 摘掉** —— 整个 kind 删格式（见 `nodes.KINDS`）。
+_ABOUTABLE = ("belief", "episode", "experience")
+#: 认知侧（`supports` 的 dst）: 她的结论（"稳定下来的东西"）
 #: ⚠️ **经验不在这里** —— 见 `KIND_EXPERIENCE` 的注释。
-_COGNITION = ("belief", "profile")
+#: ⏸ `profile` **2026-10-14 随 kind 删** —— 当年它在这里的理由是"画像也是稳定下来的东西"。
+_COGNITION = ("belief",)
 
 
 # ---------------------------------------------------------------------------
@@ -242,8 +244,8 @@ def classify_pair(ka: str, kb: str, a_id: str, b_id: str) -> tuple[str, str, str
 
     | 对 | 判成 | 依据 |
     |---|---|---|
-    | `episode` ↔ `belief` / `profile` | `supports`（**经历 → 认知**） | §2; 方向由 kind 定, 不是猜 |
-    | `entity` ↔ `belief` / `episode` / `profile` / `experience` | `about`（**对方 → entity**） | §2 归属 |
+    | `episode` ↔ `belief` | `supports`（**经历 → 认知**） | §2; 方向由 kind 定, 不是猜 |
+    | `entity` ↔ `belief` / `episode` / `experience` | `about`（**对方 → entity**） | §2 归属 |
     | 其余（`belief`↔`belief`、`belief`↔`experience`、`episode`↔`experience`、`episode`↔`episode`、`entity`↔`entity`） | `unknown` | **不猜** |
 
     ⚠️ **`experience` 不进 `_COGNITION`, 这是有意的**（别"顺手"补上）: 经验**不是认知**,

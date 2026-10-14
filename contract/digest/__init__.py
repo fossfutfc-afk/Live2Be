@@ -81,7 +81,6 @@ from contract.digest.tables import (  # 值表（相位名 / 上限 / 取值域 
     PHASE_RELATE,
     PHASE_SETTLE,
     PHASE_SPLIT,
-    PLAYER_SUBJECT,
     RELATION_ANCHORS,
     STATE_VALUES,
     is_full_date,

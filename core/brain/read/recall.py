@@ -137,7 +137,7 @@ def recall_subgraph(
 def recommend_candidates(store: WikiStoreV2, query: str, *,
                          embed_fn: EmbedFn | None = None,
                          k: int | None = None,
-                         kinds: tuple[str, ...] = ("belief", "profile"),
+                         kinds: tuple[str, ...] = ("belief",),
                          mode_out: list | None = None,
                          why_out: list | None = None) -> list[tuple[BrainNode, float]]:
     """按 query 打分取 top-k 的**通用**检索（两个调用者, 判据不同）。
@@ -153,7 +153,7 @@ def recommend_candidates(store: WikiStoreV2, query: str, *,
 
     原职语义（**别丢**）: 服务 digest Round B——引擎先把每条新经历与现有稳定认知碰撞,
     把最像的几条**列出来给 LLM 参考**（A-MEM/AgentGal 同款"引擎先筛再让 LLM 逐条判定"）。
-    那时只挑稳定认知（belief/profile）——episode 是流水不参与组织, fact 是
+    那时只挑稳定认知（belief）——episode 是流水不参与组织, fact 是
     出厂基座不可被 touch/update（守 revise._ensure_cognition 语义）。
     ⚠️ **候选只是提示, 没有阈值、也没有结构强制**（2026-09-15 T17 删 `CAND_HIGH`）:
     排序取 top-k, `s > 0` 挡掉零/负相似; 判 touch/update/add 全在 LLM。
@@ -315,12 +315,14 @@ def _tags_hits(nodes: list[BrainNode], query: str, k: int) -> list[BrainNode]:
 
 
 def _embed_text(node: BrainNode) -> str:
-    """节点的可嵌入文本（主文本 + 附属 + 关键词; 与渲染口径一致）。"""
+    """节点的可嵌入文本（主文本 + 附属 + 关键词; 与渲染口径一致）。
+
+    ⚠️ 口径的**唯一现役实现**是 `pack.body_of`（`find`/`like` 共用）—— 这里留着的是
+    老召回通道自己那一份（同源）。⏸ `profile → examples` 那一支 2026-10-14 随那个 kind 删。
+    """
     body = node.text
     if node.kind == "episode" and node.verbatim:
         body += " " + node.verbatim
-    elif node.kind == "profile" and node.examples:
-        body += " " + " ".join(node.examples)
     elif node.kind == "belief" and node.growth:
         body += " " + node.growth
     tags = " ".join(node.tags)

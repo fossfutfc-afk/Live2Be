@@ -41,7 +41,11 @@ SPLIT = {"segments": [{"span": [3, 3], "abstract": "又见苔藓"}]}
 
 
 def _store(tmp_path, *, old_text="天台上的苔藓旁", old_tags=("苔藓",)) -> WikiStoreV2:
-    """预置: `m0001` = 一条**旧经历** + `m0002` = 看法（`u0001`）+ `e0001` = 画像（`u0002`）。
+    """预置: `m0001` = 一条**旧经历** + `m0002` = 看法（`u0001`）+ `m0009` = 看法（`u0002`）。
+
+    ⏸ 第二条认知原来是 `profile`（玩家画像 `e0001`）—— 2026-10-14 那个 kind 删格式 ⇒
+    改成 belief（**今天唯一的认知 kind**）, id 钉成 `m0009`（"m0003 = 本段新建的经历"
+    是本文件几十条用例的公共前提, 别让它被挤掉）。
 
     ⚠️ 旧经历那段正文**故意跟本段的新经历撞词**（`苔藓`）—— ⭐ 2026-10-14 起候选由
     `like(spec="digest")` 的**字面路**排出来（测试里没有 embedder ⇒ 语义那一路不在）,
@@ -53,8 +57,13 @@ def _store(tmp_path, *, old_text="天台上的苔藓旁", old_tags=("苔藓",)) 
                      event_seq=[2], ts="2026-09-01T10:00:00+08:00"))
     st.add(make_node("belief", text="老师是第一个不会嫌弃我的人", subject="sensei",
                      significance=0.9, event_seq=[2]))
-    st.add(make_node("profile", text="老师总是很忙", subject="sensei",
-                     significance=0.85, event_seq=[2]))
+    second = make_node("belief", text="老师总是很忙", subject="sensei",
+                       significance=0.85, event_seq=[2])
+    # ⚠️ **钉死 id = `m0000`**（比 m0002 小）—— 本文件十几条断言的前提是
+    # "本段新建的那条经历 = m0003"; `next_id("m")` 取**最大序号 +1** ⇒ 只有钉在 m0003
+    # 以下的 id 才不会把它挤成 m0004。
+    second.id = "m0000"
+    st.add(second)
     st.save()
     return st
 

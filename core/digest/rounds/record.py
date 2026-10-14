@@ -79,7 +79,7 @@ def run(ctx: Ctx) -> RoundOut:
             _resolve_verbatim(ent, ctx.by_seq)
         before = len(ctx.episode_ids)
         strangers: list[str] = []       # ⭐ E1: `#entity:` 里解析不到的名字（= 还没建的人）
-        ctx.episode_ids, ctx.player_ids = _create_a_nodes(
+        ctx.episode_ids = _create_a_nodes(
             ctx.store, entries, ts=ctx.now_ts,
             event_seq=[ctx.interact_max], aff_at_encoding=ctx.aff_at_encoding,
             by_seq=ctx.by_seq, reused_out=reused, strangers_out=strangers)
