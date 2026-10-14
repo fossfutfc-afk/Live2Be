@@ -323,7 +323,7 @@ class PlaceGate:
             res.note = "无 place_now（当前地点未知）"
             return res
         nodes = [n for n in store.all()
-                 if n.kind in ("episode", "belief", "profile")
+                 if n.kind in ("episode", "belief")
                  and (n.place or n.place_raw)]
         if not nodes:
             res.degraded = True

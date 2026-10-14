@@ -6,13 +6,13 @@
     角色视图    render_character_view   —— 喂主剧情 LLM
                纯第一人称叙事, 无 id 无链接, 分层排序（§4.2 + 排序规则）
     认知列表    render_cognition_list   —— ⭐ **L1（`relate`）的「现有认知」那一段**
-                ⚠️ 收的是 **belief / profile**（2026-10-06 改名时这条没跟着改: 当年那个
-                `experience` 指的是玩家画像, 如今叫 `profile`; **新的 `experience`（一类事）
-                不进这张列表** —— 它只出现在 `group` 轮的「已有的类」, 见 `core/brain/groups.py`）
-               本地 id u0001.. 渲染（**belief / profile**, sig 降序）——引擎防 LLM 猜真实 id
+                ⚠️ 收的是 **`belief`**（⛔ 不是 `experience`: 经验是"分类", 不是可被
+                `supports` 指的结论 —— 它只出现在已退役的 `group` 轮的「已有的类」）
+               本地 id u0001.. 渲染（sig 降序）——引擎防 LLM 猜真实 id
 
 格式约定（决策 #7）: id 无 # 无下划线（m0003）——组织视图行首即 id, 防 markdown 标题歧义。
-player experience（§4.4）: 组织视图带 [关于老师] 标记; 角色视图独立【老师的事】段。
+⏸ **原「player experience（§4.4）: 组织视图带 [关于老师] 标记; 角色视图独立【老师的事】段」**
+2026-10-14 随 `profile` kind 删**（那个 kind 整个退役, 见 `nodes.KINDS`）。
 ⚠️ **出厂 episode / seed 桶 2026-09-21 删**（"出厂基座"机制退役）: 2026-09-05 解耦后
 出厂记忆**不进 wiki**（主进程注入走 `render_background_experience` 直注 yml 原文）,
 真机 0 个 seed 节点 ⇒ 本文件那条 `source == "experience"` 的分支（含【久远的记忆】段
@@ -116,16 +116,11 @@ def render_organize_view(nodes: Iterable[BrainNode], *, timeline: str = "",
 def _organize_line(node: BrainNode, graph=None) -> str:
     """一行: `m0003 [episode, sig 0.80, edges: supports→m0009 contradicts→m0005] 内容`。
 
-    player profile 的 kind 标签带 [关于老师]。
     ⚠️ 边的**类型印出来**（G3）—— 旧版印的是无类型的 `links: m0009` + `c: m0005`,
     "谁支撑谁"读不出来; 现在 `supports→m0009` 一眼可判方向。
     """
     meta = [node.kind]
-    if node.is_player_profile:
-        meta[0] = "profile·关于老师"
     meta.append(f"sig {node.significance:.2f}")
-    if node.kind == "profile":
-        meta.append(f"count {_count_of(node, graph)}")
     if graph is not None:
         # 出边（我指向谁）+ 入边（谁指向我）——无向边的时代两边都有, 这里都印
         rels = [f"{e.rel}→{e.dst}" for e in graph.edges_from(node.id)]
@@ -142,15 +137,13 @@ def _organize_line(node: BrainNode, graph=None) -> str:
 
 
 def _organize_extra(node: BrainNode) -> str:
-    """续行（缩进引文）: episode 的 verbatim / profile 的 examples（最多 2 条）。
+    """续行（缩进引文）: episode 的 verbatim（最多 1 条）。
 
     原文已带「」时不重复包裹（防双重引号）。
     """
     quotes: list[str] = []
     if node.kind == "episode" and node.verbatim:
         quotes.append(node.verbatim)
-    elif node.kind == "profile":
-        quotes.extend(node.examples[:2])
     if not quotes:
         return ""
     return "\n" + "\n".join(
@@ -213,9 +206,11 @@ def _bucket_view(nodes: Iterable[BrainNode], graph=None) -> dict:
         "episode": lambda n: (n.kind == "episode"
                               and not n.observer.strip()),
         "belief": lambda n: n.kind == "belief",
-        # ⚠️ 2026-09-25（§5.1）: 按 **kind** 收，**不再看 `subject`** —— 那是自由文本,
-        # 拿它当路由会让"subject 被写坏"变成"这条记忆静默消失"（真机 haruka e0001 就是）。
-        "player": lambda n: n.kind == "profile",
+        # ⏸ **原 "player" 桶（`kind == "profile"`, 渲染成「老师的事：」）2026-10-14 删** ——
+        # 玩家画像那个 kind 整个退役（见 `nodes.KINDS`）, 那一块**永远空**。
+        # ⚠️ 它当年那条判据的教训留着（`DESIGN_GRAPH_V4 §5.1`）: 桶按 **kind** 收,
+        # ⛔ **不看 `subject`** —— 拿自由文本当路由会让"subject 被写坏"变成
+        # "这条记忆静默消失"（真机 haruka e0001 就是那么丢的）。
         "reported": lambda n: (n.kind == "episode"
                                and bool(n.observer.strip())),
         # ⭐ **我知道的名字**（2026-10-12, 用户裁"合并 + 保留号都收"）: **全体 entity** ——
@@ -238,22 +233,18 @@ def _bucket_view(nodes: Iterable[BrainNode], graph=None) -> dict:
                       key=lambda n: (bool(n.ts), n.ts or "", n.id))
     beliefs = sorted((n for n in all_nodes if bucket["belief"](n)),
                      key=lambda n: n.significance, reverse=True)
-    players = sorted((n for n in all_nodes if bucket["player"](n)),
-                     key=lambda n: _count_of(n, graph), reverse=True)
     reported = [n for n in all_nodes if bucket["reported"](n)]
     known = sorted((n for n in all_nodes if bucket["known"](n)), key=lambda n: n.id)
     return {
         "total": len(all_nodes),
         "episodes": episodes,
         "beliefs": beliefs,
-        "players": players,
         "reported": reported,
         "known": known,
         # 台账口径: 桶名 → 注入条数（cap 已删 → 桶内全量, 无"选中/候选"之分）
         "buckets": {
             "episode": len(episodes),
             "belief": len(beliefs),
-            "player": len(players),
             "reported": len(reported),
             "known": len(known),
         },
@@ -301,8 +292,8 @@ def render_character_view(
     **时刻**（`datetime` 或 `ts` 串）—— 形状没变, 语义从"剧情时间槽"变成"今天"。
     """
     b = _bucket_view(nodes, graph)
-    episodes, beliefs, players, reported, known = (
-        b["episodes"], b["beliefs"], b["players"], b["reported"], b["known"])
+    episodes, beliefs, reported, known = (
+        b["episodes"], b["beliefs"], b["reported"], b["known"])
     _last_view_account.append(b)
 
     blocks: list[str] = ["【角色记忆（brain）】"]
@@ -335,10 +326,6 @@ def render_character_view(
     if beliefs:
         blocks.append("我心里渐渐觉得：\n" + "\n".join(
             _belief_line(n, char_name, char_aliases) for n in beliefs))
-    if players:
-        blocks.append("老师的事：\n" + "\n".join(
-            f"- {_me(n.text, char_name, char_aliases)}（count {_count_of(n, graph)}）"
-            for n in players))
     if reported:
         blocks.append("我听说的：\n" + "\n".join(
             _reported_line(n, char_name, char_aliases) for n in reported))
@@ -707,19 +694,18 @@ def _me(text: str, char_name: str, aliases: tuple[str, ...] = ()) -> str:
 # Round B 输入渲染（板块 5: 认知列表 + episode 摘要）
 # ---------------------------------------------------------------------------
 
-def render_cognition_list(store: WikiStoreV2, cap: int = 12,
-                          exclude: set[str] | None = None
+def render_cognition_list(store: WikiStoreV2, cap: int = 12
                           ) -> tuple[str, dict[str, str]]:
     """L1 输入: 现有稳定认知渲染（本地 id u0001..; 排序: significance 降序）。
 
-    ⚠️ **收的是 `belief` + `profile`**（下面那行 list comprehension 是判据）——
-    ⛔ 不是 `experience`: 2026-10-06 那次改名里, 旧 `experience`（玩家画像）改叫 `profile`,
-    旧 `group`（一类事）改叫 `experience`, 而**这里收的一直是"看法 + 玩家画像"**
-    （旧的 `experience` 就是今天的 `profile`）⇒ 新 `experience` 不进这张列表。
-    想让它进 = 改 L1 的料 + `u…` 编号空间 + `digest_relate.md` 的说明, 单独一笔
-    （用户 2026-10-08 裁: **先不收**）。
+    ⚠️ **收的是 `belief`**（下面那行 list comprehension 是判据）—— ⛔ 不是 `experience`:
+    经验是"分类"（成员走 `member_of`）, 不是可被 `supports` 指的结论 ⇒ 不进这张列表
+    （用户 2026-10-08 裁: **先不收**。想让它进 = 改 L1 的料 + `u…` 编号空间 +
+    `digest_relate.md` 的说明, 单独一笔）。
+    ⏸ **`profile`（玩家画像）2026-10-14 随那个 kind 删出这张列表** —— 当年它在这里的
+    理由是"画像也是稳定下来的东西"。
 
-    只挑 belief/profile（episode 是流水不参与组织 —— 它是"支撑"的**起点**
+    只挑 belief（episode 是流水不参与组织 —— 它是"支撑"的**起点**
     而不是被 touch 的对象）; 渲染层守 `_ensure_cognition` 语义, 引擎不给 LLM 不可选之物。
 
     ⏸ **原 `must_include`（promise 必进）2026-09-29 删** —— 参数 2026-09-25 加的, 唯一
@@ -728,20 +714,18 @@ def render_cognition_list(store: WikiStoreV2, cap: int = 12,
     ⏸ **原 promise 进列表**（§9-13）同理 —— 承诺不再有节点, "这条承诺长出了看法"
     改由那条**经历**承担（`supports(episode → belief)`）。
 
-    `exclude`: 本轮 A 刚建的 id 集（player 画像条目——本段产物不进本轮认知列表,
-    B 只组织 episode, 画像留待后续轮次参与组织）。
+    ⏸ **原 `exclude`（本轮 A 刚建的 id 集 —— 画像条目不进本轮认知列表）2026-10-14 删**:
+    它排除的是"本段刚建的**玩家画像**", 而那个 kind 已经不存在 ⇒ 参数没有读者
+    （判据① 没读者就删, 同下面的 `must_include`）。
 
     Returns:
         (text, local_of): local_of = 真实 id → 本地 id（候选标注/执行器解析用;
         parse 层只认本地 id——防 LLM 猜真实 id）
     """
-    exclude = exclude or set()
-    nodes = [n for n in store.all()
-             if n.kind in ("belief", "profile")
-             and n.id not in exclude]
+    nodes = [n for n in store.all() if n.kind == "belief"]
     nodes.sort(key=lambda n: (-n.significance, n.id))
     picked = nodes[:cap]
-    graph = store.graph()                       # profile 的次数 = supports 入边数
+    graph = store.graph()                       # "被引 N" = supports 入边数
     # ⭐ **N2（2026-09-29）: 元信息进 `〔〕`，被引与边都印出来** ——
     #   形态: `〔u0001｜belief｜被引 3〕关于 sensei: 老师是第一个不会嫌弃我的人`
     #         + 缩进续行 `        edges: supports←m0004 contradicts→u0003`

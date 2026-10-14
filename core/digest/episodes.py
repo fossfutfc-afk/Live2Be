@@ -1,6 +1,6 @@
 """episodes.py — **把 R1 的条目落成节点**（2026-09-29 从 `pipeline.py` 拆出）。
 
-L1 的**引擎侧**（零 LLM）: 条目 → `episode` / `experience` 节点，并把"召回侧才用"的字段
+L1 的**引擎侧**（零 LLM）: 条目 → `episode` 节点，并把"召回侧才用"的字段
 一次物化好:
 
 | 函数 | 干什么 |
@@ -17,7 +17,7 @@ from datetime import date
 from typing import TYPE_CHECKING, Any
 
 from core.brain.address import unique_title
-from core.brain.nodes import PLAYER_SUBJECT, make_node
+from core.brain.nodes import make_node
 from core.brain.revise import link_entity_refs
 from core.digest.segment import _seqs_of
 
@@ -64,13 +64,13 @@ def _create_a_nodes(store: WikiStoreV2, entries: list[dict], *, ts: str,
                     ) -> tuple[list[str], list[str]]:
     """Round A 条目 → 节点（引擎字段归属——确定性归引擎, 防幻觉）。
 
-    kind=episode  → episode 节点
-    kind=profile（玩家画像）→ subject=player 的 profile 节点:
-        口癖/偏好/一次性个人信息——不进本轮 B（B 只组织 episode）, 下轮起参与认知层
-    ⏸ **2026-10-12 停产**（用户裁: *"`entity.text` 取代了它的定位"*）: 契约不再要它,
-    `parse_round_a` **认得出但丢行** ⇒ 真机上这一段**收不到** profile 条目。
-    这一支**留着**（停用的是"生产", 不是"机器"）—— 直接喂条目的调用方仍可用它,
-    `test_entity_tags` 也还打着这条支路。
+    今天条目**只有一种**: `kind=episode`（缺键 = episode）→ episode 节点。
+    ⏸ **`kind=profile`（玩家画像）那一支 2026-10-14 删** —— 先停产（2026-10-12,
+    用户裁 *"`entity.text` 取代了它的定位"*）、再删格式（整个 kind 退役, 见 `nodes.KINDS`）;
+    真机 9 个 jsonl 零个 profile 节点 ⇒ 无老档依赖。⚠️ **这一支必须删干净, 不能只停产**:
+    `make_node("profile", …)` 今天会**静默降级成 episode**（`from_dict` 认不出 kind 时的
+    兜底）⇒ 留着一个"照条目建节点"的分支等于埋一条"画像被写成经历"的路。
+    上游（`parse_round_a`）仍**认得** `kind=profile` ⇒ 丢行 + 记账, ⛔ 不判非法。
     dedupe: (kind, event_seq, 主文本) 命中已有节点 → 复用 id（崩溃窗口重跑防双写）。
 
     event_seq（T14, 2026-09-15）: **条目自带就用条目自带的**（Round A 抄的行号,
@@ -94,43 +94,11 @@ def _create_a_nodes(store: WikiStoreV2, entries: list[dict], *, ts: str,
         它和 R3 的"挂谁"**判两次**（还可能不一致）, 而 R3 本来就拿得到全量候选表 +
         新节点正文 ⇒ 引擎不必替它预判一个名字（`REDUNDANCY.md` #2）。
 
-    Returns: `(episode_ids, player_ids)`——episode_ids 供 B 覆盖检查。
+    Returns: `episode_ids`——供 B 覆盖检查。
     """
     from core.brain.revise import _find_duplicate
     episode_ids: list[str] = []
-    player_ids: list[str] = []
     for ent in entries:
-        if ent.get("kind") == "profile":
-            # ⏸ **停产, 不是删除**（2026-10-12）—— 真机路径上这些条目在
-            # `parse_round_a` 就被丢掉了（`kind=profile` → `drops`）, 所以这一支今天
-            # **不会再被生产路径喂到**。留着的理由: 它是"照条目建节点"的完整机器,
-            # 停掉的是**上游的产出**, 而把机器拆了会让"将来要不要复活画像"重新变成
-            # 一件要重写的事。
-            # ⚠️ `subject` **强制**成 `player`（§5.1）: 画像只有一个意思（"关于老师
-            # 的事"），而 `subject` 是自由文本 —— 契约层已经强制过一次, 这里再强制一次
-            # 是因为**可见性曾经挂在它上面**（真机 haruka e0001 就是被一个自造的
-            # subject 藏起来的）。别再让它有第二个写者。
-            node = make_node("profile",
-                             text=ent["text"], subject=PLAYER_SUBJECT,
-                             verbatim=ent.get("verbatim", ""),
-                             verbatim_seq=ent.get("verbatim_seq", []),
-                             tags=ent.get("tags", []),
-                             entity=ent.get("entity", []),
-                             significance=ent.get("significance", 0.5))
-            node.event_seq = list(_seqs_of(ent) or event_seq)
-            node.ts = _node_ts(node.event_seq, by_seq, ts)   # ⭐ 自己的时刻（④-①）
-            dup = _find_duplicate(store, node)
-            if dup is not None:
-                if reused_out is not None:
-                    reused_out.append(dup.id)     # ⭐ D1: 这一条**没建节点**（复用旧的）
-                player_ids.append(dup.id)
-                continue
-            pid = store.add(node)
-            _t, _strangers = link_entity_refs(store, pid, ts=node.ts)
-            if strangers_out is not None:
-                strangers_out.extend(_strangers)
-            player_ids.append(pid)
-            continue
         node = make_node("episode", **{k: v for k, v in ent.items() if k != "kind"})
         # ⭐ **N2b**: 标题唯一性**写入时强制**（冲突加数字; 只增不重排）——
         # 解析与写入都在 `address.py` 里（那边是"谁能被指到"的唯一约定）。
@@ -156,7 +124,7 @@ def _create_a_nodes(store: WikiStoreV2, entries: list[dict], *, ts: str,
         _t, _strangers = link_entity_refs(store, nid, ts=node.ts)
         if strangers_out is not None:
             strangers_out.extend(_strangers)
-    return episode_ids, player_ids
+    return episode_ids
 
 
 def _spanless_nodes(store: WikiStoreV2, segments: list[dict], *, note_state, now_ts: str,

@@ -232,8 +232,9 @@ def test_recall_side_fields_never_reach_llm(tmp_path):
 
     2026-09-19 扩到**地点两轴**: 用户问 *"我为什么要把 key 字段给到 LLM 的记忆？
     喂给 llm 的时候我直接丢掉这个字段不就行了？"* —— 对, 而且**架构里已经这么做了**
-    （`render.py` 的四个视图只读 text/verbatim/examples/
+    （`render.py` 的四个视图只读 text/verbatim/
     subject/growth/count/links/contradictions/significance/ts/observer）。
+    ⏸ `examples` 2026-10-14 随 `profile` 删 —— 那一格已经不在节点上了。
     本用例把"已经这么做"从**假设**变成**被钉住的事实**。
     """
     from core.brain.read.render import render_character_view, render_cognition_list, render_organize_view

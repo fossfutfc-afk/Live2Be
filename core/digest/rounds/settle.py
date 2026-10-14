@@ -34,8 +34,11 @@ logger = logging.getLogger(__name__)
 
 
 def _segment_ids(ctx: Ctx) -> list[str]:
-    """本段**全部新节点**（R1 的经历/画像 + L2 的看法）—— 陌生名字的搜索面。"""
-    return [*ctx.episode_ids, *ctx.player_ids, *ctx.result.created_beliefs]
+    """本段**全部新节点**（R1 的经历 + L2 的看法）—— 陌生名字的搜索面。
+
+    ⏸ 原来还并 `ctx.player_ids`（玩家画像）—— 2026-10-14 随 `profile` 删。
+    """
+    return [*ctx.episode_ids, *ctx.result.created_beliefs]
 
 
 def _strangers(ctx: Ctx, ids: list[str]) -> list[str]:

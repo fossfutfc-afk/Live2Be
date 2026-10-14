@@ -52,26 +52,6 @@ def test_organize_view_episode_line():
     assert "edges:" not in render_organize_view(_ids([n]))
 
 
-def test_organize_view_profile_and_player():
-    exp = make_node("profile", text="提到工作繁忙", subject="sensei",
-                    significance=0.7, examples=["「这周又忙成狗了」"], event_seq=[61])
-    pe = make_node("profile", text="总说「摸鱼」", subject="player",
-                   significance=0.75, examples=["今天也摸鱼"], event_seq=[70])
-    nodes = _ids([exp, pe])
-    # count（G3 起）= `supports` **入边数**，不再读节点字段
-    g = _g(("supports", "m0011", "m0001"), ("supports", "m0015", "m0001"),
-           ("supports", "m0020", "m0001"),
-           ("supports", "m0030", "m0002"), ("supports", "m0033", "m0002"))
-    out = render_organize_view(nodes, graph=g)
-    # ⭐ 2026-09-25（§5.1）: 标记按 **kind** —— `profile`（2026-10-06 前叫 `experience`）就是"关于老师的事",
-    # `subject` 写歪了也照印（旧口径按 subject 路由 ⇒ 真机 haruka e0001 静默消失）
-    assert "m0001 [profile·关于老师, sig 0.70, count 3" in out
-    assert "〝「「这周又忙成狗了」」〞" not in out            # 已带「」不重复包裹
-    assert "〝「「今天也摸鱼」」〞" not in out
-    assert "〝「今天也摸鱼」〞" in out
-    assert "m0002 [profile·关于老师, sig 0.75, count 2" in out        # §4.4 标记
-
-
 def test_organize_view_episode_belief():
     ep = make_node("episode", text="遥香曾因拆炸弹事件对 sensei 建立信任",
                    significance=0.95)
@@ -115,12 +95,9 @@ def test_character_view_sections_and_first_person():
         make_node("belief", text="伊草遥香开始相信自己被需要", subject="sensei",
                   epistemic="inferred_belief", significance=0.9,
                   growth="从自卑到被需要", event_seq=[1]),
-        make_node("profile", text="总说「摸鱼」", subject="player",
-                  significance=0.75, event_seq=[2]),
     ])
-    # count（G3 起）= supports 入边数: 三条经历印证过这个口癖
-    g = _g(("supports", "m0001", "m0004"), ("supports", "m0002", "m0004"),
-           ("supports", "m0003", "m0004"))
+    # count（G3 起）= supports 入边数: 两条经历印证过这条看法
+    g = _g(("supports", "m0001", "m0003"), ("supports", "m0002", "m0003"))
     out = render_character_view(nodes, char_name="伊草遥香",
                                 summary="天台夜谈后，伊草遥香开始相信自己被需要",
                                 graph=g)
@@ -134,7 +111,9 @@ def test_character_view_sections_and_first_person():
     # 无 ts 的排河首、有 ts 的按时间在后（旧→新）
     assert river.index("拆炸弹") < river.index("吃甜品")
     assert "我心里渐渐觉得：\n- 对sensei：我开始相信自己被需要（——从自卑到被需要）" in out
-    assert "老师的事：\n- 总说「摸鱼」（count 3）" in out
+    # ⏸ 原「老师的事」（`profile` 桶 + `（count N）`）2026-10-14 随那个 kind 删 ——
+    # 判据: 那一块**永远空**（没有写者, 也没有 kind）。
+    assert "老师的事" not in out
     # ⏸ 原"久远的记忆"段（出厂 episode）2026-09-21 删——出厂记忆不进 wiki;
     # knowledge 不再出厂化（无"我知道的事"段）
     assert "久远的记忆" not in out
@@ -165,19 +144,17 @@ def test_character_view_no_caps_all_rendered():
     assert "我心里渐渐觉得" not in out2
 
 
-def test_character_view_belief_and_player_all_rendered():
-    """belief / player 两桶同样全量（旧 cap_beliefs / cap_player 默认 5）。"""
+def test_character_view_belief_all_rendered():
+    """belief 桶同样全量（旧 cap_beliefs 默认 5）。
+
+    ⏸ 原来还并着 `player` 桶（7 条 `profile`）—— 2026-10-14 随那个 kind 删。
+    """
     beliefs = [make_node("belief", text=f"信念{i}", subject="sensei",
                          epistemic="inferred_belief", significance=0.9 - i * 0.1,
                          event_seq=[1]) for i in range(7)]
-    # 不给边表 ⇒ 计数恒 0（桶内排序退化为插入序）—— 那条轴不在这条用例的射程内,
-    # 这条用例只管"桶内**全量**注入"（旧 cap 5 会丢两条）。
-    players = [make_node("profile", text=f"口癖{i}", subject="player",
-                         significance=0.6, event_seq=[1]) for i in range(7)]
-    out = render_character_view([*beliefs, *players])
+    out = render_character_view(beliefs)
     assert out.count("\n- 对sensei：信念") == 7        # 7 条全在（旧 cap 5 会丢 2 条）
-    assert out.count("（count ") == 7
-    assert "信念5" in out and "口癖5" in out          # 旧 cap 下这两条正是被丢的
+    assert "信念5" in out                             # 旧 cap 下这条正是被丢的
 
 
 # ---------------------------------------------------------------------------

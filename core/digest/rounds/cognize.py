@@ -42,7 +42,7 @@ def run(ctx: Ctx) -> RoundOut:
         ctx.log_skip(spec)
         return RoundOut.skipped()
     cog_text, local_of = render_cognition_list(
-        ctx.store, cap=DIGEST_COGNITION_CAP, exclude=set(ctx.player_ids))
+        ctx.store, cap=DIGEST_COGNITION_CAP)
     system = ctx.system_for(spec)
     user = ctx.sections_for(spec, [
         ("被连过的经历", linked_text),

@@ -64,9 +64,10 @@ def body_of(node) -> str:
     """⭐ **参与匹配的正文面**（`find` 与 `like` **共用这一份口径**）。
 
     主文本 + 各 kind 的附属 + **标题**:
-      · `episode` → `verbatim`（原话）· `belief` → `growth`（怎么变的）·
-        `profile` → `examples`（例子）
+      · `episode` → `verbatim`（原话）· `belief` → `growth`（怎么变的）
       · 标题两条路都收 —— 她记得一个词时不会先分辨"那是在标题里还是正文里"。
+    ⏸ `profile` → `examples`（例子）那一支 **2026-10-14 随那个 kind 删**（`examples`
+    字段同批删 —— 三个读者全都只在 `kind == "profile"` 时才走）。
 
     ⚠️ **一处实现**: 2026-10-08 从 `like._body` 搬来这里（`find` 也要用它）。
     口径与旧件 `recall._embed_text` 同源, 但那个文件整族待删, **不许 import 它**。
@@ -75,8 +76,6 @@ def body_of(node) -> str:
     kind = getattr(node, "kind", "")
     if kind == "episode":
         parts.append(getattr(node, "verbatim", "") or "")
-    elif kind == "profile":
-        parts.extend(getattr(node, "examples", ()) or ())
     elif kind == "belief":
         parts.append(getattr(node, "growth", "") or "")
     parts.append(getattr(node, "title", "") or "")

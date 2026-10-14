@@ -53,13 +53,14 @@ logger = logging.getLogger(__name__)
 #: ⏸ `p`（promise 节点）2026-09-29 **退役** —— promise 退图（见 `nodes.KINDS`）;
 #: ⚠️ 旧档里若有 `p…` 行仍读得进（`from_dict` 按 kind 降级成 episode 之外, 不炸）。
 #: ⭐ 2026-10-06 改名: **号段跟着数据走, 不跟着名字走** —— `experience`（经验, 原 `group`）
-#: 沿用 `g`（老 `g…` 语义不变）, `profile`（画像, 原 `experience`）沿用 `e`。
+#: 沿用 `g`（老 `g…` 语义不变）。
+#: ⏸ `e`（原 `profile` 玩家画像）**2026-10-14 随那个 kind 一起退役** —— 旧档里若有
+#: `e…` 行仍读得进（`from_dict` 对认不出的 kind 降级成 episode, 不炸）。
 #: ⛔ `p` 不能用: 承诺退图后 `test_promise_prefix_is_gone` 钉着"不许再有 `p` 号";
 #: ⛔ 前缀不许撞车（只有 `m` 可共用, 见 `test_every_kind_has_an_explicit_id_prefix`）
 #: —— ⚠️ **必须显式登记**: `add()` 走
 #: `_PREFIX.get(kind, "m")`，漏了会拿到 `m` 号并与 episode/belief **撞号**。
-_PREFIX = {"experience": "g", "episode": "m", "belief": "m", "entity": "x",
-           "profile": "e"}
+_PREFIX = {"experience": "g", "episode": "m", "belief": "m", "entity": "x"}
 
 #: 节点字段白名单（update patch 只接受这些——防任意字段注入）
 _FIELDS = set(BrainNode.__dataclass_fields__.keys())
@@ -204,7 +205,7 @@ class WikiStoreV2:
     def add(self, node: BrainNode) -> str:
         """新增节点（自动分配 id; 无效节点拒绝）。返回 id。
 
-        入仓前 normalize——字段级不变量（如 `examples` ≤3）**必须在入仓这一处钉死**,
+        入仓前 normalize——字段级不变量（significance clamp）**必须在入仓这一处钉死**,
         别指望每个调用方自己记得。边不在这里（边表是 `add_edge` 的家）。
         """
         if not node.id:
@@ -237,7 +238,7 @@ class WikiStoreV2:
         if errors:
             raise ValueError(err("InvalidNode",
                                  f"更新后节点无效: {'; '.join(errors)}"))
-        new.normalize()                        # 维护不变量（examples ≤3 等）
+        new.normalize()                        # 维护不变量（significance clamp）
         self._nodes[nid] = new
         return new
 

@@ -1,9 +1,9 @@
 """图式 wiki 节点（AGENT_BRAIN.md §1）。
 
-五种 kind（2026-09-02 fact 退役——记忆 = 经历 + 认知; 2026-10-06 经验/profile 定名）:
+四种 kind（2026-09-02 fact 退役——记忆 = 经历 + 认知; 2026-10-06 经验定名;
+           2026-10-14 `profile` 玩家画像删格式）:
     episode    一次性经历（text 第一人称浓缩 + verbatim 原话; 质感优先不升华）
     experience 一类事（"经验"）; title = 类名, text = 这一类事的沉淀（允许空）; 成员走 member_of
-    profile    玩家画像（"关于老师的事"）; subject="player"（2026-10-06 前叫 experience）
     belief     抽象认知（text 写结论; links ≥1 支撑; 可选 growth 成长方向）
 
 不变量（validate/normalize 强制）:
@@ -12,7 +12,6 @@
     - belief **不许带 `observer`**（"认知不伪装成事实"在新词汇下的同一条护栏）
     - belief 必须有 `supports` 入边 —— ⚠️ 2026-09-21（G3）**搬到 `store.audit()`**:
       支撑关系住在边表里, 字段级校验看不见它
-    - profile.examples ≤ 3
     - significance ∈ 0~1, 珍贵档 ≥ PRECIOUS_THRESHOLD(0.8); 越界 clamp
     - 去重键 = (kind, event_seq 有交集, 主文本相同) —— `revise._find_duplicate`
 
@@ -42,12 +41,18 @@ from contract.digest import ENTITY_TAG_PREFIX
 #: "一类事"，成员靠 `member_of` 边指过来（**不在节点上存列表** —— 成员会生长、各有自己的 `ts`）。
 #: ⚠️ **它只装"名字 + 成员"，不装"关键信息"** —— "这一类说明了什么"是 **belief** 的活;
 #: 两处都写就是双真源，L2 改了 belief 那份不会跟着改（必漂）。
-#: ⭐ **`profile`（2026-10-06 从 `experience` 改名）** = **玩家画像专用**（"关于老师的事",
-#: `subject` 恒 `player`）—— 名字让给了"经验"（见 `docs/DESIGN_MEMORY_MODES.md` §3）。
+#: ⏸ **`profile`（玩家画像, 2026-10-06 从 `experience` 改名）2026-10-14 删格式** ——
+#: 2026-10-12 先停产（用户裁 *"`entity.text` 取代了它的定位"*: 契约不再要它、`parse_round_a`
+#: 认得出但丢行）, 2026-10-14 确认**没有老档依赖**（真机 9 个 jsonl 零个 profile 节点）
+#: 后把整个 kind 连同它的 `examples` 一起删（用户裁"顺手删掉"）。
+#: ⚠️ **`parse_round_a` 仍认得出那个 `kind`** ⇒ **丢行 + 记账**, ⛔ 不判非法（她惯性还会写,
+#: 判非法 = 罚她重写整段 —— 同 `experience` / `#entity:` 的 B 案口径）。
+#: ⛔ 别拿它跟 `belief` 合并: 画像 = "关于老师的一堆事"（描述）, belief = 她的决定
+#: （`docs/DESIGN_MEMORY_MODES.md` §2）—— 那正是当年"一个 kind 装两种东西"栽过的地方。
 #: ⏸ **`promise` 2026-09-25 加入、2026-09-29 退役**（用户裁决: 承诺太轻, 不足以长期记录）——
 #: 它**退出了图**（连同 `from`/`to`/`formed_by` 三条专属边），只留在 note 里当工作记忆
 #: （`notes.SLOT_PINNED` = 她此刻还背着的事）; "这条经历涉及约定"由 `tags` 承担（只做筛选）。
-KINDS = ("episode", "experience", "belief", "entity", "profile")
+KINDS = ("episode", "experience", "belief", "entity")
 #: ⏸ `PROMISE_OUTCOMES`（`kept`/`broken`/`superseded`）**2026-09-29 退役** —— 它是 promise
 #: 节点的 `outcome` 字段的枚举。结局本身没消失: 它留在 note 条目的 `state` 里
 #: （真源 = `notes` 那一份词表）。
@@ -60,13 +65,15 @@ KINDS = ("episode", "experience", "belief", "entity", "profile")
 #: 信息不丢: "听说的"那一条本来就带 `observer`（真机 reported 1/20, 且带转述者）。
 #: 珍贵档阈值（保底通道 / 对应 neuron 草稿的 memo 档）
 PRECIOUS_THRESHOLD = 0.8
-#: player profile 的 subject 固定值（玩家口癖/习惯, R5）
-PLAYER_SUBJECT = "player"
+#: ⏸ `PLAYER_SUBJECT = "player"` **2026-10-14 随 `profile` 删** —— 它唯一的写者是
+#: `digest.episodes._create_a_nodes` 的画像支（同批删）, 唯一的读者是 `is_player_profile`
+#: （同批删）。⚠️ **`subject` 字段本身留着**: 今天的活读者是 **belief**（"这条看法在讲
+#: 什么"的主题句 —— `read/recall.py` 的"subject 点名"兜底通道 + `read/render.py` 的
+#: `- 对X：` 前缀）。
 
 #: 各 kind 的必填字段（validate 用; 正文统一叫 `text`）
 _REQUIRED: dict[str, tuple[str, ...]] = {
     "episode": ("text",),
-    "profile": ("text", "subject"),
     "belief": ("text",),
     # ⚠️ entity **只要求 `name`** —— `text`（立场/成长基线）允许空着出生:
     # `ensure_entities` 建 self/sensei 时还没有任何记忆, 立场是第 3 轮从记忆里长出来的。
@@ -93,7 +100,7 @@ class BrainNode:
                 event_seq / ts
         episode title / verbatim / verbatim_seq / emo_shape / place / place_raw /
                 aff_at_encoding / emo_int / emo_span
-        认知     subject / examples / growth        （profile / belief）
+        认知     subject / growth                  （belief）
         entity  name / aliases / state             （`text` = 立场/成长基线, 属共用槽）
         experience title                              （类名; `text` 允许空, 同 entity）
     """
@@ -112,7 +119,7 @@ class BrainNode:
     #: （白名单外的键静默不落库）。当年它是"同类的事"认亲的把手（L1 的 `akin` 要求
     #: `on` ∈ 两端 `topics` 的交集）, 而真机上大半是空的 + 有值的三条互相不共轴 ⇒
     #: 挑候选改走 `like(spec="digest")`（语义/字面打分, 见 `digest.material`）。
-    #: ⚠️ **字段留着是"停产不删格式"**（同 `profile`）: 老档那几格还读得回来, ⛔ 别再给它
+    #: ⚠️ **字段留着是"停产不删格式"**: 老档那几格还读得回来, ⛔ 别再给它
     #: 添写者 —— 要复活先想清"谁来判这两个词是一回事"（`on` 那道校验就是这么塌的）。
     topics: list[str] = field(default_factory=list)
     event_seq: list[int] = field(default_factory=list)
@@ -121,7 +128,7 @@ class BrainNode:
     # `soul/edges.jsonl`（类型化 + 有向 + 三索引）。旧档盘上还留着这两个键,
     # 由 `graph.infer_edges(rows)` 在**文件格式层**读一次（自举）, 与节点对象无关。
     #: **这条记忆的正文**（三种 kind 共用一槽; 原 `narration`/`pattern`/`content` 2026-09-21 合流）。
-    #: 写作口径仍按 kind 分（episode=第一人称浓缩 / profile=画像 / belief=结论）——那是
+    #: 写作口径仍按 kind 分（episode=第一人称浓缩 / belief=结论）——那是
     #: rules/schema 的语义, 不再由字段名承担。旧档的旧名由 `from_dict` 兼容读入。
     #: ⭐ **entity 也用这一槽**：它的 `text` = **立场 / 成长基线**（原 `overview` 的语义,
     #: 2026-09-21 用户裁决"overview 就是 text"）—— 所以 entity 不新增字段、`text` 也不必
@@ -166,9 +173,16 @@ class BrainNode:
     #: 而兔子玩偶 = 黑色兔子）⇒ 那件事该由专门的**物品面**（`inventory` 旁路）承担,
     #: 不该由一条自由文本承担。⚠️ 旧档里那两处值（haruka `m0009`/`m0017`）已随清理删掉。
     #: 别把字段加回来 —— 要物品面就起旁路, 那要**身份**（有 id、有增删、有当前持有）。
-    # ── 认知专属（profile / belief）──
+    # ── 认知专属（belief）──
+    #: ⭐ **这条看法在讲什么**（主题句, 真机写法如 `"sensei"` / `"老师对我的接纳"`）——
+    #: ⚠️ **不是"归属"**: 归属走 `entity` + `about` 边（见下面那一格）。这一格只影响
+    #: 召回打分（`read/recall.py` 的"subject 点名"兜底通道）与渲染的 `- 对X：` 前缀。
     subject: str = ""
-    examples: list[str] = field(default_factory=list)
+    #: ⏸ **`examples` 2026-10-14 随 `profile` 删** —— 它的三个读者**全部**只在
+    #: `kind == "profile"` 时才走（`render._organize_extra` / `recall._embed_text` /
+    #: `pack.body_of`）⇒ 那个 kind 一死, 这格**零读者**; 而它唯一的产路（R2 的 `add
+    #: example`）2026-09-29 就断了（`REDUNDANCY.md` #4/#18）。真机上唯一带值的那条是
+    #: belief `e0001`（从旧 `experience` 迁过来的）, 内容是死数据, **不迁移、不报错**。
     growth: str = ""
     # ── entity 专属（§3.0; `text` 与 `state` 是它的两个载荷）──
     #: 主名字（"老师"）——**消解的目标**: 别名都归到它这里; 新 entity 必填。
@@ -229,21 +243,17 @@ class BrainNode:
         # ② 全局兜底 `store.audit()`（"belief 无支撑"）。
         # ⏸ 原「episode/profile 的 epistemic 只能是 observed/reported」2026-09-29 删 ——
         # 那一格今天由 `observer` 承担（空/非空两态 ⇒ 不存在"第三种值"要拒）。
-        # 数量边界
-        if self.kind == "profile" and len(self.examples) > 3:
-            errors.append("profile.examples 最多 3 条")
         # ⏸ 原「promise.outcome 枚举校验」2026-09-29 删 —— promise 退图 ⇒ 节点上没有结局字段;
         # 结局今天住在 note 条目的 `state`（那里的枚举校验仍在 `notes`）。
+        # ⏸ 原「`profile.examples` ≤ 3」2026-10-14 随 `profile` 删（连同 `examples` 字段）。
         # significance 边界（decimal 0~1）
         if not (0.0 <= self.significance <= 1.0):
             errors.append(f"significance 越界: {self.significance}（须 0~1）")
         return errors
 
     def normalize(self) -> BrainNode:
-        """引擎侧归一: significance clamp 0~1; examples 截断 3。"""
+        """引擎侧归一: significance clamp 0~1。"""
         self.significance = max(0.0, min(1.0, float(self.significance)))
-        if self.kind == "profile":
-            self.examples = self.examples[:3]
         return self
 
     # ------------------------------------------------------------------
@@ -255,18 +265,13 @@ class BrainNode:
         """珍贵档（保底通道）: significance ≥ 0.8。"""
         return self.significance >= PRECIOUS_THRESHOLD
 
-    @property
-    def is_player_profile(self) -> bool:
-        """玩家画像节点（"关于老师的事"）—— ⭐ **就是 `kind == "profile"`**（2026-10-06 前叫 `experience`）。
-
-        ⚠️ **2026-09-25 改**（DESIGN_GRAPH_V4 §5.1）: 原先还要求 `subject == "player"`，
-        而 `subject` 是**自由文本** ⇒ 真机 haruka 那条（`subject="关于 我道歉的习惯"`，
-        R2 早期写的"她的模式"）**四个桶全不收**：内容写在盘上、却从来不进她的上下文
-        （它还挂着 3 条 `supports`）。⇒ **可见性不许挂在一个自由文本字段上**；
-        `subject` 由写侧强制成 `PLAYER_SUBJECT`（`digest._create_a_nodes`），
-        但它不再决定"看不看得见"。
-        """
-        return self.kind == "profile"
+    # ⏸ `is_player_profile` 属性 2026-10-14 **随 `profile` 删** —— 它最后就长成
+    # `self.kind == "profile"` 一句（**判据按 kind, ⛔ 不看 `subject`**）。
+    # ⚠️ **那条教训留着**（`DESIGN_GRAPH_V4 §5.1`, 2026-09-25）: 这个属性原来还要求
+    # `subject == "player"`, 而 `subject` 是**自由文本** ⇒ 真机 haruka 那条
+    # （`subject="关于 我道歉的习惯"`）**四个桶全不收**: 内容写在盘上、却从来不进她的
+    # 上下文。⇒ **可见性不许挂在一个自由文本字段上** —— 今天 `entity`/`belief` 的分桶
+    # 全是按 kind/边判, 谁再把路由挂回自由文本, 就是重犯这一条。
 
     # ⏸ `count` 属性 2026-09-21（G3）**删** —— 它原是 `len(links)` 的派生属性, 而
     # `links` 已停止写入（边搬到 `edges.jsonl`）⇒ 留着它只会恒返回 0（静默假数据）。
@@ -296,7 +301,7 @@ class BrainNode:
                   "text", "verbatim",
                   "verbatim_seq", "title", "emo_shape", "place",
                   "place_raw", "entity",
-                  "subject", "examples", "growth",
+                  "subject", "growth",
                   "name", "aliases", "state", "text_seq"):
             v = getattr(self, f)
             if v in (None, "", [], 0):
@@ -349,7 +354,6 @@ class BrainNode:
         node.place_raw = _str_list(raw.get("place_raw"))
         node.title = _str(raw.get("title"))
         node.subject = _str(raw.get("subject"))
-        node.examples = _str_list(raw.get("examples"))
         node.growth = _str(raw.get("growth"))
         node.name = _str(raw.get("name"))
         node.aliases = _str_list(raw.get("aliases"))

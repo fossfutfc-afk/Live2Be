@@ -197,7 +197,7 @@ def test_ref_lands_as_an_about_edge_and_normalizes_to_the_main_name(tmp_path):
     """⭐ 她写 `sensei` ⇒ 节点上是主名, 图上多一条 `about` 边。"""
     st = _store(tmp_path)
     out: list[str] = []
-    ids, _players = _create_a_nodes(
+    ids = _create_a_nodes(
         st, [_ep("老师约我去公园", "和老师的公园散步", ["公园"], ["sensei"])],
         ts="2026-10-08T21:00:00+08:00", event_seq=[3], strangers_out=out)
     ep = st.get(ids[0])
@@ -212,7 +212,7 @@ def test_stranger_ref_stays_and_leaves_no_dangling_edge(tmp_path):
     """⭐ 陌生人: 引用**原样留着** · **不落边** · 名字报上去（认人那一轮的线索）。"""
     st = _store(tmp_path)
     out: list[str] = []
-    ids, _players = _create_a_nodes(
+    ids = _create_a_nodes(
         st, [_ep("第一次见到小玉", "转角的相遇", ["公园"], ["小玉"])],
         ts="2026-10-08T21:00:00+08:00", event_seq=[3], strangers_out=out)
     ep = st.get(ids[0])
@@ -223,23 +223,31 @@ def test_stranger_ref_stays_and_leaves_no_dangling_edge(tmp_path):
     print(f"    陌生人: 引用留着 · 0 条边 · 报账 {out}")
 
 
-def test_profile_entries_can_carry_refs_too(tmp_path):
-    """画像条目（`kind=profile`）走同一套形状 —— 同一件事不留两个写法。"""
+def test_a_legacy_kind_key_is_ignored_not_trusted(tmp_path):
+    """⭐ `_create_a_nodes` **只建经历** —— 条目里那个 `kind` 键不参与决策。
+
+    ⏸ 原用例叫 `test_profile_entries_can_carry_refs_too`（画像条目也认引用）——
+    2026-10-14 `profile` 那个 kind 删格式。换来的这条判据更有用: 万一还有调用方喂
+    `kind=profile`（生产路径不会 —— `parse_round_a` 先把它丢成 `drops`）, 落下来的是一条
+    **经历**, ⛔ 不是"照它说的 kind 建节点"。⇒ 这正是那一支必须**删干净**、不能只
+    "停产"的理由: 留着一个还在产画像的分支 = 假装那个 kind 还活着。
+    """
     st = _store(tmp_path)
-    _eps, player_ids = _create_a_nodes(
+    ids = _create_a_nodes(
         st, [{"kind": "profile", "text": "老师总忘带伞", "tags": ["雨天"],
               "entity": ["老师"], "significance": 0.6}],
         ts="2026-10-08T21:00:00+08:00", event_seq=[3], strangers_out=[])
-    pf = st.get(player_ids[0])
-    assert pf.kind == "profile" and pf.entity == ["老师"], pf.entity
-    assert st.graph().targets(pf.id, "about") == ["x0001"]
-    print(f"    画像条目也认: {pf.id} → about → x0001")
+    n = st.get(ids[0])
+    assert n.kind == "episode", n.kind
+    assert n.entity == ["老师"], n.entity
+    assert st.graph().targets(n.id, "about") == ["x0001"]
+    print(f"    老 kind 键被忽略: {n.id} 落成 episode（引用照落）")
 
 
 def test_plain_nodes_are_untouched(tmp_path):
     """没有引用的节点**一个字都不变**（这是加法）。"""
     st = _store(tmp_path)
-    ids, _players = _create_a_nodes(
+    ids = _create_a_nodes(
         st, [_ep("一个人在屋顶", "屋顶", ["屋顶", "傍晚"])],
         ts="2026-10-08T21:00:00+08:00", event_seq=[3], strangers_out=[])
     assert st.get(ids[0]).tags == ["屋顶", "傍晚"]

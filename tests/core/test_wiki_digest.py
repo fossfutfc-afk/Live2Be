@@ -63,15 +63,25 @@ def _events(*items):
 
 
 def _seed_store(tmp_path) -> WikiStoreV2:
-    """预置: m0001 episode 支撑 m0002 belief + e0001 experience（边走边表）。"""
+    """预置: m0001 episode 支撑 m0002 belief + m0000 belief（边走边表）。
+
+    ⏸ 第二条认知原来是 `profile`（玩家画像 `e0001`）—— 2026-10-14 那个 kind 删格式 ⇒
+    改成 belief（**今天唯一的认知 kind**）, id 钉成 `m0000`（见那一行注释: 不许把
+    "本段新建的经历 = m0003" 这条公共前提挤掉）。
+    """
     st = WikiStoreV2(tmp_path, world_id="world1", char_id="c")
     st.add(make_node("episode", text="天台夜谈", event_seq=[2], ts="2026-09-01T10:00:00"))
     st.add(make_node("belief", text="老师是第一个不会嫌弃我的人", subject="sensei",
                      significance=0.9, event_seq=[2]))
-    st.add(make_node("profile", text="提到工作繁忙", subject="sensei",
-                     significance=0.85, event_seq=[2]))
+    second = make_node("belief", text="提到工作繁忙", subject="sensei",
+                       significance=0.85, event_seq=[2])
+    # ⚠️ **钉死 id = `m0000`**（比 m0002 小）—— 本文件 20 多条断言的前提是
+    # "本段新建的那条经历 = m0003"; `next_id("m")` 取**最大序号 +1** ⇒ 只有钉在 m0003
+    # 以下的 id 才不会把它挤成 m0004。
+    second.id = "m0000"
+    st.add(second)
     st.add_edge("supports", "m0001", "m0002")
-    st.add_edge("supports", "m0001", "e0001")
+    st.add_edge("supports", "m0001", "m0000")
     return st
 
 
@@ -397,7 +407,7 @@ def test_l1_type_mismatch_is_dropped(tmp_path):
     三条判据: `akin` 两端都得是经历 · `contradicts` 得同侧（经历↔经历 或 看法↔看法）·
     合法的（看法 ↔ 看法）照样落。
     """
-    st = _seed_store(tmp_path)          # 认知列表里: u0001 = belief m0002 · u0002 = profile e0001
+    st = _seed_store(tmp_path)          # 认知列表里: u0001 = belief m0002 · u0002 = belief m0000
     st.save()
     llm = FakeLLM(
         _a_episode(text="又见苔藓", title="又见苔藓"),
@@ -415,7 +425,7 @@ def test_l1_type_mismatch_is_dropped(tmp_path):
     assert not [e for e in st.graph().edges if e.rel == "akin"]
     # `contradicts` 是对称边（`canonical_for` 按 id 排序 ⇒ 方向别写死）
     con = [e for e in st.graph().edges if e.rel == "contradicts"]
-    assert len(con) == 1 and {con[0].src, con[0].dst} == {"m0002", "e0001"}, con
+    assert len(con) == 1 and {con[0].src, con[0].dst} == {"m0002", "m0000"}, con
 
 
 # ---------------------------------------------------------------------------

@@ -32,11 +32,11 @@ def test_id_allocation_prefixes(tmp_path):
     st = _store(tmp_path)
     assert st.add(make_node("episode", text="拆炸弹")) == "m0001"
     assert st.add(make_node("episode", text="x")) == "m0002"
-    assert st.add(make_node("profile", text="摸鱼", subject="player")) == "e0001"
+    assert st.add(make_node("experience", title="苔藓")) == "g0001"
     assert st.add(make_node("belief", text="y",
                             links=["m0001"])) == "m0003"
     assert st.next_id("m") == "m0004"
-    assert st.next_id("e") == "e0002"
+    assert st.next_id("g") == "g0002"
     assert format_id("m", 3) == "m0003"
 
 
@@ -45,12 +45,15 @@ def test_promise_prefix_is_gone(tmp_path):
 
     `p` 前缀随 promise 一起退役 ⇒ `_PREFIX` 里没有它, 而 `add()` 对没有前缀的 kind
     一律走 `m`（兜底）。这里钉住"没留下一个还会发 `p` 号的静默写路"。
+    ⏸ `e`（原 `profile`）**2026-10-14 也退役了** —— 同一条判据。
     """
     from core.brain.store import _PREFIX
 
     assert "promise" not in _PREFIX
-    assert set(_PREFIX) == {"experience", "episode", "belief", "entity", "profile"}
+    assert "profile" not in _PREFIX
+    assert set(_PREFIX) == {"experience", "episode", "belief", "entity"}
     assert "p" not in _PREFIX.values()
+    assert "e" not in _PREFIX.values()
 
 
 def test_add_rejects_invalid_node(tmp_path):
@@ -310,18 +313,21 @@ def test_delete_filters_edges(tmp_path):
 
 
 def test_experience_count_comes_from_edges(tmp_path):
-    """次数（原 `count`）的**新家** = `supports` 入边数（`render._count_of`）。"""
+    """次数（原 `count`）的**新家** = `supports` 入边数（`render._count_of`）。
+
+    ⚠️ 用 `experience` 当被引的那一端（原来是 `profile`, 2026-10-14 删格式）。
+    """
     from core.brain.read.render import _count_of
     st = _store(tmp_path)
-    st.add(make_node("profile", text="提到工作繁忙", subject="sensei", event_seq=[1]))
+    st.add(make_node("experience", title="忙"))
     st.add(make_node("episode", text="老师又说忙", event_seq=[2]))
     g = st.graph()
-    assert _count_of(st.get("e0001"), g) == 0
-    st.add_edge("supports", "m0001", "e0001")
-    assert _count_of(st.get("e0001"), st.graph()) == 1
-    st.remove_edge("supports", "m0001", "e0001")
-    assert _count_of(st.get("e0001"), st.graph()) == 0
-    assert _count_of(st.get("e0001"), None) == 0       # 没给边表 → 0（不编）
+    assert _count_of(st.get("g0001"), g) == 0
+    st.add_edge("supports", "m0001", "g0001")
+    assert _count_of(st.get("g0001"), st.graph()) == 1
+    st.remove_edge("supports", "m0001", "g0001")
+    assert _count_of(st.get("g0001"), st.graph()) == 0
+    assert _count_of(st.get("g0001"), None) == 0       # 没给边表 → 0（不编）
 
 
 def test_snapshot_restore(tmp_path):
@@ -357,8 +363,8 @@ def test_all_insertion_order(tmp_path):
     st = _store(tmp_path)
     st.add(make_node("episode", text="a"))
     st.add(make_node("episode", text="b"))
-    st.add(make_node("profile", text="p", subject="player"))
-    assert [n.text or n.text for n in st.all()] == ["a", "b", "p"]
+    st.add(make_node("belief", text="c"))
+    assert [n.text for n in st.all()] == ["a", "b", "c"]
     # 2026-09-21: `by_kind()` 零产品消费者 → 已删; 按 kind 过滤直接用 all()
     assert [n.kind for n in st.all() if n.kind == "episode"] == ["episode", "episode"]
 

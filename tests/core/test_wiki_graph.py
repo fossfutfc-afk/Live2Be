@@ -54,22 +54,32 @@ def _node(nid: str, kind: str) -> BrainNode:
 # ---------------------------------------------------------------------------
 
 def test_infer_types_and_direction():
-    """`episode → 认知` = supports（方向由 kind 定）; 判不出的对 → unknown。"""
+    """`episode → 认知` = supports（方向由 kind 定）; 判不出的对 → unknown。
+
+    ⏸ 原来这里还有一对 `episode ↔ profile`（画像也算认知 ⇒ supports）—— 2026-10-14
+    那个 kind 删格式 ⇒ 老档里那些 `profile` 行今天判 **unknown**（⛔ 不猜: `_COGNITION`
+    里没有它）。留下来当"删 kind 也要删旧判据"的判据。
+    """
     rows = [
         _row("m0001", "episode", links=["m0003"]),           # ↔ belief
         _row("m0003", "belief", links=["m0001", "m0004"]),
         _row("m0004", "belief"),                             # belief↔belief: 单边也算
-        _row("m0002", "episode", links=["e0001"]),           # ↔ experience（押 §9-3）
-        _row("e0001", "profile", links=["m0002"]),
+        _row("m0002", "episode", links=["g0001"]),           # ↔ experience: 不猜（member_of 的活）
+        _row("g0001", "experience", links=["m0002"]),
+        _row("m0005", "episode", links=["e0001"]),           # ↔ 老档里的 profile 行
+        _row("e0001", "profile", links=["m0005"]),
     ]
     got = {(e.rel, e.src, e.dst) for e in infer_edges(rows)}
     assert got == {
         (REL_SUPPORTS, "m0001", "m0003"),       # 经历 → 认知（不是反向）
         (REL_UNKNOWN, "m0003", "m0004"),        # 谁取代谁判不出 → **不猜**
-        (REL_SUPPORTS, "m0002", "e0001"),
+        (REL_UNKNOWN, "g0001", "m0002"),        # 经验不是认知（`member_of` 由写路径显式落）
+        (REL_UNKNOWN, "e0001", "m0005"),        # 老档的 profile 行: kind 已删 ⇒ 不猜
         # ⚠️ 无向边只出一条: links 双向存, 不去重会翻倍
+        # ⚠️ `unknown` 那两条的方向**按 id 排**（`classify_pair` 落 `canonical_pair`,
+        #    小的当 src）—— ⛔ 别拿语义去推方向, 它不是"谁指向谁"。
     }
-    assert len(infer_edges(rows)) == 3
+    assert len(infer_edges(rows)) == 4
 
 
 def test_infer_contradictions_is_separate_and_canonical():
@@ -240,8 +250,12 @@ _REAL_LINES = [
 
 
 def _real_store(tmp_path) -> WikiStoreV2:
-    """真机 haruka 的 5 个点, 盘上照抄旧字段名（narration/content/pattern + links +
-    已退役的 `epistemic`）—— 旧键读得进、不抛, 也不进新写的行。"""
+    """**2026-09 真机 haruka** 的 5 个点, 盘上照抄旧字段名（narration/content/pattern +
+    links + 已退役的 `epistemic`）—— 旧键读得进、不抛, 也不进新写的行。
+
+    ⚠️ 那份档里有一行是 `kind=profile`（玩家画像）—— 那个 kind **2026-10-14 删格式**,
+    所以这一行今天读成 episode（见 `test_real_shaped_store` 的注释）。
+    """
     st = WikiStoreV2(tmp_path, world_id="world1", char_id="igusa_haruka")
     st.path.parent.mkdir(parents=True, exist_ok=True)
     st.path.write_text("\n".join(json.dumps(x, ensure_ascii=False) for x in _REAL_LINES),
@@ -250,19 +264,26 @@ def _real_store(tmp_path) -> WikiStoreV2:
 
 
 def test_real_shaped_store(tmp_path):
-    """真机形状 → 3 条 supports / 0 条 about / 0 条 unknown（§2.1 的验收线）。"""
+    """真机形状 → 2 条 supports / 1 条 unknown / 0 条 about（§2.1 的验收线）。
+
+    ⚠️ 原来是 **3 条 supports**: 第 3 条来自 `e0001`（盘上写 `kind=profile`）与 `m0002`
+    的旧 `links`。⭐ 2026-10-14 `profile` **删格式** ⇒ 那一行今天按 `from_dict` 的兜底
+    读成 **episode**, 而 `episode ↔ episode` 判 `unknown`（⛔ 不猜）。
+    判据: **老档读得进、不炸; 但那条边的语义没了** —— 这就是"删一个 kind"在图上的代价
+    （所以删之前要先确认真机上零条, 见 `nodes.KINDS`）。
+    """
     st = _real_store(tmp_path)
     assert st.get("m0001").text == "杂草屋的环境调研"       # 旧字段名兼容读
     g = graph_of(st)
     assert g.stats() == {"nodes": 5, "edges": 3,
-                         "by_rel": {REL_SUPPORTS: 3},
-                         "unknown": 0, "about": 0, "dangling": 0}
+                         "by_rel": {REL_SUPPORTS: 2, REL_UNKNOWN: 1},
+                         "unknown": 1, "about": 0, "dangling": 0}
     assert g.supporters("m0003") == ["m0001", "m0004"]      # 认知的两个来源
-    assert g.supporters("e0001") == ["m0002"]
+    assert g.supporters("e0001") == []                      # 老 profile 行今天不是认知
     # entity 今天不存在 ⇒ 车道恒空（G1 只验形状）; 未归属 = 全部非 entity 节点
     assert g.lane("x0000") == []
     assert set(g.unattributed()) == {"m0001", "m0002", "m0003", "m0004", "e0001"}
-    assert len(list(iter_edges(st, rel=REL_SUPPORTS))) == 3
+    assert len(list(iter_edges(st, rel=REL_SUPPORTS))) == 2
     assert list(iter_edges(st, rel=REL_ABOUT)) == []
 
 
@@ -351,4 +372,6 @@ def test_fact_is_not_aboutable():
     assert classify_pair("entity", "fact", "x0001", "m0001") == (REL_UNKNOWN, "m0001", "x0001")
     assert classify_pair("fact", "entity", "m0001", "x0001") == (REL_UNKNOWN, "m0001", "x0001")
     # 同形状的活 kind 照旧判 about（防"顺手把整条路也关了"）
-    assert classify_pair("entity", "profile", "x0001", "e0001") == (REL_ABOUT, "e0001", "x0001")
+    assert classify_pair("entity", "experience", "x0001", "g0001") == (REL_ABOUT, "g0001", "x0001")
+    # ⏸ `profile` 2026-10-14 删格式 ⇒ 老档那种对**不再判 about**（不猜）
+    assert classify_pair("entity", "profile", "x0001", "e0001") == (REL_UNKNOWN, "e0001", "x0001")
