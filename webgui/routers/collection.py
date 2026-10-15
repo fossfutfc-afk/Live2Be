@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
 
-from core.common.mmt_registry import load_mmt_registry
+from core.mmt.mmt_registry import load_mmt_registry
 from core.parsing.dynamic_character_parser import CharacterLoader
 from core.session.chapters import chapter_index
 from infra import paths

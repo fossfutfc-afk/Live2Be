@@ -26,7 +26,7 @@ import os
 from collections.abc import Iterator
 from pathlib import Path
 
-from core.common.errors import Live2BeError
+from contract.errors import Live2BeError
 from core.media.background import BackgroundMedia, derive_background
 from core.media.manifest import load_character_manifest
 from core.media.sprites import SpriteMedia, find_spine_packs

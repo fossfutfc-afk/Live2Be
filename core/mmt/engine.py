@@ -49,6 +49,7 @@ from pathlib import Path
 from typing import Any
 
 from contract import APPROVAL_AUTO, DOMAIN_MMT, AgentAction, build_line_schema
+from contract.errors import Live2BeError, err
 from contract.issues import format_issues, split_issues
 from core.affection import Affection, load_affection_from_events
 from core.bond.bond_progress import BondProgress
@@ -71,7 +72,6 @@ from core.brain.read.render import (
     render_character_view,
 )
 from core.brain.store import WikiStoreV2
-from core.common import Live2BeError, err
 from core.digest import digest_segment
 from core.mmt.mmt_actions import build_mmt_registry
 from core.mmt.mmt_check import (

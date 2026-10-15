@@ -32,7 +32,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from core.common import err
+from contract.errors import err
 from core.parsing.dynamic_character_parser import load_yaml_file
 from core.parsing.names import CharNames, char_names
 from infra import paths

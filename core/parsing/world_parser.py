@@ -21,7 +21,7 @@ from pathlib import Path
 
 import yaml
 
-from core.common import err
+from contract.errors import err
 from infra import paths
 
 #: 项目根（`infra/paths.py` 的宏——绝对路径, uvicorn/IDE 从任意 CWD 启动都能找到）

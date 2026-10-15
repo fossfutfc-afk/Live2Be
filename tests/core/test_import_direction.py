@@ -116,7 +116,7 @@ def test_no_new_layering_violations():
            if (rel, top) not in ALLOWED]
     assert not new, (
         "出现新的分层违规（引擎/契约层反向依赖壳或表现层）:\n  " + "\n  ".join(new)
-        + "\n修法: 把共用件下移到 contract/（或薄横切 core.common）, "
+        + "\n修法: 把共用件下移到 contract/（或横切件放 infra/）, "
           "或——若是**新发现的既存违规**——登记进 ALLOWED 并注明归宿节点。")
 
 

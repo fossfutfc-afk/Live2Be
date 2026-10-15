@@ -24,7 +24,7 @@ from contract import (
     STAGE_MEMORIAL,
     STAGE_SWITCH,
 )
-from core.common import Live2BeError
+from contract.errors import Live2BeError
 
 
 class SceneLoopError(Live2BeError):

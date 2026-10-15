@@ -252,7 +252,7 @@ def _role_birthday(char_id: str) -> tuple[int, int] | None:
     """角色的生日 —— 读**档案** `config/characters/{id}/profile.yml` 的 `birthday`。
 
     为什么读档案、不读 `mmt_registry.toml`: 后者是**显示用**生日, 而这份料是给 AI
-    折算日期用的（两个真源的分工写在 `core/common/mmt_registry.py` 的注释里）。
+    折算日期用的（两个真源的分工写在 `core/mmt/mmt_registry.py` 的注释里）。
     ⚠️ **不一致时以档案为准**（`DESIGN_DIGEST_LEDGER §3` 待裁项, 2026-10-05 采此解）。
     读不到 / 格式认不出 ⇒ None —— **不印那一格, 更不编一个日期**。
     """

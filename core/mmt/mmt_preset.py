@@ -48,7 +48,7 @@ import re
 import unicodedata
 from enum import Enum
 
-from core.common import err
+from contract.errors import err
 from core.mmt.engine import MomoTalkEngine
 from infra import paths
 

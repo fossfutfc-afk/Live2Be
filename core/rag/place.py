@@ -37,7 +37,7 @@
 """
 from __future__ import annotations
 
-from core.common.errors import Live2BeError
+from contract.errors import Live2BeError
 from core.media.place_table import PlaceTable, load_table
 from core.rag.embedder import LocalEmbedder
 

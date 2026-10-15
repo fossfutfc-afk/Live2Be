@@ -64,8 +64,8 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
+from contract.errors import err
 from core.brain import marks
-from core.common import err
 from core.session.events import (
     N_ADD,
     N_CLOSE,

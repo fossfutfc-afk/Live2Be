@@ -32,6 +32,7 @@ import logging
 from collections.abc import Iterable
 from pathlib import Path
 
+from contract.errors import err
 from core.brain.graph import (
     Edge,
     Graph,
@@ -42,7 +43,6 @@ from core.brain.graph import (
 )
 from core.brain.nodes import BrainNode, format_id
 from core.brain.notes import NotesState, fold
-from core.common import err
 from core.session.events import TYPE_NOTE
 from core.session.io import atomic_write_json, atomic_write_lines, read_jsonl
 
