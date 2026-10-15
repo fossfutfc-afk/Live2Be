@@ -29,12 +29,8 @@ const MAX_TURN_WAIT = 600;      // 推进忙等预算: 600×700ms = 7min（LLM �
 const TURN_SOFT_WAIT_MS = 90 * 1000;
 const END_HOLD_MS = 1600;       // 收尾场景停留后自动 finish
 
-// 打字速度档位（菜单"打字速度"切换——逐字基准与标点停顿）
-const SPEEDS = [
-  { label: "慢", char: 70, punct: 240 },
-  { label: "中", char: 42, punct: 150 },
-  { label: "快", char: 22, punct: 80 },
-];
+// 打字速度档位与逐字延迟的唯一实现都在 typing.js（本文件只剩"哪一档"这件事）
+const SPEEDS = window.L2BTyping.SPEEDS;
 
 // 特效符号表（fx 名 → 符号 + 颜色; 与后端 renderer/effects.py 的 fx 键一致）:
 // 官方 BA 的"冒爱心/音符/惊叹"是 UI 层粒子——我们用 Unicode 符号 + CSS 浮动动画实现
@@ -1043,7 +1039,7 @@ let lastSceneKey = "";
         div.textContent = t.slice(0, i + 1);
         const ch = t[i];
         i++;
-        const pause = /[，。！？…、；：—-]/.test(ch) ? typePunctMs : typeCharMs;
+        const pause = window.L2BTyping.charPause(ch, typeCharMs, typePunctMs);
         typeTimer = setTimeout(step, pause);
       } else {
         paraDone();                  // 段完成 → 停段尾（不自动连播, 等左键/自动）
