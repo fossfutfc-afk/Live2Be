@@ -20,7 +20,7 @@ import logging
 from typing import Any
 
 from core.session import SessionStore
-from infra import paths
+from infra import paths, settings
 from llm.image_gen import ImageGenerator, image_enabled
 
 logger = logging.getLogger(__name__)
@@ -108,11 +108,8 @@ PREGEN_GATE_WATCHDOG_MS = 25_000   # 预生成消费门 25s 未通过 → 强制
 
 
 # ---------------------------------------------------------------------------
-# ⑤ choice 候选预生成开关（settings.toml; 测试可替换成常量）
+# ⑤ choice 候选预生成开关（settings.toml）
 # ---------------------------------------------------------------------------
-
-#: 运行时开关读取路径（`infra/paths.py` 的宏 —— settings.toml, gitignore, 本机 GUI 设置文件）
-CAND_SETTINGS_PATH = paths.SETTINGS_PATH
 
 
 def choice_pregen_enabled() -> bool:
@@ -123,18 +120,12 @@ def choice_pregen_enabled() -> bool:
       预判收益趋零不做）; off: 关闭（走分支播放期单路 pregen 老路）。
     - 读取失败/缺省 → True（sibling——功能默认开, 不稳可一键关）。
     """
-    try:
-        import tomllib
-        text = CAND_SETTINGS_PATH.read_text(encoding="utf-8")
-        mode = str(((tomllib.loads(text).get("bond") or {})
-                    .get("choice_pregen") or "sibling")).strip().lower()
-        return mode in ("sibling", "tree")
-    except Exception:                              # noqa: BLE001 — 缺省开
-        return True
+    mode = str(settings.section("bond").get("choice_pregen") or "sibling").strip().lower()
+    return mode in ("sibling", "tree")
 
 
 __all__ = [
-    "BUSY_WATCHDOG_MS", "CAND_SETTINGS_PATH", "DATA_ROOT", "GATE_WATCHDOG_MS",
+    "BUSY_WATCHDOG_MS", "DATA_ROOT", "GATE_WATCHDOG_MS",
     "ImageGenerator", "PREGEN_GATE_WATCHDOG_MS", "choice_pregen_enabled",
     "enqueue_annotate", "image_enabled", "image_generator", "set_store", "store",
 ]

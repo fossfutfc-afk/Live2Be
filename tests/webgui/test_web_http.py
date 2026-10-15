@@ -836,8 +836,10 @@ def test_collection_book_routes(web, monkeypatch, tmp_path):
 
 def test_settings_over_http_roundtrip(monkeypatch, tmp_path):
     """/api/settings: api_key 打码返回、留空/打码不改 key、[image].enabled 布尔往返。"""
+    from infra import settings
     from webgui import store
-    monkeypatch.setattr(store, "SETTINGS_PATH", tmp_path / "settings.toml")
+    monkeypatch.setenv("LIVE2BE_SETTINGS", str(tmp_path / "settings.toml"))
+    settings.reset()
     monkeypatch.setattr(chat, "reset_engines", lambda *a, **kw: None)
     store.save_settings({**store.load_settings(),
                          "image": {"api_key": "sk-secret-1234", "enabled": True}})

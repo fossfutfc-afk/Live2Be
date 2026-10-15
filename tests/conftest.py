@@ -62,6 +62,26 @@ def _clear_module_caches():
         cache.clear()
 
 
+@pytest.fixture
+def recall_knobs(tmp_path, monkeypatch):
+    """把 `[recall]` 旋钮设成给定值（走真接缝：写一份 tmp settings.toml 并让 infra.settings 读它）。
+
+    用法: `recall_knobs({"turn_k": 1.0})`。从前测试是往 `recall_config._cache` 里注射的，
+    那个私有缓存在 `infra/settings` 接管读盘后没有了——改走这里，顺带把真路径也测了。
+    可在同一个用例里多次调用（每次重写文件，mtime 变了就生效）。
+    """
+    from infra import settings
+
+    def _set(values: dict) -> None:
+        path = tmp_path / "settings.toml"
+        body = "[recall]\n" + "".join(f"{k} = {v}\n" for k, v in values.items())
+        path.write_text(body, encoding="utf-8")
+        monkeypatch.setenv("LIVE2BE_SETTINGS", str(path))
+        settings.reset()
+    yield _set
+    settings.reset()
+
+
 @pytest.fixture(scope="session", autouse=True)
 def _no_image_gen():
     """生图总开关: 整个测试会话硬关（`LIVE2BE_IMAGE=off`）。

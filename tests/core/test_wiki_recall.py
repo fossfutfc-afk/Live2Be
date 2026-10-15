@@ -390,14 +390,14 @@ def test_recall_episodes_empty_cases(tmp_path):
     assert recall_episodes(empty, query="杂草", embed_fn=None) == []      # 空库
 
 
-def test_recall_episodes_k_defaults_to_the_knob(tmp_path, monkeypatch):
+def test_recall_episodes_k_defaults_to_the_knob(tmp_path, recall_knobs):
     """条数缺省 = `[recall].turn_k`（**"取几条"类旋钮, 不是阈值**）。"""
     from core.brain import recall_config as rc
     from core.brain.read import recall as R
 
     st = _store(tmp_path, _ids([_ep(f"苔藓第{i}次", tags=["苔藓"]) for i in range(4)]))
-    monkeypatch.setattr(rc, "_cache", {"turn_k": 1.0}, raising=False)
+    recall_knobs({"turn_k": 1.0})
     assert len(recall_episodes(st, query="苔藓", embed_fn=None)) == 1
-    monkeypatch.setattr(rc, "_cache", {"turn_k": 3.0}, raising=False)
+    recall_knobs({"turn_k": 3.0})
     assert len(recall_episodes(st, query="苔藓", embed_fn=None)) == 3
     assert float(R.TURN_K) == 2.0                       # 模块默认（回落值）

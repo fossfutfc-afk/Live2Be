@@ -10,6 +10,7 @@ import sys
 from pathlib import Path
 
 import llm.task_levels as tl
+from infra import settings
 
 
 def test_base_profiles():
@@ -65,8 +66,8 @@ def test_settings_override(monkeypatch, tmp_path):
         "max_tokens = -5\n",
         encoding="utf-8",
     )
-    monkeypatch.setattr(tl, "_SETTINGS_PATH", cfg)
-    monkeypatch.setattr(tl, "_OVERRIDES", None)             # 清缓存重读
+    monkeypatch.setenv("LIVE2BE_SETTINGS", str(cfg))
+    settings.reset()
     assert tl.profile("emotion")["thinking"] == "medium"
     assert tl.max_tokens("emotion") == 768
     assert tl.profile("digest")["thinking"] == "off"
@@ -81,7 +82,10 @@ if __name__ == "__main__":
     test_base_profiles()
     test_extra_body_conversion()
     test_unknown_profile_raises()
+    import os
     import tempfile
+
+    from infra import settings
 
     with tempfile.TemporaryDirectory() as d:
         # 最小覆盖测试（不经 pytest fixture）
@@ -89,8 +93,9 @@ if __name__ == "__main__":
         cfg.write_text(
             "[llm.tasks.emotion]\nthinking = \"medium\"\nmax_tokens = 768\n",
             encoding="utf-8")
-        tl._SETTINGS_PATH = cfg
-        tl._OVERRIDES = None
+        os.environ["LIVE2BE_SETTINGS"] = str(cfg)
+        settings.reset()
         assert tl.profile("emotion")["thinking"] == "medium"
-        tl._OVERRIDES = None
+        del os.environ["LIVE2BE_SETTINGS"]
+        settings.reset()
     print("llm/task_levels 单测: 全部通过")

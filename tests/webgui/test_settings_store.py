@@ -7,10 +7,10 @@
 """
 import asyncio
 import sys
-from pathlib import Path
 
 import pytest
 
+from infra import settings
 from webgui import chat, store
 from webgui.routers.settings import SettingsIn, post_settings
 
@@ -18,8 +18,11 @@ from webgui.routers.settings import SettingsIn, post_settings
 @pytest.fixture(autouse=True)
 def _tmp_settings(tmp_path, monkeypatch):
     """settings.toml 一律落 tmp_path（禁碰项目根真实配置）+ 不重建真引擎。"""
-    monkeypatch.setattr(store, "SETTINGS_PATH", tmp_path / "settings.toml")
+    monkeypatch.setenv("LIVE2BE_SETTINGS", str(tmp_path / "settings.toml"))
+    settings.reset()
     monkeypatch.setattr(chat, "reset_engines", lambda *a, **kw: None)
+    yield
+    settings.reset()
 
 
 def test_image_enabled_defaults_true_and_roundtrips():
@@ -28,7 +31,7 @@ def test_image_enabled_defaults_true_and_roundtrips():
     cur = store.load_settings()
     cur["image"]["enabled"] = False
     store.save_settings(cur)
-    assert (store.SETTINGS_PATH.read_text(encoding="utf-8")
+    assert (settings.default_path().read_text(encoding="utf-8")
             .count("enabled = false")) == 1
     assert store.load_settings()["image"]["enabled"] is False
     print("    settings: [image].enabled 默认 true + 往返保真")
@@ -44,14 +47,9 @@ def test_post_settings_accepts_checkbox_bool():
 
 
 def test_image_enabled_reads_saved_file(monkeypatch):
-    """存盘的 false 被引擎侧读到（两个模块各读同一路径, 这里钉住一致性）。
-
-    ⚠️ 2026-10-15: 从前 patch `ig._PROJECT_ROOT`; 那个名字随"路径归位"删掉了 ⇒
-    现在 patch **路径真源** `infra/paths.SETTINGS_PATH`（与 `store`/引擎读的是同一个）。
-    """
+    """存盘的 false 被引擎侧读到（两个模块读的是同一份文件, 这里钉住一致性）。"""
     from llm import image_gen as ig
     monkeypatch.delenv(ig.ENV_SWITCH, raising=False)
-    monkeypatch.setattr(ig.paths, "SETTINGS_PATH", Path(store.SETTINGS_PATH))
     assert ig.image_enabled() is True                     # 还没存过 → 默认开
     cur = store.load_settings()
     cur["image"]["enabled"] = False
@@ -88,7 +86,7 @@ _HANDMADE = """[llm]
 
 
 def _write_handmade():
-    store.SETTINGS_PATH.write_text(_HANDMADE, encoding="utf-8")
+    settings.default_path().write_text(_HANDMADE, encoding="utf-8")
 
 
 def test_save_settings_preserves_unknown_keys_and_sections():
@@ -113,7 +111,7 @@ def test_save_settings_preserves_nested_tables():
     after = store.load_settings()
     assert after["llm"]["tasks"] == {"emotion": {"thinking": "medium",
                                                  "max_tokens": 768}}
-    text = store.SETTINGS_PATH.read_text(encoding="utf-8")
+    text = settings.default_path().read_text(encoding="utf-8")
     assert "[llm.tasks.emotion]" in text, "嵌套表头丢失（被降级成字符串?）"
     print("    settings: 嵌套表 [llm.tasks.emotion] 保真落盘")
 
@@ -156,7 +154,7 @@ def test_save_settings_rejects_none_leaf():
     cur = store.load_settings()
     cur["llm"]["model"] = None                     # 手搓 POST {"llm": {"model": null}}
     store.save_settings(cur)
-    text = store.SETTINGS_PATH.read_text(encoding="utf-8")
+    text = settings.default_path().read_text(encoding="utf-8")
     assert '"None"' not in text and "= None" not in text, \
         f"null 落成了垃圾值: {text[:200]}"
     after = store.load_settings()

@@ -20,11 +20,12 @@ from core.brain import recall_ledger as rl
 from core.brain.nodes import make_node
 from core.brain.read.render import render_character_view, take_last_view_account
 from core.brain.store import WikiStoreV2
+from infra import settings
 
 
 @pytest.fixture(autouse=True)
 def _clean_config():
-    """每个用例前后清缓存——否则用例间会串（recall_config 是进程级懒加载）。"""
+    """每个用例前后清缓存——读盘缓存是进程级的，不清会串。"""
     rc.reload()
     yield
     rc.reload()
@@ -100,7 +101,8 @@ def test_time_half_life_default_and_override(tmp_path, monkeypatch):
     assert rc.DEFAULTS["time_half_life_days"] == 5.0
     p = tmp_path / "settings.toml"
     p.write_text("[recall]\ntime_half_life_days = 12\n", encoding="utf-8")
-    monkeypatch.setattr(rc, "_SETTINGS_PATH", p)
+    monkeypatch.setenv("LIVE2BE_SETTINGS", str(p))
+    settings.reset()
     rc.reload()
     assert rc.get("time_half_life_days") == 12.0
     # 坏值 → 默认（不抛）
@@ -118,7 +120,8 @@ def test_freshness_floor_knob(tmp_path, monkeypatch):
     assert rc.DEFAULTS["time_freshness_floor"] == 0.25
     p = tmp_path / "settings.toml"
     p.write_text("[recall]\ntime_freshness_floor = 0.0\n", encoding="utf-8")
-    monkeypatch.setattr(rc, "_SETTINGS_PATH", p)
+    monkeypatch.setenv("LIVE2BE_SETTINGS", str(p))
+    settings.reset()
     rc.reload()
     assert rc.get("time_freshness_floor") == 0.0     # 显式关掉（不是回落默认）
     p.write_text('[recall]\ntime_freshness_floor = "low"\n', encoding="utf-8")
@@ -131,7 +134,8 @@ def test_settings_override(tmp_path, monkeypatch):
     """`[recall]` 覆盖生效（这是 V3-0 存在的理由: 按模型标定不必改代码）。"""
     p = tmp_path / "settings.toml"
     p.write_text("[recall]\ncand_k = 2\nsim_k = 8\n", encoding="utf-8")
-    monkeypatch.setattr(rc, "_SETTINGS_PATH", p)
+    monkeypatch.setenv("LIVE2BE_SETTINGS", str(p))
+    settings.reset()
     rc.reload()
     assert rc.get("cand_k") == 2.0
     assert rc.get("sim_k") == 8.0
@@ -144,7 +148,8 @@ def test_bad_values_fall_back(tmp_path, monkeypatch):
     """坏值/坏文件**不得**炸（宁缺勿错——配置层绝不能阻断对话或 digest）。"""
     p = tmp_path / "settings.toml"
     p.write_text('[recall]\nsim_k = "many"\ncand_k = true\n', encoding="utf-8")
-    monkeypatch.setattr(rc, "_SETTINGS_PATH", p)
+    monkeypatch.setenv("LIVE2BE_SETTINGS", str(p))
+    settings.reset()
     rc.reload()
     assert rc.get("sim_k") == rc.DEFAULTS["sim_k"], "字符串应被拒"
     assert rc.get("cand_k") == rc.DEFAULTS["cand_k"], "bool 应被拒（不是数值）"
@@ -164,18 +169,21 @@ def test_unknown_key_raises():
     print("    旋钮: 未知键 KeyError（并列出可用键）")
 
 
-def test_reload_picks_up_change(tmp_path, monkeypatch):
-    """`reload()` 后读新值（测试与设置变更依赖这个语义）。"""
+def test_file_change_takes_effect_without_restart(tmp_path, monkeypatch):
+    """手改 settings.toml 后，下一次读就是新值（按 mtime 失效，不必重启/reload）。
+
+    2026-10-15 改语义：从前这里断言的是"未 reload 应命中缓存"（进程级懒加载缓存）。
+    现在读盘由 `infra/settings` 按 mtime 缓存 ⇒ 文件一动就失效，这正是要的行为
+    （从前改了 `[recall]` 不重启不生效，而没有任何地方写着这件事）。
+    """
     p = tmp_path / "settings.toml"
-    monkeypatch.setattr(rc, "_SETTINGS_PATH", p)
+    monkeypatch.setenv("LIVE2BE_SETTINGS", str(p))
+    settings.reset()
     p.write_text("[recall]\nsim_k = 5\n", encoding="utf-8")
-    rc.reload()
     assert rc.get("sim_k") == 5.0
     p.write_text("[recall]\nsim_k = 8\n", encoding="utf-8")
-    assert rc.get("sim_k") == 5.0, "未 reload 应命中缓存"
-    rc.reload()
-    assert rc.get("sim_k") == 8.0, "reload 后应读新值"
-    print("    旋钮: 懒加载缓存 + reload 生效")
+    assert rc.get("sim_k") == 8.0, "文件改了就该读到新值（不必重启）"
+    print("    旋钮: 改文件即生效（mtime 失效）+ reload 仍可用")
 
 
 # ---------------------------------------------------------------------------

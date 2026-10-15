@@ -21,7 +21,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, Response
 from starlette.staticfiles import StaticFiles
 
-from infra import paths
+from infra import paths, settings
 
 # 根日志配置（2026-09-08）: uvicorn 只配自己的 access/error logger——live2be.* 的
 # INFO 埋点（bond_gen / bond_anno / llm chat …）此前从不输出, 排查全靠盲猜。
@@ -76,6 +76,10 @@ def _setup_file_logging() -> None:
         root = logging.getLogger()
         root.addHandler(handler)
         root.setLevel(logging.INFO)
+        # 配置读坏了要说一声（从前 9 个读者各读各的，5 个完全静默 ⇒ 用户改了不生效也不知道）
+        if settings.last_error():
+            logging.getLogger(__name__).warning(
+                "settings.toml 没用上（用默认值跑）: %s", settings.last_error())
     except Exception as e:                           # noqa: BLE001 — 降级不阻断
         logging.warning("diag 日志文件不可用（降级控制台）: %s", e)
 

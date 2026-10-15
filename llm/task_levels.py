@@ -42,7 +42,7 @@ low|medium|high = 显式覆盖（reasoning_effort）。
 """
 from __future__ import annotations
 
-from infra import paths
+from infra import settings
 
 #: 输出形态 → (thinking 档位, max_tokens, 备注)
 PROFILES: dict[str, dict] = {
@@ -61,28 +61,17 @@ PROFILES: dict[str, dict] = {
 }
 
 _VALID_THINKING = ("default", "off", "low", "medium", "high")
-#: settings.toml（`infra/paths.py` 的宏 —— 项目根那一份）
-_SETTINGS_PATH = paths.SETTINGS_PATH
-
-_OVERRIDES: dict[str, dict] | None = None
 
 
 def _load_overrides() -> dict[str, dict]:
-    """settings.toml [llm.tasks] 覆盖（缺失/损坏 → {}; 非法值忽略）。"""
-    global _OVERRIDES
-    if _OVERRIDES is not None:
-        return _OVERRIDES
-    _OVERRIDES = {}
-    try:
-        import tomllib
-        if not _SETTINGS_PATH.is_file():
-            return _OVERRIDES
-        data = tomllib.loads(_SETTINGS_PATH.read_text(encoding="utf-8"))
-        tasks = ((data.get("llm") or {}).get("tasks") or {})
-    except (OSError, ValueError, ImportError):
-        return _OVERRIDES
+    """settings.toml [llm.tasks] 覆盖（缺失/损坏 → {}；非法值忽略）。
+
+    每次调用重算（读盘由 infra/settings 按 mtime 缓存），所以设置页改了档位立刻生效。
+    """
+    out: dict[str, dict] = {}
+    tasks = settings.section("llm").get("tasks")
     if not isinstance(tasks, dict):
-        return _OVERRIDES
+        return out
     for name, ov in tasks.items():
         if not isinstance(ov, dict):
             continue
@@ -91,16 +80,14 @@ def _load_overrides() -> dict[str, dict]:
             continue                                    # 未知形态名忽略
         merged: dict = {}
         th = str(ov.get("thinking") or "").strip().lower()
-        if th:
-            if th in _VALID_THINKING:
-                merged["thinking"] = th
-            # 非法档位忽略（保留默认）
+        if th in _VALID_THINKING:                       # 非法档位忽略（保留默认）
+            merged["thinking"] = th
         mt = ov.get("max_tokens")
         if isinstance(mt, int) and mt > 0:
             merged["max_tokens"] = mt
         if merged:
-            _OVERRIDES[name] = merged
-    return _OVERRIDES
+            out[name] = merged
+    return out
 
 
 def profile(name: str) -> dict:

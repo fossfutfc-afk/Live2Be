@@ -49,12 +49,10 @@ FIND_PY = ROOT / "core" / "brain" / "read" / "find.py"
 
 
 @pytest.fixture(autouse=True)
-def _pin_knobs(monkeypatch):
+def _pin_knobs(recall_knobs):
     """把旋钮钉死（本机 `settings.toml` 里有什么都不影响这些断言）。"""
-    from core.brain.read import recall_config as rc
-    monkeypatch.setattr(rc, "_cache",
-                        {"like_k": 3.0, "time_half_life_days": 5.0,
-                         "time_freshness_floor": 0.25}, raising=False)
+    recall_knobs({"like_k": 3.0, "time_half_life_days": 5.0,
+                  "time_freshness_floor": 0.25})
 
 
 def _ts(days_ago: int) -> str:
@@ -524,7 +522,7 @@ def test_backend_blows_up_degrades_not_raises(tmp_path, caplog):
     assert "语义(后端故障:RuntimeError)" in line
 
 
-def test_semantic_is_pool_normalized_and_rank_gated(tmp_path):
+def test_semantic_is_pool_normalized_and_rank_gated(tmp_path, recall_knobs):
     """`scale=COSINE` 的两条语义: **池内 min-max**（池里最高的归一到 1.0, 不是"raw cos 直接用"）
     + **名次门槛**（只有原始分前 `[recall].sim_k` 名算命中; cos 恒正 ⇒ "> 0" 在它上面没有意义）。
 
@@ -561,14 +559,10 @@ def test_semantic_is_pool_normalized_and_rank_gated(tmp_path):
     assert out[0].node.id == "m0001" and abs(out[0].score - want) < 1e-9, out
 
     # 名次门槛: 把 sim_k 压到 1 ⇒ 只有原始 cos 最高的那条算命中, 其余**从这一路拿 0**
-    from core.brain.read import recall_config as rc
-    rc._cache = dict(rc.DEFAULTS, sim_k=1.0)
-    try:
-        out2 = like(st, _ctx("苔藓", embed_fn=fixed),
+    recall_knobs({"sim_k": 1.0})
+    out2 = like(st, _ctx("苔藓", embed_fn=fixed),
                 weights={"semantic": 1.0, "lexical": 0.0, "struct": 0.0})
-        assert [c.node.id for c in out2] == ["m0001"], out2
-    finally:
-        rc._cache = None
+    assert [c.node.id for c in out2] == ["m0001"], out2
 
 
 def test_gate_axis_is_not_implemented_and_says_so(tmp_path):

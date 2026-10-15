@@ -12,8 +12,14 @@
 RESOURCE_ROOT 指向包内（只读），其余四个在 exe 同级。可写与不可写分开写清楚，
 是为了让"往只读根写"这种事在改代码时就看得见——打包后往那儿写不报错，只是退出即丢。
 
-CONFIG_ROOT / ASSETS_ROOT / DATA_ROOT 的位置以后由首次向导指定（写进 settings.toml 的
-[paths]）。今天没有那一节，读不到就全用默认值，所以只需要改本文件这一处。
+CONFIG_ROOT / ASSETS_ROOT / DATA_ROOT 可以被 settings.toml 的 [paths] 覆盖（首次向导写它）：
+
+    [paths]
+      config = "D:/我的资产/人设"     # 相对路径按 APP_ROOT 解析
+      assets = "D:/我的资产/图"
+
+读它必须在这里（import 期），因为有不少模块在 import 期就把 paths.X 存成了自己的常量
+（`CHAR_ROOT = paths.CHARACTERS_DIR` 这种），晚一步改就有人拿着旧值。向导保存后要重启。
 
 约定：
 1. 不许在函数体里现拼路径，一律在本文件顶层写常量。
@@ -28,26 +34,35 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+from infra import settings
+
 #: PyInstaller 打包后会设 sys.frozen
 _FROZEN: bool = bool(getattr(sys, "frozen", False))
 
-if not _FROZEN:
-    _BASE = Path(__file__).resolve().parents[1]
-    RESOURCE_ROOT = APP_ROOT = _BASE
-    CONFIG_ROOT = _BASE / "config"
-    ASSETS_ROOT = _BASE / "assets"
-    DATA_ROOT = _BASE / "data"
-else:
-    # onefile 解到临时目录、onedir 的资源在 _internal/，所以 RESOURCE_ROOT
-    # 与 APP_ROOT 不在一级。
-    RESOURCE_ROOT = Path(getattr(sys, "_MEIPASS", Path(sys.executable).resolve().parent))
-    APP_ROOT = Path(sys.executable).resolve().parent
-    CONFIG_ROOT = APP_ROOT / "config"
-    ASSETS_ROOT = APP_ROOT / "assets"
-    DATA_ROOT = APP_ROOT / "data"
+APP_ROOT = settings.app_root()
+# 打包后资源在包内（onefile 解到临时目录、onedir 在 _internal/），与 APP_ROOT 不在一级
+RESOURCE_ROOT = Path(getattr(sys, "_MEIPASS", APP_ROOT)) if _FROZEN else APP_ROOT
+
+#: settings.toml 的 [paths] 那段（缺省 = 空表）
+_OVERRIDE = settings.raw().get("paths") or {}
+
+
+def _root(key: str, default: Path) -> Path:
+    """[paths] 的覆盖值；相对路径按 APP_ROOT 解析，没配就用默认。"""
+    val = _OVERRIDE.get(key)
+    if not isinstance(val, str) or not val.strip():
+        return default
+    p = Path(val).expanduser()
+    return p if p.is_absolute() else (APP_ROOT / p)
+
+
+CONFIG_ROOT = _root("config", APP_ROOT / "config")
+ASSETS_ROOT = _root("assets", APP_ROOT / "assets")
+DATA_ROOT = _root("data", APP_ROOT / "data")
 
 # ── APP_ROOT：运行时配置（gitignore；缺失即全默认）────────────────────────
-SETTINGS_PATH = APP_ROOT / "settings.toml"
+#: 与 `settings.default_path()` 同源（LIVE2BE_SETTINGS 指到别处时跟着走）
+SETTINGS_PATH = settings.default_path()
 DOTENV_PATH = APP_ROOT / ".env"
 
 # ── CONFIG_ROOT：作者手编的数据 ───────────────────────────────────────────
@@ -94,7 +109,7 @@ DIAG_LOG_PATH = DIAG_DIR / "live2be.log"
 WEBGUI_STATIC_DIR = RESOURCE_ROOT / "webgui" / "static"
 
 
-__all__ = [
+__all__ = [  # noqa: RUF022 — 按五根分组，字典序读不出"谁归哪根"
     # 五个根
     "APP_ROOT", "ASSETS_ROOT", "CONFIG_ROOT", "DATA_ROOT", "RESOURCE_ROOT",
     # APP_ROOT

@@ -25,12 +25,9 @@ from __future__ import annotations
 import logging
 
 from contract.errors import err
-from infra import paths
+from infra import settings
 
 logger = logging.getLogger(__name__)
-
-#: settings.toml 位置（`infra/paths.py` 的宏 —— 项目根, 与 .env 并列, 用户容易找到）
-SETTINGS_PATH = paths.SETTINGS_PATH
 
 #: 默认配置（缺失/损坏 → 兜底; 与 .env 同名变量对应）
 DEFAULTS: dict = {
@@ -61,14 +58,11 @@ MASK_PREFIX = "****"
 
 
 def load_settings() -> dict:
-    """读 settings.toml → dict（缺失/损坏 → 默认 + 警告, 不阻塞）。"""
-    if not SETTINGS_PATH.is_file():
-        return _deep_copy(DEFAULTS)
-    try:
-        import tomllib
-        data = tomllib.loads(SETTINGS_PATH.read_text(encoding="utf-8"))
-    except (OSError, ValueError, ImportError) as e:
-        logger.warning(err("SettingsLoad", f"settings.toml 读取失败, 用默认: {e}"))
+    """settings.toml 全量 + 合并 DEFAULTS（缺失/损坏 → 默认 + 警告, 不阻塞）。"""
+    data = settings.raw()
+    if settings.last_error():                    # 文件在, 但读坏了
+        logger.warning(err("SettingsLoad",
+                           f"settings.toml 读取失败, 用默认: {settings.last_error()}"))
         return _deep_copy(DEFAULTS)
     # 合并默认（缺失分组补默认值; 用户配置优先）
     merged = _deep_copy(DEFAULTS)
@@ -166,8 +160,9 @@ def save_settings(data: dict) -> None:
             # 非法值（dict/list 等）→ **跳过**（保持不写）。不回落 DEFAULTS:
             # 那是另一份数据, 替进去等于用默认值覆盖用户原值。
         clean[section] = out
-    SETTINGS_PATH.write_text(_to_toml(clean), encoding="utf-8")
-    logger.info("settings.toml 已保存: %s", SETTINGS_PATH)
+    path = settings.default_path()
+    path.write_text(_to_toml(clean), encoding="utf-8")
+    logger.info("settings.toml 已保存: %s", path)
 
 
 def mask_api_key(api_key: str) -> str:

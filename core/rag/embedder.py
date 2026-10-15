@@ -29,16 +29,12 @@ import time
 import httpx
 
 from contract.errors import Live2BeError
-from infra import paths
+from infra import paths, settings
 
 logger = logging.getLogger(__name__)
 
 #: 默认服务地址（LM Studio 的常见端口; **可被 [embed].base_url 覆盖**）
 DEFAULT_BASE_URL = "http://localhost:1234/v1"
-
-#: settings.toml（与 `[llm]` / `[image]` / `[recall]` 同一份；缺失/损坏 → 默认）
-#: ⚠️ 路径真源 = `infra/paths.py`（打包后它在 exe 同级, **不在只读 bundle 里**）
-_SETTINGS_PATH = paths.SETTINGS_PATH
 
 #: 环境变量（进程级; `.env` 亦被加载——见 `_load_dotenv_once`）
 ENV_BASE = "LIVE2BE_EMBED_BASE"
@@ -66,30 +62,15 @@ def _load_dotenv_once() -> None:
 
 
 def _settings_embed_cfg() -> dict:
-    """读项目根 `settings.toml` 的 `[embed]` 分组（缺失/损坏 → `{}`, 不阻塞）。
+    """settings.toml 的 `[embed]` 分组（缺失/损坏 → `{}`）。
 
-    **2026-09-15（T18）新增**——此前 `LocalEmbedder` **没有任何配置面**:
-    `DEFAULT_BASE_URL` 硬编码 1234, 模型靠 id 启发式自动发现。后果不是"少个旋钮"
-    而是**本机装好的模型对代码不可见**: 实验里 Qwen3 监听的是 1235, 而代码只会
-    去敲 1234。配置面缺位时, 唯一能"接入"的办法是**把服务挪到代码猜的那个端口**——
-    那是让配置迁就代码。
-
-    形态（与 `[llm]` / `[image]` 同构，可被 GUI 设置页安全共存——`webgui/store.py`
-    的 `load_settings` 会合并未知分组、`save_settings` 保真落盘）::
+    形态（与 `[llm]` / `[image]` 同构；GUI 设置页会合并未知分组、保存时保真落盘）::
 
         [embed]
           base_url = "http://localhost:1235/v1"
           model    = "Qwen3-Embedding-0.6B"
     """
-    if not _SETTINGS_PATH.is_file():
-        return {}
-    try:
-        import tomllib
-        data = tomllib.loads(_SETTINGS_PATH.read_text(encoding="utf-8"))
-    except (OSError, ValueError, ImportError):
-        return {}
-    section = data.get("embed") if isinstance(data, dict) else None
-    return section if isinstance(section, dict) else {}
+    return settings.section("embed")
 
 
 def _cfg_str(section: dict, key: str) -> str:

@@ -226,7 +226,7 @@ def test_reserved_ids_never_trigger_the_name_form(tmp_path):
     print(f"    modes: 保留号（{SELF_ID}/{SENSEI_ID}）不触发名字形式")
 
 
-def test_name_section_shares_the_budget_and_the_copy(tmp_path, monkeypatch):
+def test_name_section_shares_the_budget_and_the_copy(tmp_path, recall_knobs):
     """⑩ 名字段**不是"有多少摆多少"**: 抬头取自形式表, 字符预算读同一个 `[recall].turn_budget`。
 
     两段（名字段 / 兜底段）**各自**读这一个数 —— 2026-10-12 用户: *"给 1000 字符吧先"*。
@@ -239,7 +239,7 @@ def test_name_section_shares_the_budget_and_the_copy(tmp_path, monkeypatch):
     full = modes.render_section(cands, mode="name", key="阿露", now=NOW)
     assert full.startswith("【你想着「阿露」"), full          # 抬头 = 表里那一行 + 钥匙
     assert full.count("\n") == 3, full                        # 段头 + 三条（名字段无段尾提示）
-    monkeypatch.setattr(rc, "_cache", {"turn_budget": 30.0}, raising=False)
+    recall_knobs({"turn_budget": 30.0})
     tight = modes.render_section(cands, mode="name", key="阿露", now=NOW)
     assert tight.count("\n") == 1, tight                      # 段头 + 第一条（第一条永远留）
     print("    modes: 名字段一样吃 `[recall].turn_budget`（不是有多少摆多少）")
