@@ -19,8 +19,8 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from core import paths
 from core.session import SessionStore
+from infra import paths
 from llm.image_gen import ImageGenerator, image_enabled
 
 logger = logging.getLogger(__name__)
@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 # ① 会话存储（测试靠它把世界线指到 tmp_path; `webgui/chat.py` 与 bond 共用）
 # ---------------------------------------------------------------------------
 
-#: 运行时数据根（**固定路径的唯一来源**是 `core/paths.py`，见那里的约定）
+#: 运行时数据根（**固定路径的唯一来源**是 `infra/paths.py`，见那里的约定）
 DATA_ROOT = paths.DATA_DIR
 
 #: 当前世界线存储（`set_store()` / 测试 monkeypatch 替换; 读一律走 `store()`）
@@ -111,7 +111,7 @@ PREGEN_GATE_WATCHDOG_MS = 25_000   # 预生成消费门 25s 未通过 → 强制
 # ⑤ choice 候选预生成开关（settings.toml; 测试可替换成常量）
 # ---------------------------------------------------------------------------
 
-#: 运行时开关读取路径（`core/paths.py` 的宏 —— settings.toml, gitignore, 本机 GUI 设置文件）
+#: 运行时开关读取路径（`infra/paths.py` 的宏 —— settings.toml, gitignore, 本机 GUI 设置文件）
 CAND_SETTINGS_PATH = paths.SETTINGS_PATH
 
 

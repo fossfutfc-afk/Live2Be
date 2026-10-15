@@ -10,7 +10,6 @@ import sys
 import pytest
 import yaml
 
-from core import paths
 from core.parsing.dynamic_character_parser import CharacterLoader
 from core.parsing.names import char_names, names_of, speaker_names
 from core.parsing.player_profile import (
@@ -18,6 +17,7 @@ from core.parsing.player_profile import (
     load_player_profile,
     player_names,
 )
+from infra import paths
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
 

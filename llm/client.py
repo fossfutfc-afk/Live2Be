@@ -20,7 +20,6 @@ import logging
 import os
 import time
 from collections.abc import Callable
-from pathlib import Path
 from typing import Any, NoReturn
 
 import certifi
@@ -29,6 +28,7 @@ from dotenv import load_dotenv
 
 from contract.errors import err
 from contract.json_cleaner import extract_json
+from infra import paths
 
 logger = logging.getLogger(__name__)
 
@@ -38,14 +38,14 @@ _EFFORT_LEVELS = ("low", "medium", "high")
 # Windows + conda SSL 证书修复
 os.environ["SSL_CERT_FILE"] = certifi.where()
 
-# 加载 .env
-_project_root = Path(__file__).resolve().parents[1]
+# 加载 .env —— 路径真源 = `infra/paths.py`（⭐ 打包后它在 **exe 同级**, 不在只读 bundle 里;
+# 从前这里 `Path(__file__).parents[1]` 自己拼 —— frozen 下那会指向 bundle/临时目录）
 # 返回值不用（要的是 `load_dotenv` 把 .env 灌进 os.environ 这个**副作用**）; 名字保留是因为
 # 它在 API 面快照里（`tests/fixtures/api_surface.txt`）——顺手可当"有没有找到 .env"的探针。
-_load_dotenv_result = load_dotenv(_project_root / ".env")
+_load_dotenv_result = load_dotenv(paths.DOTENV_PATH)
 
-#: settings.toml 位置（项目根——GUI 设置页存档; 非空字段优先于 .env）
-_SETTINGS_PATH = _project_root / "settings.toml"
+#: settings.toml 位置（APP_ROOT——GUI 设置页存档; 非空字段优先于 .env）
+_SETTINGS_PATH = paths.SETTINGS_PATH
 
 
 def _settings_toml() -> dict:

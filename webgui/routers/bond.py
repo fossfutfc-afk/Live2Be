@@ -341,7 +341,7 @@ def _table_bg_url(key: str, asset: str = "") -> str | None:
     会漏 6 张——`BG_ClassRoom2_Night.jpg` 派生成 `class_room_2` 这个**另一个
     scene_id**, 与键的 `class_room` 对不上（2026-09-19 探针）。
     """
-    from core import paths
+    from infra import paths
     try:
         from core.media.place_table import load_table
         t = load_table()

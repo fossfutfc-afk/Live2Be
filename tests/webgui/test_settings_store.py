@@ -44,10 +44,14 @@ def test_post_settings_accepts_checkbox_bool():
 
 
 def test_image_enabled_reads_saved_file(monkeypatch):
-    """存盘的 false 被引擎侧读到（两个模块各读同一路径, 这里钉住一致性）。"""
+    """存盘的 false 被引擎侧读到（两个模块各读同一路径, 这里钉住一致性）。
+
+    ⚠️ 2026-10-15: 从前 patch `ig._PROJECT_ROOT`; 那个名字随"路径归位"删掉了 ⇒
+    现在 patch **路径真源** `infra/paths.SETTINGS_PATH`（与 `store`/引擎读的是同一个）。
+    """
     from llm import image_gen as ig
     monkeypatch.delenv(ig.ENV_SWITCH, raising=False)
-    monkeypatch.setattr(ig, "_PROJECT_ROOT", Path(store.SETTINGS_PATH).parent)
+    monkeypatch.setattr(ig.paths, "SETTINGS_PATH", Path(store.SETTINGS_PATH))
     assert ig.image_enabled() is True                     # 还没存过 → 默认开
     cur = store.load_settings()
     cur["image"]["enabled"] = False

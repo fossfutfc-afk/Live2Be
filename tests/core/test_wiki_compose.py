@@ -39,8 +39,8 @@ from core.brain import (
 )
 from core.brain.read.channel_impl import build_channels
 from core.brain.read.channels import KIND_GATE, SCALE_COSINE, SCALE_UNIT
-from core.common import fuse as shapes
 from core.media import place_fuse as pf
+from infra import fuse as shapes
 
 # ---------------------------------------------------------------------------
 # 构造器
@@ -83,7 +83,7 @@ def test_shapes_are_a_single_implementation():
     assert pf.magic is shapes.magic is shapes.fuse
     assert set(pf.MODES) == set(shapes.MODES) == {"harmonic", "geometric", "product"}
     assert shapes.DEFAULT_MODE == "harmonic"
-    print("    shapes: place_fuse 与 core.common.fuse 是同一个函数（无第二份实现）")
+    print("    shapes: place_fuse 与 infra.fuse 是同一个函数（无第二份实现）")
 
 
 def test_final_is_harmonic_of_rel_and_prior():

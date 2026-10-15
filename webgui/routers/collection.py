@@ -14,21 +14,20 @@
 """
 from __future__ import annotations
 
-from pathlib import Path
-
 from fastapi import APIRouter, HTTPException
 
 from core.common.mmt_registry import load_mmt_registry
 from core.parsing.dynamic_character_parser import CharacterLoader
 from core.session.chapters import chapter_index
+from infra import paths
 from webgui import bond, deps
 from webgui.routers.bond import _resolve_scene
 from webgui.routers.mmt import collection_cover
 
 router = APIRouter()
 
-ROOT = Path(__file__).resolve().parent.parent.parent
-CHAR_ROOT = ROOT / "config" / "characters"
+#: 角色卡根 —— 路径真源 = `infra/paths.py`（**CONFIG_ROOT**, 用户内容; 从前这里自己拼）
+CHAR_ROOT = paths.CHARACTERS_DIR
 
 #: 书页版式（设计稿 §1: 两半页 × 3 行 4 列 = 24 格一跨页）——前端也读这份, 单一真源
 BOOK_ROWS = 3

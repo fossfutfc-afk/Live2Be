@@ -44,9 +44,9 @@ import re
 import sys
 from pathlib import Path
 
-from core import paths
 from core.media import place_renames
 from core.media.place_table import DEFAULT_TABLE_PATH, load_table, reset_cache
+from infra import paths
 
 #: 审校表（作者的 `active` 裁决; 在 `assets/` 里, 可能不存在）
 REVIEW_PATH = paths.BACKGROUND_DIR / "_place_review.json"

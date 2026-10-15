@@ -129,7 +129,6 @@ webgui.chat	M_VN_ENTER	data	-
 webgui.chat	M_VN_EXIT	data	-
 webgui.chat	MomoTalkEngine	class	core.mmt.engine
 webgui.chat	PREWARM_ENABLED	data	-
-webgui.chat	ROOT	data	pathlib
 webgui.chat	_bond_done_map	function	webgui.chat
 webgui.chat	_engine	function	webgui.chat
 webgui.chat	_engines	data	-
@@ -188,7 +187,7 @@ core.bond.bond_story	annotate_places	function	core.bond.place_annotate
 core.bond.bond_story	assets_root	function	core.media.emotion_lexicon
 core.bond.bond_story	build_box	function	core.promptkit.box
 core.bond.bond_story	build_emotion_injection	function	core.media.emotion_lexicon
-core.bond.bond_story	build_record_schema	function	contract.schema
+core.bond.bond_story	build_record_schema	function	contract.schema.records
 core.bond.bond_story	check_block	function	contract.records.check
 core.bond.bond_story	check_board	function	contract.records.check
 core.bond.bond_story	err	function	contract.errors
@@ -340,7 +339,7 @@ core.mmt.engine	_stances_of	function	core.mmt.engine
 core.mmt.engine	_strip_action_brackets	function	core.tui.text_processors
 core.mmt.engine	_turn_k	function	core.mmt.engine
 core.mmt.engine	build_box	function	core.promptkit.box
-core.mmt.engine	build_line_schema	function	contract.schema
+core.mmt.engine	build_line_schema	function	contract.schema.lines
 core.mmt.engine	build_mmt_registry	function	core.mmt.mmt_actions
 core.mmt.engine	char_names	function	core.parsing.names
 core.mmt.engine	check_turn	function	core.mmt.mmt_check
@@ -427,7 +426,6 @@ llm.client	_ensure_json_instruction	function	llm.client
 llm.client	_load_dotenv_result	data	-
 llm.client	_parse_chat_response	function	llm.client
 llm.client	_parse_retry_after	function	llm.client
-llm.client	_project_root	data	pathlib
 llm.client	_raise_transport	function	llm.client
 llm.client	_settings_toml	function	llm.client
 llm.client	err	function	contract.errors

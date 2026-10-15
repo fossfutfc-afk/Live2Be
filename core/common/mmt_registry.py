@@ -9,12 +9,12 @@ from __future__ import annotations
 import logging
 import tomllib
 
-from core import paths
 from core.common.errors import err
+from infra import paths
 
 logger = logging.getLogger(__name__)
 
-#: 白名单路径 = `core/paths.py` 的宏（config/settings/mmt_registry.toml）
+#: 白名单路径 = `infra/paths.py` 的宏（config/settings/mmt_registry.toml）
 REGISTRY_PATH = paths.MMT_REGISTRY_PATH
 
 

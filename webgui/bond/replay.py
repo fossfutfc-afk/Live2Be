@@ -25,7 +25,6 @@
 
 from __future__ import annotations
 
-
 from contract import NON_PICKS
 from core.director.wiring import _trigger_title  # C11: 接线层（此前借道 apps.vn_cli）
 from core.session.chapters import replayable_chapters

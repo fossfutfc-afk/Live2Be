@@ -65,7 +65,7 @@
 `compose.recall_now` / `recall.recommend_candidates` 一个都不 import（守门⑤ 扫 AST）:
 前者在 digest 场景**四链路降级三条**, 后者**无 embedder 时四个查询全空**（真档实测）。
 `_bigrams` 这边**自己一份**（`recall.py` 也有, 但那边整族待删, 不许 import）。
-✅ 照用的只有两样通用工具: `core.common.fuse`（真接语义轴时再用）与
+✅ 照用的只有两样通用工具: `infra.fuse`（真接语义轴时再用）与
 `core.worldtime.age`（`age_days` / `freshness` / `render_relative` —— 时间真源, 不在 `read/` 里）。
 """
 from __future__ import annotations

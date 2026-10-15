@@ -33,7 +33,7 @@ import logging
 from datetime import datetime
 from pathlib import Path
 
-from core import paths
+from infra import paths
 
 logger = logging.getLogger("live2be.place")
 

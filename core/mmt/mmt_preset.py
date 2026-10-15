@@ -48,12 +48,11 @@ import re
 import unicodedata
 from enum import Enum
 
-from core import paths
 from core.common import err
 from core.mmt.engine import MomoTalkEngine
+from infra import paths
 
-# 玩家名存储——`core/paths.py` 的宏（项目根绝对路径, cwd 无关）
-_PROJECT_ROOT = paths.ROOT
+# 玩家名存储——路径真源 = `infra/paths.py`（绝对路径, cwd 无关）
 PLAYER_JSON = paths.DATA_DIR / "basic" / "player.json"
 DEFAULT_PLAYER_NAME = "sensei"
 MAX_NAME_LEN = 20
@@ -206,11 +205,11 @@ def _name_problem(name: str) -> str | None:
 # ============================================================================
 
 def _load_namegg() -> dict:
-    """读 config/eggs/namegg.json（角色名彩蛋数据）。缺失/损坏抛 err 异常。
+    """读 `paths.NAMEGG_PATH`（`config/eggs/namegg.json`, 角色名彩蛋）。缺失/损坏抛 err。
 
     格式: {正则: [回复1, 回复2, ...]}; 任一正则命中玩家名 → 随机一条彩蛋。
     """
-    path = _PROJECT_ROOT / "config" / "eggs" / "namegg.json"
+    path = paths.NAMEGG_PATH
     if not path.exists():
         raise FileNotFoundError(err("NotFound", f"档案不存在: {path}"))
     try:

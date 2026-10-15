@@ -42,7 +42,7 @@ low|medium|high = 显式覆盖（reasoning_effort）。
 """
 from __future__ import annotations
 
-from core import paths
+from infra import paths
 
 #: 输出形态 → (thinking 档位, max_tokens, 备注)
 PROFILES: dict[str, dict] = {
@@ -61,7 +61,7 @@ PROFILES: dict[str, dict] = {
 }
 
 _VALID_THINKING = ("default", "off", "low", "medium", "high")
-#: settings.toml（`core/paths.py` 的宏 —— 项目根那一份）
+#: settings.toml（`infra/paths.py` 的宏 —— 项目根那一份）
 _SETTINGS_PATH = paths.SETTINGS_PATH
 
 _OVERRIDES: dict[str, dict] | None = None

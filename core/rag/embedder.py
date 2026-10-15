@@ -28,18 +28,16 @@ import time
 
 import httpx
 
-from core import paths
 from core.common.errors import Live2BeError
+from infra import paths
 
 logger = logging.getLogger(__name__)
 
 #: 默认服务地址（LM Studio 的常见端口; **可被 [embed].base_url 覆盖**）
 DEFAULT_BASE_URL = "http://localhost:1234/v1"
 
-#: 项目根 + settings.toml（`core/paths.py` 的宏）
-_PROJECT_ROOT = paths.ROOT
-
 #: settings.toml（与 `[llm]` / `[image]` / `[recall]` 同一份；缺失/损坏 → 默认）
+#: ⚠️ 路径真源 = `infra/paths.py`（打包后它在 exe 同级, **不在只读 bundle 里**）
 _SETTINGS_PATH = paths.SETTINGS_PATH
 
 #: 环境变量（进程级; `.env` 亦被加载——见 `_load_dotenv_once`）
@@ -62,7 +60,7 @@ def _load_dotenv_once() -> None:
     _DOTENV_DONE = True
     try:
         from dotenv import load_dotenv
-        load_dotenv(_PROJECT_ROOT / ".env")
+        load_dotenv(paths.DOTENV_PATH)
     except Exception:                            # noqa: BLE001 — 无 dotenv/无 .env 都正常
         pass
 

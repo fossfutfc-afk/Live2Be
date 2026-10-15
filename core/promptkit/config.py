@@ -8,7 +8,7 @@ from __future__ import annotations
 import logging
 import tomllib
 
-from core import paths
+from infra import paths
 
 logger = logging.getLogger(__name__)
 

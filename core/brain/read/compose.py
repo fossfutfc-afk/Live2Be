@@ -120,7 +120,7 @@ from core.brain.read.channels import (
     ChannelResult,
     RecallContext,
 )
-from core.common.fuse import DEFAULT_MODE, MODES, fuse
+from infra.fuse import DEFAULT_MODE, MODES, fuse
 
 #: 命中门槛的缺省值（正常走 `[recall].sim_k`=`5`）——**名次, 不是分数阈值**
 DEFAULT_HIT_K = 5

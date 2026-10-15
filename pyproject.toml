@@ -90,7 +90,7 @@ ignore = [
 "tests/**" = ["F401", "F811"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["apps", "contract", "core", "llm", "renderer", "webgui"]
+known-first-party = ["apps", "contract", "core", "infra", "llm", "renderer", "webgui"]
 
 # ── 类型检查（先只报，不当门禁）───────────────────────────────────────────
 [tool.pyright]

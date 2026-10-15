@@ -4,7 +4,7 @@
 ## 它回答什么
 
 PROCEED §2 那张"真机观察清单"要看的六个数, 全在 `data/diag/live2be.log` 里
-（`webgui/app.py` 挂的 FileHandler; 路径真源 = `core.paths.DIAG_LOG_PATH`）:
+（`webgui/app.py` 挂的 FileHandler; 路径真源 = `infra.paths.DIAG_LOG_PATH`）:
 
 | 看什么 | 从哪几行读 |
 |---|---|
@@ -38,7 +38,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from core.brain.read import recall_config          # noqa: E402
-from core.paths import DIAG_LOG_PATH               # noqa: E402
+from infra.paths import DIAG_LOG_PATH               # noqa: E402
 
 #: 一行日志: `2026-10-08 20:06:33 core.mmt.engine INFO <msg>`
 LINE = re.compile(r"^(?P<ts>\d{4}-\d\d-\d\d \d\d:\d\d:\d\d) "

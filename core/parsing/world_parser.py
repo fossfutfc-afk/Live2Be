@@ -21,11 +21,10 @@ from pathlib import Path
 
 import yaml
 
-from core import paths
 from core.common import err
+from infra import paths
 
-#: 项目根（`core/paths.py` 的宏——绝对路径, uvicorn/IDE 从任意 CWD 启动都能找到）
-_PROJECT_ROOT = paths.ROOT
+#: 项目根（`infra/paths.py` 的宏——绝对路径, uvicorn/IDE 从任意 CWD 启动都能找到）
 
 #: 默认路径（项目根绝对, cwd 无关）
 DEFAULT_WORLD_PATH = paths.WORLD_OVERVIEW_PATH
