@@ -2,7 +2,7 @@
 
 钉四件事：
 
-  ① 按 mtime+size 失效：同一个文件读两次复用同一次解析；文件一改立刻读到新值
+  ① 每次读都是最新的：文件一改，下一次读就是新值（**没有缓存** ⇒ 同长度改写也读得到）
   ② 缺文件 → {}（不是错误）；坏文件 → {} 且 last_error() 说得出来
   ③ section() 只给表，标量/缺段 → {}
   ④ LIVE2BE_SETTINGS 能把这份文件指到别处
@@ -17,19 +17,11 @@ import pytest
 from infra import settings
 
 
-@pytest.fixture(autouse=True)
-def _clean():
-    settings.reset()
-    yield
-    settings.reset()
-
-
 @pytest.fixture
 def cfg(tmp_path, monkeypatch):
     """一份 tmp 的 settings.toml（路径已通过 LIVE2BE_SETTINGS 指好）。"""
     path = tmp_path / "settings.toml"
     monkeypatch.setenv("LIVE2BE_SETTINGS", str(path))
-    settings.reset()
     return path
 
 
@@ -45,19 +37,21 @@ def test_missing_file_is_not_an_error(cfg):
     assert settings.section("llm") == {}
 
 
-def test_cached_until_file_changes(cfg):
+def test_every_read_sees_the_current_file(cfg):
+    """没有缓存：改一次读一次（同长度的改写也必须读到 —— 2026-10-15 踩过的坑）。"""
     cfg.write_text("[llm]\n  model = \"a\"\n", encoding="utf-8")
-    first = settings.raw()
-    assert first["llm"]["model"] == "a"
-    assert settings.raw() is first, "文件没动就该复用同一份解析结果"
-    cfg.write_text("[llm]\n  model = \"bb\"\n", encoding="utf-8")     # 内容与长度都变
-    assert settings.raw()["llm"]["model"] == "bb", "文件动了就该立刻重读"
+    assert settings.raw()["llm"]["model"] == "a"
+    cfg.write_text("[llm]\n  model = \"b\"\n", encoding="utf-8")     # 同样长度
+    assert settings.raw()["llm"]["model"] == "b", \
+        "同一长度、同一 mtime 刻度的改写也必须读到新值（缓存会在这里骗人）"
+    cfg.write_text("[llm]\n  model = \"longer\"\n", encoding="utf-8")
+    assert settings.raw()["llm"]["model"] == "longer"
 
 
 def test_broken_file_reports_reason(cfg):
     cfg.write_text("[llm\n  bad = ", encoding="utf-8")
     assert settings.raw() == {}
-    assert settings.last_error(), "坏文件必须留下原因（今天 5 个读者是静默的）"
+    assert settings.last_error(), "坏文件必须留下原因（从前 5 个读者是静默的）"
     assert "settings.toml" in settings.last_error()
 
 
@@ -76,14 +70,6 @@ def test_section_only_returns_tables(cfg):
     assert settings.section("weird") == {"n": 3}
     assert settings.section("title") == {}, "标量不是表 → 空表"
     assert settings.section("nope") == {}
-
-
-def test_reset_forces_a_reread(cfg):
-    cfg.write_text("[llm]\n  model = \"a\"\n", encoding="utf-8")
-    first = settings.raw()
-    settings.reset()
-    second = settings.raw()
-    assert second == first and second is not first, "reset 后要重新解析"
 
 
 def test_app_root_is_a_directory():

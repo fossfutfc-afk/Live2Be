@@ -67,7 +67,6 @@ def test_settings_override(monkeypatch, tmp_path):
         encoding="utf-8",
     )
     monkeypatch.setenv("LIVE2BE_SETTINGS", str(cfg))
-    settings.reset()
     assert tl.profile("emotion")["thinking"] == "medium"
     assert tl.max_tokens("emotion") == 768
     assert tl.profile("digest")["thinking"] == "off"
@@ -94,8 +93,6 @@ if __name__ == "__main__":
             "[llm.tasks.emotion]\nthinking = \"medium\"\nmax_tokens = 768\n",
             encoding="utf-8")
         os.environ["LIVE2BE_SETTINGS"] = str(cfg)
-        settings.reset()
         assert tl.profile("emotion")["thinking"] == "medium"
         del os.environ["LIVE2BE_SETTINGS"]
-        settings.reset()
     print("llm/task_levels 单测: 全部通过")

@@ -28,9 +28,7 @@ def _no_env(monkeypatch):
     """清掉环境变量——防本机 `.env` / shell 里的值污染断言。"""
     for k in (E.ENV_BASE, E.ENV_MODEL):
         monkeypatch.delenv(k, raising=False)
-    settings.reset()
     yield
-    settings.reset()
 
 
 def _write_settings(tmp_path, monkeypatch, body: str):
@@ -38,14 +36,12 @@ def _write_settings(tmp_path, monkeypatch, body: str):
     p = tmp_path / "settings.toml"
     p.write_text(body, encoding="utf-8")
     monkeypatch.setenv("LIVE2BE_SETTINGS", str(p))
-    settings.reset()
     return p
 
 
 def _no_settings(monkeypatch):
     """指到一个不存在的文件（= 没配置）。"""
     monkeypatch.setenv("LIVE2BE_SETTINGS", "__no_such_settings__.toml")
-    settings.reset()
 
 
 # ---------------------------------------------------------------------------

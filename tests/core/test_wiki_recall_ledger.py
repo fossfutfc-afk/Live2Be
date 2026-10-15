@@ -24,14 +24,6 @@ from infra import settings
 
 
 @pytest.fixture(autouse=True)
-def _clean_config():
-    """每个用例前后清缓存——读盘缓存是进程级的，不清会串。"""
-    rc.reload()
-    yield
-    rc.reload()
-
-
-@pytest.fixture(autouse=True)
 def _drain_view_account():
     """每个用例前**抽干** `_last_view_account`（模块级状态, 跨文件会串）。
 
@@ -102,12 +94,9 @@ def test_time_half_life_default_and_override(tmp_path, monkeypatch):
     p = tmp_path / "settings.toml"
     p.write_text("[recall]\ntime_half_life_days = 12\n", encoding="utf-8")
     monkeypatch.setenv("LIVE2BE_SETTINGS", str(p))
-    settings.reset()
-    rc.reload()
     assert rc.get("time_half_life_days") == 12.0
     # 坏值 → 默认（不抛）
     p.write_text('[recall]\ntime_half_life_days = "long"\n', encoding="utf-8")
-    rc.reload()
     assert rc.get("time_half_life_days") == 5.0
     print("    旋钮: time_half_life_days 默认 5.0（现实日）+ 覆盖/坏值回落")
 
@@ -121,11 +110,8 @@ def test_freshness_floor_knob(tmp_path, monkeypatch):
     p = tmp_path / "settings.toml"
     p.write_text("[recall]\ntime_freshness_floor = 0.0\n", encoding="utf-8")
     monkeypatch.setenv("LIVE2BE_SETTINGS", str(p))
-    settings.reset()
-    rc.reload()
     assert rc.get("time_freshness_floor") == 0.0     # 显式关掉（不是回落默认）
     p.write_text('[recall]\ntime_freshness_floor = "low"\n', encoding="utf-8")
-    rc.reload()
     assert rc.get("time_freshness_floor") == 0.25    # 坏值 → 默认
     print("    旋钮: time_freshness_floor 默认 0.25 / 0.0 可关 / 坏值回落")
 
@@ -135,8 +121,6 @@ def test_settings_override(tmp_path, monkeypatch):
     p = tmp_path / "settings.toml"
     p.write_text("[recall]\ncand_k = 2\nsim_k = 8\n", encoding="utf-8")
     monkeypatch.setenv("LIVE2BE_SETTINGS", str(p))
-    settings.reset()
-    rc.reload()
     assert rc.get("cand_k") == 2.0
     assert rc.get("sim_k") == 8.0
     # 未配的键保持默认
@@ -149,14 +133,11 @@ def test_bad_values_fall_back(tmp_path, monkeypatch):
     p = tmp_path / "settings.toml"
     p.write_text('[recall]\nsim_k = "many"\ncand_k = true\n', encoding="utf-8")
     monkeypatch.setenv("LIVE2BE_SETTINGS", str(p))
-    settings.reset()
-    rc.reload()
     assert rc.get("sim_k") == rc.DEFAULTS["sim_k"], "字符串应被拒"
     assert rc.get("cand_k") == rc.DEFAULTS["cand_k"], "bool 应被拒（不是数值）"
 
     # 文件损坏 → 全默认
     p.write_text("[recall\n 这行不是合法 toml", encoding="utf-8")
-    rc.reload()
     assert rc.get("sim_k") == rc.DEFAULTS["sim_k"]
     print("    旋钮: 类型不符/TOML 损坏 → 回落默认, 不抛")
 
@@ -178,7 +159,6 @@ def test_file_change_takes_effect_without_restart(tmp_path, monkeypatch):
     """
     p = tmp_path / "settings.toml"
     monkeypatch.setenv("LIVE2BE_SETTINGS", str(p))
-    settings.reset()
     p.write_text("[recall]\nsim_k = 5\n", encoding="utf-8")
     assert rc.get("sim_k") == 5.0
     p.write_text("[recall]\nsim_k = 8\n", encoding="utf-8")
