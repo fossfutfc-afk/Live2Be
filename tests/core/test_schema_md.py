@@ -7,12 +7,12 @@
 之间只靠人记得对齐。这三条把对账自动化（与 `test_digest_contract_refs.py` 同一手法:
 名字从真源 AST 取, 零维护）:
 
-  ① **动作名**：文案里写到的 `mmt_*` 必须在注册表里；**被封印的（`in_prompt=False`）
+  ① 动作名：文案里写到的 `mmt_*` 必须在注册表里；被封印的（`in_prompt=False`）
      不许出现在契约里**（承诺一个不发的动作是假话）
-  ② **取值**：记录流的取值表必须与 `contract.records` 的文法常量一致
-  ③ **结构**：规则 md 是干净的 `- ` 列表（解析不会静默吞东西）+ 渲染出来的编号连续
+  ② 取值：记录流的取值表必须与 `contract.records` 的文法常量一致
+  ③ 结构：规则 md 是干净的 `- ` 列表（解析不会静默吞东西）+ 渲染出来的编号连续
 
-⚠️ 三条都是"两边必须同时改"的守门: 只改一边 ⇒ 这里红。
+三条都是"两边必须同时改"的守门：只改一边就会红。
 """
 from __future__ import annotations
 
@@ -46,7 +46,7 @@ def test_action_names_in_copy_exist_in_registry():
         f"（在 prompt 里的动作: {sorted(prompted)}）")
     promised_sealed = sorted(found & sealed)
     assert not promised_sealed, (
-        f"被封印的动作出现在契约里（⛔ 它不进 prompt, 契约不该承诺它）: {promised_sealed}")
+        f"被封印的动作出现在契约里（它不进 prompt，契约不该承诺它）: {promised_sealed}")
 
 
 def test_record_values_match_grammar():
@@ -63,7 +63,7 @@ def test_record_values_match_grammar():
         "取值表与文法常量不一致（只改了一边？）:\n"
         f"  文案里多出: {sorted(listed - want)}\n"
         f"  文案里少了: {sorted(want - listed)}\n"
-        "⚠️ 改取值就要**同改** `contract/records/grammar.py` 与 `prompts/record.md`")
+        "改取值就要同改 `contract/records/grammar.py` 与 `prompts/record.md`")
     assert R.STAGE_EXIT not in listed, "`exit` 是遗留值, 不许进 prompt（A1 裁决）"
 
     # 每条取值都要真在值表里露面（不是只被正则扫到）
@@ -76,7 +76,7 @@ def test_rules_are_a_clean_bullet_list():
     from contract.schema.lines import build_line_schema
     from contract.schema.records import build_record_schema
 
-    want_counts = {"line": 6, "record": 6}        # ⚠️ 改规则条数就改这里（有意的动作）
+    want_counts = {"line": 6, "record": 6}        # 改规则条数就改这里
     for form, want in want_counts.items():
         raw = load(f"{form}_rules")
         rows = raw.split("\n")
@@ -111,7 +111,7 @@ def test_schema_module_is_a_package_and_path_is_stable():
 def test_empty_registry_still_renders():
     """空注册表不炸（早退分支）——搬 md 时最容易丢掉的那条路。
 
-    ⚠️ 判据只能看**动作表那一段**: 硬规则与示例里本来就会提到动作名
+    判据只能看动作表那一段：硬规则与示例里本来就会提到动作名
     （那是用法纪律, 不是清单）——第一版写成了"全文不含 mmt_look", 当场红。
     """
     from contract.schema import build_line_schema

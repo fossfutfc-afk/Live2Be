@@ -1,22 +1,15 @@
-"""`infra/paths.py` 单测 —— **固定路径宏**约定（用户 2026-09-19）+ **五个根**（2026-10-15）。
+"""infra/paths.py 的约定测试（固定路径宏 + 五个根）。
 
-用户原话：
-> *"这种固定路径我推荐你写成 macro 的形式放在最上面，因为说不准这类路径进行
-> 更改，最后改成你用 grep 能直接全量定位的方法。"*
+钉五件事：
 
-这里钉五件事（都是"约定"而非"功能"，靠测试才不会烂掉）:
+  ① __all__ 与文件里真实的顶层常量一一对应（漏登记 = grep 漏）
+  ② 每个常量都是绝对路径，且落在它自己那一栏的根下；该存在的存在
+  ③ core/ infra/ webgui/ llm/ contract/ 里不许再有现拼的项目根路径
+  ④ 写调用的目标不许落在只读根上
+  ⑤ paths 只依赖 stdlib，谁都能 import
 
-  ① **清单完整**：`__all__` 与文件里真实的顶层常量**一一对应**（漏登记 = grep 漏）
-  ② **值可信**：全是绝对路径、**各在自己的根下**、该存在的存在（缺文件不该静默）
-  ③ **没有漏网的**：`core/ infra/ webgui/ llm/ contract/` 里**不许**再有现拼的项目根路径
-  ④ **只读根在测试期不许被写**（⭐ 2026-10-15 新增 —— 五个根的直接收益）
-  ⑤ `paths` 只依赖 stdlib（谁都能 import, 不会有环）
-
-⚠️ **② 与 ④ 是分五根的直接收益**（搬迁前做不到）：
-  · 那时只有一个 `ROOT` ⇒ 只能断言"值都在 ROOT 下", 说不出"这个值属于哪一栏";
-  · 现在能说"`CONFIG_DIR` 必须在 `CONFIG_ROOT` 下, 不许接到 `RESOURCE_ROOT`";
-  · 更能说"**测试跑到哪段代码, 那段代码就不许往只读根写**" —— 打包后往只读根写
-    会**写成功但退出即丢**（onefile 解包目录会删）而**不报任何错**, 这是最难查的一类。
+② 与 ④ 是分五根才写得出来的：从前只有一个 ROOT，只能说"值都在 ROOT 下"；现在能说
+"这个值属于哪一栏"，也能说"不许往只读根写"。往只读根写在打包后不报错，只是退出即丢。
 """
 from __future__ import annotations
 
@@ -30,7 +23,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 from infra import paths  # noqa: E402
 
-#: "写"的调用名（静态判据 ④ 用）
+#: "写"的调用名（判据 ④ 用）
 _WRITE_CALLS = ("write_text", "write_bytes", "atomic_write", "atomic_write_json",
                 "atomic_write_lines", "replace_with_retry", "mkdir", "unlink", "rename")
 
@@ -43,8 +36,8 @@ MUST_EXIST = (
 #: 允许缺失（首次运行才创建）
 MAY_MISS = ("WORLDS_DIR", "DIAG_DIR", "DIAG_LOG_PATH")
 
-#: ⭐ **五个根** → 归它管的常量（② 的判据表）。
-#: ⚠️ 加常量就要加进某一栏 —— 忘了加 ⇒ 下面 `test_every_constant_has_a_root` 红。
+#: 五个根，以及归每根管的常量（判据 ② 的表）。
+#: 加常量要加进某一栏，忘了加会被 test_every_constant_has_a_root 抓到。
 ROOTS: dict[str, tuple[str, ...]] = {
     "RESOURCE_ROOT": ("WEBGUI_STATIC_DIR",),
     "CONFIG_ROOT": ("CONFIG_DIR", "CHARACTERS_DIR", "PLAYER_DIR", "PLAYER_PROFILE_PATH",
@@ -56,7 +49,7 @@ ROOTS: dict[str, tuple[str, ...]] = {
     "APP_ROOT": ("SETTINGS_PATH", "DOTENV_PATH"),
     "DATA_ROOT": ("DATA_DIR", "WORLDS_DIR", "DIAG_DIR", "DIAG_LOG_PATH"),
 }
-#: ⛔ 程序**不许**往这些根里写（④ 的判据）
+#: 程序不许往这些根里写（判据 ④）。
 READONLY_ROOTS = ("RESOURCE_ROOT",)
 
 #: 现拼路径的哨兵: `Path(__file__)` 同行还出现这些"项目根一级目录名" = 违规
@@ -103,7 +96,7 @@ def test_all_matches_module_constants():
 
 
 def test_source_tree_layout_is_unchanged():
-    """⭐ **搬迁的判据**: 非 frozen 下五个根各就各位 ⇒ 老那 25 个常量的值**一个字都没变**。
+    """搬迁的判据：非 frozen 下五个根各就各位，于是老那 25 个常量的值一个字都没变。
 
     （搬迁前只有一个 `ROOT`；现在 `RESOURCE_ROOT`/`APP_ROOT` = 仓根,
     `CONFIG_ROOT`/`ASSETS_ROOT`/`DATA_ROOT` = 仓根下那三个目录 —— 于是
@@ -159,7 +152,7 @@ def test_every_value_is_absolute_and_under_its_own_root():
 def test_no_inline_project_paths_left():
     """③ **不许再有现拼的项目根路径**——"grep 能全量定位"的守门人。
 
-    ⚠️ **2026-10-15 修了一个盲区**: 从前只看"`Path(__file__)` 与目录名**同一行**",
+    这里顺手补了一个盲区：从前只看 "`Path(__file__)` 与目录名同一行"，
     于是 `ROOT = Path(__file__)...` 换行再 `ROOT / "config" / "characters"`
     这种写法（`webgui/chat.py` / `routers/mmt.py` / `routers/collection.py` 都是）
     **从眼皮底下溜过去了**。现在两段都看: 谁把 `Path(__file__)` 赋给一个名字,
@@ -225,7 +218,7 @@ def test_no_writes_under_readonly_roots():
 
     这是"五个根"最直接的那份收益: 打包后往 `RESOURCE_ROOT` 写**不会报错**
     （onefile 解包目录写成功、退出即丢）⇒ 只能靠**事先分类 + 守门**发现。
-    ⚠️ **运行时版今天没法做**: 源码树里 `RESOURCE_ROOT` 就是仓根, "什么都在它下面"
+    运行时版今天做不了：源码树里 `RESOURCE_ROOT` 就是仓根，"什么都在它下面"，
     ⇒ 打桩 `write_text` 会误伤一切（`data/` `config/` 也都 "在它下面"）。
     真正有意义的运行时验收只能等 frozen 构建 —— 记在 PROCEED, 别在这儿假装做到了。
     """
@@ -264,7 +257,7 @@ def test_no_writes_under_readonly_roots():
 def test_paths_import_is_cheap_and_cycle_free():
     """⑤ `infra/paths.py` 只依赖 stdlib——谁都能 import 它，不会有环。
 
-    ⚠️ 允许 `sys`（2026-10-15 起要用它判 `sys.frozen` / `sys._MEIPASS`）——
+    允许 `sys`（用来判 `sys.frozen` / `sys._MEIPASS`），
     仍是 stdlib, 零环风险; pathlib 同理。
     """
     tree = ast.parse((ROOT / "infra" / "paths.py").read_text(encoding="utf-8"))
