@@ -139,7 +139,7 @@ python experiments/recall_report.py
 | `d83bb04` | **新建 `infra/` 层**：`paths.py`（五个根）· `atomic.py` · `fuse.py`；31 处 `core.paths` → `infra.paths`；顺手治 6 个"自己现拼根"的文件 |
 | `21a4df0` | **解散 `core/common/`**：`errors` 壳删（20 处直连 `contract.errors`）· `mmt_registry`→`core/mmt/` · `tone`→`core/parsing/` |
 | `4a8e39b` | **注释瘦身**：按作者要求改掉我自己写的那几个文件（去掉装饰符号、"只写关键点"；写法约定进了 §0） |
-| `见下` | **`infra/settings.py`**：settings.toml 的**唯一读入口**（9 个读者收成 1，按 mtime 失效）· `[paths]` 覆盖通了 · 坏文件有声音 |
+| `dd40344` | **`infra/settings.py`**：settings.toml 的**唯一读入口**（9 个读者收成 1，按 mtime 失效）· `[paths]` 覆盖通了 · 坏文件有声音 |
 
 ---
 
