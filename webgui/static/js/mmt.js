@@ -183,18 +183,9 @@ const POLL_RESUME_GRACE_MS = 25 * 1000;   // VN 退出后继续轮询的宽限�
 //   `TypingDelay.for_bubble` = 每字 **60~120ms**（随机抖动）+ 气泡间停歇 **400ms**;
 //   ⭐ **第一条不延迟**（CLI 原话: "TTFT 已经提供了自然等待" —— 她刚想完，
 //      第一条等于刚打完就发出去；队列里还有没放完的则一律排队，**顺序铁律**）。
+// ⚠️ 这些参数与那条"第一条"判据的实现都在 `typing.js`（`chunkTypingMs` / `planReveal`），
+// 本文件只是调用方；端到端验收仍是 B 层那条"首个气泡早于整轮完成"的冒烟。
 // ⚠️ 只作用于**新到**的气泡; 历史一次性渲染（`renderBubbles`）不走这条路。
-// ⚠️ "第一条不延迟"还有一条硬理由: B 层冒烟守的是"**首个气泡早于整轮完成**"
-//    （⑥-3b 的流式性质）。若第一条也要等"打字"，首泡会晚于 `running=false`
-//    ⇒ 那条断言当场红（2026-10-08 实测踩到）。**改这三个数要连冒烟一起看。**
-const TYPING_MS_PER_CHAR_MIN = 60;    // ← `_CHAR_DELAY_MIN`
-const TYPING_MS_PER_CHAR_MAX = 120;   // ← `_CHAR_DELAY_MAX`
-const TYPING_MS_PAUSE = 400;          // ← `_BUBBLE_PAUSE`
-function chunkTypingMs(text) {
-  const per = TYPING_MS_PER_CHAR_MIN
-    + Math.random() * (TYPING_MS_PER_CHAR_MAX - TYPING_MS_PER_CHAR_MIN);
-  return Math.round(String(text || "").length * per + TYPING_MS_PAUSE);
-}
 //: 队列尾（时间戳）—— 上一批还在放就接到它后面（⚠️ 顺序铁律: 后到的批次不许插队）
 let _revealUntil = 0;
 //: 最近一次轮询看到的 running（队列收尾的定时器据此决定要不要收指示器）
@@ -592,42 +583,28 @@ async function pollLoop() {
       _lastSeq = data.last_seq;
       // 增量轮询: 跳过 player 气泡（sendMessage 已乐观渲染, 避免重复渲染;
       // 全量加载 openChat(since=0) 仍渲染 player——历史重建需要）
-      // 节奏: **CLI LineBuffer/TypingDelay 同款**（见文件头 `chunkTypingMs`）——
-      // 每个角色气泡先"打字" `字数×每字(60~120ms)+400ms` 再上屏。
-      // ⭐ **队列空闲时第一条不延迟**（CLI 原话"TTFT 已经提供了自然等待"）——
-      //    这也是冒烟那条"首泡早于整轮完成"所依赖的。
-      // ⛔ **2026-10-08 踩过的坑（别改回去）**: 第一版写成"只在 `at > 0` 时才累加时长"
-      //    ⇒ 第一条不推进 `at` ⇒ **整批 `at` 恒为 0** ⇒ 全部走 `renderBubble` 那支
-      //    ⇒ 节奏彻底消失（真机表现: "MMT 还是完全没有切分的迹象"）。判据必须是
-      //    "**本批第一条 + 队列空闲**"这一个组合，而不是"`at` 正好是 0"。
-      // ⚠️ 两条纪律: ① 只让**角色气泡**推进队列（player 已渲染; bond 横幅/淡行跟着
-      //    当前队位走 —— **顺序不能乱**）② `_revealUntil` 记账, 后一批排在前面之后。
-      const base = Math.max(0, _revealUntil - Date.now());
-      let at = base;
-      let firstOfBatch = true;
-      for (const b of data.bubbles) {
-        if (b.side === "player") continue;
-        if (b.side === "char") {
-          if (!(firstOfBatch && base === 0)) at += chunkTypingMs(b.text || "");
-          firstOfBatch = false;
-        }
-        if (at > 0) {
+      // 节奏与"哪条什么时候上屏"由 `typing.js` 算（`planReveal` 里记着 2026-10-08 那个坑:
+      // 判据必须是"本批第一条 + 队列空闲"这一个组合），这里只负责渲染与指示器。
+      const plan = window.L2BTyping.planReveal(
+        data.bubbles, { now: Date.now(), revealUntil: _revealUntil });
+      for (const { item: b, delay } of plan.entries) {
+        if (delay > 0) {
           setTimeout(() => {
             renderBubble(b);
             scrollBubbles();
             // 上屏之后把指示器移回末尾（她还在打 ⇒ 保持"正在输入…"; 详见 typingToTail）
             if (_pollRunning || _revealing()) { showTyping(); typingToTail(); }
-          }, at);
+          }, delay);
         } else {
           renderBubble(b);
           typingToTail();
         }
       }
       scrollBubbles();
-      if (at > 0) {
-        _revealUntil = Date.now() + at;
+      if (plan.totalMs > 0) {
+        _revealUntil = plan.revealUntil;
         // 放完收指示器（若那时她还在生成, 让下面那行 showTyping 接管, 别来回闪）
-        setTimeout(() => { if (!_pollRunning) hideTyping(); }, at);
+        setTimeout(() => { if (!_pollRunning) hideTyping(); }, plan.totalMs);
       } else {
         hideTyping();
       }
