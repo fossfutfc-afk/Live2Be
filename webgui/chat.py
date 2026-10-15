@@ -16,22 +16,23 @@ from __future__ import annotations
 
 import logging
 import threading
-from pathlib import Path
 
 from core.mmt.engine import MomoTalkEngine
 from core.session.events import M_VN_ENTER, M_VN_EXIT
 from core.tui.text_processors import _strip_action_brackets
+from infra import paths
 from llm.client import LLMClient
 from webgui import deps  # 接缝（C1a）: store 等可替换依赖
 
 logger = logging.getLogger(__name__)
 
-# 项目根绝对路径（cwd 无关——uvicorn 从任意目录启动）
-ROOT = Path(__file__).resolve().parent.parent
-CHAR_ROOT = ROOT / "config" / "characters"
-# 数据根 (`DATA_ROOT`) 与 `SessionStore` 实例已随 C1a 搬到 `webgui/deps.py`
+# 角色卡与关系表的路径真源 = `infra/paths.py`（**绝对路径, cwd 无关** —— uvicorn 从任意
+# 目录启动; 从前这里自己 `Path(__file__).parent.parent` 拼 —— frozen 下会指向 bundle,
+# 读不到用户在 exe 同级放的人设卡）
+CHAR_ROOT = paths.CHARACTERS_DIR
+# 数据根与 `SessionStore` 实例已随 C1a 搬到 `webgui/deps.py`
 # ——这里不再留副本（同一事实两个来源 = 迟早对不上）。
-INTERPERSON_PATH = ROOT / "config" / "settings" / "relation" / "interperson.yml"
+INTERPERSON_PATH = paths.INTERPERSON_PATH
 
 # ---------------------------------------------------------------------------
 # 引擎管理（每 char 独立实例 + 同 char 串行锁）

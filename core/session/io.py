@@ -6,7 +6,7 @@
     - history.jsonl / scenes.jsonl: append_jsonl（open("a") 单行追加, 不重写全文件）
       + read_jsonl（逐行 try/except, 坏行/半行丢弃, 宁缺勿错）
     - 写失败 re-raise（上层 try 包裹降级为"本轮不记录", 不阻断主流程）
-    - ⚠️ 替换走 `core.common.atomic.replace_with_retry`：Windows 上"目标被别的进程
+    - ⚠️ 替换走 `infra.atomic.replace_with_retry`：Windows 上"目标被别的进程
       短暂占用"会让 `os.replace` 抛 PermissionError —— 那不是写坏了, 重试几十毫秒即可
       （实测过一次真实红: 测试期 temp churn）。
 
@@ -23,7 +23,7 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
-from core.common.atomic import replace_with_retry
+from infra.atomic import replace_with_retry
 
 
 def atomic_write_json(path: str | Path, data: dict, *, indent: int = 2) -> None:

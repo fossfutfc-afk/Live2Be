@@ -200,7 +200,7 @@ def test_place_bg_explains_renamed_key(tmp_path):
     pr.append("old_place_key", "new_place_key", world="w1",
               reason="作者改名", worlds_dir=root)
 
-    import core.paths as paths_mod
+    import infra.paths as paths_mod
     old_worlds = paths_mod.WORLDS_DIR
     try:
         paths_mod.WORLDS_DIR = root

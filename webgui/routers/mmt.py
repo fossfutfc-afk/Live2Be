@@ -18,13 +18,15 @@ from core.common.mmt_registry import load_mmt_registry
 from core.mmt.ranking import SORT_MODES, best_affection, sort_characters
 from core.parsing.dynamic_character_parser import CharacterLoader
 from core.session import SessionStore
+from infra import paths
 from webgui import chat
 
 router = APIRouter()
 
-ROOT = Path(__file__).resolve().parent.parent.parent
-CHAR_ROOT = ROOT / "config" / "characters"
-ILLUS_ROOT = ROOT / "assets" / "illustration"
+#: 路径真源 = `infra/paths.py`（**五个根**）—— 从前这里 `Path(__file__).parent.parent.parent`
+#: 自己拼, frozen 下会指向 bundle（读不到用户放在 exe 同级的卡与资产）。
+CHAR_ROOT = paths.CHARACTERS_DIR
+ILLUS_ROOT = paths.ILLUSTRATION_DIR
 
 #: MMT 列表头像来源（2026-09-12 定稿——`{cid}/{outfit}/` 标准外观格式）:
 #:   1) `portrait/*.png` —— **该外观的 GUI 头像**（必有; 首选约定名 `collection.png`）
@@ -106,7 +108,7 @@ async def mmt_characters(sort: str = "recent") -> dict:
         return {"characters": [], "registry_empty": True, "sort": sort}
     loader = CharacterLoader(CHAR_ROOT)
     names = loader.list_characters()
-    store = SessionStore(ROOT / "data")
+    store = SessionStore(paths.DATA_DIR)
     recent_map: dict[str, str] = {}
     affection_map: dict[str, dict] = {}
     chars: list[dict] = []

@@ -22,7 +22,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from core import paths                                            # noqa: E402
+from infra import paths                                            # noqa: E402
 from core.media.place_table import load_table                     # noqa: E402
 
 BG_ROOT = paths.BACKGROUND_DIR

@@ -152,7 +152,7 @@ def memorial_allowed() -> bool:
     try:
         import tomllib
 
-        from core import paths
+        from infra import paths
         text = paths.SETTINGS_PATH.read_text(encoding="utf-8")
         cfg = (tomllib.loads(text).get("bond") or {})
         val = cfg.get("memorial", True)

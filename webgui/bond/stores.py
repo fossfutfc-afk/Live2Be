@@ -26,7 +26,6 @@ import time
 from pathlib import Path
 
 from core.bond.bond_story import BondScene
-from core.common.atomic import replace_with_retry
 from core.session.events import (
     M_MEMORIAL_ENTER,
     M_MEMORIAL_EXIT,
@@ -37,6 +36,7 @@ from core.session.events import (
     make_event,
 )
 from core.session.staging import staging_store
+from infra.atomic import replace_with_retry
 from webgui import deps
 from webgui.bond.state import BoardLifecycle, BondState
 

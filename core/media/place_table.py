@@ -48,12 +48,12 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from core import paths
 from core.media.background import derive_background
+from infra import paths
 
 logger = logging.getLogger(__name__)
 
-#: 默认表路径 = `core/paths.py` 的宏（**值的来源只有那一处**，用户 2026-09-19）
+#: 默认表路径 = `infra/paths.py` 的宏（**值的来源只有那一处**，用户 2026-09-19）
 DEFAULT_TABLE_PATH = paths.PLACE_TABLE_PATH
 
 #: 写作用词的判据（表自带 `sdir`，**不许另立名单**——用户 2026-09-19）

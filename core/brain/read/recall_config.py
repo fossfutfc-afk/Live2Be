@@ -48,11 +48,11 @@ from __future__ import annotations
 import logging
 import tomllib
 
-from core import paths
+from infra import paths
 
 logger = logging.getLogger(__name__)
 
-#: 项目根 settings.toml（`core/paths.py` 的宏）
+#: 项目根 settings.toml（`infra/paths.py` 的宏）
 _SETTINGS_PATH = paths.SETTINGS_PATH
 
 #: 默认值 —— **全部非阈值**（只有"取几条"与"半衰期/下界"）

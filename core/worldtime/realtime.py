@@ -106,9 +106,9 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
-from core import paths
-from core.common.atomic import replace_with_retry
 from core.worldtime.cal import shift_years
+from infra import paths
+from infra.atomic import replace_with_retry
 
 logger = logging.getLogger(__name__)
 
@@ -124,8 +124,7 @@ CLOCK_SCHEMA_VERSION = 1
 #: 表 `schema_version`
 TABLE_SCHEMA_VERSION = 1
 
-#: 项目根（`core/paths.py` 的宏 —— cwd 无关, uvicorn / IDE 从任意目录启动）
-_PROJECT_ROOT = paths.ROOT
+#: 项目根（`infra/paths.py` 的宏 —— cwd 无关, uvicorn / IDE 从任意目录启动）
 
 #: 默认表路径（作者手编; `config/eggs/` = 作者塞东西的地方, `namegg.json` 的邻居）
 DEFAULT_TABLE_PATH = paths.FESTIVALS_PATH

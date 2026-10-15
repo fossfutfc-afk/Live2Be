@@ -63,12 +63,13 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 from contract.errors import err
+from infra import paths
 
 logger = logging.getLogger(__name__)
 
-#: 项目根（llm/image_gen.py → Live2Be）; .env 模块级加载（同 llm/client.py 模式）
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent
-load_dotenv(_PROJECT_ROOT / ".env")
+#: `.env` 模块级加载（同 `llm/client.py` 模式）——路径真源 = `infra/paths.py`
+#: （⭐ 打包后它在 **exe 同级**; 从前这里自己 `Path(__file__).parent.parent` 拼 ⇒ frozen 下会指向 bundle）
+load_dotenv(paths.DOTENV_PATH)
 
 #: 默认输出目录（.env IMAGE_OUTPUT_DIR 可覆盖）
 _DEFAULT_OUTPUT = r"D:\by-user\fossf\AI\output"
@@ -123,7 +124,7 @@ def _refuse_real_call_in_pytest() -> None:
 def _settings_image_cfg() -> dict:
     """读项目根 settings.toml 的 [image] 分组（缺失/损坏 → {}; 不阻塞）。"""
     try:
-        st = _PROJECT_ROOT / "settings.toml"
+        st = paths.SETTINGS_PATH
         if not st.is_file():
             return {}
         import tomllib
@@ -649,7 +650,7 @@ def ref_specs(char_id: str, ref_dir: str | Path | None = None,
     if ref_dir is not None:
         directory = Path(ref_dir)
     else:
-        base = Path(assets_root) if assets_root else (_PROJECT_ROOT / "assets")
+        base = Path(assets_root) if assets_root else paths.ASSETS_DIR
         directory = base / _DEFAULT_REF_SUBDIR / char_id / "ref"
     if not directory.is_dir():
         return []

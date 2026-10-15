@@ -245,19 +245,22 @@ def test_realtime_declares_its_boundaries():
     print("    realtime: 已实现（表 + 台账）, 但无任何时钟出口")
 
 
-#: worldtime 允许的**薄横切**依赖（只有这两个; 业务层一律不许）。
-#: `core.paths` = 固定路径宏（`clock_path` 用）; `core.common` = 横切小件
-#: （`atomic.replace_with_retry`, 纯 stdlib 的原子替换包装）。二者都不引入业务概念,
+#: worldtime 允许的**薄横切**依赖（业务层一律不许）。
+#: `infra.paths` = 固定路径宏（`clock_path` 用）· `infra.atomic` = 原子替换包装
+#: （`replace_with_retry`, 纯 stdlib）。二者都在最底层、都不引入业务概念,
 #: 不破坏"时间逻辑可独立测试"这条独立性。
-WORLDTIME_ALLOWED_CORE = ("core.paths", "core.common")
+#: ⚠️ 2026-10-15: 它们从 `core.paths` / `core.common.atomic`（旧址）搬进了 `infra/` —— 本表跟着改,
+#: 而且检查范围**扩大了**（从前只扫 `core*`, 现在 `infra*` 也在内, `from infra import X`
+#: 同样展开成 `infra.X`）。
+WORLDTIME_ALLOWED = ("core.worldtime", "infra.paths", "infra.atomic")
 
 
 def test_worldtime_does_not_import_project_modules():
-    """★ 独立性的**可验证定义**: 包内模块只依赖 stdlib + 上面那两个薄横切件。
+    """★ 独立性的**可验证定义**: 包内模块只依赖 stdlib + `WORLDTIME_ALLOWED` 那几件。
 
     2026-09-21 收紧: 旧写法只比对 `node.module`, 于是 `from core import paths`
     （module == "core", 不以 "core." 开头）**漏检**——`realtime.py` 一直这么写着却算"只依赖 stdlib"。
-    现在把 `from core import X` 展开成 `core.X` 再判, 并把允许集**显式化**:
+    现在把 `from X import Y` 展开成 `X.Y` 再判, 并把允许集**显式化**:
     漏检补上 + 业务依赖（`core.bond` / `core.session` …）仍然一律报红。
     """
     import ast
@@ -270,18 +273,19 @@ def test_worldtime_does_not_import_project_modules():
             if isinstance(node, ast.Import):
                 mods = [a.name for a in node.names]
             elif isinstance(node, ast.ImportFrom) and node.module:
-                if node.module == "core":                     # from core import X → core.X
-                    mods = [f"core.{a.name}" for a in node.names]
+                if node.module in ("core", "infra"):          # from X import Y → X.Y
+                    mods = [f"{node.module}.{a.name}" for a in node.names]
                 else:
                     mods = [node.module]
             for m in mods:
-                if not m.startswith("core") or m.startswith("core.worldtime"):
-                    continue
-                if any(m == a or m.startswith(a + ".") for a in WORLDTIME_ALLOWED_CORE):
+                if not (m.startswith("core") or m.startswith("infra")):
+                    continue                                  # stdlib / 第三方
+                if any(m == a or m.startswith(a + ".") for a in WORLDTIME_ALLOWED):
                     continue
                 offenders.append(f"{py.name}: {m}")
     assert not offenders, f"worldtime 依赖了项目内模块: {offenders}"
-    print("    ★ worldtime: 只依赖 stdlib + core.paths/core.common（独立性的可验证定义成立）")
+    print(f"    ★ worldtime: 只依赖 stdlib + {'/'.join(WORLDTIME_ALLOWED[1:])}"
+          "（独立性的可验证定义成立）")
 
 
 if __name__ == "__main__":

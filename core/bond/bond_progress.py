@@ -32,10 +32,9 @@ import json
 from datetime import datetime
 from pathlib import Path
 
-from core import paths
+from infra import paths
 
-# 数据根（`core/paths.py` 的宏——项目根绝对, cwd 无关）
-_PROJECT_ROOT = paths.ROOT
+# 数据根（`infra/paths.py` 的宏——项目根绝对, cwd 无关）
 DEFAULT_DATA_ROOT = paths.DATA_DIR
 # 旧全局聚合（{char_id: rounds}, 更早期格式兜底——迁移期仍可读）
 _LEGACY_GLOBAL_PATH = paths.DATA_DIR / "basic" / "bond_progress.legacy.json"

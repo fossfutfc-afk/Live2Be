@@ -4,12 +4,11 @@ from __future__ import annotations
 from fastapi import APIRouter
 from fastapi.responses import FileResponse
 
-from core import paths
+from infra import paths
 
 router = APIRouter()
 
 STATIC_DIR = paths.WEBGUI_STATIC_DIR
-ROOT = paths.ROOT
 MENU_DIR = paths.MENU_DIR
 
 

@@ -45,15 +45,14 @@ from pathlib import Path
 import yaml
 
 from contract import DOMAIN_MMT, AgentAction
-from core import paths
 from core.common import Live2BeError
 from core.parsing.dynamic_character_parser import (
     CharacterLoader,
     DynamicCharacter,
 )
+from infra import paths
 
-# interperson.yml 默认路径（`core/paths.py` 的宏——项目根绝对, cwd 无关）
-_PROJECT_ROOT = paths.ROOT
+# interperson.yml 默认路径（`infra/paths.py` 的宏——项目根绝对, cwd 无关）
 DEFAULT_INTERPERSON_PATH = paths.INTERPERSON_PATH
 
 #: **汉字之间**的空白（`>` 折叠块的产物）—— 见 `_fold_layout`。

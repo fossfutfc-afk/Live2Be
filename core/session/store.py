@@ -32,7 +32,6 @@ import threading
 from datetime import datetime
 from pathlib import Path
 
-from core import paths
 from core.session.events import (
     M_SESSION_END,
     M_SESSION_START,
@@ -48,9 +47,9 @@ from core.session.renderer import session_status
 
 #: `ts` 的写侧单一真源（带固定时区; 2026-09-17 收敛）
 from core.worldtime.age import now_ts as _now_ts
+from infra import paths
 
-#: 数据根（`core/paths.py` 的宏——项目根绝对, cwd 无关）
-_PROJECT_ROOT = paths.ROOT
+#: 数据根（`infra/paths.py` 的宏——项目根绝对, cwd 无关）
 DEFAULT_DATA_ROOT = paths.DATA_DIR
 
 #: 平行世界上限（槽位数）

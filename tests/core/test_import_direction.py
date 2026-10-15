@@ -2,9 +2,11 @@
 
 ## 规则（`docs/EXEC_SPLIT.md` §2）
 
-    contract/  最底层: 不得依赖 core / llm / webgui / renderer / tests / experiments / apps
+    contract/  最底层: 不得依赖 infra / core / llm / webgui / renderer / tests / experiments / apps
+    infra/     基础设施: 不得依赖 core / llm / webgui / renderer / tests / experiments / apps
+                          （**可以**依赖 contract —— 它更底; paths / atomic / fuse 住这儿）
     llm/       传输层: 不得依赖 webgui / renderer / tests / experiments / apps;
-                       对 core 只允许薄横切 core.paths（见 LLM_CORE_ALLOWED）
+                       ⭐ **对 core 零依赖**（2026-10-15 起, 见 LLM_CORE_ALLOWED 空表）
     core/      引擎层: 不得依赖 webgui / renderer / tests / experiments / apps
     renderer/  表现层: 不得依赖 webgui / tests / experiments / apps
     webgui/    壳    : 不得依赖 tests / experiments / apps
@@ -33,17 +35,21 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
 #: ⚠️ C12b 起每一条都多一个 `apps`: **应用层谁都不许 import**（它是方向的最上游;
 #: C11 之前 `webgui → core.ui.vn_cli` 正是这么反过来的, 现在被这条钉住）。
 RULES: dict[str, frozenset[str]] = {
-    "contract": frozenset({"core", "llm", "webgui", "renderer", "tests", "experiments", "apps"}),
+    "contract": frozenset({"core", "infra", "llm", "webgui", "renderer", "tests",
+                           "experiments", "apps"}),
+    "infra": frozenset({"core", "llm", "webgui", "renderer", "tests", "experiments",
+                        "apps"}),
     "llm": frozenset({"webgui", "renderer", "tests", "experiments", "apps"}),
     "core": frozenset({"webgui", "renderer", "tests", "experiments", "apps"}),
     "renderer": frozenset({"webgui", "tests", "experiments", "apps"}),
     "webgui": frozenset({"tests", "experiments", "apps"}),
 }
 
-#: `llm/` 对 `core` 的**薄横切**豁免（`core.paths` = 固定路径宏）
-#: ⚠️ `core.common`（err 的旧壳）**已从这个表里删掉**（1c 收尾）: `llm/` 三处改直连
-#: `contract.errors` —— 豁免收窄 = 守门变强, 以后谁再绕旧壳会当场红。
-LLM_CORE_ALLOWED = frozenset({"core.paths"})
+#: `llm/` 对 `core` 的**薄横切**豁免。
+#: ✅ **2026-10-15 起是空表**: `core/paths.py` 已搬 `infra/paths.py`（`llm → infra` 是
+#: 正当方向 —— infra 与 contract 同在最底层）⇒ `llm` 与 `core` **零依赖**。
+#: 保持空表 = 这条规则**零例外**; 谁再让 `llm` 去 import `core` 都当场红。
+LLM_CORE_ALLOWED: frozenset[str] = frozenset()
 
 #: 既存违规白名单: (相对路径, 被 import 的顶层包) → 归宿（`docs/EXEC_SPLIT.md` 节点）
 #: ✅ **C12b 起是空表** —— 6 处既存违规全部有归宿并已消:

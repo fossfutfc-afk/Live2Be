@@ -29,7 +29,7 @@
 `MODES` / `DEFAULT_MODE`）唯一实现在 **`core/common/fuse.py`** —— 合成层
 （`core/brain/read/compose.py` 的"相关 × 强度"）要用**同一个**函数, 而
 `brain` 反向依赖 `media` 是层次倒挂。本模块**原样 re-export**（老调用方零改动;
-`place_fuse.magic is core.common.fuse.magic` 这条有测试钉着）。
+`place_fuse.magic is infra.fuse.magic` 这条有测试钉着）。
 
 | 形状 | 两轴都高 | **一高一低** | 两轴都低 |
 |---|---|---|---|
@@ -61,7 +61,8 @@ from __future__ import annotations
 
 import re
 
-from core.common.fuse import (  # noqa: F401 — re-export（形状唯一实现在那儿）
+from core.media.place_table import PlaceTable, load_table
+from infra.fuse import (  # noqa: F401 — re-export（形状唯一实现在那儿）
     DEFAULT_MODE,
     MODES,
     fuse,
@@ -70,7 +71,6 @@ from core.common.fuse import (  # noqa: F401 — re-export（形状唯一实现�
     magic,
     product,
 )
-from core.media.place_table import PlaceTable, load_table
 
 #: 键名 token 的最短长度（与层1 `_MIN_NEEDLE` 同一条纪律: 单字会满地把误命中）
 _MIN_TOKEN = 2

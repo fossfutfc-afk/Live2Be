@@ -17,9 +17,9 @@ PL4 做的事: `core/rag/place.py` 的语料从**手维护的第二份词表** `
 import sys
 from pathlib import Path
 
-from core import paths
 from core.media.place_table import PlaceEntry, PlaceTable, load_table
 from core.rag.place import PlaceRetriever
+from infra import paths
 
 
 class StubEmbedder:

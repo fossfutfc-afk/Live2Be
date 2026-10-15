@@ -21,7 +21,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, Response
 from starlette.staticfiles import StaticFiles
 
-from core import paths
+from infra import paths
 
 # 根日志配置（2026-09-08）: uvicorn 只配自己的 access/error logger——live2be.* 的
 # INFO 埋点（bond_gen / bond_anno / llm chat …）此前从不输出, 排查全靠盲猜。
@@ -84,7 +84,6 @@ _setup_file_logging()
 
 from webgui.routers import bond, collection, menu, mmt, name, settings, spine
 
-ROOT = paths.ROOT
 STATIC_DIR = paths.WEBGUI_STATIC_DIR
 MENU_DIR = paths.MENU_DIR
 ILLUS_DIR = paths.ILLUSTRATION_DIR

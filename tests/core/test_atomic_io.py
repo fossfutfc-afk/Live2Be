@@ -13,8 +13,8 @@ import os
 import pathlib
 import sys
 
-from core.common import atomic
 from core.session import io as sio
+from infra import atomic
 
 
 def _boom(*_a, **_kw):

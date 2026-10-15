@@ -51,12 +51,11 @@ from pathlib import Path
 
 import yaml
 
-from core import paths
+from infra import paths
 
 logger = logging.getLogger(__name__)
 
-#: 项目根（`core/paths.py` 的宏——绝对路径, cwd 无关, 与 `world_parser` 同规矩）
-_PROJECT_ROOT = paths.ROOT
+#: 项目根（`infra/paths.py` 的宏——绝对路径, cwd 无关, 与 `world_parser` 同规矩）
 
 #: 默认路径（`config/settings/world/regions.yml`）
 DEFAULT_REGIONS_PATH = paths.REGIONS_PATH

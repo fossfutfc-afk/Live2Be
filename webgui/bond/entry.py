@@ -25,7 +25,6 @@ import json
 import logging
 import time
 
-from core import paths
 from core.bond.bond_story import (
     BondScene,
     BondStoryEngine,
@@ -46,6 +45,7 @@ from core.session.staging import (
     commit_staging,
     truth_store,
 )
+from infra import paths
 from webgui import chat
 from webgui.bond.memorial import _ensure_memorial_img, board_in_memorial
 from webgui.bond.pregen import (

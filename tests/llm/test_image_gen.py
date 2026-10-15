@@ -129,9 +129,14 @@ def test_image_enabled_precedence(monkeypatch):
 
 
 def test_image_enabled_reads_settings_file(monkeypatch, tmp_path):
-    """真实文件路径分支: 项目根 settings.toml 的 [image].enabled 被读到。"""
+    """真实文件路径分支: `paths.SETTINGS_PATH` 的 [image].enabled 被读到。
+
+    ⚠️ 2026-10-15: 从前这里 patch `ig._PROJECT_ROOT`（模块自己拼的根）; 那个名字随
+    "路径归位"删掉了 ⇒ 现在 patch **路径真源**（`infra/paths.SETTINGS_PATH`）——
+    与生产读的是同一个常量, 反而更贴。
+    """
     monkeypatch.delenv(ENV_SWITCH, raising=False)
-    monkeypatch.setattr(ig, "_PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(ig.paths, "SETTINGS_PATH", tmp_path / "settings.toml")
     assert _settings_image_cfg() == {} and image_enabled() is True   # 无文件 → 开
     (tmp_path / "settings.toml").write_text(
         "[image]\n  enabled = false\n  model = \"x\"\n", encoding="utf-8")

@@ -29,11 +29,11 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from contract.digest import RELATION_ACTIONS, STATE_VALUES, is_full_date
-from core import paths
 from core.brain import marks
 from core.brain.graph import REL_AKIN
 from core.digest.rounds import RoundSpec
 from core.digest.segment import _span_range
+from infra import paths
 
 if TYPE_CHECKING:                       # 仅注解求值期（避免与编排层循环 import）
     from core.brain.read.recall import EmbedFn

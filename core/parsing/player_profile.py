@@ -32,10 +32,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from core import paths
 from core.common import err
 from core.parsing.dynamic_character_parser import load_yaml_file
 from core.parsing.names import CharNames, char_names
+from infra import paths
 
 #: 玩家档案的必填字段（`REQ~` = 必填层的约定, 与角色档案同一套）。
 REQUIRED_FIELD = "most_called_name"
