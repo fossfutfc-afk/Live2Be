@@ -401,7 +401,6 @@ let lastSceneKey = "";
 
   async function waitScene() {
     try {
-      let gateSince = 0;              // 视觉门等待起点（首帧防卡死: 8s 超时降级放行）
       for (;;) {
         let st;
         try {
@@ -424,17 +423,11 @@ let lastSceneKey = "";
         // 视觉门（2026-09-08 实机修复: 首板表情整板 nomal）——新场景上屏前等
         // emotion+place 双路就绪（标注 ~1-3s）: 否则替换式渲染错过即错过, 骨架期
         // 整板默认表情。gate_busy 期间 loading 卡（故事正在展开…）保持显示。
-        // 8s 超时降级放行（宁缺勿错——标注兜底恒可达, 仅防御 worker 异常）。
+        // 等太久由**后端**判（到点 gate_busy 自己转 false, 见 webgui/deps.GATE_DISPLAY_WAIT_MS）:
+        // 前端不再自己数秒——从前这里另有一个 8s 常量, 与后端那条 25s 看门狗各说各话。
         if (st.scene && st.gate_busy && (!gotScene || st.round !== seenRound)) {
-          if (!gateSince) gateSince = performance.now();
-          if (performance.now() - gateSince > 8000) {
-            dbg("视觉门超时降级放行 round", st.round, "gate_ms",
-                Math.round(performance.now() - gateSince));
-            gateSince = 0;
-          } else {
-            await sleep(BOND_POLL_FAST_MS);
-            continue;
-          }
+          await sleep(BOND_POLL_FAST_MS);
+          continue;
         }
         // 中断回放/预热在途: 有场景先渲染（busy 可能来自续写预生成, 不阻塞展示）;
         // 无场景才按 busy 轮询等待。
