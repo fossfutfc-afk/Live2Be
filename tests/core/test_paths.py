@@ -255,10 +255,10 @@ def test_no_writes_under_readonly_roots():
 
 
 def test_paths_import_is_cheap_and_cycle_free():
-    """⑤ `infra/paths.py` 只依赖 stdlib——谁都能 import 它，不会有环。
+    """`infra/paths.py` 不碰配置系统之外的依赖（无环风险）。
 
-    允许 `sys`（用来判 `sys.frozen` / `sys._MEIPASS`），
-    仍是 stdlib, 零环风险; pathlib 同理。
+    允许 `sys`（判 `sys.frozen` / `sys._MEIPASS`）与 `infra`（只允许 `infra.settings`：
+    paths 要读 settings.toml 的 `[paths]`；方向是 paths → settings，反向没有）。
     """
     tree = ast.parse((ROOT / "infra" / "paths.py").read_text(encoding="utf-8"))
     mods: set[str] = set()
@@ -267,16 +267,48 @@ def test_paths_import_is_cheap_and_cycle_free():
             mods |= {a.name.split(".")[0] for a in n.names}
         elif isinstance(n, ast.ImportFrom):
             mods.add((n.module or "").split(".")[0])
-    assert mods <= {"__future__", "pathlib", "sys"}, mods
+    assert mods <= {"__future__", "pathlib", "sys", "infra"}, mods
     print(f"    paths 的依赖: {sorted(mods)}（无环风险）")
+
+
+def test_settings_path_agrees_with_settings_module():
+    """`paths.SETTINGS_PATH` 与 `infra.settings.default_path()` 必须指同一个文件。"""
+    from infra import settings
+    assert paths.SETTINGS_PATH == settings.default_path(), (
+        f"两条真源对不上: {paths.SETTINGS_PATH} vs {settings.default_path()}")
+
+
+def test_paths_override_from_settings(monkeypatch, tmp_path):
+    """`[paths]` 能覆盖 CONFIG/ASSETS/DATA 三个根（首次向导写它；相对路径按 APP_ROOT 解析）。
+
+    必须 reload 才看得见：这些是 import 期常量，而且消费方还会把它存成自己的常量
+    （`CHAR_ROOT = paths.CHARACTERS_DIR`）——所以向导保存后要重启。
+    """
+    import importlib
+
+    cfg = tmp_path / "settings.toml"
+    cfg.write_text('[paths]\n  config = "mine/cfg"\n  assets = "D:/assets-elsewhere"\n',
+                   encoding="utf-8")
+    monkeypatch.setenv("LIVE2BE_SETTINGS", str(cfg))
+    try:
+        importlib.reload(paths)
+        assert paths.CONFIG_ROOT == paths.APP_ROOT / "mine" / "cfg"      # 相对 → APP_ROOT 下
+        assert paths.ASSETS_ROOT == Path("D:/assets-elsewhere")          # 绝对 → 原样
+        assert paths.DATA_ROOT == paths.APP_ROOT / "data"                # 没配 → 默认
+        assert paths.CHARACTERS_DIR == paths.CONFIG_ROOT / "characters"  # 派生跟着走
+    finally:
+        monkeypatch.delenv("LIVE2BE_SETTINGS", raising=False)
+        importlib.reload(paths)
+    assert paths.CONFIG_ROOT == ROOT / "config", "reload 回来必须恢复默认"
 
 
 if __name__ == "__main__":
     test_all_matches_module_constants()
-    test_five_roots_exist_and_are_equal_in_source_tree()
+    test_source_tree_layout_is_unchanged()
     test_every_constant_has_a_root()
     test_every_value_is_absolute_and_under_its_own_root()
     test_no_inline_project_paths_left()
     test_no_writes_under_readonly_roots()
     test_paths_import_is_cheap_and_cycle_free()
+    test_settings_path_agrees_with_settings_module()
     print("all paths tests passed")

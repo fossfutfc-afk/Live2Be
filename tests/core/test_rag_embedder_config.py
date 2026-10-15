@@ -20,6 +20,7 @@ from pathlib import Path
 import pytest
 
 from core.rag import embedder as E
+from infra import settings
 
 
 @pytest.fixture(autouse=True)
@@ -27,13 +28,24 @@ def _no_env(monkeypatch):
     """清掉环境变量——防本机 `.env` / shell 里的值污染断言。"""
     for k in (E.ENV_BASE, E.ENV_MODEL):
         monkeypatch.delenv(k, raising=False)
+    settings.reset()
+    yield
+    settings.reset()
 
 
 def _write_settings(tmp_path, monkeypatch, body: str):
+    """写一份 settings.toml 并让 infra.settings 读它。"""
     p = tmp_path / "settings.toml"
     p.write_text(body, encoding="utf-8")
-    monkeypatch.setattr(E, "_SETTINGS_PATH", p)
+    monkeypatch.setenv("LIVE2BE_SETTINGS", str(p))
+    settings.reset()
     return p
+
+
+def _no_settings(monkeypatch):
+    """指到一个不存在的文件（= 没配置）。"""
+    monkeypatch.setenv("LIVE2BE_SETTINGS", "__no_such_settings__.toml")
+    settings.reset()
 
 
 # ---------------------------------------------------------------------------
@@ -42,7 +54,7 @@ def _write_settings(tmp_path, monkeypatch, body: str):
 
 def test_defaults_without_config(monkeypatch):
     """无配置 → 默认地址 + 自动发现（发现被 patch 掉, 不联网）。"""
-    monkeypatch.setattr(E, "_SETTINGS_PATH", Path("__no_such_settings__.toml"))
+    _no_settings(monkeypatch)
     monkeypatch.setattr(E.LocalEmbedder, "_auto_discover", lambda self: "auto-found")
     emb = E.LocalEmbedder()
     assert emb.base_url == E.DEFAULT_BASE_URL
@@ -90,7 +102,7 @@ def test_constructor_wins(tmp_path, monkeypatch):
 def test_broken_or_missing_settings_degrades(tmp_path, monkeypatch):
     """**绝不抛**: 缺文件 / TOML 坏 / `[embed]` 不是表 → 回落默认。"""
     monkeypatch.setattr(E.LocalEmbedder, "_auto_discover", lambda self: "")
-    monkeypatch.setattr(E, "_SETTINGS_PATH", tmp_path / "nope.toml")
+    _no_settings(monkeypatch)
     assert E.LocalEmbedder().base_url == E.DEFAULT_BASE_URL
     for body in ("[embed\n 坏 toml", "[embed]\nbase_url = 123\n",
                  "embed = \"not a table\"\n"):
@@ -121,7 +133,7 @@ def test_health_probes_when_model_from_config(monkeypatch):
     旧实现 `health() == bool(self.model)`: 自动发现年代它等价于"刚敲通 /v1/models";
     但手写 model 打错时它仍为 True → `_get_embed_fn()` 报 ok, 而每次 embed 都 404。
     """
-    monkeypatch.setattr(E, "_SETTINGS_PATH", Path("__no_such_settings__.toml"))
+    _no_settings(monkeypatch)
     emb = E.LocalEmbedder(model="Qwen3-Embedding-0.6B")
     monkeypatch.setattr(emb, "available_models",
                         lambda: ["Qwen3-Embedding-0.6B", "qwen2.5-7b"])
@@ -143,7 +155,7 @@ def test_health_probes_when_model_from_config(monkeypatch):
 
 def test_health_cached(monkeypatch):
     """探测结果**缓存**——health() 会被 `_get_embed_fn` 反复调, 不能每次都发请求。"""
-    monkeypatch.setattr(E, "_SETTINGS_PATH", Path("__no_such_settings__.toml"))
+    _no_settings(monkeypatch)
     emb = E.LocalEmbedder(model="m")
     calls = []
     monkeypatch.setattr(emb, "available_models",

@@ -540,7 +540,7 @@ def test_known_bucket_lands_in_the_ledger(tmp_path):
     print("    C: `known` 进账（含只有名字的 + 她自己）")
 
 
-def test_recall_budget_reads_config_knob(monkeypatch):
+def test_recall_budget_reads_config_knob(recall_knobs):
     """预算的**真源**是 `[recall].turn_budget`（显式参数 > 配置 > 模块常量）。"""
     from core.brain import recall_config as rc
     from core.brain.read.pack import Candidate
@@ -551,10 +551,10 @@ def test_recall_budget_reads_config_knob(monkeypatch):
     cands = [Candidate(node=e1), Candidate(node=e2)]
     # ⚠️ 旋钮值要挑在**两条之间**: 10 < 两条总长 ≈ 24 ⇒ 只摆第一条; 100 ⇒ 两条都摆。
     # 用 1.0/9999.0 这种极端值测不出"预算被放大"（两条在两边都摆不下 / 都摆得下）。
-    monkeypatch.setattr(rc, "_cache", {"turn_budget": 10.0}, raising=False)
+    recall_knobs({"turn_budget": 10.0})
     out = render_recall_block(cands)
     assert "《一号》" in out and "《二号》" not in out
-    monkeypatch.setattr(rc, "_cache", {"turn_budget": 100.0}, raising=False)
+    recall_knobs({"turn_budget": 100.0})
     out2 = render_recall_block(cands)
     assert "《一号》" in out2 and "《二号》" in out2
     print("    T3: 坏 ts / 坏 now → 跳过短语, 不抛")

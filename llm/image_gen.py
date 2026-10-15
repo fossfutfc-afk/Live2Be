@@ -63,7 +63,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 from contract.errors import err
-from infra import paths
+from infra import paths, settings
 
 logger = logging.getLogger(__name__)
 
@@ -122,17 +122,8 @@ def _refuse_real_call_in_pytest() -> None:
 
 
 def _settings_image_cfg() -> dict:
-    """读项目根 settings.toml 的 [image] 分组（缺失/损坏 → {}; 不阻塞）。"""
-    try:
-        st = paths.SETTINGS_PATH
-        if not st.is_file():
-            return {}
-        import tomllib
-        data = tomllib.loads(st.read_text(encoding="utf-8"))
-        cfg = data.get("image", {}) if isinstance(data, dict) else {}
-        return cfg if isinstance(cfg, dict) else {}
-    except (OSError, ValueError, ImportError):
-        return {}
+    """settings.toml 的 [image] 分组（缺失/损坏 → {}）。"""
+    return settings.section("image")
 
 
 def image_enabled(cfg: dict | None = None) -> bool:

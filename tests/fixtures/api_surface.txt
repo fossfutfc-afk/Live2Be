@@ -419,7 +419,6 @@ llm.client	MAX_CALL_RETRIES	data	-
 llm.client	_EFFORT_LEVELS	data	-
 llm.client	_LAST_REASONING	data	-
 llm.client	_LAST_USAGE	data	-
-llm.client	_SETTINGS_PATH	data	pathlib
 llm.client	_build_payload	function	llm.client
 llm.client	_classify	function	llm.client
 llm.client	_ensure_json_instruction	function	llm.client
@@ -435,7 +434,6 @@ llm.client	llm_chat	function	llm.client
 llm.client	logger	data	logging
 # ---- webgui.deps ----
 webgui.deps	BUSY_WATCHDOG_MS	data	-
-webgui.deps	CAND_SETTINGS_PATH	data	pathlib
 webgui.deps	DATA_ROOT	data	pathlib
 webgui.deps	GATE_WATCHDOG_MS	data	-
 webgui.deps	ImageGenerator	class	llm.image_gen

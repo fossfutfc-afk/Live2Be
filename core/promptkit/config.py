@@ -1,30 +1,16 @@
 """promptkit 配置 — settings.toml [promptkit] 分组（运行时用户配置, gitignore）。
 
-与 llm/client.py 读取模式一致（tomllib）; 缺失/损坏 → 默认, 不阻塞。
-引擎构造参数可覆盖（task_card: bool | None——None = 读配置; 测试/bench 固定用）。
+缺失/损坏 → 默认, 不阻塞。引擎构造参数可覆盖（task_card: bool | None——None = 读配置;
+测试/bench 固定用）。
 """
 from __future__ import annotations
 
-import logging
-import tomllib
-
-from infra import paths
-
-logger = logging.getLogger(__name__)
-
-_SETTINGS_PATH = paths.SETTINGS_PATH
+from infra import settings
 
 
 def _read_settings() -> dict:
-    """读项目根 settings.toml → dict（缺失/损坏 → {}, 不阻塞）。"""
-    try:
-        with open(_SETTINGS_PATH, "rb") as f:
-            return tomllib.load(f)
-    except FileNotFoundError:
-        return {}
-    except Exception as e:                    # noqa: BLE001 — 损坏配置不阻塞
-        logger.warning("promptkit settings.toml 读取失败, 用默认: %s", e)
-        return {}
+    """settings.toml 全量（缺失/损坏 → {}）。"""
+    return settings.raw()
 
 
 def task_card_enabled() -> bool:

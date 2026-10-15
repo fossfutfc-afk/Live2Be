@@ -66,9 +66,11 @@
 - `infra/paths.py` 的五个根：`RESOURCE`（只读，随包）· `CONFIG` / `ASSETS`（用户内容，
   以后可能由首次向导指定）· `APP`（settings.toml）· `DATA`（事件流真源）。源码树里
   `RESOURCE`/`APP` = 仓根、其余三个 = 仓根下同名目录，所以**老常量值一个字没变**。
-- 剩下两件：**批次 2 的目录改名**（`core→infra/engine`、`renderer+tui→tui`、`apps→cli`）
-  要作者在场；建议的下一件 —— **`infra/settings.py`**（收掉 9 个各自解析 settings.toml 的读者，
-  顺手给首次向导留 `[paths]` 那一节）。
+- `infra/settings.py` 已是 settings.toml 的**唯一读入口**（9 个读者收成 1，按 mtime 失效）。
+  `[paths]` 那一节也通了（首次向导写它，保存后要重启才能生效——`paths` 是 import 期常量）。
+- 剩下：**批次 2 的目录改名**（`core→infra/engine`、`renderer+tui→tui`、`apps→cli`）
+  要作者在场；另有两条可选 —— `webgui/store.DEFAULTS` 与各领域默认值**两处写**（设置项
+  清单的归属问题）· 文档那一趟（`CLAUDE.md` 里还写着 `core/common/` 与 `contract/schema.py`）。
 
 ---
 
@@ -136,6 +138,8 @@ python experiments/recall_report.py
 | `3070a25` | `contract/schema/` 的**文案守门**：动作名必须在注册表里 · 取值表与 `records` 文法对账 · 规则 md 是干净列表 |
 | `d83bb04` | **新建 `infra/` 层**：`paths.py`（五个根）· `atomic.py` · `fuse.py`；31 处 `core.paths` → `infra.paths`；顺手治 6 个"自己现拼根"的文件 |
 | `21a4df0` | **解散 `core/common/`**：`errors` 壳删（20 处直连 `contract.errors`）· `mmt_registry`→`core/mmt/` · `tone`→`core/parsing/` |
+| `4a8e39b` | **注释瘦身**：按作者要求改掉我自己写的那几个文件（去掉装饰符号、"只写关键点"；写法约定进了 §0） |
+| `见下` | **`infra/settings.py`**：settings.toml 的**唯一读入口**（9 个读者收成 1，按 mtime 失效）· `[paths]` 覆盖通了 · 坏文件有声音 |
 
 ---
 

@@ -41,19 +41,11 @@ v2 的记忆召回参数是**散落的模块常量**，后果有两条:
 ## 优先级
 
 `settings.toml [recall]` > 模块默认。缺失/损坏/类型不符 → 默认（宁缺勿错，不阻塞）。
-与 `core/promptkit/config.py`、`llm/client.py` 同一读取模式（tomllib）。
+读盘由 `infra/settings` 按 mtime 缓存，所以手改 `[recall]` 后下一次调用就生效。
 """
 from __future__ import annotations
 
-import logging
-import tomllib
-
-from infra import paths
-
-logger = logging.getLogger(__name__)
-
-#: 项目根 settings.toml（`infra/paths.py` 的宏）
-_SETTINGS_PATH = paths.SETTINGS_PATH
+from infra import settings
 
 #: 默认值 —— **全部非阈值**（只有"取几条"与"半衰期/下界"）
 DEFAULTS: dict[str, float] = {
@@ -89,23 +81,10 @@ DEFAULTS: dict[str, float] = {
     "time_freshness_floor": 0.25,
 }
 
-_cache: dict[str, float] | None = None
-
-
 def _load() -> dict[str, float]:
-    """读 settings.toml → 归一化旋钮（失败 → 全默认; 只认数值型）。"""
+    """settings.toml → 归一化旋钮（损坏 → 全默认；只认数值型）。"""
     out = dict(DEFAULTS)
-    try:
-        with open(_SETTINGS_PATH, "rb") as f:
-            data = tomllib.load(f)
-    except FileNotFoundError:
-        return out
-    except Exception as e:                           # noqa: BLE001 — 损坏不阻塞
-        logger.warning("recall settings 读取失败, 用默认: %s", e)
-        return out
-    section = data.get("recall")
-    if not isinstance(section, dict):
-        return out
+    section = settings.section("recall")
     for key in DEFAULTS:
         val = section.get(key)
         if isinstance(val, bool) or not isinstance(val, (int, float)):
@@ -115,29 +94,22 @@ def _load() -> dict[str, float]:
 
 
 def get(name: str) -> float:
-    """取旋钮值（首次访问懒加载; 未知键 → KeyError——防拼错静默走默认）。"""
-    global _cache
-    if _cache is None:
-        _cache = _load()
+    """取旋钮值（未知键 → KeyError——防拼错静默走默认）。"""
     if name not in DEFAULTS:
         raise KeyError(f"未知 recall 旋钮: {name!r}（可用: {sorted(DEFAULTS)}）")
-    return _cache[name]
+    return _load()[name]
 
 
 def reload() -> None:
-    """丢弃缓存（设置变更/**测试**用——下次 get 重新读盘）。
+    """丢缓存后重读（设置变更/测试用）。
 
-    ⚠️ 2026-09-21 复核: 一度被当作"零消费者"删掉——**错的**: 它有 11+ 处调用,
-    全在 `tests/core/test_wiki_recall_ledger.py` 的 autouse fixture 里（进程级懒加载
-    缓存必须逐用例清, 否则用例间串味）。**测试基础设施也是消费者**。
+    读盘本身已经按 mtime 自动失效（`infra/settings`），所以这个函数现在是显式的
+    "我要重新读一次"；测试用它做逐用例隔离（`tests/core/test_wiki_recall_ledger.py`
+    的 autouse fixture 有 11+ 处调用）。
     """
-    global _cache
-    _cache = None
+    settings.reset()
 
 
 def snapshot() -> dict[str, float]:
-    """当前全部旋钮（台账打印用——一次调用只读一次盘）。"""
-    global _cache
-    if _cache is None:
-        _cache = _load()
-    return dict(_cache)
+    """当前全部旋钮（台账打印用）。"""
+    return _load()

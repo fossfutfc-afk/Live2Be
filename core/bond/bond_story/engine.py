@@ -144,21 +144,15 @@ def memorial_allowed() -> bool:
     读取失败/缺省 → True（与 `choice_pregen`/`image_enabled` 同一姿势: 不配 = 现状）。
     """
     import os
+
+    from infra import settings
     env = str(os.environ.get(MEMORIAL_ENV, "") or "").strip().lower()
     if env in ("off", "0", "false", "no"):
         return False
     if env in ("on", "1", "true", "yes"):
         return True
-    try:
-        import tomllib
-
-        from infra import paths
-        text = paths.SETTINGS_PATH.read_text(encoding="utf-8")
-        cfg = (tomllib.loads(text).get("bond") or {})
-        val = cfg.get("memorial", True)
-        return bool(val) if isinstance(val, bool) else True
-    except Exception:                              # noqa: BLE001 — 缺省开
-        return True
+    val = settings.section("bond").get("memorial", True)
+    return bool(val) if isinstance(val, bool) else True
 
 
 class BondStoryEngine:

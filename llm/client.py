@@ -28,7 +28,7 @@ from dotenv import load_dotenv
 
 from contract.errors import err
 from contract.json_cleaner import extract_json
-from infra import paths
+from infra import paths, settings
 
 logger = logging.getLogger(__name__)
 
@@ -38,31 +38,18 @@ _EFFORT_LEVELS = ("low", "medium", "high")
 # Windows + conda SSL 证书修复
 os.environ["SSL_CERT_FILE"] = certifi.where()
 
-# 加载 .env —— 路径真源 = `infra/paths.py`（⭐ 打包后它在 **exe 同级**, 不在只读 bundle 里;
-# 从前这里 `Path(__file__).parents[1]` 自己拼 —— frozen 下那会指向 bundle/临时目录）
-# 返回值不用（要的是 `load_dotenv` 把 .env 灌进 os.environ 这个**副作用**）; 名字保留是因为
-# 它在 API 面快照里（`tests/fixtures/api_surface.txt`）——顺手可当"有没有找到 .env"的探针。
+# 加载 .env。路径真源 = infra/paths.py（打包后它在 exe 同级，不在只读 bundle 里）。
+# 返回值不用（要的是 load_dotenv 把 .env 灌进 os.environ 这个副作用）；名字保留是因为
+# 它在 API 面快照里（tests/fixtures/api_surface.txt）——顺手可当"有没有找到 .env"的探针。
 _load_dotenv_result = load_dotenv(paths.DOTENV_PATH)
-
-#: settings.toml 位置（APP_ROOT——GUI 设置页存档; 非空字段优先于 .env）
-_SETTINGS_PATH = paths.SETTINGS_PATH
 
 
 def _settings_toml() -> dict:
-    """读项目根 settings.toml → dict（缺失/损坏 → {}, 不阻塞）。
+    """settings.toml 全量（缺失/损坏 → {}）。
 
-    GUI 设置页保存的运行时配置（webgui/store.py 同源）。结构:
-        [llm]   {api_key, base_url, model}
-        [image] {api_key, base_url, model}
+    GUI 设置页存的那份（webgui/store.py 同源）。读到的是 [llm] / [image] 等分组。
     """
-    if not _SETTINGS_PATH.is_file():
-        return {}
-    try:
-        import tomllib
-        data = tomllib.loads(_SETTINGS_PATH.read_text(encoding="utf-8"))
-        return data if isinstance(data, dict) else {}
-    except (OSError, ValueError, ImportError):
-        return {}
+    return settings.raw()
 
 
 class LLMClient:
