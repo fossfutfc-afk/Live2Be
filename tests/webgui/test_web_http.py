@@ -536,6 +536,43 @@ def test_bond_watchdogs_self_heal_stuck_gate(web, monkeypatch):
     print("    web: 视觉门看门狗——在途不抢 / 稳态放行 / 线程没了也放行")
 
 
+def test_gate_display_budget_gives_up_without_touching_data(web, monkeypatch):
+    """视觉门的**显示预算**：门等太久 ⇒ `gate_busy` 转 false（前端先按默认表情渲染），
+
+    但**一个字节的数据都不许改**。这与上面那条看门狗不是一件事：那条会强制写兜底
+    emotion / `_place_done`，而兜底产物会进 append-only 真源；这条只影响前端等不等。
+    两个数字各有各的用途，合并要么让玩家干等到 25s，要么让兜底更容易污染真源。
+    """
+    st, sid = web
+    _seed_trigger(st, sid)
+    bond.bond_start(CHARACTER, sid, staged=True)
+    _poll_status(sid)
+    state = bond._state(CHARACTER, sid)
+
+    # 造"永远不就绪"的场景（同上面那条用例的手法）
+    for p in state.scene_obj.paragraphs:
+        p.pop("emotion", None)
+    state.scene_obj._place_done = False
+    monkeypatch.setattr(deps, "GATE_WATCHDOG_MS", 999_999)     # 看门狗这条**不许**触发
+    state.gate_since = time.monotonic() - 9.0                  # 门已经等了 9s（> 8s 预算）
+
+    st_give_up = bond.bond_status(CHARACTER, sid)
+    assert st_give_up["gate_busy"] is False, \
+        f"过了显示预算就该让前端先渲染: {st_give_up}"
+    assert st_give_up["gate_emo"] is False and st_give_up["gate_place"] is False, \
+        "两路确实还没就绪（转 false 只是因为不让你等了）"
+    assert st_give_up["gate_wait_ms"] >= 8_000, st_give_up
+    # ⭐ 关键差别: 数据没被动过（真标注晚到还有机会补上去）
+    assert all(not (p.get("emotion") or "").strip() for p in state.scene_obj.paragraphs), \
+        "显示预算过期不许写兜底 emotion（那是看门狗那条的活）"
+    assert state.scene_obj._place_done is False, "显示预算过期不许写假的 _place_done"
+
+    # 预算内则照旧等（把 clock 拨回 1s）
+    state.gate_since = time.monotonic() - 1.0
+    assert bond.bond_status(CHARACTER, sid)["gate_busy"] is True, "1s < 8s: 还得等"
+    print("    web: 视觉门显示预算——到点让前端先渲染, 但不动数据; 预算内照旧等")
+
+
 def test_bond_busy_watchdog_resets_lost_thread(web, monkeypatch):
     """忙态看门狗: 生成线程丢失（异常退出/线程没了）而 busy 仍在 → 复位。
 
@@ -839,7 +876,6 @@ def test_settings_over_http_roundtrip(monkeypatch, tmp_path):
     from infra import settings
     from webgui import store
     monkeypatch.setenv("LIVE2BE_SETTINGS", str(tmp_path / "settings.toml"))
-    settings.reset()
     monkeypatch.setattr(chat, "reset_engines", lambda *a, **kw: None)
     store.save_settings({**store.load_settings(),
                          "image": {"api_key": "sk-secret-1234", "enabled": True}})

@@ -106,6 +106,14 @@ BUSY_WATCHDOG_MS = 300_000     # 5min（LLM client 超时 240s + 余量）: 超�
 GATE_WATCHDOG_MS = 25_000      # 视觉门 25s 未就绪且 lane 空闲 → 强制兜底就绪
 PREGEN_GATE_WATCHDOG_MS = 25_000   # 预生成消费门 25s 未通过 → 强制兜底就绪并消费
 
+#: 视觉门的**显示预算**：门等这么久还没就绪，就告诉前端"先按默认表情渲染"。
+#: ⚠️ 与上面 `GATE_WATCHDOG_MS` **不是一条规则**，别合并成一个数：
+#:   · 这条只影响**前端等不等**（status 的 `gate_busy` 到点转 false），**一个字节的数据都不改**；
+#:   · 那条是**管线安全**（`bond/watchdog.py`）——它会强制写兜底 emotion / `_place_done`，
+#:     而兜底产物会随 `_log_scene` 进 append-only 真源，晚到的真标注再也回不去。
+#: 合并的两种后果都不好：取 25s ⇒ 玩家干等；取 8s ⇒ 兜底更容易污染真源。
+GATE_DISPLAY_WAIT_MS = 8_000
+
 
 # ---------------------------------------------------------------------------
 # ⑤ choice 候选预生成开关（settings.toml）
@@ -125,7 +133,7 @@ def choice_pregen_enabled() -> bool:
 
 
 __all__ = [
-    "BUSY_WATCHDOG_MS", "DATA_ROOT", "GATE_WATCHDOG_MS",
+    "BUSY_WATCHDOG_MS", "DATA_ROOT", "GATE_DISPLAY_WAIT_MS", "GATE_WATCHDOG_MS",
     "ImageGenerator", "PREGEN_GATE_WATCHDOG_MS", "choice_pregen_enabled",
     "enqueue_annotate", "image_enabled", "image_generator", "set_store", "store",
 ]

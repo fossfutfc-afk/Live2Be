@@ -435,6 +435,7 @@ llm.client	logger	data	logging
 # ---- webgui.deps ----
 webgui.deps	BUSY_WATCHDOG_MS	data	-
 webgui.deps	DATA_ROOT	data	pathlib
+webgui.deps	GATE_DISPLAY_WAIT_MS	data	-
 webgui.deps	GATE_WATCHDOG_MS	data	-
 webgui.deps	ImageGenerator	class	llm.image_gen
 webgui.deps	PREGEN_GATE_WATCHDOG_MS	data	-

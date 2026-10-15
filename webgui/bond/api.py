@@ -395,7 +395,9 @@ def bond_status(char_id: str, session_id: str) -> dict:
     + emo_version（异步标注补标版本——前端感知后补切已显示段落的立绘表情）
     + memorial（纪念模式标记 + 立绘 URL——前端进纪念淡入图背景, 退出淡出）。
     + gate_busy（2026-09-07）: 推进门控视角——当前场景 emotion+place 未就绪
-    （state.busy 之外的另一类"再等等"）; 前端忙等改轮询 status 而非狂发 turn。"""
+    （state.busy 之外的另一类"再等等"）; 前端忙等改轮询 status 而非狂发 turn。
+    2026-10-15: `gate_busy` 带**显示预算**（`deps.GATE_DISPLAY_WAIT_MS`）——门等太久就转
+    false, 让前端先按默认表情渲染; 从此"等多久"的判断只在后端一处（前端不再自己数秒）。"""
     state = _state(char_id, session_id)
     # 看门狗（2026-09-11）: 前端在轮询 status —— 借这次调用检查"忙态/视觉门/
     # 预生成消费门"是否卡死, 卡死就兜底放行（否则点击永久无响应, 用户只能重启）
@@ -425,12 +427,18 @@ def bond_status(char_id: str, session_id: str) -> dict:
     #   pregen_wait=True → "继续"被预生成消费门挡住。
     gate_emo = _scene_emotions_ready(state)
     gate_place = _scene_places_ready(state)
+    gate_wait_ms = _ms_since(state.gate_since) if state.gate_since else 0
+    # 门未就绪只让前端等 `GATE_DISPLAY_WAIT_MS`（默认 8s）——到点 gate_busy 转 false,
+    # 前端就先按默认表情渲染（真标注晚到会走 emo_version 补切）。
+    # 这是**纯显示预算**: 数据一个字不改, 与看门狗那条 25s 兜底分开（见 deps 里的说明）。
+    gate_hold = (not (gate_emo and gate_place)) and gate_wait_ms <= deps.GATE_DISPLAY_WAIT_MS
     pregen = getattr(state, "pregen_obj", None)
     return {
         "busy": state.busy,
-        "gate_busy": not (gate_emo and gate_place),
+        "gate_busy": gate_hold,
         "gate_emo": gate_emo,
         "gate_place": gate_place,
+        "gate_wait_ms": gate_wait_ms,
         "busy_ms": _ms_since(state.busy_since) if state.busy_since else 0,
         "pregen_wait": bool(pregen is not None
                             and not _scene_obj_visual_ready(state, pregen)),
