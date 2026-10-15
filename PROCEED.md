@@ -3,8 +3,18 @@
 > ⚠️ **本文件不记 `ahead` 数**（写死过两次、两次都对不上）—— 真源 = `git status -sb` 与 `git log -1`。
 > ⚠️ **`git status` 里常年挂着一份"作者手改未提交"的文件**（本章 = `config/settings/relation/interperson.yml`
 > 的立场句重排）—— 那是**作者的改动, ⛔ 不是脏改动**, 别 `checkout` 掉。
-> 现状：`tests/core` **1266 passed** · `tests/llm+renderer+webgui` **196 passed**（⚠️ **按域分开跑**, 见 §5 坑 4）·
+> 现状：`tests/core` **1268 passed** · `tests/llm+renderer+webgui` **203 passed**（⚠️ **按域分开跑**, 见 §5 坑 4）·
 > 三份 verifier 全 exit 0 · 真机数据未动。
+
+---
+
+## 0. 写法约定（2026-10-15 作者要求，代码注释一律照此）
+
+- 只写**关键点**：顶部 docstring 不许比它底下的代码还长；函数内注释同理。
+- 不用 `★ ⚠ ⛔ ✅` 这类装饰符号（满屏符号反而看不见重点）。
+- 不写"用户拍板 / 用户裁 / 作者定的"这类表述 —— 重要的是规则本身，不是谁说的。
+- 理由：长注释会随代码一起过时（本项目已经踩过多次）；解释放 PROCEED 与提交信息，代码里只留结论。
+- 历史文件里那种写法很多，**读的时候别照抄**。
 
 ---
 
@@ -48,8 +58,17 @@
 `entity` 字段 **0/30** · 全图 `contradicts`/`evolved_from` **= 0** · akin 5 条全在一个 6 条簇里 ·
 ⚠️ 认知列表里 `e0001` 是一条 **belief**（id 带老前缀, 历史遗留, 不影响功能）。
 
-**线 B（另一个 agent, 别替他拍）**：包重组已做 1a/1c/1d/1f；**1e（`contract/schema.py` 外移）与
-1h（调用层归位）等他拍板**；批次 2（`core→infra/engine`、`renderer+tui→tui/`、`apps→cli/`）**要他在场**。
+**线 B（包重组，另一个 agent 负责）**：`contract/` 与 `llm/` 那一层已经理到位 ——
+1a / 1c / 1d / 1f / 1e / 1h 全部落地（见 §4 提交表），并**新建 `infra/` 层**
+（`paths` 五个根 · `atomic` · `fuse`）、**解散 `core/common/`**（那个"抽屉"里 6 个模块 4 种性质各归各家）。
+
+- `llm → core` 现在**零依赖**：`test_import_direction.py` 的 `LLM_CORE_ALLOWED` 是空表。
+- `infra/paths.py` 的五个根：`RESOURCE`（只读，随包）· `CONFIG` / `ASSETS`（用户内容，
+  以后可能由首次向导指定）· `APP`（settings.toml）· `DATA`（事件流真源）。源码树里
+  `RESOURCE`/`APP` = 仓根、其余三个 = 仓根下同名目录，所以**老常量值一个字没变**。
+- 剩下两件：**批次 2 的目录改名**（`core→infra/engine`、`renderer+tui→tui`、`apps→cli`）
+  要作者在场；建议的下一件 —— **`infra/settings.py`**（收掉 9 个各自解析 settings.toml 的读者，
+  顺手给首次向导留 `[paths]` 那一节）。
 
 ---
 
@@ -113,6 +132,10 @@ python experiments/recall_report.py
 | `f738ea5` | **删掉 `profile` kind 与 `examples` 字段**（真机零依赖; `subject` 留着 —— belief 的活读者） |
 | `2597737` | ⭐ **L2 碰撞那一刀**：看法可改（`id` 决定建/改）+ 两趟各补一格 + `DEFAULT_FACES["belief"]` |
 | `f6541b0` | ⭐ **L2 料区域化**：【这次的事】/【这一类事】两区 + 正文互斥（信息头不占额度）+ 额度 3/条 → 5/区 |
+| `3f34874` | `contract/schema.py` → **`contract/schema/` 包**，2.6 KB 文案搬进 `prompts/*.md`（5 个形态逐字节不变；顺带砍掉 3 个生产死件 67 行） |
+| `3070a25` | `contract/schema/` 的**文案守门**：动作名必须在注册表里 · 取值表与 `records` 文法对账 · 规则 md 是干净列表 |
+| `d83bb04` | **新建 `infra/` 层**：`paths.py`（五个根）· `atomic.py` · `fuse.py`；31 处 `core.paths` → `infra.paths`；顺手治 6 个"自己现拼根"的文件 |
+| `21a4df0` | **解散 `core/common/`**：`errors` 壳删（20 处直连 `contract.errors`）· `mmt_registry`→`core/mmt/` · `tone`→`core/parsing/` |
 
 ---
 
