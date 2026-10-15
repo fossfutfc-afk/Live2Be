@@ -139,7 +139,11 @@ python experiments/recall_report.py
 | `d83bb04` | **新建 `infra/` 层**：`paths.py`（五个根）· `atomic.py` · `fuse.py`；31 处 `core.paths` → `infra.paths`；顺手治 6 个"自己现拼根"的文件 |
 | `21a4df0` | **解散 `core/common/`**：`errors` 壳删（20 处直连 `contract.errors`）· `mmt_registry`→`core/mmt/` · `tone`→`core/parsing/` |
 | `4a8e39b` | **注释瘦身**：按作者要求改掉我自己写的那几个文件（去掉装饰符号、"只写关键点"；写法约定进了 §0） |
-| `dd40344` | **`infra/settings.py`**：settings.toml 的**唯一读入口**（9 个读者收成 1，按 mtime 失效）· `[paths]` 覆盖通了 · 坏文件有声音 |
+| `dd40344` | **`infra/settings.py`**：settings.toml 的**唯一读入口**（9 个读者收成 1）· `[paths]` 覆盖通了 · 坏文件有声音 |
+| `b013fbe` | `infra/settings` **去掉读盘缓存**：mtime+size 的键有洞（同长度改写会读到旧值，我自己的测试抓到的）⇒ 每次重读；`settings.reset`/`recall_config.reload` 跟着消失 |
+| `fcea64a` | 前端契约守门：`bond.js` 的 `FX_SYMBOLS` ↔ `renderer/effects.py` 特效名两边对齐（两个方向都证过会红） |
+| `efa7093` | **视觉门"等多久"收成后端一处**：`GATE_DISPLAY_WAIT_MS`（纯显示，到点 `gate_busy` 转 false，数据不改）与 `GATE_WATCHDOG_MS`（管线安全，会写真源）分开；前端不再自己数 8 秒 |
+| `83a399e` | `/err404` → **经典 XP 蓝屏**（namegg `FT~` 落地页）：自带 CSS/JS（零 `/static/` 引用）· 确定 ⇒ 30 秒假转储 → alert → 回主页面 · 全屏尽力而为 + 点击兜底 |
 
 ---
 
