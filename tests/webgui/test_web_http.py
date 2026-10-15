@@ -204,6 +204,24 @@ def test_index_and_every_static_ref_resolves():
     print(f"    web: 首页 200 + {len(refs)} 个静态资源 + {len(css_refs)} 个 CSS 引用全通")
 
 
+def test_err404_is_a_self_contained_bsod():
+    """`/err404` 是 `FT~` 彩蛋的落地页（伪宕机）——它必须**自带一切**。
+
+    为什么钉"自包含": 这页的设定是"应用已经挂了"。它要是引用 `/static/...`，
+    那天真出问题时（静态目录没了/挂了）这页就只剩白屏 —— 反而最该显示的时候显示不了。
+    另外钉两个"这确实是蓝屏"的标志（STOP 码与 malkuth.sys）。
+    """
+    r = _http("GET", "/err404")
+    assert r.status_code == 200, r.text
+    assert "text/html" in r.headers["content-type"]
+    html = r.text
+    assert "0x0000000A" in html, "STOP 码（0x0A = 10 = 第十质点）"
+    assert "malkuth.sys" in html
+    assert "/static/" not in html, "蓝屏页不许引用应用资源（要在应用坏掉时也能显示）"
+    assert "确定" in html, "页上那个按钮"
+    print("    web: /err404 自带样式与脚本（零应用资源引用）")
+
+
 def test_menu_spine_and_gallery_routes():
     """menu 列表/静态挂载/spine 元信息/gallery 路径校验（含穿越拒绝）。"""
     r = _http("GET", "/api/menu")
