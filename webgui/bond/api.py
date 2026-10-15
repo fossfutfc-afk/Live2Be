@@ -423,6 +423,7 @@ def bond_status(char_id: str, session_id: str) -> dict:
     # 忙态持续时长 + 预生成门一起给出——一次 status 快照即可定位:
     #   gate_emo=False → emotion 标注没回来（lane 死/结果被丢弃）;
     #   gate_place=False → place 判定没回来;
+    #   gate_wait_ms 很大而 gate_busy 已 False → 到了显示预算（前端早就在渲染了）;
     #   busy_ms 很大而日志无生成 → 忙态卡死（线程丢失; 由看门狗复位）;
     #   pregen_wait=True → "继续"被预生成消费门挡住。
     gate_emo = _scene_emotions_ready(state)
