@@ -133,7 +133,6 @@ def test_image_enabled_reads_settings_file(monkeypatch, tmp_path):
     """真实文件路径分支: `paths.SETTINGS_PATH` 的 [image].enabled 被读到。"""
     monkeypatch.delenv(ENV_SWITCH, raising=False)
     monkeypatch.setenv("LIVE2BE_SETTINGS", str(tmp_path / "settings.toml"))
-    settings.reset()
     assert _settings_image_cfg() == {} and image_enabled() is True   # 无文件 → 开
     (tmp_path / "settings.toml").write_text(
         "[image]\n  enabled = false\n  model = \"x\"\n", encoding="utf-8")

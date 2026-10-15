@@ -19,10 +19,8 @@ from webgui.routers.settings import SettingsIn, post_settings
 def _tmp_settings(tmp_path, monkeypatch):
     """settings.toml 一律落 tmp_path（禁碰项目根真实配置）+ 不重建真引擎。"""
     monkeypatch.setenv("LIVE2BE_SETTINGS", str(tmp_path / "settings.toml"))
-    settings.reset()
     monkeypatch.setattr(chat, "reset_engines", lambda *a, **kw: None)
     yield
-    settings.reset()
 
 
 def test_image_enabled_defaults_true_and_roundtrips():

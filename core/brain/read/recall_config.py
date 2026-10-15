@@ -100,16 +100,6 @@ def get(name: str) -> float:
     return _load()[name]
 
 
-def reload() -> None:
-    """丢缓存后重读（设置变更/测试用）。
-
-    读盘本身已经按 mtime 自动失效（`infra/settings`），所以这个函数现在是显式的
-    "我要重新读一次"；测试用它做逐用例隔离（`tests/core/test_wiki_recall_ledger.py`
-    的 autouse fixture 有 11+ 处调用）。
-    """
-    settings.reset()
-
-
 def snapshot() -> dict[str, float]:
     """当前全部旋钮（台账打印用）。"""
     return _load()
