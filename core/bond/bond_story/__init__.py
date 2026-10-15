@@ -50,6 +50,10 @@ from contract import (  # 定义处不在本包内（当年路过 → 直指真�
     sensei_groups,
     split_issues,
 )
+from contract.errors import (  # 定义处不在本包内（当年路过 → 直指真家）
+    Live2BeError,
+    err,
+)
 from core.bond.bond_story.boards import (  # C9: 板派生 + 交付模式
     MAX_BOARDS_PER_TURN,
     DeliveryMode,
@@ -73,10 +77,6 @@ from core.bond.place_annotate import (  # 定义处不在本包内（当年路�
 )
 from core.bond.variant_annotate import (  # 定义处不在本包内（当年路过 → 直指真家）
     pick_image,
-)
-from core.common import (  # 定义处不在本包内（当年路过 → 直指真家）
-    Live2BeError,
-    err,
 )
 from core.media.emotion_lexicon import (  # 定义处不在本包内（当年路过 → 直指真家）
     assets_root,

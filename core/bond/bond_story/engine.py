@@ -51,6 +51,7 @@ from contract import (
     format_issues,
     split_issues,
 )
+from contract.errors import err
 from core.bond import place_cues  # 换场线索词（PL3 预筛）
 from core.bond.bond_story.boards import (
     DeliveryMode,
@@ -63,7 +64,6 @@ from core.bond.bond_story.scene import (
 )
 from core.bond.place_annotate import annotate_places, resolve_place
 from core.bond.variant_annotate import pick_image  # 第二遍: 选图（时刻/差分）
-from core.common import err
 from core.media.emotion_lexicon import (
     assets_root,
     build_emotion_injection,

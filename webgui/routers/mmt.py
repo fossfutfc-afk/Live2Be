@@ -14,7 +14,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from core.affection import load_affection_from_events
-from core.common.mmt_registry import load_mmt_registry
+from core.mmt.mmt_registry import load_mmt_registry
 from core.mmt.ranking import SORT_MODES, best_affection, sort_characters
 from core.parsing.dynamic_character_parser import CharacterLoader
 from core.session import SessionStore

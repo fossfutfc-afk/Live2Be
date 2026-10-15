@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import logging
 
-from core.common.errors import err
+from contract.errors import err
 from infra import paths
 
 logger = logging.getLogger(__name__)

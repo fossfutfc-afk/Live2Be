@@ -23,7 +23,7 @@ import logging
 import math
 from pathlib import Path
 
-from core.common.errors import err
+from contract.errors import err
 
 logger = logging.getLogger(__name__)
 

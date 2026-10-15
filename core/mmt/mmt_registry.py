@@ -3,13 +3,16 @@
 项目约定: 便于机器读取的用 toml（settings / mmt_registry）; 人审查方便的用 yaml（五件套）。
 
 缺文件 → []（作者填了才显示）; 损坏 → 警告 + []（不阻塞, 宁缺勿错）。
+
+⚠️ 2026-10-15 搬进 `core/mmt/`（原住 `core/common/`, 那儿是个"抽屉"）——
+它是 **MMT 域件**（白名单只服务桃信列表）, 与 `core/common/` 里那些横切件不是一类东西。
 """
 from __future__ import annotations
 
 import logging
 import tomllib
 
-from core.common.errors import err
+from contract.errors import err
 from infra import paths
 
 logger = logging.getLogger(__name__)

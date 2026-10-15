@@ -28,7 +28,7 @@ import time
 
 import httpx
 
-from core.common.errors import Live2BeError
+from contract.errors import Live2BeError
 from infra import paths
 
 logger = logging.getLogger(__name__)

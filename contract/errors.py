@@ -4,7 +4,7 @@
 
 ⚠️ **位置**（C10, `docs/EXEC_SPLIT.md`）: 本模块是**错误原语的唯一真家**，住在
 `contract/`（最底层）——`contract/{model,registry,spec}.py` 用它不再需要反向依赖
-`core`。`core/common/errors.py` 只剩一个**薄再导出**壳（保旧路径）。
+`core`。2026-10-15 连那个壳也删了（`core/common/` 整个抽屉解散）—— 现在全仓直连本模块。
 
 两种用法（不改动现有异常捕获语义）:
     1. 域异常 —— 定义 Live2BeError 子类（类留在各自域文件里，分散定义、统一继承）。

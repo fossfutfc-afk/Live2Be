@@ -26,7 +26,7 @@
     magic(sw, sk) = 2·sw·sk / (sw + sk)
 
 ⚠️ **2026-09-20 搬家**: 形状函数（`harmonic` / `geometric` / `product` / `magic` /
-`MODES` / `DEFAULT_MODE`）唯一实现在 **`core/common/fuse.py`** —— 合成层
+`MODES` / `DEFAULT_MODE`）唯一实现在 **`infra/fuse.py`** —— 合成层
 （`core/brain/read/compose.py` 的"相关 × 强度"）要用**同一个**函数, 而
 `brain` 反向依赖 `media` 是层次倒挂。本模块**原样 re-export**（老调用方零改动;
 `place_fuse.magic is infra.fuse.magic` 这条有测试钉着）。

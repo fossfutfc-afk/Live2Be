@@ -46,7 +46,7 @@ from typing import Any
 
 import yaml
 
-from core.common import err
+from contract.errors import err
 from llm.prompts import load_prompt
 
 logger = logging.getLogger(__name__)

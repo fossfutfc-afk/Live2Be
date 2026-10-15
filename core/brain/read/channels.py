@@ -20,7 +20,7 @@
 
 **合成层已落**（2026-09-20）: `core/brain/read/compose.py` —— 四条道路
 （剧情语义 D / 情绪 B / 正交矩阵 A / 地点 C）→ 最终分, 形状 = **参数可选的调和平均**
-（`core/common/fuse.py`, 与 C 链路的 `magic` 同一个函数）。见该模块的 docstring。
+（`infra/fuse.py`, 与 C 链路的 `magic` 同一个函数）。见该模块的 docstring。
 
 ## 三条形态纪律（先定, 免得后面互相打架）
 

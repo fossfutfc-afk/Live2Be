@@ -10,6 +10,12 @@
 
 谐星向角色（阿露）: 无厘头/吃瘪是常态, 但关键时也要认真的互诉衷肠;
 照顾向角色（遥香）: 成长与被照顾是主线, 谐星适可而止。
+
+⚠️ 2026-10-15 搬进 `core/parsing/`（原住 `core/common/`）—— 它是**角色卡访问器**
+（读 `DynamicCharacter.story_tone`）, 与 `core/parsing/` 里那些"从卡里读东西"的件同族,
+不是横切基础设施。
+⚠️ `DEFAULT_TONE` 是**进 system prompt 的文案**（住在 `.py` 里）—— 按 1e 的标准,
+"人可改的提示词"该住 md; 今天先记在这儿, 没动（它是兜底那一条, 改的频率低）。
 """
 
 from __future__ import annotations

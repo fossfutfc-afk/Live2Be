@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
+from contract.errors import err
 from core.brain.entities import (
     SELF_ID,
     SENSEI_ID,
@@ -38,7 +39,6 @@ from core.brain.nodes import (
     make_node,
 )
 from core.brain.store import WikiStoreV2
-from core.common import err
 
 logger = logging.getLogger(__name__)
 

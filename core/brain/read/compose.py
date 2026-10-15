@@ -21,7 +21,7 @@
 1. `det` **上位替代**了线性和（用户 2026-09-13）: 乘积里一个因子为零则整项清零,
    表达的是"两组合取条件"。
 2. `relevance` **装不进矩阵**（§3.3）: *"RAG 不是矩阵的一个格子, 是矩阵的前置闸门"*。
-3. 用户 2026-09-20 选定形状 = **参数可选的调和平均**（`core/common/fuse.py`）,
+3. 用户 2026-09-20 选定形状 = **参数可选的调和平均**（`infra/fuse.py`）,
    与 C 链路的 `magic` **同一个函数**。
 
 ## 形状: `final = fuse(rel, prior, mode="harmonic")`
@@ -231,7 +231,7 @@ def compose(results: list[ChannelResult], *,
 
     Args:
         results: 各链路的产出（顺序无关）。
-        mode: 融合形状（`core/common/fuse.py` 的 `MODES`）——**代码选项, 不是配置项**。
+        mode: 融合形状（`infra/fuse.py` 的 `MODES`）——**代码选项, 不是配置项**。
         hit_k: "命中"的名次门槛（默认 `[recall].sim_k`）。⚠️ 是名次不是分数。
         top: 截断条数（None = 全给, 由调用方决定取几条）。
 
