@@ -44,11 +44,11 @@ logger = logging.getLogger(__name__)
 
 #: kind → id 前缀（AGENT_BRAIN.md §2 + v4 §3.0 的 `x`; relation/fact 已砍——c 前缀退役 2026-09-02）
 #: `x0000`（self）/ `x0001`（sensei）是**保留号**, 见 `entities.py` —— `next_id("x")` 因此从 x0002 起。
-#: ⏸ `p`（promise 节点）2026-09-29 **退役** —— promise 退图（见 `nodes.KINDS`）;
+#: `p`（promise 节点）2026-09-29 **退役** —— promise 退图（见 `nodes.KINDS`）;
 #: 旧档里若有 `p…` 行仍读得进（`from_dict` 按 kind 降级成 episode 之外, 不炸）。
 #: 2026-10-06 改名: **号段跟着数据走, 不跟着名字走** —— `experience`（经验, 原 `group`）
 #: 沿用 `g`（老 `g…` 语义不变）。
-#: ⏸ `e`（原 `profile` 玩家画像）**2026-10-14 随那个 kind 一起退役** —— 旧档里若有
+#: `e`（原 `profile` 玩家画像）**2026-10-14 随那个 kind 一起退役** —— 旧档里若有
 #: `e…` 行仍读得进（`from_dict` 对认不出的 kind 降级成 episode, 不炸）。
 #: `p` 不能用: 承诺退图后 `test_promise_prefix_is_gone` 钉着"不许再有 `p` 号";
 #: 前缀不许撞车（只有 `m` 可共用, 见 `test_every_kind_has_an_explicit_id_prefix`）

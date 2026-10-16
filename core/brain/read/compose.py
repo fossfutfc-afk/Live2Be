@@ -1,37 +1,29 @@
 """compose — **最终打分**（四条召回道路的合成层; V3-3 读路径的落点）。
 
-## 用户原话（2026-09-20）
-
-> *"你再看看现在有没有起，现在有**剧情语义 RAG，情绪相似度 RAG，正交矩阵，地点调和
-> 平均**这四条道路，可以考虑最终打分了"*
-
 四条道路 = 四条已实现的链路（`channel_impl.py`）:
 
-| 用户叫法 | 链路 | `kind` | `raw` 是什么 |
+| 叫法 | 链路 | `kind` | `raw` 是什么 |
 |---|---|---|---|
-| 剧情语义 RAG | `D_deja_vu` | `SIMILARITY` | `narration` 的 cos |
+| 剧情语义 RAG | `D_deja_vu` | `SIMILARITY` | 正文的 cos |
 | 情绪相似度 RAG | `B_emotion_rag` | `SIMILARITY` | `emo_shape` 键序列的 cos |
 | **正交矩阵** | `A_intensity` | `PRIOR` | `det = SIG·TIME + emo_span·emo_int` |
 | 地点调和平均 | `C_place` | `GATE` | 两轴 `magic`（素材字面 × 叙事语义） |
 
-链路只出 `raw`（`channels.py` 纪律 #2/#3: **不归一、不排序截断**）, 最终分在这里算。
+链路只出 `raw`（`channels.py` 的纪律: **不归一、不排序截断**）, 最终分在这里算。
 
-## 为什么不是一个加权和（§3.3 已裁, 别回头）
-
-1. `det` **上位替代**了线性和（用户 2026-09-13）: 乘积里一个因子为零则整项清零,
-   表达的是"两组合取条件"。
-2. `relevance` **装不进矩阵**（§3.3）: *"RAG 不是矩阵的一个格子, 是矩阵的前置闸门"*。
-3. 用户 2026-09-20 选定形状 = **参数可选的调和平均**（`infra/fuse.py`）,
-   与 C 链路的 `magic` **同一个函数**。
+为什么不是一个加权和（已裁, 别回头）:
+1. `det` **上位替代**了线性和: 乘积里一个因子为零则整项清零 = "两组条件同时成立"。
+2. `relevance` **装不进矩阵**: *"RAG 不是矩阵的一个格子, 是矩阵的前置闸门"*。
+3. 选定形状 = **参数可选的调和平均**（`infra/fuse.py`）, 与 C 链路的 `magic` 同一个函数。
 
 ## 形状: `final = fuse(rel, prior, mode="harmonic")`
 
 ```
 rel   = 1 − ∏(1 − sᵢ)     ← 相关轴: 各链路证据的 **noisy-OR**（收敛; 参数为零）
-prior = A 的 det          ← 强度轴: **不归一**（用户 2026-09-20 裁决, 见下）
+prior = A 的 det          ← 强度轴: **不归一**（见下）
 ```
 
-`rel` 用 noisy-OR 而不是平均, 是为了兑现用户 2026-09-13 那条判据:
+`rel` 用 noisy-OR 而不是平均, 是为了兑现那条判据:
 *"双链路都召回的节点是最重要的"* —— 一条证据 → 它的分; 两条证据 → 比任一条都高;
 都没命中 → 0。**没有权重旋钮**。
 
@@ -43,8 +35,8 @@ prior = A 的 det          ← 强度轴: **不归一**（用户 2026-09-20 裁�
 | `SIMILARITY` | B / D | **池内 min-max** → [0,1] | 实测绝对值不可分（见下） |
 | `GATE` | C | **原样**（构造上已是 [0,1] 的 `magic`） | 两轴融合已经把"一轴为零 ⇒ 0"吃进去了 |
 
-⚠️ **A 的 `scale` 声明是 `unit`（`# [0, 1]`）但值域是 [0, 2]** ——
-`IntensityPrior` 的注释已按用户裁决改成"[0,2]"。所以合成层**不按 `scale` 归一 A**
+**A 的 `scale` 声明是 `unit`（`# [0, 1]`）但值域是 [0, 2]** ——
+`IntensityPrior` 的注释是 "[0,2]"。所以合成层**不按 `scale` 归一 A**
 （归一就是压平它的上半段）; `clamp=False` 是这条裁决在形状函数里的落点。
 
 ### 为什么 `SIMILARITY` 必须池内 min-max（**实测, 不是偏好**）
@@ -66,7 +58,7 @@ D/B 白召回。而**同一个 query 内部**它仍然可分（留一法: 自己
 *"融合（vector 0.75 / BM25 0.25，**各自 min-max 归一化**）→ rerank → 加权排序 → 取 top 3,
 **全程无阈值**"*。**无阈值**这条纪律由此继续成立。
 
-⚠️ **池内 min-max 的三个必然后果**（是语义, 不是 bug —— 写在这里免得以后当故障查）:
+**池内 min-max 的三个必然后果**（是语义, 不是 bug —— 写在这里免得以后当故障查）:
 
 1. **池内最差的那条 `rel = 0`** → `fuse(0, prior) = 0` → 该链路对它**等于没命中**,
    于是它落进 `dropped_no_rel`（有先验、无证据 → 不准入）。池越小越明显:
@@ -77,7 +69,7 @@ D/B 白召回。而**同一个 query 内部**它仍然可分（留一法: 自己
    与真·同角色对 0.781~0.837 重叠）。要测它得先给模型标定一条基线 —— 那是**阈值旋钮**,
    T17 不许。这是"无阈值"的代价, 记在这里而不是偷偷加一个数。
 
-## ⚠️ "命中"必须先定义 —— 否则收敛判据是假的
+## "命中"必须先定义 —— 否则收敛判据是假的
 
 `D_deja_vu` 会把池里**每一个** episode 都出分（含负 cos, 全量返回, 不筛）,
 而 `C_place` 显式 `score <= 0 → skip`。所以按"出了分"数收敛, **每个节点都是满命中**
@@ -113,6 +105,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from core.brain.nodes import BrainNode
 from core.brain.read.channels import (
     KIND_PRIOR,
     SCALE_COSINE,
@@ -130,7 +123,7 @@ DEFAULT_HIT_K = 5
 class Composed:
     """一个候选的最终分与它的来路（台账/排查用）。"""
 
-    node: object
+    node: BrainNode
     final: float = 0.0
     #: 相关轴（各链路证据的 noisy-OR, ∈ [0,1]）; 没有任何相关证据 → 0.0
     rel: float = 0.0
@@ -186,7 +179,7 @@ class ComposeResult:
 def _ranked(res: ChannelResult) -> list[ChannelHit]:
     """出分的命中, 按 `(-raw, id)` 降序 —— **不信任输入顺序, 自己排**（可复现）。"""
     hits = [h for h in res.hits if h.raw is not None]
-    hits.sort(key=lambda h: (-float(h.raw), getattr(h.node, "id", "")))
+    hits.sort(key=lambda h: (-float(h.raw or 0.0), getattr(h.node, "id", "")))
     return hits
 
 
@@ -198,7 +191,8 @@ def normalize(hits: list[ChannelHit], *, scale: str) -> dict[str, float]:
     * 其它（`unit`: C 的 `magic`）→ **原样**, 负值夹到 0。**不做 min-max** ——
       它本来就是 [0,1] 的绝对分, 拉到池内相对会凭空制造"最差的一定是 0"。
     """
-    raw = {getattr(h.node, "id", ""): float(h.raw) for h in hits}
+    # `raw=None`（该链路没出分）当 0 处理 —— 调用方通常已过滤, 这里再兜一层
+    raw = {getattr(h.node, "id", ""): float(h.raw or 0.0) for h in hits}
     if scale != SCALE_COSINE:
         return {k: max(0.0, v) for k, v in raw.items()}
     if not raw:
@@ -232,7 +226,7 @@ def compose(results: list[ChannelResult], *,
     Args:
         results: 各链路的产出（顺序无关）。
         mode: 融合形状（`infra/fuse.py` 的 `MODES`）——**代码选项, 不是配置项**。
-        hit_k: "命中"的名次门槛（默认 `[recall].sim_k`）。⚠️ 是名次不是分数。
+        hit_k: "命中"的名次门槛（默认 `[recall].sim_k`）。是名次不是分数。
         top: 截断条数（None = 全给, 由调用方决定取几条）。
 
     Returns: `ComposeResult`（`items` 已按 `final` 降序）。
@@ -261,14 +255,14 @@ def compose(results: list[ChannelResult], *,
             out.degraded[res.channel] = res.note or "无命中（raw 全为 None）"
             continue
         if res.kind == KIND_PRIOR:
-            # 先验轴: **原样**（用户裁决"不归一"）; raw=None 的记成"待补"。
-            # ⚠️ 这里按 **kind** 分派, 不认链路名 —— 新增一条 PRIOR 链路零改动。
+            # 先验轴: **原样**（不归一）; raw=None 的记成"待补"。
+            # 这里按 **kind** 分派, 不认链路名 —— 新增一条 PRIOR 链路零改动。
             for h in res.hits:
                 if h.raw is None:
                     no_prior.add(getattr(h.node, "id", ""))
             for h in hits:
                 c = slot(h.node)
-                c.prior = float(h.raw)
+                c.prior = float(h.raw or 0.0)
                 prior_hit.add(getattr(h.node, "id", ""))
             continue
         # 证据轴: 归一 → **top-k 才算命中**（名次门槛, 不是分数阈值）
@@ -327,7 +321,7 @@ def recall_now(store, ctx: RecallContext, *, mode: str = DEFAULT_MODE,
                hit_k: int | None = None, top: int | None = None) -> ComposeResult:
     """读路径入口 = `gather_all` + `compose`（**只读 store, 不改任何状态**）。
 
-    ⚠️ V3-3 的注入视图 / "回想注入"（玩家问"你还记得那天吗"）都从这里进;
+    V3-3 的注入视图 / "回想注入"（玩家问"你还记得那天吗"）都从这里进;
     注入哪些条、按 kind 配额怎么分, 是**渲染层**的事（`render.py`）, 不在本模块。
     """
     return compose(gather_all(store, ctx), mode=mode, hit_k=hit_k, top=top)

@@ -28,7 +28,7 @@ from contract.digest import ENTITY_TAG_PREFIX
 #: "一类事"，成员靠 `member_of` 边指过来（**不在节点上存列表** —— 成员会生长、各有自己的 `ts`）。
 #: **它只装"名字 + 成员"，不装"关键信息"** —— "这一类说明了什么"是 **belief** 的活;
 #: 两处都写就是双真源，L2 改了 belief 那份不会跟着改（必漂）。
-#: ⏸ **`profile`（玩家画像, 2026-10-06 从 `experience` 改名）2026-10-14 删格式** ——
+#: **`profile`（玩家画像, 2026-10-06 从 `experience` 改名）2026-10-14 删格式** ——
 #: 先停产（`entity.text` 取代了它的定位: 契约不再要它、`parse_round_a`
 #: 认得出但丢行）, 2026-10-14 确认**没有老档依赖**（真机 9 个 jsonl 零个 profile 节点）
 #: 后把整个 kind 连同它的 `examples` 一起删。
@@ -36,14 +36,14 @@ from contract.digest import ENTITY_TAG_PREFIX
 #: 判非法 = 罚她重写整段 —— 同 `experience` / `#entity:` 的 B 案口径）。
 #: 别拿它跟 `belief` 合并: 画像 = "关于老师的一堆事"（描述）, belief = 她的决定
 #: （`docs/DESIGN_MEMORY_MODES.md` §2）—— 那正是当年"一个 kind 装两种东西"栽过的地方。
-#: ⏸ **`promise` 已退役**（承诺太轻, 不足以长期记录）——
+#: **`promise` 已退役**（承诺太轻, 不足以长期记录）——
 #: 它**退出了图**（连同 `from`/`to`/`formed_by` 三条专属边），只留在 note 里当工作记忆
 #: （`notes.SLOT_PINNED` = 她此刻还背着的事）; "这条经历涉及约定"由 `tags` 承担（只做筛选）。
 KINDS = ("episode", "experience", "belief", "entity")
-#: ⏸ `PROMISE_OUTCOMES`（`kept`/`broken`/`superseded`）**2026-09-29 退役** —— 它是 promise
+#: `PROMISE_OUTCOMES`（`kept`/`broken`/`superseded`）**2026-09-29 退役** —— 它是 promise
 #: 节点的 `outcome` 字段的枚举。结局本身没消失: 它留在 note 条目的 `state` 里
 #: （真源 = `notes` 那一份词表）。
-#: ⏸ `EPISTEMICS`（三值词表）**2026-09-29 退役** —— `epistemic` 字段整个删掉,
+#: `EPISTEMICS`（三值词表）**2026-09-29 退役** —— `epistemic` 字段整个删掉,
 #: 只留 `observer`。两条判据（`REDUNDANCY.md` #3）:
 #: ① **与 `observer` 互为函数**（非空 ⟺ reported ⇒ 同一件事两个字段说）;
 #: ② **跨 kind 两个意思**（episode 上它是"来源", belief 上它是"别伪装成事实"——
@@ -52,7 +52,7 @@ KINDS = ("episode", "experience", "belief", "entity")
 #: 信息不丢: "听说的"那一条本来就带 `observer`（真机 reported 1/20, 且带转述者）。
 #: 珍贵档阈值（保底通道 / 对应 neuron 草稿的 memo 档）
 PRECIOUS_THRESHOLD = 0.8
-#: ⏸ `PLAYER_SUBJECT = "player"` **2026-10-14 随 `profile` 删** —— 它唯一的写者是
+#: `PLAYER_SUBJECT = "player"` **2026-10-14 随 `profile` 删** —— 它唯一的写者是
 #: `digest.episodes._create_a_nodes` 的画像支（同批删）, 唯一的读者是 `is_player_profile`
 #: （同批删）。**`subject` 字段本身留着**: 今天的活读者是 **belief**（"这条看法在讲
 #: 什么"的主题句 —— `read/recall.py` 的"subject 点名"兜底通道 + `read/render.py` 的
@@ -97,11 +97,11 @@ class BrainNode:
     kind: str = "episode"
     significance: float = 0.5
     #: 信息来源: **空 = 亲历; 非空 = 转述者**（LLM 只在"听别人说的"时填, 渲染"听X说的"）。
-    #: ⏸ `epistemic` 字段 2026-09-29 退役（判据: 与 observer 互为函数 + 跨 kind 两个意思）
+    #: `epistemic` 字段 2026-09-29 退役（判据: 与 observer 互为函数 + 跨 kind 两个意思）
     #: ⇒ **"这条是不是听说的"就由这个字段判**（读侧只此一处判据, 不再有第二个真源）。
     observer: str = ""
     tags: list[str] = field(default_factory=list)
-    #: ⏸ **`topics`（"这条经历关于什么"的轴）已停产** ——
+    #: **`topics`（"这条经历关于什么"的轴）已停产** ——
     #: 零写者: 契约不再要它（`contract/digest/prompts/record.md`）, `parse` 也不再登记
     #: （白名单外的键静默不落库）。当年它是"同类的事"认亲的把手（L1 的 `akin` 要求
     #: `on` ∈ 两端 `topics` 的交集）, 而真机上大半是空的 + 有值的三条互相不共轴 ⇒
@@ -111,7 +111,7 @@ class BrainNode:
     topics: list[str] = field(default_factory=list)
     event_seq: list[int] = field(default_factory=list)
     ts: str = ""
-    # ⏸ `links` / `contradictions` 两个字段 2026-09-21（G4）**删** —— 边已整体搬到
+    # `links` / `contradictions` 两个字段 2026-09-21（G4）**删** —— 边已整体搬到
     # `soul/edges.jsonl`（类型化 + 有向 + 三索引）。旧档盘上还留着这两个键,
     # 由 `graph.infer_edges(rows)` 在**文件格式层**读一次（自举）, 与节点对象无关。
     #: **这条记忆的正文**（三种 kind 共用一槽; 原 `narration`/`pattern`/`content` 2026-09-21 合流）。
@@ -140,21 +140,21 @@ class BrainNode:
     verbatim_seq: list[str] = field(default_factory=list)
     #: **板级情绪键序列**（如 `["tease","smile"]`）——B 链路（情绪序列 RAG）唯一输入。
     #: 由 digest 按 `event_seq` 从真源物化（能重算 ⇒ 不是第二真源）。
-    #: 🚫 **绝不进 LLM 上下文**（召回侧信号; `render_*` 一律不输出）。
+    #: **绝不进 LLM 上下文**（召回侧信号; `render_*` 一律不输出）。
     emo_shape: list[str] = field(default_factory=list)
     #: **地点键序列**（素材轴）——板首 switch 的键 + 句级锚点, 相邻去重保序; 由 digest
     #: 按 `event_seq` 从真源物化（能重算 ⇒ 不是第二真源）。
     #: 键相等只声称"**同一张图**", 不声称"同一个地方"（语义轴见 `place_raw`）。
-    #: 🚫 **绝不进 LLM 上下文**（召回侧信号, 同 `emo_shape`）。
+    #: **绝不进 LLM 上下文**（召回侧信号, 同 `emo_shape`）。
     place: list[str] = field(default_factory=list)
     #: **writer 原文序列**（叙事轴）——板首 `place_hint` 的名词短语, 由 digest 物化。
     #: 与 `place` 是两根**正交**轴: `place` 字面相等 = 同一张图（判回放画哪张）;
     #: 本字段走语义相似 = 同一个地方（判"是不是那儿"）。键**不是**地名的双射
-    #: （一键多义 / 一地多键都实测存在）⇒ 两根轴不可互替。🚫 不进 LLM 上下文。
+    #: （一键多义 / 一地多键都实测存在）⇒ 两根轴不可互替。不进 LLM 上下文。
     place_raw: list[str] = field(default_factory=list)
     #: episode 可选短标题（Round A 必填, 承载本章标题）
     title: str = ""
-    #: ⏸ `items`（物品台账, §3.1）**2026-09-29 删** —— 它写给"这条记忆里的实物痕迹",
+    #: `items`（物品台账, §3.1）**2026-09-29 删** —— 它写给"这条记忆里的实物痕迹",
     #: 但**零活读者**（唯一读它的那个取料模块已于 2026-10-05 删）, 而根子上的问题是
     #: **写在 episode 里分不清"是不是同一个东西"**（夏天送的杂草 ≠ 冬天送的杂草,
     #: 而兔子玩偶 = 黑色兔子）⇒ 那件事该由专门的**物品面**（`inventory` 旁路）承担,
@@ -165,7 +165,7 @@ class BrainNode:
     #: **不是"归属"**: 归属走 `entity` + `about` 边（见下面那一格）。这一格只影响
     #: 召回打分（`read/recall.py` 的"subject 点名"兜底通道）与渲染的 `- 对X：` 前缀。
     subject: str = ""
-    #: ⏸ **`examples` 2026-10-14 随 `profile` 删** —— 它的三个读者**全部**只在
+    #: **`examples` 2026-10-14 随 `profile` 删** —— 它的三个读者**全部**只在
     #: `kind == "profile"` 时才走（`render._organize_extra` / `recall._embed_text` /
     #: `pack.body_of`）⇒ 那个 kind 一死, 这格**零读者**; 而它唯一的产路（R2 的 `add
     #: example`）2026-09-29 就断了（`REDUNDANCY.md` #4/#18）。真机上唯一带值的那条是
@@ -204,7 +204,7 @@ class BrainNode:
     #: 情绪**摆幅** ∈ [0, 1]（Round A 出值）——**非负**、无符号（方向在 emo_shape 的键里）。
     #: span 高 int 高 = 先炸后真心笑; span 高 int 低 = 缓慢起伏; int 高 span 低 = 一直很猛没转折。
     emo_span: float | None = None
-    # ⏸ 已删/退役（旧档键由 from_dict 忽略）: emo_valence(2026-09-21) · story_time(2026-09-17)
+    # 已删/退役（旧档键由 from_dict 忽略）: emo_valence(2026-09-21) · story_time(2026-09-17)
 
     # ------------------------------------------------------------------
     # 校验（字段级; 契约层/组织 pass 在引擎侧再叠加引用级校验）
@@ -228,11 +228,11 @@ class BrainNode:
         # 住在边表（`edges.jsonl` 的 `supports` 入边）, 字段级校验看不见它。新家两处:
         # ① 写路径 `revise.apply_decisions` 建完节点立刻补 `supports` 边;
         # ② 全局兜底 `store.audit()`（"belief 无支撑"）。
-        # ⏸ 原「episode/profile 的 epistemic 只能是 observed/reported」2026-09-29 删 ——
+        # 原「episode/profile 的 epistemic 只能是 observed/reported」2026-09-29 删 ——
         # 那一格今天由 `observer` 承担（空/非空两态 ⇒ 不存在"第三种值"要拒）。
-        # ⏸ 原「promise.outcome 枚举校验」2026-09-29 删 —— promise 退图 ⇒ 节点上没有结局字段;
+        # 原「promise.outcome 枚举校验」2026-09-29 删 —— promise 退图 ⇒ 节点上没有结局字段;
         # 结局今天住在 note 条目的 `state`（那里的枚举校验仍在 `notes`）。
-        # ⏸ 原「`profile.examples` ≤ 3」2026-10-14 随 `profile` 删（连同 `examples` 字段）。
+        # 原「`profile.examples` ≤ 3」2026-10-14 随 `profile` 删（连同 `examples` 字段）。
         # significance 边界（decimal 0~1）
         if not (0.0 <= self.significance <= 1.0):
             errors.append(f"significance 越界: {self.significance}（须 0~1）")
@@ -252,7 +252,7 @@ class BrainNode:
         """珍贵档（保底通道）: significance ≥ 0.8。"""
         return self.significance >= PRECIOUS_THRESHOLD
 
-    # ⏸ `is_player_profile` 属性 2026-10-14 **随 `profile` 删** —— 它最后就长成
+    # `is_player_profile` 属性 2026-10-14 **随 `profile` 删** —— 它最后就长成
     # `self.kind == "profile"` 一句（**判据按 kind, 不看 `subject`**）。
     # **那条教训留着**（`DESIGN_GRAPH_V4 §5.1`, 2026-09-25）: 这个属性原来还要求
     # `subject == "player"`, 而 `subject` 是**自由文本** ⇒ 真机 haruka 那条
@@ -260,7 +260,7 @@ class BrainNode:
     # 上下文。⇒ **可见性不许挂在一个自由文本字段上** —— 今天 `entity`/`belief` 的分桶
     # 全是按 kind/边判, 谁再把路由挂回自由文本, 就是重犯这一条。
 
-    # ⏸ `count` 属性 2026-09-21（G3）**删** —— 它原是 `len(links)` 的派生属性, 而
+    # `count` 属性 2026-09-21（G3）**删** —— 它原是 `len(links)` 的派生属性, 而
     # `links` 已停止写入（边搬到 `edges.jsonl`）⇒ 留着它只会恒返回 0（静默假数据）。
     # 新家: `render._count_of(node, graph)` = `supports` **入边数**（边表的真事实）。
 
@@ -311,7 +311,7 @@ class BrainNode:
         kind = _str(raw.get("kind"))
         node.kind = kind if kind in KINDS else "episode"
         node.significance = _clamp_sig(raw.get("significance"))
-        # ⏸ 旧档的 `epistemic` 键**读不进来也不报错**（2026-09-29 退役; 信息在 `observer` 里）
+        # 旧档的 `epistemic` 键**读不进来也不报错**（2026-09-29 退役; 信息在 `observer` 里）
         node.observer = _str(raw.get("observer"))
         node.tags = _str_list(raw.get("tags"))
         # **老档的一次性迁移**（2026-10-13）: `#entity:名字` 从前住在 `tags` 里,
@@ -346,7 +346,7 @@ class BrainNode:
         node.aliases = _str_list(raw.get("aliases"))
         node.state = _str_list(raw.get("state"))
         node.text_seq = _int(raw.get("text_seq"))
-        # ⏸ 旧档的 `outcome` 键（promise 节点）**读不进来也不报错**（2026-09-29 退图）
+        # 旧档的 `outcome` 键（promise 节点）**读不进来也不报错**（2026-09-29 退图）
         node.aff_at_encoding = _opt_clamp(raw.get("aff_at_encoding"), -1.0, 1.0)
         node.emo_int = _opt_clamp(raw.get("emo_int"), 0.0, 1.0)
         node.emo_span = _opt_clamp(raw.get("emo_span"), 0.0, 1.0)
