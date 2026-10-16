@@ -2,16 +2,16 @@
 
 ## 规则（`docs/EXEC_SPLIT.md` §2）
 
-    contract/  最底层: 不得依赖 infra / core / llm / webgui / renderer / tests / experiments / apps
-    infra/     基础设施: 不得依赖 core / llm / webgui / renderer / tests / experiments / apps
-                          （**可以**依赖 contract —— 它更底; paths / atomic / fuse 住这儿）
-    llm/       传输层: 不得依赖 webgui / renderer / tests / experiments / apps;
+    contract/  最底层: 不得依赖 infra / core / llm / webgui / renderer / tests / experiments / cli
+    infra/     基础设施: 不得依赖 core / llm / webgui / renderer / tests / experiments / cli
+                          （**可以**依赖 contract —— 它更底; paths / settings / atomic / fuse 住这儿）
+    llm/       传输层: 不得依赖 webgui / renderer / tests / experiments / cli;
                        ⭐ **对 core 零依赖**（2026-10-15 起, 见 LLM_CORE_ALLOWED 空表）
-    core/      引擎层: 不得依赖 webgui / renderer / tests / experiments / apps
-    renderer/  表现层: 不得依赖 webgui / tests / experiments / apps
-    webgui/    壳    : 不得依赖 tests / experiments / apps
-    apps/      应用层: **没人可以 import 它**（C12b 起把这条加进上面每一条的禁用表;
-                       它是最上游: `apps/{main,vn_cli}.py` 可以 import 任何东西）
+    core/      引擎层: 不得依赖 webgui / renderer / tests / experiments / cli
+    renderer/  表现层: 不得依赖 webgui / tests / experiments / cli
+    webgui/    壳    : 不得依赖 tests / experiments / cli
+    cli/       应用层: **没人可以 import 它**（C12b 起把这条加进上面每一条的禁用表;
+                       它是最上游: `cli/{main,vn_cli}.py` 可以 import 任何东西）
 
 ## 为什么用自写守门而不是 import-linter / tach
 
@@ -32,17 +32,17 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
 
 #: 被扫描的包 → 它**禁止**依赖的顶层包
-#: ⚠️ C12b 起每一条都多一个 `apps`: **应用层谁都不许 import**（它是方向的最上游;
+#: ⚠️ C12b 起每一条都多一个 `cli`: **应用层谁都不许 import**（它是方向的最上游;
 #: C11 之前 `webgui → core.ui.vn_cli` 正是这么反过来的, 现在被这条钉住）。
 RULES: dict[str, frozenset[str]] = {
     "contract": frozenset({"core", "infra", "llm", "webgui", "renderer", "tests",
-                           "experiments", "apps"}),
+                           "experiments", "cli"}),
     "infra": frozenset({"core", "llm", "webgui", "renderer", "tests", "experiments",
-                        "apps"}),
-    "llm": frozenset({"webgui", "renderer", "tests", "experiments", "apps"}),
-    "core": frozenset({"webgui", "renderer", "tests", "experiments", "apps"}),
-    "renderer": frozenset({"webgui", "tests", "experiments", "apps"}),
-    "webgui": frozenset({"tests", "experiments", "apps"}),
+                        "cli"}),
+    "llm": frozenset({"webgui", "renderer", "tests", "experiments", "cli"}),
+    "core": frozenset({"webgui", "renderer", "tests", "experiments", "cli"}),
+    "renderer": frozenset({"webgui", "tests", "experiments", "cli"}),
+    "webgui": frozenset({"tests", "experiments", "cli"}),
 }
 
 #: `llm/` 对 `core` 的**薄横切**豁免。
@@ -55,7 +55,7 @@ LLM_CORE_ALLOWED: frozenset[str] = frozenset()
 #: ✅ **C12b 起是空表** —— 6 处既存违规全部有归宿并已消:
 #: 3 条 contract→core（C10: 错误原语下沉 `contract/errors.py`）·
 #: 1 条 contract→llm（C10: `json_cleaner` 归位）·
-#: 1 条 core→renderer（C12b: `vn_cli.py` 搬 `apps/`, 它本来就是 CLI 应用）。
+#: 1 条 core→renderer（C12b: `vn_cli.py` 搬 `cli/`, 它本来就是 CLI 应用）。
 #: 保持空表 = 分层规则**零例外**; 新违规必须修代码, 不是登记白名单。
 ALLOWED: dict[tuple[str, str], str] = {}
 

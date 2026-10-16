@@ -15,7 +15,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from apps.vn_cli import run_bond_story_vn, simulate_vn_scene
+from cli.vn_cli import run_bond_story_vn, simulate_vn_scene
 from core.bond.bond_story import BondScene, BondStoryEngine
 from core.mmt.engine import MomoTalkEngine
 from core.session import SessionStore
@@ -350,7 +350,7 @@ def test_run_vn_remind_then_natural_end(tmp_path):
 # ----------------------------------------------------------------------------
 
 def test_wrapup_after_vn():
-    from apps.vn_cli import wrapup_after_vn
+    from cli.vn_cli import wrapup_after_vn
     from core.bond.bond_progress import BondProgress
 
     # 行协议（⑥-2e）: 一行一条 JSON; trigger payload = chapter_title

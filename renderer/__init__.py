@@ -19,7 +19,7 @@
     effects.py    特效查表（角色表 → 全局表 → 空, 确定性）
     audio.py      AudioRequest + 音频状态（未来占位接口）
     core.py       渲染管线（scene → RenderOutput; 双用途入口）
-    cli.py        CLI 输出（打字/标签/选项; 迁移自 `apps/vn_cli.py`——当时叫 `core/ui/vn_cli.py`）
+    cli.py        CLI 输出（打字/标签/选项; 迁移自 `cli/vn_cli.py`——当时叫 `core/ui/vn_cli.py`）
 
 播放层（独立于 renderer）: core/media/sprite_player.py（play_diff / play_spine）。
 """

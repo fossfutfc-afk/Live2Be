@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 import sys
 
-from apps.vn_cli import run_bond_story_vn, wrapup_after_vn
+from cli.vn_cli import run_bond_story_vn, wrapup_after_vn
 from core.mmt.engine import MomoTalkEngine
 from core.mmt.mmt_preset import (
     LoopResult,

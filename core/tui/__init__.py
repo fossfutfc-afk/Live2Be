@@ -8,7 +8,7 @@
     display          MomoTalkOutput / BondStoryOutput / IDEOutput 三种渲染策略
 
 供 `core.mmt.engine` / `core.session.renderer` / `webgui.chat` 与 CLI/实验脚本复用。
-⚠️ **不 import `renderer`**（那是 CLI 应用 `apps/vn_cli.py` 的事——C12b 从 `core/ui/vn_cli.py` 搬去）。
+⚠️ **不 import `renderer`**（那是 CLI 应用 `cli/vn_cli.py` 的事——C12b 从 `core/ui/vn_cli.py` 搬去）。
 """
 
 from __future__ import annotations
