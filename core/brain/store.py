@@ -1,30 +1,24 @@
-"""WikiStore v2 — 图式 wiki 存储（AGENT_BRAIN.md §2 / M1b + DESIGN_GRAPH_V4 §2.1 **G3**）。
+"""WikiStore v2 — 图式 wiki 的存储（点 / 边两文件 + 笔记缓存）。
 
-职责（单一）: jsonl 读写 + 原子整写 + id 分配 + 内存索引 + 快照 + 去重检查。
-不做: 修订契约校验/执行（revise.py）· 渲染（render.py）· 召回（recall.py）·
-      出厂 digest（seed.py）——引擎侧流程在 revise.py 编排。
+职责单一: jsonl 读写 · 原子整写 · id 分配 · 内存索引 · 快照 · 去重水位。
+不做: 修订契约的校验与执行（`revise.py`）· 渲染（`read/render.py`）· 召回（`read/recall.py`）。
+
+文件（点边分离）:
+    soul/wiki.jsonl    点 —— 一行一条 `BrainNode`（边不写在这里）
+    soul/edges.jsonl   边 —— 一行一条 `Edge {rel, src, dst, ts}`
+    soul/notes.json    笔记的**派生缓存** —— 不归 `save()`, 真源是事件流的 note 操作,
+                       由 `notes_state()` / `save_notes()` 单独读写
 
 规则:
-    - 文件（**点边分离两文件**, DESIGN_GRAPH_V4 §2.1）:
-        soul/wiki.jsonl    点 —— 一行一条 BrainNode（**边不再写在这里**）
-        soul/edges.jsonl   边 —— 一行一条 Edge `{rel,src,dst,ts}`（**2026-09-21 G3 起**）
-        soul/notes.json    随身笔记的**派生缓存**（§3.2）—— ⚠️ **不归 `save()`**:
-                           它的真源是**事件流的 note 操作**, 由 `notes_state()` / `save_notes()`
-                           单独读写（`notes.py` 是纯函数层, 本类只管它的落盘）
-    - 写: 内存操作（add/update/delete/add_edge…）→ save() 原子整写**两个文件**
-    - 护栏: add/update 前过 node.validate()——无效节点拒绝（宁缺勿错, raise）
-    - 去重: 水位 `digested_seq`（增量幂等）——⚠️ 原 `find_by_event_seq()` 查重辅助
-      2026-09-21 删（零调用者）
-    - id: 前缀 + 4 位零填充（m=episode/belief, e=experience）
-    - 快照: snapshot_to/restore_from = **点 + 边**两个文件（R6 存档快照语义）
-    - **自举**: 没有 `edges.jsonl` 的旧档 → 载入时从 `links`/`contradictions`
-      **推断**出边（`graph.infer_edges`, 只读点上残留的旧字段）; 下一次 `save()`
-      把它落盘 —— 迁移就完成了（**无迁移脚本**, 与"旧档宽容读"同一条纪律）
+    - 写: 内存操作（add / update / delete / add_edge…）→ `save()` 原子整写两个文件
+    - 护栏: add / update 前过 `node.validate()`, 无效节点 raise（宁缺勿错）
+    - 去重: 水位 `digested_seq`（增量幂等）
+    - 自举: 没有 `edges.jsonl` 的旧档 → 载入时从 `links` / `contradictions` 推断出边
+      （`graph.infer_edges`）, 下一次 `save()` 落盘 —— 无迁移脚本
 
-⚠️ 两个文件**不是一次事务**（两次 replace）。一致性靠**读侧宽容**: 边指向不存在的
-点 → 保留, 但在 `audit()` / `Graph.dangling()` 里可见。写序 = **先点后边** ——
-点写成功而边写失败, 后果是"边表陈旧（少几条新边）", 而记忆正文完好可重算;
-反过来则会留下一批悬空边。两条都只降级不损坏, 但前者更好收拾。
+两个文件**不是一次事务**（两次 replace）。一致性靠读侧宽容: 边指向不存在的点 → 保留,
+但在 `audit()` / `Graph.dangling()` 里可见。写序 = **先点后边** —— 点成功边失败只让边表陈旧
+（记忆正文完好, 可重算）; 反过来会留下一批悬空边。
 """
 from __future__ import annotations
 
@@ -49,16 +43,16 @@ from core.session.io import atomic_write_json, atomic_write_lines, read_jsonl
 logger = logging.getLogger(__name__)
 
 #: kind → id 前缀（AGENT_BRAIN.md §2 + v4 §3.0 的 `x`; relation/fact 已砍——c 前缀退役 2026-09-02）
-#: ⚠️ `x0000`（self）/ `x0001`（sensei）是**保留号**, 见 `entities.py` —— `next_id("x")` 因此从 x0002 起。
+#: `x0000`（self）/ `x0001`（sensei）是**保留号**, 见 `entities.py` —— `next_id("x")` 因此从 x0002 起。
 #: ⏸ `p`（promise 节点）2026-09-29 **退役** —— promise 退图（见 `nodes.KINDS`）;
-#: ⚠️ 旧档里若有 `p…` 行仍读得进（`from_dict` 按 kind 降级成 episode 之外, 不炸）。
-#: ⭐ 2026-10-06 改名: **号段跟着数据走, 不跟着名字走** —— `experience`（经验, 原 `group`）
+#: 旧档里若有 `p…` 行仍读得进（`from_dict` 按 kind 降级成 episode 之外, 不炸）。
+#: 2026-10-06 改名: **号段跟着数据走, 不跟着名字走** —— `experience`（经验, 原 `group`）
 #: 沿用 `g`（老 `g…` 语义不变）。
 #: ⏸ `e`（原 `profile` 玩家画像）**2026-10-14 随那个 kind 一起退役** —— 旧档里若有
 #: `e…` 行仍读得进（`from_dict` 对认不出的 kind 降级成 episode, 不炸）。
-#: ⛔ `p` 不能用: 承诺退图后 `test_promise_prefix_is_gone` 钉着"不许再有 `p` 号";
-#: ⛔ 前缀不许撞车（只有 `m` 可共用, 见 `test_every_kind_has_an_explicit_id_prefix`）
-#: —— ⚠️ **必须显式登记**: `add()` 走
+#: `p` 不能用: 承诺退图后 `test_promise_prefix_is_gone` 钉着"不许再有 `p` 号";
+#: 前缀不许撞车（只有 `m` 可共用, 见 `test_every_kind_has_an_explicit_id_prefix`）
+#: —— **必须显式登记**: `add()` 走
 #: `_PREFIX.get(kind, "m")`，漏了会拿到 `m` 号并与 episode/belief **撞号**。
 _PREFIX = {"experience": "g", "episode": "m", "belief": "m", "entity": "x"}
 
@@ -77,7 +71,7 @@ class WikiStoreV2:
     def __init__(self, data_root: str | Path = "data", *,
                  world_id: str = "world1", char_id: str = "",
                  path: str | Path | None = None):
-        # soul/ = 记忆层子目录（2026-09-04 用户拍板: 角色目录下开 soul 收编记忆
+        # soul/ = 记忆层子目录（角色目录下开 soul 收编记忆
         # 子系统——events 原材料 + wiki 成品 + 变更史 + 出厂快照自包含; 会话层
         # meta/progress/sessions 留在 characters/{char}/ 原地）
         self.path = Path(path) if path is not None else (
@@ -156,7 +150,7 @@ class WikiStoreV2:
     def _load_edges(self, rows: list[dict]) -> list[Edge]:
         """边表 → 内存。**有边表读边表, 没有则从点表的原始行自举**（旧档, §2.1）。
 
-        ⚠️ G4 起自举吃的是**原始行**（`graph.infer_edges(rows)`）而不是节点对象 ——
+        G4 起自举吃的是**原始行**（`graph.infer_edges(rows)`）而不是节点对象 ——
         `links`/`contradictions` 字段已从 `BrainNode` 删除, 自举因此活在**文件格式层**。
         自举只在内存里发生（读路径不写盘）; 落盘交给下一次 `save()`。
         """
@@ -223,7 +217,7 @@ class WikiStoreV2:
     def update(self, nid: str, patch: dict) -> BrainNode:
         """打补丁更新（patch 键必须是节点字段）。返回新节点。
 
-        ⚠️ 原"出厂基座只允许 notes 追加"守卫（SeedImmutable）2026-09-21 删——
+        原"出厂基座只允许 notes 追加"守卫（SeedImmutable）2026-09-21 删——
         它判的是 `is_seed()`（`source == "experience"`），而出厂记忆早已不进 wiki
         （见 `nodes.py` 模块 docstring）。节点现在没有不可变区。
         """
@@ -280,7 +274,7 @@ class WikiStoreV2:
     def related(self, nid: str, rel: str) -> list[str]:
         """**对称 rel 的一跳对端**（两个方向都算, 按边的**建立序**）—— 见 `graph.related`。
 
-        ⚠️ 有向 rel（`supports` / `about` / `member_of` / `evolved_from`）别用它。
+        有向 rel（`supports` / `about` / `member_of` / `evolved_from`）别用它。
         """
         return related(self._edges, nid, rel)
 
@@ -291,25 +285,25 @@ class WikiStoreV2:
     def add_edge(self, rel: str, src: str, dst: str, *, ts: str = "") -> None:
         """加一条类型化边（幂等: 同 `(rel, src, dst)` 已存在则跳过）。
 
-        ⚠️ **两端必须存在**（悬空即拒）——"悬空引用在构造上不可能存在"（§2.1）
+        **两端必须存在**（悬空即拒）——"悬空引用在构造上不可能存在"（§2.1）
         靠的就是写路径在这里关门; 读路径（`_load_edges`）相反, **宽容保留**,
         因为那是旧档（宽容读 ≠ 允许写坏）。
 
-        ⭐ **对称 rel 先规范化**（2026-09-29 N1a）: `contradicts` / `akin` 走
+        **对称 rel 先规范化**（2026-09-29 N1a）: `contradicts` / `akin` 走
         `graph.canonical_for`（对称性的**唯一实现处**）—— 必须在幂等检查**之前**,
         否则 `akin(B, A)` 与 `akin(A, B)` 会被当成两条边各写一条。
 
         `ts` = 这条边**建立**的时刻。不给 → 取当下（2026-09-22: 原先默认空串, 结果
         写路径产的边全没有 ts —— 真机一轮后 `edges.jsonl` 里一半有、一半没有）。
         调用方知道更准的时刻就显式传（digest 传的是**本段日期**, 不是"写库时刻"）。
-        ⚠️ 读侧不编: 旧档边表里没有 `ts` 的仍保持空串（哨兵纪律）。
+        读侧不编: 旧档边表里没有 `ts` 的仍保持空串（哨兵纪律）。
         """
         if src not in self._nodes or dst not in self._nodes:
             raise ValueError(err("DanglingEdge",
                                  f"边端点不存在: {src} -{rel}-> {dst}"))
         if src == dst:
             raise ValueError(err("SelfEdge", f"边不能自环: {src}"))
-        src, dst = canonical_for(rel, src, dst)      # ⭐ 幂等检查之前
+        src, dst = canonical_for(rel, src, dst)      # 幂等检查之前
         for e in self._edges:
             if e.rel == rel and e.src == src and e.dst == dst:
                 return                                # 幂等
@@ -337,7 +331,7 @@ class WikiStoreV2:
     def save(self) -> None:
         """原子整写**两个文件**（点 + 边; 写序理由见模块 docstring）。
 
-        ⚠️ **不含 `notes.json`** —— note 的真源是事件流, 它的提交点在"事件 append 之后"
+        **不含 `notes.json`** —— note 的真源是事件流, 它的提交点在"事件 append 之后"
         （见 `save_notes`）。并进来的话, digest 的一次回滚就会把她的本子一起带走。
         """
         atomic_write_lines(self.path, (n.to_json_line() for n in self._nodes.values()))
@@ -346,11 +340,11 @@ class WikiStoreV2:
     def clone_state(self) -> tuple[dict[str, BrainNode], list[Edge]]:
         """深拷贝当前**点 + 边**（修订包/digest 的原子性快照——revise.py 用）。
 
-        ⚠️ **边必须一起拷**: 只拷点的话, 失败回滚会把这一轮新加的边**留在原地**
+        **边必须一起拷**: 只拷点的话, 失败回滚会把这一轮新加的边**留在原地**
         （节点没了边还在 ⇒ 悬空 + "回滚没回干净"）。节点会被原地铁改（add_edge 等）,
         所以点也要深拷贝而非浅拷 dict。
 
-        ⭐ **两边都走 `from_dict(to_dict())`，不手抄字段**（2026-09-29 N1a 修）:
+        **两边都走 `from_dict(to_dict())`，不手抄字段**（2026-09-29 N1a 修）:
         边原来是 `Edge(e.rel, e.src, e.dst, e.ts)` —— **位置参数**，给 `Edge` 加字段时
         会**静默丢掉**那个字段（而它是 digest 事务回滚的基础 ⇒ 回滚把状态回成"少了一半属性"）。
         与点侧同一写法之后，"加字段忘了改这里"这一类 bug 在**构造上**不可能存在。
@@ -368,10 +362,10 @@ class WikiStoreV2:
     def snapshot_to(self, dest: str | Path) -> None:
         """快照 = **点 + 边**两个文件（`dest` 是点表路径, 边表 = 同目录 `edges.jsonl`）。
 
-        R6 存档点语义: 自包含。⚠️ **只写点的话, 快照回来的记忆是断连的**
+        R6 存档点语义: 自包含。**只写点的话, 快照回来的记忆是断连的**
         （entity 车道 / 支撑链全空）——而边是可重算的派生物,
         点不是, 所以快照必须两样都带。
-        ⚠️ **`notes.json` 不进快照**: 它是**事件流的**派生缓存, 而快照不带事件流 ——
+        **`notes.json` 不进快照**: 它是**事件流的**派生缓存, 而快照不带事件流 ——
         单独带上它只会造出"半个世界"（本子指着的世界已经不在快照里了）。
         """
         dest = Path(dest)
@@ -383,7 +377,7 @@ class WikiStoreV2:
     def restore_from(self, src: str | Path) -> None:
         """从快照恢复（点 + 同目录边表; 调用方随后 save() 落盘）。
 
-        无边界表的**旧快照** → 从点上残留的旧字段自举（宽容读）。⚠️ 不改编
+        无边界表的**旧快照** → 从点上残留的旧字段自举（宽容读）。不改编
         `self.edges_path`——恢复完还是要写回本世界线自己的边表。
         """
         src = Path(src)
@@ -419,7 +413,7 @@ class WikiStoreV2:
         return NotesState.from_dict(raw)
 
     def notes_state(self, events: Iterable[object]) -> NotesState:
-        """事件流 → 笔记状态（缓存优先; ⚠️ **读路径不写盘**, 同 `ensure_entities` 那条纪律）。
+        """事件流 → 笔记状态（缓存优先; **读路径不写盘**, 同 `ensure_entities` 那条纪律）。
 
         - 缓存已覆盖全部 note 操作 ⇒ 直接用（省一次折叠）
         - 否则**增量折叠**（`base` = 缓存）; 缓存丢了/坏了 ⇒ **全量重折**
@@ -434,7 +428,7 @@ class WikiStoreV2:
         return fold(events, base=cached)
 
     def save_notes(self, state: NotesState) -> None:
-        """原子整写笔记缓存 —— ⚠️ 它**只是派生缓存**（真源 = 事件流的 note 操作）, 删了现折就回来。
+        """原子整写笔记缓存 —— 它**只是派生缓存**（真源 = 事件流的 note 操作）, 删了现折就回来。
 
         提交点 = **事件 append 之后**（先真源、后缓存）: 反过来写会出现"本子上有、事件流没有"
         —— 那条笔记没有人能重建它。**不并入 `save()`**: 两个写者（图事务 / note 操作）

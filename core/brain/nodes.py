@@ -1,30 +1,17 @@
-"""图式 wiki 节点（AGENT_BRAIN.md §1）。
+"""图式 wiki 的节点（一点 = 一行 jsonl）。
 
-四种 kind（2026-09-02 fact 退役——记忆 = 经历 + 认知; 2026-10-06 经验定名;
-           2026-10-14 `profile` 玩家画像删格式）:
-    episode    一次性经历（text 第一人称浓缩 + verbatim 原话; 质感优先不升华）
-    experience 一类事（"经验"）; title = 类名, text = 这一类事的沉淀（允许空）; 成员走 member_of
-    belief     抽象认知（text 写结论; links ≥1 支撑; 可选 growth 成长方向）
+三种 kind:
+    episode    一次性经历（text 第一人称浓缩 + verbatim 原话; 质感优先, 不升华）
+    experience 一类事（"经验"）: title = 类名, text = 这一类事的沉淀（可空）; 成员走 member_of
+    belief     抽象认知（text 写结论; 至少一条 `supports` 入边; 可选 growth）
 
-不变量（validate/normalize 强制）:
-    - `observer` 空 = 亲历; 非空 = 转述者（**它一个人说两件事**: 来源是谁 +
-      这条是不是"听说的"）—— ⏸ `epistemic` 字段 2026-09-29 退役（见 `EPISTEMICS` 处）
-    - belief **不许带 `observer`**（"认知不伪装成事实"在新词汇下的同一条护栏）
-    - belief 必须有 `supports` 入边 —— ⚠️ 2026-09-21（G3）**搬到 `store.audit()`**:
-      支撑关系住在边表里, 字段级校验看不见它
-    - significance ∈ 0~1, 珍贵档 ≥ PRECIOUS_THRESHOLD(0.8); 越界 clamp
+不变量（validate / normalize 强制）:
+    - `observer` 空 = 亲历, 非空 = 转述者; **belief 不许带它**（认知不伪装成事实）
+    - belief 必须有 `supports` 入边 —— 支撑关系住在边表里, 字段级校验看不见它 ⇒ 判在 `store.audit()`
+    - `significance` ∈ 0~1, 珍贵档 ≥ `PRECIOUS_THRESHOLD`; 越界 clamp
     - 去重键 = (kind, event_seq 有交集, 主文本相同) —— `revise._find_duplicate`
 
-⚠️ 2026-09-21 大化简（判据 = 生产者/消费者/真机数据三方核对）——**删过的别再捡回来**:
-    source_key · observation · speculation · source（连同 is_seed/notes/seed 桶/不可变守卫）·
-    count（→派生 len(links)，后随边表再搬到 `render._count_of`）· segment_id · emo_valence ·
-    history（→evolution 的 before/after）· main_text（属性）; 三槽 narration/pattern/content → **text**;
-    **`links` / `contradictions`（G4 删——边整体搬到 `soul/edges.jsonl`，见 `graph.py`）**。
-    ⚠️ 为什么没给三种正文形态配 `nature`: 它与 kind 双射 = 换词不换信息; v3 的 nature 是
-    **认知层第四轴**（管合并策略）, 需 2-kind 模型 ⇒ 批 3（DESIGN_WIKI_V3 §2.3–2.5）。
-    旧档里的这些键由 `from_dict` 宽松忽略（无迁移脚本）。
-
-id: 前缀 + 4 位零填充（e0002 / m0003）; 序列化: jsonl 一行一条。
+id = 前缀 + 4 位零填充（`e0002` / `m0003`）; 旧档的废弃键由 `from_dict` 宽松忽略。
 """
 from __future__ import annotations
 
@@ -32,24 +19,24 @@ import json
 from dataclasses import dataclass, field
 from typing import Any
 
-#: 老档的 `tags` 里那个前缀（`#entity:名字`）—— ⚠️ **唯一真源在契约层**, 这里只是
+#: 老档的 `tags` 里那个前缀（`#entity:名字`）—— **唯一真源在契约层**, 这里只是
 #: `from_dict` 做一次性迁移时要用它剥壳（`core/brain/entities.py` 同样从那儿取）。
 from contract.digest import ENTITY_TAG_PREFIX
 
 #: 节点类型（fact 已退役, 2026-09-02——出厂与 digest 同构: 记忆 = 经历 + 认知）
-#: ⭐ **`experience` 2026-10-06 定名**（原 `group` · N1b · `DESIGN_MMT_NEW_ACTION §4.5`）: **经验**是 L2 归纳出来的
+#: **`experience` 2026-10-06 定名**（原 `group` · N1b · `DESIGN_MMT_NEW_ACTION §4.5`）: **经验**是 L2 归纳出来的
 #: "一类事"，成员靠 `member_of` 边指过来（**不在节点上存列表** —— 成员会生长、各有自己的 `ts`）。
-#: ⚠️ **它只装"名字 + 成员"，不装"关键信息"** —— "这一类说明了什么"是 **belief** 的活;
+#: **它只装"名字 + 成员"，不装"关键信息"** —— "这一类说明了什么"是 **belief** 的活;
 #: 两处都写就是双真源，L2 改了 belief 那份不会跟着改（必漂）。
 #: ⏸ **`profile`（玩家画像, 2026-10-06 从 `experience` 改名）2026-10-14 删格式** ——
-#: 2026-10-12 先停产（用户裁 *"`entity.text` 取代了它的定位"*: 契约不再要它、`parse_round_a`
+#: 先停产（`entity.text` 取代了它的定位: 契约不再要它、`parse_round_a`
 #: 认得出但丢行）, 2026-10-14 确认**没有老档依赖**（真机 9 个 jsonl 零个 profile 节点）
-#: 后把整个 kind 连同它的 `examples` 一起删（用户裁"顺手删掉"）。
-#: ⚠️ **`parse_round_a` 仍认得出那个 `kind`** ⇒ **丢行 + 记账**, ⛔ 不判非法（她惯性还会写,
+#: 后把整个 kind 连同它的 `examples` 一起删。
+#: **`parse_round_a` 仍认得出那个 `kind`** ⇒ **丢行 + 记账**, 不判非法（她惯性还会写,
 #: 判非法 = 罚她重写整段 —— 同 `experience` / `#entity:` 的 B 案口径）。
-#: ⛔ 别拿它跟 `belief` 合并: 画像 = "关于老师的一堆事"（描述）, belief = 她的决定
+#: 别拿它跟 `belief` 合并: 画像 = "关于老师的一堆事"（描述）, belief = 她的决定
 #: （`docs/DESIGN_MEMORY_MODES.md` §2）—— 那正是当年"一个 kind 装两种东西"栽过的地方。
-#: ⏸ **`promise` 2026-09-25 加入、2026-09-29 退役**（用户裁决: 承诺太轻, 不足以长期记录）——
+#: ⏸ **`promise` 已退役**（承诺太轻, 不足以长期记录）——
 #: 它**退出了图**（连同 `from`/`to`/`formed_by` 三条专属边），只留在 note 里当工作记忆
 #: （`notes.SLOT_PINNED` = 她此刻还背着的事）; "这条经历涉及约定"由 `tags` 承担（只做筛选）。
 KINDS = ("episode", "experience", "belief", "entity")
@@ -67,7 +54,7 @@ KINDS = ("episode", "experience", "belief", "entity")
 PRECIOUS_THRESHOLD = 0.8
 #: ⏸ `PLAYER_SUBJECT = "player"` **2026-10-14 随 `profile` 删** —— 它唯一的写者是
 #: `digest.episodes._create_a_nodes` 的画像支（同批删）, 唯一的读者是 `is_player_profile`
-#: （同批删）。⚠️ **`subject` 字段本身留着**: 今天的活读者是 **belief**（"这条看法在讲
+#: （同批删）。**`subject` 字段本身留着**: 今天的活读者是 **belief**（"这条看法在讲
 #: 什么"的主题句 —— `read/recall.py` 的"subject 点名"兜底通道 + `read/render.py` 的
 #: `- 对X：` 前缀）。
 
@@ -75,12 +62,12 @@ PRECIOUS_THRESHOLD = 0.8
 _REQUIRED: dict[str, tuple[str, ...]] = {
     "episode": ("text",),
     "belief": ("text",),
-    # ⚠️ entity **只要求 `name`** —— `text`（立场/成长基线）允许空着出生:
+    # entity **只要求 `name`** —— `text`（立场/成长基线）允许空着出生:
     # `ensure_entities` 建 self/sensei 时还没有任何记忆, 立场是第 3 轮从记忆里长出来的。
     "entity": ("name",),
-    # ⭐ experience（经验）: **只要 `title`（类名）** —— `text` 允许空（同 entity）:
+    # experience（经验）: **只要 `title`（类名）** —— `text` 允许空（同 entity）:
     # 群上不放"关键信息"，判断归 belief（见 `KINDS` 的注释）。
-    # ⚠️ `title` 的唯一性今天**还没强制**（契约未查）；`look` / `noticed` 命中歧义时
+    # `title` 的唯一性今天**还没强制**（契约未查）；`look` / `noticed` 命中歧义时
     # 一律"不猜"（落到检索 / 丢弃），所以缺唯一性只影响命中率，不影响正确性。
     "experience": ("title",),
 }
@@ -114,12 +101,12 @@ class BrainNode:
     #: ⇒ **"这条是不是听说的"就由这个字段判**（读侧只此一处判据, 不再有第二个真源）。
     observer: str = ""
     tags: list[str] = field(default_factory=list)
-    #: ⏸ **`topics`（"这条经历关于什么"的轴）2026-10-14 停产**（用户裁"退役"）——
+    #: ⏸ **`topics`（"这条经历关于什么"的轴）已停产** ——
     #: 零写者: 契约不再要它（`contract/digest/prompts/record.md`）, `parse` 也不再登记
     #: （白名单外的键静默不落库）。当年它是"同类的事"认亲的把手（L1 的 `akin` 要求
     #: `on` ∈ 两端 `topics` 的交集）, 而真机上大半是空的 + 有值的三条互相不共轴 ⇒
     #: 挑候选改走 `like(spec="digest")`（语义/字面打分, 见 `digest.material`）。
-    #: ⚠️ **字段留着是"停产不删格式"**: 老档那几格还读得回来, ⛔ 别再给它
+    #: **字段留着是"停产不删格式"**: 老档那几格还读得回来, 别再给它
     #: 添写者 —— 要复活先想清"谁来判这两个词是一回事"（`on` 那道校验就是这么塌的）。
     topics: list[str] = field(default_factory=list)
     event_seq: list[int] = field(default_factory=list)
@@ -130,11 +117,11 @@ class BrainNode:
     #: **这条记忆的正文**（三种 kind 共用一槽; 原 `narration`/`pattern`/`content` 2026-09-21 合流）。
     #: 写作口径仍按 kind 分（episode=第一人称浓缩 / belief=结论）——那是
     #: rules/schema 的语义, 不再由字段名承担。旧档的旧名由 `from_dict` 兼容读入。
-    #: ⭐ **entity 也用这一槽**：它的 `text` = **立场 / 成长基线**（原 `overview` 的语义,
-    #: 2026-09-21 用户裁决"overview 就是 text"）—— 所以 entity 不新增字段、`text` 也不必
+    #: **entity 也用这一槽**：它的 `text` = **立场 / 成长基线**（原 `overview` 的语义,
+    #: overview 就是 text）—— 所以 entity 不新增字段、`text` 也不必
     #: 从"共用"里降级出去。
     text: str = ""
-    #: ⭐ **这条记忆涉及谁**（2026-10-13 用户裁: 从 `tags` 里的 `#entity:名字` **搬出来**）——
+    #: **这条记忆涉及谁**（从 `tags` 里的 `#entity:名字` **搬出来**）——
     #: 值是她写的**叫法**（`["老师"]`），引擎按它 find-or-create + 落 `about` 边。
     #:
     #: **为什么单开一格**（而不是继续塞在 `tags` 里带个前缀）: 那个前缀养着三样东西 ——
@@ -142,14 +129,14 @@ class BrainNode:
     #: （而它在**节点 tags** 里只有 `#entity:` 一个成员, `#pinned` 是 note 的）。
     #: 换成字段 ⇒ 三样一起拆掉, `tags` 回到一句话: **检索词**; 而且字段对模型**自解释**
     #: （`"#entity:老师"` 是个要记住的魔法拼法, `"entity": ["老师"]` 是看得懂的槽）。
-    #: ⚠️ **不落边的那些名字照旧留着**（解析不到的 = "该建这个人"的线索）—— 见
+    #: **不落边的那些名字照旧留着**（解析不到的 = "该建这个人"的线索）—— 见
     #: `entities.normalize_entity_refs` 与 `revise.link_entity_refs`（归一 + 落边 + 写回）。
     entity: list[str] = field(default_factory=list)
     # ── episode 专属 ──
     verbatim: str = ""
     #: `verbatim` 的**唯一来源**（地址如 `"28.3"`/`"20.p"`, 词表 = `contract/timeline_index.py`）。
     #: 上游: 引擎据此回填文本; 地址永久有效（`events.jsonl` append-only）⇒ 可重解析。
-    #: ⚠️ 消费字段是 `verbatim`（文本）—— 解析不出就**留空**（绝不编; 文本通道 2026-09-29 退役）。
+    #: 消费字段是 `verbatim`（文本）—— 解析不出就**留空**（绝不编; 文本通道 2026-09-29 退役）。
     verbatim_seq: list[str] = field(default_factory=list)
     #: **板级情绪键序列**（如 `["tease","smile"]`）——B 链路（情绪序列 RAG）唯一输入。
     #: 由 digest 按 `event_seq` 从真源物化（能重算 ⇒ 不是第二真源）。
@@ -157,7 +144,7 @@ class BrainNode:
     emo_shape: list[str] = field(default_factory=list)
     #: **地点键序列**（素材轴）——板首 switch 的键 + 句级锚点, 相邻去重保序; 由 digest
     #: 按 `event_seq` 从真源物化（能重算 ⇒ 不是第二真源）。
-    #: ⚠️ 键相等只声称"**同一张图**", 不声称"同一个地方"（语义轴见 `place_raw`）。
+    #: 键相等只声称"**同一张图**", 不声称"同一个地方"（语义轴见 `place_raw`）。
     #: 🚫 **绝不进 LLM 上下文**（召回侧信号, 同 `emo_shape`）。
     place: list[str] = field(default_factory=list)
     #: **writer 原文序列**（叙事轴）——板首 `place_hint` 的名词短语, 由 digest 物化。
@@ -171,11 +158,11 @@ class BrainNode:
     #: 但**零活读者**（唯一读它的那个取料模块已于 2026-10-05 删）, 而根子上的问题是
     #: **写在 episode 里分不清"是不是同一个东西"**（夏天送的杂草 ≠ 冬天送的杂草,
     #: 而兔子玩偶 = 黑色兔子）⇒ 那件事该由专门的**物品面**（`inventory` 旁路）承担,
-    #: 不该由一条自由文本承担。⚠️ 旧档里那两处值（haruka `m0009`/`m0017`）已随清理删掉。
+    #: 不该由一条自由文本承担。旧档里那两处值（haruka `m0009`/`m0017`）已随清理删掉。
     #: 别把字段加回来 —— 要物品面就起旁路, 那要**身份**（有 id、有增删、有当前持有）。
     # ── 认知专属（belief）──
-    #: ⭐ **这条看法在讲什么**（主题句, 真机写法如 `"sensei"` / `"老师对我的接纳"`）——
-    #: ⚠️ **不是"归属"**: 归属走 `entity` + `about` 边（见下面那一格）。这一格只影响
+    #: **这条看法在讲什么**（主题句, 真机写法如 `"sensei"` / `"老师对我的接纳"`）——
+    #: **不是"归属"**: 归属走 `entity` + `about` 边（见下面那一格）。这一格只影响
     #: 召回打分（`read/recall.py` 的"subject 点名"兜底通道）与渲染的 `- 对X：` 前缀。
     subject: str = ""
     #: ⏸ **`examples` 2026-10-14 随 `profile` 删** —— 它的三个读者**全部**只在
@@ -188,23 +175,23 @@ class BrainNode:
     #: 主名字（"老师"）——**消解的目标**: 别名都归到它这里; 新 entity 必填。
     name: str = ""
     #: 别名（"sensei" / "他" / "遥香"）—— 第 3 轮映射 hint 时的查表入口。
-    #: ⚠️ **不造自动维护机制**（2026-09-21 裁决: 那是效率优化不是能力）——初始化写死几个,
+    #: **不造自动维护机制**（2026-09-21 裁决: 那是效率优化不是能力）——初始化写死几个,
     #: 第 3 轮在它已经判定"hint 就是这个人"时**顺手**写进去。
     aliases: list[str] = field(default_factory=list)
-    #: ⭐ **沉淀水位**（2026-10-13, `settle` 写看法时要它）: 写这条 `text` 时**那一段的
+    #: **沉淀水位**（2026-10-13, `settle` 写看法时要它）: 写这条 `text` 时**那一段的
     #: `event_seq` 上界**（= `ctx.interact_max`）。0 = 从没写过。
     #:
     #: **为什么只有 `text` 需要它**: `text` 是**单槽改写**, 而契约要求"整段重写"⇒ 段级重跑
     #: 时她会对**已经写进去的那句**再改写一次（措辞会漂）—— 它是这一层**唯一不幂等**的写入
     #: （episode/belief 有 `_find_duplicate`、边有 `add_edge` 幂等、**改名**靠"值没变就不写"）。
-    #: 重跑时若水位 ≥ 本段上界 ⇒ **引擎丢掉那一格**（⛔ 不靠她自觉）。
-    #: ⚠️ **它必须与它守的那句话住在同一个原子单位里**（同一个节点上）—— 于是两种失败语义
+    #: 重跑时若水位 ≥ 本段上界 ⇒ **引擎丢掉那一格**（不靠她自觉）。
+    #: **它必须与它守的那句话住在同一个原子单位里**（同一个节点上）—— 于是两种失败语义
     #: 都对: 整段快照回滚 ⇒ 两者一起回滚（该重写就重写）; `own_snapshot` 只回滚自己
     #: ⇒ 两者都留着（该跳过就跳过）。
     text_seq: int = 0
     #: **物理状况句清单**（世界侧: 身体 / 外观 / 随身）——"手上多了道划痕" "今天戴了眼镜"。
     #: 与 `text`（立场/成长基线, 心智侧）分工; 会变、**会自愈**（谁判它过期 = §9-4 未定）。
-    #: ⚠️ **这是 entity 专属、且是 list**；promise 那个 `outcome` 字段 2026-09-29 已随
+    #: **这是 entity 专属、且是 list**；promise 那个 `outcome` 字段 2026-09-29 已随
     #: promise 退图一起删（当年就是为了躲这里的 `_str_list()` 静默丢结局才另开字段）。
     state: list[str] = field(default_factory=list)
     # ── episode 数值（None = 未采集; 0.0 是合法值——两者不可合并）──
@@ -237,7 +224,7 @@ class BrainNode:
         # 否则一条认知会被渲染进「我听说的」那一段（认知不伪装成事实）。
         if self.kind == "belief" and self.observer.strip():
             errors.append("belief 不许带 observer（认知不伪装成事实——那是听说的标记）")
-        # ⚠️ 原「belief 必须 links ≥1 条支撑」2026-09-21（G3）**搬走** —— 支撑关系现在
+        # 原「belief 必须 links ≥1 条支撑」2026-09-21（G3）**搬走** —— 支撑关系现在
         # 住在边表（`edges.jsonl` 的 `supports` 入边）, 字段级校验看不见它。新家两处:
         # ① 写路径 `revise.apply_decisions` 建完节点立刻补 `supports` 边;
         # ② 全局兜底 `store.audit()`（"belief 无支撑"）。
@@ -266,8 +253,8 @@ class BrainNode:
         return self.significance >= PRECIOUS_THRESHOLD
 
     # ⏸ `is_player_profile` 属性 2026-10-14 **随 `profile` 删** —— 它最后就长成
-    # `self.kind == "profile"` 一句（**判据按 kind, ⛔ 不看 `subject`**）。
-    # ⚠️ **那条教训留着**（`DESIGN_GRAPH_V4 §5.1`, 2026-09-25）: 这个属性原来还要求
+    # `self.kind == "profile"` 一句（**判据按 kind, 不看 `subject`**）。
+    # **那条教训留着**（`DESIGN_GRAPH_V4 §5.1`, 2026-09-25）: 这个属性原来还要求
     # `subject == "player"`, 而 `subject` 是**自由文本** ⇒ 真机 haruka 那条
     # （`subject="关于 我道歉的习惯"`）**四个桶全不收**: 内容写在盘上、却从来不进她的
     # 上下文。⇒ **可见性不许挂在一个自由文本字段上** —— 今天 `entity`/`belief` 的分桶
@@ -288,7 +275,7 @@ class BrainNode:
     def to_dict(self) -> dict[str, Any]:
         """→ dict（空/缺省字段省略以缩小行; count 派生不落库, 旧键由 from_dict 忽略）。
 
-        ⚠️ `links` / `contradictions` **不写出**（2026-09-21 G3）: 边已搬到
+        `links` / `contradictions` **不写出**（2026-09-21 G3）: 边已搬到
         `soul/edges.jsonl`, 点表再写一份就是第二个真源。`from_dict` 仍然读它们
         （旧档自举要）, 所以是"读得进、写不出"的单向兼容。
         """
@@ -327,10 +314,10 @@ class BrainNode:
         # ⏸ 旧档的 `epistemic` 键**读不进来也不报错**（2026-09-29 退役; 信息在 `observer` 里）
         node.observer = _str(raw.get("observer"))
         node.tags = _str_list(raw.get("tags"))
-        # ⭐ **老档的一次性迁移**（2026-10-13）: `#entity:名字` 从前住在 `tags` 里,
+        # **老档的一次性迁移**（2026-10-13）: `#entity:名字` 从前住在 `tags` 里,
         # 现在**读的这一刻**把它挪进 `entity`（`tags` 于是变干净）—— 幂等、可重读
         # （`events.jsonl`/`wiki.jsonl` 都是 append/派生, 真正的写入在下一次 `save`）。
-        # ⚠️ **不影响 `about` 边**: 那些边早就落好了（索引能力在那边）, 这一步只是让
+        # **不影响 `about` 边**: 那些边早就落好了（索引能力在那边）, 这一步只是让
         # "她写的引用"在盘上有个**正经的格子**（否则将来任何一次重派生都读不到它）。
         node.entity = _str_list(raw.get("entity"))
         node.tags = [t for t in node.tags
