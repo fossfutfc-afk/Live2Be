@@ -151,7 +151,7 @@ python experiments/recall_report.py
 | `83a399e` | `/err404` → **经典 XP 蓝屏**（namegg `FT~` 落地页）：自带 CSS/JS（零 `/static/` 引用）· 确定 ⇒ 30 秒假转储 → alert → 回主页面 · 全屏尽力而为 + 点击兜底 |
 | `697d65c` | 前端节奏收成一处：新建 `js/typing.js`（纯计算 + 顺序揭示队列）· `bond.js` 只动两处 · **前端第一次有了自动化守门**（`node --test` 9 条 + pytest 包装） |
 | `6fa30f7` | `docs/EXEC_RENAME.md`：顶层包改名计划（三步 · 四条已定决策 · 每步引用面与判据） |
-| `见下` | **EXEC_RENAME 第 1 步**：`apps/` → `cli/`（24 文件 / 42 处引用；含 `start.ps1` 的用户命令与 4 个 `experiments/` 脚本）· 新增 `cli/.md` |
+| `4adf7e1` | **EXEC_RENAME 第 1 步**：`apps/` → `cli/`（24 文件 / 42 处引用；含 `start.ps1` 的用户命令与 4 个 `experiments/` 脚本）· 新增 `cli/.md` |
 
 ---
 
