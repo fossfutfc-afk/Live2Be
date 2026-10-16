@@ -66,11 +66,16 @@
 - `infra/paths.py` 的五个根：`RESOURCE`（只读，随包）· `CONFIG` / `ASSETS`（用户内容，
   以后可能由首次向导指定）· `APP`（settings.toml）· `DATA`（事件流真源）。源码树里
   `RESOURCE`/`APP` = 仓根、其余三个 = 仓根下同名目录，所以**老常量值一个字没变**。
-- `infra/settings.py` 已是 settings.toml 的**唯一读入口**（9 个读者收成 1，按 mtime 失效）。
+- `infra/settings.py` 已是 settings.toml 的**唯一读入口**（9 个读者收成 1）。**不缓存、每次重读**
+  （mtime+size 那个缓存在 2026-10-15 被自测抓出会读到旧值，已去掉）。
   `[paths]` 那一节也通了（首次向导写它，保存后要重启才能生效——`paths` 是 import 期常量）。
-- 剩下：**批次 2 的目录改名**（`core→infra/engine`、`renderer+tui→tui`、`apps→cli`）
-  要作者在场；另有两条可选 —— `webgui/store.DEFAULTS` 与各领域默认值**两处写**（设置项
-  清单的归属问题）· 文档那一趟（`CLAUDE.md` 里还写着 `core/common/` 与 `contract/schema.py`）。
+- **批次 2 目录改名已在做**：计划 = `docs/EXEC_RENAME.md`（三步 + 四条已定决策 + 每步判据）。
+  **第 1 步 `apps/` → `cli/` 已落地**；剩第 2 步 `renderer/`→`tui/`（+ `core/tui` 三件平铺进 `engine/`
+  与 `renderer/core.py`→`tui/renderer.py`）、第 3 步 `core/`→`engine/`（+ `tests/core/`→`tests/engine/`）。
+  改名脚本 = `.testtmp/rename_pkg.py <old> <new> [--dry]`（先干跑逐处打印；⚠️ 它抓不到
+  散文里列举的包名，应用后要再 grep 一遍裸词）。
+- 另有两条可选：`webgui/store.DEFAULTS` 与各领域默认值**两处写**（设置项清单的归属）·
+  文档那一趟（`CLAUDE.md` 等里的 `core/common/`、`contract/schema.py`、以及**本轮改名的旧名**）。
 
 ---
 
@@ -144,6 +149,9 @@ python experiments/recall_report.py
 | `fcea64a` | 前端契约守门：`bond.js` 的 `FX_SYMBOLS` ↔ `renderer/effects.py` 特效名两边对齐（两个方向都证过会红） |
 | `efa7093` | **视觉门"等多久"收成后端一处**：`GATE_DISPLAY_WAIT_MS`（纯显示，到点 `gate_busy` 转 false，数据不改）与 `GATE_WATCHDOG_MS`（管线安全，会写真源）分开；前端不再自己数 8 秒 |
 | `83a399e` | `/err404` → **经典 XP 蓝屏**（namegg `FT~` 落地页）：自带 CSS/JS（零 `/static/` 引用）· 确定 ⇒ 30 秒假转储 → alert → 回主页面 · 全屏尽力而为 + 点击兜底 |
+| `697d65c` | 前端节奏收成一处：新建 `js/typing.js`（纯计算 + 顺序揭示队列）· `bond.js` 只动两处 · **前端第一次有了自动化守门**（`node --test` 9 条 + pytest 包装） |
+| `6fa30f7` | `docs/EXEC_RENAME.md`：顶层包改名计划（三步 · 四条已定决策 · 每步引用面与判据） |
+| `见下` | **EXEC_RENAME 第 1 步**：`apps/` → `cli/`（24 文件 / 42 处引用；含 `start.ps1` 的用户命令与 4 个 `experiments/` 脚本）· 新增 `cli/.md` |
 
 ---
 
