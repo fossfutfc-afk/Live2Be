@@ -1,11 +1,17 @@
 # PROCEED.md — 接续用（**整篇覆盖写**；上一版见 git 历史）
 
 > ⚠️ **本文件不记 `ahead` 数**（写死过两次、两次都对不上）—— 真源 = `git status -sb` 与 `git log -1`。
-> ⚠️ **`git status` 里常年挂着一份"作者手改未提交"的文件**（本章 = `config/settings/relation/interperson.yml`
-> 的立场句重排）—— 那是**作者的改动, ⛔ 不是脏改动**, 别 `checkout` 掉。
+> ⚠️ **`git status` 里常年挂着几份"作者手改未提交"的文件**（2026-10-16 时是
+> `config/settings/relation/interperson.yml` · `core/bond/bond_progress.py` · `infra/fuse.py`）——
+> 那是**作者的改动, ⛔ 不是脏改动**, 别 `checkout` 掉、也别卷进提交（`git add` 一律写显式路径）。
 > 现状：`tests/core` **1277 passed** · `tests/llm+tui+webgui` **208 passed**（⚠️ **按域分开跑**, 见 §5 坑 4）·
-> 三份 verifier 全 exit 0 · ruff **373**（基线）· 真机数据未动。
+> 三份 verifier 全 exit 0 · ruff **372**（基线，`AGENTS.md` §7 同步）· 真机数据未动。
+> 🔴 **此刻主树跑不了测试**：`core/bond/bond_progress.py` 作者改到一半（`def __init__` 没有函数体
+> ⇒ `IndentationError`），`core/bond/__init__.py` 一 import 就炸 ⇒ **1047 例收集失败**。等他保存完再跑；
+> 期间要独立验证就用 §5b 第 9 条的 worktree 办法。
 > ⚠️ **测试目录 `tests/renderer/` 已改名 `tests/tui/`**（2026-10-15，跟着 `renderer/`→`tui/`）。
+> 📄 **活入口 = 仓根 `AGENTS.md`**（2026-10-15 起取代 88 KB 的 `CLAUDE.md`；旧文归档在
+> `docs/archive/CLAUDE_2026-09-20.md`）—— 读项目先读它；本文只记"接续要做的事 + 坑"。
 
 ---
 
@@ -159,6 +165,14 @@ python experiments/recall_report.py
 | `4adf7e1` | **EXEC_RENAME 第 1 步**：`apps/` → `cli/`（24 文件 / 42 处引用；含 `start.ps1` 的用户命令与 4 个 `experiments/` 脚本）· 新增 `cli/.md` |
 | `d485e9b` | **EXEC_RENAME 第 2 步**：`renderer/` → `tui/`（+ `core/tui` 三件拆平进 `core/{display,streaming,text}.py`、门面删、`renderer/core.py`→`tui/renderer.py`、`tests/renderer/`→`tests/tui/`）· 干跑抓到三处同名陷阱 |
 | `d90024c` | **EXEC_RENAME 收工**：第 3 步（`core`→`engine`）作者裁决不做（≈1400 处 / 收益纯语义）· 新增 `core/.md` 把"名字会误导"用文档补掉 · 计划文档 §8 记下实测与替代做法 |
+| `92059f49` | 补 `webgui/.md`（约定里最后一个没写的包）+ `test_paths._SCAN_DIRS` 从五包扩到七包（`cli`/`tui` 上一轮改名后没被扫过）；守门双向证过会红 |
+| `bb03fecb` | ⭐ **`AGENTS.md`（12 KB）取代 `CLAUDE.md`（88 KB）**：harness 的候选表是 `["AGENTS.md","CLAUDE.md"]` 且**两份都加载** ⇒ 旧文归档成带日期的 `docs/archive/CLAUDE_2026-09-20.md`（叫 `CLAUDE.md` 会被再注入一遍）· 新增 `infra/.md`（约定里唯一缺的）· `contract/.md` 的"七轮"改指真源（实为 6 轮） |
+| `eb96f365` | 10 处 `CLAUDE.md §N` 引用改成**按名字**引用（`AGENTS.md` §8「产品决策」八条）；两处不指 AGENTS 而指真家（`tests/stub_tasks.py` 的 `_COUNT_RE`、`recall.py` 自己的 MU/SIGMA）；顺手修 `recall_config` docstring 里已被删的 mtime 缓存说法 |
+| `c1c090f2` | **逐包导览第 1 站 `core/affection/`**：自拼根路径收进 `paths.DATA_DIR` · 补上守门盲区（老判据够不着"赋值换行续写"，改成**逻辑行**判；真违规当场红）· 注释 224→156 行 |
+| `d899a6b6` | **第 2 站 `core/bond/`**：清注释（净 −252 行；顶部 docstring 砍 30~60%、清全部装饰符号与"用户裁"）· 修两个注解类型错（`_extract_array -> object` 与 `int(it.get(...))`） |
+| `6c475f8e` | **第 3 站 `core/brain/` 顶层十个文件**：剥约 390 处装饰符号 · 10 个顶部 docstring 重写（337→185 行）· 去 23 处"用户裁/拍板" · 顺手修两处**内容已错**（模块表里列着已删的 `groups.py`/`seed.py`；`graph.py` 说"还没有 entity"） |
+| `f41ed19d` | **`core/brain/read/` 第二刀**：新工具（`tokenize`+`ast`，只动注释/docstring，真字符串不碰）剥 374 行 · 去 51 处"用户"表述 · ⭐ **修四个 Pylance 报错**——根因全是 dataclass 字段写成 `object`（`Candidate.node` / `Composed.node` / `embed_fn` / `float(h.raw)`） |
+| `f0ac5dbe` | **第三刀**：新写 `core/brain/.md`（机制说明）· **删** `AGENT_BRAIN.md` `DESIGN_GRAPH_V4.md` `REDUNDANCY.md` · 清 **59 处**指向它们的引用（`archive/` 里 5 处故意留） |
 
 ---
 
@@ -238,11 +252,35 @@ python experiments/recall_report.py
 6. **前端能测**：`node` 在（v24）。`node --check <file>` 可当语法兜底；纯逻辑单测走
    `tests/webgui/js/*.test.js`（`node --test`），外层包一层 `tests/webgui/test_typing_js.py`
    （没 node 就 skip）。前端契约守门 = `tests/webgui/test_frontend_contract.py`（fx 名两边对齐）。
-7. **每个包有一份 `.md`**（约定：作用 + 核心文件 + 纪律，≤1 页）：已有 `contract/` `infra/` `llm/`
-   `tui/` `cli/` `core/`；⚠️ **`webgui/` 还没有**，`core/.md` 是 2026-10-15 新写的。
-8. **每步验收固定**：`ruff check .` 对齐 373（改名后 import 顺序乱了用 `ruff check --select I001 --fix`，
-   它只动 import 块）· 两域测试 · 三份 verifier · `.testtmp/layers.py` 的层间账 · `api_surface.txt` 刷新
-   （改名是"净中性"：删多少增多少）· 一个提交。
+7. **每个包有一份 `.md`**：常规约定 = 作用 + 核心文件 + 纪律（≤1 页），七个包齐了
+   （`contract/` `infra/` `llm/` `tui/` `cli/` `core/` `webgui/`）。⚠️ **`core/brain/.md` 是有意的例外**
+   —— 作者要的是"比较详细的机制说明"（数据在哪 / 四种 kind / 六条 rel 的方向 / 归属 / 笔记 /
+   写路径 ↔ `ROUNDS` / 读路径三条注入视图 + 五条链路 → 合成 → 两种形式 / 纪律与坑）。
+8. **每步验收固定**：`ruff check .` 对齐 **372**（改 import 顺序用 `ruff check --select I001 --fix`，
+   它只动 import 块）· 两域测试 · 三份 verifier · `.testtmp/layers.py` 的层间账 · `api_surface.txt`
+   刷新（改名是"净中性"）· 一个提交（`git add` 写显式路径）。
+9. ⭐ **验证被作者的手改挡住时：开一个 worktree 独立验**。`git worktree add .testtmp/_verify HEAD`
+   → 在**那里**跑（`workdir` 要真的切过去，否则还是主树）；两个坑：① `data/basic/*` 是 gitignore 的，
+   从主树拷一份过去（`Copy-Item -Recurse data\basic .testtmp\_verify\data\`）② 用
+   `$env:PYTHONPATH='.'` 逼它走 worktree 的包。剩下的失败会集中在 `assets/`（worktree 里是**空目录**）
+   —— 认得出就不必管；验完 `git worktree remove .testtmp/_verify --force`。
+10. ⭐ **剥注释要用 token 级工具**（`.testtmp/strip_marks.py`）：`tokenize` 找注释、`ast` 找 docstring，
+    **只在它们的范围里剥**，真字符串（含 f-string）一个字节不碰。本仓有符号落在字符串里的实例
+    （`notes.py` 台账文案、`recall_ledger` 的 `" ⚠no_candidate"`）—— 台账那个是**机器可读标记**
+    （`test_wiki_recall_ledger.py` 断言它、靠它 grep）⇒ **留**。符号表也别漏 `⏳ ⏸ 🚫`。
+11. ⛔ **批处理文本的脚本，三次翻车的教训**（都靠"逐处打印"当场看见、都用显式路径回退）：
+    ① 清尾规则**不能无条件套在每个文件上**（我折叠双空格 ⇒ 动了 250 个无关文件）；
+    ② 括号正则**不能允许跨行**（`[^（）]` 含换行 ⇒ 把整段吞了）；
+    ③ 把子正则 `.pattern` 拼进外层时**必须用 `(?:…)` 包住** —— 它顶层有 `|`，否则整个正则被劈成
+    两个分支（会从词中间开始匹配、还塞回一个 `（`）。规矩：**先小样本验证、逐处打印、回退只碰显式路径**。
+12. ⭐ **`object` 注解是 IDE 报错的大户**（这一轮修了 6 处，根因都是它）：`Candidate.node` ·
+    `Composed.node` · `RecallCtx.embed_fn` / `RecallContext.embed_fn` —— 收紧成 `BrainNode` /
+    `Callable[[list[str]], list[list[float]]] | None` 之后，`render` / `modes` / `like` 的报错一起消。
+    ⚠️ **还剩几处同类**（`now: object`）：`core/brain/read/{channels,like}.py` 各 1 ·
+    `core/worldtime/realtime.py` 1 · **`webgui/bond/state.py` 3**（那边若报"属性未知"就是它）。
+    另：修一层注解可能露出下一层 —— Pylance 在类型不明时经常闭嘴。
+13. ⭐ **跑测试先确认文件选对了**：我跑了 `test_emotion_text.py`，而覆盖 `_clean_tags` 的是
+    `test_emotion_annotate.py` ⇒ **47 绿是假象**，真 bug（F821）最后是 ruff 抓到的。
 
 ---
 
@@ -255,7 +293,14 @@ python experiments/recall_report.py
   旧的那句不再成立才 `evolved_from`）。
 - **线 B 已裁不做**：`core`→`engine` 改名（§5b 第 1 条有代价）· `contract/` 那 11 个平铺件分族 ·
   `tests/` 归属重划 · `bond.js` 拆分（作者：那坨山暂时不拆）· `err404.html` 的 CSS 抽出（页面已被蓝屏取代）。
-- **线 B 还没做**（都可选）：文档那一趟（`CLAUDE.md` / `README.md` / `TODO.md` / `docs/*` 里的旧包名
-  `apps/` `renderer/` `core/common` `contract/schema.py` —— 代码/测试/命令侧已经改完，只剩这些文档）·
-  `webgui/store.DEFAULTS` 与各领域默认值"两处写" · 要不要把 `cli` 加进 `test_paths._SCAN_DIRS` ·
-  `webgui/.md` 还没写 · `infra/settings.py` 那 9 个读者的**默认值**还留在各自领域模块（有意）。
+  ⛔ **`CLAUDE.md` 不再当活入口**（已归档到 `docs/archive/`，别再往仓根写它）。
+- **线 B 正在做（逐包导览，字母序）**：`affection` ✓ → `bond` ✓ → `brain`（顶层十个文件 ✓ ·
+  `read/` ✓ · `core/brain/.md` ✓ 并删掉三份旧文档）→ **下一站 `core/creep/`**（3 个文件，很小），
+  之后 `digest` → `director` → `media` → `mmt` → `parsing` → `promptkit` → `rag` → `random_events` →
+  `session` → `worldtime` → `core` 根三件。每包固定做法：① token 级工具剥装饰符号 ② 顶部 docstring
+  重写 ③ 去掉"用户裁 / 拍板"表述 ④ 顺手修同类类型错 ⑤ 值得的包写 `<pkg>/.md` ⑥ 两域测试 + ruff + 一个提交。
+- **线 B 还没做**（都可选）：文档那一趟（`README.md` / `TODO.md` / `CLAUDE_OPTIMIZE.md` /
+  `DESIGN_BRAIN.md` / `docs/*` 里的**旧包名** `apps/` `renderer/` `core/common` `contract/schema.py`
+  —— 代码 / 测试 / 命令侧都改完了，只剩这些文档；作者的话是"产品没定稿，README 等最后定稿"）·
+  `webgui/store.DEFAULTS` 与各领域默认值"两处写" · `webgui/bond/state.py` 那 3 处 `object` 注解 ·
+  作者手改的 `bond_progress.py` 保存好之后**补跑一次主树全量**（绕行办法见 §5b 第 9 条）。
