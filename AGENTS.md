@@ -191,7 +191,7 @@ contract → infra → llm → core → tui / webgui / cli
 conda `base` 里没有 jieba，用 base 跑测试会挂）· `node` v24 在（前端测试用）。
 
 当前基线（2026-10-15）：`tests/core` **1277 passed** · `tests/llm+tui+webgui` **208 passed** ·
-`ruff check .` **373**。
+`ruff check .` **372**。
 
 已知缺口：
 

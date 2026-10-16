@@ -1,12 +1,9 @@
-"""`core.bond.bond_story` 的**场景容器**（C9, `docs/EXEC_SPLIT.md`）。
+"""`core.bond.bond_story` 的**场景容器**。
 
 `BondScene`（一场戏的载荷: `paragraphs` / `choices` / `branches` / `is_end` / `picked` +
-`to_dict` / `from_dict` 与渲染用字段）· `SceneLoopError`（场级循环失败 → 上层重试/收尾）。
+`to_dict` / `from_dict` 与渲染字段）· `SceneLoopError`（场级循环失败 → 上层重试/收尾）。
 
-## 纪律
-
-· 本模块是**叶子**: 不 import 同包其它模块（`boards` / `engine` 都反过来往下看它）;
-· 搬进来的代码**逐字未改**。
+本模块是**叶子**: 不 import 同包其它模块（`boards` / `engine` 都反过来看它）。
 """
 
 from __future__ import annotations
@@ -33,82 +30,56 @@ class SceneLoopError(Live2BeError):
 
 @dataclass
 class BondScene:
-    """一个羁绊剧情场景（story_scene 契约解析后的程序侧结构）。
+    """一个羁绊剧情场景（记录流 v2 的显示/回放载荷）——字段见下面各行的注解。
 
-    paragraphs — 叙事段落（每项 {text, emotion?}: text=段落文本, emotion=可选表情词表键;
-                  2026-08-23 架构定稿: 情绪内联进段落, 删 beats——emotion 缺省 = 延续上一段）
-    choices    — 选项列表（空 = 无选项; 有选项时玩家选一个, 喂回下一场景）
-    is_end     — 是否剧情结束（契约 is_end=true）
-    background — 导演层视觉字段（背景 scene_id; None = 纯文本模式）
-    audio      — 导演层音频字段（占位; 当前恒 None, 未来背景/音乐仲裁填）
-    place      — 主 LLM 意图字段（场景级地点 scene_id, 协议 §5; None = 未标注/保持）
+    不变量: `records` 是**真源**, `paragraphs` / `choices` 由它**派生**;
+    视觉键（`place*` / `art_hint` / `emotion`）**不进 LLM 上下文**, 只进事件流供回放。
     """
 
-    paragraphs: list[dict] = field(default_factory=list)   # [{text, emotion?}]
+    paragraphs: list[dict] = field(default_factory=list)   # [{text, emotion?, speaker?}]
     choices: list[str] = field(default_factory=list)
-    # 板块契约（2026-08-30）: 同响应分支内容 {选项文本: [段落…]}——玩家选该选项后
-    # 立即展示（零等待, Storyloom <choice>+<branch> 模式）; 空 = 无分支
+    # 同响应分支内容 {选项文本: [段落…]}——玩家选该选项后立即展示（零等待）; 空 = 无分支
     branches: dict[str, list] = field(default_factory=dict)
     is_end: bool = False
     background: str | None = None
     audio: str | None = None
     place: str | None = None
     title: str | None = None        # 章节标题（如"预先应对"）——开场标题面板; None = 不显示
-    # SceneStream P1（2026-09-08）: 段分组边界（句平铺列表里每个自然段的终点下标）。
-    # 仅引擎侧标注流水消费——**不进 to_dict/from_dict**（事件/回放不携带）
+    # 段分组边界（句平铺列表里每个自然段的终点下标）——只给引擎侧标注用, 不进序列化
     segments: list[int] | None = None
-    # 记录流 v2（2026-09-10, P0-4b）: 本板记录（真源）+ 解析记账。
-    # paragraphs/choices 由记录**派生**（过渡期：老 tui/前端照旧吃派生字段,
-    # 消费者迁移见 §11 P0-7）；空 = 本场景来自旧动作路径（回放旧档/开发通道）。
+    # 本板记录（**真源**; paragraphs/choices 由它派生）+ 解析 NOTE/DROP 记账（不进 LLM）
     records: list[dict] = field(default_factory=list)     # [{"character"|"stage":…, "text":…}]
-    notes: list[str] = field(default_factory=list)        # 解析 NOTE/DROP（可观测, 不进 LLM）
-    # 记录流 v2 额外信号: 换场记录原文（P1 翻译成资产键）+ 本板是否含纪念触发 +
-    # 块级画面意向（`art` 声明——本块含纪念时提前开画, §10.4）。
-    # 三者都**不进 LLM 上下文**（历史渲染只出叙事/switch 文本）。
+    notes: list[str] = field(default_factory=list)
+    #: 换场记录原文（P1 翻译成资产键）; 与 `place_asset` / `art_hint` 同属视觉键, 不进 LLM
     place_hint: str | None = None
-    #: **选图结果**（第二遍, 2026-09-19）: 这个地点的**哪一张图**（表 `files` 里的
-    #: 相对路径, 如 `SDIR_Outer/…/BG_SchoolRooftop2_Night.jpg`）。空 = 用默认图
-    #: （旧事件没有这个字段 → 回放安全, 落回第一条）。与 `place` 同属视觉键,
-    #: **不进 LLM 上下文**。
+    #: **选图结果**（第二遍）: 这个地点的哪一张图（表 `files` 里的相对路径）。
+    #: 空 = 用默认图（旧事件没这个字段 → 回放安全）; 与 `place` 同属视觉键, 不进 LLM。
     place_asset: str | None = None
     memorial: bool = False
-    #: **记录级进入点**（2026-09-20, docs/DESIGN_MEMORIAL.md M3）: `stage:memorial`
-    #: 那条记录在 **`paragraphs` 里的下标**——前端据此在"播到那一段时"才切黑屏
-    #: （隐藏立绘 + 清空普通背景 + 图淡入）。语义见 `syncMemorial`:
-    #: **这句 text 本身就是黑屏期里唯一的内容**，所以黑屏必须从它开始。
-    #: None = 没有纪念记录（旧档/普通板）→ 前端按板级处理（整板即窗口）。
+    #: **记录级进入点**: `stage:memorial` 那条记录在 `paragraphs` 里的下标 —— 前端播到
+    #: 那一段才切黑屏（隐藏立绘 + 清空普通背景 + 图淡入）; None = 退回板级（整板即窗口）。
     memorial_at: int | None = None
-    #: ⭐ **板级纪念窗口快照**（2026-09-23, 真机报障结案）: 这块板**在不在纪念窗口里**。
-    #: 窗口 = 本块的 `memorial` 记录之后 → 本块块尾（同块后续板都还在窗口里）。
-    #: 由组装器**造板那一刻**算好（`boards._BoardAssembler`）——那一刻它必然知道。
-    #: ⚠️ 为什么不直接问引擎的 `_in_memorial`: 那是"**解析**到哪了"的活标志, 而
-    #: 预热/预生成会**提前解析后面的块** ⇒ 纪念板真正交付时它早被翻回 False, 前端于是
-    #: 不点亮纪念层（不黑屏、不淡入图）。快照到板上就与解析/交付顺序彻底解耦。
-    #: 与 `memorial` 的分工: `memorial` = "**本板含**触发记录"; 本字段 = "本板在窗口里"。
+    #: **板级纪念窗口快照**: 这块板在不在纪念窗口里（窗口 = 本块的 memorial 记录 → 块尾）。
+    #: 由组装器造板那一刻算好 —— 不直接问引擎的 `_in_memorial`: 那是"解析到哪了"的活标志,
+    #: 预热会提前解析后面的块 ⇒ 交付纪念板时它早翻回 False, 前端就不点亮纪念层。
+    #: 与 `memorial` 的分工: 它 = "本板**含**触发记录"; 本字段 = "本板在窗口里"。
     in_memorial: bool = False
     art_hint: str = ""
-    #: 已裁决的选项原文（决策 #37）: 只作**展示标记**——回放/续看时前端据此把选项组
-    #: 画出来（锁定 + 高亮所选）; 绝不进 paragraphs（玩家的话语只体现为选项）。
+    #: 已裁决的选项原文: 只作**展示标记**（回放/续看时前端据它把选项组画出来并高亮所选）;
+    #: 绝不进 paragraphs —— 玩家的话语永远只体现为选项。
     picked: str = ""
-    #: 运行时标记: 该板已在**流式**过程中交付给调用方（勿重复落地）——不进序列化
+    #: 运行时标记: 该板已在**流式**过程中交付（勿重复落地）——不进序列化
     _streamed: bool = False
 
     @classmethod
     def from_board(cls, records: tuple, group: tuple[int, ...] = (), *,
                    notes: list[str] | None = None,
                    in_memorial: bool = False) -> BondScene:
-        """一块记录（板切片）→ BondScene（记录流 v2, P0-4b）。
+        """一块记录（板切片）→ BondScene。
 
-        - `paragraphs` **由记录派生**（一记录 = 一判定/显示单元）:
-          `switch`/`art`/`exit` 是引擎信号（不显示）; 群内候选（老师的话）不显示
-          ——它们变成 `choices`; 其余（角色/narrator/sensei 之外的正文）照常显示;
-        - `choices` = 本板群内候选台词（run=1 也弹, 拍板 18）;
-        - `is_end` = 本板含 `stage:end`/`exit`（记录是块尾, 故只可能落在末板）;
-        - `records` = **真源**（含全部记录, 落库/回放用）。
-        - `in_memorial` = **板级窗口快照**（2026-09-23）: "这块板在不在纪念窗口里"。
-          由组装器在**造板那一刻**给定（窗口 = 本块 memoir 记录之后到块尾）——
-          ⚠️ **不是**引擎那个"解析到哪了"的活标志: 预热会提前解析后面的块, 交付纪念板时
-          它早被翻回 False ⇒ 前端不点亮纪念层（真机报障）。见 `boards._BoardAssembler`。
+        `paragraphs` 由记录派生（一记录 = 一判定/显示单元）: `switch` / `art` / `exit` 是
+        引擎信号（不显示）, 群内候选（老师的话）变成 `choices`, 其余照常显示。
+        `records` 留真源; `in_memorial` = 板级窗口快照（由组装器在造板那一刻给定）。
         """
         paras: list[dict] = []
         memorial_at: int | None = None
@@ -119,7 +90,7 @@ class BondScene:
                 continue
             if rec.text:
                 if rec.is_stage and rec.stage == STAGE_MEMORIAL:
-                    # 记录级进入点（2026-09-20）: 记住它落在 paragraphs 的第几段
+                    # 记录级进入点: 记住它落在 paragraphs 的第几段
                     memorial_at = len(paras)
                 item: dict = {"text": rec.text}
                 if not rec.is_stage:
@@ -127,8 +98,7 @@ class BondScene:
                 paras.append(item)
         is_memorial = any(r.stage == STAGE_MEMORIAL for r in records)
         if is_memorial and memorial_at is None:
-            # 触发记录没带 text（空串）⇒ 屏上没有属于它的那一句 → 退回板级
-            # （整板即窗口, 与 2026-09-20 之前的行为一致; 宁缺勿错）
+            # 触发记录没带 text ⇒ 屏上没有属于它的那一句 → 退回板级（整板即窗口）
             memorial_at = 0
         scene = cls(
             paragraphs=paras,
@@ -145,10 +115,9 @@ class BondScene:
         return scene
 
     def to_dict(self) -> dict:
-        """序列化为存档/契约同构 dict（回放读档的反向）。
+        """序列化为存档/契约同构 dict。
 
-        视觉/意图字段空值（None / 空列表）→ 省略, 不污染存档（旧档兼容）。
-        记录流板额外带 `records`（**唯一真源**）+ `notes`（可观测）。
+        空值（None / 空列表）省略, 不污染存档; 记录流板额外带 `records`（真源）+ `notes`。
         """
         d = {
             "paragraphs": [dict(p) if isinstance(p, dict) else {"text": p}

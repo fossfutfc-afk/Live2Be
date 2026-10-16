@@ -1,31 +1,16 @@
-"""`core.bond.bond_story` 包**门面** —— 模块→包转换 + 内部拆分（C9, `docs/EXEC_SPLIT.md`）。
-
-## 这是什么
-
-拆分前 `core/bond/bond_story.py` 是一个 1575 行的单文件模块（`BondStoryEngine` 占 1074）。
-现在它是包:
+"""`core.bond.bond_story` 包**门面** —— 只做再导出, 不放逻辑。
 
 | 模块 | 管什么 |
 |---|---|
-| `scene.py` | `BondScene`（一场戏的载荷 + 渲染字段）/ `SceneLoopError` —— **叶子** |
-| `boards.py` | `DeliveryMode`（BLOCK/STREAM）· `_board_spans`（记录 → 板）· `_BoardAssembler`（+ 板级闸）· `MAX_BOARDS_PER_TURN` |
-| `engine.py` | `BondStoryEngine`（记录流解析 + 状态机 + 历史 + 生图钩子）· `_personality_summary` · `MAX_SCENE_RETRIES` · `DEFAULT_HISTORY_ROUNDS` |
+| `scene.py` | `BondScene`（一场戏的载荷 + 渲染字段）/ `SceneLoopError` —— 叶子 |
+| `boards.py` | `DeliveryMode` · `_board_spans`（记录 → 板）· `_BoardAssembler`（+ 板级闸）· `MAX_BOARDS_PER_TURN` |
+| `engine.py` | `BondStoryEngine`（记录流解析 + 状态机 + 历史 + 生图钩子）· `MAX_SCENE_RETRIES` · `DEFAULT_HISTORY_ROUNDS` |
 
-import 路径 `core.bond.bond_story` **不变** ⇒ 39 处引用（`webgui/` · `core/ui` ·
-`tests/` · `experiments/` · `l2d-demo/`）**一个字都不用改**。
+用法: `from core.bond.bond_story import BondStoryEngine`。
 
-## 用法（原模块 docstring 的示例照旧成立）
-
-    from core.bond.bond_story import BondStoryEngine
-    vn = BondStoryEngine(characters_root, llm_client)
-
-## 纪律
-
-· 本文件**只做再导出**; 名字增删请同步这里与 `tests/fixtures/api_surface.txt`
-  （`SPLIT_API_UPDATE=1` 刷新）—— 守门会以"丢了/多出 X"指路;
-· ⚠️ **不定义 `__all__`**（它会被 API 面快照记成一个新名字）;
-· 门面把 **54 个名字按"真家"分块**列出: 11 个在本包三个模块里, 其余 43 个当年只是路过
-  `bond_story` 的 `contract` / `core.*` / `llm.*` 名字 —— 这里直指真家（不再借道）。
+纪律: 名字增删同步 `tests/fixtures/api_surface.txt`（`SPLIT_API_UPDATE=1` 刷新）;
+**不定义 `__all__`**（它会被 API 面快照记成一个新名字）; 下面按"真家"分块 —— 只有 11 个
+名字真住在本包, 其余是当年路过 `bond_story.py` 的 `contract` / `core.*` / `llm.*` 名字。
 """
 
 from contract import (  # 定义处不在本包内（当年路过 → 直指真家）

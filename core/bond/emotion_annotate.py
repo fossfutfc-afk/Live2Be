@@ -1,27 +1,11 @@
-"""情绪批量标注服务（两遍式策略 C 的第二遍）— 生成与情绪解耦。
+"""情绪批量标注（两遍式 C 的第二遍）—— 主 LLM 只写骨架, 情绪归这一层。
 
-背景（2026-08-31, branch feat/two-pass-emotion; 2026-09-02 切分权移交定稿）:
-    主分支契约强制 emotion 内联（LLM 生成时逐句标注）——长输出注意力分散
-    → 缺漏率高 → 全量解析校验失败 → 整个板块重生成（失败成本 O(板块)）。
-    两遍式把"叙事生成"与"情绪标注"拆开:
-        第一遍: LLM 输出骨架（自然段文本, 无 emotion 负担）→ 快、遵守率高
-                （2026-09-02: 骨架 emotion 一律丢弃——标注层唯一真源）
-        第二遍: 本模块批量标注（角色人设 + 文本 + 词表 → 标签, 分类任务,
-                输出 ~每句一词）
-    ——标注是纯分类（LLM 强项）, 校验 = 词表集合成员检查（零成本）,
-    标注失败只影响表情精度（静默兜底延续）, 不阻断剧情（失败成本 O(0)）。
+一次调用标一批句子: 角色人设 + 文本 + 词表 → 与句子等长的词表键数组。
+标注是纯分类（LLM 强项）, 校验只是词表成员检查; 失败只影响表情精度（静默兜底延续）,
+不阻断剧情。全量校验失败 → 二分递归重标（局部错只牺牲局部）。
 
-标注调用与生成并行（生成显示期间后台标注, 前端读到后续句时表情已就绪）;
-预生成链（纯叙事场提前生成）天然掩盖标注延迟。
-2026-09-02 robust 化（句子数随切分器上升, 全量失败成本变大）:
-    - 二分降级: 全量输出校验失败 → 对半递归重标（局部错只牺牲局部）
-    - 逐项容错: 长度对齐但个别词表外 → 该项 None, 其余保留（不再整批弃）
-    - 人物注入: {character}（角色身份 + 性格要点——人设化情绪判断基准）,
-      无人物知识时标注 LLM 会把"逞强笑着说没事"误判为 smile
-
-用法:
-    tags = annotate_emotions(llm, sentences, lexicon_keys, lexicon_hint, character)
-    # tags[i] 对应 sentences[i]（str | None; None = 该项失败, 调用方延续兜底）
+用法: `tags = annotate_emotions_smart(llm, sentences, keys, hint, character)`
+—— `tags[i]` 对应 `sentences[i]`; None = 该项失败, 由调用方延续兜底。
 """
 
 from __future__ import annotations
@@ -47,15 +31,12 @@ def _anno_max_tokens(explicit: int | None) -> int:
     return _tl_max_tokens("emotion") if explicit is None else explicit
 
 
-def _clean_tags(raw: object, n: int, lexicon: set[str]) -> list[str] | None:
-    """标注输出清洗（严格版, 向后兼容）: 长度 n + 每项词表内 → 数组; 否则 None。
-
-    二分降级在 robust 层处理; 这里是"整批可用性"判定。
-    """
-    if not isinstance(raw, list) or len(raw) != n:
+def _clean_tags(arr: list | None, n: int, lexicon: set[str]) -> list[str] | None:
+    """长度恰 n 且每项都在词表里 → 数组; 否则 None（二分降级在 robust 层处理）。"""
+    if arr is None or len(arr) != n:
         return None
     tags: list[str] = []
-    for t in raw:
+    for t in arr:
         if not isinstance(t, str) or t not in lexicon:
             return None
         tags.append(t)
@@ -71,12 +52,7 @@ def _try_batch(
     *,
     max_tokens: int,
 ) -> list[str | None] | None:
-    """单次批量标注（一次 LLM 调用）。
-
-    Returns:
-        list[str|None]: 调用成功且长度对齐——逐项词表校验, 非法项 None;
-        None: 调用异常 / 输出无法解析 / 长度不对齐（触发二分降级）。
-    """
+    """单次批量标注（一次 LLM 调用）: 成功 → 逐项词表校验后的数组; 失败 → None。"""
     lexicon = set(lexicon_keys)
     system = render_template(
         load_prompt("emotion_annotate"),
@@ -85,11 +61,8 @@ def _try_batch(
          "character": character or "（角色信息未注入）"},
         where="emotion_annotate.md")
     try:
-        # text 模式（非 json_object）: 输出是纯数组, json_object 的自纠错会
-        # 拉长等待——标注是低价值重试（失败只影响表情精度）, 快速失败快速降级
-        # thinking/max_tokens 真源 = task_levels 形态 "emotion"（2026-09-02 集中:
-        # off 关闭全局 high reasoning——256 预算下 thinking 截断引发 robust 链爆炸;
-        # max_tokens 512 给长批数组留足余量）
+        # text 模式: 输出就是纯数组, json_object 的自纠错只会拉长等待。
+        # thinking / max_tokens 真源 = task_levels 形态 "emotion"。
         raw = llm.chat(
             [
                 {"role": "system", "content": system},
@@ -105,10 +78,11 @@ def _try_batch(
         return None
 
     arr = _extract_array(raw)
-    if not isinstance(arr, list) or len(arr) != len(sentences):
-        if arr is not None:
-            logger.warning("emotion 标注长度不符 %d != %d（二分降级）",
-                           len(arr), len(sentences))
+    if arr is None:
+        return None
+    if len(arr) != len(sentences):
+        logger.warning("emotion 标注长度不符 %d != %d（二分降级）",
+                       len(arr), len(sentences))
         return None
     tags: list[str | None] = []
     for t in arr:
@@ -119,13 +93,12 @@ def _try_batch(
     return tags
 
 
-#: robust 标注的 LLM 调用总预算（2026-09-08 定案修复: 实机观测单场景情绪标注
-#: dur=27.4s——失败二分链在慢/失败调用下串行累积。典型单次成功 ~1-3s;
-#: 超预算 → 返回 None 项, 调用方延续/兜底 nomal——宁缺勿错但**快**。
+#: robust 标注的 LLM 调用总预算（含所有递归分支）。二分链在慢调用下会串行累积
+#: （实测单场景 27.4s）; 超预算 → 整批 None, 由调用方延续兜底。
 _ANNO_CALL_BUDGET = 4
 
 
-# EXT: emotion-batch-v1 — 批式标注入口（保留给协议单测/简单调用, 主链走 emo_text）; 勿删（docs/EXTENSION_POINTS.md）
+# EXT: emotion-batch-v1 — 批式标注入口（主链走 emo_text; docs/EXTENSION_POINTS.md）
 def annotate_emotions_smart(
     llm,
     sentences: list[str],
@@ -137,12 +110,8 @@ def annotate_emotions_smart(
 ) -> list[str | None]:
     """robust 批量标注: 全量优先 → 失败二分递归 → 逐项容错。
 
-    返回与 sentences 同长的 list（str = 词表内标签; None = 该项标注失败,
-    调用方延续兜底）。单句也失败 → [None]（不无限递归）。**LLM 调用总量被
-    全局预算硬顶（含所有递归分支, 默认 4 次）**——防 27s 级串行爆炸
-    （2026-09-08 实测定案: dur=27390ms）。
-    max_tokens: 输出上限（None → 真源 task_levels 形态 "emotion"=512——
-    2026-09-02 集中管理; thinking 档位 off 由 extra_body 真源注入）。
+    返回与 sentences 等长（None = 该项失败, 调用方延续）; 单句也失败 → `[None]`。
+    调用总量受 `_ANNO_CALL_BUDGET` 硬顶（含所有递归分支）。
     """
     return _smart_rec(llm, sentences, lexicon_keys, lexicon_hint, character,
                       max_tokens, _ANNO_CALL_BUDGET, [0])
@@ -174,7 +143,7 @@ def _smart_rec(llm, sentences, lexicon_keys, lexicon_hint, character,
     return left + right
 
 
-# EXT: emotion-batch-v1 — 批式标注入口（保留给协议单测/简单调用）; 勿删（docs/EXTENSION_POINTS.md）
+# EXT: emotion-batch-v1 — 单次调用版（协议单测用; docs/EXTENSION_POINTS.md）
 def annotate_emotions(
     llm,
     sentences: list[str],
@@ -184,12 +153,10 @@ def annotate_emotions(
     *,
     max_tokens: int | None = None,
 ) -> list[str] | None:
-    """批量标注（严格兼容版, 单次调用）: 句子列表 → 情绪标签列表（词表内）。
+    """批量标注（单次调用, 严格版）: 句子列表 → 词表内标签列表; 失败 → None。
 
-    失败（LLM 异常 / 输出非法）→ None（调用方决定兜底——robust 全量回填请用
-    annotate_emotions_smart; 本函数保留给协议单测/简单调用）。
-    返回 None = 标注不可用; 非 None = 长度与 sentences 一致且全词表内。
-    max_tokens: None → 真源 task_levels 形态 "emotion"（512）。
+    非 None 时长度与 sentences 一致且全词表内; 要 robust 回填请用
+    `annotate_emotions_smart`。
     """
     if not sentences:
         return []
@@ -228,8 +195,8 @@ def annotate_emotions(
     return tags
 
 
-def _extract_array(raw: object) -> object:
-    """text 模式输出 → 数组（去 markdown 围栏/首尾杂讯）; 无法解析 → None。"""
+def _extract_array(raw: object) -> list | None:
+    """text 模式输出 → 数组（去 markdown 围栏/首尾杂讯）; 解析不出数组 → None。"""
     if isinstance(raw, list):
         return raw
     if not isinstance(raw, str):
@@ -239,16 +206,16 @@ def _extract_array(raw: object) -> object:
         text = re.sub(r"^```[a-zA-Z]*\n?", "", text)
         text = re.sub(r"\n?```$", "", text)
     try:
-        return json.loads(text)
+        arr = json.loads(text)
     except ValueError:
-        # 提取第一个 [...] 段（LLM 偶尔前后加解释）
-        m = re.search(r"\[[^\]]*\]", text)
-        if m:
-            try:
-                return json.loads(m.group(0))
-            except ValueError:
-                return None
-        return None
+        m = re.search(r"\[[^\]]*\]", text)      # LLM 偶尔前后加解释
+        if not m:
+            return None
+        try:
+            arr = json.loads(m.group(0))
+        except ValueError:
+            return None
+    return arr if isinstance(arr, list) else None
 
 
 # EXT: emotion-batch-v1 — 批式补标入口（保留给协议单测/简单调用）; 勿删（docs/EXTENSION_POINTS.md）
