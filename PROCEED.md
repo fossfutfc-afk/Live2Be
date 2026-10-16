@@ -70,10 +70,13 @@
   （mtime+size 那个缓存在 2026-10-15 被自测抓出会读到旧值，已去掉）。
   `[paths]` 那一节也通了（首次向导写它，保存后要重启才能生效——`paths` 是 import 期常量）。
 - **批次 2 目录改名已在做**：计划 = `docs/EXEC_RENAME.md`（三步 + 四条已定决策 + 每步判据）。
-  **第 1 步 `apps/` → `cli/` 已落地**；剩第 2 步 `renderer/`→`tui/`（+ `core/tui` 三件平铺进 `engine/`
-  与 `renderer/core.py`→`tui/renderer.py`）、第 3 步 `core/`→`engine/`（+ `tests/core/`→`tests/engine/`）。
-  改名脚本 = `.testtmp/rename_pkg.py <old> <new> [--dry]`（先干跑逐处打印；⚠️ 它抓不到
-  散文里列举的包名，应用后要再 grep 一遍裸词）。
+  **第 1 步 `apps/` → `cli/`、第 2 步 `renderer/` → `tui/`（含 `core/tui` 三件拆平进 `core/`、
+  `renderer/core.py`→`tui/renderer.py`、`tests/renderer/`→`tests/tui/`）都已落地**；
+  剩第 3 步 `core/`→`engine/`（+ `tests/core/`→`tests/engine/`）。
+  改名脚本 = `.testtmp/rename_pkg.py <old> <new> [--dry]`（先干跑逐处打印；⚠️ 默认**不开**
+  "裸点名 `X.y`"那条规则——本仓有同名陷阱：`core/session/renderer.py`、`cli/vn_cli.py` 里的
+  局部变量 `renderer`、以及 pixi 的 `app.renderer`；另外它抓不到散文里列举的包名，
+  应用后要再 grep 一遍裸词）。
 - 另有两条可选：`webgui/store.DEFAULTS` 与各领域默认值**两处写**（设置项清单的归属）·
   文档那一趟（`CLAUDE.md` 等里的 `core/common/`、`contract/schema.py`、以及**本轮改名的旧名**）。
 
@@ -152,6 +155,7 @@ python experiments/recall_report.py
 | `697d65c` | 前端节奏收成一处：新建 `js/typing.js`（纯计算 + 顺序揭示队列）· `bond.js` 只动两处 · **前端第一次有了自动化守门**（`node --test` 9 条 + pytest 包装） |
 | `6fa30f7` | `docs/EXEC_RENAME.md`：顶层包改名计划（三步 · 四条已定决策 · 每步引用面与判据） |
 | `4adf7e1` | **EXEC_RENAME 第 1 步**：`apps/` → `cli/`（24 文件 / 42 处引用；含 `start.ps1` 的用户命令与 4 个 `experiments/` 脚本）· 新增 `cli/.md` |
+| `d485e9b` | **EXEC_RENAME 第 2 步**：`renderer/` → `tui/`（+ `core/tui` 三件拆平进 `core/{display,streaming,text}.py`、门面删、`renderer/core.py`→`tui/renderer.py`、`tests/renderer/`→`tests/tui/`）· 干跑抓到三处同名陷阱 |
 
 ---
 
