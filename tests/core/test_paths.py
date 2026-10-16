@@ -58,6 +58,9 @@ _ROOT_MARKERS = ('"assets"', '"data"', '"config"', '"webgui"', "settings.toml")
 _SCAN_DIRS = ("core", "infra", "webgui", "llm", "contract", "cli", "tui")
 _SKIP_FILES = {"infra/paths.py"}          # 宏的家, 它才是那个"一处"
 
+#: 抠字符串字面量（判括号深度用）
+_STR_LITERAL_RE = re.compile(r"'[^']*'|\"[^\"]*\"")
+
 
 def _module_constants() -> set[str]:
     """`infra/paths.py` 的顶层 UPPERCASE 常量（**含 `if` 块里的**，五根就在那儿）。"""
@@ -84,6 +87,13 @@ def _module_constants() -> set[str]:
 
     visit(tree.body)
     return out
+
+
+def _depth(line: str) -> int:
+    """括号净深度（先抠掉字符串字面量——正则/文案里常有不成对的括号）。"""
+    s = _STR_LITERAL_RE.sub('""', line)
+    return (s.count("(") + s.count("[") + s.count("{")
+            - s.count(")") - s.count("]") - s.count("}"))
 
 
 def test_all_matches_module_constants():
@@ -153,11 +163,11 @@ def test_every_value_is_absolute_and_under_its_own_root():
 def test_no_inline_project_paths_left():
     """③ **不许再有现拼的项目根路径**——"grep 能全量定位"的守门人。
 
-    这里顺手补了一个盲区：从前只看 "`Path(__file__)` 与目录名同一行"，
-    于是 `ROOT = Path(__file__)...` 换行再 `ROOT / "config" / "characters"`
-    这种写法（`webgui/chat.py` / `routers/mmt.py` / `routers/collection.py` 都是）
-    **从眼皮底下溜过去了**。现在两段都看: 谁把 `Path(__file__)` 赋给一个名字,
-    那个名字后面**只要碰到项目根一级的目录名**就红。
+    判据按**逻辑行**（括号没闭合就与下一行拼起来）做，于是三种写法都看得见:
+    同一行（`Path(__file__).parent / "config"`）· 存成别名再用（`ROOT / "data"`）·
+    赋值自己换行续写（`X = (` 换行再 `Path(__file__)…` 换行再 ` / "data" / …`）。
+    最后那种真溜过一次（`core/affection/affection_calc.py`）：别名那一行没有
+    `Path(__file__)`，续行里又没有别名名，两条老判据都够不着。
     """
     bad: list[str] = []
     for d in _SCAN_DIRS:
@@ -166,24 +176,34 @@ def test_no_inline_project_paths_left():
             if rel in _SKIP_FILES or "__pycache__" in rel:
                 continue
             lines = p.read_text(encoding="utf-8").splitlines()
-            # ① 同一行就带目录名（老判据, 保留）
-            for i, line in enumerate(lines, 1):
-                if "Path(__file__)" not in line or line.lstrip().startswith("#"):
+            i = 0
+            while i < len(lines):
+                start = i
+                stmt = lines[i]
+                depth = _depth(lines[i])
+                # 续行：括号没闭合就往下拼（封顶 20 行——深度算歪时不至于吞掉整个文件）
+                while depth > 0 and i + 1 < len(lines) and i - start < 20:
+                    i += 1
+                    stmt = f"{stmt} {lines[i].strip()}"
+                    depth += _depth(lines[i])
+                i += 1
+                if "Path(__file__)" not in stmt or stmt.lstrip().startswith("#"):
                     continue
-                if any(m in line for m in _ROOT_MARKERS):
-                    bad.append(f"{rel}:{i}: {line.strip()}")
-            # ② `X = Path(__file__)...` 之后 X 碰到目录名（多行盲区）
-            for i, line in enumerate(lines):
-                m = re.match(r"\s*([A-Za-z_][A-Za-z_0-9]*)\s*=\s*.*Path\(__file__\)", line)
-                if not m or line.lstrip().startswith("#"):
+                # ① 逻辑行里同现"项目根一级目录名" → 违规
+                if any(mk in stmt for mk in _ROOT_MARKERS):
+                    bad.append(f"{rel}:{start + 1}: {stmt.strip()}")
+                    continue
+                # ② 存成别名、之后用别名拼（远距离也算）
+                m = re.match(r"\s*([A-Za-z_][A-Za-z_0-9]*)\s*=", stmt)
+                if not m:
                     continue
                 alias = m.group(1)
-                for j, later in enumerate(lines[i + 1:], i + 2):
+                for j, later in enumerate(lines[start + 1:], start + 2):
                     if later.lstrip().startswith("#"):
                         continue
                     if re.search(rf"\b{re.escape(alias)}\b", later) and \
                             any(mk in later for mk in _ROOT_MARKERS):
-                        bad.append(f"{rel}:{j}: {later.strip()}（别名 {alias} ← 第 {i + 1} 行）")
+                        bad.append(f"{rel}:{j}: {later.strip()}（别名 {alias} ← 第 {start + 1} 行）")
     assert not bad, (
         "还有现拼的项目根路径（请搬进 infra/paths.py, 并想清它属于哪一根）:\n  "
         + "\n  ".join(bad))
