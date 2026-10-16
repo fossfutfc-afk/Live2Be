@@ -1,4 +1,4 @@
-"""`revise.py` 三趟执行器的落地测试（AGENT_BRAIN.md §5 / M2b）。
+"""`revise.py` 三趟执行器的落地测试。
 
 覆盖: L1 判关系（`apply_relations`）· L2 造认知（`apply_cognitions`）·
 R3 认人（`apply_entities`）· 引用 → `about` 边（`link_entity_refs`）。

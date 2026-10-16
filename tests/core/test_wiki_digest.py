@@ -171,7 +171,7 @@ def test_round_a_about_hint_is_ignored(tmp_path):
     """⏸ `about_hint` **2026-09-29 退役** —— R1 若还写它, 引擎**整个忽略**。
 
     退役理由: 它和 R3 的"挂谁"**判两次**（还可能不一致）, 而 R3 本来就拿得到全量候选表
-    + 新节点正文 ⇒ 引擎不必替它预判一个名字（`REDUNDANCY.md` #2）。
+    + 新节点正文 ⇒ 引擎不必替它预判一个名字。
     ⚠️ 这里钉的是"**没有任何通道**": 不落库（不是节点字段）· 也不再有 `DigestResult.hints`
     —— 否则它就是一条**静默残路**（模型写了、引擎假装收下了, 谁也不消费）。
     """
@@ -468,7 +468,7 @@ def test_event_seq_pointer_and_verbatim_resolve(tmp_path):
 
 
 def test_verbatim_text_channel_is_retired(tmp_path):
-    """⛔ 文本通道已退役 → **字符串一律忽略**（`REDUNDANCY.md` #6）。
+    """⛔ 文本通道已退役 → **字符串一律忽略**。
 
     从前"两条都给 → 文本优先"是个安全决定（错的原话一眼看得出, 错的索引看不出）;
     今天行号是唯一入口, 解析不出就**留空绝不编** —— 宁可这条记忆没有原话。

@@ -1,4 +1,4 @@
-"""graph.py — 类型化边与邻接索引（设计见 `DESIGN_GRAPH_V4.md` §2）。
+"""graph.py — 类型化边与邻接索引。
 
 只读层: 不改节点、不落盘、不建文件; 纯 stdlib。
 边的真源是 `soul/edges.jsonl`（由 `store` 读写）; 旧档点上残留的无类型 `links` /
@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 # ---------------------------------------------------------------------------
-# 边类型（`DESIGN_GRAPH_V4.md` §2）
+# 边类型
 # ---------------------------------------------------------------------------
 
 REL_ABOUT = "about"                  # belief/episode/experience → entity（归属）

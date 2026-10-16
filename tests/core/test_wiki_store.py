@@ -1,4 +1,4 @@
-"""WikiStore v2 存储层测试（AGENT_BRAIN.md §2 / M1b）。"""
+"""WikiStore v2 存储层测试。"""
 import pytest
 
 from core.brain import WikiStoreV2, make_node

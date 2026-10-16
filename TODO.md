@@ -18,7 +18,7 @@
 > - **T18**：`LocalEmbedder` 配置面（`settings.toml [embed]` + `LIVE2BE_EMBED_*`）+
 >   `health()` 真探测 —— **等 embedding 服务起来，写路径自动活**（见下方中期项）
 > 关联：CLAUDE_OPTIMIZE.md（优化方向状态清单）/ guidance/（角色卡写作指导）/
-> AGENT_BRAIN.md（wiki 实施蓝图, 含开放问题 §9）/ DESIGN_BRAIN.md（记忆体系总纲）
+> （wiki 实施蓝图, 含开放问题 §9）/ DESIGN_BRAIN.md（记忆体系总纲）
 
 ## 进行中 / 即将
 
@@ -224,7 +224,7 @@ B = 今天的一句寒暄（SIG=0.50）
 |---|---|
 | **`BrainNode.observation`** | ❌ **已删**。它 2026-09-17 被恢复为"声明保留但不投产"的挂点（不落库、零生产者零消费者、真机零数据）；2026-09-21 复盘的裁决是**直接删** —— *"observation(其实 narrator 只要写清楚，LLM 一定能懂，没必要)"*。⇒ "对某对象的观察"不需要字段；多人模式那件事仍归 v3 实体模型（`about` + `aspect` + `nature` + `entity.overview`），**不要**回到 belief 上平移一个数组。旧档的键由 `from_dict` 宽松忽略 |
 | **`BrainNode.source_key`** | ❌ **已删**。零生产者零消费者零真机数据：写出厂链的是 `archive/factory_memory/seed_engine.py`（已归档），`render.py` 里的 `source_key` 是 yml 拍平的**局部变量名**。出厂记忆 2026-09-05 起不进 wiki（改直注 yml 原文）⇒ 早已没人写它 |
-| **`speculation`**（`EPISTEMICS` 的第 4 值） | ❌ **已删**。4 值枚举里唯一零生产者/零消费者/零真机数据的。`belief` 的 `inferred_belief` 与 `episode`/`experience` 的 `observed`/`reported` 都由 validate 护栏强制 ⇒ 它从来没被写进来过。⚠️ 2026-09-29 更新: **整个 `EPISTEMICS` 词表与 `epistemic` 字段也已退役**（`core/brain/REDUNDANCY.md` #3）—— 来源只剩 `observer` |
+| **`speculation`**（`EPISTEMICS` 的第 4 值） | ❌ **已删**。4 值枚举里唯一零生产者/零消费者/零真机数据的。`belief` 的 `inferred_belief` 与 `episode`/`experience` 的 `observed`/`reported` 都由 validate 护栏强制 ⇒ 它从来没被写进来过。⚠️ 2026-09-29 更新: **整个 `EPISTEMICS` 词表与 `epistemic` 字段也已退役**—— 来源只剩 `observer` |
 
 保留：`span.py` 的枚举定义（契约死了语法不必死）; 旧档里多余的键由 `from_dict` 宽松忽略。
 
@@ -592,7 +592,7 @@ B = 今天的一句寒暄（SIG=0.50）
 
 **阶段 6 文档**
 - [ ] 6.1 guidance/experience.md: 写作规范（档案语义/点评句留给 beliefs/改编工具说明）
-- [ ] 6.2 AGENT_BRAIN.md 出厂管线段更新（定稿制 + 快照 + brain_seed 格式）
+- [ ] 6.2  出厂管线段更新（定稿制 + 快照 + brain_seed 格式）
 - [ ] 6.3 TODO.md 本表勾选
 
 ### 出厂 wiki 闭环（✅ 引擎全部落地, 9558287——剩内容创作）

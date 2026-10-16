@@ -12,7 +12,7 @@
 > = `inspect` 那套现成模板，§11 当年列的工程要求**一条都不用新造**）；
 > ② 它同时是 **`retire` 的许可证**（R4 收口现在只发 `close` 不发 `retire`，等的就是这条读路径）。
 >
-> 相关：`core/brain/DESIGN_GRAPH_V4.md` §11（能力面）/ §9-11 / §9-14 ·
+> 相关：（能力面）/ §9-11 / §9-14 ·
 > `docs/DESIGN_STREAM_CONTRACT.md` §4.5（流式交付，动作行怎么被办理）·
 > `PROCEED.md` **§9 提交记档**（本稿的提交与裁决记档在那边一行）。
 > ⚠️ **与"note 重做 + 图升级"是两条链**（PROCEED.md §0 有分界）：本稿是**读路径**，
@@ -72,7 +72,7 @@ when:  时间范围, 可省 —— "今天 / 昨天 / 前天 / N 天前 / 最近
 | `events` | `soul/events.jsonl` 原始事件（对话 / 剧情 / 裁决 / 标记 + `ts`/`seq`） | **"当时到底怎么说的"**「那天的原话」 | `renderer.render_events` · `filter_bond` · `window_messages`（用来判断哪些**已在上下文**） |
 | `note` | `soul/notes.json`（约定 / 惯例 / 最近在想） | "我答应过他什么"「上次那个约定后来怎么了」 | `notes.fold` · `NotesState.items` · `render_item` |
 | `chapters` | 事件流派生的**已结束章** | "我们经历过哪几章"「那章叫什么」 | `chapters.chapter_index`（**与回忆册同源**） |
-| `inventory` | 台账（`DESIGN_GRAPH_V4` §3.3：独立成系统、暂不做） | — | 恒空，**接口在** |
+| `inventory` | 台账（独立成系统、暂不做） | — | 恒空，**接口在** |
 
 ### 1.4 返回形状（**用户 2026-09-27 裁决：一行摘要 + 正文原样 top-k**）
 
@@ -251,7 +251,7 @@ when:  时间范围, 可省 —— "今天 / 昨天 / 前天 / N 天前 / 最近
 
 **不做（已议定）**
 
-- `inventory` 的内容（`DESIGN_GRAPH_V4` §3.3：独立成系统，暂不做）。
+- `inventory` 的内容（独立成系统，暂不做）。
 - 返回邻接表 / id（角色视图零 id 的纪律）。
 - 再加第 6 个动作（设计稿判据④：动作表进 system，每加一个废一次前缀缓存；
   新需求先看能不能落进 `scope`）。

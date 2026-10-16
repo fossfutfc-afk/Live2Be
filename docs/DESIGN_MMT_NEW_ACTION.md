@@ -10,7 +10,7 @@
 > 手边六格 · 情形表）。本份是它的**动作规格**，不重复它的论证。
 >
 > **上游引用**：`PROCEED.md §2`（已裁 17 条）· `docs/DESIGN_RECALL.md`（`mmt_recall` 前身，已并入本份 §3）
-> · `docs/DESIGN_NOTE.md`（note / 索引）· `core/brain/DESIGN_GRAPH_V4.md`（图 · 边 · promise）
+> · `docs/DESIGN_NOTE.md`（note / 索引）· （图 · 边 · promise）
 
 ---
 

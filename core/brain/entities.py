@@ -266,7 +266,7 @@ def hit_set(store: WikiStoreV2, *, texts=()) -> list[str]:
     **2026-09-29 起只剩这一条通道** —— 参数 `hints=` 与 `_hint_hits` 随 R1 的
     `about_hint` 一起退役（那个字段与 R3 的"挂谁"判两次, 还可能不一致）。离线预演
     （真机 haruka 21 条 episode）: 正文通道 **22/22** 命中, 另加 tags 一条也没多救回
-    ⇒ 正文就是全部（`REDUNDANCY.md` §十）。
+    ⇒ 正文就是全部。
 
     规则: 称呼出现在 `texts` 里（短于 `MIN_HIT_LEN` 的称呼**不扫** —— 中文没有词边界）。
     **2026-10-12: 两边都过 `form_key`**（去空白 + casefold）—— 与 `find_entity` /

@@ -28,7 +28,7 @@ TYPE_BOND = "bond"
 TYPE_L2D = "l2d"
 TYPE_MARKER = "marker"
 TYPE_AFFECTION = "affection"   # 好感变化（digest 产出; 未来行为加好感同板块, subtype=行为名）
-TYPE_NOTE = "note"             # ★ 她自己的备忘录操作（2026-09-23, DESIGN_GRAPH_V4 §3.2）:
+TYPE_NOTE = "note"             # ★ 她自己的备忘录操作:
                                # append-only 的**操作**事件, 折叠成 `soul/notes.json`
                                # （派生缓存）。**不是剧情** ⇒ 见 NON_CONTENT_TYPES
 TYPE_OFFICIAL = "official_story"

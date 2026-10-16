@@ -97,4 +97,4 @@
 |---|---|
 | `docs/PROMPT_INJECTION_MAP.md` | 行号/路径停在 2026-09-07（`core/momotalk.py` ⇒ `core/mmt/engine.py`）；digest 六轮从没进过那张表 |
 | ~~`llm/task_labels.py:42` 的注释~~ | ✅ **已修（2026-10-05）**：`DIGEST_SPLIT` 从"划区间 + `keep` + `abstract`"改成"划区间 + `abstract` + 账目（`state`/`id`/`due`）" |
-| ~~`core/brain/DESIGN_GRAPH_V4.md` §8 附近的 `text ≤20 字`~~ | ✅ **已修（2026-10-05）**：改成 **≤60**（真源 `ABSTRACT_MAX` = R0 切片的 `abstract`），并注明 `closed_at`/`afterwards`/`state` 三字段已删（L6） |
+| ~~ 附近的 `text ≤20 字`~~ | ✅ **已修（2026-10-05）**：改成 **≤60**（真源 `ABSTRACT_MAX` = R0 切片的 `abstract`），并注明 `closed_at`/`afterwards`/`state` 三字段已删（L6） |

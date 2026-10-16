@@ -44,7 +44,7 @@ KINDS = ("episode", "experience", "belief", "entity")
 #: 节点的 `outcome` 字段的枚举。结局本身没消失: 它留在 note 条目的 `state` 里
 #: （真源 = `notes` 那一份词表）。
 #: `EPISTEMICS`（三值词表）**2026-09-29 退役** —— `epistemic` 字段整个删掉,
-#: 只留 `observer`。两条判据（`REDUNDANCY.md` #3）:
+#: 只留 `observer`。两条判据:
 #: ① **与 `observer` 互为函数**（非空 ⟺ reported ⇒ 同一件事两个字段说）;
 #: ② **跨 kind 两个意思**（episode 上它是"来源", belief 上它是"别伪装成事实"——
 #:    而 belief 那一半其实是 `kind` 已经说过的话）。
@@ -168,7 +168,7 @@ class BrainNode:
     #: **`examples` 2026-10-14 随 `profile` 删** —— 它的三个读者**全部**只在
     #: `kind == "profile"` 时才走（`render._organize_extra` / `recall._embed_text` /
     #: `pack.body_of`）⇒ 那个 kind 一死, 这格**零读者**; 而它唯一的产路（R2 的 `add
-    #: example`）2026-09-29 就断了（`REDUNDANCY.md` #4/#18）。真机上唯一带值的那条是
+    #: example`）2026-09-29 就断了。真机上唯一带值的那条是
     #: belief `e0001`（从旧 `experience` 迁过来的）, 内容是死数据, **不迁移、不报错**。
     growth: str = ""
     # ── entity 专属（§3.0; `text` 与 `state` 是它的两个载荷）──
@@ -254,7 +254,7 @@ class BrainNode:
 
     # `is_player_profile` 属性 2026-10-14 **随 `profile` 删** —— 它最后就长成
     # `self.kind == "profile"` 一句（**判据按 kind, 不看 `subject`**）。
-    # **那条教训留着**（`DESIGN_GRAPH_V4 §5.1`, 2026-09-25）: 这个属性原来还要求
+    # **那条教训留着**（2026-09-25）: 这个属性原来还要求
     # `subject == "player"`, 而 `subject` 是**自由文本** ⇒ 真机 haruka 那条
     # （`subject="关于 我道歉的习惯"`）**四个桶全不收**: 内容写在盘上、却从来不进她的
     # 上下文。⇒ **可见性不许挂在一个自由文本字段上** —— 今天 `entity`/`belief` 的分桶

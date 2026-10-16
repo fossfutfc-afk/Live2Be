@@ -750,7 +750,7 @@ def parse_attribution(raw: Any, *, known_names: set[str] | None = None,
 # 内部清洗（宁缺勿错: 坏项丢弃 + 报错; 质量项 warning 不阻断）
 # ============================================================================
 
-#: `links` 允许的 rel（**只有这三种** —— 见 DESIGN_GRAPH_V4 §2 的边表）。
+#: `links` 允许的 rel（**只有这三种** —— 见边表）。
 #: ⚠️ 别加 `about`（⛔ **它不由 LLM 写**: 引擎从节点 `tags` 里的 `#entity:` 派生）·
 #: 别加 `source` / `formed_by` / `from` / `to`（都随 promise 退图一起删了）。
 #: ⭐ `supports` 在 `links` 这里**只认"看法 → 看法"那一种形状** ——
@@ -1268,7 +1268,7 @@ def _clean_episode_item(e: dict, i: int, errors: list[str], warnings: list[str],
     # ⚠️ 节点上的 `topics` 字段**留着**（停产不删格式）: 老档那几格还读得回来。
     # ⏸ `about_hint`（归属线索）与 `items`（物品台账）两个字段 2026-09-29 退役 ——
     # 这里不再有清洗代码: **白名单外的键本来就不落库**。（前者与 R3 的"挂谁"判两次,
-    # 见 `core/brain/REDUNDANCY.md` #2。）
+    # 见 。）
     sig = e.get("significance")
     try:
         sig_f = float(sig) if sig is not None else 0.5
@@ -1296,7 +1296,7 @@ def _clean_episode_item(e: dict, i: int, errors: list[str], warnings: list[str],
             continue
         item[fname] = max(lo, min(hi, v))       # 越界**夹紧**（不丢弃——值仍可用）
     # 来源: 非空 = 听说的 + 转述者是谁; 空 = 亲历。
-    # ⏸ `epistemic` 已退役（与 observer 互为函数, 见 `REDUNDANCY.md` #3）—— 旧 prompt 缓存
+    # ⏸ `epistemic` 已退役（与 observer 互为函数）—— 旧 prompt 缓存
     # 里还带着它的话只**提一句**不落库（值与 observer 重复, 信息没丢, 不废整包）。
     if e.get("epistemic") not in (None, ""):
         warnings.append(f"episodes[{i}].epistemic 字段已退役——只填 observer（忽略）")

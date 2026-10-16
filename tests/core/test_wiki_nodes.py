@@ -1,4 +1,4 @@
-"""图式 wiki 节点数据结构测试（AGENT_BRAIN.md §1 / M1）。"""
+"""图式 wiki 节点数据结构测试。"""
 import json
 
 from core.brain import (

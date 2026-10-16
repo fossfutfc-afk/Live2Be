@@ -1,4 +1,4 @@
-"""pipeline.py — digest 管线的**编排与事务**（设计见 `core/brain/AGENT_BRAIN.md §3` / 板块 4a）。
+"""pipeline.py — digest 管线的**编排与事务**（模块→包时拆的, 板块 4a）。
 
 ⭐ **2026-09-29 搬家**: `core/brain/digest.py` → **`core/digest/pipeline.py`**（代码管理节点 B）。
 理由: `core/brain/` 是数据层（纯 stdlib 零 LLM）, 而本文件要 contract / llm / session ⇒

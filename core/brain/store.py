@@ -42,7 +42,7 @@ from core.session.io import atomic_write_json, atomic_write_lines, read_jsonl
 
 logger = logging.getLogger(__name__)
 
-#: kind → id 前缀（AGENT_BRAIN.md §2 + v4 §3.0 的 `x`; relation/fact 已砍——c 前缀退役 2026-09-02）
+#: kind → id 前缀（relation/fact 已砍, c 前缀退役 2026-09-02）
 #: `x0000`（self）/ `x0001`（sensei）是**保留号**, 见 `entities.py` —— `next_id("x")` 因此从 x0002 起。
 #: `p`（promise 节点）2026-09-29 **退役** —— promise 退图（见 `nodes.KINDS`）;
 #: 旧档里若有 `p…` 行仍读得进（`from_dict` 按 kind 降级成 episode 之外, 不炸）。
@@ -250,7 +250,7 @@ class WikiStoreV2:
         return True
 
     # ------------------------------------------------------------------
-    # 边（DESIGN_GRAPH_V4 §2.1）—— **2026-09-21 G3 起边的唯一真源**
+    # 边—— **2026-09-21 G3 起边的唯一真源**
     # ------------------------------------------------------------------
 
     def edges(self) -> list[Edge]:
@@ -397,7 +397,7 @@ class WikiStoreV2:
         return (n.to_json_line() for n in self._nodes.values())
 
     # ------------------------------------------------------------------
-    # 随身笔记（DESIGN_GRAPH_V4 §3.2）—— `notes.py` 的落盘, 只此三个出口
+    # 随身笔记—— `notes.py` 的落盘, 只此三个出口
     # ------------------------------------------------------------------
 
     def read_notes(self) -> NotesState | None:

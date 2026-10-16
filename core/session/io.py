@@ -49,7 +49,7 @@ def atomic_write_json(path: str | Path, data: dict, *, indent: int = 2) -> None:
 def atomic_write_lines(path: str | Path, lines: Iterable[str]) -> None:
     """原子写文本行（jsonl 整写用）: temp 同目录 → replace_with_retry, 行尾自动补 \\n。
 
-    与 atomic_write_json 同款中断语义——绝不半写。brain 整写（AGENT_BRAIN.md §2）。
+    与 atomic_write_json 同款中断语义——绝不半写。brain 整写。
     """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
