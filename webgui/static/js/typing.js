@@ -1,7 +1,7 @@
 // typing.js —— 逐字浮现的节奏：参数 + 计算 + 一个"顺序揭示队列"。
 //
 // 为什么要单独一个文件: 网页这一侧原本有两套节奏计算（VN 的 `SPEEDS` 打字机、MMT 的
-// `chunkTypingMs` 气泡时长），加上终端那份 `renderer/cli.py:PARA_CHAR_MS` 共三处；
+// `chunkTypingMs` 气泡时长），加上终端那份 `tui/cli.py:PARA_CHAR_MS` 共三处；
 // 2026-10-08 在 MMT 那边踩过一次坑（"本批第一条 + 队列空闲"判错 ⇒ 整批延迟恒为 0 ⇒
 // 节奏彻底消失），那段记账逻辑现在住在这里、并有 `tests/webgui/js/typing.test.js` 钉住。
 //

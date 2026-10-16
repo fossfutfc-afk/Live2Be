@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from llm.client import LLMClient
 from core.mmt.engine import MomoTalkEngine
-from core.tui.text_processors import strip_name_prefix
+from core.text import strip_name_prefix
 
 PAIRS = [
     ("hinomiya_chinatsu", ["老师想听听你对『风纪』的看法，请详细说说。"]),

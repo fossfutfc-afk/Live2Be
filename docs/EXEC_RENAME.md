@@ -29,7 +29,8 @@ import 方向：`contract → infra → llm → engine → tui / webgui / cli`�
 | # | 决定 | 理由 |
 |---|---|---|
 | ① | `contract/` 那 11 个平铺件**不分族** | 一共 1149 行，一屏看得完；新增件按 `contract/__init__.py` 归类 |
-| ② | `core/tui/` 的三件**平铺在 engine 根**：`engine/display.py`（`MomoTalkOutput`）· `engine/streaming.py`（`DisplayStep`/打字节奏）· `engine/text.py`（纯文本件） | `engine/mmt/engine.py` 与 `engine/session/renderer.py` 直接 import 它们 ⇒ 它们**不能进顶层 `tui/`**，否则 `engine ↔ tui` 成环（`tui` 侧已有 3 处 `→ core.media.catalog`） |
+| ② | `core/tui/` 的三件**平铺在 engine 根**（第 2 步时那个包还叫 `core` ⇒ 先落到 `core/` 根，
+第 3 步改名后自然成为 `engine/` 根）：`engine/display.py`（`MomoTalkOutput`）· `engine/streaming.py`（`DisplayStep`/打字节奏）· `engine/text.py`（纯文本件） | `engine/mmt/engine.py` 与 `engine/session/renderer.py` 直接 import 它们 ⇒ 它们**不能进顶层 `tui/`**，否则 `engine ↔ tui` 成环（`tui` 侧已有 3 处 `→ core.media.catalog`） |
 | ③ | `tui/core.py` → **`tui/renderer.py`** | 它是 `Renderer`/`RenderOutput` 那台管线；`tui/core.py` 这个名字读不出信息 |
 | ④ | `tests/` **只跟着改名**（`tests/core/`→`tests/engine/`、`tests/renderer/`→`tests/tui/`） | 归属重划要逐个读约 10 个跨包守门测试判它测谁，单开一刀 |
 
@@ -68,9 +69,9 @@ import 方向：`contract → infra → llm → engine → tui / webgui / cli`�
 | `llm/.md` · `contract/.md` | 正文里提到的包名 |
 | 各包 `.md` | 每个包补一份说明（照 `llm/.md` 的约定，每份不超过一页） |
 
-⚠️ 时机：**测试目录要到第 3 步才跟着改**（`tests/core/`→`tests/engine/`、`tests/renderer/`→`tests/tui/`）。
-所以上表里的 `tests/<域>/…` 在前两步仍是 `tests/core/…`（今天没有 `tests/apps/`，第 1 步只碰
-`tests/core/test_vn_cli.py`）。
+⚠️ 时机：**测试目录跟着它测的包走** —— `tests/core/` 要到第 3 步才变 `tests/engine/`，
+而 `tests/renderer/` 在第 2 步就跟着变成 `tests/tui/`。所以上表里的 `tests/<域>/…`：
+第 1 步只碰 `tests/core/test_vn_cli.py`，第 3 步才动 `tests/core/` 整个目录名。
 
 ## 5. 坑（改名特有）
 

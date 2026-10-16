@@ -7,8 +7,14 @@ BondStoryOutput — 视觉小说: 累积全文, 按段落分割, UI 层控制打
     Engine 负责: 调 LLM + 管理会话历史
     Display 负责: 如何把 token 流变成可显示单元
 
+同族三件（2026-10-15 从 `core/tui/` 拆平到 core 根；纯逻辑、零引擎依赖，供 engine /
+webgui / CLI / 实验脚本复用）:
+    display.py    本文件——三种渲染策略
+    streaming.py  LineBuffer 断句 + TypingDelay 打字延迟
+    text.py       MomoTalk 文本处理（去括号 / 断句 / 前缀格式化）
+
 用法:
-    from core.tui.display import MomoTalkOutput, BondStoryOutput
+    from core.display import MomoTalkOutput, BondStoryOutput
 """
 
 from __future__ import annotations
@@ -17,8 +23,8 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
-from core.tui.streaming import DisplayStep, LineBuffer, TypingDelay, chunk_typing_time
-from core.tui.text_processors import (
+from core.streaming import DisplayStep, LineBuffer, TypingDelay, chunk_typing_time
+from core.text import (
     _strip_action_brackets,
     format_momotalk_bubble,
     split_reply_chunks,

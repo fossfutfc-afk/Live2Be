@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import time
 
-from renderer.core import RenderOutput
+from tui.renderer import RenderOutput
 
 #: 打字节奏（毫秒/字）; 测试传 char_ms=0 跳过动画（公开——vn_cli 签名默认引用）
 PARA_CHAR_MS = 40

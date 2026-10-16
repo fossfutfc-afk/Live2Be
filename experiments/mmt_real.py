@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from llm.client import LLMClient
 from core.mmt.engine import MomoTalkEngine
-from core.tui.streaming import simulate_steps
+from core.streaming import simulate_steps
 
 CHARACTER = "igusa_haruka"
 

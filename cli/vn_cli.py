@@ -5,9 +5,9 @@ main.py 在 result.bond_story 触发后调用 run_bond_story_vn:
     → story_end 收尾或 b 退出 → 回到 MomoTalk 正常对话。
     每场 append type=bond 事件进事件流（docs/archive/DESIGN_SAVE.md §4.2）; 回放从事件流过滤。
 
-UI 行为（渲染收编 renderer/, 2026-08-28 M1 迁移）:
-    - 渲染统一走 renderer 管线（DESIGN_RENDERER.md）: RenderScene.from_live(BondScene)
-      → Renderer.render → renderer/cli.py 渲染（背景标签/表情标注/特效符号/打字机）
+UI 行为（渲染收编 tui/, 2026-08-28 M1 迁移）:
+    - 渲染统一走 tui 管线（DESIGN_RENDERER.md）: RenderScene.from_live(BondScene)
+      → Renderer.render → tui/cli.py 渲染（背景标签/表情标注/特效符号/打字机）
     - 每段逐字打字（任意键跳过动画直接显示全文）
     - 有选项 → 打印 1..N, 玩家输入编号选择
     - 无选项 → 玩家自由输入一句话推进
@@ -36,16 +36,16 @@ from core.session.events import (
     M_VN_STATE,
     make_event,
 )
-from core.tui.streaming import simulate_steps
+from core.streaming import simulate_steps
 from llm.image_gen import ImageGenerator, collect_ref_images
-from renderer import Renderer, RenderScene
-from renderer.cli import PARA_CHAR_MS, read_choice, read_free_input, render_scene
+from tui import Renderer, RenderScene
+from tui.cli import PARA_CHAR_MS, read_choice, read_free_input, render_scene
 
 logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# 单场景渲染（委托 renderer 管线——背景/表情/特效/打字/选项全部收编）
+# 单场景渲染（委托 tui 管线——背景/表情/特效/打字/选项全部收编）
 # ---------------------------------------------------------------------------
 
 def _speaker_names(char) -> dict[str, str]:
@@ -191,7 +191,7 @@ def run_bond_story_vn(
     except Exception:                                # noqa: BLE001 — 灌窗失败不阻断
         pass
 
-    # 渲染器（M1 收编）: 本场 VN 共用——背景查库/差分意图/特效/打字/选项全部走 renderer 管线
+    # 渲染器（M1 收编）: 本场 VN 共用——背景查库/差分意图/特效/打字/选项全部走 tui 管线
     renderer = Renderer(char.character_id)
 
     print("\n" + "═" * 40)

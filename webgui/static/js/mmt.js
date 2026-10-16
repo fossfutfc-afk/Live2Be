@@ -175,7 +175,7 @@ const POLL_MS = 1000;          // 轮询间隔（宽限窗口/空闲态）
 const POLL_MS_BUSY = 250;
 const POLL_RESUME_GRACE_MS = 25 * 1000;   // VN 退出后继续轮询的宽限窗口
 
-// ── 气泡节奏 = **CLI `LineBuffer` 的搭档 `TypingDelay` 同款**（`core/tui/streaming.py`）──
+// ── 气泡节奏 = **CLI `LineBuffer` 的搭档 `TypingDelay` 同款**（`core/streaming.py`）──
 // 后端从 ⑥-3a 起**逐条**落气泡，但真机一轮 8 条会在几百毫秒内到齐（她"想完一口气
 // 写完"：日志 `mmt_stream_first ms=9718` / `mmt_turn ms=10108` ⇒ 8 条挤在最后 390ms）
 // ⇒ 同帧涌出 = "爆开"。前端照 CLI 那一套逐条放（2026-10-07 用户裁决：

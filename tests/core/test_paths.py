@@ -223,7 +223,7 @@ def test_no_writes_under_readonly_roots():
     真正有意义的运行时验收只能等 frozen 构建 —— 记在 PROCEED, 别在这儿假装做到了。
     """
     bad: list[str] = []
-    scan = ("core", "infra", "webgui", "llm", "contract", "cli", "renderer")
+    scan = ("core", "infra", "webgui", "llm", "contract", "cli", "tui")
     for d in scan:
         for p in (ROOT / d).rglob("*.py"):
             if "__pycache__" in p.parts:

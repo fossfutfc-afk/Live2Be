@@ -11,9 +11,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-from core.tui.display import MomoTalkOutput
-from core.tui.streaming import simulate_steps
-from core.tui.text_processors import _process_for_momotalk
+from core.display import MomoTalkOutput
+from core.streaming import simulate_steps
+from core.text import _process_for_momotalk
 
 
 def main() -> None:

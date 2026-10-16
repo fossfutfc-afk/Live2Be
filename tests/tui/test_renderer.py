@@ -1,4 +1,4 @@
-"""renderer/ 单测 — 输入规范化 / 背景 / 差分 / 特效 / 管线同构 / CLI / 播放层。
+"""tui/ 单测 — 输入规范化 / 背景 / 差分 / 特效 / 管线同构 / CLI / 播放层。
 
 策略（DESIGN_RENDERER.md §十一）:
     背景解算: scene_id → 图/过渡; 缺失 → 保持; 相同 → 不切换
@@ -8,13 +8,13 @@
     同构验证: 同一场景 dict 走 from_live 与 from_event → RenderOutput 一致
     CLI 输出: 标签/特效符号/选项渲染
 
-运行: python -m pytest tests/renderer/test_renderer.py
+运行: python -m pytest tests/tui/test_renderer.py
 """
 import sys
 from pathlib import Path
 
 from core.media.catalog import MediaCatalog
-from renderer import (
+from tui import (
     AudioRequest,
     BackgroundResolver,
     BackgroundResult,
@@ -24,7 +24,7 @@ from renderer import (
     RenderState,
     SpriteResolver,
 )
-from renderer.cli import _fx_symbol, render_choices
+from tui.cli import _fx_symbol, render_choices
 
 # ----------------------------------------------------------------------------
 # 假资产（与 tests/core/test_media.py 同构——tmp 目录免真实 assets 依赖）
@@ -277,7 +277,7 @@ def test_cli_render_choices(capsys):
 
 
 def test_cli_read_choice_and_free():
-    from renderer.cli import read_choice, read_free_input
+    from tui.cli import read_choice, read_free_input
     assert read_choice(["A", "B"], input_fn=lambda p: "2") == "B"
     assert read_choice(["A"], input_fn=lambda p: "b") is None
     # 无效输入重试（第一次 "9" 无效 → 第二次 "1" 有效）
