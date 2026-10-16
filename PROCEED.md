@@ -3,8 +3,9 @@
 > ⚠️ **本文件不记 `ahead` 数**（写死过两次、两次都对不上）—— 真源 = `git status -sb` 与 `git log -1`。
 > ⚠️ **`git status` 里常年挂着一份"作者手改未提交"的文件**（本章 = `config/settings/relation/interperson.yml`
 > 的立场句重排）—— 那是**作者的改动, ⛔ 不是脏改动**, 别 `checkout` 掉。
-> 现状：`tests/core` **1268 passed** · `tests/llm+renderer+webgui` **203 passed**（⚠️ **按域分开跑**, 见 §5 坑 4）·
-> 三份 verifier 全 exit 0 · 真机数据未动。
+> 现状：`tests/core` **1277 passed** · `tests/llm+tui+webgui` **208 passed**（⚠️ **按域分开跑**, 见 §5 坑 4）·
+> 三份 verifier 全 exit 0 · ruff **373**（基线）· 真机数据未动。
+> ⚠️ **测试目录 `tests/renderer/` 已改名 `tests/tui/`**（2026-10-15，跟着 `renderer/`→`tui/`）。
 
 ---
 
@@ -167,7 +168,8 @@ python experiments/recall_report.py
 1. 跑测试必须带 `--basetemp=.testtmp/_pytemp -o cache_dir=.testtmp/_pcache`（`%TEMP%` 权限坏）。
 2. 解释器 `C:\Users\johnf\miniconda3\envs\live2be\python.exe`；ruff 在 `…\envs\live2be\Scripts\ruff.exe`。
 3. ⛔ **别用 `ruff --select … --fix`**（`--select` 覆盖 pyproject ⇒ 批量删掉有效的 `# noqa`）。
-4. **四个域塞进一个 pytest 进程会互相干扰** ⇒ `tests/core` 一条命令、`tests/llm tests/renderer tests/webgui` 另一条。
+4. **四个域塞进一个 pytest 进程会互相干扰** ⇒ `tests/core` 一条命令、`tests/llm tests/tui tests/webgui` 另一条
+   （`tests/renderer/` 2026-10-15 已改名 `tests/tui/`）。
 5. ⚠️ **`git show HEAD:<file>` 是 LF、工作区是 CRLF**（autocrlf）—— 验行尾**只看工作区文件**;
    `write`/`Set-Content` 之后必须 `check_eol.py`（`edit` 工具不会改混）。
 6. PowerShell 会吃掉 `-c` 里的嵌套引号 ⇒ 脚本一律写成 `.testtmp/*.py`；`git commit` 一律 `-F 消息文件`。
@@ -213,6 +215,37 @@ python experiments/recall_report.py
 
 ---
 
+## 5b. 线 B（包重组）这一轮的坑 —— 换我来做的时候先读这段
+
+**顶层已定（改名收工）**：`cli` · `contract` · `core` · `infra` · `llm` · `tui` · `webgui`（+ `tests/`）。
+层次 `contract → infra → llm → core → tui/webgui/cli`。⛔ **`core` 不改名**（裁决见 `docs/EXEC_RENAME.md` §8）；
+⛔ **`core → tui` 必须保持不存在**（决策 ②：引擎要的展示数据留在 `core/{display,streaming,text}.py`）。
+
+1. ⭐ **改名代价要按"出现次数"数，不是按"import 行数"数** —— 同一个包两个口径差 2.5 倍
+   （`core`→`engine`：556 行 vs ≈1400 处）。第 1 步也是（计划 4 处 / 实际 42 处）。
+   数的时候别忘：**logger 名字符串** · `ROOT / "core" / …` 路径构造 · 守卫表里的字面量 ·
+   `start.ps1` 这类**启动脚本里的命令** · `experiments/` 与 `l2d-demo/`（常规 survey 会把它们排除）。
+2. ⭐ **通用改名脚本的"裸点名 `X.y`"规则默认关**（`.testtmp/rename_pkg.py`，要加 `--dot`）。
+   本仓有三个同名陷阱：`core/session/renderer.py`（与 `renderer/` 包同名）· `cli/vn_cli.py` 里的
+   **局部变量** `renderer` · pixi 的 `app.renderer`。开之前先 grep 一遍同名物。
+3. **散文里列举的包名脚本抓不到**（`core / llm / webgui / renderer` 这种斜杠分隔、没有 `.`/`/`
+   紧贴的写法）⇒ 应用后必须再 grep 一遍**裸词**，逐条判。箭头写法（`core→renderer`）同理。
+4. **删包/删门面时目录也要删干净**（连 `__pycache__`）：只删 `__init__.py` 的话 Python 会把那个
+   目录当**命名空间包**，`import core.tui` 照样成功 —— "名字消失"是假的。
+5. **`infra/settings.raw()` 不缓存、每次重读**（⛔ 别再加 mtime+size 缓存：同长度的改写落在同一个
+   mtime 刻度里会读到旧值，这个洞是我自己的测试抓出来的）。`settings.reset()` 与 `recall_config.reload()`
+   已随之删除。
+6. **前端能测**：`node` 在（v24）。`node --check <file>` 可当语法兜底；纯逻辑单测走
+   `tests/webgui/js/*.test.js`（`node --test`），外层包一层 `tests/webgui/test_typing_js.py`
+   （没 node 就 skip）。前端契约守门 = `tests/webgui/test_frontend_contract.py`（fx 名两边对齐）。
+7. **每个包有一份 `.md`**（约定：作用 + 核心文件 + 纪律，≤1 页）：已有 `contract/` `infra/` `llm/`
+   `tui/` `cli/` `core/`；⚠️ **`webgui/` 还没有**，`core/.md` 是 2026-10-15 新写的。
+8. **每步验收固定**：`ruff check .` 对齐 373（改名后 import 顺序乱了用 `ruff check --select I001 --fix`，
+   它只动 import 块）· 两域测试 · 三份 verifier · `.testtmp/layers.py` 的层间账 · `api_surface.txt` 刷新
+   （改名是"净中性"：删多少增多少）· 一个提交。
+
+---
+
 ## 6. 等你拍 / 已裁"不做"（别自己捡回来）
 
 - **拍**：要不要先跑真机端到端（§2.1）· 要不要现在推 push（§2.3）。
@@ -220,3 +253,9 @@ python experiments/recall_report.py
   `profile` 已删格式 · `topics` 只停产不删格式 · 撤回边不做（缺口见 §2.2）· 撤回/删证据不做 ·
   召回折叠演化链"以后再说" · ⛔ **belief 正文不原地改**这条**已被推翻**（今天起: 差不多就覆写,
   旧的那句不再成立才 `evolved_from`）。
+- **线 B 已裁不做**：`core`→`engine` 改名（§5b 第 1 条有代价）· `contract/` 那 11 个平铺件分族 ·
+  `tests/` 归属重划 · `bond.js` 拆分（作者：那坨山暂时不拆）· `err404.html` 的 CSS 抽出（页面已被蓝屏取代）。
+- **线 B 还没做**（都可选）：文档那一趟（`CLAUDE.md` / `README.md` / `TODO.md` / `docs/*` 里的旧包名
+  `apps/` `renderer/` `core/common` `contract/schema.py` —— 代码/测试/命令侧已经改完，只剩这些文档）·
+  `webgui/store.DEFAULTS` 与各领域默认值"两处写" · 要不要把 `cli` 加进 `test_paths._SCAN_DIRS` ·
+  `webgui/.md` 还没写 · `infra/settings.py` 那 9 个读者的**默认值**还留在各自领域模块（有意）。
