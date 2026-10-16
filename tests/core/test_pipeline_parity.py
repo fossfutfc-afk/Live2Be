@@ -342,8 +342,8 @@ def test_late_violation_is_advisory_in_stream_only():
 # ---------------------------------------------------------------------------
 
 def test_stream_logs_block_issue_text_for_greppability():
-    """流式也打**块级问题文本**: CLAUDE.md §12 教人 `grep "含 memorial 但没有 art"`
-    来量 art 配对命中率——而生产走流式, 那行以前只打数量。
+    """流式也打**块级问题文本**: "软问题串要能 grep"那条（`AGENTS.md`「产品决策」）教人
+    `grep "含 memorial 但没有 art"` 来量 art 配对命中率——而生产走流式, 那行以前只打数量。
 
     这条是**块级 advisory**: `art` 配对单板判不了（memorial 可能在本块后段才出现）
     → 板级闸不管它 → 交付照旧 + 文本进日志。

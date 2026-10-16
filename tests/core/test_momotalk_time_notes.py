@@ -112,7 +112,7 @@ def test_no_store_skips_time_notes(tmp_path):
 def test_vn_brain_segment_carries_time_but_no_phone(tmp_path):
     """★ VN 侧（`load_brain_segment`）也得有**现实间隔**, 但**不给手机日期**。
 
-    VN 无自由打字通道（`CLAUDE.md §6.3`）→ 玩家问不出"今天几号" → 注了只污染创作。
+    VN 无自由打字通道（产品决策, 见 `AGENTS.md`）→ 玩家问不出"今天几号" → 注了只污染创作。
 
     2026-09-17（时间轴换代）: 原断言"VN 有**剧情时间**注记"已作废 ——
     剧情时间注记整条删除; VN 现在只剩**现实间隔**（壁钟派生, 同源）。

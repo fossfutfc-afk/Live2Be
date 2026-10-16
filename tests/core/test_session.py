@@ -369,7 +369,7 @@ def test_render_timeline_indexed():
 
 
 def test_digest_record_prompt_matches_index_format():
-    """镜像防漂移（CLAUDE.md §12）: prompt 描述的形态必须与渲染器**同源**。
+    """镜像防漂移（`AGENTS.md`「产品决策」）: prompt 描述的形态必须与渲染器**同源**。
 
     2026-09-15 之前这里是 `每行 [seq N]`——而渲染器的 `[seq N]` 前缀**从未被消费**
     （`event_seq` 被丢弃 + 被覆写成常量）。现在两侧都换成记录级索引,

@@ -151,7 +151,7 @@ def test_specs_is_the_iteration_path_and_specs_are_never_none():
 
 
 def test_examples_are_valid_json_objects():
-    """⭐ 示范本身必须合法——`示例才是形状的来源`（CLAUDE.md §8），形状错了模型照抄。"""
+    """⭐ 示范本身必须合法——`示例才是形状的来源`（见 `AGENTS.md`「契约与文案」），形状错了模型照抄。"""
     text = build_line_schema(build_mmt_registry())
     rows = _example_lines(text)
     assert len(rows) >= 4, rows

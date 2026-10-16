@@ -30,7 +30,7 @@ from core.worldtime.age import REAL_TZ, parse_ts
 
 logger = logging.getLogger(__name__)
 
-#: 通道3 参数（per 角色可配——天然呆角色 σ 大, 呼应 CLAUDE.md 衰减系数设计）
+#: 通道3 参数（per 角色可配——天然呆角色 σ 大, 即下面 MU/SIGMA 该按角色调）
 PRECIOUS_RATIO = 0.3        # 珍贵分支概率
 MU = 0.0                    # 对数正态位置（age 小时的对数）
 SIGMA = 1.5                 # 对数正态尺度（衰减快慢）
