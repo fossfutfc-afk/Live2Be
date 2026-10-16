@@ -1,4 +1,4 @@
-"""`entities.py` 的测试（DESIGN_GRAPH_V4 §3.0 · **D0** / §8.3 · **D2a**）。
+"""`entities.py` 的测试（**D0** / **D2a**）。
 
 只留五条 —— 一条钉"字段形状与 kind 不被归一"（§3.0 埋的那个坑），
 一条钉 `ensure_entities` 的行为（保留号 + 幂等 + 不写盘），
@@ -106,7 +106,7 @@ def test_candidate_table_is_identity_only(tmp_path):
 def test_hit_set_rules_and_short_alias_floor(tmp_path):
     """命中集 = 正文提及, **确定性**; 单字称呼不扫正文（否则命中一切）。
 
-    ⭐ 2026-09-29（`REDUNDANCY.md` #22）: `hints=` 参数随 `about_hint` 一起退役 ——
+    ⭐ 2026-09-29: `hints=` 参数随 `about_hint` 一起退役 ——
     那两路（hint 精确 / 正文包含）说的是同一件事, 而 hint 那路的唯一写者已经没了。
     """
     st = _store(tmp_path)

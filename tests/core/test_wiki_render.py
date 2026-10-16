@@ -1,4 +1,4 @@
-"""render.py 渲染视图测试（AGENT_BRAIN.md §4 / M2）。
+"""render.py 渲染视图测试。
 
 组织视图的节点必须带 id（真实流程由 store.add 分配）——测试用 _ids 助手分配。
 角色视图不依赖 id（渲染中从不出现）。

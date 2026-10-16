@@ -1,4 +1,4 @@
-"""render.py — 渲染视图（AGENT_BRAIN.md §4 / M2 + 板块5）。
+"""render.py — 渲染视图。
 
 同一张图, 多种渲染（视图分工）:
     组织视图    render_organize_view    —— 喂 digest/组织 LLM
@@ -202,13 +202,13 @@ def _bucket_view(nodes: Iterable[BrainNode], graph=None) -> dict:
         # 原 "seed" 桶（`source == "experience"`）2026-09-21 删——出厂记忆不进 wiki,
         # 真机零节点, 见模块 docstring。
         # 2026-09-29: 「亲历 / 听说」的判据从 `epistemic` 搬到 **`observer` 空不空**
-        # （字段退役, `REDUNDANCY.md` #3）—— 分桶结果逐条相同: 非空 observer ⟺ 听说的。
+        # （字段退役）—— 分桶结果逐条相同: 非空 observer ⟺ 听说的。
         "episode": lambda n: (n.kind == "episode"
                               and not n.observer.strip()),
         "belief": lambda n: n.kind == "belief",
         # **原 "player" 桶（`kind == "profile"`, 渲染成「老师的事：」）2026-10-14 删** ——
         # 玩家画像那个 kind 整个退役（见 `nodes.KINDS`）, 那一块**永远空**。
-        # 它当年那条判据的教训留着（`DESIGN_GRAPH_V4 §5.1`）: 桶按 **kind** 收,
+        # 它当年那条判据的教训留着: 桶按 **kind** 收,
         # **不看 `subject`** —— 拿自由文本当路由会让"subject 被写坏"变成
         # "这条记忆静默消失"（真机 haruka e0001 就是那么丢的）。
         "reported": lambda n: (n.kind == "episode"

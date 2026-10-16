@@ -1,4 +1,4 @@
-"""recall.py 召回测试（AGENT_BRAIN.md §6 / M4 + 板块5 候选推荐）。"""
+"""recall.py 召回测试（板块5 候选推荐）。"""
 import random
 from datetime import datetime, timedelta
 

@@ -1,4 +1,4 @@
-"""digest_registry 测试（AGENT_BRAIN.md §3 重构 / 板块 2）——LLM 契约层单源。"""
+"""digest_registry 测试——LLM 契约层单源。"""
 import pytest
 
 from contract.digest import (
@@ -611,7 +611,7 @@ def test_round_a_position_fields_are_retired():
 
 
 def test_round_a_verbatim_is_record_indices_only():
-    """★ `verbatim` **只有记录行号一条通道**（文本通道 2026-09-29 退役, `REDUNDANCY.md` #6）。"""
+    """★ `verbatim` **只有记录行号一条通道**（文本通道 2026-09-29 退役）。"""
     # ① 记录行号 → 落 verbatim_seq（此时还没有文本——解析要事件流, 在 digest.py）
     items, result = digest_registry.parse_round_a(
         {"episodes": [_ep(verbatim=["28.3", "20.p", "30"])]}, seq_set={28, 20, 30})
@@ -707,7 +707,7 @@ def test_round_a_about_hint_retired():
     """⏸ `about_hint` **2026-09-29 退役** —— schema 里不许再出现, parse 也不认它。
 
     退役理由: 与 R3 的"挂谁"**判两次**（R1 猜一次、R3 再判一次, 还可能不一致）,
-    而 R3 本来就有全量候选表 + 新节点正文 ⇒ 引擎不必替它预判（`REDUNDANCY.md` #2）。
+    而 R3 本来就有全量候选表 + 新节点正文 ⇒ 引擎不必替它预判。
     ⚠️ 这条是**反向守门**: 防它（或 `items` 那种同款）悄悄长回契约里。
     """
     text = digest_registry.build_schema(PHASE_RECORD)

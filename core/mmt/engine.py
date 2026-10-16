@@ -344,7 +344,7 @@ def _ensure_char_entities(wstore: WikiStoreV2, char, character_id: str, *,
 def load_note_segment(store: SessionStore, char_id: str, *,
                       wstore: WikiStoreV2 | None = None,
                       events: list | None = None) -> str:
-    """随身笔记注入块（DESIGN_GRAPH_V4 §3.2; 0 LLM）—— **常驻层**, 每轮都在。
+    """随身笔记注入块（0 LLM）—— **常驻层**, 每轮都在。
 
     它是**当前值不是事件**: 固定标题（"这是你自己记的, 不是别人给你的任务"）+
     固定顺序（约定 → 最近在想）, ⚠️ **不进按时间排序的记忆流**
