@@ -30,7 +30,7 @@ REL_CONTRADICTS = "contradicts"      # 同层之间（她后来发现不对; **�
 #: 翻的时候真机**零条**这种边（`contradicts` / `evolved_from` 到今天都没写过）
 #: ⇒ **没有老档要迁移**; 旧档里若真有"新 → 旧"的行, 读出来方向就是反的（记着这条）。
 REL_EVOLVED_FROM = "evolved_from"
-#: ⏸ `formed_by`（promise → episode）· `from` / `to`（promise → entity）**2026-09-29 删** ——
+#: `formed_by`（promise → episode）· `from` / `to`（promise → entity）**2026-09-29 删** ——
 #: 它们唯一的起点 kind 是 `promise`，而 **promise 退出了图**（承诺太轻,
 #: 不足以长期记录 ⇒ 留在 note 当工作记忆, 见 `notes.SLOT_PINNED`）。
 #: 判据与当年删 `source` 边同一条: **起点 kind 没了 ⇒ 这些边永远不会有走法**。
@@ -105,11 +105,11 @@ KIND_EXPERIENCE = "experience"
 #: 指着（§9-8）。`promise` 2026-09-29 摘掉（它退出了图）。
 #: `experience`（经验; 原 `group`）**加进来** —— 经验也能归属 entity（"苔藓"属于老师那条线）。
 #: 今天**零写者**（要 L2 才写），这是"先开接口、别锁死"。
-#: ⏸ `profile`（玩家画像）**2026-10-14 摘掉** —— 整个 kind 删格式（见 `nodes.KINDS`）。
+#: `profile`（玩家画像）**2026-10-14 摘掉** —— 整个 kind 删格式（见 `nodes.KINDS`）。
 _ABOUTABLE = ("belief", "episode", "experience")
 #: 认知侧（`supports` 的 dst）: 她的结论（"稳定下来的东西"）
 #: **经验不在这里** —— 见 `KIND_EXPERIENCE` 的注释。
-#: ⏸ `profile` **2026-10-14 随 kind 删** —— 当年它在这里的理由是"画像也是稳定下来的东西"。
+#: `profile` **2026-10-14 随 kind 删** —— 当年它在这里的理由是"画像也是稳定下来的东西"。
 _COGNITION = ("belief",)
 
 

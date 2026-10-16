@@ -39,7 +39,7 @@ SIGMA = 1.5                 # 对数正态尺度（衰减快慢）
 EmbedFn = Callable[[list[str]], list[list[float]]]
 
 #: 每 episode 最多带几个候选 —— **这是"给几条提示", 不是阈值**。
-#: 2026-09-15（T17）: `CAND_HIGH` / `CAND_MED` **已删**（用户裁决"cand_high 相关全删掉"，
+#: 2026-09-15（T17）: `CAND_HIGH` / `CAND_MED` **已删**（"cand_high 相关全删掉"，
 #: 落地 DESIGN_WIKI_V3 的 Q11/Q31/Q32）。三条理由，都不是口味问题:
 #:
 #: 1. **阈值从来不是标定出来的**。Q11 实测: nomic 下"无关经历"(0.868) 比"相关经历"
@@ -55,7 +55,7 @@ EmbedFn = Callable[[list[str]], list[list[float]]]
 #: 判断留给 LLM，而且**判 add 要在 note 里说明理由**（写进 Round B prompt）。
 CAND_K = 3                  # 每 episode 最多候选数
 
-#: ⭐ N5（2026-09-29）: **MMT 每轮"你想起的事"**摆几条（`[recall].turn_k`）。
+#: N5（2026-09-29）: **MMT 每轮"你想起的事"**摆几条（`[recall].turn_k`）。
 #: 为什么是 2 而不是更多: 这一段进的是**主对话每轮**的动态尾, 与 `cand_k`（喂给
 #: digest 的提示）不同 —— 摆多了她会"每轮都在回忆", 而这一段的全部价值是
 #: "当下 ↔ 某一条旧事"的**具体关联**（`DESIGN_MMT_NEW_ACTION §3.7`）。
@@ -145,7 +145,7 @@ def recommend_candidates(store: WikiStoreV2, query: str, *,
     | 调用者 | `kinds` | 要什么 |
     |---|---|---|
     | digest Round B（本函数的原职） | `belief` / `experience` | "这条新经历该并入哪条已有认知" |
-    | ⭐ **MMT 每轮想起**（N5, `recall_episodes`） | `episode` | "此刻这句话让她想起哪条旧事" |
+    | **MMT 每轮想起**（N5, `recall_episodes`） | `episode` | "此刻这句话让她想起哪条旧事" |
 
     打分与降级**两边同一份**（这正是它值得收成一个函数的原因）: 语义（embed_fn）
     → 故障/缺省退**词面**（tags ∩ + subject 命中 + 正文 2-gram Dice, 保守——
@@ -155,10 +155,10 @@ def recommend_candidates(store: WikiStoreV2, query: str, *,
     把最像的几条**列出来给 LLM 参考**（A-MEM/AgentGal 同款"引擎先筛再让 LLM 逐条判定"）。
     那时只挑稳定认知（belief）——episode 是流水不参与组织, fact 是
     出厂基座不可被 touch/update（守 revise._ensure_cognition 语义）。
-    ⚠️ **候选只是提示, 没有阈值、也没有结构强制**（2026-09-15 T17 删 `CAND_HIGH`）:
+    **候选只是提示, 没有阈值、也没有结构强制**（2026-09-15 T17 删 `CAND_HIGH`）:
     排序取 top-k, `s > 0` 挡掉零/负相似; 判 touch/update/add 全在 LLM。
     `add` 需在 note 里说明理由（写进 Round B prompt）。理由见 `CAND_K` 上方注释。
-    ⚠️ **N5 起 `kinds` 可换**, 但上面那条"episode 不参与组织"**没有被推翻** ——
+    **N5 起 `kinds` 可换**, 但上面那条"episode 不参与组织"**没有被推翻** ——
     变的只是**谁在问**: Round B 问的是"归到哪条认知", N5 问的是"想起哪条旧事"。
 
     **RAG 升级接口（2026-09-02 决策）**: embed_fn 即检索后端——未来上
@@ -175,7 +175,7 @@ def recommend_candidates(store: WikiStoreV2, query: str, *,
         mode_out: 可选传出参数——本函数会把实际走的通道 **append** 进去
             （`"semantic"` / `"keyword"`），供调用方汇总成召回台账（V3-0）。
             用列表而非返回值，是为了不改既有返回签名（测试与调用方零改动）。
-        why_out: ⭐ **N2（2026-09-29）**: 可选传出参数——**为什么推荐它**
+        why_out: **N2（2026-09-29）**: 可选传出参数——**为什么推荐它**
             （与返回值**等长同序**：`语义 0.72` / `tags[苔藓,杂草屋] 命中` /
              `subject 点名` / `2-gram 0.41`）。同样用列表传出而不改返回签名。
             为什么要它: Round B 的候选提示原来只有编号, LLM 判"要不要并"时
@@ -214,9 +214,9 @@ def recommend_candidates(store: WikiStoreV2, query: str, *,
 def recall_episodes(store: WikiStoreV2, *, query: str = "", k: int | None = None,
                     embed_fn: EmbedFn | None = None,
                     mode_out: list | None = None) -> list[BrainNode]:
-    """⭐ **N5** · MMT 每轮"她想起的旧事" —— **只出 episode, 按当下这句话取 1~2 条**。
+    """**N5** · MMT 每轮"她想起的旧事" —— **只出 episode, 按当下这句话取 1~2 条**。
 
-    ⚠️ **与 `recall_subgraph` 的分工（别把两者合并成一个"召回"）**:
+    **与 `recall_subgraph` 的分工（别把两者合并成一个"召回"）**:
       · `recall_subgraph` = **digest 组织视图**的入口。三通道混合 + 沿边一跳,
         要的是"给我一块能拿去归纳的子图"——**所以它把 belief/entity 一起带进来是对的**,
         排序按 `significance`（D4 暂定, 组织视图的口径）;
@@ -249,8 +249,8 @@ def _keyword_candidates(nodes: list[BrainNode], query: str, k: int, *,
     - 正文 2-gram Dice（verbatim/近句重现）→ 取原始 Dice（>0.35 才认）
     取各项最大值; score ≤ 0 → 不推荐。
 
-    `why_out`（⭐ N2）: 传出**哪一路赢了**（`tags[...] 命中` / `subject 点名` /
-    `2-gram 0.41`）—— 与返回值等长同序。⚠️ 用 `if s > best` 逐个比较来记录,
+    `why_out`（N2）: 传出**哪一路赢了**（`tags[...] 命中` / `subject 点名` /
+    `2-gram 0.41`）—— 与返回值等长同序。用 `if s > best` 逐个比较来记录,
     **不能事后重算**（重算一份就是第二个真源, 迟早与这里的 max 语义漂开）。
     """
     q2 = _bigrams(query)
@@ -317,8 +317,8 @@ def _tags_hits(nodes: list[BrainNode], query: str, k: int) -> list[BrainNode]:
 def _embed_text(node: BrainNode) -> str:
     """节点的可嵌入文本（主文本 + 附属 + 关键词; 与渲染口径一致）。
 
-    ⚠️ 口径的**唯一现役实现**是 `pack.body_of`（`find`/`like` 共用）—— 这里留着的是
-    老召回通道自己那一份（同源）。⏸ `profile → examples` 那一支 2026-10-14 随那个 kind 删。
+    口径的**唯一现役实现**是 `pack.body_of`（`find`/`like` 共用）—— 这里留着的是
+    老召回通道自己那一份（同源）。`profile → examples` 那一支 2026-10-14 随那个 kind 删。
     """
     body = node.text
     if node.kind == "episode" and node.verbatim:
@@ -354,11 +354,11 @@ def _random_segment(nodes: list[BrainNode],
     daily = [n for n in nodes if n.ts]
     if not daily:
         return None
-    # ★ 时区对齐（2026-09-27 修）——**必做**：`ts` 2026-09-17 收敛到带时区
+    # 时区对齐（2026-09-27 修）——**必做**：`ts` 2026-09-17 收敛到带时区
     #   （`now_ts()` 写 `+08:00`），而这里原来是 `now = datetime.now()`（朴素）
     #   ⇒ `now - datetime.fromisoformat(n.ts)` 抛 **TypeError**（aware − naive），
     #   而下面的 `except ValueError` **抓不住它** ⇒ 直接冒泡出 `_random_segment`。
-    #   ⚠️ 爆炸半径**不止随机那一支**：`recall_subgraph` 里这一句没有 try 包裹 ⇒
+    #   爆炸半径**不止随机那一支**：`recall_subgraph` 里这一句没有 try 包裹 ⇒
     #   通道 1/2 的结果全丢、**整个召回作废**（真机 haruka 实测 12 个 seed 崩 8 次）。
     #   真机后果: CLI 的 `memory_flash`（"剧情开始前突然想起一件事"）被外层
     #   `except Exception: 静默跳过` 吞掉 ⇒ 实际概率 25% → ≈7.5%（0.25 × 0.30），

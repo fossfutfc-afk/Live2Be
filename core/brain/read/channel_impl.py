@@ -7,16 +7,16 @@
 
 | 链路 | 现在能不能出分 | 缺什么 |
 |---|---|---|
-| **A** `A_intensity` | ✅ **能** | 只需要 `ctx.story_now`（游标）+ 节点 `story_time`。**旧档节点**（无 `story_time`）逐条跳过 |
-| **B** `B_emotion_rag` | ✅ **能**（T15, 2026-09-15） | 需要 `ctx.emo_now` + 节点 `emo_shape`（digest 按板指针物化）+ `embed_fn` |
-| **C** `C_place` | ✅ **能**（2026-09-20 两轴融合） | `ctx.place_now` + 节点 `place`（字面轴, 0 调用）; 叙事轴那一半还要 `ctx.place_raw_now` + 节点 `place_raw` + `embed_fn`（缺则 `axes=1`, 只用素材轴） |
-| **D** `D_deja_vu` | ✅ **能** | 只需要 `narration` + `embed_fn`（两者都有） |
-| **E** `E_unconscious` | ⏳ 未立项 | 认知碎片（§6.4 的 `percepts`） |
+| **A** `A_intensity` | **能** | 只需要 `ctx.story_now`（游标）+ 节点 `story_time`。**旧档节点**（无 `story_time`）逐条跳过 |
+| **B** `B_emotion_rag` | **能**（T15, 2026-09-15） | 需要 `ctx.emo_now` + 节点 `emo_shape`（digest 按板指针物化）+ `embed_fn` |
+| **C** `C_place` | **能**（2026-09-20 两轴融合） | `ctx.place_now` + 节点 `place`（字面轴, 0 调用）; 叙事轴那一半还要 `ctx.place_raw_now` + 节点 `place_raw` + `embed_fn`（缺则 `axes=1`, 只用素材轴） |
+| **D** `D_deja_vu` | **能** | 只需要 `narration` + `embed_fn`（两者都有） |
+| **E** `E_unconscious` | 未立项 | 认知碎片（§6.4 的 `percepts`） |
 
 **A / B / D 是现在就能出分的三条**——都不是巧合：它们只需要**已存在的数据**
 （A 是候选自身属性（`PRIOR`）; B/D 是 pairwise, 要 query + 向量后端）。
 
-🚫 **召回侧字段不进 LLM 上下文**（用户 2026-09-15 裁决）: `emo_shape` /
+**召回侧字段不进 LLM 上下文**: `emo_shape` /
 `emo_now` / `place_now` 参与**排序与筛选**, 不参与**写作**——`render_*` 一律
 不输出它们。与 `bond` 侧"place 不进 LLM 上下文"（§4 视觉键隔离）同一条纪律。
 
@@ -71,11 +71,11 @@ class IntensityPrior:
     | `emo_int` | `node.emo_int`（0~1） | 同上 |
     | `TIME` | `freshness(age, half_life, floor)` | **降级不出分**（见下） |
 
-    ⚠️ **值域是 [0, 2], 不是 [0, 1]**（2026-09-20 用户裁决时把这条注释更正过来）:
+    **值域是 [0, 2], 不是 [0, 1]**:
     `det` 是**两格之和**, 每格 ≤ 1×1 ⇒ 上界 2。`scale` 声明仍是 `SCALE_UNIT`
     ——枚举没错, 错的是"`unit` 就等于 ≤1"这个旧读法（`channels.py` 那里也标了）。
 
-    **合成层因此不归一它**: 用户 2026-09-20 —— *"不必归一，这个矩阵携带的信息本身
+    **合成层因此不归一它**: *"不必归一，这个矩阵携带的信息本身
     就比较重很合理"*。`compose.py` 把它当**强度轴**原样用（`fuse(..., clamp=False)`,
     **上界不夹**, 免得把 det>1 的上半段压平）。
 
@@ -87,7 +87,7 @@ class IntensityPrior:
              TIME = floor + (1-floor) * 0.5 ** (age / half_life_days)
     ```
 
-    ⚠️ **`floor`（下界）是 2026-09-17 加的**, 两个旋钮都在
+    **`floor`（下界）是 2026-09-17 加的**, 两个旋钮都在
     `settings.toml [recall]`: `time_half_life_days` / `time_freshness_floor`。
     加它的理由是实测出来的 —— `SIG=0.9` 的旧记忆在 `floor=0` 时**四天**就被
     "今天的 `SIG=0.5`"盖过, 一年后差 22 个数量级。完整对照见
@@ -183,24 +183,24 @@ class IntensityPrior:
 class EmotionRag:
     """B 链路: 情绪键序列的 embedding 相似度（唤醒度聚类, §3.3）。
 
-    ★ 实测依据（两条, 都决定这个链路该存在）:
+    实测依据（两条, 都决定这个链路该存在）:
       1. **它按唤醒度聚类, 不按极性**——"高强度·正" vs "高强度·负" cos = 0.678,
          **高于** "同极性·不同强度" 的 0.498/0.557。即"情绪相反但都很猛"的记忆
-         天然互相靠近, **不需要额外机制**（用户 2026-09-13 的直觉, 实测证实）
+         天然互相靠近, **不需要额外机制**（实测证实）
       2. **键序列单独向量化有层次**（haruka 板间 [0.590, 0.834], 跨度 0.244）,
          而塞进正文会塌陷
 
-    ⚠️ **为什么键序列要物化到节点上**（T15, 2026-09-15 接通）:
+    **为什么键序列要物化到节点上**（T15, 2026-09-15 接通）:
     键序列在**板**上（`events.jsonl` 的 `payload.paragraphs[i].emotion`），
     而 `gather(store, ctx)` **只拿得到节点, 拿不到事件流**——链路无法去翻板。
     所以 `digest` 在写节点时按**板指针 `event_seq`** 把键序列物化成
     `node.emo_shape`（§3.3/§3.9 早就定了这一手: "板级 affect 物化缓存（一次算,
     索引表里存）…可从真源重建"）。有 `event_seq` 就能重算, 故它不是第二真源。
 
-    🚫 **`emo_shape` / `emo_now` 绝不进 LLM 上下文**（用户 2026-09-15 裁决）:
+    **`emo_shape` / `emo_now` 绝不进 LLM 上下文**:
     它们是**召回侧信号**, 与 `place` 同类——参与排序, 不参与写作。
 
-    ⚠️ 另有一条**未验证**的依赖: 本链路需要"键 → 唤醒度"的映射才能排序,
+    另有一条**未验证**的依赖: 本链路需要"键 → 唤醒度"的映射才能排序,
     而那张表**已被用户否掉**（"怎么又回到机械打分的时代了"）。
     但**排序其实不需要数值**——cos 直接在键序列向量上算, 数值只在
     "解释为什么这两条近"时才需要。**所以本链路可以完全无数值表**。
@@ -259,7 +259,7 @@ class EmotionRag:
 class PlaceGate:
     """C 链路: 地点召回 —— **两轴融合**（`GATE` 的准入面 + 叙事轴的打分面）。
 
-    用户 2026-09-13 的定位是"**检测**"（"地点字段查重"）。2026-09-20 用户又给了
+    它原本的定位是"**检测**"（"地点字段查重"）。后来它又给了
     融合口径: *"最好是混合策略，一个特殊的 magic function，在 writer 词和 key
     相似度都高的时候值高，反之一般"* ⇒ 本链路现在**两根轴一起算分**
     （`core/media/place_fuse.py` 的 `magic` = 调和平均, 无阈值）。
@@ -271,7 +271,7 @@ class PlaceGate:
     | `sk`（素材轴） | `node.place` ↔ `ctx.place_now` | **字面**（同名 / 别名相交 / 键名 token） | 有多像**同一张图** |
     | `sw`（叙事轴） | `node.place_raw` ↔ `ctx.place_raw_now` | **语义**（embedding cos, 要 `embed_fn`） | 有多像**同一个地方的说法** |
 
-    ⚠️ **更正（用户: *"真实地名和 key 大概率并不是一个双射"*）**: `place` 键相等只声称
+    **更正（用户: *"真实地名和 key 大概率并不是一个双射"*）**: `place` 键相等只声称
     **"同一张图"** —— `ruinschoolcorridor` 的 note 自己写着*"也可以用做老屋子或者某种
     杂草秘密基地"*（一键多义）; 反过来别名 `天台` 指向 3 个键（一地多键）。
     两维**信息上正交**, 组合才是信号（同 `emo_span × emo_int`、同"双链路都召回 = 最重要"）。
@@ -287,16 +287,16 @@ class PlaceGate:
     * **有键但不符 + 说法像**（`sk=0`, `sw` 高）→ **0**（融合形状自带的语义: 不是
       "弱关系"）—— "只有措辞像、键八竿子打不着"的候选**仍然进不来**, 语义轴
       **没有**偷偷放宽准入（这是用户担心的假阳性的防线, 别拆）
-    * ⭐ **没有键**（`node.place` 为空 = 素材轴**不可算**）+ 说法像 → **走单轴**
+    * **没有键**（`node.place` 为空 = 素材轴**不可算**）+ 说法像 → **走单轴**
       （`raw = sw`, `detail.by="narrative_only"`, `detail.axes=1`）。
-      **用户 2026-09-20 裁决: *"还是走单轴"*** —— **键未知 ≠ 键不符**:
+      ***"还是走单轴"*** —— **键未知 ≠ 键不符**:
       前者是"没采集到"（旧档 / 标注层没跑）, 后者才是反证据; 与另一侧早就有的降级
       路径（无 `embed_fn`/无原话 → 只用素材轴）**对称**。
-      ⚠️ **为什么必须修**: 真档实测 `place` 键 **0 条**、只有 `payload.place_hint`
+      **为什么必须修**: 真档实测 `place` 键 **0 条**、只有 `payload.place_hint`
       （2 条）—— 而 `magic(任意, 0) == 0` 会让这些记忆**永远进不来**（C 路恒空手）。
       有 `keys.no_key` 计数可观测（台账里能看到"这次有多少条是单轴进来的"）。
 
-    ⚠️ **`key_sim` 满分有两种来源, 别混**: ① 键**字面相等**（`key_sim_by="same"`,
+    **`key_sim` 满分有两种来源, 别混**: ① 键**字面相等**（`key_sim_by="same"`,
     `detail.same_image=True` —— 这才是"同一张图"）; ② 键名 **token 包含**
     （`rooftop` ⊆ `school_rooftop`, `key_sim_by="token"` —— "同一族图"）。
     要严格分组请认 `detail.same_image`, 不要用 `key_sim == 1` 去推。
@@ -357,7 +357,7 @@ class PlaceGate:
                 logger.warning("C_place 语义打分降级: %s", e)
                 sem_note = f"语义打分失败: {e}"
         # ── 融合（调和平均; **缺的那根轴走单轴, 不当 0**）──
-        # ⭐ 2026-09-20 用户裁决（*"还是走单轴"*）: **键未知 ≠ 键不符**。
+        # **键未知 ≠ 键不符**（*"还是走单轴"*）。
         #   节点没有 `place` 键 = 素材轴**不可算**（旧档 / 标注层没跑）——与
         #   "有键但不符"（`k_sim == 0`）是两件事。前者缺席, 后者才是反证据。
         #   这与另一侧早就有降级路径对称（`s is None` → 只用素材轴）。
@@ -370,17 +370,17 @@ class PlaceGate:
             has_key = bool(n.place)                  # 素材轴**可算**吗（≠"值是不是 0"）
             # `detail.by` 标的是**键的来源**（不是轴的条数; 条数看 `axes`）:
             #   `same_image` = 键字面相等 | `similar_key` = 别名/token 同族
-            #   `no_key` = 素材轴不可算（没有键）—— ⭐ 2026-09-20 新增
+            #   `no_key` = 素材轴不可算（没有键）—— 2026-09-20 新增
             key_by = "same_image" if k_by == "same" else "similar_key"
             if s is None:                            # 只有素材轴可算 → 用它的分
                 score, axes, by = k_sim, 1, key_by
-            elif not has_key:                        # 只有叙事轴可算 → 走单轴（用户裁决）
+            elif not has_key:                        # 只有叙事轴可算 → 走单轴
                 score, axes, by = s, 1, "no_key"
             else:                                    # 两轴齐 → magic（一轴为零 ⇒ 0）
                 score, axes, by = place_fuse.magic(s, k_sim), 2, key_by
             if score <= 0.0:
                 continue                             # 能算的轴都给不出关系 → 不编命中
-            # ⚠️ `same_image` **只认键字面相等**（`key_sim_by == "same"`）——
+            # `same_image` **只认键字面相等**（`key_sim_by == "same"`）——
             # `key_sim` 满分还有一种来源: 键名 token 包含（`rooftop` ⊆ `school_rooftop`）。
             # 那种是"同一族图"，不是"同一张图"，别混。**没有键更不许声称**。
             same = has_key and k_by == "same"
@@ -417,7 +417,7 @@ class DejaVu:
         B = 情绪的**形状**像（键序列向量）
         D = 事情的**内容**像（narration 向量）
 
-    两者的重合是**有价值的信号**——用户 2026-09-13:
+    两者的重合是**有价值的信号**——
     *"双链路都召回的节点是最重要的"*。所以 `ChannelHit` 不合并同类,
     由合成层统计"一个节点被几条链路命中"（convergence）。
 
@@ -477,10 +477,10 @@ class UnconsciousRag:
     """E 链路: **认知碎片**的 RAG（用户扩展项, 未立项）。
 
     素材 = §6.4 的 `percepts`（"午后的阳光斜着照进来" / "纸页的霉味"）。
-    用户原话: *"无意识决定了很多东西…比如去杂草屋 llm 可以写一个看到了蓝天白云,
+    *"无意识决定了很多东西…比如去杂草屋 llm 可以写一个看到了蓝天白云,
     这样 rag 检索时就能想起来那天也是这样的好天气。"*
 
-    ⚠️ 本链路**未立项**, 且 `percepts` 字段也还没落地。列出来是为了
+    本链路**未立项**, 且 `percepts` 字段也还没落地。列出来是为了
     **让"以后要加一条链路"这件事在接口里可见**——不是预留空壳实现。
     """
 
@@ -499,7 +499,7 @@ class UnconsciousRag:
 def build_channels() -> list:
     """全部链路实例（顺序 = 台账打印顺序）。
 
-    ⚠️ 新增链路: 在这里加一行 + 在 `channels.CHANNELS` 登记名。
+    新增链路: 在这里加一行 + 在 `channels.CHANNELS` 登记名。
     **合成层不感知具体链路**——它只按 `kind`/`scale` 分派。
     """
     return [IntensityPrior(), EmotionRag(), PlaceGate(), DejaVu(),

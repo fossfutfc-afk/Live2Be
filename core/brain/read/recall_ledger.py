@@ -68,7 +68,7 @@ class CollisionAccount:
     def episode(self, *, n_cand: int, best_sim: float = 0.0) -> None:
         """记一条 episode 的碰撞结果。
 
-        ⚠️ 2026-09-15（T17）: `hi`/`med` 两档**已删**（候选不再分档、不再有阈值）。
+        2026-09-15（T17）: `hi`/`med` 两档**已删**（候选不再分档、不再有阈值）。
         原先的 `forced%`（被结构强制 touch/update 的 episode 占比）随之消失——
         它就是"阈值把全部 episode 判成同一件事"那个失效模式的观测口，
         而结构强制本身已按 Q11/Q31/Q32 取消。

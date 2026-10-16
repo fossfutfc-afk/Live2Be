@@ -46,8 +46,8 @@ _REF_KEY = "ref"
 #: create entry 里引擎忽略的字段（id/ts 由引擎分配——确定性归引擎）
 _IGNORED_ON_CREATE = ("id", "ts")
 #: `about` 边的可归属 kind（§2: belief → entity · episode → entity · experience → entity）。
-#: ⏸ `promise` 2026-09-29 摘掉（它退出了图 —— 见 `nodes.KINDS`）。
-#: ⏸ `profile`（玩家画像）**2026-10-14 摘掉** —— 整个 kind 删格式（见 `nodes.KINDS`）。
+#: `promise` 2026-09-29 摘掉（它退出了图 —— 见 `nodes.KINDS`）。
+#: `profile`（玩家画像）**2026-10-14 摘掉** —— 整个 kind 删格式（见 `nodes.KINDS`）。
 _ATTACHABLE = ("episode", "belief", "experience")
 #: hint 写回别名的长度上限 —— 超过这个长度的东西**不是称呼, 是一句话**。
 #: （同 `core.parsing.names.MAX_NAME_LEN` 的口径; 本模块**不 import 它** ——
@@ -100,7 +100,7 @@ def apply_relations(store: WikiStoreV2, rows: list[dict], *, ts: str = "",
         store.add_edge(rel, src, dst, ts=ts)          # 幂等 + 拒悬空 / 拒自环
         entry: dict = {"pkg": "digest", "action": "relate", "rel": rel,
                        "from": src, "to": dst, "ts": ts}
-        # ⏸ `on`（`akin` 的"那个共同的东西"）2026-10-14 随 `topics` 一起退役 ——
+        # `on`（`akin` 的"那个共同的东西"）2026-10-14 随 `topics` 一起退役 ——
         # 契约不再要它、parse 也不再收（白名单外）⇒ 这一格不再有来源。
         log.append(entry)
         out.append(dict(row))

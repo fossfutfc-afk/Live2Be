@@ -5,15 +5,15 @@
 | | `like` | `find` |
 |---|---|---|
 | 问什么 | 哪几条**最像** | 符合这几条的**有哪几条** |
-| 不变量 | **排序就是答案** | ⭐ **漏一条就是错** |
+| 不变量 | **排序就是答案** | **漏一条就是错** |
 | 判据 | 打分（连续、可比） | **命中 / 不命中**（没有中间态） |
 | 输出 | top-k | **全部** |
 
-## ⭐ 那条不变量决定了其余一切
+## 那条不变量决定了其余一切
 
 只要判据里混进"相似", "全部"就失去意义 ⇒ **锚表里不许有打分函数**。
 所以这里全是**确定的判据**（相等 / 集合成员 / 闭区间 / 字面子串布尔式）:
-⛔ 没有阈值 · ⛔ 没有 top-k · ⛔ 不要后端 · ⛔ 本模块**不截断**。
+没有阈值 · 没有 top-k · 不要后端 · 本模块**不截断**。
 （"不漏"是**检索层**的不变量; "摆几条给她看"是 `look` 那一层的事 ——
 两个不同的问题, 别把 cap 塞进来。）
 
@@ -25,7 +25,7 @@
     find(store, {"entity": "x0001", "when": (d0, d1)})      # AND: 两条都要满足
     find(store, {}, kinds=("belief",))                      # 空锚 = 这个面上的全部
 
-⚠️ **值不是她的原话** —— "名字 → 谁" 是 `address.find_episode` / `entities.find_entity`
+**值不是她的原话** —— "名字 → 谁" 是 `address.find_episode` / `entities.find_entity`
 / `address.find_group` 的活（三件都已存在）; "时间那句话 → 区间" 是
 `core/worldtime/parse_when` 的活。⇒ 解析失败（`miss` / `ambiguous` / 时间认不出）
 **不在本模块的返回里**, 也不该在这里: 那是调用方手里的事实, "怎么跟她说"也是
@@ -35,9 +35,9 @@
 * **没这条**（名字解析不到）—— 解析层, 调用方知道;
 * **没想起来**（锚解析成功但一条都不符）—— 本模块返 `[]`;
 * **那段时间没有、前后有**—— 调用方把 `when` 拿掉**再调一次**
-  （⛔ 本模块不猜"该放宽多少": 放宽的幅度是产品口径）。
+  （本模块不猜"该放宽多少": 放宽的幅度是产品口径）。
 
-⛔ 未知锚名 ⇒ `KeyError`; 值不合格（不存在的 entity / 不是 `(date, date)` /
+未知锚名 ⇒ `KeyError`; 值不合格（不存在的 entity / 不是 `(date, date)` /
 不是编译好的 `Clue`）⇒ `ValueError`。两处都**当场炸**, 不许静默少一格
 （同 `like.plan()` 与 `recall_config.get` 的纪律）。
 
@@ -51,15 +51,15 @@
 | `when` | `start ≤ date_of(n.ts) ≤ end`（**闭区间**, 粒度 day） | `worldtime.age.date_of` |
 | `text` | `Clue` 在**正文面**（`pack.body_of`）上成立 | `Clue` + `body_of` |
 
-⛔ **`tag` / `kind` / `edge` 故意不落**: 今天没有消费者（判据①: 没读者不写）。
+**`tag` / `kind` / `edge` 故意不落**: 今天没有消费者（判据①: 没读者不写）。
 加一条 = 表里一行 + 一条守门, 等 `look` / digest 真要用时加。
 
 ## 排序 = 展示顺序（`find` 的"分"只是它）
 
-**时间倒序（新→旧）**; ⚠️ **无 `ts` 的垫底** —— 时间未知**不许冒充最新**
+**时间倒序（新→旧）**; **无 `ts` 的垫底** —— 时间未知**不许冒充最新**
 （哨兵纪律: `date_of` 给 `None` 时既不编时间, 也不参与"最新"）。
 同刻按 id ⇒ **逐字节确定**（无 rng、不依赖字典序）。
-⇒ `Candidate.score` **恒 `0.0`**: `find` 没有分, ⛔ 不拿 `significance` 冒充
+⇒ `Candidate.score` **恒 `0.0`**: `find` 没有分, 不拿 `significance` 冒充
 （那是 `like` 的 prior 路）; 台账走 `scores=False`（印 `m0014←对象 …` 而不是 `:0.000`）。
 """
 from __future__ import annotations
@@ -87,24 +87,24 @@ logger = logging.getLogger(__name__)
 class ClueError(ValueError):
     """线索写歪了（不是"没找到"）—— 调用方拿它说人话（"看不懂, 换个说法"）。
 
-    ⚠️ **两条路别混**: "线索看不懂" 与 "看懂了但没想起来" 是**两句不同的话**;
+    **两条路别混**: "线索看不懂" 与 "看懂了但没想起来" 是**两句不同的话**;
     混成一句, 她永远学不会怎么写。
     """
 
 
-#: AND / OR 的两种写法 —— ⚠️ **四个都认**（`&&` `&` `||` `|`）
+#: AND / OR 的两种写法 —— **四个都认**（`&&` `&` `||` `|`）
 _AND = ("&&", "&")
 _OR = ("||", "|")
 #: 词形运算符（容错; 大小写不敏感）—— LLM 写 "苔藓 and 杂草" 也认
 _WORD = {"and": "&&", "or": "||"}
-#: ⛔ **正则味的字符** —— 她写这些说明她在写正则, 而本引擎只认**字面** + `&`/`|`/括号。
+#: **正则味的字符** —— 她写这些说明她在写正则, 而本引擎只认**字面** + `&`/`|`/括号。
 #: 逐个**明确拒**（可归因）, 不会变成"她以为在写模式、引擎当字面、静默 0 命中"。
 #: （`\` 尤其致命: `\d` 在 JSON 字符串里是**非法转义** ⇒ 直接打掉整行。）
 _FORBIDDEN = "\\{}[]*+?^$"
 
-#: ⭐ **全角运算符兜底**（2026-10-08）: 中文输入法很容易吐全角 `＆` —— 不归一的后果是
+#: **全角运算符兜底**（2026-10-08）: 中文输入法很容易吐全角 `＆` —— 不归一的后果是
 #: 整串被当**一个字面**（`苔藓＆＆杂草` 一个词也匹配不到 ⇒ **静默 0 命中**）。
-#: ⚠️ **只收 `＆`**，另外两个"看起来也像运算符"的全角字符**故意不归一**:
+#: **只收 `＆`**，另外两个"看起来也像运算符"的全角字符**故意不归一**:
 #:   · `｜` —— 它是**地址空间里的字段分隔符**（`marks.FIELD_SEP`）。她很可能把整段
 #:     元信息（`《名》｜5 天前｜9/26`）抄进线索; 归一成 `|` 就变成"三段的 OR",
 #:     会给出**错的**结果（比"空"更坏）。而那个场景 **①级标题查**已经救得住
@@ -119,14 +119,14 @@ _FULLWIDTH_OPS = {"＆": "&"}
 class Clue:
     """一条**字面**布尔表达式（她写的检索线索 → 引擎编译的树）。
 
-    ## 为什么**不给她 `re`**（2026-10-08 用户裁: 用 `&`/`|` 而不是正则）
+    ## 为什么**不给她 `re`**（用 `&`/`|` 而不是正则）
 
-    1. ⛔ **JSON 非法转义**: `\\d` / `\\w` / `\\.` 在 JSON 字符串里**非法**
+    1. **JSON 非法转义**: `\\d` / `\\w` / `\\.` 在 JSON 字符串里**非法**
        （合法转义只有 `\\" \\\\ \\/ \\b \\f \\n \\r \\t \\uXXXX`）⇒ **整行解析失败**
        —— 那不是"精度差一点", 是把行协议打掉;
-    2. ⛔ `{}` 与引号: 写错了就把这一行弄坏（一形一义也被破）;
-    3. ⛔ **回溯**: Python `re` 没有超时, `(a+)+b` 能卡死同步链;
-    4. ⛔ **不需要**: 中文里"短子串"已经覆盖了 `苔.` 想干的事（`苔` 一条就收了
+    2. `{}` 与引号: 写错了就把这一行弄坏（一形一义也被破）;
+    3. **回溯**: Python `re` 没有超时, `(a+)+b` 能卡死同步链;
+    4. **不需要**: 中文里"短子串"已经覆盖了 `苔.` 想干的事（`苔` 一条就收了
        苔藓/苔痕/青苔）; 而 agent 用 grep 时那个 `.*` 想表达的**"同一条里同时含"**
        正是 `&&` —— 而"同一条"由记忆的粒度天然给。
 
@@ -134,7 +134,7 @@ class Clue:
     **一律拒**（`_FORBIDDEN`）。半角 `( )` 当分组是**实测安全**的: 真档 30 节点的
     正文里 `& | ( )` **零出现**, 而全角 `（）` 出现过（正文插入语）⇒ **全角一律当字面**。
 
-    `matches()` 是求值的**唯一实现**: 字面用 `in` —— ⛔ **零 `re`**（连 import 都没有）。
+    `matches()` 是求值的**唯一实现**: 字面用 `in` —— **零 `re`**（连 import 都没有）。
     """
 
     op: str = "lit"
@@ -170,7 +170,7 @@ def _starts_operand(tok: str) -> bool:
 def _tokenize(raw: str) -> list[str]:
     """字面 / 运算符 / 括号（**空白 = 分隔** ⇒ 后面补隐式 AND）。
 
-    ⚠️ 开头先做**全角运算符兜底**（`_FULLWIDTH_OPS`）—— `＆` 不归一就是"静默 0 命中"。
+    开头先做**全角运算符兜底**（`_FULLWIDTH_OPS`）—— `＆` 不归一就是"静默 0 命中"。
     """
     for full, half in _FULLWIDTH_OPS.items():
         raw = raw.replace(full, half)
@@ -246,9 +246,9 @@ def _parse_atom(toks: list[str], i: int) -> tuple[Clue, int]:
 
 
 def compile_clue(raw: object) -> Clue:
-    """她写的线索串 → `Clue`（⛔ 只认字面与运算符, 认不出就 `ClueError`）。
+    """她写的线索串 → `Clue`（只认字面与运算符, 认不出就 `ClueError`）。
 
-    ⚠️ **编译住在检索层**（而不是 mmt 那一侧）: 它描述的是"**怎么匹配正文**",
+    **编译住在检索层**（而不是 mmt 那一侧）: 它描述的是"**怎么匹配正文**",
     与被谁调用无关; 而 `core/brain/` 不许 import `core/mmt/`（分层守门）。
     调用方（`look` 的 parse 层）只负责**捕获 `ClueError` 并说人话**。
 
@@ -285,12 +285,12 @@ def compile_clue(raw: object) -> Clue:
 # ---------------------------------------------------------------------------
 
 #: 一个锚 = `(store, 值) -> (谓词, 台账里那一句)`。
-#: ⚠️ 值**已经解析好**（见模块 docstring）; 不合格 ⇒ `ValueError`（当场炸）。
+#: 值**已经解析好**（见模块 docstring）; 不合格 ⇒ `ValueError`（当场炸）。
 Anchor = Callable[[Any, Any], "tuple[Callable[[Any], bool], str]"]
 
 
 def _as_date(value: object, what: str) -> date:
-    """值必须是一个 `date`（⛔ `datetime` 不算 —— 它带时刻, 而粒度只到 day）。"""
+    """值必须是一个 `date`（`datetime` 不算 —— 它带时刻, 而粒度只到 day）。"""
     if isinstance(value, date) and not isinstance(value, datetime):
         return value
     raise ValueError(f"{what} 要一个 `date`（粒度只到 day）, 实得 {value!r}")
@@ -328,7 +328,7 @@ def _a_group(store, value) -> tuple[Callable[[Any], bool], str]:
 def _a_when(store, value) -> tuple[Callable[[Any], bool], str]:
     """时间 → **闭区间** `[start, end]`（两端都含, 粒度 day）。
 
-    ⚠️ 无 `ts` / 坏 `ts` 的节点**不命中** —— 哨兵纪律: 不知道是哪天的,
+    无 `ts` / 坏 `ts` 的节点**不命中** —— 哨兵纪律: 不知道是哪天的,
     不许冒充"落在这段时间里"（同 `age_days` 的"绝不折成 0"）。
     """
     try:
@@ -350,7 +350,7 @@ def _a_when(store, value) -> tuple[Callable[[Any], bool], str]:
 def _a_text(store, value) -> tuple[Callable[[Any], bool], str]:
     """正文 → `Clue` 成立（面 = `pack.body_of`, 含标题）。
 
-    ⛔ **不收裸串**: 编译与校验归调用方（`compile_clue` 就在本模块, 一行）——
+    **不收裸串**: 编译与校验归调用方（`compile_clue` 就在本模块, 一行）——
     这样"她写歪了"在**编译那一刻**就明确拒, 而不是在这里静默 0 命中。
     """
     if not isinstance(value, Clue):
@@ -358,7 +358,7 @@ def _a_text(store, value) -> tuple[Callable[[Any], bool], str]:
     return (lambda n: value.matches(body_of(n))), f"正文 {value}"
 
 
-#: ⭐ **锚表**（照 `like.PARTS` 的形态: 一个场景一块, 自包含、好审）。
+#: **锚表**（照 `like.PARTS` 的形态: 一个场景一块, 自包含、好审）。
 #: 表里的**顺序 = 台账里印的顺序**（与调用方给的 dict 顺序无关 ⇒ 台账确定）。
 ANCHORS: dict[str, Anchor] = {
     "title": _a_title,
@@ -374,7 +374,7 @@ ANCHORS: dict[str, Anchor] = {
 # ---------------------------------------------------------------------------
 
 def _order(node) -> tuple:
-    """排序键: **新→旧**, ⚠️ **无 `ts` 的垫底**, 同刻按 id（逐字节确定）。"""
+    """排序键: **新→旧**, **无 `ts` 的垫底**, 同刻按 id（逐字节确定）。"""
     d = date_of(getattr(node, "ts", ""))
     return (d is None, -(d.toordinal() if d is not None else 0),
             str(getattr(node, "id", "")))
@@ -387,7 +387,7 @@ def find(store, anchors: dict, *, kinds: tuple[str, ...] = ("episode",),
     Args:
         store: `WikiStoreV2`（**只读**）。
         anchors: `{锚名: 已解析的载荷}`（AND; `{}` = 该面上的全部）。
-            ⛔ 未知锚名 ⇒ `KeyError`; 值不合格 ⇒ `ValueError`（都当场炸）。
+            未知锚名 ⇒ `KeyError`; 值不合格 ⇒ `ValueError`（都当场炸）。
         kinds: 选面（节点 kind 白名单）—— 语义与 `like.Spec.kinds` **同一套**:
             `()` = 不过滤。"她指的是哪一类"由**调用方选哪个解析器**决定
             （episode → `find_episode` / 对象 → `find_entity` / 类 → `find_group`）。
@@ -415,7 +415,7 @@ def find(store, anchors: dict, *, kinds: tuple[str, ...] = ("episode",),
     why = " · ".join(labels)
     out = [Candidate(node=n, score=0.0, why=why) for n in hits]
     # 台账（可 grep）: 用哪几条锚 / 池多大 / 命中几条 / 摆的是谁（**标题她看得见,
-    # 编号只有排查时才有用**）; ⛔ `k=` 不印（find 没有"要几条"这个概念）。
+    # 编号只有排查时才有用**）; `k=` 不印（find 没有"要几条"这个概念）。
     logger.info(ledger_line(out, name="recall_find", scores=False,
                             query=why or "（空锚 = 全量）",
                             pool=len(nodes), spec=",".join(used)))

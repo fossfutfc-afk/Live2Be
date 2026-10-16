@@ -342,7 +342,7 @@ def new_nodes_block(store: WikiStoreV2, ids) -> tuple[str, dict[str, str]]:
     截一半就等于把地址截坏。
 
     **只给本轮新节点**（§8 第 3 轮那栏）: R1 的 episode/画像 · R2 新建的认知。
-    （⏸ 原还有"R4 物化的 promise"—— promise 2026-09-29 退图, 不再有新节点。）
+    （原还有"R4 物化的 promise"—— promise 2026-09-29 退图, 不再有新节点。）
     **"被改写的旧节点"不在内**（§9-12 ⑤ 那条待裁 —— 它们今天归属不了,
     这是已知的洞, 不是遗漏）。
     本地 id 前缀 `u`（与 R2 的认知列表**同款但不同一次调用**, 不会撞）——
@@ -368,7 +368,7 @@ def new_nodes_block(store: WikiStoreV2, ids) -> tuple[str, dict[str, str]]:
     return "\n".join(lines), local_of
 
 
-# ⏸ `_node_tag` **2026-09-29 删** —— 类型标签的真源 = `marks.kind_tag`（**不带方括号**）。
+# `_node_tag` **2026-09-29 删** —— 类型标签的真源 = `marks.kind_tag`（**不带方括号**）。
 # 它当年是"延迟 import `render._kind_tag` 再 `strip('[]')`": 同一个标签两个形状, 正是
 # "散"的典型。现在 `head(kind=True)` 直接把 `marks.kind_tag` 放进头里, 不再需要它。
 
