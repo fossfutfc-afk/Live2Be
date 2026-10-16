@@ -157,7 +157,7 @@ python experiments/recall_report.py
 | `6fa30f7` | `docs/EXEC_RENAME.md`：顶层包改名计划（三步 · 四条已定决策 · 每步引用面与判据） |
 | `4adf7e1` | **EXEC_RENAME 第 1 步**：`apps/` → `cli/`（24 文件 / 42 处引用；含 `start.ps1` 的用户命令与 4 个 `experiments/` 脚本）· 新增 `cli/.md` |
 | `d485e9b` | **EXEC_RENAME 第 2 步**：`renderer/` → `tui/`（+ `core/tui` 三件拆平进 `core/{display,streaming,text}.py`、门面删、`renderer/core.py`→`tui/renderer.py`、`tests/renderer/`→`tests/tui/`）· 干跑抓到三处同名陷阱 |
-| `见下` | **EXEC_RENAME 收工**：第 3 步（`core`→`engine`）作者裁决不做（代价 ≈1400 处 / 收益纯语义）· 新增 `core/.md` 把"名字会误导"用文档补掉 · 计划文档 §8 记下实测与替代做法 |
+| `d90024c` | **EXEC_RENAME 收工**：第 3 步（`core`→`engine`）作者裁决不做（≈1400 处 / 收益纯语义）· 新增 `core/.md` 把"名字会误导"用文档补掉 · 计划文档 §8 记下实测与替代做法 |
 
 ---
 
