@@ -281,7 +281,7 @@ def test_vn_close_paths_only_use_the_resetting_entry():
     漏一处 = 那条路径又不清零了 —— 而 S3 的病根正是"VN 侧不清零"。
     只扫这两个产品文件（`experiments/` 那些不是产品路径）。
     """
-    for rel in ("webgui/bond/api.py", "apps/vn_cli.py"):
+    for rel in ("webgui/bond/api.py", "cli/vn_cli.py"):
         src = (ROOT / rel).read_text(encoding="utf-8")
         assert "engine.async_digest_after_vn()" in src, f"{rel}: VN 收尾没走清零入口"
         assert "engine.async_digest()" not in src, \

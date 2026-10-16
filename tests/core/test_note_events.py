@@ -36,7 +36,7 @@ from llm import task_labels as T
 from tests import stub_tasks
 
 ROOT = Path(__file__).resolve().parent.parent.parent
-PROD_DIRS = ("core", "webgui", "apps", "contract", "llm")
+PROD_DIRS = ("core", "webgui", "cli", "contract", "llm")
 
 
 class FakeLLM:

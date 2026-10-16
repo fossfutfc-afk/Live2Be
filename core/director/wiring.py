@@ -7,16 +7,16 @@
                               `chapter_title`（找不到 → 空串; 进程重启后 trace 为空, 标题
                               真源仍是事件流, 见 `webgui.bond._title_from_events`）。
 
-## 为什么它们不在 `core/ui/vn_cli.py`（C11 搬来的理由; 该文件 C12b 已搬去 `apps/vn_cli.py`）
+## 为什么它们不在 `core/ui/vn_cli.py`（C11 搬来的理由; 该文件 C12b 已搬去 `cli/vn_cli.py`）
 
 webgui 需要这两个函数（`bond/api.py` 建导演、`bond/replay.py` 取章名）, 而它们住在
 CLI **应用**里 ⇒ **webgui → CLI** 的反向依赖。搬到 `core.director`（引擎层, 无 web 依赖）
-后方向正过来: webgui → core.director.wiring ← apps/vn_cli。
+后方向正过来: webgui → core.director.wiring ← cli/vn_cli。
 
 ## 纪律
 
 · 本模块**不 import `renderer`**（那是 CLI 的事）——`core→renderer` 的唯一来源是
-  CLI 应用自己的显示路径（C12b 起整个搬去 `apps/`）;
+  CLI 应用自己的显示路径（C12b 起整个搬去 `cli/`）;
 · 代码从 `vn_cli.py` **逐字搬来**（零行为改动）。
 """
 

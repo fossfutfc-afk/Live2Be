@@ -24,7 +24,7 @@ sys.path.insert(0, str(ROOT))
 from llm.client import LLMClient                      # noqa: E402
 from core.mmt.engine import MomoTalkEngine              # noqa: E402
 from core.session import SessionStore                 # noqa: E402
-from apps.vn_cli import run_bond_story_vn          # noqa: E402
+from cli.vn_cli import run_bond_story_vn          # noqa: E402
 
 CHAR = "shiraishi_kokoro"
 

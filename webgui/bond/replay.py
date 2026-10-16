@@ -26,7 +26,7 @@
 from __future__ import annotations
 
 from contract import NON_PICKS
-from core.director.wiring import _trigger_title  # C11: 接线层（此前借道 apps.vn_cli）
+from core.director.wiring import _trigger_title  # C11: 接线层（此前借道 cli.vn_cli）
 from core.session.chapters import replayable_chapters
 from core.session.events import M_VN_EXIT, is_board_event, pick_supplements
 from core.session.maintenance import abandoned_ranges

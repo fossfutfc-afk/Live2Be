@@ -2,7 +2,7 @@
 
 两个注入点都得有它（**常驻层**, 每轮都在）:
 
-    · `load_brain_segment`   —— bond 开场（`webgui.bond` / `apps.vn_cli` 共用）
+    · `load_brain_segment`   —— bond 开场（`webgui.bond` / `cli.vn_cli` 共用）
     · `MmtEngine._inject_brain` —— MMT 会话（digest 完成 / resume / 开会话）
 
 拼接顺序 = 出厂背景 → wiki 视图 → **笔记块**（放最后: 最贴近本轮对话的是"此刻"）→

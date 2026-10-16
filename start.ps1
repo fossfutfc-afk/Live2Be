@@ -14,7 +14,7 @@
     pwsh -File start.ps1 -Port 8080         # 换 WebGUI 端口
     pwsh -File start.ps1 -NoEmbed           # 不起 lms（纯文字降级照跑）
     pwsh -File start.ps1 -EmbedOnly         # 只把 embedding 服务弄好就退出
-    pwsh -File start.ps1 -Cli               # 起终端版 MMT（apps.main）
+    pwsh -File start.ps1 -Cli               # 起终端版 MMT（cli.main）
     start.cmd                               # 双击也行（它会转调本脚本）
 
   ⚠️ Ctrl+C 只停**应用**；LM Studio 的服务还在。要停它: `lms server stop`
@@ -111,8 +111,8 @@ Write-Host ("   诊断日志（应用自己写）: {0}" -f (Join-Path $Root 'dat
 Write-Host ''
 
 if ($Cli) {
-    Write-Host '[3/3] 终端版 MMT（apps.main）—— Ctrl+C 退出' -ForegroundColor Green
-    & $Py -m apps.main
+    Write-Host '[3/3] 终端版 MMT（cli.main）—— Ctrl+C 退出' -ForegroundColor Green
+    & $Py -m cli.main
 } else {
     Write-Host ("[3/3] WebGUI → http://127.0.0.1:{0}   （Ctrl+C 停）" -f $Port) -ForegroundColor Green
     Write-Host '   ⚠ Ctrl+C 只停应用；embedding 服务还在 —— 要停: lms server stop' -ForegroundColor DarkGray

@@ -36,7 +36,7 @@ TARGETS = (
     "contract.streams",
     "contract.issues",
     "core.mmt.engine",
-    "apps.vn_cli",
+    "cli.vn_cli",
     "llm.client",
 )
 

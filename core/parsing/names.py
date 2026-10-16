@@ -7,7 +7,7 @@
 | `parsing/dynamic_character_parser.get_display_name` | 真源: `REQ~most_called_name` → 显示名 |
 | `mmt/engine._name_aliases`（**私有**） | `other_names`/`jp_name`/`en_name` 切分成别名 |
 | `webgui/routers/bond._speaker_name_map` | 角色 id → 显示名; `sensei` → 老师; `narrator` → 空 |
-| `apps/vn_cli._speaker_names` | **同上又写一遍**（差别只在 narrator 不在表里） |
+| `cli/vn_cli._speaker_names` | **同上又写一遍**（差别只在 narrator 不在表里） |
 | `bond_story/engine._speaker_names` | `{char_id: display_name}` **第三遍**（零调用方, 本次删） |
 
 用户 2026-09-22 指出"**多人模式的显示名**也要用" ⇒ 该上升为接口。
