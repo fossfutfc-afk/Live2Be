@@ -54,7 +54,8 @@ READONLY_ROOTS = ("RESOURCE_ROOT",)
 
 #: 现拼路径的哨兵: `Path(__file__)` 同行还出现这些"项目根一级目录名" = 违规
 _ROOT_MARKERS = ('"assets"', '"data"', '"config"', '"webgui"', "settings.toml")
-_SCAN_DIRS = ("core", "infra", "webgui", "llm", "contract")
+#: 扫"现拼项目根路径"与"往只读根写"的七个包（= 全部源码包）
+_SCAN_DIRS = ("core", "infra", "webgui", "llm", "contract", "cli", "tui")
 _SKIP_FILES = {"infra/paths.py"}          # 宏的家, 它才是那个"一处"
 
 
@@ -223,8 +224,7 @@ def test_no_writes_under_readonly_roots():
     真正有意义的运行时验收只能等 frozen 构建 —— 记在 PROCEED, 别在这儿假装做到了。
     """
     bad: list[str] = []
-    scan = ("core", "infra", "webgui", "llm", "contract", "cli", "tui")
-    for d in scan:
+    for d in _SCAN_DIRS:
         for p in (ROOT / d).rglob("*.py"):
             if "__pycache__" in p.parts:
                 continue
