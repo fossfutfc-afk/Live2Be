@@ -1,18 +1,11 @@
-"""按记录情绪标注原语 — 记录流 v2（一板一组一次调用; docs/DESIGN_STREAM_CONTRACT.md 附录 A §6）。
+"""按记录标注情绪（记录流 v2 的主链原语）—— 一板一组, 一次调用。
 
-形态: 单板一次请求——【本板】= 本组要标的**记录**文本列表（真机 3~12 条;
-一条记录 = 一个显示/判定单元, 内部可能含两三句）+ 【情境】（engine 按已生效链
-记账: 非首板 = 上一板记录原文 + 末条情绪; 首板 = 本章 seed 锚; 禁后文）+ 全注释
-词表 + I/O 示范（示范键由 engine 按实际词表动态挑选, 保证词表内合法）。engine
-职责外置: 记录条数显式双写、长度=N 硬校验、每条必填、长度不符重试一次（消息带
-"期望 N, 实得 M"）、词表外单项只丢该项——残余由本原语做板内延续
+**一条记录一个键**: 记录内多句也只占一行（模板显式双写条数, 不是句子数）。
+输入 = 本板记录文本 + 情境块（上一板原文 + 末条情绪 / 首板 seed 锚）+ 全注释词表
++ I/O 示范（示范键按实际词表挑）; 引擎负责条数硬校验与重试, 本原语负责板内延续
 （上一条键 → 板首 carry）——**永不整批 None**。
 
-**一条记录一个键**（2026-09-11 口径修正）: 记录内多句也只占一行——旧模板自称
-"每行一句", 与 v2"一行 = 一条记录"的实际输入不符, 会诱使模型按句拆项
-（长度不符 → 整板走延续兜底）。
-
-提示词模板: llm/prompts/emotion_text_annotate.md（2026-09-11 口径修正）。
+提示词模板: `llm/prompts/emotion_text_annotate.md`。
 """
 from __future__ import annotations
 
@@ -33,9 +26,8 @@ logger = logging.getLogger("live2be.bond")
 _CANONICAL = ["nomal", "embarrassed", "smile", "surprised",
               "sad", "outburst", "expectant", "respond"]
 
-#: 预算（2026-09-08 真 API 修正: 1 → 2 次重试）——空响应/项数错配在
-#: 服务端负载期占首发 ~40%; 第 2 次重试显著回收; 仍失败走板内延续
-#: （小输入快失败, 代价小; DESIGN_SCENE_STREAM §4.3/§10 注）
+#: 尝试上限: 空响应 / 项数错配在服务端负载期占首发 ~40%, 第二次重试能收回大部分;
+#: 仍失败就走板内延续（输入小, 快失败代价低）。
 _ANNO_TEXT_MAX_ATTEMPTS = 3
 
 #: 无词表/输入为空时的板内延续默认键（engine 侧已保证词表非空; 兜底防线）
@@ -43,11 +35,7 @@ _DEFAULT_EMOTION = "nomal"
 
 
 def pick_demo_keys(lexicon_keys: list[str]) -> tuple[str, str, str]:
-    """I-O 示范标签键: (转折示范 key_a, 转折示范 key_b, 叙述示范 key_n)。
-
-    全 ∈ 实际词表——模板示范的标签键由 engine 动态挑选（DESIGN_SCENE_STREAM
-    §0.7/§4.1 注: 示范永远词表内合法）。词表仅 1 键 → 同键兜底（格式仍示范）。
-    """
+    """I-O 示范的三个标签键（转折 a/b + 叙述 n）——全 ∈ 实际词表; 只有 1 键则同键兜底。"""
     kset = list(dict.fromkeys(k for k in lexicon_keys if isinstance(k, str)))
     n = "nomal" if "nomal" in kset else (kset[0] if kset else _DEFAULT_EMOTION)
     rest = [k for k in _CANONICAL if k in kset and k != n]
@@ -61,7 +49,7 @@ def pick_demo_keys(lexicon_keys: list[str]) -> tuple[str, str, str]:
 _KEY_RE = re.compile(r"^[A-Za-z_]+$")
 
 
-def _first_list_value(obj: dict) -> object:
+def _first_list_value(obj: dict) -> list | None:
     """对象包装取键数组（数组形态）: labels/emotion 键优先, 否则首个 list。"""
     for key in ("labels", "emotion", "keys", "emotions"):
         v = obj.get(key)
@@ -73,13 +61,8 @@ def _first_list_value(obj: dict) -> object:
     return None
 
 
-def _numbered_map_value(obj: dict) -> object:
-    """对象包装取键数组（编号映射形态, 2026-09-08 真 API 二修）。
-
-    数组形态（text/json）下模型数不对项（n≥3 常合并/漏行 → 重试后整板兜底）。
-    编号映射 `{"labels": {"1": 键, "2": 键}}` 让**引擎数项**（行号键集合）,
-    模型只需逐行标——键(≥1)排序取值; 漏行/错位仍由项数硬校验兜底（重试）。
-    """
+def _numbered_map_value(obj: dict) -> list | None:
+    """编号映射形态 `{"labels": {"1": 键, …}}` → 按键升序取值（模型不必数项数）。"""
     for key in ("labels", "emotion", "keys", "emotions"):
         v = obj.get(key)
         if isinstance(v, dict):
@@ -97,16 +80,10 @@ def _numbered_map_value(obj: dict) -> object:
     return None
 
 
-def _extract_key_array(raw: object) -> object:
-    """标注输出 → 键数组（形态无关: 数组 | 对象数组 | 对象编号映射）。
+def _extract_key_array(raw: object) -> list | None:
+    """标注输出 → 键数组（形态无关: 数组 | 对象数组 | 对象编号映射 | 裸键）。
 
-    2026-09-08 真 API 修正（DESIGN_SCENE_STREAM §4.1 注）: 文本模式实测
-    deepseek-v4-flash 频发空响应/裸键数组（重试/整板兜底率飙升）→ 输出契约
-    改 json_object 对象包装, 二修为**编号映射** {"labels": {"1":键,…}}
-    （模型不再数项数——引擎按行号键集合数项）。本函数兜底兼容旧形态
-    （dict/list/裸键容忍——测试桩与旧客户端路径用）。
-    键合法性仍由词表成员校验兜底（丢非法项）, 项数仍由 _label_chain 硬校验
-    （不符 → 重试一次, 消息带"期望 N, 实得 M"）。无法识别 → None。
+    识别不出 → None; 键合法性与项数由 `_label_chain` 硬校验兜底。
     """
     if isinstance(raw, list):
         return raw
@@ -143,11 +120,9 @@ def _extract_key_array(raw: object) -> object:
 
 def _label_chain(arr: object, n: int, kset: set[str], prev: str | None,
                  ) -> tuple[list[str], int] | None:
-    """数组 → 标签链: 长度恰 n → 逐项词表校验（词表外只丢该项 → 板内延续）。
+    """数组 → 标签链: 长度恰 n → 逐项词表校验（词表外只丢该项, 走板内延续）。
 
-    Returns:
-        (labels, missing): 成功——labels 全 ∈ kset 且长度 n; missing = 兜底项数;
-        None: 长度 != n（触发重试——不逐项消费错位数组）。
+    Returns: `(labels, missing)`; 长度 != n → None（触发重试, 不消费错位数组）。
     """
     if not isinstance(arr, list) or len(arr) != n:
         return None
@@ -177,24 +152,14 @@ def annotate_items(
     prev: str | None = None,
     max_tokens: int | None = None,
 ) -> tuple[list[str], dict]:
-    """标注一组记录文本的情绪键（记录流 v2: 一板一组的记录, 一条一个键）。
+    """标注一组记录文本的情绪键 → 返回 `(labels, info)`。
 
-    Args:
-        llm: LLM 客户端（标注走 emotion 档位——reasoning off / max_tokens 真源）。
-        items: 本组要标的**记录文本**（engine 已知条数 N, 显式双写进模板）。
-        lexicon_keys / lexicon_hint: 角色情绪词表（全注释注入, §0.5）。
-        character / char_name: 人设卡（现网 _character_hint 形态, §0.2）与角色名。
-        context: 情境块（engine 记账: 上一板记录原文+末条情绪 / 首板 seed 锚）。
-        group_no: 组号（= 第几板; 日志/metrics/模板标题用）。
-        prev: 板首 carry——上一板末条已生效情绪（词表内; 板内延续起点）。
-        max_tokens: 输出上限（None → 真源 task_levels 形态 "emotion"=512）。
+    `items` = 本组记录文本（条数 N 显式双写进模板）; `context` = 情境块（上一板原文 +
+    末条情绪 / 首板 seed 锚）; `prev` = 板首 carry（板内延续起点）; `group_no` 进日志与模板。
 
-    Returns:
-        (labels, info): labels 长度恒 == len(items) 且全词表内——
-        形状/项数不符 → 重试至多两次; 仍失败/调用异常 → 板内确定性延续
-        （前一条键 → 板首 carry → nomal）, **绝不整批 None**。
-        info = {attempts, retry, fallback}: 质量记账（DESIGN_SCENE_STREAM §8:
-        retry = 触发重试次数; fallback = 兜底条数——目标 ≈0）。
+    `labels` 长度恒 == `len(items)` 且全词表内——形状/项数不符重试至多两次, 仍失败则
+    板内确定性延续（前一条键 → 板首 carry → nomal）, **绝不整批 None**。
+    `info` = `{attempts, retry, fallback}`（retry = 触发重试次数; fallback = 兜底条数）。
     """
     n = len(items)
     if n == 0:
@@ -244,11 +209,8 @@ def annotate_items(
                 ],
                 temperature=0.2,
                 max_tokens=max_tokens,
-                # 2026-09-08 终局: json_object + **thinking 显式 disabled**
-                # （task_levels off 语义; DeepSeek v4-flash 默认思考吃光
-                # max_tokens → 空 content, DeepSeek-V3#1610 同型——disabled 后
-                # 无空响应 + 引号/结构双保证, 单板 0.5-2.4s 实测）; 编号映射
-                # 由引擎数项, 自纠错风暴不再触发
+                # json_object + thinking 显式 off（真源 = task_levels）: v4-flash 默认
+                # 思考会吃光 max_tokens 留下空 content; 编号映射由引擎数项。
                 response_format="json_object",
                 extra_body=_tl_extra("emotion"),
                 task=EMOTION,              # 调用身份（节点 5b: 桩按它分派, 不进 payload）

@@ -1,32 +1,20 @@
 """羁绊剧情引擎 — 视觉小说模式对话。
 
-与 MomoTalk 的区别:
-    - 不去括号（允许动作描写）
-    - 不断句（段落为单位，非气泡）
-    - 不加 [名字]: 前缀（UI 层单独显示角色名）
+与 MomoTalk 的区别: 不去括号（允许动作描写）· 不断句（段落为单位）· 不加 `[名字]:` 前缀
+（UI 层单独显示角色名）。
 
-场景契约（**v2 记录流, 2026-09-10 起唯一形态**）:
-    一次 LLM 调用输出**一行一条 JSON 记录**（character/stage + text）; 引擎解析成块
-    → 派生板（`_board_spans` / `BlockStreamParser`）→ BondScene。
-    收尾 = `stage:end`; 纪念 = `stage:art` + `stage:memorial` 成对（DESIGN_MEMORIAL）。
-    ⚠️ **v1 的"单动作 JSON"契约已整体退役**（2026-09-21 删除）: 原
-    `core/bond/{bond_actions,bond_executor,memorial_actions,sentence_splitter}.py`
-    与 `BondScene.from_action` 一并移除; 现在收到动作 dict **一律打回重发**
-    （见 `send_vn_scene` 的 `isinstance(response, dict)` 分支）。
-    BondScene 是解析后的程序侧结构; to_dict/from_dict 是序列化唯一路径
-    （读存档 json[] 回放与运行时同一条路径）。
-    双空格/【选择】/【完】等自由文本标记解析已删除——结构由 JSON 字段强制。
-    行为规则在 llm/prompts/bond_story_rules.md; 契约 schema 由 build_record_schema 注入
-    （2026-09-10 记录流 v2——story 域不再用"单动作 JSON"那个外壳; 那套外壳本身
-    已于 2026-10-14 删除, 见 `contract/schema/__init__.py` 的模块 docstring）。
+**输出 = 记录流 v2**（唯一形态）: 一次 LLM 调用输出一行一条 JSON 记录（character/stage
++ text）→ 解析成块 → 派生板（`_board_spans` / `BlockStreamParser`）→ `BondScene`。
+收尾 = `stage:end`; 纪念 = `stage:art` + `stage:memorial` 成对。收到的响应若是 dict
+（v1 的单动作 JSON）**一律打回重发**。行为规则在 `llm/prompts/bond_story_rules.md`;
+本轮输出契约由 `build_record_schema` 注入。
+
+`to_dict` / `from_dict` 是序列化唯一路径（读档回放与运行时同一条）。
 
 用法:
-    from core.bond.bond_story import BondStoryEngine
     vn = BondStoryEngine(characters_root, llm_client)
     vn.start_session("igusa_haruka")
     scene = vn.send_vn_scene("（开场）")
-    for para in scene.paragraphs: ...
-    if scene.choices: ...
 """
 
 from __future__ import annotations
@@ -90,21 +78,12 @@ logger = logging.getLogger(__name__)
 #: 一次 LLM 回合最多切几板（记录流 v2 防御: 模型写飞了也不无限排队。正常一拍
 #: 2~4 个槽; 24 板 ≈ 150 条记录, 只在模型彻底失控时兜底）
 
-#: 单场景解析的最大重试次数（原在 `bond_actions.py`——该模块 2026-09-21 随 v1 退役删除,
-#: 常量搬到唯一消费者这里; 值不变）
+#: 单场景解析的最大重试次数（超过就终结该场 → `SceneLoopError`）
 MAX_SCENE_RETRIES = 3
 
-#: ⚠️ 2026-09-21 删除: 原 `LEGACY_ACTION_ENV` / `legacy_action_enabled()`——**零调用者**
-#: （`grep legacy_action_enabled` 只剩定义与审计文档）。旧动作 JSON 在 `send_vn_scene`
-#: 里**无条件**打回重发（见那里的 `isinstance(response, dict)` 分支）; 复活 v1 动作通道时
-#: 别只删那个分支——把闸门一起加回来, 参考 git 历史里的这个开关。
-
-#: 记录流"硬"违规 → 打回重发（形状类: 说明模型没守约, 重发值得）。
-#: ⚠️ 2026-09-21（节点 6）: 原来这里是一张**中文标记串**表（`HARD_BLOCK_ISSUE_MARKS`），
-#: 由 `split_board_issues` 做子串匹配判硬软——给软问题换个措辞就可能静默变成"整轮
-#: 重发"（ARCH_REVIEW P0-3）。现在分级是 `contract.records.ISSUE_SEVERITY` 里
-#: `IssueCode → IssueSeverity` 的显式声明，`split_issues` 只读 `Issue.severity`。
-#: 本文件**不再**有任何按问题文案判分级的代码（`tests/core/test_records.py` 有守门用例）。
+#: 记录流"硬"违规 → 打回重发（形状类: 模型没守约, 重发值得）。
+#: 分级只在 `contract.records.ISSUE_SEVERITY`（`IssueCode → IssueSeverity`）声明一处,
+#: 本文件不按问题文案判分级（守门: `tests/core/test_records.py`）。
 
 
 def _personality_summary(char: DynamicCharacter) -> str:
@@ -138,7 +117,7 @@ def memorial_allowed() -> bool:
     不触发生图 / 不进回忆册）, **文字照常上屏**——观感与"章内第二次纪念"的既有
     降级完全一致（复用同一条通道, 见 `_demote_repeat_memorial`）。
 
-    ⚠️ 与 `[image].enabled`（生图总开关）**不是一回事**: 那个关掉后纪念演出照旧
+    与 `[image].enabled`（生图总开关）**不是一回事**: 那个关掉后纪念演出照旧
     （仍黑屏 + 转场句, 只是没插画）; 本开关关掉后**连桥段一起没有**。
 
     读取失败/缺省 → True（与 `choice_pregen`/`image_enabled` 同一姿势: 不配 = 现状）。
@@ -339,11 +318,11 @@ class BondStoryEngine:
         缺省退化为触发句。流式路径即时触发, 非流式路径在整块解析后补触发。
         None = 不开画（纯文字降级）。**只在本轮确实出现 memorial 时才触发**
         （模型写了 `art` 预告却没兑现 → 不发图, 不浪费调用）。
-        readahead: ⭐ **链式读前**（2026-10-08）—— True = **跳过"领队列"早返回,
+        readahead: **链式读前**—— True = **跳过"领队列"早返回,
         强制生成新的一块**（并把它的板**追加**到待发队列尾部, 不动玩家还没读完的板）。
         为什么需要这个开关: 下面那条早返回是"队列有货就先发队列"（玩家点继续的正常
         路径）; 读前生成是在**队列非空**时故意再写一块排到后面, 语义完全不同。
-        ⚠️ 只有 `_pregenerate` 传 True; 默认 False ⇒ 现有调用方零影响。
+        只有 `_pregenerate` 传 True; 默认 False ⇒ 现有调用方零影响。
         """
         if self._current_char is None:
             raise RuntimeError(err("NotInSession", "尚未开始会话"))
@@ -360,7 +339,7 @@ class BondStoryEngine:
 
         # 记录流 v2（P0-4b）: 上一回合切出的尾板——内容已在手, **0 LLM 直接发**
         # （玩家点继续即领下一板; 这是"读屏期间生成下一板"最朴素形态, §6）
-        # ⚠️ `readahead=True` 时**跳过**这一支（读前要的是"再写一块", 不是"发一块"）
+        # `readahead=True` 时**跳过**这一支（读前要的是"再写一块", 不是"发一块"）
         if self._pending_boards and not readahead:
             scene = self._pending_boards.pop(0)
             self._trace = [{"attempt": 0, "action": "record_stream/pending",
@@ -378,14 +357,9 @@ class BondStoryEngine:
         if system_note:                                     # 约束注记（纪念 exit schema/
             notes.append(system_note)                       # 配额/收尾提醒, webgui/vn_cli 拼）
         if self._memorial_used:
-            # ⭐ 2026-10-08（用户裁决"加这条提示"）: 章内**已经用过**纪念插画 ——
-            #    `_memorial_used` 从前**只写不读**（第二次 memorial 由
-            #    `_demote_repeat_memorial` 静默丢弃, 有意**不给反馈**以免反馈回环,
-            #    见那里的 docstring）。代价是 writer 每块都可能再写一次 memorial/art
-            #    ——**白写**（图与 marker 都不会出）。真机 2026-10-08 就中过一次
-            #    （`[vn][memorial] 章内第二次纪念 → 静默拒绝`）。
-            #    这条是**静态事实**（"本章用过没"）, 不是"你上一轮写错了"那种纠偏
-            #    ⇒ 不构成回环; 只进动态尾（notes）, 不碰 system 盒（前缀缓存安全）。
+            # 章内已经用过纪念插画: 提醒一次, 免得 writer 每块都再写一遍 art/memorial
+            # （重复的会被静默丢弃, 图与 marker 都不会出）。这是**静态事实**而非纠偏,
+            # 不构成反馈回环; 只进动态尾（notes）, 不碰 system 盒（前缀缓存安全）。
             notes.append(
                 "（系统）本章的纪念插画**已经用过了**（一章至多一次）："
                 "不要再写 stage=art / stage=memorial——重复的会被丢弃，"
@@ -416,17 +390,10 @@ class BondStoryEngine:
         # 反而被当成"收到的不是记录流" → 打回重发）。
         resp_format = "text"
 
-        # ⚠️ 2026-09-13（审计 B19, **仍未修**——原因记在此处, 免得下次又踩）:
-        # 曾想在这里清空 `_pending_boards`, 让"生成期间队列里没有可交付的板"成为
-        # 不变式。实测**这段在队列非空时不可达**: 上面的 0-LLM 快路径
-        # （`if self._pending_boards:` → `return`）会先返回。而流式交付窗口恰恰
-        # 是"队列非空"的情形——本回合的板尚未解析出来, 队列里还挂着**上一回合的
-        # 尾板**, 此时首板在下面的 LLM 调用中闭合即回调, webgui 的 `_draft_save`
-        # 在回调里读 `_pending_boards` → 草稿混入旧板 → 进程若在此刻死掉, 重进会
-        # 把旧板当"已生成未播放"续播。
-        # 正确修法（待做）: 在 **webgui 侧**标记"正在生成中", 让 `_draft_boards`
-        # 在生成期间不取引擎待发队列; 或把"本回合待发板"与"上一回合残留"在引擎里
-        # 分成两个字段。
+        # 这里**不能**清空 `_pending_boards`: 上面的 0-LLM 快路径（队列非空 → 直接返回）
+        # 让这段在队列非空时不可达, 而流式交付窗口恰恰是"队列非空"的情形。待修: 在 webgui
+        # 侧标记"正在生成中"（生成期间 `_draft_boards` 不取引擎待发队列）, 或把"本回合待发板"
+        # 与"上一回合残留"拆成两个字段。
 
         for attempt in range(MAX_SCENE_RETRIES):
             # 纪念生图提前开画（v2, 2026-09-12）: v1 的 `MemorialProbe` 嗅探的是
@@ -489,7 +456,7 @@ class BondStoryEngine:
                     return
                 stream.feed(str(text))
                 # 纪念生图提前开画（v2）: 见 attempt 循环头注释。
-                # ⚠️ `not self._memorial_used`: 章内第二次纪念会被
+                # `not self._memorial_used`: 章内第二次纪念会被
                 # `_demote_repeat_memorial` 静默降级 —— 这里也不能先开画。
                 if (on_memorial_prompt is not None and not memorial_fired
                         and not self._memorial_used
@@ -607,14 +574,10 @@ class BondStoryEngine:
             # （放在这里而不是尝试循环开头: 预生成/重试可能失败, 那不是窗口结束;
             #   本块若自己又带 memorial, `_finish_scene` 会立刻再置位——章内 ≤1。）
             self._in_memorial = False
-            # ⭐ 2026-10-08（链式读前）: **追加, 不是赋值** —— 待发队列从此允许**跨块累积**
-            #    （读前生成的那一块排在"玩家还没读完的板"**后面**）。
-            #    为什么今天两条写法等价: 走到这里就意味着**队列是空的** —— 函数开头
-            #    `if self._pending_boards: … pop(0) … return` 会先返回。所以 `extend`
-            #    在现有调用形态下与 `list(...)` 逐字节同效, 只是**多了一种情况能用**:
-            #    读前生成时不会把上一块没读的板整段丢掉。
-            #    ⛔ **别改回 `=`**: 那会让"提前生成的下一块"把玩家的待读板清空
-            #    （守门 `tests/core/test_bond_pending_append.py` 会当场红）。
+            # **追加, 不是赋值**: 待发队列从此允许跨块累积（读前生成的那一块排在"玩家还没
+            # 读完的板"后面）。走到这里队列必为空, 所以它与 `list(...)` 等效, 只是多了一种
+            # 情况能用——读前生成时不会把上一块没读的板整段丢掉。别改回 `=`（守门:
+            # `tests/core/test_bond_pending_append.py`）。
             self._pending_boards.extend(boards[1:])
             # 非流式路径（无 on_board / 旧 mock LLM）: 整块解析完才知道有纪念 →
             # 这里补触发（延迟几秒, 但保证"有声明的就一定会开画"）
@@ -729,7 +692,7 @@ class BondStoryEngine:
     def _speaker_names(self) -> dict[str, str]:
         """**流式解析器**的说话人名字表（角色 id → 显示名）——别名归一动用。
 
-        ⚠️ 这里**只给自己一个键**（不给 `sensei`/`narrator`）: 解析器拿它做别名归一,
+        这里**只给自己一个键**（不给 `sensei`/`narrator`）: 解析器拿它做别名归一,
         多塞键会改变归一结果。读名字的实现已收敛到 `core.parsing.names`（N1）——
         本方法是那张**表**的构造, 不再是"怎么读人设"的第二份实现。
         """
@@ -833,7 +796,7 @@ class BondStoryEngine:
                 logger.warning("place 标注异常（兜底保持背景）: %s", e)
         if self.director is not None:
             # 视觉导演（v2）: place 意图 → background + audio 占位。
-            # ⚠️ 传的是**资产 scene_id**（C5, 2026-09-19）: 表的语义键（`classroom`）
+            # 传的是**资产 scene_id**（C5, 2026-09-19）: 表的语义键（`classroom`）
             # 与资产 scene_id（`class_room`）不是一回事, 而导演/catalog 吃后者。
             # `scene.place` 本身仍存**语义键**（事件流里的地点语义, 给记忆用）。
             vs = self.director.visual_for(self._place_scene_id(scene.place),
@@ -1005,7 +968,7 @@ class BondStoryEngine:
           解决** → 直接落锚, 日志 `skip=layer1_hit`
         * 两道都过不了 → 照旧叫 `annotate_places`（日志 `scan cue=…`）
 
-        ⚠️ 闸2 **从宽**: 只要有一句带线索却解决不了（歧义/表外/与当前相同）就**整板
+        闸2 **从宽**: 只要有一句带线索却解决不了（歧义/表外/与当前相同）就**整板
         交 LLM** —— 省钱的代价只允许落在"确定无疑"的那些板上。
 
         判定语义在 `place_annotate.md`（镜像编剧 rules 换场判据）; 失败 → keep
@@ -1096,12 +1059,12 @@ class BondStoryEngine:
 
         | 该句的情况 | 处理 |
         |---|---|
-        | 别名**唯一**命中且 ≠ 当前地点 | ✅ 直接锚（0 调用） |
+        | 别名**唯一**命中且 ≠ 当前地点 | 直接锚（0 调用） |
         | 歧义（`天台` → 3 个键） | ❌ 交 LLM |
         | 表外（一个别名都不命中） | ❌ 交 LLM |
         | 唯一命中 == 当前地点 | ❌ 交 LLM |
 
-        ⚠️ 最后一行**不能用 `place_annotate._layer1` 的"歧义∩当前 → keep"捷径**:
+        最后一行**不能用 `place_annotate._layer1` 的"歧义∩当前 → keep"捷径**:
         句子级最常见的换场恰恰是「她拉着我**走出教室**，来到**天台**」——
         那里当前地点与目的地**同时出现**, 走捷径会把这一整板判成"不用动"
         （2026-09-19 实测踩到, 就是本函数不用 `_layer1` 的原因）。

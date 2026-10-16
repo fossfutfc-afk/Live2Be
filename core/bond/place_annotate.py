@@ -1,20 +1,12 @@
-"""地点变更标注（bond v2 视觉意图第二路, DESIGN_BOND_CONTRACT_V2 §5）——判定型任务。
+"""地点变更标注（bond v2 视觉意图第二路）—— 判定型任务。
 
-背景（2026-09-07 定稿, text 半成功论）: 主 LLM 只按"换场即换段"写作约定分段,
-**不写地点字段**; 地点语义由本标注层从句子文本里读出——与 emotion 同族:
-    情绪   = 逐句全覆盖（词表键）
-    place  = 事件型稀疏（仅在空间实体变更句产出锚点 {sentence, place}）
+主 LLM 按"换场即换段"写作、**不写地点字段**; 地点由本层从文本里读出。
+与 emotion 同族, 但输出是**稀疏锚点** `[{sentence, place}]`（不是等长数组）⇒
+失败语义 = 整批 keep（画面保持, 不进主 LLM 重试）; 词表外/越界/与当前相同 → 逐项丢弃。
+判据细节住 `llm/prompts/place_annotate.md`, 这里只做清洗与兜底。
 
-与 emotion 的差异（因此独立模块、独立 prompt, 但共享文本模式工具）:
-    · 依赖"当前地点"状态（上一画面在哪——continuity 判定基础）
-    · 输出 = 索引表 [{sentence, place}]（非等长标签数组）→ robust 二分不适用,
-      失败语义 = 整批 keep（画面保持, 宁缺勿错, 不进主 LLM 重试）
-    · 词表外/与当前相同/越界/重复 → 逐项丢弃（keep）
-
-用法:
-    anchors = annotate_places(llm, sentences, place_keys, current_place)
-    # anchors: [{sentence: int(1-based), place: str}] 按句升序去重; 失败 → []
-    # P3 接线: 引擎在锚点句应用背景切换（payload 句项写 place 键, 稀有种）
+用法: `anchors = annotate_places(llm, sentences, place_keys, current_place)`
+（1-based 句号, 按句升序去重; 失败 → `[]`）。
 """
 
 from __future__ import annotations
@@ -32,30 +24,23 @@ from llm.task_levels import max_tokens as _tl_max_tokens
 
 logger = logging.getLogger("live2be.bond")
 
-#: switch 文本 → 词表键的进程内缓存（P0-7 最小换场翻译; 文件级缓存 places_resolved.jsonl
-#: 是 P1-3 的事——这里先给"同一地点话不再重复调用"的收益）
+#: switch 文本 → 词表键的进程内缓存（同一句话不重复调用）
 _RESOLVE_CACHE: dict[str, str] = {}
 _RESOLVE_CACHE_MAX = 256
 
 
-#: 层2 的显式"不换场"标记（prompt 里唯一的合法出口）——语义 = "编剧说的就是当前这个地方"。
-#: ⚠️ 与"给空串"分开（2026-09-23）: 空串曾是模型偷懒的出口（真机 '夜晚的模型店橱窗前'
-#: 三块板都空 ⇒ 画面卡在上一张）。标记化之后"确实是同一处"与"判不出来"在数据里分家。
+#: 层2 的显式"不换场"标记（prompt 里唯一的合法出口）。与"给空串"分开:
+#: 空串是模型偷懒的出口（真机一串三块板都空 ⇒ 画面卡在上一张）。
 _SAME_TOKEN = "same"
 
 
 def _layer1(text: str, table, current: str, key_set: set[str]) -> str | None:
-    """**层1: 别名精确命中（0 调用）** —— 命中就返回键; 不命中/歧义 → `None`（下沉层2）。
+    """**层1: 别名精确命中（0 调用）** —— 命中返回键, 不命中/歧义 → `None`（下沉层2）。
 
-    判据（`core/media/place_table.py:resolve_exact`）:
-    * 唯一命中且 ≠ 当前 → 直接用
-    * 唯一命中 == 当前 → `""`（画面不用动, 也省一次调用）
-    * **歧义（≥2 条）**→ 若 `current` 在里面也算"已经在那一带"→ `""`;
-      否则 `None`（交层2 读 `note` 判——层1 不猜）
-
-    ⚠️ **结果必须落在 `key_set` 里**（2026-09-19）: `place_keys` 才是"这次允许
-    用哪些键"的真源（webgui 门控 + 调用方可以收窄），表只是**语料**。
-    两者可能不一致（测试/子集场景）——此时以 `key_set` 为准，别让两个真源打架。
+    判据（`core/media/place_table.py:resolve_exact`）: 唯一命中且 ≠ 当前 → 直接用;
+    唯一命中 == 当前 → `""`（画面不用动）; 歧义（≥2 条）→ `current` 在里面也给 `""`,
+    否则交层2 读 `note` 判（层1 不猜）。
+    结果必须落在 `key_set` 里: `place_keys` 才是"这次允许用哪些键"的真源, 表只是语料。
     """
     if table is None or not table:
         return None
@@ -70,8 +55,7 @@ def _layer1(text: str, table, current: str, key_set: set[str]) -> str | None:
 def _lexicon_hint(place_keys: list[str], table) -> str:
     """层2 的词表文本: 有表 → 整表（含 `note`）; 无表 → 旧口径（裸 id 列表）。
 
-    ⚠️ `note` 是**表外地点也能落位**的唯一依据（用户 2026-09-19）——没它模型
-    只能对着裸 slug 瞎猜, 真机 `杂草屋 → school_rooftop` 就是这么来的。
+    `note` 是表外地点也能落位的唯一依据——没它模型只能对着裸 slug 瞎猜。
     """
     if table is not None and table:
         return table.lexicon_text()
@@ -79,22 +63,25 @@ def _lexicon_hint(place_keys: list[str], table) -> str:
 
 
 def _clean_anchors(
-    raw: object,
+    raw: list | None,
     n_sentences: int,
     place_keys: set[str],
     current_place: str,
 ) -> list[dict]:
     """锚点清洗（逐项容错）: 类型/序号越界/词表外/与当前相同 → 丢弃;
     同句多条目 → 保留最后一个; 按句号升序。"""
-    if not isinstance(raw, list):
+    if raw is None:
         return []
     by_sentence: dict[int, str] = {}
     for it in raw:
         if not isinstance(it, dict):
             continue
+        seq = it.get("sentence")
+        if isinstance(seq, bool) or not isinstance(seq, (int, str)):
+            continue
         try:
-            s = int(it.get("sentence"))
-        except (TypeError, ValueError):
+            s = int(seq)
+        except ValueError:
             continue
         p = it.get("place")
         if not isinstance(p, str):
@@ -119,16 +106,12 @@ def annotate_places(
     max_tokens: int | None = None,
     retries: int = 1,
 ) -> list[dict]:
-    """地点变更标注（单次调用 + 至多重试）: 返回清洗后锚点列表; 失败 → []（keep）。
+    """地点变更标注（单次调用 + 至多重试）: 返回清洗后的锚点列表; 失败 → `[]`（keep）。
 
-    Args:
-        sentences: 本场句子列表（引擎已切句, 1-based 输出对应其序号）
-        place_keys: 地点词表（closed 键集; 有 `table` 时只用于校验输出合法性）
-        current_place: 上一画面地点（空 = 初始/未知——首次出现的变更句即起始背景）
-        table: `PlaceTable`（C2, 2026-09-19）——有它则词表文本换成**整表含 note**;
-            None → 旧口径（裸 id 列表, 只为兼容/降级）
-        max_tokens: None → task_levels 形态 "place"=256; 显式传值覆盖
-        retries: 解析失败重试次数（每次附带"只输出 JSON 数组"提醒）; 0 = 不重试
+    `place_keys` 是 closed 键集（有 `table` 时只用来校验输出合法性）;
+    `current_place` 空 = 初始/未知（首次变更句即起始背景）;
+    `table` = `PlaceTable`, 有它则词表文本换成整表含 `note`（None → 裸 id 列表, 兼容/降级）;
+    `retries` = 解析失败重试次数（重试时附一句"只输出 JSON 数组"）。
     """
     if not sentences or not place_keys:
         return []
@@ -162,7 +145,7 @@ def annotate_places(
             )
         except Exception as e:                    # noqa: BLE001 — 失败静默降级
             logger.warning("place 标注调用失败（keep 兜底）: %s", e)
-            continue                              # 重试机会耗尽 → 落到 finally [] 
+            continue                              # 试完就落到最后的 []（keep）
         arr = _extract_array(raw)
         if arr is not None:                       # 形状可解析 → 逐项容错完成
             return _clean_anchors(arr, len(sentences), key_set, current)
@@ -197,25 +180,13 @@ def resolve_place(
     max_tokens: int | None = None,
     retries: int = 1,
 ) -> str:
-    """`switch` 地点话 → 背景词表键（**层1 别名 0 调用 → 层2 LLM 就近推测**）。
+    """`switch` 地点话 → 背景词表键（**层1 别名 0 调用 → 层2 读 note 就近推测**）。
 
-    记录流 v2 的换场由 writer 发 `stage:switch`（自然语言地点），WHICH 归标注层:
-    这一步就是那一次翻译。
+    记录流 v2 的换场由 writer 发 `stage:switch`（自然语言地点）, "是哪儿"归这一层。
+    层1 = 表里的 `keywords` 别名命中（0 调用）; 层2 = 吃整张表（含 `note`）选语义最近的
+    一张——"词表里没有能对上的"不是失败, writer 自由写、层2 负责推测。
 
-    ## 两层（C3, 2026-09-19）
-
-    * **层1**（`_layer1`）: 表里的 `keywords` 别名整串/最长别名命中 → **0 调用**。
-      真机实测: `教室`→`classroom`、`街角的咖啡馆，靠窗的位子`→`moderncafe`
-      （这两条在"31 条裸 slug"时代全是 MISS）。
-    * **层2**: 吃**整张表**（含 `note`）。**"词表里没有能对上"不是失败**——
-      writer 自由写（用户: *"writer 的自由不受限制……annotation-llm 只要看到 note
-      就能大致推测出地点"*），层2 的活就是**读 note 选语义最近的一张**。
-      ⚠️ 旧口径"宁可空着，不要硬凑"是**第一版为了让程序跑起来的遗老**（用户
-      2026-09-19 定性），已随 prompt 一并改掉。
-
-    `""` = 这次不切背景（keep）。命中进程内缓存 → 不再调用。
-
-    Returns: 词表键; `""` = 这次不切背景。
+    Returns: 词表键; `""` = 这次不切背景（keep）。命中进程内缓存 → 不再调用。
     """
     text = (text or "").strip()
     current = (current_place or "").strip()
@@ -272,13 +243,11 @@ def resolve_place(
         elif place and place in key_set:
             reason = "same"                       # 与当前相同 → 画面不用动
         elif place:
-            reason = f"bad_key={place}"           # ⭐ 表外键: **记下来**（模型想说什么）
+            reason = f"bad_key={place}"           # 表外键: 记下来（模型想说什么）
         else:
             reason = "empty"                      # 模型给了空串（prompt 已不许, 兜底可见）
         break
-    # ⚠️ **只缓存成功的结果**（2026-09-23）: 空/表外键/调用失败都**不缓存**——
-    # 原先连 `""` 一起缓存, 一次偷懒就把同一句话整章钉死（真机 '夜晚的模型店橱窗前'
-    # 三块板全是 MISS, 再没有第二次机会）。
+    # 只缓存成功的结果: 空 / 表外键 / 调用失败都不缓存——否则一次偷懒就把同一句话整章钉死。
     if result and len(_RESOLVE_CACHE) < _RESOLVE_CACHE_MAX:
         _RESOLVE_CACHE[cache_key] = result
     if reason != "ok":

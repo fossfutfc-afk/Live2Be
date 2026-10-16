@@ -1,34 +1,17 @@
-"""place_cues — 换场**线索词**（PL3, 2026-09-19）: 板内没有它就根本不问标注 LLM。
+"""换场**线索词**—— 板内没有它就根本不问标注 LLM（纯字符串预筛, 0 调用）。
 
-## 它解决什么
+`annotate_places`（句级锚点）每板恒定一次调用, 但它的唯一用途是救"writer 描述了移动
+却没发 `switch`"这一种情形。真机实测 20 板里含线索词的 **0/20** ⇒ 那 20 次调用零收益
+（位移基本都写在 `switch` 里, 而 switch 不进 paragraphs）。
 
-`annotate_places`（句级锚点）每板恒定一次调用（7022 字符 prompt）。
-但它的**唯一用途**是救一种情形: **writer 描述了移动却没发 `switch`**
-（`switch` 会开新板, 所以板级地点本来就由它决定）。真机实测（2026-09-19）:
+取"宽"不取"准"是**代价不对称**: 误报 = 多花一次廉价调用（就是今天的行为）, 漏报 =
+画面不切。所以故意排除 `place_annotate.md` 明确判为"不换场"的词（转身 / 走近窗边 /
+坐下 / 蹲下）——收了它们等于把预筛关掉。
 
-    20 板 / 93 段正文 → 含线索词的板 **0/20** ⇒ 20 次调用**零收益**
-    （正文几乎全是对话/独白, 位移都写在 `switch` 里, 而 switch 不进 paragraphs）
-
-⇒ 先用这份**纯字符串**线索表过一遍（0 调用）, 没有线索就整板跳过标注。
-
-## 为什么取"宽"而不是取"准"
-
-判据 = **代价不对称**:
-* 误报（有线索其实没换场）→ 多花一次廉价调用（**就是今天的行为**）
-* 漏报（真换场却无线索）→ 画面不切
-
-所以宁滥勿缺, 把"穿过边界的位移动词"尽量收全。**故意排除**那些
-`place_annotate.md` 明确判为"不换场"的词: `转身` / `走近窗边` / `坐下` / `蹲下`
-—— 收了它们等于把预筛关掉。
-
-## 同源纪律（`CORE_CUES`）
-
-`CORE_CUES` 是**必须同时出现在两份 prompt 里**的核心子集:
-`bond_story_rules.md §五【换场】` 与 `llm/prompts/place_annotate.md` 的「强线索句式」。
-`tests/core/test_place_annotate.py::test_judgement_mirror_between_rules_and_prompt`
-钉住这一点 —— **改判据时三处一起改**（rules / annotate prompt / 本表）。
-
-`CUES` 是本表的全量（比 `CORE_CUES` 宽）, 引擎只用它做预筛。
+`CORE_CUES` 是**必须同时出现在两份 prompt 里**的核心子集
+（`bond_story_rules.md §五【换场】` 与 `place_annotate.md`「强线索句式」）,
+`tests/core/test_place_annotate.py` 钉住这一点: 改判据时三处一起改（rules / prompt / 本表）。
+`CUES` 是比它宽的全量, 引擎只用它做预筛。
 """
 from __future__ import annotations
 
