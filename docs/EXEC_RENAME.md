@@ -1,7 +1,11 @@
-# EXEC_RENAME — 顶层包改名（`core`→`engine` · `renderer`+`core/tui`→`tui` · `apps`→`cli`）
+# EXEC_RENAME — 顶层包改名（`apps`→`cli` · `renderer`+`core/tui`→`tui`）
 
 接在 `EXEC_SPLIT.md`（C0–C12b 那轮拆分）与 `PROCEED.md` §1「线 B」之后。这一轮**只改名**，
 不重排任何包内部结构、不合并测试归属。
+
+> **状态（2026-10-15 收工）**：**第 1、2 步已落地**；
+> **第 3 步（`core`→`engine`）作者裁决不做** —— 见 §8。所以下面凡是写 `engine/` 的地方，
+> 实际名字仍是 `core/`。
 
 ## 1. 目标树与层次
 
@@ -11,14 +15,14 @@
 webgui/      FastAPI 壳（24 个 .py）           不动
 cli/         ← apps/（3 个 .py）              面向人的入口
 tui/         ← renderer/（9 个 .py）          终端表现层
-engine/      ← core/（121 个 .py）            领域引擎
+core/        领域引擎（121 个 .py；§8 决定不改名）
    ↑
 llm/         传输层（7 个 .py + prompts/）
 infra/       基础设施（paths/settings/atomic/fuse）
    ↑
 contract/    契约地基（4 子包 + 11 平铺件）     零项目内依赖
 
-tests/       engine/ ← tests/core/ · tui/ ← tests/renderer/ · llm/ · webgui/ · fixtures/
+tests/       tests/core/（跟 core）· tests/tui/ ← tests/renderer/ · llm/ · webgui/ · fixtures/
 ```
 
 import 方向：`contract → infra → llm → engine → tui / webgui / cli`（只能往下）。现有守门
@@ -91,7 +95,7 @@ import 方向：`contract → infra → llm → engine → tui / webgui / cli`�
 
 - 先干跑：一个可复用脚本 `.testtmp/rename_pkg.py <old> <new> [--dry]`，**逐处打印**再应用
 - `ruff check .` 对齐基线（本轮基线 **373**）
-- `tests/<域>` 全绿 + 全量两域（`tests/core`+`llm`+`renderer` / `tests/webgui`）
+- `tests/<域>` 全绿 + 全量两域（`tests/core`+`llm`+`tui` / `tests/webgui`）
 - 三份逐字节 verifier 全 exit 0（`capture_1e.py` / `verify_1c.py` / `capture_prompts_1d.py`）
 - `.testtmp/layers.py` 的层间账：`llm → core` 仍为 **0**、`contract` 无对外依赖
 - `api_surface.txt` 刷新，diff 只含预期改名
@@ -99,8 +103,30 @@ import 方向：`contract → infra → llm → engine → tui / webgui / cli`�
 
 ## 7. 本轮不做
 
-- 不重排任何包的内部结构（`engine/brain`、`engine/digest` 等一个不动）
+- 不重排任何包的内部结构（`core/brain`、`core/digest` 等一个不动）
 - 不动 `webgui/`、不动 `config/`/`data/`/`assets/`
 - 不合并测试归属（决策 ④）
 - 不改文档里的历史路径（留到文档那一趟）
 - 不顺手重构 `llm/client.py`（736 行）之类——那是另一件事
+
+## 8. 第 3 步（`core`→`engine`）**不做** —— 作者 2026-10-15 裁决
+
+理由与实测（免得以后有人重新提）：收益是**纯语义**的——重组后底座已经是 `contract/` 与
+`infra/`，`core/` 只剩领域引擎，名字开始有点误导；代码里叫 `core` 而文档一直叫"引擎层"。
+但它**不解决任何 bug、不解锁任何后续工作**，代价实测：
+
+| 要改的 | 处数 |
+|---|---|
+| `from core …` / `import core …` | 1010 |
+| 裸点名 `core.x`（含 logger 名与守卫表字面量） | 1100 |
+| 路径写法 `core/…` | 331 |
+| 字符串 `"core"` | 28 |
+| 合计 | ≈**1400 处 / 121 个文件** + `tests/core/`（102 个测试文件）目录改名 |
+
+（⚠️ 这比本节最初估的"556 行"大得多——那个数只算了模块 `import` 行，没算 logger 名、
+`ROOT / "core" / …` 这种路径构造与守卫表里的字面量。教训：**改名代价要按"出现次数"数，
+不是按"import 行数"数**。）
+
+**替代做法**（已落地）：`core/.md` 里写明"本包是领域引擎，最底层不是它是 `contract`/`infra`"，
+把误导性用文档补掉。将来真要做也有底：这一步**没有同名陷阱**（0 个变量叫 `core`、没有第二个
+`core.py`、没有第二个 `core` 目录），比第 2 步安全，纯机械。

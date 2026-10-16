@@ -69,10 +69,11 @@
 - `infra/settings.py` 已是 settings.toml 的**唯一读入口**（9 个读者收成 1）。**不缓存、每次重读**
   （mtime+size 那个缓存在 2026-10-15 被自测抓出会读到旧值，已去掉）。
   `[paths]` 那一节也通了（首次向导写它，保存后要重启才能生效——`paths` 是 import 期常量）。
-- **批次 2 目录改名已在做**：计划 = `docs/EXEC_RENAME.md`（三步 + 四条已定决策 + 每步判据）。
-  **第 1 步 `apps/` → `cli/`、第 2 步 `renderer/` → `tui/`（含 `core/tui` 三件拆平进 `core/`、
-  `renderer/core.py`→`tui/renderer.py`、`tests/renderer/`→`tests/tui/`）都已落地**；
-  剩第 3 步 `core/`→`engine/`（+ `tests/core/`→`tests/engine/`）。
+- **批次 2 目录改名：收工**。计划 = `docs/EXEC_RENAME.md`。
+  **第 1 步 `apps/`→`cli/`、第 2 步 `renderer/`→`tui/`（含 `core/tui` 三件拆平进 `core/`、
+  `renderer/core.py`→`tui/renderer.py`、`tests/renderer/`→`tests/tui/`）都已落地**。
+  **第 3 步（`core`→`engine`）作者裁决不做**（收益纯语义、代价 ≈1400 处；理由与实测在计划文档 §8）
+  ⇒ `core/` 保留原名，靠 `core/.md` 说明"它是领域引擎，底座在 contract/infra"。
   改名脚本 = `.testtmp/rename_pkg.py <old> <new> [--dry]`（先干跑逐处打印；⚠️ 默认**不开**
   "裸点名 `X.y`"那条规则——本仓有同名陷阱：`core/session/renderer.py`、`cli/vn_cli.py` 里的
   局部变量 `renderer`、以及 pixi 的 `app.renderer`；另外它抓不到散文里列举的包名，
@@ -156,6 +157,7 @@ python experiments/recall_report.py
 | `6fa30f7` | `docs/EXEC_RENAME.md`：顶层包改名计划（三步 · 四条已定决策 · 每步引用面与判据） |
 | `4adf7e1` | **EXEC_RENAME 第 1 步**：`apps/` → `cli/`（24 文件 / 42 处引用；含 `start.ps1` 的用户命令与 4 个 `experiments/` 脚本）· 新增 `cli/.md` |
 | `d485e9b` | **EXEC_RENAME 第 2 步**：`renderer/` → `tui/`（+ `core/tui` 三件拆平进 `core/{display,streaming,text}.py`、门面删、`renderer/core.py`→`tui/renderer.py`、`tests/renderer/`→`tests/tui/`）· 干跑抓到三处同名陷阱 |
+| `见下` | **EXEC_RENAME 收工**：第 3 步（`core`→`engine`）作者裁决不做（代价 ≈1400 处 / 收益纯语义）· 新增 `core/.md` 把"名字会误导"用文档补掉 · 计划文档 §8 记下实测与替代做法 |
 
 ---
 
