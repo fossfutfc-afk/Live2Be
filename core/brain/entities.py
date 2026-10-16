@@ -1,65 +1,28 @@
-"""entities.py — entity 的初始化 + 第 3 轮的**输入侧**（`DESIGN_GRAPH_V4.md` §3.0 / §8.3）。
+"""entities.py — entity 的初始化 + 归属轮（R3）的**输入侧** —— 只回答"喂给那一轮看什么"。
 
 | 函数 | 谁用 | 干什么 |
 |---|---|---|
-| `ensure_entities` | D3 编排 | 开局把 `self` + `sensei` 建出来（保留号 + 幂等） |
-| `candidate_table` | 第 3 轮 prompt | 全量候选表（§8.3 第一层）—— **只有身份**: 本地 id + 名字 + 别名 |
-| `hit_set` | 第 3 轮 prompt | 命中集 —— 称呼命中本轮正文（**确定性, 不靠 LLM**） |
-| `payload_block` | 第 3 轮 prompt | 命中集的**当前载荷**（`text` 立场 + `state` 物理状况） |
+| `ensure_entities` | 编排 | 开局把 `self` + `sensei` 建出来（保留号 + 幂等） |
+| `candidate_table` | 那一轮 prompt | 全量候选表: 只有身份（本地 id + 名字 + 别名） |
+| `hit_set` | 那一轮 prompt | 命中集 —— 称呼命中本轮正文（确定性, 不靠 LLM） |
+| `payload_block` | 那一轮 prompt | 命中集的当前载荷（`text` 立场 + `state` 物理状况） |
 
-⚠️ 第 3 轮的**执行器**（写 `about` 边 / 建新 entity / 重写载荷）**不在这里** ——
-它是 `revise.apply_attribution`（D2b）。本文件只管"**喂给第 3 轮看什么**"。
+执行器（写 `about` 边 / 建新 entity / 重写载荷）在 `revise.apply_attribution`。
 
-## 为什么 self 与 sensei 是**保留号**
+保留号: `x0000 = self`（"我"）· `x0001 = sensei`（老师 / 玩家）—— 幂等判定查 id, 不靠名字
+匹配（"老师"会被玩家改名、sensei / 老师 混用）; `store.next_id("x")` 因此从 `x0002` 起
+⇒ `ensure_entities` **必须在任何"自动建 entity"之前跑**（"初始化"的含义）。
 
-```
-x0000 = self     （v3 §2.8 定的"我"）
-x0001 = sensei   （老师/玩家）
-```
+名字**参数化传入, 不读 config**: `core/brain/` 是纯 stdlib 叶子, 不知道角色 yml 与资产布局。
+    `self`   ← `config/characters/{id}/profile.yml`（经 `names.names_of`）
+    `sensei` ← `config/player/profile.yml` + `data/basic/player.json`（运行时自取名, 只作别名）
+"老师"这个字面量本文件不持有, 兜底只有 `contract.DEFAULT_SPEAKER_NAMES`。
 
-- **幂等判定 = 查 id**，不用靠名字匹配（"老师"会被玩家改名、sensei/老师 混用）。
-- 日志里一眼可辨（同 `x0000` 那条理由）。
-- `store.next_id("x")` 因此从 **x0002** 起。
-- ⚠️ 所以 `ensure_entities` **必须在任何"自动建 entity"之前跑**（它是"初始化"的含义）；
-  第 3 轮建新 entity 走 `next_id`，天然不会撞。
+**匹配的唯一归一 = `form_key`**（去掉所有空白 + `casefold`）: 匹配面永远是 `surface_forms`
+（`name` + `aliases`）, `form_key` 只是归一 —— 卡上主名中间带空格（`伊草 遥香`）, 而 brain 段
+印的就是她要照抄的键, 少打一个空白就 miss。调用方**不要再 `casefold()` 一遍**。
 
-## 名字从哪来（**参数化传入, 不读 config**）
-
-与 `character_prompt` / `emotion_lexicon` / `aff_at_encoding` 同一条分工: `core/brain/`
-是纯 stdlib 叶子, **不知道**角色配置（yml）与资产布局 —— 名字由调用方取好传进来
-（`CharacterLoader` 的 `char.display_name` + 别名助手）。
-
-**两个 entity 各读各的档案**（2026-09-23 用户裁决 —— 玩家也走 config, 与角色对称）:
-
-| | 主名 / 别名来源 |
-|---|---|
-| `self` | `config/characters/{id}/profile.yml`（经 `names.names_of(char)`） |
-| `sensei` | `config/player/profile.yml`（经 `player_profile.player_names()`） + `data/basic/player.json` 的玩家自取名（**运行时数据, 只作别名**） |
-
-⇒ "老师"这个字面量本文件**不再持有**（原 `SENSEI_NAMES` 已删），只剩
-`contract.DEFAULT_SPEAKER_NAMES` 那一份兜底。
-
-⚠️ 名字读取**已于 2026-09-23 归一**（N1 → `core/parsing/names.py` 的 `char_names(profile)`
-/ `names_of(char)`）—— 本文件的调用方直接把那个接口的结果当参数传进来即可,
-**本文件仍然只收参数**（`core/brain/` 是纯 stdlib 叶子, 不反向读 `config/`）。
-
-## ⭐ 名字匹配的**唯一归一** = `form_key`（2026-10-12）
-
-匹配面永远是 `surface_forms(node)`（`name` + `aliases`）—— `form_key` 只是**归一**,
-不是第二种匹配面。它做两件事：**去掉所有空白** + `casefold`。
-
-为什么去空白（用户 2026-10-12: *"注意处理空格"*）: 卡上的主名中间就带一个空格
-（`伊草 遥香` / `陆八魔 阿露` / `浅黄 睦月` / `鬼方 佳代子`），而 brain 段的
-「我知道的名字」**印的就是她要照抄的键** —— 少打/多打一个空白就 `miss`（`look(entity=…)`
-返回 `LOOK_EMPTY_ENTITY`、P19 的 `name` 段静默不开）是不能接受的。
-⇒ `伊草遥香` ≡ `伊草 遥香` ≡ `伊草  遥香`（`str.split()` 按 Unicode 空白切, 含全角 U+3000）。
-
-⛔ **别在调用方再 `casefold()` 一遍**（同一套归一只有这一处）;
-⚠️ **四个用它的地方**（2026-10-12 起含 `hit_set`）: `find_entity`（`look` 的 `entity` 轴 +
-digest 的 `#entity:` 认人）· `like.build_ctx`（P19 的 `name` 段触发面）·
-`_materialize_stances` 的幂等键（否则 `伊草遥香` 与 `伊草 遥香` 会被当成两个人各建一个）·
-`hit_set`/`_body_hits`（R3 的**正文扫描** —— 两边都归一, 见 `_body_hits` 的实测注）。
-⚠️ **digest 侧还有一处它自己的归一**（`rounds/settle.py` 的 `known` 集合）—— 同样走 `form_key`。
+（另有两处也走同一套归一: R3 的正文扫描 `_body_hits`, 与 `rounds/settle.py` 的 `known` 集合。）
 """
 from __future__ import annotations
 
@@ -81,7 +44,7 @@ SENSEI_ID = "x0001"
 
 #: sensei 的**兜底**名/别名 —— 真源 = `contract.DEFAULT_SPEAKER_NAMES`（"老师"全项目只此一份;
 #: 原 `SENSEI_NAMES = ("老师", "sensei")` 是第二份字面量, 2026-09-23 删）。
-#: ⚠️ 现网的名字**不从这里来**: 由 `config/player/profile.yml` 经
+#: 现网的名字**不从这里来**: 由 `config/player/profile.yml` 经
 #: `core/parsing/player_profile.player_names()` 当参数传进来（玩家也走 config, 与角色档案
 #: 同一套前缀约定）。这两个常量只服务"调用方没给"的场合（如本模块的单测）—— 引擎侧不许靠它。
 SENSEI_FALLBACK_NAME = DEFAULT_SPEAKER_NAMES[CHARACTER_SENSEI]
@@ -91,17 +54,17 @@ SENSEI_FALLBACK_ALIASES = (CHARACTER_SENSEI,)
 def ensure_entities(store, *, char_name: str = "", aliases=(), player_name: str = "",
                     player_aliases=(), sensei_name: str = "", sensei_aliases=(),
                     stances=()) -> list[str]:
-    """**初始化**: 没有就建 self(x0000) + sensei(x0001) + ⭐ **她认识的人**;
+    """**初始化**: 没有就建 self(x0000) + sensei(x0001) + **她认识的人**;
     返回**本次新建**的 id 列表。
 
     幂等（反复调用不写盘、不改数据 —— 调用方自己决定 save）:
       · self / sensei ⇒ 按**保留 id** 判;
-      · 她认识的人 ⇒ 按**名字**判（`surface_forms` 撞上就算已有）, ⭐ 撞上时**只填空 text**
+      · 她认识的人 ⇒ 按**名字**判（`surface_forms` 撞上就算已有）, 撞上时**只填空 text**
         —— 绝不覆盖 digest 后来长出来的立场。
 
-    ⭐ `stances`（2026-10-08 加, 用户裁"**出厂就要有她的看法**"）:
+    `stances`（出厂就有她的看法）:
         `(键, 主名, 别名, 立场)` 的序列 —— 来自 `interperson.yml` 的自表条目。
-        ⚠️ **名字已由调用方解析好**: 本模块是 brain 层（**纯 stdlib, 不许读 config**）,
+        **名字已由调用方解析好**: 本模块是 brain 层（**纯 stdlib, 不许读 config**）,
         所以"给了 `id` 的从角色档案取显示名/别名"那一步住在 `mmt/engine.py::_stances_of`。
         · 键 ∈ {`self`, `sensei`} ⇒ **不建新的**, 只把立场填进那个保留号（text 空才填）;
         · 别的键 ⇒ 建 entity（`text` = 立场）; 名字空 ⇒ **跳过 + warning**（宁可不建,
@@ -110,7 +73,7 @@ def ensure_entities(store, *, char_name: str = "", aliases=(), player_name: str 
     Args:
         char_name: 角色自己的**主名**（= `config/characters/{id}/profile.yml` 的
             `REQ~most_called_name`, 由调用方经 `names.names_of(char).display` 给）。
-            ⚠️ 空 → **跳过建 self**: `name` 是 entity 的必填, 空名字的 entity 会被
+            空 → **跳过建 self**: `name` 是 entity 的必填, 空名字的 entity 会被
             `store.add` 拒 —— 宁可不建, 也不建一个没名字的。
         aliases: 角色的别名（同档案的 `other_names`/`jp_name`/`en_name` 切分后）
         player_name: 玩家**自己取的名字**（GUI/CLI 可改）—— 追加成 sensei 的一条别名
@@ -149,12 +112,12 @@ STANCE_KEYS_RESERVED = ("self", "sensei")
 def _materialize_stances(store, stances) -> list[str]:
     """把**她认识的人**建出来（`stances` = `(键, 主名, 别名, 立场)` 序列）。
 
-    ⭐ **出厂就有看法**（2026-10-08 用户裁）: `text` 不是等 digest 从记忆里长,
+    **出厂就有看法**: `text` 不是等 digest 从记忆里长,
     而是作者在 `interperson.yml` 里写好的那句 → 建的时候一起装上。
-    ⚠️ 它是 `entity.text` 的**初值**; 之后 R3 照旧可以改写（看法随经历演化）。
+    它是 `entity.text` 的**初值**; 之后 R3 照旧可以改写（看法随经历演化）。
 
     幂等**按名字**（不是按 id）: `surface_forms` 撞上就算"这个人已经有了"。
-    ⭐ 撞上时**只填空 `text`** —— 绝不覆盖她后来长出来的立场（那是她的东西）。
+    撞上时**只填空 `text`** —— 绝不覆盖她后来长出来的立场（那是她的东西）。
 
     Returns: 本次**新建**的 id 列表（调用方据此决定要不要写盘）。
     """
@@ -201,7 +164,7 @@ def _materialize_stances(store, stances) -> list[str]:
 def _entity(nid: str, name: str, aliases, *, text: str = ""):
     """建一个 entity。**`text` = 立场**（出厂的印象; 不写 = 等她从记忆里长出来）。
 
-    ⚠️ 用 `BrainNode` 直接构造 + 钉 id（**不是** `make_node`, 那条路会走 `from_dict`;
+    用 `BrainNode` 直接构造 + 钉 id（**不是** `make_node`, 那条路会走 `from_dict`;
     而 `from_dict` 现在认得 entity 了, 但显式钉 id 更直白 —— 保留号不能被自动分配覆盖）。
     """
     node = BrainNode()
@@ -225,11 +188,11 @@ def _entity(nid: str, name: str, aliases, *, text: str = ""):
 #: 候选表的**本地 id** 前缀 —— 真 entity id 是 `x`（`x0000`/`x0001` 还是保留号）,
 #: 本地号必须换个前缀, 否则第 3 轮分不清"它复述的"和"我们真有的"。
 LOCAL_PREFIX = "c"
-#: **本轮新节点**的本地 id 前缀（`new_nodes_block`）—— ⚠️ 与 `LOCAL_PREFIX` **必须分开**:
+#: **本轮新节点**的本地 id 前缀（`new_nodes_block`）—— 与 `LOCAL_PREFIX` **必须分开**:
 #: 同一次调用里有两套本地号（对象 `c0001` / 节点 `u0001`）, 混用就等于让模型
 #: 把"挂谁"和"挂在谁身上"写反, 而那种错**看起来完全正常**。
 NODE_PREFIX = "u"
-#: 字面匹配的**最小长度**。⚠️ 中文没有词边界: 单字称呼（"他"/"她"/"它"）**会命中
+#: 字面匹配的**最小长度**。中文没有词边界: 单字称呼（"他"/"她"/"它"）**会命中
 #: 每一段正文**; 而别名无论初始化还是"顺手写回"给的都是**名字**（"sensei"/"遥香"）,
 #: 砍掉 1 字不丢真命中。
 MIN_HIT_LEN = 2
@@ -238,7 +201,7 @@ MIN_HIT_LEN = 2
 def candidates(store: WikiStoreV2) -> list[BrainNode]:
     """候选对象 = 全部 entity（id 升序）。
 
-    ⚠️ **无名的跳过**: 印一行光秃秃的 id 对第 3 轮毫无用处（它要靠名字做映射）,
+    **无名的跳过**: 印一行光秃秃的 id 对第 3 轮毫无用处（它要靠名字做映射）,
     而 `validate` 本来就要求 entity 有 `name` ⇒ 这条只是防御。
     """
     return sorted((n for n in store.all()
@@ -249,8 +212,8 @@ def candidates(store: WikiStoreV2) -> list[BrainNode]:
 def form_key(text: object) -> str:
     """名字匹配的**唯一归一**: **去掉所有空白** + `casefold`（2026-10-12, 见模块 docstring）。
 
-    ⚠️ 它是**归一**，不是第二种匹配面 —— 匹配面仍是 `surface_forms`。
-    ⛔ 调用方拿到结果后**不要再 `casefold()`**（同一套归一只有这一处实现）。
+    它是**归一**，不是第二种匹配面 —— 匹配面仍是 `surface_forms`。
+    调用方拿到结果后**不要再 `casefold()`**（同一套归一只有这一处实现）。
     """
     return "".join(str(text or "").split()).casefold()
 
@@ -274,11 +237,11 @@ def candidate_table(store: WikiStoreV2) -> tuple[str, dict[str, str]]:
     **只有身份** —— 名字 + 别名。载荷在 `payload_block`（两层分开是 §3.1 的量化结论:
     身份表便宜、载荷贵, 而膨胀命中的是载荷）。
 
-    ⚠️ **不印类别**（2026-09-23 用户裁决）: `etype` 已裁决不做（§3.0）⇒ 那个"（人）"
+    **不印类别**: `etype` 已裁决不做（§3.0）⇒ 那个"（人）"
     没有字段来源, 印了就是编。
-    ⚠️ **本地 id**（同 Round B 的 `u0001`）: 真 id 不外泄, LLM 猜不出一个"像真的" id;
+    **本地 id**（同 Round B 的 `u0001`）: 真 id 不外泄, LLM 猜不出一个"像真的" id;
     `local_of`（真实 id → 本地 id）交给执行器解析 —— 与 `apply_decisions(id_map=…)` 同款。
-    ⚠️ **不裁剪**（§8.5）: 几十条不构成注意力问题; 会膨胀的是载荷, 不是这张表。
+    **不裁剪**（§8.5）: 几十条不构成注意力问题; 会膨胀的是载荷, 不是这张表。
 
     Returns:
         `(text, local_of)`；无 entity → `("", {})`（空态怎么呈现由调用方定）。
@@ -297,16 +260,16 @@ def candidate_table(store: WikiStoreV2) -> tuple[str, dict[str, str]]:
 def hit_set(store: WikiStoreV2, *, texts=()) -> list[str]:
     """命中集（§8.3 第二层的**确定性**规则）: 称呼命中本轮正文。
 
-    ⚠️ **不靠 LLM**（设计写死的分工）: 引擎只负责"**这轮话里提到了谁**",
+    **不靠 LLM**（设计写死的分工）: 引擎只负责"**这轮话里提到了谁**",
     "这条挂谁"由 R3 判。
 
-    ⚠️ **2026-09-29 起只剩这一条通道** —— 参数 `hints=` 与 `_hint_hits` 随 R1 的
+    **2026-09-29 起只剩这一条通道** —— 参数 `hints=` 与 `_hint_hits` 随 R1 的
     `about_hint` 一起退役（那个字段与 R3 的"挂谁"判两次, 还可能不一致）。离线预演
     （真机 haruka 21 条 episode）: 正文通道 **22/22** 命中, 另加 tags 一条也没多救回
     ⇒ 正文就是全部（`REDUNDANCY.md` §十）。
 
     规则: 称呼出现在 `texts` 里（短于 `MIN_HIT_LEN` 的称呼**不扫** —— 中文没有词边界）。
-    ⭐ **2026-10-12: 两边都过 `form_key`**（去空白 + casefold）—— 与 `find_entity` /
+    **2026-10-12: 两边都过 `form_key`**（去空白 + casefold）—— 与 `find_entity` /
     `like.build_ctx` **同一套归一**（见模块 docstring）: 卡上的名字带一个空格
     （`伊草 遥香`）而正文多半写成 `伊草遥香` ⇒ 逐字比会把这个人整条漏掉（**静默**）。
 
@@ -335,15 +298,15 @@ def payload_block(store: WikiStoreV2, ids, local_of: dict[str, str]) -> str:
         - 手腕上贴着创可贴
     ```
 
-    ⚠️ **只给命中集**: 全量载荷就是 §3.1 算出来的那个膨胀源（100 条 ≈ 1~2 万字/轮,
+    **只给命中集**: 全量载荷就是 §3.1 算出来的那个膨胀源（100 条 ≈ 1~2 万字/轮,
     而载荷是**每轮注入**的）。
-    ⚠️ **`local_of` 必给, 且必须是 `candidate_table` 那一份**: 同一批对象印两套 id,
+    **`local_of` 必给, 且必须是 `candidate_table` 那一份**: 同一批对象印两套 id,
     第 3 轮会把同一个人的两行当成两个人。
-    ⚠️ **不在 `local_of` 里的 id 跳过** —— 没在候选表里露过面的对象不许出现在载荷区
+    **不在 `local_of` 里的 id 跳过** —— 没在候选表里露过面的对象不许出现在载荷区
     （否则第 3 轮收到一个它无法引用的载荷）。
-    ⚠️ **只有一行头 = 还没有载荷**（`text`/`state` 皆空）。这本身就是信息: "这条进了
+    **只有一行头 = 还没有载荷**（`text`/`state` 皆空）。这本身就是信息: "这条进了
     命中集, 但立场还没长出来, 该本轮写"（§8.3 的基线改写触发就看命中集）。
-    ⚠️ `state` **一句一行**（不是拼成一段）: §3 的写纪律是"只改变化的那一行, 其余原样
+    `state` **一句一行**（不是拼成一段）: §3 的写纪律是"只改变化的那一行, 其余原样
     复制" —— 逐行才让重写是行对齐的。
     """
     blocks: list[str] = []
@@ -371,20 +334,20 @@ def new_nodes_block(store: WikiStoreV2, ids) -> tuple[str, dict[str, str]]:
     〔u0002｜belief〕老师是真的记得我说过的话
     ```
 
-    ⭐ **2026-09-29 形状变化**（原来 `u0001 [episode] 「模型店」 正文`）: 类型与名字
+    **2026-09-29 形状变化**（原来 `u0001 [episode] 「模型店」 正文`）: 类型与名字
     **都进头**（`marks.head` —— 括号表唯一实现）。理由: 头里**第一格恒是钥匙、
     名字带书名号**, 而 `[episode]` 那个方括号按括号表另有含义（历史动作前缀）;
     旧形状把"类型"留在头外面 ⇒ **闸门漏一格**, 将来谁都能再往行首塞一段裸文本。
-    ⚠️ **截断只截正文**（原来把"标题 + 正文"一起截到 120）—— 头里的名字是**地址**,
+    **截断只截正文**（原来把"标题 + 正文"一起截到 120）—— 头里的名字是**地址**,
     截一半就等于把地址截坏。
 
-    ⚠️ **只给本轮新节点**（§8 第 3 轮那栏）: R1 的 episode/画像 · R2 新建的认知。
+    **只给本轮新节点**（§8 第 3 轮那栏）: R1 的 episode/画像 · R2 新建的认知。
     （⏸ 原还有"R4 物化的 promise"—— promise 2026-09-29 退图, 不再有新节点。）
     **"被改写的旧节点"不在内**（§9-12 ⑤ 那条待裁 —— 它们今天归属不了,
     这是已知的洞, 不是遗漏）。
-    ⚠️ 本地 id 前缀 `u`（与 R2 的认知列表**同款但不同一次调用**, 不会撞）——
+    本地 id 前缀 `u`（与 R2 的认知列表**同款但不同一次调用**, 不会撞）——
     `local_of` 交给执行器解析（`apply_attribution(id_map=…)`）。
-    ⚠️ 没有可归属的节点 → `("", {})`（调用方据此**不发**这次调用）。
+    没有可归属的节点 → `("", {})`（调用方据此**不发**这次调用）。
 
     Returns: `(text, local_of)` —— `local_of` = 真实 id → 本地 id。
     """
@@ -420,9 +383,9 @@ def find_entity(store: WikiStoreV2, raw: object) -> tuple[BrainNode | None, str]
         `"ok"` 命中唯一一个 · `"empty"` 没写名字（**不是错误**）·
         `"miss"` 谁都不叫这个名字（可能是**还没建的人**）· `"ambiguous"` ≥2 个都叫
 
-    ⚠️ 匹配面 = `surface_forms`（`name` + `aliases`）经 **`form_key` 归一**
+    匹配面 = `surface_forms`（`name` + `aliases`）经 **`form_key` 归一**
     （去空白 + casefold, 见模块 docstring）—— 那是"她可能怎么称呼他"的唯一真源;
-    ⛔ 不在这里发明第二种匹配。
+    不在这里发明第二种匹配。
     """
     name = str(raw or "").strip()
     if not name:
@@ -443,17 +406,17 @@ def normalize_entity_refs(store: WikiStoreV2, names
 
     Returns: `(归一后的引用, 能落边的对象 id, 陌生的名字)`
 
-    ⭐ **第三个返回值就是"该建这个人"的线索**（E1 §1 的洞①）: `about` 的值必须是
+    **第三个返回值就是"该建这个人"的线索**（E1 §1 的洞①）: `about` 的值必须是
     **已存在的 id** ⇒ 她本来**没有语法**表达"这条关于一个我还不知道的人"; 引用结构填上了
     它 —— 引擎**原样保留**那条引用（不落边、不报错）, 把它报上去, 等认人那一轮把对象
     建出来之后**再补边**。
 
-    ⚠️ **2026-10-13 改口**: 入参从"节点 `tags` 那种带 `#entity:` 前缀的列表"改成**纯名字
+    **2026-10-13 改口**: 入参从"节点 `tags` 那种带 `#entity:` 前缀的列表"改成**纯名字
     列表**（= `node.entity`）—— 函数名跟着从 `normalize_entity_tags` 改过来; 老档的迁移
     在 `nodes.BrainNode.from_dict`（**读一次**就把 `#entity:` 挪进 `entity`, `tags` 变干净）。
-    ⚠️ **本函数是纯查**（不写边、不改库）—— 本文件是"喂给轮次看什么"的输入侧,
+    **本函数是纯查**（不写边、不改库）—— 本文件是"喂给轮次看什么"的输入侧,
     写路径在 `core/brain/revise.link_entity_refs`。
-    ⚠️ 归一可能把两个叫法并成一个（`老师` + `sensei`）⇒ 输出**去重保序**。
+    归一可能把两个叫法并成一个（`老师` + `sensei`）⇒ 输出**去重保序**。
     """
     out: list[str] = []
     targets: list[str] = []
@@ -465,7 +428,7 @@ def normalize_entity_refs(store: WikiStoreV2, names
         node, _reason = find_entity(store, name)
         if node is None:
             strangers.append(name)
-            out.append(name)                    # ⭐ 原样留着（陌生人不丢）
+            out.append(name)                    # 原样留着（陌生人不丢）
             continue
         out.append(surface_forms(node)[0])      # 归一成主名
         targets.append(node.id)
@@ -479,7 +442,7 @@ def strangers_block(store: WikiStoreV2, ids, names) -> str:
     每个名字下面摆**它出现在哪几条里**（`〔m0023｜《...》〕` + 那一行里含它的那句话）——
     那是她判"**这是不是一个值得记住的人/地方/东西**"的全部依据。
 
-    ⚠️ 名字来自节点的 `entity` 字段（`normalize_entity_refs` 的第三个返回值,
+    名字来自节点的 `entity` 字段（`normalize_entity_refs` 的第三个返回值,
     **引擎算出来的**, 不是 LLM 再读一遍正文猜的）⇒ 它与"她当时想指谁"是同一次判断。
     """
     out: list[str] = []
@@ -493,7 +456,7 @@ def strangers_block(store: WikiStoreV2, ids, names) -> str:
             if name not in body:
                 continue
             line = next((s.strip() for s in body.splitlines() if name in s), "")
-            # ⚠️ 信息头**整条从 `marks.head` 取**（守门: 代码字面量里零手写 `《》〔〕｜`;
+            # 信息头**整条从 `marks.head` 取**（守门: 代码字面量里零手写 `《》〔〕｜`;
             # 它按 kind 自动决定"名字"那一格要不要印 —— 看法没有标题, 就不印）
             head = marks.head(node, key=str(nid))
             out.append(f"    {head}" + (f"…{line[:80]}" if line else ""))
@@ -501,11 +464,11 @@ def strangers_block(store: WikiStoreV2, ids, names) -> str:
 
 
 def entity_label(node) -> str:
-    """⭐ **一个对象的印法**（`x0001 老师（sensei）`）—— **全仓唯一一处**。
+    """**一个对象的印法**（`x0001 老师（sensei）`）—— **全仓唯一一处**。
 
     收它的理由（架构自检）: L1 的对象候选表与 L2 的「关于谁」两处都要印同一行,
     而"名字 + 别名"的拼法各写一份必然漂 —— 那个漂就是"同一张图在两处长得不一样"。
-    ⚠️ 别名取 `surface_forms(n)[1:]`（第 0 个就是 `name`）—— 与命中判据**同源**。
+    别名取 `surface_forms(n)[1:]`（第 0 个就是 `name`）—— 与命中判据**同源**。
     """
     aliases = surface_forms(node)[1:]
     suffix = f"（{'/'.join(aliases)}）" if aliases else ""
@@ -513,7 +476,7 @@ def entity_label(node) -> str:
 
 
 def object_lines(store: WikiStoreV2, *, texts=()) -> tuple[str, list[str]]:
-    """⭐ **L1（判关系）的对象候选**: 全量表（**真实 id**） + 一行字面命中提示。
+    """**L1（判关系）的对象候选**: 全量表（**真实 id**） + 一行字面命中提示。
 
     ```
     x0000 伊草 遥香（遥香）
@@ -525,9 +488,9 @@ def object_lines(store: WikiStoreV2, *, texts=()) -> tuple[str, list[str]]:
       · 那边印**本地号**（`c0001` —— "防 LLM 猜真实 id", 由 `apply_attribution` 翻回来）;
       · L1 的契约印的是**真实 id**（`docs/DESIGN_DIGEST_TWO_PASSES §9.1` 的例子就是
         `{"episode": "m0014", "about": "x0001"}`）⇒ 执行侧（`apply_relations`）不需要翻译。
-      ⚠️ 两套 id 混在同一次调用里才是灾难; 分开两次调用各印一套, 各自闭环。
+      两套 id 混在同一次调用里才是灾难; 分开两次调用各印一套, 各自闭环。
 
-    ⭐ **命中提示是"摆事实"不是"判归属"**（`DESIGN_DIGEST_TWO_PASSES §10.3`）:
+    **命中提示是"摆事实"不是"判归属"**（`DESIGN_DIGEST_TWO_PASSES §10.3`）:
     "本段文本里出现过这个称呼"是**字面命中**（确定性, `hit_set`）—— 挂不挂由 L1 判。
 
     Returns: `(text, ids)`；`ids` = 全部候选对象的真实 id（喂 parse 的 `entity_ids`）。
@@ -547,9 +510,9 @@ def object_lines(store: WikiStoreV2, *, texts=()) -> tuple[str, list[str]]:
 def _body_hits(form: str, texts_key: list[str]) -> bool:
     """称呼出现在本轮正文里（`texts_key` 已 `form_key` 归一）。短称呼不扫, 见 `MIN_HIT_LEN`。
 
-    ⚠️ **长度按归一后的算**（`len(key)`）: `阿 ` 这种"带空白的两字符"归一后是单字,
+    **长度按归一后的算**（`len(key)`）: `阿 ` 这种"带空白的两字符"归一后是单字,
     放行就等于让一个单字去扫全文（中文没有词边界 —— `MIN_HIT_LEN` 挡的正是这个）。
-    ⚠️ 正文一侧也去空白 ⇒ 理论上存在"跨空白拼出一个名字"的误命中（`并没有 月色` 里
+    正文一侧也去空白 ⇒ 理论上存在"跨空白拼出一个名字"的误命中（`并没有 月色` 里
     拼出 `无月`）。**真档实测（2026-10-12, haruka 21 条 episode × 4 个 entity）:
     逐字 / 单边归一 / 双边归一 三种口径的命中集**完全相同** ⇒ 今天零误命中;
     换来的是"名字带空格 vs 正文不带"这条整类漏检消失。要收紧就只归一 form 一侧

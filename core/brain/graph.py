@@ -1,22 +1,12 @@
-"""graph.py — 类型化边与邻接索引（`DESIGN_GRAPH_V4.md` §2 / §2.1 · **G1: 只读层**）。
+"""graph.py — 类型化边与邻接索引（设计见 `DESIGN_GRAPH_V4.md` §2）。
 
-G1 的边界（写死, 免得这一步膨胀）:
-    · **只读**: 不改节点、不落盘、不建文件; 现有代码**零改动**（连 `__init__.py`
-      都不加导出——本模块按全路径 import, 免得动 API 面快照夹具）
-    · **纯 stdlib**
-    · 边的真实来源（`soul/edges.jsonl`）是 **G3** ⇒ 本层从今天那根无类型的
-      `links` / `contradictions` **推断**出类型与方向（`infer_edges`）
+只读层: 不改节点、不落盘、不建文件; 纯 stdlib。
+边的真源是 `soul/edges.jsonl`（由 `store` 读写）; 旧档点上残留的无类型 `links` /
+`contradictions` 由 `infer_edges` 推断出类型与方向（推断表见 `classify_pair`）。
 
-为什么先写这一层（§2.1 的验收口径）: 把"§2.1 那六类查询够不够用"**零风险**地验掉
-——够用再谈落盘。推断表见 `classify_pair`。
-
-⚠️ 今天**还没有 `entity`**（v4 §1 的新 kind 未落地）⇒ 真机上推断产出 **0 条 `about`**;
-entity 车道的查询在 G1 阶段只能验形状（测试里用直接构造的 entity 节点验）。
-
-⚠️ `REL_UNKNOWN` 是**推断层专有**的兜底, **不属于** §2 的 rel 清单。为什么发它而不是
-丢掉: 丢掉会让 1-hop 扩展比今天的 `links` **更窄**（行为回退）; 发出来则"连接关系"
-与今天等价, 而"类型判不出来"这件事在 `stats()["unknown"]` 里可见 —— G3 落盘后
-写路径总是知道 rel, 那个计数应当归零, **它就是那条验收线**。
+`REL_UNKNOWN` 是**推断层专有**的兜底, 不属于 rel 清单: 丢掉它会让 1-hop 扩展比老的
+`links` 更窄（行为回退）, 所以照发, 而"类型判不出来"这件事在 `stats()["unknown"]` 里可见
+—— 写路径落盘后总是知道 rel, 那个计数应当归零。
 """
 from __future__ import annotations
 
@@ -29,96 +19,96 @@ from typing import Any
 # ---------------------------------------------------------------------------
 
 REL_ABOUT = "about"                  # belief/episode/experience → entity（归属）
-REL_SUPPORTS = "supports"            # ⭐ **两种形状**: episode → 认知（决策表 touch 写）·
+REL_SUPPORTS = "supports"            # **两种形状**: episode → 认知（决策表 touch 写）·
                                      #    认知 → 认知（R2 的 `links` 写 —— "这条看法支撑那条",
-                                     #    真机有实例; 2026-09-29 用户裁决"belief-belief 以后也需要"）
+                                     #    真机有实例; belief ↔ belief 也需要）
 REL_CONTRADICTS = "contradicts"      # 同层之间（她后来发现不对; **对称**）
-#: ⭐ **`evolved_from`（旧 → 新）**: 她后来想通了 ⇒ 从旧那条长出新的那条。
-#: ⚠️ **方向 2026-10-14 翻过**（用户裁"顺序太怪, 改一下, 名字不动"）: 从前存的是"新 → 旧"
+#: **`evolved_from`（旧 → 新）**: 她后来想通了 ⇒ 从旧那条长出新的那条。
+#: **方向 = 时间顺向（旧 → 新）**。从前存的是"新 → 旧"
 #: （跟着边名读），今天存的是**时间顺向**（旧 → 新）—— 与 `supports`（经历 → 看法, 也是顺向）
 #: **同向**了, 而"谁取代了我"变成**入边**（`sources`）。
-#: ⚠️ 翻的时候真机**零条**这种边（`contradicts` / `evolved_from` 到今天都没写过）
+#: 翻的时候真机**零条**这种边（`contradicts` / `evolved_from` 到今天都没写过）
 #: ⇒ **没有老档要迁移**; 旧档里若真有"新 → 旧"的行, 读出来方向就是反的（记着这条）。
 REL_EVOLVED_FROM = "evolved_from"
 #: ⏸ `formed_by`（promise → episode）· `from` / `to`（promise → entity）**2026-09-29 删** ——
-#: 它们唯一的起点 kind 是 `promise`，而 **promise 退出了图**（用户裁决: 承诺太轻,
+#: 它们唯一的起点 kind 是 `promise`，而 **promise 退出了图**（承诺太轻,
 #: 不足以长期记录 ⇒ 留在 note 当工作记忆, 见 `notes.SLOT_PINNED`）。
 #: 判据与当年删 `source` 边同一条: **起点 kind 没了 ⇒ 这些边永远不会有走法**。
-#: ⚠️ 盘上若真有旧行照旧读得进（`Edge.from_dict` 不校验名单），只是没有写者了。
-#: ⭐ **`akin`（N1a, 2026-09-29）：她发现"这两条是同一类事"** —— episode ↔ episode，**对称**。
+#: 盘上若真有旧行照旧读得进（`Edge.from_dict` 不校验名单），只是没有写者了。
+#: **`akin`（N1a, 2026-09-29）：她发现"这两条是同一类事"** —— episode ↔ episode，**对称**。
 #:
 #: 它是 **`noticed` 记录行的落点**（`docs/DESIGN_MMT_NEW_ACTION.md §4.3`）：她在对话里指一条
 #: 旧 episode，L1 建完新 episode 之后由引擎落这条边。⇒ **写者只有她（经 L1）**，不是推断层。
 #:
-#: ⚠️ **为什么叫 `akin` 而不是 `same_kind`**：`kind` 在本项目里已经**确切地**指"节点类型"
+#: **为什么叫 `akin` 而不是 `same_kind`**：`kind` 在本项目里已经**确切地**指"节点类型"
 #: （episode / belief / entity / group）⇒ `same_kind(A, B)` 会被读成
 #: *"这两条 kind 相同"*（一句废话），而它真正说的是"**同一类事**"（语义同类）。
 #:
-#: ⚠️ **`episode ↔ episode` 为什么不进 `classify_pair` 的推断表**（有意为之, 别"修"）:
+#: **`episode ↔ episode` 为什么不进 `classify_pair` 的推断表**（有意为之, 别"修"）:
 #: 旧档的 `links` 只声称"这两条**挨着 / 相关**"，而 `akin` 声称"**同类**" —— 那是**判断**。
 #: 推断表替旧数据做判断就是猜（与"`belief↔belief` 不判 `evolved_from`"同一条纪律）;
 #: 旧档的 `episode↔episode` 继续落 `REL_UNKNOWN`，在 `stats()["unknown"]` 里如实可见。
 REL_AKIN = "akin"
-#: ⭐ **`member_of`（N1b, 2026-09-29）：L2 判定"这条经历属于这一类"** —— episode → group，**有向**。
+#: **`member_of`（N1b, 2026-09-29）：L2 判定"这条经历属于这一类"** —— episode → group，**有向**。
 #:
 #: 与 `akin` 的分工（**两条都要, 不许合并**）:
-#:     `akin(ep ↔ ep)`      = ⭐ **她的原始发现**（"这两条像"）—— 有噪音、可能只是两两
-#:     `member_of(ep → grp)` = ⭐ **L2 的归纳判定**（"它属于这一类"）—— 可合并 / 拆分 / 多归属
+#:     `akin(ep ↔ ep)`      = **她的原始发现**（"这两条像"）—— 有噪音、可能只是两两
+#:     `member_of(ep → grp)` = **L2 的归纳判定**（"它属于这一类"）—— 可合并 / 拆分 / 多归属
 #: **前者是输入，后者是输出。** 混成一条会让"她觉得像"和"判定同类"不可区分
 #: （真机证据: dense 相似度组内最低 < 组外最高，最差 **0.425** ⇒ 她的"像"必须被复判）。
 #:
-#: ⚠️ **为什么成员不能存成群节点上的 `members` 列表**：成员是**随时间一次次建立的**，
+#: **为什么成员不能存成群节点上的 `members` 列表**：成员是**随时间一次次建立的**，
 #: 每条**各有自己的 `ts`**（"什么时候加入的"是信息，列表只能给出群节点的 `ts`）;
-#: 而且边是 append + 幂等，列表是读-改-写。⚠️ 这一格我在设计时判错过一次，记档在
+#: 而且边是 append + 幂等，列表是读-改-写。这一格我在设计时判错过一次，记档在
 #: `docs/DESIGN_MMT_NEW_ACTION.md §4.5.3`。
 REL_MEMBER_OF = "member_of"
 
 #: 全部合法 rel（**唯一清单**; 新增边类型只改这里 + `classify_pair` 的判据）
-#: ⭐ **6 条**（2026-09-25 删 `source` · **2026-09-29 N1a 加 `akin`**、N1b 加 `member_of`、
+#: **6 条**（2026-09-25 删 `source` · **2026-09-29 N1a 加 `akin`**、N1b 加 `member_of`、
 #: 同日删 `formed_by`/`from`/`to` 三条 promise 专属边）:
 #: `source` 唯一的形状是 `fact → episode`，而 **`fact`
 #: 这个 kind 早在 2026-09-02 就退役了**（`nodes.KINDS` 里没有它 ⇒ 建都建不出来）
-#: ⇒ 那是一条**永远不会有走法**的边（§2.2 的判据: 没走法的边是装饰）。用户裁决删。
+#: ⇒ 那是一条**永远不会有走法**的边（§2.2 的判据: 没走法的边是装饰）。删掉。
 #: （`contradicts` / `evolved_from` 今天同样零写者，但它们的 kind 都在、将来会有走法
 #: —— "还没有走法"与"永远不会有走法"是两件事。）
-#: ⚠️ 盘上若真有旧 `source` 行，**照旧读得进**（`Edge.from_dict` 不校验 rel 名单），
+#: 盘上若真有旧 `source` 行，**照旧读得进**（`Edge.from_dict` 不校验 rel 名单），
 #: 只是不再有任何写者/分类器产生它。
 RELS: tuple[str, ...] = (REL_ABOUT, REL_SUPPORTS, REL_CONTRADICTS,
                          REL_EVOLVED_FROM, REL_AKIN, REL_MEMBER_OF)
 
-#: ⭐ **对称 rel 的唯一清单**（2026-09-29 N1a）。
+#: **对称 rel 的唯一清单**（2026-09-29 N1a）。
 #:
 #: 为什么必须有这个常量: 对称性原来**只活在自举的调用方**（`infer_edges` 按"这一对来自
 #: `links` 还是 `contradictions`"传 `symmetric=`），而 **`store.add_edge` 完全不知道这件事**
 #: ⇒ `add_edge("akin", B, A)` 与 `add_edge("akin", A, B)` 会被当成两条不同的边
 #: （幂等键是 `(rel, src, dst)`，而且是**有向**的）。
 #: ⇒ 现在 `store.add_edge` / `store.remove_edge` / 自举 `_emit` **共用这一份**（两份实现必漂）。
-#: ⚠️ `member_of` **不在**这里 —— 它是 `episode → group` 的**有向**边（"谁属于哪一类"）。
+#: `member_of` **不在**这里 —— 它是 `episode → group` 的**有向**边（"谁属于哪一类"）。
 SYMMETRIC_RELS: frozenset[str] = frozenset({REL_CONTRADICTS, REL_AKIN})
 
-#: ⚠️ 推断层兜底 —— **不在 `RELS` 里**（见模块 docstring 的第二条警告）
+#: 推断层兜底 —— **不在 `RELS` 里**（见模块 docstring 的第二条警告）
 REL_UNKNOWN = "unknown"
 
 #: v4 §1 的 entity（G1 起只认 kind 字符串, 不碰 `nodes.KINDS` 那张表）
 KIND_ENTITY = "entity"
-#: ⭐ `experience`（经验; 2026-10-06 定名, 原 `group`）—— **L2 归纳出来的"一类事"**，
+#: `experience`（经验; 2026-10-06 定名, 原 `group`）—— **L2 归纳出来的"一类事"**，
 #: 成员靠 `member_of` 指过来。
-#: ⚠️ 它**不在 `_COGNITION` 里**：群不是"稳定下来的认知"（那是 belief/experience），
+#: 它**不在 `_COGNITION` 里**：群不是"稳定下来的认知"（那是 belief/experience），
 #: 而是**分类**。所以 `member_of` 必须是自己的 rel，不能混进 `supports`
 #: （混了会让 `graph.supporters()` 把群也捞出来 —— 而它今天用来算"被引数"）。
 KIND_EXPERIENCE = "experience"
 
 #: 会挂 `about` 的 kind（§2: belief/episode/experience）。
-#: ⚠️ `fact` 2026-09-25 摘掉 —— 它是**死配置**（kind 已退役 ⇒ 这条白名单永远匹配不到
+#: `fact` 2026-09-25 摘掉 —— 它是**死配置**（kind 已退役 ⇒ 这条白名单永远匹配不到
 #: 任何节点）。`experience` **留着**，但理由换了: 不再是"押 §9-3 的合并预案"（那条
 #: 2026-09-25 由用户关掉），而是**它本身就是"关于老师的事"** ⇒ 该被 `about → sensei`
-#: 指着（§9-8）。⚠️ `promise` 2026-09-29 摘掉（它退出了图）。
-#: ⭐ `experience`（经验; 原 `group`）**加进来** —— 经验也能归属 entity（"苔藓"属于老师那条线）。
+#: 指着（§9-8）。`promise` 2026-09-29 摘掉（它退出了图）。
+#: `experience`（经验; 原 `group`）**加进来** —— 经验也能归属 entity（"苔藓"属于老师那条线）。
 #: 今天**零写者**（要 L2 才写），这是"先开接口、别锁死"。
 #: ⏸ `profile`（玩家画像）**2026-10-14 摘掉** —— 整个 kind 删格式（见 `nodes.KINDS`）。
 _ABOUTABLE = ("belief", "episode", "experience")
 #: 认知侧（`supports` 的 dst）: 她的结论（"稳定下来的东西"）
-#: ⚠️ **经验不在这里** —— 见 `KIND_EXPERIENCE` 的注释。
+#: **经验不在这里** —— 见 `KIND_EXPERIENCE` 的注释。
 #: ⏸ `profile` **2026-10-14 随 kind 删** —— 当年它在这里的理由是"画像也是稳定下来的东西"。
 _COGNITION = ("belief",)
 
@@ -199,7 +189,7 @@ def infer_edges(rows: Iterable[Any]) -> list[Edge]:
         if nid and nid not in meta:
             meta[nid] = (_s(raw, "kind"), _s(raw, "ts"))
     out: list[Edge] = []
-    # ⚠️ 两个 seen **不能合并**: `links` 与 `contradictions` 是两种关系,
+    # 两个 seen **不能合并**: `links` 与 `contradictions` 是两种关系,
     # 同一对节点可以既是 link 又是 contradiction（旧 `audit` 也是分开查的）。
     seen_link: set[tuple[str, str]] = set()
     seen_contr: set[tuple[str, str]] = set()
@@ -227,7 +217,7 @@ def _emit(out: list[Edge], seen: set, meta: dict, a: str, b: str, *,
         rel, src, dst = REL_CONTRADICTS, key[0], key[1]
     else:
         rel, src, dst = classify_pair(meta[a][0], meta[b][0], a, b)
-    # ⭐ 对称性**只在 `canonical_for` 一处判**（`store.add_edge` 走同一个函数, 防两份实现漂）
+    # 对称性**只在 `canonical_for` 一处判**（`store.add_edge` 走同一个函数, 防两份实现漂）
     src, dst = canonical_for(rel, src, dst)
     out.append(Edge(rel=rel, src=src, dst=dst, ts=_edge_ts(meta, src, dst)))
 
@@ -248,13 +238,13 @@ def classify_pair(ka: str, kb: str, a_id: str, b_id: str) -> tuple[str, str, str
     | `entity` ↔ `belief` / `episode` / `experience` | `about`（**对方 → entity**） | §2 归属 |
     | 其余（`belief`↔`belief`、`belief`↔`experience`、`episode`↔`experience`、`episode`↔`episode`、`entity`↔`entity`） | `unknown` | **不猜** |
 
-    ⚠️ **`experience` 不进 `_COGNITION`, 这是有意的**（别"顺手"补上）: 经验**不是认知**,
+    **`experience` 不进 `_COGNITION`, 这是有意的**（别"顺手"补上）: 经验**不是认知**,
     `episode ↔ experience` 之间那条边是 `member_of` 的活, 由写路径显式写 ——
-    自举猜成 `supports` 会把它变成"这类事的一次证据"。⛔ 也别把早就退役的 `fact`
+    自举猜成 `supports` 会把它变成"这类事的一次证据"。也别把早就退役的 `fact`
     或改名前的 `group` 补回白名单 —— 那些 kind 只会出现在旧档的 `links` 里,
     给它们判 `about`/`supports` 就是**替旧数据编意图**（`test_wiki_graph.py` 钉着这两条）。
 
-    ⚠️ 为什么 `belief`↔`belief` 不判成 `evolved_from`: 那条边的语义是"**新看法取代
+    为什么 `belief`↔`belief` 不判成 `evolved_from`: 那条边的语义是"**新看法取代
     旧的**"，而一条无向边说不出谁取代谁 —— **猜错方向比不判更贵**（错的方向会让
     "认知演化链"倒着长）。`evolved_from` 只能由知道作者意图的写路径产生。
     """
@@ -281,13 +271,13 @@ def canonical_pair(a: str, b: str) -> tuple[str, str]:
 
 
 def canonical_for(rel: str, src: str, dst: str) -> tuple[str, str]:
-    """按 `rel` 规范化端点 —— ⭐ **对称性的唯一实现处**（N1a, 2026-09-29）。
+    """按 `rel` 规范化端点 —— **对称性的唯一实现处**（N1a, 2026-09-29）。
 
     * **对称 rel**（`SYMMETRIC_RELS`: `contradicts` / `akin`）→ `canonical_pair`
     * 其余 → **原样返回**（有向边不许被"顺手"规范化 —— 那会悄悄改掉 `member_of`
       这类边的方向语义）
 
-    ⚠️ **必须在幂等检查之前调用**：`add_edge` 的幂等键是 `(rel, src, dst)` 且**有向**，
+    **必须在幂等检查之前调用**：`add_edge` 的幂等键是 `(rel, src, dst)` 且**有向**，
     不先规范化的话，`akin(B, A)` 与 `akin(A, B)` 会被当成两条不同的边，各写一条
     （真机后果: 同一次"她发现同类"在边表里出现两行，L2 分群时数两遍）。
     """
@@ -295,13 +285,13 @@ def canonical_for(rel: str, src: str, dst: str) -> tuple[str, str]:
 
 
 def related(edges: Iterable[Edge], nid: str, rel: str) -> list[str]:
-    """⭐ **对称 rel 的一跳对端**（两个方向都算, 按传入的边序 = **建立序**, 去重保序）。
+    """**对称 rel 的一跳对端**（两个方向都算, 按传入的边序 = **建立序**, 去重保序）。
 
-    ⚠️ **为什么必须有它**: `akin` / `contradicts` 是**对称**的, 但存进去时被
+    **为什么必须有它**: `akin` / `contradicts` 是**对称**的, 但存进去时被
     `canonical_for` 归一到"id 小的当 `src`" ⇒ 只查 `targets`（或只查 `sources`）
     **必然漏一半**, 而漏的是哪一半取决于两个 id 的**字典序**, 不是语义。
     （真机后果: 她认过的相似时灵时不灵 —— 连"看起来像不像"都做不到。）
-    ⛔ **有向 rel 别用它**: 那会把方向语义抹平（`supports` 的"谁支撑谁"就没了）。
+    **有向 rel 别用它**: 那会把方向语义抹平（`supports` 的"谁支撑谁"就没了）。
     """
     out: dict[str, None] = {}
     for e in edges:
@@ -317,7 +307,7 @@ def related(edges: Iterable[Edge], nid: str, rel: str) -> list[str]:
 def conflicting(edges: Iterable[Edge], a: str, b: str) -> bool:
     """`a` 与 `b` 之间有没有一条 `contradicts`（**对称 ⇒ 两个方向都算**）。
 
-    ⚠️ 与 `related` 同一个理由: 一条"打架"的边可能把 `a` 存在 `src`、也可能存在 `dst`。
+    与 `related` 同一个理由: 一条"打架"的边可能把 `a` 存在 `src`、也可能存在 `dst`。
     """
     for e in edges:
         if e.rel != REL_CONTRADICTS:
@@ -328,19 +318,19 @@ def conflicting(edges: Iterable[Edge], a: str, b: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# 归属的兜底（2026-10-14 用户裁: "R1 的 `entity` 留空 ⇒ 默认 self+sensei"）
+# 归属的兜底（`entity` 留空 ⇒ 默认 self+sensei）
 # ---------------------------------------------------------------------------
 
-#: ⭐ **`entity` 留空时, 这条记录默认属于谁**（`kind` → 保留号）。
+#: **`entity` 留空时, 这条记录默认属于谁**（`kind` → 保留号）。
 #: 判据: 这个介质里"她的事"**天然**是"她与老师的事" ⇒ R1 不必每条都写一遍。
 #:
-#: ⛔ **只当读侧的口径, 绝不落边**（两个理由都是真机算过的）:
+#: **只当读侧的口径, 绝不落边**（两个理由都是真机算过的）:
 #:   · 落边 = 21 条经历 + 4 条看法会多出 **46 条常数边**（图 58 → ~104）;
 #:   · `Edge` 里**没有位置**记"这条边是默认来的" ⇒ 图里再也分不出"她明确说关于老师"
 #:     与"她没说、按介质默认" —— 而**那个区分正是"归属"这个信号的全部价值**。
-#: ⚠️ 那两个串 = `core.brain.entities.SELF_ID` / `SENSEI_ID`（守门用例钉住不许漂）——
+#: 那两个串 = `core.brain.entities.SELF_ID` / `SENSEI_ID`（守门用例钉住不许漂）——
 #:   本模块**零项目内 import** 是它刻意的性质（同 `marks.py`）, 所以只能写字面量。
-#: ⭐ **`belief` 那一行 2026-10-14 补上了**（用户裁"L2 的 `entity` 留空 ⇒ self"）——
+#: **`belief` 那一行也在**（`entity` 留空 ⇒ self）——
 #:   它今天才有第二个读者 = `material.collided_beliefs_block` 的**面**那一格
 #:   （面只在**非默认**时印, 免得每行都写"关于我"）。
 DEFAULT_FACES: dict[str, tuple[str, ...]] = {
@@ -352,8 +342,8 @@ DEFAULT_FACES: dict[str, tuple[str, ...]] = {
 def default_faces(kind: str) -> tuple[str, ...]:
     """`entity` 留空时那条记录**默认归属谁**（没有兜底的 kind ⇒ `()`）。
 
-    ⭐ 与 `lane` **同一张表**（`DEFAULT_FACES`）—— 将来"面"（碰撞分组）也走这里,
-    ⛔ 别在别处再写一份默认。
+    与 `lane` **同一张表**（`DEFAULT_FACES`）—— 将来"面"（碰撞分组）也走这里,
+    别在别处再写一份默认。
     """
     return DEFAULT_FACES.get(str(kind), ())
 
@@ -460,20 +450,20 @@ class Graph:
     # ── 六类查询（§2.1 的表; 这就是"够不够用"的验收口径） ──
 
     def lane(self, entity_id: str, kind: str | None = None) -> list[str]:
-        """**entity 车道**: 关于 E 的全部记录 = **她明确写明的** + ⭐ **默认归属的**。
+        """**entity 车道**: 关于 E 的全部记录 = **她明确写明的** + **默认归属的**。
 
         `about` 边的方向是"节点 → entity"（`inc[E]` 才是车道; `out[E]` 是空的）。
 
-        ⭐ **2026-10-14（用户裁"R1 的 `entity` 留空默认 self+sensei"）**: 车道加上
+        **归属兜底**: 车道加上
         **兜底那一面** —— 没写归属的 `episode` 也算进 self / sensei 的车道
-        （`default_faces`）。⚠️ 两条边界:
+        （`default_faces`）。两条边界:
           ① **明确写了别人**（有任何 `about` 出边）**就不兜底** —— 否则"归属"这个筛子
              会退化成全集（她写了 `["小玉"]` 就是"关于小玉");
           ② **那个对象不存在 ⇒ 车道仍空** —— 没有这个对象, 就谈不上它的车道
              （旧档与单测里 `x0000` 经常不存在）。
-        ⚠️ 保留号（self / sensei）的车道**天然接近全量** —— 那是**语义如此**,
-        ⛔ 不是 bug（P19 的 `name` 段早就为此把保留号排除在"提到了谁"之外）。
-        ⚠️ 顺序: **明确写的在前**, 兜底的在后（`dict` 保插入序）。
+        保留号（self / sensei）的车道**天然接近全量** —— 那是**语义如此**,
+        不是 bug（P19 的 `name` 段早就为此把保留号排除在"提到了谁"之外）。
+        顺序: **明确写的在前**, 兜底的在后（`dict` 保插入序）。
         """
         want = None if kind is None else str(kind)
         seen: dict[str, None] = {}
@@ -500,10 +490,10 @@ class Graph:
     def supporters(self, nid: str) -> list[str]:
         """查询 2: 支撑这条认知的来源（`supports` 的 src 侧）。
 
-        ⚠️ **方向**: `supports` 是"**经历 → 认知**", 所以支撑者是 `sources` 不是
+        **方向**: `supports` 是"**经历 → 认知**", 所以支撑者是 `sources` 不是
         `targets` —— 反了会让"这条看法是从哪来的"指向未来。
 
-        ⚠️ **不按 kind 过滤**: §2.1 那行查询写的是"支撑**经历**", 今天也确实只有
+        **不按 kind 过滤**: §2.1 那行查询写的是"支撑**经历**", 今天也确实只有
         `episode`（§9-3 合并 `experience` 后仍是）。过滤会让"没给 nodes"时**静默返回空**
         （G3 只读边表那种情形）—— 要分开就用 `kind_of` 自己分, 别让查询层替调用方猜。
         """
@@ -519,11 +509,11 @@ class Graph:
     def unattributed(self) -> list[str]:
         """查询 5: **未归属清单** = 非 entity 节点 − 有 `about` 边的节点。
 
-        ⭐ **2026-10-14 起这个名字要读准**: 它们**不是"没有归属"**, 而是**走了默认面**
+        **2026-10-14 起这个名字要读准**: 它们**不是"没有归属"**, 而是**走了默认面**
         （`lane` 的兜底: `episode` ⇒ self + sensei）—— 这张清单的用途因此变成
-        "**谁没被明确写过**"（观测用）, ⛔ 不再是缺陷清单。
+        "**谁没被明确写过**"（观测用）, 不再是缺陷清单。
 
-        ⚠️ 宇宙必须**排掉 entity 自己** —— entity 永远不会是 `about` 的 src
+        宇宙必须**排掉 entity 自己** —— entity 永远不会是 `about` 的 src
         （边是"节点 → entity"）, 不排的话每个 entity 都会冒充"未归属"
         （2026-09-21 复核 §2.1 那行查询时发现; 已按此实现）。
         """
@@ -570,7 +560,7 @@ class Graph:
 def graph_of(store) -> Graph:
     """`WikiStoreV2` → `Graph`（= store 内存里的**点 + 边**）。
 
-    ⚠️ **G3 起边的真源是 `soul/edges.jsonl`**（`store._edges`）; 推断只在
+    **G3 起边的真源是 `soul/edges.jsonl`**（`store._edges`）; 推断只在
     **没有边表的旧档**上发生, 而且那一步在 `store._load_edges`（自举）, 不在这里。
     """
     return store.graph()

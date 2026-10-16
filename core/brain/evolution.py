@@ -1,11 +1,7 @@
-"""evolution.py — evolution_log（AGENT_BRAIN.md §2 / M2b）。
+"""evolution.py — 修订的审计日志（append-only）: `{char_dir}/evolution.jsonl`。
 
-审计日志（append-only, 与 wiki.jsonl 整写模式区分——日志就是追加）:
-    路径: {char_dir}/evolution.jsonl（wiki.jsonl 同目录）
-    条目: {ts, pkg, action, id/ids, changed/detail…}
-
-职责: 记录每次修订（create/update/merge/link/accrue…）的 before/after 与包归属——
-审计 + R6 记忆损坏回滚的依据（"这包改了什么"可精确还原）。
+条目 = `{ts, pkg, action, id/ids, changed/detail…}` —— 记录每次修订的 before/after 与包归属;
+审计用, 也是 R6 记忆损坏回滚的依据（"这包改了什么"可精确还原）。
 """
 from __future__ import annotations
 

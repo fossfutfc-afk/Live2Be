@@ -1,12 +1,11 @@
-"""revise.py — 修订执行器（AGENT_BRAIN.md §5 / 板块 4a 扩展）。
+"""revise.py — 修订执行器: 图语义 + 原子性。
 
-职责: 图语义执行 + 原子性。三趟各一个入口（与 `ROUNDS` 的三轮一一对应）:
+三趟各一个入口（与 `ROUNDS` 的三轮一一对应）:
     apply_relations   —— L1「判关系」: 四类边 → 边表（**一个字的正文都不写**）
     apply_cognitions  —— L2「造认知 / 写正文」: 造 belief / 覆写沉淀 + 出生自带边
     apply_entities    —— R3「认人」: entity 载荷 + `about` 边
 
-不做: 渲染（render.py）· 召回（recall.py）· LLM 契约校验（contract/digest/parse.py
-——结构校验在那; 本文件只管执行语义）· 存储细节（store.py 原语）。
+不做: 渲染 · 召回 · 契约的结构校验（`contract/digest/parse.py`）· 存储原语（`store.py`）。
 
 原子性由编排层保证（digest 全程快照, 任一失败 restore_state）; 本文件执行中抛
 ValueError → 编排层回滚（宁缺勿错）。
@@ -54,7 +53,7 @@ _ATTACHABLE = ("episode", "belief", "experience")
 #: （同 `core.parsing.names.MAX_NAME_LEN` 的口径; 本模块**不 import 它** ——
 #: `brain` 的运行时依赖要保持纯 stdlib, 而 names 会拖进 yaml。）
 MAX_ALIAS_LEN = 8
-#: ⭐ **`akin` 并边上限**（**每条 belief**）: 一次归纳最多把几条"她认过的同类"并进证据。
+#: **`akin` 并边上限**（**每条 belief**）: 一次归纳最多把几条"她认过的同类"并进证据。
 #: 为什么需要额度: 并进来的边与她亲手点的证据**在图里同形**（用户 2026-10-13 裁决"接受"）
 #: ⇒ 这个数就是"引擎替她说了多少话"的上限。5 ≈ 一次归纳的立足点规模, 且真机全库
 #: `akin` 只有 5 条 ⇒ 生产上基本触不到（触到了也只是"少并几条", 不是错）。
@@ -64,26 +63,26 @@ AKIN_JOIN_MAX = 5
 def apply_relations(store: WikiStoreV2, rows: list[dict], *, ts: str = "",
                     log: EvolutionLog | None = None,
                     id_map: dict[str, str] | None = None) -> list[dict]:
-    """⭐ **L1（判关系）的落地**: 边行 → 边表 —— **只落边, 一个节点都不建**。
+    """**L1（判关系）的落地**: 边行 → 边表 —— **只落边, 一个节点都不建**。
 
     行形 = `{"rel", "src", "dst", "on"?}`（`digest_registry.parse_relations` 的产出）。
 
-    ⚠️ **两套 id 空间**（与设计 §9.1 逐字一致, ⛔ 别把这一步当成多余）:
+    **两套 id 空间**（与设计 §9.1 逐字一致, 别把这一步当成多余）:
       · 经历 / 对象那一端是**真实 id**（`m…` / `x…` —— 料里就是这么印的）;
       · 认知那一端是**本地号**（`u0001…`, `render_cognition_list` 发的 —— 它的 docstring
         写着"parse 层只认本地 id, 防 LLM 猜真实 id"）。
       ⇒ `id_map`（本地 → 真实）就是这两者之间的那道翻译。
       不在表里的 id **原样过**（真实 id 本来就不在表里）。
 
-    与 `apply_cognitions` 的分工（⛔ 别混）:
+    与 `apply_cognitions` 的分工（别混）:
       · 那边 = **认知**（`belief` / `experience`）—— 会**建节点 / 改正文**;
       · 这边 = **关系**（`supports` / `akin` / `contradicts` / `about`）—— **正文一个字都不写**。
 
-    ⚠️ **方向**: `about` 在行里已经归一成"节点 → entity"（`parse_relations` 做的）;
+    **方向**: `about` 在行里已经归一成"节点 → entity"（`parse_relations` 做的）;
     `akin` / `contradicts` 的对称性由 `store.add_edge` 内部归一（`canonical_for`）——
     这里**不再判方向**（判两遍就是两个真源）。
 
-    ⚠️ `on`（轴上的那个词）**也留痕**: 将来"这个概念是怎么长出来的"要可回溯。
+    `on`（轴上的那个词）**也留痕**: 将来"这个概念是怎么长出来的"要可回溯。
 
     Args:
         id_map: **本地号 → 真实 id**（`{"u0001": "m0031"}`）。缺省 `None` = 两端
@@ -116,22 +115,22 @@ class CognitionResult:
     created: list[str] = field(default_factory=list)
     """本轮**新造**的 belief id（按行序）。"""
     reused: list[str] = field(default_factory=list)
-    """⭐ 幂等命中而**复用**的 id（崩溃窗口重跑: 同一段、`event_seq` 相交、正文又一样）。"""
+    """幂等命中而**复用**的 id（崩溃窗口重跑: 同一段、`event_seq` 相交、正文又一样）。"""
     strangers: list[str] = field(default_factory=list)
     """看法 `tags` 里那些 `#entity:` **解析不到**的名字（= 还没建的人/地方）——
-    ⚠️ 它们是**认人那一轮的线索**（`about` 只能指已存在的 id）; 不是错误。"""
+    它们是**认人那一轮的线索**（`about` 只能指已存在的 id）; 不是错误。"""
     edges: list[dict] = field(default_factory=list)
     """落下的边（原样回传, 编排层记账用）。"""
     soaked: list[str] = field(default_factory=list)
     """**覆写了沉淀**的类 id（同一个类只会有一条 —— 契约层已去重）。"""
     akin_joined: int = 0
-    """⭐ **引擎并进来的证据边数**（`akin` 一跳邻域 → `supports`; 零 LLM）。
-    ⚠️ 口径同 `edges=`: 记的是"**这一趟算了 N 条**", ⛔ 不是"新落了 N 条"
+    """**引擎并进来的证据边数**（`akin` 一跳邻域 → `supports`; 零 LLM）。
+    口径同 `edges=`: 记的是"**这一趟算了 N 条**", 不是"新落了 N 条"
     （重跑窗口里 `add_edge` 幂等, 但账照记 —— 与 `supports` 逐字同口径）。"""
     patched: list[str] = field(default_factory=list)
-    """⭐ **改过的已有看法**（`id` 在场那一行; 只记**真的写了格子**的那些）。"""
+    """**改过的已有看法**（`id` 在场那一行; 只记**真的写了格子**的那些）。"""
     empty_skips: list[str] = field(default_factory=list)
-    """`"<id>:<格>"` —— 键在但值是空 ⇒ **"这一格没话可说"**（⛔ 不是清空, 同 `settle`）。"""
+    """`"<id>:<格>"` —— 键在但值是空 ⇒ **"这一格没话可说"**（不是清空, 同 `settle`）。"""
     watermark_skips: list[str] = field(default_factory=list)
     """`"<id>:text"` —— **水位**挡住的那一格（本段已经写过它, 重跑不许再改一遍）。"""
 
@@ -140,35 +139,35 @@ def apply_cognitions(store: WikiStoreV2, rows: list[dict], *, ts: str = "",
                      log: EvolutionLog | None = None,
                      id_map: dict[str, str] | None = None,
                      event_seq: list[int] | None = None) -> CognitionResult:
-    """⭐ **L2（造看法 / 写沉淀）的落地** —— 只做三件事, **一个字都不删**。
+    """**L2（造看法 / 写沉淀）的落地** —— 只做三件事, **一个字都不删**。
 
     行形 = `{"action": "belief" | "experience", …}`（`digest_registry.parse_cognitions` 的产出）。
 
     | 行 | 做什么 |
     |---|---|
-    | `belief` | 造节点（`kind=belief`: 正文 / `subject` / `significance`）+ **出生自带边**: `supports`（经历 → 新看法）· `evolved_from`（**旧看法 → 新看法**）· `contradicts`（对称）· ⭐ **`akin` 并边**（见下）|
-    | `experience` | **覆写**那个类的沉淀正文 —— ⛔ `title` / `ts` 一律不动（名字是地址, 时间是"这一类事"的时间）|
+    | `belief` | 造节点（`kind=belief`: 正文 / `subject` / `significance`）+ **出生自带边**: `supports`（经历 → 新看法）· `evolved_from`（**旧看法 → 新看法**）· `contradicts`（对称）· **`akin` 并边**（见下）|
+    | `experience` | **覆写**那个类的沉淀正文 —— `title` / `ts` 一律不动（名字是地址, 时间是"这一类事"的时间）|
 
-    ⭐ **`akin` 并边**（2026-10-13, 零 LLM）: `supports` 落完之后, 把**每条证据的一跳
+    **`akin` 并边**（2026-10-13, 零 LLM）: `supports` 落完之后, 把**每条证据的一跳
     `akin` 邻居**也并成这条看法的证据（`_join_akin`, 额度 `AKIN_JOIN_MAX`）。
     它接的是 `experience` 退役留下的那个位置: **"一类事"这个门槛不废、换载体** ——
     从前"一群同类经历 → 一条沉淀", 今天"一群同类经历 → 一条看法", 而"一群"由**她自己
-    认过的 `akin`** 说了算。⚠️ 并进来的边与她亲手点的**图里同形**, 只有变更史分得出
+    认过的 `akin`** 说了算。并进来的边与她亲手点的**图里同形**, 只有变更史分得出
     （`"via": "akin"`）—— 这是用户 2026-10-13 的裁决（代价: 她的「被引 N」会变大, 只影响读数）。
 
-    ⚠️ **幂等 = `_find_duplicate`**（`(kind, event_seq 交集, 主文本相同)` ⇒ 复用旧 id,
-    不重复创建）—— 与 R1 的 episode **同一个判据、同一个实现**, ⛔ 不另写一份
+    **幂等 = `_find_duplicate`**（`(kind, event_seq 交集, 主文本相同)` ⇒ 复用旧 id,
+    不重复创建）—— 与 R1 的 episode **同一个判据、同一个实现**, 不另写一份
     （它是崩溃窗口重跑的防双写网）。
-    ⚠️ **两套 id 空间**（同 `apply_relations`）: `supports` 的值是**经历真身**（`m…`,
+    **两套 id 空间**（同 `apply_relations`）: `supports` 的值是**经历真身**（`m…`,
     料里就是这么印的）; `evolved_from` / `contradicts` 的值是**认知本地号**（`u…`）⇒ 过 `id_map`。
-    ⚠️ **方向在这里摆正**（她那一行行首写的是**新**看法, 而图上恒为 **旧 → 新**）:
-    `supports` = 经历 → 新看法 · `evolved_from` = **旧看法 → 新看法**（⭐ 2026-10-14 翻过,
-    用户裁"顺序太怪"; 契约层那一行没变, 只是落边时把两端摆成时间顺向）·
+    **方向在这里摆正**（她那一行行首写的是**新**看法, 而图上恒为 **旧 → 新**）:
+    `supports` = 经历 → 新看法 · `evolved_from` = **旧看法 → 新看法**（2026-10-14 翻过,
+    改过方向; 契约层那一行没变, 只是落边时把两端摆成时间顺向）·
     `contradicts` **对称**（`add_edge` 内部走 `canonical_for`）。
-    ⚠️ **改写既有正文必须留痕**（`_soak` 那一段写着口径）:
+    **改写既有正文必须留痕**（`_soak` 那一段写着口径）:
     `{"action": "rewrite", "id": …, "changed": {"text": [旧, 新]}, "ts": …}` —— 崩溃窗口
-    重跑时记的是一个 **空 `changed`**（"这次没改任何东西", 一眼可判; ⛔ 不是不留账）。
-    ⚠️ **不吞错**: 能走到这里说明契约层已经挡过形状问题 ⇒ 剩下的异常都是真 bug,
+    重跑时记的是一个 **空 `changed`**（"这次没改任何东西", 一眼可判; 不是不留账）。
+    **不吞错**: 能走到这里说明契约层已经挡过形状问题 ⇒ 剩下的异常都是真 bug,
     照「不吞错」的口径抛（整段回滚 / 只丢自己是编排层的事, 见 `RoundOut`）。
     """
     log = log or EvolutionLog.for_store(store)
@@ -181,12 +180,12 @@ def apply_cognitions(store: WikiStoreV2, rows: list[dict], *, ts: str = "",
             _soak(store, row, ts=ts, log=log, res=res)
             continue
         supports = [str(ep) for ep in (row.get("supports") or ())]
-        # ⚠️ **排除集要在落 `contradicts` 之前算** —— 那几条边在下面才落（"先落 supports,
+        # **排除集要在落 `contradicts` 之前算** —— 那几条边在下面才落（"先落 supports,
         #    再算邻居"是顺序纪律; 而"跟这条看法打架的不算它的证据"这条规则不能等它们落完）。
         blocked = {id_map.get(str(x), str(x)) for x in (row.get("contradicts") or ())}
         bid = str(row.get("id") or "")
         if bid:
-            # ⭐ **改那一路**（`id` 在场）: 只改写出来的格子 + 只加边; ⛔ 不并 `akin` 邻居。
+            # **改那一路**（`id` 在场）: 只改写出来的格子 + 只加边; 不并 `akin` 邻居。
             _apply_belief_patch(store, row, ts=ts, log=log, res=res, seq=seq)
             for ep in supports:
                 _add_edge(store, REL_SUPPORTS, ep, bid, ts=ts, log=log, res=res)
@@ -198,12 +197,12 @@ def apply_cognitions(store: WikiStoreV2, rows: list[dict], *, ts: str = "",
                              event_seq=event_seq, res=res)
         for ep in supports:
             _add_edge(store, REL_SUPPORTS, ep, nid, ts=ts, log=log, res=res)
-        # ⭐ **她从一条证据看出结论, 引擎把"同一类事"的其他几条也并进来**（零 LLM）
+        # **她从一条证据看出结论, 引擎把"同一类事"的其他几条也并进来**（零 LLM）
         _join_akin(store, nid, supports, excluded=blocked,
                    ts=ts, log=log, res=res)
         evo = str(row.get("evolved_from") or "")
         if evo:
-            # ⭐ **旧 → 新**（2026-10-14 起）: 她那一行行首是**新**看法, 这里把两端摆正
+            # **旧 → 新**（2026-10-14 起）: 她那一行行首是**新**看法, 这里把两端摆正
             _add_edge(store, REL_EVOLVED_FROM, id_map.get(evo, evo), nid,
                       ts=ts, log=log, res=res)
         for other in row.get("contradicts") or ():
@@ -213,12 +212,12 @@ def apply_cognitions(store: WikiStoreV2, rows: list[dict], *, ts: str = "",
 
 
 def _akin_neighbors(store: WikiStoreV2, nid: str) -> list[str]:
-    """一跳 `akin` 邻居 —— ⭐ 实现住在图层（`store.related`, 两个方向都算）。
+    """一跳 `akin` 邻居 —— 实现住在图层（`store.related`, 两个方向都算）。
 
-    ⚠️ **为什么要双向**: `akin` 对称、写进去时被 `canonical_for` 归一（`store.add_edge`）
-    —— 归一只保证"同一条边不会存两遍", ⛔ 不保证**起点落在 `src`**。只查 `src == nid`
+    **为什么要双向**: `akin` 对称、写进去时被 `canonical_for` 归一（`store.add_edge`）
+    —— 归一只保证"同一条边不会存两遍", 不保证**起点落在 `src`**。只查 `src == nid`
     会漏掉一半（她指认的那条恰好是 id 小的那个时）, 而漏哪一半取决于**字典序**。
-    ⚠️ **只走 `akin`**: 并证据只认"她亲口认过的像"（`walk.py` 的窄门同一条判据）——
+    **只走 `akin`**: 并证据只认"她亲口认过的像"（`walk.py` 的窄门同一条判据）——
     `member_of` 是分类, `supports` 是看法, 都不是"同类"。
     """
     return store.related(nid, REL_AKIN)
@@ -227,7 +226,7 @@ def _akin_neighbors(store: WikiStoreV2, nid: str) -> list[str]:
 def _join_akin(store: WikiStoreV2, nid: str, evidence: list[str], *,
                excluded: set[str], ts: str, log: EvolutionLog,
                res: CognitionResult, cap: int = AKIN_JOIN_MAX) -> list[str]:
-    """⭐ **把每条已落证据的一跳 `akin` 邻居并进 `supports`**（零 LLM, 返回并进来的 id）。
+    """**把每条已落证据的一跳 `akin` 邻居并进 `supports`**（零 LLM, 返回并进来的 id）。
 
     这是 `experience`（"一类事"）退役之后**那个门槛的新载体**（用户 2026-10-13 裁:
     "门槛不废换载体 —— `akin` 簇直接对着 belief"）: 从前"一群同类的经历 → 一条沉淀",
@@ -235,17 +234,17 @@ def _join_akin(store: WikiStoreV2, nid: str, evidence: list[str], *,
 
     ## 四条纪律（都是判据, 不是实现细节）
 
-    1. **起点只有她写的那几条**（`supports`）—— ⛔ 绝不把**上一趟并进来的**当起点:
+    1. **起点只有她写的那几条**（`supports`）—— 绝不把**上一趟并进来的**当起点:
        那会每次重跑都往外长一圈（滚雪球）, 而 `supports` 是幂等的。
     2. **先落 `supports` 再算邻居**: 邻居是"跟她点的证据像的那些", 不是"跟这条看法像的"
        —— 顺序反了就成了拿结论去找证据。
     3. **排除打架的**: 与这条 belief 有 `contradicts` 的（`excluded`）· 与**证据集里任一
        节点**有 `contradicts` 的 —— 后者一条规则同时管住"跟证据打架的"和"两条候选互相
-       打架的"（先并进来的那条把后来的挡在门外）。⚠️ 打架的证据**不能**共撑一个结论。
-    4. **额度 `cap`**: 见 `AKIN_JOIN_MAX`（超了就少并几条, ⛔ 不报错、不重试）。
+       打架的"（先并进来的那条把后来的挡在门外）。打架的证据**不能**共撑一个结论。
+    4. **额度 `cap`**: 见 `AKIN_JOIN_MAX`（超了就少并几条, 不报错、不重试）。
 
-    ⚠️ **只并 `episode`**（`akin` 契约上就是 ep↔ep; 这是防御, 不是判据）。
-    ⚠️ **轨迹**: 边本身与她自己点的 `supports` **同形**（用户已接受）⇒ 唯一分得出的是
+    **只并 `episode`**（`akin` 契约上就是 ep↔ep; 这是防御, 不是判据）。
+    **轨迹**: 边本身与她自己点的 `supports` **同形**（用户已接受）⇒ 唯一分得出的是
     `evolution.jsonl` 里那一条多带的 `"via": "akin"`（见 `_add_edge`）。
     """
     have: list[str] = list(evidence)
@@ -290,7 +289,7 @@ def _create_belief(store: WikiStoreV2, row: dict, *, ts: str, log: EvolutionLog,
                     dup.id)
         return dup.id
     nid = store.add(node)
-    # ⭐ 边由**引擎从引用派生**（零 LLM）—— `link_entity_refs` 是唯一实现
+    # 边由**引擎从引用派生**（零 LLM）—— `link_entity_refs` 是唯一实现
     _targets, strangers = link_entity_refs(store, nid, ts=ts)
     res.strangers.extend(strangers)
     res.created.append(nid)
@@ -301,16 +300,16 @@ def _create_belief(store: WikiStoreV2, row: dict, *, ts: str, log: EvolutionLog,
 
 def _apply_belief_patch(store: WikiStoreV2, row: dict, *, ts: str, log: EvolutionLog,
                         res: CognitionResult, seq: int = 0) -> None:
-    """⭐ **改一条已有的看法**（`id` 在场那一行）—— **只改写出来的格子**。
+    """**改一条已有的看法**（`id` 在场那一行）—— **只改写出来的格子**。
 
     四条纪律**照抄 `apply_stances`**（`settle` 那一层立的, 同一个道理）:
-      ① **空 = 不改**（键在但值是空串/空数组 ⇒ "这一格没话可说", ⛔ 不是清空）;
+      ① **空 = 不改**（键在但值是空串/空数组 ⇒ "这一格没话可说", 不是清空）;
       ② **值没变 ⇒ 不写**（但**照记一笔空 `changed`** —— "这次没改任何东西"一眼可判）;
       ③ **水位只守 `text`**（它是这一层唯一的单槽改写; `tags`/`entity`/`significance`
          天然幂等 —— 同一个值再写一次等于没写）;
-      ④ ⛔ **删不掉东西**: `supports` / `contradicts` 由调用方**只增**（`add_edge` 幂等）。
+      ④ **删不掉东西**: `supports` / `contradicts` 由调用方**只增**（`add_edge` 幂等）。
 
-    ⚠️ **为什么不在这里并 `akin` 邻居**: 并边属于**归纳**（她认了这一簇、正在下结论
+    **为什么不在这里并 `akin` 邻居**: 并边属于**归纳**（她认了这一簇、正在下结论
     的那一刻, 见 `_join_akin`）—— 而这一行只是"改改说法 / 补一条证据"。
     用户 2026-10-14 裁: *"挂证据不算归纳"*（同 L1 挂证据时不并）。
     """
@@ -360,11 +359,11 @@ def _apply_belief_patch(store: WikiStoreV2, row: dict, *, ts: str, log: Evolutio
 
 def _soak(store: WikiStoreV2, row: dict, *, ts: str, log: EvolutionLog,
           res: CognitionResult) -> None:
-    """给**已有的类**覆写沉淀正文（⛔ 不建类、不改名、不动 `ts`）。
+    """给**已有的类**覆写沉淀正文（不建类、不改名、不动 `ts`）。
 
-    ⚠️ **留痕口径**（这一条是纪律, 不是这段代码的细节）:
+    **留痕口径**（这一条是纪律, 不是这段代码的细节）:
     **照记一笔**, 而 `changed` 只收**真的变了**的键 ⇒ 崩溃窗口重跑时留下的是一个
-    **空 `changed`**, 一眼可判"这次没改任何东西"（⛔ 不是"不留账"）。
+    **空 `changed`**, 一眼可判"这次没改任何东西"（不是"不留账"）。
     `res.soaked` 只收**真变了**的那些（它是"覆写了"的账, 不是"收到过这一行"的账）。
     """
     gid = str(row["group"])
@@ -387,7 +386,7 @@ def _add_edge(store: WikiStoreV2, rel: str, src: str, dst: str, *, ts: str,
     """落一条边 + 一条账（形状与 `apply_relations` 逐字相同 —— 同一个含义同一个印法）。
 
     `via` 只有一处会传: **引擎自己并进来的证据**（`_join_akin` → `"akin"`）。
-    ⚠️ 为什么只在这一格留痕: 边表（`Edge`）只有 `rel/src/dst/ts`, **图里分不出**"她点的"
+    为什么只在这一格留痕: 边表（`Edge`）只有 `rel/src/dst/ts`, **图里分不出**"她点的"
     与"引擎并的"（用户 2026-10-13 裁"接受" —— 它们的语义**确实**是同一条: 这条经历撑着
     这条看法）; 而变更史是审计用的, 那里必须分得出是谁的手。
     """
@@ -403,18 +402,18 @@ def _add_edge(store: WikiStoreV2, rel: str, src: str, dst: str, *, ts: str,
 def apply_entities(store: WikiStoreV2, rows: list[dict], *, ts: str = "",
                    event_seq: list[int] | None = None,
                    log: EvolutionLog | None = None) -> list[str]:
-    """R3（`settle`）的执行器 —— ⭐ **只认人**（E4, 2026-10-08）。
+    """R3（`settle`）的执行器 —— **只认人**（E4, 2026-10-08）。
 
-    把"**她还不认识的名字**"建成 `entity` 节点。⛔ **不写正文、不连边**:
+    把"**她还不认识的名字**"建成 `entity` 节点。**不写正文、不连边**:
       · 归属边（`about`）由**引擎**从节点 `tags` 里的 `#entity:` 派生 —— 这一轮**建完对象
         之后回头补边**（`link_entity_refs`, 同一段内闭合）;
       · entity 的"印象 / 现状"归 **belief** ⇒ 这里一个字都不写（判据见 `DESIGN_ENTITY_TAGS §6.1`）。
 
-    ⚠️ **准入门槛**（旧口径原样保留）: `name` 必填 · **`reason` 必填**（建对象是**永久成本**:
+    **准入门槛**（旧口径原样保留）: `name` 必填 · **`reason` 必填**（建对象是**永久成本**:
     此后每一轮的候选表里都有它）· **重名不重复建**（名字或别名对得上既有对象 ⇒ 跳过 + 留痕）。
-    ⚠️ **保留号防撞**: `self` / `sensei` 不在 ⇒ **跳过全部** —— `next_id("x")` 会发出 `x0001`,
+    **保留号防撞**: `self` / `sensei` 不在 ⇒ **跳过全部** —— `next_id("x")` 会发出 `x0001`,
     那是 sensei 的保留号（谁先建谁占坑）。
-    ⚠️ **不吞错**: 能走到这里说明契约层已经挡过形状问题 ⇒ 剩下的异常都是真 bug（照「不吞错」的口径抛）。
+    **不吞错**: 能走到这里说明契约层已经挡过形状问题 ⇒ 剩下的异常都是真 bug（照「不吞错」的口径抛）。
 
     Returns: **真新建**的 entity id（重名跳过的**不算**）。
     """
@@ -445,8 +444,8 @@ def apply_entities(store: WikiStoreV2, rows: list[dict], *, ts: str = "",
             continue
         node = make_node("entity", name=name, aliases=aliases, ts=ts)
         node.event_seq = list(event_seq or [])
-        # ⭐ **刚认识就有话说 ⇒ 顺手装上第一句看法**（行里带了 `text` 才写; **空 = 不写**）。
-        # 「没话说就不写」是常态 —— ⛔ 别因为这一格可选就把它变成必填。
+        # **刚认识就有话说 ⇒ 顺手装上第一句看法**（行里带了 `text` 才写; **空 = 不写**）。
+        # 「没话说就不写」是常态 —— 别因为这一格可选就把它变成必填。
         text = str(row.get("text", "") or "").strip()
         if text:
             node.text = text
@@ -477,18 +476,18 @@ class StanceResult:
     rewritten: list[str] = field(default_factory=list)
     """**真覆写了看法**的对象 id（一字未变不进这里 —— 同 `soaked_groups` 的口径）。"""
     collisions: list[str] = field(default_factory=list)
-    """**撞车被丢掉的改名**（`"x0004:小玉"`）—— 那个名字已经属于**别的**对象（⛔ 绝不合并）。"""
+    """**撞车被丢掉的改名**（`"x0004:小玉"`）—— 那个名字已经属于**别的**对象（绝不合并）。"""
     empty_skips: list[str] = field(default_factory=list)
-    """⭐ **空值被当成"不改"而跳过的格**（`"x0001:text"`）—— 见 `apply_stances` 的纪律①:
-    `""` 不是"清空", 是"没话可说"。只记账, ⛔ 不算失败。"""
+    """**空值被当成"不改"而跳过的格**（`"x0001:text"`）—— 见 `apply_stances` 的纪律①:
+    `""` 不是"清空", 是"没话可说"。只记账, 不算失败。"""
     watermark_skips: list[str] = field(default_factory=list)
-    """⭐ **被水位挡下的改写**（`"x0001:text"`）—— 这一段已经写过它了（段级重跑）。"""
+    """**被水位挡下的改写**（`"x0001:text"`）—— 这一段已经写过它了（段级重跑）。"""
 
 
 def apply_stances(store: WikiStoreV2, rows: list[dict], *, ts: str = "",
                   log: EvolutionLog | None = None,
                   event_seq: list[int] | None = None) -> StanceResult:
-    """⭐ **`settle`「改已有的对象」的执行器**（2026-10-13）—— **改名 / 写看法**, ⛔ 一个节点都不建。
+    """**`settle`「改已有的对象」的执行器**（2026-10-13）—— **改名 / 写看法**, 一个节点都不建。
 
     行形 = `{"action": "update", "id", ["name"], ["text"]}`（`parse_attribution` 的产出）。
 
@@ -499,20 +498,20 @@ def apply_stances(store: WikiStoreV2, rows: list[dict], *, ts: str = "",
 
     ## 四条纪律（每一条都对应一个具体的坏结果）
 
-    ① ⭐ **空值 = 明确的不改**（用户 2026-10-13 裁）: `{"id": "x0001", "text": ""}`
-       是"**这一格没话可说**", ⛔ **不是"把看法清空"** —— 引擎什么都不做, 只记一笔
-       `empty_skips`（⛔ 不记 `drops`: 这里**没有东西可丢**）。同理 `name: ""` = 不改名。
-    ② **改名撞车 ⇒ 丢这一格**（⛔ **绝不合并**）: 新名字已经属于**别的**对象 ⇒ 那是
+    ① **空值 = 明确的不改**（用户 2026-10-13 裁）: `{"id": "x0001", "text": ""}`
+       是"**这一格没话可说**", **不是"把看法清空"** —— 引擎什么都不做, 只记一笔
+       `empty_skips`（不记 `drops`: 这里**没有东西可丢**）。同理 `name: ""` = 不改名。
+    ② **改名撞车 ⇒ 丢这一格**（**绝不合并**）: 新名字已经属于**别的**对象 ⇒ 那是
        "把两个人并成一个"、**不可逆**（重复建对象还能合并, 身份并错分不开）——
        只丢 `name`, 同一行的 `text` 照写。
     ③ **值没变 = 不写、不留痕**（同 `_soak` 的口径）: 段级重跑时她上次已经改过 ⇒ 料里印的
-       就是新值 ⇒ 她再写同一个 ⇒ 这里 no-op ⇒ ⭐ **改名天然幂等**（所以它不需要水位）。
-    ④ ⭐ **`text` 要过水位**（它是这一层**唯一不幂等**的写入）: "整段重写"每次措辞都可能不同 ⇒
+       就是新值 ⇒ 她再写同一个 ⇒ 这里 no-op ⇒ **改名天然幂等**（所以它不需要水位）。
+    ④ **`text` 要过水位**（它是这一层**唯一不幂等**的写入）: "整段重写"每次措辞都可能不同 ⇒
        段级重跑**不能**再折一遍 —— `最大 event_seq ≤ node.text_seq` ⇒ 那一段已经写过 ⇒
-       **丢掉这一格 + 记账**（`watermark_skips`）。⚠️ 水位必须与它守的那句话**同住一个节点**
+       **丢掉这一格 + 记账**（`watermark_skips`）。水位必须与它守的那句话**同住一个节点**
        （见 `nodes.BrainNode.text_seq` 的注释: 两种失败语义因此都对）。
 
-    ⚠️ **不吞错**: 能走到这里说明契约层已经挡过形状问题 ⇒ 剩下的异常都是真 bug（照「不吞错」抛）。
+    **不吞错**: 能走到这里说明契约层已经挡过形状问题 ⇒ 剩下的异常都是真 bug（照「不吞错」抛）。
     """
     log = log or EvolutionLog.for_store(store)
     ts = ts or datetime.now().isoformat(timespec="seconds")
@@ -576,19 +575,19 @@ def apply_stances(store: WikiStoreV2, rows: list[dict], *, ts: str = "",
 
 def link_entity_refs(store: WikiStoreV2, nid: str, *, ts: str = ""
                      ) -> tuple[list[str], list[str]]:
-    """⭐ **一个节点 `entity` 里的引用 ⇒ `about` 边** —— **唯一实现**（引擎派生, 零 LLM）。
+    """**一个节点 `entity` 里的引用 ⇒ `about` 边** —— **唯一实现**（引擎派生, 零 LLM）。
 
     三处调用: R1 造 episode（`episodes._create_a_nodes`）· L2 造看法（`_create_belief`）·
     `settle` **建完新对象之后回头补边**（`rounds/settle.py` —— 它把"先写引用后建对象"接上）。
     做三件事: ① 归一（能解析的叫法换成**主名**）② 落 `about`（节点 → 对象）③ 把归一后的
     引用**写回节点**（她下次看到的与库里一致）。
 
-    ⚠️ **2026-10-13 改口**: 从前它读 `tags` 里的 `#entity:名字`（那时叫 `link_entity_refs`）;
+    **2026-10-13 改口**: 从前它读 `tags` 里的 `#entity:名字`（那时叫 `link_entity_refs`）;
     现在读**独立字段** `node.entity`（名字就是她写的那个叫法）。老档的迁移在
     `nodes.BrainNode.from_dict`。
-    ⚠️ `ts` 缺省 = **节点自己的时刻**（不是我落边的时刻）; 幂等靠 `store.add_edge`;
-    ⚠️ 解析不到的**原样留着**（那是"认人"的线索, 见 `entities.normalize_entity_refs`）。
-    ⛔ **不留 `evolution` 账** —— 边是引用的**派生**（可重建）, 不是她的一个决定。
+    `ts` 缺省 = **节点自己的时刻**（不是我落边的时刻）; 幂等靠 `store.add_edge`;
+    解析不到的**原样留着**（那是"认人"的线索, 见 `entities.normalize_entity_refs`）。
+    **不留 `evolution` 账** —— 边是引用的**派生**（可重建）, 不是她的一个决定。
 
     Returns: `(落下的对象 id, 解析不到的名字)`。
     """
