@@ -22,11 +22,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from core.media.catalog import MediaCatalog
-from renderer.audio import AudioRequest
-from renderer.background import BackgroundResolver, BackgroundResult
-from renderer.effects import EffectResolver
-from renderer.scene import RenderScene
-from renderer.sprite import SpriteResolver
+from tui.audio import AudioRequest
+from tui.background import BackgroundResolver, BackgroundResult
+from tui.effects import EffectResolver
+from tui.scene import RenderScene
+from tui.sprite import SpriteResolver
 
 
 @dataclass

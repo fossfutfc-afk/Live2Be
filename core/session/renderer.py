@@ -40,7 +40,7 @@ from core.session.events import (
     pick_supplements,
 )
 from core.session.models import VNState
-from core.tui.text_processors import _strip_action_brackets
+from core.text import _strip_action_brackets
 
 #: brain 时间线的板块标签
 _LABELS: dict[str, str] = {

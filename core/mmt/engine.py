@@ -73,6 +73,7 @@ from core.brain.read.render import (
 )
 from core.brain.store import WikiStoreV2
 from core.digest import digest_segment
+from core.display import MomoTalkOutput
 from core.mmt.mmt_actions import build_mmt_registry
 from core.mmt.mmt_check import (
     ACTION_TRIGGER,
@@ -107,13 +108,12 @@ from core.rag.embedder import LocalEmbedder
 from core.session import SessionStore
 from core.session.events import TYPE_NOTICED, is_content_event, make_event
 from core.session.renderer import session_status, window_messages
-from core.tui.display import MomoTalkOutput
-from core.tui.streaming import DisplayStep
+from core.streaming import DisplayStep
 
 # ⚠️ `split_reply_chunks` 不再进引擎（⑥-2e 起一行 = 一个气泡, 不再切句）——
-# 切句器本体与单测按用户裁决**保留**（`core/tui/text_processors.py`; 见
+# 切句器本体与单测按用户裁决**保留**（`core/text.py`; 见
 # DESIGN_STREAM_CONTRACT §6: 将来真要用, 回退位置是"行内二次切分"）。
-from core.tui.text_processors import _process_for_momotalk, _strip_action_brackets
+from core.text import _process_for_momotalk, _strip_action_brackets
 from core.worldtime.when import parse_when
 from llm.client import LLMClient, feedback
 from llm.task_labels import MMT

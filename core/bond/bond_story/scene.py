@@ -58,7 +58,7 @@ class BondScene:
     # 仅引擎侧标注流水消费——**不进 to_dict/from_dict**（事件/回放不携带）
     segments: list[int] | None = None
     # 记录流 v2（2026-09-10, P0-4b）: 本板记录（真源）+ 解析记账。
-    # paragraphs/choices 由记录**派生**（过渡期：老 renderer/前端照旧吃派生字段,
+    # paragraphs/choices 由记录**派生**（过渡期：老 tui/前端照旧吃派生字段,
     # 消费者迁移见 §11 P0-7）；空 = 本场景来自旧动作路径（回放旧档/开发通道）。
     records: list[dict] = field(default_factory=list)     # [{"character"|"stage":…, "text":…}]
     notes: list[str] = field(default_factory=list)        # 解析 NOTE/DROP（可观测, 不进 LLM）

@@ -21,7 +21,7 @@ from core.mmt.mmt_preset import (
     select_character,
 )
 from core.session import SessionStore
-from core.tui.streaming import simulate_steps
+from core.streaming import simulate_steps
 from llm.client import LLMClient
 from llm.image_gen import ImageGenerator
 

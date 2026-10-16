@@ -15,7 +15,7 @@ CLI **应用**里 ⇒ **webgui → CLI** 的反向依赖。搬到 `core.director
 
 ## 纪律
 
-· 本模块**不 import `renderer`**（那是 CLI 的事）——`core→renderer` 的唯一来源是
+· 本模块**不 import `tui`**（那是 CLI 的事）——`core→tui` 的唯一来源是
   CLI 应用自己的显示路径（C12b 起整个搬去 `cli/`）;
 · 代码从 `vn_cli.py` **逐字搬来**（零行为改动）。
 """

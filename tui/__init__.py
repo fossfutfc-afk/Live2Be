@@ -1,4 +1,4 @@
-"""renderer/ — 羁绊剧情渲染器（DESIGN_RENDERER.md）。
+"""tui/ — 羁绊剧情渲染器（DESIGN_RENDERER.md）。
 
 显示层——与引擎（BondStoryEngine）解耦的纯消费方: 输入场景数据（RenderScene,
 实时 from_live / 回放 from_event 同构）, 输出渲染状态（RenderOutput——
@@ -21,15 +21,15 @@
     core.py       渲染管线（scene → RenderOutput; 双用途入口）
     cli.py        CLI 输出（打字/标签/选项; 迁移自 `cli/vn_cli.py`——当时叫 `core/ui/vn_cli.py`）
 
-播放层（独立于 renderer）: core/media/sprite_player.py（play_diff / play_spine）。
+播放层（独立于 tui）: core/media/sprite_player.py（play_diff / play_spine）。
 """
-from renderer.audio import AudioRequest
-from renderer.background import BackgroundResolver, BackgroundResult
-from renderer.core import Renderer, RenderOutput
-from renderer.effects import EffectResolver
-from renderer.scene import RenderScene
-from renderer.sprite import SpriteResolver
-from renderer.state import RenderState
+from tui.audio import AudioRequest
+from tui.background import BackgroundResolver, BackgroundResult
+from tui.effects import EffectResolver
+from tui.renderer import Renderer, RenderOutput
+from tui.scene import RenderScene
+from tui.sprite import SpriteResolver
+from tui.state import RenderState
 
 __all__ = [
     "Renderer", "RenderOutput", "RenderScene", "RenderState",

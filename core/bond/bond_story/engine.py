@@ -201,7 +201,7 @@ class BondStoryEngine:
                                                # 人设化情绪判断基准——逞强笑 ≠ smile）
         # place 标注（DESIGN_BOND_CONTRACT_V2 §5, P3a）: 地点语义键表 + 引擎本地
         # "当前地点"延续态（同步路径用; 异步 webgui 由 lane/state 同源维护）——
-        # 锚点句写回 payload 的 place 键, 视觉键不进 LLM 上下文（renderer 忽略）。
+        # 锚点句写回 payload 的 place 键, 视觉键不进 LLM 上下文（tui 忽略）。
         # `_place_table`（C2, 2026-09-19）= 层1 别名索引 + 层2 词表文本来源;
         # `_place_keys` 仍是"有没有地点能力"的门控（webgui 双路 lane 据此决定入队）
         self._place_table: PlaceTable = PlaceTable()

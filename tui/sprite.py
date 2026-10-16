@@ -1,7 +1,7 @@
 """SpriteResolver — 差分意图解算（DESIGN_RENDERER.md §4.2）。
 
 职责划分（§4.1 定稿）:
-    renderer 只出【意图】——段落 emotion → emotion 序列（确定性延续）,
+    tui 只出【意图】——段落 emotion → emotion 序列（确定性延续）,
     **不查图**（播放由 core/media/sprite_player.py 负责: play_diff/play_spine）。
     平台/调用方决定用哪个 API（GUI 有 spine 资产用 spine, 没有用 diff）。
 

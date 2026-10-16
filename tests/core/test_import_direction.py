@@ -2,13 +2,13 @@
 
 ## 规则（`docs/EXEC_SPLIT.md` §2）
 
-    contract/  最底层: 不得依赖 infra / core / llm / webgui / renderer / tests / experiments / cli
-    infra/     基础设施: 不得依赖 core / llm / webgui / renderer / tests / experiments / cli
+    contract/  最底层: 不得依赖 infra / core / llm / webgui / tui / tests / experiments / cli
+    infra/     基础设施: 不得依赖 core / llm / webgui / tui / tests / experiments / cli
                           （**可以**依赖 contract —— 它更底; paths / settings / atomic / fuse 住这儿）
-    llm/       传输层: 不得依赖 webgui / renderer / tests / experiments / cli;
+    llm/       传输层: 不得依赖 webgui / tui / tests / experiments / cli;
                        ⭐ **对 core 零依赖**（2026-10-15 起, 见 LLM_CORE_ALLOWED 空表）
-    core/      引擎层: 不得依赖 webgui / renderer / tests / experiments / cli
-    renderer/  表现层: 不得依赖 webgui / tests / experiments / cli
+    core/      引擎层: 不得依赖 webgui / tui / tests / experiments / cli
+    tui/  表现层: 不得依赖 webgui / tests / experiments / cli
     webgui/    壳    : 不得依赖 tests / experiments / cli
     cli/       应用层: **没人可以 import 它**（C12b 起把这条加进上面每一条的禁用表;
                        它是最上游: `cli/{main,vn_cli}.py` 可以 import 任何东西）
@@ -35,13 +35,13 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
 #: ⚠️ C12b 起每一条都多一个 `cli`: **应用层谁都不许 import**（它是方向的最上游;
 #: C11 之前 `webgui → core.ui.vn_cli` 正是这么反过来的, 现在被这条钉住）。
 RULES: dict[str, frozenset[str]] = {
-    "contract": frozenset({"core", "infra", "llm", "webgui", "renderer", "tests",
+    "contract": frozenset({"core", "infra", "llm", "webgui", "tui", "tests",
                            "experiments", "cli"}),
-    "infra": frozenset({"core", "llm", "webgui", "renderer", "tests", "experiments",
+    "infra": frozenset({"core", "llm", "webgui", "tui", "tests", "experiments",
                         "cli"}),
-    "llm": frozenset({"webgui", "renderer", "tests", "experiments", "cli"}),
-    "core": frozenset({"webgui", "renderer", "tests", "experiments", "cli"}),
-    "renderer": frozenset({"webgui", "tests", "experiments", "cli"}),
+    "llm": frozenset({"webgui", "tui", "tests", "experiments", "cli"}),
+    "core": frozenset({"webgui", "tui", "tests", "experiments", "cli"}),
+    "tui": frozenset({"webgui", "tests", "experiments", "cli"}),
     "webgui": frozenset({"tests", "experiments", "cli"}),
 }
 
@@ -55,7 +55,7 @@ LLM_CORE_ALLOWED: frozenset[str] = frozenset()
 #: ✅ **C12b 起是空表** —— 6 处既存违规全部有归宿并已消:
 #: 3 条 contract→core（C10: 错误原语下沉 `contract/errors.py`）·
 #: 1 条 contract→llm（C10: `json_cleaner` 归位）·
-#: 1 条 core→renderer（C12b: `vn_cli.py` 搬 `cli/`, 它本来就是 CLI 应用）。
+#: 1 条 core→tui（C12b: `vn_cli.py` 搬 `cli/`, 它本来就是 CLI 应用）。
 #: 保持空表 = 分层规则**零例外**; 新违规必须修代码, 不是登记白名单。
 ALLOWED: dict[tuple[str, str], str] = {}
 

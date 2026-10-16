@@ -101,7 +101,7 @@ def split_reply_chunks(
     与 _split_for_momotalk 的区别: 它固定 max_chars=25 且保留逗号, 用于既有路径。
 
     ⚠️ **2026-10-07 起它只剩两个读者**（`DESIGN_STREAM_CONTRACT §6`"摘除"的补做）:
-      · `core/tui/display.py::publish_reply`（**旧的非流式动作 loop**, CLI 侧）;
+      · `core/display.py::publish_reply`（**旧的非流式动作 loop**, CLI 侧）;
       · `tests/core/test_display.py`（本体单测 —— 用户裁决"函数与单测原样保留"）。
     ⛔ **气泡主路径不许再用它**: `display.publish_line`（CLI 行协议）·
     `webgui.chat.render_chat_events`（前端气泡）· `session.renderer.render_events`

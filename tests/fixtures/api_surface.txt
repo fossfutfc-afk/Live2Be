@@ -137,7 +137,7 @@ webgui.chat	_inject_brain_on_open	function	webgui.chat
 webgui.chat	_lock	function	webgui.chat
 webgui.chat	_locks	data	-
 webgui.chat	_queues	data	-
-webgui.chat	_strip_action_brackets	function	core.tui.text_processors
+webgui.chat	_strip_action_brackets	function	core.text
 webgui.chat	_tasks	data	-
 webgui.chat	_worker	function	webgui.chat
 webgui.chat	_worker_running	data	-
@@ -286,7 +286,7 @@ core.mmt.engine	DEFAULT_HISTORY_ROUNDS	data	-
 core.mmt.engine	DIGEST_LLM_TIMEOUT	data	-
 core.mmt.engine	DOMAIN_MMT	data	-
 core.mmt.engine	DROPPABLE_ACTIONS	data	-
-core.mmt.engine	DisplayStep	class	core.tui.streaming
+core.mmt.engine	DisplayStep	class	core.streaming
 core.mmt.engine	DynamicCharacter	class	core.parsing.dynamic_character_parser
 core.mmt.engine	LINE_REASK_MAX	data	-
 core.mmt.engine	LLMClient	class	llm.client
@@ -308,7 +308,7 @@ core.mmt.engine	MmtLine	class	core.mmt.mmt_lines
 core.mmt.engine	MmtLoopError	class	core.mmt.engine
 core.mmt.engine	MmtStream	class	core.mmt.mmt_lines
 core.mmt.engine	MomoTalkEngine	class	core.mmt.engine
-core.mmt.engine	MomoTalkOutput	class	core.tui.display
+core.mmt.engine	MomoTalkOutput	class	core.display
 core.mmt.engine	QUERY_ACTIONS	data	-
 core.mmt.engine	RECALL_QUERY_CHARS	data	-
 core.mmt.engine	RecallCtx	class	core.brain.read.like
@@ -334,9 +334,9 @@ core.mmt.engine	_interact_max	function	core.mmt.engine
 core.mmt.engine	_line_failure	function	core.mmt.engine
 core.mmt.engine	_log_read_ledger	function	core.mmt.engine
 core.mmt.engine	_name_aliases	function	core.mmt.engine
-core.mmt.engine	_process_for_momotalk	function	core.tui.text_processors
+core.mmt.engine	_process_for_momotalk	function	core.text
 core.mmt.engine	_stances_of	function	core.mmt.engine
-core.mmt.engine	_strip_action_brackets	function	core.tui.text_processors
+core.mmt.engine	_strip_action_brackets	function	core.text
 core.mmt.engine	_turn_k	function	core.mmt.engine
 core.mmt.engine	build_box	function	core.promptkit.box
 core.mmt.engine	build_line_schema	function	contract.schema.lines
@@ -393,8 +393,8 @@ cli.vn_cli	M_VN_EXIT	data	-
 cli.vn_cli	M_VN_STATE	data	-
 cli.vn_cli	MomoTalkEngine	class	core.mmt.engine
 cli.vn_cli	PARA_CHAR_MS	data	-
-cli.vn_cli	RenderScene	class	renderer.scene
-cli.vn_cli	Renderer	class	renderer.core
+cli.vn_cli	RenderScene	class	tui.scene
+cli.vn_cli	Renderer	class	tui.renderer
 cli.vn_cli	SceneLoopError	class	core.bond.bond_story.scene
 cli.vn_cli	SessionStore	class	core.session.store
 cli.vn_cli	WikiStoreV2	class	core.brain.store
@@ -405,11 +405,11 @@ cli.vn_cli	collect_ref_images	function	llm.image_gen
 cli.vn_cli	load_brain_segment	function	core.mmt.engine
 cli.vn_cli	logger	data	logging
 cli.vn_cli	make_event	function	core.session.events
-cli.vn_cli	read_choice	function	renderer.cli
-cli.vn_cli	read_free_input	function	renderer.cli
-cli.vn_cli	render_scene	function	renderer.cli
+cli.vn_cli	read_choice	function	tui.cli
+cli.vn_cli	read_free_input	function	tui.cli
+cli.vn_cli	render_scene	function	tui.cli
 cli.vn_cli	run_bond_story_vn	function	cli.vn_cli
-cli.vn_cli	simulate_steps	function	core.tui.streaming
+cli.vn_cli	simulate_steps	function	core.streaming
 cli.vn_cli	simulate_vn_scene	function	cli.vn_cli
 cli.vn_cli	speaker_names	function	core.parsing.names
 cli.vn_cli	wrapup_after_vn	function	cli.vn_cli

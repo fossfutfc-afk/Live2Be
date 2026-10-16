@@ -1,6 +1,6 @@
-"""差分播放层 — 差分/骨骼动画播放（DESIGN_RENDERER.md §4.3, 独立于 renderer）。
+"""差分播放层 — 差分/骨骼动画播放（DESIGN_RENDERER.md §4.3, 独立于 tui）。
 
-renderer 只出意图（emotion 序列）——播放由本模块负责:
+tui 只出意图（emotion 序列）——播放由本模块负责:
     API 1: play_diff(char_id, emotion)   → diff/ 静态差分图（emotions.yml 查）
     API 2: play_spine(char_id, emotion)  → spine/ 骨骼动画包（spine 目录查）
 

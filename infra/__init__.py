@@ -6,7 +6,7 @@
     fuse.py      两轴融合的三个形状
 
 放这儿的理由：`llm/` 要读 settings.toml，这两个件若留在 `core/` 下就成了反向依赖。
-不许 import core / llm / webgui / renderer / cli（test_import_direction.py 钉着）。
+不许 import core / llm / webgui / tui / cli（test_import_direction.py 钉着）。
 """
 from __future__ import annotations
 

@@ -64,7 +64,7 @@ SAFE_PATCHES: dict[tuple[str, str, str], str] = {
 
 _MISSING = object()
 #: 本项目自有的顶层包——只有"自己的名字"才进快照
-OUR_PKGS = frozenset({"contract", "core", "llm", "renderer", "webgui"})
+OUR_PKGS = frozenset({"contract", "core", "llm", "tui", "webgui"})
 
 
 def _package_of(path: pathlib.Path) -> str:
@@ -315,7 +315,7 @@ def _names_in(path: pathlib.Path) -> tuple[set[str], set[str]]:
 
     `from __future__ import annotations` 下的**字符串注解**（`x: "Foo"`）是
     `ast.Constant`, 天然不计入"运行期读取"—— 这正是我们要的（那种写法的名字
-    不评估, 不会 NameError; 见 `renderer/state.py` 的 `# noqa: F821` 先例）。
+    不评估, 不会 NameError; 见 `tui/state.py` 的 `# noqa: F821` 先例）。
     """
     tree = ast.parse(path.read_text(encoding="utf-8"))
     bound: set[str] = set()

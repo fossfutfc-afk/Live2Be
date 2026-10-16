@@ -19,7 +19,7 @@ import threading
 
 from core.mmt.engine import MomoTalkEngine
 from core.session.events import M_VN_ENTER, M_VN_EXIT
-from core.tui.text_processors import _strip_action_brackets
+from core.text import _strip_action_brackets
 from infra import paths
 from llm.client import LLMClient
 from webgui import deps  # 接缝（C1a）: store 等可替换依赖
@@ -311,7 +311,7 @@ def render_chat_events(events, display_name: str = "",
     （逗号前 6~10 字才掷一次骰子）② 切处**丢逗号** ③ 同一条回复在前端(按 seq 播种)
     与**喂 LLM 的历史**(没播种 ⇒ 走全局 random)两处切法不一致, 后者每轮重渲都在变
     ⇒ **前缀缓存被破坏**。切句器本体与它的单测**按用户裁决保留**（CLI 终端
-    `core/tui/display.py` 仍在用; 将来若要"行内二次切分", 回退位置就在这一行）。
+    `core/display.py` 仍在用; 将来若要"行内二次切分", 回退位置就在这一行）。
     玩家消息不切（原样）。
     """
     bubbles: list[dict] = []
