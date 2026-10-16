@@ -41,7 +41,7 @@ v2 的记忆召回参数是**散落的模块常量**，后果有两条:
 ## 优先级
 
 `settings.toml [recall]` > 模块默认。缺失/损坏/类型不符 → 默认（宁缺勿错，不阻塞）。
-读盘由 `infra/settings` 按 mtime 缓存，所以手改 `[recall]` 后下一次调用就生效。
+读盘走 `infra/settings`（**不缓存、每次重读**），所以手改 `[recall]` 后下一次调用就生效。
 """
 from __future__ import annotations
 

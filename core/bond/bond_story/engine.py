@@ -585,7 +585,7 @@ class BondStoryEngine:
                 logger.info("[vn][stream] 完成 n=%d boards=%d issues=%d%s",
                             len(stream.records), len(delivered), len(issues),
                             # 节点 1（2026-09-21）: 问题**文本**也进日志。此前只打数量,
-                            # 于是 CLAUDE.md §12 那条"grep 软问题串（如'含 memorial
+                            # 于是"软问题串要能 grep"那条（`AGENTS.md`「产品决策」）举的例子（'含 memorial
                             # 但没有 art'）"在生产路径上永远 grep 不到——生产走流式。
                             f" issues_txt={format_issues(issues, ' | ')}" if issues else "")
                 # 节点 3: 记账 → **下一轮纠偏**（下一轮 notes 注入一次后自清）
