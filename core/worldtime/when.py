@@ -195,7 +195,7 @@ def _occurrence(occ: Occasion, today: date, n: int) -> date | None:
     （那个函数刻意答"这一期是哪天", 见它 docstring 里"第一版写错的地方"）。
     「最近一次**已过**」是**另一条路**: 裸节日名走 `_occurrence_past`。
     """
-    if occ.year_fixed:                       # 一辈子一次的行 ⇒ 只有"那一次"
+    if occ.year is not None:                 # 一辈子一次的行 ⇒ 只有"那一次"
         return occ.on(occ.year) if n == 0 else None
     return occ.on(today.year - n)
 
@@ -207,7 +207,7 @@ def _occurrence_past(occ: Occasion, today: date) -> date | None:
     而 `last 0 christmas` = 今年 12/25 ⇒ **落在将来 ⇒ 返空**（规则⑥）。
     共用一条路 ⇒ 要么裸名返空、要么 `last 0` 悄悄变去年, **两个都是静默错范围**。
     """
-    if occ.year_fixed:
+    if occ.year is not None:
         return occ.on(occ.year)
     y = today.year
     if occ.on(y) > today:                    # 今年的还没到 ⇒ 最近一次是去年
@@ -359,10 +359,10 @@ def _parse_spec(text: str, today: date, occs: list[Occasion]) -> tuple[date, dat
     a, b, closed = rng
     unit = _UNITS.get(mt.group("unit").casefold())
     occ = _find_occasion(occs, mt.group("unit")) if unit is None else None
-    if unit is None and occ is None:
-        return None                                    # 单位不认 / 表外具名日
-    if occ is not None:
-        if not closed or a != b:                       # 节日名**只许单点**（圣诞之间隔一年）
+    if unit is None:                                    # 单位不认 ⇒ 只剩"表外具名日"这一条路
+        if occ is None:
+            return None
+        if not closed or a != b:                        # 节日名**只许单点**（圣诞之间隔一年）
             return None
         got = _occurrence(occ, today, a)
         return (got, got) if got else None
