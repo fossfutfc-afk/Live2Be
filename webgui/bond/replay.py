@@ -106,11 +106,13 @@ def replay_attempts(char_id: str, session_id: str = "") -> list[dict]:
             attempts.append(cur)
             cur = None
 
-    def open_attempt(from_seq: int, title: str):
+    def open_attempt(from_seq: int, title: str) -> dict:
+        """开一段（并把新段交回调用方 —— 靠返回值窄化, 别让 `cur` 停在 `| None`）。"""
         nonlocal cur
         close_interrupted()                 # 新段开 = 旧段未收尾 → 中断
         cur = {"from_seq": from_seq, "title": title, "completed": False,
                "interrupted": False, "scenes": []}
+        return cur
 
     for e in evs:
         t = getattr(e, "type", None)
@@ -127,7 +129,7 @@ def replay_attempts(char_id: str, session_id: str = "") -> list[dict]:
             if not is_board_event(e):
                 continue                    # 补录裁决不是板（流尾统一并回去, 见下）
             if cur is None:                 # 兼容旧事件: 无 vn_enter 直接开段
-                open_attempt(e.seq, "")
+                cur = open_attempt(e.seq, "")
             payload = e.payload or {}
             scene = {k: v for k, v in payload.items()
                      if k not in ("input", "picked")}
