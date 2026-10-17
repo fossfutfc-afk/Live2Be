@@ -87,7 +87,7 @@ from core.mmt.mmt_executor import (
     MmtExecutor,
     load_interperson,
 )
-from core.mmt.mmt_lines import MmtLine, MmtStream, parse_lines, to_action_raw
+from core.mmt.mmt_lines import MmtLine, MmtStream, parse_lines, to_action_raw  # noqa: F401 — re-export（API 面快照钉着它）
 from core.mmt.mmt_repair import repair_line
 from core.parsing.dynamic_character_parser import (
     CharacterLoader,
@@ -164,7 +164,7 @@ def _get_embed_fn():
         emb, model, reason = None, "", f"probe_error({e})"
     else:
         reason = "" if model else "model_missing"
-    if not model:                                    # 未就绪 → 上报跳变后交出 None
+    if not model or emb is None:                     # 未就绪 → 上报跳变后交出 None
         if _EMBED_REPORTED is not False:
             logger.info(
                 "digest_embed fn=none reason=%s fallback=keyword_candidates"
@@ -193,6 +193,12 @@ def _interact_max(events: list, digested_seq: int) -> int:
         (e.seq for e in events
          if e.seq > digested_seq and is_content_event(e)),
         default=0)
+
+
+def _text_action(line: MmtLine) -> AgentAction:
+    """一行"她的话"（`MmtLine`）→ `mmt_chat` 动作 —— 批式与流式**同一处**造。"""
+    return AgentAction(action="mmt_chat", domain=DOMAIN_MMT,
+                       approval=APPROVAL_AUTO, reply=line.text, payload={})
 
 
 def _name_aliases(profile: dict) -> tuple[str, ...]:
@@ -1744,9 +1750,7 @@ class MomoTalkEngine:
             self._trace.append({"step": step, "action": "mmt_chat", "summary": "",
                                 "reply": ln.text, "payload": {}, "parse_valid": True,
                                 "parse_errors": []})
-            return _Planned(action=AgentAction(
-                action="mmt_chat", domain=DOMAIN_MMT,
-                approval=APPROVAL_AUTO, reply=ln.text, payload={}))
+            return _Planned(action=_text_action(ln))
         fixed, note = repair_line(ln)
         if fixed is None:
             return _Planned(why=_line_failure(ln.action, "repair", note))
@@ -1828,12 +1832,12 @@ class MomoTalkEngine:
             return out
 
         # ---- ③ parse + 执行（**顺序 = 行序**）-------------------------------
-        plan: list[tuple[str, MmtLine | AgentAction]] = []   # 交付计划（保持行序）
+        plan: list[AgentAction] = []                     # 交付计划（保持行序; 已统一成动作）
         for ln, fixed in repaired:
             if fixed is None:                        # ① 里已记账的软丢行
                 continue
             if fixed.is_text:
-                plan.append(("text", fixed))
+                plan.append(_text_action(fixed))
                 self._trace.append({"step": step, "action": "mmt_chat", "summary": "",
                                     "reply": fixed.text, "payload": {}, "parse_valid": True,
                                     "parse_errors": []})
@@ -1858,15 +1862,10 @@ class MomoTalkEngine:
                 feedback(messages, planned.message)
                 out.need_more = True
                 return out
-            plan.append(("action", planned.action))
+            plan.append(planned.action)
 
         # ---- ④ 交付（**保持行序**：话 → 图 → 话 就是 话 → 图 → 话）----------
-        for kind, item in plan:
-            if kind == "text":
-                act = AgentAction(action="mmt_chat", domain=DOMAIN_MMT,
-                                  approval=APPROVAL_AUTO, reply=item.text, payload={})
-            else:
-                act = item
+        for act in plan:
             self._deliver_line(act, user_input=user_input,
                                record_input=record_input, first=not delivered)
             delivered.append(act)
@@ -1966,7 +1965,8 @@ class MomoTalkEngine:
         两个成功出口都由 `_turn_lines._finish()` 调到, 所以只有这一处（陷阱 48）。
         """
         self._log_notices(notices)
-        display = MomoTalkOutput(_process_for_momotalk, self._current_char.display_name)
+        char_name = self._current_char.display_name if self._current_char else ""
+        display = MomoTalkOutput(_process_for_momotalk, char_name)
         steps: list[DisplayStep] = []
         reply_blocks: list[str] = []
         actions_view: list[dict] = []
