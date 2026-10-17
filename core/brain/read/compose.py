@@ -108,11 +108,11 @@ from dataclasses import dataclass, field
 from core.brain.nodes import BrainNode
 from core.brain.read.channels import (
     KIND_PRIOR,
-    SCALE_COSINE,
     ChannelHit,
     ChannelResult,
-    RecallContext,
 )
+from core.brain.read.context import RecallContext
+from core.brain.read.scale import SCALE_COSINE, pool_minmax
 from infra.fuse import DEFAULT_MODE, MODES, fuse
 
 #: 命中门槛的缺省值（正常走 `[recall].sim_k`=`5`）——**名次, 不是分数阈值**
@@ -195,14 +195,7 @@ def normalize(hits: list[ChannelHit], *, scale: str) -> dict[str, float]:
     raw = {getattr(h.node, "id", ""): float(h.raw or 0.0) for h in hits}
     if scale != SCALE_COSINE:
         return {k: max(0.0, v) for k, v in raw.items()}
-    if not raw:
-        return {}
-    lo, hi = min(raw.values()), max(raw.values())
-    span = hi - lo
-    if span <= 1e-9:
-        v = 1.0 if hi > 0.0 else 0.0
-        return {k: v for k in raw}
-    return {k: (v - lo) / span for k, v in raw.items()}
+    return pool_minmax(raw)
 
 
 def _noisy_or(vals) -> float:

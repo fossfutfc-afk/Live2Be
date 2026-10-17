@@ -621,6 +621,34 @@ def test_like_has_no_backend_at_all():
 
 
 # ---------------------------------------------------------------------------
+# ⑥ 共用算术只有一处（`scale.py`）—— 谁再抄一份就红
+# ---------------------------------------------------------------------------
+
+READ_PKG = ROOT / "core" / "brain" / "read"
+#: 这两个形状曾经各写两份（`recall._cosine` / `like._cosine`、`compose.normalize` /
+#: `like._pool_norm`）—— 抄第二份的代价是"改一处忘一处", 静默漂开
+SHARED_MATH = ("cosine", "pool_minmax")
+
+
+def _module_level_fn_names(path: Path) -> set[str]:
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    return {n.name for n in tree.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
+
+
+def test_shared_math_is_defined_only_in_scale():
+    """`read/scale.py` 是 `cosine` / `pool_minmax` 的**唯一**实现处。"""
+    names = _module_level_fn_names(READ_PKG / "scale.py")
+    for fn in SHARED_MATH:
+        assert fn in names, f"scale.py 里没有 {fn}"
+    for path in sorted(READ_PKG.glob("*.py")):
+        if path.name == "scale.py":
+            continue
+        dup = [n for n in _module_level_fn_names(path)
+               if any(shape in n.lower() for shape in SHARED_MATH)]
+        assert not dup, f"{path.name} 又抄了一份共用算术: {dup}"
+
+
+# ---------------------------------------------------------------------------
 # 台账（`why` 的唯一消费者 —— 不然它就是个没人读的字段）
 # ---------------------------------------------------------------------------
 

@@ -62,23 +62,24 @@
 
 ## 与旧件的关系（**不复用资源**）
 
-`compose.recall_now` / `recall.recommend_candidates` 一个都不 import（守门⑤ 扫 AST）:
-前者在 digest 场景**四链路降级三条**, 后者**无 embedder 时四个查询全空**（真档实测）。
+`compose.recall_now` / `recall.recommend_candidates` 一个都不 import（守门⑤ 扫 AST）。
 `_bigrams` 这边**自己一份**（`recall.py` 也有, 但那边整族待删, 不许 import）。
-照用的只有两样通用工具: `infra.fuse`（真接语义轴时再用）与
-`core.worldtime.age`（`age_days` / `freshness` / `render_relative` —— 时间真源, 不在 `read/` 里）。
+共用只走两件**中性件**（新旧都够得着、谁也不拥有, 所以旧族删了它也不倒）:
+`read/context.py` 的输入契约与 `read/scale.py` 的尺度常量 / `cosine` / `pool_minmax`。
+其余照用 `infra.fuse`（真接语义轴时再用）与 `core.worldtime.age`（时间真源, 不在 `read/` 里）。
 """
 from __future__ import annotations
 
 import logging
-import math
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 
 from core.brain.address import normalize_title
 from core.brain.entities import form_key
 from core.brain.graph import REL_AKIN, REL_MEMBER_OF, graph_of
+from core.brain.read.context import RecallContext
 from core.brain.read.pack import Candidate, body_of, ledger_line
+from core.brain.read.scale import SCALE_COSINE, SCALE_UNIT, cosine, pool_minmax
 from core.worldtime.age import (
     DEFAULT_FRESHNESS_FLOOR,
     DEFAULT_HALF_LIFE_DAYS,
@@ -100,9 +101,9 @@ EVIDENCE = "evidence"     #: 证据轴: **可准入**（内容 / 窄门结构）
 PRIOR = "prior"           #: 先验轴: 只加成（时间 / 重要 / 名字）
 GATE = "gate"             #: 闸门: **不进加权平均**（将来 `place` 那类乘性闸门; 第一笔没有这一路）
 
-#: 尺度（`Part.scale`）—— 老 `channels.py` 的 `scale` 那一格: 决定要不要池内归一
-UNIT = "unit"             #: 自报 [0,1] 的绝对分, 原样用
-COSINE = "cosine"         #: cos 那类**池内 min-max** 归一后才用（`part_lexical` 之外的路会是它）
+#: 尺度（`Part.scale`）—— 与 `channels` 那边同一套词表, 住在中性的 `read/scale.py`
+UNIT = SCALE_UNIT          #: 自报 [0,1] 的绝对分, 原样用
+COSINE = SCALE_COSINE      #: cos 那类**池内 min-max** 归一后才用
 
 # 下面这些是**代码常量, 不是旋钮**（理由见模块 docstring 的权重那条）
 _TAG_BASE, _TAG_STEP = 0.60, 0.10      # tags 命中: 基分 + 每多命中一个 +0.10
@@ -125,40 +126,13 @@ _STRUCT_EDGES: dict[str, tuple[float, str]] = {
 # ---------------------------------------------------------------------------
 
 @dataclass(frozen=True)
-class RecallCtx:
-    """一次召回的**输入契约** —— 所有路共用同一份"现在几点 / 什么心情"。
+class RecallCtx(RecallContext):
+    """`like` 这一路的上下文 = **输入契约**（父类 `RecallContext`）+ **派生料**（本类）。
 
-    **为什么集中**（老 `channels.RecallContext` 的原话, 2026-09-13）: 路各自去
-    store / 事件流里捞上下文 ⇒ 同一次召回里"现在是几点、什么心情"会被**算出多份**,
-    且台账里**无法复现**。所以输入只在这里声明一次, 路只读它。
-
-    ## 字段分两半: **输入**（调用方填）· **派生**（`build_ctx` 现算, 调用方别填）
-
-    输入那几个是**对称的**: 情绪 / 地点 / 好感各一对"键 + 原文"，因为它们服务的路不同
-    （键做集合比较, 原文做语义比较）。**这些都不进 LLM 上下文**（
-    召回侧信号, 参与筛选不参与写作）。
+    输入那一半的声明与纪律只有一处（`read/context.py`）—— 这里**不再重复字段与理由**。
+    派生那几份由 `build_ctx` 现算并 `replace` 出新的一份（调用方别填）; 冻结保证
+    "同一次召回里那几份料不会中途被人改掉"。
     """
-
-    # ---- 输入（调用方填）----------------------------------------------------
-    #: 当前**时刻**（`datetime` 或 `ts` 串）—— `TIME` 格用它算 `age`。
-    #: **必填且无默认值**（故排第一位）: 逼调用方在调用处显式说明"现在是什么时候"，
-    #: 不许模块偷偷读壁钟（同 `age_days` 的纪律）。
-    now: object
-    #: 情境文本（MMT 每轮 = 玩家这一句; digest = 本段新经历）
-    query: str = ""
-    #: 当前**情绪键序列**（B 链路的 query 侧）—— 如 `("tease", "smile")`。`()` = 未知（那一路降级）
-    emo_now: tuple[str, ...] = ()
-    #: 当前地点**键**（C 链路的素材轴）—— `""` = 未知
-    place_now: str = ""
-    #: 当前地点的 **writer 原文**（switch 短语原话, C 链路的叙事轴）—— 键不能当地名用
-    #: （一键多义 / 一地多键）, 所以"是不是同一个地方"只能靠原文的语义相似。`""` = 未知
-    place_raw_now: str = ""
-    #: 当前**好感标量** ∈ [−1,1]（`Affection.to_scalar()`）—— 关系层信号
-    aff_now: float | None = None
-    #: 检索后端（`texts → 等长向量列表`）; None ⇒ 需要它的那几路自动降级
-    embed_fn: Callable[[list[str]], list[list[float]]] | None = None
-    #: 本角色 id（词表 / 资产定位用）
-    char_id: str = ""
 
     # ---- 派生（`build_ctx` 负责, 调用方别填）--------------------------------
     #: entity_id → 它**在 query 里被叫到的那个写法**（`why` 里要印这个名字）
@@ -256,18 +230,7 @@ def _sim(ctx: RecallCtx, universe: list) -> tuple[dict[str, float], str]:
     except Exception as e:                            # noqa: BLE001 — 后端故障不阻断召回
         logger.info("recall_like sim=skip reason=%s nodes=%d", e, len(universe))
         return {}, f"后端故障:{type(e).__name__}"
-    return {n.id: _cosine(qv, v) for n, v in zip(universe, vecs) if v}, ""
-
-
-def _cosine(a, b) -> float:
-    """cos（零向量 → 0.0, 不抛）。"""
-    if not a or not b:
-        return 0.0
-    na = math.sqrt(sum(x * x for x in a))
-    nb = math.sqrt(sum(x * x for x in b))
-    if na == 0.0 or nb == 0.0:
-        return 0.0
-    return sum(x * y for x, y in zip(a, b)) / (na * nb)
+    return {n.id: cosine(qv, v) for n, v in zip(universe, vecs) if v}, ""
 
 
 def _reach(store, seeds: dict[str, float]) -> dict[str, tuple[float, str]]:
@@ -627,7 +590,7 @@ def like(store, ctx: RecallCtx, *, spec: str = "turn",
     for name, part, _w in active:
         vals = {nid: row.get(name, 0.0) for nid, row in raw.items()}
         if part.scale == COSINE:
-            norm = _pool_norm(vals)
+            norm = pool_minmax(vals)
             kept = set(sorted(vals, key=lambda nid: (-vals[nid], nid))[:hit_k])
             for nid in vals:
                 score[nid][name] = norm.get(nid, 0.0) if nid in kept else 0.0
@@ -652,23 +615,6 @@ def like(store, ctx: RecallCtx, *, spec: str = "turn",
     logger.info(ledger_line(out, query=ctx.query, pool=len(nodes), k=int(k),
                             spec=spec, skip=skipped, weights=weights))
     return out[:max(int(k), 0)]
-
-
-def _pool_norm(vals: dict[str, float]) -> dict[str, float]:
-    """池内 min-max（**与旧合成层同语义**）: 池内全同分 → 有正值则都算 1.0（"都一样相关"）,
-    全非正 → 0.0（"都不相关"）。
-
-    只给 `scale=COSINE` 那类用: 它的原始分是**相对量**（谁比谁更像）;
-    `UNIT` 那类是绝对分, 拉到池内相对会**凭空制造"最差的一定是 0"**。
-    """
-    if not vals:
-        return {}
-    lo, hi = min(vals.values()), max(vals.values())
-    span = hi - lo
-    if span <= 1e-9:
-        v = 1.0 if hi > 0.0 else 0.0
-        return {k: v for k in vals}
-    return {k: (v - lo) / span for k, v in vals.items()}
 
 
 def _hit_k() -> int:

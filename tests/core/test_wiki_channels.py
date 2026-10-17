@@ -25,7 +25,8 @@ from core.brain import (
     get_channel,
     make_node,
 )
-from core.brain.read.channels import KINDS, SCALES
+from core.brain.read.channels import KINDS
+from core.brain.read.scale import SCALES
 
 
 def _store(tmp_path) -> WikiStoreV2:
@@ -183,14 +184,14 @@ def test_emotion_rag_degrades_without_query_or_shape(tmp_path):
     assert r1.degraded and "emo_now" in r1.note
     # ② 有 emo_now, 但节点没有 emo_shape（旧档未物化）
     r2 = get_channel("B_emotion_rag").gather(
-        st, _ctx(emo_now=["tease", "smile"]))
+        st, _ctx(emo_now=("tease", "smile")))
     assert r2.degraded and "emo_shape" in r2.note
     assert r2.knobs["no_emo_shape"] == 2
     # ③ 有料但没向量后端
     st.get("m0001").emo_shape = ["tease", "smile"]
     st.get("m0002").emo_shape = ["outburst", "shout"]
     r3 = get_channel("B_emotion_rag").gather(
-        st, _ctx(emo_now=["tease", "smile"]))
+        st, _ctx(emo_now=("tease", "smile")))
     assert r3.degraded and "embed_fn" in r3.note
     print(f"    B: 三种降级分别说明 → ①{r1.note[:22]} ②{r2.note[:22]} ③{r3.note[:22]}")
 
@@ -208,7 +209,7 @@ def test_emotion_rag_scores_by_key_sequence(tmp_path):
             out.append([float(h % 7), float(h % 11), 1.0])
         return out
     r = get_channel("B_emotion_rag").gather(
-        st, _ctx(emo_now=["tease", "smile", "smile"], embed_fn=emb))
+        st, _ctx(emo_now=("tease", "smile", "smile"), embed_fn=emb))
     assert not r.degraded and len(r.hits) == 2
     assert all(h.raw is not None for h in r.hits)
     # 自己跟自己那一板必须排第一（键序列完全相同 → cos=1）
@@ -217,7 +218,7 @@ def test_emotion_rag_scores_by_key_sequence(tmp_path):
     # 只读键序列: 叙述/verbatim 不进向量文本（§2.3.1 撤回框: 混正文会塌陷空间）
     seen = []
     get_channel("B_emotion_rag").gather(
-        st, _ctx(emo_now=["tease"], embed_fn=lambda ts: (seen.extend(ts), emb(ts))[1]))
+        st, _ctx(emo_now=("tease",), embed_fn=lambda ts: (seen.extend(ts), emb(ts))[1]))
     assert all("杂草屋" not in t for t in seen), seen
     assert all(t.startswith("情绪序列: ") for t in seen), seen
     print(f"    B: 键序列 cos 出分 → {[(h.node.id, round(h.raw, 3)) for h in r.hits]}")
