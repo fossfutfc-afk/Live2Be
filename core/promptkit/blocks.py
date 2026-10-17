@@ -49,9 +49,9 @@ class BlockContext:
 # 块实现（MMT 域 Phase 1; Bond 域 Phase 3 追加）
 # ---------------------------------------------------------------------------
 
-def _greeting(ctx: BlockContext) -> str:
+def _greeting(ctx: BlockContext) -> str | None:
     """称呼行（盒A/B v2 归位盒顶——身份先行, 2026-09-07）: 名单分隔 "/",
-    一人分饰多角预留（character_names 列表）。"""
+    一人分饰多角预留（character_names 列表）。没有名单 ⇒ 整块缺席（不占位）。"""
     if not ctx.names:
         return None
     return "你好，" + " / ".join(ctx.names) + ctx.greeting_suffix
