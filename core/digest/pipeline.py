@@ -94,6 +94,7 @@ from core.digest.segment import _segment_domain
 from core.session.events import is_content_event
 from core.session.maintenance import exclude_abandoned
 from core.session.renderer import render_timeline
+from infra import runtime
 from llm.task_levels import extra_body as _tl_extra
 from llm.task_levels import max_tokens as _tl_max_tokens
 
@@ -218,6 +219,9 @@ class DigestResult:
     #: ⭐ **L1 条目面的缺口**（D1）: LLM 交了几条 / 落地几条 / 一章一条丢了哪些 / 判重复复用了几条。
     #: 由 `rounds/record.py` 填 —— ⚠️ **不可重算**（丢掉的条目正文之后世上没有第二份）。
     record_gaps: dict = field(default_factory=dict)
+    #: ⭐ **被进程关停打断**（不是失败）—— 不写盘、不计 `digest_retry`。
+    #: 判据见 `infra/runtime.py` 的模块说明: 计数满 3 次会**永久放弃**这一段。
+    aborted: bool = False
 
 
 def digest_segment(
@@ -362,6 +366,20 @@ def digest_segment(
         return _rollback(store, snapshot, result, from_seq=digest_from,
                          upto_seq=interact_max, write_ledger=write_ledger)
 
+    def _abort() -> DigestResult:
+        """**被关停打断的唯一出口** —— 只回滚内存, **不写盘、不计失败次数、不落账**。
+
+        与 `_fail()` 的区别就是"不记账": `_note_failure` 数到 `DIGEST_MAX_ATTEMPTS`
+        会把这整段**永久放弃**（推水位 + 落一条 creep 账）。按三次 Ctrl+C 就把一段
+        记忆推进黑洞, 是荒唐的 —— 关停是外部事件, 不是这段内容的问题。
+        """
+        store.restore_state(snapshot)
+        reset_result(result)
+        result.aborted = True
+        logger.info("digest 中止（进程正在关停）: seq %d–%d 不写盘、不计失败次数",
+                    digest_from, interact_max)
+        return result
+
     # 这一段共享的一切（六轮各拿它干活）—— 建一次, 只读的部分全在这里。
     ctx = Ctx(
         store=store, llm=llm, result=result, cursor=Cursor(),
@@ -389,6 +407,9 @@ def digest_segment(
         # 触发点）—— 这是有意的, 理由见 `_note_empty_segments`。
         no_segments = False
         for spec in ROUNDS:
+            if runtime.shutdown_requested():             # 关停: 下一轮都别开了
+                return _abort()
+            runtime.stage("digest", spec.key)            # 前端"等它跑完"看的就是这个
             if spec.needs_segments and no_segments:
                 continue
             # 自吞那一步（表里 `own_snapshot`）: 编排**先替它取快照**, 失败时只回滚它。
@@ -408,6 +429,8 @@ def digest_segment(
         return _fail()
 
     # ── 成功: 提交（节点落盘 + 水位推进）──
+    if runtime.shutdown_requested():          # 提交窗口的最后一道闸: 宁可这段下次重来
+        return _abort()
     result.ok = True
     result.created = ctx.episode_ids
     # ⭐ **M1（2026-10-05）: 好感现在由 R1 判**（`resp_a`）—— 它与 `significance` 同族,

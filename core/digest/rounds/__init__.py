@@ -376,7 +376,7 @@ RESULT_FIELDS: tuple[str, ...] = tuple(dict.fromkeys(
 #:   · `creep_rows` —— ⭐ **失败也要留下的事实**（`kind=digest_skip` 的账）:
 #:     账不是剧情, **不随事务回滚** —— 恰恰相反, 它记的就是"这批没成"
 COMMIT_ONLY: tuple[str, ...] = ("ok", "errors", "llm_calls", "created",
-                                "affection_delta", "creep_rows")
+                                "affection_delta", "creep_rows", "aborted")
 
 
 class Cursor:

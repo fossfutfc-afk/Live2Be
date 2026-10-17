@@ -4,7 +4,7 @@
 > ⚠️ **`git status` 里常年挂着几份"作者手改未提交"的文件**（2026-10-17 时是
 > `config/settings/relation/interperson.yml` · `infra/fuse.py`）——
 > 那是**作者的改动, ⛔ 不是脏改动**, 别 `checkout` 掉、也别卷进提交（`git add` 一律写显式路径）。
-> 现状：`tests/core` **1286 passed** · `tests/llm+tui+webgui` **208 passed**（⚠️ **按域分开跑**, 见 §5 坑 4）·
+> 现状：`tests/core` **1291 passed** · `tests/llm+tui+webgui` **208 passed**（⚠️ **按域分开跑**, 见 §5 坑 4）·
 > 三份 verifier 全 exit 0 · ruff **366**（基线，`AGENTS.md` §7 同步）· 真机数据未动。
 > ⚠️ **两域里各有几个轮询式 flaky**（靠 `_wait(cond, timeout=10)` 等异步状态的那类）: 机器一忙就超时,
 > 单跑常绿 ⇒ 别急着怀疑自己刚改的代码, 见 §5b 第 17 条。
@@ -194,6 +194,7 @@ python experiments/recall_report.py
 | `d4e07363` | ⭐ **收束注记单源化**：CLI 那两句还在教 v1 的 `story_end` 动作（v2 记录流里没有它）⇒ 新建 `core/bond/bond_story/closing.py`（`REMIND_ROUNDS`/`END_ROUNDS` + `closing_notes`）, 两壳都调它; 顺带补上 CLI 缺的"余量 2 场每场强制" · 守门钉住"这三句只许在一处" |
 | `638609d5` | 给 `cli/` 定性: 产品只有一个壳 = `webgui/`, CLI 是调试入口**不追 webgui 行为**（`AGENTS.md` §8 新增同名决策 + §1 表格三行; `cli/.md` 重写） |
 | 本轮 | **控制台日志收口**: 新建 `infra/logsetup.py`（控制台短/文件全）——轮询与静态请求的 2xx 不打印 · 短域名前缀（`digest`/`bond`/`mmt`/`llm`/`http`）· 超 110 字截断 · `LIVE2BE_LOG=quiet/normal/verbose` · `akin` 逐条边降 debug。文件日志仍全量（软问题文本可 grep） |
+| 本轮 | **digest 关停韧性**: 新建 `infra/runtime.py`（关停信号 + 在途登记）· `digest_segment` 在**每轮之间**与**提交前**查闸 ⇒ `_abort`（回滚内存、**不写盘、不计 `digest_retry`** —— 否则三次 Ctrl+C 就永久放弃一段）· `WikiStoreV2._heal_watermark` 加载时按图上 `event_seq` 补齐水位（修"图新水位旧"⇒ 重喂 ⇒ 重复记忆）· `webgui/app.py` lifespan 关停时置信号并等 3 秒 |
 
 ---
 
@@ -319,6 +320,11 @@ python experiments/recall_report.py
     `_wait(cond, timeout=10)` 等异步状态, 而**标注 lane 的 LLM 调用会落在"采样之后、断言之前"**
     （用例自己的注释就写着"单独跑绿、两域同跑红"）。判据: **同一条命令连跑 3 次, 过/挂/过 = flaky**,
     别改自己的代码去迁就它。
+18. ⚠️ **给 `DigestResult` 加字段必须同时归类**：删/加字段后 `tests/core/test_digest_rounds.py::test_every_result_field_is_classified`
+    会红 —— 要么写进某一轮的 `result_fields`（回滚清它）, 要么加进 `rounds.COMMIT_ONLY`（回滚不碰它）。
+    `aborted` 属于后者（它描述"这次尝试怎么结束的", 不是哪一轮的产出）。
+19. ⚠️ **"被杀"与"失败"是两种结局, 别共用一个出口**：失败要计 `digest_retry`（满 3 次**永久放弃**那段）,
+    而关停是外部事件。混在一起写 ⇒ 用户按三次 Ctrl+C 就等于亲手丢一段记忆。
 
 ---
 

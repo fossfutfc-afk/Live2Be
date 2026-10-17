@@ -15,12 +15,13 @@ from __future__ import annotations
 
 import logging
 import re
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, Response
 from starlette.staticfiles import StaticFiles
 
-from infra import logsetup, paths, settings
+from infra import logsetup, paths, runtime, settings
 
 # 控制台短、文件全（形态与理由见 `infra/logsetup.py`）——必须在 routers import 之前配好,
 # 否则那批模块的 logger 已按默认（无 handler）初始化。
@@ -62,7 +63,22 @@ class NoCacheStaticFiles(StaticFiles):
         return response
 
 
-app = FastAPI(title="Live2Be")
+@asynccontextmanager
+async def _lifespan(_app: FastAPI):
+    """关停: 先让长任务（digest）在安全点收手，再等它们退出 —— 最多 3 秒。
+
+    uvicorn 的优雅关停只等在途 **HTTP 请求**；digest 跑在守护线程里，不在它的账上。
+    所以这里置关停信号（digest 在下一轮之间/提交前看到就回滚）并等一会儿 —— 等不到
+    也**不会**写坏: 提交窗口自己有关停闸，被杀在最坏处只是这段下次重来。
+    """
+    yield
+    runtime.request_shutdown()
+    if not runtime.wait_idle(3.0):
+        logging.getLogger(__name__).warning(
+            "关停: 在途任务 3 秒内没收手（它们不会写盘 —— 提交前有关停闸）, 下次启动重来")
+
+
+app = FastAPI(title="Live2Be", lifespan=_lifespan)
 app.mount("/static", NoCacheStaticFiles(directory=STATIC_DIR), name="static")
 app.mount("/assets/menu", NoCacheStaticFiles(directory=MENU_DIR), name="menu")
 app.mount("/assets/illustration", NoCacheStaticFiles(directory=ILLUS_DIR), name="illus")

@@ -115,6 +115,7 @@ from core.streaming import DisplayStep
 # DESIGN_STREAM_CONTRACT §6: 将来真要用, 回退位置是"行内二次切分"）。
 from core.text import _process_for_momotalk, _strip_action_brackets
 from core.worldtime.when import parse_when
+from infra import runtime
 from llm.client import LLMClient, feedback
 from llm.task_labels import MMT
 from llm.task_levels import max_tokens as task_levels_max_tokens
@@ -897,8 +898,11 @@ class MomoTalkEngine:
                     except Exception as _e:              # noqa: BLE001
                         logger.warning("creep 账写入失败（%s）: %s", character_id, _e)
                 if not res.ok:
-                    logger.warning("digest 未完成 (%s): %s", character_id,
-                                   " | ".join(res.errors))
+                    if res.aborted:                  # 关停打断 ≠ 失败: 不记账、下次重来
+                        logger.info("digest 已中止（关停, %s）", character_id)
+                    else:
+                        logger.warning("digest 未完成 (%s): %s", character_id,
+                                       " | ".join(res.errors))
                 else:
                     if res.affection_delta != 0 and interact_max:
                         # 2026-09-13: 判据由 `> 0` 改为 `!= 0`——负 delta（关系恶化）
@@ -1072,11 +1076,14 @@ class MomoTalkEngine:
 
     def _run_digest(self, char_id: str, session_id: str) -> None:
         """后台线程: digest（同引擎串行锁）→ 提炼 + 好感结算（写 affection 事件）。"""
+        runtime.begin("digest", "start")                 # 前端"等它跑完再关"看这个
         try:
             with self._digest_lock:
                 self._inject_brain(char_id, session_id, digest=True)
         except Exception as e:                           # noqa: BLE001
             logger.warning("异步 digest 失败 (%s/%s): %s", char_id, session_id, e)
+        finally:
+            runtime.end("digest")
 
     def resume_session(self, character_id: str, session_id: str) -> dict:
         """从事件流恢复会话（docs/archive/DESIGN_SAVE.md §4.2/§六）: 重建 system + history, 继续 MMT。
