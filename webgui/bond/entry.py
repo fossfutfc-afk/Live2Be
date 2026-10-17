@@ -264,17 +264,18 @@ def _start_replay(state: BondState, replay_q: list[dict],
         pass
 
     first = state.replay_scenes.pop(0)
-    state.scene_obj = BondScene.from_dict(first)
-    state.scene_obj._place_done = True    # 回放场景来自事件流（视觉键已定格）——不占 lane
-    vn.adopt_replayed(state.scene_obj)    # 回录基准指向它（补裁决要重渲历史尾部, 2026-09-21）
+    replayed = BondScene.from_dict(first)
+    replayed._place_done = True           # 回放场景来自事件流（视觉键已定格）——不占 lane
+    state.scene_obj = replayed
+    vn.adopt_replayed(replayed)           # 回录基准指向它（补裁决要重渲历史尾部, 2026-09-21）
     # 回放的纪念板也进纪念态（2026-09-12）: 否则重放纪念段时立绘照常显示、背景照常亮
     # （v2 区间 = 本块内, 其后从草稿/待发队列领出的板会沿用这个标志, 直到新生成一块）
-    state.vn._in_memorial = bool(state.scene_obj.in_memorial or state.scene_obj.memorial)
+    vn._in_memorial = bool(replayed.in_memorial or replayed.memorial)
     _ensure_memorial_img(state, char_id, session_id)     # 回放: 恢复档案纪念图
-    state.scene = state.scene_obj.to_dict()
+    state.scene = replayed.to_dict()
     state.round = 1
     state.scene_state = BoardLifecycle.COMMITTED   # 正文来自事件流——回放不重复落
-    _log_board_deliver(state, state.scene_obj, char_id, session_id, "replay")
+    _log_board_deliver(state, replayed, char_id, session_id, "replay")
     if not state.replay_scenes:
         # 单场（或最后一场）: 续写在读屏期间备好 → 交棒零等待。
         # 顺序（2026-09-12 修正）: **先接草稿旁路**（已生成未播放的板, 0 LLM,

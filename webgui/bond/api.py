@@ -158,17 +158,18 @@ def bond_turn(char_id: str, session_id: str, text: str) -> dict:
     if state.replay_scenes is not None:
         if state.replay_scenes:
             nxt = state.replay_scenes.pop(0)
-            state.scene_obj = BondScene.from_dict(nxt)
-            state.scene_obj._place_done = True    # 回放: 视觉键定格, 不占 lane
-            state.vn.adopt_replayed(state.scene_obj)   # 回录基准（补裁决要重渲历史尾部）
-            # 纪念板 → 进纪念态（同 `_start_replay`: 重放纪念段时立绘隐藏/背景清空）
-            state.vn._in_memorial = bool(state.scene_obj.in_memorial
-                                         or state.scene_obj.memorial)
+            replayed = BondScene.from_dict(nxt)
+            replayed._place_done = True           # 回放: 视觉键定格, 不占 lane
+            state.scene_obj = replayed
+            if state.vn is not None:
+                state.vn.adopt_replayed(replayed)  # 回录基准（补裁决要重渲历史尾部）
+                # 纪念板 → 进纪念态（同 `_start_replay`: 重放纪念段时立绘隐藏/背景清空）
+                state.vn._in_memorial = bool(replayed.in_memorial or replayed.memorial)
             _ensure_memorial_img(state, char_id, session_id)   # 回放: 恢复档案图
-            state.scene = state.scene_obj.to_dict()
+            state.scene = replayed.to_dict()
             state.round += 1
             state.scene_state = BoardLifecycle.COMMITTED    # 正文来自事件流——回放不重复落
-            _log_board_deliver(state, state.scene_obj, char_id, session_id, "replay")
+            _log_board_deliver(state, replayed, char_id, session_id, "replay")
             if not state.replay_scenes:
                 # 最后一场入屏 → 优先接续**草稿旁路**（已生成未播放, 0 LLM 续播,
                 # 决策 #28b）: **排队**进待发队列（不 adopt 上屏——那会顶掉刚回放的
@@ -240,7 +241,8 @@ def bond_turn(char_id: str, session_id: str, text: str) -> dict:
             state.completed = True
         # 台账（2026-09-11）: 这一板来自预生成暂存（0 LLM 领出）
         _log_board_deliver(state, state.scene_obj, char_id, session_id, "queue")
-        _log_scene_meta(state, char_id, session_id, state.scene_obj)
+        if state.scene_obj is not None:
+            _log_scene_meta(state, char_id, session_id, state.scene_obj)
         _draft_save(state, char_id, session_id)    # 草稿旁路刷新（#28b）
         # 链式备料（N2a 缺口补上, N2b）: 新场景未收尾——纯叙事 → 单路预生成;
         # 带 choices → 候选 spawn（读板期预跑, 与主线生成同款）
@@ -307,24 +309,25 @@ def bond_turn(char_id: str, session_id: str, text: str) -> dict:
             _discard_candidates(state)           # 无命中候选 → 老路 + 池作废
             if state.vn is not None:
                 state.vn.record_picked(text)
-        state.scene_obj = BondScene(
+        new_scene = BondScene(
             paragraphs=branch,
             background=state.scene_obj.background,
             place=state.scene_obj.place,
         )
-        state.scene = state.scene_obj.to_dict()
+        state.scene_obj = new_scene
+        state.scene = new_scene.to_dict()
         state.scene_state = BoardLifecycle.COMMITTED   # 分支属场景一部分（已随场景落库）
-        _log_board_deliver(state, state.scene_obj, char_id, session_id, "branch")
+        _log_board_deliver(state, new_scene, char_id, session_id, "branch")
         # 分支反应段 = 同板延续（地点不重新判定, 主场景的 place 判定已随门控完成）;
         # 置就绪标记 → 不占 place lane（§7 gate 双路语义）
-        state.scene_obj._place_done = True
+        new_scene._place_done = True
         # 分支段落可能是骨架（branches 未标注）→ 入队异步标注（与主场景同队列）
-        deps.enqueue_annotate(state, state.scene_obj)
+        deps.enqueue_annotate(state, new_scene)
         # 2026-09-02 修复: 分支渲染后前端不轮询 status（turn 直接返回 scene）——
         # 若返回未标注骨架, 立绘 default 且标注完成无补切通道; 同步短等标注
         # （修复后标注 ~1-3s, 上限 8s 兜底——标注层失败也有 _fallback_fill 保证就绪）
         _wait_annotated(state, timeout=8.0)
-        state.scene = state.scene_obj.to_dict()
+        state.scene = new_scene.to_dict()
         # 候选命中时下一板已就绪（pregen 通道）→ 不再单路预生成（防双份）;
         # 老路则分支播放时照旧预生成
         if cand is None:

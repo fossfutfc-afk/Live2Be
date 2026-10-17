@@ -233,19 +233,24 @@ def _anno_worker(state: BondState) -> None:
     否则（场景已被推进/替换）→ 丢弃（标注结果作废, 不污染新场景）。
     fill 异常 → `_fallback_fill` 强制兜底（门控就绪恒可达, 剧情必须能推进）。
     """
+    q = state._anno_queue
+    if q is None:                            # 没有队列 = 不该起 worker（防呆, 不是常态）
+        return
     while True:
-        scene = state._anno_queue.get()
+        scene = q.get()
         if scene is None:
             break
         state._lane_inflight += 1                # 在途（看门狗据此不误判 lane 空闲）
         t0 = time.monotonic()                    # 计时埋点（§6.1）
+        vn = state.vn                            # 整个 lane 期间不变; 也把 None 挡在循环外
         try:
-            try:
-                state.vn.fill_scene_emotions_text(scene)   # 标注 LLM（不持锁）
-                failed = False
-            except Exception as e:                       # noqa: BLE001 — 标注失败兜底
-                failed = True
-                logger.warning("bond 异步标注失败（兜底延续）: %s", e)
+            failed = True
+            if vn is not None:
+                try:
+                    vn.fill_scene_emotions_text(scene)   # 标注 LLM（不持锁）
+                    failed = False
+                except Exception as e:                       # noqa: BLE001 — 标注失败兜底
+                    logger.warning("bond 异步标注失败（兜底延续）: %s", e)
             _fallback_fill(scene)                        # 保险网: 空 emotion 强制 nomal
             logger.info("bond_anno dur=%dms fallback=%s",
                         _ms_since(t0), "n" if not failed else "y")
@@ -262,7 +267,7 @@ def _anno_worker(state: BondState) -> None:
         finally:
             state._lane_inflight -= 1                    # 出在途（与上面的 +1 成对）
             try:
-                state._anno_queue.task_done()
+                q.task_done()
             except Exception:                            # noqa: BLE001 — 幂等无害
                 pass
     # 正常结束（None 哨兵）: 复位启动标记——后续入队可再启（worker 永不饿死）
@@ -278,16 +283,21 @@ def _place_worker(state: BondState) -> None:
     的变更句 place 键——事件落库（_log_scene 用 scene.to_dict()）与回放时间轴
     自动携带; 视觉键不进 LLM 上下文（render 忽略）。
     """
+    q = state._place_queue
+    if q is None:                            # 没有队列 = 不该起 worker（防呆, 不是常态）
+        return
     while True:
-        scene = state._place_queue.get()
+        scene = q.get()
         if scene is None:
             break
         state._lane_inflight += 1                # 在途（看门狗据此不误判 lane 空闲）
         t0 = time.monotonic()                    # 计时埋点（§6.1）
         anchors = False
+        vn = state.vn                            # 整个 lane 期间不变; 也把 None 挡在循环外
         try:
             try:
-                anchors = state.vn.fill_scene_places(scene)   # 标注 LLM（不持锁）
+                if vn is not None:
+                    anchors = vn.fill_scene_places(scene)   # 标注 LLM（不持锁）
             except Exception as e:                       # noqa: BLE001 — 失败即 keep
                 logger.warning("bond 异步 place 标注失败（keep 保持背景）: %s", e)
             scene._place_done = True                     # 判定完成（含 keep）——gate 可达
@@ -304,7 +314,7 @@ def _place_worker(state: BondState) -> None:
         finally:
             state._lane_inflight -= 1                    # 出在途（与上面的 +1 成对）
             try:
-                state._place_queue.task_done()
+                q.task_done()
             except Exception:                            # noqa: BLE001 — 幂等无害
                 pass
     # 正常结束（None 哨兵）: 复位启动标记——后续入队可再启（worker 永不饿死）
