@@ -195,7 +195,7 @@ contract → infra → llm → core → tui / webgui / cli
 环境：解释器 `C:\Users\johnf\miniconda3\envs\live2be\python.exe`（conda env `live2be`；
 conda `base` 里没有 jieba，用 base 跑测试会挂）· `node` v24 在（前端测试用）。
 
-当前基线（2026-10-17）：`tests/core` **1286 passed** · `tests/llm+tui+webgui` **208 passed** ·
+当前基线（2026-10-17）：`tests/core` **1291 passed** · `tests/llm+tui+webgui` **208 passed** ·
 `ruff check .` **365**。
 
 已知缺口：

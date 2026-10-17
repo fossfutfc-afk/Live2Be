@@ -93,6 +93,27 @@ class WikiStoreV2:
         self._nodes: dict[str, BrainNode] = {}
         self._edges: list[Edge] = []
         self._load()
+        self._heal_watermark()
+
+    def _heal_watermark(self) -> None:
+        """把水位从"图上实际覆盖到哪"自愈一次（**只在加载时**, 只改内存, 不写盘）。
+
+        为什么需要: 一次提交是"先 `save()` 图、后 `save_meta()`"两次原子替换。中间被
+        进程杀掉（Ctrl+C / 崩溃 / 任务管理器）就成了**图新、水位旧** —— 下一段的取窗
+        判据是 `seq > 水位`（排他）, 于是同一批事件被再喂一遍; 正文略有不同就多出一份
+        记忆（`revise._find_duplicate` 只在事件 seq 相交且正文相同时才复用旧 id）。
+
+        图里的 `event_seq` 本来就是"她覆盖过"的事实, 取大者即恢复正确水位。
+        **只在加载时做**: 进程内的 `meta` 改动（测试、探针）应当照原样生效。
+        **绝不落盘**: 探针按只读口径打开 wiki, 加载期写入就是污染真机数据。
+        """
+        covered = max((max(n.event_seq) for n in self._nodes.values() if n.event_seq),
+                      default=0)
+        saved = self.digested_seq                    # 脏 meta（非数字）在这里已经按 0 处理
+        if covered > saved:
+            logger.warning("digest 水位自愈: meta=%s → 图上覆盖=%d"
+                           "（上一次提交在两次写盘之间被打断）", saved, covered)
+            self.meta["digested_seq"] = covered
 
     # ------------------------------------------------------------------
     # meta（digest 水位等 per 世界线元数据——wiki.meta.json, 原子整写）
