@@ -24,6 +24,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -78,7 +79,8 @@ def main() -> int:
           + ", ".join(f"{k}({len(v.all())} 节点)" for k, v in stores.items()))
 
     # ── 1. D 那一轴的真实分数带 ────────────────────────────────────────
-    from core.brain.read.recall import _cosine, _embed_text
+    from core.brain.read.recall import _embed_text
+    from core.brain.read.scale import cosine
 
     eps: list[tuple[str, object]] = []           # (char, episode node)
     for cid, st in stores.items():
@@ -90,9 +92,9 @@ def main() -> int:
     same, diff = [], []
     for i in range(len(eps)):
         for j in range(i + 1, len(eps)):
-            c = _cosine(node_vecs[i], node_vecs[j])
+            c = cosine(node_vecs[i], node_vecs[j])
             (same if eps[i][0] == eps[j][0] else diff).append(c)
-    off = [_cosine(qv, nv) for qv in off_vecs for nv in node_vecs]
+    off = [cosine(qv, nv) for qv in off_vecs for nv in node_vecs]
 
     print("\n=== 1. D 轴（narration cos, nomic）真实分数带 ===")
     print(f"  同角色对   {_band(same)}")
@@ -128,7 +130,7 @@ def main() -> int:
     print("\n=== 3. B / C 在真档上的现状（如实打印降级 note）===")
     for cid, st in stores.items():
         ctx = RecallContext(now="2026-09-20", char_id=cid, embed_fn=embed_fn,
-                            emo_now=["tease", "smile"], place_now="school_rooftop",
+                            emo_now=("tease", "smile"), place_now="school_rooftop",
                             place_raw_now="学校天台", query=eps[0][1].narration)
         for ch in build_channels():
             if ch.name in ("A_intensity", "E_unconscious"):
@@ -148,7 +150,7 @@ def main() -> int:
         for n in st.all():
             if n.kind != "episode" or not n.narration:
                 continue
-            ctx.query = n.narration
+            ctx = replace(ctx, query=n.narration)
             dres = dch.gather(st, ctx)
             top = dres.hits[:3]
             both = [h.node.id for h in dres.hits if h.node.id in a_rank]

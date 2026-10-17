@@ -79,11 +79,11 @@ A 的退化形态；随机摘段 → 独立旁路，不是 query 驱动，故不
 """
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Protocol, runtime_checkable
 
 from core.brain.nodes import BrainNode
+from core.brain.read.context import RecallContext
 
 #: 链路种类（决定合成层怎么用它, 见模块 docstring 的"三条形态纪律"）
 KIND_PRIOR = "prior"            # 候选自身属性, 不依赖 query
@@ -91,55 +91,9 @@ KIND_SIMILARITY = "similarity"  # query ↔ 候选的关系量（pairwise）
 KIND_GATE = "gate"              # 过滤/分组, 不是分数
 KINDS = (KIND_PRIOR, KIND_SIMILARITY, KIND_GATE)
 
-#: 原始分的尺度声明（合成层据此归一; 链路**不自己归一**）
-#: **`unit` 不是"保证 ≤1"**: A 的行列式是两格之和, 值域是 **[0, 2]**
-#: （`IntensityPrior` 的注释; **不归一**它 —— *"这个矩阵携带的
-#: 信息本身就比较重很合理"*）。所以合成层不按声明去夹 PRIOR 轴, 见 `compose.py`。
-SCALE_UNIT = "unit"             # [0, 1]（C 的 magic）; A 用它但值域 [0, 2]
-SCALE_SIGNED = "signed"         # [−1, 1]
-SCALE_COSINE = "cosine"         # [−1, 1], 但通常落在窄带（需按角色标定, §3.3）
-SCALE_UNBOUNDED = "unbounded"   # 无界（合成层需先 log/截断）
-SCALES = (SCALE_UNIT, SCALE_SIGNED, SCALE_COSINE, SCALE_UNBOUNDED)
-
-
-@dataclass
-class RecallContext:
-    """一次召回的输入上下文 —— **所有链路共用同一个**。
-
-    为什么集中: 链路各自去 store/事件流里捞上下文 → 同一次召回里
-    "现在是几点/什么心情"会被算出多份, 且难以在台账里复现。
-    """
-
-    #: 当前**时刻**（`datetime` 或 `ts` 串）—— `TIME` 格用它算 `age`。
-    #: **必填且无默认值**（故排在第一位）: 让"随便给个 now"在调用处显式可见。
-    #: 允许显式传 None = "本链路不需要时间"（会写进台账）。
-    #: 2026-09-17（`ESSAY_TIME_MODEL §10`）: 从"剧情时间槽"改为**现实时刻** ——
-    #: 唯一日期轴是现实日期，剧情日历已作废。
-    now: object | None
-    #: 查询语义（哪条链路用哪部分由链路自己声明）
-    query: str = ""
-    #: 当前好感标量 ∈ [−1,1]（`Affection.to_scalar()`）—— 同频召回用
-    aff_now: float | None = None
-    #: 当前地点（`§2.3.2` 的 `place`）—— C 链路用; None = 未知
-    #: **不进 LLM 上下文**: 召回侧信号, 参与筛选不参与写作。
-    place_now: str = ""
-    #: 当前地点的 **writer 原文**（`switch` 短语原话）—— C 链路的**叙事轴**（M3）。
-    #: 键不能当地名用（一键多义/一地多键），所以"是不是同一个地方"这一问只能靠
-    #: 原文的**语义相似**（与 `query` 给 D 链路做向量同一手）。`""` = 未知。
-    #: 同样**不进 LLM 上下文**。
-    place_raw_now: str = ""
-    #: 当前**情绪键序列**（B 链路的 query 侧）—— 如 `["tease", "smile"]`。
-    #: 与 `place_now` 对称: 同样是**召回侧信号, 绝不进 LLM 上下文**。
-    #: 为什么不是自由文本: B 比的是"情绪的**形状**", 而 `query` 是给 D（内容 RAG）用的
-    #: ——两者混用会让"情绪像"退化成"字面像"（§2.3.1 撤回框的实测教训）。
-    #: `[]` = 未知（链路降级, 不编）。
-    emo_now: list[str] = field(default_factory=list)
-    #: 检索后端（`texts → 等长向量列表`）; None → 相关链路降级
-    embed_fn: Callable[[list[str]], list[list[float]]] | None = None
-    #: 本角色 id（词表/资产定位用）
-    char_id: str = ""
-    #: 自由扩展（实验参数等）—— 不进生产路径
-    extra: dict = field(default_factory=dict)
+# 尺度常量与 `RecallContext` 都住中性件（新旧两条读路径共用）:
+#   `scale.py`   —— `SCALE_*` / `SCALES` 与 `cosine` / `pool_minmax`
+#   `context.py` —— 输入契约（`now` 必填无默认值: 不许模块偷偷读壁钟）
 
 
 @dataclass

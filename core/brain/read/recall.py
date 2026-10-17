@@ -25,6 +25,7 @@ from collections.abc import Callable
 from datetime import datetime
 
 from core.brain.nodes import PRECIOUS_THRESHOLD, BrainNode
+from core.brain.read.scale import cosine
 from core.brain.store import WikiStoreV2
 from core.worldtime.age import REAL_TZ, parse_ts
 
@@ -194,7 +195,7 @@ def recommend_candidates(store: WikiStoreV2, query: str, *,
             vecs = embed_fn([_embed_text(n) for n in nodes])
             qv = embed_fn([query])[0]
             scored = sorted(
-                ((_cosine(qv, v), n) for n, v in zip(nodes, vecs) if v),
+                ((cosine(qv, v), n) for n, v in zip(nodes, vecs) if v),
                 key=lambda t: t[0], reverse=True)
             if mode_out is not None:
                 mode_out.append("semantic")
@@ -300,7 +301,7 @@ def _similarity_hits(nodes: list[BrainNode], query: str,
                     "（通道1 语义召回不可用, 退词面标签命中）", e, len(nodes))
         return _tags_hits(nodes, query, k)
     scored = sorted(
-        ((_cosine(qv, v), n) for n, v in zip(nodes, vecs) if v),
+        ((cosine(qv, v), n) for n, v in zip(nodes, vecs) if v),
         key=lambda t: t[0], reverse=True)
     return [n for s, n in scored[:k] if s > 0]
 
@@ -327,14 +328,6 @@ def _embed_text(node: BrainNode) -> str:
         body += " " + node.growth
     tags = " ".join(node.tags)
     return f"{body} {tags}".strip()
-
-
-def _cosine(a: list[float], b: list[float]) -> float:
-    na = math.sqrt(sum(x * x for x in a))
-    nb = math.sqrt(sum(x * x for x in b))
-    if na == 0 or nb == 0:
-        return 0.0
-    return sum(x * y for x, y in zip(a, b)) / (na * nb)
 
 
 # ---------------------------------------------------------------------------

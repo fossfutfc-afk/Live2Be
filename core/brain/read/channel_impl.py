@@ -36,12 +36,11 @@ from core.brain.read.channels import (
     KIND_PRIOR,
     KIND_SIMILARITY,
     PLANNED,
-    SCALE_COSINE,
-    SCALE_UNIT,
     ChannelHit,
     ChannelResult,
-    RecallContext,
 )
+from core.brain.read.context import RecallContext
+from core.brain.read.scale import SCALE_COSINE, SCALE_UNIT, cosine
 
 logger = logging.getLogger(__name__)
 
@@ -235,11 +234,10 @@ class EmotionRag:
             res.note = "无 embed_fn（无向量后端）"
             return res
         try:
-            from core.brain.read.recall import _cosine
             texts = [f"{_EMO_PREFIX}{' '.join(n.emo_shape)}" for n in nodes]
             vecs = ctx.embed_fn(texts + [f"{_EMO_PREFIX}{' '.join(q)}"])
             qv = vecs[-1]
-            scored = sorted(((_cosine(qv, v), n) for v, n in zip(vecs[:-1], nodes)),
+            scored = sorted(((cosine(qv, v), n) for v, n in zip(vecs[:-1], nodes)),
                             key=lambda t: -t[0])
         except Exception as e:                       # noqa: BLE001 — 链路失败不抛
             logger.warning("B_emotion_rag 降级: %s", e)
@@ -347,12 +345,11 @@ class PlaceGate:
             sem_note = "无节点带 place_raw（旧档）"
         else:
             try:
-                from core.brain.read.recall import _cosine
                 texts = [" ".join(n.place_raw) for n in cand]
                 vecs = ctx.embed_fn(texts + [now_raw])
                 qv = vecs[-1]
                 for n, v in zip(cand, vecs[:-1]):
-                    sem[n.id] = max(0.0, _cosine(qv, v))   # 负相关不是"弱相关" → 夹到 0
+                    sem[n.id] = max(0.0, cosine(qv, v))   # 负相关不是"弱相关" → 夹到 0
             except Exception as e:                   # noqa: BLE001 — 打分失败不拖垮准入
                 logger.warning("C_place 语义打分降级: %s", e)
                 sem_note = f"语义打分失败: {e}"
@@ -450,12 +447,12 @@ class DejaVu:
             res.knobs = {"n_nodes": len(nodes)}
             return res
         try:
-            from core.brain.read.recall import _cosine, _embed_text
+            from core.brain.read.recall import _embed_text
             texts = [_embed_text(n) for n in nodes]
             vecs = ctx.embed_fn(texts + [ctx.query])
             qv = vecs[-1]
             scored = sorted(
-                ((_cosine(qv, v), n) for v, n in zip(vecs[:-1], nodes)),
+                ((cosine(qv, v), n) for v, n in zip(vecs[:-1], nodes)),
                 key=lambda t: -t[0])
         except Exception as e:                       # noqa: BLE001 — 链路失败不抛
             logger.warning("D_deja_vu 降级: %s", e)

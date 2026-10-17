@@ -38,7 +38,8 @@ from core.brain import (
     recall_now,
 )
 from core.brain.read.channel_impl import build_channels
-from core.brain.read.channels import KIND_GATE, SCALE_COSINE, SCALE_UNIT
+from core.brain.read.channels import KIND_GATE
+from core.brain.read.scale import SCALE_COSINE, SCALE_UNIT
 from core.media import place_fuse as pf
 from infra import fuse as shapes
 
