@@ -23,6 +23,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:                       # 仅注解求值期可见（避免运行时循环导入）
+    from collections.abc import Iterable
+
     from core.brain.nodes import BrainNode
 
 # ---------------------------------------------------------------------------
@@ -129,7 +131,7 @@ def abs_date(ts: object, now) -> str:
 # ---------------------------------------------------------------------------
 
 def head(node: BrainNode | None = None, *, key: str = "", kind: bool = False,
-         now=None, extra: object = ()) -> str:
+         now=None, extra: Iterable[object] = ()) -> str:
     """**信息头**: `〔钥匙｜《名字》｜类型｜相对｜绝对｜…读者自己的字段〕`。
 
     格序**固定**（`key → 名字 → kind → 相对 → 绝对 → extra…`）, 但**空的一律不占位**

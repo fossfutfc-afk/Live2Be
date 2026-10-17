@@ -94,7 +94,7 @@ def apply_relations(store: WikiStoreV2, rows: list[dict], *, ts: str = "",
     ts = ts or datetime.now().isoformat(timespec="seconds")
     out: list[dict] = []
     for row in rows:
-        rel, src, dst = row["rel"], row["src"], row["dst"]
+        rel, src, dst = str(row["rel"]), str(row["src"]), str(row["dst"])
         if id_map:                                    # 本地号 → 真实 id（真实 id 原样过）
             src, dst = id_map.get(src, src), id_map.get(dst, dst)
         store.add_edge(rel, src, dst, ts=ts)          # 幂等 + 拒悬空 / 拒自环
