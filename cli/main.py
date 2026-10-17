@@ -64,7 +64,9 @@ def _chat_loop(engine: MomoTalkEngine) -> LoopResult:
             simulate_steps(result.steps)          # …打字指示 + 气泡, 依序渲染
             if result.bond_story:
                 print(f"\n[系统] 与 {display_name} 进入了羁绊剧情时刻……")
-                completed = run_bond_story_vn(engine, image_gen=ImageGenerator())  # VN 循环; 【完】/b 退出后回到正常对话
+                # store 必须传: 不传则整章剧情不落事件流（收尾链全在 `if store is not None` 里）
+                completed = run_bond_story_vn(
+                    engine, image_gen=ImageGenerator(), store=engine._store)  # VN 循环; 【完】/b 退出后回到正常对话
                 if completed:
                     wrapup_after_vn(engine, completed=True)   # 剧情走到【完】→ AI 就剧情在手机上回几段话
             print()  # 回复结束，额外空行

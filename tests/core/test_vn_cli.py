@@ -11,6 +11,7 @@ wrapup_after_vn    : 剧情结束后的手机收尾（不变）
 全部用 ScriptedLLM（不碰 API）; 存档验证走 SessionStore 事件流（tmp_path, 不污染 data/）。
 运行: python -m pytest tests/core/test_vn_cli.py
 """
+import ast
 import sys
 import tempfile
 from pathlib import Path
@@ -522,3 +523,26 @@ def test_bond_gap_legacy_migration(tmp_path):
     # 缺失/损坏 → 0
     assert st.read_bond_gap("no_such_char") == 0
     print("    bond_gap 迁移: 旧 rounds 字段作废置 0; 缺失/损坏 → 0")
+
+
+def test_main_app_injects_store_into_vn():
+    """`cli/main.py` 那条生产路径必须把 store 传进 `run_bond_story_vn`。
+
+    不传 ⇒ `truth = store = None`, 整章剧情的事件全被 `if store is not None` 跳过
+    （`vn_enter` / 每场 bond / marker / `commit_staging` / `finish`）——**跑起来一切正常**,
+    只是事件流里没有这段剧情 ⇒ 收尾窗口、digest、回放全空。
+    本文件其余用例都自己传 store, 所以只有这条能守它。
+    """
+    src = (ROOT / "cli" / "main.py").read_text(encoding="utf-8")
+    calls = [
+        n for n in ast.walk(ast.parse(src))
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+        and n.func.id == "run_bond_story_vn"
+    ]
+    assert calls, "cli/main.py 里找不到 run_bond_story_vn 调用"
+    for call in calls:
+        kw = {k.arg: k.value for k in call.keywords if k.arg}
+        assert "store" in kw, f"第 {call.lineno} 行没传 store ⇒ 剧情不落事件流"
+        assert not (isinstance(kw["store"], ast.Constant) and kw["store"].value is None), \
+            f"第 {call.lineno} 行 store=None, 等于没传"
+    print("    cli/main.py: VN 调用带 store（剧情落事件流）")
