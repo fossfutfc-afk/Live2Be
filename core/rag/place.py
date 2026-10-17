@@ -92,7 +92,8 @@ class PlaceRetriever:
         hits = self._table.resolve_exact(query)
         if len(hits) == 1:
             return [(hits[0], 1.0)]
-        if not self._ensure_vectors():
+        vectors = self._ensure_vectors()
+        if not vectors:
             return []
         try:
             qv = self._embedder.embed_one(query)
@@ -101,8 +102,8 @@ class PlaceRetriever:
         if not qv:
             return []
         scored: list[tuple[str, float]] = []
-        for place, vectors in self._vectors.items():
-            best = max((LocalEmbedder.cosine(qv, v) for v in vectors), default=0.0)
+        for place, alias_vecs in vectors.items():
+            best = max((LocalEmbedder.cosine(qv, v) for v in alias_vecs), default=0.0)
             if best >= self.threshold:
                 scored.append((place, best))
         scored.sort(key=lambda t: t[1], reverse=True)
@@ -135,20 +136,23 @@ class PlaceRetriever:
             if aliases:
                 self._aliases[e.place] = aliases
 
-    def _ensure_vectors(self) -> bool:
+    def _ensure_vectors(self) -> dict[str, list[list[float]]] | None:
         """懒构建: **保留每条别名的向量**, 打分时取键内最大值。
 
         2026-09-19（PL4）改法: 旧实现每 scene 只留"平方范数最大"的那**一条**别名
         向量当代表——在 L2 归一化的模型下范数几乎相同 ⇒ 实际等价于"**只留第一条
         别名**", 一个键的其它别名（`学校天台`/`天台`/`school_rooftop` 里的后两条）
         全白扔。428 条别名 ×1 个向量完全放得下, 没有理由省这个。
+
+        Returns: `{表键: [别名向量…]}`; **None = 没有语义层**（无语料 / 后端不可用 /
+        形状不符 —— 三种都记进缓存, 不反复重试）。
         """
         if self._vectors is not None:
-            return True
+            return self._vectors or None
         if not self._aliases:
-            return False
+            return None
         if not self._embedder.health():
-            return False
+            return None
         flat: list[str] = []
         for aliases in self._aliases.values():
             flat.extend(aliases)
@@ -156,10 +160,10 @@ class PlaceRetriever:
             vecs = self._embedder.embed(flat)
         except Exception:                            # noqa: BLE001 — 服务故障: 无语义层
             self._vectors = {}
-            return False
+            return None
         if len(vecs) != len(flat):                   # 形状不符 → 别错位配对
             self._vectors = {}
-            return False
+            return None
         out: dict[str, list[list[float]]] = {}
         idx = 0
         for place, aliases in self._aliases.items():
@@ -168,4 +172,4 @@ class PlaceRetriever:
             if chunk:
                 out[place] = chunk
         self._vectors = out
-        return True
+        return out
