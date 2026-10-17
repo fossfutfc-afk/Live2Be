@@ -31,10 +31,14 @@ import queue
 import threading
 from dataclasses import dataclass, field
 from enum import Enum
+from typing import TYPE_CHECKING
 
 from core.bond.bond_story import BondScene, BondStoryEngine
 from core.session.events import M_MEMORIAL_ENTER, M_MEMORIAL_EXIT, M_SESSION_END
 from webgui import deps
+
+if TYPE_CHECKING:                       # 仅注解求值期（避免把 store 拖进运行期依赖图）
+    from core.session.store import SessionStore
 
 
 @dataclass
@@ -92,7 +96,7 @@ class BondState:
     #: 流程绑定的 store（`_state()` 创建时捕获）——长流程（后台生成线程）可能活过
     #: 测试的 store 切换/多开/重启, 写入时再读全局 `deps.store()` 会写进别的世界线
     #: （2026-09-11 真机事故: 流式测试的生成线程把 vn_state 写进真实 events.jsonl）。
-    store: object = None
+    store: SessionStore | None = None
     vn: BondStoryEngine | None = None
     demo: list[dict] | None = None      # 演示模式: 预设剧本（不调 LLM）; None = 真实引擎
     round: int = 0                      # 已生成场景数（系统注记 / 前端轮询去重）
@@ -189,8 +193,8 @@ class BondState:
     busy_since: float = 0.0                    # monotonic; 0 = 空闲
     gate_since: float = 0.0                     # 视觉门连续未就绪起点
     pregen_gate_since: float = 0.0              # 预生成消费门连续未通过起点
-    _gen_thread: object = field(default=None, repr=False)    # 生成线程（存活判定用）
-    _pregen_thread: object = field(default=None, repr=False)
+    _gen_thread: threading.Thread | None = field(default=None, repr=False)   # 生成线程（存活判定用）
+    _pregen_thread: threading.Thread | None = field(default=None, repr=False)
     turn_rejects: dict = field(default_factory=dict)         # 推进被拒计数（诊断留痕）
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
