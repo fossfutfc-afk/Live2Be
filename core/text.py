@@ -57,7 +57,7 @@ def _split_for_momotalk(text: str, max_chars: int = MMT_MAX_CHUNK_CHARS) -> list
 
     strong = _strong_split(text)
     if len(strong) <= 1 and len(text) <= max_chars:
-        return [text if text else strong]
+        return [text]                     # 短句不切: 整句一个气泡（上面已挡空串）
 
     strong = _merge_punct_segments(strong)
     if not strong:
