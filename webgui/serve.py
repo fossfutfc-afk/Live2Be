@@ -110,6 +110,77 @@ def _ignore_sigint() -> None:
         signal.signal(signal.SIGINT, _on_sigint)
 
 
+# ── 启动外壳（打包后就是"双击"那一下）──────────────────────────────────────
+
+def url_of(host: str, port: int) -> str:
+    """给浏览器/窗口用的地址（0.0.0.0 这类监听地址换成回环，否则打不开）。"""
+    shown = "127.0.0.1" if host in ("0.0.0.0", "::", "") else host
+    return f"http://{shown}:{port}/"
+
+
+def port_in_use(host: str, port: int) -> bool:
+    """端口上已经有人在听吗（不区分是不是我们自己的）。"""
+    import socket
+
+    probe = "127.0.0.1" if host in ("0.0.0.0", "::", "") else host
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.settimeout(0.3)
+        return s.connect_ex((probe, port)) == 0
+
+
+def is_our_service(url: str, timeout: float = 1.5) -> bool:
+    """那个端口上的是不是 Live2Be（看 `/api/runtime/status` 的形状）。"""
+    import httpx
+
+    try:
+        res = httpx.get(url.rstrip("/") + "/api/runtime/status", timeout=timeout)
+        body = res.json()
+    except (httpx.HTTPError, OSError, ValueError):
+        return False
+    return res.status_code == 200 and isinstance(body, dict) and "busy" in body
+
+
+def open_browser(url: str) -> None:
+    import webbrowser
+
+    with contextlib.suppress(Exception):             # 没浏览器 / 无桌面: 用户自己贴地址
+        webbrowser.open(url)
+
+
+def _open_when_ready(url: str, timeout: float = 20.0) -> None:
+    """等 server 真的在听再开浏览器（否则用户看到的是连接失败页）。"""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        srv = _server
+        if srv is not None and getattr(srv, "started", False):
+            open_browser(url)
+            return
+        time.sleep(0.1)
+    open_browser(url)                                # 超时也开（可能有别的实例在跑）
+
+
+def _run_windowed(url: str) -> int:
+    """原生窗口模式: 服务跑在后台线程, **关窗口 = 关服务**。"""
+    try:
+        import webview
+    except ImportError:
+        logger.warning("没有 pywebview ⇒ 退回浏览器模式（pip install pywebview 可开窗口）")
+        threading.Thread(target=_open_when_ready, args=(url,), daemon=True).start()
+        if _server is not None:
+            _server.run()
+        return 0
+    srv = _server
+    assert srv is not None                           # main() 里先建好才进来
+    worker = threading.Thread(target=srv.run, daemon=True)
+    worker.start()
+    webview.create_window("Live2Be", url, width=1360, height=860, min_size=(900, 600))
+    webview.start()                                  # 阻塞到窗口关闭
+    logger.info("窗口已关闭 ⇒ 关停服务")
+    request_stop(force=True)
+    worker.join(timeout=SHUTDOWN_TIMEOUT_S + 2)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     global _server
     parser = argparse.ArgumentParser(prog="python -m webgui.serve")
@@ -117,11 +188,30 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--allow-ctrl-c", action="store_true",
                         help="开发用: 恢复 Ctrl+C 立刻退")
+    parser.add_argument("--window", action="store_true",
+                        help="开原生窗口（pywebview）而不是浏览器")
+    parser.add_argument("--no-browser", action="store_true",
+                        help="不自动打开浏览器（调试 / 无桌面环境用）")
     args = parser.parse_args(argv)
 
     logsetup.setup()
+    url = url_of(args.host, args.port)
+
+    # 双击第二次 = 打开已经开着的那个, 而不是报端口被占
+    if port_in_use(args.host, args.port):
+        if is_our_service(url):
+            logger.info("已经有一个 Live2Be 在跑了 ⇒ 直接打开它: %s", url)
+            open_browser(url)
+            return 0
+        logger.error("端口 %d 被别的程序占用 —— 换一个端口: --port 8001", args.port)
+        return 2
+
+    # ⚠️ 这里必须是**真实 import**（不是 "webgui.app:app" 字符串）: 冻结后 PyInstaller
+    # 只认识分析期能看见的 import, 字符串 import 的模块不会被打进包里。
+    from webgui.app import app as app_obj
+
     config = uvicorn.Config(
-        "webgui.app:app", host=args.host, port=args.port,
+        app_obj, host=args.host, port=args.port,
         log_level="info", timeout_graceful_shutdown=SHUTDOWN_TIMEOUT_S,
         # 不装 uvicorn 自己那套 handler: 启动/关停的叙述由本模块讲（附带的还有一条会误导的
         # "Press CTRL+C to quit" 横幅, 而我们的 Ctrl+C 是忽略的）。
@@ -131,7 +221,11 @@ def main(argv: list[str] | None = None) -> int:
     _server = Server(config)
     if not args.allow_ctrl_c:
         _ignore_sigint()
-    logger.info("WebGUI → http://%s:%d  停服务: 前端菜单「关闭服务」", args.host, args.port)
+    logger.info("WebGUI → %s  停服务: 前端菜单「关闭服务」", url)
+    if args.window:
+        return _run_windowed(url)
+    if not args.no_browser:
+        threading.Thread(target=_open_when_ready, args=(url,), daemon=True).start()
     _server.run()
     logger.info("服务已退出")
     return 0

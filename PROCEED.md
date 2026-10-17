@@ -4,7 +4,7 @@
 > ⚠️ **`git status` 里常年挂着几份"作者手改未提交"的文件**（2026-10-17 时是
 > `config/settings/relation/interperson.yml` · `infra/fuse.py`）——
 > 那是**作者的改动, ⛔ 不是脏改动**, 别 `checkout` 掉、也别卷进提交（`git add` 一律写显式路径）。
-> 现状：`tests/core` **1295 passed** · `tests/llm+tui+webgui` **215 passed**（⚠️ **按域分开跑**, 见 §5 坑 4）·
+> 现状：`tests/core` **1299 passed** · `tests/llm+tui+webgui` **221 passed**（⚠️ **按域分开跑**, 见 §5 坑 4）·
 > 三份 verifier 全 exit 0 · ruff **366**（基线，`AGENTS.md` §7 同步）· 真机数据未动。
 > ⚠️ **两域里各有几个轮询式 flaky**（靠 `_wait(cond, timeout=10)` 等异步状态的那类）: 机器一忙就超时,
 > 单跑常绿 ⇒ 别急着怀疑自己刚改的代码, 见 §5b 第 17 条。
@@ -197,6 +197,7 @@ python experiments/recall_report.py
 | 本轮 | **digest 关停韧性**: 新建 `infra/runtime.py`（关停信号 + 在途登记）· `digest_segment` 在**每轮之间**与**提交前**查闸 ⇒ `_abort`（回滚内存、**不写盘、不计 `digest_retry`** —— 否则三次 Ctrl+C 就永久放弃一段）· `WikiStoreV2._heal_watermark` 加载时按图上 `event_seq` 补齐水位（修"图新水位旧"⇒ 重喂 ⇒ 重复记忆）· `webgui/app.py` lifespan 关停时置信号并等 3 秒 |
 | 本轮 | ⭐ **两阶段提交**（`WikiStoreV2.commit`）: 点 + 边 + 水位先一次性原子写进 `wiki.txn.json`, 再逐份应用, 最后删日志; **加载时残留就照它补完**（幂等）。`save()` 同款 ⇒ **写路径只有一条且都有保护**。digest 的提交从 `save()+save_meta()` 改成 `meta 赋值 + commit()`（此前中间被杀就是"图新水位旧"） |
 | 本轮 | ⭐ **前端「关闭服务」+ Ctrl+C 失效**: 新入口 `python -m webgui.serve`（自持 `uvicorn.Server`, `capture_signals` 置空 + SIGINT 忽略）· `GET /api/runtime/status` · `POST /api/shutdown`（`graceful` 等 ≤180s / `force` 立刻, 口令 + 本机来源双校验, 没有 server 时回 409）· 菜单页按钮 + 确认框（默认"等它跑完", **随时可强制**）· `start.ps1`/`README` 换启动命令 |
+| 本轮 | ⭐ **打 exe 的第一段（能双击跑）**: `packaging/{entry.py,live2be.spec,collect_samples.py,build.ps1}` + `docs/PACKAGING.md` —— onedir, 样张素材 **105.8 MB / 197 文件**（menu 全 + haruka 立绘含 ref + 2 个背景分类 + 学校类抽 40 张）· `serve.py` 一整套启动外壳（真实 `from webgui.app import app`（冻结必需）、自动开浏览器、**端口已有本服务就打开它**、`--window` 走 pywebview 且关窗口=关服务）· 删掉 `jieba` 死依赖、加 `image = ["pillow>=10"]` 可选组 |
 
 ---
 

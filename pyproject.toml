@@ -26,10 +26,13 @@ dependencies = [
     "fastapi>=0.110",
     "uvicorn>=0.29",
     "pydantic>=2.6",
-    "jieba>=0.42",
 ]
 
 [project.optional-dependencies]
+# 生图相关：`llm/image_gen.py` 对 PIL 的 import 是**可选**的（缺了尺寸算 (0,0)，不阻断）；
+# 但打 exe 时应当装上 —— 否则纪念立绘的尺寸/参考图压缩会退化。
+# ⚠️ `jieba` 已从这里删掉：全仓零 import，打包时白带一个 5 MB 词典。
+image = ["pillow>=10"]
 dev = [
     "pytest>=8.0",
     "ruff>=0.16",
@@ -43,7 +46,7 @@ dev = [
 [tool.setuptools.packages.find]
 exclude = [
     "tests*", "experiments*", "tools*", "archive*", "docs*",
-    "l2d-demo*", "assets*", "data*", "config*", "guidance*",
+    "l2d-demo*", "assets*", "data*", "config*", "guidance*", "packaging*",
 ]
 
 # ── pytest ────────────────────────────────────────────────────────────────
