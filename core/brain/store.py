@@ -63,6 +63,8 @@ _FIELDS = set(BrainNode.__dataclass_fields__.keys())
 EDGES_NAME = "edges.jsonl"
 #: 随身笔记缓存文件名（§3.2; 同目录 —— 与点/边一样属于"记忆层自包含"那一份）
 NOTES_NAME = "notes.json"
+#: 提交日志（两阶段提交的中间态: 点 + 边 + meta 一次写全, 再逐份应用）
+TXN_NAME = "wiki.txn.json"
 
 #: **内存态快照**（点 + 边）—— `clone_state` 交出、`restore_state` 原样吃回。
 #: 两边用同一个形状才有意义: 回滚漏拷边 = 边上留着、点没了（悬空 + "回滚没回干净"）。
@@ -86,14 +88,71 @@ class WikiStoreV2:
         self.meta_path = self.path.with_name("wiki.meta.json")
         #: 随身笔记缓存（§3.2 —— 与点/边同目录; 不进 `save()` / 快照, 见模块 docstring）
         self.notes_path = self.path.with_name(NOTES_NAME)
+        #: 提交日志路径（加载时若残留 ⇒ 补完那次提交, 见 `_roll_forward`）
+        self.txn_path = self.path.with_name(TXN_NAME)
         #: 世界根定位
         self._data_root = Path(data_root)
         self._world_id = world_id
+        self._roll_forward()                     # 上次提交写到一半 ⇒ 先补完它
         self.meta: dict = self._load_meta()
         self._nodes: dict[str, BrainNode] = {}
         self._edges: list[Edge] = []
         self._load()
         self._heal_watermark()
+
+    # ------------------------------------------------------------------
+    # 提交（两阶段: 先写日志, 再应用）
+    # ------------------------------------------------------------------
+
+    def commit(self) -> None:
+        """⭐ **一次提交** —— 点 + 边 + meta 三份文件要么全变、要么全不变。
+
+        做法: 先把三份内容**一次性原子写**进 `wiki.txn.json`, 再逐份覆盖真文件, 最后删日志。
+        任何一步之后被杀, 下次加载 `_roll_forward` 都会照日志把三份补齐 —— 所以不存在
+        "图新、水位旧"（那会让同一批事件被再喂一遍 ⇒ 重复记忆）也不会"边新、点旧"。
+
+        代价: 每次提交多写一份同样大小的日志（今天 wiki 才几十 KB; 这是买"提交不可分割"）。
+        """
+        payload = {
+            "v": 1,
+            "nodes": [n.to_json_line() for n in self._nodes.values()],
+            "edges": [e.to_json_line() for e in self._edges],
+            "meta": dict(self.meta),
+        }
+        atomic_write_json(self.txn_path, payload, indent=0)
+        self._apply_txn(payload)
+        try:
+            self.txn_path.unlink()
+        except OSError as e:                     # 删不掉也无害: 下次加载会重放同一份
+            logger.warning("提交日志删除失败（下次加载会重放它）: %s", e)
+
+    def _apply_txn(self, payload: dict) -> None:
+        """把日志内容写进三份真文件（点 → 边 → meta; 三份都是原子整写）。"""
+        atomic_write_lines(self.path, payload["nodes"])
+        atomic_write_lines(self.edges_path, payload["edges"])
+        meta = payload.get("meta")
+        atomic_write_json(self.meta_path, meta if isinstance(meta, dict) else self.meta)
+
+    def _roll_forward(self) -> None:
+        """加载时补完上一次被打断的提交（**幂等**: 重放同一份日志结果不变）。"""
+        import json
+
+        try:
+            raw = json.loads(self.txn_path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            return
+        except (OSError, ValueError) as e:
+            logger.warning("提交日志读不出来（丢弃它, 以现有文件为准）: %s", e)
+            self.txn_path.unlink(missing_ok=True)
+            return
+        if not isinstance(raw, dict) or not isinstance(raw.get("nodes"), list):
+            logger.warning("提交日志形状不对（丢弃它）: %s", self.txn_path)
+            self.txn_path.unlink(missing_ok=True)
+            return
+        logger.warning("补完上次被打断的提交: %d 个节点 / %d 条边",
+                       len(raw["nodes"]), len(raw.get("edges") or []))
+        self._apply_txn(raw)
+        self.txn_path.unlink(missing_ok=True)
 
     def _heal_watermark(self) -> None:
         """把水位从"图上实际覆盖到哪"自愈一次（**只在加载时**, 只改内存, 不写盘）。
@@ -354,13 +413,12 @@ class WikiStoreV2:
     # ------------------------------------------------------------------
 
     def save(self) -> None:
-        """原子整写**两个文件**（点 + 边; 写序理由见模块 docstring）。
+        """整写点 + 边（= `commit()`, 连 meta 一起进同一个事务）。
 
         **不含 `notes.json`** —— note 的真源是事件流, 它的提交点在"事件 append 之后"
         （见 `save_notes`）。并进来的话, digest 的一次回滚就会把她的本子一起带走。
         """
-        atomic_write_lines(self.path, (n.to_json_line() for n in self._nodes.values()))
-        atomic_write_lines(self.edges_path, (e.to_json_line() for e in self._edges))
+        self.commit()
 
     def clone_state(self) -> Snapshot:
         """深拷贝当前**点 + 边**（修订包/digest 的原子性快照——revise.py 用）。

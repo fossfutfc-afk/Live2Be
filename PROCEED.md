@@ -4,7 +4,7 @@
 > ⚠️ **`git status` 里常年挂着几份"作者手改未提交"的文件**（2026-10-17 时是
 > `config/settings/relation/interperson.yml` · `infra/fuse.py`）——
 > 那是**作者的改动, ⛔ 不是脏改动**, 别 `checkout` 掉、也别卷进提交（`git add` 一律写显式路径）。
-> 现状：`tests/core` **1291 passed** · `tests/llm+tui+webgui` **208 passed**（⚠️ **按域分开跑**, 见 §5 坑 4）·
+> 现状：`tests/core` **1295 passed** · `tests/llm+tui+webgui` **208 passed**（⚠️ **按域分开跑**, 见 §5 坑 4）·
 > 三份 verifier 全 exit 0 · ruff **366**（基线，`AGENTS.md` §7 同步）· 真机数据未动。
 > ⚠️ **两域里各有几个轮询式 flaky**（靠 `_wait(cond, timeout=10)` 等异步状态的那类）: 机器一忙就超时,
 > 单跑常绿 ⇒ 别急着怀疑自己刚改的代码, 见 §5b 第 17 条。
@@ -195,6 +195,7 @@ python experiments/recall_report.py
 | `638609d5` | 给 `cli/` 定性: 产品只有一个壳 = `webgui/`, CLI 是调试入口**不追 webgui 行为**（`AGENTS.md` §8 新增同名决策 + §1 表格三行; `cli/.md` 重写） |
 | 本轮 | **控制台日志收口**: 新建 `infra/logsetup.py`（控制台短/文件全）——轮询与静态请求的 2xx 不打印 · 短域名前缀（`digest`/`bond`/`mmt`/`llm`/`http`）· 超 110 字截断 · `LIVE2BE_LOG=quiet/normal/verbose` · `akin` 逐条边降 debug。文件日志仍全量（软问题文本可 grep） |
 | 本轮 | **digest 关停韧性**: 新建 `infra/runtime.py`（关停信号 + 在途登记）· `digest_segment` 在**每轮之间**与**提交前**查闸 ⇒ `_abort`（回滚内存、**不写盘、不计 `digest_retry`** —— 否则三次 Ctrl+C 就永久放弃一段）· `WikiStoreV2._heal_watermark` 加载时按图上 `event_seq` 补齐水位（修"图新水位旧"⇒ 重喂 ⇒ 重复记忆）· `webgui/app.py` lifespan 关停时置信号并等 3 秒 |
+| 本轮 | ⭐ **两阶段提交**（`WikiStoreV2.commit`）: 点 + 边 + 水位先一次性原子写进 `wiki.txn.json`, 再逐份应用, 最后删日志; **加载时残留就照它补完**（幂等）。`save()` 同款 ⇒ **写路径只有一条且都有保护**。digest 的提交从 `save()+save_meta()` 改成 `meta 赋值 + commit()`（此前中间被杀就是"图新水位旧"） |
 
 ---
 
