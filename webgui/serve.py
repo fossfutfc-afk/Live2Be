@@ -152,14 +152,82 @@ def is_elevated() -> bool:
         return False
 
 
-def open_browser(url: str) -> bool:
-    """开浏览器。返回是否"交出去了"。
+#: 找浏览器的顺序（Chromium 系才支持 `--app=`；Edge 在 Win10+ 是标配）
+_BROWSER_APP_PATHS = (
+    ("msedge.exe", (r"%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe",
+                    r"%ProgramFiles%\Microsoft\Edge\Application\msedge.exe")),
+    ("chrome.exe", (r"%ProgramFiles%\Google\Chrome\Application\chrome.exe",
+                    r"%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe",
+                    r"%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe")),
+)
 
-    ⚠️ **提权时必须经 `explorer.exe` 代开**: 直接 `os.startfile` 会让浏览器继承管理员
-    令牌, Edge 于是弹"有实例以提升的权限运行, 要不要用普通权限"—— 选"是"它会**重启自己**,
-    刚打开的那个标签页连窗口一起没了（实测: 用户以为"Edge 被关闭"）。explorer 跑在用户
-    正常权限上, 由它转交 URL 就不会有这问题。
+#: 用默认浏览器还是自己起应用窗口（`--browser` 关掉应用窗口）
+_PREFER_APP_WINDOW = True
+
+
+def find_browser_exe() -> str | None:
+    """找一个 Chromium 系浏览器（注册表优先，再试常见安装路径）。"""
+    if os.name != "nt":
+        return None
+    try:
+        import winreg
+
+        for name, _ in _BROWSER_APP_PATHS:
+            key = "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\" + name
+            for hive in (winreg.HKEY_LOCAL_MACHINE, winreg.HKEY_CURRENT_USER):
+                try:
+                    with winreg.OpenKey(hive, key) as k:
+                        exe = str(winreg.QueryValue(k, None) or "").strip('"')
+                except OSError:
+                    continue
+                if exe and os.path.isfile(exe):
+                    return exe
+    except ImportError:                              # 非 Windows 或无 winreg
+        pass
+    for _, candidates in _BROWSER_APP_PATHS:
+        for raw in candidates:
+            exe = os.path.expandvars(raw)
+            if os.path.isfile(exe):
+                return exe
+    return None
+
+
+def open_app_window(url: str, exe: str) -> bool:
+    """用独立配置起一个**应用窗口**（无地址栏），完全绕开日常那个浏览器实例。
+
+    为什么要独立 `--user-data-dir`: 用户日常的 Edge 可能是管理员权限起的, 普通进程
+    把 URL 交给它会撞 UIPI（表现: "Microsoft Edge 未响应, 因为现有实例正在以提升的
+    权限运行"）。自己起一个正常权限的实例, 这条冲突根本不会发生; 顺带不污染他的
+    日常配置（这个 profile 是可丢的, 就在 `data/browser/`）。
     """
+    import subprocess
+
+    profile = paths.DATA_ROOT / "browser"
+    try:
+        profile.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        return False
+    args = [exe, f"--app={url}", f"--user-data-dir={profile}",
+            "--no-first-run", "--no-default-browser-check"]
+    try:
+        subprocess.Popen(args)
+        return True
+    except OSError:
+        return False
+
+
+def open_browser(url: str) -> bool:
+    """把地址交给某个窗口。返回是否"交出去了"。
+
+    顺序: ① 独立应用窗口（`--app=`，最稳）→ ② 提权时经 `explorer.exe` 代开 →
+    ③ 默认浏览器。②的理由是提权进程开出来的浏览器会继承管理员令牌; ①则连"日常实例的
+    权限"这一层都不碰。
+    """
+    if _PREFER_APP_WINDOW:
+        exe = find_browser_exe()
+        if exe and open_app_window(url, exe):
+            logger.info("已用应用窗口打开（独立配置, 不碰你日常的浏览器）: %s", url)
+            return True
     if os.name == "nt" and is_elevated():
         import subprocess
 
@@ -248,7 +316,12 @@ def main(argv: list[str] | None = None) -> int:
                         help="开原生窗口（pywebview）而不是浏览器")
     parser.add_argument("--no-browser", action="store_true",
                         help="不自动打开浏览器（调试 / 无桌面环境用）")
+    parser.add_argument("--browser", action="store_true",
+                        help="用系统默认浏览器（默认是独立的 Edge/Chrome 应用窗口）")
     args = parser.parse_args(argv)
+
+    global _PREFER_APP_WINDOW
+    _PREFER_APP_WINDOW = not args.browser
 
     logsetup.setup()
     url = url_of(args.host, args.port)

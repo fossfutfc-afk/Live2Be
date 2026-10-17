@@ -93,43 +93,93 @@ def test_window_mode_falls_back_without_pywebview(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# 提权时浏览器/资源管理器要经 explorer 代开
+# 打开地址: 优先独立应用窗口 → 提权走 explorer → 默认浏览器
 # ---------------------------------------------------------------------------
 
-def test_browser_goes_through_explorer_when_elevated(monkeypatch):
-    """实测后果: 直接开浏览器会让 Edge 继承管理员令牌 → 它问"要不要用普通权限" →
-    选"是"就重启自己, 刚打开的标签页连窗口一起没了。explorer 跑在正常权限上。"""
-    calls: list[list[str]] = []
+@pytest.fixture(autouse=True)
+def _restore_browser_mode():
+    """`main()` 会改模块级 `_PREFER_APP_WINDOW`，用例之间别串味。"""
+    before = serve._PREFER_APP_WINDOW
+    yield
+    serve._PREFER_APP_WINDOW = before
 
+
+def _record_popen(calls: list[list[str]]):
     class _Popen:
         def __init__(self, args, **_kw):
             calls.append(list(args))
 
+    return _Popen
+
+
+def test_app_window_gets_its_own_profile(monkeypatch, tmp_path):
+    """独立 `--user-data-dir` + `--app=` —— 绕开日常那个（可能是管理员的）浏览器实例。"""
+    monkeypatch.setattr(serve.paths, "DATA_ROOT", tmp_path / "data")
+    calls: list[list[str]] = []
+    monkeypatch.setattr("subprocess.Popen", _record_popen(calls))
+
+    assert serve.open_app_window("http://127.0.0.1:8000/", "msedge.exe") is True
+    args = calls[0]
+    assert args[0] == "msedge.exe"
+    assert "--app=http://127.0.0.1:8000/" in args
+    assert any(a.startswith("--user-data-dir=") for a in args), args
+    assert (tmp_path / "data" / "browser").is_dir(), "配置目录要建出来"
+
+
+def test_browser_prefers_the_app_window(monkeypatch):
+    monkeypatch.setattr(serve, "_PREFER_APP_WINDOW", True)
+    monkeypatch.setattr(serve, "find_browser_exe", lambda: "msedge.exe")
+    used: list[str] = []
+    monkeypatch.setattr(serve, "open_app_window",
+                        lambda url, exe: used.append(exe) or True)
+    monkeypatch.setattr(serve, "is_elevated", lambda: pytest.fail("不该走到 explorer"))
+    monkeypatch.setattr("webbrowser.open", lambda url: pytest.fail("不该动默认浏览器"))
+
+    assert serve.open_browser("http://127.0.0.1:8000/") is True
+    assert used == ["msedge.exe"]
+
+
+def test_browser_falls_back_to_explorer_when_elevated(monkeypatch):
+    """找不到 Chromium 系浏览器 + 提权 ⇒ explorer 代开（浏览器不继承管理员令牌）。"""
+    monkeypatch.setattr(serve, "_PREFER_APP_WINDOW", True)
+    monkeypatch.setattr(serve, "find_browser_exe", lambda: None)
     monkeypatch.setattr(serve, "is_elevated", lambda: True)
-    monkeypatch.setattr("subprocess.Popen", _Popen)
+    calls: list[list[str]] = []
+    monkeypatch.setattr("subprocess.Popen", _record_popen(calls))
+
     assert serve.open_browser("http://127.0.0.1:8000/") is True
     assert calls and calls[0][0].lower().endswith("explorer.exe"), calls
     assert calls[0][1] == "http://127.0.0.1:8000/"
 
 
+def test_browser_falls_back_to_default_when_elevated_and_no_chromium(monkeypatch):
+    monkeypatch.setattr(serve, "_PREFER_APP_WINDOW", True)
+    monkeypatch.setattr(serve, "find_browser_exe", lambda: None)
+    monkeypatch.setattr(serve, "is_elevated", lambda: False)
+    seen: list[str] = []
+    monkeypatch.setattr("webbrowser.open", lambda url: seen.append(url) or True)
+
+    assert serve.open_browser("http://127.0.0.1:8000/") is True
+    assert seen == ["http://127.0.0.1:8000/"]
+
+
+def test_browser_flag_skips_the_app_window(monkeypatch):
+    """`--browser` = 用系统默认浏览器（独立应用窗口是默认行为）。"""
+    monkeypatch.setattr(serve, "find_browser_exe",
+                        lambda: pytest.fail("--browser 下不该去找应用窗口"))
+    monkeypatch.setattr(serve, "is_elevated", lambda: False)
+    seen: list[str] = []
+    monkeypatch.setattr("webbrowser.open", lambda url: seen.append(url) or True)
+    serve._PREFER_APP_WINDOW = False                 # `main(--browser)` 的效果
+
+    assert serve.open_browser("http://127.0.0.1:8123/") is True
+    assert seen == ["http://127.0.0.1:8123/"]
+
+
 def test_folder_opens_through_explorer(monkeypatch):
     calls: list[list[str]] = []
-
-    class _Popen:
-        def __init__(self, args, **_kw):
-            calls.append(list(args))
-
-    monkeypatch.setattr("subprocess.Popen", _Popen)
+    monkeypatch.setattr("subprocess.Popen", _record_popen(calls))
     if serve.os.name != "nt":
         pytest.skip("只有 Windows 走 explorer")
     assert serve.open_folder("D:/x/data") is True
     assert calls and calls[0][0].lower().endswith("explorer.exe"), calls
-
-
-def test_plain_browser_when_not_elevated(monkeypatch):
-    monkeypatch.setattr(serve, "is_elevated", lambda: False)
-    monkeypatch.setattr(serve, "open_folder", lambda p: True)     # 别真开窗口
-    seen: list[str] = []
-    monkeypatch.setattr("webbrowser.open", lambda url: seen.append(url) or True)
-    assert serve.open_browser("http://127.0.0.1:8000/") is True
-    assert seen == ["http://127.0.0.1:8000/"]

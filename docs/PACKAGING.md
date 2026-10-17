@@ -37,7 +37,28 @@ data/              首次运行自动创建（DATA_ROOT）
 抽样只用**文件名排序**（可复现）。缺图不报错：渲染层退化到纯文字 / 默认底图。
 改清单 = 改 `packaging/collect_samples.py` 顶部那几个常量，然后重新打包。
 
-## 启动与关停（exe 里也是同一套）
+## 打开方式：独立应用窗口（不碰你日常的浏览器）
+
+双击后不是"用默认浏览器打开一个标签页"，而是**自己起一个无地址栏的应用窗口**：
+
+```
+msedge.exe --app=http://127.0.0.1:8000/ --user-data-dir=<exe 同级>\data\browser --no-first-run
+```
+
+为什么不用默认浏览器：**你日常那个 Edge 可能是以管理员权限起的**（从管理员终端启动过、
+或 Explorer 本身提权）。Windows 有一条硬规矩（UIPI）——普通权限的进程不能把 URL 交给
+管理员权限的进程。于是 Edge 会弹：
+
+> Microsoft Edge 未响应，因为现有实例正在以提升的权限运行。是否要用普通权限重启现有实例？
+
+选"是"它就重启自己，**刚打开的那个标签页连窗口一起没了**（实测踩过）。
+
+自己起一个正常权限、独立配置（`data/browser/`，可丢）的实例，这条跨权限交接根本不存在。
+
+- 想用**系统默认浏览器**：`Live2Be.exe --browser`
+- 不想自动开：`Live2Be.exe --no-browser`（控制台会打地址）
+- 找不到 Chromium 系浏览器时依次退回：提权则 `explorer.exe <url>` 代开 → `webbrowser.open`
+- `data/browser/` 是那个窗口的配置目录（首启会创建）。删掉它 = 让那个窗口回到干净状态。
 
 - `Live2Be.exe` → 起服务 + 自动开浏览器（`--no-browser` 关掉）
 - `Live2Be.exe --window` → 原生窗口（`pywebview`；没装就自动退回浏览器）
@@ -81,26 +102,14 @@ data/              首次运行自动创建（DATA_ROOT）
 02:53:17 web       设置    …\dist\Live2Be\settings.toml
 ```
 
-## 提权时浏览器会问"要不要用普通权限"（已修）
-
-现象：双击后 Edge 弹"有实例以提升的权限运行，是否以普通权限运行"，选"是"以后 **Edge 重启、
-刚打开的标签页连窗口一起没了**，只能手动敲 `127.0.0.1:8000`。
-
-原因：exe 自己的 manifest 是 `asInvoker`（我核过，不申请管理员），但**从管理员终端启动**时
-子进程继承了管理员令牌；再经 `os.startfile` 开 Edge，Edge 就带着管理员令牌起来了 —— 它自己
-会劝你降权重启。
-
-修法：`serve.open_browser()` 在**提权时改走 `explorer.exe <url>`**（explorer 跑在用户正常
-权限上，由它转交 URL）；`open_folder()` 同理。启动横幅也会打一行提醒。
-
-
 **最关键的一条**：塞假 key + `base_url=http://127.0.0.1:9/v1` 发一句话 —— 日志停在
 `LLM 调用失败: [WinError 10061] 目标计算机积极拒绝`，**没有 FileNotFound / KeyError**。
 说明打进去的 `.md` 提示词在冻结包里读得到（`_internal/` 里 datas 的落点与包内
 `Path(__file__).parent` 对得上），整条装配链路是通的。
 
 ⚠️ 终端是**管理员权限**时 PyInstaller 6.x 会打一条 deprecation（7.0 会直接拒绝）——
-打包不必用管理员。
+打包不必用管理员。另一个副作用：管理员终端里起 `webgui.serve` 且**不加 `--no-browser`**，
+开出来的浏览器会带管理员令牌 —— 冒烟一律加 `--no-browser`。
 
 ## 已知坑
 
