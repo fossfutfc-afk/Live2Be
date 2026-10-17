@@ -64,6 +64,10 @@ EDGES_NAME = "edges.jsonl"
 #: 随身笔记缓存文件名（§3.2; 同目录 —— 与点/边一样属于"记忆层自包含"那一份）
 NOTES_NAME = "notes.json"
 
+#: **内存态快照**（点 + 边）—— `clone_state` 交出、`restore_state` 原样吃回。
+#: 两边用同一个形状才有意义: 回滚漏拷边 = 边上留着、点没了（悬空 + "回滚没回干净"）。
+Snapshot = tuple[dict[str, BrainNode], list[Edge]]
+
 
 class WikiStoreV2:
     """图式 wiki 存储（per 世界线, 单文件 jsonl）。"""
@@ -337,7 +341,7 @@ class WikiStoreV2:
         atomic_write_lines(self.path, (n.to_json_line() for n in self._nodes.values()))
         atomic_write_lines(self.edges_path, (e.to_json_line() for e in self._edges))
 
-    def clone_state(self) -> tuple[dict[str, BrainNode], list[Edge]]:
+    def clone_state(self) -> Snapshot:
         """深拷贝当前**点 + 边**（修订包/digest 的原子性快照——revise.py 用）。
 
         **边必须一起拷**: 只拷点的话, 失败回滚会把这一轮新加的边**留在原地**
@@ -355,7 +359,7 @@ class WikiStoreV2:
         return ({nid: BrainNode.from_dict(n.to_dict()) for nid, n in self._nodes.items()},
                 [e for e in clones if e is not None])
 
-    def restore_state(self, state: tuple[dict[str, BrainNode], list[Edge]]) -> None:
+    def restore_state(self, state: Snapshot) -> None:
         """恢复内存态（点 + 边; 回滚用——不落盘, 调用方决定是否 save）。"""
         self._nodes, self._edges = state
 

@@ -63,11 +63,12 @@ def run(ctx: Ctx) -> RoundOut:
             ("角色人设（锚点）", ctx.character_prompt),
             ("本段情绪标尺", ctx.emotion_scale),
         ])
-        entries, resp = ctx.call(
+        parsed, resp = ctx.call(
             spec, system, user,
             parse_fn=ctx.parse_for(spec, seq_set=ctx.seq_set))
-        if entries is None:
+        if parsed is None:
             return RoundOut.failed()
+        entries = parsed
         # ⭐ **M1（2026-10-05）: 好感的原始 resp 存在这一轮** —— "这一段她对老师的亲近感
         # 净变化"与 `significance` 同族（都是打分）, 而打分归 R1。
         # ⚠️ 从这一格取它（不是在返回值里搬）: `RoundOut` 只说"成没成"。

@@ -54,8 +54,14 @@ def _parse_for(spec: RoundSpec, **ctx) -> Callable[[dict], tuple[Any, Any]]:
     """把表里那个 parse 函数绑上**这一轮的上下文**（`seq_set` / `episode_ids` / `block_ids`…）。
 
     契约层的 parse 签名统一是 `(raw, **ctx)` ⇒ 表里存函数、调用点给上下文, 两不相欠。
+    零 LLM 的轮（表里 `parse=None`）没有 parse 可绑 —— 走到这里就是编排错了, 当场炸。
     """
-    return lambda raw: spec.parse(raw, **ctx)
+    parse = spec.parse
+    if parse is None:
+        raise AssertionError(
+            f"digest {spec.key!r} 没有 parse（表里 `llm=False` 的轮不调 LLM）—— "
+            "调用点不该走到这里; 轮次表的真源是 core/digest/rounds/__init__.py 的 ROUNDS")
+    return lambda raw: parse(raw, **ctx)
 
 
 def _log_skip(spec: RoundSpec) -> None:

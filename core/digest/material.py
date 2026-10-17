@@ -819,6 +819,9 @@ def akin_supported_beliefs_block(store: WikiStoreV2, episode_ids: list[str],
     rows = ["（← 后面那几条是**认过跟本段经历像**的旧经历 —— ⚠️ 同类 ≠ 印证:"
             " 这一条经历到底印证没印证那条看法, 由你判）"]
     for b, eps in list(grouped.items())[:DIGEST_L1_AKIN_BELIEFS]:
+        node_b = store.get(b)
+        if node_b is None:                       # 上一圈筛过; 图变了就当没有（不编）
+            continue
         keys = " · ".join(_key_title(store, e) for e in eps)
         local = local_of.get(b)
         if local:
@@ -826,7 +829,7 @@ def akin_supported_beliefs_block(store: WikiStoreV2, episode_ids: list[str],
             continue
         local = f"u{len(local_of) + 1:04d}"       # 没印过 ⇒ 发一个本地号（并进引用面）
         local_of[b] = local
-        rows.extend(render_cognition_line(store, store.get(b), graph, local_of, max_body=60))
+        rows.extend(render_cognition_line(store, node_b, graph, local_of, max_body=60))
         rows.append(f"    ← {keys}")
     rest = len(grouped) - DIGEST_L1_AKIN_BELIEFS
     if rest > 0:
@@ -872,6 +875,8 @@ def collided_beliefs_block(store: WikiStoreV2, evidence_ids: list[str],
     rows: list[str] = []
     for _n_shared, _n_all, bid, shared in hits[:DIGEST_L2_COLLIDE]:
         node = store.get(bid)
+        if node is None:                          # 与上面同理: 取不到就不印, 不编
+            continue
         names: list[str] = []
         for x in graph.targets(bid, REL_ABOUT):
             if str(x) == SELF_ID:                     # ⛔ 她自己那一条不印（零信息）
