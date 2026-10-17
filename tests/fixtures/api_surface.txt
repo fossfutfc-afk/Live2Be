@@ -337,6 +337,7 @@ core.mmt.engine	_name_aliases	function	core.mmt.engine
 core.mmt.engine	_process_for_momotalk	function	core.text
 core.mmt.engine	_stances_of	function	core.mmt.engine
 core.mmt.engine	_strip_action_brackets	function	core.text
+core.mmt.engine	_text_action	function	core.mmt.engine
 core.mmt.engine	_turn_k	function	core.mmt.engine
 core.mmt.engine	build_box	function	core.promptkit.box
 core.mmt.engine	build_line_schema	function	contract.schema.lines

@@ -438,8 +438,10 @@ def print_history(engine: MomoTalkEngine) -> None:
         print("[系统] 当前没有对话历史。")
         return
     print(f"\n{'─' * 30} 对话历史 ({len(h)} 条) {'─' * 30}")
+    char = engine.current_character
+    who = char.display_name if char is not None else "她"
     for msg in h:
-        role = "You" if msg["role"] == "user" else engine.current_character.display_name
+        role = "You" if msg["role"] == "user" else who
         content = msg["content"]
         print(f"  {role}: {content[:80]}{'...' if len(content) > 80 else ''}")
     print("─" * 60 + "\n")
