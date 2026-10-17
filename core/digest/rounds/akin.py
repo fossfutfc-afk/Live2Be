@@ -105,5 +105,7 @@ def _link_akin(store: WikiStoreV2, episode_ids: list[str], noticed: list, *,
             continue
         store.add_edge(REL_AKIN, src, hit, ts=(getattr(e, "ts", "") or ts))
         edges += 1
-        logger.info("digest_akin new=%s old=%s", src, hit)
+        # 每条边一行会把控制台刷满（一次 5 行同样的前缀）——汇总在调用方那一行,
+        # 逐条映射仍可查: LIVE2BE_LOG=verbose 或翻日志文件。
+        logger.debug("digest_akin new=%s old=%s", src, hit)
     return edges, lost, self_skip

@@ -4,7 +4,7 @@
 > ⚠️ **`git status` 里常年挂着几份"作者手改未提交"的文件**（2026-10-17 时是
 > `config/settings/relation/interperson.yml` · `infra/fuse.py`）——
 > 那是**作者的改动, ⛔ 不是脏改动**, 别 `checkout` 掉、也别卷进提交（`git add` 一律写显式路径）。
-> 现状：`tests/core` **1282 passed** · `tests/llm+tui+webgui` **208 passed**（⚠️ **按域分开跑**, 见 §5 坑 4）·
+> 现状：`tests/core` **1286 passed** · `tests/llm+tui+webgui` **208 passed**（⚠️ **按域分开跑**, 见 §5 坑 4）·
 > 三份 verifier 全 exit 0 · ruff **366**（基线，`AGENTS.md` §7 同步）· 真机数据未动。
 > ⚠️ **两域里各有几个轮询式 flaky**（靠 `_wait(cond, timeout=10)` 等异步状态的那类）: 机器一忙就超时,
 > 单跑常绿 ⇒ 别急着怀疑自己刚改的代码, 见 §5b 第 17 条。
@@ -192,6 +192,8 @@ python experiments/recall_report.py
 | `a4282426` | ⭐ **MMT 静默行 `{"text": ""}`**：她可以这一轮完全不发消息（玩家把话拆几条发、还没说完时"等下一句"）。空串是**唯一**合法写法（`null`/空白串仍按坏行丢, 文案教它写空串）· 不算空轮/不算失败 · 轮数照算 · **玩家那句话补进历史**（不补这功能就没意义）· `TurnResult.silent` |
 | `4e16e3ed` | **CLI 的 VN 分支不落事件流**（`cli/main.py` 调 `run_bond_story_vn` 没传 `store` ⇒ `vn_enter`/每场 bond/`commit_staging`/`finish` 全被跳过, 跑起来一切正常）。补 `store=engine._store` + AST 守门（漏参数 / 传 None 两个方向都证过会红） |
 | `d4e07363` | ⭐ **收束注记单源化**：CLI 那两句还在教 v1 的 `story_end` 动作（v2 记录流里没有它）⇒ 新建 `core/bond/bond_story/closing.py`（`REMIND_ROUNDS`/`END_ROUNDS` + `closing_notes`）, 两壳都调它; 顺带补上 CLI 缺的"余量 2 场每场强制" · 守门钉住"这三句只许在一处" |
+| `638609d5` | 给 `cli/` 定性: 产品只有一个壳 = `webgui/`, CLI 是调试入口**不追 webgui 行为**（`AGENTS.md` §8 新增同名决策 + §1 表格三行; `cli/.md` 重写） |
+| 本轮 | **控制台日志收口**: 新建 `infra/logsetup.py`（控制台短/文件全）——轮询与静态请求的 2xx 不打印 · 短域名前缀（`digest`/`bond`/`mmt`/`llm`/`http`）· 超 110 字截断 · `LIVE2BE_LOG=quiet/normal/verbose` · `akin` 逐条边降 debug。文件日志仍全量（软问题文本可 grep） |
 
 ---
 
