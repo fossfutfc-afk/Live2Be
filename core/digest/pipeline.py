@@ -439,18 +439,19 @@ def digest_segment(
     # ⭐ D1: 这一段**跑成了, 但有东西没进记忆** ⇒ 留一条账（`kind=digest_gap`）。
     # ⚠️ 位置必须在**提交之后**（回滚过的段没有"缺"可言 —— 它整段都没了）。
     _note_gap(result, at_seq=interact_max)
-    store.save()
     # 游标提交：**已退役**（2026-09-17）—— 没有剧情游标可落盘。
-    # ⭐ **水位 = 她这次实际覆盖到的最大 seq**（D0, 2026-09-29 用户裁决）——
+    # ⭐ **水位 = 她这次实际覆盖到的最大 seq**（D0, 2026-09-29）——
     # **不是触发点**: 没被覆盖的**尾巴**因此留在水位之上 ⇒ 并进下一段再喂一次
     # （"未认领"从"永久丢"变成"欠着"）。取窗判据是 `seq > 水位`（排他）⇒ 存"覆盖到的
-    # 那个 seq"本身, 语义上正好是用户说的"下一段从右端点 + 1 起头"。
+    # 那个 seq"本身, 语义上正好是"下一段从右端点 + 1 起头"。
     store.meta["digested_seq"] = _next_watermark(store, ctx.episode_ids,
                                                  events=events, trigger=interact_max,
                                                  skip_ids=set(result.spanless_ids))
     # ⭐ 成功 ⇒ **失败计数清零**（这一段过去了; 留着它会让下一段白背两次"前科"）。
     store.meta.pop("digest_retry", None)
-    store.save_meta()
+    # 点 + 边 + 水位 **一个事务**（两阶段提交, 见 `WikiStoreV2.commit`）:
+    # 之前是"先 save 图、后 save_meta", 中间被杀会留下"图新水位旧"。
+    store.commit()
     return result
 
 
