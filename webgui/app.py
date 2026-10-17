@@ -30,7 +30,9 @@ if settings.last_error():
     logging.getLogger(__name__).warning(
         "settings.toml 没用上（用默认值跑）: %s", settings.last_error())
 
-from webgui.routers import (
+# 下面这批 import 必须在 `logsetup.setup()` 之后（否则那批模块的 logger 已按默认无 handler
+# 初始化）⇒ 有意留在这里, `E402` 是这条顺序的代价。
+from webgui.routers import (  # noqa: E402
     bond,
     collection,
     menu,
@@ -39,10 +41,9 @@ from webgui.routers import (
     spine,
 )
 
-# ⚠️ 别名: `settings` 这个名字属于 infra.settings（路由器那份遮蔽过它一次）
-from webgui.routers import (
-    settings as settings_router,
-)
+# ⚠️ 两个别名: `runtime` / `settings` 都是 infra 的模块名, 路由器那份会遮蔽它们
+from webgui.routers import runtime as runtime_router  # noqa: E402
+from webgui.routers import settings as settings_router  # noqa: E402
 
 STATIC_DIR = paths.WEBGUI_STATIC_DIR
 MENU_DIR = paths.MENU_DIR
@@ -102,6 +103,7 @@ def gallery_png(world_id: str, char_id: str, scene_id: str) -> Response:
 
 # 路由注册（每域独立文件——铺路: 未来加域只加 import + include_router）
 app.include_router(menu.router)
+app.include_router(runtime_router.router)
 app.include_router(name.router)
 app.include_router(settings_router.router)
 app.include_router(mmt.router)

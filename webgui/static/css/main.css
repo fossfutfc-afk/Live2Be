@@ -88,3 +88,32 @@
   box-shadow: none;
 }
 .link:hover { color: var(--blue); }
+
+/* ── 关闭服务（菜单页右下角一个小按钮 + 一个确认框） ── */
+.link.danger { margin-top: 0.6rem; color: #b0756f; font-size: 0.8rem; }
+.link.danger:hover { color: #e08a80; }
+
+.shutdown-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(4, 10, 22, 0.72);
+  backdrop-filter: blur(3px);
+}
+.shutdown-box {
+  width: min(30rem, 88vw);
+  padding: 1.6rem 1.8rem;
+  border-radius: 1rem;
+  background: rgba(12, 22, 40, 0.96);
+  border: 1px solid rgba(79, 195, 247, 0.25);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.55);
+  color: #e7eefb;
+}
+.shutdown-box h2 { margin: 0 0 0.8rem; font-size: 1.1rem; letter-spacing: 0.1em; }
+#shutdown-msg { margin: 0 0 1.4rem; line-height: 1.6; font-size: 0.92rem; color: #b9c9e2; white-space: pre-line; }
+.shutdown-actions { display: flex; flex-wrap: wrap; gap: 0.6rem; align-items: center; }
+.shutdown-actions .menu-btn { min-width: 8.5rem; }
+.shutdown-actions .link { margin: 0 0 0 auto; }

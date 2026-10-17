@@ -1,4 +1,4 @@
-﻿<#
+<#
   start.ps1 — 一键起本机开发栈（LM Studio 的 embedding 服务 + Live2Be WebGUI）
 
   它做三件事，**都不碰 data/**（数据只由应用自己按正常流程写）:
@@ -7,7 +7,8 @@
         退化成字面命中 `digest_embed fn=none reason=model_missing`）
     2. 用**项目自己的体检命令**验一次（抄 settings.toml 里那条排查注释）——
        名字打错 / 模型没加载会在这里现形，而不是每轮 digest 悄悄降级
-    3. 前台起应用（Ctrl+C 停）: 默认 WebGUI，`-Cli` 换终端版
+    3. 前台起应用: 默认 WebGUI（**停服务用前端菜单的「关闭服务」**——Ctrl+C 被忽略）,
+     `-Cli` 换终端版
 
   用法（在本目录，或任意目录用全路径）:
     pwsh -File start.ps1                    # WebGUI :8000 + embed :1235
@@ -17,7 +18,9 @@
     pwsh -File start.ps1 -Cli               # 起终端版 MMT（cli.main）
     start.cmd                               # 双击也行（它会转调本脚本）
 
-  ⚠️ Ctrl+C 只停**应用**；LM Studio 的服务还在。要停它: `lms server stop`
+  ⚠️ WebGUI 的 Ctrl+C 被忽略（防手滑打断记忆消化）: 停服务用前端菜单, 急停可关本窗口
+     （关窗口 = 强杀进程, 也是安全的 —— 提交是两阶段的）。LM Studio 的服务不会跟着停:
+     要停它 `lms server stop`。
 #>
 [CmdletBinding()]
 param(
@@ -114,8 +117,8 @@ if ($Cli) {
     Write-Host '[3/3] 终端版 MMT（cli.main）—— Ctrl+C 退出' -ForegroundColor Green
     & $Py -m cli.main
 } else {
-    Write-Host ("[3/3] WebGUI → http://127.0.0.1:{0}   （Ctrl+C 停）" -f $Port) -ForegroundColor Green
-    Write-Host '   ⚠ Ctrl+C 只停应用；embedding 服务还在 —— 要停: lms server stop' -ForegroundColor DarkGray
-    & $Py -m uvicorn webgui.app:app --host 127.0.0.1 --port "$Port"
+    Write-Host ("[3/3] WebGUI → http://127.0.0.1:{0}   （停: 前端菜单「关闭服务」; Ctrl+C 已忽略）" -f $Port) -ForegroundColor Green
+    Write-Host '   ⚠ 急停就关掉本窗口（强杀也安全: 提交是两阶段的）; embedding 服务不会跟着停' -ForegroundColor DarkGray
+    & $Py -m webgui.serve --host 127.0.0.1 --port "$Port"
 }
 exit $LASTEXITCODE

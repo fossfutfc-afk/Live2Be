@@ -13,8 +13,8 @@
 
 | 入口 | 命令 | 说明 |
 |------|------|------|
-| **Web GUI（主入口）** | `python -m uvicorn webgui.app:app --host 127.0.0.1 --port 8000` | 浏览器里：登录 → MomoTalk 聊天 → 羁绊剧情 VN → 回忆册（`webgui/`） |
-| MomoTalk CLI | `python main.py` | 终端版：选角色 → 手机聊天 → 羁绊剧情 VN（真代码在 `apps/`） |
+| **Web GUI（主入口）** | `python -m webgui.serve --host 127.0.0.1 --port 8000` | 浏览器里：登录 → MomoTalk 聊天 → 羁绊剧情 VN → 回忆册（`webgui/`）。**停服务用菜单里的「关闭服务」**——Ctrl+C 被忽略（防手滑打断记忆消化）；急停就关掉控制台窗口（强杀也安全） |
+| MomoTalk CLI | `python main.py` | 终端版：选角色 → 手机聊天 → 羁绊剧情 VN（调试入口，真代码在 `cli/`） |
 
 需要 API key：项目根 `.env` 里配 `LLM_API_KEY`（OpenAI 兼容接口，默认 DeepSeek）。
 生图另需 `[image]` 段配置（`settings.toml` 或 GUI 设置页）；`LIVE2BE_IMAGE=off` 可整体关掉。
@@ -22,8 +22,8 @@
 ## 目录速查
 
 ```
-main.py                 启动壳（转调 apps/main.py）——`python main.py` 就是 CLI 入口
-apps/                   CLI 应用：main.py（对话循环）· vn_cli.py（VN 终端驱动；唯一依赖 renderer 的地方）
+main.py                 启动壳（转调 cli/main.py）——`python main.py` 就是 CLI 入口
+cli/                    CLI（调试入口）：main.py（对话循环）· vn_cli.py（VN 终端驱动；唯一依赖 tui 的地方）
 webgui/                 Web 壳 + 会话状态机：app.py · deps.py（显式接缝）· bond/（BondState 状态机 / lane / 回放 / 生图 / 收尾）·
                         chat.py（每角色输入队列 worker）· routers/（HTTP）· static/js/{bond,mmt,gui}.js
 core/                   引擎层（无 web 依赖）：mmt/engine(聊天引擎) · bond/bond_story(VN 引擎) · bond/(标注层: 情绪/换场/选图) ·
