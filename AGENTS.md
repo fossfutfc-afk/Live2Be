@@ -67,7 +67,7 @@ contract → infra → llm → core → tui / webgui / cli
 | 网页侧剧情状态机（预生成 / 标注 lane / 回放 / 收尾 / 纪念） | `webgui/bond/`（模块分工见 `bond/__init__.py` 那张表） |
 | 提示词装配（盒 / 动态尾 / 任务卡 / 注入报表） | `core/promptkit/`（段落实况看 `promptkit/report.py`） |
 | 事件流读写 / 恢复窗口 / 认章与回放 | `core/session/{store,renderer,chapters}.py` |
-| 记忆消化：**每段几轮、每轮吃什么写什么** | 真源 = `core/digest/rounds/__init__.py` 的 `ROUNDS` 表 —— **别在文档里抄轮次表** |
+| 记忆消化：**每段几轮、每轮吃什么写什么** | 真源 = `core/digest/rounds/__init__.py` 的 `ROUNDS` 表 —— **别在文档里抄轮次表**；机制见 `core/digest/.md` |
 | 记忆读路径（召回 / 注入视图 / 旋钮） | `core/brain/read/`（图数据层 = `core/brain/`，纯 stdlib、零 LLM） |
 | 三条标注：情绪 / 换场 / 选图 | `core/bond/{emo_text,place_annotate,variant_annotate}.py` |
 | 地点表 / 背景与立绘 / 素材查库 | `config/settings/world/place_entities.json` + `core/media/` |
@@ -191,7 +191,7 @@ contract → infra → llm → core → tui / webgui / cli
 conda `base` 里没有 jieba，用 base 跑测试会挂）· `node` v24 在（前端测试用）。
 
 当前基线（2026-10-17）：`tests/core` **1278 passed** · `tests/llm+tui+webgui` **208 passed** ·
-`ruff check .` **368**。
+`ruff check .` **367**。
 
 已知缺口：
 

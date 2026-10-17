@@ -61,7 +61,7 @@ def _create_a_nodes(store: WikiStoreV2, entries: list[dict], *, ts: str,
                     by_seq: dict | None = None,
                     reused_out: list[str] | None = None,
                     strangers_out: list[str] | None = None
-                    ) -> tuple[list[str], list[str]]:
+                    ) -> list[str]:
     """Round A 条目 → 节点（引擎字段归属——确定性归引擎, 防幻觉）。
 
     今天条目**只有一种**: `kind=episode`（缺键 = episode）→ episode 节点。

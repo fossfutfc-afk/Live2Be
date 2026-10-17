@@ -71,7 +71,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from core.brain.read.recall import EmbedFn
-from core.brain.store import WikiStoreV2
+from core.brain.store import Snapshot, WikiStoreV2
 from core.creep import KIND_DIGEST_GAP, KIND_DIGEST_SKIP
 from core.creep import build as creep_build
 from core.creep import pick as creep_pick
@@ -587,7 +587,7 @@ def _note_gap(result: DigestResult, *, at_seq: int) -> None:
 
 
 def _swallow(store: WikiStoreV2, spec: RoundSpec, result: DigestResult,
-             out: RoundOut, snapshot: dict | None, err0: int) -> None:
+             out: RoundOut, snapshot: Snapshot | None, err0: int) -> None:
     """执行"**这一步自己吞掉失败**"（只有表里 `own_snapshot=True` 的那一步允许）。
 
     做三件事（从前散在那一步调用体里的样板）: 回滚这一步 · 把它的 errors 挪进它自己的
@@ -632,7 +632,7 @@ def _clamp_aff(raw: Any) -> int:
         return 0
 
 
-def _rollback(store: WikiStoreV2, snapshot: dict,
+def _rollback(store: WikiStoreV2, snapshot: Snapshot,
               result: DigestResult, *,
               from_seq: int = 0, upto_seq: int = 0,
               write_ledger: Callable[[dict], None] | None = None) -> DigestResult:

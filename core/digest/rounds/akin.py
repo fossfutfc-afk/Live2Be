@@ -69,8 +69,14 @@ def _link_akin(store: WikiStoreV2, episode_ids: list[str], noticed: list, *,
     # 用户裁决"两条都保留"）⇒ 同一 seq 可能有两个主人。取**靠后**那条（其起点更大 =
     # 更"当下"的那件; 按 min(event_seq) 排序后后写覆盖, 结果与 id 顺序无关）。
     owner: dict[int, str] = {}
-    for nid in sorted(episode_ids,
-                      key=lambda i: min((store.get(i).event_seq or [10 ** 9]))):
+
+    def _first_seq(nid: str) -> int:
+        """这条 episode 的起点 seq（节点没了 / 没有 seq → 排到最后）—— 交叠时起点大者胜。"""
+        node = store.get(nid)
+        seqs = (node.event_seq if node is not None else None) or []
+        return min(seqs) if seqs else 10 ** 9
+
+    for nid in sorted(episode_ids, key=_first_seq):
         node = store.get(nid)
         if node is None:
             continue
