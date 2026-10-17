@@ -1,17 +1,17 @@
 # PROCEED.md — 接续用（**整篇覆盖写**；上一版见 git 历史）
 
 > ⚠️ **本文件不记 `ahead` 数**（写死过两次、两次都对不上）—— 真源 = `git status -sb` 与 `git log -1`。
-> ⚠️ **`git status` 里常年挂着几份"作者手改未提交"的文件**（2026-10-16 时是
-> `config/settings/relation/interperson.yml` · `core/bond/bond_progress.py` · `infra/fuse.py`）——
+> ⚠️ **`git status` 里常年挂着几份"作者手改未提交"的文件**（2026-10-17 时是
+> `config/settings/relation/interperson.yml` · `infra/fuse.py`）——
 > 那是**作者的改动, ⛔ 不是脏改动**, 别 `checkout` 掉、也别卷进提交（`git add` 一律写显式路径）。
-> 现状：`tests/core` **1277 passed** · `tests/llm+tui+webgui` **208 passed**（⚠️ **按域分开跑**, 见 §5 坑 4）·
-> 三份 verifier 全 exit 0 · ruff **372**（基线，`AGENTS.md` §7 同步）· 真机数据未动。
-> 🔴 **此刻主树跑不了测试**：`core/bond/bond_progress.py` 作者改到一半（`def __init__` 没有函数体
-> ⇒ `IndentationError`），`core/bond/__init__.py` 一 import 就炸 ⇒ **1047 例收集失败**。等他保存完再跑；
-> 期间要独立验证就用 §5b 第 9 条的 worktree 办法。
+> 现状：`tests/core` **1280 passed** · `tests/llm+tui+webgui` **208 passed**（⚠️ **按域分开跑**, 见 §5 坑 4）·
+> 三份 verifier 全 exit 0 · ruff **366**（基线，`AGENTS.md` §7 同步）· 真机数据未动。
+> ⚠️ **两域里各有几个轮询式 flaky**（靠 `_wait(cond, timeout=10)` 等异步状态的那类）: 机器一忙就超时,
+> 单跑常绿 ⇒ 别急着怀疑自己刚改的代码, 见 §5b 第 17 条。
 > ⚠️ **测试目录 `tests/renderer/` 已改名 `tests/tui/`**（2026-10-15，跟着 `renderer/`→`tui/`）。
 > 📄 **活入口 = 仓根 `AGENTS.md`**（2026-10-15 起取代 88 KB 的 `CLAUDE.md`；旧文归档在
 > `docs/archive/CLAUDE_2026-09-20.md`）—— 读项目先读它；本文只记"接续要做的事 + 坑"。
+> 🎯 **下一步等作者定**: 可能做**首次使用向导（前端）** / **打包 exe** / **架构优化** —— 见 §6 末尾。
 
 ---
 
@@ -173,6 +173,23 @@ python experiments/recall_report.py
 | `6c475f8e` | **第 3 站 `core/brain/` 顶层十个文件**：剥约 390 处装饰符号 · 10 个顶部 docstring 重写（337→185 行）· 去 23 处"用户裁/拍板" · 顺手修两处**内容已错**（模块表里列着已删的 `groups.py`/`seed.py`；`graph.py` 说"还没有 entity"） |
 | `f41ed19d` | **`core/brain/read/` 第二刀**：新工具（`tokenize`+`ast`，只动注释/docstring，真字符串不碰）剥 374 行 · 去 51 处"用户"表述 · ⭐ **修四个 Pylance 报错**——根因全是 dataclass 字段写成 `object`（`Candidate.node` / `Composed.node` / `embed_fn` / `float(h.raw)`） |
 | `f0ac5dbe` | **第三刀**：新写 `core/brain/.md`（机制说明）· **删** `AGENT_BRAIN.md` `DESIGN_GRAPH_V4.md` `REDUNDANCY.md` · 清 **59 处**指向它们的引用（`archive/` 里 5 处故意留） |
+| `6736ea6f` | PROCEED 定点更新（不动线 A 的 §1–§3） |
+| `2f9d2a93` | **第 4 站 `core/creep/`**：三个顶部 docstring 29/35/24 → 16/19/17 行 · 去装饰符号与"用户裁决" · 新增 `core/creep/.md`（作用/核心文件/现状"只留接口"/五条纪律/措辞纪律） |
+| `3b298f6d` | brain 五处 Pylance 报错（`all(isinstance)` 窄化不了 · `nodes: tuple` · `-h.raw` · `extra: object` · `add_edge` 的 src/dst） |
+| `65bf18e1` | ⭐ **修复 `bond_progress.py` 整份缩进塌陷**（粘贴/渲染事故: 每行前导空白被压成一个空格 ⇒ `IndentationError` ⇒ 全仓 1047 例收集失败）。做法: 以 HEAD 为基准, 去掉空白后逐行比对 + **非 docstring 字符串字面量全量核对**, 只摘掉那 11 行 docstring |
+| `e4102db6` | **`core/brain/read/` 去重**：`scale.py`（`cosine` / `pool_minmax` / `SCALE_*`）与 `context.py`（输入契约）两件**中性件** —— 因为 `like/pack/find` 不许 import 旧族（守门⑤）; 两处 cosine、两处 min-max、「两套 ctx」各收成一份; 新增守门（共用算术只有一处, 双向证过） |
+| `ee70286f` | **第 5 站 `core/digest/`**：七处类型错（`_parse_for` 的 parse 可为 None / `_create_a_nodes` 返回注解是假的 / `store.get(...)` 直接 deref ×2 / 元组解包 / `Snapshot` 别名）· `__init__` 的 48 行**过时** docstring 压成 6 行（还写着已退役的 `group` 轮）· 新增 `core/digest/.md` |
+| `7571b693` | **第 6 站 `core/media/`**：`files = v.get("files") if isinstance(v.get("files"), dict)` —— **两次 `.get`** ⇒ 改成取一次再判; 新增 `core/media/.md` |
+| `22629909` | **第 7 站 `core/mmt/`**：七处类型错（`emb` 的 None / `plan` 的字符串标签联合 ⇒ 统一成 `AgentAction` + `_text_action` / 两处 `display_name`）· `parse_lines` 的 ruff-unused 与 API 面快照打架 ⇒ 保留 + `noqa` 写明, 刷快照 · 新增 `core/mmt/.md`（**主循环讲清楚**） |
+| `ce18cfcb` | **第 8 站 `core/promptkit/`**：`_greeting` 返回注解 · `promptkit/.md` · ⭐ 新增 **`docs/PROMPT_SAMPLES.md`**（每个调用点 system/user 长什么样: 段序 + 出处 + 形状样例; 规则书只给链接, 召回用文字讲清） |
+| `f4f9f232` | **第 9 站 `core/rag/`**：`_ensure_vectors` 从 `-> bool` 改成**交回向量表**（窄化 + 三种"没有语义层"仍记缓存） |
+| `288b127f` | **第 10 站 `core/random_events/` + `core/session/`**：`cooldowns` 的地板判 · `per_board.get(item.get("seq"))` · `has_picked` 这种**中间 bool 窄化不了** · 新增 `core/session/.md`（事件流数据流 / 六条纪律） |
+| `cffd5a2a` | **第 11 站 `core/worldtime/` + `core/text.py`**：`occ.year_fixed`（property 不能窄化）⇒ 直接判 `occ.year is not None` · `_parse_spec` 两支倒过来各自窄化 · `text.py` 那个把 `list` 塞进 `list[str]` 的**死分支** · 新增 `core/worldtime/.md` |
+| `81e19474` | **webgui**：`app.py` 的 `settings` **名字遮蔽**（router 覆盖了 `infra.settings`, ruff F811 早就在报）⇒ `settings_router` · `_table_bg_url` 的两次 `.get` |
+| `7cccf763` | `webgui/bond/state.py` 三处 `object` 注解（`store` / 两个线程）——§5b 第 12 条那笔欠账清掉 |
+| `23210a18` | **`webgui/bond/` 第一刀**：`_place_done` 是**动态属性**（6 处赋值 / 12 处 `getattr` 读）⇒ 在 `BondScene` 上按 `_streamed` 的先例声明 · `state.scene_obj`/`vn` 的"先赋值再读"窄化失效 ⇒ 局部变量接住 · lanes 两个 worker 的队列与 vn 取一次局部 |
+| `fbb59708` | **`webgui/bond/` 第二刀**：又两个动态属性（`_call_id` / `_from_draft`）· `_generate` 声明 `-> bool` 却**漏 return True**（调用方把"启动了"读成"没启动"）· `replay.open_attempt` 改成**交回新段**（闭包 `nonlocal` 窄化不了） |
+| `a4282426` | ⭐ **MMT 静默行 `{"text": ""}`**：她可以这一轮完全不发消息（玩家把话拆几条发、还没说完时"等下一句"）。空串是**唯一**合法写法（`null`/空白串仍按坏行丢, 文案教它写空串）· 不算空轮/不算失败 · 轮数照算 · **玩家那句话补进历史**（不补这功能就没意义）· `TurnResult.silent` |
 
 ---
 
@@ -281,6 +298,23 @@ python experiments/recall_report.py
     另：修一层注解可能露出下一层 —— Pylance 在类型不明时经常闭嘴。
 13. ⭐ **跑测试先确认文件选对了**：我跑了 `test_emotion_text.py`，而覆盖 `_clean_tags` 的是
     `test_emotion_annotate.py` ⇒ **47 绿是假象**，真 bug（F821）最后是 ruff 抓到的。
+14. ⭐ **Pylance 报错的四类根因**（2026-10-17 一遍扫下来约 35 处，修法都是"让窄化成立"，不是加 `cast`）：
+    ① **两次 `.get`**（`x = d.get(k) if isinstance(d.get(k), dict) else {}`、`t.get(k).asset() if t.get(k)`）
+    ⇒ 取一次再判；② **`all(isinstance(x, …) for x in (a, b, c))` 窄化不了单个变量** ⇒ 逐个 `isinstance` 合取；
+    ③ **中间 bool / property 当判据**（`has_picked = …`、`occ.year_fixed`）⇒ 直接判那个变量本身；
+    ④ **先赋值再读**（`state.scene_obj = …; state.scene_obj.x`）⇒ 用局部变量接住。
+    ⚠️ 反过来:**声明 `-> bool` 却漏 return**、**注解写成 `tuple[list, list]` 早就不返回第二项**
+    这类"注解在撒谎"更贵 —— 它们不报错的时候是在静默骗调用方。
+15. ⭐ **"运行时标记"要显式声明在 dataclass 上**（`BondScene._streamed/_place_done/_call_id/_from_draft`）：
+    它们**不进序列化**（`to_dict` 是手写的, 不认这几格）, 但**必须声明**, 否则 6 处赋值全报"属性未知",
+    而 12 处 `getattr(scene, "_place_done", False)` 又把真相藏起来。
+16. ⚠️ **`.testtmp/` 里的判据不进 git**：`capture_1e.py` 的 `EXPECTED_CHANGED`、`verify_1c.py` 的
+    `CHANGED` 都只活在本机 ⇒ 换机器要重建, 而且"有意改动"的记录**不会跟着提交走**。
+    改系统提示词时的正确姿势：改 md → 跑三份 verifier → 把差异连同"为什么"写进本机那份清单 → 刷夹具。
+17. ⚠️ **轮询式 flaky**：`tests/webgui/test_bond_chain_readahead.py` 与 `test_bond.py` 里几个用例靠
+    `_wait(cond, timeout=10)` 等异步状态, 而**标注 lane 的 LLM 调用会落在"采样之后、断言之前"**
+    （用例自己的注释就写着"单独跑绿、两域同跑红"）。判据: **同一条命令连跑 3 次, 过/挂/过 = flaky**,
+    别改自己的代码去迁就它。
 
 ---
 
@@ -294,13 +328,27 @@ python experiments/recall_report.py
 - **线 B 已裁不做**：`core`→`engine` 改名（§5b 第 1 条有代价）· `contract/` 那 11 个平铺件分族 ·
   `tests/` 归属重划 · `bond.js` 拆分（作者：那坨山暂时不拆）· `err404.html` 的 CSS 抽出（页面已被蓝屏取代）。
   ⛔ **`CLAUDE.md` 不再当活入口**（已归档到 `docs/archive/`，别再往仓根写它）。
-- **线 B 正在做（逐包导览，字母序）**：`affection` ✓ → `bond` ✓ → `brain`（顶层十个文件 ✓ ·
-  `read/` ✓ · `core/brain/.md` ✓ 并删掉三份旧文档）→ **下一站 `core/creep/`**（3 个文件，很小），
-  之后 `digest` → `director` → `media` → `mmt` → `parsing` → `promptkit` → `rag` → `random_events` →
-  `session` → `worldtime` → `core` 根三件。每包固定做法：① token 级工具剥装饰符号 ② 顶部 docstring
-  重写 ③ 去掉"用户裁 / 拍板"表述 ④ 顺手修同类类型错 ⑤ 值得的包写 `<pkg>/.md` ⑥ 两域测试 + ruff + 一个提交。
-- **线 B 还没做**（都可选）：文档那一趟（`README.md` / `TODO.md` / `CLAUDE_OPTIMIZE.md` /
-  `DESIGN_BRAIN.md` / `docs/*` 里的**旧包名** `apps/` `renderer/` `core/common` `contract/schema.py`
-  —— 代码 / 测试 / 命令侧都改完了，只剩这些文档；作者的话是"产品没定稿，README 等最后定稿"）·
-  `webgui/store.DEFAULTS` 与各领域默认值"两处写" · `webgui/bond/state.py` 那 3 处 `object` 注解 ·
-  作者手改的 `bond_progress.py` 保存好之后**补跑一次主树全量**（绕行办法见 §5b 第 9 条）。
+- **线 B 逐包导览：已收官（2026-10-17）**。字母序走完 `affection` ✓ `bond` ✓ `brain`（顶层 + `read/`）✓
+  `creep` ✓ `digest` ✓ `media` ✓ `mmt` ✓ `promptkit` ✓ `rag` ✓ `random_events` ✓ `session` ✓
+  `worldtime` ✓ —— 只剩 **`core` 根下 `display.py` / `streaming.py`**（作者看过了: 两个都没 bug）。
+  每包做法固定：① 剥装饰符号 ② 顶部 docstring 重写 ③ 去"用户裁/拍板" ④ 顺手修同类类型错
+  ⑤ 值得的写 `<pkg>/.md` ⑥ 两域测试 + ruff + 一个提交。
+  有两处**按作者要求收窄了范围**：`digest` / `media` / `mmt` / `promptkit` 只修类型 + 顶部 docstring
+  （包内注释清理**没做**）· `webgui/bond/` 只修类型（注释与结构不动）。
+- **线 B 还没做**（都可选）：`digest` / `media` / `mmt` / `promptkit` / `webgui/bond/` 的**注释清理**
+  （这几包只动了 docstring 与类型）· `webgui/bond/` 剩下的 Pylance 报错（作者会按文件贴过来，我只修类型）·
+  文档那一趟（`README.md` / `TODO.md` / `CLAUDE_OPTIMIZE.md` / `DESIGN_BRAIN.md` / `docs/*` 里的**旧包名**
+  —— 作者的话是"产品没定稿，README 等最后定稿"）· `webgui/store.DEFAULTS` 与各领域默认值"两处写" ·
+  上面 §5b 第 17 条那批 flaky 用例（改成"等队列排空"而不是 `sleep(0.2)`）· `core/brain/read/{channels,like}.py`
+  与 `realtime.py` 剩下的 `now: object`（要根治得先给 `age.py` 一个 `TsLike`，作者说往后放）。
+
+## 7. 作者口述的下一步方向（2026-10-17；与 §2 那张"记忆层的活"不是一回事）
+
+1. **前向导**（首次使用向导，前端）—— 把"填 API key / 选角色 / 选世界 / 试跑一句"收成一条龙；
+   注意 `settings.toml` 的唯一读入口是 `infra/settings.py`，向导要写配置就得走它（别自己 open 文件）。
+2. **打包 exe** —— 主要待解：`assets/` 与 `config/` 的体积与只读根（`paths.RESOURCE_ROOT` vs `APP_ROOT`）、
+   Python 运行时与 `node`（前端无构建步骤，但 `tests/webgui/js/*.test.js` 只在开发期用）、
+   `LM Studio / embedding 服务` 这类外部依赖在别人机器上没有时怎么降级（今天已经全链路可降级）。
+3. **架构优化** —— 已知的可动点：`webgui/bond/`（3550 行, 11 文件）的模块边界 · `digest/material.py`（877 行）
+   的料函数分组 · `core/mmt/engine.py`（2069 行）的循环与状态 · `contract/` 那 11 个平铺件
+   （曾裁"不分族", 若重开要先读 `docs/EXEC_RENAME.md` §8 的口径）。
