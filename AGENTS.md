@@ -84,6 +84,9 @@ contract → infra → llm → core → tui / webgui / cli
   同时驱动 prompt 渲染与结构校验）· `contract/schema/`（LLM 可见文本的渲染）。
 - LLM 可见文案是**数据，不是代码**：`contract/{schema,digest}/prompts/*.md` ·
   `llm/prompts/*.md`。代码只负责取哪份、填什么槽、怎么拼。
+- **每个调用点的 system / user 到底长什么样**（段序 + 形状样例 + 每段出处）见
+  [`docs/PROMPT_SAMPLES.md`](docs/PROMPT_SAMPLES.md)；装配真源是 `core/promptkit/box.py` 的
+  `DOMAIN_BOXES` 与 `tail.py` 的 `round_messages`。
 - **示例才是形状的来源**：改规则书时必须同批改示例，否则模型只学会示例那个形状。
 - 改完跑本机三份逐字节判据（`.testtmp/verify_1c.py` · `capture_prompts_1d.py` ·
   `capture_1e.py`，无参数即 check，退出码 0 = 没有计划外差异）。有意的改动要写进
