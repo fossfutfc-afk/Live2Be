@@ -116,7 +116,9 @@ contract → infra → llm → core → tui / webgui / cli
 优先级：构造参数 > settings.toml > `.env` > 默认。
 
 环境开关：`LIVE2BE_IMAGE=off`（生图硬关；测试会话默认关）· `LIVE2BE_SETTINGS`（改 settings
-路径，测试用）· `LIVE2BE_DIAG_LOG`（诊断日志落盘位置，`off` = 不落文件）。
+路径，测试用）· `LIVE2BE_DIAG_LOG`（诊断日志落盘位置，`off` = 不落文件）·
+`LIVE2BE_LOG=quiet|normal|verbose`（控制台详略；默认 normal = 轮询/静态请求不打印，
+文件始终全量 —— 见 `infra/logsetup.py`）。
 
 ---
 
@@ -193,8 +195,8 @@ contract → infra → llm → core → tui / webgui / cli
 环境：解释器 `C:\Users\johnf\miniconda3\envs\live2be\python.exe`（conda env `live2be`；
 conda `base` 里没有 jieba，用 base 跑测试会挂）· `node` v24 在（前端测试用）。
 
-当前基线（2026-10-17）：`tests/core` **1282 passed** · `tests/llm+tui+webgui` **208 passed** ·
-`ruff check .` **366**。
+当前基线（2026-10-17）：`tests/core` **1286 passed** · `tests/llm+tui+webgui` **208 passed** ·
+`ruff check .` **365**。
 
 已知缺口：
 

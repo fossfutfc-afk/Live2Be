@@ -15,76 +15,19 @@ from __future__ import annotations
 
 import logging
 import re
-from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, Response
 from starlette.staticfiles import StaticFiles
 
-from infra import paths, settings
+from infra import logsetup, paths, settings
 
-# 根日志配置（2026-09-08）: uvicorn 只配自己的 access/error logger——live2be.* 的
-# INFO 埋点（bond_gen / bond_anno / llm chat …）此前从不输出, 排查全靠盲猜。
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(name)s %(levelname)s %(message)s",
-    datefmt="%H:%M:%S",
-)
-# httpx 每请求一行太吵——压到 WARNING, 让 live2be.* 埋点可读
-logging.getLogger("httpx").setLevel(logging.WARNING)
-
-
-def _setup_file_logging() -> None:
-    """诊断日志落盘（2026-09-09, 用户拍板: 排障留痕不进事件流）:
-
-    events.jsonl 是 append-only 唯一真源——错误/诊断**不进事件流**（会被
-    window_messages/digest/回放消费, 污染 LLM 上下文与记忆）;
-    旁路文件 data/diag/live2be.log 挂 root logger（INFO+, 单行可 grep:
-    bond_gen/bond_anno/bond_cand/bond_finish/羁绊剧情收尾回复失败/llm chat…
-    自动积累, 历史问题从此有据可查）。目录 gitignore; 创建失败静默降级。
-
-    **路径可覆盖（2026-09-11）**: 环境变量 `LIVE2BE_DIAG_LOG` 指定落盘文件,
-    值为 `off`/`0` = 不落文件。测试与浏览器冒烟导入本模块时会把日志重定向到
-    `.testtmp`——否则**测试的噪音会混进真机诊断日志**（2026-09-11 就因此把
-    "settings reasoning_effort 非法: 'turbo'"（来自 tests/llm 的非法值用例）
-    误读成用户配置问题; 同类的还有 ScriptedLLM 脚本耗尽）。
-    """
-    import os
-
-    target = os.environ.get("LIVE2BE_DIAG_LOG", "").strip()
-    if target.lower() in ("off", "0", "none", "disable"):
-        return
-
-    class _NoNoise(logging.Filter):
-        """排除每请求高频噪音（uvicorn access / httpx）——只留业务埋点。"""
-
-        def filter(self, record: logging.LogRecord) -> bool:
-            name = record.name
-            return not (name.startswith("httpx")
-                        or name.startswith("uvicorn")
-                        or name.startswith("werkzeug"))
-
-    try:
-        log_file = (Path(target) if target else paths.DIAG_LOG_PATH)
-        log_file.parent.mkdir(parents=True, exist_ok=True)
-        handler = logging.FileHandler(log_file, encoding="utf-8", mode="a")
-        handler.setLevel(logging.INFO)
-        handler.addFilter(_NoNoise())
-        handler.setFormatter(logging.Formatter(
-            "%(asctime)s %(name)s %(levelname)s %(message)s",
-            datefmt="%Y-%m-%d %H:%M:%S"))
-        root = logging.getLogger()
-        root.addHandler(handler)
-        root.setLevel(logging.INFO)
-        # 配置读坏了要说一声（从前 9 个读者各读各的，5 个完全静默 ⇒ 用户改了不生效也不知道）
-        if settings.last_error():
-            logging.getLogger(__name__).warning(
-                "settings.toml 没用上（用默认值跑）: %s", settings.last_error())
-    except Exception as e:                           # noqa: BLE001 — 降级不阻断
-        logging.warning("diag 日志文件不可用（降级控制台）: %s", e)
-
-
-_setup_file_logging()
+# 控制台短、文件全（形态与理由见 `infra/logsetup.py`）——必须在 routers import 之前配好,
+# 否则那批模块的 logger 已按默认（无 handler）初始化。
+logsetup.setup()
+if settings.last_error():
+    logging.getLogger(__name__).warning(
+        "settings.toml 没用上（用默认值跑）: %s", settings.last_error())
 
 from webgui.routers import (
     bond,
