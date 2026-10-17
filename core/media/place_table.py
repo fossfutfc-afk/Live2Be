@@ -487,7 +487,9 @@ def _parse(raw: object, path: Path) -> PlaceTable:
         if not place:
             bad += 1
             continue
-        files = v.get("files") if isinstance(v.get("files"), dict) else {}
+        files = v.get("files")
+        if not isinstance(files, dict):        # 没有 files 段（或形状不对）⇒ 空表
+            files = {}
         entries[place] = PlaceEntry(
             place=place,
             region=str(v.get("region") or "").strip(),
