@@ -288,7 +288,10 @@ def _attach_memorial(scenes: list[dict], per_board: dict[int, dict],
         scene = item.get("scene")
         if not isinstance(scene, dict):
             continue
-        info = per_board.get(item.get("seq"))
+        seq = item.get("seq")
+        if not isinstance(seq, int):             # 形状不对的项跳过（= 查不到, 下面那支不执行）
+            continue
+        info = per_board.get(seq)
         if info is not None:
             scene["in_memorial"] = True
             if info.get("img"):

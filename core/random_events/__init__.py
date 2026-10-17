@@ -48,8 +48,8 @@ def fire_event(name: str, ctx: dict[str, Any], rng=None) -> str | None:
     if spec is None:
         return None
     round_no = int(ctx.get("round", 0) or 0)
-    cooldowns: dict[str, int] = ctx.get("_cooldowns")
-    if cooldowns is None:
+    cooldowns = ctx.get("_cooldowns")
+    if not isinstance(cooldowns, dict):        # 没传 / 传了个怪东西 → 就地新建一份
         cooldowns = {}
         ctx["_cooldowns"] = cooldowns
     last = cooldowns.get(name, -spec.cooldown)
