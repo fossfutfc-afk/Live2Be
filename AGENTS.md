@@ -40,9 +40,9 @@ contract → infra → llm → core → tui / webgui / cli
 | `infra/` | 路径五个根 · settings 唯一读口 · 原子写 · 融合形状 | [`infra/.md`](infra/.md) |
 | `llm/` | 传输层：客户端 / 档位 / 重试 / 生图 / 文案仓库 | [`llm/.md`](llm/.md) |
 | `core/` | 领域引擎 —— 判定都在这儿 | [`core/.md`](core/.md) |
-| `tui/` | 终端表现层（原名 `renderer/`） | [`tui/.md`](tui/.md) |
-| `webgui/` | 网页壳 + 前端（无构建步骤） | [`webgui/.md`](webgui/.md) |
-| `cli/` | 面向人的入口（原名 `apps/`） | [`cli/.md`](cli/.md) |
+| `tui/` | 终端表现层（原名 `renderer/`），是**库**：`webgui` 也借它的 `effects` | [`tui/.md`](tui/.md) |
+| `webgui/` | 网页壳 + 前端（无构建步骤）—— **唯一的产品壳** | [`webgui/.md`](webgui/.md) |
+| `cli/` | 终端**调试**入口（原名 `apps/`）：不追 webgui 行为 | [`cli/.md`](cli/.md) |
 
 另外：`tests/`（按域分 `core/ llm/ tui/ webgui/` + `fixtures/`）· `config/`（人设与世界观）·
 `data/`（运行时真源，gitignore）· `assets/`（素材，gitignore）· `docs/`（设计稿与执行记录）·
@@ -193,7 +193,7 @@ contract → infra → llm → core → tui / webgui / cli
 环境：解释器 `C:\Users\johnf\miniconda3\envs\live2be\python.exe`（conda env `live2be`；
 conda `base` 里没有 jieba，用 base 跑测试会挂）· `node` v24 在（前端测试用）。
 
-当前基线（2026-10-17）：`tests/core` **1280 passed** · `tests/llm+tui+webgui` **208 passed** ·
+当前基线（2026-10-17）：`tests/core` **1282 passed** · `tests/llm+tui+webgui` **208 passed** ·
 `ruff check .` **366**。
 
 已知缺口：
@@ -221,5 +221,8 @@ conda `base` 里没有 jieba，用 base 跑测试会挂）· `node` v24 在（�
   生产路径上永远 grep 不到（流式路径尤其）。
 - **镜像防漂移**：prompt 里描述的形态必须与渲染器**同源**。
 - **宁缺勿错**：异步 / 标注 / 存档失败一律静默降级，绝不阻断剧情推进或落库主链。
+- **产品只有一个壳**：产品形态只有 `webgui/`；`cli/` 是调试入口，**不追 webgui 的行为**
+  （预生成、标注 lane、插嘴、回放、群聊都不在 CLI 实现）。唯一例外：喂给模型的文案必须
+  单源（`core/` 里那一份），壳里不许另写。
 - **能不让 LLM 做的不让 LLM 做**：断句、情绪、地点、状态、动作名 —— 引擎能定的引擎定，
   LLM 只保留创作裁决。

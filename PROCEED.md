@@ -4,7 +4,7 @@
 > ⚠️ **`git status` 里常年挂着几份"作者手改未提交"的文件**（2026-10-17 时是
 > `config/settings/relation/interperson.yml` · `infra/fuse.py`）——
 > 那是**作者的改动, ⛔ 不是脏改动**, 别 `checkout` 掉、也别卷进提交（`git add` 一律写显式路径）。
-> 现状：`tests/core` **1280 passed** · `tests/llm+tui+webgui` **208 passed**（⚠️ **按域分开跑**, 见 §5 坑 4）·
+> 现状：`tests/core` **1282 passed** · `tests/llm+tui+webgui` **208 passed**（⚠️ **按域分开跑**, 见 §5 坑 4）·
 > 三份 verifier 全 exit 0 · ruff **366**（基线，`AGENTS.md` §7 同步）· 真机数据未动。
 > ⚠️ **两域里各有几个轮询式 flaky**（靠 `_wait(cond, timeout=10)` 等异步状态的那类）: 机器一忙就超时,
 > 单跑常绿 ⇒ 别急着怀疑自己刚改的代码, 见 §5b 第 17 条。
@@ -190,6 +190,8 @@ python experiments/recall_report.py
 | `23210a18` | **`webgui/bond/` 第一刀**：`_place_done` 是**动态属性**（6 处赋值 / 12 处 `getattr` 读）⇒ 在 `BondScene` 上按 `_streamed` 的先例声明 · `state.scene_obj`/`vn` 的"先赋值再读"窄化失效 ⇒ 局部变量接住 · lanes 两个 worker 的队列与 vn 取一次局部 |
 | `fbb59708` | **`webgui/bond/` 第二刀**：又两个动态属性（`_call_id` / `_from_draft`）· `_generate` 声明 `-> bool` 却**漏 return True**（调用方把"启动了"读成"没启动"）· `replay.open_attempt` 改成**交回新段**（闭包 `nonlocal` 窄化不了） |
 | `a4282426` | ⭐ **MMT 静默行 `{"text": ""}`**：她可以这一轮完全不发消息（玩家把话拆几条发、还没说完时"等下一句"）。空串是**唯一**合法写法（`null`/空白串仍按坏行丢, 文案教它写空串）· 不算空轮/不算失败 · 轮数照算 · **玩家那句话补进历史**（不补这功能就没意义）· `TurnResult.silent` |
+| `4e16e3ed` | **CLI 的 VN 分支不落事件流**（`cli/main.py` 调 `run_bond_story_vn` 没传 `store` ⇒ `vn_enter`/每场 bond/`commit_staging`/`finish` 全被跳过, 跑起来一切正常）。补 `store=engine._store` + AST 守门（漏参数 / 传 None 两个方向都证过会红） |
+| `d4e07363` | ⭐ **收束注记单源化**：CLI 那两句还在教 v1 的 `story_end` 动作（v2 记录流里没有它）⇒ 新建 `core/bond/bond_story/closing.py`（`REMIND_ROUNDS`/`END_ROUNDS` + `closing_notes`）, 两壳都调它; 顺带补上 CLI 缺的"余量 2 场每场强制" · 守门钉住"这三句只许在一处" |
 
 ---
 
@@ -328,6 +330,13 @@ python experiments/recall_report.py
 - **线 B 已裁不做**：`core`→`engine` 改名（§5b 第 1 条有代价）· `contract/` 那 11 个平铺件分族 ·
   `tests/` 归属重划 · `bond.js` 拆分（作者：那坨山暂时不拆）· `err404.html` 的 CSS 抽出（页面已被蓝屏取代）。
   ⛔ **`CLAUDE.md` 不再当活入口**（已归档到 `docs/archive/`，别再往仓根写它）。
+- ⭐ **`cli/` 定位（2026-10-17 定）**：**产品只有一个壳 = `webgui/`**；`cli/` 是调试入口,
+  **不追 webgui 的行为**（预生成 / 标注 lane / 插嘴 / 回放 / 群聊都不在 CLI 实现, 落后不算 bug）。
+  评估过并否决的两个方案: ① `tui/` + `cli/` 合并改名 `clitui/`（约 168 处引用 / 半天,
+  只买名字; 且会让 `webgui → tui.effects` 变成"壳借壳", 除非先把 `effects.py` 下沉到 `core/`）
+  ② 抽一层 `ChapterSession` 给两壳共用（那 471 行编排是提前抽象, 真要做等群聊带来第二个消费者）。
+  **唯一保留的双份义务 = 喂给模型的文案必须单源**（先例 `core/bond/bond_story/closing.py`）。
+  细节见 `cli/.md`; 这两条已写进 `AGENTS.md` §8「产品只有一个壳」。
 - **线 B 逐包导览：已收官（2026-10-17）**。字母序走完 `affection` ✓ `bond` ✓ `brain`（顶层 + `read/`）✓
   `creep` ✓ `digest` ✓ `media` ✓ `mmt` ✓ `promptkit` ✓ `rag` ✓ `random_events` ✓ `session` ✓
   `worldtime` ✓ —— 只剩 **`core` 根下 `display.py` / `streaming.py`**（作者看过了: 两个都没 bug）。
