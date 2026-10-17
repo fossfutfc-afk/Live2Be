@@ -162,6 +162,10 @@ def _generate(state: BondState, char_id: str, session_id: str, user_input: str) 
                              else BondScene(paragraphs=list(_CLOSING_PARA),
                                             is_end=True))
                 else:
+                    vn = state.vn
+                    if vn is None:                  # 既没演示剧本也没引擎（调用方已挡）——作废
+                        state.error = "剧情引擎未就绪"
+                        return
                     # 渐进渲染（P2-1 前置）: 引擎在**流式**中把已闭合的板交回来——
                     # 首板不必等整块写完（实测省 ~4-5s 首屏等待）。落地一次即止
                     # （`_streamed` 标记让下面的统一落地跳过它）。
@@ -178,7 +182,7 @@ def _generate(state: BondState, char_id: str, session_id: str, user_input: str) 
                         logger.info("bond_stream_first %s/%s dur=%dms",
                                     char_id, session_id, _ms_since(t0))
 
-                    scene = state.vn.send_vn_scene(
+                    scene = vn.send_vn_scene(
                         user_input, system_note=_system_note(state), annotate=False,
                         on_memorial_prompt=_make_memorial_cb(
                             state, char_id, session_id),
@@ -251,6 +255,7 @@ def _generate(state: BondState, char_id: str, session_id: str, user_input: str) 
     th = threading.Thread(target=run, daemon=True)
     state._gen_thread = th                          # 看门狗存活判定用
     th.start()
+    return True
 
 
 def _pregenerate(state: BondState, char_id: str, session_id: str) -> None:
@@ -326,7 +331,10 @@ def _pregenerate(state: BondState, char_id: str, session_id: str) -> None:
 
         try:
             with chat._lock(char_id):
-                scene = state.vn.send_vn_scene(
+                vn = state.vn
+                if vn is None:                       # 引擎被换/清掉（不该发生）——这块作废
+                    return
+                scene = vn.send_vn_scene(
                     "（继续）", system_note=_system_note(state), annotate=False,
                     # ⭐ `readahead`（2026-10-08 链式读前）: 槽位有人时 = **强制再写一块**
                     #    （跳过"领队列"早返回）。没有这个开关, 读前调用只会把队列里的板
@@ -360,6 +368,9 @@ def _pregenerate(state: BondState, char_id: str, session_id: str) -> None:
                 with state._lock:
                     if _board_epoch_stale(state, epoch, char_id, session_id, "pregen"):
                         return
+                    vn_now = state.vn
+                    if vn_now is None:               # 引擎被换/清（不该发生）——这块作废
+                        return
                     if state.pregen_obj is None:
                         state.pregen_obj = scene
                         state.pregen_scene = scene.to_dict()
@@ -368,7 +379,7 @@ def _pregenerate(state: BondState, char_id: str, session_id: str) -> None:
                         # ⭐ 链式读前（2026-10-08）: **槽位有人**（玩家还没读到那一块）
                         #    ⇒ 这一块的首板**排到队尾**, 绝不顶掉正在服务的那一块。
                         #    （没有这一支, 读前生成会把玩家眼前的下一板换掉。）
-                        state.vn._pending_boards.append(scene)
+                        vn_now._pending_boards.append(scene)
                         logger.info("bond_pregen_queued in_hand=%d %s/%s",
                                     _in_hand_boards(state), char_id, session_id)
                 # 标注入队: ⭐ 读前落地时把这一块的**每块板**都排上（不只是首板）——
@@ -541,8 +552,11 @@ def _candidate_worker(state: BondState, cand: ChoiceCandidate,
     """候选支生成线程: fork 引擎预生成下一板（同步标注）; 写回带池身份检查。"""
     t0 = time.monotonic()                     # 计时埋点（§6.1）
     epoch = state.board_epoch                 # ○C8c: 出生世代（落地前复核）
+    engine = cand.engine
+    if engine is None:                        # fork 引擎没建起来（不该发生）→ 这次候选空转
+        return
     try:
-        scene = cand.engine.send_vn_scene("（继续）", annotate=True)
+        scene = engine.send_vn_scene("（继续）", annotate=True)
         with state._lock:
             # 池身份 + 世代双检: 已被换板/作废/丢弃 → 结果丢弃（孤儿, 不可达即 GC）
             if (any(c is cand for c in state.choice_candidates)

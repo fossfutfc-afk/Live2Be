@@ -74,6 +74,11 @@ class BondScene:
     #: 置它 = "视觉键这条路对这块板已经走完", 所以推进门控才肯放行; 回放 / 分支 / 候选
     #: 这些"键已定格"的板直接置 True, 不占 lane（读侧一律 `getattr(scene, "_place_done", False)`）。
     _place_done: bool = False
+    #: 运行时标记: 这块板由**哪一次生成调用**写出（短 id, 台账/草稿旁路读它）——不进序列化。
+    #: 空串 = 不知道（0 LLM 领出来的板沿用产出它那一次调用的 id）。
+    _call_id: str = ""
+    #: 运行时标记: 这块板是从**草稿旁路**灌回来的（交付台账据此打 `src=draft`）——不进序列化。
+    _from_draft: bool = False
 
     @classmethod
     def from_board(cls, records: tuple, group: tuple[int, ...] = (), *,

@@ -117,6 +117,9 @@ class BondState:
     #: `test_discard_boards_is_traceless` 偶发红就是这条竞态（单跑常绿）。
     #: 与 `_call_id` 同款思路: **产者盖章、落地处复核**。
     board_epoch: int = 0
+    #: 本次生成调用的台账短 id（2026-09-11）: 打给这一块产出的每一板, 交付台账据此
+    #: 回答"这一板是哪次调用写的"。0 LLM 路径为 `-`。
+    _call_id: str = ""
     error: str = ""
     completed: bool = False             # 剧情已终结（is_end 自然收尾 → True）
     #: 上次是**中途退出**（`vn_exit completed=False`）——进入时由
