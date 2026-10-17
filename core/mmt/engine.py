@@ -479,6 +479,7 @@ class _LineOutcome:
     need_more: bool = False      # ⭐ 查询族（`look`）查完 → 这一轮还要接着说（带着结果说话）
     fatal: str = ""              # 办不了 ⇒ 未交付时：行级续写（回灌）; 已交付时：只记账（⑥-3a）
     dropped: str = ""            # 丢了软操作行 ⇒ 记账 + 下一轮注记
+    silent: bool = False         # ⭐ 本轮出现过静默行（`{"text": ""}`）⇒ "没交付"不算失败
 
 
 #: 行办不了的原因文案 —— **唯一出处**（⑥-3a: 流式与批式两条路共用, 免得措辞漂;
@@ -503,6 +504,7 @@ class _Planned:
     action: AgentAction | None = None
     why: str = ""                # 办不了的原因（`_line_failure` 统一措辞）
     message: str = ""            # 执行回执（查询族的回灌要读它 —— AUDIT §B9）
+    silent: bool = False         # ⭐ 静默行（`{"text": ""}`）: 这一轮她不发消息
 # ⛔ ~~羁绊剧情时机建议线~~（2026-09-02 v2 用户拍板: 引擎建议不拦截）—— **已随 P16 封印
 # 退役**（2026-10-08 用户裁决"封印一下/删除"）: 引擎不再按轮次对触发时机表态。
 # 常量**留着**只为一件事: 让"封印"这件事可被引用/可被守门（`test_mmt_trigger_note_sealed`
@@ -567,6 +569,8 @@ class TurnResult:
     payload    — 最后一个动作的干净 payload（GUI 可渲染媒体等）
     actions    — 动作列表视图 [{action, reply, payload}]（GUI 依序渲染媒体/切换, 2026-08-23）
     bond_story — True = 触发羁绊剧情成功, 调用方应切换到羁绊剧情模式
+    silent     — ⭐ 这一轮她**故意没发消息**（`{"text": ""}`）: ok=True 而 steps 为空。
+                 调用方据此**别当失败/别重试**, 前端也别留"正在输入"的残影
     error      — ok=False 时的原因（预留; 当前异常走 MmtLoopError）
     """
     ok: bool = True
@@ -576,6 +580,7 @@ class TurnResult:
     payload: dict = field(default_factory=dict)
     actions: list[dict] = field(default_factory=list)
     bond_story: bool = False
+    silent: bool = False
     error: str = ""
 
 
@@ -1543,6 +1548,7 @@ class MomoTalkEngine:
             dropped: list[str] = []            # 本步丢掉的软行（记账）
             deferred: list[MmtLine] = []       # 独占行（块尾判）
             step_notices: list[MmtLine] = []   # ⭐ 本步的想起行（账目, 块尾并入本轮）
+            silent_row = False                 # ⭐ 本步见过静默行（`{"text": ""}`）
 
             def _finish() -> TurnResult:
                 """**本轮唯一的成功出口**（两条 return 都走它）——账目在这里并入。
@@ -1558,7 +1564,11 @@ class MomoTalkEngine:
 
             def _plan_row(ln: MmtLine) -> None:
                 """**真正办理**压着的行（自愈 → parse → 执行 → 交付）。"""
+                nonlocal silent_row
                 planned = self._plan_line(ln, step=step)
+                if planned.silent:                 # ⭐ 静默行: 不交付, 但这一轮不是失败
+                    silent_row = True
+                    return
                 if planned.action is None:
                     dropped.append(planned.why)
                     logger.info("行协议: 丢掉办不了的行（下一轮注记）: %s", planned.why)
@@ -1683,9 +1693,12 @@ class MomoTalkEngine:
             if dropped:
                 outcome.dropped = "; ".join(
                     x for x in (outcome.dropped, "; ".join(dropped)) if x)
-            if not delivered and not outcome.fatal and not outcome.need_more:
+            if (not delivered and not outcome.fatal and not outcome.need_more
+                    and not silent_row and not outcome.silent):
                 # ⚠️ `need_more` 排除在外：查询族（`look`）是**静默推理轮**，那一轮本来就
                 #    不产出可见内容（"没有可交付的行"不是失败）。
+                # ⚠️ `silent_row` / `outcome.silent` 同理：显式静默行（`{"text": ""}`）
+                #    是**她决定不发消息** —— 那是正常结果, 不能当"没产出内容"。
                 outcome.fatal = f"本轮没有产出任何可见内容（{outcome.dropped or '没有可交付的行'}）"
 
             if outcome.fatal:
@@ -1750,6 +1763,8 @@ class MomoTalkEngine:
             self._trace.append({"step": step, "action": "mmt_chat", "summary": "",
                                 "reply": ln.text, "payload": {}, "parse_valid": True,
                                 "parse_errors": []})
+            if not ln.text:                       # ⭐ 静默行: 这一轮她不发消息
+                return _Planned(silent=True)
             return _Planned(action=_text_action(ln))
         fixed, note = repair_line(ln)
         if fixed is None:
@@ -1833,14 +1848,18 @@ class MomoTalkEngine:
 
         # ---- ③ parse + 执行（**顺序 = 行序**）-------------------------------
         plan: list[AgentAction] = []                     # 交付计划（保持行序; 已统一成动作）
+        silent = False                                   # 本轮见过静默行
         for ln, fixed in repaired:
             if fixed is None:                        # ① 里已记账的软丢行
                 continue
             if fixed.is_text:
-                plan.append(_text_action(fixed))
                 self._trace.append({"step": step, "action": "mmt_chat", "summary": "",
                                     "reply": fixed.text, "payload": {}, "parse_valid": True,
                                     "parse_errors": []})
+                if not fixed.text:                   # ⭐ 静默行: 不造动作、不交付
+                    silent = True
+                    continue
+                plan.append(_text_action(fixed))
                 continue
             planned = self._plan_line(fixed, step=step)
             if planned.action is None:
@@ -1871,9 +1890,14 @@ class MomoTalkEngine:
             delivered.append(act)
 
         if not delivered:                            # 全被丢光（如只有一张空描述的图）
+            if silent:                               # ⭐ 静默轮: 她故意不发消息, 不是失败
+                out.silent = True
+                out.dropped = "; ".join(droppable)
+                return out
             out.fatal = f"本轮没有产出任何可见内容（{'; '.join(droppable)}）"
             return out
         out.dropped = "; ".join(droppable)
+        out.silent = silent
         return out
 
     def _deliver_line(self, action: AgentAction, *, user_input: str,
@@ -1977,16 +2001,26 @@ class MomoTalkEngine:
                 steps.extend(display.publish_line(reply))     # ⭐ 一行一个气泡（不切句）
             actions_view.append({"action": action.action, "reply": reply,
                                  "payload": dict(action.payload)})
+        if not delivered and record_input:
+            # ⭐ 静默轮: 一行都没交付 ⇒ `_deliver_line` 里"记玩家这句"那条路没跑到。
+            # 但**玩家这句话必须进历史**: 不然"等她下一句"这个功能没意义 ——
+            # 玩家把一句话拆成几条发, 下一句来时模型得连着读。
+            # （只补 user, 不补 assistant: 她这轮确实什么都没说, 历史里不留空壳。）
+            self._history.append({"role": "user", "content": user_input})
         self._trim_history()
         if self._current_char is not None:
             self.bond_progress.record_turn(self._current_char.character_id)
         self._advance_round(self._char_id)
         self._maybe_mmt_digest()
-        last = delivered[-1]
+        # ⭐ 静默轮（`{"text": ""}`）: `delivered` 是空的 —— 这一轮**什么都不发**,
+        # 但轮数照算（它确实是一次交互, 见 `_advance_round`）。别在这里补兜底话。
+        last = delivered[-1] if delivered else None
         return TurnResult(
             ok=True, steps=steps, reply="\n".join(reply_blocks),
-            action=last.action, payload=dict(last.payload),
+            action=last.action if last is not None else "",
+            payload=dict(last.payload) if last is not None else {},
             bond_story=any(a.action == ACTION_TRIGGER for a in delivered),
+            silent=last is None,
             actions=actions_view)
 
     def _advance_round(self, char_id: str) -> None:

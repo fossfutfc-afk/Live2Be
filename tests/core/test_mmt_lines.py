@@ -43,6 +43,28 @@ def test_line_shapes():
     print("    lines: text 行 / action 行形状（strip / payload 可省）")
 
 
+def test_silent_line_is_empty_string_only():
+    """静默行: **只有空串**是"这一轮不发消息"; `null` / 空格 / 换行照旧算写坏了。"""
+    line, why = line_from_obj({"text": ""})
+    assert why == "" and line is not None and line.is_text and line.text == ""
+
+    # 空白串: 形状上**不留余地**（否则"想说话但只打了空格"会被当成故意沉默）
+    for blank in (" ", "   ", "\n", "\t\r\n"):
+        line2, why2 = line_from_obj({"text": blank})
+        assert line2 is None and "不能为空" in why2, (blank, why2)
+
+    # null 走**类型错**那条路（模型的"写漏字段"必须响，不能被静默吞掉）
+    line3, why3 = line_from_obj({"text": None})
+    assert line3 is None and "必须是字符串" in why3, why3
+    assert '{"text": ""}' in why3, "报错要教它唯一合法写法"
+
+    # 走行骨架也一样: 空串行留、null 行丢并记账
+    lines, diags = parse_lines(['{"text": ""}', '{"text": null}'])
+    assert [x.text for x in lines] == [""]
+    assert len(diags) == 1 and diags[0].dropped
+    print("    lines: 静默行 = 空串（null / 空白串仍是坏行）")
+
+
 def test_shape_violations_dropped_with_diag():
     cases = [
         ({"text": "x", "action": "mmt_send_media"}, "同时含"),
