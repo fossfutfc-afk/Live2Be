@@ -36,6 +36,9 @@ from core.bond.bond_story import (
     BondScene,
     SceneLoopError,
 )
+from core.bond.bond_story.closing import END_ROUNDS as _END_ROUNDS
+from core.bond.bond_story.closing import REMIND_ROUNDS as _REMIND_ROUNDS
+from core.bond.bond_story.closing import closing_notes  # 收束注记唯一来源（cli 同一份）
 from webgui import chat, deps
 from webgui.bond.memorial import (
     _ensure_memorial_img,
@@ -66,12 +69,6 @@ _CLOSING_PARA = [{"text": _CLOSING_TEXT, "emotion": "nomal"}]
 
 
 MAX_GEN_FAILURES = 3
-
-
-_REMIND_ROUNDS = 30
-
-
-_END_ROUNDS = 50
 
 #: ⭐ **链式读前**（2026-10-08 用户裁决: *"我们明明可以一条链直接生成完的吧，不用等待"*）——
 #: "手里还有几块**没被玩家读过**的板"低于这个数, 就**再写一块排到队尾**。
@@ -697,25 +694,7 @@ def _system_note(state: BondState) -> str | None:
     #    生成时它比"这一块实际将落在第几轮"小 `in_hand` 个 ⇒ 不补偿的话收束提示
     #    （`_REMIND_ROUNDS=30` / `_END_ROUNDS=50`）会晚 4 轮左右才出现。
     eff_round = state.round + _in_hand_boards(state)
-    if eff_round == _REMIND_ROUNDS:
-        notes.append(
-            f"（系统）剧情已推进 {eff_round} 轮，剩余约 {_END_ROUNDS - eff_round} 轮。"
-            "请开始把剧情向结尾收束——感情到位、约定达成、道别告别的时刻"
-            "就把本轮的**最后一条记录**写成 stage=end 收尾，不要再开新场景"
-            "不过也谨记这只是中段提示，你并不需要匆匆结尾，但是建议开始铺垫"
-        )
-    if eff_round == _END_ROUNDS:
-        notes.append(
-            "（系统）已达剧情篇幅上限。本轮请用 stage=end 收尾"
-            "结束剧情——收尾那一条 text 是收尾字段（可留空 = 直接黑屏退场）。"
-        )
-    if eff_round > _END_ROUNDS:
-        # 超限后的每轮强制（2026-09-09 取代旧 FORCE_AFTER closing——强制注记
-        # 引导自然收尾, 不做伪收场）
-        notes.append(
-            "（系统）剧情已远超篇幅上限。本轮**必须**把最后一条记录写成 stage=end"
-            "收尾结束剧情——不再开新场景、不再写新的铺垫。"
-        )
+    notes.extend(closing_notes(eff_round, _REMIND_ROUNDS, _END_ROUNDS))
     # ⭐ 未裁决选项（只对读前生成有意义 —— 见 `_pending_choice_note`）: 队列里没有
     #    未裁决选项时它返回 None ⇒ 老行为一字不变。
     _pn = _pending_choice_note(state)

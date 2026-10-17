@@ -238,7 +238,7 @@ def test_run_vn_early_exit(tmp_path):
 
 
 # ----------------------------------------------------------------------------
-# run_bond_story_vn 双层收尾兜底（调试值 15 提醒 / 22 建议收尾 / 24 硬兜底）
+# run_bond_story_vn 双层收尾兜底（调试值 15 提醒 / 22 上限 / 23~24 余量场场强制）
 # ----------------------------------------------------------------------------
 
 def _scenes(n: int, start: int = 1) -> list[str]:
@@ -247,8 +247,8 @@ def _scenes(n: int, start: int = 1) -> list[str]:
 
 
 def test_run_vn_two_layer_force(tmp_path):
-    """模型 24 轮仍不 is_end → 15 场提醒 / 22 场上限注记 / 耗尽 = 中断退出
-    （2026-09-09 CLI 对齐: 不再程序兜底伪收场——completed=False, 不落 story_end）。"""
+    """模型 24 轮仍不收尾 → 15 场提醒 / 22 场上限注记 / 23~24 场每场强制
+    （耗尽 = 中断退出, 2026-09-09 CLI 对齐: 不再程序兜底伪收场）。"""
     llm = ScriptedLLM(*_scenes(24))
     engine, st, sid = _store_engine(llm, tmp_path)
     completed = run_bond_story_vn(engine, input_fn=lambda p: "1", char_ms=0,
@@ -262,7 +262,8 @@ def test_run_vn_two_layer_force(tmp_path):
     assert len(notes[14]) == 1 and "剩余约 7 轮" in notes[14][0], notes[14]
     assert all(not n for n in notes[15:21]), "16~21 场不应注入注记"
     assert len(notes[21]) == 1 and "已达剧情篇幅上限" in notes[21][0], notes[21]
-    assert all(not n for n in notes[22:]), "23~24 场（余量）不应注入注记"
+    # 22 场之后的余量（2 场）每场强制收尾——不再留"无人管"的空档
+    assert all(len(n) == 1 and "stage=end" in n[0] for n in notes[22:]), notes[22:]
     evs = st.events(CHARACTER, sid)
     bond_n = [e for e in evs if e.type == "bond"]
     assert len(bond_n) == 24, f"24 场真实内容, 无兜底假收尾: {len(bond_n)}"
@@ -546,3 +547,20 @@ def test_main_app_injects_store_into_vn():
         assert not (isinstance(kw["store"], ast.Constant) and kw["store"].value is None), \
             f"第 {call.lineno} 行 store=None, 等于没传"
     print("    cli/main.py: VN 调用带 store（剧情落事件流）")
+
+
+def test_closing_notes_have_one_source():
+    """收束注记只能有一处: `core/bond/bond_story/closing.py`。
+
+    这两条文案曾经在 cli 与 webgui 各写一份（说是"逐字复制"），后来漂开成了
+    "CLI 一路在教 v1 的 story_end 动作"。哪个壳里再出现这些字 = 又抄了一份。
+    """
+    phrases = ("就把本轮的**最后一条记录**写成 stage=end",
+               "已达剧情篇幅上限", "剧情已远超篇幅上限")
+    holders = set()
+    for base in ("cli", "webgui", "core"):
+        for path in (ROOT / base).rglob("*.py"):
+            text = path.read_text(encoding="utf-8")
+            if any(ph in text for ph in phrases):
+                holders.add(path.relative_to(ROOT).as_posix())
+    assert holders == {"core/bond/bond_story/closing.py"}, holders

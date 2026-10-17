@@ -402,6 +402,7 @@ cli.vn_cli	WikiStoreV2	class	core.brain.store
 cli.vn_cli	_build_director	function	core.director.wiring
 cli.vn_cli	_speaker_names	function	cli.vn_cli
 cli.vn_cli	_trigger_title	function	core.director.wiring
+cli.vn_cli	closing_notes	function	core.bond.bond_story.closing
 cli.vn_cli	collect_ref_images	function	llm.image_gen
 cli.vn_cli	load_brain_segment	function	core.mmt.engine
 cli.vn_cli	logger	data	logging
