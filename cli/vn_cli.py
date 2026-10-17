@@ -24,6 +24,7 @@ import threading
 from pathlib import Path
 
 from core.bond.bond_story import BondScene, BondStoryEngine, SceneLoopError
+from core.bond.bond_story.closing import closing_notes
 from core.brain.store import WikiStoreV2
 from core.director.wiring import _build_director, _trigger_title  # C11: 接线层（webgui 也用它）
 from core.media.gallery import GalleryStore
@@ -130,10 +131,10 @@ def run_bond_story_vn(
         （测试环境友好）。
         gallery（GalleryStore）可注入（默认 data/）; memorial_seed 保留为历史参数。
 
-    双层收尾兜底（模型可能迟迟不改用 story_end 动作收尾）:
-        第 remind_rounds 场 → 注入系统注记「已推进 N 轮, 剩余约 M 轮」,
-                              引导 AI 开始向结尾收束;
-        第 end_rounds   场 → 注入系统注记「已达篇幅上限, 本轮务必改用 story_end 收尾」;
+    双层收尾兜底（文案在 `core/bond/bond_story/closing.py`, 与 webgui 同一份）:
+        第 remind_rounds 场 → 「已推进 N 轮, 剩余约 M 轮」, 引导开始收束;
+        第 end_rounds   场 → 「已达篇幅上限, 本轮请用 stage=end 收尾」;
+        余量 2 场          → 每场强制「必须 stage=end」;
         超过 end_rounds+2 场仍不结束 → **不再程序兜底伪收场**（2026-09-09 CLI
         对齐 webgui 中止语义: 中断/异常 ≠ 失败/完成）——completed=False 中断
         退出（不落 closing story_end, 章在押; 重进续写能力待 CLI resume 落地,
@@ -249,18 +250,9 @@ def run_bond_story_vn(
         # 2026-09-21: 原"纪念子模式 → 注入 memorial_exit 动作 schema"分支已随 v1 动作
         # 整族退役删除（v2 的纪念是**块内区间**——`stage:memorial` 之后到块尾, 没有
         # exit 动作; 引擎也只吃记录流, 注入动作 schema 会被打回重发）。
-        if i == remind_rounds:
-            system_note = (
-                f"（系统）剧情已推进 {i} 轮，剩余约 {end_rounds - i} 轮。"
-                "请开始把剧情向结尾收束——感情到位、约定达成、道别告别的时刻"
-                "就改用 story_end 动作收尾结束剧情，不要再开新场景"
-                "不过也谨记这只是中段提示，你并不需要匆匆结尾，但是建议开始铺垫"
-            )
-        elif i == end_rounds:
-            system_note = (
-                "（系统）已达剧情篇幅上限。本轮请改用 story_end 动作收尾"
-                "结束剧情——收尾场景只有 paragraphs，不再输出选项。"
-            )
+        closing = closing_notes(i, remind_rounds, end_rounds)
+        if closing:
+            system_note = "\n".join(closing)
 
         try:
             scene = vn.send_vn_scene(user_input, max_tokens=max_tokens, system_note=system_note)
