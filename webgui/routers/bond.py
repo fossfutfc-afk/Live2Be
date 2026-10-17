@@ -354,7 +354,8 @@ def _table_bg_url(key: str, asset: str = "") -> str | None:
             allowed = {r for r, _ in (e.image_candidates() if e else [])}
             rel = rel if rel in allowed else ""
         if not rel:
-            rel = t.get(key).asset() if t.get(key) else None
+            e = t.get(key)                       # 同一个键只查一次（两次 .get 类型系统对不上）
+            rel = (e.asset() if e is not None else "") or ""
         if not rel or rel.startswith(("/", "\\")) or ".." in rel:
             return None
         if not (paths.BACKGROUND_DIR / rel).is_file():

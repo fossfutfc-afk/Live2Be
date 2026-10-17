@@ -86,7 +86,19 @@ def _setup_file_logging() -> None:
 
 _setup_file_logging()
 
-from webgui.routers import bond, collection, menu, mmt, name, settings, spine
+from webgui.routers import (
+    bond,
+    collection,
+    menu,
+    mmt,
+    name,
+    spine,
+)
+
+# ⚠️ 别名: `settings` 这个名字属于 infra.settings（路由器那份遮蔽过它一次）
+from webgui.routers import (
+    settings as settings_router,
+)
 
 STATIC_DIR = paths.WEBGUI_STATIC_DIR
 MENU_DIR = paths.MENU_DIR
@@ -132,7 +144,7 @@ def gallery_png(world_id: str, char_id: str, scene_id: str) -> Response:
 # 路由注册（每域独立文件——铺路: 未来加域只加 import + include_router）
 app.include_router(menu.router)
 app.include_router(name.router)
-app.include_router(settings.router)
+app.include_router(settings_router.router)
 app.include_router(mmt.router)
 app.include_router(bond.router)
 app.include_router(collection.router)
