@@ -67,7 +67,32 @@ data/              首次运行自动创建（DATA_ROOT）
 | `/api/mmt/characters` | 200，列出角色与头像 URL（`config/` 读得到） |
 | 头像 `assets/illustration/…/collection.png` | 200，218 KB |
 | `data/diag/live2be.log` | 自动创建（`APP_ROOT` = exe 同级，可写） |
+| `/api/runtime/paths` | 200，五个根都报对（`data` = `<exe 同级>\data`） |
+| `/api/runtime/open` | 200，真打开了资源管理器；传 `C:/Windows` → 400（只认四个根） |
 | 前端关停 → `/api/shutdown` | 200 → 进程退出码 0 |
+
+启动横幅长这样（用户问"数据存哪儿"，答案就在这儿）：
+
+```
+02:53:17 web    WebGUI → http://127.0.0.1:8129/
+02:53:17 web       角色卡  …\dist\Live2Be\config
+02:53:17 web       素材    …\dist\Live2Be\assets
+02:53:17 web       数据    …\dist\Live2Be\data   （事件流 / 记忆 / 诊断日志）
+02:53:17 web       设置    …\dist\Live2Be\settings.toml
+```
+
+## 提权时浏览器会问"要不要用普通权限"（已修）
+
+现象：双击后 Edge 弹"有实例以提升的权限运行，是否以普通权限运行"，选"是"以后 **Edge 重启、
+刚打开的标签页连窗口一起没了**，只能手动敲 `127.0.0.1:8000`。
+
+原因：exe 自己的 manifest 是 `asInvoker`（我核过，不申请管理员），但**从管理员终端启动**时
+子进程继承了管理员令牌；再经 `os.startfile` 开 Edge，Edge 就带着管理员令牌起来了 —— 它自己
+会劝你降权重启。
+
+修法：`serve.open_browser()` 在**提权时改走 `explorer.exe <url>`**（explorer 跑在用户正常
+权限上，由它转交 URL）；`open_folder()` 同理。启动横幅也会打一行提醒。
+
 
 **最关键的一条**：塞假 key + `base_url=http://127.0.0.1:9/v1` 发一句话 —— 日志停在
 `LLM 调用失败: [WinError 10061] 目标计算机积极拒绝`，**没有 FileNotFound / KeyError**。

@@ -87,6 +87,16 @@
       <label>Base URL <input id="set-img-base" type="text" placeholder="https://api.apiyi.com"></label>
       <label>Model <input id="set-img-model" type="text" placeholder="gemini-3.1-flash-lite-image"></label>
     </div>
+    <div class="panel">
+      <h3>文件位置</h3>
+      <p class="hint">聊天记录、记忆、日志都在「数据」那一行（<code>data/</code>）。
+        想搬走就改 <code>settings.toml</code> 的 <code>[paths]</code> —— **改完要重启**。</p>
+      <dl id="paths-list" class="paths"><dd class="hint">读取中…</dd></dl>
+      <div class="row">
+        <button id="btn-open-data" class="small">打开数据目录</button>
+        <button id="btn-open-assets" class="small">打开素材目录</button>
+      </div>
+    </div>
     <div class="row">
       <button id="btn-save-settings">保 存</button>
       <button id="btn-back-main" class="link">返回主界面</button>

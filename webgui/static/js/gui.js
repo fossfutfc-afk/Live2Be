@@ -13,6 +13,10 @@ let _bgImages = [];
 let _bgIdx = 0;
 let _bgTimer = null;
 let _shutdownToken = "";        // `/api/menu` 下发, 关停端点要它（其它源读不到）
+
+// 别的 script（settings.js）也要用那个口令 —— 显式给一个 getter，别靠 let 的跨脚本可见性
+function l2bToken() { return _shutdownToken; }
+window.l2bToken = l2bToken;
 const BG_INTERVAL_MS = 4500;   // 轮播间隔（加快: 8s → 4s）
 const PAN_CLASSES = ["bg-pan-up", "bg-pan-down"];
 
