@@ -364,7 +364,7 @@ def render_timeline(events: list[Event], *, indexed: bool = False) -> str:
             picked = payload.get("picked")
             # 玩家裁决行（记录流 v2: 物化成 `老师：X` 记录, 但不在派生 paragraphs 里）
             # ——digest 消化"这段戏说了什么"时, 玩家那句同样是内容（v1 也漏, 顺手补）
-            has_picked = isinstance(picked, str) and bool(picked.strip())
+            picked_text = picked.strip() if isinstance(picked, str) else ""
             if indexed:
                 lines.append(f"{format_event(e.seq)} {label}")
                 for i, p in enumerate(paras):
@@ -377,8 +377,8 @@ def render_timeline(events: list[Event], *, indexed: bool = False) -> str:
                     # 索引 = `paragraphs` 的**数组下标**（跳过空项也保留原下标）——
                     # 地址必须指向真源里的位置, 不能是"渲染后的第几条"
                     lines.append(f"{format_record(e.seq, i)} {t}")
-                if has_picked:
-                    lines.append(f"{format_record(e.seq, REC_PICKED)} 老师: {picked.strip()}")
+                if picked_text:
+                    lines.append(f"{format_record(e.seq, REC_PICKED)} 老师: {picked_text}")
                 continue
             texts = []
             for p in paras:
@@ -390,8 +390,8 @@ def render_timeline(events: list[Event], *, indexed: bool = False) -> str:
                     texts.append(f"{t} ({emo.strip()})")
                 else:
                     texts.append(t)
-            if has_picked:
-                texts.append(f"老师: {picked.strip()}")
+            if picked_text:
+                texts.append(f"老师: {picked_text}")
             lines.append(f"{label} {' / '.join(texts)}")
         elif e.type == TYPE_L2D:
             imgs = e.payload.get("images", [])
