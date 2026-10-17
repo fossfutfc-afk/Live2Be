@@ -351,8 +351,9 @@ class WikiStoreV2:
         守门用例: `tests/core/test_wiki_store.py::test_clone_state_copies_edges_field_complete`
         （含一条**结构性**断言: 本函数源码里不许再出现 `Edge(`）。
         """
+        clones = (Edge.from_dict(e.to_dict()) for e in self._edges)
         return ({nid: BrainNode.from_dict(n.to_dict()) for nid, n in self._nodes.items()},
-                [Edge.from_dict(e.to_dict()) for e in self._edges])
+                [e for e in clones if e is not None])
 
     def restore_state(self, state: tuple[dict[str, BrainNode], list[Edge]]) -> None:
         """恢复内存态（点 + 边; 回滚用——不落盘, 调用方决定是否 save）。"""

@@ -164,7 +164,7 @@ class IntensityPrior:
                 detail={"sig": node.significance, "time": round(t, 4),
                         "age": age, "span": span, "int": emo_i}))
         scored = [h for h in hits if h.raw is not None]
-        scored.sort(key=lambda h: -h.raw)
+        scored.sort(key=lambda h: -(h.raw or 0.0))
         for i, h in enumerate(scored, 1):
             h.rank = i
         res.hits = scored + [h for h in hits if h.raw is None]
@@ -392,7 +392,7 @@ class PlaceGate:
                         "key": k_key,
                         "sem": (round(s, 3) if s is not None else None),
                         "axes": axes}))
-        hits.sort(key=lambda h: -h.raw)
+        hits.sort(key=lambda h: -(h.raw or 0.0))
         for i, h in enumerate(hits, 1):
             h.rank = i
         res.hits = hits

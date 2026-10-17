@@ -149,7 +149,10 @@ class Edge:
         if not isinstance(raw, dict):
             return None
         rel, src, dst = raw.get("rel"), raw.get("src"), raw.get("dst")
-        if not all(isinstance(x, str) and x.strip() for x in (rel, src, dst)):
+        # 逐个 isinstance（不写成 `all(... for x in (rel, src, dst))`: 那样窄化不了单个变量）
+        if not (isinstance(rel, str) and isinstance(src, str) and isinstance(dst, str)):
+            return None
+        if not (rel.strip() and src.strip() and dst.strip()):
             return None
         ts = raw.get("ts")
         return cls(rel=rel.strip(), src=src.strip(), dst=dst.strip(),
@@ -391,7 +394,9 @@ class Graph:
     """
 
     edges: list[Edge] = field(default_factory=list)
-    nodes: tuple = ()
+    #: 任何可迭代的节点（list / `dict.values()` …）——`__post_init__` 定成 tuple。
+    #: 只用来回答"这头是什么 kind", 不参与索引。
+    nodes: Iterable[Any] = ()
     out: dict[str, list[Edge]] = field(default_factory=dict, init=False)
     inc: dict[str, list[Edge]] = field(default_factory=dict, init=False)
     by_rel: dict[str, list[Edge]] = field(default_factory=dict, init=False)
