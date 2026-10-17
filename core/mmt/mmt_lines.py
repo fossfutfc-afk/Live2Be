@@ -6,8 +6,13 @@
 三类行（判别键**恰好其一**）::
 
     {"text": "角色说的话"}                      → MmtLine(kind="text",  text=…)
+    {"text": ""}                                → MmtLine(kind="text",  text="")   ← 静默行
     {"action": "<动作名>", "payload": {…}}      → MmtLine(kind="action", action=…, payload={…})
     {"noticed": "那条旧事的名字"}               → MmtLine(kind="noticed", noticed=…)   ← N5b
+
+⭐ **静默行**（`text` 是空串）: 这一轮她**不发消息**（老师的话看着还没说完 ⇒ 等他下一句）。
+它是**唯一**合法的"不说话"写法: `null` / 空白串照旧按类型错/坏行丢(记账),
+"整轮什么都没有"照旧是 `mmt.empty-turn`。判别留在这里, 意思由引擎落实（不交付 + 不算空轮）。
 
 ⭐ 与 VN 共用 `contract/streams`（行骨架 + 增量缓冲），**唯一差别是交付单元**：
 VN 把行聚合成**板**；MMT **一行就是一条消息**（`MmtStream._accept` 直接进 `_ready`）。
@@ -108,9 +113,15 @@ def line_from_obj(obj: Any) -> tuple[MmtLine | None, str]:
     if KIND_TEXT in keys:
         text = obj.get(KIND_TEXT)
         if not isinstance(text, str):
-            return None, f"text 必须是字符串（实得 {type(text).__name__}）"
+            # `null` 也走这里: 类型错的通道不许被"静默"借走（模型写漏字段要听得见）
+            return None, f'text 必须是字符串（实得 {type(text).__name__}；' \
+                         f'想这一轮不发消息, 就写 {{"{KIND_TEXT}": ""}}）'
+        if text == "":
+            # ⭐ **静默行**: 空串是唯一合法的"这一轮我不发消息"（引擎不交付、
+            # 也不判成空轮）。空白串（`" "` / `"\n"`）**不算** —— 那是写坏了。
+            return MmtLine(kind=KIND_TEXT, text=""), ""
         if not text.strip():
-            return None, "text 不能为空（空行直接别写）"
+            return None, "text 不能为空（别用空格/换行凑, 想不说话就写空串）"
         return MmtLine(kind=KIND_TEXT, text=text.strip()), ""
 
     if KIND_NOTICED in keys:

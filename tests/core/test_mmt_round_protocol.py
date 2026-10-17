@@ -85,6 +85,29 @@ def test_interleaved_rhythm():
     print("    交错节奏: 话→图→话 按序交付（行序即事件流顺序）")
 
 
+def test_silent_turn_sends_nothing_but_keeps_the_input():
+    """⭐ 静默轮（`{"text": ""}`）: 不发消息、不算失败、不落事件 —— 但**轮数照算**、
+    **玩家这句话要进历史**（否则"等她下一句"没意义: 下一句来时模型看不到上一句）。
+    """
+    llm = ScriptedLLM('{"text": ""}', '{"text": "嗯……老师你说。"}')
+    engine = _engine(llm)
+    before = engine.bond_progress.rounds(CHARACTER)
+    r = engine.agent_turn("老师，我")
+    assert r.ok and r.silent, r
+    assert r.steps == [] and r.reply == "" and r.actions == []
+    assert r.action == "" and r.payload == {}
+    # 轮数照算（她确实经历了一次交互）
+    assert engine.bond_progress.rounds(CHARACTER) == before + 1
+    # 玩家那句在历史里（本轮没交付 ⇒ `_deliver_line` 那条路没跑到, 由收尾补上）
+    assert engine.history[-1] == {"role": "user", "content": "老师，我"}, engine.history[-1:]
+    # 下一句照常回, 而且模型**看得到**上一句
+    r2 = engine.agent_turn("我今天有点事")
+    assert r2.ok and not r2.silent and "老师你说" in r2.reply
+    fed = "\n".join(m["content"] for m in llm.snapshots[1])
+    assert "老师，我" in fed, fed
+    print("    静默轮: 不交付/不算失败/不落事件; 轮数+1, 玩家那句留在历史里")
+
+
 def test_empty_and_bad_line():
     """空轮 → 形状级重发（回灌话术点明"一行一条 JSON"）→ 修正成功。"""
     llm = ScriptedLLM("", '{"text": "刚才卡了一下……老师你说什么？"}')
