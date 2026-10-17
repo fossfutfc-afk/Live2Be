@@ -12,6 +12,7 @@ function show(id) {
 let _bgImages = [];
 let _bgIdx = 0;
 let _bgTimer = null;
+let _shutdownToken = "";        // `/api/menu` 下发, 关停端点要它（其它源读不到）
 const BG_INTERVAL_MS = 4500;   // 轮播间隔（加快: 8s → 4s）
 const PAN_CLASSES = ["bg-pan-up", "bg-pan-down"];
 
@@ -26,6 +27,7 @@ async function startBgLoop() {
   try {
     const data = await (await fetch("/api/menu")).json();
     _bgImages = data.images || [];
+    _shutdownToken = data.shutdown_token || "";
   } catch (e) { _bgImages = []; }
   if (!_bgImages.length) return;
   const layer = $("bg-layer");
@@ -138,6 +140,87 @@ async function submitName() {
   // 不自动进入——玩家自己点「进入主界面」（彩蛋停留眼前, 想看多久看多久）
 }
 
+// ── 关闭服务（后端的 Ctrl+C 被忽略, 这里才是常规出口） ──
+// 两种关法: 等它跑完（省 token）/ 立刻强制（随时可用 —— 不强制用户等待）。
+// 强制是安全的: 提交是两阶段的, 被杀不会写坏; 只是这一段白花而已。
+let _shutdownTimer = null;
+
+async function _runtimeStatus() {
+  try {
+    const res = await fetch("/api/runtime/status");
+    return res.ok ? await res.json() : null;
+  } catch (e) { return null; }
+}
+
+function _fmtBusy(busy) {
+  return (busy || [])
+    .map((b) => `${b.name}（${b.stage}，已 ${Math.round(b.elapsed_s)} 秒）`)
+    .join("、");
+}
+
+async function openShutdown() {
+  const st = await _runtimeStatus();
+  const busy = (st && st.busy) || [];
+  const waitBtn = $("btn-shutdown-wait");
+  if (busy.length) {
+    $("shutdown-msg").textContent =
+      `正在跑：${_fmtBusy(busy)}。\n建议等它跑完再关 —— 现在关会把这一段已经花掉的 token` +
+      `白费（不会写坏数据）。等不及也可以直接关。`;
+    waitBtn.classList.remove("hidden");
+  } else {
+    $("shutdown-msg").textContent = "现在没有正在跑的任务，可以立刻关。";
+    waitBtn.classList.add("hidden");
+  }
+  $("btn-shutdown-now").classList.remove("hidden");
+  $("btn-shutdown-cancel").classList.remove("hidden");
+  $("shutdown-modal").classList.remove("hidden");
+}
+
+function _closeShutdownModal() {
+  clearInterval(_shutdownTimer);
+  _shutdownTimer = null;
+  $("shutdown-modal").classList.add("hidden");
+}
+
+function _watchShutdown(force) {
+  $("btn-shutdown-wait").classList.add("hidden");
+  $("btn-shutdown-cancel").classList.add("hidden");
+  $("shutdown-msg").textContent = force ? "正在强制关闭……" : "正在等它跑完……";
+  clearInterval(_shutdownTimer);
+  _shutdownTimer = setInterval(async () => {
+    const st = await _runtimeStatus();
+    if (!st) {                                   // 拉不到 = 服务已经走了
+      clearInterval(_shutdownTimer);
+      _shutdownTimer = null;
+      $("btn-shutdown-now").classList.add("hidden");
+      $("shutdown-msg").textContent = "服务已停止，可以关掉这个标签页了。";
+      return;
+    }
+    if (force) return;
+    $("shutdown-msg").textContent = st.busy.length
+      ? `正在等：${_fmtBusy(st.busy)}……（等不及就点「立即关闭」）`
+      : "任务已收手，正在关停……";
+  }, 1000);
+}
+
+async function closeService(force) {
+  let res = null;
+  try {
+    res = await fetch("/api/shutdown", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mode: force ? "force" : "graceful", token: _shutdownToken }),
+    });
+  } catch (e) { res = null; }
+  if (!res || !res.ok) {
+    $("shutdown-msg").textContent =
+      "关不掉：后端没有响应，或者服务不是用 `python -m webgui.serve` 起的。" +
+      "急停请关掉控制台窗口，或用任务管理器结束进程。";
+    return;
+  }
+  _watchShutdown(force);
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   startBgLoop();
   init();
@@ -145,4 +228,8 @@ document.addEventListener("DOMContentLoaded", () => {
   $("input-name").addEventListener("keydown", (e) => { if (e.key === "Enter") submitName(); });
   $("btn-enter").addEventListener("click", () => show("view-main"));
   $("btn-back-login").addEventListener("click", () => show("view-login"));
+  $("btn-shutdown").addEventListener("click", openShutdown);
+  $("btn-shutdown-wait").addEventListener("click", () => closeService(false));
+  $("btn-shutdown-now").addEventListener("click", () => closeService(true));
+  $("btn-shutdown-cancel").addEventListener("click", _closeShutdownModal);
 });

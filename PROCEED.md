@@ -4,7 +4,7 @@
 > ⚠️ **`git status` 里常年挂着几份"作者手改未提交"的文件**（2026-10-17 时是
 > `config/settings/relation/interperson.yml` · `infra/fuse.py`）——
 > 那是**作者的改动, ⛔ 不是脏改动**, 别 `checkout` 掉、也别卷进提交（`git add` 一律写显式路径）。
-> 现状：`tests/core` **1295 passed** · `tests/llm+tui+webgui` **208 passed**（⚠️ **按域分开跑**, 见 §5 坑 4）·
+> 现状：`tests/core` **1295 passed** · `tests/llm+tui+webgui` **215 passed**（⚠️ **按域分开跑**, 见 §5 坑 4）·
 > 三份 verifier 全 exit 0 · ruff **366**（基线，`AGENTS.md` §7 同步）· 真机数据未动。
 > ⚠️ **两域里各有几个轮询式 flaky**（靠 `_wait(cond, timeout=10)` 等异步状态的那类）: 机器一忙就超时,
 > 单跑常绿 ⇒ 别急着怀疑自己刚改的代码, 见 §5b 第 17 条。
@@ -196,6 +196,7 @@ python experiments/recall_report.py
 | 本轮 | **控制台日志收口**: 新建 `infra/logsetup.py`（控制台短/文件全）——轮询与静态请求的 2xx 不打印 · 短域名前缀（`digest`/`bond`/`mmt`/`llm`/`http`）· 超 110 字截断 · `LIVE2BE_LOG=quiet/normal/verbose` · `akin` 逐条边降 debug。文件日志仍全量（软问题文本可 grep） |
 | 本轮 | **digest 关停韧性**: 新建 `infra/runtime.py`（关停信号 + 在途登记）· `digest_segment` 在**每轮之间**与**提交前**查闸 ⇒ `_abort`（回滚内存、**不写盘、不计 `digest_retry`** —— 否则三次 Ctrl+C 就永久放弃一段）· `WikiStoreV2._heal_watermark` 加载时按图上 `event_seq` 补齐水位（修"图新水位旧"⇒ 重喂 ⇒ 重复记忆）· `webgui/app.py` lifespan 关停时置信号并等 3 秒 |
 | 本轮 | ⭐ **两阶段提交**（`WikiStoreV2.commit`）: 点 + 边 + 水位先一次性原子写进 `wiki.txn.json`, 再逐份应用, 最后删日志; **加载时残留就照它补完**（幂等）。`save()` 同款 ⇒ **写路径只有一条且都有保护**。digest 的提交从 `save()+save_meta()` 改成 `meta 赋值 + commit()`（此前中间被杀就是"图新水位旧"） |
+| 本轮 | ⭐ **前端「关闭服务」+ Ctrl+C 失效**: 新入口 `python -m webgui.serve`（自持 `uvicorn.Server`, `capture_signals` 置空 + SIGINT 忽略）· `GET /api/runtime/status` · `POST /api/shutdown`（`graceful` 等 ≤180s / `force` 立刻, 口令 + 本机来源双校验, 没有 server 时回 409）· 菜单页按钮 + 确认框（默认"等它跑完", **随时可强制**）· `start.ps1`/`README` 换启动命令 |
 
 ---
 
@@ -326,6 +327,11 @@ python experiments/recall_report.py
     `aborted` 属于后者（它描述"这次尝试怎么结束的", 不是哪一轮的产出）。
 19. ⚠️ **"被杀"与"失败"是两种结局, 别共用一个出口**：失败要计 `digest_retry`（满 3 次**永久放弃**那段）,
     而关停是外部事件。混在一起写 ⇒ 用户按三次 Ctrl+C 就等于亲手丢一段记忆。
+20. ⚠️ **`python -m webgui.serve` 会让状态出现两份**：模块被当 `__main__` 执行一次, `import
+    webgui.serve` 又是另一份 ⇒ 路由那份的 `_server` 恒为 None（端点回"关不掉"）。`serve.py`
+    末尾因此按真实模块名再导一次并跑那份的 `main()`。同类坑: 任何"进程级可变状态"都别只放
+    在可能被 `-m` 起来的模块里。
+21. ⚠️ **"没有 server 就如实说关不掉"（409）**：否则前端显示"正在关停"却永远不停 —— 假绿灯比红灯贵。
 
 ---
 

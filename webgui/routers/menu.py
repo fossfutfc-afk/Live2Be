@@ -5,6 +5,7 @@ from fastapi import APIRouter
 from fastapi.responses import FileResponse
 
 from infra import paths
+from webgui import shutdown
 
 router = APIRouter()
 
@@ -45,4 +46,4 @@ async def api_menu() -> dict:
             for img in sorted(sub.glob("*.jpg")) + sorted(sub.glob("*.png")):
                 rel = img.relative_to(MENU_DIR).as_posix()
                 images.append(f"/assets/menu/{rel}")
-    return {"images": images}
+    return {"images": images, "shutdown_token": shutdown.TOKEN}

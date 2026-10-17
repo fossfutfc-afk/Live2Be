@@ -66,6 +66,7 @@
         <button class="menu-btn" id="btn-playback">回 放</button>
       </div>
       <button id="btn-back-login" class="link">返回登录</button>
+      <button id="btn-shutdown" class="link danger" title="关掉后端服务">关闭服务</button>
     </div>
   </section>
 
@@ -226,6 +227,20 @@
     </div>
   </section>
 </main>
+
+<!-- 关闭服务: 先劝等一下（省钱）, 但任何时刻都能立刻强制关 -->
+<div id="shutdown-modal" class="shutdown-modal hidden" role="dialog" aria-modal="true"
+     aria-labelledby="shutdown-title">
+  <div class="shutdown-box">
+    <h2 id="shutdown-title">关闭服务</h2>
+    <p id="shutdown-msg">……</p>
+    <div class="shutdown-actions">
+      <button id="btn-shutdown-wait" class="menu-btn primary">等它跑完再关</button>
+      <button id="btn-shutdown-now" class="menu-btn">立即关闭</button>
+      <button id="btn-shutdown-cancel" class="link">取消</button>
+    </div>
+  </div>
+</div>
 
 <script src="/static/js/typing.js"></script>
 <script src="/static/js/gui.js"></script>

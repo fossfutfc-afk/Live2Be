@@ -74,6 +74,7 @@ contract → infra → llm → core → tui / webgui / cli
 | LLM 客户端 / 档位 / 重试循环 | `llm/{client,retry,task_levels,task_labels}.py` |
 | 生图（纪念立绘） | `llm/image_gen.py` + `webgui/bond/memorial.py` |
 | HTTP 路由 / 前端 | `webgui/routers/` · `webgui/static/{js,css}/` |
+| 启动 / 关停（Ctrl+C 被忽略，退出走前端「关闭服务」） | `python -m webgui.serve` · `webgui/{serve,shutdown}.py` · `webgui/routers/runtime.py` |
 
 ---
 
@@ -195,8 +196,8 @@ contract → infra → llm → core → tui / webgui / cli
 环境：解释器 `C:\Users\johnf\miniconda3\envs\live2be\python.exe`（conda env `live2be`；
 conda `base` 里没有 jieba，用 base 跑测试会挂）· `node` v24 在（前端测试用）。
 
-当前基线（2026-10-17）：`tests/core` **1295 passed** · `tests/llm+tui+webgui` **208 passed** ·
-`ruff check .` **365**。
+当前基线（2026-10-17）：`tests/core` **1295 passed** · `tests/llm+tui+webgui` **215 passed** ·
+`ruff check .` **363**。
 
 已知缺口：
 
