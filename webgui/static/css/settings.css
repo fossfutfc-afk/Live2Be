@@ -50,3 +50,24 @@
   align-items: center;
 }
 .settings-msg { text-align: center; margin-top: 0.7rem; }
+
+/* 文件位置（"数据存哪儿"那张表 + 打开目录按钮） */
+.settings dl.paths {
+  margin: 0.2rem 0 0.9rem;
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.25rem 0.9rem;
+  font-size: 0.82rem;
+}
+.settings dl.paths dt { color: #7f9bc0; white-space: nowrap; }
+.settings dl.paths dd {
+  margin: 0;
+  color: #cfd9ea;
+  font-family: ui-monospace, Consolas, monospace;
+  word-break: break-all;
+}
+.settings button.small {
+  padding: 0.35rem 0.8rem;
+  font-size: 0.8rem;
+  border-radius: 0.5rem;
+}

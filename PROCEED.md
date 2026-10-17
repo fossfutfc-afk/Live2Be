@@ -199,6 +199,7 @@ python experiments/recall_report.py
 | 本轮 | ⭐ **前端「关闭服务」+ Ctrl+C 失效**: 新入口 `python -m webgui.serve`（自持 `uvicorn.Server`, `capture_signals` 置空 + SIGINT 忽略）· `GET /api/runtime/status` · `POST /api/shutdown`（`graceful` 等 ≤180s / `force` 立刻, 口令 + 本机来源双校验, 没有 server 时回 409）· 菜单页按钮 + 确认框（默认"等它跑完", **随时可强制**）· `start.ps1`/`README` 换启动命令 |
 | 本轮 | ⭐ **打 exe 第一段（能双击跑）**: `packaging/{entry.py,live2be.spec,collect_samples.py,build.ps1}` + `docs/PACKAGING.md` —— onedir, 样张素材 **105.8 MB / 197 文件**（menu 全 + haruka 立绘含 ref + 2 个背景分类 + 学校类抽 40 张）· `serve.py` 一整套启动外壳（真实 `from webgui.app import app`（冻结必需）、自动开浏览器、**端口已有本服务就打开它**、`--window` 走 pywebview 且关窗口=关服务）· 删掉 `jieba` 死依赖、加 `image = ["pillow>=10"]` 可选组 |
 | 本轮 | ⭐ **exe 真机跑通**（PyInstaller 6.22.3, 首次即过）: `dist/Live2Be` **193 MB**（exe 13.4 + `_internal` 73.6 + assets 105.8 + config 0.2）。验过: `--help` / 首页 + 静态 js、css / `/api/menu` 47 张背景 / `/api/mmt/characters` / 头像 png 218 KB / 自动建 `data/diag/live2be.log` / 前端关停后退出码 0。⭐ **提示词进包**的证据: 假 key + 连不上的 base_url 发一句, 日志停在 `WinError 10061`（网络拒绝）而不是 FileNotFound |
+| 本轮 | **exe 的三个体验坑**: ① 提权启动时 Edge 继承管理员令牌 → 它弹"要不要用普通权限"并重启自己, 标签页没了 ⇒ `open_browser`/`open_folder` 在提权时改走 `explorer.exe` 代开 ② "数据存哪儿"没人知道 ⇒ 启动横幅打四个根 + `GET /api/runtime/paths` + 设置页"文件位置"表与两个「打开目录」按钮（`POST /api/runtime/open`, 只认四个根） ③ 自动开浏览器的成败要说出来（`已交给浏览器: <url>` / `请手动打开: <url>`） |
 
 ---
 

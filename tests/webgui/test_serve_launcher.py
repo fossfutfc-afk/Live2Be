@@ -90,3 +90,46 @@ def test_window_mode_falls_back_without_pywebview(monkeypatch):
     assert serve._run_windowed("http://127.0.0.1:8123/") == 0
     assert ran == [True], "退回浏览器模式也要把服务跑起来"
     assert opened == ["http://127.0.0.1:8123/"]
+
+
+# ---------------------------------------------------------------------------
+# 提权时浏览器/资源管理器要经 explorer 代开
+# ---------------------------------------------------------------------------
+
+def test_browser_goes_through_explorer_when_elevated(monkeypatch):
+    """实测后果: 直接开浏览器会让 Edge 继承管理员令牌 → 它问"要不要用普通权限" →
+    选"是"就重启自己, 刚打开的标签页连窗口一起没了。explorer 跑在正常权限上。"""
+    calls: list[list[str]] = []
+
+    class _Popen:
+        def __init__(self, args, **_kw):
+            calls.append(list(args))
+
+    monkeypatch.setattr(serve, "is_elevated", lambda: True)
+    monkeypatch.setattr("subprocess.Popen", _Popen)
+    assert serve.open_browser("http://127.0.0.1:8000/") is True
+    assert calls and calls[0][0].lower().endswith("explorer.exe"), calls
+    assert calls[0][1] == "http://127.0.0.1:8000/"
+
+
+def test_folder_opens_through_explorer(monkeypatch):
+    calls: list[list[str]] = []
+
+    class _Popen:
+        def __init__(self, args, **_kw):
+            calls.append(list(args))
+
+    monkeypatch.setattr("subprocess.Popen", _Popen)
+    if serve.os.name != "nt":
+        pytest.skip("只有 Windows 走 explorer")
+    assert serve.open_folder("D:/x/data") is True
+    assert calls and calls[0][0].lower().endswith("explorer.exe"), calls
+
+
+def test_plain_browser_when_not_elevated(monkeypatch):
+    monkeypatch.setattr(serve, "is_elevated", lambda: False)
+    monkeypatch.setattr(serve, "open_folder", lambda p: True)     # 别真开窗口
+    seen: list[str] = []
+    monkeypatch.setattr("webbrowser.open", lambda url: seen.append(url) or True)
+    assert serve.open_browser("http://127.0.0.1:8000/") is True
+    assert seen == ["http://127.0.0.1:8000/"]

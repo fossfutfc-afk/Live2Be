@@ -97,3 +97,49 @@ def test_shutdown_forwards_force_to_the_launcher(monkeypatch):
     assert r.status_code == 200, r.text
     assert seen == {"force": True}
     assert r.json()["mode"] == "force"
+
+
+# ---------------------------------------------------------------------------
+# 文件位置（"数据到底存哪儿"）
+# ---------------------------------------------------------------------------
+
+def test_paths_endpoint_tells_where_the_data_is():
+    r = _request("GET", "/api/runtime/paths")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    for key in ("app", "resource", "config", "assets", "data", "settings"):
+        assert isinstance(body.get(key), str) and body[key], body
+    assert set(body["openable"]) == {"data", "assets", "config", "app"}
+
+
+def test_open_folder_needs_token_and_local_origin(monkeypatch):
+    called: list[str] = []
+    monkeypatch.setattr(serve, "open_folder", lambda p: called.append(p) or True)
+
+    assert _request("POST", "/api/runtime/open",
+                    json={"which": "data"}).status_code == 403
+    assert _request("POST", "/api/runtime/open",
+                    json={"which": "data", "token": "nope"}).status_code == 403
+    far = _request("POST", "/api/runtime/open",
+                   json={"which": "data", "token": shutdown.TOKEN},
+                   client=("10.0.0.7", 50000))
+    assert far.status_code == 403
+    assert called == [], "没过校验就一个目录都不许开"
+
+
+def test_open_folder_refuses_unknown_targets(monkeypatch):
+    called: list[str] = []
+    monkeypatch.setattr(serve, "open_folder", lambda p: called.append(p) or True)
+    r = _request("POST", "/api/runtime/open",
+                 json={"which": "C:/Windows", "token": shutdown.TOKEN})
+    assert r.status_code == 400, "只认那四个根, 不许传任意路径"
+    assert called == []
+
+
+def test_open_folder_opens_the_root(monkeypatch):
+    called: list[str] = []
+    monkeypatch.setattr(serve, "open_folder", lambda p: called.append(p) or True)
+    r = _request("POST", "/api/runtime/open",
+                 json={"which": "data", "token": shutdown.TOKEN})
+    assert r.status_code == 200, r.text
+    assert called and called[0].replace("\\", "/").endswith("data")

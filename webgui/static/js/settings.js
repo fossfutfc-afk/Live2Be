@@ -68,8 +68,49 @@ async function saveSettings() {
   loadSettings();                             // 刷新打码显示（新 key 后 4 位）
 }
 
+// ── 文件位置（"数据到底存哪儿" + 一键打开目录） ──
+const PATH_LABELS = [
+  ["data", "数据（聊天记录 / 记忆 / 日志）"],
+  ["settings", "设置文件 settings.toml"],
+  ["config", "角色卡 / 世界观"],
+  ["assets", "素材（立绘 / 背景）"],
+  ["app", "程序所在目录"]
+];
+
+async function loadPaths() {
+  const dl = $("paths-list");
+  try {
+    const data = await (await fetch("/api/runtime/paths")).json();
+    dl.innerHTML = "";
+    for (const [key, label] of PATH_LABELS) {
+      const dt = document.createElement("dt");
+      dt.textContent = label;
+      const dd = document.createElement("dd");
+      dd.textContent = data[key] || "（未知）";
+      dl.append(dt, dd);
+    }
+  } catch (e) {
+    dl.innerHTML = '<dd class="hint">读不到路径（后端没响应？）</dd>';
+  }
+}
+
+async function openFolder(which) {
+  const res = await fetch("/api/runtime/open", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ which: which, token: (window.l2bToken && window.l2bToken()) || "" }),
+  }).catch(() => null);
+  if (!res || !res.ok) {
+    $("settings-msg").textContent = "打不开目录（后端没响应，或不是 webgui.serve 起的）";
+    $("settings-msg").classList.remove("hidden");
+  }
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   loadSettings();
+  loadPaths();
   $("btn-save-settings").addEventListener("click", saveSettings);
   $("btn-back-main").addEventListener("click", () => show("view-main"));
+  $("btn-open-data").addEventListener("click", () => openFolder("data"));
+  $("btn-open-assets").addEventListener("click", () => openFolder("assets"));
 });

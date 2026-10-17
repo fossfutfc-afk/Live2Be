@@ -26,7 +26,7 @@ import time
 
 import uvicorn
 
-from infra import logsetup, runtime
+from infra import logsetup, paths, runtime
 
 logger = logging.getLogger(__name__)
 
@@ -140,11 +140,53 @@ def is_our_service(url: str, timeout: float = 1.5) -> bool:
     return res.status_code == 200 and isinstance(body, dict) and "busy" in body
 
 
-def open_browser(url: str) -> None:
+def is_elevated() -> bool:
+    """本进程是管理员权限吗（Windows；别的地方一律 False）。"""
+    if os.name != "nt":
+        return False
+    try:
+        import ctypes
+
+        return bool(ctypes.windll.shell32.IsUserAnAdmin())
+    except (ImportError, AttributeError, OSError):
+        return False
+
+
+def open_browser(url: str) -> bool:
+    """开浏览器。返回是否"交出去了"。
+
+    ⚠️ **提权时必须经 `explorer.exe` 代开**: 直接 `os.startfile` 会让浏览器继承管理员
+    令牌, Edge 于是弹"有实例以提升的权限运行, 要不要用普通权限"—— 选"是"它会**重启自己**,
+    刚打开的那个标签页连窗口一起没了（实测: 用户以为"Edge 被关闭"）。explorer 跑在用户
+    正常权限上, 由它转交 URL 就不会有这问题。
+    """
+    if os.name == "nt" and is_elevated():
+        import subprocess
+
+        try:
+            subprocess.Popen(["explorer.exe", url])
+            return True
+        except OSError:                              # explorer 都不在: 退回普通方式
+            pass
     import webbrowser
 
-    with contextlib.suppress(Exception):             # 没浏览器 / 无桌面: 用户自己贴地址
-        webbrowser.open(url)
+    try:
+        return bool(webbrowser.open(url))
+    except Exception:                                # noqa: BLE001 — 没有浏览器/无桌面
+        return False
+
+
+def open_folder(path: str) -> bool:
+    """在资源管理器里打开一个目录（提权时同样经 explorer 代开）。"""
+    if os.name != "nt":
+        return False
+    import subprocess
+
+    try:
+        subprocess.Popen(["explorer.exe", path])
+        return True
+    except OSError:
+        return False
 
 
 def _open_when_ready(url: str, timeout: float = 20.0) -> None:
@@ -153,10 +195,12 @@ def _open_when_ready(url: str, timeout: float = 20.0) -> None:
     while time.monotonic() < deadline:
         srv = _server
         if srv is not None and getattr(srv, "started", False):
-            open_browser(url)
-            return
+            break
         time.sleep(0.1)
-    open_browser(url)                                # 超时也开（可能有别的实例在跑）
+    if open_browser(url):
+        logger.info("已交给浏览器: %s（没反应就手动打开它）", url)
+    else:
+        logger.warning("没能自动打开浏览器 —— 请手动打开: %s", url)
 
 
 def _run_windowed(url: str) -> int:
@@ -181,6 +225,18 @@ def _run_windowed(url: str) -> int:
     return 0
 
 
+def _banner(url: str) -> None:
+    """启动横幅: 地址 + **五个根**。用户在问"数据到底存哪儿", 答案就得在这儿。"""
+    logger.info("WebGUI → %s", url)
+    logger.info("   角色卡  %s", paths.CONFIG_ROOT)
+    logger.info("   素材    %s", paths.ASSETS_ROOT)
+    logger.info("   数据    %s   （事件流 / 记忆 / 诊断日志）", paths.DATA_ROOT)
+    logger.info("   设置    %s", paths.SETTINGS_PATH)
+    if is_elevated():
+        logger.warning("本进程以**管理员权限**运行: 浏览器与资源管理器经 explorer 代开"
+                       "（否则 Edge 会提示权限并重启自己）; 建议改用普通终端启动")
+
+
 def main(argv: list[str] | None = None) -> int:
     global _server
     parser = argparse.ArgumentParser(prog="python -m webgui.serve")
@@ -200,8 +256,9 @@ def main(argv: list[str] | None = None) -> int:
     # 双击第二次 = 打开已经开着的那个, 而不是报端口被占
     if port_in_use(args.host, args.port):
         if is_our_service(url):
-            logger.info("已经有一个 Live2Be 在跑了 ⇒ 直接打开它: %s", url)
-            open_browser(url)
+            logger.info("已经有一个 Live2Be 在跑了 ⇒ 打开它: %s", url)
+            if not open_browser(url):
+                logger.warning("没能自动打开浏览器 —— 请手动打开: %s", url)
             return 0
         logger.error("端口 %d 被别的程序占用 —— 换一个端口: --port 8001", args.port)
         return 2
@@ -221,7 +278,7 @@ def main(argv: list[str] | None = None) -> int:
     _server = Server(config)
     if not args.allow_ctrl_c:
         _ignore_sigint()
-    logger.info("WebGUI → %s  停服务: 前端菜单「关闭服务」", url)
+    _banner(url)
     if args.window:
         return _run_windowed(url)
     if not args.no_browser:
