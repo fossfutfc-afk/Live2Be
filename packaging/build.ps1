@@ -56,8 +56,8 @@ if (-not $SkipSamples) {
 # ── 3. 打包 ─────────────────────────────────────────────────────────────
 Write-Host '[2/3] PyInstaller:'
 $clean = if ($NoClean) { '--noconfirm' } else { '--noconfirm --clean' }
-$args = @('-m', 'PyInstaller') + ($clean -split ' ') + @('packaging/live2be.spec')
-& $Py @args
+$pyArgs = @('-m', 'PyInstaller') + ($clean -split ' ') + @('packaging/live2be.spec')
+& $Py @pyArgs
 if ($LASTEXITCODE -ne 0) { Write-Host '打包失败（看上面最后几行）' -ForegroundColor Red; exit $LASTEXITCODE }
 
 # ── 4. 组装 exe 同级的东西 ──────────────────────────────────────────────
@@ -65,7 +65,10 @@ Write-Host '[3/3] 组装:'
 $Dist = Join-Path $Root 'dist\Live2Be'
 if (-not (Test-Path $Dist)) { Write-Host "  没找到 $Dist（PyInstaller 没产出?）" -ForegroundColor Red; exit 1 }
 
-Copy-Item (Join-Path $Root 'config') (Join-Path $Dist 'config') -Recurse -Force
+# ⚠️ 先删目标再拷: `Copy-Item -Recurse` 到已存在的目录会套成 config/config
+$DistConfig = Join-Path $Dist 'config'
+if (Test-Path $DistConfig) { Remove-Item $DistConfig -Recurse -Force }
+Copy-Item (Join-Path $Root 'config') $DistConfig -Recurse -Force
 Write-Host '   config/ → exe 同级（角色卡 / 世界观）'
 
 if (-not $SkipSamples) {

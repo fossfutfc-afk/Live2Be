@@ -197,7 +197,8 @@ python experiments/recall_report.py
 | 本轮 | **digest 关停韧性**: 新建 `infra/runtime.py`（关停信号 + 在途登记）· `digest_segment` 在**每轮之间**与**提交前**查闸 ⇒ `_abort`（回滚内存、**不写盘、不计 `digest_retry`** —— 否则三次 Ctrl+C 就永久放弃一段）· `WikiStoreV2._heal_watermark` 加载时按图上 `event_seq` 补齐水位（修"图新水位旧"⇒ 重喂 ⇒ 重复记忆）· `webgui/app.py` lifespan 关停时置信号并等 3 秒 |
 | 本轮 | ⭐ **两阶段提交**（`WikiStoreV2.commit`）: 点 + 边 + 水位先一次性原子写进 `wiki.txn.json`, 再逐份应用, 最后删日志; **加载时残留就照它补完**（幂等）。`save()` 同款 ⇒ **写路径只有一条且都有保护**。digest 的提交从 `save()+save_meta()` 改成 `meta 赋值 + commit()`（此前中间被杀就是"图新水位旧"） |
 | 本轮 | ⭐ **前端「关闭服务」+ Ctrl+C 失效**: 新入口 `python -m webgui.serve`（自持 `uvicorn.Server`, `capture_signals` 置空 + SIGINT 忽略）· `GET /api/runtime/status` · `POST /api/shutdown`（`graceful` 等 ≤180s / `force` 立刻, 口令 + 本机来源双校验, 没有 server 时回 409）· 菜单页按钮 + 确认框（默认"等它跑完", **随时可强制**）· `start.ps1`/`README` 换启动命令 |
-| 本轮 | ⭐ **打 exe 的第一段（能双击跑）**: `packaging/{entry.py,live2be.spec,collect_samples.py,build.ps1}` + `docs/PACKAGING.md` —— onedir, 样张素材 **105.8 MB / 197 文件**（menu 全 + haruka 立绘含 ref + 2 个背景分类 + 学校类抽 40 张）· `serve.py` 一整套启动外壳（真实 `from webgui.app import app`（冻结必需）、自动开浏览器、**端口已有本服务就打开它**、`--window` 走 pywebview 且关窗口=关服务）· 删掉 `jieba` 死依赖、加 `image = ["pillow>=10"]` 可选组 |
+| 本轮 | ⭐ **打 exe 第一段（能双击跑）**: `packaging/{entry.py,live2be.spec,collect_samples.py,build.ps1}` + `docs/PACKAGING.md` —— onedir, 样张素材 **105.8 MB / 197 文件**（menu 全 + haruka 立绘含 ref + 2 个背景分类 + 学校类抽 40 张）· `serve.py` 一整套启动外壳（真实 `from webgui.app import app`（冻结必需）、自动开浏览器、**端口已有本服务就打开它**、`--window` 走 pywebview 且关窗口=关服务）· 删掉 `jieba` 死依赖、加 `image = ["pillow>=10"]` 可选组 |
+| 本轮 | ⭐ **exe 真机跑通**（PyInstaller 6.22.3, 首次即过）: `dist/Live2Be` **193 MB**（exe 13.4 + `_internal` 73.6 + assets 105.8 + config 0.2）。验过: `--help` / 首页 + 静态 js、css / `/api/menu` 47 张背景 / `/api/mmt/characters` / 头像 png 218 KB / 自动建 `data/diag/live2be.log` / 前端关停后退出码 0。⭐ **提示词进包**的证据: 假 key + 连不上的 base_url 发一句, 日志停在 `WinError 10061`（网络拒绝）而不是 FileNotFound |
 
 ---
 
