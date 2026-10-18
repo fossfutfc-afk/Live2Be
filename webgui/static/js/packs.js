@@ -198,6 +198,12 @@ async function cancelPacks() {
 }
 
 document.addEventListener("DOMContentLoaded", () => {
+  // 入口在「设置」里（完整版用不到它；只在图不见时才进来）—— 每次进来重读清单，
+  // 远端可能已经换了，顺手也刷新"装没装"。
+  $("btn-packs-open").addEventListener("click", () => {
+    show("view-packs");
+    loadPacks();
+  });
   $("packs-list").addEventListener("change", updateSummary);
   $("btn-packs-save").addEventListener("click", saveSource);
   $("btn-packs-all").addEventListener("click", () => {
@@ -210,7 +216,7 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   $("btn-packs-install").addEventListener("click", installPacks);
   $("btn-packs-cancel").addEventListener("click", cancelPacks);
-  $("btn-packs-back").addEventListener("click", () => show("view-main"));
+  $("btn-packs-back").addEventListener("click", () => show("view-settings"));
 });
 
 // main.js 切到本视图时调它（避免登录就拉一次远端清单）

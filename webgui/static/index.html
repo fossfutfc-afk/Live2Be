@@ -62,7 +62,6 @@
       <p class="main-name">老师 · <span id="main-name"></span></p>
       <div class="menu-buttons">
         <button class="menu-btn" id="btn-settings">设 置</button>
-        <button class="menu-btn" id="btn-packs">素 材</button>
         <button class="menu-btn primary" id="btn-mmt">手机 MMT</button>
         <button class="menu-btn" id="btn-playback">回 放</button>
       </div>
@@ -98,6 +97,14 @@
         <button id="btn-open-assets" class="small">打开素材目录</button>
       </div>
     </div>
+    <div class="panel">
+      <h3>素材</h3>
+      <p class="hint">完整版已自带全部素材。只有在图不见了（删掉了 / 换了机器 / 只拷了一半）
+        时才需要来这儿看缺哪些。</p>
+      <div class="row">
+        <button id="btn-packs-open" class="small">素材状态 / 修复</button>
+      </div>
+    </div>
     <div class="row">
       <button id="btn-save-settings">保 存</button>
       <button id="btn-back-main" class="link">返回主界面</button>
@@ -105,9 +112,9 @@
     <p id="settings-msg" class="error hidden"></p>
   </section>
 
-  <!-- 素材（首次运行向导: 立绘与背景按需下载, 不随安装包走） -->
+  <!-- 素材状态 / 修复（入口在「设置」里: 完整版用不到它, 只在缺图时才来） -->
   <section id="view-packs" class="settings hidden">
-    <h1 class="logo small">素 材</h1>
+    <h1 class="logo small">素材状态</h1>
     <div class="panel">
       <h3>素材源</h3>
       <p class="hint">包清单（<code>manifest.json</code>）的地址。填本地路径也行：
@@ -132,7 +139,7 @@
       <div id="packs-bar" class="bar hidden"><div id="packs-bar-fill" class="bar-fill"></div></div>
     </div>
     <div class="row">
-      <button id="btn-packs-back" class="link">返回主界面</button>
+      <button id="btn-packs-back" class="link">返回设置</button>
     </div>
     <p id="packs-msg" class="error hidden"></p>
   </section>

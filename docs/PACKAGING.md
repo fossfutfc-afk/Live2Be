@@ -52,7 +52,7 @@ data/              首次运行自动创建（DATA_ROOT）
 | **完整版**（默认） | `build.ps1` | 四角色 `spine/`+`portrait/`（含变装）、435 张背景、登录页三件 | **159.7 MB / 569 文件** |
 | **轻量版** | `build.ps1 -Slim` | 只带"少了就报错或破相"的: 每个角色的 `emotions.yml`（词表进 prompt）、`menu/{logo,default}`、director 白名单 | 0.4 MB / 11 文件 |
 
-完整版**断网可玩、零配置**；轻量版要靠「素材」页按需下载（见下）。
+完整版**断网可玩、零配置**；轻量版要靠「设置 → 素材状态 / 修复」按需下载（见下）。
 
 ### 素材是普通文件夹，不是只读资源
 
@@ -89,7 +89,7 @@ C:\Users\johnf\miniconda3\envs\live2be\python.exe packaging/make_packs.py --dst 
 产物是 zip + `manifest.json`（含每包的 sha256、字节数、**每个文件的相对路径与大小**）。
 
 **② 下载**：把 `dist/packs/` 传到任意静态托管（对象存储、GitHub Release、局域网
-`python -m http.server`），把 `manifest.json` 的地址填进前端「素材」页。
+`python -m http.server`），把 `manifest.json` 的地址填进「设置 → 素材状态 / 修复」。
 
 - 装没装**只看磁盘**：运行时逐个 stat 清单里的文件，不写状态文件 —— 手动删两张图，
   状态立刻变"部分"。
@@ -172,7 +172,7 @@ msedge.exe --app=http://127.0.0.1:8000/ --user-data-dir=<exe 同级>\data\browse
 在 `setup_tool.spec` 的 `excludes` 里加 `numpy` / `PIL` / `pydantic` —— 打包 TOC 里它们各有
 几百处引用，而工具一个都不 import（它只用 `infra` + `core.parsing` + tkinter）。
 
-`-Slim` 版是 **约 107 MB**（素材只占 0.4 MB）—— 两者差别只在 `assets/` 与是否需要「素材」页联网。
+`-Slim` 版是 **约 107 MB**（素材只占 0.4 MB）—— 两者差别只在 `assets/` 与是否需要去「素材状态 / 修复」联网补图。
 
 验过的事（都是对 `dist/Live2Be/Live2Be.exe` 打 HTTP，不是读代码）：
 

@@ -78,7 +78,7 @@ contract → infra → llm → core → tui / webgui / cli
 | HTTP 路由 / 前端 | `webgui/routers/` · `webgui/static/{js,css}/` |
 | 启动 / 关停（Ctrl+C 被忽略，退出走前端「关闭服务」） | `python -m webgui.serve` · `webgui/{serve,shutdown}.py` · `webgui/routers/runtime.py` |
 | 打 exe（onedir，默认完整版素材） | `pwsh packaging/build.ps1`（`-Slim` = 不带图）· `packaging/live2be.spec` · `packaging/collect_assets.py` · `docs/PACKAGING.md` |
-| 素材包（切包 / 首次运行按需下载） | `packaging/make_packs.py`（切）· `infra/packs.py`（读/下/校验/落地）· `webgui/routers/packs.py` + 前端「素材」页 |
+| 素材包（切包 / 按需下载；入口在「设置 → 素材状态 / 修复」） | `packaging/make_packs.py`（切）· `infra/packs.py`（读/下/校验/落地）· `webgui/routers/packs.py` + `static/js/packs.js` |
 | 资源配置 / 体检（独立小 exe） | `setup_tool/`（`python -m setup_tool --check`）· `packaging/setup_tool.spec` |
 
 ---
