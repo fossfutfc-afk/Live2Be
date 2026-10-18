@@ -16,7 +16,7 @@ Live2Be.exe
 Live2BeSetup.exe   资源配置助手（onefile，可以单独双击；见 setup_tool/.md）
 _internal/         代码 + 前端静态页 + 三处 prompts（RESOURCE_ROOT，只读）
 config/            角色卡 / 世界观（CONFIG_ROOT；程序不写，用户可改）
-assets/            只带"少了就报错或破相"的那几样（ASSETS_ROOT；立绘与背景走「素材」页下载）
+assets/            素材（ASSETS_ROOT；普通文件夹，可加可换可删，见下节两种口径）
 data/              首次运行自动创建（DATA_ROOT）
 .env/settings.toml 首次运行前填 LLM key（APP_ROOT）
 ```
@@ -27,19 +27,49 @@ data/              首次运行自动创建（DATA_ROOT）
 六个按钮：重新体检 · 选素材目录 · 选角色卡目录 · 选数据目录 · 打开数据目录 · 清空 `[paths]`。
 也可以纯控制台跑：`Live2BeSetup.exe --check`（有"问题"项时退出码 1，适合脚本）。
 
-**它对最小口径的包会报"有角色卡但没有立绘"和"地点表声明的背景文件缺 N/435"，都是有意的**：
-立绘与背景不再随包走（见下节）。这两个数字正是"用户拿到包会看到什么降级"的答案 ——
+**轻量版（`-Slim`）的包会让它报"有角色卡但没有立绘"和"地点表声明的背景文件缺 N/435"，都是有意的**：
+那个口径不带图（见下节）。这两个数字正是"用户拿到包会看到什么降级"的答案 ——
 也可以拿它当"我还缺多少素材"的清单。
 
 `infra/paths.py` 的五个根就是按这个形状写的：冻结后 `APP_ROOT = exe 同级`、
 `RESOURCE_ROOT = sys._MEIPASS`；`CONFIG/ASSETS/DATA` 还能被 `settings.toml` 的 `[paths]` 覆盖。
 
-## 素材不随包走：切包 + 首次运行下载
+## 素材：两种口径，同一份落盘形状
 
-全量 `assets/` 是 **448 MB**（background 251 · illustration 177 · menu 18），塞进包里不现实；
-复制一份进包也只是把 100 MB 从仓库搬到安装包。所以分两步：
+全量 `assets/` 是 **448 MB**（background 251 · illustration 177 · menu 18）。但**产品真正读的只有
+159 MB** —— 差的 289 MB 是产品根本不看的东西：
 
-**① 切包**（打包机上跑一次，约 30 秒）：
+| 不带 | 为什么 | 省 |
+|---|---|---|
+| 角色 `diff/` | 只有 `cli/` 的 `play_diff()` 读它；web 壳走 `spine/`（骨骼）+ `portrait/`（头像）。`catalog._scan_character` 在 diff 缺文件时 `static_path=None`、spine 照给（`tests/core/test_media.py` 有断言） | 119 MB |
+| 背景里没被地点表引用的 663 张 | 表里 `files` 声明的 435 张才是引擎会引用的；其余是死料 | 151 MB |
+| 角色 `ref/` | 只有纪念生图那一路用它，缺了降级纯文本 | 16 MB |
+
+于是两种口径（`packaging/collect_assets.py --mode full|minimal`）：
+
+| 口径 | 开关 | 带什么 | 体积 |
+|---|---|---|---|
+| **完整版**（默认） | `build.ps1` | 四角色 `spine/`+`portrait/`（含变装）、435 张背景、登录页三件 | **159.7 MB / 569 文件** |
+| **轻量版** | `build.ps1 -Slim` | 只带"少了就报错或破相"的: 每个角色的 `emotions.yml`（词表进 prompt）、`menu/{logo,default}`、director 白名单 | 0.4 MB / 11 文件 |
+
+完整版**断网可玩、零配置**；轻量版要靠「素材」页按需下载（见下）。
+
+### 素材是普通文件夹，不是只读资源
+
+`assets/` 落在 **exe 同级**（`APP_ROOT/assets`），`_internal/` 里只有代码与前端。所以用户可以：
+
+- 加自己的背景：丢进 `assets/background/`，在 `config/settings/world/place_entities.json` 加一条
+- 换掉某张图：覆盖同名文件
+- 写自己的角色卡：`config/characters/{id}/` 加六个文件
+- 搬到别的盘：`settings.toml` 的 `[paths] assets = "D:/…"`
+- 删掉不想要的：直接删，缺图只降级不报错
+
+**升级时的纪律（安装器与手写覆盖安装都要守）**：`config/` 与 `assets/` 用**只补缺、不覆盖**，
+`data/` 永不触碰。否则用户写好的角色卡会被一次升级扬了 —— 那比"不能改"更糟。
+
+## 轻量版的素材包：切包 + 首次运行下载
+
+`-Slim` 版把图改成按需下载。打包机上跑一次（约 30 秒）：
 
 ```powershell
 C:\Users\johnf\miniconda3\envs\live2be\python.exe packaging/make_packs.py --dst dist/packs
@@ -53,8 +83,8 @@ C:\Users\johnf\miniconda3\envs\live2be\python.exe packaging/make_packs.py --dst 
 | `bg.place_table` | 地点表 `files` 声明的**每一张**背景 | 100 MB |
 | `menu.vol2` | 登录页轮播图 | 17 MB |
 
-口径的三条理由：只有 `default/` 是必备外观（`MediaCatalog` 用它起步）；背景按**地点表**切
-而不是磁盘全量（表里 435 张是引擎会引用的，磁盘另有 663 张没人引用）；没有立绘的角色不打空包。
+（切包这一路仍按旧口径切，包含 `diff/`；轻量版用户多半也不跑 CLI，若要压到最小，
+把 `make_packs.py` 里角色包的目录范围改成和 `collect_assets` 的 `full` 一致即可。）
 
 产物是 zip + `manifest.json`（含每包的 sha256、字节数、**每个文件的相对路径与大小**）。
 
@@ -68,10 +98,7 @@ C:\Users\johnf\miniconda3\envs\live2be\python.exe packaging/make_packs.py --dst 
 - 清单地址存在 `settings.toml` 的 `[assets] manifest_url`；代理在 `[net] proxy`
   （空 = 交给 `HTTP(S)_PROXY` 环境变量）。
 
-**③ 想发一个"装上就能看见画面"的预览版**：`pwsh -File packaging/build.ps1 -Samples`
-（多加 106 MB 样张，清单在 `packaging/collect_assets.py` 顶部那几个常量）。
-
-抽样只用**文件名排序**（可复现）。缺图不报错：渲染层退化到纯文字 / 默认底图。
+清单按**文件名排序**（可复现）。缺图不报错：渲染层退化到纯文字 / 默认底图。
 
 ## 打开方式：独立应用窗口（不碰你日常的浏览器）
 
@@ -130,15 +157,20 @@ msedge.exe --app=http://127.0.0.1:8000/ --user-data-dir=<exe 同级>\data\browse
 
 ## 实测（2026-10-18 · PyInstaller 6.22.3 · 本机）
 
-第一次 `build.ps1` 就过了，没补 hidden import。产物：
+第一次 `build.ps1` 就过了，没补 hidden import。**完整版**（默认，`assets` 口径 = `full`）产物：
 
-| 部分 | 体积 |
-|---|---|
-| `Live2Be.exe` | 13.4 MB |
-| `_internal/`（代码 + 前端 + prompts，345 文件） | 73.6 MB |
-| `assets/`（样张，197 文件） | 105.8 MB |
-| `config/` | 0.2 MB |
-| **合计** | **193 MB** |
+| 部分 | 体积 | 文件 |
+|---|---|---|
+| `Live2Be.exe` | 13.8 MB | 1 |
+| `_internal/`（代码 + 前端 + prompts） | 74.2 MB | 440 |
+| `assets/`（四角色 spine+头像 + 435 张背景 + 登录页） | 159.7 MB | 562 |
+| `config/`（角色卡 / 世界观） | 0.2 MB | 61 |
+| `Live2BeSetup.exe`（配置助手） | 42.1 MB | 1 |
+| **合计** | **290 MB** | **1065** |
+
+不算配置助手就是 **248 MB**（助手可以单独发；它自己 42 MB 是因为 onefile 里带了 tkinter + PIL）。
+
+`-Slim` 版是 131 MB（素材只占 0.4 MB）—— 两者差别只在 `assets/` 与是否需要「素材」页联网。
 
 验过的事（都是对 `dist/Live2Be/Live2Be.exe` 打 HTTP，不是读代码）：
 
@@ -146,13 +178,17 @@ msedge.exe --app=http://127.0.0.1:8000/ --user-data-dir=<exe 同级>\data\browse
 |---|---|
 | `--help` | 正常 |
 | `/` · `/static/js/gui.js` · `/static/css/main.css` | 200（前端在包里） |
-| `/api/menu` | 200，47 张背景 URL（`assets/` 在 exe 同级，找得到） |
-| `/api/mmt/characters` | 200，列出角色与头像 URL（`config/` 读得到） |
-| 头像 `assets/illustration/…/collection.png` | 200，218 KB |
+| `/api/menu` | 200，49 张背景 URL（`assets/` 在 exe 同级，找得到） |
+| `/api/mmt/characters` | 200，**4 个角色**，头像 URL 全指 `portrait/collection.png` |
+| 四个头像 `…/portrait/collection.png` | 全 200（177–219 KB） |
+| `/api/spine/igusa_haruka` | 200，`pack=haruka_spr`、14 个情绪→动画映射 |
+| 背景 `…/SDIR_Atmosphere/DIR_ViewSora/BG_View_Sky2.jpg` | 200，293 KB |
+| 登录页轮播 `/assets/menu/vol2.0/BG_CS_PR2_1.jpg` | 200，485 KB |
 | `data/diag/live2be.log` | 自动创建（`APP_ROOT` = exe 同级，可写） |
 | `/api/runtime/paths` | 200，五个根都报对（`data` = `<exe 同级>\data`） |
 | `/api/runtime/open` | 200，真打开了资源管理器；传 `C:/Windows` → 400（只认四个根） |
 | 前端关停 → `/api/shutdown` | 200 → 进程退出码 0 |
+| `Live2BeSetup.exe --check` | `有立绘的角色 4 个` · `168 个地点 / 435 张全部在位` |
 
 启动横幅长这样（用户问"数据存哪儿"，答案就在这儿）：
 
