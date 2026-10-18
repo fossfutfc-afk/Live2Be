@@ -43,10 +43,13 @@ dev = [
 ]
 
 # 包自动发现（重构期改包名无需同步清单；只排除非包目录）
+# `build*` / `dist*` 必须排除: PyInstaller 的产出目录没有 `__init__.py`，但 setuptools 的
+# 命名空间发现会把它们算成顶层包（`pip install -e .` 之后 `top_level.txt` 里真的出现过）。
 [tool.setuptools.packages.find]
 exclude = [
     "tests*", "experiments*", "tools*", "archive*", "docs*",
-    "l2d-demo*", "assets*", "data*", "config*", "guidance*", "packaging*",
+    "assets*", "data*", "config*", "guidance*", "packaging*",
+    "build*", "dist*",
 ]
 
 # ── pytest ────────────────────────────────────────────────────────────────
@@ -71,7 +74,6 @@ extend-exclude = [
     ".ruff_cache",
     "archive",
     "experiments",
-    "l2d-demo",
     "tools",
     "data",
     "assets",
@@ -99,4 +101,4 @@ known-first-party = ["cli", "contract", "core", "infra", "llm", "tui", "webgui"]
 [tool.pyright]
 pythonVersion = "3.12"
 typeCheckingMode = "basic"
-exclude = [".testtmp", "archive", "l2d-demo", "experiments", "tools"]
+exclude = [".testtmp", "archive", "experiments", "tools"]

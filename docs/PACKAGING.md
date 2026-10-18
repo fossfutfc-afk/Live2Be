@@ -165,12 +165,14 @@ msedge.exe --app=http://127.0.0.1:8000/ --user-data-dir=<exe 同级>\data\browse
 | `_internal/`（代码 + 前端 + prompts） | 74.2 MB | 440 |
 | `assets/`（四角色 spine+头像 + 435 张背景 + 登录页） | 159.7 MB | 562 |
 | `config/`（角色卡 / 世界观） | 0.2 MB | 61 |
-| `Live2BeSetup.exe`（配置助手） | 42.1 MB | 1 |
-| **合计** | **290 MB** | **1065** |
+| `Live2BeSetup.exe`（配置助手） | 18.7 MB | 1 |
+| **合计** | **267 MB** | 1060 |
 
-不算配置助手就是 **248 MB**（助手可以单独发；它自己 42 MB 是因为 onefile 里带了 tkinter + PIL）。
+不算配置助手就是 **248 MB**（助手可以单独发）。助手从 42.1 MB 压到 18.7 MB 的做法是
+在 `setup_tool.spec` 的 `excludes` 里加 `numpy` / `PIL` / `pydantic` —— 打包 TOC 里它们各有
+几百处引用，而工具一个都不 import（它只用 `infra` + `core.parsing` + tkinter）。
 
-`-Slim` 版是 131 MB（素材只占 0.4 MB）—— 两者差别只在 `assets/` 与是否需要「素材」页联网。
+`-Slim` 版是 **约 107 MB**（素材只占 0.4 MB）—— 两者差别只在 `assets/` 与是否需要「素材」页联网。
 
 验过的事（都是对 `dist/Live2Be/Live2Be.exe` 打 HTTP，不是读代码）：
 

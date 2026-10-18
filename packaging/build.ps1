@@ -5,8 +5,8 @@
     C:\Users\johnf\miniconda3\envs\live2be\python.exe -m pip install pyinstaller
 
   用法（在仓根或任意目录）:
-    pwsh -File packaging/build.ps1                 # 完整版: 四角色 + 435 张背景随包（~290 MB, 断网可玩）
-    pwsh -File packaging/build.ps1 -Slim           # 轻量版: 素材只带 0.4 MB（~131 MB, 立绘走「素材」页下载）
+    pwsh -File packaging/build.ps1                 # 完整版: 四角色 + 435 张背景随包（~267 MB, 断网可玩）
+    pwsh -File packaging/build.ps1 -Slim           # 轻量版: 素材只带 0.4 MB（~107 MB, 立绘走「素材」页下载）
     pwsh -File packaging/build.ps1 -NoClean        # 复用上次的 build/（迭代快）
 
   素材口径由 `packaging/collect_assets.py` 决定（`full` / `minimal`）:

@@ -31,10 +31,13 @@ a = Analysis(
     hooksconfig={},
     runtime_hooks=[],
     excludes=[
-        "tests", "experiments", "tools", "archive", "l2d-demo", "packaging",
+        "tests", "experiments", "tools", "archive", "packaging",
         "pytest", "networkx", "matplotlib", "pyvis", "IPython",
         # 主程序的 web 栈不该被拖进来（工具只需要 infra/core 那几件）
         "fastapi", "uvicorn", "starlette", "httpx",
+        # 这三样工具一个都不 import（见下方说明），却占了 42 MB 里的大头
+        # （打包 TOC 里 numpy 353 处 / PIL 221 处 / pydantic 226 处引用）。
+        "numpy", "PIL", "pydantic",
     ],
     noarchive=False,
 )
