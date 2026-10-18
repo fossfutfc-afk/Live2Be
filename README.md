@@ -182,8 +182,11 @@ assets/background/…                                          # 背景（要在
 ```bash
 python -m setup_tool --check       # 体检：路径 / 角色卡 / 素材 / 数据 / LLM
 python -m pytest tests/core        # 与 tests/llm tests/tui tests/webgui 分域跑（别塞一个进程）
-pwsh packaging/build.ps1           # 打 exe（Windows；默认完整版，-Slim 不带图）
+pwsh packaging/build.ps1           # 打 exe（Windows；默认完整版 ≈267 MB，-Slim 出 ≈107 MB）
 ```
+
+产物在 `dist/Live2Be/`。一个能跑的闭环是 **`Live2Be.exe` + `_internal/` + `assets/` + `config/`**
+（onedir 的 exe 离不开 `_internal/`；`data/` 首次运行自建，`.env` 与 `Live2BeSetup.exe` 可选）。
 
 **改代码前先读 [AGENTS.md](AGENTS.md)** —— 它是唯一活入口：分层、开发纪律、测试跑法、
 以及踩过的坑。设计稿与执行记录在 `docs/`，它们**带日期、可能已漂移**，与代码冲突时信代码。

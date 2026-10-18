@@ -56,7 +56,7 @@ HIDDEN += ["clr", "webview.platforms.winforms", "webview.platforms.edgechromium"
 
 #: 不进包的东西: 测试/实验/开发依赖（它们不是运行时的一部分）
 EXCLUDES = [
-    "tests", "experiments", "tools", "archive", "l2d-demo", "packaging",
+    "tests", "experiments", "tools", "archive", "packaging",
     "pytest", "networkx", "matplotlib", "pyvis", "IPython", "tkinter",
 ]
 
