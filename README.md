@@ -104,16 +104,86 @@
 - 角色卡、地点表、提示词与引擎代码是原创内容
 - 权利人如需停止使用：见 [NOTICE.md](NOTICE.md) 的下架一节
 
-## 从源码跑（开发者）
+## 从源码跑（macOS / Linux / 开发者）
 
-```powershell
-pip install -e ".[dev]"
-python -m webgui.serve        # 打开 http://127.0.0.1:8000/
-pwsh -File start.ps1          # 同上，顺带起本地 embedding 服务
-python main.py                # 终端调试入口（功能是 Web 版的子集）
+**打包好的 exe 只有 Windows。** macOS 与 Linux 只能从源码跑 —— 这也是开发者的路径。
+
+### 1. 环境
+
+| | |
+|---|---|
+| Python | **3.12 或更高**（见 `pyproject.toml` 的 `requires-python`） |
+| 系统 | macOS 12+ / 任意现代 Linux（Windows 同样适用，把 `python3.12` 换成 `py -3.12`） |
+| Git | 只需要 clone 这一次 |
+
+```bash
+git clone https://github.com/fossfutfc-afk/Live2Be.git Live2Be
+cd Live2Be
+python3.12 -m venv .venv
+source .venv/bin/activate          # Windows: .venv\Scripts\activate
+pip install -e ".[dev]"            # 只跑不测可以用 `pip install -e .`
 ```
 
-打包：`pwsh packaging/build.ps1`（默认完整版 ≈290 MB；`-Slim` 出 131 MB 的轻量版）→ `dist/Live2Be/`。
+`.[dev]` 装的是 pytest / ruff / networkx；`.[image]` 是纪念生图要的 Pillow —— 不装也行，
+生图会自动退化成纯文字。
+
+### 2. 放 key
+
+```bash
+echo 'LLM_API_KEY=sk-...' > .env    # 也可以启动后在「设 置」页填
+```
+
+### 3. 起服务
+
+```bash
+python -m webgui.serve             # → http://127.0.0.1:8000/ ，会自己开浏览器
+```
+
+这是**推荐**的启动方式：它负责端口占用检查、自动开浏览器，以及"Ctrl+C 被忽略、退出走前端
+「关闭服务」"那一套保护。
+
+只想要最裸的 FastAPI 进程（开发调试常用）：
+
+```bash
+uvicorn webgui.app:app --host 127.0.0.1 --port 8000
+# 装了 fastapi[standard] 之后也可以：
+fastapi dev webgui/app.py
+```
+
+这两条**绕过** `webgui.serve` 的外壳：不自动开浏览器，Ctrl+C 正常工作（也就少了"防手滑
+打断后台记忆整理"的保护）。改前端时它们更顺手。
+
+其他入口：
+
+```bash
+python main.py                     # 终端调试入口（功能是 Web 版的子集）
+pwsh -File start.ps1               # 只在 Windows：顺带起本地 embedding 服务
+```
+
+### 4. 没有素材是正常的
+
+`assets/` 不进版本库（版权原因），所以**刚 clone 下来一张图都没有**：登录页没有 logo 与背景、
+MMT 列表没有头像、羁绊剧情里不出现角色（退化成纯文字）。
+
+**但角色卡与世界观在 `config/` 里，是完整的** —— 聊天、记忆、剧情判定全都跑得起来。
+
+想让画面出来，把文件按目录放进去就行（细节见 [guidance/CHARACTER.md](guidance/CHARACTER.md)）：
+
+```
+assets/illustration/{角色}/default/portrait/collection.png   # MMT 头像（一张 png 就够）
+assets/illustration/{角色}/default/emotions.yml              # 表情词表
+assets/background/…                                          # 背景（要在 place_entities.json 登记）
+```
+
+也可以把 Windows release 里的 `assets/` 整个拷过来。
+
+### 5. 自检与打包
+
+```bash
+python -m setup_tool --check       # 体检：路径 / 角色卡 / 素材 / 数据 / LLM
+python -m pytest tests/core        # 与 tests/llm tests/tui tests/webgui 分域跑（别塞一个进程）
+pwsh packaging/build.ps1           # 打 exe（Windows；默认完整版，-Slim 不带图）
+```
 
 **改代码前先读 [AGENTS.md](AGENTS.md)** —— 它是唯一活入口：分层、开发纪律、测试跑法、
 以及踩过的坑。设计稿与执行记录在 `docs/`，它们**带日期、可能已漂移**，与代码冲突时信代码。
