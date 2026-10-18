@@ -20,6 +20,8 @@
 
 from pathlib import Path
 
+from PyInstaller.utils.hooks import collect_all
+
 ROOT = Path(SPECPATH).resolve().parent          # 本文件在 packaging/ 下
 
 #: 必须在**包内**（RESOURCE_ROOT）的只读件: 前端静态页 + 三处 LLM 可见文案
@@ -42,6 +44,16 @@ HIDDEN = [
     "webgui.app", "webgui.serve",
 ]
 
+#: **本程序自己的窗口**（pywebview）要整包带: 它的 WebView2 DLL 是数据文件,
+#: pythonnet / clr_loader 也收不全。缺了它 `--window` 会静默退回浏览器。
+BINARIES: list = []
+for _pkg in ("webview", "pythonnet", "clr_loader"):
+    _datas, _bins, _hidden = collect_all(_pkg)
+    DATAS += _datas
+    BINARIES += _bins
+    HIDDEN += _hidden
+HIDDEN += ["clr", "webview.platforms.winforms", "webview.platforms.edgechromium"]
+
 #: 不进包的东西: 测试/实验/开发依赖（它们不是运行时的一部分）
 EXCLUDES = [
     "tests", "experiments", "tools", "archive", "l2d-demo", "packaging",
@@ -51,7 +63,7 @@ EXCLUDES = [
 a = Analysis(
     [str(ROOT / "packaging" / "entry.py")],
     pathex=[str(ROOT)],
-    binaries=[],
+    binaries=BINARIES,
     datas=DATAS,
     hiddenimports=HIDDEN,
     hookspath=[],

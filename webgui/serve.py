@@ -216,8 +216,9 @@ def open_app_window(url: str, exe: str) -> bool:
         return False
 
 
-def open_browser(url: str) -> bool:
-    """把地址交给某个窗口。返回是否"交出去了"。
+def open_browser(url: str) -> str | None:
+    """把地址交给某个窗口。返回用了哪种方式（失败 = None）: `app-window` / `explorer` /
+    `browser`。**日志由调用方打一次** —— 这里再打就变成"同一件事说两遍"。
 
     顺序: ① 独立应用窗口（`--app=`，最稳）→ ② 提权时经 `explorer.exe` 代开 →
     ③ 默认浏览器。②的理由是提权进程开出来的浏览器会继承管理员令牌; ①则连"日常实例的
@@ -226,22 +227,21 @@ def open_browser(url: str) -> bool:
     if _PREFER_APP_WINDOW:
         exe = find_browser_exe()
         if exe and open_app_window(url, exe):
-            logger.info("已用应用窗口打开（独立配置, 不碰你日常的浏览器）: %s", url)
-            return True
+            return "app-window"
     if os.name == "nt" and is_elevated():
         import subprocess
 
         try:
             subprocess.Popen(["explorer.exe", url])
-            return True
+            return "explorer"
         except OSError:                              # explorer 都不在: 退回普通方式
             pass
     import webbrowser
 
     try:
-        return bool(webbrowser.open(url))
+        return "browser" if webbrowser.open(url) else None
     except Exception:                                # noqa: BLE001 — 没有浏览器/无桌面
-        return False
+        return None
 
 
 def open_folder(path: str) -> bool:
@@ -257,18 +257,56 @@ def open_folder(path: str) -> bool:
         return False
 
 
+def page_ready(url: str, timeout: float = 2.0) -> bool:
+    """服务端真的能出页面了吗（抓到 index.html 的标志性标记才算）。"""
+    import httpx
+
+    try:
+        res = httpx.get(url, timeout=timeout)
+    except (httpx.HTTPError, OSError):
+        return False
+    return res.status_code == 200 and 'id="app"' in res.text
+
+
+def existing_edge_count() -> int:
+    """现在有几个 msedge 进程 —— 只为提示"你那个实例可能是管理员权限的"。"""
+    if os.name != "nt":
+        return 0
+    import subprocess
+
+    try:
+        out = subprocess.run(
+            ["tasklist", "/FI", "IMAGENAME eq msedge.exe", "/NH"],
+            capture_output=True, text=True, timeout=5, check=False).stdout
+    except (OSError, subprocess.SubprocessError):
+        return 0
+    return out.lower().count("msedge.exe")
+
+
 def _open_when_ready(url: str, timeout: float = 20.0) -> None:
-    """等 server 真的在听再开浏览器（否则用户看到的是连接失败页）。"""
+    """等**页面真的能出**再开窗口。
+
+    只看 `srv.started` 不够: 那时 HTTP 未必就绪, 开出来的窗口就是"白屏/连接失败页"
+    —— 用户看到的就是一个灰窗口。
+    """
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        srv = _server
-        if srv is not None and getattr(srv, "started", False):
+        if page_ready(url):
             break
-        time.sleep(0.1)
-    if open_browser(url):
-        logger.info("已交给浏览器: %s（没反应就手动打开它）", url)
+        time.sleep(0.2)
     else:
-        logger.warning("没能自动打开浏览器 —— 请手动打开: %s", url)
+        logger.warning("页面在 %.0fs 内没就绪 —— 仍然尝试打开: %s", timeout, url)
+    how = open_browser(url)
+    if how is None:
+        logger.warning("没能自动打开 —— 请手动打开: %s", url)
+        return
+    logger.info("已打开（%s）: %s", how, url)
+    count = existing_edge_count()
+    if count:
+        logger.warning("你已经有 %d 个 Edge 进程在跑。若新窗口是空白, 多半是那个"
+                       "**以管理员权限运行的 Edge** 抢了窗口（Windows 不允许普通进程把"
+                       "地址交给它）⇒ 先全部关掉 Edge; 或改用 `--window`"
+                       "（本程序自己的窗口, 完全不碰 Edge）", count)
 
 
 def _run_windowed(url: str) -> int:
@@ -286,7 +324,16 @@ def _run_windowed(url: str) -> int:
     worker = threading.Thread(target=srv.run, daemon=True)
     worker.start()
     webview.create_window("Live2Be", url, width=1360, height=860, min_size=(900, 600))
-    webview.start()                                  # 阻塞到窗口关闭
+    try:
+        webview.start()                              # 阻塞到窗口关闭
+    except Exception as e:                           # noqa: BLE001 — 打包后 pythonnet 常起不来
+        # 冻结版 pywebview 依赖 pythonnet/WebView2, 初始化失败是**已知**的坑
+        # （`Failed to resolve Python.Runtime.Loader.Initialize`）⇒ 不许把用户摔在这儿,
+        # 退回普通打开方式, 服务继续跑。
+        logger.warning("原生窗口起不来（%s: %s）⇒ 退回浏览器方式", type(e).__name__, e)
+        _open_when_ready(url)
+        worker.join()                                # 等服务结束（关停由前端发起）
+        return 0
     logger.info("窗口已关闭 ⇒ 关停服务")
     request_stop(force=True)
     worker.join(timeout=SHUTDOWN_TIMEOUT_S + 2)
@@ -305,6 +352,15 @@ def _banner(url: str) -> None:
                        "（否则 Edge 会提示权限并重启自己）; 建议改用普通终端启动")
 
 
+def native_window_available() -> bool:
+    """本程序的**自己的窗口**能不能用（pywebview + WebView2）。"""
+    try:
+        import webview  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
 def main(argv: list[str] | None = None) -> int:
     global _server
     parser = argparse.ArgumentParser(prog="python -m webgui.serve")
@@ -313,11 +369,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--allow-ctrl-c", action="store_true",
                         help="开发用: 恢复 Ctrl+C 立刻退")
     parser.add_argument("--window", action="store_true",
-                        help="开原生窗口（pywebview）而不是浏览器")
-    parser.add_argument("--no-browser", action="store_true",
-                        help="不自动打开浏览器（调试 / 无桌面环境用）")
+                        help="强制用本程序自己的窗口（默认: 有 pywebview 就用）")
+    parser.add_argument("--no-window", action="store_true",
+                        help="不用自己的窗口 —— 走 Edge 应用窗口 / 默认浏览器")
     parser.add_argument("--browser", action="store_true",
-                        help="用系统默认浏览器（默认是独立的 Edge/Chrome 应用窗口）")
+                        help="用系统默认浏览器打开（老行为）")
+    parser.add_argument("--no-browser", action="store_true",
+                        help="什么都不自动开（只在控制台打地址）")
     args = parser.parse_args(argv)
 
     global _PREFER_APP_WINDOW
@@ -331,7 +389,7 @@ def main(argv: list[str] | None = None) -> int:
         if is_our_service(url):
             logger.info("已经有一个 Live2Be 在跑了 ⇒ 打开它: %s", url)
             if not open_browser(url):
-                logger.warning("没能自动打开浏览器 —— 请手动打开: %s", url)
+                logger.warning("没能自动打开 —— 请手动打开: %s", url)
             return 0
         logger.error("端口 %d 被别的程序占用 —— 换一个端口: --port 8001", args.port)
         return 2
@@ -352,8 +410,14 @@ def main(argv: list[str] | None = None) -> int:
     if not args.allow_ctrl_c:
         _ignore_sigint()
     _banner(url)
-    if args.window:
+    # 默认: **Edge/Chrome 的独立应用窗口**（`--app=` + 自己的 profile）。
+    # `--window` 才用本程序自己的窗口（pywebview）——**开发环境**可用, 打包版依赖
+    # pythonnet+WebView2, 起不来时自动退回浏览器方式（见 `_run_windowed`）。
+    want_native = args.window and not (args.no_window or args.browser or args.no_browser)
+    if want_native and native_window_available():
         return _run_windowed(url)
+    if want_native:
+        logger.warning("本程序自己的窗口不可用（没有 pywebview/WebView2）⇒ 退回浏览器方式")
     if not args.no_browser:
         threading.Thread(target=_open_when_ready, args=(url,), daemon=True).start()
     _server.run()

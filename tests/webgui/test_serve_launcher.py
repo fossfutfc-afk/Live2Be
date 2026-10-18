@@ -135,7 +135,7 @@ def test_browser_prefers_the_app_window(monkeypatch):
     monkeypatch.setattr(serve, "is_elevated", lambda: pytest.fail("不该走到 explorer"))
     monkeypatch.setattr("webbrowser.open", lambda url: pytest.fail("不该动默认浏览器"))
 
-    assert serve.open_browser("http://127.0.0.1:8000/") is True
+    assert serve.open_browser("http://127.0.0.1:8000/") == "app-window"
     assert used == ["msedge.exe"]
 
 
@@ -147,7 +147,7 @@ def test_browser_falls_back_to_explorer_when_elevated(monkeypatch):
     calls: list[list[str]] = []
     monkeypatch.setattr("subprocess.Popen", _record_popen(calls))
 
-    assert serve.open_browser("http://127.0.0.1:8000/") is True
+    assert serve.open_browser("http://127.0.0.1:8000/") == "explorer"
     assert calls and calls[0][0].lower().endswith("explorer.exe"), calls
     assert calls[0][1] == "http://127.0.0.1:8000/"
 
@@ -159,7 +159,7 @@ def test_browser_falls_back_to_default_when_elevated_and_no_chromium(monkeypatch
     seen: list[str] = []
     monkeypatch.setattr("webbrowser.open", lambda url: seen.append(url) or True)
 
-    assert serve.open_browser("http://127.0.0.1:8000/") is True
+    assert serve.open_browser("http://127.0.0.1:8000/") == "browser"
     assert seen == ["http://127.0.0.1:8000/"]
 
 
@@ -172,7 +172,7 @@ def test_browser_flag_skips_the_app_window(monkeypatch):
     monkeypatch.setattr("webbrowser.open", lambda url: seen.append(url) or True)
     serve._PREFER_APP_WINDOW = False                 # `main(--browser)` 的效果
 
-    assert serve.open_browser("http://127.0.0.1:8123/") is True
+    assert serve.open_browser("http://127.0.0.1:8123/") == "browser"
     assert seen == ["http://127.0.0.1:8123/"]
 
 
