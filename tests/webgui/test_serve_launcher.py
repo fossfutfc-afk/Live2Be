@@ -10,6 +10,7 @@ import sys
 
 import pytest
 
+from infra import shell as infra_shell
 from webgui import serve
 
 
@@ -115,7 +116,8 @@ def _record_popen(calls: list[list[str]]):
 def test_app_window_gets_its_own_profile(monkeypatch, tmp_path):
     """独立 `--user-data-dir` + `--app=` —— 绕开日常那个（可能是管理员的）浏览器实例。"""
     monkeypatch.setattr(serve.paths, "DATA_ROOT", tmp_path / "data")
-    monkeypatch.setattr(serve, "is_elevated", lambda: False)   # 普通权限: 直接启动
+    # launch() 住在 infra.shell —— 降权判断也在那儿
+    monkeypatch.setattr("infra.shell.is_elevated", lambda: False)
     calls: list[list[str]] = []
     monkeypatch.setattr("subprocess.Popen", _record_popen(calls))
 
@@ -134,10 +136,10 @@ def test_elevated_launcher_drops_privileges(monkeypatch):
     表现是灰色空窗口, 关窗时还问"要不要用普通权限"（真机实测过）。
     """
     calls: list[list[str]] = []
-    monkeypatch.setattr(serve, "is_elevated", lambda: True)
+    monkeypatch.setattr("infra.shell.is_elevated", lambda: True)
     monkeypatch.setattr("subprocess.Popen", _record_popen(calls))
 
-    assert serve.launch(["msedge.exe", "--app=http://127.0.0.1:8000/"]) is True
+    assert infra_shell.launch(["msedge.exe", "--app=http://127.0.0.1:8000/"]) is True
     assert calls[0][:2] == ["runas", "/trustlevel:0x20000"], calls
     assert "msedge.exe" in calls[0][2]
 
@@ -197,5 +199,5 @@ def test_folder_opens_through_explorer(monkeypatch):
     monkeypatch.setattr("subprocess.Popen", _record_popen(calls))
     if serve.os.name != "nt":
         pytest.skip("只有 Windows 走 explorer")
-    assert serve.open_folder("D:/x/data") is True
+    assert infra_shell.open_folder("D:/x/data") is True
     assert calls and calls[0][0].lower().endswith("explorer.exe"), calls

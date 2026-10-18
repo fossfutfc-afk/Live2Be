@@ -114,7 +114,7 @@ def test_paths_endpoint_tells_where_the_data_is():
 
 def test_open_folder_needs_token_and_local_origin(monkeypatch):
     called: list[str] = []
-    monkeypatch.setattr(serve, "open_folder", lambda p: called.append(p) or True)
+    monkeypatch.setattr("infra.shell.open_folder", lambda p: called.append(p) or True)
 
     assert _request("POST", "/api/runtime/open",
                     json={"which": "data"}).status_code == 403
@@ -129,7 +129,7 @@ def test_open_folder_needs_token_and_local_origin(monkeypatch):
 
 def test_open_folder_refuses_unknown_targets(monkeypatch):
     called: list[str] = []
-    monkeypatch.setattr(serve, "open_folder", lambda p: called.append(p) or True)
+    monkeypatch.setattr("infra.shell.open_folder", lambda p: called.append(p) or True)
     r = _request("POST", "/api/runtime/open",
                  json={"which": "C:/Windows", "token": shutdown.TOKEN})
     assert r.status_code == 400, "只认那四个根, 不许传任意路径"
@@ -138,7 +138,7 @@ def test_open_folder_refuses_unknown_targets(monkeypatch):
 
 def test_open_folder_opens_the_root(monkeypatch):
     called: list[str] = []
-    monkeypatch.setattr(serve, "open_folder", lambda p: called.append(p) or True)
+    monkeypatch.setattr("infra.shell.open_folder", lambda p: called.append(p) or True)
     r = _request("POST", "/api/runtime/open",
                  json={"which": "data", "token": shutdown.TOKEN})
     assert r.status_code == 200, r.text

@@ -13,12 +13,23 @@ pwsh -File packaging/build.ps1
 
 ```
 Live2Be.exe
+Live2BeSetup.exe   资源配置助手（onefile，可以单独双击；见 setup_tool/.md）
 _internal/         代码 + 前端静态页 + 三处 prompts（RESOURCE_ROOT，只读）
 config/            角色卡 / 世界观（CONFIG_ROOT；程序不写，用户可改）
 assets/            样张素材（ASSETS_ROOT；程序不写，可自己加）
 data/              首次运行自动创建（DATA_ROOT）
 .env/settings.toml 首次运行前填 LLM key（APP_ROOT）
 ```
+
+### 配置助手（`Live2BeSetup.exe`）
+
+和主程序放同一目录就共用同一份 `settings.toml` / `config` / `assets` / `data`。
+六个按钮：重新体检 · 选素材目录 · 选角色卡目录 · 选数据目录 · 打开数据目录 · 清空 `[paths]`。
+也可以纯控制台跑：`Live2BeSetup.exe --check`（有"问题"项时退出码 1，适合脚本）。
+
+**它对样例包会报两条"注意"，都是有意的**：`有角色卡但没有立绘`（样张只带一个角色）
+与 `地点表声明的背景文件 缺 402/435`（样张只带两个背景分类 + 学校类 40 张）。
+这两个数字正是"用户拿到样例包会看到什么降级"的答案 —— 也可以拿它当"我还缺多少素材"的清单。
 
 `infra/paths.py` 的五个根就是按这个形状写的：冻结后 `APP_ROOT = exe 同级`、
 `RESOURCE_ROOT = sys._MEIPASS`；`CONFIG/ASSETS/DATA` 还能被 `settings.toml` 的 `[paths]` 覆盖。
