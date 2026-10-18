@@ -54,16 +54,30 @@ if (-not $SkipSamples) {
 }
 
 # ── 3. 打包 ─────────────────────────────────────────────────────────────
-Write-Host '[2/3] PyInstaller:'
+Write-Host '[2/4] PyInstaller（主程序 onedir）:'
 $clean = if ($NoClean) { '--noconfirm' } else { '--noconfirm --clean' }
 $pyArgs = @('-m', 'PyInstaller') + ($clean -split ' ') + @('packaging/live2be.spec')
 & $Py @pyArgs
 if ($LASTEXITCODE -ne 0) { Write-Host '打包失败（看上面最后几行）' -ForegroundColor Red; exit $LASTEXITCODE }
 
+# ── 3b. 「资源配置」辅助工具（onefile，和主程序放同一目录）───────────────
+Write-Host '[3/4] PyInstaller（配置助手 onefile）:'
+$toolArgs = @('-m', 'PyInstaller') + ($clean -split ' ') + @('packaging/setup_tool.spec')
+& $Py @toolArgs
+if ($LASTEXITCODE -ne 0) { Write-Host '配置助手打包失败' -ForegroundColor Red; exit $LASTEXITCODE }
+
 # ── 4. 组装 exe 同级的东西 ──────────────────────────────────────────────
-Write-Host '[3/3] 组装:'
+Write-Host '[4/4] 组装:'
 $Dist = Join-Path $Root 'dist\Live2Be'
 if (-not (Test-Path $Dist)) { Write-Host "  没找到 $Dist（PyInstaller 没产出?）" -ForegroundColor Red; exit 1 }
+
+$SetupExe = Join-Path $Root 'dist\Live2BeSetup.exe'
+if (Test-Path $SetupExe) {
+    Copy-Item $SetupExe (Join-Path $Dist 'Live2BeSetup.exe') -Force
+    Write-Host '   Live2BeSetup.exe → exe 同级（配置助手；也可以单独双击）'
+} else {
+    Write-Host '   ⚠ 没找到 dist\Live2BeSetup.exe（配置助手没出来）' -ForegroundColor Yellow
+}
 
 # ⚠️ 先删目标再拷: `Copy-Item -Recurse` 到已存在的目录会套成 config/config
 $DistConfig = Join-Path $Dist 'config'

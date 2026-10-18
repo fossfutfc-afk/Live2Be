@@ -16,7 +16,7 @@ import logging
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
-from infra import paths, runtime
+from infra import paths, runtime, shell
 from webgui import serve, shutdown
 
 logger = logging.getLogger(__name__)
@@ -77,7 +77,7 @@ async def api_open_folder(body: OpenIn, request: Request) -> dict:
     target = _OPENABLE.get(body.which)
     if target is None:
         raise HTTPException(status_code=400, detail=f"which 必须是 {sorted(_OPENABLE)}")
-    ok = serve.open_folder(str(target))
+    ok = shell.open_folder(str(target))
     if not ok:
         raise HTTPException(status_code=409, detail="打不开资源管理器")
     return {"ok": True, "path": str(target)}

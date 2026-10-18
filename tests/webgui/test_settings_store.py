@@ -141,7 +141,8 @@ def test_save_settings_rejects_none_leaf():
     （`routers/settings.py::_acceptable`, 见下一个用例）。
     """
     _write_handmade()
-    assert store._sane_value(None) is False, "None 必须被判为不可写"
+    # 判据本体已下沉 infra.settings（唯一写入口）—— 这边跟着改指向, 断言不变
+    assert settings._sane_value(None) is False, "None 必须被判为不可写"
 
     # 先落一个非默认值——否则下面的断言两种实现都通过, 等于没测
     cur = store.load_settings()

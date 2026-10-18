@@ -27,6 +27,7 @@ import time
 import uvicorn
 
 from infra import logsetup, paths, runtime
+from infra.shell import is_elevated, launch
 
 logger = logging.getLogger(__name__)
 
@@ -140,18 +141,6 @@ def is_our_service(url: str, timeout: float = 1.5) -> bool:
     return res.status_code == 200 and isinstance(body, dict) and "busy" in body
 
 
-def is_elevated() -> bool:
-    """本进程是管理员权限吗（Windows；别的地方一律 False）。"""
-    if os.name != "nt":
-        return False
-    try:
-        import ctypes
-
-        return bool(ctypes.windll.shell32.IsUserAnAdmin())
-    except (ImportError, AttributeError, OSError):
-        return False
-
-
 #: 找浏览器的顺序（Chromium 系才支持 `--app=`；Edge 在 Win10+ 是标配）
 _BROWSER_APP_PATHS = (
     ("msedge.exe", (r"%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe",
@@ -190,30 +179,6 @@ def find_browser_exe() -> str | None:
             if os.path.isfile(exe):
                 return exe
     return None
-
-
-def launch(args: list[str]) -> bool:
-    """启动一个外部程序。**提权时先降到普通权限再启动。**
-
-    为什么必须降: 从管理员终端起的浏览器会继承管理员令牌并**驻留后台**; 之后用户用普通
-    权限双击时, 新进程没法把地址交给那个管理员实例（UIPI）—— 表现是灰色空窗口, 关窗时
-    还会问"要不要用普通权限"（实测就是这么来的）。`runas /trustlevel:0x20000` 是 Windows
-    自带的"基本用户"令牌, 用它启动就不会再产生管理员浏览器。
-    """
-    import subprocess
-
-    if os.name == "nt" and is_elevated():
-        cmdline = " ".join(f'"{a}"' if " " in a else a for a in args)
-        try:
-            subprocess.Popen(["runas", "/trustlevel:0x20000", cmdline])
-            return True
-        except OSError:                              # runas 不在: 退回直接启动
-            logger.warning("runas 降权失败, 直接启动（可能带管理员令牌）")
-    try:
-        subprocess.Popen(args)
-        return True
-    except OSError:
-        return False
 
 
 def open_app_window(url: str, exe: str) -> bool:
@@ -259,19 +224,6 @@ def open_browser(url: str) -> str | None:
         return "browser" if webbrowser.open(url) else None
     except Exception:                                # noqa: BLE001 — 没有浏览器/无桌面
         return None
-
-
-def open_folder(path: str) -> bool:
-    """在资源管理器里打开一个目录（提权时同样经 explorer 代开）。"""
-    if os.name != "nt":
-        return False
-    import subprocess
-
-    try:
-        subprocess.Popen(["explorer.exe", path])
-        return True
-    except OSError:
-        return False
 
 
 def page_ready(url: str, timeout: float = 2.0) -> bool:
