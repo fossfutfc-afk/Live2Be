@@ -5,12 +5,13 @@
     C:\Users\johnf\miniconda3\envs\live2be\python.exe -m pip install pyinstaller
 
   用法（在仓根或任意目录）:
-    pwsh -File packaging/build.ps1                 # 全量: 打包 + 拷 config + 拷最小素材（~88 MB）
-    pwsh -File packaging/build.ps1 -Samples        # 再带一套样张（+106 MB, 不用联网就能看见画面）
+    pwsh -File packaging/build.ps1                 # 完整版: 四角色 + 435 张背景随包（~290 MB, 断网可玩）
+    pwsh -File packaging/build.ps1 -Slim           # 轻量版: 素材只带 0.4 MB（~131 MB, 立绘走「素材」页下载）
     pwsh -File packaging/build.ps1 -NoClean        # 复用上次的 build/（迭代快）
 
-  **立绘与背景默认不随包走** —— 它们在 `dist/packs/` 里（`packaging/make_packs.py` 切），
-  第一次运行时由前端「素材」页下载。随包只带"少了就报错或破相"的那几样。
+  素材口径由 `packaging/collect_assets.py` 决定（`full` / `minimal`）:
+  只带产品**真正读**的东西 —— `diff/`（119 MB, 只有 CLI 用）与没被地点表引用的背景
+  （151 MB）都不进包。
 
   它做四件事:
     1. 检查 pyinstaller 在不在
@@ -22,11 +23,11 @@
 #>
 [CmdletBinding()]
 param(
-    [switch]$Samples,
+    [switch]$Slim,
     [switch]$NoClean
 )
 
-$AssetMode = if ($Samples) { 'sample' } else { 'minimal' }
+$AssetMode = if ($Slim) { 'minimal' } else { 'full' }
 
 $ErrorActionPreference = 'Stop'
 $Root = Split-Path -Parent $PSScriptRoot
@@ -51,7 +52,7 @@ if ($LASTEXITCODE -ne 0) {
 
 # ── 2. 素材清单（先看它挑了什么、多大）──────────────────────────────────
 Write-Host ("[1/4] 素材清单（{0}）:" -f $AssetMode)
-& $Py packaging/collect_assets.py --src assets --mode $AssetMode --dry-run
+& $Py packaging/collect_assets.py --src assets --config config --mode $AssetMode --dry-run
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 # ── 3. 打包 ─────────────────────────────────────────────────────────────
@@ -88,9 +89,9 @@ Write-Host '   config/ → exe 同级（角色卡 / 世界观）'
 
 $DistAssets = Join-Path $Dist 'assets'
 if (Test-Path $DistAssets) { Remove-Item $DistAssets -Recurse -Force }
-& $Py packaging/collect_assets.py --src assets --mode $AssetMode --dst $DistAssets
+& $Py packaging/collect_assets.py --src assets --config config --mode $AssetMode --dst $DistAssets
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-Write-Host ("   assets/ → exe 同级（口径 {0}；立绘与背景走「素材」页下载）" -f $AssetMode)
+Write-Host ("   assets/ → exe 同级（口径 {0}）" -f $AssetMode)
 
 $size = (Get-ChildItem $Dist -Recurse -File | Measure-Object -Property Length -Sum).Sum / 1MB
 Write-Host ''
@@ -102,6 +103,6 @@ Write-Host ''
 Write-Host '⚠️ 首次运行前给 LLM key: 在 dist/Live2Be/ 放一个 .env, 内容 LLM_API_KEY=...' -ForegroundColor Yellow
 Write-Host '   （或在设置页填; 没有 key 时聊天会报错，但页面能打开）' -ForegroundColor Yellow
 Write-Host ''
-Write-Host '素材包（立绘 / 背景）另外切 — 本脚本不代跑（约半分钟）:' -ForegroundColor Cyan
+Write-Host '素材包（立绘 / 背景）另外切 — 只有 -Slim 版才需要（约半分钟）:' -ForegroundColor Cyan
 Write-Host ("  {0} packaging/make_packs.py --dst dist/packs" -f $Py) -ForegroundColor Cyan
 Write-Host '  切好后把 dist/packs 传到你的静态托管，把 manifest.json 的地址填进「素材」页即可。' -ForegroundColor Cyan

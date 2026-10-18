@@ -76,7 +76,7 @@ contract → infra → llm → core → tui / webgui / cli
 | 生图（纪念立绘） | `llm/image_gen.py` + `webgui/bond/memorial.py` |
 | HTTP 路由 / 前端 | `webgui/routers/` · `webgui/static/{js,css}/` |
 | 启动 / 关停（Ctrl+C 被忽略，退出走前端「关闭服务」） | `python -m webgui.serve` · `webgui/{serve,shutdown}.py` · `webgui/routers/runtime.py` |
-| 打 exe（onedir + 最小素材） | `pwsh packaging/build.ps1` · `packaging/live2be.spec` · `packaging/collect_assets.py` · `docs/PACKAGING.md` |
+| 打 exe（onedir，默认完整版素材） | `pwsh packaging/build.ps1`（`-Slim` = 不带图）· `packaging/live2be.spec` · `packaging/collect_assets.py` · `docs/PACKAGING.md` |
 | 素材包（切包 / 首次运行按需下载） | `packaging/make_packs.py`（切）· `infra/packs.py`（读/下/校验/落地）· `webgui/routers/packs.py` + 前端「素材」页 |
 | 资源配置 / 体检（独立小 exe） | `setup_tool/`（`python -m setup_tool --check`）· `packaging/setup_tool.spec` |
 
@@ -171,6 +171,7 @@ contract → infra → llm → core → tui / webgui / cli
 | `docs/DESIGN_*.md` · `docs/EXEC_*.md` · `docs/AUDIT_*.md` | 设计稿与执行记录：**带日期、可能已漂移**；冲突信代码 |
 | `docs/archive/`（含 `CLAUDE_2026-09-20.md` = 旧主文档） | 归档，只作考古 |
 | `PROCEED.md` | 会话交接（滚动，会被整篇覆盖） |
+| `NOTICE.md` | 素材版权与免责声明（非官方 / 非商业 / 下架渠道）—— **发版必带** |
 | `README.md` · `TODO.md` · `CLAUDE_OPTIMIZE.md` · `DESIGN_BRAIN.md` | 尚未定稿或已过时：读前看各自状态头 |
 
 老文档与旧注释里若见到 `CLAUDE.md §N`，那是**旧主文档的节号**（现居 `docs/archive/`）。

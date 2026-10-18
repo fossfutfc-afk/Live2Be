@@ -11,10 +11,12 @@
 > ⚠️ **测试目录 `tests/renderer/` 已改名 `tests/tui/`**（2026-10-15，跟着 `renderer/`→`tui/`）。
 > 📄 **活入口 = 仓根 `AGENTS.md`**（2026-10-15 起取代 88 KB 的 `CLAUDE.md`；旧文归档在
 > `docs/archive/CLAUDE_2026-09-20.md`）—— 读项目先读它；本文只记"接续要做的事 + 坑"。
-> 🎯 **下一步：给素材包挑一个托管方式**（代码已通，卡的是"图放哪儿"）—— 见 §7 第 1 条。
-> 📦 **exe 能双击跑，且不再背图**（`dist/Live2Be` **131 MB**，其中 `assets/` 只 **0.4 MB**；立绘与背景
-> 由前端「素材」页按需下载，见 `docs/PACKAGING.md`）；**⛔ 别用「以管理员身份运行」**，
-> 那会让开出来的 Edge 带管理员令牌并驻留后台，之后普通权限就撞 UIPI（灰窗口），见 §5b 第 22 条。
+> 🎯 **下一步：** 完整版（素材随包）已经落地；剩下的都是可选（素材 rev 自更新、安装器、
+> 版本号 / release zip）。见 §7。
+> 📦 **exe 现在默认带素材**（`dist/Live2Be` **248 MB**，四角色 + 435 张背景，断网可玩）；
+> `-Slim` 才出 89 MB 的轻量版。素材口径只带产品真正读的（`diff/` 与未引用背景都不进包，
+> 省 289 MB）。**⛔ 别用「以管理员身份运行」**，那会让开出来的 Edge 带管理员令牌并驻留后台，
+> 之后普通权限就撞 UIPI（灰窗口），见 §5b 第 22 条。
 
 ---
 
@@ -385,22 +387,29 @@ python experiments/recall_report.py
   上面 §5b 第 17 条那批 flaky 用例（改成"等队列排空"而不是 `sleep(0.2)`）· `core/brain/read/{channels,like}.py`
   与 `realtime.py` 剩下的 `now: object`（要根治得先给 `age.py` 一个 `TsLike`，作者说往后放）。
 - **打包已定的口径**（别推翻）：**onedir 不做 onefile**（启动解压 100+ MB、误报率高）·
-  **素材不随包走**：随包只带"少了就报错或破相"的那几样（`emotions.yml` + `menu/{logo,default}`，
-  0.4 MB，清单在 `packaging/collect_assets.py`），立绘与背景由前端「素材」页按需下载
-  （`packaging/make_packs.py` 切包）· `build.ps1 -Samples` 才带那 106 MB 样张 ·
+  **默认完整版（素材随包）**：`build.ps1` 现出 248 MB 的包，四角色 spine+头像 + 435 张背景 +
+  登录页三件，**断网可玩、零配置**；`-Slim` 才出 89 MB 的轻量版（素材走「素材」页下载）·
+  素材口径由 `packaging/collect_assets.py --mode full|minimal` 决定，**只带产品真正读的**：
+  `diff/`（119 MB，只有 `cli/` 用）与没被地点表引用的背景（151 MB）都不带 ·
+  素材落点是 **exe 同级 `assets/`**（不是 `_internal/`）⇒ 用户可加可换可删、`[paths]` 可搬走；
+  **升级必须"只补缺、不覆盖" `config/` 与 `assets/`，`data/` 永不触碰** ·
   `dist/` 与 `build/` 都 gitignore ⇒ **exe 与素材包都不进仓库**，换机器要重跑 `packaging/build.ps1`
-  与 `packaging/make_packs.py`。
+  （与需要时的 `packaging/make_packs.py`）。
+- **素材的立场（2026-10-18 定）**：发**完整版**（A 方案），配 `NOTICE.md`（非官方 / 非商业 /
+  版权归 NEXON·Yostar / 下架渠道）。依据：Nexon 的内容开发者 IP 指南（<https://m.nexon.com/terms/725>）
+  限制的是"用其 IP 做游戏/应用"和"素材原样使用"，**不区分素材怎么到硬盘上** —— 所以"让用户自己
+  解包"（B 之前的那个方案）既没买来合法性，又把 10 GB 写盘成本转嫁给用户，已否决。
+  **拿到 DMCA 就下架**，而这成本很低：`assets/` 从未进 git ⇒ 下架只换发布产物，不用重写历史。
 
 ## 7. 下一步方向（2026-10-18 晚更新）
 
-0. ⭐ **素材包的托管**（**唯一卡住的那件事**）—— 机制全通了：`make_packs.py` 切包 →
-  `manifest.json` 填进「素材」页 → 下载/校验/解压 → 状态变 `installed`（本地
-  `python -m http.server` 端到端验过）。**卡的是"图放哪儿"**：`assets/` 一直是 gitignore 的
-  （`.gitignore` 明写"版权素材保持忽略——本地化"），挂到**公开仓库的 Release** 上等于公开再分发
-  BA 官方美术，和那条立场冲突。四个可选：① 自己的对象存储（可控域名、可随时撤）② 同仓库公开
-  Release（零配置，但永久公开）③ 私有仓库 + 用户填 token（首次体验差）④ 维持"可配置素材源"，
-  用户自己填地址（今天就是这个状态）。另外直连 GitHub 在国内常慢/断 ⇒ `[net] proxy` 是必需的，
-  不是可选的。
+0. ⭐ **素材这条线现在的状态**：默认完整版（素材随包）已落地，**托管不再是阻塞项** ——
+  只有 `-Slim` 版才需要它。可选后续：① 给 `-Slim` 版挑一个托管点（对象存储 / Release）
+  ② 素材 `rev` 自更新（改了图，用户端显示"有更新"，约 40 行）
+  ③ 抽取器**暂缓**，等"自建角色"接口时再拿出来当开发者工具（不进 release；`tools/fetch_kivo.py`
+  是它的现成一半）。背景为什么抽不出来：bundle 里 `SDIR_*/DIR_*` 层级不存在（0 个目录）、
+  435 张声明只有 1 张能按名字对上、场景是**分层纹理**且偏移不在文件名里 —— 详见 §5b 与
+  `docs/PACKAGING.md`。
 1. **安装器**（Inno Setup）—— 安装目录 + 快捷方式 + 卸载；`dist/Live2Be` 那套目录形状不用改。
    ⚠️ 装到 `C:\Program Files` 会写不了 `data/`，默认装用户目录。
 2. **彻底摆脱浏览器** —— 把 pywebview 的 pythonnet 加载调通（见 §5b 23），`--window` 才能真正可用。

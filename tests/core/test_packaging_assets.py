@@ -5,9 +5,10 @@
 
 两条口径都要钉:
 
-  · `minimal`（默认）必须带上**少了就报错或破相**的那几样（emotions.yml / 登录页 logo 与
-    主界面背景 / director 白名单），其余一律不带 —— 否则安装包又会涨回 100 MB+
-  · `sample` 的抽样必须按文件名取前 N（可复现），整目录带的不许被抽
+  · `minimal` 必须带上**少了就报错或破相**的那几样（emotions.yml / 登录页 logo 与主界面
+    背景 / director 白名单），其余一律不带 —— 否则安装包又会涨回 100 MB+
+  · `full` 只带产品**真正读**的: 四角色的 spine+portrait（**不带 diff/ 与 ref/**）、
+    地点表**声明过**的背景（磁盘上没被引用的不带）、登录页三件
 
 ⚠️ 为什么按**文件路径**加载而不是 `import packaging.collect_assets`: 仓库根的
 `packaging/` 和 PyPI 上的 `packaging`（setuptools / pip 在用）同名，而**普通包优先于
@@ -16,7 +17,10 @@
 跑法: python -m pytest tests/core/test_packaging_assets.py
 """
 import importlib.util
+import json
 from pathlib import Path
+
+import pytest
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 _MOD_PATH = ROOT / "packaging" / "collect_assets.py"
@@ -26,14 +30,12 @@ assert _spec and _spec.loader, f"加载不到 {_MOD_PATH}"
 assets = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(assets)
 
-BACKGROUND_DIRS = assets.BACKGROUND_DIRS
-BACKGROUND_SAMPLE = assets.BACKGROUND_SAMPLE
-ILLUSTRATIONS = assets.ILLUSTRATIONS
+FULL_CHARACTERS = assets.FULL_CHARACTERS
 MENU_MUST = assets.MENU_MUST
 
 
-def _fake_assets(tmp_path):
-    """造一棵最小 assets 树（menu / 一个角色 / 两个背景分类 + 一个抽样分类）。"""
+def _fake_repo(tmp_path):
+    """一棵最小仓库: 一个有图角色 + 一个只有词表的角色 + 两张背景（只声明一张）。"""
     src = tmp_path / "assets"
 
     def touch(rel: str, size: int = 10) -> None:
@@ -45,65 +47,73 @@ def _fake_assets(tmp_path):
     touch("menu/default/a.jpg")
     touch("menu/logo/logo.png")
     touch("menu/vol2.0/carousel.jpg")
+
+    char = FULL_CHARACTERS[0]
+    touch(f"illustration/{char}/default/emotions.yml")
+    touch(f"illustration/{char}/default/portrait/student.png")
+    touch(f"illustration/{char}/default/spine/haruka_spr/haruka_spr.skel")
+    touch(f"illustration/{char}/default/diff/haruka_spr_01.png")
+    touch(f"illustration/{char}/ref/halo.png")
+    touch(f"illustration/{char}/dress/emotions.yml")
+    touch(f"illustration/{char}/dress/spine/CH0247_spr/CH0247_spr.skel")
+    # 没立绘的角色: 只有词表（它在 minimal 里该出现, 在 full 里不该带出任何图）
     touch("illustration/nobody/default/emotions.yml")
-    for char in ILLUSTRATIONS:
-        touch(f"illustration/{char}/default/emotions.yml")
-        touch(f"illustration/{char}/default/face_1.png")
-        touch(f"illustration/{char}/ref/ref_1.png")
-    for d in BACKGROUND_DIRS:
-        touch(f"background/{d}/bg_1.jpg")
-        touch(f"background/{d}/bg_2.jpg")
-    name, count = next(iter(BACKGROUND_SAMPLE.items()))
-    for i in range(count + 15):                       # 故意多给: 只该取前 count 张
-        touch(f"background/{name}/bg_{i:03d}.jpg")
-    return src
+
+    touch("background/SDIR_X/DIR_Y/have.jpg")
+    touch("background/SDIR_X/DIR_Y/unused.jpg")
+
+    config = tmp_path / "config"
+    (config / "settings" / "world").mkdir(parents=True)
+    (config / "settings" / "world" / "place_entities.json").write_text(json.dumps({
+        "ok_place": {"place": "ok_place",
+                     "files": {"day": ["SDIR_X/DIR_Y/have.jpg"], "night": []}},
+    }, ensure_ascii=False), encoding="utf-8")
+    return src, config
 
 
 def test_minimal_has_only_what_would_break(tmp_path):
-    src = _fake_assets(tmp_path)
+    src, _ = _fake_repo(tmp_path)
     rels = {rel.as_posix() for _, rel in assets.plan(src, "minimal")}
     assert "_director_whitelist.json" in rels
     for name in MENU_MUST:
-        assert f"menu/{name}/" in {r.rsplit("/", 1)[0] + "/" for r in rels
-                                   if r.startswith(f"menu/{name}/")}, f"{name} 必须带"
+        assert any(r.startswith(f"menu/{name}/") for r in rels), f"{name} 必须带"
     assert "illustration/nobody/default/emotions.yml" in rels, "没立绘的角色也要带词表"
-    assert "illustration/igusa_haruka/default/emotions.yml" in rels
     # 图一张都不该跟包走
     assert not [r for r in rels if r.endswith((".png", ".jpg")) and not r.startswith("menu/")]
     assert not [r for r in rels if r.startswith("background/")]
 
 
-def test_sample_covers_menu_and_the_chosen_character(tmp_path):
-    src = _fake_assets(tmp_path)
-    rels = {rel.as_posix() for _, rel in assets.plan(src, "sample")}
-    assert "menu/default/a.jpg" in rels and "menu/logo/logo.png" in rels
-    char = ILLUSTRATIONS[0]
-    assert f"illustration/{char}/default/face_1.png" in rels
-    assert f"illustration/{char}/ref/ref_1.png" in rels, "ref 要带: 纪念生图用参考图"
+def test_full_takes_spine_and_portrait_but_not_diff_or_ref(tmp_path):
+    src, config = _fake_repo(tmp_path)
+    rels = {rel.as_posix() for _, rel in assets.plan(src, "full", config=config)}
+    char = FULL_CHARACTERS[0]
+    assert f"illustration/{char}/default/spine/haruka_spr/haruka_spr.skel" in rels
+    assert f"illustration/{char}/default/portrait/student.png" in rels
+    assert f"illustration/{char}/dress/spine/CH0247_spr/CH0247_spr.skel" in rels, "变装要带"
+    assert not [r for r in rels if "/diff/" in r], "diff/ 只有 CLI 用，不带（119 MB）"
+    assert not [r for r in rels if "/ref/" in r], "ref/ 只有生图参考用，不带"
+    assert "menu/vol2.0/carousel.jpg" in rels, "登录页轮播属于产品界面"
 
 
-def test_background_sampling_is_capped_and_stable(tmp_path):
-    src = _fake_assets(tmp_path)
-    name, count = next(iter(BACKGROUND_SAMPLE.items()))
-    sample = sorted(rel.as_posix() for _, rel in assets.plan(src, "sample")
-                    if rel.as_posix().startswith(f"background/{name}/"))
-    assert len(sample) == count, f"抽样该恰好 {count} 张, 实得 {len(sample)}"
-    assert sample == sorted(sample), "清单必须有序（可复现）"
-    assert sample[0].endswith("bg_000.jpg"), "按文件名取前 N（不许随机）"
+def test_full_backgrounds_follow_the_place_table(tmp_path):
+    """只带地点表声明过的 —— 磁盘上那 663 张没人引用的（151 MB）不进包。"""
+    src, config = _fake_repo(tmp_path)
+    rels = {rel.as_posix() for _, rel in assets.plan(src, "full", config=config)}
+    assert "background/SDIR_X/DIR_Y/have.jpg" in rels
+    assert "background/SDIR_X/DIR_Y/unused.jpg" not in rels
 
 
-def test_whole_background_dirs_are_not_sampled(tmp_path):
-    src = _fake_assets(tmp_path)
-    for d in BACKGROUND_DIRS:
-        got = [rel for _, rel in assets.plan(src, "sample")
-               if rel.as_posix().startswith(f"background/{d}/")]
-        assert len(got) == 2, f"{d} 是整目录带, 实得 {len(got)}"
+def test_full_does_not_invent_art_for_a_wordlist_only_character(tmp_path):
+    src, config = _fake_repo(tmp_path)
+    rels = {rel.as_posix() for _, rel in assets.plan(src, "full", config=config)}
+    assert "illustration/nobody/default/emotions.yml" in rels, "词表还是带（它进 prompt）"
+    assert not [r for r in rels if r.startswith("illustration/nobody/") and not r.endswith(".yml")]
 
 
 def test_run_copies_exactly_the_plan(tmp_path):
     """真拷一遍（小文件）: 目标树 = 清单。"""
-    src = _fake_assets(tmp_path)
-    items = assets.plan(src, "minimal")
+    src, config = _fake_repo(tmp_path)
+    items = assets.plan(src, "full", config=config)
     dst = tmp_path / "out"
     n, total = assets.run(items, dst)
     assert n == len(items) and total > 0
@@ -112,7 +122,6 @@ def test_run_copies_exactly_the_plan(tmp_path):
 
 
 def test_unknown_mode_is_rejected(tmp_path):
-    import pytest
-
+    src, _ = _fake_repo(tmp_path)
     with pytest.raises(ValueError):
-        assets.plan(_fake_assets(tmp_path), "everything")
+        assets.plan(src, "everything")
