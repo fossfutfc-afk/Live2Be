@@ -172,7 +172,7 @@ contract → infra → llm → core → tui / webgui / cli
 | `docs/archive/`（含 `CLAUDE_2026-09-20.md` = 旧主文档） | 归档，只作考古 |
 | `PROCEED.md` | 会话交接（滚动，会被整篇覆盖） |
 | `NOTICE.md` | 素材版权与免责声明（非官方 / 非商业 / 下架渠道）—— **发版必带** |
-| `README.md` · `TODO.md` · `CLAUDE_OPTIMIZE.md` · `DESIGN_BRAIN.md` | 尚未定稿或已过时：读前看各自状态头 |
+| `README.md` | 尚未定稿（产品定稿时一并重写） |
 
 老文档与旧注释里若见到 `CLAUDE.md §N`，那是**旧主文档的节号**（现居 `docs/archive/`）。
 本文按**名字**引用规则（见下一节），不按节号 —— 节号会随重排变成死链。
@@ -209,8 +209,7 @@ conda `base` 里没有 jieba，用 base 跑测试会挂）· `node` v24 在（�
 - `.testtmp/` 下的三份逐字节判据**未进 git**（gitignore）——换机器要重建；ADR 级别的判据
   长期只活在本地磁盘上。
 - `llm/check/*.ps1` 里曾有**明文 API key 且进过 git**：文件已删，**key 需要轮换**（历史还在）。
-- `README.md` / `TODO.md` / `CLAUDE_OPTIMIZE.md` / `DESIGN_BRAIN.md` 里的旧包名与旧结构尚未
-  统一（产品未定稿，等定稿时一并重写）。
+- `README.md` 里的旧包名与旧结构尚未统一（产品未定稿，等定稿时一并重写）。
 
 ---
 

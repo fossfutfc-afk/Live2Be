@@ -382,8 +382,7 @@ python experiments/recall_report.py
   （包内注释清理**没做**）· `webgui/bond/` 只修类型（注释与结构不动）。
 - **线 B 还没做**（都可选）：`digest` / `media` / `mmt` / `promptkit` / `webgui/bond/` 的**注释清理**
   （这几包只动了 docstring 与类型）· `webgui/bond/` 剩下的 Pylance 报错（作者会按文件贴过来，我只修类型）·
-  文档那一趟（`README.md` / `TODO.md` / `CLAUDE_OPTIMIZE.md` / `DESIGN_BRAIN.md` / `docs/*` 里的**旧包名**
-  —— 作者的话是"产品没定稿，README 等最后定稿"）· `webgui/store.DEFAULTS` 与各领域默认值"两处写" ·
+  文档那一趟（`README.md` 与 `docs/*` 里的**旧包名** —— 产品没定稿，README 等最后定稿）· `webgui/store.DEFAULTS` 与各领域默认值"两处写" ·
   上面 §5b 第 17 条那批 flaky 用例（改成"等队列排空"而不是 `sleep(0.2)`）· `core/brain/read/{channels,like}.py`
   与 `realtime.py` 剩下的 `now: object`（要根治得先给 `age.py` 一个 `TsLike`，作者说往后放）。
 - **打包已定的口径**（别推翻）：**onedir 不做 onefile**（启动解压 100+ MB、误报率高）·
