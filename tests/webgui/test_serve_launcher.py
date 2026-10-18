@@ -115,6 +115,7 @@ def _record_popen(calls: list[list[str]]):
 def test_app_window_gets_its_own_profile(monkeypatch, tmp_path):
     """独立 `--user-data-dir` + `--app=` —— 绕开日常那个（可能是管理员的）浏览器实例。"""
     monkeypatch.setattr(serve.paths, "DATA_ROOT", tmp_path / "data")
+    monkeypatch.setattr(serve, "is_elevated", lambda: False)   # 普通权限: 直接启动
     calls: list[list[str]] = []
     monkeypatch.setattr("subprocess.Popen", _record_popen(calls))
 
@@ -124,6 +125,21 @@ def test_app_window_gets_its_own_profile(monkeypatch, tmp_path):
     assert "--app=http://127.0.0.1:8000/" in args
     assert any(a.startswith("--user-data-dir=") for a in args), args
     assert (tmp_path / "data" / "browser").is_dir(), "配置目录要建出来"
+
+
+def test_elevated_launcher_drops_privileges(monkeypatch):
+    """提权时必须用 `runas /trustlevel:0x20000` 起浏览器。
+
+    否则开出来的 Edge 带管理员令牌并驻留后台 —— 之后用户用普通权限双击就撞 UIPI,
+    表现是灰色空窗口, 关窗时还问"要不要用普通权限"（真机实测过）。
+    """
+    calls: list[list[str]] = []
+    monkeypatch.setattr(serve, "is_elevated", lambda: True)
+    monkeypatch.setattr("subprocess.Popen", _record_popen(calls))
+
+    assert serve.launch(["msedge.exe", "--app=http://127.0.0.1:8000/"]) is True
+    assert calls[0][:2] == ["runas", "/trustlevel:0x20000"], calls
+    assert "msedge.exe" in calls[0][2]
 
 
 def test_browser_prefers_the_app_window(monkeypatch):
