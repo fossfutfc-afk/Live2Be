@@ -11,11 +11,6 @@ function wireMenuButton(id, label, onClick) {
 
 document.addEventListener("DOMContentLoaded", () => {
   wireMenuButton("btn-settings", "设置", () => show("view-settings"));
-  // 素材页每次进来都重读清单（远端可能已经换了；也顺手刷新"装没装"）
-  wireMenuButton("btn-packs", "素材", () => {
-    show("view-packs");
-    if (window.Packs) window.Packs.refresh();
-  });
   wireMenuButton("btn-mmt", "手机MMT", () => show("view-mmt"));
   // 回放 = 回忆册（DESIGN_COLLECTION_BOOK）: 书页 → 角色页 → 只读回放
   wireMenuButton("btn-playback", "回放", () => {

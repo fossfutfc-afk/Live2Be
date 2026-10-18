@@ -160,7 +160,7 @@ def assets_checks() -> list[Check]:
                              and p.name not in chars)
         if missing_art:
             out.append(Check("素材", "有角色卡但没有立绘", WARN,
-                             ", ".join(missing_art) + "（去前端「素材」页下载对应素材包）"))
+                             ", ".join(missing_art) + "（前端「设置 → 素材状态 / 修复」可补）"))
 
     # 背景: 地点表声明的文件 ↔ 磁盘
     table = _place_table()

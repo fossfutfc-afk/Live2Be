@@ -105,4 +105,5 @@ Write-Host '   （或在设置页填; 没有 key 时聊天会报错，但页面�
 Write-Host ''
 Write-Host '素材包（立绘 / 背景）另外切 — 只有 -Slim 版才需要（约半分钟）:' -ForegroundColor Cyan
 Write-Host ("  {0} packaging/make_packs.py --dst dist/packs" -f $Py) -ForegroundColor Cyan
-Write-Host '  切好后把 dist/packs 传到你的静态托管，把 manifest.json 的地址填进「素材」页即可。' -ForegroundColor Cyan
+Write-Host '  切好后把 dist/packs 传到你的静态托管，manifest.json 的地址填进' -ForegroundColor Cyan
+Write-Host '  前端「设置 → 素材状态 / 修复」（主界面不再有单独的「素材」按钮）。' -ForegroundColor Cyan
