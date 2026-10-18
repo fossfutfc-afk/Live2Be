@@ -25,7 +25,7 @@ from collections.abc import Iterable
 from typing import TYPE_CHECKING, Any
 
 from core.brain import marks
-from core.brain.entities import SELF_ID  # 「我知道的名字」里她那一行要挪到表尾
+from core.brain.entities import SELF_ID  # 她那一段（成长基线）要从名字表里单独拎出来
 from core.brain.nodes import BrainNode
 from core.brain.read.pack import Candidate
 
@@ -215,6 +215,8 @@ def _bucket_view(nodes: Iterable[BrainNode], graph=None) -> dict:
                                and bool(n.observer.strip())),
         # **我知道的名字**（2026-10-12）: **全体 entity** ——
         # 含 `x0000` 她自己与 `x0001` 老师。
+        # ⚠️ 桶**照旧收她**: 台账数的是"这轮给了她几个对象"; 只是渲染时她那一段
+        # 单开（`SELF_BASELINE_HEADER`）, 不上名表。
         # 判据从"`entity.text` 非空"（原「我眼里的他们」）改成"**是 entity**":
         #    只有名字、还没长出看法的对象（真机 `老师` / `杂草屋` / `夏莱`）此前**不进任何桶**
         #    ⇒ "她认识谁"在图里是隐形的, 而那一格正是她的**键面**
@@ -264,10 +266,11 @@ def render_character_view(
 
     分层（运行时分区, 决定**注入顺序**而非截断）:
         - 我记得的事（**一条河, 从早到晚**）: episode 全量按 `ts` 升序（2026-09-25 链路 ⑤）
-        - **我知道的名字**（2026-10-12）: **全体 entity**
-          （`name` + 有看法就接 `：text`）—— 出厂那批来自 `interperson.yml`, 之后 R3 继续演化。
+        - **我知道的名字**（2026-10-12）: **她认识的 entity**（`entity.text` 非空就接
+          `：text`）—— 出厂那批来自 `interperson.yml`, 之后 R3 继续演化。
           不印别名（别名照旧是匹配面, 只是不上屏）· 不印类别（`etype` 已裁不做）;
-          **她自己在表尾**（同日的「我是这样看自己的」那一格并进来了, 不再单开一段）。
+        - **我是谁**（成长基线）: 她自己的那一格（`x0000.text`）**单开一段**放在最后 ——
+          它不是"她认识的一个人", 是"她此刻是什么样子"; 与备忘录紧邻（都在记忆段尾部）。
         - 我心里渐渐觉得（belief）: 按 sig
         - 老师的事（player experience 口癖）: count 降序
         - 我听说的（reported）: 兜底 —— **不进河**: 那是"听说的事"不是她经历的
@@ -316,19 +319,22 @@ def render_character_view(
     # 再"我想明白了什么"。
     # **原样印, 不过 `_me()`**: 这些是**她自己写的**（作者按她的口吻写的第一人称）,
     #    再做一次人称转换只会把"我"改坏。
-    # **她自己在表尾**: 原「我是这样看自己的」那一格（`x0000.text`）并成最后一行 ——
-    #    同一份内容印两遍就是同一份东西两次进上下文（用户同日裁"她那一格跟着放在这里"）。
+    # **她自己在表尾**（2026-10-18）: `x0000` 不进这张表 —— 它是**成长基线**
+    #    （见 `SELF_BASELINE_HEADER`）, 单开一段放在整段记忆的尾部。
     if known:
-        rows = ([n for n in known if n.id != SELF_ID]
-                + [n for n in known if n.id == SELF_ID])
-        blocks.append(KNOWN_NAMES_HEADER + "\n" + "\n".join(
-            _known_line(n) for n in rows))
+        rows = [n for n in known if n.id != SELF_ID]
+        if rows:
+            blocks.append(KNOWN_NAMES_HEADER + "\n" + "\n".join(
+                _known_line(n) for n in rows))
     if beliefs:
         blocks.append("我心里渐渐觉得：\n" + "\n".join(
             _belief_line(n, char_name, char_aliases) for n in beliefs))
     if reported:
         blocks.append("我听说的：\n" + "\n".join(
             _reported_line(n, char_name, char_aliases) for n in reported))
+    me = next((n for n in known if n.id == SELF_ID), None)
+    if me is not None:
+        blocks.append(_self_baseline_block(me))
     return "\n\n".join(blocks)
 
 
@@ -585,7 +591,35 @@ LOOK_FUTURE = "（那是还没发生的事呢。）"
 #: 匹配是 **`entities.form_key` 归一**（去空白 + casefold）⇒ 表上印的写法少打一个
 #: 空格也能命中; 别名不上屏（用户同日裁"臃肿"）—— 但它照旧在匹配面里。
 #: 改这句要**同批**改 `llm/prompts/momotalk_rules.md`【回忆】那一句（两处说同一件事）。
+#: ⚠️ 2026-10-18: 这张表**只放别人**了 —— 她自己的那一格搬去 `SELF_BASELINE_HEADER`
+#: （"我认识谁" 与 "我是什么样子" 是两个问题, 混在一张表里她就得靠名字去猜哪个是自己）。
 KNOWN_NAMES_HEADER = "我知道的名字（想起谁、翻谁的事，都用这些叫法）："
+
+
+#: **「我是谁」的抬头**（2026-10-18）—— 她自己的那一格（`x0000.text`）从名字表里
+#: **搬出来**单开一段: 名字表是"我认识谁", 这一段是"我是什么样子"。
+#: 为什么必须让模型读得出这个区别: 表里那几行都是**别人**, 而她那一行与它们同构（
+#: `- 主名：看法`）时, 模型只能靠"名字与称呼行相同"去猜"这是我" —— 猜错代价是
+#: 把自我当成一个第三方来写。抬头把这件事**说死**。
+SELF_BASELINE_HEADER = "【我是谁（成长基线）】"
+#: 抬头下面那句（回答三个问题: 这是什么 / 它是不是设定 / 它对行为有没有约束力）。
+#: ⚠️ **"也还没长完"是有用的**: 基线是**单槽整段改写**（digest 的 settle 写它）,
+#: 写成铁律会让模型不敢动它, 而"随时会变"才是成长。
+SELF_BASELINE_NOTE = ("我这些日子一点点长成的样子 —— 不是设定, 也还没长完; "
+                      "我说话、做事, 都是从这个样子出发的。")
+#: 还没有基线时印的那一句（⛔ 不印空段 —— 那会让"她还没想过自己"变成"这一段坏了"）。
+SELF_BASELINE_EMPTY = "（还没长出来 —— 我还没想过自己是什么样子。）"
+
+
+def _self_baseline_block(node: BrainNode) -> str:
+    """`【我是谁（成长基线）】` + 说明 + `entity.text`（**原样, 不过 `_me()`**）。
+
+    印在整段记忆的**最后**（`render_character_view` 的尾部）: 紧随其后就是备忘录,
+    两者一起构成"我此刻是谁 + 我此刻记着什么"——都离生成点最近。
+    """
+    body = str(node.text or "").strip()
+    return "\n".join((SELF_BASELINE_HEADER, SELF_BASELINE_NOTE,
+                      body or SELF_BASELINE_EMPTY))
 
 
 def _known_line(node: BrainNode) -> str:

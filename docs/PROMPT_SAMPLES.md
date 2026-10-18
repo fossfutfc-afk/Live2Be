@@ -26,6 +26,9 @@
 | **annoplace** 地点标注 | 异步 | [`place_annotate.md`](../llm/prompts/place_annotate.md) / [`place_resolve.md`](../llm/prompts/place_resolve.md) / [`place_variant.md`](../llm/prompts/place_variant.md) | 逐句编号 / 原文 / 图库候选 | 数组 / 单个键 |
 | **digest** ⓪①③⑥⑦ | 异步（MMT 每 25 轮 / bond 闭环） | [`digest_<轮>.md`](../llm/prompts) + 该轮输出契约 | 若干 `【段】` | JSON / JSONL |
 
+> ⑦ `settle` 的料里有一段**无条件**的 `【你自己】`（成长基线）⇒ 它**每段都跑**，
+> 即使这一段没有新名字、也没有引用（详见 §6.6）。
+
 ---
 
 ## 1. mmt — MomoTalk 每轮（`core/mmt/engine.py::agent_turn`）
@@ -102,7 +105,7 @@ user   : 玩家这一句
 | 7 | `bond_shots` | 镜头与手法（**可选写法**，不是规则）：镜头词 / switch 组合 / 煽情场景 / 收尾范本 | [`bond_shots.md`](../llm/prompts/bond_shots.md)（槽 `{{char_id}}`） |
 | 8 | `schema` | `本轮输出契约（VN 记录流）:` + 记录流契约 | [`contract/schema/prompts/record.md`](../contract/schema/prompts/record.md) + [`record_rules.md`](../contract/schema/prompts/record_rules.md) + [`record_examples.md`](../contract/schema/prompts/record_examples.md)（`build_record_schema`） |
 | 9 | `place_world` | 【世界区域】剧情地理主名（条件） | `regions.yml`（**世界设定不是可选空间**：overview.yml 里一个学院名都没有） |
-| 10 | `brain` | 记忆段 = 出厂背景 → wiki 第一人称视图 → **备忘录块**（条件） | `core/mmt/engine.py::load_brain_segment` 等 |
+| 10 | `brain` | 记忆段 = 出厂背景 → wiki 第一人称视图 → **【我是谁（成长基线）】** → **备忘录块**（条件） | `core/mmt/engine.py::load_brain_segment` 等 |
 
 > 盒 B 里**没有**情绪词表（`lexicon_emotion` 已退出）：记录流 v2 里 emotion 由标注层逐条挑，
 > writer 不写情绪，词表注入对创作不再起作用。
@@ -120,6 +123,10 @@ user   : 玩家这一句
 ---
 
 ## 3. memo — 她自己的备忘录（**不单独调用**，随记忆段进 system）
+
+> 紧邻它**前面**还有一段 `【我是谁（成长基线）】`（`render_character_view` 的最后一块）：
+> 那是"我此刻是什么样子"（`entity.text` of `x0000`），不是备忘录的条目 —— 两者一起
+> 构成记忆段的尾部（离生成点最近）。它唯一的写入口是 digest 的 `settle`（见 §6.6）。
 
 渲染 = `core/brain/notes.py::render_note_block`（纯函数零 IO；`titles` 由调用方从图上取好传进来）。
 空状态 ⇒ **一个字的块都不出现**（常驻预算）。形状（样例）：
@@ -232,10 +239,18 @@ user   = 若干 【段标题】\n正文 块（空块跳过; 段标题由 ROUNDS.
     治"同一个结论写第二条"。
 - 这一轮**自带快照**：失败只丢"新造的那几条看法"，经历与边照旧。
 
-### 6.6 ⑦ settle（沉淀 / R3：认人 + 写看法）
+### 6.6 ⑦ settle（沉淀 / R3：认人 + 写看法 + 改写她自己）
 
-- 料（4 段）：`这一段认下的对象` · `她写了、但库里还没有的名字` · `已有的对象` · `角色人设（锚点）`
+- 料（5 段）：`你自己（成长基线）` · `这一段认下的对象` · `她写了、但库里还没有的名字` ·
+  `已有的对象` · `角色人设（锚点）`
 - 输出：`entity`（名字 / 别名 / 第一句看法）+ 回头补 `about` 边
+- **【你自己】无条件印**：`x0000` + 它现在的 `text`（`成长基线: …`）+ **本段全部新节点**
+  （⛔ 不按 `about` 车道筛 —— 那条车道写的是"这条关于谁", 而一条"老师带我去吃饭"记的
+  是她的日子）+ 全库 episode 的基数（`她记得的事一共 N 件`）。
+  ⇒ 因此这一轮**每一段都跑**（2026-10-18 起; 从前"没陌生人、没引用"就跳过）。
+- `x0000` 在**可改集合**里: 那一行的 `text` 走 `apply_stances`（水位 `text_seq` 照落）——
+  这是**成长基线唯一的写入口**。它的长度尺是 `ENTITY_SELF_TEXT_MAX = 150`（不是 60:
+  它已不住名字表那一行里, 读者期待的是**一段话**; 出厂值实测 116~149 字）。
 - 说明：`about` **不由 LLM 写** —— 她只在写节点时留下引用，边由引擎派生；
   这一轮自带快照（失败只丢"新对象 + 这一次补边"）。
 

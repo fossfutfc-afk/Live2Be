@@ -28,7 +28,7 @@ import logging
 
 from core.brain.entities import find_entity, object_lines, strangers_block, surface_forms
 from core.brain.revise import apply_entities, apply_stances, link_entity_refs
-from core.digest.material import _node_texts, settle_objects_block
+from core.digest.material import _node_texts, self_baseline_block, settle_objects_block
 from core.digest.rounds.base import Ctx, RoundOut
 
 logger = logging.getLogger(__name__)
@@ -64,13 +64,14 @@ def _strangers(ctx: Ctx, ids: list[str]) -> list[str]:
 
 
 def run(ctx: Ctx) -> RoundOut:
-    """④ 沉淀 —— 认人（建新对象）+ 改名 / 写看法（改已有的对象）。"""
+    """④ 沉淀 —— 认人（建新对象）+ 改名 / 写看法（改已有的对象）+ 改写**她自己的成长基线**。"""
     spec = ctx.enter("settle")
     ids = _segment_ids(ctx)
     strangers = _strangers(ctx, ids)
     obj_text, obj_ids = settle_objects_block(ctx.store, ids, now=ctx.now_ts)
-    if not strangers and not obj_ids:
-        # 没有陌生人、也没提到任何认识的对象 ⇒ 这一趟没有活干（**跳过不是失败**）
+    self_text, self_ids = self_baseline_block(ctx.store, ids, now=ctx.now_ts)
+    if not strangers and not obj_ids and not self_ids:
+        # 没有陌生人、也没提到任何认识的对象、连她自己那一格都没有 ⇒ 这一趟没有活干
         ctx.log_skip(spec)
         return RoundOut.skipped()
     # ⚠️ **故意还是 `casefold`**（不是 `entities.form_key`）: 这个集合要交给
@@ -84,6 +85,7 @@ def run(ctx: Ctx) -> RoundOut:
     have_text, _have_ids = object_lines(ctx.store, texts=_node_texts(ctx.store, ids))
     system = ctx.system_for(spec)
     user = ctx.sections_for(spec, [
+        ("你自己", self_text),
         ("这一段认下的对象", obj_text),
         ("她写了、但库里还没有的名字", strangers_block(ctx.store, ids, strangers)),
         ("已有的对象", have_text or "（还没有任何对象）"),
@@ -91,7 +93,9 @@ def run(ctx: Ctx) -> RoundOut:
     ])
     rows, _resp = ctx.call(
         spec, system, user,
-        parse_fn=ctx.parse_for(spec, known_names=known, object_ids=set(obj_ids)))
+        parse_fn=ctx.parse_for(spec, known_names=known,
+                               object_ids=set(obj_ids) | set(self_ids),
+                               self_id=(self_ids[0] if self_ids else "")))
     if rows is None:
         return RoundOut.failed()
     # ⭐ **一行一个对象, 靠 `id` 分路**（`parse_attribution` 已经分好）

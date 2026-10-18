@@ -331,13 +331,17 @@ ROUNDS: tuple[RoundSpec, ...] = (
         key="settle",
         step="⑦ 沉淀",
         parse=digest_registry.parse_attribution,
-        material=("这一段认下的对象", "她写了、但库里还没有的名字",
+        material=("你自己",
+                  "这一段认下的对象", "她写了、但库里还没有的名字",
                   "已有的对象", "角色人设（锚点）"),
         writes=(
             # ⭐ **两路**（2026-10-13 接线, `parse_attribution` 按 `id` 分好）:
             # 没有 `id` ⇒ 造 `entity` 节点（name / aliases / `event_seq` / ts, 行里带了
             # `text` 就顺手装第一句看法）; 有 `id` ⇒ 改已有的（`name` 改名 / `text` 写看法
             # + **水位 `text_seq`**）。
+            # ⭐ **`x0000`（她自己）也在"改已有的"这一路**（2026-10-18）: 她的 `text` 是
+            # **成长基线** —— 唯一一处"她会变成另一个样子"的写入口, 料在
+            # `material.self_baseline_block`（无条件印, 见那一格）。
             ("entity", ("name", "aliases", "text", "text_seq", "event_seq", "ts")),
             # ⚠️ **`about` 不由 LLM 写**: 她只在写节点时留下引用, 引擎据此派生边;
             # 这一轮**建完新对象之后回头补边**（同段闭合, 零 LLM）。
@@ -345,7 +349,9 @@ ROUNDS: tuple[RoundSpec, ...] = (
         ),
         result_fields=(*CONTRACT_FIELDS, "created_entities",
                        "renamed_entities", "rewritten_entities"),
-        skip="本段没有被引用的对象, 也没有解析不到的名字（这一趟没有活干）",
+        # ⚠️ 2026-10-18: 她自己的那一格**无条件印** ⇒ 只有"连它都没有"（还没物化
+        # entity）时才会跳过 —— 见 `rounds/settle.py::run`。
+        skip="本段没有被引用的对象, 没有解析不到的名字, 也没有她自己那一格（这一趟没有活干）",
         # ⭐ 加法的: 失败只丢"新对象 + 这一次补边" —— 经历/看法照旧（同 group / cognize 的判据）。
         own_snapshot=True,
     ),

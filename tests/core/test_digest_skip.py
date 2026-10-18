@@ -75,7 +75,7 @@ class FlakyOnce:
         if task in (T.DIGEST_RELATE, T.DIGEST):
             return {"relations": []}          # L1: 没看出关系（本用例测的是失败重试次数）
         if task == T.DIGEST_SETTLE:
-            return {"attributions": []}
+            return {"entities": []}
         if task == T.DIGEST_COGNIZE:      # L2-b（P10）: 不测它 ⇒ 空包
             return {"cognitions": []}
         raise RuntimeError(f"意外调用 task={task!r}")

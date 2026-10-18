@@ -182,12 +182,14 @@ def test_session_open_materializes_before_the_first_digest(tmp_path):
     seg = eng._brain_injection
     assert "我知道的名字" in seg and "陆八魔" in seg, seg[:200]
     assert "sensei非常照顾我" in seg, seg[:200]             # sensei 的立场也在
-    # ⭐ 她那一格在**表尾**（用户 2026-10-12: 原「我是这样看自己的」并进那张表）
+    # ⭐ 她那一格**不在名表里**（2026-10-18）: 名字表只放"我认识的别人",
+    #    她自己那一段是【我是谁（成长基线）】, 印在整段记忆的最末。
     table = seg.split("我知道的名字（想起谁、翻谁的事，都用这些叫法）：\n")[1].split("\n\n")[0]
     lines = table.splitlines()
-    assert lines[-1].startswith("- 伊草"), lines[-1]
+    assert all(not ln.startswith("- 伊草") for ln in lines), lines
     assert any(ln.startswith("- 陆八魔") for ln in lines), lines
-    print(f"    materialize: 开会话即物化（{len(names)} 个）+ brain 段里有「我知道的名字」")
+    assert "【我是谁（成长基线）】" in seg, seg[-300:]
+    print(f"    materialize: 开会话即物化（{len(names)} 个）+ 名表只放别人 + 基线单开一段")
 
 
 def test_session_open_survives_a_broken_table(tmp_path):
@@ -211,9 +213,12 @@ def test_session_open_survives_a_broken_table(tmp_path):
     table = seg.split("我知道的名字（想起谁、翻谁的事，都用这些叫法）：\n")[1].split("\n\n")[0]
     lines = table.splitlines()
     assert lines[0] == "- 老师", lines                     # sensei 的档案不在这张表里
-    assert lines[-1].startswith("- 伊草"), lines           # 她那一格照旧在表尾
-    assert len(lines) == 2, lines
-    print("    materialize: 表缺失 ⇒ 只 warn, 不挡开会话（self/sensei 照旧在表上）")
+    assert len(lines) == 1, lines                          # 表没了 ⇒ 名表里只剩老师
+    # ⭐ 她自己**不靠那张表**: self 来自 profile.yml ⇒ 基线那一段照旧在
+    #    （表没了 ⇒ 没有 `self` 的立场 ⇒ 那一段印"还没长出来", ⛔ 不是整段消失）
+    assert "【我是谁（成长基线）】" in seg, seg[-300:]
+    assert "还没长出来" in seg, seg[-300:]
+    print("    materialize: 表缺失 ⇒ 只 warn, 不挡开会话（名表只剩老师, 基线照旧在）")
 
 
 def test_the_name_lane_boosts_what_was_about_her(tmp_path):

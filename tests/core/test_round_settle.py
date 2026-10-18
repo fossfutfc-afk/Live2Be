@@ -112,12 +112,14 @@ def test_stranger_tag_is_recognized_and_the_edge_is_backfilled(tmp_path):
     print(f"    认人: {res.created_entities} · {ep.id} → about → {new_id}")
 
 
-def test_no_reference_no_stranger_no_call(tmp_path):
-    """⭐ **事件驱动**（2026-10-13 改口径）: 本段**没提到任何认识的对象、也没有陌生人**
-    ⇒ 一次调用都不发。
+def test_the_baseline_makes_it_run_every_segment(tmp_path):
+    """⭐ **每一段都跑**（2026-10-18 改口径）: 她自己的那一格**无条件**摆上桌 ——
+    "成长基线"要有机会长, 就不能只在"本段提到过谁"时才开会。
 
-    ⚠️ **旧口径是"没有陌生人就不发"** —— 那一轮只认人; 现在它还要**改名 / 写看法**,
-    所以**只要这一段提到过谁就得跑**（那才有对象可改）。真正该跳过的是"谁也没提到"。
+    ⚠️ **旧口径是"没有陌生人、也没有引用 ⇒ 一次调用都不发"**（2026-10-13）——
+    那是省调用的决定, 代价是基线**永远不更新**（真机 `x0000.text_seq` 至今是 None,
+    而 5 条 `about → x0000` 全是 2026-09-26 的老边）。
+    代价 = 每段多一次 settle 调用; 原本多数段已经在跑（本段的经历几乎都带引用）。
     """
     st = _store(tmp_path)
     llm = RoundLLM(a={"episodes": [{"text": "一个人在屋顶坐着, 天很蓝。", "title": "屋顶",
@@ -126,9 +128,28 @@ def test_no_reference_no_stranger_no_call(tmp_path):
     res = digest_segment(st, llm, [_mmt(3)])
 
     assert res.ok, res.errors
-    assert T.DIGEST_SETTLE not in llm.tasks, llm.tasks
+    assert T.DIGEST_SETTLE in llm.tasks, llm.tasks
+    user = llm.user_of(T.DIGEST_SETTLE)
+    assert "【你自己】" in user and "x0000" in user, user
     assert res.created_entities == [] and res.rewritten_entities == []
-    print("    0 调用: 谁也没提到 ⇒ 这一趟没有活干")
+    print("    基线: 这一段没有活干也照发（【你自己】无条件在料里）")
+
+
+def test_the_baseline_is_writable(tmp_path):
+    """⭐ 她自己那一格**可改**（2026-10-18）: `id=x0000` 的 `text` 走 `apply_stances`,
+    水位照落 —— 这是成长基线**唯一**的写入口。"""
+    st = _store(tmp_path)
+    llm = RoundLLM(a={"episodes": [_episode(["转角", "#entity:老师"])]},
+                   attr={"entities": [{"id": "x0000",
+                                       "text": "我不再只是躲在没人经过的那一面了"}]},
+                   split=_one_slice())
+    res = digest_segment(st, llm, [_mmt(3)])
+
+    assert res.ok, res.errors
+    assert res.rewritten_entities == ["x0000"], res.rewritten_entities
+    assert st.get("x0000").text == "我不再只是躲在没人经过的那一面了"
+    assert st.get("x0000").text_seq == 3, "水位 = 本段 `interact_max`（防重跑折两遍）"
+    print(f"    基线: 改了（水位 {st.get('x0000').text_seq}）")
 
 
 def test_a_referenced_object_makes_it_run(tmp_path):
@@ -220,7 +241,7 @@ def test_fabricated_id_is_dropped(tmp_path):
     assert res.ok, res.errors
     assert res.errors == [], "⛔ 这一档不该是整包拒"
     assert res.rewritten_entities == ["x0001"], "坏行连累了同包的好行"
-    assert any("不在【这一段认下的对象】里" in d for d in res.contract_drops), \
+    assert any("不在【你自己】/【这一段认下的对象】里" in d for d in res.contract_drops), \
         res.contract_drops
     print("    编造 id: 丢那一行, 同包的行照收（没白花一次重试）")
 

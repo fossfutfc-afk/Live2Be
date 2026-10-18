@@ -204,7 +204,7 @@ def annotation_reply(task: str | None, messages, *,
         # ⭐ L1（2026-10-07 P1b-2）: 只判关系、**不写正文** ⇒ 缺省"什么关系都没看出来"。
         return {"relations": []}
     if task == T.DIGEST_SETTLE:           # ④ 沉淀（settle）→ 没有可归属的
-        return {"attributions": []}
+        return {"entities": []}
     if task == T.DIGEST_GROUP:          # L2-a 分群 → 一个类都不分（块留到下段）
         return {"attach": [], "new": [], "merge": []}
     if task == T.DIGEST_COGNIZE:        # ⭐ L2-b（P10）→ 一条看法都不造、沉淀不动
