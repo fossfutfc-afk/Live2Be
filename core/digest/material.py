@@ -635,6 +635,62 @@ DIGEST_L2_AKIN = 5
 _L2_LINK_RELS = frozenset(a.name for a in RELATION_ACTIONS)
 
 
+def self_baseline_block(store, ids, *, now="", body: int = 110) -> tuple[str, list[str]]:
+    """【你自己】—— settle **无条件**印的那一段（2026-10-18）。
+
+    两个面同住一段（她自己的那一格 + 这一段她经历的事）: "我变成什么样"只能在
+    "这一段我经历了什么"旁边判 —— 分开摆, 她改写基线时就只剩直觉。
+
+    ```
+    x0000 伊草 遥香
+      成长基线: 老师说的话，我相信，……              ← 现 text; 空 ⇒ （还没写过）
+      这一段她经历的事:
+        〔m0031｜《和老师的公园散步》｜3 天前｜10/10〕老师约我去公园散步…
+        〔《被感谢的人》｜1 周前｜10/8〕我送了老师便利店打折的团子…
+      （还有 3 条没印 —— 先照印出来的这几条看）
+      她记得的事一共 21 件（最早在 4 周前）
+    ```
+
+    ⭐ **判据 = 本段全部新节点**（`ids`），⛔ 不是"落在她车道上的那些"。两条理由:
+      · `node.entity` 写的是**这条关于谁**（`about` 边），不是**这是谁的记忆** ——
+        一条"老师带我去吃饭"记的是**她**的日子, 归属却整个挂在老师身上;
+      · 按车道筛的后果是"她自己的日子大半不算她的"（真机: 21 条 episode 里 19 条
+        写了具体的人 ⇒ 车道只剩兜底那几条）⇒ 基线**永远没有新料**, 也就永远不改。
+    ⚠️ 因此这一段与 ⑥ 的【这次的事】**可能重复几条正文** —— 那是两个不同的判断
+    （"这条看法站不站得住" vs "我有没有变成另一个样子"）, 各读各的, 不省这一份。
+
+    Returns: `(文本, [SELF_ID] 或 [])`；她自己那一格不存在 ⇒ `("", [])`（这一段就没有）。
+    """
+    from core.brain.entities import SELF_ID
+
+    node = store.get(SELF_ID)
+    if node is None:
+        return "", []
+    out: list[str] = [f"{SELF_ID} {str(node.name or '').strip()}".rstrip()]
+    text = str(node.text or "").strip()
+    out.append(f"  成长基线: {text}" if text else "  成长基线: （还没写过）")
+    seg = [str(i) for i in ids]
+    if seg:
+        out.append("  这一段她经历的事:")
+        for nid in seg[:max(int(DIGEST_SETTLE_REFS), 0)]:
+            src = store.get(nid)
+            if src is None:
+                continue
+            if src.kind == "episode":
+                out.append("    " + _episode_line(store, nid, now=now, body=body))
+            else:
+                head = marks.head(src, key=str(nid), kind=True, now=now)
+                out.append(f"    {head}{_clip(src.text, body)}")
+        if len(seg) > DIGEST_SETTLE_REFS:
+            out.append(f"  （还有 {len(seg) - DIGEST_SETTLE_REFS} 条没印 —— "
+                       "先照印出来的这几条看）")
+    episodes = [n for n in store.all() if str(getattr(n, "kind", "")) == "episode"]
+    first = min((getattr(n, "ts", "") or "" for n in episodes), default="")
+    rel = marks.relative(first, now)
+    out.append(f"  她记得的事一共 {len(episodes)} 件" + (f"（最早在 {rel}）" if rel else ""))
+    return "\n".join(out), [SELF_ID]
+
+
 def existing_entities_line(store, *, texts=()) -> str:
     """【已有的对象】—— ⭐ **写引用名的那两轮都要看这一栏**（R1 记经历 / L2 写看法）。
 

@@ -430,8 +430,8 @@ def test_look_copy_is_her_own_words_not_engine_coordinates():
     print("    look 文案: 回显原话与要筛的人 / 如实报边界 / 不印编号与日期")
 
 
-def test_known_names_block_prints_every_entity(tmp_path):
-    """⭐ **我知道的名字**（2026-10-12, 用户裁"合并 + 保留号都收"）: **全体 entity 都上表**。
+def test_known_names_block_prints_every_other_entity(tmp_path):
+    """⭐ **我知道的名字**（2026-10-12）: 她认识的 entity 都上表 —— **除了她自己**。
 
     2026-10-08 的口径是"`entity.text` 非空才印"（原「我眼里的他们」）⇒ 只有名字、
     还没长出看法的对象**不进任何桶**、在图里完全隐形（真机 `老师`/`杂草屋`/`夏莱`
@@ -439,7 +439,8 @@ def test_known_names_block_prints_every_entity(tmp_path):
     用的都是同一张面（`entities.surface_forms`）。
     ⚠️ 位置: 紧接"我记得的事"之后、belief 之前（先发生了什么 → 他们是谁 → 我想明白了什么）。
     ⛔ **别名不上屏**（用户同日裁"臃肿"）—— 别名照旧在匹配面里, 只是不印。
-    ⭐ **她自己在表尾**（原「我是这样看自己的」那一格并了进来 —— 见下一条用例）。
+    ⭐ **她自己不在表里**（2026-10-18）: 那一格搬去【我是谁（成长基线）】, 见下一条用例 ——
+    名字表回答"我认识谁", 那一段回答"我是什么样子"。
     """
     stances = make_node("entity", name="陆八魔 阿露", text="阿露大人是我所处社团的社长")
     stances.aliases = ["阿露"]
@@ -454,13 +455,13 @@ def test_known_names_block_prints_every_entity(tmp_path):
     assert "- 杂草屋" in txt                               # ⭐ 没立场的也上表（旧口径不印）
     assert "（阿露" not in txt                             # ⛔ 别名不上屏
     rows = txt.split("我知道的名字（想起谁、翻谁的事，都用这些叫法）：\n")[1].split("\n\n")[0]
-    assert rows.splitlines()[-1].startswith("- 伊草 遥香：")   # ⭐ 她在表尾
-    assert "我是这样看自己的" not in txt                    # 那一格已并进来, 不再单开
-    # 位置: 河之后、belief 之前
+    assert len(rows.splitlines()) == 2, rows                 # 只有别人（她自己在下一段）
+    assert "伊草 遥香" not in rows
+    # 位置: 河之后、belief 之前; 她自己那一段在整段最末
     belief = make_node("belief", text="老师是值得信赖的")
     txt2 = render_character_view([stances, ep, belief], char_name="伊草 遥香")
     assert txt2.index("我记得的事") < txt2.index("我知道的名字") < txt2.index("我心里渐渐觉得")
-    print("    C: 「我知道的名字」—— 全体上表（含只有名字的）/ 别名不上屏 / 她在表尾")
+    print("    C: 「我知道的名字」—— 别人全体上表（含只有名字的）/ 别名不上屏 / 她不在表里")
 
 
 def test_known_names_rows_are_names_not_ids(tmp_path):
@@ -475,11 +476,9 @@ def test_known_names_rows_are_names_not_ids(tmp_path):
     person = make_node("entity", name="陆八魔 阿露", text="社长")
     person.aliases = ["阿露", "Rikuhachima Aru"]
     blank = make_node("entity", name="杂草屋")             # 没看法 ⇒ 光名字
-    me = make_node("entity", name="伊草 遥香", text="我是一株植物")
-    me.id = "x0000"
-    txt = render_character_view([person, blank, me], char_name="伊草 遥香")
+    txt = render_character_view([person, blank], char_name="伊草 遥香")
     rows = txt.split(KNOWN_NAMES_HEADER + "\n")[1].split("\n\n")[0].splitlines()
-    assert len(rows) == 3, rows
+    assert len(rows) == 2, rows
     for ln in rows:
         assert ln.startswith("- "), ln
         body = ln[2:]
@@ -493,33 +492,38 @@ def test_known_names_rows_are_names_not_ids(tmp_path):
     print("    C: 名表行 = `- 主名[：看法]`（无别名/无编号/无段头/无空标题）")
 
 
-def test_self_row_is_the_last_line(tmp_path):
-    """⭐ **她那一格在表尾**（用户 2026-10-12: *"她自己一格还是跟着放在这里吧"*）。
+def test_self_baseline_is_its_own_block(tmp_path):
+    """⭐ **她自己那一格单开一段**（2026-10-18）: 【我是谁（成长基线）】。
 
-    原「我是这样看自己的」（2026-10-08 裁"单开一行"）**并进这张表** —— 同一份内容
-    印两遍就是同一份东西两次进上下文。`x0000.text` = 她对自己的看法
-    （出厂来自 `interperson.yml` 的 `self` 保留键, 之后 R3 继续演化）。
+    从前它在名字表的**最后一行**（`- 伊草 遥香：…`）, 与"我认识的别人"同构 ——
+    模型只能靠"名字与称呼行相同"去猜"这是我"; 猜错就把自我写成第三方。
+    现在它是独立一段, 抬头 + 一句说明把三件事说死: 这是什么 / 不是设定 / 对行为有约束。
+    ⚠️ 位置: 整段记忆的**最末**（紧随其后就是备忘录 —— 都离生成点最近）。
     """
+    from core.brain.read.render import SELF_BASELINE_EMPTY, SELF_BASELINE_HEADER, SELF_BASELINE_NOTE
+
     self_node = make_node("entity", name="伊草 遥香",
                           text="我也还是一株植物，可以一直长着，因为有人会来看我。")
     self_node.id = "x0000"
     other = make_node("entity", name="阿露", text="社长")
 
     txt = render_character_view([other, self_node], char_name="伊草 遥香")
-    rows = txt.split("我知道的名字（想起谁、翻谁的事，都用这些叫法）：\n")[1].split("\n\n")[0]
-    lines = rows.splitlines()
-    assert lines[-1] == "- 伊草 遥香：我也还是一株植物，可以一直长着，因为有人会来看我。"
-    assert lines[0] == "- 阿露：社长"                       # 别人按 id 序在前
-    assert "我是这样看自己的" not in txt
-    # 只有 self（没别人）⇒ 表里就她一行, 照样印
+    table = txt.split(KNOWN_NAMES_HEADER + "\n")[1].split("\n\n")[0]
+    assert table.splitlines() == ["- 阿露：社长"]                # 名表里只有别人
+    blk = txt.split(SELF_BASELINE_HEADER + "\n")[1].split("\n\n")[0].splitlines()
+    assert blk[0] == SELF_BASELINE_NOTE
+    assert blk[1] == "我也还是一株植物，可以一直长着，因为有人会来看我。"
+    assert txt.rstrip().endswith("因为有人会来看我。")            # 整段的最末
+    # 只有 self ⇒ 名表整块不出现, 但基线那段照印
     only = render_character_view([self_node], char_name="伊草 遥香")
-    assert "- 伊草 遥香：我也还是一株植物" in only
-    # 连看法都没有 ⇒ 光名字一行（表里不出现空标题）
+    assert KNOWN_NAMES_HEADER not in only
+    assert SELF_BASELINE_HEADER in only
+    # 还没长出来（空 text）⇒ 印那一句, ⛔ 不印空段
     blank_self = make_node("entity", name="伊草 遥香")
     blank_self.id = "x0000"
     txt3 = render_character_view([blank_self], char_name="遥香")
-    assert txt3.splitlines()[-1] == "- 伊草 遥香"
-    print("    C: 她那一格 = 表尾一行（有看法接 `：看法`, 没有就光名字）")
+    assert SELF_BASELINE_EMPTY in txt3
+    print("    C: 她那一格 = 独立段（名表只剩别人）/ 段尾 / 空基线有话可说")
 
 
 def test_known_bucket_lands_in_the_ledger(tmp_path):

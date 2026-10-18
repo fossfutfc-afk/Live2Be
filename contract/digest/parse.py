@@ -23,6 +23,7 @@ from contract.digest.tables import (
     COGNIZE_RETIRED,
     ENTITY_NAME_MAX,
     ENTITY_REFS_MAX,
+    ENTITY_SELF_TEXT_MAX,
     ENTITY_TAG_PREFIX,
     ENTITY_TEXT_MAX,
     GROUP_TITLE_MAX,
@@ -620,6 +621,7 @@ def parse_group(raw: Any, *, block_ids: set[str]
 
 def parse_attribution(raw: Any, *, known_names: set[str] | None = None,
                       object_ids: set[str] | None = None,
+                      self_id: str = "",
                       ) -> tuple[list[dict], ValidationResult]:
     """⭐ **settle「沉淀」**（2026-10-13 从"只认人"扩成两路）: `{"entities": [...]}` → **动作行**。
 
@@ -659,10 +661,16 @@ def parse_attribution(raw: Any, *, known_names: set[str] | None = None,
     而"这一段让我想记住的人"完全可能**没标引用**（用户 2026-10-13 裁: *"那一种情况
     不应该是我们的新建吗"*）⇒ 名单是**提示**不是笼子; 引擎只拦**能判定**的
     （已在库里的名字 · 超长 · 空）。
-    ⚠️ `object_ids` = 【这一段认下的对象】（`settle_objects_block` 的第二个返回值,
-    **真身 id**）—— 编号只能照抄它。缺省 `None` = 不校验（单测 / 老调用方）。
+    ⚠️ `object_ids` = 【这一段认下的对象】+【你自己】（`settle_objects_block` /
+    `self_baseline_block` 的第二个返回值, **真身 id**）—— 编号只能照抄它。
+    缺省 `None` = 不校验（单测 / 老调用方）。
+    ⚠️ `self_id` = **她自己那一个保留号**（`x0000`）—— ⛔ 契约层不认识 brain 的保留号,
+    所以由调用方给（`rounds/settle.py` 从 `core.brain.entities.SELF_ID` 取）。
+    它的作用只有一个: 那一格的 `text` 是**成长基线**, 长度尺换成 `ENTITY_SELF_TEXT_MAX`
+    （它不再住名字表里那**一行**, 见 `tables.ENTITY_SELF_TEXT_MAX`）。
     """
     known = {str(x).casefold() for x in (known_names or set())}
+    self_text_max = ENTITY_SELF_TEXT_MAX
     errors: list[str] = []
     warnings: list[str] = []
     drops: list[str] = []
@@ -679,15 +687,19 @@ def parse_attribution(raw: Any, *, known_names: set[str] | None = None,
         where = f"entities[{i}]"
         name = str(row.get("name", "") or "").strip()
         text = str(row.get("text", "") or "").strip()
-        if text and len(text) > ENTITY_TEXT_MAX:          # ⭐ 软尺: 收下 + 告警
-            warnings.append(f"{where}.text 超过 {ENTITY_TEXT_MAX} 字"
-                            f"（收下 —— 但这一格每轮都注入, 长了要压）")
-        # ── 有 id ⇒ 改 ──────────────────────────────────────────────
         eid = str(row.get("id", "") or "").strip()
+        is_self = bool(self_id) and eid == self_id
+        text_max = self_text_max if is_self else ENTITY_TEXT_MAX
+        if text and len(text) > text_max:                 # ⭐ 软尺: 收下 + 告警
+            warnings.append(
+                f"{where}.text 超过 {text_max} 字"
+                + ("（成长基线是一段话, 但别写成整页）" if is_self
+                   else "（收下 —— 但这一格每轮都注入, 长了要压）"))
+        # ── 有 id ⇒ 改 ──────────────────────────────────────────────
         if eid:
             if object_ids is not None and eid not in object_ids:
                 _drop(warnings, drops,
-                      f"{where} 的 id={eid!r} 不在【这一段认下的对象】里 —— 丢了")
+                      f"{where} 的 id={eid!r} 不在【你自己】/【这一段认下的对象】里 —— 丢了")
                 continue
             # ⭐ **判"这行改了什么"只看键在不在, 不看值空不空**（用户 2026-10-13 裁:
             # 空值 = "这一格没话可说", ⛔ 不是"清空"）—— 所以空值**照样收下**,

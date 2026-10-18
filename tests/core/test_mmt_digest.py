@@ -88,7 +88,9 @@ def test_mmt_window_trigger_digests(tmp_path):
     assert _wait(lambda: any(
         e.type == "affection" and e.subtype == "digest"
         for e in st.events(CHARACTER))), "40 轮触发后应有好感事件"
-    assert llm.llm_calls == 3                   # R0 + A + B 三轮
+    # ⭐ 四轮: R0 切 / R1 记 / L1 接 / settle 沉淀 —— **settle 2026-10-18 起每段都跑**
+    #    （她自己的成长基线无条件摆上桌; L2 这里没有立足点, 所以不调)
+    assert llm.llm_calls == 4
     # 注入段已刷新: 出厂背景（yml 直注）+ 无出厂节点落 wiki（空包 digest 零产物）。
     # ⚠️ 注入是**后台线程**的最后一步 —— 好感事件落地 ≠ 注入已重建（2026-09-25:
     # 写卡计数器那一次落盘把两者拉开了几毫秒, 这条断言就红了）。等它, 别赌时序。
@@ -124,7 +126,7 @@ def test_digest_idempotent_no_new_events(tmp_path):
     _mmt_event(st, CHARACTER, 1)
     engine._session_rounds = MMT_DIGEST_INTERVAL
     engine._maybe_mmt_digest()
-    assert _wait(lambda: llm.llm_calls == 3), "首次 digest 应 R0+A+B 三轮"
+    assert _wait(lambda: llm.llm_calls == 4), "首次 digest 应 R0+R1+L1+settle 四轮"
     calls_after_first = llm.llm_calls
     # 同水位再触发 → digest_segment 无新增 → 0 调用
     engine._session_rounds = MMT_DIGEST_INTERVAL * 2
@@ -157,7 +159,7 @@ def test_first_digest_creates_char_entities(tmp_path, monkeypatch):
     _mmt_event(st, CHARACTER, 1)
     engine._session_rounds = MMT_DIGEST_INTERVAL
     engine._maybe_mmt_digest()
-    assert _wait(lambda: llm.llm_calls == 3), "首次 digest 应 R0+A+B 三轮"
+    assert _wait(lambda: llm.llm_calls == 4), "首次 digest 应 R0+R1+L1+settle 四轮"
 
     # 重新载入 = 断言"真的写回盘上了"（内存里建过不算）
     ws = WikiStoreV2(st.data_root, world_id=st.world_id, char_id=CHARACTER)

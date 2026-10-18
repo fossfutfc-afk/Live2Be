@@ -40,7 +40,7 @@ class FakeLLM:
                     else stub_tasks.splits_for_episodes(
                         self.responses[0] if self.responses else [], messages))
         if task == T.DIGEST_SETTLE:
-            return {"attributions": []}
+            return {"entities": []}
         if task == T.DIGEST_COGNIZE:
             # ⭐ L2-b（P10 接线）: 与 settle / split 同一口径 —— **不进位置队列**,
             # 按 task 短路成"这一段没什么可写的"。位置队列里仍然只排 R0/R1/L1 三轮
@@ -696,7 +696,7 @@ def test_deadline_budget_fails_atomically(tmp_path):
             if kw.get("task") == T.DIGEST_SETTLE:        # ④ 挂: 同样要超预算（本用例测的是预算）
                 time.sleep(0.2)
                 self.calls += 1
-                return {"attributions": []}
+                return {"entities": []}
             time.sleep(0.2)                            # 每次调用都超预算
             self.calls += 1
             if self.responses:

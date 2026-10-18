@@ -438,7 +438,7 @@ class RoundLLM:
         if task in (T.DIGEST_RELATE, T.DIGEST):
             return self.b
         if task == T.DIGEST_SETTLE:      # 挂 —— 这些用例不测它, 空包放行
-            return {"attributions": []}
+            return {"entities": []}
         if task == T.DIGEST_COGNIZE:        # L2-b（P10）—— 同上
             return {"cognitions": []}
         raise RuntimeError(f"意外调用 task={task!r}")

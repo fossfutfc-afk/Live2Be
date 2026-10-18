@@ -39,7 +39,7 @@ class FakeLLM:
                                                  if self.responses else [])
             return CLOSE_EMPTY
         if task == T.DIGEST_SETTLE:
-            return {"attributions": []}
+            return {"entities": []}
         if self.responses:
             return self.responses.pop(0)
         raise RuntimeError("responses 耗尽")

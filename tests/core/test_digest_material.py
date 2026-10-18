@@ -315,3 +315,34 @@ def test_l2_about_line_follows_the_edge_and_prints_the_object(tmp_path):
     # 没有 about 的那条**不该**有这一行: 全文里只出现一次「↳ 关于」
     assert this_text.count("↳ 关于") == 1, this_text
     assert "↳ 关于" not in cls_text, cls_text
+
+
+def test_self_baseline_block_prints_the_baseline_and_this_segment(tmp_path):
+    """⭐ 【你自己】= 成长基线 + **本段全部新节点**（2026-10-18）。
+
+    判据钉的是那个选择: **不按 `about` 车道筛**。
+      · 一条明确写了 `entity: [老师]` 的经历 —— 挂在老师的车道上, 但记的是**她的日子**,
+        ⇒ **照样进这一段**（按车道筛会把她的日子筛掉大半, 基线就永远没有新料）;
+      · 她自己的那一格印 `成长基线: …`, 空 ⇒ `（还没写过）`;
+      · 末尾那行是**全库 episode 的基数**（成长的分量）, ⛔ 不是"她被提到几次"。
+    """
+    st = WikiStoreV2(tmp_path, world_id="world1", char_id="c")
+    ensure_entities(st, char_name="伊草 遥香", aliases=("遥香",), sensei_name="老师")
+    st.get("x0000").text = "我还是一株植物"
+    mine = _ep(st, "老师带我去吃饭", title="第一顿饭")
+    st.save()
+    st.add_edge("about", mine, "x0001")               # 明确挂在**老师**身上
+
+    text, ids = material.self_baseline_block(st, [mine], now="2026-10-18T12:00:00")
+    assert ids == ["x0000"]
+    assert "  成长基线: 我还是一株植物" in text, text
+    assert "第一顿饭" in text, "明确挂了别人的那条也得在（这是她的日子）"
+    assert "她记得的事一共 1 件" in text, text
+
+    # 没有基线 ⇒ 有话可说（⛔ 不是空一格）
+    st.update("x0000", {"text": ""})
+    text2, _ = material.self_baseline_block(st, [], now="")
+    assert "成长基线: （还没写过）" in text2, text2
+    # 她自己那一格不存在（还没物化）⇒ 这一段就不印
+    empty = WikiStoreV2(tmp_path, world_id="world1", char_id="other")
+    assert material.self_baseline_block(empty, [mine]) == ("", [])

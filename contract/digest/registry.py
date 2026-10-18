@@ -146,10 +146,12 @@ class DigestRegistry:
 
     def parse_attribution(self, raw: Any, *, known_names: set[str] | None = None,
                           object_ids: set[str] | None = None,
+                          self_id: str = "",
                           ) -> tuple[list[dict], ValidationResult]:
         """实现在 `contract.digest.parse.parse_attribution`（本模块只转交）。"""
         return digest_parse.parse_attribution(raw, known_names=known_names,
-                                              object_ids=object_ids)
+                                              object_ids=object_ids,
+                                              self_id=self_id)
 
 def _part(name: str) -> str:
     """取一份共用片段（`prompts/parts/*.md`）。"""
