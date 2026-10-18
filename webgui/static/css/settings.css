@@ -1,5 +1,17 @@
 /* Live2Be 设置页（简略版——配置存档 settings.toml; 引擎仍读 env） */
-.settings { text-align: left; max-width: 520px; }
+/*
+ * ⚠️ 这一页会**长过一屏**（LLM / 生图 / 文件位置 / 素材 四块），而 body 是
+ * `align-items:center` + `overflow:hidden`: 高于视口时上下两头一起出界 ⇒ 底部的
+ * 「保存 / 返回主界面」被挤到页面外, 而且**滚不到**（实测 1366×768 溢出 385px）。
+ * 所以这里自己封顶 + 自己滚; 底部那排按 `.row.actions` 钉住。
+ */
+.settings {
+  text-align: left;
+  max-width: 520px;
+  max-height: calc(100vh - 4rem);       /* #app 上下 padding 各 2rem */
+  overflow-y: auto;
+  scrollbar-gutter: stable;             /* 出现滚动条时内容不横向跳 */
+}
 .settings .logo { text-align: center; margin-bottom: 1.2rem; }
 
 .settings .panel { margin-bottom: 1rem; }
@@ -34,20 +46,35 @@
   box-shadow: 0 0 0 3px rgba(79, 195, 247, 0.2);
 }
 
-/* 复选框行（生图总开关）: 左对齐——不参与上面 space-between 的"标签+输入框"布局 */
-.settings label.check { justify-content: flex-start; gap: 0.5rem; }
+/* 复选框行（生图总开关）: 左对齐——不参与上面 space-between 的"标签+输入框"布局。
+   ⚠️ 允许换行 + 让说明独占一行: 不换行时那句长 hint 会在面板宽度里**折在词中间**
+   （实测"启用纪念立绘生图"被拆成两行、"图"字单独一行）。 */
+.settings label.check { justify-content: flex-start; gap: 0.5rem; flex-wrap: wrap; }
+.settings label.check .hint { margin: 0; font-size: 0.8rem; flex-basis: 100%; padding-left: 1.7rem; }
 .settings label.check input[type="checkbox"] {
   width: auto;
   accent-color: var(--blue);
   transform: scale(1.15);
 }
-.settings label.check .hint { margin: 0; font-size: 0.8rem; }
 
 .settings .row {
   justify-content: center;
   margin-top: 1.2rem;
   gap: 1rem;
   align-items: center;
+}
+/* 底部动作行（保存 / 返回）: 钉在滚动容器底边 —— 页面再长也不会被挤出屏幕。
+   做成一条**不透明页脚**（+ 上边框 + 模糊）而不是半透明渐变: 滚动中间态时下面
+   还有内容, 半透明会让"输入框从按钮后面穿出来"（实测很难看）。 */
+.settings .row.actions {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  margin-top: 0.4rem;
+  padding: 0.55rem 0 0.45rem;
+  background: rgba(6, 18, 40, 0.94);
+  border-top: 1px solid rgba(79, 195, 247, 0.18);
+  backdrop-filter: blur(6px);
 }
 .settings-msg { text-align: center; margin-top: 0.7rem; }
 
