@@ -84,4 +84,3 @@ python experiments/web_e2e/run.py     # B 层浏览器冒烟（Playwright 驱动
 | [docs/DESIGN_WIKI_V3.md](docs/DESIGN_WIKI_V3.md) | 记忆图 v3（实体中心 + 混合召回 + 时间架构 + 组合） |
 | [docs/](docs/) | 其余设计稿：`DESIGN_{GUI,SEGMENT,WORLD,MULTI_CHAR,VISUAL,VISUAL_PROTOCOL,PROMPTKIT,RESEND,MEETUP,FOURTH_WALL,CONTEXT_WINDOW}.md` |
 | [docs/archive/](docs/archive/) | 已归档设计稿（v1 动作契约 / 旧 VN 运行时 / 旧记忆栈 / 旧 IDE 方案 …） |
-| [TODO.md](TODO.md) · [DESIGN_BRAIN.md](DESIGN_BRAIN.md) · [CLAUDE_OPTIMIZE.md](CLAUDE_OPTIMIZE.md) | 历史待办 · 记忆体系总纲 · 优化方向清单 —— **都已过时，读前看各自状态头** |

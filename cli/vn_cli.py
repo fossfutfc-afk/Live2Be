@@ -161,7 +161,7 @@ def run_bond_story_vn(
         return False
 
     title = _trigger_title(engine)
-    # Brain 记忆段（DESIGN_BRAIN.md, brain 2026-09-02 切换）: 本世界线 wiki
+    # Brain 记忆段（DESIGN_BRAIN.md, brain 2026-09-02 切换; 见 docs/archive/）: 本世界线 wiki
     # 第一人称注入——VN 中角色记得这个世界线前面的事（resume 过则有 digest 产物;
     # 空 → 零注入, 平行世界）。读失败静默跳过（不阻断 VN）。
     brain_segment = ""
