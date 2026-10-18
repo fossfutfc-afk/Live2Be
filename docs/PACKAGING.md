@@ -63,20 +63,28 @@ msedge.exe --app=http://127.0.0.1:8000/ --user-data-dir=<exe 同级>\data\browse
 ### 如果窗口是**空白**的
 
 先看控制台那行警告：**你已经有 N 个 Edge 进程在跑**。Windows 有条硬规矩（UIPI）——
-普通权限的进程不能把地址交给**管理员权限**的进程。如果你那个（或那些）Edge 是以管理员
-身份起的（比如从管理员终端/管理员快捷方式打开过），新窗口就只拿到 HTML 然后被掐掉。
+普通权限的进程不能把地址交给**管理员权限**的进程。
+
+真机确认过的根因：**用「以管理员身份运行」启动本程序**。管理员进程开出来的 Edge 也带
+管理员令牌，而且**关掉窗口不等于退出**（Edge 会驻留后台）；之后再用普通权限双击，新进程
+没法把地址递给那个管理员实例 —— 表现就是灰色空窗口，关窗时还问"要不要用普通权限"。
 
 处置顺序：
 
-1. **把 Edge 全部关掉**，再双击 exe；
-2. 仍然空白 → `Live2Be.exe --no-browser`，自己把控制台里的地址贴到浏览器；
-3. 想要"完全不碰 Edge"的窗口 → `Live2Be.exe --window`（pywebview）。
+1. **直接双击**（不要「以管理员身份运行」）—— 这是正解；
+2. 已经被污染过（后台有管理员 Edge）→ **完全退出 Edge 一次**（托盘图标右键退出，
+   或任务管理器结束全部 msedge.exe），再双击；
+3. 仍然空白 → `Live2Be.exe --no-browser`，把控制台里的地址自己贴进浏览器；
+4. 想要"完全不碰 Edge"的窗口 → `Live2Be.exe --window`（pywebview）。
    ⚠️ **打包版这条路目前不通**：冻结后的 pythonnet 初始化失败
-   （`Failed to resolve Python.Runtime.Loader.Initialize`），程序会自动退回上面第 1/2 条
-   而**不会崩**（已加 try/except）。把它做成可用需要单独调 PyInstaller 的 pythonnet 钩子。
+   （`Failed to resolve Python.Runtime.Loader.Initialize`）。程序会自动退回前面几条
+   而**不会崩**（已加 try/except）。修它需要单独调 PyInstaller 的 pythonnet 钩子。
 
-开窗前程序会先确认**页面真的能出**（GET `/` 拿到 `id="app"` 才算），然后再开窗口 ——
-避免"窗口起来了但服务还没就绪"的白屏。
+已经做了的两道保险：
+
+- 程序**被以管理员身份运行时**，启动浏览器会自动降权（`runas /trustlevel:0x20000`
+  基本用户令牌）⇒ 不会再制造"管理员 Edge"；
+- 开窗前先确认**页面真的能出**（GET `/` 拿到 `id="app"`），避免"服务没就绪 → 灰窗口"。
 
 - `Live2Be.exe` → 起服务 + 自动开浏览器（`--no-browser` 关掉）
 - `Live2Be.exe --window` → 原生窗口（`pywebview`；没装就自动退回浏览器）

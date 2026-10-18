@@ -192,6 +192,30 @@ def find_browser_exe() -> str | None:
     return None
 
 
+def launch(args: list[str]) -> bool:
+    """启动一个外部程序。**提权时先降到普通权限再启动。**
+
+    为什么必须降: 从管理员终端起的浏览器会继承管理员令牌并**驻留后台**; 之后用户用普通
+    权限双击时, 新进程没法把地址交给那个管理员实例（UIPI）—— 表现是灰色空窗口, 关窗时
+    还会问"要不要用普通权限"（实测就是这么来的）。`runas /trustlevel:0x20000` 是 Windows
+    自带的"基本用户"令牌, 用它启动就不会再产生管理员浏览器。
+    """
+    import subprocess
+
+    if os.name == "nt" and is_elevated():
+        cmdline = " ".join(f'"{a}"' if " " in a else a for a in args)
+        try:
+            subprocess.Popen(["runas", "/trustlevel:0x20000", cmdline])
+            return True
+        except OSError:                              # runas 不在: 退回直接启动
+            logger.warning("runas 降权失败, 直接启动（可能带管理员令牌）")
+    try:
+        subprocess.Popen(args)
+        return True
+    except OSError:
+        return False
+
+
 def open_app_window(url: str, exe: str) -> bool:
     """用独立配置起一个**应用窗口**（无地址栏），完全绕开日常那个浏览器实例。
 
@@ -200,20 +224,13 @@ def open_app_window(url: str, exe: str) -> bool:
     权限运行"）。自己起一个正常权限的实例, 这条冲突根本不会发生; 顺带不污染他的
     日常配置（这个 profile 是可丢的, 就在 `data/browser/`）。
     """
-    import subprocess
-
     profile = paths.DATA_ROOT / "browser"
     try:
         profile.mkdir(parents=True, exist_ok=True)
     except OSError:
         return False
-    args = [exe, f"--app={url}", f"--user-data-dir={profile}",
-            "--no-first-run", "--no-default-browser-check"]
-    try:
-        subprocess.Popen(args)
-        return True
-    except OSError:
-        return False
+    return launch([exe, f"--app={url}", f"--user-data-dir={profile}",
+                   "--no-first-run", "--no-default-browser-check"])
 
 
 def open_browser(url: str) -> str | None:
