@@ -137,6 +137,7 @@ webgui.chat	_inject_brain_on_open	function	webgui.chat
 webgui.chat	_lock	function	webgui.chat
 webgui.chat	_locks	data	-
 webgui.chat	_queues	data	-
+webgui.chat	_record_name	function	webgui.chat
 webgui.chat	_strip_action_brackets	function	core.text
 webgui.chat	_tasks	data	-
 webgui.chat	_worker	function	webgui.chat

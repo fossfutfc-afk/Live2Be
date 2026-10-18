@@ -203,6 +203,33 @@ class SessionStore:
         self.append_marker(char_id, line_id, M_SESSION_START)
         return meta
 
+    def ensure_character_name(self, char_id: str, name: str) -> bool:
+        """会话元数据里**没有名字 ⇒ 补上**（只补缺，不覆盖已有的）。返回是否写了盘。
+
+        为什么需要它: `create(char_id)` 的老调用点（webgui 两条创建路径）一直没传名字,
+        于是真机那批 `meta.json` 里连 `character_name` 这个键都没有（`to_dict` 对空值
+        整个键不写）。而 UI 看着正常 —— 名字每次都从角色卡现查；一旦角色卡改名/删掉,
+        或 CLI 列表（`m.character_name or m.character_id`）读它, 名字就退化成 id。
+
+        幂等、失败返回 False（调用方在开会话路径上, 不许因为补名字而失败）。
+        """
+        name = str(name or "").strip()
+        if not name:
+            return False
+        path = self.meta_path(char_id)
+        if not path.is_file():
+            return False
+        try:
+            raw = self._read_json(path)
+            meta = SessionMeta.from_dict(raw)
+            if meta.character_name.strip():
+                return False
+            meta.character_name = name
+            atomic_write_json(path, meta.to_dict())
+            return True
+        except (OSError, ValueError, TypeError):
+            return False
+
     def enter_vn(self, char_id: str, session_id: str = "", title: str = "") -> str:
         """MMT → VN: 角色线 append vn_enter marker（单事件流, 无子会话）。
 

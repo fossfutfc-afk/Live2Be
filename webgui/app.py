@@ -17,8 +17,8 @@ import logging
 import re
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse, Response
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, JSONResponse, Response
 from starlette.staticfiles import StaticFiles
 
 from infra import logsetup, paths, runtime, settings
@@ -118,3 +118,40 @@ app.include_router(mmt.router)
 app.include_router(bond.router)
 app.include_router(collection.router)
 app.include_router(spine.router)
+
+
+# ---------------------------------------------------------------------------
+# 未捕获异常 → JSON（前端只认 JSON; 纯文本会让它报"Unexpected token"）
+# ---------------------------------------------------------------------------
+
+#: 用户**能自己修**的配置类错误: 报错文案里的特征串 → (状态码, code, 人话)。
+#: 目前只有一处（`LLMClient` 没 key）—— 加一条就多一行, 别在这里堆业务判断。
+_CONFIG_HINTS: tuple[tuple[str, int, str, str], ...] = (
+    ("LLM_API_KEY", 412, "no_api_key",
+     "还没配置 API Key —— 打开「设置 → 对话模型」填一个（存在程序同级的 settings.toml）"),
+)
+
+
+def _explain(exc: BaseException) -> tuple[int, str, str]:
+    """异常 → `(状态码, code, 给人看的一句话)`。"""
+    text = str(exc)
+    for token, status, code, human in _CONFIG_HINTS:
+        if token in text:
+            return status, code, human
+    first = (text.splitlines() or [""])[0][:200]
+    return 500, "internal", f"服务器内部错误：{first}（详见 data/diag/live2be.log）"
+
+
+@app.exception_handler(Exception)
+async def _unhandled_json(_request: Request, exc: Exception) -> JSONResponse:
+    """任何没被接住的异常都回**结构化 JSON**，traceback 只进日志。
+
+    ⚠️ 这条不是"美化错误"，是**接口契约**: 前端一律 `r.json()`，而 FastAPI 对未捕获
+    异常回的是纯文本 `Internal Server Error` ⇒ 前端把它解析成
+    "Unexpected token 'I'"。第一次装机（没有 API Key）就是这么表现的。
+    ⚠️ 不在这里打 traceback: Starlette 发完响应**仍会把异常抛回** uvicorn，
+    那边已经完整记一遍（我们只补一个能 grep 的标记行）。
+    """
+    logging.getLogger(__name__).error("未捕获异常 → JSON: %s: %s", type(exc).__name__, exc)
+    status, code, detail = _explain(exc)
+    return JSONResponse(status_code=status, content={"detail": detail, "code": code})

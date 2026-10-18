@@ -316,6 +316,17 @@ def _banner(url: str) -> None:
     logger.info("   素材    %s", paths.ASSETS_ROOT)
     logger.info("   数据    %s   （事件流 / 记忆 / 诊断日志）", paths.DATA_ROOT)
     logger.info("   设置    %s", paths.SETTINGS_PATH)
+    # 第一次装完最常见的一步没做: 没有 API Key。这里先喊一声, 免得用户点进聊天才撞 412。
+    try:
+        from infra import settings as _settings
+        llm_cfg = _settings.section("llm")
+        has_key = bool(str(llm_cfg.get("api_key") or "").strip()
+                       or os.environ.get("LLM_API_KEY", "").strip())
+    except Exception:                                  # noqa: BLE001 — 横幅绝不阻断启动
+        has_key = True
+    if not has_key:
+        logger.warning("还没配置 API Key —— 打开 http://… 后进「设置 → 对话模型」填一个"
+                       "（也可在程序同级 .env 写 LLM_API_KEY=…）；不填则只能看界面, 不能对话")
     if is_elevated():
         logger.warning("本进程以**管理员权限**运行: 浏览器与资源管理器经 explorer 代开"
                        "（否则 Edge 会提示权限并重启自己）; 建议改用普通终端启动")

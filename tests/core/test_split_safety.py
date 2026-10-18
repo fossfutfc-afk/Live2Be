@@ -58,6 +58,13 @@ SAFE_PATCHES: dict[tuple[str, str, str], str] = {
         "调用点在包外（routers/settings.py 的 chat.reset_engines()）——patch 依然生效",
     ("tests/webgui/test_web_http.py", "webgui.chat", "reset_engines"):
         "同上",
+    # 2026-10-18 新增的两条: 目标就是 `webgui/chat.py` **自己**的顶层名, 调用点也在本模块
+    # （`open_session` 里调 `LLMClient()`）⇒ 拆成包后 `webgui.chat.<X>` 仍指同一个函数对象,
+    # patch 照旧生效（这是"按模块属性查找"的那一类, 与 `deps` 接缝无关）。
+    ("tests/webgui/test_error_json.py", "webgui.chat", "LLMClient"):
+        "调用点就在 webgui/chat.py 内（`_engine` 里 `LLMClient()`）——patch 依然生效",
+    ("tests/webgui/test_error_json.py", "webgui.chat", "_engine"):
+        "同上（`open_session` 里调模块级 `_engine`）",
     ("tests/llm/test_client_stream.py", "llm.client", "_settings_toml"):
         "llm/client.py 的拆分是 C14（可选）; 届时把它也搬进接缝模块即可",
 }
