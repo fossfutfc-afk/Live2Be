@@ -115,3 +115,48 @@ def test_empty_wiki_does_not_break_open_session(tmp_path):
         print("    空库: 开会话零阻断（brain 段可能只有出厂背景/为空）✓")
     finally:
         _cleanup()
+
+
+def test_new_session_records_the_display_name(tmp_path):
+    """⭐ 会话元数据里要落下**显示名**（2026-10-18）。
+
+    从前 `open_session` 调 `create(char_id)` 没传名字, 而 `SessionMeta.to_dict` 对空名字
+    **整个键都不写** ⇒ 真机四份 `meta.json` 里一个 `character_name` 都没有。
+    UI 看着正常（每次从角色卡现查）, 但角色卡改名/删掉之后那条会话就不记得自己是谁了;
+    CLI 列表（`m.character_name or m.character_id`）读的正是这一格。
+    """
+    st = _store_with_wiki(tmp_path)
+    deps.set_store(st)
+    chat._engines.pop(CHARACTER, None)
+    try:
+        res = chat.open_session(CHARACTER)
+        meta = next(m for m in st.list_open() if m.character_id == CHARACTER)
+        assert meta.character_name == res["display_name"] == "伊草 遥香", meta.character_name
+        print(f"    新会话: meta 里名字 = {meta.character_name!r} ✓")
+    finally:
+        _cleanup()
+
+
+def test_old_session_without_a_name_gets_backfilled(tmp_path):
+    """旧档（meta 里没有名字）⇒ 打开时**只补缺**，不覆盖已有名字。"""
+    st = _store_with_wiki(tmp_path)
+    deps.set_store(st)
+    chat._engines.pop(CHARACTER, None)
+    try:
+        meta = st.create(CHARACTER)                      # 老调用点: 不传名字
+        assert not meta.character_name, "前提: 这条会话一开始就没有名字"
+        chat.open_session(CHARACTER)
+        back = next(m for m in st.list_open() if m.character_id == CHARACTER)
+        assert back.character_name == "伊草 遥香", back.character_name
+        # 已有名字 ⇒ 不覆盖（直接改盘上的 meta，模拟"这条会话早就有名字了"）
+        import json
+        p = st.meta_path(CHARACTER)
+        raw = json.loads(p.read_text(encoding="utf-8"))
+        raw["character_name"] = "别人的名字"
+        p.write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
+        chat.open_session(CHARACTER)
+        kept = next(m for m in st.list_open() if m.character_id == CHARACTER)
+        assert kept.character_name == "别人的名字", kept.character_name
+        print("    旧档: 空名字补上、非空名字不动 ✓")
+    finally:
+        _cleanup()

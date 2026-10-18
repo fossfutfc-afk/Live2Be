@@ -4,6 +4,36 @@
 
 // 注意: 不重复声明 $/show —— gui.js 已提供全局
 
+// ── 唯一的 fetch 出口 ────────────────────────────────────────────────────────
+// 非 2xx 一律抛出**能给人看的一句话**（后端把 detail/code 放进 JSON）。
+// ⚠️ 从前这里是裸 `.json()`: 后端对未捕获异常回纯文本 "Internal Server Error"
+//    ⇒ 解析抛 `Unexpected token 'I'` ⇒ 界面上写"网络错误"，用户永远查不到真因
+//    （第一次装机没有 API Key 就是这么表现的）。
+async function apiJSON(url, init) {
+  const res = await fetch(url, init);
+  const text = await res.text();
+  let body = null;
+  try { body = text ? JSON.parse(text) : null; } catch (e) { body = null; }
+  if (!res.ok) {
+    const detail = (body && (body.detail || body.reason)) || text.slice(0, 160) || `HTTP ${res.status}`;
+    const err = new Error(detail);
+    err.status = res.status;
+    err.code = (body && body.code) || "";
+    throw err;
+  }
+  if (body === null) throw new Error("服务器返回的不是 JSON");
+  return body;
+}
+
+//: 一进来就没配好（缺少 API Key 之类）⇒ 直接把配置页推给用户，而不是让他点进聊天吃一次报错。
+function hintsToSettings(err) {
+  if (err && (err.code === "no_api_key" || err.status === 412)) {
+    if (typeof show === "function") show("view-settings");
+    return true;
+  }
+  return false;
+}
+
 let _profileSort = "affection";   // 资料模式排序
 let _chatSort = "recent";         // 对话模式排序
 
@@ -31,7 +61,7 @@ setInterval(async () => {
   const chatVisible = cl && cl.offsetParent !== null;
   if (!profVisible && !chatVisible) return;
   try {
-    const data = await (await fetch("/api/mmt/characters")).json();
+    data = await apiJSON("/api/mmt/characters");
     const sig = sigOf(data.characters || []);
     if (sig === _affectionSig) return;                        // 没变 → 不动
     _affectionSig = sig;
@@ -68,7 +98,7 @@ async function loadProfile() {
   const list = $("mmt-profile-list");
   list.innerHTML = '<p class="mmt-loading">加载中…</p>';
   try {
-    const data = await (await fetch("/api/mmt/characters")).json();
+    const data = await apiJSON("/api/mmt/characters");
     let chars = data.characters || [];
     if (!chars.length) {
       list.innerHTML = '<p class="mmt-loading">没有角色（需白名单 + 头像）</p>';
@@ -113,7 +143,7 @@ async function loadChatList() {
   const list = $("mmt-chat-list");
   list.innerHTML = '<p class="mmt-loading">加载中…</p>';
   try {
-    const data = await (await fetch(`/api/mmt/characters?sort=${_chatSort}`)).json();
+    const data = await apiJSON(`/api/mmt/characters?sort=${_chatSort}`);
     const chars = data.characters || [];
     _affectionSig = sigOf(chars);
     if (!chars.length) {
@@ -200,13 +230,14 @@ async function openChat(charId, name) {
   // 打开会话（恢复进行中 or 新开世界线）+ 拉历史
   let data;
   try {
-    data = await (await fetch(`/api/mmt/session?char_id=${charId}`)).json();
+    data = await apiJSON(`/api/mmt/session?char_id=${charId}`);
   } catch (e) {
     const win = $("mmt-chat-window");
     if (win) {
       win.classList.add("has-chat");
-      win.innerHTML = `<div class="mmt-chat-error">打开会话失败（网络错误: ${e.message}）</div>`;
+      win.innerHTML = `<div class="mmt-chat-error">打开会话失败：${e.message}</div>`;
     }
+    hintsToSettings(e);
     return;
   }
   _chatSession = data.session_id;
@@ -484,21 +515,20 @@ async function retryFailedMessage(text, bubble) {
   const menu = bubble.querySelector(".mmt-fail-menu");
   if (menu) menu.remove();
   showTyping();
-  let res, data;
+  let data;
   try {
-    res = await fetch("/api/mmt/chat", {
+    data = await apiJSON("/api/mmt/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ char_id: _chatChar, session_id: _chatSession, text }),
     });
-    data = await res.json();
   } catch (e) {
     bubble.classList.add("failed");
-    attachFailMark(bubble, text, "重发失败（网络错误: " + e.message + "）");
-    renderError("重发失败（网络错误: " + e.message + "）");
+    attachFailMark(bubble, text, "重发失败：" + e.message);
+    renderError("重发失败：" + e.message);
     return;
   }
-  if (!res.ok || !data.accepted) {
+  if (!data.accepted) {
     bubble.classList.add("failed");
     attachFailMark(bubble, text, "重发失败");
     renderError(data.detail || data.reason || "重发失败");
@@ -524,23 +554,22 @@ async function sendMessage() {
   input.value = "";
   renderBubble({ side: "player", text });   // 玩家气泡立即上屏（允许连发, 不锁输入）
   showTyping();                             // 打字指示
-  let res, data;
+  let data;
   try {
-    res = await fetch("/api/mmt/chat", {
+    data = await apiJSON("/api/mmt/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ char_id: _chatChar, session_id: _chatSession, text }),
     });
-    data = await res.json();
   } catch (e) {
     hideTyping();
     // 转态不新建（与异步失败路径 markFailedBubble 一致）——修复 2026-08-30 重复 bug:
     // 之前用 renderFailedBubble 再渲染一条 → 同文本两条气泡（乐观 + 失败标记）
     markFailedBubble(text, e.message);
-    renderError("发送失败（网络错误: " + e.message + "）");
+    renderError("发送失败：" + e.message);
     return;
   }
-  if (!res.ok || !data.accepted) {
+  if (!data.accepted) {
     hideTyping();
     markFailedBubble(text, data.detail || data.reason || "发送失败");
     renderError(data.detail || data.reason || "发送失败");
@@ -560,12 +589,11 @@ async function pollLoop() {
     await sleep(wait);
     let data;
     try {
-      data = await (await fetch(
-        `/api/mmt/events?char_id=${_chatChar}&session_id=${_chatSession}&since=${_lastSeq}`,
-      )).json();
+      data = await apiJSON(
+        `/api/mmt/events?char_id=${_chatChar}&session_id=${_chatSession}&since=${_lastSeq}`);
     } catch (e) {
       hideTyping();
-      renderError("轮询失败（网络错误: " + e.message + "）");
+      renderError("轮询失败：" + e.message);
       _polling = false;
       break;
     }

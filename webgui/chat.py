@@ -118,6 +118,21 @@ def _inject_brain_on_open(engine: MomoTalkEngine, char_id: str, session_id: str)
                 "" if seg else "（空: wiki 无节点且出厂背景为空）")
 
 
+def _record_name(char_id: str, name: str) -> None:
+    """把显示名补进会话元数据 —— **只补缺**（已有名字不动），失败静默。
+
+    名字该落在 `meta.json` 而不是"每次去角色卡现查": 角色卡改名/删除之后, 那条会话
+    仍然该记得它当初是谁（CLI 列表读的就是这一格）。
+    """
+    if not name:
+        return
+    try:
+        if deps.store().ensure_character_name(char_id, name):
+            logger.info("会话元数据补名字: %s ← %r", char_id, name)
+    except Exception as e:                              # noqa: BLE001 — 改名不许阻断开会话
+        logger.warning("会话元数据补名字失败（不影响开会话）: %s", e)
+
+
 def open_session(char_id: str) -> dict:
     """打开某角色的会话: 有进行中 → resume; 无 → 新开世界线。
 
@@ -129,15 +144,17 @@ def open_session(char_id: str) -> dict:
         (m for m in deps.store().list_open() if m.character_id == char_id), None)
     if open_meta is not None:
         res = engine.resume_session(char_id, open_meta.session_id)  # 含 brain digest
+        display_name = res["display_name"]
+        _record_name(char_id, display_name)             # 旧档: meta 里没有名字就补上
         return {
             "session_id": open_meta.session_id,
-            "display_name": res["display_name"],
+            "display_name": display_name,
             "new": False,
             "in_vn": res["status"].get("in_vn", False),
         }
-    # 新世界线
-    meta = deps.store().create(char_id)
+    # 新世界线（先拿名字再建线——`create` 要在那一刻就把名字写进 meta）
     display_name = engine.start_session(char_id)
+    meta = deps.store().create(char_id, display_name)
     engine.attach_session(meta.session_id)
     _inject_brain_on_open(engine, char_id, meta.session_id)   # ★ P1: 新分支也要装填
     return {
@@ -152,8 +169,8 @@ def open_session(char_id: str) -> dict:
 def new_world(char_id: str) -> dict:
     """显式开新世界线（平行世界语义: 旧线保留, 新线从零开始）。"""
     engine = _engine(char_id)
-    meta = deps.store().create(char_id)
     display_name = engine.start_session(char_id)
+    meta = deps.store().create(char_id, display_name)
     engine.attach_session(meta.session_id)
     _inject_brain_on_open(engine, char_id, meta.session_id)   # ★ P1: 同款（别漏这条）
     return {"session_id": meta.session_id, "display_name": display_name, "new": True}

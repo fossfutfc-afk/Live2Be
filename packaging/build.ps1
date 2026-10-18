@@ -101,7 +101,7 @@ Write-Host '跑它: 双击 Live2Be.exe（浏览器会自己打开; --window 用�
 Write-Host '停它: 前端菜单「关闭服务」（Ctrl+C 被忽略）'
 Write-Host ''
 Write-Host '⚠️ 首次运行前给 LLM key: 在 dist/Live2Be/ 放一个 .env, 内容 LLM_API_KEY=...' -ForegroundColor Yellow
-Write-Host '   （或在设置页填; 没有 key 时聊天会报错，但页面能打开）' -ForegroundColor Yellow
+Write-Host '   （或在设置页填; 没有 key 时页面能开, 点开会话会直接把人带到设置页并说明原因）' -ForegroundColor Yellow
 Write-Host ''
 Write-Host '素材包（立绘 / 背景）另外切 — 只有 -Slim 版才需要（约半分钟）:' -ForegroundColor Cyan
 Write-Host ("  {0} packaging/make_packs.py --dst dist/packs" -f $Py) -ForegroundColor Cyan
