@@ -200,6 +200,7 @@ python experiments/recall_report.py
 | 本轮 | ⭐ **打 exe 第一段（能双击跑）**: `packaging/{entry.py,live2be.spec,collect_samples.py,build.ps1}` + `docs/PACKAGING.md` —— onedir, 样张素材 **105.8 MB / 197 文件**（menu 全 + haruka 立绘含 ref + 2 个背景分类 + 学校类抽 40 张）· `serve.py` 一整套启动外壳（真实 `from webgui.app import app`（冻结必需）、自动开浏览器、**端口已有本服务就打开它**、`--window` 走 pywebview 且关窗口=关服务）· 删掉 `jieba` 死依赖、加 `image = ["pillow>=10"]` 可选组 |
 | 本轮 | ⭐ **exe 真机跑通**（PyInstaller 6.22.3, 首次即过）: `dist/Live2Be` **193 MB**（exe 13.4 + `_internal` 73.6 + assets 105.8 + config 0.2）。验过: `--help` / 首页 + 静态 js、css / `/api/menu` 47 张背景 / `/api/mmt/characters` / 头像 png 218 KB / 自动建 `data/diag/live2be.log` / 前端关停后退出码 0。⭐ **提示词进包**的证据: 假 key + 连不上的 base_url 发一句, 日志停在 `WinError 10061`（网络拒绝）而不是 FileNotFound |
 | 本轮 | **exe 的三个体验坑**: ① 提权启动时 Edge 继承管理员令牌 → 它弹"要不要用普通权限"并重启自己, 标签页没了 ⇒ 改成默认起**独立应用窗口**（`msedge --app= --user-data-dir=<data>/browser`, 完全不碰日常浏览器实例; `--browser` 才用默认浏览器, 提权时退回 `explorer.exe` 代开） ② "数据存哪儿"没人知道 ⇒ 启动横幅打四个根 + `GET /api/runtime/paths` + 设置页"文件位置"表与两个「打开目录」按钮（`POST /api/runtime/open`, 只认四个根） ③ 自动开浏览器的成败要说出来 |
+| 本轮 | **开窗口这一路加固**: 开窗前先 `GET /` 验到 `id="app"` 才开（避免"服务没就绪 → 灰窗口"）· 检测到已有 Edge 进程就打警告 + 给出处置（先全关 Edge）· `open_browser` 返回用了哪种方式（日志只说一遍）· `--window`（pywebview）**冻结版起不来**（`Failed to resolve Python.Runtime.Loader.Initialize`）⇒ 包了 try/except 退回 Edge 应用窗口,**不崩** · spec 已用 `collect_all` 收 webview/pythonnet/clr_loader（真机验证仍未通过, 待单独调钩子） |
 
 ---
 

@@ -60,6 +60,24 @@ msedge.exe --app=http://127.0.0.1:8000/ --user-data-dir=<exe 同级>\data\browse
 - 找不到 Chromium 系浏览器时依次退回：提权则 `explorer.exe <url>` 代开 → `webbrowser.open`
 - `data/browser/` 是那个窗口的配置目录（首启会创建）。删掉它 = 让那个窗口回到干净状态。
 
+### 如果窗口是**空白**的
+
+先看控制台那行警告：**你已经有 N 个 Edge 进程在跑**。Windows 有条硬规矩（UIPI）——
+普通权限的进程不能把地址交给**管理员权限**的进程。如果你那个（或那些）Edge 是以管理员
+身份起的（比如从管理员终端/管理员快捷方式打开过），新窗口就只拿到 HTML 然后被掐掉。
+
+处置顺序：
+
+1. **把 Edge 全部关掉**，再双击 exe；
+2. 仍然空白 → `Live2Be.exe --no-browser`，自己把控制台里的地址贴到浏览器；
+3. 想要"完全不碰 Edge"的窗口 → `Live2Be.exe --window`（pywebview）。
+   ⚠️ **打包版这条路目前不通**：冻结后的 pythonnet 初始化失败
+   （`Failed to resolve Python.Runtime.Loader.Initialize`），程序会自动退回上面第 1/2 条
+   而**不会崩**（已加 try/except）。把它做成可用需要单独调 PyInstaller 的 pythonnet 钩子。
+
+开窗前程序会先确认**页面真的能出**（GET `/` 拿到 `id="app"` 才算），然后再开窗口 ——
+避免"窗口起来了但服务还没就绪"的白屏。
+
 - `Live2Be.exe` → 起服务 + 自动开浏览器（`--no-browser` 关掉）
 - `Live2Be.exe --window` → 原生窗口（`pywebview`；没装就自动退回浏览器）
 - 端口被占且那个端口上确实是 Live2Be → 直接打开已有实例，不报错
