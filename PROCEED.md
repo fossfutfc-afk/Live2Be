@@ -4,14 +4,16 @@
 > ⚠️ **`git status` 里常年挂着几份"作者手改未提交"的文件**（2026-10-17 时是
 > `config/settings/relation/interperson.yml` · `infra/fuse.py`）——
 > 那是**作者的改动, ⛔ 不是脏改动**, 别 `checkout` 掉、也别卷进提交（`git add` 一律写显式路径）。
-> 现状：`tests/core` **1299 passed** · `tests/llm+tui+webgui` **221 passed**（⚠️ **按域分开跑**, 见 §5 坑 4）·
-> 三份 verifier 全 exit 0 · ruff **366**（基线，`AGENTS.md` §7 同步）· 真机数据未动。
+> 现状：`tests/core` **1299 passed** · `tests/llm+tui+webgui` **232 passed**（⚠️ **按域分开跑**, 见 §5 坑 4）·
+> 三份 verifier 全 exit 0 · ruff **363**（基线，`AGENTS.md` §7 同步）· 真机数据未动。
 > ⚠️ **两域里各有几个轮询式 flaky**（靠 `_wait(cond, timeout=10)` 等异步状态的那类）: 机器一忙就超时,
 > 单跑常绿 ⇒ 别急着怀疑自己刚改的代码, 见 §5b 第 17 条。
 > ⚠️ **测试目录 `tests/renderer/` 已改名 `tests/tui/`**（2026-10-15，跟着 `renderer/`→`tui/`）。
 > 📄 **活入口 = 仓根 `AGENTS.md`**（2026-10-15 起取代 88 KB 的 `CLAUDE.md`；旧文归档在
 > `docs/archive/CLAUDE_2026-09-20.md`）—— 读项目先读它；本文只记"接续要做的事 + 坑"。
-> 🎯 **下一步等作者定**: 可能做**首次使用向导（前端）** / **打包 exe** / **架构优化** —— 见 §6 末尾。
+> 🎯 **下一步是作者新提的方向：做一个「资源配置」的辅助 exe** —— 见 §7 第 1 条。
+> 📦 **exe 已经能双击跑**（`dist/Live2Be`, 194 MB, 见 `docs/PACKAGING.md`）；**⛔ 别用「以管理员身份运行」**，
+> 那会让开出来的 Edge 带管理员令牌并驻留后台，之后普通权限就撞 UIPI（灰窗口），见 §5b 第 22 条。
 
 ---
 
@@ -193,14 +195,16 @@ python experiments/recall_report.py
 | `4e16e3ed` | **CLI 的 VN 分支不落事件流**（`cli/main.py` 调 `run_bond_story_vn` 没传 `store` ⇒ `vn_enter`/每场 bond/`commit_staging`/`finish` 全被跳过, 跑起来一切正常）。补 `store=engine._store` + AST 守门（漏参数 / 传 None 两个方向都证过会红） |
 | `d4e07363` | ⭐ **收束注记单源化**：CLI 那两句还在教 v1 的 `story_end` 动作（v2 记录流里没有它）⇒ 新建 `core/bond/bond_story/closing.py`（`REMIND_ROUNDS`/`END_ROUNDS` + `closing_notes`）, 两壳都调它; 顺带补上 CLI 缺的"余量 2 场每场强制" · 守门钉住"这三句只许在一处" |
 | `638609d5` | 给 `cli/` 定性: 产品只有一个壳 = `webgui/`, CLI 是调试入口**不追 webgui 行为**（`AGENTS.md` §8 新增同名决策 + §1 表格三行; `cli/.md` 重写） |
-| 本轮 | **控制台日志收口**: 新建 `infra/logsetup.py`（控制台短/文件全）——轮询与静态请求的 2xx 不打印 · 短域名前缀（`digest`/`bond`/`mmt`/`llm`/`http`）· 超 110 字截断 · `LIVE2BE_LOG=quiet/normal/verbose` · `akin` 逐条边降 debug。文件日志仍全量（软问题文本可 grep） |
-| 本轮 | **digest 关停韧性**: 新建 `infra/runtime.py`（关停信号 + 在途登记）· `digest_segment` 在**每轮之间**与**提交前**查闸 ⇒ `_abort`（回滚内存、**不写盘、不计 `digest_retry`** —— 否则三次 Ctrl+C 就永久放弃一段）· `WikiStoreV2._heal_watermark` 加载时按图上 `event_seq` 补齐水位（修"图新水位旧"⇒ 重喂 ⇒ 重复记忆）· `webgui/app.py` lifespan 关停时置信号并等 3 秒 |
-| 本轮 | ⭐ **两阶段提交**（`WikiStoreV2.commit`）: 点 + 边 + 水位先一次性原子写进 `wiki.txn.json`, 再逐份应用, 最后删日志; **加载时残留就照它补完**（幂等）。`save()` 同款 ⇒ **写路径只有一条且都有保护**。digest 的提交从 `save()+save_meta()` 改成 `meta 赋值 + commit()`（此前中间被杀就是"图新水位旧"） |
-| 本轮 | ⭐ **前端「关闭服务」+ Ctrl+C 失效**: 新入口 `python -m webgui.serve`（自持 `uvicorn.Server`, `capture_signals` 置空 + SIGINT 忽略）· `GET /api/runtime/status` · `POST /api/shutdown`（`graceful` 等 ≤180s / `force` 立刻, 口令 + 本机来源双校验, 没有 server 时回 409）· 菜单页按钮 + 确认框（默认"等它跑完", **随时可强制**）· `start.ps1`/`README` 换启动命令 |
-| 本轮 | ⭐ **打 exe 第一段（能双击跑）**: `packaging/{entry.py,live2be.spec,collect_samples.py,build.ps1}` + `docs/PACKAGING.md` —— onedir, 样张素材 **105.8 MB / 197 文件**（menu 全 + haruka 立绘含 ref + 2 个背景分类 + 学校类抽 40 张）· `serve.py` 一整套启动外壳（真实 `from webgui.app import app`（冻结必需）、自动开浏览器、**端口已有本服务就打开它**、`--window` 走 pywebview 且关窗口=关服务）· 删掉 `jieba` 死依赖、加 `image = ["pillow>=10"]` 可选组 |
-| 本轮 | ⭐ **exe 真机跑通**（PyInstaller 6.22.3, 首次即过）: `dist/Live2Be` **193 MB**（exe 13.4 + `_internal` 73.6 + assets 105.8 + config 0.2）。验过: `--help` / 首页 + 静态 js、css / `/api/menu` 47 张背景 / `/api/mmt/characters` / 头像 png 218 KB / 自动建 `data/diag/live2be.log` / 前端关停后退出码 0。⭐ **提示词进包**的证据: 假 key + 连不上的 base_url 发一句, 日志停在 `WinError 10061`（网络拒绝）而不是 FileNotFound |
-| 本轮 | **exe 的三个体验坑**: ① 提权启动时 Edge 继承管理员令牌 → 它弹"要不要用普通权限"并重启自己, 标签页没了 ⇒ 改成默认起**独立应用窗口**（`msedge --app= --user-data-dir=<data>/browser`, 完全不碰日常浏览器实例; `--browser` 才用默认浏览器, 提权时退回 `explorer.exe` 代开） ② "数据存哪儿"没人知道 ⇒ 启动横幅打四个根 + `GET /api/runtime/paths` + 设置页"文件位置"表与两个「打开目录」按钮（`POST /api/runtime/open`, 只认四个根） ③ 自动开浏览器的成败要说出来 |
-| 本轮 | **开窗口这一路加固**: 开窗前先 `GET /` 验到 `id="app"` 才开（避免"服务没就绪 → 灰窗口"）· 检测到已有 Edge 进程就打警告 + 给出处置（先全关 Edge）· `open_browser` 返回用了哪种方式（日志只说一遍）· `--window`（pywebview）**冻结版起不来**（`Failed to resolve Python.Runtime.Loader.Initialize`）⇒ 包了 try/except 退回 Edge 应用窗口,**不崩** · spec 已用 `collect_all` 收 webview/pythonnet/clr_loader（真机验证仍未通过, 待单独调钩子） |
+| `95b73fb7` | **控制台日志收口**：新建 `infra/logsetup.py`（控制台短/文件全）——轮询与静态请求的 2xx 不打印 · 短域名前缀 · 超 110 字截断 · `LIVE2BE_LOG=quiet/normal/verbose` · `akin` 逐条边降 debug。文件日志仍全量 |
+| `aabe36ad` | **digest 关停韧性**：新建 `infra/runtime.py`（关停信号 + 在途登记）· `digest_segment` 在**每轮之间**与**提交前**查闸 ⇒ `_abort`（回滚内存、**不写盘、不计 `digest_retry`**）· `WikiStoreV2._heal_watermark` 加载时按图上 `event_seq` 补水位数 · `webgui/app.py` lifespan 关停等 3 秒 |
+| `962043ff` | ⭐ **两阶段提交**（`WikiStoreV2.commit`）：点+边+水位先原子写进 `wiki.txn.json`，再逐份应用，最后删日志；**加载时残留就照它补完**（幂等）。`save()` 同款 ⇒ 写路径只有一条且都有保护 |
+| `9c077aba` | ⭐ **前端「关闭服务」+ Ctrl+C 失效**：新入口 `python -m webgui.serve`（自持 `uvicorn.Server`，`capture_signals` 置空 + SIGINT 忽略）· `/api/runtime/status` · `/api/shutdown`（graceful ≤180s / force，口令 + 本机来源双校验，没有 server 回 409）· 菜单页按钮 + 确认框（默认"等它跑完"，**随时可强制**）· `start.ps1`/`README` 换命令 |
+| `4bb966b4` | **打 exe 第一段**：`packaging/{entry.py,live2be.spec,collect_samples.py,build.ps1}` + `docs/PACKAGING.md`；onedir，样张 **105.8 MB / 197 文件**；`serve.py` 启动外壳（真实 `from webgui.app import app`（冻结必需）、自动开窗口、端口已有本服务就打开它）；删 `jieba` 死依赖、加 `image = ["pillow>=10"]` |
+| `2a08a990` | ⭐ **exe 真机跑通**（PyInstaller 6.22.3，首次即过）：`dist/Live2Be` **193 MB**。验过首页/静态/`/api/menu`/角色列表/头像/自动建 `data/diag`/前端关停退出码 0。⭐ 提示词进包证据：假 key + 连不上的 base_url 发一句，日志停在 `WinError 10061` 而非 FileNotFound |
+| `3f49801a` | **exe 体验三处**：① 默认起独立应用窗口（`msedge --app= --user-data-dir=<data>/browser`）② 启动横幅打四个根 + `/api/runtime/paths` + 设置页"文件位置"表与「打开目录」按钮（`/api/runtime/open`，只认四个根）③ 开窗口的成败要说出来 |
+| `e0bdad1c` | **应用窗口取代默认浏览器**：不再把 URL 交给用户日常那个 Edge（它可能是管理员权限的） |
+| `419a048f` | **开窗口加固**：开窗前先验页面能出（GET `/` 到 `id="app"`）· 检测到已有 Edge 就警告 + 给处置 · `open_browser` 返回用哪种方式（日志只说一遍）· `--window`（pywebview）冻结版起不来 ⇒ 包 try/except 退回，不崩 · spec 用 `collect_all` 收 webview/pythonnet/clr_loader |
+| `eb885b96` | ⭐ **降权启动浏览器**（真机根因）：用「以管理员身份运行」启动 ⇒ 开出来的 Edge 带管理员令牌且**关窗口≠退出** ⇒ 之后普通权限双击就撞 UIPI（灰窗口 + 关窗问降权）。`launch()` 在提权时用 `runas /trustlevel:0x20000` 降权后再起浏览器 |
 
 ---
 
@@ -336,6 +340,16 @@ python experiments/recall_report.py
     末尾因此按真实模块名再导一次并跑那份的 `main()`。同类坑: 任何"进程级可变状态"都别只放
     在可能被 `-m` 起来的模块里。
 21. ⚠️ **"没有 server 就如实说关不掉"（409）**：否则前端显示"正在关停"却永远不停 —— 假绿灯比红灯贵。
+22. ⭐ **Windows UIPI：普通进程不能把 URL 交给管理员权限的进程**。症状是**灰色空窗口** +
+    关窗时问"要不要用普通权限"。真机根因 = **用「以管理员身份运行」启动本程序**：它开出的 Edge
+    带管理员令牌，而且 **关窗口 ≠ 退出**（Chromium 驻留后台）。两条对策已落地：① `launch()` 在
+    提权时用 `runas /trustlevel:0x20000` **先降权再起浏览器** ② 独立 `--user-data-dir=<data>/browser`，
+    不碰用户日常那个实例。**排查第一步永远是问"你是怎么启动的"**（我在这上面绕了三轮）。
+23. ⚠️ **pywebview 冻结后起不来**：`Failed to resolve Python.Runtime.Loader.Initialize`（pythonnet）。
+    已经把 webview/pythonnet/clr_loader 用 `collect_all` 收进包，但仍缺加载路径配置；现在
+    `--window` 会**降级不崩**。要做"完全不碰浏览器"的窗口得单独调 PyInstaller 的 pythonnet 钩子。
+24. ⚠️ **开窗口前先验页面能出**（GET `/` 里含 `id="app"`），别只看 `srv.started` —— 那只是
+    "uvicorn 起来了"，HTTP 还没就绪时开的窗口是白屏/连接失败页。
 
 ---
 
@@ -369,14 +383,32 @@ python experiments/recall_report.py
   —— 作者的话是"产品没定稿，README 等最后定稿"）· `webgui/store.DEFAULTS` 与各领域默认值"两处写" ·
   上面 §5b 第 17 条那批 flaky 用例（改成"等队列排空"而不是 `sleep(0.2)`）· `core/brain/read/{channels,like}.py`
   与 `realtime.py` 剩下的 `now: object`（要根治得先给 `age.py` 一个 `TsLike`，作者说往后放）。
+- **打包已定的口径**（别推翻）：**onedir 不做 onefile**（启动解压 100+ MB、误报率高）· 样张素材
+  **只带一份最小集**（105.8 MB，清单在 `packaging/collect_samples.py`，改清单 = 重新打包）·
+  `dist/` 与 `build/` 都 gitignore ⇒ **exe 不进仓库**，换机器要重跑 `packaging/build.ps1`。
 
-## 7. 作者口述的下一步方向（2026-10-17；与 §2 那张"记忆层的活"不是一回事）
+## 7. 下一步方向（作者 2026-10-18 更新）
 
-1. **前向导**（首次使用向导，前端）—— 把"填 API key / 选角色 / 选世界 / 试跑一句"收成一条龙；
-   注意 `settings.toml` 的唯一读入口是 `infra/settings.py`，向导要写配置就得走它（别自己 open 文件）。
-2. **打包 exe** —— 主要待解：`assets/` 与 `config/` 的体积与只读根（`paths.RESOURCE_ROOT` vs `APP_ROOT`）、
-   Python 运行时与 `node`（前端无构建步骤，但 `tests/webgui/js/*.test.js` 只在开发期用）、
-   `LM Studio / embedding 服务` 这类外部依赖在别人机器上没有时怎么降级（今天已经全链路可降级）。
-3. **架构优化** —— 已知的可动点：`webgui/bond/`（3550 行, 11 文件）的模块边界 · `digest/material.py`（877 行）
-   的料函数分组 · `core/mmt/engine.py`（2069 行）的循环与状态 · `contract/` 那 11 个平铺件
-   （曾裁"不分族", 若重开要先读 `docs/EXEC_RENAME.md` §8 的口径）。
+1. ⭐ **「资源配置」的辅助 exe**（新方向，作者刚提）—— 独立小工具，用来管"素材 / 角色卡 /
+   key / 数据放哪"这些**主程序之外的事**。可能的职责（**待作者拍板范围**）：
+   - 选素材目录（写 `settings.toml` 的 `[paths].assets` / `config`，**保存后必须重启主程序**
+     —— 五个根是 import 期常量）
+   - 素材体检：角色立绘缺哪套差分、背景表里登记了但文件不在、菜单图缺不缺
+     （`config/settings/world/place_entities.json` + `assets/` 两边对账）
+   - 角色卡体检：`config/characters/{id}/` 六文件齐不齐、必填字段有没有
+   - 试连 LLM / 试连 embedding（今天主程序只在日志里静默降级，工具里可以给红灯）
+   - 数据目录查看 / 一键打开 / 备份（`data/` 是 append-only 真源，只许复制、不许改）
+   **为什么单独一个 exe 而不是塞进主程序**：主程序是"玩"的界面，工具是"配"的界面；
+   两者生命周期不同（工具可以脱离主程序跑、也可以给"装完先体检"用）。
+   复用面：`infra/paths.py`（五个根）、`infra/settings.py`（唯一写口）、`core/media/`（查库）
+   全都现成 —— 别在工具里重新拼路径。
+2. **前向导**（首次使用向导，前端）—— 把"填 API key / 选角色 / 选世界 / 试跑一句"收成一条龙。
+   缺后端：`GET /api/firstrun`（哪步没完成）+ 写 `[paths]` 的入口。注意 `settings.toml`
+   唯一读入口是 `infra/settings.py`，别自己 open 文件。
+3. **安装器**（Inno Setup）—— 安装目录 + 快捷方式 + 卸载；`dist/Live2Be` 那套目录形状不用改。
+   ⚠️ 装到 `C:\Program Files` 会写不了 `data/`，默认装用户目录。
+4. **彻底摆脱浏览器** —— 把 pywebview 的 pythonnet 加载调通（见 §5b 23），`--window` 才能真正可用。
+5. **架构优化**（原方向，仍挂着）—— `webgui/bond/`（3550 行, 11 文件）的模块边界 ·
+   `digest/material.py`（877 行）· `core/mmt/engine.py`（2069 行）· `contract/` 那 11 个平铺件
+   （曾裁"不分族"，若重开先读 `docs/EXEC_RENAME.md` §8）。**群聊**如果真做，会带来"第二个编排消费者"，
+   那时才是抽 `ChapterSession` 的时机（§6 已记否决理由）。
