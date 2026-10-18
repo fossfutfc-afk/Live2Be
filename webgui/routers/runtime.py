@@ -39,15 +39,8 @@ class OpenIn(BaseModel):
 
 
 def _guard(request: Request, token: str) -> None:
-    """本机来源 + 口令双校验（不合规一律 403，不解释细节）。"""
-    if not shutdown.is_local_origin(request.headers.get("origin") or ""):
-        raise HTTPException(status_code=403, detail="forbidden")
-    client = request.client
-    if client is None or not shutdown.is_local_client(client.host):
-        raise HTTPException(status_code=403, detail="forbidden")
-    if token != shutdown.TOKEN:
-        logger.warning("拒绝请求: 口令不对（来自 %s）", client.host)
-        raise HTTPException(status_code=403, detail="forbidden")
+    """本机来源 + 口令双校验（判据在 `webgui/shutdown.py`，两个路由共用）。"""
+    shutdown.guard(request, token)
 
 
 @router.get("/api/runtime/status")

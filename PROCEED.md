@@ -4,15 +4,16 @@
 > ⚠️ **`git status` 里常年挂着几份"作者手改未提交"的文件**（2026-10-17 时是
 > `config/settings/relation/interperson.yml` · `infra/fuse.py`）——
 > 那是**作者的改动, ⛔ 不是脏改动**, 别 `checkout` 掉、也别卷进提交（`git add` 一律写显式路径）。
-> 现状：`tests/core` **1299 passed** · `tests/llm+tui+webgui` **232 passed**（⚠️ **按域分开跑**, 见 §5 坑 4）·
-> 三份 verifier 全 exit 0 · ruff **363**（基线，`AGENTS.md` §7 同步）· 真机数据未动。
+> 现状：`tests/core` **1314 passed** · `tests/llm+tui+webgui` **240 passed**（⚠️ **按域分开跑**, 见 §5 坑 4）·
+> 三份 verifier 全 exit 0 · ruff **362**（基线，`AGENTS.md` §7 同步）· 真机数据未动。
 > ⚠️ **两域里各有几个轮询式 flaky**（靠 `_wait(cond, timeout=10)` 等异步状态的那类）: 机器一忙就超时,
 > 单跑常绿 ⇒ 别急着怀疑自己刚改的代码, 见 §5b 第 17 条。
 > ⚠️ **测试目录 `tests/renderer/` 已改名 `tests/tui/`**（2026-10-15，跟着 `renderer/`→`tui/`）。
 > 📄 **活入口 = 仓根 `AGENTS.md`**（2026-10-15 起取代 88 KB 的 `CLAUDE.md`；旧文归档在
 > `docs/archive/CLAUDE_2026-09-20.md`）—— 读项目先读它；本文只记"接续要做的事 + 坑"。
-> 🎯 **下一步是作者新提的方向：做一个「资源配置」的辅助 exe** —— 见 §7 第 1 条。
-> 📦 **exe 已经能双击跑**（`dist/Live2Be`, 194 MB, 见 `docs/PACKAGING.md`）；**⛔ 别用「以管理员身份运行」**，
+> 🎯 **下一步：给素材包挑一个托管方式**（代码已通，卡的是"图放哪儿"）—— 见 §7 第 1 条。
+> 📦 **exe 能双击跑，且不再背图**（`dist/Live2Be` **131 MB**，其中 `assets/` 只 **0.4 MB**；立绘与背景
+> 由前端「素材」页按需下载，见 `docs/PACKAGING.md`）；**⛔ 别用「以管理员身份运行」**，
 > 那会让开出来的 Edge 带管理员令牌并驻留后台，之后普通权限就撞 UIPI（灰窗口），见 §5b 第 22 条。
 
 ---
@@ -383,32 +384,30 @@ python experiments/recall_report.py
   —— 作者的话是"产品没定稿，README 等最后定稿"）· `webgui/store.DEFAULTS` 与各领域默认值"两处写" ·
   上面 §5b 第 17 条那批 flaky 用例（改成"等队列排空"而不是 `sleep(0.2)`）· `core/brain/read/{channels,like}.py`
   与 `realtime.py` 剩下的 `now: object`（要根治得先给 `age.py` 一个 `TsLike`，作者说往后放）。
-- **打包已定的口径**（别推翻）：**onedir 不做 onefile**（启动解压 100+ MB、误报率高）· 样张素材
-  **只带一份最小集**（105.8 MB，清单在 `packaging/collect_samples.py`，改清单 = 重新打包）·
-  `dist/` 与 `build/` 都 gitignore ⇒ **exe 不进仓库**，换机器要重跑 `packaging/build.ps1`。
+- **打包已定的口径**（别推翻）：**onedir 不做 onefile**（启动解压 100+ MB、误报率高）·
+  **素材不随包走**：随包只带"少了就报错或破相"的那几样（`emotions.yml` + `menu/{logo,default}`，
+  0.4 MB，清单在 `packaging/collect_assets.py`），立绘与背景由前端「素材」页按需下载
+  （`packaging/make_packs.py` 切包）· `build.ps1 -Samples` 才带那 106 MB 样张 ·
+  `dist/` 与 `build/` 都 gitignore ⇒ **exe 与素材包都不进仓库**，换机器要重跑 `packaging/build.ps1`
+  与 `packaging/make_packs.py`。
 
-## 7. 下一步方向（作者 2026-10-18 更新）
+## 7. 下一步方向（2026-10-18 晚更新）
 
-1. ⭐ **「资源配置」的辅助 exe**（新方向，作者刚提）—— 独立小工具，用来管"素材 / 角色卡 /
-   key / 数据放哪"这些**主程序之外的事**。可能的职责（**待作者拍板范围**）：
-   - 选素材目录（写 `settings.toml` 的 `[paths].assets` / `config`，**保存后必须重启主程序**
-     —— 五个根是 import 期常量）
-   - 素材体检：角色立绘缺哪套差分、背景表里登记了但文件不在、菜单图缺不缺
-     （`config/settings/world/place_entities.json` + `assets/` 两边对账）
-   - 角色卡体检：`config/characters/{id}/` 六文件齐不齐、必填字段有没有
-   - 试连 LLM / 试连 embedding（今天主程序只在日志里静默降级，工具里可以给红灯）
-   - 数据目录查看 / 一键打开 / 备份（`data/` 是 append-only 真源，只许复制、不许改）
-   **为什么单独一个 exe 而不是塞进主程序**：主程序是"玩"的界面，工具是"配"的界面；
-   两者生命周期不同（工具可以脱离主程序跑、也可以给"装完先体检"用）。
-   复用面：`infra/paths.py`（五个根）、`infra/settings.py`（唯一写口）、`core/media/`（查库）
-   全都现成 —— 别在工具里重新拼路径。
-2. **前向导**（首次使用向导，前端）—— 把"填 API key / 选角色 / 选世界 / 试跑一句"收成一条龙。
-   缺后端：`GET /api/firstrun`（哪步没完成）+ 写 `[paths]` 的入口。注意 `settings.toml`
-   唯一读入口是 `infra/settings.py`，别自己 open 文件。
-3. **安装器**（Inno Setup）—— 安装目录 + 快捷方式 + 卸载；`dist/Live2Be` 那套目录形状不用改。
+0. ⭐ **素材包的托管**（**唯一卡住的那件事**）—— 机制全通了：`make_packs.py` 切包 →
+  `manifest.json` 填进「素材」页 → 下载/校验/解压 → 状态变 `installed`（本地
+  `python -m http.server` 端到端验过）。**卡的是"图放哪儿"**：`assets/` 一直是 gitignore 的
+  （`.gitignore` 明写"版权素材保持忽略——本地化"），挂到**公开仓库的 Release** 上等于公开再分发
+  BA 官方美术，和那条立场冲突。四个可选：① 自己的对象存储（可控域名、可随时撤）② 同仓库公开
+  Release（零配置，但永久公开）③ 私有仓库 + 用户填 token（首次体验差）④ 维持"可配置素材源"，
+  用户自己填地址（今天就是这个状态）。另外直连 GitHub 在国内常慢/断 ⇒ `[net] proxy` 是必需的，
+  不是可选的。
+1. **安装器**（Inno Setup）—— 安装目录 + 快捷方式 + 卸载；`dist/Live2Be` 那套目录形状不用改。
    ⚠️ 装到 `C:\Program Files` 会写不了 `data/`，默认装用户目录。
-4. **彻底摆脱浏览器** —— 把 pywebview 的 pythonnet 加载调通（见 §5b 23），`--window` 才能真正可用。
-5. **架构优化**（原方向，仍挂着）—— `webgui/bond/`（3550 行, 11 文件）的模块边界 ·
+2. **彻底摆脱浏览器** —— 把 pywebview 的 pythonnet 加载调通（见 §5b 23），`--window` 才能真正可用。
+3. **架构优化**（原方向，仍挂着）—— `webgui/bond/`（3550 行, 11 文件）的模块边界 ·
    `digest/material.py`（877 行）· `core/mmt/engine.py`（2069 行）· `contract/` 那 11 个平铺件
    （曾裁"不分族"，若重开先读 `docs/EXEC_RENAME.md` §8）。**群聊**如果真做，会带来"第二个编排消费者"，
    那时才是抽 `ChapterSession` 的时机（§6 已记否决理由）。
+
+**已完成、别再当新方向**：① 「资源配置」辅助 exe（`setup_tool/`，体检 + 选路径，`Live2BeSetup.exe`）
+② 首次运行向导（前端「素材」页 = 角色立绘单独/全量 + 背景包，走网络下载）。

@@ -16,7 +16,7 @@ Live2Be.exe
 Live2BeSetup.exe   资源配置助手（onefile，可以单独双击；见 setup_tool/.md）
 _internal/         代码 + 前端静态页 + 三处 prompts（RESOURCE_ROOT，只读）
 config/            角色卡 / 世界观（CONFIG_ROOT；程序不写，用户可改）
-assets/            样张素材（ASSETS_ROOT；程序不写，可自己加）
+assets/            只带"少了就报错或破相"的那几样（ASSETS_ROOT；立绘与背景走「素材」页下载）
 data/              首次运行自动创建（DATA_ROOT）
 .env/settings.toml 首次运行前填 LLM key（APP_ROOT）
 ```
@@ -27,26 +27,51 @@ data/              首次运行自动创建（DATA_ROOT）
 六个按钮：重新体检 · 选素材目录 · 选角色卡目录 · 选数据目录 · 打开数据目录 · 清空 `[paths]`。
 也可以纯控制台跑：`Live2BeSetup.exe --check`（有"问题"项时退出码 1，适合脚本）。
 
-**它对样例包会报两条"注意"，都是有意的**：`有角色卡但没有立绘`（样张只带一个角色）
-与 `地点表声明的背景文件 缺 402/435`（样张只带两个背景分类 + 学校类 40 张）。
-这两个数字正是"用户拿到样例包会看到什么降级"的答案 —— 也可以拿它当"我还缺多少素材"的清单。
+**它对最小口径的包会报"有角色卡但没有立绘"和"地点表声明的背景文件缺 N/435"，都是有意的**：
+立绘与背景不再随包走（见下节）。这两个数字正是"用户拿到包会看到什么降级"的答案 ——
+也可以拿它当"我还缺多少素材"的清单。
 
 `infra/paths.py` 的五个根就是按这个形状写的：冻结后 `APP_ROOT = exe 同级`、
 `RESOURCE_ROOT = sys._MEIPASS`；`CONFIG/ASSETS/DATA` 还能被 `settings.toml` 的 `[paths]` 覆盖。
 
-## 为什么素材只带一小份
+## 素材不随包走：切包 + 首次运行下载
 
-全量 `assets/` 是 **448 MB**（background 251 · illustration 177 · menu 18），塞进包里不现实。
-`packaging/collect_samples.py` 按一份**可审阅的清单**挑约 **106 MB**：
+全量 `assets/` 是 **448 MB**（background 251 · illustration 177 · menu 18），塞进包里不现实；
+复制一份进包也只是把 100 MB 从仓库搬到安装包。所以分两步：
 
-| 类 | 范围 |
-|---|---|
-| `menu/` | 全给（登录页轮播 + logo） |
-| `illustration/` | **一个角色**全给（含 `ref/`：纪念生图的参考图） |
-| `background/` | `SDIR_Atmosphere` + `SDIR_Clubs` 全给，`SDIR_Schools` 按文件名取前 40 张 |
+**① 切包**（打包机上跑一次，约 30 秒）：
+
+```powershell
+C:\Users\johnf\miniconda3\envs\live2be\python.exe packaging/make_packs.py --dst dist/packs
+```
+
+| 包 | 内容 | 约 |
+|---|---|---|
+| `char.<id>` | `illustration/<id>/default/`（差分 + 头像 + spine + emotions.yml） | 18–47 MB |
+| `char.<id>.ref` | `ref/`（纪念生图的参考图） | 16 MB |
+| `char.<id>.outfits` | 其余外观目录（dress / newyear / suit / possession） | 14 MB |
+| `bg.place_table` | 地点表 `files` 声明的**每一张**背景 | 100 MB |
+| `menu.vol2` | 登录页轮播图 | 17 MB |
+
+口径的三条理由：只有 `default/` 是必备外观（`MediaCatalog` 用它起步）；背景按**地点表**切
+而不是磁盘全量（表里 435 张是引擎会引用的，磁盘另有 663 张没人引用）；没有立绘的角色不打空包。
+
+产物是 zip + `manifest.json`（含每包的 sha256、字节数、**每个文件的相对路径与大小**）。
+
+**② 下载**：把 `dist/packs/` 传到任意静态托管（对象存储、GitHub Release、局域网
+`python -m http.server`），把 `manifest.json` 的地址填进前端「素材」页。
+
+- 装没装**只看磁盘**：运行时逐个 stat 清单里的文件，不写状态文件 —— 手动删两张图，
+  状态立刻变"部分"。
+- 先校验后落地：下到 `.part` → 字节数与 sha256 都对上 → 才解压（逐条防 zip 穿越）。
+- 单包失败不中断其余；取消停在当前包，已落地的文件保持完整。
+- 清单地址存在 `settings.toml` 的 `[assets] manifest_url`；代理在 `[net] proxy`
+  （空 = 交给 `HTTP(S)_PROXY` 环境变量）。
+
+**③ 想发一个"装上就能看见画面"的预览版**：`pwsh -File packaging/build.ps1 -Samples`
+（多加 106 MB 样张，清单在 `packaging/collect_assets.py` 顶部那几个常量）。
 
 抽样只用**文件名排序**（可复现）。缺图不报错：渲染层退化到纯文字 / 默认底图。
-改清单 = 改 `packaging/collect_samples.py` 顶部那几个常量，然后重新打包。
 
 ## 打开方式：独立应用窗口（不碰你日常的浏览器）
 
@@ -161,6 +186,6 @@ msedge.exe --app=http://127.0.0.1:8000/ --user-data-dir=<exe 同级>\data\browse
 
 ## 后续（这一轮没做）
 
-- **首次使用向导**（填 key / 选角色 / 试跑一句 / 选素材目录）：后端还缺
-  `GET /api/firstrun` 与写 `[paths]` 的入口（`paths` 是 import 期常量，保存后要重启）
+- 素材包的**托管**还没定：现在只做"可配置素材源"，本地用 `python -m http.server` 验证过
+  全链路（切包 → 填地址 → 下载 → 状态变 `installed`）
 - 安装器（Inno Setup）：安装目录 + 快捷方式 + 卸载

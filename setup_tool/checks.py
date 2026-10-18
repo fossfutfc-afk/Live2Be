@@ -124,6 +124,14 @@ def _place_table() -> dict:
     return data if isinstance(data, dict) else {}
 
 
+#: 算"有图"的后缀。`emotions.yml` 不算 —— 它只是词表，光有它角色照样点不出来
+ART_SUFFIXES = (".png", ".jpg", ".jpeg", ".webp", ".webm", ".skel", ".atlas")
+
+
+def _has_art(char_dir: Path) -> bool:
+    return any(f.is_file() and f.suffix.lower() in ART_SUFFIXES for f in char_dir.rglob("*"))
+
+
 def assets_checks() -> list[Check]:
     """立绘（按角色）/ 背景（按**地点表自己的声明**）/ 菜单图。
 
@@ -131,15 +139,19 @@ def assets_checks() -> list[Check]:
     （路径相对 `assets/background/`）—— 拿它自己声明的路径去对磁盘, 才是"缺了没有"的判据。
     （我第一版拿 `MediaCatalog.background(key)` 查, 那是按**文件名**索引的, 于是 168 个地点里
     报出 103 个"缺" —— 全是假阳性。判据别自己发明。）
+
+    ⚠️ "有立绘"也要看图，不看目录: 最小口径的包只带 `emotions.yml`（词表进 prompt 要用），
+    目录存在但一张图都没有 —— 按目录判会报"5 个角色有立绘"，实际一张也没有。
     """
     out: list[Check] = []
     assets = Path(paths.ASSETS_ROOT)
     out.append(Check("素材", "素材根", OK if assets.is_dir() else WARN, str(assets)))
 
-    # 立绘: 素材里有立绘的角色 / 有角色卡却没立绘的
+    # 立绘: 素材里真有图（或 spine 三件套）的角色 / 有角色卡却一张图都没有的
     illus = assets / "illustration"
     chars = sorted(p.name for p in illus.iterdir()
-                   if p.is_dir() and not p.name.startswith(("__", "."))) if illus.is_dir() else []
+                   if p.is_dir() and not p.name.startswith(("__", ".")) and _has_art(p)) \
+        if illus.is_dir() else []
     out.append(Check("素材", "有立绘的角色", INFO, f"{len(chars)} 个: {', '.join(chars) or '（无）'}"))
     char_root = Path(paths.CHARACTERS_DIR)
     if char_root.is_dir():
@@ -147,7 +159,8 @@ def assets_checks() -> list[Check]:
                              if p.is_dir() and not p.name.startswith(("__", "."))
                              and p.name not in chars)
         if missing_art:
-            out.append(Check("素材", "有角色卡但没有立绘", WARN, ", ".join(missing_art)))
+            out.append(Check("素材", "有角色卡但没有立绘", WARN,
+                             ", ".join(missing_art) + "（去前端「素材」页下载对应素材包）"))
 
     # 背景: 地点表声明的文件 ↔ 磁盘
     table = _place_table()
@@ -227,11 +240,18 @@ def llm_checks() -> list[Check]:
 
 
 def embedding_check() -> Check:
-    """本机 embedding 服务在不在（不花钱：它是本地 HTTP）。"""
+    """本机 embedding 服务在不在（不花钱：它是本地 HTTP）。
+
+    依赖缺失（打包版**有意**不带 httpx）与"服务没起"是两回事，别混成一条告警 ——
+    前者是工具自己的边界，报成 WARN 会让人以为环境坏了。
+    """
     try:
         from core.rag.embedder import LocalEmbedder
 
         emb = LocalEmbedder()
+    except ModuleNotFoundError as e:
+        return Check("LLM", "embedding", INFO,
+                     f"跳过（这个工具不带 {e.name}，打包版有意不带 HTTP 栈）")
     except Exception as e:                       # noqa: BLE001
         return Check("LLM", "embedding", WARN, f"初始化失败: {type(e).__name__}: {e}")
     try:
@@ -275,21 +295,7 @@ def write_paths(**roots: str) -> Path:
 
     ⚠️ 五个根是 **import 期常量** ⇒ 写完必须重启主程序才生效（界面要提示）。
     """
-    raw = settings.raw()
-    if not isinstance(raw, dict):
-        raw = {}
-    current = raw.get("paths")
-    table = dict(current) if isinstance(current, dict) else {}
-    for key, value in roots.items():
+    for key in roots:
         if key not in SETTABLE:
             raise ValueError(f"只能改 {SETTABLE}，收到 {key!r}")
-        val = (value or "").strip()
-        if val:
-            table[key] = val
-        else:
-            table.pop(key, None)
-    if table:
-        raw["paths"] = table
-    else:
-        raw.pop("paths", None)
-    return settings.write(raw)
+    return settings.update("paths", **roots)
