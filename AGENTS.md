@@ -72,6 +72,7 @@ contract → infra → llm → core → tui / webgui / cli
 | 记忆读路径（召回 / 注入视图 / 旋钮） | `core/brain/read/`（图数据层 = `core/brain/`，纯 stdlib、零 LLM） |
 | 三条标注：情绪 / 换场 / 选图 | `core/bond/{emo_text,place_annotate,variant_annotate}.py` |
 | 地点表 / 背景与立绘 / 素材查库 | `config/settings/world/place_entities.json` + `core/media/` |
+| 写/改角色卡（人设六文件 · 表情词表 · 人际 · MMT 名单） | [`guidance/CHARACTER.md`](guidance/CHARACTER.md) · `config/characters/{id}/` |
 | LLM 客户端 / 档位 / 重试循环 | `llm/{client,retry,task_levels,task_labels}.py` |
 | 生图（纪念立绘） | `llm/image_gen.py` + `webgui/bond/memorial.py` |
 | HTTP 路由 / 前端 | `webgui/routers/` · `webgui/static/{js,css}/` |
