@@ -41,7 +41,8 @@ from webgui.routers import (  # noqa: E402
     spine,
 )
 
-# ⚠️ 两个别名: `runtime` / `settings` 都是 infra 的模块名, 路由器那份会遮蔽它们
+# ⚠️ 三个别名: `runtime` / `settings` / `packs` 都是 infra 的模块名, 路由器那份会遮蔽它们
+from webgui.routers import packs as packs_router  # noqa: E402
 from webgui.routers import runtime as runtime_router  # noqa: E402
 from webgui.routers import settings as settings_router  # noqa: E402
 
@@ -72,6 +73,10 @@ async def _lifespan(_app: FastAPI):
     所以这里置关停信号（digest 在下一轮之间/提交前看到就回滚）并等一会儿 —— 等不到
     也**不会**写坏: 提交窗口自己有关停闸，被杀在最坏处只是这段下次重来。
     """
+    # 素材目录可以空（首次运行还没下包），但**必须存在**: StaticFiles 在请求时检查它，
+    # 缺目录会 500 而不是 404 —— 第一次装完还没下素材就整页报错，是最难查的那种。
+    for root in (MENU_DIR, ILLUS_DIR, BG_DIR):
+        root.mkdir(parents=True, exist_ok=True)
     yield
     runtime.request_shutdown()
     if not runtime.wait_idle(3.0):
@@ -80,10 +85,12 @@ async def _lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="Live2Be", lifespan=_lifespan)
+# check_dir=False: import 期不因缺目录而炸（素材目录由 lifespan 建，可能是空的）
 app.mount("/static", NoCacheStaticFiles(directory=STATIC_DIR), name="static")
-app.mount("/assets/menu", NoCacheStaticFiles(directory=MENU_DIR), name="menu")
-app.mount("/assets/illustration", NoCacheStaticFiles(directory=ILLUS_DIR), name="illus")
-app.mount("/assets/background", NoCacheStaticFiles(directory=BG_DIR), name="bg")
+app.mount("/assets/menu", NoCacheStaticFiles(directory=MENU_DIR, check_dir=False), name="menu")
+app.mount("/assets/illustration",
+          NoCacheStaticFiles(directory=ILLUS_DIR, check_dir=False), name="illus")
+app.mount("/assets/background", NoCacheStaticFiles(directory=BG_DIR, check_dir=False), name="bg")
 
 
 @app.get("/gallery/{world_id}/{char_id}/{scene_id}.png")
@@ -104,6 +111,7 @@ def gallery_png(world_id: str, char_id: str, scene_id: str) -> Response:
 # 路由注册（每域独立文件——铺路: 未来加域只加 import + include_router）
 app.include_router(menu.router)
 app.include_router(runtime_router.router)
+app.include_router(packs_router.router)
 app.include_router(name.router)
 app.include_router(settings_router.router)
 app.include_router(mmt.router)

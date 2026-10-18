@@ -63,6 +63,33 @@ def test_missing_background_is_judged_by_the_place_table(tmp_path, monkeypatch):
     assert "gone.jpg" in warn[0].detail, warn[0].line()
 
 
+def test_character_with_only_emotions_yml_has_no_art(tmp_path, monkeypatch):
+    """`emotions.yml` 是词表，不是立绘 —— 只有它的角色必须算"没有立绘"。
+
+    最小口径的包里就是这样（8 个角色各带一份 emotions.yml，一张图都没有）；按目录判会报
+    "5 个角色有立绘"，实际一张也没有。判据要落到文件。
+    """
+    illus = tmp_path / "assets" / "illustration"
+    (illus / "has_art" / "default" / "portrait").mkdir(parents=True)
+    (illus / "has_art" / "default" / "emotions.yml").write_text("nomal: 1\n", encoding="utf-8")
+    (illus / "has_art" / "default" / "portrait" / "student.png").write_bytes(b"png")
+    (illus / "wordlist_only" / "default").mkdir(parents=True)
+    (illus / "wordlist_only" / "default" / "emotions.yml").write_text("nomal: 1\n", encoding="utf-8")
+
+    cards = tmp_path / "config" / "characters"
+    for name in ("has_art", "wordlist_only"):
+        (cards / name).mkdir(parents=True)
+    monkeypatch.setattr(checks.paths, "ASSETS_ROOT", tmp_path / "assets")
+    monkeypatch.setattr(checks.paths, "CHARACTERS_DIR", cards)
+    monkeypatch.setattr(checks.paths, "PLACE_TABLE_PATH", tmp_path / "nope.json")
+
+    result = checks.assets_checks()
+    have = next(c for c in result if c.name == "有立绘的角色")
+    assert "has_art" in have.detail and "wordlist_only" not in have.detail, have.line()
+    warn = next(c for c in result if c.name == "有角色卡但没有立绘")
+    assert warn.detail.startswith("wordlist_only"), warn.line()
+
+
 def test_write_paths_round_trip(tmp_path, monkeypatch):
     """只写 `[paths]`；空串 = 删掉该覆盖；不许的键直接拒。"""
     target = tmp_path / "settings.toml"

@@ -46,8 +46,8 @@ contract → infra → llm → core → tui / webgui / cli
 
 另外：`tests/`（按域分 `core/ llm/ tui/ webgui/` + `fixtures/`）· `config/`（人设与世界观）·
 `data/`（运行时真源，gitignore）· `assets/`（素材，gitignore）· `docs/`（设计稿与执行记录）·
-`experiments/`（真 API 基准与浏览器冒烟，手工跑、烧 token）· `packaging/`（打 exe 的 spec 与
-样张清单，见 `docs/PACKAGING.md`）· `setup_tool/`（**资源配置辅助工具**，独立小 exe，见
+`experiments/`（真 API 基准与浏览器冒烟，手工跑、烧 token）· `packaging/`（打 exe 的 spec、
+素材清单与切包脚本，见 `docs/PACKAGING.md`）· `setup_tool/`（**资源配置辅助工具**，独立小 exe，见
 [`setup_tool/.md`](setup_tool/.md)）· `archive/`（历史代码）· `guidance/`（角色卡写作指导）。
 
 **三条不变量**（`tests/core/test_import_direction.py` 钉着，反向 import 一律视为 bug）：
@@ -76,7 +76,8 @@ contract → infra → llm → core → tui / webgui / cli
 | 生图（纪念立绘） | `llm/image_gen.py` + `webgui/bond/memorial.py` |
 | HTTP 路由 / 前端 | `webgui/routers/` · `webgui/static/{js,css}/` |
 | 启动 / 关停（Ctrl+C 被忽略，退出走前端「关闭服务」） | `python -m webgui.serve` · `webgui/{serve,shutdown}.py` · `webgui/routers/runtime.py` |
-| 打 exe（onedir + 样张素材） | `pwsh packaging/build.ps1` · `packaging/live2be.spec` · `packaging/collect_samples.py` · `docs/PACKAGING.md` |
+| 打 exe（onedir + 最小素材） | `pwsh packaging/build.ps1` · `packaging/live2be.spec` · `packaging/collect_assets.py` · `docs/PACKAGING.md` |
+| 素材包（切包 / 首次运行按需下载） | `packaging/make_packs.py`（切）· `infra/packs.py`（读/下/校验/落地）· `webgui/routers/packs.py` + 前端「素材」页 |
 | 资源配置 / 体检（独立小 exe） | `setup_tool/`（`python -m setup_tool --check`）· `packaging/setup_tool.spec` |
 
 ---
@@ -199,7 +200,7 @@ contract → infra → llm → core → tui / webgui / cli
 环境：解释器 `C:\Users\johnf\miniconda3\envs\live2be\python.exe`（conda env `live2be`；
 conda `base` 里没有 jieba，用 base 跑测试会挂）· `node` v24 在（前端测试用）。
 
-当前基线（2026-10-18）：`tests/core` **1303 passed** · `tests/llm+tui+webgui` **232 passed** ·
+当前基线（2026-10-18）：`tests/core` **1314 passed** · `tests/llm+tui+webgui` **240 passed** ·
 `ruff check .` **362**。
 
 已知缺口：

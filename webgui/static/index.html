@@ -62,6 +62,7 @@
       <p class="main-name">老师 · <span id="main-name"></span></p>
       <div class="menu-buttons">
         <button class="menu-btn" id="btn-settings">设 置</button>
+        <button class="menu-btn" id="btn-packs">素 材</button>
         <button class="menu-btn primary" id="btn-mmt">手机 MMT</button>
         <button class="menu-btn" id="btn-playback">回 放</button>
       </div>
@@ -102,6 +103,38 @@
       <button id="btn-back-main" class="link">返回主界面</button>
     </div>
     <p id="settings-msg" class="error hidden"></p>
+  </section>
+
+  <!-- 素材（首次运行向导: 立绘与背景按需下载, 不随安装包走） -->
+  <section id="view-packs" class="settings hidden">
+    <h1 class="logo small">素 材</h1>
+    <div class="panel">
+      <h3>素材源</h3>
+      <p class="hint">包清单（<code>manifest.json</code>）的地址。填本地路径也行：
+        <code>http://127.0.0.1:8000/manifest.json</code>。</p>
+      <label>清单地址 <input id="packs-url" type="text" placeholder="https://…/manifest.json"></label>
+      <label>代理 <input id="packs-proxy" type="text"
+        placeholder="留空 = 直连（也可填 http://127.0.0.1:7897）"></label>
+      <div class="row">
+        <button id="btn-packs-save" class="small">保存并重新读取</button>
+      </div>
+    </div>
+    <div class="panel">
+      <h3>要装哪些</h3>
+      <p id="packs-summary" class="hint">读取中…</p>
+      <div id="packs-list" class="pack-list"></div>
+      <div class="row">
+        <button id="btn-packs-all" class="small">全选</button>
+        <button id="btn-packs-none" class="small">全不选</button>
+        <button id="btn-packs-install">开始下载</button>
+        <button id="btn-packs-cancel" class="small hidden">取消</button>
+      </div>
+      <div id="packs-bar" class="bar hidden"><div id="packs-bar-fill" class="bar-fill"></div></div>
+    </div>
+    <div class="row">
+      <button id="btn-packs-back" class="link">返回主界面</button>
+    </div>
+    <p id="packs-msg" class="error hidden"></p>
   </section>
 
   <!-- MMT 界面（M3.5: 顶部横幅 + 左模式栏 + 右侧按模式渲染; 聊天逻辑后写） -->
@@ -256,6 +289,7 @@
 <script src="/static/js/gui.js"></script>
 <script src="/static/js/main.js"></script>
 <script src="/static/js/settings.js"></script>
+<script src="/static/js/packs.js"></script>
 <script src="/static/js/mmt.js"></script>
 <script src="/static/js/collection.js"></script>
 <script type="module" src="/static/js/bond.js"></script>

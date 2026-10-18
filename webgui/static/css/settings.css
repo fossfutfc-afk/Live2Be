@@ -71,3 +71,33 @@
   font-size: 0.8rem;
   border-radius: 0.5rem;
 }
+
+/* 素材页（view-packs）: 一列包 + 一条进度条 */
+.settings .pack-list { margin: 0.2rem 0 0.9rem; }
+.settings .pack-list h3 { margin-top: 0.8rem; }
+.settings .pack-row { justify-content: flex-start; gap: 0.5rem; }
+.settings .pack-row input[type="checkbox"] {
+  width: auto;
+  accent-color: var(--blue);
+  transform: scale(1.15);
+}
+.settings .pack-num {
+  margin-left: auto;
+  color: #7f9bc0;
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.settings .bar {
+  height: 8px;
+  margin-top: 0.8rem;
+  border-radius: 4px;
+  background: rgba(79, 195, 247, 0.15);
+  overflow: hidden;
+}
+.settings .bar-fill {
+  width: 0;
+  height: 100%;
+  background: var(--blue);
+  transition: width 0.3s linear;
+}

@@ -64,7 +64,7 @@ def section(name: str) -> dict:
     return val if isinstance(val, dict) else {}
 
 
-__all__ = ["app_root", "default_path", "last_error", "raw", "section"]
+__all__ = ["app_root", "default_path", "last_error", "raw", "section", "update"]
 
 # ---------------------------------------------------------------------------
 # 写（**唯一写入口**）—— 设置页与「资源配置」辅助工具都走这里
@@ -157,3 +157,26 @@ def write(data: dict) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(to_toml(clean), encoding="utf-8")
     return path
+
+
+def update(section: str, **values) -> Path:
+    """改一段里的几个键（`""` = 删掉该键），其余原样写回。
+
+    `write()` 是**整文件重写** —— 拿"只有这一段"的 dict 去写会把别的段抹掉。
+    想"只改一个键"就走这里：先读磁盘、只动这一段、再写回。
+    """
+    data = raw()
+    current = data.get(section)
+    merged = dict(current) if isinstance(current, dict) else {}
+    for key, value in values.items():
+        if isinstance(value, str):
+            value = value.strip()
+        if isinstance(value, str) and not value:
+            merged.pop(key, None)
+        else:
+            merged[key] = value
+    if merged:
+        data[section] = merged
+    else:
+        data.pop(section, None)
+    return write(data)
