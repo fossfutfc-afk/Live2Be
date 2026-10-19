@@ -3,7 +3,7 @@
 main.py 在 result.bond_story 触发后调用 run_bond_story_vn:
     进入 VN 模式 → 逐场景推剧情（story_scene/story_end 契约 JSON）→ 玩家选选项 / 自由输入推进
     → story_end 收尾或 b 退出 → 回到 MomoTalk 正常对话。
-    每场 append type=bond 事件进事件流（docs/archive/DESIGN_SAVE.md §4.2）; 回放从事件流过滤。
+    每场 append type=bond 事件进事件流（core/session/.md）; 回放从事件流过滤。
 
 UI 行为（渲染收编 tui/, 2026-08-28 M1 迁移）:
     - 渲染统一走 tui 管线（DESIGN_RENDERER.md）: RenderScene.from_live(BondScene)
@@ -118,7 +118,7 @@ def run_bond_story_vn(
     首个种子 = 触发动作的 chapter_title（2026-09-05: reason 退役; 起因由上下文窗口承载——
     触发前对话经 window_messages 灌入 vn._history, 首场自带; title 有则旁白命题引述,
     无则固定开篇语）。
-    store（SessionStore）注入时: 落**事件流**（docs/archive/DESIGN_SAVE.md §4）——enter_vn
+    store（SessionStore）注入时: 落**事件流**（core/session/.md）——enter_vn
     同会话 append vn_enter（单事件流, 无子会话）, 每场 append type=bond 事件 +
     vn_state marker（恢复点）, 结束时 vn_exit + session_end。写失败静默降级不阻断 VN。
 
@@ -161,7 +161,7 @@ def run_bond_story_vn(
         return False
 
     title = _trigger_title(engine)
-    # Brain 记忆段（DESIGN_BRAIN.md, brain 2026-09-02 切换; 见 docs/archive/）: 本世界线 wiki
+    # Brain 记忆段（2026-09-02 起由 brain 接管）: 本世界线 wiki
     # 第一人称注入——VN 中角色记得这个世界线前面的事（resume 过则有 digest 产物;
     # 空 → 零注入, 平行世界）。读失败静默跳过（不阻断 VN）。
     brain_segment = ""
@@ -203,7 +203,7 @@ def run_bond_story_vn(
         seed = (f"（旁白）本章：{title}——从刚才的对话与契机自然展开。"
                 if title else "（旁白）故事开始了……")
 
-    # 事件流（docs/archive/DESIGN_SAVE.md §5.3, 2026-08-24 单流）: 同会话 append vn_enter, 无子会话
+    # 事件流（core/session/.md, 2026-08-24 单流）: 同会话 append vn_enter, 无子会话
     # 2026-09-17（B0 整章暂存）: **章内一切改走暂存**（`staging_store`），见到
     # `vn_exit` 时由 `commit_staging` 整段搬进真源 —— 与 webgui 同一条链。
     # `truth` 留住真源 store（收尾时 commit 用）；失败则回退到真源（旧行为）。

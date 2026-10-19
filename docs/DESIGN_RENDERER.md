@@ -304,7 +304,7 @@ events.jsonl → filter_bond（type=bond 事件）→ payload → RenderScene.fr
 ### 7.3 回放源（回溯场景, 2026-08-27 补充）
 
 ```
-回溯（世界/角色回退, 见 docs/archive/world_model_evolution.md（已归档） 阶段 11）后:
+回溯（世界/角色回退, 见 world_model_evolution 阶段 11（该文档已删））后:
   ├─ 当前线: 事件流被回档到存档点——之后的事件（含 bond 剧情）从当前线消失
   │          （语义: "没发生"——当前线角色也不记得）
   └─ 原线:  快照完整保留（snapshots/s_xxx/characters/{char}/events.jsonl）

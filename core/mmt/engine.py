@@ -459,7 +459,7 @@ def _log_read_ledger(char_id: str) -> None:
 #: 滑动窗口默认轮数（每轮 = user+assistant 2 条消息; 40 轮 = 80 条消息）。
 #: 玩家可配（引擎构造参数 history_rounds 传入; 设置页接入见 docs/DESIGN_MEMORY.md Step 1）
 DEFAULT_HISTORY_ROUNDS = 40
-# 会话存档走角色根目录（docs/archive/DESIGN_SAVE.md §三）: data/{char_id}/sessions/
+# 会话存档走角色根目录（core/session/.md）: data/{char_id}/sessions/
 
 # agent loop 参数
 MAX_STEPS = 6          # 单轮动作步数上限（含查询族那一轮：`look` 查完要接着说）
@@ -666,7 +666,7 @@ class MomoTalkEngine:
         # `tests/core/test_mmt_recall_note.py::test_p19_never_touches_the_embedder`
         # 用一个**记账后端**钉住"现在一次都不调"。
         self.embed_fn: Callable[[], Any] = embed_fn or _get_embed_fn
-        # 事件流存档（docs/archive/DESIGN_SAVE.md §4）: store 注入 + attach_session 后,
+        # 事件流存档（core/session/.md）: store 注入 + attach_session 后,
         # 每轮 agent_turn 落 mmt 事件 + 会话内轮数; None = 不记录（向后兼容）
         self._store = store
         self._session_id: str = ""
@@ -740,7 +740,7 @@ class MomoTalkEngine:
 
     def save_session(self, path: str | Path | None = None) -> Path:
         if path is None:
-            # 角色根目录（docs/archive/DESIGN_SAVE.md §三）: data/{char_id}/sessions/{char}_{ts}.json
+            # 角色根目录（core/session/.md）: data/{char_id}/sessions/{char}_{ts}.json
             char_dir = Path("data") / self._char_id / "sessions"
             char_dir.mkdir(parents=True, exist_ok=True)
             ts = datetime.now().strftime("%Y-%m-%d_%H%M%S")
@@ -755,7 +755,7 @@ class MomoTalkEngine:
         return Path(path)
 
     def attach_session(self, session_id: str) -> None:
-        """绑定事件流会话（docs/archive/DESIGN_SAVE.md §4）: main 层 store.create 后调用。
+        """绑定事件流会话（core/session/.md）: main 层 store.create 后调用。
 
         绑定后每轮 agent_turn 落 mmt 事件 + 会话内轮数（store 已注入）。
         2026-09-02: 触发门槛计数（_bond_gap）从持久 progress.json 恢复
@@ -1090,7 +1090,7 @@ class MomoTalkEngine:
             runtime.end("digest")
 
     def resume_session(self, character_id: str, session_id: str) -> dict:
-        """从事件流恢复会话（docs/archive/DESIGN_SAVE.md §4.2/§六）: 重建 system + history, 继续 MMT。
+        """从事件流恢复会话（core/session/.md）: 重建 system + history, 继续 MMT。
 
         store.resume → events → render_events（mmt 事件 → user/assistant 对,
         与引擎 history 同格式 `[动作名] 回复`）→ 灌入 _history → attach_session。

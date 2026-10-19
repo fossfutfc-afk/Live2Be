@@ -3,7 +3,7 @@
 > **状态**：2026-09-07 对照现网代码逐点校准（行号为当日实况）；**2026-09-10 盒B
 > 段落已按记录流 v2 更新**（rules/输出契约/词表/舞台清单四处，见 §3；真机守形验证
 > 随 P0-4b 引擎接线）。
-> **取代**：`docs/DESIGN_WEBGUI_PROMPTS.md`（已归档至 `docs/archive/`，历史参考）。
+> **取代**：`docs/DESIGN_WEBGUI_PROMPTS.md`（已删除，git 历史可查）。
 > **用途**：提示词组装重构（promptkit / task 卡片）的事实基线；LLM 各调用点
 > "到底注入了什么"的唯一现网答案。代码改动后本节可能再漂——行号以代码为准，
 > 结构争议以本文为准（未来由 promptkit report 工具生成同款报表，见设计尾注）。
@@ -112,7 +112,7 @@ messages = [system] + history + [P16 羁绊进度注记] + [P17 时间注记们]
 
 **盒B 至此已无任何词表块**（`lexicon_emotion` 2026-09-10 退出、`place_palette`
 2026-09-15 换成世界设定块）：情绪归标注层逐记录判、地点归标注层翻译，
-writer 只写自然语言。旧契约见 docs/archive/DESIGN_BOND_CONTRACT_V2.md；
+writer 只写自然语言。旧契约是 DESIGN_BOND_CONTRACT_V2（已删除，git 历史可查）；
 新契约见 docs/DESIGN_STREAM_CONTRACT.md §5 与 docs/DESIGN_PLACE.md（三层框架）。
 
 双 registry 分流（bond_story.py:429-435）：按**动作名归属**——story 域 spec 命中 →

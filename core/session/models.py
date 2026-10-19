@@ -1,4 +1,4 @@
-"""会话模型 — meta 纯索引 + VN 恢复点 payload（core/docs/archive/DESIGN_SAVE.md §4）。
+"""会话模型 — meta 纯索引 + VN 恢复点 payload（core/session/.md）。
 
 SessionMeta — meta.json: **纯索引, 无状态机**（用户决策 2026-08-23: 状态由
     events 的 marker 事件推导, 见 §4.2/§5.1）; type 创建时确定, 列表显示用
@@ -88,7 +88,7 @@ class SessionMeta:
 
 @dataclass
 class VNState:
-    """VN 恢复点（marker vn_state 的 payload, docs/archive/DESIGN_SAVE.md §4.2）。"""
+    """VN 恢复点（marker vn_state 的 payload, core/session/.md）。"""
 
     round: int = 1                    # 当前第几场（vn_cli 的 i, 下一场 = round+1）
     seed: str = ""                    # 下一场 user_input（= 上一场 picked/choice）

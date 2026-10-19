@@ -1,6 +1,6 @@
 """会话存储 IO 原语 — 原子写 JSON / append-only JSONL（行级容错）。
 
-设计（core/docs/archive/DESIGN_SAVE.md §七）:
+设计（core/session/.md）:
     - meta.json / vn_state.json: atomic_write_json（temp 同目录 + os.replace,
       Windows 同卷原子替换——不半写）
     - history.jsonl / scenes.jsonl: append_jsonl（open("a") 单行追加, 不重写全文件）

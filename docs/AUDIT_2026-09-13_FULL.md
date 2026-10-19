@@ -1,6 +1,6 @@
 # AUDIT_2026-09-13_FULL.md — 全项目代码审计（只读）
 
-> **状态**: 一次性审计快照（非设计文档; 修完即勾, 全修完可归档 docs/archive/）。
+> **状态**: 一次性审计快照（非设计文档; 修完即勾, 全修完可删）。
 > **方法**: 四个并行只读审计（bond 引擎 / webgui+promptkit / brain+MMT / 测试+回忆册）
 > + 父代理对高危项**实机复核**（读真实 `data/`、跑探针脚本, 不只看代码）。
 > **纪律**: 一切以代码为准。下列标 ✅ 的项由父代理**亲自验证**（含运行证据）;
@@ -192,7 +192,7 @@
 | C8 | `CLAUDE.md:104` "失败重试(feedback ≤3) → closing" | **过期**: 伪收场已废, 超限只置中止态 `completed=False`（`webgui/bond.py:2022-2039`, `MAX_GEN_FAILURES=3`） |
 | C9 | `CLAUDE.md:104/105` "选项配额(≤3)" / "键一致的 branches" | v2 无配额代码; `from_board` 从不为 v2 板设 `branches`（`bond_story.py:235-244`） |
 | C10 | `CLAUDE.md:46` A1 回录 = "写回『（选择了: X）』" | v2 实际物化为一条 `老师：X` 记录（`contract/records.py:603-635`） |
-| C11 | `CLAUDE.md:160` 符号 `Q_emo/W_emo`、`Q_place/W_place` | **全仓只存在于归档文档**（`docs/archive/DESIGN_BOND_CONTRACT_V2.md:165-244`）; 代码是 `_anno_queue/_place_queue + _anno_thread/_place_thread`（`bond.py:203-209`） |
+| C11 | `CLAUDE.md:160` 符号 `Q_emo/W_emo`、`Q_place/W_place` | **全仓只存在于旧契约文档**（`DESIGN_BOND_CONTRACT_V2`，已删除，git 历史可查）; 代码是 `_anno_queue/_place_queue + _anno_thread/_place_thread`（`bond.py:203-209`） |
 | C12 | `CLAUDE.md:319` "emo/place 补切经版本号" | 只有 emo 有版本号（`bond.js:62,426-429`）; place 无版本, 靠段级 `place/place_bg` 晚到即切（`bond.js:499-510`） |
 | C13 | `CLAUDE.md:190-191` maintenance CLI 有 `audit` 模式 | 代码只有 `--mode {heal,supersede}`（`core/session/maintenance.py:266`） |
 | C14 | `PROMPT_INJECTION_MAP.md` 行号整表失效 | 称 "bond.py 现 1256 行"（实 2590）; `_scene_task_kind` `bond_story.py:564-569`（实 1140-1143）; `send_vn_scene` 352-525（实 550-768）; `start_session` 290-335（实 492-544）; `_system_note` 1138-1179（实 `webgui/bond.py:2449-2488`） |

@@ -9,7 +9,7 @@
 > ⚠️ **两域里各有几个轮询式 flaky**（靠 `_wait(cond, timeout=10)` 等异步状态的那类）: 机器一忙就超时,
 > 单跑常绿 ⇒ 别急着怀疑自己刚改的代码, 见 §5b 第 17 条。
 > ⚠️ **测试目录 `tests/renderer/` 已改名 `tests/tui/`**（2026-10-15，跟着 `renderer/`→`tui/`）。
-> 📄 **活入口 = 仓根 `AGENTS.md`**（2026-10-15 起取代 88 KB 的 `CLAUDE.md`；旧文归档在
+> 📄 **活入口 = 仓根 `AGENTS.md`**（2026-10-15 起取代 88 KB 的 `CLAUDE.md`；旧文已删，要考古从 git 历史取
 > `docs/archive/CLAUDE_2026-09-20.md`）—— 读项目先读它；本文只记"接续要做的事 + 坑"。
 > 🎯 **下一步：** 完整版（素材随包）已经落地；剩下的都是可选（素材 rev 自更新、安装器、
 > 版本号 / release zip）。见 §7。
@@ -171,7 +171,7 @@ python experiments/recall_report.py
 | `d485e9b` | **EXEC_RENAME 第 2 步**：`renderer/` → `tui/`（+ `core/tui` 三件拆平进 `core/{display,streaming,text}.py`、门面删、`renderer/core.py`→`tui/renderer.py`、`tests/renderer/`→`tests/tui/`）· 干跑抓到三处同名陷阱 |
 | `d90024c` | **EXEC_RENAME 收工**：第 3 步（`core`→`engine`）作者裁决不做（≈1400 处 / 收益纯语义）· 新增 `core/.md` 把"名字会误导"用文档补掉 · 计划文档 §8 记下实测与替代做法 |
 | `92059f49` | 补 `webgui/.md`（约定里最后一个没写的包）+ `test_paths._SCAN_DIRS` 从五包扩到七包（`cli`/`tui` 上一轮改名后没被扫过）；守门双向证过会红 |
-| `bb03fecb` | ⭐ **`AGENTS.md`（12 KB）取代 `CLAUDE.md`（88 KB）**：harness 的候选表是 `["AGENTS.md","CLAUDE.md"]` 且**两份都加载** ⇒ 旧文归档成带日期的 `docs/archive/CLAUDE_2026-09-20.md`（叫 `CLAUDE.md` 会被再注入一遍）· 新增 `infra/.md`（约定里唯一缺的）· `contract/.md` 的"七轮"改指真源（实为 6 轮） |
+| `bb03fecb` | ⭐ **`AGENTS.md`（12 KB）取代 `CLAUDE.md`（88 KB）**：harness 的候选表是 `["AGENTS.md","CLAUDE.md"]` 且**两份都加载** ⇒ 旧文改成带日期的 `docs/archive/CLAUDE_2026-09-20.md`（叫 `CLAUDE.md` 会被再注入一遍；该文件后来已删）· 新增 `infra/.md`（约定里唯一缺的）· `contract/.md` 的"七轮"改指真源（实为 6 轮） |
 | `eb96f365` | 10 处 `CLAUDE.md §N` 引用改成**按名字**引用（`AGENTS.md` §8「产品决策」八条）；两处不指 AGENTS 而指真家（`tests/stub_tasks.py` 的 `_COUNT_RE`、`recall.py` 自己的 MU/SIGMA）；顺手修 `recall_config` docstring 里已被删的 mtime 缓存说法 |
 | `c1c090f2` | **逐包导览第 1 站 `core/affection/`**：自拼根路径收进 `paths.DATA_DIR` · 补上守门盲区（老判据够不着"赋值换行续写"，改成**逻辑行**判；真违规当场红）· 注释 224→156 行 |
 | `d899a6b6` | **第 2 站 `core/bond/`**：清注释（净 −252 行；顶部 docstring 砍 30~60%、清全部装饰符号与"用户裁"）· 修两个注解类型错（`_extract_array -> object` 与 `int(it.get(...))`） |
@@ -365,7 +365,7 @@ python experiments/recall_report.py
   旧的那句不再成立才 `evolved_from`）。
 - **线 B 已裁不做**：`core`→`engine` 改名（§5b 第 1 条有代价）· `contract/` 那 11 个平铺件分族 ·
   `tests/` 归属重划 · `bond.js` 拆分（作者：那坨山暂时不拆）· `err404.html` 的 CSS 抽出（页面已被蓝屏取代）。
-  ⛔ **`CLAUDE.md` 不再当活入口**（已归档到 `docs/archive/`，别再往仓根写它）。
+  ⛔ **`CLAUDE.md` 不再当活入口**（旧文已删，别再往仓根写它）。
 - ⭐ **`cli/` 定位（2026-10-17 定）**：**产品只有一个壳 = `webgui/`**；`cli/` 是调试入口,
   **不追 webgui 的行为**（预生成 / 标注 lane / 插嘴 / 回放 / 群聊都不在 CLI 实现, 落后不算 bug）。
   评估过并否决的两个方案: ① `tui/` + `cli/` 合并改名 `clitui/`（约 168 处引用 / 半天,
