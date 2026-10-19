@@ -219,11 +219,13 @@ def open_browser(url: str) -> str | None:
     """
     if _PREFER_APP_WINDOW:
         exe = find_browser_exe()
+        logger.info("开窗路径: 应用窗口（浏览器 = %s）", exe or "没找到 Chromium 系浏览器")
         if exe and open_app_window(url, exe):
             return "app-window"
     if os.name == "nt" and is_elevated():
         import subprocess
 
+        logger.info("开窗路径: explorer 代开（本进程提权）")
         try:
             subprocess.Popen(["explorer.exe", url])
             return "explorer"
@@ -231,6 +233,7 @@ def open_browser(url: str) -> str | None:
             pass
     import webbrowser
 
+    logger.info("开窗路径: 系统默认浏览器")
     try:
         return "browser" if webbrowser.open(url) else None
     except Exception:                                # noqa: BLE001 — 没有浏览器/无桌面

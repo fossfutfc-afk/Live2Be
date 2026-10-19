@@ -32,18 +32,24 @@ def launch(args: list[str]) -> bool:
     为什么必须降: 从管理员终端起的浏览器会继承管理员令牌并驻留后台；之后用户用普通权限
     双击时, 新进程没法把地址交给那个管理员实例（UIPI）—— 表现是灰色空窗口, 关窗时还会问
     "要不要用普通权限"。`runas /trustlevel:0x20000` 是 Windows 自带的"基本用户"令牌。
+
+    ⚠️ **实际命令行必须进日志**（2026-10-19）: "是谁在弹权限提示"从外面看不出来, 唯一能
+    对账的是"这一秒我们 spawn 了什么"。日志里没有这一行 ⇒ 不是我们起的。
     """
     if os.name == "nt" and is_elevated():
         cmdline = " ".join(f'"{a}"' if " " in a else a for a in args)
+        logger.info("启动（降权）: runas /trustlevel:0x20000 %s", cmdline)
         try:
             subprocess.Popen(["runas", "/trustlevel:0x20000", cmdline])
             return True
-        except OSError:                              # runas 不在: 退回直接启动
-            logger.warning("runas 降权失败, 直接启动（可能带管理员令牌）")
+        except OSError as e:                          # runas 不在: 退回直接启动
+            logger.warning("runas 降权失败（%s）, 直接启动（可能带管理员令牌）", e)
     try:
+        logger.info("启动: %s", " ".join(args))
         subprocess.Popen(args)
         return True
-    except OSError:
+    except OSError as e:
+        logger.warning("启动失败: %r（%s）", args, e)
         return False
 
 
