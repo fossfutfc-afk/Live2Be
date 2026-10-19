@@ -379,9 +379,7 @@ VN 的控制行玩家看得见（丢了立刻穿帮），MMT 的控制行玩家�
 >
 > 关联: `docs/DESIGN_MEETUP.md`（自由度移交）、`docs/EXEC_BOND_LATENCY.md`（体感工程）、
 > `llm/prompts/place_annotate.md`（换场判据本体）。
-> 已归档（本文取代，仅作历史参考）: `docs/archive/DESIGN_BOND_CONTRACT_V2.md`、
-> `docs/archive/DESIGN_CHOICE_PREGEN.md`、`docs/archive/DESIGN_SCENE_STREAM.md`、
-> `docs/archive/DESIGN_BOND_STORY.md`。
+> 被本文取代的旧设计（均已删除, git 历史可查）: `DESIGN_BOND_CONTRACT_V2`、`DESIGN_CHOICE_PREGEN`、`DESIGN_SCENE_STREAM`、`DESIGN_BOND_STORY`。
 
 ---
 

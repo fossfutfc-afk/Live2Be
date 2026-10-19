@@ -448,7 +448,7 @@ def print_history(engine: MomoTalkEngine) -> None:
 
 
 def _cmd_resume(engine: MomoTalkEngine) -> None:
-    """/resume: 列出未结束会话 → 选择 → 恢复继续聊天（事件流, docs/archive/DESIGN_SAVE.md §六）。
+    """/resume: 列出未结束会话 → 选择 → 恢复继续聊天（事件流, core/session/.md）。
 
     恢复 = 重建 system + history（render_events 同格式回灌）→ 继续 MMT。
     中断在 VN/纪念 → 仍恢复 MMT 上下文, 可重新触发 bond（现场恢复后续支持）。

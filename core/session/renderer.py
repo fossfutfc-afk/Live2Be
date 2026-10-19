@@ -1,6 +1,6 @@
 """事件流派生视图 — 喂 LLM / 回放过滤 / 状态推导 / brain 时间线。
 
-设计（core/docs/archive/DESIGN_SAVE.md §4.2/§4.6/§六）: **events.jsonl 是唯一真源**,
+设计（core/session/.md/§六）: **events.jsonl 是唯一真源**,
 消息 / 回放 / brain 全是实时渲染, 不落盘（无冗余）:
 
     render_events     → [{role, content}]（恢复/继续喂 LLM; 与引擎 history 格式一致:
@@ -211,7 +211,7 @@ def filter_bond(events: list[Event]) -> list[Event]:
 
 
 def session_status(events: list[Event]) -> dict[str, Any]:
-    """从 marker 事件推导会话状态（无状态机, docs/archive/DESIGN_SAVE.md §5.1）。
+    """从 marker 事件推导会话状态（无状态机, core/session/.md）。
 
     Returns:
         ended              — 有 session_end marker

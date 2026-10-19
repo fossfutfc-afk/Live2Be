@@ -1,9 +1,8 @@
 # AGENTS.md — Live2Be 项目导航
 
 **这份文件是 agent 的唯一活入口。** 2026-10-15 起取代根目录那份 88 KB 的 `CLAUDE.md`
-（它多处过时，原文归档在 `docs/archive/CLAUDE_2026-09-20.md` —— 带日期的名字是**故意的**：
-harness 会按精确文件名 `AGENTS.md` / `CLAUDE.md` 自动加载指令文件，叫 `CLAUDE.md` 就会被
-再注入一遍，白吃 64 KB 预算）。
+（它多处过时，已删除 —— 要考古从 git 历史取 `docs/archive/CLAUDE_2026-09-20.md`。
+**别把 `CLAUDE.md` 放回仓根**：harness 按精确文件名自动加载指令文件，两份都注入 = 白吃一份预算）。
 
 这里只放**导航与纪律**：机制细节住在代码注释、各包的 `<pkg>/.md`、`docs/DESIGN_*.md` ——
 因为细节会随代码变，而导航不应该。**与代码冲突时信代码**，并顺手把这里改掉。
@@ -170,12 +169,11 @@ contract → infra → llm → core → tui / webgui / cli
 | `AGENTS.md`（本文） | 唯一活入口：导航 + 纪律 |
 | 各包 `<pkg>/.md` | 现行：作用 / 核心文件 / 纪律 |
 | `docs/DESIGN_*.md` · `docs/EXEC_*.md` · `docs/AUDIT_*.md` | 设计稿与执行记录：**带日期、可能已漂移**；冲突信代码 |
-| `docs/archive/`（含 `CLAUDE_2026-09-20.md` = 旧主文档） | 归档，只作考古 |
 | `PROCEED.md` | 会话交接（滚动，会被整篇覆盖） |
 | `NOTICE.md` | 素材版权与免责声明（非官方 / 非商业 / 下架渠道）—— **发版必带** |
 | `README.md` | 尚未定稿（产品定稿时一并重写） |
 
-老文档与旧注释里若见到 `CLAUDE.md §N`，那是**旧主文档的节号**（现居 `docs/archive/`）。
+老文档与旧注释里若见到 `CLAUDE.md §N`，那是**旧主文档的节号**（那份文件已删，节号对不上今天任何文件）。
 本文按**名字**引用规则（见下一节），不按节号 —— 节号会随重排变成死链。
 
 **旧名对照**（老文档里见到这些，按右列读）：
@@ -202,7 +200,7 @@ contract → infra → llm → core → tui / webgui / cli
 环境：解释器 `C:\Users\johnf\miniconda3\envs\live2be\python.exe`（conda env `live2be`；
 conda `base` 里没有 jieba，用 base 跑测试会挂）· `node` v24 在（前端测试用）。
 
-当前基线（2026-10-18）：`tests/core` **1316 passed** · `tests/llm+tui+webgui` **240 passed** ·
+当前基线（2026-10-18）：`tests/core` **1317 passed** · `tests/llm+tui+webgui` **256 passed** ·
 `ruff check .` **362**。
 
 已知缺口：
@@ -216,7 +214,7 @@ conda `base` 里没有 jieba，用 base 跑测试会挂）· `node` v24 在（�
 
 ## 8. 产品决策（代码注释按「名字」引用它们）
 
-老代码里写 `CLAUDE.md §N` 的地方指的都是下面这些规则；规则的历史与决策编号在归档件里。
+老代码里写 `CLAUDE.md §N` 的地方指的都是下面这些规则；规则的历史与决策编号在 git 提交信息里（git log）。
 
 - **VN 无自由打字通道**：玩家的"话"只经选项说出（老师的台词 = 选项文本）。CLI/API 保留
   任意文本通道，只作开发 / 实验用途。

@@ -1,4 +1,4 @@
-"""对照实验: 软措辞 vs 强措辞（bond 触发）+ 思维链捕获 → docs/archive/reasoning_experiment.md（已归档）。
+"""对照实验: 软措辞 vs 强措辞（bond 触发）+ 思维链捕获 → 写到 `.testtmp/reasoning_experiment.md`。
 
 方法: 同一对话流 + 同一模型（deepseek-v4-flash, 有思维链）, 仅 rules 不同;
 ReasoningProbe 捕获每次 LLM 调用的 reasoning_content; 跑完恢复 rules 并生成 md。
@@ -173,7 +173,9 @@ def main() -> None:
     lines.append("- 思维链对比见上表——观察 AI 在'答应邀约'轮的决策差异（是否识别'约好见面=切换'）\n")
     lines.append("*本实验由 tools/reasoning.py 的 ReasoningProbe 捕获思维链, 可复现。*")
 
-    out = ROOT / "docs" / "archive" / "reasoning_experiment.md"
+    out = ROOT / ".testtmp"
+    out.mkdir(exist_ok=True)
+    out = out / "reasoning_experiment.md"
     out.write_text("\n".join(lines), encoding="utf-8")
     print(f"md 已生成: {out}")
     for groups in (g1, g2):

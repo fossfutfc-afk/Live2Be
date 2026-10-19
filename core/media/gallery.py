@@ -1,4 +1,4 @@
-"""画廊 — AI 生成 2D 场景（图 + 文字信息成对, docs/archive/DESIGN_SAVE.md §4.5）。
+"""画廊 — AI 生成 2D 场景（图 + 文字信息成对, core/session/.md）。
 
 路径（2026-09-02 用户拍板: 收进角色目录——原 data/gallery/{char_id} 跨世界
 共用, 分不清 world1/world2 的画作属于哪条线）:

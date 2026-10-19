@@ -1832,7 +1832,7 @@ on_trigger(festival | birthday) where tier == strong:
 
 - **② 现实日历是物理单调的**：回档不会让本机日期倒退。所以"回档之后又过了一次同一个
   圣诞"在架构上是**可能的**，不能靠数据禁用，只能**给叙事解释**。
-- 这正是 `docs/archive/world_model_evolution.md` 阶段 15 的物理结论：
+- 这正是 world_model_evolution 阶段 15（该文档已删） 的物理结论：
   **单体时间倒流 = 该角色局部熵减 = 在他人眼里就是失忆**（15.2）；
   "损"是相对 scope 的悬空引用数（15.3）。
 - 架构上的落点：

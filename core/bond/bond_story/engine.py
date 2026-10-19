@@ -156,7 +156,7 @@ class BondStoryEngine:
         self.char_loader = CharacterLoader(characters_root)
         self.llm = llm_client
         self.director = director          # 视觉导演（可注入; None = 纯文本模式）
-        self._brain_segment = brain_segment   # Brain 记忆段（DESIGN_BRAIN.md，见 docs/archive/）: VN 开场注入
+        self._brain_segment = brain_segment   # Brain 记忆段: VN 开场注入
         self._history_rounds = max(1, int(history_rounds))  # 滑动窗口（轮数, 玩家可配）
         # 称呼名单（分饰多角预留, 同 momotalk）: None = 单人（当前角色 display_name）
         self._character_names = list(character_names) if character_names else None
