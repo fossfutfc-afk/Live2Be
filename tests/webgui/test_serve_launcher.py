@@ -117,6 +117,7 @@ def _record_popen(calls: list[list[str]]):
 def test_app_window_gets_its_own_profile(monkeypatch, tmp_path):
     """独立 `--user-data-dir` + `--app=` —— 绕开日常那个（可能是管理员的）浏览器实例。"""
     monkeypatch.setattr(serve.paths, "DATA_ROOT", tmp_path / "data")
+    monkeypatch.setattr(serve, "is_elevated", lambda: False)
     # launch() 住在 infra.shell —— 降权判断也在那儿
     monkeypatch.setattr("infra.shell.is_elevated", lambda: False)
     calls: list[list[str]] = []
@@ -127,7 +128,21 @@ def test_app_window_gets_its_own_profile(monkeypatch, tmp_path):
     assert args[0] == "msedge.exe"
     assert "--app=http://127.0.0.1:8000/" in args
     assert any(a.startswith("--user-data-dir=") for a in args), args
-    assert (tmp_path / "data" / "browser").is_dir(), "配置目录要建出来"
+    assert (tmp_path / "data" / "browser-user").is_dir(), "配置目录要建出来"
+
+
+def test_profile_is_separate_per_privilege_level(monkeypatch, tmp_path):
+    """⭐ profile **按权限级别分开**（2026-10-19 真机实测）。
+
+    同一个 Chromium profile 被"管理员权限的 Edge"用过之后, 普通权限的 Edge 再打开它就
+    **起来即死**（进程 rc=0、零窗口; 真机表现为一个黑窗口 + "现有实例正在以提升权限运行"
+    的提示）。分目录 ⇒ 两种权限永不共用一份 profile, 这个坑从源头不存在。
+    """
+    monkeypatch.setattr(serve.paths, "DATA_ROOT", tmp_path / "data")
+    monkeypatch.setattr(serve, "is_elevated", lambda: False)
+    assert serve._profile_dir().name == "browser-user"
+    monkeypatch.setattr(serve, "is_elevated", lambda: True)
+    assert serve._profile_dir().name == "browser-admin"
 
 
 def test_elevated_launcher_drops_privileges(monkeypatch):
