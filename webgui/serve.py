@@ -23,6 +23,7 @@ import os
 import signal
 import threading
 import time
+from pathlib import Path
 
 import uvicorn
 
@@ -181,21 +182,31 @@ def find_browser_exe() -> str | None:
     return None
 
 
-def open_app_window(url: str, exe: str) -> bool:
+def open_app_window(url: str, exe: str, profile: Path | None = None) -> bool:
     """用独立配置起一个**应用窗口**（无地址栏），完全绕开日常那个浏览器实例。
 
     为什么要独立 `--user-data-dir`: 用户日常的 Edge 可能是管理员权限起的, 普通进程
     把 URL 交给它会撞 UIPI（表现: "Microsoft Edge 未响应, 因为现有实例正在以提升的
     权限运行"）。自己起一个正常权限的实例, 这条冲突根本不会发生; 顺带不污染他的
     日常配置（这个 profile 是可丢的, 就在 `data/browser/`）。
+
+    ⚠️ **这个 profile 自己也可能被"管理员权限的 Edge"用过**（用户曾经用管理员跑过一次
+    本程序）。那种情况下普通权限的 Edge 打不开它: 窗口开出来了、标题停在地址、一片黑,
+    关窗时还弹"要不要用普通权限重启现有实例"（真机 2026-10-19）。`profile=` 就是给
+    这种情形留的出口 —— 换一个干净目录（见 `_fresh_profile_dir`）。
     """
-    profile = paths.DATA_ROOT / "browser"
+    target = profile if profile is not None else paths.DATA_ROOT / "browser"
     try:
-        profile.mkdir(parents=True, exist_ok=True)
+        target.mkdir(parents=True, exist_ok=True)
     except OSError:
         return False
-    return launch([exe, f"--app={url}", f"--user-data-dir={profile}",
+    return launch([exe, f"--app={url}", f"--user-data-dir={target}",
                    "--no-first-run", "--no-default-browser-check"])
+
+
+def _fresh_profile_dir() -> Path:
+    """一个**这次才建**的浏览器配置目录（接手失败时用; 名字带 pid 免得撞上锁住的那个）。"""
+    return paths.DATA_ROOT / f"browser-{os.getpid()}"
 
 
 def open_browser(url: str) -> str | None:
@@ -253,7 +264,7 @@ def existing_edge_count() -> int:
 
 
 def _confirm_window(url: str, *, before: int, edges_before: int,
-                    timeout: float = 10.0) -> None:
+                    timeout: float = 10.0) -> bool:
     """开窗之后**看服务端有没有收到页面请求** —— 这是唯一可靠的"窗口真起来了"。
 
     为什么不能只看 `Popen` 成功: 那只是"进程起来了"; 被既有 Edge 接管 / 空白窗口 /
@@ -261,24 +272,27 @@ def _confirm_window(url: str, *, before: int, edges_before: int,
 
     ⚠️ 数 `edges_before` 必须在**开窗之前**取: 开完再数, 数到的是**我们自己刚起的那一个**
     ⇒ 每次启动都会报"你已经有 1 个 Edge 在跑"（真机就是这么误报的）。
+
+    Returns: 窗口连上了没有（False ⇒ 调用方可以换干净 profile 再试）。
     """
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if runtime.page_loads() > before:
             logger.info("窗口已连上（%.1fs）", timeout - (deadline - time.monotonic()))
-            return
+            return True
         time.sleep(0.15)
     # 没连上: 只陈述事实 + 给两条出路, 不猜原因
     hint = ""
     if edges_before:
         hint = (f"（打开前已经有 {edges_before} 个 msedge 在跑 —— 若其中有以管理员权限"
                 "启动的, Windows 不允许普通进程把地址交给它, 新窗口会停在空白页）")
-    logger.warning("%.0fs 内没等到页面请求%s。⇒ 手动打开 %s；或改用 --window"
-                   "（本程序自己的窗口, 不经过 Edge）", timeout, hint, url)
+    logger.warning("%.0fs 内没等到页面请求%s。", timeout, hint)
+    return False
 
 
 def _open_when_ready(url: str, timeout: float = 20.0,
-                     confirm_timeout: float = 10.0) -> None:
+                     confirm_timeout: float = 10.0,
+                     retry_after: float = 4.0) -> None:
     """等**页面真的能出**再开窗口。
 
     只看 `srv.started` 不够: 那时 HTTP 未必就绪, 开出来的窗口就是"白屏/连接失败页"
@@ -299,8 +313,31 @@ def _open_when_ready(url: str, timeout: float = 20.0,
         logger.warning("没能自动打开 —— 请手动打开: %s", url)
         return
     logger.info("已打开（%s）: %s", how, url)
-    _confirm_window(url, before=loads_before, edges_before=edges_before,
-                    timeout=confirm_timeout)
+    if _confirm_window(url, before=loads_before, edges_before=edges_before,
+                       timeout=retry_after):
+        return
+    # 第一跳没来 —— 最常见的原因是 `data/browser` 被"管理员权限的 Edge"用过:
+    # 普通权限打不开那个 profile ⇒ 窗口开出来是空的（标题停在地址、一片黑）。
+    # 不猜、不劝用户去杀进程: 换一个**这次才建**的 profile 再试一次。
+    if how != "app-window":
+        logger.warning("⇒ 手动打开 %s；或改用 --window（本程序自己的窗口）", url)
+        return
+    exe = find_browser_exe()
+    if not exe:
+        logger.warning("⇒ 手动打开 %s；或改用 --window（本程序自己的窗口, 不经过 Edge）", url)
+        return
+    fresh = _fresh_profile_dir()
+    logger.warning("换一个干净的浏览器配置目录再试一次（%s）—— "
+                   "旧的那个多半是被管理员权限的 Edge 用过, 普通权限打不开", fresh)
+    loads_before = runtime.page_loads()
+    if not open_app_window(url, exe, profile=fresh):
+        logger.warning("⇒ 手动打开 %s；或改用 --window", url)
+        return
+    logger.info("已重开（app-window, 干净 profile）: %s", url)
+    if not _confirm_window(url, before=loads_before, edges_before=0,
+                           timeout=confirm_timeout):
+        logger.warning("换 profile 也没连上 ⇒ 手动打开 %s；或改用 --window"
+                       "（本程序自己的窗口, 不经过 Edge）", url)
 
 
 def _run_windowed(url: str) -> int:

@@ -7,6 +7,7 @@
 """
 import socket
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -248,13 +249,56 @@ def test_no_page_request_gets_an_honest_message(monkeypatch, caplog):
     monkeypatch.setattr(serve, "page_ready", lambda url, timeout=2.0: True)
     monkeypatch.setattr(serve, "existing_edge_count", lambda: 1)
     monkeypatch.setattr(serve, "open_browser", lambda url: "app-window")
+    monkeypatch.setattr(serve, "find_browser_exe", lambda: None)     # 没法换 profile
     monkeypatch.setattr(serve.runtime, "page_loads", lambda: 0)   # 一直没涨
 
     with caplog.at_level(_logging.WARNING, logger="webgui.serve"):
-        serve._open_when_ready("http://127.0.0.1:1/", timeout=0.1, confirm_timeout=0.1)
+        serve._open_when_ready("http://127.0.0.1:1/", timeout=0.1,
+                               confirm_timeout=0.1, retry_after=0.1)
 
     text = " ".join(r.getMessage() for r in caplog.records if r.levelno >= _logging.WARNING)
     assert "没等到页面请求" in text, text
     assert "打开前已经有 1 个" in text, text        # 只当事实报
     assert "--window" in text and "手动打开" in text, text
     assert "多半是" not in text, text               # ⛔ 不再替用户猜原因
+
+
+def test_failed_first_window_retries_with_a_clean_profile(monkeypatch, caplog):
+    """⭐ 第一跳没来 ⇒ **换一个这次才建的 profile 再试一次**（2026-10-19 真机）。
+
+    症状: 窗口开出来了但标题停在地址、一片黑, 关窗还弹"要不要用普通权限重启现有实例"。
+    机制: `data/browser` 这个 profile 上一次被**管理员权限的 Edge** 用过 ⇒ 普通权限的
+    Edge 打不开它（UIPI）。所以不劝用户去杀进程, 直接换目录。
+    """
+    import logging as _logging
+
+    monkeypatch.setattr(serve, "page_ready", lambda url, timeout=2.0: True)
+    monkeypatch.setattr(serve, "existing_edge_count", lambda: 0)
+    monkeypatch.setattr(serve, "find_browser_exe", lambda: "msedge.exe")
+    monkeypatch.setattr(serve, "_fresh_profile_dir", lambda: Path("D:/x/data/browser-999"))
+
+    loads = {"n": 0}
+    monkeypatch.setattr(serve.runtime, "page_loads", lambda: loads["n"])
+    opened: list[object] = []
+
+    def _open(url):
+        opened.append(None)
+        return "app-window"
+
+    def _open_fresh(url, exe, profile=None):
+        opened.append(profile)
+        loads["n"] = 1                     # 这次窗口连上了
+        return True
+
+    monkeypatch.setattr(serve, "open_browser", _open)
+    monkeypatch.setattr(serve, "open_app_window", _open_fresh)
+
+    with caplog.at_level(_logging.INFO, logger="webgui.serve"):
+        serve._open_when_ready("http://127.0.0.1:1/", timeout=0.1,
+                               confirm_timeout=0.3, retry_after=0.05)
+
+    assert opened[0] is None, opened
+    assert str(opened[1]).endswith("browser-999"), opened      # 换了一个干净目录
+    text = " ".join(r.getMessage() for r in caplog.records)
+    assert "已重开" in text and "窗口已连上" in text, text
+    assert "没连上" not in text, text
