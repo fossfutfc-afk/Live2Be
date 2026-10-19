@@ -182,20 +182,31 @@ def find_browser_exe() -> str | None:
     return None
 
 
+def _profile_dir() -> Path:
+    """浏览器配置目录 —— **按权限级别分开**（`browser-user` / `browser-admin`）。
+
+    为什么必须分: 同一个 Chromium profile 被"管理员权限的 Edge"用过之后, 普通权限的
+    Edge 再打开它就**起来即死**（实测 2026-10-19: 进程 rc=0, 一个窗口都没有; 真机上表现为
+    一个黑窗口 + 一次"现有实例正在以提升权限运行"的提示）。两种权限永远不共用一份 profile
+    ⇒ 这个坑从源头上不存在。
+    ⚠️ 老版本用的 `data/browser` **就此作废**（它多半已经被高权限那次污染）—— profile 本来
+    就是可丢的: 它只存窗口尺寸与首启缓存。
+    """
+    return paths.DATA_ROOT / ("browser-admin" if is_elevated() else "browser-user")
+
+
 def open_app_window(url: str, exe: str, profile: Path | None = None) -> bool:
     """用独立配置起一个**应用窗口**（无地址栏），完全绕开日常那个浏览器实例。
 
     为什么要独立 `--user-data-dir`: 用户日常的 Edge 可能是管理员权限起的, 普通进程
     把 URL 交给它会撞 UIPI（表现: "Microsoft Edge 未响应, 因为现有实例正在以提升的
     权限运行"）。自己起一个正常权限的实例, 这条冲突根本不会发生; 顺带不污染他的
-    日常配置（这个 profile 是可丢的, 就在 `data/browser/`）。
+    日常配置（这个 profile 是可丢的, 在 `data/browser-<级别>/`）。
 
-    ⚠️ **这个 profile 自己也可能被"管理员权限的 Edge"用过**（用户曾经用管理员跑过一次
-    本程序）。那种情况下普通权限的 Edge 打不开它: 窗口开出来了、标题停在地址、一片黑,
-    关窗时还弹"要不要用普通权限重启现有实例"（真机 2026-10-19）。`profile=` 就是给
-    这种情形留的出口 —— 换一个干净目录（见 `_fresh_profile_dir`）。
+    `profile=` 是"接手失败"时的出口（见 `_open_when_ready` 的重试）: 传一个这次才建的
+    目录（`_fresh_profile_dir`），跳过任何可能被污染的旧 profile。
     """
-    target = profile if profile is not None else paths.DATA_ROOT / "browser"
+    target = profile if profile is not None else _profile_dir()
     try:
         target.mkdir(parents=True, exist_ok=True)
     except OSError:
