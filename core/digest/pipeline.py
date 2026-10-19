@@ -10,13 +10,14 @@
 
     core/digest/rounds/__init__.py  轮次表（key/步序/LLM 身份/prompt/相位/parse/料/写什么/跳过/预算/快照）
     core/digest/rounds/base.py      Ctx（段级上下文）+ RoundOut（一轮跑完的交代）
-    core/digest/rounds/record.py    ① 记        akin.py 补边（0 LLM）
-    core/digest/rounds/relate.py     ② 接（L1 判关系）  settle.py ③ 沉淀
-    core/digest/rounds/group.py      ④ 分群 L2-a（自带快照）
+    core/digest/rounds/split.py     ⓪ 切          record.py ① 记
+    core/digest/rounds/akin.py      补边（0 LLM）  relate.py ③ 接（L1 判关系）
+    core/digest/rounds/cognize.py   ⑥ 想（L2）    settle.py ⑦ 沉淀
+    ⏸ 分群轮（`rounds/group.py`）**2026-10-13 退役** —— 代码在 `archive/digest_group/`。
     ⏸ 收口轮（`rounds/close.py`）**2026-10-05（L8）删** —— 账目归 R0 的表（`record` 那一轮产 op）。
 
-**实际跑的步数**（一眼看全在 `core/digest/__init__.py`）: 切分 → 记 → akin 补边 → 接 → 挂 →
-分群（共 5 次 LLM 调用 + 1 次零成本补边）。
+**实际跑的步数**（一眼看全在 `core/digest/__init__.py`）: 切分 → 记 → akin 补边 → 接 → 想 → 沉淀
+（共 5 次 LLM 调用 + 1 次零成本补边）。
 ⏸ 旧文档/旧注释里的 **`R1`/`R2`/`R3`/`R4`** 按这张表对: **R1=记(record) · R2=接(relate) ·
 R3=挂(settle)**（`R4=收口` 已删）—— 轮次 key 就是契约相位名, 见 `rounds.RoundSpec`。
 
@@ -115,8 +116,8 @@ IMPL: dict[str, Callable[[Ctx], RoundOut]] = {
 
 #: ⭐ **一段最多试几次**（2026-09-29 刀 2）—— 数到就**放弃**这一段（见 `_note_failure`）。
 #: ⚠️ 它**不是"同一个进程里连试三次"**: digest 没有主动重试, 次数由**触发点**累加
-#: （MMT 每 25 轮 / bond 闭环）⇒ 最坏要等 75 轮才放弃。不改成立刻重试的理由:
-#: 同一段、同一模型、同一预算, 连撞三次是白花钱, 还占着 `_digest_lock`。
+#: （MMT 每 `MMT_DIGEST_INTERVAL`=40 轮 / bond 闭环）⇒ 最坏要等 120 轮才放弃。不改成立刻
+#: 重试的理由: 同一段、同一模型、同一预算, 连撞三次是白花钱, 还占着 `_digest_lock`。
 DIGEST_MAX_ATTEMPTS = 3
 #: 好感 delta clamp 边界（**带符号: 下界 2026-09-13 由 0 放开**）。
 #: 语义 = "**单段**内的好感净变化"，不是总量——上界 100 防一段暴涨,

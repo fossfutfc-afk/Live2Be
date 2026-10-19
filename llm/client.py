@@ -144,6 +144,7 @@ class LLMClient:
         response_format: str = "text",
         extra_body: dict[str, Any] | None = None,
         timeout: float | None = None,
+        deadline: float | None = None,
         task: str | None = None,
     ) -> str | dict[str, Any]:
         """发送 chat completion 请求（批次模式）。
@@ -154,6 +155,12 @@ class LLMClient:
 
         timeout: per-call 超时覆盖（None = 构造时的 self.timeout）。后台长任务
         （digest high 档长考可达 ~2min）用它放宽, 主对话快速失败语义不受影响。
+
+        deadline: **绝对截止时刻**（`time.monotonic()` 刻度; None = 不限）。
+        它管的是**重试**而不是单次请求: 过了它就不再发起新尝试, 且每次尝试的超时
+        会被夹到剩余量以内（见 `_attempt_timeout`）。没有它的时候 `timeout` 只管
+        单次请求 —— 一次挂死的调用会连着把传输层的 4 次重试跑满
+        （`timeout × 4 + 退避`）, 调用方算的"预算"就只是事后才知道的一句话。
 
         task: **调用身份**（`llm/task_labels.py` 的常量）——**不进 messages/payload**
         （前缀缓存零影响）, 只进日志 + 供测试桩分派（节点 5b, 2026-09-21）。
@@ -173,7 +180,7 @@ class LLMClient:
         global _LAST_USAGE
         _LAST_USAGE = None
         _t0 = time.monotonic()
-        raw_text = self._request_with_retry(payload, timeout=timeout)
+        raw_text = self._request_with_retry(payload, timeout=timeout, deadline=deadline)
         if response_format == "json_object":
             # 前缀缓存命中（DeepSeek usage.prompt_cache_hit_tokens; 无 → -1）
             # 2026-09-11 补 **输出侧** 用量: 此前只记 prompt 侧缓存指标, 判断
@@ -199,6 +206,7 @@ class LLMClient:
                 max_tokens=max_tokens,
                 extra_body=extra_body,
                 timeout=timeout,
+                deadline=deadline,
             )
         return raw_text
 
@@ -363,6 +371,7 @@ class LLMClient:
         extra_body: dict[str, Any] | None,
         max_json_retries: int = 3,
         timeout: float | None = None,
+        deadline: float | None = None,
     ) -> dict[str, Any]:
         """尝试解析 JSON；失败时把错误喂回 LLM，最多 N-1 次重试。"""
         raw_text = first_attempt
@@ -397,7 +406,8 @@ class LLMClient:
                     response_format="json_object",
                     extra_body=extra_body,
                 )
-                raw_text = self._request_with_retry(payload, timeout=timeout)
+                raw_text = self._request_with_retry(payload, timeout=timeout,
+                                                    deadline=deadline)
 
         raise ValueError(err("JsonCorrection", f"JSON correction failed after {max_json_retries} total attempts"))
 
@@ -405,28 +415,64 @@ class LLMClient:
     # 内部: HTTP
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _budget(deadline: float | None) -> float | None:
+        """距 `deadline` 还剩几秒（None = 不限; 已过 ⇒ 0.0）。
+
+        单独一个函数是因为**四个地方**都要问同一句话（是否该发起、单次超时夹到多少、
+        退避睡多久）—— 各写一遍 `deadline - time.monotonic()` 是同一件事的四份实现。
+        """
+        if deadline is None:
+            return None
+        return max(deadline - time.monotonic(), 0.0)
+
+    def _attempt_timeout(self, timeout: float | None,
+                         deadline: float | None) -> httpx.Timeout | None:
+        """这一次 HTTP 请求的超时 = `min(timeout, 距 deadline 剩余)`。
+
+        为什么夹: `timeout` 是**单次请求**的上限, 而 deadline 是**这一轮**的上限 ——
+        没有夹的时候, 一个挂死的请求能把整轮预算吃掉（真机: 300s × 传输层 4 次重试
+        ≈ 20 分钟, 而那一轮的预算是 120s ⇒ 后端报"撞上时间预算"时早已超了 10 倍）。
+        下限 0.5s 是给 httpx 一个能用的数字（0 会被当"不超时"）。
+        """
+        base = self.timeout if timeout is None else timeout
+        left = self._budget(deadline)
+        if left is None:
+            return None if timeout is None else httpx.Timeout(timeout)
+        return httpx.Timeout(max(min(base, left), 0.5))
+
     def _request_with_retry(self, payload: dict[str, Any],
-                            timeout: float | None = None) -> str:
+                            timeout: float | None = None,
+                            deadline: float | None = None) -> str:
         """发送请求，带指数退避重试。
 
-        timeout: per-call 覆盖（None = 构造超时 self.timeout）——后台长任务
-        （digest）放宽; httpx per-request timeout 用 send(timeout=...) 覆盖。
+        Args:
+            timeout: per-call 覆盖（None = 构造超时 self.timeout）——后台长任务
+                （digest）放宽; httpx per-request timeout 用 post(timeout=...) 覆盖。
+            deadline: **绝对截止时刻**（None = 不限）。过了它就不再发起新尝试、
+                退避也不睡过去 —— 重试的次数上限仍由 `max_retries` 管, 它管的是
+                "**在一份预算内**最多试几次"。两者缺一不可: 只有次数 ⇒ 挂死的
+                服务能把一次调用拖成 4 倍; 只有预算 ⇒ 健康的抖动没有第二次机会。
         """
         last_error: Exception | None = None
 
         for attempt in range(self.max_retries + 1):
+            if self._budget(deadline) == 0.0:
+                raise httpx.TimeoutException(
+                    err("LLMTimeout",
+                        f"时间预算用完, 不再发起第 {attempt + 1} 次尝试"
+                        f"（前 {attempt} 次未成功: {last_error or '未发出'}）"))
             try:
                 # 2026-09-09 修复: httpx 0.28 的 Client.send 已无 timeout 参数
                 # （旧 send(req, timeout=...) 抛 unexpected kwarg → digest 长期
                 # 失败, wiki 永不产出）; per-request 超时统一走 post(timeout=)
                 resp = self._http.post(
                     "/chat/completions", json=payload,
-                    timeout=None if timeout is None
-                    else httpx.Timeout(timeout))
+                    timeout=self._attempt_timeout(timeout, deadline))
             except httpx.TimeoutException as e:
                 last_error = e
                 if attempt < self.max_retries:
-                    time.sleep(2 ** attempt)
+                    time.sleep(self._sleep_for(2 ** attempt, deadline))
                     continue
                 raise
 
@@ -434,12 +480,18 @@ class LLMClient:
             if kind == "ok":
                 return _parse_chat_response(resp.json())
             if kind == "retry":
-                time.sleep(wait)
+                time.sleep(self._sleep_for(wait, deadline))
                 continue
             _raise_transport(resp, auth=kind == "auth")
 
         assert last_error is not None
         raise last_error
+
+    @staticmethod
+    def _sleep_for(wait: float, deadline: float | None) -> float:
+        """退避睡多久 —— **不睡过 deadline**（睡过去等于白等一次预算）。"""
+        left = LLMClient._budget(deadline)
+        return wait if left is None else min(wait, left)
 
     def _stream_collect(
         self,
@@ -695,9 +747,13 @@ def llm_chat(
         messages: 完整消息列表（反馈回灌用——同一上下文续调: 编排层追加
                   assistant 被拒输出 + 引擎错误后传入; None → 由 system+user 组装）
         llm: 兼容 llm.chat(messages, model=, temperature=, max_tokens=,
-             response_format=, extra_body=) 的客户端
-        deadline: time.monotonic() 绝对截止时刻; None = 不限
-        timeout: per-call 超时覆盖（后台长考放宽; None = 客户端构造超时）
+             response_format=, extra_body=, timeout=, deadline=) 的客户端
+        deadline: time.monotonic() 绝对截止时刻; None = 不限。
+                  ⚠️ 它**同时交给客户端**（`deadline=` 透传给 `chat`）: 本函数这层的
+                  检查只管"下一次尝试要不要发", 而"正在飞的那一次"与它内部的传输层
+                  重试由客户端按同一个 deadline 收口。桩拿 `**kw` 收下即可。
+        timeout: per-call 超时覆盖（后台长考放宽; None = 客户端构造超时）。
+                  它是**单次尝试**的上限, 与 deadline 不是一回事（见 `LLMClient.chat`）。
         label: 日志上下文（digest / record / understand … 即轮次 key）
 
     Returns:
@@ -725,6 +781,10 @@ def llm_chat(
                 list(messages),
                 model=model, temperature=temperature, max_tokens=max_tokens,
                 response_format="json_object", extra_body=extra_body, timeout=timeout,
+                # ⭐ 预算**交给客户端执行**（`_request_with_retry` 会据此既不发起新尝试、
+                # 也不让单次尝试超出剩余量）—— 只在本函数自己的循环里看时间的话,
+                # 一次挂死的调用照样能把整轮预算吃掉（见 `chat` 的 deadline 段）。
+                deadline=deadline,
                 # 调用身份（节点 5b）: label 已有（digest / record / understand …）,
                 # 直接映射成 task 标签——测试桩据此分 A/B 轮, 不再认中文关键字
                 task=_digest_label(label))
