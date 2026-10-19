@@ -264,22 +264,33 @@ def existing_edge_count() -> int:
 
 
 def _confirm_window(url: str, *, before: int, edges_before: int,
-                    timeout: float = 10.0) -> bool:
+                    timeout: float = 15.0, patience_note: float = 5.0) -> bool:
     """开窗之后**看服务端有没有收到页面请求** —— 这是唯一可靠的"窗口真起来了"。
 
     为什么不能只看 `Popen` 成功: 那只是"进程起来了"; 被既有 Edge 接管 / 空白窗口 /
     连接失败页 全都算成功。而 `GET /` 是窗口的第一跳（`routers/menu.py` 记数）。
+
+    ⚠️ **"慢"不等于"坏"**（真机 2026-10-19）: Edge 用全新 profile 冷启动要 3~11 秒,
+    这段时间窗口就是**黑的、标题停在地址**，页面请求还没发出来。此前把这段等待设成 4 秒
+    ⇒ 白白又开一个窗口（用户看到两个黑窗口）。所以先等 `patience_note` 秒打一句
+    "还在等"（INFO, 不吓人）, 到 `timeout` 才判失败。
 
     ⚠️ 数 `edges_before` 必须在**开窗之前**取: 开完再数, 数到的是**我们自己刚起的那一个**
     ⇒ 每次启动都会报"你已经有 1 个 Edge 在跑"（真机就是这么误报的）。
 
     Returns: 窗口连上了没有（False ⇒ 调用方可以换干净 profile 再试）。
     """
-    deadline = time.monotonic() + timeout
+    started = time.monotonic()
+    deadline = started + timeout
+    noted = False
     while time.monotonic() < deadline:
         if runtime.page_loads() > before:
-            logger.info("窗口已连上（%.1fs）", timeout - (deadline - time.monotonic()))
+            logger.info("窗口已连上（%.1fs）", time.monotonic() - started)
             return True
+        if not noted and time.monotonic() - started >= patience_note:
+            noted = True
+            logger.info("窗口还没连上 —— Edge 冷启动可能要十几秒, 继续等（最多 %.0fs）",
+                        timeout)
         time.sleep(0.15)
     # 没连上: 只陈述事实 + 给两条出路, 不猜原因
     hint = ""
@@ -291,12 +302,16 @@ def _confirm_window(url: str, *, before: int, edges_before: int,
 
 
 def _open_when_ready(url: str, timeout: float = 20.0,
-                     confirm_timeout: float = 10.0,
-                     retry_after: float = 4.0) -> None:
+                     confirm_timeout: float = 15.0,
+                     retry_after: float | None = None) -> None:
     """等**页面真的能出**再开窗口。
 
     只看 `srv.started` 不够: 那时 HTTP 未必就绪, 开出来的窗口就是"白屏/连接失败页"
     —— 用户看到的就是一个灰窗口。
+
+    `retry_after` = 第一发等多久才允许换 profile 重开（缺省 = `confirm_timeout`）。
+    ⚠️ **只在真失败时重试**: 冷启动慢（页面请求 3~11 秒才来）是常态, 催出来的第二个
+    窗口只会让人以为是两个 bug。
     """
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -314,7 +329,7 @@ def _open_when_ready(url: str, timeout: float = 20.0,
         return
     logger.info("已打开（%s）: %s", how, url)
     if _confirm_window(url, before=loads_before, edges_before=edges_before,
-                       timeout=retry_after):
+                       timeout=retry_after or confirm_timeout):
         return
     # 第一跳没来 —— 最常见的原因是 `data/browser` 被"管理员权限的 Edge"用过:
     # 普通权限打不开那个 profile ⇒ 窗口开出来是空的（标题停在地址、一片黑）。
