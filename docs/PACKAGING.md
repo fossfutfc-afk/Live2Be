@@ -9,6 +9,17 @@ C:\Users\johnf\miniconda3\envs\live2be\python.exe -m pip install pyinstaller   #
 pwsh -File packaging/build.ps1
 ```
 
+**执行策略拦下 `.\build.ps1` 的话**（`is not digitally signed. You cannot run this script on
+the current system`）：那是 PowerShell 的**执行策略**（`AllSigned`，或文件带"从网上下载"
+的标记 + `RemoteSigned`），不是脚本坏了。两条出路：
+
+```powershell
+packaging\build.cmd            # ① 推荐：内部就是 pwsh -ExecutionPolicy Bypass -File build.ps1
+pwsh -ExecutionPolicy Bypass -File packaging\build.ps1    # ② 等价的一条命令
+```
+
+`Bypass` 只对**那一次调用**生效，不改系统、不改用户策略。
+
 产物在 `dist/Live2Be/`：
 
 ```
