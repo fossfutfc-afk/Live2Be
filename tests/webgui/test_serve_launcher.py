@@ -263,6 +263,38 @@ def test_no_page_request_gets_an_honest_message(monkeypatch, caplog):
     assert "多半是" not in text, text               # ⛔ 不再替用户猜原因
 
 
+def test_slow_window_is_not_treated_as_a_failure(monkeypatch, caplog):
+    """⭐ **慢 ≠ 坏**（2026-10-19 真机）：页面晚一点才来，只能开**一个**窗口。
+
+    病灶：把"等第一跳"的耐心设成 4 秒 ⇒ Edge 冷启动还没完就又开一个（用户看到两个黑窗口）。
+    判据：页面在重试阈值之后才来 ⇒ `open_app_window` 一次都不该被调，日志里是"已连上"。
+    """
+    import logging as _logging
+
+    monkeypatch.setattr(serve, "page_ready", lambda url, timeout=2.0: True)
+    monkeypatch.setattr(serve, "existing_edge_count", lambda: 0)
+    opened: list[str] = []
+    monkeypatch.setattr(serve, "open_browser", lambda url: (opened.append(url), "app-window")[1])
+    monkeypatch.setattr(serve, "open_app_window",
+                        lambda *a, **k: pytest.fail("慢启动不该再开第二个窗口"))
+
+    calls = {"n": 0}
+
+    def _loads() -> int:                       # 头两次还没有页面请求, 第三次来了
+        calls["n"] += 1
+        return 1 if calls["n"] > 2 else 0
+
+    monkeypatch.setattr(serve.runtime, "page_loads", _loads)
+    with caplog.at_level(_logging.INFO, logger="webgui.serve"):
+        serve._open_when_ready("http://127.0.0.1:1/", timeout=0.1,
+                               confirm_timeout=2.0, retry_after=0.3)
+
+    assert len(opened) == 1, opened
+    text = " ".join(r.getMessage() for r in caplog.records)
+    assert "窗口已连上" in text, text
+    assert "没等到页面请求" not in text, text
+
+
 def test_failed_first_window_retries_with_a_clean_profile(monkeypatch, caplog):
     """⭐ 第一跳没来 ⇒ **换一个这次才建的 profile 再试一次**（2026-10-19 真机）。
 
