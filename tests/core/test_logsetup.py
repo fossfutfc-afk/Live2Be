@@ -49,6 +49,32 @@ def test_console_formatter_is_short_and_truncates():
     assert clipped.endswith("…") and len(clipped) < 80, clipped
 
 
+def test_console_color_is_only_columns_and_off_by_default():
+    """⭐ 颜色只加在**列**上（时间 / 域名 / 状态码 / 级别），正文原样。
+
+    两条纪律:
+      · 自动模式在非终端里必须**不上色**（管道 / IDE / pytest 抓取里出现转义码是噪音;
+        测试正是这个环境 ⇒ 上面那条用例断言的纯文本仍然成立）;
+      · 打开颜色后, **去掉转义码必须逐字等于不上色那一版** —— 否则说明它偷偷改了内容。
+    """
+    import re
+
+    ansi = re.compile(r"\x1b\[[0-9;]*m")
+    access = logging.LogRecord(
+        "uvicorn.access", logging.INFO, __file__, 0,
+        '%s - "%s %s HTTP/%s" %d',
+        ("127.0.0.1:50000", "GET", "/", "1.1", 404), None)
+    plain = logsetup.ConsoleFormatter(limit=110, color=False).format(access)
+    colored = logsetup.ConsoleFormatter(limit=110, color=True).format(access)
+    assert "\x1b[" not in plain
+    assert "\x1b[" in colored and "\x1b[33m404" in colored      # 4xx 黄
+    assert ansi.sub("", colored) == plain, (ansi.sub("", colored), plain)
+    # 警告整行黄，正文不动
+    warn = logging.LogRecord("webgui.serve", logging.WARNING, __file__, 0, "窗口没连上", None, None)
+    assert ansi.sub("", logsetup.ConsoleFormatter(color=True).format(warn)).endswith("窗口没连上")
+    print("    color: 只上列 / 去掉转义码与无色版逐字相同")
+
+
 def test_setup_installs_handlers_once_and_writes_file(tmp_path, monkeypatch):
     monkeypatch.setenv("LIVE2BE_DIAG_LOG", str(tmp_path / "diag.log"))
     monkeypatch.delenv("LIVE2BE_LOG", raising=False)

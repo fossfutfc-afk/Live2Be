@@ -201,3 +201,60 @@ def test_folder_opens_through_explorer(monkeypatch):
         pytest.skip("只有 Windows 走 explorer")
     assert infra_shell.open_folder("D:/x/data") is True
     assert calls and calls[0][0].lower().endswith("explorer.exe"), calls
+
+
+# ---------------------------------------------------------------------------
+# 开窗之后**确认窗口真连上了**（2026-10-18 真机误报）
+# ---------------------------------------------------------------------------
+
+def test_edge_count_is_taken_before_opening_and_no_false_alarm(
+        monkeypatch, caplog):
+    """⭐ 数既有 Edge 必须在**开窗之前**；窗口连上了就一个字都别猜。
+
+    病灶: 从前 `existing_edge_count()` 在 `open_browser()` **之后**调 ⇒ 数到的是**我们
+    自己刚起的那一个** ⇒ 每次启动都喊"你已经有 1 个 Edge 进程在跑"。用户杀光 Edge 之后
+    仍然看到这句（真机日志），自然会怀疑有个鬼进程。
+    判据: ① 调用顺序 `count → open`；② 服务端收到 `/` 就**不打**那句提示。
+    """
+    import logging as _logging
+
+    order: list[str] = []
+    loads = {"n": 0}
+    monkeypatch.setattr(serve, "page_ready", lambda url, timeout=2.0: True)
+    monkeypatch.setattr(serve, "existing_edge_count",
+                        lambda: (order.append("count"), 1)[1])
+
+    def _open(url):
+        order.append("open")
+        loads["n"] = 1                 # 窗口把页面拉下来了
+        return "app-window"
+
+    monkeypatch.setattr(serve, "open_browser", _open)
+    monkeypatch.setattr(serve.runtime, "page_loads", lambda: loads["n"])
+
+    with caplog.at_level(_logging.INFO, logger="webgui.serve"):
+        serve._open_when_ready("http://127.0.0.1:1/", timeout=0.1, confirm_timeout=0.3)
+
+    assert order[:2] == ["count", "open"], order
+    assert any("已打开" in r.getMessage() for r in caplog.records), caplog.records
+    assert not any("msedge" in r.getMessage() for r in caplog.records), \
+        [r.getMessage() for r in caplog.records]
+
+
+def test_no_page_request_gets_an_honest_message(monkeypatch, caplog):
+    """窗口没连上 ⇒ 只说事实 + 两条出路（手动打开 / --window），不替用户下结论。"""
+    import logging as _logging
+
+    monkeypatch.setattr(serve, "page_ready", lambda url, timeout=2.0: True)
+    monkeypatch.setattr(serve, "existing_edge_count", lambda: 1)
+    monkeypatch.setattr(serve, "open_browser", lambda url: "app-window")
+    monkeypatch.setattr(serve.runtime, "page_loads", lambda: 0)   # 一直没涨
+
+    with caplog.at_level(_logging.WARNING, logger="webgui.serve"):
+        serve._open_when_ready("http://127.0.0.1:1/", timeout=0.1, confirm_timeout=0.1)
+
+    text = " ".join(r.getMessage() for r in caplog.records if r.levelno >= _logging.WARNING)
+    assert "没等到页面请求" in text, text
+    assert "打开前已经有 1 个" in text, text        # 只当事实报
+    assert "--window" in text and "手动打开" in text, text
+    assert "多半是" not in text, text               # ⛔ 不再替用户猜原因

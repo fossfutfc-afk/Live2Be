@@ -238,7 +238,7 @@ def page_ready(url: str, timeout: float = 2.0) -> bool:
 
 
 def existing_edge_count() -> int:
-    """现在有几个 msedge 进程 —— 只为提示"你那个实例可能是管理员权限的"。"""
+    """现在有几个 msedge 进程（**开窗前**数, 只当一个事实报, 不当结论）。"""
     if os.name != "nt":
         return 0
     import subprocess
@@ -252,7 +252,33 @@ def existing_edge_count() -> int:
     return out.lower().count("msedge.exe")
 
 
-def _open_when_ready(url: str, timeout: float = 20.0) -> None:
+def _confirm_window(url: str, *, before: int, edges_before: int,
+                    timeout: float = 10.0) -> None:
+    """开窗之后**看服务端有没有收到页面请求** —— 这是唯一可靠的"窗口真起来了"。
+
+    为什么不能只看 `Popen` 成功: 那只是"进程起来了"; 被既有 Edge 接管 / 空白窗口 /
+    连接失败页 全都算成功。而 `GET /` 是窗口的第一跳（`routers/menu.py` 记数）。
+
+    ⚠️ 数 `edges_before` 必须在**开窗之前**取: 开完再数, 数到的是**我们自己刚起的那一个**
+    ⇒ 每次启动都会报"你已经有 1 个 Edge 在跑"（真机就是这么误报的）。
+    """
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if runtime.page_loads() > before:
+            logger.info("窗口已连上（%.1fs）", timeout - (deadline - time.monotonic()))
+            return
+        time.sleep(0.15)
+    # 没连上: 只陈述事实 + 给两条出路, 不猜原因
+    hint = ""
+    if edges_before:
+        hint = (f"（打开前已经有 {edges_before} 个 msedge 在跑 —— 若其中有以管理员权限"
+                "启动的, Windows 不允许普通进程把地址交给它, 新窗口会停在空白页）")
+    logger.warning("%.0fs 内没等到页面请求%s。⇒ 手动打开 %s；或改用 --window"
+                   "（本程序自己的窗口, 不经过 Edge）", timeout, hint, url)
+
+
+def _open_when_ready(url: str, timeout: float = 20.0,
+                     confirm_timeout: float = 10.0) -> None:
     """等**页面真的能出**再开窗口。
 
     只看 `srv.started` 不够: 那时 HTTP 未必就绪, 开出来的窗口就是"白屏/连接失败页"
@@ -265,17 +291,16 @@ def _open_when_ready(url: str, timeout: float = 20.0) -> None:
         time.sleep(0.2)
     else:
         logger.warning("页面在 %.0fs 内没就绪 —— 仍然尝试打开: %s", timeout, url)
+    # ⚠️ **开窗之前**数两个数: 已有的 Edge 进程数（只当事实）与页面加载次数（当判据）。
+    edges_before = existing_edge_count()
+    loads_before = runtime.page_loads()
     how = open_browser(url)
     if how is None:
         logger.warning("没能自动打开 —— 请手动打开: %s", url)
         return
     logger.info("已打开（%s）: %s", how, url)
-    count = existing_edge_count()
-    if count:
-        logger.warning("你已经有 %d 个 Edge 进程在跑。若新窗口是空白, 多半是那个"
-                       "**以管理员权限运行的 Edge** 抢了窗口（Windows 不允许普通进程把"
-                       "地址交给它）⇒ 先全部关掉 Edge; 或改用 `--window`"
-                       "（本程序自己的窗口, 完全不碰 Edge）", count)
+    _confirm_window(url, before=loads_before, edges_before=edges_before,
+                    timeout=confirm_timeout)
 
 
 def _run_windowed(url: str) -> int:

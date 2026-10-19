@@ -85,8 +85,30 @@ def wait_idle(timeout: float) -> bool:
         return not _busy
 
 
+# ---------------------------------------------------------------------------
+# 页面加载计数 —— 外壳用它回答"我开的那个窗口到底连上没有"
+# ---------------------------------------------------------------------------
+# 为什么不下结论而是数请求: 起浏览器这一步**我们看不到结果**（`Popen` 成功只代表
+# 进程起来了, 空白窗口也算成功）。唯一可靠的信号是"服务端收到过 `/`"。
+# ⚠️ 只数 `/`（窗口的第一跳）, 不数 `/static/*` 与 `/api/*`。
+_page_loads = 0
+
+
+def note_page_load() -> None:
+    """记一次页面加载（`GET /` 的处理器里调）。"""
+    global _page_loads
+    _page_loads += 1
+
+
+def page_loads() -> int:
+    """累计收到过几次 `/`（单调递增; 外壳拿"开窗前后有没有涨"当判据）。"""
+    return _page_loads
+
+
 def _reset_for_tests() -> None:
     """只给测试: 清信号与登记。"""
+    global _page_loads
     _SHUTDOWN.clear()
+    _page_loads = 0
     with _lock:
         _busy.clear()
