@@ -152,7 +152,7 @@ def test_effort_injected_on_chat(monkeypatch):
     c = _client_with_effort(monkeypatch, "medium")
     sent: list[dict] = []
 
-    def fake_request(payload, timeout=None):
+    def fake_request(payload, timeout=None, deadline=None):
         sent.append(payload)
         return json.dumps({"ok": 1})
 

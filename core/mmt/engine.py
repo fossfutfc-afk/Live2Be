@@ -278,8 +278,8 @@ def _ensure_char_entities(wstore: WikiStoreV2, char, character_id: str, *,
         而**新档第一次 digest 之前**图里一个 entity 都没有 ⇒ 那块会是空的
         （出厂的名字与印象就都没了）。幂等 ⇒ 平时**只读不写**。
     接在 `_inject_brain(digest=True)` 里（不是接在 `bond/api.py`）是为了**两个触发点都覆盖**:
-    bond 闭环 **与** mmt 每 25 轮 —— 只接 bond 的话, 第一次 digest 若是 mmt 触发的,
-    entity 就还不存在。
+    bond 闭环 **与** mmt 每 `MMT_DIGEST_INTERVAL` 轮 —— 只接 bond 的话, 第一次 digest
+    若是 mmt 触发的, entity 就还不存在。
 
     ⚠️ **必须在任何"自动建 entity"之前**（这就是"初始化"的含义）: 表里一个 entity 都没有时
     `store.next_id("x")` 返回的是 **x0001** —— 正是 sensei 的保留号（扫不到同前缀就从 1 起）。
@@ -525,8 +525,11 @@ MMT_DIGEST_INTERVAL = 40
 #: 触发的那一下（她自己的回应还在生成中, 那时还不存在）。
 RECALL_QUERY_CHARS = 200
 
-#: digest 单次 LLM 调用的超时覆盖（per-call; 共享客户端的 60s 主对话超时会掐掉
-#: high 档长考——digest 是后台任务, 放宽到 5min, 快速失败由 digest deadline 兜底）
+#: digest 单次 HTTP 请求的**上限**（per-call）。⚠️ 它只是天花板 —— 真正生效的是
+#: `min(本值, 距本轮截止剩余)`: 每轮预算（`rounds.DIGEST_ROUND_BUDGET_SECONDS`）比它小,
+#: 所以实际单次尝试的超时约等于本轮预算（见 `LLMClient._attempt_timeout`）。
+#: 为什么要一层天花板: 主对话那条路共用一个客户端, 而 digest 是后台长考 —— 不覆盖的话
+#: 它会继承一个对长考偏紧的值; 而"快速失败"由每轮预算 + 整段硬顶兜底, 不靠这个数。
 DIGEST_LLM_TIMEOUT = 300.0
 
 
@@ -761,10 +764,10 @@ class MomoTalkEngine:
 
         **2026-09-13（审计 E11）**: `_session_rounds` 同样**从事件流恢复**, 不再
         无条件归零。它有两个身份: ① mmt 窗口 digest 的触发计数
-        （`_maybe_mmt_digest`: `>= 25` 且 `% 25 == 0`）; ② `want_to_speak` 的
-        冷却键（`core/random_events` 的 `_cooldowns` 用它当"当前轮号"）。
+        （`_maybe_mmt_digest`: `>= MMT_DIGEST_INTERVAL` 且 `% MMT_DIGEST_INTERVAL == 0`）;
+        ② `want_to_speak` 的冷却键（`core/random_events` 的 `_cooldowns` 用它当"当前轮号"）。
         原先每次 `attach_session` 归零 → **前端每次刷新/切页（`open_session`）
-        都让 25 轮窗口从头再数一遍**, 页面常刷新时 digest 几乎永不触发; 冷却键
+        都让触发窗口从头再数一遍**, 页面常刷新时 digest 几乎永不触发; 冷却键
         同样失效（"冷却 6 轮"变成"冷却 >=6 次刷新"）。现在按**本会话已落库的
         mmt 轮数**恢复, 与 `_bond_gap` 的持久化口径一致。
         """
@@ -1019,7 +1022,8 @@ class MomoTalkEngine:
         """异步消化本角色线未消化事件（后台线程, 不阻塞对话/UI）。
 
         触发点: ① bond 剧情闭环后（语义完整段, story_end 收尾）;
-        ② mmt 会话每 N=25 轮（蓝图 §3.1, 纯 MMT 长聊窗口消化——节流非精确窗口,
+        ② mmt 会话每 `MMT_DIGEST_INTERVAL`（=40）轮（蓝图 §3.1, 纯 MMT 长聊窗口消化
+        ——节流非精确窗口,
         剧情中 in_vn/in_memorial 不触发, 由 _maybe_mmt_digest 保护）。
         digest 增量幂等（digested_seq 推进）——失败/跳过零损失; resume 只注入不消化。
         """
@@ -1053,7 +1057,7 @@ class MomoTalkEngine:
         self.async_digest()
 
     def _maybe_mmt_digest(self) -> None:
-        """mmt 窗口触发检查（每轮落盘后调用; 蓝图 §3.1 N=25）:
+        """mmt 窗口触发检查（每轮落盘后调用; 蓝图 §3.1, 间隔 = `MMT_DIGEST_INTERVAL`）:
 
         未到窗口 / 剧情中（in_vn/in_memorial——bond 闭环自会消化）→ 不触发。
         触发 → async_digest（后台; digest 增量, 无新增 0 调用, 撞车锁内空跑无害）。
@@ -1104,7 +1108,8 @@ class MomoTalkEngine:
         self.start_session(character_id)                  # 重建 system（人设/世界观/schema）
         if self._store is not None:                       # Brain 接线（brain）:
             self._inject_brain(character_id, session_id)  # 恢复时只注入已有 wiki（不消化——
-                                                          # digest 由 async_digest 触发: bond 闭环 / mmt N=25 轮）
+                                                          # digest 由 async_digest 触发:
+                                                          # bond 闭环 / mmt 每 40 轮）
         # 统一上下文窗口（2026-09-05, DESIGN_CONTEXT_WINDOW）: window_messages 按
         # 叙事单元数装填（bond 句段按行占窗, 长场景自然挤旧）; 预算 = rounds × 3
         # （默认 40 轮 → 120 单元, 与板块定稿一致; history_rounds 保留为可配语义）;
@@ -1284,16 +1289,17 @@ class MomoTalkEngine:
 
     def _recall_notes(self, user_input: str, now: datetime,
                       *, wstore: WikiStoreV2 | None = None) -> list[str]:
-        """本轮的**记忆段**（**P19**）—— 0~2 段; 空列表 = 不注入（宁缺勿错）。
+        """本轮的**记忆段**（**P19**）—— 0~3 段; 空列表 = 不注入（宁缺勿错）。
 
-        ⭐ **两种形式**（表 = `core/brain/read/modes.MODES`; 这里的顺序**就是**注入顺序）:
+        ⭐ **三种形式**（表 = `core/brain/read/modes.MODES`; 这里的顺序**就是**注入顺序）:
 
         | 段 | 形式 | 什么时候摆 | 摆什么 |
         |---|---|---|---|
         | ① | `"name"`（set） | 老师这句话里**提到了一个名字** | 那个对象车道上**全部**（新→旧; 含正文里没写他名字的那些）|
-        | ② | `"turn"`（rank） | 每轮兜底 | 六路打分最像的 ≤ `[recall].turn_k` 条 |
+        | ② | `"when"`（set） | 这句话里有**时间词**（`scan_when` 扫到且窗口已过完） | 那段时间里**全部** episode |
+        | ③ | `"turn"`（rank） | 每轮兜底 | 六路打分最像的 ≤ `[recall].turn_k` 条 |
 
-        ⚠️ **同一条 episode 只摆一次**: 名字段先定, 兜底段**剔掉它的 id** ——
+        ⚠️ **同一条 episode 只摆一次**: 三段共用一个 `seen`（按这个顺序剔）——
         `like` 的名字那一路（`part_name`）也在加成, 不剔就会两段各摆一遍同一件事。
         ⚠️ **保留号不算"提到了谁"**（`modes.RESERVED_TRIGGERS`）: 她自己 / 老师的车道
         ≈全部事件 ⇒ 那两行名字**不触发**名字段（表里那一格管, 不在这儿写 if）。

@@ -5,8 +5,9 @@
 
     rounds/__init__.py  ← 本文件: **只有表**（+ Cursor / 预算 / 回滚清单）
     rounds/base.py      Ctx（段级上下文）+ RoundOut（一轮跑完的交代）
-    rounds/record.py    ① R1 记        rounds/akin.py       补边（0 LLM）
-    rounds/relate.py     ③ L1 接       rounds/settle.py     ④ R3 沉淀
+    rounds/split.py     ⓪ R0 切        rounds/record.py     ① R1 记
+    rounds/akin.py      补边（0 LLM）   rounds/relate.py     ③ L1 接
+    rounds/cognize.py   ⑥ L2 想        rounds/settle.py     ⑦ R3 沉淀
     ⏸ ⑤ L2-a 分群（`rounds/group.py` + `core/brain/groups.py`）**2026-10-13 退役**
       —— 整族搬 `archive/digest_group/`（理由与去向见那份 README）。
     ⏸ ② R4 收口（`rounds/close.py`）**2026-10-05（L8）删** —— 账目归 R0 的表。
@@ -96,7 +97,12 @@ CONTRACT_FIELDS: tuple[str, ...] = ("contract_warnings", "contract_drops")
 #: `llm_chat` 只在**每次尝试前**看表 ⇒ 前几轮一慢, **后面几轮集体被"饿死"**
 #: （报错还只说"撞上时间预算", 看不出是哪一轮）。5 次 high 档长考本来就贴着 300s。
 #: 标定入口 = 真机日志 `llm chat task=digest.relate ms=…`（已存在, 按 `task=` 分轮看）。
-DIGEST_ROUND_BUDGET_SECONDS = 120.0
+#:
+#: ⭐ **120 → 150（2026-10-18）**: 这个数从"事后才知道的一句话"变成了**真的卡住单次
+#: 请求**（`LLMClient.chat(deadline=)` 会把每次尝试的 HTTP 超时夹到剩余量以内, 见
+#: `_attempt_timeout`）。而 120 是当年按"high 长考实测 ~2min"定的 —— 也就是说**预算
+#: 正好等于实测值**, 一夹就有了把正常调用砍掉的概率。所以把预算抬到实测值之上 25%。
+DIGEST_ROUND_BUDGET_SECONDS = 150.0
 
 #: ⭐ **整段硬顶（秒）** —— 一轮轮下来总共不许超过它。
 #: 判据: 每轮各自的预算防"互相饿死", 硬顶防"每轮都刚好不超时"叠成半小时
@@ -111,10 +117,9 @@ DIGEST_ROUND_BUDGET_SECONDS = 120.0
 #: ⭐ **2026-10-08（P10）: 600 → 720** —— 加上 L2（`cognize`）= 6 个 LLM 轮 × 120s。
 #: ⭐ **2026-10-13: 720 → 600** —— **`group`（L2-a 分群）退役**（代码搬
 #: `archive/digest_group/`）= 5 个 LLM 轮 × 120s。
-#: ⚠️ **每轮 120s 依然没动**（理由同上一条, 别砍）; 真机最坏墙钟因此回到 10 分钟。
-#: ⚠️ **每轮 120s 没动**（它是按 high 档长考标定的, 砍它会重新制造"前几轮把后几轮
-#: 饿死"那个病; 标定入口 = 真机日志 `llm chat task=digest.… ms=`）。
-DIGEST_SEGMENT_HARD_CAP = 600.0
+#: ⭐ **2026-10-18: 600 → 750** —— 每轮预算 120 → 150（理由见上一格）⇒ 5 × 150。
+#: ⚠️ **每轮预算别砍**（它是真机标定出来的, 砍它会重新制造"前几轮把后几轮饿死"那个病）。
+DIGEST_SEGMENT_HARD_CAP = 750.0
 
 
 @dataclass(frozen=True)
@@ -134,8 +139,8 @@ class RoundSpec:
     """
 
     key: str
-    """表内主键 —— 契约相位名（`record` / `akin` / `relate` /
-    `settle` / `group`）。见类 docstring: 另外四个标识都从它来。"""
+    """表内主键 —— 契约相位名（`split` / `record` / `akin` / `relate` /
+    `cognize` / `settle`）。见类 docstring: 另外四个标识都从它来。"""
 
     step: str
     """人读的步号（与 `core/digest/__init__.py` 的步序表同一份写法）。
@@ -176,7 +181,7 @@ class RoundSpec:
     """True = 这一步是**对着切片干活**的（没有切片就没活干）。
 
     ⭐ 判据来自 R0 那条"空骨架 ⇒ 收工"（2026-09-29, N4d）: 切分员说"这一段没有
-    值得记的"时, 建节点 / 连边 / 归属 / 分群**全部空转**（`relate` 还会被契约
+    值得记的"时, 建节点 / 连边 / 归属**全部空转**（`relate` 还会被契约
     判形状错）⇒ 一律不发。
     ⏸ **从前唯一写 False 的是 `close`**（收口吃备忘录而不是切片）—— 2026-10-05（L8）
     随轮一起删 ⇒ **今天五轮全是 True**（这一格留着, 是因为"有一轮不对着切片干活"

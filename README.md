@@ -156,8 +156,11 @@ fastapi dev webgui/app.py
 
 ```bash
 python main.py                     # 终端调试入口（功能是 Web 版的子集）
-pwsh -File start.ps1               # 只在 Windows：顺带起本地 embedding 服务
 ```
+
+> 语义召回（embedding）是**可选**的：不装也能跑，只是 digest 拿不到语义候选、退化成
+> 字面匹配。要开就在 `settings.toml` 写 `[embed]` 的 `base_url` / `model`（见
+> [`core/rag/embedder.py`](core/rag/embedder.py) 的说明）。
 
 ### 4. 没有素材是正常的
 
