@@ -160,6 +160,28 @@ def test_elevated_launcher_drops_privileges(monkeypatch):
     assert "msedge.exe" in calls[0][2]
 
 
+def test_elevated_launcher_refuses_an_elevated_browser(monkeypatch):
+    """⭐ runas 不可用 ⇒ **不启动**，而不是"退回直接启动"（2026-10-19）。
+
+    直接启动会起出一个**提权的浏览器**，把 profile 写成高权限状态 ⇒ 之后同目录下普通权限
+    的启动进程起来即死（实测 rc=0、零窗口；真机表现为黑窗口 + "现有实例正在以提升权限
+    运行"）。宁可不启动 —— 调用方（`open_browser`）会退到 explorer / 默认浏览器那条
+    正常权限的路。
+    """
+    calls: list[list[str]] = []
+
+    def _boom(args, **_kw):
+        calls.append(list(args))
+        raise FileNotFoundError("runas 不见了")
+
+    monkeypatch.setattr("infra.shell.is_elevated", lambda: True)
+    monkeypatch.setattr("subprocess.Popen", _boom)
+
+    assert infra_shell.launch(["msedge.exe", "--app=http://127.0.0.1:8000/"]) is False
+    assert len(calls) == 1, f"只该试 runas 一次，不许再直接启动: {calls}"
+    assert calls[0][:2] == ["runas", "/trustlevel:0x20000"]
+
+
 def test_browser_prefers_the_app_window(monkeypatch):
     monkeypatch.setattr(serve, "_PREFER_APP_WINDOW", True)
     monkeypatch.setattr(serve, "find_browser_exe", lambda: "msedge.exe")
