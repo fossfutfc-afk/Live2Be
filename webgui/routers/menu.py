@@ -4,7 +4,7 @@ from __future__ import annotations
 from fastapi import APIRouter
 from fastapi.responses import FileResponse
 
-from infra import paths
+from infra import paths, runtime
 from webgui import shutdown
 
 router = APIRouter()
@@ -19,7 +19,11 @@ async def index() -> FileResponse:
 
     Cache-Control: no-cache——HTML 永不缓存（防止浏览器用旧 HTML 引用已
     404 的旧 JS 路径, 导致按钮失效/必刷新才正常）。
+
+    ⚠️ 顺带记一次"页面被加载过"（`runtime.note_page_load`）—— `serve.py` 靠它判断
+    自己开的那个窗口**到底连上没有**（`Popen` 成功 ≠ 窗口能显示）。
     """
+    runtime.note_page_load()
     return FileResponse(STATIC_DIR / "index.html", headers={
         "Cache-Control": "no-cache, no-store, must-revalidate",
     })
