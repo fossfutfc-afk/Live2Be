@@ -18,7 +18,7 @@
 |---|---|---|---|
 | **`llm/prompts/*.md`** | 主 prompt（规则书/手法/环境/任务卡/标注 prompt/digest 各轮） | **19 个文件** | 人（作者层） |
 | **`contract/*.py`** | **输出契约**：`build_schema`（动作表）· `build_line_schema`（MMT 行流）· `build_record_schema`（Bond 记录流）· `digest_registry.build_schema(phase)` + **4 个 `DigestAction`**（role/semantics/field_schema/example） | 3 个渲染器 + 一整个 registry | 改**字段名/词表/校验**的人（与 `_clean_*`、`parse_*` 必须同批改） |
-| **`core/` 内联** | 引擎拼出来的可读串：`material.SKELETON_HINT`（R1 骨架说明）· `notes.TITLE/GROUP_LEADS/render_item`（她的备忘录块）· `marks.*`（段头/记忆头/相对时间）· `entities.py` 四块（R3 的料）· `groups.py` 的块与类 · `rounds/*.py` 的 `_SECTIONS` 段标题 | 分散在 6~8 个模块 | 引擎侧 |
+| **`core/` 内联** | 引擎拼出来的可读串：`material.SKELETON_HINT`（R1 骨架说明）· `notes.TITLE/LEAD/render_item`（她的备忘录块）· `marks.*`（段头/记忆头/相对时间）· `entities.py` 四块（R3 的料）· `groups.py` 的块与类 · `rounds/*.py` 的 `_SECTIONS` 段标题 | 分散在 6~8 个模块 | 引擎侧 |
 | **`promptkit/`** | **装配**：`DOMAIN_BOXES`（盒A/盒B 各 **10 块**）+ `round_messages`（动态尾唯一入口） | 2 个域 × 10 块 | 改"顺序/块清单"才动它 |
 
 ⚠️ **一个调用的全文仍然是完整的**：`round_messages` / `_sections_for` 是唯一入口，

@@ -8,9 +8,8 @@
 
 ⇒ 并发安全（主 LLM 与 digest 同时写不丢更新）· 可回放 · 与水位同频。
 
-**只有一个槽 `pinned`** —— 她随身带着的事（誓约 / 重大的约定; 2026-09-29 由 `promise`
-改名并收紧判据）。更新模型 = `add` · **`close` 结清**（划掉即移除: 本子是当前抽屉,
-不是账簿; 结局写在图里那条经历的正文上）。
+**只有一列** —— 她随身带着的事（誓约 / 重大的约定）。更新模型 = `add` ·
+**`close` 结清**（划掉即移除: 本子是当前抽屉, 不是账簿; 结局写在图里那条经历的正文上）。
 
 四条纪律（写进形状里, 不靠自觉）:
 0. `close` = **划掉即移除**, 没有"结清但留着"的两段式（`retire` 也删了）;
@@ -41,30 +40,13 @@ from core.session.events import (
 
 logger = logging.getLogger(__name__)
 
-#: 槽（顺序 = 渲染顺序 = 清单顺序）
-#: **`promise` → `pinned` 改名**（promise 混了两件事,
-#: 而且誓约只是其中最重的一类"*）。判据同时收紧成 **"说定的将来 + 值得随身带着"**
-#: （见 `llm/prompts/digest_record.md`）—— 名字与判据一起说"挡在门外的是什么":
-#: **日常安排 / 事务待办不是"钉住的事"**。
-#: **磁盘影响**: 事件流的 `add`/`close`/`retire` payload **不带槽名**（槽由 action
-#: 隐含）⇒ **真源零影响**; 只有**派生缓存** `notes.json` 里有那个键 ⇒ `from_dict`
-#: 兼容读一次旧名（见 `_LEGACY_SLOT`）。
-SLOT_PINNED = "pinned"
 # ⏸ `PINNED_TAG = "#pinned"`（2026-10-18 删）—— 它打在出生那条 episode 的 `tags` 上,
 # 而**没有任何读者**（`tags` 不进注入面, 也没有筛选在用）。同一件事由图里那条经历承担。
-#: 派生缓存里的**旧**槽名（改名前的 `promise`）—— 只读一次, 下次保存自动改写。
-_LEGACY_SLOT = "promise"
-#: ~~`SLOT_HABITS = "habits"`~~ **2026-09-29（N4a）已退役**：它是"规律"的劣质替身
-#: （`DESIGN_NOTE §4` 三条存在理由都不满足）；内容归 L2 的 belief、指针归将来的 `index`。
-#: 别把常量留着"以防万一" —— 退役就是退役，留着它就还有一条静默的写路。
-#: ~~`SLOT_ON_MIND = "on_mind"`~~ **2026-09-29（N4e）已退役** —— 判据见模块 docstring
-#: （*"太煽情了"*: note 装的是**长期随身**的东西, 心境是**当下**的东西）。
-#: **没有 `SNAPSHOT_SLOTS` 了** —— 它随这个槽一起消失（一个槽谈不上二分）。
-SLOTS: tuple[str, ...] = (SLOT_PINNED,)
-#: **A 操作式**槽（增量 add/close）。
-#: 从前的二分（A 操作式 / B 快照式）是"同一段只有一个写者"的实现 ——
-#: `on_mind` 退役后**只剩 A 类**, 那个二分连同 `rewrite` 动作一起没有读者了。
-OPSLOTS: tuple[str, ...] = (SLOT_PINNED,)
+
+#: 派生缓存 `notes.json` 里那列条目的**键名**。`pinned` / `promise` 是它的两个旧名
+#: （槽名时代留下的, 只读一次）。认一个就够 —— **一个都认不出就当没有缓存**（见 `from_dict`）。
+_ITEMS_KEY = "items"
+_LEGACY_KEYS: tuple[str, ...] = ("pinned", "promise")
 
 #: **备忘录的总量上限（字）**。
 #: ## 为什么是"总量"而不是"每槽条数"
@@ -94,11 +76,8 @@ MAX_NOTE_CHARS = 500
 #: （`PROCEED §2 #10`），她读不懂 `m0021` 是哪件事; 照抄得到的**名字**才是她能用的地址。
 TITLE = ("【你自己记的备忘录】（你自己随手记下的, 不是别人给你的任务; "
          "每条前面的编号指这一条本身, 括号里是它从哪件事来的）")
-#: 槽 → 小节抬头（**自然语言**, 用设计稿自己的词: 约定）。
-#: **空槽不印抬头**（否则每个空槽都白占一行常驻预算）。
-#: ~~`SLOT_ON_MIND: "· 最近在想"`~~ **2026-09-29（N4e）随槽退役** ——
-#: 那个小节是"她此刻的心境"的唯一显示面, 槽没了它就没了。
-GROUP_LEADS: dict[str, str] = {SLOT_PINNED: "· 你自己记下的约定"}
+#: 小节抬头（**自然语言**, 用设计稿自己的词: 约定）。空 ⇒ 整块不出现。
+LEAD = "· 你自己记下的约定"
 #: 抬头缩进 / 条目缩进（两级 —— 一瞥看得出手上开着几条）
 _LEAD_INDENT = "  "
 _ITEM_INDENT = "    "
@@ -185,55 +164,52 @@ class NotesState:
 
     up_to_seq: int = 0
     next_n: int = 1
-    pinned: list[NoteItem] = field(default_factory=list)
-    # ~~`habits` 槽~~ **2026-09-29（N4a）已退役**：它是"规律"的劣质替身
-    #    （`DESIGN_NOTE §4`：≤20 字标签 + refs 无走法 + 与 belief 重复 ⇒ 三条存在理由
-    #    一个都不满足）。内容归 **L2 的 belief（模式句）**、指针归将来的 `index`。
-    #    **旧档里那个键在读的时候直接忽略**（退役 = 不再读，不做迁移）。
-    # ~~`on_mind` 槽~~ **2026-09-29（N4e）已退役** —— 判据见模块 docstring
-    #    （*"太煽情了"*）。**旧档/旧事件里那两个键同样直接忽略**（不迁移、不报错）。
+    #: 还开着的那列（划掉即移除 ⇒ "关着的"不在里面）。
+    items: list[NoteItem] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         """护栏: **发号器至少比现有 id 大**（纪律 2"只增不复用"的兜底）。
 
         正常路径（`fold`）不会踩到; 手工构造的状态 / 旧档推错的 `next_n` 会 —— 那会发出
-        **重号**, 而 `close`/`retire` 只按号找人 ⇒ 旧引用指错条目（静默）。
+        **重号**, 而 `close`/`update` 只按号找人 ⇒ 旧引用指错条目（静默）。
         """
-        self.next_n = max(self.next_n, _derive_next_n(self.pinned))
-
-    def items(self, slot: str) -> list[NoteItem]:
-        """槽 → 条目列表（今天只有 `pinned`; 一个槽也要走这一层, 口径统一）。"""
-        return list(getattr(self, slot, []) or [])
+        self.next_n = max(self.next_n, _derive_next_n(self.items))
 
     def clone(self) -> NotesState:
         return NotesState(up_to_seq=self.up_to_seq, next_n=self.next_n,
-                          pinned=[it.copy() for it in self.pinned])
+                          items=[it.copy() for it in self.items])
 
     def to_dict(self) -> dict:
         return {"up_to_seq": self.up_to_seq, "next_n": self.next_n,
-                SLOT_PINNED: [it.to_dict() for it in self.pinned]}
+                _ITEMS_KEY: [it.to_dict() for it in self.items]}
 
     @classmethod
     def from_dict(cls, raw: Any) -> NotesState:
         """宽松读（坏文件 → 空状态 = 现折一遍就回来了, 不会丢真源）。
 
-        旧档里的 `habits` / `on_mind` 两个键**直接忽略**（N4a / N4e 退役；
-        不迁移、不报错）。真机那份 `notes.json` 里那条 `on_mind` 也**不留档** ——
-        用户的判据是"煽情的不必一直耿耿于怀", 留档就是给它立碑。
+        键名认三个: `items`（现行）· `pinned` / `promise`（槽名时代的两个旧名）。
+        条目里带 `closed_at` 的算**已经划掉**（旧两段式的中间态）⇒ 不进状态
+        （`NoteItem.from_dict` 判的）。
+
+        ⭐ **一个都认不出 ⇒ 整份当"没有缓存"（`up_to_seq` 归零）**。判据是
+        "宁可不信, 不可半信": 半信的表现是**水位还在、条目没了** ⇒ `notes_state()`
+        认为"已折到这" ⇒ 再也不重折 ⇒ **静默失忆, 零告警**（四种坏档都实测过）。
+        归零之后 `fold(events)` 全量重折 —— 它是确定性的（同一事件流必然振出同样的
+        `n1`/`n2`…）, 所以重建出来的号与事件流里的旧引用一致。
         """
         if not isinstance(raw, dict):
             return cls()
-        # 兼容读旧槽名（改名 `promise` → `pinned`, 2026-09-29）—— 派生缓存里那
-        # 个键是旧名; 不认它的话 `up_to_seq` 还在 ⇒ `fold` 不会重放 ⇒ **条目会没**。
-        # 下次 `save_notes` 自动改写成新名。
-        raw_pinned = (raw[SLOT_PINNED] if SLOT_PINNED in raw
-                      else raw.get(_LEGACY_SLOT))
-        pinned = _items_of(raw_pinned)
-        next_n = _int(raw.get("next_n"))
-        if next_n < 1:                     # 旧档/坏档: 从活着的 id 推一个下界（防复用）
-            next_n = _derive_next_n(pinned)
-        return cls(up_to_seq=max(0, _int(raw.get("up_to_seq"))),
-                   next_n=next_n, pinned=pinned)
+        for key in (_ITEMS_KEY, *_LEGACY_KEYS):
+            if isinstance(raw.get(key), list):
+                items = _items_of(raw[key])
+                next_n = _int(raw.get("next_n"))
+                if next_n < 1:                 # 旧档/坏档: 从活着的 id 推一个下界
+                    next_n = _derive_next_n(items)
+                return cls(up_to_seq=max(0, _int(raw.get("up_to_seq"))),
+                           next_n=next_n, items=items)
+        logger.warning("笔记缓存认不出条目容器（顶层键: %s）—— 当没有缓存, 从事件流重折",
+                       sorted(raw))
+        return cls()
 
 
 # ---------------------------------------------------------------------------
@@ -298,11 +274,11 @@ def _apply_add(st: NotesState, payload: dict, ts: str, seq: int) -> None:
         logger.warning("note/add 残缺（跳过）: seq=%s text=%r refs=%r", seq, text, refs)
         return
     src = refs[0]
-    if any(src in it.refs for it in st.pinned):
+    if any(src in it.refs for it in st.items):
         logger.info("note/add 跳过（同一条经历已经钉过）: src=%s seq=%s", src, seq)
         return
-    st.pinned.append(NoteItem(id=_alloc_id(st), text=text, refs=refs, since=ts,
-                               due=str(payload.get("due") or "").strip()))
+    st.items.append(NoteItem(id=_alloc_id(st), text=text, refs=refs, since=ts,
+                             due=str(payload.get("due") or "").strip()))
 
 
 def _apply_close(st: NotesState, payload: dict, ts: str, seq: int) -> None:
@@ -321,14 +297,11 @@ def _apply_close(st: NotesState, payload: dict, ts: str, seq: int) -> None:
     if not nid:
         logger.warning("note/close 缺 id（跳过）: seq=%s", seq)
         return
-    for slot in OPSLOTS:
-        items = list(getattr(st, slot) or [])
-        if not any(it.id == nid for it in items):
-            continue
-        setattr(st, slot, [it for it in items if it.id != nid])
-        logger.info("note/close 划掉一条: id=%s seq=%s", nid, seq)
+    if not any(it.id == nid for it in st.items):
+        logger.warning("note/close 指不到任何条目（跳过）: id=%s seq=%s", nid, seq)
         return
-    logger.warning("note/close 指不到任何条目（跳过）: id=%s seq=%s", nid, seq)
+    st.items = [it for it in st.items if it.id != nid]
+    logger.info("note/close 划掉一条: id=%s seq=%s", nid, seq)
 
 
 def _apply_update(st: NotesState, payload: dict, seq: int) -> None:
@@ -347,16 +320,15 @@ def _apply_update(st: NotesState, payload: dict, seq: int) -> None:
     if not new_due and not new_text:
         logger.warning("note/update 一样都没改（跳过）: id=%s seq=%s", nid, seq)
         return
-    for slot in OPSLOTS:
-        for it in list(getattr(st, slot) or []):
-            if it.id != nid:
-                continue
-            if new_due:
-                it.due = new_due
-            if new_text:
-                it.text = new_text
-            logger.info("note/update 更正一条: id=%s seq=%s", nid, seq)
-            return
+    for it in st.items:
+        if it.id != nid:
+            continue
+        if new_due:
+            it.due = new_due
+        if new_text:
+            it.text = new_text
+        logger.info("note/update 更正一条: id=%s seq=%s", nid, seq)
+        return
     logger.warning("note/update 指不到任何条目（跳过）: id=%s seq=%s", nid, seq)
 
 
@@ -510,7 +482,7 @@ def stats(state: NotesState, *, block_chars: int | None = None) -> dict[str, int
     设计 §9-5 的裁决: **先只记数、不拍上限** —— 开着的条数直接等于"每轮料里逐条现状"
     的成本, 上限要拿真机几段的数说话（`grep note 台账`）。"""
     chars = block_chars if block_chars is not None else len(render_note_block(state))
-    return {"open": sum(len(state.items(slot)) for slot in SLOTS), "block_chars": chars}
+    return {"open": len(state.items), "block_chars": chars}
 
 
 def check(state: NotesState, known: Iterable[str] | None = None,
@@ -548,16 +520,14 @@ def check(state: NotesState, known: Iterable[str] | None = None,
     if chars > MAX_NOTE_CHARS:
         out.append(f"备忘录太长（{chars} > {MAX_NOTE_CHARS} 字; 每轮都在花 token）"
                    "—— 该退役的退役 / 该淘汰的淘汰（淘汰规则未定, 见 `MAX_NOTE_CHARS`）")
-    for slot in SLOTS:
-        items = state.items(slot)
-        for it in items:
-            tag = it.id or slot
-            if not it.refs:
-                out.append(f"{slot} {tag}: 没有 refs（每条都要能指回一段经历）")
-            elif known_set is not None:
-                for r in it.refs:
-                    if r not in known_set:
-                        out.append(f"{slot} {tag}: refs 指向不存在的节点 {r!r}")
+    for it in state.items:
+        tag = it.id or "(无编号)"
+        if not it.refs:
+            out.append(f"note {tag}: 没有 refs（每条都要能指回一段经历）")
+        elif known_set is not None:
+            for r in it.refs:
+                if r not in known_set:
+                    out.append(f"note {tag}: refs 指向不存在的节点 {r!r}")
     return out
 
 
@@ -593,17 +563,12 @@ def render_note_block(state: NotesState, *, now: object | None = None,
     `now=None` → 不加时间短语（同 `marks.relative` 的哨兵纪律: 未接线时保持原形态,
     不给一个假的"很久以前"）。
     """
-    lines: list[str] = []
-    for slot in (SLOT_PINNED,):
-        items = state.items(slot)
-        if not items:
-            continue                                  # 空槽不印抬头（常驻预算是硬约束）
-        lines.append(f"{_LEAD_INDENT}{GROUP_LEADS[slot]}")
-        # 2026-10-05 起**只有还开着的**（`close` = 划掉即移除）⇒ 不再有结清组
-        for it in _sorted_by(items, "since"):
-            lines.append(f"{_ITEM_INDENT}{render_item(it, now=now, titles=titles)}")
-    if not lines:
+    if not state.items:                    # 空 ⇒ 一个字的块都不出现（常驻预算是硬约束）
         return ""
+    lines = [f"{_LEAD_INDENT}{LEAD}"]
+    # 只有还开着的（`close` = 划掉即移除）⇒ 没有结清组
+    lines += [f"{_ITEM_INDENT}{render_item(it, now=now, titles=titles)}"
+              for it in _sorted_by(state.items, "since")]
     return "\n".join([TITLE] + lines)
 
 

@@ -68,7 +68,7 @@ def test_close_removes_the_item_in_all_three_outcomes():
             _add(1),                                                    # n1
             _ev(2, N_CLOSE, {"id": "n1", "state": outcome, "afterwards": "后来…"}),
         ])
-        assert st.pinned == [], outcome
+        assert st.items == [], outcome
         assert st.next_n == 2                                    # 号照旧只增不复用
         assert "n1" not in notes.render_note_block(st, now=NOW)
 
@@ -76,10 +76,10 @@ def test_close_removes_the_item_in_all_three_outcomes():
 def test_old_archive_retire_means_the_same_thing_as_close(caplog):
     """旧档里的 `retire` 与 `close` **同义**（2026-10-05 合并）—— 读侧必须照旧认它。"""
     st = notes.fold([_add(1), _ev(2, N_RETIRE, {"id": "n1"})])
-    assert st.pinned == []
+    assert st.items == []
     # 指不到的 id（已划掉 / 根本不存在）⇒ 只告警, 不抛
     st2 = notes.fold([_add(1), _ev(2, N_RETIRE, {"id": "n99"})])
-    assert [it.id for it in st2.pinned] == ["n1"]
+    assert [it.id for it in st2.items] == ["n1"]
     assert "指不到" in caplog.text
 
 
@@ -90,7 +90,7 @@ def test_close_of_a_gone_item_only_warns(caplog):
         _ev(2, N_CLOSE, {"id": "n1", "afterwards": "真的去了"}, ts=T1),
         _ev(3, N_CLOSE, {"id": "n1", "afterwards": "其实没去"}, ts=T1),
     ])
-    assert st.pinned == []
+    assert st.items == []
     assert "指不到" in caplog.text
 
 
@@ -109,14 +109,14 @@ def test_update_fixes_the_date_and_the_sentence():
     """`update` 只改两样: `due` 与 `text`（"日期后来才知道"的唯一出口）。"""
     st = notes.fold([_add(1)])                                   # n1, 无 due
     st = notes.fold([_ev(2, N_UPDATE, {"id": "n1", "due": "2026-05-13"})], base=st)
-    assert st.pinned[0].due == "2026-05-13"
-    assert st.pinned[0].text == "周六模型店"                     # 其余不动
+    assert st.items[0].due == "2026-05-13"
+    assert st.items[0].text == "周六模型店"                     # 其余不动
     st = notes.fold([_ev(3, N_UPDATE, {"id": "n1", "text": "生日那天"})], base=st)
-    assert (st.pinned[0].text, st.pinned[0].due) == ("生日那天", "2026-05-13")
+    assert (st.items[0].text, st.items[0].due) == ("生日那天", "2026-05-13")
 
     # 指不到 id ⇒ 只告警; "一样都没给" / 缺 id ⇒ 写侧直接拒
     st2 = notes.fold([_ev(4, N_UPDATE, {"id": "n99", "due": "2026-01-01"})], base=st)
-    assert [it.id for it in st2.pinned] == ["n1"]
+    assert [it.id for it in st2.items] == ["n1"]
     with pytest.raises(ValueError, match="至少要改一样"):
         notes.update_op("n1")
     with pytest.raises(ValueError, match="update 缺 id"):
@@ -134,12 +134,12 @@ def test_legacy_closed_item_in_the_cache_is_not_resurrected():
         "pinned": [{"id": "n1", "text": "还开着的", "refs": ["m0009"], "since": T0},
                    {"id": "n2", "text": "早就划掉的", "refs": ["m0009"], "since": T0,
                     "closed_at": T1, "afterwards": "去过了", "state": "kept"}]})
-    assert [it.id for it in legacy.pinned] == ["n1"]
+    assert [it.id for it in legacy.items] == ["n1"]
 
 
 def test_add_rejects_missing_refs_on_read_side(caplog):
     st = notes.fold([_ev(1, N_ADD, {"text": "没有引用的条目"})])
-    assert st.pinned == []                           # 残缺操作不折进去（但记事）
+    assert st.items == []                           # 残缺操作不折进去（但记事）
     assert notes.check(notes.fold([_add(1)])) == []   # 正常条目零告警
 
 
@@ -154,7 +154,7 @@ def test_add_of_the_same_episode_is_skipped(caplog):
     st = notes.fold([_add(1, text="周六模型店"),
                      _add(2, text="换个说法再说一遍", refs=("m0009",), ts=T1),
                      _add(3, text="还他笔记", refs=("m0011",), ts=T1)])
-    assert [it.text for it in st.pinned] == ["周六模型店", "还他笔记"], \
+    assert [it.text for it in st.items] == ["周六模型店", "还他笔记"], \
         "同一条经历被钉了两次"
     assert "已经钉过" in caplog.text
     print("    同 refs[0] 只留一条 · 不同经历照常 ✓")
@@ -166,10 +166,10 @@ def test_add_of_the_same_episode_is_skipped(caplog):
 
 def test_next_n_guard_prevents_id_reuse():
     """护栏: `next_n` 落后于现有 id（手工构造 / 旧档推错）时也不会发出重号。"""
-    st = notes.NotesState(next_n=1, pinned=[notes.NoteItem(id="n7", text="老条目")])
+    st = notes.NotesState(next_n=1, items=[notes.NoteItem(id="n7", text="老条目")])
     assert st.next_n == 8
     assert notes.fold([_ev(1, N_ADD, {"text": "新条目", "refs": ["m1"]})],
-                      base=st).pinned[-1].id == "n8"
+                      base=st).items[-1].id == "n8"
 
 
 def test_rewrite_event_is_a_silent_noop_after_retirement():
@@ -183,7 +183,7 @@ def test_rewrite_event_is_a_silent_noop_after_retirement():
                                                     "refs": ["m2"]}}, ts=T0),
                      _ev(2, N_ADD, {"text": "周六模型店", "refs": ["m0009"]}, ts=T1)])
     assert not hasattr(st, "on_mind")                    # 状态里没有这个字段了
-    assert [it.id for it in st.pinned] == ["n1"]          # 后面的 add 照常折进来
+    assert [it.id for it in st.items] == ["n1"]          # 后面的 add 照常折进来
     assert st.up_to_seq == 2                              # 水位照样推进（吞 = 处理过了）
 
 
@@ -203,7 +203,7 @@ def test_legacy_key_is_ignored_on_read():
         "pinned": [{"text": "周六模型店", "refs": ["m0009"], "id": "n1"}],
         "on_mind": {"text": "我给瓦片留了缝", "refs": ["m0014"]},
     })
-    assert [it.id for it in st.pinned] == ["n1"]
+    assert [it.id for it in st.items] == ["n1"]
     assert not hasattr(st, "on_mind")
     # 存回去时那个键**不再出现**（下次 save 自动把旧档改写掉）
     assert "on_mind" not in st.to_dict()
@@ -237,13 +237,13 @@ def test_check_reports_dangling_refs_missing_refs_and_caps():
     assert len(problems) == 1 and "m9999" in problems[0]
 
     # 没有 known → 只查"有没有 refs"（不查世界）
-    st_bare = notes.NotesState(pinned=[notes.NoteItem(text="无引用", since=T0)])
+    st_bare = notes.NotesState(items=[notes.NoteItem(text="无引用", since=T0)])
     assert any("没有 refs" in p for p in notes.check(st_bare))
 
     # 总量上限（⭐ 2026-09-29 换判据: 条数不再是判据, 管的是**注入块多长**）
     long_block = notes.fold([_add(i, text=f"第{i}条" + "长" * 15, refs=(f"m{i:04d}",))
                              for i in range(1, 17)])
-    assert len(long_block.pinned) == 16
+    assert len(long_block.items) == 16
     assert any("备忘录太长" in p for p in notes.check(long_block))
     # 也可以由调用方把已经渲过的长度传进来（省一次渲染）
     assert any("备忘录太长" in p for p in
@@ -287,7 +287,7 @@ def test_check_only_cares_about_the_total():
     """
     st = notes.fold([_add(i, text=f"第{i}条", refs=(f"m{i:04d}",)) for i in range(1, 6)] +
                     [_ev(6, N_CLOSE, {"id": "n1"}), _ev(7, N_CLOSE, {"id": "n2"})])
-    assert [it.id for it in st.pinned] == ["n3", "n4", "n5"]       # 划掉的两条没了
+    assert [it.id for it in st.items] == ["n3", "n4", "n5"]       # 划掉的两条没了
     assert notes.check(st) == []                                   # 也不报任何告警
 
 
@@ -295,14 +295,14 @@ def test_check_only_cares_about_the_total():
 # 渲染: 注入块
 # ---------------------------------------------------------------------------
 
-def test_render_skips_empty_slots_entirely():
-    """空槽**不印抬头** —— 常驻预算的每一行都要有内容。
+def test_render_omits_the_block_when_empty():
+    """空 ⟹ **整块消失**（连抬头都不印）—— 常驻预算的每一行都要有内容。
 
-    ⛔ N4e（2026-09-29）: 空状态 + 只有 `on_mind` 的那种块**整个消失**
-    （`render_note_block` → `""`）—— 常驻块从此只装约定, 心境不再占一行。
+    `on_mind` / `habits` 那两列退役之后, 常驻块只装约定; 一份只有退役键的旧状态
+    也必须一个字都不印。
     """
     only_pinned = notes.render_note_block(notes.fold([_add(1)]), now=NOW)
-    assert notes.GROUP_LEADS[notes.SLOT_PINNED] in only_pinned
+    assert notes.LEAD in only_pinned
     assert "最近在想" not in only_pinned
     # 一份只有退役键的旧状态 ⇒ 一个字都不印
     legacy = notes.NotesState.from_dict({"up_to_seq": 9, "next_n": 3,
@@ -348,7 +348,7 @@ def test_render_survives_broken_since():
     （本模块纯函数零 IO）—— 拿不到映射时**整段不印**：印一个 `m1` 她读不懂，
     还违反"编号退回引擎内部"。
     """
-    st = notes.NotesState(pinned=[notes.NoteItem(id="n1", text="条目",
+    st = notes.NotesState(items=[notes.NoteItem(id="n1", text="条目",
                                                   refs=["m1"], since="不是时间")])
     assert notes.render_note_block(st, now=NOW).splitlines()[2] == "    n1 条目"
     with_titles = notes.render_note_block(st, now=NOW, titles={"m1": "模型店的午后"})
@@ -359,22 +359,56 @@ def test_render_survives_broken_since():
 # 序列化（`soul/notes.json` 的形状; 落盘在下一步）
 # ---------------------------------------------------------------------------
 
-def test_slots_and_constants_are_consistent():
-    """**只有一个槽** —— A/B 二分（操作式 / 快照式）随 `on_mind` 一起退役。
+def test_no_slot_layer_and_retired_names_stay_gone():
+    """**没有"槽"这一层**（2026-10-18 塌掉）, 退役的名字一个都不许回来。
 
-    ⚠️ N4a（2026-09-29）: 第三槽 `habits` 已退役;
-    ⛔ N4e（2026-09-29）: 第二槽 `on_mind` 退役（*"太煽情了"*）⇒ 只剩 `pinned`。
-    ⚠️ 2026-09-29: 槽名 `promise` → **`pinned`**；两条**每槽上限**判据退役, 换
-    **总量上限 `MAX_NOTE_CHARS`**（见 `check` 的 docstring）。
+    从前的 `SLOT_PINNED` / `SLOTS` / `OPSLOTS` / `GROUP_LEADS` 是「一个槽的表」: 只服务
+    N=1, 却把一次赋值绕成了 `getattr`/`setattr` 加一个概念。现在只有 `items` 与 `LEAD`。
+    常量留着"以防万一" = 还有一条静默的写路 —— 退役就是退役。
     """
-    assert notes.SLOTS == (notes.SLOT_PINNED,)
-    assert notes.OPSLOTS == (notes.SLOT_PINNED,)
-    assert not hasattr(notes, "SNAPSHOT_SLOTS"), "一个槽谈不上二分"
+    for gone in ("SLOT_PINNED", "SLOTS", "OPSLOTS", "GROUP_LEADS", "SNAPSHOT_SLOTS",
+                 "MAX_PROMISE", "MAX_HABITS", "SLOT_HABITS", "SLOT_ON_MIND",
+                 "MAX_ON_MIND_TEXT"):
+        assert not hasattr(notes, gone), gone
+    assert notes.LEAD == "· 你自己记下的约定"
     assert notes.MAX_NOTE_CHARS == 500, "总量上限（数值未标定, 真机看了再调）"
-    assert not hasattr(notes, "MAX_PROMISE"), "每槽条数上限已退役（换总量上限）"
-    assert not hasattr(notes, "MAX_HABITS") and not hasattr(notes, "SLOT_HABITS")
-    # ⛔ 退役的就是退役: 常量留着"以防万一" = 还有一条静默的写路
-    assert not hasattr(notes, "SLOT_ON_MIND")
-    assert not hasattr(notes, "MAX_ON_MIND_TEXT")
-    assert notes.GROUP_LEADS == {notes.SLOT_PINNED: "· 你自己记下的约定"}
+
+
+def test_from_dict_reads_the_three_key_names():
+    """落盘键名认三个: `items`（现行）· `pinned` / `promise`（槽名时代的旧名）。
+
+    认一次就够 —— `from_dict` 不做迁移, 下次 `save_notes` 自动写成 `items`。
+    真机上唯一那份 `notes.json` 是 `pinned` 那个键, 所以这条不是假想。
+    """
+    body = [{"id": "n1", "text": "周六模型店", "refs": ["m0009"], "since": T0}]
+    for key in ("items", "pinned", "promise"):
+        st = notes.NotesState.from_dict({"up_to_seq": 9, "next_n": 4, key: body})
+        assert [it.id for it in st.items] == ["n1"], key
+        assert (st.up_to_seq, st.next_n) == (9, 4), key
+
+
+def test_unreadable_cache_is_dropped_not_half_trusted(caplog):
+    """认不出条目容器 ⇒ **当没有缓存**（水位归零）, 不许"半信"。
+
+    半信的表现是**水位还在、条目没了** ⇒ `store.notes_state()` 见水位已到顶就不再重折
+    ⇒ 本子永远空着, 而且**零告警**。真机四种坏档（缺键 / null / 字符串 / 换了个键名）
+    都实测过这条路 —— 最后一种正是"新代码写 `items`、旧代码读"的降级形态。
+    """
+    caplog.set_level(logging.WARNING)
+    for raw in ({"up_to_seq": 500, "next_n": 9},
+                {"up_to_seq": 500, "next_n": 9, "pinned": None},
+                {"up_to_seq": 500, "next_n": 9, "pinned": "垃圾"},
+                {"up_to_seq": 500, "next_n": 9, "whatever": []}):
+        st = notes.NotesState.from_dict(raw)
+        assert st.up_to_seq == 0, raw          # 归零 = 让 fold 从事件流重折
+        assert st.items == [] and st.next_n == 1, raw
+    assert "认不出条目容器" in caplog.text
+
+
+def test_to_dict_shape_is_three_keys():
+    """`notes.json` 就三个键 —— 槽那一层塌掉之后不该再冒出第四个。"""
+    st = notes.fold([_add(1)])
+    d = st.to_dict()
+    assert sorted(d) == ["items", "next_n", "up_to_seq"], d
+    assert d["items"][0]["text"] == "周六模型店"
     assert logging.getLogger("core.brain.notes") is not None

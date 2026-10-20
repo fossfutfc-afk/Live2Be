@@ -6,7 +6,7 @@
      要么在 `COMMIT_ONLY` 里（调用路径的记录 / 提交时才赋值）。**加字段忘了归类 → 这里红**
      —— 那正是"手抄清单"时代的病根（`notes_warnings` 漏了很久）。
   ② **`writes` 里的名字真实存在**: 节点面查 `nodes.BrainNode` 的字段 · `edge` 查
-     `graph.REL_*` · `note` 查 `notes.SLOT_*`。表里写错一个字段名 = 表在骗人。
+     `graph.REL_*`。表里写错一个字段名 = 表在骗人。
   ③ **LLM 四件套同生共死**: `label` / `prompt` / `phase` / `parse` 要么都有, 要么都没有
      （只有 `akin` 是零 LLM 的一步）; prompt 文件必须在盘上; 标签必须在词表里。
   ④ **表与执行一一对应**: `pipeline.IMPL` 的 key 与表**同序同集**, 且每一步自己都
@@ -24,7 +24,7 @@ import time
 from dataclasses import MISSING
 from pathlib import Path
 
-from core.brain import WikiStoreV2, graph, notes
+from core.brain import WikiStoreV2, graph
 from core.brain.entities import ensure_entities
 from core.brain.nodes import KINDS, BrainNode
 from core.digest import rounds as R
@@ -49,7 +49,6 @@ def _rounds_src() -> str:
 
 _NODE_FIELDS = {f.name for f in dataclasses.fields(BrainNode)}
 _RELS = {v for k, v in vars(graph).items() if k.startswith("REL_")}
-_SLOTS = {v for k, v in vars(notes).items() if k.startswith("SLOT_")}
 
 
 # ---------------------------------------------------------------------------
@@ -109,15 +108,15 @@ def test_writes_names_exist_in_the_graph():
                 continue
             if face in R.FREE_FACES:
                 continue                     # 中间产物（`segment`）没有真源可查
-            source = (_NODE_FIELDS if face in R.NODE_FACES
-                      else _RELS if face == R.EDGE_FACE else _SLOTS)
+            # 非空的面只剩节点字段与边（`note` 面 2026-10-18 随槽层一起删了）
+            source = _NODE_FIELDS if face in R.NODE_FACES else _RELS
             for f in fields:
                 if f not in source:
                     bad.append(f"{spec.key}: {face}.{f} 不存在"
                                f"（{face} 的真源里没有这个名字）")
     assert not bad, "轮次表写了不存在的字段:\n  " + "\n  ".join(bad)
     n = sum(len(fs) for s in R.ROUNDS for _f, fs in s.writes)
-    print(f"    writes: {n} 个字段名全部对得上真源（节点字段/边/笔记槽）")
+    print(f"    writes: {n} 个字段名全部对得上真源（节点字段/边）")
 
 
 def test_writes_covers_the_edge_table():

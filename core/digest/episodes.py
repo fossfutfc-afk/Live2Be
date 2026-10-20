@@ -185,7 +185,7 @@ def _due_moment(note_state, item_id: str, now_ts: str) -> str:
     后面 `age_days`（aware − naive）会当场 TypeError（P1 那个坑, 已踩过）。
     语义上也没错: 那一天 + 她那阵子的作息。
     """
-    item = next((it for it in getattr(note_state, "pinned", []) or []
+    item = next((it for it in note_state.items or []
                  if str(getattr(it, "id", "")) == item_id), None)
     due = str(getattr(item, "due", "") or "").strip() if item is not None else ""
     try:
