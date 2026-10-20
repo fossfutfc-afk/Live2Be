@@ -397,65 +397,21 @@ def _two_notes():
     )
 
 
-def test_notes_path_sits_beside_the_other_two(tmp_path):
+def test_the_note_cache_is_gone_for_good(tmp_path):
+    """⏸ 2026-10-18: `soul/notes.json` 退役 —— store 不再有笔记接口, 也不再落那个文件。
+
+    判据不是"少一个文件": 那份缓存会与真源不同步, 而**它错了没人知道**
+    （真机上它吞掉过一条笔记）。全量重折是 0.1 ms 级 ⇒ 没有理由留第二份真相。
+
+    "笔记不进图事务/快照"这条老纪律仍然成立, 只是不再需要一个测试去证明它。
+    """
     st = _store(tmp_path)
-    assert st.notes_path.name == "notes.json"
-    assert st.notes_path.parent == st.path.parent == st.edges_path.parent
-
-
-def test_notes_state_folds_without_a_cache_and_does_not_write(tmp_path):
-    st = _store(tmp_path)
-    state = st.notes_state(_two_notes())
-
-    assert [it.id for it in state.items] == ["n2"]      # n1 已被划掉（close = 移除）
-    # ⚠️ 读路径**不写盘**（缓存由写者在事件 append 之后落）
-    assert not st.notes_path.exists()
-
-
-def test_save_notes_roundtrip_and_cache_hit(tmp_path):
-    st = _store(tmp_path)
-    events = _two_notes()
-    state = st.notes_state(events)
-    st.save_notes(state)
-
-    assert st.notes_path.is_file()
-    assert st.read_notes().to_dict() == state.to_dict()
-    assert st.notes_path.read_text(encoding="utf-8").rstrip().endswith("}")   # 是一个对象
-    # 缓存已覆盖全部操作 ⇒ 直接用它（增量折叠与全量重折结果相同）
-    assert st.notes_state(events).to_dict() == state.to_dict()
-    assert st.notes_state([]).to_dict() == state.to_dict()      # 给空列表也不倒退回空状态
-
-
-def test_notes_state_refolds_incrementally_and_recovers_from_loss(tmp_path):
-    from core.session.events import N_UPDATE
-    st = _store(tmp_path)
-    events = _two_notes()
-    st.save_notes(st.notes_state(events))
-
-    tail = _note_events((4, N_UPDATE, {"id": "n2", "due": "2026-01-01"}))
-    st.save_notes(st.notes_state(events + tail))
-    assert [it.id for it in st.read_notes().items] == ["n2"]
-    assert st.read_notes().items[0].due == "2026-01-01"      # 增量折叠真的接上了
-
-    # 缓存丢了 → 全量重折, 结果与缓存**逐字节一致**（"可重建"这句话的证据）
-    before = st.read_notes().to_dict()
-    st.notes_path.unlink()
-    assert not st.notes_path.exists()
-    assert st.notes_state(events + tail).to_dict() == before
-
-    # 缓存坏了 → 当没有（不炸）, 也现折回来
-    st.notes_path.write_text("{不是 json", encoding="utf-8")
-    assert st.read_notes() is None
-    assert st.notes_state(events + tail).to_dict() == before
-
-
-def test_notes_are_not_part_of_save_or_snapshot(tmp_path):
-    """note 的真源是**事件流** —— 并进图事务/快照 = digest 一次回滚带走她的本子。"""
-    st = _store(tmp_path)
+    for gone in ("notes_path", "read_notes", "save_notes", "notes_state", "NOTES_NAME"):
+        assert not hasattr(st, gone), gone
+    assert not hasattr(__import__("core.brain.store", fromlist=["x"]), "NOTES_NAME")
     st.add(make_node("episode", text="a"))
-    st.save_notes(st.notes_state(_two_notes()))
+    st.save()                                   # 图那一半照常写
+    assert not (st.path.parent / "notes.json").exists()
+    print("    store 没有笔记接口 · 落盘只有 wiki/edges/meta ✓")
 
-    st.save()                                          # 图那一半
-    st.snapshot_to(tmp_path / "snap.jsonl")
-    assert not (tmp_path / "snap.jsonl").with_name("notes.json").exists()
-    assert st.notes_path.is_file()                     # 但它自己还在（没被 save 清掉）
+

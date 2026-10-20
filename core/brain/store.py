@@ -6,8 +6,7 @@
 文件（点边分离）:
     soul/wiki.jsonl    点 —— 一行一条 `BrainNode`（边不写在这里）
     soul/edges.jsonl   边 —— 一行一条 `Edge {rel, src, dst, ts}`
-    soul/notes.json    笔记的**派生缓存** —— 不归 `save()`, 真源是事件流的 note 操作,
-                       由 `notes_state()` / `save_notes()` 单独读写
+    随身笔记**不在本模块**: 它是事件流的派生物, 由 `notes.fold(events)` 现折（无落盘）。
 
 规则:
     - 写: 内存操作（add / update / delete / add_edge…）→ `save()` 原子整写两个文件
@@ -36,8 +35,6 @@ from core.brain.graph import (
     related,
 )
 from core.brain.nodes import BrainNode, format_id
-from core.brain.notes import NotesState, fold
-from core.session.events import TYPE_NOTE
 from core.session.io import atomic_write_json, atomic_write_lines, read_jsonl
 
 logger = logging.getLogger(__name__)
@@ -61,8 +58,6 @@ _FIELDS = set(BrainNode.__dataclass_fields__.keys())
 
 #: 边表文件名（与 wiki.jsonl 同目录 —— 记忆层自包含, §0.1）
 EDGES_NAME = "edges.jsonl"
-#: 随身笔记缓存文件名（§3.2; 同目录 —— 与点/边一样属于"记忆层自包含"那一份）
-NOTES_NAME = "notes.json"
 #: 提交日志（两阶段提交的中间态: 点 + 边 + meta 一次写全, 再逐份应用）
 TXN_NAME = "wiki.txn.json"
 
@@ -86,8 +81,6 @@ class WikiStoreV2:
         #: 边表（点边分离的另一半 —— **2026-09-21 G3 起边的唯一落盘处**）
         self.edges_path = self.path.with_name(EDGES_NAME)
         self.meta_path = self.path.with_name("wiki.meta.json")
-        #: 随身笔记缓存（§3.2 —— 与点/边同目录; 不进 `save()` / 快照, 见模块 docstring）
-        self.notes_path = self.path.with_name(NOTES_NAME)
         #: 提交日志路径（加载时若残留 ⇒ 补完那次提交, 见 `_roll_forward`）
         self.txn_path = self.path.with_name(TXN_NAME)
         #: 世界根定位
@@ -415,8 +408,7 @@ class WikiStoreV2:
     def save(self) -> None:
         """整写点 + 边（= `commit()`, 连 meta 一起进同一个事务）。
 
-        **不含 `notes.json`** —— note 的真源是事件流, 它的提交点在"事件 append 之后"
-        （见 `save_notes`）。并进来的话, digest 的一次回滚就会把她的本子一起带走。
+        随身笔记**不在这里**（它是事件流的派生物, 没有可写的缓存）。
         """
         self.commit()
 
@@ -449,7 +441,7 @@ class WikiStoreV2:
         R6 存档点语义: 自包含。**只写点的话, 快照回来的记忆是断连的**
         （entity 车道 / 支撑链全空）——而边是可重算的派生物,
         点不是, 所以快照必须两样都带。
-        **`notes.json` 不进快照**: 它是**事件流的**派生缓存, 而快照不带事件流 ——
+        **随身笔记不进快照**: 它是事件流的派生物, 而快照不带事件流 ——
         单独带上它只会造出"半个世界"（本子指着的世界已经不在快照里了）。
         """
         dest = Path(dest)
@@ -479,46 +471,6 @@ class WikiStoreV2:
     def lines(self) -> Iterable[str]:
         """当前全部节点的 jsonl 行（调试/审计用）。"""
         return (n.to_json_line() for n in self._nodes.values())
-
-    # ------------------------------------------------------------------
-    # 随身笔记—— `notes.py` 的落盘, 只此三个出口
-    # ------------------------------------------------------------------
-
-    def read_notes(self) -> NotesState | None:
-        """读笔记缓存; **不存在 / 读不动 → None**（与"读出来是空的"区分, 同 `_read_edge_file`）。"""
-        import json
-        try:
-            raw = json.loads(self.notes_path.read_text(encoding="utf-8"))
-        except FileNotFoundError:
-            return None
-        except (OSError, ValueError) as e:          # 坏文件 = 没有（现折一遍就回来）
-            logger.warning("笔记缓存读不动（当没有, 会全量重折）: %s", e)
-            return None
-        return NotesState.from_dict(raw)
-
-    def notes_state(self, events: Iterable[object]) -> NotesState:
-        """事件流 → 笔记状态（缓存优先; **读路径不写盘**, 同 `ensure_entities` 那条纪律）。
-
-        - 缓存已覆盖全部 note 操作 ⇒ 直接用（省一次折叠）
-        - 否则**增量折叠**（`base` = 缓存）; 缓存丢了/坏了 ⇒ **全量重折**
-          —— 两条路结果相同（`notes.fold` 的保证），所以"缓存可重建"这句话是真的
-        """
-        events = list(events)                        # 可能是一次性可迭代; 下面要走两遍
-        newest = max((int(getattr(e, "seq", 0) or 0) for e in events
-                      if getattr(e, "type", None) == TYPE_NOTE), default=0)
-        cached = self.read_notes()
-        if cached is not None and cached.up_to_seq >= newest:
-            return cached
-        return fold(events, base=cached)
-
-    def save_notes(self, state: NotesState) -> None:
-        """原子整写笔记缓存 —— 它**只是派生缓存**（真源 = 事件流的 note 操作）, 删了现折就回来。
-
-        提交点 = **事件 append 之后**（先真源、后缓存）: 反过来写会出现"本子上有、事件流没有"
-        —— 那条笔记没有人能重建它。**不并入 `save()`**: 两个写者（图事务 / note 操作）
-        各落各的文件, digest 的一次回滚不该把她的本子带走。
-        """
-        atomic_write_json(self.notes_path, state.to_dict())
 
     # ------------------------------------------------------------------
     # 图不变量审计（图算法正确性确认——冒烟/R6 完整性检查用）

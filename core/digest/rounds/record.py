@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import logging
 
-from core.brain.notes import add_op, close_op, update_op
+from core.brain.notes import add_op, close_op, fold, update_op
 from core.digest.episodes import _create_a_nodes, _resolve_verbatim, _spanless_nodes
 from core.digest.material import SKELETON_HINT, _skeleton_rows, _skeleton_text, existing_entities_line
 from core.digest.rounds.base import Ctx, RoundOut
@@ -95,7 +95,7 @@ def run(ctx: Ctx) -> RoundOut:
         ctx.log_skip(spec)              # 日志文案来自表里 `skip` 格（这一轮**不调 LLM**）
     # ⭐ **L7 ①: 无区间那一行 ⇒ 一条"没有那一刻"的经历**（正文 = R0 的 `abstract`,
     #    不过 R1; 它**也是**本段的经历 ⇒ 进 `episode_ids`, R2/R3 照常接得上）
-    note_state = ctx.store.notes_state(ctx.events)
+    note_state = fold(ctx.events)
     spanless = _spanless_nodes(ctx.store, ctx.result.segments, note_state=note_state,
                                now_ts=ctx.now_ts, interact_max=ctx.interact_max,
                                reused_out=reused)
