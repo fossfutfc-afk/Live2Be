@@ -1,7 +1,4 @@
-> **已归档（2026-09-12）**：情绪精度 × 延迟的早期取舍讨论稿（写作时 emotion 还是
-> "主 LLM 逐句内联"形态）。**不再更新, 以代码为准**。
-> 取代者：`docs/EXEC_BOND_LATENCY.md`（体感延迟工程现网）· `docs/DESIGN_STREAM_CONTRACT.md`（记录流 v2）
-> · `CLAUDE.md §4`（emotion 现网口径：按板一次、一条记录一个键、标注层做）。
+
 
 # 核心矛盾:
 
@@ -61,23 +58,24 @@
 
 ```json
 {
-	character: igusa_haruka,
-	plot:[
-		paragraph0: {
-			text: "您好...老师...",
-			emotion: "nomal"
+	"character": "igusa_haruka",
+	"plot": {
+		"paragraph0": {
+			"text": "您好...老师...",
+			"emotion": "nomal"
 		},
-		paragraph1: {
-			text: "我想和您讨论一件...很微不足道的小事..."   -->   出现缺失emotion 
+		"paragraph1": {
+			"text": "我想和您讨论一件...很微不足道的小事..."   -->   出现缺失emotion 
 		},
-		...
-		...
-		...
-		paragraphN: {
-			text: "感谢老师，我永远也不会忘记您的大恩大德的...".
-			emotion: "smile"
+		"paragraph2..N": {
+			"text": "~",
+			"emotion": "~"
 		},
-	]
+		"paragraphN": {
+			"text": "感谢老师，我永远也不会忘记您的大恩大德的...".
+			"emotion": "smile"
+		},
+	}
 }
 ```
 
@@ -96,21 +94,21 @@
 例: 一次标注3段，出错概率大大减小
 ```json
 {
-	character: rikuhachima_aru,
-	plot:[
-		paragraph0: {
-			text: "啊哈!老师!",
-			emotion: "laugh"
+	"character": "rikuhachima_aru",
+	"plot": {
+		"paragraph0": {
+			"text": "啊哈!老师!",
+			"emotion": "laugh"
 		},
-		paragraph1: {
-			text: "我们社团最近接了一个大任务哦!",
-			emotion: "confidence"
+		"paragraph1": {
+			"text": "我们社团最近接了一个大任务哦!",
+			"emotion": "confidence"
 		},
-		paragraph2: {
-			text: "哎呀!什么叫拯救小猫大作战!那都是以前的事情了!".
-			emotion: "fake_confidence"
+		"paragraph2": {
+			"text": "哎呀!什么叫拯救小猫大作战!那都是以前的事情了!",
+			"emotion": "fake_confidence"
 		},
-	]
+	}
 }
 ```
 ## 最终结论?
@@ -126,7 +124,7 @@
 
 不过，AI把它找回来了，而且这是这个项目中，AI最惊艳到我的决策。
 
-# 流解异步加并发，AIGC笑哈哈
+# 异步线程
 
 AI说可以两步走，先生成文案，然后逐句分析情感，但是这一切不单开导演，而是让我们调用的这个LLM走并发，这样，不用多给导演人设题词和情绪词表，利用原生缓存机制可以大大降低我们的消费。不过，在实测中，这个行为总耗时接近13s，虽然准确，但是不如最开始的短篇输出速度快，难道说，这条路也走不通吗?
 
@@ -155,6 +153,8 @@ AI说可以两步走，先生成文案，然后逐句分析情感，但是这一
 这完美解决了上面的几乎所有问题，因为精度不仅由输出长短决定，它也由LLM所获取的任务决定。异步LLM任务小精度高，主LLM生成文章，二者几乎都不会出问题。从这个层面上解决了退火的必要性。
 
 甚至假如你真的不信任模型的输出，**并发修正**和**流并发解析**并不矛盾，简直是如虎添翼。
+
+# 以下由AI接管
 
 
 
