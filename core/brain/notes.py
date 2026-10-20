@@ -50,12 +50,8 @@ logger = logging.getLogger(__name__)
 #: 隐含）⇒ **真源零影响**; 只有**派生缓存** `notes.json` 里有那个键 ⇒ `from_dict`
 #: 兼容读一次旧名（见 `_LEGACY_SLOT`）。
 SLOT_PINNED = "pinned"
-#: **"这条经历是她随身带着过的一件事"** 的**节点 tag**（§4.5; L7 2026-10-05）。
-#: 打给**出生那条** episode（`state=open` 那一行长出来的那条）, **建节点时**由引擎写,
-#: 不走 revise 通道、**也不让 R1 写**（提示词里那一句已删 —— 判据在 R0,
-#: 两个写者 = 迟早一个标了 `close` 那一条）。
-#: 它只是**筛选词**（同 `tags` 的既有定位）, 不承担路由。
-PINNED_TAG = "#pinned"
+# ⏸ `PINNED_TAG = "#pinned"`（2026-10-18 删）—— 它打在出生那条 episode 的 `tags` 上,
+# 而**没有任何读者**（`tags` 不进注入面, 也没有筛选在用）。同一件事由图里那条经历承担。
 #: 派生缓存里的**旧**槽名（改名前的 `promise`）—— 只读一次, 下次保存自动改写。
 _LEGACY_SLOT = "promise"
 #: ~~`SLOT_HABITS = "habits"`~~ **2026-09-29（N4a）已退役**：它是"规律"的劣质替身
@@ -84,12 +80,9 @@ MAX_NOTE_CHARS = 500
 #: **长度只有一个真源 = 契约层**（`ABSTRACT_MAX`）—— 别在体检里再管一次。
 #: ~~`MAX_ON_MIND_TEXT = 60`~~ **2026-09-29（N4e）随 `on_mind` 退役** ——
 #: 它是"按槽分标尺"里的那一支（心境可以有口气、有破折号 ⇒ 与 A 槽不同限）。
-#: **`add` 操作上的去重键**（3b-3, 2026-09-29）—— "这条笔记指向哪条经历"。
-#: `fold` 见到"本子上已经有一条 `refs` 含同一个值"就**跳过这条 add**:
-#: digest 重跑（水位没推进 / 崩溃窗口）时, 节点面已经由 `_find_duplicate` 复用,
-#: 而笔记面靠它。**名字是字面量 `"src"`**（不是槽名）—— 它是 op 的元数据,
-#: 不是条目字段; `NoteItem.from_dict` 不认它（它只在写侧与 `fold` 之间用）。
-ALREADY_PINNED = "src"
+# ⏸ `ALREADY_PINNED = "src"`（2026-10-18 删）—— 它**恒等于 `refs[0]`**: 生产唯一的
+# 构造点（`record._ledger_ops`）传的就是同一条 episode ⇒ 去重改看 `refs[0]`,
+# 事件 payload 少一个重复键。
 
 #: `PINNED_OUTCOMES = ("kept", "broken", "superseded")` 2026-10-05 删 —— 三种结局
 #: 一律划掉之后它没有读者了: 结局写在**图里那条经历**的正文里。（契约层那份同名副本
@@ -293,17 +286,19 @@ def fold(events: Iterable[Any], *, base: NotesState | None = None) -> NotesState
 def _apply_add(st: NotesState, payload: dict, ts: str, seq: int) -> None:
     """加一条（A 类）—— `id`/`since` 由引擎给（模型只写正文 + 引用）。
 
-    **重跑幂等的第二道**（3b-3）: `payload[ALREADY_PINNED]`（= 这条笔记由哪条经历
-    长出来的）已经在某条活着的条目里 ⇒ **跳过**（同一条经历不重复钉）。
-    拿它比、**不拿正文比**: 她两次可能把同一句话写得不一样, 而来源是确定的。
+    **重跑幂等的第二道**（3b-3）: 出生那条经历（= `refs[0]`, 生产里唯一的那一条）
+    已经在某条活着的条目里 ⇒ **跳过**（同一条经历不重复钉）。拿它比、**不拿正文比**:
+    她两次可能把同一句话写得不一样, 而来源是确定的。
+    ⚠️ **一条经历最多长一条笔记**（现有语义, 不是这条改动引入的）: 两件心愿落在同一条
+    经历上时第二条会被静默跳过。真机做不到（每条 `state=open` 的切片各长一条 episode）。
     """
     text = str(payload.get("text") or "").strip()
     refs = _str_list(payload.get("refs"))
     if not text or not refs:
         logger.warning("note/add 残缺（跳过）: seq=%s text=%r refs=%r", seq, text, refs)
         return
-    src = str(payload.get(ALREADY_PINNED) or "").strip()
-    if src and any(src in it.refs for it in st.pinned):
+    src = refs[0]
+    if any(src in it.refs for it in st.pinned):
         logger.info("note/add 跳过（同一条经历已经钉过）: src=%s seq=%s", src, seq)
         return
     st.pinned.append(NoteItem(id=_alloc_id(st), text=text, refs=refs, since=ts,
@@ -381,19 +376,15 @@ def _alloc_id(st: NotesState) -> str:
 # 写侧: 构造 + 校验（唯一出口）
 # ---------------------------------------------------------------------------
 
-def add_op(text: str, refs: Iterable[str], *, due: str = "", src: str = "") -> dict:
+def add_op(text: str, refs: Iterable[str], *, due: str = "") -> dict:
     """`add` 操作（**不需要理由** —— 正文自己就是理由）。
 
-    `src`（3b-3, 2026-09-29）: **这条笔记由哪条经历长出来的**（= 它唯一那条 ref）。
-    它是**去重键**: `fold` 见到"本子上已经有一条指向同一条经历的"就跳过 ——
-    重跑幂等的第二道（第一道是 `_find_duplicate` 复用节点, 那一道在节点面）。
-    去重**拿它、不拿正文**: 她两次可能把同一句话写得不一样, 而"指向哪条经历"是确定的。
+    去重键 = **`refs[0]`**（出生那条经历）: `fold` 见到"本子上已经有一条指向同一条
+    经历的就跳过 —— 重跑幂等的第二道（第一道是 `_find_duplicate` 复用节点）。
     """
     op: dict[str, Any] = {"action": N_ADD, "text": text, "refs": list(refs)}
     if str(due or "").strip():
         op["due"] = due                                   # 可选; 空则不落这个键
-    if str(src or "").strip():
-        op[ALREADY_PINNED] = src
     return _checked(op)
 
 
@@ -466,8 +457,6 @@ def validate_ops(ops: list[dict]) -> None:
     查的是"**事件自身是否自足**"（一 append 就不可改, 残缺的写不进去）:
     动作名 · `add` 的 `text` + `refs` · `close` 的 `id` · **`update` 的 `id` + 至少一样**。
     **不查** `refs` 是否存在 —— "世上有没有那个节点"要看世界, 归 `check()` 告警。
-    `add` 上的 `ALREADY_PINNED`（`src`）也**不查**（3b-3）: 它是去重键,
-    指向的节点存不存在同样归 `check()`。
     **`close` 的 `afterwards` / `state` 不再查**（2026-10-05: 不再进 op）。
     **`retire` / `rewrite` 已不在写侧** —— 前者与 `close` 合并, 后者随 `on_mind` 退役
     （N4e）; 走到这里 = 有人新造了一条往旧形状里写的操作 ⇒ 按**未知动作**拒

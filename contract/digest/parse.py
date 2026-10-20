@@ -1029,8 +1029,7 @@ def _split_tags(raw: Any, refs: Any, warnings: list[str], drops: list[str], *,
       · `tags` 里那些 `#entity:名字` = **她惯性还在写**（老契约教了两版）⇒ **认得出、
         挪进 `entity`**（⛔ 不丢行、不判非法 —— 同 `profile` / `experience` 的 B 案口径）,
         只记一条 warning 提醒她"下次写在 `entity` 那一格"。
-    ⛔ **`#` 开头的别的东西**照旧只告警（那是引擎的标记空间, 不该占检索词）——
-    但 `#pinned` 那种**根本不在节点 tags 上**的东西, 不必在这里编故事。
+    ⛔ **`#` 开头的别的东西**照旧只告警（那是引擎的标记空间, 不该占检索词）。
 
     ⚠️ 本函数**只做形状**（纯字符串）: 引用里的名字**不在这里解析**（契约层没有 store）
     ⇒ 归一与落边在执行层（`entities.normalize_entity_refs` / `revise.link_entity_refs`）。

@@ -350,7 +350,7 @@ def test_the_spanless_row_does_not_shift_the_alignment(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# ⑧ L7: 按 R0 那张表产 op（add / update / close + `#pinned`）+ 无区间那段经历
+# ⑧ L7: 按 R0 那张表产 op（add / update / close）+ 无区间那段经历
 # ---------------------------------------------------------------------------
 
 _SPANLESS = {"span": None, "state": "close", "id": "n1",
@@ -358,8 +358,12 @@ _SPANLESS = {"span": None, "state": "close", "id": "n1",
              "title": "生日那天", "significance": 0.9}
 
 
-def test_open_row_makes_the_note_and_marks_the_birth_episode(tmp_path):
-    """`state=open` ⇒ `note/add`（`refs` = **它自己那条** episode）+ 出生那条打 `#pinned`。"""
+def test_open_row_makes_the_note_pointing_at_its_own_episode(tmp_path):
+    """`state=open` ⇒ `note/add`（`refs` = **它自己那条** episode）。
+
+    ⚠️ 2026-10-18: 从前这里还断言出生那条打了 `#pinned` —— 那个 tag **没有任何读者**
+    （`tags` 不进注入面）, 已删。所以这里反过来守门: **tags 里不该出现 `#` 起头的东西**。
+    """
     split = {"segments": [{"span": [3, 3], "abstract": "我把团子带来了", "state": "open"}]}
     record = {"episodes": [{"text": "我把团子带来了", "title": "团子", "tags": ["团子"]}]}
     st = _store(tmp_path)
@@ -368,10 +372,11 @@ def test_open_row_makes_the_note_and_marks_the_birth_episode(tmp_path):
     assert res.ok, res.errors
     op, = res.notes_ops
     assert op["action"] == "add" and op["text"] == "我把团子带来了"
-    assert op["refs"] == [op["src"]], op
+    assert len(op["refs"]) == 1, op                  # 一条笔记指一条经历
     birth = st.get(op["refs"][0])
-    assert notes.PINNED_TAG in (birth.tags or []), birth.tags
-    print(f"    open ⇒ add（refs={op['refs']}）· 出生那条打了 {notes.PINNED_TAG} ✓")
+    assert birth is not None, op["refs"]
+    assert not [t for t in (birth.tags or []) if str(t).startswith("#")], birth.tags
+    print(f"    open ⇒ add（refs={op['refs']}）· 出生那条没有 # 标记 ✓")
 
 
 def test_update_row_corrects_the_note_and_keeps_the_audit(tmp_path):

@@ -143,6 +143,23 @@ def test_add_rejects_missing_refs_on_read_side(caplog):
     assert notes.check(notes.fold([_add(1)])) == []   # 正常条目零告警
 
 
+def test_add_of_the_same_episode_is_skipped(caplog):
+    """同一条经历（= `refs[0]`）长出的第二条笔记 ⇒ **跳过**（重跑幂等的第二道）。
+
+    判据: 拿"指向哪条经历"比, **不拿正文比** —— 她两次可能把同一句话写得不一样。
+    ⚠️ 副作用（现有语义）: 一条经历最多长一条笔记。真机做不到（每条 `state=open` 的
+    切片各长一条 episode）, 所以先按"一条一条"处理。
+    """
+    caplog.set_level(logging.INFO)
+    st = notes.fold([_add(1, text="周六模型店"),
+                     _add(2, text="换个说法再说一遍", refs=("m0009",), ts=T1),
+                     _add(3, text="还他笔记", refs=("m0011",), ts=T1)])
+    assert [it.text for it in st.pinned] == ["周六模型店", "还他笔记"], \
+        "同一条经历被钉了两次"
+    assert "已经钉过" in caplog.text
+    print("    同 refs[0] 只留一条 · 不同经历照常 ✓")
+
+
 # ---------------------------------------------------------------------------
 # 折叠: rewrite（B 类整段替换）
 # ---------------------------------------------------------------------------
@@ -224,7 +241,7 @@ def test_check_reports_dangling_refs_missing_refs_and_caps():
     assert any("没有 refs" in p for p in notes.check(st_bare))
 
     # 总量上限（⭐ 2026-09-29 换判据: 条数不再是判据, 管的是**注入块多长**）
-    long_block = notes.fold([_add(i, text=f"第{i}条" + "长" * 15, refs=("m0009",))
+    long_block = notes.fold([_add(i, text=f"第{i}条" + "长" * 15, refs=(f"m{i:04d}",))
                              for i in range(1, 17)])
     assert len(long_block.pinned) == 16
     assert any("备忘录太长" in p for p in notes.check(long_block))
@@ -253,11 +270,11 @@ def test_stats_is_a_ledger_not_a_warning():
     assert notes.check(empty) == []
 
     st = notes.fold([_add(1, text="周六模型店", refs=("m0009",)),
-                     _add(2, text="还他笔记", refs=("m0009",), ts=T1)])
+                     _add(2, text="还他笔记", refs=("m0011",), ts=T1)])
     assert notes.stats(st)["open"] == 2
     assert notes.stats(st)["block_chars"] == len(notes.render_note_block(st))
     # 开着的条目**本身不产生告警**（它不是问题 —— 本子就是装这个的）
-    assert notes.check(st, known={"m0009"}) == []
+    assert notes.check(st, known={"m0009", "m0011"}) == []
     # 也可以由调用方把已经渲过的长度传进来（省一次渲染）
     assert notes.stats(st, block_chars=7)["block_chars"] == 7
 
@@ -268,7 +285,7 @@ def test_check_only_cares_about_the_total():
     从前的"结清未退场积压"（`MAX_CLOSED_PENDING`）随两段式一起没了: 条目**划掉即消失**,
     本子上只有还开着的 ⇒ "积压"这个概念不存在。
     """
-    st = notes.fold([_add(i, text=f"第{i}条", refs=("m0009",)) for i in range(1, 6)] +
+    st = notes.fold([_add(i, text=f"第{i}条", refs=(f"m{i:04d}",)) for i in range(1, 6)] +
                     [_ev(6, N_CLOSE, {"id": "n1"}), _ev(7, N_CLOSE, {"id": "n2"})])
     assert [it.id for it in st.pinned] == ["n3", "n4", "n5"]       # 划掉的两条没了
     assert notes.check(st) == []                                   # 也不报任何告警
