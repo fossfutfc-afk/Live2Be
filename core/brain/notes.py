@@ -4,9 +4,11 @@
 它不是记忆（不改写历史）、不是人设（不装设定）、也不是图的镜像 —— 只装**她自己挑过的**。
 
     真源   `soul/events.jsonl`   append-only 的**操作**（`add` / `close` / `update` / `rewrite`）
-    缓存   `soul/notes.json`     `fold()` 的结果 + `up_to_seq` 水位（可随时重建）
+    状态   `fold(events)`        **每次现折, 没有缓存文件**
 
-⇒ 并发安全（主 LLM 与 digest 同时写不丢更新）· 可回放 · 与水位同频。
+⇒ 并发安全（主 LLM 与 digest 同时写不丢更新）· 可回放 · **只有一份真相**。
+⚠️ 2026-10-18 退役了 `soul/notes.json`: 那份派生缓存会与真源不同步, 而它错了没人知道
+（真机上它吞掉过一条笔记）。全量重折是 0.1 ms 级, 不值一条第二真相。
 
 **只有一列** —— 她随身带着的事（誓约 / 重大的约定）。更新模型 = `add` ·
 **`close` 结清**（划掉即移除: 本子是当前抽屉, 不是账簿; 结局写在图里那条经历的正文上）。
@@ -41,11 +43,6 @@ from core.session.events import (
 logger = logging.getLogger(__name__)
 
 # ⏸ `PINNED_TAG`（节点 tag）2026-10-18 删: **零读者**（`tags` 不进注入面）。别加回来。
-
-#: 派生缓存 `notes.json` 里那列条目的**键名**。`pinned` / `promise` 是它的两个旧名
-#: （槽名时代留下的, 只读一次）。认一个就够 —— **一个都认不出就当没有缓存**（见 `from_dict`）。
-_ITEMS_KEY = "items"
-_LEGACY_KEYS: tuple[str, ...] = ("pinned", "promise")
 
 #: **备忘录的总量上限（字）**。
 #: ## 为什么是"总量"而不是"每槽条数"
@@ -103,50 +100,17 @@ class NoteItem:
         return NoteItem(id=self.id, text=self.text, refs=list(self.refs),
                         since=self.since, due=self.due)
 
-    def to_dict(self) -> dict:
-        d: dict[str, Any] = {"text": self.text, "refs": list(self.refs),
-                             "since": self.since}
-        if self.id:
-            d["id"] = self.id
-        if self.due:
-            d["due"] = self.due
-        return d
-
-    @classmethod
-    def from_dict(cls, raw: Any) -> NoteItem | None:
-        """宽松读（坏值 / **已划掉的** → None）。
-
-        **裸字符串也收**（`{"text": raw}`）—— 那是 `on_mind` 时代的形状
-        （N4e 之前 `rewrite` 收裸字符串）; 旧档读得进来但**没有槽接它**了。
-        **带 `closed_at` 的旧条目一律不进状态**（2026-10-05）: 那是一条**已经划掉的**
-        条目（旧两段式的中间态）, 而新口径下本子上只留开着的 —— 放它进来它就会以
-        "还开着"的样子重新出现。从事件流重折会得到同样的结果。
-        """
-        if isinstance(raw, str):
-            raw = {"text": raw}
-        if not isinstance(raw, dict):
-            return None
-        if str(raw.get("closed_at") or "").strip():
-            return None
-        text = str(raw.get("text") or "").strip()
-        if not text:
-            return None
-        return cls(id=str(raw.get("id") or "").strip(),
-                   text=text,
-                   refs=_str_list(raw.get("refs")),
-                   since=str(raw.get("since") or "").strip(),
-                   due=str(raw.get("due") or "").strip())
 
 
 @dataclass
 class NotesState:
-    """折叠结果 = `soul/notes.json` 的内容（**派生缓存**, 可随时从事件流重建）。
+    """`fold(events)` 的结果 —— **纯内存, 不落盘**（没有缓存文件）。
 
-    `up_to_seq` —— 已折进的**最大事件 seq**（增量折叠的水位）。
-    `next_n`    —— 下一个 `id` 号（纪律 2: 只增不复用 ⇒ 不能从活着的条目推）。
+    `next_n` —— 下一个 `id` 号。纪律 2: **只增不复用**, 而"增到哪"由**折叠**决定:
+               分配过的号 + `close`/`update` **引用过**的号, 取最大 + 1（`_bump_seen`）。
+               只按"活着的那几条"推会**回退**（退役的槽当年分过号, 事件流里还躺着引用）。
     """
 
-    up_to_seq: int = 0
     next_n: int = 1
     #: 还开着的那列（划掉即移除 ⇒ "关着的"不在里面）。
     items: list[NoteItem] = field(default_factory=list)
@@ -154,69 +118,28 @@ class NotesState:
     def __post_init__(self) -> None:
         """护栏: **发号器至少比现有 id 大**（纪律 2"只增不复用"的兜底）。
 
-        正常路径（`fold`）不会踩到; 手工构造的状态 / 旧档推错的 `next_n` 会 —— 那会发出
-        **重号**, 而 `close`/`update` 只按号找人 ⇒ 旧引用指错条目（静默）。
+        正常路径（`fold`）不会踩到; 手工构造的状态会 —— 那会发出 **重号**,
+        而 `close`/`update` 只按号找人 ⇒ 旧引用指错条目（静默）。
         """
         self.next_n = max(self.next_n, _derive_next_n(self.items))
-
-    def clone(self) -> NotesState:
-        return NotesState(up_to_seq=self.up_to_seq, next_n=self.next_n,
-                          items=[it.copy() for it in self.items])
-
-    def to_dict(self) -> dict:
-        return {"up_to_seq": self.up_to_seq, "next_n": self.next_n,
-                _ITEMS_KEY: [it.to_dict() for it in self.items]}
-
-    @classmethod
-    def from_dict(cls, raw: Any) -> NotesState:
-        """宽松读（坏文件 → 空状态 = 现折一遍就回来了, 不会丢真源）。
-
-        键名认三个: `items`（现行）· `pinned` / `promise`（槽名时代的两个旧名）。
-        条目里带 `closed_at` 的算**已经划掉**（旧两段式的中间态）⇒ 不进状态
-        （`NoteItem.from_dict` 判的）。
-
-        ⭐ **一个都认不出 ⇒ 整份当"没有缓存"（`up_to_seq` 归零）**。判据是
-        "宁可不信, 不可半信": 半信的表现是**水位还在、条目没了** ⇒ `notes_state()`
-        认为"已折到这" ⇒ 再也不重折 ⇒ **静默失忆, 零告警**（四种坏档都实测过）。
-        归零之后 `fold(events)` 全量重折 —— 它是确定性的（同一事件流必然振出同样的
-        `n1`/`n2`…）, 所以重建出来的号与事件流里的旧引用一致。
-        """
-        if not isinstance(raw, dict):
-            return cls()
-        for key in (_ITEMS_KEY, *_LEGACY_KEYS):
-            if isinstance(raw.get(key), list):
-                items = _items_of(raw[key])
-                next_n = _int(raw.get("next_n"))
-                if next_n < 1:                 # 旧档/坏档: 从活着的 id 推一个下界
-                    next_n = _derive_next_n(items)
-                return cls(up_to_seq=max(0, _int(raw.get("up_to_seq"))),
-                           next_n=next_n, items=items)
-        logger.warning("笔记缓存认不出条目容器（顶层键: %s）—— 当没有缓存, 从事件流重折",
-                       sorted(raw))
-        return cls()
 
 
 # ---------------------------------------------------------------------------
 # 折叠: 操作事件 → 状态（纯函数）
 # ---------------------------------------------------------------------------
 
-def fold(events: Iterable[Any], *, base: NotesState | None = None) -> NotesState:
-    """事件流 → 笔记状态。
+def fold(events: Iterable[Any]) -> NotesState:
+    """事件流 → 笔记状态（**全量, 每次现折**）。
 
-    增量: 给 `base` 就只折 `seq > base.up_to_seq` 的（省重复工作）; 不给就**全量重折**
-    （`notes.json` 丢了 / 落后时的重建路径 —— 两条路的结果逐字节相同）。
+    没有增量路径、也没有缓存文件: 全量重折是 0.1 ms 级（真机 445 事件 / 5 条操作）,
+    而缓存换来的是"第二份真相"—— 真机上它吞掉过一条笔记。
 
-    `base` 必须恰好是"折到 `up_to_seq` 为止"的状态 —— `id` 由**折叠次序**分配,
-       喂一个半途的状态会让编号错位（与水位纪律同理）。
-
-    读侧**宽松**: 坏操作只告警不抛。`notes.json` 是派生缓存, 折不出来 = 她凭空失忆,
-    而一条坏事件不该有这个权力。
+    `id` 由**折叠次序**（= seq 序）分配 ⇒ 同一事件流必然振出同样的号, 确定性可依赖。
+    读侧**宽松**: 坏操作只告警不抛（折不出来 = 她凭空失忆, 而一条坏事件不该有这权力）。
     """
-    st = base.clone() if base is not None else NotesState()
-    ops = [e for e in events
-           if getattr(e, "type", None) == TYPE_NOTE
-           and _int(getattr(e, "seq", 0)) > st.up_to_seq]
-    ops.sort(key=lambda e: _int(getattr(e, "seq", 0)))       # 防御: 折叠次序 = seq 序
+    st = NotesState()
+    ops = [e for e in events if getattr(e, "type", None) == TYPE_NOTE]
+    ops.sort(key=lambda e: _int(getattr(e, "seq", 0)))       # 折叠次序 = seq 序
     for e in ops:
         seq = _int(getattr(e, "seq", 0))
         sub = str(getattr(e, "subtype", "") or "")
@@ -239,7 +162,6 @@ def fold(events: Iterable[Any], *, base: NotesState | None = None) -> NotesState
             pass
         else:
             logger.warning("note 未知操作（跳过）: subtype=%r seq=%s", sub, seq)
-        st.up_to_seq = max(st.up_to_seq, seq)
     return st
 
 
@@ -281,6 +203,7 @@ def _apply_close(st: NotesState, payload: dict, ts: str, seq: int) -> None:
     if not nid:
         logger.warning("note/close 缺 id（跳过）: seq=%s", seq)
         return
+    _bump_seen(st, nid)                     # 号见过就算数（哪怕这条已经不在本子上）
     if not any(it.id == nid for it in st.items):
         logger.warning("note/close 指不到任何条目（跳过）: id=%s seq=%s", nid, seq)
         return
@@ -304,6 +227,7 @@ def _apply_update(st: NotesState, payload: dict, seq: int) -> None:
     if not new_due and not new_text:
         logger.warning("note/update 一样都没改（跳过）: id=%s seq=%s", nid, seq)
         return
+    _bump_seen(st, nid)
     for it in st.items:
         if it.id != nid:
             continue
@@ -326,6 +250,17 @@ def _alloc_id(st: NotesState) -> str:
     nid = f"n{st.next_n}"
     st.next_n += 1
     return nid
+
+
+def _bump_seen(st: NotesState, nid: str) -> None:
+    """把**见过**的号计入发号器（高水位）—— `close` / `update` 引用的号也算。
+
+    ⚠️ 判据是**分配过 ∪ 被引用过**, 不是"活着的那几条" —— 后者会**回退**:
+    退役的槽（`habits` / `on_mind`）当年分配过 n2~n5, 退役后重折不再分配它们,
+    而事件流里还躺着 `close n5`。只按活着推 ⇒ `next_n` 掉回 3 ⇒ 新笔记重新用上
+    n3/n4/n5, 而历史引用过这些号（真机就是这么一对: 重折 3 / 缓存 6）。
+    """
+    st.next_n = max(st.next_n, _id_num(nid) + 1)
 
 
 # ---------------------------------------------------------------------------
@@ -616,23 +551,6 @@ def _since_suffix(it: NoteItem, now: object | None) -> str:
 # ---------------------------------------------------------------------------
 # 小工具
 # ---------------------------------------------------------------------------
-
-def _items_of(raw: Any) -> list[NoteItem]:
-    """宽松读一列条目（**丢坏条目要出声** —— 静默丢就是静默失忆）。"""
-    if raw is None:
-        return []
-    if not isinstance(raw, list):
-        logger.warning("note 槽不是数组（当空处理）: %r", type(raw).__name__)
-        return []
-    out: list[NoteItem] = []
-    for r in raw:
-        it = NoteItem.from_dict(r)
-        if it is None:
-            logger.warning("note 条目残缺（丢掉）: %r", r)
-            continue
-        out.append(it)
-    return out
-
 
 def _str_list(v: Any) -> list[str]:
     if isinstance(v, str):

@@ -109,7 +109,7 @@ contract → infra → llm → core → tui / webgui / cli
 |---|---|
 | `data/worlds/{world}/characters/{char}/soul/events.jsonl` | 唯一真源：append-only，**不可改删**（废弃段用 marker 遮断） |
 | `…/soul/wiki.jsonl` · `wiki.meta.json` | 记忆图（节点 / 边）与消化水位 |
-| `…/soul/notes.json` | 随身笔记 —— **派生缓存**，真源是事件流里的 note 操作 |
+| 随身笔记（**无文件**） | 事件流里的 note 操作 → `notes.fold()` 现折（2026-10-18 退役了缓存文件） |
 
 **真机数据只读**：探针可以读、可以在内存里改，**绝不 `save()`**。
 验证法：`git status -- data` 干净，且 `wiki.jsonl` 的 mtime 不变。
@@ -200,11 +200,15 @@ contract → infra → llm → core → tui / webgui / cli
 环境：解释器 `C:\Users\johnf\miniconda3\envs\live2be\python.exe`（conda env `live2be`；
 conda `base` 里没有 jieba，用 base 跑测试会挂）· `node` v24 在（前端测试用）。
 
-当前基线（2026-10-18）：`tests/core` **1317 passed** · `tests/llm+tui+webgui` **256 passed** ·
-`ruff check .` **362**。
+当前基线（2026-10-18）：`tests/core` **1313 passed**（+1 已知红，见下）·
+`tests/llm+tui+webgui` **256 passed** · `ruff check .` **362**。
 
 已知缺口：
 
+- **`test_interperson_shape::test_the_real_file_reads_through_both_paths` 是红的**：
+  `config/settings/relation/interperson.yml` 里 `hinomiya_chinatsu` 那行是 `{角色: 2}`
+  这种整数表，而用例要求每格都是 `{text: ...}`。**文件与用例对不上**，改哪边都行 ——
+  但那是作者手写的内容，得由作者定。
 - `.testtmp/` 下的三份逐字节判据**未进 git**（gitignore）——换机器要重建；ADR 级别的判据
   长期只活在本地磁盘上。
 - `llm/check/*.ps1` 里曾有**明文 API key 且进过 git**：文件已删，**key 需要轮换**（历史还在）。

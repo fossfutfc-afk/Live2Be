@@ -58,7 +58,7 @@ class Ctx:
 
     # ── 本段的料（编排算好一次; 谁能读哪几段 = 表里的 `material` 格）──
     events: list
-    """**全量**事件流（含 marker 与账目）—— R4 的 `notes_state` 要它。"""
+    """**全量**事件流（含 marker 与账目）—— `notes.fold(ctx.events)` 要它。"""
     new_all: list
     """水位之后的**全部**事件（含 marker/账目）—— `akin` 的 `noticed` 账要它。"""
     domain: str

@@ -365,15 +365,15 @@ def load_note_segment(store: SessionStore, char_id: str, *,
     （省一次读盘 —— 调用方手上本来就有）。
     """
     try:
-        from core.brain.notes import render_note_block  # 局部导入（同 time_notes 那处）
+        from core.brain.notes import fold as fold_notes  # 局部导入（同 time_notes 那处）
+        from core.brain.notes import render_note_block
         if wstore is None:
             wstore = WikiStoreV2(store.data_root, world_id=store.world_id,
                                  char_id=char_id)
         evs = store.events(char_id) if events is None else events
         # ⭐ N4a: refs 印**名字**不印编号 —— 名字要从图上取（渲染层纯函数零 IO）。
         titles = {n.id: n.title for n in wstore.all() if n.id and n.title}
-        return render_note_block(wstore.notes_state(evs), now=datetime.now(),
-                                 titles=titles)
+        return render_note_block(fold_notes(evs), now=datetime.now(), titles=titles)
     except Exception as e:                            # noqa: BLE001 — 注入绝不阻断
         logger.warning("笔记注入失败（不注）: %s", e)
         return ""
@@ -946,15 +946,15 @@ class MomoTalkEngine:
 
         第**三**个写者:**已删除**（⏸ 收口轮 2026-10-05 / L8）—— 现在产 op 的只有
         `digest` 的 `record` 那一轮（按 R0 的表）, 但这条通道照旧是**唯一出口**:
-        顺序是**正确性**而不是风格 —— `notes.json` 只是派生缓存,
-        **事件流才是真源**; 反过来写会出现"本子上有、事件流没有", 而那条笔记
-        没有人能重建它（§3.2）。
+        顺序是**正确性**而不是风格 —— 事件流是**唯一真源**（笔记状态现折, 没有缓存文件）;
+        而事件 append 不可撤销 ⇒ 先写它, 后面那一步只是重折 + 体检。
 
         失败静默降级（宁缺勿错）: 写不进去 = 这次没记上, 本子留旧版, 绝不阻断消化;
         返回值保持调用方原先的那份 `events`（没变就别假装变了）。
         """
         try:
             from core.brain.notes import check as notes_check  # 局部导入（同笔记注入那处）
+            from core.brain.notes import fold as fold_notes
             from core.brain.notes import note_event  # 局部导入（同笔记注入那处）
             from core.brain.notes import stats as notes_stats
             for op in ops:
@@ -964,8 +964,7 @@ class MomoTalkEngine:
             return events
         events = session_store.events(character_id)  # 真源已变 → 重读（注入块要用新的）
         try:
-            state = wstore.notes_state(events)
-            wstore.save_notes(state)
+            state = fold_notes(events)          # 现折（没有缓存文件, 也没有第二份真相）
             # ⭐ **备忘录体检的唯一读者**（2026-09-29）—— 从前 `notes.check()` **生产里零读者**
             # （只有测试调它）⇒ 里面那些判据真机永远不会响。判据是"总量"（注入块多长）,
             # 而**看见它**才是这条判据的意义: 长了就该退役/淘汰（⚠️ 淘汰规则未定）。

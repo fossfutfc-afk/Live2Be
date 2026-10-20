@@ -29,7 +29,7 @@ TYPE_L2D = "l2d"
 TYPE_MARKER = "marker"
 TYPE_AFFECTION = "affection"   # 好感变化（digest 产出; 未来行为加好感同板块, subtype=行为名）
 TYPE_NOTE = "note"             # ★ 她自己的备忘录操作:
-                               # append-only 的**操作**事件, 折叠成 `soul/notes.json`
+                               # append-only 的**操作**事件, 由 `notes.fold()` 现折
                                # （派生缓存）。**不是剧情** ⇒ 见 NON_CONTENT_TYPES
 TYPE_OFFICIAL = "official_story"
 #: ⭐ **她顺手记的一笔账**（N5b, 2026-09-29, `DESIGN_MMT_NEW_ACTION §4`）:
@@ -79,7 +79,7 @@ S_STORY_PICK = "story_pick"    # ★ 补录裁决（2026-09-21）: payload {pick
                                # `pick_supplements()`（合并回"板 + 老师那句"）。
 BOARD_SUBTYPES: tuple[str, ...] = (S_STORY_SCENE, S_STORY_END)
 
-#: note 板块的 subtype —— 备忘录的**操作**（真源 = 操作事件, `soul/notes.json` = 折叠缓存）:
+#: note 板块的 subtype —— 备忘录的**操作**（唯一真源; 状态由 `notes.fold()` 现折）:
 #: `add` 加一条（**不需要理由**）· `close` **划掉**一条（⭐ 2026-10-05: 从前它只是"结清",
 #: 条目还留着; 现在**一律移除** —— 那句"后来怎么了"改由**图里那条经历**承担）·
 #: `update` **更正**一条还开着的（补/改 `due` 与那句话 —— "日期后来才知道"的唯一出口）。

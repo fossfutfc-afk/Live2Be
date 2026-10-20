@@ -130,7 +130,7 @@ def test_health_check_measures_the_real_injected_block(tmp_path, caplog):
     wstore = WikiStoreV2(st.data_root, world_id=st.world_id, char_id=CHARACTER)
 
     real = load_note_segment(st, CHARACTER, wstore=wstore, events=events)
-    bare = notes.render_note_block(wstore.notes_state(events))
+    bare = notes.render_note_block(notes.fold(events))
     assert len(real) > len(bare), "裸渲染没短 —— 这条用例失去意义"
 
     engine._write_note_ops(st, wstore, CHARACTER, events, [])
