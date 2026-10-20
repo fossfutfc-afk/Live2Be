@@ -70,17 +70,16 @@ from contract.digest import digest_registry
 
 #: `writes` 的"面" —— 每个字段名归一个面, 守门用例按面去查真源:
 #:   节点面 → `nodes.BrainNode` 的字段名 · `edge` → `graph.REL_*` 的取值 ·
-#:   `note` → `notes.SLOT_*`（备忘录的槽 —— **不进图**, 只在工作记忆里）·
+#:   `note` → 备忘录那一列（`core/brain/notes.py` —— **不进图**, 只在工作记忆里）·
 #:   ⭐ `segment` → ⛔ **不查真源**（它是**段内中间产物**: R0 产、同段的 R1 吃,
 #:   不进图也不落库 ⇒ 没有"真源"可查）。为什么仍要写进表: `writes` 是"这一步往哪写"
 #:   的地图, 中间产物也是它的产出; 而 `result_fields` 那格管的是回滚, 两者分工不同。
 NODE_FACES = ("episode", "experience", "belief", "entity", "profile")
 EDGE_FACE = "edge"
-NOTE_FACE = "note"
 SEGMENT_FACE = "segment"
 #: 名字**不对任何真源**的面（守门用例跳过名字校验, 但要认得它）
 FREE_FACES = (SEGMENT_FACE,)
-FACES = (*NODE_FACES, EDGE_FACE, NOTE_FACE, *FREE_FACES)
+FACES = (*NODE_FACES, EDGE_FACE, *FREE_FACES)
 
 #: ⭐ **轮次标识的公共前缀** —— 三种派生标识（日志第一段 / prompt 文件 / 任务标签）
 #: 都从它拼出来。⚠️ 源码里**不许手写**这个前缀 + 轮名（守门用例扫 `core/digest/**`）。

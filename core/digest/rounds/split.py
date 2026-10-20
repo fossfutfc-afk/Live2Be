@@ -61,7 +61,7 @@ def run(ctx: Ctx) -> RoundOut:
     # ⭐ **账目那两样（L3, 2026-10-05）** —— 名单只有一份, 两个用途:
     #   ① 印进料（她照着 `id` 写 `close` / 更正）② 当 `parse_split` 的**闭集**白名单。
     # 资格位（`overdue_ids`）只多一条: 超期 ∧ 本段没提到它 ⇒ 才允许写 `span: null`。
-    open_pinned = list(ctx.store.notes_state(ctx.events).pinned)
+    open_pinned = list(ctx.store.notes_state(ctx.events).items)
     days = _segment_days(ctx.by_seq.values())
     today = days[-1] if days else None
     note_ids, overdue_ids = _ledger_ids(ctx.store, open_pinned, seq_set=ctx.seq_set,

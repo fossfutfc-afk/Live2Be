@@ -209,7 +209,7 @@ def _ledger_ops(ctx: Ctx, orders: list[int], new_eps: list[str], note_state) -> 
     for pos, j in enumerate(orders):
         if pos < len(new_eps):
             ep_of.setdefault(j, new_eps[pos])
-    open_items = {str(it.id): it for it in getattr(note_state, "pinned", []) or []}
+    open_items = {str(it.id): it for it in note_state.items or []}
     for j, seg in enumerate(ctx.result.segments):
         state = seg.get("state")
         if state not in ("open", "close"):
