@@ -354,7 +354,7 @@ def load_note_segment(store: SessionStore, char_id: str, *,
     """随身笔记注入块（0 LLM）—— **常驻层**, 每轮都在。
 
     它是**当前值不是事件**: 固定标题（"这是你自己记的, 不是别人给你的任务"）+
-    固定顺序（约定 → 最近在想）, ⚠️ **不进按时间排序的记忆流**
+    一列约定, ⚠️ **不进按时间排序的记忆流**
     （`render_character_view` 那些带"（3 周前）"的条目是另一块）。
 
     与 wiki 视图**同源同频**（都在 digest / 开场这两处重建）, 所以两处调用点
@@ -967,13 +967,18 @@ class MomoTalkEngine:
             state = wstore.notes_state(events)
             wstore.save_notes(state)
             # ⭐ **备忘录体检的唯一读者**（2026-09-29）—— 从前 `notes.check()` **生产里零读者**
-            # （只有测试调它）⇒ 里面那些判据真机永远不会响。判据已改成"总量"（注入块多长）,
+            # （只有测试调它）⇒ 里面那些判据真机永远不会响。判据是"总量"（注入块多长）,
             # 而**看见它**才是这条判据的意义: 长了就该退役/淘汰（⚠️ 淘汰规则未定）。
-            for problem in notes_check(state, known={n.id for n in wstore.all()}):
+            # ⚠️ 字数必须量**真的那一块**（带 `titles` + `now` 渲出来的那块）——
+            # 不传这两样的渲染会**少算**每条的名字与"记于 N 天前", 上限就永远差一截。
+            chars = len(load_note_segment(session_store, character_id,
+                                          wstore=wstore, events=events))
+            for problem in notes_check(state, known={n.id for n in wstore.all()},
+                                       block_chars=chars):
                 logger.warning("note 体检（%s）: %s", character_id, problem)
             # ⭐ **台账（数字, 不是告警）** —— L9（2026-10-05）: 开着的条数直接等于
             # "每轮料里逐条现状"的成本 ⇒ 先只记数、不拍上限（真机几段的数说了算）。
-            n = notes_stats(state)
+            n = notes_stats(state, block_chars=chars)
             logger.info("note 台账（%s）: 开着 %d 条 · 注入块 %d 字",
                         character_id, n["open"], n["block_chars"])
         except Exception as e:                       # noqa: BLE001 — 只是缓存, 真源是事件流

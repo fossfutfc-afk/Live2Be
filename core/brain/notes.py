@@ -40,8 +40,7 @@ from core.session.events import (
 
 logger = logging.getLogger(__name__)
 
-# ⏸ `PINNED_TAG = "#pinned"`（2026-10-18 删）—— 它打在出生那条 episode 的 `tags` 上,
-# 而**没有任何读者**（`tags` 不进注入面, 也没有筛选在用）。同一件事由图里那条经历承担。
+# ⏸ `PINNED_TAG`（节点 tag）2026-10-18 删: **零读者**（`tags` 不进注入面）。别加回来。
 
 #: 派生缓存 `notes.json` 里那列条目的**键名**。`pinned` / `promise` 是它的两个旧名
 #: （槽名时代留下的, 只读一次）。认一个就够 —— **一个都认不出就当没有缓存**（见 `from_dict`）。
@@ -54,21 +53,13 @@ _LEGACY_KEYS: tuple[str, ...] = ("pinned", "promise")
 #: 零读者**（只有测试调 `check`）⇒ 真机永远不会响, 而真机会发生的事是**"结清不退场 +
 #: 约定越记越多 ⇒ 注入块越来越长"**。而她每轮都在为这个块花 token ⇒ 该管的是**它多长**。
 #: **数值未标定**: 先给一个数, 真机看 `note 体检` 那行里报的实际字数再调。
+#: ⚠️ 量的必须是**真的那一块**（带 `titles` 与 `now`）—— 不带这两样会少算每条的名字
+#: 和"记于 N 天前", 上限就永远差一截。挂载点见 `engine._write_note_ops`。
 MAX_NOTE_CHARS = 500
-#: ~~`MAX_TEXT = 20`（条目正文上限）~~ **2026-10-05 删** —— 它是**只报不修**的体检判据,
-#: 而 3b-3 起 note 正文 = 切片的 `abstract`（契约上限 `ABSTRACT_MAX = 60`）⇒ 它**必然恒响**,
-#: 变成背景噪音（真问题也就跟着看不见了）。真机上它**已经误报过一次**
-#: （`EXEC_DIGEST_SPLIT §12`: 那句 21 字的心境）。
-#: **长度只有一个真源 = 契约层**（`ABSTRACT_MAX`）—— 别在体检里再管一次。
-#: ~~`MAX_ON_MIND_TEXT = 60`~~ **2026-09-29（N4e）随 `on_mind` 退役** ——
-#: 它是"按槽分标尺"里的那一支（心境可以有口气、有破折号 ⇒ 与 A 槽不同限）。
-# ⏸ `ALREADY_PINNED = "src"`（2026-10-18 删）—— 它**恒等于 `refs[0]`**: 生产唯一的
-# 构造点（`record._ledger_ops`）传的就是同一条 episode ⇒ 去重改看 `refs[0]`,
-# 事件 payload 少一个重复键。
-
-#: `PINNED_OUTCOMES = ("kept", "broken", "superseded")` 2026-10-05 删 —— 三种结局
-#: 一律划掉之后它没有读者了: 结局写在**图里那条经历**的正文里。（契约层那份同名副本
-#: 随收口轮一起删掉了 —— 别再加回来。）
+# ⏸ 体检**不量正文长度**（`MAX_TEXT` / `MAX_ON_MIND_TEXT` 都删了）: 正文来自切片的
+# `abstract`（契约上限 `ABSTRACT_MAX`）⇒ 再量一次**必然恒响**, 只会淹掉真问题。
+# ⏸ `ALREADY_PINNED = "src"`（2026-10-18 删）: 它**恒等于 `refs[0]`** ⇒ 去重改看 `refs[0]`。
+# ⏸ `PINNED_OUTCOMES`（2026-10-05 删）: 结局写在**图里那条经历**的正文上, note 面没有读者。
 
 #: 注入块标题 —— 必须**说清这是什么**（是她自己记的, 不是系统/别人派的任务; 编号是索引）,
 #: 且**不含任何结构化痕迹**（无 JSON / 无键名 / 无波括号 —— **存 JSON, 看中文**, §3.2）。
@@ -83,8 +74,6 @@ _LEAD_INDENT = "  "
 _ITEM_INDENT = "    "
 #: 时间短语前缀（`§3.2` 渲染示例: `← 记于 3 天前`）
 SINCE_LEAD = "  ← 记于 "
-#: ~~`CLOSED_WORDS` / `CLOSED_LEAD`~~ **2026-10-05 删** —— 那是"结清行"的尾巴
-#: （`← 已兑现（…）`）。条目**划掉即消失** ⇒ 没有结清行可渲染, 尾巴只剩 `SINCE_LEAD`。
 
 
 # ---------------------------------------------------------------------------
@@ -93,20 +82,15 @@ SINCE_LEAD = "  ← 记于 "
 
 @dataclass
 class NoteItem:
-    """一条笔记（形状: `{id, text, refs, since(, due)}` + 结清两字段）。
+    """一条笔记（形状: `{id, text, refs, since(, due)}`）。
 
     `id`    —— 引擎在**折叠**时分配（`n1`/`n2`…, 只增不复用）。
     `text`  —— **名词短语, 不写陈述句**（"周六模型店" ≠ "我们约好周六去模型店"）。
-               长度**不在这里管**（2026-10-05: 体检那条"≤20 字"已删 —— 它必然恒响）;
-               真源 = 契约层 `ABSTRACT_MAX`（本条正文多来自切片 `abstract`）。
+               长度真源 = 契约层 `ABSTRACT_MAX`（正文多来自切片 `abstract`）, 这里不管。
     `refs`  —— ≥1, 指向**现存节点**（悬空 → `check()` 告警, 不阻断）。
     `since` —— 记于何时（引擎填 = 那条操作的 `ts`; 渲染成"记于 N 天前"）。
-    `due`   —— 可选; **只存不渲染**（渲染成日期会诱使她"数日子",
-               与 `worldtime.age` 那条"绝不输出精确值"直接冲突）。
-
-    ~~`closed_at` / `afterwards` / `state`~~ **2026-10-05 删** —— `close` 改成
-    **划掉即移除**（两段式合并, 见模块 docstring 纪律 0）⇒ 条目**再也不可能被结清**,
-    那三个字段永远落不到条目上; 结局改由**图里那条经历的正文**承担。
+    `due`   —— 可选; **不进她的块**（印日期会诱使她数日子）—— 但 R0 的料要它:
+               「已过 N 天」是它判"能不能写 `span: null`"的依据。
     """
 
     id: str = ""
@@ -480,7 +464,10 @@ def stats(state: NotesState, *, block_chars: int | None = None) -> dict[str, int
     都多一条 WARNING, 告警就没人看了。数字归数字。
 
     设计 §9-5 的裁决: **先只记数、不拍上限** —— 开着的条数直接等于"每轮料里逐条现状"
-    的成本, 上限要拿真机几段的数说话（`grep note 台账`）。"""
+    的成本, 上限要拿真机几段的数说话（`grep note 台账`）。
+
+    `block_chars` 同 `check()`: 调用方**应当**传真注入块的长度（带 `titles` / `now`）。
+    """
     chars = block_chars if block_chars is not None else len(render_note_block(state))
     return {"open": len(state.items), "block_chars": chars}
 
@@ -512,7 +499,9 @@ def check(state: NotesState, known: Iterable[str] | None = None,
        的信号 —— 而淘汰规则**还没定**, 所以这条告警今天只报不修（预期内的观察值）。
 
     `known=None` → 跳过 ②（调用方没有图的时候, 比如单测折叠本身）。
-    `block_chars=None` → 自己算（`render_note_block` 的长度; 调用方已经渲过就传进来省一次）。
+    `block_chars=None` → 自己算（`render_note_block` 的长度）—— ⚠️ 那个算法**不含**
+    `titles` / `now`, 比真注入块**短**; 调用方**应当**把已经渲好的那一块长度传进来
+    （引擎就是这么做的）, 否则 ③ 永远量不准。
     """
     known_set = set(known) if known is not None else None
     out: list[str] = []

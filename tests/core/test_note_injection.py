@@ -110,6 +110,38 @@ def test_mmt_injection_carries_the_note_block_last(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# 备忘录体检 / 台账: 必须量**真的那一块**
+# ---------------------------------------------------------------------------
+
+def test_health_check_measures_the_real_injected_block(tmp_path, caplog):
+    """`check` / `stats` 的字数 = **真注入块**的长度, 不是"不带名字/时间"的那一版。
+
+    两件事一起钉:
+      · 引擎传进去的 `block_chars` 与 `load_note_segment` 的输出**同长**;
+      · 那一块**确实比裸渲染长**（否则这条判据就是自欺 —— `titles` / `now` 白给了）。
+    """
+    import logging
+    caplog.set_level(logging.INFO)
+
+    engine, st = _engine(tmp_path)
+    _titled_ref(st)                       # 有名字的 episode → 条目尾巴才带 (《…》)
+    _add_note(st)
+    events = st.events(CHARACTER)
+    wstore = WikiStoreV2(st.data_root, world_id=st.world_id, char_id=CHARACTER)
+
+    real = load_note_segment(st, CHARACTER, wstore=wstore, events=events)
+    bare = notes.render_note_block(wstore.notes_state(events))
+    assert len(real) > len(bare), "裸渲染没短 —— 这条用例失去意义"
+
+    engine._write_note_ops(st, wstore, CHARACTER, events, [])
+
+    line = next(ln for ln in caplog.text.splitlines() if "note 台账" in ln)
+    reported = int(line.rsplit("注入块 ", 1)[1].split(" 字", 1)[0])
+    assert reported == len(real), (reported, len(real), line)
+    print(f"    台账报 {reported} 字 = 真注入块（裸渲染只有 {len(bare)} 字）✓")
+
+
+# ---------------------------------------------------------------------------
 # 宁缺勿错
 # ---------------------------------------------------------------------------
 
