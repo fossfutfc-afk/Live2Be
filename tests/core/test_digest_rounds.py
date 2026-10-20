@@ -543,7 +543,7 @@ def test_state_open_grows_into_a_note(tmp_path):
     判据三件:
       · `text` = 切片的 `abstract` **原样**（契约要求 `always` 那句就是"她带走的那句话"）;
       · `refs` = **新**建出来的 episode（判重复复用的不算 —— 那一段已经写过 note 了）;
-      · op 里带 **`src`**（去重键, 见 `notes.ALREADY_PINNED`）。
+      · op **不带** `src`（2026-10-18 删）—— 去重键就是 `refs[0]`, 见 `notes._apply_add`。
     """
     st = _store(tmp_path)
     llm = RoundLLM(
@@ -561,7 +561,7 @@ def test_state_open_grows_into_a_note(tmp_path):
     assert len(adds) == 1, res.notes_ops
     op = adds[0]
     assert op["text"] == "明天把两个团子带去夏莱, 别多想"     # abstract 原样
-    assert op["refs"] == ["m0001"] and op["src"] == "m0001"   # 指向它自己那条 episode
+    assert op["refs"] == ["m0001"]              # 指向它自己那条 episode（去重键就是它）
     assert "due" not in op
 
 

@@ -368,7 +368,7 @@ def _mentioned(store, item, *, seq_set: set[int], timeline: str) -> bool:
             return True
         for tag in getattr(node, "tags", None) or []:
             word = str(tag).strip()
-            # `#pinned` 那种标记不是词; 一个字太容易误撞
+            # `#entity:` 那种标记不是词; 一个字太容易误撞（老档里可能还躺着 `#pinned`）
             if len(word) >= 2 and not word.startswith("#") and word in timeline:
                 return True
     return False

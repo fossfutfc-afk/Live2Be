@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import logging
 
-from core.brain.notes import PINNED_TAG, add_op, close_op, update_op
+from core.brain.notes import add_op, close_op, update_op
 from core.digest.episodes import _create_a_nodes, _resolve_verbatim, _spanless_nodes
 from core.digest.material import SKELETON_HINT, _skeleton_rows, _skeleton_text, existing_entities_line
 from core.digest.rounds.base import Ctx, RoundOut
@@ -104,7 +104,7 @@ def run(ctx: Ctx) -> RoundOut:
     # （`pipeline._next_watermark` 的 `skip_ids`）。
     ctx.episode_ids = [*ctx.episode_ids, *spanless]
     ctx.result.spanless_ids = list(spanless)
-    # ⭐ **L7 ②: 按 R0 那张表产 note 操作**（`add` / `update` / `close` 三种 + `#pinned`）
+    # ⭐ **L7 ②: 按 R0 那张表产 note 操作**（`add` / `update` / `close` 三种）
     keeper = _ledger_ops(ctx, gaps.get("orders") or [], new_eps, note_state)
     _note_items(ctx, entries, reused, gaps, keeper, spanless=spanless)
     return RoundOut.done()
@@ -189,22 +189,18 @@ def _ledger_ops(ctx: Ctx, orders: list[int], new_eps: list[str], note_state) -> 
 
     1. **出生地址 = 那条切片自己的 episode**（`orders` 把"第 i 条条目"对到"第几条切片"）。
        ⚠️ 判重复而复用的那条**不在 `new_eps` 里** —— 它的 note 上一段已经写过了
-       （重跑幂等的第二道: op 里那个 `src` = `ALREADY_PINNED` 去重键）。
+       （重跑幂等的第二道: `fold` 见 `refs[0]` 已经有条目就跳过）。
     2. ⛔ **她 drop 掉 / 漏填一条 `open`** ⇒ **收下她的裁决 + 记账**（`lost_kept`）:
        "说过要带着的东西没被记住"不能是静默的（走 D1 台账, 不发明新机制）。
     3. **`update` 的 `before == after` ⇒ 不写 op**（§1.1b）: 崩溃窗口重跑时那一行是白跑的,
        **不能假装变了**。判据只比 `due`/`text` 两样（行契约只允许改这两样）。
 
-    ⭐ 顺带把 **`#pinned`** 打在**出生那条** episode 上（§4.5: 语义 = "这是她随身带着过的
-    一件事"）—— 建节点时就能写, **不走 revise 通道**; 了结那一条不打。
-
     ## 重跑幂等有**两道**, 都不在这个函数里
 
       · **节点面**: `_create_a_nodes` 的 `_find_duplicate` 会复用旧节点 ⇒ 复用出来的
         不进 `new_eps` ⇒ 这里根本不会产 op（上面纪律 1）;
-      · **笔记面**: op 里带 **`src`**（= 它指向的那条 episode）, `fold` 见到
-        "本子上已经有一条 `refs` 含同一个 `src`" 就跳过（`notes.ALREADY_PINNED`）——
-        ⚠️ 拿 `refs` 而不是拿正文比: 她两次可能把同一句话写得不一样, 而**指向哪条经历**是确定的。
+      · **笔记面**: `fold` 见到 `refs[0]`（= 出生那条 episode）已经有条目了就跳过 ——
+        ⚠️ 拿它而不是拿正文比: 她两次可能把同一句话写得不一样, 而**指向哪条经历**是确定的。
     """
     lost_kept: list[str] = []
     no_change: list[str] = []
@@ -246,22 +242,13 @@ def _ledger_ops(ctx: Ctx, orders: list[int], new_eps: list[str], note_state) -> 
             lost_kept.append(f"#{j + 1} {text or seg.get('abstract') or '-'}")
             continue
         ctx.result.notes_ops.append(
-            add_op(text, [ep], due=str(seg.get("due") or ""), src=ep))
-        _mark_pinned(ctx, ep)
+            add_op(text, [ep], due=str(seg.get("due") or "")))
     if lost_kept:
         logger.warning("digest_record `state=open` 有 %d 条没长成 note（约定丢了）: %s",
                        len(lost_kept), lost_kept[:4])
     if no_change:
         logger.info("digest_record 更正行什么都没改（不写 op）: %s", no_change[:4])
     return {"lost_kept": lost_kept}
-
-
-def _mark_pinned(ctx: Ctx, ep_id: str) -> None:
-    """给**出生那条** episode 打 `#pinned`（§4.5）—— 幂等: 已经在就不重复加。"""
-    node = ctx.store.get(ep_id)
-    if node is None or PINNED_TAG in (node.tags or []):
-        return
-    ctx.store.update(ep_id, {"tags": [*(node.tags or []), PINNED_TAG]})
 
 
 def _note_items(ctx: Ctx, entries: list[dict], reused: list[str],
