@@ -212,6 +212,12 @@ conda `base` 里没有 jieba，用 base 跑测试会挂）· `node` v24 在（�
 - `.testtmp/` 下的三份逐字节判据**未进 git**（gitignore）——换机器要重建；ADR 级别的判据
   长期只活在本地磁盘上。
 - `llm/check/*.ps1` 里曾有**明文 API key 且进过 git**：文件已删，**key 需要轮换**（历史还在）。
+- `tests/webgui/test_bond_chain_readahead.py::test_chain_skips_when_enough_in_hand`
+  **是 flaky 的**（2026-10-23 实测：`tests/webgui` 单域连跑 3 次红 2 次，单独跑该文件恒绿）。
+  用例自己的注释里就写过这个竞态：`emotion` / `place` 两条标注 lane 也是 LLM 调用，会落在
+  `calls_before` 采样之后（失败形如 `assert 6 == 5`，多出来那条是「请输出情绪标签」）。
+  判据想用 `not state.busy` 兜住，但 lane 起跑与 busy 复位之间仍有窗口。要修得先定 lane
+  的同步点——不是某次改动引入的。
 - `README.md` 里的旧包名与旧结构尚未统一（产品未定稿，等定稿时一并重写）。
 
 ---

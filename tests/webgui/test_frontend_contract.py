@@ -23,6 +23,8 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 from tui.effects import _GLOBAL_EFFECTS  # noqa: E402
 
 _BOND_JS = ROOT / "webgui" / "static" / "js" / "bond.js"
+_INDEX_HTML = ROOT / "webgui" / "static" / "index.html"
+_DEMO_HTML = ROOT / "webgui" / "static" / "bond-test.html"
 
 
 def _backend_names() -> set[str]:
@@ -54,6 +56,29 @@ def test_no_dead_frontend_symbols():
     assert not dead, (
         f"`bond.js` 的 FX_SYMBOLS 里有后端不产出的名字: {dead}\n"
         "（要么后端表漏了它，要么这是可以删的死符号）")
+
+
+def _view_bond_ids(path: pathlib.Path) -> set[str]:
+    """取 `#view-bond` 那一节里的所有 `id="…"`（VN 视图的 DOM 面）。"""
+    src = path.read_text(encoding="utf-8")
+    start = src.index('<section id="view-bond"')
+    end = src.index("</section>", start)
+    return set(re.findall(r'id="([^"]+)"', src[start:end]))
+
+
+def test_bond_dom_ids_match_between_index_and_demo():
+    """③ 演示页的 VN DOM 必须与真页面**同 id**（`bond-test.html` 靠一句注释宣称这件事）。
+
+    `bond.js` 全按 id 取元素, 取不到就是 `null` —— 静默不生效, 而且只在演示页
+    看得到（"这个特效在 demo 里没有"）, 真机排查会被带偏。往 VN 视图加元素必须
+    两处一起加（换场幕布 `#bond-curtain` 就是一个候选漏点）。
+    """
+    real, demo = _view_bond_ids(_INDEX_HTML), _view_bond_ids(_DEMO_HTML)
+    assert real, "没从 index.html 的 #view-bond 里解析出任何 id —— 解析方式要跟着改"
+    assert sorted(real - demo) == [], (
+        f"index.html 的 VN 视图有、演示页没有的 id: {sorted(real - demo)}")
+    assert sorted(demo - real) == [], (
+        f"演示页有、index.html 没有的 id: {sorted(demo - real)}")
 
 
 if __name__ == "__main__":

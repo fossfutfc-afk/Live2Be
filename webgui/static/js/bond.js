@@ -16,6 +16,7 @@
 "use strict";
 
 import { createSpinePlayer } from "./spine-player.js";
+import { Curtain, needCurtain } from "./curtain.js";
 
 const $ = (id) => document.getElementById(id);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -130,6 +131,79 @@ let lastSceneKey = "";
     }
   }
 
+  // ── 换场幕布（黑屏过渡）───────────────────────────────────────────────
+  // 和动作层（act）**不是一类东西**: 幕布是引擎事件驱动（背景切换 / 纪念进出）,
+  // 没有判定的余地, 也不进任何词表; 调度与折叠在 js/curtain.js（有 node 单测）。
+  // 触发点只有四个: 板首换场 / 板级背景晚到 / 句级锚点 / 纪念进出。
+  let curtainOpacity = 0;        // 与 CSS 初值 opacity:0 一致（未设置时读 style 得到 ""）
+  let curtainPrimed = false;     // 首帧不上黑幕: enter 有章节卡盖着, 再黑一次是多余一闪
+
+  const curtain = new Curtain({
+    fade: _fadeCurtain,
+    wait: sleep,
+    onError: (e) => console.warn("[bond] 换场幕布: ", e),
+  });
+
+  /** 幕布透明度走 CSS 过渡（时长表在 curtain.js）。 */
+  function _fadeCurtain(target, ms) {
+    const el = $("bond-curtain");
+    if (!el) return Promise.resolve();
+    if (target === curtainOpacity) return Promise.resolve();  // 同值: 不会触发 transitionend
+    curtainOpacity = target;
+    el.style.transition = ms > 0 ? `opacity ${ms}ms ease` : "none";
+    el.style.opacity = String(target);
+    if (ms <= 0) return Promise.resolve();
+    return new Promise((resolve) => {
+      let done = false;
+      const end = () => {
+        if (done) return;
+        done = true;
+        el.removeEventListener("transitionend", end);
+        clearTimeout(timer);
+        resolve();
+      };
+      // 兜底: 元素被隐藏/过渡被打断时 transitionend 可能永远不来——不许干等
+      const timer = setTimeout(end, ms + 120);
+      el.addEventListener("transitionend", end, { once: true });
+    });
+  }
+
+  /**
+   * 背景切换的**唯一入口**（四个触发点都走它）。首帧/同图不黑, 其余包一幕。
+   * `setBg` 保持原样: 纪念进出在幕布里直接用它, 不能再套一层（会黑两次）。
+   */
+  function swapBg(url, kind = "board") {
+    const next = url || "";
+    // 纪念窗口里不落幕: 那一段的背景由 `paintMemorial` 负责清/还, 落幕只会多一次黑闪
+    // （纪念的进出自己就是一幕, 见 `applyMemorial` 的翻转沿）。
+    if (memorialNow()) {
+      setBg(next);
+      appliedBgUrl = next;
+      return;
+    }
+    if (!needCurtain({ primed: curtainPrimed, prev: appliedBgUrl, next })) {
+      setBg(next);
+      appliedBgUrl = next;
+      return;
+    }
+    curtain.run(() => {
+      setBg(next);
+      appliedBgUrl = next;        // 记账放在幕布里: 淡入那 200ms 里还算"旧图"
+    }, kind);
+  }
+
+  /** 重进剧情: 幕布归零（上一次可能停在「淡到黑」那一档）。 */
+  function _resetCurtain() {
+    curtainPrimed = false;
+    memoShown = null;
+    curtainOpacity = 0;
+    const el = $("bond-curtain");
+    if (el) {
+      el.style.transition = "none";
+      el.style.opacity = "0";
+    }
+  }
+
   // 板级背景补切（2026-10-08）: 只换背景, **不重播正文**（那要重渲染整场）。
   // ⚠️ 不抢锚点: 本板若有**句级锚点**已接管背景（`appliedPlace !== null`）就不动。
   function syncBoardBg(scene) {
@@ -143,7 +217,7 @@ let lastSceneKey = "";
     if (url === appliedBgUrl) return;
     dbg("board-bg late →", url,
         scene && scene.place_inherited ? `(沿用 ${scene.place_inherited})` : "");
-    setBg(url);
+    swapBg(url, "board");
   }
   // 公开: 进入 VN（mmt.js 收到 bond_story 或重进 in_vn 会话时调用）
   // ---------------------------------------------------------------------------
@@ -152,6 +226,7 @@ let lastSceneKey = "";
     charId = cid; sessionId = sid; name = nm || cid;
     finished = false; busy = false; seenRound = 0; gotScene = false;
     historyLog = [];
+    _resetCurtain();              // 幕布归零: 上一次可能停在「淡到黑」那一档
     speedIdx = 1; typeCharMs = SPEEDS[1].char; typePunctMs = SPEEDS[1].punct;
     setAuto(false);               // 重置自动模式
     toggleMenu(false);            // 重置菜单（含绑定守卫状态）
@@ -299,6 +374,7 @@ let lastSceneKey = "";
     name = (payload && payload.name) || charId;
     finished = false; busy = false; gotScene = true; seenRound = 0; seenEmo = -1;
     historyLog = [];
+    _resetCurtain();              // 只读回放也用同一套幕布
     speedIdx = 1; typeCharMs = SPEEDS[1].char; typePunctMs = SPEEDS[1].punct;
     setAuto(false);
     toggleMenu(false);
@@ -559,12 +635,23 @@ let lastSceneKey = "";
     return memorialSt.at === null || typeSeg >= memorialSt.at;
   }
 
+  //: 纪念视觉当前态（上一帧）——只在**翻转沿**开一幕; 同态重入（换图/轮询重放）不黑
+  let memoShown = null;
+
   function applyMemorial() {
+    const on = memorialNow();
+    if (memoShown === on) { paintMemorial(on); return; }      // 同态: 最多换了一张图
+    const first = memoShown === null;
+    memoShown = on;
+    if (first || !curtainPrimed) { paintMemorial(on); return; }  // 首帧: 不上黑幕
+    curtain.run(() => paintMemorial(on), on ? "onMemo" : "offMemo");
+  }
+
+  function paintMemorial(on) {
     const layer = $("bond-memorial");
     if (!layer) return;
     const stage = $("bond-stage");
     const bg = $("bond-bg");
-    const on = memorialNow();
     if (on && stage) stage.classList.add("hidden");   // 纪念无立绘
     if (on) {
       if (bg) {
@@ -636,7 +723,7 @@ let lastSceneKey = "";
     if (!p || typeof p === "string") return;
     if (p.missing_asset) reportMissingAsset(p.missing_asset);   // 缺素材 → 黑屏 + 报出
     if (p.place_bg && p.place && p.place !== appliedPlace) {
-      setBg(p.place_bg);
+      swapBg(p.place_bg, "anchor");     // 句级锚点: 打字中途换场 → 短幕
       appliedPlace = p.place;
     }
   }
@@ -754,15 +841,14 @@ let lastSceneKey = "";
     clearEmoWatch();              // 场景切换 → 旧守望作废（新场景按需重启）
     sceneIsEnd = !!scene.is_end;
     // 背景（scene_id → background_url; is_end 无背景 → 清空显示默认黑屏——官方结束样式）
-    const bg = $("bond-bg");
     appliedPlace = null;              // 板级背景复位——锚点句到达才切换（P3b-2）
-    appliedBgUrl = "";                // 板级背景 URL 复位（新板重新记一份）
+    // ⚠️ 这里**不再**重置 `appliedBgUrl`: 幕布的"同图不黑"要靠它记着屏上那张是什么
+    //    （同一个房间连着两块板不该黑, 换场才黑）。
     if (scene.missing_asset) reportMissingAsset(scene.missing_asset);
     if (scene.background_url) {
-      setBg(scene.background_url);
+      swapBg(scene.background_url, "board");
     } else if (!scene.background) {
-      bg.style.backgroundImage = "";
-      appliedBgUrl = "";
+      swapBg("", "end");              // 无背景 = 收尾黑屏（官方结束样式）: 淡到黑, 不亮回来
     }
     // 名字牌: is_end（旁白余韵, 无角色名）→ 隐藏
     const np = document.querySelector(".bond-nameplate");
@@ -786,6 +872,7 @@ let lastSceneKey = "";
       showInteraction(scene);
     });
     // 骨架场景（标注未就绪）→ 阅读期守望: 标注到达即补切表情/后续段
+    curtainPrimed = true;         // 首帧已上屏 → 之后的背景切换都该有黑幕
     startEmoWatch(scene);
     // 2026-09-01 点击推进制: 打字中继续三角不亮——段完成时 paraDone 才亮
     // （提示"点击进入下一段"）; 交互期由 showInteraction 自行管理

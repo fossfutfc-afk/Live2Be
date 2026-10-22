@@ -96,6 +96,19 @@
 }
 .bond-stage canvas { display: block; width: 100%; height: 100%; }
 
+/* 换场幕布（黑屏过渡）—— 透明度由 js/curtain.js 驱动（CSS 只管层与位置）。
+   只盖场景层: z-index 与 .bond-dialogue 同为 2, 但本元素排在它**之前** ⇒
+   同一层里后出现的对话块压在上面 ⇒ 打字中途换场也不会让字消失。
+   不挡点击: 幕布期间玩家照样能点「继续」（挡了会像卡死）。 */
+.bond-curtain {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  background: #000;
+  opacity: 0;
+  pointer-events: none;
+}
+
 /* 情绪特效层（官方 UI 层粒子——立绘头顶浮现符号: 浮起+淡出+飘散） */
 .bond-fx {
   position: absolute;
