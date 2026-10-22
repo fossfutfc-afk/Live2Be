@@ -38,17 +38,24 @@ class _ScriptLLM:
         return self._s.pop(0)
 
 
-def _group(*scripts):
+def _group_acts(*scripts):
+    """跑一次标注, 返回 `(llm, labels, acts, info)`（n=2 条记录, 词表三键）。"""
     from core.bond.emo_text import annotate_items
 
     llm = _ScriptLLM(*scripts)
-    labels, info = annotate_items(
+    labels, acts, info = annotate_items(
         llm, ["她站在窗边，看着远处。", "老师来了！"],   # n=2 条记录
         ["nomal", "smile", "embarrassed"],
         "  nomal: 平静\n  smile: 微笑",
         "角色: 遥香\n性格要点: 胆小", "遥香",
         "（上一板记录原文）\n她抬起头。\n（末条情绪: nomal）",
         group_no=3, prev="nomal", max_tokens=256)
+    return llm, labels, acts, info
+
+
+def _group(*scripts):
+    """只要情绪那一半（多数用例）——动作那一格单独测。"""
+    llm, labels, _acts, info = _group_acts(*scripts)
     return llm, labels, info
 
 
@@ -57,35 +64,40 @@ def _system(llm: _ScriptLLM, idx: int = -1) -> str:
 
 
 # ----------------------------------------------------------------------------
-# _extract_key_array: 严格 JSON 优先, 容忍裸键数组（真 API 观测补强）
+# 输出解析: 外壳宽容（真 API 观测到的几种写法）, 行的值 = `情绪键[|动作键]`
 # ----------------------------------------------------------------------------
 
-def test_extract_key_array_lenient():
-    from core.bond.emo_text import _extract_key_array
+def test_rows_of_is_lenient_about_the_wrapper():
+    from core.bond.emo_text import _rows_of
 
-    # 编号映射形态（现网契约）: dict 直给 / JSON 字符串 / 乱序键按句号排序
-    assert _extract_key_array({"labels": {"1": "smile", "2": "nomal"}}) == \
-        ["smile", "nomal"]
-    assert _extract_key_array('{"labels": {"1": "smile", "2": "nomal"}}') == \
-        ["smile", "nomal"]
-    assert _extract_key_array({"labels": {"2": "nomal", "1": "smile"}}) == \
-        ["smile", "nomal"]
-    assert _extract_key_array({"emotion": {"1": "smile"}}) == ["smile"]
-    # 旧形态兼容: 数组 / 对象数组 / 裸键 / 字符串数组
-    assert _extract_key_array('["smile", "nomal"]') == ["smile", "nomal"]
-    assert _extract_key_array(["smile"]) == ["smile"]
-    assert _extract_key_array({"labels": ["smile", "nomal"]}) == \
-        ["smile", "nomal"]
-    assert _extract_key_array("[nomal, embarrassed]") == ["nomal", "embarrassed"]
-    assert _extract_key_array("输出如下:\n[nomal, smile]\n谢谢") == \
-        ["nomal", "smile"]
-    # 无法识别（引号混杂/中文/空/非编号对象）→ None（走重试路径）
-    assert _extract_key_array("[nomal, \"smile\"]") is None
-    assert _extract_key_array("[她低头, smile]") is None
-    assert _extract_key_array("") is None
-    assert _extract_key_array("抱歉，我无法完成") is None
-    assert _extract_key_array({"labels": {"a": "smile"}}) is None
-    print("    extract: 编号映射/数组/裸键全形态, 无法识别 → None")
+    # 编号映射形态（现网契约）: dict 直给 / JSON 字符串 / 乱序键 / 换个外壳名
+    assert _rows_of({"labels": {"1": "smile", "2": "nomal"}}) == ["smile", "nomal"]
+    assert _rows_of('{"labels": {"1": "smile", "2": "nomal"}}') == ["smile", "nomal"]
+    assert _rows_of({"labels": {"2": "nomal", "1": "smile"}}) == ["smile", "nomal"]
+    assert _rows_of({"emotion": {"1": "smile"}}) == ["smile"]
+    assert _rows_of({"1": "smile"}) == ["smile"]
+    # 数组形态（下标即行号）
+    assert _rows_of('["smile", "nomal"]') == ["smile", "nomal"]
+    assert _rows_of({"labels": ["smile", "nomal"]}) == ["smile", "nomal"]
+    assert _rows_of("[nomal, embarrassed]") == ["nomal", "embarrassed"]
+    assert _rows_of("输出如下:\n[nomal, smile]\n谢谢") == ["nomal", "smile"]
+    # 认不出 → None（走重试路径, 不猜）
+    for bad in ('[nomal, "smile"]', "[她低头, smile]", "", "抱歉，我无法完成",
+                {"labels": {"a": "smile"}}):
+        assert _rows_of(bad) is None, bad
+
+
+def test_split_value_reads_two_segments_and_drops_junk():
+    from core.bond.emo_text import _split_value
+
+    kset = {"nomal", "smile"}
+    assert _split_value("smile", kset) == ("smile", "")             # 常见: 只有一段
+    assert _split_value("smile|jump", kset) == ("smile", "jump")
+    assert _split_value("jump|smile", kset) == ("smile", "jump")     # 两段互斥 ⇒ 顺序无关
+    assert _split_value("smile|backflip", kset) == ("smile", "")     # 动作词表外 → 只丢动作
+    assert _split_value("zzz|jump", kset) == ("", "jump")            # 情绪词表外 → carry
+    assert _split_value({"emotion": "smile", "act": "hop"}, kset) == ("smile", "hop")
+    assert _split_value(3, kset) == ("", "")
 
 
 def test_items_unquoted_keys_accepted():
@@ -96,7 +108,7 @@ def test_items_unquoted_keys_accepted():
         def chat(self, messages, **kw):
             return "[smile, nomal]"            # 无引号裸键
 
-    labels, info = annotate_items(
+    labels, _acts, info = annotate_items(
         _BareLLM(), ["a。", "b！"], ["nomal", "smile"], "", "", "", "",
         group_no=1, prev="nomal", max_tokens=256)
     assert labels == ["smile", "nomal"]
@@ -176,7 +188,7 @@ def test_items_llm_exception_then_success():
             return ["nomal", "smile"]
 
     llm = BoomLLM()
-    labels, info = annotate_items(
+    labels, _acts, info = annotate_items(
         llm, ["a。", "b！"], ["nomal", "smile"], "", "", "", "",
         group_no=1, prev="nomal", max_tokens=256)
     assert labels == ["nomal", "smile"] and info["attempts"] == 2
@@ -304,54 +316,59 @@ def test_engine_reaction_board_annotated_with_chain():
     print("    engine: 反应板独立标注（槽挂板尾, 链随主线推进）")
 
 
-def test_items_accepts_action_keys_without_moving_carry():
-    """动作键与情绪**同构**进同一格: 原样带回, 但不推进 carry（动作行不给表情）。"""
-    from core.bond.emo_text import annotate_items
-
-    llm = _ScriptLLM(["smile", "jump", "nomal"])
-    labels, info = annotate_items(
-        llm,
-        ["她抬起头。", "「呜哇——！」她整个人弹起来。", "「没、没事……」"],
-        ["nomal", "smile", "outburst"], "  nomal: 平静", "角色: 遥香\n胆小", "遥香",
-        "", group_no=1, prev="nomal", max_tokens=256)
-    assert labels == ["smile", "jump", "nomal"], labels
-    assert info["fallback"] == 0
+def test_items_act_is_the_second_segment_of_the_key():
+    """动作不是第二种输出: 它就是那一行键的第二段（`"情绪键|动作键"`）。"""
+    llm, labels, acts, info = _group_acts(
+        '{"labels": {"1": "smile", "2": "embarrassed|jump"}}')
+    assert labels == ["smile", "embarrassed"]
+    assert acts == ["", "jump"]                    # 没动作的行只有一段
+    assert info == {"attempts": 1, "retry": 0, "fallback": 0}
     sys = _system(llm)
-    assert "一次性身体动作" in sys and "跳" in sys        # 动作词表进了提示词
-    assert "{{acts}}" not in sys                        # 占位符全替换（不漏原始槽名）
+    assert "一次性身体动作" in sys and "跳" in sys   # 词表进了提示词
+    assert "{{acts}}" not in sys                   # 占位符全替换（不漏原始槽名）
+    assert "情绪键|动作键" in llm.calls[-1][-1]["content"]   # 底部也点名了写法
 
 
-def test_items_foreign_action_word_degrades_like_any_bad_key():
-    """模型自己造一个动作（词表外）→ 与"词表外情绪键"同一条路: 只丢该项, 板内延续。"""
-    _llm, labels, info = _group(["smile", "backflip"])
+def test_items_bad_act_segment_never_retries_and_never_hurts_emotion():
+    """动作段坏了（词表外 / 段数多 / 没有竖线）→ 只丢动作, **不重试**, 情绪照旧。"""
+    cases = [
+        ('{"labels": {"1": "smile", "2": "nomal|backflip"}}', ["smile", "nomal"]),
+        ('{"labels": {"1": "smile|jump|hop", "2": "nomal"}}', ["smile", "nomal"]),
+        ('{"labels": {"1": "smile", "2": "nomal"}}', ["smile", "nomal"]),
+    ]
+    for raw, want in cases:
+        llm, labels, _acts, info = _group_acts(raw)
+        assert labels == want, raw
+        assert info["retry"] == 0 and len(llm.calls) == 1, raw
+
+
+def test_items_act_segment_survives_reversed_order():
+    """两段来自互斥词表 ⇒ `jump|smile` 也能拆对（省一次整板重试）。"""
+    _llm, labels, acts, _info = _group_acts('{"labels": {"1": "jump|smile", "2": "nomal"}}')
+    assert labels == ["smile", "nomal"] and acts == ["jump", ""]
+
+
+def test_items_foreign_action_word_in_the_key_is_still_a_bad_key():
+    """模型把动作当成整行的键（没有第二段）→ 词表外, 按板内延续兜底。"""
+    _llm, labels, info = _group(["smile", "jump"])
     assert labels == ["smile", "smile"] and info["fallback"] == 1
 
 
-def test_items_carry_never_starts_from_an_action():
-    """上板把动作键漏进 carry（旧数据/人工注入）→ 从默认键起, 不把动作当情绪用。"""
-    from core.bond.emo_text import annotate_items
-
-    llm = _ScriptLLM(["nope", "smile"])
-    labels, _info = annotate_items(
-        llm, ["a。", "b。"], ["nomal", "smile"], "", "", "", "",
-        group_no=1, prev="jump", max_tokens=256)
-    assert labels == ["nomal", "smile"], labels
-
-
-def test_engine_splits_action_into_act_and_keeps_carry():
-    """写回处才拆: 动作进 `p["act"]`, 情绪沿用上一条（脸不必跟着跳）。"""
+def test_engine_writes_act_alongside_a_real_emotion():
+    """写回: 情绪照常前进, 动作只挂在该行的 `p["act"]` 上 —— 一边跳一边是那个表情。"""
     from core.bond.bond_story import BondScene
 
-    vn, _llm = _engine(["smile", "jump", "outburst"])
+    vn, _llm = _engine(
+        '{"labels": {"1": "smile", "2": "outburst|jump", "3": "nomal"}}')
     scene = BondScene(paragraphs=[
         {"text": "「老师，你来啦。」"},
         {"text": "「呜哇——！」她整个人弹起来。"},
         {"text": "「没、没事，只是吓了一跳。」"},
     ])
     assert vn.fill_scene_emotions_text(scene) is True
-    assert [p["emotion"] for p in scene.paragraphs] == ["smile", "smile", "outburst"]
+    assert [p["emotion"] for p in scene.paragraphs] == ["smile", "outburst", "nomal"]
     assert [p.get("act") for p in scene.paragraphs] == [None, "jump", None]
-    assert vn._carry_emo == "outburst"          # 动作键没污染链尾（下一板 carry 仍干净）
+    assert vn._carry_emo == "nomal"             # 情绪链正常推进（动作不参与）
 
 
 if __name__ == "__main__":

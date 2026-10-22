@@ -1,27 +1,27 @@
-"""剧情动作词表 —— 标注层能点名的**一次性身体表演**（闭合表, 引擎只校验不发明）。
+"""剧情动作词表 —— 标注层能点名的**身体表演**（闭合表, 引擎只校验不发明）。
 
-标注输出与情绪**同构**: 一格一个键, 键可以来自情绪词表, 也可以来自本表。
-引擎写回时才拆成 `p["emotion"]`（恒为真情绪键, carry 链不变）+ 可选 `p["act"]`。
-好处是廉价模型只填一张表、只有一套解析/重试/兜底; 代价是**点动作的那一行不给表情**
-（她要跳, 脸沿用上一行）—— 身体比台词更响时, 这一格的注意力本来就在动上。
+标注那一格写成 `"情绪键|动作键"`（`core/bond/emo_text.py::_split_value` 拆）:
+同一行可以既切表情又演动作（前端顺序: `setEmotion` → `playAct`）; 动作段不认识就
+只丢动作, 情绪照旧 —— **不进重试**。
 
 一处同名、三处消费, 改词表 = 改这张表:
   · 提示词: `render_prompt_block()` 渲进 `emotion_text_annotate.md` 的 `{{acts}}`
-  · 校验:   本模块的 `ACTION_NAMES`（词表外一律丢弃, 绝不传给前端）
+  · 校验:   `ACTION_NAMES`（词表外一律丢弃, 绝不传给前端）
   · 渲染:   前端 `webgui/static/js/effects.js` 的 `ACT_SPECS`
             （`tests/webgui/test_frontend_contract.py` 钉双向, 少一个就红）
 
-⚠️ **词表同构, 渲染不同构**: 情绪键落到 spine 的差分动画上（`01..13` 是姿态+表情的
-静帧）, 动作键只能落到前端的位移 tween 上 —— BA 的立绘包里没有跳跃动画（1005 个
-`.skel` 里只有 13 个带 `Jump`/`Hop`, 遥香的包只有 `Idle_01` + 数字）, 剧情动作在原作里
-也是代码枚举（`ScenarioCharacterAction`）驱动的。
+**词表同构, 渲染不同构**: 情绪键落到 spine 的差分动画上（`01..13` 是姿态+表情的静帧）,
+动作键只能落到前端的位移 tween 上 —— BA 的立绘包里没有跳跃动画（1005 个 `.skel` 里只有
+13 个带 `Jump`/`Hop`, 遥香的包只有 `Idle_01` + 数字）, 剧情动作在原作里也是代码枚举
+（`ScenarioCharacterAction`）驱动的。
+
+所以 `p["emotion"]` 恒为真情绪键 —— 它有两处按词表消费的地方: LLM 可见的历史文本
+（`render_bond_scene_text` 给每句拼 `（emotion）`）与记忆里的情绪轨迹
+（`digest.episodes._emotion_shape`）。混进动作名会把那两处一起带歪。
 """
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass
-
-logger = logging.getLogger("live2be.bond")
 
 #: 一板最多几个动作。模型很容易"每行都演", 而一板三跳等于没有动作。
 MAX_ACTS_PER_BOARD = 2
@@ -49,26 +49,3 @@ ACTION_NAMES: frozenset[str] = frozenset(a.name for a in ACTIONS)
 def render_prompt_block() -> str:
     """词表 → 提示词里那一段（键 + 中文名 + 何时点）。"""
     return "\n".join(f"  {a.name:<6} {a.label}: {a.when}" for a in ACTIONS)
-
-
-def split_acts(keys: list[str], lexicon: set[str],
-               cap: int = MAX_ACTS_PER_BOARD) -> list[str]:
-    """标注键链 → 哪些位置是**动作**（原位空串 = 不是动作）。
-
-    与 `lexicon` 撞名时**情绪优先**（角色自己的词表更有权威, 动作少一个不致命）。
-    超过 `cap` 的部分原地作废 —— 这一格退回情绪, 不另行通知模型（它已答完了）。
-    """
-    out = [""] * len(keys)
-    picked = 0
-    dropped: list[str] = []
-    for i, k in enumerate(keys):
-        if k not in ACTION_NAMES or k in lexicon:
-            continue
-        if picked >= cap:
-            dropped.append(k)
-            continue
-        out[i] = k
-        picked += 1
-    if dropped:
-        logger.warning("act 超出每板上限(%d)丢弃: %s", cap, ", ".join(dropped))
-    return out
