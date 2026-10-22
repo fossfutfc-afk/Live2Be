@@ -41,6 +41,7 @@ from contract import (
 )
 from contract.errors import err
 from core.bond import place_cues  # 换场线索词（PL3 预筛）
+from core.bond.actions import split_acts  # 动作键与情绪同构进同一格, 写回时才拆
 from core.bond.bond_story.boards import (
     DeliveryMode,
     _board_spans,
@@ -927,16 +928,25 @@ class BondStoryEngine:
                 labels = [prev_carry] * len(items)
                 info = {"attempts": 0, "retry": 0, "fallback": len(items)}
         # 回填: 按显示顺序走一遍——不送标注的项继承上一条已生效键（立绘不变）
-        by_item = {id(p): label for p, label in zip(items, labels)}
+        # 动作键与情绪**同构**进同一格（`core/bond/actions.py`）, 这里才拆开:
+        # 动作进 `p["act"]`, 情绪 carry 原地不动 —— 她要跳, 脸不必跟着换。
+        by_item = {id(p): key for p, key in zip(items, labels, strict=False)}
+        by_act = {id(p): a for p, a in zip(
+            items, split_acts(labels, set(self._lexicon_keys)), strict=False) if a}
         cur = prev_carry
         for p in order:
-            cur = by_item.get(id(p), cur)
+            key = by_item.get(id(p))
+            if key:
+                if by_act.get(id(p)):
+                    p["act"] = by_act[id(p)]
+                else:
+                    cur = key
             p["emotion"] = cur
         logger.info(
-            "scene_anno group=%d n=%d npc=%d retry=%d fallback_items=%d carry=%s→%s",
+            "scene_anno group=%d n=%d npc=%d retry=%d fallback_items=%d acts=%d carry=%s→%s",
             self._group_seq, len(items), len(order) - len(items),
             int(info.get("retry", 0)), int(info.get("fallback", 0)),
-            prev_carry, cur)
+            len(by_act), prev_carry, cur)
         if chain:
             self._carry_text = "\n".join(texts)         # 已生效链: 上一板记录原文
             self._carry_emo = cur                       # + 末条已生效情绪

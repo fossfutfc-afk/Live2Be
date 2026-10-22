@@ -1,17 +1,19 @@
-"""前端 ↔ 后端契约对齐守门（目前只有一条：特效符号表）。
+"""前端 ↔ 后端契约对齐守门（特效符号表 / 动作词表 / VN 视图的 DOM id）。
 
-`bond.js` 的 `FX_SYMBOLS` 是"特效名 → 符号 + 颜色"的前端表；特效名的真源在后端
-（`tui/effects.py` 的 `_GLOBAL_EFFECTS`，它的**值**就是名字，`webgui/routers/bond.py:198`
-把它们写进段落的 `fx`）。两边各写一份、靠注释维持一致，而前端的 `if (!def) return;`
-会**静默丢弃**不认识的键：后端加一个特效名，网页上什么都不显示、也不报错。
+三处都是"后端说名字、前端负责画"，而前端对不认识的名字一律**静默不动**：
+后端加一条、前端没跟上，网页上什么都不显示、也不报错 —— 只能靠这里钉。
 
-钉两个方向：
-    ① 后端内置表里出现的名字，前端都得有符号
-    ② 前端表里不许有后端不产的名字（死符号）
+    ① 情绪符号: 后端 `tui/effects.py::_GLOBAL_EFFECTS` 的值 → 前端 `FX_SYMBOLS`
+    ② 角色动作: 后端 `core/bond/actions.py::ACTION_NAMES` → 前端 `ACT_SPECS`
+    ③ VN 视图 id: `index.html` ↔ `bond-test.html`（演示页少一个元素 = 只在那页静默失效）
 
-⚠️ 作者可以在 `assets/illustration/{char}/effects.yml` 里加**自定义**特效名 —— 那种前端也不认识，
-同样会被静默丢弃。要显示就得同时往 `FX_SYMBOLS` 加一条（名字归后端、符号归前端，这条分工
-没法自动化，只能靠这条注释提醒）。
+① ② 都是双向的（后端得都能画 / 前端不许有死条目）。
+
+⚠️ 作者可以在 `assets/illustration/{char}/effects.yml` 里加**自定义**特效名 —— 那种前端
+也不认识，同样会被静默丢弃。要显示就得同时往 `FX_SYMBOLS` 加一条（名字归后端、符号归
+前端，这条分工没法自动化，只能靠这条注释提醒）。
+
+前端两张表都住在 `webgui/static/js/effects.js`（装饰一类一处）。
 """
 from __future__ import annotations
 
@@ -20,9 +22,10 @@ import re
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 
+from core.bond.actions import ACTION_NAMES  # noqa: E402
 from tui.effects import _GLOBAL_EFFECTS  # noqa: E402
 
-_BOND_JS = ROOT / "webgui" / "static" / "js" / "bond.js"
+_EFFECTS_JS = ROOT / "webgui" / "static" / "js" / "effects.js"
 _INDEX_HTML = ROOT / "webgui" / "static" / "index.html"
 _DEMO_HTML = ROOT / "webgui" / "static" / "bond-test.html"
 
@@ -34,11 +37,21 @@ def _backend_names() -> set[str]:
 
 def _frontend_symbols() -> set[str]:
     """前端 `FX_SYMBOLS` 的键（从 JS 源码取；按 `sym:` 属性认条目，不依赖缩进）。"""
-    src = _BOND_JS.read_text(encoding="utf-8")
+    src = _EFFECTS_JS.read_text(encoding="utf-8")
     start = src.index("const FX_SYMBOLS = {")
     block = src[start:src.index("\n};", start)]
     keys = set(re.findall(r"([A-Za-z_][\w]*)\s*:\s*\{[^}]*sym:", block))
-    assert keys, "没从 bond.js 解析出 FX_SYMBOLS 的键——解析方式要跟着改（别默默放过）"
+    assert keys, "没从 effects.js 解析出 FX_SYMBOLS 的键——解析方式要跟着改（别默默放过）"
+    return keys
+
+
+def _frontend_actions() -> set[str]:
+    """前端 `ACT_SPECS` 的键（**两空格缩进 + `名: {`** —— 单行写法的条目也要认到）。"""
+    src = _EFFECTS_JS.read_text(encoding="utf-8")
+    start = src.index("export const ACT_SPECS = {")
+    block = src[start:src.index("\n};", start)]
+    keys = set(re.findall(r"^\s{2}([a-z][a-z0-9]*):\s*\{", block, re.M))
+    assert keys, "没从 effects.js 解析出 ACT_SPECS 的键——解析方式要跟着改（别默默放过）"
     return keys
 
 
@@ -56,6 +69,22 @@ def test_no_dead_frontend_symbols():
     assert not dead, (
         f"`bond.js` 的 FX_SYMBOLS 里有后端不产出的名字: {dead}\n"
         "（要么后端表漏了它，要么这是可以删的死符号）")
+
+
+def test_every_action_has_a_frontend_spec():
+    """③ 后端能点名的动作，前端都得演得出来。"""
+    missing = sorted(ACTION_NAMES - _frontend_actions())
+    assert not missing, (
+        f"`core/bond/actions.py` 能产出这些动作名，但 `effects.js` 的 ACT_SPECS 里没有: {missing}\n"
+        "（前端会静默不动 —— 网页上不会跳，也不报错）")
+
+
+def test_no_dead_frontend_actions():
+    """④ 前端动作表里不该有后端点不出的名字。"""
+    dead = sorted(_frontend_actions() - ACTION_NAMES)
+    assert not dead, (
+        f"`effects.js` 的 ACT_SPECS 里有后端点不出的动作名: {dead}\n"
+        "（prompt 词表里没有它 ⇒ 标注永远不会给，白留一份关键帧）")
 
 
 def _view_bond_ids(path: pathlib.Path) -> set[str]:
@@ -84,6 +113,10 @@ def test_bond_dom_ids_match_between_index_and_demo():
 if __name__ == "__main__":
     print(f"   后端内置特效名: {sorted(_backend_names())}")
     print(f"   前端符号表键:   {sorted(_frontend_symbols())}")
+    print(f"   后端动作名:     {sorted(ACTION_NAMES)}")
+    print(f"   前端动作表键:   {sorted(_frontend_actions())}")
     test_every_backend_fx_has_a_frontend_symbol()
     test_no_dead_frontend_symbols()
+    test_every_action_has_a_frontend_spec()
+    test_no_dead_frontend_actions()
     print("前端契约守门: 全部通过")

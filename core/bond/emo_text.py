@@ -1,6 +1,8 @@
 """按记录标注情绪（记录流 v2 的主链原语）—— 一板一组, 一次调用。
 
 **一条记录一个键**: 记录内多句也只占一行（模板显式双写条数, 不是句子数）。
+键的取值范围 = **情绪词表 ∪ 动作词表**（`core/bond/actions.py`）—— 两件事同构成一格,
+所以只有一套解析/重试/兜底; 动作键不推进 carry, 由写回处拆成 `p["act"]`。
 输入 = 本板记录文本 + 情境块（上一板原文 + 末条情绪 / 首板 seed 锚）+ 全注释词表
 + I/O 示范（示范键按实际词表挑）; 引擎负责条数硬校验与重试, 本原语负责板内延续
 （上一条键 → 板首 carry）——**永不整批 None**。
@@ -14,6 +16,7 @@ import logging
 import re
 
 from contract.slots import render_template
+from core.bond.actions import ACTION_NAMES, render_prompt_block
 from core.bond.emotion_annotate import _extract_array
 from llm.prompts import load_prompt
 from llm.task_labels import EMOTION
@@ -119,23 +122,33 @@ def _extract_key_array(raw: object) -> list | None:
 
 
 def _label_chain(arr: object, n: int, kset: set[str], prev: str | None,
+                 acts: frozenset[str] = ACTION_NAMES,
                  ) -> tuple[list[str], int] | None:
     """数组 → 标签链: 长度恰 n → 逐项词表校验（词表外只丢该项, 走板内延续）。
+
+    词表 = 情绪 ∪ 动作。**动作键不推进 carry**: 点动作的那一行不给表情（脸沿用上一条）,
+    但键原样带回 —— 由写回处（`_annotate_text_group`）拆成 `p["act"]`。
 
     Returns: `(labels, missing)`; 长度 != n → None（触发重试, 不消费错位数组）。
     """
     if not isinstance(arr, list) or len(arr) != n:
         return None
     labels: list[str] = []
-    cur = prev
+    # carry 起点不是真情绪键（旧数据/上板污染）→ 从默认键起
+    cur = prev if prev and prev not in acts else _DEFAULT_EMOTION
     missing = 0
     for item in arr:
-        if isinstance(item, str) and item.strip() in kset:
-            cur = item.strip()
+        key = item.strip() if isinstance(item, str) else ""
+        if key and key in kset:
+            if key in acts:
+                labels.append(key)              # 动作键: 原样带回, 由写回处拆成 p["act"]
+            else:
+                cur = key
+                labels.append(key)
         else:
             missing += 1                        # 词表外 → 只丢该项（板内延续）
             cur = cur or _DEFAULT_EMOTION
-        labels.append(cur)
+            labels.append(cur)
     return labels, missing
 
 
@@ -157,7 +170,8 @@ def annotate_items(
     `items` = 本组记录文本（条数 N 显式双写进模板）; `context` = 情境块（上一板原文 +
     末条情绪 / 首板 seed 锚）; `prev` = 板首 carry（板内延续起点）; `group_no` 进日志与模板。
 
-    `labels` 长度恒 == `len(items)` 且全词表内——形状/项数不符重试至多两次, 仍失败则
+    `labels` 长度恒 == `len(items)` 且全词表内（词表 = 情绪 ∪ 动作; 动作键原样带回,
+    由调用方拆）——形状/项数不符重试至多两次, 仍失败则
     板内确定性延续（前一条键 → 板首 carry → nomal）, **绝不整批 None**。
     `info` = `{attempts, retry, fallback}`（retry = 触发重试次数; fallback = 兜底条数）。
     """
@@ -169,7 +183,7 @@ def annotate_items(
         return labels, {"attempts": 0, "retry": 0, "fallback": n}
     if max_tokens is None:
         max_tokens = _tl_max_tokens("emotion")
-    kset = set(lexicon_keys)
+    kset = set(lexicon_keys) | ACTION_NAMES       # 一格一个键: 情绪或动作（同构）
     key_n, key_a, key_b = pick_demo_keys(lexicon_keys)
     lexicon = lexicon_hint or "\n".join(f"  {k}" for k in lexicon_keys)
     numbered = "\n".join(f"{i + 1}: {s}" for i, s in enumerate(items))
@@ -184,6 +198,7 @@ def annotate_items(
              "n": str(n),
              "records": numbered,
              "lexicon": lexicon,
+             "acts": render_prompt_block(),
              "key_n": key_n, "key_a": key_a, "key_b": key_b},
             where="emotion_text_annotate.md") + retry_msg
 
@@ -203,8 +218,8 @@ def annotate_items(
                 [
                     {"role": "system", "content": _system(retry_msg)},
                     {"role": "user",
-                     "content": '请输出情绪标签, 包装为 {"labels": {行号: '
-                     '情绪键}}, 行号从 1 到 ' + str(n) + '（恰 ' + str(n)
+                     "content": '请输出每一条的键（情绪键或动作键）, 包装为 {"labels": '
+                     '{行号: 键}}, 行号从 1 到 ' + str(n) + '（恰 ' + str(n)
                      + ' 项）。'},
                 ],
                 temperature=0.2,

@@ -152,7 +152,8 @@ contract → infra → llm → core → tui / webgui / cli
 前端（`webgui/static/`，无构建步骤）：
 
 11. `node --check <file>` 兜底语法；纯逻辑单测 `node --test tests/webgui/js/typing.test.js`
-    （**传文件，别传目录** —— Windows 上会 `Cannot find module`）。
+    （**传文件，别传目录** —— Windows 上会 `Cannot find module`）。装饰层（幕布 / 动作 /
+    情绪符号）的单测是 `tests/webgui/js/effects.test.js`，实现全在 `js/effects.js`。
 12. 打字节奏的唯一实现是 `js/typing.js`，它必须是 `index.html` 里**第一个 classic script**。
 
 交接：
@@ -200,8 +201,8 @@ contract → infra → llm → core → tui / webgui / cli
 环境：解释器 `C:\Users\johnf\miniconda3\envs\live2be\python.exe`（conda env `live2be`；
 conda `base` 里没有 jieba，用 base 跑测试会挂）· `node` v24 在（前端测试用）。
 
-当前基线（2026-10-18）：`tests/core` **1313 passed**（+1 已知红，见下）·
-`tests/llm+tui+webgui` **256 passed** · `ruff check .` **362**。
+当前基线（2026-10-23）：`tests/core` **1322 passed**（+1 已知红，见下）·
+`tests/llm+tui+webgui` **259 passed** · `ruff check .` **360**。
 
 已知缺口：
 

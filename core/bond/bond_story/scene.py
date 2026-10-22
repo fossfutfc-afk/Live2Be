@@ -36,7 +36,7 @@ class BondScene:
     视觉键（`place*` / `art_hint` / `emotion`）**不进 LLM 上下文**, 只进事件流供回放。
     """
 
-    paragraphs: list[dict] = field(default_factory=list)   # [{text, emotion?, speaker?}]
+    paragraphs: list[dict] = field(default_factory=list)   # [{text, emotion?, act?, speaker?}]
     choices: list[str] = field(default_factory=list)
     # 同响应分支内容 {选项文本: [段落…]}——玩家选该选项后立即展示（零等待）; 空 = 无分支
     branches: dict[str, list] = field(default_factory=dict)
@@ -189,6 +189,10 @@ class BondScene:
                     emotion = p.get("emotion")
                     if isinstance(emotion, str) and emotion.strip():
                         item["emotion"] = emotion.strip()
+                    # 动作键（与情绪同构进同一格, 写回时拆出来的; 回放要带着走）
+                    act = p.get("act")
+                    if isinstance(act, str) and act.strip():
+                        item["act"] = act.strip()
                     # 视觉键透传（P3b-2）: place 锚点（句级）随回放场景保留——
                     # 事件流 append-only 已定格, 回放渲染时间轴依赖它。
                     # `place_asset`（第二遍选的图）同理, 只是**段落级**。
@@ -215,6 +219,9 @@ class BondScene:
                         emo = p.get("emotion")
                         if isinstance(emo, str) and emo.strip():
                             item["emotion"] = emo.strip()
+                        b_act = p.get("act")
+                        if isinstance(b_act, str) and b_act.strip():
+                            item["act"] = b_act.strip()
                         branch_paras.append(item)
             if branch_paras:
                 branches[k] = branch_paras

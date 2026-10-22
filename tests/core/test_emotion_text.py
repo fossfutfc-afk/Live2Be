@@ -158,7 +158,7 @@ def test_items_exhausted_chain_fallback_never_none():
     assert labels == ["nomal", "nomal"]
     assert info["fallback"] == 2 and info["retry"] == 2 and info["attempts"] == 3
     # 词表外单项 → 只丢该项, 其余保留（板内延续: 前一条键）
-    llm2, labels2, info2 = _group(["smile", "zzz_not_in_lexicon"])
+    _llm2, labels2, info2 = _group(["smile", "zzz_not_in_lexicon"])
     assert labels2 == ["smile", "smile"] and info2["fallback"] == 1
     print("    items: 预算耗尽/非法项 → 板内延续兜底（无整批 None, 无无限调用）")
 
@@ -302,6 +302,56 @@ def test_engine_reaction_board_annotated_with_chain():
     sys_next = llm.calls[2][0]["content"]
     assert "第 2 板" in sys_next and "上一板记录原文" in sys_next, sys_next[:300]
     print("    engine: 反应板独立标注（槽挂板尾, 链随主线推进）")
+
+
+def test_items_accepts_action_keys_without_moving_carry():
+    """动作键与情绪**同构**进同一格: 原样带回, 但不推进 carry（动作行不给表情）。"""
+    from core.bond.emo_text import annotate_items
+
+    llm = _ScriptLLM(["smile", "jump", "nomal"])
+    labels, info = annotate_items(
+        llm,
+        ["她抬起头。", "「呜哇——！」她整个人弹起来。", "「没、没事……」"],
+        ["nomal", "smile", "outburst"], "  nomal: 平静", "角色: 遥香\n胆小", "遥香",
+        "", group_no=1, prev="nomal", max_tokens=256)
+    assert labels == ["smile", "jump", "nomal"], labels
+    assert info["fallback"] == 0
+    sys = _system(llm)
+    assert "一次性身体动作" in sys and "跳" in sys        # 动作词表进了提示词
+    assert "{{acts}}" not in sys                        # 占位符全替换（不漏原始槽名）
+
+
+def test_items_foreign_action_word_degrades_like_any_bad_key():
+    """模型自己造一个动作（词表外）→ 与"词表外情绪键"同一条路: 只丢该项, 板内延续。"""
+    _llm, labels, info = _group(["smile", "backflip"])
+    assert labels == ["smile", "smile"] and info["fallback"] == 1
+
+
+def test_items_carry_never_starts_from_an_action():
+    """上板把动作键漏进 carry（旧数据/人工注入）→ 从默认键起, 不把动作当情绪用。"""
+    from core.bond.emo_text import annotate_items
+
+    llm = _ScriptLLM(["nope", "smile"])
+    labels, _info = annotate_items(
+        llm, ["a。", "b。"], ["nomal", "smile"], "", "", "", "",
+        group_no=1, prev="jump", max_tokens=256)
+    assert labels == ["nomal", "smile"], labels
+
+
+def test_engine_splits_action_into_act_and_keeps_carry():
+    """写回处才拆: 动作进 `p["act"]`, 情绪沿用上一条（脸不必跟着跳）。"""
+    from core.bond.bond_story import BondScene
+
+    vn, _llm = _engine(["smile", "jump", "outburst"])
+    scene = BondScene(paragraphs=[
+        {"text": "「老师，你来啦。」"},
+        {"text": "「呜哇——！」她整个人弹起来。"},
+        {"text": "「没、没事，只是吓了一跳。」"},
+    ])
+    assert vn.fill_scene_emotions_text(scene) is True
+    assert [p["emotion"] for p in scene.paragraphs] == ["smile", "smile", "outburst"]
+    assert [p.get("act") for p in scene.paragraphs] == [None, "jump", None]
+    assert vn._carry_emo == "outburst"          # 动作键没污染链尾（下一板 carry 仍干净）
 
 
 if __name__ == "__main__":

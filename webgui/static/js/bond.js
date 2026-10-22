@@ -16,7 +16,9 @@
 "use strict";
 
 import { createSpinePlayer } from "./spine-player.js";
-import { Curtain, needCurtain } from "./curtain.js";
+import {
+  Curtain, FX_SYMBOLS, needCurtain, playAct, resetAct,
+} from "./effects.js";
 
 const $ = (id) => document.getElementById(id);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -33,19 +35,8 @@ const END_HOLD_MS = 1600;       // 收尾场景停留后自动 finish
 // 打字速度档位与逐字延迟的唯一实现都在 typing.js（本文件只剩"哪一档"这件事）
 const SPEEDS = window.L2BTyping.SPEEDS;
 
-// 特效符号表（fx 名 → 符号 + 颜色; 与后端 tui/effects.py 的 fx 键一致）:
-// 官方 BA 的"冒爱心/音符/惊叹"是 UI 层粒子——我们用 Unicode 符号 + CSS 浮动动画实现
-// （零素材成本, 跨平台字体渲染; 符号可随时换 emoji/SVG, 映射只改这一处）。
-const FX_SYMBOLS = {
-  sparkle:  { sym: "✦", color: "#ffe9a8" },   // 开心闪光（白金色四角星）
-  heart:    { sym: "♥", color: "#ff7aa2" },   // 爱心（官方粉心）
-  notes:    { sym: "♪", color: "#bfe0ff" },   // 音符（官方蓝紫音符）
-  bang:     { sym: "❗", color: "#ffd166" },   // 惊叹号
-  anger:    { sym: "💢", color: "#ff8a8a" },   // 怒纹
-  raindrop: { sym: "💧", color: "#9cc4ff" },   // 低落/泪滴
-  sweat:    { sym: "💦", color: "#b8e2ff" },   // 汗
-  blush:    { sym: "❥", color: "#ffb3c6" },   // 脸红（轻粉心; 主体脸红由立绘差分表达）
-};
+// 特效符号表与动作表都住在 `js/effects.js`（装饰一类一处; 词表的真源在后端,
+// `tests/webgui/test_frontend_contract.py` 双向钉死）。
 
 const BondVN = (() => {
   // 诊断开关（2026-09-08 实机问题排查）: URL 带 ?bondDebug=1 → console.debug 打印
@@ -202,6 +193,22 @@ let lastSceneKey = "";
       el.style.transition = "none";
       el.style.opacity = "0";
     }
+  }
+
+  // ── 角色动作（`p.act` —— 与情绪同构进同一格, 由写回处拆出来的）────────────
+  // 词表与关键帧在 js/effects.js; 这里只管**什么时候**演。
+  const _actPlayed = new WeakSet();   //: 这一段已经演过（标注晚到时不许重演）
+
+  function maybePlayAct(p) {
+    if (!p || typeof p !== "object" || !p.act) return;
+    if (_actPlayed.has(p)) return;
+    _actPlayed.add(p);
+    const ok = playAct($("bond-stage"), p.act, {
+      onError: (e) => console.warn("[bond] 动作播放失败: ", p.act, e),
+    });
+    // 后端已按词表校验过 → 走到这里说明前后端词表漂了。表现是**静默不动**,
+    // 所以至少要在控制台留一句（否则"怎么不跳"永远查不到）。
+    if (!ok) console.warn("[bond] 动作词表里没有: ", p.act);
   }
 
   // 板级背景补切（2026-10-08）: 只换背景, **不重播正文**（那要重渲染整场）。
@@ -694,6 +701,8 @@ let lastSceneKey = "";
     // place 晚到锚点（§7.2 晚到即切）: 已打字经过的段若含新锚点 → 立即切背景
     const upto = Math.min(typeSeg, (typeParas.length || 1) - 1);
     for (let i = 0; i <= upto; i++) applyPlaceForSeg(typeParas[i]);
+    // 标注晚到的动作: 这一段还在屏上就立刻补演（已经过去的段不补——那会晚半拍）
+    maybePlayAct(typeParas[typeSeg]);
     if (!player) return;
     const paras = scene.paragraphs || [];
     const p = paras[typeSeg];
@@ -712,6 +721,7 @@ let lastSceneKey = "";
       if (!a || !b || typeof a === "string") continue;
       if (b && b.emotion) a.emotion = b.emotion;
       if (b && b.fx) a.fx = b.fx;
+      if (b && b.act) a.act = b.act;               // 动作（标注晚到 → 当前段补演）
       if (b && b.place) a.place = b.place;          // place 锚点（P3b-2）
       if (b && b.place_bg) a.place_bg = b.place_bg; // 背景资源随行
     }
@@ -855,7 +865,10 @@ let lastSceneKey = "";
     if (np) np.classList.toggle("hidden", !!scene.is_end);
     // 立绘: is_end 且无背景（黑屏余韵, 角色已离场）→ 隐藏; 否则显示
     const stage = $("bond-stage");
-    if (stage) stage.classList.toggle("hidden", !!scene.is_end && !scene.background);
+    if (stage) {
+      resetAct(stage);            // 换板清场: `fall` 的定格不该带到下一场
+      stage.classList.toggle("hidden", !!scene.is_end && !scene.background);
+    }
 
     const box = $("bond-text");
     const choiceBox = $("bond-choices");
@@ -1104,6 +1117,7 @@ let lastSceneKey = "";
       curEmotion = p.emotion;
     }
     if (p && p.fx && p.fx.length) showFx(p.fx);
+    maybePlayAct(p);              // 段首动作（无动作 / 已演过 → 什么都不做）
     // 说话人名字行（记录流 v2）: 后端已把 speaker → 显示名映射好
     // （旁白为空串 → 不画名字行）。
     // 2026-09-11 真机反馈（用户: "红色的伊草遥香是不必要的"）: **在当前角色自己说话时
