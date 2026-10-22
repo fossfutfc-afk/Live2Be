@@ -124,7 +124,7 @@ let lastSceneKey = "";
 
   // ── 换场幕布（黑屏过渡）───────────────────────────────────────────────
   // 和动作层（act）**不是一类东西**: 幕布是引擎事件驱动（背景切换 / 纪念进出）,
-  // 没有判定的余地, 也不进任何词表; 调度与折叠在 js/curtain.js（有 node 单测）。
+  // 没有判定的余地, 也不进任何词表; 调度与折叠在 js/effects.js（有 node 单测）。
   // 触发点只有四个: 板首换场 / 板级背景晚到 / 句级锚点 / 纪念进出。
   let curtainOpacity = 0;        // 与 CSS 初值 opacity:0 一致（未设置时读 style 得到 ""）
   let curtainPrimed = false;     // 首帧不上黑幕: enter 有章节卡盖着, 再黑一次是多余一闪
@@ -135,7 +135,7 @@ let lastSceneKey = "";
     onError: (e) => console.warn("[bond] 换场幕布: ", e),
   });
 
-  /** 幕布透明度走 CSS 过渡（时长表在 curtain.js）。 */
+  /** 幕布透明度走 CSS 过渡（时长表在 effects.js）。 */
   function _fadeCurtain(target, ms) {
     const el = $("bond-curtain");
     if (!el) return Promise.resolve();
