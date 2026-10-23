@@ -1,11 +1,14 @@
-"""按记录标注情绪（记录流 v2 的主链原语）—— 一板一组, 一次调用。
+"""按记录标注情绪 + 表现层动静（记录流 v2 的主链原语）—— 一板一组, 一次调用。
 
-**一条记录一个键**: 记录内多句也只占一行（模板显式双写条数, 不是句子数）。
-**有动作的那一行, 键写成 `"情绪键|动作键"`**（词表 = `core/bond/actions.py`）—— 形状不多
-一层（thinking-off 的廉价模型撑不住嵌套）, 动作也贴着它自己那一行; 动作段坏了只丢动作。
+**一条记录一行**: 记录内多句也只占一行（模板显式双写条数, 不是句子数）。
+输出是 **JSONL**: 每行 `{"row": n, "emotion": "键", "act": "键"?}` —— `emotion` 必填,
+`act`（立绘的一下"动静", 词表 = `core/bond/actions.py`）可选、极罕见。
+形状天然可长: 将来多人/BGM 就是同一行再加 `who` / `bgm`（**未知键认得但不消费**）。
+
 输入 = 本板记录文本 + 情境块（上一板原文 + 末条情绪 / 首板 seed 锚）+ 全注释词表
-+ I/O 示范（示范键按实际词表挑）; 引擎负责条数硬校验与重试, 本原语负责板内延续
-（上一条键 → 板首 carry）——**永不整批 None**。
++ I/O 示范（示范键按实际词表挑）; 引擎负责**行数硬校验**（行数 != N → 重试）与
+板内延续（上一条键 → 板首 carry）——**永不整批 None**。
+坏行只废那一行（该行 carry）, 不整板重试 —— 这是行协议相对一次性 JSON 的实质收益。
 
 提示词模板: `llm/prompts/emotion_text_annotate.md`。
 """
@@ -57,13 +60,13 @@ _ACT_SEP = "|"
 
 
 def _rows_of(raw: object) -> list[object] | None:
-    """标注输出 → **行值列表**（按行号升序）; 认不出容器 → None。
+    """标注输出 → **行值列表**（出现顺序）; 认不出容器 → None。
 
-    每行一个值; 行数是硬校验（不符就重试, 不消费错位的表）。容器的几种写法都是
-    同一个意思（真 API 观测到过）:
-      · `{"labels": {行号: 值}}` —— 提示词教的形状
-      · `{"rows": {...}}` / 直接 `{行号: 值}` / 数组（下标+1）—— 模型偶尔换个壳
-    值 = `"情绪键"` 或 `"情绪键|动作键"`（见 `_split_value`）。
+    行数是硬校验（不符就重试——"每行都标"靠它保证）。容器的几种写法都是同一个意思:
+      · **JSONL**: 每行 a `{"row": n, "emotion": …}` —— 提示词教的形状
+      · `{"labels": {行号: 值}}` / `{"rows": [...]}` / 数组 —— 模型偶尔换个壳（旧形状）
+    值 = 行对象（`_split_value` 按字段认）或裸字符串（= 只有情绪, 旧形态兜底）。
+    **坏行只占一个位置**（`{"__bad__": …}`）, 由 `_split_value` 当作"没写"→ carry。
     """
     if isinstance(raw, str):
         text = raw.strip()
@@ -72,9 +75,18 @@ def _rows_of(raw: object) -> list[object] | None:
         hi = max(text.rfind("}"), text.rfind("]"))
         if lo >= 0 and hi > lo:
             try:
-                return _rows_of(json.loads(text[lo:hi + 1]))
+                return _rows_of(json.loads(text[lo:hi + 1]))   # 整串一个对象/数组
             except ValueError:
                 pass
+        lines = [x.strip() for x in text.splitlines() if x.strip().startswith("{")]
+        if lines:                                          # JSONL: 一行一个对象
+            out: list[object] = []
+            for s in lines:
+                try:
+                    out.append(json.loads(s))
+                except ValueError:
+                    out.append({"__bad__": s[:80]})        # 坏行只废这一行
+            return out
         m = re.search(r"\[(.*)\]", text, re.S)      # 裸键容忍（省引号输出）
         if m and '"' not in m.group(1) and "'" not in m.group(1):
             items = [x.strip() for x in m.group(1).split(",") if x.strip()]
@@ -106,9 +118,9 @@ def _rows_of(raw: object) -> list[object] | None:
 def _split_value(val: object, kset: set[str]) -> tuple[str, str]:
     """一行的值 → `(情绪键, 动作键)`; 认不出的给空串（生死交给调用方）。
 
-    值语法只有两种: `"情绪键"`（绝大多数行）或 `"情绪键|动作键"`。两段来自**互斥的两个
-    词表** ⇒ 顺序写反也能拆对（省一次整板重试）。对象形态（模型偶尔自己展开）是兜底,
-    不是教的形状。
+    教的形状是**行对象** `{"row": n, "emotion": …, "act": …}`; 两个兜底形态:
+    裸字符串（旧形状 = 只有情绪）与 `"情绪键|动作键"`（中间试过的一版）。
+    两段来自**互斥的两个词表** ⇒ 顺序写反也能拆对（省一次整板重试）。
     """
     if isinstance(val, dict):
         emo_raw = next((v for k in ("emotion", "key", "label")
@@ -125,10 +137,25 @@ def _split_value(val: object, kset: set[str]) -> tuple[str, str]:
     return emo, act
 
 
+def _row_index(val: object, fallback: int) -> int:
+    """行号: 显式 `row`（int 或数字串）优先, 没有才用出现顺序。"""
+    if isinstance(val, dict):
+        for k in ("row", "n", "index", "line"):
+            v = val.get(k)
+            if isinstance(v, bool):
+                continue
+            if isinstance(v, int):
+                return v
+            if isinstance(v, str) and v.strip().isdigit():
+                return int(v.strip())
+    return fallback
+
+
 def _parse_rows(raw: object, n: int, kset: set[str], prev: str | None,
                 ) -> tuple[list[str], list[str], int] | None:
     """标注输出 → `(labels, acts, missing)`; 行数不符 → None（触发重试）。
 
+    · 行号: 显式 `row` 优先（**乱序也认**）; 同号后写覆盖（幂等, 为将来接流式重放留的）
     · 情绪: 词表内才认, 否则只废这一行（板内延续: 前一条键 → 板首 carry）
     · 动作: 词表内才认; 空/词表外一律当"这一行不演" —— **不算错, 也不进重试**
     · 一板最多 `MAX_ACTS_PER_BOARD` 个（按行号留前几个, 其余作废并记日志）
@@ -136,14 +163,17 @@ def _parse_rows(raw: object, n: int, kset: set[str], prev: str | None,
     rows = _rows_of(raw)
     if rows is None or len(rows) != n:
         return None
+    slots: dict[int, object] = {}
+    for i, val in enumerate(rows, start=1):
+        slots[_row_index(val, i)] = val
     labels: list[str] = []
     acts: list[str] = []
     cur = prev
     missing = 0
     kept = 0
     dropped = 0
-    for val in rows:
-        emo, act = _split_value(val, kset)
+    for i in range(1, n + 1):
+        emo, act = _split_value(slots.get(i), kset)
         if emo and emo in kset:
             cur = emo
         else:
@@ -219,25 +249,28 @@ def annotate_items(
         retry_msg = ""
         if attempt > 0 and mismatch:
             retry_msg = (
-                "\n（上次输出无法通过校验——项数不符: 期望 "
+                "\n（上次输出无法通过校验——行数不符: 期望 "
                 + str(n) + ", 实得 " + str(mismatch) + "。只重新输出 "
-                '{"labels": {1..' + str(n)
-                + ' 的行号 → 键}}, 无任何解释。）'
+                + str(n) + ' 行 JSONL: 每行 {"row": 行号, "emotion": "情绪键"}'
+                "（行号 1.." + str(n) + "）, 无任何解释。）"
             )
         try:
             raw = llm.chat(
                 [
                     {"role": "system", "content": _system(retry_msg)},
                     {"role": "user",
-                     "content": '请按行输出情绪键, 包装为 {"labels": {行号: 键}}, '
-                     '行号从 1 到 ' + str(n) + '（恰 ' + str(n) + ' 项）; '
-                     '这一行她还有身体动作, 就把键写成 "情绪键|动作键"。'},
+                     "content": '请输出 ' + str(n) + ' 行 JSONL: 每行 {"row": 行号, '
+                     '"emotion": "情绪键"}（行号 1..' + str(n) + '）; '
+                     '这一行还需要一下动静, 就在同一行再加 "act": "动作键"。'
+                     "不要外壳对象, 不要解释。"},
                 ],
                 temperature=0.2,
                 max_tokens=max_tokens,
-                # json_object + thinking 显式 off（真源 = task_levels）: v4-flash 默认
-                # 思考会吃光 max_tokens 留下空 content; 编号映射由引擎数项。
-                response_format="json_object",
+                # JSONL 与 json_object 互斥 ⇒ 走 text（形状可长: 将来加 who/bgm 就是加键;
+                # 代价是丢了强制结构化, 由行解析 + ParseDiag 计数兜住）。
+                # thinking 档位仍显式给（真源 = task_levels）: v4-flash 默认思考会吃光
+                # max_tokens 留下空 content。
+                response_format="text",
                 extra_body=_tl_extra("emotion"),
                 task=EMOTION,              # 调用身份（节点 5b: 桩按它分派, 不进 payload）
             )

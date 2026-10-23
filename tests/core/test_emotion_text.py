@@ -148,9 +148,9 @@ def test_items_annotate_normal():
     assert "不是句子数" in sys                                      # 口径: 记录 ≠ 句子
     assert "1: 她站在窗边，看着远处。" in sys and "2: 老师来了！" in sys
     assert "smile: 微笑" in sys or "smile" in sys                    # 全注释词表
-    assert '"labels"' in sys                                        # 编号映射契约
-    assert "恰 2 项" in llm.calls[-1][-1]["content"]                 # 底部双写
-    print("    items: 正常标注（模板全占位符替换, 编号映射, 1 次调用零兜底）")
+    assert '"row"' in sys and '"emotion"' in sys                     # JSONL 契约
+    assert "2 行 JSONL" in llm.calls[-1][-1]["content"]              # 底部双写
+    print("    items: 正常标注（模板全占位符替换, JSONL 逐行, 1 次调用零兜底）")
 
 
 def test_items_length_mismatch_retry_message():
@@ -316,25 +316,29 @@ def test_engine_reaction_board_annotated_with_chain():
     print("    engine: 反应板独立标注（槽挂板尾, 链随主线推进）")
 
 
-def test_items_act_is_the_second_segment_of_the_key():
-    """动作不是第二种输出: 它就是那一行键的第二段（`"情绪键|动作键"`）。"""
+def test_items_act_is_an_optional_field_on_the_same_line():
+    """一行一条: 情绪必填, `act` 可选（立绘的一下"动静"）。"""
     llm, labels, acts, info = _group_acts(
-        '{"labels": {"1": "smile", "2": "embarrassed|jump"}}')
+        '{"row": 1, "emotion": "smile"}\n'
+        '{"row": 2, "emotion": "embarrassed", "act": "jump"}')
     assert labels == ["smile", "embarrassed"]
-    assert acts == ["", "jump"]                    # 没动作的行只有一段
+    assert acts == ["", "jump"]                    # 没动作的行没有这个字段
     assert info == {"attempts": 1, "retry": 0, "fallback": 0}
     sys = _system(llm)
-    assert "一次性身体动作" in sys and "跳" in sys   # 词表进了提示词
+    assert "立绘的" in sys and "弹一下" in sys          # 动静词表进了提示词
     assert "{{acts}}" not in sys                   # 占位符全替换（不漏原始槽名）
-    assert "情绪键|动作键" in llm.calls[-1][-1]["content"]   # 底部也点名了写法
+    assert '"act"' in llm.calls[-1][-1]["content"]  # 底部也点名了写入方式
 
 
-def test_items_bad_act_segment_never_retries_and_never_hurts_emotion():
-    """动作段坏了（词表外 / 段数多 / 没有竖线）→ 只丢动作, **不重试**, 情绪照旧。"""
+def test_items_bad_act_never_retries_and_never_hurts_emotion():
+    """`act` 坏了（词表外 / 不是字符串 / 干脆没写）→ 只丢动作, **不重试**, 情绪照旧。"""
     cases = [
-        ('{"labels": {"1": "smile", "2": "nomal|backflip"}}', ["smile", "nomal"]),
-        ('{"labels": {"1": "smile|jump|hop", "2": "nomal"}}', ["smile", "nomal"]),
-        ('{"labels": {"1": "smile", "2": "nomal"}}', ["smile", "nomal"]),
+        ('{"row": 1, "emotion": "smile"}\n'
+         '{"row": 2, "emotion": "nomal", "act": "backflip"}', ["smile", "nomal"]),
+        ('{"row": 1, "emotion": "smile", "act": ""}\n'
+         '{"row": 2, "emotion": "nomal"}', ["smile", "nomal"]),
+        ('{"row": 1, "emotion": "smile"}\n'
+         '{"row": 2, "emotion": "nomal"}', ["smile", "nomal"]),
     ]
     for raw, want in cases:
         llm, labels, _acts, info = _group_acts(raw)
@@ -342,14 +346,25 @@ def test_items_bad_act_segment_never_retries_and_never_hurts_emotion():
         assert info["retry"] == 0 and len(llm.calls) == 1, raw
 
 
-def test_items_act_segment_survives_reversed_order():
-    """两段来自互斥词表 ⇒ `jump|smile` 也能拆对（省一次整板重试）。"""
-    _llm, labels, acts, _info = _group_acts('{"labels": {"1": "jump|smile", "2": "nomal"}}')
-    assert labels == ["smile", "nomal"] and acts == ["jump", ""]
+def test_items_row_number_wins_over_arrival_order():
+    """行号显式给出 ⇒ **乱序也认**（按 row 归位, 不按到达顺序）。"""
+    _llm, labels, acts, _info = _group_acts(
+        '{"row": 2, "emotion": "nomal", "act": "hop"}\n'
+        '{"row": 1, "emotion": "smile"}')
+    assert labels == ["smile", "nomal"] and acts == ["", "hop"]
+
+
+def test_items_unknown_fields_are_tolerated_for_the_future():
+    """将来多人/BGM 是同一行加键: 未知字段**认得但不消费**, 不许因此重试。"""
+    llm, labels, acts, info = _group_acts(
+        '{"row": 1, "who": "aru", "emotion": "smile", "bgm": "calm_01"}\n'
+        '{"row": 2, "emotion": "nomal"}')
+    assert labels == ["smile", "nomal"] and acts == ["", ""]
+    assert info["retry"] == 0 and len(llm.calls) == 1
 
 
 def test_items_foreign_action_word_in_the_key_is_still_a_bad_key():
-    """模型把动作当成整行的键（没有第二段）→ 词表外, 按板内延续兜底。"""
+    """模型把动作当成整行的键（没有 emotion 字段）→ 词表外, 按板内延续兜底。"""
     _llm, labels, info = _group(["smile", "jump"])
     assert labels == ["smile", "smile"] and info["fallback"] == 1
 
@@ -359,7 +374,9 @@ def test_engine_writes_act_alongside_a_real_emotion():
     from core.bond.bond_story import BondScene
 
     vn, _llm = _engine(
-        '{"labels": {"1": "smile", "2": "outburst|jump", "3": "nomal"}}')
+        '{"row": 1, "emotion": "smile"}\n'
+        '{"row": 2, "emotion": "outburst", "act": "jump"}\n'
+        '{"row": 3, "emotion": "nomal"}')
     scene = BondScene(paragraphs=[
         {"text": "「老师，你来啦。」"},
         {"text": "「呜哇——！」她整个人弹起来。"},
