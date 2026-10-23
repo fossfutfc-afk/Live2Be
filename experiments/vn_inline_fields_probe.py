@@ -33,6 +33,14 @@ from llm.client import LLMClient  # noqa: E402
 from llm.task_labels import BOND  # noqa: E402
 
 DEFAULT_SEED = "（旁白）放学后的教室里，老师来找遥香，今天想陪她多待一会儿。"
+#: 每个 run 一个新 seed ⇒ 一个新会话 ⇒ 一次新的写手调用
+SEEDS = [
+    DEFAULT_SEED,
+    "（旁白）午休时间，遥香一个人在食堂角落吃饭，老师端着餐盘走过来。",
+    "（旁白）下雨天，遥香在图书馆窗边看书，老师淋着雨冲进来。",
+    "（旁白）深夜的杂草屋，遥香在整理捡来的东西，老师敲了敲门。",
+    "（旁白）周末的商店街，遥香抱着购物袋站在路口，老师刚好路过。",
+]
 OUT_DIR = ROOT / ".testtmp"
 
 INSTRUCTION = """
@@ -150,11 +158,15 @@ def analyze(raw: str, lexicon: set[str]) -> dict:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="写手内联 act/emotion 可行性探针（真实 API）")
-    ap.add_argument("--rounds", type=int, default=5)
+    ap.add_argument("--runs", type=int, default=3,
+                    help="跑几个独立会话（每个都产生一次写手调用）")
+    ap.add_argument("--rounds", type=int, default=5, help="（旧名, 保留兼容; 已不用）")
     ap.add_argument("--thinking", default="high", help="high/low/medium/off/default")
     ap.add_argument("--char", default="igusa_haruka")
     ap.add_argument("--seed", default=DEFAULT_SEED)
     ap.add_argument("--no-inject", dest="inject", action="store_false", default=True)
+    ap.add_argument("--min-emo", type=float, default=0.80,
+                    help="情绪覆盖率下限: 低于它就判死（情绪不可省略）")
     args = ap.parse_args()
 
     llm = ProbeLLM(LLMClient(), args.thinking, args.inject, [])
@@ -167,36 +179,38 @@ def main() -> int:
           f"thinking={args.thinking} · 指令={'开' if llm.inject else '关(基线)'}")
 
     totals = {"rows": 0, "bad": 0, "chars": 0, "with_emo": 0, "emo_ok": 0,
-              "with_act": 0, "act_ok": 0, "text_last": 0}
-    inp = args.seed
-    for i in range(1, args.rounds + 1):
+              "with_act": 0, "act_ok": 0, "text_last": 0, "chars_len": 0}
+    #: 每个 run 开一个**新会话 + 新 seed** ⇒ 每个 run 必然有一次写手调用。
+    #: （只喂同一会话的后续板 = 消费预生成, 不产生新调用 —— 那会白算样本量。）
+    for i in range(1, args.runs + 1):
+        seed = args.seed if args.runs == 1 else SEEDS[(i - 1) % len(SEEDS)]
+        vn = BondStoryEngine(ROOT / "config" / "characters", llm)
+        vn.start_session(args.char)
         before = len(llm.raw)
         t0 = time.monotonic()
         try:
-            scene = vn.send_vn_scene(inp)
-        except Exception as e:                        # noqa: BLE001 — 单场失败继续
-            print(f"  第 {i} 场 FAILED: {type(e).__name__}: {str(e)[:120]}")
-            break
+            scene = vn.send_vn_scene(seed)
+        except Exception as e:                        # noqa: BLE001 — 单次失败继续
+            print(f"  run {i} FAILED: {type(e).__name__}: {str(e)[:120]}")
+            continue
         dt = int((time.monotonic() - t0) * 1000)
         raws = llm.raw[before:]
         stats = [analyze(r["text"], lexicon) for r in raws]
         agg = {k: sum(s[k] for s in stats) for k in totals}
+        bad_samples = [b for s in stats for b in s["bad_samples"]]
         for k in totals:
             totals[k] += agg[k]
         drops = [n for n in (scene.notes or []) if "丢" in n or "drop" in n.lower()]
-        print(f"  第 {i} 场 {dt}ms  引擎收下 {len(scene.records)} 条记录 · "
+        print(f"  run {i} {dt}ms  写手调用 {len(raws)} 次 · 引擎收下 {len(scene.records)} 条 · "
               f"原始 {agg['rows']} 行（坏行 {agg['bad']}）· "
               f"带表情 {agg['with_emo']} 词表内 {agg['emo_ok']} · "
               f"带动作 {agg['with_act']} 词表内 {agg['act_ok']} · "
               f"text 在末位 {agg['text_last']}/{agg['chars']} · "
               f"输出 {agg['chars_len']} 字符")
-        if agg["bad_samples"]:
-            print(f"      坏行样本: {agg['bad_samples'][0]!r}")
+        if bad_samples:
+            print(f"      坏行样本: {bad_samples[0]!r}")
         if drops:
-            print(f"      引擎丢行: {drops[:3]}")
-        inp = scene.choices[0] if scene.choices else "（继续）"
-        if scene.is_end:
-            break
+            print(f"      引擎丢行: {drops[:2]}")
 
     print("\n===== 汇总 =====")
     if totals["chars"]:
@@ -208,6 +222,10 @@ def main() -> int:
         print(f"内联动作 {totals['with_act']} ({100 * totals['with_act'] / totals['chars']:.0f}%)"
               f" · 词表内 {totals['act_ok']} "
               f"({100 * totals['act_ok'] / max(1, totals['with_act']):.0f}%)")
+        cov = totals["with_emo"] / totals["chars"]
+        print(f"情绪覆盖率 {100 * cov:.0f}%（下限 {100 * args.min_emo:.0f}%）⇒ "
+              f"{'通过' if cov >= args.min_emo else '判死'}"
+              " —— 情绪不可省略, 靠 carry 补满不算数")
         print(f"`text` 在末位 {totals['text_last']}/{totals['chars']} "
               f"({100 * totals['text_last'] / totals['chars']:.0f}%)  ← 这条不到 100% 就不能放字段")
     print(f"输出合计 {sum(len(r['text']) for r in llm.raw)} 字符 · "

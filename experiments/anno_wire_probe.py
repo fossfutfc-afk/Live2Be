@@ -26,6 +26,7 @@ import json
 import re
 import sys
 import time
+from collections import Counter
 from itertools import pairwise
 from pathlib import Path
 
@@ -98,6 +99,23 @@ def load_boards(limit: int) -> list[dict]:
     return boards
 
 
+def _resyntax(out: str, variant: str) -> str:
+    """把**示范里的输出行**改写成目标语法 —— 示范条数/键值不变, 只换写法。
+
+    这样才能把"线格式"和"示范教了多少"分开: 上一版我给 B/C 删了两个示范再补一个,
+    等于同时改了示范数量, 那份对照不干净。
+    """
+    def _one(m: re.Match) -> str:
+        pairs = re.findall(r'"(\d+)"\s*:\s*"?([a-z_]+)"?', m.group(0))
+        if not pairs:
+            return m.group(0)
+        if variant == "B":
+            return "输出: " + "\n".join(f'{{"{i}": "{k}"}}' for i, k in pairs)
+        return "输出: " + "\n".join(
+            f'{{"row": {i}, "emotion": "{k}"}}' for i, k in pairs)
+    return re.sub(r"^输出: .*$", _one, out, flags=re.M)
+
+
 def build_system(vn, items: list[str], context: str, variant: str) -> str:
     n = len(items)
     key_n, key_a, key_b = pick_demo_keys(vn._lexicon_keys)
@@ -114,17 +132,9 @@ def build_system(vn, items: list[str], context: str, variant: str) -> str:
         where="emotion_text_annotate.md")
     if variant == "A":
         return out
-    # B/C: 示范与输出规格一起换（其余逐字节相同）
-    out = out.split("【输出】")[0]
-    if variant == "B":
-        demo = f'输出: {{"{n}": "{key_n}"}}'
-        out = re.sub(r"^输出: .*$", "", out, flags=re.M)
-        out += f"【示范·补充】输出: {demo}\n（一行一条, 不带外壳）\n\n" + _SPEC_B
-    else:
-        out = re.sub(r"^输出: .*$", "", out, flags=re.M)
-        out += (f'【示范·补充】输出: {{"row": {n}, "emotion": "{key_n}"}}\n'
-                "（一行一条, 不带外壳）\n\n" + _SPEC_C)
-    return out.replace("{{n}}", str(n))
+    out = _resyntax(out.split("【输出】")[0], variant)      # 示范只换语法
+    spec = _SPEC_B if variant == "B" else _SPEC_C
+    return out + spec.replace("{{n}}", str(n))
 
 
 def user_msg(variant: str, n: int) -> str:
@@ -201,10 +211,13 @@ def run_stream(llm, system: str, user: str, n: int, variant: str) -> dict:
 
 
 def score(rows: dict, n: int, lexicon: set[str]) -> dict:
+    """一板 → 质量向量。**变化度**是这里的主指标（越多变越好, 不是越连续越好）:"""
     ordered = [rows[i] for i in sorted(rows)]
     keys = [r[1] for r in ordered]
     acts = [r[2] for r in ordered if r[2]]
     adj = [(a, b) for a, b in pairwise(keys) if a and b]
+    counts = Counter(k for k in keys if k)
+    top = max(counts.values()) if counts else 0
     return {
         "n": n, "got": len(rows),
         "complete": len(rows) == n,
@@ -213,6 +226,10 @@ def score(rows: dict, n: int, lexicon: set[str]) -> dict:
         "acts": sum(1 for a in acts if a in ACTION_NAMES),
         "adj_same": sum(1 for a, b in adj if a == b),
         "adj": len(adj),
+        # 变化度: 一板用了几个不同的键 / 单一键最多占几成
+        "distinct": len(counts),
+        # 短板(<=3 行)的"单键最大"没有意义(两行同键就是 100%) -> 只算 n>=4 的板
+        "top_share": (top / len(keys)) if keys and n >= 4 else 0.0,
     }
 
 
@@ -252,7 +269,8 @@ def main() -> int:
 
     agg = {v: {"first": [], "total": [], "junk": 0, "rows": 0, "n": 0,
                "complete": 0, "in_lex": 0, "out_lex": 0, "acts": 0,
-               "adj_same": 0, "adj": 0, "err": 0} for v in variants}
+               "adj_same": 0, "adj": 0, "err": 0,
+               "distinct": 0, "top": 0.0, "act_boards": 0} for v in variants}
     for bi, b in enumerate(boards, 1):
         items = b["items"]
         n = len(items)
@@ -290,6 +308,9 @@ def main() -> int:
             a["acts"] += s["acts"]
             a["adj_same"] += s["adj_same"]
             a["adj"] += s["adj"]
+            a["distinct"] += s["distinct"]
+            a["top"] = max(a["top"], s["top_share"])
+            a["act_boards"] += int(s["acts"] > 0)
             a["junk"] += r["junk"]
             if r["first_ms"] is not None:
                 a["first"].append(r["first_ms"])
@@ -306,16 +327,23 @@ def main() -> int:
     print("\n===== 汇总 =====")
     print(f"{'档':<3}{'首行p50':>9}{'首行p95':>9}{'整板p50':>10}{'整板p95':>10}"
           f"{'整板齐':>8}{'行命中':>9}{'垃圾行':>8}{'词表外':>8}{'动作':>6}"
-          f"{'相邻同键':>10}{'失败':>6}")
+          f"{'相邻同键':>10}{'去重键':>8}{'单键最大':>9}{'失败':>6}")
     for v in variants:
         a = agg[v]
         adj = f"{100 * a['adj_same'] / a['adj']:.0f}%" if a["adj"] else "-"
         print(f"{v:<3}{pct(a['first'], .5):>9}{pct(a['first'], .95):>9}"
               f"{pct(a['total'], .5):>10}{pct(a['total'], .95):>10}"
               f"{a['complete']:>8}{a['rows']:>9}{a['junk']:>8}{a['out_lex']:>8}"
-              f"{a['acts']:>6}{adj:>10}{a['err']:>6}")
+              f"{a['acts']:>6}{adj:>10}{a['distinct']:>8}"
+              f"{100 * a['top']:>8.0f}%{a['err']:>6}")
+    for v in variants:
+        a = agg[v]
+        hit = a["rows"] / a["n"] if a["n"] else 0.0
+        print(f"  [{v}] 情绪覆盖 {100 * hit:.0f}% ⇒ "
+              f"{'通过' if hit >= 0.80 else '判死'}（下限 80%: 情绪不可省略）")
     print(f"\n（'整板齐' = 行数恰好的板数 / {len(boards)}; '行命中' = 收到的行数 / "
-          f"应标行数; '相邻同键' 今天是 18%）")
+          f"应标行数; '相邻同键' 今天 18%——**越低越多变, 高了就是偷\xe6\x87\x92**; "
+          f"'单键最大' = 该档里最差那一板的单一键占比）")
     return 0
 
 
