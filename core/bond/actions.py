@@ -20,6 +20,17 @@
 所以 `p["emotion"]` 恒为真情绪键 —— 它有两处按词表消费的地方: LLM 可见的历史文本
 （`render_bond_scene_text` 给每句拼 `（emotion）`）与记忆里的情绪轨迹
 （`digest.episodes._emotion_shape`）。混进动作名会把那两处一起带歪。
+
+**这张表是照着原作剧本普查出来的, 不是凭感觉列的**（`ScenarioScriptDB` 408,693 条
+剧本行, 动作命令的真实出现次数）:
+
+    stiff 12,242 · hophop 5,005 · greeting 4,542 · jump 2,748 · shake 2,147
+    falldownleft 0 · falldownright 0 · idle 0
+
+⇒ 含动作的行 **6.53%**（每 100 行 6.53 个）。所以:
+  · 只留真被用过的五个（**删掉 falldown**: 原作剧情里 0 次; `idle` = "不动", 不是动作）;
+  · 顺序按频率排（`stiff` 是主力, 占全部动作的 46%）;
+  · 频率目标 ≈ 6.5/100 行 ⇒ prompt 里"偶发, 一板最多一两个"。
 """
 from __future__ import annotations
 
@@ -37,12 +48,12 @@ class Action:
 
 
 ACTIONS: tuple[Action, ...] = (
-    Action("jump", "弹一下", "情绪一下子冲上来——开心、惊喜、急得想蹦（快速上移再落回）"),
-    Action("hop", "轻快两下", "窃喜、期待、按不住的雀跃（小幅上移两次）"),
-    Action("shake", "抖一下", "害怕、强忍、摇头否认（左右小幅抖动）"),
+    # 顺序 = 原作剧本里的真实频率（见模块 docstring 的普查）; 不是凭感觉排的。
     Action("stiff", "绷住", "被抓包、忽然严肃、大气不敢出（瞬间绷紧再放开）"),
-    Action("fall", "沉下去", "腿软、被打击、泄了气（向下沉 + 轻微倾斜）"),
+    Action("hop", "轻快两下", "窃喜、期待、按不住的雀跃（小幅上移两次）"),
     Action("greet", "点头", "打招呼、应承、道谢（上下轻点两下）"),
+    Action("jump", "弹一下", "情绪一下子冲上来——开心、惊喜、急得想蹦（快速上移再落回）"),
+    Action("shake", "抖一下", "害怕、强忍、摇头否认（左右小幅抖动）"),
 )
 
 ACTION_NAMES: frozenset[str] = frozenset(a.name for a in ACTIONS)

@@ -160,14 +160,6 @@ export const ACT_SPECS = {
       { offset: 1, transform: "scaleY(1)" },
     ],
   },
-  fall: {
-    // 定格: 坐倒之后就该一直坐着, 直到下一段/下一板把它撤掉
-    ms: 460, easing: "cubic-bezier(.45,0,.75,0)", fill: "forwards",
-    frames: [
-      { offset: 0, transform: "translateY(0%) rotate(0deg)" },
-      { offset: 1, transform: "translateY(4%) rotate(-8deg)" },
-    ],
-  },
   greet: {
     ms: 520, easing: "ease-in-out",
     frames: [

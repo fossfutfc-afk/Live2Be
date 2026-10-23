@@ -149,11 +149,8 @@ test("playAct: 已知动作 → 先撤掉上一次（杜绝 transform 叠加）,
   assert.equal(opts.fill, "none");                    // 跳跃不留定格
 });
 
-test("playAct: fall 定格（fill forwards）, 其余都不留", () => {
-  const el = fakeEl();
-  playAct(el, "fall");
-  assert.equal(el.calls[0].opts.fill, "forwards");
-  for (const name of ACT_NAMES.filter((n) => n !== "fall")) {
+test("playAct: 所有动作都不留定格（fill none）", () => {
+  for (const name of ACT_NAMES) {
     const e = fakeEl();
     playAct(e, name);
     assert.equal(e.calls[0].opts.fill, "none", name);
