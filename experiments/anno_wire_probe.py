@@ -39,6 +39,7 @@ from core.bond.bond_story import BondStoryEngine  # noqa: E402
 from core.bond.emo_text import annotate_items, pick_demo_keys  # noqa: E402
 from llm.client import LLMClient  # noqa: E402
 from llm.prompts import load_prompt  # noqa: E402
+from llm.task_labels import EMOTION  # noqa: E402
 from llm.task_levels import extra_body as _tl_extra  # noqa: E402
 from llm.task_levels import max_tokens as _tl_max_tokens  # noqa: E402
 
@@ -178,36 +179,82 @@ def parse_row(line: str, variant: str) -> tuple[int, str, str] | None:
 
 
 def run_stream(llm, system: str, user: str, n: int, variant: str) -> dict:
-    llm.default_extra_body = _tl_extra("emotion")
+    """走**生产该走的那条路**: `chat_full(stream=True, on_chunk=…)`。
+
+    它不是 `chat_stream`（那个是裸生成器: 无重试 / 无 usage / 无 extra_body）。
+    `chat_full` 自带: extra_body(思考档位) · on_chunk 增量回调 · 429/5xx/超时退避 ·
+    TTFT/usage 日志 · 返回完整串（收尾"末尾半行没换行"用）。
+
+    ⚠️ `_stream_collect` 的重试是**整条流重放**（每个 attempt 都从头 drain）⇒ 消费侧
+    必须幂等: 这里按行号覆盖 `rows[idx] = row`, 不累加、不设"已定稿"。
+    """
     t0 = time.monotonic()
-    buf, rows, junk, t_first = "", {}, 0, None
+    st: dict = {"buf": "", "rows": {}, "junk": 0, "first": None}
+
+    def _feed(chunk: str) -> None:
+        st["buf"] += chunk
+        while "\n" in st["buf"]:
+            line, st["buf"] = st["buf"].split("\n", 1)
+            if not line.strip():
+                continue
+            got = parse_row(line, variant)
+            if got is None:
+                st["junk"] += 1
+                continue
+            st["rows"][got[0]] = got                  # 幂等: 重放只覆盖
+            if st["first"] is None:
+                st["first"] = time.monotonic() - t0
+
     try:
-        for chunk in llm.chat_stream(
+        llm.chat_full(
             [{"role": "system", "content": system}, {"role": "user", "content": user}],
             temperature=0.2, max_tokens=_tl_max_tokens("emotion"),
-        ):
-            buf += chunk
-            while "\n" in buf:
-                line, buf = buf.split("\n", 1)
-                if not line.strip():
-                    continue
-                got = parse_row(line, variant)
-                if got is None:
-                    junk += 1
-                    continue
-                rows[got[0]] = got
-                if t_first is None:
-                    t_first = time.monotonic() - t0
+            on_chunk=_feed,
+            extra_body=_tl_extra("emotion"), task=EMOTION,
+        )
     except Exception as e:                            # noqa: BLE001 — 流断就是失败样本
-        return {"err": f"{type(e).__name__}: {str(e)[:80]}", "rows": {}, "junk": junk,
-                "first_ms": None, "total_ms": int((time.monotonic() - t0) * 1000)}
-    if buf.strip():
-        got = parse_row(buf, variant)
+        return {"err": f"{type(e).__name__}: {str(e)[:80]}", "rows": st["rows"],
+                "junk": st["junk"], "first_ms": None,
+                "total_ms": int((time.monotonic() - t0) * 1000)}
+    tail = st["buf"].strip()
+    if tail:                                          # 末尾没有换行符的那半行
+        got = parse_row(tail, variant)
         if got:
-            rows[got[0]] = got
-    return {"err": "", "rows": rows, "junk": junk,
-            "first_ms": int(t_first * 1000) if t_first is not None else None,
+            st["rows"][got[0]] = got
+        else:
+            st["junk"] += 1
+    return {"err": "", "rows": st["rows"], "junk": st["junk"],
+            "first_ms": (int(st["first"] * 1000)
+                         if st["first"] is not None else None),
             "total_ms": int((time.monotonic() - t0) * 1000)}
+
+
+def run_block(llm, system: str, user: str, n: int, variant: str) -> dict:
+    """C 的**形状** + **非流式**传输（chat + response_format=text, 整串回来再切行）。
+
+    用来把"形状"和"传输"拆开: 如果它和流式 C 一样好, 那流式只值那 ~190ms。
+    """
+    t0 = time.monotonic()
+    try:
+        text = llm.chat(
+            [{"role": "system", "content": system}, {"role": "user", "content": user}],
+            temperature=0.2, max_tokens=_tl_max_tokens("emotion"),
+            response_format="text", extra_body=_tl_extra("emotion"), task=EMOTION,
+        )
+    except Exception as e:                            # noqa: BLE001
+        return {"err": f"{type(e).__name__}: {str(e)[:80]}", "rows": {}, "junk": 0,
+                "first_ms": None, "total_ms": int((time.monotonic() - t0) * 1000)}
+    rows, junk = {}, 0
+    for line in str(text).splitlines():
+        if not line.strip():
+            continue
+        got = parse_row(line, variant)
+        if got is None:
+            junk += 1
+            continue
+        rows[got[0]] = got
+    ms = int((time.monotonic() - t0) * 1000)
+    return {"err": "", "rows": rows, "junk": junk, "first_ms": ms, "total_ms": ms}
 
 
 def score(rows: dict, n: int, lexicon: set[str]) -> dict:
@@ -294,6 +341,9 @@ def main() -> int:
             else:
                 llm = LLMClient()
                 system = build_system(vn, items, b["context"], v)
+                if v == "D":
+                    r = run_block(llm, system, user_msg(v, n), n, "C")
+                    r["junk"] = r["junk"]
                 r = run_stream(llm, system, user_msg(v, n), n, v)
                 if r["err"]:
                     agg[v]["err"] += 1
