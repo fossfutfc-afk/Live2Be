@@ -4,6 +4,9 @@
 !.vscode/settings.json
 .env
 settings.toml
+# 一次性 API 探针（明文 key 曾进过库：历史已重写, key 已轮换, 见 AGENTS.md §7）
+llm/check/
+llm/list.ps1
 *.exe
 resources/*
 __pycache__/

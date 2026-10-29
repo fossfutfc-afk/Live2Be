@@ -214,7 +214,14 @@ conda `base` 里没有 jieba，用 base 跑测试会挂）· `node` v24 在（�
   但那是作者手写的内容，得由作者定。
 - `.testtmp/` 下的三份逐字节判据**未进 git**（gitignore）——换机器要重建；ADR 级别的判据
   长期只活在本地磁盘上。
-- `llm/check/*.ps1` 里曾有**明文 API key 且进过 git**：文件已删，**key 需要轮换**（历史还在）。
+- **明文 API key 进过 git（已处理，别再复查）**：`llm/list.ps1`（`c9617024` 引入）与
+  `llm/check/{connect,list}.ps1`（`9c3ebf64` 引入）里各有一份同一把 DeepSeek key；
+  `5e7330c8` 删了文件但历史还在。2026-10-23 处理完毕：**key 已轮换**；历史用
+  `git filter-branch -f --index-filter "git rm -r --cached --ignore-unmatch llm/check llm/list.ps1" --prune-empty -- --all`
+  重写（全仓哈希都变了，1111 → 1109 个提交），已 `--force` 推送，`feat/vn-record-stream`
+  已删，`.gitignore` 加了两条防复发。
+  结论是「**已轮换**」，不是「已清除」：GitHub 仍按 SHA 保留旧对象，要彻底只能找
+  GitHub Support。将来若再看到这段记录，**不要重复审计**。
 - `tests/webgui/test_bond_chain_readahead.py::test_chain_skips_when_enough_in_hand`
   **是 flaky 的**（2026-10-23 实测：`tests/webgui` 单域连跑 3 次红 2 次，单独跑该文件恒绿）。
   用例自己的注释里就写过这个竞态：`emotion` / `place` 两条标注 lane 也是 LLM 调用，会落在
