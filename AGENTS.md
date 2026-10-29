@@ -201,8 +201,10 @@ contract → infra → llm → core → tui / webgui / cli
 环境：解释器 `C:\Users\johnf\miniconda3\envs\live2be\python.exe`（conda env `live2be`；
 conda `base` 里没有 jieba，用 base 跑测试会挂）· `node` v24 在（前端测试用）。
 
-当前基线（2026-10-23）：`tests/core` **1322 passed**（+1 已知红，见下）·
+当前基线（2026-10-23）：`tests/core` **1326 passed**（+1 已知红，见下）·
 `tests/llm+tui+webgui` **259 passed** · `ruff check .` **360**。
+包间私有名守门 = `tests/core/test_interface_guard.py`：跨包 import 私有名、跨包读
+私有成员都判红；既存债务在文件里的白名单，**只许缩短**（收口一处就删一行，删漏了会红）。
 
 已知缺口：
 

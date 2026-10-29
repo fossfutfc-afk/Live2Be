@@ -1,4 +1,5 @@
-"""`contract.digest` —— 记忆整理（digest）那七轮 LLM 输出的**契约单源**。
+"""`contract.digest` —— 记忆整理（digest）那六轮的**契约单源**
+（五轮调 LLM + 一轮零成本补边; 步序真源 = `core/digest/rounds/`）。
 
 digest 从前是"数据产出"风格: 手写 schema（LLM 可见面）与 `revise.py` 手写校验（runtime
 接受面）**两处双写**, 漂移源。现在是一份**动作注册表**: 一份文档一份 spec, 同一份 spec
@@ -12,8 +13,8 @@ digest 从前是"数据产出"风格: 手写 schema（LLM 可见面）与 `revis
 | `tables.py` | **值表** —— 相位名 / 上限 / 取值域 / 日期格式 | 只有机器; ⛔ 一句给 LLM 看的话都没有 |
 | `prompts/` | **文案**（md）—— 每个相位要说给 LLM 听的那段字 + 共用片段 | 人改; `registry` 读它 + 填槽 |
 | `docs.py` | **文档清单** —— 哪个相位有哪几份文档（名称 / 相位） | `actions(phase)` · `parse` 的键域 |
-| `parse.py` | 七个相位的**结构校验** | 引擎执行层 |
-| `registry.py` | 取哪份 md + 槽填什么 + 七个薄委托 | 调用点 |
+| `parse.py` | 六个相位的**结构校验**（`group` 已停产, 只为老档保留） | 引擎执行层 |
+| `registry.py` | 取哪份 md + 槽填什么 + 六个薄委托 | 调用点 |
 
 ⚠️ **加载顺序**: `contract.slots` → tables → docs / prompts → parse → registry, **单向**。
 所以包内子模块之间一律**直接**互导（`from contract.digest.tables import X`）——
@@ -40,7 +41,7 @@ from contract.digest.docs import (  # 文档清单（哪个相位有哪几份文
     RELATION_ACTIONS,
     DigestAction,
 )
-from contract.digest.parse import (  # 七个相位的结构校验
+from contract.digest.parse import (  # 六个相位的结构校验
     parse_attribution,
     parse_cognitions,
     parse_group,
@@ -53,7 +54,7 @@ from contract.digest.prompts import (  # 契约文案仓库（md）+ 填槽
     fragment,
     load,
 )
-from contract.digest.registry import (  # 建表 + 渲染 schema + 七个薄委托 + 单例
+from contract.digest.registry import (  # 建表 + 渲染 schema + 六个薄委托 + 单例
     DigestRegistry,
     digest_registry,
 )

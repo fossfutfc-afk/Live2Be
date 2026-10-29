@@ -3,9 +3,11 @@
 渲染 = **读 `prompts/<相位>.md` + 填槽** —— 每个相位要说给 LLM 听的那段字住在 md 里
 （人可改、可 diff）, 本模块只管"取哪份 / 槽填什么"。字段约束不再是 Python 字符串。
 
-七个 `parse_*` 是**薄委托**: 实现在 `contract.digest.parse`。
+六个 `parse_*` 是**薄委托**: 实现在 `contract.digest.parse`
+（含已停产的 `group` —— 只为老档保留, 见 `tables.PHASE_GROUP`）。
 
-引擎执行层 = `core/digest/pipeline.py`（编排）+ `core/brain/revise.py` / `groups.py`。
+引擎执行层 = `core/digest/pipeline.py`（编排）+ `core/brain/revise.py`（落图;
+退役的 `groups.py` 那一族在 `archive/digest_group/`）。
 ⭐ **轮次真源 = `core/digest/rounds/__init__.py` 的 `ROUNDS`**（key / 步序 / LLM 身份 /
 prompt / 相位 / parse / 料 / 写什么 / 跳过 / 预算一处说全）。
 """
@@ -106,7 +108,7 @@ class DigestRegistry:
     # 解析（结构校验; 引用级/图语义在引擎执行层）
     # ⚠️ **实现在 `contract.digest.parse`** —— 这里只留薄委托，让 `ROUNDS` 与测试里
     #    那几十处 `digest_registry.parse_x(...)` 的调用点不用改。
-    #    （1b-2a 时这七个委托用的是**函数内 import**，为了绕开
+    #    （1b-2a 时这六个委托用的是**函数内 import**，为了绕开
     #     `parse → 常量 → 本模块` 的环; 1b-2b 把常量搬去 `digest_tables` 之后环没了,
     #     import 已收回模块级 —— 见模块 docstring 的"加载顺序"。）
     # ------------------------------------------------------------------
